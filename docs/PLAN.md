@@ -25,7 +25,12 @@ Starting point: mainline `ps3fb` and `ps3vram` already allocate an lv1 GPU conte
 CECH-20xx (DYN-001, first Slim; from IDPS model byte 0x09, confirm with sticker), NOR flash, 4.92 CEX Cobra 8.5D,
 webMAN MOD 1.47.48 at http://10.0.0.76/. Screen visible via the Logitech BRIO pointed at the monitor (HDMI capture is blocked by HDCP in the XMB).
 
-## Phase 0: Linux on the PS3
+## Phase 0: Linux on the PS3 (DONE 2026-10-14)
+
+Debian sid ppc64 boots via `make netboot` with root on NFS; systemd healthy, SSH as tibi with ~/.ssh/id_ps3.
+Gotchas found on the way (details in git log): kexec must go through Petitboot's `reboot` path,
+kernel must be ELFv1, no gelic early debug, and a local vDSO getrandom fix for BE ELFv1.
+
 
 1. Confirm OtherOS++ supports the CECH-20xx (psdevwiki lists all fats and only some Slims). Stop if it doesn't.
 2. Dump the full NAND/NOR flash, verify it (e.g. PyPS3checker), keep copies on the dev PC. Nothing touches flash before this.
