@@ -16,4 +16,7 @@ The plan is in docs/PLAN.md, background facts in docs/RESEARCH.md, measured GPU 
 - Never leave it in a state that isn't recoverable. Back up NAND/NOR flash before anything touches flash, and verify the dump.
 - GameOS (XMB) stays the default boot OS. The boot flag may be set to OtherOS temporarily (it is the only way into Petitboot), but must be set back to GameOS at the end of every session.
 - No syscon writes, no fuse/eFuse or flash patches beyond the documented OtherOS++ install. Hardware mods only if explicitly asked.
+- Cooling: nothing controls the fan under Linux (webMAN's control loop dies with GameOS). Before
+  setting the OtherOS flag, webMAN fan control must be in SYSCON (automatic) mode, or a fixed
+  speed of at least 60%. Keep Linux sessions supervised; stop on any "PS3 Thermal Alert".
 - When unsure whether a step is reversible, stop and ask.

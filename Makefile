@@ -36,7 +36,7 @@ KERNEL_INPUTS := $(KERNEL_TARBALL) $(KERNEL_SERIES) $(wildcard kernel/patches/*/
 	$(KERNEL_FRAGMENTS) tools/build-kernel.sh $(KERNEL_VARS)
 ROOTFS_INPUTS := $(ROOTFS_PACKAGES) $(ROOTFS_CUSTOMIZE) tools/build-rootfs.sh $(SSH_PUBKEY) config.mk
 
-.PHONY: help all builder kernel rootfs checksums nfs-root nfs-modules netboot listen shell clean gpu-tools gpu-deploy ps3-reboot ps3-kexec
+.PHONY: help all builder kernel rootfs checksums nfs-root nfs-modules netboot listen shell clean gpu-tools gpu-deploy ps3-reboot
 
 help:
 	@echo "Build:"
@@ -53,7 +53,6 @@ help:
 	@echo "  make gpu-tools    cross-compile gpu/tools/*.c       -> $(BUILD)/gpu"
 	@echo "  make gpu-deploy   copy them to ~/bin on the PS3's NFS root"
 	@echo "  make ps3-reboot   reboot the running PS3 Linux (lands in GameOS/XMB, not Petitboot)"
-	@echo "  make ps3-kexec    running PS3 Linux -> freshly built kernel, no XMB trip"
 	@echo "Other:"
 	@echo "  make shell        shell in the builder container"
 	@echo "  make clean        move build outputs to $(BUILD)/old/ (never deletes)"
@@ -124,13 +123,6 @@ listen:
 PS3_SSH := ssh -i $(HOME)/.ssh/id_ps3 -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts tibi@$(PS3_IP)
 ps3-reboot:
 	-$(PS3_SSH) sudo systemctl reboot
-
-# Running PS3 Linux -> new kernel without the firmware (a reboot lands in GameOS, see ps3-reboot).
-# The kernel goes to ~/kernel on the NFS root; systemd shuts down cleanly, then kexecs.
-ps3-kexec: $(KERNEL_STAGE)/boot/vmlinux
-	install -d $(PS3_HOME)/kernel
-	install -m 644 $(KERNEL_STAGE)/boot/vmlinux-* $(PS3_HOME)/kernel/vmlinux
-	$(PS3_SSH) 'sudo kexec -l ~/kernel/vmlinux --command-line="$(KERNEL_CMDLINE)" && sudo systemctl kexec'
 
 shell: $(BUILDER_STAMP)
 	$(DOCKER_RUN) -it --user $(UID_GID) $(BUILDER_TAG) bash
