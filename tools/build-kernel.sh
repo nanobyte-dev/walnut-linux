@@ -5,7 +5,7 @@
 # Outputs: build/kernel/obj (build dir), build/kernel/stage/{boot,lib/modules}
 set -euo pipefail
 
-B=build/kernel
+B=${KERNEL_BUILD_DIR:-build/kernel}
 SRC=$B/src
 OBJ=$B/obj
 STAGE=$B/stage

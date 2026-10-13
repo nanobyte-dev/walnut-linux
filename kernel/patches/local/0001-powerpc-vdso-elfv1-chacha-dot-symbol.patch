@@ -1,0 +1,22 @@
+From: tibi <chibicitiberiu@zoho.eu>
+Subject: [PATCH] powerpc/vdso: define dot symbol for vgetrandom chacha on ELFv1
+
+On big-endian ELFv1 kernels the C vDSO getrandom calls
+.__arch_chacha20_blocks_nostack, which the assembly never defines, so the
+vDSO links the call to address 0. Userspace using vDSO getrandom (glibc
+2.41+) then dies with SIGILL executing the vDSO ELF header.
+---
+--- a/arch/powerpc/kernel/vdso/vgetrandom-chacha.S	2026-10-14 01:04:23.078764480 +0300
++++ b/arch/powerpc/kernel/vdso/vgetrandom-chacha.S	2026-10-14 01:04:23.142451602 +0300
+@@ -123,6 +123,11 @@
+  *	r16-r31: state
+  */
+ SYM_FUNC_START(__arch_chacha20_blocks_nostack)
++#if defined(__powerpc64__) && defined(CONFIG_PPC64_ELF_ABI_V1)
++	/* ELFv1: C callers branch to the dot symbol; without it the call links to 0 */
++	.globl	.__arch_chacha20_blocks_nostack
++.__arch_chacha20_blocks_nostack:
++#endif
+ #ifdef __powerpc64__
+ 	std	counter, -216(r1)
+ 

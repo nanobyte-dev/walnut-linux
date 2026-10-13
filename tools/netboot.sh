@@ -28,7 +28,9 @@ sleep 1
 run 60 FETCH_OK "wget -q -O /tmp/vmlinux http://$PC_IP:$HTTP_PORT/$(basename "$KFILE") && echo FETCH_\"\"OK"
 echo "Fetched."
 run 30 LOAD_OK "kexec -l /tmp/vmlinux --command-line=\"$KERNEL_CMDLINE\" && echo LOAD_\"\"OK"
-echo "Loaded. Executing."
-printf 'kexec -e\n' >&3
+echo "Loaded. Rebooting into it."
+# Like Petitboot's own boot path: `reboot` runs the shutdown scripts, which stop the network,
+# unload the USB host drivers (their DMA would corrupt the new kernel) and then kexec -e.
+printf 'reboot\n' >&3
 sleep 2
 echo "Watch 'make listen' and the screen."
