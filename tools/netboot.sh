@@ -6,24 +6,29 @@ set -euo pipefail
 : "${PS3_IP:?}" "${PC_IP:?}" "${HTTP_PORT:?}" "${KERNEL:?}" "${KERNEL_CMDLINE:?}"
 
 KFILE="$(readlink -f "$KERNEL")"
+TRANSCRIPT="$(mktemp)"
 echo "Kernel: $KFILE"
 echo "Args:   $KERNEL_CMDLINE"
 
-# Serve the kernel over HTTP for Petitboot's wget
 python3 -I -m http.server "$HTTP_PORT" --bind "$PC_IP" --directory "$(dirname "$KFILE")" >/dev/null 2>&1 &
 HTTP_PID=$!
-trap 'kill $HTTP_PID 2>/dev/null' EXIT
-sleep 1
+exec 3<>"/dev/tcp/$PS3_IP/23"
+cat <&3 >"$TRANSCRIPT" &
+READER_PID=$!
+trap 'kill $HTTP_PID $READER_PID 2>/dev/null; rm -f "$TRANSCRIPT"' EXIT
 
-# Drive Petitboot's shell: fetch, load, execute
-{
-	sleep 1
-	echo "wget -q -O /tmp/vmlinux http://$PC_IP:$HTTP_PORT/$(basename "$KFILE") && echo FETCHED-OK"
-	sleep 10
-	echo "kexec -l /tmp/vmlinux --command-line=\"$KERNEL_CMDLINE\" && echo LOADED-OK"
-	sleep 5
-	echo "kexec -e"
-	sleep 2
-} | timeout 30 bash -c "exec 3<>/dev/tcp/$PS3_IP/23; cat >&3 & timeout 25 cat <&3" |
-	tr -d '\r' | tr -c '[:print:]\n' '.' | grep -E "^(FETCHED|LOADED)-OK|rror|not found" || true
-echo "kexec issued. Watch 'make listen' and the screen."
+# Send a command, then wait until a marker shows up in the transcript (or time out)
+run() { # run <timeout-seconds> <marker> <command>
+	printf '%s\n' "$3" >&3
+	timeout "$1" bash -c "until grep -q '$2' '$TRANSCRIPT'; do sleep 0.5; done" ||
+		{ echo "!! timed out waiting for $2"; tr -d '\r' <"$TRANSCRIPT" | tail -15; exit 1; }
+}
+
+sleep 1
+run 60 FETCH_OK "wget -q -O /tmp/vmlinux http://$PC_IP:$HTTP_PORT/$(basename "$KFILE") && echo FETCH_\"\"OK"
+echo "Fetched."
+run 30 LOAD_OK "kexec -l /tmp/vmlinux --command-line=\"$KERNEL_CMDLINE\" && echo LOAD_\"\"OK"
+echo "Loaded. Executing."
+printf 'kexec -e\n' >&3
+sleep 2
+echo "Watch 'make listen' and the screen."
