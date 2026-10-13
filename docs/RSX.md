@@ -3,10 +3,20 @@
 What the GPU context that ps3fb allocates can do, measured with `gpu/tools/rsx-probe.c` on the
 CECH-20xx under our 6.12 kernel. Facts here are measured unless marked otherwise.
 
-## The context
+## Contexts
 
-ps3fb calls `lv1_gpu_memory_allocate` and `lv1_gpu_context_allocate(mem, 0x820)` once at boot and
-owns the only context we have. Driver info: version 0x211, GPU 0x34, core 500 MHz, memory 650 MHz.
+ps3fb calls `lv1_gpu_memory_allocate` and `lv1_gpu_context_allocate(mem, 0x820)` at boot: memory
+handle 0x5a5a5a5a, context 0x55555555 (hardware channel 0).
+
+- A second `lv1_gpu_memory_allocate` fails with -17 for every argument set tried (also ps3vram's),
+  so ps3fb's handle owns all VRAM.
+- A second context on ps3fb's memory handle works (`gpu/kmod/rsx_ctx_probe.c`): handle 0x55555554,
+  hardware channel 1, its own ctrl/driver-info/reports areas. Its FIFO runs, all seven object
+  handles below bind, M2MF copies correctly. So a DRM driver can have its own channel(s) next to
+  ps3fb, sharing VRAM.
+- IO window (`lv1_gpu_context_iomap`), per context: IO addresses below 0x10000000 (256 MB) map,
+  anything at or above fails with -17. 64 KB maps fail: the IO page size is 1 MB (flags 0x820).
+  A 16 MB map in one call works. Driver info: version 0x211, GPU 0x34, core 500 MHz, memory 650 MHz.
 
 | mmap (`/dev/ps3gpu_*`) | size | what |
 |---|---|---|
@@ -68,7 +78,14 @@ and the M2MF. (The mapping is uncached+guarded; a write-combining mapping might 
 
 ## Errors
 
-An invalid method (M2MF methods sent to the surface-2D object) raises a graph exception (cause
-0x109); ps3fb's IRQ handler dumps the PFIFO cache and sets word 1023 of the FIFO area. **The channel
-is then dead:** ps3fb's EXIT (FIFO_SETUP + reset program) times out, GET stays put, the console
-stops updating. Only a reboot recovered it. The shim needs a real recovery path or must never fault.
+A graph exception (seen: cause 0x109, M2MF methods sent to the surface-2D object; cause 0x105,
+M2MF transfer in a fresh context whose notifier DMA was never set) is reported through ps3fb's
+interrupt (also for channel 1), which dumps the PFIFO cache and sets word 1023 of the FIFO area.
+
+**It wedges the whole RSX, not one channel.** After an exception in channel 1, ps3fb's channel 0
+stops too, and a freshly allocated context's FIFO doesn't even fetch. None of these recover it:
+ps3fb's EXIT (FIFO_SETUP + reset program), context free + reallocate, FIFO_PAUSE + FIFO_RESUME
+(both return 0). Only a reboot did. Untested: freeing every context and the memory handle
+(unbinding ps3fb).
+
+So the driver must never submit a faulting command stream, or find a real reset.

@@ -13,6 +13,7 @@
  *      above its window): how big is the GPU's XDR window?
  *   3. A FIFO in our own XDR buffer: do the usual object handles exist in a fresh context?
  *   4. (fault=1) an invalid method, then recovery: FIFO pause/setup/resume, else free + reallocate.
+ *   recover_fb=1: only FIFO pause + resume on ps3fb's context (after it stalled), nothing else.
  */
 #include <linux/delay.h>
 #include <linux/gfp.h>
@@ -27,6 +28,8 @@ static ulong flags = 0x820;
 module_param(flags, ulong, 0444);
 static bool fault;
 module_param(fault, bool, 0444);
+static bool recover_fb;
+module_param(recover_fb, bool, 0444);
 
 #define P(fmt, ...) pr_info("rsxprobe: " fmt "\n", ##__VA_ARGS__)
 #define IOPTE_RW (CBE_IOPTE_PP_W | CBE_IOPTE_PP_R | CBE_IOPTE_M)
@@ -147,6 +150,7 @@ static int fifo_tests(struct ctx *c)
 	memset_io(c->vram, 0, 4096);
 	wmb();
 	begin(c);
+	out(c, 1, 0x180, 0x66604200);		/* notifier DMA, as ps3fb's reset program sets it */
 	out(c, 1, 0x184, 0xfeed0001);
 	out(c, 1, 0x188, 0xfeed0000);
 	*c->p++ = MTH(8, 1, 0x30c);
@@ -245,6 +249,15 @@ static int __init probe_init(void)
 	P("ps3fb: memory handle %#llx context %#llx ddr_lpar %#llx xdr %#lx bytes", c.mem, fb_ctx,
 	  c.ddr_lpar, fb_xdr_size);
 	P("our XDR buffer: phys %#llx lpar %#llx", (u64)page_to_phys(pg), c.xdr_lpar);
+
+	if (recover_fb) {
+		s = lv1_gpu_context_attribute(fb_ctx, L1GPU_CONTEXT_ATTRIBUTE_FIFO_PAUSE, 0, 0, 0, 0);
+		P("ps3fb ctx: FIFO_PAUSE: %d", s);
+		s = lv1_gpu_context_attribute(fb_ctx, L1GPU_CONTEXT_ATTRIBUTE_FIFO_RESUME, 0, 0, 0, 0);
+		P("ps3fb ctx: FIFO_RESUME: %d", s);
+		__free_pages(pg, XDR_ORDER);
+		return 0;
+	}
 
 	/* ps3fb's context, strictly above its own window */
 	iomap_tests("ps3fb ctx", fb_ctx, c.xdr_lpar, ALIGN(fb_xdr_size, 1 << 20));
