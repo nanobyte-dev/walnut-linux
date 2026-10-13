@@ -1,7 +1,7 @@
 #!/bin/bash
 # Boots our kernel on the PS3 from Petitboot, with root on NFS from this PC. Run via `make netboot`.
 # Requires the PS3 to be sitting in Petitboot (telnet shell on port 23).
-# Env: PS3_IP PC_IP HTTP_PORT KERNEL KERNEL_CMDLINE
+# Env: PS3_IP (Petitboot's address) PC_IP HTTP_PORT KERNEL KERNEL_CMDLINE
 set -euo pipefail
 : "${PS3_IP:?}" "${PC_IP:?}" "${HTTP_PORT:?}" "${KERNEL:?}" "${KERNEL_CMDLINE:?}"
 

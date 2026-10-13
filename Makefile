@@ -101,7 +101,7 @@ gpu-deploy: gpu-tools
 
 # --- Run ----------------------------------------------------------------------
 netboot: $(KERNEL_STAGE)/boot/vmlinux
-	PS3_IP=$(PS3_IP) PC_IP=$(PC_IP) HTTP_PORT=$(HTTP_PORT) KERNEL=$(KERNEL_STAGE)/boot/vmlinux \
+	PS3_IP=$(PETITBOOT_IP) PC_IP=$(PC_IP) HTTP_PORT=$(HTTP_PORT) KERNEL=$(KERNEL_STAGE)/boot/vmlinux \
 		KERNEL_CMDLINE="$(KERNEL_CMDLINE)" tools/netboot.sh
 
 listen:
