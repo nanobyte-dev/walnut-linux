@@ -9,7 +9,7 @@ RUN rm -f /etc/apt/sources.list.d/debian.sources && \
     echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/${SNAPSHOT} stable-security main" >> /etc/apt/sources.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-        gcc-powerpc64-linux-gnu binutils-powerpc64-linux-gnu \
+        gcc-powerpc64-linux-gnu binutils-powerpc64-linux-gnu libc6-dev-ppc64-cross \
         gcc libc6-dev make bc bison flex libssl-dev libelf-dev kmod cpio \
         python3 perl xz-utils rsync patch file ca-certificates curl \
         mmdebstrap arch-test gpg debian-ports-archive-keyring && \

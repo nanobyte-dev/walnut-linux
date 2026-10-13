@@ -38,7 +38,12 @@ kernel must be ELFv1, no gelic early debug, and a local vDSO getrandom fix for B
 4. Install a distro: Debian ppc64 (debian-ports) or Gentoo (PS3 overlay + Cell binhost). Enable SSH.
 5. Set up webMAN MOD so the dev PC can launch the "boot OtherOS" app over HTTP.
 
-## Phase 1: does OtherOS++ expose the 3D engine?
+## Phase 1: does OtherOS++ expose the 3D engine? (YES, 2026-10-14)
+
+`gpu/tools/rsx-clear` takes over ps3fb's FIFO via /dev/ps3gpu_* (patch 0030 + local/0002 mmap fix) and
+issues NV40 3D methods on subchannel 0 (object 0x31337000, bound by ps3fb's reset program): surface
+setup + CLEAR_SURFACE turned the whole 1080p screen red, no graphics exception. Linux has the 3D engine.
+
 
 Small kernel module that binds the 3D class in our lv1 GPU context and clears the screen to a colour. Check with the capture dongle and by reading the framebuffer back over SSH.
 

@@ -55,3 +55,31 @@ sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' "$R/etc/ssh/s
 
 # Root login on the local console (tty1) for recovery, no password
 chroot "$R" passwd -d root
+
+# /dev/ps3gpu_* nodes for the ps3fb GPU interface (char major is dynamic: read /proc/devices)
+cat > "$R/usr/local/sbin/ps3gpu-nodes" <<'EOS'
+#!/bin/sh
+major=$(awk '$2=="ps3fb" {print $1}' /proc/devices)
+[ -n "$major" ] || exit 0
+i=0
+for n in vram fifo ctrl driver reports; do
+	[ -e /dev/ps3gpu_$n ] || mknod -m 660 /dev/ps3gpu_$n c "$major" $i
+	chgrp video /dev/ps3gpu_$n
+	i=$((i+1))
+done
+EOS
+chmod 755 "$R/usr/local/sbin/ps3gpu-nodes"
+cat > "$R/etc/systemd/system/ps3gpu-nodes.service" <<'EOS'
+[Unit]
+Description=Create /dev/ps3gpu_* device nodes
+After=systemd-udevd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ps3gpu-nodes
+
+[Install]
+WantedBy=multi-user.target
+EOS
+chroot "$R" systemctl enable ps3gpu-nodes.service
+chroot "$R" usermod -aG video tibi

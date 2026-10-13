@@ -27,7 +27,7 @@ BUILDER_SNAPSHOT    := $(DEBIAN_SNAPSHOT)
 SOURCE_DATE_EPOCH   := 1791849600
 
 # --- Network / netboot --------------------------------------------------------
-PS3_IP              := 10.0.0.76
+PS3_IP              := 10.0.0.77
 PC_IP               := 10.0.0.45
 NFS_ROOT            := /srv/ps3root
 HTTP_PORT           := 8000

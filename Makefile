@@ -28,7 +28,7 @@ KERNEL_INPUTS := $(KERNEL_TARBALL) $(KERNEL_SERIES) $(wildcard kernel/patches/*/
 	$(KERNEL_FRAGMENTS) tools/build-kernel.sh config.mk
 ROOTFS_INPUTS := $(ROOTFS_PACKAGES) $(ROOTFS_CUSTOMIZE) tools/build-rootfs.sh $(SSH_PUBKEY) config.mk
 
-.PHONY: help all builder kernel rootfs checksums nfs-root nfs-modules netboot listen shell clean
+.PHONY: help all builder kernel rootfs checksums nfs-root nfs-modules netboot listen shell clean gpu-tools gpu-deploy ps3-reboot
 
 help:
 	@echo "Build:"
@@ -41,6 +41,10 @@ help:
 	@echo "Run:"
 	@echo "  make netboot      boot our kernel on the PS3 from Petitboot (NFS root)"
 	@echo "  make listen       print PS3 early-debug + netconsole output"
+	@echo "GPU:"
+	@echo "  make gpu-tools    cross-compile gpu/tools/*.c       -> $(BUILD)/gpu"
+	@echo "  make gpu-deploy   copy them to ~/bin on the PS3's NFS root"
+	@echo "  make ps3-reboot   reboot the running PS3 Linux (back to Petitboot)"
 	@echo "Other:"
 	@echo "  make shell        shell in the builder container"
 	@echo "  make clean        move build outputs to $(BUILD)/old/ (never deletes)"
@@ -86,6 +90,15 @@ nfs-root: $(ROOTFS_TAR) $(KERNEL_STAGE)/boot/vmlinux
 nfs-modules: $(KERNEL_STAGE)/boot/vmlinux
 	sudo rsync -a --delete --chown=root:root $(KERNEL_STAGE)/lib/modules/ $(NFS_ROOT)/lib/modules/
 
+# --- GPU tools ----------------------------------------------------------------
+GPU_HOME := $(NFS_ROOT)/home/tibi
+gpu-tools: $(BUILDER_STAMP)
+	$(DOCKER_RUN) --user $(UID_GID) $(BUILDER_TAG) make -C gpu OUT=../$(BUILD)/gpu
+
+gpu-deploy: gpu-tools
+	install -d $(GPU_HOME)/bin
+	install -m 755 $(BUILD)/gpu/* $(GPU_HOME)/bin/
+
 # --- Run ----------------------------------------------------------------------
 netboot: $(KERNEL_STAGE)/boot/vmlinux
 	PS3_IP=$(PS3_IP) PC_IP=$(PC_IP) HTTP_PORT=$(HTTP_PORT) KERNEL=$(KERNEL_STAGE)/boot/vmlinux \
@@ -93,6 +106,10 @@ netboot: $(KERNEL_STAGE)/boot/vmlinux
 
 listen:
 	tools/listen-debug.sh
+
+PS3_SSH := ssh -i $(HOME)/.ssh/id_ps3 -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts tibi@$(PS3_IP)
+ps3-reboot:
+	-$(PS3_SSH) sudo systemctl reboot
 
 shell: $(BUILDER_STAMP)
 	$(DOCKER_RUN) -it --user $(UID_GID) $(BUILDER_TAG) bash
