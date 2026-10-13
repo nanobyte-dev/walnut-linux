@@ -76,7 +76,8 @@ $(ROOTFS_TAR): $(ROOTFS_INPUTS) $(BUILDER_STAMP)
 
 checksums:
 	@cd $(BUILD) && sha256sum kernel/stage/boot/vmlinux-* rootfs/debian-ppc64.tar \
-		$$(find kernel/stage/lib/modules -name '*.ko' | sort) | tee SHA256SUMS | head -2
+		$$(find kernel/stage/lib/modules -name '*.ko' | sort) > SHA256SUMS
+	@head -2 $(BUILD)/SHA256SUMS; echo "($$(wc -l < $(BUILD)/SHA256SUMS) files in $(BUILD)/SHA256SUMS)"
 
 # --- Deploy -------------------------------------------------------------------
 nfs-root: $(ROOTFS_TAR) $(KERNEL_STAGE)/boot/vmlinux
