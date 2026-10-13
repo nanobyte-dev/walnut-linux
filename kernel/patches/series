@@ -42,3 +42,4 @@ ps3/0010-ps3stor-multiple-regions.patch
 ps3/0030-ps3fb.patch
 local/0001-powerpc-vdso-elfv1-chacha-dot-symbol.patch
 local/0002-ps3fb-fix-gpu-mmap-offsets.patch
+local/0003-ps3fb-export-gpu-handles-for-experiments.patch

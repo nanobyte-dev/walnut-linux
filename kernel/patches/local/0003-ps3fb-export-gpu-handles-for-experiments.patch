@@ -1,0 +1,21 @@
+--- a/drivers/video/fbdev/ps3fb.c
++++ b/drivers/video/fbdev/ps3fb.c
+@@ -181,6 +181,18 @@
+ 
+ static struct ps3fb_priv ps3fb;
+ 
++/* Experiments only: lets a test module use ps3fb's GPU memory and context handles. */
++void ps3fb_gpu_handles(u64 *memory_handle, u64 *context_handle, u64 *ddr_lpar,
++		       void **xdr, unsigned long *xdr_size)
++{
++	*memory_handle = ps3fb.memory_handle;
++	*context_handle = ps3fb.context_handle;
++	*ddr_lpar = ps3fb.ddr_lpar;
++	*xdr = ps3fb_videomemory.address;
++	*xdr_size = ps3fb.xdr_size;
++}
++EXPORT_SYMBOL_GPL(ps3fb_gpu_handles);
++
+ static const struct fb_videomode ps3fb_modedb[] = {
+ 	/* 60 Hz broadcast modes (modes "1" to "5") */
+ 	{

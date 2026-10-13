@@ -16,6 +16,14 @@ export KBUILD_BUILD_USER=ps3 KBUILD_BUILD_HOST=ps3-builder KBUILD_BUILD_VERSION=
 export LOCALVERSION="$KERNEL_LOCALVERSION"
 MAKE=(make -C "$SRC" O="$PWD/$OBJ" -j"$JOBS")
 
+# Previous outputs are moved aside, never deleted
+if [ -e "$STAGE" ] || [ -e "$OBJ" ]; then
+	OLD="build/old/$(date +%Y%m%d-%H%M%S)-kernel"
+	mkdir -p "$OLD"
+	for d in "$STAGE" "$OBJ"; do [ -e "$d" ] && mv "$d" "$OLD/"; done
+	echo ">> Previous kernel outputs moved to $OLD"
+fi
+
 echo ">> Unpacking linux-$KERNEL_VERSION"
 rm -rf "$SRC"
 mkdir -p "$B"
@@ -46,7 +54,6 @@ echo ">> Building"
 
 echo ">> Staging"
 KREL="$("${MAKE[@]}" -s kernelrelease)"
-rm -rf "$STAGE"
 mkdir -p "$STAGE/boot"
 "${MAKE[@]}" -s INSTALL_MOD_PATH="$PWD/$STAGE" INSTALL_MOD_STRIP=1 modules_install
 powerpc64-linux-gnu-strip -o "$STAGE/boot/vmlinux-$KREL" "$OBJ/vmlinux"

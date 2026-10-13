@@ -24,8 +24,16 @@ KERNEL_ENV := -e KERNEL_VERSION=$(KERNEL_VERSION) -e KERNEL_TARBALL=$(KERNEL_TAR
 ROOTFS_ENV := -e DEBIAN_SUITE=$(DEBIAN_SUITE) -e DEBIAN_MIRROR=$(DEBIAN_MIRROR) \
 	-e ROOTFS_PACKAGES=$(ROOTFS_PACKAGES) -e ROOTFS_CUSTOMIZE=$(ROOTFS_CUSTOMIZE) -e OWNER=$(UID_GID)
 
+# The kernel depends on the KERNEL_* settings only, not on all of config.mk: this file is rewritten
+# only when those values change, so e.g. an IP change doesn't trigger a kernel rebuild.
+KERNEL_VARS := $(BUILD)/kernel.vars
+KERNEL_VARS_NOW := $(foreach v,KERNEL_VERSION KERNEL_SHA256 KERNEL_LOCALVERSION KERNEL_DEFCONFIG \
+	KERNEL_FRAGMENTS KERNEL_SERIES SOURCE_DATE_EPOCH BUILDER_BASE,$(v)=$($(v)))
+$(shell mkdir -p $(BUILD); [ "$$(cat $(KERNEL_VARS) 2>/dev/null)" = "$(KERNEL_VARS_NOW)" ] || \
+	echo "$(KERNEL_VARS_NOW)" > $(KERNEL_VARS))
+
 KERNEL_INPUTS := $(KERNEL_TARBALL) $(KERNEL_SERIES) $(wildcard kernel/patches/*/*.patch) \
-	$(KERNEL_FRAGMENTS) tools/build-kernel.sh config.mk
+	$(KERNEL_FRAGMENTS) tools/build-kernel.sh $(KERNEL_VARS)
 ROOTFS_INPUTS := $(ROOTFS_PACKAGES) $(ROOTFS_CUSTOMIZE) tools/build-rootfs.sh $(SSH_PUBKEY) config.mk
 
 .PHONY: help all builder kernel rootfs checksums nfs-root nfs-modules netboot listen shell clean gpu-tools gpu-deploy ps3-reboot
@@ -44,7 +52,7 @@ help:
 	@echo "GPU:"
 	@echo "  make gpu-tools    cross-compile gpu/tools/*.c       -> $(BUILD)/gpu"
 	@echo "  make gpu-deploy   copy them to ~/bin on the PS3's NFS root"
-	@echo "  make ps3-reboot   reboot the running PS3 Linux (back to Petitboot)"
+	@echo "  make ps3-reboot   reboot the running PS3 Linux (lands in GameOS/XMB, not Petitboot)"
 	@echo "Other:"
 	@echo "  make shell        shell in the builder container"
 	@echo "  make clean        move build outputs to $(BUILD)/old/ (never deletes)"
@@ -92,12 +100,17 @@ nfs-modules: $(KERNEL_STAGE)/boot/vmlinux
 
 # --- GPU tools ----------------------------------------------------------------
 GPU_HOME := $(NFS_ROOT)/home/tibi
-gpu-tools: $(BUILDER_STAMP)
+# Test kernel modules build against the kernel tree in $(BUILD)/kernel/obj. Kbuild writes objects
+# next to the sources, so the sources are copied into $(BUILD)/gpu-kmod first.
+gpu-tools: $(BUILDER_STAMP) | $(KERNEL_STAGE)/boot/vmlinux
 	$(DOCKER_RUN) --user $(UID_GID) $(BUILDER_TAG) make -C gpu OUT=../$(BUILD)/gpu
+	mkdir -p $(BUILD)/gpu-kmod && cp gpu/kmod/* $(BUILD)/gpu-kmod/
+	$(DOCKER_RUN) --user $(UID_GID) $(BUILDER_TAG) make -C $(BUILD)/kernel/obj \
+		ARCH=powerpc CROSS_COMPILE=powerpc64-linux-gnu- M=/work/$(BUILD)/gpu-kmod modules
 
 gpu-deploy: gpu-tools
 	install -d $(GPU_HOME)/bin
-	install -m 755 $(BUILD)/gpu/* $(GPU_HOME)/bin/
+	install -m 755 $(BUILD)/gpu/* $(BUILD)/gpu-kmod/*.ko $(GPU_HOME)/bin/
 
 # --- Run ----------------------------------------------------------------------
 netboot: $(KERNEL_STAGE)/boot/vmlinux
