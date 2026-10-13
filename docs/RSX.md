@@ -85,7 +85,9 @@ interrupt (also for channel 1), which dumps the PFIFO cache and sets word 1023 o
 **It wedges the whole RSX, not one channel.** After an exception in channel 1, ps3fb's channel 0
 stops too, and a freshly allocated context's FIFO doesn't even fetch. None of these recover it:
 ps3fb's EXIT (FIFO_SETUP + reset program), context free + reallocate, FIFO_PAUSE + FIFO_RESUME
-(both return 0). Only a reboot did. Untested: freeing every context and the memory handle
-(unbinding ps3fb).
+(both return 0), and freeing every context *and* the memory handle (unbinding ps3fb, which works
+without crashing) then rebinding: the fresh memory handle and context allocate fine, but the first
+FIFO run still times out. Only a console reboot recovered it (untested: whether an LPAR-only reboot
+through Petitboot is enough).
 
 So the driver must never submit a faulting command stream, or find a real reset.
