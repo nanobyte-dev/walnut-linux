@@ -1,0 +1,65 @@
+# Plan: nouveau on the PS3 RSX
+
+Goal: run the existing nouveau userspace (libdrm_nouveau + Mesa's nv30 driver) on the PS3's RSX, writing as little new code as possible. Optimisation and bug-fixing come later.
+
+Hard constraints are in CLAUDE.md (no permanent changes beyond installing Linux, GameOS stays the default boot OS).
+
+## Deliverable
+
+`make iso` produces a bootable image that can be dd-ed to a flash drive and booted from Petitboot.
+Development and testing use netboot (Petitboot -> kexec our kernel, root on NFS from the dev PC).
+Kernel and rootfs are shared between both; only the final packaging differs.
+Open for later: boot files must be readable by Petitboot's 2.6.30 kernel (ISO9660/ext2/FAT);
+raw ISO vs partitioned/hybrid image; live (read-only) vs writable root.
+
+## Approach
+
+Nouveau's kernel driver can't run as-is. It expects a PCI card it initialises itself, while on the PS3 the hypervisor (lv1) owns the RSX and hands Linux a GPU context through hypercalls.
+
+So: a thin PS3 DRM driver on top of the lv1 GPU calls that exposes nouveau's ioctl interface (channel alloc, buffer alloc in VRAM/XDR, pushbuf submit, fences). Mesa nv30 then runs on top with minimal changes.
+
+Starting point: mainline `ps3fb` and `ps3vram` already allocate an lv1 GPU context and submit FIFO commands to the RSX.
+
+## The console
+
+CECH-20xx (DYN-001, first Slim; from IDPS model byte 0x09, confirm with sticker), NOR flash, 4.92 CEX Cobra 8.5D,
+webMAN MOD 1.47.48 at http://10.0.0.76/. Screen visible via the Logitech BRIO pointed at the monitor (HDMI capture is blocked by HDCP in the XMB).
+
+## Phase 0: Linux on the PS3
+
+1. Confirm OtherOS++ supports the CECH-20xx (psdevwiki lists all fats and only some Slims). Stop if it doesn't.
+2. Dump the full NAND/NOR flash, verify it (e.g. PyPS3checker), keep copies on the dev PC. Nothing touches flash before this.
+3. Install OtherOS++ and Petitboot following psdevwiki for this exact model. Set up the HDD region for Linux.
+4. Install a distro: Debian ppc64 (debian-ports) or Gentoo (PS3 overlay + Cell binhost). Enable SSH.
+5. Set up webMAN MOD so the dev PC can launch the "boot OtherOS" app over HTTP.
+
+## Phase 1: does OtherOS++ expose the 3D engine?
+
+Small kernel module that binds the 3D class in our lv1 GPU context and clears the screen to a colour. Check with the capture dongle and by reading the framebuffer back over SSH.
+
+- Works: Phase 2 is engineering.
+- Fails: work out what the hypervisor blocks before going further.
+
+## Phase 2: nouveau-compatible shim
+
+Implement the nouveau ioctls on lv1, build libdrm + Mesa for ppc64 BE, then aim for `glxinfo -B` and `glxgears`.
+
+## Test loop
+
+- Boot to Linux, unattended: power on, PS3 boots to the XMB, webMAN HTTP call launches OtherOS, Petitboot auto-boots, SSH in. Back to XMB with `ps3-boot-game-os`.
+- Module changes: build on the dev PC, copy, `rmmod`/`insmod`.
+- Kernel changes: `kexec` from the running Linux. A wedged GPU may still need a power cycle.
+- Logs: `CONFIG_PPC_EARLY_DEBUG_PS3GELIC` for early boot (UDP broadcast, port in `arch/powerpc/platforms/ps3/gelic_udbg.c`), netconsole after that.
+- Screen: BRIO webcam pointed at the monitor, frames grabbed with ffmpeg. The Cam Link gets no frames from the XMB (HDCP); retry it under Linux.
+
+## Build setup
+
+- Kernel: Fedora cross compiler `gcc-powerpc64-linux-gnu`.
+- Userland (libdrm, Mesa, test programs): ppc64 BE root on the dev PC run through `qemu-user-static`. It can double as the PS3's NFS root to spare its 256 MB RAM.
+
+## Open questions
+
+- Does the PS3 Petitboot build support network boot?
+- Does HDMI capture work under Linux, or does HDCP blank it?
+- Does Remote Start (Remote Play settings) respond to a Wake-on-LAN packet? Would solve remote power-on.
+- Exactly how much RSX access OtherOS++ gives (psdevwiki lv1 / OtherOS++ pages, René Rebe's driver work).

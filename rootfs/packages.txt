@@ -1,0 +1,17 @@
+# Debian packages installed into the PS3 root filesystem (one per line, comments allowed).
+systemd-sysv
+udev
+kmod
+dbus
+openssh-server
+sudo
+iproute2
+iputils-ping
+netbase
+ca-certificates
+procps
+less
+nano
+psmisc
+file
+kexec-tools

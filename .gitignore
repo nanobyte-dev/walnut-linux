@@ -1,0 +1,7 @@
+# Generated
+/build/
+/logs/
+# Downloaded binaries (Petitboot image we installed; see README for source + hash)
+/firmware/
+# PRIVATE: NOR flash dump contains console-unique keys and IDs. Never commit or upload.
+/backups/
