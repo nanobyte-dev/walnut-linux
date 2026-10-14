@@ -52,6 +52,8 @@ gvfs-backends
 libglib2.0-bin
 # Network (NetworkManager never touches eth0, the NFS root: customize.sh), sound, Bluetooth
 network-manager
+# Wi-Fi for NetworkManager (only a Recommends of network-manager; the image installs none)
+wpasupplicant
 network-manager-applet
 alsa-utils
 pnmixer
