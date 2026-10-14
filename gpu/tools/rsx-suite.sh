@@ -8,6 +8,7 @@ what=${1:-all}
 exec > >(tee -a "$L") 2>&1
 echo "=== $(date +%T) rsx-suite $what"
 sudo dmesg -n 7
+sudo modprobe drm_kms_helper || exit 1
 lsmod | grep -q ps3rsx || sudo insmod $B/ps3rsx.ko || exit 1
 
 run() { echo "--- $*"; timeout 300 "$@"; local rc=$?; [ $rc = 0 ] || { echo "!!! FAILED ($rc): $*"; sudo dmesg | tail -20; exit 1; }; }
@@ -20,7 +21,12 @@ if [ "$what" = mesa ] || [ "$what" = all ]; then
 	for t in egl-clear egl-tri egl-tex egl-gears; do
 		echo "--- $t (softpipe reference)"
 		LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=softpipe timeout 600 $t /tmp/$t-ref.ppm | grep -E "RENDERER|checksum|PASS|FAIL"
-		run $t /tmp/$t-nv.ppm
+		echo "--- $t (RSX)"
+		out=$(timeout 600 $t /tmp/$t-nv.ppm 2>&1); rc=$?
+		echo "$out" | grep -vE "^MESA-EGL"
+		# Mesa silently falls back to softpipe when the nouveau screen fails: that's a failure
+		echo "$out" | grep -q "RENDERER: .*NV" || { echo "!!! not on the RSX"; exit 1; }
+		[ $rc = 0 ] || { echo "!!! FAILED ($rc): $t"; sudo dmesg | tail -20; exit 1; }
 		cmp -s /tmp/$t-ref.ppm /tmp/$t-nv.ppm && echo "    identical to softpipe" || echo "    differs from softpipe (compare /tmp/$t-*.ppm)"
 	done
 fi

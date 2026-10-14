@@ -1,3 +1,5 @@
 # Mesa patches, applied in order to the release tarball (patch -p1)
 0001-nouveau-nv30-ps3-rsx.patch
 0002-nouveau-nv30-ps3-no-vertex-type-0.patch
+0003-nouveau-nv30-ps3-blit-into-gart.patch
+0004-nouveau-nv30-swap-blit-fragprog-on-big-endian.patch

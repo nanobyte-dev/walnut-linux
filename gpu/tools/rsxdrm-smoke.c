@@ -11,6 +11,7 @@
  *   rsxdrm-smoke twochan two channels (two fds): A sets its surface once, B sets another and
  *                        clears, A clears again: with the kernel's context switch A's clear
  *                        must land in A's surface (docs/RSX.md E5)
+ *   rsxdrm-smoke peek OFF [N]  copy N (default 64) words of VRAM at OFF to GART with M2MF, print
  *   rsxdrm-smoke quirks  what Mesa does that libgcm doesn't: M2MF NOP on the M2MF subchannel,
  *                        RT_ENABLE 0x12 (both fine), vertex format type 0 (WEDGES the RSX: the
  *                        validator now rejects it, so this expects -EINVAL)
@@ -404,6 +405,22 @@ static int t_twochan(void)
 	return rc || ba[0] != 0xff0000cc || bb[0] != 0xff00bb00;
 }
 
+static int t_peek(uint32_t off, uint32_t n)
+{
+	setup();
+	struct drm_nouveau_gem_info back = newbo(NOUVEAU_GEM_DOMAIN_GART, 65536);
+	uint32_t *b = map(&back);
+	memset(b, 0xee, 4096);
+	bind_m2mf();
+	m2mf(getenv("GART") ? 0xfeed0001 : 0xfeed0000, off, 0xfeed0001, back.offset, 4096);
+	struct drm_nouveau_gem_info *x[] = { &back };
+	int rc = submit(x, 1);
+	for (uint32_t i = 0; i < n && i < 1024; i++)
+		printf("%s%08x", i % 8 ? " " : (i ? "\n  " : "  "), b[i]);
+	printf("\n");
+	return rc != 0;
+}
+
 static int t_quirks(void)
 {
 	setup();
@@ -449,6 +466,8 @@ int main(int argc, char **argv)
 		fail = t_reject();
 	else if (!strcmp(argv[1], "tri"))
 		fail = t_tri();
+	else if (!strcmp(argv[1], "peek") && argc > 2)
+		fail = t_peek(strtoul(argv[2], NULL, 0), argc > 3 ? strtoul(argv[3], NULL, 0) : 64);
 	else if (!strcmp(argv[1], "twochan"))
 		fail = t_twochan();
 	else if (!strcmp(argv[1], "quirks"))

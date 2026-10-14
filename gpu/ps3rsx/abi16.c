@@ -108,10 +108,24 @@ static int nvif_new(struct ps3rsx_file *pf, struct nvif_ioctl_v0 *ioctl, u32 arg
 		return 0;
 	}
 
-	/* Engine objects on a channel (route 0xff, token = channel): no channels yet */
-	pr_debug("ps3rsx: engine object %#x class %#x on channel %llu: no channels yet\n",
-		 args->handle, args->oclass, ioctl->token);
-	return -ENODEV;
+	/* Engine objects on a channel (route 0xff, token = channel). They already exist in the
+	 * hypervisor; creating one only checks the handle: a PS3 object, or nv30's NULL object */
+	if (!ps3rsx_chan_find(pf, ioctl->token))
+		return -ENOENT;
+	if (!(ps3rsx_known_object(args->handle) || (args->oclass == 0x30 && args->handle == 0))) {
+		pr_debug("ps3rsx: no object %#x (class %#x)\n", args->handle, args->oclass);
+		return -ENODEV;
+	}
+	obj = kzalloc(sizeof(*obj), GFP_KERNEL);
+	if (!obj)
+		return -ENOMEM;
+	obj->type = OBJ_ENGINE;
+	obj->object = args->object;
+	obj->handle = args->handle;
+	obj->oclass = args->oclass;
+	obj->channel = ioctl->token;
+	list_add(&obj->head, &pf->objects);
+	return 0;
 }
 
 static int nvif_del(struct ps3rsx_file *pf, struct nvif_ioctl_v0 *ioctl, u32 argc)
@@ -160,8 +174,24 @@ static int nvif_mthd(struct ps3rsx_device *rsx, struct ps3rsx_file *pf,
 
 static int nvif_sclass(struct ps3rsx_file *pf, struct nvif_ioctl_v0 *ioctl, u32 argc)
 {
-	/* nv30 never asks (it picks classes by chipset); answer once channels exist */
-	return -ENODEV;
+	static const s32 classes[] = { 0x4097, 0x0039, 0x3062, 0x309e, 0x308a, 0x3089, 0x0030 };
+	struct nvif_ioctl_sclass_v0 *args = (void *)ioctl->data;
+	int i;
+
+	if (!ioctl->route || argc < sizeof(*args))
+		return -EINVAL;
+	argc -= sizeof(*args);
+	if (argc != args->count * sizeof(args->oclass[0]))
+		return -EINVAL;
+	if (!ps3rsx_chan_find(pf, ioctl->token))
+		return -ENOENT;
+	for (i = 0; i < min_t(int, args->count, ARRAY_SIZE(classes)); i++) {
+		args->oclass[i].oclass = classes[i];
+		args->oclass[i].minver = -1;
+		args->oclass[i].maxver = -1;
+	}
+	args->count = ARRAY_SIZE(classes);
+	return 0;
 }
 
 /* DRM_NOUVEAU_NVIF: variable-size argument, so it bypasses drm_ioctl (as in nouveau) */

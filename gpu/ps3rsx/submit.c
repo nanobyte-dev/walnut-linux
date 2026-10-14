@@ -18,6 +18,10 @@ static bool ctxsw = true;
 module_param(ctxsw, bool, 0644);
 MODULE_PARM_DESC(ctxsw, "Restore a channel's GPU state when switching between channels");
 
+static bool trace;
+module_param(trace, bool, 0644);
+MODULE_PARM_DESC(trace, "Dump every submitted push to the kernel log");
+
 static bool dry_run;
 module_param_named(dry_run, dry_run, bool, 0644);
 MODULE_PARM_DESC(dry_run, "Validate submissions but send nothing to the GPU");
@@ -326,9 +330,9 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 				mutex_unlock(&rsx->exec_lock);
 				goto out;
 			}
-			if (rsx->trace)
+			if (trace)
 				print_hex_dump(KERN_INFO, "ps3rsx push: ", DUMP_PREFIX_OFFSET, 32, 4,
-					       dst, min_t(u64, len, 512), false);
+					       dst, min_t(u64, len, 4096), false);
 			dst += len / 4;
 		}
 	}

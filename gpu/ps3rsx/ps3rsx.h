@@ -86,7 +86,6 @@ struct ps3rsx_device {
 	u32 last_ref;
 	ktime_t last_progress;
 	bool wedged;			/* a graph exception or a stall: nothing runs until reboot */
-	bool trace;
 
 	struct mutex chan_lock;
 	DECLARE_BITMAP(chan_ids, PS3RSX_MAX_CHANNELS);
