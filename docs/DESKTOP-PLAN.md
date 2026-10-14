@@ -71,3 +71,13 @@ Bluetooth keyboard types; `free -m` after login with the desktop idle.
   wanting to save the RTC offset to flash; flash writes are compiled out, nothing was written).
 - Next: boot with the 384 MB zram and remove `~/.no-desktop` (boot straight into LXQt); test the
   DualShock 3 (USB, Bluetooth) and a Bluetooth keyboard; measure idle memory after login.
+
+## Open issues (2026-10-14, after the performance round)
+
+- Resizing an xeglgears window raised graph exception 0x106 (GPU wedged until reboot); see
+  docs/RSX.md. Reproduce with scripted resizes and a libdrm push dump, then reject the cause in
+  the validator.
+- pcmanfm-qt: "Operation not supported" (likely the Computer/Network/trash locations, which
+  need gvfs). Main menu button has no icon.
+- Hardware cursor: X uses the cursor plane but nothing shows; the 0x10d init froze the PS3
+  (probably wrong first argument: RPCS3 shows a3=1). Software cursor until tested supervised.

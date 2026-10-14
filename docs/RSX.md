@@ -104,6 +104,11 @@ A graph exception (seen: cause 0x109, M2MF methods sent to the surface-2D object
 M2MF transfer in a fresh context whose notifier DMA was never set) is reported through ps3fb's
 interrupt (also for channel 1), which dumps the PFIFO cache and sets word 1023 of the FIFO area.
 
+Cause 0x106 (2026-10-14): resizing an xeglgears window under Xorg/glamor. The PFIFO cache
+(docs/dumps/exception-0x106-resize.txt) shows colour and zeta both moving to one new VRAM
+surface, a 2-pixel-high viewport, a 1920x1080 texture on unit 0, then inline vertices. Not
+reproduced or understood yet; the validator doesn't catch it.
+
 **It wedges the whole RSX, not one channel.** After an exception in channel 1, ps3fb's channel 0
 stops too, and a freshly allocated context's FIFO doesn't even fetch. None of these recover it:
 ps3fb's EXIT (FIFO_SETUP + reset program), context free + reallocate, FIFO_PAUSE + FIFO_RESUME
