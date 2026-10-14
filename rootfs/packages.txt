@@ -26,7 +26,13 @@ x11-xserver-utils
 x11-apps
 mesa-utils
 kmscube
-# Desktop (docs/DESKTOP-PLAN.md): LXQt on openbox, Bluetooth, DualShock 3 as a pointer
+# Desktop (docs/DESKTOP-PLAN.md): IceWM + PCManFM by default (LXQt as an alternative session),
+# gvfs for trash, drives and network in the file manager, Bluetooth, DualShock 3 as a pointer
+icewm
+pcmanfm
+gvfs
+gvfs-backends
+rxvt-unicode
 lxqt-core
 breeze-icon-theme
 openbox

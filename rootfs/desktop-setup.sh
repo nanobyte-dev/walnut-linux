@@ -33,7 +33,7 @@ ExecStart=-/sbin/agetty --autologin tibi --noclear %I $TERM
 EOF
 cat > "$R/home/tibi/.bash_profile" <<'EOF'
 [ -f ~/.bashrc ] && . ~/.bashrc
-# LXQt on tty1 (docs/DESKTOP-PLAN.md). Not exec: if X fails, this shell stays usable.
+# The desktop on tty1 (docs/DESKTOP-PLAN.md). Not exec: if X fails, this shell stays usable.
 if [ "$(tty)" = /dev/tty1 ] && [ -z "${DISPLAY:-}" ] && [ ! -e ~/.no-desktop ]; then
 	startx /usr/local/bin/ps3-session -- -nolisten tcp > ~/.xsession.log 2>&1
 	echo "X exited ($?): log in ~/.xsession.log; touch ~/.no-desktop to skip the desktop"
@@ -41,22 +41,58 @@ fi
 EOF
 chroot "$R" chown 1000:1000 /home/tibi/.bash_profile
 
-# X session: a splash until LXQt's desktop window is up (loading takes a minute or more)
+# X session: IceWM with PCManFM's desktop (default; ~13 MB against LXQt's ~72 MB, which leaves
+# room for gvfs: trash, USB drives, network), or LXQt with `echo lxqt > ~/.config/ps3-desktop`.
+# A splash shows until the desktop window is up.
 cat > "$R/usr/local/bin/ps3-session" <<'EOS'
 #!/bin/sh
+desktop=$(cat ~/.config/ps3-desktop 2>/dev/null || echo icewm)
 xsetroot -solid '#14304d'
 xmessage -center -buttons '' -bg '#14304d' -fg white -bd '#14304d' \
 	-fn '-misc-fixed-bold-r-normal--18-*-*-*-*-*-iso10646-1' \
 	"   Starting the desktop on the RSX...   " &
 splash=$!
-# pcmanfm-qt's desktop window covers the screen once LXQt is ready
+# the desktop window (PCManFM's, either version) covers the screen once the desktop is ready
 (while kill -0 $splash 2>/dev/null; do
-	xwininfo -name pcmanfm-desktop0 >/dev/null 2>&1 && { sleep 2; kill $splash; }
+	xwininfo -root -tree 2>/dev/null | grep -qE 'pcmanfm-desktop0|"pcmanfm" "Pcmanfm"' &&
+		{ sleep 2; kill $splash; }
 	sleep 1
 done) &
-exec startlxqt
+case "$desktop" in
+lxqt)	exec startlxqt ;;
+*)	# gvfs needs a session bus; startlxqt starts its own
+	exec dbus-launch --exit-with-session sh -c 'pcmanfm --desktop & exec icewm-session --nobg' ;;
+esac
 EOS
 chmod 755 "$R/usr/local/bin/ps3-session"
+
+# PCManFM's desktop: Debian wallpaper; home, trash and mounted drives (USB sticks) as icons
+for d in "$R/etc/xdg/pcmanfm/default" "$R/home/tibi/.config/pcmanfm/default"; do
+	mkdir -p "$d"
+	cat > "$d/desktop-items-0.conf" <<'EOS'
+[*]
+wallpaper_mode=crop
+wallpaper_common=1
+wallpaper=/usr/share/images/desktop-base/default
+desktop_bg=#14304d
+desktop_fg=#ffffff
+desktop_shadow=#000000
+desktop_font=Sans 11
+show_wm_menu=0
+show_documents=1
+show_trash=1
+show_mounts=1
+EOS
+done
+chroot "$R" chown -R 1000:1000 /home/tibi/.config
+
+# gvfs volume monitors for iPhones (afc) and GNOME online accounts (goa) run in every session
+# for nothing on a PS3 (~1.3 MB each): moved aside so gio never starts them (survives upgrades).
+# Cameras (gphoto2), phones (mtp) and drives (udisks2) stay.
+for m in afc goa; do
+	f=/usr/share/gvfs/remote-volume-monitors/$m.monitor
+	[ -e "$R$f" ] && chroot "$R" dpkg-divert --quiet --local --rename --divert "$f.disabled" --add "$f"
+done
 
 # Any console user may start X (the legacy wrapper runs it with root rights for KMS/input)
 printf 'allowed_users=anybody\nneeds_root_rights=yes\n' > "$R/etc/X11/Xwrapper.config"

@@ -83,7 +83,14 @@ Bluetooth keyboard types; `free -m` after login with the desktop idle.
   DRM master (X) is in front or clients without X are submitting; otherwise ps3fb gets it back
   and draws the console. On a VT switch X's GL clients pause until it returns; X's own work
   while away takes the GPU only briefly. The console also comes back when X exits, and at boot.
-- pcmanfm-qt: "Operation not supported" (likely the Computer/Network/trash locations, which
-  need gvfs). Main menu button has no icon.
+- Fixed 2026-10-14: the file manager's "Operation not supported" was gvfs missing (installed
+  without recommends): GIO itself can't open computer:/// trash:/// network:/// without it.
+- Desktop switched to IceWM + PCManFM (GTK) with desktop icons; LXQt stays as an alternative
+  (`echo lxqt > ~/.config/ps3-desktop`). Measured footprints (PSS incl. swapped pages):
+  LXQt's own processes ~72 MB (+Xorg 27); IceWM 13 MB, PCManFM 30 MB (desktop + a window).
+  The saving pays for gvfs + gvfs-backends: trash, Computer, USB drives (udisks2), network
+  (helpers only while browsing), cameras and phones. iPhone (afc) and online-accounts (goa)
+  volume monitors are diverted away. Whole session ~103 MB, 80 MB available; desktop up 9 s
+  after X starts (LXQt 20-25 s).
 - Hardware cursor: X uses the cursor plane but nothing shows; the 0x10d init froze the PS3
   (probably wrong first argument: RPCS3 shows a3=1). Software cursor until tested supervised.
