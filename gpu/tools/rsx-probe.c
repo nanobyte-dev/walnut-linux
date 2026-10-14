@@ -68,6 +68,7 @@ static volatile uint8_t *vram;
 static volatile uint8_t *reports;
 static struct driver_info *dinfo;
 static uint32_t *cmd, *p;		/* ring start, write pointer */
+static int failed;			/* exit status: a test or the hand-back failed */
 
 static void *map(const char *path, size_t len)
 {
@@ -168,9 +169,10 @@ static void t_info(void)
 static void t_ref(void)
 {
 	uint32_t before = ctrl->ref;
-	if (begin()) return;
+	if (begin()) { failed = 1; return; }
 	int rc = kick("ref", 100);		/* kick ends with NV406E SET_REFERENCE */
 	printf("[ref] ref %08x -> %08x: %s\n", before, ctrl->ref, rc ? "FAIL" : "OK");
+	failed |= rc != 0;
 }
 
 /* Look for a value anywhere in the reports area */
@@ -395,7 +397,9 @@ int main(int argc, char **argv)
 		if (run)
 			tests[t].fn();
 	}
-	if (ioctl(fb, PS3GPU_IOCTL_EXIT, &arg))
+	if (ioctl(fb, PS3GPU_IOCTL_EXIT, &arg)) {
 		perror("PS3GPU_IOCTL_EXIT");
-	return 0;
+		failed = 1;
+	}
+	return failed;
 }

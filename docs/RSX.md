@@ -14,9 +14,16 @@ handle 0x5a5a5a5a, context 0x55555555 (hardware channel 0).
   hardware channel 1, its own ctrl/driver-info/reports areas. Its FIFO runs, all seven object
   handles below bind, M2MF copies correctly. So a DRM driver can have its own channel(s) next to
   ps3fb, sharing VRAM.
+- **Context limit: ps3fb's plus two more** (hw channels 1, 2); the next allocation fails with -2.
+  **Allocating up to the limit and freeing them stalled every FIFO, ps3fb's included, with no
+  graph exception** (E1, 2026-10-14). One extra context allocated and freed was fine earlier.
+  Which step breaks it (third context, the failed fourth, or the frees) is still open.
+- Our own context's IRQ outlet delivers vsync (60/s) when its driver-info irq mask is set (E7),
+  so a driver needs no hook in ps3fb for interrupts.
 - IO window (`lv1_gpu_context_iomap`), per context: IO addresses below 0x10000000 (256 MB) map,
   anything at or above fails with -17. 64 KB maps fail: the IO page size is 1 MB (flags 0x820).
-  A 16 MB map in one call works. Driver info: version 0x211, GPU 0x34, core 500 MHz, memory 650 MHz.
+  A 16 MB map in one call works. Scattered 1 MB maps anywhere in the window, unmap and remap
+  elsewhere, and mapping one chunk at two IO addresses all work (E2). Driver info: version 0x211, GPU 0x34, core 500 MHz, memory 650 MHz.
 
 | mmap (`/dev/ps3gpu_*`) | size | what |
 |---|---|---|
@@ -74,7 +81,7 @@ semaphores (FIFO), 0x66626660 reports, 0x66604200 notifier.
 | CPU read from VRAM | 10 MB/s |
 
 CPU access to VRAM is unusable for real work: uploads and readbacks must go through XDR buffers
-and the M2MF. (The mapping is uncached+guarded; a write-combining mapping might help writes, untested.)
+and the M2MF. A write-combining kernel mapping is no faster than the guarded one (69 vs 70 MB/s, E8).
 
 ## Errors
 
