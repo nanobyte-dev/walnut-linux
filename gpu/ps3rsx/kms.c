@@ -18,7 +18,6 @@
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_simple_kms_helper.h>
 #include <drm/drm_vblank.h>
-#include <linux/delay.h>
 #include <linux/moduleparam.h>
 #include <asm/ps3gpu.h>
 
@@ -29,30 +28,11 @@ static const u32 ps3rsx_formats[] = {
 	DRM_FORMAT_XRGB8888,	/* accepted for clients that insist; colours come out swapped */
 };
 
-/* driver info: head[n] (struct display_buffer in ps3fb.c) at 0x10b8 + 64 n; status at +8,
- * offset at +12 */
-static void head_state(struct ps3rsx_device *rsx, const char *when)
-{
-	void __iomem *h = rsx->dinfo + 0x10b8;
-
-	drm_dbg_kms(&rsx->drm, "%s: head0 status %08x offset %08x, head1 status %08x offset %08x\n",
-		    when, in_be32(h + 8), in_be32(h + 12), in_be32(h + 64 + 8), in_be32(h + 64 + 12));
-}
-
 static void flip(struct ps3rsx_device *rsx, u64 offset)
 {
-	int s0, s1;
+	int s0 = lv1_gpu_display_flip(rsx->ctx.handle, 0, offset);
+	int s1 = lv1_gpu_display_flip(rsx->ctx.handle, 1, offset);
 
-	head_state(rsx, "before flip");
-	/* libgcm's cellGcmResetFlipStatus: clear the "flip waiting" bit (31) of each head's flip
-	 * status (lv1 attribute 0x10a: status = (status & a4) | a5) before asking for a flip */
-	lv1_gpu_context_attribute(rsx->ctx.handle, 0x10a, 0, 0x7fffffff, 0, 0);
-	lv1_gpu_context_attribute(rsx->ctx.handle, 0x10a, 1, 0x7fffffff, 0, 0);
-	s0 = lv1_gpu_display_flip(rsx->ctx.handle, 0, offset);
-	s1 = lv1_gpu_display_flip(rsx->ctx.handle, 1, offset);
-	drm_dbg_kms(&rsx->drm, "flip to %#llx: %d %d\n", offset, s0, s1);
-	msleep(40);
-	head_state(rsx, "40 ms after");
 	if (s0 || s1)
 		drm_warn_once(&rsx->drm, "display flip to %#llx failed: %d %d\n", offset, s0, s1);
 }
@@ -94,8 +74,6 @@ static int pipe_check(struct drm_simple_display_pipe *pipe, struct drm_plane_sta
 	struct drm_framebuffer *fb = plane_state->fb;
 	struct ps3rsx_bo *bo;
 
-	/* no vblank interrupt wired up yet: the atomic helpers send flip events at once */
-	crtc_state->no_vblank = true;
 	if (!fb)
 		return 0;
 	bo = fb_bo(fb);
@@ -106,6 +84,52 @@ static int pipe_check(struct drm_simple_display_pipe *pipe, struct drm_plane_sta
 	return 0;
 }
 
+/*
+ * Flip events go out at the next tick of a timer running at the frame rate (as vkms does): the
+ * flip itself latches at the display's vsync, the timer only paces clients. lv1's vsync
+ * interrupt (E7) could replace it.
+ */
+static enum hrtimer_restart vblank_tick(struct hrtimer *t)
+{
+	struct ps3rsx_device *rsx = container_of(t, struct ps3rsx_device, vblank_timer);
+
+	/* false once vblank is off: disable_vblank's cancel can miss a running tick */
+	if (!drm_crtc_handle_vblank(&rsx->pipe.crtc))
+		return HRTIMER_NORESTART;
+	hrtimer_forward_now(t, rsx->vblank_period);
+	return HRTIMER_RESTART;
+}
+
+static int enable_vblank(struct drm_simple_display_pipe *pipe)
+{
+	struct ps3rsx_device *rsx = to_rsx(pipe->crtc.dev);
+
+	rsx->vblank_period = ns_to_ktime(drm_crtc_vblank_crtc(&pipe->crtc)->framedur_ns);
+	hrtimer_start(&rsx->vblank_timer, rsx->vblank_period, HRTIMER_MODE_REL);
+	return 0;
+}
+
+static void disable_vblank(struct drm_simple_display_pipe *pipe)
+{
+	hrtimer_try_to_cancel(&to_rsx(pipe->crtc.dev)->vblank_timer);
+}
+
+/* hand the commit's flip event to the next vblank */
+static void arm_event(struct drm_crtc *crtc)
+{
+	struct drm_pending_vblank_event *event = crtc->state->event;
+
+	if (!event)
+		return;
+	crtc->state->event = NULL;
+	spin_lock_irq(&crtc->dev->event_lock);
+	if (drm_crtc_vblank_get(crtc) == 0)
+		drm_crtc_arm_vblank_event(crtc, event);
+	else
+		drm_crtc_send_vblank_event(crtc, event);
+	spin_unlock_irq(&crtc->dev->event_lock);
+}
+
 static void pipe_update(struct drm_simple_display_pipe *pipe, struct drm_plane_state *old)
 {
 	struct ps3rsx_device *rsx = to_rsx(pipe->crtc.dev);
@@ -113,6 +137,7 @@ static void pipe_update(struct drm_simple_display_pipe *pipe, struct drm_plane_s
 
 	if (fb && pipe->crtc.state->active)
 		flip(rsx, fb_bo(fb)->offset);
+	arm_event(&pipe->crtc);
 }
 
 static void pipe_enable(struct drm_simple_display_pipe *pipe, struct drm_crtc_state *crtc_state,
@@ -122,12 +147,14 @@ static void pipe_enable(struct drm_simple_display_pipe *pipe, struct drm_crtc_st
 
 	if (plane_state->fb)
 		flip(rsx, fb_bo(plane_state->fb)->offset);
+	drm_crtc_vblank_on(&pipe->crtc);
 }
 
 static void pipe_disable(struct drm_simple_display_pipe *pipe)
 {
 	struct ps3rsx_device *rsx = to_rsx(pipe->crtc.dev);
 
+	drm_crtc_vblank_off(&pipe->crtc);
 	/* back to ps3fb's frame (it redraws the console when it gets the GPU back) */
 	flip(rsx, rsx->info.full_offset);
 }
@@ -156,6 +183,8 @@ static const struct drm_simple_display_pipe_funcs pipe_funcs = {
 	.enable = pipe_enable,
 	.disable = pipe_disable,
 	.update = pipe_update,
+	.enable_vblank = enable_vblank,
+	.disable_vblank = disable_vblank,
 };
 
 static const struct drm_mode_config_funcs mode_config_funcs = {
@@ -190,6 +219,11 @@ int ps3rsx_kms_init(struct ps3rsx_device *rsx)
 					   ARRAY_SIZE(ps3rsx_formats), NULL, &rsx->connector);
 	if (ret)
 		return ret;
+	ret = drm_vblank_init(dev, 1);
+	if (ret)
+		return ret;
+	hrtimer_init(&rsx->vblank_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	rsx->vblank_timer.function = vblank_tick;
 	drm_mode_config_reset(dev);
 	flip_test_rsx = rsx;
 	return 0;

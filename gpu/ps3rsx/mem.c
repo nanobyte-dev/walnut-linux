@@ -156,6 +156,9 @@ struct ps3rsx_bo *ps3rsx_bo_new(struct ps3rsx_device *rsx, u32 domain, size_t si
 		}
 		drm_gem_object_put(&bo->base);
 	}
+	if (ret == -ENOSPC)
+		pr_warn_ratelimited("ps3rsx: out of %s for a %zu KiB BO\n",
+				    gart ? "GART" : "VRAM", size >> 10);
 	return ERR_PTR(ret);
 }
 

@@ -146,6 +146,7 @@ static void ps3rsx_remove(struct platform_device *pdev)
 
 	drm_dev_unregister(&rsx->drm);
 	drm_atomic_helper_shutdown(&rsx->drm);	/* flips back to ps3fb's frame */
+	hrtimer_cancel(&rsx->vblank_timer);
 	ps3rsx_exec_fini(rsx);
 	ps3rsx_mem_fini(rsx);
 }

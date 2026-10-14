@@ -99,6 +99,8 @@ struct ps3rsx_device {
 	/* KMS (kms.c) */
 	struct drm_connector connector;
 	struct drm_simple_display_pipe pipe;
+	struct hrtimer vblank_timer;		/* paces flip events at the frame rate */
+	ktime_t vblank_period;
 };
 
 #define to_rsx(d) container_of(d, struct ps3rsx_device, drm)

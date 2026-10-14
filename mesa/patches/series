@@ -4,3 +4,4 @@
 0003-nouveau-nv30-ps3-blit-into-gart.patch
 0004-nouveau-nv30-swap-blit-fragprog-on-big-endian.patch
 0005-nouveau-nv30-ps3-no-z16-depth.patch
+0006-nouveau-nv30-flush-of-an-empty-context.patch
