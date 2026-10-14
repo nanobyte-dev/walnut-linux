@@ -35,11 +35,28 @@ cat > "$R/home/tibi/.bash_profile" <<'EOF'
 [ -f ~/.bashrc ] && . ~/.bashrc
 # LXQt on tty1 (docs/DESKTOP-PLAN.md). Not exec: if X fails, this shell stays usable.
 if [ "$(tty)" = /dev/tty1 ] && [ -z "${DISPLAY:-}" ] && [ ! -e ~/.no-desktop ]; then
-	startx /usr/bin/startlxqt -- -nolisten tcp > ~/.xsession.log 2>&1
+	startx /usr/local/bin/ps3-session -- -nolisten tcp > ~/.xsession.log 2>&1
 	echo "X exited ($?): log in ~/.xsession.log; touch ~/.no-desktop to skip the desktop"
 fi
 EOF
 chroot "$R" chown 1000:1000 /home/tibi/.bash_profile
+
+# X session: a splash until LXQt's desktop window is up (loading takes a minute or more)
+cat > "$R/usr/local/bin/ps3-session" <<'EOS'
+#!/bin/sh
+xsetroot -solid '#14304d'
+xmessage -center -buttons '' -bg '#14304d' -fg white -bd '#14304d' \
+	-fn '-misc-fixed-bold-r-normal--18-*-*-*-*-*-iso10646-1' \
+	"   Starting the desktop on the RSX...   " &
+splash=$!
+# pcmanfm-qt's desktop window covers the screen once LXQt is ready
+(while kill -0 $splash 2>/dev/null; do
+	xwininfo -name pcmanfm-desktop0 >/dev/null 2>&1 && { sleep 2; kill $splash; }
+	sleep 1
+done) &
+exec startlxqt
+EOS
+chmod 755 "$R/usr/local/bin/ps3-session"
 
 # Any console user may start X (the legacy wrapper runs it with root rights for KMS/input)
 printf 'allowed_users=anybody\nneeds_root_rights=yes\n' > "$R/etc/X11/Xwrapper.config"

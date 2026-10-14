@@ -42,3 +42,4 @@ xserver-xorg-input-libinput
 netsurf-gtk
 fonts-dejavu-core
 dbus-x11
+xfonts-base
