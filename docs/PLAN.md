@@ -4,6 +4,13 @@ Goal: run the existing nouveau userspace (libdrm_nouveau + Mesa's nv30 driver) o
 
 Hard constraints are in CLAUDE.md (no permanent changes beyond installing Linux, GameOS stays the default boot OS).
 
+## Long-term goal (stated 2026-10-14)
+
+A live environment for the PS3 that boots from USB or over NFS through Petitboot, with the
+RSX driver and the desktop (docs/DESKTOP-PLAN.md) working out of the box, plus an optional
+installer that installs it permanently (to the OtherOS++ Linux region of the HDD, within the
+safety rules in CLAUDE.md). The NFS netboot used for development is the first form of it.
+
 ## Deliverable
 
 `make iso` produces a bootable image that can be dd-ed to a flash drive and booted from Petitboot.
