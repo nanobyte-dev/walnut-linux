@@ -15,6 +15,7 @@ nano
 psmisc
 file
 kexec-tools
+adduser
 libdrm-tests
 systemd-timesyncd
 debian-ports-archive-keyring
@@ -33,6 +34,7 @@ jgmenu
 obconf
 lxappearance
 pcmanfm
+desktop-base
 greybird-gtk-theme
 papirus-icon-theme
 dunst
@@ -47,6 +49,7 @@ locales
 # Files: trash, drives (udisks2), network
 gvfs
 gvfs-backends
+libglib2.0-bin
 # Network (NetworkManager never touches eth0, the NFS root: customize.sh), sound, Bluetooth
 network-manager
 network-manager-applet
@@ -61,3 +64,9 @@ xserver-xorg-input-libinput
 python3
 gdb
 strace
+linux-perf
+# ClassiCube (games/classicube): SDL3 (window, DualShock 3), OpenAL (sound; dlopen'd), libssl
+# (system certificates for its HTTPS downloads; dlopen'd)
+libsdl3-0
+libopenal1
+libssl3t64

@@ -134,6 +134,10 @@ mkdir -p "$R/etc/NetworkManager/conf.d"
 printf '%s\n' '[keyfile]' 'unmanaged-devices=interface-name:eth0' '[main]' 'dns=none' \
 	'rc-manager=unmanaged' > "$R/etc/NetworkManager/conf.d/00-ps3-nfs-root.conf"
 
+# DNS from the kernel's DHCP (ip=dhcp writes the nameservers to /proc/net/pnp), not the build
+# container's resolv.conf; NetworkManager is told to leave it alone (above)
+ln -sf /proc/net/pnp "$R/etc/resolv.conf"
+
 # A real locale (only C existed: Qt complained, Enlightenment's language list was empty)
 echo "en_US.UTF-8 UTF-8" > "$R/etc/locale.gen"
 chroot "$R" locale-gen

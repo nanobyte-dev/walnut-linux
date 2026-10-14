@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=ClassiCube
+Comment=Block building game (Minecraft Classic)
+Exec=/home/tibi/classicube/classicube.sh
+Icon=applications-games
+Categories=Game;

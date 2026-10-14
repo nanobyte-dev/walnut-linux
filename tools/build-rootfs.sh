@@ -15,6 +15,7 @@ export PUBKEY_FILE="$PWD/$OUT/authorized_keys"
 mmdebstrap --mode=root --format=tar --arch=ppc64 --variant=minbase \
 	--keyring=/usr/share/keyrings/debian-ports-archive-keyring.gpg \
 	--aptopt='Acquire::Check-Valid-Until "false"' \
+	--aptopt='APT::Install-Recommends "false"' \
 	--include="$PACKAGES" \
 	--customize-hook="bash $PWD/$ROOTFS_CUSTOMIZE \"\$1\"" \
 	"$DEBIAN_SUITE" "$OUT/debian-ppc64.tar.tmp" "$DEBIAN_MIRROR"
