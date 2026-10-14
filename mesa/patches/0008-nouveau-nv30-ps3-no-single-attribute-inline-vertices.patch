@@ -1,0 +1,32 @@
+--- a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+@@ -262,7 +262,7 @@
+     struct translate_key transkey;
+     unsigned i;
+ 
+-    so = CALLOC(1, sizeof(*so) + sizeof(*so->element) * num_elements);
++    so = CALLOC(1, sizeof(*so) + sizeof(*so->element) * MAX2(num_elements, 2));
+     if (!so)
+         return NULL;
+     memcpy(so->pipe, elements, sizeof(*elements) * num_elements);
+@@ -314,6 +314,20 @@
+         so->strides[vbi] = ve->src_stride;
+     }
+ 
++    /* The RSX draws nothing from inline vertex data with a single attribute (glamor's
++     * fills, any position-only draw): push the attribute twice, as attributes 0 and 1. The
++     * vertex program doesn't read attribute 1. */
++    if (nv30_screen(pipe->screen)->base.is_ps3 && num_elements == 1) {
++        unsigned j = transkey.nr_elements++;
++
++        so->pipe[1] = so->pipe[0];
++        so->element[1] = so->element[0];
++        transkey.element[j] = transkey.element[0];
++        transkey.element[j].output_offset = transkey.output_stride;
++        transkey.output_stride += transkey.output_stride;
++        so->num_elements = 2;
++    }
++
+     so->translate = translate_create(&transkey);
+     so->vtx_size = transkey.output_stride / 4;
+     so->vtx_per_packet_max = NV04_PFIFO_MAX_PACKET_LEN / MAX2(so->vtx_size, 1);
