@@ -6,7 +6,10 @@
  *   rsxdrm-smoke m2mf    copy GART -> VRAM -> GART with the M2MF engine, compare
  *   rsxdrm-smoke clear   3D clear of a VRAM BO, read back with M2MF
  *   rsxdrm-smoke fence   10k back-end semaphore releases, label checked after each SYNC submit
- *   rsxdrm-smoke reject  pushes the validator must refuse (JMP, unknown object, unknown DMA)
+ *   rsxdrm-smoke reject  pushes the validator must refuse (JMP, unknown object/DMA/method, host)
+ *   rsxdrm-smoke tri     a magenta triangle into a 64x64 VRAM target, read back (center, corner)
+ *   rsxdrm-smoke quirks  what Mesa does that libgcm doesn't: M2MF NOP on the M2MF subchannel,
+ *                        RT_ENABLE 0x12, vertex format type 0 (may wedge: run last)
  */
 #include <fcntl.h>
 #include <stdio.h>
@@ -255,6 +258,106 @@ static int t_reject(void)
 	*p++ = MTH(4, 0, 0x100); *p++ = 0;	/* burst longer than the push */
 	rc = submit(NULL, 0);
 	printf("  truncated burst: %s\n", rc == -EINVAL ? "rejected" : "NOT rejected"); fail |= rc != -EINVAL;
+	OUT(0, 0, 0x31337000);
+	OUT(0, 0x1ffc, 0);			/* not in the 3D allowlist */
+	rc = submit(NULL, 0);
+	printf("  3D method 0x1ffc: %s\n", rc == -EINVAL ? "rejected" : "NOT rejected"); fail |= rc != -EINVAL;
+	OUT(0, 0x68, 0);			/* FIFO semaphore acquire */
+	rc = submit(NULL, 0);
+	printf("  semaphore acquire: %s\n", rc == -EINVAL ? "rejected" : "NOT rejected"); fail |= rc != -EINVAL;
+	return fail;
+}
+
+/* Render target: a VRAM BO, w x h, A8R8G8B8 linear */
+static void surface(uint32_t off, uint32_t w, uint32_t h)
+{
+	OUT(0, 0x194, 0xfeed0000);
+	OUT(0, 0x200, w << 16); OUT(0, 0x204, h << 16);
+	OUT(0, 0x208, 0x148); OUT(0, 0x20c, w * 4); OUT(0, 0x210, off);
+	OUT(0, 0x220, 1); OUT(0, 0x2b8, 0);
+	OUT(0, 0x8c0, w << 16); OUT(0, 0x8c4, h << 16);
+	OUT(0, 0x324, 0x01010101);
+}
+
+static void words(const uint32_t *w, size_t n) { memcpy(p, w, n * 4); p += n; }
+#define WORDS(...) do { static const uint32_t w_[] = { __VA_ARGS__ }; words(w_, sizeof(w_) / 4); } while (0)
+
+/* docs/RSX-PROGRAMS.md A.1, scaled to a 64x64 target: state, viewport, VP, FP_CONST, triangle */
+static int t_tri(void)
+{
+	setup();
+	const uint32_t w = 64, h = 64;
+	struct drm_nouveau_gem_info rt = newbo(NOUVEAU_GEM_DOMAIN_VRAM, w * h * 4);
+	struct drm_nouveau_gem_info fp = newbo(NOUVEAU_GEM_DOMAIN_VRAM, 4096);
+	struct drm_nouveau_gem_info back = newbo(NOUVEAU_GEM_DOMAIN_GART, w * h * 4);
+	static const uint32_t fp_const[] = {	/* MOV R0, {1,0,1,1}, memory (halfword-swapped) form */
+		0x1e010100, 0xc8021c9d, 0xc8000001, 0xc8000001,
+		0x00003f80, 0x00000000, 0x00003f80, 0x00003f80,
+		0x00010001, 0x00000000, 0x00000000, 0x00000000,
+	};
+	volatile uint32_t *f = map(&fp);
+	for (int i = 0; i < 12; i++)
+		f[i] = fp_const[i];
+	uint32_t *b = map(&back);
+	memset(b, 0, w * h * 4);
+
+	OUT(0, 0, 0x31337000);
+	surface(rt.offset, w, h);
+	OUT(0, 0x1d90, 0xff000000);
+	OUT(0, 0x1d94, 0xf0);
+	WORDS(0x00040a74, 0, 0x00040310, 0, 0x0004183c, 0, 0x00040304, 0, 0x00040348, 0,
+	      0x00040374, 0, 0x00040368, 0x00001d01, 0x00081828, 0x00001b02, 0x00001b02,
+	      0x00041d88, 0x00001040,		/* SHADER_WINDOW: (1<<12) | 64 */
+	      0x00080a00, 0x00400000, 0x00400000,	/* viewport 64x64 */
+	      0x00080394, 0x00000000, 0x3f800000,
+	      0x00200a20, 0x42000000, 0x42000000, 0x3f000000, 0, 0x42000000, 0xc2000000, 0x3f000000, 0,
+	      0x00081e9c, 0, 0,
+	      0x00200b80, 0x401f9c6c, 0x0040000d, 0x8106c083, 0x6041ff80,
+	                  0x401f9c6c, 0x0040030d, 0x8106c083, 0x6041ff85,
+	      0x00041ff0, 0x00000009, 0x00041ff4, 0x00000025, 0x00041ef8, 0x0020ffff);
+	OUT(0, 0x8e4, (uint32_t)fp.offset | 1);
+	OUT(0, 0x1d60, 0x02000440);
+	WORDS(0x00041808, 0x00000005,
+	      0x00101c30, 0x3f800000, 0, 0, 0x3f800000, 0x00101c00, 0, 0x3f000000, 0, 0x3f800000,
+	      0x00101c30, 0, 0x3f800000, 0, 0x3f800000, 0x00101c00, 0xbf000000, 0xbf000000, 0, 0x3f800000,
+	      0x00101c30, 0, 0, 0x3f800000, 0x3f800000, 0x00101c00, 0x3f000000, 0xbf000000, 0, 0x3f800000,
+	      0x00041808, 0x00000000);
+	bind_m2mf();
+	m2mf(0xfeed0000, rt.offset, 0xfeed0001, back.offset, w * h * 4);
+	struct drm_nouveau_gem_info *x[] = { &rt, &fp, &back };
+	int rc = submit(x, 3);
+	uint32_t center = b[(h / 2) * w + w / 2], corner = b[0];
+	int lit = 0;
+	for (uint32_t i = 0; i < w * h; i++)
+		lit += b[i] == 0xffff00ff;
+	printf("  triangle: %s, center %08x (want ffff00ff), corner %08x (want ff000000), %d magenta pixels\n",
+	       rc ? strerror(-rc) : "submitted", center, corner, lit);
+	for (uint32_t y = 0; y < h; y += 8) {
+		printf("    ");
+		for (uint32_t x2 = 0; x2 < w; x2 += 2)
+			putchar(b[y * w + x2] == 0xffff00ff ? '#' : '.');
+		putchar('\n');
+	}
+	return rc || center != 0xffff00ff || corner != 0xff000000;
+}
+
+static int t_quirks(void)
+{
+	setup();
+	int rc, fail = 0;
+	bind_m2mf();
+	OUT(1, 0x100, 0);			/* NOP on the M2MF subchannel (nv30_transfer.c) */
+	rc = submit(NULL, 0);
+	printf("  M2MF NOP: %s\n", rc ? strerror(-rc) : "ok"); fail |= rc != 0;
+	OUT(0, 0, 0x31337000);
+	OUT(0, 0x220, 0x12);			/* RT_ENABLE outside libgcm's set */
+	OUT(0, 0x220, 1);
+	rc = submit(NULL, 0);
+	printf("  RT_ENABLE 0x12: %s\n", rc ? strerror(-rc) : "ok"); fail |= rc != 0;
+	OUT(0, 0x1740, 0x00000000);		/* vertex format type 0, size 0 (array off) */
+	OUT(0, 0x1740, 0x00000002);
+	rc = submit(NULL, 0);
+	printf("  vertex format type 0: %s\n", rc ? strerror(-rc) : "ok"); fail |= rc != 0;
 	return fail;
 }
 
@@ -262,7 +365,7 @@ int main(int argc, char **argv)
 {
 	setvbuf(stdout, NULL, _IOLBF, 0);
 	if (argc < 2) {
-		fprintf(stderr, "usage: %s bo|nop|m2mf|clear|fence|reject\n", argv[0]);
+		fprintf(stderr, "usage: %s bo|nop|m2mf|clear|fence|reject|tri|quirks\n", argv[0]);
 		return 2;
 	}
 	fd = open("/dev/dri/renderD128", O_RDWR);
@@ -280,6 +383,10 @@ int main(int argc, char **argv)
 		fail = t_fence();
 	else if (!strcmp(argv[1], "reject"))
 		fail = t_reject();
+	else if (!strcmp(argv[1], "tri"))
+		fail = t_tri();
+	else if (!strcmp(argv[1], "quirks"))
+		fail = t_quirks();
 	else {
 		fprintf(stderr, "unknown subtest %s\n", argv[1]);
 		return 2;

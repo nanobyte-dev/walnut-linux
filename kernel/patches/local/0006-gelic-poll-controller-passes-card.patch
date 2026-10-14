@@ -1,0 +1,13 @@
+diff -ru a/drivers/net/ethernet/toshiba/ps3_gelic_net.c b/drivers/net/ethernet/toshiba/ps3_gelic_net.c
+--- a/drivers/net/ethernet/toshiba/ps3_gelic_net.c
++++ b/drivers/net/ethernet/toshiba/ps3_gelic_net.c
+@@ -1169,7 +1169,8 @@
+ 	struct gelic_card *card = netdev_card(netdev);
+ 
+ 	gelic_card_set_irq_mask(card, 0);
+-	gelic_card_interrupt(netdev->irq, netdev);
++	/* the handler's cookie is the card (see request_irq), not the net_device */
++	gelic_card_interrupt(netdev->irq, card);
+ 	gelic_card_set_irq_mask(card, card->irq_mask);
+ }
+ #endif /* CONFIG_NET_POLL_CONTROLLER */

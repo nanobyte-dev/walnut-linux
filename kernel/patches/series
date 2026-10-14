@@ -45,3 +45,4 @@ local/0002-ps3fb-fix-gpu-mmap-offsets.patch
 local/0003-ps3fb-export-gpu-handles-for-experiments.patch
 local/0004-ps3-reserve-rsx-gart-memory.patch
 local/0005-ps3fb-gpu-sharing-api.patch
+local/0006-gelic-poll-controller-passes-card.patch
