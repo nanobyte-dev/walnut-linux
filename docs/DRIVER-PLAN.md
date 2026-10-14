@@ -435,7 +435,7 @@ The load pointers are restored afterwards.
 |---|---|
 | 1 | Kernel boots, the existing tools still draw, the GART region and second context come from the kernel, and takeover/release leaves the console intact. |
 | 2 | `rsxdrm-smoke` passes every subtest (including 10k fences and 20 reloads) with no wedge, and a triangle drawn through the driver shows on screen. |
-| 3 | Offscreen gears matches softpipe. |
+| 3 | Offscreen gears matches softpipe: no channel differs by more than 1 (the RSX interpolates colours slightly differently; agreed 2026-10-14). |
 | 4 | Two interleaved GL processes render correctly. |
 | 5 | `kmscube` runs (webcam). |
 | 6 | glxgears runs in Xorg on the RSX (`glxinfo -B`, `xwd`, webcam). |
