@@ -1,282 +1,436 @@
-# Plan: Mesa nv30 on the PS3 RSX, up to glxgears in Xorg
+# Plan: Mesa nv30 on the PS3 RSX, up to glxgears in Xorg (revised after Phase 0)
 
 ## Context
 
-Phases 0–1 are done: our Debian kernel boots over NFS and the RSX 3D engine works from Linux.
-Today's probing (docs/RSX.md) established:
-- A second lv1 GPU context works on ps3fb's memory handle (hardware channel 1). A second VRAM
-  allocation does not.
-- The IO window is 256 MB, mapped in 1 MB pages.
-- The object handles are fixed by the hypervisor.
-- The CPU reaches VRAM very slowly.
-- **Any graph exception wedges the whole GPU until a console reboot.**
+Goal: a DRM driver `ps3rsx` that registers as "nouveau", plus a small Mesa patch, so that
+stock Mesa nv30 renders on the RSX: offscreen first, then KMS, then glxgears in Xorg. Getting it
+working comes first; pushing the hardware limits comes later (last section).
 
-Research showed that Mesa (nv30 is still in main) now talks to the kernel only through nouveau's
-ABI16 and NVIF ioctls, about 10 of them, and picks its own object handles.
+Phase 0 (hardware derisking, 2026-10-14) is done; results are in docs/RSX.md. What changed the
+design:
 
-User decisions:
-- The handle translation goes into a small Mesa patch.
-- This plan goes all the way to glxgears in Xorg.
+- **3D state is shared between hardware channels (E5).** lv1 does no PGRAPH context switching,
+  so the driver uses **one** hardware context. When work from several processes is mixed, the
+  kernel restores each one's 3D state itself (a software context switch, Phase 4).
+- **Contexts:** ps3fb's plus at most 2 more. Allocating up to that limit once stalled every
+  channel. One extra context is safe, and that's all we use.
+- **What works:**
+  - IO window: 1 MB chunks can be mapped anywhere below 256 MB at any time, and the GPU
+    reaches them (E2/E9). That is the GART pool.
+  - CALL/RETURN into user buffers (E3).
+  - SET_REFERENCE is a real completion fence (E11).
+  - VRAM is usable up to 253 MB (E10), against the 224 MB ps3fb assumes.
+  - Our own context gets vsync interrupts (E7) and can flip the display (E6).
+  - Raw triangles, vertex arrays and textures draw correctly (E12/E13).
+  - Mesa's whole init stream is accepted (E15).
+- **Fence and notifier:**
+  - the notifier object writes at reports+0 (E14), so the fence must use another label offset;
+  - the 3D back-end release swaps bytes 0 and 2, and writing a pre-swizzled value fixes that (E4).
+- **Constraints:**
+  - Any graph exception wedges the GPU until a console reboot.
+  - CPU access to VRAM is slow, write-combined or not (E8).
+  - Every reboot needs the user: they set the OtherOS flag in the XMB (fan on SYSCON first),
+    then `make netboot`. I never reboot the PS3 or touch its boot flag.
+  - No kexec.
 
-Goal: a render-only + KMS DRM driver `ps3rsx` that registers as "nouveau", plus patched
-Mesa, so that stock nv30 renders on the RSX.
+## Phase 1: one batched kernel rebuild (one reboot)
 
-**Scope of this round: only Phase 0, the hardware derisking tests (E1–E16).** Phases 1–5 below
-are a draft. We refine them with the user once Phase 0's results are in docs/RSX.md.
-
-How Phase 0 runs:
-- Tests are kernel-module parameters in `gpu/kmod/rsx_ctx_probe2.c`, or userspace tools in
-  `gpu/tools/` (`rsx-tri.c`, `rsx-tex.c`) on the ps3fb FIFO. The current kernel
-  (`local/0003` export) is enough, so no rebuild is needed.
-- One test per insmod or run. Tests that can wedge go last, one per boot.
-- E16 (netconsole) comes first. The fix may need a cmdline/config change, which is
-  `config.mk` only.
-- The user brings the PS3 to Petitboot (fan on SYSCON first). I never reboot it or change its
-  boot flag myself.
-- Commit the tools, and update docs/RSX.md after each batch of results.
-
-Test-loop constraints:
-- A reboot needs the user (XMB → set the OtherOS flag → Petitboot → `make netboot`), so
-  iteration happens through loadable modules, and kernel changes are batched into as few
-  rebuilds as possible.
-- No kexec.
-- The webMAN fan setting must be SYSCON before every OtherOS session.
-
-## Phase 0 – Remaining hardware questions (module only, no reboot unless something wedges)
-
-`gpu/kmod/rsx_ctx_probe2.c` runs one test per `insmod` (module parameter), so a wedge tells
-us which test caused it:
-- **E1** How many contexts can be allocated (decides one context per channel or one shared).
-- **E2** Scattered 1 MB iomaps, unmap and remap (how the GART pool grows).
-- **E3** FIFO `CALL` into another chunk, then `RETURN` (the pushbuf model). *May wedge.*
-- **E4** Write a pre-swizzled value with the 3D back-end release (0x1d70); expect it to come
-  out correct (the Mesa fence fix). *May wedge.*
-- **E5** Two contexts alternating 3D clears with different state (is 3D state per channel?).
-  *May wedge.*
-- **E6** `lv1_gpu_display_flip` from context 1 to a red VRAM area (webcam check): which
-  context can flip.
-- **E7** Do vsync and exception IRQs reach context 1's own IRQ outlet?
-- **E8** VRAM mapped write-combined vs guarded: write speed.
-
-Further derisking tests. Run these before any driver code, ordered by how much the design
-depends on them:
-- **E9** iomap a chunk at IO 64 MB, then M2MF to and from it through 0xfeed0001. This checks
-  that the ctxdma covers IO addresses mapped after the context was created, which the GART
-  pool assumes.
-- **E10** M2MF at VRAM offsets near 224 MB and near 254 MB (`memory_size` = 0xfe00000):
-  how far 0xfeed0000 reaches.
-- **E11** A large 3D clear, then compare `ref` with the VRAM contents at once. Does
-  SET_REFERENCE imply rendering is done? If not, the kernel's fences use a back-end release.
-- **E12** A raw-command triangle, `gpu/tools/rsx-tri.c` on the ps3fb FIFO:
-  - vertex program upload;
-  - fragment program fetch, with Mesa's halfword swap on big-endian;
-  - inline vertex data.
-
-  *May wedge.*
-- **E13** A raw textured quad: byte order of ARGB textures and render targets. *May wedge.*
-- **E14** Where the 0x66604200 notifier writes, using M2MF with notify on.
-- **E15** Mesa's nv30 init methods:
-  - offline, check `nv30_screen.c` init and the methods Mesa uses against RPCS3's RSX method
-    table;
-  - then replay the init list in small batches on hardware. *May wedge.*
-- **E16** Fix netconsole (no Linux output has ever reached `make listen`). This must be done
-  before any test that can wedge.
-
-Results go into docs/RSX.md. Order: E16 first, then the tests that can't wedge (E1, E2, E6,
-E7, E8, E9, E10, E14), then the ones that can, one per boot.
-
-## Phase 1 – One batched kernel rebuild (one reboot)
+Everything later phases need from the kernel goes in here, so that Phases 2–6 are modules
+and userspace only (plan review, 2026-10-14).
 
 **Config** (`kernel/config/ps3.config`):
-- `CONFIG_DRM=m`, `CONFIG_DRM_VKMS=m` (selects the KMS helper, shmem, sync_file and dma-buf).
-- `CONFIG_DEBUG_FS=y`, `CONFIG_ZRAM=m`.
+- `CONFIG_DRM=m`: selects sync_file, dma-buf and kcmp.
+- `CONFIG_DRM_FBDEV_EMULATION`: pulls in the KMS helpers, so vkms isn't needed.
+- `CONFIG_COMPACTION=y`: `ps3_defconfig` has it off.
+- `CONFIG_DEBUG_FS=y`, `CONFIG_DYNAMIC_DEBUG=y`, `CONFIG_ZRAM=m`, `CONFIG_NFS_SWAP=y`.
+- The driver uses no TTM, DRM scheduler or drm_exec (`drm_gem_lock_reservations` is enough).
 
-**Rootfs:** blacklist `ps3vram`.
+**GART reservation:** a boot-time `ps3rsx_gart=` region (default 64 MB, 1 MB aligned), using
+the existing `prealloc()`/early_param code in `arch/powerpc/platforms/ps3/setup.c:113-146`,
+exported like `ps3fb_videomemory`.
+- It comes from highmem, which is memblock-added before `prealloc` runs (mm.c:1240,
+  setup.c:255; review 2), so it fits next to ps3fb's 9 MB.
+- The lpar address is looked up per 1 MB chunk with `ps3_mm_phys_to_lpar`.
+- Order-8 allocations after boot are unreliable on 200 MB.
 
-**ps3fb patch:** replace `local/0003` with `local/0004-ps3fb-gpu-sharing-api.patch`, which
-only adds exports to `drivers/video/fbdev/ps3fb.c`:
-- `ps3fb_gpu_get_info()`: memory and context handles, ddr_lpar, VRAM size, ps3fb's own frame
-  range, the mode, the line length;
-- `ps3fb_gpu_set_hooks(vsync, exception)`, called from ps3fb's IRQ handler;
-- `ps3fb_gpu_takeover(bool)`: stops and restarts its blit/flip thread;
-- `ps3fb_gpu_flip(offset)`.
+**ps3fb patches:** keep `local/0003` (the probe modules use `ps3fb_gpu_handles`) and add
+`local/0004-ps3fb-gpu-sharing-api.patch` on top.
 
-**Verify:** boots, `rsx-clear` and `rsx-probe` still work, `modprobe vkms` gives
-`/dev/dri/card0`.
+*Info and context*
+- `ps3fb_gpu_get_info()`: memory handle, ddr_lpar, `memory_size`, line length
+  (`ddr_line_length`), the mode, frame 0's offset (`full_offset`), and ps3fb's VRAM
+  reservation, rounded up to 1 MB. The reservation covers the whole DDR area its `smem_len`
+  can use, because the number of frames depends on the mode.
+- `ps3fb_gpu_ctx_get(flags)` allocates our second lv1 context on first call (under its own
+  mutex), then caches it and hands back the same one forever: handle, ctrl/dinfo/reports lpars,
+  IRQ outlet.
+  - Module reloads therefore never allocate or free contexts (E1's stall is unexplained).
+  - The first call's flags stick until the next reboot. ps3rsx owns the ioremaps of those
+    areas.
+- `ps3fb_gpu_iomap(io, lpar, size, flags)`: a wrapper that records our iomaps, so that
+  `ps3fb_shutdown`/`.remove` can undo them, then free our context, before ps3fb's
+  `lv1_gpu_memory_free`. That works even if ps3rsx was wedged.
+- `suppress_bind_attrs`, so a sysfs unbind can't pull ps3fb out from under ps3rsx.
 
-## Phase 2 – `ps3rsx` render driver (out-of-tree module, `gpu/ps3rsx/`)
+*Takeover* (`ps3fb_gpu_takeover(bool)`)
+- **Lock order:** a new `ps3fb.own_lock` is outermost, then `console_lock`, then
+  `ps3_gpu_mutex`. The fb_info lock is never taken by takeover, because it already has an ABBA
+  ordering with `console_lock`. Nothing takes `own_lock` while holding `console_lock`.
+  ENTER/EXIT take `own_lock` and check `gpu_owned` before `StartStopTask`. This closes the race
+  where ENTER unmaps `fifo.ctrl` under a polling takeover.
+- **Taking over:**
+  - take `own_lock`, then `console_lock()` (every sync caller holds it), then `ps3_gpu_mutex`;
+  - set `gpu_owned`. While it is set:
+    - the *whole* `ps3fb_sync_image` (blit and both flips) is a no-op;
+    - the IRQ handler doesn't wake ps3fbd, so `StartStopTask` isn't used and `fifo.ctrl`
+      stays mapped;
+  - append `SET_REFERENCE cookie` to ps3fb's own ring (reusing `fb_blit`'s wrap check), kick
+    it, and poll ctrl+0x48. ps3fb itself never emits a reference, and GET is not completion.
+  - fail if a ps3gpu user is inside ENTER (task == NULL).
+- **While owned**, these return -EBUSY:
+  - ps3fb's direct-GPU interface: ioctls 1860–1901 (ENTER/EXIT/attribute/cursor) and the
+    `/dev/ps3gpu_*` mmap;
+  - mode changes in `set_par`, so `ps3av_set_video_mode` can't change the mode under KMS.
+    `check_var` keeps passing (fbcon only logs `set_par` failures);
+  - `ps3fb_blank` (FBIOBLANK and fbcon unblank) is a no-op, because `ps3av_video_mute` would
+    blank the KMS output.
+- Blacklist `ps3_lv1call` and `ps3_disp_manager` while ps3rsx is in use: both allow arbitrary
+  lv1 GPU calls.
+- **Releasing:** the caller has already waited for its last ref. Then, under `console_lock` +
+  `ps3_gpu_mutex`: `ps3gpu_restore_state()`, a full `ps3fb_sync`, clear `gpu_owned`.
 
-**Build.** Generalise the `gpu-tools` target so it builds every `gpu/*/Kbuild` against
-`build/kernel/obj`. Reuse and adapt code from `build/kernel/src/drivers/gpu/drm/nouveau/`:
-- `nouveau_abi16.c`: the NVIF subset, GETPARAM, channel and notifier logic;
-- `nouveau_gem.c`: the pushbuf argument handling, the reloc apply loop, CPU_PREP;
-- `nouveau_fence.c`: the seqno and fence-list logic.
+*Exceptions*
+- `ps3fb_gpu_set_exception_hook(fn, data)` is called from `ps3fb_vsync_interrupt` (hard IRQ)
+  with `v1` and a pointer to `graph_exception_info`. The hook only records it and schedules
+  work.
+- The hook's fn and data are published as one struct pointer (`WRITE_ONCE`). Setting it to
+  NULL calls `synchronize_irq(ps3fb.irq_no)`, so module unload is safe.
+- `ps3fb_gpu_exception_seen()` is a sticky counter. `GPU_USER_DEBUG` won't do: every
+  `restore_state` clears it.
 
-Starting points for the context, iomap and FIFO code: `gpu/kmod/rsx_ctx_probe.c` and
-`gpu/tools/rsx-probe.c`.
+**Rootfs:** blacklist `ps3vram`, add `libdrm-tests`; kernel cmdline gets `consoleblank=0`
+(`ps3fb_blank` → `ps3av_video_mute` would blank KMS output).
 
-Files: `drv.c`, `mem.c`, `abi16.c`, `submit.c`, `validate.c` (later `kms.c`).
+**Swap, not on the PS3's HDD** (VRAM stays for the GPU; ps3vram can't load anyway while
+ps3fb owns all of VRAM):
+- `ps3da`/`ps3db`/`ps3dc` almost certainly are GameOS's: raw disk, dev_hdd0 and the 2 GB
+  dev_hdd1 cache (review 3). They're encrypted, so content checks can't identify them, and
+  `mkswap` on any of them destroys GameOS data. **Never write to them.**
+- An OtherOS++ Linux region would appear as an extra disk (e.g. `ps3dd`), identified only by
+  the `ps3dX … (N MiB, M MiB for OtherOS)` dmesg line plus the user's confirmation.
+- Instead: `CONFIG_NFS_SWAP=y` and a swapfile on the NFS root, enabled by a systemd unit. A
+  USB stick is the alternative (`USB_STORAGE=y` is built in).
+- zram stays at a higher priority.
+- Swap is a prerequisite for Phase 6 (about 160 MB of RAM is left after ps3fb and the GART).
 
-**`drv.c`**
-- A platform device "ps3rsx" with `of_node = of_root`, so libdrm's `drmGetDevice2`
-  accepts it.
-- DRM name "nouveau", version 1.3.1, `DRIVER_GEM|DRIVER_RENDER`.
-- At load, a NOP + SET_REFERENCE probe. If the GPU is already wedged, refuse to load and
-  log "reboot".
+**Verify:**
+- boots, `rsx-tri tex` still draws;
+- `modprobe drm` works;
+- the GART region is reserved;
+- the second context comes from ps3fb;
+- a takeover/release cycle from a test module leaves the console working;
+- ps3fb's GPU ioctls return -EBUSY while the GPU is taken over.
 
-**`mem.c`** (no TTM, pinned BOs, each with a `dma_resv`)
-- **VRAM:** a `drm_mm` from above ps3fb's frames (1 MB aligned) up to 224 MB. The offset is
-  relative to ctxdma 0xfeed0000.
-- **GART:** a pool of 1 MB `alloc_pages(order 8)` chunks.
-  - Preallocated (default 32 MB, module parameter), growable.
-  - Iomapped into every context at a fixed IO address.
-  - Sub-allocated at 4 KB granularity with a `drm_mm`.
-  - The offset is the IO address, relative to ctxdma 0xfeed0001.
-- **mmap:**
-  - VRAM: `io_remap_pfn_range` on the lpar address (write-combined if E8 helps);
-  - GART: cached;
-  - the notifier GEM object maps the context's 64 KB reports area.
-- **Sharing:** FLINK, PRIME, dumb buffers in VRAM.
+## Phase 2: `ps3rsx` render driver (out-of-tree module, `gpu/ps3rsx/`)
 
-**`abi16.c`**
+**Build.** Generalise the `gpu-tools` target to build every `gpu/*/Kbuild`.
+
+**Reuse:**
+- `build/kernel/src/drivers/gpu/drm/nouveau/`:
+  - `nouveau_abi16.c`: NVIF subset, GETPARAM, channel and notifier logic;
+  - `nouveau_gem.c`: pushbuf argument handling, reloc apply, CPU_PREP;
+  - `nouveau_fence.c`: seqno and fence list.
+- From our tools:
+  - `gpu/kmod/rsx_ctx_probe2.c`: context alloc, reset-program replay, iomap, kick/wait;
+  - `gpu/tools/rsx-mesainit.c`: the known-good init stream.
+
+**Hardware ownership**
+- **At load:**
+  - refuse if `ps3fb_gpu_exception_seen()`, or if a NOP + SET_REFERENCE probe times out;
+  - `ps3fb_gpu_takeover(true)`, so ps3fb's blits never interleave with our work (they share
+    PGRAPH state);
+  - `ps3fb_gpu_ctx_get(0x820)`, then run ps3fb's reset program in it;
+  - iomap the GART reservation; plug our IRQ outlet (vsync) and the ps3fb exception hook.
+- **At unload, and in a platform `.shutdown`:** drain the ring, wait for the last ref, unmap
+  and unplug, keep the context, `takeover(false)`.
+- Console: SSH and netconsole while the driver is loaded.
+- `platform_device_register_simple("ps3rsx")`. libdrm falls back to MODALIAS without OF data;
+  check the snapshot's libdrm has that fallback. No `of_root`.
+- DRM name "nouveau", version 1.3.1 (exactly Mesa's minimum), `DRIVER_GEM|DRIVER_RENDER`.
+
+**Memory** (no TTM, pinned BOs, each with a `dma_resv`; presumed offsets never change)
+- **VRAM, CPU-visible:** `drm_mm` from above ps3fb's reservation (from `get_info`) to 224 MB.
+  Dumb and scanout buffers live here.
+- **VRAM, GPU-only:** 224 MB to 254 MB (`memory_size` 0xfe00000). No MAPPABLE, `map_handle=0`:
+  a CPU mapping there could make lv1 refuse the HPTE, and `ps3_hpte_insert` then BUG()s. Mesa
+  stages VRAM through GART anyway. An optional dedicated "may crash" probe can settle CPU
+  access later.
+- **GART:** the boot reservation, iomapped as 1 MB pages, sub-allocated at 4 KB.
+  - The offset is the IO address, relative to 0xfeed0001.
+  - A scratch chunk is aliased over every unused IO page (aliasing works, E2), so stray
+    fetches never fault.
+  - IO pages that pending fences still use are never unmapped.
+- **mmap:** GART cached, the 64 KB reports area noncached (the notifier GEM object), VRAM
+  noncached.
+- **Sizes:** GEM_NEW sizes are rounded to 4 KB; `domain=0` means VRAM|GART.
+- **Sharing:** FLINK, PRIME.
+
+**ioctls**
 - **GETPARAM:**
-  - `FB_SIZE`/`AGP_SIZE`: the managed sizes;
-  - `CHIPSET_ID`: 0x47 (selects class 0x4097);
-  - `PCI_VENDOR`: 0x104d (Sony), which is how Mesa detects the PS3;
-  - `BUS_TYPE`: PCIE;
-  - `PTIMER_TIME`: the timebase;
-  - everything else returns -EINVAL, including `HAS_VMA_TILEMODE`, so zink is not picked.
-- **NVIF:** device info (chipset 0x47, CURIE, PCIE); SCLASS with the nv30 class list; engine
-  object NEW/DEL as bookkeeping only. GROBJ_ALLOC behaves the same way.
-- **CHANNEL_ALLOC:**
-  - a new lv1 context per channel (or shared, depending on E1);
-  - a 64 KB ring in a GART chunk;
-  - `pushbuf_domains` = GART;
-  - `notifier_handle` = the reports-area GEM object.
-- **NOTIFIEROBJ_ALLOC** returns offsets that line up with the hypervisor ctxdma bases:
-  - fence `0xbeef1e00` → 0 (ctxdma 0x66606660, labels);
-  - query `0xbeef0351` → 0x1400 (ctxdma 0x66626660, reports);
-  - `0xbeef0301` → 0x1000 (0x66604200).
+  - `FB_SIZE`/`AGP_SIZE` = managed sizes;
+  - `CHIPSET_ID` = 0x47;
+  - `PCI_VENDOR` = 0x104d (Mesa's PS3 check);
+  - `BUS_TYPE` = PCIE;
+  - `PTIMER_TIME` = nanoseconds, from the timebase;
+  - a private `PS3_ABI` (0x1000) param, which the patched Mesa queries. CHANNEL_ALLOC is
+    refused until it has been called, so stock Debian Mesa (pulled in by `mesa-utils`) fails
+    cleanly at init instead of submitting unpatched streams;
+  - everything else, including `HAS_VMA_TILEMODE`, returns -EINVAL.
+- **NVIF:**
+  - It needs its own `unlocked_ioctl` path, copied from `nouveau_drm_ioctl`, because the
+    argument size varies per request.
+  - Handles: NEW of the device (route 0), device info MTHD (0x47, CURIE, PCIE), NEW and DEL of
+    engine objects (route 0xff, token = channel, owner ANY), including NV01_NULL (0x30,
+    handle 0).
+  - Mesa's subchannel DEL never reaches us, so objects are freed at CHANNEL_FREE.
+  - GROBJ_ALLOC is the same bookkeeping.
+  - Bookkeeping is **per channel**, because handles repeat across channels. It is keyed on the
+    **PS3 handles**: the Mesa patch passes them at allocation time (objects, notifiers,
+    `nv04_fifo.vram/gart`), so the command stream carries them with no further Mesa change.
+    The kernel accepts only the known PS3 handle set.
+- **CHANNEL_ALLOC:** a software channel on the shared hardware context.
+  `pushbuf_domains` = GART; `notifier_handle` = the reports-area GEM object.
+- **NOTIFIEROBJ_ALLOC hands out per-channel slices** (all channels share one reports area):
+  - fence `0xbeef1e00` → 0x20 + 16·channel;
+  - query `0xbeef0351` → a 4 KB slice at 0x1400 + 0x1000·channel (at most 14 channels);
+  - `0xbeef0301` → 0x1000.
+- **GEM_PUSHBUF: copy each push into the kernel ring** instead of CALLing user memory.
+  - This avoids validate-then-modify races, and the validator and shadow see exactly what
+    the GPU runs.
+  - It is needed anyway: on big-endian Mesa pushes every vertex inline (`nv30_vbo.c` forces
+    `vbo_fifo`), so draws are long 0x1818 bursts in the pushbuf.
+  - **Ring:** 2 MB (two GART chunks). A submit is at most about 512 KB, since Mesa's push BOs
+    are 512 KB. Larger submits are rejected.
+  - **Per submit:**
+    - look up BOs;
+    - copy and validate the pushes;
+    - apply relocs **to the copy** if `presumed` is ever invalid (offsets never move, so it
+      shouldn't be);
+    - append SET_REFERENCE seq and write PUT.
+  - **Wrap:** JMP only between submits (a submit is at most 512 KB, the ring 2 MB), so no
+    mid-push decoding is needed. Ring space is counted from ref.
+  - Return `suffix0 = suffix1 = 0` (no RETURN needed) and `vram/gart_available`, and honour
+    `NOUVEAU_GEM_PUSHBUF_SYNC`. The first `nr_push=0` call must succeed.
+- **Fences:**
+  - a `dma_fence` per submit, attached to the referenced BOs but **not** to BOs that are only
+    push sources (Mesa maps those at every buffer switch);
+  - signalled by an hrtimer poll of ref (HZ=250, PREEMPT_NONE); CPU_PREP polls ref directly
+    while waiting;
+  - expect heavy churn of 4 KB GART BOs, from Mesa's per-fence BO.
+- An lv1 "user command" completion interrupt is speculative: an unknown software method could
+  raise an exception. Try it only after the baseline runs.
 
-**`submit.c`**
-- **GEM_PUSHBUF:**
-  - look up the BOs and apply relocs when `presumed` is invalid (LOW/OR with vor/tor);
-  - write `CALL(io|2),0` into the ring for each push, then SET_REFERENCE seq, then PUT;
-  - wrap the ring with JMP;
-  - return `suffix0 = 0x00020000` and `vram/gart_available`.
-- **Fences:** a `dma_fence` per submit, attached to each BO's resv. A kthread polls ctrl+0x48
-  while fences are pending. If readbacks turn out stale, switch to a kernel-owned 3D back-end
-  release.
-- **Cross-channel sync:** a CPU wait in the kernel. Never a FIFO semaphore acquire.
-- **Wedge detection:** the exception hook, or no ref progress for 2 s while work is pending.
-  On a wedge, dump the driver-info exception block, then every ioctl returns -EIO and pending
-  fences are signalled with an error.
+**Safety**
+- **Wedge detection:** exception IRQ, or no ref progress for 2 s with work pending. On a
+  wedge: dump the exception block to netconsole, return -EIO, error all fences.
+- **`validate.c` on by default:**
+  - decode user pushes, checking every method of a multi-count burst, including
+    non-incrementing headers; no JMP/CALL/RETURN at all;
+  - only hypervisor object handles in method-0 binds;
+  - **Method allowlist, built from data:**
+    - a table generated from `docs/MESA-METHODS.md` §4 as (class, base, stride, count, max
+      burst);
+    - indexed ranges expanded: 16 texture units at stride 0x20, 16 vertex formats/buffers, all
+      immediate-attribute formats, VP 0xb80–0xbfc, constants 0x1f00–0x1f7c;
+    - unknown methods are logged and rejected.
+  - **Data words are not all checked; only:**
+    - handle slots, against {feed0000, feed0001, 66604200, 66606660, 66626660, 0};
+    - location bits ∈ {1, 2};
+    - at trigger methods (0x1808 begin, 0x1d94 clear, 0x328, 0x40c), the shadowed
+      offset/pitch/clip/format against the owning BO's bounds;
+    - 0x1d6c: 16-byte aligned and inside the channel's fence slot. 0x1800/0x1e98: type 1 and
+      inside the channel's query slice;
+    - VP load pointer + count ≤ 512, constants ≤ 468.
+- **Debug options:** `trace=1` dumps each submit to netconsole; `submit=0` is a dry run.
 
-**`validate.c`** (module parameter, on during bring-up)
-- Decode user pushes:
-  - no JMP/CALL inside them;
-  - track subchannel → class from method-0 binds, and allow only hypervisor handles;
-  - methods allowlisted per class (from envytools rnndb plus Mesa's usage); unknown methods
-    are rejected and logged;
-  - DMA_* values must be known ctxdmas;
-  - M2MF/SIFM ranges must fall inside a submitted BO.
-- `trace=1` dumps the decoded submit to netconsole before the kick; `submit=0` is a dry run.
+**Tests** (`gpu/tools/rsxdrm-*.c`, raw ioctls):
+- `rsxdrm-info`: GETPARAM, NVIF, `drmdevice`;
+- `rsxdrm-smoke nop|m2mf|clear|tri|fence|reload`:
+  - `tri` reuses rsx-tri's words through the driver;
+  - `fence` runs about 10k iterations of a 0x1d70 release followed by a ref wait, then checks
+    that the label had landed when ref arrived (Mesa's fence order);
+  - `reload` runs 20 rmmod/insmod cycles;
+  - `quirks` covers three things Mesa does that libgcm doesn't: the M2MF NOP (0x100 on the
+    M2MF subchannel), RT_ENABLE values outside libgcm's set, and vertex format type 0;
+  - `flip` flips both heads to an offset in our `drm_mm` range, then to one at 224–254 MB;
+- the result checked by readback, and by webcam (`tools/webcam-grab.sh`) after a flip
+  (lv1_gpu_display_flip from our context, E6).
 
-**Raw-ioctl tests** (`gpu/tools/rsxdrm-*.c`, against `make headers_install` output):
-- `rsxdrm-info`: version, GETPARAM, NVIF, `drmdevice`.
-- `rsxdrm-smoke` with `nop | m2mf | clear | fence | two-chan`, one per run. M2MF sets its
-  notifier DMA (0x180) before it transfers.
+## Phase 3: Mesa patch, cross build, offscreen GL (one process)
 
-## Phase 3 – Mesa patch, cross build, offscreen GL
+**Patch** `mesa/patches/0001-nouveau-nv30-ps3-rsx.patch`. The PS3 is detected by
+`nouveau_getparam(PCI_VENDOR) == 0x104d` in `nv30_screen_create`. It changes:
+**Handles are substituted at allocation time** (about 10 lines; review 3). The streams then
+carry them automatically, because Mesa writes the handles it allocated.
+- **`nouveau_screen.c`:**
+  - move the PS3 check (PCI_VENDOR plus the `PS3_ABI` getparam) into `nouveau_screen_init`,
+    before line 399;
+  - `nv04_data.vram/gart` (`:302`) = 0xfeed0000/0xfeed0001 on the PS3.
+- **`nv30_screen.c`:**
+  - objects allocated (`:578/653/663/678/693`) with 3D 0x31337000, M2MF 0x31337303,
+    SF2D 0x313371c3, SWZ 0x31337a73, SIFM 0x3137af00;
+  - notifiers allocated (`:529/537/548`) with fence 0x66606660, ntfy 0x66604200,
+    query 0x66626660;
+  - fence emit (`:415-416`) writes `screen->fence->offset` and the seqno pre-swizzled
+    (bytes 0 and 2 swapped);
+  - drop VERTEX_BUFFER/INDEX_BUFFER from `vidmem_bindings` on the PS3. On big-endian the CPU
+    reads vertex data to push it inline, and VRAM reads run at 10 MB/s.
+- **`nv30_query.c`:** QUERY_GET (0x1800) and RENDER_ENABLE (0x1e98) add
+  `query->offset - 0x1400`, so each channel's query slice lands in its own place. Timer queries
+  stay on: type 1 gives the u64 timestamp Mesa reads.
+- **`nv30_miptree.c:452-457`:** on the PS3, scanout pitch is only 64-byte aligned. Mesa's
+  power-of-two padding (7680 → 8192 at 1080p) would display sheared, because the display
+  pitch is fixed by ps3av at width×4.
+- **Later, as big-endian issues appear:** format tables.
 
-**Patch** `mesa/patches/0001-nouveau-nv30-ps3-rsx.patch` (~60 lines, active when
-`PCI_VENDOR == 0x104d`):
-- `nouveau_screen.c`: `nv04_fifo.vram/gart` = 0xfeed0000/0xfeed0001 (the reloc vor/tor
-  values follow automatically).
-- `nv30_screen.c`:
-  - objects: 3D 0x31337000, M2MF 0x31337303, SURF2D 0x313371c3, SWZ 0x31337a73,
-    SIFM 0x3137af00;
-  - notifiers: fence 0x66606660, ntfy 0x66604200, query 0x66626660;
-  - fence emit writes the seqno pre-swizzled (bytes 0 and 2 swapped), per E4.
-- If E5 says 3D state isn't per channel: force a full state re-emit on every kick.
+**Build:** cross-compile with meson against a ppc64 sysroot. The target is Mesa 26.2.4, the
+version in the 20261013 snapshot.
+- **Dockerfile:** `g++-powerpc64-linux-gnu` (Mesa needs C++), meson (trixie's 1.7 meets the
+  ≥ 1.4 requirement), ninja, pkgconf, python3-mako/yaml/packaging, bison, flex.
+- **`make mesa-sysroot`:**
+  - `mmdebstrap --arch=ppc64 --variant=extract` (no maintainer scripts, so no qemu) with
+    `base-files`, `libc6-dev` and the dev packages from `mesa/sysroot-packages.txt`;
+  - check that the merged-/usr `/lib` link exists, since glibc's `libc.so` script uses
+    absolute paths.
+- **`mesa/cross-ppc64.ini`:**
+  - `needs_exe_wrapper=true`;
+  - `PKG_CONFIG_LIBDIR=$SYSROOT/usr/lib/powerpc64-linux-gnu/pkgconfig:$SYSROOT/usr/share/pkgconfig`;
+  - `PKG_CONFIG_SYSROOT_DIR=$SYSROOT`;
+  - `-ffile-prefix-map`, for reproducibility.
+- **`config.mk`:** `MESA_VERSION`/`MESA_SHA256`.
+- **Meson options:** `-Dgallium-drivers=nouveau,softpipe -Dvulkan-drivers= -Dllvm=disabled
+  -Dgallium-va=disabled -Dvideo-codecs= -Dplatforms=x11 -Dglx=dri -Degl=enabled -Dgbm=enabled
+  -Dglvnd=enabled --prefix=/opt/mesa`.
+- **No clash with Debian's Mesa 26.2.4:**
+  - Mesa's `VERSION` gets a suffix (`26.2.4-ps3`), so `libgallium-*.so` names differ;
+  - `env.sh` sets `LD_LIBRARY_PATH`, `__EGL_VENDOR_LIBRARY_FILENAMES`,
+    `__GLX_VENDOR_LIBRARY_NAME=mesa`, `GBM_BACKENDS_PATH` and `LIBGL_DRIVERS_PATH`;
+  - for Xorg (the setuid wrapper strips `LD_LIBRARY_PATH`), add `/etc/ld.so.conf.d/00-ps3mesa.conf`
+    or run Xorg as root with the env.
+- `make mesa`, then `make mesa-deploy` (sudo rsync to `$(NFS_ROOT)/opt/mesa`).
 
-**Build** (cross-compiled with meson against a sysroot):
-- Dockerfile gets meson, ninja, pkgconf, python3-mako/yaml/packaging, bison, flex.
-- `make mesa-sysroot`: `mmdebstrap --arch=ppc64` at the same snapshot with
-  `mesa/sysroot-packages.txt` (libdrm-dev, libglvnd-dev, X11/xcb dev headers, expat, zlib,
-  zstd, udev) → `build/mesa/sysroot`.
-- `config.mk`: `MESA_VERSION`/`MESA_SHA256`, the upstream tarball at the snapshot's version.
-- `mesa/cross-ppc64.ini`.
-- Meson options: `-Dgallium-drivers=nouveau,softpipe -Dvulkan-drivers= -Dllvm=disabled
-  -Dplatforms=x11 -Dglx=dri -Degl=enabled -Dgbm=enabled -Dglvnd=enabled --prefix=/opt/mesa`.
-- `make mesa` → `build/mesa/`; `make mesa-deploy` (sudo rsync) → `$(NFS_ROOT)/opt/mesa`, plus
-  `/opt/mesa/env.sh` with the library, driver and EGL vendor paths.
+**Ladder.** Each rung runs first with `submit=0`, then for real, against a softpipe reference:
+1. `eglinfo -B`
+2. `egl-clear` + `glReadPixels`
+3. `egl-tri`
+4. `egl-tex`
+5. offscreen gears, 100 frames, checksum
 
-**Bring-up ladder.** Each rung runs first with `submit=0` (the dump gets inspected), then for
-real with the validator on. softpipe on the PS3 is the reference image.
-1. `eglinfo -B`: the renderer is NV47.
-2. `gpu/tools/egl-clear`: surfaceless GLES2 FBO clear plus `glReadPixels`, compared with
+Save the extension list.
+
+## Phase 4: multi-process: software context switch (kernel)
+
+Needed as soon as two processes render: X + a GL client, or a compositor.
+
+A Mesa-side "re-emit everything on each kick" isn't enough. Mesa has no start-of-pushbuf hook,
+and copies continue across flushes: M2MF DMA in/out is set once before a loop that can flush
+(`nv30_transfer.c:537-560`). So the kernel does it.
+
+**Shadow.** `validate.c` already decodes every copied push. It keeps a per-channel shadow of
+the state methods of **every subchannel**: 3D, plus M2MF/SF2D/SWZ/SIFM state and their 0x180
+DMA, SIFM 0x2fc, and the method-0 binds.
+
+**Indexed methods are emulated:**
+- vertex-program data goes through the 0xb80–0xbfc window with auto-increment, starting from
+  load pointer 0x1e9c (512-slot shadow);
+- constants go through 0x1efc plus 0x1f00–0x1f7c.
+
+The load pointers are restored afterwards.
+
+**Never shadowed** (side-effect methods):
+- 0x100/0x104/0x110;
+- 0x1d70/0x1d74 releases;
+- 0x1710–0x1718, 0x1fd8, 0x17c8, 0x1800;
+- the draw and inline-data range 0x1808–0x1824;
+- immediate vertex attribute 0 writes (they emit a vertex);
+- the 0x1d94 clear;
+- the copy triggers: **M2MF 0x328 BUFFER_NOTIFY**, the last word of the OFFSET_IN×8 burst
+  (0x310 OFFSET_OUT is state), and **SIFM 0x40c**, inside the SIZE×4 burst.
+
+**Restore.**
+- The kernel keeps a second shadow of what PGRAPH currently holds. When the next submission
+  is from another channel, it emits only the words that differ (typically 1–2 KB, worst case
+  about 24 KB).
+- Then it invalidates the texture and vertex caches (0x1fd8, 0x1710–0x1718).
+- Known limit: the ZPASS accumulator can't be restored, so occlusion queries running in two
+  processes at once mix their counts.
+
+**Tests:**
+1. Replay a channel's own shadow into itself: it must be idempotent (same images as without).
+2. Two `egl-tri` processes with different colours and viewports, interleaved; readbacks match
    softpipe.
-3. `egl-tri`: vertex and fragment programs, inline vertices on big-endian.
-4. `egl-tex`: texture upload and a depth test.
-5. Offscreen gears: 100 frames, checksum against softpipe.
 
-Save the GL extension list, to check what glamor needs.
+## Phase 5: minimal KMS in ps3rsx (`kms.c`)
 
-## Phase 4 – Minimal KMS in ps3rsx (`kms.c`)
+- `drm_simple_display_pipe` + a virtual connector, with the single current mode from
+  `ps3fb_gpu_get_info`.
+- BGRX8888 matches the RSX's X,R,G,B memory order on big-endian; set
+  `quirk_addfb_prefer_host_byte_order`. Also accept XRGB8888 for kmscube (its colours will be
+  off).
+- `addfb` rejects any pitch other than ps3fb's `ddr_line_length`. The scanout BO may sit
+  anywhere in VRAM if the Phase 2 `flip` test passed above 224 MB; otherwise it must be below
+  224 MB.
+- Flips go to **both** heads, as ps3fb's do, at `full_offset`-relative addresses.
+- ps3rsx doesn't set up DRM fbdev; fbcon stays on fb0.
+- PRIME uses the stock GEM helpers (same-device import shortcut).
+- Flip with `lv1_gpu_display_flip` from our context. vblank from our IRQ outlet. The flip-done
+  bit (3) is untested, so send flip events at vblank first.
+- On unload: flip back to ps3fb's frame 0 and `takeover(false)`, so fbcon returns.
+- **Tests:** `modetest` pattern (webcam), `vbltest`, `kmscube`.
 
-**Pipeline:**
-- `drm_simple_display_pipe` with a virtual connector.
-- One fixed mode from `ps3fb_gpu_get_info`.
-- Formats: XRGB8888/BGRX8888 with prefer-host-byte-order.
-- `atomic_check` requires a VRAM BO with ps3fb's line length.
+## Phase 6: Xorg + glxgears
 
-**Flips and vblank:** flips go through `ps3fb_gpu_flip` (or our own context, if E6 allowed
-it). vblank comes from the vsync hook, or our IRQ if E7 passed.
+- **Rootfs:** xserver-xorg-core, xinit, xauth, x11-xserver-utils, x11-apps, mesa-utils,
+  kmscube, glvnd/xcb runtime libs; tibi in the `render` group.
+- **Go/no-go from the Phase 3 extension list:** glamor needs GL ≥ 2.1,
+  `GL_ARB_texture_border_clamp` and VAO (xserver `glamor.c:721-761`). modesetting only offers
+  DRI2/DRI3 with glamor, so without it glxgears would run on softpipe.
+- nv30 reports GLSL 120, so glamor takes its GLSL-1.20 paths: slower and less tested. The only
+  big-endian prior art is NV4x in G5 PowerMacs, so expect format bugs first.
+- **Prerequisites:** swap (NFS swapfile) and Phase 4.
+- **X:** modesetting on our card with glamor (needs Phase 4) and `prefer_shadow`, since CPU
+  reads from VRAM run at 10 MB/s. `AccelMethod none` is only a KMS sanity check.
+- **Run:** `xinit glxgears -info` with `/opt/mesa/env.sh`, then check `glxinfo -B` (nouveau
+  NV47), an `xwd` screenshot and a webcam frame.
+- **If glamor refuses nv30:** fix the glamor/nv30 gaps in Mesa (extension exposure). The floor
+  is GBM/EGL gears on KMS. xf86-video-nouveau is not an option: it needs a PCI device and NV04
+  2D objects that the hypervisor doesn't provide.
 
-**Handover:** the first modeset calls `ps3fb_gpu_takeover(true)`. lastclose releases the
-display and flips back to offset 0, so fbcon returns.
+## Later: pushing the hardware limits (after the baseline runs)
 
-**Tests:** `modetest` pattern (webcam), `vbltest`, `kmscube`.
+| Limit hit | Ideas to get past it |
+|---|---|
+| CPU access to VRAM above 224 MB not proven safe | a dedicated probe that may crash the kernel, then a lifted ps3fb `GPU_DDR_SIZE` |
+| 3D state not context-switched (E5) | lv1 context attributes / RAMIN layout for a hardware context save area (RPCS3, lv1 RE notes) |
+| Context limit, and allocating up to it stalls the GPU (E1) | find which step breaks it (third alloc, failed fourth, frees) |
+| Exceptions wedge the GPU until a reboot | lv1 attributes we haven't tried; PGRAPH exception acknowledge; whether a Petitboot-only reboot suffices |
+| 1 MB IO pages (flags 0x820) | flag 0x2 (64 KB pages) for finer GART allocations |
+| CPU↔VRAM 10–120 MB/s (E8) | cache-inhibited vs other lv1 mapping attributes, `dcbz`-free copy loops |
+| No tiling / zcull | lv1 attributes 0x300/0x301 (RPCS3 encodings) for colour/depth tiles and zcull |
+| VRAM above ps3fb's 224 MB unused by ps3fb | drop ps3fb's hardcoded size |
+| kexec from our Linux crashes the console | find the handover step that breaks it (would remove most XMB trips) |
+| One boot hung at 11 s (netconsole?) | reproduce; delay netconsole until userspace if it recurs |
 
-## Phase 5 – Xorg + glxgears
-
-**Rootfs** (`rootfs/packages.txt`): xserver-xorg-core, xinit, xauth, x11-xserver-utils,
-x11-apps, mesa-utils, libdrm-tests, kmscube, glvnd/xcb runtime libraries; tibi joins the
-`render` group.
-
-**Steps:**
-1. X with vkms and `AccelMethod none`, to prove X fits in about 200 MB of RAM.
-2. `/etc/X11/xorg.conf.d/20-ps3rsx.conf`: modesetting on our card, first `AccelMethod none`,
-   then glamor.
-3. `xinit glxgears -info` (with `/opt/mesa/env.sh`). Check that `glxinfo -B` reports nouveau
-   NV47, then take an `xwd` screenshot plus a webcam frame.
-
-**Fallback if glamor won't run on nv30:** xf86-video-nouveau (EXA + DRI2) with the same handle
-patch in libdrm_nouveau.
-
-## Risks
-
-- **Wedges.** Mitigations: dry runs, the validator, netconsole traces (so first fix
-  netconsole: it has never reached `make listen`), one test per run, refusing to load on an
-  already wedged GPU.
-- **Mesa init methods the RSX rejects.** The validator catches them in a dry run; the patch
-  skips them on the PS3.
-- **Big-endian bugs** (colour order, 16-bit data, query word layout). Compare against
-  softpipe. Occlusion queries stay off until the query layout is verified.
-- **Notifier ctxdma bases don't line up as assumed.** Checked by the `fence` smoke test and a
-  GET_REPORT check.
-- **RAM fragmentation** for order-8 chunks: preallocate at load, add zram, keep Xorg minimal.
-
-## Verification (per phase, as above)
+## Verification
 
 | Phase | Done when |
 |---|---|
-| 0 | docs/RSX.md answers E1–E8. |
-| 1 | The kernel boots and `vkms` loads. |
-| 2 | All `rsxdrm-smoke` subtests pass with no wedge. |
+| 1 | Kernel boots, the existing tools still draw, the GART region and second context come from the kernel, and takeover/release leaves the console intact. |
+| 2 | `rsxdrm-smoke` passes every subtest (including 10k fences and 20 reloads) with no wedge, and a triangle drawn through the driver shows on screen. |
 | 3 | Offscreen gears matches softpipe. |
-| 4 | `kmscube` runs on screen (webcam). |
-| 5 | `glxgears` runs in Xorg on the RSX, confirmed by `glxinfo -B` and a webcam frame. |
+| 4 | Two interleaved GL processes render correctly. |
+| 5 | `kmscube` runs (webcam). |
+| 6 | glxgears runs in Xorg on the RSX (`glxinfo -B`, `xwd`, webcam). |
 
-docs/PLAN.md and README get updated at each milestone.
+docs/PLAN.md and README
+get updated at each milestone.
