@@ -446,17 +446,17 @@ The load pointers are restored afterwards.
 |---|---|
 | 1 | Done, rechecked 2026-10-14 with `gpu/tools/phase1-check.sh`: GART reserved, zram swap, `rsx-probe` draws, takeover refuses direct GPU access, the console redraws after release (webcam). Kernel patches local/0004 (GART boot reservation, `ps3rsx_gart=32M`), 0005 (ps3fb sharing API, ENTER/EXIT trylock), 0006 (gelic netpoll fix). |
 | 2 | Done. `rsxdrm-smoke` passes every subtest; triangles drawn through the driver show on screen (kmscube, glxgears, webcam); the validator rejects vertex format type 0, which wedges the RSX. |
-| 3 | Done. egl-clear and egl-tex are byte-identical to softpipe. egl-tri differs by at most 1 per channel. egl-gears (256x256): 2193 of 196608 bytes differ by 1, and 4 pixels by up to 133 per channel; each of those 4 lies on a gear/background edge and takes the gear colour that softpipe gives the neighbouring pixel (a rasterisation edge-rule difference, not a wrong colour). |
+| 3 | Done. egl-clear, egl-tex and egl-short are byte-identical to softpipe. egl-tri: 89 of 12288 bytes 1 lower; egl-gears: 282 of 196608 bytes 1 lower, nothing more. Those are the hardware's attribute interpolation (about ±0.03 of an 8-bit step), seen only where the exact value lies just above a rounding midpoint. Getting there: the colour is now exported from fp32 registers (0009; fp16 export gave 2193 bytes in gears), and the softpipe reference uses 24-bit depth like the PS3 (with Z16 four silhouette pixels resolved their depth tie differently). |
 | 4 | Done. Three concurrent GL processes give the same images as solo runs (`rsx-suite.sh multi`). |
 | 5 | Done. modetest colour bars and kmscube at 60 fps (webcam). vblank is a frame-rate timer, not lv1's interrupt. |
 | 6 | Done. Xorg modesetting + glamor on NV47; `glxinfo -B` reports NV47 with direct rendering, glxgears runs at 60 fps (`xwd`, webcam). |
 
 What differed from the plan:
 - Swap is zram only: the NFS swapfile deadlocked under memory pressure.
-- Mesa needed 8 patches, not 1: PS3 handles (0001), vertex type 0 (0002), blit into GART (0003),
+- Mesa needed 9 patches, not 1: PS3 handles (0001), vertex type 0 (0002), blit into GART (0003),
   big-endian blit fragment program (0004), no Z16 (0005), flushing an empty context (0006),
   host-order 8888 formats for gbm/X on big-endian (0007), no single-attribute inline vertices
-  (0008). Facts behind them: docs/RSX.md.
+  (0008), fp32 colour export (0009). Facts behind them: docs/RSX.md.
 - The driver waits for an open primitive to close before switching channels.
 
 docs/PLAN.md and README

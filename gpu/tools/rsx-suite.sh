@@ -20,7 +20,10 @@ if [ "$what" = smoke ] || [ "$what" = all ]; then
 fi
 if [ "$what" = mesa ] || [ "$what" = all ]; then
 	. $HOME/mesa/env.sh
-	for t in egl-clear egl-tri egl-tex egl-gears; do
+	# The PS3 gets 24-bit depth (Mesa 0005): the reference must too, or depth ties resolve
+	# differently at silhouettes.
+	export EGL_TEST_DEPTH24=1
+	for t in egl-clear egl-tri egl-tex egl-gears egl-short; do
 		echo "--- $t (softpipe reference)"
 		LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=softpipe timeout 600 $t /tmp/$t-ref.ppm | grep -E "RENDERER|checksum|PASS|FAIL"
 		echo "--- $t (RSX)"
@@ -29,7 +32,12 @@ if [ "$what" = mesa ] || [ "$what" = all ]; then
 		# Mesa silently falls back to softpipe when the nouveau screen fails: that's a failure
 		echo "$out" | grep -q "RENDERER: .*NV" || { echo "!!! not on the RSX"; exit 1; }
 		[ $rc = 0 ] || { echo "!!! FAILED ($rc): $t"; sudo dmesg | tail -20; exit 1; }
-		cmp -s /tmp/$t-ref.ppm /tmp/$t-nv.ppm && echo "    identical to softpipe" || echo "    differs from softpipe (compare /tmp/$t-*.ppm)"
+		# cmp -l lists differing bytes with octal values
+		cmp -l /tmp/$t-ref.ppm /tmp/$t-nv.ppm | awk '
+			function oct(s,  v, i) { v = 0; for (i = 1; i <= length(s); i++) v = v * 8 + substr(s, i, 1); return v }
+			{ d = oct($2) - oct($3); if (d < 0) d = -d; n++; if (d > max) max = d }
+			END { if (!n) print "    identical to softpipe";
+			      else printf "    vs softpipe: %d bytes differ, max %d%s\n", n, max, (max > 1 ? "  !!! more than rounding" : " (rounding)") }' 
 	done
 fi
 if [ "$what" = multi ] || [ "$what" = all ]; then

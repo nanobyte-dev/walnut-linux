@@ -157,6 +157,11 @@ Found while getting stock Mesa nv30 to run (each has a Mesa patch in `mesa/patch
   memory. A big-endian X server asks gbm for ARGB8888 meaning exactly that, so on big-endian the
   DRM 8888 fourccs are taken as host-order words (0007).
 
+- nv30 exports the fragment colour from the fp16 register H0. FP_CONTROL bit 6 (libgcm's
+  "32-bit exports") takes it from R0 instead, which works on the RSX and rounds like a fp32
+  pipeline (0009). What's left against softpipe is attribute interpolation: the cutover between
+  rounding down and up wanders over about 0.50-0.57 of an 8-bit step.
+
 KMS: `lv1_gpu_display_flip` from our context shows any VRAM offset, including above 224 MB
 (tested at 0xe100000). The CPU's writes through a VRAM mmap are seen by the GPU as written. No
 vblank interrupt is wired up; a timer at the frame rate paces flip events, and the flip itself
