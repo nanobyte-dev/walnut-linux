@@ -1,0 +1,2 @@
+# Defaults for a fresh ClassiCube (installed only when ~/classicube has no options.txt)
+fpslimit=LimitVSync

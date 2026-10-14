@@ -1,0 +1,8 @@
+# Game asset tools on top of the Mesa builder (its own image, so the Mesa/kernel tags don't change):
+# oggdec for ClassiCube's sounds.
+ARG BUILDER
+FROM ${BUILDER}
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends vorbis-tools curl && \
+    rm -rf /var/lib/apt/lists/*

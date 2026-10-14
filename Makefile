@@ -40,7 +40,7 @@ $(shell [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo 
 ROOTFS_INPUTS := $(ROOTFS_PACKAGES) $(ROOTFS_CUSTOMIZE) rootfs/desktop-setup.sh tools/build-rootfs.sh $(SSH_PUBKEY) $(ROOTFS_VARS)
 
 .PHONY: help all builder kernel rootfs checksums nfs-root nfs-modules netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
-	mesa-builder mesa-sysroot mesa mesa-tests mesa-deploy classicube classicube-deploy
+	mesa-builder mesa-sysroot mesa mesa-tests mesa-deploy classicube classicube-audio classicube-deploy
 
 help:
 	@echo "Build:"
@@ -103,7 +103,7 @@ checksums:
 # --- Deploy -------------------------------------------------------------------
 # The whole system: image, kernel modules, then everything built outside the image (RSX driver
 # and tools, Mesa, ClassiCube) into ~tibi, so a fresh root needs nothing done by hand.
-nfs-root: $(ROOTFS_TAR) $(KERNEL_STAGE)/boot/vmlinux gpu-tools mesa mesa-tests classicube
+nfs-root: $(ROOTFS_TAR) $(KERNEL_STAGE)/boot/vmlinux gpu-tools mesa mesa-tests classicube classicube-audio
 	sudo NFS_ROOT=$(NFS_ROOT) PS3_IP=$(PS3_IP) tools/install-nfs-root.sh $(ROOTFS_TAR) $(KERNEL_STAGE)
 	$(MAKE) gpu-deploy mesa-deploy classicube-deploy
 
@@ -188,11 +188,28 @@ $(CC_TEXPACK):
 	echo "$(CLASSICUBE_TEXPACK_SHA256)  $@.tmp" | sha256sum -c --quiet
 	mv $@.tmp $@
 
-# Into ~tibi/classicube (the game keeps options, maps and downloaded sounds next to itself)
-classicube-deploy: classicube
-	install -d $(PS3_HOME)/classicube/texpacks $(PS3_HOME)/.local/share/applications
+# Game asset tools (oggdec) on top of the Mesa builder
+GAMES_BUILDER_TAG := ps3-games-builder:$(shell (cat docker/Dockerfile.games; echo $(MESA_BUILDER_TAG)) | sha256sum | cut -c1-12)
+GAMES_BUILDER_STAMP := $(BUILD)/.games-builder-$(subst :,-,$(GAMES_BUILDER_TAG))
+$(GAMES_BUILDER_STAMP): docker/Dockerfile.games | $(MESA_BUILDER_STAMP)
+	docker build -q -t $(GAMES_BUILDER_TAG) -f docker/Dockerfile.games --build-arg BUILDER=$(MESA_BUILDER_TAG) docker
+	@touch $@
+
+# Sounds and music, fetched and converted as the game's launcher would (games/classicube/sounds.sh)
+CC_AUDIO := $(BUILD)/classicube/audio
+classicube-audio: $(CC_AUDIO)/default2.zip
+$(CC_AUDIO)/default2.zip: $(CC_TARBALL) games/classicube/sounds.sh | $(GAMES_BUILDER_STAMP)
+	$(DOCKER_RUN) --user $(UID_GID) -e CC_TARBALL=$(CC_TARBALL) $(GAMES_BUILDER_TAG) games/classicube/sounds.sh
+
+# Into ~tibi/classicube (the game keeps options, maps and screenshots next to itself); default
+# options only if there are none yet
+classicube-deploy: classicube classicube-audio
+	install -d $(PS3_HOME)/classicube/texpacks $(PS3_HOME)/classicube/audio $(PS3_HOME)/.local/share/applications
 	install -m 755 $(CC_INSTALL)/ClassiCube games/classicube/classicube.sh $(PS3_HOME)/classicube/
 	install -m 644 $(CC_INSTALL)/texpacks/classicube.zip $(PS3_HOME)/classicube/texpacks/
+	install -m 644 $(CC_AUDIO)/* $(PS3_HOME)/classicube/audio/
+	[ -e $(PS3_HOME)/classicube/options.txt ] || \
+		install -m 644 games/classicube/options.txt $(PS3_HOME)/classicube/options.txt
 	install -m 644 games/classicube/classicube.desktop $(PS3_HOME)/.local/share/applications/
 
 classicube: $(CC_INSTALL)/ClassiCube
