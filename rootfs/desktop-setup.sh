@@ -99,8 +99,10 @@ done
 # Openbox look: Greybird (window borders and GTK), Papirus icons; tint2 launchers for the
 # application menu (jgmenu), files and a terminal
 mkdir -p "$R/home/tibi/.config/openbox" "$R/home/tibi/.config/tint2" "$R/home/tibi/.config/gtk-3.0"
-sed 's|<name>Clearlooks</name>|<name>Greybird</name>|' "$R/etc/xdg/openbox/rc.xml" \
-	> "$R/home/tibi/.config/openbox/rc.xml"
+# Games start fullscreen (ClassiCube has no option for it), without decorations
+sed -e 's|<name>Clearlooks</name>|<name>Greybird</name>|' \
+	-e 's|</applications>|  <application class="ClassiCube">\n    <decor>no</decor>\n    <fullscreen>yes</fullscreen>\n  </application>\n</applications>|' \
+	"$R/etc/xdg/openbox/rc.xml" > "$R/home/tibi/.config/openbox/rc.xml"
 sed -e "/^launcher_item_app/d" \
 	"$R/etc/xdg/tint2/tint2rc" > "$R/home/tibi/.config/tint2/tint2rc"
 sed -i '/^launcher_icon_theme_override/a launcher_item_app = jgmenu.desktop\nlauncher_item_app = pcmanfm.desktop\nlauncher_item_app = rxvt-unicode.desktop' \

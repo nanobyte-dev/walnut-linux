@@ -19,6 +19,8 @@ struct nv30_screen {
 
    struct nv30_context *cur_ctx;
 
+   bool ps3_vbo_fifo; /* PS3: push vertices inline instead of fetching (NV30_PS3_VBO_FIFO) */
+
    struct nouveau_bo *notify;
 
    struct nouveau_object *ntfy;

@@ -193,7 +193,11 @@ nv30_vbo_validate(struct nv30_context *nv30)
       return;
 
 #if UTIL_ARCH_BIG_ENDIAN
-   if (1) { /* Figure out where the buffers are getting messed up */
+   /* NV4x in big-endian Macs fetched vertex buffers wrongly, so they push every vertex inline.
+    * The RSX fetches big-endian vertex and index data natively (libgcm feeds it that way): on
+    * the PS3 the hardware fetches from the buffers, unless NV30_PS3_VBO_FIFO=1. */
+   if (!nv30->screen->base.is_ps3 || nv30->screen->ps3_vbo_fifo ||
+       unlikely(vertex->need_conversion)) {
 #else
    if (unlikely(vertex->need_conversion)) {
 #endif

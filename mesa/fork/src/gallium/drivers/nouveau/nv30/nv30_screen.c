@@ -28,6 +28,7 @@
 #include "util/format/u_format.h"
 #include "util/format/u_format_s3tc.h"
 #include "util/u_screen.h"
+#include "util/u_debug.h"
 
 #include "nv_object.xml.h"
 #include "nv_m2mf.xml.h"
@@ -515,15 +516,17 @@ nv30_screen_create(struct nouveau_device *dev)
    if (ret)
       FAIL_SCREEN_INIT("nv30_screen_init failed: %d\n", ret);
 
-   /* PS3: vertex/index data stays in GART, the CPU reads it back to push it inline
-    * on big-endian and reads from VRAM are very slow.
+   /* PS3: the RSX fetches vertex/index buffers itself (nv30_vbo_validate), so they go to
+    * VRAM like on PCs. With NV30_PS3_VBO_FIFO=1 the CPU pushes them inline instead: then they
+    * stay in GART, since CPU reads from VRAM are very slow.
     */
    const bool ps3 = screen->base.is_ps3;
-   if (!ps3)
+   screen->ps3_vbo_fifo = ps3 && debug_get_bool_option("NV30_PS3_VBO_FIFO", false);
+   if (!screen->ps3_vbo_fifo)
       screen->base.vidmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
    screen->base.sysmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
    if (oclass == NV40_3D_CLASS) {
-      if (!ps3)
+      if (!screen->ps3_vbo_fifo)
          screen->base.vidmem_bindings |= PIPE_BIND_INDEX_BUFFER;
       screen->base.sysmem_bindings |= PIPE_BIND_INDEX_BUFFER;
    }
