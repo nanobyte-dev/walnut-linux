@@ -72,3 +72,5 @@ linux-perf
 libsdl3-0
 libopenal1
 libssl3t64
+# OpenArena (Debian's ioquake3 engine: SDL2 window and gamepad, OpenAL, GL1 renderer)
+openarena

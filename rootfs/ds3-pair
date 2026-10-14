@@ -1,0 +1,72 @@
+#!/usr/bin/python3
+# Pairs a DualShock 3 plugged in by USB with the PS3's Bluetooth (run by udev, as root):
+# what BlueZ's sixaxis plugin does, without the agent it needs to authorize the cable pairing.
+#  - writes the adapter's address into the controller as its host (feature report 0xf5)
+#  - registers the controller in BlueZ's storage as trusted, with the HID record BlueZ uses for
+#    it (plugins/sixaxis.c, 5.87), then restarts bluetoothd to load it
+# Afterwards the PS button connects it over Bluetooth. Usage: ds3-pair /dev/hidrawN
+import fcntl, os, re, subprocess, sys, syslog
+
+HID_UUID = "00001124-0000-1000-8000-00805f9b34fb"
+SDP_RECORD = (
+    "3601920900000A000100000900013503191124090004350D3506190100090011350319001109000635090965"
+    "6E09006A0901000900093508350619112409010009000D350F350D3506190100090013350319001109010025"
+    "13576972656C65737320436F6E74726F6C6C65720901012513576972656C65737320436F6E74726F6C6C6572"
+    "090102251B536F6E7920436F6D707574657220456E7465727461696E6D656E74090200090100090201090100"
+    "0902020800090203082109020428010902052801090206359A35980822259405010904A101A1028501750895"
+    "01150026FF00810375019513150025013500450105091901291381027501950D0600FF8103150026FF000501"
+    "0901A10075089504350046FF0009300931093209358102C00501750895270901810275089530090191027508"
+    "95300901B102C0A1028502750895300901B102C0A10285EE750895300901B102C0A10285EF750895300901B1"
+    "02C0C0090207350835060904090901000902082800090209280109020A280109020B09010009020C093E8009"
+    "020D280009020E2800")
+
+
+def ioc(nr, size):  # _IOC(_IOC_READ | _IOC_WRITE, 'H', nr, size), PowerPC encoding on the PS3
+    if os.uname().machine.startswith("ppc"):
+        return ((2 | 4) << 29) | (size << 16) | (ord('H') << 8) | nr
+    return ((1 | 2) << 30) | (size << 16) | (ord('H') << 8) | nr
+
+
+def get_feature(fd, report, size):
+    buf = bytearray(size)
+    buf[0] = report
+    fcntl.ioctl(fd, ioc(0x07, size), buf)  # HIDIOCGFEATURE
+    return buf
+
+
+def set_feature(fd, data):
+    fcntl.ioctl(fd, ioc(0x06, len(data)), bytearray(data))  # HIDIOCSFEATURE
+
+
+def adapter_address():
+    out = subprocess.run(["btmgmt", "info"], capture_output=True, text=True).stdout
+    m = re.search(r"addr ([0-9A-F:]{17})", out)
+    if not m:
+        raise SystemExit("no Bluetooth adapter")
+    return m.group(1)
+
+
+def main():
+    syslog.openlog("ds3-pair")
+    fd = os.open(sys.argv[1], os.O_RDWR)
+    dev = ":".join("%02X" % b for b in get_feature(fd, 0xf2, 18)[4:10])
+    host = adapter_address()
+    set_feature(fd, [0xf5, 0x01] + [int(x, 16) for x in host.split(":")])
+    os.close(fd)
+
+    base = "/var/lib/bluetooth/%s" % host
+    os.makedirs("%s/%s" % (base, dev), mode=0o700, exist_ok=True)
+    os.makedirs("%s/cache" % base, mode=0o700, exist_ok=True)
+    with open("%s/%s/info" % (base, dev), "w") as f:
+        f.write("[General]\nName=Sony PLAYSTATION(R)3 Controller\nClass=0x000508\n"
+                "SupportedTechnologies=BR/EDR;\nTrusted=true\nBlocked=false\n"
+                "CablePairing=true\nServices=%s;\n\n"
+                "[DeviceID]\nSource=2\nVendor=1356\nProduct=616\nVersion=0\n" % HID_UUID)
+    with open("%s/cache/%s" % (base, dev), "w") as f:
+        f.write("[General]\nName=Sony PLAYSTATION(R)3 Controller\n\n"
+                "[ServiceRecords]\n0x00010000=%s\n" % SDP_RECORD)
+    subprocess.run(["systemctl", "restart", "bluetooth"])
+    syslog.syslog("DualShock 3 %s paired with %s" % (dev, host))
+
+
+main()

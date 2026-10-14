@@ -138,6 +138,17 @@ printf '%s\n' '[keyfile]' 'unmanaged-devices=interface-name:eth0' '[main]' 'dns=
 # container's resolv.conf; NetworkManager is told to leave it alone (above)
 ln -sf /proc/net/pnp "$R/etc/resolv.conf"
 
+# DualShock 3: plugging it in by USB pairs it with the PS3's Bluetooth (ds3-pair, run from
+# udev; BlueZ's own sixaxis plugin needs an agent to authorize that). The DS3 never bonds, so
+# BlueZ's input profile must accept unbonded devices.
+install -m 755 "$(dirname "$0")/ds3-pair" "$R/usr/local/sbin/ds3-pair"
+cat > "$R/etc/udev/rules.d/70-ds3-pair.rules" <<'EOF'
+ACTION=="add", SUBSYSTEM=="hidraw", KERNELS=="*:054C:0268.*", \
+	RUN+="/usr/bin/systemd-run --no-block --unit=ds3-pair-%k /usr/local/sbin/ds3-pair /dev/%k"
+EOF
+sed -i 's/^#\? *ClassicBondedOnly *=.*/ClassicBondedOnly=false/' "$R/etc/bluetooth/input.conf"
+grep -q '^ClassicBondedOnly=false' "$R/etc/bluetooth/input.conf"
+
 # A real locale (only C existed: Qt complained, Enlightenment's language list was empty)
 echo "en_US.UTF-8 UTF-8" > "$R/etc/locale.gen"
 chroot "$R" locale-gen
