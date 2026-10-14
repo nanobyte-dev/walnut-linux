@@ -74,9 +74,13 @@ Bluetooth keyboard types; `free -m` after login with the desktop idle.
 
 ## Open issues (2026-10-14, after the performance round)
 
-- Resizing an xeglgears window raised graph exception 0x106 (GPU wedged until reboot); see
-  docs/RSX.md. Reproduce with scripted resizes and a libdrm push dump, then reject the cause in
-  the validator.
+- Fixed 2026-10-14: resizing GL windows leaked ~3 window-sized buffers per resize until VRAM ran
+  out (Mesa 0011: nv30 surfaces now release their texture); ghosting gone. Graph exception 0x106
+  = a swizzled render target 1 pixel wide, which glamor creates (Mesa 0012 keeps them linear,
+  the validator rejects them). Verified: 400-step drag of xeglgears in LXQt, no exception,
+  constant memory. Remaining: some tearing (xserver 21.1 modesetting has no TearFree).
+- When X exits, ps3rsx flips back to ps3fb's frame, but ps3fb doesn't redraw the console while
+  ps3rsx holds the GPU, so the screen stays dark until X runs again or ps3rsx is unloaded.
 - pcmanfm-qt: "Operation not supported" (likely the Computer/Network/trash locations, which
   need gvfs). Main menu button has no icon.
 - Hardware cursor: X uses the cursor plane but nothing shows; the 0x10d init froze the PS3

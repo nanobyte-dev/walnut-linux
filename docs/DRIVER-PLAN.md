@@ -453,10 +453,11 @@ The load pointers are restored afterwards.
 
 What differed from the plan:
 - Swap is zram only: the NFS swapfile deadlocked under memory pressure.
-- Mesa needed 9 patches, not 1: PS3 handles (0001), vertex type 0 (0002), blit into GART (0003),
+- Mesa needed 12 patches, not 1: PS3 handles (0001), vertex type 0 (0002), blit into GART (0003),
   big-endian blit fragment program (0004), no Z16 (0005), flushing an empty context (0006),
   host-order 8888 formats for gbm/X on big-endian (0007), no single-attribute inline vertices
-  (0008), fp32 colour export (0009). Facts behind them: docs/RSX.md.
+  (0008), fp32 colour export (0009), textures in CPU-visible VRAM (0010), surfaces releasing
+  their texture (0011), no swizzled 1-pixel-wide render targets (0012). Facts behind them: docs/RSX.md.
 - The driver waits for an open primitive to close before switching channels.
 
 docs/PLAN.md and README
