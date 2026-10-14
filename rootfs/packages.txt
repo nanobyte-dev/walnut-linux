@@ -18,3 +18,11 @@ kexec-tools
 libdrm-tests
 systemd-timesyncd
 debian-ports-archive-keyring
+xserver-xorg-core
+xserver-xorg-legacy
+xinit
+xauth
+x11-xserver-utils
+x11-apps
+mesa-utils
+kmscube

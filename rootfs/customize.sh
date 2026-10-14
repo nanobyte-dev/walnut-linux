@@ -121,3 +121,22 @@ ExecStop=/sbin/swapoff /var/swapfile
 WantedBy=multi-user.target
 EOS
 chroot "$R" systemctl enable ps3-swap.service
+
+# Xorg on the RSX (docs/DRIVER-PLAN.md Phase 6): modesetting on ps3rsx's card with glamor,
+# using the patched Mesa in /home/tibi/mesa (deployed by `make mesa-deploy`). ld.so.conf makes
+# the setuid Xorg pick it up (it ignores LD_LIBRARY_PATH).
+mkdir -p "$R/etc/X11/xorg.conf.d"
+cat > "$R/etc/X11/xorg.conf.d/20-ps3rsx.conf" <<'EOS'
+Section "ServerFlags"
+	Option "AutoAddGPU" "false"
+EndSection
+
+Section "Device"
+	Identifier "RSX"
+	Driver "modesetting"
+	Option "kmsdev" "/dev/dri/card0"
+	Option "AccelMethod" "glamor"
+	Option "ShadowFB" "true"
+EndSection
+EOS
+echo /home/tibi/mesa/lib > "$R/etc/ld.so.conf.d/00-ps3mesa.conf"
