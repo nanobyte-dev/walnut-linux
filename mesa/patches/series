@@ -1,0 +1,2 @@
+# Mesa patches, applied in order to the release tarball (patch -p1)
+0001-nouveau-nv30-ps3-rsx.patch

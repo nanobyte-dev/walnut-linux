@@ -1,0 +1,214 @@
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Subject: [PATCH] nouveau/nv30: run on the PS3 RSX (ps3rsx kernel driver)
+
+The PS3's RSX is an NV47-class GPU behind the hypervisor. The ps3rsx kernel driver speaks the
+nouveau ABI, but the GPU objects and DMA objects already exist with fixed (libgcm) handles,
+and the fence/query/notify areas live in one shared reports area. Detect it (PCI vendor 0x104d
+plus the PS3_ABI getparam, before the channel is allocated) and, only then:
+- use the PS3 VRAM/GART DMA handles and object/notifier handles;
+- emit the fence at the notifier's offset with the semaphore byte swap undone;
+- offset query reports by the channel's slice in the report DMA;
+- keep vertex/index buffers out of VRAM;
+- don't pad scanout pitch to a power of two (the display pitch is width * 4).
+
+--- a/src/gallium/drivers/nouveau/nouveau_screen.c
++++ b/src/gallium/drivers/nouveau/nouveau_screen.c
+@@ -322,6 +322,19 @@
+    screen->device = dev;
+    screen->initialized = false;
+ 
++   /* PS3 RSX: Sony's PCI vendor id, and the PS3_ABI getparam, which the kernel requires
++    * before it hands out a channel. The VRAM/GART DMA objects are the hypervisor's.
++    */
++   uint64_t vendor, ps3_abi;
++   screen->is_ps3 = dev->chipset == 0x47 &&
++                    !nouveau_getparam(dev, NOUVEAU_GETPARAM_PCI_VENDOR, &vendor) &&
++                    vendor == 0x104d &&
++                    !nouveau_getparam(dev, 0x1000 /* PS3_ABI */, &ps3_abi);
++   if (screen->is_ps3) {
++      nv04_data.vram = 0xfeed0000;
++      nv04_data.gart = 0xfeed0001;
++   }
++
+    if (dev->chipset < 0xc0) {
+       data = &nv04_data;
+       size = sizeof(nv04_data);
+--- a/src/gallium/drivers/nouveau/nouveau_screen.h
++++ b/src/gallium/drivers/nouveau/nouveau_screen.h
+@@ -68,6 +68,7 @@
+    bool has_svm;
+    bool is_uma;
+    bool disable_fences;
++   bool is_ps3; /* RSX behind the ps3rsx kernel driver: PS3 handles and offsets */
+    void *svm_cutout;
+    size_t svm_cutout_size;
+ 
+--- a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
+@@ -449,7 +449,8 @@
+        mt->ms_mode) {
+       mt->uniform_pitch = util_format_get_nblocksx(pt->format, w) * blocksz;
+       mt->uniform_pitch = align(mt->uniform_pitch, 64);
+-      if (pt->bind & PIPE_BIND_SCANOUT) {
++      if ((pt->bind & PIPE_BIND_SCANOUT) &&
++          !nv30_screen(pscreen)->base.is_ps3) {
+          struct nv30_screen *screen = nv30_screen(pscreen);
+          int pitch_align = MAX2(
+                screen->eng3d->oclass >= NV40_3D_CLASS ? 1024 : 256,
+--- a/src/gallium/drivers/nouveau/nv30/nv30_query.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_query.c
+@@ -34,6 +34,14 @@
+    struct nouveau_heap *hw;
+ };
+ 
++/* Offset of the query notifier inside the query DMA object */
++static inline uint32_t
++nv30_query_base(struct nv30_screen *screen)
++{
++   struct nv04_notify *query = screen->query->data;
++   return screen->base.is_ps3 ? query->offset - 0x1400 : 0;
++}
++
+ static volatile void *
+ nv30_ntfy(struct nv30_screen *screen, struct nv30_query_object *qo)
+ {
+@@ -156,7 +164,7 @@
+       q->qo[0] = nv30_query_object_new(nv30->screen);
+       if (q->qo[0]) {
+          BEGIN_NV04(push, NV30_3D(QUERY_GET), 1);
+-         PUSH_DATA (push, (q->report << 24) | q->qo[0]->hw->start);
++         PUSH_DATA (push, (q->report << 24) | (nv30_query_base(nv30->screen) + q->qo[0]->hw->start));
+       }
+       break;
+    case PIPE_QUERY_TIMESTAMP:
+@@ -185,7 +193,7 @@
+    q->qo[1] = nv30_query_object_new(screen);
+    if (q->qo[1]) {
+       BEGIN_NV04(push, NV30_3D(QUERY_GET), 1);
+-      PUSH_DATA (push, (q->report << 24) | q->qo[1]->hw->start);
++      PUSH_DATA (push, (q->report << 24) | (nv30_query_base(screen) + q->qo[1]->hw->start));
+    }
+ 
+    if (q->enable) {
+@@ -261,7 +269,7 @@
+    }
+ 
+    BEGIN_NV04(push, SUBC_3D(0x1e98), 1);
+-   PUSH_DATA (push, 0x02000000 | q->qo[1]->hw->start);
++   PUSH_DATA (push, 0x02000000 | (nv30_query_base(nv30->screen) + q->qo[1]->hw->start));
+ }
+ 
+ static void
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -369,8 +369,17 @@
+    assert(PUSH_AVAIL(push) + push->rsvd_kick >= 3);
+    PUSH_DATA (push, NV30_3D_FENCE_OFFSET |
+               (2 /* size */ << 18) | (7 /* subchan */ << 13));
+-   PUSH_DATA (push, 0);
+-   PUSH_DATA (push, *sequence);
++   if (screen->base.is_ps3) {
++      /* The RSX semaphore DMA covers the whole notifier, and the value written is stored
++       * with bytes 0 and 2 swapped: pre-swap it so the readback equals the sequence.
++       */
++      uint32_t s = *sequence;
++      PUSH_DATA (push, ((struct nv04_notify *)screen->fence->data)->offset);
++      PUSH_DATA (push, (s & 0xff00ff00) | ((s & 0xff) << 16) | ((s >> 16) & 0xff));
++   } else {
++      PUSH_DATA (push, 0);
++      PUSH_DATA (push, *sequence);
++   }
+ 
+    nouveau_pushbuf_refn(push, &ref, 1);
+ }
+@@ -500,10 +509,16 @@
+    if (ret)
+       FAIL_SCREEN_INIT("nv30_screen_init failed: %d\n", ret);
+ 
+-   screen->base.vidmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
++   /* PS3: vertex/index data stays in GART, the CPU reads it back to push it inline
++    * on big-endian and reads from VRAM are very slow.
++    */
++   const bool ps3 = screen->base.is_ps3;
++   if (!ps3)
++      screen->base.vidmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
+    screen->base.sysmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
+    if (oclass == NV40_3D_CLASS) {
+-      screen->base.vidmem_bindings |= PIPE_BIND_INDEX_BUFFER;
++      if (!ps3)
++         screen->base.vidmem_bindings |= PIPE_BIND_INDEX_BUFFER;
+       screen->base.sysmem_bindings |= PIPE_BIND_INDEX_BUFFER;
+    }
+ 
+@@ -526,7 +541,7 @@
+     * be 4KiB aligned, which means this object needs to be the first
+     * one allocated on the channel.
+     */
+-   ret = nouveau_object_new(screen->base.channel, 0xbeef1e00,
++   ret = nouveau_object_new(screen->base.channel, ps3 ? 0x66606660 : 0xbeef1e00,
+                             NOUVEAU_NOTIFIER_CLASS, &(struct nv04_notify) {
+                             .length = 32 }, sizeof(struct nv04_notify),
+                             &screen->fence);
+@@ -534,7 +549,7 @@
+       FAIL_SCREEN_INIT("error allocating fence notifier: %d\n", ret);
+ 
+    /* DMA_NOTIFY object, we don't actually use this but M2MF fails without */
+-   ret = nouveau_object_new(screen->base.channel, 0xbeef0301,
++   ret = nouveau_object_new(screen->base.channel, ps3 ? 0x66604200 : 0xbeef0301,
+                             NOUVEAU_NOTIFIER_CLASS, &(struct nv04_notify) {
+                             .length = 32 }, sizeof(struct nv04_notify),
+                             &screen->ntfy);
+@@ -545,7 +560,7 @@
+     * the remainder of the "notifier block" assigned by the kernel for
+     * use as query objects
+     */
+-   ret = nouveau_object_new(screen->base.channel, 0xbeef0351,
++   ret = nouveau_object_new(screen->base.channel, ps3 ? 0x66626660 : 0xbeef0351,
+                             NOUVEAU_NOTIFIER_CLASS, &(struct nv04_notify) {
+                             .length = 4096 - 128 }, sizeof(struct nv04_notify),
+                             &screen->query);
+@@ -575,7 +590,7 @@
+    if (ret)
+       FAIL_SCREEN_INIT("error mapping notifier memory: %d\n", ret);
+ 
+-   ret = nouveau_object_new(screen->base.channel, 0xbeef3097, oclass,
++   ret = nouveau_object_new(screen->base.channel, ps3 ? 0x31337000 : 0xbeef3097, oclass,
+                             NULL, 0, &screen->eng3d);
+    if (ret)
+       FAIL_SCREEN_INIT("error allocating 3d object: %d\n", ret);
+@@ -650,7 +665,7 @@
+       PUSH_DATA (push, NV40_3D_MIPMAP_ROUNDING_MODE_DOWN);
+    }
+ 
+-   ret = nouveau_object_new(screen->base.channel, 0xbeef3901, NV03_M2MF_CLASS,
++   ret = nouveau_object_new(screen->base.channel, ps3 ? 0x31337303 : 0xbeef3901, NV03_M2MF_CLASS,
+                             NULL, 0, &screen->m2mf);
+    if (ret)
+       FAIL_SCREEN_INIT("error allocating m2mf object: %d\n", ret);
+@@ -660,7 +675,7 @@
+    BEGIN_NV04(push, NV03_M2MF(DMA_NOTIFY), 1);
+    PUSH_DATA (push, screen->ntfy->handle);
+ 
+-   ret = nouveau_object_new(screen->base.channel, 0xbeef6201,
++   ret = nouveau_object_new(screen->base.channel, ps3 ? 0x313371c3 : 0xbeef6201,
+                             NV10_SURFACE_2D_CLASS, NULL, 0, &screen->surf2d);
+    if (ret)
+       FAIL_SCREEN_INIT("error allocating surf2d object: %d\n", ret);
+@@ -675,7 +690,7 @@
+    else
+       oclass = NV40_SURFACE_SWZ_CLASS;
+ 
+-   ret = nouveau_object_new(screen->base.channel, 0xbeef5201, oclass,
++   ret = nouveau_object_new(screen->base.channel, ps3 ? 0x31337a73 : 0xbeef5201, oclass,
+                             NULL, 0, &screen->swzsurf);
+    if (ret)
+       FAIL_SCREEN_INIT("error allocating swizzled surface object: %d\n", ret);
+@@ -690,7 +705,7 @@
+    else
+       oclass = NV40_SIFM_CLASS;
+ 
+-   ret = nouveau_object_new(screen->base.channel, 0xbeef7701, oclass,
++   ret = nouveau_object_new(screen->base.channel, ps3 ? 0x3137af00 : 0xbeef7701, oclass,
+                             NULL, 0, &screen->sifm);
+    if (ret)
+       FAIL_SCREEN_INIT("error allocating scaled image object: %d\n", ret);
