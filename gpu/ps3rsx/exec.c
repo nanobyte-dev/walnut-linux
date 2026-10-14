@@ -222,6 +222,14 @@ int ps3rsx_exec_init(struct ps3rsx_device *rsx)
 	u32 *p;
 	int ret, i;
 
+	rsx->hw_shadow = ps3rsx_shadow_new();
+	rsx->restore_buf = kvmalloc(RESTORE_MAX_WORDS * 4, GFP_KERNEL);
+	rsx->last_chan = -1;
+	if (!rsx->hw_shadow || !rsx->restore_buf) {
+		ps3rsx_shadow_free(rsx->hw_shadow);
+		kvfree(rsx->restore_buf);
+		return -ENOMEM;
+	}
 	INIT_LIST_HEAD(&rsx->fences);
 	spin_lock_init(&rsx->fence_lock);
 	mutex_init(&rsx->exec_lock);
@@ -304,4 +312,6 @@ void ps3rsx_exec_fini(struct ps3rsx_device *rsx)
 		drm_err(&rsx->drm, "GPU wedged: keeping it from ps3fb until reboot\n");
 	iounmap(rsx->ctrl);
 	rsx->ctrl = NULL;
+	ps3rsx_shadow_free(rsx->hw_shadow);
+	kvfree(rsx->restore_buf);
 }

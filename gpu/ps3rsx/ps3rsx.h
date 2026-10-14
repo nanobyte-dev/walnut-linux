@@ -90,6 +90,9 @@ struct ps3rsx_device {
 
 	struct mutex chan_lock;
 	DECLARE_BITMAP(chan_ids, PS3RSX_MAX_CHANNELS);
+	struct ps3rsx_shadow *hw_shadow;	/* what the GPU holds (exec_lock) */
+	int last_chan;				/* channel whose state the GPU holds, or -1 */
+	u32 *restore_buf;
 
 	/* KMS (kms.c) */
 	struct drm_connector connector;
@@ -130,6 +133,14 @@ void ps3rsx_exec_fini(struct ps3rsx_device *rsx);
 u32 *ps3rsx_ring_begin(struct ps3rsx_device *rsx, u32 len, int *err);
 struct dma_fence *ps3rsx_ring_commit(struct ps3rsx_device *rsx, u32 len, bool kick);
 
+struct ps3rsx_shadow *ps3rsx_shadow_new(void);
+void ps3rsx_shadow_free(struct ps3rsx_shadow *sh);
+void ps3rsx_shadow_apply(struct ps3rsx_shadow *sh, const u32 *w, u32 nwords);
+int ps3rsx_shadow_restore(const struct ps3rsx_shadow *ch, const struct ps3rsx_shadow *hw,
+			  u32 *buf, u32 max_words);
+void ps3rsx_shadow_take(const struct ps3rsx_shadow *ch, struct ps3rsx_shadow *hw);
+#define RESTORE_MAX_WORDS	(16 * 1024)
+
 bool ps3rsx_known_object(u32 handle);
 int ps3rsx_validate(struct ps3rsx_vstate *vs, const u32 *w, u32 nwords);
 
@@ -149,10 +160,13 @@ struct ps3rsx_vstate {
 	u32 bound[8];
 };
 
+struct ps3rsx_shadow;
+
 struct ps3rsx_chan {
 	struct list_head head;
 	u32 id;
 	struct ps3rsx_vstate vstate;
+	struct ps3rsx_shadow *shadow;	/* the state this channel's pushes set (shadow.c) */
 };
 
 /* Per open file */

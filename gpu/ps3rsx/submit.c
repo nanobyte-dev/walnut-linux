@@ -14,6 +14,10 @@
 
 #include "ps3rsx.h"
 
+static bool ctxsw = true;
+module_param(ctxsw, bool, 0644);
+MODULE_PARM_DESC(ctxsw, "Restore a channel's GPU state when switching between channels");
+
 static bool dry_run;
 module_param_named(dry_run, dry_run, bool, 0644);
 MODULE_PARM_DESC(dry_run, "Validate submissions but send nothing to the GPU");
@@ -38,7 +42,12 @@ static void chan_free(struct ps3rsx_device *rsx, struct ps3rsx_chan *ch)
 	mutex_lock(&rsx->chan_lock);
 	clear_bit(ch->id, rsx->chan_ids);
 	mutex_unlock(&rsx->chan_lock);
+	mutex_lock(&rsx->exec_lock);
+	if (rsx->last_chan == ch->id)
+		rsx->last_chan = -1;
+	mutex_unlock(&rsx->exec_lock);
 	list_del(&ch->head);
+	ps3rsx_shadow_free(ch->shadow);
 	kfree(ch);
 }
 
@@ -65,12 +74,18 @@ int ps3rsx_ioctl_channel_alloc(struct drm_device *dev, void *data, struct drm_fi
 	ch = kzalloc(sizeof(*ch), GFP_KERNEL);
 	if (!ch)
 		return -ENOMEM;
+	ch->shadow = ps3rsx_shadow_new();
+	if (!ch->shadow) {
+		kfree(ch);
+		return -ENOMEM;
+	}
 	mutex_lock(&rsx->chan_lock);
 	id = find_first_zero_bit(rsx->chan_ids, PS3RSX_MAX_CHANNELS);
 	if (id < PS3RSX_MAX_CHANNELS)
 		set_bit(id, rsx->chan_ids);
 	mutex_unlock(&rsx->chan_lock);
 	if (id >= PS3RSX_MAX_CHANNELS) {
+		ps3rsx_shadow_free(ch->shadow);
 		kfree(ch);
 		return -ENOSPC;
 	}
@@ -99,6 +114,7 @@ err:
 	mutex_lock(&rsx->chan_lock);
 	clear_bit(id, rsx->chan_ids);
 	mutex_unlock(&rsx->chan_lock);
+	ps3rsx_shadow_free(ch->shadow);
 	kfree(ch);
 	return ret;
 }
@@ -207,7 +223,7 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	struct ps3rsx_chan *ch;
 	bool sync = req->vram_available & NOUVEAU_GEM_PUSHBUF_SYNC;
 	u64 total = 0;
-	u32 i, *ring;
+	u32 i, *ring, restore;
 	int ret;
 
 	req->suffix0 = 0;		/* pushes are copied: no RETURN needed after them */
@@ -278,13 +294,25 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	}
 
 	mutex_lock(&rsx->exec_lock);
-	ring = ps3rsx_ring_begin(rsx, total, &ret);
+	/* another channel ran last: put this channel's state back first */
+	restore = 0;
+	if (ctxsw && rsx->last_chan != ch->id) {
+		ret = ps3rsx_shadow_restore(ch->shadow, rsx->hw_shadow, rsx->restore_buf,
+					    RESTORE_MAX_WORDS);
+		if (ret < 0) {
+			mutex_unlock(&rsx->exec_lock);
+			goto out;
+		}
+		restore = ret * 4;
+	}
+	ring = ps3rsx_ring_begin(rsx, restore + total, &ret);
 	if (!ring) {
 		mutex_unlock(&rsx->exec_lock);
 		goto out;
 	}
+	memcpy(ring, rsx->restore_buf, restore);
 	{
-		u32 *dst = ring;
+		u32 *dst = ring + restore / 4;
 
 		for (i = 0; i < req->nr_push; i++) {
 			u64 len = push[i].length & ~(u64)NOUVEAU_GEM_PUSHBUF_NO_PREFETCH;
@@ -304,7 +332,22 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 			dst += len / 4;
 		}
 	}
-	fence = ps3rsx_ring_commit(rsx, total, !dry_run);
+	fence = ps3rsx_ring_commit(rsx, restore + total, !dry_run);
+	if (!IS_ERR(fence)) {
+		/* the GPU now holds this channel's state, then what its pushes set */
+		u32 *src = ring + restore / 4;
+
+		if (ctxsw && rsx->last_chan != ch->id)
+			ps3rsx_shadow_take(ch->shadow, rsx->hw_shadow);
+		for (i = 0; i < req->nr_push; i++) {
+			u64 len = push[i].length & ~(u64)NOUVEAU_GEM_PUSHBUF_NO_PREFETCH;
+
+			ps3rsx_shadow_apply(ch->shadow, src, len / 4);
+			ps3rsx_shadow_apply(rsx->hw_shadow, src, len / 4);
+			src += len / 4;
+		}
+		rsx->last_chan = ch->id;
+	}
 	mutex_unlock(&rsx->exec_lock);
 	if (IS_ERR(fence)) {
 		ret = PTR_ERR(fence);
