@@ -41,13 +41,11 @@ fi
 EOF
 chroot "$R" chown 1000:1000 /home/tibi/.bash_profile
 
-# X session: IceWM with PCManFM's desktop (default; ~13 MB against LXQt's ~72 MB, which leaves
-# room for gvfs: trash, USB drives, network), or lxqt/xfce/enlightenment/openbox written to
-# ~/.config/ps3-desktop (being compared, docs/DESKTOP-PLAN.md).
+# X session: Openbox (~129 MB in all with network/volume/USB; chosen over LXQt, IceWM, Xfce and
+# Enlightenment, docs/DESKTOP-PLAN.md).
 # A splash shows until the desktop window is up.
 cat > "$R/usr/local/bin/ps3-session" <<'EOS'
 #!/bin/sh
-desktop=$(cat ~/.config/ps3-desktop 2>/dev/null || echo icewm)
 xsetroot -solid '#14304d'
 xmessage -center -buttons '' -bg '#14304d' -fg white -bd '#14304d' \
 	-fn '-misc-fixed-bold-r-normal--18-*-*-*-*-*-iso10646-1' \
@@ -61,18 +59,12 @@ splash=$!
 		[ $t -gt 120 ] || { sleep 1; t=$((t + 1)); continue; }
 	kill $splash
 done) &
-# gvfs and the tray applets need a session bus: dbus-launch for the sessions that don't start one
-case "$desktop" in
-lxqt)	exec startlxqt ;;
-xfce)	exec startxfce4 ;;
-enlightenment)
-	exec dbus-launch --exit-with-session enlightenment_start ;;
-openbox)
-	exec dbus-launch --exit-with-session sh -c '
-		pcmanfm --desktop & tint2 & nm-applet & pnmixer & lxpolkit & dunst &
-		exec openbox' ;;
-*)	exec dbus-launch --exit-with-session sh -c 'pcmanfm --desktop & exec icewm-session --nobg' ;;
-esac
+# gvfs and the tray applets need a session bus. Openbox: tint2 panel (jgmenu, tray, clock),
+# PCManFM desktop icons, network and volume applets, notifications, polkit agent. Bluetooth:
+# blueman from the menu, no resident tray (~60 MB of Python).
+exec dbus-launch --exit-with-session sh -c '
+	pcmanfm --desktop & tint2 & nm-applet & pnmixer & lxpolkit & dunst &
+	exec openbox'
 EOS
 chmod 755 "$R/usr/local/bin/ps3-session"
 
@@ -103,6 +95,19 @@ for m in afc goa; do
 	f=/usr/share/gvfs/remote-volume-monitors/$m.monitor
 	[ -e "$R$f" ] && chroot "$R" dpkg-divert --quiet --local --rename --divert "$f.disabled" --add "$f"
 done
+
+# Openbox look: Greybird (window borders and GTK), Papirus icons; tint2 launchers for the
+# application menu (jgmenu), files and a terminal
+mkdir -p "$R/home/tibi/.config/openbox" "$R/home/tibi/.config/tint2" "$R/home/tibi/.config/gtk-3.0"
+sed 's|<name>Clearlooks</name>|<name>Greybird</name>|' "$R/etc/xdg/openbox/rc.xml" \
+	> "$R/home/tibi/.config/openbox/rc.xml"
+sed -e "/^launcher_item_app/d" \
+	"$R/etc/xdg/tint2/tint2rc" > "$R/home/tibi/.config/tint2/tint2rc"
+sed -i '/^launcher_icon_theme_override/a launcher_item_app = jgmenu.desktop\nlauncher_item_app = pcmanfm.desktop\nlauncher_item_app = rxvt-unicode.desktop' \
+	"$R/home/tibi/.config/tint2/tint2rc"
+printf '[Settings]\ngtk-theme-name=Greybird\ngtk-icon-theme-name=Papirus\ngtk-font-name=Sans 10\n' \
+	> "$R/home/tibi/.config/gtk-3.0/settings.ini"
+chroot "$R" chown -R 1000:1000 /home/tibi/.config
 
 # Any console user may start X (the legacy wrapper runs it with root rights for KMS/input)
 printf 'allowed_users=anybody\nneeds_root_rights=yes\n' > "$R/etc/X11/Xwrapper.config"

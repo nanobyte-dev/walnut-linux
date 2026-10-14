@@ -26,27 +26,38 @@ x11-xserver-utils
 x11-apps
 mesa-utils
 kmscube
-# Desktop (docs/DESKTOP-PLAN.md): IceWM + PCManFM by default (LXQt as an alternative session),
-# gvfs for trash, drives and network in the file manager, Bluetooth, DualShock 3 as a pointer
-icewm
-pcmanfm
-gvfs
-gvfs-backends
-rxvt-unicode
-lxqt-core
-breeze-icon-theme
+# Desktop (docs/DESKTOP-PLAN.md): Openbox + tint2 (jgmenu, tray, clock), PCManFM desktop icons
 openbox
-lxqt-sudo
-lxqt-about
-featherpad
-lximage-qt
-alsa-utils
-bluez
-blueman
-xserver-xorg-input-joystick
-xserver-xorg-input-libinput
+tint2
+jgmenu
+obconf
+lxappearance
+pcmanfm
+greybird-gtk-theme
+papirus-icon-theme
+dunst
+lxpolkit
+rxvt-unicode
 netsurf-gtk
 fonts-dejavu-core
+xfonts-base
+x11-utils
 dbus-x11
 locales
-xfonts-base
+# Files: trash, drives (udisks2), network
+gvfs
+gvfs-backends
+# Network (NetworkManager never touches eth0, the NFS root: customize.sh), sound, Bluetooth
+network-manager
+network-manager-applet
+alsa-utils
+pnmixer
+bluez
+blueman
+# Input: DualShock 3 and other gamepads
+xserver-xorg-input-joystick
+xserver-xorg-input-libinput
+# Development on the console
+python3
+gdb
+strace

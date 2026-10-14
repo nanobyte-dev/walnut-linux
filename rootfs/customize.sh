@@ -88,7 +88,7 @@ ExecStart=/usr/local/sbin/ps3gpu-nodes
 WantedBy=multi-user.target
 EOS
 chroot "$R" systemctl enable ps3gpu-nodes.service
-chroot "$R" usermod -aG video,render tibi
+chroot "$R" usermod -aG video,render,audio tibi
 
 # ps3vram can't get VRAM while ps3fb owns it all, and the RSX driver uses VRAM for the GPU
 echo "blacklist ps3vram" > "$R/etc/modprobe.d/ps3vram.conf"
@@ -127,6 +127,12 @@ chroot "$R" systemctl enable ps3-swap.service
 # hanging everything on the NFS root (2026-10-15, two hangs without an OOM message). The kernel's
 # default reserve on 177 MB was 1689 kB.
 echo "vm.min_free_kbytes = 8192" > "$R/etc/sysctl.d/60-ps3-memory.conf"
+
+# NetworkManager runs Wi-Fi/USB networking for the desktop but must never touch eth0: the root
+# filesystem is NFS over it, set up by the kernel and systemd-networkd (nor DNS)
+mkdir -p "$R/etc/NetworkManager/conf.d"
+printf '%s\n' '[keyfile]' 'unmanaged-devices=interface-name:eth0' '[main]' 'dns=none' \
+	'rc-manager=unmanaged' > "$R/etc/NetworkManager/conf.d/00-ps3-nfs-root.conf"
 
 # A real locale (only C existed: Qt complained, Enlightenment's language list was empty)
 echo "en_US.UTF-8 UTF-8" > "$R/etc/locale.gen"
