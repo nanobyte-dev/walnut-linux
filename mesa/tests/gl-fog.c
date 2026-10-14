@@ -1,6 +1,7 @@
 /* Fixed-function fog (desktop GL compatibility context, like ClassiCube's GL1 backend): blue
  * quads at eye distances 32..512 under white linear fog (start 0, end 512), then exp fog
- * (density 0.004), one column each. Prints every column's colour and the expected one; compare
+ * (density 0.004), one column each; then both again through a rotated and translated modelview
+ * (fog uses eye-space distance, so the result must not change). Prints every column's colour and the expected one; compare
  * the RSX with softpipe (LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=softpipe).
  */
 #define EGL_EGLEXT_PROTOTYPES
@@ -14,7 +15,7 @@
 
 #define die(...) do { fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); exit(1); } while (0)
 #define W 256
-#define H 64
+#define H 128
 #define COLS 16
 
 /* EXT_framebuffer_object isn't exported by libOpenGL: loaded through EGL */
@@ -76,20 +77,34 @@ int main(void)
 	glFogf(GL_FOG_END, 512);
 	glFogf(GL_FOG_DENSITY, 0.004f);
 
-	/* top half linear, bottom half exp; column i at eye distance 32*(i+1) */
-	for (int half = 0; half < 2; half++) {
-		glFogi(GL_FOG_MODE, half ? GL_EXP : GL_LINEAR);
+	/* rows from the bottom: linear, exp (identity modelview), linear, exp (camera turned 90
+	 * degrees about y and moved: modelview T(50,20,-30) R_y(90), vertices given in object space
+	 * p = R^-1 (e - t) = (-(ez - tz), ey - ty, ex - tx)); column i at eye distance 32*(i+1) */
+	for (int row = 0; row < 4; row++) {
+		int moved = row >= 2;
+		const float tx = 50, ty = 20, tz = -30;
+
+		glLoadIdentity();
+		if (moved) {
+			glTranslatef(tx, ty, tz);
+			glRotatef(90, 0, 1, 0);
+		}
+		glFogi(GL_FOG_MODE, row & 1 ? GL_EXP : GL_LINEAR);
 		for (int i = 0; i < COLS; i++) {
 			float d = 32.0f * (i + 1);
 			float x0 = -1 + 2.0f * i / COLS, x1 = x0 + 2.0f / COLS;
-			float y0 = half ? -1 : 0, y1 = y0 + 1;
+			float y0 = -1 + 0.5f * row, y1 = y0 + 0.5f;
+			float e[4][3] = { { x0 * d, y0 * d, -d }, { x1 * d, y0 * d, -d },
+					  { x1 * d, y1 * d, -d }, { x0 * d, y1 * d, -d } };
 
 			glColor3f(0, 0, 1);
 			glBegin(GL_QUADS);
-			glVertex3f(x0 * d, y0 * d, -d);
-			glVertex3f(x1 * d, y0 * d, -d);
-			glVertex3f(x1 * d, y1 * d, -d);
-			glVertex3f(x0 * d, y1 * d, -d);
+			for (int v = 0; v < 4; v++) {
+				if (moved)
+					glVertex3f(-(e[v][2] - tz), e[v][1] - ty, e[v][0] - tx);
+				else
+					glVertex3f(e[v][0], e[v][1], e[v][2]);
+			}
 			glEnd();
 		}
 	}
@@ -98,14 +113,15 @@ int main(void)
 		die("GL error");
 
 	/* expected (eye-plane distance; radial differs a little off-centre) */
-	for (int half = 0; half < 2; half++) {
-		int y = half ? H / 4 : 3 * H / 4;
-		printf("%s:", half ? "exp   " : "linear");
+	for (int row = 0; row < 4; row++) {
+		int half = row & 1;
+		int y = row * H / 4 + H / 8;
+		printf("%s%s:", half ? "exp   " : "linear", row >= 2 ? " moved" : "      ");
 		for (int i = 0; i < COLS; i++) {
 			unsigned char *p = &px[(y * W + i * W / COLS + W / COLS / 2) * 4];
 			printf(" %3d,%3d", p[0], p[2]);
 		}
-		printf("\nexpect:");
+		printf("\nexpect      :");
 		for (int i = 0; i < COLS; i++) {
 			float d = 32.0f * (i + 1);
 			float f = half ? expf(-0.004f * d) : (512 - d) / 512;

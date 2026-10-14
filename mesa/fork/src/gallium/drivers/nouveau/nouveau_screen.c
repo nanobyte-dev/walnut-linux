@@ -417,8 +417,11 @@ nouveau_screen_init(struct nouveau_screen *screen, struct nouveau_device *dev)
    ret = nouveau_client_new(screen->device, &screen->client);
    if (ret)
       goto err;
+   /* PS3: pushbufs live in the small GART and ps3rsx copies each submission into its ring at
+    * once, so fewer and smaller ones do: the screen's only carries init and fences */
    ret = nouveau_pushbuf_create(screen, NULL, screen->client, screen->channel,
-                                4, 512 * 1024, &screen->pushbuf);
+                                screen->is_ps3 ? 2 : 4,
+                                screen->is_ps3 ? 64 * 1024 : 512 * 1024, &screen->pushbuf);
    if (ret)
       goto err;
 
@@ -528,7 +531,8 @@ nouveau_context_init(struct nouveau_context *context, struct nouveau_screen *scr
       return ret;
 
    ret = nouveau_pushbuf_create(screen, context, context->client, screen->channel,
-                                4, 512 * 1024, &context->pushbuf);
+                                screen->is_ps3 ? 2 : 4,
+                                screen->is_ps3 ? 256 * 1024 : 512 * 1024, &context->pushbuf);
    if (ret)
       return ret;
 

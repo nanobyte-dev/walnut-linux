@@ -173,8 +173,11 @@ nv30_context_destroy(struct pipe_context *pipe)
    nv30_framebuffer_init(pipe, NULL, nv30->fb_cbufs, &nv30->fb_zsbuf);
    util_unreference_framebuffer_state(&nv30->framebuffer);
 
-   nouveau_pushbuf_bufctx(nv30->base.pushbuf, NULL);
-   PUSH_KICK(nv30->base.pushbuf);
+   /* no pushbuf when nouveau_context_init failed (e.g. out of GART) */
+   if (nv30->base.pushbuf) {
+      nouveau_pushbuf_bufctx(nv30->base.pushbuf, NULL);
+      PUSH_KICK(nv30->base.pushbuf);
+   }
    nouveau_bufctx_del(&nv30->bufctx);
 
    if (nv30->screen->cur_ctx == nv30)

@@ -1057,7 +1057,11 @@ static void build_fog( struct tnl_program *p )
       fog = get_eye_position_z(p);
       break;
    case FDM_EYE_PLANE_ABS: /* Z = abs(Ze) */
-      fog = nir_fabs(p->b, get_eye_position_z(p));
+      /* -Ze, which is abs(Ze) at every visible fragment (they are all in front of the eye,
+       * Ze < 0) and, unlike abs(), affine: it interpolates exactly across triangles with
+       * vertices behind the eye. abs() made a big quad reaching behind the camera (ClassiCube's
+       * sky) fully fogged except in the directions where no corner was behind. */
+      fog = nir_fneg(p->b, get_eye_position_z(p));
       break;
    case FDM_FROM_ARRAY:
       fog = load_input(p, VERT_ATTRIB_FOG, 1);
