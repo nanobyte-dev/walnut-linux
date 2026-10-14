@@ -17,6 +17,9 @@
 #include <asm/cell-regs.h>
 #include <asm/ps3.h>
 
+#include <drm/drm_debugfs.h>
+#include <linux/seq_file.h>
+
 #include "ps3rsx.h"
 
 #define IOPTE_RW (CBE_IOPTE_PP_W | CBE_IOPTE_PP_R | CBE_IOPTE_M)
@@ -227,6 +230,70 @@ int ps3rsx_ioctl_gem_info(struct drm_device *dev, void *data, struct drm_file *f
 
 /* --- heaps and the GART's IO mapping ----------------------------------------------------- */
 
+/* debugfs dri/N/ps3rsx_mm: used/total and buffer count per heap (finding leaks) */
+static void mm_usage(struct seq_file *m, const char *name, struct drm_mm *mm, u64 total)
+{
+	struct drm_mm_node *node;
+	u64 used = 0;
+	unsigned int n = 0;
+
+	drm_mm_for_each_node(node, mm) {
+		used += node->size;
+		n++;
+	}
+	seq_printf(m, "%-9s %7llu KiB used of %7llu KiB in %u buffers\n", name, used >> 10,
+		   total >> 10, n);
+}
+
+/* per open file: GEM handles and the bytes they reference (who holds the buffers) */
+static void file_usage(struct seq_file *m, struct ps3rsx_device *rsx)
+{
+	struct drm_device *dev = &rsx->drm;
+	struct drm_file *file;
+
+	mutex_lock(&dev->filelist_mutex);
+	list_for_each_entry(file, &dev->filelist, lhead) {
+		struct drm_gem_object *obj;
+		u64 vram = 0, gart = 0;
+		unsigned int n = 0;
+		struct task_struct *task;
+		char comm[TASK_COMM_LEN] = "?";
+		int id;
+
+		rcu_read_lock();
+		task = pid_task(rcu_dereference(file->pid), PIDTYPE_TGID);
+		if (task)
+			get_task_comm(comm, task);
+		rcu_read_unlock();
+		spin_lock(&file->table_lock);
+		idr_for_each_entry(&file->object_idr, obj, id) {
+			n++;
+			if (to_bo(obj)->domain == NOUVEAU_GEM_DOMAIN_GART)
+				gart += obj->size;
+			else
+				vram += obj->size;
+		}
+		spin_unlock(&file->table_lock);
+		seq_printf(m, "%-16s %5u handles, VRAM %7llu KiB, GART %6llu KiB\n", comm, n,
+			   vram >> 10, gart >> 10);
+	}
+	mutex_unlock(&dev->filelist_mutex);
+}
+
+static int mm_show(struct seq_file *m, void *unused)
+{
+	struct drm_debugfs_entry *entry = m->private;
+	struct ps3rsx_device *rsx = to_rsx(entry->dev);
+
+	mutex_lock(&rsx->mm_lock);
+	mm_usage(m, "VRAM cpu", &rsx->vram_cpu, CPU_VRAM_LIMIT - rsx->info.reserved);
+	mm_usage(m, "VRAM gpu", &rsx->vram_gpu, rsx->info.memory_size - CPU_VRAM_LIMIT);
+	mm_usage(m, "GART", &rsx->gart, rsx->gart_size);
+	mutex_unlock(&rsx->mm_lock);
+	file_usage(m, rsx);
+	return 0;
+}
+
 int ps3rsx_mem_init(struct ps3rsx_device *rsx)
 {
 	u64 io, cpu_end = min_t(u64, CPU_VRAM_LIMIT, rsx->info.memory_size);
@@ -235,6 +302,7 @@ int ps3rsx_mem_init(struct ps3rsx_device *rsx)
 	mutex_init(&rsx->mm_lock);
 	drm_mm_init(&rsx->vram_cpu, rsx->info.reserved, cpu_end - rsx->info.reserved);
 	drm_mm_init(&rsx->vram_gpu, cpu_end, rsx->info.memory_size - cpu_end);
+	drm_debugfs_add_file(&rsx->drm, "ps3rsx_mm", mm_show, NULL);
 
 	/* GART: the boot reservation, mapped at IO 0 one 1 MiB page at a time (the lpar of each
 	 * MiB is looked up separately in case the region straddles a memory boundary) */
