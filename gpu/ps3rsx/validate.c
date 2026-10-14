@@ -158,6 +158,13 @@ static int check_method(struct ps3rsx_vstate *vs, u32 subch, u32 mthd, u32 data,
 		*why = "vertex format type 0";
 		return -EINVAL;
 	}
+	if (vs->bound[subch] == 0x31337000 && mthd == 0x208 &&
+	    (data & 0xf00) == 0x200 && !(data & 0x00ff0000)) {
+		/* RT_FORMAT swizzled with log2 width 0: rendering to a 1-pixel-wide swizzled
+		 * surface raises graph exception 0x106 (docs/RSX.md) */
+		*why = "swizzled render target 1 pixel wide";
+		return -EINVAL;
+	}
 	if (vs->bound[subch] == 0x3137af00 && mthd == 0x198) {
 		/* SIFM surface: an object (surface 2D or swizzled), not a context DMA */
 		if (data != 0x313371c3 && data != 0x31337a73) {

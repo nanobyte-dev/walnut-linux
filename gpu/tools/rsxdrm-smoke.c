@@ -269,6 +269,10 @@ static int t_reject(void)
 	OUT(0, 0x1ffc, 0);			/* not in the 3D allowlist */
 	rc = submit(NULL, 0);
 	printf("  3D method 0x1ffc: %s\n", rc == -EINVAL ? "rejected" : "NOT rejected"); fail |= rc != -EINVAL;
+	OUT(0, 0, 0x31337000);
+	OUT(0, 0x208, 0x06000208);		/* RT_FORMAT swizzled 1x64 (log2 width 0) */
+	rc = submit(NULL, 0);
+	printf("  swizzled 1-wide target: %s\n", rc == -EINVAL ? "rejected" : "NOT rejected"); fail |= rc != -EINVAL;
 	OUT(0, 0x68, 0);			/* FIFO semaphore acquire */
 	rc = submit(NULL, 0);
 	printf("  semaphore acquire: %s\n", rc == -EINVAL ? "rejected" : "NOT rejected"); fail |= rc != -EINVAL;

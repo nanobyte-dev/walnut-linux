@@ -104,10 +104,11 @@ A graph exception (seen: cause 0x109, M2MF methods sent to the surface-2D object
 M2MF transfer in a fresh context whose notifier DMA was never set) is reported through ps3fb's
 interrupt (also for channel 1), which dumps the PFIFO cache and sets word 1023 of the FIFO area.
 
-Cause 0x106 (2026-10-14): resizing an xeglgears window under Xorg/glamor. The PFIFO cache
-(docs/dumps/exception-0x106-resize.txt) shows colour and zeta both moving to one new VRAM
-surface, a 2-pixel-high viewport, a 1920x1080 texture on unit 0, then inline vertices. Not
-reproduced or understood yet; the validator doesn't catch it.
+**Cause 0x106: rendering to a swizzled surface 1 pixel wide** (RT_FORMAT type swizzled, log2
+width 0). Found 2026-10-14 from xeglgears/LXQt crashes (glamor draws into 1-pixel-wide
+pixmaps; dumps in docs/dumps/) and isolated with egl-thin: 1x64 raises it, 2x64, 64x1 and
+1427x1 (linear) render correctly. Mesa 0012 keeps such render targets linear on the PS3, and
+the validator rejects the RT_FORMAT. Linear surfaces 1 pixel wide: see the egl-thin results.
 
 **It wedges the whole RSX, not one channel.** After an exception in channel 1, ps3fb's channel 0
 stops too, and a freshly allocated context's FIFO doesn't even fetch. None of these recover it:
