@@ -10,7 +10,8 @@
  * starts with the object/DMA setup known to work on this console.
  *
  * Can't wedge the GPU (as far as we know):
- *   ctxcount  E1  allocate contexts until it fails
+ *   ctxcount  E1  allocate up to n contexts (until it fails), free them. NB: allocating up to
+ *                 the limit (2 extra, then -2) and freeing stalled every FIFO, ps3fb's too
  *   iomap     E2  scattered 1 MB iomaps, unmap one, remap elsewhere
  *   irq       E7  does the context's own IRQ outlet deliver vsync?
  *   wc        E8  VRAM write speed, guarded vs write-combined mapping (kernel side)
@@ -40,6 +41,8 @@
 
 static char *test = "";
 module_param(test, charp, 0444);
+static int n = 8;
+module_param(n, int, 0444);		/* ctxcount: how many contexts to try */
 
 #define P(fmt, ...) pr_info("rsxprobe2: " fmt "\n", ##__VA_ARGS__)
 #define IOPTE_RW (CBE_IOPTE_PP_W | CBE_IOPTE_PP_R | CBE_IOPTE_M)
@@ -281,14 +284,14 @@ static int check(const u32 *p, u32 words, u32 seed)
 static void t_ctxcount(void)
 {
 	struct ctx c[8];
-	int n;
+	int i;
 
-	for (n = 0; n < ARRAY_SIZE(c); n++)
-		if (ctx_alloc(&c[n]))
+	for (i = 0; i < min_t(int, n, ARRAY_SIZE(c)); i++)
+		if (ctx_alloc(&c[i]))
 			break;
-	P("E1: allocated %d contexts besides ps3fb's", n);
-	while (n--)
-		ctx_free(&c[n]);
+	P("E1: allocated %d contexts besides ps3fb's (asked for %d)", i, n);
+	while (i--)
+		ctx_free(&c[i]);
 }
 
 static void t_iomap(void)
