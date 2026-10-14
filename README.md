@@ -14,7 +14,7 @@ nouveau's userspace (libdrm + Mesa nv30) on the RSX. Plan and background: `docs/
 | `docker/Dockerfile` | Pinned build environment (toolchain, mmdebstrap) |
 | `tools/` | Scripts called by the Makefile |
 | `gpu/tools/` | RSX test programs run on the PS3 (`rsx-clear`, `rsx-probe`, `rsx-peek`) |
-| `docs/` | `PLAN.md` phases, `RESEARCH.md` background, `RSX.md` measured GPU facts |
+| `docs/` | `PLAN.md` phases, `DRIVER-PLAN.md` the GPU driver plan, `RSX.md` measured GPU facts, `RSX-PROGRAMS.md` raw draw/shader words, `MESA-METHODS.md` Mesa nv30 methods vs RSX, `RESEARCH.md` background |
 | `build/` | Generated outputs (ignored); `build/old/` holds previous outputs, never deleted |
 | `firmware/` | Petitboot image installed on the console (ignored) |
 | `backups/` | **Private**: NOR flash dump (ignored, never commit) |
@@ -27,6 +27,7 @@ nouveau's userspace (libdrm + Mesa nv30) on the RSX. Plan and background: `docs/
     make listen            # in another terminal: PS3 debug output
     make netboot           # PS3 in Petitboot -> boots our kernel with NFS root
     make gpu-deploy        # cross-compile gpu/tools and copy them to ~/bin on the NFS root
+    tools/webcam-grab.sh   # photo of the PS3's screen (webcam on the monitor) -> build/tmp/screen.jpg
 
 ## Reproducibility
 
