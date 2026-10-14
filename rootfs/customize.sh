@@ -23,6 +23,12 @@ DHCP=yes
 # The kernel already configured this interface (ip=dhcp) and root is on NFS over it:
 # never drop the address, or the root filesystem disappears.
 KeepConfiguration=yes
+
+[DHCPv4]
+# Same client ID Petitboot's udhcpc sends (01:<MAC>). networkd's default (a DUID) made the
+# router's DHCP server (Kea) see the .77 lease as another client's, so Petitboot kept getting
+# a different address (ALLOC_ENGINE_V4_DISCOVER_ADDRESS_CONFLICT).
+ClientIdentifier=mac
 EOF
 chroot "$R" systemctl enable systemd-networkd ssh
 
