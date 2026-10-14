@@ -13,7 +13,29 @@
 #include <drm/drm_file.h>
 #include <drm/drm_gem.h>
 #include <drm/drm_mm.h>
+#include <linux/dma-fence.h>
+#include <linux/hrtimer.h>
+#include <drm/drm.h>
+#include <drm/nouveau_drm.h>
 #include <asm/ps3gpu.h>
+
+struct ps3rsx_vstate;
+struct ps3rsx_file;
+struct ps3rsx_chan;
+
+/* Deprecated nouveau ioctls Mesa's winsys still uses, no longer in the kernel's uapi header
+ * (layouts as in libdrm's nouveau_drm.h) */
+struct drm_nouveau_grobj_alloc {
+	__s32 channel;
+	__u32 handle;
+	__s32 class;
+};
+#define DRM_IOCTL_NOUVEAU_GROBJ_ALLOC \
+	DRM_IOW(DRM_COMMAND_BASE + DRM_NOUVEAU_GROBJ_ALLOC, struct drm_nouveau_grobj_alloc)
+#define DRM_IOCTL_NOUVEAU_NOTIFIEROBJ_ALLOC \
+	DRM_IOWR(DRM_COMMAND_BASE + DRM_NOUVEAU_NOTIFIEROBJ_ALLOC, struct drm_nouveau_notifierobj_alloc)
+#define DRM_IOCTL_NOUVEAU_GPUOBJ_FREE \
+	DRM_IOW(DRM_COMMAND_BASE + DRM_NOUVEAU_GPUOBJ_FREE, struct drm_nouveau_gpuobj_free)
 
 #define PS3RSX_CHIPSET		0x47		/* NV47-like: Mesa picks the 0x4097 3D class */
 #define PS3RSX_PCI_VENDOR	0x104d		/* Sony: what the patched Mesa checks for */
@@ -23,6 +45,17 @@
 #define PS3RSX_ABI_VERSION	1
 
 #define CPU_VRAM_LIMIT		0xe000000ULL	/* ps3fb's VRAM mapping size: CPU access above it is unproven */
+
+/* GART IO layout: reset program, then the ring, then BOs (exec.c) */
+#define RING_START		0x1000
+#define RING_END		0x200000
+#define RING_RESERVE		RING_END
+#define PS3RSX_MAX_CHANNELS	14	/* one 4 KiB query slice each in the 64 KiB reports area */
+
+struct ps3rsx_fence {
+	struct dma_fence base;
+	struct list_head head;
+};
 
 struct ps3rsx_device {
 	struct drm_device drm;
@@ -37,6 +70,24 @@ struct ps3rsx_device {
 	struct drm_mm gart;		/* IO addresses of the GART reservation */
 	void *gart_cpu;			/* kernel address of the GART reservation */
 	u64 gart_mapped;		/* bytes of it iomapped into our context */
+
+	/* execution (exec.c) */
+	void __iomem *ctrl;		/* our context's FIFO control: put 0x40, get 0x44, ref 0x48 */
+	struct ps3fb_gpu_hook hook;
+	struct mutex exec_lock;		/* ring writes */
+	u32 ring_put;			/* IO address the next command goes to */
+	u32 seqno;			/* last SET_REFERENCE value submitted */
+	u64 fence_context;
+	spinlock_t fence_lock;
+	struct list_head fences;	/* pending, in seqno order */
+	struct hrtimer fence_timer;
+	u32 last_ref;
+	ktime_t last_progress;
+	bool wedged;			/* a graph exception or a stall: nothing runs until reboot */
+	bool trace;
+
+	struct mutex chan_lock;
+	DECLARE_BITMAP(chan_ids, PS3RSX_MAX_CHANNELS);
 };
 
 #define to_rsx(d) container_of(d, struct ps3rsx_device, drm)
@@ -63,11 +114,42 @@ int ps3rsx_bo_handle(struct drm_file *file, struct ps3rsx_bo *bo,
 int ps3rsx_ioctl_gem_new(struct drm_device *dev, void *data, struct drm_file *file);
 int ps3rsx_ioctl_gem_info(struct drm_device *dev, void *data, struct drm_file *file);
 
+int ps3rsx_exec_init(struct ps3rsx_device *rsx);
+void ps3rsx_exec_fini(struct ps3rsx_device *rsx);
+u32 *ps3rsx_ring_begin(struct ps3rsx_device *rsx, u32 len, int *err);
+struct dma_fence *ps3rsx_ring_commit(struct ps3rsx_device *rsx, u32 len, bool kick);
+
+bool ps3rsx_known_object(u32 handle);
+int ps3rsx_validate(struct ps3rsx_vstate *vs, const u32 *w, u32 nwords);
+
+struct ps3rsx_chan *ps3rsx_chan_find(struct ps3rsx_file *pf, u32 id);
+void ps3rsx_file_chans_free(struct ps3rsx_device *rsx, struct ps3rsx_file *pf);
+int ps3rsx_ioctl_channel_alloc(struct drm_device *dev, void *data, struct drm_file *file);
+int ps3rsx_ioctl_channel_free(struct drm_device *dev, void *data, struct drm_file *file);
+int ps3rsx_ioctl_notifierobj_alloc(struct drm_device *dev, void *data, struct drm_file *file);
+int ps3rsx_ioctl_grobj_alloc(struct drm_device *dev, void *data, struct drm_file *file);
+int ps3rsx_ioctl_gpuobj_free(struct drm_device *dev, void *data, struct drm_file *file);
+int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file *file);
+int ps3rsx_ioctl_gem_cpu_prep(struct drm_device *dev, void *data, struct drm_file *file);
+int ps3rsx_ioctl_gem_cpu_fini(struct drm_device *dev, void *data, struct drm_file *file);
+
+/* Per channel validator state: which object this channel bound on each subchannel */
+struct ps3rsx_vstate {
+	u32 bound[8];
+};
+
+struct ps3rsx_chan {
+	struct list_head head;
+	u32 id;
+	struct ps3rsx_vstate vstate;
+};
+
 /* Per open file */
 struct ps3rsx_file {
 	struct mutex lock;
 	bool abi_ok;			/* PS3_ABI was queried */
 	struct list_head objects;	/* NVIF objects (device, engine objects) */
+	struct list_head chans;
 };
 
 int ps3rsx_ioctl_getparam(struct drm_device *dev, void *data, struct drm_file *file);

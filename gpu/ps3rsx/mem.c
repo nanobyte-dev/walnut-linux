@@ -248,7 +248,8 @@ int ps3rsx_mem_init(struct ps3rsx_device *rsx)
 		}
 	}
 	rsx->gart_mapped = rsx->gart_size;
-	drm_mm_init(&rsx->gart, 0, rsx->gart_size);
+	/* the first RING_RESERVE bytes hold the reset program and the ring (exec.c) */
+	drm_mm_init(&rsx->gart, RING_RESERVE, rsx->gart_size - RING_RESERVE);
 	return 0;
 }
 

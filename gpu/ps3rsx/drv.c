@@ -23,6 +23,7 @@ static int ps3rsx_open(struct drm_device *dev, struct drm_file *file)
 		return -ENOMEM;
 	mutex_init(&pf->lock);
 	INIT_LIST_HEAD(&pf->objects);
+	INIT_LIST_HEAD(&pf->chans);
 	file->driver_priv = pf;
 	return 0;
 }
@@ -31,6 +32,7 @@ static void ps3rsx_postclose(struct drm_device *dev, struct drm_file *file)
 {
 	struct ps3rsx_file *pf = file->driver_priv;
 
+	ps3rsx_file_chans_free(to_rsx(dev), pf);
 	ps3rsx_file_objects_free(pf);
 	kfree(pf);
 }
@@ -39,6 +41,14 @@ static const struct drm_ioctl_desc ps3rsx_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(NOUVEAU_GETPARAM, ps3rsx_ioctl_getparam, DRM_RENDER_ALLOW),
 	DRM_IOCTL_DEF_DRV(NOUVEAU_GEM_NEW, ps3rsx_ioctl_gem_new, DRM_RENDER_ALLOW),
 	DRM_IOCTL_DEF_DRV(NOUVEAU_GEM_INFO, ps3rsx_ioctl_gem_info, DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(NOUVEAU_CHANNEL_ALLOC, ps3rsx_ioctl_channel_alloc, DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(NOUVEAU_CHANNEL_FREE, ps3rsx_ioctl_channel_free, DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(NOUVEAU_GROBJ_ALLOC, ps3rsx_ioctl_grobj_alloc, DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(NOUVEAU_NOTIFIEROBJ_ALLOC, ps3rsx_ioctl_notifierobj_alloc, DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(NOUVEAU_GPUOBJ_FREE, ps3rsx_ioctl_gpuobj_free, DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(NOUVEAU_GEM_PUSHBUF, ps3rsx_ioctl_gem_pushbuf, DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(NOUVEAU_GEM_CPU_PREP, ps3rsx_ioctl_gem_cpu_prep, DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(NOUVEAU_GEM_CPU_FINI, ps3rsx_ioctl_gem_cpu_fini, DRM_RENDER_ALLOW),
 };
 
 static long ps3rsx_unlocked_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
@@ -99,12 +109,19 @@ static int ps3rsx_probe(struct platform_device *pdev)
 	ret = ps3fb_gpu_ctx_get(0x820, &rsx->ctx);
 	if (ret)
 		return dev_err_probe(&pdev->dev, ret, "no lv1 GPU context\n");
+	mutex_init(&rsx->chan_lock);
 	ret = ps3rsx_mem_init(rsx);
 	if (ret)
 		return ret;
+	ret = ps3rsx_exec_init(rsx);
+	if (ret) {
+		ps3rsx_mem_fini(rsx);
+		return ret;
+	}
 
 	ret = drm_dev_register(&rsx->drm, 0);
 	if (ret) {
+		ps3rsx_exec_fini(rsx);
 		ps3rsx_mem_fini(rsx);
 		return ret;
 	}
@@ -119,6 +136,7 @@ static void ps3rsx_remove(struct platform_device *pdev)
 	struct ps3rsx_device *rsx = platform_get_drvdata(pdev);
 
 	drm_dev_unregister(&rsx->drm);
+	ps3rsx_exec_fini(rsx);
 	ps3rsx_mem_fini(rsx);
 }
 
