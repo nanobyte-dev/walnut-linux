@@ -10,8 +10,8 @@ KERNEL_TARBALL := $(DOWNLOADS)/linux-$(KERNEL_VERSION).tar.xz
 KERNEL_STAGE   := $(BUILD)/kernel/stage
 ROOTFS_TAR     := $(BUILD)/rootfs/debian-ppc64.tar
 
-# Builder image tag changes whenever its inputs change
-BUILDER_TAG := ps3-builder:$(shell cat docker/Dockerfile | sha256sum | cut -c1-12)-$(BUILDER_SNAPSHOT)
+# Builder image tag changes whenever its inputs change (Dockerfile, base image, snapshot)
+BUILDER_TAG := ps3-builder:$(shell (cat docker/Dockerfile; echo $(BUILDER_BASE)) | sha256sum | cut -c1-12)-$(BUILDER_SNAPSHOT)
 BUILDER_STAMP := $(BUILD)/.builder-$(subst :,-,$(BUILDER_TAG))
 
 DOCKER_RUN := docker run --rm -v $(CURDIR):/work -w /work \
@@ -28,13 +28,16 @@ ROOTFS_ENV := -e DEBIAN_SUITE=$(DEBIAN_SUITE) -e DEBIAN_MIRROR=$(DEBIAN_MIRROR) 
 # only when those values change, so e.g. an IP change doesn't trigger a kernel rebuild.
 KERNEL_VARS := $(BUILD)/kernel.vars
 KERNEL_VARS_NOW := $(foreach v,KERNEL_VERSION KERNEL_SHA256 KERNEL_LOCALVERSION KERNEL_DEFCONFIG \
-	KERNEL_FRAGMENTS KERNEL_SERIES SOURCE_DATE_EPOCH BUILDER_BASE,$(v)=$($(v)))
+	KERNEL_FRAGMENTS KERNEL_SERIES SOURCE_DATE_EPOCH BUILDER_TAG,$(v)=$($(v)))
 $(shell mkdir -p $(BUILD); [ "$$(cat $(KERNEL_VARS) 2>/dev/null)" = "$(KERNEL_VARS_NOW)" ] || \
 	echo "$(KERNEL_VARS_NOW)" > $(KERNEL_VARS))
 
 KERNEL_INPUTS := $(KERNEL_TARBALL) $(KERNEL_SERIES) $(wildcard kernel/patches/*/*.patch) \
 	$(KERNEL_FRAGMENTS) tools/build-kernel.sh $(KERNEL_VARS)
-ROOTFS_INPUTS := $(ROOTFS_PACKAGES) $(ROOTFS_CUSTOMIZE) tools/build-rootfs.sh $(SSH_PUBKEY) config.mk
+ROOTFS_VARS := $(BUILD)/rootfs.vars
+ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE_DATE_EPOCH BUILDER_TAG,$(v)=$($(v)))
+$(shell [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
+ROOTFS_INPUTS := $(ROOTFS_PACKAGES) $(ROOTFS_CUSTOMIZE) tools/build-rootfs.sh $(SSH_PUBKEY) $(ROOTFS_VARS)
 
 .PHONY: help all builder kernel rootfs checksums nfs-root nfs-modules netboot listen shell clean gpu-tools gpu-deploy ps3-reboot
 
@@ -61,7 +64,7 @@ all: kernel rootfs
 
 # --- Builder container --------------------------------------------------------
 builder: $(BUILDER_STAMP)
-$(BUILDER_STAMP): docker/Dockerfile config.mk
+$(BUILDER_STAMP): docker/Dockerfile
 	docker build -q -t $(BUILDER_TAG) \
 		--build-arg BASE=$(BUILDER_BASE) --build-arg SNAPSHOT=$(BUILDER_SNAPSHOT) docker
 	@mkdir -p $(BUILD) && touch $@
@@ -74,13 +77,13 @@ $(KERNEL_TARBALL):
 	mv $@.tmp $@
 
 kernel: $(KERNEL_STAGE)/boot/vmlinux
-$(KERNEL_STAGE)/boot/vmlinux: $(KERNEL_INPUTS) $(BUILDER_STAMP)
+$(KERNEL_STAGE)/boot/vmlinux: $(KERNEL_INPUTS) | $(BUILDER_STAMP)
 	echo "$(KERNEL_SHA256)  $(KERNEL_TARBALL)" | sha256sum -c --quiet
 	$(DOCKER_RUN) --user $(UID_GID) $(KERNEL_ENV) $(BUILDER_TAG) tools/build-kernel.sh
 
 # --- Root filesystem ----------------------------------------------------------
 rootfs: $(ROOTFS_TAR)
-$(ROOTFS_TAR): $(ROOTFS_INPUTS) $(BUILDER_STAMP)
+$(ROOTFS_TAR): $(ROOTFS_INPUTS) | $(BUILDER_STAMP)
 	@mkdir -p $(BUILD)/rootfs
 	cp $(SSH_PUBKEY) $(BUILD)/rootfs/authorized_keys
 	$(DOCKER_RUN) --privileged $(ROOTFS_ENV) $(BUILDER_TAG) tools/build-rootfs.sh
