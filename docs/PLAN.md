@@ -52,15 +52,20 @@ Small kernel module that binds the 3D class in our lv1 GPU context and clears th
 
 ## Phase 2: nouveau-compatible shim
 
-Implement the nouveau ioctls on lv1, build libdrm + Mesa for ppc64 BE, then aim for `glxinfo -B` and `glxgears`.
+Detailed plan: docs/DRIVER-PLAN.md. A DRM driver `ps3rsx` (registers as "nouveau") on lv1 GPU
+calls, plus a small Mesa nv30 patch for the hypervisor's fixed object handles, up to glxgears
+in Xorg. Current step: its Phase 0, hardware derisking tests (E1-E16); the later phases are
+refined once their results are in docs/RSX.md.
 
 ## Test loop
 
-- Boot to Linux, unattended: power on, PS3 boots to the XMB, webMAN HTTP call launches OtherOS, Petitboot auto-boots, SSH in. Back to XMB with `ps3-boot-game-os`.
-- Module changes: build on the dev PC, copy, `rmmod`/`insmod`.
-- Kernel changes: `kexec` from the running Linux. A wedged GPU may still need a power cycle.
-- Logs: `CONFIG_PPC_EARLY_DEBUG_PS3GELIC` for early boot (UDP broadcast, port in `arch/powerpc/platforms/ps3/gelic_udbg.c`), netconsole after that.
-- Screen: BRIO webcam pointed at the monitor, frames grabbed with ffmpeg. The Cam Link gets no frames from the XMB (HDCP); retry it under Linux.
+- Getting to Linux needs the user: fan on SYSCON in webMAN, set the OtherOS flag in the XMB,
+  Petitboot comes up (at PETITBOOT_IP), then `make netboot`. Every reboot lands in GameOS.
+- Module and userspace changes: `make gpu-deploy`, then `insmod`/run over SSH. No reboot.
+- Kernel changes need a reboot (kexec from our Linux crashed the console), so they are batched.
+- A graph exception wedges the GPU until a console reboot: risky tests go last, one per boot.
+- Logs: netconsole (`make listen`); the PS3's journal is on the NFS root.
+- Screen: BRIO webcam pointed at the monitor, frames grabbed with ffmpeg.
 
 ## Build setup
 
