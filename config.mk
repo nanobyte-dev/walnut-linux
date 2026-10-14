@@ -38,4 +38,4 @@ HTTP_PORT           := 8000
 # netconsole spells out source IP, device and target MAC: built-in netconsole starts before
 # ip=dhcp has configured eth0 and gives up without them.
 KERNEL_CMDLINE      := root=/dev/nfs nfsroot=$(PC_IP):$(NFS_ROOT),v3,tcp ip=dhcp rw rootwait \
-                       video=ps3fb:mode:133 console=tty1 netconsole=6665@$(PS3_IP)/eth0,6666@$(PC_IP)/$(PC_MAC) loglevel=7
+                       video=ps3fb:mode:133 consoleblank=0 ps3rsx_gart=32M console=tty1 netconsole=6665@$(PS3_IP)/eth0,6666@$(PC_IP)/$(PC_MAC) loglevel=7

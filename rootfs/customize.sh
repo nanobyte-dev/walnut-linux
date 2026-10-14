@@ -83,3 +83,35 @@ WantedBy=multi-user.target
 EOS
 chroot "$R" systemctl enable ps3gpu-nodes.service
 chroot "$R" usermod -aG video tibi
+
+# ps3vram can't get VRAM while ps3fb owns it all, and the RSX driver uses VRAM for the GPU
+echo "blacklist ps3vram" > "$R/etc/modprobe.d/ps3vram.conf"
+
+# Swap: a file on the NFS root (the PS3's HDD regions belong to GameOS, never touch them).
+# Created on first boot so the image stays small and reproducible.
+cat > "$R/usr/local/sbin/ps3-swap" <<'EOS'
+#!/bin/sh
+F=/var/swapfile
+if [ ! -f "$F" ]; then
+	dd if=/dev/zero of="$F" bs=1M count=512 status=none
+	chmod 600 "$F"
+	mkswap "$F" >/dev/null
+fi
+exec swapon -p 0 "$F"
+EOS
+chmod 755 "$R/usr/local/sbin/ps3-swap"
+cat > "$R/etc/systemd/system/ps3-swap.service" <<'EOS'
+[Unit]
+Description=Swap file on the NFS root
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/ps3-swap
+ExecStop=/sbin/swapoff /var/swapfile
+
+[Install]
+WantedBy=multi-user.target
+EOS
+chroot "$R" systemctl enable ps3-swap.service
