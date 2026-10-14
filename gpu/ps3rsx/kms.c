@@ -20,7 +20,10 @@
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_simple_kms_helper.h>
 #include <drm/drm_vblank.h>
+#include <linux/interrupt.h>
 #include <linux/moduleparam.h>
+#include <asm/lv1call.h>
+#include <asm/ps3.h>
 #include <asm/ps3gpu.h>
 
 #include "ps3rsx.h"
@@ -227,10 +230,33 @@ void ps3rsx_kms_reflip(struct ps3rsx_device *rsx)
 /* --- CRTC ------------------------------------------------------------------------------- */
 
 /*
- * Flip events go out at the next tick of a timer running at the frame rate (as vkms does): the
- * flip itself latches at the display's vsync, the timer only paces clients. lv1's vsync
- * interrupt (E7) could replace it.
+ * vblank: the display's vsync interrupt on our context's IRQ outlet (E7), head A like ps3fb.
+ * Flips latch at that vsync, so flip events sent from it match what is on screen; a free-running
+ * timer drifted against the real vsync: events came before the flip had latched (clients drew
+ * into the buffer still being scanned out) and vblank waits timed out. vblank_irq=0 brings the
+ * timer back.
  */
+static bool vblank_irq = true;
+module_param(vblank_irq, bool, 0444);
+MODULE_PARM_DESC(vblank_irq, "vblank from the RSX vsync interrupt (default) instead of a timer");
+
+/* driver info: display heads at 0x10b8 (8 x 64 bytes), then the IRQ block */
+#define DINFO_IRQ_OUTLET	0x12b8
+#define DINFO_IRQ_MASK		0x12c0
+#define INTR_VSYNC_A		(1 << 0)
+
+static irqreturn_t vsync_interrupt(int irq, void *data)
+{
+	struct ps3rsx_device *rsx = data;
+	u64 v = 0;
+
+	if (lv1_gpu_context_intr(rsx->ctx.handle, &v))
+		return IRQ_NONE;
+	if (v & INTR_VSYNC_A)
+		drm_crtc_handle_vblank(&rsx->crtc);
+	return IRQ_HANDLED;
+}
+
 static enum hrtimer_restart vblank_tick(struct hrtimer *t)
 {
 	struct ps3rsx_device *rsx = container_of(t, struct ps3rsx_device, vblank_timer);
@@ -246,6 +272,10 @@ static int enable_vblank(struct drm_crtc *crtc)
 {
 	struct ps3rsx_device *rsx = to_rsx(crtc->dev);
 
+	if (rsx->vsync_virq) {
+		out_be32(rsx->dinfo + DINFO_IRQ_MASK, INTR_VSYNC_A);
+		return 0;
+	}
 	rsx->vblank_period = ns_to_ktime(drm_crtc_vblank_crtc(crtc)->framedur_ns);
 	hrtimer_start(&rsx->vblank_timer, rsx->vblank_period, HRTIMER_MODE_REL);
 	return 0;
@@ -253,7 +283,45 @@ static int enable_vblank(struct drm_crtc *crtc)
 
 static void disable_vblank(struct drm_crtc *crtc)
 {
-	hrtimer_try_to_cancel(&to_rsx(crtc->dev)->vblank_timer);
+	struct ps3rsx_device *rsx = to_rsx(crtc->dev);
+
+	if (rsx->vsync_virq)
+		out_be32(rsx->dinfo + DINFO_IRQ_MASK, 0);
+	else
+		hrtimer_try_to_cancel(&rsx->vblank_timer);
+}
+
+static void vsync_irq_init(struct ps3rsx_device *rsx)
+{
+	unsigned int virq;
+	int ret;
+
+	if (!vblank_irq)
+		return;
+	out_be32(rsx->dinfo + DINFO_IRQ_MASK, 0);
+	ret = ps3_irq_plug_setup(PS3_BINDING_CPU_ANY, in_be32(rsx->dinfo + DINFO_IRQ_OUTLET), &virq);
+	if (ret) {
+		drm_warn(&rsx->drm, "vsync IRQ plug: %d, timer vblank\n", ret);
+		return;
+	}
+	ret = request_irq(virq, vsync_interrupt, 0, "ps3rsx vsync", rsx);
+	if (ret) {
+		drm_warn(&rsx->drm, "vsync IRQ: %d, timer vblank\n", ret);
+		ps3_irq_plug_destroy(virq);
+		return;
+	}
+	rsx->vsync_virq = virq;
+}
+
+void ps3rsx_kms_fini(struct ps3rsx_device *rsx)
+{
+	hrtimer_cancel(&rsx->vblank_timer);
+	if (rsx->vsync_virq) {
+		out_be32(rsx->dinfo + DINFO_IRQ_MASK, 0);
+		free_irq(rsx->vsync_virq, rsx);
+		ps3_irq_plug_destroy(rsx->vsync_virq);
+		rsx->vsync_virq = 0;
+	}
 }
 
 /* hand the commit's flip event to the next vblank */
@@ -396,6 +464,7 @@ int ps3rsx_kms_init(struct ps3rsx_device *rsx)
 		return ret;
 	hrtimer_init(&rsx->vblank_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	rsx->vblank_timer.function = vblank_tick;
+	vsync_irq_init(rsx);
 	drm_mode_config_reset(dev);
 	flip_test_rsx = rsx;
 	return 0;

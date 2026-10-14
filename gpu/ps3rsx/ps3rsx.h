@@ -103,7 +103,8 @@ struct ps3rsx_device {
 	struct drm_plane primary, cursor;
 	struct drm_crtc crtc;
 	struct drm_encoder encoder;
-	struct hrtimer vblank_timer;		/* paces flip events at the frame rate */
+	struct hrtimer vblank_timer;		/* fallback vblank (vblank_irq=0) */
+	unsigned int vsync_virq;		/* our context's IRQ outlet: vsync (0 if not plugged) */
 
 	/* GPU shared with ps3fb's consoles (console.c) */
 	struct mutex own_lock;
@@ -143,6 +144,7 @@ int ps3rsx_ioctl_gem_info(struct drm_device *dev, void *data, struct drm_file *f
 
 struct drm_mode_create_dumb;
 int ps3rsx_kms_init(struct ps3rsx_device *rsx);
+void ps3rsx_kms_fini(struct ps3rsx_device *rsx);
 void ps3rsx_kms_reflip(struct ps3rsx_device *rsx);
 void ps3rsx_kms_show_console(struct ps3rsx_device *rsx);
 bool ps3rsx_exec_idle(struct ps3rsx_device *rsx);
