@@ -98,7 +98,9 @@ struct ps3rsx_device {
 
 	/* KMS (kms.c) */
 	struct drm_connector connector;
-	struct drm_simple_display_pipe pipe;
+	struct drm_plane primary, cursor;
+	struct drm_crtc crtc;
+	struct drm_encoder encoder;
 	struct hrtimer vblank_timer;		/* paces flip events at the frame rate */
 	ktime_t vblank_period;
 };

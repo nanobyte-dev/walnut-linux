@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Minimal KMS: one CRTC/plane/connector for the mode ps3fb set up (ps3av), scanning out a VRAM
+ * Minimal KMS: one CRTC with a primary and a hardware cursor plane, one connector, for the mode
+ * ps3fb set up (ps3av), scanning out a VRAM
  * BO by flipping both display heads to it from our context (lv1_gpu_display_flip, E6 in
  * docs/RSX.md). ps3fb is kept off the GPU and the display while we are loaded (takeover), and
  * flips back to its own frame when we go.
@@ -8,6 +9,7 @@
  * Pixel format: the RSX scans out bytes X,R,G,B, which is DRM_FORMAT_BGRX8888 (DRM formats are
  * little-endian); on this big-endian host that is "host byte order XRGB".
  */
+#include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_edid.h>
@@ -26,6 +28,10 @@
 static const u32 ps3rsx_formats[] = {
 	DRM_FORMAT_BGRX8888,	/* bytes X,R,G,B: what the RSX shows */
 	DRM_FORMAT_XRGB8888,	/* accepted for clients that insist; colours come out swapped */
+};
+
+static const u32 cursor_formats[] = {
+	DRM_FORMAT_ARGB8888,	/* what legacy cursor ioctls create; X fills it with host-order ARGB */
 };
 
 static void flip(struct ps3rsx_device *rsx, u64 offset)
@@ -67,15 +73,24 @@ static struct ps3rsx_bo *fb_bo(struct drm_framebuffer *fb)
 	return to_bo(drm_gem_fb_get_obj(fb, 0));
 }
 
-static int pipe_check(struct drm_simple_display_pipe *pipe, struct drm_plane_state *plane_state,
-		      struct drm_crtc_state *crtc_state)
-{
-	struct ps3rsx_device *rsx = to_rsx(pipe->crtc.dev);
-	struct drm_framebuffer *fb = plane_state->fb;
-	struct ps3rsx_bo *bo;
+/* --- primary plane: the scanout buffer ------------------------------------------------- */
 
-	if (!fb)
+static int primary_check(struct drm_plane *plane, struct drm_atomic_state *state)
+{
+	struct ps3rsx_device *rsx = to_rsx(plane->dev);
+	struct drm_plane_state *ps = drm_atomic_get_new_plane_state(state, plane);
+	struct drm_framebuffer *fb = ps->fb;
+	struct drm_crtc_state *cs;
+	struct ps3rsx_bo *bo;
+	int ret;
+
+	if (!fb || !ps->crtc)
 		return 0;
+	cs = drm_atomic_get_new_crtc_state(state, ps->crtc);
+	ret = drm_atomic_helper_check_plane_state(ps, cs, DRM_PLANE_NO_SCALING, DRM_PLANE_NO_SCALING,
+						  false, true);
+	if (ret)
+		return ret;
 	bo = fb_bo(fb);
 	/* the display reads VRAM at ps3av's fixed pitch, from the start of the frame */
 	if (bo->domain != NOUVEAU_GEM_DOMAIN_VRAM || fb->pitches[0] != rsx->info.line_length ||
@@ -83,6 +98,98 @@ static int pipe_check(struct drm_simple_display_pipe *pipe, struct drm_plane_sta
 		return -EINVAL;
 	return 0;
 }
+
+static void primary_update(struct drm_plane *plane, struct drm_atomic_state *state)
+{
+	struct drm_plane_state *ps = plane->state;
+
+	if (ps->fb && ps->crtc && ps->crtc->state->active)
+		flip(to_rsx(plane->dev), fb_bo(ps->fb)->offset);
+}
+
+static const struct drm_plane_helper_funcs primary_helper_funcs = {
+	.atomic_check = primary_check,
+	.atomic_update = primary_update,
+};
+
+/* --- cursor plane: the RSX's 64x64 hardware cursor ---------------------------------------
+ * lv1 attribute 0x10b (head, op): op 1 init, op 2 image at a VRAM offset, op 3 position;
+ * 0x10c (head, 1 on / 2 off). Same calls as ps3fb's PS3GPU_IOCTL_*_CURSOR, from our context.
+ * The image is A8R8G8B8 words, which is what X writes into an ARGB8888 buffer on this host.
+ */
+#define CURSOR_SIZE 64
+
+static void cursor_call(struct ps3rsx_device *rsx, u64 attr, u64 op, u64 a, u64 b)
+{
+	for (int head = 0; head < 2; head++) {
+		int err = lv1_gpu_context_attribute(rsx->ctx.handle, attr, head, op, a, b);
+
+		if (err)
+			drm_warn_once(&rsx->drm, "cursor attribute %#llx op %llu failed: %d\n",
+				      attr, op, err);
+	}
+}
+
+static int cursor_check(struct drm_plane *plane, struct drm_atomic_state *state)
+{
+	struct drm_plane_state *ps = drm_atomic_get_new_plane_state(state, plane);
+	struct drm_framebuffer *fb = ps->fb;
+	struct drm_crtc_state *cs;
+	int ret;
+
+	if (!fb || !ps->crtc)
+		return 0;
+	cs = drm_atomic_get_new_crtc_state(state, ps->crtc);
+	ret = drm_atomic_helper_check_plane_state(ps, cs, DRM_PLANE_NO_SCALING, DRM_PLANE_NO_SCALING,
+						  true, true);
+	if (ret)
+		return ret;
+	if (fb->width != CURSOR_SIZE || fb->height != CURSOR_SIZE ||
+	    fb->pitches[0] != CURSOR_SIZE * 4 || fb->offsets[0] ||
+	    fb_bo(fb)->domain != NOUVEAU_GEM_DOMAIN_VRAM)
+		return -EINVAL;
+	return 0;
+}
+
+static void cursor_update(struct drm_plane *plane, struct drm_atomic_state *state)
+{
+	struct ps3rsx_device *rsx = to_rsx(plane->dev);
+	struct drm_plane_state *old = drm_atomic_get_old_plane_state(state, plane);
+	struct drm_plane_state *ps = plane->state;
+
+	if (!ps->fb || !ps->visible) {
+		cursor_call(rsx, 0x10c, 2, 0, 0);
+		return;
+	}
+	if (ps->fb != old->fb)
+		cursor_call(rsx, 0x10b, 2, fb_bo(ps->fb)->offset, 0);
+	/* negative positions (cursor partly off the left/top edge) are not known to work: clamp */
+	cursor_call(rsx, 0x10b, 3, max(ps->crtc_x, 0), max(ps->crtc_y, 0));
+	if (!old->fb || !old->visible)
+		cursor_call(rsx, 0x10c, 1, 0, 0);
+}
+
+static void cursor_disable(struct drm_plane *plane, struct drm_atomic_state *state)
+{
+	cursor_call(to_rsx(plane->dev), 0x10c, 2, 0, 0);
+}
+
+static const struct drm_plane_helper_funcs cursor_helper_funcs = {
+	.atomic_check = cursor_check,
+	.atomic_update = cursor_update,
+	.atomic_disable = cursor_disable,
+};
+
+static const struct drm_plane_funcs plane_funcs = {
+	.update_plane = drm_atomic_helper_update_plane,
+	.disable_plane = drm_atomic_helper_disable_plane,
+	.destroy = drm_plane_cleanup,
+	.reset = drm_atomic_helper_plane_reset,
+	.atomic_duplicate_state = drm_atomic_helper_plane_duplicate_state,
+	.atomic_destroy_state = drm_atomic_helper_plane_destroy_state,
+};
+
+/* --- CRTC ------------------------------------------------------------------------------- */
 
 /*
  * Flip events go out at the next tick of a timer running at the frame rate (as vkms does): the
@@ -94,24 +201,24 @@ static enum hrtimer_restart vblank_tick(struct hrtimer *t)
 	struct ps3rsx_device *rsx = container_of(t, struct ps3rsx_device, vblank_timer);
 
 	/* false once vblank is off: disable_vblank's cancel can miss a running tick */
-	if (!drm_crtc_handle_vblank(&rsx->pipe.crtc))
+	if (!drm_crtc_handle_vblank(&rsx->crtc))
 		return HRTIMER_NORESTART;
 	hrtimer_forward_now(t, rsx->vblank_period);
 	return HRTIMER_RESTART;
 }
 
-static int enable_vblank(struct drm_simple_display_pipe *pipe)
+static int enable_vblank(struct drm_crtc *crtc)
 {
-	struct ps3rsx_device *rsx = to_rsx(pipe->crtc.dev);
+	struct ps3rsx_device *rsx = to_rsx(crtc->dev);
 
-	rsx->vblank_period = ns_to_ktime(drm_crtc_vblank_crtc(&pipe->crtc)->framedur_ns);
+	rsx->vblank_period = ns_to_ktime(drm_crtc_vblank_crtc(crtc)->framedur_ns);
 	hrtimer_start(&rsx->vblank_timer, rsx->vblank_period, HRTIMER_MODE_REL);
 	return 0;
 }
 
-static void disable_vblank(struct drm_simple_display_pipe *pipe)
+static void disable_vblank(struct drm_crtc *crtc)
 {
-	hrtimer_try_to_cancel(&to_rsx(pipe->crtc.dev)->vblank_timer);
+	hrtimer_try_to_cancel(&to_rsx(crtc->dev)->vblank_timer);
 }
 
 /* hand the commit's flip event to the next vblank */
@@ -130,34 +237,48 @@ static void arm_event(struct drm_crtc *crtc)
 	spin_unlock_irq(&crtc->dev->event_lock);
 }
 
-static void pipe_update(struct drm_simple_display_pipe *pipe, struct drm_plane_state *old)
+static void crtc_flush(struct drm_crtc *crtc, struct drm_atomic_state *state)
 {
-	struct ps3rsx_device *rsx = to_rsx(pipe->crtc.dev);
-	struct drm_framebuffer *fb = pipe->plane.state->fb;
-
-	if (fb && pipe->crtc.state->active)
-		flip(rsx, fb_bo(fb)->offset);
-	arm_event(&pipe->crtc);
+	arm_event(crtc);
 }
 
-static void pipe_enable(struct drm_simple_display_pipe *pipe, struct drm_crtc_state *crtc_state,
-			struct drm_plane_state *plane_state)
+static void crtc_enable(struct drm_crtc *crtc, struct drm_atomic_state *state)
 {
-	struct ps3rsx_device *rsx = to_rsx(pipe->crtc.dev);
-
-	if (plane_state->fb)
-		flip(rsx, fb_bo(plane_state->fb)->offset);
-	drm_crtc_vblank_on(&pipe->crtc);
+	drm_crtc_vblank_on(crtc);
 }
 
-static void pipe_disable(struct drm_simple_display_pipe *pipe)
+static void crtc_disable(struct drm_crtc *crtc, struct drm_atomic_state *state)
 {
-	struct ps3rsx_device *rsx = to_rsx(pipe->crtc.dev);
+	struct ps3rsx_device *rsx = to_rsx(crtc->dev);
 
-	drm_crtc_vblank_off(&pipe->crtc);
+	drm_crtc_vblank_off(crtc);
+	cursor_call(rsx, 0x10c, 2, 0, 0);
 	/* back to ps3fb's frame (it redraws the console when it gets the GPU back) */
 	flip(rsx, rsx->info.full_offset);
+	if (crtc->state->event && !crtc->state->active) {
+		spin_lock_irq(&crtc->dev->event_lock);
+		drm_crtc_send_vblank_event(crtc, crtc->state->event);
+		spin_unlock_irq(&crtc->dev->event_lock);
+		crtc->state->event = NULL;
+	}
 }
+
+static const struct drm_crtc_helper_funcs crtc_helper_funcs = {
+	.atomic_flush = crtc_flush,
+	.atomic_enable = crtc_enable,
+	.atomic_disable = crtc_disable,
+};
+
+static const struct drm_crtc_funcs crtc_funcs = {
+	.reset = drm_atomic_helper_crtc_reset,
+	.destroy = drm_crtc_cleanup,
+	.set_config = drm_atomic_helper_set_config,
+	.page_flip = drm_atomic_helper_page_flip,
+	.atomic_duplicate_state = drm_atomic_helper_crtc_duplicate_state,
+	.atomic_destroy_state = drm_atomic_helper_crtc_destroy_state,
+	.enable_vblank = enable_vblank,
+	.disable_vblank = disable_vblank,
+};
 
 /* Debug: echo OFFSET > /sys/module/ps3rsx/parameters/flip_test flips both heads there */
 static struct ps3rsx_device *flip_test_rsx;
@@ -177,15 +298,6 @@ static int flip_test_set(const char *val, const struct kernel_param *kp)
 
 static const struct kernel_param_ops flip_test_ops = { .set = flip_test_set };
 module_param_cb(flip_test, &flip_test_ops, NULL, 0200);
-
-static const struct drm_simple_display_pipe_funcs pipe_funcs = {
-	.check = pipe_check,
-	.enable = pipe_enable,
-	.disable = pipe_disable,
-	.update = pipe_update,
-	.enable_vblank = enable_vblank,
-	.disable_vblank = disable_vblank,
-};
 
 static const struct drm_mode_config_funcs mode_config_funcs = {
 	.fb_create = drm_gem_fb_create,
@@ -208,6 +320,8 @@ int ps3rsx_kms_init(struct ps3rsx_device *rsx)
 	dev->mode_config.preferred_depth = 24;
 	dev->mode_config.prefer_shadow = 1;	/* CPU reads of VRAM run at 10 MB/s */
 	dev->mode_config.quirk_addfb_prefer_host_byte_order = true;
+	dev->mode_config.cursor_width = CURSOR_SIZE;
+	dev->mode_config.cursor_height = CURSOR_SIZE;
 	dev->mode_config.funcs = &mode_config_funcs;
 
 	ret = drm_connector_init(dev, &rsx->connector, &connector_funcs,
@@ -215,10 +329,31 @@ int ps3rsx_kms_init(struct ps3rsx_device *rsx)
 	if (ret)
 		return ret;
 	drm_connector_helper_add(&rsx->connector, &connector_helper_funcs);
-	ret = drm_simple_display_pipe_init(dev, &rsx->pipe, &pipe_funcs, ps3rsx_formats,
-					   ARRAY_SIZE(ps3rsx_formats), NULL, &rsx->connector);
+
+	ret = drm_universal_plane_init(dev, &rsx->primary, 1, &plane_funcs, ps3rsx_formats,
+				       ARRAY_SIZE(ps3rsx_formats), NULL, DRM_PLANE_TYPE_PRIMARY,
+				       NULL);
 	if (ret)
 		return ret;
+	drm_plane_helper_add(&rsx->primary, &primary_helper_funcs);
+	ret = drm_universal_plane_init(dev, &rsx->cursor, 1, &plane_funcs, cursor_formats,
+				       ARRAY_SIZE(cursor_formats), NULL, DRM_PLANE_TYPE_CURSOR, NULL);
+	if (ret)
+		return ret;
+	drm_plane_helper_add(&rsx->cursor, &cursor_helper_funcs);
+	ret = drm_crtc_init_with_planes(dev, &rsx->crtc, &rsx->primary, &rsx->cursor, &crtc_funcs,
+					NULL);
+	if (ret)
+		return ret;
+	drm_crtc_helper_add(&rsx->crtc, &crtc_helper_funcs);
+	ret = drm_simple_encoder_init(dev, &rsx->encoder, DRM_MODE_ENCODER_TMDS);
+	if (ret)
+		return ret;
+	rsx->encoder.possible_crtcs = drm_crtc_mask(&rsx->crtc);
+	ret = drm_connector_attach_encoder(&rsx->connector, &rsx->encoder);
+	if (ret)
+		return ret;
+	cursor_call(rsx, 0x10b, 1, 0, 0);	/* init the hardware cursor on both heads */
 	ret = drm_vblank_init(dev, 1);
 	if (ret)
 		return ret;
