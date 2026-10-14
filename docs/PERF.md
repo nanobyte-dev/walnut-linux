@@ -13,6 +13,16 @@ Core 2 Duo numbers. Measure before and after every change.
 | PulseAudio (33 MB), blueman helper (25 MB) running at idle | ~58 MB of 165 | removed / on demand |
 | No perf events | can't profile | CONFIG_PERF_EVENTS |
 
+## Measured (2026-10-14, after the fixes above)
+
+- Boot: systemd 13.8 s (1.2 kernel + 12.6 userspace); SSH answers 21 s after the kexec (was ~40 s).
+- RAM: 177 MB total, 117 MB available at the shell (was 165 / ~80).
+- Icon theme install: 86 s (with 4 KB NFS it had not finished unpacking after 20+ minutes).
+- **`perf record -a -g` hung the PS3**: its `sleep 60` workload blocked in D state ~4 min after
+  boot, then userspace and the network stopped (netconsole kept printing hung-task warnings).
+  Suspected: system-wide call-graph sampling (Cell PMU behind lv1). Don't use `-a -g`; try
+  `perf stat` first, then `perf record` on one process without `-g`, supervised.
+
 ## Next
 
 1. Baseline after the fixes above: boot to shell time, LXQt start time (splash to desktop),
