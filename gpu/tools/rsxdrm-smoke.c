@@ -12,6 +12,8 @@
  *                        clears, A clears again: with the kernel's context switch A's clear
  *                        must land in A's surface (docs/RSX.md E5)
  *   rsxdrm-smoke peek OFF [N]  copy N (default 64) words of VRAM at OFF to GART with M2MF, print
+ *   rsxdrm-smoke cpuvram  CPU writes a VRAM BO through mmap; the GPU must see the same data
+ *   rsxdrm-smoke fill OFF COLOUR  3D-clear a 1920x1080 surface at VRAM OFF (display tests)
  *   rsxdrm-smoke quirks  what Mesa does that libgcm doesn't: M2MF NOP on the M2MF subchannel,
  *                        RT_ENABLE 0x12 (both fine), vertex format type 0 (WEDGES the RSX: the
  *                        validator now rejects it, so this expects -EINVAL)
@@ -421,6 +423,41 @@ static int t_peek(uint32_t off, uint32_t n)
 	return rc != 0;
 }
 
+static int t_cpuvram(void)
+{
+	setup();
+	struct drm_nouveau_gem_info v = newbo(NOUVEAU_GEM_DOMAIN_VRAM, 65536);
+	struct drm_nouveau_gem_info back = newbo(NOUVEAU_GEM_DOMAIN_GART, 65536);
+	volatile uint32_t *vm = map(&v);
+	uint32_t *b = map(&back);
+	for (int i = 0; i < 1024; i++) { vm[i] = 0xc0de0000 | i; b[i] = 0; }
+	bind_m2mf();
+	m2mf(0xfeed0000, v.offset, 0xfeed0001, back.offset, 4096);
+	struct drm_nouveau_gem_info *x[] = { &v, &back };
+	int rc = submit(x, 2), bad = 0;
+	for (int i = 0; i < 1024; i++)
+		bad += b[i] != (0xc0de0000u | i);
+	printf("  CPU wrote VRAM BO at %#llx, GPU read back: %d of 1024 words differ (first %08x)\n",
+	       (unsigned long long)v.offset, bad, b[0]);
+	return rc || bad;
+}
+
+static int t_fill(uint32_t off, uint32_t colour)
+{
+	setup();
+	OUT(0, 0, 0x31337000);
+	OUT(0, 0x194, 0xfeed0000);
+	OUT(0, 0x200, 1920 << 16); OUT(0, 0x204, 1080 << 16);
+	OUT(0, 0x208, 0x148); OUT(0, 0x20c, 7680); OUT(0, 0x210, off);
+	OUT(0, 0x220, 1); OUT(0, 0x2b8, 0);
+	OUT(0, 0x8c0, 1920 << 16); OUT(0, 0x8c4, 1080 << 16);
+	OUT(0, 0x324, 0x01010101);
+	OUT(0, 0x1d90, colour); OUT(0, 0x1d94, 0xf0);
+	int rc = submit(NULL, 0);
+	printf("  filled 1920x1080 at VRAM %#x with %08x: %s\n", off, colour, rc ? strerror(-rc) : "ok");
+	return rc != 0;
+}
+
 static int t_quirks(void)
 {
 	setup();
@@ -468,6 +505,10 @@ int main(int argc, char **argv)
 		fail = t_tri();
 	else if (!strcmp(argv[1], "peek") && argc > 2)
 		fail = t_peek(strtoul(argv[2], NULL, 0), argc > 3 ? strtoul(argv[3], NULL, 0) : 64);
+	else if (!strcmp(argv[1], "cpuvram"))
+		fail = t_cpuvram();
+	else if (!strcmp(argv[1], "fill") && argc > 3)
+		fail = t_fill(strtoul(argv[2], NULL, 0), strtoul(argv[3], NULL, 16));
 	else if (!strcmp(argv[1], "twochan"))
 		fail = t_twochan();
 	else if (!strcmp(argv[1], "quirks"))

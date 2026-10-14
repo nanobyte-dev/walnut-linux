@@ -18,6 +18,8 @@
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_simple_kms_helper.h>
 #include <drm/drm_vblank.h>
+#include <linux/delay.h>
+#include <linux/moduleparam.h>
 #include <asm/ps3gpu.h>
 
 #include "ps3rsx.h"
@@ -27,11 +29,30 @@ static const u32 ps3rsx_formats[] = {
 	DRM_FORMAT_XRGB8888,	/* accepted for clients that insist; colours come out swapped */
 };
 
+/* driver info: head[n] (struct display_buffer in ps3fb.c) at 0x10b8 + 64 n; status at +8,
+ * offset at +12 */
+static void head_state(struct ps3rsx_device *rsx, const char *when)
+{
+	void __iomem *h = rsx->dinfo + 0x10b8;
+
+	drm_dbg_kms(&rsx->drm, "%s: head0 status %08x offset %08x, head1 status %08x offset %08x\n",
+		    when, in_be32(h + 8), in_be32(h + 12), in_be32(h + 64 + 8), in_be32(h + 64 + 12));
+}
+
 static void flip(struct ps3rsx_device *rsx, u64 offset)
 {
-	int s0 = lv1_gpu_display_flip(rsx->ctx.handle, 0, offset);
-	int s1 = lv1_gpu_display_flip(rsx->ctx.handle, 1, offset);
+	int s0, s1;
 
+	head_state(rsx, "before flip");
+	/* libgcm's cellGcmResetFlipStatus: clear the "flip waiting" bit (31) of each head's flip
+	 * status (lv1 attribute 0x10a: status = (status & a4) | a5) before asking for a flip */
+	lv1_gpu_context_attribute(rsx->ctx.handle, 0x10a, 0, 0x7fffffff, 0, 0);
+	lv1_gpu_context_attribute(rsx->ctx.handle, 0x10a, 1, 0x7fffffff, 0, 0);
+	s0 = lv1_gpu_display_flip(rsx->ctx.handle, 0, offset);
+	s1 = lv1_gpu_display_flip(rsx->ctx.handle, 1, offset);
+	drm_dbg_kms(&rsx->drm, "flip to %#llx: %d %d\n", offset, s0, s1);
+	msleep(40);
+	head_state(rsx, "40 ms after");
 	if (s0 || s1)
 		drm_warn_once(&rsx->drm, "display flip to %#llx failed: %d %d\n", offset, s0, s1);
 }
@@ -111,6 +132,25 @@ static void pipe_disable(struct drm_simple_display_pipe *pipe)
 	flip(rsx, rsx->info.full_offset);
 }
 
+/* Debug: echo OFFSET > /sys/module/ps3rsx/parameters/flip_test flips both heads there */
+static struct ps3rsx_device *flip_test_rsx;
+
+static int flip_test_set(const char *val, const struct kernel_param *kp)
+{
+	u64 off;
+	int ret = kstrtou64(val, 0, &off);
+
+	if (ret)
+		return ret;
+	if (!flip_test_rsx)
+		return -ENODEV;
+	flip(flip_test_rsx, off);
+	return 0;
+}
+
+static const struct kernel_param_ops flip_test_ops = { .set = flip_test_set };
+module_param_cb(flip_test, &flip_test_ops, NULL, 0200);
+
 static const struct drm_simple_display_pipe_funcs pipe_funcs = {
 	.check = pipe_check,
 	.enable = pipe_enable,
@@ -151,6 +191,7 @@ int ps3rsx_kms_init(struct ps3rsx_device *rsx)
 	if (ret)
 		return ret;
 	drm_mode_config_reset(dev);
+	flip_test_rsx = rsx;
 	return 0;
 }
 

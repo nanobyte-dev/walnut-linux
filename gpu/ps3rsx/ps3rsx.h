@@ -75,6 +75,7 @@ struct ps3rsx_device {
 
 	/* execution (exec.c) */
 	void __iomem *ctrl;		/* our context's FIFO control: put 0x40, get 0x44, ref 0x48 */
+	void __iomem *dinfo;		/* our context's driver info (display heads at 0x10b8) */
 	struct ps3fb_gpu_hook hook;
 	struct mutex exec_lock;		/* ring writes */
 	u32 ring_put;			/* IO address the next command goes to */

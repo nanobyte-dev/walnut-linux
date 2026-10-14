@@ -244,8 +244,13 @@ int ps3rsx_exec_init(struct ps3rsx_device *rsx)
 		return -EIO;
 	}
 	rsx->ctrl = ioremap(rsx->ctx.ctrl_lpar, PAGE_SIZE);
-	if (!rsx->ctrl)
+	rsx->dinfo = ioremap(rsx->ctx.dinfo_lpar, 128 * 1024);
+	if (!rsx->ctrl || !rsx->dinfo) {
+		if (rsx->ctrl)
+			iounmap(rsx->ctrl);
+		rsx->ctrl = NULL;
 		return -ENOMEM;
+	}
 
 	ret = ps3fb_gpu_takeover(true);
 	if (ret) {
@@ -290,7 +295,9 @@ err_release:
 	ps3fb_gpu_takeover(false);
 err_unmap:
 	iounmap(rsx->ctrl);
+	iounmap(rsx->dinfo);
 	rsx->ctrl = NULL;
+	rsx->dinfo = NULL;
 	return ret;
 }
 
@@ -314,6 +321,9 @@ void ps3rsx_exec_fini(struct ps3rsx_device *rsx)
 		drm_err(&rsx->drm, "GPU wedged: keeping it from ps3fb until reboot\n");
 	iounmap(rsx->ctrl);
 	rsx->ctrl = NULL;
+	if (rsx->dinfo)
+		iounmap(rsx->dinfo);
+	rsx->dinfo = NULL;
 	ps3rsx_shadow_free(rsx->hw_shadow);
 	kvfree(rsx->restore_buf);
 }
