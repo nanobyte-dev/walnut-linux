@@ -4,6 +4,9 @@
 # Inputs (env): DEBIAN_SUITE DEBIAN_MIRROR ROOTFS_PACKAGES ROOTFS_CUSTOMIZE SOURCE_DATE_EPOCH OWNER
 # Output: build/rootfs/debian-ppc64.tar
 set -euo pipefail
+# The body is one block, parsed whole before it runs: editing this file during a build (bash
+# otherwise reads scripts as it goes) can't make it run a shifted fragment.
+{
 
 OUT=build/rootfs
 mkdir -p "$OUT"
@@ -28,3 +31,5 @@ if [ -e "$OUT/debian-ppc64.tar" ]; then
 fi
 mv "$OUT/debian-ppc64.tar.tmp" "$OUT/debian-ppc64.tar"
 chown "$OWNER" "$OUT/debian-ppc64.tar"
+exit
+}
