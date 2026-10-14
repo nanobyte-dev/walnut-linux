@@ -129,3 +129,13 @@ clear works afterwards.
 
 ps3fb's vsync task blits the console into frame 0; ENTER stops it, but a blit in flight can
 still land after a test's clear, so tests wait 200 ms after ENTER.
+
+## Through the ps3rsx driver (Phase 2)
+
+`gpu/tools/rsxdrm-smoke` via the nouveau ioctls: M2MF GART<->VRAM exact, 3D clear exact, the
+raw-command triangle exact, 10k fenced submits with the back-end semaphore label always landed
+when the fence signalled, 20 load/unload cycles.
+
+What Mesa does that libgcm doesn't: the M2MF NOP (0x100 on the M2MF subchannel) and
+RT_ENABLE 0x12 are accepted. **Vertex format type 0 (0x1740+, data & 0xf == 0) raises a graph
+exception**: the validator rejects it, and Mesa must not emit it on the PS3.

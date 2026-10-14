@@ -150,6 +150,12 @@ static int check_method(struct ps3rsx_vstate *vs, u32 subch, u32 mthd, u32 data,
 		*why = "method not in the allowlist for this object";
 		return -EINVAL;
 	}
+	if (vs->bound[subch] == 0x31337000 && mthd >= 0x1740 && mthd <= 0x177c &&
+	    (data & 0xf) == 0) {
+		/* vertex format type 0 raises a graph exception on the RSX (quirks test) */
+		*why = "vertex format type 0";
+		return -EINVAL;
+	}
 	if (vs->bound[subch] == 0x3137af00 && mthd == 0x198) {
 		/* SIFM surface: an object (surface 2D or swizzled), not a context DMA */
 		if (data != 0x313371c3 && data != 0x31337a73) {

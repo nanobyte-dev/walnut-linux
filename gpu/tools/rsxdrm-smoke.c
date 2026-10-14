@@ -9,7 +9,8 @@
  *   rsxdrm-smoke reject  pushes the validator must refuse (JMP, unknown object/DMA/method, host)
  *   rsxdrm-smoke tri     a magenta triangle into a 64x64 VRAM target, read back (center, corner)
  *   rsxdrm-smoke quirks  what Mesa does that libgcm doesn't: M2MF NOP on the M2MF subchannel,
- *                        RT_ENABLE 0x12, vertex format type 0 (may wedge: run last)
+ *                        RT_ENABLE 0x12 (both fine), vertex format type 0 (WEDGES the RSX: the
+ *                        validator now rejects it, so this expects -EINVAL)
  */
 #include <fcntl.h>
 #include <stdio.h>
@@ -357,7 +358,8 @@ static int t_quirks(void)
 	OUT(0, 0x1740, 0x00000000);		/* vertex format type 0, size 0 (array off) */
 	OUT(0, 0x1740, 0x00000002);
 	rc = submit(NULL, 0);
-	printf("  vertex format type 0: %s\n", rc ? strerror(-rc) : "ok"); fail |= rc != 0;
+	printf("  vertex format type 0: %s\n", rc == -EINVAL ? "rejected (it wedges the RSX)" : "NOT rejected");
+	fail |= rc != -EINVAL;
 	return fail;
 }
 
