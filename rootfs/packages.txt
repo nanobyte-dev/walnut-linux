@@ -44,6 +44,7 @@ netsurf-gtk
 fonts-dejavu-core
 xfonts-base
 x11-utils
+xinput
 dbus-x11
 locales
 # Files: trash, drives (udisks2), network

@@ -116,6 +116,54 @@ chroot "$R" chown -R 1000:1000 /home/tibi/.config
 # Any console user may start X (the legacy wrapper runs it with root rights for KMS/input)
 printf 'allowed_users=anybody\nneeds_root_rights=yes\n' > "$R/etc/X11/Xwrapper.config"
 
+# Games run through ps3-game: the gamepad stops moving the X pointer meanwhile (the pointer
+# motion would also turn the game's camera), and the game gets the gamepad to itself
+cat > "$R/usr/local/bin/ps3-game" <<'EOS'
+#!/bin/sh
+# ps3-game <command...>: runs a game with the gamepads detached from the X pointer
+pads() {	# X device ids of the gamepads (udev ID_INPUT_JOYSTICK) attached as pointers
+	for d in /sys/class/input/event*; do
+		udevadm info -q property "$d" | grep -q '^ID_INPUT_JOYSTICK=1' || continue
+		name=$(cat "$d/device/name")
+		xinput list | grep -F "$name" | grep 'slave  pointer' | sed 's/.*id=\([0-9]*\).*/\1/'
+	done
+}
+ids=$(pads)
+for i in $ids; do xinput disable "$i"; done
+"$@"
+ret=$?
+for i in $ids; do xinput enable "$i"; done
+exit $ret
+EOS
+chmod 755 "$R/usr/local/bin/ps3-game"
+
+# OpenArena: fullscreen at the display's resolution, vsync, DualShock 3 analog (left stick
+# moves, right stick aims; R2 fire, L2 zoom, X jump, O crouch, R1/L1 next/previous weapon,
+# Start menu, Select scores)
+mkdir -p "$R/home/tibi/.openarena/baseoa"
+cat > "$R/home/tibi/.openarena/baseoa/autoexec.cfg" <<'EOF'
+seta r_mode "-2"
+seta r_fullscreen "1"
+seta r_swapInterval "1"
+seta com_maxfps "60"
+seta in_joystick "1"
+seta in_joystickUseAnalog "1"
+bind PAD0_RIGHTTRIGGER "+attack"
+bind PAD0_LEFTTRIGGER "+zoom"
+bind PAD0_A "+moveup"
+bind PAD0_B "+movedown"
+bind PAD0_RIGHTSHOULDER "weapnext"
+bind PAD0_LEFTSHOULDER "weapprev"
+bind PAD0_X "+button2"
+bind PAD0_START "togglemenu"
+bind PAD0_BACK "+scores"
+EOF
+mkdir -p "$R/home/tibi/.local/share/applications"
+printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=OpenArena' \
+	'Comment=Arena shooter (ioquake3)' 'Exec=ps3-game openarena' 'Icon=openarena' \
+	'Categories=Game;ActionGame;' > "$R/home/tibi/.local/share/applications/openarena.desktop"
+chroot "$R" chown -R 1000:1000 /home/tibi/.openarena /home/tibi/.local
+
 # DualShock 3 (and other joysticks) move the pointer; libinput ignores joysticks
 cat > "$R/etc/X11/xorg.conf.d/40-joystick-pointer.conf" <<'EOF'
 Section "InputClass"
