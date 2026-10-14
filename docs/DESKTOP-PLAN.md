@@ -63,6 +63,10 @@ Bluetooth keyboard types; `free -m` after login with the desktop idle.
   memory log (`~/mem.log`, every 2 s) is how to tell.
 - Icons were missing: LXQt's default icon theme is breeze (`breeze-icon-theme` added).
 - Kernel has no PSI (/proc/pressure); MemAvailable and SwapFree are the signals.
+- Under LXQt the PS3 re-read 10 GB from NFS in ~30 min (program pages evicted and fetched again):
+  that is the real slowdown. One apt-get then sat in D state for 20+ min waiting on a file page
+  (filemap_fault) while other NFS reads worked; only a reboot clears it. Package work should be
+  done with the desktop stopped.
 - Seen on netconsole: `os_area_queue_work_handler: Could not update FLASH ROM` (the kernel
   wanting to save the RTC offset to flash; flash writes are compiled out, nothing was written).
 - Next: boot with the 384 MB zram and remove `~/.no-desktop` (boot straight into LXQt); test the
