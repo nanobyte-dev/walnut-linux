@@ -92,8 +92,15 @@ Linux gets 6 SPEs (`spufs`), and nothing uses them yet. Uses later: vertex conve
 big-endian, zram compression, video decode. Toolchain first:
 - Fallback: pinned spu-elf toolchain in Docker (GCC 9.5, the last release with the SPU port,
   plus matching binutils/newlib), proven by a hello world on one SPE.
-- To evaluate: forward-porting GCC's SPU target (removed in GCC 10) to current GCC.
-  LLVM's CellSPU backend was removed in 3.3 (2012) and was experimental; not an option.
+- Forward port evaluated 2026-10-14: the GCC 9.5 SPU port is ~20.7k lines (config/spu) plus
+  ~1.5k in libgcc, removed in commit 2f2aeda98f3a (GCC 10). It never used cc0, but it uses the
+  old reload allocator (TARGET_LRA_P false), which GCC plans to drop: a real revival needs an
+  LRA conversion (the precedent is ia64's, months of part-time work). Estimate: 4-8 weeks to a
+  C hello world on trunk for an experienced backend developer, plus 4-10 for LRA, plus ongoing
+  upkeep. binutils and newlib still support spu-elf; gdb dropped it in 2019.
+  Decision: start with GCC 9.5 against current binutils/newlib (1-3 days); revisit the port
+  only if 9.5 limits us.
+- LLVM's CellSPU backend was removed in 3.3 (2012) and was experimental; not an option.
 
 ## Open questions
 
