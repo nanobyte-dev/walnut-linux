@@ -23,6 +23,14 @@ Core 2 Duo numbers. Measure before and after every change.
   Suspected: system-wide call-graph sampling (Cell PMU behind lv1). Don't use `-a -g`; try
   `perf stat` first, then `perf record` on one process without `-g`, supervised.
 
+- LXQt start (X up to desktop window): 25 s (was 2-3 min). Idle desktop: 75 MB available,
+  90 MB in zram, no swap traffic; lxqt-panel 24 MB, pcmanfm-qt 32 MB, Xorg 21 MB RSS.
+- `top`/`vmstat` show ~98% hardirq ("hi") even with X stopped and ps3rsx unloaded: an artifact
+  of tick-based CPU accounting on the PS3. A CPU-bound shell loop gets the whole CPU (11.2 s
+  real, 11.17 s user).
+- That loop is 11x slower than on the dev PC (Ryzen-class): branchy, interpreted code is where
+  the in-order PPE hurts most.
+
 ## Next
 
 1. Baseline after the fixes above: boot to shell time, LXQt start time (splash to desktop),
