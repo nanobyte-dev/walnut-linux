@@ -125,8 +125,13 @@ chroot "$R" systemctl enable ps3-swap.service
 # Memory reserve for allocations that can't wait for reclaim (network receive buffers): under
 # memory pressure gelic could not refill its receive ring and the PS3 dropped off the network,
 # hanging everything on the NFS root (2026-10-15, two hangs without an OOM message). The kernel's
-# default reserve on 177 MB is ~1.4 MB.
+# default reserve on 177 MB was 1689 kB.
 echo "vm.min_free_kbytes = 8192" > "$R/etc/sysctl.d/60-ps3-memory.conf"
+
+# A real locale (only C existed: Qt complained, Enlightenment's language list was empty)
+echo "en_US.UTF-8 UTF-8" > "$R/etc/locale.gen"
+chroot "$R" locale-gen
+echo "LANG=en_US.UTF-8" > "$R/etc/default/locale"
 
 # Xorg on the RSX (docs/DRIVER-PLAN.md Phase 6): modesetting on ps3rsx's card with glamor,
 # using the patched Mesa in /home/tibi/mesa (deployed by `make mesa-deploy`). ld.so.conf makes
