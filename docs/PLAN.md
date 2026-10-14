@@ -86,6 +86,15 @@ way: docs/RSX.md. Next: the "Later" table in DRIVER-PLAN.md (pushing the hardwar
 - Kernel: Fedora cross compiler `gcc-powerpc64-linux-gnu`.
 - Userland (libdrm, Mesa, test programs): ppc64 BE root on the dev PC run through `qemu-user-static`. It can double as the PS3's NFS root to spare its 256 MB RAM.
 
+## Side project: the SPEs (stated 2026-10-14)
+
+Linux gets 6 SPEs (`spufs`), and nothing uses them yet. Uses later: vertex conversion for Mesa on
+big-endian, zram compression, video decode. Toolchain first:
+- Fallback: pinned spu-elf toolchain in Docker (GCC 9.5, the last release with the SPU port,
+  plus matching binutils/newlib), proven by a hello world on one SPE.
+- To evaluate: forward-porting GCC's SPU target (removed in GCC 10) to current GCC.
+  LLVM's CellSPU backend was removed in 3.3 (2012) and was experimental; not an option.
+
 ## Open questions
 
 - Does the PS3 Petitboot build support network boot?
