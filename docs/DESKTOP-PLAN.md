@@ -1,4 +1,9 @@
-# Plan: a usable LXQt desktop on the PS3 (after DRIVER-PLAN.md)
+# Plan: a usable desktop on the PS3 (after DRIVER-PLAN.md)
+
+**Status 2026-10-15:** the desktop is Openbox + tint2 + PCManFM, not LXQt. It was measured
+against LXQt, IceWM, Xfce and Enlightenment, and the others were dropped from the image
+(`rootfs/desktop-setup.sh`). The LXQt sections below are kept as the original plan; the
+current state is in docs/PLAN.md.
 
 Decided 2026-10-14: LXQt, root stays on NFS (netboot from Petitboot as now), input from USB
 keyboard/mouse, a DualShock 3 (USB and Bluetooth) and Bluetooth keyboards/mice.

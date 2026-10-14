@@ -1,0 +1,31 @@
+1. Get our image reproducible via build script. Script should be based on a makefile and cached so it is fast. Swichover to these images. Any fixes from now on are done on the reproducible image, not on the live image.
+
+2. GPU driver and game support. Gold standard is stable 60fps.
+**Strong candidates** (GL 1.x/2.1, light, with a big-endian history from PowerPC Macs):
+- **OpenArena / ioquake3**: the Quake III engine, which ran on G4/G5 Macs. A classic GPU test, and it should hit 60 fps at 1080p. RAM use is roughly 100–150 MB, which is tight but plausible.
+- **QuakeSpasm** (Quake 1): GL 1.x, tiny footprint, PPC-friendly.
+- **Yamagi Quake II**, with its `gl1` renderer: light and portable.
+- **Extreme Tux Racer**: GL 1.x and simple, a nice controller game.
+- **Neverball / Neverputt**: light, uses a gamepad well, packaged in Debian.
+- **Armagetron Advanced**: very light GL, good for long-running stability tests.
+- **Sauerbraten (Cube 2)**: a modest engine with a built-in map editor; a step up in GPU load.
+
+**Stretch goals** (may work, but RAM or CPU will hurt):
+- **SuperTuxKart**, in its legacy GL 2.1 renderer mode. The assets are big, so memory will be the problem.
+- **Luanti (Minetest)**: has a GL 2.1 driver, but the Lua and mesh work is CPU-heavy on the PPE, and it's a heavier ClassiCube.
+- **PrBoom+**, with its GL renderer: easy. It's a light test of the 2D/texture paths more than real 3D.
+
+**Probably out of reach:**
+- GL 3.x+ only: GZDoom, Warzone 2100, 0 A.D. (also far too heavy)
+
+3. Dualshock controllers should work
+
+4. Fan control should work
+
+5. Networking settings should work
+
+6. Investigate porting GCC 9 cell accelerator support to latest version
+
+7. Create a proper distribution - a repository of cell optimized packages, optimized kernel, fixed nouveau driver etc
+
+8. Create disk image, installer etc

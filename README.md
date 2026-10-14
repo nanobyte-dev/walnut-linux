@@ -15,7 +15,9 @@ nouveau's userspace (libdrm + Mesa nv30) on the RSX. Plan and background: `docs/
 | `docker/Dockerfile.mesa` | Mesa build environment on top of it (C++ cross compiler, meson) |
 | `mesa/fork/` | Our fork of Mesa's nouveau driver (and the few loader/dri/gbm files we change), copied over the release tarball; edit directly |
 | `mesa/sysroot-packages.txt`, `mesa/cross-ppc64.ini` | Debian ppc64 sysroot contents and meson cross file |
-| `mesa/tests/` | Offscreen EGL/GLES2 tests (`egl-clear`, `egl-tri`, `egl-tex`, `egl-gears`, `egl-short`) |
+| `mesa/tests/` | Offscreen tests compared with softpipe: EGL/GLES2 (`egl-*`), desktop GL fixed function (`gl-fog`, `gl-sky`) |
+| `games/` | Game builds and defaults: `classicube/` (pinned cross build, sounds/music from Mojang by SHA-1) |
+| `rootfs/desktop-setup.sh`, `rootfs/ds3-pair` | Desktop session, game defaults, `ps3-game` wrapper; DualShock 3 USB-plug pairing |
 | `gpu/ps3rsx/` | The DRM driver (registers as "nouveau"): render ioctls, validator, software context switch, KMS |
 | `tools/` | Scripts called by the Makefile |
 | `gpu/tools/` | Programs and scripts run on the PS3: raw RSX probes (`rsx-*`), driver tests (`rsxdrm-smoke`), `rsx-suite.sh` (smoke, Mesa vs softpipe, concurrent GL), `rsx-x.sh` (Xorg with one client) |
@@ -28,11 +30,12 @@ nouveau's userspace (libdrm + Mesa nv30) on the RSX. Plan and background: `docs/
 
     make kernel rootfs     # build (in the pinned container)
     make checksums         # compare between builds to confirm reproducibility
-    make nfs-root          # sudo: install rootfs as NFS export
+    make nfs-root          # sudo: the whole system (image, modules, RSX driver, Mesa, games) as NFS export
     make listen            # in another terminal: PS3 debug output
     make netboot           # PS3 in Petitboot -> boots our kernel with NFS root
     make gpu-deploy        # cross-compile gpu/tools and copy them to ~/bin on the NFS root
-    make mesa-deploy       # patched Mesa + mesa/tests -> ~/mesa on the NFS root (sysroot, build, tests)
+    make mesa-deploy       # Mesa fork + mesa/tests -> ~/mesa on the NFS root (stop X first)
+    make classicube-deploy # ClassiCube + sounds/music -> ~/classicube
 
 On the PS3, `. ~/mesa/env.sh` selects our Mesa; `egl-gears` etc. print a checksum to compare with
 a softpipe run (`LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=softpipe`).

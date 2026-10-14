@@ -1,110 +1,231 @@
-# Plan: nouveau on the PS3 RSX
+# Plan: modern Linux with a working GPU on the PS3
 
-Goal: run the existing nouveau userspace (libdrm_nouveau + Mesa's nv30 driver) on the PS3's RSX, writing as little new code as possible. Optimisation and bug-fixing come later.
-
-Hard constraints are in CLAUDE.md (no permanent changes beyond installing Linux, GameOS stays the default boot OS).
+Hard constraints are in CLAUDE.md (no permanent changes beyond installing Linux, GameOS stays the
+default boot OS, no syscon writes, supervised sessions). The roadmap below follows `backlog.txt`;
+updated 2026-10-15.
 
 ## Long-term goal (stated 2026-10-14)
 
-A live environment for the PS3 that boots from USB or over NFS through Petitboot, with the
-RSX driver and the desktop (docs/DESKTOP-PLAN.md) working out of the box, plus an optional
-installer that installs it permanently (to the OtherOS++ Linux region of the HDD, within the
-safety rules in CLAUDE.md). The NFS netboot used for development is the first form of it.
+A live environment for the PS3 that boots from USB or over NFS through Petitboot, with the RSX
+driver, desktop and games working out of the box, plus an optional installer that installs it
+permanently (to the OtherOS++ Linux region of the HDD, within the safety rules). The NFS netboot
+used for development is the first form of it.
 
-## Deliverable
+## Where we are (2026-10-15)
 
-`make iso` produces a bootable image that can be dd-ed to a flash drive and booted from Petitboot.
-Development and testing use netboot (Petitboot -> kexec our kernel, root on NFS from the dev PC).
-Kernel and rootfs are shared between both; only the final packaging differs.
-Open for later: boot files must be readable by Petitboot's 2.6.30 kernel (ISO9660/ext2/FAT);
-raw ISO vs partitioned/hybrid image; live (read-only) vs writable root.
+- **Boot:** Debian sid ppc64 (debian-ports snapshot), our kernel netbooted from Petitboot, root
+  on NFS from the dev PC. Boot to SSH in about 21 s.
+- **GPU:** `ps3rsx` (registers as "nouveau") runs stock Mesa nv30 through our Mesa fork
+  (`mesa/fork/`).
+  - glxgears, kmscube and Xorg with glamor run on the RSX.
+  - vblank comes from the real vsync interrupt.
+  - Vertex and index buffers are fetched by the GPU from VRAM. The big-endian inline-vertex
+    path was what made games CPU-bound.
+  - Details: DRIVER-PLAN.md (phases and results), RSX.md (measured hardware facts).
+- **Desktop:** Openbox + tint2 + PCManFM, NetworkManager (never on eth0), pnmixer, dunst
+  (DESKTOP-PLAN.md). About 129 MB in all. Ctrl+Alt+Fn text consoles work.
+- **Games:** ClassiCube runs at a locked 60 fps fullscreen at 1080p with vsync, at about 26% CPU
+  (it was 6.5 fps before the vertex-fetch fix).
+- **Memory:** 177 MB of RAM visible. The GART reservation is 16 MB (9 MB used under load), swap
+  is zram, and `vm.min_free_kbytes` is 8 MB (two hangs under memory pressure).
 
-## Approach
+## Roadmap
 
-Nouveau's kernel driver can't run as-is. It expects a PCI card it initialises itself, while on the PS3 the hypervisor (lv1) owns the RSX and hands Linux a GPU context through hypercalls.
+### 1. Reproducible image (in progress)
 
-So: a thin PS3 DRM driver on top of the lv1 GPU calls that exposes nouveau's ioctl interface (channel alloc, buffer alloc in VRAM/XDR, pushbuf submit, fences). Mesa nv30 then runs on top with minimal changes.
+The image must come entirely from the build. Fixes go into the scripts, never onto the live
+root.
 
-Starting point: mainline `ps3fb` and `ps3vram` already allocate an lv1 GPU context and submit FIFO commands to the RSX.
+Done:
+- `make nfs-root` builds and installs everything: the Debian image (`rootfs/`), the kernel
+  modules, the RSX driver and tools, Mesa, and ClassiCube with its sounds and music. An existing
+  root is moved to `/srv/ps3root.bak-<date>`.
+- Inputs are pinned:
+  - the Debian snapshot date;
+  - the kernel, Mesa and ClassiCube tarballs, by SHA-256;
+  - game assets, by SHA-1;
+  - the builder images, by digest and snapshot.
+- Builds use a fixed `SOURCE_DATE_EPOCH`. Recommends are off and every package is listed.
+- An audit of the live root (2026-10-15) found that all the config was already in the scripts.
+  The missing packages and the resolver it found were added to the scripts.
 
-## The console
+Next:
+1. Switch over: the user runs `! make nfs-root` and reboots. Then update the host key in
+   `build/ps3_known_hosts` (the new image generates new SSH keys).
+2. Verify the fresh root with no manual step:
+   - desktop at boot;
+   - `glxinfo -B` on NV47;
+   - ClassiCube at 60 fps;
+   - OpenArena starts;
+   - DS3 pairing.
+3. Caching. The Makefile already caches downloads, the sysroot, Mesa and the games. The rootfs
+   (about 15 min under qemu) still downloads every package each time: mount an apt cache into the
+   build.
+4. Size: about 210 MB of the image is Debian's own Mesa and LLVM, pulled in by
+   `xserver-xorg-core` and `mesa-utils`, though our Mesa is used. Drop it if the dependencies
+   allow (equivs or a dummy package).
+5. Later, install the RSX driver and Mesa as packages or in `/usr/local`, not in `~tibi`.
 
-CECH-20xx (DYN-001, first Slim; from IDPS model byte 0x09, confirm with sticker), NOR flash, 4.92 CEX Cobra 8.5D,
-webMAN MOD 1.47.48 at http://10.0.0.76/. Screen visible via the Logitech BRIO pointed at the monitor (HDMI capture is blocked by HDCP in the XMB).
+### 2. GPU driver and games (gold standard: stable 60 fps)
 
-## Phase 0: Linux on the PS3 (DONE 2026-10-14)
+Done:
+- **ClassiCube:**
+  - 60 fps fullscreen;
+  - the sky/fog bug fixed (Mesa computed the fog distance as abs(eye z) per vertex: wrong
+    across triangles behind the eye, which affects every Mesa driver);
+  - Openbox starts it fullscreen.
+  - Defaults: vsync, at most 4 chunk rebuilds per frame (`gfx-maxchunkupdates`), against
+    stutters.
 
-Debian sid ppc64 boots via `make netboot` with root on NFS; systemd healthy, SSH as tibi with ~/.ssh/id_ps3.
-Gotchas found on the way (details in git log): kexec must go through Petitboot's `reboot` path,
-kernel must be ELFv1, no gelic early debug, and a local vDSO getrandom fix for BE ELFv1.
+Open:
+- ClassiCube: confirm the stutter fix in play. Confirm sound on the TV (the monitor has no
+  speakers). Then judge whether the remaining stutters come from memory (kswapd/zram and NFS
+  page faults were seen).
+- **OpenArena (next):**
+  - It is in the image (Debian's ioquake3 build). The defaults are fullscreen at the display
+    resolution, vsync, com_maxfps 60 and DS3 analog bindings (`~/.openarena/baseoa/autoexec.cfg`).
+    None of it is tested yet.
+  - Measure its fps and RAM: 100–150 MB is expected, which is tight.
+- Test tools: `mesa/tests/gl-fog` and `gl-sky` (fixed-function fog against softpipe), and the
+  EGL checksum ladder. Every new game bug gets a small test like these.
 
+Candidates, in order:
+- Strong (GL 1.x/2.1, light, big-endian history from PowerPC Macs):
+  - QuakeSpasm;
+  - Yamagi Quake II (gl1);
+  - Extreme Tux Racer;
+  - Neverball/Neverputt;
+  - Armagetron Advanced (long stability runs);
+  - Sauerbraten (a step up in GPU load).
+- Stretch:
+  - SuperTuxKart in its legacy GL 2.1 mode (RAM);
+  - Luanti (CPU);
+  - PrBoom+ GL.
+- Out of reach: GL 3.x-only games (GZDoom, Warzone 2100, 0 A.D.).
 
-1. Confirm OtherOS++ supports the CECH-20xx (psdevwiki lists all fats and only some Slims). Stop if it doesn't.
-2. Dump the full NAND/NOR flash, verify it (e.g. PyPS3checker), keep copies on the dev PC. Nothing touches flash before this.
-3. Install OtherOS++ and Petitboot following psdevwiki for this exact model. Set up the HDD region for Linux.
-4. Install a distro: Debian ppc64 (debian-ports) or Gentoo (PS3 overlay + Cell binhost). Enable SSH.
-5. Set up webMAN MOD so the dev PC can launch the "boot OtherOS" app over HTTP.
+Driver work these will likely need (DRIVER-PLAN.md "Later"):
+- **GART:** 16 MB is enough today. Watch the "out of GART" lines in dmesg.
+- **CPU-side Mesa cost:** state validation and the kernel's validator and shadow show up in
+  `perf`.
+- **Mesa error paths:** two crashed on out-of-memory and are fixed. Expect more under memory
+  pressure.
 
-## Phase 1: does OtherOS++ expose the 3D engine? (YES, 2026-10-14)
+### 3. DualShock 3
 
-`gpu/tools/rsx-clear` takes over ps3fb's FIFO via /dev/ps3gpu_* (patch 0030 + local/0002 mmap fix) and
-issues NV40 3D methods on subchannel 0 (object 0x31337000, bound by ps3fb's reset program): surface
-setup + CLEAR_SURFACE turned the whole 1080p screen red, no graphics exception. Linux has the 3D engine.
+Done:
+- `hid-sony` and BlueZ are in the image.
+- One USB plug pairs a DS3 with the PS3's Bluetooth. `rootfs/ds3-pair` runs from udev, writes
+  the host address over hidraw, and registers the controller as trusted with BlueZ's sixaxis
+  HID record.
+- `ClassicBondedOnly=false`.
+- Games run through `ps3-game`, so the gamepad stops moving the X pointer meanwhile.
 
+Why it didn't pair before: the adapter wasn't connectable (BlueZ only page-scans for known
+devices), and BlueZ's sixaxis plugin needs an agent, which the session doesn't run.
 
-Small kernel module that binds the 3D class in our lv1 GPU context and clears the screen to a colour. Check with the capture dongle and by reading the framebuffer back over SSH.
+Next:
+- Test it: plug in by USB once, then press PS.
+- Check the SDL GameController mapping in ClassiCube and OpenArena.
+- Rumble and the LEDs (player number) are untested.
 
-- Works: Phase 2 is engineering.
-- Fails: work out what the hypervisor blocks before going further.
+### 4. Fan control
 
-## Phase 2: nouveau-compatible shim
+Nothing controls the fan under Linux: webMAN's loop dies with GameOS. The current rule is
+webMAN in SYSCON (automatic) mode, or a fixed speed of at least 60%, before booting Linux, plus
+supervised sessions (CLAUDE.md). SYSCON's automatic mode is its own thermal table.
 
-Detailed plan: docs/DRIVER-PLAN.md. A DRM driver `ps3rsx` (registers as "nouveau") on lv1 GPU
-calls, plus a small Mesa nv30 patch for the hypervisor's fixed object handles, up to glxgears
-in Xorg. **Status (2026-10-14): every phase done; glxgears runs in Xorg on the RSX** (glamor on
-NV47, GL 2.1, 60 fps vsync-paced), checked with `glxinfo -B`, `xwd` and the webcam. kmscube runs
-at 60 fps through KMS. Results per phase: docs/DRIVER-PLAN.md "Results"; GPU facts found on the
-way: docs/RSX.md. Next: the "Later" table in DRIVER-PLAN.md (pushing the hardware limits).
+Possible next steps:
+- **Read-only first:** temperatures under Linux. Find out whether lv1 or the sys-manager
+  exposes the thermal sensors, and log them during game sessions.
+- **Controlling the fan:** that needs syscon commands. CLAUDE.md forbids syscon writes unless
+  explicitly asked, so this needs the user's decision and a read of what OtherOS++ allows.
+
+### 5. Networking
+
+eth0 carries the NFS root. It is set up by the kernel and systemd-networkd, and NetworkManager
+never touches it. DNS comes from the kernel's DHCP (`/proc/net/pnp`). NetworkManager and
+nm-applet handle Wi-Fi and USB networking. The kernel has the PS3 Wi-Fi driver
+(`GELIC_WIRELESS`), and wpasupplicant is in the image.
+
+Next:
+- Test Wi-Fi: scan and join from nm-applet.
+- Settings UI for wired: eth0 has to stay as it is while the root is on NFS. A local-root
+  image (item 8) would let NetworkManager own it.
+- Hostname and time sync: systemd-timesyncd is in the image; check it.
+
+### 6. SPEs: a GCC toolchain for the Cell's accelerators
+
+Linux gets 6 SPEs (`spufs`), and nothing uses them yet. Possible uses: zram compression, video
+decode, vertex work.
+- Fallback (1–3 days): a pinned spu-elf toolchain in Docker (GCC 9.5, the last release with
+  the SPU port, against current binutils and newlib), proven by a hello world on one SPE.
+- Forward port (evaluated 2026-10-14): the GCC 9.5 SPU port is about 22k lines and uses the old
+  reload allocator, which GCC is dropping. Estimate: 4–8 weeks to a C hello world on trunk,
+  plus 4–10 weeks for an LRA conversion, plus ongoing upkeep.
+- Decision: start with 9.5, and revisit the port only if 9.5 limits us. LLVM's CellSPU backend
+  was removed in 3.3 and is not an option.
+
+### 7. A distribution
+
+A repository of Cell-tuned packages, our kernel, and the fixed nouveau/Mesa and ps3rsx, so the
+image (and other PS3 users) install them with apt instead of from build outputs. First steps:
+- package ps3rsx (DKMS or built against our kernel) and the Mesa fork as .debs;
+- host them in a signed apt repository.
+
+### 8. Disk image and installer
+
+- **`make iso`:** a bootable image for a USB drive, booted from Petitboot. Petitboot's 2.6.30
+  kernel must read the boot files (ISO9660, ext2 or FAT). Open questions: raw vs hybrid image,
+  read-only live root vs writable root.
+- **Installer:** to the OtherOS++ HDD region, within the safety rules. The GameOS disks
+  (ps3da/db/dc) are never written.
 
 ## Test loop
 
-- Getting to Linux needs the user: fan on SYSCON in webMAN, set the OtherOS flag in the XMB,
-  Petitboot comes up (at PETITBOOT_IP), then `make netboot`. Every reboot lands in GameOS.
-- Module and userspace changes: `make gpu-deploy`, then `insmod`/run over SSH. No reboot.
-- Kernel changes need a reboot (kexec from our Linux crashed the console), so they are batched.
-- A graph exception wedges the GPU until a console reboot: risky tests go last, one per boot.
-- Logs: netconsole (`make listen`); the PS3's journal is on the NFS root.
-- Screen: BRIO webcam pointed at the monitor, frames grabbed with ffmpeg.
-- Keep netconsole quiet: loglevel=4, and never the driver's `trace=1` through a GL program (the
-  volume hung the PS3). Mesa's `NOUVEAU_LIBDRM_DEBUG=1` dumps pushes in userspace instead.
-- Swap is zram: a swapfile on the NFS root deadlocked under memory pressure (write error -12).
-- Programs that wait for a key (modetest, kmscube) need stdin held open over SSH (`sleep N |`),
-  or they quit at once.
+- **Getting to Linux needs the user:** fan on SYSCON in webMAN, the OtherOS flag set in the
+  XMB, Petitboot comes up, then `make netboot`. Every reboot lands in GameOS. At the end of each
+  session the flag goes back to GameOS.
+- **Driver, Mesa and game changes:** build with make, then deploy with `make gpu-deploy`,
+  `make mesa-deploy` or `make classicube-deploy`.
+  - Mesa must not be replaced under a running X: the NFS rename makes X die from SIGBUS. Stop X
+    first (touch `~/.no-desktop`, kill Xorg), deploy, then restart `getty@tty1`.
+  - ps3rsx reloads with X stopped: `rmmod`, then `insmod ~/bin/ps3rsx.ko`.
+- **Kernel changes need a reboot.** kexec from our Linux crashed the console, so kernel changes
+  are batched.
+- **A graph exception wedges the GPU until a console reboot.** Risky tests go last, one per
+  boot.
+- **Observing:**
+  - logs: netconsole (`make listen`), and the journal on the NFS root;
+  - screen: the BRIO webcam (`tools/webcam-grab.sh`);
+  - fps: `GALLIUM_HUD=fps GALLIUM_HUD_VISIBLE=false GALLIUM_HUD_DUMP_DIR=/tmp/hud`.
+- **Gotchas:**
+  - `perf record -a -g` once hung the PS3 (2026-10-14). A short supervised run
+    (`-- sleep 5`) worked on 2026-10-15.
+  - Keep netconsole quiet: loglevel=4, and never `trace=1` through a GL program.
+  - Programs that wait for a key need stdin held open over SSH (`sleep N |`).
+  - `pkill -f` inside SSH commands kills the SSH shell itself: use `pgrep -x` and kill by PID.
 
 ## Build setup
 
-- Kernel: Fedora cross compiler `gcc-powerpc64-linux-gnu`.
-- Userland (libdrm, Mesa, test programs): ppc64 BE root on the dev PC run through `qemu-user-static`. It can double as the PS3's NFS root to spare its 256 MB RAM.
+Everything builds in pinned Docker images:
+- `docker/Dockerfile`: the kernel and rootfs builder, with mmdebstrap under qemu-user;
+- `Dockerfile.mesa`: the C++ cross compiler and meson, built against a Debian ppc64 sysroot;
+- `Dockerfile.games`: oggdec, for game assets.
 
-## Side project: the SPEs (stated 2026-10-14)
+Outputs go to `build/`, and earlier outputs are moved to `build/old/`, never deleted.
+`mesa/fork/` holds every Mesa file we change, whole. Its first commit is the pristine release,
+so `git diff` shows our changes.
 
-Linux gets 6 SPEs (`spufs`), and nothing uses them yet. Uses later: vertex conversion for Mesa on
-big-endian, zram compression, video decode. Toolchain first:
-- Fallback: pinned spu-elf toolchain in Docker (GCC 9.5, the last release with the SPU port,
-  plus matching binutils/newlib), proven by a hello world on one SPE.
-- Forward port evaluated 2026-10-14: the GCC 9.5 SPU port is ~20.7k lines (config/spu) plus
-  ~1.5k in libgcc, removed in commit 2f2aeda98f3a (GCC 10). It never used cc0, but it uses the
-  old reload allocator (TARGET_LRA_P false), which GCC plans to drop: a real revival needs an
-  LRA conversion (the precedent is ia64's, months of part-time work). Estimate: 4-8 weeks to a
-  C hello world on trunk for an experienced backend developer, plus 4-10 for LRA, plus ongoing
-  upkeep. binutils and newlib still support spu-elf; gdb dropped it in 2019.
-  Decision: start with GCC 9.5 against current binutils/newlib (1-3 days); revisit the port
-  only if 9.5 limits us.
-- LLVM's CellSPU backend was removed in 3.3 (2012) and was experimental; not an option.
+## The console
+
+- **Model:** CECH-20xx (DYN-001, first Slim), NOR flash, 4.92 CEX Cobra 8.5D.
+- **webMAN:** MOD 1.47.48 at http://10.0.0.76/.
+- **Screen:** a Logitech BRIO webcam points at the monitor. HDMI capture is blocked by HDCP in
+  the XMB.
 
 ## Open questions
 
-- Does the PS3 Petitboot build support network boot?
-- Does HDMI capture work under Linux, or does HDCP blank it?
-- Does Remote Start (Remote Play settings) respond to a Wake-on-LAN packet? Would solve remote power-on.
-- Exactly how much RSX access OtherOS++ gives (psdevwiki lv1 / OtherOS++ pages, René Rebe's driver work).
+- Does Remote Start (Remote Play settings) respond to Wake-on-LAN? That would allow remote
+  power-on.
+- Can the PS3's thermal sensors be read under Linux without syscon writes (item 4)?
+- Can a Petitboot-only reboot clear a wedged GPU, instead of a full console reboot?
