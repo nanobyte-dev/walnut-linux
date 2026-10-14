@@ -37,7 +37,7 @@ KERNEL_INPUTS := $(KERNEL_TARBALL) $(KERNEL_SERIES) $(wildcard kernel/patches/*/
 ROOTFS_VARS := $(BUILD)/rootfs.vars
 ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE_DATE_EPOCH BUILDER_TAG,$(v)=$($(v)))
 $(shell [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
-ROOTFS_INPUTS := $(ROOTFS_PACKAGES) $(ROOTFS_CUSTOMIZE) tools/build-rootfs.sh $(SSH_PUBKEY) $(ROOTFS_VARS)
+ROOTFS_INPUTS := $(ROOTFS_PACKAGES) $(ROOTFS_CUSTOMIZE) rootfs/desktop-setup.sh tools/build-rootfs.sh $(SSH_PUBKEY) $(ROOTFS_VARS)
 
 .PHONY: help all builder kernel rootfs checksums nfs-root nfs-modules netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
 	mesa-builder mesa-sysroot mesa mesa-tests mesa-deploy

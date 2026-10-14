@@ -139,3 +139,6 @@ Section "Device"
 EndSection
 EOS
 echo /home/tibi/mesa/lib > "$R/etc/ld.so.conf.d/00-ps3mesa.conf"
+
+# Desktop: ps3rsx at boot, autologin into LXQt, gamepad pointer (docs/DESKTOP-PLAN.md)
+sh "$(dirname "$0")/desktop-setup.sh" "$R"

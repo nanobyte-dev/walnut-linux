@@ -26,3 +26,20 @@ x11-xserver-utils
 x11-apps
 mesa-utils
 kmscube
+# Desktop (docs/DESKTOP-PLAN.md): LXQt on openbox, Bluetooth, DualShock 3 as a pointer
+lxqt-core
+openbox
+lxqt-powermanagement
+lxqt-sudo
+lxqt-about
+featherpad
+lximage-qt
+pavucontrol-qt
+alsa-utils
+bluez
+blueman
+xserver-xorg-input-joystick
+xserver-xorg-input-libinput
+netsurf-gtk
+fonts-dejavu-core
+dbus-x11
