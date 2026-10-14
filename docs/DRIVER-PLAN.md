@@ -118,9 +118,9 @@ ps3fb owns all of VRAM):
   `mkswap` on any of them destroys GameOS data. **Never write to them.**
 - An OtherOS++ Linux region would appear as an extra disk (e.g. `ps3dd`), identified only by
   the `ps3dX … (N MiB, M MiB for OtherOS)` dmesg line plus the user's confirmation.
-- Instead: `CONFIG_NFS_SWAP=y` and a swapfile on the NFS root, enabled by a systemd unit. A
-  USB stick is the alternative (`USB_STORAGE=y` is built in).
-- zram stays at a higher priority.
+- Instead: zram (compressed RAM swap). A swapfile on the NFS root was tried and deadlocked the
+  PS3 under memory pressure (`Write error -12 on dio swapfile`). A USB stick is the
+  alternative for real swap (`USB_STORAGE=y` is built in).
 - Swap is a prerequisite for Phase 6 (about 160 MB of RAM is left after ps3fb and the GART).
 
 **Verify:**

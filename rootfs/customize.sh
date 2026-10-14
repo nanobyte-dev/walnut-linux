@@ -93,29 +93,28 @@ chroot "$R" usermod -aG video,render tibi
 # ps3vram can't get VRAM while ps3fb owns it all, and the RSX driver uses VRAM for the GPU
 echo "blacklist ps3vram" > "$R/etc/modprobe.d/ps3vram.conf"
 
-# Swap: a file on the NFS root (the PS3's HDD regions belong to GameOS, never touch them).
-# Created on first boot so the image stays small and reproducible.
+# Swap: zram (compressed RAM). Swap over NFS deadlocked under memory pressure ("Write error
+# -12 on dio swapfile": writing pages out needs memory), and the PS3's HDD regions belong to
+# GameOS, so there is no disk to swap to.
 cat > "$R/usr/local/sbin/ps3-swap" <<'EOS'
 #!/bin/sh
-F=/var/swapfile
-if [ ! -f "$F" ]; then
-	dd if=/dev/zero of="$F" bs=1M count=512 status=none
-	chmod 600 "$F"
-	mkswap "$F" >/dev/null
-fi
-exec swapon -p 0 "$F"
+modprobe zram num_devices=1 || exit 1
+echo lzo-rle > /sys/block/zram0/comp_algorithm 2>/dev/null
+echo 160M > /sys/block/zram0/disksize
+mkswap /dev/zram0 >/dev/null
+exec swapon -p 100 /dev/zram0
 EOS
 chmod 755 "$R/usr/local/sbin/ps3-swap"
 cat > "$R/etc/systemd/system/ps3-swap.service" <<'EOS'
 [Unit]
-Description=Swap file on the NFS root
-After=local-fs.target
+Description=Compressed swap in RAM (zram)
+After=systemd-modules-load.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/local/sbin/ps3-swap
-ExecStop=/sbin/swapoff /var/swapfile
+ExecStop=/sbin/swapoff /dev/zram0
 
 [Install]
 WantedBy=multi-user.target
