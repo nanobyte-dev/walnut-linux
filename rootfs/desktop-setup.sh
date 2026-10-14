@@ -42,7 +42,8 @@ EOF
 chroot "$R" chown 1000:1000 /home/tibi/.bash_profile
 
 # X session: IceWM with PCManFM's desktop (default; ~13 MB against LXQt's ~72 MB, which leaves
-# room for gvfs: trash, USB drives, network), or LXQt with `echo lxqt > ~/.config/ps3-desktop`.
+# room for gvfs: trash, USB drives, network), or lxqt/xfce/enlightenment/openbox written to
+# ~/.config/ps3-desktop (being compared, docs/DESKTOP-PLAN.md).
 # A splash shows until the desktop window is up.
 cat > "$R/usr/local/bin/ps3-session" <<'EOS'
 #!/bin/sh
@@ -52,16 +53,25 @@ xmessage -center -buttons '' -bg '#14304d' -fg white -bd '#14304d' \
 	-fn '-misc-fixed-bold-r-normal--18-*-*-*-*-*-iso10646-1' \
 	"   Starting the desktop on the RSX...   " &
 splash=$!
-# the desktop window (PCManFM's, either version) covers the screen once the desktop is ready
-(while kill -0 $splash 2>/dev/null; do
-	xwininfo -root -tree 2>/dev/null | grep -qE 'pcmanfm-desktop0|"pcmanfm" "Pcmanfm"' &&
-		{ sleep 2; kill $splash; }
-	sleep 1
+# the desktop window (PCManFM's, either version, or Xfce's) covers the screen once the desktop
+# is ready; never longer than 2 minutes (Enlightenment draws its own)
+(t=0; while kill -0 $splash 2>/dev/null; do
+	xwininfo -root -tree 2>/dev/null |
+		grep -qE 'pcmanfm-desktop0|"pcmanfm" "Pcmanfm"|"xfdesktop" "Xfdesktop"' && sleep 2 ||
+		[ $t -gt 120 ] || { sleep 1; t=$((t + 1)); continue; }
+	kill $splash
 done) &
+# gvfs and the tray applets need a session bus: dbus-launch for the sessions that don't start one
 case "$desktop" in
 lxqt)	exec startlxqt ;;
-*)	# gvfs needs a session bus; startlxqt starts its own
-	exec dbus-launch --exit-with-session sh -c 'pcmanfm --desktop & exec icewm-session --nobg' ;;
+xfce)	exec startxfce4 ;;
+enlightenment)
+	exec dbus-launch --exit-with-session enlightenment_start ;;
+openbox)
+	exec dbus-launch --exit-with-session sh -c '
+		pcmanfm --desktop & tint2 & nm-applet & pnmixer & lxpolkit & dunst &
+		exec openbox' ;;
+*)	exec dbus-launch --exit-with-session sh -c 'pcmanfm --desktop & exec icewm-session --nobg' ;;
 esac
 EOS
 chmod 755 "$R/usr/local/bin/ps3-session"
