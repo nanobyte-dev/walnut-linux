@@ -1,0 +1,26 @@
+# Debian ppc64 packages extracted into the Mesa cross sysroot (one per line, comments allowed).
+# Dependencies are pulled in by apt; nothing is configured (mmdebstrap --variant=extract).
+base-files
+libc6-dev
+libdrm-dev
+libglvnd-dev
+libx11-dev
+libx11-xcb-dev
+libxext-dev
+libxfixes-dev
+libxcb1-dev
+libxcb-dri2-0-dev
+libxcb-dri3-dev
+libxcb-present-dev
+libxcb-glx0-dev
+libxcb-randr0-dev
+libxcb-sync-dev
+libxcb-xfixes0-dev
+libxcb-shm0-dev
+libxshmfence-dev
+libxxf86vm-dev
+libxrandr-dev
+libexpat1-dev
+zlib1g-dev
+libzstd-dev
+libudev-dev

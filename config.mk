@@ -18,6 +18,16 @@ ROOTFS_PACKAGES     := rootfs/packages.txt
 ROOTFS_CUSTOMIZE    := rootfs/customize.sh
 SSH_PUBKEY          := $(HOME)/.ssh/id_ps3.pub
 
+# --- Mesa (userspace GL for the RSX) ------------------------------------------
+# Same Mesa version as the snapshot's Debian packages; built with our nv30 patch.
+MESA_VERSION        := 26.2.4
+MESA_SHA256         := bce5f7fbebb934373b86c999a064d52fb5065878dc57f287f95346648ec832e9
+MESA_URL            := https://archive.mesa3d.org/mesa-$(MESA_VERSION).tar.xz
+MESA_SERIES         := mesa/patches/series
+MESA_SYSROOT_PACKAGES := mesa/sysroot-packages.txt
+# Runtime path on the PS3. /home/tibi is NFS_ROOT/home/tibi (owned by tibi), so no sudo to deploy.
+MESA_PREFIX         := /home/tibi/mesa
+
 # --- Build container ----------------------------------------------------------
 # Pinned base image; its apt sources are pointed at the same snapshot date.
 BUILDER_BASE        := debian@sha256:2bf225230f05881b6a36d20f484088f408c9a1309edc730c0bf01f15e635d411

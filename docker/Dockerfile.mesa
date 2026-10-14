@@ -1,0 +1,10 @@
+# Mesa cross-build environment: the kernel/rootfs builder plus a C++ cross compiler and meson.
+# A separate image so that adding Mesa's tools doesn't change the builder tag (and rebuild the kernel).
+ARG BUILDER
+FROM ${BUILDER}
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        g++-powerpc64-linux-gnu meson ninja-build pkgconf \
+        python3-mako python3-yaml python3-packaging && \
+    rm -rf /var/lib/apt/lists/*
