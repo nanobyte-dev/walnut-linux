@@ -415,6 +415,9 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 			src += len / 4;
 		}
 		rsx->last_chan = ch->id;
+		/* who to blame if the GPU raises an exception on this submit */
+		rsx->last_pid = task_pid_nr(current);
+		get_task_comm(rsx->last_comm, current);
 		rsx->prim_owner = ch->vstate.prim_open ? ch : NULL;
 		if (!rsx->prim_owner)
 			wake_up_all(&rsx->prim_wq);

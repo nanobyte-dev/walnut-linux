@@ -92,6 +92,8 @@ struct ps3rsx_device {
 	DECLARE_BITMAP(chan_ids, PS3RSX_MAX_CHANNELS);
 	struct ps3rsx_shadow *hw_shadow;	/* what the GPU holds (exec_lock) */
 	int last_chan;				/* channel whose state the GPU holds, or -1 */
+	pid_t last_pid;				/* last submitter (for exception reports) */
+	char last_comm[TASK_COMM_LEN];
 	struct ps3rsx_chan *prim_owner;		/* channel with a primitive open on the GPU */
 	wait_queue_head_t prim_wq;
 	u32 *restore_buf;

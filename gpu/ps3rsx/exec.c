@@ -112,6 +112,8 @@ static void exception_hook(void *data, u64 status, const void __iomem *info)
 	struct ps3rsx_device *rsx = data;
 
 	/* hard IRQ: record only; the poll timer errors the fences */
+	pr_err("ps3rsx: graph exception; last submit from channel %d, %s (pid %d)\n",
+	       READ_ONCE(rsx->last_chan), rsx->last_comm, READ_ONCE(rsx->last_pid));
 	WRITE_ONCE(rsx->wedged, true);
 	hrtimer_start(&rsx->fence_timer, 0, HRTIMER_MODE_REL);
 }
