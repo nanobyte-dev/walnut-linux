@@ -1,0 +1,15 @@
+--- a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
+@@ -495,7 +495,11 @@
+       size = mt->layer_size * 6;
+    }
+ 
+-   ret = nouveau_bo_new(dev, NOUVEAU_BO_VRAM, 256, size, NULL, &mt->base.bo);
++   /* nv30_transfer_rect_cpu maps textures; on the PS3, VRAM above 224 MB has no CPU mapping,
++    * so ask for the CPU-visible part (NOUVEAU_GEM_DOMAIN_MAPPABLE). */
++   ret = nouveau_bo_new(dev, NOUVEAU_BO_VRAM |
++                        (nv30_screen(pscreen)->base.is_ps3 ? NOUVEAU_BO_MAP : 0),
++                        256, size, NULL, &mt->base.bo);
+    if (ret) {
+       FREE(mt);
+       return NULL;
