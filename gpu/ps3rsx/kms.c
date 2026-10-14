@@ -113,11 +113,15 @@ static const struct drm_plane_helper_funcs primary_helper_funcs = {
 };
 
 /* --- cursor plane: the RSX's 64x64 hardware cursor ---------------------------------------
- * lv1 attribute 0x10b (head, op): op 1 init, op 2 image at a VRAM offset, op 3 position;
- * 0x10c (head, 1 on / 2 off). Same calls as ps3fb's PS3GPU_IOCTL_*_CURSOR, from our context.
+ * lv1 attributes: 0x10d (head, 1) init; 0x10b (head, op): op 2 image at a VRAM offset, op 3
+ * position; 0x10c (head, 1 on / 2 off). As libgcm/RPCS3 use them, from our context.
  * The image is A8R8G8B8 words, which is what X writes into an ARGB8888 buffer on this host.
  */
 #define CURSOR_SIZE 64
+
+static bool cursor_init_10d;
+module_param(cursor_init_10d, bool, 0444);
+MODULE_PARM_DESC(cursor_init_10d, "init the hardware cursor with lv1 attribute 0x10d (untested)");
 
 static void cursor_call(struct ps3rsx_device *rsx, u64 attr, u64 op, u64 a, u64 b)
 {
@@ -313,9 +317,8 @@ int ps3rsx_kms_init(struct ps3rsx_device *rsx)
 	ret = drmm_mode_config_init(dev);
 	if (ret)
 		return ret;
-	dev->mode_config.min_width = rsx->info.xres;
+	/* no minimum: cursor framebuffers are 64x64 (primary_check enforces the screen size) */
 	dev->mode_config.max_width = rsx->info.xres;
-	dev->mode_config.min_height = rsx->info.yres;
 	dev->mode_config.max_height = rsx->info.yres;
 	dev->mode_config.preferred_depth = 24;
 	dev->mode_config.prefer_shadow = 1;	/* CPU reads of VRAM run at 10 MB/s */
@@ -353,7 +356,10 @@ int ps3rsx_kms_init(struct ps3rsx_device *rsx)
 	ret = drm_connector_attach_encoder(&rsx->connector, &rsx->encoder);
 	if (ret)
 		return ret;
-	cursor_call(rsx, 0x10b, 1, 0, 0);	/* init the hardware cursor on both heads */
+	/* ps3fb's init is 0x10b op 1: lv1 accepts it, but the cursor stays hidden. libgcm's
+	 * cellGcmInitCursor is 0x10d (RPCS3 sys_rsx.cpp); the PS3 dropped off the network right after
+	 * a reload that used it (2026-10-14, cause unknown), so it is opt-in until tested supervised. */
+	cursor_call(rsx, cursor_init_10d ? 0x10d : 0x10b, 1, 0, 0);
 	ret = drm_vblank_init(dev, 1);
 	if (ret)
 		return ret;
