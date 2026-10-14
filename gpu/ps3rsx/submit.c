@@ -19,7 +19,7 @@ module_param_named(dry_run, dry_run, bool, 0644);
 MODULE_PARM_DESC(dry_run, "Validate submissions but send nothing to the GPU");
 
 /* All channels share one reports area; each gets its own fence label and query slice */
-#define FENCE_LABEL(id)		(0x20 + 16 * (id))
+#define FENCE_LABEL(id)		(0x20 + 32 * (id))	/* Mesa asks for 32 bytes */
 #define QUERY_SLICE(id)		(0x1400 + 0x1000 * (id))
 #define NTFY_OFFSET		0x1000
 
@@ -131,7 +131,7 @@ int ps3rsx_ioctl_notifierobj_alloc(struct drm_device *dev, void *data, struct dr
 	ch = ps3rsx_chan_find(pf, req->channel);
 	if (!ch) {
 		ret = -ENOENT;
-	} else if (req->handle == 0x66606660 && req->size <= 16) {
+	} else if (req->handle == 0x66606660 && req->size <= 32) {
 		req->offset = FENCE_LABEL(ch->id);	/* fence: 3D back-end semaphore label */
 	} else if (req->handle == 0x66626660 && req->size <= 0x1000) {
 		req->offset = QUERY_SLICE(ch->id);	/* queries: GET_REPORT records */
