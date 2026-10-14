@@ -444,9 +444,9 @@ The load pointers are restored afterwards.
 
 | Phase | Outcome |
 |---|---|
-| 1 | Done. Kernel patches local/0004 (GART boot reservation, `ps3rsx_gart=32M`), 0005 (ps3fb sharing API, ENTER/EXIT trylock), 0006 (gelic netpoll fix). |
-| 2 | Done. `rsxdrm-smoke` passes every subtest; the validator rejects vertex format type 0, which wedges the RSX. |
-| 3 | Done. egl-clear and egl-tex are byte-identical to softpipe; egl-tri differs by at most 1 per channel, egl-gears in 4 edge pixels. |
+| 1 | Done, rechecked 2026-10-14 with `gpu/tools/phase1-check.sh`: GART reserved, zram swap, `rsx-probe` draws, takeover refuses direct GPU access, the console redraws after release (webcam). Kernel patches local/0004 (GART boot reservation, `ps3rsx_gart=32M`), 0005 (ps3fb sharing API, ENTER/EXIT trylock), 0006 (gelic netpoll fix). |
+| 2 | Done. `rsxdrm-smoke` passes every subtest; triangles drawn through the driver show on screen (kmscube, glxgears, webcam); the validator rejects vertex format type 0, which wedges the RSX. |
+| 3 | Done. egl-clear and egl-tex are byte-identical to softpipe. egl-tri differs by at most 1 per channel. egl-gears (256x256): 2193 of 196608 bytes differ by 1, and 4 pixels by up to 133 per channel; each of those 4 lies on a gear/background edge and takes the gear colour that softpipe gives the neighbouring pixel (a rasterisation edge-rule difference, not a wrong colour). |
 | 4 | Done. Three concurrent GL processes give the same images as solo runs (`rsx-suite.sh multi`). |
 | 5 | Done. modetest colour bars and kmscube at 60 fps (webcam). vblank is a frame-rate timer, not lv1's interrupt. |
 | 6 | Done. Xorg modesetting + glamor on NV47; `glxinfo -B` reports NV47 with direct rendering, glxgears runs at 60 fps (`xwd`, webcam). |
