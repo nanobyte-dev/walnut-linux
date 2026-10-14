@@ -61,7 +61,9 @@ splash=$!
 done) &
 # gvfs and the tray applets need a session bus. Openbox: tint2 panel (jgmenu, tray, clock),
 # PCManFM desktop icons, network and volume applets, notifications, polkit agent. Bluetooth:
-# blueman from the menu, no resident tray (~60 MB of Python).
+# blueman from the menu, no resident tray (~60 MB of Python). GTK apps don't load the GL
+# driver just to probe it (GDK_GL=disable: RAM and GART for nothing; games use GL directly).
+export GDK_GL=disable
 exec dbus-launch --exit-with-session sh -c '
 	pcmanfm --desktop & tint2 & nm-applet & pnmixer & lxpolkit & dunst &
 	exec openbox'

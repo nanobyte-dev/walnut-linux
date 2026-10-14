@@ -60,4 +60,4 @@ HTTP_PORT           := 8000
 # rsize/wsize: the kernel's nfsroot default is 4 KB per request, which capped reads at 8 MB/s and
 # kept the PPE at ~95% system time during package installs (2026-10-14).
 KERNEL_CMDLINE      := root=/dev/nfs nfsroot=$(PC_IP):$(NFS_ROOT),v3,tcp,rsize=65536,wsize=65536 ip=dhcp rw rootwait \
-                       video=ps3fb:mode:133 consoleblank=0 ps3rsx_gart=32M console=tty1 netconsole=6665@$(PS3_IP)/eth0,6666@$(PC_IP)/$(PC_MAC) loglevel=4
+                       video=ps3fb:mode:133 consoleblank=0 ps3rsx_gart=16M console=tty1 netconsole=6665@$(PS3_IP)/eth0,6666@$(PC_IP)/$(PC_MAC) loglevel=4

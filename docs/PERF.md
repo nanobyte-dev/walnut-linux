@@ -35,7 +35,11 @@ Core 2 Duo numbers. Measure before and after every change.
 
 1. Baseline after the fixes above: boot to shell time, LXQt start time (splash to desktop),
    idle `free -m`, `perf top` during LXQt start.
-2. GART reservation (32 MB of RAM): measure peak use under the desktop; shrink if possible.
+2. GART reservation: 16 MB since 2026-10-15 (was 32). Measured with Openbox + ClassiCube:
+   27 MB used while Mesa put vertex buffers in GART and each process/context had 4 x 512 KB
+   pushbufs; 9 MB once vertex buffers moved to VRAM and PS3 pushbufs shrank (2 x 64 KB per
+   screen, 2 x 256 KB per context). GTK apps no longer load the GL driver (GDK_GL=disable).
+   ClassiCube's occasional stutters coincided with kswapd/zram activity and NFS major faults.
 3. Swap in VRAM: ~200 MB of the RSX's 256 MB is unused. A swap device in ps3rsx that copies
    pages with the GPU (like the old ps3vram) instead of compressing them on the PPE (zram).
 4. Desktop footprint: LXQt components vs lighter alternatives, with numbers.
