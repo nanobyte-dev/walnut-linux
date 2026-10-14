@@ -104,6 +104,16 @@ struct ps3rsx_device {
 	struct drm_crtc crtc;
 	struct drm_encoder encoder;
 	struct hrtimer vblank_timer;		/* paces flip events at the frame rate */
+
+	/* GPU shared with ps3fb's consoles (console.c) */
+	struct mutex own_lock;
+	wait_queue_head_t own_wq;
+	struct delayed_work release_work;
+	bool gpu_owned;				/* we hold it (ps3fb_gpu_takeover) */
+	bool master_active;			/* a DRM master (X) is in front */
+	bool console_pending;			/* hand it to ps3fb once idle */
+	int masters_open;			/* open files that have been master */
+	int submitting;				/* submits between hold and unhold */
 	ktime_t vblank_period;
 };
 
@@ -133,6 +143,21 @@ int ps3rsx_ioctl_gem_info(struct drm_device *dev, void *data, struct drm_file *f
 
 struct drm_mode_create_dumb;
 int ps3rsx_kms_init(struct ps3rsx_device *rsx);
+void ps3rsx_kms_reflip(struct ps3rsx_device *rsx);
+void ps3rsx_kms_show_console(struct ps3rsx_device *rsx);
+bool ps3rsx_exec_idle(struct ps3rsx_device *rsx);
+void ps3rsx_exec_forget_hw_state(struct ps3rsx_device *rsx);
+void ps3rsx_shadow_clear(struct ps3rsx_shadow *sh);
+struct ps3rsx_chan;
+struct ps3rsx_file;
+int ps3rsx_console_hold(struct ps3rsx_device *rsx, struct ps3rsx_chan *ch,
+			struct ps3rsx_file *pf);
+void ps3rsx_console_unhold(struct ps3rsx_device *rsx);
+void ps3rsx_master_set(struct drm_device *dev, struct drm_file *file, bool from_open);
+void ps3rsx_master_drop(struct drm_device *dev, struct drm_file *file);
+void ps3rsx_console_file_closed(struct ps3rsx_device *rsx, struct ps3rsx_file *pf);
+void ps3rsx_console_init(struct ps3rsx_device *rsx);
+void ps3rsx_console_fini(struct ps3rsx_device *rsx);
 int ps3rsx_dumb_create(struct drm_file *file, struct drm_device *dev,
 		       struct drm_mode_create_dumb *args);
 
@@ -185,6 +210,7 @@ struct ps3rsx_file {
 	bool abi_ok;			/* PS3_ABI was queried */
 	struct list_head objects;	/* NVIF objects (device, engine objects) */
 	struct list_head chans;
+	bool was_master;		/* counted in masters_open */
 };
 
 int ps3rsx_ioctl_getparam(struct drm_device *dev, void *data, struct drm_file *file);

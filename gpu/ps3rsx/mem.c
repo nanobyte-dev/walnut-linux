@@ -302,6 +302,15 @@ static int mm_show(struct seq_file *m, void *unused)
 	mm_usage(m, "VRAM gpu", &rsx->vram_gpu, rsx->info.memory_size - CPU_VRAM_LIMIT);
 	mm_usage(m, "GART", &rsx->gart, rsx->gart_size);
 	mutex_unlock(&rsx->mm_lock);
+	/* display heads as lv1 reports them to our context (driver info head[n] at 0x10b8 + 64n) */
+	for (int h = 0; h < 2; h++) {
+		void __iomem *hd = rsx->dinfo + 0x10b8 + 64 * h;
+
+		seq_printf(m, "head %d: status %08x offset %08x\n", h, in_be32(hd + 8),
+			   in_be32(hd + 12));
+	}
+	seq_printf(m, "GPU owned: %d, master active: %d, masters open: %d, console pending: %d\n",
+		   rsx->gpu_owned, rsx->master_active, rsx->masters_open, rsx->console_pending);
 	file_usage(m, rsx);
 	return 0;
 }

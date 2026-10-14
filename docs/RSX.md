@@ -175,3 +175,8 @@ latches at the display's vsync. kmscube: 60 fps at 1920x1080.
 
 X: modesetting with glamor (GL 2.1 context, GLSL 1.20) works on NV47. An `xwd` of a fill test
 is identical to the same run on softpipe; glxgears runs at 60 fps with direct rendering.
+
+Sharing with ps3fb's consoles (2026-10-14): the display shows whichever offset was flipped last;
+after a handover ps3rsx flips both heads to ps3fb's frame itself (with libgcm's flip status reset
+as a precaution). PGRAPH state after ps3fb has had the GPU is unknown: ps3rsx clears its hardware
+shadow so the next submit restores its channel's whole state.

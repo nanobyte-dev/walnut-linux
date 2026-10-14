@@ -198,6 +198,21 @@ struct dma_fence *ps3rsx_ring_commit(struct ps3rsx_device *rsx, u32 len, bool ki
 	return &f->base;
 }
 
+/* Nothing in flight and no primitive left open: ps3fb may use the GPU */
+bool ps3rsx_exec_idle(struct ps3rsx_device *rsx)
+{
+	return !READ_ONCE(rsx->prim_owner) && seq_passed(ref_read(rsx), rsx->seqno);
+}
+
+/* ps3fb had the GPU: what PGRAPH holds is unknown (no submit is running) */
+void ps3rsx_exec_forget_hw_state(struct ps3rsx_device *rsx)
+{
+	mutex_lock(&rsx->exec_lock);
+	ps3rsx_shadow_clear(rsx->hw_shadow);
+	rsx->last_chan = -1;
+	mutex_unlock(&rsx->exec_lock);
+}
+
 /* Wait for everything submitted so far (unload, ring drain) */
 static int exec_drain(struct ps3rsx_device *rsx)
 {

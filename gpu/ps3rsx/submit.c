@@ -258,6 +258,7 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	struct drm_gem_object **objs = NULL;
 	struct ww_acquire_ctx ticket;
 	struct dma_fence *fence = NULL;
+	bool held = false;
 	struct ps3rsx_chan *ch;
 	bool sync = req->vram_available & NOUVEAU_GEM_PUSHBUF_SYNC;
 	u64 total = 0;
@@ -331,6 +332,10 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 		goto out;
 	}
 
+	ret = ps3rsx_console_hold(rsx, ch, pf);	/* may wait while a text console has the GPU */
+	if (ret)
+		goto out;
+	held = true;
 	mutex_lock(&rsx->exec_lock);
 	if (ch->broken) {
 		mutex_unlock(&rsx->exec_lock);
@@ -462,6 +467,8 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	if (!ret && sync && dma_fence_wait_timeout(fence, true, 30 * HZ) <= 0)
 		ret = -EBUSY;
 out:
+	if (held)
+		ps3rsx_console_unhold(rsx);
 	if (fence)
 		dma_fence_put(fence);
 	if (objs)

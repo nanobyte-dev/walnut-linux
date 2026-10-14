@@ -54,6 +54,12 @@ void ps3rsx_shadow_free(struct ps3rsx_shadow *sh)
 	kvfree(sh);
 }
 
+/* Nothing known (PGRAPH was changed behind our back): the next restore emits everything */
+void ps3rsx_shadow_clear(struct ps3rsx_shadow *sh)
+{
+	memset(sh, 0, sizeof(*sh));
+}
+
 static int obj_index(u32 handle)
 {
 	int i;

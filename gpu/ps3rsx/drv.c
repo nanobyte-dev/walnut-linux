@@ -36,6 +36,7 @@ static void ps3rsx_postclose(struct drm_device *dev, struct drm_file *file)
 
 	ps3rsx_file_chans_free(to_rsx(dev), pf);
 	ps3rsx_file_objects_free(pf);
+	ps3rsx_console_file_closed(to_rsx(dev), pf);
 	kfree(pf);
 }
 
@@ -80,6 +81,8 @@ static const struct drm_driver ps3rsx_driver = {
 	.dumb_create = ps3rsx_dumb_create,
 	.open = ps3rsx_open,
 	.postclose = ps3rsx_postclose,
+	.master_set = ps3rsx_master_set,
+	.master_drop = ps3rsx_master_drop,
 	.ioctls = ps3rsx_ioctls,
 	.num_ioctls = ARRAY_SIZE(ps3rsx_ioctls),
 	.fops = &ps3rsx_fops,
@@ -134,6 +137,7 @@ static int ps3rsx_probe(struct platform_device *pdev)
 		ps3rsx_mem_fini(rsx);
 		return ret;
 	}
+	ps3rsx_console_init(rsx);	/* the console gets the GPU back until X or a client needs it */
 	drm_info(&rsx->drm, "VRAM %llu MiB (from %#llx), GART %llu MiB, display %ux%u pitch %u\n",
 		 rsx->vram_size >> 20, rsx->info.reserved, rsx->gart_size >> 20,
 		 rsx->info.xres, rsx->info.yres, rsx->info.line_length);
@@ -147,6 +151,7 @@ static void ps3rsx_remove(struct platform_device *pdev)
 	drm_dev_unregister(&rsx->drm);
 	drm_atomic_helper_shutdown(&rsx->drm);	/* flips back to ps3fb's frame */
 	hrtimer_cancel(&rsx->vblank_timer);
+	ps3rsx_console_fini(rsx);	/* own the GPU again for the drain and release */
 	ps3rsx_exec_fini(rsx);
 	ps3rsx_mem_fini(rsx);
 }

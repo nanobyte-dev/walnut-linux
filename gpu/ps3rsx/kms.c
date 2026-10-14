@@ -203,6 +203,27 @@ static const struct drm_plane_funcs plane_funcs = {
 	.atomic_destroy_state = drm_atomic_helper_plane_destroy_state,
 };
 
+/* Show ps3fb's frame (the console). Flips from ps3fb's own context don't override a frame our
+ * context flipped to, so the handover has to point the display there itself. */
+void ps3rsx_kms_show_console(struct ps3rsx_device *rsx)
+{
+	/* libgcm's cellGcmResetFlipStatus before flipping: clear "flip waiting" (bit 31) of each
+	 * head, which nothing acknowledges for our context (no vsync handler). A precaution: the
+	 * console showed without it too. */
+	lv1_gpu_context_attribute(rsx->ctx.handle, 0x10a, 0, 0x7fffffff, 0, 0);
+	lv1_gpu_context_attribute(rsx->ctx.handle, 0x10a, 1, 0x7fffffff, 0, 0);
+	flip(rsx, rsx->info.full_offset);
+}
+
+/* Show the current primary framebuffer again (after ps3fb had the display) */
+void ps3rsx_kms_reflip(struct ps3rsx_device *rsx)
+{
+	struct drm_plane_state *ps = rsx->primary.state;
+
+	if (ps && ps->fb && rsx->crtc.state && rsx->crtc.state->active)
+		flip(rsx, fb_bo(ps->fb)->offset);
+}
+
 /* --- CRTC ------------------------------------------------------------------------------- */
 
 /*
