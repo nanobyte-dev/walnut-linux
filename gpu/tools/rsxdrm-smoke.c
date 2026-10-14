@@ -8,6 +8,9 @@
  *   rsxdrm-smoke fence   10k back-end semaphore releases, label checked after each SYNC submit
  *   rsxdrm-smoke reject  pushes the validator must refuse (JMP, unknown object/DMA/method, host)
  *   rsxdrm-smoke tri     a magenta triangle into a 64x64 VRAM target, read back (center, corner)
+ *   rsxdrm-smoke twochan two channels (two fds): A sets its surface once, B sets another and
+ *                        clears, A clears again: with the kernel's context switch A's clear
+ *                        must land in A's surface (docs/RSX.md E5)
  *   rsxdrm-smoke quirks  what Mesa does that libgcm doesn't: M2MF NOP on the M2MF subchannel,
  *                        RT_ENABLE 0x12 (both fine), vertex format type 0 (WEDGES the RSX: the
  *                        validator now rejects it, so this expects -EINVAL)
@@ -342,6 +345,65 @@ static int t_tri(void)
 	return rc || center != 0xffff00ff || corner != 0xff000000;
 }
 
+/* A second open of the device with its own channel and push BO */
+struct ctxt { int fd; struct drm_nouveau_channel_alloc chan; struct drm_nouveau_gem_info pushbo; uint32_t *map; };
+
+static void ctxt_switch(struct ctxt *c)
+{
+	fd = c->fd; chan = c->chan; pushbo = c->pushbo; pushmap = p = c->map;
+}
+
+static void ctxt_new(struct ctxt *c)
+{
+	fd = open("/dev/dri/renderD128", O_RDWR);
+	if (fd < 0) { perror("open"); exit(1); }
+	setup();
+	c->fd = fd; c->chan = chan; c->pushbo = pushbo; c->map = pushmap;
+}
+
+static int t_twochan(void)
+{
+	struct ctxt a, b;
+	const uint32_t w = 64, h = 64;
+
+	ctxt_new(&a);
+	struct drm_nouveau_gem_info rta = newbo(NOUVEAU_GEM_DOMAIN_VRAM, w * h * 4);
+	struct drm_nouveau_gem_info backa = newbo(NOUVEAU_GEM_DOMAIN_GART, w * h * 4);
+	uint32_t *ba = map(&backa);
+	ctxt_new(&b);
+	struct drm_nouveau_gem_info rtb = newbo(NOUVEAU_GEM_DOMAIN_VRAM, w * h * 4);
+	struct drm_nouveau_gem_info backb = newbo(NOUVEAU_GEM_DOMAIN_GART, w * h * 4);
+	uint32_t *bb = map(&backb);
+
+	ctxt_switch(&a);		/* A: surface + clear 1 */
+	OUT(0, 0, 0x31337000);
+	surface(rta.offset, w, h);
+	OUT(0, 0x1d90, 0xffaa0000); OUT(0, 0x1d94, 0xf0);
+	struct drm_nouveau_gem_info *xa[] = { &rta, &backa };
+	int rc = submit(xa, 2);
+
+	ctxt_switch(&b);		/* B: its own surface + clear */
+	OUT(0, 0, 0x31337000);
+	surface(rtb.offset, w, h);
+	OUT(0, 0x1d90, 0xff00bb00); OUT(0, 0x1d94, 0xf0);
+	bind_m2mf();
+	m2mf(0xfeed0000, rtb.offset, 0xfeed0001, backb.offset, w * h * 4);
+	struct drm_nouveau_gem_info *xb[] = { &rtb, &backb };
+	rc |= submit(xb, 2);
+
+	ctxt_switch(&a);		/* A: clear 2 without re-sending its surface */
+	OUT(0, 0x1d90, 0xff0000cc); OUT(0, 0x1d94, 0xf0);
+	bind_m2mf();
+	m2mf(0xfeed0000, rta.offset, 0xfeed0001, backa.offset, w * h * 4);
+	rc |= submit(xa, 2);
+
+	printf("  A's surface %08x (want ff0000cc), B's surface %08x (want ff00bb00): %s\n",
+	       ba[0], bb[0], rc ? "submit failed" :
+	       ba[0] == 0xff0000cc && bb[0] == 0xff00bb00 ? "state switched with the channel" :
+	       "STATE LEAKED between channels");
+	return rc || ba[0] != 0xff0000cc || bb[0] != 0xff00bb00;
+}
+
 static int t_quirks(void)
 {
 	setup();
@@ -367,7 +429,7 @@ int main(int argc, char **argv)
 {
 	setvbuf(stdout, NULL, _IOLBF, 0);
 	if (argc < 2) {
-		fprintf(stderr, "usage: %s bo|nop|m2mf|clear|fence|reject|tri|quirks\n", argv[0]);
+		fprintf(stderr, "usage: %s bo|nop|m2mf|clear|fence|reject|tri|twochan|quirks\n", argv[0]);
 		return 2;
 	}
 	fd = open("/dev/dri/renderD128", O_RDWR);
@@ -387,6 +449,8 @@ int main(int argc, char **argv)
 		fail = t_reject();
 	else if (!strcmp(argv[1], "tri"))
 		fail = t_tri();
+	else if (!strcmp(argv[1], "twochan"))
+		fail = t_twochan();
 	else if (!strcmp(argv[1], "quirks"))
 		fail = t_quirks();
 	else {
