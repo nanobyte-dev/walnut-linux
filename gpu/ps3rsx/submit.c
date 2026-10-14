@@ -20,7 +20,8 @@ MODULE_PARM_DESC(ctxsw, "Restore a channel's GPU state when switching between ch
 
 static bool trace;
 module_param(trace, bool, 0644);
-MODULE_PARM_DESC(trace, "Dump every submitted push to the kernel log");
+MODULE_PARM_DESC(trace, "Dump every submitted push to the kernel log (small tests only: "
+		 "a GL program's worth through netconsole has hung the console)");
 
 static bool dry_run;
 module_param_named(dry_run, dry_run, bool, 0644);
