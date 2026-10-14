@@ -107,9 +107,19 @@ static void primary_update(struct drm_plane *plane, struct drm_atomic_state *sta
 		flip(to_rsx(plane->dev), fb_bo(ps->fb)->offset);
 }
 
+/* the client removed its framebuffer (e.g. X exited): show ps3fb's console frame again
+ * rather than a freed buffer */
+static void primary_disable(struct drm_plane *plane, struct drm_atomic_state *state)
+{
+	struct ps3rsx_device *rsx = to_rsx(plane->dev);
+
+	flip(rsx, rsx->info.full_offset);
+}
+
 static const struct drm_plane_helper_funcs primary_helper_funcs = {
 	.atomic_check = primary_check,
 	.atomic_update = primary_update,
+	.atomic_disable = primary_disable,
 };
 
 /* --- cursor plane: the RSX's 64x64 hardware cursor ---------------------------------------

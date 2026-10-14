@@ -1,0 +1,13 @@
+--- a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
+@@ -582,6 +582,10 @@
+ static void
+ nv30_miptree_surface_del(struct pipe_context *pipe, struct pipe_surface *ps)
+ {
++   /* nv30_miptree_surface_new took a reference (as nv50_surface_destroy drops its own):
++    * without this every framebuffer change leaked its textures, e.g. three window-sized
++    * buffers per resize until VRAM ran out */
++   pipe_resource_reference(&ps->texture, NULL);
+    FREE(ps);
+ }
+ 

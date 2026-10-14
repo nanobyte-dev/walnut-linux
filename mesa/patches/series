@@ -9,3 +9,4 @@
 0008-nouveau-nv30-ps3-no-single-attribute-inline-vertices.patch
 0009-nouveau-nv40-fp32-colour-export.patch
 0010-nouveau-nv30-ps3-textures-in-cpu-visible-vram.patch
+0011-nouveau-nv30-release-the-texture-of-a-deleted-surface.patch

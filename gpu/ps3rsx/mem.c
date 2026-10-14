@@ -255,7 +255,8 @@ static void file_usage(struct seq_file *m, struct ps3rsx_device *rsx)
 	list_for_each_entry(file, &dev->filelist, lhead) {
 		struct drm_gem_object *obj;
 		u64 vram = 0, gart = 0;
-		unsigned int n = 0;
+		unsigned int n = 0, i, nsz = 0;
+		struct { size_t size; unsigned int count; } sz[8] = {};
 		struct task_struct *task;
 		char comm[TASK_COMM_LEN] = "?";
 		int id;
@@ -268,6 +269,15 @@ static void file_usage(struct seq_file *m, struct ps3rsx_device *rsx)
 		spin_lock(&file->table_lock);
 		idr_for_each_entry(&file->object_idr, obj, id) {
 			n++;
+			/* the most common sizes above 64 KiB, to tell buffer kinds apart */
+			if (obj->size > SZ_64K) {
+				for (i = 0; i < nsz && sz[i].size != obj->size; i++)
+					;
+				if (i < nsz)
+					sz[i].count++;
+				else if (nsz < ARRAY_SIZE(sz))
+					sz[nsz++] = (typeof(sz[0])){ obj->size, 1 };
+			}
 			if (to_bo(obj)->domain == NOUVEAU_GEM_DOMAIN_GART)
 				gart += obj->size;
 			else
@@ -276,6 +286,8 @@ static void file_usage(struct seq_file *m, struct ps3rsx_device *rsx)
 		spin_unlock(&file->table_lock);
 		seq_printf(m, "%-16s %5u handles, VRAM %7llu KiB, GART %6llu KiB\n", comm, n,
 			   vram >> 10, gart >> 10);
+		for (i = 0; i < nsz; i++)
+			seq_printf(m, "    %5u x %6zu KiB\n", sz[i].count, sz[i].size >> 10);
 	}
 	mutex_unlock(&dev->filelist_mutex);
 }
