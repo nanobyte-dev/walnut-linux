@@ -57,3 +57,11 @@ Section "InputClass"
 	Option "MapButton2" "button=3"
 EndSection
 EOF
+
+# RAM: blueman's helper and tray applet (Python + GTK, ~50 MB together) only on demand; pairing
+# from the blueman menu entry or bluetoothctl. No PulseAudio (ALSA only).
+chroot "$R" systemctl disable blueman-mechanism.service 2>/dev/null || true
+mkdir -p "$R/home/tibi/.config/autostart"
+printf '[Desktop Entry]\nType=Application\nName=Blueman Applet\nHidden=true\n' \
+	> "$R/home/tibi/.config/autostart/blueman.desktop"
+chroot "$R" chown -R 1000:1000 /home/tibi/.config

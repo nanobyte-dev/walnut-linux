@@ -51,14 +51,19 @@ Bluetooth keyboard types; `free -m` after login with the desktop idle.
 
 ## Status (2026-10-14)
 
-- Kernel built with the input options (hid-sony, uhid, uinput); not booted yet. Its modules
-  must reach the NFS root before the next netboot: `make nfs-modules` (sudo).
-- Packages installed live; `rootfs/desktop-setup.sh` applied live (ps3rsx.service, tty1
-  autologin, Xwrapper, gamepad pointer).
-- X without any Mesa environment variables comes up (cursor shown), but starting LXQt then
-  stopped SSH answering (ping fine) for 10+ minutes: probably memory thrashing in 165 MB.
-  `~/.no-desktop` keeps the next boot at a shell. Next: start X alone, then openbox, then each
-  LXQt component, watching `free -m` and /proc/pressure/memory; trim (pcmanfm-qt desktop,
-  notifications, power management) or grow zram until it fits.
+- New kernel booted (hid-sony, uhid, uinput built); ps3rsx loads at boot from ps3rsx.service,
+  tty1 autologin works, Bluetooth service up.
+- **LXQt runs on the RSX** (wallpaper, panel, desktop icons; webcam + xwd), started with
+  `startx /usr/bin/startlxqt` and no Mesa environment variables.
+- RAM is the limit. Idle without X: ~53 MB used after dropping PulseAudio (33 MB, came with
+  pavucontrol-qt) and blueman's helper (25 MB, now on demand). X + openbox: ~78 MB available.
+  Full LXQt: 160 MB swapped out. zram compresses those pages about 5:1 (lzo-rle), so zram grows to
+  384 MB at boot; lxqt-powermanagement and upower dropped (no battery on a PS3).
+- The first LXQt attempt (with PulseAudio and blueman running) made SSH stop answering; the
+  memory log (`~/mem.log`, every 2 s) is how to tell.
+- Icons were missing: LXQt's default icon theme is breeze (`breeze-icon-theme` added).
+- Kernel has no PSI (/proc/pressure); MemAvailable and SwapFree are the signals.
 - Seen on netconsole: `os_area_queue_work_handler: Could not update FLASH ROM` (the kernel
   wanting to save the RTC offset to flash; flash writes are compiled out, nothing was written).
+- Next: boot with the 384 MB zram and remove `~/.no-desktop` (boot straight into LXQt); test the
+  DualShock 3 (USB, Bluetooth) and a Bluetooth keyboard; measure idle memory after login.

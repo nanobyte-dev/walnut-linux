@@ -28,13 +28,12 @@ mesa-utils
 kmscube
 # Desktop (docs/DESKTOP-PLAN.md): LXQt on openbox, Bluetooth, DualShock 3 as a pointer
 lxqt-core
+breeze-icon-theme
 openbox
-lxqt-powermanagement
 lxqt-sudo
 lxqt-about
 featherpad
 lximage-qt
-pavucontrol-qt
 alsa-utils
 bluez
 blueman

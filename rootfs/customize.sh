@@ -100,7 +100,8 @@ cat > "$R/usr/local/sbin/ps3-swap" <<'EOS'
 #!/bin/sh
 modprobe zram num_devices=1 || exit 1
 echo lzo-rle > /sys/block/zram0/comp_algorithm 2>/dev/null
-echo 160M > /sys/block/zram0/disksize
+# LXQt alone swaps out ~160 MB; pages compress about 5:1 (lzo-rle), so this costs ~80 MB when full
+echo 384M > /sys/block/zram0/disksize
 mkswap /dev/zram0 >/dev/null
 exec swapon -p 100 /dev/zram0
 EOS
