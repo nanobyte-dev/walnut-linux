@@ -17,13 +17,23 @@ handle 0x5a5a5a5a, context 0x55555555 (hardware channel 0).
 - **Context limit: ps3fb's plus two more** (hw channels 1, 2); the next allocation fails with -2.
   **Allocating up to the limit and freeing them stalled every FIFO, ps3fb's included, with no
   graph exception** (E1, 2026-10-14). One extra context allocated and freed was fine earlier.
-  Which step breaks it (third context, the failed fourth, or the frees) is still open.
+  Which step breaks it (third context, the failed fourth, or the frees) is still open. One extra
+  context allocated and freed (`ctxcount:1`) is safe.
+- **3D state is shared between channels (E5):** a clear in context A after context B set its
+  surface went to B's surface. So: one hardware context for the driver, and every submission
+  re-emits the full state it depends on.
+- ps3fb's reset program (copied and CALLed) runs fine in a fresh context and gives it the
+  usual object/DMA setup.
+- A display flip (`lv1_gpu_display_flip`) from the second context works (E6, webcam).
 - Our own context's IRQ outlet delivers vsync (60/s) when its driver-info irq mask is set (E7),
   so a driver needs no hook in ps3fb for interrupts.
 - IO window (`lv1_gpu_context_iomap`), per context: IO addresses below 0x10000000 (256 MB) map,
   anything at or above fails with -17. 64 KB maps fail: the IO page size is 1 MB (flags 0x820).
   A 16 MB map in one call works. Scattered 1 MB maps anywhere in the window, unmap and remap
-  elsewhere, and mapping one chunk at two IO addresses all work (E2). Driver info: version 0x211, GPU 0x34, core 500 MHz, memory 650 MHz.
+  elsewhere, and mapping one chunk at two IO addresses all work (E2). Chunks mapped *after* the
+  context was created, at IO 64 MB and 255 MB, are reachable through 0xfeed0001 (E9).
+- VRAM through 0xfeed0000 reaches at least 253 MB (E10: 0xdf00000 and 0xfd00000 round trips),
+  i.e. 30 MB more than ps3fb's assumed 224 MB. Driver info: version 0x211, GPU 0x34, core 500 MHz, memory 650 MHz.
 
 | mmap (`/dev/ps3gpu_*`) | size | what |
 |---|---|---|
@@ -58,11 +68,16 @@ semaphores (FIFO), 0x66626660 reports, 0x66604200 notifier.
 
 - **GET is not completion.** `get == put` only means the FIFO fetched the words; the engine may
   not have run them. Wait on the ref word or a semaphore instead.
-- **SET_REFERENCE (0x50) works:** the value shows up in ctrl+0x48. This is all a single-channel
-  nouveau fence needs (nv10-style).
+- **SET_REFERENCE (0x50) works and is a real completion fence:** the value shows up in
+  ctrl+0x48 only once preceding rendering has landed in memory (E11: 8/8 32 MB clears done when
+  ref arrived). This is all a single-channel nouveau fence needs (nv10-style).
+- FIFO CALL into another chunk at an odd offset + RETURN works (E3): the pushbuf model.
 - **Semaphore releases work** and land in the reports area at the given offset: FIFO release
   (0x64/0x6c), 3D texture-read release (0x1d6c/0x1d74), 3D back-end release (0x1d70, value is
-  written with bytes 0 and 2 swapped, as on nv40).
+  written with bytes 0 and 2 swapped, as on nv40; writing a pre-swizzled value stores the
+  intended one, E4).
+- The 0x66604200 notifier writes at reports+0, the same place as the labels (E14): fences must
+  not use label offset 0.
 - **FIFO semaphore acquire (0x68) is unreliable:** sometimes it blocks although the label already
   holds the value; a CPU write to the label (even the same value) wakes it. Not needed for a single
   channel; avoid it until we need cross-channel sync.
@@ -98,3 +113,19 @@ FIFO run still times out. Only a console reboot recovered it (untested: whether 
 through Petitboot is enough).
 
 So the driver must never submit a faulting command stream, or find a real reset.
+
+## 3D pipeline from raw commands (E12, E13, E15)
+
+`gpu/tools/rsx-tri` (words from docs/RSX-PROGRAMS.md) on the visible frame, photographed with
+the webcam: state/viewport writes, vertex program upload, fragment program in VRAM (stored
+halfword-swapped), immediate-mode and vertex-array draws, colour interpolation, and a 4x4
+A8R8G8B8 linear texture (big-endian `0xAARRGGBB` stores, correct orientation and channel
+order). No exceptions.
+
+`gpu/tools/rsx-mesainit` replays Mesa nv30_screen_create's init stream with PS3 handles on
+Mesa's subchannel layout (3D=7, M2MF=2, SF2D=3, SSWZ=4, SIFM=5): all accepted, including the
+four values that differ from libgcm (0x1450=4, 0x1eac=0xff800006, 0x1ef8, 0x1d64), and a 3D
+clear works afterwards.
+
+ps3fb's vsync task blits the console into frame 0; ENTER stops it, but a blit in flight can
+still land after a test's clear, so tests wait 200 ms after ENTER.
