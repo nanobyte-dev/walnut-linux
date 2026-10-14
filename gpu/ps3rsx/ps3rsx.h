@@ -11,6 +11,8 @@
 #include <linux/mutex.h>
 #include <drm/drm_device.h>
 #include <drm/drm_file.h>
+#include <drm/drm_gem.h>
+#include <drm/drm_mm.h>
 #include <asm/ps3gpu.h>
 
 #define PS3RSX_CHIPSET		0x47		/* NV47-like: Mesa picks the 0x4097 3D class */
@@ -25,11 +27,41 @@
 struct ps3rsx_device {
 	struct drm_device drm;
 	struct ps3fb_gpu_info info;
+	struct ps3fb_gpu_ctx ctx;	/* our lv1 context (ps3fb keeps it across module reloads) */
 	u64 vram_size;			/* VRAM we manage: from info.reserved up to memory_size */
 	u64 gart_size;
+
+	struct mutex mm_lock;
+	struct drm_mm vram_cpu;		/* VRAM the CPU may map (below CPU_VRAM_LIMIT) */
+	struct drm_mm vram_gpu;		/* VRAM only the GPU touches */
+	struct drm_mm gart;		/* IO addresses of the GART reservation */
+	void *gart_cpu;			/* kernel address of the GART reservation */
+	u64 gart_mapped;		/* bytes of it iomapped into our context */
 };
 
 #define to_rsx(d) container_of(d, struct ps3rsx_device, drm)
+
+enum bo_kind { BO_VRAM, BO_VRAM_GPU_ONLY, BO_GART, BO_REPORTS };
+
+struct ps3rsx_bo {
+	struct drm_gem_object base;
+	enum bo_kind kind;
+	u32 domain;			/* NOUVEAU_GEM_DOMAIN_VRAM or _GART */
+	u64 offset;			/* GPU offset in its domain's ctxdma */
+	struct drm_mm_node node;
+};
+
+#define to_bo(o) container_of(o, struct ps3rsx_bo, base)
+
+struct drm_nouveau_gem_info;
+int ps3rsx_mem_init(struct ps3rsx_device *rsx);
+void ps3rsx_mem_fini(struct ps3rsx_device *rsx);
+struct ps3rsx_bo *ps3rsx_bo_new(struct ps3rsx_device *rsx, u32 domain, size_t size, u32 align);
+struct ps3rsx_bo *ps3rsx_bo_new_reports(struct ps3rsx_device *rsx);
+int ps3rsx_bo_handle(struct drm_file *file, struct ps3rsx_bo *bo,
+		     struct drm_nouveau_gem_info *info);
+int ps3rsx_ioctl_gem_new(struct drm_device *dev, void *data, struct drm_file *file);
+int ps3rsx_ioctl_gem_info(struct drm_device *dev, void *data, struct drm_file *file);
 
 /* Per open file */
 struct ps3rsx_file {

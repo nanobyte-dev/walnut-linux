@@ -1,2 +1,2 @@
 obj-m := ps3rsx.o
-ps3rsx-y := drv.o abi16.o
+ps3rsx-y := drv.o abi16.o mem.o

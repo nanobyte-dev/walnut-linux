@@ -37,6 +37,8 @@ static void ps3rsx_postclose(struct drm_device *dev, struct drm_file *file)
 
 static const struct drm_ioctl_desc ps3rsx_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(NOUVEAU_GETPARAM, ps3rsx_ioctl_getparam, DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(NOUVEAU_GEM_NEW, ps3rsx_ioctl_gem_new, DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(NOUVEAU_GEM_INFO, ps3rsx_ioctl_gem_info, DRM_RENDER_ALLOW),
 };
 
 static long ps3rsx_unlocked_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
@@ -93,9 +95,19 @@ static int ps3rsx_probe(struct platform_device *pdev)
 		return dev_err_probe(&pdev->dev, -ENOMEM, "no GART reservation (ps3rsx_gart=)\n");
 	platform_set_drvdata(pdev, rsx);
 
-	ret = drm_dev_register(&rsx->drm, 0);
+	/* our context: allocated by ps3fb on first use and kept until it shuts down */
+	ret = ps3fb_gpu_ctx_get(0x820, &rsx->ctx);
+	if (ret)
+		return dev_err_probe(&pdev->dev, ret, "no lv1 GPU context\n");
+	ret = ps3rsx_mem_init(rsx);
 	if (ret)
 		return ret;
+
+	ret = drm_dev_register(&rsx->drm, 0);
+	if (ret) {
+		ps3rsx_mem_fini(rsx);
+		return ret;
+	}
 	drm_info(&rsx->drm, "VRAM %llu MiB (from %#llx), GART %llu MiB, display %ux%u pitch %u\n",
 		 rsx->vram_size >> 20, rsx->info.reserved, rsx->gart_size >> 20,
 		 rsx->info.xres, rsx->info.yres, rsx->info.line_length);
@@ -107,6 +119,7 @@ static void ps3rsx_remove(struct platform_device *pdev)
 	struct ps3rsx_device *rsx = platform_get_drvdata(pdev);
 
 	drm_dev_unregister(&rsx->drm);
+	ps3rsx_mem_fini(rsx);
 }
 
 static struct platform_driver ps3rsx_platform_driver = {
