@@ -1,0 +1,56 @@
+diff -ru a/arch/powerpc/include/asm/ps3.h b/arch/powerpc/include/asm/ps3.h
+--- a/arch/powerpc/include/asm/ps3.h
++++ b/arch/powerpc/include/asm/ps3.h
+@@ -451,6 +451,7 @@
+ };
+ 
+ extern struct ps3_prealloc ps3fb_videomemory;
++extern struct ps3_prealloc ps3rsx_gart;
+ extern struct ps3_prealloc ps3flash_bounce_buffer;
+ 
+ /* logical performance monitor */
+diff -ru a/arch/powerpc/platforms/ps3/setup.c b/arch/powerpc/platforms/ps3/setup.c
+--- a/arch/powerpc/platforms/ps3/setup.c
++++ b/arch/powerpc/platforms/ps3/setup.c
+@@ -148,6 +148,33 @@
+ #define prealloc_ps3fb_videomemory()	do { } while (0)
+ #endif
+ 
++#if defined(CONFIG_FB_PS3) || defined(CONFIG_FB_PS3_MODULE)
++/*
++ * Main memory the RSX driver (ps3rsx, out of tree) maps into the GPU's IO window. The GPU maps
++ * main memory in 1 MiB pages, and 1 MiB contiguous allocations are unreliable once the system
++ * is up, so it is reserved at boot. ps3rsx_gart=<size> (0 = none).
++ */
++struct ps3_prealloc ps3rsx_gart = {
++	.name = "ps3rsx gart",
++	.size = 64*1024*1024,
++	.align = 1024*1024
++};
++EXPORT_SYMBOL_GPL(ps3rsx_gart);
++#define prealloc_ps3rsx_gart()	prealloc(&ps3rsx_gart)
++
++static int __init early_parse_ps3rsx_gart(char *p)
++{
++	if (!p)
++		return 1;
++
++	ps3rsx_gart.size = ALIGN(memparse(p, &p), ps3rsx_gart.align);
++	return 0;
++}
++early_param("ps3rsx_gart", early_parse_ps3rsx_gart);
++#else
++#define prealloc_ps3rsx_gart()	do { } while (0)
++#endif
++
+ #if defined(CONFIG_PS3_FLASH) || defined(CONFIG_PS3_FLASH_MODULE)
+ struct ps3_prealloc ps3flash_bounce_buffer = {
+ 	.name = "ps3flash bounce buffer",
+@@ -253,6 +280,7 @@
+ #endif
+ 
+ 	prealloc_ps3fb_videomemory();
++	prealloc_ps3rsx_gart();
+ 	prealloc_ps3flash_bounce_buffer();
+ 
+ 	ppc_md.power_save = ps3_power_save;

@@ -1,0 +1,384 @@
+diff -ru a/arch/powerpc/include/asm/ps3gpu.h b/arch/powerpc/include/asm/ps3gpu.h
+--- a/arch/powerpc/include/asm/ps3gpu.h
++++ b/arch/powerpc/include/asm/ps3gpu.h
+@@ -74,4 +74,40 @@
+ 					 0, 0, 0);
+ }
+ 
++/*
++ * Sharing the RSX between ps3fb and an RSX driver (ps3rsx, out of tree). ps3fb owns the GPU
++ * memory handle and the display; the driver gets its own lv1 context on that memory handle
++ * and may take the GPU over (ps3fb then stops touching it until released).
++ */
++struct ps3fb_gpu_info {
++	u64 memory_handle;
++	u64 ddr_lpar;
++	u64 memory_size;	/* VRAM the GPU can address (from lv1 driver info) */
++	u64 reserved;		/* VRAM from offset 0 that ps3fb keeps, 1 MiB aligned */
++	u32 xres, yres;		/* current mode */
++	u32 line_length;	/* display pitch in VRAM */
++	u32 full_offset;	/* VRAM offset of frame 0 */
++};
++
++struct ps3fb_gpu_ctx {
++	u64 handle;
++	u64 ctrl_lpar;
++	u64 dinfo_lpar;
++	u64 reports_lpar;
++	u64 reports_size;
++};
++
++/* Called in hard IRQ context on a graphics exception: record and defer, nothing more */
++struct ps3fb_gpu_hook {
++	void (*exception)(void *data, u64 status, const void __iomem *exception_info);
++	void *data;
++};
++
++int ps3fb_gpu_get_info(struct ps3fb_gpu_info *info);
++int ps3fb_gpu_ctx_get(u64 flags, struct ps3fb_gpu_ctx *ctx);
++int ps3fb_gpu_iomap(u64 io, u64 lpar, u64 size, u64 flags);
++int ps3fb_gpu_takeover(bool own);
++void ps3fb_gpu_set_exception_hook(const struct ps3fb_gpu_hook *hook);
++unsigned int ps3fb_gpu_exception_seen(void);
++
+ #endif /* _ASM_POWERPC_PS3GPU_H */
+diff -ru a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
+--- a/drivers/video/fbdev/ps3fb.c
++++ b/drivers/video/fbdev/ps3fb.c
+@@ -193,6 +193,18 @@
+ }
+ EXPORT_SYMBOL_GPL(ps3fb_gpu_handles);
+ 
++/*
++ * GPU sharing with an RSX driver (see asm/ps3gpu.h). Lock order: gpu_own_lock, then
++ * console_lock, then ps3_gpu_mutex. Nothing takes gpu_own_lock with console_lock held.
++ */
++static DEFINE_MUTEX(gpu_own_lock);
++static bool gpu_owned;			/* the RSX driver owns the GPU; ps3fb keeps off it */
++static DEFINE_MUTEX(gpu_ctx_lock);
++static struct ps3fb_gpu_ctx gpu_ctx;	/* the driver's context, allocated once, never freed */
++static u64 gpu_ctx_iomap[256];		/* lpar mapped at each 1 MiB IO page of gpu_ctx, or 0 */
++static const struct ps3fb_gpu_hook *gpu_hook;
++static unsigned int gpu_exceptions;	/* sticky: restore_state clears GPU_USER_DEBUG */
++
+ static const struct fb_videomode ps3fb_modedb[] = {
+ 	/* 60 Hz broadcast modes (modes "1" to "5") */
+ 	{
+@@ -1443,6 +1455,8 @@
+ {
+ 	int status;
+ 
++	if (READ_ONCE(gpu_owned))
++		return;
+ 	src_offset += GPU_FB_START;
+ 	mutex_lock(&ps3_gpu_mutex);
+ 	status = ps3fb_fb_blit(&ps3fb.fifo, dst_offset, GPU_IOIF + src_offset,
+@@ -1602,6 +1616,10 @@
+ 	par->full_offset = par->fb_offset - offset;
+ 	par->pan_offset = info->var.yoffset * xdr_line_length + info->var.xoffset * BPP;
+ 	if (par->new_mode_id != par->mode_id) {
++		if (READ_ONCE(gpu_owned)) {
++			par->new_mode_id = par->mode_id;
++			return -EBUSY;
++		}
+ 		if (ps3av_set_video_mode(par->new_mode_id))	{
+ 			par->new_mode_id = par->mode_id;
+ 			return -EINVAL;
+@@ -1666,6 +1684,8 @@
+ 	int retval;
+ 
+ 	dev_dbg(info->device, "%s: blank:%d\n", __func__, blank);
++	if (READ_ONCE(gpu_owned))
++		return 0;
+ 	switch (blank) {
+ 		case FB_BLANK_POWERDOWN:
+ 		case FB_BLANK_HSYNC_SUSPEND:
+@@ -1874,30 +1894,47 @@
+ 				retval = 0;
+ 			break;
+ 		case PS3GPU_IOCTL_EXIT:
+-			StartStopTask(0);
+-			retval = ps3gpu_restore_state();
++			mutex_lock(&gpu_own_lock);
++			if (gpu_owned) {
++				retval = -EBUSY;
++			} else {
++				StartStopTask(0);
++				retval = ps3gpu_restore_state();
++			}
++			mutex_unlock(&gpu_own_lock);
+ 			break;
+ 		case PS3GPU_IOCTL_SET_ATTRIBUTE:
+-			retval = ps3gpu_set_attribute(arg);
+-			break;
+ 		case PS3GPU_IOCTL_SET_CONTEXT_ATTRIBUTE:
+-			retval = ps3gpu_set_context_attribute(arg);
+-			break;
+ 		case PS3GPU_IOCTL_INIT_CURSOR:
+-			retval = ps3gpu_init_cursor(arg);
+-			break;
+ 		case PS3GPU_IOCTL_CURSOR_IMAGE:
+-			retval = ps3gpu_set_cursor_image(arg);
+-			break;
+ 		case PS3GPU_IOCTL_CURSOR_POS:
+-			retval = ps3gpu_set_cursor_position( arg);
+-			break;
+ 		case PS3GPU_IOCTL_CURSOR_ENABLE:
+-			retval = ps3gpu_set_cursor_enable(arg);
++			if (READ_ONCE(gpu_owned)) {
++				retval = -EBUSY;
++				break;
++			}
++			if (cmd == PS3GPU_IOCTL_SET_ATTRIBUTE)
++				retval = ps3gpu_set_attribute(arg);
++			else if (cmd == PS3GPU_IOCTL_SET_CONTEXT_ATTRIBUTE)
++				retval = ps3gpu_set_context_attribute(arg);
++			else if (cmd == PS3GPU_IOCTL_INIT_CURSOR)
++				retval = ps3gpu_init_cursor(arg);
++			else if (cmd == PS3GPU_IOCTL_CURSOR_IMAGE)
++				retval = ps3gpu_set_cursor_image(arg);
++			else if (cmd == PS3GPU_IOCTL_CURSOR_POS)
++				retval = ps3gpu_set_cursor_position(arg);
++			else
++				retval = ps3gpu_set_cursor_enable(arg);
+ 			break;
+ 		case PS3GPU_IOCTL_ENTER:
+-			StartStopTask(1);
+-			retval=0;
++			mutex_lock(&gpu_own_lock);
++			if (gpu_owned) {
++				retval = -EBUSY;
++			} else {
++				StartStopTask(1);
++				retval = 0;
++			}
++			mutex_unlock(&gpu_own_lock);
+ 			break;
+ 		default:
+ 			retval = -ENOIOCTLCMD;
+@@ -1982,13 +2019,19 @@
+ 		return IRQ_NONE;
+ 	}
+ 	if (v1 & (1 << GPU_INTR_STATUS_GRAPH_EXCEPTION)) {
++		const struct ps3fb_gpu_hook *hook = READ_ONCE(gpu_hook);
++
+ 		dev_err(dev, "%s: graphics exception\n", __func__);			
+ 		ps3fb.fifo.sub_program[GPU_USER_DEBUG] = 1; // mark error				
++		WRITE_ONCE(gpu_exceptions, gpu_exceptions + 1);
+ 		ps3fb_print_graph_exception_info(dev, &ps3fb.dinfo->irq.graph_exception_info);
++		if (hook)
++			hook->exception(hook->data, v1,
++				(const void __iomem *)&ps3fb.dinfo->irq.graph_exception_info);
+ 	} else if (v1 & (1 << GPU_INTR_STATUS_VSYNC_0)) {
+ 		/* VSYNC */
+ 		ps3fb.vblank_count = head->vblank_count;
+-		if (ps3fb.task && !ps3fb.is_blanked &&
++		if (ps3fb.task && !ps3fb.is_blanked && !READ_ONCE(gpu_owned) &&
+ 		    !atomic_read(&ps3fb.ext_flip)) {
+ 			ps3fb.is_kicked = 1;
+ 			wake_up_process(ps3fb.task);
+@@ -1998,6 +2041,178 @@
+ 
+ 	return IRQ_HANDLED;
+ }
++/* --- GPU sharing API (asm/ps3gpu.h) ----------------------------------------------------- */
++
++int ps3fb_gpu_get_info(struct ps3fb_gpu_info *gi)
++{
++	struct fb_info *info = ps3fb.fbinfo;
++	struct ps3fb_par *par;
++
++	if (!info || !ps3fb.dinfo)
++		return -ENODEV;
++	par = info->par;
++	gi->memory_handle = ps3fb.memory_handle;
++	gi->ddr_lpar = ps3fb.ddr_lpar;
++	gi->memory_size = ps3fb.dinfo->memory_size;
++	/* ps3fb's DDR frames never exceed its XDR buffer (num_frames = smem_len / frame size),
++	 * plus one line for a centring offset */
++	gi->reserved = ALIGN(info->fix.smem_len + par->ddr_line_length, 1024 * 1024);
++	gi->xres = par->width;
++	gi->yres = par->height;
++	gi->line_length = par->ddr_line_length;
++	gi->full_offset = par->full_offset;
++	return 0;
++}
++EXPORT_SYMBOL_GPL(ps3fb_gpu_get_info);
++
++/* The driver's own context: allocated on first use, then kept until ps3fb shuts down, so
++ * module reloads never allocate or free lv1 contexts. The first caller's flags stick. */
++int ps3fb_gpu_ctx_get(u64 flags, struct ps3fb_gpu_ctx *ctx)
++{
++	int status = 0;
++
++	mutex_lock(&gpu_ctx_lock);
++	if (!gpu_ctx.handle) {
++		status = lv1_gpu_context_allocate(ps3fb.memory_handle, flags, &gpu_ctx.handle,
++						  &gpu_ctx.ctrl_lpar, &gpu_ctx.dinfo_lpar,
++						  &gpu_ctx.reports_lpar, &gpu_ctx.reports_size);
++		if (status) {
++			pr_err("%s: lv1_gpu_context_allocate failed: %d\n", __func__, status);
++			gpu_ctx.handle = 0;
++			status = -ENOSPC;
++		}
++	}
++	if (!status)
++		*ctx = gpu_ctx;
++	mutex_unlock(&gpu_ctx_lock);
++	return status;
++}
++EXPORT_SYMBOL_GPL(ps3fb_gpu_ctx_get);
++
++/* lv1_gpu_context_iomap on the driver's context, recorded so shutdown can undo it */
++int ps3fb_gpu_iomap(u64 io, u64 lpar, u64 size, u64 flags)
++{
++	bool map = flags & (CBE_IOPTE_PP_W | CBE_IOPTE_PP_R);
++	u64 off;
++	int status;
++
++	if (!IS_ALIGNED(io | size | lpar, 1024 * 1024) || !size ||
++	    io + size > ARRAY_SIZE(gpu_ctx_iomap) * 1024 * 1024)
++		return -EINVAL;
++	mutex_lock(&gpu_ctx_lock);
++	status = gpu_ctx.handle ? lv1_gpu_context_iomap(gpu_ctx.handle, io, lpar, size, flags) : -ENODEV;
++	if (!status)
++		for (off = 0; off < size; off += 1024 * 1024)
++			gpu_ctx_iomap[(io + off) >> 20] = map ? lpar + off : 0;
++	mutex_unlock(&gpu_ctx_lock);
++	return status > 0 ? -EIO : status;
++}
++EXPORT_SYMBOL_GPL(ps3fb_gpu_iomap);
++
++/* Undo the driver's iomaps and free its context (ps3fb shutdown, before freeing the memory) */
++static void ps3fb_gpu_ctx_free(void)
++{
++	unsigned int i;
++
++	mutex_lock(&gpu_ctx_lock);
++	if (gpu_ctx.handle) {
++		for (i = 0; i < ARRAY_SIZE(gpu_ctx_iomap); i++)
++			if (gpu_ctx_iomap[i])
++				lv1_gpu_context_iomap(gpu_ctx.handle, (u64)i << 20,
++						      gpu_ctx_iomap[i], 1024 * 1024, CBE_IOPTE_M);
++		lv1_gpu_context_free(gpu_ctx.handle);
++		memset(&gpu_ctx, 0, sizeof(gpu_ctx));
++		memset(gpu_ctx_iomap, 0, sizeof(gpu_ctx_iomap));
++	}
++	mutex_unlock(&gpu_ctx_lock);
++}
++
++/* SET_REFERENCE on ps3fb's own ring and wait for it: GET == PUT only means fetched. Called
++ * with ps3_gpu_mutex held, so no blit is being written into the ring meanwhile. */
++static int ps3fb_fifo_fence(void)
++{
++	static u32 cookie = 0xf0f00000;
++	struct gpu_fifo *fifo = &ps3fb.fifo;
++	volatile struct gpu_fifo_ctrl *ctrl = fifo->ctrl;
++	unsigned int timeout;
++	u32 *prev;
++
++	if (!ctrl)
++		return -ENODEV;
++	if ((fifo->len - ((fifo->curr - fifo->start) * sizeof(u32))) < 0x1000) {
++		*fifo->curr++ = 0x20000000 /* JMP */ | fifo->ioif;
++		wmb();
++		ctrl->put = fifo->ioif;
++		for (timeout = 100000; timeout && ctrl->put != ctrl->get; timeout--)
++			udelay(10);
++		if (ctrl->put != ctrl->get)
++			return -ETIMEDOUT;
++		fifo->curr = fifo->start;
++	}
++	prev = fifo->curr;
++	*fifo->curr++ = 0x00040050;	/* SET_REFERENCE */
++	*fifo->curr++ = ++cookie;
++	wmb();
++	ctrl->put += (fifo->curr - prev) * sizeof(u32);
++	for (timeout = 100000; timeout && ctrl->ref != cookie; timeout--)
++		udelay(10);
++	return ctrl->ref == cookie ? 0 : -ETIMEDOUT;
++}
++
++/*
++ * own = true: ps3fb stops touching the GPU (no console blits or flips, no direct-GPU ioctls,
++ * no mode changes or blanking) once its last command has executed. own = false: the caller
++ * has drained its own work; ps3fb re-runs its reset program and redraws the console.
++ */
++int ps3fb_gpu_takeover(bool own)
++{
++	int ret = 0;
++
++	mutex_lock(&gpu_own_lock);
++	if (own == gpu_owned)
++		goto out;
++	if (own && !ps3fb.task) {
++		ret = -EBUSY;		/* a direct-GPU user (PS3GPU_IOCTL_ENTER) holds the FIFO */
++		goto out;
++	}
++	console_lock();
++	mutex_lock(&ps3_gpu_mutex);
++	if (own) {
++		WRITE_ONCE(gpu_owned, true);
++		ret = ps3fb_fifo_fence();
++		if (ret) {
++			WRITE_ONCE(gpu_owned, false);
++			pr_err("%s: ps3fb's FIFO did not drain: %d\n", __func__, ret);
++		}
++		mutex_unlock(&ps3_gpu_mutex);
++	} else {
++		ret = ps3gpu_restore_state();
++		mutex_unlock(&ps3_gpu_mutex);
++		WRITE_ONCE(gpu_owned, false);
++		if (ps3fb.fbinfo)
++			ps3fb_sync(ps3fb.fbinfo, 0);
++	}
++	console_unlock();
++out:
++	mutex_unlock(&gpu_own_lock);
++	return ret;
++}
++EXPORT_SYMBOL_GPL(ps3fb_gpu_takeover);
++
++void ps3fb_gpu_set_exception_hook(const struct ps3fb_gpu_hook *hook)
++{
++	WRITE_ONCE(gpu_hook, hook);
++	if (!hook && ps3fb.irq_no)
++		synchronize_irq(ps3fb.irq_no);
++}
++EXPORT_SYMBOL_GPL(ps3fb_gpu_set_exception_hook);
++
++unsigned int ps3fb_gpu_exception_seen(void)
++{
++	return READ_ONCE(gpu_exceptions);
++}
++EXPORT_SYMBOL_GPL(ps3fb_gpu_exception_seen);
++
+ static void ps3fb_gpu_vma_open(struct vm_area_struct *vma) {}
+ static void ps3fb_gpu_vma_close(struct vm_area_struct *vma) {}
+ 
+@@ -2021,6 +2236,8 @@
+ 	int err;
+ 	int io_flag = 1;
+ 
++	if (READ_ONCE(gpu_owned))
++		return -EBUSY;
+ 	off <<= PAGE_SHIFT;
+ 	switch (minor) { 
+ 		case 0: if( off >= ps3fb.ddr_size) return -EINVAL;
+@@ -2348,6 +2565,7 @@
+ 	}
+ 	iounmap((u8 __force __iomem *)ps3fb.dinfo);
+ 	iounmap((u8 __force __iomem *)ps3fb.fifo.ctrl);
++	ps3fb_gpu_ctx_free();
+ 	lv1_gpu_fb_close(ps3fb.context_handle);
+ 	lv1_gpu_context_iomap(ps3fb.context_handle, GPU_IOIF, xdr_lpar, ps3fb_videomemory.size, CBE_IOPTE_M);
+ 	lv1_gpu_context_free(ps3fb.context_handle);
+@@ -2361,6 +2579,8 @@
+ 	.match_sub_id	= PS3_MATCH_SUB_ID_GPU_FB,
+ 	.core.name	= DEVICE_NAME,
+ 	.core.owner	= THIS_MODULE,
++	/* no sysfs unbind: an RSX driver may hold a context on ps3fb's GPU memory */
++	.core.suppress_bind_attrs = true,
+ 	.probe		= ps3fb_probe,
+ 	.remove		= ps3fb_shutdown,
+ 	.shutdown	= ps3fb_shutdown,
