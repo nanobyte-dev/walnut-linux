@@ -28,9 +28,8 @@ SOURCE_DATE_EPOCH   := 1791849600
 
 # --- Network / netboot --------------------------------------------------------
 PS3_IP              := 10.0.0.77
-# Petitboot's DHCP client sends a different client ID than Linux, so the router hands it its own
-# lease (not the .77 reservation). Reserve this one too, or update it when it drifts.
-PETITBOOT_IP        := 10.0.0.51
+# Petitboot's address (it has also been given .51 by DHCP at times).
+PETITBOOT_IP        := 10.0.0.77
 PC_IP               := 10.0.0.45
 PC_MAC              := b4:2e:99:f3:12:1a
 NFS_ROOT            := /srv/ps3root

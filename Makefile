@@ -103,17 +103,21 @@ nfs-modules: $(KERNEL_STAGE)/boot/vmlinux
 
 # --- GPU tools ----------------------------------------------------------------
 PS3_HOME := $(NFS_ROOT)/home/tibi
-# Test kernel modules build against the kernel tree in $(BUILD)/kernel/obj. Kbuild writes objects
-# next to the sources, so the sources are copied into $(BUILD)/gpu-kmod first.
+# Kernel modules (every gpu/*/Kbuild) build against the kernel tree in $(BUILD)/kernel/obj.
+# Kbuild writes objects next to the sources, so each directory is copied to $(BUILD)/gpu-<dir>.
+GPU_KMODS := $(patsubst gpu/%/Kbuild,%,$(wildcard gpu/*/Kbuild))
 gpu-tools: $(BUILDER_STAMP) | $(KERNEL_STAGE)/boot/vmlinux
 	$(DOCKER_RUN) --user $(UID_GID) $(BUILDER_TAG) make -C gpu OUT=../$(BUILD)/gpu
-	mkdir -p $(BUILD)/gpu-kmod && cp gpu/kmod/* $(BUILD)/gpu-kmod/
-	$(DOCKER_RUN) --user $(UID_GID) $(BUILDER_TAG) make -C $(BUILD)/kernel/obj \
-		ARCH=powerpc CROSS_COMPILE=powerpc64-linux-gnu- M=/work/$(BUILD)/gpu-kmod modules
+	for d in $(GPU_KMODS); do \
+		mkdir -p $(BUILD)/gpu-$$d && cp gpu/$$d/* $(BUILD)/gpu-$$d/ && \
+		$(DOCKER_RUN) --user $(UID_GID) $(BUILDER_TAG) make -s -C $(BUILD)/kernel/obj \
+			ARCH=powerpc CROSS_COMPILE=powerpc64-linux-gnu- M=/work/$(BUILD)/gpu-$$d modules \
+			|| exit 1; \
+	done
 
 gpu-deploy: gpu-tools
 	install -d $(PS3_HOME)/bin
-	install -m 755 $(BUILD)/gpu/* $(BUILD)/gpu-kmod/*.ko gpu/tools/*.sh $(PS3_HOME)/bin/
+	install -m 755 $(BUILD)/gpu/* $(BUILD)/gpu-*/*.ko gpu/tools/*.sh $(PS3_HOME)/bin/
 
 # --- Run ----------------------------------------------------------------------
 netboot: $(KERNEL_STAGE)/boot/vmlinux
