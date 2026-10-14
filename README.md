@@ -12,6 +12,10 @@ nouveau's userspace (libdrm + Mesa nv30) on the RSX. Plan and background: `docs/
 | `kernel/config/*.config` | Config fragments merged onto `ps3_defconfig` |
 | `rootfs/packages.txt`, `rootfs/customize.sh` | Debian root filesystem contents and setup |
 | `docker/Dockerfile` | Pinned build environment (toolchain, mmdebstrap) |
+| `docker/Dockerfile.mesa` | Mesa build environment on top of it (C++ cross compiler, meson) |
+| `mesa/patches/series` | Mesa patches (nouveau nv30 on the RSX), applied in order to the release tarball |
+| `mesa/sysroot-packages.txt`, `mesa/cross-ppc64.ini` | Debian ppc64 sysroot contents and meson cross file |
+| `mesa/tests/` | Offscreen EGL/GLES2 tests (`egl-clear`, `egl-tri`, `egl-tex`, `egl-gears`) |
 | `tools/` | Scripts called by the Makefile |
 | `gpu/tools/` | RSX test programs run on the PS3 (`rsx-clear`, `rsx-probe`, `rsx-peek`) |
 | `docs/` | `PLAN.md` phases, `DRIVER-PLAN.md` the GPU driver plan, `RSX.md` measured GPU facts, `RSX-PROGRAMS.md` raw draw/shader words, `MESA-METHODS.md` Mesa nv30 methods vs RSX, `RESEARCH.md` background |
@@ -27,11 +31,15 @@ nouveau's userspace (libdrm + Mesa nv30) on the RSX. Plan and background: `docs/
     make listen            # in another terminal: PS3 debug output
     make netboot           # PS3 in Petitboot -> boots our kernel with NFS root
     make gpu-deploy        # cross-compile gpu/tools and copy them to ~/bin on the NFS root
+    make mesa-deploy       # patched Mesa + mesa/tests -> ~/mesa on the NFS root (sysroot, build, tests)
+
+On the PS3, `. ~/mesa/env.sh` selects our Mesa; `egl-gears` etc. print a checksum to compare with
+a softpipe run (`LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=softpipe`).
     tools/webcam-grab.sh   # photo of the PS3's screen (webcam on the monitor) -> build/tmp/screen.jpg
 
 ## Reproducibility
 
-Kernel tarball is checked against `KERNEL_SHA256`; Debian packages come from snapshot.debian.org
+Kernel and Mesa tarballs are checked against `KERNEL_SHA256`/`MESA_SHA256`; Debian packages come from snapshot.debian.org
 at `DEBIAN_SNAPSHOT`; the builder image is pinned by digest with apt on the same snapshot;
 builds use a fixed `SOURCE_DATE_EPOCH`, build user/host and no git version suffix.
 

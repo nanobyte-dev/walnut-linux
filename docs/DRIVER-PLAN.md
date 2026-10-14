@@ -268,59 +268,67 @@ ps3fb owns all of VRAM):
 
 ## Phase 3: Mesa patch, cross build, offscreen GL (one process)
 
-**Patch** `mesa/patches/0001-nouveau-nv30-ps3-rsx.patch`. The PS3 is detected by
-`nouveau_getparam(PCI_VENDOR) == 0x104d` in `nv30_screen_create`. It changes:
-**Handles are substituted at allocation time** (about 10 lines; review 3). The streams then
-carry them automatically, because Mesa writes the handles it allocated.
-- **`nouveau_screen.c`:**
-  - move the PS3 check (PCI_VENDOR plus the `PS3_ABI` getparam) into `nouveau_screen_init`,
-    before line 399;
-  - `nv04_data.vram/gart` (`:302`) = 0xfeed0000/0xfeed0001 on the PS3.
+**Patch** `mesa/patches/0001-nouveau-nv30-ps3-rsx.patch`. The PS3 is detected in
+`nouveau_screen_init`, before the channel is allocated: chipset 0x47,
+`nouveau_getparam(PCI_VENDOR) == 0x104d` and the `PS3_ABI` getparam (0x1000) succeeds. The result
+is `nouveau_screen.is_ps3`; every change below is gated on it.
+**Handles are substituted at allocation time.** The streams then carry them automatically,
+because Mesa writes the handles it allocated.
+- **`nouveau_screen.c`:** `nv04_data.vram/gart` = 0xfeed0000/0xfeed0001 on the PS3.
 - **`nv30_screen.c`:**
-  - objects allocated (`:578/653/663/678/693`) with 3D 0x31337000, M2MF 0x31337303,
-    SF2D 0x313371c3, SWZ 0x31337a73, SIFM 0x3137af00;
-  - notifiers allocated (`:529/537/548`) with fence 0x66606660, ntfy 0x66604200,
-    query 0x66626660;
-  - fence emit (`:415-416`) writes `screen->fence->offset` and the seqno pre-swizzled
-    (bytes 0 and 2 swapped);
+  - objects allocated with 3D 0x31337000, M2MF 0x31337303, SF2D 0x313371c3, SWZ 0x31337a73,
+    SIFM 0x3137af00;
+  - notifiers allocated with fence 0x66606660, ntfy 0x66604200, query 0x66626660. Mesa asks
+    for **32 bytes (fence), 32 bytes (ntfy) and 3968 bytes (query, 4096 - 128)**: the kernel's
+    `NOTIFIEROBJ_ALLOC` limits must accept these;
+  - fence emit writes `screen->fence->offset` and the seqno pre-swizzled (bytes 0 and 2
+    swapped), so the readback at `notify->map + fence->offset` equals the sequence;
   - drop VERTEX_BUFFER/INDEX_BUFFER from `vidmem_bindings` on the PS3. On big-endian the CPU
     reads vertex data to push it inline, and VRAM reads run at 10 MB/s.
 - **`nv30_query.c`:** QUERY_GET (0x1800) and RENDER_ENABLE (0x1e98) add
   `query->offset - 0x1400`, so each channel's query slice lands in its own place. Timer queries
   stay on: type 1 gives the u64 timestamp Mesa reads.
-- **`nv30_miptree.c:452-457`:** on the PS3, scanout pitch is only 64-byte aligned. Mesa's
+- **`nv30_miptree.c`:** on the PS3, scanout pitch is only 64-byte aligned. Mesa's
   power-of-two padding (7680 → 8192 at 1080p) would display sheared, because the display
   pitch is fixed by ps3av at width×4.
 - **Later, as big-endian issues appear:** format tables.
 
 **Build:** cross-compile with meson against a ppc64 sysroot. The target is Mesa 26.2.4, the
-version in the 20261013 snapshot.
-- **Dockerfile:** `g++-powerpc64-linux-gnu` (Mesa needs C++), meson (trixie's 1.7 meets the
-  ≥ 1.4 requirement), ninja, pkgconf, python3-mako/yaml/packaging, bison, flex.
-- **`make mesa-sysroot`:**
-  - `mmdebstrap --arch=ppc64 --variant=extract` (no maintainer scripts, so no qemu) with
-    `base-files`, `libc6-dev` and the dev packages from `mesa/sysroot-packages.txt`;
-  - check that the merged-/usr `/lib` link exists, since glibc's `libc.so` script uses
-    absolute paths.
-- **`mesa/cross-ppc64.ini`:**
-  - `needs_exe_wrapper=true`;
-  - `PKG_CONFIG_LIBDIR=$SYSROOT/usr/lib/powerpc64-linux-gnu/pkgconfig:$SYSROOT/usr/share/pkgconfig`;
-  - `PKG_CONFIG_SYSROOT_DIR=$SYSROOT`;
-  - `-ffile-prefix-map`, for reproducibility.
-- **`config.mk`:** `MESA_VERSION`/`MESA_SHA256`.
+version in the 20261013 snapshot (`MESA_VERSION`/`MESA_SHA256` in `config.mk`).
+- **`docker/Dockerfile.mesa`:** a separate image `FROM` the builder (so the builder tag, and the
+  kernel, don't change) adding `g++-powerpc64-linux-gnu`, meson (trixie's 1.7), ninja, pkgconf,
+  python3-mako/yaml/packaging.
+- **`make mesa-sysroot`:** `mmdebstrap --arch=ppc64 --variant=extract` (no maintainer scripts,
+  so no qemu, no `--privileged`) with the packages in `mesa/sysroot-packages.txt`. base-files
+  provides the merged-/usr `/lib` link that glibc's `libc.so` script needs; the script checks it.
+- **`mesa/cross-ppc64.ini`:** `--sysroot`, `-mcpu=cell`, `-ffile-prefix-map`,
+  `needs_exe_wrapper`, `pkg_config_libdir` and `sys_root` (= `PKG_CONFIG_SYSROOT_DIR`) in the
+  sysroot. Two builds give identical libraries.
 - **Meson options:** `-Dgallium-drivers=nouveau,softpipe -Dvulkan-drivers= -Dllvm=disabled
   -Dgallium-va=disabled -Dvideo-codecs= -Dplatforms=x11 -Dglx=dri -Degl=enabled -Dgbm=enabled
-  -Dglvnd=enabled --prefix=/opt/mesa`.
+  -Dglvnd=enabled -Dgles1=disabled -Dgles2=enabled --buildtype=debugoptimized
+  --prefix=/home/tibi/mesa`. The prefix is `$(NFS_ROOT)/home/tibi/mesa` on the PC, which tibi
+  owns, so deploying needs no sudo.
 - **No clash with Debian's Mesa 26.2.4:**
   - Mesa's `VERSION` gets a suffix (`26.2.4-ps3`), so `libgallium-*.so` names differ;
   - `env.sh` sets `LD_LIBRARY_PATH`, `__EGL_VENDOR_LIBRARY_FILENAMES`,
-    `__GLX_VENDOR_LIBRARY_NAME=mesa`, `GBM_BACKENDS_PATH` and `LIBGL_DRIVERS_PATH`;
+    `__GLX_VENDOR_LIBRARY_NAME=mesa`, `GBM_BACKENDS_PATH`, `LIBGL_DRIVERS_PATH` and
+    `MESA_SHADER_CACHE_DISABLE`;
+  - the rootfs has no GL/X client libraries, so the build bundles everything the installed
+    files and glvnd's libEGL/libGLESv2/libGL need from the sysroot into `lib/` (not glibc or
+    the compiler runtime);
   - for Xorg (the setuid wrapper strips `LD_LIBRARY_PATH`), add `/etc/ld.so.conf.d/00-ps3mesa.conf`
     or run Xorg as root with the env.
-- `make mesa`, then `make mesa-deploy` (sudo rsync to `$(NFS_ROOT)/opt/mesa`).
+- `make mesa mesa-tests`, then `make mesa-deploy` (rsync to `$(NFS_ROOT)/home/tibi/mesa`).
+
+**Tests** (`mesa/tests`, installed to `~/mesa/bin`): `egl-clear`, `egl-tri`, `egl-tex`,
+`egl-gears` render offscreen (surfaceless EGL, or `EGL_RENDER_NODE=/dev/dri/renderD128` for the
+device platform) and print `GL_RENDERER` and a checksum; an argument writes the image as PPM.
+On the PS3: `. ~/mesa/env.sh`, then each test once with
+`LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=softpipe` (reference) and once without (nouveau).
 
 **Ladder.** Each rung runs first with `submit=0`, then for real, against a softpipe reference:
-1. `eglinfo -B`
+1. `eglinfo -B` (needs `mesa-utils-bin` in the rootfs)
 2. `egl-clear` + `glReadPixels`
 3. `egl-tri`
 4. `egl-tex`
@@ -400,7 +408,7 @@ The load pointers are restored afterwards.
 - **Prerequisites:** swap (NFS swapfile) and Phase 4.
 - **X:** modesetting on our card with glamor (needs Phase 4) and `prefer_shadow`, since CPU
   reads from VRAM run at 10 MB/s. `AccelMethod none` is only a KMS sanity check.
-- **Run:** `xinit glxgears -info` with `/opt/mesa/env.sh`, then check `glxinfo -B` (nouveau
+- **Run:** `xinit glxgears -info` with `~/mesa/env.sh`, then check `glxinfo -B` (nouveau
   NV47), an `xwd` screenshot and a webcam frame.
 - **If glamor refuses nv30:** fix the glamor/nv30 gaps in Mesa (extension exposure). The floor
   is GBM/EGL gears on KMS. xf86-video-nouveau is not an option: it needs a PCI device and NV04
