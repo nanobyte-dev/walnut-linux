@@ -54,10 +54,10 @@ Small kernel module that binds the 3D class in our lv1 GPU context and clears th
 
 Detailed plan: docs/DRIVER-PLAN.md. A DRM driver `ps3rsx` (registers as "nouveau") on lv1 GPU
 calls, plus a small Mesa nv30 patch for the hypervisor's fixed object handles, up to glxgears
-in Xorg. Status (2026-10-14): Phase 0 (hardware derisking) done, results in docs/RSX.md. Phase 1
-(kernel: GART reservation, ps3fb sharing API, DRM/zram/NFS-swap config; rootfs: swapfile,
-libdrm-tests) done and checked on the console; the ENTER/EXIT trylock fix found by lockdep is
-built but boots with the next reboot. Next: Phase 2, the ps3rsx render driver.
+in Xorg. **Status (2026-10-14): every phase done; glxgears runs in Xorg on the RSX** (glamor on
+NV47, GL 2.1, 60 fps vsync-paced), checked with `glxinfo -B`, `xwd` and the webcam. kmscube runs
+at 60 fps through KMS. Results per phase: docs/DRIVER-PLAN.md "Results"; GPU facts found on the
+way: docs/RSX.md. Next: the "Later" table in DRIVER-PLAN.md (pushing the hardware limits).
 
 ## Test loop
 
@@ -68,6 +68,11 @@ built but boots with the next reboot. Next: Phase 2, the ps3rsx render driver.
 - A graph exception wedges the GPU until a console reboot: risky tests go last, one per boot.
 - Logs: netconsole (`make listen`); the PS3's journal is on the NFS root.
 - Screen: BRIO webcam pointed at the monitor, frames grabbed with ffmpeg.
+- Keep netconsole quiet: loglevel=4, and never the driver's `trace=1` through a GL program (the
+  volume hung the PS3). Mesa's `NOUVEAU_LIBDRM_DEBUG=1` dumps pushes in userspace instead.
+- Swap is zram: a swapfile on the NFS root deadlocked under memory pressure (write error -12).
+- Programs that wait for a key (modetest, kmscube) need stdin held open over SSH (`sleep N |`),
+  or they quit at once.
 
 ## Build setup
 

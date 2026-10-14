@@ -440,5 +440,24 @@ The load pointers are restored afterwards.
 | 5 | `kmscube` runs (webcam). |
 | 6 | glxgears runs in Xorg on the RSX (`glxinfo -B`, `xwd`, webcam). |
 
+## Results (2026-10-14)
+
+| Phase | Outcome |
+|---|---|
+| 1 | Done. Kernel patches local/0004 (GART boot reservation, `ps3rsx_gart=32M`), 0005 (ps3fb sharing API, ENTER/EXIT trylock), 0006 (gelic netpoll fix). |
+| 2 | Done. `rsxdrm-smoke` passes every subtest; the validator rejects vertex format type 0, which wedges the RSX. |
+| 3 | Done. egl-clear and egl-tex are byte-identical to softpipe; egl-tri differs by at most 1 per channel, egl-gears in 4 edge pixels. |
+| 4 | Done. Three concurrent GL processes give the same images as solo runs (`rsx-suite.sh multi`). |
+| 5 | Done. modetest colour bars and kmscube at 60 fps (webcam). vblank is a frame-rate timer, not lv1's interrupt. |
+| 6 | Done. Xorg modesetting + glamor on NV47; `glxinfo -B` reports NV47 with direct rendering, glxgears runs at 60 fps (`xwd`, webcam). |
+
+What differed from the plan:
+- Swap is zram only: the NFS swapfile deadlocked under memory pressure.
+- Mesa needed 8 patches, not 1: PS3 handles (0001), vertex type 0 (0002), blit into GART (0003),
+  big-endian blit fragment program (0004), no Z16 (0005), flushing an empty context (0006),
+  host-order 8888 formats for gbm/X on big-endian (0007), no single-attribute inline vertices
+  (0008). Facts behind them: docs/RSX.md.
+- The driver waits for an open primitive to close before switching channels.
+
 docs/PLAN.md and README
 get updated at each milestone.

@@ -139,3 +139,28 @@ when the fence signalled, 20 load/unload cycles.
 What Mesa does that libgcm doesn't: the M2MF NOP (0x100 on the M2MF subchannel) and
 RT_ENABLE 0x12 are accepted. **Vertex format type 0 (0x1740+, data & 0xf == 0) raises a graph
 exception**: the validator rejects it, and Mesa must not emit it on the PS3.
+
+## Mesa, KMS and X on the driver (Phases 3-6)
+
+Found while getting stock Mesa nv30 to run (each has a Mesa patch in `mesa/patches/`):
+
+- **Z16 depth** renders wrong: the PS3 gets only 24-bit depth (0005).
+- The 3D blit **into a GART destination** needs its own path (0003); its fragment program is
+  stored halfword-swapped like every RSX fragment program (0004, big-endian only).
+- **Inline vertex data with a single attribute draws nothing** (no exception, no fragments):
+  position-only draws such as glamor's fills and any constant-colour shader. Two attributes
+  work, so the PS3 pushes the lone attribute twice (0008).
+- Mesa splits long inline draws across pushes, so a primitive can stay open between submits;
+  the driver must not switch channels (restore state) inside BEGIN/END: that raised a graph
+  exception. ps3rsx waits for the primitive to close.
+- The scanout format: the RSX renders and scans out A8R8G8B8 words, i.e. bytes A,R,G,B in
+  memory. A big-endian X server asks gbm for ARGB8888 meaning exactly that, so on big-endian the
+  DRM 8888 fourccs are taken as host-order words (0007).
+
+KMS: `lv1_gpu_display_flip` from our context shows any VRAM offset, including above 224 MB
+(tested at 0xe100000). The CPU's writes through a VRAM mmap are seen by the GPU as written. No
+vblank interrupt is wired up; a timer at the frame rate paces flip events, and the flip itself
+latches at the display's vsync. kmscube: 60 fps at 1920x1080.
+
+X: modesetting with glamor (GL 2.1 context, GLSL 1.20) works on NV47. An `xwd` of a fill test
+is identical to the same run on softpipe; glxgears runs at 60 fps with direct rendering.

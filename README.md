@@ -15,9 +15,10 @@ nouveau's userspace (libdrm + Mesa nv30) on the RSX. Plan and background: `docs/
 | `docker/Dockerfile.mesa` | Mesa build environment on top of it (C++ cross compiler, meson) |
 | `mesa/patches/series` | Mesa patches (nouveau nv30 on the RSX), applied in order to the release tarball |
 | `mesa/sysroot-packages.txt`, `mesa/cross-ppc64.ini` | Debian ppc64 sysroot contents and meson cross file |
-| `mesa/tests/` | Offscreen EGL/GLES2 tests (`egl-clear`, `egl-tri`, `egl-tex`, `egl-gears`) |
+| `mesa/tests/` | Offscreen EGL/GLES2 tests (`egl-clear`, `egl-tri`, `egl-tex`, `egl-gears`, `egl-short`) |
+| `gpu/ps3rsx/` | The DRM driver (registers as "nouveau"): render ioctls, validator, software context switch, KMS |
 | `tools/` | Scripts called by the Makefile |
-| `gpu/tools/` | RSX test programs run on the PS3 (`rsx-clear`, `rsx-probe`, `rsx-peek`) |
+| `gpu/tools/` | Programs and scripts run on the PS3: raw RSX probes (`rsx-*`), driver tests (`rsxdrm-smoke`), `rsx-suite.sh` (smoke, Mesa vs softpipe, concurrent GL), `rsx-x.sh` (Xorg with one client) |
 | `docs/` | `PLAN.md` phases, `DRIVER-PLAN.md` the GPU driver plan, `RSX.md` measured GPU facts, `RSX-PROGRAMS.md` raw draw/shader words, `MESA-METHODS.md` Mesa nv30 methods vs RSX, `RESEARCH.md` background |
 | `build/` | Generated outputs (ignored); `build/old/` holds previous outputs, never deleted |
 | `firmware/` | Petitboot image installed on the console (ignored) |
@@ -35,7 +36,11 @@ nouveau's userspace (libdrm + Mesa nv30) on the RSX. Plan and background: `docs/
 
 On the PS3, `. ~/mesa/env.sh` selects our Mesa; `egl-gears` etc. print a checksum to compare with
 a softpipe run (`LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=softpipe`).
-    tools/webcam-grab.sh   # photo of the PS3's screen (webcam on the monitor) -> build/tmp/screen.jpg
+
+    sudo modprobe drm_kms_helper && sudo insmod ~/bin/ps3rsx.ko   # on the PS3
+    ~/bin/rsx-suite.sh all            # regression: smoke, Mesa ladder, concurrent processes
+    ~/bin/rsx-x.sh 30 glxgears -info  # Xorg (modesetting + glamor) on the RSX, one client
+    tools/webcam-grab.sh   # on the PC: photo of the PS3's screen -> build/tmp/screen.jpg
 
 ## Reproducibility
 
