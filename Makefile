@@ -113,7 +113,7 @@ gpu-tools: $(BUILDER_STAMP) | $(KERNEL_STAGE)/boot/vmlinux
 
 gpu-deploy: gpu-tools
 	install -d $(PS3_HOME)/bin
-	install -m 755 $(BUILD)/gpu/* $(BUILD)/gpu-kmod/*.ko $(PS3_HOME)/bin/
+	install -m 755 $(BUILD)/gpu/* $(BUILD)/gpu-kmod/*.ko gpu/tools/*.sh $(PS3_HOME)/bin/
 
 # --- Run ----------------------------------------------------------------------
 netboot: $(KERNEL_STAGE)/boot/vmlinux

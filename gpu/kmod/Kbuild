@@ -1,1 +1,1 @@
-obj-m := rsx_ctx_probe.o
+obj-m := rsx_ctx_probe.o rsx_ctx_probe2.o
