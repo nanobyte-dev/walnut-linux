@@ -323,6 +323,12 @@ nv30_screen_is_format_supported(struct pipe_screen *pscreen,
    /* shared is always supported */
    bindings &= ~PIPE_BIND_SHARED;
 
+   /* The RSX mis-renders a 16-bit depth buffer next to a 32-bit colour buffer (random depth
+    * failures); without Z16 the state tracker uses Z24S8 for 16-bit depth requests. */
+   if (nv30_screen(pscreen)->base.is_ps3 && (bindings & PIPE_BIND_DEPTH_STENCIL) &&
+       util_format_get_blocksize(format) == 2)
+      return false;
+
    if (bindings & PIPE_BIND_INDEX_BUFFER) {
       if (format != PIPE_FORMAT_R8_UINT &&
           format != PIPE_FORMAT_R16_UINT &&
@@ -369,8 +375,17 @@ nv30_screen_fence_emit(struct pipe_context *pcontext, uint32_t *sequence,
    assert(PUSH_AVAIL(push) + push->rsvd_kick >= 3);
    PUSH_DATA (push, NV30_3D_FENCE_OFFSET |
               (2 /* size */ << 18) | (7 /* subchan */ << 13));
-   PUSH_DATA (push, 0);
-   PUSH_DATA (push, *sequence);
+   if (screen->base.is_ps3) {
+      /* The RSX semaphore DMA covers the whole notifier, and the value written is stored
+       * with bytes 0 and 2 swapped: pre-swap it so the readback equals the sequence.
+       */
+      uint32_t s = *sequence;
+      PUSH_DATA (push, ((struct nv04_notify *)screen->fence->data)->offset);
+      PUSH_DATA (push, (s & 0xff00ff00) | ((s & 0xff) << 16) | ((s >> 16) & 0xff));
+   } else {
+      PUSH_DATA (push, 0);
+      PUSH_DATA (push, *sequence);
+   }
 
    nouveau_pushbuf_refn(push, &ref, 1);
 }
@@ -500,10 +515,16 @@ nv30_screen_create(struct nouveau_device *dev)
    if (ret)
       FAIL_SCREEN_INIT("nv30_screen_init failed: %d\n", ret);
 
-   screen->base.vidmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
+   /* PS3: vertex/index data stays in GART, the CPU reads it back to push it inline
+    * on big-endian and reads from VRAM are very slow.
+    */
+   const bool ps3 = screen->base.is_ps3;
+   if (!ps3)
+      screen->base.vidmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
    screen->base.sysmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
    if (oclass == NV40_3D_CLASS) {
-      screen->base.vidmem_bindings |= PIPE_BIND_INDEX_BUFFER;
+      if (!ps3)
+         screen->base.vidmem_bindings |= PIPE_BIND_INDEX_BUFFER;
       screen->base.sysmem_bindings |= PIPE_BIND_INDEX_BUFFER;
    }
 
@@ -526,7 +547,7 @@ nv30_screen_create(struct nouveau_device *dev)
     * be 4KiB aligned, which means this object needs to be the first
     * one allocated on the channel.
     */
-   ret = nouveau_object_new(screen->base.channel, 0xbeef1e00,
+   ret = nouveau_object_new(screen->base.channel, ps3 ? 0x66606660 : 0xbeef1e00,
                             NOUVEAU_NOTIFIER_CLASS, &(struct nv04_notify) {
                             .length = 32 }, sizeof(struct nv04_notify),
                             &screen->fence);
@@ -534,7 +555,7 @@ nv30_screen_create(struct nouveau_device *dev)
       FAIL_SCREEN_INIT("error allocating fence notifier: %d\n", ret);
 
    /* DMA_NOTIFY object, we don't actually use this but M2MF fails without */
-   ret = nouveau_object_new(screen->base.channel, 0xbeef0301,
+   ret = nouveau_object_new(screen->base.channel, ps3 ? 0x66604200 : 0xbeef0301,
                             NOUVEAU_NOTIFIER_CLASS, &(struct nv04_notify) {
                             .length = 32 }, sizeof(struct nv04_notify),
                             &screen->ntfy);
@@ -545,7 +566,7 @@ nv30_screen_create(struct nouveau_device *dev)
     * the remainder of the "notifier block" assigned by the kernel for
     * use as query objects
     */
-   ret = nouveau_object_new(screen->base.channel, 0xbeef0351,
+   ret = nouveau_object_new(screen->base.channel, ps3 ? 0x66626660 : 0xbeef0351,
                             NOUVEAU_NOTIFIER_CLASS, &(struct nv04_notify) {
                             .length = 4096 - 128 }, sizeof(struct nv04_notify),
                             &screen->query);
@@ -575,7 +596,7 @@ nv30_screen_create(struct nouveau_device *dev)
    if (ret)
       FAIL_SCREEN_INIT("error mapping notifier memory: %d\n", ret);
 
-   ret = nouveau_object_new(screen->base.channel, 0xbeef3097, oclass,
+   ret = nouveau_object_new(screen->base.channel, ps3 ? 0x31337000 : 0xbeef3097, oclass,
                             NULL, 0, &screen->eng3d);
    if (ret)
       FAIL_SCREEN_INIT("error allocating 3d object: %d\n", ret);
@@ -650,7 +671,7 @@ nv30_screen_create(struct nouveau_device *dev)
       PUSH_DATA (push, NV40_3D_MIPMAP_ROUNDING_MODE_DOWN);
    }
 
-   ret = nouveau_object_new(screen->base.channel, 0xbeef3901, NV03_M2MF_CLASS,
+   ret = nouveau_object_new(screen->base.channel, ps3 ? 0x31337303 : 0xbeef3901, NV03_M2MF_CLASS,
                             NULL, 0, &screen->m2mf);
    if (ret)
       FAIL_SCREEN_INIT("error allocating m2mf object: %d\n", ret);
@@ -660,7 +681,7 @@ nv30_screen_create(struct nouveau_device *dev)
    BEGIN_NV04(push, NV03_M2MF(DMA_NOTIFY), 1);
    PUSH_DATA (push, screen->ntfy->handle);
 
-   ret = nouveau_object_new(screen->base.channel, 0xbeef6201,
+   ret = nouveau_object_new(screen->base.channel, ps3 ? 0x313371c3 : 0xbeef6201,
                             NV10_SURFACE_2D_CLASS, NULL, 0, &screen->surf2d);
    if (ret)
       FAIL_SCREEN_INIT("error allocating surf2d object: %d\n", ret);
@@ -675,7 +696,7 @@ nv30_screen_create(struct nouveau_device *dev)
    else
       oclass = NV40_SURFACE_SWZ_CLASS;
 
-   ret = nouveau_object_new(screen->base.channel, 0xbeef5201, oclass,
+   ret = nouveau_object_new(screen->base.channel, ps3 ? 0x31337a73 : 0xbeef5201, oclass,
                             NULL, 0, &screen->swzsurf);
    if (ret)
       FAIL_SCREEN_INIT("error allocating swizzled surface object: %d\n", ret);
@@ -690,7 +711,7 @@ nv30_screen_create(struct nouveau_device *dev)
    else
       oclass = NV40_SIFM_CLASS;
 
-   ret = nouveau_object_new(screen->base.channel, 0xbeef7701, oclass,
+   ret = nouveau_object_new(screen->base.channel, ps3 ? 0x3137af00 : 0xbeef7701, oclass,
                             NULL, 0, &screen->sifm);
    if (ret)
       FAIL_SCREEN_INIT("error allocating scaled image object: %d\n", ret);

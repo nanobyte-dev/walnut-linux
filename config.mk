@@ -23,10 +23,19 @@ SSH_PUBKEY          := $(HOME)/.ssh/id_ps3.pub
 MESA_VERSION        := 26.2.4
 MESA_SHA256         := bce5f7fbebb934373b86c999a064d52fb5065878dc57f287f95346648ec832e9
 MESA_URL            := https://archive.mesa3d.org/mesa-$(MESA_VERSION).tar.xz
-MESA_SERIES         := mesa/patches/series
+# Our fork of the files we change (nouveau driver, loader/dri/gbm bits), laid over the tarball
+MESA_FORK           := mesa/fork
 MESA_SYSROOT_PACKAGES := mesa/sysroot-packages.txt
 # Runtime path on the PS3. /home/tibi is NFS_ROOT/home/tibi (owned by tibi), so no sudo to deploy.
 MESA_PREFIX         := /home/tibi/mesa
+
+# --- ClassiCube (games/classicube) ------------------------------------------------
+# A pinned commit (SDL3 backend), plus the texture pack it needs (plain HTTP, so checksummed)
+CLASSICUBE_COMMIT   := aa47929825a4647354588818fb0b002b2f808279
+CLASSICUBE_SHA256   := 911e2b179728cbbb3c5f6d90f324f38ebbe6f68c57cb96dd66741fb15e5ab488
+CLASSICUBE_URL      := https://github.com/ClassiCube/ClassiCube/archive/$(CLASSICUBE_COMMIT).tar.gz
+CLASSICUBE_TEXPACK_SHA256 := 55eac12a9727d209b42694d07dfdca8d50349779ab77ffc11a31d2cb66b45635
+CLASSICUBE_TEXPACK_URL := http://static.classicube.net/default.zip
 
 # --- Build container ----------------------------------------------------------
 # Pinned base image; its apt sources are pointed at the same snapshot date.

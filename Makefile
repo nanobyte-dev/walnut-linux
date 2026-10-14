@@ -40,7 +40,7 @@ $(shell [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo 
 ROOTFS_INPUTS := $(ROOTFS_PACKAGES) $(ROOTFS_CUSTOMIZE) rootfs/desktop-setup.sh tools/build-rootfs.sh $(SSH_PUBKEY) $(ROOTFS_VARS)
 
 .PHONY: help all builder kernel rootfs checksums nfs-root nfs-modules netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
-	mesa-builder mesa-sysroot mesa mesa-tests mesa-deploy
+	mesa-builder mesa-sysroot mesa mesa-tests mesa-deploy classicube classicube-deploy
 
 help:
 	@echo "Build:"
@@ -101,8 +101,11 @@ checksums:
 	@head -2 $(BUILD)/SHA256SUMS; echo "($$(wc -l < $(BUILD)/SHA256SUMS) files in $(BUILD)/SHA256SUMS)"
 
 # --- Deploy -------------------------------------------------------------------
-nfs-root: $(ROOTFS_TAR) $(KERNEL_STAGE)/boot/vmlinux
+# The whole system: image, kernel modules, then everything built outside the image (RSX driver
+# and tools, Mesa, ClassiCube) into ~tibi, so a fresh root needs nothing done by hand.
+nfs-root: $(ROOTFS_TAR) $(KERNEL_STAGE)/boot/vmlinux gpu-tools mesa mesa-tests classicube
 	sudo NFS_ROOT=$(NFS_ROOT) PS3_IP=$(PS3_IP) tools/install-nfs-root.sh $(ROOTFS_TAR) $(KERNEL_STAGE)
+	$(MAKE) gpu-deploy mesa-deploy classicube-deploy
 
 nfs-modules: $(KERNEL_STAGE)/boot/vmlinux
 	sudo rsync -a --delete --chown=root:root $(KERNEL_STAGE)/lib/modules/ $(NFS_ROOT)/lib/modules/
@@ -132,12 +135,12 @@ MESA_BUILDER_STAMP := $(BUILD)/.mesa-builder-$(subst :,-,$(MESA_BUILDER_TAG))
 MESA_TARBALL  := $(DOWNLOADS)/mesa-$(MESA_VERSION).tar.xz
 MESA_SYSROOT  := $(BUILD)/mesa/sysroot
 MESA_INSTALL  := $(BUILD)/mesa/install
-MESA_ENV := -e MESA_VERSION=$(MESA_VERSION) -e MESA_TARBALL=$(MESA_TARBALL) -e MESA_SERIES=$(MESA_SERIES) \
+MESA_ENV := -e MESA_VERSION=$(MESA_VERSION) -e MESA_TARBALL=$(MESA_TARBALL) -e MESA_FORK=$(MESA_FORK) \
 	-e MESA_PREFIX=$(MESA_PREFIX)
 MESA_VARS := $(BUILD)/mesa.vars
-MESA_VARS_NOW := $(foreach v,MESA_VERSION MESA_SHA256 MESA_SERIES MESA_PREFIX SOURCE_DATE_EPOCH MESA_BUILDER_TAG,$(v)=$($(v)))
+MESA_VARS_NOW := $(foreach v,MESA_VERSION MESA_SHA256 MESA_FORK MESA_PREFIX SOURCE_DATE_EPOCH MESA_BUILDER_TAG,$(v)=$($(v)))
 $(shell [ "$$(cat $(MESA_VARS) 2>/dev/null)" = "$(MESA_VARS_NOW)" ] || echo "$(MESA_VARS_NOW)" > $(MESA_VARS))
-MESA_INPUTS := $(MESA_TARBALL) $(MESA_SERIES) $(wildcard mesa/patches/*.patch) mesa/cross-ppc64.ini \
+MESA_INPUTS := $(MESA_TARBALL) $(shell find $(MESA_FORK) -type f) mesa/cross-ppc64.ini \
 	tools/build-mesa.sh $(MESA_VARS) $(MESA_SYSROOT)/.done
 
 mesa-builder: $(MESA_BUILDER_STAMP)
@@ -169,6 +172,33 @@ mesa-deploy: mesa mesa-tests
 	install -d $(PS3_HOME)/mesa/bin
 	rsync -a $(MESA_INSTALL)$(MESA_PREFIX)/ $(PS3_HOME)/mesa/
 	install -m 755 $(BUILD)/mesa/tests/* $(PS3_HOME)/mesa/bin/
+
+# --- ClassiCube -----------------------------------------------------------------
+CC_TARBALL := $(DOWNLOADS)/ClassiCube-$(CLASSICUBE_COMMIT).tar.gz
+CC_TEXPACK := $(DOWNLOADS)/classicube-texpack-$(CLASSICUBE_TEXPACK_SHA256).zip
+CC_INSTALL := $(BUILD)/classicube/install
+$(CC_TARBALL):
+	@mkdir -p $(DOWNLOADS)
+	curl -fsSL -o $@.tmp $(CLASSICUBE_URL)
+	echo "$(CLASSICUBE_SHA256)  $@.tmp" | sha256sum -c --quiet
+	mv $@.tmp $@
+$(CC_TEXPACK):
+	@mkdir -p $(DOWNLOADS)
+	curl -fsSL -o $@.tmp $(CLASSICUBE_TEXPACK_URL)
+	echo "$(CLASSICUBE_TEXPACK_SHA256)  $@.tmp" | sha256sum -c --quiet
+	mv $@.tmp $@
+
+# Into ~tibi/classicube (the game keeps options, maps and downloaded sounds next to itself)
+classicube-deploy: classicube
+	install -d $(PS3_HOME)/classicube/texpacks $(PS3_HOME)/.local/share/applications
+	install -m 755 $(CC_INSTALL)/ClassiCube games/classicube/classicube.sh $(PS3_HOME)/classicube/
+	install -m 644 $(CC_INSTALL)/texpacks/classicube.zip $(PS3_HOME)/classicube/texpacks/
+	install -m 644 games/classicube/classicube.desktop $(PS3_HOME)/.local/share/applications/
+
+classicube: $(CC_INSTALL)/ClassiCube
+$(CC_INSTALL)/ClassiCube: $(CC_TARBALL) $(CC_TEXPACK) games/classicube/build.sh $(MESA_SYSROOT)/.done | $(MESA_BUILDER_STAMP)
+	$(DOCKER_RUN) --user $(UID_GID) -e CC_TARBALL=$(CC_TARBALL) -e CC_TEXPACK=$(CC_TEXPACK) \
+		$(MESA_BUILDER_TAG) games/classicube/build.sh
 
 # --- Run ----------------------------------------------------------------------
 netboot: $(KERNEL_STAGE)/boot/vmlinux

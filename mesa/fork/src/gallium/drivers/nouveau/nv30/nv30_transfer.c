@@ -131,6 +131,12 @@ nv30_transfer_rect_fragprog(struct nv30_context *nv30)
             map[5] = 0x1c9dc800;
             map[6] = 0x0001c800;
             map[7] = 0x0001c800;
+#if UTIL_ARCH_BIG_ENDIAN
+            /* the GPU fetches fragment program words halfword-swapped, as in
+             * nv30_fragprog_upload(); these constants are in little-endian order */
+            for (int i = 0; i < 8; i++)
+               map[i] = (map[i] >> 16) | (map[i] << 16);
+#endif
             pipe_buffer_unmap(pipe, transfer);
          }
 
@@ -194,6 +200,15 @@ nv30_transfer_rect_blit(XFER_ARGS)
    } else {
       format |= NV30_3D_RT_FORMAT_TYPE_LINEAR;
       stride  = dst->pitch;
+   }
+
+   /* With the kernel's pinned BOs, a GART destination stays in GART (nouveau's TTM would
+    * migrate it to VRAM for the blit): on the PS3 render into wherever it is. */
+   if (nv30->screen->base.is_ps3) {
+      struct nv04_fifo *fifo = push->channel->data;
+
+      BEGIN_NV04(push, NV30_3D(DMA_COLOR0), 1);
+      PUSH_DATA (push, dst->domain == NOUVEAU_BO_VRAM ? fifo->vram : fifo->gart);
    }
 
    BEGIN_NV04(push, NV30_3D(VIEWPORT_HORIZ), 2);
@@ -368,6 +383,13 @@ nv30_transfer_rect_blit(XFER_ARGS)
    PUSH_DATA (push, (dst->y1 << 16) | dst->x0);
    BEGIN_NV04(push, NV30_3D(VERTEX_BEGIN_END), 1);
    PUSH_DATA (push, NV30_3D_VERTEX_BEGIN_END_STOP);
+
+   if (nv30->screen->base.is_ps3) {
+      struct nv04_fifo *fifo = push->channel->data;
+
+      BEGIN_NV04(push, NV30_3D(DMA_COLOR0), 1);	/* render targets are VRAM elsewhere */
+      PUSH_DATA (push, fifo->vram);
+   }
 }
 
 static bool

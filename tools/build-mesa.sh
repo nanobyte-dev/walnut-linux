@@ -1,6 +1,6 @@
 #!/bin/bash
 # Cross-builds patched Mesa for the PS3. Runs inside the Mesa builder container (see Makefile).
-# Inputs (env): MESA_VERSION MESA_TARBALL MESA_SERIES MESA_PREFIX SOURCE_DATE_EPOCH JOBS
+# Inputs (env): MESA_VERSION MESA_TARBALL MESA_FORK MESA_PREFIX SOURCE_DATE_EPOCH JOBS
 # Outputs: build/mesa/{src,build}, build/mesa/install<MESA_PREFIX> (lib, share, env.sh)
 set -euo pipefail
 
@@ -24,12 +24,10 @@ rm -rf "$SRC"
 tar -xf "$MESA_TARBALL" -C "$B"
 mv "$B/mesa-$MESA_VERSION" "$SRC"
 
-echo ">> Applying patches from $MESA_SERIES"
-PATCHDIR="$(dirname "$MESA_SERIES")"
-grep -v -e '^\s*#' -e '^\s*$' "$MESA_SERIES" | while read -r p; do
-	patch -d "$SRC" -p1 --batch --forward --no-backup-if-mismatch --quiet < "$PATCHDIR/$p" ||
-		{ echo "!! patch failed: $p"; exit 1; }
-done
+# Our fork: every file we change, whole (mesa/fork mirrors Mesa's tree; its first commit is
+# the pristine release, so git diff shows our changes)
+echo ">> Laying $MESA_FORK over the release"
+cp -r "$MESA_FORK/src/." "$SRC/src/"
 # A version suffix keeps libgallium-<version>.so apart from Debian's Mesa of the same release
 echo "$MESA_VERSION-ps3" > "$SRC/VERSION"
 

@@ -441,15 +441,20 @@ nv30_miptree_create(struct pipe_screen *pscreen,
    d = (pt->target == PIPE_TEXTURE_3D) ? pt->depth0 : 1;
    blocksz = util_format_get_blocksize(pt->format);
 
+   /* The RSX raises graph exception 0x106 rendering to a swizzled surface 1 pixel wide
+    * (log2 width 0; 2-wide and 1-high are fine): such render targets stay linear. */
    if ((pt->target == PIPE_TEXTURE_RECT) ||
        (pt->bind & PIPE_BIND_SCANOUT) ||
+       (nv30_screen(pscreen)->base.is_ps3 && (pt->bind & PIPE_BIND_RENDER_TARGET) &&
+        pt->width0 == 1) ||
        !util_is_power_of_two_or_zero(pt->width0) ||
        !util_is_power_of_two_or_zero(pt->height0) ||
        !util_is_power_of_two_or_zero(pt->depth0) ||
        mt->ms_mode) {
       mt->uniform_pitch = util_format_get_nblocksx(pt->format, w) * blocksz;
       mt->uniform_pitch = align(mt->uniform_pitch, 64);
-      if (pt->bind & PIPE_BIND_SCANOUT) {
+      if ((pt->bind & PIPE_BIND_SCANOUT) &&
+          !nv30_screen(pscreen)->base.is_ps3) {
          struct nv30_screen *screen = nv30_screen(pscreen);
          int pitch_align = MAX2(
                screen->eng3d->oclass >= NV40_3D_CLASS ? 1024 : 256,
@@ -494,7 +499,11 @@ nv30_miptree_create(struct pipe_screen *pscreen,
       size = mt->layer_size * 6;
    }
 
-   ret = nouveau_bo_new(dev, NOUVEAU_BO_VRAM, 256, size, NULL, &mt->base.bo);
+   /* nv30_transfer_rect_cpu maps textures; on the PS3, VRAM above 224 MB has no CPU mapping,
+    * so ask for the CPU-visible part (NOUVEAU_GEM_DOMAIN_MAPPABLE). */
+   ret = nouveau_bo_new(dev, NOUVEAU_BO_VRAM |
+                        (nv30_screen(pscreen)->base.is_ps3 ? NOUVEAU_BO_MAP : 0),
+                        256, size, NULL, &mt->base.bo);
    if (ret) {
       FREE(mt);
       return NULL;
@@ -577,6 +586,10 @@ nv30_miptree_surface_new(struct pipe_context *pipe,
 static void
 nv30_miptree_surface_del(struct pipe_context *pipe, struct pipe_surface *ps)
 {
+   /* nv30_miptree_surface_new took a reference (as nv50_surface_destroy drops its own):
+    * without this every framebuffer change leaked its textures, e.g. three window-sized
+    * buffers per resize until VRAM ran out */
+   pipe_resource_reference(&ps->texture, NULL);
    FREE(ps);
 }
 

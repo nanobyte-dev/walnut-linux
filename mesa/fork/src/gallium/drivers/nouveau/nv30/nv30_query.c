@@ -34,6 +34,14 @@ struct nv30_query_object {
    struct nouveau_heap *hw;
 };
 
+/* Offset of the query notifier inside the query DMA object */
+static inline uint32_t
+nv30_query_base(struct nv30_screen *screen)
+{
+   struct nv04_notify *query = screen->query->data;
+   return screen->base.is_ps3 ? query->offset - 0x1400 : 0;
+}
+
 static volatile void *
 nv30_ntfy(struct nv30_screen *screen, struct nv30_query_object *qo)
 {
@@ -156,7 +164,7 @@ nv30_query_begin(struct pipe_context *pipe, struct pipe_query *pq)
       q->qo[0] = nv30_query_object_new(nv30->screen);
       if (q->qo[0]) {
          BEGIN_NV04(push, NV30_3D(QUERY_GET), 1);
-         PUSH_DATA (push, (q->report << 24) | q->qo[0]->hw->start);
+         PUSH_DATA (push, (q->report << 24) | (nv30_query_base(nv30->screen) + q->qo[0]->hw->start));
       }
       break;
    case PIPE_QUERY_TIMESTAMP:
@@ -185,7 +193,7 @@ nv30_query_end(struct pipe_context *pipe, struct pipe_query *pq)
    q->qo[1] = nv30_query_object_new(screen);
    if (q->qo[1]) {
       BEGIN_NV04(push, NV30_3D(QUERY_GET), 1);
-      PUSH_DATA (push, (q->report << 24) | q->qo[1]->hw->start);
+      PUSH_DATA (push, (q->report << 24) | (nv30_query_base(screen) + q->qo[1]->hw->start));
    }
 
    if (q->enable) {
@@ -261,7 +269,7 @@ nv40_query_render_condition(struct pipe_context *pipe,
    }
 
    BEGIN_NV04(push, SUBC_3D(0x1e98), 1);
-   PUSH_DATA (push, 0x02000000 | q->qo[1]->hw->start);
+   PUSH_DATA (push, 0x02000000 | (nv30_query_base(nv30->screen) + q->qo[1]->hw->start));
 }
 
 static void

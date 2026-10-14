@@ -13,7 +13,7 @@ nouveau's userspace (libdrm + Mesa nv30) on the RSX. Plan and background: `docs/
 | `rootfs/packages.txt`, `rootfs/customize.sh` | Debian root filesystem contents and setup |
 | `docker/Dockerfile` | Pinned build environment (toolchain, mmdebstrap) |
 | `docker/Dockerfile.mesa` | Mesa build environment on top of it (C++ cross compiler, meson) |
-| `mesa/patches/series` | Mesa patches (nouveau nv30 on the RSX), applied in order to the release tarball |
+| `mesa/fork/` | Our fork of Mesa's nouveau driver (and the few loader/dri/gbm files we change), copied over the release tarball; edit directly |
 | `mesa/sysroot-packages.txt`, `mesa/cross-ppc64.ini` | Debian ppc64 sysroot contents and meson cross file |
 | `mesa/tests/` | Offscreen EGL/GLES2 tests (`egl-clear`, `egl-tri`, `egl-tex`, `egl-gears`, `egl-short`) |
 | `gpu/ps3rsx/` | The DRM driver (registers as "nouveau"): render ioctls, validator, software context switch, KMS |

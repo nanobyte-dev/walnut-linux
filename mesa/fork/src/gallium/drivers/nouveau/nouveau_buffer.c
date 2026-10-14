@@ -2,6 +2,7 @@
 #include "util/u_inlines.h"
 #include "util/u_memory.h"
 #include "util/u_math.h"
+#include "util/u_endian.h"
 #include "util/u_surface.h"
 
 #include "nouveau_screen.h"
@@ -714,6 +715,17 @@ nouveau_buffer_create(struct pipe_screen *pscreen,
       if (buffer->base.bind & screen->sysmem_bindings)
          buffer->domain = NOUVEAU_BO_GART;
    }
+
+#if UTIL_ARCH_BIG_ENDIAN
+   /* PS3: on big-endian nv30 pushes every vertex and index inline from the CPU (vbo_fifo), so
+    * the GPU never reads vertex/index buffers: plain memory, not the small GART (a big world's
+    * vertex buffers fill it). */
+   if (screen->is_ps3 && buffer->base.bind &&
+       !(buffer->base.bind & ~(PIPE_BIND_VERTEX_BUFFER | PIPE_BIND_INDEX_BUFFER)) &&
+       !(buffer->base.flags & (PIPE_RESOURCE_FLAG_MAP_PERSISTENT |
+                               PIPE_RESOURCE_FLAG_MAP_COHERENT)))
+      buffer->domain = 0;
+#endif
 
    ret = nouveau_buffer_allocate(screen, buffer, buffer->domain);
 

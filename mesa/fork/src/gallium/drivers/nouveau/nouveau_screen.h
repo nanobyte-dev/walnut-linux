@@ -68,6 +68,7 @@ struct nouveau_screen {
    bool has_svm;
    bool is_uma;
    bool disable_fences;
+   bool is_ps3; /* RSX behind the ps3rsx kernel driver: PS3 handles and offsets */
    void *svm_cutout;
    size_t svm_cutout_size;
 

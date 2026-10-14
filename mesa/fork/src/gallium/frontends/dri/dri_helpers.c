@@ -425,10 +425,14 @@ static const struct dri2_format_mapping dri2_format_table[] = {
         PIPE_FORMAT_R10G10B10A2_UNORM, 1, },
       { DRM_FORMAT_XBGR2101010,   __DRI_IMAGE_FORMAT_XBGR2101010,
         PIPE_FORMAT_R10G10B10X2_UNORM, 1, },
+      /* The 8888 RGB formats are host-order words (identical on little-endian): big-endian
+       * GPUs (the PS3's RSX) render and scan out ARGB as bytes A,R,G,B, and a big-endian X
+       * server asks for ARGB8888/XRGB8888 meaning exactly that.
+       */
       { DRM_FORMAT_ARGB8888,      __DRI_IMAGE_FORMAT_ARGB8888,
-        PIPE_FORMAT_B8G8R8A8_UNORM, 1, },
-      { DRM_FORMAT_BGRA8888,      PIPE_FORMAT_A8R8G8B8_UNORM,
-        PIPE_FORMAT_A8R8G8B8_UNORM, 1, },
+        PIPE_FORMAT_BGRA8888_UNORM, 1, },
+      { DRM_FORMAT_BGRA8888,      PIPE_FORMAT_ARGB8888_UNORM,
+        PIPE_FORMAT_ARGB8888_UNORM, 1, },
       { DRM_FORMAT_ABGR8888,      __DRI_IMAGE_FORMAT_ABGR8888,
         PIPE_FORMAT_R8G8B8A8_UNORM, 1, },
       { DRM_FORMAT_RGBA8888,      PIPE_FORMAT_A8B8G8R8_UNORM,
@@ -436,9 +440,9 @@ static const struct dri2_format_mapping dri2_format_table[] = {
       { __DRI_IMAGE_FOURCC_SARGB8888,     __DRI_IMAGE_FORMAT_SARGB8,
         PIPE_FORMAT_B8G8R8A8_SRGB, 1, },
       { DRM_FORMAT_XRGB8888,      __DRI_IMAGE_FORMAT_XRGB8888,
-        PIPE_FORMAT_B8G8R8X8_UNORM, 1, },
-      { DRM_FORMAT_BGRX8888,      PIPE_FORMAT_X8R8G8B8_UNORM,
-        PIPE_FORMAT_X8R8G8B8_UNORM, 1, },
+        PIPE_FORMAT_BGRX8888_UNORM, 1, },
+      { DRM_FORMAT_BGRX8888,      PIPE_FORMAT_XRGB8888_UNORM,
+        PIPE_FORMAT_XRGB8888_UNORM, 1, },
       { DRM_FORMAT_RGB888,        __DRI_IMAGE_FORMAT_RGB888,
         PIPE_FORMAT_B8G8R8_UNORM, 1, },
       { DRM_FORMAT_XBGR8888,      __DRI_IMAGE_FORMAT_XBGR8888,

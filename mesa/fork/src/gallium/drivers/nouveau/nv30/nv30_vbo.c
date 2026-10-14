@@ -262,7 +262,7 @@ nv30_vertex_state_create(struct pipe_context *pipe, unsigned num_elements,
     struct translate_key transkey;
     unsigned i;
 
-    so = CALLOC(1, sizeof(*so) + sizeof(*so->element) * num_elements);
+    so = CALLOC(1, sizeof(*so) + sizeof(*so->element) * MAX2(num_elements, 2));
     if (!so)
         return NULL;
     memcpy(so->pipe, elements, sizeof(*elements) * num_elements);
@@ -278,6 +278,11 @@ nv30_vertex_state_create(struct pipe_context *pipe, unsigned num_elements,
         enum pipe_format fmt = ve->src_format;
 
         so->element[i].state = nv30_vtxfmt(pipe->screen, fmt)->hw;
+        /* The RSX has no vertex type 0 (B8G8R8A8_UNORM): it raises a graph exception.
+         * Convert such attributes to float like unsupported ones. */
+        if (nv30_screen(pipe->screen)->base.is_ps3 &&
+            !(so->element[i].state & NV30_3D_VTXFMT_TYPE__MASK))
+            so->element[i].state = 0;
         if (!so->element[i].state) {
             switch (util_format_get_nr_components(fmt)) {
             case 1: fmt = PIPE_FORMAT_R32_FLOAT; break;
@@ -307,6 +312,20 @@ nv30_vertex_state_create(struct pipe_context *pipe, unsigned num_elements,
             transkey.output_stride += (util_format_get_stride(fmt, 1) + 3) & ~3;
         }
         so->strides[vbi] = ve->src_stride;
+    }
+
+    /* The RSX draws nothing from inline vertex data with a single attribute (glamor's
+     * fills, any position-only draw): push the attribute twice, as attributes 0 and 1. The
+     * vertex program doesn't read attribute 1. */
+    if (nv30_screen(pipe->screen)->base.is_ps3 && num_elements == 1) {
+        unsigned j = transkey.nr_elements++;
+
+        so->pipe[1] = so->pipe[0];
+        so->element[1] = so->element[0];
+        transkey.element[j] = transkey.element[0];
+        transkey.element[j].output_offset = transkey.output_stride;
+        transkey.output_stride += transkey.output_stride;
+        so->num_elements = 2;
     }
 
     so->translate = translate_create(&transkey);

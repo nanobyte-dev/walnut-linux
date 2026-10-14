@@ -322,6 +322,19 @@ nouveau_screen_init(struct nouveau_screen *screen, struct nouveau_device *dev)
    screen->device = dev;
    screen->initialized = false;
 
+   /* PS3 RSX: Sony's PCI vendor id, and the PS3_ABI getparam, which the kernel requires
+    * before it hands out a channel. The VRAM/GART DMA objects are the hypervisor's.
+    */
+   uint64_t vendor, ps3_abi;
+   screen->is_ps3 = dev->chipset == 0x47 &&
+                    !nouveau_getparam(dev, NOUVEAU_GETPARAM_PCI_VENDOR, &vendor) &&
+                    vendor == 0x104d &&
+                    !nouveau_getparam(dev, 0x1000 /* PS3_ABI */, &ps3_abi);
+   if (screen->is_ps3) {
+      nv04_data.vram = 0xfeed0000;
+      nv04_data.gart = 0xfeed0001;
+   }
+
    if (dev->chipset < 0xc0) {
       data = &nv04_data;
       size = sizeof(nv04_data);

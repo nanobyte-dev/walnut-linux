@@ -148,7 +148,7 @@ exception**: the validator rejects it, and Mesa must not emit it on the PS3.
 
 ## Mesa, KMS and X on the driver (Phases 3-6)
 
-Found while getting stock Mesa nv30 to run (each has a Mesa patch in `mesa/patches/`):
+Found while getting stock Mesa nv30 to run (fixed in our Mesa fork, `mesa/fork/`; the patches that first carried them are in git history):
 
 - **Z16 depth** renders wrong: the PS3 gets only 24-bit depth (0005).
 - The 3D blit **into a GART destination** needs its own path (0003); its fragment program is

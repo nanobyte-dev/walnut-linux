@@ -194,8 +194,12 @@ nouveau_mm_allocate(struct nouveau_mman *cache,
    if (!list_is_empty(&bucket->used)) {
       slab = list_entry(bucket->used.next, struct mm_slab, head);
    } else {
-      if (list_is_empty(&bucket->free)) {
-         mm_slab_new(cache, bucket, MAX2(mm_get_order(size), MM_MIN_ORDER));
+      if (list_is_empty(&bucket->free) &&
+          mm_slab_new(cache, bucket, MAX2(mm_get_order(size), MM_MIN_ORDER))) {
+         /* out of memory: no slab to take a chunk from (the caller sees *bo unset) */
+         simple_mtx_unlock(&bucket->lock);
+         FREE(alloc);
+         return NULL;
       }
       slab = list_entry(bucket->free.next, struct mm_slab, head);
 
