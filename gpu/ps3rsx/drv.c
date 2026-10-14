@@ -6,7 +6,9 @@
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
+#include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
+#include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_file.h>
 #include <drm/drm_gem.h>
 #include <drm/drm_ioctl.h>
@@ -74,7 +76,8 @@ static const struct file_operations ps3rsx_fops = {
 };
 
 static const struct drm_driver ps3rsx_driver = {
-	.driver_features = DRIVER_GEM | DRIVER_RENDER,
+	.driver_features = DRIVER_GEM | DRIVER_RENDER | DRIVER_MODESET | DRIVER_ATOMIC,
+	.dumb_create = ps3rsx_dumb_create,
 	.open = ps3rsx_open,
 	.postclose = ps3rsx_postclose,
 	.ioctls = ps3rsx_ioctls,
@@ -118,6 +121,12 @@ static int ps3rsx_probe(struct platform_device *pdev)
 		ps3rsx_mem_fini(rsx);
 		return ret;
 	}
+	ret = ps3rsx_kms_init(rsx);
+	if (ret) {
+		ps3rsx_exec_fini(rsx);
+		ps3rsx_mem_fini(rsx);
+		return ret;
+	}
 
 	ret = drm_dev_register(&rsx->drm, 0);
 	if (ret) {
@@ -136,6 +145,7 @@ static void ps3rsx_remove(struct platform_device *pdev)
 	struct ps3rsx_device *rsx = platform_get_drvdata(pdev);
 
 	drm_dev_unregister(&rsx->drm);
+	drm_atomic_helper_shutdown(&rsx->drm);	/* flips back to ps3fb's frame */
 	ps3rsx_exec_fini(rsx);
 	ps3rsx_mem_fini(rsx);
 }

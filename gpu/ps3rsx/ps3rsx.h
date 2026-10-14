@@ -13,6 +13,8 @@
 #include <drm/drm_file.h>
 #include <drm/drm_gem.h>
 #include <drm/drm_mm.h>
+#include <drm/drm_connector.h>
+#include <drm/drm_simple_kms_helper.h>
 #include <linux/dma-fence.h>
 #include <linux/hrtimer.h>
 #include <drm/drm.h>
@@ -88,6 +90,10 @@ struct ps3rsx_device {
 
 	struct mutex chan_lock;
 	DECLARE_BITMAP(chan_ids, PS3RSX_MAX_CHANNELS);
+
+	/* KMS (kms.c) */
+	struct drm_connector connector;
+	struct drm_simple_display_pipe pipe;
 };
 
 #define to_rsx(d) container_of(d, struct ps3rsx_device, drm)
@@ -113,6 +119,11 @@ int ps3rsx_bo_handle(struct drm_file *file, struct ps3rsx_bo *bo,
 		     struct drm_nouveau_gem_info *info);
 int ps3rsx_ioctl_gem_new(struct drm_device *dev, void *data, struct drm_file *file);
 int ps3rsx_ioctl_gem_info(struct drm_device *dev, void *data, struct drm_file *file);
+
+struct drm_mode_create_dumb;
+int ps3rsx_kms_init(struct ps3rsx_device *rsx);
+int ps3rsx_dumb_create(struct drm_file *file, struct drm_device *dev,
+		       struct drm_mode_create_dumb *args);
 
 int ps3rsx_exec_init(struct ps3rsx_device *rsx);
 void ps3rsx_exec_fini(struct ps3rsx_device *rsx);
