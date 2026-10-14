@@ -98,7 +98,7 @@ static struct gear make_gear(float r_in, float r_out, float width, int teeth, fl
 
 int main(int argc, char **argv)
 {
-	const int w = 256, h = 256, frames = 100;
+	const int w = 256, h = 256, frames = getenv("EGL_TEST_FRAMES") ? atoi(getenv("EGL_TEST_FRAMES")) : 100;
 	static const struct { float r_in, r_out, width; int teeth; float x, y, speed, phase, rgb[3]; } spec[3] = {
 		{ 1.0f, 4.0f, 1.0f, 20, -3.0f, -2.0f, 1, 0, { 0.8f, 0.1f, 0.0f } },
 		{ 0.5f, 2.0f, 2.0f, 10, 3.1f, -2.0f, -2, -9, { 0.0f, 0.8f, 0.2f } },
@@ -108,7 +108,7 @@ int main(int argc, char **argv)
 	GLint u_mvp, u_model, u_color;
 	GLuint prog, vbo[3];
 
-	egl_setup(w, h, 1);
+	egl_setup(w, h, !getenv("EGL_TEST_NODEPTH"));	/* EGL_TEST_NODEPTH=1: no depth buffer */
 	prog = gl_program(vs, fs);
 	u_mvp = glGetUniformLocation(prog, "mvp");
 	u_model = glGetUniformLocation(prog, "model");
@@ -121,7 +121,8 @@ int main(int argc, char **argv)
 	}
 	glEnableVertexAttribArray(0);
 	glEnableVertexAttribArray(1);
-	glEnable(GL_DEPTH_TEST);
+	if (!getenv("EGL_TEST_NODEPTH"))
+		glEnable(GL_DEPTH_TEST);
 	glClearColor(0, 0, 0, 1);
 
 	/* frustum(-1, 1, -1, 1, 5, 60) */

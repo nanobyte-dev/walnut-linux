@@ -91,6 +91,8 @@ struct ps3rsx_device {
 	DECLARE_BITMAP(chan_ids, PS3RSX_MAX_CHANNELS);
 	struct ps3rsx_shadow *hw_shadow;	/* what the GPU holds (exec_lock) */
 	int last_chan;				/* channel whose state the GPU holds, or -1 */
+	struct ps3rsx_chan *prim_owner;		/* channel with a primitive open on the GPU */
+	wait_queue_head_t prim_wq;
 	u32 *restore_buf;
 
 	/* KMS (kms.c) */
@@ -157,6 +159,7 @@ int ps3rsx_ioctl_gem_cpu_fini(struct drm_device *dev, void *data, struct drm_fil
 /* Per channel validator state: which object this channel bound on each subchannel */
 struct ps3rsx_vstate {
 	u32 bound[8];
+	bool prim_open;		/* the channel's last BEGIN_END opened a primitive */
 };
 
 struct ps3rsx_shadow;
@@ -166,6 +169,7 @@ struct ps3rsx_chan {
 	u32 id;
 	struct ps3rsx_vstate vstate;
 	struct ps3rsx_shadow *shadow;	/* the state this channel's pushes set (shadow.c) */
+	bool broken;			/* its open primitive was closed under it: refuse it */
 };
 
 /* Per open file */

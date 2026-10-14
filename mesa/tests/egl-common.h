@@ -71,7 +71,9 @@ static void egl_setup(int w, int h, int depth)
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rb[0]);
 	if (depth) {
 		glBindRenderbuffer(GL_RENDERBUFFER, rb[1]);
-		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, w, h);
+		/* EGL_TEST_DEPTH24=1: a 24-bit depth buffer (GL_DEPTH24_STENCIL8_OES) instead of 16 */
+		glRenderbufferStorage(GL_RENDERBUFFER,
+				      getenv("EGL_TEST_DEPTH24") ? 0x88F0 : GL_DEPTH_COMPONENT16, w, h);
 		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rb[1]);
 	}
 	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)

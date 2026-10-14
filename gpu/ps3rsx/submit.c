@@ -42,6 +42,34 @@ struct ps3rsx_chan *ps3rsx_chan_find(struct ps3rsx_file *pf, u32 id)
 	return NULL;
 }
 
+/* The owner of an open primitive didn't continue it: end it, and mark that channel broken
+ * (its next push would continue a primitive that no longer exists). exec_lock held. */
+static int close_stale_primitive(struct ps3rsx_device *rsx)
+{
+	struct ps3rsx_chan *owner = rsx->prim_owner;
+	struct dma_fence *f;
+	u32 *p, sc;
+	int ret;
+
+	for (sc = 0; sc < 8 && owner->vstate.bound[sc] != 0x31337000; sc++)
+		;
+	p = ps3rsx_ring_begin(rsx, 8, &ret);
+	if (!p)
+		return ret;
+	p[0] = (1 << 18) | ((sc & 7) << 13) | 0x1808;	/* BEGIN_END = stop */
+	p[1] = 0;
+	f = ps3rsx_ring_commit(rsx, 8, true);
+	if (IS_ERR(f))
+		return PTR_ERR(f);
+	dma_fence_put(f);
+	pr_warn("ps3rsx: channel %u left a primitive open for 1 s: closed it\n", owner->id);
+	owner->broken = true;
+	owner->vstate.prim_open = false;
+	rsx->prim_owner = NULL;
+	wake_up_all(&rsx->prim_wq);
+	return 0;
+}
+
 static void chan_free(struct ps3rsx_device *rsx, struct ps3rsx_chan *ch)
 {
 	mutex_lock(&rsx->chan_lock);
@@ -50,6 +78,10 @@ static void chan_free(struct ps3rsx_device *rsx, struct ps3rsx_chan *ch)
 	mutex_lock(&rsx->exec_lock);
 	if (rsx->last_chan == ch->id)
 		rsx->last_chan = -1;
+	if (rsx->prim_owner == ch && close_stale_primitive(rsx)) {
+		rsx->prim_owner = NULL;		/* couldn't end it (wedged): don't block the others */
+		wake_up_all(&rsx->prim_wq);
+	}
 	mutex_unlock(&rsx->exec_lock);
 	list_del(&ch->head);
 	ps3rsx_shadow_free(ch->shadow);
@@ -180,6 +212,7 @@ int ps3rsx_ioctl_gpuobj_free(struct drm_device *dev, void *data, struct drm_file
 
 /* --- GEM_PUSHBUF ------------------------------------------------------------------------- */
 
+
 #define MAX_SUBMIT	(512 * 1024 + 4096)
 
 static int apply_relocs(struct drm_nouveau_gem_pushbuf_reloc *r, u32 nr_relocs,
@@ -299,6 +332,36 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	}
 
 	mutex_lock(&rsx->exec_lock);
+	if (ch->broken) {
+		mutex_unlock(&rsx->exec_lock);
+		ret = -EIO;
+		goto out;
+	}
+	/*
+	 * Another channel left a primitive open (Mesa flushes in the middle of big inline
+	 * draws): nothing may be written to the GPU until it closes it, or the next state write
+	 * raises a graph exception. Wait for it; if it never comes back, close the primitive and
+	 * refuse that channel from then on.
+	 */
+	while (rsx->prim_owner && rsx->prim_owner != ch) {
+		long t;
+
+		mutex_unlock(&rsx->exec_lock);
+		t = wait_event_interruptible_timeout(rsx->prim_wq, !READ_ONCE(rsx->prim_owner), HZ);
+		mutex_lock(&rsx->exec_lock);
+		if (t < 0) {
+			mutex_unlock(&rsx->exec_lock);
+			ret = t;
+			goto out;
+		}
+		if (!t && rsx->prim_owner && rsx->prim_owner != ch) {
+			ret = close_stale_primitive(rsx);
+			if (ret) {
+				mutex_unlock(&rsx->exec_lock);
+				goto out;
+			}
+		}
+	}
 	/* another channel ran last: put this channel's state back first */
 	restore = 0;
 	if (ctxsw && rsx->last_chan != ch->id) {
@@ -352,6 +415,9 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 			src += len / 4;
 		}
 		rsx->last_chan = ch->id;
+		rsx->prim_owner = ch->vstate.prim_open ? ch : NULL;
+		if (!rsx->prim_owner)
+			wake_up_all(&rsx->prim_wq);
 	}
 	mutex_unlock(&rsx->exec_lock);
 	if (IS_ERR(fence)) {
