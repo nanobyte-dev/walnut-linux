@@ -54,8 +54,10 @@ Small kernel module that binds the 3D class in our lv1 GPU context and clears th
 
 Detailed plan: docs/DRIVER-PLAN.md. A DRM driver `ps3rsx` (registers as "nouveau") on lv1 GPU
 calls, plus a small Mesa nv30 patch for the hypervisor's fixed object handles, up to glxgears
-in Xorg. Current step: its Phase 0, hardware derisking tests (E1-E16); the later phases are
-refined once their results are in docs/RSX.md.
+in Xorg. Status (2026-10-14): Phase 0 (hardware derisking) done, results in docs/RSX.md. Phase 1
+(kernel: GART reservation, ps3fb sharing API, DRM/zram/NFS-swap config; rootfs: swapfile,
+libdrm-tests) done and checked on the console; the ENTER/EXIT trylock fix found by lockdep is
+built but boots with the next reboot. Next: Phase 2, the ps3rsx render driver.
 
 ## Test loop
 
