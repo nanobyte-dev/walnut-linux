@@ -106,9 +106,6 @@ static int ps3rsx_probe(struct platform_device *pdev)
 	if (ret)
 		return dev_err_probe(&pdev->dev, ret, "ps3fb GPU info\n");
 	rsx->vram_size = rsx->info.memory_size - rsx->info.reserved;
-	rsx->gart_size = ps3rsx_gart.size;
-	if (!rsx->gart_size)
-		return dev_err_probe(&pdev->dev, -ENOMEM, "no GART reservation (ps3rsx_gart=)\n");
 	platform_set_drvdata(pdev, rsx);
 
 	/* our context: allocated by ps3fb on first use and kept until it shuts down */
@@ -139,8 +136,9 @@ static int ps3rsx_probe(struct platform_device *pdev)
 		return ret;
 	}
 	ps3rsx_console_init(rsx);	/* the console gets the GPU back until X or a client needs it */
-	drm_info(&rsx->drm, "VRAM %llu MiB (from %#llx), GART %llu MiB, display %ux%u pitch %u\n",
+	drm_info(&rsx->drm, "VRAM %llu MiB (from %#llx), GART %llu MiB (%s), display %ux%u pitch %u\n",
 		 rsx->vram_size >> 20, rsx->info.reserved, rsx->gart_size >> 20,
+		 rsx->gart_dynamic ? "on demand" : "reserved",
 		 rsx->info.xres, rsx->info.yres, rsx->info.line_length);
 	return 0;
 }

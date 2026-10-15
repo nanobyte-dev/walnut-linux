@@ -403,7 +403,7 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 			u64 len = push[i].length & ~(u64)NOUVEAU_GEM_PUSHBUF_NO_PREFETCH;
 			struct ps3rsx_bo *pb = to_bo(objs[push[i].bo_index]);
 
-			memcpy(dst, rsx->gart_cpu + pb->offset + push[i].offset, len);
+			ps3rsx_gart_read(rsx, dst, pb->offset + push[i].offset, len);
 			apply_relocs(relocs, req->nr_relocs, bos, objs, req->nr_buffers,
 				     push[i].bo_index, push[i].offset, dst, len);
 			ret = ps3rsx_validate(&ch->vstate, ch->shadow, dst, len / 4);

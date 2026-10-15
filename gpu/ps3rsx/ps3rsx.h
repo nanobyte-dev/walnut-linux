@@ -59,6 +59,14 @@ struct ps3rsx_fence {
 	struct list_head head;
 };
 
+struct ps3rsx_gart_chunk {
+	struct page *page;		/* the 1 MiB of memory behind the IO page, or NULL */
+	u32 users;			/* buffer objects in it */
+	u32 free_seq;			/* the last fence that may have used it */
+	unsigned long idle_since;	/* jiffies when it became empty */
+	bool fixed;			/* backed for good (ring, boot reservation) */
+};
+
 struct ps3rsx_device {
 	struct drm_device drm;
 	struct ps3fb_gpu_info info;
@@ -69,9 +77,13 @@ struct ps3rsx_device {
 	struct mutex mm_lock;
 	struct drm_mm vram_cpu;		/* VRAM the CPU may map (below CPU_VRAM_LIMIT) */
 	struct drm_mm vram_gpu;		/* VRAM only the GPU touches */
-	struct drm_mm gart;		/* IO addresses of the GART reservation */
-	void *gart_cpu;			/* kernel address of the GART reservation */
-	u64 gart_mapped;		/* bytes of it iomapped into our context */
+	struct drm_mm gart;		/* GART IO addresses (gart.c) */
+	struct ps3rsx_gart_chunk *gart_chunks;	/* one per 1 MiB IO page */
+	unsigned int gart_nchunks;
+	bool gart_dynamic;		/* chunks from the CMA area on demand (else boot reservation) */
+	struct page *gart_scratch;	/* behind IO pages without a chunk */
+	u64 gart_backed;		/* bytes of the GART backed by memory now */
+	struct delayed_work gart_reclaim;
 
 	/* execution (exec.c) */
 	void __iomem *ctrl;		/* our context's FIFO control: put 0x40, get 0x44, ref 0x48 */
@@ -179,6 +191,17 @@ void ps3rsx_shadow_take(const struct ps3rsx_shadow *ch, struct ps3rsx_shadow *hw
 #define RESTORE_MAX_WORDS	(16 * 1024)
 
 bool ps3rsx_known_object(u32 handle);
+/* gart.c */
+int ps3rsx_gart_init(struct ps3rsx_device *rsx);
+void ps3rsx_gart_fini(struct ps3rsx_device *rsx);
+int ps3rsx_gart_get(struct ps3rsx_device *rsx, u64 io, u64 size);
+void ps3rsx_gart_put(struct ps3rsx_device *rsx, u64 io, u64 size, u32 seq);
+void *ps3rsx_gart_ptr(struct ps3rsx_device *rsx, u64 io);
+unsigned long ps3rsx_gart_pfn(struct ps3rsx_device *rsx, u64 io);
+void ps3rsx_gart_read(struct ps3rsx_device *rsx, void *dst, u64 io, size_t len);
+void ps3rsx_gart_clear(struct ps3rsx_device *rsx, u64 io, size_t len);
+bool ps3rsx_seq_done(struct ps3rsx_device *rsx, u32 seq);
+
 int ps3rsx_validate(struct ps3rsx_vstate *vs, struct ps3rsx_shadow *sh, const u32 *w, u32 nwords);
 void ps3rsx_shadow_write(struct ps3rsx_shadow *sh, u32 subch, u32 m, u32 v);
 void ps3rsx_validate_init(void);

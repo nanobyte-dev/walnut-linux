@@ -77,6 +77,9 @@ PC_IP               := 10.0.0.45
 PC_MAC              := b4:2e:99:f3:12:1a
 NFS_ROOT            := /srv/ps3root
 HTTP_PORT           := 8000
+# ps3rsx_cma=64M: the GPU's GART comes on demand from a 64 MiB CMA area, which holds ordinary
+# movable pages while the GPU doesn't use it (gpu/ps3rsx/gart.c); ps3rsx_gart=0 turns off the
+# fixed reservation that was used before (ps3rsx_gart=<size> still works as a fallback).
 # netconsole spells out source IP, device and target MAC: built-in netconsole starts before
 # ip=dhcp has configured eth0 and gives up without them.
 # loglevel=4: two boots hung in early userspace while systemd flooded the kernel log through
@@ -92,7 +95,7 @@ ROOT_ARGS_usb       := root=PARTUUID=50533301-02 rootfstype=ext4 ro
 # HN-M500MBB in a USB enclosure, given for this (2026-10-15)
 USB_DISK_ID         := usb-SAMSUNG_HN-M500MBB_0000AB1234E8-0:0
 KERNEL_CMDLINE_COMMON := ip=dhcp rootwait \
-                       video=ps3fb:mode:133 consoleblank=0 ps3rsx_gart=32M console=tty1 netconsole=6665@$(PS3_IP)/eth0,6666@$(PC_IP)/$(PC_MAC) loglevel=4
+                       video=ps3fb:mode:133 consoleblank=0 ps3rsx_gart=0 ps3rsx_cma=64M console=tty1 netconsole=6665@$(PS3_IP)/eth0,6666@$(PC_IP)/$(PC_MAC) loglevel=4
 KERNEL_CMDLINE      := $(ROOT_ARGS_$(ROOT)) $(KERNEL_CMDLINE_COMMON)
 # What Petitboot boots from the disk on its own (the image's /etc/kboot.conf)
 KBOOT_CMDLINE       := $(ROOT_ARGS_usb) $(KERNEL_CMDLINE_COMMON)

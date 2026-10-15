@@ -1,0 +1,105 @@
+diff -ru a/arch/powerpc/include/asm/ps3.h b/arch/powerpc/include/asm/ps3.h
+--- a/arch/powerpc/include/asm/ps3.h
++++ b/arch/powerpc/include/asm/ps3.h
+@@ -452,6 +452,13 @@
+ 
+ extern struct ps3_prealloc ps3fb_videomemory;
+ extern struct ps3_prealloc ps3rsx_gart;
++
++/* ps3rsx's GART from a CMA area (ps3rsx_cma=<size>): 1 MiB chunks taken and given back on demand,
++ * so the memory serves movable pages while the GPU doesn't use it */
++struct page;
++u64 ps3rsx_cma_size(void);
++struct page *ps3rsx_cma_alloc(unsigned int mib);
++void ps3rsx_cma_free(struct page *page, unsigned int mib);
+ extern struct ps3_prealloc ps3flash_bounce_buffer;
+ 
+ /* logical performance monitor */
+diff -ru a/arch/powerpc/platforms/ps3/setup.c b/arch/powerpc/platforms/ps3/setup.c
+--- a/arch/powerpc/platforms/ps3/setup.c
++++ b/arch/powerpc/platforms/ps3/setup.c
+@@ -13,6 +13,8 @@
+ #include <linux/console.h>
+ #include <linux/export.h>
+ #include <linux/memblock.h>
++#include <linux/cma.h>
++#include <linux/sizes.h>
+ #include <linux/of.h>
+ 
+ #include <asm/machdep.h>
+@@ -175,6 +177,67 @@
+ #define prealloc_ps3rsx_gart()	do { } while (0)
+ #endif
+ 
++#if defined(CONFIG_CMA) && (defined(CONFIG_FB_PS3) || defined(CONFIG_FB_PS3_MODULE))
++/*
++ * ps3rsx's GART as a CMA area instead of a fixed reservation: ps3rsx takes 1 MiB chunks when
++ * GPU buffers need them and gives them back when they're idle, and in between the area holds
++ * ordinary movable pages. ps3rsx_cma=<size> (0 = none; then ps3rsx uses ps3rsx_gart=).
++ */
++static struct cma *ps3rsx_cma;
++static phys_addr_t ps3rsx_cma_req __initdata;
++
++static int __init early_parse_ps3rsx_cma(char *p)
++{
++	if (!p)
++		return 1;
++
++	ps3rsx_cma_req = ALIGN(memparse(p, &p), SZ_1M);
++	return 0;
++}
++early_param("ps3rsx_cma", early_parse_ps3rsx_cma);
++
++static void __init reserve_ps3rsx_cma(void)
++{
++	int ret;
++
++	if (!ps3rsx_cma_req)
++		return;
++	ret = cma_declare_contiguous(0, ps3rsx_cma_req, 0, SZ_1M, 0, false, "ps3rsx", &ps3rsx_cma);
++	if (ret) {
++		pr_err("ps3rsx: no CMA area of %llu MiB: %d\n",
++		       (unsigned long long)ps3rsx_cma_req >> 20, ret);
++		ps3rsx_cma = NULL;
++		return;
++	}
++	pr_info("ps3rsx: %llu MiB CMA area for the GART\n",
++		(unsigned long long)ps3rsx_cma_req >> 20);
++}
++
++u64 ps3rsx_cma_size(void)
++{
++	return ps3rsx_cma ? cma_get_size(ps3rsx_cma) : 0;
++}
++EXPORT_SYMBOL_GPL(ps3rsx_cma_size);
++
++/* mib physically contiguous MiB, 1 MiB aligned (the GPU's IO pages are 1 MiB), or NULL */
++struct page *ps3rsx_cma_alloc(unsigned int mib)
++{
++	if (!ps3rsx_cma)
++		return NULL;
++	return cma_alloc(ps3rsx_cma, (unsigned long)mib << (20 - PAGE_SHIFT), get_order(SZ_1M),
++			 true);
++}
++EXPORT_SYMBOL_GPL(ps3rsx_cma_alloc);
++
++void ps3rsx_cma_free(struct page *page, unsigned int mib)
++{
++	cma_release(ps3rsx_cma, page, (unsigned long)mib << (20 - PAGE_SHIFT));
++}
++EXPORT_SYMBOL_GPL(ps3rsx_cma_free);
++#else
++#define reserve_ps3rsx_cma()	do { } while (0)
++#endif
++
+ #if defined(CONFIG_PS3_FLASH) || defined(CONFIG_PS3_FLASH_MODULE)
+ struct ps3_prealloc ps3flash_bounce_buffer = {
+ 	.name = "ps3flash bounce buffer",
+@@ -281,6 +344,7 @@
+ 
+ 	prealloc_ps3fb_videomemory();
+ 	prealloc_ps3rsx_gart();
++	reserve_ps3rsx_cma();
+ 	prealloc_ps3flash_bounce_buffer();
+ 
+ 	ppc_md.power_save = ps3_power_save;

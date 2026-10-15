@@ -38,7 +38,7 @@ static u32 ref_read(struct ps3rsx_device *rsx)
 
 static u32 *ring_cpu(struct ps3rsx_device *rsx, u32 io)
 {
-	return rsx->gart_cpu + io;
+	return ps3rsx_gart_ptr(rsx, io);	/* the ring region is one contiguous chunk */
 }
 
 /* --- fences ---------------------------------------------------------------------------- */
@@ -57,6 +57,14 @@ static const struct dma_fence_ops ps3rsx_fence_ops = {
 	.get_driver_name = fence_driver_name,
 	.get_timeline_name = fence_timeline_name,
 };
+
+static bool seq_passed(u32 ref, u32 seq);
+
+/* Has the GPU passed fence seq? */
+bool ps3rsx_seq_done(struct ps3rsx_device *rsx, u32 seq)
+{
+	return seq_passed(ref_read(rsx), seq);
+}
 
 static bool seq_passed(u32 ref, u32 seq)
 {

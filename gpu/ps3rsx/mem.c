@@ -5,8 +5,8 @@
  *
  *   VRAM, CPU-visible  ps3fb's reservation .. 224 MiB   offset = VRAM offset (ctxdma 0xfeed0000)
  *   VRAM, GPU-only     224 MiB .. memory_size (254)     no CPU mapping (unproven, could BUG())
- *   GART               the boot reservation (ps3rsx_gart=), iomapped from IO 0 in 1 MiB pages;
- *                      offset = IO address (ctxdma 0xfeed0001)
+ *   GART               main memory in 1 MiB IO pages, on demand from a CMA area or a boot
+ *                      reservation (gart.c); offset = IO address (ctxdma 0xfeed0001)
  */
 #include <linux/mm.h>
 #include <linux/slab.h>
@@ -36,6 +36,8 @@ static void bo_free(struct drm_gem_object *obj)
 
 	if (drm_mm_node_allocated(&bo->node)) {
 		mutex_lock(&rsx->mm_lock);
+		if (bo->kind == BO_GART)	/* fences up to the last submitted may still read it */
+			ps3rsx_gart_put(rsx, bo->offset, bo->base.size, READ_ONCE(rsx->seqno));
 		drm_mm_remove_node(&bo->node);
 		mutex_unlock(&rsx->mm_lock);
 	}
@@ -50,7 +52,7 @@ static unsigned long bo_pfn(struct ps3rsx_bo *bo)
 
 	switch (bo->kind) {
 	case BO_GART:
-		return __pa(rsx->gart_cpu + bo->offset) >> PAGE_SHIFT;
+		return ps3rsx_gart_pfn(rsx, bo->offset);
 	case BO_VRAM:
 		return (rsx->info.ddr_lpar + bo->offset) >> PAGE_SHIFT;
 	case BO_REPORTS:
@@ -73,9 +75,24 @@ static int bo_mmap(struct drm_gem_object *obj, struct vm_area_struct *vma)
 		return -EINVAL;
 	vm_flags_set(vma, VM_IO | VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP);
 	if (bo->kind == BO_GART) {
-		/* ordinary RAM, kept coherent with the GPU by the IOMMU (CBE_IOPTE_M) */
+		/* ordinary RAM, kept coherent with the GPU by the IOMMU (CBE_IOPTE_M); the 1 MiB
+		 * chunks behind it aren't contiguous: one remap per chunk */
+		struct ps3rsx_device *rsx = to_rsx(obj->dev);
+		u64 io = bo->offset + (pgoff << PAGE_SHIFT);
+		unsigned long addr = vma->vm_start;
+		int ret = 0;
+
 		vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
-		return remap_pfn_range(vma, vma->vm_start, pfn + pgoff, len, vma->vm_page_prot);
+		while (!ret && addr < vma->vm_end) {
+			unsigned long n = min_t(unsigned long, vma->vm_end - addr,
+						SZ_1M - io % SZ_1M);
+
+			ret = remap_pfn_range(vma, addr, ps3rsx_gart_pfn(rsx, io), n,
+					      vma->vm_page_prot);
+			addr += n;
+			io += n;
+		}
+		return ret;
 	}
 	vma->vm_page_prot = pgprot_noncached(vm_get_page_prot(vma->vm_flags));
 	return io_remap_pfn_range(vma, vma->vm_start, pfn + pgoff, len, vma->vm_page_prot);
@@ -153,8 +170,16 @@ struct ps3rsx_bo *ps3rsx_bo_new(struct ps3rsx_device *rsx, u32 domain, size_t si
 			return bo;
 		ret = bo_place(rsx, bo, &rsx->gart, align);
 		if (!ret) {
+			/* memory behind the IO pages it takes (on demand from CMA) */
+			mutex_lock(&rsx->mm_lock);
+			ret = ps3rsx_gart_get(rsx, bo->offset, size);
+			if (ret)
+				drm_mm_remove_node(&bo->node);
+			mutex_unlock(&rsx->mm_lock);
+		}
+		if (!ret) {
 			bo->domain = NOUVEAU_GEM_DOMAIN_GART;
-			memset(rsx->gart_cpu + bo->offset, 0, size);
+			ps3rsx_gart_clear(rsx, bo->offset, size);
 			return bo;
 		}
 		drm_gem_object_put(&bo->base);
@@ -301,6 +326,8 @@ static int mm_show(struct seq_file *m, void *unused)
 	mm_usage(m, "VRAM cpu", &rsx->vram_cpu, CPU_VRAM_LIMIT - rsx->info.reserved);
 	mm_usage(m, "VRAM gpu", &rsx->vram_gpu, rsx->info.memory_size - CPU_VRAM_LIMIT);
 	mm_usage(m, "GART", &rsx->gart, rsx->gart_size);
+	seq_printf(m, "GART backed by memory: %llu KiB (%s)\n", rsx->gart_backed >> 10,
+		   rsx->gart_dynamic ? "on demand" : "boot reservation");
 	mutex_unlock(&rsx->mm_lock);
 	/* display heads as lv1 reports them to our context (driver info head[n] at 0x10b8 + 64n) */
 	for (int h = 0; h < 2; h++) {
@@ -317,7 +344,7 @@ static int mm_show(struct seq_file *m, void *unused)
 
 int ps3rsx_mem_init(struct ps3rsx_device *rsx)
 {
-	u64 io, cpu_end = min_t(u64, CPU_VRAM_LIMIT, rsx->info.memory_size);
+	u64 cpu_end = min_t(u64, CPU_VRAM_LIMIT, rsx->info.memory_size);
 	int ret;
 
 	mutex_init(&rsx->mm_lock);
@@ -325,21 +352,12 @@ int ps3rsx_mem_init(struct ps3rsx_device *rsx)
 	drm_mm_init(&rsx->vram_gpu, cpu_end, rsx->info.memory_size - cpu_end);
 	drm_debugfs_add_file(&rsx->drm, "ps3rsx_mm", mm_show, NULL);
 
-	/* GART: the boot reservation, mapped at IO 0 one 1 MiB page at a time (the lpar of each
-	 * MiB is looked up separately in case the region straddles a memory boundary) */
-	rsx->gart_cpu = ps3rsx_gart.address;
-	for (io = 0; io < rsx->gart_size; io += 1024 * 1024) {
-		u64 lpar = ps3_mm_phys_to_lpar(__pa(rsx->gart_cpu + io));
-
-		ret = ps3fb_gpu_iomap(io, lpar, 1024 * 1024, IOPTE_RW);
-		if (ret) {
-			drm_err(&rsx->drm, "GART iomap at IO %#llx failed: %d\n", io, ret);
-			rsx->gart_mapped = io;
-			ps3rsx_mem_fini(rsx);
-			return ret;
-		}
+	ret = ps3rsx_gart_init(rsx);
+	if (ret) {
+		drm_mm_takedown(&rsx->vram_gpu);
+		drm_mm_takedown(&rsx->vram_cpu);
+		return ret;
 	}
-	rsx->gart_mapped = rsx->gart_size;
 	/* the first RING_RESERVE bytes hold the reset program and the ring (exec.c) */
 	drm_mm_init(&rsx->gart, RING_RESERVE, rsx->gart_size - RING_RESERVE);
 	return 0;
@@ -347,14 +365,9 @@ int ps3rsx_mem_init(struct ps3rsx_device *rsx)
 
 void ps3rsx_mem_fini(struct ps3rsx_device *rsx)
 {
-	u64 io;
-
-	for (io = 0; io < rsx->gart_mapped; io += 1024 * 1024)
-		ps3fb_gpu_iomap(io, ps3_mm_phys_to_lpar(__pa(rsx->gart_cpu + io)), 1024 * 1024,
-				CBE_IOPTE_M);
-	rsx->gart_mapped = 0;
 	if (drm_mm_initialized(&rsx->gart))
 		drm_mm_takedown(&rsx->gart);
+	ps3rsx_gart_fini(rsx);
 	drm_mm_takedown(&rsx->vram_gpu);
 	drm_mm_takedown(&rsx->vram_cpu);
 }

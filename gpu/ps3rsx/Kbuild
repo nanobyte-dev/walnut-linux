@@ -1,2 +1,2 @@
 obj-m := ps3rsx.o
-ps3rsx-y := drv.o abi16.o mem.o exec.o validate.o submit.o kms.o shadow.o console.o
+ps3rsx-y := drv.o abi16.o mem.o gart.o exec.o validate.o submit.o kms.o shadow.o console.o
