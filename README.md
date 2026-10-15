@@ -10,7 +10,7 @@ nouveau's userspace (libdrm + Mesa nv30) on the RSX. Plan and background: `docs/
 | `config.mk` | All build/deploy settings (versions, hashes, snapshot date, IPs, kernel cmdline) |
 | `kernel/patches/series` | PS3 kernel patches, applied in order to vanilla Linux |
 | `kernel/config/*.config` | Config fragments merged onto `ps3_defconfig` |
-| `rootfs/packages.txt`, `rootfs/customize.sh` | Debian root filesystem contents and setup |
+| `rootfs/packages.txt`, `rootfs/customize.sh` | Debian root filesystem: packages (the image's slow layer) and setup (fast layer) |
 | `docker/Dockerfile` | Pinned build environment (toolchain, mmdebstrap) |
 | `docker/Dockerfile.mesa` | Mesa build environment on top of it (C++ cross compiler, meson) |
 | `mesa/fork/` | Our fork of Mesa's nouveau driver (and the few loader/dri/gbm files we change), copied over the release tarball; edit directly |
@@ -28,14 +28,22 @@ nouveau's userspace (libdrm + Mesa nv30) on the RSX. Plan and background: `docs/
 
 ## Usage
 
-    make kernel rootfs     # build (in the pinned container)
+    make rootfs            # the whole image (kernel modules, RSX driver, Mesa, games included)
     make checksums         # compare between builds to confirm reproducibility
-    make nfs-root          # sudo: the whole system (image, modules, RSX driver, Mesa, games) as NFS export
+    make nfs-root          # sudo: install the image as the NFS export (old root kept as .bak-<date>)
     make listen            # in another terminal: PS3 debug output
     make netboot           # PS3 in Petitboot -> boots our kernel with NFS root
-    make gpu-deploy        # cross-compile gpu/tools and copy them to ~/bin on the NFS root
-    make mesa-deploy       # Mesa fork + mesa/tests -> ~/mesa on the NFS root (stop X first)
-    make classicube-deploy # ClassiCube + sounds/music -> ~/classicube
+    make gpu-deploy        # quick updates of the live root while iterating: RSX driver + tools
+    make mesa-deploy       #   -> ~/bin, Mesa + mesa/tests -> ~/mesa (stop X first),
+    make classicube-deploy #   ClassiCube -> ~/classicube, kernel modules (make nfs-modules)
+
+The image builds in two layers. `build/rootfs/base.tar` has the Debian packages (dpkg under qemu,
+about 15 minutes; downloads cached in `build/apt-cache/`) and is rebuilt only when
+`rootfs/packages.txt` or the snapshot changes. `build/rootfs/debian-ppc64.tar` adds our config and
+everything we build, in a minute or two. The deploy targets run the same install steps as the
+image (`tools/install-builds.sh`), so whatever is tried live is also what the next image gets.
+`make nfs-root` carries over the PS3's own state from the previous root: SSH host keys, Bluetooth
+pairings, saved Wi-Fi connections (`FRESH=1` starts clean).
 
 On the PS3, `. ~/mesa/env.sh` selects our Mesa; `egl-gears` etc. print a checksum to compare with
 a softpipe run (`LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=softpipe`).

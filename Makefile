@@ -8,6 +8,7 @@ BUILD       := build
 DOWNLOADS   := $(BUILD)/downloads
 KERNEL_TARBALL := $(DOWNLOADS)/linux-$(KERNEL_VERSION).tar.xz
 KERNEL_STAGE   := $(BUILD)/kernel/stage
+ROOTFS_BASE    := $(BUILD)/rootfs/base.tar
 ROOTFS_TAR     := $(BUILD)/rootfs/debian-ppc64.tar
 
 # Builder image tag changes whenever its inputs change (Dockerfile, base image, snapshot)
@@ -37,19 +38,23 @@ KERNEL_INPUTS := $(KERNEL_TARBALL) $(KERNEL_SERIES) $(wildcard kernel/patches/*/
 ROOTFS_VARS := $(BUILD)/rootfs.vars
 ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE_DATE_EPOCH BUILDER_TAG,$(v)=$($(v)))
 $(shell [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
-ROOTFS_INPUTS := $(ROOTFS_PACKAGES) $(ROOTFS_CUSTOMIZE) rootfs/desktop-setup.sh rootfs/ds3-pair tools/build-rootfs.sh $(SSH_PUBKEY) $(ROOTFS_VARS)
+ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: help all builder kernel rootfs checksums nfs-root nfs-modules netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
+.PHONY: help all builder kernel rootfs rootfs-base checksums nfs-root nfs-modules netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
 	mesa-builder mesa-sysroot mesa mesa-tests mesa-deploy classicube classicube-audio classicube-deploy
 
 help:
 	@echo "Build:"
 	@echo "  make kernel       patched PS3 kernel + modules  -> $(KERNEL_STAGE)"
-	@echo "  make rootfs       Debian ppc64 root filesystem  -> $(ROOTFS_TAR)"
+	@echo "  make rootfs       the PS3's root filesystem image -> $(ROOTFS_TAR)"
+	@echo "                    (package layer + our config, kernel modules, RSX driver, Mesa, games)"
+	@echo "  make rootfs-base  only its package layer (slow: ~15 min, reruns when packages change)"
 	@echo "  make checksums    sha256 of outputs (compare two builds to check reproducibility)"
 	@echo "Deploy (sudo):"
-	@echo "  make nfs-root     install rootfs + modules into $(NFS_ROOT) and export it"
-	@echo "  make nfs-modules  refresh only the kernel modules in $(NFS_ROOT)"
+	@echo "  make nfs-root     install the image into $(NFS_ROOT) and export it (keeps SSH host"
+	@echo "                    keys, Bluetooth pairings and Wi-Fi connections; FRESH=1 doesn't)"
+	@echo "Update the live NFS root in place (no reboot; fixes still go into the build):"
+	@echo "  make nfs-modules  kernel modules"
 	@echo "Run:"
 	@echo "  make netboot      boot our kernel on the PS3 from Petitboot (NFS root)"
 	@echo "  make listen       print PS3 early-debug + netconsole output"
@@ -88,12 +93,11 @@ $(KERNEL_STAGE)/boot/vmlinux: $(KERNEL_INPUTS) | $(BUILDER_STAMP)
 	$(DOCKER_RUN) --user $(UID_GID) $(KERNEL_ENV) $(BUILDER_TAG) tools/build-kernel.sh
 
 # --- Root filesystem ----------------------------------------------------------
-rootfs: $(ROOTFS_TAR)
-$(ROOTFS_TAR): $(ROOTFS_INPUTS) | $(BUILDER_STAMP)
-	@mkdir -p $(BUILD)/rootfs
-	cp $(SSH_PUBKEY) $(BUILD)/rootfs/authorized_keys
+# The image is built in two layers: the packages (slow, rarely changes), then everything of ours
+# on top (fast). `make rootfs` itself is in the Image section below, after its inputs.
+rootfs-base: $(ROOTFS_BASE)
+$(ROOTFS_BASE): $(ROOTFS_BASE_INPUTS) | $(BUILDER_STAMP)
 	$(DOCKER_RUN) --privileged $(ROOTFS_ENV) $(BUILDER_TAG) tools/build-rootfs.sh
-	rm -f $(BUILD)/rootfs/authorized_keys
 
 checksums:
 	@cd $(BUILD) && sha256sum kernel/stage/boot/vmlinux-* rootfs/debian-ppc64.tar \
@@ -101,21 +105,23 @@ checksums:
 	@head -2 $(BUILD)/SHA256SUMS; echo "($$(wc -l < $(BUILD)/SHA256SUMS) files in $(BUILD)/SHA256SUMS)"
 
 # --- Deploy -------------------------------------------------------------------
-# The whole system: image, kernel modules, then everything built outside the image (RSX driver
-# and tools, Mesa, ClassiCube) into ~tibi, so a fresh root needs nothing done by hand.
-nfs-root: $(ROOTFS_TAR) $(KERNEL_STAGE)/boot/vmlinux gpu-tools mesa mesa-tests classicube classicube-audio
-	sudo NFS_ROOT=$(NFS_ROOT) PS3_IP=$(PS3_IP) tools/install-nfs-root.sh $(ROOTFS_TAR) $(KERNEL_STAGE)
-	$(MAKE) gpu-deploy mesa-deploy classicube-deploy
+# The whole system is in the image (kernel modules, RSX driver, Mesa, games included), so a
+# fresh root needs nothing done by hand. The *-deploy targets update the live root in place
+# while iterating (tools/install-builds.sh, the same steps the image build runs).
+INSTALL_BUILDS := BUILD=$(BUILD) MESA_PREFIX=$(MESA_PREFIX) tools/install-builds.sh
+nfs-root: $(ROOTFS_TAR) $(KERNEL_STAGE)/boot/vmlinux
+	sudo NFS_ROOT=$(NFS_ROOT) PS3_IP=$(PS3_IP) FRESH=$(FRESH) tools/install-nfs-root.sh $(ROOTFS_TAR)
 
 nfs-modules: $(KERNEL_STAGE)/boot/vmlinux
-	sudo rsync -a --delete --chown=root:root $(KERNEL_STAGE)/lib/modules/ $(NFS_ROOT)/lib/modules/
+	sudo $(INSTALL_BUILDS) $(NFS_ROOT) modules
 
 # --- GPU tools ----------------------------------------------------------------
-PS3_HOME := $(NFS_ROOT)/home/tibi
 # Kernel modules (every gpu/*/Kbuild) build against the kernel tree in $(BUILD)/kernel/obj.
 # Kbuild writes objects next to the sources, so each directory is copied to $(BUILD)/gpu-<dir>.
 GPU_KMODS := $(patsubst gpu/%/Kbuild,%,$(wildcard gpu/*/Kbuild))
-gpu-tools: $(BUILDER_STAMP) | $(KERNEL_STAGE)/boot/vmlinux
+GPU_STAMP := $(BUILD)/gpu/.done
+gpu-tools: $(GPU_STAMP)
+$(GPU_STAMP): $(wildcard gpu/Makefile gpu/*/*) $(KERNEL_STAGE)/boot/vmlinux | $(BUILDER_STAMP)
 	$(DOCKER_RUN) --user $(UID_GID) $(BUILDER_TAG) make -C gpu OUT=../$(BUILD)/gpu
 	for d in $(GPU_KMODS); do \
 		mkdir -p $(BUILD)/gpu-$$d && cp gpu/$$d/* $(BUILD)/gpu-$$d/ && \
@@ -123,10 +129,10 @@ gpu-tools: $(BUILDER_STAMP) | $(KERNEL_STAGE)/boot/vmlinux
 			ARCH=powerpc CROSS_COMPILE=powerpc64-linux-gnu- M=/work/$(BUILD)/gpu-$$d modules \
 			|| exit 1; \
 	done
+	@touch $@
 
-gpu-deploy: gpu-tools
-	install -d $(PS3_HOME)/bin
-	install -m 755 $(BUILD)/gpu/* $(BUILD)/gpu-*/*.ko gpu/tools/*.sh $(PS3_HOME)/bin/
+gpu-deploy: $(GPU_STAMP)
+	$(INSTALL_BUILDS) $(NFS_ROOT) gpu
 
 # --- Mesa -------------------------------------------------------------------------------
 # Own image on top of the builder (C++ cross compiler, meson), so its tag doesn't change the kernel's.
@@ -164,14 +170,15 @@ $(MESA_INSTALL)$(MESA_PREFIX)/env.sh: $(MESA_INPUTS) | $(MESA_BUILDER_STAMP)
 	echo "$(MESA_SHA256)  $(MESA_TARBALL)" | sha256sum -c --quiet
 	$(DOCKER_RUN) --user $(UID_GID) $(MESA_ENV) $(MESA_BUILDER_TAG) tools/build-mesa.sh
 
-mesa-tests: $(MESA_SYSROOT)/.done | $(MESA_BUILDER_STAMP)
+MESA_TESTS_STAMP := $(BUILD)/mesa/tests/.done
+mesa-tests: $(MESA_TESTS_STAMP)
+$(MESA_TESTS_STAMP): $(wildcard mesa/tests/*) $(MESA_SYSROOT)/.done | $(MESA_BUILDER_STAMP)
 	$(DOCKER_RUN) --user $(UID_GID) $(MESA_BUILDER_TAG) make -C mesa/tests SYSROOT=/work/$(MESA_SYSROOT) \
 		OUT=/work/$(BUILD)/mesa/tests
+	@touch $@
 
 mesa-deploy: mesa mesa-tests
-	install -d $(PS3_HOME)/mesa/bin
-	rsync -a $(MESA_INSTALL)$(MESA_PREFIX)/ $(PS3_HOME)/mesa/
-	install -m 755 $(BUILD)/mesa/tests/* $(PS3_HOME)/mesa/bin/
+	$(INSTALL_BUILDS) $(NFS_ROOT) mesa
 
 # --- ClassiCube -----------------------------------------------------------------
 CC_TARBALL := $(DOWNLOADS)/ClassiCube-$(CLASSICUBE_COMMIT).tar.gz
@@ -201,21 +208,25 @@ classicube-audio: $(CC_AUDIO)/default2.zip
 $(CC_AUDIO)/default2.zip: $(CC_TARBALL) games/classicube/sounds.sh | $(GAMES_BUILDER_STAMP)
 	$(DOCKER_RUN) --user $(UID_GID) -e CC_TARBALL=$(CC_TARBALL) $(GAMES_BUILDER_TAG) games/classicube/sounds.sh
 
-# Into ~tibi/classicube (the game keeps options, maps and screenshots next to itself); default
-# options only if there are none yet
 classicube-deploy: classicube classicube-audio
-	install -d $(PS3_HOME)/classicube/texpacks $(PS3_HOME)/classicube/audio $(PS3_HOME)/.local/share/applications
-	install -m 755 $(CC_INSTALL)/ClassiCube games/classicube/classicube.sh $(PS3_HOME)/classicube/
-	install -m 644 $(CC_INSTALL)/texpacks/classicube.zip $(PS3_HOME)/classicube/texpacks/
-	install -m 644 $(CC_AUDIO)/* $(PS3_HOME)/classicube/audio/
-	[ -e $(PS3_HOME)/classicube/options.txt ] || \
-		install -m 644 games/classicube/options.txt $(PS3_HOME)/classicube/options.txt
-	install -m 644 games/classicube/classicube.desktop $(PS3_HOME)/.local/share/applications/
+	$(INSTALL_BUILDS) $(NFS_ROOT) classicube
 
 classicube: $(CC_INSTALL)/ClassiCube
 $(CC_INSTALL)/ClassiCube: $(CC_TARBALL) $(CC_TEXPACK) games/classicube/build.sh $(MESA_SYSROOT)/.done | $(MESA_BUILDER_STAMP)
 	$(DOCKER_RUN) --user $(UID_GID) -e CC_TARBALL=$(CC_TARBALL) -e CC_TEXPACK=$(CC_TEXPACK) \
 		$(MESA_BUILDER_TAG) games/classicube/build.sh
+
+# --- Image --------------------------------------------------------------------
+# The package layer plus our config (rootfs/) and everything we build (tools/install-builds.sh)
+IMAGE_INPUTS := $(ROOTFS_BASE) $(wildcard rootfs/*) tools/build-image.sh tools/install-builds.sh \
+	$(SSH_PUBKEY) $(KERNEL_STAGE)/boot/vmlinux $(GPU_STAMP) $(MESA_INSTALL)$(MESA_PREFIX)/env.sh \
+	$(MESA_TESTS_STAMP) $(CC_INSTALL)/ClassiCube $(CC_AUDIO)/default2.zip $(wildcard games/classicube/*)
+rootfs: $(ROOTFS_TAR)
+$(ROOTFS_TAR): $(IMAGE_INPUTS) | $(BUILDER_STAMP)
+	@mkdir -p $(BUILD)/rootfs
+	cp $(SSH_PUBKEY) $(BUILD)/rootfs/authorized_keys
+	$(DOCKER_RUN) --privileged $(ROOTFS_ENV) -e MESA_PREFIX=$(MESA_PREFIX) $(BUILDER_TAG) tools/build-image.sh
+	rm -f $(BUILD)/rootfs/authorized_keys
 
 # --- Run ----------------------------------------------------------------------
 netboot: $(KERNEL_STAGE)/boot/vmlinux

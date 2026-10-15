@@ -37,9 +37,15 @@ The image must come entirely from the build. Fixes go into the scripts, never on
 root.
 
 Done:
-- `make nfs-root` builds and installs everything: the Debian image (`rootfs/`), the kernel
-  modules, the RSX driver and tools, Mesa, and ClassiCube with its sounds and music. An existing
-  root is moved to `/srv/ps3root.bak-<date>`.
+- `make rootfs` builds the whole image: Debian, our config, the kernel modules, the RSX driver and
+  tools, Mesa, and ClassiCube with its sounds and music. `make nfs-root` only installs it; an
+  existing root is moved to `/srv/ps3root.bak-<date>`. SSH host keys, Bluetooth pairings and Wi-Fi
+  connections come over from the old root (`FRESH=1` doesn't).
+- Two layers (2026-10-15): the packages (`base.tar`, about 15 minutes under qemu, .debs cached in
+  `build/apt-cache/`) are rebuilt only when `rootfs/packages.txt` or the snapshot changes. Our
+  config and builds go on top in a minute or two.
+- The `*-deploy` targets update the live root with the same steps the image build uses
+  (`tools/install-builds.sh`), for quick iteration. The fix still has to be in the scripts.
 - Inputs are pinned:
   - the Debian snapshot date;
   - the kernel, Mesa and ClassiCube tarballs, by SHA-256;
@@ -50,21 +56,21 @@ Done:
   The missing packages and the resolver it found were added to the scripts.
 
 Next:
-1. Switch over: the user runs `! make nfs-root` and reboots. Then update the host key in
-   `build/ps3_known_hosts` (the new image generates new SSH keys).
+1. Switch over: the user runs `! make nfs-root` and reboots. This first time the host key is new:
+   update `build/ps3_known_hosts`. Later installs keep it.
 2. Verify the fresh root with no manual step:
    - desktop at boot;
    - `glxinfo -B` on NV47;
    - ClassiCube at 60 fps;
    - OpenArena starts;
    - DS3 pairing.
-3. Caching. The Makefile already caches downloads, the sysroot, Mesa and the games. The rootfs
-   (about 15 min under qemu) still downloads every package each time: mount an apt cache into the
-   build.
+3. Check reproducibility: two image builds from the same inputs give the same `make checksums`.
 4. Size: about 210 MB of the image is Debian's own Mesa and LLVM, pulled in by
    `xserver-xorg-core` and `mesa-utils`, though our Mesa is used. Drop it if the dependencies
    allow (equivs or a dummy package).
 5. Later, install the RSX driver and Mesa as packages or in `/usr/local`, not in `~tibi`.
+6. `build/old/` gets a 2.2 GB image per build: compress old images, or keep only the base layer
+   when an image is reproducible from it.
 
 ### 2. GPU driver and games (gold standard: stable 60 fps)
 
