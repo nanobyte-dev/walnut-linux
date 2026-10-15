@@ -3,6 +3,9 @@ systemd-sysv
 udev
 kmod
 dbus
+# the user bus under systemd (game mode: D-Bus-activated helpers like gvfs run as user
+# services in ps3-desktop.slice, and systemctl --user freeze works)
+dbus-user-session
 openssh-server
 sudo
 iproute2

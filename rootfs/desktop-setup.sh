@@ -19,7 +19,7 @@ cat > "$R/home/tibi/.bash_profile" <<'EOF'
 # The desktop on tty1 (docs/DESKTOP-PLAN.md). Not exec: if X fails, this shell stays usable.
 if [ "$(tty)" = /dev/tty1 ] && [ -z "${DISPLAY:-}" ] && [ ! -e ~/.no-desktop ]; then
 	# X and the window manager in ps3-display.slice (game mode: kept resident, see ps3-game)
-	systemd-run --user --scope --slice=ps3-display.slice --unit=ps3-display -q \
+	systemd-run --user --scope --slice=ps3-display.slice -q \
 		startx /usr/local/bin/ps3-session -- -nolisten tcp > ~/.xsession.log 2>&1
 	echo "X exited ($?): log in ~/.xsession.log; touch ~/.no-desktop to skip the desktop"
 fi
@@ -44,17 +44,19 @@ splash=$!
 		[ $t -gt 120 ] || { sleep 1; t=$((t + 1)); continue; }
 	kill $splash
 done) &
-# gvfs and the tray applets need a session bus. Openbox: tint2 panel (jgmenu, tray, clock),
+# gvfs and the tray applets use the user bus (dbus-user-session). Openbox: tint2 panel (jgmenu, tray, clock),
 # PCManFM desktop icons, network and volume applets, notifications, polkit agent. Bluetooth:
 # blueman from the menu, no resident tray (~60 MB of Python). GTK apps don't load the GL
 # driver just to probe it (GDK_GL=disable: RAM and GART for nothing; games use GL directly).
 export GDK_GL=disable
 # The helpers run in ps3-desktop.slice, which ps3-game freezes and pushes out of RAM while a
 # game runs; openbox stays with X in ps3-display.slice.
-exec dbus-launch --exit-with-session sh -c '
-	d() { systemd-run --user --scope --slice=ps3-desktop.slice -q "$@" & }
-	d pcmanfm --desktop; d tint2; d nm-applet; d pnmixer; d lxpolkit; d dunst
-	exec openbox'
+# The user bus and the services it starts need to know the display
+systemctl --user import-environment DISPLAY XAUTHORITY
+dbus-update-activation-environment --systemd DISPLAY XAUTHORITY 2>/dev/null
+d() { systemd-run --user --scope --slice=ps3-desktop.slice -q "$@" & }
+d pcmanfm --desktop; d tint2; d nm-applet; d pnmixer; d lxpolkit; d dunst
+exec openbox
 EOS
 chmod 755 "$R/usr/local/bin/ps3-session"
 
@@ -66,12 +68,38 @@ chmod 755 "$R/usr/local/bin/ps3-session"
 # protection the groups inside it share (memory_recursiveprot).
 mkdir -p "$R/etc/systemd/user" "$R/etc/systemd/system/user-.slice.d" "$R/etc/systemd/system/user@.service.d"
 printf '%s\n' '[Unit]' 'Description=PS3 display: X and the window manager' '' '[Slice]' \
-	'MemoryLow=48M' 'CPUWeight=200' > "$R/etc/systemd/user/ps3-display.slice"
+	'MemoryLow=64M' 'CPUWeight=200' > "$R/etc/systemd/user/ps3-display.slice"
 printf '%s\n' '[Unit]' 'Description=PS3 desktop helpers (frozen while a game runs)' '' '[Slice]' \
 	'CPUWeight=50' > "$R/etc/systemd/user/ps3-desktop.slice"
 printf '%s\n' '[Unit]' 'Description=PS3 game (ps3-game)' '' '[Slice]' \
 	'MemoryLow=128M' 'CPUWeight=400' > "$R/etc/systemd/user/ps3-game.slice"
 printf '%s\n' '[Slice]' 'MemoryLow=176M' > "$R/etc/systemd/system/user-.slice.d/50-ps3-game-mode.conf"
+# System services that only serve the desktop (automount, authorisation prompts) wait while a
+# game runs: frozen and pushed to swap; a USB stick plugged in meanwhile mounts afterwards.
+# Not NetworkManager (online games) or bluetoothd (the gamepads).
+mkdir -p "$R/usr/local/sbin" "$R/etc/sudoers.d"
+cat > "$R/usr/local/sbin/ps3-game-mode" <<'EOS'
+#!/bin/sh
+# ps3-game-mode on|off (root; ps3-game runs it through sudo)
+units="udisks2.service polkit.service"
+case "$1" in
+on)	for u in $units; do
+		systemctl freeze "$u" 2>/dev/null &&
+			echo 64M > "/sys/fs/cgroup/system.slice/$u/memory.reclaim" 2>/dev/null
+	done; true ;;
+off)	for u in $units; do systemctl thaw "$u" 2>/dev/null; done; true ;;
+*)	echo "usage: ps3-game-mode on|off" >&2; exit 2 ;;
+esac
+EOS
+chmod 755 "$R/usr/local/sbin/ps3-game-mode"
+echo 'tibi ALL=(root) NOPASSWD: /usr/local/sbin/ps3-game-mode' > "$R/etc/sudoers.d/ps3-game-mode"
+chmod 440 "$R/etc/sudoers.d/ps3-game-mode"
+# D-Bus-activated user services (gvfs: volume monitors, trash, metadata) with the desktop
+for u in gvfs-daemon gvfs-metadata gvfs-udisks2-volume-monitor gvfs-mtp-volume-monitor \
+	gvfs-gphoto2-volume-monitor gvfs-afc-volume-monitor gvfs-goa-volume-monitor; do
+	mkdir -p "$R/etc/systemd/user/$u.service.d"
+	printf '%s\n' '[Service]' 'Slice=ps3-desktop.slice' > "$R/etc/systemd/user/$u.service.d/50-ps3-desktop.conf"
+done
 printf '%s\n' '[Service]' 'MemoryLow=176M' > "$R/etc/systemd/system/user@.service.d/50-ps3-game-mode.conf"
 
 # PCManFM's desktop: Debian wallpaper; home, trash and mounted drives (USB sticks) as icons
@@ -133,14 +161,16 @@ pads() {	# X device ids of the gamepads (udev ID_INPUT_JOYSTICK) attached as poi
 		xinput list | grep -F "$name" | grep 'slave  pointer' | sed 's/.*id=\([0-9]*\).*/\1/'
 	done
 }
-desktop=ps3-desktop.slice
-thaw() { systemctl --user thaw "$desktop" 2>/dev/null; }
+# the cgroup files directly: they are delegated to the user (systemctl --user freeze needs a
+# user D-Bus session, which this desktop doesn't run)
+cg=/sys/fs/cgroup$(systemctl --user show -P ControlGroup ps3-desktop.slice 2>/dev/null)
+thaw() { echo 0 > "$cg/cgroup.freeze" 2>/dev/null; sudo -n /usr/local/sbin/ps3-game-mode off; }
 ids=$(pads)
 for i in $ids; do xinput disable "$i"; done
-if systemctl --user freeze "$desktop" 2>/dev/null; then
-	cg=/sys/fs/cgroup$(systemctl --user show -P ControlGroup "$desktop")
+if [ -w "$cg/cgroup.freeze" ] && echo 1 > "$cg/cgroup.freeze"; then
 	echo 256M > "$cg/memory.reclaim" 2>/dev/null	# as much as it gives up
 fi
+sudo -n /usr/local/sbin/ps3-game-mode on
 systemd-run --user --scope --slice=ps3-game.slice -q "$@" &
 game=$!
 # thaws even if this script is killed: the watcher outlives it while the game runs
