@@ -73,7 +73,7 @@ finish)
 	# boot-time fsck; systemd remounts it read-write.
 	PARTUUID=50533301-02  /     ext4   defaults,noatime  0 1
 	# Before zram (priority 100): idle pages go to the disk, which leaves the RAM to the programs
-	PARTUUID=50533301-01  none  swap   sw,pri=200        0 0
+	PARTUUID=50533301-01  none  swap   sw,pri=200,noauto 0 0
 	tmpfs                 /tmp  tmpfs  defaults,size=64M 0 0
 	EOF
 	# The machine's own state: SSH host keys, Bluetooth pairings, Wi-Fi connections. From the

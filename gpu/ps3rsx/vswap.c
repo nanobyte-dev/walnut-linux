@@ -38,6 +38,8 @@
 #define CHUNK		SZ_1M
 #define SLOTS		(CHUNK / PAGE_SIZE)	/* pages per chunk */
 #define ON_DISK		0x80000000u		/* map entry: the page is on the backing disk */
+#define MAX_RQ_PAGES	32			/* request size limit: bounds the bios per request */
+#define BIO_RESERVE	(2 * MAX_RQ_PAGES)	/* pieces of one request (a page split at most once) */
 
 static unsigned int vswap_vram_mb = 96;
 module_param(vswap_vram_mb, uint, 0444);
@@ -60,6 +62,9 @@ struct ps3rsx_vswap {
 	struct ps3rsx_device *rsx;
 	struct gendisk *disk;
 	struct blk_mq_tag_set tags;
+	struct bio_set bios;		/* own reserve: a request's disk bios are allocated under
+					 * vs->lock and submitted after it, so under memory pressure
+					 * the shared reserve (2 bios) deadlocked on our own bios */
 	struct mutex lock;
 	struct mutex shrink_lock;	/* one write-back at a time */
 	struct file *backing;		/* the partition behind the VRAM */
@@ -139,7 +144,7 @@ static struct bio *disk_bio(struct ps3rsx_vswap *vs, struct request *rq, blk_opf
 			    unsigned int off)
 {
 	struct vswap_cmd *cmd = blk_mq_rq_to_pdu(rq);
-	struct bio *bio = bio_alloc(file_bdev(vs->backing), 1, op, GFP_NOIO);
+	struct bio *bio = bio_alloc_bioset(file_bdev(vs->backing), 1, op, GFP_NOIO, &vs->bios);
 
 	bio->bi_iter.bi_sector = ((sector_t)p << (PAGE_SHIFT - 9)) + (in_page >> 9);
 	__bio_add_page(bio, page, len, off);
@@ -578,6 +583,7 @@ int ps3rsx_vswap_init(struct ps3rsx_device *rsx)
 		.logical_block_size = PAGE_SIZE,
 		.physical_block_size = PAGE_SIZE,
 		.io_min = PAGE_SIZE,
+		.max_hw_sectors = MAX_RQ_PAGES << (PAGE_SHIFT - 9),
 		.max_hw_discard_sectors = UINT_MAX,
 		.max_write_zeroes_sectors = UINT_MAX,
 		.discard_granularity = PAGE_SIZE,
@@ -596,7 +602,7 @@ int ps3rsx_vswap_init(struct ps3rsx_device *rsx)
 	vs->nchunks = vswap_vram_mb;
 	vs->chunks = kvcalloc(vs->nchunks, sizeof(*vs->chunks), GFP_KERNEL);
 	ret = -ENOMEM;
-	if (!vs->chunks)
+	if (!vs->chunks || bioset_init(&vs->bios, BIO_RESERVE, 0, 0))
 		goto err;
 
 	ret = register_blkdev(0, "ps3vswap");
@@ -637,6 +643,7 @@ err_tags:
 err_blkdev:
 	unregister_blkdev(vswap_major, "ps3vswap");
 err:
+	bioset_exit(&vs->bios);
 	kvfree(vs->chunks);
 	kfree(vs);
 	return ret;
@@ -666,6 +673,7 @@ void ps3rsx_vswap_fini(struct ps3rsx_device *rsx)
 	if (vs->backing)
 		fput(vs->backing);
 	kvfree(vs->map);
+	bioset_exit(&vs->bios);
 	kvfree(vs->chunks);
 	kfree(vs);
 	rsx->vswap = NULL;

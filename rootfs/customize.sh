@@ -123,6 +123,43 @@ WantedBy=multi-user.target
 EOS
 chroot "$R" systemctl enable ps3-swap.service
 
+# Swap in spare VRAM (ps3rsx's ps3vswap0, docs/PLAN.md "Memory"): in front of the USB disk's
+# swap partition, which becomes its backing store. Swapped pages come back from VRAM in well
+# under a millisecond instead of queueing on the disk (one command at a time over USB); games
+# get the VRAM back when they need it. Without ps3rsx or a disk swap partition, nothing changes.
+cat > "$R/usr/local/sbin/ps3-vswap" <<'EOS'
+#!/bin/sh
+# The disk's swap partition: fstab's swap entry (noauto: this script activates it)
+dev=$(awk '$3 == "swap" && $1 !~ "zram" { print $1; exit }' /etc/fstab)
+[ -n "$dev" ] || exit 0
+part=$(findfs "$dev" 2>/dev/null || echo "$dev")
+[ -b "$part" ] || exit 0
+grep -q "^$part " /proc/swaps && swapoff "$part"
+B=/sys/block/ps3vswap0/backing
+if [ -e $B ] && [ -z "$(cat $B)" ] && echo "$part" > $B; then
+	mkswap /dev/ps3vswap0 >/dev/null
+	exec swapon -p 300 --discard=pages /dev/ps3vswap0
+fi
+# no VRAM swap: the partition itself (its header is gone once VRAM swap had it: swap
+# contents never outlive a boot anyway)
+swapon -p 200 "$part" 2>/dev/null || { mkswap "$part" >/dev/null && swapon -p 200 "$part"; }
+EOS
+chmod 755 "$R/usr/local/sbin/ps3-vswap"
+cat > "$R/etc/systemd/system/ps3-vswap.service" <<'EOS'
+[Unit]
+Description=Disk swap, behind swap in spare VRAM when ps3rsx provides it
+After=systemd-modules-load.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/ps3-vswap
+
+[Install]
+WantedBy=multi-user.target
+EOS
+chroot "$R" systemctl enable ps3-vswap.service
+
 # Memory reserve for allocations that can't wait for reclaim (network receive buffers): under
 # memory pressure gelic could not refill its receive ring and the PS3 dropped off the network,
 # hanging everything on the NFS root (2026-10-15, two hangs without an OOM message). The kernel's
