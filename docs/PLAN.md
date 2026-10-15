@@ -95,17 +95,17 @@ Task numbers refer to the session task list. "Reboot" marks steps that need one.
 
 ### Now
 
-1. **VRAM swap, GPU copies** (task #13). Swap-in and write-back through M2MF, following the
-   design in RSX-SPU-FEASIBILITY.md §3: a fixed 1 MB GART bounce area; the swap path takes the
-   ring only with trylocks (`own_lock`, `exec_lock`), backs off while a channel has a primitive
-   open, records its M2MF state in `hw_shadow` so the next client restores its own; any failure,
-   timeout or wedge falls back to the PPE read, so no swapped page can be lost. Use the GPU when
-   it's idle or the request is large (≥ 8 pages); a queued game frame can add 16–33 ms.
-   Expected: one page 0.4 ms → ~20 µs, a chunk write-back 100 ms → ~2 ms. Then the OpenArena
-   comparison (timedemo + `oa-run.sh` live play) against today's numbers.
-   - Done so far: the device, two tiers, games-first VRAM release, async disk I/O, own bio
-     reserve, a work queue on a fresh stack, background demotion. Hard-won lessons in
-     `gpu/ps3rsx/vswap.c`'s header (two deadlocks and a NULL-bioset oops on the way).
+1. ~~VRAM swap, GPU copies~~ (task #13): done (`gpu/ps3rsx/kcopy.c`). Swap-ins and chunk
+   write-backs are copied by the GPU into a pinned 1 MiB GART bounce when it can be had without
+   waiting; any failure falls back to PPE reads of the same slot. Measured: a working set that
+   fits the VRAM tier swaps in ~10× faster (passes 0.2–1.2 s against 4.4–17.7 s); the GL suite
+   passes 3× in a row while ~92k kernel copies interleave with its clients; 0 fallbacks so far.
+   **OpenArena didn't improve** (timedemo median 47–54, longest frames 1.4–7.6 s): its threads
+   no longer block on swap-ins at all; what's left is file I/O on the USB disk: code and data
+   page faults (often waiting for the disk's single command slot), file reads, and **file
+   opens** (ext4 inode lookups: the lazy asset loads and ioquake3's search through directories
+   before its pk3s). Levers: more RAM for the page cache (items 3–5) and fewer file accesses in
+   the game (item 8).
 2. ~~SPU toolchain versions~~ (tasks #6, #7): done. binutils 2.47 (one gas patch) and newlib
    4.6 (seven patches); the 1677 execute tests on the SPEs give the same result per test as
    the old toolchain (1629 pass).
@@ -133,9 +133,11 @@ Task numbers refer to the session task list. "Reboot" marks steps that need one.
    GART ÷4–8, slower loads while Mesa compresses on the PPE), `s_khz 11` (halves decoded sound),
    OpenAL int16 and a linear resampler; ClassiCube view distance. Measure each with the
    timedemo and game mode.
-8. **OpenArena:** build ioquake3 ourselves (`-mcpu=cell`, pinned, like ClassiCube); load player
-   models at map start (`cg_deferPlayers` made no difference: the loads happen when bots
-   appear); listen on the TV; DS3 bindings in play.
+8. **OpenArena file I/O:** build ioquake3 ourselves (`-mcpu=cell`, pinned, like ClassiCube);
+   load player models at map start (`cg_deferPlayers` made no difference: the loads happen when
+   bots appear); stop the per-file search through the home and base directories before the
+   pk3s (~1300 failed opens per 10 s of play, now the main source of disk stalls with code
+   faults); listen on the TV; DS3 bindings in play.
 9. **Driver CPU cost:** `ps3rsx_validate` + `ps3rsx_shadow_write` are ~15% of ClassiCube's CPU;
    Mesa's per-draw state work (fence and BO refs per draw) next.
 
