@@ -17,6 +17,8 @@
  *   rsxdrm-smoke quirks  what Mesa does that libgcm doesn't: M2MF NOP on the M2MF subchannel,
  *                        RT_ENABLE 0x12 (both fine), vertex format type 0 (WEDGES the RSX: the
  *                        validator now rejects it, so this expects -EINVAL)
+ *   rsxdrm-smoke vram [MiB]  4 MiB CPU-mappable VRAM buffers until allocation fails (the VRAM swap
+ *                        device gives its VRAM back)
  *   rsxdrm-smoke gart [MiB]  4 MiB GART buffers until allocation fails, a GPU copy in each
  *                        (with ps3rsx_cma: backing on demand, CMA migration under pressure)
  */
@@ -503,6 +505,21 @@ static int t_gart(unsigned max_mib)
 	return rc || bad || !n;
 }
 
+/* Fill VRAM: 4 MiB buffers until GEM_NEW fails (or max_mib); reports how much fit. With the
+ * VRAM swap device holding VRAM, ps3rsx must give it back (its pages go to the disk). */
+static int t_vram(unsigned max_mib)
+{
+	enum { BO = 4 << 20, MAXBO = 64 };
+	struct drm_nouveau_gem_info bos[MAXBO];
+	int n = 0;
+	while (n < MAXBO && (unsigned)(n + 1) * 4 <= max_mib &&
+	       !gem_new(fd, NOUVEAU_GEM_DOMAIN_VRAM | NOUVEAU_GEM_DOMAIN_MAPPABLE, BO, 0, &bos[n]))
+		n++;
+	printf("  %d x 4 MiB VRAM buffers (%d MiB), last at %#llx\n", n, n * 4,
+	       n ? (unsigned long long)bos[n - 1].offset : 0ULL);
+	return !n;
+}
+
 static int t_quirks(void)
 {
 	setup();
@@ -528,7 +545,7 @@ int main(int argc, char **argv)
 {
 	setvbuf(stdout, NULL, _IOLBF, 0);
 	if (argc < 2) {
-		fprintf(stderr, "usage: %s bo|nop|m2mf|clear|fence|reject|tri|twochan|quirks|gart [MiB]\n", argv[0]);
+		fprintf(stderr, "usage: %s bo|nop|m2mf|clear|fence|reject|tri|twochan|quirks|gart [MiB]|vram [MiB]\n", argv[0]);
 		return 2;
 	}
 	fd = open("/dev/dri/renderD128", O_RDWR);
@@ -556,6 +573,8 @@ int main(int argc, char **argv)
 		fail = t_fill(strtoul(argv[2], NULL, 0), strtoul(argv[3], NULL, 16));
 	else if (!strcmp(argv[1], "twochan"))
 		fail = t_twochan();
+	else if (!strcmp(argv[1], "vram"))
+		fail = t_vram(argc > 2 ? strtoul(argv[2], NULL, 0) : 1024);
 	else if (!strcmp(argv[1], "gart"))
 		fail = t_gart(argc > 2 ? strtoul(argv[2], NULL, 0) : 1024);
 	else if (!strcmp(argv[1], "quirks"))

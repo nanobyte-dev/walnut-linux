@@ -84,6 +84,7 @@ struct ps3rsx_device {
 	struct page *gart_scratch;	/* behind IO pages without a chunk */
 	u64 gart_backed;		/* bytes of the GART backed by memory now */
 	struct delayed_work gart_reclaim;
+	struct ps3rsx_vswap *vswap;	/* swap in spare VRAM (vswap.c), or NULL */
 
 	/* execution (exec.c) */
 	void __iomem *ctrl;		/* our context's FIFO control: put 0x40, get 0x44, ref 0x48 */
@@ -197,6 +198,12 @@ void ps3rsx_submit_debugfs_init(struct ps3rsx_device *rsx);
 #define RESTORE_MAX_WORDS	(16 * 1024)
 
 bool ps3rsx_known_object(u32 handle);
+/* vswap.c */
+struct ps3rsx_vswap;
+int ps3rsx_vswap_init(struct ps3rsx_device *rsx);
+void ps3rsx_vswap_fini(struct ps3rsx_device *rsx);
+bool ps3rsx_vswap_shrink(struct ps3rsx_device *rsx, u64 bytes);
+void ps3rsx_vswap_show(struct seq_file *m, struct ps3rsx_device *rsx);
 /* gart.c */
 int ps3rsx_gart_init(struct ps3rsx_device *rsx);
 void ps3rsx_gart_fini(struct ps3rsx_device *rsx);

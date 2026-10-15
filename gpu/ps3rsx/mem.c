@@ -156,6 +156,9 @@ struct ps3rsx_bo *ps3rsx_bo_new(struct ps3rsx_device *rsx, u32 domain, size_t si
 			ret = bo_place(rsx, bo, &rsx->vram_gpu, align);
 		if (ret)
 			ret = bo_place(rsx, bo, &rsx->vram_cpu, align);
+		/* games first: the swap device gives VRAM back (its pages go to the disk) */
+		while (ret && ps3rsx_vswap_shrink(rsx, size))
+			ret = bo_place(rsx, bo, &rsx->vram_cpu, align);
 		if (!ret) {
 			bo->domain = NOUVEAU_GEM_DOMAIN_VRAM;
 			if (bo->offset >= CPU_VRAM_LIMIT)
@@ -328,6 +331,7 @@ static int mm_show(struct seq_file *m, void *unused)
 	mm_usage(m, "GART", &rsx->gart, rsx->gart_size);
 	seq_printf(m, "GART backed by memory: %llu KiB (%s)\n", rsx->gart_backed >> 10,
 		   rsx->gart_dynamic ? "on demand" : "boot reservation");
+	ps3rsx_vswap_show(m, rsx);
 	mutex_unlock(&rsx->mm_lock);
 	/* display heads as lv1 reports them to our context (driver info head[n] at 0x10b8 + 64n) */
 	for (int h = 0; h < 2; h++) {
