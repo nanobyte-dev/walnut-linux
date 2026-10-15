@@ -38,7 +38,7 @@ design:
 Everything later phases need from the kernel goes in here, so that Phases 2–6 are modules
 and userspace only (plan review, 2026-10-14).
 
-**Config** (`kernel/config/ps3.config`):
+**Config** (`linux/config/ps3.config`):
 - `CONFIG_DRM=m`: selects sync_file, dma-buf and kcmp.
 - `CONFIG_DRM_FBDEV_EMULATION`: pulls in the KMS helpers, so vkms isn't needed.
 - `CONFIG_COMPACTION=y`: `ps3_defconfig` has it off.
@@ -131,7 +131,7 @@ ps3fb owns all of VRAM):
 - a takeover/release cycle from a test module leaves the console working;
 - ps3fb's GPU ioctls return -EBUSY while the GPU is taken over.
 
-## Phase 2: `ps3rsx` render driver (out-of-tree module, `gpu/ps3rsx/`)
+## Phase 2: `ps3rsx` render driver (out-of-tree module, `ps3rsx/src/`)
 
 **Build.** Generalise the `gpu-tools` target to build every `gpu/*/Kbuild`.
 
@@ -141,8 +141,8 @@ ps3fb owns all of VRAM):
   - `nouveau_gem.c`: pushbuf argument handling, reloc apply, CPU_PREP;
   - `nouveau_fence.c`: seqno and fence list.
 - From our tools:
-  - `gpu/kmod/rsx_ctx_probe2.c`: context alloc, reset-program replay, iomap, kick/wait;
-  - `gpu/tools/rsx-mesainit.c`: the known-good init stream.
+  - `ps3rsx/probes/rsx_ctx_probe2.c`: context alloc, reset-program replay, iomap, kick/wait;
+  - `ps3-gpu-tools/src/rsx-mesainit.c`: the known-good init stream.
 
 **Hardware ownership**
 - **At load:**
@@ -253,7 +253,7 @@ ps3fb owns all of VRAM):
     - VP load pointer + count ≤ 512, constants ≤ 468.
 - **Debug options:** `trace=1` dumps each submit to netconsole; `submit=0` is a dry run.
 
-**Tests** (`gpu/tools/rsxdrm-*.c`, raw ioctls):
+**Tests** (`ps3-gpu-tools/rsxdrm-*.c`, raw ioctls):
 - `rsxdrm-info`: GETPARAM, NVIF, `drmdevice`;
 - `rsxdrm-smoke nop|m2mf|clear|tri|fence|reload`:
   - `tri` reuses rsx-tri's words through the driver;
@@ -299,9 +299,9 @@ version in the 20261013 snapshot (`MESA_VERSION`/`MESA_SHA256` in `config.mk`).
   kernel, don't change) adding `g++-powerpc64-linux-gnu`, meson (trixie's 1.7), ninja, pkgconf,
   python3-mako/yaml/packaging.
 - **`make mesa-sysroot`:** `mmdebstrap --arch=ppc64 --variant=extract` (no maintainer scripts,
-  so no qemu, no `--privileged`) with the packages in `mesa/sysroot-packages.txt`. base-files
+  so no qemu, no `--privileged`) with the packages in `sysroot/mesa-sysroot-packages.txt`. base-files
   provides the merged-/usr `/lib` link that glibc's `libc.so` script needs; the script checks it.
-- **`mesa/cross-ppc64.ini`:** `--sysroot`, `-mcpu=cell`, `-ffile-prefix-map`,
+- **`sysroot/mesa-cross-ppc64.ini`:** `--sysroot`, `-mcpu=cell`, `-ffile-prefix-map`,
   `needs_exe_wrapper`, `pkg_config_libdir` and `sys_root` (= `PKG_CONFIG_SYSROOT_DIR`) in the
   sysroot. Two builds give identical libraries.
 - **Meson options:** `-Dgallium-drivers=nouveau,softpipe -Dvulkan-drivers= -Dllvm=disabled
@@ -321,7 +321,7 @@ version in the 20261013 snapshot (`MESA_VERSION`/`MESA_SHA256` in `config.mk`).
     or run Xorg as root with the env.
 - `make mesa mesa-tests`, then `make mesa-deploy` (rsync to `$(NFS_ROOT)/home/tibi/mesa`).
 
-**Tests** (`mesa/tests`, installed to `~/mesa/bin`): `egl-clear`, `egl-tri`, `egl-tex`,
+**Tests** (`ps3-gpu-tools/mesa-tests`, installed to `~/mesa/bin`): `egl-clear`, `egl-tri`, `egl-tex`,
 `egl-gears` render offscreen (surfaceless EGL, or `EGL_RENDER_NODE=/dev/dri/renderD128` for the
 device platform) and print `GL_RENDERER` and a checksum; an argument writes the image as PPM.
 On the PS3: `. ~/mesa/env.sh`, then each test once with
@@ -444,7 +444,7 @@ The load pointers are restored afterwards.
 
 | Phase | Outcome |
 |---|---|
-| 1 | Done, rechecked 2026-10-14 with `gpu/tools/phase1-check.sh`: GART reserved, zram swap, `rsx-probe` draws, takeover refuses direct GPU access, the console redraws after release (webcam). Kernel patches local/0004 (GART boot reservation, `ps3rsx_gart=32M`), 0005 (ps3fb sharing API, ENTER/EXIT trylock), 0006 (gelic netpoll fix). |
+| 1 | Done, rechecked 2026-10-14 with `ps3-gpu-tools/scripts/phase1-check.sh`: GART reserved, zram swap, `rsx-probe` draws, takeover refuses direct GPU access, the console redraws after release (webcam). Kernel patches local/0004 (GART boot reservation, `ps3rsx_gart=32M`), 0005 (ps3fb sharing API, ENTER/EXIT trylock), 0006 (gelic netpoll fix). |
 | 2 | Done. `rsxdrm-smoke` passes every subtest; triangles drawn through the driver show on screen (kmscube, glxgears, webcam); the validator rejects vertex format type 0, which wedges the RSX. |
 | 3 | Done. egl-clear, egl-tex and egl-short are byte-identical to softpipe. egl-tri: 89 of 12288 bytes 1 lower; egl-gears: 282 of 196608 bytes 1 lower, nothing more. Those are the hardware's attribute interpolation (about ±0.03 of an 8-bit step), seen only where the exact value lies just above a rounding midpoint. Getting there: the colour is now exported from fp32 registers (0009; fp16 export gave 2193 bytes in gears), and the softpipe reference uses 24-bit depth like the PS3 (with Z16 four silhouette pixels resolved their depth tie differently). |
 | 4 | Done. Three concurrent GL processes give the same images as solo runs (`rsx-suite.sh multi`). |

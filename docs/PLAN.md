@@ -14,10 +14,10 @@ is the binding constraint**, and most of the next work is about it.
 - **One compiler version everywhere: GCC 16.2,** the snapshot's system compiler.
   - **PPE** (kernel, Mesa, ps3rsx, games): Debian's `gcc-16-powerpc64-linux-gnu`
     16.2.0-3cross1, from the amd64 sid snapshot of the same date.
-  - **SPU:** our port of the SPU backend to GCC 16.2 (docs/SPU-GCC.md, `spu/port/`).
-  - **binutils:** 2.47, for the SPU with one gas patch (`spu/binutils/`, the `hbrr` regression:
+  - **SPU:** our port of the SPU backend to GCC 16.2 (docs/SPU-GCC.md, `spu-toolchain/gcc/`).
+  - **binutils:** 2.47, for the SPU with one gas patch (`spu-toolchain/binutils/`, the `hbrr` regression:
     gas took `nop 127` for the `.nop` directive). **newlib** for the SPU: 4.6.0 (seven
-    patches, `spu/newlib-4.6/`). On the SPEs (2026-10-15): 1629 of 1677 execute tests pass,
+    patches, `spu-toolchain/newlib-4.6/`). On the SPEs (2026-10-15): 1629 of 1677 execute tests pass,
     the same tests one by one as with binutils 2.33.1 and newlib 1.20.
 - **Kernel:** 6.12 LTS (supported to Dec 2028). **Mesa:** our fork of the snapshot's release.
 - **Repository:** everything of ours is a .deb in `build/repo`; the image installs from it and
@@ -95,7 +95,7 @@ Task numbers refer to the session task list. "Reboot" marks steps that need one.
 
 ### Now
 
-1. ~~VRAM swap, GPU copies~~ (task #13): done (`gpu/ps3rsx/kcopy.c`). Swap-ins and chunk
+1. ~~VRAM swap, GPU copies~~ (task #13): done (`ps3rsx/src/kcopy.c`). Swap-ins and chunk
    write-backs are copied by the GPU into a pinned 1 MiB GART bounce when it can be had without
    waiting; any failure falls back to PPE reads of the same slot. Measured: a working set that
    fits the VRAM tier swaps in ~10× faster (passes 0.2–1.2 s against 4.4–17.7 s); the GL suite
@@ -239,10 +239,11 @@ Only when content needs them (OpenArena and ClassiCube don't):
 
 Everything builds in pinned Docker images: `docker/Dockerfile` (kernel and rootfs, mmdebstrap
 under qemu-user), `Dockerfile.mesa` (C++ cross compiler and meson against a ppc64 sysroot),
-`Dockerfile.games`, `Dockerfile.spu`, `Dockerfile.repo`. Outputs go to `build/`; earlier outputs
-move to `build/old/`, never deleted (pruned by hand). `mesa/fork/` holds every Mesa file we
-change, whole; its first commit is the pristine release. SPU toolchain experiments build side by
-side (`SPU_OUT=build/spu-<name>`).
+`Dockerfile.games`, `Dockerfile.spu`, `Dockerfile.repo`. Outputs go to `build/`, which is ephemeral
+except `build/aptly`: only versions published to the repository server are kept forever (CLAUDE.md).
+`mesa/fork/` holds every Mesa file we change, whole; its first commit is the pristine release. SPU
+toolchain experiments build side by side (`SPU_OUT=build/tmp/spu-<name>`). The tree is organized by
+output package (README).
 
 ## The console
 

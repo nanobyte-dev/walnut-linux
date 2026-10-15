@@ -74,7 +74,7 @@ meshing or video instead.
 - **DMA:** the SPU reads and writes the owning process's addresses directly. Page faults are
   expensive, so buffers should be touched or locked first.
 - **Pieces:**
-  - an ELF loader (`spu/spurun.c`) and embedding SPU programs in PPE binaries;
+  - an ELF loader (`ps3-spu/src/spurun.c`) and embedding SPU programs in PPE binaries;
   - the job ABI;
   - an SPU main loop with double-buffered DMA;
   - serving newlib's PPE-assisted calls (stop 0x2100, so `printf` works on the SPU);

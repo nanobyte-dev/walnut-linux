@@ -2,7 +2,7 @@
 
 **Status 2026-10-15:** the desktop is Openbox + tint2 + PCManFM, not LXQt. It was measured
 against LXQt, IceWM, Xfce and Enlightenment, and the others were dropped from the image
-(`rootfs/desktop-setup.sh`). The LXQt sections below are kept as the original plan; the
+(`image/desktop-setup.sh`). The LXQt sections below are kept as the original plan; the
 current state is in docs/PLAN.md.
 
 Decided 2026-10-14: LXQt, root stays on NFS (netboot from Petitboot as now), input from USB
@@ -12,7 +12,7 @@ Budget: Linux sees 165 MB of RAM; zram swap. LXQt with openbox is the heaviest t
 
 ## 1. Kernel (one rebuild, one reboot by the user)
 
-`kernel/config/ps3.config`: `NEW_LEDS`, `LEDS_CLASS` (needed by `HID_SONY`), `HID_SONY` +
+`linux/config/ps3.config`: `NEW_LEDS`, `LEDS_CLASS` (needed by `HID_SONY`), `HID_SONY` +
 `SONY_FF` (DualShock 3: USB init, rumble, Bluetooth), `UHID` (Bluetooth LE keyboards/mice),
 `INPUT_UINPUT`. Bluetooth (`BT`, `BT_HCIBTUSB`, `BT_HIDP`), evdev, joydev and `SND_PS3` are
 already there.
@@ -27,7 +27,7 @@ already there.
 - No display manager (saves RAM): getty autologin of `tibi` on tty1, `startx` from
   `~/.bash_profile`, session `startlxqt`. Logging out drops back to the console.
 
-## 3. Packages (`rootfs/packages.txt`, also installed live)
+## 3. Packages (`image/packages.txt`, also installed live)
 
 lxqt-core, openbox, lxqt-powermanagement, lxqt-sudo, featherpad, lximage-qt, pavucontrol-qt,
 alsa-utils, bluez, blueman (pairing GUI), xserver-xorg-input-joystick (DualShock 3 as a
@@ -84,7 +84,7 @@ Bluetooth keyboard types; `free -m` after login with the desktop idle.
   = a swizzled render target 1 pixel wide, which glamor creates (Mesa 0012 keeps them linear,
   the validator rejects them). Verified: 400-step drag of xeglgears in LXQt, no exception,
   constant memory. Remaining: some tearing (xserver 21.1 modesetting has no TearFree).
-- Text consoles (Ctrl+Alt+F1-F6) work (gpu/ps3rsx/console.c): ps3rsx owns the RSX only while a
+- Text consoles (Ctrl+Alt+F1-F6) work (ps3rsx/src/console.c): ps3rsx owns the RSX only while a
   DRM master (X) is in front or clients without X are submitting; otherwise ps3fb gets it back
   and draws the console. On a VT switch X's GL clients pause until it returns; X's own work
   while away takes the GPU only briefly. The console also comes back when X exits, and at boot.

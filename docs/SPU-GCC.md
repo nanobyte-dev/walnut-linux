@@ -9,7 +9,7 @@ forward to the latest GCC, or do we stay on the last release that has it (GCC 9.
 
 1. **The backend on GCC 16.2, still using the old reload pass: done here in about 2 hours.**
    - The GCC 9.5 backend was copied into GCC 16.2. About 20 mechanical edits (186 changed lines,
-     `spu/port/0002-*.patch`) make it build.
+     `spu-toolchain/gcc/0002-*.patch`) make it build.
    - On the real SPEs it passes **1621** of GCC's execute torture tests, against **1618** for
      GCC 9.5, with no test that GCC 9.5 passes failing.
 2. **Converting to LRA, which GCC will eventually require: the real cost, an estimated 4–8+
@@ -37,7 +37,7 @@ patches:
 - `0002` API port;
 - `0003` an `expmed` fix for the `__complex__` crashes.
 
-It uses old reload and links against newlib 4.6 (`spu/newlib-4.6/`) and libgcc, both built by
+It uses old reload and links against newlib 4.6 (`spu-toolchain/newlib-4.6/`) and libgcc, both built by
 GCC 16.2, and binutils 2.47 with one patch. Rerun on the SPEs with this toolchain (2026-10-15):
 1629 of 1677 pass, and every test has the same result as with binutils 2.33.1 and newlib
 1.20.0 (both binary sets run on the same day; results in `build/spu-port/exec-*.txt`).
@@ -48,7 +48,7 @@ GCC 16.2, and binutils 2.47 with one patch. Rerun on the SPEs with this toolchai
 - hello world runs.
 
 **binutils 2.47 is not an exception any more.** It needs one patch
-(`spu/binutils/0001-gas-spu-nop-is-an-instruction.patch`), not yet upstream (binutils master of
+(`spu-toolchain/binutils/0001-gas-spu-nop-is-an-instruction.patch`), not yet upstream (binutils master of
 2026-10-15 still has the bug):
 - **Symptom:** "Relocation doesn't fit" on an `hbrr` (first seen in libgloss's `open.c`), for
   GCC 9.5's output as well as ours.
@@ -63,7 +63,7 @@ GCC 16.2, and binutils 2.47 with one patch. Rerun on the SPEs with this toolchai
   `nop` is the instruction and `.nop` stays the directive.
 - **Checked against 2.33.1, both with GCC 16.2 + newlib 4.6, built side by side:**
   - assembler: every libgcc, newlib, libgloss and crt object, plus 1572 `-O2` objects
-    (`gcc.c-torture/execute` and `spu/hello.c`), has the same code, relocations and
+    (`gcc.c-torture/execute` and `ps3-spu/src/hello.c`), has the same code, relocations and
     non-debug sections. The only difference is the 4 `__FILE__` strings of the build path
     in libc.
   - linker: the 1562 linked test programs come out the same when the 2.47 objects are linked
@@ -77,7 +77,7 @@ GCC 16.2, and binutils 2.47 with one patch. Rerun on the SPEs with this toolchai
     layout changes nothing that runs.
 
 **newlib 4.6.0.20260123 is not an exception any more.** It needs seven small patches
-(`spu/newlib-4.6/`, each with its reason in the file) and builds with plain `-O2`:
+(`spu-toolchain/newlib-4.6/`, each with its reason in the file) and builds with plain `-O2`:
 - `sys/sched.h` lacks `struct sched_param`;
 - `math.h` declares `isinf`/`isnan`, which SPU's `ieeefp.h` defines as macros;
 - SPU's `fenv.h` has `void` returns and a const `__fe_dfl_env`, and the generic `libm/fenv`
@@ -110,7 +110,7 @@ provided, as 4.x pulls them in only from those two functions.
   - Notable features: the `__ea` address space (about 60 references), branch-hint (`hbr`)
     insertion in machine reorg, and a pipeline description.
 - **binutils:** SPU is still upstream at HEAD (bfd, gas, opcodes). We use 2.47 with one gas
-  patch (`spu/binutils/`, see above).
+  patch (`spu-toolchain/binutils/`, see above).
 - **newlib:** SPU is still upstream, but has bit-rotted. 3.3.0 doesn't build for SPU: its SPU
   `sys/sched.h` lacks `struct sched_param`, which the newer pthread types need. With seven
   patches 4.6 builds (see above); the PS3 homebrew toolchain (ps3dev/ps3toolchain)
@@ -120,7 +120,7 @@ provided, as 4.x pulls them in only from those two functions.
   - No forward port of the SPU backend exists that we could find. PS3DK's tracking issue (#26,
     2026-10) lists it as deferred.
   - LLVM's CellSPU backend was removed in 2012 (LLVM 3.3) and never revived.
-- **PPE side:** libspe2 is gone from Debian. `spu/spurun.c` (about 120 lines) runs SPU ELFs
+- **PPE side:** libspe2 is gone from Debian. `ps3-spu/src/spurun.c` (about 120 lines) runs SPU ELFs
   through spufs directly. newlib's SPU stdio sends work to the PPE with stop code 0x2100, which
   spurun doesn't serve yet, so test programs avoid stdio.
 
@@ -128,8 +128,8 @@ provided, as 4.x pulls them in only from those two functions.
 
 Everything below is reproducible:
 - `tools/spu-port-experiment.sh` does the transplant;
-- `spu/port/*.patch` hold the result;
-- `spu/port/scripts/` have the test harnesses.
+- `spu-toolchain/gcc/*.patch` hold the result;
+- `spu-toolchain/scripts/` have the test harnesses.
 
 ### Step 1: transplant without edits
 

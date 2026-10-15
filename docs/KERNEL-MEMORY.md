@@ -63,7 +63,7 @@ Not in Linux's RAM, on purpose:
 
 ## 2. The config
 
-Facts from `build/kernel/obj/.config` (ps3_defconfig + kernel/config/ps3.config):
+Facts from `build/kernel/obj/.config` (ps3_defconfig + linux/config/ps3.config):
 
 | Option | State | Cost |
 |---|---|---|
@@ -135,7 +135,7 @@ against 3208K measured (2% off):
 | `CONFIG_INET_TABLE_PERTURB_ORDER` (net/ipv4/Kconfig:405, needs `EXPERT`, which we have) | 16 -> "Table-perturb hash table entries: 65536 (262144 bytes)" | 8 | **255K** (runtime, zeroed pages) |
 | TCP ehash/bind, UDP, IP idents, futex | 16K + 64K + 8K + 32K + 64K | no knob worth using (`thash_entries=` could save ~60K) | - |
 | Log buffer | `LOG_BUF_SHIFT`=17, 576K | 16 (288K) or 15 (144K). The PS3's whole `dmesg` after 34 min is 43K (561 lines) incl. an oops; netconsole and journald catch the rest | 288K / 432K |
-| `vm.min_free_kbytes` | 8192 (rootfs/customize.sh:167); kernel default for this RAM is ~1.7 MB | leave: it is a stall guard, not waste | - |
+| `vm.min_free_kbytes` | 8192 (image/customize.sh:167); kernel default for this RAM is ~1.7 MB | leave: it is a stall guard, not waste | - |
 | `THREAD_SHIFT` | 14 | 13 would give back ~1.2 MB of the 2.4 MB stacks, but ppc64 ELFv1 frames are big and root-on-USB plus NFS plus swap paths are deep | not advised |
 
 ### ps3fb: how big must it be, and can the console move to VRAM?
@@ -157,10 +157,10 @@ against 3208K measured (2% off):
   ps3rsx KMS follows, `docs/RSX.md`). Whether the TV scaling is acceptable is the user's call.
 - A smaller console at 1080p output would need a ps3fb patch (a window centred in the mode, and
   `num_frames` computed from the XDR frame only). Not written.
-- **Moving the console into VRAM through ps3rsx is not a small change.** `gpu/ps3rsx/console.c` only
+- **Moving the console into VRAM through ps3rsx is not a small change.** `ps3rsx/src/console.c` only
   hands the GPU back and forth between ps3rsx and ps3fb; the console is still drawn by ps3fb into
   XDR and blitted by the GPU. ps3rsx registers no fbdev (`DRM_FBDEV_EMULATION=y` is on, but
-  `grep fbdev gpu/ps3rsx` finds nothing). A CPU-drawn console in VRAM would run into the 10 MB/s
+  `grep fbdev ps3rsx/src` finds nothing). A CPU-drawn console in VRAM would run into the 10 MB/s
   VRAM reads (fbcon's scroll copy reads); DRM's generic fbdev would keep a shadow buffer in XDR,
   which is the same 8 MB again. ps3rsx also reads ps3fb's reset program from the start of ps3fb's
   buffer (exec.c:353), so the first 512K must stay either way.
@@ -171,7 +171,7 @@ against 3208K measured (2% off):
 
 ### CMA size (`ps3rsx_cma=64M`)
 
-The GART takes 1 MiB chunks from the area on demand (gpu/ps3rsx/gart.c:3-10); between uses the pages
+The GART takes 1 MiB chunks from the area on demand (ps3rsx/src/gart.c:3-10); between uses the pages
 hold page cache. So CMA costs no reserve, and shrinking it does not return RAM. Smaller values only
 shrink the cache that can live there and the GART ceiling. 6-14 MB of GART was measured in practice,
 so 32M would still work; the one real downside of 64M is that it is movable-only memory (the
@@ -189,7 +189,7 @@ here was booted).
 | 2 | Console at 720p: `ps3fb=5M`, `mode:131` | **4 MB** (computed) | Output resolution becomes 720p for X as well | boot args, reboot |
 | 3 | `# CONFIG_KALLSYMS_ALL is not set` | **1.0 MB** image + **0.64 MB** modules (measured + modelled) | Low: oopses still show function names; data symbols disappear | kernel config, reboot |
 | 4 | Drop IPV6, IO_URING, QUOTA, KEXEC, HUGETLBFS; `NFS_V4=m` | **1.0 MB** (measured, variant) | Low-medium: some userspace may expect IPv6 sockets or io_uring (libraries fall back). NFS root (v3) stays. Nothing here uses our kexec (netboot kexec runs in Petitboot's kernel). | kernel config, reboot |
-| 5 | Rootfs: stop zram once ps3vswap is up | 1.5 MB table (vmalloc `disksize_store`, 384M x 16 B) plus its compressed pages | Low | rootfs/customize.sh:97-107 |
+| 5 | Rootfs: stop zram once ps3vswap is up | 1.5 MB table (vmalloc `disksize_store`, 384M x 16 B) plus its compressed pages | Low | image/customize.sh:97-107 |
 | 6 | Rootfs: seccomp filters from systemd units: 126 BPF programs x 8K in vmalloc | 1.0 MB (`/proc/vmallocinfo`) | Low: drop `SystemCallFilter=` on resident services, or `SECCOMP=n` | rootfs / kernel |
 | 7 | Keep `cfg80211` from loading (`install cfg80211 /bin/false`); find who loads it first | 483K now (refcount 0) | Low; a USB Wi-Fi stick would stop working | rootfs |
 | 8 | `LOG_BUF_SHIFT=16` (15 if you trust netconsole) | 288K (432K) | Low | kernel config |

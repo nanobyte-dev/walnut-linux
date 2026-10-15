@@ -5,26 +5,27 @@ nouveau's userspace (libdrm + Mesa nv30) on the RSX. Plan and background: `docs/
 
 ## Layout
 
+The tree is organized by output package: each top-level package directory holds what goes into that
+package (being converted to Debian source packages, docs/PLAN.md).
+
 | Path | What |
 |---|---|
+| `linux/` | The kernel: `patches/series` (PS3 patches applied in order: `ps3/` from psx-place, `local/` ours), `config/*.config` fragments merged onto `ps3_defconfig` |
+| `ps3rsx/` | The RSX DRM driver (`src/`, registers as "nouveau": render ioctls, validator, software context switch, KMS, VRAM swap) and the GPU probe modules (`probes/`) |
+| `ps3-gpu-tools/` | Programs run on the PS3: raw RSX probes and driver tests (`src/`: `rsx-*`, `rsxdrm-smoke`), scripts (`scripts/`: `rsx-suite.sh`, `rsx-x.sh`, …), offscreen GL tests compared with softpipe (`mesa-tests/`) |
+| `mesa/` | Our Mesa changes: `fork/` holds every Mesa file we change, whole, copied over the release tarball (becoming a patch series on Debian's mesa) |
+| `ps3-spu/` | SPE test programs and `spurun` (runs SPU ELFs via spufs) |
+| `ps3-boot/` | `ps3-update-kboot`: Petitboot's boot menu from the installed kernels |
+| `classicube/` | ClassiCube: pinned cross build, sounds/music from Mojang by SHA-1, launcher and defaults |
+| `image/` | The root filesystem image: `packages.txt` (slow layer), `customize.sh` and `desktop-setup.sh` (setup), `ds3-pair` |
+| `spu-toolchain/` | The spu-elf cross toolchain's patches: GCC 16.2 port (`gcc/`), binutils 2.47 fix, newlib 4.6 fixes, test scripts |
+| `sysroot/` | ppc64 sysroot contents and meson cross file (for the cross builds of Mesa and ClassiCube) |
+| `games/openarena/` | OpenArena benchmark demo and scripts |
 | `config.mk` | All build/deploy settings (versions, hashes, snapshot date, IPs, kernel cmdline) |
-| `kernel/patches/series` | PS3 kernel patches, applied in order to vanilla Linux |
-| `kernel/config/*.config` | Config fragments merged onto `ps3_defconfig` |
-| `rootfs/packages.txt`, `rootfs/customize.sh` | Debian root filesystem: packages (the image's slow layer) and setup (fast layer) |
-| `docker/Dockerfile` | Pinned build environment (toolchain, mmdebstrap) |
-| `docker/Dockerfile.mesa` | Mesa build environment on top of it (C++ cross compiler, meson) |
-| `mesa/fork/` | Our fork of Mesa's nouveau driver (and the few loader/dri/gbm files we change), copied over the release tarball; edit directly |
-| `mesa/sysroot-packages.txt`, `mesa/cross-ppc64.ini` | Debian ppc64 sysroot contents and meson cross file |
-| `mesa/tests/` | Offscreen tests compared with softpipe: EGL/GLES2 (`egl-*`), desktop GL fixed function (`gl-fog`, `gl-sky`) |
-| `games/` | Game builds and defaults: `classicube/` (pinned cross build, sounds/music from Mojang by SHA-1) |
-| `rootfs/desktop-setup.sh`, `rootfs/ds3-pair` | Desktop session, game defaults, `ps3-game` wrapper; DualShock 3 USB-plug pairing |
-| `gpu/ps3rsx/` | The DRM driver (registers as "nouveau"): render ioctls, validator, software context switch, KMS |
+| `docker/` | Pinned build environments: `Dockerfile` (toolchain, mmdebstrap), `.mesa`, `.games`, `.spu`, `.repo` |
 | `tools/` | Scripts called by the Makefile |
-| `gpu/tools/` | Programs and scripts run on the PS3: raw RSX probes (`rsx-*`), driver tests (`rsxdrm-smoke`), `rsx-suite.sh` (smoke, Mesa vs softpipe, concurrent GL), `rsx-x.sh` (Xorg with one client) |
-| `spu/` | SPE programs and `spurun` (runs SPU ELFs via spufs); `spu/port/` the SPU backend ported to GCC 16.2 (patches + test harnesses); `spu/binutils/` the gas fix for binutils 2.47 |
-| `docker/Dockerfile.spu` | spu-elf toolchain build environment (`make spu-toolchain`) |
-| `docs/` | `PLAN.md` phases, `DRIVER-PLAN.md` the GPU driver plan, `RSX.md` measured GPU facts, `RSX-PROGRAMS.md` raw draw/shader words, `MESA-METHODS.md` Mesa nv30 methods vs RSX, `RESEARCH.md` background, `SPU-GCC.md` SPU compiler report |
-| `build/` | Generated outputs (ignored); `build/old/` holds previous outputs, never deleted |
+| `docs/` | `PLAN.md` the plan, `DRIVER-PLAN.md` GPU driver phases, `RSX.md` measured GPU facts, `RSX-PROGRAMS.md`, `MESA-METHODS.md`, `RESEARCH.md`, `SPU-GCC.md`, `KERNEL-MEMORY.md`, `HARDWARE-LEVERAGE.md`, `RSX-SPU-FEASIBILITY.md`, `SPU-OFFLOAD*.md` |
+| `build/` | Generated (ignored). Ephemeral except `build/aptly` (the published repository's state); see CLAUDE.md |
 | `firmware/` | Petitboot image installed on the console (ignored) |
 | `backups/` | **Private**: NOR flash dump (ignored, never commit) |
 
@@ -43,7 +44,7 @@ nouveau's userspace (libdrm + Mesa nv30) on the RSX. Plan and background: `docs/
 
 The image builds in two layers. `build/rootfs/base.tar` has the Debian packages (dpkg under qemu,
 about 15 minutes; downloads cached in `build/apt-cache/`) and is rebuilt only when
-`rootfs/packages.txt` or the snapshot changes. `build/rootfs/debian-ppc64.tar` adds our config and
+`image/packages.txt` or the snapshot changes. `build/rootfs/debian-ppc64.tar` adds our config and
 our own packages, in a minute or two. Everything we build is a .deb in `build/repo`:
 
 | Package | Installs |

@@ -51,11 +51,11 @@ What the PPE can do with cache-inhibited stores (Handbook):
   should be legal (medium: no sentence says so explicitly).
 
 Reading the measurements:
-- 124 MB/s with 8-byte stores (userspace, `gpu/tools/rsx-probe.c:333-353`, through ps3fb's I|G
+- 124 MB/s with 8-byte stores (userspace, `ps3-gpu-tools/src/rsx-probe.c:333-353`, through ps3fb's I|G
   `/dev/ps3gpu_vram`) is one 8-byte transaction every ~64 ns, i.e. ~200 PPE cycles per store.
   The cost is per transaction, not per byte. The best case for 16-byte transactions is then
   ~250 MB/s.
-- E8 in the kernel (`gpu/kmod/rsx_ctx_probe2.c:369-395`) measured 69 vs 70 MB/s, guarded vs WC.
+- E8 in the kernel (`ps3rsx/probes/rsx_ctx_probe2.c:369-395`) measured 69 vs 70 MB/s, guarded vs WC.
   That loop times the first touch of each page, so ~1000 hash faults and `lv1_insert_htab_entry`
   calls fall inside the timed region.
 - WC equal to guarded means one of three things: combining didn't happen (the loop isn't the
@@ -88,7 +88,7 @@ What PS3 homebrew does:
      store loop, no `dcbz`. Use it in Mesa's PS3 CPU paths that write VRAM.
    - Check with `perf stat -e alignment-faults,emulation-faults` on X and a game. Any count in
      the thousands per second is this bug.
-2. **`gpu/ps3rsx/mem.c:97` (VRAM BO mmap):** switch `pgprot_noncached` to `pgprot_noncached_wc`,
+2. **`ps3rsx/src/mem.c:97` (VRAM BO mmap):** switch `pgprot_noncached` to `pgprot_noncached_wc`,
    **only after E8b** shows that lv1 keeps G=0 and that it helps.
    - VRAM is plain memory, so G=0 is correct.
    - Writers must then end with `sync` (any ioctl that kicks the GPU already does: `out_be32` has
@@ -118,7 +118,7 @@ Confidence: medium-high for the mechanism. Low for the rate, since nobody has pu
 SPU→VRAM figure for Linux.
 
 The path in the kernel:
-- `bo_mmap` (`gpu/ps3rsx/mem.c:65-99`): VRAM BOs get `VM_IO|VM_PFNMAP`, `pgprot_noncached`, and
+- `bo_mmap` (`ps3rsx/src/mem.c:65-99`): VRAM BOs get `VM_IO|VM_PFNMAP`, `pgprot_noncached`, and
   `io_remap_pfn_range(vma, start, (ddr_lpar + offset) >> PAGE_SHIFT, …)`. `remap_pfn_range`
   fills every PTE at mmap time.
 - An MFC translation miss raises a class-1 interrupt. `spufs_handle_class1`
@@ -155,7 +155,7 @@ Restrictions and prior art:
 - **The kernel still can't use SPEs** (no in-kernel spufs client), so this is for userspace
   producers: libspeq, DXT encode, decompression into VRAM BOs. It is not a vswap path.
 
-**Probe E16 (userspace, `gpu/tools/spu-vram.c` + an SPU kernel):**
+**Probe E16 (userspace, `ps3-gpu-tools/src/spu-vram.c` + an SPU kernel):**
 1. Open `/dev/dri/renderD128`. Do the PS3_ABI getparam and `GEM_NEW` of a 1 MiB VRAM BO
    (mappable, below 224 MB), then `GEM_INFO` and `mmap` it `MAP_SHARED`. Pre-fill it with
    0x5a through M2MF or PPE stores.
@@ -464,7 +464,7 @@ Confidence: high for methods and encodings, medium for semantics (from RPCS3's e
      - Needs `count ≤ 65535` (16-bit field). Indexed draws need the index list replicated with
        `+ inst × (max_index + 1)` offsets, or BASE_INDEX (0x173c) per instance, whose
        interaction with the divider is unverified.
-     - Add 0x1fc0 to the validator allowlist (`gpu/ps3rsx/validate.c:67`, today
+     - Add 0x1fc0 to the validator allowlist (`ps3rsx/src/validate.c:67`, today
        `{0x1fc4, 0x1fd8}`). It's plain state, so `shadow.c` restores it as is.
      - Mesa must write 0x1fc0 = 0 and frequency 0 whenever instancing is off: state is shared
        between channels.

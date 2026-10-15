@@ -1,6 +1,6 @@
 # RSX as seen from Linux (measured 2026-10-14)
 
-What the GPU context that ps3fb allocates can do, measured with `gpu/tools/rsx-probe.c` on the
+What the GPU context that ps3fb allocates can do, measured with `ps3-gpu-tools/src/rsx-probe.c` on the
 CECH-20xx under our 6.12 kernel. Facts here are measured unless marked otherwise.
 
 ## Contexts
@@ -10,7 +10,7 @@ handle 0x5a5a5a5a, context 0x55555555 (hardware channel 0).
 
 - A second `lv1_gpu_memory_allocate` fails with -17 for every argument set tried (also ps3vram's),
   so ps3fb's handle owns all VRAM.
-- A second context on ps3fb's memory handle works (`gpu/kmod/rsx_ctx_probe.c`): handle 0x55555554,
+- A second context on ps3fb's memory handle works (`ps3rsx/probes/rsx_ctx_probe.c`): handle 0x55555554,
   hardware channel 1, its own ctrl/driver-info/reports areas. Its FIFO runs, all seven object
   handles below bind, M2MF copies correctly. So a DRM driver can have its own channel(s) next to
   ps3fb, sharing VRAM.
@@ -122,13 +122,13 @@ So the driver must never submit a faulting command stream, or find a real reset.
 
 ## 3D pipeline from raw commands (E12, E13, E15)
 
-`gpu/tools/rsx-tri` (words from docs/RSX-PROGRAMS.md) on the visible frame, photographed with
+`ps3-gpu-tools/rsx-tri` (words from docs/RSX-PROGRAMS.md) on the visible frame, photographed with
 the webcam: state/viewport writes, vertex program upload, fragment program in VRAM (stored
 halfword-swapped), immediate-mode and vertex-array draws, colour interpolation, and a 4x4
 A8R8G8B8 linear texture (big-endian `0xAARRGGBB` stores, correct orientation and channel
 order). No exceptions.
 
-`gpu/tools/rsx-mesainit` replays Mesa nv30_screen_create's init stream with PS3 handles on
+`ps3-gpu-tools/rsx-mesainit` replays Mesa nv30_screen_create's init stream with PS3 handles on
 Mesa's subchannel layout (3D=7, M2MF=2, SF2D=3, SSWZ=4, SIFM=5): all accepted, including the
 four values that differ from libgcm (0x1450=4, 0x1eac=0xff800006, 0x1ef8, 0x1d64), and a 3D
 clear works afterwards.
@@ -138,7 +138,7 @@ still land after a test's clear, so tests wait 200 ms after ENTER.
 
 ## Through the ps3rsx driver (Phase 2)
 
-`gpu/tools/rsxdrm-smoke` via the nouveau ioctls: M2MF GART<->VRAM exact, 3D clear exact, the
+`ps3-gpu-tools/rsxdrm-smoke` via the nouveau ioctls: M2MF GART<->VRAM exact, 3D clear exact, the
 raw-command triangle exact, 10k fenced submits with the back-end semaphore label always landed
 when the fence signalled, 20 load/unload cycles.
 
