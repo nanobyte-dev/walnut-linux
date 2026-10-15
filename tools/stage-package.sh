@@ -34,15 +34,15 @@ ps3-kernel)	# the kernel and its modules; Petitboot boots /boot/vmlinux-* (kboot
 	echo "$KERNEL_ARGS" > "$R/usr/lib/ps3/boot/$KERNEL_RELEASE.args" ;;
 ps3-boot)	# writes Petitboot's boot menu from the installed kernels
 	install -d "$R/usr/sbin"
-	install -m 755 rootfs/ps3-update-kboot "$R/usr/sbin/" ;;
+	install -m 755 ps3-boot/ps3-update-kboot "$R/usr/sbin/" ;;
 ps3rsx)		# the RSX DRM driver, loaded at boot (before the desktop starts X)
 	install -d "$R/lib/modules/$KERNEL_RELEASE/updates" "$R/usr/lib/modules-load.d"
 	install -m 644 "$B/gpu-ps3rsx/ps3rsx.ko" "$R/lib/modules/$KERNEL_RELEASE/updates/"
 	# per release, so the packages for several kernels install side by side
 	echo ps3rsx > "$R/usr/lib/modules-load.d/ps3rsx-$KERNEL_RELEASE.conf" ;;
-ps3-gpu-tools)	# RSX probes and tests (gpu/tools), the Phase 0/1 probe modules
+ps3-gpu-tools)	# RSX probes and tests (ps3-gpu-tools), the Phase 0/1 probe modules
 	install -d "$R/usr/lib/ps3/bin" "$R/usr/lib/ps3/kmod"
-	install -m 755 "$B"/gpu/* gpu/tools/*.sh "$R/usr/lib/ps3/bin/"
+	install -m 755 "$B"/gpu/* ps3-gpu-tools/scripts/*.sh "$R/usr/lib/ps3/bin/"
 	install -m 644 "$B"/gpu-kmod/*.ko "$R/usr/lib/ps3/kmod/"
 	link_commands ;;
 ps3-mesa)	# our Mesa fork and its GL tests; ld.so.conf.d makes everything (setuid Xorg too) use it
@@ -57,9 +57,9 @@ classicube)	# the game, its sounds and music, default options; /usr/games/classi
 	install -m 755 "$B/classicube/install/ClassiCube" "$R/usr/lib/classicube/"
 	install -m 644 "$B/classicube/install/texpacks/classicube.zip" "$R/usr/lib/classicube/texpacks/"
 	install -m 644 "$B"/classicube/audio/* "$R/usr/lib/classicube/audio/"
-	install -m 644 games/classicube/options.txt "$R/usr/lib/classicube/"
-	install -m 755 games/classicube/classicube.sh "$R/usr/games/classicube"
-	install -m 644 games/classicube/classicube.desktop "$R/usr/share/applications/" ;;
+	install -m 644 classicube/options.txt "$R/usr/lib/classicube/"
+	install -m 755 classicube/classicube.sh "$R/usr/games/classicube"
+	install -m 644 classicube/classicube.desktop "$R/usr/share/applications/" ;;
 ps3-spu)	# SPU runner and tests; spufs loaded and mounted at /spu at boot
 	install -d "$R/usr/lib/ps3/bin" "$R/usr/lib/ps3/spu" "$R/usr/lib/modules-load.d" \
 		"$R/usr/lib/systemd/system/local-fs.target.wants"

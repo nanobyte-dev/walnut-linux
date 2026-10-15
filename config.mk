@@ -9,16 +9,16 @@ KERNEL_URL          := https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$(KERN
 # them all (Makefile: KERNEL_STAMP)
 KERNEL_LOCALVERSION := -ps3-debug
 KERNEL_DEFCONFIG    := ps3_defconfig
-KERNEL_FRAGMENTS    := kernel/config/ps3.config
-KERNEL_SERIES       := kernel/patches/series
+KERNEL_FRAGMENTS    := linux/config/ps3.config
+KERNEL_SERIES       := linux/patches/series
 
 # --- Debian root filesystem ---------------------------------------------------
 # Packages come from a frozen snapshot of debian-ports, so a rebuild gets the same versions.
 DEBIAN_SNAPSHOT     := 20261013T000000Z
 DEBIAN_SUITE        := unstable
 DEBIAN_MIRROR       := http://snapshot.debian.org/archive/debian-ports/$(DEBIAN_SNAPSHOT)
-ROOTFS_PACKAGES     := rootfs/packages.txt
-ROOTFS_CUSTOMIZE    := rootfs/customize.sh
+ROOTFS_PACKAGES     := image/packages.txt
+ROOTFS_CUSTOMIZE    := image/customize.sh
 SSH_PUBKEY          := $(HOME)/.ssh/id_ps3.pub
 
 # --- Mesa (userspace GL for the RSX) ------------------------------------------
@@ -28,11 +28,11 @@ MESA_SHA256         := bce5f7fbebb934373b86c999a064d52fb5065878dc57f287f95346648
 MESA_URL            := https://archive.mesa3d.org/mesa-$(MESA_VERSION).tar.xz
 # Our fork of the files we change (nouveau driver, loader/dri/gbm bits), laid over the tarball
 MESA_FORK           := mesa/fork
-MESA_SYSROOT_PACKAGES := mesa/sysroot-packages.txt
+MESA_SYSROOT_PACKAGES := sysroot/mesa-sysroot-packages.txt
 # Runtime path on the PS3 (the ps3-mesa package; ld.so.conf.d points everything at it)
 MESA_PREFIX         := /usr/lib/ps3-mesa
 
-# --- ClassiCube (games/classicube) ------------------------------------------------
+# --- ClassiCube (classicube/) ------------------------------------------------
 # A pinned commit (SDL3 backend), plus the texture pack it needs (plain HTTP, so checksummed)
 CLASSICUBE_COMMIT   := aa47929825a4647354588818fb0b002b2f808279
 CLASSICUBE_SHA256   := 911e2b179728cbbb3c5f6d90f324f38ebbe6f68c57cb96dd66741fb15e5ab488
@@ -42,20 +42,20 @@ CLASSICUBE_TEXPACK_URL := http://static.classicube.net/default.zip
 
 # --- SPU toolchain (spu-elf, for the Cell's SPEs) ---------------------------------
 # The same GCC and binutils versions as the PPE (docs/PLAN.md): GCC 16.2 with our port of the SPU
-# backend (removed upstream in GCC 10; spu/port/*.patch, docs/SPU-GCC.md), binutils 2.47 (SPU still
-# upstream), newlib 4.6 with spu/newlib-4.6/*.patch. GNU tarballs' signatures checked against
+# backend (removed upstream in GCC 10; spu-toolchain/gcc/*.patch, docs/SPU-GCC.md), binutils 2.47 (SPU still
+# upstream), newlib 4.6 with spu-toolchain/newlib-4.6/*.patch. GNU tarballs' signatures checked against
 # gnu-keyring.gpg, newlib against sourceware's sha512.sum (2026-10-15).
 SPU_GCC_VERSION     := 16.2.0
 SPU_GCC_SHA256      := e6738e29597f733270731aa90600f37ffdc045079dfc27ec7e8192cc81085c3e
 SPU_GCC_URL         := https://ftp.gnu.org/gnu/gcc/gcc-$(SPU_GCC_VERSION)/gcc-$(SPU_GCC_VERSION).tar.xz
-# binutils 2.47 needs spu/binutils/*.patch: since 2.36 gas reads GCC's "nop 127" as the generic
+# binutils 2.47 needs spu-toolchain/binutils/*.patch: since 2.36 gas reads GCC's "nop 127" as the generic
 # ".nop 127" directive (32 nops), which pushed branches out of hint range ("Relocation doesn't
 # fit" on hbrr). 2.33.1 (sha256 ab66fc2d1c3ec0359b8e08843c9f33b63e8707efdff5e4cc5c200eae24722cbf)
-# needs no patch: to go back, set it and empty spu/binutils/.
+# needs no patch: to go back, set it and empty spu-toolchain/binutils/.
 SPU_BINUTILS_VERSION := 2.47
 SPU_BINUTILS_SHA256 := 154ab23b60070e8f27013c22977f1129425d67d1e8acd6e13010e617811e4cff
 SPU_BINUTILS_URL    := https://ftp.gnu.org/gnu/binutils/binutils-$(SPU_BINUTILS_VERSION).tar.xz
-# newlib's SPU support is unmaintained since ~2012; 4.6 builds with spu/newlib-4.6/*.patch (sys/sched.h,
+# newlib's SPU support is unmaintained since ~2012; 4.6 builds with spu-toolchain/newlib-4.6/*.patch (sys/sched.h,
 # math.h's isinf/isnan, fenv signatures, include paths, SPU stdio on the 4.x reent, ...). 1.20.0
 # (needs -std=gnu17 -fpermissive, no patches) still builds: set the version back, with
 # sha256 c644b2847244278c57bec2ddda69d8fab5a7c767f3b9af69aa7aa3da823ff692.
@@ -80,9 +80,14 @@ PETITBOOT_IP        := 10.0.0.77
 PC_IP               := 10.0.0.45
 PC_MAC              := b4:2e:99:f3:12:1a
 NFS_ROOT            := /srv/ps3root
+
+# --- apt repository (tools/repo-server/, published with aptly from build/aptly) -----------------
+REPO_HOST           := tibi@10.0.0.10
+REPO_DIR            := /data/fast/NewServer/Ps3Repo
+REPO_URL            := http://10.0.0.10:8070
 HTTP_PORT           := 8000
 # ps3rsx_cma=64M: the GPU's GART comes on demand from a 64 MiB CMA area, which holds ordinary
-# movable pages while the GPU doesn't use it (gpu/ps3rsx/gart.c); ps3rsx_gart=0 turns off the
+# movable pages while the GPU doesn't use it (ps3rsx/src/gart.c); ps3rsx_gart=0 turns off the
 # fixed reservation that was used before (ps3rsx_gart=<size> still works as a fallback).
 # netconsole spells out source IP, device and target MAC: built-in netconsole starts before
 # ip=dhcp has configured eth0 and gives up without them.

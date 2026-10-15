@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds the PS3 root filesystem image: the package layer (build/rootfs/base.tar, from
-# build-rootfs.sh) plus our configuration (rootfs/customize.sh) and our own packages from
+# build-rootfs.sh) plus our configuration (image/customize.sh) and our own packages from
 # build/repo (kernel, RSX driver, Mesa, games, SPU tools: tools/build-debs.sh). Takes a minute or
 # two, so a config change doesn't reinstall the Debian packages. Runs as root in the builder
 # container. Inputs (env): ROOTFS_CUSTOMIZE SOURCE_DATE_EPOCH BOOT_ROOT_ARGS BOOT_EXTRA_ARGS

@@ -18,10 +18,12 @@ BUILDER_STAMP := $(BUILD)/.builder-$(subst :,-,$(BUILDER_TAG))
 DOCKER_RUN := docker run --rm -v $(CURDIR):/work -w /work \
 	-e SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) -e JOBS=$(JOBS)
 
-# Kernel release stamp: the date of the last commit touching kernel/ (reproducible: the same
-# checkout gives the same name), or the build time while kernel/ has uncommitted changes
-KERNEL_STAMP := $(shell if [ -n "$$(git -C $(CURDIR) status --porcelain kernel/ 2>/dev/null)" ]; then \
-	date +%Y%m%d%H%M; else git -C $(CURDIR) log -1 --format=%cd --date=format-local:%Y%m%d%H%M -- kernel/; fi)
+# Kernel release stamp: the date of the last commit that changed the kernel's inputs (linux/, before
+# 2026-10-16 kernel/; pure renames don't count), reproducible: the same checkout gives the same name.
+# The build time while linux/ has uncommitted changes.
+KERNEL_STAMP := $(shell if [ -n "$$(git -C $(CURDIR) status --porcelain linux/ 2>/dev/null)" ]; then \
+	date +%Y%m%d%H%M; else git -C $(CURDIR) log -1 -M --diff-filter=ACDMT --format=%cd \
+	--date=format-local:%Y%m%d%H%M -- kernel/ linux/; fi)
 KERNEL_RELEASE := $(KERNEL_VERSION)$(KERNEL_LOCALVERSION)-$(KERNEL_STAMP)
 
 KERNEL_ENV := -e KERNEL_VERSION=$(KERNEL_VERSION) -e KERNEL_TARBALL=$(KERNEL_TARBALL) \
@@ -39,14 +41,14 @@ KERNEL_VARS_NOW := $(foreach v,KERNEL_VERSION KERNEL_SHA256 KERNEL_LOCALVERSION 
 $(shell mkdir -p $(BUILD); [ "$$(cat $(KERNEL_VARS) 2>/dev/null)" = "$(KERNEL_VARS_NOW)" ] || \
 	echo "$(KERNEL_VARS_NOW)" > $(KERNEL_VARS))
 
-KERNEL_INPUTS := $(KERNEL_TARBALL) $(KERNEL_SERIES) $(wildcard kernel/patches/*/*.patch) \
+KERNEL_INPUTS := $(KERNEL_TARBALL) $(KERNEL_SERIES) $(wildcard linux/patches/*/*.patch) \
 	$(KERNEL_FRAGMENTS) tools/build-kernel.sh $(KERNEL_VARS)
 ROOTFS_VARS := $(BUILD)/rootfs.vars
 ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE_DATE_EPOCH BUILDER_TAG,$(v)=$($(v)))
 $(shell [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: spu-toolchain spu-tests spu-deploy help all builder kernel rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot debs deploy kernel-deploy netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
+.PHONY: publish du clean-ephemeral spu-toolchain spu-tests spu-deploy help all builder kernel rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot debs deploy kernel-deploy netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
 	mesa-builder mesa-sysroot mesa mesa-tests mesa-deploy classicube classicube-audio classicube-deploy
 
 help:
@@ -69,13 +71,13 @@ help:
 	@echo "  make netboot      boot our kernel on the PS3 from Petitboot (NFS root)"
 	@echo "  make listen       print PS3 early-debug + netconsole output"
 	@echo "GPU:"
-	@echo "  make gpu-tools    cross-compile gpu/tools/*.c       -> $(BUILD)/gpu"
+	@echo "  make gpu-tools    cross-compile ps3-gpu-tools/src/*.c -> $(BUILD)/gpu"
 	@echo "  make gpu-deploy   install them (ps3rsx, ps3-gpu-tools packages) on the running PS3"
 	@echo "  make ps3-reboot   reboot the running PS3 Linux (lands in GameOS/XMB, not Petitboot)"
 	@echo "Mesa:"
 	@echo "  make mesa-sysroot Debian ppc64 sysroot to build against -> $(MESA_SYSROOT)"
 	@echo "  make mesa         patched Mesa (nouveau nv30 + softpipe) -> $(MESA_INSTALL)$(MESA_PREFIX)"
-	@echo "  make mesa-tests   offscreen EGL/GLES2 tests (mesa/tests) -> $(BUILD)/mesa/tests"
+	@echo "  make mesa-tests   offscreen EGL/GLES2 tests (ps3-gpu-tools/mesa-tests) -> $(BUILD)/mesa/tests"
 	@echo "  make mesa-deploy  install the ps3-mesa package on the running PS3"
 	@echo "Other:"
 	@echo "  make shell        shell in the builder container"
@@ -133,15 +135,16 @@ usb-root: $(ROOTFS_TAR)
 		tools/install-usb-root.sh $(ROOTFS_TAR)
 
 # --- GPU tools ----------------------------------------------------------------
-# Kernel modules (every gpu/*/Kbuild) build against the kernel tree in $(BUILD)/kernel/obj.
-# Kbuild writes objects next to the sources, so each directory is copied to $(BUILD)/gpu-<dir>.
-GPU_KMODS := $(patsubst gpu/%/Kbuild,%,$(wildcard gpu/*/Kbuild))
+# Kernel modules build against the kernel tree in $(BUILD)/kernel/obj. Kbuild writes objects next to
+# the sources, so each source directory is copied to $(BUILD)/gpu-<name> (<name>:<source dir>).
+GPU_KMODS := ps3rsx:ps3rsx/src kmod:ps3rsx/probes
 GPU_STAMP := $(BUILD)/gpu/.done
 gpu-tools: $(GPU_STAMP)
-$(GPU_STAMP): $(wildcard gpu/Makefile gpu/*/*) $(KERNEL_STAGE)/boot/vmlinux | $(BUILDER_STAMP)
-	$(DOCKER_RUN) --user $(UID_GID) $(BUILDER_TAG) make -C gpu OUT=../$(BUILD)/gpu
-	for d in $(GPU_KMODS); do \
-		mkdir -p $(BUILD)/gpu-$$d && cp gpu/$$d/* $(BUILD)/gpu-$$d/ && \
+$(GPU_STAMP): $(wildcard ps3-gpu-tools/Makefile ps3-gpu-tools/src/* ps3rsx/src/* ps3rsx/probes/*) \
+		$(KERNEL_STAGE)/boot/vmlinux | $(BUILDER_STAMP)
+	$(DOCKER_RUN) --user $(UID_GID) $(BUILDER_TAG) make -C ps3-gpu-tools OUT=../$(BUILD)/gpu
+	for m in $(GPU_KMODS); do d=$${m%%:*}; s=$${m#*:}; [ -e $$s/Kbuild ] || { echo "no $$s/Kbuild"; exit 1; }; \
+		mkdir -p $(BUILD)/gpu-$$d && cp $$s/* $(BUILD)/gpu-$$d/ && \
 		$(DOCKER_RUN) --user $(UID_GID) $(BUILDER_TAG) make -s -C $(BUILD)/kernel/obj \
 			ARCH=powerpc CROSS_COMPILE=powerpc64-linux-gnu- M=/work/$(BUILD)/gpu-$$d modules \
 			|| exit 1; \
@@ -163,7 +166,7 @@ MESA_ENV := -e MESA_VERSION=$(MESA_VERSION) -e MESA_TARBALL=$(MESA_TARBALL) -e M
 MESA_VARS := $(BUILD)/mesa.vars
 MESA_VARS_NOW := $(foreach v,MESA_VERSION MESA_SHA256 MESA_FORK MESA_PREFIX SOURCE_DATE_EPOCH MESA_BUILDER_TAG,$(v)=$($(v)))
 $(shell [ "$$(cat $(MESA_VARS) 2>/dev/null)" = "$(MESA_VARS_NOW)" ] || echo "$(MESA_VARS_NOW)" > $(MESA_VARS))
-MESA_INPUTS := $(MESA_TARBALL) $(shell find $(MESA_FORK) -type f) mesa/cross-ppc64.ini \
+MESA_INPUTS := $(MESA_TARBALL) $(shell find $(MESA_FORK) -type f) sysroot/mesa-cross-ppc64.ini \
 	tools/build-mesa.sh $(MESA_VARS) $(MESA_SYSROOT)/.done
 
 mesa-builder: $(MESA_BUILDER_STAMP)
@@ -189,8 +192,8 @@ $(MESA_INSTALL)$(MESA_PREFIX)/env.sh: $(MESA_INPUTS) | $(MESA_BUILDER_STAMP)
 
 MESA_TESTS_STAMP := $(BUILD)/mesa/tests/.done
 mesa-tests: $(MESA_TESTS_STAMP)
-$(MESA_TESTS_STAMP): $(wildcard mesa/tests/*) $(MESA_SYSROOT)/.done | $(MESA_BUILDER_STAMP)
-	$(DOCKER_RUN) --user $(UID_GID) $(MESA_BUILDER_TAG) make -C mesa/tests SYSROOT=/work/$(MESA_SYSROOT) \
+$(MESA_TESTS_STAMP): $(wildcard ps3-gpu-tools/mesa-tests/*) $(MESA_SYSROOT)/.done | $(MESA_BUILDER_STAMP)
+	$(DOCKER_RUN) --user $(UID_GID) $(MESA_BUILDER_TAG) make -C ps3-gpu-tools/mesa-tests SYSROOT=/work/$(MESA_SYSROOT) \
 		OUT=/work/$(BUILD)/mesa/tests
 	@touch $@
 
@@ -219,19 +222,19 @@ $(GAMES_BUILDER_STAMP): docker/Dockerfile.games | $(MESA_BUILDER_STAMP)
 	docker build -q -t $(GAMES_BUILDER_TAG) -f docker/Dockerfile.games --build-arg BUILDER=$(MESA_BUILDER_TAG) docker
 	@touch $@
 
-# Sounds and music, fetched and converted as the game's launcher would (games/classicube/sounds.sh)
+# Sounds and music, fetched and converted as the game's launcher would (classicube/sounds.sh)
 CC_AUDIO := $(BUILD)/classicube/audio
 classicube-audio: $(CC_AUDIO)/default2.zip
-$(CC_AUDIO)/default2.zip: $(CC_TARBALL) games/classicube/sounds.sh | $(GAMES_BUILDER_STAMP)
-	$(DOCKER_RUN) --user $(UID_GID) -e CC_TARBALL=$(CC_TARBALL) $(GAMES_BUILDER_TAG) games/classicube/sounds.sh
+$(CC_AUDIO)/default2.zip: $(CC_TARBALL) classicube/sounds.sh | $(GAMES_BUILDER_STAMP)
+	$(DOCKER_RUN) --user $(UID_GID) -e CC_TARBALL=$(CC_TARBALL) $(GAMES_BUILDER_TAG) classicube/sounds.sh
 
 classicube-deploy:
 	$(MAKE) deploy PKGS=classicube
 
 classicube: $(CC_INSTALL)/ClassiCube
-$(CC_INSTALL)/ClassiCube: $(CC_TARBALL) $(CC_TEXPACK) games/classicube/build.sh $(MESA_SYSROOT)/.done | $(MESA_BUILDER_STAMP)
+$(CC_INSTALL)/ClassiCube: $(CC_TARBALL) $(CC_TEXPACK) classicube/build.sh $(MESA_SYSROOT)/.done | $(MESA_BUILDER_STAMP)
 	$(DOCKER_RUN) --user $(UID_GID) -e CC_TARBALL=$(CC_TARBALL) -e CC_TEXPACK=$(CC_TEXPACK) \
-		$(MESA_BUILDER_TAG) games/classicube/build.sh
+		$(MESA_BUILDER_TAG) classicube/build.sh
 
 # --- SPU toolchain ---------------------------------------------------------------
 # spu-elf GCC 9.5 + binutils + newlib for the Cell's SPEs (tools/build-spu-toolchain.sh)
@@ -256,7 +259,7 @@ SPU_VARS := $(BUILD)/spu.vars
 SPU_VARS_NOW := $(foreach v,SPU_GCC_SHA256 SPU_BINUTILS_SHA256 SPU_NEWLIB_SHA256 SOURCE_DATE_EPOCH SPU_BUILDER_TAG,$(v)=$($(v)))
 $(shell [ "$$(cat $(SPU_VARS) 2>/dev/null)" = "$(SPU_VARS_NOW)" ] || echo "$(SPU_VARS_NOW)" > $(SPU_VARS))
 spu-toolchain: $(SPU_GCC)
-$(SPU_GCC): $(SPU_TARBALLS) $(SPU_VARS) tools/build-spu-toolchain.sh $(wildcard spu/port/*.patch spu/binutils/*.patch spu/newlib/*.patch spu/newlib-*/*.patch) | $(SPU_BUILDER_STAMP)
+$(SPU_GCC): $(SPU_TARBALLS) $(SPU_VARS) tools/build-spu-toolchain.sh $(wildcard spu-toolchain/gcc/*.patch spu-toolchain/binutils/*.patch spu-toolchain/newlib/*.patch spu-toolchain/newlib-*/*.patch) | $(SPU_BUILDER_STAMP)
 	echo "$(SPU_GCC_SHA256)  $(DOWNLOADS)/gcc-$(SPU_GCC_VERSION).tar.xz" | sha256sum -c --quiet
 	echo "$(SPU_BINUTILS_SHA256)  $(DOWNLOADS)/binutils-$(SPU_BINUTILS_VERSION).tar.xz" | sha256sum -c --quiet
 	echo "$(SPU_NEWLIB_SHA256)  $(DOWNLOADS)/newlib-$(SPU_NEWLIB_VERSION).tar.gz" | sha256sum -c --quiet
@@ -264,11 +267,11 @@ $(SPU_GCC): $(SPU_TARBALLS) $(SPU_VARS) tools/build-spu-toolchain.sh $(wildcard 
 		-e SPU_BINUTILS_VERSION=$(SPU_BINUTILS_VERSION) -e SPU_NEWLIB_VERSION=$(SPU_NEWLIB_VERSION) \
 		$(SPU_BUILDER_TAG) tools/build-spu-toolchain.sh
 
-# SPU test programs and the spufs runner (spu/): the ps3-spu package
+# SPU test programs and the spufs runner (ps3-spu/src): the ps3-spu package
 SPU_TESTS_STAMP := $(BUILD)/spu-tests/.done
 spu-tests: $(SPU_TESTS_STAMP)
-$(SPU_TESTS_STAMP): $(SPU_GCC) $(wildcard spu/*.c spu/Makefile) | $(SPU_BUILDER_STAMP)
-	$(DOCKER_RUN) --user $(UID_GID) $(SPU_BUILDER_TAG) make -C spu \
+$(SPU_TESTS_STAMP): $(SPU_GCC) $(wildcard ps3-spu/src/*.c ps3-spu/src/Makefile) | $(SPU_BUILDER_STAMP)
+	$(DOCKER_RUN) --user $(UID_GID) $(SPU_BUILDER_TAG) make -C ps3-spu/src \
 		SPU_CC=/work/$(SPU_GCC) OUT=/work/$(BUILD)/spu-tests
 	@touch $@
 spu-deploy:
@@ -279,17 +282,19 @@ spu-deploy:
 # build/repo, which is indexed as an apt repository. N in the versions is the commit count.
 PACKAGES := ps3-kernel ps3rsx ps3-boot ps3-gpu-tools ps3-mesa classicube ps3-spu
 PKG_N := $(shell git -C $(CURDIR) rev-list --count HEAD 2>/dev/null || echo 0)
-REPO_BUILDER_TAG := ps3-repo-builder:$(shell (cat docker/Dockerfile.repo; echo $(BUILDER_TAG)) | sha256sum | cut -c1-12)
+# Debian packaging tools and aptly (docker/Dockerfile.deb); also indexes the old pipeline's repo
+REPO_BUILDER_TAG := ps3-deb-builder:$(shell (cat docker/Dockerfile.deb; echo $(BUILDER_TAG) $(DEBIAN_SNAPSHOT)) | sha256sum | cut -c1-12)
 REPO_BUILDER_STAMP := $(BUILD)/.repo-builder-$(subst :,-,$(REPO_BUILDER_TAG))
-$(REPO_BUILDER_STAMP): docker/Dockerfile.repo | $(BUILDER_STAMP)
-	docker build -q -t $(REPO_BUILDER_TAG) -f docker/Dockerfile.repo --build-arg BUILDER=$(BUILDER_TAG) docker
+$(REPO_BUILDER_STAMP): docker/Dockerfile.deb | $(BUILDER_STAMP)
+	docker build -q -t $(REPO_BUILDER_TAG) -f docker/Dockerfile.deb --build-arg BUILDER=$(BUILDER_TAG) \
+		--build-arg SNAPSHOT=$(DEBIAN_SNAPSHOT) docker
 	@touch $@
 PKG_INPUTS_ps3-kernel := $(KERNEL_STAGE)/boot/vmlinux
 PKG_INPUTS_ps3rsx := $(GPU_STAMP)
-PKG_INPUTS_ps3-boot := rootfs/ps3-update-kboot
-PKG_INPUTS_ps3-gpu-tools := $(GPU_STAMP) $(wildcard gpu/tools/*.sh)
+PKG_INPUTS_ps3-boot := ps3-boot/ps3-update-kboot
+PKG_INPUTS_ps3-gpu-tools := $(GPU_STAMP) $(wildcard ps3-gpu-tools/scripts/*.sh)
 PKG_INPUTS_ps3-mesa := $(MESA_INSTALL)$(MESA_PREFIX)/env.sh $(MESA_TESTS_STAMP)
-PKG_INPUTS_classicube := $(CC_INSTALL)/ClassiCube $(CC_AUDIO)/default2.zip $(wildcard games/classicube/*)
+PKG_INPUTS_classicube := $(CC_INSTALL)/ClassiCube $(CC_AUDIO)/default2.zip $(wildcard classicube/*)
 PKG_INPUTS_ps3-spu := $(SPU_TESTS_STAMP)
 PKG_STAMPS := $(PACKAGES:%=$(BUILD)/repo/.%.stamp)
 debs: $(PKG_STAMPS)
@@ -314,8 +319,8 @@ kernel-deploy:
 	$(MAKE) deploy PKGS=ps3-kernel
 
 # --- Image --------------------------------------------------------------------
-# The package layer plus our config (rootfs/) and our packages (build/repo)
-IMAGE_INPUTS := $(ROOTFS_BASE) $(wildcard rootfs/*) tools/build-image.sh $(SSH_PUBKEY) $(PKG_STAMPS)
+# The package layer plus our config (image/) and our packages (build/repo)
+IMAGE_INPUTS := $(ROOTFS_BASE) $(wildcard image/*) tools/build-image.sh $(SSH_PUBKEY) $(PKG_STAMPS)
 rootfs: $(ROOTFS_TAR)
 IMAGE_VARS := $(BUILD)/image.vars
 BOOT_ROOT_ARGS := $(ROOT_ARGS_usb) rootwait
@@ -348,3 +353,28 @@ clean:
 	@ts=$$(date +%Y%m%d-%H%M%S); mkdir -p $(BUILD)/old/$$ts; \
 	for d in kernel rootfs mesa; do if [ -e $(BUILD)/$$d ]; then mv $(BUILD)/$$d $(BUILD)/old/$$ts/; fi; done; \
 	echo "moved outputs to $(BUILD)/old/$$ts"
+
+# --- Repository and workspace ------------------------------------------------------------
+# Publish packages to the repository server (tools/repo-publish.sh). DEBS: the files to publish
+# (default: the current debs of the package pipeline); DIST=dev for throwaway test builds.
+DEBS ?= $(wildcard $(BUILD)/repo/*.deb)
+DIST ?= ps3
+publish: | $(REPO_BUILDER_STAMP)
+	@tools/disk-check.sh
+	REPO_BUILDER_TAG=$(REPO_BUILDER_TAG) REPO_HOST=$(REPO_HOST) REPO_DIR=$(REPO_DIR) DIST=$(DIST) \
+		tools/repo-publish.sh $(DEBS)
+
+# Disk use of build/ (on /home, nearly full) and what may be deleted (CLAUDE.md: everything but
+# build/aptly and patch work trees with unexported commits)
+du:
+	@df -h $(BUILD) | tail -1; du -sh $(BUILD)/* 2>/dev/null | sort -rh | head -25
+clean-ephemeral:
+	@echo "deleting build/old, build/tmp, superseded experiment trees (keeping aptly, work trees, current outputs)"
+	docker run --rm -v $(CURDIR)/$(BUILD):/b alpine:3.20 sh -c 'cd /b && rm -rf old tmp/* spu-port spu-*-ref 2>/dev/null; true'
+	docker image prune -f >/dev/null; docker builder prune -f >/dev/null
+	@$(MAKE) --no-print-directory du
+
+# A builder stamp is only as good as its image: if Docker no longer has the image (pruned), drop the
+# stamp so the image is rebuilt rather than the build failing
+$(foreach b,BUILDER MESA_BUILDER GAMES_BUILDER SPU_BUILDER REPO_BUILDER,\
+	$(if $(wildcard $($(b)_STAMP)),$(shell docker image inspect $($(b)_TAG) >/dev/null 2>&1 || rm -f $($(b)_STAMP))))
