@@ -221,9 +221,27 @@ Next:
 ### 7. A distribution
 
 A repository of Cell-tuned packages, our kernel, and the fixed nouveau/Mesa and ps3rsx, so the
-image (and other PS3 users) install them with apt instead of from build outputs. First steps:
-- package ps3rsx (DKMS or built against our kernel) and the Mesa fork as .debs;
-- host them in a signed apt repository.
+image (and other PS3 users) install them with apt instead of from build outputs.
+
+Design (2026-10-15). The first step, before any hosting, is that the image gets everything of
+ours as .debs from a local repository layered over the snapshot:
+- **Packages, built with `dpkg-deb`** in the builder (reproducible with `SOURCE_DATE_EPOCH`),
+  installed out of `~tibi` into system paths:
+
+  | Package | Contents |
+  |---|---|
+  | `ps3-kernel` | `/boot/vmlinux-<ver>`, `/lib/modules/<ver>` |
+  | `ps3rsx` | `/lib/modules/<ver>/updates/ps3rsx.ko`, loaded with `modprobe` (depmod in postinst) |
+  | `ps3-gpu-tools` | RSX probes and tests in `/usr/lib/ps3/bin` |
+  | `ps3-mesa` | the Mesa fork under `/usr/lib/ps3-mesa` (ld.so.conf.d); later replacing Debian's Mesa packages outright, which also drops their ~210 MB of LLVM |
+  | `classicube` | `/usr/lib/classicube`; a launcher seeds a per-user game directory |
+  | `ps3-spu` | `spurun`, the SPU runtime and tests |
+  | `ps3-desktop` | session, `ps3-game`, `ds3-pair` and udev rules, game defaults |
+- **Versions:** `<upstream>+ps3.<n>`, or for our own code `0.<commit count>` (computed on the
+  host and passed in).
+- **Repository:** `build/repo` made with `apt-ftparchive`. The image layer installs from it
+  (`apt-get install`), and the package layer stays the snapshot. Next: sign it and host it.
+  The SPU and PPE toolchains could ship from it too.
 
 ### 8. Disk image and installer
 

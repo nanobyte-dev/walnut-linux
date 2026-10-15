@@ -1,6 +1,7 @@
 #!/bin/bash
-# Builds the spu-elf cross toolchain for the Cell's SPEs: binutils, GCC (C only) and newlib,
-# installed under build/spu/install/opt/spu. Runs as the user inside the SPU builder container.
+# Builds the spu-elf cross toolchain for the Cell's SPEs: binutils, GCC (C only, with our port of
+# the SPU backend: spu/port/*.patch) and newlib (spu/newlib/*.patch), installed under
+# build/spu/install/opt/spu. Runs as the user inside the SPU builder container.
 # Inputs (env): SPU_GCC_VERSION SPU_BINUTILS_VERSION SPU_NEWLIB_VERSION SOURCE_DATE_EPOCH JOBS
 set -euo pipefail
 {
@@ -22,9 +23,10 @@ mkdir -p "$SRC"
 tar -xf "$D/binutils-$SPU_BINUTILS_VERSION.tar.xz" -C "$SRC"
 tar -xf "$D/gcc-$SPU_GCC_VERSION.tar.xz" -C "$SRC"
 tar -xf "$D/newlib-$SPU_NEWLIB_VERSION.tar.gz" -C "$SRC"
+for p in spu/port/*.patch; do patch -d "$SRC/gcc-$SPU_GCC_VERSION" -p1 -s < "$p"; done
+for p in spu/newlib/*.patch; do patch -d "$SRC/newlib-$SPU_NEWLIB_VERSION" -p1 -s < "$p"; done
 export PATH="$DEST$PREFIX/bin:$PATH"
-# GCC 9 marks SPU obsolete (removed in 10): --enable-obsolete. The old sources predate GCC 10's -fno-common default and newer C standards
-export CFLAGS="-O2 -fcommon" CXXFLAGS="-O2"
+export CFLAGS="-O2" CXXFLAGS="-O2"
 
 echo ">> binutils"
 mkdir -p "$OUT/obj-binutils" && cd "$OUT/obj-binutils"
@@ -37,7 +39,7 @@ cd - > /dev/null
 echo ">> GCC, stage 1 (compiler only)"
 mkdir -p "$OUT/obj-gcc" && cd "$OUT/obj-gcc"
 "$PWD/../src/gcc-$SPU_GCC_VERSION/configure" --target=$TARGET --prefix=$PREFIX \
-	--with-build-sysroot="$DEST$PREFIX/$TARGET" --enable-languages=c --with-newlib --enable-obsolete \
+	--with-build-sysroot="$DEST$PREFIX/$TARGET" --enable-languages=c --with-newlib \
 	--disable-nls --disable-shared --disable-threads --disable-libssp --disable-werror \
 	--with-as="$DEST$PREFIX/bin/$TARGET-as" --with-ld="$DEST$PREFIX/bin/$TARGET-ld" \
 	> ../gcc-configure.log

@@ -1,0 +1,45 @@
+expmed: don't build invalid subregs for ext(z)v/insv on registers
+
+GCC 16's validate_subreg rejects size-changing subregs of float modes (complex float
+included). The SPU's ext(z)v/insv work on 128-bit TImode, so extracting or storing part of a
+__complex__ float register built (subreg:TI (reg:SC)) and ICEd in gen_rtx_SUBREG. When the
+register can't be viewed in the pattern's mode, fall back to the shift-based code, as these
+functions already do for SUBREG operands. GCC 9 accepted the subreg.
+
+--- a/gcc/expmed.cc
++++ b/gcc/expmed.cc
+@@ -641,7 +641,15 @@
+ 				 SUBREG_BYTE (xop0));
+ 	}
+       if (REG_P (xop0) && GET_MODE (xop0) != op_mode)
+-	xop0 = gen_lowpart_SUBREG (op_mode, xop0);
++	{
++	  /* As in extract_bit_field_using_extv: leave registers that can't be
++	     viewed in OP_MODE to the shift-based insertion.  */
++	  if (!validate_subreg (op_mode, GET_MODE (xop0), xop0,
++				subreg_lowpart_offset (op_mode,
++						       GET_MODE (xop0))))
++	    return false;
++	  xop0 = gen_lowpart_SUBREG (op_mode, xop0);
++	}
+     }
+ 
+   /* If the destination is a paradoxical subreg such that we need a
+@@ -1582,7 +1590,16 @@
+       if (GET_CODE (op0) == SUBREG && op0_mode.require () != ext_mode)
+ 	return NULL_RTX;
+       if (REG_P (op0) && op0_mode.require () != ext_mode)
+-	op0 = gen_lowpart_SUBREG (ext_mode, op0);
++	{
++	  /* Leave registers that can't be viewed in EXT_MODE (e.g. a complex
++	     float wider than nothing but narrower than a 128-bit SPU word)
++	     to the shift-based extraction.  */
++	  if (!validate_subreg (ext_mode, GET_MODE (op0), op0,
++				subreg_lowpart_offset (ext_mode,
++						       GET_MODE (op0))))
++	    return NULL_RTX;
++	  op0 = gen_lowpart_SUBREG (ext_mode, op0);
++	}
+     }
+ 
+   /* If BITS_BIG_ENDIAN is zero on a BYTES_BIG_ENDIAN machine, we count

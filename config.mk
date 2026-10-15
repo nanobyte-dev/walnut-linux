@@ -38,24 +38,25 @@ CLASSICUBE_TEXPACK_SHA256 := 55eac12a9727d209b42694d07dfdca8d50349779ab77ffc11a3
 CLASSICUBE_TEXPACK_URL := http://static.classicube.net/default.zip
 
 # --- SPU toolchain (spu-elf, for the Cell's SPEs) ---------------------------------
-# GCC 9 is the last release with the SPU backend (removed in GCC 10); binutils and newlib from the
-# same era. GNU tarballs' signatures checked against gnu-keyring.gpg, newlib against sha512.sum
-# (2026-10-15).
-SPU_GCC_VERSION     := 9.5.0
-SPU_GCC_SHA256      := 27769f64ef1d4cd5e2be8682c0c93f9887983e6cfd1a927ce5a0a2915a95cf8f
+# The same GCC and binutils versions as the PPE (docs/PLAN.md): GCC 16.2 with our port of the SPU
+# backend (removed upstream in GCC 10; spu/port/*.patch, docs/SPU-GCC.md), binutils 2.47 (SPU still
+# upstream), newlib with spu/newlib/*.patch. GNU tarballs' signatures checked against
+# gnu-keyring.gpg, newlib against sourceware's sha512.sum (2026-10-15).
+SPU_GCC_VERSION     := 16.2.0
+SPU_GCC_SHA256      := e6738e29597f733270731aa90600f37ffdc045079dfc27ec7e8192cc81085c3e
 SPU_GCC_URL         := https://ftp.gnu.org/gnu/gcc/gcc-$(SPU_GCC_VERSION)/gcc-$(SPU_GCC_VERSION).tar.xz
-SPU_BINUTILS_VERSION := 2.33.1
-SPU_BINUTILS_SHA256 := ab66fc2d1c3ec0359b8e08843c9f33b63e8707efdff5e4cc5c200eae24722cbf
+SPU_BINUTILS_VERSION := 2.47
+SPU_BINUTILS_SHA256 := 154ab23b60070e8f27013c22977f1129425d67d1e8acd6e13010e617811e4cff
 SPU_BINUTILS_URL    := https://ftp.gnu.org/gnu/binutils/binutils-$(SPU_BINUTILS_VERSION).tar.xz
-# newlib 3.3.0 doesn't build for SPU (its SPU sys/sched.h lacks struct sched_param, which the
-# newer pthread types use); 1.20.0 is what the PS3 homebrew toolchain (ps3toolchain) still uses.
-SPU_NEWLIB_VERSION  := 1.20.0
-SPU_NEWLIB_SHA256   := c644b2847244278c57bec2ddda69d8fab5a7c767f3b9af69aa7aa3da823ff692
+SPU_NEWLIB_VERSION  := 4.6.0.20260123
+SPU_NEWLIB_SHA256   := 6ff27e3bf022666f43f7802255be680eeff722ac181b1725d21e2e8318604ee3
 SPU_NEWLIB_URL      := https://sourceware.org/pub/newlib/newlib-$(SPU_NEWLIB_VERSION).tar.gz
 
 # --- Build container ----------------------------------------------------------
 # Pinned base image; its apt sources are pointed at the same snapshot date.
-BUILDER_BASE        := debian@sha256:2bf225230f05881b6a36d20f484088f408c9a1309edc730c0bf01f15e635d411
+# Debian sid (amd64), upgraded to the same snapshot as the PS3's root, so the cross compiler is the
+# snapshot's GCC 16.2 (gcc-16-powerpc64-linux-gnu 16.2.0-3cross1), as on the PS3 (docs/PLAN.md)
+BUILDER_BASE        := debian@sha256:c53e050391cca6c8517c4a075230b798a0f980faa5d3ed0a912249ea882e40b5
 BUILDER_SNAPSHOT    := $(DEBIAN_SNAPSHOT)
 
 # Fixed timestamp for kernel and rootfs builds (2026-10-13 00:00:00 UTC, matches the snapshot).

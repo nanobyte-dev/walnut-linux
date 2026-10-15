@@ -268,7 +268,7 @@ $(DOWNLOADS)/newlib-$(SPU_NEWLIB_VERSION).tar.gz:
 	@mkdir -p $(DOWNLOADS)
 	curl -fsSL -o $@.tmp $(SPU_NEWLIB_URL) && echo "$(SPU_NEWLIB_SHA256)  $@.tmp" | sha256sum -c --quiet && mv $@.tmp $@
 spu-toolchain: $(SPU_GCC)
-$(SPU_GCC): $(SPU_TARBALLS) tools/build-spu-toolchain.sh | $(SPU_BUILDER_STAMP)
+$(SPU_GCC): $(SPU_TARBALLS) tools/build-spu-toolchain.sh $(wildcard spu/port/*.patch spu/newlib/*.patch) | $(SPU_BUILDER_STAMP)
 	echo "$(SPU_GCC_SHA256)  $(DOWNLOADS)/gcc-$(SPU_GCC_VERSION).tar.xz" | sha256sum -c --quiet
 	echo "$(SPU_BINUTILS_SHA256)  $(DOWNLOADS)/binutils-$(SPU_BINUTILS_VERSION).tar.xz" | sha256sum -c --quiet
 	echo "$(SPU_NEWLIB_SHA256)  $(DOWNLOADS)/newlib-$(SPU_NEWLIB_VERSION).tar.gz" | sha256sum -c --quiet
