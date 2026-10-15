@@ -15,6 +15,15 @@ STATE=/mnt/ps3usb/.install-old	# where prepare left the previous installation (a
 
 fail() { echo "usb-root: $*" >&2; exit 1; }
 
+# A running system older than the image lacks sfdisk/mke2fs: use the ones install-usb-root.sh
+# sent from the image
+if ! command -v sfdisk >/dev/null && [ -x /tmp/usb-tools/usr/sbin/sfdisk ]; then
+	PATH=/tmp/usb-tools/usr/sbin:$PATH
+	LD_LIBRARY_PATH=/tmp/usb-tools/usr/lib/powerpc64-linux-gnu
+	MKE2FS_CONFIG=/tmp/usb-tools/etc/mke2fs.conf
+	export PATH LD_LIBRARY_PATH MKE2FS_CONFIG
+fi
+
 case "$1" in
 prepare)
 	link="/dev/disk/by-id/${USB_DISK_ID:?}"
@@ -36,7 +45,7 @@ prepare)
 		udevadm settle
 		mkswap -L ps3swap "$SWAP"
 		# no features newer than Petitboot's kernel knows, so it may read /boot from here later
-		mkfs.ext4 -q -L ps3root -O ^metadata_csum,^metadata_csum_seed,^64bit,^orphan_file "$ROOT"
+		mke2fs -t ext4 -q -L ps3root -O ^metadata_csum,^metadata_csum_seed,^64bit,^orphan_file "$ROOT"
 	fi
 	mkdir -p "$MNT"
 	mountpoint -q "$MNT" || mount "$ROOT" "$MNT"
