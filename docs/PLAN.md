@@ -274,8 +274,8 @@ Linux gets 6 SPEs (`spufs`). Possible uses: zram compression, video decode, vert
 Report: docs/SPU-GCC.md (2026-10-15).
 
 Done:
-- `make spu-toolchain`: pinned spu-elf GCC 9.5 + binutils 2.33.1 + newlib 4.6.0 (3.3.0 needed patches
-  doesn't build for SPU). `spu/spurun` runs SPU programs through spufs, no libspe2. Proven:
+- `make spu-toolchain`: pinned spu-elf GCC 9.5 + binutils 2.33.1 + newlib 4.6.0 (seven patches, spu/newlib-4.6/).
+  `spu/spurun` runs SPU programs through spufs, no libspe2. Proven:
   hello on a real SPE.
 - Forward port: the GCC 9.5 backend builds in GCC 16.2 after about 20 mechanical edits
   (`spu/port/`). On old reload it passes 1621 execute torture tests on the SPEs, against 1618
