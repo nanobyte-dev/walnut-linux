@@ -1,0 +1,17 @@
+# Debian packages our repository carries in its `deps` component, at the debian-ports snapshot's
+# own versions (tools/deps-update.sh): the PS3 sees only our repository, so a Debian package that
+# one of ours newly depends on, or that a rollback needs, has to be here. One name per line.
+
+# ps3-boot and Debian kernels: linux-version, linux-run-hooks
+linux-base
+# Rollback to Debian's own Mesa (26.2.4-1) after ours replaced it and LLVM was autoremoved
+mesa-libgallium
+libgbm1
+libegl-mesa0
+libglx-mesa0
+libgl1-mesa-dri
+libllvm22
+libz3-4
+libedit2
+libsensors5
+libsensors-config

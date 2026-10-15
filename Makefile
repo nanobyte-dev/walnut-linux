@@ -48,7 +48,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: publish du clean-ephemeral spu-toolchain spu-tests spu-deploy help all builder kernel rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot debs deploy kernel-deploy netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
+.PHONY: publish deps du clean-ephemeral spu-toolchain spu-tests spu-deploy help all builder kernel rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot debs deploy kernel-deploy netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
 	mesa-builder mesa-sysroot mesa mesa-tests mesa-deploy classicube classicube-audio classicube-deploy
 
 help:
@@ -363,6 +363,12 @@ publish: | $(REPO_BUILDER_STAMP)
 	@tools/disk-check.sh
 	REPO_BUILDER_TAG=$(REPO_BUILDER_TAG) REPO_HOST=$(REPO_HOST) REPO_DIR=$(REPO_DIR) DIST=$(DIST) \
 		tools/repo-publish.sh $(DEBS)
+
+# The repository's `deps` component: Debian packages listed in image/deps.txt, from the snapshot
+deps: | $(REPO_BUILDER_STAMP)
+	docker run --rm -v $(CURDIR):/work -w /work --user $(UID_GID) -e HOME=/tmp -e DEBIAN_MIRROR=$(DEBIAN_MIRROR) \
+		$(REPO_BUILDER_TAG) tools/deps-update.sh
+	$(MAKE) --no-print-directory publish DEBS=
 
 # Disk use of build/ (on /home, nearly full) and what may be deleted (CLAUDE.md: everything but
 # build/aptly and patch work trees with unexported commits)

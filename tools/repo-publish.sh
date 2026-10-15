@@ -18,7 +18,7 @@ for f in "$@"; do
 	esac
 	cp "$f" "$STAGE/"
 done
-docker run --rm -v "$PWD:/work" -w /work --user "$(id -u):$(id -g)" -e DIST="$DIST" \
+docker run --rm -v "$PWD:/work" -w /work --user "$(id -u):$(id -g)" -e HOME=/tmp -e DIST="$DIST" \
 	"$REPO_BUILDER_TAG" tools/aptly-publish.sh "$STAGE"
 
 PUB=build/aptly/public
