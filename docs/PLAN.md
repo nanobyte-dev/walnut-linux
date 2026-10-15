@@ -4,6 +4,22 @@ Hard constraints are in CLAUDE.md (no permanent changes beyond installing Linux,
 default boot OS, no syscon writes, supervised sessions). The roadmap below follows `backlog.txt`;
 updated 2026-10-15.
 
+## Base and toolchain (decided 2026-10-15)
+
+- **Base:** a pinned Debian sid snapshot (`DEBIAN_SNAPSHOT`, now 2026-10-13) is our release.
+  Debian has no stable release for ppc64 (big-endian), only debian-ports unstable, so a frozen
+  snapshot is the closest thing to an LTS. It moves deliberately, at the latest when Debian 14
+  is released, and never piecemeal.
+- **One compiler version everywhere: GCC 16.2,** the snapshot's system compiler (`gcc-16`
+  16.2.0-3).
+  - **PPE** (kernel, Mesa, ps3rsx, games): Debian's `gcc-16-powerpc64-linux-gnu`
+    16.2.0-3cross1 from the amd64 sid snapshot of the same date, so the build container comes
+    from that snapshot too (not Debian 13, whose GCC is 14).
+  - **SPU:** our port of the SPU backend to GCC 16.2 (docs/SPU-GCC.md, `spu/port/`).
+  - **binutils:** 2.47 (the snapshot's), for both.
+- **Kernel:** 6.12 LTS (supported to Dec 2028). Mesa: our fork of the snapshot's release.
+- Later, our builds become .debs in our own apt repository, layered over the snapshot.
+
 ## Long-term goal (stated 2026-10-14)
 
 A live environment for the PS3 that boots from USB or over NFS through Petitboot, with the RSX
