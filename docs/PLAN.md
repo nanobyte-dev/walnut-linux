@@ -260,6 +260,11 @@ ours as .debs from a local repository layered over the snapshot:
   | `ps3-desktop` | session, `ps3-game`, `ds3-pair` and udev rules, game defaults |
 - **Versions:** `<upstream>+ps3.<n>`, or for our own code `0.<commit count>` (computed on the
   host and passed in).
+- **Done (2026-10-15), verified on the PS3:** the image installs the six packages with dpkg,
+  `make deploy` upgrades them on the running PS3, and `make usb-root-petitboot` writes the image
+  onto the USB disk from Petitboot (2 minutes; the old root is kept on the disk). The suite passes
+  on the packaged system. Next (task): build them from Debian's source packages (`deb-src`, our
+  patches in `debian/patches`, `+ps3.N` versions), so our Mesa replaces Debian's by version.
 - **Repository:** `build/repo` made with `apt-ftparchive`. The image layer installs from it
   (`apt-get install`), and the package layer stays the snapshot. Next: sign it and host it.
   The SPU and PPE toolchains could ship from it too.

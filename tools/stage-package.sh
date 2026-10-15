@@ -9,6 +9,14 @@ P="$1"; R="$2"
 B="${BUILD:-build}"
 K="$B/kernel/stage"
 
+# the package's commands on PATH: /usr/bin links to /usr/lib/ps3/bin
+link_commands() {
+	install -d "$R/usr/bin"
+	for f in "$R"/usr/lib/ps3/bin/*; do
+		ln -s "../lib/ps3/bin/${f##*/}" "$R/usr/bin/${f##*/}"
+	done
+}
+
 case "$P" in
 ps3-kernel)	# the kernel and its modules; Petitboot boots /boot/vmlinux-* (kboot.conf: image)
 	install -d "$R/boot" "$R/lib/modules"
@@ -26,12 +34,10 @@ ps3rsx)		# the RSX DRM driver, loaded at boot (before the desktop starts X)
 	install -m 644 "$B/gpu-ps3rsx/ps3rsx.ko" "$R/lib/modules/$KERNEL_RELEASE/updates/"
 	echo ps3rsx > "$R/usr/lib/modules-load.d/ps3rsx.conf" ;;
 ps3-gpu-tools)	# RSX probes and tests (gpu/tools), the Phase 0/1 probe modules
-	install -d "$R/usr/lib/ps3/bin" "$R/usr/lib/ps3/kmod" "$R/etc/profile.d"
+	install -d "$R/usr/lib/ps3/bin" "$R/usr/lib/ps3/kmod"
 	install -m 755 "$B"/gpu/* gpu/tools/*.sh "$R/usr/lib/ps3/bin/"
 	install -m 644 "$B"/gpu-kmod/*.ko "$R/usr/lib/ps3/kmod/"
-	printf '%s\n' '# PS3 tools (ps3-gpu-tools, ps3-spu)' \
-		'case ":$PATH:" in *:/usr/lib/ps3/bin:*) ;; *) PATH="$PATH:/usr/lib/ps3/bin" ;; esac' \
-		> "$R/etc/profile.d/ps3.sh" ;;
+	link_commands ;;
 ps3-mesa)	# our Mesa fork and its GL tests; ld.so.conf.d makes everything (setuid Xorg too) use it
 	install -d "$R$MESA_PREFIX/bin" "$R/etc/ld.so.conf.d"
 	cp -a "$B/mesa/install$MESA_PREFIX/." "$R$MESA_PREFIX/"
@@ -51,6 +57,7 @@ ps3-spu)	# SPU runner and tests; spufs loaded and mounted at /spu at boot
 	install -d "$R/usr/lib/ps3/bin" "$R/usr/lib/ps3/spu" "$R/usr/lib/modules-load.d" \
 		"$R/usr/lib/systemd/system/local-fs.target.wants"
 	install -m 755 "$B/spu-tests/spurun" "$R/usr/lib/ps3/bin/"
+	link_commands
 	install -m 644 "$B"/spu-tests/*.spu "$R/usr/lib/ps3/spu/"
 	echo spufs > "$R/usr/lib/modules-load.d/spufs.conf"
 	printf '%s\n' '[Unit]' 'Description=SPU file system (the Cell SPEs, spufs)' \

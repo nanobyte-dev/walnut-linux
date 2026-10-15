@@ -12,7 +12,10 @@ OUT=build/rootfs
 R="$(mktemp -d /tmp/ps3root.XXXXXX)"
 trap 'umount "$R/proc" "$R/sys" 2>/dev/null || true; rm -rf --one-file-system "$R"' EXIT
 
-tar -xpf "$OUT/base.tar" --numeric-owner --xattrs --xattrs-include='*' -C "$R"
+# The build host's SELinux labels (Docker's overlay on Fedora) ride along in base.tar's xattrs:
+# they mean nothing on the PS3 and make the image depend on the host, so they're dropped
+tar -xpf "$OUT/base.tar" --numeric-owner --xattrs --xattrs-include='*' \
+	--xattrs-exclude='security.selinux' -C "$R"
 mount -t proc proc "$R/proc"
 mount -t sysfs sysfs "$R/sys"
 
@@ -41,6 +44,7 @@ find "$R/run" "$R/tmp" -mindepth 1 -delete
 # Packed the way mmdebstrap packs its tarballs
 tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --clamp-mtime --numeric-owner --one-file-system \
 	--format=pax --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime --xattrs \
+	--xattrs-exclude='security.selinux' \
 	-C "$R" -cf "$OUT/debian-ppc64.tar.tmp" .
 
 # The previous image is moved aside, never overwritten

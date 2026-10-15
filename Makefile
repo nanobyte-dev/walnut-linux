@@ -40,7 +40,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: spu-toolchain spu-tests spu-deploy help all builder kernel rootfs rootfs-base checksums nfs-root usb-root debs deploy kernel-deploy netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
+.PHONY: spu-toolchain spu-tests spu-deploy help all builder kernel rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot debs deploy kernel-deploy netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
 	mesa-builder mesa-sysroot mesa mesa-tests mesa-deploy classicube classicube-audio classicube-deploy
 
 help:
@@ -113,6 +113,12 @@ checksums:
 # hand. The *-deploy targets install freshly built packages on the running PS3 (see Packages).
 nfs-root: $(ROOTFS_TAR) $(KERNEL_STAGE)/boot/vmlinux
 	sudo NFS_ROOT=$(NFS_ROOT) PS3_IP=$(PS3_IP) FRESH=$(FRESH) tools/install-nfs-root.sh $(ROOTFS_TAR)
+
+# The image onto the USB disk from Petitboot (the disk isn't in use there, so this replaces even the
+# root the PS3 normally runs from); the disk must have been set up with make usb-root FORMAT=1
+usb-root-petitboot: $(ROOTFS_TAR)
+	PS3_IP=$(PETITBOOT_IP) PC_IP=$(PC_IP) HTTP_PORT=$(HTTP_PORT) FRESH=$(FRESH) \
+		tools/install-usb-root-petitboot.sh $(ROOTFS_TAR)
 
 # The image onto the USB disk plugged into the PS3 (running Linux, over SSH); FORMAT=1 partitions
 # the disk first (erases it). Boot it with make netboot ROOT=usb.
