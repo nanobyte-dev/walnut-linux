@@ -9,7 +9,12 @@
  *    taken from its top end, at most vswap_vram_mb), else to the disk;
  *  - discards (swapon --discard=pages) free slots;
  *  - games come first: when a buffer object finds no VRAM, ps3rsx_vswap_shrink() writes the
- *    pages of the emptiest chunks back to the disk and hands the chunks over.
+ *    pages of the emptiest chunks back to the disk and hands the chunks over;
+ *  - the VRAM holds the recently swapped: when the pool is (nearly) full, a background job
+ *    moves the pages of its oldest chunk to the disk (pages that sat in swap longest without
+ *    being read back are the cold ones; reads free their slots through discards).
+ * Requests are served by our own work queue, on a fresh stack: blk-mq runs queue_rq inline from
+ * a plug flush in direct reclaim, which was already deep in the stack (an IRQ found < 4 KiB left).
  * The CPU copies (8-byte stores ~124 MB/s, reads ~10 MB/s, docs/RSX.md): far faster than the
  * USB disk, which serves one command at a time, and independent of the GPU, so a GPU wedge
  * can't lose swapped pages.
@@ -40,6 +45,7 @@
 #define ON_DISK		0x80000000u		/* map entry: the page is on the backing disk */
 #define MAX_RQ_PAGES	32			/* request size limit: bounds the bios per request */
 #define BIO_RESERVE	(2 * MAX_RQ_PAGES)	/* pieces of one request (a page split at most once) */
+#define HEADROOM	(8 * SLOTS)		/* free VRAM slots the demotion keeps in a full pool */
 
 static unsigned int vswap_vram_mb = 96;
 module_param(vswap_vram_mb, uint, 0444);
@@ -53,6 +59,7 @@ struct vchunk {
 	void __iomem *io;
 	unsigned int nused;
 	bool evicting;			/* being written back: no new pages into it */
+	u64 born;			/* when it was (re)filled: the demotion takes the oldest */
 	DECLARE_BITMAP(used, SLOTS);
 	DECLARE_BITMAP(dirty, SLOTS);	/* rewritten or freed since the write-back copied it */
 	u32 page[SLOTS];		/* device page in each used slot */
@@ -74,6 +81,15 @@ struct ps3rsx_vswap {
 	struct vchunk *chunks;
 	unsigned int nchunks;		/* chunks[] entries (allocated or not) */
 	unsigned int hint;		/* chunk to look for a free slot in first */
+	unsigned int nalloc;		/* chunks in the pool */
+	u64 seq;
+	struct workqueue_struct *io_wq;	/* serves requests (ordered) */
+	struct work_struct io_work;
+	spinlock_t pending_lock;
+	struct list_head pending;	/* requests for io_work */
+	struct workqueue_struct *demote_wq;
+	struct work_struct demote_work;
+	u64 demoted;
 	/* statistics (pages) */
 	u64 vram_writes, disk_writes, vram_reads, disk_reads, evicted;
 	u32 in_vram, on_disk;
@@ -117,6 +133,7 @@ static void __iomem *slot_io(struct ps3rsx_vswap *vs, u32 slot)
 struct vswap_cmd {
 	atomic_t pending;
 	blk_status_t status;
+	struct list_head node;		/* on vs->pending until io_work serves it */
 };
 
 static void cmd_put(struct request *rq)
@@ -191,6 +208,8 @@ static int slot_alloc(struct ps3rsx_vswap *vs)
 	}
 	c->nused = 0;
 	c->evicting = false;
+	c->born = ++vs->seq;
+	vs->nalloc++;
 	bitmap_zero(c->used, SLOTS);
 found:
 	vs->hint = i;
@@ -211,6 +230,13 @@ static void slot_free(struct ps3rsx_vswap *vs, u32 slot)
 
 /* --- requests ----------------------------------------------------------------------------- */
 
+/* A full (or no longer growing) pool: let the demotion make room for new pages. vs->lock held. */
+static void maybe_demote(struct ps3rsx_vswap *vs, bool alloc_failed)
+{
+	if (alloc_failed || (vs->nalloc == vs->nchunks && vs->nalloc * SLOTS - vs->in_vram < HEADROOM))
+		queue_work(vs->demote_wq, &vs->demote_work);
+}
+
 /* One piece of a write, within device page p; a disk piece is added to *bios. vs->lock held. */
 static void do_write(struct ps3rsx_vswap *vs, struct request *rq, struct bio_list *bios, u32 p,
 		     struct page *page, unsigned int len, unsigned int off, unsigned int in_page)
@@ -229,7 +255,9 @@ static void do_write(struct ps3rsx_vswap *vs, struct request *rq, struct bio_lis
 		vs->vram_writes++;
 		return;
 	}
-	if (len == PAGE_SIZE && (slot = slot_alloc(vs)) >= 0) {
+	slot = len == PAGE_SIZE ? slot_alloc(vs) : -1;
+	maybe_demote(vs, len == PAGE_SIZE && slot < 0);
+	if (slot >= 0) {
 		buf = kmap_local_page(page);
 		to_vram(slot_io(vs, slot), buf + off, len);
 		kunmap_local(buf);
@@ -287,10 +315,9 @@ static void do_discard(struct ps3rsx_vswap *vs, sector_t sector, unsigned int by
 	}
 }
 
-static blk_status_t vswap_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_data *bd)
+/* Serve one request (io_work, on its own stack) */
+static void vswap_do_rq(struct ps3rsx_vswap *vs, struct request *rq)
 {
-	struct request *rq = bd->rq;
-	struct ps3rsx_vswap *vs = hctx->queue->queuedata;
 	struct vswap_cmd *cmd = blk_mq_rq_to_pdu(rq);
 	u64 pos = (u64)blk_rq_pos(rq) << 9;
 	struct bio_list bios;
@@ -299,7 +326,6 @@ static blk_status_t vswap_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_
 	struct bio_vec bv;
 	struct bio *bio;
 
-	blk_mq_start_request(rq);
 	atomic_set(&cmd->pending, 1);
 	cmd->status = BLK_STS_OK;
 	bio_list_init(&bios);
@@ -351,6 +377,37 @@ out:
 		submit_bio(bio);
 	memalloc_noio_restore(noio);
 	cmd_put(rq);
+}
+
+static void vswap_io_work(struct work_struct *work)
+{
+	struct ps3rsx_vswap *vs = container_of(work, struct ps3rsx_vswap, io_work);
+	struct vswap_cmd *cmd;
+
+	for (;;) {
+		spin_lock_irq(&vs->pending_lock);
+		cmd = list_first_entry_or_null(&vs->pending, struct vswap_cmd, node);
+		if (cmd)
+			list_del(&cmd->node);
+		spin_unlock_irq(&vs->pending_lock);
+		if (!cmd)
+			break;
+		vswap_do_rq(vs, blk_mq_rq_from_pdu(cmd));
+	}
+}
+
+/* Hand the request to io_work: the caller may be deep in reclaim */
+static blk_status_t vswap_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_data *bd)
+{
+	struct ps3rsx_vswap *vs = hctx->queue->queuedata;
+	struct vswap_cmd *cmd = blk_mq_rq_to_pdu(bd->rq);
+	unsigned long flags;
+
+	blk_mq_start_request(bd->rq);
+	spin_lock_irqsave(&vs->pending_lock, flags);
+	list_add_tail(&cmd->node, &vs->pending);
+	spin_unlock_irqrestore(&vs->pending_lock, flags);
+	queue_work(vs->io_wq, &vs->io_work);
 	return BLK_STS_OK;
 }
 
@@ -382,35 +439,44 @@ static void wb_end_io(struct bio *bio)
 }
 
 /*
- * Write chunk i's pages to the disk and take it out of the pool. Its pages are copied out under
- * vs->lock, written without it, and switched to the disk only if nothing rewrote or discarded
- * them meanwhile (c->dirty). Returns true if the chunk was emptied; *node gets its VRAM node,
- * which the caller removes from the heap under mm_lock.
+ * Write chunk i's pages to the disk. They are copied out one page at a time under vs->lock
+ * (reading VRAM is slow: holding the lock for the whole chunk stalled swap for 100 ms), written
+ * without it, and switched to the disk only if nothing rewrote or discarded them meanwhile
+ * (c->dirty). release: take the emptied chunk out of the pool (its node then goes back to the
+ * heap, by the caller under mm_lock); else it stays, empty, as the pool's newest chunk.
+ * Returns true if the chunk was emptied. Under vs->shrink_lock.
  */
-static bool chunk_evict(struct ps3rsx_vswap *vs, unsigned int i, struct page **bounce, u32 *pages)
+static bool chunk_evict(struct ps3rsx_vswap *vs, unsigned int i, struct page **bounce, u32 *pages,
+			bool release)
 {
 	struct vchunk *c = &vs->chunks[i];
-	unsigned int s, n = 0;
+	unsigned int s, noio;
 	struct wb_batch b;
 	bool empty;
 
 	mutex_lock(&vs->lock);
 	c->evicting = true;			/* no new pages into it */
 	bitmap_zero(c->dirty, SLOTS);
-	for_each_set_bit(s, c->used, SLOTS) {
-		from_vram(page_address(bounce[s]), c->io + s * PAGE_SIZE, PAGE_SIZE);
-		pages[s] = c->page[s];
-		n++;
-	}
 	mutex_unlock(&vs->lock);
+	for (s = 0; s < SLOTS; s++) {
+		pages[s] = U32_MAX;
+		mutex_lock(&vs->lock);
+		if (test_bit(s, c->used)) {
+			from_vram(page_address(bounce[s]), c->io + s * PAGE_SIZE, PAGE_SIZE);
+			pages[s] = c->page[s];
+		}
+		mutex_unlock(&vs->lock);
+		cond_resched();
+	}
 
 	atomic_set(&b.pending, 1);
 	init_completion(&b.done);
 	b.status = BLK_STS_OK;
-	for (s = 0; s < SLOTS && n; s++) {
+	noio = memalloc_noio_save();
+	for (s = 0; s < SLOTS; s++) {
 		struct bio *bio;
 
-		if (!test_bit(s, c->used))	/* racy read: a freed slot is skipped below */
+		if (pages[s] == U32_MAX)
 			continue;
 		bio = bio_alloc(file_bdev(vs->backing), 1, REQ_OP_WRITE, GFP_NOIO);
 		bio->bi_iter.bi_sector = (sector_t)pages[s] << (PAGE_SHIFT - 9);
@@ -420,6 +486,7 @@ static bool chunk_evict(struct ps3rsx_vswap *vs, unsigned int i, struct page **b
 		atomic_inc(&b.pending);
 		submit_bio(bio);
 	}
+	memalloc_noio_restore(noio);
 	if (!atomic_dec_and_test(&b.pending))
 		wait_for_completion_io(&b.done);
 
@@ -439,13 +506,42 @@ static bool chunk_evict(struct ps3rsx_vswap *vs, unsigned int i, struct page **b
 		pr_err_ratelimited("ps3vswap: write-back failed (%d): chunk kept\n", b.status);
 	}
 	empty = !c->nused;
-	if (empty) {
+	if (empty && release) {
 		iounmap(c->io);
 		c->io = NULL;
+		vs->nalloc--;
+	} else if (empty) {
+		c->born = ++vs->seq;
 	}
 	c->evicting = false;
 	mutex_unlock(&vs->lock);
 	return empty;
+}
+
+/* SLOTS bounce pages and a page-number array for chunk_evict(); false if out of memory */
+static bool evict_buffers(struct page ***bounce, u32 **pages, gfp_t gfp)
+{
+	unsigned int s;
+
+	*bounce = kcalloc(SLOTS, sizeof(**bounce), gfp);
+	*pages = kcalloc(SLOTS, sizeof(**pages), gfp);
+	if (!*bounce || !*pages)
+		return false;
+	for (s = 0; s < SLOTS; s++)
+		if (!((*bounce)[s] = alloc_page(gfp)))
+			return false;
+	return true;
+}
+
+static void evict_buffers_free(struct page **bounce, u32 *pages)
+{
+	unsigned int s;
+
+	for (s = 0; bounce && s < SLOTS; s++)
+		if (bounce[s])
+			__free_page(bounce[s]);
+	kfree(bounce);
+	kfree(pages);
 }
 
 /*
@@ -456,7 +552,7 @@ static bool chunk_evict(struct ps3rsx_vswap *vs, unsigned int i, struct page **b
 bool ps3rsx_vswap_shrink(struct ps3rsx_device *rsx, u64 bytes)
 {
 	struct ps3rsx_vswap *vs = rsx->vswap;
-	unsigned int s, i, freed = 0;
+	unsigned int i, freed = 0;
 	struct page **bounce;
 	u64 got = 0;
 	u32 *pages;
@@ -464,12 +560,8 @@ bool ps3rsx_vswap_shrink(struct ps3rsx_device *rsx, u64 bytes)
 
 	if (!vs || !vs->map)
 		return false;
-	bounce = kcalloc(SLOTS, sizeof(*bounce), GFP_KERNEL);
-	pages = kcalloc(SLOTS, sizeof(*pages), GFP_KERNEL);
-	ok = bounce && pages;
 	mutex_lock(&vs->shrink_lock);
-	for (s = 0; s < SLOTS && ok; s++)
-		ok = (bounce[s] = alloc_page(GFP_KERNEL)) != NULL;
+	ok = evict_buffers(&bounce, &pages, GFP_KERNEL);
 	while (ok && got < bytes + CHUNK) {
 		int best = -1;
 
@@ -479,7 +571,7 @@ bool ps3rsx_vswap_shrink(struct ps3rsx_device *rsx, u64 bytes)
 			    (best < 0 || vs->chunks[i].nused < vs->chunks[best].nused))
 				best = i;
 		mutex_unlock(&vs->lock);
-		if (best < 0 || !chunk_evict(vs, best, bounce, pages))
+		if (best < 0 || !chunk_evict(vs, best, bounce, pages, true))
 			break;
 		mutex_lock(&rsx->mm_lock);
 		drm_mm_remove_node(&vs->chunks[best].node);
@@ -488,12 +580,47 @@ bool ps3rsx_vswap_shrink(struct ps3rsx_device *rsx, u64 bytes)
 		freed++;
 	}
 	mutex_unlock(&vs->shrink_lock);
-	for (s = 0; bounce && s < SLOTS; s++)
-		if (bounce[s])
-			__free_page(bounce[s]);
-	kfree(bounce);
-	kfree(pages);
+	evict_buffers_free(bounce, pages);
 	return freed > 0;
+}
+
+/* Keep HEADROOM slots free in a full pool: the oldest chunk's pages go to the disk */
+static void vswap_demote_work(struct work_struct *work)
+{
+	struct ps3rsx_vswap *vs = container_of(work, struct ps3rsx_vswap, demote_work);
+	struct page **bounce;
+	unsigned int n;
+	u32 *pages;
+
+	mutex_lock(&vs->shrink_lock);
+	/* under heavy pressure it gives up: new pages then go to the disk for a while */
+	if (!evict_buffers(&bounce, &pages, GFP_KERNEL | __GFP_NORETRY | __GFP_NOWARN))
+		goto out;
+	for (n = 0; n < vs->nchunks; n++) {	/* at most one pass over the pool */
+		unsigned int i, before;
+		int oldest = -1;
+
+		mutex_lock(&vs->lock);
+		if (vs->nalloc * SLOTS - vs->in_vram >= HEADROOM) {
+			mutex_unlock(&vs->lock);
+			break;
+		}
+		for (i = 0; i < vs->nchunks; i++)
+			if (vs->chunks[i].io && !vs->chunks[i].evicting && vs->chunks[i].nused &&
+			    (oldest < 0 || vs->chunks[i].born < vs->chunks[oldest].born))
+				oldest = i;
+		before = oldest >= 0 ? vs->chunks[oldest].nused : 0;
+		mutex_unlock(&vs->lock);
+		if (oldest < 0)
+			break;
+		chunk_evict(vs, oldest, bounce, pages, false);
+		mutex_lock(&vs->lock);
+		vs->demoted += before - vs->chunks[oldest].nused;
+		mutex_unlock(&vs->lock);
+	}
+out:
+	mutex_unlock(&vs->shrink_lock);
+	evict_buffers_free(bounce, pages);
 }
 
 /* --- sysfs -------------------------------------------------------------------------------- */
@@ -559,9 +686,10 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr, cha
 		chunks += drm_mm_node_allocated(&vs->chunks[i].node);
 	n = sysfs_emit(buf,
 		       "pages in VRAM %u on disk %u, VRAM chunks %u (MiB)\n"
-		       "writes VRAM %llu disk %llu, reads VRAM %llu disk %llu, written back %llu\n",
+		       "writes VRAM %llu disk %llu, reads VRAM %llu disk %llu, written back %llu "
+		       "(demoted %llu)\n",
 		       vs->in_vram, vs->on_disk, chunks, vs->vram_writes, vs->disk_writes,
-		       vs->vram_reads, vs->disk_reads, vs->evicted);
+		       vs->vram_reads, vs->disk_reads, vs->evicted, vs->demoted);
 	mutex_unlock(&vs->lock);
 	return n;
 }
@@ -599,10 +727,19 @@ int ps3rsx_vswap_init(struct ps3rsx_device *rsx)
 	vs->rsx = rsx;
 	mutex_init(&vs->lock);
 	mutex_init(&vs->shrink_lock);
+	spin_lock_init(&vs->pending_lock);
+	INIT_LIST_HEAD(&vs->pending);
+	INIT_WORK(&vs->io_work, vswap_io_work);
+	INIT_WORK(&vs->demote_work, vswap_demote_work);
 	vs->nchunks = vswap_vram_mb;
 	vs->chunks = kvcalloc(vs->nchunks, sizeof(*vs->chunks), GFP_KERNEL);
 	ret = -ENOMEM;
 	if (!vs->chunks || bioset_init(&vs->bios, BIO_RESERVE, 0, BIOSET_NEED_BVECS))
+		goto err;
+	/* both in the reclaim path (swap-out): they need their rescuer threads */
+	vs->io_wq = alloc_ordered_workqueue("ps3vswap", WQ_MEM_RECLAIM | WQ_HIGHPRI);
+	vs->demote_wq = alloc_ordered_workqueue("ps3vswap-demote", WQ_MEM_RECLAIM);
+	if (!vs->io_wq || !vs->demote_wq)
 		goto err;
 
 	ret = register_blkdev(0, "ps3vswap");
@@ -613,7 +750,6 @@ int ps3rsx_vswap_init(struct ps3rsx_device *rsx)
 	vs->tags.nr_hw_queues = 1;
 	vs->tags.queue_depth = 16;
 	vs->tags.numa_node = NUMA_NO_NODE;
-	vs->tags.flags = BLK_MQ_F_BLOCKING;
 	vs->tags.cmd_size = sizeof(struct vswap_cmd);
 	ret = blk_mq_alloc_tag_set(&vs->tags);
 	if (ret)
@@ -643,6 +779,10 @@ err_tags:
 err_blkdev:
 	unregister_blkdev(vswap_major, "ps3vswap");
 err:
+	if (vs->io_wq)
+		destroy_workqueue(vs->io_wq);
+	if (vs->demote_wq)
+		destroy_workqueue(vs->demote_wq);
 	bioset_exit(&vs->bios);
 	kvfree(vs->chunks);
 	kfree(vs);
@@ -658,6 +798,9 @@ void ps3rsx_vswap_fini(struct ps3rsx_device *rsx)
 		return;
 	del_gendisk(vs->disk);			/* the module can't unload while swap is on it */
 	put_disk(vs->disk);
+	cancel_work_sync(&vs->demote_work);
+	destroy_workqueue(vs->demote_wq);
+	destroy_workqueue(vs->io_wq);
 	blk_mq_free_tag_set(&vs->tags);
 	unregister_blkdev(vswap_major, "ps3vswap");
 	mutex_lock(&rsx->mm_lock);
