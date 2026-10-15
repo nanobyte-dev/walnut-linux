@@ -40,6 +40,7 @@ tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --clamp-mtime --numeric-owner --on
 if [ -e "$OUT/debian-ppc64.tar" ]; then
 	OLD="build/old/$(date +%Y%m%d-%H%M%S)-rootfs"
 	mkdir -p "$OLD" && mv "$OUT/debian-ppc64.tar" "$OLD/"
+	chown -R "$OWNER" "$OLD"	# yours to delete (this script runs as root)
 	echo ">> Previous image moved to $OLD"
 fi
 mv "$OUT/debian-ppc64.tar.tmp" "$OUT/debian-ppc64.tar"

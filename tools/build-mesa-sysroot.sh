@@ -13,6 +13,7 @@ export SOURCE_DATE_EPOCH
 if [ -e "$OUT" ]; then
 	OLD="build/old/$(date +%Y%m%d-%H%M%S)-mesa-sysroot"
 	mkdir -p "$OLD" && mv "$OUT" "$OLD/"
+	chown -R "$OWNER" "$OLD"	# yours to delete (this script runs as root)
 	echo ">> Previous sysroot moved to $OLD"
 fi
 mkdir -p build/mesa

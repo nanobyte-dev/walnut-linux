@@ -36,6 +36,7 @@ chown -R "$OWNER" "$CACHE"
 if [ -e "$OUT/base.tar" ]; then
 	OLD="build/old/$(date +%Y%m%d-%H%M%S)-rootfs-base"
 	mkdir -p "$OLD" && mv "$OUT/base.tar" "$OLD/"
+	chown -R "$OWNER" "$OLD"	# yours to delete (this script runs as root)
 	echo ">> Previous package layer moved to $OLD"
 fi
 mv "$OUT/base.tar.tmp" "$OUT/base.tar"
