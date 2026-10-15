@@ -324,6 +324,7 @@ int ps3rsx_exec_init(struct ps3rsx_device *rsx)
 	hrtimer_init(&rsx->fence_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	rsx->fence_timer.function = fence_poll;
 	rsx->fence_context = dma_fence_context_alloc(1);
+	ps3rsx_submit_debugfs_init(rsx);
 
 	if (ps3fb_gpu_exception_seen()) {
 		drm_err(&rsx->drm, "the GPU has had a graphics exception since boot: reboot first\n");

@@ -191,6 +191,9 @@ void ps3rsx_shadow_free(struct ps3rsx_shadow *sh);
 int ps3rsx_shadow_restore(const struct ps3rsx_shadow *ch, const struct ps3rsx_shadow *hw,
 			  u32 *buf, u32 max_words);
 void ps3rsx_shadow_take(const struct ps3rsx_shadow *ch, struct ps3rsx_shadow *hw);
+struct seq_file;
+void ps3rsx_shadow_show(struct seq_file *m, const struct ps3rsx_shadow *sh);
+void ps3rsx_submit_debugfs_init(struct ps3rsx_device *rsx);
 #define RESTORE_MAX_WORDS	(16 * 1024)
 
 bool ps3rsx_known_object(u32 handle);

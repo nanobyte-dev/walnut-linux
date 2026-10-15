@@ -13,6 +13,7 @@
  * attribute 0 writes (emit a vertex), clears, report/semaphore/cache commands, copy triggers.
  */
 #include <linux/bitmap.h>
+#include <linux/seq_file.h>
 #include <linux/slab.h>
 #include <linux/string.h>
 
@@ -59,6 +60,20 @@ void ps3rsx_shadow_free(struct ps3rsx_shadow *sh)
 void ps3rsx_shadow_clear(struct ps3rsx_shadow *sh)
 {
 	memset(sh, 0, sizeof(*sh));
+}
+
+/* debugfs: the binds and 3D state a shadow holds, one "method value" line each */
+void ps3rsx_shadow_show(struct seq_file *m, const struct ps3rsx_shadow *sh)
+{
+	unsigned int i;
+
+	for (i = 0; i < 8; i++)
+		if (sh->bound[i])
+			seq_printf(m, "subch %u: %08x\n", i, sh->bound[i]);
+	for_each_set_bit(i, sh->reg3d_set, NREG)
+		seq_printf(m, "3d %04x %08x\n", i * 4, sh->reg3d[i]);
+	seq_printf(m, "vp slots %u, constants %u\n", bitmap_weight(sh->vp_set, VP_SLOTS),
+		   bitmap_weight(sh->cst_set, CONST_SLOTS));
 }
 
 static int obj_index(u32 handle)

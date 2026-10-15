@@ -7,8 +7,10 @@
  */
 #include <linux/dma-fence.h>
 #include <linux/dma-resv.h>
+#include <linux/seq_file.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
+#include <drm/drm_debugfs.h>
 #include <drm/drm_gem.h>
 #include <drm/nouveau_drm.h>
 
@@ -77,6 +79,25 @@ static void hw_shadow_sync(struct ps3rsx_device *rsx)
 		ps3rsx_shadow_take(rsx->hw_behind, rsx->hw_shadow);
 		rsx->hw_behind = NULL;
 	}
+}
+
+/* debugfs dri/N/ps3rsx_hw_state: the state the GPU holds as far as we know (state a test
+ * inherits from the clients before it) */
+static int hw_state_show(struct seq_file *m, void *unused)
+{
+	struct drm_debugfs_entry *entry = m->private;
+	struct ps3rsx_device *rsx = to_rsx(entry->dev);
+
+	mutex_lock(&rsx->exec_lock);
+	hw_shadow_sync(rsx);
+	ps3rsx_shadow_show(m, rsx->hw_shadow);
+	mutex_unlock(&rsx->exec_lock);
+	return 0;
+}
+
+void ps3rsx_submit_debugfs_init(struct ps3rsx_device *rsx)
+{
+	drm_debugfs_add_file(&rsx->drm, "ps3rsx_hw_state", hw_state_show, NULL);
 }
 
 static void chan_free(struct ps3rsx_device *rsx, struct ps3rsx_chan *ch)

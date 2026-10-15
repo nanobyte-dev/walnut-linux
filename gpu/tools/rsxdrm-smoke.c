@@ -316,6 +316,14 @@ static int t_tri(void)
 	surface(rt.offset, w, h);
 	OUT(0, 0x1d90, 0xff000000);
 	OUT(0, 0x1d94, 0xf0);
+	/* State the GL clients before us leave in the shared 3D state and this stream relies on:
+	 * vertex arrays off (attributes come from the immediate writes below), the programmable
+	 * pipeline (Mesa's blits leave ENGINE at 0x103 and nothing draws), our VP from slot 0 */
+	*p++ = MTH(16, 0, 0x1740);
+	for (int i = 0; i < 16; i++)
+		*p++ = 0x00000002;
+	OUT(0, 0x1e94, 0x11);			/* ENGINE: VP + FP, as Mesa sets it */
+	OUT(0, 0x1ea0, 0);			/* VP_START_FROM_ID */
 	WORDS(0x00040a74, 0, 0x00040310, 0, 0x0004183c, 0, 0x00040304, 0, 0x00040348, 0,
 	      0x00040374, 0, 0x00040368, 0x00001d01, 0x00081828, 0x00001b02, 0x00001b02,
 	      0x00041d88, 0x00001040,		/* SHADER_WINDOW: (1<<12) | 64 */
