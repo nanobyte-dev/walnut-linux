@@ -1,0 +1,25 @@
+With REENTRANT_SYSCALLS_PROVIDED and MISSING_SYSCALL_NAMES (SPU's libgloss has plain getpid,
+write, ...) reent.h turns _getpid_r() and _write_r() into calls of getpid() and write(). signal.c
+and __dprintf.c never include <unistd.h>, so those calls are implicit declarations: an error since
+GCC 14 (this used to be what -fpermissive was for).
+
+--- a/newlib/libc/signal/signal.c
++++ b/newlib/libc/signal/signal.c
+@@ -87,6 +87,7 @@
+ #include <stdlib.h>
+ #include <reent.h>
+ #include <_syslist.h>
++#include <unistd.h>
+ 
+ #ifdef _REENT_THREAD_LOCAL
+ _Thread_local void (**_tls_sig_func)(int);
+--- a/newlib/libc/misc/__dprintf.c
++++ b/newlib/libc/misc/__dprintf.c
+@@ -7,6 +7,7 @@
+ #include <_ansi.h>
+ #include "ctype.h"
+ #include "reent.h"
++#include <unistd.h>
+ #include "string.h"
+ #include "unctrl.h"
+ 

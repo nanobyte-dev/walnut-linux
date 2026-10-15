@@ -1,0 +1,138 @@
+SPU's fenv.h declares feclearexcept, fegetexceptflag, feraiseexcept, fesetexceptflag, fegetenv,
+fesetenv and feupdateenv as returning void and FE_DFL_ENV as &__fe_dfl_env (const). Since 3.x newlib
+also compiles the generic libm/fenv/ placeholders for every target (the machine directory overrides
+the objects afterwards), and those use the C99 signatures (int return) and a writable __fe_dfl_env:
+"conflicting types for 'feclearexcept'" and "conflicting type qualifiers for '__fe_dfl_env'".
+Use the C99 prototypes (the SPU implementations return 0) and the _fe_dfl_env pointer convention
+that powerpc, mips and arm use for FE_DFL_ENV.
+
+--- a/newlib/libc/machine/spu/include/fenv.h
++++ b/newlib/libc/machine/spu/include/fenv.h
+@@ -41,10 +41,10 @@
+ #endif
+ 
+ /* Exception */
+-void feclearexcept(int excepts);
+-void fegetexceptflag(fexcept_t *flagp, int excepts);
+-void feraiseexcept(int excepts);
+-void fesetexceptflag(const fexcept_t *flagp, int excepts);
++int feclearexcept(int excepts);
++int fegetexceptflag(fexcept_t *flagp, int excepts);
++int feraiseexcept(int excepts);
++int fesetexceptflag(const fexcept_t *flagp, int excepts);
+ int fetestexcept(int excepts);
+ 
+ /* Rounding mode */
+@@ -52,10 +52,10 @@
+ int fesetround(int rounding_mode);
+ 
+ /* Float environment */
+-void fegetenv(fenv_t *envp);
++int fegetenv(fenv_t *envp);
+ int feholdexcept(fenv_t *envp);
+-void fesetenv(const fenv_t *envp);
+-void feupdateenv(const fenv_t *envp);
++int fesetenv(const fenv_t *envp);
++int feupdateenv(const fenv_t *envp);
+ 
+ #ifdef __cplusplus
+ }
+--- a/newlib/libc/machine/spu/sys/fenv.h
++++ b/newlib/libc/machine/spu/sys/fenv.h
+@@ -138,7 +138,7 @@
+ typedef unsigned int fexcept_t;
+ typedef unsigned int fenv_t;
+ 
+-extern const fenv_t __fe_dfl_env;
+-#define FE_DFL_ENV	(&__fe_dfl_env)
++extern const fenv_t *_fe_dfl_env;
++#define FE_DFL_ENV	(_fe_dfl_env)
+ 
+ #endif /* fenv.h */
+--- a/newlib/libm/machine/spu/fe_dfl_env.c
++++ b/newlib/libm/machine/spu/fe_dfl_env.c
+@@ -2,4 +2,6 @@
+ /*
+  * Define for FE_DFL_ENV macro, all bits zero.
+  */
+-const fenv_t __fe_dfl_env = { 0 };
++fenv_t __fe_dfl_env = { 0 };
++
++const fenv_t *_fe_dfl_env = &__fe_dfl_env;
+--- a/newlib/libm/machine/spu/feclearexcept.c
++++ b/newlib/libm/machine/spu/feclearexcept.c
+@@ -1,6 +1,7 @@
+ #include "headers/feclearexcept.h"
+ 
+-void feclearexcept(int excepts)
++int feclearexcept(int excepts)
+ {
+     _feclearexcept(excepts);
++    return 0;
+ }
+--- a/newlib/libm/machine/spu/fegetenv.c
++++ b/newlib/libm/machine/spu/fegetenv.c
+@@ -1,6 +1,7 @@
+ #include "headers/fegetenv.h"
+ 
+-void fegetenv(fenv_t *envp)
++int fegetenv(fenv_t *envp)
+ {
+     _fegetenv(envp);
++    return 0;
+ }
+--- a/newlib/libm/machine/spu/fegetexceptflag.c
++++ b/newlib/libm/machine/spu/fegetexceptflag.c
+@@ -1,6 +1,7 @@
+ #include "headers/fegetexceptflag.h"
+ 
+-void fegetexceptflag(fexcept_t *flagp, int excepts)
++int fegetexceptflag(fexcept_t *flagp, int excepts)
+ {
+     _fegetexceptflag(flagp, excepts);
++    return 0;
+ }
+--- a/newlib/libm/machine/spu/feraiseexcept.c
++++ b/newlib/libm/machine/spu/feraiseexcept.c
+@@ -1,6 +1,7 @@
+ #include "headers/feraiseexcept.h"
+ 
+-void feraiseexcept(int excepts)
++int feraiseexcept(int excepts)
+ {
+     _feraiseexcept(excepts);
++    return 0;
+ }
+--- a/newlib/libm/machine/spu/fesetenv.c
++++ b/newlib/libm/machine/spu/fesetenv.c
+@@ -1,6 +1,7 @@
+ #include "headers/fesetenv.h"
+ 
+-void fesetenv(const fenv_t *envp)
++int fesetenv(const fenv_t *envp)
+ {
+     _fesetenv(envp);
++    return 0;
+ }
+--- a/newlib/libm/machine/spu/fesetexceptflag.c
++++ b/newlib/libm/machine/spu/fesetexceptflag.c
+@@ -1,6 +1,7 @@
+ #include "headers/fesetexceptflag.h"
+ 
+-void fesetexceptflag(const fexcept_t *flagp, int excepts)
++int fesetexceptflag(const fexcept_t *flagp, int excepts)
+ {
+     _fesetexceptflag(flagp, excepts);
++    return 0;
+ }
+--- a/newlib/libm/machine/spu/feupdateenv.c
++++ b/newlib/libm/machine/spu/feupdateenv.c
+@@ -1,6 +1,7 @@
+ #include "headers/feupdateenv.h"
+ 
+-void feupdateenv(const fenv_t *envp)
++int feupdateenv(const fenv_t *envp)
+ {
+     _feupdateenv(envp);
++    return 0;
+ }

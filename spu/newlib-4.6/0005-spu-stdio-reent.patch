@@ -1,0 +1,53 @@
+SPU keeps its own stdio on top of the PPE-assisted calls (__CUSTOM_FILE_IO__); the generic
+findfp.c, which 4.x relies on, isn't built for it. Two things went missing:
+- struct _reent has no __sf member any more: _REENT_INIT_PTR_ZEROED points _stdin, _stdout and
+  _stderr into a global __sf[3], which nothing defined. Define it, and let __sinit use it.
+- exit() calls through __stdio_exit_handler (set by findfp.c) instead of _REENT_CLEANUP: set it to
+  the existing __cleanup in __sinit, so open files are still closed at exit.
+
+--- a/newlib/libc/machine/spu/stdio.c
++++ b/newlib/libc/machine/spu/stdio.c
+@@ -38,6 +38,10 @@
+ 
+ static FILE __fp[SPE_FOPEN_MAX];
+ 
++/* stdin, stdout and stderr: newlib 4.x's _REENT_INIT_PTR_ZEROED points
++   _stdin, _stdout and _stderr into this global array. */
++FILE __sf[3];
++
+ FILE *
+ __sfp (struct _reent *d)
+ {
+@@ -62,18 +66,29 @@
+   }
+ }
+ 
++/* newlib 4.x's exit() closes the files through this hook (set by findfp.c,
++   which SPU doesn't use) instead of through _REENT_CLEANUP. */
++void (*__stdio_exit_handler) (void);
++
++static void
++__exit_cleanup (void)
++{
++  __cleanup (_REENT);
++}
++
+ void
+ __sinit (struct _reent *s)
+ {
+   _REENT_CLEANUP(s) = __cleanup;
++  __stdio_exit_handler = __exit_cleanup;
+ 
+-  _REENT_STDIN(s) = &s->__sf[0];
++  _REENT_STDIN(s) = &__sf[0];
+   _REENT_STDIN(s)->_fp = SPE_STDIN;
+ 
+-  _REENT_STDOUT(s) = &s->__sf[1];
++  _REENT_STDOUT(s) = &__sf[1];
+   _REENT_STDOUT(s)->_fp = SPE_STDOUT;
+ 
+-  _REENT_STDERR(s) = &s->__sf[2];
++  _REENT_STDERR(s) = &__sf[2];
+   _REENT_STDERR(s)->_fp = SPE_STDERR;
+ }
+ 

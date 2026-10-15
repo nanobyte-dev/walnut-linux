@@ -1,0 +1,14 @@
+mmap_ea (ea64) returns the integer MAP_FAILED_EADDR from a function returning __ea void *:
+-Wint-conversion, an error since GCC 14. Cast it, as the other return of the function does.
+
+--- a/newlib/libc/machine/spu/mmap_ea.c
++++ b/newlib/libc/machine/spu/mmap_ea.c
+@@ -43,7 +43,7 @@
+ #ifdef __EA64__
+   if (length > 0xffffffffULL) {
+     errno = ENOMEM;
+-    return MAP_FAILED_EADDR;
++    return (__ea void *) MAP_FAILED_EADDR;
+   } else {
+     return (__ea void *) mmap_eaddr ((unsigned long long) start,
+                                      (size_t) length, prot, flags, fd, offset);
