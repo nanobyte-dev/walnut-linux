@@ -602,7 +602,7 @@ int ps3rsx_vswap_init(struct ps3rsx_device *rsx)
 	vs->nchunks = vswap_vram_mb;
 	vs->chunks = kvcalloc(vs->nchunks, sizeof(*vs->chunks), GFP_KERNEL);
 	ret = -ENOMEM;
-	if (!vs->chunks || bioset_init(&vs->bios, BIO_RESERVE, 0, 0))
+	if (!vs->chunks || bioset_init(&vs->bios, BIO_RESERVE, 0, BIOSET_NEED_BVECS))
 		goto err;
 
 	ret = register_blkdev(0, "ps3vswap");
