@@ -1,0 +1,11 @@
+# PS3 apt repository on tibi-server: static files that aptly publishes on the dev PC
+# (tools/repo-publish.sh rsyncs them here over SSH as tibi). Deployed to
+# /data/fast/NewServer/Ps3Repo/ next to the server's other stacks.
+services:
+  nginx:
+    image: nginx:stable-alpine
+    ports: ["10.0.0.10:8070:80"]
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./public:/usr/share/nginx/repo:ro
+    restart: unless-stopped
