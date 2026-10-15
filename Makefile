@@ -256,7 +256,7 @@ SPU_VARS := $(BUILD)/spu.vars
 SPU_VARS_NOW := $(foreach v,SPU_GCC_SHA256 SPU_BINUTILS_SHA256 SPU_NEWLIB_SHA256 SOURCE_DATE_EPOCH SPU_BUILDER_TAG,$(v)=$($(v)))
 $(shell [ "$$(cat $(SPU_VARS) 2>/dev/null)" = "$(SPU_VARS_NOW)" ] || echo "$(SPU_VARS_NOW)" > $(SPU_VARS))
 spu-toolchain: $(SPU_GCC)
-$(SPU_GCC): $(SPU_TARBALLS) $(SPU_VARS) tools/build-spu-toolchain.sh $(wildcard spu/port/*.patch spu/newlib/*.patch spu/newlib-*/*.patch) | $(SPU_BUILDER_STAMP)
+$(SPU_GCC): $(SPU_TARBALLS) $(SPU_VARS) tools/build-spu-toolchain.sh $(wildcard spu/port/*.patch spu/binutils/*.patch spu/newlib/*.patch spu/newlib-*/*.patch) | $(SPU_BUILDER_STAMP)
 	echo "$(SPU_GCC_SHA256)  $(DOWNLOADS)/gcc-$(SPU_GCC_VERSION).tar.xz" | sha256sum -c --quiet
 	echo "$(SPU_BINUTILS_SHA256)  $(DOWNLOADS)/binutils-$(SPU_BINUTILS_VERSION).tar.xz" | sha256sum -c --quiet
 	echo "$(SPU_NEWLIB_SHA256)  $(DOWNLOADS)/newlib-$(SPU_NEWLIB_VERSION).tar.gz" | sha256sum -c --quiet

@@ -1,0 +1,30 @@
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Subject: [PATCH] gas/spu: treat "nop" as the SPU instruction, not the .nop directive
+
+The SPU assembler looks pseudo-ops up without a leading dot first
+(NO_PSEUDO_DOT).  Commit b1766e7ce886 ("Add a new .nop directive",
+binutils 2.36) added a generic "nop" pseudo-op, which since then shadows
+the SPU "nop" instruction; 058430b4a1ae gave it an optional size
+argument.  So GCC's "nop 127" (nop with register operand $127, used to
+pad for dual issue) became ".nop 127": 32 nop instructions instead of
+one, with the operand dropped.  The bloat moves branches out of the
+9-bit range of the hints GCC placed ("Relocation doesn't fit" on hbrr),
+or, when it still fits, silently grows the code and breaks GCC's
+instruction placement.
+
+Mask the generic pseudo-op the same way as "set" and "eqv": "nop" is the
+instruction, ".nop" stays the directive.
+
+--- a/gas/config/tc-spu.c
++++ b/gas/config/tc-spu.c
+@@ -101,6 +101,10 @@
+   /* Likewise for eqv.  */
+   {"eqv", NULL, 0},
+   {".eqv", s_set, -1},
++  /* Likewise for nop: "nop 127" is the SPU instruction, not the generic
++     ".nop 127" directive, which pads with nops up to 127 bytes.  */
++  {"nop", NULL, 0},
++  {".nop", s_nop, 0},
+   {0,0,0}
+ };
+ 

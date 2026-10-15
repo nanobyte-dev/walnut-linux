@@ -46,11 +46,33 @@ GCC 16.2. The execute-test figures below are from newlib 1.20.0; the rerun with 
 - **no regressions**;
 - hello world runs.
 
-**Version exception, caused by unmaintained upstream SPU code:**
-- **binutils 2.33.1, not the snapshot's 2.47.** 2.47's SPU assembler rejects valid branch hints
-  ("Relocation doesn't fit" on `hbrr`). It does so for GCC 9.5's output as well, so the
-  regression is in binutils, somewhere between 2.33 and 2.47; the range-check code itself is
-  unchanged. Open: bisect and fix it, to use 2.47.
+**binutils 2.47 is not an exception any more.** It needs one patch
+(`spu/binutils/0001-gas-spu-nop-is-an-instruction.patch`), not yet upstream (binutils master of
+2026-10-15 still has the bug):
+- **Symptom:** "Relocation doesn't fit" on an `hbrr` (first seen in libgloss's `open.c`), for
+  GCC 9.5's output as well as ours.
+- **Cause:** binutils commit `b1766e7ce886` (2.36, Sep 2020) added a generic `.nop` directive.
+  The SPU assembler looks pseudo-ops up without the dot (`NO_PSEUDO_DOT`), so `nop` became the
+  directive instead of the SPU instruction. `058430b4a1ae` (also 2.36) then gave `.nop` an
+  optional size, so GCC's `nop 127` (`nop $127`, padding for dual issue) assembles to 32 nops
+  that pad 127 bytes. Branches end up beyond the 9-bit word offset of the hints GCC placed, so
+  some hints fail to assemble. The rest are inflated with no warning: 1245 of 1590
+  torture-test objects differ from 2.33.1.
+- **Fix:** `tc-spu.c` masks the generic pseudo-op, as it already does for `set` and `eqv`:
+  `nop` is the instruction and `.nop` stays the directive.
+- **Checked against 2.33.1, both with GCC 16.2 + newlib 4.6, built side by side:**
+  - assembler: every libgcc, newlib, libgloss and crt object, plus 1572 `-O2` objects
+    (`gcc.c-torture/execute` and `spu/hello.c`), has the same code, relocations and
+    non-debug sections. The only difference is the 4 `__FILE__` strings of the build path
+    in libc.
+  - linker: the 1562 linked test programs come out the same when the 2.47 objects are linked
+    with ld 2.33.1. ld 2.47 itself merges constants in a different order (`lqr`/`ila`
+    addresses), aligns `.note.spu_name` to 4 instead of 16, and lays out merged strings
+    differently (in `string-opt-17` the empty string gets its own 16 bytes): 16 more bytes
+    of `.rodata` in 4 programs.
+  - the gas testsuite (`spu.exp`, `gas.exp`, `elf.exp`) passes as unpatched 2.47 does, the
+    generic `.nop` test included.
+  - still to do: rerun the execute tests on the SPEs (ld 2.47's layout is new there).
 
 **newlib 4.6.0.20260123 is not an exception any more.** It needs seven small patches
 (`spu/newlib-4.6/`, each with its reason in the file) and builds with plain `-O2`:
@@ -85,7 +107,8 @@ provided, as 4.x pulls them in only from those two functions.
   - It has no cc0.
   - Notable features: the `__ea` address space (about 60 references), branch-hint (`hbr`)
     insertion in machine reorg, and a pipeline description.
-- **binutils:** SPU is still upstream at HEAD (bfd, gas, opcodes). We pin 2.33.1.
+- **binutils:** SPU is still upstream at HEAD (bfd, gas, opcodes). We use 2.47 with one gas
+  patch (`spu/binutils/`, see above).
 - **newlib:** SPU is still upstream, but has bit-rotted. 3.3.0 doesn't build for SPU: its SPU
   `sys/sched.h` lacks `struct sched_param`, which the newer pthread types need. With seven
   patches 4.6 builds (see above); the PS3 homebrew toolchain (ps3dev/ps3toolchain)

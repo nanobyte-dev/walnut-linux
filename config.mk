@@ -48,11 +48,12 @@ CLASSICUBE_TEXPACK_URL := http://static.classicube.net/default.zip
 SPU_GCC_VERSION     := 16.2.0
 SPU_GCC_SHA256      := e6738e29597f733270731aa90600f37ffdc045079dfc27ec7e8192cc81085c3e
 SPU_GCC_URL         := https://ftp.gnu.org/gnu/gcc/gcc-$(SPU_GCC_VERSION)/gcc-$(SPU_GCC_VERSION).tar.xz
-# binutils 2.47's SPU assembler rejects valid branch hints ("Relocation doesn't fit" on hbrr: the
-# label operand comes out as a section offset, not PC-relative; GCC 9.5's and 16's output alike),
-# so the SPU keeps 2.33.1, which assembles both. The PPE uses the snapshot's 2.47.
-SPU_BINUTILS_VERSION := 2.33.1
-SPU_BINUTILS_SHA256 := ab66fc2d1c3ec0359b8e08843c9f33b63e8707efdff5e4cc5c200eae24722cbf
+# binutils 2.47 needs spu/binutils/*.patch: since 2.36 gas reads GCC's "nop 127" as the generic
+# ".nop 127" directive (32 nops), which pushed branches out of hint range ("Relocation doesn't
+# fit" on hbrr). 2.33.1 (sha256 ab66fc2d1c3ec0359b8e08843c9f33b63e8707efdff5e4cc5c200eae24722cbf)
+# needs no patch: to go back, set it and empty spu/binutils/.
+SPU_BINUTILS_VERSION := 2.47
+SPU_BINUTILS_SHA256 := 154ab23b60070e8f27013c22977f1129425d67d1e8acd6e13010e617811e4cff
 SPU_BINUTILS_URL    := https://ftp.gnu.org/gnu/binutils/binutils-$(SPU_BINUTILS_VERSION).tar.xz
 # newlib's SPU support is unmaintained since ~2012; 4.6 builds with spu/newlib-4.6/*.patch (sys/sched.h,
 # math.h's isinf/isnan, fenv signatures, include paths, SPU stdio on the 4.x reent, ...). 1.20.0
