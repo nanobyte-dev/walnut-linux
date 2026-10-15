@@ -58,14 +58,20 @@ Done:
 Next:
 1. Switched over (2026-10-15): the fresh root boots with no manual step. Desktop at boot, no
    failed units, `glxinfo -B` on NV47, ClassiCube at 59–60 fps (one dip to 37 in 70 s).
-2. Still to verify on the fresh root: OpenArena starts, DS3 pairing, sound on the TV.
+2. Verified on the fresh root: OpenArena starts, DS3 pairing over USB. Still open: sound on
+   the TV.
 3. Check reproducibility: two image builds from the same inputs give the same `make checksums`.
 4. Size: about 210 MB of the image is Debian's own Mesa and LLVM, pulled in by
    `xserver-xorg-core` and `mesa-utils`, though our Mesa is used. Drop it if the dependencies
    allow (equivs or a dummy package).
 5. Later, install the RSX driver and Mesa as packages or in `/usr/local`, not in `~tibi`.
-6. `build/old/` gets a 2.2 GB image per build: compress old images, or keep only the base layer
-   when an image is reproducible from it.
+6. `build/old/` gets a 2.2 GB image per build. Pruning it automatically clashes with the
+   "never delete build outputs" rule, so it is pruned by hand for now (55 GB on 2026-10-15).
+   Builds that run as root hand their backups to the user.
+7. Disk image (stated 2026-10-15): `make disk-image` gives a minimal raw `.img.xz` (MBR, one ext4
+   root, fixed disk id, built with `mke2fs -d`, reproducible). It is written with `dd`, and on the
+   first boot `systemd-repart` grows the root and adds swap, then `x-systemd.growfs` grows ext4.
+   `make usb-root` then just streams it to the disk.
 
 ### 2. GPU driver and games (gold standard: stable 60 fps)
 
@@ -82,11 +88,32 @@ Open:
 - ClassiCube: confirm the stutter fix in play. Confirm sound on the TV (the monitor has no
   speakers). Then judge whether the remaining stutters come from memory (kswapd/zram and NFS
   page faults were seen).
-- **OpenArena (next):**
-  - It is in the image (Debian's ioquake3 build). The defaults are fullscreen at the display
-    resolution, vsync, com_maxfps 60 and DS3 analog bindings (`~/.openarena/baseoa/autoexec.cfg`).
-    None of it is tested yet.
-  - Measure its fps and RAM: 100–150 MB is expected, which is tight.
+- **OpenArena (in progress, parked 2026-10-15 for item 6):**
+  - Works: renders correctly on the `opengl1` renderer (now the default; `opengl2` ran out of
+    RAM compiling GLSL), ALSA sound initialises, DS3 pairs. Not yet heard on the TV, DS3
+    bindings not tried in play.
+  - Fixed on the way: a texture-upload burst exhausted the 16 MB GART and Xorg crashed. Mesa nv30
+    now keeps at most 4 MB of upload staging in flight per context and waits before failing.
+  - Driver CPU cost halved (validator bitmap, one decode pass for validation and shadow, lazy
+    GPU shadow, no full-ring drain at wraps); Mesa built without assertions.
+  - Measured (4 bots on oa_dm4, 1080p; benchmark: `games/openarena/oa-bench.sh bench` replays
+    `bench.dm_71` as a timedemo without vsync, `oa-run.sh` plays a live bot match):
+    - NFS root: 46–56 fps timedemo, live play mostly 59–60 with dips to 20–40. Under memory
+      pressure the kernel re-read evicted code over NFS (3–10 MB/s, kswapd ~40% CPU).
+    - USB disk root: the game stays resident (92 MB, 3 MB swapped, no NFS traffic). Timedemo
+      median 47–56 fps, live play mostly 55–60 with dips to 8–40.
+    - 960×540 reaches 65 fps, so most of the frame is CPU. Profile of the game thread: Mesa 30%,
+      kernel 23% (our driver about a third of it), renderer 15%, engine 9%, zlib 6%.
+    - No effect: `mesa_glthread` (no gain), `r_vertexLight`/LOD/dynamic-light settings (a few
+      %), DRI2 vs DRI3, `s_useOpenAL 0`.
+  - Left to do:
+    1. Build ioquake3 ourselves (engine and `renderer_opengl1`, pinned, `-mcpu=cell`), as with
+       ClassiCube; Debian's is built for generic ppc64.
+    2. Load all player models at map start instead of when a bot first appears: those loads
+       stall 1–5 s (worse from the USB disk).
+    3. Mesa per-draw cost (`_mesa_update_texture_state`, fence/BO refs per draw) and the rest of
+       the driver's validator.
+    4. Listen on the TV; try the DS3 bindings in play.
 - Test tools: `mesa/tests/gl-fog` and `gl-sky` (fixed-function fog against softpipe), and the
   EGL checksum ladder. Every new game bug gets a small test like these.
 
@@ -125,8 +152,8 @@ Why it didn't pair before: the adapter wasn't connectable (BlueZ only page-scans
 devices), and BlueZ's sixaxis plugin needs an agent, which the session doesn't run.
 
 Next:
-- Test it: plug in by USB once, then press PS.
-- Check the SDL GameController mapping in ClassiCube and OpenArena.
+- Pairing tested (2026-10-15): one USB plug paired it (`ds3-pair` in the journal).
+- Check the SDL GameController mapping in ClassiCube and OpenArena in play.
 - Rumble and the LEDs (player number) are untested.
 
 ### 4. Fan control
@@ -175,6 +202,10 @@ image (and other PS3 users) install them with apt instead of from build outputs.
 
 ### 8. Disk image and installer
 
+- **Petitboot boots the disk on its own:** the image carries the kernel in `/boot` and
+  `/etc/kboot.conf` (Petitboot's 2.6.30 kernel reads ext4; this Petitboot parses kboot.conf and
+  yaboot.conf and boots the default entry after its countdown). Not yet seen working: needs a
+  reboot into Petitboot.
 - **USB disk root (2026-10-15):** `make usb-root` installs the image onto a USB HDD plugged into
   the PS3 (4 GiB swap, the rest ext4 root, fixed disk id so `root=PARTUUID=50533301-02`), and
   `make netboot ROOT=usb` boots it. Why: with the root on NFS, memory pressure in games made the
@@ -236,3 +267,6 @@ so `git diff` shows our changes.
   power-on.
 - Can the PS3's thermal sensors be read under Linux without syscon writes (item 4)?
 - Can a Petitboot-only reboot clear a wedged GPU, instead of a full console reboot?
+- The kernel tried to write the flash OS area ("os_area_queue_work_handler: Could not update
+  FLASH ROM", 2026-10-15, likely the RTC offset when the clock was set). It failed, but flash
+  writes are off-limits: find what triggers it and disable it.
