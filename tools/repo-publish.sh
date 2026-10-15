@@ -26,14 +26,14 @@ sync_official() {
 	local src=$PUB/ps3/ dst=$REPO_HOST:$REPO_DIR/public/ps3/
 	# nothing already published may change (the moving suite's indices excepted)
 	local changed
-	changed=$(rsync -rcn --existing --out-format='%n' --exclude='dists/ps3/***' "$src" "$dst" | grep -v '/$' || true)
+	changed=$(rsync -rlcn --existing --out-format='%n' --exclude='dists/ps3/***' "$src" "$dst" | grep -v '/$' || true)
 	if [ -n "$changed" ]; then
 		echo "!! refusing: these published files would change:"; echo "$changed"; exit 1
 	fi
-	rsync -rt --ignore-existing --exclude='dists/ps3/***' "$src" "$dst"	# pool, by-hash, new img-*
-	rsync -rt --delay-updates "$src/dists/ps3/" "$dst/dists/ps3/"		# the moving suite, last
+	rsync -rlt --ignore-existing --exclude='dists/ps3/***' "$src" "$dst"	# pool, by-hash, new img-*
+	rsync -rlt --delay-updates "$src/dists/ps3/" "$dst/dists/ps3/"		# the moving suite, last
 }
-if [ "$DIST" = ps3 ]; then sync_official; else rsync -rt --delete "$PUB/ps3-dev/" "$REPO_HOST:$REPO_DIR/public/ps3-dev/"; fi
-[ -d "$PUB/ps3-dbgsym" ] && rsync -rt --delete "$PUB/ps3-dbgsym/" "$REPO_HOST:$REPO_DIR/public/ps3-dbgsym/"
-rsync -rt --delete build/aptly/db/ "$REPO_HOST:$REPO_DIR/aptly-db/"
+if [ "$DIST" = ps3 ]; then sync_official; else rsync -rlt --delete "$PUB/ps3-dev/" "$REPO_HOST:$REPO_DIR/public/ps3-dev/"; fi
+[ -d "$PUB/ps3-dbgsym" ] && rsync -rlt --delete "$PUB/ps3-dbgsym/" "$REPO_HOST:$REPO_DIR/public/ps3-dbgsym/"
+rsync -rlt --delete build/aptly/db/ "$REPO_HOST:$REPO_DIR/aptly-db/"
 echo ">> synced to $REPO_HOST:$REPO_DIR"
