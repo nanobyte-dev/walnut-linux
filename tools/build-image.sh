@@ -3,7 +3,7 @@
 # build-rootfs.sh) plus our configuration (rootfs/customize.sh) and everything we build
 # ourselves (kernel modules, RSX driver, Mesa, games; tools/install-builds.sh). Takes a minute or
 # two, so a config change doesn't reinstall the packages. Runs as root in the builder container.
-# Inputs (env): ROOTFS_CUSTOMIZE SOURCE_DATE_EPOCH MESA_PREFIX OWNER
+# Inputs (env): ROOTFS_CUSTOMIZE SOURCE_DATE_EPOCH MESA_PREFIX KBOOT_CMDLINE OWNER
 # Output: build/rootfs/debian-ppc64.tar, byte-for-byte the same from the same inputs
 set -euo pipefail
 {
@@ -18,7 +18,7 @@ mount -t sysfs sysfs "$R/sys"
 
 export SOURCE_DATE_EPOCH
 PUBKEY_FILE="$PWD/$OUT/authorized_keys" bash "$ROOTFS_CUSTOMIZE" "$R"
-BUILD=build tools/install-builds.sh "$R" modules gpu mesa classicube
+BUILD=build tools/install-builds.sh "$R" boot modules gpu mesa classicube
 # the Mesa path in ld.so.conf.d (setuid Xorg ignores LD_LIBRARY_PATH)
 chroot "$R" ldconfig
 

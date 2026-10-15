@@ -67,5 +67,8 @@ ROOT_ARGS_usb       := root=PARTUUID=50533301-02 rootfstype=ext4 ro
 # The USB disk for the root filesystem (its /dev/disk/by-id name on the PS3): a 500 GB Samsung
 # HN-M500MBB in a USB enclosure, given for this (2026-10-15)
 USB_DISK_ID         := usb-SAMSUNG_HN-M500MBB_0000AB1234E8-0:0
-KERNEL_CMDLINE      := $(ROOT_ARGS_$(ROOT)) ip=dhcp rootwait \
+KERNEL_CMDLINE_COMMON := ip=dhcp rootwait \
                        video=ps3fb:mode:133 consoleblank=0 ps3rsx_gart=16M console=tty1 netconsole=6665@$(PS3_IP)/eth0,6666@$(PC_IP)/$(PC_MAC) loglevel=4
+KERNEL_CMDLINE      := $(ROOT_ARGS_$(ROOT)) $(KERNEL_CMDLINE_COMMON)
+# What Petitboot boots from the disk on its own (the image's /etc/kboot.conf)
+KBOOT_CMDLINE       := $(ROOT_ARGS_usb) $(KERNEL_CMDLINE_COMMON)

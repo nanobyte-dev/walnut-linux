@@ -1,8 +1,8 @@
 #!/bin/sh
 # Installs what we build ourselves into a PS3 root filesystem:
-#   tools/install-builds.sh <root> <part>...    parts: modules gpu mesa classicube
+#   tools/install-builds.sh <root> <part>...    parts: boot modules gpu mesa classicube
 # build-image.sh puts all of it into the image; the *-deploy targets use it to update the live
-# NFS root in place. Env: BUILD (build dir), MESA_PREFIX (Mesa's path on the PS3).
+# NFS root in place. Env: BUILD (build dir), MESA_PREFIX (Mesa's path on the PS3), KBOOT_CMDLINE.
 set -eu
 R="$1"; shift
 B="${BUILD:-build}"
@@ -10,7 +10,15 @@ H="$R/home/tibi"
 
 for part; do
 	case "$part" in
-	modules)	# the kernel's modules (the kernel itself is netbooted)
+	boot)		# the kernel, and Petitboot's boot menu for a disk root: Petitboot reads
+		# /etc/kboot.conf on the partitions it can mount (ext4 included) and boots the
+		# default entry after its countdown, without the network
+		k=$(readlink "$B/kernel/stage/boot/vmlinux")
+		install -d "$R/boot" "$R/etc"
+		install -m 644 "$B/kernel/stage/boot/$k" "$R/boot/"
+		printf '%s\n' "# Petitboot boot menu (tools/install-builds.sh)" "default=debian" \
+			"debian='/boot/$k ${KBOOT_CMDLINE:?}'" > "$R/etc/kboot.conf" ;;
+	modules)	# the kernel's modules
 		rsync -a --delete --chown=0:0 "$B/kernel/stage/lib/modules/" "$R/lib/modules/" ;;
 	gpu)		# RSX driver, probe modules and test tools (ps3rsx.service loads ~/bin/ps3rsx.ko)
 		install -d "$H/bin"
