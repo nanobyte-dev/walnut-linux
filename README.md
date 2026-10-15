@@ -21,7 +21,9 @@ nouveau's userspace (libdrm + Mesa nv30) on the RSX. Plan and background: `docs/
 | `gpu/ps3rsx/` | The DRM driver (registers as "nouveau"): render ioctls, validator, software context switch, KMS |
 | `tools/` | Scripts called by the Makefile |
 | `gpu/tools/` | Programs and scripts run on the PS3: raw RSX probes (`rsx-*`), driver tests (`rsxdrm-smoke`), `rsx-suite.sh` (smoke, Mesa vs softpipe, concurrent GL), `rsx-x.sh` (Xorg with one client) |
-| `docs/` | `PLAN.md` phases, `DRIVER-PLAN.md` the GPU driver plan, `RSX.md` measured GPU facts, `RSX-PROGRAMS.md` raw draw/shader words, `MESA-METHODS.md` Mesa nv30 methods vs RSX, `RESEARCH.md` background |
+| `spu/` | SPE programs and `spurun` (runs SPU ELFs via spufs); `spu/port/` the SPU backend ported to GCC 16.2 (patches + test harnesses) |
+| `docker/Dockerfile.spu` | spu-elf toolchain build environment (`make spu-toolchain`) |
+| `docs/` | `PLAN.md` phases, `DRIVER-PLAN.md` the GPU driver plan, `RSX.md` measured GPU facts, `RSX-PROGRAMS.md` raw draw/shader words, `MESA-METHODS.md` Mesa nv30 methods vs RSX, `RESEARCH.md` background, `SPU-GCC.md` SPU compiler report |
 | `build/` | Generated outputs (ignored); `build/old/` holds previous outputs, never deleted |
 | `firmware/` | Petitboot image installed on the console (ignored) |
 | `backups/` | **Private**: NOR flash dump (ignored, never commit) |
@@ -37,6 +39,7 @@ nouveau's userspace (libdrm + Mesa nv30) on the RSX. Plan and background: `docs/
     make gpu-deploy        # quick updates of the live root while iterating: RSX driver + tools
     make mesa-deploy       #   -> ~/bin, Mesa + mesa/tests -> ~/mesa (stop X first),
     make classicube-deploy #   ClassiCube -> ~/classicube, kernel modules (make nfs-modules)
+    make spu-toolchain     # spu-elf GCC 9.5 for the SPEs; make spu-deploy: tests -> ~/spu
 
 The image builds in two layers. `build/rootfs/base.tar` has the Debian packages (dpkg under qemu,
 about 15 minutes; downloads cached in `build/apt-cache/`) and is rebuilt only when

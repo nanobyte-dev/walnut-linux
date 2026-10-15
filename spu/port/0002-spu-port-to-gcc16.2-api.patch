@@ -1,0 +1,535 @@
+diff --git a/gcc/common/config/spu/spu-common.cc b/gcc/common/config/spu/spu-common.cc
+index a1be3aa..27468fa 100644
+--- a/gcc/common/config/spu/spu-common.cc
++++ b/gcc/common/config/spu/spu-common.cc
+@@ -23,7 +23,6 @@
+ #include "common/common-target-def.h"
+ #include "opts.h"
+ #include "flags.h"
+-#include "params.h"
+ 
+ static void
+ spu_option_init_struct (struct gcc_options *opts)
+@@ -32,23 +31,12 @@ spu_option_init_struct (struct gcc_options *opts)
+   opts->x_flag_rename_registers = 1;
+ }
+ 
+-/* Implement TARGET_OPTION_DEFAULT_PARAMS.  */
+-static void
+-spu_option_default_params (void)
+-{
+-  /* Override some of the default param values.  With so many registers
+-     larger values are better for these params.  */
+-  set_default_param_value (PARAM_MAX_PENDING_LIST_LENGTH, 128);
+-}
+-
+ #undef TARGET_DEFAULT_TARGET_FLAGS
+ #define TARGET_DEFAULT_TARGET_FLAGS (TARGET_DEFAULT)
+ 
+ #undef TARGET_OPTION_INIT_STRUCT
+ #define TARGET_OPTION_INIT_STRUCT spu_option_init_struct
+ 
+-#undef TARGET_OPTION_DEFAULT_PARAMS
+-#define TARGET_OPTION_DEFAULT_PARAMS spu_option_default_params
+ 
+ #undef TARGET_EXCEPT_UNWIND_INFO
+ #define TARGET_EXCEPT_UNWIND_INFO  sjlj_except_unwind_info
+diff --git a/gcc/config/spu/spu-c.cc b/gcc/config/spu/spu-c.cc
+index 6a52963..d8943e4 100644
+--- a/gcc/config/spu/spu-c.cc
++++ b/gcc/config/spu/spu-c.cc
+@@ -86,7 +86,8 @@ spu_macro_to_expand (cpp_reader *pfile, const cpp_token *tok)
+ /* target hook for resolve_overloaded_builtin(). Returns a function call
+    RTX if we can resolve the overloaded builtin */
+ tree
+-spu_resolve_overloaded_builtin (location_t loc, tree fndecl, void *passed_args)
++spu_resolve_overloaded_builtin (location_t loc, tree fndecl, void *passed_args,
++				bool complain ATTRIBUTE_UNUSED)
+ {
+ #define SCALAR_TYPE_P(t) (INTEGRAL_TYPE_P (t) \
+ 			  || SCALAR_FLOAT_TYPE_P (t) \
+diff --git a/gcc/config/spu/spu-protos.h b/gcc/config/spu/spu-protos.h
+index 3b18d99..790f675 100644
+--- a/gcc/config/spu/spu-protos.h
++++ b/gcc/config/spu/spu-protos.h
+@@ -86,7 +86,7 @@ extern void spu_function_profiler (FILE *, int);
+ 
+ /* spu-c.c */
+ extern tree spu_resolve_overloaded_builtin (location_t, tree fndecl,
+-    					    void *fnargs);
++    					    void *fnargs, bool complain);
+ extern rtx spu_expand_builtin (tree exp, rtx target, rtx subtarget,
+ 			       machine_mode mode, int ignore);
+ extern rtx spu_expand_builtin (tree, rtx, rtx, machine_mode, int);
+diff --git a/gcc/config/spu/spu.cc b/gcc/config/spu/spu.cc
+index 8d7439e..a5557b2 100644
+--- a/gcc/config/spu/spu.cc
++++ b/gcc/config/spu/spu.cc
+@@ -51,12 +51,12 @@
+ #include "langhooks.h"
+ #include "reload.h"
+ #include "sched-int.h"
+-#include "params.h"
+ #include "gimplify.h"
+ #include "tm-constrs.h"
+ #include "ddg.h"
+ #include "dumpfile.h"
+ #include "builtins.h"
++#include "opts.h"
+ #include "rtl-iter.h"
+ #include "flags.h"
+ #include "toplev.h"
+@@ -233,9 +233,11 @@ spu_option_override (void)
+   /* Small loops will be unpeeled at -O3.  For SPU it is more important
+      to keep code small by default.  */
+   if (!flag_unroll_loops && !flag_peel_loops)
+-    maybe_set_param_value (PARAM_MAX_COMPLETELY_PEEL_TIMES, 4,
+-			   global_options.x_param_values,
+-			   global_options_set.x_param_values);
++    SET_OPTION_IF_UNSET (&global_options, &global_options_set,
++			 param_max_completely_peel_times, 4);
++  /* With so many registers larger values are better (was TARGET_OPTION_DEFAULT_PARAMS) */
++  SET_OPTION_IF_UNSET (&global_options, &global_options_set,
++		       param_max_pending_list_length, 128);
+ 
+   flag_omit_frame_pointer = 1;
+ 
+@@ -1471,7 +1473,7 @@ print_operand (FILE * file, rtx x, int code)
+ static rtx
+ get_pic_reg (void)
+ {
+-  if (!reload_completed && !reload_in_progress)
++  if (!reload_completed && !(reload_in_progress || lra_in_progress))
+     abort ();
+ 
+   /* If we've already made the decision, we need to keep with it.  Once we've
+@@ -1557,7 +1559,7 @@ spu_split_immediate (rtx * ops)
+ 	return 1;
+       }
+     case IC_POOL:
+-      if (reload_in_progress || reload_completed)
++      if ((reload_in_progress || lra_in_progress) || reload_completed)
+ 	{
+ 	  rtx mem = force_const_mem (mode, ops[1]);
+ 	  if (TARGET_LARGE_MEM)
+@@ -3513,7 +3515,7 @@ spu_legitimate_constant_p (machine_mode mode, rtx x)
+   references to TImode.  */
+ static bool
+ spu_legitimate_address_p (machine_mode mode,
+-			  rtx x, bool reg_ok_strict)
++			  rtx x, bool reg_ok_strict, code_helper = ERROR_MARK)
+ {
+   int aligned = GET_MODE_SIZE (mode) >= 16;
+   if (aligned
+@@ -3531,7 +3533,7 @@ spu_legitimate_address_p (machine_mode mode,
+       /* Keep __ea references until reload so that spu_expand_mov can see them
+ 	 in MEMs.  */
+       if (ea_symbol_ref_p (x))
+-	return !reload_in_progress && !reload_completed;
++	return !(reload_in_progress || lra_in_progress) && !reload_completed;
+       return !TARGET_LARGE_MEM;
+ 
+     case CONST_INT:
+@@ -3585,7 +3587,8 @@ spu_legitimate_address_p (machine_mode mode,
+ /* Like spu_legitimate_address_p, except with named addresses.  */
+ static bool
+ spu_addr_space_legitimate_address_p (machine_mode mode, rtx x,
+-				     bool reg_ok_strict, addr_space_t as)
++				     bool reg_ok_strict, addr_space_t as,
++				     code_helper = ERROR_MARK)
+ {
+   if (as == ADDR_SPACE_EA)
+     return (REG_P (x) && (GET_MODE (x) == EAmode));
+@@ -3817,7 +3820,7 @@ spu_function_value (const_tree type, const_tree func ATTRIBUTE_UNUSED)
+ 	{
+ 	  if (byte_size < 4)
+ 	    byte_size = 4;
+-	  smode = smallest_int_mode_for_size (byte_size * BITS_PER_UNIT);
++	  smode = smallest_int_mode_for_size (byte_size * BITS_PER_UNIT).require ();
+ 	  RTVEC_ELT (v, n) =
+ 	    gen_rtx_EXPR_LIST (VOIDmode,
+ 			       gen_rtx_REG (smode, FIRST_RETURN_REGNUM + n),
+@@ -3829,11 +3832,11 @@ spu_function_value (const_tree type, const_tree func ATTRIBUTE_UNUSED)
+ }
+ 
+ static rtx
+-spu_function_arg (cumulative_args_t cum_v,
+-		  machine_mode mode,
+-		  const_tree type, bool named ATTRIBUTE_UNUSED)
++spu_function_arg (cumulative_args_t cum_v, const function_arg_info &arg)
+ {
+   CUMULATIVE_ARGS *cum = get_cumulative_args (cum_v);
++  machine_mode mode = arg.mode;
++  const_tree type = arg.type;
+   int byte_size;
+ 
+   if (*cum >= MAX_REGISTER_ARGS)
+@@ -3855,7 +3858,7 @@ spu_function_arg (cumulative_args_t cum_v,
+       rtx gr_reg;
+       if (byte_size < 4)
+ 	byte_size = 4;
+-      smode = smallest_int_mode_for_size (byte_size * BITS_PER_UNIT);
++      smode = smallest_int_mode_for_size (byte_size * BITS_PER_UNIT).require ();
+       gr_reg = gen_rtx_EXPR_LIST (VOIDmode,
+ 				  gen_rtx_REG (smode, FIRST_ARG_REGNUM + *cum),
+ 				  const0_rtx);
+@@ -3866,10 +3869,11 @@ spu_function_arg (cumulative_args_t cum_v,
+ }
+ 
+ static void
+-spu_function_arg_advance (cumulative_args_t cum_v, machine_mode mode,
+-			  const_tree type, bool named ATTRIBUTE_UNUSED)
++spu_function_arg_advance (cumulative_args_t cum_v, const function_arg_info &arg)
+ {
+   CUMULATIVE_ARGS *cum = get_cumulative_args (cum_v);
++  machine_mode mode = arg.mode;
++  const_tree type = arg.type;
+ 
+   *cum += (type && TREE_CODE (TYPE_SIZE (type)) != INTEGER_CST
+ 	   ? 1
+@@ -3903,10 +3907,9 @@ spu_function_arg_padding (machine_mode, const_tree)
+ /* Variable sized types are passed by reference.  */
+ static bool
+ spu_pass_by_reference (cumulative_args_t cum ATTRIBUTE_UNUSED,
+-		       machine_mode mode ATTRIBUTE_UNUSED,
+-		       const_tree type, bool named ATTRIBUTE_UNUSED)
++		       const function_arg_info &arg)
+ {
+-  return type && TREE_CODE (TYPE_SIZE (type)) != INTEGER_CST;
++  return arg.type && TREE_CODE (TYPE_SIZE (arg.type)) != INTEGER_CST;
+ }
+ 
+ 
+@@ -4053,8 +4056,7 @@ spu_gimplify_va_arg_expr (tree valist, tree type, gimple_seq * pre_p,
+ 
+   /* if an object is dynamically sized, a pointer to it is passed
+      instead of the object itself. */
+-  pass_by_reference_p = pass_by_reference (NULL, TYPE_MODE (type), type,
+-					   false);
++  pass_by_reference_p = pass_va_arg_by_reference (type);
+   if (pass_by_reference_p)
+     type = build_pointer_type (type);
+   size = int_size_in_bytes (type);
+@@ -4092,8 +4094,8 @@ spu_gimplify_va_arg_expr (tree valist, tree type, gimple_seq * pre_p,
+    in the stack then save no registers.  Set pretend_args_size to the
+    amount of space needed to save the registers. */
+ static void
+-spu_setup_incoming_varargs (cumulative_args_t cum, machine_mode mode,
+-			    tree type, int *pretend_size, int no_rtl)
++spu_setup_incoming_varargs (cumulative_args_t cum, const function_arg_info &arg,
++			    int *pretend_size, int no_rtl)
+ {
+   if (!no_rtl)
+     {
+@@ -4103,8 +4105,10 @@ spu_setup_incoming_varargs (cumulative_args_t cum, machine_mode mode,
+       int ncum = *get_cumulative_args (cum);
+ 
+       /* cum currently points to the last named argument, we want to
+-         start at the next argument. */
+-      spu_function_arg_advance (pack_cumulative_args (&ncum), mode, type, true);
++         start at the next argument (C23 allows no named argument at all). */
++      if (!TYPE_NO_NAMED_ARGS_STDARG_P (TREE_TYPE (current_function_decl))
++	  || arg.type != NULL_TREE)
++	spu_function_arg_advance (pack_cumulative_args (&ncum), arg);
+ 
+       offset = -STACK_POINTER_OFFSET;
+       for (regno = ncum; regno < MAX_REGISTER_ARGS; regno++)
+@@ -4477,14 +4481,14 @@ spu_expand_mov (rtx * ops, machine_mode mode)
+     }
+ 
+   /* At least one of the operands needs to be a register. */
+-  if ((reload_in_progress | reload_completed) == 0
++  if (((reload_in_progress || lra_in_progress) | reload_completed) == 0
+       && !register_operand (ops[0], mode) && !register_operand (ops[1], mode))
+     {
+       rtx temp = force_reg (mode, ops[1]);
+       emit_move_insn (ops[0], temp);
+       return 1;
+     }
+-  if (reload_in_progress || reload_completed)
++  if ((reload_in_progress || lra_in_progress) || reload_completed)
+     {
+       if (CONSTANT_P (ops[1]))
+ 	return spu_split_immediate (ops);
+@@ -6534,7 +6538,7 @@ spu_expand_builtin_1 (struct spu_builtin_description *d,
+   switch (n_operands)
+     {
+     case 0:
+-      pat = GEN_FCN (icode) (0);
++      pat = GEN_FCN (icode) ();
+       break;
+     case 1:
+       pat = GEN_FCN (icode) (ops[0]);
+@@ -6655,63 +6659,6 @@ spu_builtin_vectorization_cost (enum vect_cost_for_stmt type_of_cost,
+     }
+ }
+ 
+-/* Implement targetm.vectorize.init_cost.  */
+-
+-static void *
+-spu_init_cost (struct loop *loop_info ATTRIBUTE_UNUSED)
+-{
+-  unsigned *cost = XNEWVEC (unsigned, 3);
+-  cost[vect_prologue] = cost[vect_body] = cost[vect_epilogue] = 0;
+-  return cost;
+-}
+-
+-/* Implement targetm.vectorize.add_stmt_cost.  */
+-
+-static unsigned
+-spu_add_stmt_cost (void *data, int count, enum vect_cost_for_stmt kind,
+-		   struct _stmt_vec_info *stmt_info, int misalign,
+-		   enum vect_cost_model_location where)
+-{
+-  unsigned *cost = (unsigned *) data;
+-  unsigned retval = 0;
+-
+-  if (flag_vect_cost_model)
+-    {
+-      tree vectype = stmt_info ? stmt_vectype (stmt_info) : NULL_TREE;
+-      int stmt_cost = spu_builtin_vectorization_cost (kind, vectype, misalign);
+-
+-      /* Statements in an inner loop relative to the loop being
+-	 vectorized are weighted more heavily.  The value here is
+-	 arbitrary and could potentially be improved with analysis.  */
+-      if (where == vect_body && stmt_info && stmt_in_inner_loop_p (stmt_info))
+-	count *= 50;  /* FIXME.  */
+-
+-      retval = (unsigned) (count * stmt_cost);
+-      cost[where] += retval;
+-    }
+-
+-  return retval;
+-}
+-
+-/* Implement targetm.vectorize.finish_cost.  */
+-
+-static void
+-spu_finish_cost (void *data, unsigned *prologue_cost,
+-		 unsigned *body_cost, unsigned *epilogue_cost)
+-{
+-  unsigned *cost = (unsigned *) data;
+-  *prologue_cost = cost[vect_prologue];
+-  *body_cost     = cost[vect_body];
+-  *epilogue_cost = cost[vect_epilogue];
+-}
+-
+-/* Implement targetm.vectorize.destroy_cost_data.  */
+-
+-static void
+-spu_destroy_cost_data (void *data)
+-{
+-  free (data);
+-}
+ 
+ /* Return true iff, data reference of TYPE can reach vector alignment (16)
+    after applying N number of iterations.  This routine does not determine
+@@ -6798,8 +6745,8 @@ spu_addr_space_convert (rtx op, tree from_type, tree to_type)
+       result = gen_reg_rtx (Pmode);
+       ls = force_reg (Pmode, convert_modes (Pmode, DImode, ls, 1));
+       op = force_reg (Pmode, convert_modes (Pmode, EAmode, op, 1));
+-      ls = emit_conditional_move (ls, NE, op, const0_rtx, Pmode,
+-					  ls, const0_rtx, Pmode, 1);
++      ls = emit_conditional_move (ls, { NE, op, const0_rtx, Pmode },
++				  ls, const0_rtx, Pmode, 1);
+ 
+       emit_insn (gen_subsi3 (result, op, ls));
+ 
+@@ -6817,8 +6764,8 @@ spu_addr_space_convert (rtx op, tree from_type, tree to_type)
+       result = gen_reg_rtx (EAmode);
+       ls = force_reg (EAmode, convert_modes (EAmode, DImode, ls, 1));
+       op = force_reg (Pmode, op);
+-      ls = emit_conditional_move (ls, NE, op, const0_rtx, Pmode,
+-					  ls, const0_rtx, EAmode, 1);
++      ls = emit_conditional_move (ls, { NE, op, const0_rtx, Pmode },
++				  ls, const0_rtx, EAmode, 1);
+       op = force_reg (EAmode, convert_modes (EAmode, Pmode, op, 1));
+ 
+       if (EAmode == SImode)
+@@ -7220,21 +7167,23 @@ spu_constant_alignment (const_tree, HOST_WIDE_INT align)
+ }
+ 
+ /*  Table of machine attributes.  */
+-static const struct attribute_spec spu_attribute_table[] =
++TARGET_GNU_ATTRIBUTES (spu_attribute_table,
+ {
+   /* { name, min_len, max_len, decl_req, type_req, fn_type_req,
+        affects_type_identity, handler, exclude } */
+   { "naked",          0, 0, true,  false, false, false,
+     spu_handle_fndecl_attribute, NULL },
+   { "spu_vector",     0, 0, false, true,  false, false,
+-    spu_handle_vector_attribute, NULL },
+-  { NULL,             0, 0, false, false, false, false, NULL, NULL }
+-};
++    spu_handle_vector_attribute, NULL }
++});
+ 
+ /*  TARGET overrides.  */
+ 
++/* Old reload, as in GCC 9. LRA (-DSPU_TRY_LRA) fails on the preferred-slot subregs: docs/SPU-GCC.md */
++#ifndef SPU_TRY_LRA
+ #undef TARGET_LRA_P
+ #define TARGET_LRA_P hook_bool_void_false
++#endif
+ 
+ #undef TARGET_ADDR_SPACE_POINTER_MODE
+ #define TARGET_ADDR_SPACE_POINTER_MODE spu_addr_space_pointer_mode
+@@ -7376,17 +7325,9 @@ static const struct attribute_spec spu_attribute_table[] =
+ #undef TARGET_VECTORIZE_BUILTIN_VECTORIZATION_COST
+ #define TARGET_VECTORIZE_BUILTIN_VECTORIZATION_COST spu_builtin_vectorization_cost
+ 
+-#undef TARGET_VECTORIZE_INIT_COST
+-#define TARGET_VECTORIZE_INIT_COST spu_init_cost
+ 
+-#undef TARGET_VECTORIZE_ADD_STMT_COST
+-#define TARGET_VECTORIZE_ADD_STMT_COST spu_add_stmt_cost
+ 
+-#undef TARGET_VECTORIZE_FINISH_COST
+-#define TARGET_VECTORIZE_FINISH_COST spu_finish_cost
+ 
+-#undef TARGET_VECTORIZE_DESTROY_COST_DATA
+-#define TARGET_VECTORIZE_DESTROY_COST_DATA spu_destroy_cost_data
+ 
+ #undef TARGET_VECTORIZE_VECTOR_ALIGNMENT_REACHABLE
+ #define TARGET_VECTORIZE_VECTOR_ALIGNMENT_REACHABLE spu_vector_alignment_reachable
+diff --git a/gcc/config/spu/spu.h b/gcc/config/spu/spu.h
+index 4af55bd..bcfd496 100644
+--- a/gcc/config/spu/spu.h
++++ b/gcc/config/spu/spu.h
+@@ -129,11 +129,7 @@ extern GTY(()) int spu_tune;
+ 
+ #define LONG_LONG_TYPE_SIZE 64
+ 
+-#define FLOAT_TYPE_SIZE 32
+-
+-#define DOUBLE_TYPE_SIZE 64
+-
+-#define LONG_DOUBLE_TYPE_SIZE 64
++/* float/double/long double: the default TARGET_C_MODE_FOR_FLOATING_TYPE (SF, DF, DF) */
+ 
+ #define DEFAULT_SIGNED_CHAR 0
+ 
+diff --git a/gcc/config/spu/spu.md b/gcc/config/spu/spu.md
+index bb62298..2cfc90c 100644
+--- a/gcc/config/spu/spu.md
++++ b/gcc/config/spu/spu.md
+@@ -382,7 +382,7 @@
+ 	(match_operand 1 "memory_operand"))]
+   "GET_MODE_SIZE (GET_MODE (operands[0])) < 16
+    && GET_MODE(operands[0]) == GET_MODE(operands[1])
+-   && !reload_in_progress && !reload_completed" 
++   && !(reload_in_progress || lra_in_progress) && !reload_completed" 
+   [(set (match_dup 0)
+ 	(match_dup 1))]
+   { if (spu_split_load(operands))
+@@ -394,7 +394,7 @@
+ 	(match_operand 1 "spu_reg_operand"))]
+   "GET_MODE_SIZE (GET_MODE (operands[0])) < 16
+    && GET_MODE(operands[0]) == GET_MODE(operands[1])
+-   && !reload_in_progress && !reload_completed" 
++   && !(reload_in_progress || lra_in_progress) && !reload_completed" 
+   [(set (match_dup 0)
+ 	(match_dup 1))]
+   { if (spu_split_store(operands))
+diff --git a/gcc/config/spu/spu.opt b/gcc/config/spu/spu.opt
+index 9eb18cc..0d95612 100644
+--- a/gcc/config/spu/spu.opt
++++ b/gcc/config/spu/spu.opt
+@@ -16,11 +16,11 @@
+ ; <http://www.gnu.org/licenses/>.
+ 
+ mwarn-reloc
+-Target Report Mask(WARN_RELOC)
++Target Mask(WARN_RELOC)
+ Emit warnings when run-time relocations are generated.
+ 
+ merror-reloc
+-Target Report Mask(ERROR_RELOC)
++Target Mask(ERROR_RELOC)
+ Emit errors when run-time relocations are generated.
+ 
+ mbranch-cost=
+@@ -28,15 +28,15 @@ Target RejectNegative Joined UInteger Var(spu_branch_cost) Init(20)
+ Specify cost of branches (Default 20).
+ 
+ msafe-dma
+-Target Report RejectNegative Mask(SAFE_DMA)
++Target RejectNegative Mask(SAFE_DMA)
+ Make sure loads and stores are not moved past DMA instructions.
+ 
+ munsafe-dma
+-Target Report RejectNegative InverseMask(SAFE_DMA)
++Target RejectNegative InverseMask(SAFE_DMA)
+ volatile must be specified on any memory that is effected by DMA.
+ 
+ mdual-nops
+-Target Report Var(spu_dual_nops,10) Init(10)
++Target Var(spu_dual_nops,10) Init(10)
+ Insert nops when it might improve performance by allowing dual issue (default).
+ 
+ mdual-nops=
+@@ -44,11 +44,11 @@ Target RejectNegative Joined UInteger Var(spu_dual_nops)
+ Insert nops when it might improve performance by allowing dual issue (default).
+ 
+ mstdmain
+-Target Report Mask(STD_MAIN)
++Target Mask(STD_MAIN)
+ Use standard main function as entry for startup.
+ 
+ mbranch-hints
+-Target Report Mask(BRANCH_HINTS)
++Target Mask(BRANCH_HINTS)
+ Generate branch hints for branches.
+ 
+ mhint-max-nops=
+@@ -60,11 +60,11 @@ Target RejectNegative Joined Var(spu_max_distance_str)
+ Approximate maximum number of instructions to allow between a hint and its branch [125].
+ 
+ msmall-mem
+-Target Report RejectNegative InverseMask(LARGE_MEM)
++Target RejectNegative InverseMask(LARGE_MEM)
+ Generate code for 18 bit addressing.
+ 
+ mlarge-mem
+-Target Report RejectNegative Mask(LARGE_MEM)
++Target RejectNegative Mask(LARGE_MEM)
+ Generate code for 32 bit addressing.
+ 
+ mfixed-range=
+@@ -72,7 +72,7 @@ Target RejectNegative Joined Var(spu_fixed_range_string)
+ Specify range of registers to make fixed.
+ 
+ msafe-hints
+-Target Report Mask(SAFE_HINTS)
++Target Mask(SAFE_HINTS)
+ Insert hbrp instructions after hinted branch targets to avoid the SPU hang issue.
+ 
+ march=
+@@ -84,22 +84,22 @@ Target RejectNegative Joined Var(spu_tune_string)
+ Schedule code for given CPU.
+ 
+ mea32
+-Target Report RejectNegative Var(spu_ea_model,32) Init(32)
++Target RejectNegative Var(spu_ea_model,32) Init(32)
+ Access variables in 32-bit PPU objects (default).
+ 
+ mea64
+-Target Report RejectNegative Var(spu_ea_model,64)
++Target RejectNegative Var(spu_ea_model,64)
+ Access variables in 64-bit PPU objects.
+ 
+ maddress-space-conversion
+-Target Report Mask(ADDRESS_SPACE_CONVERSION)
++Target Mask(ADDRESS_SPACE_CONVERSION)
+ Allow conversions between __ea and generic pointers (default).
+ 
+ mcache-size=
+-Target Report RejectNegative Joined UInteger
++Target RejectNegative Joined UInteger
+ Size (in KB) of software data cache.
+ 
+ matomic-updates
+-Target Report
++Target
+ Atomically write back software data cache lines (default).
+ 

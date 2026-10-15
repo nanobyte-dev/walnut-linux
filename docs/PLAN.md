@@ -183,15 +183,24 @@ Next:
 
 ### 6. SPEs: a GCC toolchain for the Cell's accelerators
 
-Linux gets 6 SPEs (`spufs`), and nothing uses them yet. Possible uses: zram compression, video
-decode, vertex work.
-- Fallback (1–3 days): a pinned spu-elf toolchain in Docker (GCC 9.5, the last release with
-  the SPU port, against current binutils and newlib), proven by a hello world on one SPE.
-- Forward port (evaluated 2026-10-14): the GCC 9.5 SPU port is about 22k lines and uses the old
-  reload allocator, which GCC is dropping. Estimate: 4–8 weeks to a C hello world on trunk,
-  plus 4–10 weeks for an LRA conversion, plus ongoing upkeep.
-- Decision: start with 9.5, and revisit the port only if 9.5 limits us. LLVM's CellSPU backend
-  was removed in 3.3 and is not an option.
+Linux gets 6 SPEs (`spufs`). Possible uses: zram compression, video decode, vertex work.
+Report: docs/SPU-GCC.md (2026-10-15).
+
+Done:
+- `make spu-toolchain`: pinned spu-elf GCC 9.5 + binutils 2.33.1 + newlib 1.20.0 (newlib 3.3.0
+  doesn't build for SPU). `spu/spurun` runs SPU programs through spufs, no libspe2. Proven:
+  hello on a real SPE.
+- Forward port: the GCC 9.5 backend builds in GCC 16.2 after about 20 mechanical edits
+  (`spu/port/`). On old reload it passes 1621 execute torture tests on the SPEs, against 1618
+  for GCC 9.5, with no regressions.
+
+Next:
+- spufs at boot (module, `/spu` mount) and stdio for SPU programs: serve newlib's PPE-assisted
+  calls (stop 0x2100) in spurun.
+- Use GCC 9.5 for now. If newer C or optimisations matter, carry the GCC 16 port and pin it.
+- The LRA conversion (108 compiler crashes, from the preferred-slot subreg model) only becomes
+  necessary when GCC removes old reload (announced for 16, still present in 17). Estimate
+  4–8+ weeks.
 
 ### 7. A distribution
 
