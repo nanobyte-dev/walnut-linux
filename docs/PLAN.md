@@ -16,9 +16,9 @@ is the binding constraint**, and most of the next work is about it.
     16.2.0-3cross1, from the amd64 sid snapshot of the same date.
   - **SPU:** our port of the SPU backend to GCC 16.2 (docs/SPU-GCC.md, `spu/port/`).
   - **binutils:** 2.47, for the SPU with one gas patch (`spu/binutils/`, the `hbrr` regression:
-    gas took `nop 127` for the `.nop` directive); SPE execute rerun pending. **newlib** for
-    the SPU: 4.6.0 (seven patches,
-    `spu/newlib-4.6/`), builds; not yet run on an SPE (task #7).
+    gas took `nop 127` for the `.nop` directive). **newlib** for the SPU: 4.6.0 (seven
+    patches, `spu/newlib-4.6/`). On the SPEs (2026-10-15): 1629 of 1677 execute tests pass,
+    the same tests one by one as with binutils 2.33.1 and newlib 1.20.
 - **Kernel:** 6.12 LTS (supported to Dec 2028). **Mesa:** our fork of the snapshot's release.
 - **Repository:** everything of ours is a .deb in `build/repo`; the image installs from it and
   `make deploy` upgrades the running PS3. Source: git.tibich.com/chibicitiberiu/ps3-linux.
@@ -106,9 +106,9 @@ Task numbers refer to the session task list. "Reboot" marks steps that need one.
    - Done so far: the device, two tiers, games-first VRAM release, async disk I/O, own bio
      reserve, a work queue on a fresh stack, background demotion. Hard-won lessons in
      `gpu/ps3rsx/vswap.c`'s header (two deadlocks and a NULL-bioset oops on the way).
-2. **SPU toolchain versions** (tasks #6, #7): binutils 2.47 with the `hbrr` fix (done), newlib
-   4.6 built. Then one `make spu-toolchain` and the 1677 execute tests on the SPEs (1629 pass
-   with 1.20/2.33.1 today); hello via `spurun`.
+2. ~~SPU toolchain versions~~ (tasks #6, #7): done. binutils 2.47 (one gas patch) and newlib
+   4.6 (seven patches); the 1677 execute tests on the SPEs give the same result per test as
+   the old toolchain (1629 pass).
 
 ### Next: memory
 

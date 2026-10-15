@@ -38,8 +38,9 @@ patches:
 - `0003` an `expmed` fix for the `__complex__` crashes.
 
 It uses old reload and links against newlib 4.6 (`spu/newlib-4.6/`) and libgcc, both built by
-GCC 16.2. The execute-test figures below are from newlib 1.20.0; the rerun with 4.6 is pending
-(all 1677 programs build and link with it).
+GCC 16.2, and binutils 2.47 with one patch. Rerun on the SPEs with this toolchain (2026-10-15):
+1629 of 1677 pass, and every test has the same result as with binutils 2.33.1 and newlib
+1.20.0 (both binary sets run on the same day; results in `build/spu-port/exec-*.txt`).
 
 **On the SPEs, with everything built by GCC 16.2:**
 - **1629** of 1677 execute tests pass, against GCC 9.5's 1618 of 1671;
@@ -72,7 +73,8 @@ GCC 16.2. The execute-test figures below are from newlib 1.20.0; the rerun with 
     of `.rodata` in 4 programs.
   - the gas testsuite (`spu.exp`, `gas.exp`, `elf.exp`) passes as unpatched 2.47 does, the
     generic `.nop` test included.
-  - still to do: rerun the execute tests on the SPEs (ld 2.47's layout is new there).
+  - on the SPEs: the same result per test as 2.33.1 (1629 of 1677 pass), so ld 2.47's new
+    layout changes nothing that runs.
 
 **newlib 4.6.0.20260123 is not an exception any more.** It needs seven small patches
 (`spu/newlib-4.6/`, each with its reason in the file) and builds with plain `-O2`:
