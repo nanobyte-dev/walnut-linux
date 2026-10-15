@@ -88,7 +88,8 @@ ExecStart=/usr/local/sbin/ps3gpu-nodes
 WantedBy=multi-user.target
 EOS
 chroot "$R" systemctl enable ps3gpu-nodes.service
-chroot "$R" usermod -aG video,render,audio tibi
+# input: games read gamepads (the DualShock 3) directly from /dev/input through SDL
+chroot "$R" usermod -aG video,render,audio,input tibi
 
 # ps3vram can't get VRAM while ps3fb owns it all, and the RSX driver uses VRAM for the GPU
 echo "blacklist ps3vram" > "$R/etc/modprobe.d/ps3vram.conf"
