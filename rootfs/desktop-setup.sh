@@ -149,6 +149,27 @@ printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=OpenArena' \
 	'Categories=Game;ActionGame;' > "$R/home/tibi/.local/share/applications/openarena.desktop"
 chroot "$R" chown -R 1000:1000 /home/tibi/.openarena /home/tibi/.local
 
+# Shut down / Reboot in the application menu, after a confirmation (a stray click shouldn't
+# power the console off). A reboot lands in GameOS (the XMB): the OtherOS flag is set by hand.
+cat > "$R/usr/local/bin/ps3-power" <<'EOS'
+#!/bin/sh
+# ps3-power poweroff|reboot: asks first, then shuts down or reboots (to the XMB)
+case "$1" in
+poweroff) q="Shut down the PS3?"; b="Shut down" ;;
+reboot) q="Reboot the PS3? (it starts in the XMB)"; b="Reboot" ;;
+*) echo "usage: ps3-power poweroff|reboot" >&2; exit 2 ;;
+esac
+xmessage -center -buttons "$b:0,Cancel:1" -default Cancel "$q" || exit 0
+exec sudo -n /usr/bin/systemctl "$1"
+EOS
+chmod 755 "$R/usr/local/bin/ps3-power"
+printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Shut down' 'Comment=Power off the PS3' \
+	'Exec=ps3-power poweroff' 'Icon=system-shutdown' 'Categories=System;' \
+	> "$R/usr/share/applications/ps3-poweroff.desktop"
+printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Reboot' 'Comment=Restart the PS3 (to the XMB)' \
+	'Exec=ps3-power reboot' 'Icon=system-reboot' 'Categories=System;' \
+	> "$R/usr/share/applications/ps3-reboot.desktop"
+
 # DualShock 3 (and other joysticks) move the pointer; libinput ignores joysticks
 cat > "$R/etc/X11/xorg.conf.d/40-joystick-pointer.conf" <<'EOF'
 Section "InputClass"

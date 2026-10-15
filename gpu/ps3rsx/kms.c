@@ -244,6 +244,34 @@ MODULE_PARM_DESC(vblank_irq, "vblank from the RSX vsync interrupt (default) inst
 #define DINFO_IRQ_OUTLET	0x12b8
 #define DINFO_IRQ_MASK		0x12c0
 #define INTR_VSYNC_A		(1 << 0)
+#define DINFO_HEAD0_STATUS	(0x10b8 + 8)
+#define HEAD_FLIP_PENDING	(1 << 30)	/* a flip is queued and not yet latched */
+#define FLIP_WAIT_MAX		4		/* vblanks: never hold an event longer */
+
+/*
+ * The flip event tells the client its previous buffer is free. Sent at the first vblank after
+ * the flip it came early whenever lv1 latched the flip a vblank later: the client then cleared
+ * and redrew the buffer still on screen, and the bottom of the frame flashed in the clear
+ * colour (ClassiCube, 2026-10-15). So it waits until the head no longer reports a pending flip.
+ */
+static void flip_event_check(struct ps3rsx_device *rsx)
+{
+	struct drm_device *dev = &rsx->drm;
+	unsigned long flags;
+
+	spin_lock_irqsave(&dev->event_lock, flags);
+	if (rsx->flip_event &&
+	    (!(in_be32(rsx->dinfo + DINFO_HEAD0_STATUS) & HEAD_FLIP_PENDING) ||
+	     ++rsx->flip_wait > FLIP_WAIT_MAX)) {
+		if (rsx->flip_wait > FLIP_WAIT_MAX)
+			drm_warn_once(dev, "flip still pending after %u vblanks: event sent anyway\n",
+				      FLIP_WAIT_MAX);
+		drm_crtc_send_vblank_event(&rsx->crtc, rsx->flip_event);
+		drm_crtc_vblank_put(&rsx->crtc);
+		rsx->flip_event = NULL;
+	}
+	spin_unlock_irqrestore(&dev->event_lock, flags);
+}
 
 static irqreturn_t vsync_interrupt(int irq, void *data)
 {
@@ -252,8 +280,10 @@ static irqreturn_t vsync_interrupt(int irq, void *data)
 
 	if (lv1_gpu_context_intr(rsx->ctx.handle, &v))
 		return IRQ_NONE;
-	if (v & INTR_VSYNC_A)
+	if (v & INTR_VSYNC_A) {
 		drm_crtc_handle_vblank(&rsx->crtc);
+		flip_event_check(rsx);
+	}
 	return IRQ_HANDLED;
 }
 
@@ -333,10 +363,15 @@ static void arm_event(struct drm_crtc *crtc)
 		return;
 	crtc->state->event = NULL;
 	spin_lock_irq(&crtc->dev->event_lock);
-	if (drm_crtc_vblank_get(crtc) == 0)
-		drm_crtc_arm_vblank_event(crtc, event);
-	else
+	if (drm_crtc_vblank_get(crtc) != 0)
 		drm_crtc_send_vblank_event(crtc, event);
+	else if (to_rsx(crtc->dev)->vsync_virq) {
+		/* the vsync interrupt sends it once the flip latched (flip_event_check) */
+		WARN_ON(to_rsx(crtc->dev)->flip_event);
+		to_rsx(crtc->dev)->flip_event = event;
+		to_rsx(crtc->dev)->flip_wait = 0;
+	} else
+		drm_crtc_arm_vblank_event(crtc, event);
 	spin_unlock_irq(&crtc->dev->event_lock);
 }
 
@@ -354,6 +389,14 @@ static void crtc_disable(struct drm_crtc *crtc, struct drm_atomic_state *state)
 {
 	struct ps3rsx_device *rsx = to_rsx(crtc->dev);
 
+	/* a held flip event goes out now: nothing will latch once the display is off */
+	spin_lock_irq(&crtc->dev->event_lock);
+	if (rsx->flip_event) {
+		drm_crtc_send_vblank_event(crtc, rsx->flip_event);
+		drm_crtc_vblank_put(crtc);
+		rsx->flip_event = NULL;
+	}
+	spin_unlock_irq(&crtc->dev->event_lock);
 	drm_crtc_vblank_off(crtc);
 	cursor_call(rsx, 0x10c, 2, 0, 0);
 	/* back to ps3fb's frame (it redraws the console when it gets the GPU back) */
