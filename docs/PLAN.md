@@ -211,6 +211,16 @@ Done:
   for GCC 9.5, with no regressions.
 
 Next:
+- Undo the two SPU version exceptions (docs/SPU-GCC.md), so the SPU uses the same versions as
+  the rest:
+  - **binutils 2.33.1 → 2.47:** bisect 2.34–2.47 for the `hbrr` "Relocation doesn't fit"
+    regression (repro: newlib's `libgloss/spu/open.c` at `-O2`) and patch it
+    (`spu/binutils/`).
+  - **newlib 1.20.0 → 4.6:** three fixes are known: `sys/sched.h`, the `math.h`
+    `isinf`/`isnan` declarations (both patches written, kept in
+    `spu/newlib-4.6/` until they apply), and the generic `fenv` code against SPU's `fenv.h`.
+    Continue until it builds.
+  - Then rerun the execute tests on the SPEs, and offer the fixes upstream.
 - spufs at boot (module, `/spu` mount) and stdio for SPU programs: serve newlib's PPE-assisted
   calls (stop 0x2100) in spurun.
 - Use GCC 9.5 for now. If newer C or optimisations matter, carry the GCC 16 port and pin it.

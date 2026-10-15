@@ -1,0 +1,22 @@
+SPU's machine/ieeefp.h defines isinf() and isnan() as macros (SPU single precision has no
+infinities or NaNs), and math.h's later function declarations of the same names expand them:
+"expected identifier or '(' before 'sizeof'" in every libm file. Parenthesised names aren't
+expanded as function-like macros.
+
+--- a/newlib/libc/include/math.h
++++ b/newlib/libc/include/math.h
+@@ -125,12 +125,12 @@
+ extern int isnanl (long double);
+ #endif
+ #if !defined(__cplusplus) || __cplusplus < 201103L
+-extern int isinf (double);
++extern int (isinf) (double);
+ #endif
+ #endif /* __MISC_VISIBLE */
+ #if (__MISC_VISIBLE || (__XSI_VISIBLE && __XSI_VISIBLE < 600)) \
+   && (!defined(__cplusplus) || __cplusplus < 201103L)
+-extern int isnan (double);
++extern int (isnan) (double);
+ #endif
+ 
+ #if __ISO_C_VISIBLE >= 1999
