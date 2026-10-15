@@ -1,0 +1,62 @@
+#!/bin/sh
+# Stages one of our packages' files under <root> (a fresh directory), in their installed paths:
+#   tools/stage-package.sh <package> <root>
+# packages: ps3-kernel ps3rsx ps3-gpu-tools ps3-mesa classicube ps3-spu
+# tools/build-debs.sh turns each staged tree into a .deb (docs/PLAN.md item 7).
+# Env: BUILD (build dir), MESA_PREFIX (where Mesa was built to live), KERNEL_RELEASE.
+set -eu
+P="$1"; R="$2"
+B="${BUILD:-build}"
+K="$B/kernel/stage"
+
+case "$P" in
+ps3-kernel)	# the kernel and its modules; Petitboot boots /boot/vmlinux-* (kboot.conf: image)
+	install -d "$R/boot" "$R/lib/modules"
+	install -m 644 "$K/boot/vmlinux-$KERNEL_RELEASE" "$K/boot/config-$KERNEL_RELEASE" \
+		"$K/boot/System.map-$KERNEL_RELEASE" "$R/boot/"
+	cp -a "$K/lib/modules/$KERNEL_RELEASE" "$R/lib/modules/"
+	# depmod output comes from the postinst, not the package
+	rm -f "$R/lib/modules/$KERNEL_RELEASE"/modules.*.bin "$R/lib/modules/$KERNEL_RELEASE"/modules.dep \
+		"$R/lib/modules/$KERNEL_RELEASE"/modules.alias "$R/lib/modules/$KERNEL_RELEASE"/modules.symbols \
+		"$R/lib/modules/$KERNEL_RELEASE"/modules.devname "$R/lib/modules/$KERNEL_RELEASE"/modules.softdep \
+		"$R/lib/modules/$KERNEL_RELEASE"/modules.weakdep
+	rm -f "$R/lib/modules/$KERNEL_RELEASE/build" "$R/lib/modules/$KERNEL_RELEASE/source" ;;
+ps3rsx)		# the RSX DRM driver, loaded at boot (before the desktop starts X)
+	install -d "$R/lib/modules/$KERNEL_RELEASE/updates" "$R/usr/lib/modules-load.d"
+	install -m 644 "$B/gpu-ps3rsx/ps3rsx.ko" "$R/lib/modules/$KERNEL_RELEASE/updates/"
+	echo ps3rsx > "$R/usr/lib/modules-load.d/ps3rsx.conf" ;;
+ps3-gpu-tools)	# RSX probes and tests (gpu/tools), the Phase 0/1 probe modules
+	install -d "$R/usr/lib/ps3/bin" "$R/usr/lib/ps3/kmod" "$R/etc/profile.d"
+	install -m 755 "$B"/gpu/* gpu/tools/*.sh "$R/usr/lib/ps3/bin/"
+	install -m 644 "$B"/gpu-kmod/*.ko "$R/usr/lib/ps3/kmod/"
+	printf '%s\n' '# PS3 tools (ps3-gpu-tools, ps3-spu)' \
+		'case ":$PATH:" in *:/usr/lib/ps3/bin:*) ;; *) PATH="$PATH:/usr/lib/ps3/bin" ;; esac' \
+		> "$R/etc/profile.d/ps3.sh" ;;
+ps3-mesa)	# our Mesa fork and its GL tests; ld.so.conf.d makes everything (setuid Xorg too) use it
+	install -d "$R$MESA_PREFIX/bin" "$R/etc/ld.so.conf.d"
+	cp -a "$B/mesa/install$MESA_PREFIX/." "$R$MESA_PREFIX/"
+	install -m 755 "$B"/mesa/tests/* "$R$MESA_PREFIX/bin/"
+	echo "$MESA_PREFIX/lib" > "$R/etc/ld.so.conf.d/00-ps3mesa.conf" ;;
+classicube)	# the game, its sounds and music, default options; /usr/games/classicube runs it
+	# from a per-user directory (it keeps options, maps and screenshots next to itself)
+	install -d "$R/usr/lib/classicube/texpacks" "$R/usr/lib/classicube/audio" "$R/usr/games" \
+		"$R/usr/share/applications"
+	install -m 755 "$B/classicube/install/ClassiCube" "$R/usr/lib/classicube/"
+	install -m 644 "$B/classicube/install/texpacks/classicube.zip" "$R/usr/lib/classicube/texpacks/"
+	install -m 644 "$B"/classicube/audio/* "$R/usr/lib/classicube/audio/"
+	install -m 644 games/classicube/options.txt "$R/usr/lib/classicube/"
+	install -m 755 games/classicube/classicube.sh "$R/usr/games/classicube"
+	install -m 644 games/classicube/classicube.desktop "$R/usr/share/applications/" ;;
+ps3-spu)	# SPU runner and tests; spufs loaded and mounted at /spu at boot
+	install -d "$R/usr/lib/ps3/bin" "$R/usr/lib/ps3/spu" "$R/usr/lib/modules-load.d" \
+		"$R/usr/lib/systemd/system/local-fs.target.wants"
+	install -m 755 "$B/spu-tests/spurun" "$R/usr/lib/ps3/bin/"
+	install -m 644 "$B"/spu-tests/*.spu "$R/usr/lib/ps3/spu/"
+	echo spufs > "$R/usr/lib/modules-load.d/spufs.conf"
+	printf '%s\n' '[Unit]' 'Description=SPU file system (the Cell SPEs, spufs)' \
+		'After=systemd-modules-load.service' '' '[Mount]' 'What=spufs' 'Where=/spu' 'Type=spufs' \
+		'Options=mode=1777' > "$R/usr/lib/systemd/system/spu.mount"
+	ln -s ../spu.mount "$R/usr/lib/systemd/system/local-fs.target.wants/spu.mount" ;;
+*)
+	echo "unknown package: $P" >&2; exit 1 ;;
+esac

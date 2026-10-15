@@ -3,7 +3,7 @@
 # on the NFS root, so a wedge or crash still leaves the record. Stops at the first failure.
 #   rsx-suite.sh [smoke|mesa|multi|all]   (default all)
 L=$HOME/suite.log
-B=$HOME/bin
+B=/usr/lib/ps3/bin
 what=${1:-all}
 exec > >(tee -a "$L") 2>&1
 echo "=== $(date +%T) rsx-suite $what"
@@ -11,7 +11,7 @@ sudo dmesg -n 7
 sudo modprobe drm_kms_helper || exit 1
 # always a fresh load with default parameters (trace=1 floods netconsole and hangs the box)
 lsmod | grep -q ps3rsx && sudo rmmod ps3rsx
-sudo insmod $B/ps3rsx.ko || exit 1
+sudo modprobe ps3rsx || exit 1
 # the device nodes exist before udev has given them their group: wait, or the first test races it
 udevadm settle
 
@@ -21,7 +21,7 @@ if [ "$what" = smoke ] || [ "$what" = all ]; then
 	for t in reject nop m2mf clear tri fence twochan; do run $B/rsxdrm-smoke $t; done
 fi
 if [ "$what" = mesa ] || [ "$what" = all ]; then
-	. $HOME/mesa/env.sh
+	. /usr/lib/ps3-mesa/env.sh
 	# The PS3 gets 24-bit depth (Mesa 0005): the reference must too, or depth ties resolve
 	# differently at silhouettes.
 	export EGL_TEST_DEPTH24=1
@@ -42,8 +42,14 @@ if [ "$what" = mesa ] || [ "$what" = all ]; then
 			      else printf "    vs softpipe: %d bytes differ, max %d%s\n", n, max, (max > 1 ? "  !!! more than rounding" : " (rounding)") }' 
 	done
 fi
+if [ "$what" = mesa ] || [ "$what" = all ]; then
+	. /usr/lib/ps3-mesa/env.sh
+	# desktop GL: fixed-function fog, sky, and texture uploads the way SDL streams windows
+	for t in gl-fog gl-sky; do echo "--- $t"; timeout 300 $t | tail -2; done
+	run gl-texsub
+fi
 if [ "$what" = multi ] || [ "$what" = all ]; then
-	. $HOME/mesa/env.sh
+	. /usr/lib/ps3-mesa/env.sh
 	echo "--- two GL processes at once"
 	egl-gears /tmp/g1.ppm > /tmp/g1.out 2>&1 & egl-tri /tmp/t2.ppm > /tmp/t2.out 2>&1 & egl-gears /tmp/g3.ppm > /tmp/g3.out 2>&1
 	wait

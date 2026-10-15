@@ -1,0 +1,8 @@
+# Package and repository tools on top of the builder (its own image, so the kernel/rootfs tags
+# don't change): apt-ftparchive.
+ARG BUILDER
+FROM ${BUILDER}
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends apt-utils && \
+    rm -rf /var/lib/apt/lists/*

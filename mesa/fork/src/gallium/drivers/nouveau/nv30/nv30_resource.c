@@ -89,6 +89,42 @@ nv30_resource_screen_init(struct pipe_screen *pscreen)
    pscreen->resource_destroy = nv30_resource_destroy;
 }
 
+/* PS3: texture uploads stage through GART, a small boot-time reservation (ps3rsx_gart=) that
+ * every process shares and that is allocated contiguously. One upload of a 1080p window texture
+ * (SDL's desktop-GL renderer streams the whole window, e.g. ClassiCube's launcher) asked for
+ * 8100 KiB of it, which often didn't fit: the upload failed and the window kept stale content.
+ * So big uploads go in bands of rows of at most 1 MB.
+ */
+#define NV30_PS3_UPLOAD_BAND (1 << 20)
+
+static void
+nv30_texture_subdata(struct pipe_context *pipe, struct pipe_resource *res, unsigned level,
+                     unsigned usage, const struct pipe_box *box, const void *data,
+                     unsigned stride, uintptr_t layer_stride)
+{
+   struct nv30_context *nv30 = nv30_context(pipe);
+   unsigned bh = util_format_get_blockheight(res->format);
+   unsigned rows, y;
+
+   if (!nv30->screen->base.is_ps3 || box->depth != 1 || !stride ||
+       (uint64_t)stride * DIV_ROUND_UP(box->height, bh) <= NV30_PS3_UPLOAD_BAND) {
+      u_default_texture_subdata(pipe, res, level, usage, box, data, stride, layer_stride);
+      return;
+   }
+
+   /* rows of blocks per band, in pixel rows */
+   rows = MAX2(NV30_PS3_UPLOAD_BAND / stride, 1) * bh;
+   for (y = 0; y < box->height; y += rows) {
+      struct pipe_box band = *box;
+
+      band.y = box->y + y;
+      band.height = MIN2(rows, box->height - y);
+      u_default_texture_subdata(pipe, res, level, usage, &band,
+                                (const uint8_t *)data + (size_t)(y / bh) * stride,
+                                stride, layer_stride);
+   }
+}
+
 void
 nv30_resource_init(struct pipe_context *pipe)
 {
@@ -98,7 +134,7 @@ nv30_resource_init(struct pipe_context *pipe)
    pipe->buffer_unmap = nouveau_buffer_transfer_unmap;
    pipe->texture_unmap = nv30_miptree_transfer_unmap;
    pipe->buffer_subdata = u_default_buffer_subdata;
-   pipe->texture_subdata = u_default_texture_subdata;
+   pipe->texture_subdata = nv30_texture_subdata;
    pipe->resource_copy_region = nv30_resource_copy_region;
    pipe->blit = nv30_blit;
    pipe->flush_resource = nv30_flush_resource;

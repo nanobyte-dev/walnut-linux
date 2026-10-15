@@ -2,6 +2,6 @@
 Type=Application
 Name=ClassiCube
 Comment=Block building game (Minecraft Classic)
-Exec=ps3-game /home/tibi/classicube/classicube.sh
+Exec=ps3-game classicube
 Icon=applications-games
 Categories=Game;

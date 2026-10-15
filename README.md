@@ -30,31 +30,42 @@ nouveau's userspace (libdrm + Mesa nv30) on the RSX. Plan and background: `docs/
 
 ## Usage
 
-    make rootfs            # the whole image (kernel modules, RSX driver, Mesa, games included)
+    make rootfs            # the whole image (our packages included: kernel, RSX driver, Mesa, games)
     make checksums         # compare between builds to confirm reproducibility
     make nfs-root          # sudo: install the image as the NFS export (old root kept as .bak-<date>)
     make usb-root          # or: the image onto the USB disk on the PS3 (FORMAT=1 partitions it first)
     make listen            # in another terminal: PS3 debug output
     make netboot           # PS3 in Petitboot -> boots our kernel with NFS root (ROOT=usb: USB disk root)
-    make gpu-deploy        # quick updates of the live root while iterating: RSX driver + tools
-    make mesa-deploy       #   -> ~/bin, Mesa + mesa/tests -> ~/mesa (stop X first),
-    make classicube-deploy #   ClassiCube -> ~/classicube, kernel modules (make nfs-modules)
-    make spu-toolchain     # spu-elf GCC 9.5 for the SPEs; make spu-deploy: tests -> ~/spu
+    make debs              # our packages -> build/repo (an apt repository)
+    make deploy            # install them on the running PS3 (PKGS="ps3-mesa ..."; or the
+                           #   shortcuts kernel-, gpu-, mesa-, classicube-, spu-deploy)
+    make spu-toolchain     # spu-elf GCC 16.2 (our port) for the SPEs
 
 The image builds in two layers. `build/rootfs/base.tar` has the Debian packages (dpkg under qemu,
 about 15 minutes; downloads cached in `build/apt-cache/`) and is rebuilt only when
 `rootfs/packages.txt` or the snapshot changes. `build/rootfs/debian-ppc64.tar` adds our config and
-everything we build, in a minute or two. The deploy targets run the same install steps as the
-image (`tools/install-builds.sh`), so whatever is tried live is also what the next image gets.
+our own packages, in a minute or two. Everything we build is a .deb in `build/repo`:
+
+| Package | Installs |
+|---|---|
+| `ps3-kernel` | `/boot/vmlinux-<ver>`, `/lib/modules/<ver>` |
+| `ps3rsx` | RSX driver, loaded at boot |
+| `ps3-gpu-tools` | RSX probes and tests in `/usr/lib/ps3/bin` (on `PATH`) |
+| `ps3-mesa` | our Mesa in `/usr/lib/ps3-mesa`, plus its GL tests |
+| `classicube` | `/usr/games/classicube` (game data per user in `~/.local/share/classicube`) |
+| `ps3-spu` | `spurun` and SPU tests; spufs mounted at `/spu` |
+
+The image installs them with dpkg, and `make deploy` installs the same packages on the running
+PS3. So whatever is tried live is what the next image gets.
 `make nfs-root` carries over the PS3's own state from the previous root: SSH host keys, Bluetooth
 pairings, saved Wi-Fi connections (`FRESH=1` starts clean).
 
-On the PS3, `. ~/mesa/env.sh` selects our Mesa; `egl-gears` etc. print a checksum to compare with
+On the PS3, `. /usr/lib/ps3-mesa/env.sh` selects our Mesa for programs run from a shell (the desktop uses it through ld.so.conf); `egl-gears` etc. print a checksum to compare with
 a softpipe run (`LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=softpipe`).
 
-    sudo modprobe drm_kms_helper && sudo insmod ~/bin/ps3rsx.ko   # on the PS3
-    ~/bin/rsx-suite.sh all            # regression: smoke, Mesa ladder, concurrent processes
-    ~/bin/rsx-x.sh 30 glxgears -info  # Xorg (modesetting + glamor) on the RSX, one client
+    sudo modprobe ps3rsx              # on the PS3 (loaded at boot anyway)
+    rsx-suite.sh all            # regression: smoke, Mesa ladder, concurrent processes
+    rsx-x.sh 30 glxgears -info  # Xorg (modesetting + glamor) on the RSX, one client
     tools/webcam-grab.sh   # on the PC: photo of the PS3's screen -> build/tmp/screen.jpg
 
 ## Reproducibility

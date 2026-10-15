@@ -4,24 +4,7 @@
 set -eu
 R="$1"
 
-# ps3rsx is built out of tree (make gpu-deploy -> ~tibi/bin); load it before X starts
-cat > "$R/etc/systemd/system/ps3rsx.service" <<'EOF'
-[Unit]
-Description=PS3 RSX DRM driver (ps3rsx)
-After=systemd-modules-load.service
-Before=getty@tty1.service
-ConditionPathExists=/home/tibi/bin/ps3rsx.ko
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/sbin/modprobe drm_kms_helper
-ExecStart=/bin/sh -c 'grep -q "^ps3rsx " /proc/modules || /sbin/insmod /home/tibi/bin/ps3rsx.ko'
-
-[Install]
-WantedBy=multi-user.target
-EOF
-chroot "$R" systemctl enable ps3rsx.service
+# ps3rsx (the RSX driver) loads at boot from the ps3rsx package (modules-load.d)
 
 # No display manager (RAM): autologin on tty1, X from the login shell. Other ttys keep the
 # normal logins (root without a password on the console, for recovery).

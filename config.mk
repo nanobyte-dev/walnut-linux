@@ -26,8 +26,8 @@ MESA_URL            := https://archive.mesa3d.org/mesa-$(MESA_VERSION).tar.xz
 # Our fork of the files we change (nouveau driver, loader/dri/gbm bits), laid over the tarball
 MESA_FORK           := mesa/fork
 MESA_SYSROOT_PACKAGES := mesa/sysroot-packages.txt
-# Runtime path on the PS3. /home/tibi is NFS_ROOT/home/tibi (owned by tibi), so no sudo to deploy.
-MESA_PREFIX         := /home/tibi/mesa
+# Runtime path on the PS3 (the ps3-mesa package; ld.so.conf.d points everything at it)
+MESA_PREFIX         := /usr/lib/ps3-mesa
 
 # --- ClassiCube (games/classicube) ------------------------------------------------
 # A pinned commit (SDL3 backend), plus the texture pack it needs (plain HTTP, so checksummed)
@@ -92,7 +92,7 @@ ROOT_ARGS_usb       := root=PARTUUID=50533301-02 rootfstype=ext4 ro
 # HN-M500MBB in a USB enclosure, given for this (2026-10-15)
 USB_DISK_ID         := usb-SAMSUNG_HN-M500MBB_0000AB1234E8-0:0
 KERNEL_CMDLINE_COMMON := ip=dhcp rootwait \
-                       video=ps3fb:mode:133 consoleblank=0 ps3rsx_gart=16M console=tty1 netconsole=6665@$(PS3_IP)/eth0,6666@$(PC_IP)/$(PC_MAC) loglevel=4
+                       video=ps3fb:mode:133 consoleblank=0 ps3rsx_gart=32M console=tty1 netconsole=6665@$(PS3_IP)/eth0,6666@$(PC_IP)/$(PC_MAC) loglevel=4
 KERNEL_CMDLINE      := $(ROOT_ARGS_$(ROOT)) $(KERNEL_CMDLINE_COMMON)
 # What Petitboot boots from the disk on its own (the image's /etc/kboot.conf)
 KBOOT_CMDLINE       := $(ROOT_ARGS_usb) $(KERNEL_CMDLINE_COMMON)

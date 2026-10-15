@@ -1,6 +1,6 @@
 #!/bin/sh
 # Phase 1 checks after booting the new kernel (docs/DRIVER-PLAN.md). Run as root on the PS3.
-B=/home/tibi/bin
+B=/usr/lib/ps3/bin
 echo "== kernel: $(uname -r), cmdline: $(cat /proc/cmdline | grep -o 'ps3rsx_gart=[^ ]*')"
 dmesg | grep -E "ps3rsx gart|ps3fb videomemory" | sed 's/^/   /'
 echo "== swap / zram / drm"
@@ -10,7 +10,7 @@ echo "== existing tools still draw"
 $B/rsx-probe ref | grep ref || echo "   rsx-probe FAILED"
 echo "== takeover"
 dmesg -C
-insmod $B/ps3fb_share_test.ko || { echo "   insmod FAILED"; dmesg; exit 1; }
+insmod /usr/lib/ps3/kmod/ps3fb_share_test.ko || { echo "   insmod FAILED"; dmesg; exit 1; }
 dmesg | sed 's/^/   /'
 if $B/rsx-probe ref >/dev/null 2>&1; then echo "   BAD: direct GPU access worked while owned"; else echo "   ok: direct GPU access refused while owned"; fi
 sleep 2

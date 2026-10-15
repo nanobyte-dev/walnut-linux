@@ -3,7 +3,7 @@
 # Run from SSH after a fresh boot (it may wedge the GPU). RESIZE=drag: rapid small resizes. Push dumps (libdrm, every submit):
 #   ~/pb-x.txt (Xorg/glamor), ~/pb-gears.txt (xeglgears); sizes tried in ~/resize.log
 RSX_X_ENV="NOUVEAU_LIBDRM_DEBUG=1 NOUVEAU_LIBDRM_OUT=/home/tibi/pb-x.txt" \
-	exec /home/tibi/bin/rsx-x.sh 300 sh -c '
+	exec /usr/lib/ps3/bin/rsx-x.sh 300 sh -c '
 	NOUVEAU_LIBDRM_DEBUG=1 NOUVEAU_LIBDRM_OUT=/home/tibi/pb-gears.txt xeglgears &
 	python3 - <<PY > /home/tibi/resize.log 2>&1
 import ctypes, subprocess, time, re

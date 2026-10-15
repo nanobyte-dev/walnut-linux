@@ -155,8 +155,7 @@ chroot "$R" locale-gen
 echo "LANG=en_US.UTF-8" > "$R/etc/default/locale"
 
 # Xorg on the RSX (docs/DRIVER-PLAN.md Phase 6): modesetting on ps3rsx's card with glamor,
-# using the patched Mesa in /home/tibi/mesa (deployed by `make mesa-deploy`). ld.so.conf makes
-# the setuid Xorg pick it up (it ignores LD_LIBRARY_PATH).
+# using our Mesa (the ps3-mesa package, whose ld.so.conf.d entry makes the setuid Xorg pick it up).
 mkdir -p "$R/etc/X11/xorg.conf.d"
 cat > "$R/etc/X11/xorg.conf.d/20-ps3rsx.conf" <<'EOS'
 Section "ServerFlags"
@@ -171,7 +170,6 @@ Section "Device"
 	Option "ShadowFB" "true"
 EndSection
 EOS
-echo /home/tibi/mesa/lib > "$R/etc/ld.so.conf.d/00-ps3mesa.conf"
 
 # Desktop: ps3rsx at boot, autologin into LXQt, gamepad pointer (docs/DESKTOP-PLAN.md)
 sh "$(dirname "$0")/desktop-setup.sh" "$R"

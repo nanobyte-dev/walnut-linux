@@ -40,7 +40,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: spu-toolchain spu-tests spu-deploy help all builder kernel rootfs rootfs-base checksums nfs-root usb-root boot-deploy nfs-modules netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
+.PHONY: spu-toolchain spu-tests spu-deploy help all builder kernel rootfs rootfs-base checksums nfs-root usb-root debs deploy kernel-deploy netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
 	mesa-builder mesa-sysroot mesa mesa-tests mesa-deploy classicube classicube-audio classicube-deploy
 
 help:
@@ -55,22 +55,22 @@ help:
 	@echo "                    keys, Bluetooth pairings and Wi-Fi connections; FRESH=1 doesn't)"
 	@echo "  make usb-root     install the image onto the USB disk on the PS3 (FORMAT=1: partition"
 	@echo "                    it first, erasing it); boot it with make netboot ROOT=usb"
-	@echo "Update the live root in place (NFS; ROOT=usb: the PS3's USB root over SSH; no reboot,"
-	@echo "fixes still go into the build):"
-	@echo "  make nfs-modules  kernel modules"
-	@echo "  make boot-deploy  kernel + Petitboot boot menu (/etc/kboot.conf), for booting from the disk"
+	@echo "Update the running PS3 without reinstalling (fixes still go into the build):"
+	@echo "  make deploy       install our packages on the running PS3 (PKGS=\"ps3-mesa ...\"; all by default)"
+	@echo "  make kernel-deploy | gpu-deploy | mesa-deploy | classicube-deploy | spu-deploy"
+	@echo "  make debs         build our packages into $(BUILD)/repo (an apt repository)"
 	@echo "Run:"
 	@echo "  make netboot      boot our kernel on the PS3 from Petitboot (NFS root)"
 	@echo "  make listen       print PS3 early-debug + netconsole output"
 	@echo "GPU:"
 	@echo "  make gpu-tools    cross-compile gpu/tools/*.c       -> $(BUILD)/gpu"
-	@echo "  make gpu-deploy   copy them to ~/bin on the PS3's NFS root"
+	@echo "  make gpu-deploy   install them (ps3rsx, ps3-gpu-tools packages) on the running PS3"
 	@echo "  make ps3-reboot   reboot the running PS3 Linux (lands in GameOS/XMB, not Petitboot)"
 	@echo "Mesa:"
 	@echo "  make mesa-sysroot Debian ppc64 sysroot to build against -> $(MESA_SYSROOT)"
 	@echo "  make mesa         patched Mesa (nouveau nv30 + softpipe) -> $(MESA_INSTALL)$(MESA_PREFIX)"
 	@echo "  make mesa-tests   offscreen EGL/GLES2 tests (mesa/tests) -> $(BUILD)/mesa/tests"
-	@echo "  make mesa-deploy  copy both to $(MESA_PREFIX) on the PS3's NFS root"
+	@echo "  make mesa-deploy  install the ps3-mesa package on the running PS3"
 	@echo "Other:"
 	@echo "  make shell        shell in the builder container"
 	@echo "  make clean        move build outputs to $(BUILD)/old/ (never deletes)"
@@ -109,24 +109,8 @@ checksums:
 	@head -2 $(BUILD)/SHA256SUMS; echo "($$(wc -l < $(BUILD)/SHA256SUMS) files in $(BUILD)/SHA256SUMS)"
 
 # --- Deploy -------------------------------------------------------------------
-# The whole system is in the image (kernel modules, RSX driver, Mesa, games included), so a
-# fresh root needs nothing done by hand. The *-deploy targets update the live root in place
-# while iterating (tools/install-builds.sh, the same steps the image build runs).
-INSTALL_BUILDS := BUILD=$(BUILD) MESA_PREFIX=$(MESA_PREFIX) KBOOT_CMDLINE="$(KBOOT_CMDLINE)" \
-	tools/install-builds.sh
-# deploy <parts>: into the NFS root on this PC, or with ROOT=usb over SSH into the running PS3's
-# USB root (staged here, then unpacked there: system files root-owned, ~tibi's tibi-owned). The
-# staged copy has no ClassiCube options.txt, so the one on the PS3 is kept.
-ifeq ($(ROOT),usb)
-deploy = rm -rf $(BUILD)/deploy && mkdir -p $(BUILD)/deploy && $(INSTALL_BUILDS) $(BUILD)/deploy $(1) && \
-	tar -C $(BUILD)/deploy --numeric-owner --owner=0 --group=0 --exclude=./home -cf - . | \
-		$(PS3_SSH) 'sudo tar -xpf - --no-overwrite-dir -C /' && \
-	if [ -d $(BUILD)/deploy/home ]; then tar -C $(BUILD)/deploy --numeric-owner --owner=1000 \
-		--group=1000 --exclude=./home/tibi/classicube/options.txt -cf - ./home | \
-		$(PS3_SSH) 'sudo tar -xpf - --no-overwrite-dir -C /'; fi
-else
-deploy = $(INSTALL_BUILDS) $(NFS_ROOT) $(1)
-endif
+# The whole system is in the image (our packages included), so a fresh root needs nothing done by
+# hand. The *-deploy targets install freshly built packages on the running PS3 (see Packages).
 nfs-root: $(ROOTFS_TAR) $(KERNEL_STAGE)/boot/vmlinux
 	sudo NFS_ROOT=$(NFS_ROOT) PS3_IP=$(PS3_IP) FRESH=$(FRESH) tools/install-nfs-root.sh $(ROOTFS_TAR)
 
@@ -135,17 +119,6 @@ nfs-root: $(ROOTFS_TAR) $(KERNEL_STAGE)/boot/vmlinux
 usb-root: $(ROOTFS_TAR)
 	PS3_SSH="$(PS3_SSH)" USB_DISK_ID="$(USB_DISK_ID)" FORMAT=$(FORMAT) FRESH=$(FRESH) \
 		tools/install-usb-root.sh $(ROOTFS_TAR)
-
-nfs-modules: $(KERNEL_STAGE)/boot/vmlinux
-ifeq ($(ROOT),usb)
-	$(call deploy,modules)
-else
-	sudo $(INSTALL_BUILDS) $(NFS_ROOT) modules
-endif
-
-# The kernel and Petitboot's boot menu (/etc/kboot.conf) on the root, for booting from the disk
-boot-deploy: $(KERNEL_STAGE)/boot/vmlinux
-	$(call deploy,boot)
 
 # --- GPU tools ----------------------------------------------------------------
 # Kernel modules (every gpu/*/Kbuild) build against the kernel tree in $(BUILD)/kernel/obj.
@@ -163,8 +136,8 @@ $(GPU_STAMP): $(wildcard gpu/Makefile gpu/*/*) $(KERNEL_STAGE)/boot/vmlinux | $(
 	done
 	@touch $@
 
-gpu-deploy: $(GPU_STAMP)
-	$(call deploy,gpu)
+gpu-deploy:
+	$(MAKE) deploy PKGS="ps3rsx ps3-gpu-tools"
 
 # --- Mesa -------------------------------------------------------------------------------
 # Own image on top of the builder (C++ cross compiler, meson), so its tag doesn't change the kernel's.
@@ -209,8 +182,8 @@ $(MESA_TESTS_STAMP): $(wildcard mesa/tests/*) $(MESA_SYSROOT)/.done | $(MESA_BUI
 		OUT=/work/$(BUILD)/mesa/tests
 	@touch $@
 
-mesa-deploy: mesa mesa-tests
-	$(call deploy,mesa)
+mesa-deploy:
+	$(MAKE) deploy PKGS=ps3-mesa
 
 # --- ClassiCube -----------------------------------------------------------------
 CC_TARBALL := $(DOWNLOADS)/ClassiCube-$(CLASSICUBE_COMMIT).tar.gz
@@ -240,8 +213,8 @@ classicube-audio: $(CC_AUDIO)/default2.zip
 $(CC_AUDIO)/default2.zip: $(CC_TARBALL) games/classicube/sounds.sh | $(GAMES_BUILDER_STAMP)
 	$(DOCKER_RUN) --user $(UID_GID) -e CC_TARBALL=$(CC_TARBALL) $(GAMES_BUILDER_TAG) games/classicube/sounds.sh
 
-classicube-deploy: classicube classicube-audio
-	$(call deploy,classicube)
+classicube-deploy:
+	$(MAKE) deploy PKGS=classicube
 
 classicube: $(CC_INSTALL)/ClassiCube
 $(CC_INSTALL)/ClassiCube: $(CC_TARBALL) $(CC_TEXPACK) games/classicube/build.sh $(MESA_SYSROOT)/.done | $(MESA_BUILDER_STAMP)
@@ -279,18 +252,58 @@ $(SPU_GCC): $(SPU_TARBALLS) $(SPU_VARS) tools/build-spu-toolchain.sh $(wildcard 
 		-e SPU_BINUTILS_VERSION=$(SPU_BINUTILS_VERSION) -e SPU_NEWLIB_VERSION=$(SPU_NEWLIB_VERSION) \
 		$(SPU_BUILDER_TAG) tools/build-spu-toolchain.sh
 
-# SPU test programs and the spufs runner (spu/), into ~/spu on the root
-spu-tests: $(SPU_GCC) | $(SPU_BUILDER_STAMP)
+# SPU test programs and the spufs runner (spu/): the ps3-spu package
+SPU_TESTS_STAMP := $(BUILD)/spu-tests/.done
+spu-tests: $(SPU_TESTS_STAMP)
+$(SPU_TESTS_STAMP): $(SPU_GCC) $(wildcard spu/*.c spu/Makefile) | $(SPU_BUILDER_STAMP)
 	$(DOCKER_RUN) --user $(UID_GID) $(SPU_BUILDER_TAG) make -C spu \
 		SPU_CC=/work/$(SPU_GCC) OUT=/work/$(BUILD)/spu-tests
-spu-deploy: spu-tests
-	$(call deploy,spu)
+	@touch $@
+spu-deploy:
+	$(MAKE) deploy PKGS=ps3-spu
+
+# --- Packages (our own apt repository, docs/PLAN.md item 7) -------------------
+# Each package is built from its build outputs (tools/stage-package.sh, tools/build-debs.sh) into
+# build/repo, which is indexed as an apt repository. N in the versions is the commit count.
+PACKAGES := ps3-kernel ps3rsx ps3-gpu-tools ps3-mesa classicube ps3-spu
+KERNEL_RELEASE := $(KERNEL_VERSION)$(KERNEL_LOCALVERSION)
+PKG_N := $(shell git -C $(CURDIR) rev-list --count HEAD 2>/dev/null || echo 0)
+REPO_BUILDER_TAG := ps3-repo-builder:$(shell (cat docker/Dockerfile.repo; echo $(BUILDER_TAG)) | sha256sum | cut -c1-12)
+REPO_BUILDER_STAMP := $(BUILD)/.repo-builder-$(subst :,-,$(REPO_BUILDER_TAG))
+$(REPO_BUILDER_STAMP): docker/Dockerfile.repo | $(BUILDER_STAMP)
+	docker build -q -t $(REPO_BUILDER_TAG) -f docker/Dockerfile.repo --build-arg BUILDER=$(BUILDER_TAG) docker
+	@touch $@
+PKG_INPUTS_ps3-kernel := $(KERNEL_STAGE)/boot/vmlinux
+PKG_INPUTS_ps3rsx := $(GPU_STAMP)
+PKG_INPUTS_ps3-gpu-tools := $(GPU_STAMP) $(wildcard gpu/tools/*.sh)
+PKG_INPUTS_ps3-mesa := $(MESA_INSTALL)$(MESA_PREFIX)/env.sh $(MESA_TESTS_STAMP)
+PKG_INPUTS_classicube := $(CC_INSTALL)/ClassiCube $(CC_AUDIO)/default2.zip $(wildcard games/classicube/*)
+PKG_INPUTS_ps3-spu := $(SPU_TESTS_STAMP)
+PKG_STAMPS := $(PACKAGES:%=$(BUILD)/repo/.%.stamp)
+debs: $(PKG_STAMPS)
+.SECONDEXPANSION:
+$(BUILD)/repo/.%.stamp: $$(PKG_INPUTS_$$*) tools/stage-package.sh tools/build-debs.sh | $(REPO_BUILDER_STAMP)
+	$(DOCKER_RUN) --user $(UID_GID) -e MESA_PREFIX=$(MESA_PREFIX) -e KERNEL_VERSION=$(KERNEL_VERSION) \
+		-e KERNEL_RELEASE=$(KERNEL_RELEASE) -e MESA_VERSION=$(MESA_VERSION) \
+		-e CLASSICUBE_COMMIT=$(CLASSICUBE_COMMIT) -e PKG_N=$(PKG_N) $(REPO_BUILDER_TAG) tools/build-debs.sh $*
+	@touch $@
+
+# Install packages on the running PS3 (whatever its root: NFS or USB): make deploy [PKGS="..."].
+# dpkg replaces files by renaming, so even Mesa under a running X is safe on the USB root (on
+# NFS, stop X first).
+PKGS ?= $(PACKAGES)
+PS3_SCP = scp -q -i $(HOME)/.ssh/id_ps3 -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts
+DEPLOY_STAMPS := $(PKGS:%=$(BUILD)/repo/.%.stamp)
+deploy: $(DEPLOY_STAMPS)
+	$(PS3_SSH) 'rm -rf /tmp/ps3-debs && mkdir /tmp/ps3-debs'
+	$(PS3_SCP) $(foreach p,$(PKGS),$(BUILD)/repo/$(p)_*.deb) tibi@$(PS3_IP):/tmp/ps3-debs/
+	$(PS3_SSH) 'sudo dpkg -i /tmp/ps3-debs/*.deb && rm -r /tmp/ps3-debs'
+kernel-deploy:
+	$(MAKE) deploy PKGS=ps3-kernel
 
 # --- Image --------------------------------------------------------------------
-# The package layer plus our config (rootfs/) and everything we build (tools/install-builds.sh)
-IMAGE_INPUTS := $(ROOTFS_BASE) $(wildcard rootfs/*) tools/build-image.sh tools/install-builds.sh \
-	$(SSH_PUBKEY) $(KERNEL_STAGE)/boot/vmlinux $(GPU_STAMP) $(MESA_INSTALL)$(MESA_PREFIX)/env.sh \
-	$(MESA_TESTS_STAMP) $(CC_INSTALL)/ClassiCube $(CC_AUDIO)/default2.zip $(wildcard games/classicube/*)
+# The package layer plus our config (rootfs/) and our packages (build/repo)
+IMAGE_INPUTS := $(ROOTFS_BASE) $(wildcard rootfs/*) tools/build-image.sh $(SSH_PUBKEY) $(PKG_STAMPS)
 rootfs: $(ROOTFS_TAR)
 IMAGE_VARS := $(BUILD)/image.vars
 IMAGE_VARS_NOW := KBOOT_CMDLINE=$(KBOOT_CMDLINE)
@@ -298,7 +311,7 @@ $(shell [ "$$(cat $(IMAGE_VARS) 2>/dev/null)" = "$(IMAGE_VARS_NOW)" ] || echo "$
 $(ROOTFS_TAR): $(IMAGE_INPUTS) $(IMAGE_VARS) | $(BUILDER_STAMP)
 	@mkdir -p $(BUILD)/rootfs
 	cp $(SSH_PUBKEY) $(BUILD)/rootfs/authorized_keys
-	$(DOCKER_RUN) --privileged $(ROOTFS_ENV) -e MESA_PREFIX=$(MESA_PREFIX) \
+	$(DOCKER_RUN) --privileged $(ROOTFS_ENV) -e KERNEL_RELEASE=$(KERNEL_RELEASE) \
 		-e KBOOT_CMDLINE="$(KBOOT_CMDLINE)" $(BUILDER_TAG) tools/build-image.sh
 	rm -f $(BUILD)/rootfs/authorized_keys
 

@@ -9,15 +9,15 @@ for arg in "$@"; do
 	echo "=== $arg $(date +%T)" >>"$L"
 	dmesg -C
 	if [ "$t" = flip ]; then
-		/home/tibi/bin/rsx-hold 8 &
+		/usr/lib/ps3/bin/rsx-hold 8 &
 		sleep 1
 	fi
-	insmod /home/tibi/bin/rsx_ctx_probe2.ko test="$t" n="$n"
+	insmod /usr/lib/ps3/kmod/rsx_ctx_probe2.ko test="$t" n="$n"
 	rmmod rsx_ctx_probe2
 	wait
 	sleep 1
 	dmesg | grep -v fb_blit >>"$L"
-	if timeout 10 /home/tibi/bin/rsx-probe ref >>"$L" 2>&1; then
+	if timeout 10 /usr/lib/ps3/bin/rsx-probe ref >>"$L" 2>&1; then
 		echo "--- GPU alive after $arg" >>"$L"
 	else
 		echo "--- GPU WEDGED after $arg, stopping" >>"$L"

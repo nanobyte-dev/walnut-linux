@@ -45,7 +45,7 @@ used for development is the first form of it.
   (DESKTOP-PLAN.md). About 129 MB in all. Ctrl+Alt+Fn text consoles work.
 - **Games:** ClassiCube runs at a locked 60 fps fullscreen at 1080p with vsync, at about 26% CPU
   (it was 6.5 fps before the vertex-fetch fix).
-- **Memory:** 177 MB of RAM visible. The GART reservation is 16 MB (9 MB used under load), swap
+- **Memory:** 177 MB of RAM visible. The GART reservation is 32 MB (raised from 16 on 2026-10-15), swap
   is zram, and `vm.min_free_kbytes` is 8 MB (two hangs under memory pressure).
 
 ## Roadmap
@@ -151,7 +151,15 @@ Candidates, in order:
 - Out of reach: GL 3.x-only games (GZDoom, Warzone 2100, 0 A.D.).
 
 Driver work these will likely need (DRIVER-PLAN.md "Later"):
-- **GART:** 16 MB is enough today. Watch the "out of GART" lines in dmesg.
+- **GART:** 16 MB kept running out (2026-10-15): OpenArena's texture bursts; SDL's GL renderer
+  streaming a whole 1080p window (8100 KiB contiguous for one upload: ClassiCube's launcher drew
+  stale areas). Now:
+  - **Done:** Mesa bounds upload staging in flight (4 MB per context), splits big
+    `texture_subdata` uploads into ≤1 MB bands, and the reservation is 32 MB.
+  - **Next, dynamic GART via CMA:** reserve a CMA region at boot that ordinary movable pages
+    use while the GPU doesn't, and let ps3rsx take 1 MB contiguous chunks from it on demand
+    (iomapped as today; chunks can be mapped and unmapped at any time, docs/RSX.md E2/E9),
+    giving them back when freed. The GART would then cost RAM only while in use.
 - **CPU-side Mesa cost:** state validation and the kernel's validator and shadow show up in
   `perf`.
 - **Mesa error paths:** two crashed on out-of-memory and are fixed. Expect more under memory
