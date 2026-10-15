@@ -40,7 +40,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: help all builder kernel rootfs rootfs-base checksums nfs-root usb-root boot-deploy nfs-modules netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
+.PHONY: spu-toolchain spu-tests spu-deploy help all builder kernel rootfs rootfs-base checksums nfs-root usb-root boot-deploy nfs-modules netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
 	mesa-builder mesa-sysroot mesa mesa-tests mesa-deploy classicube classicube-audio classicube-deploy
 
 help:
@@ -247,6 +247,41 @@ classicube: $(CC_INSTALL)/ClassiCube
 $(CC_INSTALL)/ClassiCube: $(CC_TARBALL) $(CC_TEXPACK) games/classicube/build.sh $(MESA_SYSROOT)/.done | $(MESA_BUILDER_STAMP)
 	$(DOCKER_RUN) --user $(UID_GID) -e CC_TARBALL=$(CC_TARBALL) -e CC_TEXPACK=$(CC_TEXPACK) \
 		$(MESA_BUILDER_TAG) games/classicube/build.sh
+
+# --- SPU toolchain ---------------------------------------------------------------
+# spu-elf GCC 9.5 + binutils + newlib for the Cell's SPEs (tools/build-spu-toolchain.sh)
+SPU_BUILDER_TAG := ps3-spu-builder:$(shell (cat docker/Dockerfile.spu; echo $(BUILDER_TAG)) | sha256sum | cut -c1-12)
+SPU_BUILDER_STAMP := $(BUILD)/.spu-builder-$(subst :,-,$(SPU_BUILDER_TAG))
+SPU_TARBALLS := $(DOWNLOADS)/gcc-$(SPU_GCC_VERSION).tar.xz $(DOWNLOADS)/binutils-$(SPU_BINUTILS_VERSION).tar.xz \
+	$(DOWNLOADS)/newlib-$(SPU_NEWLIB_VERSION).tar.gz
+SPU_GCC := $(BUILD)/spu/install/opt/spu/bin/spu-elf-gcc
+$(SPU_BUILDER_STAMP): docker/Dockerfile.spu | $(BUILDER_STAMP)
+	docker build -q -t $(SPU_BUILDER_TAG) -f docker/Dockerfile.spu --build-arg BUILDER=$(BUILDER_TAG) docker
+	@touch $@
+$(DOWNLOADS)/gcc-$(SPU_GCC_VERSION).tar.xz:
+	@mkdir -p $(DOWNLOADS)
+	curl -fsSL -o $@.tmp $(SPU_GCC_URL) && echo "$(SPU_GCC_SHA256)  $@.tmp" | sha256sum -c --quiet && mv $@.tmp $@
+$(DOWNLOADS)/binutils-$(SPU_BINUTILS_VERSION).tar.xz:
+	@mkdir -p $(DOWNLOADS)
+	curl -fsSL -o $@.tmp $(SPU_BINUTILS_URL) && echo "$(SPU_BINUTILS_SHA256)  $@.tmp" | sha256sum -c --quiet && mv $@.tmp $@
+$(DOWNLOADS)/newlib-$(SPU_NEWLIB_VERSION).tar.gz:
+	@mkdir -p $(DOWNLOADS)
+	curl -fsSL -o $@.tmp $(SPU_NEWLIB_URL) && echo "$(SPU_NEWLIB_SHA256)  $@.tmp" | sha256sum -c --quiet && mv $@.tmp $@
+spu-toolchain: $(SPU_GCC)
+$(SPU_GCC): $(SPU_TARBALLS) tools/build-spu-toolchain.sh | $(SPU_BUILDER_STAMP)
+	echo "$(SPU_GCC_SHA256)  $(DOWNLOADS)/gcc-$(SPU_GCC_VERSION).tar.xz" | sha256sum -c --quiet
+	echo "$(SPU_BINUTILS_SHA256)  $(DOWNLOADS)/binutils-$(SPU_BINUTILS_VERSION).tar.xz" | sha256sum -c --quiet
+	echo "$(SPU_NEWLIB_SHA256)  $(DOWNLOADS)/newlib-$(SPU_NEWLIB_VERSION).tar.gz" | sha256sum -c --quiet
+	$(DOCKER_RUN) --user $(UID_GID) -e SPU_GCC_VERSION=$(SPU_GCC_VERSION) \
+		-e SPU_BINUTILS_VERSION=$(SPU_BINUTILS_VERSION) -e SPU_NEWLIB_VERSION=$(SPU_NEWLIB_VERSION) \
+		$(SPU_BUILDER_TAG) tools/build-spu-toolchain.sh
+
+# SPU test programs and the spufs runner (spu/), into ~/spu on the root
+spu-tests: $(SPU_GCC) | $(SPU_BUILDER_STAMP)
+	$(DOCKER_RUN) --user $(UID_GID) $(SPU_BUILDER_TAG) make -C spu \
+		SPU_CC=/work/$(SPU_GCC) OUT=/work/$(BUILD)/spu-tests
+spu-deploy: spu-tests
+	$(call deploy,spu)
 
 # --- Image --------------------------------------------------------------------
 # The package layer plus our config (rootfs/) and everything we build (tools/install-builds.sh)

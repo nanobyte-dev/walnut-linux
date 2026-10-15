@@ -1,6 +1,6 @@
 #!/bin/sh
 # Installs what we build ourselves into a PS3 root filesystem:
-#   tools/install-builds.sh <root> <part>...    parts: boot modules gpu mesa classicube
+#   tools/install-builds.sh <root> <part>...    parts: boot modules gpu mesa classicube spu
 # build-image.sh puts all of it into the image; the *-deploy targets use it to update the live
 # NFS root in place. Env: BUILD (build dir), MESA_PREFIX (Mesa's path on the PS3), KBOOT_CMDLINE.
 set -eu
@@ -36,6 +36,9 @@ for part; do
 		[ -e "$H/classicube/options.txt" ] ||
 			install -m 644 games/classicube/options.txt "$H/classicube/options.txt"
 		install -m 644 games/classicube/classicube.desktop "$H/.local/share/applications/" ;;
+	spu)		# SPU test programs and spurun (spu/), for the Cell's SPEs
+		install -d "$H/spu"
+		install -m 755 "$B"/spu-tests/* "$H/spu/" ;;
 	*)
 		echo "unknown part: $part" >&2; exit 1 ;;
 	esac

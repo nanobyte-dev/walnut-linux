@@ -1,0 +1,9 @@
+# SPU toolchain build environment on top of the builder (its own image, so the kernel/Mesa tags
+# don't change): GCC's host libraries and texinfo.
+ARG BUILDER
+FROM ${BUILDER}
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev libmpc-dev texinfo \
+        g++ zlib1g-dev && \
+    rm -rf /var/lib/apt/lists/*
