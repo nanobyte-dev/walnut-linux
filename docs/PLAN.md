@@ -182,6 +182,21 @@ Driver work these will likely need (DRIVER-PLAN.md "Later"):
     cache in bursts, and kcompactd's proactive compaction moving ~20 MB at a time (fps 2–4 in
     those seconds). `vm.compaction_proactiveness=0` removed the compaction bursts, but the
     reclaim dips stayed and the 10th-percentile fps didn't clearly improve: left at 20 for now.
+- **Game mode (in progress, 2026-10-15):** where the OpenArena stalls come from, from kernel
+  stacks of the blocked threads: the game page-faulting its own code back in (42 of 61
+  samples), swap-ins (16), its own file reads (3). With the game's pages locked
+  (`mlockall(MCL_ONFAULT)`, 94 MB) the stalls moved to Xorg swapping its pages back in (40
+  samples): X is on every frame's path. The USB disk makes each fault slow: the JMS567 bridge
+  speaks only Bulk-Only Transport at USB 2 speed (no UAS), one command at a time, so a fault
+  waits behind swap writes. Queue depth, swappiness and readahead made no measurable
+  difference over run-to-run noise.
+  - The desktop helpers own little (freezing them and `MADV_PAGEOUT` freed ~10 MB: the rest is
+    shared libraries). Running the game on KMS without X works (SDL kmsdrm) but is per game,
+    and SDL's flips there blocked in `drm_atomic_helper_wait_for_vblanks` (30 fps cap): parked.
+  - Generic fix: cgroup v2 (kernel MEMCG + CGROUP_SCHED). User slices `ps3-display` (X and
+    Openbox, `MemoryLow`), `ps3-desktop` (helpers, frozen and `memory.reclaim`ed while a game
+    runs) and `ps3-game` (`MemoryLow`, high CPU weight); `ps3-game` switches it on and off, so
+    every game gets it. Not yet measured.
 - **CPU-side Mesa cost:** state validation and the kernel's validator and shadow show up in
   `perf`.
 - **Mesa error paths:** two crashed on out-of-memory and are fixed. Expect more under memory

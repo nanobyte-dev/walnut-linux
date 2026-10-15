@@ -18,7 +18,9 @@ cat > "$R/home/tibi/.bash_profile" <<'EOF'
 [ -f ~/.bashrc ] && . ~/.bashrc
 # The desktop on tty1 (docs/DESKTOP-PLAN.md). Not exec: if X fails, this shell stays usable.
 if [ "$(tty)" = /dev/tty1 ] && [ -z "${DISPLAY:-}" ] && [ ! -e ~/.no-desktop ]; then
-	startx /usr/local/bin/ps3-session -- -nolisten tcp > ~/.xsession.log 2>&1
+	# X and the window manager in ps3-display.slice (game mode: kept resident, see ps3-game)
+	systemd-run --user --scope --slice=ps3-display.slice --unit=ps3-display -q \
+		startx /usr/local/bin/ps3-session -- -nolisten tcp > ~/.xsession.log 2>&1
 	echo "X exited ($?): log in ~/.xsession.log; touch ~/.no-desktop to skip the desktop"
 fi
 EOF
@@ -47,11 +49,30 @@ done) &
 # blueman from the menu, no resident tray (~60 MB of Python). GTK apps don't load the GL
 # driver just to probe it (GDK_GL=disable: RAM and GART for nothing; games use GL directly).
 export GDK_GL=disable
+# The helpers run in ps3-desktop.slice, which ps3-game freezes and pushes out of RAM while a
+# game runs; openbox stays with X in ps3-display.slice.
 exec dbus-launch --exit-with-session sh -c '
-	pcmanfm --desktop & tint2 & nm-applet & pnmixer & lxpolkit & dunst &
+	d() { systemd-run --user --scope --slice=ps3-desktop.slice -q "$@" & }
+	d pcmanfm --desktop; d tint2; d nm-applet; d pnmixer; d lxpolkit; d dunst
 	exec openbox'
 EOS
 chmod 755 "$R/usr/local/bin/ps3-session"
+
+# Game mode (docs/PLAN.md "Game mode"): cgroup v2 groups in the user's systemd. With 214 MB of
+# RAM, a game and X compete with everything else; when X's pages were swapped out the game
+# stalled for seconds on every frame X had to swap back in. memory.low keeps the display and
+# the game resident and makes reclaim take from everything else first; ps3-game also freezes
+# the desktop helpers and reclaims their memory while it runs. The user slice carries the
+# protection the groups inside it share (memory_recursiveprot).
+mkdir -p "$R/etc/systemd/user" "$R/etc/systemd/system/user-.slice.d" "$R/etc/systemd/system/user@.service.d"
+printf '%s\n' '[Unit]' 'Description=PS3 display: X and the window manager' '' '[Slice]' \
+	'MemoryLow=48M' 'CPUWeight=200' > "$R/etc/systemd/user/ps3-display.slice"
+printf '%s\n' '[Unit]' 'Description=PS3 desktop helpers (frozen while a game runs)' '' '[Slice]' \
+	'CPUWeight=50' > "$R/etc/systemd/user/ps3-desktop.slice"
+printf '%s\n' '[Unit]' 'Description=PS3 game (ps3-game)' '' '[Slice]' \
+	'MemoryLow=128M' 'CPUWeight=400' > "$R/etc/systemd/user/ps3-game.slice"
+printf '%s\n' '[Slice]' 'MemoryLow=176M' > "$R/etc/systemd/system/user-.slice.d/50-ps3-game-mode.conf"
+printf '%s\n' '[Service]' 'MemoryLow=176M' > "$R/etc/systemd/system/user@.service.d/50-ps3-game-mode.conf"
 
 # PCManFM's desktop: Debian wallpaper; home, trash and mounted drives (USB sticks) as icons
 for d in "$R/etc/xdg/pcmanfm/default" "$R/home/tibi/.config/pcmanfm/default"; do
@@ -103,7 +124,8 @@ printf 'allowed_users=anybody\nneeds_root_rights=yes\n' > "$R/etc/X11/Xwrapper.c
 # motion would also turn the game's camera), and the game gets the gamepad to itself
 cat > "$R/usr/local/bin/ps3-game" <<'EOS'
 #!/bin/sh
-# ps3-game <command...>: runs a game with the gamepads detached from the X pointer
+# ps3-game <command...>: runs a game in game mode: in ps3-game.slice (kept resident), the
+# desktop helpers frozen and their memory reclaimed, the gamepads detached from the X pointer
 pads() {	# X device ids of the gamepads (udev ID_INPUT_JOYSTICK) attached as pointers
 	for d in /sys/class/input/event*; do
 		udevadm info -q property "$d" | grep -q '^ID_INPUT_JOYSTICK=1' || continue
@@ -111,10 +133,22 @@ pads() {	# X device ids of the gamepads (udev ID_INPUT_JOYSTICK) attached as poi
 		xinput list | grep -F "$name" | grep 'slave  pointer' | sed 's/.*id=\([0-9]*\).*/\1/'
 	done
 }
+desktop=ps3-desktop.slice
+thaw() { systemctl --user thaw "$desktop" 2>/dev/null; }
 ids=$(pads)
 for i in $ids; do xinput disable "$i"; done
-"$@"
+if systemctl --user freeze "$desktop" 2>/dev/null; then
+	cg=/sys/fs/cgroup$(systemctl --user show -P ControlGroup "$desktop")
+	echo 256M > "$cg/memory.reclaim" 2>/dev/null	# as much as it gives up
+fi
+systemd-run --user --scope --slice=ps3-game.slice -q "$@" &
+game=$!
+# thaws even if this script is killed: the watcher outlives it while the game runs
+(while kill -0 $game 2>/dev/null; do sleep 1; done; thaw) &
+trap 'kill $game 2>/dev/null' INT TERM
+wait $game
 ret=$?
+thaw
 for i in $ids; do xinput enable "$i"; done
 exit $ret
 EOS
