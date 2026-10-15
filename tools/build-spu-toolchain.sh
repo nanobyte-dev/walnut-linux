@@ -6,7 +6,7 @@
 set -euo pipefail
 {
 D=build/downloads
-OUT=build/spu
+OUT=${SPU_OUT:-build/spu}	# a separate tree for experiments (SPU_OUT=build/spu-<name>)
 SRC=$OUT/src
 PREFIX=/opt/spu
 DEST="$PWD/$OUT/install"
@@ -15,7 +15,7 @@ export SOURCE_DATE_EPOCH
 
 # Previous outputs are moved aside, never overwritten
 if [ -e "$OUT" ]; then
-	OLD="build/old/$(date +%Y%m%d-%H%M%S)-spu"
+	OLD="build/old/$(date +%Y%m%d-%H%M%S)-$(basename "$OUT")"
 	mkdir -p "$OLD" && mv "$OUT" "$OLD/"
 	echo ">> Previous SPU toolchain moved to $OLD"
 fi
