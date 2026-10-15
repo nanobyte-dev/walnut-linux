@@ -56,14 +56,9 @@ Done:
   The missing packages and the resolver it found were added to the scripts.
 
 Next:
-1. Switch over: the user runs `! make nfs-root` and reboots. This first time the host key is new:
-   update `build/ps3_known_hosts`. Later installs keep it.
-2. Verify the fresh root with no manual step:
-   - desktop at boot;
-   - `glxinfo -B` on NV47;
-   - ClassiCube at 60 fps;
-   - OpenArena starts;
-   - DS3 pairing.
+1. Switched over (2026-10-15): the fresh root boots with no manual step. Desktop at boot, no
+   failed units, `glxinfo -B` on NV47, ClassiCube at 59–60 fps (one dip to 37 in 70 s).
+2. Still to verify on the fresh root: OpenArena starts, DS3 pairing, sound on the TV.
 3. Check reproducibility: two image builds from the same inputs give the same `make checksums`.
 4. Size: about 210 MB of the image is Debian's own Mesa and LLVM, pulled in by
    `xserver-xorg-core` and `mesa-utils`, though our Mesa is used. Drop it if the dependencies
