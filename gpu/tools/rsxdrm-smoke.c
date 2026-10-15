@@ -17,6 +17,8 @@
  *   rsxdrm-smoke quirks  what Mesa does that libgcm doesn't: M2MF NOP on the M2MF subchannel,
  *                        RT_ENABLE 0x12 (both fine), vertex format type 0 (WEDGES the RSX: the
  *                        validator now rejects it, so this expects -EINVAL)
+ *   rsxdrm-smoke gart [MiB]  4 MiB GART buffers until allocation fails, a GPU copy in each
+ *                        (with ps3rsx_cma: backing on demand, CMA migration under pressure)
  */
 #include <fcntl.h>
 #include <stdio.h>
@@ -470,6 +472,37 @@ static int t_fill(uint32_t off, uint32_t colour)
 	return rc != 0;
 }
 
+/* Fill the GART: 4 MiB buffers until GEM_NEW fails (or max_mib); in each the CPU writes a
+ * pattern into the first half and the GPU copies it to the second half. With ps3rsx_cma every
+ * buffer is backed from the CMA area on demand: under memory pressure that migrates pages. */
+static int t_gart(unsigned max_mib)
+{
+	enum { BO = 4 << 20, HALF = BO / 2, MAXBO = 64 };
+	struct drm_nouveau_gem_info bos[MAXBO];
+	int n = 0, bad = 0, rc = 0;
+	setup();
+	bind_m2mf();
+	while (n < MAXBO && (unsigned)(n + 1) * 4 <= max_mib &&
+	       !gem_new(fd, NOUVEAU_GEM_DOMAIN_GART | NOUVEAU_GEM_DOMAIN_MAPPABLE, BO, 0, &bos[n])) {
+		uint32_t *m = map(&bos[n]);
+		for (uint32_t i = 0; i < HALF / 4; i++) {
+			m[i] = (uint32_t)n * 0x9e3779b9u ^ i;
+			m[HALF / 4 + i] = 0;
+		}
+		m2mf(0xfeed0001, bos[n].offset, 0xfeed0001, bos[n].offset + HALF, HALF);
+		struct drm_nouveau_gem_info *x[] = { &bos[n] };
+		rc = submit(x, 1);
+		if (rc) { printf("  buffer %d: submit %s\n", n, strerror(-rc)); break; }
+		for (uint32_t i = 0; i < HALF / 4; i++)
+			bad += m[HALF / 4 + i] != ((uint32_t)n * 0x9e3779b9u ^ i);
+		munmap(m, BO);
+		n++;
+	}
+	printf("  %d x 4 MiB GART buffers (%d MiB), last at %#llx: %s, %d words wrong\n", n, n * 4,
+	       n ? (unsigned long long)bos[n - 1].offset : 0ULL, rc ? strerror(-rc) : "copied", bad);
+	return rc || bad || !n;
+}
+
 static int t_quirks(void)
 {
 	setup();
@@ -495,7 +528,7 @@ int main(int argc, char **argv)
 {
 	setvbuf(stdout, NULL, _IOLBF, 0);
 	if (argc < 2) {
-		fprintf(stderr, "usage: %s bo|nop|m2mf|clear|fence|reject|tri|twochan|quirks\n", argv[0]);
+		fprintf(stderr, "usage: %s bo|nop|m2mf|clear|fence|reject|tri|twochan|quirks|gart [MiB]\n", argv[0]);
 		return 2;
 	}
 	fd = open("/dev/dri/renderD128", O_RDWR);
@@ -523,6 +556,8 @@ int main(int argc, char **argv)
 		fail = t_fill(strtoul(argv[2], NULL, 0), strtoul(argv[3], NULL, 16));
 	else if (!strcmp(argv[1], "twochan"))
 		fail = t_twochan();
+	else if (!strcmp(argv[1], "gart"))
+		fail = t_gart(argc > 2 ? strtoul(argv[2], NULL, 0) : 1024);
 	else if (!strcmp(argv[1], "quirks"))
 		fail = t_quirks();
 	else {

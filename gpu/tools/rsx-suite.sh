@@ -18,7 +18,7 @@ udevadm settle
 run() { echo "--- $*"; timeout 300 "$@"; local rc=$?; [ $rc = 0 ] || { echo "!!! FAILED ($rc): $*"; sudo dmesg | tail -20; exit 1; }; }
 
 if [ "$what" = smoke ] || [ "$what" = all ]; then
-	for t in reject nop m2mf clear tri fence twochan; do run $B/rsxdrm-smoke $t; done
+	for t in reject nop m2mf clear tri fence twochan gart; do run $B/rsxdrm-smoke $t; done
 fi
 if [ "$what" = mesa ] || [ "$what" = all ]; then
 	. /usr/lib/ps3-mesa/env.sh
