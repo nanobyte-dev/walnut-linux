@@ -74,7 +74,7 @@ python3
 gdb
 strace
 linux-perf
-# ClassiCube (games/classicube): SDL3 (window, DualShock 3), OpenAL (sound; dlopen'd), libssl
+# ClassiCube (classicube/): SDL3 (window, DualShock 3), OpenAL (sound; dlopen'd), libssl
 # (system certificates for its HTTPS downloads; dlopen'd)
 libsdl3-0
 libopenal1

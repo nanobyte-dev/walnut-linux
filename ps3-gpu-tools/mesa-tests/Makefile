@@ -10,8 +10,8 @@ TESTS   := $(patsubst %.c,$(OUT)/%,$(wildcard *.c))
 all: $(TESTS)
 $(OUT)/%: %.c egl-common.h
 	@mkdir -p $(OUT)
-	$(CC) --sysroot=$(SYSROOT) $(CFLAGS) -o $@ $< -lEGL -lGLESv2 -lm
+	$(CC) --sysroot=$(SYSROOT) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< -lEGL -lGLESv2 -lm
 # Desktop GL (compatibility profile) tests: glvnd's libOpenGL instead of GLESv2
 $(OUT)/gl-%: gl-%.c
 	@mkdir -p $(OUT)
-	$(CC) --sysroot=$(SYSROOT) $(CFLAGS) -o $@ $< -lEGL -lOpenGL -lm
+	$(CC) --sysroot=$(SYSROOT) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< -lEGL -lOpenGL -lm

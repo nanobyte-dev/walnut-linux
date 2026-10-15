@@ -24,13 +24,7 @@ SSH_PUBKEY          := $(HOME)/.ssh/id_ps3.pub
 # --- Mesa (userspace GL for the RSX) ------------------------------------------
 # Same Mesa version as the snapshot's Debian packages; built with our nv30 patch.
 MESA_VERSION        := 26.2.4
-MESA_SHA256         := bce5f7fbebb934373b86c999a064d52fb5065878dc57f287f95346648ec832e9
-MESA_URL            := https://archive.mesa3d.org/mesa-$(MESA_VERSION).tar.xz
-# Our fork of the files we change (nouveau driver, loader/dri/gbm bits), laid over the tarball
-MESA_FORK           := mesa/fork
 MESA_SYSROOT_PACKAGES := sysroot/mesa-sysroot-packages.txt
-# Runtime path on the PS3 (the ps3-mesa package; ld.so.conf.d points everything at it)
-MESA_PREFIX         := /usr/lib/ps3-mesa
 
 # --- ClassiCube (classicube/) ------------------------------------------------
 # A pinned commit (SDL3 backend), plus the texture pack it needs (plain HTTP, so checksummed)

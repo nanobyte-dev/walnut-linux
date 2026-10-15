@@ -10,7 +10,7 @@ echo "== existing tools still draw"
 $B/rsx-probe ref | grep ref || echo "   rsx-probe FAILED"
 echo "== takeover"
 dmesg -C
-insmod /usr/lib/ps3/kmod/ps3fb_share_test.ko || { echo "   insmod FAILED"; dmesg; exit 1; }
+modprobe ps3fb_share_test || { echo "   insmod FAILED"; dmesg; exit 1; }
 dmesg | sed 's/^/   /'
 if $B/rsx-probe ref >/dev/null 2>&1; then echo "   BAD: direct GPU access worked while owned"; else echo "   ok: direct GPU access refused while owned"; fi
 sleep 2

@@ -1,0 +1,218 @@
+Description: nv30: texture uploads that fit the PS3 GART
+ The GART is a small shared boot-time reservation: big uploads go in bands of at most 1 MB,
+ at most 4 MB of a context's staging is in flight (a burst crashed Xorg), 1-pixel-wide
+ render targets stay linear (graph exception 0x106), fragment program constants are
+ halfword-swapped, and a GART blit destination stays in GART.
+Author: PS3 Linux project
+Forwarded: no
+---
+--- a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
+@@ -277,6 +277,34 @@
+ {
+ }
+ 
++/* PS3: the GART is a small boot-time reservation (ps3rsx_gart=) shared by every process, and a
++ * staging buffer is only freed once the fence after its copy signals. A burst of uploads in one
++ * frame (OpenArena loading player models mid-game) queued more staging than the whole GART, and
++ * other clients' allocations failed (Xorg crashed). So once 4 MB of this context's uploads are
++ * in flight, wait for them first, and wait again before giving up on an allocation.
++ */
++#define NV30_PS3_STAGING_INFLIGHT (4 << 20)
++
++static int
++nv30_staging_bo_new(struct nv30_context *nv30, unsigned size, struct nouveau_bo **pbo)
++{
++   struct nouveau_device *dev = nv30->screen->base.device;
++   int ret;
++
++   if (nv30->screen->base.is_ps3 && nv30->staging_inflight &&
++       nv30->staging_inflight + size > NV30_PS3_STAGING_INFLIGHT) {
++      nouveau_fence_wait(nv30->base.fence, &nv30->base.debug);
++      nv30->staging_inflight = 0;
++   }
++   ret = nouveau_bo_new(dev, NOUVEAU_BO_GART | NOUVEAU_BO_MAP, 0, size, NULL, pbo);
++   if (ret && nv30->screen->base.is_ps3 && nv30->staging_inflight) {
++      nouveau_fence_wait(nv30->base.fence, &nv30->base.debug);
++      nv30->staging_inflight = 0;
++      ret = nouveau_bo_new(dev, NOUVEAU_BO_GART | NOUVEAU_BO_MAP, 0, size, NULL, pbo);
++   }
++   return ret;
++}
++
+ void *
+ nv30_miptree_transfer_map(struct pipe_context *pipe, struct pipe_resource *pt,
+                           unsigned level, unsigned usage,
+@@ -284,7 +312,6 @@
+                           struct pipe_transfer **ptransfer)
+ {
+    struct nv30_context *nv30 = nv30_context(pipe);
+-   struct nouveau_device *dev = nv30->screen->base.device;
+    struct nv30_miptree *mt = nv30_miptree(pt);
+    struct nv30_transfer *tx;
+    unsigned access = 0;
+@@ -308,9 +335,8 @@
+    define_rect(pt, level, box->z, box->x, box->y,
+                box->width, box->height, &tx->img);
+ 
+-   ret = nouveau_bo_new(dev, NOUVEAU_BO_GART | NOUVEAU_BO_MAP, 0,
+-                        tx->base.layer_stride * tx->base.box.depth, NULL,
+-                        &tx->tmp.bo);
++   ret = nv30_staging_bo_new(nv30, tx->base.layer_stride * tx->base.box.depth,
++                             &tx->tmp.bo);
+    if (ret) {
+       pipe_resource_reference(&tx->base.resource, NULL);
+       FREE(tx);
+@@ -394,6 +420,7 @@
+       }
+ 
+       /* Allow the copies above to finish executing before freeing the source */
++      nv30->staging_inflight += tx->tmp.bo->size;
+       nouveau_fence_work(nv30->base.fence,
+                          nouveau_fence_unref_bo, tx->tmp.bo);
+    } else {
+@@ -441,15 +468,20 @@
+    d = (pt->target == PIPE_TEXTURE_3D) ? pt->depth0 : 1;
+    blocksz = util_format_get_blocksize(pt->format);
+ 
++   /* The RSX raises graph exception 0x106 rendering to a swizzled surface 1 pixel wide
++    * (log2 width 0; 2-wide and 1-high are fine): such render targets stay linear. */
+    if ((pt->target == PIPE_TEXTURE_RECT) ||
+        (pt->bind & PIPE_BIND_SCANOUT) ||
++       (nv30_screen(pscreen)->base.is_ps3 && (pt->bind & PIPE_BIND_RENDER_TARGET) &&
++        pt->width0 == 1) ||
+        !util_is_power_of_two_or_zero(pt->width0) ||
+        !util_is_power_of_two_or_zero(pt->height0) ||
+        !util_is_power_of_two_or_zero(pt->depth0) ||
+        mt->ms_mode) {
+       mt->uniform_pitch = util_format_get_nblocksx(pt->format, w) * blocksz;
+       mt->uniform_pitch = align(mt->uniform_pitch, 64);
+-      if (pt->bind & PIPE_BIND_SCANOUT) {
++      if ((pt->bind & PIPE_BIND_SCANOUT) &&
++          !nv30_screen(pscreen)->base.is_ps3) {
+          struct nv30_screen *screen = nv30_screen(pscreen);
+          int pitch_align = MAX2(
+                screen->eng3d->oclass >= NV40_3D_CLASS ? 1024 : 256,
+@@ -494,7 +526,11 @@
+       size = mt->layer_size * 6;
+    }
+ 
+-   ret = nouveau_bo_new(dev, NOUVEAU_BO_VRAM, 256, size, NULL, &mt->base.bo);
++   /* nv30_transfer_rect_cpu maps textures; on the PS3, VRAM above 224 MB has no CPU mapping,
++    * so ask for the CPU-visible part (NOUVEAU_GEM_DOMAIN_MAPPABLE). */
++   ret = nouveau_bo_new(dev, NOUVEAU_BO_VRAM |
++                        (nv30_screen(pscreen)->base.is_ps3 ? NOUVEAU_BO_MAP : 0),
++                        256, size, NULL, &mt->base.bo);
+    if (ret) {
+       FREE(mt);
+       return NULL;
+@@ -577,6 +613,10 @@
+ static void
+ nv30_miptree_surface_del(struct pipe_context *pipe, struct pipe_surface *ps)
+ {
++   /* nv30_miptree_surface_new took a reference (as nv50_surface_destroy drops its own):
++    * without this every framebuffer change leaked its textures, e.g. three window-sized
++    * buffers per resize until VRAM ran out */
++   pipe_resource_reference(&ps->texture, NULL);
+    FREE(ps);
+ }
+ 
+--- a/src/gallium/drivers/nouveau/nv30/nv30_resource.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_resource.c
+@@ -89,6 +89,42 @@
+    pscreen->resource_destroy = nv30_resource_destroy;
+ }
+ 
++/* PS3: texture uploads stage through GART, a small boot-time reservation (ps3rsx_gart=) that
++ * every process shares and that is allocated contiguously. One upload of a 1080p window texture
++ * (SDL's desktop-GL renderer streams the whole window, e.g. ClassiCube's launcher) asked for
++ * 8100 KiB of it, which often didn't fit: the upload failed and the window kept stale content.
++ * So big uploads go in bands of rows of at most 1 MB.
++ */
++#define NV30_PS3_UPLOAD_BAND (1 << 20)
++
++static void
++nv30_texture_subdata(struct pipe_context *pipe, struct pipe_resource *res, unsigned level,
++                     unsigned usage, const struct pipe_box *box, const void *data,
++                     unsigned stride, uintptr_t layer_stride)
++{
++   struct nv30_context *nv30 = nv30_context(pipe);
++   unsigned bh = util_format_get_blockheight(res->format);
++   unsigned rows, y;
++
++   if (!nv30->screen->base.is_ps3 || box->depth != 1 || !stride ||
++       (uint64_t)stride * DIV_ROUND_UP(box->height, bh) <= NV30_PS3_UPLOAD_BAND) {
++      u_default_texture_subdata(pipe, res, level, usage, box, data, stride, layer_stride);
++      return;
++   }
++
++   /* rows of blocks per band, in pixel rows */
++   rows = MAX2(NV30_PS3_UPLOAD_BAND / stride, 1) * bh;
++   for (y = 0; y < box->height; y += rows) {
++      struct pipe_box band = *box;
++
++      band.y = box->y + y;
++      band.height = MIN2(rows, box->height - y);
++      u_default_texture_subdata(pipe, res, level, usage, &band,
++                                (const uint8_t *)data + (size_t)(y / bh) * stride,
++                                stride, layer_stride);
++   }
++}
++
+ void
+ nv30_resource_init(struct pipe_context *pipe)
+ {
+@@ -98,7 +134,7 @@
+    pipe->buffer_unmap = nouveau_buffer_transfer_unmap;
+    pipe->texture_unmap = nv30_miptree_transfer_unmap;
+    pipe->buffer_subdata = u_default_buffer_subdata;
+-   pipe->texture_subdata = u_default_texture_subdata;
++   pipe->texture_subdata = nv30_texture_subdata;
+    pipe->resource_copy_region = nv30_resource_copy_region;
+    pipe->blit = nv30_blit;
+    pipe->flush_resource = nv30_flush_resource;
+--- a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
+@@ -131,6 +131,12 @@
+             map[5] = 0x1c9dc800;
+             map[6] = 0x0001c800;
+             map[7] = 0x0001c800;
++#if UTIL_ARCH_BIG_ENDIAN
++            /* the GPU fetches fragment program words halfword-swapped, as in
++             * nv30_fragprog_upload(); these constants are in little-endian order */
++            for (int i = 0; i < 8; i++)
++               map[i] = (map[i] >> 16) | (map[i] << 16);
++#endif
+             pipe_buffer_unmap(pipe, transfer);
+          }
+ 
+@@ -196,6 +202,15 @@
+       stride  = dst->pitch;
+    }
+ 
++   /* With the kernel's pinned BOs, a GART destination stays in GART (nouveau's TTM would
++    * migrate it to VRAM for the blit): on the PS3 render into wherever it is. */
++   if (nv30->screen->base.is_ps3) {
++      struct nv04_fifo *fifo = push->channel->data;
++
++      BEGIN_NV04(push, NV30_3D(DMA_COLOR0), 1);
++      PUSH_DATA (push, dst->domain == NOUVEAU_BO_VRAM ? fifo->vram : fifo->gart);
++   }
++
+    BEGIN_NV04(push, NV30_3D(VIEWPORT_HORIZ), 2);
+    PUSH_DATA (push, dst->w << 16);
+    PUSH_DATA (push, dst->h << 16);
+@@ -368,6 +383,13 @@
+    PUSH_DATA (push, (dst->y1 << 16) | dst->x0);
+    BEGIN_NV04(push, NV30_3D(VERTEX_BEGIN_END), 1);
+    PUSH_DATA (push, NV30_3D_VERTEX_BEGIN_END_STOP);
++
++   if (nv30->screen->base.is_ps3) {
++      struct nv04_fifo *fifo = push->channel->data;
++
++      BEGIN_NV04(push, NV30_3D(DMA_COLOR0), 1);	/* render targets are VRAM elsewhere */
++      PUSH_DATA (push, fifo->vram);
++   }
+ }
+ 
+ static bool

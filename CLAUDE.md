@@ -4,7 +4,15 @@ The plan is in docs/PLAN.md, background facts in docs/RESEARCH.md, measured GPU 
 
 ## Project hygiene
 - Keep the layout in README.md. Sources/config are tracked; anything generated goes under build/.
-- Never delete build outputs: `make clean` moves them to build/old/.
+- Never delete what we publish: official package versions on the repository server (distribution `ps3` and
+  its image snapshots) are kept forever, and so is `build/aptly` (its database, backed up to the server).
+  Everything else under build/ is ephemeral (local debs, images, chroots, source and work trees, build/old,
+  test builds, debug symbols) and may be recreated or deleted. Exception: a patch work tree with unexported
+  commits is unsaved source, never discarded.
+- Workspace hygiene (/home is nearly full): heavy targets stop when the disk has less than 10% free;
+  `make du` shows usage and `make clean-ephemeral` reclaims space. Experiments and agents work in
+  `build/tmp/<name>` and delete their trees once the result is recorded. Caches are bounded (ccache
+  max_size, apt cache for the current snapshot only, superseded builder images pruned).
 - backups/ holds the private NOR dump: never commit or upload it.
 
 ## Priorities

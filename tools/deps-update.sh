@@ -5,6 +5,9 @@
 # imported into the ps3-deps repo. tools/repo-publish.sh then publishes and syncs as usual.
 # Env: DEBIAN_MIRROR (the debian-ports snapshot URL)
 set -euo pipefail
+# One block, parsed whole before it runs: editing this file during a run can't make bash
+# execute a shifted fragment.
+{
 : "${DEBIAN_MIRROR:?}"
 A="aptly -config=/work/tools/aptly.conf"
 names=$(grep -v '^#' image/deps.txt | grep -v '^$' | sort -u)
@@ -19,3 +22,5 @@ $A repo import $M ps3-deps "$filter"
 missing=$(for n in $names; do $A repo search ps3-deps "Name (= $n)" >/dev/null 2>&1 || echo "$n"; done)
 [ -z "$missing" ] || { echo "!! not found in the snapshot: $missing"; exit 1; }
 echo ">> deps: $(echo "$names" | wc -l) packages"
+exit
+}

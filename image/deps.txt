@@ -4,6 +4,8 @@
 
 # ps3-boot and Debian kernels: linux-version, linux-run-hooks
 linux-base
+# ps3-gpu-tools (its desktop GL tests: glvnd libOpenGL)
+libopengl0
 # Rollback to Debian's own Mesa (26.2.4-1) after ours replaced it and LLVM was autoremoved
 mesa-libgallium
 libgbm1

@@ -8,6 +8,9 @@
 #    indices last), the throwaway trees mirrored; then backs up aptly's database.
 # Env: REPO_BUILDER_TAG DOCKER_RUN_ARGS REPO_HOST REPO_DIR DIST
 set -euo pipefail
+# One block, parsed whole before it runs: editing this file during a run can't make bash
+# execute a shifted fragment.
+{
 : "${REPO_BUILDER_TAG:?}" "${REPO_HOST:?}" "${REPO_DIR:?}"
 DIST=${DIST:-ps3}
 STAGE=build/tmp/publish-stage
@@ -16,7 +19,10 @@ for f in "$@"; do
 	case "$(basename "$f")" in
 	linux-libc-dev_*|linux-bpf-dev_*|linux-doc*|linux-source*) echo ">> not published: $f"; continue ;;
 	esac
-	cp "$f" "$STAGE/"
+	case "$(basename "$f")" in
+	*-dbgsym_*.deb) cp "$f" "$STAGE/$(basename "${f%.deb}").ddeb" ;;	# debug symbols: ps3-dbgsym
+	*) cp "$f" "$STAGE/" ;;
+	esac
 done
 docker run --rm -v "$PWD:/work" -w /work --user "$(id -u):$(id -g)" -e HOME=/tmp -e DIST="$DIST" \
 	"$REPO_BUILDER_TAG" tools/aptly-publish.sh "$STAGE"
@@ -37,3 +43,5 @@ if [ "$DIST" = ps3 ]; then sync_official; else rsync -rlt --delete "$PUB/ps3-dev
 [ -d "$PUB/ps3-dbgsym" ] && rsync -rlt --delete "$PUB/ps3-dbgsym/" "$REPO_HOST:$REPO_DIR/public/ps3-dbgsym/"
 rsync -rlt --delete build/aptly/db/ "$REPO_HOST:$REPO_DIR/aptly-db/"
 echo ">> synced to $REPO_HOST:$REPO_DIR"
+exit
+}

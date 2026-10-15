@@ -21,7 +21,6 @@ if [ "$what" = smoke ] || [ "$what" = all ]; then
 	for t in reject nop m2mf clear tri fence twochan gart; do run $B/rsxdrm-smoke $t; done
 fi
 if [ "$what" = mesa ] || [ "$what" = all ]; then
-	. /usr/lib/ps3-mesa/env.sh
 	# The PS3 gets 24-bit depth (Mesa 0005): the reference must too, or depth ties resolve
 	# differently at silhouettes.
 	export EGL_TEST_DEPTH24=1
@@ -43,13 +42,11 @@ if [ "$what" = mesa ] || [ "$what" = all ]; then
 	done
 fi
 if [ "$what" = mesa ] || [ "$what" = all ]; then
-	. /usr/lib/ps3-mesa/env.sh
 	# desktop GL: fixed-function fog, sky, and texture uploads the way SDL streams windows
 	for t in gl-fog gl-sky; do echo "--- $t"; timeout 300 $t | tail -2; done
 	run gl-texsub
 fi
 if [ "$what" = multi ] || [ "$what" = all ]; then
-	. /usr/lib/ps3-mesa/env.sh
 	echo "--- two GL processes at once"
 	egl-gears /tmp/g1.ppm > /tmp/g1.out 2>&1 & egl-tri /tmp/t2.ppm > /tmp/t2.out 2>&1 & egl-gears /tmp/g3.ppm > /tmp/g3.out 2>&1
 	wait

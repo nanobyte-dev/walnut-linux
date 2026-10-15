@@ -1,0 +1,12 @@
+[Unit]
+Description=SPU file system (the Cell SPEs, spufs)
+After=systemd-modules-load.service
+
+[Mount]
+What=spufs
+Where=/spu
+Type=spufs
+Options=mode=1777
+
+[Install]
+WantedBy=local-fs.target

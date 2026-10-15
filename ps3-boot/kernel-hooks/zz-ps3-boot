@@ -1,0 +1,5 @@
+#!/bin/sh
+# Kernel package hook (postinst.d and postrm.d): rewrite Petitboot's boot menu
+# (arguments: <release> <image path>; the image is already in /boot, or already gone)
+set -e
+exec ps3-update-kboot

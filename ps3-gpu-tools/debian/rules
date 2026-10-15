@@ -1,0 +1,19 @@
+#!/usr/bin/make -f
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_CFLAGS_MAINT_APPEND = -mcpu=cell -mtune=cell -Wall -Wextra
+P := debian/ps3-gpu-tools
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	$(MAKE) CROSS= OUT=$(CURDIR)/b/tools
+	$(MAKE) -C mesa-tests CROSS= SYSROOT=/ OUT=$(CURDIR)/b/tests
+
+override_dh_auto_install:
+	install -d $(P)/usr/lib/ps3/bin $(P)/usr/bin
+	install -m 755 b/tools/* b/tests/* scripts/*.sh $(P)/usr/lib/ps3/bin/
+	for f in $(P)/usr/lib/ps3/bin/*; do ln -s ../lib/ps3/bin/$${f##*/} $(P)/usr/bin/$${f##*/}; done
+
+override_dh_auto_clean:
+	rm -rf b

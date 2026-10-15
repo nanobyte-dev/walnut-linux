@@ -1,0 +1,23 @@
+Source: ps3-spu
+Section: misc
+Priority: optional
+Maintainer: PS3 Linux project <ps3@localhost>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: ps3-spu
+Architecture: ppc64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Recommends: ps3-spu-programs
+Description: SPU program runner for the PS3's Cell SPEs
+ spurun loads and runs an SPU program through spufs. The package loads spufs at boot and
+ mounts it at /spu.
+
+Package: ps3-spu-programs
+Architecture: all
+Depends: ${misc:Depends}
+Breaks: ps3-spu (<< ${source:Version})
+Replaces: ps3-spu (<< ${source:Version})
+Description: SPU test programs for the PS3
+ SPU programs (*.spu, built with spu-elf GCC) in /usr/lib/ps3/spu, run with spurun.

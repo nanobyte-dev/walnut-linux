@@ -1,0 +1,15 @@
+Source: ps3-gpu-tools
+Section: devel
+Priority: optional
+Maintainer: PS3 Linux project <ps3@localhost>
+Build-Depends: debhelper-compat (= 13), libegl-dev, libgles-dev, libopengl-dev, libgl-dev
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: ps3-gpu-tools
+Architecture: ppc64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: PS3 RSX probes, driver tests and GL tests
+ Raw RSX probes and ps3rsx driver tests (rsx-*, rsxdrm-smoke), offscreen EGL/GL tests compared
+ with softpipe (egl-*, gl-*), and the test scripts (rsx-suite.sh, rsx-x.sh, ...), in
+ /usr/lib/ps3/bin with links in /usr/bin.

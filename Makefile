@@ -48,8 +48,8 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: publish deps du clean-ephemeral spu-toolchain spu-tests spu-deploy help all builder kernel rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot debs deploy kernel-deploy netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
-	mesa-builder mesa-sysroot mesa mesa-tests mesa-deploy classicube classicube-audio classicube-deploy
+.PHONY: publish deps du clean-ephemeral chroot spu-toolchain spu-tests spu-deploy help all builder kernel rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot debs deploy kernel-deploy netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
+	mesa-builder mesa-sysroot mesa-tests classicube classicube-audio classicube-deploy
 
 help:
 	@echo "Build:"
@@ -65,7 +65,7 @@ help:
 	@echo "                    it first, erasing it); boot it with make netboot ROOT=usb"
 	@echo "Update the running PS3 without reinstalling (fixes still go into the build):"
 	@echo "  make deploy       install our packages on the running PS3 (PKGS=\"ps3-mesa ...\"; all by default)"
-	@echo "  make kernel-deploy | gpu-deploy | mesa-deploy | classicube-deploy | spu-deploy"
+	@echo "  make kernel-deploy | gpu-deploy | classicube-deploy | spu-deploy"
 	@echo "  make debs         build our packages into $(BUILD)/repo (an apt repository)"
 	@echo "Run:"
 	@echo "  make netboot      boot our kernel on the PS3 from Petitboot (NFS root)"
@@ -76,9 +76,8 @@ help:
 	@echo "  make ps3-reboot   reboot the running PS3 Linux (lands in GameOS/XMB, not Petitboot)"
 	@echo "Mesa:"
 	@echo "  make mesa-sysroot Debian ppc64 sysroot to build against -> $(MESA_SYSROOT)"
-	@echo "  make mesa         patched Mesa (nouveau nv30 + softpipe) -> $(MESA_INSTALL)$(MESA_PREFIX)"
+	@echo "  make mesa-deb     our Mesa: Debian's source + mesa/patches, built natively (qemu) -> $(BUILD)/debs/mesa"
 	@echo "  make mesa-tests   offscreen EGL/GLES2 tests (ps3-gpu-tools/mesa-tests) -> $(BUILD)/mesa/tests"
-	@echo "  make mesa-deploy  install the ps3-mesa package on the running PS3"
 	@echo "Other:"
 	@echo "  make shell        shell in the builder container"
 	@echo "  make clean        move build outputs to $(BUILD)/old/ (never deletes)"
@@ -152,43 +151,23 @@ $(GPU_STAMP): $(wildcard ps3-gpu-tools/Makefile ps3-gpu-tools/src/* ps3rsx/src/*
 	@touch $@
 
 gpu-deploy:
-	$(MAKE) deploy PKGS="ps3rsx ps3-gpu-tools"
+	$(MAKE) deploy PKGS="ps3rsx-$(KERNEL_RELEASE) ps3-gpu-tools"
 
-# --- Mesa -------------------------------------------------------------------------------
+# --- Mesa cross toolchain (the Debian sysroot for ClassiCube and the GL tests; Mesa itself is mesa-deb) -------------------------------------------------------------------------------
 # Own image on top of the builder (C++ cross compiler, meson), so its tag doesn't change the kernel's.
 MESA_BUILDER_TAG := ps3-mesa-builder:$(shell (cat docker/Dockerfile.mesa; echo $(BUILDER_TAG)) | sha256sum | cut -c1-12)
 MESA_BUILDER_STAMP := $(BUILD)/.mesa-builder-$(subst :,-,$(MESA_BUILDER_TAG))
-MESA_TARBALL  := $(DOWNLOADS)/mesa-$(MESA_VERSION).tar.xz
 MESA_SYSROOT  := $(BUILD)/mesa/sysroot
-MESA_INSTALL  := $(BUILD)/mesa/install
-MESA_ENV := -e MESA_VERSION=$(MESA_VERSION) -e MESA_TARBALL=$(MESA_TARBALL) -e MESA_FORK=$(MESA_FORK) \
-	-e MESA_PREFIX=$(MESA_PREFIX)
-MESA_VARS := $(BUILD)/mesa.vars
-MESA_VARS_NOW := $(foreach v,MESA_VERSION MESA_SHA256 MESA_FORK MESA_PREFIX SOURCE_DATE_EPOCH MESA_BUILDER_TAG,$(v)=$($(v)))
-$(shell [ "$$(cat $(MESA_VARS) 2>/dev/null)" = "$(MESA_VARS_NOW)" ] || echo "$(MESA_VARS_NOW)" > $(MESA_VARS))
-MESA_INPUTS := $(MESA_TARBALL) $(shell find $(MESA_FORK) -type f) sysroot/mesa-cross-ppc64.ini \
-	tools/build-mesa.sh $(MESA_VARS) $(MESA_SYSROOT)/.done
 
 mesa-builder: $(MESA_BUILDER_STAMP)
 $(MESA_BUILDER_STAMP): docker/Dockerfile.mesa | $(BUILDER_STAMP)
 	docker build -q -t $(MESA_BUILDER_TAG) -f docker/Dockerfile.mesa --build-arg BUILDER=$(BUILDER_TAG) docker
 	@touch $@
 
-$(MESA_TARBALL):
-	@mkdir -p $(DOWNLOADS)
-	curl -fsSL -o $@.tmp $(MESA_URL)
-	echo "$(MESA_SHA256)  $@.tmp" | sha256sum -c --quiet
-	mv $@.tmp $@
-
 mesa-sysroot: $(MESA_SYSROOT)/.done
 $(MESA_SYSROOT)/.done: $(MESA_SYSROOT_PACKAGES) tools/build-mesa-sysroot.sh $(ROOTFS_VARS) | $(MESA_BUILDER_STAMP)
 	$(DOCKER_RUN) $(ROOTFS_ENV) -e MESA_SYSROOT_PACKAGES=$(MESA_SYSROOT_PACKAGES) $(MESA_BUILDER_TAG) \
 		tools/build-mesa-sysroot.sh
-
-mesa: $(MESA_INSTALL)$(MESA_PREFIX)/env.sh
-$(MESA_INSTALL)$(MESA_PREFIX)/env.sh: $(MESA_INPUTS) | $(MESA_BUILDER_STAMP)
-	echo "$(MESA_SHA256)  $(MESA_TARBALL)" | sha256sum -c --quiet
-	$(DOCKER_RUN) --user $(UID_GID) $(MESA_ENV) $(MESA_BUILDER_TAG) tools/build-mesa.sh
 
 MESA_TESTS_STAMP := $(BUILD)/mesa/tests/.done
 mesa-tests: $(MESA_TESTS_STAMP)
@@ -197,13 +176,9 @@ $(MESA_TESTS_STAMP): $(wildcard ps3-gpu-tools/mesa-tests/*) $(MESA_SYSROOT)/.don
 		OUT=/work/$(BUILD)/mesa/tests
 	@touch $@
 
-mesa-deploy:
-	$(MAKE) deploy PKGS=ps3-mesa
-
 # --- ClassiCube -----------------------------------------------------------------
 CC_TARBALL := $(DOWNLOADS)/ClassiCube-$(CLASSICUBE_COMMIT).tar.gz
 CC_TEXPACK := $(DOWNLOADS)/classicube-texpack-$(CLASSICUBE_TEXPACK_SHA256).zip
-CC_INSTALL := $(BUILD)/classicube/install
 $(CC_TARBALL):
 	@mkdir -p $(DOWNLOADS)
 	curl -fsSL -o $@.tmp $(CLASSICUBE_URL)
@@ -231,10 +206,7 @@ $(CC_AUDIO)/default2.zip: $(CC_TARBALL) classicube/sounds.sh | $(GAMES_BUILDER_S
 classicube-deploy:
 	$(MAKE) deploy PKGS=classicube
 
-classicube: $(CC_INSTALL)/ClassiCube
-$(CC_INSTALL)/ClassiCube: $(CC_TARBALL) $(CC_TEXPACK) classicube/build.sh $(MESA_SYSROOT)/.done | $(MESA_BUILDER_STAMP)
-	$(DOCKER_RUN) --user $(UID_GID) -e CC_TARBALL=$(CC_TARBALL) -e CC_TEXPACK=$(CC_TEXPACK) \
-		$(MESA_BUILDER_TAG) classicube/build.sh
+classicube: classicube-deb
 
 # --- SPU toolchain ---------------------------------------------------------------
 # spu-elf GCC 9.5 + binutils + newlib for the Cell's SPEs (tools/build-spu-toolchain.sh)
@@ -275,12 +247,13 @@ $(SPU_TESTS_STAMP): $(SPU_GCC) $(wildcard ps3-spu/src/*.c ps3-spu/src/Makefile) 
 		SPU_CC=/work/$(SPU_GCC) OUT=/work/$(BUILD)/spu-tests
 	@touch $@
 spu-deploy:
-	$(MAKE) deploy PKGS=ps3-spu
+	$(MAKE) deploy PKGS="ps3-spu ps3-spu-programs"
 
 # --- Packages (our own apt repository, docs/PLAN.md item 7) -------------------
 # Each package is built from its build outputs (tools/stage-package.sh, tools/build-debs.sh) into
 # build/repo, which is indexed as an apt repository. N in the versions is the commit count.
-PACKAGES := ps3-kernel ps3rsx ps3-boot ps3-gpu-tools ps3-mesa classicube ps3-spu
+# (ps3-boot, ps3-gpu-tools, ps3-spu, classicube, mesa: source packages, make <pkg>-deb)
+PACKAGES := ps3-kernel ps3rsx ps3-mesa
 PKG_N := $(shell git -C $(CURDIR) rev-list --count HEAD 2>/dev/null || echo 0)
 # Debian packaging tools and aptly (docker/Dockerfile.deb); also indexes the old pipeline's repo
 REPO_BUILDER_TAG := ps3-deb-builder:$(shell (cat docker/Dockerfile.deb; echo $(BUILDER_TAG) $(DEBIAN_SNAPSHOT)) | sha256sum | cut -c1-12)
@@ -291,11 +264,7 @@ $(REPO_BUILDER_STAMP): docker/Dockerfile.deb | $(BUILDER_STAMP)
 	@touch $@
 PKG_INPUTS_ps3-kernel := $(KERNEL_STAGE)/boot/vmlinux
 PKG_INPUTS_ps3rsx := $(GPU_STAMP)
-PKG_INPUTS_ps3-boot := ps3-boot/ps3-update-kboot
-PKG_INPUTS_ps3-gpu-tools := $(GPU_STAMP) $(wildcard ps3-gpu-tools/scripts/*.sh)
-PKG_INPUTS_ps3-mesa := $(MESA_INSTALL)$(MESA_PREFIX)/env.sh $(MESA_TESTS_STAMP)
-PKG_INPUTS_classicube := $(CC_INSTALL)/ClassiCube $(CC_AUDIO)/default2.zip $(wildcard classicube/*)
-PKG_INPUTS_ps3-spu := $(SPU_TESTS_STAMP)
+PKG_INPUTS_ps3-mesa :=
 PKG_STAMPS := $(PACKAGES:%=$(BUILD)/repo/.%.stamp)
 debs: $(PKG_STAMPS)
 .SECONDEXPANSION:
@@ -305,33 +274,35 @@ $(BUILD)/repo/.%.stamp: $$(PKG_INPUTS_$$*) tools/stage-package.sh tools/build-de
 		-e CLASSICUBE_COMMIT=$(CLASSICUBE_COMMIT) -e PKG_N=$(PKG_N) $(REPO_BUILDER_TAG) tools/build-debs.sh $*
 	@touch $@
 
-# Install packages on the running PS3 (whatever its root: NFS or USB): make deploy [PKGS="..."].
-# dpkg replaces files by renaming, so even Mesa under a running X is safe on the USB root (on
-# NFS, stop X first).
-PKGS ?= $(PACKAGES)
+# Install packages on the running PS3 with apt (tools/deploy.sh): make deploy [PKGS="..."]
+# [AUTOREMOVE=1]. Upgrades everything of ours that is installed (Mesa included), then installs the
+# named top-level packages; simulated first. dpkg replaces files by renaming, so even Mesa under
+# a running X is safe on the USB root (on NFS, stop X first).
+DEPLOY_TOP := ps3-kernel-$(KERNEL_RELEASE) ps3rsx-$(KERNEL_RELEASE) ps3-boot ps3-gpu-tools ps3-spu ps3-spu-programs classicube
+PKGS ?= $(DEPLOY_TOP)
+AUTOREMOVE ?= 0
 PS3_SCP = scp -q -i $(HOME)/.ssh/id_ps3 -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts
-DEPLOY_STAMPS := $(PKGS:%=$(BUILD)/repo/.%.stamp)
-deploy: $(DEPLOY_STAMPS)
-	$(PS3_SSH) 'rm -rf /tmp/ps3-debs && mkdir /tmp/ps3-debs'
-	$(PS3_SCP) $(foreach p,$(PKGS),$(BUILD)/repo/$(p)_*.deb) tibi@$(PS3_IP):/tmp/ps3-debs/
-	$(PS3_SSH) 'sudo dpkg -i /tmp/ps3-debs/*.deb && rm -r /tmp/ps3-debs'
+deploy: $(PKG_STAMPS) | $(REPO_BUILDER_STAMP)
+	PS3=tibi@$(PS3_IP) SSH="ssh -i $(HOME)/.ssh/id_ps3 -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts" \
+		SCP="$(PS3_SCP)" REPO_BUILDER_TAG=$(REPO_BUILDER_TAG) AUTOREMOVE=$(AUTOREMOVE) tools/deploy.sh $(PKGS)
 kernel-deploy:
-	$(MAKE) deploy PKGS=ps3-kernel
+	$(MAKE) deploy PKGS=ps3-kernel-$(KERNEL_RELEASE)
 
 # --- Image --------------------------------------------------------------------
 # The package layer plus our config (image/) and our packages (build/repo)
-IMAGE_INPUTS := $(ROOTFS_BASE) $(wildcard image/*) tools/build-image.sh $(SSH_PUBKEY) $(PKG_STAMPS)
+IMAGE_INPUTS := $(ROOTFS_BASE) $(wildcard image/* image/apt/*) tools/build-image.sh $(SSH_PUBKEY) $(PKG_STAMPS) \
+	$(wildcard $(BUILD)/debs/*/*.deb)
 rootfs: $(ROOTFS_TAR)
 IMAGE_VARS := $(BUILD)/image.vars
 BOOT_ROOT_ARGS := $(ROOT_ARGS_usb) rootwait
 IMAGE_VARS_NOW := $(BOOT_ROOT_ARGS) $(DEBUG_ARGS) $(LEGACY_KERNEL_ARGS)
 $(shell [ "$$(cat $(IMAGE_VARS) 2>/dev/null)" = "$(IMAGE_VARS_NOW)" ] || echo "$(IMAGE_VARS_NOW)" > $(IMAGE_VARS))
-$(ROOTFS_TAR): $(IMAGE_INPUTS) $(IMAGE_VARS) | $(BUILDER_STAMP)
+$(ROOTFS_TAR): $(IMAGE_INPUTS) $(IMAGE_VARS) | $(REPO_BUILDER_STAMP)
 	@mkdir -p $(BUILD)/rootfs
 	cp $(SSH_PUBKEY) $(BUILD)/rootfs/authorized_keys
 	$(DOCKER_RUN) --privileged $(ROOTFS_ENV) -e BOOT_ROOT_ARGS="$(BOOT_ROOT_ARGS)" \
 		-e BOOT_EXTRA_ARGS="$(DEBUG_ARGS)" -e BOOT_LEGACY_ARGS="$(LEGACY_KERNEL_ARGS)" \
-		$(BUILDER_TAG) tools/build-image.sh
+		-e KERNEL_RELEASE=$(KERNEL_RELEASE) $(REPO_BUILDER_TAG) tools/build-image.sh
 	rm -f $(BUILD)/rootfs/authorized_keys
 
 # --- Run ----------------------------------------------------------------------
@@ -384,3 +355,26 @@ clean-ephemeral:
 # stamp so the image is rebuilt rather than the build failing
 $(foreach b,BUILDER MESA_BUILDER GAMES_BUILDER SPU_BUILDER REPO_BUILDER,\
 	$(if $(wildcard $($(b)_STAMP)),$(shell docker image inspect $($(b)_TAG) >/dev/null 2>&1 || rm -f $($(b)_STAMP))))
+
+# --- Debian source packages (deb-src + our patches; docs/PLAN.md, packaging plan) ---------------
+DEB_ENV := -e OWNER=$(UID_GID) -e DEBIAN_SUITE=$(DEBIAN_SUITE) -e DEBIAN_MIRROR=$(DEBIAN_MIRROR) -e HOME=/tmp \
+	-e CC_TARBALL=$(CC_TARBALL) -e CC_TEXPACK=$(CC_TEXPACK) -e CC_AUDIO=$(CC_AUDIO)
+# upstream tarballs a package's source is made from
+classicube-src: $(CC_TARBALL) $(CC_TEXPACK) $(CC_AUDIO)/default2.zip
+chroot: | $(REPO_BUILDER_STAMP)
+	@tools/disk-check.sh
+	docker run --rm --privileged -v $(CURDIR):/work -w /work $(DEB_ENV) $(REPO_BUILDER_TAG) tools/deb-chroot.sh
+$(BUILD)/chroot/sid-ppc64.tar:
+	$(MAKE) --no-print-directory chroot
+# make <pkg>-src: fetch Debian's source and make ours; make <pkg>-deb: build it natively (qemu)
+%-src: | $(REPO_BUILDER_STAMP)
+	@if grep -q '^TYPE=debsrc' $*/package.conf; then \
+		docker run --rm -v $(CURDIR):/work -w /work $(DEB_ENV) $(REPO_BUILDER_TAG) tools/deb-fetch.sh $*; fi
+	@set -e; v=$$(tools/deb-version.sh $*); \
+	docker run --rm -v $(CURDIR):/work -w /work --user $(UID_GID) $(DEB_ENV) $(REPO_BUILDER_TAG) \
+		tools/deb-prepare.sh $* "$$(echo "$$v" | sed -n 1p)" "$$(echo "$$v" | sed -n 2p)"
+%-deb: %-src | $(BUILD)/chroot/sid-ppc64.tar
+	@tools/disk-check.sh
+	docker run --rm --privileged -v $(CURDIR):/work -w /work $(DEB_ENV) -e JOBS=$(DEB_JOBS) \
+		$(REPO_BUILDER_TAG) tools/deb-build.sh $*
+DEB_JOBS ?= 16

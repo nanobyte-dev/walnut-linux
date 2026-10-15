@@ -4,7 +4,7 @@
 # build/repo (kernel, RSX driver, Mesa, games, SPU tools: tools/build-debs.sh). Takes a minute or
 # two, so a config change doesn't reinstall the Debian packages. Runs as root in the builder
 # container. Inputs (env): ROOTFS_CUSTOMIZE SOURCE_DATE_EPOCH BOOT_ROOT_ARGS BOOT_EXTRA_ARGS
-# BOOT_LEGACY_ARGS OWNER
+# BOOT_LEGACY_ARGS KERNEL_RELEASE OWNER
 # Output: build/rootfs/debian-ppc64.tar, byte-for-byte the same from the same inputs
 set -euo pipefail
 {
@@ -30,11 +30,34 @@ PS3_ROOT_ARGS="$BOOT_ROOT_ARGS"
 PS3_EXTRA_ARGS="$BOOT_EXTRA_ARGS"
 PS3_LEGACY_ARGS="$BOOT_LEGACY_ARGS"
 EOF
-# Our packages (docs/PLAN.md item 7), the way apt would install them
+# Our packages, installed by apt from a local flat repository of our debs (build/repo, and the
+# Debian-source packages in build/debs/*), pinned above Debian's, with the base's snapshot source
+# for anything new. Our Mesa replaces Debian's as an upgrade (auto marks kept); then whatever only
+# Debian's Mesa needed (LLVM, z3, sensors) is autoremoved.
 mkdir -p "$R/tmp/ps3-repo"
 cp build/repo/*.deb "$R/tmp/ps3-repo/"
-chroot "$R" sh -c 'dpkg -i /tmp/ps3-repo/*.deb' > /dev/null
-rm -r "$R/tmp/ps3-repo"
+find build/debs -mindepth 2 -maxdepth 2 -name "*.deb" -exec cp -t "$R/tmp/ps3-repo/" {} +
+rm -f "$R"/tmp/ps3-repo/ps3-mesa_*.deb "$R"/tmp/ps3-repo/*-dbgsym_*.deb	# transitional only / debug symbols
+(cd "$R/tmp/ps3-repo" && apt-ftparchive packages . > Packages)
+echo 'deb [trusted=yes] file:/tmp/ps3-repo ./' > "$R/etc/apt/sources.list.d/zz-image.list"
+printf 'Package: *\nPin: origin ""\nPin-Priority: 1001\n' > "$R/etc/apt/preferences.d/zz-image"
+PKGS=$(grep -v -e '^\s*#' -e '^\s*$' image/packages-ours.txt | sed "s/@KERNEL_RELEASE@/$KERNEL_RELEASE/")
+APT="chroot $R env DEBIAN_FRONTEND=noninteractive apt-get -q -y -o Dpkg::Use-Pty=0"
+$APT update > /dev/null
+$APT --no-remove upgrade > /dev/null
+$APT --no-remove install $PKGS > /dev/null
+$APT autoremove --purge | grep -E "^(Purg|Remv)" | cut -d' ' -f2 | paste -sd' ' | sed 's/^/>> autoremoved: /'
+chroot "$R" dpkg-query -W -f='${Package} ${Version}\n' mesa-libgallium libgbm1 | sed 's/^/>> /'
+if chroot "$R" dpkg-query -W -f='${Package}\n' 'libllvm*' 'libz3-*' 2>/dev/null | grep -q .; then
+	echo "!! LLVM or z3 still installed"; exit 1
+fi
+# The PS3's own apt configuration: Debian live plus ours, pinned (image/apt/, docs/PLAN.md)
+rm -r "$R/tmp/ps3-repo" "$R/etc/apt/sources.list.d/zz-image.list" "$R/etc/apt/preferences.d/zz-image" \
+	"$R/etc/apt/sources.list"
+install -m 644 image/apt/debian.sources image/apt/ps3.sources "$R/etc/apt/sources.list.d/"
+install -m 644 image/apt/ps3.pref "$R/etc/apt/preferences.d/ps3"
+chroot "$R" apt-get clean
+rm -rf "$R"/var/lib/apt/lists/* && mkdir -p "$R/var/lib/apt/lists/partial"
 chroot "$R" ldconfig
 
 umount "$R/proc" "$R/sys"
@@ -52,13 +75,8 @@ tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --clamp-mtime --numeric-owner --on
 	--xattrs-exclude='security.selinux' \
 	-C "$R" -cf "$OUT/debian-ppc64.tar.tmp" .
 
-# The previous image is moved aside, never overwritten
-if [ -e "$OUT/debian-ppc64.tar" ]; then
-	OLD="build/old/$(date +%Y%m%d-%H%M%S)-rootfs"
-	mkdir -p "$OLD" && mv "$OUT/debian-ppc64.tar" "$OLD/"
-	chown -R "$OWNER" "$OLD"	# yours to delete (this script runs as root)
-	echo ">> Previous image moved to $OLD"
-fi
+# The previous image is kept as one backup (images are ephemeral: CLAUDE.md)
+[ ! -e "$OUT/debian-ppc64.tar" ] || mv "$OUT/debian-ppc64.tar" "$OUT/debian-ppc64.prev.tar"
 mv "$OUT/debian-ppc64.tar.tmp" "$OUT/debian-ppc64.tar"
 chown "$OWNER" "$OUT/debian-ppc64.tar"
 exit

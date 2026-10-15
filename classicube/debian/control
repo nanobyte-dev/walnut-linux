@@ -1,0 +1,16 @@
+Source: classicube
+Section: games
+Priority: optional
+Maintainer: PS3 Linux project <ps3@localhost>
+Build-Depends: debhelper-compat (= 13), libsdl3-dev, libgl-dev
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+Homepage: https://www.classicube.net/
+
+Package: classicube
+Architecture: ppc64
+Depends: ${shlibs:Depends}, ${misc:Depends}, libopenal1
+Description: ClassiCube block building game, with sounds and music
+ A Minecraft Classic compatible game (SDL3 window and gamepad, desktop GL 1, OpenAL), with its
+ texture pack, sounds and music. /usr/games/classicube runs it from a per-user directory
+ (~/.local/share/classicube), where it keeps options, maps and screenshots.

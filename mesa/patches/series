@@ -1,0 +1,10 @@
+0001-nouveau-ps3-detect-pushbufs.patch
+0002-nouveau-mm-slab-oom.patch
+0003-nv30-context-pushbuf.patch
+0004-nv30-screen-rsx.patch
+0005-nv30-vbo-gpu-fetch.patch
+0006-nv30-query-notifier.patch
+0007-nv30-texture-uploads.patch
+0008-nvfx-fp-export32.patch
+0009-dri-gbm-loader-host-order-8888.patch
+0010-ffvertex-fog-distance.patch

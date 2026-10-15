@@ -1,0 +1,16 @@
+Source: ps3-boot
+Section: admin
+Priority: optional
+Maintainer: PS3 Linux project <ps3@localhost>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: ps3-boot
+Architecture: all
+Depends: linux-base, ${misc:Depends}
+Description: Petitboot boot menu for the PS3 from the installed kernels
+ ps3-update-kboot writes /etc/kboot.conf, Petitboot's boot menu, with one entry per kernel in
+ /boot (the newest first and the default). Kernel packages run it through the hooks in
+ /usr/share/kernel/postinst.d and postrm.d. The root and extra arguments come from
+ /etc/default/ps3-boot, each kernel's own from /usr/lib/ps3/boot/<release>.args.

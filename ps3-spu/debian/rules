@@ -1,0 +1,33 @@
+#!/usr/bin/make -f
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_CFLAGS_MAINT_APPEND = -mcpu=cell -mtune=cell -Wall
+
+%:
+	dh $@
+
+override_dh_auto_build-arch:
+	mkdir -p b
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o b/spurun src/spurun.c
+# the SPU programs: spu-elf GCC on PATH (our host toolchain, tools/deb-build.sh INDEP_PATH)
+override_dh_auto_build-indep:
+	$(MAKE) -C src SPU_CC=spu-elf-gcc OUT=$(CURDIR)/b $(CURDIR)/b/hello.spu
+
+override_dh_auto_install-arch:
+	install -D -m 755 b/spurun debian/ps3-spu/usr/lib/ps3/bin/spurun
+	install -d debian/ps3-spu/usr/bin
+	ln -s ../lib/ps3/bin/spurun debian/ps3-spu/usr/bin/spurun
+	install -D -m 644 debian/spufs.conf debian/ps3-spu/usr/lib/modules-load.d/spufs.conf
+override_dh_auto_install-indep:
+	install -d debian/ps3-spu-programs/usr/lib/ps3/spu
+	install -m 644 b/*.spu debian/ps3-spu-programs/usr/lib/ps3/spu/
+
+# SPU ELF objects: the host strip/dwz tools don't know them
+override_dh_strip-indep override_dh_dwz-indep override_dh_shlibdeps-indep:
+
+override_dh_auto_clean:
+	rm -rf b
+
+# spufs mounted at /spu at boot (debian/ps3-spu.spu.mount)
+override_dh_installsystemd-arch:
+	dh_installsystemd -a
+	dh_installsystemd -a --name=spu

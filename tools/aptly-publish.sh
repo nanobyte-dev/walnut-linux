@@ -5,6 +5,9 @@
 #   DIST=dev:           throwaway test builds (ps3-dev), replaced freely
 # Debug symbols (.ddeb) always go to the throwaway ps3-dbgsym repository.
 set -euo pipefail
+# One block, parsed whole before it runs: editing this file during a run can't make bash
+# execute a shifted fragment.
+{
 STAGE=$1
 DIST=${DIST:-ps3}
 A="aptly -config=/work/tools/aptly.conf"
@@ -70,3 +73,5 @@ pub() {	# prefix distribution repos...
 if [ "$DIST" = ps3 ]; then pub ps3 ps3 ps3-main ps3-deps; else pub ps3-dev ps3-dev ps3-dev; fi
 $A repo show ps3-dbgsym 2>/dev/null | grep -q "Number of packages: [1-9]" && pub ps3-dbgsym ps3-dbgsym ps3-dbgsym
 echo ">> published $DIST"
+exit
+}

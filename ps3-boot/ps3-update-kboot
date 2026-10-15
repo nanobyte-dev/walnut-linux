@@ -3,6 +3,9 @@
 # when they're installed or removed). One entry per kernel in /boot, the newest release first and
 # the default, so Petitboot boots it after its countdown and lists the others to pick from.
 #
+# PS3_DEFAULT in /etc/default/ps3-boot (a release) pins the default to that kernel while it is
+# installed, e.g. a known-good one until a new kernel has booted once.
+#
 # An entry's command line: this installation's root and extras (/etc/default/ps3-boot) plus the
 # kernel's own arguments, which its package ships as /usr/lib/ps3/boot/<release>.args (kernels
 # without that file get PS3_LEGACY_ARGS).
@@ -22,7 +25,14 @@ EOF
 fi
 . "$DEFAULTS"
 
-kernels=$(ls /boot/vmlinux-* 2>/dev/null | sort -rV)
+# newest first, in Debian's kernel version order (linux-base), which knows about ~ and +
+releases=$(ls /boot/vmlinux-* 2>/dev/null | sed 's|^/boot/vmlinux-||')
+if command -v linux-version >/dev/null; then
+	releases=$(echo "$releases" | linux-version sort --reverse)
+else
+	releases=$(echo "$releases" | sort -rV)
+fi
+kernels=$(echo "$releases" | sed '/^$/d; s|^|/boot/vmlinux-|')
 [ -n "$kernels" ] || exit 0
 tmp=$(mktemp /etc/kboot.conf.XXXXXX)
 echo "# Petitboot boot menu, written by ps3-update-kboot: newest kernel first" > "$tmp"
@@ -37,6 +47,9 @@ for k in $kernels; do
 	[ -n "$default" ] || default=$release
 	echo "$release='$k $PS3_ROOT_ARGS $PS3_EXTRA_ARGS $args'" >> "$tmp"
 done
+if [ -n "${PS3_DEFAULT:-}" ] && [ -e "/boot/vmlinux-$PS3_DEFAULT" ]; then
+	default=$PS3_DEFAULT
+fi
 echo "default=$default" >> "$tmp"
 chmod 644 "$tmp"
 mv "$tmp" /etc/kboot.conf

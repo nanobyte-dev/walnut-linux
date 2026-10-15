@@ -31,24 +31,13 @@ for P in "$@"; do
 		depends="ps3-kernel-$KERNEL_RELEASE"
 		desc="DRM driver for the PS3's RSX GPU (registers as nouveau), for $KERNEL_RELEASE"
 		postinst="depmod -a $KERNEL_RELEASE" ;;
-	ps3-boot)
-		version="0.$PKG_N"
-		arch=all
-		desc="Petitboot boot menu (/etc/kboot.conf) from the installed kernels" ;;
-	ps3-gpu-tools)
-		version="0.$PKG_N"
-		desc="RSX probes, driver tests and test scripts" ;;
 	ps3-mesa)
-		version="$MESA_VERSION+ps3.$PKG_N"
-		desc="Mesa with the nv30 fixes for the RSX (fork of $MESA_VERSION)"
+		# above every old build (they used the global commit count) and below nothing we publish
+		version="$MESA_VERSION+ps3.99999"
+		arch=all
+		depends="mesa-libgallium (>= 26.2.4-1+ps3), libgl1-mesa-dri (>= 26.2.4-1+ps3), libegl-mesa0 (>= 26.2.4-1+ps3), libglx-mesa0 (>= 26.2.4-1+ps3), libgbm1 (>= 26.2.4-1+ps3), ps3-gpu-tools (>= 0.146~)"
+		desc="transitional package: our Mesa is now Debian's mesa rebuilt for the PS3; can be removed"
 		triggers="activate-noawait ldconfig" ;;
-	classicube)
-		version="0+git.${CLASSICUBE_COMMIT:0:7}+ps3.$PKG_N"
-		depends="libsdl3-0, libopenal1"
-		desc="ClassiCube block building game, with sounds and music" ;;
-	ps3-spu)
-		version="0.$PKG_N"
-		desc="SPU program runner (spufs) and SPU tests; mounts spufs at /spu" ;;
 	esac
 	{
 		echo "Package: $name"

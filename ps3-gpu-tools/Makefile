@@ -3,9 +3,9 @@ CROSS   ?= powerpc64-linux-gnu-
 CC      := $(CROSS)gcc
 CFLAGS  ?= -O2 -Wall -Wextra -mcpu=cell
 OUT     ?= ../build/gpu
-TOOLS   := $(patsubst tools/%.c,$(OUT)/%,$(wildcard tools/*.c))
+TOOLS   := $(patsubst src/%.c,$(OUT)/%,$(wildcard src/*.c))
 
 all: $(TOOLS)
-$(OUT)/%: tools/%.c
+$(OUT)/%: src/%.c
 	@mkdir -p $(OUT)
-	$(CC) $(CFLAGS) -o $@ $<
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $<

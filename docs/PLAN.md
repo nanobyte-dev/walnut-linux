@@ -19,9 +19,19 @@ is the binding constraint**, and most of the next work is about it.
     gas took `nop 127` for the `.nop` directive). **newlib** for the SPU: 4.6.0 (seven
     patches, `spu-toolchain/newlib-4.6/`). On the SPEs (2026-10-15): 1629 of 1677 execute tests pass,
     the same tests one by one as with binutils 2.33.1 and newlib 1.20.
-- **Kernel:** 6.12 LTS (supported to Dec 2028). **Mesa:** our fork of the snapshot's release.
-- **Repository:** everything of ours is a .deb in `build/repo`; the image installs from it and
-  `make deploy` upgrades the running PS3. Source: git.tibich.com/chibicitiberiu/ps3-linux.
+- **Kernel:** 6.12 LTS (supported to Dec 2028). **Mesa:** Debian's source package of the
+  snapshot's release, rebuilt with our patches (`mesa/`, version `26.2.4-1+ps3.N`).
+- **Packaging (2026-10-16, plan: Debian source packages):** components Debian ships are built
+  from Debian's source package plus our patch series (`<pkg>/patches`, `<pkg>/packaging`), version
+  `<debver>+ps3.N`; native in a ppc64 chroot under qemu (`make <pkg>-deb`), the kernel cross-built.
+  The repository is laid out by output package (`<pkg>/`).
+- **apt repository** on tibi-server, `http://10.0.0.10:8070/ps3` (`tools/repo-server/`),
+  published with aptly from `build/aptly` (`make publish`; never-delete: official versions only).
+- **apt on the PS3 (2026-10-16):** Debian live (debian-ports unstable) *and* ours, so anything we
+  don't build installs and upgrades from Debian; `image/apt/ps3.pref` pins ours at 1001 (they win
+  whatever the versions) and blocks Debian's kernels and Mesa (-1: never a candidate). `apt
+  upgrade` is safe: a Debian package that needs a newer Mesa than ours is kept back. New kernels
+  of ours arrive through meta packages. Source: git.tibich.com/chibicitiberiu/ps3-linux.
 
 ## Long-term goal (stated 2026-10-14)
 

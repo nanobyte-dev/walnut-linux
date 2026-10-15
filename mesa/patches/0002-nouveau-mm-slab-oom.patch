@@ -1,0 +1,22 @@
+Description: nouveau_mm: return NULL when no slab can be allocated
+ mm_slab_new() failing (out of GART) left the bucket empty and the allocator dereferenced it.
+Author: PS3 Linux project
+Forwarded: no
+---
+--- a/src/gallium/drivers/nouveau/nouveau_mm.c
++++ b/src/gallium/drivers/nouveau/nouveau_mm.c
+@@ -194,8 +194,12 @@
+    if (!list_is_empty(&bucket->used)) {
+       slab = list_entry(bucket->used.next, struct mm_slab, head);
+    } else {
+-      if (list_is_empty(&bucket->free)) {
+-         mm_slab_new(cache, bucket, MAX2(mm_get_order(size), MM_MIN_ORDER));
++      if (list_is_empty(&bucket->free) &&
++          mm_slab_new(cache, bucket, MAX2(mm_get_order(size), MM_MIN_ORDER))) {
++         /* out of memory: no slab to take a chunk from (the caller sees *bo unset) */
++         simple_mtx_unlock(&bucket->lock);
++         FREE(alloc);
++         return NULL;
+       }
+       slab = list_entry(bucket->free.next, struct mm_slab, head);
+ 

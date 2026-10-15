@@ -1,0 +1,26 @@
+#!/usr/bin/make -f
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_CFLAGS_MAINT_APPEND = -mcpu=cell -mtune=cell
+L := debian/classicube/usr/lib/classicube
+NUMJOBS := $(or $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS))),1)
+
+%:
+	dh $@
+
+# linux.mk sets CFLAGS itself, so ours go into CC; LIBS without X11/Xi (SDL3 window)
+override_dh_auto_build:
+	$(MAKE) -j$(NUMJOBS) -f misc/makefiles/linux.mk RELEASE=1 BUILD_SDL3=1 \
+		CC="$(CC) $(CPPFLAGS) $(CFLAGS)" LDFLAGS="-rdynamic $(LDFLAGS)" \
+		LIBS="-lSDL3 -lpthread -lGL -ldl -lm"
+
+override_dh_auto_install:
+	install -D -m 755 ClassiCube $(L)/ClassiCube
+	install -D -m 644 texpack/*.zip $(L)/texpacks/classicube.zip
+	install -d $(L)/audio
+	install -m 644 audio/* $(L)/audio/
+	install -m 644 debian/options.txt $(L)/
+	install -D -m 755 debian/classicube.sh debian/classicube/usr/games/classicube
+	install -D -m 644 debian/classicube.desktop debian/classicube/usr/share/applications/classicube.desktop
+
+override_dh_auto_clean:
+	rm -rf build ClassiCube

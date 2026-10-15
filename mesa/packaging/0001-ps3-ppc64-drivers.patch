@@ -1,0 +1,81 @@
+Description: PS3 (ppc64): only the nouveau and softpipe drivers, no LLVM
+ The PS3 has 256 MB of RAM and an RSX (NV47). On ppc64 build softpipe and nouveau only: no
+ LLVM (llvmpipe, radeonsi, zink, Vulkan; ~200 MB of LLVM/z3 in the image), valgrind, VA/VDPAU,
+ video codecs or sensors; Cell CPU flags; no tests under nocheck; the VA driver move guarded.
+ mesa-libgallium breaks the old ps3-mesa build (installed next to Debian's in /usr/lib/ps3-mesa),
+ which its empty transitional version (26.2.4+ps3.99999) replaces.
+Author: PS3 Linux project
+Forwarded: not-needed
+---
+--- a/debian/control.in	2026-10-16 01:43:09.293416727 +0300
++++ b/debian/control.in	2026-10-16 01:43:09.361239585 +0300
+@@ -225,7 +225,8 @@
+  mesa-va-drivers,
+  mesa-vdpau-drivers,
+  va-driver,
+-Breaks: mesa-va-drivers (<< 25.2.8-3), mesa-vdpau-drivers (<< 25.2.8-3)
++Breaks: mesa-va-drivers (<< 25.2.8-3), mesa-vdpau-drivers (<< 25.2.8-3),
++ ps3-mesa (<< 26.2.4+ps3.99999~)
+ Replaces: mesa-va-drivers (<< 25.2.8-3), mesa-vdpau-drivers (<< 25.2.8-3)
+ Description: shared infrastructure for Mesa drivers
+  This package contains libgallium, a private library shared between
+--- a/debian/rules	2026-10-16 01:41:46.583151136 +0300
++++ b/debian/rules	2026-10-16 01:41:46.650229149 +0300
+@@ -51,10 +51,12 @@
+ 
+ confflags_TEFLON = -Dteflon=false
+ 
+-LLVM_ARCHS     = amd64 arm64 armhf i386 loong64 powerpc ppc64 ppc64el riscv64 s390x sparc64 x32
++LLVM_ARCHS     = amd64 arm64 armhf i386 loong64 powerpc ppc64el riscv64 s390x sparc64 x32
+ RUSTICL_ARCHS  = amd64 arm64 armhf i386 loong64 ppc64el riscv64 x32
+ NVK_ARCHS      = amd64 arm64 armhf i386 riscv64
+-VALGRIND_ARCHS = amd64 arm64 armhf i386 powerpc ppc64 ppc64el riscv64 s390x
++VALGRIND_ARCHS = amd64 arm64 armhf i386 powerpc ppc64el riscv64 s390x
++# The PS3 (Cell PPE + RSX, an NV47): only the drivers it can use (see below)
++PS3_ARCHS      = ppc64
+ 
+ # hurd doesn't do direct rendering
+ ifeq ($(DEB_HOST_ARCH_OS), hurd)
+@@ -171,6 +173,22 @@
+   endif
+ endif
+ 
++# PS3: nouveau for the RSX and softpipe as the reference renderer; no LLVM (llvmpipe, radeonsi,
++# zink and the Vulkan drivers can't drive the RSX and pulled ~200 MB of LLVM/z3 onto a 256 MB
++# machine), no VA/VDPAU/video codecs, no sensors; Cell compiler flags
++ifneq (,$(filter $(DEB_HOST_ARCH), $(PS3_ARCHS)))
++  GALLIUM_DEFAULTS =
++  GALLIUM_DRIVERS = softpipe nouveau
++  VULKAN_DEFAULTS =
++  VULKAN_DRIVERS =
++  VULKAN_LAYERS =
++  confflags_GALLIUM := -Dgallium-extra-hud=true -Dlmsensors=disabled -Dgallium-va=disabled \
++	-Dvideo-codecs= -Dllvm=disabled
++  confflags_VALGRIND := -Dvalgrind=disabled
++  DEB_CFLAGS_MAINT_APPEND += -mcpu=cell -mtune=cell
++  DEB_CXXFLAGS_MAINT_APPEND += -mcpu=cell -mtune=cell
++endif
++
+ empty:=
+ space := $(empty) $(empty)
+ comma := ,
+@@ -194,7 +212,7 @@
+ 	-Dvulkan-manifest-per-architecture=false \
+ 	-Dglvnd=enabled \
+ 	-Db_ndebug=true \
+-	-Dbuild-tests=true \
++	-Dbuild-tests=$(if $(filter nocheck,$(DEB_BUILD_OPTIONS)),false,true) \
+ 	-Dtools=drm-shim \
+ 	$(confflags_DIRECT_RENDERING) \
+ 	$(confflags_GBM) \
+@@ -267,8 +285,9 @@
+   ifneq ($(DEB_HOST_ARCH_OS), hurd)
+ 	# Copy the hardlinked va drivers correctly.
+ 	install -m755 -d debian/mesa-libgallium/usr/lib/${DEB_HOST_MULTIARCH}/dri/
++	if ls debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/dri/*_drv_video.so >/dev/null 2>&1; then \
+ 	mv debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/dri/*_drv_video.so \
+-	   debian/mesa-libgallium/usr/lib/${DEB_HOST_MULTIARCH}/dri/
++	   debian/mesa-libgallium/usr/lib/${DEB_HOST_MULTIARCH}/dri/; fi
+   endif
+ 
+ 	# Handle dri/vulkan defaults before dh_install

@@ -1,0 +1,6 @@
+# Debian (ports: ppc64 lives there), live: everything we don't build comes from here.
+# /etc/apt/preferences.d/ps3 keeps Debian's kernels and Mesa out and our packages on top.
+Types: deb
+URIs: http://deb.debian.org/debian-ports
+Suites: unstable unreleased
+Components: main

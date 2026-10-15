@@ -12,7 +12,7 @@ for arg in "$@"; do
 		/usr/lib/ps3/bin/rsx-hold 8 &
 		sleep 1
 	fi
-	insmod /usr/lib/ps3/kmod/rsx_ctx_probe2.ko test="$t" n="$n"
+	modprobe rsx_ctx_probe2 test="$t" n="$n"
 	rmmod rsx_ctx_probe2
 	wait
 	sleep 1

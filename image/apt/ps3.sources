@@ -1,0 +1,6 @@
+# Our packages (tools/repo-server/ on tibi-server): kernel, Mesa, RSX driver, tools, games
+Types: deb
+URIs: http://10.0.0.10:8070/ps3
+Suites: ps3
+Components: main deps
+Trusted: yes
