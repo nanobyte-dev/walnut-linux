@@ -277,6 +277,34 @@ nv30_flush_resource(struct pipe_context *pipe,
 {
 }
 
+/* PS3: the GART is a small boot-time reservation (ps3rsx_gart=) shared by every process, and a
+ * staging buffer is only freed once the fence after its copy signals. A burst of uploads in one
+ * frame (OpenArena loading player models mid-game) queued more staging than the whole GART, and
+ * other clients' allocations failed (Xorg crashed). So once 4 MB of this context's uploads are
+ * in flight, wait for them first, and wait again before giving up on an allocation.
+ */
+#define NV30_PS3_STAGING_INFLIGHT (4 << 20)
+
+static int
+nv30_staging_bo_new(struct nv30_context *nv30, unsigned size, struct nouveau_bo **pbo)
+{
+   struct nouveau_device *dev = nv30->screen->base.device;
+   int ret;
+
+   if (nv30->screen->base.is_ps3 && nv30->staging_inflight &&
+       nv30->staging_inflight + size > NV30_PS3_STAGING_INFLIGHT) {
+      nouveau_fence_wait(nv30->base.fence, &nv30->base.debug);
+      nv30->staging_inflight = 0;
+   }
+   ret = nouveau_bo_new(dev, NOUVEAU_BO_GART | NOUVEAU_BO_MAP, 0, size, NULL, pbo);
+   if (ret && nv30->screen->base.is_ps3 && nv30->staging_inflight) {
+      nouveau_fence_wait(nv30->base.fence, &nv30->base.debug);
+      nv30->staging_inflight = 0;
+      ret = nouveau_bo_new(dev, NOUVEAU_BO_GART | NOUVEAU_BO_MAP, 0, size, NULL, pbo);
+   }
+   return ret;
+}
+
 void *
 nv30_miptree_transfer_map(struct pipe_context *pipe, struct pipe_resource *pt,
                           unsigned level, unsigned usage,
@@ -284,7 +312,6 @@ nv30_miptree_transfer_map(struct pipe_context *pipe, struct pipe_resource *pt,
                           struct pipe_transfer **ptransfer)
 {
    struct nv30_context *nv30 = nv30_context(pipe);
-   struct nouveau_device *dev = nv30->screen->base.device;
    struct nv30_miptree *mt = nv30_miptree(pt);
    struct nv30_transfer *tx;
    unsigned access = 0;
@@ -308,9 +335,8 @@ nv30_miptree_transfer_map(struct pipe_context *pipe, struct pipe_resource *pt,
    define_rect(pt, level, box->z, box->x, box->y,
                box->width, box->height, &tx->img);
 
-   ret = nouveau_bo_new(dev, NOUVEAU_BO_GART | NOUVEAU_BO_MAP, 0,
-                        tx->base.layer_stride * tx->base.box.depth, NULL,
-                        &tx->tmp.bo);
+   ret = nv30_staging_bo_new(nv30, tx->base.layer_stride * tx->base.box.depth,
+                             &tx->tmp.bo);
    if (ret) {
       pipe_resource_reference(&tx->base.resource, NULL);
       FREE(tx);
@@ -394,6 +420,7 @@ nv30_miptree_transfer_unmap(struct pipe_context *pipe,
       }
 
       /* Allow the copies above to finish executing before freeing the source */
+      nv30->staging_inflight += tx->tmp.bo->size;
       nouveau_fence_work(nv30->base.fence,
                          nouveau_fence_unref_bo, tx->tmp.bo);
    } else {

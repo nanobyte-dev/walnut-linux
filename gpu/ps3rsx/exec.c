@@ -120,13 +120,25 @@ static void exception_hook(void *data, u64 status, const void __iomem *info)
 
 /* --- ring -------------------------------------------------------------------------------- */
 
-/* Wait until the GPU has fetched everything up to PUT (then the ring may be rewritten) */
-static int ring_wait_fetched(struct ps3rsx_device *rsx, u32 put)
+/*
+ * After a wrap, wait until the GPU has fetched the old commands in [ring_put, end), which the
+ * next ones overwrite. Before it takes the JMP, GET is past everything written in the new lap
+ * (we only write below it); once it has, GET is at or below ring_put and the ring ahead is free.
+ * Waiting only for the part being overwritten, not for the whole old lap to be fetched, keeps
+ * the CPU from spinning for most of a frame at every wrap.
+ */
+static int ring_wait_room(struct ps3rsx_device *rsx, u32 end)
 {
 	int i;
 
 	for (i = 0; i < 200000; i++) {
-		if (in_be32(rsx->ctrl + CTRL_GET) == put)
+		u32 get = in_be32(rsx->ctrl + CTRL_GET);
+
+		if (get <= rsx->ring_put) {
+			rsx->ring_lapping = false;
+			return 0;
+		}
+		if (get >= end)
 			return 0;
 		if (READ_ONCE(rsx->wedged))
 			return -EIO;
@@ -153,7 +165,10 @@ u32 *ps3rsx_ring_begin(struct ps3rsx_device *rsx, u32 len, int *err)
 		wmb();
 		out_be32(rsx->ctrl + CTRL_PUT, RING_START);
 		rsx->ring_put = RING_START;
-		*err = ring_wait_fetched(rsx, RING_START);
+		rsx->ring_lapping = true;
+	}
+	if (rsx->ring_lapping) {
+		*err = ring_wait_room(rsx, rsx->ring_put + len + 12);
 		if (*err)
 			return NULL;
 	}
@@ -209,6 +224,7 @@ void ps3rsx_exec_forget_hw_state(struct ps3rsx_device *rsx)
 {
 	mutex_lock(&rsx->exec_lock);
 	ps3rsx_shadow_clear(rsx->hw_shadow);
+	rsx->hw_behind = NULL;
 	rsx->last_chan = -1;
 	mutex_unlock(&rsx->exec_lock);
 }
@@ -295,6 +311,7 @@ int ps3rsx_exec_init(struct ps3rsx_device *rsx)
 		goto err_release;
 	}
 	rsx->ring_put = RING_START + 12;
+	rsx->ring_lapping = false;
 	out_be32(rsx->ctrl + CTRL_PUT, rsx->ring_put);
 	for (i = 0; i < 2000 && ref_read(rsx) != rsx->seqno; i++)
 		usleep_range(100, 200);

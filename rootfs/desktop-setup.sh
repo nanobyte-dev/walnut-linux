@@ -137,11 +137,13 @@ exit $ret
 EOS
 chmod 755 "$R/usr/local/bin/ps3-game"
 
-# OpenArena: fullscreen at the display's resolution, vsync, DualShock 3 analog (left stick
+# OpenArena: the GL1 renderer (the GLSL one ran out of RAM compiling its shaders),
+# fullscreen at the display's resolution, vsync, DualShock 3 analog (left stick
 # moves, right stick aims; R2 fire, L2 zoom, X jump, O crouch, R1/L1 next/previous weapon,
 # Start menu, Select scores)
 mkdir -p "$R/home/tibi/.openarena/baseoa"
 cat > "$R/home/tibi/.openarena/baseoa/autoexec.cfg" <<'EOF'
+seta cl_renderer "opengl1"
 seta r_mode "-2"
 seta r_fullscreen "1"
 seta r_swapInterval "1"

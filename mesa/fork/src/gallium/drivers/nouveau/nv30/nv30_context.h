@@ -59,6 +59,9 @@ struct nv30_context {
 
    uint32_t dirty;
 
+   /* PS3: bytes of texture upload staging (GART) whose copies may still be pending */
+   unsigned staging_inflight;
+
    struct draw_context *draw;
    uint32_t draw_flags;
    uint32_t draw_dirty;

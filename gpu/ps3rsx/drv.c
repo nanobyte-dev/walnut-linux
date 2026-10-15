@@ -171,6 +171,8 @@ static int __init ps3rsx_init(void)
 {
 	int ret;
 
+	ps3rsx_validate_init();
+	ps3rsx_shadow_init();
 	ret = platform_driver_register(&ps3rsx_platform_driver);
 	if (ret)
 		return ret;

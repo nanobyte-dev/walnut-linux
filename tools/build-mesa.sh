@@ -32,8 +32,10 @@ cp -r "$MESA_FORK/src/." "$SRC/src/"
 echo "$MESA_VERSION-ps3" > "$SRC/VERSION"
 
 echo ">> Configuring"
+# -O2 with debug info (for perf), without assertions: they sit in Mesa's per-draw paths, and the
+# PPE is CPU-bound in games
 meson setup "$OBJ" "$SRC" --cross-file mesa/cross-ppc64.ini --wrap-mode=nodownload \
-	--prefix="$MESA_PREFIX" --libdir=lib --buildtype=debugoptimized \
+	--prefix="$MESA_PREFIX" --libdir=lib --buildtype=debugoptimized -Db_ndebug=true \
 	-Dgallium-drivers=nouveau,softpipe -Dvulkan-drivers= -Dllvm=disabled \
 	-Dgallium-va=disabled -Dvideo-codecs= -Dplatforms=x11 -Dglx=dri -Degl=enabled \
 	-Dgbm=enabled -Dglvnd=enabled -Dgles1=disabled -Dgles2=enabled \

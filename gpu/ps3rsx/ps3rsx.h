@@ -79,6 +79,7 @@ struct ps3rsx_device {
 	struct ps3fb_gpu_hook hook;
 	struct mutex exec_lock;		/* ring writes */
 	u32 ring_put;			/* IO address the next command goes to */
+	bool ring_lapping;		/* wrapped, and the GPU may not have taken the JMP yet */
 	u32 seqno;			/* last SET_REFERENCE value submitted */
 	u64 fence_context;
 	spinlock_t fence_lock;
@@ -90,7 +91,9 @@ struct ps3rsx_device {
 
 	struct mutex chan_lock;
 	DECLARE_BITMAP(chan_ids, PS3RSX_MAX_CHANNELS);
-	struct ps3rsx_shadow *hw_shadow;	/* what the GPU holds (exec_lock) */
+	struct ps3rsx_shadow *hw_shadow;	/* what the GPU holds (exec_lock), except: */
+	struct ps3rsx_shadow *hw_behind;	/* the last channel's shadow, whose pushes since it
+						 * took the GPU are not in hw_shadow yet */
 	int last_chan;				/* channel whose state the GPU holds, or -1 */
 	pid_t last_pid;				/* last submitter (for exception reports) */
 	char last_comm[TASK_COMM_LEN];
@@ -170,14 +173,16 @@ struct dma_fence *ps3rsx_ring_commit(struct ps3rsx_device *rsx, u32 len, bool ki
 
 struct ps3rsx_shadow *ps3rsx_shadow_new(void);
 void ps3rsx_shadow_free(struct ps3rsx_shadow *sh);
-void ps3rsx_shadow_apply(struct ps3rsx_shadow *sh, const u32 *w, u32 nwords);
 int ps3rsx_shadow_restore(const struct ps3rsx_shadow *ch, const struct ps3rsx_shadow *hw,
 			  u32 *buf, u32 max_words);
 void ps3rsx_shadow_take(const struct ps3rsx_shadow *ch, struct ps3rsx_shadow *hw);
 #define RESTORE_MAX_WORDS	(16 * 1024)
 
 bool ps3rsx_known_object(u32 handle);
-int ps3rsx_validate(struct ps3rsx_vstate *vs, const u32 *w, u32 nwords);
+int ps3rsx_validate(struct ps3rsx_vstate *vs, struct ps3rsx_shadow *sh, const u32 *w, u32 nwords);
+void ps3rsx_shadow_write(struct ps3rsx_shadow *sh, u32 subch, u32 m, u32 v);
+void ps3rsx_validate_init(void);
+void ps3rsx_shadow_init(void);
 
 struct ps3rsx_chan *ps3rsx_chan_find(struct ps3rsx_file *pf, u32 id);
 void ps3rsx_file_chans_free(struct ps3rsx_device *rsx, struct ps3rsx_file *pf);

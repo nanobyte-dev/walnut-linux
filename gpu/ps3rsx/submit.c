@@ -70,12 +70,23 @@ static int close_stale_primitive(struct ps3rsx_device *rsx)
 	return 0;
 }
 
+/* Bring hw_shadow up to date with the last channel's pushes. exec_lock held. */
+static void hw_shadow_sync(struct ps3rsx_device *rsx)
+{
+	if (rsx->hw_behind) {
+		ps3rsx_shadow_take(rsx->hw_behind, rsx->hw_shadow);
+		rsx->hw_behind = NULL;
+	}
+}
+
 static void chan_free(struct ps3rsx_device *rsx, struct ps3rsx_chan *ch)
 {
 	mutex_lock(&rsx->chan_lock);
 	clear_bit(ch->id, rsx->chan_ids);
 	mutex_unlock(&rsx->chan_lock);
 	mutex_lock(&rsx->exec_lock);
+	if (rsx->hw_behind == ch->shadow)
+		hw_shadow_sync(rsx);
 	if (rsx->last_chan == ch->id)
 		rsx->last_chan = -1;
 	if (rsx->prim_owner == ch && close_stale_primitive(rsx)) {
@@ -370,6 +381,7 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	/* another channel ran last: put this channel's state back first */
 	restore = 0;
 	if (ctxsw && rsx->last_chan != ch->id) {
+		hw_shadow_sync(rsx);
 		ret = ps3rsx_shadow_restore(ch->shadow, rsx->hw_shadow, rsx->restore_buf,
 					    RESTORE_MAX_WORDS);
 		if (ret < 0) {
@@ -394,7 +406,7 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 			memcpy(dst, rsx->gart_cpu + pb->offset + push[i].offset, len);
 			apply_relocs(relocs, req->nr_relocs, bos, objs, req->nr_buffers,
 				     push[i].bo_index, push[i].offset, dst, len);
-			ret = ps3rsx_validate(&ch->vstate, dst, len / 4);
+			ret = ps3rsx_validate(&ch->vstate, ch->shadow, dst, len / 4);
 			if (ret) {
 				mutex_unlock(&rsx->exec_lock);
 				goto out;
@@ -407,18 +419,17 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	}
 	fence = ps3rsx_ring_commit(rsx, restore + total, !dry_run);
 	if (!IS_ERR(fence)) {
-		/* the GPU now holds this channel's state, then what its pushes set */
-		u32 *src = ring + restore / 4;
-
+		/*
+		 * The GPU now holds this channel's state, then what its pushes set; the validator
+		 * already replayed the pushes into the channel's shadow. Until another channel
+		 * runs, the GPU's state is hw_shadow with this channel's taken over it
+		 * (hw_shadow_sync), so the pushes aren't replayed into hw_shadow word by word too.
+		 */
+		if (rsx->hw_behind != ch->shadow)
+			hw_shadow_sync(rsx);
 		if (ctxsw && rsx->last_chan != ch->id)
 			ps3rsx_shadow_take(ch->shadow, rsx->hw_shadow);
-		for (i = 0; i < req->nr_push; i++) {
-			u64 len = push[i].length & ~(u64)NOUVEAU_GEM_PUSHBUF_NO_PREFETCH;
-
-			ps3rsx_shadow_apply(ch->shadow, src, len / 4);
-			ps3rsx_shadow_apply(rsx->hw_shadow, src, len / 4);
-			src += len / 4;
-		}
+		rsx->hw_behind = ch->shadow;
 		rsx->last_chan = ch->id;
 		/* who to blame if the GPU raises an exception on this submit */
 		rsx->last_pid = task_pid_nr(current);

@@ -31,6 +31,7 @@ static const u32 obj_handle[NOBJ] = {
 
 struct ps3rsx_shadow {
 	u32 bound[8];
+	s8 bound_obj[8];			/* index of bound[] in obj_handle + 1, 0 if none */
 	u32 reg3d[NREG];
 	DECLARE_BITMAP(reg3d_set, NREG);
 	u32 reg2d[NOBJ][NREG_2D];		/* [OBJ_3D] unused */
@@ -70,8 +71,8 @@ static int obj_index(u32 handle)
 	return -1;
 }
 
-/* Is this 3D method a command rather than state? */
-static bool side_effect_3d(u32 m)
+/* Is this 3D method a command rather than state? Looked up per word from side_3d (below). */
+static bool side_effect_3d_slow(u32 m)
 {
 	switch (m) {
 	case 0x0100: case 0x0110:			/* NOP, wait for idle */
@@ -91,6 +92,17 @@ static bool side_effect_3d(u32 m)
 	return false;
 }
 
+static unsigned long side_3d[BITS_TO_LONGS(NREG)];
+
+void ps3rsx_shadow_init(void)
+{
+	u32 m;
+
+	for (m = 0; m < 0x2000; m += 4)
+		if (side_effect_3d_slow(m))
+			__set_bit(m / 4, side_3d);
+}
+
 static bool side_effect_2d(int obj, u32 m)
 {
 	if (m == 0x100)
@@ -102,23 +114,25 @@ static bool side_effect_2d(int obj, u32 m)
 	return false;
 }
 
-static void write_one(struct ps3rsx_shadow *sh, u32 subch, u32 m, u32 v)
+/* One method write into the shadow (the validator calls this for every word it accepts) */
+void ps3rsx_shadow_write(struct ps3rsx_shadow *sh, u32 subch, u32 m, u32 v)
 {
 	int obj;
 
 	if (m == 0) {
 		sh->bound[subch] = v;
+		sh->bound_obj[subch] = obj_index(v) + 1;
 		return;
 	}
 	if (m < 0x100)
 		return;				/* host methods: reference/semaphores, not state */
-	obj = obj_index(sh->bound[subch]);
+	obj = sh->bound_obj[subch] - 1;
 	if (obj < 0)
 		return;
 	if (obj != OBJ_3D) {
 		if (m < 0x410 && !side_effect_2d(obj, m)) {
 			sh->reg2d[obj][m / 4] = v;
-			set_bit(obj * NREG_2D + m / 4, sh->reg2d_set);
+			__set_bit(obj * NREG_2D + m / 4, sh->reg2d_set);
 		}
 		return;
 	}
@@ -131,7 +145,7 @@ static void write_one(struct ps3rsx_shadow *sh, u32 subch, u32 m, u32 v)
 	if (m >= 0x0b80 && m <= 0x0bfc) {	/* vertex program words, in write order */
 		if (sh->vp_ptr < VP_SLOTS) {
 			sh->vp[sh->vp_ptr * 4 + sh->vp_word] = v;
-			set_bit(sh->vp_ptr, sh->vp_set);
+			__set_bit(sh->vp_ptr, sh->vp_set);
 		}
 		if (++sh->vp_word == 4) {
 			sh->vp_word = 0;
@@ -148,7 +162,7 @@ static void write_one(struct ps3rsx_shadow *sh, u32 subch, u32 m, u32 v)
 	if (m >= 0x1f00 && m <= 0x1f7c) {	/* constant words */
 		if (sh->cst_ptr < CONST_SLOTS) {
 			sh->cst[sh->cst_ptr * 4 + sh->cst_word] = v;
-			set_bit(sh->cst_ptr, sh->cst_set);
+			__set_bit(sh->cst_ptr, sh->cst_set);
 		}
 		if (++sh->cst_word == 4) {
 			sh->cst_word = 0;
@@ -156,28 +170,9 @@ static void write_one(struct ps3rsx_shadow *sh, u32 subch, u32 m, u32 v)
 		}
 		return;
 	}
-	if (!side_effect_3d(m)) {
+	if (!test_bit(m / 4, side_3d)) {
 		sh->reg3d[m / 4] = v;
-		set_bit(m / 4, sh->reg3d_set);
-	}
-}
-
-/* Replay an accepted push into the shadow (it was validated: headers are well formed) */
-void ps3rsx_shadow_apply(struct ps3rsx_shadow *sh, const u32 *w, u32 nwords)
-{
-	u32 i = 0, k;
-
-	while (i < nwords) {
-		u32 h = w[i], count = (h >> 18) & 0x7ff, subch = (h >> 13) & 7, mthd = h & 0x1ffc;
-		bool noninc = (h & 0xe0030003) == 0x40000000;
-
-		if (!h) {
-			i++;
-			continue;
-		}
-		for (k = 0; k < count; k++)
-			write_one(sh, subch, noninc ? mthd : mthd + 4 * k, w[i + 1 + k]);
-		i += 1 + count;
+		__set_bit(m / 4, sh->reg3d_set);
 	}
 }
 
@@ -287,25 +282,26 @@ void ps3rsx_shadow_take(const struct ps3rsx_shadow *ch, struct ps3rsx_shadow *hw
 	u32 r, slot;
 
 	memcpy(hw->bound, ch->bound, sizeof(hw->bound));
+	memcpy(hw->bound_obj, ch->bound_obj, sizeof(hw->bound_obj));
 	for (r = 0; r < NREG; r++)
 		if (test_bit(r, ch->reg3d_set)) {
 			hw->reg3d[r] = ch->reg3d[r];
-			set_bit(r, hw->reg3d_set);
+			__set_bit(r, hw->reg3d_set);
 		}
 	for (r = 0; r < NOBJ * NREG_2D; r++)
 		if (test_bit(r, ch->reg2d_set)) {
 			hw->reg2d[r / NREG_2D][r % NREG_2D] = ch->reg2d[r / NREG_2D][r % NREG_2D];
-			set_bit(r, hw->reg2d_set);
+			__set_bit(r, hw->reg2d_set);
 		}
 	for (slot = 0; slot < VP_SLOTS; slot++)
 		if (test_bit(slot, ch->vp_set)) {
 			memcpy(&hw->vp[slot * 4], &ch->vp[slot * 4], 16);
-			set_bit(slot, hw->vp_set);
+			__set_bit(slot, hw->vp_set);
 		}
 	for (slot = 0; slot < CONST_SLOTS; slot++)
 		if (test_bit(slot, ch->cst_set)) {
 			memcpy(&hw->cst[slot * 4], &ch->cst[slot * 4], 16);
-			set_bit(slot, hw->cst_set);
+			__set_bit(slot, hw->cst_set);
 		}
 	hw->vp_ptr = ch->vp_ptr;
 	hw->vp_word = ch->vp_word;

@@ -79,28 +79,48 @@ static const struct mrange m_sifm[] = {
 	{ 0x0180, 0x0184 }, { 0x0198, 0x0198 }, { 0x02fc, 0x031c }, { 0x0400, 0x040c },
 };
 
-static bool in_ranges(const struct mrange *r, int n, u32 m)
+/*
+ * The allowlist as one bit per method, built from the ranges at module load: the check runs for
+ * every word of every push, and searching the ranges was the driver's largest cost in a game
+ * (OpenArena, 2026-10-15).
+ */
+enum { VC_3D, VC_M2MF, VC_SURF2D, VC_SWZ, VC_SIFM, VC_N };
+static unsigned long allowed[VC_N][BITS_TO_LONGS(0x2000 / 4)];
+
+static void allow(int c, const struct mrange *r, int n)
 {
+	u32 m;
 	int i;
 
 	for (i = 0; i < n; i++)
-		if (m >= r[i].lo && m <= r[i].hi)
-			return true;
-	return false;
+		for (m = r[i].lo; m <= r[i].hi; m += 4)
+			__set_bit(m / 4, allowed[c]);
 }
 
-/* Is method m allowed on the object with this handle? */
+void ps3rsx_validate_init(void)
+{
+	allow(VC_3D, m_3d, ARRAY_SIZE(m_3d));
+	allow(VC_M2MF, m_m2mf, ARRAY_SIZE(m_m2mf));
+	allow(VC_SURF2D, m_surf2d, ARRAY_SIZE(m_surf2d));
+	allow(VC_SWZ, m_swz, ARRAY_SIZE(m_swz));
+	allow(VC_SIFM, m_sifm, ARRAY_SIZE(m_sifm));
+}
+
+/* Is method m (at most 0x1ffc) allowed on the object with this handle? */
 static bool method_allowed(u32 handle, u32 m)
 {
+	int c;
+
 	switch (handle) {
-	case 0x31337000: return in_ranges(m_3d, ARRAY_SIZE(m_3d), m);
+	case 0x31337000: c = VC_3D; break;
 	case 0x31337303:
-	case 0x3137c0de: return in_ranges(m_m2mf, ARRAY_SIZE(m_m2mf), m);
-	case 0x313371c3: return in_ranges(m_surf2d, ARRAY_SIZE(m_surf2d), m);
-	case 0x31337a73: return in_ranges(m_swz, ARRAY_SIZE(m_swz), m);
-	case 0x3137af00: return in_ranges(m_sifm, ARRAY_SIZE(m_sifm), m);
+	case 0x3137c0de: c = VC_M2MF; break;
+	case 0x313371c3: c = VC_SURF2D; break;
+	case 0x31337a73: c = VC_SWZ; break;
+	case 0x3137af00: c = VC_SIFM; break;
 	default:	 return false;	/* image-from-CPU: Mesa doesn't use it */
 	}
+	return test_bit(m / 4, allowed[c]);
 }
 
 bool ps3rsx_known_object(u32 handle)
@@ -180,7 +200,13 @@ static int check_method(struct ps3rsx_vstate *vs, u32 subch, u32 mthd, u32 data,
 	return 0;
 }
 
-int ps3rsx_validate(struct ps3rsx_vstate *chan_vs, const u32 *w, u32 nwords)
+/*
+ * Checks a push and, in the same pass, replays each accepted word into the channel's shadow
+ * (shadow.c). A rejected push fails the whole submit, so the shadow is then cleared: the
+ * channel's state is unknown, and nothing of it is restored any more.
+ */
+int ps3rsx_validate(struct ps3rsx_vstate *chan_vs, struct ps3rsx_shadow *sh, const u32 *w,
+		    u32 nwords)
 {
 	struct ps3rsx_vstate tmp = *chan_vs, *vs = &tmp;	/* kept only if the push passes */
 	const char *why = NULL;
@@ -220,6 +246,7 @@ int ps3rsx_validate(struct ps3rsx_vstate *chan_vs, const u32 *w, u32 nwords)
 			ret = check_method(vs, subch, m, w[i + 1 + k], &why);
 			if (ret)
 				goto bad;
+			ps3rsx_shadow_write(sh, subch, m, w[i + 1 + k]);
 		}
 		i += 1 + count;
 	}
@@ -227,5 +254,6 @@ int ps3rsx_validate(struct ps3rsx_vstate *chan_vs, const u32 *w, u32 nwords)
 	return 0;
 bad:
 	pr_warn("ps3rsx: rejected push: %s at word %u (%08x)\n", why, i, w[i]);
+	ps3rsx_shadow_clear(sh);
 	return -EINVAL;
 }
