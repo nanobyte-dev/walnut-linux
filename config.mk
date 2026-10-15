@@ -45,11 +45,18 @@ CLASSICUBE_TEXPACK_URL := http://static.classicube.net/default.zip
 SPU_GCC_VERSION     := 16.2.0
 SPU_GCC_SHA256      := e6738e29597f733270731aa90600f37ffdc045079dfc27ec7e8192cc81085c3e
 SPU_GCC_URL         := https://ftp.gnu.org/gnu/gcc/gcc-$(SPU_GCC_VERSION)/gcc-$(SPU_GCC_VERSION).tar.xz
-SPU_BINUTILS_VERSION := 2.47
-SPU_BINUTILS_SHA256 := 154ab23b60070e8f27013c22977f1129425d67d1e8acd6e13010e617811e4cff
+# binutils 2.47's SPU assembler rejects valid branch hints ("Relocation doesn't fit" on hbrr: the
+# label operand comes out as a section offset, not PC-relative; GCC 9.5's and 16's output alike),
+# so the SPU keeps 2.33.1, which assembles both. The PPE uses the snapshot's 2.47.
+SPU_BINUTILS_VERSION := 2.33.1
+SPU_BINUTILS_SHA256 := ab66fc2d1c3ec0359b8e08843c9f33b63e8707efdff5e4cc5c200eae24722cbf
 SPU_BINUTILS_URL    := https://ftp.gnu.org/gnu/binutils/binutils-$(SPU_BINUTILS_VERSION).tar.xz
-SPU_NEWLIB_VERSION  := 4.6.0.20260123
-SPU_NEWLIB_SHA256   := 6ff27e3bf022666f43f7802255be680eeff722ac181b1725d21e2e8318604ee3
+# newlib's SPU support is unmaintained since ~2012: 3.x/4.x need fixes for sys/sched.h, math.h's
+# isinf/isnan and the generic fenv code clashing with SPU's, and possibly more. 1.20.0 is the last
+# version known to work for SPU (the PS3 homebrew toolchain still uses it); built with
+# -std=gnu17 -fpermissive for GCC 16's stricter C.
+SPU_NEWLIB_VERSION  := 1.20.0
+SPU_NEWLIB_SHA256   := c644b2847244278c57bec2ddda69d8fab5a7c767f3b9af69aa7aa3da823ff692
 SPU_NEWLIB_URL      := https://sourceware.org/pub/newlib/newlib-$(SPU_NEWLIB_VERSION).tar.gz
 
 # --- Build container ----------------------------------------------------------

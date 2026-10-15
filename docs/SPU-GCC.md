@@ -29,6 +29,30 @@ forward to the latest GCC, or do we stay on the last release that has it (GCC 9.
 - **Defer the LRA conversion** until a GCC release removes reload, and budget it as its own
   project then.
 
+## Status (2026-10-15, later): GCC 16.2 is our SPU compiler
+
+`make spu-toolchain` now builds spu-elf **GCC 16.2.0** from the release tarball plus our three
+patches:
+- `0001` transplant;
+- `0002` API port;
+- `0003` an `expmed` fix for the `__complex__` crashes.
+
+It uses old reload and links against newlib 1.20.0 and libgcc, both built by GCC 16.2.
+
+**On the SPEs, with everything built by GCC 16.2:**
+- **1629** of 1677 execute tests pass, against GCC 9.5's 1618 of 1671;
+- **no regressions**;
+- hello world runs.
+
+**Version exceptions, both caused by unmaintained upstream SPU code:**
+- **binutils 2.33.1, not the snapshot's 2.47.** 2.47's SPU assembler rejects valid branch hints
+  ("Relocation doesn't fit" on `hbrr`). It does so for GCC 9.5's output as well, so the
+  regression is in binutils, somewhere between 2.33 and 2.47; the range-check code itself is
+  unchanged. Open: bisect and fix it, to use 2.47.
+- **newlib 1.20.0** (built with `-std=gnu17 -fpermissive`). 3.x and 4.x break on SPU one header
+  after another: `sys/sched.h`, `math.h`'s `isinf`/`isnan` against SPU's macros, the generic
+  `fenv` code against SPU's `fenv.h`. 1.20 is what the PS3 homebrew toolchain uses.
+
 ## What exists today
 
 - **Removal:** gcc commit `2f2aeda98f3a` (Ulrich Weigand, 2019-09-03) deleted 34k lines: the

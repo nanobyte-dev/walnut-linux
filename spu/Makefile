@@ -5,7 +5,7 @@ PPE_CC  ?= powerpc64-linux-gnu-gcc
 OUT     ?= ../build/spu-tests
 
 all: $(OUT)/hello.spu $(OUT)/spurun
-$(OUT)/hello.spu: hello.c
+$(OUT)/hello.spu: hello.c $(wildcard $(SPU_CC))
 	@mkdir -p $(OUT)
 	$(SPU_CC) -O2 -Wall -o $@ $<
 $(OUT)/spurun: spurun.c

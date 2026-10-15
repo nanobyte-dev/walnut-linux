@@ -24,7 +24,7 @@ tar -xf "$D/binutils-$SPU_BINUTILS_VERSION.tar.xz" -C "$SRC"
 tar -xf "$D/gcc-$SPU_GCC_VERSION.tar.xz" -C "$SRC"
 tar -xf "$D/newlib-$SPU_NEWLIB_VERSION.tar.gz" -C "$SRC"
 for p in spu/port/*.patch; do patch -d "$SRC/gcc-$SPU_GCC_VERSION" -p1 -s < "$p"; done
-for p in spu/newlib/*.patch; do patch -d "$SRC/newlib-$SPU_NEWLIB_VERSION" -p1 -s < "$p"; done
+for p in $(ls spu/newlib/*.patch 2>/dev/null); do patch -d "$SRC/newlib-$SPU_NEWLIB_VERSION" -p1 -s < "$p"; done
 export PATH="$DEST$PREFIX/bin:$PATH"
 export CFLAGS="-O2" CXXFLAGS="-O2"
 
@@ -49,7 +49,7 @@ cd - > /dev/null
 
 echo ">> newlib"
 mkdir -p "$OUT/obj-newlib" && cd "$OUT/obj-newlib"
-CFLAGS_FOR_TARGET="-O2" "$PWD/../src/newlib-$SPU_NEWLIB_VERSION/configure" --target=$TARGET \
+CFLAGS_FOR_TARGET="-O2 -std=gnu17 -fpermissive" "$PWD/../src/newlib-$SPU_NEWLIB_VERSION/configure" --target=$TARGET \
 	--prefix=$PREFIX --disable-nls > ../newlib-configure.log
 make -j"$JOBS" > ../newlib-build.log
 make install DESTDIR="$DEST" > /dev/null

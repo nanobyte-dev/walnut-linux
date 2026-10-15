@@ -22497,12 +22497,16 @@ index ac10ccc..6902846 100644
  tic6x-*-*)
  	cpu_type=c6x
  	;;
-@@ -1526,6 +1529,9 @@ tic6x-*-uclinux)
+@@ -1526,6 +1529,13 @@ tic6x-*-uclinux)
  	extra_parts="$extra_parts crtbeginS.o crtendS.o crti.o crtn.o"
  	unwind_header=config/c6x/unwind-c6x.h
  	;;
 +spu-*-elf*)
 +	tmake_file="$tmake_file spu/t-elf t-libgcc-pic t-fdpbit"
++	extra_parts="$extra_parts \
++		libgcc_cachemgr.a libgcc_cachemgr_nonatomic.a \
++		libgcc_cache8k.a libgcc_cache16k.a libgcc_cache32k.a \
++		libgcc_cache64k.a libgcc_cache128k.a"
 +	;;
  tic6x-*-elf)
  	tmake_file="${tmake_file} t-softfp-sfdf t-softfp-excl t-softfp t-gnu-prefix c6x/t-elf"
