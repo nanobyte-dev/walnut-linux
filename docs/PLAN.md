@@ -1,8 +1,9 @@
 # Plan: modern Linux with a working GPU on the PS3
 
 Hard constraints are in CLAUDE.md (no permanent changes beyond installing Linux, GameOS stays the
-default boot OS, no syscon writes, supervised sessions). The roadmap below follows `backlog.txt`;
-updated 2026-10-15.
+default boot OS, no syscon writes, supervised sessions). The original wish list is `backlog.txt`.
+Restructured 2026-10-15 evening around what the day established: **RAM, not the GPU or the CPU,
+is the binding constraint**, and most of the next work is about it.
 
 ## Base and toolchain (decided 2026-10-15)
 
@@ -10,376 +11,235 @@ updated 2026-10-15.
   Debian has no stable release for ppc64 (big-endian), only debian-ports unstable, so a frozen
   snapshot is the closest thing to an LTS. It moves deliberately, at the latest when Debian 14
   is released, and never piecemeal.
-- **One compiler version everywhere: GCC 16.2,** the snapshot's system compiler (`gcc-16`
-  16.2.0-3).
+- **One compiler version everywhere: GCC 16.2,** the snapshot's system compiler.
   - **PPE** (kernel, Mesa, ps3rsx, games): Debian's `gcc-16-powerpc64-linux-gnu`
-    16.2.0-3cross1 from the amd64 sid snapshot of the same date, so the build container comes
-    from that snapshot too (not Debian 13, whose GCC is 14).
+    16.2.0-3cross1, from the amd64 sid snapshot of the same date.
   - **SPU:** our port of the SPU backend to GCC 16.2 (docs/SPU-GCC.md, `spu/port/`).
-  - **binutils:** 2.47 (the snapshot's), for both.
-- **Kernel:** 6.12 LTS (supported to Dec 2028). Mesa: our fork of the snapshot's release.
-- Later, our builds become .debs in our own apt repository, layered over the snapshot.
-- Verified (2026-10-15): the whole stack built with GCC 16.2 boots from the USB disk through
-  Petitboot on its own (`/etc/kboot.conf`, no network). `rsx-suite.sh all` passes. ClassiCube
-  averages 59.7 fps; the OpenArena timedemo is unchanged (median 54–59).
+  - **binutils:** 2.47 for the PPE. The SPU still uses 2.33.1 until the `hbrr` regression is
+    fixed (agent at work, task #6). **newlib** for the SPU: 4.6.0 (seven patches,
+    `spu/newlib-4.6/`), builds; not yet run on an SPE (task #7).
+- **Kernel:** 6.12 LTS (supported to Dec 2028). **Mesa:** our fork of the snapshot's release.
+- **Repository:** everything of ours is a .deb in `build/repo`; the image installs from it and
+  `make deploy` upgrades the running PS3. Source: git.tibich.com/chibicitiberiu/ps3-linux.
 
 ## Long-term goal (stated 2026-10-14)
 
 A live environment for the PS3 that boots from USB or over NFS through Petitboot, with the RSX
 driver, desktop and games working out of the box, plus an optional installer that installs it
-permanently (to the OtherOS++ Linux region of the HDD, within the safety rules). The NFS netboot
-used for development is the first form of it.
+permanently (to the OtherOS++ Linux region of the HDD, within the safety rules).
 
 ## Where we are (2026-10-15)
 
-- **Boot:** Debian sid ppc64 (debian-ports snapshot), our kernel netbooted from Petitboot, root
-  on NFS from the dev PC. Boot to SSH in about 21 s.
-- **GPU:** `ps3rsx` (registers as "nouveau") runs stock Mesa nv30 through our Mesa fork
-  (`mesa/fork/`).
-  - glxgears, kmscube and Xorg with glamor run on the RSX.
-  - vblank comes from the real vsync interrupt.
-  - Vertex and index buffers are fetched by the GPU from VRAM. The big-endian inline-vertex
-    path was what made games CPU-bound.
-  - Details: DRIVER-PLAN.md (phases and results), RSX.md (measured hardware facts).
-- **Desktop:** Openbox + tint2 + PCManFM, NetworkManager (never on eth0), pnmixer, dunst
-  (DESKTOP-PLAN.md). About 129 MB in all. Ctrl+Alt+Fn text consoles work.
-- **Games:** ClassiCube runs at a locked 60 fps fullscreen at 1080p with vsync, at about 26% CPU
-  (it was 6.5 fps before the vertex-fetch fix).
-- **Memory:** 214 MB of RAM visible (177 MB with the old fixed GART). The GART is dynamic: a
-  64 MB CMA area that ordinary pages use while the GPU doesn't (`ps3rsx_cma=64M`); the idle
-  desktop holds 6 MB of it, ClassiCube about 10 MB. Swap on the USB disk (zram on the NFS
-  root), `vm.min_free_kbytes` 8 MB (two hangs under memory pressure).
-- **Kernels side by side:** each kernel is its own package (`ps3-kernel-<release>`, release
-  `<version>-ps3-debug-<date of the last kernel/ commit>`, with its `ps3rsx-<release>`).
-  `ps3-boot`'s `ps3-update-kboot` writes Petitboot's `/etc/kboot.conf` with every installed
-  kernel, newest the default; each kernel package ships its own boot arguments.
+- **Boot:** the image lives on a USB disk; Petitboot boots it on its own from `/etc/kboot.conf`
+  (written by `ps3-update-kboot`, one entry per installed kernel, newest the default, the older
+  ones as fallbacks). NFS netboot still works for development (`make netboot`).
+- **GPU:** `ps3rsx` (registers as "nouveau") runs Mesa nv30 from our fork: Xorg with glamor,
+  GL games, KMS with real vsync. The GART is dynamic (CMA, 1 MB chunks on demand). Details:
+  DRIVER-PLAN.md, RSX.md.
+- **Desktop:** Openbox + tint2 + PCManFM, NetworkManager (never on eth0), pnmixer, dunst; Shut
+  down / Reboot in the menu. The user D-Bus runs under systemd (`dbus-user-session`).
+- **Game mode:** every game starts through `ps3-game`, which keeps the game and X resident
+  (cgroup `memory.low`), freezes the desktop helpers, gvfs, udisks2 and polkit, and pushes their
+  memory out; all of it thaws when the game exits.
+- **Swap:** `ps3vswap0`, a ps3rsx block device that keeps swapped pages in spare VRAM (up to
+  96 MB), with the USB swap partition behind it. Recently swapped pages stay in VRAM, cold ones
+  are demoted to the disk, and games get VRAM back on demand.
+- **Games:** ClassiCube locked at 60 fps (1080p, vsync); OpenArena timedemo median 50–60 fps,
+  with stalls of up to a second or more still in live play.
 
-## Roadmap
+## Memory: the central problem
 
-### 1. Reproducible image (in progress)
+Measured mid-game (OpenArena, 2026-10-15). Reports: KERNEL-MEMORY.md (kernel side, measured),
+HARDWARE-LEVERAGE.md (techniques), RSX-SPU-FEASIBILITY.md (VRAM and SPU access paths),
+SPU-OFFLOAD-SURVEY.md.
 
-The image must come entirely from the build. Fixes go into the scripts, never onto the live
-root.
+| Of 256 MB XDR | MB | Note |
+|---|---:|---|
+| Hypervisor (never reaches Linux) | 16 | |
+| Kernel image | 21.1 | 6.2 of it alignment padding (`STRICT_KERNEL_RWX`) |
+| ps3fb console frame | 9.2 | 1080p; 720p needs 5 |
+| `struct page`, hashes, stacks | ~4.7 | |
+| Slab, page tables, vmalloc | ~29 | zram table 1.5, seccomp filters 1.0, `cfg80211` 0.5 |
+| Kept free (reserve, watermarks) | ~20 | `min_free_kbytes` 8 MB: two hangs without it |
+| GART (CMA, on demand) | 6–14 | the rest of the 64 MB CMA area serves normal pages |
+| OpenArena | 74 (+10 swapped) | engine data: map, models, decoded sounds, hunk |
+| X | 6 (+27 swapped) | 8 MB wallpaper segment, 16 MB heap (glamor/Mesa) |
+| Services, desktop helpers, file cache | the rest | helpers frozen in game mode |
 
-Done:
-- `make rootfs` builds the whole image: Debian, our config, the kernel modules, the RSX driver and
-  tools, Mesa, and ClassiCube with its sounds and music. `make nfs-root` only installs it; an
-  existing root is moved to `/srv/ps3root.bak-<date>`. SSH host keys, Bluetooth pairings and Wi-Fi
-  connections come over from the old root (`FRESH=1` doesn't).
-- Two layers (2026-10-15): the packages (`base.tar`, about 15 minutes under qemu, .debs cached in
-  `build/apt-cache/`) are rebuilt only when `rootfs/packages.txt` or the snapshot changes. Our
-  config and builds go on top in a minute or two.
-- The `*-deploy` targets update the live root with the same steps the image build uses
-  (`tools/install-builds.sh`), for quick iteration. The fix still has to be in the scripts.
-- Inputs are pinned:
-  - the Debian snapshot date;
-  - the kernel, Mesa and ClassiCube tarballs, by SHA-256;
-  - game assets, by SHA-1;
-  - the builder images, by digest and snapshot.
-- Builds use a fixed `SOURCE_DATE_EPOCH`. Recommends are off and every package is listed.
-- An audit of the live root (2026-10-15) found that all the config was already in the scripts.
-  The missing packages and the resolver it found were added to the scripts.
+Why it hurts so much: whatever doesn't fit comes back from a USB 2 disk whose bridge (JMS567)
+speaks only Bulk-Only Transport, one command at a time. A game's page fault queues behind swap
+writes; the kernel stacks of blocked threads showed the game faulting its own code back in, and
+with the game pinned, X swapping in (X is on every frame's path).
 
-Next:
-1. Switched over (2026-10-15): the fresh root boots with no manual step. Desktop at boot, no
-   failed units, `glxinfo -B` on NV47, ClassiCube at 59–60 fps (one dip to 37 in 70 s).
-2. Verified on the fresh root: OpenArena starts, DS3 pairing over USB. Still open: sound on
-   the TV.
-3. Check reproducibility: two image builds from the same inputs give the same `make checksums`.
-4. Size: about 210 MB of the image is Debian's own Mesa and LLVM, pulled in by
-   `xserver-xorg-core` and `mesa-utils`, though our Mesa is used. Drop it if the dependencies
-   allow (equivs or a dummy package).
-5. Later, install the RSX driver and Mesa as packages or in `/usr/local`, not in `~tibi`.
-6. `build/old/` gets a 2.2 GB image per build. Pruning it automatically clashes with the
-   "never delete build outputs" rule, so it is pruned by hand for now (55 GB on 2026-10-15).
-   Builds that run as root hand their backups to the user.
-7. Disk image (stated 2026-10-15): `make disk-image` gives a minimal raw `.img.xz` (MBR, one ext4
-   root, fixed disk id, built with `mke2fs -d`, reproducible). It is written with `dd`, and on the
-   first boot `systemd-repart` grows the root and adds swap, then `x-systemd.growfs` grows ext4.
-   `make usb-root` then just streams it to the disk.
+Facts that decide the design (RSX.md, RSX-SPU-FEASIBILITY.md):
+- **The PPE must not read VRAM:** 10 MB/s measured. Writes reach 124 MB/s with 8-byte stores;
+  uncached stores leave the chip as single transactions of at most 16 bytes, so ~250 MB/s is the
+  ceiling. Only 128-byte transfers (SPU DMA, the RSX's own copies) reach GB/s.
+- **glibc's memcpy into a VRAM mapping is a trap:** `__memcpy_cell` uses `dcbz`, which faults on
+  cache-inhibited memory and is emulated by the kernel per 128-byte line (19 MB/s).
+- **The RSX copies fast:** M2MF VRAM→XDR ~600 MB/s, XDR→VRAM ~2 GB/s.
+- **VRAM is mostly idle:** X ~19 MB, a game ~70 MB, of ~250 MB.
+- **Textures already cost VRAM, not RAM:** Mesa keeps no CPU copy, ioquake3 frees decoded
+  images after upload.
 
-### 2. GPU driver and games (gold standard: stable 60 fps)
+Goal (stated 2026-10-15): **a game can use 2/3 of the RAM (~160 MB) without stalls, without
+removing features.** The levers, in the order of the queue below: fast swap in VRAM (GPU
+copies), a leaner kernel (−8.7 MB measured, −4 MB more at 720p), userspace trims (zram,
+wallpaper, unused modules), then per-game settings and, with the SPUs, compute instead of
+memory (compressed textures, streamed audio).
 
-Done:
-- **ClassiCube:**
-  - 60 fps fullscreen;
-  - the sky/fog bug fixed (Mesa computed the fog distance as abs(eye z) per vertex: wrong
-    across triangles behind the eye, which affects every Mesa driver);
-  - Openbox starts it fullscreen.
-  - Defaults: vsync, at most 4 chunk rebuilds per frame (`gfx-maxchunkupdates`), against
-    stutters.
+## Work queue
 
-- **ClassiCube stutters and white flashes (2026-10-15):**
-  - Stutters: the driver polled fences every 250 µs whenever work was pending, about 4000
-    timer interrupts a second through lv1 in games. Now fast polling only while a fence has
-    a waiter, else 100 ms, and `.signaled` reads the reference register: 1540/s in play.
-  - Flashes in the bottom half: flip events went out at the first vblank, before lv1 had
-    latched the flip; the game then cleared and redrew the buffer still on screen. Events now
-    wait until the head's flip-pending bit clears. The user saw no more flashes.
+Task numbers refer to the session task list. "Reboot" marks steps that need one.
 
-Open:
-- ClassiCube: confirm sound on the TV (the monitor has no speakers). About 30% of its CPU time
-  is kernel, half of it the validator and shadow (`ps3rsx_validate`, `ps3rsx_shadow_write`).
-- **OpenArena (in progress, parked 2026-10-15 for item 6):**
-  - Works: renders correctly on the `opengl1` renderer (now the default; `opengl2` ran out of
-    RAM compiling GLSL), ALSA sound initialises, DS3 pairs. Not yet heard on the TV, DS3
-    bindings not tried in play.
-  - Fixed on the way: a texture-upload burst exhausted the 16 MB GART and Xorg crashed. Mesa nv30
-    now keeps at most 4 MB of upload staging in flight per context and waits before failing.
-  - Driver CPU cost halved (validator bitmap, one decode pass for validation and shadow, lazy
-    GPU shadow, no full-ring drain at wraps); Mesa built without assertions.
-  - Measured (4 bots on oa_dm4, 1080p; benchmark: `games/openarena/oa-bench.sh bench` replays
-    `bench.dm_71` as a timedemo without vsync, `oa-run.sh` plays a live bot match):
-    - NFS root: 46–56 fps timedemo, live play mostly 59–60 with dips to 20–40. Under memory
-      pressure the kernel re-read evicted code over NFS (3–10 MB/s, kswapd ~40% CPU).
-    - USB disk root: the game stays resident (92 MB, 3 MB swapped, no NFS traffic). Timedemo
-      median 47–56 fps, live play mostly 55–60 with dips to 8–40.
-    - 960×540 reaches 65 fps, so most of the frame is CPU. Profile of the game thread: Mesa 30%,
-      kernel 23% (our driver about a third of it), renderer 15%, engine 9%, zlib 6%.
-    - No effect: `mesa_glthread` (no gain), `r_vertexLight`/LOD/dynamic-light settings (a few
-      %), DRI2 vs DRI3, `s_useOpenAL 0`.
-  - Left to do:
-    1. Build ioquake3 ourselves (engine and `renderer_opengl1`, pinned, `-mcpu=cell`), as with
-       ClassiCube; Debian's is built for generic ppc64.
-    2. Load all player models at map start instead of when a bot first appears: those loads
-       stall 1–5 s (worse from the USB disk).
-    3. Mesa per-draw cost (`_mesa_update_texture_state`, fence/BO refs per draw) and the rest of
-       the driver's validator.
-    4. Listen on the TV; try the DS3 bindings in play.
-- Test tools: `mesa/tests/gl-fog` and `gl-sky` (fixed-function fog against softpipe), and the
-  EGL checksum ladder. Every new game bug gets a small test like these.
+### Now
 
-Candidates, in order:
-- Strong (GL 1.x/2.1, light, big-endian history from PowerPC Macs):
-  - QuakeSpasm;
-  - Yamagi Quake II (gl1);
-  - Extreme Tux Racer;
-  - Neverball/Neverputt;
-  - Armagetron Advanced (long stability runs);
-  - Sauerbraten (a step up in GPU load).
-- Stretch:
-  - SuperTuxKart in its legacy GL 2.1 mode (RAM);
-  - Luanti (CPU);
-  - PrBoom+ GL.
-- Out of reach: GL 3.x-only games (GZDoom, Warzone 2100, 0 A.D.).
+1. **VRAM swap, GPU copies** (task #13). Swap-in and write-back through M2MF, following the
+   design in RSX-SPU-FEASIBILITY.md §3: a fixed 1 MB GART bounce area; the swap path takes the
+   ring only with trylocks (`own_lock`, `exec_lock`), backs off while a channel has a primitive
+   open, records its M2MF state in `hw_shadow` so the next client restores its own; any failure,
+   timeout or wedge falls back to the PPE read, so no swapped page can be lost. Use the GPU when
+   it's idle or the request is large (≥ 8 pages); a queued game frame can add 16–33 ms.
+   Expected: one page 0.4 ms → ~20 µs, a chunk write-back 100 ms → ~2 ms. Then the OpenArena
+   comparison (timedemo + `oa-run.sh` live play) against today's numbers.
+   - Done so far: the device, two tiers, games-first VRAM release, async disk I/O, own bio
+     reserve, a work queue on a fresh stack, background demotion. Hard-won lessons in
+     `gpu/ps3rsx/vswap.c`'s header (two deadlocks and a NULL-bioset oops on the way).
+2. **SPU toolchain versions** (tasks #6, #7): binutils 2.47 with the `hbrr` fix (agent), newlib
+   4.6 built. Then one `make spu-toolchain` and the 1677 execute tests on the SPEs (1629 pass
+   with 1.20/2.33.1 today); hello via `spurun`.
 
-Driver work these will likely need (DRIVER-PLAN.md "Later"):
-- **GART:** 16 MB kept running out (2026-10-15): OpenArena's texture bursts; SDL's GL renderer
-  streaming a whole 1080p window (8100 KiB contiguous for one upload: ClassiCube's launcher drew
-  stale areas). Now:
-  - **Done:** Mesa bounds upload staging in flight (4 MB per context) and splits big
-    `texture_subdata` uploads into ≤1 MB bands.
-  - **Done, dynamic GART via CMA (2026-10-15):** the kernel reserves a CMA area
-    (`ps3rsx_cma=64M`, patch local/0007) that movable pages use while the GPU doesn't; ps3rsx
-    backs GART IO pages from it in 1 MB chunks on demand and gives a chunk back once it has
-    been idle 2 s and the GPU has passed its last fence (`gpu/ps3rsx/gart.c`). Unbacked IO
-    pages point at a scratch chunk. Measured: `rsxdrm-smoke gart` (in rsx-suite) gets 56 MB of
-    GART with the CMA area full of other pages and a 170 MB hog in swap, data correct, and
-    the memory comes back after 2 s. `ps3rsx_gart=<size>` (fixed reservation) still works.
-    OpenArena timedemo on it: median 48–58 fps (as before), GART peak 14 MB, all of it backed
-    while loading (`/sys/kernel/mm/cma/ps3rsx/alloc_pages_*`: none during play, no failures).
-    The dips in play are memory pressure, not the GART: kswapd reclaiming 16–22 MB/s of page
-    cache in bursts, and kcompactd's proactive compaction moving ~20 MB at a time (fps 2–4 in
-    those seconds). `vm.compaction_proactiveness=0` removed the compaction bursts, but the
-    reclaim dips stayed and the 10th-percentile fps didn't clearly improve: left at 20 for now.
-- **Game mode (in progress, 2026-10-15):** where the OpenArena stalls come from, from kernel
-  stacks of the blocked threads: the game page-faulting its own code back in (42 of 61
-  samples), swap-ins (16), its own file reads (3). With the game's pages locked
-  (`mlockall(MCL_ONFAULT)`, 94 MB) the stalls moved to Xorg swapping its pages back in (40
-  samples): X is on every frame's path. The USB disk makes each fault slow: the JMS567 bridge
-  speaks only Bulk-Only Transport at USB 2 speed (no UAS), one command at a time, so a fault
-  waits behind swap writes. Queue depth, swappiness and readahead made no measurable
-  difference over run-to-run noise.
-  - The desktop helpers own little (freezing them and `MADV_PAGEOUT` freed ~10 MB: the rest is
-    shared libraries). Running the game on KMS without X works (SDL kmsdrm) but is per game,
-    and SDL's flips there blocked in `drm_atomic_helper_wait_for_vblanks` (30 fps cap): parked.
-  - Generic fix: cgroup v2 (kernel MEMCG + CGROUP_SCHED). User slices `ps3-display` (X and
-    Openbox, `MemoryLow`), `ps3-desktop` (helpers, frozen and `memory.reclaim`ed while a game
-    runs) and `ps3-game` (`MemoryLow`, high CPU weight); `ps3-game` switches it on and off, so
-    every game gets it. Also frozen and reclaimed during games: the gvfs daemons (user
-    services in `ps3-desktop.slice` via the systemd user bus, `dbus-user-session`) and, through
-    the root helper `ps3-game-mode`, `udisks2` and `polkit` (USB sticks mount after the game).
-    NetworkManager and bluetoothd keep running.
-  - Measured: OpenArena timedemo 44–53 fps average, median 50–60, worst 10% 13–37, longest
-    frame 0.9–1.2 s in 4 of 5 runs (3.1 s in one); before: 38–53, 37–58, 4–38, 0.75–6.2 s.
-- **Memory budget (2026-10-15, mid-game):** of 256 MB, 16 never reach Linux (hypervisor);
-  the kernel image is 21 MB (a debug build), ps3fb's console frame 9, `struct page` ~4; slab,
-  stacks, page tables and vmalloc ~29; GART 14 (CMA, on demand); ~20 kept free. OpenArena
-  74 MB resident (+10 swapped), X 6 resident (+27 swapped), system services 15 (+24),
-  desktop helpers 0 (+50, frozen), other file cache ~25. X's own memory: an 8 MB SysV
-  shared segment (the 1080p wallpaper, shared with PCManFM), a 16 MB heap (glamor/Mesa
-  state), Mesa 3 MB; it loads only glx, modesetting, glamor, fb and libinput.
-- **Next: goal, a game can use 2/3 of RAM (~160 MB) without stalls, without removing
-  features:**
-  - **Two-tier swap, VRAM first:** a ps3rsx block device as the high-priority swap, pages
-    held in spare VRAM (the RSX has 256 MB; X uses ~19 MB, games ~70) and copied by the GPU
-    (M2MF through the GART), the USB swap partition behind it. Games come first: when a GEM
-    allocation needs VRAM the swap tier holds, the driver writes those pages back to the
-    disk tier and hands the VRAM over (the swap layer sees one device; like zram's
-    writeback). Risk: a GPU wedge loses what is only in VRAM: write back early.
-  - Kernel: non-debug build, built-ins as modules, a smaller console frame (~5–15 MB).
-  - Wallpaper in VRAM or a solid colour (8 MB); `systemd-networkd` duplicates
-    NetworkManager here; journal size limit.
-- **CPU-side Mesa cost:** state validation and the kernel's validator and shadow show up in
-  `perf`.
-- **Mesa error paths:** two crashed on out-of-memory and are fixed. Expect more under memory
-  pressure.
+### Next: memory
 
-### 3. DualShock 3
+3. **Release kernel config** (reboot). From KERNEL-MEMORY.md, measured: `STRICT_KERNEL_RWX=n`
+   (−6.0 MB of padding), `KALLSYMS_ALL=n` (−1.0 MB, −0.6 MB in modules), drop IPv6, io_uring,
+   quota, kexec, hugetlbfs, NFSv4 as a module (−1.0 MB), smaller log buffer, no dynamic debug,
+   IKCONFIG or debugfs (−1.1 MB). Total −8.7 MB. Keep `SLUB_DEBUG` (99 KB, gives slabinfo) and
+   built-ins (a module costs 1.5–3× its size). Check ps3rsx builds without debugfs. As a new
+   kernel package next to the debug one, so Petitboot offers both.
+4. **720p console** (`ps3fb=5M`, mode 131; −4 MB). The user decides: X shares the mode, so the
+   desktop and games run at 720p too (also 2.25× fewer pixels per frame).
+5. **Userspace trims:** zram off now that VRAM swap works (1.5 MB table plus its pages);
+   wallpaper out of the 8 MB shared segment (in VRAM, or a solid colour); unload `cfg80211`
+   when Wi-Fi is unused; `systemd-networkd` duplicates NetworkManager here; journal size limit;
+   the seccomp filters of services that don't need them (1 MB). Re-measure the budget after.
+6. **Validator safety:** the vertex-texture methods 0x900–0x97c are allowed with unchecked data;
+   a bad setup could wedge the GPU. Check them like the fragment texture units.
 
-Done:
-- `hid-sony` and BlueZ are in the image.
-- One USB plug pairs a DS3 with the PS3's Bluetooth. `rootfs/ds3-pair` runs from udev, writes
-  the host address over hidraw, and registers the controller as trusted with BlueZ's sixaxis
-  HID record.
-- `ClassicBondedOnly=false`.
-- Games run through `ps3-game`, so the gamepad stops moving the X pointer meanwhile.
+### Next: games and CPU
 
-Why it didn't pair before: the adapter wasn't connectable (BlueZ only page-scans for known
-devices), and BlueZ's sixaxis plugin needs an agent, which the session doesn't run.
+7. **Free per-game experiments:** OpenArena with S3TC (`r_ext_compressed_textures 1`: VRAM and
+   GART ÷4–8, slower loads while Mesa compresses on the PPE), `s_khz 11` (halves decoded sound),
+   OpenAL int16 and a linear resampler; ClassiCube view distance. Measure each with the
+   timedemo and game mode.
+8. **OpenArena:** build ioquake3 ourselves (`-mcpu=cell`, pinned, like ClassiCube); load player
+   models at map start (`cg_deferPlayers` made no difference: the loads happen when bots
+   appear); listen on the TV; DS3 bindings in play.
+9. **Driver CPU cost:** `ps3rsx_validate` + `ps3rsx_shadow_write` are ~15% of ClassiCube's CPU;
+   Mesa's per-draw state work (fence and BO refs per draw) next.
 
-Next:
-- Pairing tested (2026-10-15): one USB plug paired it (`ds3-pair` in the journal).
-- Check the SDL GameController mapping in ClassiCube and OpenArena in play.
-- Rumble and the LEDs (player number) are untested.
+### Later: SPUs (compute instead of memory)
 
-### 4. Fan control
+10. **Probes first** (RSX-SPU-FEASIBILITY.md "Recommended experiments"):
+    - E8b: what lv1 keeps of `ioremap_wc` (read the HPTE back), 16-byte stores, pre-touched;
+    - E16: SPU DMA puts into a mapped VRAM buffer (expected to work: `bo_mmap` fills the page
+      tables at mmap time and spufs resolves faults with `hash_page`); rate and correctness;
+    - spufs context-switch and job-dispatch latency (quoted 20–200 µs, never measured here).
+11. **libspeq** (task #4): resident SPU workers, a job queue, completion words, stdio via stop
+    0x2100 in `spurun`. The base for everything below.
+12. **SPU DXT encoder** behind Mesa's S3TC pack: the biggest memory win for textures (÷4–8 in
+    VRAM and GART staging) without slow loads. Then **audio**: OpenAL mixing and Vorbis decoded
+    per buffer on an SPU (5–8% of OpenArena's CPU, and no decoded PCM held in RAM).
+13. If E16 shows GB/s: **SPU decompression and generation straight into VRAM** (assets stay
+    compressed in RAM and on disk), and VRAM swap writes through an SPU. ClassiCube chunk
+    meshing on SPUs as a showcase.
+- Rejected, with reasons in SPU-OFFLOAD-SURVEY.md: kernel-side SPU use (validator, zram, vswap:
+  the kernel can't drive SPEs), Mesa per-draw paths, compressed swap via a userspace block
+  device (reclaim deadlocks).
 
-Nothing controls the fan under Linux: webMAN's loop dies with GameOS. The current rule is
-webMAN in SYSCON (automatic) mode, or a fixed speed of at least 60%, before booting Linux, plus
-supervised sessions (CLAUDE.md). SYSCON's automatic mode is its own thermal table.
+### Later: GPU features
 
-Possible next steps:
-- **Read-only first:** temperatures under Linux. Find out whether lv1 or the sys-manager
-  exposes the thermal sensors, and log them during game sessions.
-- **Controlling the fan:** that needs syscon commands. CLAUDE.md forbids syscon writes unless
-  explicitly asked, so this needs the user's decision and a read of what OtherOS++ allows.
+Only when content needs them (OpenArena and ClassiCube don't):
+- **Vertex texture fetch:** 4 units (0x900+0x20·n), FP32 2D nearest. Mesa's
+  `nv40_verttex_validate` is a stub that also reads the fragment samplers (copy-paste bug), the
+  vertex compiler emits no TXL, and the sampler count is 0. Needed for meshes from textures.
+- **Derivatives:** desktop GLSL `dFdx`/`dFdy` already reach DDX/DDY; only GLES2's
+  `OES_standard_derivatives` is off. Enable after an egl-deriv check against softpipe.
+- **Instancing:** method 0x1fc0 plus a divisor in VTXFMT bits 16–31; it divides the vertex
+  index, there is no instance counter, so GL instancing would loop per instance.
+- **Tiling, Z-cull, native 720p:** raise GPU throughput, but frames are PPE-bound today.
 
-### 5. Networking
+### Platform
 
-eth0 carries the NFS root. It is set up by the kernel and systemd-networkd, and NetworkManager
-never touches it. DNS comes from the kernel's DHCP (`/proc/net/pnp`). NetworkManager and
-nm-applet handle Wi-Fi and USB networking. The kernel has the PS3 Wi-Fi driver
-(`GELIC_WIRELESS`), and wpasupplicant is in the image.
+- **Packaging** (task #11): `ps3-system` and `ps3-desktop` packages for what `customize.sh` and
+  `desktop-setup.sh` write today, so fixes go out with `make deploy`, not image reinstalls (the
+  game-mode and VRAM-swap setup were applied to the live system by hand-run script excerpts).
+- **deb-src packaging** (task #9): build our packages from Debian's source packages with our
+  patches, `+ps3.N` versions, so our Mesa replaces Debian's by version (and drops ~210 MB of
+  Debian's Mesa/LLVM from the image).
+- **ClassiCube** (task #10): default.zip at build time, no first-run download.
+- **Reproducibility check:** two image builds, same `make checksums`. Image size: Debian's
+  Mesa and LLVM. `make disk-image` (raw `.img.xz`, `systemd-repart` grows it on first boot).
+- **DualShock 3:** pairing works (one USB plug); check SDL mappings in play, rumble, LEDs.
+- **Fan:** read the thermal sensors under Linux, read-only first. Control needs syscon writes:
+  the user's decision.
+- **Networking:** test Wi-Fi from nm-applet; NetworkManager could own eth0 now that the root
+  isn't on NFS.
+- **Distribution:** sign and host the apt repository; the SPU and PPE toolchains could ship
+  from it. `make iso` and the installer (OtherOS++ region; ps3da/db/dc never written).
+- **Candidate games:** QuakeSpasm, Yamagi Quake II (gl1), Extreme Tux Racer, Neverball,
+  Armagetron, Sauerbraten; stretch: SuperTuxKart (GL 2.1 mode, RAM), Luanti, PrBoom+. GL 3-only
+  games stay out of reach.
 
-Next:
-- Test Wi-Fi: scan and join from nm-applet.
-- Settings UI for wired: eth0 has to stay as it is while the root is on NFS. A local-root
-  image (item 8) would let NetworkManager own it.
-- Hostname and time sync: systemd-timesyncd is in the image; check it.
+## Done (summary)
 
-### 6. SPEs: a GCC toolchain for the Cell's accelerators
-
-Linux gets 6 SPEs (`spufs`). Possible uses: zram compression, video decode, vertex work.
-Report: docs/SPU-GCC.md (2026-10-15).
-
-Done:
-- `make spu-toolchain`: pinned spu-elf GCC 9.5 + binutils 2.33.1 + newlib 4.6.0 (seven patches, spu/newlib-4.6/).
-  `spu/spurun` runs SPU programs through spufs, no libspe2. Proven:
-  hello on a real SPE.
-- Forward port: the GCC 9.5 backend builds in GCC 16.2 after about 20 mechanical edits
-  (`spu/port/`). On old reload it passes 1621 execute torture tests on the SPEs, against 1618
-  for GCC 9.5, with no regressions.
-
-Next:
-- Undo the two SPU version exceptions (docs/SPU-GCC.md), so the SPU uses the same versions as
-  the rest:
-  - **binutils 2.33.1 → 2.47:** bisect 2.34–2.47 for the `hbrr` "Relocation doesn't fit"
-    regression (repro: newlib's `libgloss/spu/open.c` at `-O2`) and patch it
-    (`spu/binutils/`).
-  - **newlib 1.20.0 → 4.6:** done. 4.6.0.20260123 builds with seven patches
-    (`spu/newlib-4.6/`); all 1677 execute programs build and link. Pending: run them on the SPEs.
-  - Then rerun the execute tests on the SPEs, and offer the fixes upstream.
-- spufs at boot (module, `/spu` mount) and stdio for SPU programs: serve newlib's PPE-assisted
-  calls (stop 0x2100) in spurun.
-- Use GCC 9.5 for now. If newer C or optimisations matter, carry the GCC 16 port and pin it.
-- The LRA conversion (108 compiler crashes, from the preferred-slot subreg model) only becomes
-  necessary when GCC removes old reload (announced for 16, still present in 17). Estimate
-  4–8+ weeks.
-
-### 7. A distribution
-
-A repository of Cell-tuned packages, our kernel, and the fixed nouveau/Mesa and ps3rsx, so the
-image (and other PS3 users) install them with apt instead of from build outputs.
-
-Design (2026-10-15). The first step, before any hosting, is that the image gets everything of
-ours as .debs from a local repository layered over the snapshot:
-- **Packages, built with `dpkg-deb`** in the builder (reproducible with `SOURCE_DATE_EPOCH`),
-  installed out of `~tibi` into system paths:
-
-  | Package | Contents |
-  |---|---|
-  | `ps3-kernel` | `/boot/vmlinux-<ver>`, `/lib/modules/<ver>` |
-  | `ps3rsx` | `/lib/modules/<ver>/updates/ps3rsx.ko`, loaded with `modprobe` (depmod in postinst) |
-  | `ps3-gpu-tools` | RSX probes and tests in `/usr/lib/ps3/bin` |
-  | `ps3-mesa` | the Mesa fork under `/usr/lib/ps3-mesa` (ld.so.conf.d); later replacing Debian's Mesa packages outright, which also drops their ~210 MB of LLVM |
-  | `classicube` | `/usr/lib/classicube`; a launcher seeds a per-user game directory |
-  | `ps3-spu` | `spurun`, the SPU runtime and tests |
-  | `ps3-desktop` | session, `ps3-game`, `ds3-pair` and udev rules, game defaults |
-- **Versions:** `<upstream>+ps3.<n>`, or for our own code `0.<commit count>` (computed on the
-  host and passed in).
-- **Done (2026-10-15), verified on the PS3:** the image installs the six packages with dpkg,
-  `make deploy` upgrades them on the running PS3, and `make usb-root-petitboot` writes the image
-  onto the USB disk from Petitboot (2 minutes; the old root is kept on the disk). The suite passes
-  on the packaged system. Next (task): build them from Debian's source packages (`deb-src`, our
-  patches in `debian/patches`, `+ps3.N` versions), so our Mesa replaces Debian's by version.
-- **Repository:** `build/repo` made with `apt-ftparchive`. The image layer installs from it
-  (`apt-get install`), and the package layer stays the snapshot. Next: sign it and host it.
-  The SPU and PPE toolchains could ship from it too.
-
-### 8. Disk image and installer
-
-- **Petitboot boots the disk on its own:** the image carries the kernel in `/boot` and
-  `/etc/kboot.conf` (Petitboot's 2.6.30 kernel reads ext4; this Petitboot parses kboot.conf and
-  yaboot.conf and boots the default entry after its countdown). Not yet seen working: needs a
-  reboot into Petitboot.
-- **USB disk root (2026-10-15):** `make usb-root` installs the image onto a USB HDD plugged into
-  the PS3 (4 GiB swap, the rest ext4 root, fixed disk id so `root=PARTUUID=50533301-02`), and
-  `make netboot ROOT=usb` boots it. Why: with the root on NFS, memory pressure in games made the
-  kernel re-read evicted code over the network (3–10 MB/s, kswapd ~40% CPU), and zram held the
-  idle desktop's pages in RAM; swap on the disk gives that RAM back.
-
-- **`make iso`:** a bootable image for a USB drive, booted from Petitboot. Petitboot's 2.6.30
-  kernel must read the boot files (ISO9660, ext2 or FAT). Open questions: raw vs hybrid image,
-  read-only live root vs writable root.
-- **Installer:** to the OtherOS++ HDD region, within the safety rules. The GameOS disks
-  (ps3da/db/dc) are never written.
+- **Image:** reproducible two-layer build (`make rootfs`), pinned inputs, fixed
+  `SOURCE_DATE_EPOCH`; packages in `build/repo`; `make usb-root-petitboot` writes the image onto
+  the USB disk from Petitboot.
+- **Kernels side by side:** `ps3-kernel-<version>-ps3-debug-<date>` packages with their
+  `ps3rsx-<release>`; `ps3-boot` writes the boot menu.
+- **GPU:** ps3rsx with validator, software context switch, KMS, vsync IRQ; GPU vertex fetch
+  (ClassiCube 6.5 → 60 fps); Mesa fixes (fog, banded uploads, staging limits); dynamic GART via
+  CMA (`rsxdrm-smoke gart`: 56 MB under memory pressure, data correct).
+- **ClassiCube stutters and flashes:** fence polling fast only while someone waits (4000 → 1540
+  timer interrupts/s); flip events wait for the flip to latch (no more half-redrawn frames).
+- **Game mode** and **VRAM swap** (above).
+- **SPU:** GCC 16.2 port, 1629/1677 execute tests on the SPEs; `spurun`; spufs at boot.
+- **DualShock 3** pairing over one USB plug.
 
 ## Test loop
 
-- **Getting to Linux needs the user:** fan on SYSCON in webMAN, the OtherOS flag set in the
-  XMB, Petitboot comes up, then `make netboot`. Every reboot lands in GameOS. At the end of each
-  session the flag goes back to GameOS.
-- **Driver, Mesa and game changes:** build with make, then deploy with `make gpu-deploy`,
-  `make mesa-deploy` or `make classicube-deploy`.
-  - Mesa must not be replaced under a running X: the NFS rename makes X die from SIGBUS. Stop X
-    first (touch `~/.no-desktop`, kill Xorg), deploy, then restart `getty@tty1`.
-  - ps3rsx reloads with X stopped: `rmmod`, then `insmod ~/bin/ps3rsx.ko`.
-- **Kernel changes need a reboot.** kexec from our Linux crashed the console, so kernel changes
-  are batched.
-- **A graph exception wedges the GPU until a console reboot.** Risky tests go last, one per
-  boot.
-- **Observing:**
-  - logs: netconsole (`make listen`), and the journal on the NFS root;
-  - screen: the BRIO webcam (`tools/webcam-grab.sh`);
-  - fps: `GALLIUM_HUD=fps GALLIUM_HUD_VISIBLE=false GALLIUM_HUD_DUMP_DIR=/tmp/hud`.
+- **Getting to Linux needs the user:** fan on SYSCON in webMAN, the OtherOS flag in the XMB,
+  Petitboot boots the default kernel (or the user picks another). Every reboot lands in GameOS.
+  At the end of each session the flag goes back to GameOS.
+- **Deploying:** `make debs` then `make deploy PKGS="…"` (kernel packages install next to the
+  running one). ps3rsx can only be reloaded with X stopped (`systemctl stop getty@tty1`, then
+  start it again) and, with VRAM swap on, after `swapoff /dev/ps3vswap0`.
+- **Kernel changes need a reboot;** batch them. kexec from our Linux crashed the console.
+- **A graph exception wedges the GPU until a console reboot.** Risky tests go last.
+- **Testing block or memory code:** raise the console log level (`echo 7 >
+  /proc/sys/kernel/printk`) so a hang prints full stacks over netconsole; put every SSH command
+  under `timeout`; verify data with a pattern (write, drop caches, read back) before using a
+  device as swap, then under a memory hog, then in a game.
+- **Observing:** netconsole (`make listen`); the BRIO webcam (`tools/webcam-grab.sh`, only when
+  the user isn't using it); fps via `GALLIUM_HUD=fps GALLIUM_HUD_VISIBLE=false
+  GALLIUM_HUD_DUMP_DIR=/tmp/hud`; blocked threads via `/proc/<pid>/task/*/stack` sampling.
 - **Gotchas:**
-  - `perf record -a -g` once hung the PS3 (2026-10-14). A short supervised run
-    (`-- sleep 5`) worked on 2026-10-15.
-  - Keep netconsole quiet: loglevel=4, and never `trace=1` through a GL program.
+  - `perf record -a -g` once hung the PS3; short supervised runs (`-- sleep 5`) work.
+  - Keep netconsole quiet in normal use (loglevel 4); never `trace=1` through a GL program.
   - Programs that wait for a key need stdin held open over SSH (`sleep N |`).
-  - `pkill -f` inside SSH commands kills the SSH shell itself: use `pgrep -x` and kill by PID.
+  - `pkill -f` inside SSH commands kills the SSH shell itself: use `pgrep -x`.
+  - The PS3's clock is UTC; the PC's is EEST.
+  - Restarting the session uncleanly leaves stale X sockets: X comes up on `:1`/`:2` until reboot.
 
 ## Build setup
 
-Everything builds in pinned Docker images:
-- `docker/Dockerfile`: the kernel and rootfs builder, with mmdebstrap under qemu-user;
-- `Dockerfile.mesa`: the C++ cross compiler and meson, built against a Debian ppc64 sysroot;
-- `Dockerfile.games`: oggdec, for game assets.
-
-Outputs go to `build/`, and earlier outputs are moved to `build/old/`, never deleted.
-`mesa/fork/` holds every Mesa file we change, whole. Its first commit is the pristine release,
-so `git diff` shows our changes.
+Everything builds in pinned Docker images: `docker/Dockerfile` (kernel and rootfs, mmdebstrap
+under qemu-user), `Dockerfile.mesa` (C++ cross compiler and meson against a ppc64 sysroot),
+`Dockerfile.games`, `Dockerfile.spu`, `Dockerfile.repo`. Outputs go to `build/`; earlier outputs
+move to `build/old/`, never deleted (pruned by hand). `mesa/fork/` holds every Mesa file we
+change, whole; its first commit is the pristine release. SPU toolchain experiments build side by
+side (`SPU_OUT=build/spu-<name>`).
 
 ## The console
 
@@ -387,13 +247,16 @@ so `git diff` shows our changes.
 - **webMAN:** MOD 1.47.48 at http://10.0.0.76/.
 - **Screen:** a Logitech BRIO webcam points at the monitor. HDMI capture is blocked by HDCP in
   the XMB.
+- **USB disk:** AXAGON adapter (JMicron JMS567, 152d:0567): Bulk-Only Transport only at USB 2
+  speed, queue depth 1.
 
 ## Open questions
 
 - Does Remote Start (Remote Play settings) respond to Wake-on-LAN? That would allow remote
   power-on.
-- Can the PS3's thermal sensors be read under Linux without syscon writes (item 4)?
+- Can the PS3's thermal sensors be read under Linux without syscon writes?
 - Can a Petitboot-only reboot clear a wedged GPU, instead of a full console reboot?
+- Can the CPU still read VRAM after a graph exception? (VRAM swap's fallback assumes so.)
 - The kernel tried to write the flash OS area ("os_area_queue_work_handler: Could not update
   FLASH ROM", 2026-10-15, likely the RTC offset when the clock was set). It failed, but flash
   writes are off-limits: find what triggers it and disable it.
