@@ -214,6 +214,8 @@ static int t_clear(void)
 	OUT(0, 0x208, 0x148); OUT(0, 0x20c, w * 4); OUT(0, 0x210, rt.offset);
 	OUT(0, 0x220, 1); OUT(0, 0x2b8, 0);
 	OUT(0, 0x8c0, w << 16); OUT(0, 0x8c4, h << 16);
+	/* window clip 0: whole target (X's last draw may have left it at a panel's 30 rows) */
+	OUT(0, 0x2c0, (w - 1) << 16); OUT(0, 0x2c4, (h - 1) << 16);
 	OUT(0, 0x324, 0x01010101);
 	OUT(0, 0x1d90, 0xff12ab34);
 	OUT(0, 0x1d94, 0xf0);
@@ -291,6 +293,7 @@ static void surface(uint32_t off, uint32_t w, uint32_t h)
 	OUT(0, 0x208, 0x148); OUT(0, 0x20c, w * 4); OUT(0, 0x210, off);
 	OUT(0, 0x220, 1); OUT(0, 0x2b8, 0);
 	OUT(0, 0x8c0, w << 16); OUT(0, 0x8c4, h << 16);
+	OUT(0, 0x2c0, (w - 1) << 16); OUT(0, 0x2c4, (h - 1) << 16);	/* window clip 0 */
 	OUT(0, 0x324, 0x01010101);
 }
 

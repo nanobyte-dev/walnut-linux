@@ -137,6 +137,40 @@ void ps3rsx_gart_put(struct ps3rsx_device *rsx, u64 io, u64 size, u32 seq)
 	}
 }
 
+/*
+ * A GART area for the kernel's own use (the VRAM swap's copy bounce): one 1 MiB chunk, backed
+ * and kept for good (fixed: the idle reclaim never takes it). Returns its IO address.
+ */
+int ps3rsx_gart_pin(struct ps3rsx_device *rsx, struct drm_mm_node *node, u32 *io)
+{
+	int ret;
+
+	mutex_lock(&rsx->mm_lock);
+	ret = drm_mm_insert_node_generic(&rsx->gart, node, CHUNK, CHUNK, 0, DRM_MM_INSERT_HIGH);
+	if (!ret) {
+		ret = ps3rsx_gart_get(rsx, node->start, CHUNK);
+		if (ret)
+			drm_mm_remove_node(node);
+		else
+			rsx->gart_chunks[node->start / CHUNK].fixed = true;
+	}
+	mutex_unlock(&rsx->mm_lock);
+	if (!ret)
+		*io = node->start;
+	return ret;
+}
+
+/* Give a pinned area back (the GPU no longer uses it) */
+void ps3rsx_gart_unpin(struct ps3rsx_device *rsx, struct drm_mm_node *node)
+{
+	mutex_lock(&rsx->mm_lock);
+	if (rsx->gart_dynamic)
+		rsx->gart_chunks[node->start / CHUNK].fixed = false;
+	ps3rsx_gart_put(rsx, node->start, CHUNK, READ_ONCE(rsx->seqno));
+	drm_mm_remove_node(node);
+	mutex_unlock(&rsx->mm_lock);
+}
+
 /* Kernel address of GART IO address io; valid up to the end of its 1 MiB chunk */
 void *ps3rsx_gart_ptr(struct ps3rsx_device *rsx, u64 io)
 {

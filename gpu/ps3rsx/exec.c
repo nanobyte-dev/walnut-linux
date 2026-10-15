@@ -267,6 +267,23 @@ struct dma_fence *ps3rsx_ring_commit(struct ps3rsx_device *rsx, u32 len, bool ki
 }
 
 /* Nothing in flight and no primitive left open: ps3fb may use the GPU */
+/*
+ * Commit len bytes written after ps3rsx_ring_begin() with a bare SET_REFERENCE, no dma_fence:
+ * nothing is allocated (kernel copies on the swap path, kcopy.c). Returns the reference to
+ * poll with ps3rsx_seq_done(). exec_lock held.
+ */
+u32 ps3rsx_ring_commit_seq(struct ps3rsx_device *rsx, u32 len)
+{
+	u32 *p = ring_cpu(rsx, rsx->ring_put + len);
+
+	*p++ = SET_REFERENCE;
+	*p++ = ++rsx->seqno;
+	rsx->ring_put += len + 8;
+	wmb();
+	out_be32(rsx->ctrl + CTRL_PUT, rsx->ring_put);
+	return rsx->seqno;
+}
+
 bool ps3rsx_exec_idle(struct ps3rsx_device *rsx)
 {
 	return !READ_ONCE(rsx->prim_owner) && seq_passed(ref_read(rsx), rsx->seqno);

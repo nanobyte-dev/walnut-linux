@@ -15,9 +15,11 @@
  *    being read back are the cold ones; reads free their slots through discards).
  * Requests are served by our own work queue, on a fresh stack: blk-mq runs queue_rq inline from
  * a plug flush in direct reclaim, which was already deep in the stack (an IRQ found < 4 KiB left).
- * The CPU copies (8-byte stores ~124 MB/s, reads ~10 MB/s, docs/RSX.md): far faster than the
- * USB disk, which serves one command at a time, and independent of the GPU, so a GPU wedge
- * can't lose swapped pages.
+ * Writes are PPE stores (8-byte, ~124 MB/s). Reads (swap-ins) and write-backs are copied by the
+ * GPU (M2MF, kcopy.c) into a pinned 1 MiB GART bounce, ~600 MB/s, when the GPU can be had
+ * without waiting; otherwise the PPE reads VRAM itself (10 MB/s, docs/RSX.md). The GPU only
+ * ever reads the VRAM slots, so a failed, late or wedged copy loses nothing: the PPE reads the
+ * same slot. Both are far faster than the USB disk, which serves one command at a time.
  *
  * Locking: vs->lock covers the map and the pool, never across disk I/O (disk pieces of a request
  * complete it asynchronously; write-back copies under the lock and writes without it). The I/O
@@ -50,6 +52,13 @@
 static unsigned int vswap_vram_mb = 96;
 module_param(vswap_vram_mb, uint, 0444);
 MODULE_PARM_DESC(vswap_vram_mb, "VRAM the swap device may hold (MiB, 0: none)");
+static bool vswap_gpu = true;
+module_param(vswap_gpu, bool, 0644);
+MODULE_PARM_DESC(vswap_gpu, "Copy swap-ins and write-backs with the GPU (M2MF) when it's free");
+static unsigned int vswap_gpu_min = 8;
+module_param(vswap_gpu_min, uint, 0644);
+MODULE_PARM_DESC(vswap_gpu_min, "Swap-in pages per request from which the GPU copies even when "
+		 "busy (a queued frame can delay a copy by 16-33 ms)");
 static unsigned int vswap_size_mb = 1024;
 module_param(vswap_size_mb, uint, 0444);
 MODULE_PARM_DESC(vswap_size_mb, "Swap device size (MiB, at most the backing partition's)");
@@ -90,6 +99,22 @@ struct ps3rsx_vswap {
 	struct workqueue_struct *demote_wq;
 	struct work_struct demote_work;
 	u64 demoted;
+	/* GPU copies (kcopy.c) through a pinned GART bounce */
+	struct drm_mm_node bounce_node;
+	u32 bounce_io;			/* its GART IO address */
+	void *bounce;			/* its kernel address (cacheable, IO-coherent) */
+	bool bounce_ok;			/* pinned: GPU copies possible */
+	bool bounce_evict;		/* a write-back owns it (until its disk writes complete) */
+	bool bounce_late;		/* a timed-out copy may still write it, up to bounce_seq */
+	u32 bounce_seq;
+	struct vread {			/* VRAM pieces of the current read request */
+		struct page *page;
+		u32 slot;
+		u16 off, in_page, len;
+	} rd[2 * MAX_RQ_PAGES];
+	unsigned int nrd;
+	struct kcopy_run runs[2 * MAX_RQ_PAGES];
+	u64 gpu_reads, gpu_evicts, gpu_fallbacks;
 	/* statistics (pages) */
 	u64 vram_writes, disk_writes, vram_reads, disk_reads, evicted;
 	u32 in_vram, on_disk;
@@ -287,6 +312,11 @@ static void do_read(struct ps3rsx_vswap *vs, struct request *rq, struct bio_list
 		vs->disk_reads++;
 		return;
 	}
+	if (e && vs->nrd < ARRAY_SIZE(vs->rd)) {	/* copied after the loop: reads_finish() */
+		vs->rd[vs->nrd++] = (struct vread){ page, e - 1, off, in_page, len };
+		vs->vram_reads++;
+		return;
+	}
 	buf = kmap_local_page(page);
 	if (e) {
 		from_vram(buf + off, slot_io(vs, e - 1) + in_page, len);
@@ -295,6 +325,78 @@ static void do_read(struct ps3rsx_vswap *vs, struct request *rq, struct bio_list
 		memset(buf + off, 0, len);
 	}
 	kunmap_local(buf);
+}
+
+/* The bounce is free for a GPU copy. vs->lock held. */
+static bool bounce_free(struct ps3rsx_vswap *vs)
+{
+	if (!vs->bounce_ok || vs->bounce_evict)
+		return false;
+	if (vs->bounce_late) {
+		if (!ps3rsx_seq_done(vs->rsx, vs->bounce_seq))
+			return false;
+		vs->bounce_late = false;
+	}
+	return true;
+}
+
+/* A copy failed: count it, and if it may still land, keep the bounce until it has */
+static void gpu_failed(struct ps3rsx_vswap *vs, int err, u32 seq)
+{
+	if (err == -ETIMEDOUT) {
+		vs->bounce_late = true;
+		vs->bounce_seq = seq;
+	}
+	vs->gpu_fallbacks++;
+}
+
+/*
+ * Copy the request's VRAM pieces (vs->rd) into their pages: through the GPU into the bounce,
+ * then a cacheable copy, or with PPE reads of VRAM. vs->lock held.
+ */
+static void reads_finish(struct ps3rsx_vswap *vs)
+{
+	struct ps3rsx_device *rsx = vs->rsx;
+	unsigned int i, n = vs->nrd, nr = 0;
+	int err;
+	u32 seq;
+
+	vs->nrd = 0;
+	if (vswap_gpu && bounce_free(vs) && (n >= vswap_gpu_min || ps3rsx_exec_idle(rsx)) &&
+	    !ps3rsx_kcopy_begin(rsx)) {
+		for (i = 0; i < n; i++) {	/* piece i -> bounce page i; merge neighbours */
+			struct vchunk *c = &vs->chunks[vs->rd[i].slot / SLOTS];
+			u32 vram = c->node.start + (vs->rd[i].slot % SLOTS) * PAGE_SIZE;
+			u32 gart = vs->bounce_io + i * PAGE_SIZE;
+			struct kcopy_run *r = nr ? &vs->runs[nr - 1] : NULL;
+
+			if (r && r->vram + r->npages * PAGE_SIZE == vram &&
+			    r->gart + r->npages * PAGE_SIZE == gart)
+				r->npages++;
+			else
+				vs->runs[nr++] = (struct kcopy_run){ vram, gart, 1 };
+		}
+		err = ps3rsx_kcopy_to_gart(rsx, vs->runs, nr, &seq);
+		ps3rsx_kcopy_end(rsx);
+		if (!err)
+			err = ps3rsx_kcopy_wait(rsx, seq, 50000);
+		if (!err) {
+			for (i = 0; i < n; i++)
+				memcpy_to_page(vs->rd[i].page, vs->rd[i].off,
+					       vs->bounce + i * PAGE_SIZE + vs->rd[i].in_page,
+					       vs->rd[i].len);
+			vs->gpu_reads += n;
+			return;
+		}
+		gpu_failed(vs, err, seq);
+	}
+	for (i = 0; i < n; i++) {
+		void *buf = kmap_local_page(vs->rd[i].page);
+
+		from_vram(buf + vs->rd[i].off, slot_io(vs, vs->rd[i].slot) + vs->rd[i].in_page,
+			  vs->rd[i].len);
+		kunmap_local(buf);
+	}
 }
 
 static void do_discard(struct ps3rsx_vswap *vs, sector_t sector, unsigned int bytes)
@@ -329,6 +431,7 @@ static void vswap_do_rq(struct ps3rsx_vswap *vs, struct request *rq)
 	atomic_set(&cmd->pending, 1);
 	cmd->status = BLK_STS_OK;
 	bio_list_init(&bios);
+	vs->nrd = 0;
 	noio = memalloc_noio_save();
 	mutex_lock(&vs->lock);
 	if (!vs->map) {
@@ -372,6 +475,8 @@ static void vswap_do_rq(struct ps3rsx_vswap *vs, struct request *rq)
 		cmd->status = BLK_STS_NOTSUPP;
 	}
 out:
+	if (vs->nrd)
+		reads_finish(vs);
 	mutex_unlock(&vs->lock);
 	while ((bio = bio_list_pop(&bios)))
 		submit_bio(bio);
@@ -439,6 +544,53 @@ static void wb_end_io(struct bio *bio)
 }
 
 /*
+ * chunk_evict()'s buffers: the page numbers, the bounce pages it hands to the disk (the GART
+ * bounce's after a GPU copy), and its own pages for the PPE fallback, allocated only when needed.
+ */
+struct evict_buf {
+	u32 *pages;
+	struct page **bounce;
+	struct page **own;
+	gfp_t gfp;
+};
+
+static bool evict_buf_init(struct evict_buf *eb, gfp_t gfp)
+{
+	eb->gfp = gfp;
+	eb->own = NULL;
+	eb->pages = kcalloc(SLOTS, sizeof(*eb->pages), gfp);
+	eb->bounce = kcalloc(SLOTS, sizeof(*eb->bounce), gfp);
+	return eb->pages && eb->bounce;
+}
+
+static bool evict_bounce_alloc(struct evict_buf *eb)
+{
+	unsigned int s;
+
+	if (eb->own)
+		return true;
+	eb->own = kcalloc(SLOTS, sizeof(*eb->own), eb->gfp);
+	if (!eb->own)
+		return false;
+	for (s = 0; s < SLOTS; s++)
+		if (!(eb->own[s] = alloc_page(eb->gfp)))
+			return false;
+	return true;
+}
+
+static void evict_buf_free(struct evict_buf *eb)
+{
+	unsigned int s;
+
+	for (s = 0; eb->own && s < SLOTS; s++)
+		if (eb->own[s])
+			__free_page(eb->own[s]);
+	kfree(eb->own);
+	kfree(eb->bounce);
+	kfree(eb->pages);
+}
+
+/*
  * Write chunk i's pages to the disk. They are copied out one page at a time under vs->lock
  * (reading VRAM is slow: holding the lock for the whole chunk stalled swap for 100 ms), written
  * without it, and switched to the disk only if nothing rewrote or discarded them meanwhile
@@ -446,27 +598,61 @@ static void wb_end_io(struct bio *bio)
  * heap, by the caller under mm_lock); else it stays, empty, as the pool's newest chunk.
  * Returns true if the chunk was emptied. Under vs->shrink_lock.
  */
-static bool chunk_evict(struct ps3rsx_vswap *vs, unsigned int i, struct page **bounce, u32 *pages,
+static bool chunk_evict(struct ps3rsx_vswap *vs, unsigned int i, struct evict_buf *eb,
 			bool release)
 {
+	struct ps3rsx_device *rsx = vs->rsx;
 	struct vchunk *c = &vs->chunks[i];
+	struct page **bounce = eb->bounce;
+	u32 *pages = eb->pages;
 	unsigned int s, noio;
 	struct wb_batch b;
-	bool empty;
+	bool empty, gpu = false;
+	u32 seq;
 
 	mutex_lock(&vs->lock);
 	c->evicting = true;			/* no new pages into it */
 	bitmap_zero(c->dirty, SLOTS);
-	mutex_unlock(&vs->lock);
-	for (s = 0; s < SLOTS; s++) {
-		pages[s] = U32_MAX;
-		mutex_lock(&vs->lock);
-		if (test_bit(s, c->used)) {
-			from_vram(page_address(bounce[s]), c->io + s * PAGE_SIZE, PAGE_SIZE);
-			pages[s] = c->page[s];
+	/* the whole chunk in one GPU copy into the bounce; its pages then go to the disk as is */
+	if (vswap_gpu && bounce_free(vs) && !ps3rsx_kcopy_begin(rsx)) {
+		struct kcopy_run r = { c->node.start, vs->bounce_io, SLOTS };
+		int err = ps3rsx_kcopy_to_gart(rsx, &r, 1, &seq);
+
+		ps3rsx_kcopy_end(rsx);
+		if (!err)
+			err = ps3rsx_kcopy_wait(rsx, seq, 100000);
+		if (!err) {
+			gpu = true;
+			vs->bounce_evict = true;
+			for (s = 0; s < SLOTS; s++)
+				pages[s] = test_bit(s, c->used) ? c->page[s] : U32_MAX;
+			vs->gpu_evicts++;
+		} else {
+			gpu_failed(vs, err, seq);
 		}
-		mutex_unlock(&vs->lock);
-		cond_resched();
+	}
+	mutex_unlock(&vs->lock);
+	if (gpu) {
+		for (s = 0; s < SLOTS; s++)
+			bounce[s] = virt_to_page(vs->bounce + s * PAGE_SIZE);
+	} else {
+		if (!evict_bounce_alloc(eb)) {
+			mutex_lock(&vs->lock);
+			c->evicting = false;
+			mutex_unlock(&vs->lock);
+			return false;
+		}
+		bounce = eb->own;
+		for (s = 0; s < SLOTS; s++) {
+			pages[s] = U32_MAX;
+			mutex_lock(&vs->lock);
+			if (test_bit(s, c->used)) {
+				from_vram(page_address(bounce[s]), c->io + s * PAGE_SIZE, PAGE_SIZE);
+				pages[s] = c->page[s];
+			}
+			mutex_unlock(&vs->lock);
+			cond_resched();
+		}
 	}
 
 	atomic_set(&b.pending, 1);
@@ -505,6 +691,8 @@ static bool chunk_evict(struct ps3rsx_vswap *vs, unsigned int i, struct page **b
 	} else {
 		pr_err_ratelimited("ps3vswap: write-back failed (%d): chunk kept\n", b.status);
 	}
+	if (gpu)
+		vs->bounce_evict = false;
 	empty = !c->nused;
 	if (empty && release) {
 		iounmap(c->io);
@@ -518,32 +706,6 @@ static bool chunk_evict(struct ps3rsx_vswap *vs, unsigned int i, struct page **b
 	return empty;
 }
 
-/* SLOTS bounce pages and a page-number array for chunk_evict(); false if out of memory */
-static bool evict_buffers(struct page ***bounce, u32 **pages, gfp_t gfp)
-{
-	unsigned int s;
-
-	*bounce = kcalloc(SLOTS, sizeof(**bounce), gfp);
-	*pages = kcalloc(SLOTS, sizeof(**pages), gfp);
-	if (!*bounce || !*pages)
-		return false;
-	for (s = 0; s < SLOTS; s++)
-		if (!((*bounce)[s] = alloc_page(gfp)))
-			return false;
-	return true;
-}
-
-static void evict_buffers_free(struct page **bounce, u32 *pages)
-{
-	unsigned int s;
-
-	for (s = 0; bounce && s < SLOTS; s++)
-		if (bounce[s])
-			__free_page(bounce[s]);
-	kfree(bounce);
-	kfree(pages);
-}
-
 /*
  * Free at least bytes of the pool's VRAM for a buffer object: empty chunks first, then the
  * emptiest, their pages written back to the disk. Returns true if any chunk was given back.
@@ -553,15 +715,14 @@ bool ps3rsx_vswap_shrink(struct ps3rsx_device *rsx, u64 bytes)
 {
 	struct ps3rsx_vswap *vs = rsx->vswap;
 	unsigned int i, freed = 0;
-	struct page **bounce;
+	struct evict_buf eb;
 	u64 got = 0;
-	u32 *pages;
 	bool ok;
 
 	if (!vs || !vs->map)
 		return false;
 	mutex_lock(&vs->shrink_lock);
-	ok = evict_buffers(&bounce, &pages, GFP_KERNEL);
+	ok = evict_buf_init(&eb, GFP_KERNEL);
 	while (ok && got < bytes + CHUNK) {
 		int best = -1;
 
@@ -571,7 +732,7 @@ bool ps3rsx_vswap_shrink(struct ps3rsx_device *rsx, u64 bytes)
 			    (best < 0 || vs->chunks[i].nused < vs->chunks[best].nused))
 				best = i;
 		mutex_unlock(&vs->lock);
-		if (best < 0 || !chunk_evict(vs, best, bounce, pages, true))
+		if (best < 0 || !chunk_evict(vs, best, &eb, true))
 			break;
 		mutex_lock(&rsx->mm_lock);
 		drm_mm_remove_node(&vs->chunks[best].node);
@@ -580,7 +741,7 @@ bool ps3rsx_vswap_shrink(struct ps3rsx_device *rsx, u64 bytes)
 		freed++;
 	}
 	mutex_unlock(&vs->shrink_lock);
-	evict_buffers_free(bounce, pages);
+	evict_buf_free(&eb);
 	return freed > 0;
 }
 
@@ -588,13 +749,12 @@ bool ps3rsx_vswap_shrink(struct ps3rsx_device *rsx, u64 bytes)
 static void vswap_demote_work(struct work_struct *work)
 {
 	struct ps3rsx_vswap *vs = container_of(work, struct ps3rsx_vswap, demote_work);
-	struct page **bounce;
+	struct evict_buf eb;
 	unsigned int n;
-	u32 *pages;
 
 	mutex_lock(&vs->shrink_lock);
 	/* under heavy pressure it gives up: new pages then go to the disk for a while */
-	if (!evict_buffers(&bounce, &pages, GFP_KERNEL | __GFP_NORETRY | __GFP_NOWARN))
+	if (!evict_buf_init(&eb, GFP_KERNEL | __GFP_NORETRY | __GFP_NOWARN))
 		goto out;
 	for (n = 0; n < vs->nchunks; n++) {	/* at most one pass over the pool */
 		unsigned int i, before;
@@ -613,14 +773,17 @@ static void vswap_demote_work(struct work_struct *work)
 		mutex_unlock(&vs->lock);
 		if (oldest < 0)
 			break;
-		chunk_evict(vs, oldest, bounce, pages, false);
+		chunk_evict(vs, oldest, &eb, false);
 		mutex_lock(&vs->lock);
-		vs->demoted += before - vs->chunks[oldest].nused;
+		i = before - vs->chunks[oldest].nused;
+		vs->demoted += i;
 		mutex_unlock(&vs->lock);
+		if (!i)
+			break;			/* no progress (no memory for the PPE bounce) */
 	}
 out:
 	mutex_unlock(&vs->shrink_lock);
-	evict_buffers_free(bounce, pages);
+	evict_buf_free(&eb);
 }
 
 /* --- sysfs -------------------------------------------------------------------------------- */
@@ -687,9 +850,11 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr, cha
 	n = sysfs_emit(buf,
 		       "pages in VRAM %u on disk %u, VRAM chunks %u (MiB)\n"
 		       "writes VRAM %llu disk %llu, reads VRAM %llu disk %llu, written back %llu "
-		       "(demoted %llu)\n",
+		       "(demoted %llu)\n"
+		       "GPU copies: reads %llu, chunk write-backs %llu, fallbacks to the PPE %llu\n",
 		       vs->in_vram, vs->on_disk, chunks, vs->vram_writes, vs->disk_writes,
-		       vs->vram_reads, vs->disk_reads, vs->evicted, vs->demoted);
+		       vs->vram_reads, vs->disk_reads, vs->evicted, vs->demoted, vs->gpu_reads,
+		       vs->gpu_evicts, vs->gpu_fallbacks);
 	mutex_unlock(&vs->lock);
 	return n;
 }
@@ -741,6 +906,13 @@ int ps3rsx_vswap_init(struct ps3rsx_device *rsx)
 	vs->demote_wq = alloc_ordered_workqueue("ps3vswap-demote", WQ_MEM_RECLAIM);
 	if (!vs->io_wq || !vs->demote_wq)
 		goto err;
+	/* the GPU-copy bounce: 1 MiB of GART for good; without it, the PPE does all copies */
+	if (!ps3rsx_gart_pin(rsx, &vs->bounce_node, &vs->bounce_io)) {
+		vs->bounce = ps3rsx_gart_ptr(rsx, vs->bounce_io);
+		vs->bounce_ok = true;
+	} else {
+		drm_warn(&rsx->drm, "ps3vswap: no GART for the copy bounce: PPE copies only\n");
+	}
 
 	ret = register_blkdev(0, "ps3vswap");
 	if (ret < 0)
@@ -748,7 +920,7 @@ int ps3rsx_vswap_init(struct ps3rsx_device *rsx)
 	vswap_major = ret;
 	vs->tags.ops = &vswap_mq_ops;
 	vs->tags.nr_hw_queues = 1;
-	vs->tags.queue_depth = 16;
+	vs->tags.queue_depth = 64;	/* deep: a full queue made swap-outs in reclaim wait for tags, nested deep in the stack */
 	vs->tags.numa_node = NUMA_NO_NODE;
 	vs->tags.cmd_size = sizeof(struct vswap_cmd);
 	ret = blk_mq_alloc_tag_set(&vs->tags);
@@ -801,6 +973,11 @@ void ps3rsx_vswap_fini(struct ps3rsx_device *rsx)
 	cancel_work_sync(&vs->demote_work);
 	destroy_workqueue(vs->demote_wq);
 	destroy_workqueue(vs->io_wq);
+	if (vs->bounce_ok) {
+		if (vs->bounce_late)		/* a timed-out copy may still write it */
+			ps3rsx_kcopy_wait(rsx, vs->bounce_seq, 2000000);
+		ps3rsx_gart_unpin(rsx, &vs->bounce_node);
+	}
 	blk_mq_free_tag_set(&vs->tags);
 	unregister_blkdev(vswap_major, "ps3vswap");
 	mutex_lock(&rsx->mm_lock);

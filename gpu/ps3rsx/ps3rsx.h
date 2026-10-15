@@ -198,6 +198,22 @@ void ps3rsx_submit_debugfs_init(struct ps3rsx_device *rsx);
 #define RESTORE_MAX_WORDS	(16 * 1024)
 
 bool ps3rsx_known_object(u32 handle);
+/* kcopy.c: kernel copies VRAM -> GART for the swap path */
+struct kcopy_run {
+	u32 vram;		/* VRAM offset */
+	u32 gart;		/* GART IO address */
+	u32 npages;		/* 4 KiB pages, contiguous on both sides */
+};
+int ps3rsx_kcopy_begin(struct ps3rsx_device *rsx);
+int ps3rsx_kcopy_to_gart(struct ps3rsx_device *rsx, const struct kcopy_run *r, unsigned int n,
+			 u32 *seq);
+void ps3rsx_kcopy_end(struct ps3rsx_device *rsx);
+int ps3rsx_kcopy_wait(struct ps3rsx_device *rsx, u32 seq, unsigned int timeout_us);
+u32 ps3rsx_ring_commit_seq(struct ps3rsx_device *rsx, u32 len);
+void ps3rsx_hw_shadow_sync(struct ps3rsx_device *rsx);
+bool ps3rsx_kcopy_allowed(void);
+int ps3rsx_gart_pin(struct ps3rsx_device *rsx, struct drm_mm_node *node, u32 *io);
+void ps3rsx_gart_unpin(struct ps3rsx_device *rsx, struct drm_mm_node *node);
 /* vswap.c */
 struct ps3rsx_vswap;
 int ps3rsx_vswap_init(struct ps3rsx_device *rsx);

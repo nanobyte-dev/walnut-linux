@@ -100,6 +100,18 @@ void ps3rsx_submit_debugfs_init(struct ps3rsx_device *rsx)
 	drm_debugfs_add_file(&rsx->drm, "ps3rsx_hw_state", hw_state_show, NULL);
 }
 
+/* For kernel copies (kcopy.c): hw_shadow brought up to date; exec_lock held */
+void ps3rsx_hw_shadow_sync(struct ps3rsx_device *rsx)
+{
+	hw_shadow_sync(rsx);
+}
+
+/* Kernel copies rely on the software context switch to hide their state from clients */
+bool ps3rsx_kcopy_allowed(void)
+{
+	return READ_ONCE(ctxsw) && !READ_ONCE(dry_run);
+}
+
 static void chan_free(struct ps3rsx_device *rsx, struct ps3rsx_chan *ch)
 {
 	mutex_lock(&rsx->chan_lock);
