@@ -12,6 +12,8 @@ sudo modprobe drm_kms_helper || exit 1
 # always a fresh load with default parameters (trace=1 floods netconsole and hangs the box)
 lsmod | grep -q ps3rsx && sudo rmmod ps3rsx
 sudo insmod $B/ps3rsx.ko || exit 1
+# the device nodes exist before udev has given them their group: wait, or the first test races it
+udevadm settle
 
 run() { echo "--- $*"; timeout 300 "$@"; local rc=$?; [ $rc = 0 ] || { echo "!!! FAILED ($rc): $*"; sudo dmesg | tail -20; exit 1; }; }
 

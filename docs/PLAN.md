@@ -19,6 +19,9 @@ updated 2026-10-15.
   - **binutils:** 2.47 (the snapshot's), for both.
 - **Kernel:** 6.12 LTS (supported to Dec 2028). Mesa: our fork of the snapshot's release.
 - Later, our builds become .debs in our own apt repository, layered over the snapshot.
+- Verified (2026-10-15): the whole stack built with GCC 16.2 boots from the USB disk through
+  Petitboot on its own (`/etc/kboot.conf`, no network). `rsx-suite.sh all` passes. ClassiCube
+  averages 59.7 fps; the OpenArena timedemo is unchanged (median 54–59).
 
 ## Long-term goal (stated 2026-10-14)
 
