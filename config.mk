@@ -4,7 +4,10 @@
 KERNEL_VERSION      := 6.12.112
 KERNEL_SHA256       := 164dc9d1f6c93c61a15e1f071c48379b467f2b17c469cce7223471968208ed03
 KERNEL_URL          := https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$(KERNEL_VERSION).tar.xz
-KERNEL_LOCALVERSION := -ps3
+# The release is <version><KERNEL_LOCALVERSION>-<stamp>, e.g. 6.12.112-ps3-debug-202610151608:
+# a new name whenever the kernel changes, so kernels install side by side and Petitboot lists
+# them all (Makefile: KERNEL_STAMP)
+KERNEL_LOCALVERSION := -ps3-debug
 KERNEL_DEFCONFIG    := ps3_defconfig
 KERNEL_FRAGMENTS    := kernel/config/ps3.config
 KERNEL_SERIES       := kernel/patches/series
@@ -94,8 +97,11 @@ ROOT_ARGS_usb       := root=PARTUUID=50533301-02 rootfstype=ext4 ro
 # The USB disk for the root filesystem (its /dev/disk/by-id name on the PS3): a 500 GB Samsung
 # HN-M500MBB in a USB enclosure, given for this (2026-10-15)
 USB_DISK_ID         := usb-SAMSUNG_HN-M500MBB_0000AB1234E8-0:0
-KERNEL_CMDLINE_COMMON := ip=dhcp rootwait \
-                       video=ps3fb:mode:133 consoleblank=0 ps3rsx_gart=0 ps3rsx_cma=64M console=tty1 netconsole=6665@$(PS3_IP)/eth0,6666@$(PC_IP)/$(PC_MAC) loglevel=4
-KERNEL_CMDLINE      := $(ROOT_ARGS_$(ROOT)) $(KERNEL_CMDLINE_COMMON)
-# What Petitboot boots from the disk on its own (the image's /etc/kboot.conf)
-KBOOT_CMDLINE       := $(ROOT_ARGS_usb) $(KERNEL_CMDLINE_COMMON)
+# The kernel's own arguments: shipped in its package (/usr/lib/ps3/boot/<release>.args), so each
+# kernel in the boot menu gets the ones it understands
+KERNEL_ARGS         := video=ps3fb:mode:133 consoleblank=0 ps3rsx_gart=0 ps3rsx_cma=64M console=tty1 loglevel=4
+# This installation's development extras: DHCP for netconsole, netconsole to this PC
+DEBUG_ARGS          := ip=dhcp netconsole=6665@$(PS3_IP)/eth0,6666@$(PC_IP)/$(PC_MAC)
+# For kernels whose package has no arguments file (built before 2026-10-15: fixed 32 MiB GART)
+LEGACY_KERNEL_ARGS  := video=ps3fb:mode:133 consoleblank=0 ps3rsx_gart=32M console=tty1 loglevel=4
+KERNEL_CMDLINE      := $(ROOT_ARGS_$(ROOT)) rootwait $(DEBUG_ARGS) $(KERNEL_ARGS)

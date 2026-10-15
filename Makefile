@@ -18,9 +18,15 @@ BUILDER_STAMP := $(BUILD)/.builder-$(subst :,-,$(BUILDER_TAG))
 DOCKER_RUN := docker run --rm -v $(CURDIR):/work -w /work \
 	-e SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) -e JOBS=$(JOBS)
 
+# Kernel release stamp: the date of the last commit touching kernel/ (reproducible: the same
+# checkout gives the same name), or the build time while kernel/ has uncommitted changes
+KERNEL_STAMP := $(shell if [ -n "$$(git -C $(CURDIR) status --porcelain kernel/ 2>/dev/null)" ]; then \
+	date +%Y%m%d%H%M; else git -C $(CURDIR) log -1 --format=%cd --date=format-local:%Y%m%d%H%M -- kernel/; fi)
+KERNEL_RELEASE := $(KERNEL_VERSION)$(KERNEL_LOCALVERSION)-$(KERNEL_STAMP)
+
 KERNEL_ENV := -e KERNEL_VERSION=$(KERNEL_VERSION) -e KERNEL_TARBALL=$(KERNEL_TARBALL) \
 	-e KERNEL_SERIES=$(KERNEL_SERIES) -e KERNEL_DEFCONFIG=$(KERNEL_DEFCONFIG) \
-	-e "KERNEL_FRAGMENTS=$(KERNEL_FRAGMENTS)" -e KERNEL_LOCALVERSION=$(KERNEL_LOCALVERSION)
+	-e "KERNEL_FRAGMENTS=$(KERNEL_FRAGMENTS)" -e KERNEL_LOCALVERSION=$(KERNEL_LOCALVERSION)-$(KERNEL_STAMP)
 
 ROOTFS_ENV := -e DEBIAN_SUITE=$(DEBIAN_SUITE) -e DEBIAN_MIRROR=$(DEBIAN_MIRROR) \
 	-e ROOTFS_PACKAGES=$(ROOTFS_PACKAGES) -e ROOTFS_CUSTOMIZE=$(ROOTFS_CUSTOMIZE) -e OWNER=$(UID_GID)
@@ -28,7 +34,7 @@ ROOTFS_ENV := -e DEBIAN_SUITE=$(DEBIAN_SUITE) -e DEBIAN_MIRROR=$(DEBIAN_MIRROR) 
 # The kernel depends on the KERNEL_* settings only, not on all of config.mk: this file is rewritten
 # only when those values change, so e.g. an IP change doesn't trigger a kernel rebuild.
 KERNEL_VARS := $(BUILD)/kernel.vars
-KERNEL_VARS_NOW := $(foreach v,KERNEL_VERSION KERNEL_SHA256 KERNEL_LOCALVERSION KERNEL_DEFCONFIG \
+KERNEL_VARS_NOW := $(foreach v,KERNEL_VERSION KERNEL_SHA256 KERNEL_LOCALVERSION KERNEL_STAMP KERNEL_DEFCONFIG \
 	KERNEL_FRAGMENTS KERNEL_SERIES SOURCE_DATE_EPOCH BUILDER_TAG,$(v)=$($(v)))
 $(shell mkdir -p $(BUILD); [ "$$(cat $(KERNEL_VARS) 2>/dev/null)" = "$(KERNEL_VARS_NOW)" ] || \
 	echo "$(KERNEL_VARS_NOW)" > $(KERNEL_VARS))
@@ -271,8 +277,7 @@ spu-deploy:
 # --- Packages (our own apt repository, docs/PLAN.md item 7) -------------------
 # Each package is built from its build outputs (tools/stage-package.sh, tools/build-debs.sh) into
 # build/repo, which is indexed as an apt repository. N in the versions is the commit count.
-PACKAGES := ps3-kernel ps3rsx ps3-gpu-tools ps3-mesa classicube ps3-spu
-KERNEL_RELEASE := $(KERNEL_VERSION)$(KERNEL_LOCALVERSION)
+PACKAGES := ps3-kernel ps3rsx ps3-boot ps3-gpu-tools ps3-mesa classicube ps3-spu
 PKG_N := $(shell git -C $(CURDIR) rev-list --count HEAD 2>/dev/null || echo 0)
 REPO_BUILDER_TAG := ps3-repo-builder:$(shell (cat docker/Dockerfile.repo; echo $(BUILDER_TAG)) | sha256sum | cut -c1-12)
 REPO_BUILDER_STAMP := $(BUILD)/.repo-builder-$(subst :,-,$(REPO_BUILDER_TAG))
@@ -281,6 +286,7 @@ $(REPO_BUILDER_STAMP): docker/Dockerfile.repo | $(BUILDER_STAMP)
 	@touch $@
 PKG_INPUTS_ps3-kernel := $(KERNEL_STAGE)/boot/vmlinux
 PKG_INPUTS_ps3rsx := $(GPU_STAMP)
+PKG_INPUTS_ps3-boot := rootfs/ps3-update-kboot
 PKG_INPUTS_ps3-gpu-tools := $(GPU_STAMP) $(wildcard gpu/tools/*.sh)
 PKG_INPUTS_ps3-mesa := $(MESA_INSTALL)$(MESA_PREFIX)/env.sh $(MESA_TESTS_STAMP)
 PKG_INPUTS_classicube := $(CC_INSTALL)/ClassiCube $(CC_AUDIO)/default2.zip $(wildcard games/classicube/*)
@@ -290,7 +296,7 @@ debs: $(PKG_STAMPS)
 .SECONDEXPANSION:
 $(BUILD)/repo/.%.stamp: $$(PKG_INPUTS_$$*) tools/stage-package.sh tools/build-debs.sh | $(REPO_BUILDER_STAMP)
 	$(DOCKER_RUN) --user $(UID_GID) -e MESA_PREFIX=$(MESA_PREFIX) -e KERNEL_VERSION=$(KERNEL_VERSION) \
-		-e KERNEL_RELEASE=$(KERNEL_RELEASE) -e MESA_VERSION=$(MESA_VERSION) \
+		-e KERNEL_RELEASE=$(KERNEL_RELEASE) -e KERNEL_ARGS="$(KERNEL_ARGS)" -e MESA_VERSION=$(MESA_VERSION) \
 		-e CLASSICUBE_COMMIT=$(CLASSICUBE_COMMIT) -e PKG_N=$(PKG_N) $(REPO_BUILDER_TAG) tools/build-debs.sh $*
 	@touch $@
 
@@ -312,13 +318,15 @@ kernel-deploy:
 IMAGE_INPUTS := $(ROOTFS_BASE) $(wildcard rootfs/*) tools/build-image.sh $(SSH_PUBKEY) $(PKG_STAMPS)
 rootfs: $(ROOTFS_TAR)
 IMAGE_VARS := $(BUILD)/image.vars
-IMAGE_VARS_NOW := KBOOT_CMDLINE=$(KBOOT_CMDLINE)
+BOOT_ROOT_ARGS := $(ROOT_ARGS_usb) rootwait
+IMAGE_VARS_NOW := $(BOOT_ROOT_ARGS) $(DEBUG_ARGS) $(LEGACY_KERNEL_ARGS)
 $(shell [ "$$(cat $(IMAGE_VARS) 2>/dev/null)" = "$(IMAGE_VARS_NOW)" ] || echo "$(IMAGE_VARS_NOW)" > $(IMAGE_VARS))
 $(ROOTFS_TAR): $(IMAGE_INPUTS) $(IMAGE_VARS) | $(BUILDER_STAMP)
 	@mkdir -p $(BUILD)/rootfs
 	cp $(SSH_PUBKEY) $(BUILD)/rootfs/authorized_keys
-	$(DOCKER_RUN) --privileged $(ROOTFS_ENV) -e KERNEL_RELEASE=$(KERNEL_RELEASE) \
-		-e KBOOT_CMDLINE="$(KBOOT_CMDLINE)" $(BUILDER_TAG) tools/build-image.sh
+	$(DOCKER_RUN) --privileged $(ROOTFS_ENV) -e BOOT_ROOT_ARGS="$(BOOT_ROOT_ARGS)" \
+		-e BOOT_EXTRA_ARGS="$(DEBUG_ARGS)" -e BOOT_LEGACY_ARGS="$(LEGACY_KERNEL_ARGS)" \
+		$(BUILDER_TAG) tools/build-image.sh
 	rm -f $(BUILD)/rootfs/authorized_keys
 
 # --- Run ----------------------------------------------------------------------

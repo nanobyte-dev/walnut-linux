@@ -16,18 +16,25 @@ for P in "$@"; do
 	R="$STAGE/$P"
 	rm -rf "$R"; mkdir -p "$R/DEBIAN"
 	BUILD="$B" tools/stage-package.sh "$P" "$R"
-	depends=""; postinst=""; triggers=""
+	depends=""; postinst=""; postrm=""; triggers=""; name="$P"; arch=ppc64
 	case "$P" in
-	ps3-kernel)
+	ps3-kernel)	# one package per release: kernels install side by side, like linux-image-*
+		name="ps3-kernel-$KERNEL_RELEASE"
 		version="$KERNEL_VERSION+ps3.$PKG_N"
-		desc="Linux kernel for the PS3 (OtherOS++), with the RSX sharing patches"
-		postinst="depmod -a $KERNEL_RELEASE" ;;
-	ps3rsx)
+		depends="ps3-boot"
+		desc="Linux kernel $KERNEL_RELEASE for the PS3 (OtherOS++), with the RSX sharing patches"
+		postinst="depmod -a $KERNEL_RELEASE; ps3-update-kboot"
+		postrm="if [ \"\$1\" = remove ] || [ \"\$1\" = purge ]; then rm -f /lib/modules/$KERNEL_RELEASE/modules.*; command -v ps3-update-kboot >/dev/null && ps3-update-kboot; fi; true" ;;
+	ps3rsx)		# built against one kernel release
+		name="ps3rsx-$KERNEL_RELEASE"
 		version="0.$PKG_N"
-		# built against this kernel version (any build of it)
-		depends="ps3-kernel (>= $KERNEL_VERSION), ps3-kernel (<< $KERNEL_VERSION.0~)"
-		desc="DRM driver for the PS3's RSX GPU (registers as nouveau)"
+		depends="ps3-kernel-$KERNEL_RELEASE"
+		desc="DRM driver for the PS3's RSX GPU (registers as nouveau), for $KERNEL_RELEASE"
 		postinst="depmod -a $KERNEL_RELEASE" ;;
+	ps3-boot)
+		version="0.$PKG_N"
+		arch=all
+		desc="Petitboot boot menu (/etc/kboot.conf) from the installed kernels" ;;
 	ps3-gpu-tools)
 		version="0.$PKG_N"
 		desc="RSX probes, driver tests and test scripts" ;;
@@ -44,9 +51,9 @@ for P in "$@"; do
 		desc="SPU program runner (spufs) and SPU tests; mounts spufs at /spu" ;;
 	esac
 	{
-		echo "Package: $P"
+		echo "Package: $name"
 		echo "Version: $version"
-		echo "Architecture: ppc64"
+		echo "Architecture: $arch"
 		echo "Maintainer: $MAINT"
 		echo "Installed-Size: $(du -sk --exclude=DEBIAN "$R" | cut -f1)"
 		[ -z "$depends" ] || echo "Depends: $depends"
@@ -58,14 +65,18 @@ for P in "$@"; do
 		printf '#!/bin/sh\nset -e\n%s\n' "$postinst" > "$R/DEBIAN/postinst"
 		chmod 755 "$R/DEBIAN/postinst"
 	fi
+	if [ -n "$postrm" ]; then
+		printf '#!/bin/sh\nset -e\n%s\n' "$postrm" > "$R/DEBIAN/postrm"
+		chmod 755 "$R/DEBIAN/postrm"
+	fi
 	[ -z "$triggers" ] || echo "$triggers" > "$R/DEBIAN/triggers"
 	# the previous version of this package is moved aside, never overwritten
 	for old in "$REPO/${P}_"*.deb; do
 		[ -e "$old" ] || continue
 		mkdir -p "$B/old/repo" && mv "$old" "$B/old/repo/"
 	done
-	dpkg-deb --root-owner-group -Zxz --build "$R" "$REPO/${P}_${version}_ppc64.deb" > /dev/null
-	echo ">> $REPO/${P}_${version}_ppc64.deb"
+	dpkg-deb --root-owner-group -Zxz --build "$R" "$REPO/${P}_${version}_$arch.deb" > /dev/null
+	echo ">> $REPO/${P}_${version}_$arch.deb ($name)"
 done
 
 # The repository index (apt-get with "deb [trusted=yes] file:<repo> ./")

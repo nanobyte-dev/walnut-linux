@@ -25,7 +25,15 @@
 #define CTRL_GET	0x44
 #define CTRL_REF	0x48
 
+/*
+ * Fence completion is polled (no completion interrupt yet). Fast only while someone waits on a
+ * fence (enable_signaling): polling every 250 us for as long as any work was pending meant up to
+ * 4000 timer interrupts a second during games, each a costly trip through lv1, and it showed as
+ * stutters (2026-10-15). Otherwise a slow poll retires fences and watches for a stalled GPU, and
+ * .signaled answers "is it done?" from the reference register directly.
+ */
 #define POLL_NS		(250 * NSEC_PER_USEC)
+#define SLOW_POLL_NS	(100 * NSEC_PER_MSEC)
 #define WEDGE_NS	(2 * NSEC_PER_SEC)
 
 void ps3fb_gpu_handles(u64 *memory_handle, u64 *context_handle, u64 *ddr_lpar,
@@ -53,12 +61,36 @@ static const char *fence_timeline_name(struct dma_fence *f)
 	return "rsx-ring";
 }
 
+static bool seq_passed(u32 ref, u32 seq);
+
+static struct ps3rsx_device *fence_rsx(struct dma_fence *f)
+{
+	return container_of(f->lock, struct ps3rsx_device, fence_lock);
+}
+
+static bool fence_signaled(struct dma_fence *f)
+{
+	return seq_passed(ref_read(fence_rsx(f)), f->seqno);
+}
+
+/* Someone waits for this fence: poll fast until no waited-for fence is left. fence_lock held. */
+static bool fence_enable_signaling(struct dma_fence *f)
+{
+	struct ps3rsx_device *rsx = fence_rsx(f);
+
+	if (!rsx->fast_poll) {
+		rsx->fast_poll = true;
+		hrtimer_start(&rsx->fence_timer, ns_to_ktime(POLL_NS), HRTIMER_MODE_REL);
+	}
+	return true;
+}
+
 static const struct dma_fence_ops ps3rsx_fence_ops = {
 	.get_driver_name = fence_driver_name,
 	.get_timeline_name = fence_timeline_name,
+	.enable_signaling = fence_enable_signaling,
+	.signaled = fence_signaled,
 };
-
-static bool seq_passed(u32 ref, u32 seq);
 
 /* Has the GPU passed fence seq? */
 bool ps3rsx_seq_done(struct ps3rsx_device *rsx, u32 seq)
@@ -93,6 +125,7 @@ static enum hrtimer_restart fence_poll(struct hrtimer *t)
 	struct ps3rsx_device *rsx = container_of(t, struct ps3rsx_device, fence_timer);
 	unsigned long flags;
 	bool pending;
+	u64 interval;
 	u32 ref;
 
 	spin_lock_irqsave(&rsx->fence_lock, flags);
@@ -108,10 +141,22 @@ static enum hrtimer_restart fence_poll(struct hrtimer *t)
 		       ref, list_first_entry(&rsx->fences, struct ps3rsx_fence, head)->base.seqno);
 	}
 	pending = fences_update(rsx, ref, rsx->wedged ? -EIO : 0);
+	/* fast while a remaining fence has a waiter */
+	rsx->fast_poll = false;
+	if (pending) {
+		struct ps3rsx_fence *f;
+
+		list_for_each_entry(f, &rsx->fences, head)
+			if (test_bit(DMA_FENCE_FLAG_ENABLE_SIGNAL_BIT, &f->base.flags)) {
+				rsx->fast_poll = true;
+				break;
+			}
+	}
+	interval = rsx->fast_poll ? POLL_NS : SLOW_POLL_NS;
 	spin_unlock_irqrestore(&rsx->fence_lock, flags);
 	if (!pending)
 		return HRTIMER_NORESTART;
-	hrtimer_forward_now(t, ns_to_ktime(POLL_NS));
+	hrtimer_forward_now(t, ns_to_ktime(interval));
 	return HRTIMER_RESTART;
 }
 
@@ -217,7 +262,7 @@ struct dma_fence *ps3rsx_ring_commit(struct ps3rsx_device *rsx, u32 len, bool ki
 	wmb();
 	out_be32(rsx->ctrl + CTRL_PUT, rsx->ring_put);
 	if (!hrtimer_active(&rsx->fence_timer))
-		hrtimer_start(&rsx->fence_timer, ns_to_ktime(POLL_NS), HRTIMER_MODE_REL);
+		hrtimer_start(&rsx->fence_timer, ns_to_ktime(SLOW_POLL_NS), HRTIMER_MODE_REL);
 	return &f->base;
 }
 

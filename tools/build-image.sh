@@ -3,7 +3,8 @@
 # build-rootfs.sh) plus our configuration (rootfs/customize.sh) and our own packages from
 # build/repo (kernel, RSX driver, Mesa, games, SPU tools: tools/build-debs.sh). Takes a minute or
 # two, so a config change doesn't reinstall the Debian packages. Runs as root in the builder
-# container. Inputs (env): ROOTFS_CUSTOMIZE SOURCE_DATE_EPOCH KERNEL_RELEASE KBOOT_CMDLINE OWNER
+# container. Inputs (env): ROOTFS_CUSTOMIZE SOURCE_DATE_EPOCH BOOT_ROOT_ARGS BOOT_EXTRA_ARGS
+# BOOT_LEGACY_ARGS OWNER
 # Output: build/rootfs/debian-ppc64.tar, byte-for-byte the same from the same inputs
 set -euo pipefail
 {
@@ -21,16 +22,20 @@ mount -t sysfs sysfs "$R/sys"
 
 export SOURCE_DATE_EPOCH
 PUBKEY_FILE="$PWD/$OUT/authorized_keys" bash "$ROOTFS_CUSTOMIZE" "$R"
+# The boot menu's settings for this installation (a disk root); the kernel packages' scripts
+# write /etc/kboot.conf from them (ps3-update-kboot)
+cat > "$R/etc/default/ps3-boot" <<EOF
+# Petitboot boot menu settings (ps3-update-kboot writes /etc/kboot.conf from them)
+PS3_ROOT_ARGS="$BOOT_ROOT_ARGS"
+PS3_EXTRA_ARGS="$BOOT_EXTRA_ARGS"
+PS3_LEGACY_ARGS="$BOOT_LEGACY_ARGS"
+EOF
 # Our packages (docs/PLAN.md item 7), the way apt would install them
 mkdir -p "$R/tmp/ps3-repo"
 cp build/repo/*.deb "$R/tmp/ps3-repo/"
 chroot "$R" sh -c 'dpkg -i /tmp/ps3-repo/*.deb' > /dev/null
 rm -r "$R/tmp/ps3-repo"
 chroot "$R" ldconfig
-# Petitboot's boot menu for a disk root: it reads /etc/kboot.conf on the partitions it can mount
-# (ext4 included) and boots the default entry after its countdown, without the network
-printf '%s\n' "# Petitboot boot menu (tools/build-image.sh)" "default=debian" \
-	"debian='/boot/vmlinux-$KERNEL_RELEASE $KBOOT_CMDLINE'" > "$R/etc/kboot.conf"
 
 umount "$R/proc" "$R/sys"
 # What mmdebstrap's cleanup removes for reproducibility; the chroot commands above write some of

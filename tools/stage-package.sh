@@ -1,9 +1,9 @@
 #!/bin/sh
 # Stages one of our packages' files under <root> (a fresh directory), in their installed paths:
 #   tools/stage-package.sh <package> <root>
-# packages: ps3-kernel ps3rsx ps3-gpu-tools ps3-mesa classicube ps3-spu
+# packages: ps3-kernel ps3rsx ps3-boot ps3-gpu-tools ps3-mesa classicube ps3-spu
 # tools/build-debs.sh turns each staged tree into a .deb (docs/PLAN.md item 7).
-# Env: BUILD (build dir), MESA_PREFIX (where Mesa was built to live), KERNEL_RELEASE.
+# Env: BUILD (build dir), MESA_PREFIX (where Mesa was built to live), KERNEL_RELEASE, KERNEL_ARGS.
 set -eu
 P="$1"; R="$2"
 B="${BUILD:-build}"
@@ -28,11 +28,18 @@ ps3-kernel)	# the kernel and its modules; Petitboot boots /boot/vmlinux-* (kboot
 		"$R/lib/modules/$KERNEL_RELEASE"/modules.alias "$R/lib/modules/$KERNEL_RELEASE"/modules.symbols \
 		"$R/lib/modules/$KERNEL_RELEASE"/modules.devname "$R/lib/modules/$KERNEL_RELEASE"/modules.softdep \
 		"$R/lib/modules/$KERNEL_RELEASE"/modules.weakdep
-	rm -f "$R/lib/modules/$KERNEL_RELEASE/build" "$R/lib/modules/$KERNEL_RELEASE/source" ;;
+	rm -f "$R/lib/modules/$KERNEL_RELEASE/build" "$R/lib/modules/$KERNEL_RELEASE/source"
+	# its own boot arguments, for ps3-update-kboot (the boot menu entry)
+	install -d "$R/usr/lib/ps3/boot"
+	echo "$KERNEL_ARGS" > "$R/usr/lib/ps3/boot/$KERNEL_RELEASE.args" ;;
+ps3-boot)	# writes Petitboot's boot menu from the installed kernels
+	install -d "$R/usr/sbin"
+	install -m 755 rootfs/ps3-update-kboot "$R/usr/sbin/" ;;
 ps3rsx)		# the RSX DRM driver, loaded at boot (before the desktop starts X)
 	install -d "$R/lib/modules/$KERNEL_RELEASE/updates" "$R/usr/lib/modules-load.d"
 	install -m 644 "$B/gpu-ps3rsx/ps3rsx.ko" "$R/lib/modules/$KERNEL_RELEASE/updates/"
-	echo ps3rsx > "$R/usr/lib/modules-load.d/ps3rsx.conf" ;;
+	# per release, so the packages for several kernels install side by side
+	echo ps3rsx > "$R/usr/lib/modules-load.d/ps3rsx-$KERNEL_RELEASE.conf" ;;
 ps3-gpu-tools)	# RSX probes and tests (gpu/tools), the Phase 0/1 probe modules
 	install -d "$R/usr/lib/ps3/bin" "$R/usr/lib/ps3/kmod"
 	install -m 755 "$B"/gpu/* gpu/tools/*.sh "$R/usr/lib/ps3/bin/"

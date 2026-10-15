@@ -97,6 +97,7 @@ struct ps3rsx_device {
 	spinlock_t fence_lock;
 	struct list_head fences;	/* pending, in seqno order */
 	struct hrtimer fence_timer;
+	bool fast_poll;			/* someone waits on a fence: poll fast (fence_lock) */
 	u32 last_ref;
 	ktime_t last_progress;
 	bool wedged;			/* a graph exception or a stall: nothing runs until reboot */
