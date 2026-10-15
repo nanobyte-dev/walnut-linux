@@ -176,6 +176,12 @@ Driver work these will likely need (DRIVER-PLAN.md "Later"):
     pages point at a scratch chunk. Measured: `rsxdrm-smoke gart` (in rsx-suite) gets 56 MB of
     GART with the CMA area full of other pages and a 170 MB hog in swap, data correct, and
     the memory comes back after 2 s. `ps3rsx_gart=<size>` (fixed reservation) still works.
+    OpenArena timedemo on it: median 48–58 fps (as before), GART peak 14 MB, all of it backed
+    while loading (`/sys/kernel/mm/cma/ps3rsx/alloc_pages_*`: none during play, no failures).
+    The dips in play are memory pressure, not the GART: kswapd reclaiming 16–22 MB/s of page
+    cache in bursts, and kcompactd's proactive compaction moving ~20 MB at a time (fps 2–4 in
+    those seconds). `vm.compaction_proactiveness=0` removed the compaction bursts, but the
+    reclaim dips stayed and the 10th-percentile fps didn't clearly improve: left at 20 for now.
 - **CPU-side Mesa cost:** state validation and the kernel's validator and shadow show up in
   `perf`.
 - **Mesa error paths:** two crashed on out-of-memory and are fixed. Expect more under memory
