@@ -196,7 +196,30 @@ Driver work these will likely need (DRIVER-PLAN.md "Later"):
   - Generic fix: cgroup v2 (kernel MEMCG + CGROUP_SCHED). User slices `ps3-display` (X and
     Openbox, `MemoryLow`), `ps3-desktop` (helpers, frozen and `memory.reclaim`ed while a game
     runs) and `ps3-game` (`MemoryLow`, high CPU weight); `ps3-game` switches it on and off, so
-    every game gets it. Not yet measured.
+    every game gets it. Also frozen and reclaimed during games: the gvfs daemons (user
+    services in `ps3-desktop.slice` via the systemd user bus, `dbus-user-session`) and, through
+    the root helper `ps3-game-mode`, `udisks2` and `polkit` (USB sticks mount after the game).
+    NetworkManager and bluetoothd keep running.
+  - Measured: OpenArena timedemo 44–53 fps average, median 50–60, worst 10% 13–37, longest
+    frame 0.9–1.2 s in 4 of 5 runs (3.1 s in one); before: 38–53, 37–58, 4–38, 0.75–6.2 s.
+- **Memory budget (2026-10-15, mid-game):** of 256 MB, 16 never reach Linux (hypervisor);
+  the kernel image is 21 MB (a debug build), ps3fb's console frame 9, `struct page` ~4; slab,
+  stacks, page tables and vmalloc ~29; GART 14 (CMA, on demand); ~20 kept free. OpenArena
+  74 MB resident (+10 swapped), X 6 resident (+27 swapped), system services 15 (+24),
+  desktop helpers 0 (+50, frozen), other file cache ~25. X's own memory: an 8 MB SysV
+  shared segment (the 1080p wallpaper, shared with PCManFM), a 16 MB heap (glamor/Mesa
+  state), Mesa 3 MB; it loads only glx, modesetting, glamor, fb and libinput.
+- **Next: goal, a game can use 2/3 of RAM (~160 MB) without stalls, without removing
+  features:**
+  - **Two-tier swap, VRAM first:** a ps3rsx block device as the high-priority swap, pages
+    held in spare VRAM (the RSX has 256 MB; X uses ~19 MB, games ~70) and copied by the GPU
+    (M2MF through the GART), the USB swap partition behind it. Games come first: when a GEM
+    allocation needs VRAM the swap tier holds, the driver writes those pages back to the
+    disk tier and hands the VRAM over (the swap layer sees one device; like zram's
+    writeback). Risk: a GPU wedge loses what is only in VRAM: write back early.
+  - Kernel: non-debug build, built-ins as modules, a smaller console frame (~5–15 MB).
+  - Wallpaper in VRAM or a solid colour (8 MB); `systemd-networkd` duplicates
+    NetworkManager here; journal size limit.
 - **CPU-side Mesa cost:** state validation and the kernel's validator and shadow show up in
   `perf`.
 - **Mesa error paths:** two crashed on out-of-memory and are fixed. Expect more under memory
