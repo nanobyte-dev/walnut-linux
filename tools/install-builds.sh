@@ -19,6 +19,7 @@ for part; do
 		printf '%s\n' "# Petitboot boot menu (tools/install-builds.sh)" "default=debian" \
 			"debian='/boot/$k ${KBOOT_CMDLINE:?}'" > "$R/etc/kboot.conf" ;;
 	modules)	# the kernel's modules
+		install -d "$R/lib/modules"
 		rsync -a --delete --chown=0:0 "$B/kernel/stage/lib/modules/" "$R/lib/modules/" ;;
 	gpu)		# RSX driver, probe modules and test tools (ps3rsx.service loads ~/bin/ps3rsx.ko)
 		install -d "$H/bin"
