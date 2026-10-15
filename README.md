@@ -48,8 +48,9 @@ our own packages, in a minute or two. Everything we build is a .deb in `build/re
 
 | Package | Installs |
 |---|---|
-| `ps3-kernel` | `/boot/vmlinux-<ver>`, `/lib/modules/<ver>` |
-| `ps3rsx` | RSX driver, loaded at boot |
+| `ps3-kernel-<release>` | `/boot/vmlinux-<release>`, `/lib/modules/<release>`, its boot arguments |
+| `ps3rsx-<release>` | RSX driver for that kernel, loaded at boot |
+| `ps3-boot` | `ps3-update-kboot`: Petitboot's `/etc/kboot.conf` from the installed kernels (newest first, the default) |
 | `ps3-gpu-tools` | RSX probes and tests in `/usr/lib/ps3/bin` (on `PATH`) |
 | `ps3-mesa` | our Mesa in `/usr/lib/ps3-mesa`, plus its GL tests |
 | `classicube` | `/usr/games/classicube` (game data per user in `~/.local/share/classicube`) |

@@ -45,8 +45,14 @@ used for development is the first form of it.
   (DESKTOP-PLAN.md). About 129 MB in all. Ctrl+Alt+Fn text consoles work.
 - **Games:** ClassiCube runs at a locked 60 fps fullscreen at 1080p with vsync, at about 26% CPU
   (it was 6.5 fps before the vertex-fetch fix).
-- **Memory:** 177 MB of RAM visible. The GART reservation is 32 MB (raised from 16 on 2026-10-15), swap
-  is zram, and `vm.min_free_kbytes` is 8 MB (two hangs under memory pressure).
+- **Memory:** 214 MB of RAM visible (177 MB with the old fixed GART). The GART is dynamic: a
+  64 MB CMA area that ordinary pages use while the GPU doesn't (`ps3rsx_cma=64M`); the idle
+  desktop holds 6 MB of it, ClassiCube about 10 MB. Swap on the USB disk (zram on the NFS
+  root), `vm.min_free_kbytes` 8 MB (two hangs under memory pressure).
+- **Kernels side by side:** each kernel is its own package (`ps3-kernel-<release>`, release
+  `<version>-ps3-debug-<date of the last kernel/ commit>`, with its `ps3rsx-<release>`).
+  `ps3-boot`'s `ps3-update-kboot` writes Petitboot's `/etc/kboot.conf` with every installed
+  kernel, newest the default; each kernel package ships its own boot arguments.
 
 ## Roadmap
 
@@ -103,10 +109,17 @@ Done:
   - Defaults: vsync, at most 4 chunk rebuilds per frame (`gfx-maxchunkupdates`), against
     stutters.
 
+- **ClassiCube stutters and white flashes (2026-10-15):**
+  - Stutters: the driver polled fences every 250 µs whenever work was pending, about 4000
+    timer interrupts a second through lv1 in games. Now fast polling only while a fence has
+    a waiter, else 100 ms, and `.signaled` reads the reference register: 1540/s in play.
+  - Flashes in the bottom half: flip events went out at the first vblank, before lv1 had
+    latched the flip; the game then cleared and redrew the buffer still on screen. Events now
+    wait until the head's flip-pending bit clears. The user saw no more flashes.
+
 Open:
-- ClassiCube: confirm the stutter fix in play. Confirm sound on the TV (the monitor has no
-  speakers). Then judge whether the remaining stutters come from memory (kswapd/zram and NFS
-  page faults were seen).
+- ClassiCube: confirm sound on the TV (the monitor has no speakers). About 30% of its CPU time
+  is kernel, half of it the validator and shadow (`ps3rsx_validate`, `ps3rsx_shadow_write`).
 - **OpenArena (in progress, parked 2026-10-15 for item 6):**
   - Works: renders correctly on the `opengl1` renderer (now the default; `opengl2` ran out of
     RAM compiling GLSL), ALSA sound initialises, DS3 pairs. Not yet heard on the TV, DS3
@@ -154,12 +167,15 @@ Driver work these will likely need (DRIVER-PLAN.md "Later"):
 - **GART:** 16 MB kept running out (2026-10-15): OpenArena's texture bursts; SDL's GL renderer
   streaming a whole 1080p window (8100 KiB contiguous for one upload: ClassiCube's launcher drew
   stale areas). Now:
-  - **Done:** Mesa bounds upload staging in flight (4 MB per context), splits big
-    `texture_subdata` uploads into ≤1 MB bands, and the reservation is 32 MB.
-  - **Next, dynamic GART via CMA:** reserve a CMA region at boot that ordinary movable pages
-    use while the GPU doesn't, and let ps3rsx take 1 MB contiguous chunks from it on demand
-    (iomapped as today; chunks can be mapped and unmapped at any time, docs/RSX.md E2/E9),
-    giving them back when freed. The GART would then cost RAM only while in use.
+  - **Done:** Mesa bounds upload staging in flight (4 MB per context) and splits big
+    `texture_subdata` uploads into ≤1 MB bands.
+  - **Done, dynamic GART via CMA (2026-10-15):** the kernel reserves a CMA area
+    (`ps3rsx_cma=64M`, patch local/0007) that movable pages use while the GPU doesn't; ps3rsx
+    backs GART IO pages from it in 1 MB chunks on demand and gives a chunk back once it has
+    been idle 2 s and the GPU has passed its last fence (`gpu/ps3rsx/gart.c`). Unbacked IO
+    pages point at a scratch chunk. Measured: `rsxdrm-smoke gart` (in rsx-suite) gets 56 MB of
+    GART with the CMA area full of other pages and a 170 MB hog in swap, data correct, and
+    the memory comes back after 2 s. `ps3rsx_gart=<size>` (fixed reservation) still works.
 - **CPU-side Mesa cost:** state validation and the kernel's validator and shadow show up in
   `perf`.
 - **Mesa error paths:** two crashed on out-of-memory and are fixed. Expect more under memory
