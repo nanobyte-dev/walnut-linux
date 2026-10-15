@@ -33,7 +33,7 @@ VRAM swap work (ps3vswap) and new profiles. "Unverified" marks numbers nobody ha
 | Job dispatch via reservation line | sub-µs to µs (unverified) | jobs ≥ ~50–100 µs to pay off |
 | SPU DMA | 16 B aligned, 128 B best, ≤16 KB per command | buffers in pinned/touched user memory; page faults stall the MFC |
 | Cell → VRAM write / read | ~4 GB/s / ~16 MB/s (Sony figures) | SPUs can produce data straight into mapped VRAM; never read it |
-| SPU toolchain | GCC 16.2 port, newlib 1.20, `spurun` (docs/SPU-GCC.md) | C works today; no libspe2, runtime is ours to write |
+| SPU toolchain | GCC 16.2 port, newlib 4.6, `spurun` (docs/SPU-GCC.md) | C works today; no libspe2, runtime is ours to write |
 
 ## Candidates
 

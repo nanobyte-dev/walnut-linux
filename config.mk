@@ -43,7 +43,7 @@ CLASSICUBE_TEXPACK_URL := http://static.classicube.net/default.zip
 # --- SPU toolchain (spu-elf, for the Cell's SPEs) ---------------------------------
 # The same GCC and binutils versions as the PPE (docs/PLAN.md): GCC 16.2 with our port of the SPU
 # backend (removed upstream in GCC 10; spu/port/*.patch, docs/SPU-GCC.md), binutils 2.47 (SPU still
-# upstream), newlib with spu/newlib/*.patch. GNU tarballs' signatures checked against
+# upstream), newlib 4.6 with spu/newlib-4.6/*.patch. GNU tarballs' signatures checked against
 # gnu-keyring.gpg, newlib against sourceware's sha512.sum (2026-10-15).
 SPU_GCC_VERSION     := 16.2.0
 SPU_GCC_SHA256      := e6738e29597f733270731aa90600f37ffdc045079dfc27ec7e8192cc81085c3e
@@ -54,12 +54,12 @@ SPU_GCC_URL         := https://ftp.gnu.org/gnu/gcc/gcc-$(SPU_GCC_VERSION)/gcc-$(
 SPU_BINUTILS_VERSION := 2.33.1
 SPU_BINUTILS_SHA256 := ab66fc2d1c3ec0359b8e08843c9f33b63e8707efdff5e4cc5c200eae24722cbf
 SPU_BINUTILS_URL    := https://ftp.gnu.org/gnu/binutils/binutils-$(SPU_BINUTILS_VERSION).tar.xz
-# newlib's SPU support is unmaintained since ~2012: 3.x/4.x need fixes for sys/sched.h, math.h's
-# isinf/isnan and the generic fenv code clashing with SPU's, and possibly more. 1.20.0 is the last
-# version known to work for SPU (the PS3 homebrew toolchain still uses it); built with
-# -std=gnu17 -fpermissive for GCC 16's stricter C.
-SPU_NEWLIB_VERSION  := 1.20.0
-SPU_NEWLIB_SHA256   := c644b2847244278c57bec2ddda69d8fab5a7c767f3b9af69aa7aa3da823ff692
+# newlib's SPU support is unmaintained since ~2012; 4.6 builds with spu/newlib-4.6/*.patch (sys/sched.h,
+# math.h's isinf/isnan, fenv signatures, include paths, SPU stdio on the 4.x reent, ...). 1.20.0
+# (needs -std=gnu17 -fpermissive, no patches) still builds: set the version back, with
+# sha256 c644b2847244278c57bec2ddda69d8fab5a7c767f3b9af69aa7aa3da823ff692.
+SPU_NEWLIB_VERSION  := 4.6.0.20260123
+SPU_NEWLIB_SHA256   := 6ff27e3bf022666f43f7802255be680eeff722ac181b1725d21e2e8318604ee3
 SPU_NEWLIB_URL      := https://sourceware.org/pub/newlib/newlib-$(SPU_NEWLIB_VERSION).tar.gz
 
 # --- Build container ----------------------------------------------------------

@@ -37,21 +37,40 @@ patches:
 - `0002` API port;
 - `0003` an `expmed` fix for the `__complex__` crashes.
 
-It uses old reload and links against newlib 1.20.0 and libgcc, both built by GCC 16.2.
+It uses old reload and links against newlib 4.6 (`spu/newlib-4.6/`) and libgcc, both built by
+GCC 16.2. The execute-test figures below are from newlib 1.20.0; the rerun with 4.6 is pending
+(all 1677 programs build and link with it).
 
 **On the SPEs, with everything built by GCC 16.2:**
 - **1629** of 1677 execute tests pass, against GCC 9.5's 1618 of 1671;
 - **no regressions**;
 - hello world runs.
 
-**Version exceptions, both caused by unmaintained upstream SPU code:**
+**Version exception, caused by unmaintained upstream SPU code:**
 - **binutils 2.33.1, not the snapshot's 2.47.** 2.47's SPU assembler rejects valid branch hints
   ("Relocation doesn't fit" on `hbrr`). It does so for GCC 9.5's output as well, so the
   regression is in binutils, somewhere between 2.33 and 2.47; the range-check code itself is
   unchanged. Open: bisect and fix it, to use 2.47.
-- **newlib 1.20.0** (built with `-std=gnu17 -fpermissive`). 3.x and 4.x break on SPU one header
-  after another: `sys/sched.h`, `math.h`'s `isinf`/`isnan` against SPU's macros, the generic
-  `fenv` code against SPU's `fenv.h`. 1.20 is what the PS3 homebrew toolchain uses.
+
+**newlib 4.6.0.20260123 is not an exception any more.** It needs seven small patches
+(`spu/newlib-4.6/`, each with its reason in the file) and builds with plain `-O2`:
+- `sys/sched.h` lacks `struct sched_param`;
+- `math.h` declares `isinf`/`isnan`, which SPU's `ieeefp.h` defines as macros;
+- SPU's `fenv.h` has `void` returns and a const `__fe_dfl_env`, and the generic `libm/fenv`
+  placeholders that 4.x compiles for every target clash with them;
+- the non-recursive makefiles lost the `-I` of the SPU source directories;
+- SPU's own stdio never defined the global `__sf[3]` and `__stdio_exit_handler` that 4.x expects;
+- `mmap_ea` returns an integer as a pointer, `signal.c` and `__dprintf.c` call `getpid`/`write`
+  with no declaration (both errors since GCC 14).
+
+1.20.0 still builds (version and sha256 in `config.mk`; it needs `-std=gnu17 -fpermissive`).
+Local store use (text+data+bss) against 1.20.0: an empty `main` takes 3.6 KB instead of 2.7 KB
+(text +0.9 KB, bss +0.5 KB: the 4.x `_reent` and exit handling are bigger), a `puts` program
+3.8 KB instead of 3.0 KB, and a `snprintf`/`printf`/`sqrt` program 4.9 KB instead of 5.0 KB.
+The libc/libgloss PPE-assisted ABI (stop code 0x2100 and its argument blocks, the libgloss
+syscalls) is unchanged: the SPU machine code of `fopen`/`fclose`/`fread`/`fputs` differs only
+in the `_reent` field offsets. `getentropy` (`arc4random`) and `regcomp` (`rpmatch`) are not
+provided, as 4.x pulls them in only from those two functions.
 
 ## What exists today
 
@@ -68,8 +87,9 @@ It uses old reload and links against newlib 1.20.0 and libgcc, both built by GCC
     insertion in machine reorg, and a pipeline description.
 - **binutils:** SPU is still upstream at HEAD (bfd, gas, opcodes). We pin 2.33.1.
 - **newlib:** SPU is still upstream, but has bit-rotted. 3.3.0 doesn't build for SPU: its SPU
-  `sys/sched.h` lacks `struct sched_param`, which the newer pthread types need. We pin 1.20.0,
-  which the PS3 homebrew toolchain (ps3dev/ps3toolchain) also still uses with GCC 9.5.
+  `sys/sched.h` lacks `struct sched_param`, which the newer pthread types need. With seven
+  patches 4.6 builds (see above); the PS3 homebrew toolchain (ps3dev/ps3toolchain)
+  still uses 1.20.0.
 - **GDB:** Cell support was removed in GDB 9, so 8.3.1 would be the pin (not built here).
 - **Other efforts:**
   - No forward port of the SPU backend exists that we could find. PS3DK's tracking issue (#26,
