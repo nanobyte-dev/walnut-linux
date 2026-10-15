@@ -175,6 +175,12 @@ image (and other PS3 users) install them with apt instead of from build outputs.
 
 ### 8. Disk image and installer
 
+- **USB disk root (2026-10-15):** `make usb-root` installs the image onto a USB HDD plugged into
+  the PS3 (4 GiB swap, the rest ext4 root, fixed disk id so `root=PARTUUID=50533301-02`), and
+  `make netboot ROOT=usb` boots it. Why: with the root on NFS, memory pressure in games made the
+  kernel re-read evicted code over the network (3–10 MB/s, kswapd ~40% CPU), and zram held the
+  idle desktop's pages in RAM; swap on the disk gives that RAM back.
+
 - **`make iso`:** a bootable image for a USB drive, booted from Petitboot. Petitboot's 2.6.30
   kernel must read the boot files (ISO9660, ext2 or FAT). Open questions: raw vs hybrid image,
   read-only live root vs writable root.

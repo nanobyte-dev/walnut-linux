@@ -15,6 +15,9 @@ nano
 psmisc
 file
 kexec-tools
+# Root on a local disk (USB HDD, later the HDD region): partitioning, ext4 and its boot-time fsck
+fdisk
+e2fsprogs
 adduser
 libdrm-tests
 systemd-timesyncd

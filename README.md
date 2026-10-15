@@ -31,8 +31,9 @@ nouveau's userspace (libdrm + Mesa nv30) on the RSX. Plan and background: `docs/
     make rootfs            # the whole image (kernel modules, RSX driver, Mesa, games included)
     make checksums         # compare between builds to confirm reproducibility
     make nfs-root          # sudo: install the image as the NFS export (old root kept as .bak-<date>)
+    make usb-root          # or: the image onto the USB disk on the PS3 (FORMAT=1 partitions it first)
     make listen            # in another terminal: PS3 debug output
-    make netboot           # PS3 in Petitboot -> boots our kernel with NFS root
+    make netboot           # PS3 in Petitboot -> boots our kernel with NFS root (ROOT=usb: USB disk root)
     make gpu-deploy        # quick updates of the live root while iterating: RSX driver + tools
     make mesa-deploy       #   -> ~/bin, Mesa + mesa/tests -> ~/mesa (stop X first),
     make classicube-deploy #   ClassiCube -> ~/classicube, kernel modules (make nfs-modules)

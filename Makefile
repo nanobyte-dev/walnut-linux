@@ -40,7 +40,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: help all builder kernel rootfs rootfs-base checksums nfs-root nfs-modules netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
+.PHONY: help all builder kernel rootfs rootfs-base checksums nfs-root usb-root nfs-modules netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
 	mesa-builder mesa-sysroot mesa mesa-tests mesa-deploy classicube classicube-audio classicube-deploy
 
 help:
@@ -53,6 +53,8 @@ help:
 	@echo "Deploy (sudo):"
 	@echo "  make nfs-root     install the image into $(NFS_ROOT) and export it (keeps SSH host"
 	@echo "                    keys, Bluetooth pairings and Wi-Fi connections; FRESH=1 doesn't)"
+	@echo "  make usb-root     install the image onto the USB disk on the PS3 (FORMAT=1: partition"
+	@echo "                    it first, erasing it); boot it with make netboot ROOT=usb"
 	@echo "Update the live NFS root in place (no reboot; fixes still go into the build):"
 	@echo "  make nfs-modules  kernel modules"
 	@echo "Run:"
@@ -111,6 +113,12 @@ checksums:
 INSTALL_BUILDS := BUILD=$(BUILD) MESA_PREFIX=$(MESA_PREFIX) tools/install-builds.sh
 nfs-root: $(ROOTFS_TAR) $(KERNEL_STAGE)/boot/vmlinux
 	sudo NFS_ROOT=$(NFS_ROOT) PS3_IP=$(PS3_IP) FRESH=$(FRESH) tools/install-nfs-root.sh $(ROOTFS_TAR)
+
+# The image onto the USB disk plugged into the PS3 (running Linux, over SSH); FORMAT=1 partitions
+# the disk first (erases it). Boot it with make netboot ROOT=usb.
+usb-root: $(ROOTFS_TAR)
+	PS3_SSH="$(PS3_SSH)" USB_DISK_ID="$(USB_DISK_ID)" FORMAT=$(FORMAT) FRESH=$(FRESH) \
+		tools/install-usb-root.sh $(ROOTFS_TAR)
 
 nfs-modules: $(KERNEL_STAGE)/boot/vmlinux
 	sudo $(INSTALL_BUILDS) $(NFS_ROOT) modules
