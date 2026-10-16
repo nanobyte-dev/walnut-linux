@@ -8,6 +8,14 @@ and the games' source at the packaged versions. **UNVERIFIED** marks anything no
 source or log. Sizes are installed sizes of the packages the image doesn't have yet (dependency
 closure against `build/rootfs/base.tar`'s dpkg status).
 
+**Corrections (2026-10-16, reviews against source):** GAME-PLAN.md has the checked expectations
+and supersedes this file where they differ. Wrong here: dsda-doom's GL mode needs GL_RG textures
+(absent on nv30) and its version is 0.30.0; OpenTTD's GL mode can't start (ARB_texture_rg, a VAO
+check bug, texture2DLod); X-Moto ships a replay (`credits`); Yamagi's source package is `yquake2`
+and its demo `q2demo1.dm2`; Luanti can keep LuaJIT (it exists for ppc64; Debian strips the bundled
+Lua); Mesa's shader cache is on for nv30; 3D textures sample fine; the 1-pixel render target fix is
+Mesa patch 0007; hardware mipmap generation is a new risk (Neverball, SuperTuxKart, Luanti).
+
 ## The yardstick: what Mesa nv30 on NV47 offers
 
 From `nv30_screen.c`/`nv30_format.c` (Mesa 26.2.4) and docs/RSX.md:

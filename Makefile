@@ -26,7 +26,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy ps3-reboot \
+.PHONY: repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy ps3-reboot bench-push bench-pull \
 	classicube classicube-audio classicube-deploy
 
 help:
@@ -53,6 +53,8 @@ help:
 	@echo "                    ROOT=nfs|usb)"
 	@echo "  make listen       print PS3 early-debug + netconsole output"
 	@echo "  make ps3-reboot   reboot the running PS3 Linux (lands in GameOS/XMB, not Petitboot)"
+	@echo "  make bench-push   the game suite runner to the PS3 (/var/tmp/bench/run.sh, docs/GAME-PLAN.md)"
+	@echo "  make bench-pull   its results into $(BUILD)/bench"
 	@echo "Other:"
 	@echo "  make shell        shell in the builder container"
 	@echo "  make clean        move build outputs to $(BUILD)/old/ (never deletes)"
@@ -192,7 +194,7 @@ $(REPO_BUILDER_STAMP): docker/Dockerfile.deb | $(BUILDER_STAMP)
 # included; kernels and ps3rsx modules only with KERNELS=1 or when named), then installs the named
 # top-level packages; simulated first. dpkg replaces files by renaming, so even Mesa under a
 # running X is safe on the USB root (on NFS, stop X first).
-DEPLOY_TOP := linux-image-ps3 linux-image-ps3-debug ps3rsx-modules-ps3 ps3rsx-modules-ps3-debug ps3-boot ps3-system ps3-desktop ps3-splash ps3-gpu-tools ps3-spu ps3-spu-programs libspeq0 ps3-apps classicube
+DEPLOY_TOP := linux-image-ps3 linux-image-ps3-debug ps3rsx-modules-ps3 ps3rsx-modules-ps3-debug ps3-boot ps3-system ps3-desktop ps3-splash ps3-gpu-tools ps3-spu ps3-spu-programs libspeq0 ps3-apps ps3-games classicube
 PKGS ?= $(DEPLOY_TOP)
 AUTOREMOVE ?= 0
 STOP_DESKTOP ?= auto
@@ -242,6 +244,18 @@ listen:
 PS3_SSH := ssh -i $(HOME)/.ssh/id_ps3 -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts tibi@$(PS3_IP)
 ps3-reboot:
 	-$(PS3_SSH) sudo systemctl reboot
+
+# The game suite runner (games/bench, docs/GAME-PLAN.md) to /var/tmp/bench on the PS3: unpacked
+# beside the old copy and swapped in with a rename, so a run in progress keeps reading its files.
+# bench-pull: the PS3's run directories (/var/tmp/ps3-bench) into $(BUILD)/bench
+bench-push:
+	tar -C games -c bench | $(PS3_SSH) 'set -e; rm -rf /var/tmp/bench.new /var/tmp/bench.old; \
+		mkdir /var/tmp/bench.new; tar -C /var/tmp/bench.new --strip-components=1 -x; \
+		[ ! -e /var/tmp/bench ] || mv /var/tmp/bench /var/tmp/bench.old; mv /var/tmp/bench.new /var/tmp/bench'
+bench-pull:
+	mkdir -p $(BUILD)/bench
+	$(PS3_SSH) 'tar -C /var/tmp/ps3-bench -c --exclude=perf.data .' | tar -C $(BUILD)/bench -x
+	@echo ">> $(BUILD)/bench; summaries: games/bench/report.py $(BUILD)/bench/<run dirs>"
 
 shell: $(BUILDER_STAMP)
 	$(DOCKER_RUN) -it --user $(UID_GID) $(BUILDER_TAG) bash

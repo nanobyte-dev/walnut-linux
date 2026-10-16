@@ -263,10 +263,12 @@ Only when content needs them (OpenArena and ClassiCube don't):
   isn't on NFS.
 - **Distribution:** sign and host the apt repository; the SPU and PPE toolchains could ship
   from it. `make iso` and the installer (OtherOS++ region; ps3da/db/dc never written).
-- **Game suite** (docs/GAME-SUITE.md, researched 2026-10-16): OpenArena (opengl1 and opengl2),
-  ClassiCube, QuakeSpasm, Sauerbraten, SuperTuxKart (legacy GL), Luanti (our build), Neverball,
-  dsda-doom + Freedoom, OpenTTD, X-Moto; a smoke-test session first, then games/bench/. GL 3-only
-  games stay out of reach.
+- **Game suite: the current work** (docs/GAME-PLAN.md, one stage per game, grouped from "runs as
+  packaged" to "needs the most driver work"; research in docs/GAME-SUITE.md): stage 0 is the
+  runner (`games/bench/`, `make bench-push`) and the `ps3-games` metapackage; then dsda-doom,
+  X-Moto, Neverball, Extreme Tux Racer, Armagetron; QuakeSpasm, Yamagi Quake II; OpenTTD,
+  Sauerbraten, Luanti; SuperTuxKart (legacy GL), OpenArena opengl2. Driver bugs are ranked by how
+  many games they block. GL 3-only games stay out of reach.
 
 ## Done (summary)
 

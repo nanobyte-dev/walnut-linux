@@ -23,7 +23,8 @@ package (Debian source packages; docs/PACKAGING.md).
 | `ps3-desktop/` | Desktop package: autologin, `ps3-session`, game mode, Openbox/tint2/GTK/PCManFM defaults and default applications in `/etc/xdg/ps3`, X config; also `ps3-apps` (the everyday applications) |
 | `image/` | The root filesystem image: `packages.txt` (slow Debian layer), `packages-ours.txt` (ours, installed with apt), `deps.txt` (Debian packages in our repository), `customize.sh` (per-installation settings: hostname, user, key, locale) |
 | `spu-toolchain/` | The spu-elf cross toolchain's patches: GCC 16.2 port (`gcc/`), binutils 2.47 fix, newlib 4.6 fixes, test scripts |
-| `games/openarena/` | OpenArena benchmark demo and scripts |
+| `games/bench/` | The game suite runner (docs/GAME-PLAN.md): `run.sh smoke\|bench\|suite` on the PS3 through `ps3-bench.sh`, one recipe per game in `recipes/`, demos and maps in `assets/`, `report.py`; `make bench-push` / `bench-pull` |
+| `games/openarena/` | OpenArena benchmark demo and step 0's scripts |
 | `config.mk` | All build/deploy settings (snapshot date, builder pins, IPs, root and netconsole arguments; the kernel's and Mesa's versions are in their `package.conf`) |
 | `docker/` | Pinned build environments: `Dockerfile` (toolchain, mmdebstrap), `.deb` (Debian packaging tools, aptly), `.games` (ClassiCube's sound conversion), `.spu` |
 | `tools/` | Scripts called by the Makefile (`deb-*.sh`: Debian source packages; `repo-*.sh`, `aptly-publish.sh`: the repository; `deploy.sh`) |
@@ -71,6 +72,7 @@ our own packages, in a minute or two. Everything we build is a .deb in `build/de
 | `ps3-splash`, `plymouth`, `libplymouth5`, … | the boot splash (Walnut theme) on our patched Plymouth; `ps3-no-initramfs` stands in for initramfs-tools |
 | `ps3-system`, `ps3-desktop` | the system and desktop configuration (see the layout above) |
 | `ps3-apps` | Mousepad, GPicView, zathura, Xarchiver, Galculator, LXTask, scrot (Print key), mpv, opened by default from PCManFM; remove it to remove them |
+| `ps3-games` | the game suite's games that run on the RSX (docs/GAME-PLAN.md): OpenArena and ClassiCube so far |
 
 The image installs them with apt, and `make deploy` installs the same packages on the running
 PS3. So whatever is tried live is what the next image gets. On the PS3, apt sees Debian (live
