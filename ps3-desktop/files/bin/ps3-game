@@ -1,6 +1,13 @@
 #!/bin/sh
 # ps3-game <command...>: runs a game in game mode: in ps3-game.slice (kept resident), the
 # desktop helpers frozen and their memory reclaimed, the gamepads detached from the X pointer
+# Started from the menu or the desktop, this script itself runs in ps3-desktop.slice, which it
+# freezes below: it would freeze itself, with the game never started and nothing thawed. So it
+# first moves into a scope of ps3-game.slice (kept resident with the game).
+if [ -z "${PS3_GAME_SCOPED:-}" ]; then
+	export PS3_GAME_SCOPED=1
+	exec systemd-run --user --scope --slice=ps3-game.slice --unit="ps3-game-$$" -q "$0" "$@"
+fi
 pads() {	# X device ids of the gamepads (udev ID_INPUT_JOYSTICK) attached as pointers
 	for d in /sys/class/input/event*; do
 		udevadm info -q property "$d" | grep -q '^ID_INPUT_JOYSTICK=1' || continue

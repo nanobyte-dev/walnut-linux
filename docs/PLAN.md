@@ -25,13 +25,17 @@ is the binding constraint**, and most of the next work is about it.
   from Debian's source package plus our patch series (`<pkg>/patches`, `<pkg>/packaging`), version
   `<debver>+ps3.N`; native in a ppc64 chroot under qemu (`make <pkg>-deb`), the kernel cross-built.
   The repository is laid out by output package (`<pkg>/`).
-- **apt repository** on tibi-server, `http://10.0.0.10:8070/ps3` (`tools/repo-server/`),
-  published with aptly from `build/aptly` (`make publish`; never-delete: official versions only).
+- **apt repository** on tibi-server (`tools/repo-server/`), published with aptly from
+  `build/aptly`: suite `ps3` (`http://10.0.0.10:8070/ps3`, stable releases, kept forever) and
+  suite `ps3-dev` (`.../ps3-dev`, dev builds `~dev<stamp>` with debug symbols, the newest 5 of
+  each; `make deploy` goes through it). Decided 2026-10-16.
 - **apt on the PS3 (2026-10-16):** Debian live (debian-ports unstable) *and* ours, so anything we
-  don't build installs and upgrades from Debian; `image/apt/ps3.pref` pins ours at 1001 (they win
-  whatever the versions) and blocks Debian's kernels and Mesa (-1: never a candidate). `apt
-  upgrade` is safe: a Debian package that needs a newer Mesa than ours is kept back. New kernels
-  of ours arrive through meta packages. Source: git.tibich.com/chibicitiberiu/ps3-linux.
+  don't build installs and upgrades from Debian; `ps3-system`'s pins put our stable suite at 990
+  (wins over Debian, never downgrades an installed dev build), the dev suite at 1 (only on
+  request: `apt install -t ps3-dev`) and block Debian's kernels and Mesa (-1: never a
+  candidate). `apt upgrade` is safe: a Debian package that needs a newer Mesa than ours is kept
+  back. New kernels of ours arrive through meta packages. Source:
+  git.tibich.com/chibicitiberiu/ps3-linux.
 
 ## Long-term goal (stated 2026-10-14)
 

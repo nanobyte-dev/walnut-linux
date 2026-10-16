@@ -4,7 +4,8 @@
 # The chroot with the package's build dependencies installed is cached per debian/control
 # (build/chroot/<pkg>-deps-<hash>.tar); ccache persists in build/ccache (5 GB max).
 # Output: build/debs/<pkg>/ (replaced), plus the build log.
-# Env: OWNER JOBS DEB_BUILD_EXTRA (e.g. noautodbgsym)
+# Env: OWNER JOBS DEB_BUILD_EXTRA (e.g. noautodbgsym) KEEP_TREE (BUILD=cross-linux: keep the build tree)
+# package.conf: NATIVE_PROFILES (build profiles for the chroot build), CROSS_PROFILES (cross-linux)
 set -euo pipefail
 # One block, parsed whole before it runs: editing this file during a run can't make bash
 # execute a shifted fragment.
@@ -17,13 +18,34 @@ if [ "$TYPE" = native ]; then
 elif [ "$TYPE" = debsrc ]; then
 	UPVER=${VERSION%-*}; UPVER=${UPVER#*:}
 fi	# TYPE=upstream: UPVER from package.conf
-OUT=build/debs/$PKG
+OUT=build/debs/$PKG${KERNEL_FLAVOUR:+-$KERNEL_FLAVOUR}
 rm -rf "$OUT"; mkdir -p "$OUT"
 # BUILD=indep: everything builds right here (amd64 deb builder), no qemu. BUILD=split: the
 # Architecture: all packages here (-A, with INDEP_PATH on PATH, e.g. our spu-elf toolchain),
 # the ppc64 ones in the chroot (-B). BUILD=native (default): all in the chroot.
 # BUILD=cross: cross-built here for ppc64 (kernel modules against our kernel tree; the build
 # dependencies are this builder's own, not checked).
+# BUILD=cross-linux (the kernel, linux/): the kernel packages cross-built here for ppc64 with
+# CROSS_PROFILES (build dependencies: this builder's own, not checked; ccache in build/ccache) in
+# build/chroot/cross-<pkg> (kept with KEEP_TREE=1), then linux-kbuild (the ppc64 host tools
+# linux-headers needs) natively in the chroot below: -B with NATIVE_PROFILES, its .changes,
+# .buildinfo and log in build/debs/<pkg>/native/.
+if [ "${BUILD:-native}" = cross-linux ]; then
+	W=build/chroot/cross-$PKG
+	CC_DIR=$PWD/build/ccache
+	rm -rf "$W"; mkdir -p "$W" "$CC_DIR"
+	T0=$(date +%s)
+	(cd "$W" && dpkg-source -x "../../../$DSC" src >/dev/null && cd src && \
+		DEB_BUILD_OPTIONS="nocheck parallel=${JOBS:-16}" DEBIAN_KERNEL_USE_CCACHE=1 \
+		CCACHE_DIR="$CC_DIR" CCACHE_BASEDIR="$PWD" CCACHE_NOHASHDIR=1 CCACHE_MAXSIZE=5G \
+		dpkg-buildpackage -a ppc64 -b -d -uc -us ${CROSS_PROFILES:+-P$CROSS_PROFILES} > ../build.log 2>&1) \
+		|| { tail -40 "$W/build.log"; exit 1; }
+	echo ">> cross-built in $(( $(date +%s) - T0 )) s"
+	mv "$W"/*.deb "$W"/*.buildinfo "$W"/*.changes "$OUT/"
+	mv "$W/build.log" "$OUT/build-cross.log"
+	if [ "${KEEP_TREE:-0}" = 1 ]; then chown -R "$OWNER" "$W"; else rm -rf "$W"; fi
+	chown -R "$OWNER" "$OUT" "$CC_DIR"
+fi
 if [ "${BUILD:-native}" = indep ] || [ "${BUILD:-native}" = split ] || [ "${BUILD:-native}" = cross ]; then
 	W=build/chroot/indep-$PKG
 	what=-b; [ "$BUILD" = split ] && what=-A; [ "$BUILD" = cross ] && what="-a ppc64 -b -d"
@@ -39,7 +61,7 @@ if [ "${BUILD:-native}" = indep ] || [ "${BUILD:-native}" = split ] || [ "${BUIL
 	if [ "$BUILD" != split ]; then ls "$OUT"/*.deb; exit 0; fi
 fi
 ARCHBUILD=-b; [ "${BUILD:-native}" = split ] && ARCHBUILD=-B
-OUT=build/debs/$PKG
+[ "${BUILD:-native}" = cross-linux ] && ARCHBUILD=-B
 R=$PWD/build/chroot/run-$PKG
 mkdir -p build/ccache build/chroot
 
@@ -68,6 +90,17 @@ mount -t proc proc "$R/proc"; mount -t sysfs -o ro sysfs "$R/sys"; mount --rbind
 mkdir -p "$R/build/ccache" "$R/build/reproducible-path"
 mount --bind build/ccache "$R/build/ccache"
 cp /etc/resolv.conf "$R/etc/resolv.conf"
+# Build dependencies among our own builds (package.conf LOCAL_DEPS="<dir> ...": build/debs/<dir>),
+# served to apt in the chroot as a flat repository
+if [ -n "${LOCAL_DEPS:-}" ]; then
+	mkdir -p "$R/build/local"
+	for d in $LOCAL_DEPS; do
+		find "build/debs/$d" -maxdepth 1 -name '*.deb' ! -name '*-dbgsym_*' -exec cp -t "$R/build/local/" {} +
+	done
+	(cd "$R/build/local" && apt-ftparchive packages . > Packages)
+	echo 'deb [trusted=yes] file:/build/local ./' > "$R/etc/apt/sources.list.d/zz-local.list"
+	rm -f "$DEPS"	# the cache can't hold our own changing builds
+fi
 cp build/src/"$PKG"/*.dsc build/src/"$PKG"/*.tar.* "$R/build/" 2>/dev/null || true
 for f in build/src/"$PKG"/*.orig*.tar.*; do [ ! -e "$f" ] || cp -L "$f" "$R/build/"; done
 
@@ -78,7 +111,7 @@ T0=$(date +%s)
 in_chroot sh -c "cd /build/reproducible-path && dpkg-source -x ../$(basename "$DSC") $SOURCE-$UPVER >/dev/null"
 if [ ! -e "$DEPS" ]; then
 	in_chroot apt-get update -qq
-	in_chroot sh -c "cd /build/reproducible-path/$SOURCE-$UPVER && eatmydata apt-get build-dep -y -q ./" \
+	in_chroot sh -c "cd /build/reproducible-path/$SOURCE-$UPVER && eatmydata apt-get build-dep -y -q ${NATIVE_PROFILES:+-P $NATIVE_PROFILES} ./" \
 		| grep -E "^(Need to get|After this|E:)" || true
 	in_chroot apt-get clean
 	rm -rf "$R/build/reproducible-path/$SOURCE-$UPVER.deps-cache"
@@ -93,16 +126,17 @@ echo ">> build dependencies ready in $((T1 - T0)) s"
 in_chroot sh -c "ccache -M 5G >/dev/null; cd /build/reproducible-path/$SOURCE-$UPVER && \
 	CCACHE_DIR=/build/ccache CCACHE_BASEDIR=/build/reproducible-path CCACHE_NOHASHDIR=1 \
 	DEB_BUILD_OPTIONS='nocheck parallel=${JOBS:-16} ${DEB_BUILD_EXTRA:-}' \
-	eatmydata dpkg-buildpackage $ARCHBUILD -uc -us" > "build/chroot/$PKG-build.log" 2>&1 \
+	eatmydata dpkg-buildpackage $ARCHBUILD -uc -us ${NATIVE_PROFILES:+-P$NATIVE_PROFILES}" > "build/chroot/$PKG-build.log" 2>&1 \
 	|| { tail -40 "build/chroot/$PKG-build.log"; exit 1; }
 T2=$(date +%s)
 echo ">> built in $((T2 - T1)) s"
 
 in_chroot sh -c "CCACHE_DIR=/build/ccache ccache -s" | grep -E "Hits|Misses|Cache size" || true
 unmount_all
-cp "$R"/build/reproducible-path/*.deb "$R"/build/reproducible-path/*.ddeb "$R"/build/reproducible-path/*.buildinfo \
-	"$R"/build/reproducible-path/*.changes "$OUT/" 2>/dev/null || true
-mv "build/chroot/$PKG-build.log" "$OUT/build.log"
+META=$OUT; [ "${BUILD:-native}" = cross-linux ] && META=$OUT/native && mkdir -p "$META"
+cp "$R"/build/reproducible-path/*.deb "$R"/build/reproducible-path/*.ddeb "$OUT/" 2>/dev/null || true
+cp "$R"/build/reproducible-path/*.buildinfo "$R"/build/reproducible-path/*.changes "$META/" 2>/dev/null || true
+mv "build/chroot/$PKG-build.log" "$META/build.log"
 # only our outputs (never the chroot tree: see unmount_all)
 chown -R "$OWNER" "$OUT" build/ccache
 chown "$OWNER" build/chroot build/chroot/*.tar build/chroot/*.log 2>/dev/null || true

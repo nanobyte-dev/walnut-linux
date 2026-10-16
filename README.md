@@ -10,7 +10,7 @@ package (Debian source packages; docs/PACKAGING.md).
 
 | Path | What |
 |---|---|
-| `linux/` | The kernel: `patches/series` (PS3 patches applied in order: `ps3/` from psx-place, `local/` ours), `config/*.config` fragments merged onto `ps3_defconfig` |
+| `linux/` | The kernel: `patches/series` (PS3 patches applied in order: `ps3/` from psx-place, `local/` ours), `config/*.config` fragments merged onto `ps3_defconfig`; as Debian's `linux` source package (`package.conf`: version, .dsc hash, flavours and their fragments): `packaging/` (changes to `debian/`: flavours `ps3` and `ps3-release` only, no initramfs), `flavours/<flavour>.args` (boot arguments, also `KERNEL_ARGS`) |
 | `ps3rsx/` | The RSX DRM driver (`src/`, registers as "nouveau": render ioctls, validator, software context switch, KMS, VRAM swap) and the GPU probe modules (`probes/`) |
 | `ps3-gpu-tools/` | Programs run on the PS3: raw RSX probes and driver tests (`src/`: `rsx-*`, `rsxdrm-smoke`), scripts (`scripts/`: `rsx-suite.sh`, `rsx-x.sh`, …), offscreen GL tests compared with softpipe (`mesa-tests/`) |
 | `mesa/` | Our Mesa: Debian's `mesa` source package (`package.conf`: version and .dsc hash) plus `patches/` (our driver changes, a quilt series added as `debian/patches/ps3/`) and `packaging/` (changes to `debian/` itself: nouveau + softpipe only, no LLVM, on ppc64) |
@@ -43,6 +43,8 @@ package (Debian source packages; docs/PACKAGING.md).
     make debs              # our own packages -> build/repo
     make mesa-deb          # Mesa from Debian's source + mesa/patches, native ppc64 build under qemu
                            #   (make chroot first: the build chroot) -> build/debs/mesa
+    make linux-deb         # the kernel from Debian's source + linux/patches, cross-built (linux-kbuild
+                           #   natively under qemu) -> build/debs/linux; KEEP_TREE=1 keeps the build tree
     make deploy            # install with apt on the running PS3: upgrades ours, installs PKGS
                            #   (top-level names; AUTOREMOVE=1 purges what nothing needs any more)
     make publish           # publish to the repository server (DEBS=..., DIST=dev for test builds)

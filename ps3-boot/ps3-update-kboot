@@ -4,7 +4,8 @@
 # the default, so Petitboot boots it after its countdown and lists the others to pick from.
 #
 # PS3_DEFAULT in /etc/default/ps3-boot (a release) pins the default to that kernel while it is
-# installed, e.g. a known-good one until a new kernel has booted once.
+# installed, e.g. a known-good one until a new kernel has booted once; PS3_DEFAULT_FLAVOUR picks
+# the newest kernel of a flavour (ps3, ps3-release).
 #
 # An entry's command line: this installation's root and extras (/etc/default/ps3-boot) plus the
 # kernel's own arguments, which its package ships as /usr/lib/ps3/boot/<release>.args (kernels
@@ -47,6 +48,13 @@ for k in $kernels; do
 	[ -n "$default" ] || default=$release
 	echo "$release='$k $PS3_ROOT_ARGS $PS3_EXTRA_ARGS $args'" >> "$tmp"
 done
+# PS3_DEFAULT_FLAVOUR (e.g. ps3): the newest kernel of that flavour (release ending -<flavour>);
+# PS3_DEFAULT (a release) wins over it
+if [ -n "${PS3_DEFAULT_FLAVOUR:-}" ]; then
+	for k in $kernels; do
+		case "${k#/boot/vmlinux-}" in *-"$PS3_DEFAULT_FLAVOUR") default=${k#/boot/vmlinux-}; break ;; esac
+	done
+fi
 if [ -n "${PS3_DEFAULT:-}" ] && [ -e "/boot/vmlinux-$PS3_DEFAULT" ]; then
 	default=$PS3_DEFAULT
 fi

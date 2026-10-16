@@ -185,7 +185,7 @@ here was booted).
 
 | # | Change | Saves | Risk | Where |
 |---|---|---:|---|---|
-| 1 | `# CONFIG_STRICT_KERNEL_RWX is not set` (and `STRICT_MODULE_RWX` can stay) | **6.0 MB** (measured, variant) | Low. Kernel text stays writable through the linear map; irrelevant here. The image file also shrinks from 21 to ~15 MB (faster kexec load). Verify Petitboot's old kexec-tools still load it. | kernel config, reboot |
+| 1 | `# CONFIG_STRICT_KERNEL_RWX is not set` and `# CONFIG_STRICT_MODULE_RWX is not set` (powerpc selects the first whenever the second is set; found 2026-10-16) | **6.0 MB** (measured, variant) | Low. Kernel text stays writable through the linear map; irrelevant here. The image file also shrinks from 21 to ~15 MB (faster kexec load). Verify Petitboot's old kexec-tools still load it. | kernel config, reboot |
 | 2 | Console at 720p: `ps3fb=5M`, `mode:131` | **4 MB** (computed) | Output resolution becomes 720p for X as well | boot args, reboot |
 | 3 | `# CONFIG_KALLSYMS_ALL is not set` | **1.0 MB** image + **0.64 MB** modules (measured + modelled) | Low: oopses still show function names; data symbols disappear | kernel config, reboot |
 | 4 | Drop IPV6, IO_URING, QUOTA, KEXEC, HUGETLBFS; `NFS_V4=m` | **1.0 MB** (measured, variant) | Low-medium: some userspace may expect IPv6 sockets or io_uring (libraries fall back). NFS root (v3) stays. Nothing here uses our kexec (netboot kexec runs in Petitboot's kernel). | kernel config, reboot |

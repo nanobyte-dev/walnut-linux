@@ -1,0 +1,128 @@
+Description: PS3 kernels only: the ps3 and ps3-release flavours on ppc64
+ debian/config/ppc64/defines.toml has only our two flavours (no installer udebs, no default
+ flavour), built with gcc-16 (the compiler of our deb builder and of the ppc64 chroot), image
+ vmlinux. Their configs are the full .config files tools/linux-config.sh writes at
+ source-package time (config.<flavour>, merged last).
+ .
+ Root defines.toml: a "ps3" suite (our changelog's distribution) whose ABI suffix +ps3.<N>
+ tools/deb-prepare.sh fills in, accepting +ps3.<N> and +ps3.<N>~dev<stamp> revisions; no
+ initramfs dependency (Petitboot boots /boot/vmlinux-<release> directly, root on USB or NFS)
+ and no AppArmor recommendation (not in our config); no linux-libc-dev, docs, source or
+ unversioned tools packages (those stay Debian's: our repository's pins would otherwise
+ replace them; linux-kbuild gets their rsync build dependency); the rt featureset
+ disabled.
+Author: PS3 Linux project <ps3@localhost>
+Forwarded: not-needed
+Last-Update: 2026-10-16
+---
+--- a/debian/config/defines.toml
++++ b/debian/config/defines.toml
+@@ -86,7 +86,8 @@
+ 
+ [[featureset]]
+ name = 'rt'
+-enable = true
++# PS3: no PREEMPT_RT kernels (and no linux-headers-*-common-rt)
++enable = false
+   [featureset.description]
+   parts = ['rt']
+   [featureset.description.long]
+@@ -119,6 +120,13 @@
+ abi_suffix = '+deb12'
+ revision_regex = '\d+(\.\d+)?(\+deb13u\d+)?~bpo12\+\d+'
+ 
++# PS3 builds (the ps3 project): version <debian revision>+ps3.<N>, or +ps3.<N>~dev<stamp> for
++# test builds; the ABI suffix (+ps3.<N>) is filled in by tools/deb-prepare.sh
++[[debianrelease]]
++name_regex = 'ps3'
++abi_suffix = '@PS3_ABI_SUFFIX@'
++revision_regex = '\d+(\.\d+)?(\+deb13u\d+)?\+ps3\.\d+(~dev\d+)?'
++
+ # Use default rules for any suite with no explicit config
+ [[debianrelease]]
+ name_regex = '.*'
+@@ -126,13 +134,16 @@
+ [build]
+ compiler = 'gcc-14'
+ 
++# PS3: only kernel packages (linux-libc-dev, linux-doc, linux-source and the tools stay Debian's)
++[packages]
++docs = false
++libc_dev = false
++source = false
++tools_unversioned = false
++
++# PS3: no initramfs (Petitboot boots /boot/vmlinux-<release> directly, root on USB or NFS) and
++# no AppArmor (not in the PS3 kernels' config)
+ [relations.image]
+-depends = [
+-  'initramfs-tools (>= 0.120+deb8u2) | linux-initramfs-tool',
+-]
+-recommends = [
+-  'apparmor',
+-]
+ breaks = [
+   'fwupdate (<< 12-7)',
+   'wireless-regdb (<< 2019.06.03-1~)',
+--- a/debian/config/ppc64/defines.toml
++++ b/debian/config/ppc64/defines.toml
+@@ -1,37 +1,22 @@
++# PS3 kernels (the ps3 project's linux/packaging). Each flavour's config is the full .config
++# made by tools/linux-config.sh (debian/config/ppc64/config.<flavour>, merged last, so it decides
++# every option); debian/config/ppc64/args.<flavour> are its boot arguments.
+ [[flavour]]
+-name = 'powerpc64'
+-[flavour.build]
+-config = [
+-  'kernelarch-powerpc/config-arch-64',
+-  'kernelarch-powerpc/config-arch-64-be',
+-]
+-[flavour.defs]
+-is_default = true
++name = 'ps3'
+ [flavour.description]
+-hardware = '64-bit PowerPC with 4k pages'
+-[flavour.packages]
+-installer = true
++hardware = 'PlayStation 3 (debug)'
++hardware_long = 'the Sony PlayStation 3 under OtherOS++, with debugging options on'
+ 
+ [[flavour]]
+-name = 'powerpc64-64k'
+-[flavour.build]
+-config = [
+-  'kernelarch-powerpc/config-arch-64',
+-  'kernelarch-powerpc/config-arch-64-be',
+-  'kernelarch-powerpc/config-page-64k',
+-]
++name = 'ps3-release'
+ [flavour.description]
+-hardware = '64-bit PowerPC with 64k pages'
++hardware = 'PlayStation 3'
++hardware_long = 'the Sony PlayStation 3 under OtherOS++, built for memory (fewer debugging options)'
+ 
+ [[featureset]]
+ name = 'none'
+ 
+ [build]
++compiler = 'gcc-16'
+ kernel_file = 'vmlinux'
+ kernel_stem = 'vmlinux'
+-
+-[relations.image]
+-suggests = [
+-  'mkvmlinuz',
+-  'grub-ieee1275',
+-]
+--- a/debian/templates/tools-versioned.control.in
++++ b/debian/templates/tools-versioned.control.in
+@@ -2,6 +2,9 @@
+ Meta-Rules-Target: kbuild
+ Build-Profiles: <!pkg.linux.notools>
+ Architecture: linux-any
++Build-Depends:
++# PS3: headers_install needs it (linux-libc-dev, whose build dependency it was, isn't built)
++ rsync,
+ Depends: ${shlibs:Depends}, ${misc:Depends}, pahole
+ Multi-Arch: foreign
+ Description: Kbuild infrastructure for Linux @abiname@

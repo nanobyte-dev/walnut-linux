@@ -1,6 +1,6 @@
 #!/bin/bash
 # repo-publish.sh <deb>...: publishes packages to our apt repository on tibi-server.
-#   DIST=ps3 (default) official and kept forever; DIST=dev throwaway test builds.
+#   DIST=ps3 (default) stable, kept forever; DIST=dev dev builds (ps3-dev: newest 5 of each, symbols included).
 # 1. stages copies (aptly hardlinks its inputs; a later in-place rebuild must not change the pool),
 #    leaving out packages that must never shadow Debian's (linux-libc-dev, linux-bpf-dev, docs/source);
 # 2. aptly adds and publishes in the deb builder (tools/aptly-publish.sh);
@@ -20,7 +20,8 @@ for f in "$@"; do
 	linux-libc-dev_*|linux-bpf-dev_*|linux-doc*|linux-source*) echo ">> not published: $f"; continue ;;
 	esac
 	case "$(basename "$f")" in
-	*-dbgsym_*.deb) cp "$f" "$STAGE/$(basename "${f%.deb}").ddeb" ;;	# debug symbols: ps3-dbgsym
+	# debug symbols: with the build in ps3-dev; stable ones to ps3-dbgsym
+	*-dbgsym_*.deb) if [ "$DIST" = dev ]; then cp "$f" "$STAGE/"; else cp "$f" "$STAGE/$(basename "${f%.deb}").ddeb"; fi ;;
 	*) cp "$f" "$STAGE/" ;;
 	esac
 done

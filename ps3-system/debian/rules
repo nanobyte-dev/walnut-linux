@@ -13,6 +13,7 @@ override_dh_auto_install:
 	install -D -m 644 debian/00-ps3.conf $(P)/usr/lib/NetworkManager/conf.d/00-ps3.conf
 	install -D -m 644 debian/70-ds3-pair.rules $(P)/usr/lib/udev/rules.d/70-ds3-pair.rules
 	install -D -m 644 debian/sshd-ps3.conf $(P)/etc/ssh/sshd_config.d/ps3.conf
+	install -D -m 644 debian/kernel-img.conf $(P)/etc/kernel-img.conf
 	install -D -m 644 files/apt/ps3.sources $(P)/etc/apt/sources.list.d/ps3.sources
 	install -D -m 644 files/apt/debian.sources $(P)/etc/apt/sources.list.d/debian.sources
 	install -D -m 644 files/apt/ps3.pref $(P)/etc/apt/preferences.d/ps3

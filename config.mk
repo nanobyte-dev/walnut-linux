@@ -99,7 +99,9 @@ ROOT_ARGS_usb       := root=PARTUUID=50533301-02 rootfstype=ext4 ro
 USB_DISK_ID         := usb-SAMSUNG_HN-M500MBB_0000AB1234E8-0:0
 # The kernel's own arguments: shipped in its package (/usr/lib/ps3/boot/<release>.args), so each
 # kernel in the boot menu gets the ones it understands
-KERNEL_ARGS         := video=ps3fb:mode:133 consoleblank=0 ps3rsx_gart=0 ps3rsx_cma=64M console=tty1 loglevel=4
+# (one source: linux/flavours/<flavour>.args, which the Debian kernel packages ship too; this is
+# the ps3 flavour's)
+KERNEL_ARGS         := $(shell cat $(dir $(lastword $(MAKEFILE_LIST)))linux/flavours/ps3.args)
 # This installation's development extras: DHCP for netconsole, netconsole to this PC
 DEBUG_ARGS          := ip=dhcp netconsole=6665@$(PS3_IP)/eth0,6666@$(PC_IP)/$(PC_MAC)
 # For kernels whose package has no arguments file (built before 2026-10-15: fixed 32 MiB GART)

@@ -1,9 +1,9 @@
 #!/usr/bin/make -f
-# Cross-built: dpkg-buildpackage -a ppc64, against the kernel tree in KERNEL_OBJ
+# Built against the kernel's headers package (linux-headers-<release>, a build dependency)
 KREL := $(shell cat debian/kernel-release)
-KOBJ ?= /work/build/kernel/obj
+KOBJ ?= /lib/modules/$(KREL)/build
 P := debian/ps3rsx-modules-$(KREL)
-KMAKE := $(MAKE) -C $(KOBJ) ARCH=powerpc CROSS_COMPILE=$(DEB_HOST_GNU_TYPE)-
+KMAKE := $(MAKE) -C $(KOBJ)
 
 %:
 	dh $@

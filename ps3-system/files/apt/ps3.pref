@@ -1,8 +1,15 @@
-# Our repository's packages always win over Debian's, whatever the versions (a release we
-# publish, newer or older, is what gets installed)
+# Our stable releases win over Debian's packages (500), whatever the versions; below 1000, so a
+# newer dev build installed from ps3-dev is never downgraded: the next stable release (a higher
+# version) takes over from it. Going back to an older version is explicit: apt install pkg=<ver>
 Package: *
 Pin: release o=PS3, n=ps3, c=main
-Pin-Priority: 1001
+Pin-Priority: 990
+
+# Dev builds only when asked for (apt install -t ps3-dev ..., make deploy), like Debian's
+# experimental
+Package: *
+Pin: release o=PS3, n=ps3-dev
+Pin-Priority: 1
 
 # Debian's kernels and Mesa are never installed: the PS3 runs ours (Debian's linux-libc-dev,
 # linux-base, perf etc. stay installable). A Debian package needing a newer Mesa than ours is

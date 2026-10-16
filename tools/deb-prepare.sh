@@ -29,7 +29,7 @@ if [ "$TYPE" = native ]; then
 			[ -e "$f" ] || continue
 			b=$(basename "$f" .in)
 			case "$b" in postinst|postrm|preinst|prerm) b="$SOURCE-modules-$KERNEL_RELEASE.$b" ;; esac
-			sed "s/@KERNEL_RELEASE@/$KERNEL_RELEASE/g" "$f" > "$T/debian/$b"
+			sed -e "s/@KERNEL_RELEASE@/$KERNEL_RELEASE/g" -e "s/@KERNEL_FLAVOUR@/${KERNEL_FLAVOUR:-ps3}/g" "$f" > "$T/debian/$b"
 			rm "$f"
 		done
 	fi
@@ -112,7 +112,8 @@ if [ -s "$PKG/patches/series" ]; then
 	mkdir -p "$T/debian/patches/ps3"
 	while read -r p; do
 		[ -n "$p" ] && [ "${p#\#}" = "$p" ] || continue
-		cp "$PKG/patches/$p" "$T/debian/patches/ps3/"
+		mkdir -p "$T/debian/patches/ps3/$(dirname "$p")"
+		cp "$PKG/patches/$p" "$T/debian/patches/ps3/$p"
 		echo "ps3/$p" >> "$T/debian/patches/series"
 		(cd "$T" && quilt push -q "ps3/$p" >/dev/null)
 	done < "$PKG/patches/series"
@@ -131,6 +132,24 @@ s = open(p).read()
 s = re.sub(r'^( -- .*>)  .*$', lambda m: m.group(1) + '  ' + date, s, count=1, flags=re.M)
 open(p, 'w').write(s)
 PY2
+# Package-specific: the kernel (linux/package.conf FLAVOURS). The ABI name gets +ps3.<N> (package
+# names can't have '~': a test build's <n>~dev<stamp> becomes <n>.dev<stamp>); each flavour's full
+# config (tools/linux-config.sh, on the patched tree) and boot arguments go into
+# debian/config/ppc64/; then debian/control is regenerated (gencontrol.py; the target fails on
+# purpose) and checked, and its build directory removed.
+if [ "$SOURCE" = linux ]; then
+	sed -i "s/@PS3_ABI_SUFFIX@/+ps3.${N/\~/.}/" "$T/debian/config/defines.toml"
+	for f in $FLAVOURS; do
+		tools/linux-config.sh "$T" "$f" "$T/debian/config/ppc64/config.$f"
+		cp "$PKG/flavours/$f.args" "$T/debian/config/ppc64/args.$f"
+	done
+	(cd "$T" && PYTHONDONTWRITEBYTECODE=1 make -f debian/rules debian/control-real > ../gencontrol.log 2>&1) || true
+	if ! (cd "$T" && md5sum --check --status debian/control.md5sum) || \
+		! grep -q '^Package: linux-image-.*-ps3$' "$T/debian/control"; then
+		cat "$OUT/gencontrol.log"; echo "!! linux: debian/control was not regenerated"; exit 1
+	fi
+	rm -rf "$T/debian/build" "$T/debian/lib/python/debian_linux/__pycache__" "$OUT/gencontrol.log"
+fi
 for f in "$SRC"/*.orig*.tar.*; do ln -sf "$(realpath "$f")" "$OUT/"; done
 (cd "$OUT" && dpkg-source -q -b "$SOURCE-$UPVER" >/dev/null)
 echo ">> $OUT/${SOURCE}_${NEWVER}.dsc"
