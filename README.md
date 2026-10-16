@@ -22,10 +22,9 @@ package (Debian source packages; docs/PACKAGING.md).
 | `ps3-desktop/` | Desktop package: autologin, `ps3-session`, game mode, Openbox/tint2/GTK/PCManFM defaults in `/etc/xdg/ps3`, X config |
 | `image/` | The root filesystem image: `packages.txt` (slow Debian layer), `packages-ours.txt` (ours, installed with apt), `deps.txt` (Debian packages in our repository), `customize.sh` (per-installation settings: hostname, user, key, locale) |
 | `spu-toolchain/` | The spu-elf cross toolchain's patches: GCC 16.2 port (`gcc/`), binutils 2.47 fix, newlib 4.6 fixes, test scripts |
-| `sysroot/` | ppc64 sysroot contents (for the cross builds of ClassiCube and the GL tests) |
 | `games/openarena/` | OpenArena benchmark demo and scripts |
 | `config.mk` | All build/deploy settings (versions, hashes, snapshot date, IPs, kernel cmdline) |
-| `docker/` | Pinned build environments: `Dockerfile` (toolchain, mmdebstrap), `.mesa` (cross compilers and the sysroot for ClassiCube and the GL tests), `.games`, `.spu`, `.deb` (Debian packaging tools, aptly) |
+| `docker/` | Pinned build environments: `Dockerfile` (toolchain, mmdebstrap), `.deb` (Debian packaging tools, aptly), `.games` (ClassiCube's sound conversion), `.spu` |
 | `tools/` | Scripts called by the Makefile (`deb-*.sh`: Debian source packages; `repo-*.sh`, `aptly-publish.sh`: the repository; `deploy.sh`) |
 | `docs/` | `PLAN.md` the plan, `PACKAGING.md` packages, repository and deploys, `DRIVER-PLAN.md` GPU driver phases, `RSX.md` measured GPU facts, `RSX-PROGRAMS.md`, `MESA-METHODS.md`, `RESEARCH.md`, `SPU-GCC.md`, `KERNEL-MEMORY.md`, `HARDWARE-LEVERAGE.md`, `RSX-SPU-FEASIBILITY.md`, `SPU-OFFLOAD*.md` |
 | `build/` | Generated (ignored). Ephemeral except `build/aptly` (the published repository's state); see CLAUDE.md |
@@ -91,3 +90,4 @@ builds use a fixed `SOURCE_DATE_EPOCH`, build user/host and no git version suffi
 
 Petitboot: `firmware/petitboot/dtbImage.ps3.bin` from github.com/xXEvilnatXx/xai_plugin
 (`Petitboot/NOR`), MD5 `ca5e9520e03066290f68f67e9167c0fa`.
+

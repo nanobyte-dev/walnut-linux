@@ -50,8 +50,8 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules netboot-deb spu-toolchain spu-tests spu-deploy help all builder kernel rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot debs deploy kernel-deploy netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
-	mesa-builder mesa-sysroot mesa-tests classicube classicube-audio classicube-deploy
+.PHONY: repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules netboot-deb spu-toolchain spu-tests spu-deploy help all builder kernel rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot debs deploy kernel-deploy netboot listen shell clean gpu-deploy ps3-reboot \
+	classicube classicube-audio classicube-deploy
 
 help:
 	@echo "Build:"
@@ -73,13 +73,10 @@ help:
 	@echo "  make netboot      boot our kernel on the PS3 from Petitboot (NFS root)"
 	@echo "  make listen       print PS3 early-debug + netconsole output"
 	@echo "GPU:"
-	@echo "  make gpu-tools    cross-compile ps3-gpu-tools/src/*.c -> $(BUILD)/gpu"
-	@echo "  make gpu-deploy   install them (ps3rsx, ps3-gpu-tools packages) on the running PS3"
+	@echo "  make gpu-deploy   install the RSX driver and GPU tools packages on the running PS3"
 	@echo "  make ps3-reboot   reboot the running PS3 Linux (lands in GameOS/XMB, not Petitboot)"
 	@echo "Mesa:"
-	@echo "  make mesa-sysroot Debian ppc64 sysroot to build against -> $(MESA_SYSROOT)"
 	@echo "  make mesa-deb     our Mesa: Debian's source + mesa/patches, built natively (qemu) -> $(BUILD)/debs/mesa"
-	@echo "  make mesa-tests   offscreen EGL/GLES2 tests (ps3-gpu-tools/mesa-tests) -> $(BUILD)/mesa/tests"
 	@echo "Other:"
 	@echo "  make shell        shell in the builder container"
 	@echo "  make clean        move build outputs to $(BUILD)/old/ (never deletes)"
@@ -135,48 +132,9 @@ usb-root: $(ROOTFS_TAR)
 	PS3_SSH="$(PS3_SSH)" USB_DISK_ID="$(USB_DISK_ID)" FORMAT=$(FORMAT) FRESH=$(FRESH) \
 		tools/install-usb-root.sh $(ROOTFS_TAR)
 
-# --- GPU tools ----------------------------------------------------------------
-# Kernel modules build against the kernel tree in $(BUILD)/kernel/obj. Kbuild writes objects next to
-# the sources, so each source directory is copied to $(BUILD)/gpu-<name> (<name>:<source dir>).
-GPU_KMODS := ps3rsx:ps3rsx/src kmod:ps3rsx/probes
-GPU_STAMP := $(BUILD)/gpu/.done
-gpu-tools: $(GPU_STAMP)
-$(GPU_STAMP): $(wildcard ps3-gpu-tools/Makefile ps3-gpu-tools/src/* ps3rsx/src/* ps3rsx/probes/*) \
-		$(KERNEL_STAGE)/boot/vmlinux | $(BUILDER_STAMP)
-	$(DOCKER_RUN) --user $(UID_GID) $(BUILDER_TAG) make -C ps3-gpu-tools OUT=../$(BUILD)/gpu
-	for m in $(GPU_KMODS); do d=$${m%%:*}; s=$${m#*:}; [ -e $$s/Kbuild ] || { echo "no $$s/Kbuild"; exit 1; }; \
-		mkdir -p $(BUILD)/gpu-$$d && cp $$s/* $(BUILD)/gpu-$$d/ && \
-		$(DOCKER_RUN) --user $(UID_GID) $(BUILDER_TAG) make -s -C $(BUILD)/kernel/obj \
-			ARCH=powerpc CROSS_COMPILE=powerpc64-linux-gnu- M=/work/$(BUILD)/gpu-$$d modules \
-			|| exit 1; \
-	done
-	@touch $@
-
+# --- GPU tools (ps3-gpu-tools and ps3rsx are source packages: make ps3-gpu-tools-deb ps3rsx-modules) ---
 gpu-deploy:
 	$(MAKE) deploy PKGS="ps3rsx-modules-ps3 ps3-gpu-tools"
-
-# --- Mesa cross toolchain (the Debian sysroot for ClassiCube and the GL tests; Mesa itself is mesa-deb) -------------------------------------------------------------------------------
-# Own image on top of the builder (C++ cross compiler, meson), so its tag doesn't change the kernel's.
-MESA_BUILDER_TAG := ps3-mesa-builder:$(shell (cat docker/Dockerfile.mesa; echo $(BUILDER_TAG)) | sha256sum | cut -c1-12)
-MESA_BUILDER_STAMP := $(BUILD)/.mesa-builder-$(subst :,-,$(MESA_BUILDER_TAG))
-MESA_SYSROOT  := $(BUILD)/mesa/sysroot
-
-mesa-builder: $(MESA_BUILDER_STAMP)
-$(MESA_BUILDER_STAMP): docker/Dockerfile.mesa | $(BUILDER_STAMP)
-	docker build -q -t $(MESA_BUILDER_TAG) -f docker/Dockerfile.mesa --build-arg BUILDER=$(BUILDER_TAG) docker
-	@touch $@
-
-mesa-sysroot: $(MESA_SYSROOT)/.done
-$(MESA_SYSROOT)/.done: $(MESA_SYSROOT_PACKAGES) tools/build-mesa-sysroot.sh $(ROOTFS_VARS) | $(MESA_BUILDER_STAMP)
-	$(DOCKER_RUN) $(ROOTFS_ENV) -e MESA_SYSROOT_PACKAGES=$(MESA_SYSROOT_PACKAGES) $(MESA_BUILDER_TAG) \
-		tools/build-mesa-sysroot.sh
-
-MESA_TESTS_STAMP := $(BUILD)/mesa/tests/.done
-mesa-tests: $(MESA_TESTS_STAMP)
-$(MESA_TESTS_STAMP): $(wildcard ps3-gpu-tools/mesa-tests/*) $(MESA_SYSROOT)/.done | $(MESA_BUILDER_STAMP)
-	$(DOCKER_RUN) --user $(UID_GID) $(MESA_BUILDER_TAG) make -C ps3-gpu-tools/mesa-tests SYSROOT=/work/$(MESA_SYSROOT) \
-		OUT=/work/$(BUILD)/mesa/tests
-	@touch $@
 
 # --- ClassiCube -----------------------------------------------------------------
 CC_TARBALL := $(DOWNLOADS)/ClassiCube-$(CLASSICUBE_COMMIT).tar.gz
@@ -192,11 +150,11 @@ $(CC_TEXPACK):
 	echo "$(CLASSICUBE_TEXPACK_SHA256)  $@.tmp" | sha256sum -c --quiet
 	mv $@.tmp $@
 
-# Game asset tools (oggdec) on top of the Mesa builder
-GAMES_BUILDER_TAG := ps3-games-builder:$(shell (cat docker/Dockerfile.games; echo $(MESA_BUILDER_TAG)) | sha256sum | cut -c1-12)
+# Game asset tools (oggdec) on top of the builder
+GAMES_BUILDER_TAG := ps3-games-builder:$(shell (cat docker/Dockerfile.games; echo $(BUILDER_TAG)) | sha256sum | cut -c1-12)
 GAMES_BUILDER_STAMP := $(BUILD)/.games-builder-$(subst :,-,$(GAMES_BUILDER_TAG))
-$(GAMES_BUILDER_STAMP): docker/Dockerfile.games | $(MESA_BUILDER_STAMP)
-	docker build -q -t $(GAMES_BUILDER_TAG) -f docker/Dockerfile.games --build-arg BUILDER=$(MESA_BUILDER_TAG) docker
+$(GAMES_BUILDER_STAMP): docker/Dockerfile.games | $(BUILDER_STAMP)
+	docker build -q -t $(GAMES_BUILDER_TAG) -f docker/Dockerfile.games --build-arg BUILDER=$(BUILDER_TAG) docker
 	@touch $@
 
 # Sounds and music, fetched and converted as the game's launcher would (classicube/sounds.sh)
@@ -270,7 +228,7 @@ PKG_STAMPS := $(PACKAGES:%=$(BUILD)/repo/.%.stamp)
 debs: $(PKG_STAMPS)
 .SECONDEXPANSION:
 $(BUILD)/repo/.%.stamp: $$(PKG_INPUTS_$$*) tools/stage-package.sh tools/build-debs.sh | $(REPO_BUILDER_STAMP)
-	$(DOCKER_RUN) --user $(UID_GID) -e MESA_PREFIX=$(MESA_PREFIX) -e KERNEL_VERSION=$(KERNEL_VERSION) \
+	$(DOCKER_RUN) --user $(UID_GID) -e KERNEL_VERSION=$(KERNEL_VERSION) \
 		-e KERNEL_RELEASE=$(KERNEL_RELEASE) -e KERNEL_ARGS="$(KERNEL_ARGS)" -e MESA_VERSION=$(MESA_VERSION) \
 		-e CLASSICUBE_COMMIT=$(CLASSICUBE_COMMIT) -e PKG_N=$(PKG_N) $(REPO_BUILDER_TAG) tools/build-debs.sh $*
 	@touch $@
@@ -373,7 +331,7 @@ clean-ephemeral:
 
 # A builder stamp is only as good as its image: if Docker no longer has the image (pruned), drop the
 # stamp so the image is rebuilt rather than the build failing
-$(foreach b,BUILDER MESA_BUILDER GAMES_BUILDER SPU_BUILDER REPO_BUILDER,\
+$(foreach b,BUILDER GAMES_BUILDER SPU_BUILDER REPO_BUILDER,\
 	$(if $(wildcard $($(b)_STAMP)),$(shell docker image inspect $($(b)_TAG) >/dev/null 2>&1 || rm -f $($(b)_STAMP))))
 
 # --- Debian source packages (deb-src + our patches; docs/PLAN.md, packaging plan) ---------------

@@ -22,9 +22,8 @@ ROOTFS_CUSTOMIZE    := image/customize.sh
 SSH_PUBKEY          := $(HOME)/.ssh/id_ps3.pub
 
 # --- Mesa (userspace GL for the RSX) ------------------------------------------
-# Same Mesa version as the snapshot's Debian packages; built with our nv30 patch.
+# The version of the snapshot's Debian mesa that mesa/ patches (its package.conf pins the source).
 MESA_VERSION        := 26.2.4
-MESA_SYSROOT_PACKAGES := sysroot/mesa-sysroot-packages.txt
 
 # --- ClassiCube (classicube/) ------------------------------------------------
 # A pinned commit (SDL3 backend), plus the texture pack it needs (plain HTTP, so checksummed)
