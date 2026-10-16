@@ -8,7 +8,7 @@ set -euo pipefail
 # One block, parsed whole before it runs: editing this file during a run can't make bash
 # execute a shifted fragment.
 {
-PKG=$1 N=$2 DATE=$3
+PKG=$1 N=$2 DATE=$3 HASH=${4:-}
 . "$PKG/package.conf"
 OUT=build/src/$PKG
 if [ "$TYPE" = native ]; then
@@ -35,7 +35,7 @@ if [ "$TYPE" = native ]; then
 	fi
 	(cd "$T" && DEBEMAIL="ps3@localhost" DEBFULLNAME="PS3 Linux project" \
 		dch --create --package "$SOURCE" -v "$NEWVER" --distribution ps3 --force-distribution \
-		"Built from the ps3 project, $(git -C /work log -1 --format=%h 2>/dev/null || echo local)." 2>/dev/null)
+		"Built from the ps3 project, ${HASH:-local}." 2>/dev/null)
 	python3 - "$T/debian/changelog" "$DATE" <<'PY2'
 import re, sys
 p, date = sys.argv[1:]
@@ -80,7 +80,7 @@ if [ "$TYPE" = upstream ]; then
 	fi
 	(cd "$T" && DEBEMAIL="ps3@localhost" DEBFULLNAME="PS3 Linux project" \
 		dch --create --package "$SOURCE" -v "$NEWVER" --distribution ps3 --force-distribution \
-		"Built from the ps3 project, $(git -C /work log -1 --format=%h 2>/dev/null || echo local)." 2>/dev/null)
+		"Built from the ps3 project, ${HASH:-local}." 2>/dev/null)
 	python3 - "$T/debian/changelog" "$DATE" <<'PY2'
 import re, sys
 p, date = sys.argv[1:]
@@ -123,7 +123,7 @@ if [ "$SOURCE" = mesa ]; then make -s -C "$T" -f debian/rules regen_control; fi
 
 (cd "$T" && DEBEMAIL="ps3@localhost" DEBFULLNAME="PS3 Linux project" \
 	dch -v "$NEWVER" --distribution ps3 --force-distribution --no-auto-nmu --force-bad-version \
-	"PS3 build: patches from the ps3 project, $(git -C /work log -1 --format=%h 2>/dev/null || echo local)." 2>/dev/null)
+	"PS3 build: patches from the ps3 project, ${HASH:-local}." 2>/dev/null)
 # the entry's date: the commit's, so the same checkout gives the same SOURCE_DATE_EPOCH
 python3 - "$T/debian/changelog" "$DATE" <<'PY2'
 import re, sys

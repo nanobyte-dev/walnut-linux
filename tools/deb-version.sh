@@ -1,5 +1,5 @@
 #!/bin/bash
-# deb-version.sh <pkg>: prints N for <pkg>'s "+ps3.N" version, and the date of that commit:
+# deb-version.sh <pkg>: prints N for <pkg>'s "+ps3.N" version, the date and the short hash of that commit:
 # N = the commit count up to the last commit that touched the package's directory or the shared
 # packaging tooling (so versions only grow); a dirty tree gives "<N+1>~dev<stamp>" (ps3-dev only).
 set -euo pipefail
@@ -14,3 +14,4 @@ if [ -n "$(git status --porcelain -- "${paths[@]}")" ]; then
 fi
 echo "$n"
 echo "$date"
+git log -1 --format=%h "$last"	# the commit the version stands for (dirty trees: plus changes)

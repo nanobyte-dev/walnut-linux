@@ -400,7 +400,7 @@ $(BUILD)/chroot/sid-ppc64.tar:
 		docker run --rm -v $(CURDIR):/work -w /work $(DEB_ENV) $(REPO_BUILDER_TAG) tools/deb-fetch.sh $*; fi
 	@set -e; v=$$(tools/deb-version.sh $*); \
 	docker run --rm -v $(CURDIR):/work -w /work --user $(UID_GID) $(DEB_ENV) $(REPO_BUILDER_TAG) \
-		tools/deb-prepare.sh $* "$$(echo "$$v" | sed -n 1p)" "$$(echo "$$v" | sed -n 2p)"
+		tools/deb-prepare.sh $* "$$(echo "$$v" | sed -n 1p)" "$$(echo "$$v" | sed -n 2p)" "$$(echo "$$v" | sed -n 3p)"
 %-deb: %-src | $(BUILD)/chroot/sid-ppc64.tar
 	@tools/disk-check.sh
 	docker run --rm --privileged -v $(CURDIR):/work -w /work $(DEB_ENV) -e JOBS=$(DEB_JOBS) -e KEEP_TREE=$(KEEP_TREE) \
