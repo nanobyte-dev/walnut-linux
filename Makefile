@@ -27,13 +27,15 @@ $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VA
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
 .PHONY: repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy ps3-reboot bench-push bench-pull \
-	classicube classicube-audio classicube-deploy
+	classicube classicube-audio classicube-deploy quake-data
 
 help:
 	@echo "Packages (docs/PACKAGING.md):"
 	@echo "  make packages     all our packages -> $(BUILD)/debs/<pkg> (kernel first, ps3rsx last)"
 	@echo "  make <pkg>-deb    one source package (linux, mesa, ps3-desktop, ...); make ps3rsx-modules"
 	@echo "                    the RSX driver for both kernels in $(BUILD)/debs/linux"
+	@echo "  make quake-data   Quake shareware and Quake II demo data debs (game-data-packager; the published"
+	@echo "                    files when the ps3 suite has them) -> $(BUILD)/debs/quake-data"
 	@echo "Image:"
 	@echo "  make rootfs       the PS3's root filesystem image -> $(ROOTFS_TAR)"
 	@echo "                    (package layer + our config and packages: kernels, RSX driver, Mesa, games)"
@@ -135,6 +137,13 @@ $(CC_AUDIO)/default2.zip: $(CC_TARBALL) classicube/sounds.sh | $(GAMES_BUILDER_S
 
 classicube-deploy:
 	$(MAKE) deploy PKGS=classicube
+
+# Quake's shareware and Quake II's demo data (QuakeSpasm, Yamagi Quake II) from game-data-packager
+# (tools/game-data.sh): non-free, our LAN repository only. A version already in the ps3 suite is
+# downloaded from there, never made again (its output isn't reproducible); REGEN=1 makes it anyway.
+quake-data: | $(GAMES_BUILDER_STAMP)
+	$(DOCKER_RUN) --user $(UID_GID) -e HOME=/tmp -e REPO_URL=$(REPO_URL) -e REGEN=$(REGEN) $(GAMES_BUILDER_TAG) \
+		tools/game-data.sh $(BUILD)/debs/quake-data quake:quake-shareware quake2:quake2-demo-data
 
 classicube: classicube-deb
 
