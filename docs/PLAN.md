@@ -19,7 +19,9 @@ is the binding constraint**, and most of the next work is about it.
     gas took `nop 127` for the `.nop` directive). **newlib** for the SPU: 4.6.0 (seven
     patches, `spu-toolchain/newlib-4.6/`). On the SPEs (2026-10-15): 1629 of 1677 execute tests pass,
     the same tests one by one as with binutils 2.33.1 and newlib 1.20.
-- **Kernel:** 6.12 LTS (supported to Dec 2028). **Mesa:** Debian's source package of the
+- **Kernel:** 6.12 LTS (supported to Dec 2028), from Debian's `linux` source (trixie, 6.12.111-1)
+  with our 44 patches, two flavours: `ps3` (debug) and `ps3-release` (task #14: +8.7 MB `MemTotal`
+  measured on the PS3, 222704 kB against 213992 kB; vmlinux 11.9 MB against 21.2 MB). **Mesa:** Debian's source package of the
   snapshot's release, rebuilt with our patches (`mesa/`, version `26.2.4-1+ps3.N`).
 - **Packaging (2026-10-16, plan: Debian source packages):** components Debian ships are built
   from Debian's source package plus our patch series (`<pkg>/patches`, `<pkg>/packaging`), version
@@ -196,9 +198,15 @@ Only when content needs them (OpenArena and ClassiCube don't):
 
 ### Platform
 
-- ~~**Packaging** (task #11)~~ and ~~**deb-src packaging** (task #9, Mesa and our code)~~: done
-  2026-10-16 (docs/PACKAGING.md). Open: the kernel from Debian's `linux` source (milestone 4),
-  a patch workflow on git work trees (`<pkg>-work`/`-patches`), signing the repository.
+- ~~**Packaging** (task #11)~~ and ~~**deb-src packaging** (task #9)~~: done 2026-10-16
+  (docs/PACKAGING.md): Mesa and the kernel from Debian's sources, our code as native packages,
+  the patch workflow (`<pkg>-work`/`-patches`/`-rebase`), dev and stable suites, image
+  snapshots; the image and packages are reproducible (checked). Tested on the PS3 (NFS root
+  netboot of both kernels, then installed on the USB root). Open: boot a new kernel from
+  Petitboot's own menu (labels contain `+`) and choose the default (`PS3_DEFAULT_FLAVOUR` in
+  /etc/default/ps3-boot); then remove the legacy `ps3-kernel*` packages and retire
+  build-kernel.sh, build-debs.sh, stage-package.sh and the Mesa cross toolchain targets; signing
+  the repository.
 - **ClassiCube** (task #10): default.zip at build time, no first-run download.
 - **Reproducibility check:** two image builds, same `make checksums`. Image size: Debian's
   Mesa and LLVM. `make disk-image` (raw `.img.xz`, `systemd-repart` grows it on first boot).

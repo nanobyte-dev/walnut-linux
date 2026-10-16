@@ -111,6 +111,30 @@ change them in a disposable git tree:
   as an upgrade, then `autoremove --purge` (LLVM, z3, sensors go), then `image/customize.sh`
   (hostname, fstab, user, key, locale).
 
+## Kernels
+
+- `make linux-deb`: Debian's `linux` source with `linux/patches` and `linux/packaging`, the full
+  configs from `tools/linux-config.sh` (`ps3_defconfig` + `linux/config/ps3.config`, plus
+  `ps3-release.config` for the release flavour), cross-built for ppc64, then `linux-kbuild`
+  natively. Packages `linux-image-<release>` (release `6.12.111+ps3.N-ps3` / `-ps3-release`),
+  `linux-headers-*`, and the metas `linux-image-ps3`, `linux-image-ps3-release`. Each image
+  ships its kernel arguments as `/usr/lib/ps3/boot/<release>.args` (`linux/flavours/*.args`).
+- `make ps3rsx-modules`: the RSX driver for each flavour, built natively against its headers
+  package; metas `ps3rsx-modules-ps3`, `ps3rsx-modules-ps3-release`.
+- Before installing a new kernel: `make netboot-deb FLAVOUR=ps3|ps3-release ROOT=nfs|usb` boots
+  it from Petitboot without touching the disk.
+- The boot menu: `ps3-boot` writes `/etc/kboot.conf` from the kernel hooks; the default is the
+  newest kernel unless `/etc/default/ps3-boot` sets `PS3_DEFAULT_FLAVOUR` (newest of a flavour)
+  or `PS3_DEFAULT` (a release). The image sets `PS3_DEFAULT_FLAVOUR=ps3`.
+- Kernel and Mesa installs on the running PS3 stop the desktop first (`make deploy` does it):
+  two kernels unpacked next to the desktop stalled the PS3 in swap on 2026-10-16 (power cycle).
+
+## Image snapshots
+
+`make repo-snapshot` freezes the stable suite as `img-<stamp>` (published next to `ps3`, kept
+forever); `make rootfs REPO_SUITE=img-<stamp>` builds the image from it instead of the local
+build outputs. Checked 2026-10-16: the image built both ways is byte-identical.
+
 ## Migration from the old image scripts
 
 `ps3-system` and `ps3-desktop` took over the files `image/customize.sh` and

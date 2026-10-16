@@ -202,7 +202,8 @@ here was booted).
 | 15 | `dbg2` set (DEBUG_MISC etc.) | 130K | Loses hung-task detection | kernel config |
 | 16 | `SLUB_DEBUG=n` | 99K | Loses `/proc/slabinfo`: keep it for memory work | kernel config |
 
-Rows 1, 3, 4, 8, 9, 10, 15 together (the `rec` variant) take the non-init image from 17856K to
+Rows 1, 3, 4, 8, 9, 10, 15 together (the `rec` variant; shipped 2026-10-16 as the `ps3-release`
+flavour, `linux/config/ps3-release.config`, measured on the PS3: `MemTotal` +8712 kB) take the non-init image from 17856K to
 8964K (-8.7 MB) and the modules by about 0.7 MB, so the steady-state reserve goes from 31.8 MB to
 about 22 MB, or about 18 MB with row 2.
 
