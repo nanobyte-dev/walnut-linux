@@ -180,3 +180,18 @@ Sharing with ps3fb's consoles (2026-10-14): the display shows whichever offset w
 after a handover ps3rsx flips both heads to ps3fb's frame itself (with libgcm's flip status reset
 as a precaution). PGRAPH state after ps3fb has had the GPU is unknown: ps3rsx clears its hardware
 shadow so the next submit restores its channel's whole state.
+
+## What Mesa exposes (2026-10-17, Mesa 26.2.4-1+ps3.186)
+
+`glxinfo -l` on the desktop is kept in docs/glxinfo-nv47.txt (extensions and limits). OpenGL 2.1,
+GLSL 1.20. Absent, and what that costs (docs/GAME-PLAN.md): ARB_texture_rg (dsda-doom's GL mode,
+OpenTTD's GL mode), ARB_shader_texture_lod, EXT/ARB_vertex_array_bgra, ARB_framebuffer_object
+(renderergl2's FBO features), ARB_texture_float. Present: EXT_framebuffer_object, ARB_point_parameters
+and point sprites, NPOT, SGIS_generate_mipmap, EXT_texture3D, ARB_vertex_array_object, S3TC.
+
+Measured with ps3-gpu-tools/mesa-tests (2026-10-17):
+- gl-texfmt: L8, A8, I8, 4444, 1555 sample right. **L8A8 swaps L and A** on every texel: Gallium's
+  L8A8 is a byte array, the RSX reads the 16-bit texel as a big-endian halfword.
+- gl-genmip: GPU mipmap generation is right for square power-of-two textures; for non-square ones
+  the levels 1 pixel wide or high are swizzled render targets ps3rsx's validator refuses, and the
+  whole push is lost with them (level 0's upload included).

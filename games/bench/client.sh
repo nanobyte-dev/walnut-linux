@@ -80,7 +80,11 @@ stop_game() {
 	for i in $(seq 50); do kill -0 "$gp" 2>/dev/null || return 0; sleep 0.2; done
 	kill -KILL -- -"$gp" 2>/dev/null
 }
-trap 'stop_game; kill "${helpers[@]}" $wm 2>/dev/null; exit 1' HUP INT TERM
+# stopped from outside (ps3-bench.sh's timeout, the thermal watchdog): still say how it ended
+trap 'stop_game; kill "${helpers[@]}" $wm 2>/dev/null
+	{ echo "game=$GAME"; echo "variant=$VARIANT"; echo "comm=$COMM"; echo "ended=killed"
+	  echo "hwm=$(cat "$D/.hwm" 2>/dev/null)"; echo "sound=$(cat "$D/.sound" 2>/dev/null)"; } > "$D/bench.txt"
+	exit 1' HUP INT TERM
 
 # peak RSS of the game process (COMM), and the playback state of the sound card at SOUND_AT s
 watch_game() {

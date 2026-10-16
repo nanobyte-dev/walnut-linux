@@ -35,7 +35,9 @@ the SPU plan.
 - **Bench:** a recipe (`games/bench/recipes/<game>.sh`) and its asset, then
   `run.sh bench <game> base 3` as the baseline.
 - **Done when:** right picture and sound, no kernel errors, numbers from the recipe, baseline in
-  the results table.
+  the results table, and about 60 fps at 1920x1080 for the light games (groups 1 and 2; the user,
+  2026-10-17: "aim is 60 or close to"). Correct but slow is "runs, needs performance work": then a
+  perf profile of the game process says where the time goes (game, Mesa, kernel) before any fix.
 
 A graph exception ends the session: only a console reboot clears the RSX, and the user goes back
 through Petitboot. Within a session the riskiest game goes last. After one, don't run
@@ -171,12 +173,22 @@ Load times are compared with the same shader cache state (Mesa's disk cache is o
 
 | Game | Smoke | First failure | Bug | Baseline |
 |---|---|---|---|---|
-| OpenArena opengl1 | runs | | | tc1: 42.2 fps, load 10.8 s (stage 0) |
-| ClassiCube | runs | | | 50.5 fps HUD median (stage 0) |
+| OpenArena opengl1 | runs | under 60 fps | performance | tc1: 42.2 fps, load 10.8 s (stage 0) |
+| ClassiCube | runs | under 60 fps | performance | 50.5 fps HUD median (stage 0) |
+| dsda-doom, software renderer 960x540 | runs | colours rotated (red shows green, blue red) with every SDL renderer, SDL's software one too: dsda-doom or SDL on big-endian, not the GPU; sound choppy (PPE saturated) | game/SDL BE bug; performance | 20.2 fps (SDL GL renderer), 29.2 (GLES2); 1920x1080: ~5 fps |
+| dsda-doom, GL renderer | not run | needs ARB_texture_rg | GL_RG | |
+| X-Moto | runs (Mesa ps3.186) | 35 fps, CPU-bound (one PPE thread flat out); music plays, no engine sounds heard | performance; sound effects | 35.0 fps avg (credits replay, `--timedemo --benchmark`) |
+| Neverball | graph exception (Mesa ps3.223), the RSX wedged | cause 0x105, being decoded | driver | |
+| Extreme Tux Racer | runs (menus) | | | 42 fps HUD median in the menu; a race needs a player |
+| Armagetron | runs (welcome, then a tutorial game with an AI) | | | 89 fps HUD median (p10 47) |
 
 ## Driver bugs
 
 | Bug | Games blocked | Fix |
 |---|---|---|
+| L8A8 (GL_LUMINANCE_ALPHA) samples with L and A swapped (gl-texfmt) | Neverball, fonts in many games | Mesa 0012 (ps3.223), gl-texfmt passes |
+| GPU mipmap generation of non-square textures: 1-pixel levels are swizzled render targets the validator refuses, the push is lost (gl-genmip) | Neverball, SuperTuxKart, Luanti | Mesa 0013 (ps3.223), gl-genmip passes |
+| Neverball raises a graph exception (cause 0x105) on Mesa ps3.223 | Neverball | being decoded |
+| No ARB_texture_rg (glxinfo) | dsda-doom GL, OpenTTD GL | not started |
 | Every X after the first started black: ps3rsx's reflip muted the video for an active CRTC with no framebuffer, and ps3fb's console blank muted it before X owned the GPU | all (every bench run) | a1f1b91, 8baa747 (ps3rsx 0.219) |
 | No window manager under the bench's bare X: SDL fullscreen windows never shown | all SDL games | client.sh starts Openbox (fa723f9) |
