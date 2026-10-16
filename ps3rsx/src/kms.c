@@ -24,6 +24,7 @@
 #include <linux/moduleparam.h>
 #include <asm/lv1call.h>
 #include <asm/ps3.h>
+#include <asm/ps3av.h>
 #include <asm/ps3gpu.h>
 
 #include "ps3rsx.h"
@@ -174,7 +175,8 @@ static void cursor_update(struct drm_plane *plane, struct drm_atomic_state *stat
 	struct drm_plane_state *old = drm_atomic_get_old_plane_state(state, plane);
 	struct drm_plane_state *ps = plane->state;
 
-	if (!ps->fb || !ps->visible) {
+	/* off while the CRTC is (DPMS): crtc_enable shows it again */
+	if (!ps->fb || !ps->visible || !ps->crtc->state->active) {
 		cursor_call(rsx, 0x10c, 2, 0, 0);
 		return;
 	}
@@ -189,6 +191,19 @@ static void cursor_update(struct drm_plane *plane, struct drm_atomic_state *stat
 static void cursor_disable(struct drm_plane *plane, struct drm_atomic_state *state)
 {
 	cursor_call(to_rsx(plane->dev), 0x10c, 2, 0, 0);
+}
+
+/* The cursor as its plane state says, after the CRTC was off: crtc_disable switched it off
+ * without the plane state knowing, so cursor_update (no change in fb or visibility) wouldn't. */
+static void cursor_restore(struct ps3rsx_device *rsx)
+{
+	struct drm_plane_state *ps = rsx->cursor.state;
+
+	if (!ps || !ps->fb || !ps->visible)
+		return;
+	cursor_call(rsx, 0x10b, 2, fb_bo(ps->fb)->offset, 0);
+	cursor_call(rsx, 0x10b, 3, max(ps->crtc_x, 0), max(ps->crtc_y, 0));
+	cursor_call(rsx, 0x10c, 1, 0, 0);
 }
 
 static const struct drm_plane_helper_funcs cursor_helper_funcs = {
@@ -206,10 +221,29 @@ static const struct drm_plane_funcs plane_funcs = {
 	.atomic_destroy_state = drm_atomic_helper_plane_destroy_state,
 };
 
+/*
+ * DPMS: after its idle timeout X switches the CRTC off (still enabled, not active). The display
+ * can't be powered down from here; ps3av's video mute blanks it, as ps3fb's blanking does.
+ * Before, crtc_disable showed ps3fb's frame: the console came up instead of a black screen.
+ */
+static void video_mute(struct ps3rsx_device *rsx, bool mute)
+{
+	int err;
+
+	if (rsx->video_muted == mute)
+		return;
+	err = ps3av_video_mute(mute);
+	if (err)
+		drm_warn_once(&rsx->drm, "ps3av video mute %d failed: %d\n", mute, err);
+	else
+		rsx->video_muted = mute;
+}
+
 /* Show ps3fb's frame (the console). Flips from ps3fb's own context don't override a frame our
  * context flipped to, so the handover has to point the display there itself. */
 void ps3rsx_kms_show_console(struct ps3rsx_device *rsx)
 {
+	video_mute(rsx, false);		/* a VT switch while X had the screen blanked */
 	/* libgcm's cellGcmResetFlipStatus before flipping: clear "flip waiting" (bit 31) of each
 	 * head, which nothing acknowledges for our context (no vsync handler). A precaution: the
 	 * console showed without it too. */
@@ -225,6 +259,8 @@ void ps3rsx_kms_reflip(struct ps3rsx_device *rsx)
 
 	if (ps && ps->fb && rsx->crtc.state && rsx->crtc.state->active)
 		flip(rsx, fb_bo(ps->fb)->offset);
+	else if (rsx->crtc.state && rsx->crtc.state->enable)
+		video_mute(rsx, true);	/* back to X with its screen blanked (DPMS) */
 }
 
 /* --- CRTC ------------------------------------------------------------------------------- */
@@ -382,7 +418,11 @@ static void crtc_flush(struct drm_crtc *crtc, struct drm_atomic_state *state)
 
 static void crtc_enable(struct drm_crtc *crtc, struct drm_atomic_state *state)
 {
+	struct ps3rsx_device *rsx = to_rsx(crtc->dev);
+
 	drm_crtc_vblank_on(crtc);
+	video_mute(rsx, false);
+	cursor_restore(rsx);
 }
 
 static void crtc_disable(struct drm_crtc *crtc, struct drm_atomic_state *state)
@@ -399,8 +439,13 @@ static void crtc_disable(struct drm_crtc *crtc, struct drm_atomic_state *state)
 	spin_unlock_irq(&crtc->dev->event_lock);
 	drm_crtc_vblank_off(crtc);
 	cursor_call(rsx, 0x10c, 2, 0, 0);
-	/* back to ps3fb's frame (it redraws the console when it gets the GPU back) */
-	flip(rsx, rsx->info.full_offset);
+	if (crtc->state->enable) {
+		video_mute(rsx, true);	/* DPMS off: black, the frame stays X's */
+	} else {
+		/* back to ps3fb's frame (it redraws the console when it gets the GPU back) */
+		video_mute(rsx, false);
+		flip(rsx, rsx->info.full_offset);
+	}
 	if (crtc->state->event && !crtc->state->active) {
 		spin_lock_irq(&crtc->dev->event_lock);
 		drm_crtc_send_vblank_event(crtc, crtc->state->event);

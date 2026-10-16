@@ -123,6 +123,7 @@ struct ps3rsx_device {
 	struct hrtimer vblank_timer;		/* fallback vblank (vblank_irq=0) */
 	unsigned int vsync_virq;		/* our context's IRQ outlet: vsync (0 if not plugged) */
 	struct drm_pending_vblank_event *flip_event;	/* sent once the flip latched (event_lock) */
+	bool video_muted;			/* DPMS off: ps3av's video mute (kms.c) */
 	unsigned int flip_wait;			/* vblanks waited for it */
 
 	/* GPU shared with ps3fb's consoles (console.c) */
