@@ -148,6 +148,27 @@ Each is fixed only once a stage needs it.
 - New validator rejects and graph exceptions go into RSX.md, with a reproducer in
   `ps3-gpu-tools/mesa-tests`.
 
+### Performance: where the CPU goes (perf, 2026-10-17, Mesa ps3.223, 15 s per game)
+
+Every game is CPU-bound on the PPE, and most of the CPU is the driver stack, not the game:
+
+| Game (fps) | Mesa | ps3rsx | other kernel | game |
+|---|---|---|---|---|
+| X-Moto (35) | 56% | 13% | 8% | 9% |
+| ClassiCube (54) | 51% | 16% | 13% | 8% |
+| Extreme Tux Racer, menu (40) | 38% | 9% | 8% | 11% |
+| OpenArena tc1 (37; 46% unresolved, likely its renderer) | 29% | 10% | 11% | 4% |
+| Armagetron (102) | 28% | 6% | 21% | 11% |
+
+The same per-draw and per-submit costs top every profile, so they are the shared targets:
+1. ps3rsx's command validation and state shadow (`ps3rsx_validate`, `ps3rsx_shadow_*`): 5-16%.
+2. Fence reference counting in the nouveau winsys (`nouveau_fence_ref`): 2-11%.
+3. nv30 per-draw validation (`nv30_state_validate`, `nv30_vbo_validate`, u_vbuf): 3-10%.
+4. Pushbuf relocation bookkeeping (`pushbuf_krel`, `pushbuf_kref`): 2-5%.
+5. A kernel hot spot perf couldn't name as a user (2-6%): profile as root next time.
+Mesa's debug symbols (mesa-libgallium-dbgsym) are installed on the PS3 by hand for this: remove
+before comparing the PS3 with a fresh image.
+
 Out of scope: DXT5 (Teeworlds, TORCS; it waits for the SPU plan) and games that need GL 3. 3D
 textures are supported by nv30 (sampling; rendering into them is refused).
 
@@ -189,6 +210,6 @@ Load times are compared with the same shader cache state (Mesa's disk cache is o
 | L8A8 (GL_LUMINANCE_ALPHA) samples with L and A swapped (gl-texfmt) | Neverball, fonts in many games | Mesa 0012 (ps3.223), gl-texfmt passes |
 | GPU mipmap generation of non-square textures: 1-pixel levels are swizzled render targets the validator refuses, the push is lost (gl-genmip) | Neverball, SuperTuxKart, Luanti | Mesa 0013 (ps3.223), gl-genmip passes |
 | Neverball raises a graph exception (cause 0x105) on Mesa ps3.223 | Neverball | being decoded |
-| No ARB_texture_rg (glxinfo) | dsda-doom GL, OpenTTD GL | not started |
+| No ARB_texture_rg (glxinfo) | dsda-doom GL, OpenTTD GL | dsda-doom: a GL_LUMINANCE_ALPHA fallback in our dsda-doom package (in progress) |
 | Every X after the first started black: ps3rsx's reflip muted the video for an active CRTC with no framebuffer, and ps3fb's console blank muted it before X owned the GPU | all (every bench run) | a1f1b91, 8baa747 (ps3rsx 0.219) |
 | No window manager under the bench's bare X: SDL fullscreen windows never shown | all SDL games | client.sh starts Openbox (fa723f9) |
