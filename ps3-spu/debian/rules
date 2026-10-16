@@ -7,7 +7,7 @@ LIBDIR := usr/lib/$(DEB_HOST_MULTIARCH)
 %:
 	dh $@
 
-# ps3-spu/Makefile: `ppe` (libspeq, speq-dxt, spurun) here in the ppc64 chroot,
+# ps3-spu/Makefile: `ppe` (libspeq, speq-dxt, speq-bench, spurun) here in the ppc64 chroot,
 # `spu` (the SPU programs and the runtime they link) with spu-elf GCC on PATH (our host
 # toolchain, tools/deb-build.sh INDEP_PATH)
 override_dh_auto_build-arch:
@@ -15,8 +15,8 @@ override_dh_auto_build-arch:
 override_dh_auto_build-indep:
 	dh_auto_build -- spu OUT=b SPU_CC=spu-elf-gcc SPU_AR=spu-elf-ar
 
-# speq-dxt --check, the dlopen check, and the queue on the fake backend (queue-test),
-# natively (big-endian)
+# speq-dxt --check, the dlopen check, and the queue on the fake backend (queue-test,
+# speq-bench-fake --quick), natively (big-endian)
 override_dh_auto_test-arch:
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 	$(MAKE) test TEST_OUT=b/test
@@ -26,9 +26,11 @@ override_dh_auto_test-indep:
 override_dh_auto_install-arch:
 	install -D -m 755 b/spurun debian/ps3-spu/usr/lib/ps3/bin/spurun
 	install -D -m 755 b/speq-dxt debian/ps3-spu/usr/lib/ps3/bin/speq-dxt
+	install -D -m 755 b/speq-bench debian/ps3-spu/usr/lib/ps3/bin/speq-bench
 	install -d debian/ps3-spu/usr/bin
 	ln -s ../lib/ps3/bin/spurun debian/ps3-spu/usr/bin/spurun
 	ln -s ../lib/ps3/bin/speq-dxt debian/ps3-spu/usr/bin/speq-dxt
+	ln -s ../lib/ps3/bin/speq-bench debian/ps3-spu/usr/bin/speq-bench
 	install -D -m 644 debian/spufs.conf debian/ps3-spu/usr/lib/modules-load.d/spufs.conf
 	install -D -m 644 b/libspeq.so.0 debian/libspeq0/$(LIBDIR)/libspeq.so.0
 	install -D -m 644 lib/speq.h debian/libspeq-dev/usr/include/speq.h

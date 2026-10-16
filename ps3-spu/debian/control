@@ -12,7 +12,9 @@ Depends: ${shlibs:Depends}, ${misc:Depends}
 Recommends: ps3-spu-programs
 Description: SPU program runner and libspeq tools for the PS3's Cell SPEs
  spurun loads and runs an SPU program through spufs; speq-dxt tests and benchmarks libspeq's
- DXT1 texture encoder. The package loads spufs at boot and mounts it at /spu.
+ DXT1 texture encoder; speq-bench measures libspeq's queue (wake and completion latency,
+ parking, the 0x2104 syscall path, the decrementer, DMA bandwidth) with bench.spu. The
+ package loads spufs at boot and mounts it at /spu.
 
 Package: ps3-spu-programs
 Architecture: all
