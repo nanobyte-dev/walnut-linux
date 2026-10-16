@@ -6,7 +6,7 @@ nouveau's userspace (libdrm + Mesa nv30) on the RSX. Plan and background: `docs/
 ## Layout
 
 The tree is organized by output package: each top-level package directory holds what goes into that
-package (being converted to Debian source packages, docs/PLAN.md).
+package (Debian source packages; docs/PACKAGING.md).
 
 | Path | What |
 |---|---|
@@ -27,7 +27,7 @@ package (being converted to Debian source packages, docs/PLAN.md).
 | `config.mk` | All build/deploy settings (versions, hashes, snapshot date, IPs, kernel cmdline) |
 | `docker/` | Pinned build environments: `Dockerfile` (toolchain, mmdebstrap), `.mesa` (cross compilers and the sysroot for ClassiCube and the GL tests), `.games`, `.spu`, `.deb` (Debian packaging tools, aptly) |
 | `tools/` | Scripts called by the Makefile (`deb-*.sh`: Debian source packages; `repo-*.sh`, `aptly-publish.sh`: the repository; `deploy.sh`) |
-| `docs/` | `PLAN.md` the plan, `DRIVER-PLAN.md` GPU driver phases, `RSX.md` measured GPU facts, `RSX-PROGRAMS.md`, `MESA-METHODS.md`, `RESEARCH.md`, `SPU-GCC.md`, `KERNEL-MEMORY.md`, `HARDWARE-LEVERAGE.md`, `RSX-SPU-FEASIBILITY.md`, `SPU-OFFLOAD*.md` |
+| `docs/` | `PLAN.md` the plan, `PACKAGING.md` packages, repository and deploys, `DRIVER-PLAN.md` GPU driver phases, `RSX.md` measured GPU facts, `RSX-PROGRAMS.md`, `MESA-METHODS.md`, `RESEARCH.md`, `SPU-GCC.md`, `KERNEL-MEMORY.md`, `HARDWARE-LEVERAGE.md`, `RSX-SPU-FEASIBILITY.md`, `SPU-OFFLOAD*.md` |
 | `build/` | Generated (ignored). Ephemeral except `build/aptly` (the published repository's state); see CLAUDE.md |
 | `firmware/` | Petitboot image installed on the console (ignored) |
 | `backups/` | **Private**: NOR flash dump (ignored, never commit) |

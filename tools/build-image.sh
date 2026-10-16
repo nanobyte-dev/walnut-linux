@@ -50,7 +50,7 @@ APT="chroot $R env DEBIAN_FRONTEND=noninteractive apt-get -q -y -o Dpkg::Use-Pty
 $APT update > /dev/null
 $APT --no-remove upgrade > /dev/null
 $APT --no-remove install $PKGS > /dev/null
-$APT autoremove --purge | grep -E "^(Purg|Remv)" | cut -d' ' -f2 | paste -sd' ' | sed 's/^/>> autoremoved: /'
+$APT autoremove --purge | grep "^Removing " | cut -d" " -f2 | paste -sd' ' | sed 's/^/>> autoremoved: /'
 chroot "$R" dpkg-query -W -f='${Package} ${Version}\n' mesa-libgallium libgbm1 | sed 's/^/>> /'
 if chroot "$R" dpkg-query -W -f='${Package}\n' 'libllvm*' 'libz3-*' 2>/dev/null | grep -q .; then
 	echo "!! LLVM or z3 still installed"; exit 1

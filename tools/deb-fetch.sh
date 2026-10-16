@@ -16,6 +16,7 @@ if [ ! -e "$DSC" ]; then
 	apt-get update -qq
 	(cd "$OUT" && apt-get source --download-only -qq "$SOURCE=$VERSION")
 fi
+chown -R "${OWNER:-0:0}" "$OUT"
 sum=$(sha256sum "$DSC" | cut -d' ' -f1)
 if [ -z "${DSC_SHA256:-}" ]; then
 	echo "!! $PKG/package.conf has no DSC_SHA256; the downloaded .dsc is: DSC_SHA256=$sum"

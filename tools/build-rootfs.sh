@@ -32,13 +32,8 @@ mmdebstrap --mode=root --format=tar --arch=ppc64 --variant=minbase \
 	"$DEBIAN_SUITE" "$OUT/base.tar.tmp" "$DEBIAN_MIRROR"
 chown -R "$OWNER" "$CACHE"
 
-# The previous layer is moved aside, never overwritten
-if [ -e "$OUT/base.tar" ]; then
-	OLD="build/old/$(date +%Y%m%d-%H%M%S)-rootfs-base"
-	mkdir -p "$OLD" && mv "$OUT/base.tar" "$OLD/"
-	chown -R "$OWNER" "$OLD"	# yours to delete (this script runs as root)
-	echo ">> Previous package layer moved to $OLD"
-fi
+# The previous layer is kept as one backup (ephemeral otherwise: CLAUDE.md)
+[ ! -e "$OUT/base.tar" ] || mv "$OUT/base.tar" "$OUT/base.prev.tar"
 mv "$OUT/base.tar.tmp" "$OUT/base.tar"
 chown "$OWNER" "$OUT/base.tar"
 exit
