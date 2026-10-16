@@ -21,6 +21,10 @@ set -euo pipefail
 # execute a shifted fragment.
 {
 : "${PS3:?}" "${REPO_BUILDER_TAG:?}" "${REPO_HOST:?}" "${REPO_DIR:?}"
+# never during a bench session (ps3-bench.sh: measurements from a quiet PS3; desktop ends it)
+if $SSH "$PS3" 'test -e /dev/shm/ps3-bench.lock'; then
+	echo "!! a bench session runs on the PS3 (ps3-bench.sh desktop ends it)"; exit 1
+fi
 debs=$(find build/debs -mindepth 2 -maxdepth 2 -name '*.deb' | sort)
 [ -n "$debs" ] || { echo "!! no packages built"; exit 1; }
 DIST=dev tools/repo-publish.sh $debs
