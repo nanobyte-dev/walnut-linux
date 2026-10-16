@@ -8,10 +8,10 @@ Rules-Requires-Root: no
 
 Package: ps3-splash
 Architecture: all
-Depends: ${misc:Depends}, ps3-no-initramfs, plymouth, plymouth-label, fonts-dejavu-core
+Depends: ${misc:Depends}, ps3-no-initramfs, plymouth
 Description: Walnut Linux boot splash (Plymouth theme)
- The Walnut Linux logo on the desktop's blue with a text progress bar (a walnut rolling at
- its head) and status jokes, for boot and shutdown. Kernels whose arguments include
+ The Walnut Linux logo on the desktop's blue with a progress bar and a walnut rolling at
+ its head, for boot and shutdown; the last frame stays up until the desktop starts. Kernels whose arguments include
  "splash" show it; the others show the usual boot messages.
 
 Package: ps3-no-initramfs

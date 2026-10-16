@@ -1,51 +1,62 @@
 # Walnut Linux boot splash (Plymouth script theme, ps3-splash).
-# The logo on the desktop's blue, under it a text progress bar that fills with '=' and has a
-# walnut rolling at its head; under that, messages from systemd (e.g. a failing unit), if any.
+# The logo on the desktop's blue and under it a progress bar made of small images (no text
+# rendering: Plymouth's label plugin and its fonts took seconds to load from the USB disk):
+# [=====@.......] with the walnut rolling (rotating) along at its head.
 
-bg.r = 0.078; bg.g = 0.188; bg.b = 0.302;      # #14304d, the desktop's blue
-Window.SetBackgroundTopColor(bg.r, bg.g, bg.b);
-Window.SetBackgroundBottomColor(bg.r, bg.g, bg.b);
-
-font = "DejaVu Sans Mono Bold 22";
-small = "DejaVu Sans Mono 16";
-ink.r = 0.89; ink.g = 0.68; ink.b = 0.45;       # the logo's tan
+Window.SetBackgroundTopColor(0.078, 0.188, 0.302);      # #14304d, the desktop's blue
+Window.SetBackgroundBottomColor(0.078, 0.188, 0.302);
 
 logo.image = Image("walnut-logo.png");
 logo.sprite = Sprite(logo.image);
 logo.x = Window.GetX() + Window.GetWidth() / 2 - logo.image.GetWidth() / 2;
-logo.y = Window.GetY() + Window.GetHeight() / 2 - logo.image.GetHeight() / 2 - 70;
+logo.y = Window.GetY() + Window.GetHeight() / 2 - logo.image.GetHeight() / 2 - 60;
 logo.sprite.SetPosition(logo.x, logo.y, 1);
 
-bar.sprite = Sprite();
-msg.sprite = Sprite();
-width = 32;                                      # cells between the brackets
-nut[0] = "o"; nut[1] = "O"; nut[2] = "0"; nut[3] = "O";
+eq = Image("eq.png");
+dot = Image("dot.png");
+nut.image = Image("nut.png");
+width = 32;                                              # cells between the brackets
+cellw = eq.GetWidth();
+cellh = eq.GetHeight();
+x0 = Window.GetX() + Window.GetWidth() / 2 - (width + 2) * cellw / 2;
+y0 = logo.y + logo.image.GetHeight() + 30;
+
+lb = Sprite(Image("lbracket.png"));
+lb.SetPosition(x0, y0, 2);
+rb = Sprite(Image("rbracket.png"));
+rb.SetPosition(x0 + (width + 1) * cellw, y0, 2);
+i = 0;
+while (i < width) {
+	cell[i] = Sprite(dot);
+	cell[i].SetPosition(x0 + (i + 1) * cellw, y0, 2);
+	i++;
+}
+nut.sprite = Sprite(nut.image);
 
 progress = 0;
-tick = 0;
-
-fun place(sprite, image, dy) {
-	sprite.SetImage(image);
-	sprite.SetPosition(Window.GetX() + Window.GetWidth() / 2 - image.GetWidth() / 2,
-			   logo.y + logo.image.GetHeight() + dy, 2);
-}
+shown = 0;                                               # cells already drawn as '='
+angle = 0;
 
 fun draw_bar() {
 	filled = Math.Int(progress * width);
 	if (filled > width - 1) filled = width - 1;
-	text = "[";
-	i = 0;
-	while (i < filled) { text += "="; i++; }
-	text += nut[Math.Int(tick / 6) % 4];        # the walnut rolls at the head
-	i++;
-	while (i < width) { text += "."; i++; }
-	text += "]";
-	place(bar.sprite, Image.Text(text, ink.r, ink.g, ink.b, 1, font), 30);
+	while (shown < filled) {
+		cell[shown].SetImage(eq);
+		shown++;
+	}
+	rolled = nut.image.Rotate(angle);
+	nut.sprite.SetImage(rolled);
+	nut.sprite.SetPosition(x0 + (filled + 1) * cellw + cellw / 2 - rolled.GetWidth() / 2,
+			       y0 + cellh / 2 - rolled.GetHeight() / 2, 3);
 }
 
+tick = 0;
 fun refresh() {
 	tick++;
-	if (tick % 6 == 0) draw_bar();
+	if (tick % 2 == 0) {
+		angle += 0.13;                                   # about one turn every 2.4 s
+		draw_bar();
+	}
 }
 Plymouth.SetRefreshFunction(refresh);
 
@@ -53,12 +64,6 @@ fun boot_progress(duration, value) {
 	if (value > progress) progress = value;
 }
 Plymouth.SetBootProgressFunction(boot_progress);
-
-# messages from systemd (e.g. a failing unit) under the bar
-fun show_message(text) {
-	place(msg.sprite, Image.Text(text, 1, 1, 1, 1, small), 80);
-}
-Plymouth.SetDisplayMessageFunction(show_message);
 
 fun quit() {
 	progress = 1;

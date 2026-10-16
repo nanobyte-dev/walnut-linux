@@ -8,7 +8,6 @@ linux-base
 libopengl0
 # ps3-splash: Plymouth (without initramfs-tools: ps3-splash provides it)
 plymouth
-plymouth-label
 libplymouth5
 # Rollback to Debian's own Mesa (26.2.4-1) after ours replaced it and LLVM was autoremoved
 mesa-libgallium

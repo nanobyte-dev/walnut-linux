@@ -7,10 +7,15 @@ T := debian/ps3-splash/usr/share/plymouth/themes/walnut
 # the logo is rendered from its SVG source at build time
 override_dh_auto_build:
 	rsvg-convert -w 360 -o walnut-logo.png art/walnut-logo-dark.svg
+	rsvg-convert -w 30 -o nut.png art/walnut-mark.svg
+	for g in eq dot lbracket rbracket; do rsvg-convert -o $$g.png theme/glyphs/$$g.svg; done
 
 override_dh_auto_install:
 	install -d $(T)
-	install -m 644 theme/walnut.plymouth theme/walnut.script walnut-logo.png $(T)/
+	install -m 644 theme/walnut.plymouth theme/walnut.script walnut-logo.png nut.png \
+		eq.png dot.png lbracket.png rbracket.png $(T)/
+	install -D -m 644 debian/plymouth-quit-retain.conf \
+		debian/ps3-splash/usr/lib/systemd/system/plymouth-quit.service.d/ps3-splash.conf
 
 override_dh_auto_clean:
-	rm -f walnut-logo.png
+	rm -f walnut-logo.png nut.png eq.png dot.png lbracket.png rbracket.png
