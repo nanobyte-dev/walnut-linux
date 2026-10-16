@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 02:43:28 +0300
+Subject: unittest: Address::Resolve's fallback of the same family is a
+ warning, not a failure
+
+Address::Resolve asks getaddrinfo with AI_ADDRCONFIG, which drops ::1 when no IPv6 address other than loopback is configured. In our deb builder (a Docker container on an IPv4-only bridge) "localhost" then resolves to 127.0.0.1 twice, and testResolve's check that the fallback is of the other family failed: the only failure of 330 tests under qemu-user. The test already only warns when there is no fallback at all; this case now warns the same way.
+
+diff --git a/src/unittest/test_address.cpp b/src/unittest/test_address.cpp
+--- a/src/unittest/test_address.cpp
++++ b/src/unittest/test_address.cpp
+@@ -97,8 +97,12 @@ void TestAddress::testResolve()
+ 		UASSERT(fallback.isLocalhost());
+ 
+ 		// the result should be ::1 and 127.0.0.1 so the fallback addr should be
+-		// of a different family
+-		UASSERTCMP(int, !=, result.getFamily(), fallback.getFamily());
++		// of a different family; but getaddrinfo's AI_ADDRCONFIG drops ::1 where
++		// no IPv6 address other than loopback is configured (an IPv4-only build
++		// container), and then both are 127.0.0.1
++		if (result.getFamily() == fallback.getFamily())
++			warningstream << "Couldn't verify Address::Resolve fallback "
++				"(both of one family: no IPv6 address?)" << std::endl;
+ 	} else if (g_settings->getBool("enable_ipv6")) {
+ 		warningstream << "Couldn't verify Address::Resolve fallback (no IPv6?)"
+ 			<< std::endl;
