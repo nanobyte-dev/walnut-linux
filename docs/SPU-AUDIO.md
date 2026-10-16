@@ -138,6 +138,10 @@ All of these go through `games/openarena/step0.sh` and `oa-profile.sh`, with
    - kernel (wakeups).
 
    **Go/no-go:** build the SPU path only if the first group is ≥ 6% of the game's samples.
+   Step 0's profile A can't answer it (checked 2026-10-16): all 730 samples of the mixer thread
+   (tid 20798) resolve to `[unknown]`, perf never mapped libopenal in that recording. Re-profile
+   with `libopenal1-dbgsym` installed and perf started before the game (or `perf record -p` after
+   OpenAL has opened its device, checking `perf report --sort dso` shows libopenal).
 2. **Variants to add to `step0.sh audio`:**
    - **B16:** `sample-type=int16`, `output-limiter=false`, `dither=false`. This moves plug's
      conversion into OpenAL without adding work.
