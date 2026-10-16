@@ -120,9 +120,14 @@ provided, as 4.x pulls them in only from those two functions.
   - No forward port of the SPU backend exists that we could find. PS3DK's tracking issue (#26,
     2026-10) lists it as deferred.
   - LLVM's CellSPU backend was removed in 2012 (LLVM 3.3) and never revived.
-- **PPE side:** libspe2 is gone from Debian. `ps3-spu/src/spurun.c` (about 120 lines) runs SPU ELFs
-  through spufs directly. newlib's SPU stdio sends work to the PPE with stop code 0x2100, which
-  spurun doesn't serve yet, so test programs avoid stdio.
+- **PPE side:** libspe2 is gone from Debian. `ps3-spu/src/spurun.c` (106 lines) runs SPU ELFs
+  through spufs directly; libspeq (ps3-spu/lib) keeps them resident as job workers. newlib's SPU
+  code calls the PPE through stop codes: 0x2100 for C99 stdio (`printf` and co.) and 0x2101 for
+  POSIX calls (`write`, `open`, ...), both served by the PPE program, which neither spurun nor
+  libspeq does yet, so test programs avoid stdio; 0x2104 runs Linux system calls (a whitelist:
+  `write`, `futex`, `nanosleep`, ...) and is served by the kernel inside `spu_run` itself
+  (`spufs/run.c`; newlib's `__linux_syscall`). The word after the stop is
+  `opcode << 24 | LS address` of the argument block; `spu_run` returns with npc pointing at it.
 
 ## The experiment
 

@@ -311,7 +311,8 @@ Everything builds in pinned Docker images: `docker/Dockerfile` (kernel and rootf
 under qemu-user), `Dockerfile.mesa` (C++ cross compiler and meson against a ppc64 sysroot),
 `Dockerfile.games`, `Dockerfile.spu`, `Dockerfile.repo`. Outputs go to `build/`, which is ephemeral
 except `build/aptly`: only versions published to the repository server are kept forever (CLAUDE.md).
-`mesa/fork/` holds every Mesa file we change, whole; its first commit is the pristine release. SPU
+Mesa and the kernel are Debian source packages plus our patch series (`mesa/patches`,
+`linux/patches`; docs/PACKAGING.md "Changing patches"). SPU
 toolchain experiments build side by side (`SPU_OUT=build/tmp/spu-<name>`). The tree is organized by
 output package (README).
 

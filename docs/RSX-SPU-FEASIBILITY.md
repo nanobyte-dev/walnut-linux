@@ -131,7 +131,11 @@ The path in the kernel:
   - `handle_mm_fault` on a PFNMAP VMA with no `.fault` returns SIGBUS, giving `-EFAULT` and an
     `SPE_EVENT_SPE_DATA_STORAGE` to the program (`arch/powerpc/mm/copro_fault.c:59-70`).
   - So a populated PFNMAP mapping works, and an unpopulated one fails cleanly rather than
-    hanging.
+    hanging, but only for a context created with `SPU_CREATE_EVENTS_ENABLED`: then `spu_run`
+    returns the status word with the event in its third argument. Without the flag the whole
+    process gets SIGSEGV/SIGBUS (`spufs/fault.c` `spufs_handle_event`). Either way the context
+    can't be restarted (the MFC stays suspended on the faulting command): close it and create
+    another.
 - PS3 SPEs are built with `lv1_construct_logical_spe(…, get_vas_id(), …)`, the PPE's own VAS
   (`arch/powerpc/platforms/ps3/spu.c:140-160`). The MFC translates through the same lv1-managed
   hash table.
@@ -159,9 +163,10 @@ Restrictions and prior art:
 1. Open `/dev/dri/renderD128`. Do the PS3_ABI getparam and `GEM_NEW` of a 1 MiB VRAM BO
    (mappable, below 224 MB), then `GEM_INFO` and `mmap` it `MAP_SHARED`. Pre-fill it with
    0x5a through M2MF or PPE stores.
-2. Create an SPU context with `spu_create("/spu/vram", 0, 0755)`. Load the SPU program
-   (spu-gcc, `docs/SPU-GCC.md`) and pass the EA and size in the first `spu_run` argument
-   (or the inbound mailbox).
+2. Create an SPU context with `spu_create("/spu/vram", SPU_CREATE_EVENTS_ENABLED, 0755)`. Load
+   the SPU program (spu-gcc, `docs/SPU-GCC.md`) and pass the EA and size in its registers before
+   the first run (the context's `regs` file: crt0 hands r3-r5 to `main`; `spu_run` takes no
+   argument), or through the inbound mailbox. libspeq does both of these (ps3-spu/lib).
 3. SPU side:
    - fill a 16 KiB LS buffer with a pattern (word = EA offset);
    - issue 64 `mfc_put` of 16 KiB with 4 tags rotating, then `mfc_write_tag_mask`/`mfc_read_tag_status_all`;
