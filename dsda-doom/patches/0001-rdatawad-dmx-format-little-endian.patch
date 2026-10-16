@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 01:28:23 +0300
+Subject: rdatawad: write the DMX format field little-endian
+
+wav_to_doom() stored the DMX header's format field as a host-order 3, while the rate is
+swapped with SHORT() and the length is copied from the little-endian WAV header. Built on a
+big-endian host (Debian's ppc64 and powerpc builds run rdatawad natively), every sound lump in
+dsda-doom.wad starts 00 03 instead of 03 00, so the game's IsDMXSound() check fails and the
+lump is handed to libsndfile, which knows no DMX: "sf_open_virtual: Format not recognised.
+Can't open sfx file" for dsdgsit, dsdgatk, dsdgact, dsdgdth and dsdgpain (the helper dog's
+sounds, the only sounds in dsda-doom.wad). Little-endian builds are unchanged.
+
+Forwarded: no
+
+diff --git a/prboom2/data/rd_sound.c b/prboom2/data/rd_sound.c
+--- a/prboom2/data/rd_sound.c
++++ b/prboom2/data/rd_sound.c
+@@ -67,7 +67,9 @@ size_t wav_to_doom(void **lumpdata, const char *filename)
+   size = sizeof(*out) - 1 + LONG(header->datalen);
+   out = xmalloc(size);
+ 
+-  out->log2bits = 3;
++  // the lump is little-endian like the WAV file: format 3 (DMX), the rate
++  // swapped to little-endian, the length copied as is (little-endian already)
++  out->log2bits = SHORT(3);
+   out->rate = SHORT(LONG(header->samplerate));
+   out->length = header->datalen;
+   memmove(out->samples, header->samples, LONG(header->datalen));

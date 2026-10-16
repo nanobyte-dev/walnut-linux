@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 01:42:15 +0300
+Subject: Screenshots: declare the grabbed pixels as SDL_PIXELFORMAT_RGB24
+
+I_GrabScreen returns R,G,B bytes (SDL_RenderReadPixels with SDL_PIXELFORMAT_RGB24, or
+glReadPixels GL_RGB), but I_ScreenShot wrapped them with the masks R=0x0000ff, G=0x00ff00,
+B=0xff0000, which describe those bytes only on little-endian: on big-endian the masks make
+SDL_PIXELFORMAT_BGR24 and screenshots were saved with red and blue swapped.
+
+Forwarded: no
+
+diff --git a/prboom2/src/SDL/i_sshot.c b/prboom2/src/SDL/i_sshot.c
+--- a/prboom2/src/SDL/i_sshot.c
++++ b/prboom2/src/SDL/i_sshot.c
+@@ -75,8 +75,10 @@ int I_ScreenShot(const char *fname)
+ 
+   if (pixels)
+   {
+-    screenshot = SDL_CreateRGBSurfaceFrom(pixels, renderW, renderH, 24,
+-      renderW * 3, 0x000000ff, 0x0000ff00, 0x00ff0000, 0);
++    // I_GrabScreen's bytes are R,G,B (SDL_PIXELFORMAT_RGB24, GL_RGB); the masks
++    // 0xff/0xff00/0xff0000 meant that only on little-endian (BGR24 on big-endian)
++    screenshot = SDL_CreateRGBSurfaceWithFormatFrom(pixels, renderW, renderH, 24,
++      renderW * 3, SDL_PIXELFORMAT_RGB24);
+   }
+ 
+   if (screenshot)

@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 01:42:15 +0300
+Subject: SDL video: the 32-bit buffer in the texture's pixel format
+
+The software renderer's frame goes 8-bit screen -> palette blit into `buffer`
+(SDL_CreateRGBSurface depth 32 with zero masks: SDL_PIXELFORMAT_XRGB8888) ->
+SDL_UpdateTexture(sdl_texture, ..., buffer->pixels) every frame. sdl_texture comes from
+SDL_CreateTextureFromSurface(renderer, buffer), which may choose a format the renderer prefers,
+while SDL_UpdateTexture takes pixels in the texture's format. On little-endian the choice
+(XRGB8888 or ARGB8888) has XRGB8888's byte layout, so it worked by accident. On big-endian,
+SDL3's (sdl2-compat's) GL and GLES2 renderers list only byte-order formats (BGRA32, RGBA32,
+BGRX32, RGBX32), and so does the GL-backed window framebuffer SDL's software renderer draws
+into under X11: there is no XRGB8888, and the texture becomes BGRX8888, bytes B,G,R,X. The
+buffer's XRGB8888 bytes X,R,G,B were read as B,G,R,X: red showed as green, green as red, and
+blue was replaced by the padding byte (0), with every SDL renderer (the PS3).
+
+Remake the buffer in the texture's format, so the palette blit (which maps the palette into
+any destination format) writes exactly what the texture expects, at no cost per frame; if that
+format can't be a 32-bit surface, create the texture in the buffer's format instead and let
+SDL convert. The palette's alpha is set (opaque) instead of left uninitialised, for textures
+chosen with an alpha channel.
+
+Forwarded: no
+
+diff --git a/prboom2/src/SDL/i_video.c b/prboom2/src/SDL/i_video.c
+--- a/prboom2/src/SDL/i_video.c
++++ b/prboom2/src/SDL/i_video.c
+@@ -553,6 +553,7 @@ static void I_UploadNewPalette(int pal, int force)
+       playpal_data->colours[i].r = gtable[palette[0]];
+       playpal_data->colours[i].g = gtable[palette[1]];
+       playpal_data->colours[i].b = gtable[palette[2]];
++      playpal_data->colours[i].a = SDL_ALPHA_OPAQUE;
+       palette += 3;
+     }
+ 
+@@ -1322,6 +1323,43 @@ void I_UpdateVideoMode(void)
+ 
+     sdl_texture = SDL_CreateTextureFromSurface(sdl_renderer, buffer);
+ 
++    // SDL_UpdateTexture (I_FinishUpdate) takes pixels in the texture's format,
++    // which SDL_CreateTextureFromSurface may pick differently from the buffer's
++    // (XRGB8888): on big-endian, SDL's GL and GLES2 renderers and its
++    // GL-backed window framebuffer have no XRGB8888 textures and choose
++    // BGRX8888, whose bytes (B,G,R,X) are XRGB8888's (X,R,G,B) in another
++    // order. Make the buffer that format, so the palette blit writes what the
++    // texture expects; otherwise give the texture the buffer's format and let
++    // SDL convert.
++    if (sdl_texture && buffer)
++    {
++      Uint32 format;
++
++      if (SDL_QueryTexture(sdl_texture, &format, NULL, NULL, NULL) == 0 &&
++          format != buffer->format->format)
++      {
++        SDL_Surface *matching = NULL;
++
++        if (SDL_BYTESPERPIXEL(format) == 4 &&
++            !SDL_ISPIXELFORMAT_INDEXED(format) && !SDL_ISPIXELFORMAT_FOURCC(format))
++          matching = SDL_CreateRGBSurfaceWithFormat(0, SCREENWIDTH, SCREENHEIGHT, 32, format);
++
++        if (matching)
++        {
++          SDL_FreeSurface(buffer);
++          buffer = matching;
++          SDL_FillRect(buffer, NULL, 0);
++        }
++        else
++        {
++          SDL_DestroyTexture(sdl_texture);
++          sdl_texture = SDL_CreateTexture(sdl_renderer, buffer->format->format,
++                                          SDL_TEXTUREACCESS_STREAMING,
++                                          SCREENWIDTH, SCREENHEIGHT);
++        }
++      }
++    }
++
+     if(screen == NULL) {
+       I_Error("Couldn't set %dx%d video mode [%s]", SCREENWIDTH, SCREENHEIGHT, SDL_GetError());
+     }

@@ -1,0 +1,184 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 01:30:09 +0300
+Subject: GL: indexed textures as GL_LUMINANCE_ALPHA without ARB_texture_rg
+
+The GL renderer uploads every indexed texture (walls, flats, sprites, the status bar and
+HUD patches) as GL_RG, palette index in .r and alpha in .g, and the fuzz lookup texture as
+GL_RED. Both need GL 3.0 or ARB_texture_rg; a GL 2.1 driver without it (Mesa's nv30, the
+PS3's RSX) rejects the GL_RG and GL_RED internal formats with GL_INVALID_VALUE, leaving
+every indexed texture and the fuzz texture undefined.
+
+Without ARB_texture_rg (and below GL 3.0) indexed textures are now GL_LUMINANCE_ALPHA, from
+the same two bytes per texel (index, alpha), and the fuzz texture GL_LUMINANCE. A luminance
+texel reads its value in .r (and .g, .b), so the palette lookup stays texel.r; the alpha
+moves from .g to .a, which the main and fuzz shaders now read through an INDEX_ALPHA()
+macro that glsl_Init defines for the format in use (.g for GL_RG, .a for
+GL_LUMINANCE_ALPHA; the shaders default to .g). GL_RG and GL_RED stay where available.
+
+Forwarded: no
+
+diff --git a/prboom2/data/lumps/gls_fuzz.lmp b/prboom2/data/lumps/gls_fuzz.lmp
+--- a/prboom2/data/lumps/gls_fuzz.lmp
++++ b/prboom2/data/lumps/gls_fuzz.lmp
+@@ -2,6 +2,12 @@
+ 
+ // Sprite texture
+ uniform sampler2D tex;
++
++// Alpha of an indexed texture (set by the engine: .g for GL_RG textures,
++// .a for GL_LUMINANCE_ALPHA ones)
++#ifndef INDEX_ALPHA
++#define INDEX_ALPHA(texel) ((texel).g)
++#endif
+ // Fuzz lookup texture
+ uniform sampler2D fuzz;
+ // Texture dimensions
+@@ -42,5 +48,5 @@ void main()
+ 
+   // [XA] new for 0.25: use darkness as an alpha value so the game can
+   // pass in a non-black gl_color for pain/gamma support in indexed lightmode
+-  gl_FragColor = vec4(gl_Color.rgb, texture2D(tex, gl_TexCoord[0].xy).g * darkness(c));
++  gl_FragColor = vec4(gl_Color.rgb, INDEX_ALPHA(texture2D(tex, gl_TexCoord[0].xy)) * darkness(c));
+ }
+diff --git a/prboom2/data/lumps/gls_main.lmp b/prboom2/data/lumps/gls_main.lmp
+--- a/prboom2/data/lumps/gls_main.lmp
++++ b/prboom2/data/lumps/gls_main.lmp
+@@ -73,6 +73,12 @@ vec3 indexRGB_TrueColor(float ci, float li)
+ uniform sampler2D tex;
+ uniform int fade_mode;
+ 
++// Alpha of an indexed texture (set by the engine: .g for GL_RG textures,
++// .a for GL_LUMINANCE_ALPHA ones)
++#ifndef INDEX_ALPHA
++#define INDEX_ALPHA(texel) ((texel).g)
++#endif
++
+ void main()
+ {
+   // grab the texel and its color index, which is stuffed into the R channel
+@@ -98,5 +104,5 @@ void main()
+   }
+ 
+   // Apply color and alpha
+-  gl_FragColor = vec4(gl_Color.rgb * color, gl_Color.a * texel.g);
++  gl_FragColor = vec4(gl_Color.rgb * color, gl_Color.a * INDEX_ALPHA(texel));
+ }
+diff --git a/prboom2/src/gl_opengl.c b/prboom2/src/gl_opengl.c
+--- a/prboom2/src/gl_opengl.c
++++ b/prboom2/src/gl_opengl.c
+@@ -61,6 +61,7 @@ dboolean gl_use_stencil = false;
+ dboolean gl_ext_arb_vertex_buffer_object = false;
+ dboolean gl_arb_pixel_buffer_object = false;
+ dboolean gl_arb_shader_objects = false;
++dboolean gl_arb_texture_rg = false;
+ 
+ int active_texture_enabled[32];
+ int clieant_active_texture_enabled[32];
+@@ -128,6 +129,23 @@ PFNGLGETUNIFORMFVARBPROC         GLEXT_glGetUniformfvARB = NULL;
+ int gl_major_version;
+ int gl_minor_version;
+ 
++// The whole name in the space-separated extension list: a plain strstr also
++// matches a longer name (GL_ARB_texture_rg in GL_ARB_texture_rgb10_a2ui)
++static dboolean gld_HasExtension(const char *extensions, const char *ext)
++{
++  size_t len = strlen(ext);
++  const char *p = extensions;
++
++  while (p && (p = strstr(p, ext)) != NULL)
++  {
++    if ((p == extensions || p[-1] == ' ') && (p[len] == ' ' || p[len] == '\0'))
++      return true;
++    p += len;
++  }
++
++  return false;
++}
++
+ void gld_InitOpenGLVersion(void)
+ {
+   sscanf((const char*) glGetString(GL_VERSION), "%d.%d", &gl_major_version, &gl_minor_version);
+@@ -272,6 +290,19 @@ void gld_InitOpenGL(void)
+   if (gl_arb_pixel_buffer_object)
+     lprintf(LO_DEBUG, "using GL_ARB_pixel_buffer_object\n");
+ 
++  //
++  // GL_RED/GL_RG textures (GL 3.0, ARB_texture_rg). Without them (GL 2.1 drivers
++  // such as Mesa's nv30) indexed textures are GL_LUMINANCE_ALPHA: the palette
++  // index is read from .r either way, the alpha from .g or .a (INDEX_ALPHA in
++  // the shaders).
++  //
++  gl_arb_texture_rg = gl_major_version >= 3 ||
++                      gld_HasExtension(extensions, "GL_ARB_texture_rg");
++  if (gl_arb_texture_rg)
++    lprintf(LO_DEBUG, "using GL_ARB_texture_rg\n");
++  else
++    lprintf(LO_INFO, "gld_InitOpenGL: no GL_ARB_texture_rg, indexed textures are GL_LUMINANCE_ALPHA\n");
++
+   //
+   // Stencil support
+   //
+diff --git a/prboom2/src/gl_opengl.h b/prboom2/src/gl_opengl.h
+--- a/prboom2/src/gl_opengl.h
++++ b/prboom2/src/gl_opengl.h
+@@ -75,6 +75,7 @@ extern dboolean gl_use_stencil;
+ extern dboolean gl_ext_arb_vertex_buffer_object;
+ extern dboolean gl_arb_pixel_buffer_object;
+ extern dboolean gl_arb_shader_objects;
++extern dboolean gl_arb_texture_rg;
+ 
+ extern PFNGLBINDFRAMEBUFFEREXTPROC         GLEXT_glBindFramebufferEXT;
+ extern PFNGLGENFRAMEBUFFERSEXTPROC         GLEXT_glGenFramebuffersEXT;
+diff --git a/prboom2/src/gl_shader.c b/prboom2/src/gl_shader.c
+--- a/prboom2/src/gl_shader.c
++++ b/prboom2/src/gl_shader.c
+@@ -609,8 +609,16 @@ static const shader_info_t fuzz_info =
+ 
+ void glsl_Init(void)
+ {
+-  sh_main = glsl_ShaderLoad(&main_info, NULL);
+-  sh_fuzz = glsl_ShaderLoad(&fuzz_info, NULL);
++  // where an indexed texture keeps its alpha: .g of a GL_RG texture, .a of the
++  // GL_LUMINANCE_ALPHA fallback (gld_BuildTexture)
++  const shader_define_t defs[] =
++  {
++    { "INDEX_ALPHA(texel)", gl_arb_texture_rg ? "((texel).g)" : "((texel).a)" },
++    { NULL, NULL }
++  };
++
++  sh_main = glsl_ShaderLoad(&main_info, defs);
++  sh_fuzz = glsl_ShaderLoad(&fuzz_info, defs);
+ }
+ 
+ void glsl_PushNullShader(void)
+diff --git a/prboom2/src/gl_texture.c b/prboom2/src/gl_texture.c
+--- a/prboom2/src/gl_texture.c
++++ b/prboom2/src/gl_texture.c
+@@ -892,7 +892,11 @@ int gld_BuildTexture(GLTexture *gltexture, void *data, dboolean readonly, int wi
+ {
+   int tex_width, tex_height, tex_format;
+ 
+-  tex_format = gltexture->flags & GLTEXTURE_INDEXED ? GL_RG : GL_RGBA;
++  // indexed textures: palette index and alpha, two bytes per texel
++  if (gltexture->flags & GLTEXTURE_INDEXED)
++    tex_format = gl_arb_texture_rg ? GL_RG : GL_LUMINANCE_ALPHA;
++  else
++    tex_format = GL_RGBA;
+   tex_width  = gld_GetTexDimension(width);
+   tex_height = gld_GetTexDimension(height);
+ 
+@@ -1358,8 +1362,11 @@ void gld_InitFuzzTexture(void)
+ 
+     glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_FALSE);
+ 
+-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED,
+-                 sizeof(fuzz) / sizeof(*fuzz), 1, 0, GL_RED,
++    // one channel, read as .r (GL_RED needs ARB_texture_rg; a GL_LUMINANCE
++    // texel reads the same in .r)
++    glTexImage2D(GL_TEXTURE_2D, 0, gl_arb_texture_rg ? GL_RED : GL_LUMINANCE,
++                 sizeof(fuzz) / sizeof(*fuzz), 1, 0,
++                 gl_arb_texture_rg ? GL_RED : GL_LUMINANCE,
+                  GL_FLOAT, fuzz);
+ 
+     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
