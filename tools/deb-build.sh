@@ -6,12 +6,15 @@
 # Output: build/debs/<pkg>/ (replaced), plus the build log.
 # Env: OWNER JOBS DEB_BUILD_EXTRA (e.g. noautodbgsym) KEEP_TREE (BUILD=cross-linux: keep the build tree)
 # package.conf: NATIVE_PROFILES (build profiles for the chroot build), CROSS_PROFILES (cross-linux)
+# package.conf CHECK=1: the package's own tests run (DEB_BUILD_OPTIONS without nocheck; luanti's
+# --run-unittests, under qemu-user); every other package builds with nocheck
 set -euo pipefail
 # One block, parsed whole before it runs: editing this file during a run can't make bash
 # execute a shifted fragment.
 {
 PKG=$1
 . "$PKG/package.conf"
+NOCHECK=nocheck; [ "${CHECK:-0}" = 1 ] && NOCHECK=
 DSC=$(ls build/src/"$PKG"/*.dsc | head -1)
 if [ "$TYPE" = native ]; then
 	UPVER=$(basename "$DSC" .dsc); UPVER=${UPVER#*_}
@@ -36,7 +39,7 @@ if [ "${BUILD:-native}" = cross-linux ]; then
 	rm -rf "$W"; mkdir -p "$W" "$CC_DIR"
 	T0=$(date +%s)
 	(cd "$W" && dpkg-source -x "../../../$DSC" src >/dev/null && cd src && \
-		DEB_BUILD_OPTIONS="nocheck parallel=${JOBS:-16}" DEBIAN_KERNEL_USE_CCACHE=1 \
+		DEB_BUILD_OPTIONS="$NOCHECK parallel=${JOBS:-16}" DEBIAN_KERNEL_USE_CCACHE=1 \
 		CCACHE_DIR="$CC_DIR" CCACHE_BASEDIR="$PWD" CCACHE_NOHASHDIR=1 CCACHE_MAXSIZE=5G \
 		dpkg-buildpackage -a ppc64 -b -d -uc -us ${CROSS_PROFILES:+-P$CROSS_PROFILES} > ../build.log 2>&1) \
 		|| { tail -40 "$W/build.log"; exit 1; }
@@ -51,7 +54,7 @@ if [ "${BUILD:-native}" = indep ] || [ "${BUILD:-native}" = split ] || [ "${BUIL
 	what=-b; [ "$BUILD" = split ] && what=-A; [ "$BUILD" = cross ] && what="-a ppc64 -b -d"
 	rm -rf "$W"; mkdir -p "$W"
 	(cd "$W" && dpkg-source -x "../../../$DSC" src >/dev/null && cd src && \
-		PATH="${INDEP_PATH:+$INDEP_PATH:}$PATH" DEB_BUILD_OPTIONS=nocheck \
+		PATH="${INDEP_PATH:+$INDEP_PATH:}$PATH" DEB_BUILD_OPTIONS="$NOCHECK" \
 		dpkg-buildpackage $what -uc -us > ../build.log 2>&1) \
 		|| { tail -30 "$W/build.log"; exit 1; }
 	mv "$W"/*.deb "$W"/*.buildinfo "$W"/*.changes "$OUT/" 2>/dev/null || true
@@ -125,7 +128,7 @@ echo ">> build dependencies ready in $((T1 - T0)) s"
 
 in_chroot sh -c "ccache -M 5G >/dev/null; cd /build/reproducible-path/$SOURCE-$UPVER && \
 	CCACHE_DIR=/build/ccache CCACHE_BASEDIR=/build/reproducible-path CCACHE_NOHASHDIR=1 \
-	DEB_BUILD_OPTIONS='nocheck parallel=${JOBS:-16} ${DEB_BUILD_EXTRA:-}' \
+	DEB_BUILD_OPTIONS='$NOCHECK parallel=${JOBS:-16} ${DEB_BUILD_EXTRA:-}' \
 	eatmydata dpkg-buildpackage $ARCHBUILD -uc -us ${NATIVE_PROFILES:+-P$NATIVE_PROFILES}" > "build/chroot/$PKG-build.log" 2>&1 \
 	|| { tail -40 "build/chroot/$PKG-build.log"; exit 1; }
 T2=$(date +%s)

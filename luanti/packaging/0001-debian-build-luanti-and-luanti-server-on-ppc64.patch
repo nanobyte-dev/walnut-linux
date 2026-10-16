@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 01:28:21 +0300
+Subject: debian: build luanti and luanti-server on ppc64
+
+Debian lists only the architectures with LuaJIT; libluajit-5.1-dev exists for ppc64 (debian-ports), so the PS3 keeps LuaJIT (-DREQUIRE_LUAJIT=TRUE).
+
+diff --git a/debian/control b/debian/control
+--- a/debian/control
++++ b/debian/control
+@@ -38,7 +38,7 @@ Vcs-Git: https://salsa.debian.org/games-team/luanti.git
+ Vcs-Browser: https://salsa.debian.org/games-team/luanti
+ 
+ Package: luanti
+-Architecture: amd64 arm64 armhf loong64 ppc64el riscv64 s390x
++Architecture: amd64 arm64 armhf loong64 ppc64 ppc64el riscv64 s390x
+ Depends:
+  luanti-data (= ${source:Version}),
+  ${misc:Depends},
+@@ -55,7 +55,7 @@ Description: Multiplayer infinite-world block sandbox
+  generator.
+ 
+ Package: luanti-server
+-Architecture: amd64 arm64 armhf loong64 ppc64el riscv64 s390x
++Architecture: amd64 arm64 armhf loong64 ppc64 ppc64el riscv64 s390x
+ Depends:
+  luanti-data (= ${source:Version}),
+  luanti-game-minetest,
