@@ -2,7 +2,7 @@ Source: ps3-splash
 Section: misc
 Priority: optional
 Maintainer: PS3 Linux project <ps3@localhost>
-Build-Depends: debhelper-compat (= 13), librsvg2-bin
+Build-Depends: debhelper-compat (= 13), librsvg2-bin, python3:native
 Standards-Version: 4.7.2
 Rules-Requires-Root: no
 
