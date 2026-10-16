@@ -225,12 +225,16 @@ static const struct drm_plane_funcs plane_funcs = {
  * DPMS: after its idle timeout X switches the CRTC off (still enabled, not active). The display
  * can't be powered down from here; ps3av's video mute blanks it, as ps3fb's blanking does.
  * Before, crtc_disable showed ps3fb's frame: the console came up instead of a black screen.
+ * ps3fb mutes too, behind our back: when X takes the VT the console blanks (KD_GRAPHICS), and
+ * ps3fb_blank mutes the video if it still has the GPU, which it does until X's first master_set.
+ * So an unmute is always sent (X started black until a DPMS off/on cycle); only a mute is skipped
+ * when ours is already on.
  */
 static void video_mute(struct ps3rsx_device *rsx, bool mute)
 {
 	int err;
 
-	if (rsx->video_muted == mute)
+	if (mute && rsx->video_muted)
 		return;
 	err = ps3av_video_mute(mute);
 	if (err)
