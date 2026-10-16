@@ -34,7 +34,13 @@ else
 	releases=$(echo "$releases" | sort -rV)
 fi
 kernels=$(echo "$releases" | sed '/^$/d; s|^|/boot/vmlinux-|')
-[ -n "$kernels" ] || exit 0
+if [ -z "$kernels" ]; then
+	# no kernel left: no entries pointing at files that are gone
+	echo "# Petitboot boot menu, written by ps3-update-kboot: no kernels installed" > /etc/kboot.conf.new
+	mv /etc/kboot.conf.new /etc/kboot.conf
+	echo "ps3-update-kboot: no kernels in /boot"
+	exit 0
+fi
 tmp=$(mktemp /etc/kboot.conf.XXXXXX)
 echo "# Petitboot boot menu, written by ps3-update-kboot: newest kernel first" > "$tmp"
 default=
