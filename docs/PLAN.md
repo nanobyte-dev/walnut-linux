@@ -209,6 +209,10 @@ Task numbers refer to the session task list. "Reboot" marks steps that need one.
 
 ### Later: SPUs (compute instead of memory)
 
+**Parked 2026-10-16** for the game suite and its driver work (GAME-SUITE.md). Done: the
+measurement harness, libspeq (runtime, queue, probes) and the SPU DXT1 encoder behind Mesa (items
+10-12's DXT part). The status and what comes back first: SPU-OFFLOAD-PLAN.md.
+
 10. **Probes first** (RSX-SPU-FEASIBILITY.md "Recommended experiments"):
     - E8b: what lv1 keeps of `ioremap_wc` (read the HPTE back), 16-byte stores, pre-touched;
     - E16: SPU DMA puts into a mapped VRAM buffer (expected to work: `bo_mmap` fills the page
