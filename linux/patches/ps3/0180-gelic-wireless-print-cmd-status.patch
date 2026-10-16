@@ -1,7 +1,12 @@
-diff -Naur a/drivers/net/ethernet/toshiba/ps3_gelic_wireless.c b/drivers/net/ethernet/toshiba/ps3_gelic_wireless.c
---- a/drivers/net/ethernet/toshiba/ps3_gelic_wireless.c	2024-03-17 19:52:55.396367644 +0700
-+++ b/drivers/net/ethernet/toshiba/ps3_gelic_wireless.c	2024-03-17 19:52:56.736339299 +0700
-@@ -171,7 +171,7 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: 0180-gelic-wireless-print-cmd-status.patch
+
+diff --git a/drivers/net/ethernet/toshiba/ps3_gelic_wireless.c b/drivers/net/ethernet/toshiba/ps3_gelic_wireless.c
+--- a/drivers/net/ethernet/toshiba/ps3_gelic_wireless.c
++++ b/drivers/net/ethernet/toshiba/ps3_gelic_wireless.c
+@@ -171,7 +171,7 @@ static void gelic_eurus_sync_cmd_worker(struct work_struct *work)
  				      &cmd->tag, &cmd->size);
  	if (cmd->status) {
  		complete(&cmd->done);

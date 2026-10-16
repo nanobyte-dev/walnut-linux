@@ -1,6 +1,12 @@
---- a/arch/powerpc/include/asm/interrupt.h	2024-05-17 17:18:09.000000000 +0700
-+++ b/arch/powerpc/include/asm/interrupt.h	2024-05-26 12:19:22.188360502 +0700
-@@ -106,6 +106,7 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: 0450_interrupt_h_cobber.patch
+
+diff --git a/arch/powerpc/include/asm/interrupt.h b/arch/powerpc/include/asm/interrupt.h
+--- a/arch/powerpc/include/asm/interrupt.h
++++ b/arch/powerpc/include/asm/interrupt.h
+@@ -106,6 +106,7 @@ static inline bool is_implicit_soft_masked(struct pt_regs *regs)
  	return search_kernel_soft_mask_table(regs->nip);
  }
  
@@ -8,4 +14,3 @@
  static inline void srr_regs_clobbered(void)
  {
  	local_paca->srr_valid = 0;
-

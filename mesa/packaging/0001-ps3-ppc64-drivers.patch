@@ -1,15 +1,20 @@
-Description: PS3 (ppc64): only the nouveau and softpipe drivers, no LLVM
- The PS3 has 256 MB of RAM and an RSX (NV47). On ppc64 build softpipe and nouveau only: no
- LLVM (llvmpipe, radeonsi, zink, Vulkan; ~200 MB of LLVM/z3 in the image), valgrind, VA/VDPAU,
- video codecs or sensors; Cell CPU flags; no tests under nocheck; the VA driver move guarded.
- mesa-libgallium breaks the old ps3-mesa build (installed next to Debian's in /usr/lib/ps3-mesa),
- which its empty transitional version (26.2.4+ps3.99999) replaces.
-Author: PS3 Linux project
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 02:48:56 +0300
+Subject: PS3 (ppc64): only the nouveau and softpipe drivers, no LLVM
+
+The PS3 has 256 MB of RAM and an RSX (NV47). On ppc64 build softpipe and nouveau only: no
+LLVM (llvmpipe, radeonsi, zink, Vulkan; ~200 MB of LLVM/z3 in the image), valgrind, VA/VDPAU,
+video codecs or sensors; Cell CPU flags; no tests under nocheck; the VA driver move guarded.
+mesa-libgallium breaks the old ps3-mesa build (installed next to Debian's in /usr/lib/ps3-mesa),
+which its empty transitional version (26.2.4+ps3.99999) replaces.
+
 Forwarded: not-needed
----
---- a/debian/control.in	2026-10-16 01:43:09.293416727 +0300
-+++ b/debian/control.in	2026-10-16 01:43:09.361239585 +0300
-@@ -225,7 +225,8 @@
+
+diff --git a/debian/control.in b/debian/control.in
+--- a/debian/control.in
++++ b/debian/control.in
+@@ -225,7 +225,8 @@ Provides:
   mesa-va-drivers,
   mesa-vdpau-drivers,
   va-driver,
@@ -19,9 +24,10 @@ Forwarded: not-needed
  Replaces: mesa-va-drivers (<< 25.2.8-3), mesa-vdpau-drivers (<< 25.2.8-3)
  Description: shared infrastructure for Mesa drivers
   This package contains libgallium, a private library shared between
---- a/debian/rules	2026-10-16 01:41:46.583151136 +0300
-+++ b/debian/rules	2026-10-16 01:41:46.650229149 +0300
-@@ -51,10 +51,12 @@
+diff --git a/debian/rules b/debian/rules
+--- a/debian/rules
++++ b/debian/rules
+@@ -51,10 +51,12 @@ VULKAN_LAYERS =
  
  confflags_TEFLON = -Dteflon=false
  
@@ -36,7 +42,7 @@ Forwarded: not-needed
  
  # hurd doesn't do direct rendering
  ifeq ($(DEB_HOST_ARCH_OS), hurd)
-@@ -171,6 +173,22 @@
+@@ -171,6 +173,22 @@ else
    endif
  endif
  
@@ -59,7 +65,7 @@ Forwarded: not-needed
  empty:=
  space := $(empty) $(empty)
  comma := ,
-@@ -194,7 +212,7 @@
+@@ -194,7 +212,7 @@ confflags += \
  	-Dvulkan-manifest-per-architecture=false \
  	-Dglvnd=enabled \
  	-Db_ndebug=true \
@@ -68,7 +74,7 @@ Forwarded: not-needed
  	-Dtools=drm-shim \
  	$(confflags_DIRECT_RENDERING) \
  	$(confflags_GBM) \
-@@ -267,8 +285,9 @@
+@@ -267,8 +285,9 @@ override_dh_install:
    ifneq ($(DEB_HOST_ARCH_OS), hurd)
  	# Copy the hardlinked va drivers correctly.
  	install -m755 -d debian/mesa-libgallium/usr/lib/${DEB_HOST_MULTIARCH}/dri/

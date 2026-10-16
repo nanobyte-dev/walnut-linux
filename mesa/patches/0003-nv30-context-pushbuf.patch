@@ -1,13 +1,18 @@
-Description: nv30: push buffer robustness in the context
- Room for the fence kick_notify emits; a context that never queued anything gets push buffer
- space before the kick; nv30_context_destroy survives a failed init. Also the per-context
- count of texture upload staging in flight (used by the miptree upload limit).
-Author: PS3 Linux project
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 02:48:56 +0300
+Subject: nv30: push buffer robustness in the context
+
+Room for the fence kick_notify emits; a context that never queued anything gets push buffer
+space before the kick; nv30_context_destroy survives a failed init. Also the per-context
+count of texture upload staging in flight (used by the miptree upload limit).
+
 Forwarded: no
----
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.c b/src/gallium/drivers/nouveau/nv30/nv30_context.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_context.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_context.c
-@@ -79,6 +79,10 @@
+@@ -79,6 +79,10 @@ nv30_context_flush(struct pipe_context *pipe, struct pipe_fence_handle **fence,
                          (struct nouveau_fence **)fence,
                          nv30->base.screen);
  
@@ -18,7 +23,7 @@ Forwarded: no
     PUSH_KICK(push);
  
     nouveau_context_update_frame_stats(&nv30->base);
-@@ -169,8 +173,11 @@
+@@ -169,8 +173,11 @@ nv30_context_destroy(struct pipe_context *pipe)
     nv30_framebuffer_init(pipe, NULL, nv30->fb_cbufs, &nv30->fb_zsbuf);
     util_unreference_framebuffer_state(&nv30->framebuffer);
  
@@ -32,7 +37,7 @@ Forwarded: no
     nouveau_bufctx_del(&nv30->bufctx);
  
     if (nv30->screen->cur_ctx == nv30)
-@@ -212,6 +219,7 @@
+@@ -212,6 +219,7 @@ nv30_context_create(struct pipe_screen *pscreen, void *priv, unsigned ctxflags)
        return NULL;
     }
     nv30->base.pushbuf->kick_notify = nv30_context_kick_notify;
@@ -40,9 +45,10 @@ Forwarded: no
  
     nv30->base.pipe.stream_uploader = u_upload_create_default(&nv30->base.pipe);
     if (!nv30->base.pipe.stream_uploader) {
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
 --- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
-@@ -59,6 +59,9 @@
+@@ -59,6 +59,9 @@ struct nv30_context {
  
     uint32_t dirty;
  

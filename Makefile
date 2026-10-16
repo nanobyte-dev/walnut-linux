@@ -282,11 +282,12 @@ $(BUILD)/repo/.%.stamp: $$(PKG_INPUTS_$$*) tools/stage-package.sh tools/build-de
 DEPLOY_TOP := linux-image-ps3 linux-image-ps3-release ps3rsx-modules-ps3 ps3rsx-modules-ps3-release ps3-boot ps3-system ps3-desktop ps3-gpu-tools ps3-spu ps3-spu-programs classicube
 PKGS ?= $(DEPLOY_TOP)
 AUTOREMOVE ?= 0
+STOP_DESKTOP ?= auto
 PS3_SCP = scp -q -i $(HOME)/.ssh/id_ps3 -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts
 deploy: $(PKG_STAMPS) | $(REPO_BUILDER_STAMP)
 	PS3=tibi@$(PS3_IP) SSH="ssh -i $(HOME)/.ssh/id_ps3 -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts" \
 		SCP="$(PS3_SCP)" REPO_BUILDER_TAG=$(REPO_BUILDER_TAG) REPO_HOST=$(REPO_HOST) REPO_DIR=$(REPO_DIR) \
-		AUTOREMOVE=$(AUTOREMOVE) tools/deploy.sh $(PKGS)
+		AUTOREMOVE=$(AUTOREMOVE) STOP_DESKTOP=$(STOP_DESKTOP) tools/deploy.sh $(PKGS)
 kernel-deploy:
 	$(MAKE) deploy PKGS=ps3-kernel-$(KERNEL_RELEASE)
 
@@ -400,6 +401,21 @@ $(BUILD)/chroot/sid-ppc64.tar:
 	docker run --rm --privileged -v $(CURDIR):/work -w /work $(DEB_ENV) -e JOBS=$(DEB_JOBS) -e KEEP_TREE=$(KEEP_TREE) \
 		$(REPO_BUILDER_TAG) tools/deb-build.sh $*
 DEB_JOBS ?= 16
+# Changing a Debian-source package's patches (docs/PACKAGING.md): make <pkg>-work makes a git tree
+# in build/work/<pkg> (Debian's tree, then one commit per patch of ours; FORCE=1 discards unsaved
+# commits), make <pkg>-patches writes the commits back to <pkg>/patches and <pkg>/packaging,
+# make <pkg>-rebase VERSION=<debver> moves our commits onto a newer Debian version
+%-work: | $(REPO_BUILDER_STAMP)
+	docker run --rm -v $(CURDIR):/work -w /work $(DEB_ENV) $(REPO_BUILDER_TAG) tools/deb-fetch.sh $*
+	docker run --rm -v $(CURDIR):/work -w /work --user $(UID_GID) -e HOME=/tmp -e FORCE=$(FORCE) \
+		$(REPO_BUILDER_TAG) tools/pkg-work.sh $*
+%-patches: | $(REPO_BUILDER_STAMP)
+	docker run --rm -v $(CURDIR):/work -w /work --user $(UID_GID) -e HOME=/tmp $(REPO_BUILDER_TAG) tools/pkg-export.sh $*
+%-rebase: | $(REPO_BUILDER_STAMP)
+	@[ -n "$(VERSION)" ] || { echo "make $*-rebase VERSION=<new Debian version>"; exit 1; }
+	docker run --rm -v $(CURDIR):/work -w /work $(DEB_ENV) -e NEWVERSION=$(VERSION) $(REPO_BUILDER_TAG) tools/pkg-rebase.sh fetch $*
+	docker run --rm -v $(CURDIR):/work -w /work --user $(UID_GID) -e HOME=/tmp -e NEWVERSION=$(VERSION) \
+		$(REPO_BUILDER_TAG) tools/pkg-rebase.sh rebase $*
 # KEEP_TREE=1: make linux-deb keeps the cross build tree (build/chroot/cross-linux)
 KEEP_TREE ?= 0
 # All our packages: the Debian source packages and the two still made by the old pipeline

@@ -1,14 +1,19 @@
-Description: nouveau: detect the PS3 RSX, its DMA handles and smaller push buffers
- The PS3 RSX (NV47) is driven by the ps3rsx kernel driver: Sony PCI vendor id 0x104d and the
- PS3_ABI getparam identify it, and its VRAM/GART DMA objects are the hypervisor's. Its push
- buffers live in the small GART and the kernel copies each submission into its ring, so
- fewer and smaller ones do.
-Author: PS3 Linux project
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 02:48:56 +0300
+Subject: nouveau: detect the PS3 RSX, its DMA handles and smaller push buffers
+
+The PS3 RSX (NV47) is driven by the ps3rsx kernel driver: Sony PCI vendor id 0x104d and the
+PS3_ABI getparam identify it, and its VRAM/GART DMA objects are the hypervisor's. Its push
+buffers live in the small GART and the kernel copies each submission into its ring, so
+fewer and smaller ones do.
+
 Forwarded: no
----
+
+diff --git a/src/gallium/drivers/nouveau/nouveau_screen.c b/src/gallium/drivers/nouveau/nouveau_screen.c
 --- a/src/gallium/drivers/nouveau/nouveau_screen.c
 +++ b/src/gallium/drivers/nouveau/nouveau_screen.c
-@@ -322,6 +322,19 @@
+@@ -322,6 +322,19 @@ nouveau_screen_init(struct nouveau_screen *screen, struct nouveau_device *dev)
     screen->device = dev;
     screen->initialized = false;
  
@@ -28,7 +33,7 @@ Forwarded: no
     if (dev->chipset < 0xc0) {
        data = &nv04_data;
        size = sizeof(nv04_data);
-@@ -404,8 +417,11 @@
+@@ -404,8 +417,11 @@ nouveau_screen_init(struct nouveau_screen *screen, struct nouveau_device *dev)
     ret = nouveau_client_new(screen->device, &screen->client);
     if (ret)
        goto err;
@@ -41,7 +46,7 @@ Forwarded: no
     if (ret)
        goto err;
  
-@@ -515,7 +531,8 @@
+@@ -515,7 +531,8 @@ nouveau_context_init(struct nouveau_context *context, struct nouveau_screen *scr
        return ret;
  
     ret = nouveau_pushbuf_create(screen, context, context->client, screen->channel,
@@ -51,9 +56,10 @@ Forwarded: no
     if (ret)
        return ret;
  
+diff --git a/src/gallium/drivers/nouveau/nouveau_screen.h b/src/gallium/drivers/nouveau/nouveau_screen.h
 --- a/src/gallium/drivers/nouveau/nouveau_screen.h
 +++ b/src/gallium/drivers/nouveau/nouveau_screen.h
-@@ -68,6 +68,7 @@
+@@ -68,6 +68,7 @@ struct nouveau_screen {
     bool has_svm;
     bool is_uma;
     bool disable_fences;

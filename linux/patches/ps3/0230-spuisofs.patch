@@ -1,7 +1,12 @@
-diff -Naur a/arch/powerpc/platforms/ps3/Kconfig b/arch/powerpc/platforms/ps3/Kconfig
---- a/arch/powerpc/platforms/ps3/Kconfig	2024-03-17 19:53:35.571522742 +0700
-+++ b/arch/powerpc/platforms/ps3/Kconfig	2024-03-17 19:53:38.326465169 +0700
-@@ -209,6 +209,13 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: 0230-spuisofs.patch
+
+diff --git a/arch/powerpc/platforms/ps3/Kconfig b/arch/powerpc/platforms/ps3/Kconfig
+--- a/arch/powerpc/platforms/ps3/Kconfig
++++ b/arch/powerpc/platforms/ps3/Kconfig
+@@ -209,6 +209,13 @@ config PS3_ENCDEC
  	  This support is required to access the PS3 ENCDEC device.
  	  In general, all users will say Y or M.
  
@@ -15,18 +20,19 @@ diff -Naur a/arch/powerpc/platforms/ps3/Kconfig b/arch/powerpc/platforms/ps3/Kco
  config PS3_LPM
  	tristate "PS3 Logical Performance Monitor support"
  	depends on PPC_PS3
-diff -Naur a/arch/powerpc/platforms/ps3/Makefile b/arch/powerpc/platforms/ps3/Makefile
---- a/arch/powerpc/platforms/ps3/Makefile	2024-03-17 19:53:35.571522742 +0700
-+++ b/arch/powerpc/platforms/ps3/Makefile	2024-03-17 19:53:38.327465148 +0700
-@@ -7,3 +7,5 @@
+diff --git a/arch/powerpc/platforms/ps3/Makefile b/arch/powerpc/platforms/ps3/Makefile
+--- a/arch/powerpc/platforms/ps3/Makefile
++++ b/arch/powerpc/platforms/ps3/Makefile
+@@ -7,3 +7,5 @@ obj-$(CONFIG_PPC_EARLY_DEBUG_PS3GELIC) += gelic_udbg.o
  obj-$(CONFIG_SMP) += smp.o
  obj-$(CONFIG_SPU_BASE) += spu.o
  obj-y += device-init.o
 +
 +obj-$(CONFIG_SPUISO_FS) += spuisofs.o
-diff -Naur a/arch/powerpc/platforms/ps3/spuisofs.c b/arch/powerpc/platforms/ps3/spuisofs.c
---- a/arch/powerpc/platforms/ps3/spuisofs.c	1970-01-01 07:00:00.000000000 +0700
-+++ b/arch/powerpc/platforms/ps3/spuisofs.c	2024-07-23 19:12:49.480891839 +0700
+diff --git a/arch/powerpc/platforms/ps3/spuisofs.c b/arch/powerpc/platforms/ps3/spuisofs.c
+new file mode 100644
+--- /dev/null
++++ b/arch/powerpc/platforms/ps3/spuisofs.c
 @@ -0,0 +1,1077 @@
 +
 +/*

@@ -1,6 +1,11 @@
-diff -Naur a/arch/powerpc/include/asm/lv1call.h b/arch/powerpc/include/asm/lv1call.h
---- a/arch/powerpc/include/asm/lv1call.h	2024-03-17 19:53:02.152224851 +0700
-+++ b/arch/powerpc/include/asm/lv1call.h	2024-03-17 19:53:04.982165125 +0700
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: 0190-lv1call-add-undocumented-spe-hvcalls.patch
+
+diff --git a/arch/powerpc/include/asm/lv1call.h b/arch/powerpc/include/asm/lv1call.h
+--- a/arch/powerpc/include/asm/lv1call.h
++++ b/arch/powerpc/include/asm/lv1call.h
 @@ -41,6 +41,7 @@
  #define LV1_5_IN_0_OUT_ARG_DECL LV1_5_IN_ARG_DECL
  #define LV1_6_IN_0_OUT_ARG_DECL LV1_6_IN_ARG_DECL
@@ -17,7 +22,7 @@ diff -Naur a/arch/powerpc/include/asm/lv1call.h b/arch/powerpc/include/asm/lv1ca
  
  #define LV1_0_IN_1_OUT_ARGS                LV1_1_OUT_ARGS
  #define LV1_1_IN_1_OUT_ARGS LV1_1_IN_ARGS, LV1_1_OUT_ARGS
-@@ -241,6 +243,7 @@
+@@ -241,6 +243,7 @@ LV1_CALL(shutdown_logical_partition,                    1, 0,  44 )
  LV1_CALL(destruct_logical_spe,                          1, 0,  54 )
  LV1_CALL(construct_logical_spe,                         7, 6,  57 )
  LV1_CALL(set_spe_interrupt_mask,                        3, 0,  61 )
@@ -25,7 +30,7 @@ diff -Naur a/arch/powerpc/include/asm/lv1call.h b/arch/powerpc/include/asm/lv1ca
  LV1_CALL(set_spe_transition_notifier,                   3, 0,  64 )
  LV1_CALL(disable_logical_spe,                           2, 0,  65 )
  LV1_CALL(clear_spe_interrupt_status,                    4, 0,  66 )
-@@ -257,6 +260,7 @@
+@@ -257,6 +260,7 @@ LV1_CALL(write_repository_node,                         7, 0,  92 )
  LV1_CALL(delete_repository_node,                        5, 0,  93 )
  LV1_CALL(read_htab_entries,                             2, 5,  95 )
  LV1_CALL(set_dabr,                                      2, 0,  96 )
@@ -33,7 +38,7 @@ diff -Naur a/arch/powerpc/include/asm/lv1call.h b/arch/powerpc/include/asm/lv1ca
  LV1_CALL(get_total_execution_time,                      2, 1, 103 )
  LV1_CALL(undocumented_function_114,                     3, 1, 114 )
  LV1_CALL(undocumented_function_115,                     1, 0, 115 )
-@@ -267,12 +271,15 @@
+@@ -267,12 +271,15 @@ LV1_CALL(destruct_io_irq_outlet,                        1, 0, 121 )
  LV1_CALL(map_htab,                                      1, 1, 122 )
  LV1_CALL(unmap_htab,                                    1, 0, 123 )
  LV1_CALL(get_version_info,                              0, 2, 127 )
@@ -49,7 +54,7 @@ diff -Naur a/arch/powerpc/include/asm/lv1call.h b/arch/powerpc/include/asm/lv1ca
  LV1_CALL(open_device,                                   3, 0, 170 )
  LV1_CALL(close_device,                                  2, 0, 171 )
  LV1_CALL(map_device_mmio_region,                        5, 1, 172 )
-@@ -293,8 +300,11 @@
+@@ -293,8 +300,11 @@ LV1_CALL(net_control,                                   6, 2, 194 )
  LV1_CALL(connect_interrupt_event_receive_port,          4, 0, 197 )
  LV1_CALL(disconnect_interrupt_event_receive_port,       4, 0, 198 )
  LV1_CALL(get_spe_all_interrupt_statuses,                1, 1, 199 )
@@ -61,10 +66,10 @@ diff -Naur a/arch/powerpc/include/asm/lv1call.h b/arch/powerpc/include/asm/lv1ca
  LV1_CALL(gpu_open,                                      1, 0, 210 )
  LV1_CALL(gpu_close,                                     0, 0, 211 )
  LV1_CALL(gpu_device_map,                                1, 2, 212 )
-diff -Naur a/arch/powerpc/platforms/ps3/hvcall.S b/arch/powerpc/platforms/ps3/hvcall.S
---- a/arch/powerpc/platforms/ps3/hvcall.S	2024-03-17 19:53:02.193223986 +0700
-+++ b/arch/powerpc/platforms/ps3/hvcall.S	2024-03-17 19:53:04.982165125 +0700
-@@ -36,6 +36,7 @@
+diff --git a/arch/powerpc/platforms/ps3/hvcall.S b/arch/powerpc/platforms/ps3/hvcall.S
+--- a/arch/powerpc/platforms/ps3/hvcall.S
++++ b/arch/powerpc/platforms/ps3/hvcall.S
+@@ -36,6 +36,7 @@ _GLOBAL(_##API_NAME)				\
  #define LV1_5_IN_0_OUT LV1_N_IN_0_OUT
  #define LV1_6_IN_0_OUT LV1_N_IN_0_OUT
  #define LV1_7_IN_0_OUT LV1_N_IN_0_OUT

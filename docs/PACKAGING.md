@@ -31,6 +31,32 @@ below the next one, and can only go to the dev suite.
 Commands: `make <pkg>-src` (fetch and prepare the source package in `build/src/<pkg>`),
 `make <pkg>-deb` (build into `build/debs/<pkg>`), `make packages` (everything).
 
+## Changing patches
+
+For the Debian-source packages (`mesa`, `linux`) the repository stores only patch series; you
+change them in a disposable git tree:
+
+    make mesa-work          # build/work/mesa: commit "Debian <version>" (tag base/<version>),
+                            # then one commit per patch of ours (packaging first)
+    cd build/work/mesa      # plain git: edit, commit, rebase -i, fixup, ...
+    make mesa-patches       # writes the commits back to mesa/patches and mesa/packaging
+    git diff -- mesa        # review; then make mesa-deb and test
+    make mesa-rebase VERSION=<newer Debian version>   # our commits onto a new Debian release
+
+- A commit that touches only `debian/` becomes a packaging patch (`<pkg>/packaging`), any other
+  a source patch (`<pkg>/patches`); one touching both is refused (split it). The `Gbp-Pq: Topic`
+  and `Gbp-Pq: Name` trailers keep subdirectories and file names (`linux/patches/ps3/`,
+  `local/`); a new commit without them gets `NNNN-<subject>.patch`.
+- Patches are git format-patch files without what changes on every export (commit ids,
+  `index` lines, stats); a round trip (`-work`, then `-patches`) changes nothing, and the source
+  package made from the series equals the work tree (both checked for Mesa and the kernel,
+  2026-10-16). The series files' leading comments are kept.
+- `make <pkg>-work` refuses to replace a tree with commits not exported yet (`FORCE=1` discards
+  them); `make <pkg>-patches` refuses a tree that `-work` didn't finish.
+- `-rebase` stops at a conflict: resolve it in the work tree (`git status`, `git rebase
+  --continue`), then `make <pkg>-patches` and set `VERSION`/`DSC_SHA256` in `package.conf` (it
+  prints the hash). Without a conflict it does both itself.
+
 ## The repository
 
 - Server: tibi-server, `http://10.0.0.10:8070/` (`tools/repo-server/`), static files from aptly's

@@ -1,11 +1,16 @@
-Description: nv30: query notifier offset on the PS3
- Queries use an offset inside the PS3 query DMA object.
-Author: PS3 Linux project
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 02:48:56 +0300
+Subject: nv30: query notifier offset on the PS3
+
+Queries use an offset inside the PS3 query DMA object.
+
 Forwarded: no
----
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers/nouveau/nv30/nv30_query.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_query.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_query.c
-@@ -34,6 +34,14 @@
+@@ -34,6 +34,14 @@ struct nv30_query_object {
     struct nouveau_heap *hw;
  };
  
@@ -20,7 +25,7 @@ Forwarded: no
  static volatile void *
  nv30_ntfy(struct nv30_screen *screen, struct nv30_query_object *qo)
  {
-@@ -156,7 +164,7 @@
+@@ -156,7 +164,7 @@ nv30_query_begin(struct pipe_context *pipe, struct pipe_query *pq)
        q->qo[0] = nv30_query_object_new(nv30->screen);
        if (q->qo[0]) {
           BEGIN_NV04(push, NV30_3D(QUERY_GET), 1);
@@ -29,7 +34,7 @@ Forwarded: no
        }
        break;
     case PIPE_QUERY_TIMESTAMP:
-@@ -185,7 +193,7 @@
+@@ -185,7 +193,7 @@ nv30_query_end(struct pipe_context *pipe, struct pipe_query *pq)
     q->qo[1] = nv30_query_object_new(screen);
     if (q->qo[1]) {
        BEGIN_NV04(push, NV30_3D(QUERY_GET), 1);
@@ -38,7 +43,7 @@ Forwarded: no
     }
  
     if (q->enable) {
-@@ -261,7 +269,7 @@
+@@ -261,7 +269,7 @@ nv40_query_render_condition(struct pipe_context *pipe,
     }
  
     BEGIN_NV04(push, SUBC_3D(0x1e98), 1);

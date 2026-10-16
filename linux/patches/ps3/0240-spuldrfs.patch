@@ -1,7 +1,12 @@
-diff -Naur a/arch/powerpc/platforms/ps3/Kconfig b/arch/powerpc/platforms/ps3/Kconfig
---- a/arch/powerpc/platforms/ps3/Kconfig	2024-03-17 19:53:43.976347241 +0700
-+++ b/arch/powerpc/platforms/ps3/Kconfig	2024-03-17 19:53:46.700290453 +0700
-@@ -216,6 +216,13 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: 0240-spuldrfs.patch
+
+diff --git a/arch/powerpc/platforms/ps3/Kconfig b/arch/powerpc/platforms/ps3/Kconfig
+--- a/arch/powerpc/platforms/ps3/Kconfig
++++ b/arch/powerpc/platforms/ps3/Kconfig
+@@ -216,6 +216,13 @@ config SPUISO_FS
  	help
  	  The isolated SPU file system is used to execute isolated SPU modules.
  
@@ -15,17 +20,18 @@ diff -Naur a/arch/powerpc/platforms/ps3/Kconfig b/arch/powerpc/platforms/ps3/Kco
  config PS3_LPM
  	tristate "PS3 Logical Performance Monitor support"
  	depends on PPC_PS3
-diff -Naur a/arch/powerpc/platforms/ps3/Makefile b/arch/powerpc/platforms/ps3/Makefile
---- a/arch/powerpc/platforms/ps3/Makefile	2024-03-17 19:53:43.976347241 +0700
-+++ b/arch/powerpc/platforms/ps3/Makefile	2024-03-17 19:53:46.700290453 +0700
-@@ -9,3 +9,4 @@
+diff --git a/arch/powerpc/platforms/ps3/Makefile b/arch/powerpc/platforms/ps3/Makefile
+--- a/arch/powerpc/platforms/ps3/Makefile
++++ b/arch/powerpc/platforms/ps3/Makefile
+@@ -9,3 +9,4 @@ obj-$(CONFIG_SPU_BASE) += spu.o
  obj-y += device-init.o
  
  obj-$(CONFIG_SPUISO_FS) += spuisofs.o
 +obj-$(CONFIG_SPULDR_FS) += spuldrfs.o
-diff -Naur a/arch/powerpc/platforms/ps3/spuldrfs.c b/arch/powerpc/platforms/ps3/spuldrfs.c
---- a/arch/powerpc/platforms/ps3/spuldrfs.c	1970-01-01 07:00:00.000000000 +0700
-+++ b/arch/powerpc/platforms/ps3/spuldrfs.c	2024-07-23 19:19:34.552514903 +0700
+diff --git a/arch/powerpc/platforms/ps3/spuldrfs.c b/arch/powerpc/platforms/ps3/spuldrfs.c
+new file mode 100644
+--- /dev/null
++++ b/arch/powerpc/platforms/ps3/spuldrfs.c
 @@ -0,0 +1,1090 @@
 +
 +/*

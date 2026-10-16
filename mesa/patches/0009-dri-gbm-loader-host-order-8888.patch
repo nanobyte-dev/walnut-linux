@@ -1,12 +1,17 @@
-Description: dri, gbm, loader: 8888 RGB formats as host-order words
- Big-endian GPUs (the RSX) render and scan out ARGB as bytes A,R,G,B, and a big-endian X
- server asks for ARGB8888/XRGB8888 meaning exactly that. Identical on little-endian.
-Author: PS3 Linux project
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 02:48:56 +0300
+Subject: dri, gbm, loader: 8888 RGB formats as host-order words
+
+Big-endian GPUs (the RSX) render and scan out ARGB as bytes A,R,G,B, and a big-endian X
+server asks for ARGB8888/XRGB8888 meaning exactly that. Identical on little-endian.
+
 Forwarded: no
----
+
+diff --git a/src/gallium/frontends/dri/dri_helpers.c b/src/gallium/frontends/dri/dri_helpers.c
 --- a/src/gallium/frontends/dri/dri_helpers.c
 +++ b/src/gallium/frontends/dri/dri_helpers.c
-@@ -425,10 +425,14 @@
+@@ -425,10 +425,14 @@ static const struct dri2_format_mapping dri2_format_table[] = {
          PIPE_FORMAT_R10G10B10A2_UNORM, 1, },
        { DRM_FORMAT_XBGR2101010,   __DRI_IMAGE_FORMAT_XBGR2101010,
          PIPE_FORMAT_R10G10B10X2_UNORM, 1, },
@@ -24,7 +29,7 @@ Forwarded: no
        { DRM_FORMAT_ABGR8888,      __DRI_IMAGE_FORMAT_ABGR8888,
          PIPE_FORMAT_R8G8B8A8_UNORM, 1, },
        { DRM_FORMAT_RGBA8888,      PIPE_FORMAT_A8B8G8R8_UNORM,
-@@ -436,9 +440,9 @@
+@@ -436,9 +440,9 @@ static const struct dri2_format_mapping dri2_format_table[] = {
        { __DRI_IMAGE_FOURCC_SARGB8888,     __DRI_IMAGE_FORMAT_SARGB8,
          PIPE_FORMAT_B8G8R8A8_SRGB, 1, },
        { DRM_FORMAT_XRGB8888,      __DRI_IMAGE_FORMAT_XRGB8888,
@@ -37,9 +42,10 @@ Forwarded: no
        { DRM_FORMAT_RGB888,        __DRI_IMAGE_FORMAT_RGB888,
          PIPE_FORMAT_B8G8R8_UNORM, 1, },
        { DRM_FORMAT_XBGR8888,      __DRI_IMAGE_FORMAT_XBGR8888,
+diff --git a/src/gbm/backends/dri/gbm_dri.c b/src/gbm/backends/dri/gbm_dri.c
 --- a/src/gbm/backends/dri/gbm_dri.c
 +++ b/src/gbm/backends/dri/gbm_dri.c
-@@ -327,13 +327,14 @@
+@@ -327,13 +327,14 @@ static const struct gbm_dri_visual gbm_dri_visuals_table[] = {
     { GBM_FORMAT_GR1616, PIPE_FORMAT_R16G16_UNORM },
     { GBM_FORMAT_ARGB1555, PIPE_FORMAT_B5G5R5A1_UNORM },
     { GBM_FORMAT_RGB565, PIPE_FORMAT_B5G6R5_UNORM },
@@ -58,9 +64,10 @@ Forwarded: no
     { GBM_FORMAT_BGR888, PIPE_FORMAT_R8G8B8_UNORM },
     { GBM_FORMAT_XBGR8888, PIPE_FORMAT_R8G8B8X8_UNORM },
     { GBM_FORMAT_ABGR8888, PIPE_FORMAT_R8G8B8A8_UNORM },
+diff --git a/src/loader/loader_dri_helper.c b/src/loader/loader_dri_helper.c
 --- a/src/loader/loader_dri_helper.c
 +++ b/src/loader/loader_dri_helper.c
-@@ -54,10 +54,11 @@
+@@ -54,10 +54,11 @@ static const struct {
     { PIPE_FORMAT_R8G8B8A8_SRGB, __DRI_IMAGE_FOURCC_SABGR8888 },
     { PIPE_FORMAT_X8B8G8R8_UNORM, DRM_FORMAT_RGBX8888 },
     { PIPE_FORMAT_A8B8G8R8_UNORM, DRM_FORMAT_RGBA8888 },
@@ -76,6 +83,7 @@ Forwarded: no
     { PIPE_FORMAT_R8G8B8X8_UNORM, DRM_FORMAT_XBGR8888 },
     { PIPE_FORMAT_R8G8B8A8_UNORM, DRM_FORMAT_ABGR8888 },
     { PIPE_FORMAT_B10G10R10X2_UNORM, DRM_FORMAT_XRGB2101010 },
+diff --git a/src/loader/loader_dri_helper.h b/src/loader/loader_dri_helper.h
 --- a/src/loader/loader_dri_helper.h
 +++ b/src/loader/loader_dri_helper.h
 @@ -44,8 +44,8 @@

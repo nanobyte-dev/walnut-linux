@@ -1,10 +1,16 @@
-Description: nv30: RSX screen quirks (no Z16, semaphore byte swap, buffer placement)
- The RSX mis-renders Z16 next to a 32-bit colour buffer; its semaphore value is stored with
- bytes 0 and 2 swapped; vertex/index buffers go to VRAM since the GPU fetches them
- (GART with NV30_PS3_VBO_FIFO=1).
-Author: PS3 Linux project
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 02:48:56 +0300
+Subject: nv30: RSX screen quirks (no Z16, semaphore byte swap, buffer
+ placement)
+
+The RSX mis-renders Z16 next to a 32-bit colour buffer; its semaphore value is stored with
+bytes 0 and 2 swapped; vertex/index buffers go to VRAM since the GPU fetches them
+(GART with NV30_PS3_VBO_FIFO=1).
+
 Forwarded: no
----
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
 @@ -28,6 +28,7 @@
@@ -15,7 +21,7 @@ Forwarded: no
  
  #include "nv_object.xml.h"
  #include "nv_m2mf.xml.h"
-@@ -323,6 +324,12 @@
+@@ -323,6 +324,12 @@ nv30_screen_is_format_supported(struct pipe_screen *pscreen,
     /* shared is always supported */
     bindings &= ~PIPE_BIND_SHARED;
  
@@ -28,7 +34,7 @@ Forwarded: no
     if (bindings & PIPE_BIND_INDEX_BUFFER) {
        if (format != PIPE_FORMAT_R8_UINT &&
            format != PIPE_FORMAT_R16_UINT &&
-@@ -369,8 +376,17 @@
+@@ -369,8 +376,17 @@ nv30_screen_fence_emit(struct pipe_context *pcontext, uint32_t *sequence,
     assert(PUSH_AVAIL(push) + push->rsvd_kick >= 3);
     PUSH_DATA (push, NV30_3D_FENCE_OFFSET |
                (2 /* size */ << 18) | (7 /* subchan */ << 13));
@@ -48,7 +54,7 @@ Forwarded: no
  
     nouveau_pushbuf_refn(push, &ref, 1);
  }
-@@ -500,10 +516,18 @@
+@@ -500,10 +516,18 @@ nv30_screen_create(struct nouveau_device *dev)
     if (ret)
        FAIL_SCREEN_INIT("nv30_screen_init failed: %d\n", ret);
  
@@ -69,7 +75,7 @@ Forwarded: no
        screen->base.sysmem_bindings |= PIPE_BIND_INDEX_BUFFER;
     }
  
-@@ -526,7 +550,7 @@
+@@ -526,7 +550,7 @@ nv30_screen_create(struct nouveau_device *dev)
      * be 4KiB aligned, which means this object needs to be the first
      * one allocated on the channel.
      */
@@ -78,7 +84,7 @@ Forwarded: no
                              NOUVEAU_NOTIFIER_CLASS, &(struct nv04_notify) {
                              .length = 32 }, sizeof(struct nv04_notify),
                              &screen->fence);
-@@ -534,7 +558,7 @@
+@@ -534,7 +558,7 @@ nv30_screen_create(struct nouveau_device *dev)
        FAIL_SCREEN_INIT("error allocating fence notifier: %d\n", ret);
  
     /* DMA_NOTIFY object, we don't actually use this but M2MF fails without */
@@ -87,7 +93,7 @@ Forwarded: no
                              NOUVEAU_NOTIFIER_CLASS, &(struct nv04_notify) {
                              .length = 32 }, sizeof(struct nv04_notify),
                              &screen->ntfy);
-@@ -545,7 +569,7 @@
+@@ -545,7 +569,7 @@ nv30_screen_create(struct nouveau_device *dev)
      * the remainder of the "notifier block" assigned by the kernel for
      * use as query objects
      */
@@ -96,7 +102,7 @@ Forwarded: no
                              NOUVEAU_NOTIFIER_CLASS, &(struct nv04_notify) {
                              .length = 4096 - 128 }, sizeof(struct nv04_notify),
                              &screen->query);
-@@ -575,7 +599,7 @@
+@@ -575,7 +599,7 @@ nv30_screen_create(struct nouveau_device *dev)
     if (ret)
        FAIL_SCREEN_INIT("error mapping notifier memory: %d\n", ret);
  
@@ -105,7 +111,7 @@ Forwarded: no
                              NULL, 0, &screen->eng3d);
     if (ret)
        FAIL_SCREEN_INIT("error allocating 3d object: %d\n", ret);
-@@ -650,7 +674,7 @@
+@@ -650,7 +674,7 @@ nv30_screen_create(struct nouveau_device *dev)
        PUSH_DATA (push, NV40_3D_MIPMAP_ROUNDING_MODE_DOWN);
     }
  
@@ -114,7 +120,7 @@ Forwarded: no
                              NULL, 0, &screen->m2mf);
     if (ret)
        FAIL_SCREEN_INIT("error allocating m2mf object: %d\n", ret);
-@@ -660,7 +684,7 @@
+@@ -660,7 +684,7 @@ nv30_screen_create(struct nouveau_device *dev)
     BEGIN_NV04(push, NV03_M2MF(DMA_NOTIFY), 1);
     PUSH_DATA (push, screen->ntfy->handle);
  
@@ -123,7 +129,7 @@ Forwarded: no
                              NV10_SURFACE_2D_CLASS, NULL, 0, &screen->surf2d);
     if (ret)
        FAIL_SCREEN_INIT("error allocating surf2d object: %d\n", ret);
-@@ -675,7 +699,7 @@
+@@ -675,7 +699,7 @@ nv30_screen_create(struct nouveau_device *dev)
     else
        oclass = NV40_SURFACE_SWZ_CLASS;
  
@@ -132,7 +138,7 @@ Forwarded: no
                              NULL, 0, &screen->swzsurf);
     if (ret)
        FAIL_SCREEN_INIT("error allocating swizzled surface object: %d\n", ret);
-@@ -690,7 +714,7 @@
+@@ -690,7 +714,7 @@ nv30_screen_create(struct nouveau_device *dev)
     else
        oclass = NV40_SIFM_CLASS;
  
@@ -141,9 +147,10 @@ Forwarded: no
                              NULL, 0, &screen->sifm);
     if (ret)
        FAIL_SCREEN_INIT("error allocating scaled image object: %d\n", ret);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
 --- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
-@@ -19,6 +19,8 @@
+@@ -19,6 +19,8 @@ struct nv30_screen {
  
     struct nv30_context *cur_ctx;
  

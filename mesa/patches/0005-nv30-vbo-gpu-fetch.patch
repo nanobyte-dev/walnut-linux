@@ -1,13 +1,18 @@
-Description: nv30: the RSX fetches big-endian vertex and index buffers itself
- Big-endian NV4x Macs pushed every vertex inline; the RSX fetches big-endian data natively
- (ClassiCube 6.5 -> 79 fps at 1080p). No vertex type 0 (B8G8R8A8) on the RSX; inline data
- with a single attribute draws nothing, so it is pushed twice.
-Author: PS3 Linux project
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 02:48:56 +0300
+Subject: nv30: the RSX fetches big-endian vertex and index buffers itself
+
+Big-endian NV4x Macs pushed every vertex inline; the RSX fetches big-endian data natively
+(ClassiCube 6.5 -> 79 fps at 1080p). No vertex type 0 (B8G8R8A8) on the RSX; inline data
+with a single attribute draws nothing, so it is pushed twice.
+
 Forwarded: no
----
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
-@@ -193,7 +193,11 @@
+@@ -193,7 +193,11 @@ nv30_vbo_validate(struct nv30_context *nv30)
        return;
  
  #if UTIL_ARCH_BIG_ENDIAN
@@ -20,7 +25,7 @@ Forwarded: no
  #else
     if (unlikely(vertex->need_conversion)) {
  #endif
-@@ -262,7 +266,7 @@
+@@ -262,7 +266,7 @@ nv30_vertex_state_create(struct pipe_context *pipe, unsigned num_elements,
      struct translate_key transkey;
      unsigned i;
  
@@ -29,7 +34,7 @@ Forwarded: no
      if (!so)
          return NULL;
      memcpy(so->pipe, elements, sizeof(*elements) * num_elements);
-@@ -278,6 +282,11 @@
+@@ -278,6 +282,11 @@ nv30_vertex_state_create(struct pipe_context *pipe, unsigned num_elements,
          enum pipe_format fmt = ve->src_format;
  
          so->element[i].state = nv30_vtxfmt(pipe->screen, fmt)->hw;
@@ -41,7 +46,7 @@ Forwarded: no
          if (!so->element[i].state) {
              switch (util_format_get_nr_components(fmt)) {
              case 1: fmt = PIPE_FORMAT_R32_FLOAT; break;
-@@ -309,6 +318,20 @@
+@@ -309,6 +318,20 @@ nv30_vertex_state_create(struct pipe_context *pipe, unsigned num_elements,
          so->strides[vbi] = ve->src_stride;
      }
  

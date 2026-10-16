@@ -1,14 +1,19 @@
-Description: nv30: texture uploads that fit the PS3 GART
- The GART is a small shared boot-time reservation: big uploads go in bands of at most 1 MB,
- at most 4 MB of a context's staging is in flight (a burst crashed Xorg), 1-pixel-wide
- render targets stay linear (graph exception 0x106), fragment program constants are
- halfword-swapped, and a GART blit destination stays in GART.
-Author: PS3 Linux project
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 02:48:56 +0300
+Subject: nv30: texture uploads that fit the PS3 GART
+
+The GART is a small shared boot-time reservation: big uploads go in bands of at most 1 MB,
+at most 4 MB of a context's staging is in flight (a burst crashed Xorg), 1-pixel-wide
+render targets stay linear (graph exception 0x106), fragment program constants are
+halfword-swapped, and a GART blit destination stays in GART.
+
 Forwarded: no
----
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
-@@ -277,6 +277,34 @@
+@@ -277,6 +277,34 @@ nv30_flush_resource(struct pipe_context *pipe,
  {
  }
  
@@ -43,7 +48,7 @@ Forwarded: no
  void *
  nv30_miptree_transfer_map(struct pipe_context *pipe, struct pipe_resource *pt,
                            unsigned level, unsigned usage,
-@@ -284,7 +312,6 @@
+@@ -284,7 +312,6 @@ nv30_miptree_transfer_map(struct pipe_context *pipe, struct pipe_resource *pt,
                            struct pipe_transfer **ptransfer)
  {
     struct nv30_context *nv30 = nv30_context(pipe);
@@ -51,7 +56,7 @@ Forwarded: no
     struct nv30_miptree *mt = nv30_miptree(pt);
     struct nv30_transfer *tx;
     unsigned access = 0;
-@@ -308,9 +335,8 @@
+@@ -308,9 +335,8 @@ nv30_miptree_transfer_map(struct pipe_context *pipe, struct pipe_resource *pt,
     define_rect(pt, level, box->z, box->x, box->y,
                 box->width, box->height, &tx->img);
  
@@ -63,7 +68,7 @@ Forwarded: no
     if (ret) {
        pipe_resource_reference(&tx->base.resource, NULL);
        FREE(tx);
-@@ -394,6 +420,7 @@
+@@ -394,6 +420,7 @@ nv30_miptree_transfer_unmap(struct pipe_context *pipe,
        }
  
        /* Allow the copies above to finish executing before freeing the source */
@@ -71,7 +76,7 @@ Forwarded: no
        nouveau_fence_work(nv30->base.fence,
                           nouveau_fence_unref_bo, tx->tmp.bo);
     } else {
-@@ -441,15 +468,20 @@
+@@ -441,15 +468,20 @@ nv30_miptree_create(struct pipe_screen *pscreen,
     d = (pt->target == PIPE_TEXTURE_3D) ? pt->depth0 : 1;
     blocksz = util_format_get_blocksize(pt->format);
  
@@ -93,7 +98,7 @@ Forwarded: no
           struct nv30_screen *screen = nv30_screen(pscreen);
           int pitch_align = MAX2(
                 screen->eng3d->oclass >= NV40_3D_CLASS ? 1024 : 256,
-@@ -494,7 +526,11 @@
+@@ -494,7 +526,11 @@ nv30_miptree_create(struct pipe_screen *pscreen,
        size = mt->layer_size * 6;
     }
  
@@ -106,7 +111,7 @@ Forwarded: no
     if (ret) {
        FREE(mt);
        return NULL;
-@@ -577,6 +613,10 @@
+@@ -577,6 +613,10 @@ nv30_miptree_surface_new(struct pipe_context *pipe,
  static void
  nv30_miptree_surface_del(struct pipe_context *pipe, struct pipe_surface *ps)
  {
@@ -117,9 +122,10 @@ Forwarded: no
     FREE(ps);
  }
  
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_resource.c b/src/gallium/drivers/nouveau/nv30/nv30_resource.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_resource.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_resource.c
-@@ -89,6 +89,42 @@
+@@ -89,6 +89,42 @@ nv30_resource_screen_init(struct pipe_screen *pscreen)
     pscreen->resource_destroy = nv30_resource_destroy;
  }
  
@@ -162,7 +168,7 @@ Forwarded: no
  void
  nv30_resource_init(struct pipe_context *pipe)
  {
-@@ -98,7 +134,7 @@
+@@ -98,7 +134,7 @@ nv30_resource_init(struct pipe_context *pipe)
     pipe->buffer_unmap = nouveau_buffer_transfer_unmap;
     pipe->texture_unmap = nv30_miptree_transfer_unmap;
     pipe->buffer_subdata = u_default_buffer_subdata;
@@ -171,9 +177,10 @@ Forwarded: no
     pipe->resource_copy_region = nv30_resource_copy_region;
     pipe->blit = nv30_blit;
     pipe->flush_resource = nv30_flush_resource;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
-@@ -131,6 +131,12 @@
+@@ -131,6 +131,12 @@ nv30_transfer_rect_fragprog(struct nv30_context *nv30)
              map[5] = 0x1c9dc800;
              map[6] = 0x0001c800;
              map[7] = 0x0001c800;
@@ -186,7 +193,7 @@ Forwarded: no
              pipe_buffer_unmap(pipe, transfer);
           }
  
-@@ -196,6 +202,15 @@
+@@ -196,6 +202,15 @@ nv30_transfer_rect_blit(XFER_ARGS)
        stride  = dst->pitch;
     }
  
@@ -202,7 +209,7 @@ Forwarded: no
     BEGIN_NV04(push, NV30_3D(VIEWPORT_HORIZ), 2);
     PUSH_DATA (push, dst->w << 16);
     PUSH_DATA (push, dst->h << 16);
-@@ -368,6 +383,13 @@
+@@ -368,6 +383,13 @@ nv30_transfer_rect_blit(XFER_ARGS)
     PUSH_DATA (push, (dst->y1 << 16) | dst->x0);
     BEGIN_NV04(push, NV30_3D(VERTEX_BEGIN_END), 1);
     PUSH_DATA (push, NV30_3D_VERTEX_BEGIN_END_STOP);

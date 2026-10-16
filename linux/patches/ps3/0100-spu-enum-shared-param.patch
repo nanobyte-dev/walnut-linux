@@ -1,7 +1,12 @@
-diff -Naur a/arch/powerpc/include/asm/spu.h b/arch/powerpc/include/asm/spu.h
---- a/arch/powerpc/include/asm/spu.h	2024-03-17 19:51:47.000830703 +0700
-+++ b/arch/powerpc/include/asm/spu.h	2024-03-17 19:51:49.784770503 +0700
-@@ -185,6 +185,8 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: 0100-spu-enum-shared-param.patch
+
+diff --git a/arch/powerpc/include/asm/spu.h b/arch/powerpc/include/asm/spu.h
+--- a/arch/powerpc/include/asm/spu.h
++++ b/arch/powerpc/include/asm/spu.h
+@@ -185,6 +185,8 @@ struct cbe_spu_info {
  	atomic_t reserved_spus;
  };
  
@@ -10,9 +15,9 @@ diff -Naur a/arch/powerpc/include/asm/spu.h b/arch/powerpc/include/asm/spu.h
  extern struct cbe_spu_info cbe_spu_info[];
  
  void spu_init_channels(struct spu *spu);
-diff -Naur a/arch/powerpc/platforms/cell/spu_base.c b/arch/powerpc/platforms/cell/spu_base.c
---- a/arch/powerpc/platforms/cell/spu_base.c	2024-03-17 19:51:47.028830098 +0700
-+++ b/arch/powerpc/platforms/cell/spu_base.c	2024-03-17 19:51:49.784770503 +0700
+diff --git a/arch/powerpc/platforms/cell/spu_base.c b/arch/powerpc/platforms/cell/spu_base.c
+--- a/arch/powerpc/platforms/cell/spu_base.c
++++ b/arch/powerpc/platforms/cell/spu_base.c
 @@ -11,6 +11,7 @@
  
  #include <linux/interrupt.h>
@@ -32,7 +37,7 @@ diff -Naur a/arch/powerpc/platforms/cell/spu_base.c b/arch/powerpc/platforms/cel
  const struct spu_management_ops *spu_management_ops;
  EXPORT_SYMBOL_GPL(spu_management_ops);
  
-@@ -430,6 +435,12 @@
+@@ -430,6 +435,12 @@ static void spu_free_irqs(struct spu *spu)
  		free_irq(spu->irqs[2], spu);
  }
  
@@ -45,10 +50,10 @@ diff -Naur a/arch/powerpc/platforms/cell/spu_base.c b/arch/powerpc/platforms/cel
  void spu_init_channels(struct spu *spu)
  {
  	static const struct {
-diff -Naur a/arch/powerpc/platforms/ps3/spu.c b/arch/powerpc/platforms/ps3/spu.c
---- a/arch/powerpc/platforms/ps3/spu.c	2024-03-17 19:51:47.035829946 +0700
-+++ b/arch/powerpc/platforms/ps3/spu.c	2024-03-17 19:51:49.784770503 +0700
-@@ -404,7 +404,7 @@
+diff --git a/arch/powerpc/platforms/ps3/spu.c b/arch/powerpc/platforms/ps3/spu.c
+--- a/arch/powerpc/platforms/ps3/spu.c
++++ b/arch/powerpc/platforms/ps3/spu.c
+@@ -404,7 +404,7 @@ static int __init ps3_enumerate_spus(int (*fn)(void *data))
  		if (result)
  			break;
  

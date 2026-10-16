@@ -1,6 +1,11 @@
-diff -Naur a/drivers/ps3/ps3av.c b/drivers/ps3/ps3av.c
---- a/drivers/ps3/ps3av.c	2024-03-17 19:55:00.724763188 +0700
-+++ b/drivers/ps3/ps3av.c	2024-03-17 19:55:01.865739877 +0700
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: 0420_ps3av_add.patch
+
+diff --git a/drivers/ps3/ps3av.c b/drivers/ps3/ps3av.c
+--- a/drivers/ps3/ps3av.c
++++ b/drivers/ps3/ps3av.c
 @@ -14,6 +14,7 @@
  #include <linux/slab.h>
  #include <linux/uaccess.h>

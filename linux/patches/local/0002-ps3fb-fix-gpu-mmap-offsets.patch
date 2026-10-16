@@ -1,13 +1,16 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: tibi <chibicitiberiu@zoho.eu>
-Subject: [PATCH] ps3fb: fix /dev/ps3gpu_fifo and _ctrl mmap offsets
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: ps3fb: fix /dev/ps3gpu_fifo and _ctrl mmap offsets
 
 The FIFO mapping passed a kernel virtual address where a physical address
 is expected, so userspace got unrelated memory. The ctrl mapping subtracted
 the page offset instead of adding it.
----
---- a/drivers/video/fbdev/ps3fb.c	2026-10-14 01:21:17.108858225 +0300
-+++ b/drivers/video/fbdev/ps3fb.c	2026-10-14 01:21:17.174285723 +0300
-@@ -2018,11 +2018,11 @@
+
+diff --git a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
+--- a/drivers/video/fbdev/ps3fb.c
++++ b/drivers/video/fbdev/ps3fb.c
+@@ -2018,11 +2018,11 @@ static int ps3fb_gpu_mmap(struct file *filp, struct vm_area_struct *vm)
  		case 1: io_flag = 0;
  			if( off >= GPU_FB_START) return -EINVAL;
  			psize = GPU_FB_START - off;

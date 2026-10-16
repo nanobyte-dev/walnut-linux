@@ -1,7 +1,12 @@
-diff -Naur a/include/linux/mmzone.h b/include/linux/mmzone.h
---- a/include/linux/mmzone.h	2024-03-17 19:54:52.606929234 +0700
-+++ b/include/linux/mmzone.h	2024-03-17 19:54:53.553909847 +0700
-@@ -1751,7 +1751,7 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: 0410_mmzone.patch
+
+diff --git a/include/linux/mmzone.h b/include/linux/mmzone.h
+--- a/include/linux/mmzone.h
++++ b/include/linux/mmzone.h
+@@ -1774,7 +1774,7 @@ static inline bool movable_only_nodes(nodemask_t *nodes)
  #define SECTION_BLOCKFLAGS_BITS \
  	((1UL << (PFN_SECTION_SHIFT - pageblock_order)) * NR_PAGEBLOCK_BITS)
  

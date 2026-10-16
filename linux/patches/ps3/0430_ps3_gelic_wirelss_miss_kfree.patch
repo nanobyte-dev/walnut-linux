@@ -1,7 +1,12 @@
-diff -Naur a/drivers/net/ethernet/toshiba/ps3_gelic_wireless.c b/drivers/net/ethernet/toshiba/ps3_gelic_wireless.c
---- a/drivers/net/ethernet/toshiba/ps3_gelic_wireless.c	2024-03-17 19:55:08.860597111 +0700
-+++ b/drivers/net/ethernet/toshiba/ps3_gelic_wireless.c	2024-03-17 19:55:10.188570035 +0700
-@@ -1479,7 +1479,6 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: 0430_ps3_gelic_wirelss_miss_kfree.patch
+
+diff --git a/drivers/net/ethernet/toshiba/ps3_gelic_wireless.c b/drivers/net/ethernet/toshiba/ps3_gelic_wireless.c
+--- a/drivers/net/ethernet/toshiba/ps3_gelic_wireless.c
++++ b/drivers/net/ethernet/toshiba/ps3_gelic_wireless.c
+@@ -1479,7 +1479,6 @@ static int gelic_wl_start_scan(struct gelic_wl_info *wl, int always_scan,
  		wl->scan_stat = GELIC_WL_SCAN_STAT_INIT;
  		complete(&wl->scan_done);
  		ret = -ENOMEM;

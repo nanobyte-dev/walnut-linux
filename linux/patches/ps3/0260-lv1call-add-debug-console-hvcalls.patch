@@ -1,7 +1,12 @@
-diff -Naur a/arch/powerpc/include/asm/lv1call.h b/arch/powerpc/include/asm/lv1call.h
---- a/arch/powerpc/include/asm/lv1call.h	2024-03-17 19:54:00.348006580 +0700
-+++ b/arch/powerpc/include/asm/lv1call.h	2024-03-17 19:54:03.224946877 +0700
-@@ -262,6 +262,11 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: 0260-lv1call-add-debug-console-hvcalls.patch
+
+diff --git a/arch/powerpc/include/asm/lv1call.h b/arch/powerpc/include/asm/lv1call.h
+--- a/arch/powerpc/include/asm/lv1call.h
++++ b/arch/powerpc/include/asm/lv1call.h
+@@ -262,6 +262,11 @@ LV1_CALL(read_htab_entries,                             2, 5,  95 )
  LV1_CALL(set_dabr,                                      2, 0,  96 )
  LV1_CALL(undocumented_function_99,                      2, 0,  99 )
  LV1_CALL(get_total_execution_time,                      2, 1, 103 )

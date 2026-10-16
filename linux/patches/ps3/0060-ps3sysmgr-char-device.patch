@@ -1,6 +1,11 @@
-diff -Naur a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
---- a/drivers/ps3/ps3-sys-manager.c	2024-03-17 19:51:15.182522940 +0700
-+++ b/drivers/ps3/ps3-sys-manager.c	2024-03-17 19:51:16.490494329 +0700
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: 0060-ps3sysmgr-char-device.patch
+
+diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
+--- a/drivers/ps3/ps3-sys-manager.c
++++ b/drivers/ps3/ps3-sys-manager.c
 @@ -11,7 +11,12 @@
  #include <linux/workqueue.h>
  #include <linux/reboot.h>
@@ -29,7 +34,7 @@ diff -Naur a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  /**
   * struct ps3_sys_manager_header - System manager message header.
   * @version: Header version, currently 1.
-@@ -695,6 +706,87 @@
+@@ -695,6 +706,87 @@ static void ps3_sys_manager_work(struct ps3_system_bus_device *dev)
  	ps3_vuart_read_async(dev, PS3_SM_RX_MSG_LEN_MIN);
  }
  
@@ -117,7 +122,7 @@ diff -Naur a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  static int ps3_sys_manager_probe(struct ps3_system_bus_device *dev)
  {
  	int result;
-@@ -716,12 +808,46 @@
+@@ -716,12 +808,46 @@ static int ps3_sys_manager_probe(struct ps3_system_bus_device *dev)
  	result = ps3_vuart_read_async(dev, PS3_SM_RX_MSG_LEN_MIN);
  	BUG_ON(result);
  

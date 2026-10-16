@@ -1,12 +1,17 @@
-Description: nvfx: 32-bit colour exports from fragment programs (NV40)
- FP_CONTROL bit 6 takes colour outputs from the fp32 registers: closer to softpipe
- (NV40_FP_EXPORT32=0 turns it off).
-Author: PS3 Linux project
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 02:48:56 +0300
+Subject: nvfx: 32-bit colour exports from fragment programs (NV40)
+
+FP_CONTROL bit 6 takes colour outputs from the fp32 registers: closer to softpipe
+(NV40_FP_EXPORT32=0 turns it off).
+
 Forwarded: no
----
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c b/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c
 --- a/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c
 +++ b/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c
-@@ -33,6 +33,7 @@
+@@ -33,6 +33,7 @@ struct nvfx_fpc {
     unsigned inst_offset;
     unsigned have_const;
     unsigned is_nv4x;
@@ -14,7 +19,7 @@ Forwarded: no
  
     struct util_dynarray imm_data;
  
-@@ -169,7 +170,7 @@
+@@ -169,7 +170,7 @@ emit_dst(struct nvfx_fpc *fpc, struct nvfx_reg dst)
     case NVFXSR_OUTPUT:
        if (dst.index == 1)
           fp->fp_control |= 0x0000000e;
@@ -23,7 +28,7 @@ Forwarded: no
           hw[0] |= NVFX_FP_OP_OUT_REG_HALF;
           dst.index <<= 1;
        }
-@@ -1083,6 +1084,12 @@
+@@ -1083,6 +1084,12 @@ _nvfx_fragprog_translate(uint16_t oclass, struct nv30_fragprog *fp)
        goto out_err;
  
     fpc->is_nv4x = (oclass >= NV40_3D_CLASS) ? ~0 : 0;

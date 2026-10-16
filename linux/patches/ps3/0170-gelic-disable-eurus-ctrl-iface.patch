@@ -1,7 +1,12 @@
-diff -Naur a/drivers/net/ethernet/toshiba/ps3_gelic_net.c b/drivers/net/ethernet/toshiba/ps3_gelic_net.c
---- a/drivers/net/ethernet/toshiba/ps3_gelic_net.c	2024-03-17 19:52:46.886547932 +0700
-+++ b/drivers/net/ethernet/toshiba/ps3_gelic_net.c	2024-03-17 19:52:48.422515356 +0700
-@@ -1657,12 +1657,75 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: 0170-gelic-disable-eurus-ctrl-iface.patch
+
+diff --git a/drivers/net/ethernet/toshiba/ps3_gelic_net.c b/drivers/net/ethernet/toshiba/ps3_gelic_net.c
+--- a/drivers/net/ethernet/toshiba/ps3_gelic_net.c
++++ b/drivers/net/ethernet/toshiba/ps3_gelic_net.c
+@@ -1657,12 +1657,75 @@ static int ps3_gelic_driver_probe(struct ps3_system_bus_device *dev)
  {
  	struct gelic_card *card;
  	struct net_device *netdev;

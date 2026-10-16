@@ -1,7 +1,12 @@
-diff -Naur a/arch/powerpc/include/asm/ps3.h b/arch/powerpc/include/asm/ps3.h
---- a/arch/powerpc/include/asm/ps3.h	2024-03-17 19:50:47.909122668 +0700
-+++ b/arch/powerpc/include/asm/ps3.h	2024-03-17 19:50:51.274048346 +0700
-@@ -315,6 +315,7 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: 0035-ps3flash.patch
+
+diff --git a/arch/powerpc/include/asm/ps3.h b/arch/powerpc/include/asm/ps3.h
+--- a/arch/powerpc/include/asm/ps3.h
++++ b/arch/powerpc/include/asm/ps3.h
+@@ -315,6 +315,7 @@ enum ps3_match_id {
  	PS3_MATCH_ID_SOUND		= 9,
  	PS3_MATCH_ID_GPU		= 10,
  	PS3_MATCH_ID_LPM		= 11,
@@ -9,7 +14,7 @@ diff -Naur a/arch/powerpc/include/asm/ps3.h b/arch/powerpc/include/asm/ps3.h
  };
  
  enum ps3_match_sub_id {
-@@ -334,6 +335,7 @@
+@@ -334,6 +335,7 @@ enum ps3_match_sub_id {
  #define PS3_MODULE_ALIAS_GPU_FB		"ps3:10:1"
  #define PS3_MODULE_ALIAS_GPU_RAMDISK	"ps3:10:2"
  #define PS3_MODULE_ALIAS_LPM		"ps3:11:0"
@@ -17,10 +22,10 @@ diff -Naur a/arch/powerpc/include/asm/ps3.h b/arch/powerpc/include/asm/ps3.h
  
  enum ps3_system_bus_device_type {
  	PS3_DEVICE_TYPE_IOC0 = 1,
-diff -Naur a/arch/powerpc/platforms/ps3/Kconfig b/arch/powerpc/platforms/ps3/Kconfig
---- a/arch/powerpc/platforms/ps3/Kconfig	2024-03-17 19:50:47.944121895 +0700
-+++ b/arch/powerpc/platforms/ps3/Kconfig	2024-03-17 19:50:51.307047618 +0700
-@@ -148,6 +148,26 @@
+diff --git a/arch/powerpc/platforms/ps3/Kconfig b/arch/powerpc/platforms/ps3/Kconfig
+--- a/arch/powerpc/platforms/ps3/Kconfig
++++ b/arch/powerpc/platforms/ps3/Kconfig
+@@ -148,6 +148,26 @@ config PS3_FLASH
  	  be disabled on the kernel command line using "ps3flash=off", to
  	  not allocate this fixed buffer.
  
@@ -47,10 +52,10 @@ diff -Naur a/arch/powerpc/platforms/ps3/Kconfig b/arch/powerpc/platforms/ps3/Kco
  config PS3_VRAM
  	tristate "PS3 Video RAM Storage Driver"
  	depends on FB_PS3=y && BLOCK && m
-diff -Naur a/arch/powerpc/platforms/ps3/device-init.c b/arch/powerpc/platforms/ps3/device-init.c
---- a/arch/powerpc/platforms/ps3/device-init.c	2024-03-17 19:50:47.944121895 +0700
-+++ b/arch/powerpc/platforms/ps3/device-init.c	2024-03-17 19:50:51.307047618 +0700
-@@ -579,6 +579,13 @@
+diff --git a/arch/powerpc/platforms/ps3/device-init.c b/arch/powerpc/platforms/ps3/device-init.c
+--- a/arch/powerpc/platforms/ps3/device-init.c
++++ b/arch/powerpc/platforms/ps3/device-init.c
+@@ -579,6 +579,13 @@ static int ps3_setup_dynamic_device(const struct ps3_repository_device *repo)
  				 __func__, __LINE__);
  		break;
  
@@ -64,10 +69,10 @@ diff -Naur a/arch/powerpc/platforms/ps3/device-init.c b/arch/powerpc/platforms/p
  	default:
  		result = 0;
  		pr_debug("%s:%u: unsupported dev_type %u\n", __func__, __LINE__,
-diff -Naur a/arch/powerpc/platforms/ps3/platform.h b/arch/powerpc/platforms/ps3/platform.h
---- a/arch/powerpc/platforms/ps3/platform.h	2024-03-17 19:50:47.944121895 +0700
-+++ b/arch/powerpc/platforms/ps3/platform.h	2024-03-17 19:50:51.308047595 +0700
-@@ -76,6 +76,7 @@
+diff --git a/arch/powerpc/platforms/ps3/platform.h b/arch/powerpc/platforms/ps3/platform.h
+--- a/arch/powerpc/platforms/ps3/platform.h
++++ b/arch/powerpc/platforms/ps3/platform.h
+@@ -76,6 +76,7 @@ enum ps3_dev_type {
  	PS3_DEV_TYPE_STOR_ROM = TYPE_ROM,	/* 5 */
  	PS3_DEV_TYPE_SB_GPIO = 6,
  	PS3_DEV_TYPE_STOR_FLASH = TYPE_RBC,	/* 14 */
@@ -75,10 +80,10 @@ diff -Naur a/arch/powerpc/platforms/ps3/platform.h b/arch/powerpc/platforms/ps3/
  };
  
  int ps3_repository_read_bus_str(unsigned int bus_index, const char *bus_str,
-diff -Naur a/arch/powerpc/platforms/ps3/system-bus.c b/arch/powerpc/platforms/ps3/system-bus.c
---- a/arch/powerpc/platforms/ps3/system-bus.c	2024-03-17 19:50:47.944121895 +0700
-+++ b/arch/powerpc/platforms/ps3/system-bus.c	2024-03-17 19:50:51.308047595 +0700
-@@ -163,6 +163,7 @@
+diff --git a/arch/powerpc/platforms/ps3/system-bus.c b/arch/powerpc/platforms/ps3/system-bus.c
+--- a/arch/powerpc/platforms/ps3/system-bus.c
++++ b/arch/powerpc/platforms/ps3/system-bus.c
+@@ -163,6 +163,7 @@ int ps3_open_hv_device(struct ps3_system_bus_device *dev)
  	case PS3_MATCH_ID_STOR_DISK:
  	case PS3_MATCH_ID_STOR_ROM:
  	case PS3_MATCH_ID_STOR_FLASH:
@@ -86,7 +91,7 @@ diff -Naur a/arch/powerpc/platforms/ps3/system-bus.c b/arch/powerpc/platforms/ps
  		return ps3_open_hv_device_sb(dev);
  
  	case PS3_MATCH_ID_SOUND:
-@@ -201,6 +202,7 @@
+@@ -201,6 +202,7 @@ int ps3_close_hv_device(struct ps3_system_bus_device *dev)
  	case PS3_MATCH_ID_STOR_DISK:
  	case PS3_MATCH_ID_STOR_ROM:
  	case PS3_MATCH_ID_STOR_FLASH:
@@ -94,10 +99,10 @@ diff -Naur a/arch/powerpc/platforms/ps3/system-bus.c b/arch/powerpc/platforms/ps
  		return ps3_close_hv_device_sb(dev);
  
  	case PS3_MATCH_ID_SOUND:
-diff -Naur a/drivers/block/Makefile b/drivers/block/Makefile
---- a/drivers/block/Makefile	2024-03-17 19:50:48.155117232 +0700
-+++ b/drivers/block/Makefile	2024-03-17 19:50:51.324047242 +0700
-@@ -14,6 +14,8 @@
+diff --git a/drivers/block/Makefile b/drivers/block/Makefile
+--- a/drivers/block/Makefile
++++ b/drivers/block/Makefile
+@@ -17,6 +17,8 @@ obj-$(CONFIG_BLK_DEV_SWIM)	+= swim_mod.o
  obj-$(CONFIG_BLK_DEV_FD)	+= floppy.o
  obj-$(CONFIG_AMIGA_FLOPPY)	+= amiflop.o
  obj-$(CONFIG_PS3_DISK)		+= ps3disk.o
@@ -106,9 +111,10 @@ diff -Naur a/drivers/block/Makefile b/drivers/block/Makefile
  obj-$(CONFIG_PS3_VRAM)		+= ps3vram.o
  obj-$(CONFIG_ATARI_FLOPPY)	+= ataflop.o
  obj-$(CONFIG_AMIGA_Z2RAM)	+= z2ram.o
-diff -Naur a/drivers/block/ps3flash.c b/drivers/block/ps3flash.c
---- a/drivers/block/ps3flash.c	1970-01-01 07:00:00.000000000 +0700
-+++ b/drivers/block/ps3flash.c	2024-07-23 19:06:07.279348387 +0700
+diff --git a/drivers/block/ps3flash.c b/drivers/block/ps3flash.c
+new file mode 100644
+--- /dev/null
++++ b/drivers/block/ps3flash.c
 @@ -0,0 +1,433 @@
 +/*
 + * PS3 Flash Storage Driver
@@ -543,9 +549,10 @@ diff -Naur a/drivers/block/ps3flash.c b/drivers/block/ps3flash.c
 +
 +MODULE_LICENSE("GPL");
 +MODULE_DESCRIPTION("PS3 Flash Storage Driver");
-diff -Naur a/drivers/block/ps3nflash.c b/drivers/block/ps3nflash.c
---- a/drivers/block/ps3nflash.c	1970-01-01 07:00:00.000000000 +0700
-+++ b/drivers/block/ps3nflash.c	2024-07-23 19:06:39.092754543 +0700
+diff --git a/drivers/block/ps3nflash.c b/drivers/block/ps3nflash.c
+new file mode 100644
+--- /dev/null
++++ b/drivers/block/ps3nflash.c
 @@ -0,0 +1,374 @@
 +/*
 + * PS3 Flash Storage Driver

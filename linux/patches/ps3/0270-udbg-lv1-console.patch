@@ -1,7 +1,12 @@
-diff -Naur a/arch/powerpc/Kconfig.debug b/arch/powerpc/Kconfig.debug
---- a/arch/powerpc/Kconfig.debug	2024-03-17 19:54:08.989827384 +0700
-+++ b/arch/powerpc/Kconfig.debug	2024-03-17 19:54:11.754770140 +0700
-@@ -275,6 +275,14 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: 0270-udbg-lv1-console.patch
+
+diff --git a/arch/powerpc/Kconfig.debug b/arch/powerpc/Kconfig.debug
+--- a/arch/powerpc/Kconfig.debug
++++ b/arch/powerpc/Kconfig.debug
+@@ -266,6 +266,14 @@ config PPC_EARLY_DEBUG_PS3GELIC
  	  Select this to enable early debugging for the PlayStation3 via
  	  UDP broadcasts sent out through the Ethernet port.
  
@@ -16,10 +21,10 @@ diff -Naur a/arch/powerpc/Kconfig.debug b/arch/powerpc/Kconfig.debug
  config PPC_EARLY_DEBUG_OPAL_RAW
  	bool "OPAL raw console"
  	depends on HVC_OPAL
-diff -Naur a/arch/powerpc/include/asm/udbg.h b/arch/powerpc/include/asm/udbg.h
---- a/arch/powerpc/include/asm/udbg.h	2024-03-17 19:54:09.017826804 +0700
-+++ b/arch/powerpc/include/asm/udbg.h	2024-03-17 19:54:11.755770119 +0700
-@@ -50,6 +50,7 @@
+diff --git a/arch/powerpc/include/asm/udbg.h b/arch/powerpc/include/asm/udbg.h
+--- a/arch/powerpc/include/asm/udbg.h
++++ b/arch/powerpc/include/asm/udbg.h
+@@ -49,6 +49,7 @@ void __init udbg_init_usbgecko(void);
  void __init udbg_init_memcons(void);
  void __init udbg_init_ehv_bc(void);
  void __init udbg_init_ps3gelic(void);
@@ -27,10 +32,10 @@ diff -Naur a/arch/powerpc/include/asm/udbg.h b/arch/powerpc/include/asm/udbg.h
  void __init udbg_init_debug_opal_raw(void);
  void __init udbg_init_debug_opal_hvsi(void);
  void __init udbg_init_debug_16550(void);
-diff -Naur a/arch/powerpc/kernel/udbg.c b/arch/powerpc/kernel/udbg.c
---- a/arch/powerpc/kernel/udbg.c	2024-03-17 19:54:09.027826597 +0700
-+++ b/arch/powerpc/kernel/udbg.c	2024-03-17 19:54:11.755770119 +0700
-@@ -63,6 +63,8 @@
+diff --git a/arch/powerpc/kernel/udbg.c b/arch/powerpc/kernel/udbg.c
+--- a/arch/powerpc/kernel/udbg.c
++++ b/arch/powerpc/kernel/udbg.c
+@@ -60,6 +60,8 @@ void __init udbg_early_init(void)
  	udbg_init_ehv_bc();
  #elif defined(CONFIG_PPC_EARLY_DEBUG_PS3GELIC)
  	udbg_init_ps3gelic();
@@ -39,10 +44,10 @@ diff -Naur a/arch/powerpc/kernel/udbg.c b/arch/powerpc/kernel/udbg.c
  #elif defined(CONFIG_PPC_EARLY_DEBUG_OPAL_RAW)
  	udbg_init_debug_opal_raw();
  #elif defined(CONFIG_PPC_EARLY_DEBUG_OPAL_HVSI)
-diff -Naur a/arch/powerpc/platforms/ps3/Kconfig b/arch/powerpc/platforms/ps3/Kconfig
---- a/arch/powerpc/platforms/ps3/Kconfig	2024-03-17 19:54:09.051826100 +0700
-+++ b/arch/powerpc/platforms/ps3/Kconfig	2024-03-17 19:54:11.755770119 +0700
-@@ -242,4 +242,12 @@
+diff --git a/arch/powerpc/platforms/ps3/Kconfig b/arch/powerpc/platforms/ps3/Kconfig
+--- a/arch/powerpc/platforms/ps3/Kconfig
++++ b/arch/powerpc/platforms/ps3/Kconfig
+@@ -242,4 +242,12 @@ config PS3_LPM
  	  profiling support of the Cell processor with programs like
  	  perfmon2, then say Y or M, otherwise say N.
  
@@ -55,10 +60,10 @@ diff -Naur a/arch/powerpc/platforms/ps3/Kconfig b/arch/powerpc/platforms/ps3/Kco
 +	  If in doubt, say N here.
 +
  endmenu
-diff -Naur a/arch/powerpc/platforms/ps3/Makefile b/arch/powerpc/platforms/ps3/Makefile
---- a/arch/powerpc/platforms/ps3/Makefile	2024-03-17 19:54:09.051826100 +0700
-+++ b/arch/powerpc/platforms/ps3/Makefile	2024-03-17 19:54:11.755770119 +0700
-@@ -4,6 +4,7 @@
+diff --git a/arch/powerpc/platforms/ps3/Makefile b/arch/powerpc/platforms/ps3/Makefile
+--- a/arch/powerpc/platforms/ps3/Makefile
++++ b/arch/powerpc/platforms/ps3/Makefile
+@@ -4,6 +4,7 @@ obj-y += interrupt.o exports.o os-area.o
  obj-y += system-bus.o
  
  obj-$(CONFIG_PPC_EARLY_DEBUG_PS3GELIC) += gelic_udbg.o
@@ -66,9 +71,10 @@ diff -Naur a/arch/powerpc/platforms/ps3/Makefile b/arch/powerpc/platforms/ps3/Ma
  obj-$(CONFIG_SMP) += smp.o
  obj-$(CONFIG_SPU_BASE) += spu.o
  obj-y += device-init.o
-diff -Naur a/arch/powerpc/platforms/ps3/lv1_cons_udbg.c b/arch/powerpc/platforms/ps3/lv1_cons_udbg.c
---- a/arch/powerpc/platforms/ps3/lv1_cons_udbg.c	1970-01-01 07:00:00.000000000 +0700
-+++ b/arch/powerpc/platforms/ps3/lv1_cons_udbg.c	2024-03-17 19:54:11.756770099 +0700
+diff --git a/arch/powerpc/platforms/ps3/lv1_cons_udbg.c b/arch/powerpc/platforms/ps3/lv1_cons_udbg.c
+new file mode 100644
+--- /dev/null
++++ b/arch/powerpc/platforms/ps3/lv1_cons_udbg.c
 @@ -0,0 +1,57 @@
 +/*
 + * PS3 LV1 Debug Console

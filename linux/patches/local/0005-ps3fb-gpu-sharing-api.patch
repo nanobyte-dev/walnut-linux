@@ -1,7 +1,12 @@
-diff -ru a/arch/powerpc/include/asm/ps3gpu.h b/arch/powerpc/include/asm/ps3gpu.h
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: 0005-ps3fb-gpu-sharing-api.patch
+
+diff --git a/arch/powerpc/include/asm/ps3gpu.h b/arch/powerpc/include/asm/ps3gpu.h
 --- a/arch/powerpc/include/asm/ps3gpu.h
 +++ b/arch/powerpc/include/asm/ps3gpu.h
-@@ -74,4 +74,40 @@
+@@ -74,4 +74,40 @@ static inline int lv1_gpu_fb_close(u64 context_handle)
  					 0, 0, 0);
  }
  
@@ -42,10 +47,10 @@ diff -ru a/arch/powerpc/include/asm/ps3gpu.h b/arch/powerpc/include/asm/ps3gpu.h
 +unsigned int ps3fb_gpu_exception_seen(void);
 +
  #endif /* _ASM_POWERPC_PS3GPU_H */
-diff -ru a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
+diff --git a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
 --- a/drivers/video/fbdev/ps3fb.c
 +++ b/drivers/video/fbdev/ps3fb.c
-@@ -193,6 +193,19 @@
+@@ -193,6 +193,19 @@ void ps3fb_gpu_handles(u64 *memory_handle, u64 *context_handle, u64 *ddr_lpar,
  }
  EXPORT_SYMBOL_GPL(ps3fb_gpu_handles);
  
@@ -65,7 +70,7 @@ diff -ru a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
  static const struct fb_videomode ps3fb_modedb[] = {
  	/* 60 Hz broadcast modes (modes "1" to "5") */
  	{
-@@ -1443,6 +1456,8 @@
+@@ -1443,6 +1456,8 @@ static void ps3fb_sync_image(struct device *dev, u64 frame_offset,
  {
  	int status;
  
@@ -74,7 +79,7 @@ diff -ru a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
  	src_offset += GPU_FB_START;
  	mutex_lock(&ps3_gpu_mutex);
  	status = ps3fb_fb_blit(&ps3fb.fifo, dst_offset, GPU_IOIF + src_offset,
-@@ -1602,6 +1617,10 @@
+@@ -1602,6 +1617,10 @@ static int ps3fb_set_par(struct fb_info *info)
  	par->full_offset = par->fb_offset - offset;
  	par->pan_offset = info->var.yoffset * xdr_line_length + info->var.xoffset * BPP;
  	if (par->new_mode_id != par->mode_id) {
@@ -85,7 +90,7 @@ diff -ru a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
  		if (ps3av_set_video_mode(par->new_mode_id))	{
  			par->new_mode_id = par->mode_id;
  			return -EINVAL;
-@@ -1666,6 +1685,8 @@
+@@ -1666,6 +1685,8 @@ static int ps3fb_blank(int blank, struct fb_info *info)
  	int retval;
  
  	dev_dbg(info->device, "%s: blank:%d\n", __func__, blank);
@@ -94,7 +99,7 @@ diff -ru a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
  	switch (blank) {
  		case FB_BLANK_POWERDOWN:
  		case FB_BLANK_HSYNC_SUSPEND:
-@@ -1874,30 +1895,55 @@
+@@ -1874,30 +1895,55 @@ static int ps3fb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg
  				retval = 0;
  			break;
  		case PS3GPU_IOCTL_EXIT:
@@ -165,7 +170,7 @@ diff -ru a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
  			break;
  		default:
  			retval = -ENOIOCTLCMD;
-@@ -1982,13 +2028,19 @@
+@@ -1982,13 +2028,19 @@ static irqreturn_t ps3fb_vsync_interrupt(int irq, void *ptr)
  		return IRQ_NONE;
  	}
  	if (v1 & (1 << GPU_INTR_STATUS_GRAPH_EXCEPTION)) {
@@ -186,7 +191,7 @@ diff -ru a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
  		    !atomic_read(&ps3fb.ext_flip)) {
  			ps3fb.is_kicked = 1;
  			wake_up_process(ps3fb.task);
-@@ -1998,6 +2050,178 @@
+@@ -1998,6 +2050,178 @@ static irqreturn_t ps3fb_vsync_interrupt(int irq, void *ptr)
  
  	return IRQ_HANDLED;
  }
@@ -365,7 +370,7 @@ diff -ru a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
  static void ps3fb_gpu_vma_open(struct vm_area_struct *vma) {}
  static void ps3fb_gpu_vma_close(struct vm_area_struct *vma) {}
  
-@@ -2021,6 +2245,8 @@
+@@ -2021,6 +2245,8 @@ static int ps3fb_gpu_mmap(struct file *filp, struct vm_area_struct *vm)
  	int err;
  	int io_flag = 1;
  
@@ -374,7 +379,7 @@ diff -ru a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
  	off <<= PAGE_SHIFT;
  	switch (minor) { 
  		case 0: if( off >= ps3fb.ddr_size) return -EINVAL;
-@@ -2348,6 +2574,7 @@
+@@ -2348,6 +2574,7 @@ static void ps3fb_shutdown(struct ps3_system_bus_device *dev)
  	}
  	iounmap((u8 __force __iomem *)ps3fb.dinfo);
  	iounmap((u8 __force __iomem *)ps3fb.fifo.ctrl);
@@ -382,7 +387,7 @@ diff -ru a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
  	lv1_gpu_fb_close(ps3fb.context_handle);
  	lv1_gpu_context_iomap(ps3fb.context_handle, GPU_IOIF, xdr_lpar, ps3fb_videomemory.size, CBE_IOPTE_M);
  	lv1_gpu_context_free(ps3fb.context_handle);
-@@ -2361,6 +2588,8 @@
+@@ -2361,6 +2588,8 @@ static struct ps3_system_bus_driver ps3fb_driver = {
  	.match_sub_id	= PS3_MATCH_SUB_ID_GPU_FB,
  	.core.name	= DEVICE_NAME,
  	.core.owner	= THIS_MODULE,

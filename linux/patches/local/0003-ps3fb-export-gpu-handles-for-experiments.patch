@@ -1,6 +1,12 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: 0003-ps3fb-export-gpu-handles-for-experiments.patch
+
+diff --git a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
 --- a/drivers/video/fbdev/ps3fb.c
 +++ b/drivers/video/fbdev/ps3fb.c
-@@ -181,6 +181,18 @@
+@@ -181,6 +181,18 @@ struct ps3fb_par {
  
  static struct ps3fb_priv ps3fb;
  

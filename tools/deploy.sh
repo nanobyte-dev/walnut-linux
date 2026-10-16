@@ -10,7 +10,8 @@
 #   4. step 2 again (what it held back until step 3 brought in a new dependency).
 # Each step is simulated first. The deploy uses its own copy of our sources and pins (ps3-system's
 # current ones), so it works before the PS3 has them. AUTOREMOVE=1 then purges what nothing
-# needs any more (simulated first). ps3-migrate-home runs once for the deploying user.
+# needs any more (simulated first). ps3-migrate-home runs once for the deploying user. Kernel and
+# Mesa installs stop the desktop first (STOP_DESKTOP=auto|1|0).
 # Env: PS3 (ssh destination), SSH, SCP, REPO_BUILDER_TAG, REPO_HOST, REPO_DIR
 set -euo pipefail
 # One block, parsed whole before it runs: editing this file during a run can't make bash
@@ -30,6 +31,7 @@ U='-o Dir::Etc::SourceList=/dev/null -o Dir::Etc::SourceParts=/var/tmp/ps3-deplo
 O='-o Dir::Etc::SourceList=/dev/null -o Dir::Etc::SourceParts=/var/tmp/ps3-deploy/all \
 -o Dir::Etc::Preferences=/var/tmp/ps3-deploy/ps3.pref -o Dir::Etc::PreferencesParts=/dev/null \
 -o Dpkg::Use-Pty=0 -o APT::Get::Assume-Yes=true -t ps3-dev'
+sudo DEBIAN_FRONTEND=noninteractive dpkg --configure -a	# an install interrupted earlier
 sudo apt-get \$U -qq update
 ours() {	# installed packages that the dev suite has
 	sed -n 's/^Package: //p' /var/lib/apt/lists/*_ps3-dev_dists_ps3-dev_*Packages | sort -u > avail
@@ -40,6 +42,19 @@ upgrade() {
 	sudo DEBIAN_FRONTEND=noninteractive apt-get \$O -q --no-remove install --only-upgrade \$pk |
 		grep -E '^(Setting up|Unpacking|E:|W:)' || true
 }
+# Kernel and Mesa installs need the RAM the desktop holds: two kernels unpacked next to a
+# running desktop thrashed swap on the USB disk into a 30-minute stall (2026-10-16). The desktop
+# is stopped for them (STOP_DESKTOP=auto; 1 always, 0 never) and started again afterwards.
+heavy=\$(sudo apt-get \$O -s install $* \$(ours) 2>/dev/null | grep -cE '^Inst (linux-image|linux-headers|mesa-libgallium|libgl1-mesa-dri)' || true)
+stopped=
+if [ '${STOP_DESKTOP:-auto}' = 1 ] || { [ '${STOP_DESKTOP:-auto}' = auto ] && [ \"\$heavy\" -gt 0 ]; }; then
+	if pidof Xorg >/dev/null; then
+		echo '>> stopping the desktop for this install'
+		sudo systemctl stop getty@tty1
+		for s in \$(loginctl list-sessions --no-legend | awk '\$4==\"tty1\" || \$5==\"tty1\" {print \$1}'); do sudo loginctl terminate-session \$s; done
+		sleep 3; stopped=1
+	fi
+fi
 echo '--- upgrade (simulated)'; sudo apt-get \$O -s --no-remove install --only-upgrade \$(ours) | grep -E '^(Inst|Remv)' || true
 echo '--- install $* (simulated)'; sudo apt-get \$O -s install $* | grep -E '^(Inst|Remv)' || true
 upgrade
@@ -55,6 +70,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get \$O -q \$NOREMOVE install $* | grep 
 upgrade
 sudo apt-get check >/dev/null && echo '>> apt-get check: ok'
 [ ! -x /usr/lib/ps3/sbin/ps3-migrate-home ] || sudo /usr/lib/ps3/sbin/ps3-migrate-home \$(id -un)
+[ -z \"\$stopped\" ] || { echo '>> starting the desktop again'; sudo systemctl start getty@tty1; }
 if [ '${AUTOREMOVE:-0}' = 1 ]; then
 	echo '--- autoremove --purge'; sudo apt-get \$O -s autoremove --purge | grep ^Purg || true
 	sudo DEBIAN_FRONTEND=noninteractive apt-get \$O -q autoremove --purge | grep -E '^(Removing|Purging)' || true

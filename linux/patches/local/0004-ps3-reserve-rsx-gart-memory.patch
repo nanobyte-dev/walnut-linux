@@ -1,7 +1,12 @@
-diff -ru a/arch/powerpc/include/asm/ps3.h b/arch/powerpc/include/asm/ps3.h
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: 0004-ps3-reserve-rsx-gart-memory.patch
+
+diff --git a/arch/powerpc/include/asm/ps3.h b/arch/powerpc/include/asm/ps3.h
 --- a/arch/powerpc/include/asm/ps3.h
 +++ b/arch/powerpc/include/asm/ps3.h
-@@ -451,6 +451,7 @@
+@@ -451,6 +451,7 @@ struct ps3_prealloc {
  };
  
  extern struct ps3_prealloc ps3fb_videomemory;
@@ -9,10 +14,10 @@ diff -ru a/arch/powerpc/include/asm/ps3.h b/arch/powerpc/include/asm/ps3.h
  extern struct ps3_prealloc ps3flash_bounce_buffer;
  
  /* logical performance monitor */
-diff -ru a/arch/powerpc/platforms/ps3/setup.c b/arch/powerpc/platforms/ps3/setup.c
+diff --git a/arch/powerpc/platforms/ps3/setup.c b/arch/powerpc/platforms/ps3/setup.c
 --- a/arch/powerpc/platforms/ps3/setup.c
 +++ b/arch/powerpc/platforms/ps3/setup.c
-@@ -148,6 +148,33 @@
+@@ -148,6 +148,33 @@ early_param("ps3fb", early_parse_ps3fb);
  #define prealloc_ps3fb_videomemory()	do { } while (0)
  #endif
  
@@ -46,7 +51,7 @@ diff -ru a/arch/powerpc/platforms/ps3/setup.c b/arch/powerpc/platforms/ps3/setup
  #if defined(CONFIG_PS3_FLASH) || defined(CONFIG_PS3_FLASH_MODULE)
  struct ps3_prealloc ps3flash_bounce_buffer = {
  	.name = "ps3flash bounce buffer",
-@@ -253,6 +280,7 @@
+@@ -253,6 +280,7 @@ static void __init ps3_setup_arch(void)
  #endif
  
  	prealloc_ps3fb_videomemory();

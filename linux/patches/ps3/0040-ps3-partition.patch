@@ -1,7 +1,12 @@
-diff -Naur a/block/partitions/Kconfig b/block/partitions/Kconfig
---- a/block/partitions/Kconfig	2024-03-17 19:50:57.295915572 +0700
-+++ b/block/partitions/Kconfig	2024-03-17 19:50:59.834859681 +0700
-@@ -264,6 +264,12 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: 0040-ps3-partition.patch
+
+diff --git a/block/partitions/Kconfig b/block/partitions/Kconfig
+--- a/block/partitions/Kconfig
++++ b/block/partitions/Kconfig
+@@ -264,6 +264,12 @@ config SYSV68_PARTITION
  	  sysv68).
  	  Otherwise, say N.
  
@@ -14,25 +19,26 @@ diff -Naur a/block/partitions/Kconfig b/block/partitions/Kconfig
  config CMDLINE_PARTITION
  	bool "Command line partition support" if PARTITION_ADVANCED
  	help
-diff -Naur a/block/partitions/Makefile b/block/partitions/Makefile
---- a/block/partitions/Makefile	2024-03-17 19:50:57.295915572 +0700
-+++ b/block/partitions/Makefile	2024-03-17 19:50:59.834859681 +0700
-@@ -20,3 +20,4 @@
+diff --git a/block/partitions/Makefile b/block/partitions/Makefile
+--- a/block/partitions/Makefile
++++ b/block/partitions/Makefile
+@@ -20,3 +20,4 @@ obj-$(CONFIG_IBM_PARTITION) += ibm.o
  obj-$(CONFIG_EFI_PARTITION) += efi.o
  obj-$(CONFIG_KARMA_PARTITION) += karma.o
  obj-$(CONFIG_SYSV68_PARTITION) += sysv68.o
 +obj-$(CONFIG_PS3_PARTITION) += ps3.o
-diff -Naur a/block/partitions/check.h b/block/partitions/check.h
---- a/block/partitions/check.h	2024-03-17 19:50:57.295915572 +0700
-+++ b/block/partitions/check.h	2024-03-17 19:50:59.834859681 +0700
-@@ -67,3 +67,4 @@
+diff --git a/block/partitions/check.h b/block/partitions/check.h
+--- a/block/partitions/check.h
++++ b/block/partitions/check.h
+@@ -67,3 +67,4 @@ int sgi_partition(struct parsed_partitions *state);
  int sun_partition(struct parsed_partitions *state);
  int sysv68_partition(struct parsed_partitions *state);
  int ultrix_partition(struct parsed_partitions *state);
 +int ps3_partition(struct parsed_partitions *state);
-diff -Naur a/block/partitions/ps3.c b/block/partitions/ps3.c
---- a/block/partitions/ps3.c	1970-01-01 07:00:00.000000000 +0700
-+++ b/block/partitions/ps3.c	2024-03-17 19:50:59.837859615 +0700
+diff --git a/block/partitions/ps3.c b/block/partitions/ps3.c
+new file mode 100644
+--- /dev/null
++++ b/block/partitions/ps3.c
 @@ -0,0 +1,98 @@
 +/*
 + *  fs/partitions/ps3.c
@@ -132,9 +138,10 @@ diff -Naur a/block/partitions/ps3.c b/block/partitions/ps3.c
 +
 +	return (result);
 +}
-diff -Naur a/block/partitions/ps3.h b/block/partitions/ps3.h
---- a/block/partitions/ps3.h	1970-01-01 07:00:00.000000000 +0700
-+++ b/block/partitions/ps3.h	2024-03-17 19:50:59.837859615 +0700
+diff --git a/block/partitions/ps3.h b/block/partitions/ps3.h
+new file mode 100644
+--- /dev/null
++++ b/block/partitions/ps3.h
 @@ -0,0 +1,5 @@
 +/*
 + *  fs/partitions/ps3.h

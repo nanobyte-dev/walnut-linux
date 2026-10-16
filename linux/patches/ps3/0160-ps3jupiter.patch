@@ -1,7 +1,12 @@
-diff -Naur a/drivers/net/wireless/Kconfig b/drivers/net/wireless/Kconfig
---- a/drivers/net/wireless/Kconfig	2024-03-17 19:52:38.502726021 +0700
-+++ b/drivers/net/wireless/Kconfig	2024-03-17 19:52:39.791698610 +0700
-@@ -31,6 +31,7 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 01:28:43 +0300
+Subject: 0160-ps3jupiter.patch
+
+diff --git a/drivers/net/wireless/Kconfig b/drivers/net/wireless/Kconfig
+--- a/drivers/net/wireless/Kconfig
++++ b/drivers/net/wireless/Kconfig
+@@ -31,6 +31,7 @@ source "drivers/net/wireless/purelifi/Kconfig"
  source "drivers/net/wireless/ralink/Kconfig"
  source "drivers/net/wireless/realtek/Kconfig"
  source "drivers/net/wireless/rsi/Kconfig"
@@ -9,17 +14,18 @@ diff -Naur a/drivers/net/wireless/Kconfig b/drivers/net/wireless/Kconfig
  source "drivers/net/wireless/silabs/Kconfig"
  source "drivers/net/wireless/st/Kconfig"
  source "drivers/net/wireless/ti/Kconfig"
-diff -Naur a/drivers/net/wireless/Makefile b/drivers/net/wireless/Makefile
---- a/drivers/net/wireless/Makefile	2024-03-17 19:52:38.502726021 +0700
-+++ b/drivers/net/wireless/Makefile	2024-03-17 19:52:39.791698610 +0700
-@@ -23,3 +23,4 @@
+diff --git a/drivers/net/wireless/Makefile b/drivers/net/wireless/Makefile
+--- a/drivers/net/wireless/Makefile
++++ b/drivers/net/wireless/Makefile
+@@ -23,3 +23,4 @@ obj-$(CONFIG_WLAN_VENDOR_TI) += ti/
  obj-$(CONFIG_WLAN_VENDOR_ZYDAS) += zydas/
  
  obj-$(CONFIG_WLAN) += virtual/
 +obj-$(CONFIG_PS3_JUPITER)	+= ps3jupiter/
-diff -Naur a/drivers/net/wireless/ps3jupiter/Kconfig b/drivers/net/wireless/ps3jupiter/Kconfig
---- a/drivers/net/wireless/ps3jupiter/Kconfig	1970-01-01 07:00:00.000000000 +0700
-+++ b/drivers/net/wireless/ps3jupiter/Kconfig	2024-03-17 19:52:39.792698588 +0700
+diff --git a/drivers/net/wireless/ps3jupiter/Kconfig b/drivers/net/wireless/ps3jupiter/Kconfig
+new file mode 100644
+--- /dev/null
++++ b/drivers/net/wireless/ps3jupiter/Kconfig
 @@ -0,0 +1,16 @@
 +
 +config PS3_JUPITER
@@ -37,16 +43,18 @@ diff -Naur a/drivers/net/wireless/ps3jupiter/Kconfig b/drivers/net/wireless/ps3j
 +	help
 +          A station driver for the PS3 Jupiter
 +          802.11bg wireless network adapter.
-diff -Naur a/drivers/net/wireless/ps3jupiter/Makefile b/drivers/net/wireless/ps3jupiter/Makefile
---- a/drivers/net/wireless/ps3jupiter/Makefile	1970-01-01 07:00:00.000000000 +0700
-+++ b/drivers/net/wireless/ps3jupiter/Makefile	2024-03-17 19:52:39.792698588 +0700
+diff --git a/drivers/net/wireless/ps3jupiter/Makefile b/drivers/net/wireless/ps3jupiter/Makefile
+new file mode 100644
+--- /dev/null
++++ b/drivers/net/wireless/ps3jupiter/Makefile
 @@ -0,0 +1,3 @@
 +
 +obj-$(CONFIG_PS3_JUPITER) += ps3_jupiter.o
 +obj-$(CONFIG_PS3_JUPITER_STA) += ps3_jupiter_sta.o
-diff -Naur a/drivers/net/wireless/ps3jupiter/ps3_eurus.h b/drivers/net/wireless/ps3jupiter/ps3_eurus.h
---- a/drivers/net/wireless/ps3jupiter/ps3_eurus.h	1970-01-01 07:00:00.000000000 +0700
-+++ b/drivers/net/wireless/ps3jupiter/ps3_eurus.h	2024-03-17 19:52:39.792698588 +0700
+diff --git a/drivers/net/wireless/ps3jupiter/ps3_eurus.h b/drivers/net/wireless/ps3jupiter/ps3_eurus.h
+new file mode 100644
+--- /dev/null
++++ b/drivers/net/wireless/ps3jupiter/ps3_eurus.h
 @@ -0,0 +1,605 @@
 +
 +/*
@@ -653,9 +661,10 @@ diff -Naur a/drivers/net/wireless/ps3jupiter/ps3_eurus.h b/drivers/net/wireless/
 +}
 +
 +#endif
-diff -Naur a/drivers/net/wireless/ps3jupiter/ps3_jupiter.c b/drivers/net/wireless/ps3jupiter/ps3_jupiter.c
---- a/drivers/net/wireless/ps3jupiter/ps3_jupiter.c	1970-01-01 07:00:00.000000000 +0700
-+++ b/drivers/net/wireless/ps3jupiter/ps3_jupiter.c	2024-03-17 19:52:39.792698588 +0700
+diff --git a/drivers/net/wireless/ps3jupiter/ps3_jupiter.c b/drivers/net/wireless/ps3jupiter/ps3_jupiter.c
+new file mode 100644
+--- /dev/null
++++ b/drivers/net/wireless/ps3jupiter/ps3_jupiter.c
 @@ -0,0 +1,1245 @@
 +
 +/*
@@ -1902,9 +1911,10 @@ diff -Naur a/drivers/net/wireless/ps3jupiter/ps3_jupiter.c b/drivers/net/wireles
 +MODULE_DESCRIPTION("PS3 Jupiter");
 +MODULE_AUTHOR("glevand");
 +MODULE_LICENSE("GPL");
-diff -Naur a/drivers/net/wireless/ps3jupiter/ps3_jupiter.h b/drivers/net/wireless/ps3jupiter/ps3_jupiter.h
---- a/drivers/net/wireless/ps3jupiter/ps3_jupiter.h	1970-01-01 07:00:00.000000000 +0700
-+++ b/drivers/net/wireless/ps3jupiter/ps3_jupiter.h	2024-03-17 19:52:39.793698567 +0700
+diff --git a/drivers/net/wireless/ps3jupiter/ps3_jupiter.h b/drivers/net/wireless/ps3jupiter/ps3_jupiter.h
+new file mode 100644
+--- /dev/null
++++ b/drivers/net/wireless/ps3jupiter/ps3_jupiter.h
 @@ -0,0 +1,34 @@
 +
 +/*
@@ -1940,9 +1950,10 @@ diff -Naur a/drivers/net/wireless/ps3jupiter/ps3_jupiter.h b/drivers/net/wireles
 +	unsigned int *response_length, void *response);
 +
 +#endif
-diff -Naur a/drivers/net/wireless/ps3jupiter/ps3_jupiter_sta.c b/drivers/net/wireless/ps3jupiter/ps3_jupiter_sta.c
---- a/drivers/net/wireless/ps3jupiter/ps3_jupiter_sta.c	1970-01-01 07:00:00.000000000 +0700
-+++ b/drivers/net/wireless/ps3jupiter/ps3_jupiter_sta.c	2024-03-17 19:52:39.793698567 +0700
+diff --git a/drivers/net/wireless/ps3jupiter/ps3_jupiter_sta.c b/drivers/net/wireless/ps3jupiter/ps3_jupiter_sta.c
+new file mode 100644
+--- /dev/null
++++ b/drivers/net/wireless/ps3jupiter/ps3_jupiter_sta.c
 @@ -0,0 +1,2934 @@
 +
 +/*
