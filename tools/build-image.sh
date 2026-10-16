@@ -61,7 +61,7 @@ fi
 # timer still updates it), and none in the image (index.db isn't reproducible)
 echo "man-db man-db/auto-update boolean false" | chroot "$R" debconf-set-selections
 PKGS=$(grep -v -e '^\s*#' -e '^\s*$' image/packages-ours.txt | sed "s/@KERNEL_RELEASE@/$KERNEL_RELEASE/")
-APT="chroot $R env DEBIAN_FRONTEND=noninteractive apt-get -q -y -o Dpkg::Use-Pty=0"
+APT="chroot $R env DEBIAN_FRONTEND=noninteractive apt-get -q -y -o Dpkg::Use-Pty=0 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold"
 $APT update > /dev/null
 $APT --no-remove upgrade > /dev/null
 $APT --no-remove install $PKGS > /dev/null

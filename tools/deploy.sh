@@ -34,7 +34,8 @@ U='-o Dir::Etc::SourceList=/dev/null -o Dir::Etc::SourceParts=/var/tmp/ps3-deplo
 O='-o Dir::Etc::SourceList=/dev/null -o Dir::Etc::SourceParts=/var/tmp/ps3-deploy/ours \
 -o Dir::Cache::pkgcache= -o Dir::Cache::srcpkgcache= \
 -o Dir::Etc::Preferences=/var/tmp/ps3-deploy/ps3.pref -o Dir::Etc::PreferencesParts=/dev/null \
--o Dpkg::Use-Pty=0 -o APT::Get::Assume-Yes=true -t ps3-dev'
+-o Dpkg::Use-Pty=0 -o APT::Get::Assume-Yes=true -o Dpkg::Options::=--force-confdef \
+-o Dpkg::Options::=--force-confold -t ps3-dev'
 sudo DEBIAN_FRONTEND=noninteractive dpkg --configure -a	# an install interrupted earlier
 sudo apt-get \$U -qq update
 ours() {	# installed packages that the dev suite has

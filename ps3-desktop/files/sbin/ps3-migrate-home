@@ -9,6 +9,8 @@ u=${1:?usage: ps3-migrate-home <user>}
 h=$(getent passwd "$u" | cut -d: -f6)
 [ -d "$h" ] || exit 0
 backup="$h/.local/share/ps3-legacy"
+# once per user: afterwards the files in ~/.config are the user's own settings
+[ ! -e "$backup/.migrated" ] || exit 0
 moved=
 take() {	# <file in home> [<packaged default to compare with>]
 	f="$h/$1"
@@ -30,5 +32,6 @@ take .config/gtk-3.0/settings.ini /etc/xdg/ps3/gtk-3.0/settings.ini
 take .config/pcmanfm/default/desktop-items-0.conf /etc/xdg/ps3/pcmanfm/default/desktop-items-0.conf
 take .openarena/baseoa/autoexec.cfg /usr/lib/openarena/baseoa/autoexec.cfg
 take .local/share/applications/openarena.desktop /usr/share/applications/openarena.desktop
-[ ! -d "$backup" ] || chown -R "$u:" "$backup" 2>/dev/null || true
+mkdir -p "$backup" && : > "$backup/.migrated"
+chown -R "$u:" "$backup" 2>/dev/null || true
 [ -z "$moved" ] || echo "ps3-migrate-home: moved to $backup:$moved"
