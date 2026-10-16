@@ -195,8 +195,8 @@ The same per-draw and per-submit costs top every profile, so they are the shared
 3. nv30 per-draw validation (`nv30_state_validate`, `nv30_vbo_validate`, u_vbuf): 3-10%.
 4. Pushbuf relocation bookkeeping (`pushbuf_krel`, `pushbuf_kref`): 2-5%.
 5. A kernel hot spot perf couldn't name as a user (2-6%): profile as root next time.
-Mesa's debug symbols (mesa-libgallium-dbgsym) are installed on the PS3 by hand for this: remove
-before comparing the PS3 with a fresh image.
+Mesa's debug symbols (mesa-libgallium-dbgsym, from the dev suite) name these functions; they were
+installed for the profiles and removed again: reinstall them for the next profile.
 
 Out of scope: DXT5 (Teeworlds, TORCS; it waits for the SPU plan) and games that need GL 3. 3D
 textures are supported by nv30 (sampling; rendering into them is refused).
