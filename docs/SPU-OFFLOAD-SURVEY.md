@@ -101,7 +101,11 @@ kernel 6.12.111+ps3.163-ps3-release and Mesa 26.2.4-1+ps3.152. Timedemo `bench`,
 
 **DXT on the RSX** (`gl-dxt`, first DXT ever sampled here, VRAM swap off): DXT1 RGB and RGBA
 sample exactly as decoded (max difference 1, no graph exception). Mesa's encoder on the PPE:
-**2.6 Mpixel/s** (the dev PC: 27; our van Waveren encoder in libspeq is ~2.7x Mesa's on x86).
+**2.6 Mpixel/s** (the dev PC: 27). libspeq's PPE encoder (van Waveren, behind Mesa's hook since
+Mesa 26.2.4-1+ps3.186, kernel .178): **6.5 Mpixel/s** through glTexImage, 7.1 for the encoder alone
+(148 ms per 1024x1024); the same RSX check passes. Its RMSE on gl-dxt's synthetic image is higher
+(33.7 against 29.7: the noise quadrants, where a bounding box loses), but lower on OpenArena's opaque
+textures (mean 4.23 against 4.29, better on 37 of 50; `make -C ps3-spu test-mesa`).
 
 **Compressed textures** (`r_ext_compressed_textures` 0/1; OpenArena compresses only opaque
 textures, to RGBA DXT1). With the VRAM swap on, 3 runs each, interleaved:
