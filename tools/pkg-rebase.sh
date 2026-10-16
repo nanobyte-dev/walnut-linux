@@ -16,6 +16,10 @@ NEWDSC=$SRC/${SOURCE}_${NEWVERSION#*:}.dsc
 case $MODE in
 fetch)
 	if [ ! -e "$NEWDSC" ]; then
+		# a source outside main (package.conf COMPONENT): its deb-src lines, as in deb-fetch.sh
+		if [ -n "${COMPONENT:-}" ] && [ "$COMPONENT" != main ]; then
+			sed -n "s/^\(deb-src .*\) main\$/\1 $COMPONENT/p" /etc/apt/sources.list > /etc/apt/sources.list.d/ps3-$COMPONENT.list
+		fi
 		apt-get update -qq
 		(cd "$SRC" && apt-get source --download-only -qq "$SOURCE=$NEWVERSION")
 	fi
