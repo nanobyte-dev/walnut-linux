@@ -28,8 +28,8 @@ cat > "$R/etc/default/ps3-boot" <<EOF
 PS3_ROOT_ARGS="$BOOT_ROOT_ARGS"
 PS3_EXTRA_ARGS="$BOOT_EXTRA_ARGS"
 PS3_LEGACY_ARGS="$BOOT_LEGACY_ARGS"
-# the debug flavour boots by default until the release flavour has proven itself
-PS3_DEFAULT_FLAVOUR=ps3
+# the release kernel boots by default; the debug one is in the menu next to it
+PS3_DEFAULT_FLAVOUR=release
 EOF
 printf '%s\n' '# The user that gets the desktop on tty1 (ps3-desktop; empty: a normal login prompt)' \
 	'PS3_DESKTOP_USER=tibi' > "$R/etc/default/ps3-desktop"

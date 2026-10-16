@@ -237,7 +237,7 @@ $(BUILD)/repo/.%.stamp: $$(PKG_INPUTS_$$*) tools/stage-package.sh tools/build-de
 # [AUTOREMOVE=1]. Upgrades everything of ours that is installed (Mesa included), then installs the
 # named top-level packages; simulated first. dpkg replaces files by renaming, so even Mesa under
 # a running X is safe on the USB root (on NFS, stop X first).
-DEPLOY_TOP := linux-image-ps3 linux-image-ps3-release ps3rsx-modules-ps3 ps3rsx-modules-ps3-release ps3-boot ps3-system ps3-desktop ps3-splash ps3-gpu-tools ps3-spu ps3-spu-programs classicube
+DEPLOY_TOP := linux-image-ps3 linux-image-ps3-debug ps3rsx-modules-ps3 ps3rsx-modules-ps3-debug ps3-boot ps3-system ps3-desktop ps3-splash ps3-gpu-tools ps3-spu ps3-spu-programs classicube
 PKGS ?= $(DEPLOY_TOP)
 AUTOREMOVE ?= 0
 STOP_DESKTOP ?= auto
@@ -271,17 +271,21 @@ netboot: $(KERNEL_STAGE)/boot/vmlinux
 	PS3_IP=$(PETITBOOT_IP) PC_IP=$(PC_IP) HTTP_PORT=$(HTTP_PORT) KERNEL=$(KERNEL_STAGE)/boot/vmlinux \
 		KERNEL_CMDLINE="$(KERNEL_CMDLINE)" tools/netboot.sh
 
+# The kernel image package of a flavour in build/debs/linux (make linux-deb): kernel_deb release
+# (linux-image-6.12.111+ps3.N) or kernel_deb debug (linux-image-6.12.111+ps3.N-debug<stamp>)
+KERNEL_DEB_SH = kernel_deb() { ls $(BUILD)/debs/linux/linux-image-[0-9]*_*.deb 2>/dev/null | \
+	if [ "$$1" = debug ]; then grep -e '-debug[0-9]*_'; else grep -v -e '-debug[0-9]*_'; fi | head -1; }
 # Netboot a kernel from the Debian kernel packages (make linux-deb) before installing it:
-# make netboot-deb [FLAVOUR=ps3|ps3-release] [ROOT=nfs|usb]; its own arguments (linux/flavours/)
-FLAVOUR ?= ps3
+# make netboot-deb [FLAVOUR=release|debug] [ROOT=nfs|usb]; with the arguments its package ships
+FLAVOUR ?= release
 netboot-deb: | $(REPO_BUILDER_STAMP)
-	@set -e; d=$$(ls $(BUILD)/debs/linux/linux-image-*-$(FLAVOUR)_*.deb | grep -v dbg | head -1); \
+	@set -e; $(KERNEL_DEB_SH); d=$$(kernel_deb $(FLAVOUR)); \
 	[ -n "$$d" ] || { echo "no linux-image for $(FLAVOUR): make linux-deb"; exit 1; }; \
 	rm -rf $(BUILD)/tmp/netboot && mkdir -p $(BUILD)/tmp/netboot; \
 	docker run --rm -v $(CURDIR):/work -w /work --user $(UID_GID) $(REPO_BUILDER_TAG) dpkg-deb -x $$d $(BUILD)/tmp/netboot; \
 	k=$$(ls $(BUILD)/tmp/netboot/boot/vmlinux-*); echo ">> netbooting $$k"; \
 	PS3_IP=$(PETITBOOT_IP) PC_IP=$(PC_IP) HTTP_PORT=$(HTTP_PORT) KERNEL=$$k \
-		KERNEL_CMDLINE="$(ROOT_ARGS_$(ROOT)) rootwait $(DEBUG_ARGS) $$(cat linux/flavours/$(FLAVOUR).args)" tools/netboot.sh
+		KERNEL_CMDLINE="$(ROOT_ARGS_$(ROOT)) rootwait $(DEBUG_ARGS) $$(cat $(BUILD)/tmp/netboot/usr/lib/ps3/boot/*.args)" tools/netboot.sh
 
 listen:
 	tools/listen-debug.sh
@@ -339,13 +343,15 @@ DEB_ENV := -e OWNER=$(UID_GID) -e DEBIAN_SUITE=$(DEBIAN_SUITE) -e DEBIAN_MIRROR=
 	-e CC_TARBALL=$(CC_TARBALL) -e CC_TEXPACK=$(CC_TEXPACK) -e CC_AUDIO=$(CC_AUDIO) -e KERNEL_RELEASE=$(KERNEL_RELEASE) -e KERNEL_FLAVOUR=$(KERNEL_FLAVOUR)
 # upstream tarballs a package's source is made from
 classicube-src: $(CC_TARBALL) $(CC_TEXPACK) $(CC_AUDIO)/default2.zip
-# ps3rsx for each kernel flavour built by linux-deb (build/debs/linux): build/debs/ps3rsx-<flavour>
+# ps3rsx for both kernels built by linux-deb (build/debs/linux), release and debug: modules
+# ps3rsx-modules-<release>, metas ps3rsx-modules-ps3 and ps3rsx-modules-ps3-debug (named like the
+# kernel's: KERNEL_FLAVOUR is the Debian flavour), in build/debs/ps3rsx-<Debian flavour>
 ps3rsx-modules:
-	@set -e; for f in ps3 ps3-release; do \
-		d=$$(ls $(BUILD)/debs/linux/linux-image-*-$${f}_*.deb | grep -v dbg | head -1); \
-		[ -n "$$d" ] || { echo "no linux-image for $$f: make linux-deb"; exit 1; }; \
+	@set -e; $(KERNEL_DEB_SH); for f in release:ps3 debug:ps3-debug; do \
+		d=$$(kernel_deb $${f%%:*}); \
+		[ -n "$$d" ] || { echo "no linux-image for $${f%%:*}: make linux-deb"; exit 1; }; \
 		rel=$$(basename $$d | sed 's/^linux-image-//; s/_.*//'); echo ">> ps3rsx for $$rel"; \
-		$(MAKE) --no-print-directory ps3rsx-src ps3rsx-deb KERNEL_RELEASE=$$rel KERNEL_FLAVOUR=$$f; \
+		$(MAKE) --no-print-directory ps3rsx-src ps3rsx-deb KERNEL_RELEASE=$$rel KERNEL_FLAVOUR=$${f#*:}; \
 	done
 chroot: | $(REPO_BUILDER_STAMP)
 	@tools/disk-check.sh

@@ -133,19 +133,27 @@ s = re.sub(r'^( -- .*>)  .*$', lambda m: m.group(1) + '  ' + date, s, count=1, f
 open(p, 'w').write(s)
 PY2
 # Package-specific: the kernel (linux/package.conf FLAVOURS). The ABI name gets +ps3.<N> (package
-# names can't have '~': a test build's <n>~dev<stamp> becomes <n>.dev<stamp>); each flavour's full
-# config (tools/linux-config.sh, on the patched tree) and boot arguments go into
-# debian/config/ppc64/; then debian/control is regenerated (gencontrol.py; the target fails on
-# purpose) and checked, and its build directory removed.
+# names can't have '~': a test build's <n>~dev<stamp> becomes <n>.dev<stamp>), the debug release
+# -debug<stamp> (the date of the commit the version stands for, or of now for a dirty tree, as
+# deb-version.sh gives it: the same checkout gives the same release); each flavour's full config
+# (tools/linux-config.sh, on the patched tree) and boot arguments go into debian/config/ppc64/
+# under its Debian flavour's name; then debian/control is regenerated (gencontrol.py; the target
+# fails on purpose) and checked, and its build directory removed.
 if [ "$SOURCE" = linux ]; then
+	ABI="${VERSION%-*}+ps3.${N/\~/.}" STAMP=$(date -u -d "$DATE" +%Y%m%d%H%M)
 	sed -i "s/@PS3_ABI_SUFFIX@/+ps3.${N/\~/.}/" "$T/debian/config/defines.toml"
+	sed -i "s/@PS3_DEBUG_STAMP@/$STAMP/" "$T/debian/config/ppc64/defines.toml"
 	for f in $FLAVOURS; do
-		tools/linux-config.sh "$T" "$f" "$T/debian/config/ppc64/config.$f"
-		cp "$PKG/flavours/$f.args" "$T/debian/config/ppc64/args.$f"
+		d=DEBIAN_FLAVOUR_$f; d=${!d}
+		tools/linux-config.sh "$T" "$f" "$T/debian/config/ppc64/config.$d"
+		cp "$PKG/flavours/$f.args" "$T/debian/config/ppc64/args.$d"
 	done
 	(cd "$T" && PYTHONDONTWRITEBYTECODE=1 make -f debian/rules debian/control-real > ../gencontrol.log 2>&1) || true
 	if ! (cd "$T" && md5sum --check --status debian/control.md5sum) || \
-		! grep -q '^Package: linux-image-.*-ps3$' "$T/debian/control"; then
+		! grep -qxF "Package: linux-image-$ABI" "$T/debian/control" || \
+		! grep -qxF "Package: linux-image-$ABI-debug$STAMP" "$T/debian/control" || \
+		! grep -qxF "Package: linux-image-ps3" "$T/debian/control" || \
+		! grep -qxF "Package: linux-image-ps3-debug" "$T/debian/control"; then
 		cat "$OUT/gencontrol.log"; echo "!! linux: debian/control was not regenerated"; exit 1
 	fi
 	rm -rf "$T/debian/build" "$T/debian/lib/python/debian_linux/__pycache__" "$OUT/gencontrol.log"

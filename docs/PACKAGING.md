@@ -117,17 +117,30 @@ change them in a disposable git tree:
 
 - `make linux-deb`: Debian's `linux` source with `linux/patches` and `linux/packaging`, the full
   configs from `tools/linux-config.sh` (`ps3_defconfig` + `linux/config/ps3.config`, plus
-  `ps3-release.config` for the release flavour), cross-built for ppc64, then `linux-kbuild`
-  natively. Packages `linux-image-<release>` (release `6.12.111+ps3.N-ps3` / `-ps3-release`),
-  `linux-headers-*`, and the metas `linux-image-ps3`, `linux-image-ps3-release`. Each image
-  ships its kernel arguments as `/usr/lib/ps3/boot/<release>.args` (`linux/flavours/*.args`).
-- `make ps3rsx-modules`: the RSX driver for each flavour, built natively against its headers
-  package; metas `ps3rsx-modules-ps3`, `ps3rsx-modules-ps3-release`.
-- Before installing a new kernel: `make netboot-deb FLAVOUR=ps3|ps3-release ROOT=nfs|usb` boots
-  it from Petitboot without touching the disk.
+  `ps3-release.config` for the release kernel), cross-built for ppc64, then `linux-kbuild`
+  natively. Two kernels (decided 2026-10-16):
+  - release: release `6.12.111+ps3.N`, packages `linux-image-6.12.111+ps3.N` and
+    `linux-headers-6.12.111+ps3.N`, metas `linux-image-ps3`, `linux-headers-ps3`;
+  - debug: release `6.12.111+ps3.N-debug<stamp>`, the stamp (`YYYYMMDDHHMM`, UTC) being the date
+    of the commit the version stands for (`tools/deb-version.sh`; a dirty tree: the build time),
+    so the same commit always gives the same release and every debug build installs next to
+    the others; metas `linux-image-ps3-debug`, `linux-headers-ps3-debug`.
+
+  Debian's flavours are `ps3` and `ps3-debug` (their names make the metas); a flavour's
+  `localversion` in `defines.toml` replaces Debian's `-<flavour>` suffix of the release
+  (`linux/packaging/0001-ps3-flavours.patch`, the stamp filled in by `tools/deb-prepare.sh`).
+  Each image ships its kernel arguments as `/usr/lib/ps3/boot/<release>.args`
+  (`linux/flavours/release.args`, `debug.args`).
+- `make ps3rsx-modules`: the RSX driver for both kernels, built natively against their headers
+  packages: `ps3rsx-modules-<release>`, metas `ps3rsx-modules-ps3` (release) and
+  `ps3rsx-modules-ps3-debug`.
+- Before installing a new kernel: `make netboot-deb FLAVOUR=release|debug ROOT=nfs|usb` boots
+  it from Petitboot without touching the disk, with the arguments its package ships.
 - The boot menu: `ps3-boot` writes `/etc/kboot.conf` from the kernel hooks; the default is the
-  newest kernel unless `/etc/default/ps3-boot` sets `PS3_DEFAULT_FLAVOUR` (newest of a flavour)
-  or `PS3_DEFAULT` (a release). The image sets `PS3_DEFAULT_FLAVOUR=ps3`.
+  newest kernel unless `/etc/default/ps3-boot` sets `PS3_DEFAULT_FLAVOUR` (`release`: the newest
+  kernel without a `-debug` suffix; `debug`: the newest `-debug*` one; the old names `ps3` and
+  `ps3-release` still mean debug and release) or `PS3_DEFAULT` (a release, wins while it is
+  installed). The image sets `PS3_DEFAULT_FLAVOUR=release`.
 - Kernel and Mesa installs on the running PS3 stop the desktop first (`make deploy` does it):
   two kernels unpacked next to the desktop stalled the PS3 in swap on 2026-10-16 (power cycle).
 

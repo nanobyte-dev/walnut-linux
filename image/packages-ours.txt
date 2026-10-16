@@ -2,12 +2,12 @@
 # their dependencies stay auto-installed).
 # Our Mesa isn't named: it replaces Debian's (installed in the base layer) as an upgrade, keeping
 # the auto marks, and Debian's LLVM, z3 and sensors are then autoremoved.
-# the kernels (Debian's linux source, both flavours) through their meta packages, so new ones
-# arrive with apt upgrade
+# the kernels (Debian's linux source: release and debug) through their meta packages, so new
+# ones arrive with apt upgrade
 linux-image-ps3
-linux-image-ps3-release
+linux-image-ps3-debug
 ps3rsx-modules-ps3
-ps3rsx-modules-ps3-release
+ps3rsx-modules-ps3-debug
 ps3-boot
 ps3-system
 ps3-desktop

@@ -1,12 +1,19 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: PS3 Linux project <ps3@localhost>
 Date: Fri, 16 Oct 2026 04:13:09 +0300
-Subject: PS3 kernels only: the ps3 and ps3-release flavours on ppc64
+Subject: PS3 kernels only: the ps3 (release) and ps3-debug flavours on ppc64
 
 debian/config/ppc64/defines.toml has only our two flavours (no installer udebs, no default
 flavour), built with gcc-16 (the compiler of our deb builder and of the ppc64 chroot), image
 vmlinux. Their configs are the full .config files tools/linux-config.sh writes at
 source-package time (config.<flavour>, merged last).
+
+Release names: a flavour's defs may set localversion, the release's suffix after the ABI name
+in place of '-<flavour>' (gencontrol); the meta packages keep the flavour's name
+(localversion_meta: linux-image-<flavour>, linux-headers-<flavour>). The release kernel (ps3)
+has none, release 6.12.111+ps3.<N>; the debug kernel (ps3-debug) is 6.12.111+ps3.<N>-debug<stamp>,
+the stamp (the date of the commit the version stands for) filled in by tools/deb-prepare.sh,
+so every debug build installs next to the others.
 
 Root defines.toml: a "ps3" suite (our changelog's distribution) whose ABI suffix +ps3.<N>
 tools/deb-prepare.sh fills in, accepting +ps3.<N> and +ps3.<N>~dev<stamp> revisions; no
@@ -19,6 +26,18 @@ disabled.
 Forwarded: not-needed
 Last-Update: 2026-10-16
 
+diff --git a/debian/bin/gencontrol.py b/debian/bin/gencontrol.py
+--- a/debian/bin/gencontrol.py
++++ b/debian/bin/gencontrol.py
+@@ -253,7 +253,7 @@ linux-signed-{vars['arch']} (@signedtemplate_sourceversion@) {dist}; urgency={ur
+         vars: dict[str, str],
+         makeflags: MakeFlags,
+     ) -> None:
+-        vars['flavour'] = vars['localversion'][1:]
++        vars['flavour'] = vars['localversion_meta'][1:]
+         vars['class'] = config.description.hardware or ''
+         vars['longclass'] = config.description.hardware_long or vars['class']
+ 
 diff --git a/debian/config/defines.toml b/debian/config/defines.toml
 --- a/debian/config/defines.toml
 +++ b/debian/config/defines.toml
@@ -72,10 +91,14 @@ diff --git a/debian/config/defines.toml b/debian/config/defines.toml
 diff --git a/debian/config/ppc64/defines.toml b/debian/config/ppc64/defines.toml
 --- a/debian/config/ppc64/defines.toml
 +++ b/debian/config/ppc64/defines.toml
-@@ -1,37 +1,22 @@
+@@ -1,37 +1,30 @@
 +# PS3 kernels (the ps3 project's linux/packaging). Each flavour's config is the full .config
 +# made by tools/linux-config.sh (debian/config/ppc64/config.<flavour>, merged last, so it decides
 +# every option); debian/config/ppc64/args.<flavour> are its boot arguments.
++# Releases: <abiname> (6.12.111+ps3.<N>) for the release kernel, <abiname>-debug<stamp> for the
++# debug one (<stamp>: the date of the commit the version stands for, YYYYMMDDHHMM, filled in by
++# tools/deb-prepare.sh), so each debug build installs next to the others. The meta packages
++# follow the flavour names: linux-image-ps3, linux-image-ps3-debug.
  [[flavour]]
 -name = 'powerpc64'
 -[flavour.build]
@@ -83,15 +106,16 @@ diff --git a/debian/config/ppc64/defines.toml b/debian/config/ppc64/defines.toml
 -  'kernelarch-powerpc/config-arch-64',
 -  'kernelarch-powerpc/config-arch-64-be',
 -]
--[flavour.defs]
--is_default = true
 +name = 'ps3'
+ [flavour.defs]
+-is_default = true
++localversion = ''
  [flavour.description]
 -hardware = '64-bit PowerPC with 4k pages'
 -[flavour.packages]
 -installer = true
-+hardware = 'PlayStation 3 (debug)'
-+hardware_long = 'the Sony PlayStation 3 under OtherOS++, with debugging options on'
++hardware = 'PlayStation 3'
++hardware_long = 'the Sony PlayStation 3 under OtherOS++, built for memory (fewer debugging options)'
  
  [[flavour]]
 -name = 'powerpc64-64k'
@@ -101,11 +125,13 @@ diff --git a/debian/config/ppc64/defines.toml b/debian/config/ppc64/defines.toml
 -  'kernelarch-powerpc/config-arch-64-be',
 -  'kernelarch-powerpc/config-page-64k',
 -]
-+name = 'ps3-release'
++name = 'ps3-debug'
++[flavour.defs]
++localversion = '-debug@PS3_DEBUG_STAMP@'
  [flavour.description]
 -hardware = '64-bit PowerPC with 64k pages'
-+hardware = 'PlayStation 3'
-+hardware_long = 'the Sony PlayStation 3 under OtherOS++, built for memory (fewer debugging options)'
++hardware = 'PlayStation 3 (debug)'
++hardware_long = 'the Sony PlayStation 3 under OtherOS++, with debugging options on'
  
  [[featureset]]
  name = 'none'
@@ -120,6 +146,64 @@ diff --git a/debian/config/ppc64/defines.toml b/debian/config/ppc64/defines.toml
 -  'mkvmlinuz',
 -  'grub-ieee1275',
 -]
+diff --git a/debian/lib/python/debian_linux/config_v2.py b/debian/lib/python/debian_linux/config_v2.py
+--- a/debian/lib/python/debian_linux/config_v2.py
++++ b/debian/lib/python/debian_linux/config_v2.py
+@@ -127,6 +127,9 @@ class ConfigDebianarchDefs:
+ class ConfigFlavourDefs:
+     is_default: bool = False
+     is_quick: bool = False
++    # PS3: the release's suffix after the ABI name instead of '-<flavour>' ('' for none); the
++    # meta packages keep the flavour's name (linux-image-<flavour>)
++    localversion: Optional[str] = None
+ 
+ 
+ @dataclasses.dataclass
+diff --git a/debian/lib/python/debian_linux/gencontrol.py b/debian/lib/python/debian_linux/gencontrol.py
+--- a/debian/lib/python/debian_linux/gencontrol.py
++++ b/debian/lib/python/debian_linux/gencontrol.py
+@@ -601,7 +601,13 @@ class Gencontrol(object):
+         vars: dict[str, str],
+         makeflags: MakeFlags,
+     ) -> None:
+-        vars['localversion'] += '-' + config.name_flavour
++        # PS3: the meta packages are named after the flavour (localversion_meta), the release
++        # and its packages get the flavour's defs.localversion when it has one
++        vars['localversion_meta'] = vars['localversion'] + '-' + config.name_flavour
++        if config.defs_flavour.localversion is not None:
++            vars['localversion'] += config.defs_flavour.localversion
++        else:
++            vars['localversion'] = vars['localversion_meta']
+ 
+         self.do_flavour_setup(config, vars, makeflags)
+         self.do_flavour_makefile(config, vars, makeflags)
+diff --git a/debian/templates/headers.meta.control.in b/debian/templates/headers.meta.control.in
+--- a/debian/templates/headers.meta.control.in
++++ b/debian/templates/headers.meta.control.in
+@@ -1,4 +1,4 @@
+-Package: linux-headers@source_suffix@@localversion@
++Package: linux-headers@source_suffix@@localversion_meta@
+ Meta-Rules-Target: meta
+ Meta-Rules-Makeflags: INSTALLDOCS_LINK_DOC=linux-headers-@abiname@@localversion@
+ Build-Profiles: <!pkg.linux.nokernel !pkg.linux.nometa>
+diff --git a/debian/templates/image-dbg.meta.control.in b/debian/templates/image-dbg.meta.control.in
+--- a/debian/templates/image-dbg.meta.control.in
++++ b/debian/templates/image-dbg.meta.control.in
+@@ -1,4 +1,4 @@
+-Package: linux-image@source_suffix@@localversion@-dbg
++Package: linux-image@source_suffix@@localversion_meta@-dbg
+ Meta-Rules-Target: meta
+ Meta-Rules-Makeflags: INSTALLDOCS_LINK_DOC=linux-image-@abiname@@localversion@-dbg
+ Build-Profiles: <!pkg.linux.nokernel !pkg.linux.nokerneldbg !pkg.linux.nometa !pkg.linux.quick>
+diff --git a/debian/templates/image.meta.control.in b/debian/templates/image.meta.control.in
+--- a/debian/templates/image.meta.control.in
++++ b/debian/templates/image.meta.control.in
+@@ -1,4 +1,4 @@
+-Package: linux-image@source_suffix@@localversion@
++Package: linux-image@source_suffix@@localversion_meta@
+ Meta-Rules-Target: meta
+ Meta-Rules-Makeflags: INSTALLDOCS_LINK_DOC=linux-image-@abiname@@localversion@
+ Build-Profiles: <!pkg.linux.nokernel !pkg.linux.nometa>
 diff --git a/debian/templates/tools-versioned.control.in b/debian/templates/tools-versioned.control.in
 --- a/debian/templates/tools-versioned.control.in
 +++ b/debian/templates/tools-versioned.control.in

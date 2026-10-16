@@ -6,9 +6,9 @@ Subject: PS3 image contents: stripped vmlinux, real System.map, boot arguments
 Petitboot kexecs /boot/vmlinux-<release> on a 256 MB machine, so the image is fully stripped
 (symbol table too, as our kernels always were) instead of --strip-debug. No -dbg package is
 built, so the image ships the real System.map rather than a placeholder. The flavour's boot
-arguments (debian/config/<arch>/args.<flavour>, from linux/flavours/<flavour>.args) are
-installed as /usr/lib/ps3/boot/<release>.args, which ps3-update-kboot (ps3-boot) puts in the
-kernel's Petitboot menu entry.
+arguments (debian/config/<arch>/args.<flavour>, from linux/flavours/release.args and
+debug.args) are installed as /usr/lib/ps3/boot/<release>.args, which ps3-update-kboot
+(ps3-boot) puts in the kernel's Petitboot menu entry.
 
 Forwarded: not-needed
 Last-Update: 2026-10-16

@@ -1,1 +1,1 @@
-video=ps3fb:mode:133 consoleblank=0 ps3rsx_gart=0 ps3rsx_cma=64M console=tty1 loglevel=4 fbcon=logo-pos:center,logo-count:1 quiet splash
+video=ps3fb:mode:133 consoleblank=0 ps3rsx_gart=0 ps3rsx_cma=64M console=tty1 loglevel=3 fbcon=logo-pos:center,logo-count:1 quiet splash plymouth.prefer-fbcon

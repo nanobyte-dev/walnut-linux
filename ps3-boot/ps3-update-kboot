@@ -5,7 +5,9 @@
 #
 # PS3_DEFAULT in /etc/default/ps3-boot (a release) pins the default to that kernel while it is
 # installed, e.g. a known-good one until a new kernel has booted once; PS3_DEFAULT_FLAVOUR picks
-# the newest kernel of a flavour (ps3, ps3-release).
+# the newest kernel of a flavour: release (a release without a -debug suffix, e.g. 6.12.111+ps3.N)
+# or debug (6.12.111+ps3.N-debug<stamp>). The flavour names before 2026-10-16 still work:
+# ps3 (then the debug kernel) as debug, ps3-release as release.
 #
 # An entry's command line: this installation's root and extras (/etc/default/ps3-boot) plus the
 # kernel's own arguments, which its package ships as /usr/lib/ps3/boot/<release>.args (kernels
@@ -54,11 +56,22 @@ for k in $kernels; do
 	[ -n "$default" ] || default=$release
 	echo "$release='$k $PS3_ROOT_ARGS $PS3_EXTRA_ARGS $args'" >> "$tmp"
 done
-# PS3_DEFAULT_FLAVOUR (e.g. ps3): the newest kernel of that flavour (release ending -<flavour>);
+# PS3_DEFAULT_FLAVOUR (release or debug): the newest kernel of that flavour, if one is installed;
 # PS3_DEFAULT (a release) wins over it
-if [ -n "${PS3_DEFAULT_FLAVOUR:-}" ]; then
+flavour=${PS3_DEFAULT_FLAVOUR:-}
+case "$flavour" in
+	ps3) flavour=debug ;;
+	ps3-release) flavour=release ;;
+	release|debug|'') ;;
+	*) echo "ps3-update-kboot: unknown PS3_DEFAULT_FLAVOUR=$flavour (release or debug), ignored" >&2; flavour= ;;
+esac
+if [ -n "$flavour" ]; then
 	for k in $kernels; do
-		case "${k#/boot/vmlinux-}" in *-"$PS3_DEFAULT_FLAVOUR") default=${k#/boot/vmlinux-}; break ;; esac
+		case "${k#/boot/vmlinux-}" in
+			*-debug*) [ "$flavour" = debug ] || continue ;;
+			*) [ "$flavour" = release ] || continue ;;
+		esac
+		default=${k#/boot/vmlinux-}; break
 	done
 fi
 if [ -n "${PS3_DEFAULT:-}" ] && [ -e "/boot/vmlinux-$PS3_DEFAULT" ]; then
