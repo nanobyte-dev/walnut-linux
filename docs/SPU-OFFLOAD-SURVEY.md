@@ -128,6 +128,11 @@ The first 5+5 runs (VRAM swap accidentally off) agree: load 13.98 → 15.45 s, V
   encoder**; it ships with libspeq's encoder behind the Mesa hook (`mesa/patches/0011`), re-measured
   the same way, and the SPU encoder removes the hitch entirely.
 
+**With libspeq's encoder** (kernel .178, Mesa +ps3.186, 5 runs each, interleaved): load 13.68 s
+[13.66..13.87] → 14.16 s [14.08..14.68] (+0.5 s), longest frame 956 ms [782..1475] → 1008 ms
+[849..1469] (no change), fps 49.9 → 53.0, game VRAM 51.6 → 37.5 MB. **Shipped**: OpenArena's
+autoexec.cfg sets `r_ext_compressed_textures 1` (ps3-desktop).
+
 **Sound** (timedemo, 3 runs each): A stock OpenAL 49.7 fps; B OpenAL int16 + linear resampler,
 no HRTF 49.8; B22 the same at 22 kHz 50.0; C the game's own mixer (`s_useOpenAL 0`, `s_khz 22`)
 50.0; **Z sound off 55.3**. Level load 13.8-14.1 s with sound, 11.9 s without (decoding the
