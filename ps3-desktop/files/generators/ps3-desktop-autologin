@@ -11,4 +11,11 @@ cat > "$d/ps3-autologin.conf" <<EOC
 [Service]
 ExecStart=
 ExecStart=-/sbin/agetty --autologin $PS3_DESKTOP_USER --noclear %I \$TERM
+# Don't reset tty1: the boot splash (Plymouth, quit with --retain-splash) leaves it in graphics
+# mode, so the splash stays up through the login until X draws; resetting it would switch the
+# console back to text and show the login text for the seconds X takes to start.
+# /etc/profile.d/ps3-desktop.sh switches it back to text whenever no X runs on it.
+TTYReset=no
+TTYVHangup=no
+TTYVTDisallocate=no
 EOC
