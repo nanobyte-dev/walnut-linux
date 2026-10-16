@@ -25,7 +25,8 @@
 #include <unistd.h>
 #include "speq-int.h"
 
-#define SPIN_US		20	/* speq_wait spins this long before sleeping (P2 sets it) */
+#define SPIN_US		80	/* speq_wait spins this long before sleeping: a futex sleep costs ~62 us more than
+			 * spinning on the PS3 (speq-bench P2, 2026-10-16) */
 #define IDLE_US		10000	/* an SPU parks after this long without work (P3) */
 #define FREE_MS		5000	/* a parked worker frees its context after this (~260 KB vmalloc) */
 #define STRIKES		3	/* contexts dying in a row without a job: the worker gives up */

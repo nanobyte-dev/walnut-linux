@@ -143,6 +143,30 @@ sounds), and ~7 MB more MemAvailable without.
 - So audio stays an SPU consumer (rule: >=5%), after DXT. Decoded sound also costs RAM (~7 MB
   here) and load time (1.9 s), which per-buffer decoding on an SPU would save as well.
 
+## Measured: libspeq on the SPEs (2026-10-16)
+
+`speq-bench` (ps3-spu) through `ps3-bench.sh`, desktop stopped, kernel .178, 6 SPEs.
+- **Wake through the reservation (P1):** a PPE store to the line an idle SPU has reserved wakes it
+  in 0.8-1.3 us (p99 1.9); a store to the next line wakes nothing. The decrementer counts at the
+  79.8 MHz timebase (P4), so idle workers park and free their contexts on time.
+- **Submit to idle workers:** 1 SPE p50 2.6 / p99 6 us; 6 SPEs p50 9.8 / p99 65 us. With 6, every
+  submit wakes all of them (10.6 wakes and 3.3 lost claim races per job): the herd, not the wake,
+  makes the tail. Fine for 100 us+ jobs; per-worker doorbells would cut it if a consumer needs it.
+- **Completion (P2):** spinning 2 us, a futex sleep ~62 us more (the kernel's 0x2104 futex wake
+  from the SPU), ibox ~35 us. `speq_wait` now spins 80 us before sleeping.
+- **Costs (P3):** open 1.6 ms for one worker, ~15 ms for six; 320 KB of kernel vmalloc per
+  context, all returned at close; a parked worker resumes in ~90 us, a freed one in ~3.2 ms; the
+  SPU's getpid through 0x2104 takes 8 us.
+- **Faults:** an SPU DMA to an invalid address fails that job with EFAULT in 1 ms and the worker
+  is recreated (3.4 ms), nothing in the kernel log. A put into a page the process hasn't touched
+  costs 40-87 us per 4 KiB (the worker thread faults it in): pre-touch output buffers.
+- **Bandwidth (P5):** one SPE gets 12-14 GB/s and puts 18-22 GB/s to XDR; six together ~20-23 GB/s,
+  the memory's limit.
+- **The SPU DXT1 encoder** (`ps3-spu/spu/dxt.c`, `dxt-test.spu` with spurun): byte-identical to the
+  reference on 37856 test blocks; **135 cycles per block = 379 Mpixel/s per SPE** (RGBA 335),
+  against 6.5 Mpixel/s for libspeq's PPE encoder. One SPE is faster than the encoder's input from
+  memory needs; the job queue's dispatch and the output page faults decide the rest.
+
 ## Sources
 
 - Cell/RSX bandwidth figures (Cell read of GDDR3 ~16 MB/s, write ~4 GB/s):

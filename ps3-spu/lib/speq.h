@@ -18,7 +18,7 @@ extern "C" {
  * One resident SPU worker per SPE (never more), each fed by a PPE thread in spu_run. Idle
  * workers sleep in the SPU's event wait, park after SPEQ_IDLE_US (default 10000) and free
  * their context after SPEQ_FREE_MS parked (default 5000); the next submit wakes or recreates
- * them. speq_wait spins SPEQ_SPIN_US (default 20) before it sleeps on a futex. */
+ * them. speq_wait spins SPEQ_SPIN_US (default 80) before it sleeps on a futex. */
 
 struct speq;
 
