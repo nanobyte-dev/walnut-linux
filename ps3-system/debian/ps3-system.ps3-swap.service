@@ -1,0 +1,12 @@
+[Unit]
+Description=Compressed swap in RAM (zram)
+After=systemd-modules-load.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/ps3/sbin/ps3-swap
+ExecStop=/sbin/swapoff /dev/zram0
+
+[Install]
+WantedBy=multi-user.target

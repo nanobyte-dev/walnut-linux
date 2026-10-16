@@ -1,0 +1,37 @@
+#!/usr/bin/make -f
+P := debian/ps3-desktop
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	visudo -cf debian/sudoers
+
+override_dh_auto_install:
+	install -d $(P)/usr/bin $(P)/usr/lib/ps3/sbin
+	install -m 755 files/bin/* $(P)/usr/bin/
+	install -m 755 files/sbin/* $(P)/usr/lib/ps3/sbin/
+	install -D -m 755 files/generators/ps3-desktop-autologin \
+		$(P)/usr/lib/systemd/system-generators/ps3-desktop-autologin
+	install -D -m 644 files/profile.d/ps3-desktop.sh $(P)/etc/profile.d/ps3-desktop.sh
+	install -D -m 440 debian/sudoers $(P)/etc/sudoers.d/ps3-desktop
+	cd files/xdg && find . -type f -exec install -D -m 644 {} ../../$(P)/etc/xdg/ps3/{} \;
+	install -d $(P)/usr/share/X11/xorg.conf.d
+	install -m 644 files/xorg/* $(P)/usr/share/X11/xorg.conf.d/
+	install -d $(P)/usr/lib/systemd/user
+	install -m 644 files/systemd/user/* $(P)/usr/lib/systemd/user/
+	printf '%s\n' '[Slice]' 'MemoryLow=176M' > debian/game-mode.conf
+	install -D -m 644 debian/game-mode.conf $(P)/usr/lib/systemd/system/user-.slice.d/50-ps3-game-mode.conf
+	printf '%s\n' '[Service]' 'MemoryLow=176M' > debian/game-mode-service.conf
+	install -D -m 644 debian/game-mode-service.conf $(P)/usr/lib/systemd/system/user@.service.d/50-ps3-game-mode.conf
+	printf '%s\n' '[Service]' 'Slice=ps3-desktop.slice' > debian/gvfs-slice.conf
+	for u in gvfs-daemon gvfs-metadata gvfs-udisks2-volume-monitor gvfs-mtp-volume-monitor \
+		gvfs-gphoto2-volume-monitor gvfs-afc-volume-monitor gvfs-goa-volume-monitor; do \
+		install -D -m 644 debian/gvfs-slice.conf $(P)/usr/lib/systemd/user/$$u.service.d/50-ps3-desktop.conf; \
+	done
+	install -d $(P)/usr/share/applications
+	install -m 644 files/applications/* $(P)/usr/share/applications/
+	install -D -m 644 files/autoexec.cfg $(P)/usr/lib/openarena/baseoa/autoexec.cfg
+
+override_dh_auto_clean:
+	rm -f debian/game-mode.conf debian/game-mode-service.conf debian/gvfs-slice.conf

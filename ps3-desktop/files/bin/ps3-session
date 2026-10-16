@@ -1,0 +1,31 @@
+#!/bin/sh
+# ps3-session: the PS3 desktop's X session (ps3-desktop; started by /etc/profile.d/ps3-desktop.sh)
+# The PS3 defaults (Openbox, tint2, GTK, PCManFM) come first among the system configuration
+# directories; the user's own ~/.config files still win
+export XDG_CONFIG_DIRS="/etc/xdg/ps3:${XDG_CONFIG_DIRS:-/etc/xdg}"
+xsetroot -solid '#14304d'
+xmessage -center -buttons '' -bg '#14304d' -fg white -bd '#14304d' \
+	-fn '-misc-fixed-bold-r-normal--18-*-*-*-*-*-iso10646-1' \
+	"   Starting the desktop on the RSX...   " &
+splash=$!
+# the desktop window (PCManFM's, either version, or Xfce's) covers the screen once the desktop
+# is ready; never longer than 2 minutes (Enlightenment draws its own)
+(t=0; while kill -0 $splash 2>/dev/null; do
+	xwininfo -root -tree 2>/dev/null |
+		grep -qE 'pcmanfm-desktop0|"pcmanfm" "Pcmanfm"|"xfdesktop" "Xfdesktop"' && sleep 2 ||
+		[ $t -gt 120 ] || { sleep 1; t=$((t + 1)); continue; }
+	kill $splash
+done) &
+# gvfs and the tray applets use the user bus (dbus-user-session). Openbox: tint2 panel (jgmenu, tray, clock),
+# PCManFM desktop icons, network and volume applets, notifications, polkit agent. Bluetooth:
+# blueman from the menu, no resident tray (~60 MB of Python). GTK apps don't load the GL
+# driver just to probe it (GDK_GL=disable: RAM and GART for nothing; games use GL directly).
+export GDK_GL=disable
+# The helpers run in ps3-desktop.slice, which ps3-game freezes and pushes out of RAM while a
+# game runs; openbox stays with X in ps3-display.slice.
+# The user bus and the services it starts need to know the display
+systemctl --user import-environment DISPLAY XAUTHORITY XDG_CONFIG_DIRS
+dbus-update-activation-environment --systemd DISPLAY XAUTHORITY XDG_CONFIG_DIRS 2>/dev/null
+d() { systemd-run --user --scope --slice=ps3-desktop.slice -q "$@" & }
+d pcmanfm --desktop; d tint2; d nm-applet; d pnmixer; d lxpolkit; d dunst
+exec openbox

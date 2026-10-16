@@ -12,12 +12,27 @@ PKG=$1 N=$2 DATE=$3
 . "$PKG/package.conf"
 OUT=build/src/$PKG
 if [ "$TYPE" = native ]; then
-	# our own code: this directory is the source package, version 0.<N>
+	# our own code: this directory is the source package, version 0.<N>; kernel module packages
+	# (KERNEL_PACKAGE=1) are per kernel release: 0.<N>+k<release>, debian/*.in filled in
 	NEWVER="0.$N"
+	if [ "${KERNEL_PACKAGE:-0}" = 1 ]; then
+		: "${KERNEL_RELEASE:?}"
+		NEWVER="$NEWVER+k$(echo "$KERNEL_RELEASE" | tr -- - .)"
+	fi
 	rm -rf "$OUT"; mkdir -p "$OUT"
 	T=$OUT/$SOURCE-$NEWVER
 	mkdir -p "$T"
 	git -C "$PKG" ls-files -z --cached --others --exclude-standard | (cd "$PKG" && xargs -0 cp --parents -t "$PWD/../$T")
+	if [ "${KERNEL_PACKAGE:-0}" = 1 ]; then
+		echo "$KERNEL_RELEASE" > "$T/debian/kernel-release"
+		for f in "$T"/debian/*.in; do
+			[ -e "$f" ] || continue
+			b=$(basename "$f" .in)
+			case "$b" in postinst|postrm|preinst|prerm) b="$SOURCE-modules-$KERNEL_RELEASE.$b" ;; esac
+			sed "s/@KERNEL_RELEASE@/$KERNEL_RELEASE/g" "$f" > "$T/debian/$b"
+			rm "$f"
+		done
+	fi
 	(cd "$T" && DEBEMAIL="ps3@localhost" DEBFULLNAME="PS3 Linux project" \
 		dch --create --package "$SOURCE" -v "$NEWVER" --distribution ps3 --force-distribution \
 		"Built from the ps3 project, $(git -C /work log -1 --format=%h 2>/dev/null || echo local)." 2>/dev/null)

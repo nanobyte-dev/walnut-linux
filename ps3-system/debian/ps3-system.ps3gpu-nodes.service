@@ -1,0 +1,10 @@
+[Unit]
+Description=Create /dev/ps3gpu_* device nodes
+After=systemd-udevd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/ps3/sbin/ps3gpu-nodes
+
+[Install]
+WantedBy=multi-user.target

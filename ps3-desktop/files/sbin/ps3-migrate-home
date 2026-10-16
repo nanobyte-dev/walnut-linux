@@ -1,0 +1,34 @@
+#!/bin/sh
+# ps3-migrate-home <user>: one-shot cleanup of the desktop files the old image setup wrote into a
+# home directory (ps3-desktop now ships them system-wide). Files identical to the packaged
+# defaults are removed; changed ones are moved to ~/.local/share/ps3-legacy/ (nothing is lost).
+# The old ~/.bash_profile (it started X itself; /etc/profile.d/ps3-desktop.sh does now) is
+# moved there too. Safe to run more than once. Run as root or as the user.
+set -e
+u=${1:?usage: ps3-migrate-home <user>}
+h=$(getent passwd "$u" | cut -d: -f6)
+[ -d "$h" ] || exit 0
+backup="$h/.local/share/ps3-legacy"
+moved=
+take() {	# <file in home> [<packaged default to compare with>]
+	f="$h/$1"
+	[ -e "$f" ] || return 0
+	if [ -n "${2:-}" ] && [ -e "$2" ] && cmp -s "$f" "$2"; then
+		rm -f "$f"
+	else
+		mkdir -p "$backup/$(dirname "$1")"
+		mv "$f" "$backup/$1"
+		moved="$moved $1"
+	fi
+}
+if [ -e "$h/.bash_profile" ] && grep -q 'startx /usr/local/bin/ps3-session' "$h/.bash_profile"; then
+	take .bash_profile
+fi
+take .config/openbox/rc.xml /etc/xdg/ps3/openbox/rc.xml
+take .config/tint2/tint2rc /etc/xdg/ps3/tint2/tint2rc
+take .config/gtk-3.0/settings.ini /etc/xdg/ps3/gtk-3.0/settings.ini
+take .config/pcmanfm/default/desktop-items-0.conf /etc/xdg/ps3/pcmanfm/default/desktop-items-0.conf
+take .openarena/baseoa/autoexec.cfg /usr/lib/openarena/baseoa/autoexec.cfg
+take .local/share/applications/openarena.desktop /usr/share/applications/openarena.desktop
+[ ! -d "$backup" ] || chown -R "$u:" "$backup" 2>/dev/null || true
+[ -z "$moved" ] || echo "ps3-migrate-home: moved to $backup:$moved"

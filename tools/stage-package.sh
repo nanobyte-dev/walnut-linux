@@ -1,7 +1,7 @@
 #!/bin/sh
 # Stages one of our packages' files under <root> (a fresh directory), in their installed paths:
 #   tools/stage-package.sh <package> <root>
-# packages: ps3-kernel ps3rsx ps3-mesa (transitional) (the others: <pkg>/debian)
+# packages: ps3-kernel ps3-mesa (transitional) (the others: <pkg>/debian)
 # tools/build-debs.sh turns each staged tree into a .deb (docs/PLAN.md item 7).
 # Env: BUILD (build dir), MESA_PREFIX (where Mesa was built to live), KERNEL_RELEASE, KERNEL_ARGS.
 set -eu
@@ -32,14 +32,6 @@ ps3-kernel)	# the kernel and its modules; Petitboot boots /boot/vmlinux-* (kboot
 	# its own boot arguments, for ps3-update-kboot (the boot menu entry)
 	install -d "$R/usr/lib/ps3/boot"
 	echo "$KERNEL_ARGS" > "$R/usr/lib/ps3/boot/$KERNEL_RELEASE.args" ;;
-ps3rsx)		# the RSX DRM driver, loaded at boot (before the desktop starts X)
-	install -d "$R/lib/modules/$KERNEL_RELEASE/updates" "$R/usr/lib/modules-load.d"
-	install -m 644 "$B/gpu-ps3rsx/ps3rsx.ko" "$R/lib/modules/$KERNEL_RELEASE/updates/"
-	# the RSX probe modules (not loaded at boot; modprobe them by name)
-	install -d "$R/lib/modules/$KERNEL_RELEASE/extra"
-	install -m 644 "$B"/gpu-kmod/*.ko "$R/lib/modules/$KERNEL_RELEASE/extra/"
-	# per release, so the packages for several kernels install side by side
-	echo ps3rsx > "$R/usr/lib/modules-load.d/ps3rsx-$KERNEL_RELEASE.conf" ;;
 ps3-mesa)	# transitional and empty: our Mesa is now Debian's packages rebuilt (mesa/), the GL tests
 	# are in ps3-gpu-tools; upgrading to it removes /usr/lib/ps3-mesa and its ld.so.conf.d entry
 	install -d "$R/usr/share/doc/ps3-mesa" ;;

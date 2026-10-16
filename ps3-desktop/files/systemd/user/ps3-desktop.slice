@@ -1,0 +1,5 @@
+[Unit]
+Description=PS3 desktop helpers (frozen while a game runs)
+
+[Slice]
+CPUWeight=50

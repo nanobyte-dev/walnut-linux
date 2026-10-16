@@ -1,0 +1,6 @@
+[Unit]
+Description=PS3 display: X and the window manager
+
+[Slice]
+MemoryLow=64M
+CPUWeight=200

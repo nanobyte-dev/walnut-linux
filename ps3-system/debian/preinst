@@ -1,0 +1,43 @@
+#!/bin/sh
+# Takes over from the files the image's setup script wrote (before ps3-system existed): each one
+# that no package owns is archived to /var/backups/ps3-legacy-system-<date>.tar and removed, with
+# its enable links; dpkg then installs the packaged versions. Nothing is asked, modified files
+# included (the archive keeps them).
+set -e
+LEGACY="
+/etc/systemd/network/20-wired.network
+/etc/systemd/system/ssh-hostkeys.service
+/etc/systemd/system/ps3gpu-nodes.service
+/etc/systemd/system/ps3-swap.service
+/etc/systemd/system/ps3-vswap.service
+/etc/systemd/system/multi-user.target.wants/ssh-hostkeys.service
+/etc/systemd/system/multi-user.target.wants/ps3gpu-nodes.service
+/etc/systemd/system/multi-user.target.wants/ps3-swap.service
+/etc/systemd/system/multi-user.target.wants/ps3-vswap.service
+/usr/local/sbin/ps3gpu-nodes
+/usr/local/sbin/ps3-swap
+/usr/local/sbin/ps3-vswap
+/usr/local/sbin/ds3-pair
+/etc/modprobe.d/ps3vram.conf
+/etc/sysctl.d/60-ps3-memory.conf
+/etc/NetworkManager/conf.d/00-ps3-nfs-root.conf
+/etc/udev/rules.d/70-ds3-pair.rules
+"
+migrate() {
+	found=
+	for f in $LEGACY; do
+		[ -e "$f" ] || [ -L "$f" ] || continue
+		dpkg-query -S "$f" >/dev/null 2>&1 && continue	# a package's file: not ours to take
+		found="$found ${f#/}"
+	done
+	[ -n "$found" ] || return 0
+	mkdir -p /var/backups
+	tar -C / -cf "/var/backups/ps3-legacy-system-$(date +%Y%m%d%H%M%S).tar" $found
+	for f in $found; do rm -f "/$f"; done
+	echo "ps3-system: legacy files archived in /var/backups and removed:$found" | fold -s -w 100
+}
+case "$1" in
+install|upgrade) migrate ;;
+esac
+#DEBHELPER#
+exit 0

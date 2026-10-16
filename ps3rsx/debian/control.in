@@ -1,0 +1,25 @@
+Source: ps3rsx
+Section: kernel
+Priority: optional
+Maintainer: PS3 Linux project <ps3@localhost>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: ps3rsx-modules-@KERNEL_RELEASE@
+Architecture: ppc64
+Depends: ps3-kernel-@KERNEL_RELEASE@ | linux-image-@KERNEL_RELEASE@, ${misc:Depends}
+Provides: ps3rsx-modules
+Conflicts: ps3rsx-@KERNEL_RELEASE@
+Replaces: ps3rsx-@KERNEL_RELEASE@
+Description: DRM driver for the PS3's RSX GPU, for Linux @KERNEL_RELEASE@
+ ps3rsx drives the RSX (an NV47) through the hypervisor and registers as nouveau, so Mesa's
+ nv30 driver and Xorg's modesetting driver use it; loaded at boot. Also the RSX probe modules
+ (rsx_ctx_probe, rsx_ctx_probe2, ps3fb_share_test) in extra/, loaded only by hand.
+
+Package: ps3rsx-modules-ps3
+Architecture: ppc64
+Depends: ps3rsx-modules-@KERNEL_RELEASE@ (= ${binary:Version}), ${misc:Depends}
+Description: DRM driver for the PS3's RSX GPU (for the current PS3 kernel)
+ This meta package depends on the ps3rsx modules for the current PS3 kernel, so upgrades
+ bring in the modules for each new kernel.

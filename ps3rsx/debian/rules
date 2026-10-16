@@ -1,0 +1,26 @@
+#!/usr/bin/make -f
+# Cross-built: dpkg-buildpackage -a ppc64, against the kernel tree in KERNEL_OBJ
+KREL := $(shell cat debian/kernel-release)
+KOBJ ?= /work/build/kernel/obj
+P := debian/ps3rsx-modules-$(KREL)
+KMAKE := $(MAKE) -C $(KOBJ) ARCH=powerpc CROSS_COMPILE=$(DEB_HOST_GNU_TYPE)-
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	mkdir -p b/ps3rsx b/probes
+	cp src/* b/ps3rsx/
+	cp probes/* b/probes/
+	$(KMAKE) M=$(CURDIR)/b/ps3rsx modules
+	$(KMAKE) M=$(CURDIR)/b/probes modules
+
+override_dh_auto_install:
+	install -D -m 644 b/ps3rsx/ps3rsx.ko $(P)/lib/modules/$(KREL)/updates/ps3rsx.ko
+	install -d $(P)/lib/modules/$(KREL)/extra
+	install -m 644 b/probes/*.ko $(P)/lib/modules/$(KREL)/extra/
+	install -d $(P)/usr/lib/modules-load.d
+	echo ps3rsx > $(P)/usr/lib/modules-load.d/ps3rsx-$(KREL).conf
+
+override_dh_auto_clean:
+	rm -rf b

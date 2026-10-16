@@ -3,8 +3,10 @@
 # Our Mesa isn't named: it replaces Debian's (installed in the base layer) as an upgrade, keeping
 # the auto marks, and Debian's LLVM, z3 and sensors are then autoremoved.
 ps3-kernel-@KERNEL_RELEASE@
-ps3rsx-@KERNEL_RELEASE@
+ps3rsx-modules-ps3
 ps3-boot
+ps3-system
+ps3-desktop
 ps3-gpu-tools
 ps3-spu
 ps3-spu-programs

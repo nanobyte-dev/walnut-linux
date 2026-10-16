@@ -14,10 +14,13 @@ package (being converted to Debian source packages, docs/PLAN.md).
 | `ps3rsx/` | The RSX DRM driver (`src/`, registers as "nouveau": render ioctls, validator, software context switch, KMS, VRAM swap) and the GPU probe modules (`probes/`) |
 | `ps3-gpu-tools/` | Programs run on the PS3: raw RSX probes and driver tests (`src/`: `rsx-*`, `rsxdrm-smoke`), scripts (`scripts/`: `rsx-suite.sh`, `rsx-x.sh`, …), offscreen GL tests compared with softpipe (`mesa-tests/`) |
 | `mesa/` | Our Mesa: Debian's `mesa` source package (`package.conf`: version and .dsc hash) plus `patches/` (our driver changes, a quilt series added as `debian/patches/ps3/`) and `packaging/` (changes to `debian/` itself: nouveau + softpipe only, no LLVM, on ppc64) |
-| `ps3-spu/` | SPE test programs and `spurun` (runs SPU ELFs via spufs) |
+| `ps3-spu/` | SPE test programs and `spurun` (runs SPU ELFs via spufs); packages `ps3-spu` and `ps3-spu-programs` |
 | `ps3-boot/` | `ps3-update-kboot`: Petitboot's boot menu from the installed kernels |
-| `classicube/` | ClassiCube: pinned cross build, sounds/music from Mojang by SHA-1, launcher and defaults |
-| `image/` | The root filesystem image: `packages.txt` (slow Debian layer), `packages-ours.txt` (ours, installed with apt), `apt/` (the PS3's apt sources and pins), `deps.txt` (Debian packages in our repository), `customize.sh` and `desktop-setup.sh` (setup), `ds3-pair` |
+| `classicube/` | ClassiCube: `package.conf` (pinned upstream tarball plus texpack/audio components), `debian/` (launcher, defaults), `sounds.sh` (sounds/music from Mojang by SHA-1) |
+| `ps3rsx/` | The RSX DRM driver (`src/`) and probe modules (`probes/`); `debian/` builds `ps3rsx-modules-<release>` against our kernel |
+| `ps3-system/` | System configuration package: networking, SSH, swap, ps3gpu nodes, DS3 pairing, apt sources and pins (`files/`, `debian/`) |
+| `ps3-desktop/` | Desktop package: autologin, `ps3-session`, game mode, Openbox/tint2/GTK/PCManFM defaults in `/etc/xdg/ps3`, X config |
+| `image/` | The root filesystem image: `packages.txt` (slow Debian layer), `packages-ours.txt` (ours, installed with apt), `deps.txt` (Debian packages in our repository), `customize.sh` (per-installation settings: hostname, user, key, locale) |
 | `spu-toolchain/` | The spu-elf cross toolchain's patches: GCC 16.2 port (`gcc/`), binutils 2.47 fix, newlib 4.6 fixes, test scripts |
 | `sysroot/` | ppc64 sysroot contents (for the cross builds of ClassiCube and the GL tests) |
 | `games/openarena/` | OpenArena benchmark demo and scripts |
@@ -54,13 +57,14 @@ our own packages, in a minute or two. Everything we build is a .deb in `build/re
 | Package | Installs |
 |---|---|
 | `ps3-kernel-<release>` | `/boot/vmlinux-<release>`, `/lib/modules/<release>`, its boot arguments |
-| `ps3rsx-<release>` | RSX driver for that kernel, loaded at boot |
 | `ps3-boot` | `ps3-update-kboot`: Petitboot's `/etc/kboot.conf` from the installed kernels (newest first, the default) |
 | `ps3-gpu-tools` | RSX probes, driver tests and the GL tests in `/usr/lib/ps3/bin` (on `PATH`) |
 | `mesa-libgallium`, `libgl1-mesa-dri`, `libegl-mesa0`, `libglx-mesa0`, `libgbm1`, … | Debian's Mesa packages rebuilt from `mesa/` (`26.2.4-1+ps3.N`), replacing Debian's |
 | `ps3-mesa` | transitional, empty: removes the old `/usr/lib/ps3-mesa` |
 | `classicube` | `/usr/games/classicube` (game data per user in `~/.local/share/classicube`) |
-| `ps3-spu` | `spurun` and SPU tests; spufs mounted at `/spu` |
+| `ps3-spu`, `ps3-spu-programs` | `spurun`, spufs mounted at `/spu`; the SPU test programs |
+| `ps3rsx-modules-<release>`, `ps3rsx-modules-ps3` | the RSX driver (loaded at boot) and probe modules for a kernel; the meta follows the current kernel |
+| `ps3-system`, `ps3-desktop` | the system and desktop configuration (see the layout above) |
 
 The image installs them with apt, and `make deploy` installs the same packages on the running
 PS3. So whatever is tried live is what the next image gets. On the PS3, apt sees Debian (live

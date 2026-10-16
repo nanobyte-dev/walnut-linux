@@ -4,7 +4,8 @@
 # /var/tmp/ps3-deploy; apt sees only that one (its own lists directory), pinned at 1001:
 #   1. upgrade: every installed package of ours that has a newer build (Mesa replaces Debian's this
 #      way and keeps its auto marks; the old ps3-mesa becomes the empty transitional package);
-#   2. install the named top-level packages (--no-remove: a step that would remove anything fails);
+#   2. install the named top-level packages (--no-remove: a step that would remove anything fails;
+#      "name-" entries remove exactly those packages, e.g. one replaced by a renamed package);
 #   3. upgrade again (what step 1 held back until step 2 brought in a new dependency).
 # Each step is simulated first and the simulation printed. AUTOREMOVE=1 then shows what
 # autoremove would purge and does it (Debian's LLVM, z3, sensors after the Mesa switch).
@@ -33,12 +34,23 @@ echo 'deb [trusted=yes] file:/var/tmp/ps3-deploy ./' > sources.list
 printf 'Package: *\nPin: origin \"\"\nPin-Priority: 1001\n' > pref
 sudo apt-get $O -qq update
 echo '--- upgrade (simulated)'; sudo apt-get $O -s --no-remove upgrade | grep -E '^(Inst|Remv|Conf)' | grep -v ^Conf || true
-echo '--- install $* (simulated)'; sudo apt-get $O -s --no-remove install $* | grep -E '^(Inst|Remv)' || true
+echo '--- install $* (simulated)'; sudo apt-get $O -s install $* | grep -E '^(Inst|Remv)' || true
 sudo DEBIAN_FRONTEND=noninteractive apt-get $O -q --no-remove upgrade | grep -E '^(Setting up|Unpacking|E:|W:)' || true
-sudo DEBIAN_FRONTEND=noninteractive apt-get $O -q --no-remove install $* | grep -E '^(Setting up|Unpacking|E:|W:)' || true
+# explicit removals (PKGS entries ending in -, e.g. a package renamed): allowed, nothing else
+want_rm=\$(for p in $*; do case \$p in *-) echo \${p%-} ;; esac; done | sort)
+if [ -n \"\$want_rm\" ]; then
+	will_rm=\$(sudo apt-get $O -s install $* | awk '/^Remv /{print \$2}' | sed 's/:.*//' | sort)
+	if [ \"\$will_rm\" != \"\$want_rm\" ]; then echo \"!! would remove: \$will_rm (asked: \$want_rm)\"; exit 1; fi
+	NOREMOVE=
+else
+	NOREMOVE=--no-remove
+fi
+sudo DEBIAN_FRONTEND=noninteractive apt-get $O -q \$NOREMOVE install $* | grep -E '^(Setting up|Unpacking|Removing|E:|W:)' || true
 # again: what the first pass held back for a dependency the install step just brought in
 sudo DEBIAN_FRONTEND=noninteractive apt-get $O -q --no-remove upgrade | grep -E '^(Setting up|Unpacking|E:|W:)' || true
 sudo apt-get $O check >/dev/null && echo '>> apt-get check: ok'
+# one-shot: the desktop files the old image setup put into the home directory (ps3-desktop)
+[ ! -x /usr/lib/ps3/sbin/ps3-migrate-home ] || sudo /usr/lib/ps3/sbin/ps3-migrate-home \$(id -un)
 if [ '${AUTOREMOVE:-0}' = 1 ]; then
 	echo '--- autoremove --purge'; sudo apt-get $O -s autoremove --purge | grep ^Purg || true
 	sudo DEBIAN_FRONTEND=noninteractive apt-get $O -q autoremove --purge | grep -E '^(Removing|Purging)' || true

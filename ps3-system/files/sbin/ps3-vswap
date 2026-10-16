@@ -1,0 +1,15 @@
+#!/bin/sh
+# The disk's swap partition: fstab's swap entry (noauto: this script activates it)
+dev=$(awk '$3 == "swap" && $1 !~ "zram" { print $1; exit }' /etc/fstab)
+[ -n "$dev" ] || exit 0
+part=$(findfs "$dev" 2>/dev/null || echo "$dev")
+[ -b "$part" ] || exit 0
+grep -q "^$part " /proc/swaps && swapoff "$part"
+B=/sys/block/ps3vswap0/backing
+if [ -e $B ] && [ -z "$(cat $B)" ] && echo "$part" > $B; then
+	mkswap /dev/ps3vswap0 >/dev/null
+	exec swapon -p 300 --discard=pages /dev/ps3vswap0
+fi
+# no VRAM swap: the partition itself (its header is gone once VRAM swap had it: swap
+# contents never outlive a boot anyway)
+swapon -p 200 "$part" 2>/dev/null || { mkswap "$part" >/dev/null && swapon -p 200 "$part"; }

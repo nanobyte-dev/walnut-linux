@@ -1,0 +1,14 @@
+#!/bin/sh
+# systemd generator (ps3-desktop): automatic login on tty1 for PS3_DESKTOP_USER from
+# /etc/default/ps3-desktop (unset: the normal login prompt). /etc/profile.d/ps3-desktop.sh then
+# starts the desktop in that user's login shell.
+PS3_DESKTOP_USER=
+[ -r /etc/default/ps3-desktop ] && . /etc/default/ps3-desktop
+[ -n "$PS3_DESKTOP_USER" ] || exit 0
+d="$1/getty@tty1.service.d"
+mkdir -p "$d"
+cat > "$d/ps3-autologin.conf" <<EOC
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin $PS3_DESKTOP_USER --noclear %I \$TERM
+EOC

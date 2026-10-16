@@ -1,0 +1,6 @@
+#!/bin/sh
+set -e
+if [ "$1" = configure ] && [ -e /lib/modules/@KERNEL_RELEASE@/modules.dep ]; then
+	depmod -a @KERNEL_RELEASE@
+fi
+#DEBHELPER#

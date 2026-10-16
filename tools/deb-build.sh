@@ -22,9 +22,11 @@ rm -rf "$OUT"; mkdir -p "$OUT"
 # BUILD=indep: everything builds right here (amd64 deb builder), no qemu. BUILD=split: the
 # Architecture: all packages here (-A, with INDEP_PATH on PATH, e.g. our spu-elf toolchain),
 # the ppc64 ones in the chroot (-B). BUILD=native (default): all in the chroot.
-if [ "${BUILD:-native}" = indep ] || [ "${BUILD:-native}" = split ]; then
+# BUILD=cross: cross-built here for ppc64 (kernel modules against our kernel tree; the build
+# dependencies are this builder's own, not checked).
+if [ "${BUILD:-native}" = indep ] || [ "${BUILD:-native}" = split ] || [ "${BUILD:-native}" = cross ]; then
 	W=build/chroot/indep-$PKG
-	what=-b; [ "$BUILD" = split ] && what=-A
+	what=-b; [ "$BUILD" = split ] && what=-A; [ "$BUILD" = cross ] && what="-a ppc64 -b -d"
 	rm -rf "$W"; mkdir -p "$W"
 	(cd "$W" && dpkg-source -x "../../../$DSC" src >/dev/null && cd src && \
 		PATH="${INDEP_PATH:+$INDEP_PATH:}$PATH" DEB_BUILD_OPTIONS=nocheck \
@@ -34,7 +36,7 @@ if [ "${BUILD:-native}" = indep ] || [ "${BUILD:-native}" = split ]; then
 	mv "$W/build.log" "$OUT/build-indep.log"
 	rm -rf "$W"
 	chown -R "$OWNER" "$OUT"
-	if [ "$BUILD" = indep ]; then ls "$OUT"/*.deb; exit 0; fi
+	if [ "$BUILD" != split ]; then ls "$OUT"/*.deb; exit 0; fi
 fi
 ARCHBUILD=-b; [ "${BUILD:-native}" = split ] && ARCHBUILD=-B
 OUT=build/debs/$PKG

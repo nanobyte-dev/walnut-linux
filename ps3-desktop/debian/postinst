@@ -1,0 +1,25 @@
+#!/bin/sh
+set -e
+if [ "$1" = configure ]; then
+	# The sudoers drop-in must parse, or it would break sudo for everyone
+	if ! visudo -cf /etc/sudoers.d/ps3-desktop >/dev/null; then
+		echo "ps3-desktop: /etc/sudoers.d/ps3-desktop does not parse: removed" >&2
+		rm -f /etc/sudoers.d/ps3-desktop
+	fi
+	# Any console user may start X; the legacy wrapper runs it with root rights (KMS, input)
+	echo "xserver-xorg-legacy xserver-xorg-legacy/xwrapper/allowed_users select anybody" | debconf-set-selections
+	if [ -e /etc/X11/Xwrapper.config ]; then
+		sed -i 's/^allowed_users=.*/allowed_users=anybody/' /etc/X11/Xwrapper.config
+		grep -q '^needs_root_rights=' /etc/X11/Xwrapper.config &&
+			sed -i 's/^needs_root_rights=.*/needs_root_rights=yes/' /etc/X11/Xwrapper.config ||
+			echo needs_root_rights=yes >> /etc/X11/Xwrapper.config
+	else
+		printf 'allowed_users=anybody\nneeds_root_rights=yes\n' > /etc/X11/Xwrapper.config
+	fi
+	# RAM: blueman's privileged helper only on demand (first install only)
+	if [ -z "$2" ]; then
+		deb-systemd-helper disable blueman-mechanism.service >/dev/null 2>&1 || true
+	fi
+fi
+#DEBHELPER#
+exit 0

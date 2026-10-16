@@ -1,0 +1,11 @@
+[Unit]
+Description=Disk swap, behind swap in spare VRAM when ps3rsx provides it
+After=systemd-modules-load.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/ps3/sbin/ps3-vswap
+
+[Install]
+WantedBy=multi-user.target

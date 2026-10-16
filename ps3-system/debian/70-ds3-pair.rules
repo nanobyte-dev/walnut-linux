@@ -1,0 +1,3 @@
+# DualShock 3: plugged in by USB, it gets paired with the PS3's Bluetooth (ps3-system)
+ACTION=="add", SUBSYSTEM=="hidraw", KERNELS=="*:054C:0268.*", \
+	RUN+="/usr/bin/systemd-run --no-block --unit=ds3-pair-%k /usr/lib/ps3/sbin/ds3-pair /dev/%k"

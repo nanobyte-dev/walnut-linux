@@ -1,0 +1,11 @@
+#!/bin/sh
+# ps3-game-mode on|off (root; ps3-game runs it through sudo)
+units="udisks2.service polkit.service"
+case "$1" in
+on)	for u in $units; do
+		systemctl freeze "$u" 2>/dev/null &&
+			echo 64M > "/sys/fs/cgroup/system.slice/$u/memory.reclaim" 2>/dev/null
+	done; true ;;
+off)	for u in $units; do systemctl thaw "$u" 2>/dev/null; done; true ;;
+*)	echo "usage: ps3-game-mode on|off" >&2; exit 2 ;;
+esac

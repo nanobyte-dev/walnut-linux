@@ -48,7 +48,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: publish deps du clean-ephemeral chroot spu-toolchain spu-tests spu-deploy help all builder kernel rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot debs deploy kernel-deploy netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
+.PHONY: publish deps du clean-ephemeral chroot packages spu-toolchain spu-tests spu-deploy help all builder kernel rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot debs deploy kernel-deploy netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
 	mesa-builder mesa-sysroot mesa-tests classicube classicube-audio classicube-deploy
 
 help:
@@ -151,7 +151,7 @@ $(GPU_STAMP): $(wildcard ps3-gpu-tools/Makefile ps3-gpu-tools/src/* ps3rsx/src/*
 	@touch $@
 
 gpu-deploy:
-	$(MAKE) deploy PKGS="ps3rsx-$(KERNEL_RELEASE) ps3-gpu-tools"
+	$(MAKE) deploy PKGS="ps3rsx-modules-ps3 ps3-gpu-tools"
 
 # --- Mesa cross toolchain (the Debian sysroot for ClassiCube and the GL tests; Mesa itself is mesa-deb) -------------------------------------------------------------------------------
 # Own image on top of the builder (C++ cross compiler, meson), so its tag doesn't change the kernel's.
@@ -252,8 +252,8 @@ spu-deploy:
 # --- Packages (our own apt repository, docs/PLAN.md item 7) -------------------
 # Each package is built from its build outputs (tools/stage-package.sh, tools/build-debs.sh) into
 # build/repo, which is indexed as an apt repository. N in the versions is the commit count.
-# (ps3-boot, ps3-gpu-tools, ps3-spu, classicube, mesa: source packages, make <pkg>-deb)
-PACKAGES := ps3-kernel ps3rsx ps3-mesa
+# (ps3-boot, ps3-gpu-tools, ps3-spu, classicube, mesa, ps3rsx: source packages, make <pkg>-deb)
+PACKAGES := ps3-kernel ps3-mesa
 PKG_N := $(shell git -C $(CURDIR) rev-list --count HEAD 2>/dev/null || echo 0)
 # Debian packaging tools and aptly (docker/Dockerfile.deb); also indexes the old pipeline's repo
 REPO_BUILDER_TAG := ps3-deb-builder:$(shell (cat docker/Dockerfile.deb; echo $(BUILDER_TAG) $(DEBIAN_SNAPSHOT)) | sha256sum | cut -c1-12)
@@ -263,7 +263,6 @@ $(REPO_BUILDER_STAMP): docker/Dockerfile.deb | $(BUILDER_STAMP)
 		--build-arg SNAPSHOT=$(DEBIAN_SNAPSHOT) docker
 	@touch $@
 PKG_INPUTS_ps3-kernel := $(KERNEL_STAGE)/boot/vmlinux
-PKG_INPUTS_ps3rsx := $(GPU_STAMP)
 PKG_INPUTS_ps3-mesa :=
 PKG_STAMPS := $(PACKAGES:%=$(BUILD)/repo/.%.stamp)
 debs: $(PKG_STAMPS)
@@ -278,7 +277,7 @@ $(BUILD)/repo/.%.stamp: $$(PKG_INPUTS_$$*) tools/stage-package.sh tools/build-de
 # [AUTOREMOVE=1]. Upgrades everything of ours that is installed (Mesa included), then installs the
 # named top-level packages; simulated first. dpkg replaces files by renaming, so even Mesa under
 # a running X is safe on the USB root (on NFS, stop X first).
-DEPLOY_TOP := ps3-kernel-$(KERNEL_RELEASE) ps3rsx-$(KERNEL_RELEASE) ps3-boot ps3-gpu-tools ps3-spu ps3-spu-programs classicube
+DEPLOY_TOP := ps3-kernel-$(KERNEL_RELEASE) ps3rsx-modules-ps3 ps3-boot ps3-system ps3-desktop ps3-gpu-tools ps3-spu ps3-spu-programs classicube
 PKGS ?= $(DEPLOY_TOP)
 AUTOREMOVE ?= 0
 PS3_SCP = scp -q -i $(HOME)/.ssh/id_ps3 -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts
@@ -358,9 +357,10 @@ $(foreach b,BUILDER MESA_BUILDER GAMES_BUILDER SPU_BUILDER REPO_BUILDER,\
 
 # --- Debian source packages (deb-src + our patches; docs/PLAN.md, packaging plan) ---------------
 DEB_ENV := -e OWNER=$(UID_GID) -e DEBIAN_SUITE=$(DEBIAN_SUITE) -e DEBIAN_MIRROR=$(DEBIAN_MIRROR) -e HOME=/tmp \
-	-e CC_TARBALL=$(CC_TARBALL) -e CC_TEXPACK=$(CC_TEXPACK) -e CC_AUDIO=$(CC_AUDIO)
+	-e CC_TARBALL=$(CC_TARBALL) -e CC_TEXPACK=$(CC_TEXPACK) -e CC_AUDIO=$(CC_AUDIO) -e KERNEL_RELEASE=$(KERNEL_RELEASE)
 # upstream tarballs a package's source is made from
 classicube-src: $(CC_TARBALL) $(CC_TEXPACK) $(CC_AUDIO)/default2.zip
+ps3rsx-src: $(KERNEL_STAGE)/boot/vmlinux
 chroot: | $(REPO_BUILDER_STAMP)
 	@tools/disk-check.sh
 	docker run --rm --privileged -v $(CURDIR):/work -w /work $(DEB_ENV) $(REPO_BUILDER_TAG) tools/deb-chroot.sh
@@ -378,3 +378,7 @@ $(BUILD)/chroot/sid-ppc64.tar:
 	docker run --rm --privileged -v $(CURDIR):/work -w /work $(DEB_ENV) -e JOBS=$(DEB_JOBS) \
 		$(REPO_BUILDER_TAG) tools/deb-build.sh $*
 DEB_JOBS ?= 16
+# All our packages: the Debian source packages and the two still made by the old pipeline
+# (the kernel until milestone 4; the transitional ps3-mesa)
+SRC_PACKAGES := mesa ps3-boot ps3-gpu-tools ps3-spu classicube ps3rsx ps3-system ps3-desktop
+packages: $(SRC_PACKAGES:%=%-deb) debs

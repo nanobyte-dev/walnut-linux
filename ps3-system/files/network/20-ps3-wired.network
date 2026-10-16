@@ -1,0 +1,14 @@
+# The wired port (ps3-system). DHCP; the kernel may already have configured it (ip=dhcp, and an
+# NFS root over it): never drop the address, or the root filesystem disappears.
+[Match]
+Name=e*
+
+[Network]
+DHCP=yes
+KeepConfiguration=yes
+
+[DHCPv4]
+# Same client ID Petitboot's udhcpc sends (01:<MAC>). networkd's default (a DUID) made the
+# router's DHCP server (Kea) see the .77 lease as another client's, so Petitboot kept getting
+# a different address (ALLOC_ENGINE_V4_DISCOVER_ADDRESS_CONFLICT).
+ClientIdentifier=mac

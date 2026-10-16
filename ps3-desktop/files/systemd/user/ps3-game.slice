@@ -1,0 +1,6 @@
+[Unit]
+Description=PS3 game (ps3-game)
+
+[Slice]
+MemoryLow=128M
+CPUWeight=400

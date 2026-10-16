@@ -1,0 +1,10 @@
+#!/bin/sh
+# /dev/ps3gpu_* nodes for the ps3fb GPU interface (char major is dynamic: read /proc/devices)
+major=$(awk '$2=="ps3fb" {print $1}' /proc/devices)
+[ -n "$major" ] || exit 0
+i=0
+for n in vram fifo ctrl driver reports; do
+	[ -e /dev/ps3gpu_$n ] || mknod -m 660 /dev/ps3gpu_$n c "$major" $i
+	chgrp video /dev/ps3gpu_$n
+	i=$((i+1))
+done

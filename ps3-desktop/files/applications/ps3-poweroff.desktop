@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Shut down
+Comment=Power off the PS3
+Exec=ps3-power poweroff
+Icon=system-shutdown
+Categories=System;

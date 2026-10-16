@@ -1,0 +1,9 @@
+#!/bin/sh
+# ps3-power poweroff|reboot: asks first, then shuts down or reboots (to the XMB)
+case "$1" in
+poweroff) q="Shut down the PS3?"; b="Shut down" ;;
+reboot) q="Reboot the PS3? (it starts in the XMB)"; b="Reboot" ;;
+*) echo "usage: ps3-power poweroff|reboot" >&2; exit 2 ;;
+esac
+xmessage -center -buttons "$b:0,Cancel:1" -default Cancel "$q" || exit 0
+exec sudo -n /usr/bin/systemctl "$1"

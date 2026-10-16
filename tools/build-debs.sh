@@ -25,12 +25,6 @@ for P in "$@"; do
 		desc="Linux kernel $KERNEL_RELEASE for the PS3 (OtherOS++), with the RSX sharing patches"
 		postinst="depmod -a $KERNEL_RELEASE; ps3-update-kboot"
 		postrm="if [ \"\$1\" = remove ] || [ \"\$1\" = purge ]; then rm -f /lib/modules/$KERNEL_RELEASE/modules.*; command -v ps3-update-kboot >/dev/null && ps3-update-kboot; fi; true" ;;
-	ps3rsx)		# built against one kernel release
-		name="ps3rsx-$KERNEL_RELEASE"
-		version="0.$PKG_N"
-		depends="ps3-kernel-$KERNEL_RELEASE"
-		desc="DRM driver for the PS3's RSX GPU (registers as nouveau), for $KERNEL_RELEASE"
-		postinst="depmod -a $KERNEL_RELEASE" ;;
 	ps3-mesa)
 		# above every old build (they used the global commit count) and below nothing we publish
 		version="$MESA_VERSION+ps3.99999"

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=OpenArena
+Comment=Arena shooter (ioquake3)
+Exec=ps3-game openarena
+Icon=openarena
+Categories=Game;ActionGame;

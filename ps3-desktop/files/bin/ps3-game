@@ -1,0 +1,30 @@
+#!/bin/sh
+# ps3-game <command...>: runs a game in game mode: in ps3-game.slice (kept resident), the
+# desktop helpers frozen and their memory reclaimed, the gamepads detached from the X pointer
+pads() {	# X device ids of the gamepads (udev ID_INPUT_JOYSTICK) attached as pointers
+	for d in /sys/class/input/event*; do
+		udevadm info -q property "$d" | grep -q '^ID_INPUT_JOYSTICK=1' || continue
+		name=$(cat "$d/device/name")
+		xinput list | grep -F "$name" | grep 'slave  pointer' | sed 's/.*id=\([0-9]*\).*/\1/'
+	done
+}
+# the cgroup files directly: they are delegated to the user (systemctl --user freeze needs a
+# user D-Bus session, which this desktop doesn't run)
+cg=/sys/fs/cgroup$(systemctl --user show -P ControlGroup ps3-desktop.slice 2>/dev/null)
+thaw() { echo 0 > "$cg/cgroup.freeze" 2>/dev/null; sudo -n /usr/lib/ps3/sbin/ps3-game-mode off; }
+ids=$(pads)
+for i in $ids; do xinput disable "$i"; done
+if [ -w "$cg/cgroup.freeze" ] && echo 1 > "$cg/cgroup.freeze"; then
+	echo 256M > "$cg/memory.reclaim" 2>/dev/null	# as much as it gives up
+fi
+sudo -n /usr/lib/ps3/sbin/ps3-game-mode on
+systemd-run --user --scope --slice=ps3-game.slice -q "$@" &
+game=$!
+# thaws even if this script is killed: the watcher outlives it while the game runs
+(while kill -0 $game 2>/dev/null; do sleep 1; done; thaw) &
+trap 'kill $game 2>/dev/null' INT TERM
+wait $game
+ret=$?
+thaw
+for i in $ids; do xinput enable "$i"; done
+exit $ret

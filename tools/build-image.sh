@@ -21,15 +21,19 @@ mount -t proc proc "$R/proc"
 mount -t sysfs sysfs "$R/sys"
 
 export SOURCE_DATE_EPOCH
-PUBKEY_FILE="$PWD/$OUT/authorized_keys" bash "$ROOTFS_CUSTOMIZE" "$R"
-# The boot menu's settings for this installation (a disk root); the kernel packages' scripts
-# write /etc/kboot.conf from them (ps3-update-kboot)
+# The installation's settings our packages' scripts read: the boot menu (ps3-boot writes
+# /etc/kboot.conf from it when the kernel package goes in) and the desktop's autologin user
 cat > "$R/etc/default/ps3-boot" <<EOF
 # Petitboot boot menu settings (ps3-update-kboot writes /etc/kboot.conf from them)
 PS3_ROOT_ARGS="$BOOT_ROOT_ARGS"
 PS3_EXTRA_ARGS="$BOOT_EXTRA_ARGS"
 PS3_LEGACY_ARGS="$BOOT_LEGACY_ARGS"
 EOF
+printf '%s\n' '# The user that gets the desktop on tty1 (ps3-desktop; empty: a normal login prompt)' \
+	'PS3_DESKTOP_USER=tibi' > "$R/etc/default/ps3-desktop"
+# DNS for apt while the packages go in (customize.sh points it at the kernel's DHCP afterwards)
+rm -f "$R/etc/resolv.conf" && cp /etc/resolv.conf "$R/etc/resolv.conf"
+
 # Our packages, installed by apt from a local flat repository of our debs (build/repo, and the
 # Debian-source packages in build/debs/*), pinned above Debian's, with the base's snapshot source
 # for anything new. Our Mesa replaces Debian's as an upgrade (auto marks kept); then whatever only
@@ -51,14 +55,16 @@ chroot "$R" dpkg-query -W -f='${Package} ${Version}\n' mesa-libgallium libgbm1 |
 if chroot "$R" dpkg-query -W -f='${Package}\n' 'libllvm*' 'libz3-*' 2>/dev/null | grep -q .; then
 	echo "!! LLVM or z3 still installed"; exit 1
 fi
-# The PS3's own apt configuration: Debian live plus ours, pinned (image/apt/, docs/PLAN.md)
-rm -r "$R/tmp/ps3-repo" "$R/etc/apt/sources.list.d/zz-image.list" "$R/etc/apt/preferences.d/zz-image" \
-	"$R/etc/apt/sources.list"
-install -m 644 image/apt/debian.sources image/apt/ps3.sources "$R/etc/apt/sources.list.d/"
-install -m 644 image/apt/ps3.pref "$R/etc/apt/preferences.d/ps3"
+# The PS3's own apt configuration (Debian live plus ours, pinned) is ps3-system's; the build's
+# temporary sources go (ps3-system set the snapshot sources.list aside)
+rm -r "$R/tmp/ps3-repo" "$R/etc/apt/sources.list.d/zz-image.list" "$R/etc/apt/preferences.d/zz-image"
+rm -f "$R/etc/apt/sources.list" "$R/etc/apt/sources.list.ps3-snapshot"
 chroot "$R" apt-get clean
 rm -rf "$R"/var/lib/apt/lists/* && mkdir -p "$R/var/lib/apt/lists/partial"
 chroot "$R" ldconfig
+
+# The installation's own settings: hostname, user, SSH key, locale (image/customize.sh)
+PUBKEY_FILE="$PWD/$OUT/authorized_keys" bash "$ROOTFS_CUSTOMIZE" "$R"
 
 umount "$R/proc" "$R/sys"
 # What mmdebstrap's cleanup removes for reproducibility; the chroot commands above write some of

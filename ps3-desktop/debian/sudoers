@@ -1,0 +1,2 @@
+# ps3-desktop: game mode (ps3-game) and the menu's shut down / reboot entries (ps3-power)
+%sudo ALL=(root) NOPASSWD: /usr/lib/ps3/sbin/ps3-game-mode, /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot

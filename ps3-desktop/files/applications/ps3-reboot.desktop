@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Reboot
+Comment=Restart the PS3 (to the XMB)
+Exec=ps3-power reboot
+Icon=system-reboot
+Categories=System;
