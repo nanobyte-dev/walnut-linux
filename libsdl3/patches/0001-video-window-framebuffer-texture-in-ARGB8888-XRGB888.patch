@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 02:40:32 +0300
+Subject: video: window framebuffer texture in ARGB8888/XRGB8888 on big-endian
+ too
+
+The accelerated window framebuffer (SDL_CreateWindowTexture) creates the
+window surface in the texture's format and picked the renderer's first plain
+format. The OpenGL and GLES2 renderers list only byte-order formats (BGRA32,
+RGBA32, BGRX32, RGBX32): on little-endian the first is ARGB8888, on
+big-endian it is BGRA8888 (bytes B,G,R,A). Applications that write
+0xAARRGGBB words into the window surface without reading its format (OpenTTD
+through sdl2-compat; SDL2 and the X11 framebuffer always gave them
+ARGB8888/XRGB8888) then showed their alpha byte as blue: a strong blue cast
+on the PS3 (ppc64, Mesa nv30), right colours with
+SDL_FRAMEBUFFER_ACCELERATION=0.
+
+Prefer ARGB8888 or XRGB8888 from the renderer's list, in its order (on
+little-endian the same choice as before), and when the renderer has neither,
+create the texture in XRGB8888 (ARGB8888 for transparent windows) and let the
+renderer convert on update, like any texture in an unsupported format.
+
+Forwarded: no
+
+diff --git a/src/video/SDL_video.c b/src/video/SDL_video.c
+--- a/src/video/SDL_video.c
++++ b/src/video/SDL_video.c
+@@ -413,20 +413,27 @@ static bool SDL_CreateWindowTexture(SDL_VideoDevice *_this, SDL_Window *window,
+     SDL_free(data->pixels);
+     data->pixels = NULL;
+ 
+-    // Find the first format with or without an alpha channel
+-    *format = texture_formats[0];
+-
++    /* The window surface gets the texture's format. Applications commonly write
++     * 32-bit 0xAARRGGBB / 0x00RRGGBB words into it without looking at the format,
++     * as the unaccelerated framebuffers (XRGB8888) and SDL2 gave them, so prefer
++     * ARGB8888 or XRGB8888, in the renderer's order. The OpenGL and GLES2
++     * renderers list only byte-order formats (BGRA32, RGBA32, ...), which are
++     * ARGB8888 and XRGB8888 only on little-endian; on big-endian they are
++     * BGRA8888 etc. and the colours came out swapped. When the renderer has
++     * neither, create the texture in XRGB8888 (ARGB8888 if transparent) anyway
++     * and let SDL convert it on update. */
++    *format = SDL_PIXELFORMAT_UNKNOWN;
+     for (i = 0; texture_formats[i] != SDL_PIXELFORMAT_UNKNOWN; ++i) {
+         SDL_PixelFormat texture_format = texture_formats[i];
+-        if (!SDL_ISPIXELFORMAT_FOURCC(texture_format) &&
+-            !SDL_ISPIXELFORMAT_10BIT(texture_format) &&
+-            !SDL_ISPIXELFORMAT_FLOAT(texture_format) &&
+-            !SDL_ISPIXELFORMAT_INDEXED(texture_format) &&
+-            (!transparent || SDL_ISPIXELFORMAT_ALPHA(texture_format))) {
++        if (texture_format == SDL_PIXELFORMAT_ARGB8888 ||
++            (!transparent && texture_format == SDL_PIXELFORMAT_XRGB8888)) {
+             *format = texture_format;
+             break;
+         }
+     }
++    if (*format == SDL_PIXELFORMAT_UNKNOWN) {
++        *format = transparent ? SDL_PIXELFORMAT_ARGB8888 : SDL_PIXELFORMAT_XRGB8888;
++    }
+ 
+     data->texture = SDL_CreateTexture(data->renderer, *format,
+                                       SDL_TEXTUREACCESS_STREAMING,
