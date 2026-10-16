@@ -260,11 +260,22 @@ void ps3rsx_kms_show_console(struct ps3rsx_device *rsx)
 void ps3rsx_kms_reflip(struct ps3rsx_device *rsx)
 {
 	struct drm_plane_state *ps = rsx->primary.state;
+	struct drm_crtc_state *cs = rsx->crtc.state;
 
-	if (ps && ps->fb && rsx->crtc.state && rsx->crtc.state->active)
-		flip(rsx, fb_bo(ps->fb)->offset);
-	else if (rsx->crtc.state && rsx->crtc.state->enable)
+	if (!cs)
+		return;
+	if (cs->active) {
+		/* Also with no framebuffer: a new X opening after the last one quit (its framebuffers
+		 * went with it, the CRTC stayed on; its first commit flips). That isn't DPMS: muting
+		 * here left every later X black, as its first modeset to the same mode never runs
+		 * crtc_enable. And Xorg switches the VT to graphics before it opens us, so ps3fb's
+		 * blank may have muted the video meanwhile: unmute. */
+		video_mute(rsx, false);
+		if (ps && ps->fb)
+			flip(rsx, fb_bo(ps->fb)->offset);
+	} else if (cs->enable) {
 		video_mute(rsx, true);	/* back to X with its screen blanked (DPMS) */
+	}
 }
 
 /* --- CRTC ------------------------------------------------------------------------------- */
