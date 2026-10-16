@@ -4,7 +4,9 @@
 # published to ps3-dev, then the PS3 installs from there with apt:
 #   1. our lists only are refreshed (not Debian's: ~100 MB on a 256 MB machine);
 #   2. every installed package of ours that has a newer build is upgraded (Mesa replaces
-#      Debian's this way and keeps its auto marks);
+#      Debian's this way and keeps its auto marks); kernels and their modules only with KERNELS=1
+#      or when named (a kernel build left in build/debs, unfinished and without its ps3rsx
+#      modules, got installed by a deploy of two desktop packages on 2026-10-16: no graphics);
 #   3. the named top-level packages are installed (--no-remove: a step that would remove anything
 #      fails; "name-" entries remove exactly those packages, e.g. one replaced by a renamed one);
 #   4. step 2 again (what it held back until step 3 brought in a new dependency).
@@ -12,7 +14,7 @@
 # current ones), so it works before the PS3 has them. AUTOREMOVE=1 then purges what nothing
 # needs any more (simulated first). ps3-migrate-home runs once for the deploying user. Kernel and
 # Mesa installs stop the desktop first (STOP_DESKTOP=auto|1|0).
-# DRY_RUN=1: publish, then only the simulations on the PS3.
+# DRY_RUN=1: publish, then only the simulations on the PS3. KERNELS=1: upgrade kernels too (step 2).
 # Env: PS3 (ssh destination), SSH, SCP, REPO_BUILDER_TAG, REPO_HOST, REPO_DIR
 set -euo pipefail
 # One block, parsed whole before it runs: editing this file during a run can't make bash
@@ -38,9 +40,10 @@ O='-o Dir::Etc::SourceList=/dev/null -o Dir::Etc::SourceParts=/var/tmp/ps3-deplo
 -o Dpkg::Options::=--force-confold -t ps3-dev'
 sudo DEBIAN_FRONTEND=noninteractive dpkg --configure -a	# an install interrupted earlier
 sudo apt-get \$U -qq update
-ours() {	# installed packages that the dev suite has
+ours() {	# installed packages that the dev suite has (kernels only with KERNELS=1)
 	sed -n 's/^Package: //p' /var/lib/apt/lists/*_ps3-dev_dists_ps3-dev_*Packages | sort -u > avail
-	dpkg-query -W -f='\${Package}\n' | sort -u | comm -12 - avail
+	dpkg-query -W -f='\${Package}\n' | sort -u | comm -12 - avail |
+		if [ '${KERNELS:-0}' = 1 ]; then cat; else grep -vE '^(linux-(image|headers|kbuild)|ps3rsx-modules)'; fi
 }
 upgrade() {
 	pk=\$(ours)
