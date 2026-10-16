@@ -55,8 +55,21 @@ restores them first. The bench lock is in /dev/shm, so the reboot clears it.
   read its OpenArena greps, its q3config.cfg backup and its 12 s HUD skip); then those move out.
 - Games run directly by default, as in step 0; `GAMEMODE=1` in a recipe starts them through
   `ps3-game` (its slice and game mode change memory and timing, so it is a variant to measure).
-- Accepted when the OpenArena recipe matches `step0.sh tex` run interleaved in the same session
-  (same packages: each run records its versions) and ClassiCube gives HUD numbers.
+- Accepted when both recipes give numbers with the picture on screen (checked on the webcam:
+  a run with a black screen doesn't count). Matching step 0 was dropped as a criterion: step 0
+  ran with nothing on screen, so its game numbers are invalid (SPU-OFFLOAD-SURVEY.md).
+
+**Done 2026-10-16.** Two display bugs had to go first, both found because the screen stayed black:
+SDL's fullscreen window needs a window manager (client.sh starts a bare Openbox), and ps3rsx
+muted the video for every X started after another had quit (a1f1b91). Validation (Openbox,
+picture checked on camera, ps3rsx 0.219, Mesa 26.2.4-1+ps3.186, libspeq0 0.210):
+
+| Recipe | Runs | Load | fps | HUD fps median / p10 | Peak RSS | Peak VRAM |
+|---|---|---|---|---|---|---|
+| openarena tc1 | 3 | 10.8 s [10.6-11.9] | 42.2 [40.9-46.4] | 47 / 6-28 | 83 MB | 37-40 MB |
+| classicube (60 s, saved map) | 2 | | | 50.5 / 44 | 51 MB | 61 MB |
+
+Showing the frames costs: the same OpenArena runs with nothing on screen gave 45-54 fps.
 
 ## Group 1: should run as packaged (Debian main, GL 1.x fixed function)
 
@@ -154,10 +167,12 @@ Load times are compared with the same shader cache state (Mesa's disk cache is o
 
 | Game | Smoke | First failure | Bug | Baseline |
 |---|---|---|---|---|
-| OpenArena opengl1 | runs (step 0) | | | |
-| ClassiCube | runs | | | |
+| OpenArena opengl1 | runs | | | tc1: 42.2 fps, load 10.8 s (stage 0) |
+| ClassiCube | runs | | | 50.5 fps HUD median (stage 0) |
 
 ## Driver bugs
 
 | Bug | Games blocked | Fix |
 |---|---|---|
+| Every X after the first started black: ps3rsx's reflip muted the video for an active CRTC with no framebuffer, and ps3fb's console blank muted it before X owned the GPU | all (every bench run) | a1f1b91, 8baa747 (ps3rsx 0.219) |
+| No window manager under the bench's bare X: SDL fullscreen windows never shown | all SDL games | client.sh starts Openbox (fa723f9) |

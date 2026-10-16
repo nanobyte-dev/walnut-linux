@@ -94,6 +94,13 @@ and meshing. Without it every consumer pays spufs context switches.
 
 ## Measured: step 0 (2026-10-16)
 
+**Caveat (2026-10-16, later):** every game run here went through `ps3-bench.sh x` with no window
+manager, and nothing reached the screen: SDL's fullscreen request went unanswered (no window
+manager) and ps3rsx left the video muted for every X started after another had quit (fixed in
+a1f1b91). The game rendered, but its frames were never shown. These game numbers are invalid
+and are to be measured again through games/bench (Openbox, picture checked on camera); the
+SPU-only measurements (speq-dxt, speq-bench, gl-dxt's checks) don't depend on the display.
+
 No SPU code yet: what OpenArena's own settings do, measured with `ps3-bench.sh` (desktop stopped,
 caches dropped, swaps emptied; the game alone under a bare X) and `games/openarena/step0.sh`, on
 kernel 6.12.111+ps3.163-ps3-release and Mesa 26.2.4-1+ps3.152. Timedemo `bench`, medians with

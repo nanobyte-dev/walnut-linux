@@ -19,7 +19,9 @@ game.
 
 ## Parked, in the order they would come back
 
-1. **Re-check across the game suite** (GAME-SUITE.md): the compressed-texture default and the
+1. **Re-check across the game suite** (GAME-SUITE.md). Step 0's game numbers and D's OpenArena
+   load times are invalid (nothing reached the screen, SPU-OFFLOAD-SURVEY.md "Measured: step 0"):
+   measure them again through games/bench first. Then the compressed-texture default and the
    SPU encoder in every game that compresses (OpenArena, Sauerbraten after its one-line patch,
    games asking for generic compressed formats); `SPEQ_DEBUG` shows which path each took.
 2. **DXT5 in libspeq** (SPU and PPE): Mesa turns generic compressed RGBA into DXT5; today those

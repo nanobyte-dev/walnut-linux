@@ -2,6 +2,7 @@
 # texture compression per variant. The game archives +set cvars to q3config.cfg on quit.
 SUITE=1
 COMM=ioquake3
+SOUND_AT=25	# after the level load (a cold first run takes ~12 s), during the demo
 BACKUP=("$HOME/.openarena/baseoa/q3config.cfg")
 setup() {
 	mkdir -p "$HOME/.openarena/baseoa/demos"
@@ -14,7 +15,7 @@ oa_cmd() { CMD=(/usr/games/openarena +set cl_renderer $OA_R +set r_ext_compresse
 oa_cmd
 FPS_RE='[0-9]+ frames [0-9.]+ seconds ([0-9.]+) fps'
 MAXMS_RE='[0-9.]+ fps [0-9.]+/[0-9.]+/([0-9.]+)/'
-LOAD_RE='CL_InitCGame: ([0-9.]+) seconds'
+LOAD_RE='CL_InitCGame: +([0-9.]+) seconds'
 # opengl1, uncompressed textures (step 0's tc0)
 variant_tc0() { OA_TC=0; oa_cmd; }
 # opengl1, compressed (shipped default, step 0's tc1)
