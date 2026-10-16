@@ -13,3 +13,6 @@ CMD=(/usr/lib/yamagi-quake2/quake2 -datadir /usr/share/games/quake2-demo
 	+set r_customheight 1080 +set r_vsync 0 +timedemo 1 +demomap q2demo1.dm2)
 FPS_RE='[0-9]+ frames, [0-9.]+ seconds: ([0-9.]+) fps'
 END_RE='[0-9]+ frames, [0-9.]+ seconds: [0-9.]+ fps'
+# Yamagi's SDL sound backend instead of OpenAL (OpenAL gave white noise on the PS3: 16-bit samples
+# with their bytes swapped somewhere on the way, big-endian)
+variant_sdlsound() { CMD+=(+set s_openal 0); }

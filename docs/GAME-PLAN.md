@@ -110,6 +110,10 @@ settles a risk several games share):
 QuakeSpasm (2026-10-17): runs, the timedemo through a quake.rc of ours in ~/.quakespasm/id1
 (the shareware's own quake.rc starts the attract loop after +timedemo; -game is refused by the
 shareware). 59.2 fps without GLSL, 64.8 with, 70.3 with the gamma pass: colours right.
+Yamagi Quake II (2026-10-17): runs (gl1, the demo pak's q2demo1 timedemo), picture right; 51.1 fps
+with its OpenAL sound, which plays white noise (16-bit samples handed to OpenAL with the wrong byte
+order: a patch in our yquake2 package, in progress); its SDL sound backend (`s_openal 0`) sounds
+right and runs at 58.4 fps.
 
 | # | Game | Get | Expect | Bench |
 |---|---|---|---|---|
