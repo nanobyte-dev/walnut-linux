@@ -16,8 +16,9 @@
  * each. Before the submit the PPE touches each destination page (a store) and each source page
  * (a load): an SPU put into a page the process hasn't touched costs 40-87 us, served on the
  * worker's thread, against a few for the PPE. If any job fails, the whole image is redone on
- * the PPE and the call still succeeds. Calls from several threads are safe: each has its own
- * done word. */
+ * the PPE and the call still succeeds; MAX_FAILS images in a row (a destination the SPEs can't
+ * write, say) and the process stays on the PPE. Calls from several threads are safe: each has
+ * its own done word. */
 #include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -32,6 +33,7 @@
 #define MIN_PX		(64 * 64)	/* auto: smaller images stay on the PPE (a mip chain's tail) */
 #define JOB_MIN_PX	16384		/* ~45 us of one SPE: dispatch is 3-10 us, p99 65 us */
 #define BAD_EA		0x1000		/* spq_s3tc_fault: an unmapped EA (a DATA_STORAGE fault) */
+#define MAX_FAILS	3		/* images failed on the SPEs in a row: the PPE from then on */
 
 static pthread_once_t once = PTHREAD_ONCE_INIT;
 static int mode = SPQ_S3TC_AUTO, debug;
@@ -41,6 +43,7 @@ static pthread_mutex_t qlock = PTHREAD_MUTEX_INITIALIZER;
 static struct speq *queue;	/* set once (release), never closed */
 static int qerr;		/* the open's error, or -EIO once the queue broke */
 static long page;
+static int fails;		/* SPU images failed in a row */
 
 int spq_s3tc_fault;
 static struct spq_s3tc_stats stats;
@@ -253,12 +256,19 @@ int speq_s3tc_compress_v1(unsigned fmt, unsigned srccomps, const void *src, unsi
 		spu_ret = spu_encode(q, src, w, h, dst, dst_stride, punch, &njobs);
 		__atomic_fetch_add(&stats.jobs, njobs, __ATOMIC_RELAXED);
 		if (!spu_ret) {
+			__atomic_store_n(&fails, 0, __ATOMIC_RELAXED);
 			INC(&stats.spu);
 			path = "spu";
 			goto out;
 		}
 		/* any failure: the whole image again on the PPE; Mesa never sees it */
 		INC(&stats.redone);
+		if (__atomic_add_fetch(&fails, 1, __ATOMIC_RELAXED) >= MAX_FAILS) {
+			queue_broke(spu_ret);
+			if (debug)
+				fprintf(stderr, "speq: s3tc: %d images in a row failed on the SPEs, "
+					"the PPE from now on\n", MAX_FAILS);
+		}
 		snprintf(extra, sizeof(extra), " (spu failed: %s, redone)", strerror(-spu_ret));
 	}
 	INC(&stats.ppe);

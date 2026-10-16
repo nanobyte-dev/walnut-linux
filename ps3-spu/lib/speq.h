@@ -66,8 +66,9 @@ unsigned speq_abi_version(void);
  * 4x4 blocks every dst_stride bytes (dst_stride < 2 * w: rows packed, as Mesa's
  * tx_compress_dxt1 takes it). RGBA DXT1: alpha <= 127 is transparent.
  * Returns 0, or -ENOTSUP (DXT3/5, srccomps not 3/4, w or h not a multiple of 4, SPEQ_S3TC=off),
- * -EINVAL, or with SPEQ_S3TC=spu the error of a queue that can't open (-ENOENT, -EBUSY, ...);
- * dst is then untouched. A failed SPU job never shows: the image is redone on the PPE.
+ * -EINVAL, or with SPEQ_S3TC=spu the error of a queue that can't open (-ENOENT, -EBUSY, ...)
+ * or broke (3 images in a row failed); dst is then untouched. A failed SPU job never shows
+ * otherwise: the image is redone on the PPE.
  * Env: SPEQ_S3TC=auto|spu|ppe|off (default auto: the SPEs for RGBA images of at least
  * SPEQ_S3TC_MIN pixels, a count or WxH, default 64x64, when dxt.spu's queue opens; the PPE
  * otherwise), SPEQ_DEBUG=1 (one line per call on stderr). Safe to call from several threads. */

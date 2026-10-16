@@ -12,8 +12,10 @@
  * --check: the reference encoder on special blocks (flat, transparent, two-colour, gradient)
  * and its determinism; then the API on the chosen path against the reference, byte for byte:
  * sizes up to 4096 wide, both modes, source offsets (8 mod 16 and others), destinations with
- * row padding and 8 mod 16, a job forced to fault (the image must be redone on the PPE), and
- * four threads at once. On the PS3, --path spu checks the SPEs.
+ * row padding and 8 mod 16, a job forced to fault (the image must be redone on the PPE), a fork
+ * child, four threads at once, and last three faulting images in a row (then auto uses the
+ * PPE, spu declines).
+ * On the PS3, --path spu checks the SPEs.
  * --bench (no image): Mpixel/s of speq_s3tc_compress_v1 for 256x256, 512x512 and 1024x1024
  * RGBA (to RGBA DXT1 unless --fmt dxt1) on the PPE and the SPEs (or the --path one), back to back (hot), after the workers parked (30 ms idle),
  * and into a fresh destination each time (its page faults). The SPE load stays a few seconds.
@@ -616,6 +618,31 @@ static void check_paths(int path)
 	spq_s3tc_stats(&s1);
 	snprintf(msg, sizeof(msg), "%u bad, %lu of 32 on the SPEs", v, s1.spu - s0.spu);
 	check(!v && s1.redone == s0.redone, "4 threads x 8 images = reference", msg);
+
+	/* last (it ends the SPU path for this process): 3 failed images in a row, then the PPE */
+	if (path != SPQ_S3TC_PPE && spq_s3tc_queue()) {
+		c = (struct pcase){ 256, 128, 4, 8, 0, 0, 0 };
+		spq_s3tc_stats(&s0);
+		for (v = 0, i = 0; i < 3; i++) {
+			spq_s3tc_fault = 1;
+			v += run_case(&c, &spu, msg, sizeof(msg));
+		}
+		spq_s3tc_fault = 0;
+		/* then auto takes the PPE; spu declines (as without a queue) and Mesa encodes */
+		i = run_case(&c, &spu, msg, sizeof(msg));
+		spq_s3tc_stats(&s1);
+		if (path == SPQ_S3TC_SPU) {
+			snprintf(msg, sizeof(msg), "redone %lu, then %s", s1.redone - s0.redone,
+				 i ? "declined" : "encoded");
+			check(!v && s1.redone == s0.redone + 3 && i && !spu,
+			      "3 failed images in a row: declined from then on", msg);
+		} else {
+			snprintf(msg, sizeof(msg), "redone %lu, then %s", s1.redone - s0.redone,
+				 spu ? "spu" : "ppe");
+			check(!v && !i && s1.redone == s0.redone + 3 && !spu && s1.ppe == s0.ppe + 4,
+			      "3 failed images in a row: the PPE from then on, = reference", msg);
+		}
+	}
 }
 
 /* --- --bench without an image --- */
