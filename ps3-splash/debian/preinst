@@ -1,0 +1,21 @@
+#!/bin/sh
+set -e
+# Plymouth's text rendering through FreeType, not Pango: Plymouth loads label-pango.so when it
+# exists and label-freetype.so (FreeType only, one font found with fc-match) otherwise. The
+# Pango plugin loads ~9.5 MB of libraries (glib, cairo, harfbuzz, pango, ...) and took 11 s
+# from the USB disk at boot (2026-10-16). The script theme needs some text rendering even though
+# it draws no text: without it the script plugin has no console viewer and crashes.
+case "$1" in
+install|upgrade)
+	case "$(dpkg --print-architecture)" in
+	ppc64) ma=powerpc64-linux-gnu ;;
+	ppc64el) ma=powerpc64le-linux-gnu ;;
+	amd64) ma=x86_64-linux-gnu ;;
+	*) ma= ;;
+	esac
+	[ -z "$ma" ] || dpkg-divert --quiet --package ps3-splash --rename \
+		--divert /usr/lib/$ma/plymouth/label-pango.so.ps3-splash --add /usr/lib/$ma/plymouth/label-pango.so
+	;;
+esac
+#DEBHELPER#
+exit 0

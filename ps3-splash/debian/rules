@@ -4,25 +4,23 @@ T := debian/ps3-splash/usr/share/plymouth/themes/walnut
 %:
 	dh $@
 
-# Everything is rendered from its SVG source at build time: the logo, the password-prompt images
-# two-step requires, and the progress frames and desktop picture (art/make-frames.py) in frames/
+# Everything is rendered from its SVG source at build time, in images/: the logo, the walnut,
+# the bar's glyphs, and the desktop's start picture (art/make-desktop-splash.py)
 override_dh_auto_build:
-	mkdir -p frames
-	rsvg-convert -w 360 -o frames/watermark.png art/walnut-logo-dark.svg
-	for g in lock entry bullet; do rsvg-convert -o frames/$$g.png theme/glyphs/$$g.svg; done
-	cp theme/glyphs/eq.svg theme/glyphs/dot.svg theme/glyphs/lbracket.svg \
-		theme/glyphs/rbracket.svg art/walnut-mark.svg frames/
-	python3 art/make-frames.py frames
-	cd frames && for f in progress-*.svg desktop-splash.svg; do \
-		rsvg-convert -o $${f%.svg}.png $$f || exit 1; done
+	mkdir -p images
+	rsvg-convert -w 360 -o images/walnut-logo.png art/walnut-logo-dark.svg
+	rsvg-convert -w 30 -o images/nut.png art/walnut-mark.svg
+	for g in eq dot lbracket rbracket; do rsvg-convert -o images/$$g.png theme/glyphs/$$g.svg; done
+	python3 art/make-desktop-splash.py images
+	cd images && rsvg-convert -o desktop-splash.png desktop-splash.svg
 
 override_dh_auto_install:
 	install -d $(T)
-	install -m 644 theme/walnut.plymouth frames/watermark.png frames/lock.png frames/entry.png \
-		frames/bullet.png frames/progress-*.png $(T)/
-	install -D -m 644 frames/desktop-splash.png debian/ps3-splash/usr/share/ps3-splash/desktop-splash.png
+	install -m 644 theme/walnut.plymouth theme/walnut.script images/walnut-logo.png images/nut.png \
+		images/eq.png images/dot.png images/lbracket.png images/rbracket.png $(T)/
+	install -D -m 644 images/desktop-splash.png debian/ps3-splash/usr/share/ps3-splash/desktop-splash.png
 	install -D -m 644 debian/plymouth-quit-retain.conf \
 		debian/ps3-splash/usr/lib/systemd/system/plymouth-quit.service.d/ps3-splash.conf
 
 override_dh_auto_clean:
-	rm -rf frames
+	rm -rf images

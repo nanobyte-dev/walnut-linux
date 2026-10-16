@@ -3,5 +3,11 @@ set -e
 if [ "$1" = remove ] && command -v plymouth-set-default-theme >/dev/null; then
 	[ "$(plymouth-set-default-theme 2>/dev/null)" != walnut ] || plymouth-set-default-theme --reset || true
 fi
+# Pango's text plugin back (debian/preinst)
+if [ "$1" = remove ] || [ "$1" = abort-install ] || [ "$1" = abort-upgrade ]; then
+	for f in $(dpkg-divert --list '*/label-pango.so' | sed -n 's/^diversion of \(.*\) to .* by ps3-splash$/\1/p'); do
+		dpkg-divert --quiet --package ps3-splash --rename --remove "$f"
+	done
+fi
 #DEBHELPER#
 exit 0
