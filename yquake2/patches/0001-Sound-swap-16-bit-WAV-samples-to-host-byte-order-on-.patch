@@ -1,0 +1,145 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 02:26:12 +0300
+Subject: Sound: swap 16-bit WAV samples to host byte order on load
+
+WAV files store 16-bit samples little endian, but the OpenAL backend
+passed them to alBufferData unchanged, which takes host-endian
+samples: on big-endian machines every sound effect played as noise.
+The SDL backend swapped them in its resampler, and the statistics in
+sound.c swapped them too, while the Ogg/Vorbis loader and every
+S_RawSamples caller (music, cinematics) already deliver host order.
+
+Convert WAV data to host order once in S_LoadSound, right after
+GetWavinfo, and treat loaded samples as host order everywhere behind
+it. No change on little-endian machines; on big endian this also
+fixes sound effects loaded from .ogg files in the SDL backend.
+
+diff --git a/src/client/sound/sdl.c b/src/client/sound/sdl.c
+--- a/src/client/sound/sdl.c
++++ b/src/client/sound/sdl.c
+@@ -994,7 +994,7 @@ SDL_Cache(sfx_t *sfx, wavinfo_t *info, byte *data, short volume,
+ 
+ 		if (info->width == 2)
+ 		{
+-			sample = LittleShort(((short *)data)[srcsample]);
++			sample = ((short *)data)[srcsample];
+ 		}
+ 
+ 		else
+diff --git a/src/client/sound/sound.c b/src/client/sound/sound.c
+--- a/src/client/sound/sound.c
++++ b/src/client/sound/sound.c
+@@ -145,7 +145,7 @@ S_IsShortSilence(const wavinfo_t* info, const void* raw_data)
+ 
+ 		for (i = 0; i < sample_count; ++i)
+ 		{
+-			const int sample = LittleShort(samples[i]);
++			const int sample = samples[i];
+ 
+ 			if (abs(sample) > S_MIN_ABS_AMP_16_TO_TREAT_AS_SILENCE)
+ 			{
+@@ -246,6 +246,41 @@ S_LoadVorbis(const char *path, wavinfo_t *info, void **buffer)
+ 	OGG_LoadAsWav(filename, info, buffer);
+ }
+ 
++/*
++ * WAV files store 16 bit samples little endian. Everything
++ * behind the loader (the statistics below, alBufferData, the
++ * SDL backend's resampler) takes samples in host byte order,
++ * like the Ogg/Vorbis decoder delivers them, so swap them in
++ * place on big endian machines.
++ */
++static void
++S_WavToHostOrder(const wavinfo_t *info, byte *data, int size)
++{
++	short *samples;
++	int count;
++	int i;
++
++	if ((info->width != 2) || (LittleShort(1) == 1) ||
++		(info->dataofs <= 0) || (info->dataofs >= size))
++	{
++		return;
++	}
++
++	count = info->samples;
++
++	if (count > (size - info->dataofs) / 2)
++	{
++		count = (size - info->dataofs) / 2;
++	}
++
++	samples = (short *)(data + info->dataofs);
++
++	for (i = 0; i < count; i++)
++	{
++		samples[i] = LittleShort(samples[i]);
++	}
++}
++
+ static void
+ S_GetVolume(const byte *data, int sound_length, int width, double *sound_volume)
+ {
+@@ -257,7 +292,7 @@ S_GetVolume(const byte *data, int sound_length, int width, double *sound_volume)
+ 		short *sound_end = sound_data + sound_length;
+ 		while (sound_data < sound_end)
+ 		{
+-			short sound_sample = LittleShort(*sound_data);
++			short sound_sample = *sound_data;
+ 			*sound_volume += (sound_sample * sound_sample);
+ 			sound_data ++;
+ 		}
+@@ -295,7 +330,7 @@ S_GetStatistics(const byte *data, int sound_length, int width, int channels,
+ 		short *sound_end = sound_data + sound_length;
+ 		while (sound_data < sound_end)
+ 		{
+-			short sound_sample = LittleShort(*sound_data);
++			short sound_sample = *sound_data;
+ 			if (sound_max < abs(sound_sample))
+ 			{
+ 				sound_max = abs(sound_sample);
+@@ -336,7 +371,7 @@ S_GetStatistics(const byte *data, int sound_length, int width, int channels,
+ 		/* delay calculate */
+ 		do
+ 		{
+-			sound_sample = LittleShort(*sound_data);
++			sound_sample = *sound_data;
+ 			sound_data ++;
+ 		}
+ 		while (sound_data < sound_end && abs(sound_sample) < sound_treshold);
+@@ -348,7 +383,7 @@ S_GetStatistics(const byte *data, int sound_length, int width, int channels,
+ 		/* attack calculate */
+ 		do
+ 		{
+-			sound_sample = LittleShort(*sound_data);
++			sound_sample = *sound_data;
+ 			sound_data ++;
+ 		}
+ 		while (sound_data < sound_end && abs(sound_sample) < sound_max);
+@@ -361,7 +396,7 @@ S_GetStatistics(const byte *data, int sound_length, int width, int channels,
+ 		do
+ 		{
+ 			sound_data --;
+-			sound_sample = LittleShort(*sound_data);
++			sound_sample = *sound_data;
+ 		}
+ 		while (sound_data > fade_data && abs(sound_sample) < sound_treshold);
+ 		*end_length = (sound_end -  sound_data) / channels;
+@@ -371,7 +406,7 @@ S_GetStatistics(const byte *data, int sound_length, int width, int channels,
+ 		do
+ 		{
+ 			sound_data --;
+-			sound_sample = LittleShort(*sound_data);
++			sound_sample = *sound_data;
+ 		}
+ 		while (sound_data > fade_data && abs(sound_sample) < sound_max);
+ 		*fade_length = (sound_end - sound_data) / channels;
+@@ -494,6 +529,7 @@ S_LoadSound(sfx_t *s)
+ 		if (data)
+ 		{
+ 			info = GetWavinfo(s->name, data, size);
++			S_WavToHostOrder(&info, data, size);
+ 		}
+ 	}
+ 
