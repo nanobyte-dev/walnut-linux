@@ -15,6 +15,8 @@ package (Debian source packages; docs/PACKAGING.md).
 | `ps3-gpu-tools/` | Programs run on the PS3: raw RSX probes and driver tests (`src/`: `rsx-*`, `rsxdrm-smoke`), scripts (`scripts/`: `rsx-suite.sh`, `rsx-x.sh`, …), offscreen GL tests compared with softpipe (`mesa-tests/`) |
 | `mesa/` | Our Mesa: Debian's `mesa` source package (`package.conf`: version and .dsc hash) plus `patches/` (our driver changes, a quilt series added as `debian/patches/ps3/`) and `packaging/` (changes to `debian/` itself: nouveau + softpipe only, no LLVM, on ppc64) |
 | `ps3-spu/` | SPE test programs and `spurun` (runs SPU ELFs via spufs); packages `ps3-spu` and `ps3-spu-programs` |
+| `plymouth/` | Debian's `plymouth` source package plus `patches/` (the script plugin without a console viewer) |
+| `ps3-splash/` | The Walnut Linux boot splash: Plymouth script theme (`theme/`), artwork generators (`art/`), `debian/` (the DRM renderer diverted, Plymouth drop-ins); also `ps3-no-initramfs` |
 | `ps3-boot/` | `ps3-update-kboot`: Petitboot's boot menu from the installed kernels |
 | `classicube/` | ClassiCube: `package.conf` (pinned upstream tarball plus texpack/audio components), `debian/` (launcher, defaults), `sounds.sh` (sounds/music from Mojang by SHA-1) |
 | `ps3-system/` | System configuration package: networking, SSH, swap, ps3gpu nodes, DS3 pairing, apt sources and pins (`files/`, `debian/`) |
@@ -65,6 +67,7 @@ our own packages, in a minute or two. Everything we build is a .deb in `build/de
 | `classicube` | `/usr/games/classicube` (game data per user in `~/.local/share/classicube`) |
 | `ps3-spu`, `ps3-spu-programs` | `spurun`, spufs mounted at `/spu`; the SPU test programs |
 | `ps3rsx-modules-<release>`, `ps3rsx-modules-ps3`, `ps3rsx-modules-ps3-debug` | the RSX driver (loaded at boot) and probe modules for a kernel; the metas follow the release and debug kernels |
+| `ps3-splash`, `plymouth`, `libplymouth5`, … | the boot splash (Walnut theme) on our patched Plymouth; `ps3-no-initramfs` stands in for initramfs-tools |
 | `ps3-system`, `ps3-desktop` | the system and desktop configuration (see the layout above) |
 
 The image installs them with apt, and `make deploy` installs the same packages on the running

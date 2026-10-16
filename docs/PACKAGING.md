@@ -10,8 +10,8 @@ Each package is a top-level directory with a `package.conf` (read by `tools/deb-
 
 | `TYPE` | What it is | Examples | Version |
 |---|---|---|---|
-| `debsrc` | Debian's source package at the snapshot, plus our quilt series (`<pkg>/patches`, added as `debian/patches/ps3/`) and changes to `debian/` itself (`<pkg>/packaging`) | `mesa`, `linux` | `<debver>+ps3.N` |
-| `native` | Our own code: the directory is the source (`debian/` inside) | `ps3-boot`, `ps3-gpu-tools`, `ps3-spu`, `ps3rsx`, `ps3-system`, `ps3-desktop` | `0.N` (`ps3rsx`: `0.N+k<kernel release>`) |
+| `debsrc` | Debian's source package at the snapshot, plus our quilt series (`<pkg>/patches`, added as `debian/patches/ps3/`) and changes to `debian/` itself (`<pkg>/packaging`) | `mesa`, `linux`, `plymouth` | `<debver>+ps3.N` |
+| `native` | Our own code: the directory is the source (`debian/` inside) | `ps3-boot`, `ps3-gpu-tools`, `ps3-spu`, `ps3rsx`, `ps3-system`, `ps3-desktop`, `ps3-splash` | `0.N` (`ps3rsx`: `0.N+k<kernel release>`, its `-` as `.`) |
 | `upstream` | Software Debian lacks: an upstream tarball plus component tarballs | `classicube` | `<upver>-1+ps3.N` |
 
 N is the commit count up to the last commit that touched the package's directory or the shared
@@ -113,6 +113,13 @@ change them in a disposable git tree:
   MB), then with `-t ps3-dev`: upgrades every installed package of ours that has a newer build,
   installs the named top-level packages, upgrades again; each step simulated first;
   `--no-remove`, except removals named explicitly as `name-` in `PKGS` (and then exactly those).
+  Kernels and ps3rsx modules (`linux-image*`, `linux-headers*`, `linux-kbuild*`,
+  `ps3rsx-modules*`) are upgraded only with `KERNELS=1` or when named in `PKGS` (since
+  2026-10-16, df50edd: a deploy of two desktop packages installed an unfinished kernel build left
+  in `build/debs`, without its ps3rsx modules, and that kernel had no graphics). `DRY_RUN=1`
+  publishes to `ps3-dev` and runs only the simulations. A kernel install is
+  `make deploy KERNELS=1 PKGS="linux-image-ps3 ps3rsx-modules-ps3"`; leave the debug kernel out
+  unless it's wanted (one kernel unpacked at a time).
   It brings its own copy of the sources and pins, so it works before the PS3 has them. Runs
   `ps3-migrate-home` once.
 - The image (`tools/build-image.sh`): the Debian-only base layer, then our packages installed by
@@ -150,6 +157,43 @@ change them in a disposable git tree:
   installed). The image sets `PS3_DEFAULT_FLAVOUR=release`.
 - Kernel and Mesa installs on the running PS3 stop the desktop first (`make deploy` does it):
   two kernels unpacked next to the desktop stalled the PS3 in swap on 2026-10-16 (power cycle).
+
+## The boot splash
+
+Walnut Linux's splash is Plymouth with our theme, made to show early from the USB disk and to stay
+up until X draws (2026-10-16):
+
+- `plymouth/`: Debian's `plymouth` 26.134.222-1 plus one patch,
+  `0001-script-no-console-viewer.patch`. The script plugin's first full redraw called
+  `ply_console_viewer_hide(NULL)` on a display without a console viewer, which is what you get
+  without text rendering (no label plugin) or with `plymouth.prefer-fbcon`: the daemon died with
+  SIGSEGV as the theme started. With the patch the theme needs no text rendering at all, so
+  `plymouth-label` isn't installed (with it, loading Pango, Cairo and fonts took 10 to 11 s at
+  boot from the USB disk).
+- `ps3-splash` (needs our Plymouth, `>= 26.134.222-1+ps3`): the `walnut` script theme (the logo,
+  a progress bar from small images, the walnut rotated live as it rolls). Its preinst diverts
+  Plymouth's DRM renderer (`renderers/drm.so`): it can't drive ps3rsx at boot ("Could not
+  initialize heads") and cost seconds of failed attempts before the framebuffer fallback (ps3fb).
+  0.180's diversion of `label-pango.so` is removed on upgrade. The postinst sets the theme and
+  `DeviceTimeout=1` in `plymouthd.conf` (with udev Plymouth waits 8 s for a DRM device before it
+  takes the framebuffer; `plymouth.ignore-udev` instead showed nothing, since without udev it
+  hands the framebuffer renderer the DRM device path). Two drop-ins: `plymouth-start` runs with
+  `XKB_CONFIG_ROOT=/nonexistent` (Plymouth compiled an XKB keymap for typed input, 3 s from the
+  busy disk, and nothing here types at boot), `plymouth-quit` runs `plymouth quit --retain-splash`.
+- From the splash to the desktop: the autologin getty on tty1 (`ps3-desktop`'s generator) has
+  `TTYReset=no`, `TTYVHangup=no`, `TTYVTDisallocate=no`, so it leaves tty1 in graphics mode with
+  the splash on it (the reset switched back to text and showed the login for the seconds X takes
+  to start); the login shell switches tty1 back to text whenever no X runs on it. `ps3-session`
+  puts the splash's last frame (`ps3-splash` renders it, padded so `hsetroot -center` lands the
+  logo where Plymouth drew it) on X's root window and drops it once the desktop draws, freeing
+  its 8 MB pixmap.
+- Only kernels whose arguments contain `splash` show it: the release kernel
+  (`linux/flavours/release.args`: `quiet splash`), not the debug one.
+- Debugging it without text on tty1: `plymouth.debug=file:/var/log/plymouth-debug.log
+  plymouth.debug=stream:/dev/null` on the kernel line. `file:` alone still printed the debug
+  text on tty1; the second option sends the stream to `/dev/null`. For a test boot, append both
+  to the one line of `/usr/lib/ps3/boot/<release>.args` and run `sudo ps3-update-kboot` (the
+  file belongs to the kernel package, so the next upgrade of that package drops it again).
 
 ## Image snapshots
 

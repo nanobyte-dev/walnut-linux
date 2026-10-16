@@ -55,30 +55,50 @@ permanently (to the OtherOS++ Linux region of the HDD, within the safety rules).
 
 ## Where we are (2026-10-16)
 
-- **Next (agreed 2026-10-16):** the splash working on the PS3 (Plymouth's DRM renderer fails on
-  ps3rsx, the framebuffer fallback needs `DeviceTimeout=1`); then retire the legacy pipeline
-  (`build-kernel.sh`, `build-debs.sh`, `stage-package.sh`, the `ps3-kernel-*` packages; the
-  transitional `ps3-mesa` is dropped, a fresh install never needs it) and clean the old kernels
-  off the PS3 (Petitboot has no default or timer: the owner picks from the menu); rebuild the
-  image, compare a fresh install with the live system, and reimage the USB disk with it. No
-  publishing to the stable suite until more work is done.
+- **Done 2026-10-16:** the splash (docs/PACKAGING.md, "The boot splash"): our Plymouth
+  (Debian's 26.134.222-1 plus one patch: the script plugin crashed on
+  `ply_console_viewer_hide(NULL)` without text rendering or with `plymouth.prefer-fbcon`), the
+  `walnut` script theme in `ps3-splash` with Plymouth's DRM renderer diverted (it fails on ps3rsx
+  at boot), `DeviceTimeout=1`, no XKB keymap compile (3 s), `quit --retain-splash`, the getty on
+  tty1 that leaves the splash alone and the splash's last frame on X's root window until the
+  desktop draws. ps3rsx (f30b505): DPMS off now blanks with a ps3av video mute instead of
+  flipping to ps3fb's console, and the hardware cursor comes back when the CRTC is enabled again.
+  The legacy pipeline is retired (`make kernel`, `make debs`, `build-kernel.sh`, `build-debs.sh`,
+  `stage-package.sh`, the `ps3-kernel-*` packages, the transitional `ps3-mesa`, `config.mk`'s
+  `KERNEL_*`); everything builds as Debian source packages into `build/debs`.
+- **Next (agreed 2026-10-16):** a test boot of the release kernel `6.12.111+ps3.178` with
+  ps3rsx 0.181 (the owner reboots): splash timing from the USB disk and the DPMS fix, neither
+  tested on hardware yet. For the timing its arguments file gets
+  `plymouth.debug=file:/var/log/plymouth-debug.log plymouth.debug=stream:/dev/null`
+  (PACKAGING.md, "The boot splash"). Then clean the old kernels off the PS3 (the
+  owner removes them; Petitboot has no default or timer: the owner picks from the menu), build a
+  fresh image and compare a fresh install with the live system, and reimage the USB disk with it.
+  No publishing to the stable suite until the owner says so.
 - **Lessons (2026-10-16):** a deploy must not let apt solve against Debian's full lists on the PS3
   (twice it stalled the machine for good: swap disabled by a packaging bug the first time, apt's
   memory with ~60000 Debian packages the second); kernel and Mesa installs stop the desktop
   first. A Debian package can't ship its own config into another package's conffile without
-  ordering care (Plymouth).
+  ordering care (Plymouth). A deploy picks up whatever is in `build/debs`: kernels only with
+  `KERNELS=1` or by name since an unfinished kernel build went in without its ps3rsx modules.
+  From the USB disk every library a boot-time program loads costs seconds (Pango for Plymouth's
+  labels: 10 to 11 s; an XKB keymap: 3 s): measure with `plymouth.debug=file:` (plus
+  `plymouth.debug=stream:/dev/null`, or the debug text lands on tty1).
 
 - **Packages (2026-10-16, docs/PACKAGING.md):** everything we ship is a Debian package built from
   a source package: Mesa is Debian's `mesa` rebuilt with our patches (replaces Debian's; LLVM,
   z3 and sensors are gone from the PS3, 196 MB of disk), plus `ps3-gpu-tools`, `ps3-spu`,
-  `ps3rsx-modules-*`, `ps3-boot`, `ps3-system`, `ps3-desktop` and `classicube`. They come from
+  `ps3rsx-modules-*`, `ps3-boot`, `ps3-system`, `ps3-desktop`, `ps3-splash` (with our
+  `plymouth`) and `classicube`. The kernels are Debian's `linux` rebuilt: release
+  `6.12.111+ps3.N` (`linux-image-ps3`), debug `6.12.111+ps3.N-debug<stamp>`
+  (`linux-image-ps3-debug`). They come from
   our apt repository on tibi-server; Debian's live ports archive covers the rest, with pins that
   keep Debian's kernels and Mesa out. The image installs ours with apt; `customize.sh` keeps only
   per-installation settings.
 
 - **Boot:** the image lives on a USB disk; Petitboot boots it on its own from `/etc/kboot.conf`
   (written by `ps3-update-kboot`, one entry per installed kernel, newest the default, the older
-  ones as fallbacks). NFS netboot still works for development (`make netboot`).
+  ones as fallbacks; the image boots the release kernel by default). NFS netboot still works
+  for development (`make netboot-deb`, a kernel from `build/debs/linux`).
 - **GPU:** `ps3rsx` (registers as "nouveau") runs Mesa nv30 from our fork: Xorg with glamor,
   GL games, KMS with real vsync. The GART is dynamic (CMA, 1 MB chunks on demand). Details:
   DRIVER-PLAN.md, RSX.md.
@@ -225,9 +245,8 @@ Only when content needs them (OpenArena and ClassiCube don't):
   snapshots; the image and packages are reproducible (checked). Tested on the PS3 (NFS root
   netboot of both kernels, then installed on the USB root). Open: boot a new kernel from
   Petitboot's own menu (labels contain `+`) and choose the default (`PS3_DEFAULT_FLAVOUR` in
-  /etc/default/ps3-boot); then remove the legacy `ps3-kernel*` packages and retire
-  build-kernel.sh, build-debs.sh, stage-package.sh and the Mesa cross toolchain targets; signing
-  the repository.
+  /etc/default/ps3-boot); remove the legacy kernels from the PS3 (the owner does); signing the
+  repository. The legacy build pipeline and the Mesa cross toolchain are gone (2026-10-16).
 - **ClassiCube** (task #10): default.zip at build time, no first-run download.
 - **Reproducibility check:** two image builds, same `make checksums`. Image size: Debian's
   Mesa and LLVM. `make disk-image` (raw `.img.xz`, `systemd-repart` grows it on first boot).
@@ -245,10 +264,10 @@ Only when content needs them (OpenArena and ClassiCube don't):
 ## Done (summary)
 
 - **Image:** reproducible two-layer build (`make rootfs`), pinned inputs, fixed
-  `SOURCE_DATE_EPOCH`; packages in `build/repo`; `make usb-root-petitboot` writes the image onto
+  `SOURCE_DATE_EPOCH`; packages in `build/debs`; `make usb-root-petitboot` writes the image onto
   the USB disk from Petitboot.
-- **Kernels side by side:** `ps3-kernel-<version>-ps3-debug-<date>` packages with their
-  `ps3rsx-<release>`; `ps3-boot` writes the boot menu.
+- **Kernels side by side:** `linux-image-<release>` packages (release and debug kernels) with
+  their `ps3rsx-modules-<release>`; `ps3-boot` writes the boot menu.
 - **GPU:** ps3rsx with validator, software context switch, KMS, vsync IRQ; GPU vertex fetch
   (ClassiCube 6.5 → 60 fps); Mesa fixes (fog, banded uploads, staging limits); dynamic GART via
   CMA (`rsxdrm-smoke gart`: 56 MB under memory pressure, data correct).
@@ -263,8 +282,9 @@ Only when content needs them (OpenArena and ClassiCube don't):
 - **Getting to Linux needs the user:** fan on SYSCON in webMAN, the OtherOS flag in the XMB,
   Petitboot boots the default kernel (or the user picks another). Every reboot lands in GameOS.
   At the end of each session the flag goes back to GameOS.
-- **Deploying:** `make debs` then `make deploy PKGS="…"` (kernel packages install next to the
-  running one). ps3rsx can only be reloaded with X stopped (`systemctl stop getty@tty1`, then
+- **Deploying:** `make <pkg>-deb` then `make deploy PKGS="…"`; kernels with `make deploy
+  KERNELS=1 PKGS="linux-image-ps3 ps3rsx-modules-ps3"` (they install next to the running one).
+  `DRY_RUN=1` shows what would change. ps3rsx can only be reloaded with X stopped (`systemctl stop getty@tty1`, then
   start it again) and, with VRAM swap on, after `swapoff /dev/ps3vswap0`.
 - **Kernel changes need a reboot;** batch them. kexec from our Linux crashed the console.
 - **A graph exception wedges the GPU until a console reboot.** Risky tests go last.
