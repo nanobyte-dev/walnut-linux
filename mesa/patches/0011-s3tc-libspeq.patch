@@ -1,0 +1,112 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 16 Oct 2026 17:22:56 +0300
+Subject: mesa: S3TC DXT1 compression through libspeq on the PS3
+
+The Cell's SPEs (or libspeq's own PPE encoder) compress RGB(A) uploads into DXT1 instead of
+Mesa's encoder, so games can use compressed textures (a quarter or an eighth of the VRAM, which
+the PS3 also uses as swap) without slow loads. libspeq is loaded at run time: Mesa doesn't
+depend on it, and without it, or when it returns an error, Mesa's own encoder runs. All policy
+(sizes, which unit, SPEQ_S3TC) lives in libspeq.
+
+Forwarded: no
+
+diff --git a/src/mesa/main/texcompress_s3tc.c b/src/mesa/main/texcompress_s3tc.c
+--- a/src/mesa/main/texcompress_s3tc.c
++++ b/src/mesa/main/texcompress_s3tc.c
+@@ -88,6 +88,10 @@ _mesa_texstore_rgb_dxt1(TEXSTORE_PARAMS)
+ 
+    dst = dstSlices[0];
+ 
++#if DETECT_ARCH_PPC_64
++   if (!_mesa_s3tc_speq(GL_COMPRESSED_RGB_S3TC_DXT1_EXT, srccomps, pixels, srcWidth,
++                        srcHeight, dst, dstRowStride))
++#endif
+    tx_compress_dxt1(srccomps, srcWidth, srcHeight, pixels,
+                     dst, dstRowStride, 3);
+ 
+@@ -144,6 +148,10 @@ _mesa_texstore_rgba_dxt1(TEXSTORE_PARAMS)
+ 
+    dst = dstSlices[0];
+ 
++#if DETECT_ARCH_PPC_64
++   if (!_mesa_s3tc_speq(GL_COMPRESSED_RGBA_S3TC_DXT1_EXT, 4, pixels, srcWidth, srcHeight,
++                        dst, dstRowStride))
++#endif
+    tx_compress_dxt1(4, srcWidth, srcHeight, pixels, dst, dstRowStride, 4);
+ 
+    free((void*) tempImage);
+diff --git a/src/mesa/main/texcompress_s3tc.h b/src/mesa/main/texcompress_s3tc.h
+--- a/src/mesa/main/texcompress_s3tc.h
++++ b/src/mesa/main/texcompress_s3tc.h
+@@ -47,6 +47,14 @@ _mesa_texstore_rgba_dxt5(TEXSTORE_PARAMS);
+ extern compressed_fetch_func
+ _mesa_get_dxt_fetch_func(mesa_format format);
+ 
++#include "util/detect_arch.h"
++#if DETECT_ARCH_PPC_64
++/* texcompress_s3tc_speq.c: true when libspeq compressed the image */
++extern bool
++_mesa_s3tc_speq(GLenum fmt, int srccomps, const GLubyte *src, int width, int height,
++                GLubyte *dst, int dst_stride);
++#endif
++
+ extern void
+ _mesa_unpack_s3tc(uint8_t *dst_row,
+                   unsigned dst_stride,
+diff --git a/src/mesa/main/texcompress_s3tc_speq.c b/src/mesa/main/texcompress_s3tc_speq.c
+new file mode 100644
+--- /dev/null
++++ b/src/mesa/main/texcompress_s3tc_speq.c
+@@ -0,0 +1,40 @@
++/*
++ * PS3 (Cell): S3TC compression through libspeq, which runs it on the SPEs or with its own PPE
++ * encoder. Loaded at run time, so Mesa doesn't depend on it; without it (or on any error) the
++ * caller compresses with Mesa's encoder. All policy (image sizes, which unit, SPEQ_S3TC) lives in
++ * libspeq, so tuning it needs no Mesa rebuild.
++ */
++
++#include "util/detect_arch.h"
++
++#if DETECT_ARCH_PPC_64
++
++#include "c11/threads.h"
++#include "util/u_dl.h"
++#include "texcompress_s3tc.h"
++
++/* speq_s3tc_compress_v1(fmt, srccomps, src, w, h, dst, dst_stride): 0 or -errno */
++typedef int (*speq_s3tc_func)(unsigned, unsigned, const void *, unsigned, unsigned, void *,
++                              unsigned);
++
++static speq_s3tc_func speq_s3tc;
++static once_flag speq_once = ONCE_FLAG_INIT;
++
++static void
++speq_load(void)
++{
++   struct util_dl_library *lib = util_dl_open("libspeq.so.0");
++
++   if (lib)
++      speq_s3tc = (speq_s3tc_func)util_dl_get_proc_address(lib, "speq_s3tc_compress_v1");
++}
++
++bool
++_mesa_s3tc_speq(GLenum fmt, int srccomps, const GLubyte *src, int width, int height,
++                GLubyte *dst, int dst_stride)
++{
++   call_once(&speq_once, speq_load);
++   return speq_s3tc && speq_s3tc(fmt, srccomps, src, width, height, dst, dst_stride) == 0;
++}
++
++#endif
+diff --git a/src/mesa/meson.build b/src/mesa/meson.build
+--- a/src/mesa/meson.build
++++ b/src/mesa/meson.build
+@@ -203,6 +203,7 @@ files_libmesa = files(
+   'main/texcompress_rgtc.h',
+   'main/texcompress_s3tc.c',
+   'main/texcompress_s3tc.h',
++  'main/texcompress_s3tc_speq.c',
+   'main/texenv.c',
+   'main/texenvprogram.h',
+   'main/texgen.c',

@@ -8,3 +8,4 @@
 0008-nvfx-fp-export32.patch
 0009-dri-gbm-loader-host-order-8888.patch
 0010-ffvertex-fog-distance.patch
+0011-s3tc-libspeq.patch
