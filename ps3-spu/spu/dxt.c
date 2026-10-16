@@ -25,6 +25,12 @@
  * intrinsics come from dxt-emu.h, so the SIMD path can be tested against the reference there. */
 #include "dxt.h"
 
+/* dxt-emu.h is little-endian only: a big-endian host (the ppc64 package build's tests) gets the
+ * plain C version */
+#if !defined(__SPU__) && !defined(DXT_SCALAR) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#define DXT_SCALAR
+#endif
+
 #ifdef DXT_SCALAR
 
 static unsigned to565(const uint8_t c[3])
@@ -117,11 +123,11 @@ emit:
 	out[7] = bits >> 24;
 }
 
-void dxt1_encode_rows(const uint8_t *src, unsigned src_offset, unsigned width, unsigned block_rows,
-		      uint8_t *dst, int alpha_mode)
+void dxt1_encode_rows_stride(const uint8_t *src, unsigned src_offset, unsigned width,
+			     unsigned stride, unsigned block_rows, uint8_t *dst, int alpha_mode)
 {
 	const uint8_t *s = src + src_offset;
-	unsigned stride = 4 * width, bx, by;
+	unsigned bx, by;
 
 	for (by = 0; by < block_rows; by++)
 		for (bx = 0; bx < width / 4; bx++, dst += 8)
@@ -309,11 +315,12 @@ INLINE void store8(uint8_t *d, vu8 b)
 		STQ(q, spu_shuffle(b, old, VU8(0, 1, 2, 3, 4, 5, 6, 7, 24, 25, 26, 27, 28, 29, 30, 31)));
 }
 
-/* n blocks from p (aligned; pat shifts), bw to a block row, the output in one run from d */
-INLINE void encode_all(const uint8_t *p, vu8 pat, unsigned bw, unsigned n, uint8_t *d,
-		       const int punch)
+/* n blocks from p (aligned; pat shifts), bw to a block row, pixel rows stride bytes apart,
+ * the output in one run from d */
+INLINE void encode_all(const uint8_t *p, vu8 pat, unsigned bw, unsigned stride, unsigned n,
+		       uint8_t *d, const int punch)
 {
-	unsigned stride = 16 * bw, skip = 3 * stride, x = 0;
+	unsigned skip = 4 * stride - 16 * bw, x = 0;
 
 #define NEXT() do {					\
 		unsigned wrap_ = ++x == bw;		\
@@ -342,8 +349,8 @@ INLINE void encode_all(const uint8_t *p, vu8 pat, unsigned bw, unsigned n, uint8
 #undef NEXT
 }
 
-void dxt1_encode_rows(const uint8_t *src, unsigned src_offset, unsigned width, unsigned block_rows,
-		      uint8_t *dst, int alpha_mode)
+void dxt1_encode_rows_stride(const uint8_t *src, unsigned src_offset, unsigned width,
+			     unsigned stride, unsigned block_rows, uint8_t *dst, int alpha_mode)
 {
 	uintptr_t a = (uintptr_t)src + src_offset;
 	const uint8_t *base = (const uint8_t *)(a & ~(uintptr_t)15);
@@ -354,9 +361,15 @@ void dxt1_encode_rows(const uint8_t *src, unsigned src_offset, unsigned width, u
 					  off * 0x01010101u));
 
 	if (alpha_mode == DXT1_MODE_RGBA)
-		encode_all(base, pat, bw, bw * block_rows, dst, 1);
+		encode_all(base, pat, bw, stride, bw * block_rows, dst, 1);
 	else
-		encode_all(base, pat, bw, bw * block_rows, dst, 0);
+		encode_all(base, pat, bw, stride, bw * block_rows, dst, 0);
 }
 
 #endif /* SIMD */
+
+void dxt1_encode_rows(const uint8_t *src, unsigned src_offset, unsigned width, unsigned block_rows,
+		      uint8_t *dst, int alpha_mode)
+{
+	dxt1_encode_rows_stride(src, src_offset, width, 4 * width, block_rows, dst, alpha_mode);
+}

@@ -19,5 +19,9 @@
  * partly written quadword is kept. alpha_mode is DXT1_MODE_RGB or DXT1_MODE_RGBA. */
 void dxt1_encode_rows(const uint8_t *src, unsigned src_offset, unsigned width, unsigned block_rows,
 		      uint8_t *dst, int alpha_mode);
+/* The same with pixel rows src_stride bytes apart (a multiple of 16, at least 4 * width): a
+ * column strip of a wider image, its rows fetched one by one (dxt.spu's wide images) */
+void dxt1_encode_rows_stride(const uint8_t *src, unsigned src_offset, unsigned width,
+			     unsigned src_stride, unsigned block_rows, uint8_t *dst, int alpha_mode);
 
 #endif
