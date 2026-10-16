@@ -11,3 +11,4 @@
 0011-s3tc-libspeq.patch
 0012-nv30-two-byte-texels-big-endian.patch
 0013-nv30-thin-mip-levels.patch
+0014-nv30-blit-source-alignment.patch

@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 01:12:52 +0300
+Subject: nv30: no 3D blit from a texture offset the RSX can't sample
+
+Reading a level of a swizzled texture back (a transfer map with PIPE_MAP_READ) goes through
+nv30_transfer_rect_blit, which samples the level as a texture based at the level's offset. Mesa's
+software mipmap generation does that for every level of a texture whose format isn't renderable
+on nv30 (L8A8, L8, A8, I8, 4444, 5551): GL_GENERATE_MIPMAP in Neverball. In a 32x32 L8A8
+texture the 2x2 level sits at +0xaa0. The blit only checked the destination's alignment, so the
+RSX got TEX_OFFSET 0x0142baa0 and raised graph exception 0x105, which wedges it until the console
+reboots (counting the PFIFO cache entries in the exception dump puts the fault in that blit:
+the push before it, level 3 at +0xa80, ran).
+
+On the PS3 the blit now refuses a source offset that isn't 128-byte aligned (libgcm's texture
+alignment), and such small levels are read with the CPU, as their writes already were.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
+@@ -65,6 +65,12 @@ nv30_transfer_blit(XFER_ARGS)
+       return false;
+    if (src->cpp > 4)
+       return false;
++   /* The blit samples the source as a texture based at the rect's offset, which for a small
++    * mip level isn't aligned (32x32 L8A8: level 4 at +0xaa0). The RSX takes texture offsets
++    * 128-byte aligned only (libgcm's rule) and raised graph exception 0x105 on one, which
++    * wedges it until reboot: read such levels with the CPU instead. */
++   if (nv30->screen->base.is_ps3 && (src->offset & 127))
++      return false;
+    return true;
+ }
+ 
