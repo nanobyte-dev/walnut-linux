@@ -47,3 +47,79 @@ game.
   vmalloc per context.
 - A futex sleep costs ~62 us over spinning; `speq_wait` spins 80 us.
 - Linux gets 6 SPEs (`spu_base.enum_shared=0`); XDR bandwidth ~20-23 GB/s with all six.
+
+## Context for picking it back up
+
+### Decisions (with the user, 2026-10-16) and why
+
+- **SPU work is userspace only.** spufs (kernel) already schedules SPU contexts across processes;
+  libspeq is a client library plus a resident SPU runtime, like a thread pool. The kernel can't
+  use SPEs (no in-kernel spufs client), so validator, zram and vswap stay on the PPE/RSX.
+- **VRAM counts as scarce**: it doubles as swap (ps3vswap, up to 96 MB) and future games are
+  heavier than OpenArena, so VRAM savings (DXT) are memory wins even when RAM numbers don't move.
+- **DXT first, audio second**, after step 0. Audio stays a candidate (~10% of OpenArena's frame
+  rate); Vorbis on SPUs was dropped (OpenArena's sounds are WAV).
+- **Mesa holds no policy.** The hook is ~30 lines that dlopen `libspeq.so.0` and call
+  `speq_s3tc_compress_v1`; sizes, PPE/SPU choice and debug switches live in libspeq, so tuning
+  never needs a Mesa rebuild (12-25 min). Mesa has no package dependency on libspeq.
+- **SPU programs are files** in `/usr/lib/ps3/spu` (package ps3-spu-programs), not embedded:
+  ps3-spu builds `-A` on amd64 with our spu-elf toolchain and `-B` in the ppc64 chroot. An ABI
+  word (`.speq_abi` section, `SPEQ_ABI_VERSION`) keeps the halves in step.
+- **Every PS3 measurement through ps3-bench.sh** (desktop stopped, swaps emptied), never during
+  a deploy; all-SPE load capped (60 s per run, 30 s gaps), the user present, webMAN fan on
+  SYSCON preferred over a fixed 60%.
+
+### Facts from source (reviews of the plan against the kernel, newlib, Mesa)
+
+- spufs: create contexts with `SPU_CREATE_EVENTS_ENABLED`, or an SPU DMA fault sends
+  SIGSEGV/SIGBUS to the whole process (fatal inside Mesa). `spu_run` returns the status word
+  with the event in its third argument (not -EFAULT); a faulted context can't be restarted
+  (close and recreate). `spu_run` takes no argument: registers go through the context's `regs`
+  file (crt0: `main(r3, r4, r5)`, r6 saved as `__ea_local_store`). Stop 0x2104 runs whitelisted
+  syscalls (futex, write, nanosleep, getpid) on the worker thread inside `spu_run`; 0x2100 (C99
+  stdio) and 0x2101 (POSIX) need a PPE server, which nothing provides yet. With no more contexts
+  than SPEs nothing is preempted; past that, 80 ms slices.
+- Queue protocol: `tail|parked` packed in one word (the submit's lwarx/stwcx. takes and clears
+  `parked`), the SPU fetches a job line *before* its claiming putllc (or the PPE can reuse the
+  slot), `pending|waiters` in one word per done line, acquire `lwsync` after completion.
+- Mesa: glTexImage on nv30 reaches `tx_compress_dxtN()` through `_mesa_texstore_*dxt*`
+  (`src/mesa/main/texcompress_s3tc.c`), never `util_format_dxt*_pack`; the destination is a
+  fresh, page-aligned GART BO, stride 64-aligned, a PFNMAP mapping the SPEs can write. Mesa writes
+  DXT blocks byte by byte little-endian; alpha <= 127 is transparent (punch-through). OpenArena
+  (renderergl1) compresses only opaque textures, as `RGBA_DXT1`, from RGBA, one glTexImage per
+  CPU-made mip level; its sources are usually 8 bytes past a 16-byte boundary (hunk allocator).
+  Generic compressed RGBA becomes DXT5 (not encoded by libspeq yet).
+- Swap in the harness: `swapon -a` restores nothing here (fstab swap is `noauto`; ps3-swap and
+  ps3-vswap services enable zram0 and ps3vswap0); restarting ps3-vswap fails once its backing is
+  set. Restore by hand: `swapon -p 300 --discard /dev/ps3vswap0` (frees stale VRAM slots),
+  `swapon -p 100 /dev/zram0`.
+- xinit runs a client only when its path starts with `/`; OpenArena archives `+set` cvars to
+  q3config.cfg on quit (the harness backs it up per session).
+
+### Step 0 caveats found later (SPU-AUDIO.md)
+
+- Variant B (`sample-type=int16`) also turned on OpenAL Soft's output limiter and dithering,
+  which likely explains why it cost more; B22 probably still ran at 48 kHz (ALSA dmix is fixed
+  at 48 kHz, OpenAL disables ALSA's resampler). HRTF was never on. ppc64 has no SIMD mixer
+  (`Mix_C`, `Resample_Cubic_C`).
+- perf: `-a -g` hung the PS3; use `-p <pid>`, `-F 999`, `timeout`. Run `perf report` as the
+  owner of perf.data (not sudo), with `-g none` for flat sorts; the step 0 profiles left OpenAL's
+  mixer thread as `[unknown]`.
+
+### How to run things
+
+- Build: `make ps3-spu-deb` (also `mesa-deb`, `ps3-gpu-tools-deb`); host tests:
+  `make -C ps3-spu test` (fake backend `SPEQ_FAKE=1`, runtime and ops on host threads),
+  `make -C ps3-spu test-mesa` (our encoder against Mesa's on an OpenArena corpus).
+- Deploy: `make deploy PKGS="libspeq0"` (upgrades ps3-spu and programs too); kernels only with
+  `KERNELS=1` or named. The user allowed `make deploy` on 2026-10-16 (the auto-mode classifier
+  blocked it before that).
+- On the PS3 (as tibi over SSH):
+  - `ps3-bench.sh run LABEL -- cmd`, `ps3-bench.sh x LABEL -- client`, `ps3-bench.sh desktop`
+    at the end; results in `/var/tmp/ps3-bench/`, summaries with `games/openarena/step0-report.py`.
+  - `speq-dxt --check --path spu`, `speq-dxt --bench`, `speq-bench [--quick] [--fault]`,
+    `SPEQ_DEBUG=1 gl-dxt`, `spurun <prog.spu> [symbol]`.
+  - `games/openarena/step0.sh smoke|tc1-first|tex N|audio N|profile V` (copied to
+    `/var/tmp/step0` on the PS3).
+- libspeq environment: `SPEQ_S3TC=auto|spu|ppe|off` (default auto), `SPEQ_S3TC_MIN` (64x64),
+  `SPEQ_DEBUG=1`, `SPEQ_SPIN_US` (80), `SPEQ_IDLE_US` (10000), `SPEQ_FREE_MS` (5000).
