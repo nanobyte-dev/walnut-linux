@@ -9,8 +9,10 @@
  * WITHOUT patch 0014 (Mesa ps3.223 and older) THIS WEDGES THE RSX UNTIL REBOOT: run it only
  * on a Mesa with 0014.
  *
- *   gl-mipread [get|gen|all] [format...]     (default: all, every format; RGBA8 first: it never
- *                                             takes the changed path)
+ *   gl-mipread [get|gen|all] [format...] [WxH...]
+ *       default: both parts, every format (RGBA8 first: it never takes the changed path) and
+ *       every size (32x32 first: Neverball's, whose blits at aligned offsets ran before the
+ *       wedge; 256x16 and 16x256 add blits from 2-pixel-wide or -high swizzled levels)
  *
  * get: every level uploaded with its own value (no mipmap generation), then glGetTexImage of
  *      every level, byte-exact. Before each level it prints the level's offset and the path
@@ -255,14 +257,27 @@ int main(int argc, char **argv)
 
 	for (i = 0; i < sizeof(fmts) / sizeof(fmts[0]); i++) {
 		const struct fmt *f = &fmts[i];
-		int k, chosen = argc <= a;
+		int k, chosen = 1, named = 0, w, h;
 
+		for (k = a; k < argc; k++)	/* a format named: only those */
+			if (sscanf(argv[k], "%dx%d", &w, &h) != 2)
+				named = 1, chosen = 0;
 		for (k = a; k < argc; k++)
 			if (!strcmp(argv[k], f->name))
 				chosen = 1;
-		if (!chosen)
+		if (named && !chosen)
 			continue;
 		for (s = 0; s < sizeof(sizes) / sizeof(sizes[0]); s++) {
+			int sized = 0, want = 0;
+
+			for (k = a; k < argc; k++)
+				if (sscanf(argv[k], "%dx%d", &w, &h) == 2) {
+					sized = 1;
+					if (w == sizes[s].w && h == sizes[s].h)
+						want = 1;
+				}
+			if (sized && !want)
+				continue;
 			if (get)
 				fails += run_get(f, sizes[s].w, sizes[s].h);
 			if (gen)
