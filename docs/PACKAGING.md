@@ -83,7 +83,9 @@ change them in a disposable git tree:
   to the server that refuses to change any published file, indices last, then the aptly database
   backed up to the server. `build/aptly` is the one part of `build/` that is never deleted.
 - `make deps` refreshes the `deps` component: Debian packages from the snapshot listed in
-  `image/deps.txt` (ones ours newly depend on, and Debian's Mesa set for rollback).
+  `image/deps.txt` (ones ours newly depend on, ps3-apps' applications, and Debian's Mesa set for
+  rollback), with their dependencies (the PS3 sees only our repository: an application's libraries
+  the base layer lacks must be there too). 440 packages on 2026-10-16, after ps3-apps.
 - Debug symbols (`*-dbgsym`) go to `ps3-dbgsym` only, never into deploys or images.
 
 ## On the PS3

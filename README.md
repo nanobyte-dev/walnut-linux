@@ -14,13 +14,13 @@ package (Debian source packages; docs/PACKAGING.md).
 | `ps3rsx/` | The RSX DRM driver (`src/`, registers as "nouveau": render ioctls, validator, software context switch, KMS, VRAM swap) and the GPU probe modules (`probes/`); `debian/` builds `ps3rsx-modules-<release>` against our kernels |
 | `ps3-gpu-tools/` | Programs run on the PS3: raw RSX probes and driver tests (`src/`: `rsx-*`, `rsxdrm-smoke`), scripts (`scripts/`: `rsx-suite.sh`, `rsx-x.sh`, …), offscreen GL tests compared with softpipe (`mesa-tests/`) |
 | `mesa/` | Our Mesa: Debian's `mesa` source package (`package.conf`: version and .dsc hash) plus `patches/` (our driver changes, a quilt series added as `debian/patches/ps3/`) and `packaging/` (changes to `debian/` itself: nouveau + softpipe only, no LLVM, on ppc64) |
-| `ps3-spu/` | SPE test programs and `spurun` (runs SPU ELFs via spufs); packages `ps3-spu` and `ps3-spu-programs` |
+| `ps3-spu/` | libspeq (`lib/`: resident SPE workers, a job queue, the DXT1 encoders), the SPU programs (`spu/`: the runtime, `bench`, `dxt`, `hello`), tools (`tools/`: `speq-dxt`, `speq-bench`; `src/spurun.c`), host tests (`tests/`, `make -C ps3-spu test`); packages `libspeq0`, `libspeq-dev`, `ps3-spu`, `ps3-spu-programs` |
 | `plymouth/` | Debian's `plymouth` source package plus `patches/` (the script plugin without a console viewer) |
 | `ps3-splash/` | The Walnut Linux boot splash: Plymouth script theme (`theme/`), artwork generators (`art/`), `debian/` (the DRM renderer diverted, Plymouth drop-ins); also `ps3-no-initramfs` |
 | `ps3-boot/` | `ps3-update-kboot`: Petitboot's boot menu from the installed kernels |
 | `classicube/` | ClassiCube: `package.conf` (pinned upstream tarball plus texpack/audio components), `debian/` (launcher, defaults), `sounds.sh` (sounds/music from Mojang by SHA-1) |
 | `ps3-system/` | System configuration package: networking, SSH, swap, ps3gpu nodes, DS3 pairing, apt sources and pins (`files/`, `debian/`) |
-| `ps3-desktop/` | Desktop package: autologin, `ps3-session`, game mode, Openbox/tint2/GTK/PCManFM defaults in `/etc/xdg/ps3`, X config |
+| `ps3-desktop/` | Desktop package: autologin, `ps3-session`, game mode, Openbox/tint2/GTK/PCManFM defaults and default applications in `/etc/xdg/ps3`, X config; also `ps3-apps` (the everyday applications) |
 | `image/` | The root filesystem image: `packages.txt` (slow Debian layer), `packages-ours.txt` (ours, installed with apt), `deps.txt` (Debian packages in our repository), `customize.sh` (per-installation settings: hostname, user, key, locale) |
 | `spu-toolchain/` | The spu-elf cross toolchain's patches: GCC 16.2 port (`gcc/`), binutils 2.47 fix, newlib 4.6 fixes, test scripts |
 | `games/openarena/` | OpenArena benchmark demo and scripts |
@@ -65,10 +65,12 @@ our own packages, in a minute or two. Everything we build is a .deb in `build/de
 | `ps3-gpu-tools` | RSX probes, driver tests and the GL tests in `/usr/lib/ps3/bin` (on `PATH`) |
 | `mesa-libgallium`, `libgl1-mesa-dri`, `libegl-mesa0`, `libglx-mesa0`, `libgbm1`, … | Debian's Mesa packages rebuilt from `mesa/` (`26.2.4-1+ps3.N`), replacing Debian's |
 | `classicube` | `/usr/games/classicube` (game data per user in `~/.local/share/classicube`) |
-| `ps3-spu`, `ps3-spu-programs` | `spurun`, spufs mounted at `/spu`; the SPU test programs |
+| `libspeq0` | libspeq: SPU jobs from any program (resident workers on the SPEs); DXT1 compression for Mesa, which loads it at run time (`SPEQ_S3TC=auto\|spu\|ppe\|off`, `SPEQ_DEBUG=1`) |
+| `ps3-spu`, `ps3-spu-programs` | `spurun`, `speq-dxt`, `speq-bench`, spufs mounted at `/spu`; the SPU programs in `/usr/lib/ps3/spu` |
 | `ps3rsx-modules-<release>`, `ps3rsx-modules-ps3`, `ps3rsx-modules-ps3-debug` | the RSX driver (loaded at boot) and probe modules for a kernel; the metas follow the release and debug kernels |
 | `ps3-splash`, `plymouth`, `libplymouth5`, … | the boot splash (Walnut theme) on our patched Plymouth; `ps3-no-initramfs` stands in for initramfs-tools |
 | `ps3-system`, `ps3-desktop` | the system and desktop configuration (see the layout above) |
+| `ps3-apps` | Mousepad, GPicView, zathura, Xarchiver, Galculator, LXTask, scrot (Print key), mpv, opened by default from PCManFM; remove it to remove them |
 
 The image installs them with apt, and `make deploy` installs the same packages on the running
 PS3. So whatever is tried live is what the next image gets. On the PS3, apt sees Debian (live
