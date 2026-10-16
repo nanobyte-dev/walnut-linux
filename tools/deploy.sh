@@ -12,6 +12,7 @@
 # current ones), so it works before the PS3 has them. AUTOREMOVE=1 then purges what nothing
 # needs any more (simulated first). ps3-migrate-home runs once for the deploying user. Kernel and
 # Mesa installs stop the desktop first (STOP_DESKTOP=auto|1|0).
+# DRY_RUN=1: publish, then only the simulations on the PS3.
 # Env: PS3 (ssh destination), SSH, SCP, REPO_BUILDER_TAG, REPO_HOST, REPO_DIR
 set -euo pipefail
 # One block, parsed whole before it runs: editing this file during a run can't make bash
@@ -22,13 +23,16 @@ debs=$( (ls build/repo/*.deb 2>/dev/null; find build/debs -mindepth 2 -maxdepth 
 [ -n "$debs" ] || { echo "!! no packages built"; exit 1; }
 DIST=dev tools/repo-publish.sh $debs
 
-$SSH "$PS3" 'rm -rf /var/tmp/ps3-deploy && mkdir -p /var/tmp/ps3-deploy/ours /var/tmp/ps3-deploy/all'
+$SSH "$PS3" 'rm -rf /var/tmp/ps3-deploy && mkdir -p /var/tmp/ps3-deploy/ours'
 $SCP ps3-system/files/apt/ps3.sources ps3-system/files/apt/ps3.pref "$PS3:/var/tmp/ps3-deploy/"
 $SSH "$PS3" "set -e; cd /var/tmp/ps3-deploy
-cp ps3.sources ours/; cp ps3.sources all/
-[ ! -e /etc/apt/sources.list.d/debian.sources ] || cp /etc/apt/sources.list.d/debian.sources all/
+cp ps3.sources ours/
+# Only our repository's lists, never Debian's: with Debian's ~60000 packages apt's solves (five of
+# them here) exhausted the PS3's 256 MB and stalled it (2026-10-16). Debian packages ours depend on
+# come from our deps component. apt's caches stay in memory (the system's are for Debian's lists).
 U='-o Dir::Etc::SourceList=/dev/null -o Dir::Etc::SourceParts=/var/tmp/ps3-deploy/ours -o APT::Get::List-Cleanup=0'
-O='-o Dir::Etc::SourceList=/dev/null -o Dir::Etc::SourceParts=/var/tmp/ps3-deploy/all \
+O='-o Dir::Etc::SourceList=/dev/null -o Dir::Etc::SourceParts=/var/tmp/ps3-deploy/ours \
+-o Dir::Cache::pkgcache= -o Dir::Cache::srcpkgcache= \
 -o Dir::Etc::Preferences=/var/tmp/ps3-deploy/ps3.pref -o Dir::Etc::PreferencesParts=/dev/null \
 -o Dpkg::Use-Pty=0 -o APT::Get::Assume-Yes=true -t ps3-dev'
 sudo DEBIAN_FRONTEND=noninteractive dpkg --configure -a	# an install interrupted earlier
@@ -42,6 +46,13 @@ upgrade() {
 	sudo DEBIAN_FRONTEND=noninteractive apt-get \$O -q --no-remove install --only-upgrade \$pk |
 		grep -E '^(Setting up|Unpacking|E:|W:)' || true
 }
+echo '--- upgrade (simulated)'; sudo apt-get \$O -s --no-remove install --only-upgrade \$(ours) | grep -E '^(Inst|Remv)' || true
+echo '--- install $* (simulated)'; sudo apt-get \$O -s install $* | grep -E '^(Inst|Remv|E:)' || true
+if [ '${DRY_RUN:-0}' = 1 ]; then
+	echo '>> DRY_RUN: simulations only'
+	[ -z \"\$stopped\" ] || sudo systemctl start getty@tty1
+	cd / && rm -rf /var/tmp/ps3-deploy; exit 0
+fi
 # Kernel and Mesa installs need the RAM the desktop holds: two kernels unpacked next to a
 # running desktop thrashed swap on the USB disk into a 30-minute stall (2026-10-16). The desktop
 # is stopped for them (STOP_DESKTOP=auto; 1 always, 0 never) and started again afterwards.
@@ -55,8 +66,6 @@ if [ '${STOP_DESKTOP:-auto}' = 1 ] || { [ '${STOP_DESKTOP:-auto}' = auto ] && [ 
 		sleep 3; stopped=1
 	fi
 fi
-echo '--- upgrade (simulated)'; sudo apt-get \$O -s --no-remove install --only-upgrade \$(ours) | grep -E '^(Inst|Remv)' || true
-echo '--- install $* (simulated)'; sudo apt-get \$O -s install $* | grep -E '^(Inst|Remv)' || true
 upgrade
 want_rm=\$(for p in $*; do case \$p in *-) echo \${p%-} ;; esac; done | sort)
 if [ -n \"\$want_rm\" ]; then

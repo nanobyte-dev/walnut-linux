@@ -245,7 +245,7 @@ PS3_SCP = scp -q -i $(HOME)/.ssh/id_ps3 -o UserKnownHostsFile=$(CURDIR)/$(BUILD)
 deploy: $(BUILD)/repo/.ps3-mesa.stamp | $(REPO_BUILDER_STAMP)
 	PS3=tibi@$(PS3_IP) SSH="ssh -i $(HOME)/.ssh/id_ps3 -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts" \
 		SCP="$(PS3_SCP)" REPO_BUILDER_TAG=$(REPO_BUILDER_TAG) REPO_HOST=$(REPO_HOST) REPO_DIR=$(REPO_DIR) \
-		AUTOREMOVE=$(AUTOREMOVE) STOP_DESKTOP=$(STOP_DESKTOP) tools/deploy.sh $(PKGS)
+		AUTOREMOVE=$(AUTOREMOVE) STOP_DESKTOP=$(STOP_DESKTOP) DRY_RUN=$(DRY_RUN) tools/deploy.sh $(PKGS)
 kernel-deploy:
 	$(MAKE) deploy PKGS=ps3-kernel-$(KERNEL_RELEASE)
 
