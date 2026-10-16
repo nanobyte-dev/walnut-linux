@@ -18,6 +18,7 @@ if it exists (`base` needs none).
 | `LOAD_MARK` | an output line whose time (seconds from start) is the load time |
 | `HUD_SKIP` | HUD seconds left out as loading when there is no load time (default 12) |
 | `RESULT_FILE` | files the game writes, copied into the run directory |
+| `during()` | runs in the background while the game runs (its output in during.log), stopped at the end |
 | `parse()` | prints extra `key=value` lines into bench.txt |
 | `HUD` | 1 (default): Gallium HUD fps per second into `hud/fps` |
 | `WM` | window manager started first (default `openbox`; empty: none, the game's window may not show) |

@@ -106,6 +106,8 @@ watch_game() {
 }
 # (helpers write nothing to stdout: it is ps3-bench.sh's pipe, held open by whoever has it)
 [ -n "$COMM" ] && { watch_game > /dev/null 2>&1 & helpers+=($!); }
+# the recipe's own helper while the game runs (input recording/replay); stopped with the others
+declare -F during >/dev/null && { during > "$D/during.log" 2>&1 & helpers+=($!); }
 (sleep "$SOUND_AT"; cat /proc/asound/card*/pcm*p/sub*/status 2>/dev/null |
 	awk '$1 == "state:" { s = s (s ? "," : "") $2 } END { print s ? s : "none" }' > "$D/.sound") \
 	> /dev/null 2>&1 & helpers+=($!)
