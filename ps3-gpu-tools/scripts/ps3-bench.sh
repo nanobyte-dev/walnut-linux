@@ -90,11 +90,19 @@ empty_swaps() {
 	fi
 }
 
+vswap_on() {	# the VRAM swap back on if it has its backing but is off
+	if [ -e /sys/block/ps3vswap0/backing ] && [ -n "$(cat /sys/block/ps3vswap0/backing)" ] &&
+	   ! grep -q '^/dev/ps3vswap0 ' /proc/swaps; then
+		sudo swapon -p 300 --discard /dev/ps3vswap0 && echo '>> VRAM swap on again'
+	fi
+}
+
 quiet() {
 	session_start
 	stop_desktop
 	drop_caches
 	empty_swaps
+	vswap_on	# a BENCH_NOVSWAP run earlier left it off
 	if [ "${BENCH_NOVSWAP:-0}" = 1 ] && grep -q '^/dev/ps3vswap0 ' /proc/swaps; then
 		echo '>> VRAM swap off for this run'
 		sudo timeout -s INT 180 swapoff /dev/ps3vswap0 || die "swapoff /dev/ps3vswap0 failed"
@@ -202,10 +210,7 @@ run|x)
 	;;
 desktop)
 	[ -e $OUT/q3config.cfg.orig ] && cp -p $OUT/q3config.cfg.orig "$Q3" && rm $OUT/q3config.cfg.orig
-	if [ -e /sys/block/ps3vswap0/backing ] && [ -n "$(cat /sys/block/ps3vswap0/backing)" ] &&
-	   ! grep -q '^/dev/ps3vswap0 ' /proc/swaps; then
-		sudo swapon -p 300 --discard /dev/ps3vswap0 && echo '>> VRAM swap on again'
-	fi
+	vswap_on
 	rm -f $LOCK
 	sudo systemctl start getty@tty1
 	echo '>> desktop started, bench session over'
