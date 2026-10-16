@@ -20,8 +20,10 @@ is the binding constraint**, and most of the next work is about it.
     patches, `spu-toolchain/newlib-4.6/`). On the SPEs (2026-10-15): 1629 of 1677 execute tests pass,
     the same tests one by one as with binutils 2.33.1 and newlib 1.20.
 - **Kernel:** 6.12 LTS (supported to Dec 2028), from Debian's `linux` source (trixie, 6.12.111-1)
-  with our 44 patches, two flavours: `ps3` (debug) and `ps3-release` (task #14: +8.7 MB `MemTotal`
-  measured on the PS3, 222704 kB against 213992 kB; vmlinux 11.9 MB against 21.2 MB). **Mesa:** Debian's source package of the
+  with our patches, two flavours: the release kernel `6.12.111+ps3.N` (task #14: +8.7 MB `MemTotal`
+  measured on the PS3, 222704 kB against 213992 kB; vmlinux 11.9 MB against 21.2 MB) and debug
+  kernels `6.12.111+ps3.N-debug<stamp>` (each debug build its own release, side by side; names
+  decided 2026-10-16). **Mesa:** Debian's source package of the
   snapshot's release, rebuilt with our patches (`mesa/`, version `26.2.4-1+ps3.N`).
 - **Packaging (2026-10-16, plan: Debian source packages):** components Debian ships are built
   from Debian's source package plus our patch series (`<pkg>/patches`, `<pkg>/packaging`), version
@@ -39,6 +41,12 @@ is the binding constraint**, and most of the next work is about it.
   back. New kernels of ours arrive through meta packages. Source:
   git.tibich.com/chibicitiberiu/ps3-linux.
 
+- **Distribution name and look (2026-10-16): Walnut Linux.** Stand-in logo after the owner's
+  reference (`ps3-splash/art/make-logos.py`; a better one before release), the walnut as the
+  kernel's boot logo, a Plymouth splash (`ps3-splash`: the logo and a progress bar with the walnut
+  rolling along it, on the desktop's blue), wallpapers from the owner's photos of the walnut tree
+  (CC BY-NC 4.0).
+
 ## Long-term goal (stated 2026-10-14)
 
 A live environment for the PS3 that boots from USB or over NFS through Petitboot, with the RSX
@@ -46,6 +54,19 @@ driver, desktop and games working out of the box, plus an optional installer tha
 permanently (to the OtherOS++ Linux region of the HDD, within the safety rules).
 
 ## Where we are (2026-10-16)
+
+- **Next (agreed 2026-10-16):** the splash working on the PS3 (Plymouth's DRM renderer fails on
+  ps3rsx, the framebuffer fallback needs `DeviceTimeout=1`); then retire the legacy pipeline
+  (`build-kernel.sh`, `build-debs.sh`, `stage-package.sh`, the `ps3-kernel-*` packages; the
+  transitional `ps3-mesa` is dropped, a fresh install never needs it) and clean the old kernels
+  off the PS3 (Petitboot has no default or timer: the owner picks from the menu); rebuild the
+  image, compare a fresh install with the live system, and reimage the USB disk with it. No
+  publishing to the stable suite until more work is done.
+- **Lessons (2026-10-16):** a deploy must not let apt solve against Debian's full lists on the PS3
+  (twice it stalled the machine for good: swap disabled by a packaging bug the first time, apt's
+  memory with ~60000 Debian packages the second); kernel and Mesa installs stop the desktop
+  first. A Debian package can't ship its own config into another package's conffile without
+  ordering care (Plymouth).
 
 - **Packages (2026-10-16, docs/PACKAGING.md):** everything we ship is a Debian package built from
   a source package: Mesa is Debian's `mesa` rebuilt with our patches (replaces Debian's; LLVM,
