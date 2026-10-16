@@ -44,3 +44,11 @@ armagetronad
 quakespasm
 libminizip1t64
 libopenal1
+# games/bench: recording and replaying input (evemu-record / evemu-play), for games without a
+# demo mode (Extreme Tux Racer's race, docs/GAME-PLAN.md)
+evemu-tools
+# ps3-games, group 3: OpenTTD with the free graphics, sounds and music sets (docs/GAME-PLAN.md)
+openttd
+openttd-opengfx
+openttd-opensfx
+openttd-openmsx

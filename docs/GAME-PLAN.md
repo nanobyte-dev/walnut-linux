@@ -141,6 +141,13 @@ The first run of each with the VRAM swap off; the GL-risky one last in its sessi
 | 9 | Sauerbraten | Debian cube2 and data (20 maps: cave, colos, ...), 266 MB; then a debsrc cube2 with a one-line patch to its `usetexcompress` check (`engine/rendergl.cpp:536`, compression off on Mesa) | GL 2.0, GLSL 1.20 and an FBO required (EXT is fine; blit and packed depth-stencil exposed). GPU skinning: dynamic indexing into bone arrays becomes if/else trees on nv30 (no indirect constant addressing), big vertex programs that may exceed 512 instructions and fall back to the CPU silently; `gpuskel 0` is its switch | fixed spawn on a fixed map, `-x"... echo (getfps) ... quit"` |
 | 10 | Luanti | our debsrc build: ppc64 added to Architecture, LuaJIT kept (`libluajit-5.1-dev` exists for ppc64; Debian strips the bundled Lua, so building without LuaJIT means restoring `lib/lua` and `-DREQUIRE_LUAJIT=FALSE`); a `CHECK=1` package.conf switch so deb-build.sh drops `nocheck` and its `--run-unittests` run (under qemu: a failure may be qemu's). `luanti-data` from our build too (luanti depends on its exact version); `luanti-game-minetest` from Debian | EXT or ARB FBOs both work; bloom and MSAA off by themselves; mipmap generation (1.0) if mipmapping is on | a server mod can't count rendered frames: our `ps3bench` mod flies the fixed path and shuts down, fps from the Gallium HUD |
 
+OpenTTD (2026-10-17, Debian 15.1): the simulation benchmark (a fixed-seed new game, 20000 ticks,
+null video) runs in 13.4 s. The title screen's demo game runs with the SDL software video driver,
+but SDL3's accelerated window framebuffer (its default) shows a strong blue cast on big-endian;
+SDL_FRAMEBUFFER_ACCELERATION=0 (plain X11) is right, so the recipe uses that until our SDL3 fix.
+That path doesn't use GL, so no HUD fps: a rendering number still needs a counter. sdl-opengl
+refuses to start as expected ("Single element texture formats not supported").
+
 ## Group 4: heavy, RAM and the biggest driver risk
 
 | # | Game | Get | Expect | Bench |
