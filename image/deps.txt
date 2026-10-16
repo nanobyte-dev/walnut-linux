@@ -20,3 +20,4 @@ libz3-4
 libedit2
 libsensors5
 libsensors-config
+hsetroot

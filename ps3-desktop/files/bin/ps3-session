@@ -3,19 +3,28 @@
 # The PS3 defaults (Openbox, tint2, GTK, PCManFM) come first among the system configuration
 # directories; the user's own ~/.config files still win
 export XDG_CONFIG_DIRS="/etc/xdg/ps3:${XDG_CONFIG_DIRS:-/etc/xdg}"
-xsetroot -solid '#14304d'
-xmessage -center -buttons '' -bg '#14304d' -fg white -bd '#14304d' \
-	-fn '-misc-fixed-bold-r-normal--18-*-*-*-*-*-iso10646-1' \
-	"   Starting the desktop on the RSX...   " &
-splash=$!
-# the desktop window (PCManFM's, either version, or Xfce's) covers the screen once the desktop
-# is ready; never longer than 2 minutes (Enlightenment draws its own)
-(t=0; while kill -0 $splash 2>/dev/null; do
-	xwininfo -root -tree 2>/dev/null |
-		grep -qE 'pcmanfm-desktop0|"pcmanfm" "Pcmanfm"|"xfdesktop" "Xfdesktop"' && sleep 2 ||
-		[ $t -gt 120 ] || { sleep 1; t=$((t + 1)); continue; }
-	kill $splash
-done) &
+# The boot splash's last frame (ps3-splash) on the root window until the desktop window (PCManFM's,
+# either version, or Xfce's) covers it; then the root goes back to plain blue, so its 8 MB
+# picture doesn't stay in video memory (only if nothing else took the root picture over since:
+# hsetroot keeps it in a retained client, freed with xkill; never longer than 2 minutes)
+root_id() { xprop -root "$1" 2>/dev/null | sed -n 's/.*# //p'; }
+splash=/usr/share/ps3-splash/desktop-splash.png
+pm=
+if [ -r $splash ] && command -v hsetroot >/dev/null; then
+	hsetroot -solid '#14304d' -center $splash >/dev/null 2>&1 && pm=$(root_id ESETROOT_PMAP_ID)
+else
+	xsetroot -solid '#14304d'
+fi
+[ -n "$pm" ] && (t=0; until xwininfo -root -tree 2>/dev/null |
+		grep -qE 'pcmanfm-desktop0|"pcmanfm" "Pcmanfm"|"xfdesktop" "Xfdesktop"' || [ $t -gt 120 ]; do
+		sleep 1; t=$((t + 1)); done
+	sleep 2
+	if [ "$(root_id ESETROOT_PMAP_ID)" = "$pm" ]; then
+		xsetroot -solid '#14304d'
+		xprop -root -remove ESETROOT_PMAP_ID
+		[ "$(root_id _XROOTPMAP_ID)" = "$pm" ] && xprop -root -remove _XROOTPMAP_ID
+		xkill -id "$pm" >/dev/null 2>&1
+	fi) &
 # gvfs and the tray applets use the user bus (dbus-user-session). Openbox: tint2 panel (jgmenu, tray, clock),
 # PCManFM desktop icons, network and volume applets, notifications, polkit agent. Bluetooth:
 # blueman from the menu, no resident tray (~60 MB of Python). GTK apps don't load the GL

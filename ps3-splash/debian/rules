@@ -9,13 +9,16 @@ override_dh_auto_build:
 	rsvg-convert -w 360 -o walnut-logo.png art/walnut-logo-dark.svg
 	rsvg-convert -w 30 -o nut.png art/walnut-mark.svg
 	for g in eq dot lbracket rbracket; do rsvg-convert -o $$g.png theme/glyphs/$$g.svg; done
+	# the last frame, for the desktop's start (its images are looked up next to it)
+	cp theme/desktop-splash.svg . && rsvg-convert -o desktop-splash.png desktop-splash.svg
 
 override_dh_auto_install:
 	install -d $(T)
 	install -m 644 theme/walnut.plymouth theme/walnut.script walnut-logo.png nut.png \
 		eq.png dot.png lbracket.png rbracket.png $(T)/
+	install -D -m 644 desktop-splash.png debian/ps3-splash/usr/share/ps3-splash/desktop-splash.png
 	install -D -m 644 debian/plymouth-quit-retain.conf \
 		debian/ps3-splash/usr/lib/systemd/system/plymouth-quit.service.d/ps3-splash.conf
 
 override_dh_auto_clean:
-	rm -f walnut-logo.png nut.png eq.png dot.png lbracket.png rbracket.png
+	rm -f walnut-logo.png nut.png eq.png dot.png lbracket.png rbracket.png desktop-splash.svg desktop-splash.png
