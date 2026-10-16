@@ -8,10 +8,13 @@ if [ "$1" = configure ]; then
 			deb-systemd-helper enable "$u" >/dev/null 2>&1 || true
 		done
 	fi
-	# other packages' services this setup relies on
-	for u in systemd-networkd.service ssh.service; do
-		deb-systemd-helper enable "$u" >/dev/null 2>&1 || true
-	done
+	# other packages' services this setup relies on, enabled on the first install (later, a
+	# user's own disable stands). Not deb-systemd-helper: their own postinsts registered them
+	# already (networkd as disabled), so its enable does nothing: a fresh image came up without
+	# networkd (docs/IMAGE-DIFF.md). systemctl works offline in the image's chroot too.
+	if [ -z "${2:-}" ]; then
+		systemctl enable systemd-networkd.service ssh.service >/dev/null 2>&1 || true
+	fi
 	# DualShock 3: the controller never bonds, so BlueZ's input profile must accept unbonded
 	# devices (bluez has no drop-in directory for input.conf)
 	if [ -e /etc/bluetooth/input.conf ] && ! grep -q '^ClassicBondedOnly=false' /etc/bluetooth/input.conf; then
