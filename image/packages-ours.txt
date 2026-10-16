@@ -11,6 +11,7 @@ ps3rsx-modules-ps3-release
 ps3-boot
 ps3-system
 ps3-desktop
+ps3-splash
 ps3-gpu-tools
 ps3-spu
 ps3-spu-programs

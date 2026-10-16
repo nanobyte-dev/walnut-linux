@@ -9,6 +9,10 @@ Rules-Requires-Root: no
 Package: ps3-splash
 Architecture: all
 Depends: ${misc:Depends}, plymouth, plymouth-label, fonts-dejavu-core
+# Plymouth depends on initramfs-tools | dracut only to put itself into an initramfs; the PS3 boots
+# without one (Petitboot loads /boot/vmlinux-<release> directly), and initramfs-tools would build
+# an unused initramfs on every kernel install (minutes on the PS3)
+Provides: initramfs-tools
 Description: Walnut Linux boot splash (Plymouth theme)
  The Walnut Linux logo on the desktop's blue with a text progress bar (a walnut rolling at
  its head) and status jokes, for boot and shutdown. Kernels whose arguments include

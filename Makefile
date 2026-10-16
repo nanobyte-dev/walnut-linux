@@ -237,7 +237,7 @@ $(BUILD)/repo/.%.stamp: $$(PKG_INPUTS_$$*) tools/stage-package.sh tools/build-de
 # [AUTOREMOVE=1]. Upgrades everything of ours that is installed (Mesa included), then installs the
 # named top-level packages; simulated first. dpkg replaces files by renaming, so even Mesa under
 # a running X is safe on the USB root (on NFS, stop X first).
-DEPLOY_TOP := linux-image-ps3 linux-image-ps3-release ps3rsx-modules-ps3 ps3rsx-modules-ps3-release ps3-boot ps3-system ps3-desktop ps3-gpu-tools ps3-spu ps3-spu-programs classicube
+DEPLOY_TOP := linux-image-ps3 linux-image-ps3-release ps3rsx-modules-ps3 ps3rsx-modules-ps3-release ps3-boot ps3-system ps3-desktop ps3-splash ps3-gpu-tools ps3-spu ps3-spu-programs classicube
 PKGS ?= $(DEPLOY_TOP)
 AUTOREMOVE ?= 0
 STOP_DESKTOP ?= auto
@@ -384,6 +384,6 @@ KEEP_TREE ?= 0
 # All our packages: the Debian source packages and the two still made by the old pipeline
 # (the kernel until milestone 4; the transitional ps3-mesa)
 # the kernel first: ps3rsx builds against its headers
-SRC_PACKAGES := linux mesa ps3-boot ps3-gpu-tools ps3-spu classicube ps3-system ps3-desktop
+SRC_PACKAGES := linux mesa ps3-boot ps3-gpu-tools ps3-spu classicube ps3-system ps3-desktop ps3-splash
 packages: $(SRC_PACKAGES:%=%-deb) debs
 	$(MAKE) --no-print-directory ps3rsx-modules
