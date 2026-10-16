@@ -23,7 +23,8 @@ Breaks: ps3-spu (<< ${source:Version})
 Replaces: ps3-spu (<< ${source:Version})
 Description: SPU programs for the PS3
  SPU programs (*.spu, built with spu-elf GCC) in /usr/lib/ps3/spu: hello.spu, run with
- spurun, and bench.spu, libspeq's resident worker with the operations speq-bench uses.
+ spurun; bench.spu, libspeq's resident worker with the operations speq-bench uses; and
+ dxt.spu, the worker libspeq's DXT1 texture compression runs on the SPEs.
 
 Package: libspeq0
 Section: libs
@@ -33,8 +34,9 @@ Depends: ps3-spu, ps3-spu-programs (= ${source:Version}), ${shlibs:Depends}, ${m
 Description: work queues on the PS3's SPEs, and DXT1 texture compression
  libspeq runs jobs on resident SPU workers fed through spufs, and provides services built on
  them. The first is S3TC DXT1 texture compression, which Mesa loads at run time
- (speq_s3tc_compress_v1); SPEQ_S3TC=off|ppe|spu chooses the encoder, SPEQ_DEBUG=1 logs each
- call. Until the SPU path exists it runs its PPE encoder (van Waveren's real-time DXT1).
+ (speq_s3tc_compress_v1). It runs van Waveren's real-time DXT1 on the SPEs (dxt.spu), and
+ on the PPE for small images or when no SPE is available, with the same output.
+ SPEQ_S3TC=auto|spu|ppe|off chooses the encoder, SPEQ_DEBUG=1 logs each call.
 
 Package: libspeq-dev
 Section: libdevel

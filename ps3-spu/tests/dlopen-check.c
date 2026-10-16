@@ -58,7 +58,7 @@ int main(int argc, char **argv)
 		rng = rng * 1103515245 + 12345;
 		src[i] = (i / 4 % 128 + (rng >> 16 & 31)) & 0xff;
 	}
-	if (mode && *mode && strcmp(mode, "ppe")) {
+	if (mode && *mode && strcmp(mode, "ppe") && strcmp(mode, "auto")) {	/* off; spu: no queue */
 		check(f(SPEQ_GL_COMPRESSED_RGBA_S3TC_DXT1_EXT, 4, src, 128, 64, a, 0) < 0,
 		      "SPEQ_S3TC set: declined");
 	} else {

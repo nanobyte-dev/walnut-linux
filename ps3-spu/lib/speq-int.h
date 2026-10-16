@@ -76,6 +76,21 @@ int spq_spufs_probe(char *mnt, size_t len, unsigned *nspe);
 int spq_load_program(struct speq *q, const char *prog);
 int spq_elf_check(const uint8_t *img, size_t size, uint32_t *entry);
 
+/* s3tc.c: for speq-dxt and the tests */
+enum { SPQ_S3TC_OFF, SPQ_S3TC_PPE, SPQ_S3TC_SPU, SPQ_S3TC_AUTO };
+struct spq_s3tc_stats {
+	unsigned long spu;	/* images encoded on the SPEs */
+	unsigned long ppe;	/* ... on the PPE (redone ones included) */
+	unsigned long redone;	/* SPU path failed, redone on the PPE */
+	unsigned long jobs;	/* SPU jobs submitted */
+};
+int spq_s3tc_mode(int mode);	/* overrides SPEQ_S3TC (-1: no change); returns the mode */
+void spq_s3tc_stats(struct spq_s3tc_stats *s);
+struct speq *spq_s3tc_queue(void);	/* the queue, once opened */
+/* Tests: when n > 0, the next SPU call gives job n - 1 (or its last) an unmapped dst EA, so
+ * that job faults and the image is redone on the PPE */
+extern int spq_s3tc_fault;
+
 /* fake.c (SPEQ_FAKE builds only) */
 extern const struct spq_backend spq_fake;
 

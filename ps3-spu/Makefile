@@ -19,13 +19,15 @@ MESA    ?= ../build/work/mesa
 
 SPEQ_SRC := lib/s3tc.c lib/dxt-ref.c lib/queue.c lib/spe.c
 SPEQ_HDR := $(wildcard lib/*.h)
-# the fake backend: the SPU runtime and bench ops built for the host (tests only)
+# the fake backend: the SPU runtime and a program's ops built for the host (tests only)
 FAKE_SRC := lib/fake.c spu/runtime.c spu/bench.c
 SPU_HDR  := $(wildcard spu/*.h)
+# dxt.spu's encoder at -O3, as timed (135 cycles per block)
+DXT_SPU_OPT ?= -O3
 
 .PHONY: ppe spu test test-mesa
 ppe: $(OUT)/libspeq.so.0 $(OUT)/speq-dxt $(OUT)/spurun $(OUT)/speq-bench
-spu: $(OUT)/hello.spu $(OUT)/libspeq-spu.a $(OUT)/bench.spu
+spu: $(OUT)/hello.spu $(OUT)/libspeq-spu.a $(OUT)/bench.spu $(OUT)/dxt.spu
 
 # only speq_* exported (lib/libspeq.map), SONAME libspeq.so.0
 $(OUT)/libspeq.so.0: $(SPEQ_SRC) $(SPEQ_HDR) lib/libspeq.map
@@ -55,6 +57,9 @@ $(OUT)/libspeq-spu.a: $(OUT)/runtime.o
 	$(SPU_AR) rcs $@ $^
 $(OUT)/bench.spu: spu/bench.c $(SPU_HDR) $(OUT)/libspeq-spu.a
 	$(SPU_CC) $(SPU_CFLAGS) -o $@ spu/bench.c $(OUT)/libspeq-spu.a
+# dxt.spu: speq_s3tc_compress_v1's worker (spu/dxt-op.c: DMA, double buffering; spu/dxt.c)
+$(OUT)/dxt.spu: spu/dxt-op.c spu/dxt.c $(SPU_HDR) lib/dxt-job.h $(OUT)/libspeq-spu.a
+	$(SPU_CC) $(SPU_CFLAGS) $(DXT_SPU_OPT) -o $@ spu/dxt-op.c spu/dxt.c $(OUT)/libspeq-spu.a
 
 # host tests (x86 or ppc64): nothing but cc
 test:
