@@ -38,3 +38,9 @@ xmoto
 neverball
 extremetuxracer
 armagetronad
+# ps3-games, group 2 (docs/GAME-PLAN.md): QuakeSpasm (its data, quake-shareware, is ours: make
+# quake-data); our yamagi-quake2 (yquake2/, not Debian's on ppc64): its libraries the image lacks
+# (minizip) and OpenAL, which it loads at run time (only Recommended)
+quakespasm
+libminizip1t64
+libopenal1

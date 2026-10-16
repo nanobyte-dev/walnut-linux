@@ -112,6 +112,17 @@ settles a risk several games share):
 | 6 | QuakeSpasm | Debian, 2 MB; `quake-shareware` from game-data-packager (contrib, built in the Debian games builder with `lhasa`: `make quake-data` into `build/debs/quake-data`; non-free like ClassiCube's audio, so our LAN repository only; published once and reused, since its output isn't reproducible). Not the `quake` launcher package (it pulls GTK 4) | `-nopackedpixels` (the upstream fix disables 10-bit lightmaps on big-endian; nv30 has no 10-bit format anyway). Packed pixels only exist with GLSL, so `-noglsl` first, then GLSL with `gamma 0.9` (the gamma pass only runs off 1.0) | `+timedemo demo1`, `%i frames %5.1f seconds %5.1f fps`, doesn't quit: stopped at that line |
 | 7 | Yamagi Quake II (gl1) | our debsrc build of Debian's **`yquake2`** 8.70 (contrib: debian-ports doesn't build it; the deb builder's sources need `contrib` for `apt-get source`; its build-deps, SDL3 included, are in main); `quake2-demo-data` from game-data-packager | gl1 is the default renderer (gl3/gles3 need GL 3); upstream tests PPC64 | `+timedemo 1 +demomap q2demo1.dm2` (the demo pak's only demo), `%i frames, %3.1f seconds: %3.1f fps`, returns to the console: stopped at that line |
 
+Prepared 2026-10-17 (nothing has run yet): `make quake-data` gives `quake-shareware_89_all.deb` and
+`quake2-demo-data_89_all.deb` (build/debs/quake-data; publish them once, later runs reuse the
+published files, docs/PACKAGING.md); `make yquake2-deb` gives `yamagi-quake2` and
+`yamagi-quake2-core` 8.70+dfsg-1+ps3.N with `ref_gl1.so` and `ref_gl3.so`, no patch (byte order is
+detected at run time, textures and lightmaps go up as GL_RGBA bytes). quakespasm, libminizip1t64
+(our Yamagi's one library the image lacks) and libopenal1 (loaded at run time, only Recommended)
+are in `image/deps.txt`. Recipes `quakespasm` (base, `noglsl`, `glslgamma`) and `yquake2`. Known
+risk for Yamagi: gl1 uploads every texture with GL_GENERATE_MIPMAP when NPOT is exposed (it is on
+nv30), the hardware mipmap path fixed for Neverball. Deploy by name: `make deploy PKGS="quakespasm
+quake-shareware yamagi-quake2 quake2-demo-data"` (after `make deps`).
+
 ## Group 3: GLSL and FBO engines, the first real driver risk
 
 The first run of each with the VRAM swap off; the GL-risky one last in its session.

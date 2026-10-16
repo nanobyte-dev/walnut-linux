@@ -14,6 +14,12 @@ Each package is a top-level directory with a `package.conf` (read by `tools/deb-
 | `native` | Our own code: the directory is the source (`debian/` inside) | `ps3-boot`, `ps3-gpu-tools`, `ps3-spu`, `ps3rsx`, `ps3-system`, `ps3-desktop`, `ps3-splash` | `0.N` (`ps3rsx`: `0.N+k<kernel release>`, its `-` as `.`) |
 | `upstream` | Software Debian lacks: an upstream tarball plus component tarballs | `classicube` | `<upver>-1+ps3.N` |
 
+A `debsrc` package from outside Debian's main sets `COMPONENT` (`yquake2`: `COMPONENT=contrib`, since
+debian-ports builds nothing arch-specific from contrib). The deb builder's apt sources are main only;
+`tools/deb-fetch.sh` (and `pkg-rebase.sh fetch`) add that component's deb-src lines inside the
+throwaway container for the one fetch, so `docker/Dockerfile.deb` and the builder's tag stay as
+they are. Build dependencies still come from main.
+
 N is the commit count up to the last commit that touched the package's directory or the shared
 packaging tools (`tools/deb-version.sh`), so versions only grow. A build from a tree with
 uncommitted changes is a dev build, `N+1~dev<stamp>`: it sorts above the current release and
@@ -196,6 +202,22 @@ up until X draws (2026-10-16):
   text on tty1; the second option sends the stream to `/dev/null`. For a test boot, append both
   to the one line of `/usr/lib/ps3/boot/<release>.args` and run `sudo ps3-update-kboot` (the
   file belongs to the kernel package, so the next upgrade of that package drops it again).
+
+## Game data from game-data-packager
+
+`make quake-data` (`tools/game-data.sh`, in the games builder with game-data-packager 89 from
+contrib and lhasa) writes `quake-shareware_89_all.deb` (Quake's shareware `id1/pak0.pak`, demos
+included) and `quake2-demo-data_89_all.deb` (Quake II's demo `baseq2`, `demos/q2demo1.dm2` in its
+pak) into `build/debs/quake-data`, downloading the shareware archives from id's mirrors (kept in
+`build/downloads/game-data`). Deploys, images and `make publish` take them like any build. The
+data is non-free (Quake II's demo may not be redistributed at all): our LAN repository only, like
+ClassiCube's Mojang audio.
+
+game-data-packager's output isn't reproducible (the files' dates are the build time), and the `ps3`
+suite never takes a different file under a published version. So once a version is published,
+`make quake-data` downloads that file from the repository (checked against the suite's SHA256)
+instead of making it again; `REGEN=1` makes it anyway and refuses when the version it gets is
+already published. A new file only goes out under a new version (a newer game-data-packager).
 
 ## Image snapshots
 

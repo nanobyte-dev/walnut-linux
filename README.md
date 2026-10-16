@@ -18,6 +18,7 @@ package (Debian source packages; docs/PACKAGING.md).
 | `plymouth/` | Debian's `plymouth` source package plus `patches/` (the script plugin without a console viewer) |
 | `ps3-splash/` | The Walnut Linux boot splash: Plymouth script theme (`theme/`), artwork generators (`art/`), `debian/` (the DRM renderer diverted, Plymouth drop-ins); also `ps3-no-initramfs` |
 | `ps3-boot/` | `ps3-update-kboot`: Petitboot's boot menu from the installed kernels |
+| `yquake2/` | Yamagi Quake II: Debian's `yquake2` source package (`package.conf`: version, .dsc hash, `COMPONENT=contrib`); the game data (Quake shareware, Quake II demo) comes from `make quake-data` |
 | `classicube/` | ClassiCube: `package.conf` (pinned upstream tarball plus texpack/audio components), `debian/` (launcher, defaults), `sounds.sh` (sounds/music from Mojang by SHA-1) |
 | `ps3-system/` | System configuration package: networking, SSH, swap, ps3gpu nodes, DS3 pairing, apt sources and pins (`files/`, `debian/`) |
 | `ps3-desktop/` | Desktop package: autologin, `ps3-session`, game mode, Openbox/tint2/GTK/PCManFM defaults and default applications in `/etc/xdg/ps3`, X config; also `ps3-apps` (the everyday applications) |
@@ -66,6 +67,8 @@ our own packages, in a minute or two. Everything we build is a .deb in `build/de
 | `ps3-gpu-tools` | RSX probes, driver tests and the GL tests in `/usr/lib/ps3/bin` (on `PATH`) |
 | `mesa-libgallium`, `libgl1-mesa-dri`, `libegl-mesa0`, `libglx-mesa0`, `libgbm1`, … | Debian's Mesa packages rebuilt from `mesa/` (`26.2.4-1+ps3.N`), replacing Debian's |
 | `classicube` | `/usr/games/classicube` (game data per user in `~/.local/share/classicube`) |
+| `yamagi-quake2`, `yamagi-quake2-core` | Yamagi Quake II (`/usr/lib/yamagi-quake2/quake2`, renderers `ref_gl1`, `ref_gl3`), built from Debian's contrib source (debian-ports builds no contrib) |
+| `quake-shareware`, `quake2-demo-data` | game data from game-data-packager (`make quake-data`, `build/debs/quake-data`): `/usr/share/games/quake/id1/pak0.pak`, `/usr/share/games/quake2-demo/baseq2/`; non-free, our LAN repository only |
 | `libspeq0` | libspeq: SPU jobs from any program (resident workers on the SPEs); DXT1 compression for Mesa, which loads it at run time (`SPEQ_S3TC=auto\|spu\|ppe\|off`, `SPEQ_DEBUG=1`) |
 | `ps3-spu`, `ps3-spu-programs` | `spurun`, `speq-dxt`, `speq-bench`, spufs mounted at `/spu`; the SPU programs in `/usr/lib/ps3/spu` |
 | `ps3rsx-modules-<release>`, `ps3rsx-modules-ps3`, `ps3rsx-modules-ps3-debug` | the RSX driver (loaded at boot) and probe modules for a kernel; the metas follow the release and debug kernels |
