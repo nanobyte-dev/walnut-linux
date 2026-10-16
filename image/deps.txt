@@ -30,3 +30,11 @@ galculator
 lxtask
 scrot
 mpv
+# ps3-games, group 1 (docs/GAME-PLAN.md): Debian main, GL 1.x; dsda-doom stands in for PrBoom+ GL
+# (its fluidsynth pulls the timgm6mb soundfont); freedoom only Recommended by dsda-doom
+dsda-doom
+freedoom
+xmoto
+neverball
+extremetuxracer
+armagetronad

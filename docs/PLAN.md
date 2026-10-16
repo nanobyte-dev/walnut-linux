@@ -268,7 +268,8 @@ Only when content needs them (OpenArena and ClassiCube don't):
   runner (`games/bench/`, `make bench-push`) and the `ps3-games` metapackage; then dsda-doom,
   X-Moto, Neverball, Extreme Tux Racer, Armagetron; QuakeSpasm, Yamagi Quake II; OpenTTD,
   Sauerbraten, Luanti; SuperTuxKart (legacy GL), OpenArena opengl2. Driver bugs are ranked by how
-  many games they block. GL 3-only games stay out of reach.
+  many games they block. GL 3-only games stay out of reach. The image rebuild (fresh debs,
+  docs/IMAGE-DIFF.md) waits until this plan is through (user, 2026-10-17).
 
 ## Done (summary)
 

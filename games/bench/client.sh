@@ -59,6 +59,9 @@ if [ -n "$WM" ] && [ -n "${DISPLAY:-}" ]; then
 		xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -q 'window id' && break; sleep 0.1
 	done
 fi
+# no screen saver or DPMS blanking: a run longer than X's 10 idle minutes (a soak) would go
+# black, and a run with nothing on screen doesn't count
+[ -n "${DISPLAY:-}" ] && xset s off -dpms 2>/dev/null
 
 helpers=()
 # the game in its own process group (job control), so stopping it reaches every process it forks;

@@ -7,8 +7,9 @@
 #   ps3-bench.sh desktop                   end of the session: desktop back, game config restored
 # Results: /var/tmp/ps3-bench/<UTC stamp>-<label>/ (out.log with $EPOCHREALTIME stamps, samples,
 # snapshots); written to /dev/shm while the command runs, so the USB disk stays out of it.
-# The first quiet of a session takes the bench lock (no deploys meanwhile) and backs up
-# OpenArena's q3config.cfg (benchmark cvars are archived on quit); desktop undoes both.
+# The first quiet of a session takes the bench lock (no deploys meanwhile); desktop releases it.
+# Games and their config files are the business of games/bench (its client.sh backs up and
+# restores what each game rewrites).
 # A watchdog stops the command on a "PS3 Thermal Alert" (Linux can't read temperatures).
 # BENCH_TIMEOUT (default 600 s) bounds every command. BENCH_HUD=1: per-second fps from the Gallium
 # HUD into the run directory. BENCH_NOVSWAP=1: VRAM swap off for the run (the first run of anything
@@ -18,7 +19,6 @@
 set -u
 LOCK=/dev/shm/ps3-bench.lock
 OUT=/var/tmp/ps3-bench
-Q3=$HOME/.openarena/baseoa/q3config.cfg
 
 die() { echo "!! $*" >&2; exit 1; }
 kb() { awk -v k="$1:" '$1 == k { print $2 }' /proc/meminfo; }
@@ -29,7 +29,6 @@ session_start() {
 	{ echo "started $(date -u +%FT%TZ) by $$"; uname -r
 	  echo "SPEs: $(ls -d /sys/devices/system/spu/spu[0-9]* 2>/dev/null | wc -l)"; } > $LOCK
 	mkdir -p $OUT
-	[ -e "$Q3" ] && [ ! -e $OUT/q3config.cfg.orig ] && cp -p "$Q3" $OUT/q3config.cfg.orig
 	echo ">> bench session: $(tr '\n' ' ' < $LOCK)"
 }
 
@@ -183,9 +182,12 @@ run_job() {
 		[ "$x" -nt "$D/cmd" ] && cp "$x" "$D/" && break
 	done
 	{ echo "rc $rc wall $(awk -v a="$t0" -v b="$t1" 'BEGIN { printf "%.2f", b - a }') s"
-	  grep -h -a -E 'CL_InitCGame|frames.*seconds|^[0-9.]+ client: ' "$D/out.log" | cut -d' ' -f2-
-	  # fps per second after the first 12 (loading), as oa-bench.sh
-	  [ -s "$D/hud/fps" ] && awk 'NR>12{print int($1)}' "$D/hud/fps" | sort -n |
+	  # the client's CPU time, and games/bench's summary (bench: key=value)
+	  grep -h -a -E '^[0-9.]+ (client|bench): ' "$D/out.log" | cut -d' ' -f2-
+	  # fps per second after loading: the game's load time from games/bench, else 12 s
+	  skip=$(awk -F= '$1 == "load" && $2 != "" { s = int($2) + 1 } $1 == "hud_skip" && !s { s = $2 }
+		END { print s ? s : 12 }' "$D/bench.txt" 2>/dev/null || echo 12)
+	  [ -s "$D/hud/fps" ] && awk -v s="$skip" 'NR>s{print int($1)}' "$D/hud/fps" | sort -n |
 		awk '{a[NR]=$1} END{if (NR) printf "hud fps: median %d p10 %d min %d (%d s)\n", a[int(NR/2)+1], a[int(NR/10)+1], a[1], NR}'
 	  awk 'NR==1{m=$2} $2<m{m=$2} END{if (NR) printf "min MemAvailable %d kB\n", m}' "$D/samples" 2>/dev/null
 	} > "$D/result"
@@ -210,7 +212,6 @@ run|x)
 	run_job "$label" "$@"
 	;;
 desktop)
-	[ -e $OUT/q3config.cfg.orig ] && cp -p $OUT/q3config.cfg.orig "$Q3" && rm $OUT/q3config.cfg.orig
 	vswap_on
 	rm -f $LOCK
 	sudo systemctl start getty@tty1

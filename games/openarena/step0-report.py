@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""step0-report.py <run dir>...: one line per ps3-bench.sh run (copied from the PS3's
+"""Superseded by games/bench/report.py; reads only run directories from before 2026-10-17, when
+ps3-bench.sh still grepped OpenArena's lines into `result`.
+
+step0-report.py <run dir>...: one line per ps3-bench.sh run (copied from the PS3's
 /var/tmp/ps3-bench), then the median per label. Columns:
   load    CL_InitCGame seconds (the level load)
   fps     the timedemo's average; maxms its longest frame; hud median/p10/min per second

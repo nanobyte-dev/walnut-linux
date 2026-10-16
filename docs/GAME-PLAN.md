@@ -73,6 +73,10 @@ Showing the frames costs: the same OpenArena runs with nothing on screen gave 45
 
 ## Group 1: should run as packaged (Debian main, GL 1.x fixed function)
 
+Installed 2026-10-17: dsda-doom 0.30.0, freedoom 0.13.0, xmoto 0.6.3, neverball 1.6.0+git20180603,
+extremetuxracer 0.8.4, armagetronad 0.2.9.3 (in `image/deps.txt`, deployed by name; each joins
+ps3-games once its smoke test passes).
+
 Expectations below were checked against each game's source at the packaged version and against
 our Mesa (reviews of this plan, 2026-10-16); nothing here has run yet.
 

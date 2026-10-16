@@ -8,6 +8,8 @@
 #   step0.sh audio [N]    sound variants A B B22 C Z, timedemo fps, N runs each (default 3)
 #   step0.sh profile V    one bot match with sound variant V, perf profile of the game
 # Results: /var/tmp/ps3-bench/; ps3-bench.sh desktop at the end of the session.
+# Superseded by games/bench (recipes/openarena.sh): this ran a bare X with no window manager, so
+# nothing reached the screen and its game numbers are invalid (SPU-OFFLOAD-SURVEY.md).
 {
 set -u
 B=ps3-bench.sh
