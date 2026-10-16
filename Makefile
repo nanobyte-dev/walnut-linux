@@ -167,12 +167,13 @@ $(SPU_GCC): $(SPU_TARBALLS) $(SPU_VARS) tools/build-spu-toolchain.sh $(wildcard 
 		-e SPU_BINUTILS_VERSION=$(SPU_BINUTILS_VERSION) -e SPU_NEWLIB_VERSION=$(SPU_NEWLIB_VERSION) \
 		$(SPU_BUILDER_TAG) tools/build-spu-toolchain.sh
 
-# SPU test programs and the spufs runner (ps3-spu/src): the ps3-spu package
+# SPU test programs (ps3-spu/spu), spurun, libspeq and speq-dxt (cross-built for the PPE), outside
+# the package build: the ps3-spu package
 SPU_TESTS_STAMP := $(BUILD)/spu-tests/.done
 spu-tests: $(SPU_TESTS_STAMP)
-$(SPU_TESTS_STAMP): $(SPU_GCC) $(wildcard ps3-spu/src/*.c ps3-spu/src/Makefile) | $(SPU_BUILDER_STAMP)
-	$(DOCKER_RUN) --user $(UID_GID) $(SPU_BUILDER_TAG) make -C ps3-spu/src \
-		SPU_CC=/work/$(SPU_GCC) OUT=/work/$(BUILD)/spu-tests
+$(SPU_TESTS_STAMP): $(SPU_GCC) $(wildcard ps3-spu/Makefile ps3-spu/*/*.[ch] ps3-spu/lib/*.map) | $(SPU_BUILDER_STAMP)
+	$(DOCKER_RUN) --user $(UID_GID) $(SPU_BUILDER_TAG) make -C ps3-spu ppe spu \
+		CC=powerpc64-linux-gnu-gcc CFLAGS="-O2 -mcpu=cell" SPU_CC=/work/$(SPU_GCC) OUT=/work/$(BUILD)/spu-tests
 	@touch $@
 spu-deploy:
 	$(MAKE) deploy PKGS="ps3-spu ps3-spu-programs"

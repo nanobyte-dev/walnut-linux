@@ -1,22 +1,37 @@
 #!/usr/bin/make -f
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
-export DEB_CFLAGS_MAINT_APPEND = -mcpu=cell -mtune=cell -Wall
+export DEB_CFLAGS_MAINT_APPEND = -mcpu=cell -mtune=cell
+include /usr/share/dpkg/architecture.mk
+LIBDIR := usr/lib/$(DEB_HOST_MULTIARCH)
 
 %:
 	dh $@
 
+# ps3-spu/Makefile: `ppe` (libspeq, speq-dxt, spurun) here in the ppc64 chroot, `spu` (the SPU
+# programs) with spu-elf GCC on PATH (our host toolchain, tools/deb-build.sh INDEP_PATH)
 override_dh_auto_build-arch:
-	mkdir -p b
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o b/spurun src/spurun.c
-# the SPU programs: spu-elf GCC on PATH (our host toolchain, tools/deb-build.sh INDEP_PATH)
+	dh_auto_build -- ppe OUT=b
 override_dh_auto_build-indep:
-	$(MAKE) -C src SPU_CC=spu-elf-gcc OUT=$(CURDIR)/b $(CURDIR)/b/hello.spu
+	dh_auto_build -- spu OUT=b SPU_CC=spu-elf-gcc
+
+# speq-dxt --check and the dlopen check, natively (big-endian)
+override_dh_auto_test-arch:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	$(MAKE) test TEST_OUT=b/test
+endif
+override_dh_auto_test-indep:
 
 override_dh_auto_install-arch:
 	install -D -m 755 b/spurun debian/ps3-spu/usr/lib/ps3/bin/spurun
+	install -D -m 755 b/speq-dxt debian/ps3-spu/usr/lib/ps3/bin/speq-dxt
 	install -d debian/ps3-spu/usr/bin
 	ln -s ../lib/ps3/bin/spurun debian/ps3-spu/usr/bin/spurun
+	ln -s ../lib/ps3/bin/speq-dxt debian/ps3-spu/usr/bin/speq-dxt
 	install -D -m 644 debian/spufs.conf debian/ps3-spu/usr/lib/modules-load.d/spufs.conf
+	install -D -m 644 b/libspeq.so.0 debian/libspeq0/$(LIBDIR)/libspeq.so.0
+	install -D -m 644 lib/speq.h debian/libspeq-dev/usr/include/speq.h
+	install -d debian/libspeq-dev/$(LIBDIR)
+	ln -s libspeq.so.0 debian/libspeq-dev/$(LIBDIR)/libspeq.so
 override_dh_auto_install-indep:
 	install -d debian/ps3-spu-programs/usr/lib/ps3/spu
 	install -m 644 b/*.spu debian/ps3-spu-programs/usr/lib/ps3/spu/
@@ -29,5 +44,5 @@ override_dh_auto_clean:
 
 # spufs mounted at /spu at boot (debian/ps3-spu.spu.mount)
 override_dh_installsystemd-arch:
-	dh_installsystemd -a
-	dh_installsystemd -a --name=spu
+	dh_installsystemd -p ps3-spu
+	dh_installsystemd -p ps3-spu --name=spu

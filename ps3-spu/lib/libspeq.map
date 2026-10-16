@@ -1,0 +1,7 @@
+/* libspeq.so.0: only the speq_* API is exported (the DXT reference and the rest stay internal) */
+SPEQ_0 {
+	global:
+		speq_*;
+	local:
+		*;
+};
