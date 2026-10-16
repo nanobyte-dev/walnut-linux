@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 02:34:41 +0300
+Subject: nv30: no fence call for buffers already fenced in this batch
+
+After validation every draw walks the buffers bound to it and references the context's current
+fence on each one that lives in a nouveau_mm slab (vertex buffers, the fragment program),
+through an out-of-line nouveau_fence_ref. The fence only changes at a kick, so from the
+second draw of a batch on every one of these calls is a no-op. Compare the pointers first and
+call only when they differ; the fence is read once, after the last point in the function that
+can kick.
+
+Same reference counts and buffer status as before. Saves a call per buffer per draw (an
+immediate-mode draw has 2-4 such buffers: one per vertex attribute, all in the same buffer,
+plus the fragment program).
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+@@ -525,16 +525,22 @@ nv30_state_validate(struct nv30_context *nv30, uint32_t mask, bool hwtnl)
+       PUSH_DATA (push, 0);
+    }
+ 
++   /* Buffers already fenced with the current fence (every draw after the first in a batch)
++    * need no call: nouveau_fence_ref would leave them unchanged.
++    */
++   struct nouveau_fence *fence = nv30->base.fence;
+    LIST_FOR_EACH_ENTRY(bref, &bctx->current, thead) {
+       struct nv04_resource *res = bref->priv;
+       if (res && res->mm) {
+-         nouveau_fence_ref(nv30->base.fence, &res->fence, nv30->base.screen);
++         if (res->fence != fence)
++            nouveau_fence_ref(fence, &res->fence, nv30->base.screen);
+ 
+          if (bref->flags & NOUVEAU_BO_RD)
+             res->status |= NOUVEAU_BUFFER_STATUS_GPU_READING;
+ 
+          if (bref->flags & NOUVEAU_BO_WR) {
+-            nouveau_fence_ref(nv30->base.fence, &res->fence_wr, nv30->base.screen);
++            if (res->fence_wr != fence)
++               nouveau_fence_ref(fence, &res->fence_wr, nv30->base.screen);
+             res->status |= NOUVEAU_BUFFER_STATUS_GPU_WRITING;
+          }
+       }

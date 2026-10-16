@@ -1,0 +1,109 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 02:35:14 +0300
+Subject: nouveau/winsys: look a buffer up once per run of relocations in
+ pushbuf_validate
+
+pushbuf_validate adds the buffers a bufctx gained since the last validation to the kernel's
+buffer list and writes their relocations. For each one it called pushbuf_kref, then
+pushbuf_krel twice, and every pushbuf_krel looked up both the push buffer's kref and the
+buffer's kref again. nv30 adds one bufref per vertex attribute, all in the same buffer, and
+two per texture (offset and format), so a typical draw repeated the same pushbuf_kref two to
+four times and did twice as many kref lookups as relocations.
+
+pushbuf_kref only reads a bufref's domain and access flags (VRAM, GART, RD, WR). A call for
+the same buffer with the same such flags as the call just before changes nothing: the first
+one already registered the kref with this push buffer and narrowed its domains to these
+flags. It is now skipped, and the push buffer's kref (which no pushbuf_kref in the loop can
+move) is looked up once. The relocations and the kernel's buffer list are the same as before.
+pushbuf_krel (nouveau_pushbuf_reloc) keeps its lookups.
+
+Forwarded: no
+
+diff --git a/src/gallium/winsys/nouveau/drm/nouveau.c b/src/gallium/winsys/nouveau/drm/nouveau.c
+--- a/src/gallium/winsys/nouveau/drm/nouveau.c
++++ b/src/gallium/winsys/nouveau/drm/nouveau.c
+@@ -1400,19 +1400,17 @@ pushbuf_kref(struct nouveau_pushbuf *push, struct nouveau_bo *bo, uint32_t flags
+    return kref;
+ }
+ 
++/* A relocation at push->cur in the push buffer (kref pkref) to the buffer with kref bkref. */
+ static uint32_t
+-pushbuf_krel(struct nouveau_pushbuf *push, struct nouveau_bo *bo,
+-        uint32_t data, uint32_t flags, uint32_t vor, uint32_t tor)
++pushbuf_krel_kref(struct nouveau_pushbuf *push, struct drm_nouveau_gem_pushbuf_bo *pkref,
++                  struct drm_nouveau_gem_pushbuf_bo *bkref,
++                  uint32_t data, uint32_t flags, uint32_t vor, uint32_t tor)
+ {
+    struct nouveau_pushbuf_priv *nvpb = nouveau_pushbuf(push);
+    struct nouveau_pushbuf_krec *krec = nvpb->krec;
+    struct drm_nouveau_gem_pushbuf_reloc *krel;
+-   struct drm_nouveau_gem_pushbuf_bo *pkref;
+-   struct drm_nouveau_gem_pushbuf_bo *bkref;
+    uint32_t reloc = data;
+ 
+-   pkref = cli_kref_get(push->client, nvpb->bo);
+-   bkref = cli_kref_get(push->client, bo);
+    krel  = &krec->reloc[krec->nr_reloc++];
+ 
+    assert(pkref);
+@@ -1440,6 +1438,16 @@ pushbuf_krel(struct nouveau_pushbuf *push, struct nouveau_bo *bo,
+    return reloc;
+ }
+ 
++static uint32_t
++pushbuf_krel(struct nouveau_pushbuf *push, struct nouveau_bo *bo,
++        uint32_t data, uint32_t flags, uint32_t vor, uint32_t tor)
++{
++   struct nouveau_pushbuf_priv *nvpb = nouveau_pushbuf(push);
++
++   return pushbuf_krel_kref(push, cli_kref_get(push->client, nvpb->bo),
++                            cli_kref_get(push->client, bo), data, flags, vor, tor);
++}
++
+ static int
+ pushbuf_refn_fail(struct nouveau_pushbuf *push, int sref, int srel)
+ {
+@@ -1514,18 +1522,35 @@ pushbuf_validate(struct nouveau_pushbuf *push, bool retry)
+    list_del(&bctx->head);
+    list_add(&bctx->head, &nvpb->bctx_list);
+ 
++   /* The push buffer's kref, and the last buffer's: pushbuf_kref of the same buffer with the
++    * same domain and access flags (the only ones it reads) as the call before changes nothing
++    * (a draw's vertex attributes, all in one buffer, or a texture's offset and format), so a
++    * run of them is looked up once.
++    */
++   const uint32_t kref_mask = NOUVEAU_BO_VRAM | NOUVEAU_BO_GART | NOUVEAU_BO_RD | NOUVEAU_BO_WR;
++   struct drm_nouveau_gem_pushbuf_bo *pkref = NULL;
++   struct nouveau_bo *kref_bo = NULL;
++   uint32_t kref_flags = 0;
++   kref = NULL;
++
+    list_for_each_entry(struct nouveau_bufref, bref, &bctx->pending, thead) {
+-      kref = pushbuf_kref(push, bref->bo, bref->flags);
+-      if (!kref) {
+-         ret = -ENOSPC;
+-         break;
++      if (!kref || bref->bo != kref_bo || (bref->flags & kref_mask) != kref_flags) {
++         kref = pushbuf_kref(push, bref->bo, bref->flags);
++         if (!kref) {
++            ret = -ENOSPC;
++            break;
++         }
++         kref_bo = bref->bo;
++         kref_flags = bref->flags & kref_mask;
+       }
+ 
+       if (bref->packet) {
+-         pushbuf_krel(push, bref->bo, bref->packet, 0, 0, 0);
++         if (!pkref)
++            pkref = cli_kref_get(push->client, nvpb->bo);
++         pushbuf_krel_kref(push, pkref, kref, bref->packet, 0, 0, 0);
+          *push->cur++ = 0;
+-         pushbuf_krel(push, bref->bo, bref->data, bref->flags,
+-                  bref->vor, bref->tor);
++         pushbuf_krel_kref(push, pkref, kref, bref->data, bref->flags,
++                           bref->vor, bref->tor);
+          *push->cur++ = 0;
+       }
+    }

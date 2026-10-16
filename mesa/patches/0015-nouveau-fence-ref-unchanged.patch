@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 02:34:23 +0300
+Subject: nouveau: no fence reference work when the fence doesn't change
+
+nv30_state_validate re-references the context's current fence on every buffer bound to a draw
+(vertex buffers, the fragment program) once per draw, and nouveau_transfer_write and
+nouveau_copy_buffer do the same per buffer write. Between two kicks the fence is the same, so
+nearly all of these calls find *ref already pointing at it. nouveau_fence_ref still took the
+screen's fence lock and did an atomic increment and decrement that cancel out: four atomic
+read-modify-writes, two of them with a full barrier. On the PS3's PPE (in-order, lwarx/stwcx.
+and sync are slow) nouveau_fence_ref and _nouveau_fence_ref took 2-11% of the CPU in games,
+most in immediate-mode draws (X-Moto, ClassiCube).
+
+Both functions now return at once when *ref already holds the fence. The reference counts and
+*ref end the same as before; only the cancelling increment and decrement and the lock are
+skipped.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nouveau_fence.c b/src/gallium/drivers/nouveau/nouveau_fence.c
+--- a/src/gallium/drivers/nouveau/nouveau_fence.c
++++ b/src/gallium/drivers/nouveau/nouveau_fence.c
+@@ -341,6 +341,10 @@ nouveau_fence_work(struct nouveau_fence *fence,
+ void
+ _nouveau_fence_ref(struct nouveau_fence *fence, struct nouveau_fence **ref)
+ {
++   /* Already referenced: the increment and decrement below would cancel out. */
++   if (*ref == fence)
++      return;
++
+    if (fence)
+       p_atomic_inc(&fence->ref);
+ 
+@@ -359,6 +363,12 @@ nouveau_fence_ref(struct nouveau_fence *fence, struct nouveau_fence **ref,
+ {
+    struct nouveau_fence_list *fence_list = &screen->fence;
+ 
++   /* Nothing changes when *ref already holds this fence, the common case for a buffer used by
++    * every draw of a batch: skip the lock and the atomics.
++    */
++   if (*ref == fence)
++      return;
++
+    simple_mtx_lock(&fence_list->lock);
+    _nouveau_fence_ref(fence, ref);
+    simple_mtx_unlock(&fence_list->lock);

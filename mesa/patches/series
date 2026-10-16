@@ -12,3 +12,6 @@
 0012-nv30-two-byte-texels-big-endian.patch
 0013-nv30-thin-mip-levels.patch
 0014-nv30-blit-source-alignment.patch
+0015-nouveau-fence-ref-unchanged.patch
+0016-nv30-validate-fence-unchanged.patch
+0017-nouveau-winsys-validate-kref-once.patch
