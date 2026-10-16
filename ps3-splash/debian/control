@@ -1,0 +1,15 @@
+Source: ps3-splash
+Section: misc
+Priority: optional
+Maintainer: PS3 Linux project <ps3@localhost>
+Build-Depends: debhelper-compat (= 13), librsvg2-bin
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: ps3-splash
+Architecture: all
+Depends: ${misc:Depends}, plymouth, plymouth-label, fonts-dejavu-core
+Description: Walnut Linux boot splash (Plymouth theme)
+ The Walnut Linux logo on the desktop's blue with a text progress bar (a walnut rolling at
+ its head) and status jokes, for boot and shutdown. Kernels whose arguments include
+ "splash" show it; the others show the usual boot messages.

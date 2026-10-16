@@ -47,3 +47,4 @@ local/0004-ps3-reserve-rsx-gart-memory.patch
 local/0005-ps3fb-gpu-sharing-api.patch
 local/0006-gelic-poll-controller-passes-card.patch
 local/0007-ps3-rsx-gart-cma.patch
+local/0008-walnut-boot-logo.patch

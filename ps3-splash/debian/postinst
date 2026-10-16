@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+# Walnut is the theme (no initramfs to rebuild: Plymouth starts from the root filesystem)
+if [ "$1" = configure ] && command -v plymouth-set-default-theme >/dev/null; then
+	plymouth-set-default-theme walnut || true
+fi
+#DEBHELPER#
+exit 0

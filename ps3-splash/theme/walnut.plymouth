@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Walnut Linux
+Description=Walnut Linux: the logo with a rolling-walnut progress bar
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/walnut
+ScriptFile=/usr/share/plymouth/themes/walnut/walnut.script

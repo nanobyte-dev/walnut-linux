@@ -53,6 +53,8 @@ change them in a disposable git tree:
   2026-10-16). The series files' leading comments are kept.
 - `make <pkg>-work` refuses to replace a tree with commits not exported yet (`FORCE=1` discards
   them); `make <pkg>-patches` refuses a tree that `-work` didn't finish.
+- Debian's kernel tree has a `.gitignore` that ignores everything: in `build/work/linux`, files
+  you add need `git add -f` (changes to existing files commit normally).
 - `-rebase` stops at a conflict: resolve it in the work tree (`git status`, `git rebase
   --continue`), then `make <pkg>-patches` and set `VERSION`/`DSC_SHA256` in `package.conf` (it
   prints the hash). Without a conflict it does both itself.
