@@ -15,4 +15,5 @@ ps3-splash
 ps3-gpu-tools
 ps3-spu
 ps3-spu-programs
+libspeq0
 classicube
