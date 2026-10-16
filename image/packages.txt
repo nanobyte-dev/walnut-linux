@@ -14,6 +14,8 @@ netbase
 ca-certificates
 procps
 less
+# console tools: chvt (switch VTs from a shell), loadkeys, setfont
+kbd
 nano
 psmisc
 file
