@@ -27,7 +27,7 @@ mmfile() { sudo sh -c 'ls /sys/kernel/debug/dri/*/ps3rsx_mm 2>/dev/null | head -
 session_start() {
 	[ -e $LOCK ] && return
 	{ echo "started $(date -u +%FT%TZ) by $$"; uname -r
-	  echo "SPEs: $(ls /sys/devices/system/spu 2>/dev/null | wc -l)"; } > $LOCK
+	  echo "SPEs: $(ls -d /sys/devices/system/spu/spu[0-9]* 2>/dev/null | wc -l)"; } > $LOCK
 	mkdir -p $OUT
 	[ -e "$Q3" ] && [ ! -e $OUT/q3config.cfg.orig ] && cp -p "$Q3" $OUT/q3config.cfg.orig
 	echo ">> bench session: $(tr '\n' ' ' < $LOCK)"
