@@ -19,3 +19,14 @@ libedit2
 libsensors5
 libsensors-config
 hsetroot
+# ps3-apps: everyday desktop applications (ps3-desktop's lxterminal too)
+lxterminal
+mousepad
+gpicview
+zathura
+zathura-pdf-poppler
+xarchiver
+galculator
+lxtask
+scrot
+mpv

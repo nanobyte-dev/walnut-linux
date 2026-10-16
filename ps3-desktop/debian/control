@@ -11,7 +11,7 @@ Architecture: all
 Depends: ${misc:Depends}, ps3-system, dbus-user-session, sudo, xserver-xorg-core, xserver-xorg-legacy,
  xinit, xauth, x11-xserver-utils, x11-utils, xinput, xserver-xorg-input-joystick,
  xserver-xorg-input-libinput, openbox, tint2, jgmenu, pcmanfm, desktop-base, greybird-gtk-theme,
- papirus-icon-theme, dunst, lxpolkit, rxvt-unicode, network-manager-applet, pnmixer, gvfs, udev,
+ papirus-icon-theme, dunst, lxpolkit, lxterminal, network-manager-applet, pnmixer, gvfs, udev,
  systemd
 Recommends: blueman, openarena, classicube
 Description: PS3 desktop (Openbox on the RSX, game mode)
@@ -20,3 +20,13 @@ Description: PS3 desktop (Openbox on the RSX, game mode)
  notification helpers. Game mode (ps3-game) keeps a game and X resident and freezes the desktop
  helpers while it runs; gamepads move the pointer outside games. Shut down and Reboot menu
  entries, OpenArena's PS3 settings.
+
+Package: ps3-apps
+Architecture: all
+Depends: ${misc:Depends}, mousepad, gpicview, zathura, zathura-pdf-poppler, xarchiver, galculator,
+ lxtask, scrot, mpv
+Description: everyday desktop applications for the PS3
+ Light GTK applications that suit 256 MB of RAM: a text editor (Mousepad), an image viewer
+ (GPicView), a PDF viewer (zathura), an archive manager (Xarchiver), a calculator (Galculator),
+ a task manager (LXTask), screenshots (scrot, on the Print key) and a media player (mpv). The
+ PS3 desktop opens files with them by default. Remove this package to remove them.

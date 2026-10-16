@@ -16,4 +16,5 @@ ps3-gpu-tools
 ps3-spu
 ps3-spu-programs
 libspeq0
+ps3-apps
 classicube

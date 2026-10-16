@@ -1,0 +1,40 @@
+# Default applications (ps3-apps), for pcmanfm and xdg-open; a user's own ~/.config/mimeapps.list
+# wins. Where only one installed application opens a type, nothing needs listing.
+[Default Applications]
+text/plain=org.xfce.mousepad.desktop
+text/x-log=org.xfce.mousepad.desktop
+text/markdown=org.xfce.mousepad.desktop
+text/x-csrc=org.xfce.mousepad.desktop
+text/x-chdr=org.xfce.mousepad.desktop
+text/x-python=org.xfce.mousepad.desktop
+text/x-shellscript=org.xfce.mousepad.desktop
+application/x-shellscript=org.xfce.mousepad.desktop
+application/xml=org.xfce.mousepad.desktop
+application/json=org.xfce.mousepad.desktop
+image/png=gpicview.desktop
+image/jpeg=gpicview.desktop
+image/gif=gpicview.desktop
+image/bmp=gpicview.desktop
+image/webp=gpicview.desktop
+image/svg+xml=gpicview.desktop
+image/tiff=gpicview.desktop
+image/x-tga=gpicview.desktop
+image/x-portable-pixmap=gpicview.desktop
+application/pdf=org.pwmt.zathura.desktop
+application/zip=xarchiver.desktop
+application/gzip=xarchiver.desktop
+application/x-tar=xarchiver.desktop
+application/x-compressed-tar=xarchiver.desktop
+application/x-xz-compressed-tar=xarchiver.desktop
+application/x-7z-compressed=xarchiver.desktop
+application/vnd.rar=xarchiver.desktop
+audio/mpeg=mpv.desktop
+audio/ogg=mpv.desktop
+audio/flac=mpv.desktop
+audio/x-wav=mpv.desktop
+video/mp4=mpv.desktop
+video/x-matroska=mpv.desktop
+video/webm=mpv.desktop
+text/html=netsurf-gtk.desktop
+x-scheme-handler/http=netsurf-gtk.desktop
+x-scheme-handler/https=netsurf-gtk.desktop
