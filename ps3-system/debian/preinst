@@ -36,8 +36,10 @@ migrate() {
 	for f in $found; do rm -f "/$f"; done
 	echo "ps3-system: legacy files archived in /var/backups and removed:$found" | fold -s -w 100
 }
-case "$1" in
-install|upgrade) migrate ;;
-esac
+# Only on the first install: on an upgrade the enable links are this package's own (removing
+# them disabled swap on every upgrade, 2026-10-16)
+if [ "$1" = install ] && [ -z "${2:-}" ]; then
+	migrate
+fi
 #DEBHELPER#
 exit 0

@@ -1,6 +1,13 @@
 #!/bin/sh
 set -e
 if [ "$1" = configure ]; then
+	# versions before 0.153 removed their own units' enable links on every upgrade (the legacy
+	# migration ran on upgrades too): enable them again
+	if [ -n "${2:-}" ] && dpkg --compare-versions "$2" lt 0.153; then
+		for u in ssh-hostkeys.service ps3gpu-nodes.service ps3-swap.service ps3-vswap.service; do
+			deb-systemd-helper enable "$u" >/dev/null 2>&1 || true
+		done
+	fi
 	# other packages' services this setup relies on
 	for u in systemd-networkd.service ssh.service; do
 		deb-systemd-helper enable "$u" >/dev/null 2>&1 || true

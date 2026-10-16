@@ -58,7 +58,8 @@ divert() {	# <file> <diverted name>
 }
 case "$1" in
 install|upgrade)
-	migrate
+	# the legacy files only on the first install (on an upgrade they are this package's own)
+	if [ "$1" = install ] && [ -z "${2:-}" ]; then migrate; fi
 	for m in afc goa; do
 		divert /usr/share/gvfs/remote-volume-monitors/$m.monitor /usr/share/gvfs/remote-volume-monitors/$m.monitor.disabled
 	done
