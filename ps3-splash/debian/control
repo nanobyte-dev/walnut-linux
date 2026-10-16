@@ -8,14 +8,14 @@ Rules-Requires-Root: no
 
 Package: ps3-splash
 Architecture: all
-Depends: ${misc:Depends}, ps3-no-initramfs, plymouth, plymouth-label, fontconfig, fonts-dejavu-core, hsetroot
+Depends: ${misc:Depends}, ps3-no-initramfs, plymouth (>= 26.134.222-1+ps3), hsetroot
 Description: Walnut Linux boot splash (Plymouth theme)
  The Walnut Linux logo on the desktop's blue with a progress bar and a walnut rolling at
  its head, for boot and shutdown. The last frame stays up until the desktop draws (Plymouth
  leaves it on the console, the desktop session puts it on X's root window with hsetroot).
  Kernels whose arguments include "splash" show it; the others show the usual boot messages.
- Plymouth's text rendering goes through FreeType instead of Pango (label-pango.so is diverted):
- much less to load from the boot disk.
+ Made to show early from a USB disk: no text rendering (our Plymouth's script plugin works
+ without it), no XKB keymap, and no DRM renderer (diverted: it can't drive ps3rsx at boot).
 
 Package: ps3-no-initramfs
 Architecture: all

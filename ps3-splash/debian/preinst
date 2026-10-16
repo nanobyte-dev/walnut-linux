@@ -1,20 +1,28 @@
 #!/bin/sh
 set -e
-# Plymouth's text rendering through FreeType, not Pango: Plymouth loads label-pango.so when it
-# exists and label-freetype.so (FreeType only, one font found with fc-match) otherwise. The
-# Pango plugin loads ~9.5 MB of libraries (glib, cairo, harfbuzz, pango, ...) and took 11 s
-# from the USB disk at boot (2026-10-16). The script theme needs some text rendering even though
-# it draws no text: without it the script plugin has no console viewer and crashes.
+# Plymouth's DRM renderer diverted away: it can't drive ps3rsx at boot ("Could not initialize
+# heads") and only cost seconds of failed attempts before the framebuffer fallback (ps3fb).
+# Without it Plymouth goes straight to the framebuffer. (X doesn't use it.)
+# 0.180 diverted Plymouth's Pango text plugin instead; our patched Plymouth no longer needs text
+# rendering for the script theme at all (plymouth/patches), so that diversion goes.
+multiarch() {
+	case "$(dpkg --print-architecture)" in
+	ppc64) echo powerpc64-linux-gnu ;;
+	ppc64el) echo powerpc64le-linux-gnu ;;
+	amd64) echo x86_64-linux-gnu ;;
+	esac
+}
 case "$1" in
 install|upgrade)
-	case "$(dpkg --print-architecture)" in
-	ppc64) ma=powerpc64-linux-gnu ;;
-	ppc64el) ma=powerpc64le-linux-gnu ;;
-	amd64) ma=x86_64-linux-gnu ;;
-	*) ma= ;;
-	esac
-	[ -z "$ma" ] || dpkg-divert --quiet --package ps3-splash --rename \
-		--divert /usr/lib/$ma/plymouth/label-pango.so.ps3-splash --add /usr/lib/$ma/plymouth/label-pango.so
+	ma=$(multiarch)
+	if [ -n "$ma" ]; then
+		p=/usr/lib/$ma/plymouth
+		if dpkg-divert --list "$p/label-pango.so" | grep -q 'by ps3-splash$'; then
+			dpkg-divert --quiet --package ps3-splash --rename --remove "$p/label-pango.so"
+		fi
+		dpkg-divert --quiet --package ps3-splash --rename \
+			--divert "$p/renderers/drm.so.ps3-splash" --add "$p/renderers/drm.so"
+	fi
 	;;
 esac
 #DEBHELPER#

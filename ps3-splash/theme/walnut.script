@@ -1,8 +1,8 @@
 # Walnut Linux boot splash (Plymouth script theme, ps3-splash).
 # The logo on the desktop's blue and under it a progress bar made of small images,
-# [=====@.......], with the walnut rolling (rotating) along at its head. The theme draws no text,
-# but the script plugin needs Plymouth's text rendering all the same (without it the plugin
-# crashes: no console viewer); ps3-splash makes that FreeType's (debian/preinst).
+# [=====@.......], with the walnut rolling (rotating) along at its head. No text: Plymouth's
+# text rendering (plymouth-label) is not installed, it took 10 s to load from the USB disk at
+# boot (our Plymouth's script plugin works without it: plymouth/patches).
 
 Window.SetBackgroundTopColor(0.078, 0.188, 0.302);      # #14304d, the desktop's blue
 Window.SetBackgroundBottomColor(0.078, 0.188, 0.302);

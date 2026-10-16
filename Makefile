@@ -390,6 +390,6 @@ KEEP_TREE ?= 0
 # All our packages: the Debian source packages and the two still made by the old pipeline
 # (the kernel until milestone 4; the transitional ps3-mesa)
 # the kernel first: ps3rsx builds against its headers
-SRC_PACKAGES := linux mesa ps3-boot ps3-gpu-tools ps3-spu classicube ps3-system ps3-desktop ps3-splash
+SRC_PACKAGES := linux mesa plymouth ps3-boot ps3-gpu-tools ps3-spu classicube ps3-system ps3-desktop ps3-splash
 packages: $(SRC_PACKAGES:%=%-deb) debs
 	$(MAKE) --no-print-directory ps3rsx-modules

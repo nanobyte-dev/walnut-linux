@@ -1,0 +1,2 @@
+# Our patches on Debian's plymouth (ps3-splash's script theme)
+0001-script-no-console-viewer.patch

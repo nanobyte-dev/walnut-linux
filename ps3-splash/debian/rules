@@ -21,6 +21,8 @@ override_dh_auto_install:
 	install -D -m 644 images/desktop-splash.png debian/ps3-splash/usr/share/ps3-splash/desktop-splash.png
 	install -D -m 644 debian/plymouth-quit-retain.conf \
 		debian/ps3-splash/usr/lib/systemd/system/plymouth-quit.service.d/ps3-splash.conf
+	install -D -m 644 debian/plymouth-start-fast.conf \
+		debian/ps3-splash/usr/lib/systemd/system/plymouth-start.service.d/ps3-splash.conf
 
 override_dh_auto_clean:
 	rm -rf images
