@@ -107,6 +107,10 @@ settles a risk several games share):
 
 ## Group 2: our package or data, light GL
 
+QuakeSpasm (2026-10-17): runs, the timedemo through a quake.rc of ours in ~/.quakespasm/id1
+(the shareware's own quake.rc starts the attract loop after +timedemo; -game is refused by the
+shareware). 59.2 fps without GLSL, 64.8 with, 70.3 with the gamma pass: colours right.
+
 | # | Game | Get | Expect | Bench |
 |---|---|---|---|---|
 | 6 | QuakeSpasm | Debian, 2 MB; `quake-shareware` from game-data-packager (contrib, built in the Debian games builder with `lhasa`: `make quake-data` into `build/debs/quake-data`; non-free like ClassiCube's audio, so our LAN repository only; published once and reused, since its output isn't reproducible). Not the `quake` launcher package (it pulls GTK 4) | `-nopackedpixels` (the upstream fix disables 10-bit lightmaps on big-endian; nv30 has no 10-bit format anyway). Packed pixels only exist with GLSL, so `-noglsl` first, then GLSL with `gamma 0.9` (the gamma pass only runs off 1.0) | `+timedemo demo1`, `%i frames %5.1f seconds %5.1f fps`, doesn't quit: stopped at that line |
@@ -210,9 +214,9 @@ Load times are compared with the same shader cache state (Mesa's disk cache is o
 |---|---|---|---|---|
 | OpenArena opengl1 | runs | under 60 fps | performance | tc1: 42.2 fps, load 10.8 s (stage 0) |
 | ClassiCube | runs | under 60 fps | performance | fly-through demo (plugin, 3000 fixed frames): 43.2 fps, frame ms 9/23/53/278 (min/avg/p99/max), 0 chunks built in the run |
-| dsda-doom, software renderer 960x540 | runs | colours rotated (red shows green, blue red) with every SDL renderer, SDL's software one too: dsda-doom or SDL on big-endian, not the GPU; sound choppy (PPE saturated) | game/SDL BE bug; performance | 20.2 fps (SDL GL renderer), 29.2 (GLES2); 1920x1080: ~5 fps |
-| dsda-doom, GL renderer | not run | needs ARB_texture_rg | GL_RG | |
-| X-Moto | runs (Mesa ps3.186) | 35 fps, CPU-bound (one PPE thread flat out); music plays, no engine sounds heard | performance; sound effects | 35.0 fps avg (credits replay, `--timedemo --benchmark`) |
+| dsda-doom, software renderer 960x540 | runs, colours right (our dsda-doom package: the frame now uses the SDL texture's own pixel format; the old one swapped red and green on big-endian) | CPU-bound: sound can stutter | performance | 20 fps HUD median (cut at 90 s) |
+| dsda-doom, GL renderer 1920x1080 | runs (our package: indexed textures as GL_LUMINANCE_ALPHA without ARB_texture_rg) | | performance | 48.2 fps, Freedoom DEMO1 timedemo complete |
+| X-Moto | runs (Mesa ps3.186) | 35 fps, CPU-bound (one PPE thread flat out); no sound bug: the engine and effects play in replays (checked with the PS3's own binaries under qemu), but the engine is quiet and bass-heavy, ~15-20 dB under the music | performance; sound effects | 35.0 fps avg (credits replay, `--timedemo --benchmark`) |
 | Neverball | runs (Mesa ps3.225): picture, fonts, overlays and sound right | the shipped replay is shorter than the 60 s run, so the HUD mixes replay and end menu | a patch printing fps and exiting at the replay's end | ~70 fps HUD median (replay + menu) |
 | Extreme Tux Racer | runs (menus) | | | 42 fps HUD median in the menu; a race needs a player |
 | Armagetron | runs: a recorded round of 4 AIs, spectated (assets/armagetronad-bench.aarec, 90 s), played back with --benchmark | the recording ends without a quit, so playback never prints its fps: fixed 100 s, HUD fps | | 89 fps HUD median live (p10 47); playback being measured |
@@ -224,6 +228,6 @@ Load times are compared with the same shader cache state (Mesa's disk cache is o
 | L8A8 (GL_LUMINANCE_ALPHA) samples with L and A swapped (gl-texfmt) | Neverball, fonts in many games | Mesa 0012 (ps3.223), gl-texfmt passes |
 | GPU mipmap generation of non-square textures: 1-pixel levels are swizzled render targets the validator refuses, the push is lost (gl-genmip) | Neverball, SuperTuxKart, Luanti | Mesa 0013 (ps3.223), gl-genmip passes |
 | Graph exception 0x105: nv30's 3D blit sampled a mip level at an offset not 128-byte aligned (Mesa's CPU mipmap generation reading back the 2x2 level of a 32x32 L8A8 texture) | Neverball (every game generating mipmaps for L8A8/L8/A8/I8/4444/5551) | Mesa 0014 (ps3.225); gl-mipread passes all 70 cases. A ps3rsx validator rule refusing unaligned texture offsets is proposed (not done: the 128-byte threshold is inferred) |
-| No ARB_texture_rg (glxinfo) | dsda-doom GL, OpenTTD GL | dsda-doom: a GL_LUMINANCE_ALPHA fallback in our dsda-doom package (in progress) |
+| No ARB_texture_rg (glxinfo) | dsda-doom GL, OpenTTD GL | dsda-doom: a GL_LUMINANCE_ALPHA fallback in our dsda-doom package (works); OpenTTD: open |
 | Every X after the first started black: ps3rsx's reflip muted the video for an active CRTC with no framebuffer, and ps3fb's console blank muted it before X owned the GPU | all (every bench run) | a1f1b91, 8baa747 (ps3rsx 0.219) |
 | No window manager under the bench's bare X: SDL fullscreen windows never shown | all SDL games | client.sh starts Openbox (fa723f9) |

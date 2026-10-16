@@ -29,7 +29,7 @@ MAXMS_RE='^ccbench: [0-9]+ frames .* min/avg/p99/max [0-9.]+/[0-9.]+/[0-9.]+/([0
 LOAD_MARK='^ccbench: start after'
 # the game quits by itself; this only stops a run that hangs or crawls (under ~19 fps it can't
 # finish: run.sh smoke stops everything at 180 s)
-DURATION=170
+DURATION=120	# a safety cap: the plugin quits by itself (~70 s of demo after ~15 s of load)
 parse() {	# frame time spread and chunk builds during the run (0: the frames were the same)
 	local l
 	[ -e "$D/game.log" ] || return 0

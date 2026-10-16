@@ -16,9 +16,9 @@ setup() {
 }
 CMD=(/usr/games/armagetronad --playback "$AA_REC" --benchmark)
 # The recording ends where the record run was stopped (90 s), not with a quit: playback then
-# carries on and never prints its frames/fps line. So a fixed 100 s, fps from the Gallium HUD.
+# carries on and never prints its frames/fps line. So a fixed 90 s, fps from the Gallium HUD.
 FPS_RE='[0-9]+ frames in [0-9.]+ seconds: ([0-9.]+) fps'
-DURATION=100
+DURATION=90
 HUD_SKIP=10
 # make the recording (90 s), then copy /var/tmp/armagetronad-bench.aarec into assets/
 variant_record() { CMD=(/usr/games/armagetronad --record /var/tmp/armagetronad-bench.aarec); DURATION=90; }

@@ -12,7 +12,7 @@ COMM=etr
 ETR_KBD=/dev/input/event0	# the Logitech receiver's keyboard on the PS3
 ETR_REC=$ASSETS/etr-race.evemu
 CMD=(/usr/games/etr)
-DURATION=240
+DURATION=100	# the replay closes ETR at ~83 s
 HUD_SKIP=15
 ETR_MODE=replay
 etr_window() {	# waits up to 60 s for ETR's window to be mapped

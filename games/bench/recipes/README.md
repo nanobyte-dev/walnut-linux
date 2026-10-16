@@ -13,7 +13,7 @@ if it exists (`base` needs none).
 | `BACKUP=(...)` | files the game rewrites (configs): restored after every run |
 | `setup()` | puts assets and config in place (`$ASSETS` is `games/bench/assets`) |
 | `END_RE` | output line after which the game is stopped (games that don't quit) |
-| `DURATION` | seconds from start after which the game is stopped (games without an end) |
+| `DURATION` | seconds from start after which the game is stopped (default 90: a game still running then is cut, and its fps comes from the HUD) |
 | `FPS_RE`, `MAXMS_RE`, `LOAD_RE` | the first capture group of the last matching output line |
 | `LOAD_MARK` | an output line whose time (seconds from start) is the load time |
 | `HUD_SKIP` | HUD seconds left out as loading when there is no load time (default 12) |

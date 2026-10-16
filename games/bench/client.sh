@@ -14,7 +14,8 @@ ASSETS=$here/assets
 
 # recipe interface (README in recipes/): the recipe sets these, a variant_<name> function changes them
 CMD=(); ENV=(); BACKUP=(); GAMEMODE=0; HUD=1; COMM=; WM=openbox
-END_RE=; DURATION=0; HUD_SKIP=12; FPS_RE=; MAXMS_RE=; LOAD_RE=; LOAD_MARK=; RESULT_FILE=; SOUND_AT=15
+# DURATION: 90 s at most unless a recipe says otherwise (the user: enough material, no long demos)
+END_RE=; DURATION=90; HUD_SKIP=12; FPS_RE=; MAXMS_RE=; LOAD_RE=; LOAD_MARK=; RESULT_FILE=; SOUND_AT=15
 setup() { :; }; parse() { :; }
 . "$here/recipes/$GAME.sh" || exit 2
 if declare -F "variant_$VARIANT" >/dev/null; then "variant_$VARIANT"
