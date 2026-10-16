@@ -7,14 +7,16 @@ LIBDIR := usr/lib/$(DEB_HOST_MULTIARCH)
 %:
 	dh $@
 
-# ps3-spu/Makefile: `ppe` (libspeq, speq-dxt, spurun) here in the ppc64 chroot, `spu` (the SPU
-# programs) with spu-elf GCC on PATH (our host toolchain, tools/deb-build.sh INDEP_PATH)
+# ps3-spu/Makefile: `ppe` (libspeq, speq-dxt, spurun) here in the ppc64 chroot,
+# `spu` (the SPU programs and the runtime they link) with spu-elf GCC on PATH (our host
+# toolchain, tools/deb-build.sh INDEP_PATH)
 override_dh_auto_build-arch:
 	dh_auto_build -- ppe OUT=b
 override_dh_auto_build-indep:
-	dh_auto_build -- spu OUT=b SPU_CC=spu-elf-gcc
+	dh_auto_build -- spu OUT=b SPU_CC=spu-elf-gcc SPU_AR=spu-elf-ar
 
-# speq-dxt --check and the dlopen check, natively (big-endian)
+# speq-dxt --check, the dlopen check, and the queue on the fake backend (queue-test),
+# natively (big-endian)
 override_dh_auto_test-arch:
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 	$(MAKE) test TEST_OUT=b/test

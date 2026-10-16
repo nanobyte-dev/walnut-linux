@@ -1,6 +1,6 @@
 /* dlopen-check <libspeq.so.0>: loads the library the way Mesa's hook does (dlopen, dlsym of
  * speq_s3tc_compress_v1) and checks that it gives the reference encoder's bytes, that only the
- * speq_* API is exported, and the work queue stubs. */
+ * speq_* API is exported, and that speq_open fails cleanly where there is no spufs. */
 #include <dlfcn.h>
 #include <errno.h>
 #include <stdio.h>
@@ -29,6 +29,7 @@ int main(int argc, char **argv)
 	s3tc_fn f;
 	void *h;
 	unsigned i, rng = 1;
+	int ret;
 	const char *mode = getenv("SPEQ_S3TC");
 
 	if (argc != 2) {
@@ -44,11 +45,14 @@ int main(int argc, char **argv)
 	abi = (unsigned (*)(void))dlsym(h, "speq_abi_version");
 	open_q = (int (*)(struct speq **, const char *, unsigned, unsigned))dlsym(h, "speq_open");
 	check(f && abi && open_q, "speq_s3tc_compress_v1, speq_abi_version, speq_open exported");
-	check(!dlsym(h, "dxt1_ref_block") && !dlsym(h, "dxt1_ref_image"), "internals hidden");
+	check(!dlsym(h, "dxt1_ref_block") && !dlsym(h, "dxt1_ref_image") &&
+	      !dlsym(h, "spq_fail_job") && !dlsym(h, "spq_spufs"), "internals hidden");
 	if (!f || !abi || !open_q)
 		return 1;
-	check(abi() == 1, "speq_abi_version() == 1");
-	check(open_q(&q, "dxt.spu", 0, 0) == -ENOSYS && !q, "speq_open: -ENOSYS (milestone C)");
+	check(abi() == 2, "speq_abi_version() == 2");
+	/* no spufs here (or no such program): an error the caller falls back on, never a queue */
+	ret = open_q(&q, "no-such-program.spu", 0, 0);
+	check((ret == -ENOENT || ret == -EBUSY) && !q, "speq_open without spufs or program: -ENOENT");
 
 	for (i = 0; i < sizeof(src); i++) {
 		rng = rng * 1103515245 + 12345;

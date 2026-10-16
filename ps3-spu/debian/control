@@ -19,8 +19,9 @@ Architecture: all
 Depends: ${misc:Depends}
 Breaks: ps3-spu (<< ${source:Version})
 Replaces: ps3-spu (<< ${source:Version})
-Description: SPU test programs for the PS3
- SPU programs (*.spu, built with spu-elf GCC) in /usr/lib/ps3/spu, run with spurun.
+Description: SPU programs for the PS3
+ SPU programs (*.spu, built with spu-elf GCC) in /usr/lib/ps3/spu: hello.spu, run with
+ spurun, and bench.spu, libspeq's resident worker with the operations speq-bench uses.
 
 Package: libspeq0
 Section: libs
