@@ -259,8 +259,9 @@ Only when content needs them (OpenArena and ClassiCube don't):
   isn't on NFS.
 - **Distribution:** sign and host the apt repository; the SPU and PPE toolchains could ship
   from it. `make iso` and the installer (OtherOS++ region; ps3da/db/dc never written).
-- **Candidate games:** QuakeSpasm, Yamagi Quake II (gl1), Extreme Tux Racer, Neverball,
-  Armagetron, Sauerbraten; stretch: SuperTuxKart (GL 2.1 mode, RAM), Luanti, PrBoom+. GL 3-only
+- **Game suite** (docs/GAME-SUITE.md, researched 2026-10-16): OpenArena (opengl1 and opengl2),
+  ClassiCube, QuakeSpasm, Sauerbraten, SuperTuxKart (legacy GL), Luanti (our build), Neverball,
+  dsda-doom + Freedoom, OpenTTD, X-Moto; a smoke-test session first, then games/bench/. GL 3-only
   games stay out of reach.
 
 ## Done (summary)
