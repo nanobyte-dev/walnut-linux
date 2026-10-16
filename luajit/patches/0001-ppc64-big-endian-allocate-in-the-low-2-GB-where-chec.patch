@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 02:19:16 +0300
+Subject: ppc64 big-endian: allocate in the low 2 GB, where checkptrGC wants
+ the state
+
+On ppc64 ELFv1 (big-endian) lj_def.h checks the global state with checkptr31 (only ELFv2, ppc64el, gets checkptr32), but lj_alloc.c probed random hints anywhere in the low 4 GB (LJ_ALLOC_MBITS 32, as for the other non-x64 targets). Whenever the state landed between 2 and 4 GB, luaL_newstate() returned NULL: 16 of 40 starts of a minimal program in the ppc64 chroot (qemu-user honours the hints like the kernel), and Luanti's unit tests aborted in TestScriptApi. With the probe limited to 2 GB: 60 of 60.
+
+diff --git a/src/lj_alloc.c b/src/lj_alloc.c
+--- a/src/lj_alloc.c
++++ b/src/lj_alloc.c
+@@ -103,6 +103,9 @@
+ #elif LJ_TARGET_X64 && LJ_HASJIT
+ /* Due to limitations in the x64 compiler backend. */
+ #define LJ_ALLOC_MBITS		31	/* 2 GB on x64 with !LJ_GC64. */
++#elif defined(__powerpc64__) && _CALL_ELF != 2
++/* ppc64 ELFv1 (big-endian) checks the global state with checkptr31 (lj_def.h). */
++#define LJ_ALLOC_MBITS		31	/* 2 GB on ppc64 ELFv1 with !LJ_GC64. */
+ #else
+ #define LJ_ALLOC_MBITS		32	/* 4 GB on other archs with !LJ_GC64. */
+ #endif

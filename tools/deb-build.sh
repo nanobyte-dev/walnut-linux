@@ -39,7 +39,7 @@ if [ "${BUILD:-native}" = cross-linux ]; then
 	rm -rf "$W"; mkdir -p "$W" "$CC_DIR"
 	T0=$(date +%s)
 	(cd "$W" && dpkg-source -x "../../../$DSC" src >/dev/null && cd src && \
-		DEB_BUILD_OPTIONS="$NOCHECK parallel=${JOBS:-16}" DEBIAN_KERNEL_USE_CCACHE=1 \
+		DEB_BUILD_OPTIONS="${NOCHECK:+$NOCHECK }parallel=${JOBS:-16}" DEBIAN_KERNEL_USE_CCACHE=1 \
 		CCACHE_DIR="$CC_DIR" CCACHE_BASEDIR="$PWD" CCACHE_NOHASHDIR=1 CCACHE_MAXSIZE=5G \
 		dpkg-buildpackage -a ppc64 -b -d -uc -us ${CROSS_PROFILES:+-P$CROSS_PROFILES} > ../build.log 2>&1) \
 		|| { tail -40 "$W/build.log"; exit 1; }
@@ -128,7 +128,7 @@ echo ">> build dependencies ready in $((T1 - T0)) s"
 
 in_chroot sh -c "ccache -M 5G >/dev/null; cd /build/reproducible-path/$SOURCE-$UPVER && \
 	CCACHE_DIR=/build/ccache CCACHE_BASEDIR=/build/reproducible-path CCACHE_NOHASHDIR=1 \
-	DEB_BUILD_OPTIONS='$NOCHECK parallel=${JOBS:-16} ${DEB_BUILD_EXTRA:-}' \
+	DEB_BUILD_OPTIONS='${NOCHECK:+$NOCHECK }parallel=${JOBS:-16} ${DEB_BUILD_EXTRA:-}' \
 	eatmydata dpkg-buildpackage $ARCHBUILD -uc -us ${NATIVE_PROFILES:+-P$NATIVE_PROFILES}" > "build/chroot/$PKG-build.log" 2>&1 \
 	|| { tail -40 "build/chroot/$PKG-build.log"; exit 1; }
 T2=$(date +%s)
