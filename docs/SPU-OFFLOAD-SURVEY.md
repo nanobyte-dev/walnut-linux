@@ -133,6 +133,15 @@ The first 5+5 runs (VRAM swap accidentally off) agree: load 13.98 → 15.45 s, V
 [849..1469] (no change), fps 49.9 → 53.0, game VRAM 51.6 → 37.5 MB. **Shipped**: OpenArena's
 autoexec.cfg sets `r_ext_compressed_textures 1` (ps3-desktop).
 
+**With the SPU encoder** (libspeq 0.210, `SPEQ_S3TC=auto`, 5 runs each, interleaved): load
+13.84 s [13.70..15.74] uncompressed against **13.63 s [13.45..15.39] compressed**: no load cost
+left (fewer bytes to upload make up for the encoding); fps 49.1 → 52.7, game VRAM 51.7 → 37.5 MB,
+longest frame unchanged within the noise. With `SPEQ_DEBUG=1`, one level load makes 1476
+compression calls: 254 on the SPEs (every texture from 64x64 up, 0 failures), the rest small mip
+levels on the PPE (under 64x64, tens of us each) or, for 1x1 and 2x2 levels, Mesa's own encoder.
+The queue opens once per game (67 ms). gl-dxt through glTexImage: 352 Mpixel/s for a 1024x1024
+RGBA image (6.5 with the PPE encoder); `speq-dxt --bench`: 1173 Mpixel/s on six SPEs, hot.
+
 **Sound** (timedemo, 3 runs each): A stock OpenAL 49.7 fps; B OpenAL int16 + linear resampler,
 no HRTF 49.8; B22 the same at 22 kHz 50.0; C the game's own mixer (`s_useOpenAL 0`, `s_khz 22`)
 50.0; **Z sound off 55.3**. Level load 13.8-14.1 s with sound, 11.9 s without (decoding the
