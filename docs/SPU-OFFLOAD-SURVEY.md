@@ -85,11 +85,54 @@ and meshing. Without it every consumer pays spufs context switches.
 2. **libspeq** (1–2 wk): resident SPE workers, reservation-line job queue, done-word
    completion, newlib stop 0x2100 for `printf`; benchmark dispatch latency and SPU DMA
    write rate into mapped VRAM (expect GB/s if Sony's 4 GB/s holds).
-3. **First consumer: the SPU DXT encoder** behind Mesa's S3TC pack: prototype as a
+3. **First consumer: the SPU DXT encoder** behind Mesa's S3TC texstore (`tx_compress_dxt1`,
+   reached from glTexImage; not `util_format_dxt*_pack`): prototype as a
    standalone `spurun` tool compressing a 1024×1024 RGBA image (target ≥50 Mpixel/s across
    6 SPEs, unverified), then wire into Mesa. Success = OpenArena level load no slower than
    uncompressed, VRAM for textures ÷4 or better.
 4. Then audio mixing/decoding; meshing as a showcase.
+
+## Measured: step 0 (2026-10-16)
+
+No SPU code yet: what OpenArena's own settings do, measured with `ps3-bench.sh` (desktop stopped,
+caches dropped, swaps emptied; the game alone under a bare X) and `games/openarena/step0.sh`, on
+kernel 6.12.111+ps3.163-ps3-release and Mesa 26.2.4-1+ps3.152. Timedemo `bench`, medians with
+[min..max]; `step0-report.py` reads the runs. Raw runs: `/var/tmp/ps3-bench` on the PS3.
+
+**DXT on the RSX** (`gl-dxt`, first DXT ever sampled here, VRAM swap off): DXT1 RGB and RGBA
+sample exactly as decoded (max difference 1, no graph exception). Mesa's encoder on the PPE:
+**2.6 Mpixel/s** (the dev PC: 27; our van Waveren encoder in libspeq is ~2.7x Mesa's on x86).
+
+**Compressed textures** (`r_ext_compressed_textures` 0/1; OpenArena compresses only opaque
+textures, to RGBA DXT1). With the VRAM swap on, 3 runs each, interleaved:
+
+| | tc0 | tc1 |
+|---|---|---|
+| level load (`CL_InitCGame`) | 14.02 s [13.94..14.63] | 15.14 s [15.10..15.70] |
+| timedemo fps | 48.8 [48.6..49.8] | 52.4 [44.2..54.0] |
+| longest frame | 975 ms [902..1016] | 1258 ms [1059..4393] |
+| game's peak VRAM | 51.6 MB | 37.5 MB |
+| GART backed (peak) | 15.4 MB | 14.3 MB |
+| pages swapped out (run) | 8638 | 7098 |
+
+The first 5+5 runs (VRAM swap accidentally off) agree: load 13.98 → 15.45 s, VRAM 51.7 → 40.3 MB.
+- **VRAM: -11 to -14 MB** for the game's textures (a quarter of the opaque ones), and ~6 MB less
+  swapped out. No VRAM swap write-backs in either case: OpenArena doesn't press VRAM hard enough.
+- **Cost on the PPE: +1.1 to +1.5 s of load (+8 to +10%)**, inside the plan's max(10%, 2 s), but
+  the longest frame grows by 150-300 ms: models loaded during play (bots appearing) are
+  compressed at 2.6 Mpixel/s in the middle of a frame. So tc1 is **not shipped on Mesa's
+  encoder**; it ships with libspeq's encoder behind the Mesa hook (`mesa/patches/0011`), re-measured
+  the same way, and the SPU encoder removes the hitch entirely.
+
+**Sound** (timedemo, 3 runs each): A stock OpenAL 49.7 fps; B OpenAL int16 + linear resampler,
+no HRTF 49.8; B22 the same at 22 kHz 50.0; C the game's own mixer (`s_useOpenAL 0`, `s_khz 22`)
+50.0; **Z sound off 55.3**. Level load 13.8-14.1 s with sound, 11.9 s without (decoding the
+sounds), and ~7 MB more MemAvailable without.
+- **Sound costs ~10% of the frame rate, and no setting helps**: B moves work around (its mixer
+  thread is 16.5% of the game's profile samples against 11% for A), C splits it between SDL's
+  audio thread (8.6%) and the main thread (+~4%). Nothing to ship.
+- So audio stays an SPU consumer (rule: >=5%), after DXT. Decoded sound also costs RAM (~7 MB
+  here) and load time (1.9 s), which per-buffer decoding on an SPU would save as well.
 
 ## Sources
 

@@ -2,7 +2,8 @@
 """step0-report.py <run dir>...: one line per ps3-bench.sh run (copied from the PS3's
 /var/tmp/ps3-bench), then the median per label. Columns:
   load    CL_InitCGame seconds (the level load)
-  fps     the timedemo's average; hud median/p10/min per second after loading
+  fps     the timedemo's average; maxms its longest frame; hud median/p10/min per second
+          after loading
   cpu     the game's user+sys seconds
   vram    the game's peak VRAM (KiB, ps3rsx per-client, all its buffers)
   gart    peak "GART backed by memory" (KiB: RAM held for GPU staging)
@@ -26,8 +27,9 @@ def run(d):
         if m := re.search(r"CL_InitCGame: ([\d.]+) seconds", text):
             r["load"] = float(m[1])
             t_load = float(t)
-    if m := re.search(r"frames ([\d.]+) seconds ([\d.]+) fps", res):
+    if m := re.search(r"frames ([\d.]+) seconds ([\d.]+) fps [\d.]+/[\d.]+/([\d.]+)/", res):
         r["fps"] = float(m[2])
+        r["maxms"] = float(m[3])
     if m := re.search(r"hud fps: median (\d+) p10 (\d+) min (\d+)", res):
         r["hud"] = "%s/%s/%s" % m.groups()
     if m := re.search(r"client: real [\d.]+ s, user ([\d.]+) s, sys ([\d.]+) s", res):
@@ -60,7 +62,7 @@ def run(d):
     return r
 
 
-COLS = ["load", "fps", "hud", "cpu", "vram", "gart", "avail", "so_load", "so_all", "vsw_peak", "vsw_wb"]
+COLS = ["load", "fps", "maxms", "hud", "cpu", "vram", "gart", "avail", "so_load", "so_all", "vsw_peak", "vsw_wb"]
 
 
 def show(r):
@@ -78,6 +80,6 @@ for label in sorted({r["label"] for r in runs}):
         vals = [r[c] for r in rs if isinstance(r.get(c), (int, float))]
         if vals:
             med[c] = round(statistics.median(vals), 2)
-            if c in ("load", "fps") and len(vals) > 1:
+            if c in ("load", "fps", "maxms") and len(vals) > 1:
                 med[c] = "%s [%s..%s]" % (med[c], min(vals), max(vals))
     print("%-16s n=%d %s" % (label, len(rs), show(med)))

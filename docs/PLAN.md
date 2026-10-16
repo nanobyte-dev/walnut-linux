@@ -194,10 +194,11 @@ Task numbers refer to the session task list. "Reboot" marks steps that need one.
 
 ### Next: games and CPU
 
-7. **Free per-game experiments:** OpenArena with S3TC (`r_ext_compressed_textures 1`: VRAM and
-   GART ÷4–8, slower loads while Mesa compresses on the PPE), `s_khz 11` (halves decoded sound),
-   OpenAL int16 and a linear resampler; ClassiCube view distance. Measure each with the
-   timedemo and game mode.
+7. **Free per-game experiments:** OpenArena done (2026-10-16, SPU-OFFLOAD-SURVEY.md "Measured:
+   step 0"): compressed textures save 11-14 MB of VRAM but Mesa's PPE encoder adds 1.1-1.5 s of
+   load and 150-300 ms hitches during play (not shipped; libspeq's encoder next); sound costs
+   ~10% of the frame rate and no OpenAL or game setting changes that. Left: `s_khz 11`,
+   ClassiCube view distance.
 8. **OpenArena file I/O:** build ioquake3 ourselves (`-mcpu=cell`, pinned, like ClassiCube);
    load player models at map start (`cg_deferPlayers` made no difference: the loads happen when
    bots appear); stop the per-file search through the home and base directories before the
@@ -215,9 +216,10 @@ Task numbers refer to the session task list. "Reboot" marks steps that need one.
     - spufs context-switch and job-dispatch latency (quoted 20–200 µs, never measured here).
 11. **libspeq** (task #4): resident SPU workers, a job queue, completion words, stdio via stop
     0x2100 in `spurun`. The base for everything below.
-12. **SPU DXT encoder** behind Mesa's S3TC pack: the biggest memory win for textures (÷4–8 in
-    VRAM and GART staging) without slow loads. Then **audio**: OpenAL mixing and Vorbis decoded
-    per buffer on an SPU (5–8% of OpenArena's CPU, and no decoded PCM held in RAM).
+12. **SPU DXT encoder** behind Mesa's S3TC texstore (`mesa/patches/0011-s3tc-libspeq.patch`,
+    libspeq loaded at run time): VRAM for textures ÷4 (11-14 MB in OpenArena, room for the VRAM
+    swap) without slow loads; libspeq's PPE encoder first. Then **audio**: OpenAL mixing and Vorbis decoded
+    per buffer on an SPU (~10% of OpenArena's frame rate, measured; no decoded PCM held in RAM).
 13. If E16 shows GB/s: **SPU decompression and generation straight into VRAM** (assets stay
     compressed in RAM and on disk), and VRAM swap writes through an SPU. ClassiCube chunk
     meshing on SPUs as a showcase.
