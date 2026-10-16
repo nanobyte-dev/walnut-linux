@@ -85,7 +85,8 @@ empty_swaps() {
 	done
 	cat /sys/block/ps3vswap0/stats 2>/dev/null | sed 's/^/   vswap after: /'
 	if [ -e /sys/block/ps3vswap0/stats ]; then
-		awk '/pages in VRAM/ { exit $4 != 0 }' /sys/block/ps3vswap0/stats ||
+		# one page may stay: the swap header (page 0), which a discard never covers
+		awk '/pages in VRAM/ { exit $4 > 1 }' /sys/block/ps3vswap0/stats ||
 			die "VRAM swap still holds pages after the discard"
 	fi
 }
