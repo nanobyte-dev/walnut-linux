@@ -1,24 +1,37 @@
 /* speq-dxt: tests and benchmarks libspeq's DXT1 encoder.
- *   speq-dxt [--fmt dxt1|dxt1a] [--out f.dds|f.blocks] [--decode f.pam] [--compare other]
- *            [--bench N] [--raw WxH] image
- *   speq-dxt --check [image]
+ *   speq-dxt [--path spu|ppe|auto] [--fmt dxt1|dxt1a] [--out f.dds|f.blocks] [--decode f.pam]
+ *            [--compare other] [--bench N] [--raw WxH] image
+ *   speq-dxt [--path P] --check [image]
+ *   speq-dxt [--path P] [--fmt F] --bench
  * The image is binary PAM (P7, RGB or RGB_ALPHA) or PPM (P6), 8 bits, or with --raw WxH bare
  * RGBA bytes (gl-dxt's <fmt>.src); w and h multiples of 4.
- * It is encoded through speq_s3tc_compress_v1 (the path Mesa takes, SPEQ_S3TC applies) and the
- * RMSE of the decoded result against the original printed. --compare decodes another encoding
- * of the same image (raw blocks or DDS, e.g. Mesa's) and prints its RMSE next to ours.
- * --check: the reference encoder on special blocks (flat, transparent, two-colour, gradient),
- * its determinism, and the API against it (later: the SPU encoder against it, bit for bit).
- * The reference encoder and decoder are compiled in (lib/dxt-ref.c). */
+ * It is encoded through speq_s3tc_compress_v1 (the path Mesa takes) and the RMSE of the decoded
+ * result against the original printed. --compare decodes another encoding of the same image
+ * (raw blocks or DDS, e.g. Mesa's) and prints its RMSE next to ours.
+ * --path: the encoder speq_s3tc_compress_v1 uses (as SPEQ_S3TC, which it overrides).
+ * --check: the reference encoder on special blocks (flat, transparent, two-colour, gradient)
+ * and its determinism; then the API on the chosen path against the reference, byte for byte:
+ * sizes up to 4096 wide, both modes, source offsets (8 mod 16 and others), destinations with
+ * row padding and 8 mod 16, a job forced to fault (the image must be redone on the PPE), and
+ * four threads at once. On the PS3, --path spu checks the SPEs.
+ * --bench (no image): Mpixel/s of speq_s3tc_compress_v1 for 256x256, 512x512 and 1024x1024
+ * RGBA (to RGBA DXT1 unless --fmt dxt1) on the PPE and the SPEs (or the --path one), back to back (hot), after the workers parked (30 ms idle),
+ * and into a fresh destination each time (its page faults). The SPE load stays a few seconds.
+ * The reference encoder and decoder are compiled in (lib/dxt-ref.c), and libspeq's code with
+ * them (its internals: the path, the statistics, the fault). */
 #include <errno.h>
 #include <math.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <sys/wait.h>
 #include <time.h>
+#include <unistd.h>
 #include "dxt-ref.h"
-#include "speq.h"
+#include "speq-int.h"
 
 static void die(const char *fmt, const char *arg)
 {
@@ -312,7 +325,6 @@ static void check_image(const char *name, const struct image *im, double bound)
 	uint8_t *a = xmalloc(blen), *b = xmalloc(blen), *c = xmalloc(blen + 64);
 	int punch, ret;
 	char what[96], detail[64];
-	const char *mode = getenv("SPEQ_S3TC");
 	double e;
 
 	for (punch = 0; punch < 2; punch++) {
@@ -334,27 +346,405 @@ static void check_image(const char *name, const struct image *im, double bound)
 
 		snprintf(what, sizeof(what), "%s %s: speq_s3tc_compress_v1 = reference",
 			 punch ? "dxt1a" : "dxt1 ", name);
-		if (mode && strcmp(mode, "ppe") && *mode) {
-			check(1, what, "skipped (SPEQ_S3TC set)");
-			continue;
-		}
 		memset(c, 0x33, blen + 64);
 		ret = speq_s3tc_compress_v1(fmt, im->comps, im->px, im->w, im->h, c, im->w * 2);
 		check(!ret && !memcmp(a, c, blen) && c[blen] == 0x33, what, ret ? strerror(-ret) : NULL);
 	}
-	snprintf(what, sizeof(what), "dxt1  %s: SPU encoder = reference", name);
-	check(1, what, "skipped (no SPU encoder yet)");
 	free(a);
 	free(b);
 	free(c);
 }
 
-static int run_check(const struct image *input)
+/* --- the paths against the reference --- */
+
+static const char *const path_name[] = { "off", "ppe", "spu", "auto" };
+
+static void *xalign(size_t align, size_t n)
+{
+	void *p;
+
+	if (posix_memalign(&p, align, n ? n : 1))
+		die("out of memory%s", "");
+	return p;
+}
+
+/* RGBA test content, block by block: noise, flat, gradient, punch-through patterns, random
+ * alpha */
+static void test_image(uint8_t *px, unsigned w, unsigned h, unsigned seed)
+{
+	unsigned x, y;
+
+	rng = seed;
+	for (y = 0; y < h; y++)
+		for (x = 0; x < w; x++) {
+			uint8_t *p = px + ((size_t)y * w + x) * 4;
+
+			switch ((x / 4 * 7 + y / 4 * 13 + seed) % 5) {
+			case 0:
+				p[0] = rnd(), p[1] = rnd(), p[2] = rnd(), p[3] = rnd();
+				break;
+			case 1:
+				p[0] = seed * 37, p[1] = x / 4 * 11, p[2] = y / 4 * 5, p[3] = 255;
+				break;
+			case 2:
+				p[0] = x * 3, p[1] = y * 5, p[2] = (x + y) * 2, p[3] = 255;
+				break;
+			case 3:
+				p[0] = rnd(), p[1] = x * 4, p[2] = 200, p[3] = (x + y) & 1 ? 0 : 255;
+				break;
+			default:
+				p[0] = 100 + rnd() % 8, p[1] = 50 + rnd() % 4, p[2] = 30, p[3] = 128 + rnd() % 2 * 127;
+			}
+		}
+}
+
+#define GUARD	4096
+
+struct pcase {
+	unsigned w, h, comps;
+	unsigned off;		/* source pointer mod 128 */
+	unsigned doff;		/* destination: page-aligned + doff */
+	unsigned stride;	/* passed as dst_stride (< 2w: packed) */
+	int punch;
+};
+
+/* One image through speq_s3tc_compress_v1 and the reference into identical buffers (guard
+ * pages, row padding): all bytes must match. *spu: whether it went to the SPEs. Returns 0 or
+ * a description of the mismatch in msg. */
+static int run_case(const struct pcase *c, int *spu, char *msg, size_t msglen)
+{
+	unsigned fmt = c->punch ? SPEQ_GL_COMPRESSED_RGBA_S3TC_DXT1_EXT :
+				  SPEQ_GL_COMPRESSED_RGB_S3TC_DXT1_EXT;
+	unsigned stride = c->stride < 2 * c->w ? 2 * c->w : c->stride, rows = c->h / 4;
+	size_t slen = (size_t)c->w * c->h * c->comps, dlen = (size_t)(rows - 1) * stride + 2 * c->w;
+	size_t blen = GUARD + c->doff + dlen + GUARD, i;
+	uint8_t *src = xalign(128, slen + 256), *a = xalign(4096, blen), *b = xalign(4096, blen);
+	struct spq_s3tc_stats s0, s1;
+	int ret, bad = 0;
+
+	if (c->comps == 4) {
+		test_image(src + c->off, c->w, c->h, c->w * 3 + c->h);
+	} else {
+		uint8_t *t = xmalloc((size_t)c->w * c->h * 4);
+
+		test_image(t, c->w, c->h, c->w + c->h);
+		for (i = 0; i < (size_t)c->w * c->h; i++)
+			memcpy(src + c->off + 3 * i, t + 4 * i, 3);
+		free(t);
+	}
+	memset(a, 0xa5, blen);
+	memset(b, 0xa5, blen);
+	dxt1_ref_image(src + c->off, c->comps, c->w, c->h, a + GUARD + c->doff, stride, c->punch);
+	spq_s3tc_stats(&s0);
+	ret = speq_s3tc_compress_v1(fmt, c->comps, src + c->off, c->w, c->h, b + GUARD + c->doff,
+				    c->stride);
+	spq_s3tc_stats(&s1);
+	*spu = s1.spu > s0.spu;
+	if (ret) {
+		snprintf(msg, msglen, "%s", strerror(-ret));
+		bad = 1;
+	} else if (memcmp(a, b, blen)) {
+		for (i = 0; i < blen && a[i] == b[i]; i++)
+			;
+		if (i < GUARD + c->doff || i >= GUARD + c->doff + dlen)
+			snprintf(msg, msglen, "wrote outside the image at %+ld",
+				 (long)i - GUARD - (long)c->doff);
+		else if ((i - GUARD - c->doff) % stride >= 2 * c->w)
+			snprintf(msg, msglen, "wrote into the row padding (row %zu)",
+				 (i - GUARD - c->doff) / stride);
+		else
+			snprintf(msg, msglen, "block row %zu block %zu differs",
+				 (i - GUARD - c->doff) / stride,
+				 (i - GUARD - c->doff) % stride / 8);
+		bad = 1;
+	}
+	free(src);
+	free(a);
+	free(b);
+	return bad;
+}
+
+/* Whether the path may (spu: must) take the SPEs for this case */
+static int spu_eligible(const struct pcase *c)
+{
+	return c->comps == 4 && !(c->doff % 8) && !(c->stride % 8);
+}
+
+static void case_check(const struct pcase *c, int path, unsigned *nspu, unsigned *nppe)
+{
+	char msg[128] = "", what[160];
+	int spu = 0, bad = run_case(c, &spu, msg, sizeof(msg));
+
+	if (!bad && path == SPQ_S3TC_SPU && spu != spu_eligible(c)) {
+		snprintf(msg, sizeof(msg), "went to the %s", spu ? "SPEs" : "PPE");
+		bad = 1;
+	}
+	if (!bad && spu && (path == SPQ_S3TC_PPE || !spu_eligible(c))) {
+		snprintf(msg, sizeof(msg), "went to the SPEs");
+		bad = 1;
+	}
+	*(spu ? nspu : nppe) += 1;
+	if (!bad)
+		return;
+	snprintf(what, sizeof(what), "%s %s %ux%u comps %u src+%u dst+%u stride %u (%s)",
+		 path_name[path], c->punch ? "dxt1a" : "dxt1 ", c->w, c->h, c->comps, c->off,
+		 c->doff, c->stride, spu ? "spu" : "ppe");
+	check(0, what, msg);
+}
+
+struct thr {
+	pthread_t th;
+	unsigned idx, bad;
+};
+
+static void *thread_main(void *arg)
+{
+	struct thr *t = arg;
+	char msg[128];
+	unsigned k;
+	int spu;
+
+	for (k = 0; k < 8; k++) {
+		struct pcase c = { 64 << (k + t->idx) % 4, 32 << (k * 3 + t->idx) % 3, 4,
+				   8 * ((k + t->idx) % 3), 0, 0, (k + t->idx) & 1 };
+
+		if (run_case(&c, &spu, msg, sizeof(msg)))
+			t->bad++;
+	}
+	return NULL;
+}
+
+/* The API on the chosen path against the reference */
+static void check_paths(int path)
+{
+	static const unsigned sizes[][2] = {
+		{ 4, 4 }, { 8, 4 }, { 4, 8 }, { 12, 8 }, { 20, 12 }, { 60, 4 }, { 64, 64 },
+		{ 68, 20 }, { 100, 36 }, { 128, 128 }, { 132, 8 }, { 256, 256 }, { 260, 12 },
+		{ 512, 64 }, { 1020, 8 }, { 1024, 16 }, { 1028, 8 }, { 1536, 12 }, { 2048, 8 },
+		{ 2052, 4 }, { 3000, 8 }, { 4092, 4 }, { 4096, 16 }, { 16, 1024 }, { 1024, 1024 },
+	};
+	static const unsigned offs[] = { 0, 1, 4, 13, 12, 3, 9, 15 };
+	unsigned i, v, nspu = 0, nppe = 0, f0 = failures;
+	struct spq_s3tc_stats s0, s1;
+	struct thr th[4];
+	struct pcase c;
+	char msg[160];
+	int punch, spu;
+
+	printf("path %s: the API against the reference%s\n", path_name[path],
+	       path == SPQ_S3TC_SPU ? " (every RGBA image with an 8-aligned dst on the SPEs)" : "");
+	for (i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++)
+		for (punch = 0; punch < 2; punch++)
+			for (v = 0; v < 2; v++) {
+				unsigned w = sizes[i][0], pads[5] = { 0, 2 * w, 2 * w + 8,
+								      (2 * w + 63) & ~63u, 2 * w + 128 };
+
+				c.w = w;
+				c.h = sizes[i][1];
+				c.comps = 4;
+				c.off = v ? offs[(2 * i + punch) % 8] : 8;	/* 8: ioq3's hunk */
+				c.doff = (i + v) % 3 == 2 ? 8 : 0;
+				c.stride = pads[(i + punch + v) % 5];
+				c.punch = punch;
+				case_check(&c, path, &nspu, &nppe);
+			}
+	/* the PPE's cases: RGB source, a dst or stride not 8-aligned */
+	c = (struct pcase){ 128, 64, 3, 8, 0, 0, 0 };
+	case_check(&c, path, &nspu, &nppe);
+	c = (struct pcase){ 256, 64, 4, 8, 4, 0, 1 };
+	case_check(&c, path, &nspu, &nppe);
+	c = (struct pcase){ 256, 64, 4, 8, 0, 516, 1 };
+	case_check(&c, path, &nspu, &nppe);
+	snprintf(msg, sizeof(msg), "%u images on the SPEs, %u on the PPE", nspu, nppe);
+	check(failures == f0, "path matrix: speq_s3tc_compress_v1 = reference", msg);
+
+	/* a job that faults: the image is redone on the PPE, and the next one is on the SPEs */
+	if (path != SPQ_S3TC_PPE && spq_s3tc_queue()) {
+		c = (struct pcase){ 512, 256, 4, 8, 0, 0, 1 };
+		spq_s3tc_stats(&s0);
+		spq_s3tc_fault = 2;
+		msg[0] = 0;
+		v = run_case(&c, &spu, msg, sizeof(msg));
+		spq_s3tc_stats(&s1);
+		if (msg[0])
+			strcat(msg, "; ");
+		snprintf(msg + strlen(msg), sizeof(msg) - strlen(msg), "redone %lu, spu %lu, jobs %lu",
+			 s1.redone - s0.redone, s1.spu - s0.spu, s1.jobs - s0.jobs);
+		check(!v && s1.redone == s0.redone + 1 && s1.spu == s0.spu && s1.jobs > s0.jobs + 1,
+		      "a faulting job: the image redone on the PPE, = reference", msg);
+		spq_s3tc_stats(&s0);
+		v = run_case(&c, &spu, msg, sizeof(msg));
+		spq_s3tc_stats(&s1);
+		check(!v && spu && s1.redone == s0.redone, "the next image on the SPEs again",
+		      v ? msg : NULL);
+	} else {
+		check(1, "a faulting job", path == SPQ_S3TC_PPE ? "skipped (ppe)" : "skipped (no queue)");
+	}
+
+	/* a fork child has no workers: it encodes on the PPE, still right */
+	if (path != SPQ_S3TC_PPE && spq_s3tc_queue()) {
+		pid_t pid;
+		int st = 0;
+
+		c = (struct pcase){ 256, 128, 4, 8, 0, 0, 1 };
+		fflush(stdout);
+		pid = fork();
+		if (!pid) {
+			spq_s3tc_stats(&s0);
+			v = run_case(&c, &spu, msg, sizeof(msg));
+			spq_s3tc_stats(&s1);
+			_exit(v ? 1 : spu || s1.ppe != s0.ppe + 1 ? 2 : 0);
+		}
+		if (pid < 0 || waitpid(pid, &st, 0) != pid)
+			st = -1;
+		check(WIFEXITED(st) && !WEXITSTATUS(st), "a fork child: on the PPE, = reference",
+		      WIFEXITED(st) && WEXITSTATUS(st) == 2 ? "not on the PPE" : NULL);
+	}
+
+	/* four threads at once, each its own images */
+	spq_s3tc_stats(&s0);
+	for (i = 0; i < 4; i++) {
+		th[i].idx = i;
+		th[i].bad = 0;
+		if (pthread_create(&th[i].th, NULL, thread_main, &th[i]))
+			die("pthread_create%s", "");
+	}
+	for (v = 0, i = 0; i < 4; i++) {
+		pthread_join(th[i].th, NULL);
+		v += th[i].bad;
+	}
+	spq_s3tc_stats(&s1);
+	snprintf(msg, sizeof(msg), "%u bad, %lu of 32 on the SPEs", v, s1.spu - s0.spu);
+	check(!v && s1.redone == s0.redone, "4 threads x 8 images = reference", msg);
+}
+
+/* --- --bench without an image --- */
+
+static double median(double *v, unsigned n)
+{
+	unsigned i, j;
+	double t;
+
+	for (i = 1; i < n; i++)
+		for (j = i; j > 0 && v[j - 1] > v[j]; j--)
+			t = v[j], v[j] = v[j - 1], v[j - 1] = t;
+	return n % 2 ? v[n / 2] : (v[n / 2 - 1] + v[n / 2]) / 2;
+}
+
+static void bench_line(const char *path, const char *how, unsigned w, unsigned h, int punch,
+		       double us, unsigned n, double jobs)
+{
+	printf("bench %s %4ux%-4u %-3s %-6s %8.1f Mpixel/s %8.0f us/image", punch ? "dxt1a" : "dxt1 ",
+	       w, h, path, how, w * h / us, us);
+	if (jobs > 0)
+		printf("  %.1f jobs", jobs);
+	printf("  (%u image%s)\n", n, n == 1 ? "" : "s");
+}
+
+static int encode(int punch, const uint8_t *src, unsigned w, unsigned h, uint8_t *dst)
+{
+	return speq_s3tc_compress_v1(punch ? SPEQ_GL_COMPRESSED_RGBA_S3TC_DXT1_EXT :
+				     SPEQ_GL_COMPRESSED_RGB_S3TC_DXT1_EXT, 4, src, w, h, dst, 2 * w);
+}
+
+/* hot: back to back for ~0.25 s; parked (SPEs): 30 ms idle before each; fresh: a new mmap
+ * destination each time (its first touch is in the timing) */
+static void bench_size(int path, unsigned w, unsigned h, int punch)
+{
+	size_t blen = (size_t)w * h / 2;
+	uint8_t *src = xalign(128, (size_t)w * h * 4 + 8) + 8, *dst = xalign(4096, blen);
+	const char *pn = path_name[path];
+	struct spq_s3tc_stats s0, s1;
+	double t0, t, v[7];
+	unsigned n, k;
+	int ret;
+
+	spq_s3tc_mode(path);
+	test_image(src, w, h, 7);
+	if ((ret = encode(punch, src, w, h, dst)))	/* warm: pages, the queue */
+		die("speq_s3tc_compress_v1: %s", strerror(-ret));
+	spq_s3tc_stats(&s0);
+	t0 = now();
+	n = 0;
+	do {
+		if ((ret = encode(punch, src, w, h, dst)))
+			die("speq_s3tc_compress_v1: %s", strerror(-ret));
+		n++;
+		t = now() - t0;
+	} while ((t < 0.25 || n < 2) && n < 2000);
+	spq_s3tc_stats(&s1);
+	bench_line(pn, "hot", w, h, punch, t / n * 1e6, n,
+		   path == SPQ_S3TC_SPU ? (double)(s1.jobs - s0.jobs) / n : 0);
+	if (path == SPQ_S3TC_SPU) {
+		for (k = 0; k < 5; k++) {
+			usleep(30000);	/* > 10 ms: every worker parks */
+			t0 = now();
+			encode(punch, src, w, h, dst);
+			v[k] = (now() - t0) * 1e6;
+		}
+		bench_line(pn, "parked", w, h, punch, median(v, 5), 5, 0);
+	}
+	n = path == SPQ_S3TC_PPE && w * h > 300000 ? 3 : 7;
+	for (k = 0; k < n; k++) {
+		uint8_t *d = mmap(NULL, blen, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+		if (d == MAP_FAILED)
+			die("mmap%s", "");
+		t0 = now();
+		encode(punch, src, w, h, d);
+		v[k] = (now() - t0) * 1e6;
+		munmap(d, blen);
+	}
+	bench_line(pn, "fresh", w, h, punch, median(v, n), n, 0);
+	free(src - 8);
+	free(dst);
+}
+
+static int run_bench(int path, int punch)
+{
+	static const unsigned sizes[] = { 256, 512, 1024 };
+	int paths[2], np = 0, p, ret;
+	unsigned i;
+	uint8_t *src, *dst;
+	double t0;
+
+	if (path < 0 || path == SPQ_S3TC_AUTO) {
+		paths[np++] = SPQ_S3TC_PPE;
+		paths[np++] = SPQ_S3TC_SPU;
+	} else {
+		paths[np++] = path;
+	}
+	for (p = 0; p < np; p++) {
+		if (paths[p] == SPQ_S3TC_SPU && !spq_s3tc_queue()) {
+			/* the first SPU call opens the queue: worker per SPE */
+			spq_s3tc_mode(SPQ_S3TC_SPU);
+			src = xalign(128, 256 * 256 * 4);
+			dst = xalign(4096, 256 * 256 / 2);
+			test_image(src, 256, 256, 3);
+			t0 = now();
+			ret = encode(punch, src, 256, 256, dst);
+			t0 = now() - t0;
+			free(src);
+			free(dst);
+			if (ret) {
+				printf("bench spu: no queue (%s): is dxt.spu installed, spufs mounted?\n",
+				       strerror(-ret));
+				continue;
+			}
+			printf("bench spu: first call %.0f us (opens the queue: %u workers)\n", t0 * 1e6,
+			       spq_s3tc_queue()->nworkers);
+		}
+		for (i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++)
+			bench_size(paths[p], sizes[i], sizes[i], punch);
+	}
+	return 0;
+}
+
+static int run_check(const struct image *input, int path)
 {
 	uint8_t px[16][4], out[8], buf[64 * 4 * 4];
 	struct image im;
 	int punch, i, x, y, ret;
-	const char *mode = getenv("SPEQ_S3TC");
 
 	/* golden blocks: endpoints and byte order pinned by hand */
 	fill(px, 255, 0, 0, 255);
@@ -411,8 +801,7 @@ static int run_check(const struct image *input)
 	check(ret == -ENOTSUP && buf[0] == 0x5a, "srccomps 2 refused", strerror(-ret));
 	ret = speq_s3tc_compress_v1(SPEQ_GL_COMPRESSED_RGB_S3TC_DXT1_EXT, 4, px, 6, 4, buf, 16);
 	check(ret == -ENOTSUP && buf[0] == 0x5a, "6x4 refused", strerror(-ret));
-	if (!mode || !*mode || !strcmp(mode, "ppe")) {
-		/* 16x8 RGBA into rows 64 bytes apart: the padding stays */
+	{	/* 16x8 RGBA into rows 64 bytes apart: the padding stays */
 		uint8_t src[16 * 8 * 4];
 
 		for (i = 0; i < (int)sizeof(src); i++)
@@ -447,6 +836,7 @@ static int run_check(const struct image *input)
 	free(im.px);
 	if (input)
 		check_image("input", input, 255);
+	check_paths(path);
 	printf("%s: %d failure%s\n", failures ? "FAIL" : "ok", failures, failures == 1 ? "" : "s");
 	return failures ? 1 : 0;
 }
@@ -454,16 +844,17 @@ static int run_check(const struct image *input)
 static void usage(void)
 {
 	fprintf(stderr,
-		"usage: speq-dxt [--fmt dxt1|dxt1a] [--out f.dds|f.blocks] [--decode f.pam]\n"
-		"                [--compare other.blocks|.dds] [--bench N] [--raw WxH] image\n"
-		"       speq-dxt --check [image]\n");
+		"usage: speq-dxt [--path spu|ppe|auto] [--fmt dxt1|dxt1a] [--out f.dds|f.blocks]\n"
+		"                [--decode f.pam] [--compare other.blocks|.dds] [--bench N] [--raw WxH] image\n"
+		"       speq-dxt [--path spu|ppe|auto] --check [image]\n"
+		"       speq-dxt [--path spu|ppe|auto] [--fmt dxt1|dxt1a] --bench\n");
 	exit(2);
 }
 
 int main(int argc, char **argv)
 {
 	const char *in = NULL, *out = NULL, *decode = NULL, *compare = NULL, *raw = NULL;
-	int punch = 0, check_only = 0, i, ret;
+	int punch = -1, check_only = 0, bench_all = 0, path = -1, i, ret;
 	unsigned bench = 0, fmt;
 	struct image im;
 	uint8_t *blocks;
@@ -474,8 +865,23 @@ int main(int argc, char **argv)
 
 		if (!strcmp(a, "--check"))
 			check_only = 1;
+		else if (!strcmp(a, "--bench") &&
+			 (i + 1 >= argc || !argv[i + 1][0] || strspn(argv[i + 1], "0123456789") !=
+			  strlen(argv[i + 1])))
+			bench_all = 1;	/* no count: the size sweep */
 		else if (i + 1 >= argc && a[0] == '-' && a[1] == '-')
 			usage();
+		else if (!strcmp(a, "--path")) {
+			a = argv[++i];
+			if (!strcmp(a, "spu"))
+				path = SPQ_S3TC_SPU;
+			else if (!strcmp(a, "ppe"))
+				path = SPQ_S3TC_PPE;
+			else if (!strcmp(a, "auto"))
+				path = SPQ_S3TC_AUTO;
+			else
+				usage();
+		}
 		else if (!strcmp(a, "--fmt")) {
 			a = argv[++i];
 			if (!strcmp(a, "dxt1"))
@@ -503,8 +909,13 @@ int main(int argc, char **argv)
 		read_raw(in, raw, &im);
 	else if (in)
 		read_image(in, &im);
+	if (path >= 0)
+		spq_s3tc_mode(path);
 	if (check_only)
-		return run_check(in ? &im : NULL);
+		return run_check(in ? &im : NULL, spq_s3tc_mode(-1));
+	if (bench_all && !in)
+		return run_bench(path, punch != 0);	/* default RGBA DXT1, as OpenArena */
+	punch = punch > 0;
 	if (!in)
 		usage();
 	if (im.w % 4 || im.h % 4)

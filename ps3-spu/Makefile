@@ -3,8 +3,9 @@
 # in the ppc64 chroot) and `spu` (-A, our toolchain on PATH); the top-level make spu-tests
 # builds both in containers.
 #   make test       with the host cc: speq-dxt --check, the dlopen check, and the queue against
-#                   the fake backend (SPEQ_FAKE=1: bench.spu's ops on host threads): queue-test,
-#                   speq-bench-fake --quick
+#                   the fake backend (SPEQ_FAKE=1: the SPU programs' ops on host threads):
+#                   queue-test, speq-bench-fake --quick (bench.spu's ops), speq-dxt-fake --check
+#                   on the spu and auto paths (dxt.spu's op and encoder: the whole SPU path)
 #   make test-mesa  our encoder against Mesa's on a corpus (tests/mesa-compare.sh)
 CC      ?= cc
 SPU_CC  ?= spu-elf-gcc
@@ -21,6 +22,7 @@ SPEQ_SRC := lib/s3tc.c lib/dxt-ref.c lib/queue.c lib/spe.c
 SPEQ_HDR := $(wildcard lib/*.h)
 # the fake backend: the SPU runtime and a program's ops built for the host (tests only)
 FAKE_SRC := lib/fake.c spu/runtime.c spu/bench.c
+FAKE_DXT := lib/fake.c spu/runtime.c spu/dxt-op.c spu/dxt.c
 SPU_HDR  := $(wildcard spu/*.h)
 # dxt.spu's encoder at -O3, as timed (135 cycles per block)
 DXT_SPU_OPT ?= -O3
@@ -64,8 +66,10 @@ $(OUT)/dxt.spu: spu/dxt-op.c spu/dxt.c $(SPU_HDR) lib/dxt-job.h $(OUT)/libspeq-s
 # host tests (x86 or ppc64): nothing but cc
 test:
 	$(MAKE) OUT=$(TEST_OUT) $(TEST_OUT)/libspeq.so.0 $(TEST_OUT)/speq-dxt $(TEST_OUT)/dlopen-check \
-		$(TEST_OUT)/queue-test $(TEST_OUT)/speq-bench-fake
+		$(TEST_OUT)/queue-test $(TEST_OUT)/speq-bench-fake $(TEST_OUT)/speq-dxt-fake
 	$(TEST_OUT)/speq-dxt --check
+	SPEQ_FAKE=1 $(TEST_OUT)/speq-dxt-fake --check --path spu
+	SPEQ_FAKE=1 $(TEST_OUT)/speq-dxt-fake --check --path auto
 	$(TEST_OUT)/dlopen-check $(TEST_OUT)/libspeq.so.0
 	SPEQ_FAKE=1 $(TEST_OUT)/queue-test $(wildcard $(TEST_OUT)/bench.spu)
 	SPEQ_FAKE=1 $(TEST_OUT)/speq-bench-fake --quick --gap 0
@@ -76,6 +80,10 @@ $(OUT)/queue-test: tests/queue-test.c $(SPEQ_SRC) $(FAKE_SRC) $(SPEQ_HDR) $(SPU_
 	@mkdir -p $(OUT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DSPEQ_FAKE -Ilib -Ispu $(LDFLAGS) -o $@ tests/queue-test.c \
 		$(SPEQ_SRC) $(FAKE_SRC) -lpthread
+$(OUT)/speq-dxt-fake: tools/speq-dxt.c $(SPEQ_SRC) $(FAKE_DXT) $(SPEQ_HDR) $(SPU_HDR)
+	@mkdir -p $(OUT)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DSPEQ_FAKE -Ilib -Ispu $(LDFLAGS) -o $@ tools/speq-dxt.c \
+		$(SPEQ_SRC) $(FAKE_DXT) -lm -lpthread
 $(OUT)/speq-bench-fake: tools/speq-bench.c $(SPEQ_SRC) $(FAKE_SRC) $(SPEQ_HDR) $(SPU_HDR)
 	@mkdir -p $(OUT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DSPEQ_FAKE -Ilib -Ispu $(LDFLAGS) -o $@ tools/speq-bench.c \
