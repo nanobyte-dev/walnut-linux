@@ -39,7 +39,15 @@ A live environment for the PS3 that boots from USB or over NFS through Petitboot
 driver, desktop and games working out of the box, plus an optional installer that installs it
 permanently (to the OtherOS++ Linux region of the HDD, within the safety rules).
 
-## Where we are (2026-10-15)
+## Where we are (2026-10-16)
+
+- **Packages (2026-10-16, docs/PACKAGING.md):** everything we ship is a Debian package built from
+  a source package: Mesa is Debian's `mesa` rebuilt with our patches (replaces Debian's; LLVM,
+  z3 and sensors are gone from the PS3, 196 MB of disk), plus `ps3-gpu-tools`, `ps3-spu`,
+  `ps3rsx-modules-*`, `ps3-boot`, `ps3-system`, `ps3-desktop` and `classicube`. They come from
+  our apt repository on tibi-server; Debian's live ports archive covers the rest, with pins that
+  keep Debian's kernels and Mesa out. The image installs ours with apt; `customize.sh` keeps only
+  per-installation settings.
 
 - **Boot:** the image lives on a USB disk; Petitboot boots it on its own from `/etc/kboot.conf`
   (written by `ps3-update-kboot`, one entry per installed kernel, newest the default, the older
@@ -184,12 +192,9 @@ Only when content needs them (OpenArena and ClassiCube don't):
 
 ### Platform
 
-- **Packaging** (task #11): `ps3-system` and `ps3-desktop` packages for what `customize.sh` and
-  `desktop-setup.sh` write today, so fixes go out with `make deploy`, not image reinstalls (the
-  game-mode and VRAM-swap setup were applied to the live system by hand-run script excerpts).
-- **deb-src packaging** (task #9): build our packages from Debian's source packages with our
-  patches, `+ps3.N` versions, so our Mesa replaces Debian's by version (and drops ~210 MB of
-  Debian's Mesa/LLVM from the image).
+- ~~**Packaging** (task #11)~~ and ~~**deb-src packaging** (task #9, Mesa and our code)~~: done
+  2026-10-16 (docs/PACKAGING.md). Open: the kernel from Debian's `linux` source (milestone 4),
+  a patch workflow on git work trees (`<pkg>-work`/`-patches`), signing the repository.
 - **ClassiCube** (task #10): default.zip at build time, no first-run download.
 - **Reproducibility check:** two image builds, same `make checksums`. Image size: Debian's
   Mesa and LLVM. `make disk-image` (raw `.img.xz`, `systemd-repart` grows it on first boot).
