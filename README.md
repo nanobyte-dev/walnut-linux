@@ -23,7 +23,7 @@ package (Debian source packages; docs/PACKAGING.md).
 | `ps3-desktop/` | Desktop package: autologin, `ps3-session`, game mode, Openbox/tint2/GTK/PCManFM defaults and default applications in `/etc/xdg/ps3`, X config; also `ps3-apps` (the everyday applications) |
 | `image/` | The root filesystem image: `packages.txt` (slow Debian layer), `packages-ours.txt` (ours, installed with apt), `deps.txt` (Debian packages in our repository), `customize.sh` (per-installation settings: hostname, user, key, locale) |
 | `spu-toolchain/` | The spu-elf cross toolchain's patches: GCC 16.2 port (`gcc/`), binutils 2.47 fix, newlib 4.6 fixes, test scripts |
-| `games/bench/` | The game suite runner (docs/GAME-PLAN.md): `run.sh smoke\|bench\|suite` on the PS3 through `ps3-bench.sh`, one recipe per game in `recipes/`, demos and maps in `assets/`, `report.py`; `make bench-push` / `bench-pull` |
+| `games/bench/` | The game suite runner (docs/GAME-PLAN.md): `run.sh smoke\|bench\|suite` on the PS3 through `ps3-bench.sh`, one recipe per game in `recipes/`, demos and maps in `assets/`, `report.py`; `classicube-bench/` (ClassiCube's timedemo plugin: a camera path through the bench map, built by `make classicube-bench` into `assets/classicube-bench.so`); `make bench-push` / `bench-pull` |
 | `games/openarena/` | OpenArena benchmark demo and step 0's scripts |
 | `config.mk` | All build/deploy settings (snapshot date, builder pins, IPs, root and netconsole arguments; the kernel's and Mesa's versions are in their `package.conf`) |
 | `docker/` | Pinned build environments: `Dockerfile` (toolchain, mmdebstrap), `.deb` (Debian packaging tools, aptly), `.games` (ClassiCube's sound conversion), `.spu` |

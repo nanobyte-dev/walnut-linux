@@ -51,7 +51,10 @@ restores them first. The bench lock is in /dev/shm, so the reboot clears it.
   `report.py` (from step0-report.py), recipes (`recipes/README.md` lists the variables), assets.
   `make bench-push` copies it to `/var/tmp/bench` on the PS3, `make bench-pull` fetches results.
 - Recipes for the two games that run already: OpenArena (variants tc0, tc1, gl2min, gl2) and
-  ClassiCube (a saved map, 60 s, HUD fps; variant vsync).
+  ClassiCube (a saved map, 60 s, HUD fps; variant vsync). ClassiCube since got a timedemo: the
+  ccbench plugin (`games/bench/classicube-bench`) flies a fixed 3000-frame camera path over the map
+  after a warm-up that builds every chunk, prints fps and the slowest frame and quits (variants
+  vsync, shots: keyframe screenshots; still: the old 60 s at the spawn).
 - The `ps3-games` metapackage: OpenArena and ClassiCube to start with; ps3-desktop recommends it.
 - `ps3-bench.sh` stays as it is until the recipe has validated (step0.sh and step0-report.py
   read its OpenArena greps, its q3config.cfg backup and its 12 s HUD skip); then those move out.

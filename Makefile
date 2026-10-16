@@ -27,7 +27,7 @@ $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VA
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
 .PHONY: repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy ps3-reboot bench-push bench-pull \
-	classicube classicube-audio classicube-deploy quake-data
+	classicube classicube-audio classicube-deploy classicube-bench quake-data
 
 help:
 	@echo "Packages (docs/PACKAGING.md):"
@@ -57,6 +57,7 @@ help:
 	@echo "  make ps3-reboot   reboot the running PS3 Linux (lands in GameOS/XMB, not Petitboot)"
 	@echo "  make bench-push   the game suite runner to the PS3 (/var/tmp/bench/run.sh, docs/GAME-PLAN.md)"
 	@echo "  make bench-pull   its results into $(BUILD)/bench"
+	@echo "  make classicube-bench  ClassiCube's benchmark plugin -> games/bench/assets/classicube-bench.so"
 	@echo "Other:"
 	@echo "  make shell        shell in the builder container"
 	@echo "  make clean        move build outputs to $(BUILD)/old/ (never deletes)"
@@ -146,6 +147,19 @@ quake-data: | $(GAMES_BUILDER_STAMP)
 		tools/game-data.sh $(BUILD)/debs/quake-data quake:quake-shareware quake2:quake2-demo-data
 
 classicube: classicube-deb
+
+# ClassiCube's benchmark plugin (games/bench/classicube-bench: a camera path, then the frame rate),
+# against the pinned source's headers, cross-built in the builder (the snapshot's GCC, as the
+# package) -> games/bench/assets/classicube-bench.so, tracked so that make bench-push carries it
+CC_BENCH_SRC := $(BUILD)/classicube/bench-src
+classicube-bench: games/bench/assets/classicube-bench.so
+games/bench/assets/classicube-bench.so: games/bench/classicube-bench/ccbench.c games/bench/classicube-bench/Makefile \
+		$(CC_TARBALL) | $(BUILDER_STAMP)
+	rm -rf $(CC_BENCH_SRC); mkdir -p $(CC_BENCH_SRC)
+	tar -xzf $(CC_TARBALL) -C $(CC_BENCH_SRC) --strip-components=1
+	$(DOCKER_RUN) --user $(UID_GID) $(BUILDER_TAG) \
+		make -C games/bench/classicube-bench CC_SRC=/work/$(CC_BENCH_SRC) OUT=/work/$@
+	rm -rf $(CC_BENCH_SRC)
 
 # --- SPU toolchain ---------------------------------------------------------------
 # spu-elf GCC 9.5 + binutils + newlib for the Cell's SPEs (tools/build-spu-toolchain.sh)

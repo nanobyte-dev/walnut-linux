@@ -1,0 +1,22 @@
+# ClassiCube benchmark path for classicube-bench.cw (128x128x128, an island; terrain 57-80 high):
+# camera keyframes for the ccbench plugin (games/bench/classicube-bench/ccbench.c), linear between
+# keyframes, one keyframe pose per frame number: 3000 frames, every run draws the same ones.
+#   FRAME X Y Z YAW PITCH   yaw 0 looks north (-Z), 90 east (+X); pitch > 0 looks down
+# The map is within view distance from everywhere: the warm-up builds all of it, the run builds none.
+warmup 2 1 30
+# from the north-west corner, diagonally over the island to its centre
+0     8  92   8  135 25
+600  64  92  64  135 25
+# a full turn on the spot
+900  64  92  64  495 25
+# down towards the south-east hills, turning round on the way to look back over the land
+1200 104 84 104  675 15
+1400 104 84 104  630 10
+# north along the east coast, looking west over the island
+1900 104 84  16  600 15
+# face the centre, then west over the western hills looking south
+2100 104 84  16  585 20
+2600  24 96  40  540 25
+# turn round and rise over the west coast: the whole island below
+2800  24 96  40  450 30
+3000   8 120 64  450 35
