@@ -27,7 +27,7 @@ package (Debian source packages; docs/PACKAGING.md).
 | `config.mk` | All build/deploy settings (snapshot date, builder pins, IPs, root and netconsole arguments; the kernel's and Mesa's versions are in their `package.conf`) |
 | `docker/` | Pinned build environments: `Dockerfile` (toolchain, mmdebstrap), `.deb` (Debian packaging tools, aptly), `.games` (ClassiCube's sound conversion), `.spu` |
 | `tools/` | Scripts called by the Makefile (`deb-*.sh`: Debian source packages; `repo-*.sh`, `aptly-publish.sh`: the repository; `deploy.sh`) |
-| `docs/` | `PLAN.md` the plan, `PACKAGING.md` packages, repository and deploys, `DRIVER-PLAN.md` GPU driver phases, `RSX.md` measured GPU facts, `RSX-PROGRAMS.md`, `MESA-METHODS.md`, `RESEARCH.md`, `SPU-GCC.md`, `KERNEL-MEMORY.md`, `HARDWARE-LEVERAGE.md`, `RSX-SPU-FEASIBILITY.md`, `SPU-OFFLOAD*.md`, `SPU-AUDIO.md` (OpenAL mixing on an SPE) |
+| `docs/` | `PLAN.md` the plan, `PACKAGING.md` packages, repository and deploys, `DRIVER-PLAN.md` GPU driver phases, `RSX.md` measured GPU facts, `RSX-PROGRAMS.md`, `MESA-METHODS.md`, `RESEARCH.md`, `SPU-GCC.md`, `KERNEL-MEMORY.md`, `HARDWARE-LEVERAGE.md`, `RSX-SPU-FEASIBILITY.md`, `SPU-OFFLOAD*.md`, `SPU-AUDIO.md` (OpenAL mixing on an SPE), `IMAGE-DIFF.md` (a fresh image against the live PS3) |
 | `build/` | Generated (ignored). Ephemeral except `build/aptly` (the published repository's state); see CLAUDE.md |
 | `firmware/` | Petitboot image installed on the console (ignored) |
 | `backups/` | **Private**: NOR flash dump (ignored, never commit) |
