@@ -6,8 +6,6 @@ UID_GID     := $(shell id -u):$(shell id -g)
 
 BUILD       := build
 DOWNLOADS   := $(BUILD)/downloads
-KERNEL_TARBALL := $(DOWNLOADS)/linux-$(KERNEL_VERSION).tar.xz
-KERNEL_STAGE   := $(BUILD)/kernel/stage
 ROOTFS_BASE    := $(BUILD)/rootfs/base.tar
 ROOTFS_TAR     := $(BUILD)/rootfs/debian-ppc64.tar
 
@@ -18,70 +16,50 @@ BUILDER_STAMP := $(BUILD)/.builder-$(subst :,-,$(BUILDER_TAG))
 DOCKER_RUN := docker run --rm -v $(CURDIR):/work -w /work \
 	-e SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) -e JOBS=$(JOBS)
 
-# Kernel release stamp: the date of the last commit that changed the kernel's inputs (linux/patches
-# and the fragments, before 2026-10-16 kernel/; pure renames don't count), reproducible: the same
-# checkout gives the same name. The build time while those have uncommitted changes. (The rest of
-# linux/, the Debian packaging of milestone 4, doesn't change this kernel.)
-KERNEL_STAMP_PATHS := linux/patches $(KERNEL_FRAGMENTS)
-KERNEL_STAMP := $(shell if [ -n "$$(git -C $(CURDIR) status --porcelain $(KERNEL_STAMP_PATHS) 2>/dev/null)" ]; then \
-	date +%Y%m%d%H%M; else git -C $(CURDIR) log -1 -M --diff-filter=ACDMT --format=%cd \
-	--date=format-local:%Y%m%d%H%M -- kernel/ $(KERNEL_STAMP_PATHS); fi)
-KERNEL_RELEASE := $(KERNEL_VERSION)$(KERNEL_LOCALVERSION)-$(KERNEL_STAMP)
-
-KERNEL_ENV := -e KERNEL_VERSION=$(KERNEL_VERSION) -e KERNEL_TARBALL=$(KERNEL_TARBALL) \
-	-e KERNEL_SERIES=$(KERNEL_SERIES) -e KERNEL_DEFCONFIG=$(KERNEL_DEFCONFIG) \
-	-e "KERNEL_FRAGMENTS=$(KERNEL_FRAGMENTS)" -e KERNEL_LOCALVERSION=$(KERNEL_LOCALVERSION)-$(KERNEL_STAMP)
-
 ROOTFS_ENV := -e DEBIAN_SUITE=$(DEBIAN_SUITE) -e DEBIAN_MIRROR=$(DEBIAN_MIRROR) \
 	-e ROOTFS_PACKAGES=$(ROOTFS_PACKAGES) -e ROOTFS_CUSTOMIZE=$(ROOTFS_CUSTOMIZE) -e OWNER=$(UID_GID)
 
-# The kernel depends on the KERNEL_* settings only, not on all of config.mk: this file is rewritten
-# only when those values change, so e.g. an IP change doesn't trigger a kernel rebuild.
-KERNEL_VARS := $(BUILD)/kernel.vars
-KERNEL_VARS_NOW := $(foreach v,KERNEL_VERSION KERNEL_SHA256 KERNEL_LOCALVERSION KERNEL_STAMP KERNEL_DEFCONFIG \
-	KERNEL_FRAGMENTS KERNEL_SERIES SOURCE_DATE_EPOCH BUILDER_TAG,$(v)=$($(v)))
-$(shell mkdir -p $(BUILD); [ "$$(cat $(KERNEL_VARS) 2>/dev/null)" = "$(KERNEL_VARS_NOW)" ] || \
-	echo "$(KERNEL_VARS_NOW)" > $(KERNEL_VARS))
-
-KERNEL_INPUTS := $(KERNEL_TARBALL) $(KERNEL_SERIES) $(wildcard linux/patches/*/*.patch) \
-	$(KERNEL_FRAGMENTS) tools/build-kernel.sh $(KERNEL_VARS)
+# The base layer depends on these settings only, not on all of config.mk: this file is rewritten
+# only when they change, so e.g. an IP change doesn't trigger a rebuild.
 ROOTFS_VARS := $(BUILD)/rootfs.vars
 ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE_DATE_EPOCH BUILDER_TAG,$(v)=$($(v)))
-$(shell [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
+$(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules netboot-deb spu-toolchain spu-tests spu-deploy help all builder kernel rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot debs deploy kernel-deploy netboot listen shell clean gpu-deploy ps3-reboot \
+.PHONY: repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy ps3-reboot \
 	classicube classicube-audio classicube-deploy
 
 help:
-	@echo "Build:"
-	@echo "  make kernel       patched PS3 kernel + modules  -> $(KERNEL_STAGE)"
+	@echo "Packages (docs/PACKAGING.md):"
+	@echo "  make packages     all our packages -> $(BUILD)/debs/<pkg> (kernel first, ps3rsx last)"
+	@echo "  make <pkg>-deb    one source package (linux, mesa, ps3-desktop, ...); make ps3rsx-modules"
+	@echo "                    the RSX driver for both kernels in $(BUILD)/debs/linux"
+	@echo "Image:"
 	@echo "  make rootfs       the PS3's root filesystem image -> $(ROOTFS_TAR)"
-	@echo "                    (package layer + our config, kernel modules, RSX driver, Mesa, games)"
+	@echo "                    (package layer + our config and packages: kernels, RSX driver, Mesa, games)"
 	@echo "  make rootfs-base  only its package layer (slow: ~15 min, reruns when packages change)"
-	@echo "  make checksums    sha256 of outputs (compare two builds to check reproducibility)"
-	@echo "Deploy (sudo):"
+	@echo "  make checksums    sha256 of the image and packages (compare two builds for reproducibility)"
+	@echo "Install the image (sudo):"
 	@echo "  make nfs-root     install the image into $(NFS_ROOT) and export it (keeps SSH host"
 	@echo "                    keys, Bluetooth pairings and Wi-Fi connections; FRESH=1 doesn't)"
 	@echo "  make usb-root     install the image onto the USB disk on the PS3 (FORMAT=1: partition"
-	@echo "                    it first, erasing it); boot it with make netboot ROOT=usb"
+	@echo "                    it first, erasing it); boot it with make netboot-deb ROOT=usb"
 	@echo "Update the running PS3 without reinstalling (fixes still go into the build):"
-	@echo "  make deploy       install our packages on the running PS3 (PKGS=\"ps3-mesa ...\"; all by default)"
-	@echo "  make kernel-deploy | gpu-deploy | classicube-deploy | spu-deploy"
-	@echo "  make debs         build our packages into $(BUILD)/repo (an apt repository)"
+	@echo "  make deploy       install our packages on the running PS3 (PKGS=\"ps3-desktop ...\"; KERNELS=1"
+	@echo "                    upgrades kernels too; DRY_RUN=1 simulates)"
+	@echo "  make gpu-deploy | classicube-deploy | spu-deploy"
 	@echo "Run:"
-	@echo "  make netboot      boot our kernel on the PS3 from Petitboot (NFS root)"
+	@echo "  make netboot-deb  boot a kernel from $(BUILD)/debs/linux from Petitboot (FLAVOUR=release|debug,"
+	@echo "                    ROOT=nfs|usb)"
 	@echo "  make listen       print PS3 early-debug + netconsole output"
-	@echo "GPU:"
-	@echo "  make gpu-deploy   install the RSX driver and GPU tools packages on the running PS3"
 	@echo "  make ps3-reboot   reboot the running PS3 Linux (lands in GameOS/XMB, not Petitboot)"
-	@echo "Mesa:"
-	@echo "  make mesa-deb     our Mesa: Debian's source + mesa/patches, built natively (qemu) -> $(BUILD)/debs/mesa"
 	@echo "Other:"
 	@echo "  make shell        shell in the builder container"
 	@echo "  make clean        move build outputs to $(BUILD)/old/ (never deletes)"
 
-all: kernel rootfs
+all:
+	$(MAKE) --no-print-directory packages
+	$(MAKE) --no-print-directory rootfs
 
 # --- Builder container --------------------------------------------------------
 builder: $(BUILDER_STAMP)
@@ -90,18 +68,6 @@ $(BUILDER_STAMP): docker/Dockerfile
 		--build-arg BASE=$(BUILDER_BASE) --build-arg SNAPSHOT=$(BUILDER_SNAPSHOT) docker
 	@mkdir -p $(BUILD) && touch $@
 
-# --- Kernel -------------------------------------------------------------------
-$(KERNEL_TARBALL):
-	@mkdir -p $(DOWNLOADS)
-	curl -fsSL -o $@.tmp $(KERNEL_URL)
-	echo "$(KERNEL_SHA256)  $@.tmp" | sha256sum -c --quiet
-	mv $@.tmp $@
-
-kernel: $(KERNEL_STAGE)/boot/vmlinux
-$(KERNEL_STAGE)/boot/vmlinux: $(KERNEL_INPUTS) | $(BUILDER_STAMP)
-	echo "$(KERNEL_SHA256)  $(KERNEL_TARBALL)" | sha256sum -c --quiet
-	$(DOCKER_RUN) --user $(UID_GID) $(KERNEL_ENV) $(BUILDER_TAG) tools/build-kernel.sh
-
 # --- Root filesystem ----------------------------------------------------------
 # The image is built in two layers: the packages (slow, rarely changes), then everything of ours
 # on top (fast). `make rootfs` itself is in the Image section below, after its inputs.
@@ -109,15 +75,17 @@ rootfs-base: $(ROOTFS_BASE)
 $(ROOTFS_BASE): $(ROOTFS_BASE_INPUTS) | $(BUILDER_STAMP)
 	$(DOCKER_RUN) --privileged $(ROOTFS_ENV) $(BUILDER_TAG) tools/build-rootfs.sh
 
+# The image and every package we built (the kernels' vmlinux is in the linux-image debs)
 checksums:
-	@cd $(BUILD) && sha256sum kernel/stage/boot/vmlinux-* rootfs/debian-ppc64.tar \
-		$$(find kernel/stage/lib/modules -name '*.ko' | sort) > SHA256SUMS
+	@cd $(BUILD) && sha256sum rootfs/debian-ppc64.tar \
+		$$(find debs -mindepth 2 -maxdepth 2 -name '*.deb' | sort) > SHA256SUMS
 	@head -2 $(BUILD)/SHA256SUMS; echo "($$(wc -l < $(BUILD)/SHA256SUMS) files in $(BUILD)/SHA256SUMS)"
 
 # --- Deploy -------------------------------------------------------------------
-# The whole system is in the image (our packages included), so a fresh root needs nothing done by
-# hand. The *-deploy targets install freshly built packages on the running PS3 (see Packages).
-nfs-root: $(ROOTFS_TAR) $(KERNEL_STAGE)/boot/vmlinux
+# The whole system is in the image (our packages, kernels included), so a fresh root needs nothing
+# done by hand; boot it with make netboot-deb. The *-deploy targets install freshly built packages
+# on the running PS3 (see Packages).
+nfs-root: $(ROOTFS_TAR)
 	sudo NFS_ROOT=$(NFS_ROOT) PS3_IP=$(PS3_IP) FRESH=$(FRESH) tools/install-nfs-root.sh $(ROOTFS_TAR)
 
 # The image onto the USB disk from Petitboot (the disk isn't in use there, so this replaces even the
@@ -127,7 +95,7 @@ usb-root-petitboot: $(ROOTFS_TAR)
 		tools/install-usb-root-petitboot.sh $(ROOTFS_TAR)
 
 # The image onto the USB disk plugged into the PS3 (running Linux, over SSH); FORMAT=1 partitions
-# the disk first (erases it). Boot it with make netboot ROOT=usb.
+# the disk first (erases it). Boot it with make netboot-deb ROOT=usb.
 usb-root: $(ROOTFS_TAR)
 	PS3_SSH="$(PS3_SSH)" USB_DISK_ID="$(USB_DISK_ID)" FORMAT=$(FORMAT) FRESH=$(FRESH) \
 		tools/install-usb-root.sh $(ROOTFS_TAR)
@@ -209,68 +177,48 @@ $(SPU_TESTS_STAMP): $(SPU_GCC) $(wildcard ps3-spu/src/*.c ps3-spu/src/Makefile) 
 spu-deploy:
 	$(MAKE) deploy PKGS="ps3-spu ps3-spu-programs"
 
-# --- Packages (our own apt repository, docs/PLAN.md item 7) -------------------
-# Each package is built from its build outputs (tools/stage-package.sh, tools/build-debs.sh) into
-# build/repo, which is indexed as an apt repository. N in the versions is the commit count.
-# (ps3-boot, ps3-gpu-tools, ps3-spu, classicube, mesa, ps3rsx: source packages, make <pkg>-deb)
-PACKAGES := ps3-kernel ps3-mesa
-PKG_N := $(shell git -C $(CURDIR) rev-list --count HEAD 2>/dev/null || echo 0)
-# Debian packaging tools and aptly (docker/Dockerfile.deb); also indexes the old pipeline's repo
+# --- Packages (Debian source packages, docs/PACKAGING.md; the targets are at the end) -------------
+# Debian packaging tools and aptly (docker/Dockerfile.deb): builds, publishes, extracts packages
 REPO_BUILDER_TAG := ps3-deb-builder:$(shell (cat docker/Dockerfile.deb; echo $(BUILDER_TAG) $(DEBIAN_SNAPSHOT)) | sha256sum | cut -c1-12)
 REPO_BUILDER_STAMP := $(BUILD)/.repo-builder-$(subst :,-,$(REPO_BUILDER_TAG))
 $(REPO_BUILDER_STAMP): docker/Dockerfile.deb | $(BUILDER_STAMP)
 	docker build -q -t $(REPO_BUILDER_TAG) -f docker/Dockerfile.deb --build-arg BUILDER=$(BUILDER_TAG) \
 		--build-arg SNAPSHOT=$(DEBIAN_SNAPSHOT) docker
 	@touch $@
-PKG_INPUTS_ps3-kernel := $(KERNEL_STAGE)/boot/vmlinux
-PKG_INPUTS_ps3-mesa :=
-PKG_STAMPS := $(PACKAGES:%=$(BUILD)/repo/.%.stamp)
-debs: $(PKG_STAMPS)
-.SECONDEXPANSION:
-$(BUILD)/repo/.%.stamp: $$(PKG_INPUTS_$$*) tools/stage-package.sh tools/build-debs.sh | $(REPO_BUILDER_STAMP)
-	$(DOCKER_RUN) --user $(UID_GID) -e KERNEL_VERSION=$(KERNEL_VERSION) \
-		-e KERNEL_RELEASE=$(KERNEL_RELEASE) -e KERNEL_ARGS="$(KERNEL_ARGS)" -e MESA_VERSION=$(MESA_VERSION) \
-		-e CLASSICUBE_COMMIT=$(CLASSICUBE_COMMIT) -e PKG_N=$(PKG_N) $(REPO_BUILDER_TAG) tools/build-debs.sh $*
-	@touch $@
 
 # Deploy to the running PS3 through the dev suite (tools/deploy.sh): make deploy [PKGS="..."]
-# [AUTOREMOVE=1]. Upgrades everything of ours that is installed (Mesa included), then installs the
-# named top-level packages; simulated first. dpkg replaces files by renaming, so even Mesa under
-# a running X is safe on the USB root (on NFS, stop X first).
+# [AUTOREMOVE=1] [KERNELS=1] [DRY_RUN=1]. Upgrades everything of ours that is installed (Mesa
+# included; kernels and ps3rsx modules only with KERNELS=1 or when named), then installs the named
+# top-level packages; simulated first. dpkg replaces files by renaming, so even Mesa under a
+# running X is safe on the USB root (on NFS, stop X first).
 DEPLOY_TOP := linux-image-ps3 linux-image-ps3-debug ps3rsx-modules-ps3 ps3rsx-modules-ps3-debug ps3-boot ps3-system ps3-desktop ps3-splash ps3-gpu-tools ps3-spu ps3-spu-programs classicube
 PKGS ?= $(DEPLOY_TOP)
 AUTOREMOVE ?= 0
 STOP_DESKTOP ?= auto
 PS3_SCP = scp -q -i $(HOME)/.ssh/id_ps3 -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts
-deploy: $(BUILD)/repo/.ps3-mesa.stamp | $(REPO_BUILDER_STAMP)
+deploy: | $(REPO_BUILDER_STAMP)
 	PS3=tibi@$(PS3_IP) SSH="ssh -i $(HOME)/.ssh/id_ps3 -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts" \
 		SCP="$(PS3_SCP)" REPO_BUILDER_TAG=$(REPO_BUILDER_TAG) REPO_HOST=$(REPO_HOST) REPO_DIR=$(REPO_DIR) \
 		AUTOREMOVE=$(AUTOREMOVE) STOP_DESKTOP=$(STOP_DESKTOP) DRY_RUN=$(DRY_RUN) KERNELS=$(KERNELS) tools/deploy.sh $(PKGS)
-kernel-deploy:
-	$(MAKE) deploy PKGS=ps3-kernel-$(KERNEL_RELEASE)
 
 # --- Image --------------------------------------------------------------------
-# The package layer plus our config (image/) and our packages (build/repo)
-IMAGE_INPUTS := $(ROOTFS_BASE) $(wildcard image/*) tools/build-image.sh $(SSH_PUBKEY) $(BUILD)/repo/.ps3-mesa.stamp \
+# The package layer plus our config (image/) and our packages (build/debs/*)
+IMAGE_INPUTS := $(ROOTFS_BASE) $(wildcard image/*) tools/build-image.sh $(SSH_PUBKEY) \
 	$(wildcard $(BUILD)/debs/*/*.deb)
 rootfs: $(ROOTFS_TAR)
 IMAGE_VARS := $(BUILD)/image.vars
 BOOT_ROOT_ARGS := $(ROOT_ARGS_usb) rootwait
-IMAGE_VARS_NOW := $(BOOT_ROOT_ARGS) $(DEBUG_ARGS) $(LEGACY_KERNEL_ARGS) $(REPO_SUITE)
+IMAGE_VARS_NOW := $(BOOT_ROOT_ARGS) $(DEBUG_ARGS) $(REPO_SUITE)
 $(shell [ "$$(cat $(IMAGE_VARS) 2>/dev/null)" = "$(IMAGE_VARS_NOW)" ] || echo "$(IMAGE_VARS_NOW)" > $(IMAGE_VARS))
 $(ROOTFS_TAR): $(IMAGE_INPUTS) $(IMAGE_VARS) | $(REPO_BUILDER_STAMP)
 	@mkdir -p $(BUILD)/rootfs
 	cp $(SSH_PUBKEY) $(BUILD)/rootfs/authorized_keys
 	$(DOCKER_RUN) --privileged $(ROOTFS_ENV) -e BOOT_ROOT_ARGS="$(BOOT_ROOT_ARGS)" \
-		-e BOOT_EXTRA_ARGS="$(DEBUG_ARGS)" -e BOOT_LEGACY_ARGS="$(LEGACY_KERNEL_ARGS)" \
-		-e KERNEL_RELEASE=$(KERNEL_RELEASE) -e REPO_SUITE=$(REPO_SUITE) -e REPO_URL=$(REPO_URL) $(REPO_BUILDER_TAG) tools/build-image.sh
+		-e BOOT_EXTRA_ARGS="$(DEBUG_ARGS)" \
+		-e REPO_SUITE=$(REPO_SUITE) -e REPO_URL=$(REPO_URL) $(REPO_BUILDER_TAG) tools/build-image.sh
 	rm -f $(BUILD)/rootfs/authorized_keys
 
 # --- Run ----------------------------------------------------------------------
-netboot: $(KERNEL_STAGE)/boot/vmlinux
-	PS3_IP=$(PETITBOOT_IP) PC_IP=$(PC_IP) HTTP_PORT=$(HTTP_PORT) KERNEL=$(KERNEL_STAGE)/boot/vmlinux \
-		KERNEL_CMDLINE="$(KERNEL_CMDLINE)" tools/netboot.sh
-
 # The kernel image package of a flavour in build/debs/linux (make linux-deb): kernel_deb release
 # (linux-image-6.12.111+ps3.N) or kernel_deb debug (linux-image-6.12.111+ps3.N-debug<stamp>)
 KERNEL_DEB_SH = kernel_deb() { ls $(BUILD)/debs/linux/linux-image-[0-9]*_*.deb 2>/dev/null | \
@@ -299,13 +247,14 @@ shell: $(BUILDER_STAMP)
 
 clean:
 	@ts=$$(date +%Y%m%d-%H%M%S); mkdir -p $(BUILD)/old/$$ts; \
-	for d in kernel rootfs mesa; do if [ -e $(BUILD)/$$d ]; then mv $(BUILD)/$$d $(BUILD)/old/$$ts/; fi; done; \
+	for d in rootfs debs; do if [ -e $(BUILD)/$$d ]; then mv $(BUILD)/$$d $(BUILD)/old/$$ts/; fi; done; \
 	echo "moved outputs to $(BUILD)/old/$$ts"
 
 # --- Repository and workspace ------------------------------------------------------------
 # Publish packages to the repository server (tools/repo-publish.sh). DEBS: the files to publish
-# (default: the current debs of the package pipeline); DIST=dev for throwaway test builds.
-DEBS ?= $(wildcard $(BUILD)/repo/*.deb)
+# (default: every current build in build/debs/*, debug symbols to ps3-dbgsym); DIST=dev for
+# throwaway test builds.
+DEBS ?= $(wildcard $(BUILD)/debs/*/*.deb)
 DIST ?= ps3
 publish: | $(REPO_BUILDER_STAMP)
 	@tools/disk-check.sh
@@ -343,6 +292,7 @@ DEB_ENV := -e OWNER=$(UID_GID) -e DEBIAN_SUITE=$(DEBIAN_SUITE) -e DEBIAN_MIRROR=
 	-e CC_TARBALL=$(CC_TARBALL) -e CC_TEXPACK=$(CC_TEXPACK) -e CC_AUDIO=$(CC_AUDIO) -e KERNEL_RELEASE=$(KERNEL_RELEASE) -e KERNEL_FLAVOUR=$(KERNEL_FLAVOUR)
 # upstream tarballs a package's source is made from
 classicube-src: $(CC_TARBALL) $(CC_TEXPACK) $(CC_AUDIO)/default2.zip
+# KERNEL_RELEASE and KERNEL_FLAVOUR are set only by ps3rsx-modules (below), per kernel.
 # ps3rsx for both kernels built by linux-deb (build/debs/linux), release and debug: modules
 # ps3rsx-modules-<release>, metas ps3rsx-modules-ps3 and ps3rsx-modules-ps3-debug (named like the
 # kernel's: KERNEL_FLAVOUR is the Debian flavour), in build/debs/ps3rsx-<Debian flavour>
@@ -387,9 +337,7 @@ DEB_JOBS ?= 16
 		$(REPO_BUILDER_TAG) tools/pkg-rebase.sh rebase $*
 # KEEP_TREE=1: make linux-deb keeps the cross build tree (build/chroot/cross-linux)
 KEEP_TREE ?= 0
-# All our packages: the Debian source packages and the two still made by the old pipeline
-# (the kernel until milestone 4; the transitional ps3-mesa)
-# the kernel first: ps3rsx builds against its headers
+# All our packages, the kernel first: ps3rsx builds against its headers
 SRC_PACKAGES := linux mesa plymouth ps3-boot ps3-gpu-tools ps3-spu classicube ps3-system ps3-desktop ps3-splash
-packages: $(SRC_PACKAGES:%=%-deb) debs
+packages: $(SRC_PACKAGES:%=%-deb)
 	$(MAKE) --no-print-directory ps3rsx-modules

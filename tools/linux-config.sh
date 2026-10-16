@@ -1,7 +1,7 @@
 #!/bin/bash
 # linux-config.sh <source tree> <flavour> <output>: the full kernel .config of a flavour (linux/package.conf):
 # DEFCONFIG, then the flavour's linux/config/ fragments merged in order (merge_config.sh), then
-# olddefconfig; the same steps as tools/build-kernel.sh. Fails if a fragment option didn't stick.
+# olddefconfig. Fails if a fragment option didn't stick.
 # Runs in the deb builder (powerpc64-linux-gnu-gcc-16, the compiler Debian's packaging uses).
 set -euo pipefail
 {
@@ -18,7 +18,7 @@ MAKE=(make -s -C "$SRC" O="$O" ARCH=powerpc CROSS_COMPILE=powerpc64-linux-gnu- C
 "$SRC/scripts/kconfig/merge_config.sh" -m -O "$O" "$O/.config" "${frags[@]}" >/dev/null
 "${MAKE[@]}" olddefconfig >/dev/null
 # every option as the fragments set it (a later fragment overrides an earlier one) should stick;
-# reported, not fatal (as in build-kernel.sh: an option whose dependencies are off is just absent)
+# reported, not fatal (an option whose dependencies are off is just absent)
 while read -r line; do
 	grep -qxF "$line" "$O/.config" && continue
 	sym=$(echo "$line" | grep -oE 'CONFIG_[A-Z0-9_]+')

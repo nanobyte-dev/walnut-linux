@@ -1,16 +1,7 @@
 # Build settings. Everything that decides what ends up on the PS3 lives here or in the files it points to.
 
-# --- Kernel -------------------------------------------------------------------
-KERNEL_VERSION      := 6.12.112
-KERNEL_SHA256       := 164dc9d1f6c93c61a15e1f071c48379b467f2b17c469cce7223471968208ed03
-KERNEL_URL          := https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$(KERNEL_VERSION).tar.xz
-# The release is <version><KERNEL_LOCALVERSION>-<stamp>, e.g. 6.12.112-ps3-debug-202610151608:
-# a new name whenever the kernel changes, so kernels install side by side and Petitboot lists
-# them all (Makefile: KERNEL_STAMP)
-KERNEL_LOCALVERSION := -ps3-debug
-KERNEL_DEFCONFIG    := ps3_defconfig
-KERNEL_FRAGMENTS    := linux/config/ps3.config
-KERNEL_SERIES       := linux/patches/series
+# The kernel and Mesa are Debian source packages: their versions, hashes, configs and boot
+# arguments are in linux/package.conf and mesa/package.conf (docs/PACKAGING.md).
 
 # --- Debian root filesystem ---------------------------------------------------
 # Packages come from a frozen snapshot of debian-ports, so a rebuild gets the same versions.
@@ -20,10 +11,6 @@ DEBIAN_MIRROR       := http://snapshot.debian.org/archive/debian-ports/$(DEBIAN_
 ROOTFS_PACKAGES     := image/packages.txt
 ROOTFS_CUSTOMIZE    := image/customize.sh
 SSH_PUBKEY          := $(HOME)/.ssh/id_ps3.pub
-
-# --- Mesa (userspace GL for the RSX) ------------------------------------------
-# The version of the snapshot's Debian mesa that mesa/ patches (its package.conf pins the source).
-MESA_VERSION        := 26.2.4
 
 # --- ClassiCube (classicube/) ------------------------------------------------
 # A pinned commit (SDL3 backend), plus the texture pack it needs (plain HTTP, so checksummed)
@@ -63,7 +50,7 @@ SPU_NEWLIB_URL      := https://sourceware.org/pub/newlib/newlib-$(SPU_NEWLIB_VER
 BUILDER_BASE        := debian@sha256:c53e050391cca6c8517c4a075230b798a0f980faa5d3ed0a912249ea882e40b5
 BUILDER_SNAPSHOT    := $(DEBIAN_SNAPSHOT)
 
-# Fixed timestamp for kernel and rootfs builds (2026-10-13 00:00:00 UTC, matches the snapshot).
+# Fixed timestamp for rootfs builds (2026-10-13 00:00:00 UTC, matches the snapshot).
 SOURCE_DATE_EPOCH   := 1791849600
 
 # --- Network / netboot --------------------------------------------------------
@@ -82,8 +69,8 @@ REPO_URL            := http://10.0.0.10:8070
 # the stable suite (make repo-snapshot), for an image anyone can rebuild from the server
 REPO_SUITE          ?=
 HTTP_PORT           := 8000
-# ps3rsx_cma=64M: the GPU's GART comes on demand from a 64 MiB CMA area, which holds ordinary
-# movable pages while the GPU doesn't use it (ps3rsx/src/gart.c); ps3rsx_gart=0 turns off the
+# Boot arguments (linux/flavours/*.args and the ones below). ps3rsx_cma=64M: the GPU's GART comes
+# on demand from a 64 MiB CMA area, which holds ordinary movable pages while the GPU doesn't use it (ps3rsx/src/gart.c); ps3rsx_gart=0 turns off the
 # fixed reservation that was used before (ps3rsx_gart=<size> still works as a fallback).
 # netconsole spells out source IP, device and target MAC: built-in netconsole starts before
 # ip=dhcp has configured eth0 and gives up without them.
@@ -99,13 +86,8 @@ ROOT_ARGS_usb       := root=PARTUUID=50533301-02 rootfstype=ext4 ro
 # The USB disk for the root filesystem (its /dev/disk/by-id name on the PS3): a 500 GB Samsung
 # HN-M500MBB in a USB enclosure, given for this (2026-10-15)
 USB_DISK_ID         := usb-SAMSUNG_HN-M500MBB_0000AB1234E8-0:0
-# The kernel's own arguments: shipped in its package (/usr/lib/ps3/boot/<release>.args), so each
-# kernel in the boot menu gets the ones it understands
-# (one source: linux/flavours/<flavour>.args, which the Debian kernel packages ship too; this is
-# the debug kernel's)
-KERNEL_ARGS         := $(shell cat $(dir $(lastword $(MAKEFILE_LIST)))linux/flavours/debug.args)
+# The kernel's own arguments are shipped in its package (/usr/lib/ps3/boot/<release>.args, from
+# linux/flavours/<flavour>.args), so each kernel in the boot menu gets the ones it understands;
+# make netboot-deb uses them too.
 # This installation's development extras: DHCP for netconsole, netconsole to this PC
 DEBUG_ARGS          := ip=dhcp netconsole=6665@$(PS3_IP)/eth0,6666@$(PC_IP)/$(PC_MAC)
-# For kernels whose package has no arguments file (built before 2026-10-15: fixed 32 MiB GART)
-LEGACY_KERNEL_ARGS  := video=ps3fb:mode:133 consoleblank=0 ps3rsx_gart=32M console=tty1 loglevel=4
-KERNEL_CMDLINE      := $(ROOT_ARGS_$(ROOT)) rootwait $(DEBUG_ARGS) $(KERNEL_ARGS)

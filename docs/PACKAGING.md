@@ -29,7 +29,14 @@ below the next one, and can only go to the dev suite.
 - `cross`: cross-built in the deb builder (`ps3rsx` against our kernel tree).
 
 Commands: `make <pkg>-src` (fetch and prepare the source package in `build/src/<pkg>`),
-`make <pkg>-deb` (build into `build/debs/<pkg>`), `make packages` (everything).
+`make <pkg>-deb` (build into `build/debs/<pkg>`), `make packages` (everything, the kernel first,
+`ps3rsx-modules` last). `build/debs/*/*.deb` is what deploys, images, `make publish` (its default
+`DEBS`) and `make checksums` take.
+
+The old pipeline (`make kernel` from a kernel.org tarball, `make debs` into `build/repo` through
+`tools/build-kernel.sh`, `build-debs.sh` and `stage-package.sh`, the `ps3-kernel-<release>`
+packages and the transitional `ps3-mesa`) was removed on 2026-10-16; the Debian source packages
+replace all of it. Its `KERNEL_*` settings went from `config.mk` with it.
 
 ## Changing patches
 
@@ -96,8 +103,8 @@ change them in a disposable git tree:
   against live debian-ports (2026-10-16). The same version in `deps` and Debian counts as one, so
   the -1 also blocks `deps`' copy of Debian's Mesa: a rollback to Debian's Mesa means dropping
   the pin by hand.
-- New kernels arrive through meta packages (`ps3rsx-modules-ps3`; the kernel's
-  `linux-image-ps3` from milestone 4).
+- New kernels arrive through meta packages (`linux-image-ps3` and `ps3rsx-modules-ps3`, the
+  `-debug` ones for the debug kernel).
 
 ## Deploying and the image
 

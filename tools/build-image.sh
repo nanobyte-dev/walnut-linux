@@ -1,10 +1,10 @@
 #!/bin/bash
 # Builds the PS3 root filesystem image: the package layer (build/rootfs/base.tar, from
 # build-rootfs.sh) plus our configuration (image/customize.sh) and our own packages from
-# build/repo (kernel, RSX driver, Mesa, games, SPU tools: tools/build-debs.sh). Takes a minute or
-# two, so a config change doesn't reinstall the Debian packages. Runs as root in the builder
-# container. Inputs (env): ROOTFS_CUSTOMIZE SOURCE_DATE_EPOCH BOOT_ROOT_ARGS BOOT_EXTRA_ARGS
-# BOOT_LEGACY_ARGS KERNEL_RELEASE OWNER
+# build/debs/* (kernels, RSX driver, Mesa, games, SPU tools: make packages) or REPO_SUITE. Takes a
+# minute or two, so a config change doesn't reinstall the Debian packages. Runs as root in the
+# builder container. Inputs (env): ROOTFS_CUSTOMIZE SOURCE_DATE_EPOCH BOOT_ROOT_ARGS
+# BOOT_EXTRA_ARGS REPO_SUITE REPO_URL OWNER
 # Output: build/rootfs/debian-ppc64.tar, byte-for-byte the same from the same inputs
 set -euo pipefail
 {
@@ -27,7 +27,6 @@ cat > "$R/etc/default/ps3-boot" <<EOF
 # Petitboot boot menu settings (ps3-update-kboot writes /etc/kboot.conf from them)
 PS3_ROOT_ARGS="$BOOT_ROOT_ARGS"
 PS3_EXTRA_ARGS="$BOOT_EXTRA_ARGS"
-PS3_LEGACY_ARGS="$BOOT_LEGACY_ARGS"
 # the release kernel boots by default; the debug one is in the menu next to it
 PS3_DEFAULT_FLAVOUR=release
 EOF
@@ -36,10 +35,9 @@ printf '%s\n' '# The user that gets the desktop on tty1 (ps3-desktop; empty: a n
 # DNS for apt while the packages go in (customize.sh points it at the kernel's DHCP afterwards)
 rm -f "$R/etc/resolv.conf" && cp /etc/resolv.conf "$R/etc/resolv.conf"
 
-# Our packages, installed by apt from a local flat repository of our debs (build/repo, and the
-# Debian-source packages in build/debs/*) or, with REPO_SUITE, a frozen snapshot of the stable
-# suite on the server; pinned above Debian's, with the base's snapshot source
-# for anything new. Our Mesa replaces Debian's as an upgrade (auto marks kept); then whatever only
+# Our packages, installed by apt from a local flat repository of our debs (build/debs/*) or,
+# with REPO_SUITE, a frozen snapshot of the stable suite on the server; pinned above Debian's, with
+# the base's snapshot source for anything new. Our Mesa replaces Debian's as an upgrade (auto marks kept); then whatever only
 # Debian's Mesa needed (LLVM, z3, sensors) is autoremoved.
 if [ -n "${REPO_SUITE:-}" ]; then
 	# a frozen snapshot of our stable suite on the server (make repo-snapshot)
@@ -50,9 +48,8 @@ if [ -n "${REPO_SUITE:-}" ]; then
 else
 	# this checkout's build outputs, as a flat repository
 	mkdir -p "$R/tmp/ps3-repo"
-	cp build/repo/*.deb "$R/tmp/ps3-repo/"
 	find build/debs -mindepth 2 -maxdepth 2 -name "*.deb" -exec cp -t "$R/tmp/ps3-repo/" {} +
-	rm -f "$R"/tmp/ps3-repo/ps3-mesa_*.deb "$R"/tmp/ps3-repo/*-dbgsym_*.deb	# transitional only / debug symbols
+	rm -f "$R"/tmp/ps3-repo/*-dbgsym_*.deb	# debug symbols
 	(cd "$R/tmp/ps3-repo" && apt-ftparchive packages . > Packages)
 	echo 'deb [trusted=yes] file:/tmp/ps3-repo ./' > "$R/etc/apt/sources.list.d/zz-image.list"
 	printf 'Package: *\nPin: origin ""\nPin-Priority: 1001\n' > "$R/etc/apt/preferences.d/zz-image"
@@ -60,7 +57,7 @@ fi
 # man-db: no database rebuild on every package install (slow and RAM-hungry on the PS3; its daily
 # timer still updates it), and none in the image (index.db isn't reproducible)
 echo "man-db man-db/auto-update boolean false" | chroot "$R" debconf-set-selections
-PKGS=$(grep -v -e '^\s*#' -e '^\s*$' image/packages-ours.txt | sed "s/@KERNEL_RELEASE@/$KERNEL_RELEASE/")
+PKGS=$(grep -v -e '^\s*#' -e '^\s*$' image/packages-ours.txt)
 APT="chroot $R env DEBIAN_FRONTEND=noninteractive apt-get -q -y -o Dpkg::Use-Pty=0 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold"
 $APT update > /dev/null
 $APT --no-remove upgrade > /dev/null

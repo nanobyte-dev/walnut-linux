@@ -1,6 +1,6 @@
 #!/bin/bash
 # deploy.sh <pkg>...: deploys our current builds to the running PS3 through the dev suite
-# (docs/PACKAGING.md): every local build (build/repo, build/debs/*, debug symbols included) is
+# (docs/PACKAGING.md): every local build (build/debs/*, debug symbols included) is
 # published to ps3-dev, then the PS3 installs from there with apt:
 #   1. our lists only are refreshed (not Debian's: ~100 MB on a 256 MB machine);
 #   2. every installed package of ours that has a newer build is upgraded (Mesa replaces
@@ -21,7 +21,7 @@ set -euo pipefail
 # execute a shifted fragment.
 {
 : "${PS3:?}" "${REPO_BUILDER_TAG:?}" "${REPO_HOST:?}" "${REPO_DIR:?}"
-debs=$( (ls build/repo/*.deb 2>/dev/null; find build/debs -mindepth 2 -maxdepth 2 -name '*.deb') | sort)
+debs=$(find build/debs -mindepth 2 -maxdepth 2 -name '*.deb' | sort)
 [ -n "$debs" ] || { echo "!! no packages built"; exit 1; }
 DIST=dev tools/repo-publish.sh $debs
 

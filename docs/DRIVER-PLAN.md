@@ -30,7 +30,7 @@ design:
   - Any graph exception wedges the GPU until a console reboot.
   - CPU access to VRAM is slow, write-combined or not (E8).
   - Every reboot needs the user: they set the OtherOS flag in the XMB (fan on SYSCON first),
-    then `make netboot`. I never reboot the PS3 or touch its boot flag.
+    then Petitboot boots the disk (or `make netboot-deb`). I never reboot the PS3 or touch its boot flag.
   - No kexec.
 
 ## Phase 1: one batched kernel rebuild (one reboot)

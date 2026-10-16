@@ -64,6 +64,6 @@ fi
 # The disk root's fstab (the image's is for NFS), as tools/usb-root-remote.sh writes it
 run 30 "printf '%s\n' '# Root on the USB disk (tools/install-usb-root-petitboot.sh)' 'PARTUUID=50533301-02  /     ext4   defaults,noatime  0 1' 'PARTUUID=50533301-01  none  swap   sw,pri=200,noauto 0 0' 'tmpfs                 /tmp  tmpfs  defaults,size=64M 0 0' > $MNT/etc/fstab"
 run 120 "sync && mount -o remount,ro $MNT"
-echo "Installed. Boot it: make netboot ROOT=usb (or reboot: Petitboot boots the disk's kboot.conf)"
+echo "Installed. Boot it: make netboot-deb ROOT=usb (or reboot: Petitboot boots the disk's kboot.conf)"
 exit
 }

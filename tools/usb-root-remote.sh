@@ -93,7 +93,7 @@ finish)
 	rm -f "$STATE"
 	sync
 	umount "$MNT"
-	echo "USB root installed: boot it with make netboot ROOT=usb"
+	echo "USB root installed: boot it with make netboot-deb ROOT=usb"
 	;;
 *)
 	fail "usage: $0 prepare|unpack|finish"
