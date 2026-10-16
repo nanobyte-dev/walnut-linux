@@ -50,7 +50,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: publish deps du clean-ephemeral chroot packages ps3rsx-modules netboot-deb spu-toolchain spu-tests spu-deploy help all builder kernel rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot debs deploy kernel-deploy netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
+.PHONY: repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules netboot-deb spu-toolchain spu-tests spu-deploy help all builder kernel rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot debs deploy kernel-deploy netboot listen shell clean gpu-tools gpu-deploy ps3-reboot \
 	mesa-builder mesa-sysroot mesa-tests classicube classicube-audio classicube-deploy
 
 help:
@@ -284,7 +284,7 @@ PKGS ?= $(DEPLOY_TOP)
 AUTOREMOVE ?= 0
 STOP_DESKTOP ?= auto
 PS3_SCP = scp -q -i $(HOME)/.ssh/id_ps3 -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts
-deploy: $(PKG_STAMPS) | $(REPO_BUILDER_STAMP)
+deploy: $(BUILD)/repo/.ps3-mesa.stamp | $(REPO_BUILDER_STAMP)
 	PS3=tibi@$(PS3_IP) SSH="ssh -i $(HOME)/.ssh/id_ps3 -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts" \
 		SCP="$(PS3_SCP)" REPO_BUILDER_TAG=$(REPO_BUILDER_TAG) REPO_HOST=$(REPO_HOST) REPO_DIR=$(REPO_DIR) \
 		AUTOREMOVE=$(AUTOREMOVE) STOP_DESKTOP=$(STOP_DESKTOP) tools/deploy.sh $(PKGS)
@@ -293,19 +293,19 @@ kernel-deploy:
 
 # --- Image --------------------------------------------------------------------
 # The package layer plus our config (image/) and our packages (build/repo)
-IMAGE_INPUTS := $(ROOTFS_BASE) $(wildcard image/* image/apt/*) tools/build-image.sh $(SSH_PUBKEY) $(PKG_STAMPS) \
+IMAGE_INPUTS := $(ROOTFS_BASE) $(wildcard image/*) tools/build-image.sh $(SSH_PUBKEY) $(BUILD)/repo/.ps3-mesa.stamp \
 	$(wildcard $(BUILD)/debs/*/*.deb)
 rootfs: $(ROOTFS_TAR)
 IMAGE_VARS := $(BUILD)/image.vars
 BOOT_ROOT_ARGS := $(ROOT_ARGS_usb) rootwait
-IMAGE_VARS_NOW := $(BOOT_ROOT_ARGS) $(DEBUG_ARGS) $(LEGACY_KERNEL_ARGS)
+IMAGE_VARS_NOW := $(BOOT_ROOT_ARGS) $(DEBUG_ARGS) $(LEGACY_KERNEL_ARGS) $(REPO_SUITE)
 $(shell [ "$$(cat $(IMAGE_VARS) 2>/dev/null)" = "$(IMAGE_VARS_NOW)" ] || echo "$(IMAGE_VARS_NOW)" > $(IMAGE_VARS))
 $(ROOTFS_TAR): $(IMAGE_INPUTS) $(IMAGE_VARS) | $(REPO_BUILDER_STAMP)
 	@mkdir -p $(BUILD)/rootfs
 	cp $(SSH_PUBKEY) $(BUILD)/rootfs/authorized_keys
 	$(DOCKER_RUN) --privileged $(ROOTFS_ENV) -e BOOT_ROOT_ARGS="$(BOOT_ROOT_ARGS)" \
 		-e BOOT_EXTRA_ARGS="$(DEBUG_ARGS)" -e BOOT_LEGACY_ARGS="$(LEGACY_KERNEL_ARGS)" \
-		-e KERNEL_RELEASE=$(KERNEL_RELEASE) $(REPO_BUILDER_TAG) tools/build-image.sh
+		-e KERNEL_RELEASE=$(KERNEL_RELEASE) -e REPO_SUITE=$(REPO_SUITE) -e REPO_URL=$(REPO_URL) $(REPO_BUILDER_TAG) tools/build-image.sh
 	rm -f $(BUILD)/rootfs/authorized_keys
 
 # --- Run ----------------------------------------------------------------------
@@ -349,6 +349,11 @@ publish: | $(REPO_BUILDER_STAMP)
 	@tools/disk-check.sh
 	REPO_BUILDER_TAG=$(REPO_BUILDER_TAG) REPO_HOST=$(REPO_HOST) REPO_DIR=$(REPO_DIR) DIST=$(DIST) \
 		tools/repo-publish.sh $(DEBS)
+
+# Freeze the stable suite as img-<stamp> for reproducible images (REPO_SUITE=img-<stamp>)
+repo-snapshot: | $(REPO_BUILDER_STAMP)
+	docker run --rm -v $(CURDIR):/work -w /work --user $(UID_GID) -e HOME=/tmp $(REPO_BUILDER_TAG) tools/repo-snapshot.sh
+	$(MAKE) --no-print-directory publish DEBS=
 
 # The repository's `deps` component: Debian packages listed in image/deps.txt, from the snapshot
 deps: | $(REPO_BUILDER_STAMP)

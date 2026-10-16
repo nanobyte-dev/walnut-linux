@@ -79,6 +79,9 @@ NFS_ROOT            := /srv/ps3root
 REPO_HOST           := tibi@10.0.0.10
 REPO_DIR            := /data/fast/NewServer/Ps3Repo
 REPO_URL            := http://10.0.0.10:8070
+# The image's packages: empty = this checkout's build outputs; img-<stamp> = that frozen snapshot of
+# the stable suite (make repo-snapshot), for an image anyone can rebuild from the server
+REPO_SUITE          ?=
 HTTP_PORT           := 8000
 # ps3rsx_cma=64M: the GPU's GART comes on demand from a 64 MiB CMA area, which holds ordinary
 # movable pages while the GPU doesn't use it (ps3rsx/src/gart.c); ps3rsx_gart=0 turns off the
