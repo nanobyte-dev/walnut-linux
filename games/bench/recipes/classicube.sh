@@ -34,8 +34,8 @@ PASSES=1
 FPS_RE='^ccbench: [0-9]+ frames [0-9.]+ seconds ([0-9.]+) fps'
 MAXMS_RE='^ccbench: [0-9]+ frames .* min/avg/p99/max [0-9.]+/[0-9.]+/[0-9.]+/([0-9.]+)'
 LOAD_MARK='^ccbench: start after'
-# the game quits by itself; this only stops a run that hangs or crawls (under ~19 fps it can't
-# finish: run.sh smoke stops everything at 180 s)
+# client.sh stops the game after the passes it needs; this only stops a run that hangs or crawls
+# (a pass is 3000 frames: under ~25 fps the second pass doesn't end within the cap)
 DURATION=330	# a safety cap: ~15 s of load, passes of ~60 s, stopped after the third (or the fourth)
 parse() {	# frame time spread and chunk builds during the run (0: the frames were the same)
 	local l
