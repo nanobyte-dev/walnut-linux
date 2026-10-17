@@ -68,7 +68,7 @@ diff --git a/code/qcommon/unzip.c b/code/qcommon/unzip.c
  } file_in_zip_read_info_s;
  
  
-@@ -1233,6 +1243,90 @@ extern int ZEXPORT unzOpenCurrentFile2 (file,method,level,raw)
+@@ -1233,6 +1243,112 @@ extern int ZEXPORT unzOpenCurrentFile2 (file,method,level,raw)
      return unzOpenCurrentFile3(file, method, level, raw, NULL);
  }
  
@@ -83,6 +83,20 @@ diff --git a/code/qcommon/unzip.c b/code/qcommon/unzip.c
 +  inflate on PowerPC. Returns UNZ_FAST_NOT_HANDLED where zlib has to do it (the stream and the
 +  file position then are as they were, bar the position, which every zlib read sets itself).
 +*/
++#define UNZ_FAST_KEEP (1 << 20)	/* a scratch buffer bigger than this is not kept */
++local unsigned char *unz_fast_comp;
++local size_t unz_fast_comp_size;
++
++local void unzFastScratchRelease(void)
++{
++    if (unz_fast_comp_size > UNZ_FAST_KEEP)
++    {
++        free(unz_fast_comp);
++        unz_fast_comp = NULL;
++        unz_fast_comp_size = 0;
++    }
++}
++
 +local int unzFastRead(unz_s *s, file_in_zip_read_info_s *info, voidp buf, unsigned len)
 +{
 +    unsigned char *comp, *out;
@@ -112,7 +126,15 @@ diff --git a/code/qcommon/unzip.c b/code/qcommon/unzip.c
 +    }
 +    info->fast = 1;			/* one try */
 +
-+    comp = (unsigned char *)malloc(csize);
++    /* the compressed bytes go to a buffer that is kept, up to a megabyte (malloc and free of that
++       for every sound and model otherwise); the pk3 files are only read from the main thread */
++    if (csize > unz_fast_comp_size)
++    {
++        free(unz_fast_comp);
++        unz_fast_comp = (unsigned char *)malloc(csize);
++        unz_fast_comp_size = unz_fast_comp ? csize : 0;
++    }
++    comp = unz_fast_comp;
 +    if (!comp)
 +        return UNZ_FAST_NOT_HANDLED;
 +    if (ZSEEK(info->z_filefunc, info->filestream,
@@ -120,7 +142,7 @@ diff --git a/code/qcommon/unzip.c b/code/qcommon/unzip.c
 +              ZLIB_FILEFUNC_SEEK_SET) != 0 ||
 +        ZREAD(info->z_filefunc, info->filestream, comp, csize) != csize)
 +    {
-+        free(comp);
++        unzFastScratchRelease();
 +        return UNZ_FAST_NOT_HANDLED;
 +    }
 +
@@ -132,7 +154,7 @@ diff --git a/code/qcommon/unzip.c b/code/qcommon/unzip.c
 +    res = dec ? libdeflate_deflate_decompress(dec, comp, csize, out, usize, &actual) : LIBDEFLATE_INSUFFICIENT_SPACE;
 +    if (dec)
 +        libdeflate_free_decompressor(dec);
-+    free(comp);
++    unzFastScratchRelease();
 +    if (res != LIBDEFLATE_SUCCESS || actual != usize)
 +    {
 +        if (out && out != buf)
@@ -159,7 +181,7 @@ diff --git a/code/qcommon/unzip.c b/code/qcommon/unzip.c
  /*
    Read bytes from the current file.
    buf contain buffer where data must be copied
-@@ -1266,6 +1360,28 @@ extern int ZEXPORT unzReadCurrentFile  (file, buf, len)
+@@ -1266,6 +1382,28 @@ extern int ZEXPORT unzReadCurrentFile  (file, buf, len)
      if (len==0)
          return 0;
  
@@ -188,7 +210,7 @@ diff --git a/code/qcommon/unzip.c b/code/qcommon/unzip.c
      pfile_in_zip_read_info->stream.next_out = (Bytef*)buf;
  
      pfile_in_zip_read_info->stream.avail_out = (uInt)len;
-@@ -1534,6 +1650,10 @@ extern int ZEXPORT unzCloseCurrentFile (file)
+@@ -1534,6 +1672,10 @@ extern int ZEXPORT unzCloseCurrentFile (file)
      }
  
  
