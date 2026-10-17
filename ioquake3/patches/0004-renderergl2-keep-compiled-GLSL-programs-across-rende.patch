@@ -1,0 +1,288 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 14:17:32 +0300
+Subject: renderergl2: keep compiled GLSL programs across renderer restarts
+
+The client restarts the renderer at every map load (CL_FlushMemory, the window and GL context
+staying), so all ~100 programs were compiled once at start for the menu and again when a map or a
+demo loads: two compile bursts of 22-30 s each on the PS3's PPE. Keep the programs at such a
+restart; the next start takes each one whose name, attributes and full source (the generated
+header and defines included) hash the same, so a changed latched cvar still gets its new program,
+and deletes those left over. A vid_restart (the window goes) deletes them all.
+r_glslKeepPrograms 0 compiles everything again at every start, as upstream.
+
+Also deletes the greyscale program at shutdown, which upstream leaked at every restart.
+
+diff --git a/code/renderergl2/tr_glsl.c b/code/renderergl2/tr_glsl.c
+--- a/code/renderergl2/tr_glsl.c
++++ b/code/renderergl2/tr_glsl.c
+@@ -637,6 +637,75 @@ static int GLSL_InitGPUShader2(shaderProgram_t * program, const char *name, int
+ 	return 1;
+ }
+ 
++/*
++Programs kept across a renderer restart that keeps the window and its GL context: the client
++restarts the renderer at every map load (CL_FlushMemory), so without this every program is
++compiled at start for the menu and again for the map. The next start takes each kept program
++whose name, attributes and full vertex and fragment source (header and defines included) hash
++the same; whatever is left over is deleted.
++*/
++#define MAX_KEPT_PROGRAMS 256
++static shaderProgram_t keptPrograms[MAX_KEPT_PROGRAMS];
++static int numKeptPrograms;
++static int numProgramsTaken;
++
++void GLSL_DeleteGPUShader(shaderProgram_t *program);
++
++static uint64_t GLSL_HashText(uint64_t h, const char *s)
++{
++	// FNV-1a, with the terminating NUL so "ab"+"c" differs from "a"+"bc"
++	do
++	{
++		h ^= (unsigned char)*s;
++		h *= 1099511628211ULL;
++	} while (*s++);
++
++	return h;
++}
++
++static uint64_t GLSL_HashProgram(const char *name, int attribs, const char *vpCode, const char *fpCode)
++{
++	uint64_t h = 14695981039346656037ULL;
++
++	h = GLSL_HashText(h, name);
++	h = GLSL_HashText(h, va("%08x", attribs));
++	h = GLSL_HashText(h, vpCode);
++	h = GLSL_HashText(h, fpCode ? fpCode : "");
++
++	return h;
++}
++
++static qboolean GLSL_TakeKeptProgram(shaderProgram_t *program, const char *name, int attribs, uint64_t hash)
++{
++	int i;
++
++	for (i = 0; i < numKeptPrograms; i++)
++	{
++		shaderProgram_t *kept = &keptPrograms[i];
++
++		if (kept->sourceHash == hash && kept->attribs == attribs && !strcmp(kept->name, name))
++		{
++			*program = *kept;
++			keptPrograms[i] = keptPrograms[--numKeptPrograms];
++			Com_Memset(&keptPrograms[numKeptPrograms], 0, sizeof(keptPrograms[0]));
++			numProgramsTaken++;
++			return qtrue;
++		}
++	}
++
++	return qfalse;
++}
++
++void GLSL_DeleteKeptPrograms(void)
++{
++	int i;
++
++	for (i = 0; i < numKeptPrograms; i++)
++		GLSL_DeleteGPUShader(&keptPrograms[i]);
++
++	numKeptPrograms = 0;
++}
++
+ static int GLSL_InitGPUShader(shaderProgram_t * program, const char *name,
+ 	int attribs, qboolean fragmentShader, const GLchar *extra, qboolean addHeader,
+ 	const char *fallback_vp, const char *fallback_fp)
+@@ -646,6 +715,7 @@ static int GLSL_InitGPUShader(shaderProgram_t * program, const char *name,
+ 	char *postHeader;
+ 	int size;
+ 	int result;
++	uint64_t hash;
+ 
+ 	size = sizeof(vpCode);
+ 	if (addHeader)
+@@ -684,7 +754,13 @@ static int GLSL_InitGPUShader(shaderProgram_t * program, const char *name,
+ 		}
+ 	}
+ 
++	hash = GLSL_HashProgram(name, attribs, vpCode, fragmentShader ? fpCode : NULL);
++
++	if (GLSL_TakeKeptProgram(program, name, attribs, hash))
++		return 1;
++
+ 	result = GLSL_InitGPUShader2(program, name, attribs, vpCode, fragmentShader ? fpCode : NULL);
++	program->sourceHash = hash;
+ 
+ 	return result;
+ }
+@@ -695,6 +771,10 @@ void GLSL_InitUniforms(shaderProgram_t *program)
+ 
+ 	GLint *uniforms = program->uniforms;
+ 
++	// a kept program still has its uniform locations, and its cache matches the values it holds
++	if (program->uniformBuffer)
++		return;
++
+ 	size = 0;
+ 	for (i = 0; i < UNIFORM_COUNT; i++)
+ 	{
+@@ -989,6 +1069,7 @@ void GLSL_InitGPUShaders(void)
+ 	R_IssuePendingRenderCommands();
+ 
+ 	startTime = ri.Milliseconds();
++	numProgramsTaken = 0;
+ 
+ 	// OpenGL ES may not have enough attributes to fit ones used for vertex animation
+ 	if ( glRefConfig.maxVertexAttribs > ATTR_INDEX_NORMAL2 ) {
+@@ -1579,14 +1660,65 @@ void GLSL_InitGPUShaders(void)
+ #endif
+ 
+ 
++	if (numKeptPrograms)
++		ri.Printf(PRINT_ALL, "deleting %i GLSL programs kept from the last start but not used now\n", numKeptPrograms);
++	GLSL_DeleteKeptPrograms();
++
+ 	endTime = ri.Milliseconds();
+ 
+-	ri.Printf(PRINT_ALL, "loaded %i GLSL shaders (%i gen %i light %i etc) in %5.2f seconds\n", 
++	ri.Printf(PRINT_ALL, "loaded %i GLSL shaders (%i gen %i light %i etc) in %5.2f seconds, %i of them kept from the last start\n", 
+ 		numGenShaders + numLightShaders + numEtcShaders, numGenShaders, numLightShaders, 
+-		numEtcShaders, (endTime - startTime) / 1000.0);
++		numEtcShaders, (endTime - startTime) / 1000.0, numProgramsTaken);
+ }
+ 
+-void GLSL_ShutdownGPUShaders(void)
++/*
++Calls f on every program the renderer has a slot for.
++*/
++static void GLSL_ForEachProgram(void (*f)(shaderProgram_t *program))
++{
++	int i;
++
++	for (i = 0; i < GENERICDEF_COUNT; i++)
++		f(&tr.genericShader[i]);
++	f(&tr.textureColorShader);
++	for (i = 0; i < FOGDEF_COUNT; i++)
++		f(&tr.fogShader[i]);
++	for (i = 0; i < DLIGHTDEF_COUNT; i++)
++		f(&tr.dlightShader[i]);
++	for (i = 0; i < LIGHTDEF_COUNT; i++)
++		f(&tr.lightallShader[i]);
++	for (i = 0; i < SHADOWMAPDEF_COUNT; i++)
++		f(&tr.shadowmapShader[i]);
++	f(&tr.pshadowShader);
++	f(&tr.down4xShader);
++	f(&tr.bokehShader);
++	f(&tr.tonemapShader);
++	for (i = 0; i < 2; i++)
++		f(&tr.calclevels4xShader[i]);
++	f(&tr.shadowmaskShader);
++	f(&tr.ssaoShader);
++	for (i = 0; i < 4; i++)
++		f(&tr.depthBlurShader[i]);
++	f(&tr.testcubeShader);
++	f(&tr.greyscaleShader);
++}
++
++static void GLSL_KeepProgram(shaderProgram_t *program)
++{
++	if (!program->program)
++		return;
++
++	if (numKeptPrograms == MAX_KEPT_PROGRAMS)
++	{
++		GLSL_DeleteGPUShader(program);
++		return;
++	}
++
++	keptPrograms[numKeptPrograms++] = *program;
++	Com_Memset(program, 0, sizeof(*program));
++}
++
++void GLSL_ShutdownGPUShaders(qboolean keepPrograms)
+ {
+ 	int i;
+ 
+@@ -1597,6 +1729,16 @@ void GLSL_ShutdownGPUShaders(void)
+ 
+ 	GL_BindNullProgram();
+ 
++	if (keepPrograms)
++	{
++		GLSL_ForEachProgram(GLSL_KeepProgram);
++		ri.Printf(PRINT_ALL, "keeping %i GLSL programs for the next start\n", numKeptPrograms);
++		return;
++	}
++
++	// upstream forgot this one
++	GLSL_DeleteGPUShader(&tr.greyscaleShader);
++
+ 	for ( i = 0; i < GENERICDEF_COUNT; i++)
+ 		GLSL_DeleteGPUShader(&tr.genericShader[i]);
+ 
+diff --git a/code/renderergl2/tr_init.c b/code/renderergl2/tr_init.c
+--- a/code/renderergl2/tr_init.c
++++ b/code/renderergl2/tr_init.c
+@@ -112,6 +112,7 @@ cvar_t  *r_externalGLSL;
+ cvar_t  *r_glslKeepShaders;
+ cvar_t  *r_glslMaxBones;
+ cvar_t  *r_glslAllPrograms;
++cvar_t  *r_glslKeepPrograms;
+ 
+ cvar_t  *r_hdr;
+ cvar_t  *r_floatLightmap;
+@@ -1294,6 +1295,8 @@ void R_Register( void )
+ 	ri.Cvar_SetDescription( r_glslMaxBones, "Most IQM joints skinned by GLSL programs: 0 skins on the CPU and compiles no bone-animation programs, -1 is the driver's limit (upstream)" );
+ 	r_glslAllPrograms = ri.Cvar_Get( "r_glslAllPrograms", "0", CVAR_LATCH );
+ 	ri.Cvar_SetDescription( r_glslAllPrograms, "1: compile the shadow and post-processing programs even without framebuffer objects, as upstream" );
++	r_glslKeepPrograms = ri.Cvar_Get( "r_glslKeepPrograms", "1", 0 );
++	ri.Cvar_SetDescription( r_glslKeepPrograms, "Keep the compiled GLSL programs when the renderer restarts at a map load, for the next start to reuse; 0 compiles them all again, as upstream" );
+ 	ri.Cvar_SetDescription( r_glslKeepShaders, "1: keep the GLSL shader objects attached after linking, as upstream (more memory)" );
+ 
+ 	r_hdr = ri.Cvar_Get( "r_hdr", "1", CVAR_ARCHIVE | CVAR_LATCH );
+@@ -1626,13 +1629,15 @@ void RE_Shutdown( qboolean destroyWindow ) {
+ 			FBO_Shutdown();
+ 		R_DeleteTextures();
+ 		R_ShutdownVaos();
+-		GLSL_ShutdownGPUShaders();
++		// the window and its GL context stay when the client restarts the renderer for a map
++		GLSL_ShutdownGPUShaders(!destroyWindow && r_glslKeepPrograms->integer);
+ 	}
+ 
+ 	R_DoneFreeType();
+ 
+ 	// shut down platform specific OpenGL stuff
+ 	if ( destroyWindow ) {
++		GLSL_DeleteKeptPrograms();
+ 		GLimp_Shutdown();
+ 
+ 		Com_Memset( &glConfig, 0, sizeof( glConfig ) );
+diff --git a/code/renderergl2/tr_local.h b/code/renderergl2/tr_local.h
+--- a/code/renderergl2/tr_local.h
++++ b/code/renderergl2/tr_local.h
+@@ -728,6 +728,8 @@ typedef struct shaderProgram_s
+ 	GLint uniforms[UNIFORM_COUNT];
+ 	short uniformBufferOffsets[UNIFORM_COUNT]; // max 32767/64=511 uniforms
+ 	char  *uniformBuffer;
++
++	uint64_t        sourceHash; // name, attributes and full source, to find it again after a restart
+ } shaderProgram_t;
+ 
+ // trRefdef_t holds everything that comes in refdef_t,
+@@ -1780,6 +1782,7 @@ extern  cvar_t  *r_externalGLSL;
+ extern  cvar_t  *r_glslKeepShaders;
+ extern  cvar_t  *r_glslMaxBones;
+ extern  cvar_t  *r_glslAllPrograms;
++extern  cvar_t  *r_glslKeepPrograms;
+ 
+ extern  cvar_t  *r_hdr;
+ extern  cvar_t  *r_floatLightmap;
+@@ -2255,7 +2258,8 @@ GLSL
+ */
+ 
+ void GLSL_InitGPUShaders(void);
+-void GLSL_ShutdownGPUShaders(void);
++void GLSL_ShutdownGPUShaders(qboolean keepPrograms);
++void GLSL_DeleteKeptPrograms(void);
+ void GLSL_VertexAttribPointers(uint32_t attribBits);
+ void GLSL_BindProgram(shaderProgram_t * program);
+ 

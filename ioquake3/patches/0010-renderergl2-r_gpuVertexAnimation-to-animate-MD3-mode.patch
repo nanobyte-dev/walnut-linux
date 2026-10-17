@@ -1,0 +1,58 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 14:33:21 +0300
+Subject: renderergl2: r_gpuVertexAnimation, to animate MD3 models on the CPU
+
+With GPU vertex animation every animated MD3 model goes to a VBO with all of its frames (20-28
+bytes per vertex and frame: the six player models of our OpenArena bench demo take 62-87 MB of
+video memory), and 18 more GLSL programs (vertex-animation variants of generic and fogpass) are
+compiled. r_gpuVertexAnimation 0 (latched) takes the path upstream takes on GLES drivers with too
+few vertex attributes: models are interpolated on the CPU into the dynamic buffer each frame, as
+the opengl1 renderer does, and stay in system memory instead. Default 1, as upstream.
+
+diff --git a/code/renderergl2/tr_glsl.c b/code/renderergl2/tr_glsl.c
+--- a/code/renderergl2/tr_glsl.c
++++ b/code/renderergl2/tr_glsl.c
+@@ -1200,8 +1200,9 @@ void GLSL_InitGPUShaders(void)
+ 	numProgramsBuiltLater = 0;
+ 	glslDeferring = !!r_glslLazy->integer;
+ 
+-	// OpenGL ES may not have enough attributes to fit ones used for vertex animation
+-	if ( glRefConfig.maxVertexAttribs > ATTR_INDEX_NORMAL2 ) {
++	// OpenGL ES may not have enough attributes to fit ones used for vertex animation;
++	// r_gpuVertexAnimation 0 animates on the CPU: no model VBOs with every frame in them
++	if ( glRefConfig.maxVertexAttribs > ATTR_INDEX_NORMAL2 && r_gpuVertexAnimation->integer ) {
+ 		ri.Printf(PRINT_ALL, "Using GPU vertex animation\n");
+ 		glRefConfig.gpuVertexAnimation = qtrue;
+ 	} else {
+diff --git a/code/renderergl2/tr_init.c b/code/renderergl2/tr_init.c
+--- a/code/renderergl2/tr_init.c
++++ b/code/renderergl2/tr_init.c
+@@ -116,6 +116,7 @@ cvar_t  *r_glslKeepPrograms;
+ cvar_t  *r_glslLazy;
+ cvar_t  *r_keepModelVerts;
+ cvar_t  *r_md3Lods;
++cvar_t  *r_gpuVertexAnimation;
+ 
+ cvar_t  *r_hdr;
+ cvar_t  *r_floatLightmap;
+@@ -1307,6 +1308,8 @@ void R_Register( void )
+ 	r_md3Lods = ri.Cvar_Get( "r_md3Lods", "3", CVAR_ARCHIVE | CVAR_LATCH );
+ 	ri.Cvar_CheckRange( r_md3Lods, 1, MD3_MAX_LODS, qtrue );
+ 	ri.Cvar_SetDescription( r_md3Lods, "MD3 levels of detail loaded, from the most detailed: 1 loads only the full model (less memory, more vertices far away), 3 all (upstream)" );
++	r_gpuVertexAnimation = ri.Cvar_Get( "r_gpuVertexAnimation", "1", CVAR_ARCHIVE | CVAR_LATCH );
++	ri.Cvar_SetDescription( r_gpuVertexAnimation, "0: animate MD3 models on the CPU, as the opengl1 renderer: no VBOs holding every frame and 18 fewer GLSL programs, more CPU work per frame" );
+ 	ri.Cvar_SetDescription( r_glslKeepShaders, "1: keep the GLSL shader objects attached after linking, as upstream (more memory)" );
+ 
+ 	r_hdr = ri.Cvar_Get( "r_hdr", "1", CVAR_ARCHIVE | CVAR_LATCH );
+diff --git a/code/renderergl2/tr_local.h b/code/renderergl2/tr_local.h
+--- a/code/renderergl2/tr_local.h
++++ b/code/renderergl2/tr_local.h
+@@ -1787,6 +1787,7 @@ extern  cvar_t  *r_glslKeepPrograms;
+ extern  cvar_t  *r_glslLazy;
+ extern  cvar_t  *r_keepModelVerts;
+ extern  cvar_t  *r_md3Lods;
++extern  cvar_t  *r_gpuVertexAnimation;
+ 
+ extern  cvar_t  *r_hdr;
+ extern  cvar_t  *r_floatLightmap;

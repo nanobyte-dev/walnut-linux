@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 14:33:10 +0300
+Subject: renderergl2: r_md3Lods, and no MD3 LODs that r_lodbias rules out
+
+R_RegisterMD3 loads every level of detail a model ships, each a full set of vertex frames: for
+OpenArena's player models LODs 1 and 2 add 70% to the full model, in hunk and in VBO memory. Levels
+under r_lodbias are never drawn (R_ComputeLOD adds it), so don't load them; and r_md3Lods (1-3,
+latched, default 3 as upstream) caps how many are loaded from the most detailed one, 1 loading only
+the full model (less memory, more vertices to draw far away). Levels not loaded repeat the next
+one, as for a model shipped with fewer LODs.
+
+diff --git a/code/renderergl2/tr_init.c b/code/renderergl2/tr_init.c
+--- a/code/renderergl2/tr_init.c
++++ b/code/renderergl2/tr_init.c
+@@ -115,6 +115,7 @@ cvar_t  *r_glslAllPrograms;
+ cvar_t  *r_glslKeepPrograms;
+ cvar_t  *r_glslLazy;
+ cvar_t  *r_keepModelVerts;
++cvar_t  *r_md3Lods;
+ 
+ cvar_t  *r_hdr;
+ cvar_t  *r_floatLightmap;
+@@ -1303,6 +1304,9 @@ void R_Register( void )
+ 	ri.Cvar_SetDescription( r_glslLazy, "1: build each GLSL program when it is first drawn with (a short stall then) instead of every variant at start" );
+ 	r_keepModelVerts = ri.Cvar_Get( "r_keepModelVerts", "0", CVAR_LATCH );
+ 	ri.Cvar_SetDescription( r_keepModelVerts, "1: keep a CPU copy of the vertices of models drawn from VBOs, as upstream (for shaders with CPU deforms)" );
++	r_md3Lods = ri.Cvar_Get( "r_md3Lods", "3", CVAR_ARCHIVE | CVAR_LATCH );
++	ri.Cvar_CheckRange( r_md3Lods, 1, MD3_MAX_LODS, qtrue );
++	ri.Cvar_SetDescription( r_md3Lods, "MD3 levels of detail loaded, from the most detailed: 1 loads only the full model (less memory, more vertices far away), 3 all (upstream)" );
+ 	ri.Cvar_SetDescription( r_glslKeepShaders, "1: keep the GLSL shader objects attached after linking, as upstream (more memory)" );
+ 
+ 	r_hdr = ri.Cvar_Get( "r_hdr", "1", CVAR_ARCHIVE | CVAR_LATCH );
+diff --git a/code/renderergl2/tr_local.h b/code/renderergl2/tr_local.h
+--- a/code/renderergl2/tr_local.h
++++ b/code/renderergl2/tr_local.h
+@@ -1786,6 +1786,7 @@ extern  cvar_t  *r_glslAllPrograms;
+ extern  cvar_t  *r_glslKeepPrograms;
+ extern  cvar_t  *r_glslLazy;
+ extern  cvar_t  *r_keepModelVerts;
++extern  cvar_t  *r_md3Lods;
+ 
+ extern  cvar_t  *r_hdr;
+ extern  cvar_t  *r_floatLightmap;
+diff --git a/code/renderergl2/tr_model.c b/code/renderergl2/tr_model.c
+--- a/code/renderergl2/tr_model.c
++++ b/code/renderergl2/tr_model.c
+@@ -60,8 +60,18 @@ qhandle_t R_RegisterMD3(const char *name, model_t *mod)
+ 		fext++;
+ 	}
+ 
+-	for (lod = MD3_MAX_LODS - 1 ; lod >= 0 ; lod--)
++	// Every LOD is loaded (each a full set of vertex frames: OpenArena's LODs 1 and 2 add 70%
++	// to a player model), unless r_md3Lods caps how many, from the most detailed one, and
++	// r_lodbias rules out the most detailed ones as never drawn (R_ComputeLOD adds it). Missing
++	// levels repeat the next one, as for a model shipped with fewer LODs.
++	for (lod = MIN(MD3_MAX_LODS, MAX(1, r_md3Lods->integer)) - 1 ; lod >= 0 ; lod--)
+ 	{
++		if (numLoaded && lod < r_lodbias->integer)
++		{
++			lod++; // the loop below fills this level and the ones under it
++			break;
++		}
++
+ 		if(lod)
+ 			Com_sprintf(namebuf, sizeof(namebuf), "%s_%d.%s", filename, lod, fext);
+ 		else

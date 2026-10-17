@@ -1,0 +1,117 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 14:32:27 +0300
+Subject: renderergl2: no tangents in MD3 VBOs without normal mapping
+
+Every animated MD3 vertex frame in a VBO carries a packed tangent (8 of its 28 bytes) and the
+loader computes tangents for all of them, but only normal mapping reads them (lightall binds
+attr_Tangent only with r_normalMapping, which is latched). With r_normalMapping 0 leave them out:
+20 bytes per vertex frame, 29% less model VBO memory (about 25 MB of video memory for the six
+player models of our OpenArena bench demo) and no tangent pass at load.
+
+diff --git a/code/renderergl2/tr_model.c b/code/renderergl2/tr_model.c
+--- a/code/renderergl2/tr_model.c
++++ b/code/renderergl2/tr_model.c
+@@ -634,7 +634,13 @@ static qboolean R_LoadMD3(model_t * mod, int lod, void *buffer, int bufferSize,
+ 			st->st[1] = LittleFloat(md3st->st[1]);
+ 		}
+ 
+-		// calc tangent spaces
++		// calc tangent spaces, read only by normal mapping (r_normalMapping is latched)
++		if (!r_normalMapping->integer)
++		{
++			for(j = 0, v = surf->verts; j < (surf->numVerts * mdvModel->numFrames); j++, v++)
++				v->tangent[0] = v->tangent[1] = v->tangent[2] = v->tangent[3] = 0;
++		}
++		else
+ 		{
+ 			vec3_t *sdirs = ri.Malloc(sizeof(*sdirs) * surf->numVerts * mdvModel->numFrames);
+ 			vec3_t *tdirs = ri.Malloc(sizeof(*tdirs) * surf->numVerts * mdvModel->numFrames);
+@@ -720,6 +726,8 @@ static qboolean R_LoadMD3(model_t * mod, int lod, void *buffer, int bufferSize,
+ 			uint32_t stride_xyz, stride_st, stride_normal, stride_tangent;
+ 			uint32_t dataSize, dataOfs;
+ 			uint8_t *data;
++			// only normal mapping reads tangents: without it, a vertex frame is 20 bytes, not 28
++			qboolean tangents = !!r_normalMapping->integer;
+ 
+ 			if (mdvModel->numFrames > 1)
+ 			{
+@@ -730,7 +738,8 @@ static qboolean R_LoadMD3(model_t * mod, int lod, void *buffer, int bufferSize,
+ 				offset_tangent = offset_normal + sizeof(int16_t) * 4;
+ 				stride_st  = sizeof(vec2_t);
+ 				stride_xyz = sizeof(vec3_t) + sizeof(int16_t) * 4;
+-				stride_xyz += sizeof(int16_t) * 4;
++				if (tangents)
++					stride_xyz += sizeof(int16_t) * 4;
+ 				stride_normal = stride_tangent = stride_xyz;
+ 
+ 				dataSize = offset_xyz + surf->numVerts * mdvModel->numFrames * stride_xyz;
+@@ -742,7 +751,7 @@ static qboolean R_LoadMD3(model_t * mod, int lod, void *buffer, int bufferSize,
+ 				offset_st      = offset_xyz + sizeof(vec3_t);
+ 				offset_normal  = offset_st + sizeof(vec2_t);
+ 				offset_tangent = offset_normal + sizeof(int16_t) * 4;
+-				stride_xyz = offset_tangent + sizeof(int16_t) * 4;
++				stride_xyz = offset_tangent + (tangents ? sizeof(int16_t) * 4 : 0);
+ 				stride_st = stride_normal = stride_tangent = stride_xyz;
+ 
+ 				dataSize = surf->numVerts * stride_xyz;
+@@ -772,8 +781,11 @@ static qboolean R_LoadMD3(model_t * mod, int lod, void *buffer, int bufferSize,
+ 					dataOfs += sizeof(int16_t) * 4;
+ 
+ 					// tangent
+-					memcpy(data + dataOfs, &v->tangent, sizeof(int16_t) * 4);
+-					dataOfs += sizeof(int16_t) * 4;
++					if (tangents)
++					{
++						memcpy(data + dataOfs, &v->tangent, sizeof(int16_t) * 4);
++						dataOfs += sizeof(int16_t) * 4;
++					}
+ 				}
+ 			}
+ 			else
+@@ -795,8 +807,11 @@ static qboolean R_LoadMD3(model_t * mod, int lod, void *buffer, int bufferSize,
+ 					dataOfs += sizeof(int16_t) * 4;
+ 
+ 					// tangent
+-					memcpy(data + dataOfs, &v->tangent, sizeof(int16_t) * 4);
+-					dataOfs += sizeof(int16_t) * 4;
++					if (tangents)
++					{
++						memcpy(data + dataOfs, &v->tangent, sizeof(int16_t) * 4);
++						dataOfs += sizeof(int16_t) * 4;
++					}
+ 				}
+ 			}
+ 
+@@ -811,7 +826,7 @@ static qboolean R_LoadMD3(model_t * mod, int lod, void *buffer, int bufferSize,
+ 			vaoSurf->vao->attribs[ATTR_INDEX_POSITION].enabled = 1;
+ 			vaoSurf->vao->attribs[ATTR_INDEX_TEXCOORD].enabled = 1;
+ 			vaoSurf->vao->attribs[ATTR_INDEX_NORMAL  ].enabled = 1;
+-			vaoSurf->vao->attribs[ATTR_INDEX_TANGENT ].enabled = 1;
++			vaoSurf->vao->attribs[ATTR_INDEX_TANGENT ].enabled = tangents;
+ 
+ 			vaoSurf->vao->attribs[ATTR_INDEX_POSITION].count = 3;
+ 			vaoSurf->vao->attribs[ATTR_INDEX_TEXCOORD].count = 2;
+diff --git a/code/renderergl2/tr_surface.c b/code/renderergl2/tr_surface.c
+--- a/code/renderergl2/tr_surface.c
++++ b/code/renderergl2/tr_surface.c
+@@ -1282,7 +1282,8 @@ void RB_SurfaceVaoMdvMesh(srfVaoMdvMesh_t * surface)
+ 
+ 		attribIndex = ATTR_INDEX_TANGENT;
+ 		vAtb = &surface->vao->attribs[attribIndex];
+-		qglVertexAttribPointer(attribIndex, vAtb->count, vAtb->type, vAtb->normalized, vAtb->stride, BUFFER_OFFSET(vAtb->offset + frameOffset));
++		if (vAtb->enabled)
++			qglVertexAttribPointer(attribIndex, vAtb->count, vAtb->type, vAtb->normalized, vAtb->stride, BUFFER_OFFSET(vAtb->offset + frameOffset));
+ 
+ 		frameOffset = refEnt->oldframe * surface->vao->frameSize;
+ 
+@@ -1296,7 +1297,8 @@ void RB_SurfaceVaoMdvMesh(srfVaoMdvMesh_t * surface)
+ 
+ 		attribIndex = ATTR_INDEX_TANGENT2;
+ 		vAtb = &surface->vao->attribs[attribIndex];
+-		qglVertexAttribPointer(attribIndex, vAtb->count, vAtb->type, vAtb->normalized, vAtb->stride, BUFFER_OFFSET(vAtb->offset + frameOffset));
++		if (vAtb->enabled)
++			qglVertexAttribPointer(attribIndex, vAtb->count, vAtb->type, vAtb->normalized, vAtb->stride, BUFFER_OFFSET(vAtb->offset + frameOffset));
+ 
+ 
+ 		if (!glRefConfig.vertexArrayObject)

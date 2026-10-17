@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 14:12:50 +0300
+Subject: renderergl2: delete GLSL shader objects once their program is linked
+
+Every program kept its vertex and fragment shader objects attached for the whole session, and
+Mesa keeps a shader's source and compiled IR (NIR) for as long as it lives: ~200 shader objects for
+the ~100 programs. Only the linked program is drawn with, so detach and delete them after linking.
+r_glslKeepShaders 1 keeps them, as upstream does (to measure the difference).
+
+diff --git a/code/renderergl2/tr_glsl.c b/code/renderergl2/tr_glsl.c
+--- a/code/renderergl2/tr_glsl.c
++++ b/code/renderergl2/tr_glsl.c
+@@ -618,6 +618,22 @@ static int GLSL_InitGPUShader2(shaderProgram_t * program, const char *name, int
+ 
+ 	GLSL_LinkProgram(program->program);
+ 
++	// The linked program is all that is drawn with. The shader objects would keep their source
++	// and compiled IR in the driver for as long as they stay attached, so let them go now.
++	if (!r_glslKeepShaders->integer)
++	{
++		qglDetachShader(program->program, program->vertexShader);
++		qglDeleteShader(program->vertexShader);
++		program->vertexShader = 0;
++
++		if (program->fragmentShader)
++		{
++			qglDetachShader(program->program, program->fragmentShader);
++			qglDeleteShader(program->fragmentShader);
++			program->fragmentShader = 0;
++		}
++	}
++
+ 	return 1;
+ }
+ 
+diff --git a/code/renderergl2/tr_init.c b/code/renderergl2/tr_init.c
+--- a/code/renderergl2/tr_init.c
++++ b/code/renderergl2/tr_init.c
+@@ -109,6 +109,7 @@ cvar_t  *r_ext_direct_state_access;
+ cvar_t  *r_cameraExposure;
+ 
+ cvar_t  *r_externalGLSL;
++cvar_t  *r_glslKeepShaders;
+ 
+ cvar_t  *r_hdr;
+ cvar_t  *r_floatLightmap;
+@@ -1279,6 +1280,8 @@ void R_Register( void )
+ 	ri.Cvar_CheckRange(r_greyscale, 0, 1, qfalse);
+ 
+ 	r_externalGLSL = ri.Cvar_Get( "r_externalGLSL", "0", CVAR_LATCH );
++	r_glslKeepShaders = ri.Cvar_Get( "r_glslKeepShaders", "0", 0 );
++	ri.Cvar_SetDescription( r_glslKeepShaders, "1: keep the GLSL shader objects attached after linking, as upstream (more memory)" );
+ 
+ 	r_hdr = ri.Cvar_Get( "r_hdr", "1", CVAR_ARCHIVE | CVAR_LATCH );
+ 	r_floatLightmap = ri.Cvar_Get( "r_floatLightmap", "0", CVAR_ARCHIVE | CVAR_LATCH );
+diff --git a/code/renderergl2/tr_local.h b/code/renderergl2/tr_local.h
+--- a/code/renderergl2/tr_local.h
++++ b/code/renderergl2/tr_local.h
+@@ -1777,6 +1777,7 @@ extern	cvar_t	*r_skipBackEnd;
+ extern	cvar_t	*r_anaglyphMode;
+ 
+ extern  cvar_t  *r_externalGLSL;
++extern  cvar_t  *r_glslKeepShaders;
+ 
+ extern  cvar_t  *r_hdr;
+ extern  cvar_t  *r_floatLightmap;

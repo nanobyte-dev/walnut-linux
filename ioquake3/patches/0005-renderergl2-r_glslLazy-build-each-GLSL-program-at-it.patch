@@ -1,0 +1,398 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 14:27:32 +0300
+Subject: renderergl2: r_glslLazy, build each GLSL program at its first use
+
+Even without the bone and FBO variants, every program the renderer might pick is compiled at
+start (54 with OpenArena's settings), though a map draws with far fewer. With r_glslLazy 1,
+GLSL_InitGPUShaders only records how to build each program (its defines, attributes and sampler
+units) and the first GLSL_BindProgram or uniform set builds it: a short stall the first time a
+variant is drawn, instead of all of them at start. Kept programs (r_glslKeepPrograms) are still
+taken at start, so a map load after the menu only builds what the menu didn't use. Default 0.
+
+diff --git a/code/renderergl2/tr_glsl.c b/code/renderergl2/tr_glsl.c
+--- a/code/renderergl2/tr_glsl.c
++++ b/code/renderergl2/tr_glsl.c
+@@ -706,18 +706,36 @@ void GLSL_DeleteKeptPrograms(void)
+ 	numKeptPrograms = 0;
+ }
+ 
+-static int GLSL_InitGPUShader(shaderProgram_t * program, const char *name,
+-	int attribs, qboolean fragmentShader, const GLchar *extra, qboolean addHeader,
+-	const char *fallback_vp, const char *fallback_fp)
++#define GLSL_CODE_SIZE 32000
++
++/*
++A program left to be built when it is first bound or given a uniform (r_glslLazy 1): what
++GLSL_InitGPUShader was called with, and the sampler units GLSL_InitGPUShaders set on it.
++*/
++typedef struct glslDeferred_s
++{
++	int             attribs;
++	qboolean        fragmentShader;
++	qboolean        addHeader;
++	const char     *fallback_vp;
++	const char     *fallback_fp;
++	int             numInts;
++	int             intUniforms[16];
++	GLint           intValues[16];
++	char            extra[1]; // its defines, allocated to fit
++} glslDeferred_t;
++
++static qboolean glslDeferring;
++static int numProgramsDeferred;
++static int numProgramsBuiltLater;
++
++static int GLSL_BuildSource(const char *name, qboolean fragmentShader, const GLchar *extra, qboolean addHeader,
++	const char *fallback_vp, const char *fallback_fp, char *vpCode, char *fpCode)
+ {
+-	char vpCode[32000];
+-	char fpCode[32000];
+ 	char *postHeader;
+ 	int size;
+-	int result;
+-	uint64_t hash;
+ 
+-	size = sizeof(vpCode);
++	size = GLSL_CODE_SIZE;
+ 	if (addHeader)
+ 	{
+ 		GLSL_GetShaderHeader(GL_VERTEX_SHADER, extra, vpCode, size);
+@@ -736,7 +754,7 @@ static int GLSL_InitGPUShader(shaderProgram_t * program, const char *name,
+ 
+ 	if (fragmentShader)
+ 	{
+-		size = sizeof(fpCode);
++		size = GLSL_CODE_SIZE;
+ 		if (addHeader)
+ 		{
+ 			GLSL_GetShaderHeader(GL_FRAGMENT_SHADER, extra, fpCode, size);
+@@ -754,25 +772,110 @@ static int GLSL_InitGPUShader(shaderProgram_t * program, const char *name,
+ 		}
+ 	}
+ 
++	return 1;
++}
++
++static int GLSL_InitGPUShader(shaderProgram_t * program, const char *name,
++	int attribs, qboolean fragmentShader, const GLchar *extra, qboolean addHeader,
++	const char *fallback_vp, const char *fallback_fp)
++{
++	char vpCode[GLSL_CODE_SIZE];
++	char fpCode[GLSL_CODE_SIZE];
++	int result;
++	uint64_t hash;
++
++	if (!GLSL_BuildSource(name, fragmentShader, extra, addHeader, fallback_vp, fallback_fp, vpCode, fpCode))
++		return 0;
++
+ 	hash = GLSL_HashProgram(name, attribs, vpCode, fragmentShader ? fpCode : NULL);
+ 
+ 	if (GLSL_TakeKeptProgram(program, name, attribs, hash))
+ 		return 1;
+ 
++	if (glslDeferring)
++	{
++		size_t len = extra ? strlen(extra) : 0;
++		glslDeferred_t *d = ri.Malloc(sizeof(*d) + len);
++
++		Com_Memset(d, 0, sizeof(*d));
++		d->attribs = attribs;
++		d->fragmentShader = fragmentShader;
++		d->addHeader = addHeader;
++		d->fallback_vp = fallback_vp;
++		d->fallback_fp = fallback_fp;
++		if (len)
++			Com_Memcpy(d->extra, extra, len);
++		d->extra[len] = '\0';
++
++		Q_strncpyz(program->name, name, sizeof(program->name));
++		program->attribs = attribs;
++		program->sourceHash = hash;
++		program->deferred = d;
++		numProgramsDeferred++;
++		return 1;
++	}
++
+ 	result = GLSL_InitGPUShader2(program, name, attribs, vpCode, fragmentShader ? fpCode : NULL);
+ 	program->sourceHash = hash;
+ 
+ 	return result;
+ }
+ 
++void GLSL_InitUniforms(shaderProgram_t *program);
++void GLSL_FinishGPUShader(shaderProgram_t *program);
++void GLSL_SetUniformInt(shaderProgram_t *program, int uniformNum, GLint value);
++
++/*
++Builds a deferred program, from the backend at its first use: one compile and link, a short
++stall instead of compiling every variant at start.
++*/
++static void GLSL_BuildDeferred(shaderProgram_t *program)
++{
++	glslDeferred_t *d = program->deferred;
++	char vpCode[GLSL_CODE_SIZE];
++	char fpCode[GLSL_CODE_SIZE];
++	char name[MAX_QPATH];
++	int i, startTime = ri.Milliseconds();
++
++	program->deferred = NULL;
++	Q_strncpyz(name, program->name, sizeof(name));
++
++	if (!GLSL_BuildSource(name, d->fragmentShader, d->extra, d->addHeader, d->fallback_vp, d->fallback_fp, vpCode, fpCode)
++		|| !GLSL_InitGPUShader2(program, name, d->attribs, vpCode, d->fragmentShader ? fpCode : NULL))
++	{
++		ri.Error(ERR_FATAL, "Could not build the %s GLSL program", name);
++	}
++
++	program->sourceHash = GLSL_HashProgram(name, d->attribs, vpCode, d->fragmentShader ? fpCode : NULL);
++
++	GLSL_InitUniforms(program);
++	for (i = 0; i < d->numInts; i++)
++		GLSL_SetUniformInt(program, d->intUniforms[i], d->intValues[i]);
++	GLSL_FinishGPUShader(program);
++
++	ri.Free(d);
++	numProgramsBuiltLater++;
++	ri.Printf(PRINT_DEVELOPER, "built GLSL program %s at its first use in %i ms, %i so far\n", name,
++		ri.Milliseconds() - startTime, numProgramsBuiltLater);
++}
++
++static GLint *GLSL_ProgramUniforms(shaderProgram_t *program)
++{
++	if (program->deferred && !glslDeferring)
++		GLSL_BuildDeferred(program);
++
++	return program->uniforms;
++}
++
+ void GLSL_InitUniforms(shaderProgram_t *program)
+ {
+ 	int i, size;
+ 
+ 	GLint *uniforms = program->uniforms;
+ 
+-	// a kept program still has its uniform locations, and its cache matches the values it holds
+-	if (program->uniformBuffer)
++	// a kept program still has its uniform locations, and its cache matches the values it holds;
++	// a deferred one gets them when it is built
++	if (program->uniformBuffer || !program->program)
+ 		return;
+ 
+ 	size = 0;
+@@ -821,15 +924,32 @@ void GLSL_InitUniforms(shaderProgram_t *program)
+ 
+ void GLSL_FinishGPUShader(shaderProgram_t *program)
+ {
++	if (!program->program)
++		return;
++
+ 	GLSL_ShowProgramUniforms(program->program);
+ 	GL_CheckErrors();
+ }
+ 
+ void GLSL_SetUniformInt(shaderProgram_t *program, int uniformNum, GLint value)
+ {
+-	GLint *uniforms = program->uniforms;
++	GLint *uniforms = GLSL_ProgramUniforms(program);
+ 	GLint *compare = (GLint *)(program->uniformBuffer + program->uniformBufferOffsets[uniformNum]);
+ 
++	// still deferred: GLSL_InitGPUShaders setting the sampler units, applied when it is built
++	if (program->deferred)
++	{
++		glslDeferred_t *d = program->deferred;
++
++		if (d->numInts == ARRAY_LEN(d->intUniforms))
++			ri.Error(ERR_FATAL, "GLSL_SetUniformInt: too many deferred values for %s", program->name);
++
++		d->intUniforms[d->numInts] = uniformNum;
++		d->intValues[d->numInts] = value;
++		d->numInts++;
++		return;
++	}
++
+ 	if (!program->uniformBuffer || uniforms[uniformNum] == -1)
+ 		return;
+ 
+@@ -851,7 +971,7 @@ void GLSL_SetUniformInt(shaderProgram_t *program, int uniformNum, GLint value)
+ 
+ void GLSL_SetUniformFloat(shaderProgram_t *program, int uniformNum, GLfloat value)
+ {
+-	GLint *uniforms = program->uniforms;
++	GLint *uniforms = GLSL_ProgramUniforms(program);
+ 	GLfloat *compare = (GLfloat *)(program->uniformBuffer + program->uniformBufferOffsets[uniformNum]);
+ 
+ 	if (!program->uniformBuffer || uniforms[uniformNum] == -1)
+@@ -875,7 +995,7 @@ void GLSL_SetUniformFloat(shaderProgram_t *program, int uniformNum, GLfloat valu
+ 
+ void GLSL_SetUniformVec2(shaderProgram_t *program, int uniformNum, const vec2_t v)
+ {
+-	GLint *uniforms = program->uniforms;
++	GLint *uniforms = GLSL_ProgramUniforms(program);
+ 	vec_t *compare = (float *)(program->uniformBuffer + program->uniformBufferOffsets[uniformNum]);
+ 
+ 	if (!program->uniformBuffer || uniforms[uniformNum] == -1)
+@@ -900,7 +1020,7 @@ void GLSL_SetUniformVec2(shaderProgram_t *program, int uniformNum, const vec2_t
+ 
+ void GLSL_SetUniformVec3(shaderProgram_t *program, int uniformNum, const vec3_t v)
+ {
+-	GLint *uniforms = program->uniforms;
++	GLint *uniforms = GLSL_ProgramUniforms(program);
+ 	vec_t *compare = (float *)(program->uniformBuffer + program->uniformBufferOffsets[uniformNum]);
+ 
+ 	if (!program->uniformBuffer || uniforms[uniformNum] == -1)
+@@ -924,7 +1044,7 @@ void GLSL_SetUniformVec3(shaderProgram_t *program, int uniformNum, const vec3_t
+ 
+ void GLSL_SetUniformVec4(shaderProgram_t *program, int uniformNum, const vec4_t v)
+ {
+-	GLint *uniforms = program->uniforms;
++	GLint *uniforms = GLSL_ProgramUniforms(program);
+ 	vec_t *compare = (float *)(program->uniformBuffer + program->uniformBufferOffsets[uniformNum]);
+ 
+ 	if (!program->uniformBuffer || uniforms[uniformNum] == -1)
+@@ -948,7 +1068,7 @@ void GLSL_SetUniformVec4(shaderProgram_t *program, int uniformNum, const vec4_t
+ 
+ void GLSL_SetUniformFloat5(shaderProgram_t *program, int uniformNum, const vec5_t v)
+ {
+-	GLint *uniforms = program->uniforms;
++	GLint *uniforms = GLSL_ProgramUniforms(program);
+ 	vec_t *compare = (float *)(program->uniformBuffer + program->uniformBufferOffsets[uniformNum]);
+ 
+ 	if (!program->uniformBuffer || uniforms[uniformNum] == -1)
+@@ -972,7 +1092,7 @@ void GLSL_SetUniformFloat5(shaderProgram_t *program, int uniformNum, const vec5_
+ 
+ void GLSL_SetUniformMat4(shaderProgram_t *program, int uniformNum, const mat4_t matrix)
+ {
+-	GLint *uniforms = program->uniforms;
++	GLint *uniforms = GLSL_ProgramUniforms(program);
+ 	vec_t *compare = (float *)(program->uniformBuffer + program->uniformBufferOffsets[uniformNum]);
+ 
+ 	if (!program->uniformBuffer || uniforms[uniformNum] == -1)
+@@ -996,7 +1116,7 @@ void GLSL_SetUniformMat4(shaderProgram_t *program, int uniformNum, const mat4_t
+ 
+ void GLSL_SetUniformMat4BoneMatrix(shaderProgram_t *program, int uniformNum, /*const*/ mat4_t *matrix, int numMatricies)
+ {
+-	GLint *uniforms = program->uniforms;
++	GLint *uniforms = GLSL_ProgramUniforms(program);
+ 	vec_t *compare = (float *)(program->uniformBuffer + program->uniformBufferOffsets[uniformNum]);
+ 
+ 	if (!program->uniformBuffer || uniforms[uniformNum] == -1) {
+@@ -1028,6 +1148,12 @@ void GLSL_SetUniformMat4BoneMatrix(shaderProgram_t *program, int uniformNum, /*c
+ 
+ void GLSL_DeleteGPUShader(shaderProgram_t *program)
+ {
++	if (program->deferred)
++	{
++		ri.Free(program->deferred);
++		Com_Memset(program, 0, sizeof(*program));
++	}
++
+ 	if(program->program)
+ 	{
+ 		if (program->vertexShader)
+@@ -1070,6 +1196,9 @@ void GLSL_InitGPUShaders(void)
+ 
+ 	startTime = ri.Milliseconds();
+ 	numProgramsTaken = 0;
++	numProgramsDeferred = 0;
++	numProgramsBuiltLater = 0;
++	glslDeferring = !!r_glslLazy->integer;
+ 
+ 	// OpenGL ES may not have enough attributes to fit ones used for vertex animation
+ 	if ( glRefConfig.maxVertexAttribs > ATTR_INDEX_NORMAL2 ) {
+@@ -1660,15 +1789,17 @@ void GLSL_InitGPUShaders(void)
+ #endif
+ 
+ 
++	glslDeferring = qfalse;
++
+ 	if (numKeptPrograms)
+ 		ri.Printf(PRINT_ALL, "deleting %i GLSL programs kept from the last start but not used now\n", numKeptPrograms);
+ 	GLSL_DeleteKeptPrograms();
+ 
+ 	endTime = ri.Milliseconds();
+ 
+-	ri.Printf(PRINT_ALL, "loaded %i GLSL shaders (%i gen %i light %i etc) in %5.2f seconds, %i of them kept from the last start\n", 
++	ri.Printf(PRINT_ALL, "loaded %i GLSL shaders (%i gen %i light %i etc) in %5.2f seconds, %i of them kept from the last start, %i left to build at first use\n", 
+ 		numGenShaders + numLightShaders + numEtcShaders, numGenShaders, numLightShaders, 
+-		numEtcShaders, (endTime - startTime) / 1000.0, numProgramsTaken);
++		numEtcShaders, (endTime - startTime) / 1000.0, numProgramsTaken, numProgramsDeferred);
+ }
+ 
+ /*
+@@ -1706,7 +1837,10 @@ static void GLSL_ForEachProgram(void (*f)(shaderProgram_t *program))
+ static void GLSL_KeepProgram(shaderProgram_t *program)
+ {
+ 	if (!program->program)
++	{
++		GLSL_DeleteGPUShader(program); // a deferred one never built
+ 		return;
++	}
+ 
+ 	if (numKeptPrograms == MAX_KEPT_PROGRAMS)
+ 	{
+@@ -1724,6 +1858,9 @@ void GLSL_ShutdownGPUShaders(qboolean keepPrograms)
+ 
+ 	ri.Printf(PRINT_ALL, "------- GLSL_ShutdownGPUShaders -------\n");
+ 
++	if (numProgramsBuiltLater)
++		ri.Printf(PRINT_ALL, "%i GLSL programs were built at their first use since the renderer started\n", numProgramsBuiltLater);
++
+ 	for (i = 0; i < ATTR_INDEX_COUNT && i < glRefConfig.maxVertexAttribs; i++)
+ 		qglDisableVertexAttribArray(i);
+ 
+@@ -1774,9 +1911,14 @@ void GLSL_ShutdownGPUShaders(qboolean keepPrograms)
+ 
+ void GLSL_BindProgram(shaderProgram_t * program)
+ {
+-	GLuint programObject = program ? program->program : 0;
++	GLuint programObject;
+ 	char *name = program ? program->name : "NULL";
+ 
++	if (program)
++		GLSL_ProgramUniforms(program); // builds a deferred one
++
++	programObject = program ? program->program : 0;
++
+ 	if(r_logFile->integer)
+ 	{
+ 		// don't just call LogComment, or we will get a call to va() every frame!
+diff --git a/code/renderergl2/tr_init.c b/code/renderergl2/tr_init.c
+--- a/code/renderergl2/tr_init.c
++++ b/code/renderergl2/tr_init.c
+@@ -113,6 +113,7 @@ cvar_t  *r_glslKeepShaders;
+ cvar_t  *r_glslMaxBones;
+ cvar_t  *r_glslAllPrograms;
+ cvar_t  *r_glslKeepPrograms;
++cvar_t  *r_glslLazy;
+ 
+ cvar_t  *r_hdr;
+ cvar_t  *r_floatLightmap;
+@@ -1297,6 +1298,8 @@ void R_Register( void )
+ 	ri.Cvar_SetDescription( r_glslAllPrograms, "1: compile the shadow and post-processing programs even without framebuffer objects, as upstream" );
+ 	r_glslKeepPrograms = ri.Cvar_Get( "r_glslKeepPrograms", "1", 0 );
+ 	ri.Cvar_SetDescription( r_glslKeepPrograms, "Keep the compiled GLSL programs when the renderer restarts at a map load, for the next start to reuse; 0 compiles them all again, as upstream" );
++	r_glslLazy = ri.Cvar_Get( "r_glslLazy", "0", CVAR_ARCHIVE );
++	ri.Cvar_SetDescription( r_glslLazy, "1: build each GLSL program when it is first drawn with (a short stall then) instead of every variant at start" );
+ 	ri.Cvar_SetDescription( r_glslKeepShaders, "1: keep the GLSL shader objects attached after linking, as upstream (more memory)" );
+ 
+ 	r_hdr = ri.Cvar_Get( "r_hdr", "1", CVAR_ARCHIVE | CVAR_LATCH );
+diff --git a/code/renderergl2/tr_local.h b/code/renderergl2/tr_local.h
+--- a/code/renderergl2/tr_local.h
++++ b/code/renderergl2/tr_local.h
+@@ -730,6 +730,7 @@ typedef struct shaderProgram_s
+ 	char  *uniformBuffer;
+ 
+ 	uint64_t        sourceHash; // name, attributes and full source, to find it again after a restart
++	struct glslDeferred_s *deferred; // r_glslLazy: how to build it at its first use
+ } shaderProgram_t;
+ 
+ // trRefdef_t holds everything that comes in refdef_t,
+@@ -1783,6 +1784,7 @@ extern  cvar_t  *r_glslKeepShaders;
+ extern  cvar_t  *r_glslMaxBones;
+ extern  cvar_t  *r_glslAllPrograms;
+ extern  cvar_t  *r_glslKeepPrograms;
++extern  cvar_t  *r_glslLazy;
+ 
+ extern  cvar_t  *r_hdr;
+ extern  cvar_t  *r_floatLightmap;

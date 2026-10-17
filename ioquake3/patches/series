@@ -1,0 +1,10 @@
+0001-renderergl2-delete-GLSL-shader-objects-once-their-pr.patch
+0002-renderergl2-r_glslMaxBones-no-GPU-bone-animation-by-.patch
+0003-renderergl2-no-shadow-and-post-processing-programs-w.patch
+0004-renderergl2-keep-compiled-GLSL-programs-across-rende.patch
+0005-renderergl2-r_glslLazy-build-each-GLSL-program-at-it.patch
+0006-renderergl2-allocate-the-VAO-cache-only-with-r_vaoCa.patch
+0007-renderergl2-no-permanent-CPU-copy-of-MD3-vertices-th.patch
+0008-renderergl2-no-tangents-in-MD3-VBOs-without-normal-m.patch
+0009-renderergl2-r_md3Lods-and-no-MD3-LODs-that-r_lodbias.patch
+0010-renderergl2-r_gpuVertexAnimation-to-animate-MD3-mode.patch

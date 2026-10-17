@@ -1,0 +1,223 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 14:14:47 +0300
+Subject: renderergl2: no shadow and post-processing programs without
+ framebuffer objects
+
+Shadow maps, the sun's shadow mask, SSAO, tone mapping, bloom and the final copy to the screen all
+draw into framebuffer objects, so without ARB_framebuffer_object (nv30 has none) their programs are
+never bound: pshadow, down4x, bokeh, tonemap, calclevels4x (2), shadowmask, greyscale, ssao,
+depthBlur (4), shadowfill (3, unless r_dlightMode >= 2) and the lightall shadow-map variants (18
+with r_sunlightMode 1: upstream picks them without FBOs too, then samples a shadow mask that was
+never made, its FIXME in RB_StageIteratorGeneric). Skip them when there are no FBOs and don't pick
+the shadow-map variants then. r_glslAllPrograms 1 compiles them all again, as upstream.
+
+The uniform setters also skip a program that was never built instead of writing through its NULL
+uniform cache.
+
+diff --git a/code/renderergl2/tr_glsl.c b/code/renderergl2/tr_glsl.c
+--- a/code/renderergl2/tr_glsl.c
++++ b/code/renderergl2/tr_glsl.c
+@@ -750,7 +750,7 @@ void GLSL_SetUniformInt(shaderProgram_t *program, int uniformNum, GLint value)
+ 	GLint *uniforms = program->uniforms;
+ 	GLint *compare = (GLint *)(program->uniformBuffer + program->uniformBufferOffsets[uniformNum]);
+ 
+-	if (uniforms[uniformNum] == -1)
++	if (!program->uniformBuffer || uniforms[uniformNum] == -1)
+ 		return;
+ 
+ 	if (uniformsInfo[uniformNum].type != GLSL_INT)
+@@ -774,7 +774,7 @@ void GLSL_SetUniformFloat(shaderProgram_t *program, int uniformNum, GLfloat valu
+ 	GLint *uniforms = program->uniforms;
+ 	GLfloat *compare = (GLfloat *)(program->uniformBuffer + program->uniformBufferOffsets[uniformNum]);
+ 
+-	if (uniforms[uniformNum] == -1)
++	if (!program->uniformBuffer || uniforms[uniformNum] == -1)
+ 		return;
+ 
+ 	if (uniformsInfo[uniformNum].type != GLSL_FLOAT)
+@@ -798,7 +798,7 @@ void GLSL_SetUniformVec2(shaderProgram_t *program, int uniformNum, const vec2_t
+ 	GLint *uniforms = program->uniforms;
+ 	vec_t *compare = (float *)(program->uniformBuffer + program->uniformBufferOffsets[uniformNum]);
+ 
+-	if (uniforms[uniformNum] == -1)
++	if (!program->uniformBuffer || uniforms[uniformNum] == -1)
+ 		return;
+ 
+ 	if (uniformsInfo[uniformNum].type != GLSL_VEC2)
+@@ -823,7 +823,7 @@ void GLSL_SetUniformVec3(shaderProgram_t *program, int uniformNum, const vec3_t
+ 	GLint *uniforms = program->uniforms;
+ 	vec_t *compare = (float *)(program->uniformBuffer + program->uniformBufferOffsets[uniformNum]);
+ 
+-	if (uniforms[uniformNum] == -1)
++	if (!program->uniformBuffer || uniforms[uniformNum] == -1)
+ 		return;
+ 
+ 	if (uniformsInfo[uniformNum].type != GLSL_VEC3)
+@@ -847,7 +847,7 @@ void GLSL_SetUniformVec4(shaderProgram_t *program, int uniformNum, const vec4_t
+ 	GLint *uniforms = program->uniforms;
+ 	vec_t *compare = (float *)(program->uniformBuffer + program->uniformBufferOffsets[uniformNum]);
+ 
+-	if (uniforms[uniformNum] == -1)
++	if (!program->uniformBuffer || uniforms[uniformNum] == -1)
+ 		return;
+ 
+ 	if (uniformsInfo[uniformNum].type != GLSL_VEC4)
+@@ -871,7 +871,7 @@ void GLSL_SetUniformFloat5(shaderProgram_t *program, int uniformNum, const vec5_
+ 	GLint *uniforms = program->uniforms;
+ 	vec_t *compare = (float *)(program->uniformBuffer + program->uniformBufferOffsets[uniformNum]);
+ 
+-	if (uniforms[uniformNum] == -1)
++	if (!program->uniformBuffer || uniforms[uniformNum] == -1)
+ 		return;
+ 
+ 	if (uniformsInfo[uniformNum].type != GLSL_FLOAT5)
+@@ -895,7 +895,7 @@ void GLSL_SetUniformMat4(shaderProgram_t *program, int uniformNum, const mat4_t
+ 	GLint *uniforms = program->uniforms;
+ 	vec_t *compare = (float *)(program->uniformBuffer + program->uniformBufferOffsets[uniformNum]);
+ 
+-	if (uniforms[uniformNum] == -1)
++	if (!program->uniformBuffer || uniforms[uniformNum] == -1)
+ 		return;
+ 
+ 	if (uniformsInfo[uniformNum].type != GLSL_MAT16)
+@@ -919,7 +919,7 @@ void GLSL_SetUniformMat4BoneMatrix(shaderProgram_t *program, int uniformNum, /*c
+ 	GLint *uniforms = program->uniforms;
+ 	vec_t *compare = (float *)(program->uniformBuffer + program->uniformBufferOffsets[uniformNum]);
+ 
+-	if (uniforms[uniformNum] == -1) {
++	if (!program->uniformBuffer || uniforms[uniformNum] == -1) {
+ 		return;
+ 	}
+ 
+@@ -980,6 +980,9 @@ void GLSL_InitGPUShaders(void)
+ 	char extradefines[1024];
+ 	int attribs;
+ 	int numGenShaders = 0, numLightShaders = 0, numEtcShaders = 0;
++	// Shadow maps, post-processing and the final copy to the screen all draw into framebuffer
++	// objects. Without them (nv30 has no ARB_framebuffer_object) their programs are never bound.
++	qboolean needFboPrograms = glRefConfig.framebufferObject || r_glslAllPrograms->integer;
+ 
+ 	ri.Printf(PRINT_ALL, "------- GLSL_InitGPUShaders -------\n");
+ 
+@@ -1144,6 +1147,10 @@ void GLSL_InitGPUShaders(void)
+ 		if ((i & LIGHTDEF_USE_SHADOWMAP) && (!lightType || !r_sunlightMode->integer))
+ 			continue;
+ 
++		// the sun's shadow mask (screenShadowImage) needs framebuffer objects
++		if ((i & LIGHTDEF_USE_SHADOWMAP) && !needFboPrograms)
++			continue;
++
+ 		if ((i & LIGHTDEF_ENTITY_VERTEX_ANIMATION) && (i & LIGHTDEF_ENTITY_BONE_ANIMATION))
+ 			continue;
+ 
+@@ -1306,6 +1313,10 @@ void GLSL_InitGPUShaders(void)
+ 		if ((i & SHADOWMAPDEF_USE_BONE_ANIMATION) && !glRefConfig.glslMaxAnimatedBones)
+ 			continue;
+ 
++		// shadow map views are only made with framebuffer objects, except dlight cube maps
++		if (!needFboPrograms && r_dlightMode->integer < 2)
++			continue;
++
+ 		attribs = ATTR_POSITION | ATTR_NORMAL | ATTR_TEXCOORD;
+ 
+ 		extradefines[0] = '\0';
+@@ -1333,6 +1344,8 @@ void GLSL_InitGPUShaders(void)
+ 		numEtcShaders++;
+ 	}
+ 
++	if (needFboPrograms)
++	{
+ 	attribs = ATTR_POSITION | ATTR_NORMAL;
+ 	extradefines[0] = '\0';
+ 
+@@ -1425,11 +1438,12 @@ void GLSL_InitGPUShaders(void)
+ 
+ 		numEtcShaders++;		
+ 	}
++	}
+ 
+ 
+ 	// GLSL 1.10+ or GL_EXT_shadow_samplers extension are required for sampler2DShadow type
+-	if (glRefConfig.glslMajorVersion > 1 || (glRefConfig.glslMajorVersion == 1 && glRefConfig.glslMinorVersion >= 10)
+-	    || glRefConfig.shadowSamplers)
++	if (needFboPrograms && (glRefConfig.glslMajorVersion > 1 || (glRefConfig.glslMajorVersion == 1 && glRefConfig.glslMinorVersion >= 10)
++	    || glRefConfig.shadowSamplers))
+ 	{
+ 		attribs = ATTR_POSITION | ATTR_TEXCOORD;
+ 		extradefines[0] = '\0';
+@@ -1470,6 +1484,8 @@ void GLSL_InitGPUShaders(void)
+ 	}
+ 
+ 
++	if (needFboPrograms)
++	{
+ 	if (!GLSL_InitGPUShader(&tr.greyscaleShader, "greyscale", attribs, qtrue, extradefines, qtrue,
+ 		fallbackShader_greyscale_vp, fallbackShader_greyscale_fp))
+ 	{
+@@ -1481,10 +1497,11 @@ void GLSL_InitGPUShaders(void)
+ 	GLSL_FinishGPUShader(&tr.greyscaleShader);
+ 
+ 	numEtcShaders++;
++	}
+ 
+ 	// GLSL 1.10+ or GL_OES_standard_derivatives extension are required for dFdx() and dFdy() GLSL functions
+-	if (glRefConfig.glslMajorVersion > 1 || (glRefConfig.glslMajorVersion == 1 && glRefConfig.glslMinorVersion >= 10)
+-	    || glRefConfig.standardDerivatives)
++	if (needFboPrograms && (glRefConfig.glslMajorVersion > 1 || (glRefConfig.glslMajorVersion == 1 && glRefConfig.glslMinorVersion >= 10)
++	    || glRefConfig.standardDerivatives))
+ 	{
+ 		attribs = ATTR_POSITION | ATTR_TEXCOORD;
+ 		extradefines[0] = '\0';
+diff --git a/code/renderergl2/tr_init.c b/code/renderergl2/tr_init.c
+--- a/code/renderergl2/tr_init.c
++++ b/code/renderergl2/tr_init.c
+@@ -111,6 +111,7 @@ cvar_t  *r_cameraExposure;
+ cvar_t  *r_externalGLSL;
+ cvar_t  *r_glslKeepShaders;
+ cvar_t  *r_glslMaxBones;
++cvar_t  *r_glslAllPrograms;
+ 
+ cvar_t  *r_hdr;
+ cvar_t  *r_floatLightmap;
+@@ -1291,6 +1292,8 @@ void R_Register( void )
+ 	r_glslKeepShaders = ri.Cvar_Get( "r_glslKeepShaders", "0", 0 );
+ 	r_glslMaxBones = ri.Cvar_Get( "r_glslMaxBones", "0", CVAR_ARCHIVE | CVAR_LATCH );
+ 	ri.Cvar_SetDescription( r_glslMaxBones, "Most IQM joints skinned by GLSL programs: 0 skins on the CPU and compiles no bone-animation programs, -1 is the driver's limit (upstream)" );
++	r_glslAllPrograms = ri.Cvar_Get( "r_glslAllPrograms", "0", CVAR_LATCH );
++	ri.Cvar_SetDescription( r_glslAllPrograms, "1: compile the shadow and post-processing programs even without framebuffer objects, as upstream" );
+ 	ri.Cvar_SetDescription( r_glslKeepShaders, "1: keep the GLSL shader objects attached after linking, as upstream (more memory)" );
+ 
+ 	r_hdr = ri.Cvar_Get( "r_hdr", "1", CVAR_ARCHIVE | CVAR_LATCH );
+diff --git a/code/renderergl2/tr_local.h b/code/renderergl2/tr_local.h
+--- a/code/renderergl2/tr_local.h
++++ b/code/renderergl2/tr_local.h
+@@ -1779,6 +1779,7 @@ extern	cvar_t	*r_anaglyphMode;
+ extern  cvar_t  *r_externalGLSL;
+ extern  cvar_t  *r_glslKeepShaders;
+ extern  cvar_t  *r_glslMaxBones;
++extern  cvar_t  *r_glslAllPrograms;
+ 
+ extern  cvar_t  *r_hdr;
+ extern  cvar_t  *r_floatLightmap;
+diff --git a/code/renderergl2/tr_shade.c b/code/renderergl2/tr_shade.c
+--- a/code/renderergl2/tr_shade.c
++++ b/code/renderergl2/tr_shade.c
+@@ -1231,7 +1231,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
+ 				}
+ 			}
+ 
+-			if (r_sunlightMode->integer && (backEnd.viewParms.flags & VPF_USESUNLIGHT) && (index & LIGHTDEF_LIGHTTYPE_MASK))
++			if (glRefConfig.framebufferObject && r_sunlightMode->integer && (backEnd.viewParms.flags & VPF_USESUNLIGHT) && (index & LIGHTDEF_LIGHTTYPE_MASK))
+ 			{
+ 				index |= LIGHTDEF_USE_SHADOWMAP;
+ 			}
+@@ -1417,7 +1417,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
+ 			int i;
+ 			vec4_t enableTextures;
+ 
+-			if (r_sunlightMode->integer && (backEnd.viewParms.flags & VPF_USESUNLIGHT) && (pStage->glslShaderIndex & LIGHTDEF_LIGHTTYPE_MASK))
++			if (glRefConfig.framebufferObject && r_sunlightMode->integer && (backEnd.viewParms.flags & VPF_USESUNLIGHT) && (pStage->glslShaderIndex & LIGHTDEF_LIGHTTYPE_MASK))
+ 			{
+ 				// FIXME: screenShadowImage is NULL if no framebuffers
+ 				if (tr.screenShadowImage)

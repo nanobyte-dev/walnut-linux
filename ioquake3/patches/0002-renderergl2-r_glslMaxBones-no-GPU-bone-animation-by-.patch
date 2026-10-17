@@ -1,0 +1,58 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 14:13:18 +0300
+Subject: renderergl2: r_glslMaxBones, no GPU bone animation by default
+
+With GPU skinning possible, 27 of the programs compiled at every renderer start are bone-animation
+variants (generic, fogpass, lightall, shadowfill), each indexing a uniform array of as many matrices
+as the vertex uniforms allow (105 on nv30). nv30 has no indirect constant addressing, so each becomes
+four 105-leaf compare trees per program. They are only used by IQM models, which OpenArena has none
+of. r_glslMaxBones caps the joints skinned in GLSL; the default 0 skins IQM models on the CPU (the
+path drivers with too few uniforms take) and compiles none of these programs. -1 is upstream's
+driver limit.
+
+diff --git a/code/renderergl2/tr_init.c b/code/renderergl2/tr_init.c
+--- a/code/renderergl2/tr_init.c
++++ b/code/renderergl2/tr_init.c
+@@ -110,6 +110,7 @@ cvar_t  *r_cameraExposure;
+ 
+ cvar_t  *r_externalGLSL;
+ cvar_t  *r_glslKeepShaders;
++cvar_t  *r_glslMaxBones;
+ 
+ cvar_t  *r_hdr;
+ cvar_t  *r_floatLightmap;
+@@ -293,6 +294,13 @@ static void InitOpenGL( void )
+ 			qglGetIntegerv( GL_MAX_VERTEX_UNIFORM_COMPONENTS, &temp );
+ 		}
+ 		glRefConfig.glslMaxAnimatedBones = Com_Clamp( 0, IQM_MAX_JOINTS, ( temp - 160 ) / 16 );
++		// Every bone-animation variant (27 programs) indexes a uniform array of this many matrices,
++		// which a driver without indirect constant addressing (nv30) unrolls into compare trees in
++		// each program, compiled at every start whether or not any IQM model is ever drawn. With 0
++		// IQM models are skinned on the CPU, as on drivers with too few uniforms.
++		if ( r_glslMaxBones->integer >= 0 && glRefConfig.glslMaxAnimatedBones > r_glslMaxBones->integer ) {
++			glRefConfig.glslMaxAnimatedBones = r_glslMaxBones->integer;
++		}
+ 		if ( glRefConfig.glslMaxAnimatedBones < 12 ) {
+ 			glRefConfig.glslMaxAnimatedBones = 0;
+ 		}
+@@ -1281,6 +1289,8 @@ void R_Register( void )
+ 
+ 	r_externalGLSL = ri.Cvar_Get( "r_externalGLSL", "0", CVAR_LATCH );
+ 	r_glslKeepShaders = ri.Cvar_Get( "r_glslKeepShaders", "0", 0 );
++	r_glslMaxBones = ri.Cvar_Get( "r_glslMaxBones", "0", CVAR_ARCHIVE | CVAR_LATCH );
++	ri.Cvar_SetDescription( r_glslMaxBones, "Most IQM joints skinned by GLSL programs: 0 skins on the CPU and compiles no bone-animation programs, -1 is the driver's limit (upstream)" );
+ 	ri.Cvar_SetDescription( r_glslKeepShaders, "1: keep the GLSL shader objects attached after linking, as upstream (more memory)" );
+ 
+ 	r_hdr = ri.Cvar_Get( "r_hdr", "1", CVAR_ARCHIVE | CVAR_LATCH );
+diff --git a/code/renderergl2/tr_local.h b/code/renderergl2/tr_local.h
+--- a/code/renderergl2/tr_local.h
++++ b/code/renderergl2/tr_local.h
+@@ -1778,6 +1778,7 @@ extern	cvar_t	*r_anaglyphMode;
+ 
+ extern  cvar_t  *r_externalGLSL;
+ extern  cvar_t  *r_glslKeepShaders;
++extern  cvar_t  *r_glslMaxBones;
+ 
+ extern  cvar_t  *r_hdr;
+ extern  cvar_t  *r_floatLightmap;

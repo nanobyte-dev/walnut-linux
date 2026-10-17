@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 14:27:50 +0300
+Subject: renderergl2: allocate the VAO cache only with r_vaoCache 1
+
+R_InitVaos always created the VAO cache, a 16 MB vertex buffer and a 5 MB index buffer (32-bit
+indexes on desktop GL), at every renderer start, though it is only drawn from with r_vaoCache 1
+and the default is 0. Mesa nv30 puts both in video memory: 21 MB of the PS3's VRAM for nothing.
+Create it only when r_vaoCache is set, and latch r_vaoCache so it can't be turned on without it
+(it now takes effect at the next map load or vid_restart).
+
+diff --git a/code/renderergl2/tr_init.c b/code/renderergl2/tr_init.c
+--- a/code/renderergl2/tr_init.c
++++ b/code/renderergl2/tr_init.c
+@@ -1457,7 +1457,7 @@ void R_Register( void )
+ 
+ 	r_marksOnTriangleMeshes = ri.Cvar_Get("r_marksOnTriangleMeshes", "0", CVAR_ARCHIVE);
+ 
+-	r_vaoCache = ri.Cvar_Get("r_vaoCache", "0", CVAR_ARCHIVE);
++	r_vaoCache = ri.Cvar_Get("r_vaoCache", "0", CVAR_ARCHIVE | CVAR_LATCH);
+ 
+ 	r_aviMotionJpegQuality = ri.Cvar_Get("r_aviMotionJpegQuality", "90", CVAR_ARCHIVE);
+ 	r_screenshotJpegQuality = ri.Cvar_Get("r_screenshotJpegQuality", "90", CVAR_ARCHIVE);
+diff --git a/code/renderergl2/tr_vbo.c b/code/renderergl2/tr_vbo.c
+--- a/code/renderergl2/tr_vbo.c
++++ b/code/renderergl2/tr_vbo.c
+@@ -499,7 +499,11 @@ void R_InitVaos(void)
+ 
+ 	R_BindNullVao();
+ 
+-	VaoCache_Init();
++	// The cache is a 16 MB vertex buffer and a 5 MB index buffer (as 32-bit indexes), in video
++	// memory, used only with r_vaoCache 1 (default 0); r_vaoCache is latched so it can't be turned
++	// on without the cache.
++	if (r_vaoCache->integer)
++		VaoCache_Init();
+ 
+ 	GL_CheckErrors();
+ }

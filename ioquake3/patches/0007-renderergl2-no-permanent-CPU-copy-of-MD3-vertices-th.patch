@@ -1,0 +1,186 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 14:31:15 +0300
+Subject: renderergl2: no permanent CPU copy of MD3 vertices that went to a VBO
+
+R_LoadMD3 expands every vertex of every frame to an mdvVertex_t (float position, packed normal
+and tangent: 28 bytes, against the file's 8) on the hunk and keeps it all session, though a model
+drawn from its VBO (all of them with GPU vertex animation) only needs it to fill the VBO and to
+compute tangents. OpenArena's player models are big: the six in our bench demo take 87 MB of hunk
+this way (all three LODs), besides as much again in their VBOs.
+
+Expand into temporary hunk memory instead and free it once the VBOs are made. A model whose own
+shaders deform on the CPU keeps a permanent copy, and so does any model under 256 KB (the game can
+draw one with a custom CPU-deform shader: OpenArena's teleport effect); a big model drawn with a
+skin or custom shader that deforms on the CPU is drawn undeformed from its VBO (a developer
+warning says so). In the bench demo the hunk in use goes from 93 MB to 6 MB. r_keepModelVerts 1
+keeps every copy, as upstream.
+
+diff --git a/code/renderergl2/tr_init.c b/code/renderergl2/tr_init.c
+--- a/code/renderergl2/tr_init.c
++++ b/code/renderergl2/tr_init.c
+@@ -114,6 +114,7 @@ cvar_t  *r_glslMaxBones;
+ cvar_t  *r_glslAllPrograms;
+ cvar_t  *r_glslKeepPrograms;
+ cvar_t  *r_glslLazy;
++cvar_t  *r_keepModelVerts;
+ 
+ cvar_t  *r_hdr;
+ cvar_t  *r_floatLightmap;
+@@ -1300,6 +1301,8 @@ void R_Register( void )
+ 	ri.Cvar_SetDescription( r_glslKeepPrograms, "Keep the compiled GLSL programs when the renderer restarts at a map load, for the next start to reuse; 0 compiles them all again, as upstream" );
+ 	r_glslLazy = ri.Cvar_Get( "r_glslLazy", "0", CVAR_ARCHIVE );
+ 	ri.Cvar_SetDescription( r_glslLazy, "1: build each GLSL program when it is first drawn with (a short stall then) instead of every variant at start" );
++	r_keepModelVerts = ri.Cvar_Get( "r_keepModelVerts", "0", CVAR_LATCH );
++	ri.Cvar_SetDescription( r_keepModelVerts, "1: keep a CPU copy of the vertices of models drawn from VBOs, as upstream (for shaders with CPU deforms)" );
+ 	ri.Cvar_SetDescription( r_glslKeepShaders, "1: keep the GLSL shader objects attached after linking, as upstream (more memory)" );
+ 
+ 	r_hdr = ri.Cvar_Get( "r_hdr", "1", CVAR_ARCHIVE | CVAR_LATCH );
+diff --git a/code/renderergl2/tr_local.h b/code/renderergl2/tr_local.h
+--- a/code/renderergl2/tr_local.h
++++ b/code/renderergl2/tr_local.h
+@@ -1785,6 +1785,7 @@ extern  cvar_t  *r_glslMaxBones;
+ extern  cvar_t  *r_glslAllPrograms;
+ extern  cvar_t  *r_glslKeepPrograms;
+ extern  cvar_t  *r_glslLazy;
++extern  cvar_t  *r_keepModelVerts;
+ 
+ extern  cvar_t  *r_hdr;
+ extern  cvar_t  *r_floatLightmap;
+diff --git a/code/renderergl2/tr_model.c b/code/renderergl2/tr_model.c
+--- a/code/renderergl2/tr_model.c
++++ b/code/renderergl2/tr_model.c
+@@ -395,6 +395,9 @@ static qboolean R_LoadMD3(model_t * mod, int lod, void *buffer, int bufferSize,
+ 
+ 	int             version;
+ 	int             size;
++	mdvVertex_t    *vertsTemp = NULL;
++	int             vertsUsed = 0;
++	qboolean        cpuDeforms = qfalse;
+ 
+ 	md3Model = (md3Header_t *) buffer;
+ 
+@@ -469,6 +472,27 @@ static qboolean R_LoadMD3(model_t * mod, int lod, void *buffer, int bufferSize,
+ 		Q_strncpyz(tagName->name, md3Tag->name, sizeof(tagName->name));
+ 	}
+ 
++	// A model drawn from a VBO (all of them, unless animated on the CPU) needs its expanded
++	// vertices (28 bytes per vertex and frame, 3.5 times the file's 8) only to fill the VBO and
++	// compute tangents; RB_SurfaceMesh, the CPU path, is only taken without the VBO or for a
++	// shader with deforms GLSL can't do. Keep them as temporary hunk memory, freed below, instead
++	// of a permanent copy: an OpenArena player model is 10-25 MB of them. r_keepModelVerts 1 keeps
++	// the permanent copy, as upstream.
++	if (!r_keepModelVerts->integer && !(md3Model->numFrames > 1 && !glRefConfig.gpuVertexAnimation))
++	{
++		int numVertsTemp = 0;
++
++		md3Surf = (md3Surface_t *) ((byte *) md3Model + md3Model->ofsSurfaces);
++		for(i = 0; i < md3Model->numSurfaces; i++)
++		{
++			numVertsTemp += LittleLong(md3Surf->numVerts) * LittleLong(md3Surf->numFrames);
++			md3Surf = (md3Surface_t *) ((byte *) md3Surf + LittleLong(md3Surf->ofsEnd));
++		}
++
++		if (numVertsTemp > 0)
++			vertsTemp = ri.Hunk_AllocateTempMemory(sizeof(*vertsTemp) * numVertsTemp);
++	}
++
+ 	// swap all the surfaces
+ 	mdvModel->numSurfaces = md3Model->numSurfaces;
+ 	mdvModel->surfaces = surf = ri.Hunk_Alloc(sizeof(*surf) * md3Model->numSurfaces, h_low);
+@@ -493,6 +517,8 @@ static qboolean R_LoadMD3(model_t * mod, int lod, void *buffer, int bufferSize,
+ 			ri.Printf(PRINT_WARNING, "R_LoadMD3: %s has more than %i verts on %s (%i).\n",
+ 				modName, SHADER_MAX_VERTEXES - 1, md3Surf->name[0] ? md3Surf->name : "a surface",
+ 				md3Surf->numVerts );
++			if (vertsTemp)
++				ri.Hunk_FreeTempMemory(vertsTemp);
+ 			return qfalse;
+ 		}
+ 		if(md3Surf->numTriangles * 3 >= SHADER_MAX_INDEXES)
+@@ -500,6 +526,8 @@ static qboolean R_LoadMD3(model_t * mod, int lod, void *buffer, int bufferSize,
+ 			ri.Printf(PRINT_WARNING, "R_LoadMD3: %s has more than %i triangles on %s (%i).\n",
+ 				modName, ( SHADER_MAX_INDEXES / 3 ) - 1, md3Surf->name[0] ? md3Surf->name : "a surface",
+ 				md3Surf->numTriangles );
++			if (vertsTemp)
++				ri.Hunk_FreeTempMemory(vertsTemp);
+ 			return qfalse;
+ 		}
+ 
+@@ -533,6 +561,8 @@ static qboolean R_LoadMD3(model_t * mod, int lod, void *buffer, int bufferSize,
+ 			shader_t       *sh;
+ 
+ 			sh = R_FindShader(md3Shader->name, LIGHTMAP_NONE, qtrue);
++			if (ShaderRequiresCPUDeforms(sh))
++				cpuDeforms = qtrue;
+ 			if(sh->defaultShader)
+ 			{
+ 				*shaderIndex = 0;
+@@ -557,7 +587,13 @@ static qboolean R_LoadMD3(model_t * mod, int lod, void *buffer, int bufferSize,
+ 
+ 		// swap all the XyzNormals
+ 		surf->numVerts = md3Surf->numVerts;
+-		surf->verts = v = ri.Hunk_Alloc(sizeof(*v) * (md3Surf->numVerts * md3Surf->numFrames), h_low);
++		if (vertsTemp)
++		{
++			surf->verts = v = vertsTemp + vertsUsed;
++			vertsUsed += md3Surf->numVerts * md3Surf->numFrames;
++		}
++		else
++			surf->verts = v = ri.Hunk_Alloc(sizeof(*v) * (md3Surf->numVerts * md3Surf->numFrames), h_low);
+ 
+ 		md3xyz = (md3XyzNormal_t *) ((byte *) md3Surf + md3Surf->ofsXyzNormals);
+ 		for(j = 0; j < md3Surf->numVerts * md3Surf->numFrames; j++, md3xyz++, v++)
+@@ -817,6 +853,25 @@ static qboolean R_LoadMD3(model_t * mod, int lod, void *buffer, int bufferSize,
+ 		}
+ 	}
+ 
++	if (vertsTemp)
++	{
++		// The VBOs have them now. A model whose own shaders deform on the CPU (autosprite) keeps
++		// a permanent copy for RB_SurfaceMesh, and so does a small one, which the game may draw
++		// with such a custom shader (OpenArena's teleport effect: 3 KB); the big ones are players.
++		mdvVertex_t *verts = NULL;
++
++		if (cpuDeforms || vertsUsed * sizeof(*verts) <= 256 * 1024)
++		{
++			verts = ri.Hunk_Alloc(sizeof(*verts) * vertsUsed, h_low);
++			Com_Memcpy(verts, vertsTemp, sizeof(*verts) * vertsUsed);
++		}
++
++		for (i = 0, surf = mdvModel->surfaces; i < mdvModel->numSurfaces; i++, surf++)
++			surf->verts = verts ? verts + (surf->verts - vertsTemp) : NULL;
++
++		ri.Hunk_FreeTempMemory(vertsTemp);
++	}
++
+ 	return qtrue;
+ }
+ 
+diff --git a/code/renderergl2/tr_surface.c b/code/renderergl2/tr_surface.c
+--- a/code/renderergl2/tr_surface.c
++++ b/code/renderergl2/tr_surface.c
+@@ -1219,8 +1219,22 @@ void RB_SurfaceVaoMdvMesh(srfVaoMdvMesh_t * surface)
+ 
+ 	if (ShaderRequiresCPUDeforms(tess.shader))
+ 	{
+-		RB_SurfaceMesh(surface->mdvSurface);
+-		return;
++		// without the CPU copy of its vertices (r_keepModelVerts 0; a skin's shader with CPU
++		// deforms on a model whose own shaders have none) it is drawn from its VBO, undeformed
++		static int numWarned;
++
++		if (surface->mdvSurface->verts)
++		{
++			RB_SurfaceMesh(surface->mdvSurface);
++			return;
++		}
++
++		if (numWarned < 10)
++		{
++			ri.Printf(PRINT_DEVELOPER, "WARNING: shader %s deforms on the CPU, model surface %s drawn without its deform (r_keepModelVerts 0)\n",
++				tess.shader->name, surface->mdvSurface->name);
++			numWarned++;
++		}
+ 	}
+ 
+ 	if(!surface->vao)
