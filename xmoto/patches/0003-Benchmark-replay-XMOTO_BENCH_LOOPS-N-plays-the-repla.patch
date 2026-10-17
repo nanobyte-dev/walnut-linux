@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 22:19:45 +0300
+Subject: Benchmark replay: XMOTO_BENCH_LOOPS=N plays the replay N times, the
+ lines printed for each pass
+
+diff --git a/src/states/StateReplaying.cpp b/src/states/StateReplaying.cpp
+--- a/src/states/StateReplaying.cpp
++++ b/src/states/StateReplaying.cpp
+@@ -36,6 +36,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ #include "xmoto/VideoRecorder.h"
+ #include "xmscene/BikePlayer.h"
+ #include "xmscene/Camera.h"
++#include <stdlib.h>
+ 
+ #define NEXTLEVEL_MAXTRY 10
+ 
+@@ -133,14 +134,29 @@ bool StateReplaying::update() {
+     m_stopToUpdate = true;
+ 
+     if (XMSession::instance()->benchmark()) {
+-      m_requestForEnd = true;
+-      closePlaying();
++      // XMOTO_BENCH_LOOPS=N: N passes of the replay, the lines for each
++      static int s_benchPass = 0;
++      const char *v_loops = getenv("XMOTO_BENCH_LOOPS");
++      bool v_again = v_loops != NULL && ++s_benchPass < atoi(v_loops);
++
++      if (v_again == false) {
++        m_requestForEnd = true;
++        closePlaying();
++      }
+       printf(" * %i frames rendered in %.2f seconds\n",
+              m_benchmarkNbFrame,
+              GameApp::getXMTime() - m_benchmarkStartTime);
+       printf(" * Average framerate: %.2f fps\n",
+              ((double)m_benchmarkNbFrame) /
+                (GameApp::getXMTime() - m_benchmarkStartTime));
++      if (v_loops != NULL) {
++        fflush(stdout);
++      }
++      if (v_again) {
++        closePlaying();
++        StateManager::instance()->replaceState(
++          new StatePreplayingReplay(m_replay, false), getStateId());
++      }
+     }
+   }
+ 

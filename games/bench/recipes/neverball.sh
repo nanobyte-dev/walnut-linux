@@ -5,17 +5,17 @@
 # neverballrc: fullscreen 1920x1080, vsync off, the fps counter on. It generates mipmaps on the GPU
 # (GL_GENERATE_MIPMAP) and uses GL_LUMINANCE_ALPHA textures: both broken on nv30 until the Mesa
 # fixes (docs/GAME-PLAN.md 1.0); variant nomip turns mipmaps off.
-# Steady state: none yet. The replay is ~20 s and our patch quits at its end; looping it needs a
-# small addition to that patch (st_demo.c bench_end: with NEVERBALL_BENCH_LOOPS=N passes left, the
-# line printed with the pass, demo_replay_stop, demo_replay_init on a copy of curr_demo(),
-# goto_state(&st_demo_play) instead of SDL_QUIT: ~12 passes for 60 + 120 s). PASSES=1 is set for
-# it; with one pass the run is as before (fps= the replay's, no window).
+# Steady state: passes. The replay is ~20 s; our patch 0002 (st_demo.c bench_end) with
+# NEVERBALL_BENCH_LOOPS=N replays it N times (demo_replay_stop, progress_replay on a copy of
+# curr_demo(), goto_state(&st_demo_play)), one line per pass, and quits after the Nth. 12 passes
+# cover 60 s of warm-up + 120 s; the client stops the run once enough is measured. fps= is the
+# first pass's.
 SUITE=1
 COMM=neverball
 NB_RC=$HOME/.neverball/neverballrc
 BACKUP=("$NB_RC")
 NB_MIP=1
-ENV=(NEVERBALL_BENCH=1)
+ENV=(NEVERBALL_BENCH=1 NEVERBALL_BENCH_LOOPS=12)
 PASSES=1
 FPS_RE='^neverball: [0-9]+ frames [0-9.]+ seconds ([0-9.]+) fps'
 MAXMS_RE='^neverball: .* frame ms max ([0-9.]+)'
@@ -26,5 +26,5 @@ setup() {
 		"multisample 0" >> "$NB_RC"
 }
 CMD=(/usr/games/neverball --replay /usr/share/games/neverball/gui/demo1.nbr)
-DURATION=90
+DURATION=270	# a safety cap: load, 12 passes of ~20 s, margin
 variant_nomip() { NB_MIP=0; }

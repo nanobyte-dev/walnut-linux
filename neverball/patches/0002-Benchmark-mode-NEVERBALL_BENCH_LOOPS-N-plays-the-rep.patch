@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 22:19:27 +0300
+Subject: Benchmark mode: NEVERBALL_BENCH_LOOPS=N plays the replay N times, a
+ line for each pass
+
+diff --git a/ball/st_demo.c b/ball/st_demo.c
+--- a/ball/st_demo.c
++++ b/ball/st_demo.c
+@@ -424,6 +424,7 @@ static int   bench;
+ static int   bench_frames;
+ static float bench_time;
+ static float bench_max;
++static int   bench_pass;
+ 
+ static void bench_frame(float dt)
+ {
+@@ -446,6 +447,24 @@ static void bench_end(void)
+            bench_max * 1000.0f);
+     fflush(stdout);
+ 
++    /*
++     * NEVERBALL_BENCH_LOOPS=N: N passes of the replay, a line for each.
++     */
++
++    if (getenv("NEVERBALL_BENCH_LOOPS") &&
++        ++bench_pass < atoi(getenv("NEVERBALL_BENCH_LOOPS")))
++    {
++        char path[MAXSTR];
++
++        SAFECPY(path, curr_demo());
++        demo_replay_stop(0);
++        if (progress_replay(path))
++        {
++            goto_state(&st_demo_play);
++            return;
++        }
++    }
++
+     bench = 0;
+     e.type = SDL_QUIT;
+     SDL_PushEvent(&e);

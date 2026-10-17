@@ -3,3 +3,4 @@
 0003-sdl-buffer-in-texture-format.patch
 0004-screenshot-rgb24.patch
 0005-gl-batched-draws.patch
+0006-timedemo-DSDA_BENCH_LOOPS-N-repeats-the-demo-N-times.patch

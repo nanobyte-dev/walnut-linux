@@ -1,0 +1,72 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 22:20:02 +0300
+Subject: Profile mode: STK_PROFILE_WARMUP=S restarts the frame count and the
+ clock after S seconds of race time, and the race ends S seconds later
+
+diff --git a/src/modes/profile_world.cpp b/src/modes/profile_world.cpp
+--- a/src/modes/profile_world.cpp
++++ b/src/modes/profile_world.cpp
+@@ -28,6 +28,7 @@
+ #include <ISceneManager.h>
+ #include <IVideoDriver.h>
+ 
++#include <cstdlib>
+ #include <iomanip>
+ #include <iostream>
+ #include <sstream>
+@@ -50,6 +51,9 @@ ProfileWorld::ProfileWorld()
+     RaceManager::get()->setNumLaps(m_num_laps);
+     setPhase(RACE_PHASE);
+     m_frame_count      = 0;
++    const char *warmup = getenv("STK_PROFILE_WARMUP");
++    m_warmup           = warmup ? (float)atof(warmup) : 0.0f;
++    m_warmup_done      = m_warmup <= 0.0f;
+     m_start_time       = irr_driver->getRealTime();
+     m_num_triangles    = 0;
+     m_num_culls        = 0;
+@@ -136,7 +140,7 @@ std::shared_ptr<AbstractKart> ProfileWorld::createKart
+ bool ProfileWorld::isRaceOver()
+ {
+     if(m_profile_mode==PROFILE_TIME)
+-        return getTime()>m_time;
++        return getTime()>m_time+m_warmup;
+ 
+     if(m_profile_mode == PROFILE_LAPS )
+     {
+@@ -156,6 +160,20 @@ void ProfileWorld::update(int ticks)
+ {
+     StandardRace::update(ticks);
+ 
++    // Once the warm-up is over the statistics start again
++    if (!m_warmup_done && getTime() >= m_warmup)
++    {
++        m_warmup_done      = true;
++        m_frame_count      = 0;
++        m_start_time       = irr_driver->getRealTime();
++        m_num_triangles    = 0;
++        m_num_culls        = 0;
++        m_num_solid        = 0;
++        m_num_transparent  = 0;
++        m_num_trans_effect = 0;
++        m_num_calls        = 0;
++    }
++
+     m_frame_count++;
+     video::IVideoDriver *driver = irr_driver->getVideoDriver();
+     io::IAttributes   *attr = irr_driver->getSceneManager()->getParameters();
+diff --git a/src/modes/profile_world.hpp b/src/modes/profile_world.hpp
+--- a/src/modes/profile_world.hpp
++++ b/src/modes/profile_world.hpp
+@@ -45,6 +45,11 @@ private:
+     /** Number of frames. For statistics only. */
+     int          m_frame_count;
+ 
++    /** STK_PROFILE_WARMUP=S: seconds of race time left out of the statistics
++     *  (and added to the profile time), 0 when unset. */
++    float        m_warmup;
++    bool         m_warmup_done;
++
+     /** Number of primitives drawn (in 1000). */
+     long long    m_num_triangles;
+ 
