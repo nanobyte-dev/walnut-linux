@@ -98,33 +98,36 @@ int speq_s3tc_compress_v1(unsigned fmt, unsigned srccomps, const void *src, unsi
 			  unsigned h, void *dst, unsigned dst_stride);
 
 /* --- MIDI synthesis: fluidsynth's voice DSP on the SPEs ---
- * fluidsynth keeps its own control code (envelopes, LFOs, pitch, filter coefficients: its
- * fluid_rvoice_write up to the DSP) and hands libspeq one block (SPEQ_SYNTH_BLOCK samples) of
- * every voice to render: the sample interpolation (none, linear, 4th order), the IIR filters
- * with the volume envelope, and the mix into the block's output lines (the mixer's buffers).
- * The result equals fluidsynth's own fluid_rvoice_write_dsp + fluid_rvoice_buffers_mix of that
- * block, voice by voice in the order given. Per block:
- *   b = speq_synth_begin_v1(s)        NULL: render the block yourself
- *   fill b->voice[0..n) (n <= b->cap), set b->sincos
- *   speq_synth_submit_v1(s, b, n)     < 0: nothing queued, render all n yourself
- *     then voices whose count is SPEQ_SYNTH_PPE weren't taken: render them now
- *   speq_synth_wait_v1(s, b)          0: the others' count, phase, has_looped, filters and
- *                                     cur_amp are their new state, b->out the sum of their mix;
- *                                     < 0: render the others yourself (their state is as given)
- * A block not waited for successfully is abandoned to its job (libspeq keeps it until the job
- * ends); the next begin takes another. All policy is libspeq's: SPEQ_SYNTH=auto|spu|ppe|off
- * (auto, the default: the SPEs for blocks of at least SPEQ_SYNTH_MIN voices (4), else -ENOTSUP
- * from submit; spu: the SPEs for every block; ppe: libspeq's own C path, synchronous; off:
- * speq_synth_open_v1 fails), SPEQ_SYNTH_SPES (workers, 1), SPEQ_SYNTH_JOB (voices per SPU job,
- * 64), SPEQ_SYNTH_TIMEOUT_US (2000), SPEQ_SYNTH_SPIN_US (0: sleep at once), SPEQ_DEBUG=1 (a
- * line of counters every 10 s and at close). Repeated failures put the SPEs aside for a while;
- * a queue that broke for good, for the process. One synth per thread; synths share the queue. */
+ * fluidsynth keeps its control code (envelopes, LFOs, pitch, filter coefficients: its
+ * fluid_rvoice_write up to the DSP); libspeq renders the DSP (the interpolation: none, linear,
+ * 4th order; the custom and the resonant filter with the volume envelope; the mix into the
+ * mixer's buffers) of a round of up to K blocks (SPEQ_SYNTH_BLOCK samples each) for all voices,
+ * in single precision. The control part needs nothing the DSP computes from samples (the phase,
+ * has_looped, the count and the filters' coefficients, cutoff, Q and gain after a block follow
+ * from their values before it), so add runs that part of the DSP at once and hands the voice's
+ * next state back: fluidsynth goes through every block of the round, then render does the rest
+ * in one go, on the SPEs, split across the workers by voice. Per round:
+ *   K = speq_synth_begin_v2(s, nvoices, blocks, sincos, n)   0: render these blocks yourself
+ *   for each block b < K, each voice slot v < nvoices, after fluidsynth's control part:
+ *       speq_synth_add_v2(s, v, b, &voice)    0: voice is its state after the block (all but
+ *                                             the filters' histories); < 0 (only at a voice's
+ *                                             first block in the round): render it yourself
+ *   speq_synth_render_v2(s, &out, &hist)      out: K blocks x lines x 64 floats to add, hist:
+ *                                             4 floats per voice slot (custom h1 h2, resonant
+ *                                             h1 h2), the histories after the round
+ * render always delivers: a job that fails or is late (SPEQ_SYNTH_TIMEOUT_US, 2000 + 5 per
+ * voice block) is redone on the PPE from the round's entries. Policy is libspeq's:
+ * SPEQ_SYNTH=auto|spu|ppe|off (auto, the default: the SPEs for rounds of at least SPEQ_SYNTH_MIN
+ * voices (4), else begin returns 0; spu: every round; ppe: libspeq's DSP on the calling thread;
+ * off: speq_synth_open_v2 fails), SPEQ_SYNTH_SPES (workers, 2), SPEQ_SYNTH_SPIN_US (0: sleep at
+ * once), SPEQ_DEBUG=1 (a line of counters every 10 s and at close). Repeated failures put the
+ * SPEs aside for a while (begin returns 0); a queue that broke for good, for the process. One
+ * synth per thread; synths share the queue. */
 
-#define SPEQ_SYNTH_ABI		1	/* layout of the structs below (the _v1 calls) */
+#define SPEQ_SYNTH_ABI		2	/* layout of the structs below (the _v2 calls) */
 #define SPEQ_SYNTH_BLOCK	64	/* samples per block: FLUID_BUFSIZE */
 #define SPEQ_SYNTH_BUFS		4	/* mix buffers per voice: FLUID_RVOICE_MAX_BUFS */
 #define SPEQ_SYNTH_LINES	16	/* output lines at most */
-#define SPEQ_SYNTH_PPE		(-2)	/* a voice's count: not taken, the caller renders it */
 
 enum {	/* struct speq_synth_voice.interp */
 	SPEQ_SYNTH_NONE,		/* FLUID_INTERP_NONE */
@@ -138,9 +141,9 @@ enum {	/* struct speq_synth_filter.type: fluid_iir_filter_type */
 };
 #define SPEQ_SYNTH_IIR_NO_GAIN	1u	/* .flags: FLUID_IIR_NO_GAIN_AMP (no 1/sqrt(Q) gain) */
 
-/* fluid_iir_filter_t's DSP state, in and out */
+/* fluid_iir_filter_t's DSP state */
 struct speq_synth_filter {
-	double hist1, hist2;
+	double hist1, hist2;		/* in: read at the voice's first block of a round */
 	double last_fres, fres_incr;	/* cents */
 	double last_q, q_incr;
 	double amp, amp_incr;		/* the resonant filter's: the volume envelope */
@@ -149,48 +152,45 @@ struct speq_synth_filter {
 	uint32_t type, flags;
 };
 
-/* One voice's block: fluid_rvoice_t after fluid_rvoice_write's control part */
+/* A voice: fluid_rvoice_t after fluid_rvoice_write's control part; add writes the voice's
+ * state after the block back (count, phase, has_looped, the filters but their histories,
+ * cur_amp) */
 struct speq_synth_voice {
 	uint64_t data;			/* the int16 samples (fluid_sample_t.data); no 24-bit */
-	uint64_t phase;			/* in and out: fluid_phase_t */
+	uint64_t phase;			/* fluid_phase_t */
 	double phase_incr;
 	uint32_t start, end, loopstart, loopend;
 	uint8_t interp, looping;	/* SPEQ_SYNTH_NONE..CUBIC; is_looping */
-	uint8_t has_looped, pad0;	/* in and out */
+	uint8_t has_looped, pad0;
 	int8_t line[SPEQ_SYNTH_BUFS];	/* each buffer's output line, -1: not mixed */
-	double cur_amp[SPEQ_SYNTH_BUFS], tgt_amp[SPEQ_SYNTH_BUFS];	/* cur_amp: in and out */
-	struct speq_synth_filter custom, res;	/* in and out: custom filter first, as fluidsynth */
-	int32_t count;			/* out: samples rendered (fewer than a block: the sample ended) */
-	uint32_t priv[19];		/* libspeq's */
-} __attribute__((aligned(16)));
+	double cur_amp[SPEQ_SYNTH_BUFS], tgt_amp[SPEQ_SYNTH_BUFS];
+	struct speq_synth_filter custom, res;	/* custom filter first, as fluidsynth */
+	int32_t count;			/* out: samples (fewer than a block: the sample ended) */
+	uint32_t pad1;
+};
 
 struct speq_synth_params {
 	uint32_t abi;			/* SPEQ_SYNTH_ABI */
-	uint32_t voice_size;		/* sizeof(struct speq_synth_voice): 384 */
+	uint32_t voice_size;		/* sizeof(struct speq_synth_voice): 312 */
 	uint32_t lines;			/* output lines (the mixer's buffers), <= SPEQ_SYNTH_LINES */
-	uint32_t max_voices;		/* voices per block at most (polyphony) */
+	uint32_t max_voices;		/* voice slots at most (0: 256) */
 	const double *cubic;		/* 256 x 4 interpolation coefficients (interp_coeff), copied */
 	const double *linear;		/* 256 x 2 (interp_coeff_linear), copied */
-};
-
-struct speq_synth_block {
-	struct speq_synth_voice *voice;	/* room for cap voices */
-	unsigned cap, lines;
-	const double *out;		/* after a successful wait: lines x SPEQ_SYNTH_BLOCK samples */
-	const void *sincos;		/* set before submit: the filters' table (float sin, cos for each
-					 * cent from 1500, fluid_iir_sincos_t) */
-	uint32_t sincos_n;		/* its entries */
 };
 
 struct speq_synth;
 /* 0, or -ENOTSUP (SPEQ_SYNTH=off), -EPROTO (another ABI), -EINVAL, or the queue's error
  * (-ENOENT, -EBUSY, ...): then render everything yourself */
-int speq_synth_open_v1(struct speq_synth **s, const struct speq_synth_params *p);
-struct speq_synth_block *speq_synth_begin_v1(struct speq_synth *s);
-int speq_synth_submit_v1(struct speq_synth *s, struct speq_synth_block *b, unsigned n);
-int speq_synth_wait_v1(struct speq_synth *s, struct speq_synth_block *b);
-/* Waits for its blocks in flight (bounded), then frees it */
-void speq_synth_close_v1(struct speq_synth *s);
+int speq_synth_open_v2(struct speq_synth **s, const struct speq_synth_params *p);
+/* sincos: the filters' table (float sin, cos for each cent from 1500: fluid_iir_sincos_t), n
+ * entries; the same for every voice of the round */
+unsigned speq_synth_begin_v2(struct speq_synth *s, unsigned nvoices, unsigned blocks,
+			     const void *sincos, uint32_t sincos_n);
+int speq_synth_add_v2(struct speq_synth *s, unsigned voice, unsigned block,
+		      struct speq_synth_voice *v);
+int speq_synth_render_v2(struct speq_synth *s, const float **out, const float **hist);
+/* Waits for its jobs in flight (bounded), then frees it */
+void speq_synth_close_v2(struct speq_synth *s);
 
 #ifdef __cplusplus
 }

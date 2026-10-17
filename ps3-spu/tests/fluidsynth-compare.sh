@@ -9,12 +9,12 @@
 # the default; linear; none; sinc, which libspeq leaves to fluidsynth), and once with reverb
 # and chorus on:
 #   SPEQ_SYNTH=off   the hook declines: must be identical (the fluid_rvoice_write split)
-#   SPEQ_SYNTH=ppe   libspeq's DSP on the calling thread
-#   SPEQ_SYNTH=spu   the SPU path, one job per block of up to 64 voices, then jobs of 16 on 3
-# ppe and spu must stay within MIN_SNR dB (120) of unpatched fluidsynth; identical is reported.
-# fluidsynth compiles its filter with -ffast-math, so its rounding is the compiler's: both trees
-# are also built without it, and there SPEQ_SYNTH=ppe must be identical. Before the renders,
-# tests/fs-kern.c checks synth-kern.h block by block against fluidsynth's own functions.
+#   SPEQ_SYNTH=ppe   libspeq's DSP (single precision) on the calling thread
+#   SPEQ_SYNTH=spu   the SPU path: rounds of blocks, jobs split across the workers
+# ppe and spu must stay within MIN_SNR dB (100) of unpatched fluidsynth and of each other.
+# Before the renders, tests/fs-kern.c checks libspeq's DSP block by block against fluidsynth's
+# own functions (the control results identical, the samples within KERN_SNR, 90 dB: random
+# states include high-pass custom filters at low cutoffs, where single precision cancels).
 # Env: SF2 (/usr/share/soundfonts/FluidR3_GM.sf2), MIDI_SECONDS (60), GCEM_INCLUDE (gcem's
 # headers: Debian strips them from fluidsynth's source; libgcem-dev's are found in
 # build/downloads/gcem, fetched through the deb builder when missing).
@@ -27,7 +27,8 @@ HERE=$(dirname "$(realpath "$0")")
 TOP=$(realpath "$HERE/../..")
 SF2=${SF2:-/usr/share/soundfonts/FluidR3_GM.sf2}
 SECS=${MIDI_SECONDS:-60}
-MIN_SNR=${MIN_SNR:-120}
+MIN_SNR=${MIN_SNR:-100}
+KERN_SNR=${KERN_SNR:-90}	# random voice states, deliberately harsh: high-pass filters at low cutoffs
 mkdir -p "$OUT"
 
 [ -e "$SF2" ] || { echo "!! no SoundFont $SF2 (SF2=...)"; exit 1; }
@@ -63,44 +64,26 @@ build() {	# build SRC DIR
 		-L"$2/src" -lfluidsynth -Wl,-rpath,"$2/src"
 }
 
-nofast() {	# nofast SRC: fluid_iir_filter_impl.cpp without its -ffast-math
-	sed -i 's/PROPERTIES COMPILE_FLAGS "-fno-math-errno -ffast-math"/PROPERTIES COMPILE_FLAGS "-fno-math-errno"/' "$1/src/CMakeLists.txt"
-	grep -q 'COMPILE_FLAGS "-fno-math-errno")' "$1/src/CMakeLists.txt" || { echo "!! $1: no -ffast-math line to drop"; exit 1; }
-}
 base=$(git -C "$FS" describe --tags --match 'base/*' --abbrev=0)
-echo ">> unpatched fluidsynth ($base) and the hook ($FS), for the host, as built and without the filter's -ffast-math"
+echo ">> unpatched fluidsynth ($base) and the hook ($FS), for the host"
 if [ ! -e "$OUT/base/src/libfluidsynth.so" ] || [ ! -d "$OUT/base-src" ]; then
 	rm -rf "$OUT/base-src" && mkdir -p "$OUT/base-src"
 	git -C "$FS" archive "$base" | tar x -C "$OUT/base-src"
 fi
-if [ ! -e "$OUT/base-nf/src/libfluidsynth.so" ] || [ ! -d "$OUT/base-nf-src" ]; then
-	rm -rf "$OUT/base-nf-src" && mkdir -p "$OUT/base-nf-src"
-	git -C "$FS" archive "$base" | tar x -C "$OUT/base-nf-src"
-	nofast "$OUT/base-nf-src"
-fi
 build "$OUT/base-src" "$OUT/base"
-build "$OUT/base-nf-src" "$OUT/base-nf"
 build "$FS" "$OUT/hook"
-rm -rf "$OUT/hook-nf-src" && mkdir -p "$OUT/hook-nf-src"
-(cd "$FS" && git ls-files -co --exclude-standard -z | xargs -0 tar c) | tar x -C "$OUT/hook-nf-src"
-nofast "$OUT/hook-nf-src"
-FS_SAVE=$FS; FS=$OUT/hook-nf-src; build "$OUT/hook-nf-src" "$OUT/hook-nf"; FS=$FS_SAVE
 python3 -I "$HERE/make-midi.py" "$OUT/test.mid" "$SECS"
 
 fails=0
-# the DSP code against fluidsynth's own functions, block by block
-for b in base base-nf; do
-	S=$OUT/$b-src
-	cc -O2 -std=gnu11 -I"$S/src" -I"$S/src/utils" -I"$S/src/rvoice" -I"$S/src/synth" \
-		-I"$S/src/sfloader" -I"$S/src/midi" -I"$S/include" -I"$OUT/$b/include" -I"$OUT/$b" \
-		-I"$HERE/../lib" -c -o "$OUT/$b/fs-kern.o" "$HERE/fs-kern.c"
-	c++ -o "$OUT/$b/fs-kern" "$OUT/$b/fs-kern.o" $(find "$OUT/$b/src/CMakeFiles/libfluidsynth-OBJ.dir" -name '*.o') \
-		-fopenmp -lm -lpthread
-done
-echo "synth-kern.h = fluidsynth's DSP functions (as Debian builds them: the filters within a tolerance)"
-"$OUT/base/fs-kern" 200000 || { echo "FAIL synth-kern.h against fluidsynth"; fails=$((fails + 1)); }
-echo "synth-kern.h = fluidsynth's DSP functions, its filter without -ffast-math: bit for bit"
-"$OUT/base-nf/fs-kern" 200000 exact || { echo "FAIL synth-kern.h against fluidsynth, exact"; fails=$((fails + 1)); }
+# libspeq's DSP against fluidsynth's own functions, block by block
+S=$OUT/base-src
+cc -O2 -std=gnu11 -I"$S/src" -I"$S/src/utils" -I"$S/src/rvoice" -I"$S/src/synth" -I"$S/src/sfloader" \
+	-I"$S/src/midi" -I"$S/include" -I"$OUT/base/include" -I"$OUT/base" -I"$HERE/../lib" \
+	-o "$OUT/base/fs-kern" "$HERE/fs-kern.c" "$HERE/../lib/synth.c" "$HERE/../lib/queue.c" \
+	"$HERE/../lib/spe.c" $(find "$OUT/base/src/CMakeFiles/libfluidsynth-OBJ.dir" -name '*.o') \
+	-lstdc++ -fopenmp -lm -lpthread
+echo "libspeq's DSP (single precision) against fluidsynth's DSP functions"
+"$OUT/base/fs-kern" 200000 "$KERN_SNR" || { echo "FAIL libspeq's DSP against fluidsynth"; fails=$((fails + 1)); }
 
 cmp() {	# cmp WHAT REF TEST ARGS
 	local what=$1; shift
@@ -118,21 +101,13 @@ for v in 4:0 1:0 0:0 6:0 4:1; do
 	render "$t-base" base "$i" "$fx"
 	render "$t-off" hook "$i" "$fx" SPEQ_SYNTH=off
 	render "$t-ppe" hook "$i" "$fx" SPEQ_SYNTH=ppe
-	render "$t-spu1" hook "$i" "$fx" SPEQ_FAKE=1 SPEQ_SYNTH=spu SPEQ_SYNTH_JOB=64 SPEQ_SYNTH_TIMEOUT_US=10000000
-	render "$t-spu" hook "$i" "$fx" SPEQ_FAKE=1 SPEQ_SYNTH=spu SPEQ_SYNTH_JOB=16 SPEQ_SYNTH_SPES=3 SPEQ_DEBUG=1 SPEQ_SYNTH_TIMEOUT_US=10000000
+	render "$t-spu" hook "$i" "$fx" SPEQ_FAKE=1 SPEQ_SYNTH=spu SPEQ_DEBUG=1 SPEQ_SYNTH_TIMEOUT_US=10000000
 	grep -h "speq: synth .* closed" "$OUT/$t-spu.log" | sed 's/^/  /' || true
 	cmp "SPEQ_SYNTH=off = unpatched" "$OUT/$t-base.f32" "$OUT/$t-off.f32" --exact
 	cmp "SPEQ_SYNTH=ppe ~ unpatched" "$OUT/$t-base.f32" "$OUT/$t-ppe.f32" --snr "$MIN_SNR"
-	cmp "SPEQ_SYNTH=spu, one job ~ unpatched" "$OUT/$t-base.f32" "$OUT/$t-spu1.f32" --snr "$MIN_SNR"
-	cmp "SPEQ_SYNTH=spu, jobs of 16 on 3 SPEs ~ unpatched" "$OUT/$t-base.f32" "$OUT/$t-spu.f32" --snr "$MIN_SNR"
+	cmp "SPEQ_SYNTH=spu ~ unpatched" "$OUT/$t-base.f32" "$OUT/$t-spu.f32" --snr "$MIN_SNR"
+	cmp "SPEQ_SYNTH=spu ~ ppe" "$OUT/$t-ppe.f32" "$OUT/$t-spu.f32" --snr "$MIN_SNR"
 done
-t=i4-fx1-nf
-echo ">> without the filter's -ffast-math: interpolation 4, reverb and chorus on"
-render "$t-base" base-nf 4 1
-render "$t-ppe" hook-nf 4 1 SPEQ_SYNTH=ppe
-render "$t-spu" hook-nf 4 1 SPEQ_FAKE=1 SPEQ_SYNTH=spu SPEQ_SYNTH_TIMEOUT_US=10000000
-cmp "SPEQ_SYNTH=ppe = unpatched, bit for bit" "$OUT/$t-base.f32" "$OUT/$t-ppe.f32" --exact
-cmp "SPEQ_SYNTH=spu ~ unpatched (refused voices and jobs sum in another order)" "$OUT/$t-base.f32" "$OUT/$t-spu.f32" --snr "$MIN_SNR"
 echo "$([ $fails = 0 ] && echo ok || echo FAIL): $fails failure$([ $fails = 1 ] || echo s)"
 [ $fails = 0 ]
 exit

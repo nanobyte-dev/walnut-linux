@@ -1,11 +1,14 @@
-/* synth-test: speq_synth_*_v1 on the SPU path (SPEQ_FAKE=1: synth.spu's op on host threads,
- * with every sample and table read checked against the plan's DMA'd ranges, SK_CHECK) against
- * libspeq's PPE path (the same DSP code reading memory directly). Random voices over synthetic
- * samples: the three interpolations, loops of 2 samples and up, wraps, the end of a sample,
- * filter sweeps (per-sample coefficients from the sin/cos slices), the custom filter, ramps,
- * unmapped buffers; several blocks in a row so the state carries. Same code, same compiler:
- * every result must be bit-identical with one job per block; split into small jobs the lines
- * are summed in another order (1e-12). Then refusals, and timeouts with the back-off. */
+/* synth-test: speq_synth_*_v2 on the SPU path (SPEQ_FAKE=1: synth.spu's op on host threads) against
+ * libspeq's PPE path (the same DSP code on this thread), driven the way fluidsynth's hook drives
+ * them: rounds of up to 16 blocks over 1-100 voice slots, each voice block added after a
+ * stand-in for fluidsynth's control part (gains, filter sweeps, envelope ramps change between
+ * blocks), the next block from the state add hands back. Random voices over synthetic samples:
+ * the three interpolations, loops of 2 samples and up, wraps, sample ends, pitches up to 60x
+ * (windows too large for the SPEs: the PPE renders those voices), the custom filter. Same code,
+ * same compiler: the voices' state and histories must be bit-identical, the outputs within 1e-6
+ * of their peak (the SPU path sums each job's voices, then the jobs; the PPE path voice by
+ * voice). Then the auto mode's minimum, timeouts (the round redone on the PPE) and the
+ * back-off. */
 #define _GNU_SOURCE
 #include <errno.h>
 #include <math.h>
@@ -18,12 +21,12 @@
 #define NSAMP	(1 << 18)
 #define TAB_N	12001
 #define LINES	4
+#define MAXV	100
 
 static int failures;
 static int16_t *data;
 static struct sk_sincos sctab[TAB_N];
-static double cubic[256 * 4] __attribute__((aligned(16)));
-static double linear[256 * 2] __attribute__((aligned(16)));
+static double cubic[256 * 4], linear[256 * 2];
 static unsigned rng = 12345;
 
 static void check(int ok, const char *what)
@@ -73,67 +76,62 @@ static void tables(void)
 
 static void rand_filter(struct speq_synth_filter *f, int res)
 {
-	float q;
-
 	memset(f, 0, sizeof(*f));
 	f->type = res ? SPEQ_SYNTH_IIR_LOWPASS : rnd(3) ? SPEQ_SYNTH_IIR_OFF :
 		  rnd(2) ? SPEQ_SYNTH_IIR_LOWPASS : SPEQ_SYNTH_IIR_HIGHPASS;
 	f->flags = rnd(2) ? SPEQ_SYNTH_IIR_NO_GAIN : 0;
-	f->last_fres = frnd(-900, 14000);
-	q = frnd(0.0005, 12);
-	f->last_q = q;
-	f->hist1 = frnd(-1e6, 1e6);
-	f->hist2 = frnd(-1e6, 1e6);
-	{
-		/* plausible coefficients: the ones fluidsynth would have */
-		struct sk_view sv;
-
-		memset(&sv, 0, sizeof(sv));
-		sv.t[0] = sctab;
-		sv.tn[0] = TAB_N;
-		sv.tab_size = TAB_N;
-		sk_coeffs(&sv, 0, (float)f->last_fres, q > 0.001f ? q : 0.001f, 1, 0, &f->a1, &f->a2,
-			  &f->b02, &f->b1);
-	}
-	if (rnd(3) == 0) {
-		f->fres_incr_count = 1 + rnd(320);
-		f->fres_incr = frnd(-8, 8);
-	}
-	if (rnd(4) == 0) {
-		f->q_incr_count = 1 + rnd(64);
-		f->q_incr = frnd(-0.2, 0.2);
-	}
+	f->last_fres = frnd(1500, 13000);
+	f->last_q = rnd(10) ? frnd(0.5, 6) : 0.0005;
+	f->hist1 = frnd(-1e5, 1e5);
+	f->hist2 = frnd(-1e5, 1e5);
+	sk_coeffs(sctab, 0, TAB_N, TAB_N, (float)f->last_fres, f->last_q > 0.001 ? f->last_q : 0.001,
+		  1, 0, &f->a1, &f->a2, &f->b02, &f->b1);
 	if (res) {
 		f->amp = frnd(0, 2e-5);
-		f->amp_incr = frnd(-1e-7, 1e-7);
+		f->amp_incr = frnd(-1e-8, 1e-8);
+	}
+}
+
+/* A stand-in for fluidsynth's control part between blocks */
+static void control(struct speq_synth_voice *v)
+{
+	int k;
+
+	for (k = 0; k < SPEQ_SYNTH_BUFS; k++)
+		if (rnd(8) == 0)
+			v->tgt_amp[k] = frnd(0, 1);
+	v->res.amp_incr = frnd(-1e-8, 1e-8);
+	if (rnd(10) == 0) {
+		v->res.fres_incr_count = 64 * (1 + rnd(5));
+		v->res.fres_incr = frnd(-8, 8);
+	}
+	if (rnd(16) == 0) {
+		v->custom.q_incr_count = 64;
+		v->custom.q_incr = frnd(-0.05, 0.05);
 	}
 }
 
 static void rand_voice(struct speq_synth_voice *v)
 {
-	uint32_t len, start, end, ls, le, idx;
+	uint32_t len, start, end, idx;
 	int i;
 
 	memset(v, 0, sizeof(*v));
 	v->data = (uintptr_t)data;
 	len = rnd(8) == 0 ? 2 + rnd(30) : 50 + rnd(60000);
-	start = 100 + rnd(NSAMP - 200 - len);
+	start = rnd(10) == 0 ? 0 : 100 + rnd(NSAMP - 200 - len);
 	end = start + len;
 	v->start = start;
 	v->end = end;
 	v->interp = rnd(3);
 	v->looping = rnd(3) != 0;
 	if (v->looping || rnd(2)) {
-		ls = start + rnd(len - 1);
-		le = ls + 2 + rnd(end - ls - 1);	/* <= end + 1: fluidsynth's max_index_loop */
-		if (rnd(6) == 0)
-			le = ls + 2;
-		v->loopstart = ls;
-		v->loopend = le;
+		v->loopstart = start + rnd(len - 1);
+		v->loopend = rnd(6) ? v->loopstart + 2 + rnd(end - v->loopstart - 1) : v->loopstart + 2;
 	} else {
 		v->looping = 0;
 	}
-	v->has_looped = v->loopend && rnd(2);	/* also a released voice that looped before */
+	v->has_looped = v->loopend && rnd(2);
 	if (v->looping)
 		idx = v->has_looped ? v->loopstart + rnd(v->loopend - v->loopstart) :
 				      start + rnd(v->loopend - start);
@@ -150,135 +148,112 @@ static void rand_voice(struct speq_synth_voice *v)
 	rand_filter(&v->res, 1);
 }
 
-/* The state fields the hook copies back, plus count */
-static int same_voice(const struct speq_synth_voice *a, const struct speq_synth_voice *b)
+/* One round of K blocks on synth s, from voices v (advanced in place: the round's end state,
+ * the histories from render); out gets K x LINES x 64 floats. The control stand-in is seeded
+ * so both synths see the same. */
+static int round_on(struct speq_synth *s, struct speq_synth_voice *v, unsigned nv, unsigned K,
+		    unsigned seed, float *outbuf, unsigned *Kgot, char *done)
 {
-	return a->count == b->count && a->phase == b->phase && a->has_looped == b->has_looped &&
-	       !memcmp(a->cur_amp, b->cur_amp, sizeof(a->cur_amp)) &&
-	       !memcmp(&a->custom, &b->custom, sizeof(a->custom)) &&
-	       !memcmp(&a->res, &b->res, sizeof(a->res));
-}
-
-/* One block through a synth: 0 and the lines, or the error */
-static int run(struct speq_synth *s, struct speq_synth_voice *v, unsigned n, double *out, int *refused)
-{
-	struct speq_synth_block *b = speq_synth_begin_v1(s);
-	unsigned i;
+	const float *out, *hist;
+	unsigned b, i, save = rng;
 	int ret;
 
-	*refused = 0;
-	memset(out, 0, LINES * 64 * sizeof(double));
-	if (!b)
+	memset(done, 0, nv);
+
+	*Kgot = speq_synth_begin_v2(s, nv, K, sctab, TAB_N);
+	if (!*Kgot)
 		return -EAGAIN;
-	memcpy(b->voice, v, n * sizeof(*v));
-	b->sincos = sctab;
-	b->sincos_n = TAB_N;
-	ret = speq_synth_submit_v1(s, b, n);
-	if (ret)
+	rng = seed;
+	for (b = 0; b < *Kgot; b++)
+		for (i = 0; i < nv; i++) {
+			if (done[i])
+				continue;
+			ret = speq_synth_add_v2(s, i, b, &v[i]);
+			if (ret)
+				return ret;
+			if (v[i].count < SK_BUF)
+				done[i] = 1;
+			control(&v[i]);
+		}
+	rng = save;
+	if ((ret = speq_synth_render_v2(s, &out, &hist)))
 		return ret;
-	ret = speq_synth_wait_v1(s, b);
-	if (ret)
-		return ret;
-	for (i = 0; i < n; i++)
-		if (b->voice[i].count == SPEQ_SYNTH_PPE)
-			(*refused)++;
-	memcpy(v, b->voice, n * sizeof(*v));
-	if (b->out)
-		memcpy(out, b->out, LINES * 64 * sizeof(double));
+	memcpy(outbuf, out, *Kgot * LINES * SK_BUF * sizeof(float));
+	for (i = 0; i < nv; i++) {
+		v[i].custom.hist1 = hist[4 * i];
+		v[i].custom.hist2 = hist[4 * i + 1];
+		v[i].res.hist1 = hist[4 * i + 2];
+		v[i].res.hist2 = hist[4 * i + 3];
+	}
 	return 0;
 }
 
-/* Carry each voice into its next block the way the hook would (fluidsynth's control part is
- * not here: the amps ramp on, the phase stays) */
-static void carry(struct speq_synth_voice *v, unsigned n)
+static void compare(struct speq_synth *a, struct speq_synth *b, int rounds, const char *what)
 {
-	unsigned i, k;
-
-	for (i = 0; i < n; i++) {
-		for (k = 0; k < SPEQ_SYNTH_BUFS; k++)
-			if (rnd(4) == 0)
-				v[i].tgt_amp[k] = frnd(0, 1);
-		v[i].res.amp_incr = frnd(-1e-7, 1e-7);
-	}
-}
-
-static int compare_rounds(struct speq_synth *ppe, struct speq_synth *spu, int rounds,
-			  int exact, const char *what)
-{
-	static struct speq_synth_voice a[100], b[100];
-	static double la[LINES * 64], lb[LINES * 64];
-	int r, blk, bad = 0, ra, rb, ret, nvoices = 0;
-	unsigned n, i;
-	double maxrel = 0;
+	static struct speq_synth_voice va[MAXV], vb[MAXV];
+	static float oa[16 * LINES * SK_BUF], ob[16 * LINES * SK_BUF];
+	unsigned nv = 1, K, Ka, Kb, i, seed;
+	char da[MAXV], db[MAXV];
+	int r, bad = 0, ra, rb;
+	long blocks = 0;
+	double maxrel = 0, peak = 0;
 
 	for (r = 0; r < rounds && !bad; r++) {
-		n = 1 + rnd(exact ? SYNTH_JOB_MAX : 100);	/* exact: one job */
-		for (i = 0; i < n; i++)
-			rand_voice(&a[i]);
-		memcpy(b, a, sizeof(a[0]) * n);
-		for (blk = 0; blk < 4 && !bad; blk++) {
-			ret = run(ppe, a, n, la, &ra);
-			if (ret) {
-				printf("  ppe path failed: %d\n", ret);
-				bad++;
-				break;
-			}
-			ret = run(spu, b, n, lb, &rb);
-			if (ret) {
-				printf("  spu path failed: %d (round %d block %d)\n", ret, r, blk);
-				bad++;
-				break;
-			}
-			/* voices the SPU path refused: the hook renders them on the PPE, here the
-			 * ppe path's result stands in */
-			for (i = 0; i < n; i++)
-				if (b[i].count == SPEQ_SYNTH_PPE) {
-					b[i] = a[i];
-				} else if (!same_voice(&a[i], &b[i])) {
-					printf("  voice %u differs (round %d block %d): count %d/%d phase "
-					       "%llx/%llx interp %d looping %d\n", i, r, blk, a[i].count,
-					       b[i].count, (unsigned long long)a[i].phase,
-					       (unsigned long long)b[i].phase, a[i].interp, a[i].looping);
-					bad++;
-					break;
-				}
-			nvoices += n - rb;
-			if (bad)
-				break;
-			if (rb) {	/* the refused voices' share isn't in lb */
-				carry(a, n);
-				memcpy(b, a, sizeof(a[0]) * n);
-				continue;
-			}
-			for (i = 0; i < LINES * 64; i++) {
-				double d = fabs(la[i] - lb[i]), m = fabs(la[i]) > 1 ? fabs(la[i]) : 1;
-
-				if (d / m > maxrel)
-					maxrel = d / m;
-			}
-			if (exact ? memcmp(la, lb, sizeof(la)) != 0 : maxrel > 1e-12) {
-				printf("  lines differ (round %d block %d): max relative %g\n", r, blk, maxrel);
-				bad++;
-			}
-			carry(a, n);
-			memcpy(b, a, sizeof(a[0]) * n);
+		if (r % 8 == 0) {
+			nv = 1 + rnd(MAXV);
+			for (i = 0; i < nv; i++)
+				rand_voice(&va[i]);
+			memcpy(vb, va, sizeof(va));
 		}
+		K = 1 + rnd(16);
+		seed = rnd(1u << 30);
+		ra = round_on(a, va, nv, K, seed, oa, &Ka, da);
+		rb = round_on(b, vb, nv, K, seed, ob, &Kb, db);
+		if (ra || rb || Ka != Kb) {
+			printf("  round %d: %d/%d, %u/%u blocks\n", r, ra, rb, Ka, Kb);
+			bad++;
+			break;
+		}
+		blocks += (long)nv * Ka;
+		for (i = 0; i < Ka * LINES * SK_BUF; i++) {
+			double d = fabs((double)oa[i] - ob[i]);
+
+			if (fabs(oa[i]) > peak)
+				peak = fabs(oa[i]);
+			if (d > maxrel * (peak > 1 ? peak : 1))
+				maxrel = d / (peak > 1 ? peak : 1);
+		}
+		for (i = 0; i < nv; i++)
+			if (va[i].phase != vb[i].phase || va[i].res.hist1 != vb[i].res.hist1 ||
+			    va[i].custom.hist2 != vb[i].custom.hist2 || va[i].res.amp != vb[i].res.amp) {
+				printf("  round %d voice %u differs: phase %llx/%llx hist %g/%g\n", r, i,
+				       (unsigned long long)va[i].phase, (unsigned long long)vb[i].phase,
+				       va[i].res.hist1, vb[i].res.hist1);
+				bad++;
+				break;
+			}
+		for (i = 0; i < nv; i++)
+			if (da[i]) {	/* a new note in the slot */
+				rand_voice(&va[i]);
+				vb[i] = va[i];
+			}
 	}
-	printf("  %d voice blocks compared, max relative difference %g\n", nvoices, maxrel);
-	check(!bad, what);
-	return bad;
+	printf("  %ld voice blocks, outputs differ by at most %g of their peak (%g)\n", blocks,
+	       maxrel, peak);
+	check(!bad && maxrel < 1e-6, what);
 }
 
 int main(void)
 {
 	struct speq_synth_params p = {
 		.abi = SPEQ_SYNTH_ABI, .voice_size = sizeof(struct speq_synth_voice),
-		.lines = LINES, .max_voices = 100, .cubic = cubic, .linear = linear,
+		.lines = LINES, .max_voices = MAXV, .cubic = cubic, .linear = linear,
 	};
 	struct speq_synth *ppe, *spu, *s;
 	static struct speq_synth_voice v[8];
-	static double out[LINES * 64];
-	int ret, refused, i, k;
+	static float out[16 * LINES * SK_BUF];
+	unsigned K;
+	int ret, k, i;
 
 	setvbuf(stdout, NULL, _IOLBF, 0);
 	if (!getenv("SPEQ_FAKE")) {
@@ -286,61 +261,61 @@ int main(void)
 		return 2;
 	}
 	tables();
-	check(sizeof(struct speq_synth_voice) == 384 && sizeof(struct synth_plan) <= 76,
-	      "voice is 384 bytes, the plan fits in priv");
-	p.abi = 99;
-	check(speq_synth_open_v1(&s, &p) == -EPROTO && !s, "another ABI: -EPROTO");
+	check(sizeof(struct speq_synth_voice) == 312 && sizeof(struct synth_ent) == 256 &&
+	      sizeof(struct sk_filt) == 48, "voice 312 bytes, entry 256, filter 48");
+	p.abi = 1;
+	check(speq_synth_open_v2(&s, &p) == -EPROTO && !s, "another ABI: -EPROTO");
 	p.abi = SPEQ_SYNTH_ABI;
 	spq_synth_tune(SPQ_SYNTH_OFF, -1, -1, -1);
-	check(speq_synth_open_v1(&s, &p) == -ENOTSUP, "SPEQ_SYNTH=off: -ENOTSUP");
+	check(speq_synth_open_v2(&s, &p) == -ENOTSUP, "SPEQ_SYNTH=off: -ENOTSUP");
 
-	spq_synth_tune(SPQ_SYNTH_PPE, -1, 64, -1);
-	check(speq_synth_open_v1(&ppe, &p) == 0, "open, ppe");
-	spq_synth_tune(SPQ_SYNTH_SPU, 10000000, 64, -1);
-	check(speq_synth_open_v1(&spu, &p) == 0, "open, spu (fake), one job per block");
+	spq_synth_tune(SPQ_SYNTH_PPE, -1, -1, -1);
+	check(speq_synth_open_v2(&ppe, &p) == 0, "open, ppe");
+	spq_synth_tune(SPQ_SYNTH_SPU, 10000000, -1, -1);	/* no timeouts in the comparison */
+	check(speq_synth_open_v2(&spu, &p) == 0, "open, spu (fake)");
 	if (!ppe || !spu)
 		return 1;
-	compare_rounds(ppe, spu, 300, 1, "spu = ppe, bit for bit (300 x 4 blocks of 1-64 voices, one job)");
-	speq_synth_close_v1(spu);
+	compare(ppe, spu, 400, "spu = ppe (400 rounds of 1-16 blocks, 1-100 voices)");
 
-	spq_synth_tune(SPQ_SYNTH_SPU, -1, 7, -1);
-	check(speq_synth_open_v1(&spu, &p) == 0, "open, spu, 7 voices per job");
-	compare_rounds(ppe, spu, 100, 0, "spu (jobs of 7) = ppe within 1e-12");
-
-	/* refusals: a pitch whose block spans more than a window */
-	for (i = 0; i < 8; i++) {
-		rand_voice(&v[i]);
-		v[i].looping = 0;
-		v[i].phase = (uint64_t)v[i].start << 32;
-	}
-	v[3].phase_incr = 100;
-	v[5].interp = 9;
-	ret = run(spu, v, 8, out, &refused);
-	check(!ret && refused == 2 && v[3].count == SPEQ_SYNTH_PPE && v[5].count == SPEQ_SYNTH_PPE &&
-	      v[0].count >= 0, "a 6400-sample window and an unknown interpolation: SPEQ_SYNTH_PPE");
-
-	/* auto: small blocks stay on the PPE */
+	/* auto: few voices stay with fluidsynth */
 	spq_synth_tune(SPQ_SYNTH_AUTO, -1, -1, 4);
-	for (i = 0; i < 3; i++)
-		rand_voice(&v[i]);
-	check(run(spu, v, 3, out, &refused) == -ENOTSUP, "auto: 3 voices, -ENOTSUP (the PPE's)");
+	check(speq_synth_begin_v2(spu, 3, 4, sctab, TAB_N) == 0, "auto: 3 voices, begin 0");
 	for (i = 0; i < 8; i++)
 		rand_voice(&v[i]);
-	check(run(spu, v, 8, out, &refused) == 0, "auto: 8 voices, the SPEs");
+	{
+		char d[8];
 
-	/* timeouts: a block given up on is lost to its job; three in a row: the back-off */
-	spq_synth_tune(SPQ_SYNTH_SPU, 0, -1, -1);
-	for (k = 0; k < 3; k++) {
-		for (i = 0; i < 8; i++)
-			rand_voice(&v[i]);
-		ret = run(spu, v, 8, out, &refused);
-		if (ret != -ETIMEDOUT)
-			break;
+		check(round_on(spu, v, 8, 4, 1, out, &K, d) == 0 && K == 4,
+		      "auto: 8 voices, a round of 4");
 	}
-	check(k == 3, "timeout 0: -ETIMEDOUT, three times");
-	check(speq_synth_begin_v1(spu) == NULL, "... then the SPEs are put aside (begin: NULL)");
-	speq_synth_close_v1(spu);	/* waits for the lost blocks' jobs */
-	speq_synth_close_v1(ppe);
+
+	/* timeouts: the round redone on the PPE, the same; three in a row: the back-off */
+	{
+		static struct speq_synth_voice a[8], b[8];
+		static float oa[16 * LINES * SK_BUF];
+		unsigned Ka;
+		char d[8];
+
+		spq_synth_tune(SPQ_SYNTH_SPU, 0, 0, -1);
+		for (k = 0; k < 3; k++) {
+			for (i = 0; i < 8; i++)
+				rand_voice(&a[i]);
+			memcpy(b, a, sizeof(a));
+			ret = round_on(spu, a, 8, 8, 7 + k, out, &K, d);
+			if (ret || round_on(ppe, b, 8, 8, 7 + k, oa, &Ka, d) || K != Ka)
+				break;
+			for (i = 0; i < (int)(K * LINES * SK_BUF); i++)
+				if (fabsf(out[i] - oa[i]) > 1e-6f * (fabsf(oa[i]) > 1 ? fabsf(oa[i]) : 1) * 64)
+					break;
+			if (i < (int)(K * LINES * SK_BUF))
+				break;
+		}
+		check(k == 3, "timeout 0: three rounds redone on the PPE, = the ppe path");
+		check(speq_synth_begin_v2(spu, 8, 4, sctab, TAB_N) == 0,
+		      "... then the SPEs are put aside (begin: 0)");
+	}
+	speq_synth_close_v2(spu);	/* waits for the lost rounds' jobs */
+	speq_synth_close_v2(ppe);
 	printf("%s: %d failure%s\n", failures ? "FAIL" : "ok", failures, failures == 1 ? "" : "s");
 	return failures ? 1 : 0;
 }

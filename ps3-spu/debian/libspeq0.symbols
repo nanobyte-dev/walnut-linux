@@ -8,11 +8,11 @@ libspeq.so.0 libspeq0 #MINVER#
  speq_run@SPEQ_0 0.189
  speq_s3tc_compress_v1@SPEQ_0 0.189
  speq_submit@SPEQ_0 0.189
- speq_synth_begin_v1@SPEQ_0 0.288
- speq_synth_close_v1@SPEQ_0 0.288
- speq_synth_open_v1@SPEQ_0 0.288
- speq_synth_submit_v1@SPEQ_0 0.288
- speq_synth_wait_v1@SPEQ_0 0.288
+ speq_synth_add_v2@SPEQ_0 0.308
+ speq_synth_begin_v2@SPEQ_0 0.308
+ speq_synth_close_v2@SPEQ_0 0.308
+ speq_synth_open_v2@SPEQ_0 0.308
+ speq_synth_render_v2@SPEQ_0 0.308
  speq_tune@SPEQ_0 0.288
  speq_wait@SPEQ_0 0.189
  speq_wait_timeout@SPEQ_0 0.288

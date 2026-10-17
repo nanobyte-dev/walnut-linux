@@ -47,9 +47,10 @@ int main(int argc, char **argv)
 	check(f && abi && open_q, "speq_s3tc_compress_v1, speq_abi_version, speq_open exported");
 	check(dlsym(h, "speq_wait_timeout") && dlsym(h, "speq_tune") && dlsym(h, "speq_nworkers"),
 	      "speq_wait_timeout, speq_tune, speq_nworkers exported");
-	check(dlsym(h, "speq_synth_open_v1") && dlsym(h, "speq_synth_begin_v1") &&
-	      dlsym(h, "speq_synth_submit_v1") && dlsym(h, "speq_synth_wait_v1") &&
-	      dlsym(h, "speq_synth_close_v1"), "speq_synth_*_v1 exported (fluidsynth's hook)");
+	check(dlsym(h, "speq_synth_open_v2") && dlsym(h, "speq_synth_begin_v2") &&
+	      dlsym(h, "speq_synth_add_v2") && dlsym(h, "speq_synth_render_v2") &&
+	      dlsym(h, "speq_synth_close_v2") && !dlsym(h, "speq_synth_open_v1"),
+	      "speq_synth_*_v2 exported (fluidsynth's hook), v1 gone");
 	check(!dlsym(h, "dxt1_ref_block") && !dlsym(h, "dxt1_ref_image") &&
 	      !dlsym(h, "spq_fail_job") && !dlsym(h, "spq_spufs") && !dlsym(h, "spq_synth_tune"),
 	      "internals hidden");
@@ -57,12 +58,12 @@ int main(int argc, char **argv)
 		/* no spufs here: the synth can't open its queue (auto), the ppe path needs none */
 		int (*sopen)(struct speq_synth **, const struct speq_synth_params *) =
 			(int (*)(struct speq_synth **, const struct speq_synth_params *))
-			dlsym(h, "speq_synth_open_v1");
+			dlsym(h, "speq_synth_open_v2");
 		void (*sclose)(struct speq_synth *) =
-			(void (*)(struct speq_synth *))dlsym(h, "speq_synth_close_v1");
+			(void (*)(struct speq_synth *))dlsym(h, "speq_synth_close_v2");
 		static double tab[1024] __attribute__((aligned(16)));
 		struct speq_synth_params p = { SPEQ_SYNTH_ABI, sizeof(struct speq_synth_voice), 4, 64,
-					       tab, tab };
+					       tab, tab };	/* tab: zeros, only copied */
 		struct speq_synth *s = (struct speq_synth *)&s;
 		const char *m = getenv("SPEQ_SYNTH");
 
