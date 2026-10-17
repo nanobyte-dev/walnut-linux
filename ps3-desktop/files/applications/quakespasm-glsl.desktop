@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=QuakeSpasm (GLSL)
+Comment=Quake with GLSL rendering (default)
+Exec=ps3-game quakespasm -basedir /usr/share/games/quake -nopackedpixels -width 1920 -height 1080 -fullscreen
+Icon=quakespasm
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=quake;first person shooter;

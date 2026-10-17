@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=DSDA-Doom (software)
+Comment=Doom, software renderer at 960x540
+Exec=ps3-game dsda-doom -vidmode software -width 960 -height 540 -fullscreen %F
+Icon=dsda-doom
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=first;person;shooter;doom;boom;

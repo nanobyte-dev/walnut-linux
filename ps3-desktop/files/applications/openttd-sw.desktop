@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=OpenTTD (software)
+Comment=Transport simulation, software video driver
+Exec=ps3-game env SDL_FRAMEBUFFER_ACCELERATION=0 openttd -v sdl -r 1920x1080
+Icon=openttd
+Terminal=false
+Categories=Game;Simulation;
+Keywords=game;simulation;transport;tycoon;

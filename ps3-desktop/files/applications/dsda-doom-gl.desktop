@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=DSDA-Doom (OpenGL)
+Comment=Doom, OpenGL renderer at 1920x1080
+Exec=ps3-game dsda-doom -vidmode gl -width 1920 -height 1080 -fullscreen %F
+Icon=dsda-doom
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=first;person;shooter;doom;boom;

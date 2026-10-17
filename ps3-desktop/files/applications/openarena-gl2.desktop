@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=OpenArena (GL 2.0)
+Comment=Arena shooter, the GLSL renderer with its expensive effects off (slow start: it compiles its shaders)
+Exec=ps3-game openarena +set cl_renderer opengl2 +set r_normalMapping 0 +set r_specularMapping 0 +set r_deluxeMapping 0 +set r_sunlightMode 0 +set r_sunShadows 0 +set r_dlightMode 0 +set r_depthPrepass 0 +set r_hdr 0 +set r_postProcess 0 +set r_toneMap 0 +set r_autoExposure 0 +set r_ssao 0 +set r_cubeMapping 0 +set r_ext_framebuffer_object 0
+Icon=openarena128
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=first person shooter;fps;deathmatch;quake;glsl;

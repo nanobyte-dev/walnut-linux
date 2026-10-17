@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=OpenArena (GL 1.2)
+Comment=Arena shooter, the fast OpenGL 1 renderer (default)
+Exec=ps3-game openarena +set cl_renderer opengl1
+Icon=openarena128
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=first person shooter;fps;deathmatch;quake;

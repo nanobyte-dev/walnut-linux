@@ -2,9 +2,11 @@
 set -e
 if [ "$1" = remove ] || [ "$1" = abort-install ]; then
 	for f in /usr/share/gvfs/remote-volume-monitors/afc.monitor /usr/share/gvfs/remote-volume-monitors/goa.monitor \
-		/usr/share/applications/openarena.desktop; do
-		dpkg-divert --quiet --package ps3-desktop --rename --remove "$f"
+		/usr/share/applications/openarena.desktop /usr/share/applications/dsda-doom.desktop \
+		/usr/share/applications/openttd.desktop /usr/share/applications/quakespasm.desktop; do
+		dpkg-divert --quiet --package ps3-desktop --rename --remove "$f" || true
 	done
+	rmdir /usr/share/ps3-desktop/diverted-menu /usr/share/ps3-desktop 2>/dev/null || true
 fi
 #DEBHELPER#
 exit 0

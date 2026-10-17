@@ -2,13 +2,16 @@
 # ps3-game-menu DIR (ps3-desktop; ps3-session runs it at login): the installed games' menu
 # entries, started through ps3-game (game mode), into DIR/applications. ps3-session puts DIR first
 # in XDG_DATA_DIRS, so each one replaces the game's own entry of the same name (jgmenu, PCManFM).
+# The entries ps3-desktop ships (one per game mode, Exec through ps3-game) are left alone, and so
+# are their originals: the package moves those out of the applications directory (dpkg-divert,
+# see its preinst), so no copy of them is made and no second entry shows up.
 # A game is an entry with Categories Game; left as they are: entries already using ps3-game,
 # terminal programs, D-Bus-activated ones. Nothing outside DIR changes; a game installed during
 # the session gets game mode from the next login.
 [ -n "${1:-}" ] || { echo "usage: ps3-game-menu DIR" >&2; exit 2; }
 out=$1/applications
 rm -rf "$out.new" && mkdir -p "$out.new" || exit 1
-set -- /usr/share/applications/*.desktop
+set -- "${PS3_APPLICATIONS:-/usr/share/applications}"/*.desktop
 [ -e "$1" ] && awk -v out="$out.new" '
 function flush(   i, f) {
 	if (fname != "" && game && !skip && n_exec) {

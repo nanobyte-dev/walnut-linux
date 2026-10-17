@@ -2,8 +2,8 @@
 # Takes over from the files the image's desktop setup wrote (before ps3-desktop existed): each one
 # that no package owns is archived to /var/backups/ps3-legacy-desktop-<date>.tar and removed;
 # dpkg then installs the packaged versions. Diversions: gvfs's iPhone and online-accounts volume
-# monitors (moved aside, ~1.3 MB each per session for nothing on a PS3) and OpenArena's menu entry
-# (ours runs it in game mode) become this package's.
+# monitors (moved aside, ~1.3 MB each per session for nothing on a PS3) and the menu entries of
+# OpenArena, dsda-doom, OpenTTD and QuakeSpasm (ours start each mode in game mode) become this package's.
 set -e
 LEGACY="
 /etc/systemd/system/getty@tty1.service.d/autologin.conf
@@ -50,11 +50,23 @@ migrate() {
 	for f in $found; do rm -f "/$f"; done
 	echo "ps3-desktop: legacy files archived in /var/backups and removed:$found" | fold -s -w 100
 }
-divert() {	# <file> <diverted name>
-	if dpkg-divert --list "$1" | grep -q '^local diversion'; then
-		dpkg-divert --quiet --local --rename --remove "$1"
+divert() {	# <file> <diverted name>: the file moves to the diverted name (a package installing it later lands there)
+	f=$1 t=$2
+	mkdir -p "$(dirname "$t")"
+	if dpkg-divert --list "$f" | grep -q '^local diversion'; then
+		dpkg-divert --quiet --local --rename --remove "$f"
 	fi
-	dpkg-divert --quiet --package ps3-desktop --rename --divert "$2" --add "$1"
+	if [ "$(dpkg-divert --listpackage "$f")" = ps3-desktop ]; then
+		# ours already, maybe to an older place (0.307: next to the file): moved by hand, since
+		# --rename would refuse while the old package's own file is at <file>
+		cur=$(dpkg-divert --truename "$f")
+		[ "$cur" != "$t" ] || return 0
+		dpkg-divert --quiet --package ps3-desktop --remove "$f"
+		[ ! -e "$cur" ] || mv "$cur" "$t"
+		dpkg-divert --quiet --package ps3-desktop --divert "$t" --add "$f"
+	else
+		dpkg-divert --quiet --package ps3-desktop --rename --divert "$t" --add "$f"
+	fi
 }
 case "$1" in
 install|upgrade)
@@ -63,7 +75,13 @@ install|upgrade)
 	for m in afc goa; do
 		divert /usr/share/gvfs/remote-volume-monitors/$m.monitor /usr/share/gvfs/remote-volume-monitors/$m.monitor.disabled
 	done
-	divert /usr/share/applications/openarena.desktop /usr/share/applications/openarena.desktop.ps3-orig
+	# the games' own menu entries (ours give each game its modes), moved out of the menu's reach:
+	# jgmenu takes any file name containing ".desktop" in the applications directories, so the
+	# originals go to a directory it does not read (0.307's openarena.desktop.ps3-orig showed up as
+	# a second OpenArena). The list is read by tests/menu-check.sh
+	for g in openarena dsda-doom openttd quakespasm; do
+		divert /usr/share/applications/$g.desktop /usr/share/ps3-desktop/diverted-menu/$g.desktop
+	done
 	;;
 esac
 #DEBHELPER#
