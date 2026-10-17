@@ -29,7 +29,7 @@ package (Debian source packages; docs/PACKAGING.md).
 | `supertuxkart/` | SuperTuxKart: Debian's `supertuxkart` source package plus `patches/` (big-endian: the .spm mesh and armature loader byte-swaps the little-endian data instead of refusing to run; textures and vertex colours in the right channel order on the OpenGL driver; legacy renderer: no crash when render to texture fails, a power-of-two minimap, opaque textures as DXT1) |
 | `xmoto/` | X-Moto: Debian's `xmoto` source package plus `patches/` (fewer, larger GL draws: DrawLib's primitives batched per state run, the level's blocks and edges from one buffer; `XMOTO_GL_BATCH`, `XMOTO_GL_BLOCKS`, `XMOTO_GL_STATS`) |
 | `etr/` | Extreme Tux Racer: Debian's `extremetuxracer` source package plus `patches/` (fewer, larger GL submissions: terrain from buffer objects, Tux, shadow, track marks, trees and snow as arrays, a bind cache; `ETR_GL*` switches) |
-| `neverball/` | Neverball: Debian's `neverball` source package plus `patches/` (`NEVERBALL_BENCH=1`: a replay prints its frames and fps and the game quits) |
+| `neverball/` | Neverball: Debian's `neverball` source package plus `patches/` (`NEVERBALL_BENCH=1`: a replay prints its frames and fps and the game quits; fewer GL calls and draws: shared mesh buffers, items in a row, batched background billboards; `NEVERBALL_GL*` switches) |
 | `openttd/` | OpenTTD: Debian's `openttd` source package plus `patches/` (the OpenGL video driver on GL 2.1 without ARB_texture_rg or ARB_shader_texture_lod, the sprite recolour in the GLSL 1.10 shader) |
 | `libsdl3/` | SDL3: Debian's `libsdl3` source package plus `patches/` (big-endian: the window framebuffer texture in ARGB8888/XRGB8888, uploaded natively by the OpenGL renderer) |
 | `classicube/` | ClassiCube: `package.conf` (pinned upstream tarball plus texpack/audio components), `patches/` (fewer GL calls per frame: vertex pointers once per buffer, a chunk part in one draw; `CC_GL*` switches), `debian/` (launcher, defaults; packages `classicube`, the engine, and `classicube-data`, Mojang's textures and audio, for `ps3-licensed`), `sounds.sh` (sounds/music from Mojang by SHA-1) |
@@ -88,7 +88,7 @@ our own packages, in a minute or two. Everything we build is a .deb in `build/de
 | `supertuxkart`, `supertuxkart-data` | `/usr/games/supertuxkart` (`1.5-2+ps3.N`), replacing Debian's: loads its .spm models on big-endian (Debian's quits while loading); `supertuxkart-data` is Debian's data, rebuilt because `supertuxkart` needs it at its own version |
 | `xmoto`, `xmoto-data` | X-Moto (`0.6.3+repack-1+ps3.N`), replacing Debian's: batched GL drawing |
 | `extremetuxracer`, `extremetuxracer-data` | Extreme Tux Racer (`0.8.4-2+ps3.N`), replacing Debian's: batched GL drawing |
-| `neverball`, `neverputt`, ... | Neverball (`1.6.0+git20180603-3+ps3.N`), replacing Debian's: the bench mode |
+| `neverball`, `neverputt`, ... | Neverball (`1.6.0+git20180603-3+ps3.N`), replacing Debian's: the bench mode, batched GL drawing |
 | `openttd`, `openttd-data` | OpenTTD (`15.1-1+ps3.N`), replacing Debian's: the OpenGL driver on nv30 |
 | `libsdl3-0`, ... | SDL3 (`3.4.18+ds-1+ps3.N`), replacing Debian's: window framebuffer colours and native uploads on big-endian |
 | `libfluidsynth3`, `fluidsynth`, ... | FluidSynth (`2.6.1+dfsg-1+ps3.N`), replacing Debian's: voice DSP on the SPEs through libspeq (`SPEQ_SYNTH`) |

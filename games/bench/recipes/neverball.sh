@@ -28,3 +28,12 @@ setup() {
 CMD=(/usr/games/neverball --replay /usr/share/games/neverball/gui/demo1.nbr)
 DURATION=270	# a safety cap: load, 12 passes of ~20 s, margin
 variant_nomip() { NB_MIP=0; }
+# our neverball (neverball/patches/0003): fewer GL calls and draws a frame, each change behind an
+# environment switch, base has them all on. gui/demo1.nbr on llvmpipe at GL 2.1: 2154 -> 844 calls,
+# 137 -> 74 draws a frame (levels at their intro view: greed 6289 -> 1915, mover 8205 -> 2463 calls).
+# gloff is NEVERBALL_GL=0 (the game as Debian draws it), a no* variant is base with one change off.
+variant_gloff() { ENV+=(NEVERBALL_GL=0); }
+variant_nomesh() { ENV+=(NEVERBALL_GL_MESH=0); }	# a buffer per mesh: buffers and pointers set for every mesh
+variant_noitems() { ENV+=(NEVERBALL_GL_ITEMS=0); }	# items drawn one by one with their own state
+variant_noback() { ENV+=(NEVERBALL_GL_BACK=0); }	# background billboards: matrix calls and a draw each (76 draws a frame on demo1, 13 in base)
+variant_nostate() { ENV+=(NEVERBALL_GL_STATE=0); }	# depth toggles around empty passes, both texture units each time

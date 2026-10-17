@@ -1,0 +1,959 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 23:03:44 +0300
+Subject: Fewer GL calls and draws a frame: shared mesh buffers, items in a
+ row, batched background billboards
+
+For the PS3's PPE, where Mesa's per-call cost dominates. Each change has a
+switch, on unless its environment variable is 0; NEVERBALL_GL=0 turns them
+all off and gives the original call stream:
+
+- NEVERBALL_GL_MESH: all meshes of a solid file in one vertex and one element
+  buffer (16-bit elements rebased; files over 65536 vertices keep a buffer per
+  mesh), the five item files in one shared buffer, so buffers and pointers are
+  set once for meshes drawn in a row instead of once a mesh.
+- NEVERBALL_GL_ITEMS: items drawn in a row with the same matrices and fewer
+  pushes, no depth mask changes around missing billboards, and the mesh state
+  kept from one item to the next.
+- NEVERBALL_GL_BACK: the background billboards transformed on the CPU into one
+  client array, one draw per run of the same material in the same order
+  (plain materials only; lit, environment-mapped, point-sprite and shadowed
+  ones keep the old path).
+- NEVERBALL_GL_STATE: no depth state changes around empty transparent passes;
+  only the server or only the client texture unit selected where only one is
+  used.
+
+gui/demo1.nbr on llvmpipe at GL 2.1: 2154 -> 844 calls and 137 -> 74 draws a
+frame; the same pixels except rounding at background billboard edges.
+
+diff --git a/ball/game_draw.c b/ball/game_draw.c
+--- a/ball/game_draw.c
++++ b/ball/game_draw.c
+@@ -59,6 +59,16 @@ static void game_draw_items(struct s_rend *rend,
+ {
+     int hi;
+ 
++    if (glext_opt(GL_OPT_ITEMS))
++    {
++        for (hi = 0; hi < vary->hc; hi++)
++            if (vary->hv[hi].t != ITEM_NONE)
++                item_draw_run(rend, &vary->hv[hi], bill_M, t);
++
++        item_draw_end();
++        return;
++    }
++
+     for (hi = 0; hi < vary->hc; hi++)
+     {
+         struct v_item *hp = &vary->hv[hi];
+diff --git a/share/geom.c b/share/geom.c
+--- a/share/geom.c
++++ b/share/geom.c
+@@ -262,7 +262,7 @@ void tex_env_select(const struct tex_env *first, ...)
+ /*
+  * Select stage of the current texture pipeline.
+  */
+-int tex_env_stage(int stage)
++static int tex_env_unit(int stage, int server, int client)
+ {
+     size_t i;
+ 
+@@ -274,8 +274,8 @@ int tex_env_stage(int stage)
+ 
+             if (st->stage == stage)
+             {
+-                glActiveTexture_(st->unit);
+-                glClientActiveTexture_(st->unit);
++                if (server) glActiveTexture_(st->unit);
++                if (client) glClientActiveTexture_(st->unit);
+                 return 1;
+             }
+         }
+@@ -283,6 +283,27 @@ int tex_env_stage(int stage)
+     return 0;
+ }
+ 
++int tex_env_stage(int stage)
++{
++    return tex_env_unit(stage, 1, 1);
++}
++
++/*
++ * NEVERBALL_GL_STATE: select only the server (texture matrix, binding) or
++ * only the client (arrays) unit of a stage, for code that sets only one of
++ * them and returns to TEX_STAGE_TEXTURE, leaving both units as they were.
++ */
++
++int tex_env_stage_server(int stage)
++{
++    return tex_env_unit(stage, 1, !glext_opt(GL_OPT_STATE));
++}
++
++int tex_env_stage_client(int stage)
++{
++    return tex_env_unit(stage, !glext_opt(GL_OPT_STATE), 1);
++}
++
+ /*---------------------------------------------------------------------------*/
+ 
+ enum
+@@ -330,8 +351,18 @@ void geom_init(void)
+     sol_load_full(&mark, "geom/mark/mark.sol", 0);
+     sol_load_full(&vect, "geom/vect/vect.sol", 0);
+ 
+-    for (i = 0; i < GEOM_MAX; i++)
+-        sol_load_full(&item[i], item_sols[i], 0);
++    {
++        struct s_draw *dv[GEOM_MAX];
++        int dn = 0;
++
++        sol_share_begin();
++
++        for (i = 0; i < GEOM_MAX; i++)
++            if (sol_load_full(&item[i], item_sols[i], 0))
++                dv[dn++] = &item[i].draw;
++
++        sol_share_end(dv, dn);
++    }
+ }
+ 
+ void geom_free(void)
+@@ -431,6 +462,48 @@ void item_draw(struct s_rend *rend,
+     glPopMatrix();
+ }
+ 
++/*
++ * NEVERBALL_GL_ITEMS: item_draw for items drawn in a row, at p. The same
++ * matrices with fewer pushes, the depth mask left alone when the item has no
++ * billboards, and the mesh buffers and pointers kept for the next item
++ * (sol_draw_run; with NEVERBALL_GL_MESH all item files share one buffer);
++ * item_draw_end reverts them after the last item.
++ */
++
++void item_draw_run(struct s_rend *rend,
++                   const struct v_item *hp,
++                   const GLfloat *M, float t)
++{
++    const GLfloat s = ITEM_RADIUS;
++
++    struct s_draw *draw = item_file(hp);
++
++    glPushMatrix();
++    {
++        glTranslatef(hp->p[0],
++                     hp->p[1],
++                     hp->p[2]);
++        glScalef(s, s, s);
++
++        if (draw && draw->base && draw->base->rc)
++        {
++            glDepthMask(GL_FALSE);
++            {
++                sol_bill(draw, rend, M, t);
++            }
++            glDepthMask(GL_TRUE);
++        }
++
++        sol_draw_run(draw, rend, 0, 1);
++    }
++    glPopMatrix();
++}
++
++void item_draw_end(void)
++{
++    sol_draw_end();
++}
++
+ /*---------------------------------------------------------------------------*/
+ 
+ void back_init(const char *name)
+diff --git a/share/geom.h b/share/geom.h
+--- a/share/geom.h
++++ b/share/geom.h
+@@ -32,6 +32,8 @@ void back_draw(struct s_rend *);
+ 
+ void item_color(const struct v_item *, float *);
+ void item_draw(struct s_rend *, const struct v_item *, const GLfloat *, float);
++void item_draw_run(struct s_rend *, const struct v_item *, const GLfloat *, float);
++void item_draw_end(void);
+ 
+ /*---------------------------------------------------------------------------*/
+ 
+@@ -78,6 +80,8 @@ extern const struct tex_env *curr_tex_env;
+ void tex_env_select(const struct tex_env *, ...) NULL_TERMINATED;
+ void tex_env_active(const struct tex_env *);
+ int  tex_env_stage(int);
++int  tex_env_stage_server(int);
++int  tex_env_stage_client(int);
+ 
+ /*---------------------------------------------------------------------------*/
+ 
+diff --git a/share/glext.c b/share/glext.c
+--- a/share/glext.c
++++ b/share/glext.c
+@@ -14,6 +14,7 @@
+ 
+ #include <SDL.h>
+ #include <stdio.h>
++#include <stdlib.h>
+ 
+ #include "glext.h"
+ #include "log.h"
+@@ -210,6 +211,30 @@ int glext_init(void)
+ 
+ /*---------------------------------------------------------------------------*/
+ 
++int glext_opt(int opt)
++{
++    static const char *const names[GL_OPT_MAX] = {
++        "NEVERBALL_GL_MESH",
++        "NEVERBALL_GL_ITEMS",
++        "NEVERBALL_GL_BACK",
++        "NEVERBALL_GL_STATE"
++    };
++    static int val[GL_OPT_MAX] = { -1, -1, -1, -1 };
++
++    if (val[opt] < 0)
++    {
++        const char *all = getenv("NEVERBALL_GL");
++        const char *one = getenv(names[opt]);
++
++        val[opt] = !(all && atoi(all) == 0) && !(one && atoi(one) == 0);
++
++        log_printf("%s=%d\n", names[opt], val[opt]);
++    }
++    return val[opt];
++}
++
++/*---------------------------------------------------------------------------*/
++
+ void glClipPlane4f_(GLenum p, GLfloat a, GLfloat b, GLfloat c, GLfloat d)
+ {
+ #if ENABLE_OPENGLES
+diff --git a/share/glext.h b/share/glext.h
+--- a/share/glext.h
++++ b/share/glext.h
+@@ -293,6 +293,25 @@ void glClipPlane4f_(GLenum, GLfloat, GLfloat, GLfloat, GLfloat);
+ 
+ /*---------------------------------------------------------------------------*/
+ 
++/*
++ * Fewer GL calls and draws a frame (the PS3's PPE spends its time in the
++ * driver). Each change has a switch, on unless its environment variable is
++ * 0; NEVERBALL_GL=0 turns all of them off (the original drawing).
++ */
++
++enum
++{
++    GL_OPT_MESH,                        /* NEVERBALL_GL_MESH  */
++    GL_OPT_ITEMS,                       /* NEVERBALL_GL_ITEMS */
++    GL_OPT_BACK,                        /* NEVERBALL_GL_BACK  */
++    GL_OPT_STATE,                       /* NEVERBALL_GL_STATE */
++    GL_OPT_MAX
++};
++
++int glext_opt(int);
++
++/*---------------------------------------------------------------------------*/
++
+ struct gl_info
+ {
+     GLint max_texture_units;
+diff --git a/share/solid_draw.c b/share/solid_draw.c
+--- a/share/solid_draw.c
++++ b/share/solid_draw.c
+@@ -51,6 +51,21 @@ static const struct
+     { M_REFLECTIVE,            0 }
+ };
+ 
++/*
++ * The mesh whose buffers and pointers are set, while meshes are drawn in a
++ * row (NEVERBALL_GL_MESH: the meshes of a file share them; NEVERBALL_GL_ITEMS:
++ * items of a kind in a row). Forgotten whenever someone else sets them.
++ */
++
++static GLuint                curr_vbo;
++static const struct tex_env *curr_vbo_env;
++
++static void sol_mesh_forget(void)
++{
++    curr_vbo     = 0;
++    curr_vbo_env = NULL;
++}
++
+ /*---------------------------------------------------------------------------*/
+ 
+ static void sol_transform(const struct s_vary *vary,
+@@ -80,7 +95,7 @@ static void sol_transform(const struct s_vary *vary,
+     {
+         struct v_ball *up = vary->uv + ui;
+ 
+-        if (tex_env_stage(TEX_STAGE_SHADOW))
++        if (tex_env_stage_server(TEX_STAGE_SHADOW))
+         {
+             glMatrixMode(GL_TEXTURE);
+             {
+@@ -111,7 +126,7 @@ static void sol_transform(const struct s_vary *vary,
+ 
+                 /* Vertically center clipper texture on ball position. */
+ 
+-                if (tex_env_stage(TEX_STAGE_CLIP))
++                if (tex_env_stage_server(TEX_STAGE_CLIP))
+                 {
+                     glLoadIdentity();
+                     glTranslatef(p[0] - up->p[0],
+@@ -123,7 +138,7 @@ static void sol_transform(const struct s_vary *vary,
+             }
+             glMatrixMode(GL_MODELVIEW);
+ 
+-            tex_env_stage(TEX_STAGE_TEXTURE);
++            tex_env_stage_server(TEX_STAGE_TEXTURE);
+         }
+     }
+ }
+@@ -177,6 +192,8 @@ static void sol_bill_enable(const struct s_draw *draw)
+ {
+     const size_t s = sizeof (GLfloat);
+ 
++    sol_mesh_forget();
++
+     glBindBuffer_(GL_ARRAY_BUFFER, draw->bill);
+ 
+     glDisableClientState(GL_NORMAL_ARRAY);
+@@ -355,6 +372,27 @@ static void sol_load_mesh(struct d_mesh *mp,
+ 
+         sol_mesh_geom(vv, &vn, gv, &gn, draw->base, iv, bp->g0, bp->gc, mi);
+ 
++        /* Note cached material index. */
++
++        mp->mtrl = draw->base->mtrls[mi];
++
++        mp->ebc = gn * 3;
++        mp->vbc = vn;
++
++        if (glext_opt(GL_OPT_MESH))
++        {
++            /* Keep the data: sol_load_draw puts all meshes in one buffer. */
++
++            mp->tv = (struct d_vert *) realloc(vv, (vn ? vn : 1) * sizeof (*vv));
++            mp->tg = (struct d_geom *) realloc(gv, (gn ? gn : 1) * sizeof (*gv));
++
++            if (!mp->tv) mp->tv = vv;
++            if (!mp->tg) mp->tg = gv;
++
++            free(iv);
++            return;
++        }
++
+         /* Initialize buffer objects for all data. */
+ 
+         glGenBuffers_(1, &mp->vbo);
+@@ -368,13 +406,6 @@ static void sol_load_mesh(struct d_mesh *mp,
+         glBufferData_(GL_ELEMENT_ARRAY_BUFFER, gn * sizeof (*gv), gv,
+                       GL_STATIC_DRAW);
+         glBindBuffer_(GL_ELEMENT_ARRAY_BUFFER, 0);
+-
+-        /* Note cached material index. */
+-
+-        mp->mtrl = draw->base->mtrls[mi];
+-
+-        mp->ebc = gn * 3;
+-        mp->vbc = vn;
+     }
+ 
+     free(iv);
+@@ -384,10 +415,152 @@ static void sol_load_mesh(struct d_mesh *mp,
+ 
+ static void sol_free_mesh(struct d_mesh *mp)
+ {
++    if (mp->shared)
++        return;
++
+     glDeleteBuffers_(1, &mp->ebo);
+     glDeleteBuffers_(1, &mp->vbo);
+ }
+ 
++/*
++ * NEVERBALL_GL_MESH: the vertices and elements of all meshes of a file in one
++ * buffer object each, so the buffers and pointers are set once for all the
++ * meshes drawn in a row (sol_draw_mesh) instead of once a mesh. A file with
++ * more vertices than 16-bit elements can index keeps a buffer per mesh.
++ */
++
++static int sol_defer;
++
++static void sol_load_meshes(struct s_draw **dv, int dn)
++{
++    struct d_vert *vv = NULL;
++    struct d_geom *gv = NULL;
++
++    int di, bi, mi, vn = 0, gn = 0;
++
++#define FOR_MESHES                                       \
++    for (di = 0; di < dn; di++)                          \
++        for (bi = 0; bi < dv[di]->bc; bi++)              \
++            for (mi = 0; mi < dv[di]->bv[bi].mc; mi++)
++
++    FOR_MESHES
++    {
++        vn += dv[di]->bv[bi].mv[mi].vbc;
++        gn += dv[di]->bv[bi].mv[mi].ebc / 3;
++    }
++
++    if (vn > 0 && vn <= 65536 &&
++        (vv = (struct d_vert *) malloc(vn * sizeof (*vv))) &&
++        (gv = (struct d_geom *) malloc((gn ? gn : 1) * sizeof (*gv))))
++    {
++        int vi = 0, gi = 0, i;
++
++        /* The first file owns the buffers. */
++
++        glGenBuffers_(1, &dv[0]->vbo);
++        glGenBuffers_(1, &dv[0]->ebo);
++
++        FOR_MESHES
++        {
++            struct d_mesh *mp = dv[di]->bv[bi].mv + mi;
++            const int mg = mp->ebc / 3;
++
++            memcpy(vv + vi, mp->tv, mp->vbc * sizeof (*vv));
++
++            for (i = 0; i < mg; i++)
++            {
++                gv[gi + i].i = mp->tg[i].i + vi;
++                gv[gi + i].j = mp->tg[i].j + vi;
++                gv[gi + i].k = mp->tg[i].k + vi;
++            }
++
++            mp->vbo    = dv[0]->vbo;
++            mp->ebo    = dv[0]->ebo;
++            mp->voff   = vi;
++            mp->eoff   = gi * sizeof (*gv);
++            mp->shared = 1;
++
++            vi += mp->vbc;
++            gi += mg;
++        }
++
++        glBindBuffer_(GL_ARRAY_BUFFER,         dv[0]->vbo);
++        glBufferData_(GL_ARRAY_BUFFER,         vn * sizeof (*vv), vv,
++                      GL_STATIC_DRAW);
++        glBindBuffer_(GL_ARRAY_BUFFER,         0);
++
++        glBindBuffer_(GL_ELEMENT_ARRAY_BUFFER, dv[0]->ebo);
++        glBufferData_(GL_ELEMENT_ARRAY_BUFFER, gn * sizeof (*gv), gv,
++                      GL_STATIC_DRAW);
++        glBindBuffer_(GL_ELEMENT_ARRAY_BUFFER, 0);
++    }
++    else if (dn > 1)
++    {
++        /* Too many vertices for one buffer: one for each file. */
++
++        for (di = 0; di < dn; di++)
++            sol_load_meshes(dv + di, 1);
++    }
++    else
++    {
++        /* A buffer per mesh, as without the switch. */
++
++        FOR_MESHES
++        {
++            struct d_mesh *mp = dv[di]->bv[bi].mv + mi;
++
++            glGenBuffers_(1, &mp->vbo);
++            glBindBuffer_(GL_ARRAY_BUFFER,         mp->vbo);
++            glBufferData_(GL_ARRAY_BUFFER,         mp->vbc * sizeof (struct d_vert),
++                          mp->tv, GL_STATIC_DRAW);
++            glBindBuffer_(GL_ARRAY_BUFFER,         0);
++
++            glGenBuffers_(1, &mp->ebo);
++            glBindBuffer_(GL_ELEMENT_ARRAY_BUFFER, mp->ebo);
++            glBufferData_(GL_ELEMENT_ARRAY_BUFFER, mp->ebc / 3 * sizeof (struct d_geom),
++                          mp->tg, GL_STATIC_DRAW);
++            glBindBuffer_(GL_ELEMENT_ARRAY_BUFFER, 0);
++        }
++    }
++
++    free(gv);
++    free(vv);
++
++    FOR_MESHES
++    {
++        struct d_mesh *mp = dv[di]->bv[bi].mv + mi;
++
++        free(mp->tv);
++        free(mp->tg);
++
++        mp->tv = NULL;
++        mp->tg = NULL;
++    }
++
++#undef FOR_MESHES
++}
++
++/*
++ * Files loaded between sol_share_begin and sol_share_end (the items) share
++ * one buffer, so items of different kinds drawn in a row need no new buffers
++ * or pointers either.
++ */
++
++void sol_share_begin(void)
++{
++    sol_defer = glext_opt(GL_OPT_MESH);
++}
++
++void sol_share_end(struct s_draw **dv, int dn)
++{
++    if (sol_defer)
++    {
++        sol_defer = 0;
++        sol_load_meshes(dv, dn);
++    }
++}
++
++
+ void sol_draw_mesh(const struct d_mesh *mp, struct s_rend *rend, int p)
+ {
+     /* If this mesh has material matching the given flags... */
+@@ -401,31 +574,41 @@ void sol_draw_mesh(const struct d_mesh *mp, struct s_rend *rend, int p)
+ 
+         r_apply_mtrl(rend, mp->mtrl);
+ 
+-        /* Bind the mesh data. */
++        /* Bind the mesh data, unless it is bound already. */
+ 
++        if (!(mp->vbo == curr_vbo && curr_tex_env == curr_vbo_env))
++        {
+         glBindBuffer_(GL_ARRAY_BUFFER,         mp->vbo);
+         glBindBuffer_(GL_ELEMENT_ARRAY_BUFFER, mp->ebo);
+ 
+         glVertexPointer  (3, T, s, (GLvoid *) offsetof (struct d_vert, p));
+         glNormalPointer  (   T, s, (GLvoid *) offsetof (struct d_vert, n));
+ 
+-        if (tex_env_stage(TEX_STAGE_SHADOW))
++        if (tex_env_stage_client(TEX_STAGE_SHADOW))
+         {
+             glTexCoordPointer(3, T, s, (GLvoid *) offsetof (struct d_vert, p));
+ 
+-            if (tex_env_stage(TEX_STAGE_CLIP))
++            if (tex_env_stage_client(TEX_STAGE_CLIP))
+                 glTexCoordPointer(3, T, s, (GLvoid *) offsetof (struct d_vert, p));
+ 
+-            tex_env_stage(TEX_STAGE_TEXTURE);
++            tex_env_stage_client(TEX_STAGE_TEXTURE);
+         }
+         glTexCoordPointer(2, T, s, (GLvoid *) offsetof (struct d_vert, t));
+ 
++        if (glext_opt(GL_OPT_MESH) || glext_opt(GL_OPT_ITEMS))
++        {
++            curr_vbo     = mp->vbo;
++            curr_vbo_env = curr_tex_env;
++        }
++        }
++
+         /* Draw the mesh. */
+ 
+         if (rend->curr_mtrl.base.fl & M_PARTICLE)
+-            glDrawArrays(GL_POINTS, 0, mp->vbc);
++            glDrawArrays(GL_POINTS, mp->voff, mp->vbc);
+         else
+-            glDrawElements(GL_TRIANGLES, mp->ebc, GL_UNSIGNED_SHORT, 0);
++            glDrawElements(GL_TRIANGLES, mp->ebc, GL_UNSIGNED_SHORT,
++                           (GLvoid *) (size_t) mp->eoff);
+     }
+ }
+ 
+@@ -523,9 +706,22 @@ int sol_load_draw(struct s_draw *draw, struct s_vary *vary, int s)
+ 
+             for (i = 0; i < draw->bc; i++)
+                 sol_load_body(draw->bv + i, draw->base->bv + i, draw);
++
++            if (glext_opt(GL_OPT_MESH) && !sol_defer)
++                sol_load_meshes(&draw, 1);
+         }
+     }
+ 
++    /* Count the meshes of each pass. */
++
++    for (i = 0; i < draw->bc; i++)
++    {
++        int p;
++
++        for (p = 0; p < PASS_MAX; p++)
++            draw->pass[p] += draw->bv[i].pass[p];
++    }
++
+     sol_load_bill(draw);
+ 
+     return 1;
+@@ -542,17 +738,36 @@ void sol_free_draw(struct s_draw *draw)
+     for (i = 0; i < draw->bc; i++)
+         sol_free_body(draw->bv + i);
+ 
++    if (draw->vbo)
++    {
++        glDeleteBuffers_(1, &draw->ebo);
++        glDeleteBuffers_(1, &draw->vbo);
++    }
++
++    sol_mesh_forget();
++
+     free(draw->bv);
+ }
+ 
+ /*---------------------------------------------------------------------------*/
+ 
++static int sol_run_single;
++
+ static void sol_draw_all(const struct s_draw *draw, struct s_rend *rend, int p)
+ {
+     int bi;
+ 
+     /* Draw all meshes of all bodies matching the given material flags. */
+ 
++    if (sol_run_single)
++    {
++        /* The caller set the one body's transform and pops it. */
++
++        if (draw->bv[0].pass[p])
++            sol_draw_body(draw->bv, rend, p);
++        return;
++    }
++
+     for (bi = 0; bi < draw->bc; ++bi)
+         if (draw->bv[bi].pass[p])
+         {
+@@ -567,7 +782,8 @@ static void sol_draw_all(const struct s_draw *draw, struct s_rend *rend, int p)
+ 
+ /*---------------------------------------------------------------------------*/
+ 
+-void sol_draw(const struct s_draw *draw, struct s_rend *rend, int mask, int test)
++static void sol_draw_passes(const struct s_draw *draw, struct s_rend *rend,
++                            int mask, int test)
+ {
+     /* Disable shadowed material setup if not requested. */
+ 
+@@ -580,6 +796,11 @@ void sol_draw(const struct s_draw *draw, struct s_rend *rend, int mask, int test
+ 
+     /* Render all transparent geometry, decals first. */
+ 
++    /* NEVERBALL_GL_STATE: no depth state changes around nothing. */
++
++    if (!glext_opt(GL_OPT_STATE) ||
++        draw->pass[PASS_TRANSPARENT_DECAL] || draw->pass[PASS_TRANSPARENT])
++    {
+     if (!test) glDisable(GL_DEPTH_TEST);
+     if (!mask) glDepthMask(GL_FALSE);
+     {
+@@ -588,13 +809,52 @@ void sol_draw(const struct s_draw *draw, struct s_rend *rend, int mask, int test
+     }
+     if (!mask) glDepthMask(GL_TRUE);
+     if (!test) glEnable(GL_DEPTH_TEST);
++    }
++
++    rend->skip_flags = 0;
++}
++
++void sol_draw(const struct s_draw *draw, struct s_rend *rend, int mask, int test)
++{
++    sol_draw_passes(draw, rend, mask, test);
+ 
+     /* Revert the buffer object state. */
+ 
++    sol_draw_end();
++}
++
++/*
++ * sol_draw for files drawn in a row (NEVERBALL_GL_ITEMS): the buffer object
++ * state stays for the next one; sol_draw_end reverts it after the last.
++ */
++
++void sol_draw_run(const struct s_draw *draw, struct s_rend *rend, int mask, int test)
++{
++    /*
++     * A file of one body (the items): its transform once, without a push of
++     * its own, as the caller pops the matrix after it.
++     */
++
++    if (draw->bc == 1 && (draw->pass[PASS_OPAQUE]            ||
++                          draw->pass[PASS_OPAQUE_DECAL]      ||
++                          draw->pass[PASS_TRANSPARENT_DECAL] ||
++                          draw->pass[PASS_TRANSPARENT]))
++    {
++        sol_transform(draw->vary, draw->vary->bv, draw->shadow_ui);
++        sol_run_single = 1;
++    }
++
++    sol_draw_passes(draw, rend, mask, test);
++
++    sol_run_single = 0;
++}
++
++void sol_draw_end(void)
++{
+     glBindBuffer_(GL_ARRAY_BUFFER,         0);
+     glBindBuffer_(GL_ELEMENT_ARRAY_BUFFER, 0);
+ 
+-    rend->skip_flags = 0;
++    sol_mesh_forget();
+ }
+ 
+ void sol_refl(const struct s_draw *draw, struct s_rend *rend)
+@@ -609,12 +869,203 @@ void sol_refl(const struct s_draw *draw, struct s_rend *rend)
+ 
+     /* Revert the buffer object state. */
+ 
+-    glBindBuffer_(GL_ARRAY_BUFFER,         0);
+-    glBindBuffer_(GL_ELEMENT_ARRAY_BUFFER, 0);
++    sol_draw_end();
+ 
+     rend->skip_flags = 0;
+ }
+ 
++/*
++ * NEVERBALL_GL_BACK: the background billboards transformed on the CPU into
++ * one client array, a draw for each run of billboards with the same
++ * material, in the same order (instead of matrix calls and a draw for each).
++ * Billboards whose materials need the normal or the eye-space matrix (lit,
++ * environment-mapped, point sprites, shadowed) keep the old path.
++ */
++
++static void back_mult(double *M, const double *R)
++{
++    double T[16];
++    int i, j;
++
++    /* M = M * R, column-major as in GL. */
++
++    for (j = 0; j < 4; j++)
++        for (i = 0; i < 4; i++)
++            T[j * 4 + i] = (M[0 * 4 + i] * R[j * 4 + 0] +
++                            M[1 * 4 + i] * R[j * 4 + 1] +
++                            M[2 * 4 + i] * R[j * 4 + 2] +
++                            M[3 * 4 + i] * R[j * 4 + 3]);
++
++    memcpy(M, T, sizeof (T));
++}
++
++static void back_rotate(double *M, double a, double x, double y, double z)
++{
++    /* As glRotatef: a in degrees about the axis (x, y, z). */
++
++    const double l = sqrt(x * x + y * y + z * z);
++    const double r = a * 3.14159265358979323846 / 180.0;
++    const double c = cos(r);
++    const double s = sin(r);
++    const double k = 1.0 - c;
++
++    double R[16] = { 0 };
++
++    x /= l;
++    y /= l;
++    z /= l;
++
++    R[0]  = x * x * k + c;
++    R[1]  = y * x * k + z * s;
++    R[2]  = x * z * k - y * s;
++    R[4]  = x * y * k - z * s;
++    R[5]  = y * y * k + c;
++    R[6]  = y * z * k + x * s;
++    R[8]  = x * z * k + y * s;
++    R[9]  = y * z * k - x * s;
++    R[10] = z * z * k + c;
++    R[15] = 1.0;
++
++    back_mult(M, R);
++}
++
++static int sol_back_batch(const struct s_draw *draw,
++                          struct s_rend *rend,
++                          float n, float f, float t)
++{
++    static GLfloat *vv;
++    static int     *rv;
++    static int      vc;
++
++    const int skip = M_LIT | M_ENVIRONMENT | M_PARTICLE | M_SHADOWED;
++
++    int ri, vn = 0, rn = 0, i;
++
++    /* Only billboards of plain materials. */
++
++    for (ri = 0; ri < draw->base->rc; ri++)
++        if (mtrl_get(draw->base->mtrls[draw->base->rv[ri].mi])->base.fl & skip)
++            return 0;
++
++    if (vc < draw->base->rc)
++    {
++        GLfloat *v = (GLfloat *) realloc(vv, draw->base->rc * 6 * 5 * sizeof (GLfloat));
++        int     *r = (int     *) realloc(rv, draw->base->rc * 2 * sizeof (int));
++
++        if (v) vv = v;
++        if (r) rv = r;
++
++        if (!(v && r))
++            return 0;
++
++        vc = draw->base->rc;
++    }
++
++    /* Each visible billboard: two triangles (as the strip), t[2] p[3]. */
++
++    for (ri = 0; ri < draw->base->rc; ri++)
++    {
++        const struct b_bill *rp = draw->base->rv + ri;
++
++        if (n <= rp->d && rp->d < f)
++        {
++            float T = (rp->t > 0.0f) ? (fmodf(t, rp->t) - rp->t / 2) : 0;
++
++            float w = rp->w[0] + rp->w[1] * T + rp->w[2] * T * T;
++            float h = rp->h[0] + rp->h[1] * T + rp->h[2] * T * T;
++
++            if (w > 0 && h > 0)
++            {
++                static const int strip[6] = { 0, 1, 2, 2, 1, 3 };
++
++                float rx = rp->rx[0] + rp->rx[1] * T + rp->rx[2] * T * T;
++                float ry = rp->ry[0] + rp->ry[1] * T + rp->ry[2] * T * T;
++                float rz = rp->rz[0] + rp->rz[1] * T + rp->rz[2] * T * T;
++
++                const float y0 = (rp->fl & B_EDGE) ? 0.0f : -0.5f;
++
++                double M[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
++
++                if (ry) back_rotate(M, ry, 0.0, 1.0, 0.0);
++                if (rx) back_rotate(M, rx, 1.0, 0.0, 0.0);
++
++                M[12] += M[8]  * -rp->d;
++                M[13] += M[9]  * -rp->d;
++                M[14] += M[10] * -rp->d;
++
++                if (rp->fl & B_FLAT)
++                {
++                    back_rotate(M, -rx - 90.0f, 1.0, 0.0, 0.0);
++                    back_rotate(M, -ry,         0.0, 0.0, 1.0);
++                }
++                if (rp->fl & B_EDGE)
++                    back_rotate(M, -rx,         1.0, 0.0, 0.0);
++
++                if (rz) back_rotate(M, rz, 0.0, 0.0, 1.0);
++
++                for (i = 0; i < 6; i++)
++                {
++                    const int   c = strip[i];
++                    const float u = (float) (c & 1);
++                    const float v = (float) (c >> 1);
++
++                    const double x = (u - 0.5) * w;
++                    const double y = (y0 + v) * h;
++
++                    GLfloat *p = vv + (vn + i) * 5;
++
++                    p[0] = u;
++                    p[1] = v;
++                    p[2] = (GLfloat) (M[0] * x + M[4] * y + M[12]);
++                    p[3] = (GLfloat) (M[1] * x + M[5] * y + M[13]);
++                    p[4] = (GLfloat) (M[2] * x + M[6] * y + M[14]);
++                }
++
++                /* A run of the same material. */
++
++                if (rn == 0 || rv[(rn - 1) * 2] != rp->mi)
++                {
++                    rv[rn * 2 + 0] = rp->mi;
++                    rv[rn * 2 + 1] = vn;
++                    rn++;
++                }
++                vn += 6;
++            }
++        }
++    }
++
++    if (vn)
++    {
++        const GLsizei s = 5 * sizeof (GLfloat);
++
++        glDepthMask(GL_FALSE);
++
++        glBindBuffer_(GL_ARRAY_BUFFER, 0);
++        glDisableClientState(GL_NORMAL_ARRAY);
++
++        glTexCoordPointer(2, GL_FLOAT, s, vv);
++        glVertexPointer  (3, GL_FLOAT, s, vv + 2);
++
++        for (i = 0; i < rn; i++)
++        {
++            const int first = rv[i * 2 + 1];
++            const int last  = (i + 1 < rn) ? rv[i * 2 + 3] : vn;
++
++            r_apply_mtrl(rend, draw->base->mtrls[rv[i * 2]]);
++
++            glDrawArrays(GL_TRIANGLES, first, last - first);
++        }
++
++        glEnableClientState(GL_NORMAL_ARRAY);
++
++        glDepthMask(GL_TRUE);
++    }
++
++    sol_mesh_forget();
++
++    return 1;
++}
++
+ void sol_back(const struct s_draw *draw,
+               struct s_rend *rend,
+               float n, float f, float t)
+@@ -622,6 +1073,9 @@ void sol_back(const struct s_draw *draw,
+     if (!(draw && draw->base && draw->base->rc))
+         return;
+ 
++    if (glext_opt(GL_OPT_BACK) && sol_back_batch(draw, rend, n, f, t))
++        return;
++
+     glDepthMask(GL_FALSE);
+ 
+     sol_bill_enable(draw);
+diff --git a/share/solid_draw.h b/share/solid_draw.h
+--- a/share/solid_draw.h
++++ b/share/solid_draw.h
+@@ -64,6 +64,13 @@ struct d_mesh
+     GLuint vbc;                                /* Vertex  buffer count       */
+     GLuint ebo;                                /* Element buffer object      */
+     GLuint ebc;                                /* Element buffer count       */
++
++    GLuint voff;                               /* First vertex in vbo        */
++    GLuint eoff;                               /* Element byte offset in ebo */
++    unsigned int shared:1;                     /* vbo and ebo are the draw's */
++
++    struct d_vert *tv;                         /* Vertex data while loading  */
++    struct d_geom *tg;                         /* Element data while loading */
+ };
+ 
+ struct d_body
+@@ -87,6 +94,11 @@ struct s_draw
+ 
+     GLuint bill;
+ 
++    GLuint vbo;                                /* All meshes' vertices       */
++    GLuint ebo;                                /* All meshes' elements       */
++
++    int pass[PASS_MAX];                        /* Meshes in each pass        */
++
+     unsigned int reflective:1;
+     unsigned int shadowed:1;
+ 
+@@ -126,6 +138,12 @@ void sol_draw(const struct s_draw *, struct s_rend *, int, int);
+ void sol_bill(const struct s_draw *, struct s_rend *, const float *, float);
+ void sol_fade(const struct s_draw *, struct s_rend *, float);
+ 
++void sol_draw_run(const struct s_draw *, struct s_rend *, int, int);
++void sol_draw_end(void);
++
++void sol_share_begin(void);
++void sol_share_end(struct s_draw **, int);
++
+ /*---------------------------------------------------------------------------*/
+ 
+ struct s_full
