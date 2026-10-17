@@ -1,0 +1,4 @@
+test,date,runs,observations,armagetronad-base,armagetronad-texinv,classicube-base,dsda-doom-base,etr-base,luanti-base,neverball-base,openarena-base,openarena-tc1,openttd-accel,quakespasm-base,sauerbraten-cpuskel,xmoto-base,yquake2-base
+Mesa ps3.223 + ps3rsx 0.219,20261016,5,2026-10-16 evening; perf was recording during these runs (slower than plain runs),102,,54,,40,,,,37.2,,,,34.6,
+Mesa ps3.246 + ps3rsx 0.249,20261017,15,suite round after the 0.249 reboot; armagetronad also 2 A/B runs on the same boot as ps3.262,61,,47.6,33,46,53,78.2,44.2,,11,70.5,28,39,51.4
+Mesa ps3.262 + ps3rsx 0.249,20261017,20,Mesa 0019-0025; texinv: 0020 switched off,53,52.0,50.1,38.0,53,53,74.2,54.4,,,73.0,8,47,63.9

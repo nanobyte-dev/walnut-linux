@@ -33,7 +33,7 @@ versions() {	# versions GAME VARIANT: the game's package and the graphics stack 
 	local p
 	p=$( (CMD=(); ASSETS=; . "$here/recipes/$1.sh"; declare -F "variant_$2" >/dev/null && "variant_$2"
 		readlink -f "$(command -v "${CMD[0]}")") 2>/dev/null)
-	dpkg-query -W $(dpkg -S "$p" 2>/dev/null | cut -d: -f1 | tr , ' ') mesa-libgallium libspeq0 ps3-gpu-tools 2>/dev/null
+	dpkg-query -W $(dpkg -S "$p" 2>/dev/null | cut -d: -f1 | tr , ' ') mesa-libgallium ps3rsx-modules-ps3 libspeq0 libfluidsynth3 libopenal1 libsdl3-0 ps3-gpu-tools 2>/dev/null
 	uname -r
 }
 variants() { grep -o '^variant_[a-z0-9_]*' "$here/recipes/$1.sh" | sed 's/^variant_//' | tr '\n' ' '; }

@@ -108,40 +108,45 @@ def show(r):
     return "  ".join("%s=%s" % (c, r.get(c, "-")) for c in COLS)
 
 
-runs = [run(d) for d in sys.argv[1:]]
-for r in runs:
-    print("%-24s %s" % ("%s-%s" % (r["game"], r["variant"]), show(r)))
-print()
-med = {}
-keys = list(dict.fromkeys((r["game"], r["variant"]) for r in runs))
-for key in keys:
-    rs = [r for r in runs if (r["game"], r["variant"]) == key]
-    m = {}
-    for c in COLS + ["hud_med"]:
-        vals = [r[c] for r in rs if isinstance(r.get(c), (int, float))]
-        if vals:
-            m[c] = round(statistics.median(vals), 2)
-    med[key] = m
-    shown = dict(m)
-    for c in RANGED:
-        vals = [r[c] for r in rs if isinstance(r.get(c), (int, float))]
-        if c in shown and len(vals) > 1:
-            shown[c] = "%s [%s..%s]" % (shown[c], min(vals), max(vals))
-    shown["hud"] = shown.pop("hud_med", "-")
-    print("%-24s n=%d %s" % ("%s-%s" % key, len(rs), show(shown)))
+def main(dirs):
+    runs = [run(d) for d in dirs]
+    for r in runs:
+        print("%-24s %s" % ("%s-%s" % (r["game"], r["variant"]), show(r)))
+    print()
+    med = {}
+    keys = list(dict.fromkeys((r["game"], r["variant"]) for r in runs))
+    for key in keys:
+        rs = [r for r in runs if (r["game"], r["variant"]) == key]
+        m = {}
+        for c in COLS + ["hud_med"]:
+            vals = [r[c] for r in rs if isinstance(r.get(c), (int, float))]
+            if vals:
+                m[c] = round(statistics.median(vals), 2)
+        med[key] = m
+        shown = dict(m)
+        for c in RANGED:
+            vals = [r[c] for r in rs if isinstance(r.get(c), (int, float))]
+            if c in shown and len(vals) > 1:
+                shown[c] = "%s [%s..%s]" % (shown[c], min(vals), max(vals))
+        shown["hud"] = shown.pop("hud_med", "-")
+        print("%-24s n=%d %s" % ("%s-%s" % key, len(rs), show(shown)))
 
-games = list(dict.fromkeys(g for g, _ in keys))
-if any(len([k for k in keys if k[0] == g]) > 1 for g in games):
-    print("\nagainst each game's first variant (fps: game's own, else HUD median):")
-    for g in games:
-        vs = [k for k in keys if k[0] == g]
-        if len(vs) < 2:
-            continue
-        a = med[vs[0]]
-        fa = a.get("fps") or a.get("hud_med")
-        for k in vs[1:]:
-            m = med[k]
-            fb = m.get("fps") or m.get("hud_med")
-            fr = "%.3f" % (fb / fa) if fa and fb else "-"
-            lr = "%.3f" % (m["load"] / a["load"]) if a.get("load") and m.get("load") else "-"
-            print("  %-14s %s/%s  fps x%s  load x%s" % (g, k[1], vs[0][1], fr, lr))
+    games = list(dict.fromkeys(g for g, _ in keys))
+    if any(len([k for k in keys if k[0] == g]) > 1 for g in games):
+        print("\nagainst each game's first variant (fps: game's own, else HUD median):")
+        for g in games:
+            vs = [k for k in keys if k[0] == g]
+            if len(vs) < 2:
+                continue
+            a = med[vs[0]]
+            fa = a.get("fps") or a.get("hud_med")
+            for k in vs[1:]:
+                m = med[k]
+                fb = m.get("fps") or m.get("hud_med")
+                fr = "%.3f" % (fb / fa) if fa and fb else "-"
+                lr = "%.3f" % (m["load"] / a["load"]) if a.get("load") and m.get("load") else "-"
+                print("  %-14s %s/%s  fps x%s  load x%s" % (g, k[1], vs[0][1], fr, lr))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
