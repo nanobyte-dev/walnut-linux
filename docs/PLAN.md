@@ -3,7 +3,8 @@
 Hard constraints are in CLAUDE.md (no permanent changes beyond installing Linux, GameOS stays the
 default boot OS, no syscon writes, supervised sessions). The original wish list is `backlog.txt`.
 Restructured 2026-10-15 evening around what the day established: **RAM, not the GPU or the CPU,
-is the binding constraint**, and most of the next work is about it.
+is the binding constraint**, and most of the next work is about it. The current phase (games from
+playable to good) is in "Where we are (2026-10-17)"; the open ideas, ranked, in docs/IDEAS.md.
 
 ## Base and toolchain (decided 2026-10-15)
 
@@ -52,6 +53,50 @@ is the binding constraint**, and most of the next work is about it.
 A live environment for the PS3 that boots from USB or over NFS through Petitboot, with the RSX
 driver, desktop and games working out of the box, plus an optional installer that installs it
 permanently (to the OtherOS++ Linux region of the HDD, within the safety rules).
+
+## Where we are (2026-10-17)
+
+**Phase: the games, from playable to good.** The game stage's baseline is done (docs/GAME-PLAN.md,
+status table): every game of the suite has run on the PS3 at 1920x1080 with the picture checked on
+the webcam, after six big-endian bugs in games and libraries and five driver bugs. Light games aim
+at ~60 fps; QuakeSpasm, Yamagi Quake II, Neverball, Armagetron and now X-Moto reach it. The heavy
+ones (Luanti, Sauerbraten, OpenArena opengl2, SuperTuxKart) are limited by memory. Three levers, in
+this order (GAME-PLAN.md "Next phase"):
+
+1. **Memory**, in the games and through game mode (CLAUDE.md "Memory trims": nothing desktop users
+   expect is disabled for good; it gets out of the way while a game runs). Our ioquake3 0001-0010
+   took OpenArena opengl2 from 14.8 to 26-32 fps and its longest stall from 24.7 to 6 s; game mode
+   now unloads the PCManFM desktop and wallpaper, pushes the services' heaps to swap, drops the page
+   cache and compacts (built, not measured on the PS3 yet); Sauerbraten, Luanti and SuperTuxKart have
+   memory patches or variants waiting for a run.
+2. **Stored data for compute** where the SPEs and the RSX have headroom: compressed textures
+   (DXT1 on the SPEs, done for OpenArena; every game next), mip chains on the GPU, compressed
+   sound, smaller vertex formats.
+3. **CPU**: Mesa nv30 rounds 0015-0031 (ps3.246 to ps3.299: OpenArena +23%, Yamagi +24%, X-Moto +21%
+   on ps3.262; Armagetron's loss on ps3.262 fixed by 0027's adaptive submission, 50 -> 61.5 fps),
+   ps3rsx 0.249 (cheaper validation and shadow). **Game-side batching beat the driver work by far**:
+   our X-Moto went from 44.5 to 166.5 fps (18,500 -> 165 GL calls a frame), Extreme Tux Racer from
+   52 to 59. dsda-doom's GL renderer and ClassiCube are next. SPU offload (docs/SPU-OFFLOAD-PLAN.md):
+   fluidsynth's voice DSP moved to the SPEs (dsda-doom's CPU 49 -> 32 s a minute, but the music still
+   chops; a second version is built); OpenAL Soft's mixer is 3.7-4.7% of a game, under the 6% bar,
+   so no SPU mixer; skinning on the SPEs is built for Sauerbraten.
+
+Where things are: GAME-PLAN.md (per game, the measured rounds, what is built and waiting),
+SPU-OFFLOAD-PLAN.md (SPU work), games/bench/results/ (every measured configuration, one row each),
+DESKTOP-PLAN.md (game mode), IDEAS.md (what to do next, ranked).
+
+Lessons (2026-10-17):
+- Every run counts only with the picture checked (tools/bench-cam.sh photographs each run at 30 and
+  60 s). The first watcher opened an SSH connection every 5 s, which loaded the PPE (load average 5
+  at idle) and slowed the runs it watched: those runs (13:05-14:50 UTC) were discarded; it now keeps
+  one connection per batch.
+- `perf` on the PS3 needs `--proc-map-timeout=20000`: with the default it starts sampling before it
+  has read a big process's maps and files most samples as `[unknown]` (77% of OpenArena's). Earlier
+  profiles with a large unknown share were hit by it.
+- Compare on the same boot: ClassiCube gave 50.1 fps on one boot and 46.5-46.9 on another with
+  Mesa ps3.282 and ps3.299 alike. A/B rows reinstall the old build on the same boot.
+- OpenArena keeps only 32 `+` commands on its command line (Debian's wrapper passes ~10): recipe
+  cvars go into autoexec.cfg.
 
 ## Where we are (2026-10-16)
 
@@ -111,7 +156,8 @@ permanently (to the OtherOS++ Linux region of the HDD, within the safety rules).
   96 MB), with the USB swap partition behind it. Recently swapped pages stay in VRAM, cold ones
   are demoted to the disk, and games get VRAM back on demand.
 - **Games:** ClassiCube locked at 60 fps (1080p, vsync); OpenArena timedemo median 50–60 fps,
-  with stalls of up to a second or more still in live play.
+  with stalls of up to a second or more still in live play. (2026-10-17: these were measured with
+  nothing on screen and are void; the valid numbers are in GAME-PLAN.md.)
 
 ## Memory: the central problem
 
@@ -177,7 +223,8 @@ Task numbers refer to the session task list. "Reboot" marks steps that need one.
 
 ### Next: memory
 
-3. **Release kernel config** (reboot). From KERNEL-MEMORY.md, measured: `STRICT_KERNEL_RWX=n`
+3. ~~**Release kernel config**~~ (reboot): done 2026-10-16, the `ps3-release` flavour, `MemTotal`
+   +8.7 MB measured (KERNEL-MEMORY.md section 4). From KERNEL-MEMORY.md, measured: `STRICT_KERNEL_RWX=n`
    (−6.0 MB of padding), `KALLSYMS_ALL=n` (−1.0 MB, −0.6 MB in modules), drop IPv6, io_uring,
    quota, kexec, hugetlbfs, NFSv4 as a module (−1.0 MB), smaller log buffer, no dynamic debug,
    IKCONFIG or debugfs (−1.1 MB). Total −8.7 MB. Keep `SLUB_DEBUG` (99 KB, gives slabinfo) and
@@ -189,6 +236,9 @@ Task numbers refer to the session task list. "Reboot" marks steps that need one.
    wallpaper out of the 8 MB shared segment (in VRAM, or a solid colour); unload `cfg80211`
    when Wi-Fi is unused; `systemd-networkd` duplicates NetworkManager here; journal size limit;
    the seccomp filters of services that don't need them (1 MB). Re-measure the budget after.
+   (2026-10-17, the user's rule in CLAUDE.md "Memory trims": nothing a desktop user expects is
+   disabled for good; the memory comes from game mode instead. The wallpaper now leaves in game
+   mode, and the services' memory is pushed to swap there. The system trims of this item wait.)
 6. **Validator safety:** the vertex-texture methods 0x900–0x97c are allowed with unchecked data;
    a bad setup could wedge the GPU. Check them like the fragment texture units.
 
@@ -198,20 +248,26 @@ Task numbers refer to the session task list. "Reboot" marks steps that need one.
    step 0"): compressed textures save 11-14 MB of VRAM but Mesa's PPE encoder adds 1.1-1.5 s of
    load and 150-300 ms hitches during play (not shipped; libspeq's encoder next); sound costs
    ~10% of the frame rate and no OpenAL or game setting changes that. Left: `s_khz 11`,
-   ClassiCube view distance.
+   ClassiCube view distance. (2026-10-17: step 0's game numbers are void, nothing reached the
+   screen; OpenAL Soft measured since at 3.7-4.7% of a game's samples, SPU-OFFLOAD-PLAN.md.)
 8. **OpenArena file I/O:** build ioquake3 ourselves (`-mcpu=cell`, pinned, like ClassiCube);
    load player models at map start (`cg_deferPlayers` made no difference: the loads happen when
    bots appear); stop the per-file search through the home and base directories before the
    pk3s (~1300 failed opens per 10 s of play, now the main source of disk stalls with code
-   faults); listen on the TV; DS3 bindings in play.
-9. **Driver CPU cost:** `ps3rsx_validate` + `ps3rsx_shadow_write` are ~15% of ClassiCube's CPU;
-   Mesa's per-draw state work (fence and BO refs per draw) next.
+   faults); listen on the TV; DS3 bindings in play. (2026-10-17: ioquake3 is our package now;
+   0011-0018 cut the engine's and renderer_opengl1's CPU time: no shader-script rescan, no crc32 of
+   pk3 entries, libdeflate, AltiVec, sounds loaded when played. Built, not run on the PS3 yet.)
+9. ~~**Driver CPU cost**~~: done 2026-10-17 for now: ps3rsx 0.249 (validator fast path, shadow
+   per burst, dirty bitmaps) and Mesa patches 0015-0031 (GAME-PLAN.md "Performance work done").
+   What is left of the CPU is mostly per-call work in the games, which batching in the games cuts.
 
 ### Later: SPUs (compute instead of memory)
 
-**Parked 2026-10-16** for the game suite and its driver work (GAME-SUITE.md). Done: the
-measurement harness, libspeq (runtime, queue, probes) and the SPU DXT1 encoder behind Mesa (items
-10-12's DXT part). The status and what comes back first: SPU-OFFLOAD-PLAN.md.
+**Parked 2026-10-16** for the game suite and its driver work (GAME-SUITE.md), **resumed
+2026-10-17** ordered by what the CPU-bound games spend. Done: the measurement harness, libspeq
+(runtime, queue, probes) and the SPU DXT1 encoder behind Mesa (items 10-12's DXT part); fluidsynth's
+voice DSP on the SPEs (measured, second version built); skinning (built). OpenAL Soft's mixer stays
+on the PPE (under the 6% bar). The status: SPU-OFFLOAD-PLAN.md. Item 10's probes are still open.
 
 10. **Probes first** (RSX-SPU-FEASIBILITY.md "Recommended experiments"):
     - E8b: what lv1 keeps of `ioremap_wc` (read the HPTE back), 16-byte stores, pre-touched;
@@ -263,8 +319,9 @@ Only when content needs them (OpenArena and ClassiCube don't):
   isn't on NFS.
 - **Distribution:** sign and host the apt repository; the SPU and PPE toolchains could ship
   from it. `make iso` and the installer (OtherOS++ region; ps3da/db/dc never written).
-- **Game suite: the current work** (docs/GAME-PLAN.md, one stage per game, grouped from "runs as
-  packaged" to "needs the most driver work"; research in docs/GAME-SUITE.md): stage 0 is the
+- **Game suite: the current work** (docs/GAME-PLAN.md; baseline done 2026-10-17, every game has run;
+  now the performance and memory phase above). One stage per game, grouped from "runs as
+  packaged" to "needs the most driver work"; research in docs/GAME-SUITE.md: stage 0 is the
   runner (`games/bench/`, `make bench-push`) and the `ps3-games` metapackage; then dsda-doom,
   X-Moto, Neverball, Extreme Tux Racer, Armagetron; QuakeSpasm, Yamagi Quake II; OpenTTD,
   Sauerbraten, Luanti; SuperTuxKart (legacy GL), OpenArena opengl2. Driver bugs are ranked by how
