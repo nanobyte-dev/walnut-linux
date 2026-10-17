@@ -5,9 +5,21 @@
 #   on   1. a watcher (ps3-game-mode-watch.service) that undoes all of it once the guard's pid is
 #           gone, whatever happened to the guard (its ExecStopPost: `thaw`)
 #        2. units no game needs (FREEZE_UNITS, the running ones) frozen and their memory reclaimed
+#        3. the other system services' anonymous memory pushed to swap (RECLAIM_SYSTEM=1); they
+#           keep running and fault back in what they use, a few ms the first time
+#        4. GAME_SYSCTLS set (none by default; restored after): kernel settings to measure
+#           for games, e.g. "vm.swappiness=100 vm.watermark_scale_factor=100"
+#        5. the page cache dropped (DROP_CACHES=1: unmapped pages only, so running programs keep
+#           their code): the CMA area the GART grows into is then free, not page cache to
+#           migrate first, and the game's loading doesn't wait on reclaim
+#        6. memory compacted (COMPACT=1): the GART and the VRAM swap work in 1 MB chunks
 #   off  stops the watcher, which thaws everything (and thaws once more itself)
 # Settings: /etc/default/ps3-game-mode (shell; not shipped, these are the defaults).
 FREEZE_UNITS="udisks2.service polkit.service blueman-mechanism.service"
+RECLAIM_SYSTEM=1
+GAME_SYSCTLS=
+DROP_CACHES=1
+COMPACT=1
 [ -r /etc/default/ps3-game-mode ] && . /etc/default/ps3-game-mode
 SELF=/usr/lib/ps3/sbin/ps3-game-mode
 R=/run/ps3-game-mode
@@ -21,9 +33,32 @@ reclaim() {
 	timeout 30 sh -c 'echo "$1" > "$2/memory.reclaim"' - "$cur" "$1" 2>/dev/null
 }
 
+reclaim_anon() {	# anonymous memory only, for running services
+	anon=$(awk '$1 == "anon" { print $2 }' "$1/memory.stat" 2>/dev/null)
+	[ -n "$anon" ] && timeout 30 sh -c 'echo "$1 swappiness=200" > "$2/memory.reclaim"' - "$anon" "$1" 2>/dev/null
+	return 0
+}
+
+sysctls_on() {	# GAME_SYSCTLS; the values before are saved first, once (a second on keeps them)
+	[ -n "$GAME_SYSCTLS" ] && [ ! -e $R/sysctl ] || return 0
+	: > $R/sysctl.new
+	for kv in $GAME_SYSCTLS; do
+		k=${kv%%=*} v=${kv#*=}
+		case $k/$v in vm.*/*[!0-9]*|vm.*/|vm.*=*) ;; vm.*) old=$(sysctl -n "$k") || continue
+			case $old in ''|*[!0-9]*) ;; *) echo "$k=$old" >> $R/sysctl.new; sysctl -q -w "$k=$v"; continue ;; esac ;;
+		esac
+		echo "ps3-game-mode: $kv: only vm.* settings with one number" >&2
+	done
+	mv $R/sysctl.new $R/sysctl
+}
+
 thaw() {	# only what on froze (a unit someone else froze stays so)
 	for u in $(cat $R/frozen 2>/dev/null); do systemctl thaw "$u" 2>/dev/null; done
 	rm -f $R/frozen
+	if [ -e $R/sysctl ]; then
+		for kv in $(cat $R/sysctl); do sysctl -q -w "$kv"; done
+		rm -f $R/sysctl
+	fi
 }
 
 on() {
@@ -43,6 +78,10 @@ on() {
 		echo "$u" >> $R/frozen
 		reclaim "$SYS/$u"
 	done
+	[ "$RECLAIM_SYSTEM" = 1 ] && reclaim_anon $SYS
+	sysctls_on
+	[ "$DROP_CACHES" = 1 ] && echo 1 > /proc/sys/vm/drop_caches
+	[ "$COMPACT" = 1 ] && echo 1 > /proc/sys/vm/compact_memory
 	true
 }
 
