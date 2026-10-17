@@ -2,9 +2,10 @@
 # Grabs one frame of the PS3's screen from the webcam pointed at the monitor.
 #   tools/webcam-grab.sh [out.jpg]      (default build/tmp/screen.jpg)
 # Camera settings are the ones that work in OBS (manual exposure, fixed white balance);
-# auto settings give a washed-out mess. Env: WEBCAM (default /dev/video1).
+# auto settings give a washed-out mess. Env: WEBCAM (default: the BRIO's capture node by id, which stays
+# the same across reboots; /dev/videoN numbers do not).
 set -euo pipefail
-DEV=${WEBCAM:-/dev/video1}
+DEV=${WEBCAM:-$(ls /dev/v4l/by-id/*-video-index0 2>/dev/null | head -1)}
 OUT=${1:-build/tmp/screen.jpg}
 mkdir -p "$(dirname "$OUT")"
 python3 -I - "$DEV" <<'PY'

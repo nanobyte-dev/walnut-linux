@@ -26,7 +26,7 @@ ssh -i "$HOME/.ssh/id_ps3" -o UserKnownHostsFile=build/ps3_known_hosts -o Connec
 while read -r ev d; do
 	name=$(basename "$d")
 	case "$ev" in
-	NEW) ( prev=0
+	NEW) ( trap - EXIT; prev=0	# not the main trap: it would delete $mark when this subshell ends
 		for s in "${offsets[@]}"; do
 			sleep $((s - prev)); prev=$s
 			[ -e "$mark/$name" ] && exit 0	# the run ended before this photo
