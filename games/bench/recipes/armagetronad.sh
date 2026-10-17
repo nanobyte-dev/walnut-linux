@@ -24,3 +24,5 @@ HUD_SKIP=10
 variant_record() { CMD=(/usr/games/armagetronad --record /var/tmp/armagetronad-bench.aarec); DURATION=90; }
 # the first-run screen and tutorial game, live (the old smoke test)
 variant_live() { CMD=(/usr/games/armagetronad); DURATION=45; HUD_SKIP=15; }
+# Mesa 0020 off (texture caches invalidated on every draw, as before ps3.262): bisects its cost
+variant_texinv() { ENV+=(NV30_TEX_INVALIDATE_ALWAYS=1); }
