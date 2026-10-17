@@ -601,6 +601,10 @@ run on the PS3 yet; "estimate" marks numbers nobody measured here.
 - **Types.** Debian builds with doubles (`enable-floats` off: `fluid_real_t` is double); the
   filter coefficients are float. fluidsynth compiles `fluid_iir_filter_impl.cpp` with
   `-ffast-math` (src/CMakeLists.txt:259), so the filter's rounding is the compiler's choice.
+- **Measured** (SPU-OFFLOAD-PLAN.md, 2026-10-17, our +ps3.270 with its dbgsym, dsda-doom
+  `play`): libfluidsynth 48.3% of the process's samples: `fluid_rvoice_dsp_interpolate` 31.1%,
+  `fluid_iir_filter_apply` 7.9%, `fluid_rvoice_buffers_mix` 4.2%, `fluid_rvoice_write` (the
+  control part) 2.2%. The DSP that moves is ~43 of the 48 points.
 - **What is per voice, block-sized and SIMD-friendly:** the whole DSP part. What stays: event
   handling, voice allocation and stealing, SoundFont lookups and the modulators (fluid_voice.c,
   on the synth thread), the control part above, reverb and chorus (serial state of tens of KB,
