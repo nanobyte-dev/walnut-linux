@@ -8,6 +8,9 @@
 # World and config live in /var/tmp/ps3-bench/luanti (the player's ~/.minetest worlds and
 # minetest.conf are untouched). The world is made new for every run, so each run generates the
 # same terrain (mapgen CPU time counts, as for a player exploring); variant saved keeps the last map.
+# The mod also logs the process's memory every 5 s; parse() turns it into mem_* keys (KiB). The
+# other variants (below) change one memory or load-stall lever each; docs/GAME-PLAN.md has the
+# reasoning, the sizes assumed for each, and the measurements.
 SUITE=1
 COMM=luanti
 LU_DIR=/var/tmp/ps3-bench/luanti
@@ -15,6 +18,7 @@ LU_WORLD=$LU_DIR/world
 LU_CONF=$LU_DIR/bench.conf
 LU_FRESH=1
 LU_SET=()	# extra "key = value" lines for bench.conf (variants)
+LU_VIEW=60	# viewing_range
 setup() {
 	[ "$LU_FRESH" = 1 ] && rm -rf -- "${LU_WORLD:?}"
 	mkdir -p "$LU_WORLD/worldmods"
@@ -25,10 +29,11 @@ setup() {
 		> "$LU_WORLD/world.mt"
 	# Luanti writes its settings back into this file on exit: made new every run
 	printf '%s\n' "video_driver = opengl" "fullscreen = true" "screen_w = 1920" "screen_h = 1080" \
-		"autosave_screensize = false" "viewing_range = 60" "vsync = false" "fps_max = 1000" \
+		"autosave_screensize = false" "viewing_range = $LU_VIEW" "vsync = false" "fps_max = 1000" \
 		"fps_max_unfocused = 1000" "mg_name = v7" "fixed_map_seed = 20261017" "creative_mode = true" \
 		"enable_damage = false" "disable_anticheat = true" "server_announce = false" \
-		"ps3bench_warmup = 15" "ps3bench_seconds = 45" "${LU_SET[@]}" > "$LU_CONF"
+		"ps3bench_warmup = 15" "ps3bench_seconds = 45" "secure.trusted_mods = ps3bench" \
+		"${LU_SET[@]}" > "$LU_CONF"
 }
 CMD=(/usr/games/luanti --go --world "$LU_WORLD" --config "$LU_CONF")
 LOAD_MARK='ps3bench: path start'
@@ -43,6 +48,21 @@ parse() {
 		[[ $l == *"ps3bench: joined"* ]] && { join=${BASH_REMATCH[1]}; break; }
 	done < "$D/game.log"
 	[ -n "$join" ] && echo "joined=$(( $(date -d "$join" +%s) - $(date -d "$first" +%s) ))"
+	# the mod's "ps3bench: mem <start|tick|end> lua=.. vmrss=.. rssanon=.. rssfile=.. vmswap=.. vmhwm=.."
+	# lines (KiB): the samples at path start and end, and the highest of every 5 s tick
+	local kv key v max_rss=0 max_lua=0 lab fields
+	while IFS= read -r l; do
+		[[ $l =~ ps3bench:\ mem\ ([a-z]+)\ (.*)$ ]] || continue
+		lab=${BASH_REMATCH[1]}; fields=${BASH_REMATCH[2]}
+		for kv in $fields; do
+			key=${kv%%=*}; v=${kv#*=}
+			[ "$lab" != tick ] && echo "mem_${lab}_$key=$v"
+			[ "$key" = vmrss ] && [ "$v" -gt "$max_rss" ] && max_rss=$v
+			[ "$key" = lua ] && [ "$v" -gt "$max_lua" ] && max_lua=$v
+		done
+	done < "$D/game.log"
+	[ "$max_rss" -gt 0 ] && echo "mem_max_vmrss=$max_rss"
+	[ "$max_lua" -gt 0 ] && echo "mem_max_lua=$max_lua"
 }
 # the map from the previous run: loaded from disk instead of generated
 variant_saved() { LU_FRESH=0; }
@@ -50,3 +70,93 @@ variant_saved() { LU_FRESH=0; }
 variant_nopp() { LU_SET+=("enable_post_processing = false"); }
 # mipmapping on (off by default): Mesa generates the levels on the GPU
 variant_mip() { LU_SET+=("mip_map = true"); }
+
+# --- memory and load-stall variants. One lever each, so a run isolates it; lean/leaner combine them.
+# Sizes are estimates from the source (Luanti 5.15.2), not measurements yet. The PS3 runs one emerge
+# thread and one mesh thread already (both counts are derived from the CPU count and RAM), so there
+# is no thread lever. Settings that cannot matter at the benchmark's viewing_range = 60 are not
+# variants: max_block_send_distance (12 blocks, the client asks for ceil(60/16)+1 = 5), emergequeue_*.
+
+# Mapgen. The built-in server generates a whole chunk at a time (chunksize 5 = 80^3 nodes) inside a
+# voxel manipulator that is one block larger on every side (7^3 blocks: 5.6 MB of nodes, 1.4 MB of
+# flags, 343 MapBlocks of 16 KB created in the map), with v7's two 3D noises kept for good (2 x
+# 4.2 MB) and the cave noises made and freed per chunk (2 x 4.2 MB): ~30 MB at the peak, all
+# touched for every chunk. chunksize 3 (48^3) is ~8 MB. A world-creation setting (a new world
+# here): the terrain's shape is the same, trees and ores near chunk borders differ; the border
+# is a bigger share of each chunk (5^3 blocks processed per 3^3 instead of 7^3 per 5^3), so
+# generation costs more CPU per node.
+variant_chunk3() { LU_SET+=("chunksize = 3"); }
+# The server keeps a block 29 s after the last time it was wanted (generated chunks include blocks
+# nobody is sent: out of view, air, underground) and saves it on unloading. 8 s keeps what the
+# flight is still using (the active and send ranges refresh the timer).
+variant_srvunload() { LU_SET+=("server_unload_unused_data_timeout = 8"); }
+# Blocks within active_block_range (default 4: 9^3 = 729 blocks) are loaded from the database and
+# kept alive for ABMs and mobs; 2 is 5^3 = 125 (Luanti's own Android default).
+variant_active2() { LU_SET+=("active_block_range = 2"); }
+# Generate no further than 3 blocks (48 nodes) from the player; blocks beyond that are sent only
+# when they already exist (chunks generated whole still reach ~4 blocks further). Far terrain
+# appears later or only as the player comes closer: watch for gaps at the edge of the view.
+variant_gen3() { LU_SET+=("max_block_generate_distance = 3"); }
+# Save less often and without a full fsync per commit (sqlite_synchronous 1 = NORMAL, Android's
+# value, instead of FULL; map_save_interval 15 s instead of 5.3). The PS3's disk takes one
+# command at a time, so a world save can hold up page faults.
+variant_io() { LU_SET+=("sqlite_synchronous = 1" "server_map_save_interval = 15"); }
+
+# Client map. The client keeps every block it was sent that is within the view range of the camera
+# (all around, not only the frustum) and the others for client_unload_unused_data_timeout (600 s)
+# up to client_mapblock_limit (7500 blocks, "about 120 MB" says the source) or the number of blocks
+# in a view-range sphere, whichever is larger (3600 at the default range 190, 268 at 60): a
+# 45 s flight cannot show this, a 10 minute session can. 15 s makes the flight drop what it left
+# behind (about 60 nodes behind after ~9 s) and so shows the saving; blocks seen again are re-sent.
+variant_cliunload() { LU_SET+=("client_unload_unused_data_timeout = 15" "client_mapblock_limit = 800"); }
+# Every block's mesh is kept twice: S3DVertex (36 B, 4 per quad) and u16 indices in Irrlicht's
+# CPU buffer, and the VBO. Fancy leaves draw every face between leaf nodes; simple draws only the
+# outer ones (Android's default). Changes the look of trees.
+variant_leaves() { LU_SET+=("leaves_style = simple"); }
+# smooth_lighting asks for 26 neighbours to be re-meshed whenever a block arrives, 6 without it
+# (performance_tradeoffs keeps the lighting and re-meshes 6; edges may be wrong for a moment).
+variant_tradeoff() { LU_SET+=("performance_tradeoffs = true"); }
+variant_flatlight() { LU_SET+=("smooth_lighting = false"); }
+# The minimap thread, its per-block copy (2 KB a block) and the mesh thread's scan for it.
+variant_nominimap() { LU_SET+=("enable_minimap = false"); }
+# Fewer blocks everywhere (about the square of the range): 40 and 90 around the 60 of the base.
+variant_view40() { LU_VIEW=40; }
+variant_view90() { LU_VIEW=90; }
+
+# Stalls while blocks arrive. renderMap merges every mesh buffer of under 300 vertices of the
+# visible blocks into new buffers (copy, new VBO with EHM_STREAM), cached by the exact set of
+# buffers: while blocks arrive or the camera turns the set changes and the merge is redone, with
+# VBOs of up to 65535 vertices (2.3 MB) created and destroyed, in a driver and memory where both
+# are expensive. 0 turns it off (more draw calls); 100 merges only the smallest.
+variant_nomerge() { LU_SET+=("mesh_buffer_min_vertices = 0"); }
+variant_merge100() { LU_SET+=("mesh_buffer_min_vertices = 100"); }
+# The mesh thread sleeps this many ms after each mesh ("reduces jitter on slower clients"): leaves
+# the two hardware threads to the renderer and the server while blocks arrive.
+variant_meshdelay() { LU_SET+=("mesh_generation_interval = 10"); }
+# One mesh and one buffer set per 2^3 blocks: an eighth of the VBOs and draw calls, but a block
+# arriving re-meshes eight.
+variant_meshchunk2() { LU_SET+=("client_mesh_chunk = 2"); }
+# Occlusion culling by raycasts in the render thread, every time the draw list is rebuilt.
+variant_noraycull() { LU_SET+=("enable_raytraced_culling = false"); }
+
+# Post-processing (variant nopp above) renders the scene into a 1920x1080 colour and depth texture
+# (~16 MB of VRAM) and draws it back through the second_stage shader; the post-processing
+# bits (10) don't change the size.
+
+# glibc's malloc. Threads have their own arenas, and a freed block inside one stays resident: dirty
+# garbage the kernel swaps out. The mapgen's 2-8 MB arrays, the voxel manipulator and the mesh
+# vectors are above the 128 KB mmap threshold only until the first big free raises it (up to 32
+# MB); with the threshold fixed they are mmapped and returned when freed. Luanti's own
+# malloc_trim() (porting.cpp) waits until 256 MB were freed in all. Environment only, no rebuild.
+variant_malloc() { ENV+=(MALLOC_ARENA_MAX=2 MALLOC_MMAP_THRESHOLD_=65536 MALLOC_TRIM_THRESHOLD_=1048576); }
+
+# Combinations. lean: no change a player would notice (the view range and mapgen shape stay);
+# leaner: also simple leaves, no minimap, no buffer merging, a mesh delay.
+variant_lean() {
+	variant_nopp; variant_chunk3; variant_srvunload; variant_active2; variant_cliunload
+	variant_io; variant_malloc
+}
+variant_leaner() {
+	variant_lean; variant_leaves; variant_tradeoff; variant_nominimap; variant_nomerge
+	variant_meshdelay
+}
