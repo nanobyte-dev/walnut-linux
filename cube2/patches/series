@@ -4,3 +4,6 @@
 0004-Sky-boxes-and-cube-maps-from-their-.dds-and-one-side.patch
 0005-Free-the-lightmaps-CPU-copies-once-uploaded.patch
 0006-CPU-skinning-through-libspeq-on-the-PS3-s-SPEs.patch
+0007-Do-not-send-shader-uniforms-whose-value-did-not-chan.patch
+0008-Bind-the-textures-of-a-batch-in-one-go-glbatchtmu.patch
+0009-Upload-only-the-particles-that-exist-glpartvbo.patch

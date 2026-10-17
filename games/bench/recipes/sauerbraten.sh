@@ -132,3 +132,16 @@ variant_ppeskin() { variant_gun; ENV+=(SPEQ_SKIN=ppe SPEQ_DEBUG=1); }
 variant_offskin() { variant_gun; ENV+=(SPEQ_SKIN=off); }
 # the recorded demo (recipe header), if assets/sauerbraten-bench.dmo exists: the same counters
 variant_demo() { SB_DEMO=$ASSETS/sauerbraten-bench.dmo; BACKUP+=("$SB_HOME/demo/bench.dmo"); sb_cmd; }
+# Fewer GL calls per frame (our cube2 0007-0009, each behind a cvar that is 1 by default; on cave under
+# llvmpipe as GL 2.1 without GL_EXT_gpu_shader4, like the PS3: 1657 GL calls and 199 draws a frame with
+# all off, 1300 and 199 with all on, with the hud gun; the same pixels). Each variant turns one off, to
+# see what it is worth:
+# slot and global shader uniforms sent only when their value changed (gluniformcache)
+variant_nouni() { SB_SET+=("gluniformcache 0"); }
+# a batch's textures bound together, right before its draw, a glActiveTexture per unit that changes
+# (glbatchtmu)
+variant_notmu() { SB_SET+=("glbatchtmu 0"); }
+# particle vertices uploaded by renderers that have particles only, one glBufferData each (glpartvbo)
+variant_nopart() { SB_SET+=("glpartvbo 0"); }
+# all of them off: the drawing of ps3.315 and before
+variant_allbatchoff() { SB_SET+=("gluniformcache 0" "glbatchtmu 0" "glpartvbo 0"); }

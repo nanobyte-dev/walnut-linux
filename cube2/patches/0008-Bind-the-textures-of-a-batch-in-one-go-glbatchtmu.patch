@@ -1,0 +1,186 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 22:11:32 +0300
+Subject: Bind the textures of a batch in one go (glbatchtmu)
+
+The world batches selected a texture unit for each bind (glActiveTexture, glBindTexture) and went back to unit 0 after the textures of a slot and after the lightmaps, so a batch that changed its lightmap, its normal-map lightmap and the textures of its slot made up to 8 glActiveTexture calls, most of them to the unit that was active already or to one that was selected again a call later (288 a frame on cave).
+
+With glbatchtmu 1 (the default) changeslottmus and changebatchtmus only note the binds that changed, and renderbatch issues them right before the draw of the batch: the unit that is active first, then the others in order, one glActiveTexture for each unit that changes. renderbatches returns to unit 0 once, at its end. GL's state at every draw is the same. 0 is the old code.
+
+diff --git a/engine/renderva.cpp b/engine/renderva.cpp
+--- a/engine/renderva.cpp
++++ b/engine/renderva.cpp
+@@ -841,6 +841,9 @@ struct renderstate
+     vec colorscale, lightcolor;
+     float alphascale;
+     GLuint textures[8];
++    GLenum pendtargets[8];  // glbatchtmu: binds not issued yet, by unit (textures[] already has them)
++    uint pendmask;
++    int activetmu;
+     Slot *slot, *texgenslot;
+     VSlot *vslot, *texgenvslot;
+     vec2 texgenscroll;
+@@ -848,12 +851,48 @@ struct renderstate
+     int visibledynlights;
+     uint dynlightmask;
+ 
+-    renderstate() : colormask(true), depthmask(true), blending(false), alphaing(0), vbuf(0), vattribs(false), vquery(false), colorscale(1, 1, 1), alphascale(0), slot(NULL), texgenslot(NULL), vslot(NULL), texgenvslot(NULL), texgenscroll(0, 0), texgendim(-1), visibledynlights(0), dynlightmask(0)
++    renderstate() : colormask(true), depthmask(true), blending(false), alphaing(0), vbuf(0), vattribs(false), vquery(false), colorscale(1, 1, 1), alphascale(0), slot(NULL), texgenslot(NULL), vslot(NULL), texgenvslot(NULL), texgenscroll(0, 0), texgendim(-1), visibledynlights(0), dynlightmask(0), pendmask(0), activetmu(0)
+     {
+-        loopk(8) textures[k] = 0;
++        loopk(8) { textures[k] = 0; pendtargets[k] = GL_TEXTURE_2D; }
+     }
+ };
+ 
++// glbatchtmu: the textures of a batch are bound only before the batch's draw, the unit that is active
++// first and then the others in order, one glActiveTexture for each unit that changes, and the unit goes back to 0 once after the last batch
++// (the stock code selects the unit for each bind and goes back to 0 after each group of them)
++VAR(glbatchtmu, 0, 1, 1);
++
++static inline void bindtmu(renderstate &cur, int tmu, GLenum target, GLuint id)
++{
++    cur.textures[tmu] = id;
++    cur.pendtargets[tmu] = target;
++    cur.pendmask |= 1<<tmu;
++}
++
++static void flushtmus(renderstate &cur)
++{
++    // the unit that is active already first, then the others in order
++    int tmu = cur.activetmu;
++    for(;;)
++    {
++        if(cur.pendmask&(1<<tmu))
++        {
++            cur.pendmask &= ~(1<<tmu);
++            if(cur.activetmu != tmu) glActiveTexture_(GL_TEXTURE0 + (cur.activetmu = tmu));
++            glBindTexture(cur.pendtargets[tmu], cur.textures[tmu]);
++        }
++        if(!cur.pendmask) break;
++        tmu = 0;
++        while(!(cur.pendmask&(1<<tmu))) tmu++;
++    }
++}
++
++static inline void resettmu(renderstate &cur)
++{
++    flushtmus(cur);
++    if(cur.activetmu) glActiveTexture_(GL_TEXTURE0 + (cur.activetmu = 0));
++}
++
+ static inline void disablevbuf(renderstate &cur)
+ {
+     gle::clearvbo();
+@@ -1063,18 +1102,26 @@ static void changebatchtmus(renderstate &cur, int pass, geombatch &b)
+     int lmid = brightengeom && (b.es.lmid < LMID_RESERVED || (fullbright && editmode)) ? LMID_BRIGHT : b.es.lmid; 
+     if(cur.textures[1]!=lightmaptexs[lmid].id)
+     {
+-        glActiveTexture_(GL_TEXTURE1);
+-        glBindTexture(GL_TEXTURE_2D, cur.textures[1] = lightmaptexs[lmid].id);
+-        changed = true;
++        if(glbatchtmu) bindtmu(cur, 1, GL_TEXTURE_2D, lightmaptexs[lmid].id);
++        else
++        {
++            glActiveTexture_(GL_TEXTURE1);
++            glBindTexture(GL_TEXTURE_2D, cur.textures[1] = lightmaptexs[lmid].id);
++            changed = true;
++        }
+     }
+     int tmu = 2;
+     if(b.vslot.slot->shader->type&SHADER_NORMALSLMS)
+     {
+         if(cur.textures[tmu]!=lightmaptexs[lmid+1].id)
+         {
+-            glActiveTexture_(GL_TEXTURE0+tmu);
+-            glBindTexture(GL_TEXTURE_2D, cur.textures[tmu] = lightmaptexs[lmid+1].id);
+-            changed = true;
++            if(glbatchtmu) bindtmu(cur, tmu, GL_TEXTURE_2D, lightmaptexs[lmid+1].id);
++            else
++            {
++                glActiveTexture_(GL_TEXTURE0+tmu);
++                glBindTexture(GL_TEXTURE_2D, cur.textures[tmu] = lightmaptexs[lmid+1].id);
++                changed = true;
++            }
+         }
+         tmu++;
+     }
+@@ -1083,9 +1130,13 @@ static void changebatchtmus(renderstate &cur, int pass, geombatch &b)
+         GLuint emtex = lookupenvmap(b.es.envmap);
+         if(cur.textures[tmu]!=emtex)
+         {
+-            glActiveTexture_(GL_TEXTURE0+tmu);
+-            glBindTexture(GL_TEXTURE_CUBE_MAP, cur.textures[tmu] = emtex);
+-            changed = true;
++            if(glbatchtmu) bindtmu(cur, tmu, GL_TEXTURE_CUBE_MAP, emtex);
++            else
++            {
++                glActiveTexture_(GL_TEXTURE0+tmu);
++                glBindTexture(GL_TEXTURE_CUBE_MAP, cur.textures[tmu] = emtex);
++                changed = true;
++            }
+         }
+     }
+     if(changed) glActiveTexture_(GL_TEXTURE0);
+@@ -1103,7 +1154,10 @@ static void changeslottmus(renderstate &cur, int pass, Slot &slot, VSlot &vslot)
+     {
+         GLuint diffusetex = slot.sts.empty() ? notexture->id : slot.sts[0].t->id;
+         if(cur.textures[0]!=diffusetex)
+-            glBindTexture(GL_TEXTURE_2D, cur.textures[0] = diffusetex);
++        {
++            if(glbatchtmu) bindtmu(cur, 0, GL_TEXTURE_2D, diffusetex);
++            else glBindTexture(GL_TEXTURE_2D, cur.textures[0] = diffusetex);
++        }
+     }
+ 
+     if(cur.alphaing)
+@@ -1133,21 +1187,29 @@ static void changeslottmus(renderstate &cur, int pass, Slot &slot, VSlot &vslot)
+         {
+             if(envmaptmu>=0 && t.t && cur.textures[envmaptmu]!=t.t->id)
+             {
+-                glActiveTexture_(GL_TEXTURE0+envmaptmu);
+-                glBindTexture(GL_TEXTURE_CUBE_MAP, cur.textures[envmaptmu] = t.t->id);
++                if(glbatchtmu) bindtmu(cur, envmaptmu, GL_TEXTURE_CUBE_MAP, t.t->id);
++                else
++                {
++                    glActiveTexture_(GL_TEXTURE0+envmaptmu);
++                    glBindTexture(GL_TEXTURE_CUBE_MAP, cur.textures[envmaptmu] = t.t->id);
++                }
+             }
+         }
+         else 
+         {
+             if(cur.textures[tmu]!=t.t->id)
+             {
+-                glActiveTexture_(GL_TEXTURE0+tmu);
+-                glBindTexture(GL_TEXTURE_2D, cur.textures[tmu] = t.t->id);
++                if(glbatchtmu) bindtmu(cur, tmu, GL_TEXTURE_2D, t.t->id);
++                else
++                {
++                    glActiveTexture_(GL_TEXTURE0+tmu);
++                    glBindTexture(GL_TEXTURE_2D, cur.textures[tmu] = t.t->id);
++                }
+             }
+             if(++tmu >= 8) break;
+         }
+     }
+-    glActiveTexture_(GL_TEXTURE0);
++    if(!glbatchtmu) glActiveTexture_(GL_TEXTURE0);
+ 
+     cur.slot = &slot;
+     cur.vslot = &vslot;
+@@ -1210,6 +1272,7 @@ static void changetexgen(renderstate &cur, int dim, Slot &slot, VSlot &vslot)
+ 
+ static void renderbatch(renderstate &cur, int pass, geombatch &b)
+ {
++    if(cur.pendmask) flushtmus(cur);
+     geombatch *shadowed = NULL;
+     int rendered = -1;
+     for(geombatch *curbatch = &b;; curbatch = &geombatches[curbatch->batch])
+@@ -1292,6 +1355,7 @@ static void renderbatches(renderstate &cur, int pass)
+         renderbatch(cur, pass, b);
+     }
+ 
++    resettmu(cur);
+     resetbatches();
+ }
+ 

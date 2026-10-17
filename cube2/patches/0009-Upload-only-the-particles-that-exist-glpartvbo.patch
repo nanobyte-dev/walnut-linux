@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 22:11:32 +0300
+Subject: Upload only the particles that exist (glpartvbo)
+
+Every frame each of the particle renderers that draw their quads from a vertex buffer (about 16) bound its buffer, allocated one for the most particles it can hold (glBufferData with NULL), copied the live particles into it (glBufferSubData) and unbound it again, also the ones without a single particle, which are not drawn: about 60 GL calls a frame in a scene with few particles, and a new buffer allocation each, which is not cheap in the PS3's driver.
+
+With glpartvbo 1 (the default) a renderer without particles does nothing, and the others send their vertices with one glBufferData of their own size. 0 is the old code.
+
+diff --git a/engine/renderparticles.cpp b/engine/renderparticles.cpp
+--- a/engine/renderparticles.cpp
++++ b/engine/renderparticles.cpp
+@@ -648,6 +648,8 @@ inline void seedpos<PT_TRAIL>(particleemitter &pe, const vec &o, const vec &d, i
+     pe.extendbb(e, size); 
+ }
+ 
++VAR(glpartvbo, 0, 1, 1);
++
+ template<int T>
+ struct varenderer : partrenderer
+ {
+@@ -827,6 +829,19 @@ struct varenderer : partrenderer
+ 
+         genverts();
+ 
++        // glpartvbo: nothing is uploaded for a renderer without particles (render is not called for it),
++        // and the vertices go up with one glBufferData of their own size (not a glBufferData of the
++        // most particles it can hold and a glBufferSubData of those it has)
++        if(glpartvbo)
++        {
++            if(numparts <= 0) return;
++            if(!vbo) glGenBuffers_(1, &vbo);
++            gle::bindvbo(vbo);
++            glBufferData_(GL_ARRAY_BUFFER, numparts*4*sizeof(partvert), verts, GL_STREAM_DRAW);
++            gle::clearvbo();
++            return;
++        }
++
+         if(!vbo) glGenBuffers_(1, &vbo);
+         gle::bindvbo(vbo);
+         glBufferData_(GL_ARRAY_BUFFER, maxparts*4*sizeof(partvert), NULL, GL_STREAM_DRAW);

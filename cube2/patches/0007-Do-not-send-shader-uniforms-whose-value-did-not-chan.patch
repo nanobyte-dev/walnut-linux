@@ -1,0 +1,135 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 22:11:32 +0300
+Subject: Do not send shader uniforms whose value did not change
+ (gluniformcache)
+
+Per frame on the map cave (host, llvmpipe as GL 2.1 without GL_EXT_gpu_shader4, which is what the PS3 reports), 186 of the glUniform4fv calls were parameters of the slots: each slot change of the world batches sent all default parameters of its shader (specular and parallax scale, glow colour...) again, most of them the values the previous slot of that shader had left in the program. About 40 more were global parameters (colour scale, texgen scroll...) that the code sets for each batch: a set with the same value counted as a change, so every program in use uploaded it again.
+
+With gluniformcache 1 (the default) each slot parameter remembers what its program's uniform holds and skips an equal value (forgotten when the program is linked again), and GlobalShaderParam::set compares the new value with the old one before it marks the parameter as changed. 0 is the old behaviour.
+
+diff --git a/engine/shader.cpp b/engine/shader.cpp
+--- a/engine/shader.cpp
++++ b/engine/shader.cpp
+@@ -223,6 +223,7 @@ static void linkglslprogram(Shader &s, bool msg = true)
+         {
+             SlotShaderParamState &param = s.defaultparams[i];
+             param.loc = glGetUniformLocation_(s.program, param.name);
++            param.haslast = false;
+         }
+         loopv(s.uniformlocs) bindglsluniform(s, s.uniformlocs[i]);
+         glUseProgram_(0);
+@@ -438,8 +439,19 @@ static float *findslotparam(VSlot &s, const char *name, float *noval = NULL)
+     return findslotparam(*s.slot, name, noval);
+ }
+ 
++// gluniformcache: the program keeps a uniform's value, so one the slot's parameters set to the same
++// values as the last time (the previous slot of this shader, mostly) is not sent again
++VAR(gluniformcache, 0, 1, 1);
++
+ static inline void setslotparam(SlotShaderParamState &l, const float *val)
+ {
++    if(gluniformcache)
++    {
++        if(l.haslast && !memcmp(l.last, val, sizeof(l.last))) return;
++        memcpy(l.last, val, sizeof(l.last));
++        l.haslast = true;
++    }
++    else l.haslast = false;
+     switch(l.format)
+     {
+         case GL_BOOL:
+@@ -544,7 +556,7 @@ void Shader::cleanup(bool invalid)
+         loopi(MAXSHADERDETAIL) fastshader[i] = this;
+         reusevs = reuseps = NULL;
+     }
+-    else loopv(defaultparams) defaultparams[i].loc = -1;
++    else loopv(defaultparams) { defaultparams[i].loc = -1; defaultparams[i].haslast = false; }
+     owner = NULL;
+ }
+ 
+diff --git a/engine/texture.h b/engine/texture.h
+--- a/engine/texture.h
++++ b/engine/texture.h
+@@ -73,9 +73,11 @@ struct SlotShaderParam
+ struct SlotShaderParamState : LocalShaderParamState
+ {
+     float val[4];
++    float last[4];  // what the program's uniform holds (gluniformcache), valid while haslast
++    bool haslast;
+ 
+-    SlotShaderParamState() {}
+-    SlotShaderParamState(const SlotShaderParam &p)
++    SlotShaderParamState() : haslast(false) {}
++    SlotShaderParamState(const SlotShaderParam &p) : haslast(false)
+     {
+         name = p.name;
+         loc = -1;
+@@ -283,40 +285,52 @@ struct GlobalShaderParam
+ 
+     GlobalShaderParam(const char *name) : name(name), param(NULL) {}
+ 
+-    GlobalShaderParamState *resolve()
++    GlobalShaderParamState *lookup()
+     {
+         extern GlobalShaderParamState *getglobalparam(const char *name);
+         if(!param) param = getglobalparam(name);
+-        param->changed();
+         return param;
+     }
+ 
++    GlobalShaderParamState *resolve()
++    {
++        lookup()->changed();
++        return param;
++    }
++
++    // gluniformcache: a value equal to the one the shaders have already been given is not a change,
++    // so no program uploads it again
++    GlobalShaderParamState *resolvecmp(const void *val, size_t size)
++    {
++        extern int gluniformcache;
++        GlobalShaderParamState *g = lookup();
++        if(gluniformcache && !memcmp(g->buf, val, size)) return NULL;
++        g->changed();
++        return g;
++    }
++
+     void setf(float x = 0, float y = 0, float z = 0, float w = 0)
+     {
+-        GlobalShaderParamState *g = resolve();
+-        g->fval[0] = x;
+-        g->fval[1] = y;
+-        g->fval[2] = z;
+-        g->fval[3] = w;
++        const float v[4] = { x, y, z, w };
++        GlobalShaderParamState *g = resolvecmp(v, sizeof(v));
++        if(g) memcpy(g->fval, v, sizeof(v));
+     }
+     void set(const vec &v, float w = 0) { setf(v.x, v.y, v.z, w); }
+     void set(const vec2 &v, float z = 0, float w = 0) { setf(v.x, v.y, z, w); }
+     void set(const vec4 &v) { setf(v.x, v.y, v.z, v.w); }
+     void set(const plane &p) { setf(p.x, p.y, p.z, p.offset); }
+-    void set(const matrix2 &m) { memcpy(resolve()->fval, m.a.v, sizeof(m)); }
+-    void set(const matrix3 &m) { memcpy(resolve()->fval, m.a.v, sizeof(m)); }
+-    void set(const matrix4 &m) { memcpy(resolve()->fval, m.a.v, sizeof(m)); }
++    void set(const matrix2 &m) { GlobalShaderParamState *g = resolvecmp(m.a.v, sizeof(m)); if(g) memcpy(g->fval, m.a.v, sizeof(m)); }
++    void set(const matrix3 &m) { GlobalShaderParamState *g = resolvecmp(m.a.v, sizeof(m)); if(g) memcpy(g->fval, m.a.v, sizeof(m)); }
++    void set(const matrix4 &m) { GlobalShaderParamState *g = resolvecmp(m.a.v, sizeof(m)); if(g) memcpy(g->fval, m.a.v, sizeof(m)); }
+ 
+     template<class T>
+     void setv(const T *v, int n = 1) { memcpy(resolve()->buf, v, n*sizeof(T)); }
+ 
+     void seti(int x = 0, int y = 0, int z = 0, int w = 0)
+     {
+-        GlobalShaderParamState *g = resolve();
+-        g->ival[0] = x;
+-        g->ival[1] = y;
+-        g->ival[2] = z;
+-        g->ival[3] = w;
++        const int v[4] = { x, y, z, w };
++        GlobalShaderParamState *g = resolvecmp(v, sizeof(v));
++        if(g) memcpy(g->ival, v, sizeof(v));
+     }
+     void set(const ivec &v, int w = 0) { seti(v.x, v.y, v.z, w); }
+     void set(const ivec2 &v, int z = 0, int w = 0) { seti(v.x, v.y, z, w); }
