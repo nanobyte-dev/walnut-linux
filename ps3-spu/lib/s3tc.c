@@ -9,7 +9,8 @@
  * - ppe: the PPE encoder. off: -ENOTSUP (Mesa's encoder).
  * Both encoders give the same bytes. SPEQ_DEBUG=1: one line per call on stderr.
  *
- * The queue opens on the first SPU call, once per process, with a worker per SPE, and stays
+ * The queue opens on the first SPU call, once per process, as a bulk queue (a worker per SPE
+ * but the two left to audio, speq.h SPEQ_OPEN_BULK: 4 of 6), and stays
  * open (idle workers park after 10 ms and free their contexts after 5 s: queue.c). If it
  * can't open, or its workers die for good, the process uses the PPE from then on.
  * An image is cut into about one job per worker, whole block rows, at least JOB_MIN_PX pixels
@@ -111,7 +112,7 @@ static struct speq *get_queue(int *err, double *open_us)
 	pthread_mutex_lock(&qlock);
 	if (!queue && !qerr) {
 		t0 = spq_now_us();
-		ret = speq_open(&q, S3TC_PROG, 0, 0);
+		ret = speq_open(&q, S3TC_PROG, 0, SPEQ_OPEN_BULK);
 		*open_us = spq_now_us() - t0;
 		if (ret)
 			qerr = ret;

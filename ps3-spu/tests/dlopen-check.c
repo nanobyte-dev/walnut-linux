@@ -45,8 +45,38 @@ int main(int argc, char **argv)
 	abi = (unsigned (*)(void))dlsym(h, "speq_abi_version");
 	open_q = (int (*)(struct speq **, const char *, unsigned, unsigned))dlsym(h, "speq_open");
 	check(f && abi && open_q, "speq_s3tc_compress_v1, speq_abi_version, speq_open exported");
+	check(dlsym(h, "speq_wait_timeout") && dlsym(h, "speq_tune") && dlsym(h, "speq_nworkers"),
+	      "speq_wait_timeout, speq_tune, speq_nworkers exported");
+	check(dlsym(h, "speq_synth_open_v1") && dlsym(h, "speq_synth_begin_v1") &&
+	      dlsym(h, "speq_synth_submit_v1") && dlsym(h, "speq_synth_wait_v1") &&
+	      dlsym(h, "speq_synth_close_v1"), "speq_synth_*_v1 exported (fluidsynth's hook)");
 	check(!dlsym(h, "dxt1_ref_block") && !dlsym(h, "dxt1_ref_image") &&
-	      !dlsym(h, "spq_fail_job") && !dlsym(h, "spq_spufs"), "internals hidden");
+	      !dlsym(h, "spq_fail_job") && !dlsym(h, "spq_spufs") && !dlsym(h, "spq_synth_tune"),
+	      "internals hidden");
+	{
+		/* no spufs here: the synth can't open its queue (auto), the ppe path needs none */
+		int (*sopen)(struct speq_synth **, const struct speq_synth_params *) =
+			(int (*)(struct speq_synth **, const struct speq_synth_params *))
+			dlsym(h, "speq_synth_open_v1");
+		void (*sclose)(struct speq_synth *) =
+			(void (*)(struct speq_synth *))dlsym(h, "speq_synth_close_v1");
+		static double tab[1024] __attribute__((aligned(16)));
+		struct speq_synth_params p = { SPEQ_SYNTH_ABI, sizeof(struct speq_synth_voice), 4, 64,
+					       tab, tab };
+		struct speq_synth *s = (struct speq_synth *)&s;
+		const char *m = getenv("SPEQ_SYNTH");
+
+		if (sopen && sclose) {
+			ret = sopen(&s, &p);
+			if (m && !strcmp(m, "ppe"))
+				check(ret == 0 && s, "SPEQ_SYNTH=ppe: a synth without a queue");
+			else if (m && !strcmp(m, "off"))
+				check(ret == -ENOTSUP && !s, "SPEQ_SYNTH=off: -ENOTSUP");
+			else
+				check(ret < 0 && ret != -EPROTO && !s, "synth without spufs: an error");
+			sclose(s);
+		}
+	}
 	if (!f || !abi || !open_q)
 		return 1;
 	check(abi() == 2, "speq_abi_version() == 2");

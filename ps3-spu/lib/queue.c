@@ -393,7 +393,7 @@ int speq_open(struct speq **qp, const char *prog, unsigned nworkers, unsigned fl
 	if (!qp)
 		return -EINVAL;
 	*qp = NULL;
-	if (!prog || flags)
+	if (!prog || (flags & ~SPEQ_OPEN_BULK))
 		return -EINVAL;
 	q = calloc(1, sizeof(*q));
 	if (!q)
@@ -412,8 +412,24 @@ int speq_open(struct speq **qp, const char *prog, unsigned nworkers, unsigned fl
 			goto fail;
 		q->be = &spq_spufs;
 	}
-	/* never more workers than SPEs: an oversubscribed context waits for a time slice */
-	q->nworkers = nworkers && nworkers < nspe ? nworkers : nspe;
+	/* never more workers than SPEs: an oversubscribed context waits for a time slice. 0: the
+	 * SPEs no other open queue of this process holds (at least one); a bulk queue also leaves
+	 * SPEQ_DEADLINE_SPES to the deadline queues, open or not */
+	if (!nworkers) {
+		unsigned held = 0;
+		struct speq *o;
+
+		pthread_mutex_lock(&queues_lock);
+		for (o = queues; o; o = o->next)
+			if (!o->forked)
+				held += o->nworkers;
+		pthread_mutex_unlock(&queues_lock);
+		nworkers = held < nspe ? nspe - held : 1;
+		if ((flags & SPEQ_OPEN_BULK) && nspe > SPEQ_DEADLINE_SPES &&
+		    nworkers > nspe - SPEQ_DEADLINE_SPES)
+			nworkers = nspe - SPEQ_DEADLINE_SPES;
+	}
+	q->nworkers = nworkers < nspe ? nworkers : nspe;
 	if (q->nworkers > SPEQ_MAX_WORKERS)
 		q->nworkers = SPEQ_MAX_WORKERS;
 	ret = -ENOMEM;
@@ -551,6 +567,8 @@ int spq_wait_ex(struct speq *q, struct speq_done *done, int spin_us, long timeou
 		return -EIO;
 	if (spin_us < 0)
 		spin_us = q ? q->spin_us : SPIN_US;
+	if (timeout_us >= 0 && spin_us > timeout_us)
+		spin_us = timeout_us;
 	p = LOAD(&done->pending);
 	if ((p & ~SPEQ_WAITERS) && spin_us)
 		do {
@@ -558,17 +576,19 @@ int spq_wait_ex(struct speq *q, struct speq_done *done, int spin_us, long timeou
 			p = LOAD(&done->pending);
 		} while ((p & ~SPEQ_WAITERS) && spq_now_us() - t0 < spin_us);
 	while (p & ~SPEQ_WAITERS) {
-		/* the bit tells the last SPU to wake us; set before sleeping on that value */
-		if (!(p & SPEQ_WAITERS)) {
-			if (!CAS(&done->pending, &p, p | SPEQ_WAITERS))
-				continue;
-			p |= SPEQ_WAITERS;
-		}
+		/* out of time: leave without the waiters bit if we never slept (a poll costs the
+		 * SPU no futex wake) */
 		if (timeout_us >= 0) {
 			rem = t0 + timeout_us - spq_now_us();
 			if (rem <= 0)
 				return -ETIMEDOUT;
 			us_timespec(rem, &ts);
+		}
+		/* the bit tells the last SPU to wake us; set before sleeping on that value */
+		if (!(p & SPEQ_WAITERS)) {
+			if (!CAS(&done->pending, &p, p | SPEQ_WAITERS))
+				continue;
+			p |= SPEQ_WAITERS;
 		}
 		/* EAGAIN (changed), EINTR, spurious wakes: all just recheck */
 		futex(&done->pending, FUTEX_WAIT_PRIVATE, p, timeout_us >= 0 ? &ts : NULL);
@@ -582,6 +602,18 @@ int spq_wait_ex(struct speq *q, struct speq_done *done, int spin_us, long timeou
 int speq_wait(struct speq *q, struct speq_done *done)
 {
 	return spq_wait_ex(q, done, -1, -1);
+}
+
+int speq_wait_timeout(struct speq *q, struct speq_done *done, long timeout_us, unsigned flags)
+{
+	if (flags & ~SPEQ_WAIT_NOSPIN)
+		return -EINVAL;
+	return spq_wait_ex(q, done, flags & SPEQ_WAIT_NOSPIN ? 0 : -1, timeout_us < 0 ? -1 : timeout_us);
+}
+
+unsigned speq_nworkers(struct speq *q)
+{
+	return q ? q->nworkers : 0;
 }
 
 int speq_run(struct speq *q, const struct speq_job *job)
@@ -645,8 +677,15 @@ void speq_close(struct speq *q)
 	free_queue(q);
 }
 
+void speq_tune(struct speq *q, int spin_us, int idle_us, int free_ms)
+{
+	spq_tune(q, spin_us, idle_us, free_ms);
+}
+
 void spq_tune(struct speq *q, int spin_us, int idle_us, int free_ms)
 {
+	if (!q)
+		return;
 	if (spin_us >= 0)
 		q->spin_us = spin_us;
 	if (free_ms >= 0)

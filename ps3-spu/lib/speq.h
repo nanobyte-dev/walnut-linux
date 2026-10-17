@@ -38,8 +38,15 @@ struct speq_done {
 	uint32_t pad[30];
 } __attribute__((aligned(128)));
 
-/* Starts nworkers (0: one per SPE) workers running SPU program prog (a path, or a name in
- * /usr/lib/ps3/spu); flags: SPEQ_OPEN_* (none defined yet) */
+/* Starts nworkers workers running SPU program prog (a path, or a name in /usr/lib/ps3/spu),
+ * never more than the SPEs. nworkers 0: the SPEs no other open queue of this process holds
+ * (at least one), so services with their own queues share the six SPEs instead of having
+ * spufs time-slice them (80 ms slices: past any audio deadline).
+ * flags: SPEQ_OPEN_BULK, a queue of long jobs without deadlines (texture compression): with
+ * nworkers 0 it also leaves SPEQ_DEADLINE_SPES to deadline queues (audio: one worker each,
+ * opened before or after it), so their jobs never wait behind its jobs or for a time slice. */
+#define SPEQ_OPEN_BULK		1u
+#define SPEQ_DEADLINE_SPES	2
 int speq_open(struct speq **q, const char *prog, unsigned nworkers, unsigned flags);
 /* Queues n jobs; each counts on done (job.done is filled in). Any number: past the ring's 64
  * it waits for room. Callable from several threads. */
@@ -47,8 +54,23 @@ int speq_submit(struct speq *q, const struct speq_job *jobs, unsigned n, struct 
 /* Waits until done has no pending jobs; returns done->error (the first failure). Several
  * threads may wait on one done word. */
 int speq_wait(struct speq *q, struct speq_done *done);
+/* speq_wait with a deadline and a choice of spinning. timeout_us < 0: no deadline; 0: a poll.
+ * flags: SPEQ_WAIT_NOSPIN sleeps on the futex at once instead of spinning SPEQ_SPIN_US first
+ * (a thread sharing the PPE core with a game: the spin would take the game's cycles; the sleep
+ * costs ~62 us more latency, measured). Returns done->error once nothing is pending, or
+ * -ETIMEDOUT: the jobs still run, and done and every buffer they use stay theirs until a later
+ * speq_wait/speq_wait_timeout on done returns something else (keep them, or give them up
+ * without freeing). */
+#define SPEQ_WAIT_NOSPIN	1u
+int speq_wait_timeout(struct speq *q, struct speq_done *done, long timeout_us, unsigned flags);
 /* speq_submit of one job, then speq_wait */
 int speq_run(struct speq *q, const struct speq_job *job);
+/* Per-queue tunables (-1: unchanged): speq_wait's spin, the idle time before a worker parks
+ * (SPEQ_IDLE_US; a service with a steady job rate sets it above its period, so its workers stay
+ * resident), the time a parked worker keeps its context (SPEQ_FREE_MS) */
+void speq_tune(struct speq *q, int spin_us, int idle_us, int free_ms);
+/* The queue's workers (speq_open's choice) */
+unsigned speq_nworkers(struct speq *q);
 /* Stops the workers (a running job finishes first) and fails what is still queued */
 void speq_close(struct speq *q);
 
@@ -74,6 +96,101 @@ unsigned speq_abi_version(void);
  * otherwise), SPEQ_DEBUG=1 (one line per call on stderr). Safe to call from several threads. */
 int speq_s3tc_compress_v1(unsigned fmt, unsigned srccomps, const void *src, unsigned w,
 			  unsigned h, void *dst, unsigned dst_stride);
+
+/* --- MIDI synthesis: fluidsynth's voice DSP on the SPEs ---
+ * fluidsynth keeps its own control code (envelopes, LFOs, pitch, filter coefficients: its
+ * fluid_rvoice_write up to the DSP) and hands libspeq one block (SPEQ_SYNTH_BLOCK samples) of
+ * every voice to render: the sample interpolation (none, linear, 4th order), the IIR filters
+ * with the volume envelope, and the mix into the block's output lines (the mixer's buffers).
+ * The result equals fluidsynth's own fluid_rvoice_write_dsp + fluid_rvoice_buffers_mix of that
+ * block, voice by voice in the order given. Per block:
+ *   b = speq_synth_begin_v1(s)        NULL: render the block yourself
+ *   fill b->voice[0..n) (n <= b->cap), set b->sincos
+ *   speq_synth_submit_v1(s, b, n)     < 0: nothing queued, render all n yourself
+ *     then voices whose count is SPEQ_SYNTH_PPE weren't taken: render them now
+ *   speq_synth_wait_v1(s, b)          0: the others' count, phase, has_looped, filters and
+ *                                     cur_amp are their new state, b->out the sum of their mix;
+ *                                     < 0: render the others yourself (their state is as given)
+ * A block not waited for successfully is abandoned to its job (libspeq keeps it until the job
+ * ends); the next begin takes another. All policy is libspeq's: SPEQ_SYNTH=auto|spu|ppe|off
+ * (auto, the default: the SPEs for blocks of at least SPEQ_SYNTH_MIN voices (4), else -ENOTSUP
+ * from submit; spu: the SPEs for every block; ppe: libspeq's own C path, synchronous; off:
+ * speq_synth_open_v1 fails), SPEQ_SYNTH_SPES (workers, 1), SPEQ_SYNTH_JOB (voices per SPU job,
+ * 64), SPEQ_SYNTH_TIMEOUT_US (2000), SPEQ_SYNTH_SPIN_US (0: sleep at once), SPEQ_DEBUG=1 (a
+ * line of counters every 10 s and at close). Repeated failures put the SPEs aside for a while;
+ * a queue that broke for good, for the process. One synth per thread; synths share the queue. */
+
+#define SPEQ_SYNTH_ABI		1	/* layout of the structs below (the _v1 calls) */
+#define SPEQ_SYNTH_BLOCK	64	/* samples per block: FLUID_BUFSIZE */
+#define SPEQ_SYNTH_BUFS		4	/* mix buffers per voice: FLUID_RVOICE_MAX_BUFS */
+#define SPEQ_SYNTH_LINES	16	/* output lines at most */
+#define SPEQ_SYNTH_PPE		(-2)	/* a voice's count: not taken, the caller renders it */
+
+enum {	/* struct speq_synth_voice.interp */
+	SPEQ_SYNTH_NONE,		/* FLUID_INTERP_NONE */
+	SPEQ_SYNTH_LINEAR,		/* FLUID_INTERP_LINEAR */
+	SPEQ_SYNTH_CUBIC		/* FLUID_INTERP_4THORDER */
+};
+enum {	/* struct speq_synth_filter.type: fluid_iir_filter_type */
+	SPEQ_SYNTH_IIR_OFF,
+	SPEQ_SYNTH_IIR_LOWPASS,
+	SPEQ_SYNTH_IIR_HIGHPASS
+};
+#define SPEQ_SYNTH_IIR_NO_GAIN	1u	/* .flags: FLUID_IIR_NO_GAIN_AMP (no 1/sqrt(Q) gain) */
+
+/* fluid_iir_filter_t's DSP state, in and out */
+struct speq_synth_filter {
+	double hist1, hist2;
+	double last_fres, fres_incr;	/* cents */
+	double last_q, q_incr;
+	double amp, amp_incr;		/* the resonant filter's: the volume envelope */
+	float b02, b1, a1, a2;
+	int32_t fres_incr_count, q_incr_count;
+	uint32_t type, flags;
+};
+
+/* One voice's block: fluid_rvoice_t after fluid_rvoice_write's control part */
+struct speq_synth_voice {
+	uint64_t data;			/* the int16 samples (fluid_sample_t.data); no 24-bit */
+	uint64_t phase;			/* in and out: fluid_phase_t */
+	double phase_incr;
+	uint32_t start, end, loopstart, loopend;
+	uint8_t interp, looping;	/* SPEQ_SYNTH_NONE..CUBIC; is_looping */
+	uint8_t has_looped, pad0;	/* in and out */
+	int8_t line[SPEQ_SYNTH_BUFS];	/* each buffer's output line, -1: not mixed */
+	double cur_amp[SPEQ_SYNTH_BUFS], tgt_amp[SPEQ_SYNTH_BUFS];	/* cur_amp: in and out */
+	struct speq_synth_filter custom, res;	/* in and out: custom filter first, as fluidsynth */
+	int32_t count;			/* out: samples rendered (fewer than a block: the sample ended) */
+	uint32_t priv[19];		/* libspeq's */
+} __attribute__((aligned(16)));
+
+struct speq_synth_params {
+	uint32_t abi;			/* SPEQ_SYNTH_ABI */
+	uint32_t voice_size;		/* sizeof(struct speq_synth_voice): 384 */
+	uint32_t lines;			/* output lines (the mixer's buffers), <= SPEQ_SYNTH_LINES */
+	uint32_t max_voices;		/* voices per block at most (polyphony) */
+	const double *cubic;		/* 256 x 4 interpolation coefficients (interp_coeff), copied */
+	const double *linear;		/* 256 x 2 (interp_coeff_linear), copied */
+};
+
+struct speq_synth_block {
+	struct speq_synth_voice *voice;	/* room for cap voices */
+	unsigned cap, lines;
+	const double *out;		/* after a successful wait: lines x SPEQ_SYNTH_BLOCK samples */
+	const void *sincos;		/* set before submit: the filters' table (float sin, cos for each
+					 * cent from 1500, fluid_iir_sincos_t) */
+	uint32_t sincos_n;		/* its entries */
+};
+
+struct speq_synth;
+/* 0, or -ENOTSUP (SPEQ_SYNTH=off), -EPROTO (another ABI), -EINVAL, or the queue's error
+ * (-ENOENT, -EBUSY, ...): then render everything yourself */
+int speq_synth_open_v1(struct speq_synth **s, const struct speq_synth_params *p);
+struct speq_synth_block *speq_synth_begin_v1(struct speq_synth *s);
+int speq_synth_submit_v1(struct speq_synth *s, struct speq_synth_block *b, unsigned n);
+int speq_synth_wait_v1(struct speq_synth *s, struct speq_synth_block *b);
+/* Waits for its blocks in flight (bounded), then frees it */
+void speq_synth_close_v1(struct speq_synth *s);
 
 #ifdef __cplusplus
 }

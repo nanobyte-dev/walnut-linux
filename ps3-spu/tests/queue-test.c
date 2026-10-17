@@ -170,6 +170,51 @@ int main(int argc, char **argv)
 	bad += (uintptr_t)rv;
 	check(!bad && !shared.pending, "two waiters on one done word both wake");
 
+	/* speq_wait_timeout: a deadline, no spin, a poll */
+	{
+		struct speq *q2 = NULL, *q3 = NULL;
+		double t0, dt;
+
+		memset(&d, 0, sizeof(d));
+		jobs[0] = job(BENCH_SPIN, 300000, 0);
+		speq_submit(q, jobs, 1, &d);
+		t0 = spq_now_us();
+		ret = speq_wait_timeout(q, &d, 20000, SPEQ_WAIT_NOSPIN);
+		dt = spq_now_us() - t0;
+		check(ret == -ETIMEDOUT && dt >= 19000 && dt < 200000 && (d.pending & ~SPEQ_WAITERS),
+		      "wait_timeout 20 ms on a 300 ms job: -ETIMEDOUT in time, the job still runs");
+		t0 = spq_now_us();
+		ret = speq_wait_timeout(q, &d, 0, 0);
+		check(ret == -ETIMEDOUT && spq_now_us() - t0 < 5000, "... a poll: -ETIMEDOUT at once");
+		check(speq_wait_timeout(q, &d, -1, SPEQ_WAIT_NOSPIN) == 0 && !d.pending,
+		      "... then waiting it out: 0");
+		memset(&d, 0, sizeof(d));
+		speq_submit(q, jobs, 0, &d);
+		check(speq_wait_timeout(q, &d, 0, 0) == 0, "a poll of nothing pending: 0");
+		check(speq_wait_timeout(q, &d, 0, 0x8) == -EINVAL, "unknown flags: -EINVAL");
+		memset(&d, 0, sizeof(d));
+		jobs[0] = job(BENCH_SPIN, 1000, 0);
+		speq_submit(q, jobs, 1, &d);
+		check(speq_wait_timeout(q, &d, 1000000, SPEQ_WAIT_NOSPIN) == 0,
+		      "a 1 ms job, no spin, 1 s deadline: 0");
+
+		/* the SPE budget: nworkers 0 takes what the open queues don't hold */
+		check(speq_open(&q2, "bench.spu", 0, 0) == 0 && speq_nworkers(q2) == 2,
+		      "next to 4 workers of 6 SPEs, nworkers 0 gets 2");
+		check(speq_open(&q3, "bench.spu", 0, 0) == 0 && speq_nworkers(q3) == 1,
+		      "... and with none left, 1");
+		check(q3 && speq_run(q3, &(struct speq_job){ .op = BENCH_NOP }) == 0 &&
+		      q2 && speq_run(q2, &(struct speq_job){ .op = BENCH_NOP }) == 0,
+		      "... both run jobs");
+		speq_close(q3);
+		speq_close(q2);
+		check(speq_open(&q2, "bench.spu", 0, SPEQ_OPEN_BULK) == 0 && speq_nworkers(q2) == 2,
+		      "bulk, next to 4: 2");
+		speq_close(q2);
+		check(speq_open(&q2, "bench.spu", 0, 0x10) == -EINVAL, "unknown open flags: -EINVAL");
+		speq_tune(q, -1, 2000, 5000);	/* the public spq_tune */
+	}
+
 	fflush(stdout);
 	pid = fork();
 	if (!pid) {
@@ -193,6 +238,10 @@ int main(int argc, char **argv)
 	speq_submit(q, jobs, 64, &d);
 	speq_close(q);
 	check(!d.pending && d.error == -ECANCELED, "close: queued jobs fail with -ECANCELED");
+
+	check(speq_open(&q, "bench.spu", 0, SPEQ_OPEN_BULK) == 0 && speq_nworkers(q) == 4,
+	      "bulk queue alone, nworkers 0: 4 of 6 (two left to deadline queues)");
+	speq_close(q);
 
 	/* one worker; the queue must not lose a job when the only worker parks and frees */
 	check(speq_open(&q, "bench.spu", 1, 0) == 0, "open 1 worker");

@@ -91,6 +91,12 @@ struct speq *spq_s3tc_queue(void);	/* the queue, once opened */
  * that job faults and the image is redone on the PPE */
 extern int spq_s3tc_fault;
 
+/* synth.c: for the tests. Mode SPQ_SYNTH_* (-1: unchanged), the wait's timeout (-1: unchanged),
+ * voices per job and the auto mode's minimum (<= 0 / < 0: unchanged). A synth opened before
+ * keeps its queue (ppe: none); the job size applies to synths opened after. */
+enum { SPQ_SYNTH_OFF, SPQ_SYNTH_PPE, SPQ_SYNTH_SPU, SPQ_SYNTH_AUTO };
+void spq_synth_tune(int mode, long timeout_us, int job_voices, int min_voices);
+
 /* fake.c (SPEQ_FAKE builds only) */
 extern const struct spq_backend spq_fake;
 

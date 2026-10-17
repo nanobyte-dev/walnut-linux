@@ -23,20 +23,23 @@ Breaks: ps3-spu (<< ${source:Version})
 Replaces: ps3-spu (<< ${source:Version})
 Description: SPU programs for the PS3
  SPU programs (*.spu, built with spu-elf GCC) in /usr/lib/ps3/spu: hello.spu, run with
- spurun; bench.spu, libspeq's resident worker with the operations speq-bench uses; and
- dxt.spu, the worker libspeq's DXT1 texture compression runs on the SPEs.
+ spurun; bench.spu, libspeq's resident worker with the operations speq-bench uses;
+ dxt.spu, the worker libspeq's DXT1 texture compression runs on the SPEs; and synth.spu,
+ the worker that renders fluidsynth's voices (MIDI synthesis) on the SPEs.
 
 Package: libspeq0
 Section: libs
 Architecture: ppc64
 Multi-Arch: same
 Depends: ps3-spu, ps3-spu-programs (= ${source:Version}), ${shlibs:Depends}, ${misc:Depends}
-Description: work queues on the PS3's SPEs, and DXT1 texture compression
+Description: work queues on the PS3's SPEs, DXT1 compression, MIDI synthesis
  libspeq runs jobs on resident SPU workers fed through spufs, and provides services built on
- them. The first is S3TC DXT1 texture compression, which Mesa loads at run time
- (speq_s3tc_compress_v1). It runs van Waveren's real-time DXT1 on the SPEs (dxt.spu), and
- on the PPE for small images or when no SPE is available, with the same output.
- SPEQ_S3TC=auto|spu|ppe|off chooses the encoder, SPEQ_DEBUG=1 logs each call.
+ them. S3TC DXT1 texture compression, which Mesa loads at run time
+ (speq_s3tc_compress_v1): van Waveren's real-time DXT1 on the SPEs (dxt.spu), and on the
+ PPE for small images or when no SPE is available, with the same output
+ (SPEQ_S3TC=auto|spu|ppe|off). fluidsynth's voice rendering, which our fluidsynth loads at
+ run time (speq_synth_*_v1): sample interpolation, filters and mixing on the SPEs
+ (synth.spu, SPEQ_SYNTH=auto|spu|ppe|off). SPEQ_DEBUG=1 logs what each service does.
 
 Package: libspeq-dev
 Section: libdevel
