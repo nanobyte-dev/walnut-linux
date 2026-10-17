@@ -1,5 +1,81 @@
 # Game support plan: one stage per game
 
+## Status (morning of 2026-10-17)
+
+The suite runs. Of 14 entries, 11 run on the PS3 with the picture and colours right, each with a
+repeatable demo, and 2 more are packaged and waiting for their first run. Getting there took six
+big-endian bugs in games and libraries, four nv30/ps3rsx driver bugs (one of which wedged the
+RSX), and a runner that only counts runs whose picture reached the screen. Light games are now
+mostly a CPU problem: profiles put 50-80% of the CPU in the driver stack, and the first round of
+driver speedups is in (Mesa ps3.246 measured, ps3rsx 0.249 built and waiting for a reboot).
+
+Every number is 1920x1080, measured through games/bench with the picture checked on the webcam.
+
+| Game | Runs | Picture | Sound | Demo (repeatable) | fps | Against ~60 | Left to do |
+|---|---|---|---|---|---|---|---|
+| QuakeSpasm | yes | right | right | timedemo demo1 (our quake.rc) | 59-70 | **meets it** | - |
+| Armagetron | yes | right | right | recorded AI round, `--playback --benchmark` | 64.0 | **meets it** | - |
+| Neverball | yes | right | some underruns (50/min) | shipped replay | ~70 (HUD, replay + end menu) | **meets it** | exit-and-fps patch (agent, nearly done) |
+| Yamagi Quake II | yes | right | right (our fix) | timedemo q2demo1 | 56 | close | - |
+| dsda-doom (GL renderer) | yes | right (our fixes) | **choppy** (MIDI synthesis) | Freedoom DEMO1 timedemo | 48.8 | under | music default; SPU synth; performance |
+| Extreme Tux Racer | yes | right | right | the user's race, replayed (evemu) | ~45 in the race (18-58) | under | performance |
+| ClassiCube | yes | right | right | fly-through plugin, 3000 fixed frames | 44.9 | under | performance |
+| OpenArena (opengl1) | yes | right | right | timedemo bench | 42.2 | under | performance |
+| X-Moto | yes | right | right (engine quiet under the music) | credits replay | 37 (HUD) | under | performance |
+| dsda-doom (software) | yes | right (our fix) | choppy | as GL | 20-29 | under | the GL renderer is the way |
+| OpenTTD | yes (software video) | right (plain X11; our SDL3 fix on the default path) | right | title-screen demo game; simulation 20000 ticks in 13.4 s | not counted yet (the default path is ~2 fps: SDL3 converts every frame) | - | SDL3 fast path (agent); a fps counter; GL renderer refuses (no GL_RG) |
+| Luanti | packaged, not run | | | our ps3bench mod flies a fixed path | | | first smoke test |
+| Sauerbraten | packaged, not run | | | CubeScript counts frames on map cave | | | first smoke test (GPU skinning last) |
+| SuperTuxKart | not started | | | `--benchmark` | | | group 4 |
+| OpenArena (opengl2) | not started | | | timedemo | | | group 4 |
+
+### Done (2026-10-16/17)
+
+- **Stage 0:** the games/bench runner (recipes, a bare Openbox, config backups on disk, 90 s cap,
+  ALSA underrun counting, report.py across games and variants), `ps3-games` metapackage started.
+- **Display:** every X after the first started black (ps3rsx muted the video: fixed, a1f1b91);
+  SDL fullscreen needs a window manager. Step 0's game numbers were taken with nothing on screen
+  and are void.
+- **Driver (Mesa nv30, ps3rsx):** luminance-alpha textures sampled with L and A swapped (0012);
+  GPU mipmap generation broke on non-square textures (0013); a mip-level readback at an unaligned
+  offset wedged the RSX (0014, Neverball; ps3rsx 0.249 now refuses such offsets); per-draw fence
+  and kref work (0015-0017: X-Moto +2 fps, ClassiCube +1.7). ps3rsx 0.249: validator fast path,
+  cheaper shadow and channel switches, and a multi-push validation bug fixed.
+- **Games and libraries, all big-endian bugs:** dsda-doom (colours, its own sound lumps, GL renderer
+  without GL_RG, screenshots), Yamagi Quake II (OpenAL white noise), SDL3 (window framebuffer
+  colours), LuaJIT (state allocation failed ~40% of the time). X-Moto's "missing" engine sound was
+  only quiet.
+- **Demos for every game in the suite** (above), each under 90 s.
+- **Packages:** our debsrc builds of dsda-doom, yquake2, luanti, luajit, cube2, libsdl3; Quake data
+  debs (published once to the stable suite, the user's go-ahead); Debian games in image/deps.txt.
+
+### Next, in order
+
+1. **ps3rsx 0.249 on the PS3** (needs the reboot): the GL tests, X with a GL client next to the
+   desktop, VT switches, Neverball; then perf profiles as root (to name the kernel hot spot) and
+   the suite's numbers against the table above.
+2. **Group 3 first runs:** Luanti, Sauerbraten with `cpuskel`, then Sauerbraten with GPU skinning.
+3. **Land the two agents still working:** Neverball's exit-and-fps patch, SDL3's fast framebuffer
+   (OpenTTD's default path), then an fps number for OpenTTD.
+4. **Performance, round 2** (the games under ~60 are all CPU-bound in the driver stack): what the
+   profiles still show after 0.249; candidates already found: 6 cache-invalidate methods emitted on
+   every nv30 draw (needs a hardware test), every relocated method emitted twice, u_vbuf always on
+   for nv30, ARB_texture_rg for OpenTTD's GL renderer.
+5. **Group 4:** SuperTuxKart (RAM first), OpenArena opengl2 (the GLSL compile burst).
+6. **ps3-games:** add the games that pass (it still lists only OpenArena and ClassiCube).
+7. Queued small items: ps3fb's exception dump prints the wrong FIFO entries (task #29), deb-build.sh
+   hides a failed build-dep (task #31).
+
+### Decisions for the user
+
+- dsda-doom's music on the PS3 until SPU synthesis exists: OPL (cheaper, still some chopping) or off.
+- Which proven packages go to the stable suite, and when (rule: only once proven on the PS3; ask
+  first): candidates yamagi-quake2 +ps3.240, dsda-doom +ps3.247.
+
+---
+
+## About this plan
+
 2026-10-16. The SPU offload work is parked (SPU-OFFLOAD-PLAN.md) so the game suite and its driver
 work come first. Rule from the user: game decisions rest on 5-10 games, not OpenArena alone. Some
 games will need driver work (Mesa nv30, ps3rsx) before they run, and that comes before any
@@ -83,7 +159,8 @@ extremetuxracer 0.8.4, armagetronad 0.2.9.3 (in `image/deps.txt`, deployed by na
 ps3-games once its smoke test passes).
 
 Expectations below were checked against each game's source at the packaged version and against
-our Mesa (reviews of this plan, 2026-10-16); nothing here has run yet.
+our Mesa (reviews of this plan, 2026-10-16), before the first runs; outcomes are in the status
+table at the top and the driver bugs table.
 
 **1.0 Driver pre-checks** (no game, `ps3-gpu-tools/mesa-tests`, before the group's session; each
 settles a risk several games share):
@@ -120,16 +197,8 @@ order at load (the user confirmed the sound).
 | 6 | QuakeSpasm | Debian, 2 MB; `quake-shareware` from game-data-packager (contrib, built in the Debian games builder with `lhasa`: `make quake-data` into `build/debs/quake-data`; non-free like ClassiCube's audio, so our LAN repository only; published once and reused, since its output isn't reproducible). Not the `quake` launcher package (it pulls GTK 4) | `-nopackedpixels` (the upstream fix disables 10-bit lightmaps on big-endian; nv30 has no 10-bit format anyway). Packed pixels only exist with GLSL, so `-noglsl` first, then GLSL with `gamma 0.9` (the gamma pass only runs off 1.0) | `+timedemo demo1`, `%i frames %5.1f seconds %5.1f fps`, doesn't quit: stopped at that line |
 | 7 | Yamagi Quake II (gl1) | our debsrc build of Debian's **`yquake2`** 8.70 (contrib: debian-ports doesn't build it; the deb builder's sources need `contrib` for `apt-get source`; its build-deps, SDL3 included, are in main); `quake2-demo-data` from game-data-packager | gl1 is the default renderer (gl3/gles3 need GL 3); upstream tests PPC64 | `+timedemo 1 +demomap q2demo1.dm2` (the demo pak's only demo), `%i frames, %3.1f seconds: %3.1f fps`, returns to the console: stopped at that line |
 
-Prepared 2026-10-17 (nothing has run yet): `make quake-data` gives `quake-shareware_89_all.deb` and
-`quake2-demo-data_89_all.deb` (build/debs/quake-data; publish them once, later runs reuse the
-published files, docs/PACKAGING.md); `make yquake2-deb` gives `yamagi-quake2` and
-`yamagi-quake2-core` 8.70+dfsg-1+ps3.N with `ref_gl1.so` and `ref_gl3.so`, no patch (byte order is
-detected at run time, textures and lightmaps go up as GL_RGBA bytes). quakespasm, libminizip1t64
-(our Yamagi's one library the image lacks) and libopenal1 (loaded at run time, only Recommended)
-are in `image/deps.txt`. Recipes `quakespasm` (base, `noglsl`, `glslgamma`) and `yquake2`. Known
-risk for Yamagi: gl1 uploads every texture with GL_GENERATE_MIPMAP when NPOT is exposed (it is on
-nv30), the hardware mipmap path fixed for Neverball. Deploy by name: `make deploy PKGS="quakespasm
-quake-shareware yamagi-quake2 quake2-demo-data"` (after `make deps`).
+Packages: quake-shareware and quake2-demo-data (`make quake-data`, game-data-packager; published
+once to the stable suite), our yquake2 (`yquake2/`, contrib source), Debian's quakespasm.
 
 ## Group 3: GLSL and FBO engines, the first real driver risk
 
@@ -216,35 +285,12 @@ textures are supported by nv30 (sampling; rendering into them is refused).
 
 ## Sessions
 
-| Session | Content |
-|---|---|
-| S1 | the runner on OpenArena and ClassiCube; group 1 smoke tests and assets (demos, replays) |
-| S1b | group 1 baselines; the Armagetron soak (`BENCH_TIMEOUT` over an hour; its logs grow in /dev/shm) |
-| S2 | group 2, OpenTTD's software renderer and simulation (`ps3-bench.sh run`, no X: a recipe `MODE`) |
-| S3... | group 3, the GL-risky game last in each session |
-| S4... | group 4 |
-| After | `run.sh suite base 3` over every game that passed: the baseline the SPU plan's item 1 starts from |
-
 Before each session the webMAN fan is on SYSCON (or at least 60%) and the user boots through
 Petitboot; after it `ps3-bench.sh desktop`, and the boot flag goes back to GameOS. No deploys
 during a session (ps3-bench.sh's lock). Long runs start under `nohup` or `systemd-run --user`, so
 a dropped SSH connection doesn't end them. Recording assets and the games without a benchmark
 (Extreme Tux Racer) need someone playing, on the desktop rather than under the bench harness.
 Load times are compared with the same shader cache state (Mesa's disk cache is on for nv30).
-
-## Results
-
-| Game | Smoke | First failure | Bug | Baseline |
-|---|---|---|---|---|
-| OpenArena opengl1 | runs | under 60 fps | performance | tc1: 42.2 fps, load 10.8 s (stage 0) |
-| ClassiCube | runs | under 60 fps | performance | fly-through demo (plugin, 3000 fixed frames): 43.2 fps, frame ms 9/23/53/278 (min/avg/p99/max), 0 chunks built in the run |
-| dsda-doom, software renderer 960x540 | runs, colours right (our dsda-doom package: the frame now uses the SDL texture's own pixel format; the old one swapped red and green on big-endian) | CPU-bound: sound can stutter | performance | 20 fps HUD median (cut at 90 s) |
-| dsda-doom, GL renderer 1920x1080 | runs (our package: indexed textures as GL_LUMINANCE_ALPHA without ARB_texture_rg) | | performance | 48.2 fps, Freedoom DEMO1 timedemo complete |
-| dsda-doom, sound | choppy: the MIDI music is synthesized on the PPE | | SPU (SPU-OFFLOAD-PLAN.md 3b); a default for now | ALSA underruns in 60 s of play: fluidsynth 1280, OPL ("opl") 877, OPL + 48 kHz + 2048-sample buffer + 60 fps cap 340, no music 18; a 35 fps cap or 48 kHz alone don't help |
-| X-Moto | runs (Mesa ps3.186) | 35 fps, CPU-bound (one PPE thread flat out); no sound bug: the engine and effects play in replays (checked with the PS3's own binaries under qemu), but the engine is quiet and bass-heavy, ~15-20 dB under the music | performance; sound effects | 35.0 fps avg (credits replay, `--timedemo --benchmark`) |
-| Neverball | runs (Mesa ps3.225): picture, fonts, overlays and sound right | the shipped replay is shorter than the 60 s run, so the HUD mixes replay and end menu | a patch printing fps and exiting at the replay's end | ~70 fps HUD median (replay + menu) |
-| Extreme Tux Racer | runs (menus) | | | 42 fps HUD median in the menu; a race needs a player |
-| Armagetron | runs: a recorded round of 4 AIs, spectated (assets/armagetronad-bench.aarec, 90 s), played back with --benchmark | the recording ends without a quit, so playback never prints its fps: fixed 100 s, HUD fps | | 89 fps HUD median live (p10 47); playback being measured |
 
 ## Driver bugs
 
