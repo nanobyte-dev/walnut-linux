@@ -26,3 +26,6 @@ variant_glstats() { ENV+=(XMOTO_GL_STATS=1); }
 variant_nobatch() { ENV+=(XMOTO_GL_BATCH=0); }
 # batching only, the blocks polygon by polygon (~1000 draws a frame, ~40 with base)
 variant_noblocks() { ENV+=(XMOTO_GL_BLOCKS=0 XMOTO_GL_STATS=1); }
+# 0031 (fragment programs from GART after a constant change) off; 0028 (index buffer fenced) off
+variant_fpvram() { ENV+=(NV30_FP_CONST_VRAM=1); }
+variant_idxlate() { ENV+=(NV30_IDXBUF_LATE_REF=1); }
