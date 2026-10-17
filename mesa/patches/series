@@ -21,3 +21,4 @@
 0022-nv30-no-vertex-format-rewrite-when-only-the-vertex-b.patch
 0023-nv30-no-constant-buffer-allocation-per-constant-upda.patch
 0024-nv30-no-texture-unit-rewrite-when-its-view-and-sampl.patch
+0025-nv30-upload-consecutive-changed-vertex-program-const.patch

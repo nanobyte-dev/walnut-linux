@@ -1,0 +1,82 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 13:12:43 +0300
+Subject: nv30: upload consecutive changed vertex program constants in one
+ burst
+
+nv30_vertprog_validate sends every changed constant on its own: VP_UPLOAD_CONST_ID, the slot,
+and its four words, six words per constant. Fixed-function GL changes several consecutive
+constants per object (the modelview-projection matrix is four slots, the modelview matrix
+used for lighting and fog four more), so a draw after a matrix change sent 24 to 48 words of
+constants, a third of them headers and slot numbers.
+
+The GPU moves to the next slot after every four words of a burst (libgcm uploads up to eight
+constants per burst, PSL1GHT's rsxLoadVertexProgramParameterBlock; ps3rsx's shadow follows
+the same rule), so a run of changed constants in consecutive slots now goes up as one burst
+of the slot and 4n words, n at most four, the VP_UPLOAD_CONST window the method table
+documents. Which constants are uploaded, and with what values, is unchanged.
+
+Saves 2(n - 1) words per run of n changed constants: 6 for a matrix, in the push buffer and
+in the kernel's copy and validation. Changes the command stream: the same constant writes,
+with fewer method headers. Low risk; a hardware test would show misplaced or exploded
+geometry, wrong lighting or fog.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c b/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c
+@@ -174,24 +174,39 @@ nv30_vertprog_validate(struct nv30_context *nv30)
+ 
+    if (vp->nr_consts) {
+       struct nv04_resource *res = nv04_resource(nv30->vertprog.constbuf);
++      /* Changed constants in consecutive slots go up in one burst: the GPU moves to the next
++       * slot after every four words (libgcm writes up to eight per burst), up to the four
++       * VP_UPLOAD_CONST the method window has. A matrix is four such slots. */
++      unsigned run = 0;
+ 
+-      for (i = 0; i < vp->nr_consts; i++) {
++      for (i = 0; i <= vp->nr_consts; i++) {
+          struct nv30_vertprog_data *data = &vp->consts[i];
+-
+-         if (data->index < 0) {
+-            if (!upload_data)
+-               continue;
+-         } else {
+-            float *constbuf = (float *)res->data;
+-            if (!upload_data &&
+-                !memcmp(data->value, &constbuf[data->index * 4], 16))
+-               continue;
+-            memcpy(data->value, &constbuf[data->index * 4], 16);
++         bool upload = false;
++
++         if (i < vp->nr_consts) {
++            if (data->index < 0) {
++               upload = upload_data;
++            } else {
++               float *constbuf = (float *)res->data;
++               if (upload_data ||
++                   memcmp(data->value, &constbuf[data->index * 4], 16)) {
++                  memcpy(data->value, &constbuf[data->index * 4], 16);
++                  upload = true;
++               }
++            }
+          }
+ 
+-         BEGIN_NV04(push, NV30_3D(VP_UPLOAD_CONST_ID), 5);
+-         PUSH_DATA (push, vp->data->start + i);
+-         PUSH_DATAp(push, data->value, 4);
++         if (run && (!upload || run == NV30_3D_VP_UPLOAD_CONST__LEN)) {
++            unsigned first = i - run;
++
++            BEGIN_NV04(push, NV30_3D(VP_UPLOAD_CONST_ID), 1 + 4 * run);
++            PUSH_DATA (push, vp->data->start + first);
++            for (unsigned j = first; j < i; j++)
++               PUSH_DATAp(push, vp->consts[j].value, 4);
++            run = 0;
++         }
++         if (upload)
++            run++;
+       }
+    }
+ 

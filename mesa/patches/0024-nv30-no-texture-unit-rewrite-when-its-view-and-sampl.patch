@@ -74,8 +74,8 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_fragtex.c b/src/gallium/drive
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
-@@ -452,6 +452,11 @@ nv30_state_context_switch(struct nv30_context *nv30)
-       nv30->state = prev->state;
+@@ -454,6 +454,11 @@ nv30_state_context_switch(struct nv30_context *nv30)
+       nv30->state.vtxfmt_nr = 0;	/* the last context to draw is gone: GPU formats unknown */
     nv30->dirty = NV30_NEW_ALL;
  
 +   /* The other context left its own textures in the units: write this one's again (NEW_ALL

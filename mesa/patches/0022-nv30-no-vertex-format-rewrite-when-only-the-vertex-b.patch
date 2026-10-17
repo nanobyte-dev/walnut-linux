@@ -12,8 +12,9 @@ immediate mode and streaming games rebind theirs, and games that use one layout 
 their meshes switch only buffers.
 
 The context now keeps the VTXFMT words the GPU holds (state.vtxfmt, carried over a context
-switch with the rest of nv30->state; the swtnl path, the only other writer, records its own)
-and leaves the burst out when it would write the same words. The GPU state is the same:
+switch with the rest of nv30->state, and forgotten when the context that drew last was
+destroyed; the swtnl path, the only other writer, records its own) and leaves the burst out
+when it would write the same words. The GPU state is the same:
 ps3rsx shadows VTXFMT and puts it back after another channel ran, and the offsets
 (VTXBUF) are written as before; they were already rewritten on their own after every push
 buffer flush.
@@ -50,6 +51,18 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_draw.c b/src/gallium/drivers/
  
     BEGIN_NV04(push, NV30_3D(VP_START_FROM_ID), 1);
     PUSH_DATA (push, r->vertprog->start);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+@@ -450,6 +450,8 @@ nv30_state_context_switch(struct nv30_context *nv30)
+ 
+    if (prev)
+       nv30->state = prev->state;
++   else
++      nv30->state.vtxfmt_nr = 0;	/* the last context to draw is gone: GPU formats unknown */
+    nv30->dirty = NV30_NEW_ALL;
+ 
+    if (!nv30->vertex)
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
