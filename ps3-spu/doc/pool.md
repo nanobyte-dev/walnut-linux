@@ -132,6 +132,10 @@ LLR_LOST wakes with claims that don't touch line 0), the pool's real latencies.
     731 us; ALSA underruns against `playppe`;
   - skin counters: no timeouts or errors, mean wait;
   - `/spu`: `ls /spu` during the run shows 6 contexts per process at most.
+- First run, libspeq 0.367 (2026-10-18): `speq-skin --check` through the pool (`open, 2
+  workers of 2 asked`): the forced faults failed only their jobs (-EFAULT) and the workers came
+  back with new contexts (~3.4 ms on the next job); its 8 failures were the check's float
+  tolerance against the SPU's rounding toward zero, not the pool (doc/skin.md section 6).
 - If something is off: `SPEQ_POOL_SPES=1` (one worker), `SPEQ_SYNTH=ppe` / `SPEQ_SKIN=ppe`
   (the services without SPEs), `SPEQ_SYNTH_SPES=1` (rounds on one worker).
 

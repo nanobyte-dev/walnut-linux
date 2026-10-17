@@ -9,7 +9,8 @@
 #                   synth-test (deadline.spu's synth op, every read checked against its DMA plan,
 #                   against libspeq's PPE path), speq-skin-fake --check on the spu and ppe paths
 #                   (deadline.spu's skinning op and libspeq's PPE path against Sauerbraten's
-#                   skinning written out in C), pool-test (synth and skinning sharing the deadline
+#                   skinning written out in C; the spu path again with SPEQ_FAKE_RZ=1, rounding
+#                   toward zero as the SPU does), pool-test (synth and skinning sharing the deadline
 #                   pool next to DXT's bulk queue: deadlines, a slow job, faults)
 #   make test-fluidsynth  fluidsynth with the libspeq hook against unpatched fluidsynth, both
 #                   built for the host, on a generated MIDI file (tests/fluidsynth-compare.sh)
@@ -107,6 +108,7 @@ test:
 	SPEQ_FAKE=1 $(TEST_OUT)/speq-bench-fake --quick --gap 0
 	SPEQ_FAKE=1 $(TEST_OUT)/synth-test
 	SPEQ_FAKE=1 $(TEST_OUT)/speq-skin-fake --check --path spu
+	SPEQ_FAKE=1 SPEQ_FAKE_RZ=1 $(TEST_OUT)/speq-skin-fake --check --path spu
 	SPEQ_FAKE=1 $(TEST_OUT)/speq-skin-fake --check --path auto
 	$(TEST_OUT)/speq-skin-fake --check --path ppe
 	SPEQ_FAKE=1 $(TEST_OUT)/pool-test

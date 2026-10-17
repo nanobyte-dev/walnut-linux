@@ -153,6 +153,12 @@ and on the ppe path. Against a scalar reference written from Sauerbraten's sourc
   templates and zeros, five meshes per batch at random 4-byte phases (two of them touching):
   within 3.3e-6 relative, shorts within 1.
 - The SPU path equals the PPE path byte for byte (same code, same compiler) in every case.
+- Since 2026-10-18 (after the first PS3 run, section 6) floats are compared against the vertex's
+  scale, `|got - ref| / (1 + |ref| + |in|)` with the largest components of the output and of the
+  input field, within 1e-5 (`FLOAT_TOL` in tools/speq-skin.c; before: per component, `/ (1 +
+  |ref_c|)`, within 2e-5), and the fake backend can round the SPU's floats toward zero
+  (`SPEQ_FAKE_RZ=1`, as the SPU does): `make test` runs the spu path that way too (max 1.4e-6
+  on the scale; to nearest 2.3e-7).
 - Refusals (format, tangent frames with matrices, palette alignment and size, strides,
   offsets, template phase, a mesh past the buffer, no position, 40 meshes), an index past the
   palette (-EIO), a faulting job (-EIO, the next batch fine), timeouts (late batches left to
@@ -164,9 +170,10 @@ and on the ppe path. Against a scalar reference written from Sauerbraten's sourc
   the reference, the general ones within 5.7e-6. The checks wait up to 20 s per batch (the
   emulated "SPU" is slow; a timeout there would free inputs a late job still reads).
 
-Not covered on the host: the op on an SPU (deadline.spu, built with spu-elf GCC 16.2, never
-run), its speed,
-the SPU's rounding (toward zero: a few more ulps), DMA on hardware. The x86 host's benchmark
+Not covered on the host: the op on an SPU (deadline.spu, built with spu-elf GCC 16.2; first run
+on the PS3 2026-10-18, section 6), its speed, DMA on hardware. The SPU's rounding (toward zero)
+is emulated since 2026-10-18 (`SPEQ_FAKE_RZ=1`), on x86 hosts (SSE follows the rounding mode;
+AltiVec on the ppc64 build host doesn't). The x86 host's benchmark
 says nothing about the PS3 (baseline x86-64 has no byte shuffle, so the vector kernel runs
 emulated shuffles there; with -march=native it is 2.6-4x faster than the engine's loop).
 
@@ -189,3 +196,47 @@ emulated shuffles there; with -march=native it is 2.6-4x faster than the engine'
     load-hit-store, AltiVec).
 - If something is off: `SPEQ_SKIN=ppe` tells a hook or kernel bug (wrong there too) from an SPU
   bug (right there), `speqskin 0` in the console switches the hook off live.
+
+## 6. On the PS3: libspeq 0.367 (2026-10-18)
+
+`speq-skin --bench`: 42 ns a vertex on the SPEs against 97 on libspeq's PPE path, no errors.
+`SPEQ_DEBUG=1 speq-skin --check`: 8 failures, all from the check's float tolerance, none from
+the op or the queue:
+
+- **Seven "max rel" lines at 2.0-2.6e-5** over the 2e-5 limit (Sauerbraten's normals with 120
+  and 1300 blends, three general dual quaternion meshes; bad bytes 0, shorts within 1). The
+  SPU's single precision always rounds toward zero: each operation errs by up to a whole ulp
+  instead of half, always the same way, so a vertex's errors add up instead of averaging out.
+  The check measured per component, `/ (1 + |ref_c|)`, and a component that comes out of a
+  cancellation (near 0, from terms of |v| + |translation|, here up to ~150) carries those
+  terms' error. Host emulation (the fake SPU path with `SPEQ_FAKE_RZ=1`, with and without fused
+  multiply-adds) reproduced it: 2.0-2.7e-5 on the same kinds of meshes, and to nearest (x86,
+  qemu) under 1e-5. A study of the kernel against a double reference, 300k vertices per format,
+  in u = 2^-23 (one ulp of 1.0 toward zero): per component dual quaternion positions 71-82 u to
+  nearest, 212-250 u toward zero (2.5-3e-5); against the vertex's scale at most 4.3 u to nearest,
+  6.5 u toward zero, matrices and the rotations of normals and tangents less. Not a regression:
+  `lib/skin-kern.h` is unchanged since 0.318's skin.spu, which never ran on the PS3, and the
+  errors are what the arithmetic gives: 0.004 units on terms of 150, so a model of that size
+  filling a 1080-line screen moves by 0.03 pixels. The kernel stays as is (a
+  more accurate SPU formula would need double precision, far slower there); the check now
+  measures against the vertex's scale within 1e-5 (section 4).
+- **"two threads, 200 batches each" failed for the same reason**: its stats lines show one
+  thread's handle with 200 batches and the other's with 1, both on the SPEs with no error: that
+  thread's first batch was compared with the same 2e-5 limit, missed it, and the thread stopped.
+  The threads drew their meshes from one unsynchronised random generator, so which one hit a
+  bad vertex was luck. Now each thread has its own sequence (a per-thread seed) and a failure
+  says which thread, which batch and why.
+- The rest of the log is the check working as meant. `a batch failed on the SPEs: -5`: the
+  index past the palette (-EIO expected). `worker N died: event 0x40 ... held 222/223`: the
+  forced fault (`spq_skin_fault`, a stream EA of 0x1000), event 0x40 a data storage fault,
+  each worker holding one of the mesh's two jobs (the pool's 222nd and 223rd), failed with
+  -EFAULT (-14), the batch -EIO; 242/243 and the two after are the three faults of the back-off
+  case, then `3 batches in a row failed ... 5000 ms` and one `declined` begin, as the check
+  asks. The closing stats add up: 57 batches = 32 mesh cases + 10 refusal cases (the index
+  one included) + the 40-mesh batch + 1 good + 1 faulting + 1 good + 2 late (the 2 `timeouts`:
+  the timeout-0 case) + 6 good + 3 faulting; 10 meshes refused = 9 refusal cases + the
+  40-mesh `-ENOSPC`; 5 errors = the index + 4 faults. The auto handle's one batch, right after
+  the back-off's faults, waited 3963 us: a died worker makes its context again on the next job
+  (~3.4 ms); the first handle's max, 6212 us, is a batch that waited for contexts too (the
+  pool's first, or the first after the forced fault).
+

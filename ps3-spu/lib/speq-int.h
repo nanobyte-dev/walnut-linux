@@ -144,5 +144,7 @@ extern int spq_skin_fault;
 
 /* fake.c (SPEQ_FAKE builds only) */
 extern const struct spq_backend spq_fake;
+/* SPEQ_FAKE_RZ=1: the fake SPU threads round floats toward zero, as the SPU does */
+int spq_fake_rz(void);
 
 #endif

@@ -18,9 +18,13 @@
  * - programs: every program linked into the test registers its operation table under its file
  *   name (SPEQ_PROGRAM, spu/speq-spu.h); a context runs the one its queue opened (the only one,
  *   when just one is linked in), so DXT's queue and the deadline pool run side by side as on
- *   the PS3. A name nothing registered is -ENOENT, as a missing file. */
+ *   the PS3. A name nothing registered is -ENOENT, as a missing file.
+ * - floats: the host's, rounded to nearest. SPEQ_FAKE_RZ=1 rounds the SPU threads' floats
+ *   toward zero, as the SPU's single precision always does (fesetround: SSE on x86 follows it;
+ *   AltiVec on a ppc64 host always rounds to nearest, so there only its scalar floats do). */
 #define _GNU_SOURCE
 #include <errno.h>
+#include <fenv.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -118,11 +122,20 @@ static void fault(unsigned event)
 	fake_stop(cur, 0, event, 1);
 }
 
+int spq_fake_rz(void)
+{
+	const char *e = getenv("SPEQ_FAKE_RZ");
+
+	return e && *e && strcmp(e, "0");
+}
+
 static void *spu_thread(void *arg)
 {
 	struct fake *f = arg;
 	int ret;
 
+	if (spq_fake_rz())
+		fesetround(FE_TOWARDZERO);
 	cur = f;
 	spq_fake_ops = f->ops;
 	spq_fake_nops = f->nops;

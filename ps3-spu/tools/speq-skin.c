@@ -1,5 +1,5 @@
 /* speq-skin: tests and benchmarks libspeq's vertex skinning (speq_skin_*_v1).
- *   speq-skin [--path spu|ppe|auto] --check
+ *   speq-skin [--path spu|ppe|auto] [-v] [--only c2|general|errors|threads] --check
  *   speq-skin [--path spu|ppe|auto] --bench
  * --check: random meshes through the API on the chosen path (as SPEQ_SKIN, which it overrides;
  * default spu) against a scalar reference: Sauerbraten's own skinning loop (skelmodel.h
@@ -7,12 +7,14 @@
  * formats (normals; tangent frames into shorts) with its palette of bones and blended combos,
  * and a general reference for the rest (3x4 matrices, 4 weighted bones per vertex, uint8/uint16
  * indices, float tangents, no template, a second stream). Several meshes share each batch's
- * buffer at every 4-byte phase (neighbouring jobs share 16-byte lines). Floats within 2e-5
- * relative, shorts within 1 (or the same rotation, -q, when w is 0), every other byte equal to
- * the template's. On a fake or host build the SPU path must equal the PPE path byte for byte
- * (same code, same compiler). Then: refusals (formats, alignment, sizes), an index past the
- * palette, a job forced to fault, timeouts (late batches left to their jobs, the buffers
- * reused), the back-off, the auto mode's minimum, two threads at once.
+ * buffer at every 4-byte phase (neighbouring jobs share 16-byte lines). Floats within 1e-5 of
+ * the vertex's scale (FLOAT_TOL), shorts within 1 (or the same rotation, -q, when w is 0),
+ * every other byte equal to the template's. On a fake or host build the SPU path must equal the
+ * PPE path byte for byte (same code, same compiler; not with SPEQ_FAKE_RZ=1, which rounds the
+ * fake SPU's floats toward zero as the SPU does). Then: refusals (formats, alignment, sizes), an
+ * index past the palette, a job forced to fault, timeouts (late batches left to their jobs, the
+ * buffers reused), the back-off, the auto mode's minimum, two threads at once. --only runs one
+ * part: c2 (Sauerbraten's meshes), general, errors (refusals to the auto mode), threads.
  * --bench: Sauerbraten-sized batches (its hud gun: hands 1497 + grenade launcher 1683
  * vertices with tangent frames; a player: 2451 vertices with normals): us per frame for
  * Sauerbraten's loop (the engine's own C path, compiled here), libspeq's PPE path and the SPEs
@@ -35,7 +37,13 @@
 #define CHECK_TIMEOUT_US	20000000
 
 static int failures, verbose;
-static unsigned rng = 20261017;
+static __thread unsigned rng = 20261017;	/* each thread its own sequence */
+static const char *only;	/* --only: one part of --check */
+
+static int part(const char *name)
+{
+	return !only || !strcmp(only, name);
+}
 
 static void check(int ok, const char *what)
 {
@@ -468,16 +476,43 @@ static int ref_mesh(const struct speq_skin_mesh *m, uint8_t *out)
 
 /* --- comparing a mesh's output with the reference --- */
 
+/* A float field's error is measured against the vertex's scale: |got - ref| / (1 + |ref| +
+ * |in|), with the largest component of the reference output and of the input field it comes
+ * from. The kernel's intermediate values are of that size (a dual quaternion's transform goes
+ * through terms of |v| + |translation|, and |translation| <= |v| + |ref|), and so is their
+ * rounding error, whatever the output's own components are: a component near 0 that comes out
+ * of a cancellation carries the error of the terms that cancelled. Measured per component
+ * (|got - ref| / (1 + |ref_c|), with a 2e-5 limit, up to libspeq 0.367) those components
+ * decide, and on the PS3 (2026-10-18) the dual quaternion meshes came out at 2.0-2.6e-5: the
+ * SPU's single precision rounds toward zero, so each rounding errs by up to a whole ulp and
+ * always the same way, and the errors add up instead of averaging out. A host emulation
+ * (SPEQ_FAKE_RZ=1, with and without fused multiply-adds) gives the same 2.0-2.7e-5 per
+ * component; against the scale, in u = 2^-23 and 300k vertices per format against a double
+ * reference: to nearest at most 4.3 u, toward zero 6.5 u (the kernel's worst case from the
+ * formulas, every rounding at its largest and of one sign, is tens of u); this check's float
+ * reference adds its own (12 u in all with SPEQ_FAKE_RZ=1). The limit, 1e-5 (84 u), covers
+ * that and fails a wrong entry, field or vertex, or an estimate where a division or square
+ * root should be (12 bits: ~2000 u), by far. */
+#define FLOAT_TOL	1e-5
+
 struct cmpstat {
-	double maxrel;
+	double maxerr;
 	int maxs16;
 	unsigned long bytes_bad, nan;
 };
 
-static void cmp_floats(const uint8_t *a, const uint8_t *r, int n, struct cmpstat *c)
+/* n floats at a against the reference's at r; in: the input field's nin floats */
+static void cmp_floats(const uint8_t *a, const uint8_t *r, int n, const uint8_t *in, int nin,
+		       struct cmpstat *c)
 {
+	double scale = 0;
 	int k;
 
+	for (k = 0; k < n; k++)
+		scale = fmax(scale, fabs(ldf(r + 4 * k)));
+	for (k = 0; k < nin; k++)
+		scale = fmax(scale, fabs(ldf(in + 4 * k)));
+	scale += 1;
 	for (k = 0; k < n; k++) {
 		float x = ldf(a + 4 * k), y = ldf(r + 4 * k);
 		double e;
@@ -487,9 +522,9 @@ static void cmp_floats(const uint8_t *a, const uint8_t *r, int n, struct cmpstat
 				c->nan++;
 			continue;
 		}
-		e = fabs((double)x - y) / (1 + fabs((double)y));
-		if (e > c->maxrel)
-			c->maxrel = e;
+		e = fabs((double)x - y) / scale;
+		if (isnan(e) || e > c->maxerr)
+			c->maxerr = isnan(e) ? INFINITY : e;
 	}
 }
 
@@ -526,26 +561,28 @@ static void cmp_mesh(const struct speq_skin_mesh *m, const uint8_t *got, const u
 	if (m->tan_in)
 		memset(map + m->dst_tan, 1, m->tan_out == SPEQ_SKIN_OUT_S16 ? 8 : 16);
 	for (i = 0; i < m->nverts; i++) {
+#define IN(f)	((const uint8_t *)m->src[(f).stream] + (size_t)i * m->src_stride[(f).stream] + (f).off)
 		const uint8_t *a = got + (size_t)i * m->dst_stride, *r = ref + (size_t)i * m->dst_stride;
 
 		for (b = 0; b < m->dst_stride; b++)
 			if (!map[b] && a[b] != r[b])
 				c->bytes_bad++;
-		cmp_floats(a + m->dst_pos, r + m->dst_pos, 3, c);
+		cmp_floats(a + m->dst_pos, r + m->dst_pos, 3, IN(m->pos), 3, c);
 		if (hasn)
-			cmp_floats(a + m->dst_norm, r + m->dst_norm, 3, c);
+			cmp_floats(a + m->dst_norm, r + m->dst_norm, 3, IN(m->norm), 3, c);
 		if (m->tan_in) {
 			if (m->tan_out == SPEQ_SKIN_OUT_S16)
 				cmp_s16(a + m->dst_tan, r + m->dst_tan, c);
 			else
-				cmp_floats(a + m->dst_tan, r + m->dst_tan, 4, c);
+				cmp_floats(a + m->dst_tan, r + m->dst_tan, 4, IN(m->tan), 4, c);
 		}
+#undef IN
 	}
 }
 
 static int cmp_ok(const struct cmpstat *c)
 {
-	return c->maxrel <= 2e-5 && c->maxs16 <= 1 && !c->bytes_bad && !c->nan;
+	return c->maxerr <= FLOAT_TOL && c->maxs16 <= 1 && !c->bytes_bad && !c->nan;
 }
 
 /* --- the cases --- */
@@ -635,9 +672,9 @@ static void case_c2(int bump, int nm, const int *nverts, int nb, int nblend, con
 			off += nverts[i];
 		}
 	}
-	snprintf(line, sizeof(line), "%s %s: %s (%d vertices, %d bones + %d blends): max rel %.2g, "
+	snprintf(line, sizeof(line), "%s %s: %s (%d vertices, %d bones + %d blends): max err %.2g, "
 		 "short %d, bad bytes %lu (%d)", path_name[path], bump ? "c2 bump" : "c2 norm", what, total,
-		 nb, nblend, c.maxrel, c.maxs16, c.bytes_bad, ret);
+		 nb, nblend, c.maxerr, c.maxs16, c.bytes_bad, ret);
 	check(!ret && cmp_ok(&c), line);
 	if (!ret && sk_ppe && path != SPQ_SKIN_PPE) {
 		got2 = xalign(16, (size_t)total * stride);
@@ -645,7 +682,8 @@ static void case_c2(int bump, int nm, const int *nverts, int nb, int nblend, con
 		ret = run_batch(sk_ppe, m, nm, total * stride, &out2);
 #ifdef SPEQ_FAKE
 		snprintf(line, sizeof(line), "%s: the SPU path = the PPE path, byte for byte", what);
-		check(!ret && !memcmp(got2, out2, (size_t)total * stride), line);
+		if (!spq_fake_rz())
+			check(!ret && !memcmp(got2, out2, (size_t)total * stride), line);
 #else
 		(void)ret;
 #endif
@@ -784,8 +822,8 @@ static void case_general(int pf, int inf, int tin, int tout, int hasn, int tmpl,
 	if (!ret)
 		for (k = 0; k < NM; k++)
 			cmp_mesh(&m[k], (uint8_t *)out + m[k].dst_offset, ref + m[k].dst_offset, &c);
-	snprintf(line, sizeof(line), "%s general: %s: max rel %.2g, short %d, bad bytes %lu (%d)",
-		 path_name[path], what, c.maxrel, c.maxs16, c.bytes_bad, ret);
+	snprintf(line, sizeof(line), "%s general: %s: max err %.2g, short %d, bad bytes %lu (%d)",
+		 path_name[path], what, c.maxerr, c.maxs16, c.bytes_bad, ret);
 	check(!ret && cmp_ok(&c), line);
 	if (!ret && sk_ppe && path != SPQ_SKIN_PPE) {
 		uint8_t *got2 = xalign(16, bytes);
@@ -798,7 +836,8 @@ static void case_general(int pf, int inf, int tin, int tout, int hasn, int tmpl,
 					m[k].nverts * ds);
 #ifdef SPEQ_FAKE
 		snprintf(line, sizeof(line), "%s: the SPU path = the PPE path, byte for byte", what);
-		check(!ret && same, line);
+		if (!spq_fake_rz())
+			check(!ret && same, line);
 #else
 		(void)same;
 #endif
@@ -952,6 +991,7 @@ struct thr {
 	pthread_t th;
 	int ok;
 	unsigned seed;
+	char why[160];
 };
 
 static void *thread_main(void *arg)
@@ -960,12 +1000,16 @@ static void *thread_main(void *arg)
 	struct speq_skin *s;
 	struct fixture f;
 	uint8_t *ref;
-	int i;
+	int i, ret;
 
 	t->ok = 0;
-	if (speq_skin_open_v1(&s, SPEQ_SKIN_ABI, sizeof(struct speq_skin_mesh)))
+	rng = t->seed;
+	ret = speq_skin_open_v1(&s, SPEQ_SKIN_ABI, sizeof(struct speq_skin_mesh));
+	if (ret) {
+		snprintf(t->why, sizeof(t->why), "open: %d", ret);
 		return NULL;
-	fixture(&f, 1500);	/* rnd() isn't thread-safe: same data either way is fine */
+	}
+	fixture(&f, 1500);
 	ref = xalign(16, f.n * sizeof(struct c2vvertn));
 	memcpy(ref, f.vdata, f.n * sizeof(struct c2vvertn));
 	c2_interp_n(f.v, f.n, f.k.bones, f.k.blends, f.k.nb, (struct c2vvertn *)ref);
@@ -974,12 +1018,17 @@ static void *thread_main(void *arg)
 		struct cmpstat c = { 0 };
 		void *out;
 
-		if (run_batch(s, &f.m, 1, f.n * sizeof(struct c2vvertn), &out)) {
+		ret = run_batch(s, &f.m, 1, f.n * sizeof(struct c2vvertn), &out);
+		if (ret) {
+			snprintf(t->why, sizeof(t->why), "batch %d: %d", i, ret);
 			t->ok = 0;
 			break;
 		}
 		cmp_mesh(&f.m, out, ref, &c);
 		t->ok = cmp_ok(&c);
+		if (!t->ok)
+			snprintf(t->why, sizeof(t->why), "batch %d: max err %.2g, short %d, bad bytes %lu",
+				 i, c.maxerr, c.maxs16, c.bytes_bad);
 	}
 	free(ref);
 	fixture_free(&f);
@@ -1003,7 +1052,7 @@ static int run_check(void)
 	}
 	if (path != SPQ_SKIN_PPE && open_skin(&sk_ppe, SPQ_SKIN_PPE))
 		sk_ppe = NULL;
-	for (i = 0; i < 3; i++) {
+	for (i = 0; i < 3 && part("c2"); i++) {
 		case_c2(0, 1, one, 33, 120, "one mesh");
 		case_c2(1, 1, one, 4, 6, "one mesh");
 		case_c2(0, 2, two, 75, 400, "two meshes");
@@ -1011,7 +1060,7 @@ static int run_check(void)
 		case_c2(1, 4, small, 3, 0, "tiny meshes, no blends");
 		case_c2(0, 1, big, 200, 1300, "9000 vertices, a full palette");
 	}
-	for (i = 0; i < 2; i++) {
+	for (i = 0; i < 2 && part("general"); i++) {
 		case_general(SPEQ_SKIN_DQ, SPEQ_SKIN_IDX_S32, SPEQ_SKIN_TAN_VEC4, SPEQ_SKIN_OUT_F32, 1, 1,
 			     "DQ, int32 index, normal, float tangent, template");
 		case_general(SPEQ_SKIN_DQ, SPEQ_SKIN_IDX_U16, SPEQ_SKIN_TAN_QUAT, SPEQ_SKIN_OUT_F32, 0, 0,
@@ -1027,13 +1076,21 @@ static int run_check(void)
 		case_general(SPEQ_SKIN_MAT, SPEQ_SKIN_IDX_U8, SPEQ_SKIN_TAN_VEC4, SPEQ_SKIN_OUT_S16, 0, 1,
 			     "matrices, uint8 index, tangent into shorts");
 	}
-	case_errors();
-	if (path != SPQ_SKIN_PPE) {
-		for (i = 0; i < 2; i++)
+	if (part("errors"))
+		case_errors();
+	if (path != SPQ_SKIN_PPE && part("threads")) {
+		char line[400];
+
+		for (i = 0; i < 2; i++) {
+			th[i].seed = 20261018 + i;
+			th[i].why[0] = 0;
 			pthread_create(&th[i].th, NULL, thread_main, &th[i]);
+		}
 		for (i = 0; i < 2; i++)
 			pthread_join(th[i].th, NULL);
-		check(th[0].ok && th[1].ok, "two threads, 200 batches each, each its own speq_skin");
+		snprintf(line, sizeof(line), "two threads, 200 batches each, each its own speq_skin%s%s%s%s",
+			 th[0].ok ? "" : "; thread 0: ", th[0].why, th[1].ok ? "" : "; thread 1: ", th[1].why);
+		check(th[0].ok && th[1].ok, line);
 	}
 	speq_skin_close_v1(sk);
 	speq_skin_close_v1(sk_ppe);
@@ -1181,6 +1238,8 @@ int main(int argc, char **argv)
 			do_bench = 1;
 		else if (!strcmp(argv[i], "-v"))
 			verbose = 1;
+		else if (!strcmp(argv[i], "--only") && i + 1 < argc)
+			only = argv[++i];
 		else if (!strcmp(argv[i], "--path") && i + 1 < argc) {
 			const char *p = argv[++i];
 
@@ -1198,7 +1257,8 @@ int main(int argc, char **argv)
 		}
 	}
 	if (do_check < 0 || (!do_check && !do_bench)) {
-		fprintf(stderr, "usage: speq-skin [--path spu|ppe|auto] [-v] --check | --bench\n");
+		fprintf(stderr, "usage: speq-skin [--path spu|ppe|auto] [-v] [--only c2|general|errors|threads] "
+			"--check | --bench\n");
 		return 2;
 	}
 	spq_skin_tune(path, -1, -1, -1);
