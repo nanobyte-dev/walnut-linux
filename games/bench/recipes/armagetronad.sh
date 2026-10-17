@@ -16,14 +16,21 @@ setup() {
 }
 CMD=(/usr/games/armagetronad --playback "$AA_REC" --benchmark)
 # The recording ends where the record run was stopped (90 s), not with a quit: playback then
-# carries on and never prints its frames/fps line. So a fixed 90 s, fps from the Gallium HUD.
+# carries on and never prints its frames/fps line. fps from the Gallium HUD.
+# Steady state: the HUD window (WINDOW_STOP=1: 60 s from the first frame, then 120 s, then the game
+# is stopped). The recording covers the first 90 s only; after it the game goes on live, the same
+# 4 AI players with the player spectating, so the window's last ~2 minutes are AI rounds that are
+# alike but not identical from run to run. A recording of ~4 minutes (variant record, 240 s) that
+# the recorder ends with Quit from the menu would make the whole window the same every run.
 FPS_RE='[0-9]+ frames in [0-9.]+ seconds: ([0-9.]+) fps'
-DURATION=90
+DURATION=270
+WINDOW_STOP=1
 HUD_SKIP=10
-# make the recording (90 s), then copy /var/tmp/armagetronad-bench.aarec into assets/
-variant_record() { CMD=(/usr/games/armagetronad --record /var/tmp/armagetronad-bench.aarec); DURATION=90; }
+# make the recording (240 s: quit from the menu before the end, so playback ends there), then copy
+# /var/tmp/armagetronad-bench.aarec into assets/ (the asset of 2026-10-17 is a 90 s one, cut)
+variant_record() { CMD=(/usr/games/armagetronad --record /var/tmp/armagetronad-bench.aarec); DURATION=240; WINDOW_STOP=0; }
 # the first-run screen and tutorial game, live (the old smoke test)
-variant_live() { CMD=(/usr/games/armagetronad); DURATION=45; HUD_SKIP=15; }
+variant_live() { CMD=(/usr/games/armagetronad); DURATION=45; HUD_SKIP=15; WINDOW_STOP=0; }
 # Mesa 0020 off (texture caches invalidated on every draw, as before ps3.262): bisects its cost
 variant_texinv() { ENV+=(NV30_TEX_INVALIDATE_ALWAYS=1); }
 # Mesa ps3.282 switches (docs/GAME-PLAN.md): relocations back on (0019 off), or 0019 kept with a
