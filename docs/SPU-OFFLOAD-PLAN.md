@@ -33,6 +33,14 @@ game.
    mixing is >= 6% of a game's samples. Then `speq_mix_v1` (one job per mixer update) and the
    openal-soft debsrc patch. Decide first: one shared queue per process for DXT and audio, or
    audio 1 SPE and DXT 5. Vorbis on SPUs: not worth it (OpenArena's sounds are WAV).
+3b. **MIDI synthesis (fluidsynth) on the SPUs** (the user, 2026-10-17). Measured: dsda-doom
+   playing its demo at normal speed used 53 s of CPU in 60 s with fluidsynth music and 29 s
+   without: fluidsynth alone ~40% of a PPE thread, and ALSA underruns went from 18 to 1280 (audible
+   chopping). The work is per-voice interpolation, envelopes, filters and mixing into float
+   blocks: SIMD-friendly, block-sized, the same shape as the OpenAL mixer job (one SPU job per
+   synth block, voices split across SPEs). Users: dsda-doom, OpenTTD's music, SDL_mixer MIDI.
+   Measure first with a perf profile of libfluidsynth3 (dbgsym) to see the split between voice
+   rendering and the rest.
 4. **Queue improvements** from speq-bench: per-worker doorbells (a submit to six idle workers
    wakes all of them: 8.6 spurious wakes per job, p99 65 us); a `speq_wait` timeout and a
    no-spin mode (audio needs both); the stop 0x2100/0x2101 printf server and spurun on libspeq.
