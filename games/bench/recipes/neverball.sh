@@ -15,7 +15,7 @@ COMM=neverball
 NB_RC=$HOME/.neverball/neverballrc
 BACKUP=("$NB_RC")
 NB_MIP=1
-ENV=(NEVERBALL_BENCH=1 NEVERBALL_BENCH_LOOPS=12)
+ENV=(NEVERBALL_BENCH=1 NEVERBALL_BENCH_LOOPS=20)	# passes take 12-16 s on the PS3: 12 sometimes ended before the 60 + 120 s window (2026-10-18)
 PASSES=1
 FPS_RE='^neverball: [0-9]+ frames [0-9.]+ seconds ([0-9.]+) fps'
 MAXMS_RE='^neverball: .* frame ms max ([0-9.]+)'
@@ -26,7 +26,7 @@ setup() {
 		"multisample 0" >> "$NB_RC"
 }
 CMD=(/usr/games/neverball --replay /usr/share/games/neverball/gui/demo1.nbr)
-DURATION=270	# a safety cap: load, 12 passes of ~20 s, margin
+DURATION=400	# a safety cap: load, 20 passes of 12-16 s, margin
 variant_nomip() { NB_MIP=0; }
 # our neverball (neverball/patches/0003): fewer GL calls and draws a frame, each change behind an
 # environment switch, base has them all on. gui/demo1.nbr on llvmpipe at GL 2.1: 2154 -> 844 calls,
