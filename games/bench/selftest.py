@@ -69,6 +69,17 @@ def synthetic(tmp):
     check("hud: old hud key kept", r.get("hud", "").startswith("50/"), r.get("hud"))
     runs = [d]
 
+    # the same frames, the window in two pieces (a game marking its own, WIN_ON_RE/WIN_OFF_RE): the
+    # 300 ms stall at 100 s falls between them
+    d2 = tmp / "ps3-bench-20261018T000050Z-fakeseg-base"
+    shutil.copytree(d / "hud", d2 / "hud")
+    bench(d2, game="fakeseg", variant="base", ended="exit", seconds="%.2f" % t, warmup=60, measure=120,
+          load_end="10.00", hud_t1="5.00", window="70.00 99.50 101.00 190.00")
+    r = report.run(d2)
+    check("pieces: the stall between the pieces left out", r.get("stalls") == 1 and r.get("longest") == 150.0,
+          (r.get("stalls"), r.get("longest")))
+    check("pieces: 118.5 s measured, median 50", r.get("win") == 118.5 and r.get("hud_win") == 50, (r.get("win"), r.get("hud_win")))
+
     # per-second fps only (BENCH_HUD=1 style): the 1st percentile and seconds under 10 fps
     d = tmp / "ps3-bench-20261018T000100Z-fake1s-base"
     vals = [20] * 70 + [60] * 100 + [5] * 2 + [60] * 30
@@ -185,6 +196,12 @@ def fake_game(mode):
             passn += 1
             say("pass: %d frames 1.5 seconds %d.0 fps, max %d ms" % (75, 10 * passn, 20 + passn))
             pass_t = now
+        if mode == "own" and 1 <= now - t0 < 1.03:
+            say("own: window on")
+        if mode == "own" and 1.5 <= now - t0 < 1.53:
+            say("own: window off")
+        if mode == "own" and 2 <= now - t0 < 2.03:
+            say("own: window on")
         if mode == "own" and now - t0 >= 3:
             say("own: steady 150 frames in 3000 ms: 49.5 fps, longest 33 ms")
             return
@@ -196,7 +213,8 @@ variant_nostop() { WINDOW_STOP=0; DURATION=6; }""",
     "fakepass": """CMD=("$FAKE" --fake-game passes); FPS_RE='^pass: [0-9]+ frames [0-9.]+ seconds ([0-9.]+) fps'
 MAXMS_RE='^pass: .* max ([0-9]+) ms'; PASSES=1; WARMUP=3; MEASURE=4; DURATION=25""",
     "fakeown": """CMD=("$FAKE" --fake-game own); STEADY_RE='^own: steady [0-9]+ frames in [0-9]+ ms: ([0-9.]+) fps'
-STEADY_MAXMS_RE='^own: steady .* longest ([0-9]+) ms'; WARMUP=1; MEASURE=1; DURATION=25""",
+STEADY_MAXMS_RE='^own: steady .* longest ([0-9]+) ms'; WARMUP=1; MEASURE=1; DURATION=25
+WIN_ON_RE='^own: window on'; WIN_OFF_RE='^own: window off'""",
 }
 
 
@@ -254,6 +272,9 @@ def client(tmp):
     check("own: steady_fps from STEADY_RE", b.get("steady_fps") == "49.5" and b.get("steady_maxms") == "33",
           (b.get("steady_fps"), b.get("steady_maxms")))
     check("own: ended=exit", b.get("ended") == "exit", b.get("ended"))
+    w = [float(x) for x in (b.get("window") or "").split()]
+    check("own: the window in two pieces, the second closed at the end",
+          len(w) == 4 and abs(w[1] - w[0] - 0.5) < 0.1 and abs(w[3] - float(b["seconds"])) < 0.05, w)
     r = report.run(d)
     check("own: report steady 49.5 (game)", r.get("steady") == 49.5 and r.get("src") == "game", (r.get("steady"), r.get("src")))
 

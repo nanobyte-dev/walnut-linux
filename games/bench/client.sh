@@ -12,7 +12,9 @@
 # when it starts at least 0.9 x WARMUP after the load, and the game is stopped once the counted
 # passes cover 0.95 x MEASURE seconds (ended=window). WINDOW_STOP=1: the game is stopped once the window
 # (load + WARMUP + MEASURE) is over (the HUD measures it). STEADY_RE/STEADY_MAXMS_RE: the game's own
-# result over its own window. bench.txt gets load_end, window, pass<N> and steady_* for report.py.
+# result over its own window. WIN_ON_RE/WIN_OFF_RE: the game marks its own window, maybe in pieces
+# (each ON line opens one, the next OFF line closes it; it replaces load + WARMUP). bench.txt gets
+# load_end, window (start end pairs), pass<N> and steady_* for report.py.
 {
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
@@ -24,7 +26,7 @@ ASSETS=$here/assets
 CMD=(); ENV=(); BACKUP=(); GAMEMODE=0; HUD=1; COMM=; WM=openbox
 # DURATION: a safety cap (load + 60 s warm-up + 120 s measured + margin); recipes set their own
 END_RE=; DURATION=270; HUD_SKIP=12; WARMUP=60; MEASURE=120; PASSES=0; WINDOW_STOP=0; STEADY_RE=
-STEADY_MAXMS_RE=; FPS_RE=; MAXMS_RE=; LOAD_RE=; LOAD_MARK=; RESULT_FILE=; SOUND_AT=15
+STEADY_MAXMS_RE=; WIN_ON_RE=; WIN_OFF_RE=; FPS_RE=; MAXMS_RE=; LOAD_RE=; LOAD_MARK=; RESULT_FILE=; SOUND_AT=15
 setup() { :; }; parse() { :; }
 . "${BENCH_RECIPES:-$here/recipes}/$GAME.sh" || exit 2
 if declare -F "variant_$VARIANT" >/dev/null; then "variant_$VARIANT"
@@ -137,7 +139,7 @@ secs() { printf -v "$1" '%d.%02d' $(($2 / 1000000)) $(($2 % 1000000 / 10000)); }
 # the steady-state window, in microseconds from the start: load_us when the load ended (LOAD_MARK,
 # the first LOAD_RE line, else the HUD's first frame), hud_us when the HUD's dump got its first
 # value, stop_us when WINDOW_STOP ends the run; passes (PASSES=1) in PASS, measured their counted time
-load_us=; hud_us=; stop_us=; np=0; plast=; measured=0; win0=; win1=; PASS=()
+load_us=; hud_us=; stop_us=; np=0; plast=; measured=0; win0=; win1=; PASS=(); son=; SEGS=()
 loaded() {	# the load ended now (US)
 	load_us=$(( US - u0 ))
 	[ "$WINDOW_STOP" = 1 ] && stop_us=$(( load_us + (WARMUP + MEASURE + 2) * 1000000 ))
@@ -184,6 +186,12 @@ while :; do
 	if [ -z "$load_us" ] && { { [ -n "$LOAD_MARK" ] && [[ $l =~ $LOAD_MARK ]]; } ||
 	                          { [ -n "$LOAD_RE" ] && [[ $l =~ $LOAD_RE ]]; }; }; then loaded; fi
 	if [ -z "$t_load" ] && [ -n "$LOAD_MARK" ] && [[ $l =~ $LOAD_MARK ]]; then t_load=$(age); fi
+	if [ -n "$WIN_ON_RE" ]; then	# the game's own window pieces
+		if [ -z "$son" ] && [[ $l =~ $WIN_ON_RE ]]; then son=$(( US - u0 ))
+		elif [ -n "$son" ] && [ -n "$WIN_OFF_RE" ] && [[ $l =~ $WIN_OFF_RE ]]; then
+			secs a "$son"; secs b $(( US - u0 )); SEGS+=("$a $b"); son=
+		fi
+	fi
 	if [ "$PASSES" = 1 ] && [ -n "$FPS_RE" ] && [[ $l =~ $FPS_RE ]] && pass "$l"; then ended=window; break; fi
 	if [ -n "$END_RE" ] && [[ $l =~ $END_RE ]]; then ended=end; break; fi
 done
@@ -212,7 +220,9 @@ load=$($pick "$LOAD_RE"); [ -z "$load" ] && load=$t_load
 # MEASURE s, as far as the run went
 [ -z "$load_us" ] && load_us=$hud_us
 window=
-if [ -n "$win0" ]; then secs w0 "$win0"; secs w1 "$win1"; window="$w0 $w1"
+[ -n "$son" ] && { secs a "$son"; secs b "$run_us"; SEGS+=("$a $b"); }	# a piece still open at the end
+if [ -n "$WIN_ON_RE" ]; then window=${SEGS[*]}
+elif [ -n "$win0" ]; then secs w0 "$win0"; secs w1 "$win1"; window="$w0 $w1"
 elif [ "$PASSES" != 1 ] && [ -n "$load_us" ]; then
 	a=$(( load_us + WARMUP * 1000000 )); b=$(( a + MEASURE * 1000000 )); [ $b -gt $run_us ] && b=$run_us
 	[ $b -gt $a ] && { secs w0 "$a"; secs w1 "$b"; window="$w0 $w1"; }

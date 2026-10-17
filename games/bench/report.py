@@ -127,10 +127,14 @@ def floats(path):
 
 def steady(d, b, r):
     """the steady-state metrics of run directory d (bench.txt b) into r"""
-    w = (b.get("window") or "").split()
-    if len(w) != 2:
+    w = [float(x) for x in (b.get("window") or "").split()]
+    if not w or len(w) % 2:
         return
-    a, z = float(w[0]), float(w[1])
+    segs = list(zip(w[::2], w[1::2]))   # the window, maybe in pieces (WIN_ON_RE/WIN_OFF_RE)
+    a, z = segs[0][0], segs[-1][1]
+
+    def inside(e):
+        return any(s < e <= t for s, t in segs)
     t1 = num(b.get("hud_t1"))
     secs = num(b.get("seconds"))
     ft_path, fps_path = d / "hud" / "frametime(ms)", d / "hud" / "fps"
@@ -143,25 +147,27 @@ def steady(d, b, r):
             ends.append(t)
         if secs is not None:
             r["ftdrift"] = round(secs - ends[-1], 1)
-        inw = [(e, v) for e, v in zip(ends, ft) if a < e <= z]
+        inw = [(e, v) for e, v in zip(ends, ft) if inside(e)]
         if inw:
             ms = sorted(v for _, v in inw)
-            bins = [0] * max(int(z - a), 1)
-            for e, _ in inw:
-                k = int(e - a)
-                if k < len(bins):
-                    bins[k] += 1
-            bins.sort()
+            bins = []   # frames in each whole second of each piece
+            for s, t in segs:
+                n = [0] * int(t - s)
+                for e, _ in inw:
+                    if s < e <= t and int(e - s) < len(n):
+                        n[int(e - s)] += 1
+                bins += n
+            bins = sorted(bins) or [len(inw)]
             r["hud_win"] = bins[len(bins) // 2]
             r["low1"] = round(1000 / ms[max(0, -(-len(ms) * 99 // 100) - 1)], 1)
             r["stalls"] = sum(1 for v in ms if v > STALL_MS)
             r["longest"] = round(ms[-1], 1)
-            r["win"] = round(min(z, inw[-1][0]) - a, 1)
+            r["win"] = round(sum(min(t, inw[-1][0]) - s for s, t in segs if s < inw[-1][0]), 1)
             r["src"] = "hud"
     elif fps_path.exists() and (f := floats(fps_path)):
         # one value per second: value i ends about i + 1 s after the HUD's first value
         t0 = (t1 - 1) if t1 is not None else 0
-        inw = [v for i, v in enumerate(f) if a < t0 + i + 1 <= z]
+        inw = [v for i, v in enumerate(f) if inside(t0 + i + 1)]
         if inw:
             v = sorted(inw)
             r["hud_win"] = int(v[len(v) // 2])
@@ -181,7 +187,7 @@ def steady(d, b, r):
     if pf:
         r["steady"] = round(statistics.median(pf), 2)
         r["src"] = "passes"
-        r["win"] = round(z - a, 1)
+        r["win"] = round(sum(t - s for s, t in segs), 1)
         pm = [x for x in (num(p[3]) for p in counted) if x is not None]
         if pm and "longest" not in r:
             r["longest"] = max(pm)
