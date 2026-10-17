@@ -1,0 +1,93 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 02:28:57 +0300
+Subject: Benchmark mode: NEVERBALL_BENCH prints the frames and fps of a
+ command-line replay and quits when it ends
+
+diff --git a/ball/st_demo.c b/ball/st_demo.c
+--- a/ball/st_demo.c
++++ b/ball/st_demo.c
+@@ -13,6 +13,9 @@
+  */
+ 
+ #include <string.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <SDL.h>
+ 
+ #include "gui.h"
+ #include "hud.h"
+@@ -411,6 +414,43 @@ static int speed;
+ 
+ static float prelude;
+ 
++/*
++ * Benchmark: with NEVERBALL_BENCH set, a replay started from the command
++ * line counts frames from its first step, prints the result when it ends
++ * and quits instead of showing the "Replay Ends" menu.
++ */
++
++static int   bench;
++static int   bench_frames;
++static float bench_time;
++static float bench_max;
++
++static void bench_frame(float dt)
++{
++    if (bench_frames >= 0)
++    {
++        bench_frames++;
++        bench_time += dt;
++        if (dt > bench_max)
++            bench_max = dt;
++    }
++    else bench_frames = 0;          /* The first step has no frame time. */
++}
++
++static void bench_end(void)
++{
++    SDL_Event e;
++
++    printf("neverball: %d frames %.3f seconds %.2f fps, frame ms max %.0f\n",
++           bench_frames, bench_time, bench_frames / bench_time,
++           bench_max * 1000.0f);
++    fflush(stdout);
++
++    bench = 0;
++    e.type = SDL_QUIT;
++    SDL_PushEvent(&e);
++}
++
+ void demo_play_goto(int s)
+ {
+     standalone   = s;
+@@ -463,6 +503,10 @@ static int demo_play_enter(struct state *st, struct state *prev)
+     show_hud = 1;
+     hud_update(0);
+ 
++    bench = standalone && getenv("NEVERBALL_BENCH");
++    bench_frames = -1;
++    bench_time = bench_max = 0.0f;
++
+     return demo_play_gui();
+ }
+ 
+@@ -495,10 +539,17 @@ static void demo_play_timer(int id, float dt)
+     if (time_state() < prelude)
+         return;
+ 
++    if (bench)
++        bench_frame(dt);
++
+     if (!demo_replay_step(dt))
+     {
+         demo_paused = 0;
+-        goto_state(&st_demo_end);
++
++        if (bench)
++            bench_end();
++        else
++            goto_state(&st_demo_end);
+     }
+     else
+     {
