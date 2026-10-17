@@ -88,5 +88,15 @@ variant_lean() {
 }
 # no texture compression at all (as upstream on Mesa): VRAM and load time against base
 variant_notc() { SB_SET+=("texcompress 0"); }
+# hud gun: -l starts mode 1 (coop edit), where the player spawns with the pistol, and cube2-data 1.3
+# (the BananaBread content) has no pistol or fist hud gun model (models/hudguns: chaing gl rifle
+# rocket shotg), so nothing is drawn. This switches to the grenade launcher (1 grenade at spawn) 2 s
+# after the first frame, which adds the one skeletal model that CPU or GPU skinning has to move
+variant_gun() {
+	SB_SCRIPT=${SB_SCRIPT/'echo "ps3bench: first frame";'/'echo "ps3bench: first frame"; sleep 2000 [weapon gl];'}
+	sb_cmd
+}
+# the same with GPU skinning, to compare against gun
+variant_gungpu() { variant_gun; SB_SET+=("gpuskel 1"); }
 # the biggest map with one player start (66 lights, an 8192 world)
 variant_towers() { SB_MAP=two_towers; sb_cmd; }
