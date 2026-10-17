@@ -11,9 +11,13 @@
 -- without it only the Lua heap is logged. The recipe's parse() turns these lines into bench.txt keys.
 -- Positions are set on every server step (physics off, so the client doesn't move in between):
 -- the path depends on time only, not on the frame rate.
+-- ps3bench_loops (default 1): the path flown that many times, back to its start each time, a
+-- "ps3bench: path loop <k>" line at the start of each after the first; "path end" after the last.
 
 local warmup = tonumber(core.settings:get("ps3bench_warmup")) or 15
 local seconds = tonumber(core.settings:get("ps3bench_seconds")) or 45
+local loops = math.max(1, tonumber(core.settings:get("ps3bench_loops")) or 1)
+local loop = 0			-- the loop being flown, from 0
 local length = 240		-- nodes flown north
 local straight = 0.75		-- share of the path spent flying straight; the rest is the turn
 
@@ -91,6 +95,12 @@ core.register_globalstep(function(dtime)
 		log_mem("start")
 	end
 	local s = t - warmup
+	local k = math.min(math.floor(s / seconds), loops - 1)
+	if k > loop then
+		loop = k
+		log(string.format("path loop %d", k + 1))
+	end
+	s = s - k * seconds
 	place(player, math.min(s, seconds))
 	if s >= seconds then
 		ended = true
