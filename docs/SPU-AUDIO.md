@@ -232,7 +232,7 @@ for a game already running:
     $R --no-children --sort dso | head -15
     $R --no-children --sort comm | head
     $R --no-children --sort sym --dsos libopenal.so.1.25.2 | head -40
-    $R --children --sort sym --dsos libopenal.so.1.25.2 | grep -E 'Voice::mix\(|BFormatDec|ProcessParamUpdates'
+    $R --children --sort sym --dsos libopenal.so.1.25.2 | grep -E 'Voice::mix\(|BFormatDec|renderSamples'
 
 (`perf report` as the owner of the file, not under sudo.) Read off, as shares of **all** the
 game's samples:
@@ -240,8 +240,11 @@ game's samples:
   fills it calls), and as a cross-check the flat sum of `Voice::mix`, `Resample_*_C`, `Mix_C`,
   `LoadSamples`/`LoadBuffer*` if not inlined. The flat `Mix_C` also holds the ambisonic decode
   (`BFormatDec::process` calls it, section 1): subtract `BFormatDec::process`'s inclusive share;
-- parameter updates: `ProcessParamUpdates` inclusive (`CalcVoiceParams`, `CalcAttnVoiceParams`,
-  `CalcPanningAndFilters`; stays on the PPE);
+- parameter updates (stay on the PPE): our -O2 build inlines `ProcessContexts`,
+  `ProcessParamUpdates` and `Calc*VoiceParams` into `DeviceBase::renderSamples(unsigned int)`
+  (checked in the dbgsym's symbol table), so it is that function's *self* share plus
+  `CalcPanningAndFilters` and `ProcessVoiceChanges`, which stay functions; `LoadSamples`,
+  `Resample_*_C`, `Mix_C` and `BFormatDec::process` are functions too;
 - `BFormatDec::process`, `Write<>` (stay, or move later);
 - libasound (stays), the kernel (wakeups).
 

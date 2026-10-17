@@ -26,20 +26,23 @@ for d in "$@"; do
 	rep --no-children --sort dso,sym | awk -v lib="$lib" '
 		{ p = $1; sub(/%/, "", p); line = $0 }
 		$2 == lib && line ~ /Voice::mix\(|Resample_[A-Za-z0-9]+_C|Mix_C\(|LoadSamples|LoadBuffer(Static|Queue|Callback)|DoFilters/ { mix += p; next }
-		$2 == lib && line ~ /Calc(Attn|NonAttn)?VoiceParams|CalcPanningAndFilters|ProcessParamUpdates|ProcessVoiceChanges|CalcContextParams|CalcEffectSlotParams|PrepareResampler|ComputePanGains|CalcAmbiCoeffs|CalcDirectionCoeffs/ { par += p; next }
+		# 1.25.2 at -O2 inlines ProcessContexts, ProcessParamUpdates and Calc*VoiceParams into
+		# DeviceBase::renderSamples(unsigned int): its self time is the update loop and those
+		$2 == lib && line ~ /renderSamples\(unsigned int\)|Calc(Attn|NonAttn)?VoiceParams|CalcPanningAndFilters|ProcessParamUpdates|ProcessVoiceChanges|CalcContextParams|CalcEffectSlotParams|PrepareResampler|ComputePanGains|CalcAmbiCoeffs|CalcDirectionCoeffs/ { par += p; next }
 		$2 == lib && line ~ /BFormatDec::process|Write<|Compressor|ApplyDither|ApplyDistanceComp/ { post += p; next }
 		$2 == lib { other += p; next }
 		$2 ~ /^libasound/ { asnd += p; next }
 		$2 ~ /kernel/ { kern += p }
 		END {
 			printf "voice mixing, self (Voice::mix, Resample_*_C, Mix_C, LoadSamples, LoadBuffer*): %.2f%%\n", mix
-			printf "parameter updates (ProcessParamUpdates, Calc*VoiceParams, panning): %.2f%%\n", par
+			printf "parameter updates (renderSamples(unsigned) self: the inlined ProcessParamUpdates and Calc*VoiceParams; CalcPanningAndFilters, ProcessVoiceChanges): %.2f%%\n", par
 			printf "post-process and output (BFormatDec::process, Write<>, limiter, dither): %.2f%%\n", post
 			printf "rest of libopenal: %.2f%%   libasound: %.2f%%   kernel, all threads: %.2f%%\n", other, asnd, kern
 		}'
 	inc() { rep --children --sort sym --dsos "$lib" | grep -m1 "$1" | awk '{ sub(/%/, "", $1); print $1 }'; }
 	echo "-- inclusive (with callees): BFormatDec::process $(inc 'BFormatDec::process')% (its Mix_C calls," \
-		"the ambisonic decode 3 -> 2, are in the flat Mix_C above), ProcessParamUpdates $(inc 'ProcessParamUpdates')%"
+		"the ambisonic decode 3 -> 2, are in the flat Mix_C above), renderSamples(unsigned) $(inc 'renderSamples(unsigned int)')%" \
+		"(the whole update: mixing, parameters, decode)"
 	v=$(inc 'Voice::mix(')
 	echo "-- voice mixing, inclusive (Voice::mix with its callees): ${v:-?}% of the game's samples"
 	if [ -n "$v" ]; then
