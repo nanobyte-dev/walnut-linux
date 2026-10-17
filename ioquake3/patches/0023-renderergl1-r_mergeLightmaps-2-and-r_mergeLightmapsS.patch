@@ -1,0 +1,113 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 00:07:33 +0300
+Subject: renderergl1: r_mergeLightmaps 2 and r_mergeLightmapsSize, to tell the
+ atlas textures' cost from the batching's
+
+On the PS3 (Mesa ps3.299) OpenArena's steady fps was ~5% lower with the lightmap atlas than
+without it, but the frames themselves cost the same: in-demo frames under 100 ms average 15.3-15.5
+ms in every run, atlas on or off; the loss is all in longer stalls (stall time per pass ~5 s with
+the atlas, ~3 s without, 8 runs). The atlas and the 32 lightmaps reach the GPU the same way
+(GL_RGB from RGBA bytes, one level, GL_LINEAR, clamped; nv30 swizzles both, and a 128x128 cell
+of the swizzled 1024x512 page is one contiguous 64 KB block like a lightmap of its own), so what
+differs is the batching (fewer, bigger draws, the CPU waiting on the GPU) or the allocation
+pattern of one big page (a 2 MB texture and its staging, one more GART chunk at each map load).
+
+Two latched switches to separate them on the PS3:
+ - r_mergeLightmaps 2 builds the atlas pages but keeps a shader per lightmap
+   (FixMergedLightmapTexCoords sets lmRealIndex for every lightmapped shader), so the batches and
+   their order are those of r_mergeLightmaps 0 on the atlas textures.
+ - r_mergeLightmapsSize (default 1024, 128..1024, rounded down to a power of two) caps a page's
+   side: 512 makes pages of up to 16 lightmaps, 256 of 4.
+OpenArena's demo on llvmpipe (GL 2.1), draws a frame: 0: 199, 1: 78, 2: 199, size 512: 92,
+size 256: 132, with the same indices and vertices per frame; frame 300 within 2 levels of
+r_mergeLightmaps 0 (later frames differ between two runs of the same settings: random effects).
+
+diff --git a/code/renderergl1/tr_bsp.c b/code/renderergl1/tr_bsp.c
+--- a/code/renderergl1/tr_bsp.c
++++ b/code/renderergl1/tr_bsp.c
+@@ -185,6 +185,10 @@ batches per texture. The pages hold 2^k lightmaps each (2^k for the largest k th
+ 64, then the rest the same way), so the texels add up to what the separate lightmaps had: no VRAM is wasted on
+ empty cells. ParseFace and ParseMesh move each surface's lightmap coordinates into its cell; the
+ lightmaps are sampled at texel centres without mipmaps, so a cell's neighbours never bleed in.
++r_mergeLightmapsSize caps a page's side (power of two, 128..1024): 512 holds 16 lightmaps, 256
++four. r_mergeLightmaps 2 builds the same pages but keeps a shader per lightmap
++(FixMergedLightmapTexCoords), so the batches and their order are those of r_mergeLightmaps 0:
++it tells the atlas textures' cost from the batching's.
+ ===============
+ */
+ static void R_MergeLightmaps( byte *buf, int numReal ) {
+@@ -194,6 +198,10 @@ static void R_MergeLightmaps( byte *buf, int numReal ) {
+ 	// at most 1024x1024 (64 lightmaps, 4 MB of temporary memory while it is built): the pages are
+ 	// powers of two in lightmaps, so a larger page would only help maps with 128 or more
+ 	maxSide = glConfig.maxTextureSize < 1024 ? glConfig.maxTextureSize : 1024;
++	for ( i = LIGHTMAP_SIZE; i * 2 <= r_mergeLightmapsSize->integer; i *= 2 )
++		;
++	if ( maxSide > i )
++		maxSide = i;
+ 	maxTiles = ( maxSide / LIGHTMAP_SIZE ) * ( maxSide / LIGHTMAP_SIZE );
+ 	if ( maxTiles < 1 )
+ 		maxTiles = 1;
+@@ -245,7 +253,8 @@ static void R_MergeLightmaps( byte *buf, int numReal ) {
+ 		first += tiles;
+ 	}
+ 
+-	ri.Printf( PRINT_DEVELOPER, "%d lightmaps merged into %d pages\n", numReal, numPages );
++	ri.Printf( PRINT_DEVELOPER, "%d lightmaps merged into %d pages of at most %dx%d%s\n", numReal, numPages,
++		maxSide, maxSide, r_mergeLightmaps->integer == 2 ? ", a shader per lightmap" : "" );
+ 	if ( r_lightmap->integer == 2 )	{
+ 		ri.Printf( PRINT_ALL, "Brightest lightmap value: %d\n", ( int ) ( maxIntensity * 255 ) );
+ 	}
+diff --git a/code/renderergl1/tr_init.c b/code/renderergl1/tr_init.c
+--- a/code/renderergl1/tr_init.c
++++ b/code/renderergl1/tr_init.c
+@@ -114,6 +114,7 @@ cvar_t	*r_drawBuffer;
+ cvar_t	*r_lightmap;
+ cvar_t	*r_vertexLight;
+ cvar_t	*r_mergeLightmaps;
++cvar_t	*r_mergeLightmapsSize;
+ cvar_t	*r_glStateCache;
+ cvar_t	*r_lockArrays;
+ cvar_t	*r_skyArrays;
+@@ -1066,13 +1067,16 @@ void R_Register( void )
+ 	r_simpleMipMaps = ri.Cvar_Get( "r_simpleMipMaps", "1", CVAR_ARCHIVE | CVAR_LATCH );
+ 	r_vertexLight = ri.Cvar_Get( "r_vertexLight", "0", CVAR_ARCHIVE | CVAR_LATCH );
+ 	r_mergeLightmaps = ri.Cvar_Get( "r_mergeLightmaps", "1", CVAR_LATCH );
++	r_mergeLightmapsSize = ri.Cvar_Get( "r_mergeLightmapsSize", "1024", CVAR_LATCH );
++	ri.Cvar_CheckRange( r_mergeLightmapsSize, 128, 1024, qtrue );
++	ri.Cvar_SetDescription( r_mergeLightmapsSize, "With r_mergeLightmaps: the largest side of a lightmap atlas page in texels (128..1024, a power of two: 512 holds 16 lightmaps, 256 four)" );
+ 	r_glStateCache = ri.Cvar_Get( "r_glStateCache", "1", CVAR_LATCH );
+ 	r_lockArrays = ri.Cvar_Get( "r_lockArrays", "0", 0 );
+ 	r_skyArrays = ri.Cvar_Get( "r_skyArrays", "1", 0 );
+ 	ri.Cvar_SetDescription( r_skyArrays, "Draw each sky box side with one glDrawElements from vertex arrays (0: a glBegin strip per row, a call per texture coordinate and vertex, as upstream)" );
+ 	ri.Cvar_SetDescription( r_lockArrays, "1: lock the vertex arrays of each batch with glLockArraysEXT (compiled vertex arrays) as upstream; Mesa ignores the lock" );
+ 	ri.Cvar_SetDescription( r_glStateCache, "Send texture unit, texture enable and client array state to GL only when a draw needs it and it changed (0: every call as upstream)" );
+-	ri.Cvar_SetDescription( r_mergeLightmaps, "Pack the map's lightmaps into a few atlas textures, so surfaces with the same texture and different lightmaps draw in one batch" );
++	ri.Cvar_SetDescription( r_mergeLightmaps, "Pack the map's lightmaps into a few atlas textures, so surfaces with the same texture and different lightmaps draw in one batch (2: the atlas textures, but a batch per lightmap as with 0)" );
+ 	r_uiFullScreen = ri.Cvar_Get( "r_uifullscreen", "0", 0);
+ 	r_subdivisions = ri.Cvar_Get ("r_subdivisions", "4", CVAR_ARCHIVE | CVAR_LATCH);
+ 	r_stereoEnabled = ri.Cvar_Get( "r_stereoEnabled", "0", CVAR_ARCHIVE | CVAR_LATCH);
+diff --git a/code/renderergl1/tr_local.h b/code/renderergl1/tr_local.h
+--- a/code/renderergl1/tr_local.h
++++ b/code/renderergl1/tr_local.h
+@@ -1059,6 +1059,7 @@ extern	cvar_t	*r_fullbright;					// avoid lightmap pass
+ extern	cvar_t	*r_lightmap;					// render lightmaps only
+ extern	cvar_t	*r_vertexLight;
+ extern	cvar_t	*r_mergeLightmaps;				// BSP lightmaps packed into a few atlas textures
++extern	cvar_t	*r_mergeLightmapsSize;			// the largest side of an atlas page
+ extern	cvar_t	*r_glStateCache;				// deferred, filtered texture unit and array state
+ extern	cvar_t	*r_lockArrays;					// call glLockArraysEXT around each batch
+ extern	cvar_t	*r_skyArrays;					// sky box sides from vertex arrays					// vertex lighting mode for better performance
+diff --git a/code/renderergl1/tr_shader.c b/code/renderergl1/tr_shader.c
+--- a/code/renderergl1/tr_shader.c
++++ b/code/renderergl1/tr_shader.c
+@@ -2282,7 +2282,8 @@ static void FixMergedLightmapTexCoords( void ) {
+ 		}
+ 	}
+ 
+-	if ( fixed || shader_lmCoordsReal ) {
++	// r_mergeLightmaps 2: every shader belongs to its lightmap, as without the atlas
++	if ( fixed || shader_lmCoordsReal || r_mergeLightmaps->integer == 2 ) {
+ 		shader.lmRealIndex = shader_realLightmapIndex;
+ 		shader.lmCoordsReal = shader_lmCoordsReal;
+ 	}

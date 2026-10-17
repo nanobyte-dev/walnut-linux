@@ -133,6 +133,15 @@ variant_lockarrays() { oa_x +set r_lockArrays 1; }
 # change here; islanddm drops from ~1450 sky calls a frame to 18)
 variant_skystrips() { oa_x +set r_skyArrays 0; }
 variant_allbatchoff() { oa_x +set r_mergeLightmaps 0 +set r_glStateCache 0 +set r_lockArrays 1 +set r_skyArrays 0; }
+# The atlas's ~5% (ps3.362 on Mesa ps3.299) is not in the frames: the window's frames of 100 ms or
+# less render at the same rate with and without it (report.py smooth: 64.0-64.3 fps both ways),
+# the loss is stall time (stall_s 37-45 s with it, 30-37 without). 0023 separates the atlas
+# textures from the batching. mergelm2: the atlas pages with a batch per lightmap (199 draws, the
+# order of mergelm0): stalls as base = the big page's memory, as mergelm0 = the batching.
+# lmsize512 / lmsize256: pages of up to 16 / 4 lightmaps (92 / 132 draws, 1 MB / 256 KB uploads).
+variant_mergelm2() { oa_x +set r_mergeLightmaps 2; }
+variant_lmsize512() { oa_x +set r_mergeLightmapsSize 512; }
+variant_lmsize256() { oa_x +set r_mergeLightmapsSize 256; }
 # tc1 with no window manager, as step 0 ran: the window never reached the screen (SDL's fullscreen
 # went unanswered), so this measures what showing the frames costs
 variant_tc1nowm() { OA_TC=1; oa_cmd; WM=; }

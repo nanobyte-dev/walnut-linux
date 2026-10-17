@@ -19,3 +19,4 @@
 0020-renderergl1-r_glStateCache-texture-unit-and-client-a.patch
 0021-renderergl1-r_lockArrays-0-no-glLockArraysEXT-around.patch
 0022-renderergl1-r_skyArrays-a-sky-box-side-in-one-glDraw.patch
+0023-renderergl1-r_mergeLightmaps-2-and-r_mergeLightmapsS.patch
