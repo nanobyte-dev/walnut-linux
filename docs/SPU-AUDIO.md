@@ -556,3 +556,175 @@ is the bound.
    - post-process and S16 conversion in the job, with int16 output;
    - AltiVec mixers for the fallback;
    - (d') ADPCM effects in ioquake3.
+
+## 5. fluidsynth: MIDI voices on the SPEs (built 2026-10-17)
+
+Item 3b of SPU-OFFLOAD-PLAN.md. Measured on the PS3: dsda-doom playing its demo at normal speed
+used 53 s of CPU in 60 s with fluidsynth music against 29 s without, and ALSA underruns went from
+18 to 1280 a minute. Source read: Debian's `fluidsynth` 2.6.1+dfsg-1 (what the PS3 runs; our
+`fluidsynth/` package, .dsc sha256 `a562a72f...1520f`). Line numbers are from that tree.
+Built: `fluidsynth/patches/0001-rvoice-voice-DSP-through-libspeq-on-the-PS3-s-SPEs.patch`,
+libspeq's `speq_synth_*_v1` (`ps3-spu/lib/synth.c`, `lib/synth-kern.h`, `spu/synth-op.c`). Not
+run on the PS3 yet; "estimate" marks numbers nobody measured here.
+
+### (a) The render path in 2.6.1
+
+- **Who calls it.** dsda-doom renders between MIDI events from SDL's audio callback:
+  `fluid_synth_write_float` (flplayer.c:446) for however many frames lie before the next
+  event, at 44.1 kHz, gain 0.5, polyphony 256, reverb and chorus off (its defaults), the
+  SoundFont `/usr/share/sounds/sf3/default-GM.sf3`. `fluid_synth_write_float_channels_LOCAL`
+  (fluid_synth.c:4699) calls `fluid_synth_render_blocks` (5132) for whole blocks of
+  `FLUID_BUFSIZE` = 64 samples: event dispatch, the sample timers (the player), then
+  `fluid_rvoice_mixer_render` (fluid_rvoice_mixer.c:1739) for 1 to 128 blocks.
+- **The mixer**: zero the buffers; `fluid_render_loop_singlethread` (682): for each active
+  voice `fluid_mixer_buffers_render_one` (530): `fluid_rvoice_write` for each block into a
+  local buffer, then `fluid_rvoice_buffers_mix` (440) of each run of non-quiet blocks into the
+  voice's buffers (left, right, reverb and chorus sends: up to 4, `FLUID_RVOICE_MAX_BUFS`), the
+  gain ramping over the run's first 64 samples. Then reverb and chorus
+  (`fluid_rvoice_mixer_process_fx`, 135; the default engine is Dattorro, `synth.reverb.engine
+  dat`), then finished voices go back to the synth.
+- **`fluid_rvoice_write`** (fluid_rvoice.c:303), per voice and block:
+  - control (stays on the PPE): sample sanity (126) when a modulator moved loop points, the
+    note-off check, the volume and modulation envelopes, the two LFOs, the amplitude
+    (`fluid_rvoice_calc_amp`, 31: the voice ends when it can't rise above the noise floor),
+    the pitch to a phase increment (`fluid_ct2hz_real`), portamento, the IIR filters'
+    coefficients (`fluid_iir_filter_calc`, fluid_iir_filter_impl.cpp:309). Table lookups and
+    a few dozen flops per block: small and branchy;
+  - DSP (per sample, the cost): the interpolation (fluid_rvoice_dsp.cpp: none 154, linear
+    219, 4th order 329, the default; sinc 11/17/25 taps for `FLUID_INTERP_MID..HIGHEST`) reads
+    the int16 samples around a 32.32 fixed-point phase, with special points at the start, the
+    end and across a loop wrap; then the custom filter (rarely on) and the SoundFont's
+    resonant low-pass (`fluid_iir_filter_apply_local`, 159: a biquad, Direct Form II, which
+    also applies the volume envelope's gain ramp, and recomputes its coefficients every
+    sample while a cutoff or Q change is being smoothed in: a lookup in a 12001-entry sin/cos
+    table, a division, a square root); then the mix (4 multiply-adds per sample).
+- **Types.** Debian builds with doubles (`enable-floats` off: `fluid_real_t` is double); the
+  filter coefficients are float. fluidsynth compiles `fluid_iir_filter_impl.cpp` with
+  `-ffast-math` (src/CMakeLists.txt:259), so the filter's rounding is the compiler's choice.
+- **What is per voice, block-sized and SIMD-friendly:** the whole DSP part. What stays: event
+  handling, voice allocation and stealing, SoundFont lookups and the modulators (fluid_voice.c,
+  on the synth thread), the control part above, reverb and chorus (serial state of tens of KB,
+  one instance per synth: off in dsda-doom; a candidate for later, on one resident worker).
+- **The parallel render path** (`synth.cpu-cores` > 1: `fluid_render_loop_multithread`,
+  1558, `fluid_mixer_thread_func`, 1380) hands whole voices (all blocks of a call, control
+  part included) to extra threads, each with its own buffers summed at the end. An SPU
+  "thread" there would have to run the control part too: the envelopes, LFOs, sanity checks
+  and note-offs ported to the SPU and kept in step with fluidsynth. Not the hook: the split
+  below keeps every line of control code fluidsynth's own, and costs one round trip per block
+  instead of one per call, which barely differs in dsda-doom (MIDI events split its calls into
+  a few blocks each). The mixer keeps the stock path whenever cpu-cores > 1.
+
+### (b) Design
+
+- **The split.** `fluid_rvoice_write` = `fluid_rvoice_write_ctl` (control) +
+  `fluid_rvoice_write_dsp` (interpolation and filters); stock behaviour is the two together.
+  A new render loop goes block by block: every voice's control part on the PPE, then one
+  libspeq call renders the DSP and the mix of all voices it takes, while the PPE renders the
+  others (sinc, 24-bit samples, voices libspeq refuses). The state the DSP changes (phase,
+  `has_looped`, the filters' histories, smoothing counters, coefficients and gain, the mix
+  buffers' `current_amp`) is copied into a descriptor and back, so a failed or late block is
+  re-rendered by fluidsynth's own code from the voice's unchanged state. Each block is mixed as
+  a run of one (after a run's first block `current_amp == target_amp`, so the ramp formula
+  gives the stock samples), finished voices are finished in voice order: the output equals the
+  stock loop's up to the order of the sums.
+- **The job** (`SYNTH_OP_BLOCK`, lib/synth-job.h): one block of up to 64 voices
+  (`SPEQ_SYNTH_JOB`, default 64) into the job's own output lines (one per mixer buffer:
+  dsda-doom has 4, up to 16; the SPU zeroes them, the PPE adds them to fluidsynth's buffers).
+  The SPU never writes fluidsynth's memory: only its lines and the descriptors.
+- **Descriptor** (`struct speq_synth_voice`, speq.h, 384 bytes, contiguous): sample EA, phase,
+  increment, start/end/loop points, interpolation, looping, has_looped, each buffer's line and
+  gains, both filters' state (`struct speq_synth_filter`); out: the sample count (< 64: the
+  sample ended) and the new state; libspeq's private plan: two sample windows, two sin/cos
+  slices, five sample points, a skip flag.
+- **Sample data by DMA.** SoundFont samples are int16 in main memory (SF3 decoded at load).
+  libspeq computes on the PPE, from the phase and the increment, the index range the block can
+  read before the first loop wrap (window 0: from the sample before the phase to 3 past the
+  last position, clipped at the last sample the DSP reads) and after it (window 1: from
+  loopstart, the block's span), at most 4096 samples each (a pitch of ~60 times the sample's
+  rate; wider ones stay on the PPE). The special points the interpolation uses (start, end,
+  loopstart, loopstart+1, loopend-1) are read on the PPE, only those fluidsynth itself would
+  read. A sweeping filter gets the slice of the sin/cos table its cutoff crosses in the block
+  (at most 1024 entries). Each window's pages are touched on the PPE before the submit (a
+  swapped-out SoundFont page comes back there, not as a fault on the worker's thread). The SPU
+  fetches a voice's windows while the voice before it renders (two buffer sets); the cubic and
+  linear coefficient tables (12 KB, copied by libspeq to 16-byte alignment) stay in local store.
+  synth.spu: 22 KB code, 113 KB data.
+- **Precision.** The SPU computes in double, like Debian's fluidsynth (SPU double precision is
+  IEEE, round to nearest; its single precision truncates). The DSP code is one C file for both
+  sides (lib/synth-kern.h), a port of the three interpolations, the filter and the mix with the
+  same types, expressions and unsigned arithmetic. Double precision is ~6 times slower than
+  single on the SPU (not pipelined); an estimate from the instruction mix is 150-200 cycles per
+  sample and voice, ~3-4 µs per voice block, against an estimated ~10 µs on the PPE: one SPE
+  does a 40-voice block in ~0.15 ms of its 1.45 ms. If it is too slow, the int-to-double
+  conversions (now 4 per output sample) move to one per window sample, then SIMD across voices.
+- **Where the PPE waits, and the fallback.** After the submit the PPE renders the voices
+  libspeq didn't take, then waits on the block's done word without spinning
+  (`SPEQ_WAIT_NOSPIN`: the mixer thread shares the PPE core with the game) for at most
+  `SPEQ_SYNTH_TIMEOUT_US` (2000; the job is ~0.1-0.3 ms, estimate, the block 1.45 ms of audio
+  and the callback has several blocks of slack). On a timeout or error the block's voices are
+  rendered by fluidsynth from their unchanged state, and the block (descriptors, lines, done
+  word; a ring of 3) stays with its job until the done word completes. Three failed blocks in a
+  row put the SPEs aside for 5 s; a queue whose workers all broke, for the process.
+  `SPEQ_SYNTH=auto` (the default) takes blocks of at least 4 voices (`SPEQ_SYNTH_MIN`: below
+  that a round trip costs more than the PPE's DSP); `spu` every block; `ppe` libspeq's DSP on
+  the calling thread (the hook's path without SPEs, for telling hook bugs from SPU bugs);
+  `off` keeps fluidsynth stock. `SPEQ_DEBUG=1`: a line of counters every 10 s and at close
+  (blocks on the SPEs, voices, jobs, mean and max wait, refusals, timeouts, errors, backoffs).
+- **The queue: one per service, the SPEs split, not one shared queue** (risk 5 in 3(f)
+  above). The synth has its own queue, opened once per process at the first synth's creation
+  (`new_fluid_synth`, not the audio callback: opening costs 1.6 ms), one worker (a deadline
+  queue), workers parking after 200 ms idle (music stopped) instead of 10 ms and freeing their
+  context after a minute; the DXT queue became a bulk queue (`SPEQ_OPEN_BULK`): with nworkers
+  0 it takes the SPEs no other queue holds but leaves two (`SPEQ_DEADLINE_SPES`) to deadline
+  queues, opened before or after it. So with DXT (4), fluidsynth (1) and OpenAL's mixer (1)
+  in one process there are 6 contexts on 6 SPEs: no time slicing, and no audio job ever waits
+  behind a DXT job. Why not one queue with two job classes: it needs a second ring and a
+  claim-order change in the runtime (an ABI change of every SPU program); the three programs'
+  buffers would have to share one local store (synth 135 KB, dxt 66 KB, the mixer ~70 KB
+  estimated), and a bug or an ABI step in one op would touch all. Cost of the split: DXT
+  runs on 4 SPEs instead of 6 (1173 Mpixel/s measured on six, ~780 expected on four, against
+  352 Mpixel/s through glTexImage: the encoder isn't what limits it), and two more contexts
+  (320 KB of kernel vmalloc each) while audio plays. Other processes' SPE use still
+  time-slices; the timeout and fallback cover it.
+- **What the queue needed** (SPU-OFFLOAD-PLAN.md item 4), in libspeq, general:
+  `speq_wait_timeout(q, done, timeout_us, flags)` (`SPEQ_WAIT_NOSPIN`, timeout 0 = a poll that
+  doesn't set the waiters bit; -ETIMEDOUT leaves the jobs and their buffers to the queue),
+  `speq_tune(q, spin_us, idle_us, free_ms)` (per-queue idle and free times),
+  `speq_nworkers(q)`, nworkers 0 = the SPEs other queues don't hold, `SPEQ_OPEN_BULK`. The
+  control block, job lines and stop codes are unchanged: `SPEQ_ABI_VERSION` stays 2. Per-worker
+  doorbells (the herd on 6 idle workers) aren't needed with one worker per audio queue.
+
+### (c) Tests (host, 2026-10-17)
+
+- `make -C ps3-spu test`: queue-test (the timeout, poll and no-spin waits, the SPE budget, bulk
+  queues), dlopen-check (the new exports, `SPEQ_SYNTH=ppe|off` without spufs), and synth-test:
+  the SPU path (synth.spu's op on host threads, `SPEQ_FAKE=1`, every sample and table read
+  checked against the DMA plan) against libspeq's PPE path on random voices (all three
+  interpolations, loops down to 2 samples, wraps, sample ends, filter sweeps, the custom
+  filter, ramps, unmapped buffers, 4 blocks each): bit-identical over 37672 voice blocks with
+  one job per block, within 5e-14 split into jobs of 7; refusals; timeouts and the back-off.
+- `make -C ps3-spu test-fluidsynth` (tests/fluidsynth-compare.sh): fluidsynth with the hook
+  and unpatched fluidsynth built for the host, plus both without the filter's `-ffast-math`.
+  tests/fs-kern.c runs synth-kern.h against fluidsynth's own `fluid_rvoice_dsp_interpolate`
+  and `fluid_iir_filter_apply` on 200000 random voice blocks: the interpolation identical in
+  all; the filters identical in all without `-ffast-math`, with it in a third (the rest within
+  1.5e-4 relative on deliberately wild filter states). Then a generated GM piece
+  (tests/make-midi.py: 16 channels, ~134 voices per block on average, programs, bends, pans,
+  sustain, CC74) rendered with FluidR3_GM.sf2 through tests/fs-render.c (writes of 1-3000
+  frames, as a game does): `SPEQ_SYNTH=off` identical to unpatched; `ppe` and `spu` (one job,
+  and jobs of 16 on 3 workers) 157.5 dB SNR (max difference 6e-8, one float step) with cubic,
+  linear and no interpolation, 147.3 dB with reverb and chorus on, identical with sinc (left to
+  fluidsynth); without `-ffast-math` on both sides `ppe` and `spu` identical to unpatched.
+- Not covered on the host: the SPU program itself (built with spu-elf GCC 16.2, never run), its
+  double-precision speed, DMA on hardware.
+
+### (d) On the PS3 (to run)
+
+- dsda-doom `play` (games/bench/recipes/dsda-doom.sh) with variants for `SPEQ_SYNTH=spu`,
+  `ppe` and `off`, interleaved, `SPEQ_DEBUG=1` in the log: CPU time and `underruns=` in
+  bench.txt against `playnomusic` (29 s, 18) and today's `play` (53 s, 1280). Success:
+  CPU near `playnomusic` plus the control part (estimate: +2-3 s), underruns near 18, no
+  timeouts or errors in the counters, and the music sounding as with `off`.
+- `perf record -p` on the dsda-doom process with libfluidsynth3-dbgsym: the share left in
+  `fluid_rvoice_write_ctl`, `fluid_rvoice_buffers_mix` (silent voices), the hook's loop, and
+  how much of libfluidsynth was reverb/chorus or the player (not offloaded).
