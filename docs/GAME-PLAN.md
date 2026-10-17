@@ -15,7 +15,7 @@ Every number is 1920x1080, measured through games/bench with the picture checked
 |---|---|---|---|---|---|---|---|
 | QuakeSpasm | yes | right | right | timedemo demo1 (our quake.rc) | 59-70 | **meets it** | - |
 | Armagetron | yes | right | right | recorded AI round, `--playback --benchmark` | 64.0 | **meets it** | - |
-| Neverball | yes | right | some underruns (50/min) | shipped replay; our package's NEVERBALL_BENCH prints fps and quits at its end | ~70 (HUD, replay + end menu) | **meets it** | first run of the bench mode (our neverball, in ps3-dev) |
+| Neverball | yes (ps3rsx 0.249: no wedge) | right | 15-36 underruns a run | shipped replay (only ~20 s); our NEVERBALL_BENCH prints fps and quits at its end | 70-76 (its own count); 320-380 ms stalls at the start | **meets it** | a longer replay of the user's (the start-up stutters weigh too much in 20 s) |
 | Yamagi Quake II | yes | right | right (our fix) | timedemo q2demo1 | 56 | close | - |
 | dsda-doom (GL renderer) | yes | right (our fixes) | **choppy** (MIDI synthesis) | Freedoom DEMO1 timedemo | 48.8 | under | music default; SPU synth; performance |
 | Extreme Tux Racer | yes | right | right | the user's race, replayed (evemu) | ~45 in the race (18-58) | under | performance |
@@ -23,9 +23,9 @@ Every number is 1920x1080, measured through games/bench with the picture checked
 | OpenArena (opengl1) | yes | right | right | timedemo bench | 42.2 | under | performance |
 | X-Moto | yes | right | right (engine quiet under the music) | credits replay | 37 (HUD) | under | performance |
 | dsda-doom (software) | yes | right (our fix) | choppy | as GL | 20-29 | under | the GL renderer is the way |
-| OpenTTD | yes (software video) | right (plain X11; our SDL3 fix on the default path) | right | title-screen demo game; simulation 20000 ticks in 13.4 s | not counted yet (SDL3 ps3.242's default path was ~2 fps; ps3.254 uploads natively, untested) | - | try SDL3 ps3.254 (variant accel); a fps counter; GL renderer refuses (no GL_RG) |
-| Luanti | packaged, not run | | | our ps3bench mod flies a fixed path | | | first smoke test |
-| Sauerbraten | packaged, not run | | | CubeScript counts frames on map cave | | | first smoke test (GPU skinning last) |
+| OpenTTD | yes (software video) | right | choppy (~1000-1170 underruns a minute, either path) | title-screen demo game; simulation 20000 ticks in 13.4 s | 8 (SDL3 ps3.254 accel, HUD median; ps3.242 was ~2), 12 with the 8bpp blitter | far under | its own software drawing: the GL driver (needs ARB_texture_rg) |
+| Luanti | yes (first run 2026-10-17) | right (the user) | no underruns | our ps3bench mod flies a fixed path | 67 HUD median in flight, p10 23, stalls to 0 while chunks load | median meets it, stalls don't | memory (177 MB swapped out, 32 MB free): view range, mesh threads |
+| Sauerbraten | yes, CPU skinning (2026-10-17) | right; "surprisingly smooth" between stalls (the user) | 236 underruns | CubeScript counts frames on map cave (not reached yet: loading takes over 60 s) | 15 HUD median incl. loading | under (memory) | OOM-killed without the VRAM swap (smoke's default); with it, 138 MB VRAM and the swap full: memory settings; GPU skinning still to test |
 | SuperTuxKart | not started | | | `--benchmark` | | | group 4 |
 | OpenArena (opengl2) | not started | | | timedemo | | | group 4 |
 
@@ -51,10 +51,12 @@ Every number is 1920x1080, measured through games/bench with the picture checked
 
 ### Next, in order
 
-1. **ps3rsx 0.249 on the PS3** (needs the reboot): the GL tests, X with a GL client next to the
-   desktop, VT switches, Neverball; then perf profiles as root (to name the kernel hot spot) and
-   the suite's numbers against the table above.
-2. **Group 3 first runs:** Luanti, Sauerbraten with `cpuskel`, then Sauerbraten with GPU skinning.
+1. **ps3rsx 0.249 on the PS3** (installed 2026-10-17): GL tests pass (texsub, texfmt, genmip,
+   mipread), glxgears ~1250 fps across VT switches, Neverball runs without the old wedge. Left:
+   the suite's numbers against the table above, perf profiles as root.
+2. **Group 3:** Luanti and Sauerbraten (CPU skinning) run; both are limited by memory. Left:
+   Sauerbraten with GPU skinning, memory settings for both. OpenTTD's profile (accel, 15 s): its
+   own blitter 27% (PaletteAnimate 14%), the kernel 24%, Mesa and ps3rsx under 1%.
 3. **SDL3 ps3.254 on the PS3** (built, in ps3-dev): OpenTTD `accel` against `base` (colours,
    HUD fps well above 2, underruns down from 937/min); if it wins, the recipe drops
    SDL_FRAMEBUFFER_ACCELERATION=0. dsda-doom `sdlsw` uses the same path. Neverball's bench mode

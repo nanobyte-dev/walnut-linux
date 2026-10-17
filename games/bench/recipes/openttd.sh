@@ -28,3 +28,6 @@ variant_sim() {
 variant_gl() { OT_V=sdl-opengl; ot_cmd; }
 # SDL3's default accelerated framebuffer (to check the SDL3 fix)
 variant_accel() { ENV=(); }
+# the accelerated framebuffer with OpenTTD's cheapest blitter (8-bit palette; the default is
+# 32bpp-anim, which redraws palette animation per pixel in software)
+variant_accel8() { ENV=(); CMD+=(-b 8bpp-optimized); }
