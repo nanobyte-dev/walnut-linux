@@ -8,10 +8,17 @@ snapshot and on the PS3, `build/apt-cache/libopenal1_1%3a1.25.2-1_ppc64.deb`; .d
 1.36+u20260719.58839361+dfsg-1. Line numbers are from those trees. "Estimate" marks numbers
 nobody has measured here.
 
+2026-10-17: every cited line checked against the 1.25.2 tree (Debian applies no patches to it)
+and corrected in place; sections 1, 2 and 3(f) gained what the check found (the profile split's
+traps, the gain ramp's first update, the queue shared with DXT and fluidsynth). The package is
+ours now: `openal-soft/` (debsrc, unpatched, `1:1.25.2-1+ps3.N`), so the debug symbols match
+what the PS3 runs. Its build confirms the scalar mixer: CMake finds no `xmmintrin.h` (POWER's SSE
+translation headers need POWER8) and no NEON, "CPU extensions: Default".
+
 ## Summary
 
 - **Hook:** one per mixer update, not per mixer function. In `ProcessContexts`
-  (alc/alu.cpp:2192-2198) the loop that calls `Voice::mix` for every playing voice becomes:
+  (alc/alu.cpp:2193-2198) the loop that calls `Voice::mix` for every playing voice becomes:
   prepare every voice on the PPE, mix all eligible voices in one libspeq job, wait, finish
   every voice on the PPE. `Voice::mix` (core/voice.cpp:695-1193) is split into those three
   parts, so the PPE path and the SPU path share the bookkeeping. The SPU kernel and the
@@ -25,7 +32,9 @@ nobody has measured here.
   big part of the 11% (M0 decides before any code). Keeping two copies of the voice
   bookkeeping consistent: avoided by the split. Source pages swapped out under the game's
   memory pressure: the PPE pre-touches the window, and a timeout falls back to the PPE.
-  Sharing the SPEs with the DXT queue. Rebasing a patch on OpenAL Soft's hottest function.
+  Sharing the SPEs with the DXT queue and fluidsynth: DXT jobs run up to ~2 ms, so audio needs
+  one process-wide queue with deadline jobs claimed first (3(f) 5). Rebasing a patch on OpenAL
+  Soft's hottest function.
 - **Stage (d), Vorbis per buffer: not worth it for OpenArena.** Its effects are WAV (518
   files, all mono PCM), only the 7 music tracks are Ogg, and ioquake3 already streams those
   in 4 KB buffers through libvorbisfile. The ~7 MB is decoded *WAV* PCM. If we want that
@@ -40,21 +49,29 @@ alc/backends/alsa.cpp:462) waits in `snd_pcm_wait`, takes the mmap area and call
 `renderSamples(n)` (alu.cpp:2395) in chunks of at most `BufferLineSize` = 1024 frames
 (core/bufferline.h):
 
-1. clear `MixBuffer` (alu.cpp:2398);
-2. under `getWriteMixLock()`: `ProcessContexts` (alu.cpp:2170):
-   - `ProcessParamUpdates` (2185): voices with new properties get gains, panning, pitch and
-     resampler recomputed (`CalcAttnVoiceParams` 1707, `CalcPanningAndFilters` 1467,
-     `PrepareResampler` 253). ioquake3 moves sources every frame, so this runs for most
-     voices about once per game frame;
-   - `Voice::mix` for each voice not Stopped/Pending (2192-2198);
-   - effect slots (2200-2250): none, ioquake3 uses no EFX;
-3. `mPostProcess` (2417): for our stereo device `AmbiDecPostProcess`, a first-order 2D
+1. clear `MixBuffer` (alu.cpp:2400);
+2. under `getWriteMixLock()` (2403): `ProcessContexts` (alu.cpp:2170):
+   - `ProcessParamUpdates` (2185, defined at 2147): first `ProcessVoiceChanges` (play, stop,
+     pause and restart requests queued by the API), then voices with new properties get gains,
+     panning, pitch and resampler recomputed (`CalcVoiceParams` 2007, which takes the pending
+     property update and calls `CalcAttnVoiceParams` 1707 for 3D mono voices like ioquake3's,
+     `CalcNonAttnVoiceParams` otherwise; `CalcPanningAndFilters` 1467, `PrepareResampler`
+     253). ioquake3 moves sources every frame, so this runs for most voices about once per game
+     frame;
+   - `Voice::mix` for each voice not Stopped/Pending (2193-2198);
+   - effect slots (2200-2246): none, ioquake3 uses no EFX;
+3. `mPostProcess` (2422): for our stereo device `AmbiDecPostProcess`, a first-order 2D
    ambisonic decode of 3 lines (W, Y, X) to 2 (alc/panning.cpp:1435-1437 via `InitPanning`,
-   `StereoConfig` panning.cpp:548);
-4. limiter, distance compensation, dither (2420-2432): all off for float output (below);
-5. `Write<float>` interleaves `RealOut` into the mmap area (2481-2490).
+   `StereoConfig` panning.cpp:548). `BFormatDec::process` (core/bformatdec.cpp:60-93) does it
+   with `MixSamples`, i.e. the same `Mix_C` the voices use: in a flat profile `Mix_C` holds the
+   decode too (section 2);
+4. limiter, distance compensation, dither (2425-2435): all off for float output (below);
+5. `Write<float>` interleaves `RealOut` into the mmap area (2476-2485).
 
-Then `snd_pcm_mmap_commit` hands the frames to libasound on the same thread.
+Then `snd_pcm_mmap_commit` hands the frames to libasound on the same thread. `mixerProc` renders
+every whole period that is free at once (`avail -= avail%update_size`, alsa.cpp:509, under the
+backend's mutex), and `renderSamples` cuts that into updates of at most 1024 frames: with
+512-frame periods an update is 512 frames or, when two periods are free, 1024.
 
 **Our device.** Nothing sets ALSA options, so OpenAL opens ALSA's `default`. On the PS3 that is
 alsa-lib's `cards/PS3.conf`: `plug` → `softvol` → `dmix:CARD=PS3,FORMAT=S16`, and dmix
@@ -64,52 +81,81 @@ alc/alc.cpp:1131). So:
 - `plug` converts float to S16 in libasound, on the mixer thread. That is the "ALSA conversion"
   in the profile. softvol and dmix's mixing also run there.
 - The period OpenAL gets back from dmix (512 or 1024) is unverified; `ALSOFT_LOGLEVEL=3` prints
-  it. An update is 10.7 or 21.3 ms.
-- **No HRTF.** Stereo HRTF turns on only when asked or when the backend reports headphones
-  (`DeviceFlag::DirectEar`, panning.cpp:1310-1311), and the ALSA backend never reports them.
-  So step 0's `hrtf=false` changed nothing.
-- **No SIMD.** Mixer variants are picked at `Voice::InitMixer` (voice.cpp:129-184) from
-  NEON/SSE flags. ppc64 has neither, so the PPE runs `Mix_C` and `Resample_Cubic_C`
-  (core/mixer/mixer_c.cpp, plain scalar C). The default resampler is `Spline`
-  (`ResamplerDefault`, core/voice.h:35), i.e. the 4-tap cubic with a 32-phase table
-  (core/cubic_defs.h: 1 KB).
+  it ("Post-reset: Stereo, Float, 48000hz, <period> / <buffer> buffer", alc.cpp:1603; the bench
+  variants put it in bench.txt as `oal_device`). An update is 10.7 or 21.3 ms. dmix's slave runs
+  1024-frame periods, 16 of them (pcm/dmix.conf defaults); snd_ps3 offers 44100, 48000, 88200
+  and 96000 Hz (sound/ppc/snd_ps3.c:85-88), so a dmix at 44.1 kHz is possible.
+- **No HRTF.** Stereo HRTF turns on only when asked or when the device counts as headphones
+  (`DeviceFlag::DirectEar`, panning.cpp:1310-1311). The ALSA backend never sets that flag; only
+  the config's `stereo-mode=headphones` would (alc.cpp:1609-1616), and nobody sets it. So step
+  0's `hrtf=false` changed nothing (it is the deprecated spelling of the default,
+  alc.cpp:1255-1266).
+- **No SIMD.** `Voice::InitMixer` (voice.cpp:129-184) takes the mixers from `SelectMixer` and
+  friends (voice.cpp:74-125), and `PrepareResampler` (alu.cpp:253-282) the resampler from
+  `SelectResampler`, both by NEON/SSE flags. ppc64 has neither (the build finds no
+  `xmmintrin.h`), so the PPE runs `Mix_C` and `Resample_Cubic_C` (core/mixer/mixer_c.cpp:198
+  and 247, plain scalar C). The default resampler is `Spline` (`ResamplerDefault`,
+  core/voice.h:35), i.e. the 4-tap cubic with a 32-phase table (core/cubic_defs.h: 32 x (4
+  coefficients + 4 deltas) floats, 1 KB). Debian builds with `-O2` and `_GLIBCXX_ASSERTIONS`
+  ("STL hardening level: Performance"): the spans in those loops are bounds-checked.
 
 **Why step 0's variants didn't help.**
 - **B (`sample-type=int16`)** also turned on the output limiter and 16-bit dithering, because
-  both default to on for integer output (alc.cpp:1669-1696 and 1704-1755). That is likely why
-  B's mixer thread grew to 16.5%. A fair int16 test adds `output-limiter=false` and
-  `dither=false`.
+  both default to on for integer output (dither alc.cpp:1670-1697, limiter 1704-1754). That
+  is likely why B's mixer thread grew to 16.5%. A fair int16 test adds `output-limiter=false`
+  and `dither=false` (variant b16).
 - **B22 (`frequency=22050`)** probably still ran at 48 kHz. Without `[alsa] allow-resampler=true`
-  the backend disables ALSA's resampler (alsa.cpp:736-743), and `set_rate_near` on a dmix
-  fixed at 48000 returns 48000. Check the log before believing any rate result.
+  the backend disables ALSA's resampler (alsa.cpp:736-743), so `plug` won't convert rates, and
+  `set_rate_near` on a dmix fixed at 48000 returns 48000. Check the log before believing any
+  rate result. `frequency` also scales the period (alc.cpp:1140-1146): 44100 asks for 470
+  frames.
 
-**Voice::mix, per voice and per update** (core/voice.cpp):
-- 705-755: read the position (`mPosition` int, `mPositionFrac` 16.16), the current/loop buffer,
-  the step `mStep` (pitch × 65536, from alu.cpp:1680), handle the delayed start (`outPos`) and
-  stopping.
-- 786-978, per source channel:
+**Voice::mix, per voice and per update** (core/voice.cpp:695-1193):
+- 706-761: read the position (`mPosition` int, `mPositionFrac` 16.16, `MixerFracBits` 16 in
+  core/mixer/defs.h:23), the current/loop buffer, the step `mStep` (pitch × 65536, capped at
+  `MaxPitch` 10; for 3D voices computed in `CalcAttnVoiceParams`, alu.cpp:1990-1994,
+  1675-1680 is the non-3D path), drop the loop past a static loop end, handle the delayed start
+  (`outPos`) and a Stopping voice that never started; `samplesToMix` = update − `outPos`.
+- 762-781: the mixing lines are carved from the end of `device->mSampleData` (one per mixing
+  channel: 1 for mono, 2 when `mDuplicateMono`, alu.cpp:1605, which is never for 3D voices).
+- 785-978, per source channel:
   - copy the 48-float history `mPrevSamples[chan]` into `device->mResampleData`;
   - load the source window as float: `LoadBufferStatic` 487, `LoadBufferQueue` 550 or
-    `LoadBufferCallback` 533, which call `LoadSamples` 261 to convert u8/i16/f32/IMA4/MSADPCM;
-  - resample into `mSampleData` with `mResampler` (or a copy when step = 1.0 and frac = 0);
-  - save the new history. The loop repeats only if pitch saturates the 1024+padding buffer.
+    `LoadBufferCallback` 533, which call `LoadSamples` 261 (also mulaw/alaw, i32, f64 and the
+    ADPCM blocks); negative positions load silence first, an ended voice holds its quietest
+    sample;
+  - resample into the mixing line with `mResampler`, or copy when step = 1.0 and frac = 0
+    (936);
+  - save the new history, only while Playing (943-957). The loop repeats only if pitch
+    saturates the resample buffer: `mResampleData` is 1024 + decoder padding + 48 floats, of
+    which a pass may read all but 24 (`SrcSizeMax`), so above a step of ~1.0 a 1024-frame
+    update takes more than one pass.
 - 989-1006: decoders (UHJ/super-stereo) and the ambisonic band splitter. Neither applies to us.
-- 1008-1074: per channel:
-  - `DoFilters` (biquad low/high-pass, only when `FilterActive`: never for ioquake3, no
-    filters, no air absorption);
-  - then `MixSamples` (`Mix_C`: gain ramp over at most 64 samples, then a constant gain) into
-    each Dry line. That is 3 lines for us; HRTF and NFC are the alternatives, both off;
+- 1008-1074: gains, then per channel:
+  - **the first update of a voice doesn't ramp**: without `IsFading` (set at 1074 after the
+    first mix) `counter` is 0 and the current gains jump to the targets (1009-1027); later
+    updates ramp over `min(samplesToMix, 64)` samples;
+  - `DoFilters` (biquad low/high-pass, only when `FilterActive`: HF or LF gain ≠ 1,
+    alu.cpp:1620-1622, never for ioquake3: no filters, air absorption factor 0, cone HF 1);
+  - then `MixSamples` (`Mix_C` → `MixLine`, mixer_c.cpp:150: the ramp, then a constant gain,
+    skipped for a line whose gain is below `GainSilenceThreshold`) into each Dry line. That is
+    3 lines for us; HRTF and NFC are the alternatives, both off. A silent voice (all gains
+    ~0, e.g. far away) still costs its load and resample;
+  - Stopping voices mix towards zero targets (`SilentTarget`);
   - then each aux send (none).
-- 1076-1193: advance the position, walk the buffer queue (`buffers_done`), loop or end,
-  store state, push `BufferCompleted` / `SourceStopped` events.
+- 1076-1193: a Stopping voice becomes Stopped here without moving; otherwise advance the
+  position, walk the buffer queue (`buffers_done`), loop or end, store state, push
+  `BufferCompleted` / `SourceStopped` events.
 
 **Sample data.**
-- A buffer's samples live in `ALbuffer::mDataStorage` (al/buffer.h:36), an `al::vector<T,16>`:
-  16-byte aligned at the start, in the format given to `alBufferData` (u8, i16, f32, IMA4,
-  MSADPCM, ...).
-- A voice reads `VoiceBufferItem::mSamples`, a span into it. A voice is static when the source
-  was given one buffer with `AL_BUFFER` (al/source.cpp:660). Otherwise it is a queue walked
-  item by item, wrapping to `mLoopBuffer`.
+- A buffer's samples live in `al::Buffer::mDataStorage` (al/buffer.h:36-44), a variant of
+  `al::vector<T,16>` (u8, i16, i32, f32, f64, mulaw, alaw, IMA4, MSADPCM): 16-byte aligned at
+  the start, in the format given to `alBufferData`, in host byte order (big-endian i16 here, as
+  the SPU reads it: no swaps).
+- A voice reads `VoiceBufferItem::mSamples` (core/voice.h:93), a span into it, with `mSampleLen`,
+  `mLoopStart`, `mLoopEnd` and `mNext` (voice.h:82-91). A voice is static when the source has
+  `AL_STATIC` type, one buffer given with `AL_BUFFER` (al/source.cpp:660). Otherwise it is a
+  queue walked item by item, wrapping to `mLoopBuffer`.
 
 **What ioquake3 gives it** (code/client/snd_openal.c):
 - **Effects:** `S_AL_BufferLoad` (358) decodes the whole file with `S_CodecLoad` and uploads it
@@ -127,33 +173,94 @@ alc/alc.cpp:1131). So:
 
 ## 2. Measurements before any code (M0, free)
 
-All of these go through `games/openarena/step0.sh` and `oa-profile.sh`, with
-`ALSOFT_LOGLEVEL=3` logged.
-1. **Profile split of the mixer thread.** In `oa-profile.sh`, run
-   `perf report --comm alsoft-mixer --sort dso,sym` and record these shares of all game samples:
-   - `Voice::mix`, `Resample_*_C`, `Mix_C`, `LoadSamples` (what moves to the SPU);
-   - `CalcAttnVoiceParams`/`CalcPanningAndFilters` (stays);
-   - `BFormatDec::process` and `Write<>` (stays, or moves later);
-   - libasound (stays);
-   - kernel (wakeups).
+Through the game suite (games/bench, docs/GAME-PLAN.md), not `step0.sh` (its window never
+reached the screen). Set up 2026-10-17, not run yet.
 
-   **Go/no-go:** build the SPU path only if the first group is ≥ 6% of the game's samples.
-   Step 0's profile A can't answer it (checked 2026-10-16): all 730 samples of the mixer thread
-   (tid 20798) resolve to `[unknown]`, perf never mapped libopenal in that recording. Re-profile
-   with `libopenal1-dbgsym` installed and perf started before the game (or `perf record -p` after
-   OpenAL has opened its device, checking `perf report --sort dso` shows libopenal).
-2. **Variants to add to `step0.sh audio`:**
-   - **B16:** `sample-type=int16`, `output-limiter=false`, `dither=false`. This moves plug's
-     conversion into OpenAL without adding work.
-   - **F44:** `frequency=44100` with dmix at 44100 (`defaults.pcm.dmix.rate 44100` in
-     `/etc/asound.conf`; snd_ps3 takes 44.1 kHz, to be confirmed). 409 of 518 effects then
-     take the copy path instead of the cubic resampler (voice.cpp, `increment == MixerFracOne
-     && fracPos == 0`).
+**Which games.** OpenAL Soft plays the sound of OpenArena (ioquake3 dlopens libopenal.so.1),
+Yamagi Quake II (`s_openal 1`, its default), ClassiCube and Luanti in the suite, and
+SuperTuxKart (a recipe outside the suite). Not the others of the plan's list: QuakeSpasm 0.96.3
+plays through SDL2's audio (Debian's package links no libopenal), Sauerbraten through
+SDL2_mixer, and Extreme Tux Racer through SFML 3.1, whose audio module is miniaudio. ClassiCube's
+bench flight probably plays nothing (music starts after 2 to 7 minutes, the flight digs no
+blocks), so its numbers are the cost of an open, idle OpenAL device.
 
-   Either one may be shippable on its own, and the SPU path's gain should be measured
-   against the best of them.
-3. **Voices per update:** this needs the patch's debug counter, or a count in the profile of
-   `Voice::mix` calls per update. It sizes the job.
+**Variants**, `variant_<name>` in those four recipes, the same names everywhere
+(games/bench/recipes/openal.inc, which also writes the run's `alsoft.conf`, OpenAL's log
+`alsoft.log` and `oal_backend`/`oal_device` in bench.txt):
+
+| Variant | What | Reads as |
+|---|---|---|
+| `base` | the recipe as it is | the shipped state |
+| `allog` | stock settings, OpenAL's log only | the reference: backend, format, rate, period |
+| `b16` | `sample-type=int16`, `output-limiter=false`, `dither=false` | plug's float→S16 moves into OpenAL's `Write` without the limiter's and dither's work |
+| `f44` | dmix at 44100 (`defaults.pcm.dmix.rate 44100` in a temporary `~/.asoundrc`) and `frequency=44100` | 409 of OpenArena's 518 effects take the copy path (voice.cpp:936) instead of the cubic resampler |
+| `b16f44` | both | the best free configuration, if both help |
+| `p1024` | `period_size=1024` (dmix's own period) | the fixed cost per update (wakeups, `ProcessParamUpdates`) |
+| `alnull` | `drivers=null`: OpenAL's null backend mixes in real time, writes nothing | base − alnull = libasound's share, alnull − nosound = OpenAL's own |
+| `nosound` | the game's own switch (OpenArena and Yamagi `s_initsound 0`, ClassiCube volumes 0, Luanti `ALSOFT_DRIVERS=none`: its device fails to open) | the bound (step 0's Z) |
+
+Either b16 or f44 may be shippable on its own, and the SPU path's gain should be measured
+against the best of them.
+
+**Frame rates** (on the PS3, `make bench-push` first, the protocol as for every suite run):
+
+    /var/tmp/bench/run.sh suite "base b16 f44 b16f44 p1024 alnull nosound" 3
+
+**1. Profile split.** Install our build of OpenAL Soft with its debug symbols: `libopenal1`,
+`libopenal-data` and `libopenal1-dbgsym`, 1:1.25.2-1+ps3.N (without dbgsym libopenal's
+internal functions are `[unknown]`, as in step 0). Then one profiled run per game, from
+`SOUND_AT` seconds after the start (OpenArena 25, the others 15) for 20 s, with perf on the
+game's process only (`-p`, never `-a`):
+
+    for g in openarena yquake2 luanti classicube; do
+        OAL_PERF=20 /var/tmp/bench/run.sh bench $g allog 1; done
+    /var/tmp/bench/oal-perf.sh /var/tmp/ps3-bench/*-allog
+
+(b16 or f44 in place of allog profiles those.) ClassiCube's run probably has no voice playing:
+it shows the idle device's cost, not the mixing.
+
+`OAL_PERF` makes the openal.inc variants run, in the background of the run,
+`sudo -n timeout 40 perf record -q -F 999 -g -p <pid> -o $BENCH_DIR/perf.data -- sleep 20`.
+oal-perf.sh prints for each run the shares of all the game's samples by DSO, by thread
+(`alsoft-mixer` is OpenAL's), libopenal by symbol, the groups below, and the verdict. By hand,
+for a game already running:
+
+    p=$(pgrep -n -x ioquake3)    # quake2, ClassiCube, luanti
+    sudo timeout 40 perf record -q -F 999 -g -p $p -o /dev/shm/oal.data -- sleep 20
+    sudo chown tibi: /dev/shm/oal.data
+    R="perf report -i /dev/shm/oal.data --stdio -g none --percentage absolute"
+    $R --no-children --sort dso | head -15
+    $R --no-children --sort comm | head
+    $R --no-children --sort sym --dsos libopenal.so.1.25.2 | head -40
+    $R --children --sort sym --dsos libopenal.so.1.25.2 | grep -E 'Voice::mix\(|BFormatDec|ProcessParamUpdates'
+
+(`perf report` as the owner of the file, not under sudo.) Read off, as shares of **all** the
+game's samples:
+- **voice mixing**: `Voice::mix` *inclusive* (the `--children` column: with the libc copies and
+  fills it calls), and as a cross-check the flat sum of `Voice::mix`, `Resample_*_C`, `Mix_C`,
+  `LoadSamples`/`LoadBuffer*` if not inlined. The flat `Mix_C` also holds the ambisonic decode
+  (`BFormatDec::process` calls it, section 1): subtract `BFormatDec::process`'s inclusive share;
+- parameter updates: `ProcessParamUpdates` inclusive (`CalcVoiceParams`, `CalcAttnVoiceParams`,
+  `CalcPanningAndFilters`; stays on the PPE);
+- `BFormatDec::process`, `Write<>` (stay, or move later);
+- libasound (stays), the kernel (wakeups).
+
+**Go/no-go:** build the SPU path only if voice mixing (`Voice::mix` inclusive) is ≥ 6% of a
+game's samples, in the configuration we would ship (base, or b16/f44 if one wins). Step 0's
+profile A can't answer it (checked 2026-10-16): all 730 samples of the mixer thread (tid 20798)
+resolve to `[unknown]`, perf never mapped libopenal in that recording.
+
+**2. Voices per update** (sizes the job; optional): two uprobes on line probes, counted with
+perf stat while a game plays, then removed:
+
+    L=/usr/lib/powerpc64-linux-gnu/libopenal.so.1.25.2
+    sudo perf probe -x $L -a 'upd=alu.cpp:2406' -a 'vmix=alu.cpp:2197'
+    sudo perf stat -e 'probe_libopenal:*' -p $(pgrep -n -x ioquake3) -- sleep 20
+    sudo perf probe -d 'probe_libopenal:*'
+
+vmix / upd is the voices mixed per update. (2406 is `ProcessContexts`' call in
+`renderSamples`, 2197 the `voice->mix` call; if perf can't place a line, `perf probe -x $L -L
+ProcessContexts` lists the lines it can, with the source from `apt source openal-soft`.)
 
 ## 3. Design
 
@@ -209,7 +316,7 @@ from the profile share.
 
 | | per voice (mono, 1024 frames) | 25 voices |
 |---|---|---|
-| SPU: window in (≤1 KB at 44.1 kHz i16), convert | ~0.2 µs | |
+| SPU: window in (~1.9 KB: 941 frames of mono i16 at 44.1 kHz for 1024 out), convert | ~0.3 µs | |
 | SPU: cubic resample (~8 cycles/output) | ~2.6 µs | |
 | SPU: mix into 3 lines with ramp | ~0.4 µs | |
 | SPU job | ~3.5 µs (music, stereo: ~7) | **~100 µs** (+ ~5 µs output put) |
@@ -237,9 +344,10 @@ after the SPU path.
 
 **At the update level** (alu.cpp:2192-2198). The patch:
 1. splits `Voice::mix` into
-   - `prepareMix()`: 705-760, the eligibility test, the source window resolved into segments;
-   - `mixCore()`: 786-1074, unchanged C;
-   - `finishMix()`: 1076-1193, unchanged.
+   - `prepareMix()`: 706-761, the eligibility test, the source window resolved into segments;
+   - `mixCore()`: 762-1074, unchanged C (it ends by setting `IsFading`, and `MixLine` updates
+     the current gains in place: both are part of what the SPU hands back);
+   - `finishMix()`: 1076-1193, unchanged (the Stopping exit at 1077-1082 included).
 
    The PPE path is `prepareMix` + `mixCore` + `finishMix`, so the existing behaviour is the
    reference.
@@ -291,8 +399,9 @@ OpenAL's side is about 300 lines: the split, the descriptor fill, and the dlopen
   - mix the eligible voices on the PPE (1-2.5 ms);
   - carry on. The update is late but inside the buffered periods, so there is no underrun.
 
-  Slots: a ring of 3, ~45 KB each (3 lines + 64 voices of results), touched once. libspeq has
-  no timed wait yet (needed, see the plan). After 3 consecutive failures the process stays on
+  Slots: a ring of 3, ~45 KB each (3 lines + 64 voices of results), touched once. A timed
+  `speq_wait` and a no-spin mode are being added to libspeq (2026-10-17). After 3 consecutive
+  failures the process stays on
   the PPE, as `s3tc.c`'s `queue_broke` does.
 - **Mix lock.** `getWriteMixLock` (alu.cpp:2403) is held across the job. API calls that
   `waitForMix()` (al/source.cpp:311 offsets, 697 `SendVoiceChanges` for play/stop, 1693
@@ -357,14 +466,42 @@ is the bound.
 4. **Faults and swap:** a window in swap means a USB swap-in on the worker's thread. Handled by
    pre-touch, the 2 ms timeout and the PPE fallback. Watch the fallback counter in games that
    swap.
-5. **SPE sharing with DXT:**
-   - Mesa's S3TC queue opens one worker per SPE in the same process (lib/s3tc.c:110). A second
-     queue for audio would make 7 contexts for 6 SPEs while both are active, and spufs would
-     time-slice them.
-   - Either run both ops from one SPU program on one process-wide queue (an audio job then
-     waits at most one DXT job, ~45-100 µs, behind the FIFO), or give audio its own one-worker
-     queue and DXT `nspe - 1`. The main session decides; the first is simpler for the SPEs,
-     the second for the LS budget.
+5. **SPE sharing with DXT and fluidsynth** (checked against ps3-spu/lib 2026-10-17):
+   - A queue runs one SPU program (`speq_open(prog)`, jobs dispatched by `op` into that
+     program's `speq_ops[]`), one worker per SPE unless asked for fewer. Mesa's S3TC queue
+     opens one per SPE (lib/s3tc.c:114, `nworkers` 0). A second queue in the same process (audio,
+     or fluidsynth's synth) makes more running contexts than the 6 SPEs while both are busy, and
+     spufs then time-slices them in 80 ms slices: far past any audio deadline. Parked workers
+     (SPU stopped, PPE thread asleep) don't compete; only running ones do.
+   - **DXT jobs are not short.** `spu_encode` cuts one image into one job per worker (rows /
+     nworkers, at least `JOB_MIN_PX` 16384 pixels, s3tc.c:170-174): at 379 Mpixel/s per SPE a 512×512 RGBA texture is ~0.12 ms per
+     job, 1024×1024 ~0.46 ms, 2048×2048 ~1.8 ms. All six workers take the same image at once,
+     so an audio job queued behind waits about one DXT job, not "~45-100 µs" (the earlier
+     figure here), and during a level load it waits that long for every upload. Against the
+     2 ms timeout a 2048² texture already means a PPE fallback, and the "3 consecutive
+     failures, PPE for good" rule would switch the SPU path off at the first level load.
+   - **fluidsynth** (the other audio service, its own agent's design): a synth job per audio
+     period, maybe split across SPEs, on its own deadline. A process can have both (a game
+     with OpenAL effects and fluidsynth MIDI through SDL_mixer: Woof is one), and with the
+     plan's "voices split across SPEs" a synth block briefly takes several workers at once.
+   - What follows for the design:
+     - **one process-wide queue for all services** (one SPU program with the dxt, mix and synth
+       ops; their LS buffers can overlay, a worker runs one job at a time; code ~20 KB each),
+       not a queue per service: never more contexts than SPEs;
+     - **two job classes**: deadline jobs (mix, synth) are claimed before bulk ones (dxt), e.g.
+       a second ring the workers check first; without that, bulk jobs cut to a bounded length
+       (≤ ~200 µs) whenever an audio service is open;
+     - **a timeout caused by queueing is not a failure**: only EFAULT/EIO/EPROTO count towards
+       "PPE for good"; a timed-out update falls back for that update only;
+     - **submit never blocks the mixer thread**: a full ring (64 jobs) returns -EAGAIN instead
+       of waiting for room;
+     - **keep one worker resident while an audio service is active** (the per-queue idle
+       threshold becomes per class, ≥ 3 periods);
+     - SPEQ_DEBUG per op: queue wait, run time and fallbacks, so a late update says which
+       service it waited for.
+     The two-queue alternative (audio's own one-worker queue, DXT on `nspe - 1`) keeps the LS
+     budgets apart but needs DXT to know about audio; the main session decides, with the
+     fluidsynth design in hand.
 6. **Rebase cost:** `Voice::mix` changes in most OpenAL Soft releases. One patch, kept to
    voice.cpp/voice.h, alu.cpp and one new file.
 7. **Latency spikes:** a resumed or recreated worker (90 µs / 3.2 ms after 5 s parked, e.g.
@@ -379,8 +516,9 @@ is the bound.
   - identical positions, history and events.
 - **PS3, tool:** a scripted scene rendered through `ALC_SOFT_loopback` with `SPEQ_MIX=off` and
   `spu`. Same SNR test, plus µs per update and jobs/fallbacks from `SPEQ_DEBUG=1`.
-- **Game:** `step0.sh audio` with a variant S (A + `SPEQ_MIX=spu`) interleaved with A, the
-  best of B16/F44, and Z, 5 runs each. `oa-profile.sh` with the per-thread split. Success:
+- **Game:** `run.sh suite` with a variant `spu` (to add to openal.inc: `SPEQ_MIX=spu`) interleaved with
+  base, the best of b16/f44, and nosound, 5 rounds, in every OpenAL game of the suite;
+  `OAL_PERF` and oal-perf.sh for the per-thread split. Success:
   - fps ≥ A + 3;
   - `alsoft-mixer` ≤ 3% of samples;
   - no ALSA underruns in the log and zero fallbacks in a bot match;
@@ -388,8 +526,8 @@ is the bound.
 
 ## 4. Implementation plan
 
-1. **M0** (no code): the profile split and variants B16/F44 above, recorded in
-   SPU-OFFLOAD-SURVEY.md. Stop here if the voice-mixing group is under 6%.
+1. **M0** (no code): the profile split and the variants of section 2 across the OpenAL games,
+   recorded in SPU-OFFLOAD-SURVEY.md. Stop here if voice mixing is under 6% in every game.
 2. **libspeq (ps3-spu), coordinated by the main session:**
    - `speq_wait` with a timeout and a no-spin flag (or the service uses internal ones);
    - a per-queue idle threshold;
@@ -398,17 +536,18 @@ is the bound.
    - `speq-mix.h` (descriptor ABI) in libspeq-dev;
    - the queue-sharing decision (risk 5);
    - host tests in `make -C ps3-spu test`.
-3. **Package `openal-soft`** (new top-level dir):
-   - `package.conf` with `TYPE=debsrc`, `SOURCE=openal-soft`, `VERSION=1:1.25.2-1`, the
-     `DSC_SHA256` above, `BUILD=native`;
+3. **Package `openal-soft`**: done 2026-10-17, unpatched (`openal-soft/package.conf`:
+   `TYPE=debsrc`, `VERSION=1:1.25.2-1`, the `DSC_SHA256` above, `BUILD=native`; in the
+   Makefile's `SRC_PACKAGES`), so the PS3 can run our build with matching debug symbols for M0.
+   Still to do:
    - `make openal-soft-work` / `-patches`;
    - **one patch** "voice mixing through libspeq on the Cell's SPEs": the `Voice::mix` split,
      the `ProcessContexts` hook and `core/mixer/mixer_speq.cpp` (dlopen, descriptor fill),
      built only on ppc64;
    - no Debian packaging change (`dh-sequence-dlopenlibdeps` already handles dlopen notes;
      libspeq stays a soft dependency like Mesa's);
-   - the version becomes `1:1.25.2-1+ps3.N`, and the PS3 gets it from our repository instead
-     of Debian's.
+   - the version is `1:1.25.2-1+ps3.N`, and the PS3 gets it from our repository instead of
+     Debian's.
 4. **PS3:** the loopback comparison, then the game runs above. Ship if they pass.
 5. **Later, only if needed:**
    - post-process and S16 conversion in the job, with int16 output;
