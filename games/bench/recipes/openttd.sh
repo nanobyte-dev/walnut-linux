@@ -1,6 +1,10 @@
 # OpenTTD 15.1 (Debian) with OpenGFX/OpenSFX/OpenMSX.
-#   base: the title screen's own demo game (trains running, the camera panning by itself), 60 s at
-#         1920x1080 fullscreen with the SDL software video driver; fps from the Gallium HUD
+#   base: the title screen's own demo game (trains running, the camera panning by itself) at
+#         1920x1080 fullscreen with the SDL software video driver; fps from the Gallium HUD. Steady
+#         state: the HUD window (60 s from the first frame, 120 s, then stopped; 60 s in all
+#         before). The title game is a savegame with its random state (deterministic, no AIs),
+#         but its ticks and the camera's sign-driven pans run on the wall clock: at another
+#         frame rate the view at a given second differs a little, close but not identical
 #   sim:  simulation only, no video (null driver): a new game from a fixed seed, run for 20000 ticks
 #         and timed (a CPU benchmark; it exits by itself)
 #   gl:   the sdl-opengl driver (its default 40bpp-anim blitter: sprites still drawn on the CPU,
@@ -20,11 +24,12 @@ OT_V=sdl
 ENV=(SDL_FRAMEBUFFER_ACCELERATION=0)
 ot_cmd() { CMD=(/usr/games/openttd -x -c "$OT_CFG" -r 1920x1080 -v $OT_V); }
 ot_cmd
-DURATION=60
+DURATION=240
+WINDOW_STOP=1
 HUD_SKIP=10
 variant_sim() {
 	CMD=(/usr/games/openttd -x -c "$OT_CFG" -g -G 12345 -v null:ticks=20000 -s null -m null)
-	HUD=0; WM=; DURATION=90
+	HUD=0; WM=; DURATION=90; WINDOW_STOP=0
 }
 # SDL_FRAMEBUFFER_ACCELERATION is for the window surface the software driver uses: not here
 # -d driver=2: the GL renderer, the luminance fallback and shader compiler warnings on stderr
