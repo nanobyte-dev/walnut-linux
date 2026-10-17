@@ -14,10 +14,18 @@
 # at upload; the minimap shown, 512x512 render target with 0003), but vsync off and the
 # old-driver popup off. Every variant changes one thing, except lean (the candidate PS3 default).
 # Memory per run: during.log has MemAvailable and SwapFree every 5 s, bench.txt their lowest.
+# Steady state: the HUD window, 60 s from the end of the track load (LOAD_MARK, the Track: line
+# printed when the scene is built; the race starts at once, no countdown), then 120 s; the profile
+# drives 185 s, so the game quits by itself just after. Its Average FPS (fps=) divides the frames by
+# the time from the world's creation, track load included, so it's lower than the race's; with 185
+# s instead of 60 it isn't comparable with runs before 2026-10-17's steady state either. The race is
+# AI-driven (rand() seeded from the clock, frame-time physics): close between runs, not identical.
+# A small patch would make the game's own number the window's (ProfileWorld::update: restart the
+# frame count and the start time once getTime() passes a warm-up, and end at warm-up + profile time).
 COMM=supertuxkart
 STK_CFG=$HOME/.config/supertuxkart/config-0.10/config.xml
 BACKUP=("$STK_CFG")
-STK_TRACK=lighthouse STK_KARTS=4 STK_TIME=60
+STK_TRACK=lighthouse STK_KARTS=4 STK_TIME=185
 declare -A STK_VIDEO=([enable_high_definition_textures]=1 [max_texture_size]=512
 	[enable_texture_compression]=true [old_driver_popup]=false)
 declare -A STK_GFX=([particles-effecs]=2 [animated-characters]=true [geometry-level]=2
@@ -46,7 +54,8 @@ stk_cmd() {
 }
 stk_cmd
 FPS_RE='Average FPS: ([0-9.]+)'
-DURATION=240
+LOAD_MARK='Track: Overall scene complexity'
+DURATION=330	# a safety cap: the load (~60 s, more when it swaps), 185 s of race, the quit
 during() {
 	while :; do
 		printf '%(%s)T %s\n' -1 "$(awk '/^(MemAvailable|SwapFree):/ { printf "%s%s ", $1, $2 }' /proc/meminfo)"
