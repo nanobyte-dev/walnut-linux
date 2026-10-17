@@ -44,9 +44,17 @@ if [ -n "${REPO_SUITE:-}" ]; then
 	echo ">> our packages from $REPO_URL/ps3, suite $REPO_SUITE"
 	mkdir -p "$R/tmp/ps3-repo"
 	echo "deb [trusted=yes] $REPO_URL/ps3 $REPO_SUITE main deps" > "$R/etc/apt/sources.list.d/zz-image.list"
+	# the licensed suite's snapshot of the same name (classicube-data, game data), when there is
+	# one: snapshots from before the ps3-licensed split have their licensed packages in ps3 itself
+	if python3 -c 'import sys, urllib.request; urllib.request.urlopen(sys.argv[1], timeout=30)' \
+			"$REPO_URL/ps3-licensed/dists/$REPO_SUITE/Release" 2>/dev/null; then
+		echo ">> licensed packages from $REPO_URL/ps3-licensed, suite $REPO_SUITE"
+		echo "deb [trusted=yes] $REPO_URL/ps3-licensed $REPO_SUITE main" >> "$R/etc/apt/sources.list.d/zz-image.list"
+	fi
 	printf 'Package: *\nPin: release n=%s\nPin-Priority: 1001\n' "$REPO_SUITE" > "$R/etc/apt/preferences.d/zz-image"
 else
-	# this checkout's build outputs, as a flat repository
+	# this checkout's build outputs, as a flat repository (licensed ones included: classicube-data
+	# is in build/debs/classicube, the Quake data in build/debs/quake-data)
 	mkdir -p "$R/tmp/ps3-repo"
 	find build/debs -mindepth 2 -maxdepth 2 -name "*.deb" -exec cp -t "$R/tmp/ps3-repo/" {} +
 	rm -f "$R"/tmp/ps3-repo/*-dbgsym_*.deb	# debug symbols

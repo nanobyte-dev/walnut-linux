@@ -5,6 +5,12 @@ Package: *
 Pin: release o=PS3, n=ps3, c=main
 Pin-Priority: 990
 
+# Licensed content (classicube-data, game data) like the stable suite: it never has dev builds, a
+# dev build of the engine (from ps3-dev) takes its data from here
+Package: *
+Pin: release o=PS3, n=ps3-licensed
+Pin-Priority: 990
+
 # Dev builds only when asked for (apt install -t ps3-dev ..., make deploy), like Debian's
 # experimental
 Package: *

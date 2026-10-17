@@ -1,6 +1,8 @@
 # Our packages (tools/repo-server/ on tibi-server): kernel, Mesa, RSX driver, tools, games.
 # ps3: stable releases. ps3-dev: dev builds with their debug symbols (the newest 5 of each),
 # never chosen by apt on its own (/etc/apt/preferences.d/ps3): apt install -t ps3-dev <pkg>
+# ps3-licensed: licensed game content we may not redistribute (classicube-data, Quake's shareware
+# and Quake II's demo data), kept like the stable suite in its own prefix and pool
 Types: deb
 URIs: http://10.0.0.10:8070/ps3
 Suites: ps3
@@ -10,5 +12,11 @@ Trusted: yes
 Types: deb
 URIs: http://10.0.0.10:8070/ps3-dev
 Suites: ps3-dev
+Components: main
+Trusted: yes
+
+Types: deb
+URIs: http://10.0.0.10:8070/ps3-licensed
+Suites: ps3-licensed
 Components: main
 Trusted: yes

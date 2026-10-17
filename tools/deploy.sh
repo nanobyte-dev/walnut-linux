@@ -1,7 +1,7 @@
 #!/bin/bash
 # deploy.sh <pkg>...: deploys our current builds to the running PS3 through the dev suite
 # (docs/PACKAGING.md): every local build (build/debs/*, debug symbols included) is
-# published to ps3-dev, then the PS3 installs from there with apt:
+# published to ps3-dev (licensed ones to ps3-licensed), then the PS3 installs from there with apt:
 #   1. our lists only are refreshed (not Debian's: ~100 MB on a 256 MB machine);
 #   2. every installed package of ours that has a newer build is upgraded (Mesa replaces
 #      Debian's this way and keeps its auto marks); kernels and their modules only with KERNELS=1
@@ -44,8 +44,9 @@ O='-o Dir::Etc::SourceList=/dev/null -o Dir::Etc::SourceParts=/var/tmp/ps3-deplo
 -o Dpkg::Options::=--force-confold -t ps3-dev'
 sudo DEBIAN_FRONTEND=noninteractive dpkg --configure -a	# an install interrupted earlier
 sudo apt-get \$U -qq update
-ours() {	# installed packages that the dev suite has (kernels only with KERNELS=1)
-	sed -n 's/^Package: //p' /var/lib/apt/lists/*_ps3-dev_dists_ps3-dev_*Packages | sort -u > avail
+ours() {	# installed packages that the dev or licensed suite has (kernels only with KERNELS=1)
+	sed -n 's/^Package: //p' /var/lib/apt/lists/*_ps3-dev_dists_ps3-dev_*Packages \
+		\$(ls /var/lib/apt/lists/*_ps3-licensed_dists_ps3-licensed_*Packages 2>/dev/null) | sort -u > avail
 	dpkg-query -W -f='\${Package}\n' | sort -u | comm -12 - avail |
 		if [ '${KERNELS:-0}' = 1 ]; then cat; else grep -vE '^(linux-(image|headers|kbuild)|ps3rsx-modules)'; fi
 }

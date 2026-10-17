@@ -81,13 +81,31 @@ change them in a disposable git tree:
     only grow, `~dev` versions refused;
   - `ps3-dev/`, suite `ps3-dev`: dev builds with their debug symbols, the newest 5 versions of
     each package kept (`KEEP`), older ones pruned on every dev publish;
-  - `ps3-dbgsym/`: debug symbols of stable releases, also the newest 5.
+  - `ps3-dbgsym/`: debug symbols of stable releases, also the newest 5;
+  - `ps3-licensed/`, suite `ps3-licensed` (component `main`; since 2026-10-17): licensed game
+    content we may not redistribute, see below.
+- Licensed packages: a package is licensed when its Debian Section is `non-free/*` or `local/*`
+  (game-data-packager marks non-redistributable data `local/`) or its name is in
+  `tools/licensed-packages.txt` (the list catches one whose Section doesn't say so). Now:
+  `classicube-data` (Mojang's textures and audio), `quake-shareware`, `quake2-demo-data`.
+  `tools/aptly-publish.sh` sends them to `ps3-licensed` whatever `DIST` is, never into `ps3` or
+  `ps3-dev` (and removes any it finds in `ps3-dev`), so licensed files never sit in the `ps3`
+  pool. `ps3-licensed` is kept like the stable suite: versions only grow, nothing is removed, the
+  sync to the server is add-only; it takes no `~dev` builds (a dev publish leaves one out with a
+  note: commit, rebuild). It has its own prefix, so an access restriction can be added on the
+  server later (`tools/repo-server/nginx.conf`); now it's served like the others, LAN-only.
+- What was published before the split stays: the `ps3` suite's classicube versions with the
+  Mojang files inside (`0+git.aa47929+ps3.144`, `1.3.8~git20261014.aa47929-1+ps3.152`), its
+  `quake-shareware`/`quake2-demo-data` 89 and the `img-*` snapshots holding them (the user's
+  decision, 2026-10-17: the repository is LAN-only and nothing was distributed). If `ps3` is ever
+  made public, purge those first. The dev suite's copies were removed (2026-10-17).
 - Promotion: commit, rebuild (versions `0.N`, `...+ps3.N`, no `~dev`), `make publish`. The builds
   are reproducible, so apart from the version the contents are what was tested from `ps3-dev`.
 - `make publish [DEBS=...] [DIST=dev]` (`tools/repo-publish.sh`, `tools/aptly-publish.sh`): staging
-  copies, a version check (official versions only grow), aptly add and publish, an add-only sync
-  to the server that refuses to change any published file, indices last, then the aptly database
-  backed up to the server. `build/aptly` is the one part of `build/` that is never deleted.
+  copies, licensed packages set apart for `ps3-licensed`, a version check (official versions only
+  grow, `ps3` and `ps3-licensed`), aptly add and publish, an add-only sync of `ps3/` and
+  `ps3-licensed/` to the server that refuses to change any published file, indices last, then
+  the aptly database backed up to the server. `build/aptly` is the one part of `build/` that is never deleted.
 - `make deps` refreshes the `deps` component: Debian packages from the snapshot listed in
   `image/deps.txt` (ones ours newly depend on, ps3-apps' applications, and Debian's Mesa set for
   rollback), with their dependencies (the PS3 sees only our repository: an application's libraries
@@ -100,10 +118,11 @@ change them in a disposable git tree:
 
 - Debian ports, live (`deb.debian.org/debian-ports`, unstable and unreleased): anything we don't
   build installs and upgrades from Debian.
-- Our repository, `Trusted: yes` on the LAN.
+- Our repository, `Trusted: yes` on the LAN: `ps3`, `ps3-dev` and `ps3-licensed`.
 - Pins (`/etc/apt/preferences.d/ps3`): the stable suite at 990, so our releases win over Debian's
   (500) whatever the versions, but an installed newer dev build is never downgraded (below 1000):
-  the next release, a higher version, takes over from it. The dev suite at 1: never chosen on its
+  the next release, a higher version, takes over from it. `ps3-licensed` at 990 as well (it has
+  no dev builds: a dev build of the engine takes its data from there). The dev suite at 1: never chosen on its
   own, only with `apt install -t ps3-dev <pkg>` (what `make deploy` does). Going back to an older
   version is explicit (`apt install pkg=<version>`). Debian's `linux-image-*`, `linux-headers-*`, `linux-kbuild-*`, `linux-support-*`
   and `src:mesa` at -1, so they are never candidates. `apt upgrade` is safe: a Debian package
@@ -128,10 +147,12 @@ change them in a disposable git tree:
   publishes to `ps3-dev` and runs only the simulations. A kernel install is
   `make deploy KERNELS=1 PKGS="linux-image-ps3 ps3rsx-modules-ps3"`; leave the debug kernel out
   unless it's wanted (one kernel unpacked at a time).
-  It brings its own copy of the sources and pins, so it works before the PS3 has them. Runs
+  It brings its own copy of the sources and pins, so it works before the PS3 has them; licensed
+  builds land in `ps3-licensed` (release versions only) and upgrade from there. Runs
   `ps3-migrate-home` once.
 - The image (`tools/build-image.sh`): the Debian-only base layer, then our packages installed by
-  apt from a flat repository of our debs (`image/packages-ours.txt`), our Mesa replacing Debian's
+  apt from a flat repository of our debs (`image/packages-ours.txt`; the licensed ones are in
+  `build/debs` like the rest, `classicube` pulls in `classicube-data`), our Mesa replacing Debian's
   as an upgrade, then `autoremove --purge` (LLVM, z3, sensors go), then `image/customize.sh`
   (hostname, fstab, user, key, locale).
 
@@ -207,23 +228,41 @@ up until X draws (2026-10-16):
 
 `make quake-data` (`tools/game-data.sh`, in the games builder with game-data-packager 89 from
 contrib and lhasa) writes `quake-shareware_89_all.deb` (Quake's shareware `id1/pak0.pak`, demos
-included) and `quake2-demo-data_89_all.deb` (Quake II's demo `baseq2`, `demos/q2demo1.dm2` in its
-pak) into `build/debs/quake-data`, downloading the shareware archives from id's mirrors (kept in
-`build/downloads/game-data`). Deploys, images and `make publish` take them like any build. The
-data is non-free (Quake II's demo may not be redistributed at all): our LAN repository only, like
-ClassiCube's Mojang audio.
+included, Section `non-free/games`) and `quake2-demo-data_89_all.deb` (Quake II's demo `baseq2`,
+`demos/q2demo1.dm2` in its pak, Section `local/games`) into `build/debs/quake-data`, downloading
+the shareware archives from id's mirrors (kept in `build/downloads/game-data`). Deploys, images
+and `make publish` take them like any build. The data is licensed (Quake II's demo may not be
+redistributed at all): `make publish` puts them in the `ps3-licensed` suite only, with either
+`DIST`, like ClassiCube's Mojang data.
 
-game-data-packager's output isn't reproducible (the files' dates are the build time), and the `ps3`
-suite never takes a different file under a published version. So once a version is published,
-`make quake-data` downloads that file from the repository (checked against the suite's SHA256)
-instead of making it again; `REGEN=1` makes it anyway and refuses when the version it gets is
-already published. A new file only goes out under a new version (a newer game-data-packager).
+game-data-packager's output isn't reproducible (the files' dates are the build time), and the kept
+suites never take a different file under a published version. So once a version is published,
+`make quake-data` downloads that file from the repository (`ps3-licensed` first, then `ps3`, where
+version 89 went before the split; checked against the suite's SHA256) instead of making it again;
+`REGEN=1` makes it anyway and refuses when the version it gets is already published. A new file
+only goes out under a new version (a newer game-data-packager).
+
+### ClassiCube's data
+
+The `classicube` source package builds two packages (since 2026-10-17, `+ps3.366`): `classicube`
+(the engine, ppc64, free) and `classicube-data` (all, Section `local/games`, so `ps3-licensed`):
+the texture pack and the audio, both Mojang's. The texture pack, `static.classicube.net/default.zip`,
+holds the files ClassiCube's launcher otherwise extracts from Mojang's Minecraft Classic 0.30 and
+1.6.2 client jars (`terrain.png`, `char.png`, the mob skins..., the "classic jar files" in the
+pinned `src/Resources.c`) with ClassiCube's patches; the sounds and music come from Mojang's
+resource server (`classicube/sounds.sh`). Same paths as before (`/usr/lib/classicube/texpacks`,
+`audio/`). `classicube` depends on `classicube-data (>= <upstream version>)`, so a newer engine
+build (dev or release) works with the data already installed; `classicube-data` has
+`Breaks`/`Replaces: classicube (<< 1.3.8~git20261014.aa47929-1+ps3.366~)`, the upgrade from the
+bundled package. Each release of the source package also publishes a new `classicube-data` (about
+9 MB) to `ps3-licensed`, kept forever like the bundled versions in `ps3` were.
 
 ## Image snapshots
 
 `make repo-snapshot` freezes the stable suite as `img-<stamp>` (published next to `ps3`, kept
-forever); `make rootfs REPO_SUITE=img-<stamp>` builds the image from it instead of the local
-build outputs. Checked 2026-10-16: the image built both ways is byte-identical.
+forever), and `ps3-licensed` under the same name in its own prefix; `make rootfs
+REPO_SUITE=img-<stamp>` builds the image from them instead of the local build outputs (the
+licensed snapshot only when it exists: older ones have their licensed packages in `ps3`). Checked 2026-10-16: the image built both ways is byte-identical.
 
 ## Migration from the old image scripts
 

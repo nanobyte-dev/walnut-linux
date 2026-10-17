@@ -1,12 +1,13 @@
 #!/bin/bash
 # game-data.sh <out dir> <game>:<package>...: game data debs made by game-data-packager (in the games
 # builder, docker/Dockerfile.games), e.g. quake:quake-shareware. Their data is non-free: our LAN
-# repository only, never anywhere public (like ClassiCube's Mojang audio).
-# game-data-packager's output isn't reproducible (file dates are the build time), and the stable suite
-# never takes a different file under a published version (docs/PACKAGING.md). So a package already
-# in the ps3 suite is downloaded from the repository (checked against the suite's SHA256) instead of
-# made again. REGEN=1 makes it anyway, which is only publishable when the version is new (a newer
-# game-data-packager): a regenerated file under a published version is refused here.
+# repository only (the ps3-licensed suite: tools/licensed-packages.txt), never anywhere public.
+# game-data-packager's output isn't reproducible (file dates are the build time), and the kept suites
+# never take a different file under a published version (docs/PACKAGING.md). So a package already
+# published (in ps3-licensed, or in ps3 where earlier publishes put it) is downloaded from the
+# repository (checked against the suite's SHA256) instead of made again. REGEN=1 makes it anyway,
+# which is only publishable when the version is new (a newer game-data-packager): a regenerated file
+# under a published version is refused here.
 # Downloads (the shareware archives) are kept in build/downloads/game-data.
 # Env: REPO_URL REGEN
 set -euo pipefail
@@ -19,9 +20,16 @@ DL=build/downloads/game-data
 rm -rf "$OUT"; mkdir -p "$OUT" "$DL"
 IDX=$(mktemp)
 trap 'rm -f "$IDX"' EXIT
-curl -fsS -m 30 -o "$IDX" "$REPO_URL/ps3/dists/ps3/main/binary-all/Packages" ||
-	{ echo "!! can't read the ps3 suite's index at $REPO_URL (it decides whether to reuse or make)"; exit 1; }
-# published <package>: "<version> <pool file> <sha256>" of its newest version in the ps3 suite
+# the licensed suite first (where these packages go now), then the stable one (published there
+# before the ps3-licensed split); each paragraph gets the prefix its Filename is under
+for suite in ps3-licensed ps3; do
+	if curl -fsS -m 30 "$REPO_URL/$suite/dists/$suite/main/binary-all/Packages" 2>/dev/null | sed "s|^Filename: |Filename: $suite/|" >> "$IDX"; then
+		echo >> "$IDX"
+	elif [ "$suite" = ps3 ]; then
+		echo "!! can't read the ps3 suite's index at $REPO_URL (it decides whether to reuse or make)"; exit 1
+	fi
+done
+# published <package>: "<version> <prefix>/<pool file> <sha256>" of its newest published version
 published() {
 	awk -v p="$1" 'BEGIN { RS = ""; FS = "\n" } {
 		n = v = f = s = ""
@@ -42,8 +50,8 @@ for spec in "$@"; do
 	pub=$(published "$pkg")
 	if [ -n "$pub" ] && [ "${REGEN:-0}" != 1 ]; then
 		read -r v f s <<<"$pub"
-		echo ">> $pkg $v: the published file ($REPO_URL/ps3/$f)"
-		curl -fsS -o "$OUT/$(basename "$f").tmp" "$REPO_URL/ps3/$f"
+		echo ">> $pkg $v: the published file ($REPO_URL/$f)"
+		curl -fsS -o "$OUT/$(basename "$f").tmp" "$REPO_URL/$f"
 		echo "$s  $OUT/$(basename "$f").tmp" | sha256sum -c --quiet
 		mv "$OUT/$(basename "$f").tmp" "$OUT/$(basename "$f")"
 		continue
