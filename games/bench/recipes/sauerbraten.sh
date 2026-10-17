@@ -100,3 +100,11 @@ variant_gun() {
 variant_gungpu() { variant_gun; SB_SET+=("gpuskel 1"); }
 # the biggest map with one player start (66 lights, an 8192 world)
 variant_towers() { SB_MAP=two_towers; sb_cmd; }
+# CPU skinning through libspeq (our cube2 0006, ps3-spu's skin.spu), on the hud gun of variant gun
+# (hands 1497 + grenade launcher 1683 vertices with tangent frames: the only skinned model on cave):
+# on the SPEs, with libspeq's vector code on the PPE, or the engine's own loop (as before 0006).
+# SPEQ_DEBUG=1 puts libspeq's counters in the log every 10 s and at exit (batches on the SPEs, mean
+# and max wait, timeouts, errors); gun itself is the default, auto
+variant_spuskin() { variant_gun; ENV+=(SPEQ_SKIN=spu SPEQ_DEBUG=1); }
+variant_ppeskin() { variant_gun; ENV+=(SPEQ_SKIN=ppe SPEQ_DEBUG=1); }
+variant_offskin() { variant_gun; ENV+=(SPEQ_SKIN=off); }
