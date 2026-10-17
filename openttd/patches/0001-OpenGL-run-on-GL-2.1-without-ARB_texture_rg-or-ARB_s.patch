@@ -1,0 +1,233 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 15:37:37 +0300
+Subject: OpenGL: run on GL 2.1 without ARB_texture_rg or
+ ARB_shader_texture_lod
+
+The OpenGL backend refused GL 2.x drivers that lack GL_ARB_texture_rg
+("Single element texture formats not supported"), such as Mesa's nv30
+(GeForce 5/6/7, the PS3's RSX). Three things stopped it:
+
+- Single element textures (8bpp video buffer, animation buffer, sprite
+  remap channel, recolour tables) were GL_R8/GL_RED only. Without GL 3.0
+  or ARB_texture_rg they are now GL_LUMINANCE8/GL_LUMINANCE: a luminance
+  texel reads its value in .r too, so the shaders are unchanged. The
+  buffer clears use the same format (glClearBufferSubData rejects GL_R8
+  without ARB_texture_rg).
+- The vertex array object check below GL 3.0 required both the ARB and
+  the APPLE extension, while BindVBAExtension() takes either; it now
+  needs one of them.
+- The GLSL 1.10 sprite and remap fragment shaders call texture2DLod,
+  which fragment shaders only have with ARB_ or ATI_shader_texture_lod.
+  Without either (the extension macros are undefined), texture2DLod is
+  defined as texture2D: sprites are drawn at the size of their zoom
+  level, so the implicit level of detail picks the same mip-map level,
+  and the full-screen remap pass samples single-level textures.
+
+Forwarded: no
+
+diff --git a/src/table/opengl_shader.h b/src/table/opengl_shader.h
+--- a/src/table/opengl_shader.h
++++ b/src/table/opengl_shader.h
+@@ -98,11 +98,21 @@ static const char *_frag_shader_remap_func = \
+ 	"  return clamp(adj + ob * (1.0 - adj), 0.0, 1.0);"
+ 	"}";
+ 
++/**
++ * Without a shader texture LOD extension, texture2DLod is not available in fragment shaders (GLSL 1.10/1.20).
++ * Sprites are drawn at the size of the zoom level, so the implicit level of detail selects the same mip-map level.
++ */
++static const char *_frag_shader_lod_fallback = \
++	"#if !defined(GL_ARB_shader_texture_lod) && !defined(GL_ATI_shader_texture_lod)\n"
++	"#define texture2DLod(sampler, coord, lod) texture2D(sampler, coord)\n"
++	"#endif\n";
++
+ /** Fragment shader that performs a palette lookup to read the colour from an 8bpp texture. */
+ static const char *_frag_shader_rgb_mask_blend[] = {
+ 	"#version 110\n",
+ 	"#extension GL_ATI_shader_texture_lod: enable\n",
+ 	"#extension GL_ARB_shader_texture_lod: enable\n",
++	_frag_shader_lod_fallback,
+ 	"uniform sampler2D colour_tex;",
+ 	"uniform sampler1D palette;",
+ 	"uniform sampler2D remap_tex;",
+@@ -150,6 +160,7 @@ static const char *_frag_shader_sprite_blend[] = {
+ 	"#version 110\n",
+ 	"#extension GL_ATI_shader_texture_lod: enable\n",
+ 	"#extension GL_ARB_shader_texture_lod: enable\n",
++	_frag_shader_lod_fallback,
+ 	"uniform sampler2D colour_tex;",
+ 	"uniform sampler1D palette;",
+ 	"uniform sampler2D remap_tex;",
+diff --git a/src/video/opengl.cpp b/src/video/opengl.cpp
+--- a/src/video/opengl.cpp
++++ b/src/video/opengl.cpp
+@@ -27,6 +27,14 @@
+ #endif
+ #include "../3rdparty/opengl/glext.h"
+ 
++/* Legacy formats, used when single element texture formats are missing (not in core profile headers). */
++#ifndef GL_LUMINANCE
++#	define GL_LUMINANCE 0x1909
++#endif
++#ifndef GL_LUMINANCE8
++#	define GL_LUMINANCE8 0x8040
++#endif
++
+ #include "opengl.h"
+ #include "../core/geometry_func.hpp"
+ #include "../core/math_func.hpp"
+@@ -194,6 +202,11 @@ static bool IsOpenGLExtensionSupported(std::string_view extension)
+ static uint8_t _gl_major_ver = 0; ///< Major OpenGL version.
+ static uint8_t _gl_minor_ver = 0; ///< Minor OpenGL version.
+ 
++/* Texture format for 8 bit single element data (palette indices, remap tables): GL_R8 if the context
++ * has it (GL 3.0 or ARB_texture_rg), GL_LUMINANCE8 otherwise. The shaders read both through .r. */
++static GLenum _gl_single_internal_format = GL_R8; ///< Internal format of single element textures.
++static GLenum _gl_single_format = GL_RED; ///< Pixel format of single element texture data.
++
+ /**
+  * Check if the current OpenGL version is equal or higher than a given one.
+  * @param major Minimal major version.
+@@ -562,8 +575,15 @@ std::optional<std::string_view> OpenGLBackend::Init(const Dimension &screen_res)
+ 	if (!IsOpenGLVersionAtLeast(1, 3)) return "OpenGL version >= 1.3 required";
+ 	/* Check for non-power-of-two texture support. */
+ 	if (!IsOpenGLVersionAtLeast(2, 0) && !IsOpenGLExtensionSupported("GL_ARB_texture_non_power_of_two")) return "Non-power-of-two textures not supported";
+-	/* Check for single element texture formats. */
+-	if (!IsOpenGLVersionAtLeast(3, 0) && !IsOpenGLExtensionSupported("GL_ARB_texture_rg")) return "Single element texture formats not supported";
++	/* Check for single element texture formats, use luminance textures without them. */
++	if (IsOpenGLVersionAtLeast(3, 0) || IsOpenGLExtensionSupported("GL_ARB_texture_rg")) {
++		_gl_single_internal_format = GL_R8;
++		_gl_single_format = GL_RED;
++	} else {
++		Debug(driver, 1, "OpenGL: Single element texture formats not supported, using luminance textures");
++		_gl_single_internal_format = GL_LUMINANCE8;
++		_gl_single_format = GL_LUMINANCE;
++	}
+ 	if (!BindTextureExtensions()) return "Failed to bind texture extension functions";
+ 	/* Check for vertex buffer objects. */
+ 	if (!IsOpenGLVersionAtLeast(1, 5) && !IsOpenGLExtensionSupported("ARB_vertex_buffer_object")) return "Vertex buffer objects not supported";
+@@ -571,7 +591,7 @@ std::optional<std::string_view> OpenGLBackend::Init(const Dimension &screen_res)
+ 	/* Check for pixel buffer objects. */
+ 	if (!IsOpenGLVersionAtLeast(2, 1) && !IsOpenGLExtensionSupported("GL_ARB_pixel_buffer_object")) return "Pixel buffer objects not supported";
+ 	/* Check for vertex array objects. */
+-	if (!IsOpenGLVersionAtLeast(3, 0) && (!IsOpenGLExtensionSupported("GL_ARB_vertex_array_object") || !IsOpenGLExtensionSupported("GL_APPLE_vertex_array_object"))) return "Vertex array objects not supported";
++	if (!IsOpenGLVersionAtLeast(3, 0) && !IsOpenGLExtensionSupported("GL_ARB_vertex_array_object") && !IsOpenGLExtensionSupported("GL_APPLE_vertex_array_object")) return "Vertex array objects not supported";
+ 	if (!BindVBAExtension()) return "Failed to bind VBA extension functions";
+ 	/* Check for shader objects. */
+ 	if (!IsOpenGLVersionAtLeast(2, 0) && (!IsOpenGLExtensionSupported("GL_ARB_shader_objects") || !IsOpenGLExtensionSupported("GL_ARB_fragment_shader") || !IsOpenGLExtensionSupported("GL_ARB_vertex_shader"))) return "No shader support";
+@@ -945,7 +965,7 @@ bool OpenGLBackend::Resize(int w, int h, bool force)
+ 	} else if (bpp == 8) {
+ 		if (_glClearBufferSubData != nullptr) {
+ 			uint8_t b = 0;
+-			_glClearBufferSubData(GL_PIXEL_UNPACK_BUFFER, GL_R8, 0, line_pixel_count, GL_RED, GL_UNSIGNED_BYTE, &b);
++			_glClearBufferSubData(GL_PIXEL_UNPACK_BUFFER, _gl_single_internal_format, 0, line_pixel_count, _gl_single_format, GL_UNSIGNED_BYTE, &b);
+ 		} else {
+ 			ClearPixelBuffer<uint8_t>(line_pixel_count, 0);
+ 		}
+@@ -954,7 +974,7 @@ bool OpenGLBackend::Resize(int w, int h, bool force)
+ 	_glActiveTexture(GL_TEXTURE0);
+ 	_glBindTexture(GL_TEXTURE_2D, this->vid_texture);
+ 	if (bpp == 8) {
+-		_glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
++		_glTexImage2D(GL_TEXTURE_2D, 0, _gl_single_internal_format, w, h, 0, _gl_single_format, GL_UNSIGNED_BYTE, nullptr);
+ 	} else {
+ 		_glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, nullptr);
+ 	}
+@@ -976,13 +996,13 @@ bool OpenGLBackend::Resize(int w, int h, bool force)
+ 		/* Initialize buffer as 0 == no remap. */
+ 		if (_glClearBufferSubData != nullptr) {
+ 			uint8_t b = 0;
+-			_glClearBufferSubData(GL_PIXEL_UNPACK_BUFFER, GL_R8, 0, line_pixel_count, GL_RED, GL_UNSIGNED_BYTE, &b);
++			_glClearBufferSubData(GL_PIXEL_UNPACK_BUFFER, _gl_single_internal_format, 0, line_pixel_count, _gl_single_format, GL_UNSIGNED_BYTE, &b);
+ 		} else {
+ 			ClearPixelBuffer<uint8_t>(line_pixel_count, 0);
+ 		}
+ 
+ 		_glBindTexture(GL_TEXTURE_2D, this->anim_texture);
+-		_glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
++		_glTexImage2D(GL_TEXTURE_2D, 0, _gl_single_internal_format, w, h, 0, _gl_single_format, GL_UNSIGNED_BYTE, nullptr);
+ 		_glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+ 	} else {
+ 		if (this->anim_buffer != nullptr) {
+@@ -996,7 +1016,7 @@ bool OpenGLBackend::Resize(int w, int h, bool force)
+ 		uint dummy = 0;
+ 		_glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+ 		_glBindTexture(GL_TEXTURE_2D, this->anim_texture);
+-		_glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, 1, 1, 0, GL_RED, GL_UNSIGNED_BYTE, &dummy);
++		_glTexImage2D(GL_TEXTURE_2D, 0, _gl_single_internal_format, 1, 1, 0, _gl_single_format, GL_UNSIGNED_BYTE, &dummy);
+ 	}
+ 
+ 	_glBindTexture(GL_TEXTURE_2D, 0);
+@@ -1213,7 +1233,7 @@ void OpenGLBackend::ReleaseVideoBuffer(const Rect &update_rect)
+ 		_glBindTexture(GL_TEXTURE_2D, this->vid_texture);
+ 		_glPixelStorei(GL_UNPACK_ROW_LENGTH, _screen.pitch);
+ 		if (BlitterFactory::GetCurrentBlitter()->GetScreenDepth() == 8) {
+-			_glTexSubImage2D(GL_TEXTURE_2D, 0, update_rect.left, update_rect.top, update_rect.right - update_rect.left, update_rect.bottom - update_rect.top, GL_RED, GL_UNSIGNED_BYTE, (GLvoid*)(size_t)(update_rect.top * _screen.pitch + update_rect.left));
++			_glTexSubImage2D(GL_TEXTURE_2D, 0, update_rect.left, update_rect.top, update_rect.right - update_rect.left, update_rect.bottom - update_rect.top, _gl_single_format, GL_UNSIGNED_BYTE, (GLvoid*)(size_t)(update_rect.top * _screen.pitch + update_rect.left));
+ 		} else {
+ 			_glTexSubImage2D(GL_TEXTURE_2D, 0, update_rect.left, update_rect.top, update_rect.right - update_rect.left, update_rect.bottom - update_rect.top, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, (GLvoid*)(size_t)(update_rect.top * _screen.pitch * 4 + update_rect.left * 4));
+ 		}
+@@ -1250,7 +1270,7 @@ void OpenGLBackend::ReleaseAnimBuffer(const Rect &update_rect)
+ 		_glActiveTexture(GL_TEXTURE0);
+ 		_glBindTexture(GL_TEXTURE_2D, this->anim_texture);
+ 		_glPixelStorei(GL_UNPACK_ROW_LENGTH, _screen.pitch);
+-		_glTexSubImage2D(GL_TEXTURE_2D, 0, update_rect.left, update_rect.top, update_rect.right - update_rect.left, update_rect.bottom - update_rect.top, GL_RED, GL_UNSIGNED_BYTE, (GLvoid *)(size_t)(update_rect.top * _screen.pitch + update_rect.left));
++		_glTexSubImage2D(GL_TEXTURE_2D, 0, update_rect.left, update_rect.top, update_rect.right - update_rect.left, update_rect.bottom - update_rect.top, _gl_single_format, GL_UNSIGNED_BYTE, (GLvoid *)(size_t)(update_rect.top * _screen.pitch + update_rect.left));
+ 
+ #ifndef NO_GL_BUFFER_SYNC
+ 		if (this->persistent_mapping_supported) this->sync_anim_mapping = _glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+@@ -1291,7 +1311,7 @@ void OpenGLBackend::RenderOglSprite(const OpenGLSprite *gl_sprite, PaletteID pal
+ 			_glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+ 
+ 			_glBufferSubData(GL_PIXEL_UNPACK_BUFFER, 0, 256, GetNonSprite(GB(pal, 0, PALETTE_WIDTH), SpriteType::Recolour) + 1);
+-			_glTexSubImage1D(GL_TEXTURE_1D, 0, 0, 256, GL_RED, GL_UNSIGNED_BYTE, nullptr);
++			_glTexSubImage1D(GL_TEXTURE_1D, 0, 0, 256, _gl_single_format, GL_UNSIGNED_BYTE, nullptr);
+ 
+ 			_glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+ 
+@@ -1349,7 +1369,7 @@ void OpenGLBackend::RenderOglSprite(const OpenGLSprite *gl_sprite, PaletteID pal
+ 	/* Load dummy remap texture. */
+ 	const uint pal = 0;
+ 	_glBindTexture(GL_TEXTURE_2D, OpenGLSprite::dummy_tex[TEX_REMAP]);
+-	_glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, 1, 1, 0, GL_RED, GL_UNSIGNED_BYTE, &pal);
++	_glTexImage2D(GL_TEXTURE_2D, 0, _gl_single_internal_format, 1, 1, 0, _gl_single_format, GL_UNSIGNED_BYTE, &pal);
+ 
+ 	/* Create palette remap textures. */
+ 	std::array<uint8_t, 256> identity_pal;
+@@ -1363,7 +1383,7 @@ void OpenGLBackend::RenderOglSprite(const OpenGLSprite *gl_sprite, PaletteID pal
+ 	_glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAX_LEVEL, 0);
+ 	_glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+ 	_glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+-	_glTexImage1D(GL_TEXTURE_1D, 0, GL_R8, 256, 0, GL_RED, GL_UNSIGNED_BYTE, identity_pal.data());
++	_glTexImage1D(GL_TEXTURE_1D, 0, _gl_single_internal_format, 256, 0, _gl_single_format, GL_UNSIGNED_BYTE, identity_pal.data());
+ 
+ 	/* Dynamically updated texture for remaps. */
+ 	_glGenTextures(1, &OpenGLSprite::pal_tex);
+@@ -1373,7 +1393,7 @@ void OpenGLBackend::RenderOglSprite(const OpenGLSprite *gl_sprite, PaletteID pal
+ 	_glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAX_LEVEL, 0);
+ 	_glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+ 	_glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+-	_glTexImage1D(GL_TEXTURE_1D, 0, GL_R8, 256, 0, GL_RED, GL_UNSIGNED_BYTE, identity_pal.data());
++	_glTexImage1D(GL_TEXTURE_1D, 0, _gl_single_internal_format, 256, 0, _gl_single_format, GL_UNSIGNED_BYTE, identity_pal.data());
+ 
+ 	/* Pixel buffer for remap updates. */
+ 	_glGenBuffers(1, &OpenGLSprite::pal_pbo);
+@@ -1432,7 +1452,7 @@ OpenGLSprite::OpenGLSprite(SpriteType sprite_type, const SpriteLoader::SpriteCol
+ 		for (int i = 0, w = this->dim.width, h = this->dim.height; i < levels; i++, w /= 2, h /= 2) {
+ 			assert(w * h != 0);
+ 			if (t == TEX_REMAP) {
+-				_glTexImage2D(GL_TEXTURE_2D, i, GL_R8, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
++				_glTexImage2D(GL_TEXTURE_2D, i, _gl_single_internal_format, w, h, 0, _gl_single_format, GL_UNSIGNED_BYTE, nullptr);
+ 			} else {
+ 				_glTexImage2D(GL_TEXTURE_2D, i, GL_RGBA8, w, h, 0, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, nullptr);
+ 			}
+@@ -1497,7 +1517,7 @@ void OpenGLSprite::Update(uint width, uint height, uint level, const SpriteLoade
+ 		}
+ 
+ 		_glBindTexture(GL_TEXTURE_2D, this->tex[TEX_REMAP]);
+-		_glTexSubImage2D(GL_TEXTURE_2D, level, 0, 0, width, height, GL_RED, GL_UNSIGNED_BYTE, buf_pal.GetBuffer());
++		_glTexSubImage2D(GL_TEXTURE_2D, level, 0, 0, width, height, _gl_single_format, GL_UNSIGNED_BYTE, buf_pal.GetBuffer());
+ 	}
+ 
+ 	assert(_glGetError() == GL_NO_ERROR);

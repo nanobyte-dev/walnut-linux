@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 15:38:11 +0300
+Subject: OpenGL: apply the sprite recolour in the GLSL 1.10 sprite shader
+
+The GLSL 1.10 sprite fragment shader looked up the palette with the
+sprite's own index instead of the recoloured one, so recoloured sprites
+drawn by the OpenGL backend (mouse cursors in company colours) kept
+their original colours on drivers without GLSL 1.50. The GLSL 1.50
+shader already uses the recoloured index.
+
+Forwarded: no
+
+diff --git a/src/table/opengl_shader.h b/src/table/opengl_shader.h
+--- a/src/table/opengl_shader.h
++++ b/src/table/opengl_shader.h
+@@ -175,7 +175,7 @@ static const char *_frag_shader_sprite_blend[] = {
+ 	"void main() {",
+ 	"  float idx = texture2DLod(remap_tex, colour_tex_uv, zoom).r;",
+ 	"  float r = texture1D(pal, idx).r;",
+-	"  vec4 remap_col = texture1D(palette, idx);",
++	"  vec4 remap_col = texture1D(palette, r);",
+ 	"  vec4 rgb_col = texture2DLod(colour_tex, colour_tex_uv, zoom);",
+ 	"",
+ 	"  if (crash && idx == 0.0) rgb_col.rgb = vec2(dot(rgb_col.rgb, vec3(0.199325561523, 0.391342163085, 0.076004028320)), 0.0).rrr;"

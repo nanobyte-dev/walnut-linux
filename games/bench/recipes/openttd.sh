@@ -3,8 +3,9 @@
 #         1920x1080 fullscreen with the SDL software video driver; fps from the Gallium HUD
 #   sim:  simulation only, no video (null driver): a new game from a fixed seed, run for 20000 ticks
 #         and timed (a CPU benchmark; it exits by itself)
-#   gl:   the sdl-opengl driver: expected to refuse to start on nv30 (no ARB_texture_rg, and a
-#         VAO check that wants ARB and APPLE vertex array objects below GL 3.0; docs/GAME-PLAN.md)
+#   gl:   the sdl-opengl driver (its default 40bpp-anim blitter: sprites still drawn on the CPU,
+#         palette animation and the screen upload on the GPU); needs our openttd package
+#         (openttd/: Debian's refuses nv30, no ARB_texture_rg); compare with base and accel
 SUITE=1
 COMM=openttd
 OT_CFG=$HOME/.config/openttd/bench.cfg
@@ -25,7 +26,9 @@ variant_sim() {
 	CMD=(/usr/games/openttd -x -c "$OT_CFG" -g -G 12345 -v null:ticks=20000 -s null -m null)
 	HUD=0; WM=; DURATION=90
 }
-variant_gl() { OT_V=sdl-opengl; ot_cmd; }
+# SDL_FRAMEBUFFER_ACCELERATION is for the window surface the software driver uses: not here
+# -d driver=2: the GL renderer, the luminance fallback and shader compiler warnings on stderr
+variant_gl() { OT_V=sdl-opengl; ot_cmd; CMD+=(-d driver=2); ENV=(); }
 # SDL3's default accelerated framebuffer (to check the SDL3 fix)
 variant_accel() { ENV=(); }
 # the accelerated framebuffer with OpenTTD's cheapest blitter (8-bit palette; the default is
