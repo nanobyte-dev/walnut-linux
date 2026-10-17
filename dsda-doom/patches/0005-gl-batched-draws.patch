@@ -1,0 +1,1490 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 21:03:40 +0300
+Subject: GL: fewer, larger draws (batched walls, flats, sprites and HUD
+ patches)
+
+The GL renderer drew every wall as an immediate-mode fan, every flat loop with its own
+glDrawArrays (after a matrix push and translation per flat), every sprite and every
+status bar or HUD patch as an immediate-mode strip, and set the colour and the light
+level uniform before each of them. Freedoom's DEMO1 timedemo at 1920x1080 made ~1960 GL
+calls and ~205 draws a frame; on a CPU-bound GL 2.1 driver (Mesa nv30 on the PS3) each
+draw costs state validation and submission.
+
+gl_batch.c collects the walls, flats and opaque sprites of each pass of gld_DrawScene
+(floors, ceilings, walls, mid walls, sprites) into one client vertex array as
+GL_TRIANGLES, the fans and strips decomposed the way Mesa does (same triangles, same
+vertex order), the flat loops raised to their height on the CPU (from a copy of the
+flats VBO data). The pending triangles are drawn when the state they depend on changes.
+gl_batchflush.h, included last by every source that calls GL, makes each GL call that
+draws or changes state draw them first, so the order of everything stays as before.
+Draws that aren't batched (flooded walls, fuzz sprites, flats with a texture transform)
+break the batch. gld_StaticLightAlpha skips unchanged colours and light levels.
+
+The light level travels per vertex (the attribute a_light, the main shader built with
+VLIGHT; draws that aren't batched set its current value), so walls and flats of
+different sectors batch together. HUD patches (status bar, fonts; indexed, up to 320x64)
+come from one 512x512 atlas texture, each framed by a copy of its edge texels, so a
+status bar becomes about two draws.
+
+On the host (llvmpipe forced to GL 2.1 without ARB_texture_rg) the timedemo makes ~390
+GL calls and ~46 draws a frame. The scene is the same but for up to ~50 pixels a frame
+on polygon and light band edges; the atlas changes ~5000 HUD pixels, where a pixel
+centre falls exactly on a texel edge of the 4.5x stretched status bar (ties that the
+rounding of the texture coordinates decides).
+
+Run-time switches, all on unless set to 0: DSDA_GL_BATCH (walls and sprites),
+DSDA_GL_FLATS, DSDA_GL_HUD (the atlas), DSDA_GL_VLIGHT; with all four 0 the output is
+the old renderer's, pixel for pixel. DSDA_GL_STATS=1 logs the batched draws and items
+per frame every 350 frames.
+
+Forwarded: no
+
+diff --git a/prboom2/data/lumps/gls_main.lmp b/prboom2/data/lumps/gls_main.lmp
+--- a/prboom2/data/lumps/gls_main.lmp
++++ b/prboom2/data/lumps/gls_main.lmp
+@@ -18,7 +18,14 @@
+ // to taste -- seems to match software pretty damn closely
+ #define DOOMLIGHTFACTOR 200.0
+ 
++#ifdef VLIGHT
++// the light level per vertex (gl_shader.c, DSDA_GL_VLIGHT)
++varying float v_light;
++#define LIGHTLEVEL v_light
++#else
+ uniform float lightlevel;
++#define LIGHTLEVEL lightlevel
++#endif
+ uniform sampler2D colormap;
+ 
+ // Returns color index based on R texel component
+@@ -31,7 +38,7 @@ float indexColor(float r)
+ // Based on equations from EDGE.
+ float indexLight(float z)
+ {
+-  float L = 63.0 * lightlevel;
++  float L = 63.0 * LIGHTLEVEL;
+   // Compute minimal light index (brightest) for light level
+   float min_L = clamp(36.0 - L, 0.0, 31.0);
+   // Compute and clamp light index
+diff --git a/prboom2/data/lumps/gls_v.lmp b/prboom2/data/lumps/gls_v.lmp
+--- a/prboom2/data/lumps/gls_v.lmp
++++ b/prboom2/data/lumps/gls_v.lmp
+@@ -1,7 +1,16 @@
+ #version 110
+ 
++#ifdef VLIGHT
++// the light level per vertex (gl_shader.c, DSDA_GL_VLIGHT)
++attribute float a_light;
++varying float v_light;
++#endif
++
+ void main()
+ {
++#ifdef VLIGHT
++  v_light = a_light;
++#endif
+   gl_FrontColor = gl_Color;
+   gl_TexCoord[0] = gl_TextureMatrix[0] * gl_MultiTexCoord0;
+   gl_Position = ftransform();
+diff --git a/prboom2/src/CMakeLists.txt b/prboom2/src/CMakeLists.txt
+--- a/prboom2/src/CMakeLists.txt
++++ b/prboom2/src/CMakeLists.txt
+@@ -503,6 +503,7 @@ set(DSDA_SOURCES
+ function(AddGameExecutable TARGET SOURCES)
+     set(SOURCES
+         ${SOURCES}
++        gl_batch.c
+         gl_clipper.c
+         gl_drawinfo.c
+         gl_fbo.c
+diff --git a/prboom2/src/dsda/gl/render_scale.c b/prboom2/src/dsda/gl/render_scale.c
+--- a/prboom2/src/dsda/gl/render_scale.c
++++ b/prboom2/src/dsda/gl/render_scale.c
+@@ -26,6 +26,7 @@
+ #include "st_stuff.h"
+ 
+ #include <math.h>
++#include "gl_batchflush.h"
+ 
+ int gl_statusbar_height;
+ int gl_scene_width;
+diff --git a/prboom2/src/gl_batch.c b/prboom2/src/gl_batch.c
+new file mode 100644
+--- /dev/null
++++ b/prboom2/src/gl_batch.c
+@@ -0,0 +1,395 @@
++/*
++ * gl_batch.c: fewer, larger draws for the GL renderer.
++ *
++ * Inside a batched pass of gld_DrawScene (floors, ceilings, walls, mid walls,
++ * opaque sprites) every wall fan, sprite quad and flat loop is appended to one
++ * client vertex array as GL_TRIANGLES, and drawn with one glDrawArrays when the
++ * GL state the pending triangles depend on changes: a texture bind or texture
++ * parameter (gl_texture.c flushes first), the colour, the light level (unless
++ * it travels per vertex, glsl_vlight), or a draw that isn't batched (flooded
++ * walls, fuzz sprites, flats with a texture transform), which breaks the
++ * batch. The draw order stays the same, and the triangles are the ones the
++ * fans and strips decompose into, vertex order included.
++ *
++ * Switches (environment, read once):
++ *   DSDA_GL_BATCH=0  walls and sprites drawn one by one in immediate mode
++ *   DSDA_GL_FLATS=0  flats drawn per loop from the flats VBO, with a matrix
++ *                    translation per flat
++ *   DSDA_GL_HUD=0    HUD patches (status bar, fonts) from a texture each, one
++ *                    draw each, instead of from an atlas (gl_texture.c) in
++ *                    batches
++ *   DSDA_GL_VLIGHT=0 (gl_shader.c) the light level as a uniform per draw
++ *   DSDA_GL_STATS=1  every 350 frames: batched draws and items per frame
++ */
++
++#ifdef HAVE_CONFIG_H
++#include "config.h"
++#endif
++
++#include <stdlib.h>
++#include <string.h>
++#include <stdio.h>
++
++#include "gl_opengl.h"
++#include "gl_intern.h"
++#include "lprintf.h"
++
++int gld_batch_walls = 1;
++int gld_batch_flats = 1;
++int gld_batch_stats = 0;
++int gld_batch_hud = 1;
++int gld_batch_region = 0;
++int gld_batch_known = 0;
++float gld_batch_alpha;
++float gld_batch_light;
++int gld_batch_count = 0;
++
++typedef struct
++{
++  float x, y, z;
++  float u, v;
++  float l;
++} gld_bvert_t;
++
++static gld_bvert_t *bv;
++static int bv_max;
++static gld_bvert_t *fan;
++static int fan_n, fan_max;
++static int arrays_mine;
++static const gld_bvert_t *arrays_base;
++
++// the flats' vertices on the CPU (the VBO copy is not readable)
++static vbo_xyz_uv_t *flats_cpu;
++static int flats_cpu_n;
++
++static struct
++{
++  unsigned long frames, draws, verts, walls, flats, sprites, breaks, ui, uidraws;
++} st;
++
++static int env_flag(const char *name, int def)
++{
++  const char *s = getenv(name);
++
++  if (!s || !*s)
++    return def;
++  return atoi(s) != 0;
++}
++
++void gld_BatchInit(void)
++{
++  gld_batch_walls = env_flag("DSDA_GL_BATCH", 1);
++  gld_batch_flats = env_flag("DSDA_GL_FLATS", 1);
++  gld_batch_hud = env_flag("DSDA_GL_HUD", 1);
++  gld_batch_stats = env_flag("DSDA_GL_STATS", 0);
++  lprintf(LO_INFO, "gld_BatchInit: walls/sprites %s, flats %s, HUD patches %s, light %s\n",
++          gld_batch_walls ? "batched" : "immediate",
++          gld_batch_flats ? "batched" : "per loop",
++          gld_batch_hud ? "atlas, batched" : "one texture each",
++          glsl_vlight ? "per vertex" : "uniform");
++
++  // a new GL context: nothing pending, no arrays or atlas of the old one
++  gld_batch_count = 0;
++  gld_batch_region = 0;
++  arrays_mine = 0;
++  gld_ResetPatchAtlas(true);
++}
++
++void gld_BatchSetFlats(const vbo_xyz_uv_t *verts, int count)
++{
++  if (!gld_batch_flats)
++    return;
++  if (count > flats_cpu_n)
++  {
++    flats_cpu = realloc(flats_cpu, count * sizeof(flats_cpu[0]));
++    if (!flats_cpu)
++      I_Error("gld_BatchSetFlats: out of memory");
++  }
++  memcpy(flats_cpu, verts, count * sizeof(flats_cpu[0]));
++  flats_cpu_n = count;
++}
++
++static gld_bvert_t *batch_reserve(int n)
++{
++  if (gld_batch_count + n > bv_max)
++  {
++    bv_max = (gld_batch_count + n) * 2 + 1024;
++    bv = realloc(bv, bv_max * sizeof(bv[0]));
++    if (!bv)
++      I_Error("gld_Batch: out of memory");
++  }
++  return bv + gld_batch_count;
++}
++
++// 2D (gld_DrawNumPatch_f): no vertex arrays enabled there, so they are set
++// up and switched off again around the draw
++static void batch_draw_ui(void)
++{
++  if (gl_ext_arb_vertex_buffer_object)
++    GLEXT_glBindBufferARB(GL_ARRAY_BUFFER, 0);
++  glEnableClientState(GL_VERTEX_ARRAY);
++  glEnableClientState(GL_TEXTURE_COORD_ARRAY);
++  glVertexPointer(3, GL_FLOAT, sizeof(bv[0]), &bv[0].x);
++  glTexCoordPointer(2, GL_FLOAT, sizeof(bv[0]), &bv[0].u);
++  if (glsl_vlight)
++  {
++    GLEXT_glVertexAttribPointerARB(GLSL_LIGHT_ATTR, 1, GL_FLOAT, GL_FALSE, sizeof(bv[0]), &bv[0].l);
++    GLEXT_glEnableVertexAttribArrayARB(GLSL_LIGHT_ATTR);
++  }
++
++  glDrawArrays(GL_TRIANGLES, 0, gld_batch_count);
++
++  glDisableClientState(GL_VERTEX_ARRAY);
++  glDisableClientState(GL_TEXTURE_COORD_ARRAY);
++  if (glsl_vlight)
++  {
++    GLEXT_glDisableVertexAttribArrayARB(GLSL_LIGHT_ATTR);
++    glsl_LightArrayUsed();
++    glsl_SyncLight();
++  }
++
++  st.uidraws++;
++  st.verts += gld_batch_count;
++  gld_batch_count = 0;
++}
++
++void gld_BatchDraw(void)
++{
++  if (!gld_batch_count)
++    return;
++
++  if (!gld_batch_region)
++  {
++    batch_draw_ui();
++    return;
++  }
++
++  if (!arrays_mine || arrays_base != bv)
++  {
++    if (!arrays_mine && gl_ext_arb_vertex_buffer_object)
++      GLEXT_glBindBufferARB(GL_ARRAY_BUFFER, 0);
++    glVertexPointer(3, GL_FLOAT, sizeof(bv[0]), &bv[0].x);
++    glTexCoordPointer(2, GL_FLOAT, sizeof(bv[0]), &bv[0].u);
++    if (glsl_vlight)
++    {
++      GLEXT_glVertexAttribPointerARB(GLSL_LIGHT_ATTR, 1, GL_FLOAT, GL_FALSE, sizeof(bv[0]), &bv[0].l);
++      if (!arrays_mine)
++        GLEXT_glEnableVertexAttribArrayARB(GLSL_LIGHT_ATTR);
++      glsl_LightArrayUsed();
++    }
++    arrays_mine = 1;
++    arrays_base = bv;
++  }
++
++  glDrawArrays(GL_TRIANGLES, 0, gld_batch_count);
++
++  st.draws++;
++  st.verts += gld_batch_count;
++  gld_batch_count = 0;
++}
++
++// back to what the code that doesn't batch expects: nothing pending, the
++// flats VBO as the vertex arrays, the light level and colour set in GL
++void gld_BatchBreak(void)
++{
++  gld_BatchDraw();
++
++  if (arrays_mine)
++  {
++    if (gl_ext_arb_vertex_buffer_object)
++      GLEXT_glBindBufferARB(GL_ARRAY_BUFFER, flats_vbo_id);
++    glVertexPointer(3, GL_FLOAT, sizeof(flats_vbo[0]), flats_vbo_x);
++    glTexCoordPointer(2, GL_FLOAT, sizeof(flats_vbo[0]), flats_vbo_u);
++    if (glsl_vlight)
++      GLEXT_glDisableVertexAttribArrayARB(GLSL_LIGHT_ATTR);
++    arrays_mine = 0;
++  }
++
++  if (glsl_vlight)
++    glsl_SyncLight();
++
++  if (gld_batch_region)
++    st.breaks++;
++  gld_batch_known = 0;
++}
++
++int gld_BatchBegin(int flats)
++{
++  gld_batch_region = flats ? gld_batch_flats && flats_cpu : gld_batch_walls;
++  gld_batch_known = 0;
++  return gld_batch_region;
++}
++
++// the end of a batched pass: the batch's vertex arrays stay set (the next
++// pass or gld_BatchBreak replaces them)
++void gld_BatchEnd(void)
++{
++  if (!gld_batch_region)
++    return;
++  gld_BatchDraw();
++  if (glsl_vlight)
++    glsl_SyncLight();
++  gld_batch_region = 0;
++  gld_batch_known = 0;
++}
++
++void gld_BatchFanBegin(void)
++{
++  fan_n = 0;
++}
++
++void gld_BatchFanVertex(float x, float y, float z, float u, float v)
++{
++  gld_bvert_t *p;
++
++  if (fan_n == fan_max)
++  {
++    fan_max = fan_max * 2 + 16;
++    fan = realloc(fan, fan_max * sizeof(fan[0]));
++    if (!fan)
++      I_Error("gld_BatchFanVertex: out of memory");
++  }
++  p = &fan[fan_n++];
++  p->x = x; p->y = y; p->z = z;
++  p->u = u; p->v = v;
++  p->l = glsl_light;
++}
++
++// a GL_TRIANGLE_FAN as GL_TRIANGLES: (0, i + 1, i + 2), as Mesa decomposes it
++// with the last vertex provoking
++void gld_BatchFanEnd(void)
++{
++  int i;
++  gld_bvert_t *p;
++
++  if (fan_n < 3)
++    return;
++  p = batch_reserve((fan_n - 2) * 3);
++  for (i = 0; i + 2 < fan_n; i++)
++  {
++    *p++ = fan[0];
++    *p++ = fan[i + 1];
++    *p++ = fan[i + 2];
++  }
++  gld_batch_count += (fan_n - 2) * 3;
++  st.walls++;
++}
++
++// a 4-vertex GL_TRIANGLE_STRIP (sprites): (0, 1, 2), (2, 1, 3)
++void gld_BatchQuad(const float *xyz, const float *uv)
++{
++  static const int order[6] = { 0, 1, 2, 2, 1, 3 };
++  gld_bvert_t *p = batch_reserve(6);
++  int i;
++
++  for (i = 0; i < 6; i++, p++)
++  {
++    int k = order[i];
++
++    p->x = xyz[k * 3]; p->y = xyz[k * 3 + 1]; p->z = xyz[k * 3 + 2];
++    p->u = uv[k * 2]; p->v = uv[k * 2 + 1];
++    p->l = glsl_light;
++  }
++  gld_batch_count += 6;
++  st.sprites++;
++}
++
++// a 2D patch (gld_DrawNumPatch_f's strip) at z = 0
++void gld_BatchUIQuad(float x1, float y1, float x2, float y2,
++                     float u1, float u2, float v1, float v2)
++{
++  const float xyz[12] = { x1, y1, 0.0f, x1, y2, 0.0f, x2, y1, 0.0f, x2, y2, 0.0f };
++  const float uv[8] = { u1, v1, u1, v2, u2, v1, u2, v2 };
++
++  gld_BatchQuad(xyz, uv);
++  st.sprites--;
++  st.ui++;
++}
++
++static void flat_vertex(gld_bvert_t *p, int index, float y)
++{
++  const vbo_xyz_uv_t *s = &flats_cpu[index];
++
++  p->x = s->x; p->y = s->y + y; p->z = s->z;
++  p->u = s->u; p->v = s->v;
++  p->l = glsl_light;
++}
++
++int gld_BatchLoopOK(GLenum mode, int first, int count)
++{
++  return (mode == GL_TRIANGLES || mode == GL_TRIANGLE_FAN || mode == GL_TRIANGLE_STRIP) &&
++         first >= 0 && count >= 0 && first + count <= flats_cpu_n;
++}
++
++// one flat loop (a tesselator fan, strip or triangle list) raised to height y
++void gld_BatchLoop(GLenum mode, int first, int count, float y)
++{
++  int i, n;
++  gld_bvert_t *p;
++
++  if (count < 3)
++    return;
++
++  switch (mode)
++  {
++  case GL_TRIANGLES:
++    n = count / 3 * 3;
++    p = batch_reserve(n);
++    for (i = 0; i < n; i++)
++      flat_vertex(p++, first + i, y);
++    break;
++  case GL_TRIANGLE_FAN:
++    n = (count - 2) * 3;
++    p = batch_reserve(n);
++    for (i = 0; i + 2 < count; i++)
++    {
++      flat_vertex(p++, first, y);
++      flat_vertex(p++, first + i + 1, y);
++      flat_vertex(p++, first + i + 2, y);
++    }
++    break;
++  case GL_TRIANGLE_STRIP:
++    n = (count - 2) * 3;
++    p = batch_reserve(n);
++    for (i = 0; i + 2 < count; i++)
++    {
++      if (i & 1)
++      {
++        flat_vertex(p++, first + i + 1, y);
++        flat_vertex(p++, first + i, y);
++      }
++      else
++      {
++        flat_vertex(p++, first + i, y);
++        flat_vertex(p++, first + i + 1, y);
++      }
++      flat_vertex(p++, first + i + 2, y);
++    }
++    break;
++  default:
++    return;
++  }
++  gld_batch_count += n;
++}
++
++void gld_BatchCountFlat(void)
++{
++  st.flats++;
++}
++
++void gld_BatchFrame(void)
++{
++  if (!gld_batch_stats)
++    return;
++  if (++st.frames == 350)
++  {
++    double f = st.frames;
++
++    lprintf(LO_INFO, "gl batch: per frame %.1f batched draws in the scene and "
++            "%.1f in 2D (%.0f vertices), %.1f walls, %.1f flats, %.1f sprites, "
++            "%.1f HUD patches batched, %.1f breaks\n",
++            st.draws / f, st.uidraws / f, st.verts / f, st.walls / f, st.flats / f,
++            st.sprites / f, st.ui / f, st.breaks / f);
++    memset(&st, 0, sizeof(st));
++  }
++}
+diff --git a/prboom2/src/gl_batchflush.h b/prboom2/src/gl_batchflush.h
+new file mode 100644
+--- /dev/null
++++ b/prboom2/src/gl_batchflush.h
+@@ -0,0 +1,82 @@
++/*
++ * gl_batchflush.h: included last by every source that calls GL, except
++ * gl_batch.c. Each GL call that draws or changes state draws the batched
++ * triangles still pending first (gl_batch.c), so a batch only grows while
++ * nothing else touches GL. Calls that only read state, the active texture
++ * unit (binds on it flush), and the light level attribute (the batched
++ * vertices carry it) are left alone.
++ */
++
++#ifndef GL_BATCHFLUSH_H
++#define GL_BATCHFLUSH_H
++
++extern int gld_batch_count;
++void gld_BatchDraw(void);
++
++#define GLD_BATCH_FLUSH_EXPR ((void)(gld_batch_count && (gld_BatchDraw(), 1)))
++
++#define glBegin(a0) (GLD_BATCH_FLUSH_EXPR, glBegin((a0)))
++#define glBindTexture(a0, a1) (GLD_BATCH_FLUSH_EXPR, glBindTexture((a0), (a1)))
++#define glBlendFunc(a0, a1) (GLD_BATCH_FLUSH_EXPR, glBlendFunc((a0), (a1)))
++#define glAlphaFunc(a0, a1) (GLD_BATCH_FLUSH_EXPR, glAlphaFunc((a0), (a1)))
++#define glClear(a0) (GLD_BATCH_FLUSH_EXPR, glClear((a0)))
++#define glClearColor(a0, a1, a2, a3) (GLD_BATCH_FLUSH_EXPR, glClearColor((a0), (a1), (a2), (a3)))
++#define glClearDepth(a0) (GLD_BATCH_FLUSH_EXPR, glClearDepth((a0)))
++#define glColor3f(a0, a1, a2) (GLD_BATCH_FLUSH_EXPR, glColor3f((a0), (a1), (a2)))
++#define glColor4f(a0, a1, a2, a3) (GLD_BATCH_FLUSH_EXPR, glColor4f((a0), (a1), (a2), (a3)))
++#define glColor4fv(a0) (GLD_BATCH_FLUSH_EXPR, glColor4fv((a0)))
++#define glColorMask(a0, a1, a2, a3) (GLD_BATCH_FLUSH_EXPR, glColorMask((a0), (a1), (a2), (a3)))
++#define glColorPointer(a0, a1, a2, a3) (GLD_BATCH_FLUSH_EXPR, glColorPointer((a0), (a1), (a2), (a3)))
++#define glCopyTexSubImage2D(a0, a1, a2, a3, a4, a5, a6, a7) (GLD_BATCH_FLUSH_EXPR, glCopyTexSubImage2D((a0), (a1), (a2), (a3), (a4), (a5), (a6), (a7)))
++#define glCullFace(a0) (GLD_BATCH_FLUSH_EXPR, glCullFace((a0)))
++#define glDeleteTextures(a0, a1) (GLD_BATCH_FLUSH_EXPR, glDeleteTextures((a0), (a1)))
++#define glDepthFunc(a0) (GLD_BATCH_FLUSH_EXPR, glDepthFunc((a0)))
++#define glDepthMask(a0) (GLD_BATCH_FLUSH_EXPR, glDepthMask((a0)))
++#define glDisable(a0) (GLD_BATCH_FLUSH_EXPR, glDisable((a0)))
++#define glDisableClientState(a0) (GLD_BATCH_FLUSH_EXPR, glDisableClientState((a0)))
++#define glDrawArrays(a0, a1, a2) (GLD_BATCH_FLUSH_EXPR, glDrawArrays((a0), (a1), (a2)))
++#define glEnable(a0) (GLD_BATCH_FLUSH_EXPR, glEnable((a0)))
++#define glEnableClientState(a0) (GLD_BATCH_FLUSH_EXPR, glEnableClientState((a0)))
++#define glFlush() (GLD_BATCH_FLUSH_EXPR, glFlush())
++#define glHint(a0, a1) (GLD_BATCH_FLUSH_EXPR, glHint((a0), (a1)))
++#define glLoadIdentity() (GLD_BATCH_FLUSH_EXPR, glLoadIdentity())
++#define glLoadMatrixf(a0) (GLD_BATCH_FLUSH_EXPR, glLoadMatrixf((a0)))
++#define glMatrixMode(a0) (GLD_BATCH_FLUSH_EXPR, glMatrixMode((a0)))
++#define glOrtho(a0, a1, a2, a3, a4, a5) (GLD_BATCH_FLUSH_EXPR, glOrtho((a0), (a1), (a2), (a3), (a4), (a5)))
++#define glPolygonOffset(a0, a1) (GLD_BATCH_FLUSH_EXPR, glPolygonOffset((a0), (a1)))
++#define glPopMatrix() (GLD_BATCH_FLUSH_EXPR, glPopMatrix())
++#define glPushMatrix() (GLD_BATCH_FLUSH_EXPR, glPushMatrix())
++#define glReadPixels(a0, a1, a2, a3, a4, a5, a6) (GLD_BATCH_FLUSH_EXPR, glReadPixels((a0), (a1), (a2), (a3), (a4), (a5), (a6)))
++#define glRotatef(a0, a1, a2, a3) (GLD_BATCH_FLUSH_EXPR, glRotatef((a0), (a1), (a2), (a3)))
++#define glScalef(a0, a1, a2) (GLD_BATCH_FLUSH_EXPR, glScalef((a0), (a1), (a2)))
++#define glScissor(a0, a1, a2, a3) (GLD_BATCH_FLUSH_EXPR, glScissor((a0), (a1), (a2), (a3)))
++#define glShadeModel(a0) (GLD_BATCH_FLUSH_EXPR, glShadeModel((a0)))
++#define glStencilFunc(a0, a1, a2) (GLD_BATCH_FLUSH_EXPR, glStencilFunc((a0), (a1), (a2)))
++#define glStencilOp(a0, a1, a2) (GLD_BATCH_FLUSH_EXPR, glStencilOp((a0), (a1), (a2)))
++#define glTexCoordPointer(a0, a1, a2, a3) (GLD_BATCH_FLUSH_EXPR, glTexCoordPointer((a0), (a1), (a2), (a3)))
++#define glTexEnvf(a0, a1, a2) (GLD_BATCH_FLUSH_EXPR, glTexEnvf((a0), (a1), (a2)))
++#define glTexEnvi(a0, a1, a2) (GLD_BATCH_FLUSH_EXPR, glTexEnvi((a0), (a1), (a2)))
++#define glTexGenf(a0, a1, a2) (GLD_BATCH_FLUSH_EXPR, glTexGenf((a0), (a1), (a2)))
++#define glTexGenfv(a0, a1, a2) (GLD_BATCH_FLUSH_EXPR, glTexGenfv((a0), (a1), (a2)))
++#define glTexImage2D(a0, a1, a2, a3, a4, a5, a6, a7, a8) (GLD_BATCH_FLUSH_EXPR, glTexImage2D((a0), (a1), (a2), (a3), (a4), (a5), (a6), (a7), (a8)))
++#define glTexSubImage2D(a0, a1, a2, a3, a4, a5, a6, a7, a8) (GLD_BATCH_FLUSH_EXPR, glTexSubImage2D((a0), (a1), (a2), (a3), (a4), (a5), (a6), (a7), (a8)))
++#define glTexParameteri(a0, a1, a2) (GLD_BATCH_FLUSH_EXPR, glTexParameteri((a0), (a1), (a2)))
++#define glTexParameterf(a0, a1, a2) (GLD_BATCH_FLUSH_EXPR, glTexParameterf((a0), (a1), (a2)))
++#define glTranslatef(a0, a1, a2) (GLD_BATCH_FLUSH_EXPR, glTranslatef((a0), (a1), (a2)))
++#define glVertexPointer(a0, a1, a2, a3) (GLD_BATCH_FLUSH_EXPR, glVertexPointer((a0), (a1), (a2), (a3)))
++#define glViewport(a0, a1, a2, a3) (GLD_BATCH_FLUSH_EXPR, glViewport((a0), (a1), (a2), (a3)))
++#define GLEXT_glUseProgramObjectARB(a0) (GLD_BATCH_FLUSH_EXPR, GLEXT_glUseProgramObjectARB((a0)))
++#define GLEXT_glUniform1fARB(a0, a1) (GLD_BATCH_FLUSH_EXPR, GLEXT_glUniform1fARB((a0), (a1)))
++#define GLEXT_glUniform2fARB(a0, a1, a2) (GLD_BATCH_FLUSH_EXPR, GLEXT_glUniform2fARB((a0), (a1), (a2)))
++#define GLEXT_glUniform1iARB(a0, a1) (GLD_BATCH_FLUSH_EXPR, GLEXT_glUniform1iARB((a0), (a1)))
++#define GLEXT_glBindFramebufferEXT(a0, a1) (GLD_BATCH_FLUSH_EXPR, GLEXT_glBindFramebufferEXT((a0), (a1)))
++#define GLEXT_glBindRenderbufferEXT(a0, a1) (GLD_BATCH_FLUSH_EXPR, GLEXT_glBindRenderbufferEXT((a0), (a1)))
++#define GLEXT_glFramebufferTexture2DEXT(a0, a1, a2, a3, a4) (GLD_BATCH_FLUSH_EXPR, GLEXT_glFramebufferTexture2DEXT((a0), (a1), (a2), (a3), (a4)))
++#define GLEXT_glFramebufferRenderbufferEXT(a0, a1, a2, a3) (GLD_BATCH_FLUSH_EXPR, GLEXT_glFramebufferRenderbufferEXT((a0), (a1), (a2), (a3)))
++#define GLEXT_glBindBufferARB(a0, a1) (GLD_BATCH_FLUSH_EXPR, GLEXT_glBindBufferARB((a0), (a1)))
++#define GLEXT_glBufferDataARB(a0, a1, a2, a3) (GLD_BATCH_FLUSH_EXPR, GLEXT_glBufferDataARB((a0), (a1), (a2), (a3)))
++#define GLEXT_glDeleteFramebuffersEXT(a0, a1) (GLD_BATCH_FLUSH_EXPR, GLEXT_glDeleteFramebuffersEXT((a0), (a1)))
++#define GLEXT_glDeleteRenderbuffersEXT(a0, a1) (GLD_BATCH_FLUSH_EXPR, GLEXT_glDeleteRenderbuffersEXT((a0), (a1)))
++#define GLEXT_glRenderbufferStorageEXT(a0, a1, a2, a3) (GLD_BATCH_FLUSH_EXPR, GLEXT_glRenderbufferStorageEXT((a0), (a1), (a2), (a3)))
++
++#endif
+diff --git a/prboom2/src/gl_fbo.c b/prboom2/src/gl_fbo.c
+--- a/prboom2/src/gl_fbo.c
++++ b/prboom2/src/gl_fbo.c
+@@ -43,6 +43,7 @@
+ 
+ #include "i_main.h"
+ #include "lprintf.h"
++#include "gl_batchflush.h"
+ 
+ dboolean gl_use_FBO = false;
+ 
+diff --git a/prboom2/src/gl_intern.h b/prboom2/src/gl_intern.h
+--- a/prboom2/src/gl_intern.h
++++ b/prboom2/src/gl_intern.h
+@@ -501,4 +501,38 @@ void glsl_PushFuzzShader(int tic, int sprite, float ratio);
+ void glsl_PopFuzzShader(void);
+ void glsl_SetLightLevel(float lightlevel);
+ 
++// the light level as a vertex attribute (gl_shader.c, DSDA_GL_VLIGHT)
++#define GLSL_LIGHT_ATTR 1
++extern int glsl_vlight;
++extern float glsl_light;
++void glsl_SyncLight(void);
++void glsl_LightArrayUsed(void);
++
++// batched draws (gl_batch.c)
++extern int gld_batch_walls, gld_batch_flats, gld_batch_stats;
++extern int gld_batch_region, gld_batch_known, gld_batch_count;
++extern float gld_batch_alpha, gld_batch_light;
++void gld_BatchInit(void);
++void gld_BatchSetFlats(const vbo_xyz_uv_t *verts, int count);
++void gld_BatchDraw(void);
++void gld_BatchBreak(void);
++int gld_BatchBegin(int flats);
++void gld_BatchEnd(void);
++void gld_BatchFanBegin(void);
++void gld_BatchFanVertex(float x, float y, float z, float u, float v);
++void gld_BatchFanEnd(void);
++void gld_BatchQuad(const float *xyz, const float *uv);
++int gld_BatchLoopOK(GLenum mode, int first, int count);
++void gld_BatchLoop(GLenum mode, int first, int count, float y);
++void gld_BatchCountFlat(void);
++void gld_BatchFrame(void);
++extern int gld_batch_hud;
++void gld_BatchUIQuad(float x1, float y1, float x2, float y2,
++                     float u1, float u2, float v1, float v2);
++#define GLD_ATLAS_SIZE 512
++void gld_ResetPatchAtlas(dboolean lost);
++dboolean gld_AtlasPatch(GLTexture *gltexture, int cm, int *ax, int *ay);
++// draws what is pending before GL state it depends on changes
++#define gld_BatchFlush() ((void)(gld_batch_count && (gld_BatchDraw(), 1)))
++
+ #endif // _GL_INTERN_H
+diff --git a/prboom2/src/gl_light.c b/prboom2/src/gl_light.c
+--- a/prboom2/src/gl_light.c
++++ b/prboom2/src/gl_light.c
+@@ -48,6 +48,7 @@
+ #include "e6y.h"
+ 
+ #include "dsda/configuration.h"
++#include "gl_batchflush.h"
+ 
+ dboolean gl_ui_lightmode_indexed = false;
+ dboolean gl_automap_lightmode_indexed = false;
+@@ -94,9 +95,36 @@ void gld_StaticLightAlpha(float light, float alpha)
+ {
+   player_t *player = &players[displayplayer];
+ 
++  if (player->fixedcolormap)
++    light = 1.0f;
++
++  // a batched pass (gl_batch.c): the pending triangles are drawn before the
++  // colour or the light uniform changes, and unchanged values aren't set again
++  if (gld_batch_region)
++  {
++    if (!gld_batch_known || gld_batch_alpha != alpha)
++    {
++      gld_BatchFlush();
++      glColor4f(1.0f, 1.0f, 1.0f, alpha);
++      gld_batch_alpha = alpha;
++    }
++    if (glsl_vlight)
++    {
++      glsl_SetLightLevel(light);
++    }
++    else if (!gld_batch_known || gld_batch_light != light)
++    {
++      gld_BatchFlush();
++      glsl_SetLightLevel(light);
++      gld_batch_light = light;
++    }
++    gld_batch_known = true;
++    return;
++  }
++
+   glColor4f(1.0f, 1.0f, 1.0f, alpha);
+ 
+-  glsl_SetLightLevel((player->fixedcolormap ? 1.0f : light));
++  glsl_SetLightLevel(light);
+ }
+ 
+ // [XA] return amount of light to add from the player's gun flash.
+diff --git a/prboom2/src/gl_main.c b/prboom2/src/gl_main.c
+--- a/prboom2/src/gl_main.c
++++ b/prboom2/src/gl_main.c
+@@ -77,6 +77,7 @@
+ #include "dsda/settings.h"
+ #include "dsda/stretch.h"
+ #include "dsda/gl/render_scale.h"
++#include "gl_batchflush.h"
+ 
+ int gl_preprocessed = false;
+ 
+@@ -224,6 +225,7 @@ void gld_Init(int width, int height)
+   gld_InitLightTable();
+   gld_InitSky();
+   glsl_Init();
++  gld_BatchInit();
+   gld_FlushTextures(); // TODO: should this be here?
+   M_ChangeSkyMode();
+ 
+@@ -511,10 +513,15 @@ void gld_DrawNumPatch_f(float x, float y, int lump, dboolean center, int cm, enu
+   float xpos, ypos;
+   int cmap;
+   int leftoffset, topoffset;
++  int atlas_x, atlas_y;
++  dboolean atlas;
+ 
+   cmap = ((flags & VPT_TRANS) ? cm : CR_DEFAULT);
+   gltexture=gld_RegisterPatch(lump, cmap, false, V_IsUILightmodeIndexed());
+-  gld_BindPatch(gltexture, cmap);
++  // from the HUD patch atlas, batched (gl_batch.c), or from its own texture
++  atlas = gld_batch_hud && gld_AtlasPatch(gltexture, cmap, &atlas_x, &atlas_y);
++  if (!atlas)
++    gld_BindPatch(gltexture, cmap);
+ 
+   if (!gltexture)
+     return;
+@@ -569,6 +576,20 @@ void gld_DrawNumPatch_f(float x, float y, int lump, dboolean center, int cm, enu
+     height = (float)(gltexture->realtexheight);
+   }
+ 
++  if (atlas)
++  {
++    // pending batched triangles mean that no GL call came since the batch
++    // began with this colour (gl_batchflush.h)
++    if (!gld_batch_count)
++      glColor3f(1.0f, 1.0f, 1.0f);
++    gld_BatchUIQuad(xpos, ypos, xpos + width, ypos + height,
++      (atlas_x + fU1 * gltexture->tex_width) / GLD_ATLAS_SIZE,
++      (atlas_x + fU2 * gltexture->tex_width) / GLD_ATLAS_SIZE,
++      (atlas_y + fV1 * gltexture->tex_height) / GLD_ATLAS_SIZE,
++      (atlas_y + fV2 * gltexture->tex_height) / GLD_ATLAS_SIZE);
++    return;
++  }
++
+   // e6y
+   // This is a workaround for some on-board Intel video cards.
+   // Do you know more elegant solution?
+@@ -971,6 +992,8 @@ void gld_InitDrawScene(void)
+ 
+ void gld_Finish(void)
+ {
++  gld_BatchFlush();
++  gld_BatchFrame();
+   gld_Set2DMode();
+   I_HandleCapture();
+   SDL_GL_SwapWindow(sdl_window);
+@@ -1162,11 +1185,18 @@ static void gld_DrawWall(GLWall *wall)
+   else
+     flags = 0;
+ 
++  // flooded walls aren't batched: what is pending is drawn first
++  if (gld_batch_region &&
++      ((wall->flag == GLDWF_TOPFLUD) || (wall->flag == GLDWF_BOTFLUD)))
++    gld_BatchBreak();
++
+   gld_BindTexture(wall->gltexture, flags, false);
+ 
+   if (!wall->gltexture)
+   {
++    gld_BatchFlush();
+     glColor4f(1.0f,0.0f,0.0f,1.0f);
++    gld_batch_known = false;
+   }
+ 
+   if ((wall->flag == GLDWF_TOPFLUD) || (wall->flag == GLDWF_BOTFLUD))
+@@ -1182,6 +1212,22 @@ static void gld_DrawWall(GLWall *wall)
+ 
+     gld_ClearFloodStencil(wall);
+   }
++  else if (gld_batch_region)
++  {
++    // the same fan, into the batch (gl_batch.c)
++    gld_StaticLightAlpha(wall->light, wall->alpha);
++
++    gld_BatchFanBegin();
++    gld_BatchFanVertex(wall->glseg->x1, wall->ybottom, wall->glseg->z1, wall->ul, wall->vb);
++    if (!wall->glseg->fracleft)
++      gld_SplitLeftEdge(wall);
++    gld_BatchFanVertex(wall->glseg->x1, wall->ytop, wall->glseg->z1, wall->ul, wall->vt);
++    gld_BatchFanVertex(wall->glseg->x2, wall->ytop, wall->glseg->z2, wall->ur, wall->vt);
++    if (!wall->glseg->fracright)
++      gld_SplitRightEdge(wall);
++    gld_BatchFanVertex(wall->glseg->x2, wall->ybottom, wall->glseg->z2, wall->ur, wall->vb);
++    gld_BatchFanEnd();
++  }
+   else
+   {
+     gld_StaticLightAlpha(wall->light, wall->alpha);
+@@ -1747,6 +1793,42 @@ static void gld_DrawFlat(GLFlat *flat)
+ 
+   has_offset = (flat->flags & GLFLAT_HAVE_TRANSFORM);
+ 
++  if (gld_batch_region)
++  {
++    dboolean batched = !has_offset;
++
++    for (loopnum = 0; batched && flat->sectornum >= 0 &&
++         loopnum < sectorloops[flat->sectornum].loopcount; loopnum++)
++    {
++      currentloop = &sectorloops[flat->sectornum].loops[loopnum];
++      batched = gld_BatchLoopOK(currentloop->mode, currentloop->vertexindex,
++                                currentloop->vertexcount);
++    }
++
++    if (batched)
++    {
++      // the loops raised to the flat's height on the CPU instead of a
++      // translation (gl_batch.c)
++      gld_BindFlat(flat->gltexture, flags);
++      gld_StaticLightAlpha(flat->light, flat->alpha);
++
++      if (flat->sectornum >= 0)
++      {
++        for (loopnum = 0; loopnum < sectorloops[flat->sectornum].loopcount; loopnum++)
++        {
++          currentloop = &sectorloops[flat->sectornum].loops[loopnum];
++          gld_BatchLoop(currentloop->mode, currentloop->vertexindex,
++                        currentloop->vertexcount, flat->z);
++        }
++      }
++      gld_BatchCountFlat();
++      return;
++    }
++
++    // a texture transform: drawn from the flats VBO with the matrices
++    gld_BatchBreak();
++  }
++
+   gld_BindFlat(flat->gltexture, flags);
+   gld_StaticLightAlpha(flat->light, flat->alpha);
+ 
+@@ -1991,6 +2073,11 @@ static void gld_DrawSprite(GLSprite *sprite)
+ 
+   dsda_RecordVisSprite();
+ 
++  // fuzz sprites aren't batched (another shader, blending read back)
++  if (gld_batch_region && !(sprite->flags & MF_NO_DEPTH_TEST) &&
++      (sprite->flags & g_mf_shadow))
++    gld_BatchBreak();
++
+   gld_BindPatch(sprite->gltexture,sprite->cm);
+ 
+   if (!(sprite->flags & MF_NO_DEPTH_TEST))
+@@ -2040,12 +2127,23 @@ static void gld_DrawSprite(GLSprite *sprite)
+     z3 = -(sprite->x1 * sin_inv_yaw + y2z2_y * cos_inv_yaw) + sprite->z;
+     z4 = -(sprite->x2 * sin_inv_yaw + y2z2_y * cos_inv_yaw) + sprite->z;
+ 
++    if (gld_batch_region && !restore)
++    {
++      const float xyz[12] = { x1, y1, z1, x2, y1, z2, x3, y2, z3, x4, y2, z4 };
++      const float uv[8] = { sprite->ul, sprite->vt, sprite->ur, sprite->vt,
++                            sprite->ul, sprite->vb, sprite->ur, sprite->vb };
++
++      gld_BatchQuad(xyz, uv);
++    }
++    else
++    {
+     glBegin(GL_TRIANGLE_STRIP);
+     glTexCoord2f(sprite->ul, sprite->vt); glVertex3f(x1, y1, z1);
+     glTexCoord2f(sprite->ur, sprite->vt); glVertex3f(x2, y1, z2);
+     glTexCoord2f(sprite->ul, sprite->vb); glVertex3f(x3, y2, z3);
+     glTexCoord2f(sprite->ur, sprite->vb); glVertex3f(x4, y2, z4);
+     glEnd();
++    }
+   }
+   else
+   {
+@@ -2060,12 +2158,23 @@ static void gld_DrawSprite(GLSprite *sprite)
+     z2 = -(sprite->x1 * sin_inv_yaw) + sprite->z;
+     z1 = -(sprite->x2 * sin_inv_yaw) + sprite->z;
+ 
++    if (gld_batch_region && !restore)
++    {
++      const float xyz[12] = { x1, y1, z2, x2, y1, z1, x1, y2, z2, x2, y2, z1 };
++      const float uv[8] = { sprite->ul, sprite->vt, sprite->ur, sprite->vt,
++                            sprite->ul, sprite->vb, sprite->ur, sprite->vb };
++
++      gld_BatchQuad(xyz, uv);
++    }
++    else
++    {
+     glBegin(GL_TRIANGLE_STRIP);
+     glTexCoord2f(sprite->ul, sprite->vt); glVertex3f(x1, y1, z2);
+     glTexCoord2f(sprite->ur, sprite->vt); glVertex3f(x2, y1, z1);
+     glTexCoord2f(sprite->ul, sprite->vb); glVertex3f(x1, y2, z2);
+     glTexCoord2f(sprite->ur, sprite->vb); glVertex3f(x2, y2, z1);
+     glEnd();
++    }
+   }
+ 
+   if (restore)
+@@ -2590,28 +2699,34 @@ void gld_DrawScene(player_t *player)
+   // floors
+   glCullFace(GL_FRONT);
+   gld_DrawItemsSortByTexture(GLDIT_FLOOR);
++  gld_BatchBegin(true);
+   for (i = gld_drawinfo.num_items[GLDIT_FLOOR] - 1; i >= 0; i--)
+   {
+     gld_DrawFlat(gld_drawinfo.items[GLDIT_FLOOR][i].item.flat);
+   }
++  gld_BatchEnd();
+ 
+   // ceilings
+   glCullFace(GL_BACK);
+   gld_DrawItemsSortByTexture(GLDIT_CEILING);
++  gld_BatchBegin(true);
+   for (i = gld_drawinfo.num_items[GLDIT_CEILING] - 1; i >= 0; i--)
+   {
+     gld_DrawFlat(gld_drawinfo.items[GLDIT_CEILING][i].item.flat);
+   }
++  gld_BatchEnd();
+ 
+   // disable backside removing
+   glDisable(GL_CULL_FACE);
+ 
+   // top, bottom, one-sided walls
+   gld_DrawItemsSortByTexture(GLDIT_WALL);
++  gld_BatchBegin(false);
+   for (i = gld_drawinfo.num_items[GLDIT_WALL] - 1; i >= 0; i--)
+   {
+     gld_ProcessWall(gld_drawinfo.items[GLDIT_WALL][i].item.wall);
+   }
++  gld_BatchEnd();
+ 
+   // masked geometry
+   glEnable(GL_ALPHA_TEST);
+@@ -2621,6 +2736,7 @@ void gld_DrawScene(player_t *player)
+   if (gl_use_stencil && gld_drawinfo.num_items[GLDIT_MWALL] > 0)
+   {
+     // opaque mid walls without holes
++    gld_BatchBegin(false);
+     for (i = gld_drawinfo.num_items[GLDIT_MWALL] - 1; i >= 0; i--)
+     {
+       GLWall *wall = gld_drawinfo.items[GLDIT_MWALL][i].item.wall;
+@@ -2629,6 +2745,7 @@ void gld_DrawScene(player_t *player)
+         gld_ProcessWall(wall);
+       }
+     }
++    gld_BatchEnd();
+ 
+     // opaque mid walls with holes
+ 
+@@ -2636,6 +2753,7 @@ void gld_DrawScene(player_t *player)
+     glStencilFunc(GL_ALWAYS, 1, ~0);
+     glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+ 
++    gld_BatchBegin(false);
+     for (i = gld_drawinfo.num_items[GLDIT_MWALL] - 1; i >= 0; i--)
+     {
+       GLWall *wall = gld_drawinfo.items[GLDIT_MWALL][i].item.wall;
+@@ -2644,6 +2762,7 @@ void gld_DrawScene(player_t *player)
+         gld_ProcessWall(wall);
+       }
+     }
++    gld_BatchEnd();
+ 
+     glStencilFunc(GL_EQUAL, 1, ~0);
+     glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+@@ -2660,10 +2779,12 @@ void gld_DrawScene(player_t *player)
+   else
+   {
+     // opaque mid walls
++    gld_BatchBegin(false);
+     for (i = gld_drawinfo.num_items[GLDIT_MWALL] - 1; i >= 0; i--)
+     {
+       gld_ProcessWall(gld_drawinfo.items[GLDIT_MWALL][i].item.wall);
+     }
++    gld_BatchEnd();
+   }
+ 
+   // projected walls
+@@ -2683,10 +2804,12 @@ void gld_DrawScene(player_t *player)
+ 
+   // opaque sprites
+   gld_DrawItemsSortSprites(GLDIT_SPRITE);
++  gld_BatchBegin(false);
+   for (i = gld_drawinfo.num_items[GLDIT_SPRITE] - 1; i >= 0; i--)
+   {
+     gld_DrawSprite(gld_drawinfo.items[GLDIT_SPRITE][i].item.sprite);
+   }
++  gld_BatchEnd();
+ 
+   // mode for viewing all the alive monsters
+   if (dsda_ShowAliveMonsters())
+@@ -2791,6 +2914,8 @@ void gld_DrawScene(player_t *player)
+     glEnable(GL_ALPHA_TEST);
+   }
+ 
++  gld_BatchBreak();
++
+   if (gl_ext_arb_vertex_buffer_object)
+   {
+     // bind with 0, so, switch back to normal pointer operation
+diff --git a/prboom2/src/gl_map.c b/prboom2/src/gl_map.c
+--- a/prboom2/src/gl_map.c
++++ b/prboom2/src/gl_map.c
+@@ -45,6 +45,7 @@
+ #include "am_map.h"
+ #include "lprintf.h"
+ #include "dsda/gl/render_scale.h"
++#include "gl_batchflush.h"
+ 
+ am_icon_t am_icons[am_icon_count + 1] =
+ {
+diff --git a/prboom2/src/gl_missingtexture.c b/prboom2/src/gl_missingtexture.c
+--- a/prboom2/src/gl_missingtexture.c
++++ b/prboom2/src/gl_missingtexture.c
+@@ -53,6 +53,7 @@
+ #include "hu_stuff.h"
+ #include "r_main.h"
+ #include "e6y.h"
++#include "gl_batchflush.h"
+ 
+ typedef struct
+ {
+diff --git a/prboom2/src/gl_opengl.c b/prboom2/src/gl_opengl.c
+--- a/prboom2/src/gl_opengl.c
++++ b/prboom2/src/gl_opengl.c
+@@ -45,6 +45,7 @@
+ #include "lprintf.h"
+ 
+ #include "dsda/configuration.h"
++#include "gl_batchflush.h"
+ 
+ #define isExtensionSupported(ext) strstr(extensions, ext)
+ 
+@@ -118,6 +119,12 @@ PFNGLUNIFORM1FARBPROC           GLEXT_glUniform1fARB = NULL;
+ PFNGLUNIFORM2FARBPROC           GLEXT_glUniform2fARB = NULL;
+ PFNGLUNIFORM1IARBPROC           GLEXT_glUniform1iARB = NULL;
+ 
++PFNGLBINDATTRIBLOCATIONARBPROC      GLEXT_glBindAttribLocationARB = NULL;
++PFNGLVERTEXATTRIB1FARBPROC          GLEXT_glVertexAttrib1fARB = NULL;
++PFNGLVERTEXATTRIBPOINTERARBPROC     GLEXT_glVertexAttribPointerARB = NULL;
++PFNGLENABLEVERTEXATTRIBARRAYARBPROC GLEXT_glEnableVertexAttribArrayARB = NULL;
++PFNGLDISABLEVERTEXATTRIBARRAYARBPROC GLEXT_glDisableVertexAttribArrayARB = NULL;
++
+ PFNGLGETOBJECTPARAMETERFVARBPROC GLEXT_glGetObjectParameterfvARB = NULL;
+ PFNGLGETOBJECTPARAMETERIVARBPROC GLEXT_glGetObjectParameterivARB = NULL;
+ PFNGLGETINFOLOGARBPROC           GLEXT_glGetInfoLogARB = NULL;
+@@ -342,6 +349,12 @@ void gld_InitOpenGL(void)
+ 		GLEXT_glGetActiveUniformARB     = SDL_GL_GetProcAddress("glGetActiveUniformARB");
+ 		GLEXT_glGetUniformfvARB         = SDL_GL_GetProcAddress("glGetUniformfvARB");
+ 
++		GLEXT_glBindAttribLocationARB       = SDL_GL_GetProcAddress("glBindAttribLocationARB");
++		GLEXT_glVertexAttrib1fARB           = SDL_GL_GetProcAddress("glVertexAttrib1fARB");
++		GLEXT_glVertexAttribPointerARB      = SDL_GL_GetProcAddress("glVertexAttribPointerARB");
++		GLEXT_glEnableVertexAttribArrayARB  = SDL_GL_GetProcAddress("glEnableVertexAttribArrayARB");
++		GLEXT_glDisableVertexAttribArrayARB = SDL_GL_GetProcAddress("glDisableVertexAttribArrayARB");
++
+     if (!GLEXT_glDeleteObjectARB || !GLEXT_glGetHandleARB ||
+         !GLEXT_glDetachObjectARB || !GLEXT_glCreateShaderObjectARB ||
+         !GLEXT_glShaderSourceARB || !GLEXT_glCompileShaderARB ||
+diff --git a/prboom2/src/gl_opengl.h b/prboom2/src/gl_opengl.h
+--- a/prboom2/src/gl_opengl.h
++++ b/prboom2/src/gl_opengl.h
+@@ -128,6 +128,14 @@ extern PFNGLUNIFORM1FARBPROC               GLEXT_glUniform1fARB;
+ extern PFNGLUNIFORM2FARBPROC               GLEXT_glUniform2fARB;
+ extern PFNGLUNIFORM1IARBPROC               GLEXT_glUniform1iARB;
+ 
++// generic vertex attributes (ARB_vertex_shader): the light level per vertex,
++// NULL when missing (gl_shader.c then keeps the uniform)
++extern PFNGLBINDATTRIBLOCATIONARBPROC      GLEXT_glBindAttribLocationARB;
++extern PFNGLVERTEXATTRIB1FARBPROC          GLEXT_glVertexAttrib1fARB;
++extern PFNGLVERTEXATTRIBPOINTERARBPROC     GLEXT_glVertexAttribPointerARB;
++extern PFNGLENABLEVERTEXATTRIBARRAYARBPROC GLEXT_glEnableVertexAttribArrayARB;
++extern PFNGLDISABLEVERTEXATTRIBARRAYARBPROC GLEXT_glDisableVertexAttribArrayARB;
++
+ extern PFNGLGETOBJECTPARAMETERFVARBPROC     GLEXT_glGetObjectParameterfvARB;
+ extern PFNGLGETOBJECTPARAMETERIVARBPROC     GLEXT_glGetObjectParameterivARB;
+ extern PFNGLGETINFOLOGARBPROC               GLEXT_glGetInfoLogARB;
+diff --git a/prboom2/src/gl_preprocess.c b/prboom2/src/gl_preprocess.c
+--- a/prboom2/src/gl_preprocess.c
++++ b/prboom2/src/gl_preprocess.c
+@@ -54,6 +54,7 @@
+ #include "r_main.h"
+ #include "am_map.h"
+ #include "lprintf.h"
++#include "gl_batchflush.h"
+ 
+ static FILE *levelinfo;
+ 
+@@ -1096,9 +1097,16 @@ void gld_PreprocessLevel(void)
+         gld_num_vertexes * sizeof(flats_vbo[0]),
+         flats_vbo, GL_STATIC_DRAW_ARB);
+ 
++      // batched flats are built from a CPU copy (gl_batch.c)
++      gld_BatchSetFlats(flats_vbo, gld_num_vertexes);
++
+       Z_Free(flats_vbo);
+       flats_vbo = NULL;
+     }
++    else
++    {
++      gld_BatchSetFlats(flats_vbo, gld_num_vertexes);
++    }
+   }
+ 
+   //e6y
+diff --git a/prboom2/src/gl_progress.c b/prboom2/src/gl_progress.c
+--- a/prboom2/src/gl_progress.c
++++ b/prboom2/src/gl_progress.c
+@@ -42,6 +42,7 @@
+ 
+ #include "dsda/font.h"
+ #include "dsda/utility.h"
++#include "gl_batchflush.h"
+ 
+ static GLuint progress_texid = 0;
+ static unsigned int lastupdate = 0;
+diff --git a/prboom2/src/gl_shader.c b/prboom2/src/gl_shader.c
+--- a/prboom2/src/gl_shader.c
++++ b/prboom2/src/gl_shader.c
+@@ -41,6 +41,8 @@
+ #include <SDL_opengl.h>
+ #include <math.h>
+ #include <stdarg.h>
++#include <stdlib.h>
++#include <string.h>
+ #include "doomstat.h"
+ #include "v_video.h"
+ #include "gl_opengl.h"
+@@ -57,6 +59,7 @@
+ #include "dsda/configuration.h"
+ 
+ #include "dsda/utility/string_view.h"
++#include "gl_batchflush.h"
+ 
+ #define MAX_TEXTURES 3
+ #define MAX_UNIFORMS 10
+@@ -334,6 +337,8 @@ static shader_t* glsl_ShaderLoad(const shader_info_t* info,
+   shader->hShader = GLEXT_glCreateProgramObjectARB();
+   GLEXT_glAttachObjectARB(shader->hShader, shader->hVertProg);
+   GLEXT_glAttachObjectARB(shader->hShader, shader->hFragProg);
++  if (glsl_vlight)
++    GLEXT_glBindAttribLocationARB(shader->hShader, GLSL_LIGHT_ATTR, "a_light");
+   GLEXT_glLinkProgramARB(shader->hShader);
+   GLEXT_glGetInfoLogARB(shader->hShader, sizeof(buffer), NULL, buffer);
+   GLEXT_glGetObjectParameterivARB(shader->hShader, GL_OBJECT_LINK_STATUS_ARB,
+@@ -356,7 +361,9 @@ static shader_t* glsl_ShaderLoad(const shader_info_t* info,
+       I_Error("ShaderLoad: Too many uniforms in shader \"%s\"\n", info->name);
+ 
+     idx = GLEXT_glGetUniformLocationARB(shader->hShader, unif->name);
+-    if (idx == -1)
++    // with the light level per vertex the main shader has no lightlevel
++    // uniform (setting location -1 does nothing)
++    if (idx == -1 && !(glsl_vlight && !strcmp(unif->name, "lightlevel")))
+       I_Error("ShaderLoad: No such uniform \"%s\" in shader \"%s\"\n",
+               unif->name, info->name);
+     shader->indices[i] = idx;
+@@ -607,18 +614,59 @@ static const shader_info_t fuzz_info =
+   }
+ };
+ 
++// DSDA_GL_VLIGHT (default on): the main shader takes the light level from the
++// vertex attribute a_light (GLSL_LIGHT_ATTR) instead of the lightlevel uniform,
++// so walls and flats of different light levels go into one batched draw
++// (gl_batch.c). Draws that aren't batched set its current value.
++int glsl_vlight = 0;
++float glsl_light = 0.0f;
++static int light_attr_valid;
++static float light_attr_value;
++
++void glsl_SyncLight(void)
++{
++  if (!light_attr_valid || light_attr_value != glsl_light)
++  {
++    GLEXT_glVertexAttrib1fARB(GLSL_LIGHT_ATTR, glsl_light);
++    light_attr_value = glsl_light;
++    light_attr_valid = true;
++  }
++}
++
++// the current value is undefined after a draw from an attribute array
++void glsl_LightArrayUsed(void)
++{
++  light_attr_valid = false;
++}
++
+ void glsl_Init(void)
+ {
+   // where an indexed texture keeps its alpha: .g of a GL_RG texture, .a of the
+   // GL_LUMINANCE_ALPHA fallback (gld_BuildTexture)
++  const char *index_alpha = gl_arb_texture_rg ? "((texel).g)" : "((texel).a)";
+   const shader_define_t defs[] =
+   {
+-    { "INDEX_ALPHA(texel)", gl_arb_texture_rg ? "((texel).g)" : "((texel).a)" },
++    { "INDEX_ALPHA(texel)", index_alpha },
+     { NULL, NULL }
+   };
++  const shader_define_t main_defs[] =
++  {
++    { "INDEX_ALPHA(texel)", index_alpha },
++    { "VLIGHT", "1" },
++    { NULL, NULL }
++  };
++  const char *env = getenv("DSDA_GL_VLIGHT");
++
++  glsl_vlight = (!env || !*env || atoi(env)) &&
++                GLEXT_glBindAttribLocationARB && GLEXT_glVertexAttrib1fARB &&
++                GLEXT_glVertexAttribPointerARB && GLEXT_glEnableVertexAttribArrayARB &&
++                GLEXT_glDisableVertexAttribArrayARB;
+ 
+-  sh_main = glsl_ShaderLoad(&main_info, defs);
++  sh_main = glsl_ShaderLoad(&main_info, glsl_vlight ? main_defs : defs);
+   sh_fuzz = glsl_ShaderLoad(&fuzz_info, defs);
++
++  if (glsl_vlight)
++    glsl_SyncLight();
+ }
+ 
+ void glsl_PushNullShader(void)
+@@ -647,6 +695,16 @@ void glsl_PopMainShader(void)
+ 
+ void glsl_SetLightLevel(float lightlevel)
+ {
++  glsl_light = lightlevel;
++
++  if (glsl_vlight)
++  {
++    // inside a batched pass the vertices carry it; gld_BatchBreak syncs
++    if (!gld_batch_region)
++      glsl_SyncLight();
++    return;
++  }
++
+   glsl_ShaderUniform(sh_main, MAIN_UNIF_LIGHTLEVEL, lightlevel);
+ }
+ 
+diff --git a/prboom2/src/gl_sky.c b/prboom2/src/gl_sky.c
+--- a/prboom2/src/gl_sky.c
++++ b/prboom2/src/gl_sky.c
+@@ -61,6 +61,7 @@
+ 
+ #include "dsda/excmd.h"
+ #include "dsda/settings.h"
++#include "gl_batchflush.h"
+ 
+ typedef struct
+ {
+diff --git a/prboom2/src/gl_texture.c b/prboom2/src/gl_texture.c
+--- a/prboom2/src/gl_texture.c
++++ b/prboom2/src/gl_texture.c
+@@ -73,6 +73,8 @@
+ #include "e6y.h"
+ 
+ #include "dsda/mapinfo.h"
++#include "gl_batchflush.h"
++
+ 
+ int imageformats[5] = {0, GL_LUMINANCE, GL_LUMINANCE_ALPHA, GL_RGB, GL_RGBA};
+ 
+@@ -1087,6 +1089,150 @@ void gld_BindPatch(GLTexture *gltexture, int cm)
+   glsl_SetTextureDims(0, gltexture->realtexwidth, gltexture->realtexheight);
+ }
+ 
++// HUD patch atlas (DSDA_GL_HUD, gl_batch.c): the indexed patches of the status
++// bar and the HUD fonts in one texture, so that consecutive patches drawn by
++// gld_DrawNumPatch_f become one batched draw. A patch keeps its own texture's
++// texels (2 bytes each, as gld_BuildTexture uploads them), framed by a copy of
++// its edge texels, which is what GL_CLAMP_TO_EDGE of its own texture gives a
++// sample on or past the edge; filtering is GL_NEAREST like every patch.
++#define ATLAS_SLOTS 1024
++static GLuint atlas_texid;
++static int atlas_x, atlas_y, atlas_rowh, atlas_full;
++static struct { int lump, cm, x, y; } atlas_slot[ATLAS_SLOTS];
++static int atlas_used;
++
++void gld_ResetPatchAtlas(dboolean lost)
++{
++  int i;
++
++  if (lost)
++    atlas_texid = 0;
++  if (last_glTexID == &atlas_texid)
++    last_glTexID = NULL;
++  for (i = 0; i < ATLAS_SLOTS; i++)
++    atlas_slot[i].lump = -1;
++  atlas_used = 0;
++  atlas_x = atlas_y = atlas_rowh = 0;
++  atlas_full = false;
++}
++
++// binds the atlas and gives the patch's texel origin in it; false: the patch
++// isn't in the atlas (not indexed, too large, invulnerability colormap, full)
++dboolean gld_AtlasPatch(GLTexture *gltexture, int cm, int *ax, int *ay)
++{
++  unsigned int h, i;
++  int w, ht, tex_format;
++
++  if (!gltexture || gltexture->textype != GLDT_PATCH ||
++      !(gltexture->flags & GLTEXTURE_INDEXED))
++    return false;
++
++  gld_GetTextureTexID(gltexture, cm);
++  if (gltexture->player_cm == INVULN_PLAYER_CM)
++    return false;
++  if (cm == CR_LIMIT)
++    cm = CR_DEFAULT;
++
++  w = gltexture->buffer_width;
++  ht = gltexture->buffer_height;
++  if (w > 320 || ht > 64 || w <= 0 || ht <= 0)
++    return false;
++
++  tex_format = gl_arb_texture_rg ? GL_RG : GL_LUMINANCE_ALPHA;
++
++  h = ((unsigned int)gltexture->index * 31u + (unsigned int)cm) % ATLAS_SLOTS;
++  for (i = 0; i < ATLAS_SLOTS; i++, h = (h + 1) % ATLAS_SLOTS)
++  {
++    if (atlas_slot[h].lump == -1 ||
++        (atlas_slot[h].lump == gltexture->index && atlas_slot[h].cm == cm))
++      break;
++  }
++  if (i == ATLAS_SLOTS)
++    return false;
++
++  if (atlas_slot[h].lump == -1)
++  {
++    const rpatch_t *patch;
++    unsigned char *buffer, *framed;
++    int x, y;
++
++    if (atlas_full || atlas_used >= ATLAS_SLOTS / 2)
++      return false;
++    if (atlas_x + w + 2 > GLD_ATLAS_SIZE)
++    {
++      atlas_y += atlas_rowh;
++      atlas_x = 0;
++      atlas_rowh = 0;
++    }
++    if (atlas_y + ht + 2 > GLD_ATLAS_SIZE)
++    {
++      atlas_full = true;
++      return false;
++    }
++
++    if (!atlas_texid)
++    {
++      buffer = Z_Calloc(GLD_ATLAS_SIZE * GLD_ATLAS_SIZE, 2);
++      glGenTextures(1, &atlas_texid);
++      glBindTexture(GL_TEXTURE_2D, atlas_texid);
++      glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_FALSE);
++      glTexImage2D(GL_TEXTURE_2D, 0, tex_format, GLD_ATLAS_SIZE, GLD_ATLAS_SIZE,
++                   0, tex_format, GL_UNSIGNED_BYTE, buffer);
++      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++      Z_Free(buffer);
++      last_glTexID = &atlas_texid;
++    }
++
++    patch = R_PatchByNum(gltexture->index);
++    buffer = Z_Calloc(gltexture->buffer_size, 1);
++    gld_AddPatchToTexture(gltexture, buffer, patch, 0, 0, cm);
++    framed = Z_Malloc((w + 2) * (ht + 2) * 2);
++    for (y = 0; y < ht + 2; y++)
++    {
++      const unsigned char *row = buffer + BETWEEN(0, ht - 1, y - 1) * w * 2;
++
++      for (x = 0; x < w + 2; x++)
++      {
++        const unsigned char *t = row + BETWEEN(0, w - 1, x - 1) * 2;
++
++        framed[(y * (w + 2) + x) * 2] = t[0];
++        framed[(y * (w + 2) + x) * 2 + 1] = t[1];
++      }
++    }
++    if (last_glTexID != &atlas_texid)
++    {
++      glBindTexture(GL_TEXTURE_2D, atlas_texid);
++      last_glTexID = &atlas_texid;
++    }
++    glTexSubImage2D(GL_TEXTURE_2D, 0, atlas_x, atlas_y, w + 2, ht + 2,
++                    tex_format, GL_UNSIGNED_BYTE, framed);
++    Z_Free(framed);
++    Z_Free(buffer);
++
++    atlas_slot[h].lump = gltexture->index;
++    atlas_slot[h].cm = cm;
++    atlas_slot[h].x = atlas_x + 1;
++    atlas_slot[h].y = atlas_y + 1;
++    atlas_used++;
++    atlas_x += w + 2;
++    atlas_rowh = MAX(atlas_rowh, ht + 2);
++  }
++
++  if (last_glTexID != &atlas_texid)
++  {
++    glBindTexture(GL_TEXTURE_2D, atlas_texid);
++    last_glTexID = &atlas_texid;
++    glsl_SetTextureDims(0, GLD_ATLAS_SIZE, GLD_ATLAS_SIZE);
++  }
++
++  *ax = atlas_slot[h].x;
++  *ay = atlas_slot[h].y;
++  return true;
++}
++
+ GLTexture *gld_RegisterRaw(int lump, int width, int height, dboolean mipmap, dboolean indexed)
+ {
+   GLTexture *gltexture;
+@@ -1437,6 +1583,7 @@ void gld_FlushTextures(void)
+   }
+ 
+   gld_ResetLastTexture();
++  gld_ResetPatchAtlas(false);
+ 
+   gld_InitSky();
+   gld_InitColormapTextures(V_IsUILightmodeIndexed() || V_IsAutomapLightmodeIndexed() || V_IsMenuLightmodeIndexed());
+diff --git a/prboom2/src/gl_vertex.c b/prboom2/src/gl_vertex.c
+--- a/prboom2/src/gl_vertex.c
++++ b/prboom2/src/gl_vertex.c
+@@ -80,6 +80,7 @@
+ #include "v_video.h"
+ #include "gl_intern.h"
+ #include "r_main.h"
++#include "gl_batchflush.h"
+ 
+ typedef struct vertexsplit_info_s
+ {
+@@ -133,9 +134,16 @@ void gld_SplitLeftEdge(const GLWall *wall)
+       GLfloat s = factu1 * (vi->heightlist[i] - wall->ytop) + wall->ul;
+       GLfloat t = factv1 * (vi->heightlist[i] - wall->ytop) + wall->vt;
+ 
+-      glTexCoord2f(s, t);
++      if (gld_batch_region)
++      {
++        gld_BatchFanVertex(wall->glseg->x1, vi->heightlist[i], wall->glseg->z1, s, t);
++      }
++      else
++      {
++        glTexCoord2f(s, t);
+ 
+-      glVertex3f(wall->glseg->x1, vi->heightlist[i], wall->glseg->z1);
++        glVertex3f(wall->glseg->x1, vi->heightlist[i], wall->glseg->z1);
++      }
+       i++;
+     }
+   }
+@@ -174,9 +182,16 @@ void gld_SplitRightEdge(const GLWall *wall)
+       GLfloat s = factu2 * (vi->heightlist[i] - wall->ytop) + wall->ur;
+       GLfloat t = factv2 * (vi->heightlist[i] - wall->ytop) + wall->vt;
+ 
+-      glTexCoord2f(s, t);
++      if (gld_batch_region)
++      {
++        gld_BatchFanVertex(wall->glseg->x2, vi->heightlist[i], wall->glseg->z2, s, t);
++      }
++      else
++      {
++        glTexCoord2f(s, t);
+ 
+-      glVertex3f(wall->glseg->x2, vi->heightlist[i], wall->glseg->z2);
++        glVertex3f(wall->glseg->x2, vi->heightlist[i], wall->glseg->z2);
++      }
+       i--;
+     }
+   }
+diff --git a/prboom2/src/gl_wipe.c b/prboom2/src/gl_wipe.c
+--- a/prboom2/src/gl_wipe.c
++++ b/prboom2/src/gl_wipe.c
+@@ -45,6 +45,7 @@
+ #include "e6y.h"
+ 
+ #include "dsda/gl/render_scale.h"
++#include "gl_batchflush.h"
+ 
+ static GLuint wipe_scr_start_tex = 0;
+ static GLuint wipe_scr_end_tex = 0;

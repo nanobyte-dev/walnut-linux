@@ -55,3 +55,13 @@ variant_play48k() { variant_play; DD_SET=('snd_samplerate 48000'); }
 variant_playspu() { variant_play; ENV+=(SPEQ_SYNTH=spu SPEQ_DEBUG=1); }
 variant_playppe() { variant_play; ENV+=(SPEQ_SYNTH=ppe SPEQ_DEBUG=1); }
 variant_playoff() { variant_play; ENV+=(SPEQ_SYNTH=off); }
+# GL renderer draws (our patch 0005, gl_batch.c): walls, flats, sprites and HUD patches batched
+# into few glDrawArrays, light level per vertex. On the host (llvmpipe, GL 2.1) the gl timedemo
+# goes from ~1960 GL calls and ~205 draws a frame to ~390 and ~46. Each switch alone, all off
+# (= the renderer before 0005), and the per-frame batch counts in game.log every 350 frames
+variant_glstats() { variant_gl; ENV+=(DSDA_GL_STATS=1); }
+variant_glnobatch() { variant_gl; ENV+=(DSDA_GL_BATCH=0 DSDA_GL_STATS=1); }
+variant_glnoflats() { variant_gl; ENV+=(DSDA_GL_FLATS=0 DSDA_GL_STATS=1); }
+variant_glnohud() { variant_gl; ENV+=(DSDA_GL_HUD=0 DSDA_GL_STATS=1); }
+variant_glnovlight() { variant_gl; ENV+=(DSDA_GL_VLIGHT=0 DSDA_GL_STATS=1); }
+variant_gloff() { variant_gl; ENV+=(DSDA_GL_BATCH=0 DSDA_GL_FLATS=0 DSDA_GL_HUD=0 DSDA_GL_VLIGHT=0); }

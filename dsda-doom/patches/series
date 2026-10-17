@@ -2,3 +2,4 @@
 0002-gl-indexed-textures-luminance-alpha.patch
 0003-sdl-buffer-in-texture-format.patch
 0004-screenshot-rgb24.patch
+0005-gl-batched-draws.patch
