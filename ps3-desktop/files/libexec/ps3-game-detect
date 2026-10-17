@@ -1,0 +1,432 @@
+#!/bin/bash
+# ps3-game-detect (ps3-desktop; the user service ps3-game-detect.service, which ps3-session
+# starts): game mode by itself for any fullscreen 3D program, however it was started. A window is
+# a game's when
+#   - it is fullscreen: the active window with _NET_WM_STATE_FULLSCREEN (SDL2/SDL3, GLFW) or
+#     covering the screen (a normal window sized to it), or a mapped override-redirect window
+#     covering the screen (SDL 1.2, glxgears -fullscreen; Openbox never makes those active);
+#   - its process (_NET_WM_PID; the X client's pid through XRes when a program doesn't set it)
+#     has the GPU open: a descriptor on /dev/dri, or Mesa's driver mapped (libgallium, *_dri.so);
+#   - that process isn't a browser or a video player (EXCLUDE below, by process name or window
+#     class), wasn't started through ps3-game (its launcher holds game mode already: the game
+#     runs in a scope of ps3-game.slice that isn't one of ours, or has PS3_GAME_SCOPED=1), and
+#     doesn't have PS3_GAME_MODE=off in its environment.
+# PS3_GAME_MODE is the one switch, read from the game's own environment (/proc/<pid>/environ), so
+# it works at every level: system-wide in /etc/environment (pam_env at the tty1 login; Debian's
+# /usr/lib/environment.d/99-environment.conf shows it to the user manager too), the user's in
+# ~/.profile or ~/.config/environment.d/*.conf (ps3-session takes the latter over), or one game's
+# (its menu entry: Exec=env PS3_GAME_MODE=off ..., or the command line). off: no game mode;
+# pads: only the gamepads off the pointer; on (or unset): all of it. PS3_GAME_MODE=on in a game
+# whose default is off gets it game mode (still only when it is a fullscreen 3D program).
+# PS3_GAME_EXCLUDE (this service's environment: /etc/environment or ~/.config/environment.d):
+# more names for EXCLUDE; "-name" takes one out.
+# Entering, for a game in ps3-desktop.slice (started from the menu or a terminal, which game mode
+# freezes): the process and its children there move first into a scope of their own,
+# ps3-game.slice/ps3-game-auto-<pid>-<start>.scope (StartTransientUnit with PIDs: systemd moves
+# them and knows it), then the game joins game mode (ps3-game-guard join auto-<pid>, reference
+# counted with ps3-game's games). If it can't be moved, nothing is entered. A game whose output
+# goes to a terminal or pipe read in ps3-desktop.slice (the freeze would block it once the buffer
+# fills) gets pads only. A game started outside the user manager (over SSH) stays where it is:
+# game mode can't freeze it.
+# Leaving: the game's registration goes once its process is gone, or once it has had no
+# fullscreen window for LEAVE_DELAY seconds (OpenArena's vid_restart makes a new window within
+# that; F11 out of fullscreen in Luanti gives the desktop back after it; so does switching to
+# another window). The game stays in its scope; game mode ends when no game is registered (the
+# guard brings everything back). The game going fullscreen again enters again. This service
+# stopping (or X going away) unregisters its games.
+# Events, not polling: one xev on the root window (substructure and property changes) through an
+# awk filter that passes only the changes that matter (the active window, windows covering the
+# screen appearing, resizing, going); each burst of them gets one look at the windows (xprop,
+# xwininfo). Idle, and while a game runs, it costs nothing. Log: the user journal.
+set -u
+G=/usr/lib/ps3/desktop/ps3-game-guard
+S=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/ps3-game
+LEAVE_DELAY=5	# seconds without a fullscreen window before a game's game mode ends
+RECHECK=2 RECHECKS=4	# a fullscreen window whose process has no GPU (yet): looked at again
+EXCLUDE="firefox firefox-esr firefox-bin navigator chromium chromium-browser chrome google-chrome
+	epiphany epiphany-browser falkon midori qutebrowser surf netsurf netsurf-gtk mpv vlc totem
+	celluloid smplayer mplayer ffplay kodi kodi.bin parole xine haruna"
+log() { echo "ps3-game-detect: $*" >&2; }
+
+EXCLUDE=" ${EXCLUDE//[[:space:]]/ } "
+for x in ${PS3_GAME_EXCLUDE:-}; do
+	x=${x,,}
+	case $x in -*) EXCLUDE=${EXCLUDE// ${x#-} / } ;; *) EXCLUDE="$EXCLUDE$x " ;; esac
+done
+
+[ -n "${DISPLAY:-}" ] || { log "no DISPLAY"; exit 1; }
+mkdir -p "$S/games" || exit 1
+MYUID=$(id -u)
+
+declare -A ingame=()	# pid -> start time: games registered by us
+declare -A deadline=()	# pid -> when its game mode ends (no fullscreen window)
+declare -A recheck=()	# pid -> when to look again (fullscreen without the GPU)
+declare -A tries=()	# pid:start -> looks so far
+declare -A said=()	# pid:start -> what was logged about it last
+
+proc_start() {	# PID -> start time (empty if gone or a zombie)
+	local s
+	read -r s 2>/dev/null < "/proc/$1/stat" || return 1
+	s=${s##*) }
+	# shellcheck disable=SC2086
+	set -- $s
+	case $1 in Z|X) return 1 ;; esac
+	echo "${20}"
+}
+comm() { local c; read -r c 2>/dev/null < "/proc/$1/comm"; echo "$c"; }
+cgroup_of() { local c; read -r c 2>/dev/null < "/proc/$1/cgroup" && echo "${c#0::}"; }
+say() {	# KEY MESSAGE: logged once while it stays the same
+	[ "${said[$1]-}" = "$2" ] && return
+	said[$1]=$2
+	log "$2"
+}
+
+screen_size() {
+	read -r SW SH < <(xwininfo -root 2>/dev/null | awk '/^  Width:/ { w = $2 } /^  Height:/ { h = $2 } END { print w + 0, h + 0 }')
+	[ "$SW" -gt 0 ] && [ "$SH" -gt 0 ]
+}
+
+# The event stream: xev on the root window; awk keeps, for each child of the root, whether it
+# covers the screen, is override-redirect and is mapped, and prints a line ("e" and the
+# override-redirect windows covering the screen) only when that or the active window changes;
+# "size" when the screen's size changed (the stream is then started again).
+# Seeded with the root's children as they are (only those covering the screen are looked at).
+start_events() {
+	local seed=$S/detect.seed w g l
+	: > "$seed"
+	while read -r w g; do
+		l=$(xwininfo -id "$w" 2>/dev/null) || continue
+		printf '%s 1 %s %s\n' "$w" \
+			"$([[ $l == *"Override Redirect State: yes"* ]] && echo 1 || echo 0)" \
+			"$([[ $l == *"Map State: IsViewable"* ]] && echo 1 || echo 0)" >> "$seed"
+	done < <(xwininfo -root -children 2>/dev/null | awk -v sw="$SW" -v sh="$SH" '
+		$1 ~ /^0x/ { g = $(NF - 1); split(g, a, /[x+]/)
+			if (a[1] >= sw && a[2] >= sh && a[3] <= 0 && a[4] <= 0) print $1, g }')
+	[ -n "${EVPID:-}" ] && kill "$EVPID" 2>/dev/null
+	ORWIN=$(awk '$3 == 1 && $4 == 1 { printf " %s", $1 }' "$seed")
+	exec 3< <(exec xev -root -event substructure -event property 2>/dev/null | exec awk -v sw="$SW" -v sh="$SH" -v seed="$seed" '
+	function out(   w, l) {
+		l = "e"
+		for (w in full) if (full[w] && orr[w] != "0" && mapped[w] != "0") l = l " " w
+		print l; fflush()
+	}
+	function isfull(x, y, w, h) { return x <= 0 && y <= 0 && w >= sw && h >= sh }
+	BEGIN { while ((getline l < seed) > 0) { split(l, a, " "); full[a[1]] = 1; orr[a[1]] = a[3]; mapped[a[1]] = a[4] } }
+	/^[A-Za-z]+ event,/ { ev = $1; n = 0; next }
+	{ n++ }
+	n == 1 && ev == "CreateNotify" && match($0, /window 0x[0-9a-f]+, \(-?[0-9]+,-?[0-9]+\), width [0-9]+, height [0-9]+/) {
+		split(substr($0, RSTART, RLENGTH), a, /[ ,()]+/)
+		w = a[2]; full[w] = isfull(a[3], a[4], a[6], a[8]); mapped[w] = 0; orr[w] = ""
+		cw = w
+	}
+	n == 2 && ev == "CreateNotify" { orr[cw] = ($0 ~ /override YES/) ? 1 : 0 }
+	n == 1 && ev == "ConfigureNotify" && match($0, /window 0x[0-9a-f]+, \(-?[0-9]+,-?[0-9]+\), width [0-9]+, height [0-9]+/) {
+		split(substr($0, RSTART, RLENGTH), a, /[ ,()]+/)
+		w = a[2]; f = isfull(a[3], a[4], a[6], a[8]); was = (w in full) ? full[w] : -1
+		full[w] = f; cw = w
+		if (f != was && (f || was == 1)) changed = 1
+	}
+	n == 2 && ev == "ConfigureNotify" { o = ($0 ~ /override YES/) ? 1 : 0; if (orr[cw] != o) { orr[cw] = o; if (full[cw]) changed = 1 }
+		if (changed) { changed = 0; out() } }
+	n == 1 && (ev == "MapNotify" || ev == "UnmapNotify" || ev == "DestroyNotify") && match($0, /window 0x[0-9a-f]+/) {
+		w = substr($0, RSTART + 7, RLENGTH - 7)
+		if (ev == "MapNotify") { mapped[w] = 1; if ($0 ~ /override YES/) orr[w] = 1; else if ($0 ~ /override NO/) orr[w] = 0 }
+		else mapped[w] = 0
+		f = (w in full) ? full[w] : 1	# a window from before the seed: maybe
+		if (ev == "DestroyNotify") { delete full[w]; delete orr[w]; delete mapped[w] }
+		if (f) out()
+	}
+	n == 1 && ev == "PropertyNotify" && /\(_NET_ACTIVE_WINDOW\)/ { out() }
+	n == 1 && ev == "PropertyNotify" && /\(_NET_DESKTOP_GEOMETRY\)/ { print "size"; fflush() }
+	')
+	EVPID=$!
+}
+
+# window_pid WINDOW PROPS: its process (_NET_WM_PID, else XRes), from xprop's lines in PROPS;
+# nothing for a window of another machine (a forwarded X client)
+xres_pid() {
+	command -v python3 > /dev/null || return 1
+	python3 -I -c '
+import ctypes, sys
+x = ctypes.CDLL("libX11.so.6"); r = ctypes.CDLL("libXRes.so.1")
+x.XOpenDisplay.restype = ctypes.c_void_p; x.XOpenDisplay.argtypes = [ctypes.c_char_p]
+d = x.XOpenDisplay(None)
+if not d: sys.exit(1)
+class Spec(ctypes.Structure): _fields_ = [("client", ctypes.c_ulong), ("mask", ctypes.c_uint)]
+class Val(ctypes.Structure): _fields_ = [("spec", Spec), ("length", ctypes.c_long), ("value", ctypes.c_void_p)]
+r.XResQueryClientIds.argtypes = [ctypes.c_void_p, ctypes.c_long, ctypes.POINTER(Spec), ctypes.POINTER(ctypes.c_long), ctypes.POINTER(ctypes.POINTER(Val))]
+r.XResGetClientPid.argtypes = [ctypes.POINTER(Val)]; r.XResGetClientPid.restype = ctypes.c_int
+spec = Spec(int(sys.argv[1], 16), 2); n = ctypes.c_long(); v = ctypes.POINTER(Val)()
+if r.XResQueryClientIds(d, 1, ctypes.byref(spec), ctypes.byref(n), ctypes.byref(v)) != 0: sys.exit(1)
+for i in range(n.value):
+    p = r.XResGetClientPid(ctypes.byref(v[i]))
+    if p > 0: print(p); sys.exit(0)
+sys.exit(1)' "$1" 2>/dev/null
+}
+prop() {	# NAME PROPS: a property's value from xprop's "NAME value" lines
+	local l
+	while IFS= read -r l; do
+		[[ $l == "$1 "* ]] && { echo "${l#"$1 "}"; return 0; }
+	done <<< "$2"
+	return 1
+}
+getprops() {
+	xprop -id "$1" -notype -f _NET_WM_PID 32c ' $0\n' -f _NET_WM_STATE 32a ' $0+\n' \
+		-f _NET_WM_WINDOW_TYPE 32a ' $0+\n' -f WM_CLIENT_MACHINE 8s ' $0\n' -f WM_CLASS 8s ' $0+\n' \
+		_NET_WM_PID _NET_WM_STATE _NET_WM_WINDOW_TYPE WM_CLIENT_MACHINE WM_CLASS 2>/dev/null
+}
+window_pid() {
+	local m p
+	m=$(prop WM_CLIENT_MACHINE "$2") && [ "$m" != "\"${HOSTNAME:-$(uname -n)}\"" ] && return 1
+	p=$(prop _NET_WM_PID "$2") || p=$(xres_pid "$1") || return 1
+	[[ $p =~ ^[0-9]+$ ]] && echo "$p"
+}
+
+# candidates: "window pid class" of each fullscreen window now
+candidates() {
+	local a props st ty geo w p
+	a=$(xprop -root -notype -f _NET_ACTIVE_WINDOW 32x ' $0\n' _NET_ACTIVE_WINDOW 2>/dev/null)
+	a=${a#_NET_ACTIVE_WINDOW }
+	if [[ $a == 0x* && $a != 0x0 ]] && props=$(getprops "$a"); then
+		st=$(prop _NET_WM_STATE "$props")
+		ty=$(prop _NET_WM_WINDOW_TYPE "$props")
+		case $ty in *_DESKTOP*|*_DOCK*) ;; *)
+			if [[ $st == *_NET_WM_STATE_FULLSCREEN* && $st != *_NET_WM_STATE_HIDDEN* ]] ||
+				{ geo=$(xwininfo -id "$a" 2>/dev/null | awk '/Absolute upper-left X:/ { x = $4 } /Absolute upper-left Y:/ { y = $4 }
+					/^  Width:/ { w = $2 } /^  Height:/ { h = $2 } /Map State:/ { m = $3 } END { print x + 0, y + 0, w + 0, h + 0, m }')
+				  read -r gx gy gw gh gm <<< "$geo"
+				  [ "$gm" = IsViewable ] && [ "$gx" -le 0 ] && [ "$gy" -le 0 ] && [ "$gw" -ge "$SW" ] && [ "$gh" -ge "$SH" ]; }; then
+				p=$(window_pid "$a" "$props") && echo "$a $p $(prop WM_CLASS "$props" | tr -d '",')"
+			fi ;;
+		esac
+	fi
+	for w in $ORWIN; do	# override-redirect windows covering the screen, if they really are
+		[ "$w" = "$a" ] && continue
+		geo=$(xwininfo -id "$w" 2>/dev/null) || continue
+		[[ $geo == *"Map State: IsViewable"* && $geo == *"Override Redirect State: yes"* ]] || continue
+		props=$(getprops "$w")
+		p=$(window_pid "$w" "$props") && echo "$w $p $(prop WM_CLASS "$props" | tr -d '",')"
+	done
+}
+
+uses_gpu() {
+	ls -l "/proc/$1/fd" 2>/dev/null | grep -q ' -> /dev/dri/' && return 0
+	grep -qE '/(libgallium[^/]*|[^/]*_dri)\.so' "/proc/$1/maps" 2>/dev/null
+}
+env_mode() {	# PID: its PS3_GAME_MODE ("-" if unset; "scoped" if started through ps3-game) and
+	# PS3_GAME_PREFETCH (for the guard, if this game starts it)
+	local kv m=- f=
+	while IFS= read -r -d '' kv; do
+		case $kv in
+		PS3_GAME_MODE=*) m=${kv#*=} ;;
+		PS3_GAME_PREFETCH=*) f=${kv#*=} ;;
+		PS3_GAME_SCOPED=1) echo scoped; return ;;
+		esac
+	done < "/proc/$1/environ" 2>/dev/null
+	echo "${m:--} $f"
+}
+names() {	# PID CLASS: lower-case names to match EXCLUDE: its comm, argv[0]'s base name, the class
+	local c a=
+	read -r c 2>/dev/null < "/proc/$1/comm"
+	IFS= read -r -d '' a 2>/dev/null < "/proc/$1/cmdline"
+	echo "${c,,} ${a##*/} ${2,,}" | tr '[:upper:]' '[:lower:]'
+}
+
+# its pid and its children (all generations) in the same cgroup or in ps3-desktop.slice
+family() {
+	local cg=$2
+	ps -e -o pid=,ppid= 2>/dev/null | awk -v top="$1" '
+		{ kids[$2] = kids[$2] " " $1 }
+		END { q[1] = top; n = 1
+			for (i = 1; i <= n; i++) { print q[i]; c = split(kids[q[i]], k, " "); for (j = 1; j <= c; j++) q[++n] = k[j] } }' |
+	while read -r p; do
+		c=$(cgroup_of "$p") || continue
+		[ "$c" = "$cg" ] || [[ -n $DESKTOP_REL && $c == "$DESKTOP_REL"/* ]] && echo "$p"
+	done
+}
+in_desktop() { [[ -n $DESKTOP_REL && $(cgroup_of "$1") == "$DESKTOP_REL"/* ]]; }
+
+# move_out PID START: the game and its family out of ps3-desktop.slice (or another place of
+# the user manager's) into a scope of ps3-game.slice. 1: it is still in ps3-desktop.slice.
+move_out() {
+	local pid=$1 cg unit pids n i rest
+	cg=$(cgroup_of "$pid") || return 1
+	case $cg in
+	*/ps3-game.slice/*) return 0 ;;	# ours from before
+	*/user@"$MYUID".service/*) ;;
+	*) return 0 ;;	# not the user manager's (SSH): game mode doesn't freeze it
+	esac
+	unit=ps3-game-auto-$pid-$2.scope
+	pids=$(family "$pid" "$cg")
+	n=$(wc -w <<< "$pids")
+	# shellcheck disable=SC2086
+	if ! busctl --user call org.freedesktop.systemd1 /org/freedesktop/systemd1 \
+		org.freedesktop.systemd1.Manager StartTransientUnit 'ssa(sv)a(sa(sv))' "$unit" fail 4 \
+		PIDs au "$n" $pids Slice s ps3-game.slice CollectMode s inactive-or-failed \
+		Description s "Game (game mode, detected): $(comm "$pid")" 0 > /dev/null; then
+		log "pid $pid: no scope of its own (StartTransientUnit failed)"
+	fi
+	for i in $(seq 20); do	# the start is a job: until it ran
+		[[ $(cgroup_of "$pid") == */ps3-game.slice/"$unit" ]] && break
+		sleep 0.1
+	done
+	# children forked meanwhile
+	rest=$(for p in $(family "$pid" "$cg"); do in_desktop "$p" && echo "$p"; done)
+	if [ -n "$rest" ]; then
+		n=$(wc -w <<< "$rest")
+		# shellcheck disable=SC2086
+		busctl --user call org.freedesktop.systemd1 /org/freedesktop/systemd1 \
+			org.freedesktop.systemd1.Manager AttachProcessesToUnit ssau "$unit" "" "$n" $rest > /dev/null 2>&1
+	fi
+	! in_desktop "$pid"
+}
+
+# blocked PID: its output (descriptors 1, 2) goes to a terminal or a pipe that something in
+# ps3-desktop.slice reads: frozen, that reader would block the game
+blocked() {
+	local fd t want= d f l ino
+	for fd in 1 2; do
+		t=$(readlink "/proc/$1/fd/$fd" 2>/dev/null) || continue
+		case $t in /dev/pts/*) want="$want tty:${t#/dev/pts/}" ;; pipe:*) want="$want $t" ;; esac
+	done
+	[ -n "$want" ] && [ -d "$DESKTOP_CG" ] || return 1
+	for d in $(cat $(find "$DESKTOP_CG" -name cgroup.procs 2>/dev/null) 2>/dev/null); do
+		while read -r f t; do
+			case $t in
+			pipe:*) [[ " $want " == *" $t "* ]] && return 0 ;;
+			/dev/ptmx|/dev/pts/ptmx)
+				l=$(grep '^tty-index:' "/proc/$d/fdinfo/$f" 2>/dev/null)
+				[[ -n $l && " $want " == *" tty:${l##*[[:space:]]} "* ]] && return 0 ;;
+			esac
+		done < <(ls -l "/proc/$d/fd" 2>/dev/null | awk '$(NF - 1) == "->" { print $(NF - 2), $NF }')
+	done
+	return 1
+}
+
+enter() {	# PID START MODE
+	local pid=$1 start=$2 mode=$3
+	if ! move_out "$pid" "$start"; then
+		say "$pid:$start" "pid $pid ($(comm "$pid")): still in ps3-desktop.slice, which game mode would freeze: no game mode"
+		return 1
+	fi
+	if [ "$mode" = on ] && blocked "$pid"; then
+		mode=pads
+		log "pid $pid: its output goes to a terminal or pipe of the desktop, which game mode would freeze: gamepads only"
+	fi
+	log "pid $pid ($(comm "$pid")): fullscreen 3D, game mode ($mode)"
+	ingame[$pid]=$start
+	PS3_GAME_PREFETCH=${pf_of[$pid:$start]:-} "$G" join "auto-$pid" "$mode" "$pid:$start" ||
+		log "pid $pid: game mode didn't come on"
+}
+
+leave() {	# PID WHY
+	"$G" quit "auto-$1"
+	log "pid $1: $2, its game mode ends"
+	unset "ingame[$1]" "deadline[$1]"
+}
+
+evaluate() {
+	local now=$EPOCHSECONDS seen=" " w p cls st mode k
+	while read -r w p cls; do
+		[ -n "$p" ] || continue
+		seen="$seen$p "
+		st=$(proc_start "$p") || continue
+		k=$p:$st
+		if [ "${ingame[$p]-}" = "$st" ]; then
+			unset "deadline[$p]"
+			# still on? (a guard that died, or game mode ended while it was in a window)
+			[ -e "$S/entered" ] && [ -e "$S/games/auto-$p" ] || enter "$p" "$st" "${mode_of[$k]:-on}"
+			continue
+		fi
+		[ -n "${ingame[$p]-}" ] && leave "$p" "gone"	# a reused pid
+		read -r mode pf <<< "$(env_mode "$p")"
+		case $mode in
+		off) say "$k" "pid $p: PS3_GAME_MODE=off: no game mode"; continue ;;
+		scoped) say "$k" "pid $p: started through ps3-game, which holds its game mode"; continue ;;
+		pads) ;;
+		*) mode=on ;;
+		esac
+		case $(cgroup_of "$p") in */ps3-game.slice/ps3-game-auto-*) ;;
+		*/ps3-game.slice/*) say "$k" "pid $p: in ps3-game.slice: its launcher holds its game mode"; continue ;;
+		esac
+		local n x hit=
+		for x in $(names "$p" "$cls"); do [[ $EXCLUDE == *" $x "* ]] && hit=$x && break; done
+		[ -n "$hit" ] && { say "$k" "pid $p: $hit is excluded (PS3_GAME_EXCLUDE): no game mode"; continue; }
+		if ! uses_gpu "$p"; then
+			n=${tries[$k]:-0}
+			if [ "$n" -lt "$RECHECKS" ]; then tries[$k]=$((n + 1)); recheck[$p]=$((now + RECHECK)); fi
+			[ "$n" = 0 ] && log "pid $p: fullscreen without the GPU: not a game"
+			continue
+		fi
+		unset "recheck[$p]"
+		mode_of[$k]=$mode pf_of[$k]=$pf
+		enter "$p" "$st" "$mode"
+	done < <(candidates)
+	for p in "${!ingame[@]}"; do
+		if [[ $seen != *" $p "* ]]; then
+			if [ "$(proc_start "$p")" != "${ingame[$p]}" ]; then leave "$p" "exited"; continue; fi
+			[ -n "${deadline[$p]-}" ] || deadline[$p]=$((now + LEAVE_DELAY))
+			[ "$now" -ge "${deadline[$p]}" ] && leave "$p" "no fullscreen window for $LEAVE_DELAY s"
+		fi
+	done
+	for p in "${!recheck[@]}"; do [ "${recheck[$p]}" -le "$now" ] && unset "recheck[$p]"; done
+}
+declare -A mode_of=() pf_of=()
+
+next_timeout() {	# seconds to the next deadline or recheck (none: empty)
+	local t= p d
+	for p in "${!deadline[@]}"; do d=${deadline[$p]}; [ -z "$t" ] || [ "$d" -lt "$t" ] && t=$d; done
+	for p in "${!recheck[@]}"; do d=${recheck[$p]}; [ -z "$t" ] || [ "$d" -lt "$t" ] && t=$d; done
+	[ -n "$t" ] || return 0
+	t=$((t - EPOCHSECONDS))
+	[ "$t" -ge 1 ] && echo "$t" || echo 0.5
+}
+
+cleanup() {
+	trap - EXIT TERM INT HUP
+	for p in "${!ingame[@]}"; do leave "$p" "ps3-game-detect stops"; done
+	exit 0
+}
+trap cleanup EXIT TERM INT HUP
+
+# ps3-desktop.slice's cgroup (it may not exist yet): in the user manager's, under ps3.slice (a
+# dash in a slice's name is a level)
+DESKTOP_REL=$(cgroup_of $$)
+case $DESKTOP_REL in
+*/user@"$MYUID".service/*) DESKTOP_REL=${DESKTOP_REL%%/user@"$MYUID".service/*}/user@$MYUID.service ;;
+*) DESKTOP_REL=/user.slice/user-$MYUID.slice/user@$MYUID.service ;;
+esac
+x=ps3-desktop.slice x=${x%.slice}
+IFS=- read -ra parts <<< "$x"; x=
+for part in "${parts[@]}"; do x=${x:+$x-}$part; DESKTOP_REL=$DESKTOP_REL/$x.slice; done
+DESKTOP_CG=/sys/fs/cgroup$DESKTOP_REL
+# games registered by an instance before this one: ours again if they still run
+for f in "$S"/games/auto-*; do
+	[ -e "$f" ] || continue
+	read -r p st < "$f"
+	if [ -n "$p" ] && [ "$(proc_start "$p")" = "$st" ]; then ingame[$p]=$st; else "$G" quit "${f##*/}"; fi
+done
+screen_size || { log "no screen size: X is gone"; exit 0; }
+start_events
+log "watching $DISPLAY (${SW}x$SH)"
+evaluate
+while :; do
+	t=$(next_timeout)
+	if [ -n "$t" ]; then read -r -t "$t" -u 3 line; else read -r -u 3 line; fi
+	rc=$?
+	if [ $rc -gt 128 ]; then evaluate; continue; fi	# a deadline
+	[ $rc = 0 ] || { log "X is gone"; break; }
+	# a burst of events: one look once it is quiet for 0.3 s (at most 2 s later)
+	i=0
+	while :; do
+		case $line in
+		size)	exec 3<&-
+			screen_size || { log "no screen size: X is gone"; break 2; }
+			start_events ;;
+		e*) ORWIN=${line#e} ;;
+		esac
+		[ $i -lt 6 ] && read -r -t 0.3 -u 3 line || break
+		i=$((i + 1))
+	done
+	evaluate
+done

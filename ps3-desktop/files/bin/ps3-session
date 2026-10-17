@@ -30,7 +30,7 @@ fi
 # blueman from the menu, no resident tray (~60 MB of Python). GTK apps don't load the GL
 # driver just to probe it (GDK_GL=disable: RAM and GART for nothing; games use GL directly).
 export GDK_GL=disable
-# The helpers run in ps3-desktop.slice, which ps3-game freezes and pushes out of RAM while a
+# The helpers run in ps3-desktop.slice, which game mode freezes and pushes out of RAM while a
 # game runs; openbox stays with X in ps3-display.slice.
 # Every game in the menu starts in game mode: its entry through ps3-game, written at each login
 # into the runtime directory, which comes first in XDG_DATA_DIRS (ps3-game-menu)
@@ -38,9 +38,20 @@ if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
 	export XDG_DATA_DIRS="$XDG_RUNTIME_DIR/ps3-game-menu:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 	/usr/lib/ps3/desktop/ps3-game-menu "$XDG_RUNTIME_DIR/ps3-game-menu" > /dev/null 2>&1 &
 fi
+# PS3_GAME_MODE (game mode: on, pads or off), which ps3-game and ps3-game-detect read from each
+# game's own environment: /etc/environment's (pam_env at the login) or ~/.profile's reach this
+# session by themselves; a value in ~/.config/environment.d (the user manager's) wins over
+# /etc/environment's but not over ~/.profile's. A menu entry or a command line sets it per game.
+m=$(systemctl --user show-environment 2>/dev/null | sed -n 's/^PS3_GAME_MODE=//p')
+e=$(sed -n 's/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}PS3_GAME_MODE=["'"'"']\{0,1\}\([^"'"'"' ]*\).*/\2/p' /etc/environment 2>/dev/null | tail -1)
+[ -n "$m" ] && [ "${PS3_GAME_MODE:-}" = "$e" ] && export PS3_GAME_MODE="$m"
+unset m e
 # The user bus and the services it starts need to know the display
 systemctl --user import-environment DISPLAY XAUTHORITY XDG_CONFIG_DIRS XDG_DATA_DIRS
 dbus-update-activation-environment --systemd DISPLAY XAUTHORITY XDG_CONFIG_DIRS XDG_DATA_DIRS 2>/dev/null
 d() { systemd-run --user --scope --slice=ps3-desktop.slice -q "$@" & }
 d pcmanfm --desktop; d tint2; d nm-applet; d pnmixer; d lxpolkit; d dunst
+# Game mode by itself for any fullscreen 3D program, however it was started (ps3-game-detect;
+# it watches X and ends with it)
+systemctl --user restart --no-block ps3-game-detect.service
 exec openbox

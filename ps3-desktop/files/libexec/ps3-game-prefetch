@@ -1,0 +1,169 @@
+#!/usr/bin/python3 -I
+# ps3-game-prefetch record LIST [--file PATH]... PID... | fetch LIST (ps3-desktop; ps3-game-guard
+# runs it): the desktop's files back into the page cache when game mode ends, in one pass over the
+# disk. Game mode pushes the frozen desktop's file pages out (and the game evicts the rest); left
+# to themselves the thawed programs fault them back one at a time, random reads from the PS3's
+# USB hard disk: about 20 s before the desktop answers again.
+#   record  before the desktop is frozen: the files the processes PID... have mapped (their
+#           programs, libraries, fonts, icon caches, locale data), plus each --file (read, not
+#           mapped: the wallpaper), and of each the pages in memory now (mincore), as ranges.
+#           LIST: one file per line, "<physical offset>\t<ranges>\t<path>", sorted by where the
+#           file starts on the disk (FIEMAP; the inode number where it has none), so the fetch
+#           reads in disk order.
+#   fetch   when game mode ends: POSIX_FADV_WILLNEED for every range (the reads go to the disk
+#           queued together, its scheduler orders them), then each range read, which waits for
+#           them: done when all of it is in memory again.
+# Each prints one line of numbers for the journal (pages are counted in MB).
+import ctypes, fcntl, os, struct, sys, time
+
+PAGE = os.sysconf("SC_PAGE_SIZE")
+GAP = 32  # pages: closer ranges are read as one (cheaper than a seek on a hard disk)
+libc = ctypes.CDLL(None, use_errno=True)
+libc.mmap.restype = ctypes.c_void_p
+libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_long]
+libc.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+libc.mincore.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_char_p]
+PROT_READ, MAP_SHARED, MAP_FAILED = 1, 1, ctypes.c_void_p(-1).value
+FS_IOC_FIEMAP = 0xC020660B
+
+
+def say(msg):
+    print("ps3-game-prefetch: " + msg, file=sys.stderr, flush=True)
+
+
+def resident(fd, size):
+    """the file's pages in memory: list of (first page, page count)"""
+    if size <= 0:
+        return []
+    addr = libc.mmap(None, size, PROT_READ, MAP_SHARED, fd, 0)
+    if addr in (None, MAP_FAILED):
+        return []
+    try:
+        n = (size + PAGE - 1) // PAGE
+        vec = ctypes.create_string_buffer(n)
+        if libc.mincore(addr, size, vec) != 0:
+            return []
+        runs, start, last = [], None, None
+        for i, b in enumerate(vec.raw):
+            if b & 1:
+                if start is None:
+                    start = i
+                elif i - last > GAP:
+                    runs.append((start, last - start + 1))
+                    start = i
+                last = i
+        if start is not None:
+            runs.append((start, last - start + 1))
+        return runs
+    finally:
+        libc.munmap(addr, size)
+
+
+def physical(fd, ino):
+    """where the file starts on the disk (its first extent), for the order"""
+    req = struct.pack("=QQIIII", 0, 0xFFFFFFFFFFFFFFFF, 0, 0, 1, 0) + bytes(56)
+    try:
+        out = fcntl.ioctl(fd, FS_IOC_FIEMAP, req)
+        if struct.unpack_from("=I", out, 20)[0] >= 1:
+            return struct.unpack_from("=Q", out, 32 + 8)[0]
+    except OSError:
+        pass
+    return ino << 20
+
+
+def record(lst, args):
+    files, pids = [], []
+    while args:
+        a = args.pop(0)
+        if a == "--file" and args:
+            files.append(args.pop(0))
+        elif a.isdigit():
+            pids.append(a)
+    seen = set()
+    for p in pids:
+        try:
+            with open("/proc/%s/maps" % p) as f:
+                for line in f:
+                    parts = line.split(None, 5)
+                    if len(parts) == 6 and parts[4] != "0" and parts[5].startswith("/"):
+                        path = parts[5].rstrip("\n")
+                        if not path.endswith(" (deleted)") and not path.startswith(("/dev/", "/memfd:", "/SYSV")):
+                            files.append(path)
+        except OSError:  # gone, or not ours (X runs as root)
+            pass
+    out, total = [], 0
+    for path in files:
+        if path in seen:
+            continue
+        seen.add(path)
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        except OSError:
+            continue
+        try:
+            st = os.fstat(fd)
+            if not (st.st_mode & 0o170000 == 0o100000):
+                continue
+            runs = resident(fd, st.st_size)
+            if runs:
+                total += sum(n for _, n in runs)
+                out.append((physical(fd, st.st_ino), ",".join("%d+%d" % r for r in runs), path))
+        finally:
+            os.close(fd)
+    out.sort()
+    tmp = lst + ".new"
+    with open(tmp, "w") as f:
+        for phys, runs, path in out:
+            f.write("%d\t%s\t%s\n" % (phys, runs, path))
+    os.rename(tmp, lst)
+    say("recorded %d files, %.1f MB in memory" % (len(out), total * PAGE / 1048576))
+
+
+def fetch(lst):
+    t0 = time.monotonic()
+    todo = []
+    with open(lst) as f:
+        for line in f:
+            try:
+                _, runs, path = line.rstrip("\n").split("\t", 2)
+            except ValueError:
+                continue
+            todo.append((path, [tuple(map(int, r.split("+"))) for r in runs.split(",")]))
+    fds, total, cached = [], 0, 0
+    for path, runs in todo:  # what is still in memory, then all of it asked for at once
+        try:
+            fd = os.open(path, os.O_RDONLY)
+        except OSError:
+            continue
+        size = os.fstat(fd).st_size
+        have = set()
+        for s, n in resident(fd, size):
+            have.update(range(s, s + n))
+        for s, n in runs:
+            total += n
+            cached += sum(1 for i in range(s, s + n) if i in have)
+            os.posix_fadvise(fd, s * PAGE, n * PAGE, os.POSIX_FADV_WILLNEED)
+        fds.append((fd, runs))
+    t1 = time.monotonic()
+    for fd, runs in fds:  # waits for the reads
+        for s, n in runs:
+            off, end = s * PAGE, (s + n) * PAGE
+            while off < end:
+                b = os.pread(fd, min(1 << 20, end - off), off)
+                if not b:
+                    break
+                off += len(b)
+        os.close(fd)
+    mb = PAGE / 1048576
+    say("fetched %d files, %.1f MB (%.1f MB were still in memory): asked in %.1f s, all in after %.1f s"
+        % (len(fds), total * mb, cached * mb, t1 - t0, time.monotonic() - t0))
+
+
+if __name__ == "__main__":
+    if len(sys.argv) >= 3 and sys.argv[1] == "record":
+        record(sys.argv[2], sys.argv[3:])
+    elif len(sys.argv) == 3 and sys.argv[1] == "fetch":
+        fetch(sys.argv[2])
+    else:
+        print("usage: ps3-game-prefetch record LIST [--file PATH]... PID... | fetch LIST", file=sys.stderr)
+        sys.exit(2)

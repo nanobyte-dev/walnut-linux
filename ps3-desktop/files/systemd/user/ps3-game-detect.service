@@ -1,0 +1,11 @@
+[Unit]
+Description=PS3 game mode for fullscreen 3D programs (ps3-game-detect)
+Documentation=file:///usr/lib/ps3/desktop/ps3-game-detect
+# ps3-session starts it once X runs; it ends with X
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+ExecStart=/usr/lib/ps3/desktop/ps3-game-detect
+Restart=on-failure
+RestartSec=5

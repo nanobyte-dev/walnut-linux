@@ -27,7 +27,7 @@ if it exists (`base` needs none).
 | `parse()` | prints extra `key=value` lines into bench.txt |
 | `HUD` | 1 (default): Gallium HUD fps per second into `hud/fps` and every frame's time (ms) into `hud/frametime_(ms)` |
 | `WM` | window manager started first (default `openbox`; empty: none, the game's window may not show) |
-| `GAMEMODE` | 1: start through `ps3-game` (as the desktop does); default 0, as step 0 |
+| `GAMEMODE` | 1: start through `ps3-game` (as the desktop does); default 0, as step 0 (the game gets `PS3_GAME_MODE=off`, so ps3-game-detect leaves it alone too) |
 | `SOUND_AT` | seconds from start when the sound card state is read (default 15) |
 
 Each recipe's header says how its warm-up and window work (passes, the game's own window, or the

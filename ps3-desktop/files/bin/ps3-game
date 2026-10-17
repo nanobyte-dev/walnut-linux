@@ -4,8 +4,14 @@
 # game mode is on: ps3-game-guard, a user service, gets the rest of the desktop out of the way
 # before the game starts and brings it all back after the last game exits, however it exits
 # (crash, kill, a killed launcher; see ps3-game-guard).
-# PS3_GAME_MODE=pads: only the gamepads leave the pointer, nothing frozen or reclaimed (a
-# baseline to measure against); off: not even that.
+# ps3-game-detect enters game mode by itself for any fullscreen 3D program; the menu's games
+# still start through here: game mode is on before they load (when memory is shortest), and a
+# game drawn without the GPU (dsda-doom's and OpenTTD's software modes) gets it too. Such a game is
+# left to this launcher (the detector skips ps3-game.slice's own scopes): counted once, and its
+# game mode lasts until it exits, fullscreen or not.
+# PS3_GAME_MODE (the environment: /etc/environment, ~/.profile or ~/.config/environment.d, the
+# menu entry, the command line; ps3-session) on (the default); pads: only the gamepads leave the
+# pointer, nothing frozen or reclaimed (a baseline to measure against); off: not even that.
 G=/usr/lib/ps3/desktop/ps3-game-guard
 [ $# -gt 0 ] || { echo "usage: ps3-game <command...>" >&2; exit 2; }
 # Started from the menu or the desktop, this script runs in ps3-desktop.slice, which game mode
@@ -19,59 +25,10 @@ if [ -z "${PS3_GAME_SCOPED:-}" ]; then
 	exec systemd-run --user --scope --slice=ps3-game.slice --unit="ps3-game-$$" -q "$0" "$@"
 fi
 mode=${PS3_GAME_MODE:-on}
-S=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/ps3-game
-me=$S/games/$$
-mkdir -p "$S/games"
-lock() { exec 9> "$S/lock"; flock 9; }
-unlock() { flock -u 9; exec 9>&-; }
-live() {	# the guard's service exists (its state files count only then)
-	case $(systemctl --user show -P ActiveState ps3-game-mode.service 2>/dev/null) in
-	active|activating|deactivating|reloading) return 0 ;;
-	esac
-	return 1
-}
-stale() {	# game mode's state left with no guard (one killed with its whole cgroup, whose
-	# ExecStopPost was killed too): undone here, by the next game or the end of a running one
-	if ! live && { [ -e "$S/frozen" ] || [ -e "$S/root" ] || [ -e "$S/pads" ] || [ -e "$S/desktop" ]; }; then
-		echo "ps3-game: game mode left behind by a guard that died: undoing it" >&2
-		"$G" leave 9>&-	# not the lock's descriptor: the pcmanfm it starts would hold the lock
-	fi
-}
-start_guard() {
-	env=
-	for v in DISPLAY XAUTHORITY XDG_CONFIG_DIRS XDG_DATA_DIRS GDK_GL PS3_GAME_MODE; do
-		eval "x=\${$v-}"; [ -n "$x" ] && env="$env --setenv=$v=$x"
-	done
-	# shellcheck disable=SC2086 # the values have no spaces
-	systemd-run --user --unit=ps3-game-mode --slice=ps3-game.slice --collect -q \
-		-p TimeoutStopSec=90 -p "ExecStopPost=$G leave" $env "$G" run
-}
-# join: registers this game; starts the guard if none runs; returns once game mode is on
-join() {
-	i=0
-	while [ $i -lt 150 ]; do	# 30 s
-		lock
-		[ -e "$me" ] || echo $$ > "$me"
-		if live; then
-			[ -e "$S/entered" ] && { unlock; return 0; }
-			# entering (wait for it) or leaving (wait until it is gone, then start anew)
-		else
-			stale
-			rm -f "$S/entered" "$S/entering" "$S/leaving"	# stale: no guard
-			: > "$S/entering"
-			if ! start_guard && ! live; then
-				rm -f "$S/entering"; unlock
-				echo "ps3-game: game mode didn't start; the game starts without it" >&2
-				return 1
-			fi
-		fi
-		unlock
-		sleep 0.2; i=$((i + 1))
-	done
-	echo "ps3-game: game mode not on after 30 s; the game starts anyway" >&2
-	return 1
-}
-[ "$mode" = off ] || join
+# registered as game $$ (this launcher, then the game too: alive while either runs); the first
+# game starts the guard. The game starts once game mode is on, or after 30 s without it.
+[ "$mode" = off ] || "$G" join $$ "$mode" $$ ||
+	echo "ps3-game: game mode didn't come on; the game starts without it" >&2
 # A terminal of the frozen desktop stops reading, and a game writing to it would block: its
 # output goes to a file then (not over SSH: sshd isn't frozen)
 if [ "$mode" = on ] && [ -z "${SSH_TTY:-}" ] && { [ -t 1 ] || [ -t 2 ]; }; then
@@ -82,10 +39,10 @@ if [ "$mode" = on ] && [ -z "${SSH_TTY:-}" ] && { [ -t 1 ] || [ -t 2 ]; }; then
 fi
 systemd-run --user --scope --slice=ps3-game.slice -q "$@" &
 game=$!
-[ "$mode" = off ] || { lock; echo $game >> "$me"; unlock; }
+[ "$mode" = off ] || "$G" add $$ $game
 trap 'kill $game 2>/dev/null' INT TERM HUP
 wait $game
 ret=$?
 while kill -0 $game 2>/dev/null; do wait $game; ret=$?; done	# a trapped signal ended the wait early
-[ "$mode" = off ] || { lock; rm -f "$me"; stale; unlock; }	# the guard leaves within a second if it was the last
+[ "$mode" = off ] || "$G" quit $$	# the guard leaves within a second if it was the last
 exit $ret

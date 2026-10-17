@@ -68,6 +68,8 @@ elif [ -n "${GALLIUM_HUD_DUMP_DIR:-}" ]; then	# ps3-bench.sh's BENCH_HUD=1: per-
 	hud_file=$GALLIUM_HUD_DUMP_DIR/fps
 fi
 launch=(); [ "$GAMEMODE" = 1 ] && launch=(ps3-game)
+# GAMEMODE=0 means no game mode: not even ps3-game-detect's (it reads the game's environment)
+[ "$GAMEMODE" = 1 ] || ENV+=(PS3_GAME_MODE=off)
 
 # a window manager, as on the desktop: without one SDL's fullscreen request goes unanswered and the
 # game's window never reaches the screen (it still renders). Plain openbox: no autostart, no panel.

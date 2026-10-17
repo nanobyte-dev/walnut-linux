@@ -149,9 +149,11 @@ Lessons (2026-10-17):
   DRIVER-PLAN.md, RSX.md.
 - **Desktop:** Openbox + tint2 + PCManFM, NetworkManager (never on eth0), pnmixer, dunst; Shut
   down / Reboot in the menu. The user D-Bus runs under systemd (`dbus-user-session`).
-- **Game mode:** every game starts through `ps3-game`, which keeps the game and X resident
-  (cgroup `memory.low`), freezes the desktop helpers, gvfs, udisks2 and polkit, and pushes their
-  memory out; all of it thaws when the game exits.
+- **Game mode:** keeps the game and X resident (cgroup `memory.low`), freezes the desktop
+  helpers, gvfs, udisks2 and polkit, and pushes their memory out; all of it thaws when the game
+  exits. It starts by itself for any fullscreen 3D program (`ps3-game-detect`), and the menu's
+  games start through `ps3-game` (before they load); `PS3_GAME_MODE=off` turns it off
+  (DESKTOP-PLAN.md).
 - **Swap:** `ps3vswap0`, a ps3rsx block device that keeps swapped pages in spare VRAM (up to
   96 MB), with the USB swap partition behind it. Recently swapped pages stay in VRAM, cold ones
   are demoted to the disk, and games get VRAM back on demand.

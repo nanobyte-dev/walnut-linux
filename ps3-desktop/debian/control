@@ -12,15 +12,17 @@ Depends: ${misc:Depends}, ps3-system, dbus-user-session, sudo, xserver-xorg-core
  xinit, xauth, x11-xserver-utils, x11-utils, xinput, xserver-xorg-input-joystick,
  xserver-xorg-input-libinput, openbox, tint2, jgmenu, pcmanfm, desktop-base, greybird-gtk-theme,
  papirus-icon-theme, dunst, lxpolkit, lxterminal, network-manager-applet, pnmixer, gvfs, udev,
- systemd, procps, util-linux
+ systemd, procps, util-linux, python3, libxres1
 Recommends: blueman, ps3-games
 Description: PS3 desktop (Openbox on the RSX, game mode)
  Automatic login on tty1 (/etc/default/ps3-desktop: PS3_DESKTOP_USER) into an Openbox desktop on
  the RSX (Xorg modesetting with glamor): tint2 panel, PCManFM desktop, network, volume and
- notification helpers. Game mode (ps3-game) keeps a game and X resident; while it runs the rest
- of the desktop gets out of the way (frozen, its memory pushed out) and comes back intact when the
- last game exits, however it exits. Gamepads move the pointer outside games. Shut down and Reboot
- menu entries, OpenArena's PS3 settings.
+ notification helpers. Game mode keeps a game and X resident; while it runs the rest of the
+ desktop gets out of the way (frozen, its memory pushed out) and comes back intact when the last
+ game exits, however it exits. It starts by itself for any fullscreen 3D program
+ (ps3-game-detect; browsers and video players excepted) and with the menu's games (ps3-game);
+ PS3_GAME_MODE=off in a program's environment, or system-wide, turns it off. Gamepads move the
+ pointer outside games. Shut down and Reboot menu entries, OpenArena's PS3 settings.
 
 Package: ps3-apps
 Architecture: all
