@@ -18,7 +18,7 @@ stall decisions on runs without these switches (same-boot A/B as always).
 
 ## Running it
 
-On the PS3 (`make bench-push` done, ps3-gpu-tools 0.386 or later for `PERF=1`'s perf control and
+On the PS3 (`make bench-push` done, ps3-gpu-tools 0.391 or later for `PERF=1`'s perf control and
 `MEM=1`'s malloc statistics):
 
     PERF=1 /var/tmp/bench/run.sh smoke openarena              # prints the tables at the end
