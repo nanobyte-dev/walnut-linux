@@ -8,7 +8,8 @@
  * slots (0x180-0x1bc) only with its known context DMAs, and a per-class method allowlist: the
  * methods Mesa's nv30 driver can emit (docs/MESA-METHODS.md section 4, indexed arrays
  * expanded to all units) plus what our raw tests use, all of which ran on the RSX.
- * Data checks: vertex format type 0, 1-pixel-wide swizzled render targets, SIFM surfaces.
+ * Data checks: vertex format type 0, 1-pixel-wide swizzled render targets, texture offsets not
+ * 128-byte aligned, SIFM surfaces.
  * Not yet: bounds checks of offsets against BOs at trigger methods.
  */
 #include <linux/kernel.h>
@@ -91,17 +92,18 @@ static unsigned long allowed[VC_N][BITS_TO_LONGS(0x2000 / 4)];
 /*
  * The validator's fast path, fast[class][method / 4]: F_OK when check_method() accepts that
  * method on that class whatever the data, and changes nothing (allowed, not a bind or host
- * method, not data-checked: fast_kind()); F_VTXFMT when its only check is the vertex format
- * type. Such words, nearly all of a push, cost a table lookup; a non-incrementing burst to an
- * F_OK method (inline vertex and index data) costs one for all its words. Everything else goes
- * through check_method(), so the fast path accepts nothing it wouldn't.
+ * method, not data-checked: fast_kind()); F_VTXFMT and F_TEXOFS when its only check is the
+ * vertex format type or the texture offset alignment. Such words, nearly all of a push, cost a
+ * table lookup; a non-incrementing burst to an F_OK method (inline vertex and index data) costs
+ * one for all its words. Everything else goes through check_method(), so the fast path accepts
+ * nothing it wouldn't.
  */
-enum { F_SLOW, F_OK, F_VTXFMT };
+enum { F_SLOW, F_OK, F_VTXFMT, F_TEXOFS };
 static u8 fast[VC_N][0x2000 / 4];
 
 static __always_inline bool fast_ok(u8 f, u32 data)
 {
-	return f == F_OK || (f == F_VTXFMT && (data & 0xf));
+	return f == F_OK || (f == F_VTXFMT && (data & 0xf)) || (f == F_TEXOFS && !(data & 127));
 }
 
 static void allow(int c, const struct mrange *r, int n)
@@ -171,6 +173,12 @@ static bool known_dma(u32 handle)
 	return false;
 }
 
+/* A 3D texture offset (fragment units 0-15, vertex units 0-3)? */
+static bool tex_offset(u32 m)
+{
+	return (m & ~0x1e0) == 0x1a00 || (m & ~0x60) == 0x0900;
+}
+
 /*
  * How the fast path may take allowed method m of class c, from what check_method() does with
  * it (keep in step: a data check missing here would be skipped).
@@ -185,6 +193,8 @@ static u8 fast_kind(int c, u32 m)
 		return F_SLOW;			/* BEGIN_END state, RT_FORMAT */
 	if (m >= 0x1740 && m <= 0x177c)
 		return F_VTXFMT;		/* vertex format type 0 */
+	if (tex_offset(m))
+		return F_TEXOFS;		/* texture offset alignment */
 	return F_OK;
 }
 
@@ -229,6 +239,13 @@ static int check_method(struct ps3rsx_vstate *vs, u32 subch, u32 mthd, u32 data,
 		/* RT_FORMAT swizzled with log2 width 0: rendering to a 1-pixel-wide swizzled
 		 * surface raises graph exception 0x106 (docs/RSX.md) */
 		*why = "swizzled render target 1 pixel wide";
+		return -EINVAL;
+	}
+	if (vs->bound[subch] == 0x31337000 && tex_offset(mthd) && (data & 127)) {
+		/* a texture sampled at an offset only 32-byte aligned raised graph exception
+		 * 0x105 (Neverball, +0xaa0); libgcm aligns texture offsets to 128 bytes, and Mesa
+		 * 0014 never sends anything else (docs/GAME-PLAN.md, driver bugs) */
+		*why = "texture offset not 128-byte aligned";
 		return -EINVAL;
 	}
 	if (vs->bound[subch] == 0x3137af00 && mthd == 0x198) {
