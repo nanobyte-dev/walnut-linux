@@ -13,8 +13,10 @@
 # A watchdog stops the command on a "PS3 Thermal Alert" (Linux can't read temperatures).
 # BENCH_TIMEOUT (default 600 s) bounds every command. BENCH_HUD=1: per-second fps from the Gallium
 # HUD into the run directory. BENCH_NOVSWAP=1: VRAM swap off for the run (the first run of anything
-# that might wedge the GPU); desktop turns it back on. The command sees the run directory as
-# $BENCH_DIR.
+# that might wedge the GPU); desktop turns it back on. BENCH_STALLS=1: ps3-stallrec records the
+# game's main thread and the memory and disk counters every BENCH_STALLS_MS (default 10) ms into
+# stalls.rec, for games/bench/stalls.py (why frames stall, docs/STALLS.md). The command sees the run
+# directory as $BENCH_DIR.
 {
 set -u
 LOCK=/dev/shm/ps3-bench.lock
@@ -153,7 +155,28 @@ start_sampler() {	# start_sampler JOBPID
 	SAMPLER=$!
 }
 
-stop_sampler() { touch "$D/stop"; wait "$SAMPLER" 2>/dev/null; rm -f "$D/stop"; }
+# The stall recorder (BENCH_STALLS=1): one root process, the game found through client.sh's .pid,
+# frames through the HUD's frame time dump, stopped by $D/stop like the sampler
+STALLREC=
+start_stallrec() {
+	[ "${BENCH_STALLS:-0}" = 1 ] || return 0
+	if ! command -v ps3-stallrec >/dev/null; then
+		echo '!! BENCH_STALLS=1 but no ps3-stallrec (ps3-gpu-tools): recording nothing' >&2
+		return 0
+	fi
+	sudo ps3-stallrec -o "$D/stalls.rec" -i "${BENCH_STALLS_MS:-10}" -p "$D/.pid" \
+		-f "$D/hud/frametime_(ms)" -s "$D/stop" -x Xorg -x kswapd0 2> "$D/stallrec.err" &
+	STALLREC=$!
+}
+
+stop_sampler() {
+	touch "$D/stop"; wait "$SAMPLER" 2>/dev/null
+	if [ -n "$STALLREC" ]; then	# it looks at the stop file every 10 samples
+		for i in $(seq 30); do kill -0 "$STALLREC" 2>/dev/null || break; sleep 0.1; done
+		kill "$STALLREC" 2>/dev/null; wait "$STALLREC" 2>/dev/null; STALLREC=
+	fi
+	rm -f "$D/stop"
+}
 
 # run_job LABEL cmd...: the command in its own process group, output stamped line by line
 run_job() {
@@ -174,6 +197,7 @@ run_job() {
 	local pipe=$!
 	for i in 1 2 3 4 5 6 7 8 9 10; do [ -s "$D/pgid" ] && break; sleep 0.1; done
 	start_sampler "$(cat "$D/pgid" 2>/dev/null || echo 0)"
+	start_stallrec
 	wait $pipe; rc=$?
 	t1=$EPOCHREALTIME
 	stop_sampler
@@ -190,6 +214,11 @@ run_job() {
 	  [ -s "$D/hud/fps" ] && awk -v s="$skip" 'NR>s{print int($1)}' "$D/hud/fps" | sort -n |
 		awk '{a[NR]=$1} END{if (NR) printf "hud fps: median %d p10 %d min %d (%d s)\n", a[int(NR/2)+1], a[int(NR/10)+1], a[1], NR}'
 	  awk 'NR==1{m=$2} $2<m{m=$2} END{if (NR) printf "min MemAvailable %d kB\n", m}' "$D/samples" 2>/dev/null
+	  # the stall recorder's own cost (its trailer)
+	  [ -s "$D/stalls.rec" ] && awk '$1 == "#" && $2 == "end" { for (i = 3; i <= NF; i++) { split($i, kv, "="); v[kv[1]] = kv[2] }
+		s = v["t"] / 1e6; c = (v["self_user_us"] + v["self_sys_us"]) / 1e6
+		printf "stallrec: %d samples, own CPU %.2f s (%.2f%% of a thread), late %d, largest gap %d ms\n",
+			v["samples"], c, s ? 100 * c / s : 0, v["late"], v["maxgap_us"] / 1000 }' "$D/stalls.rec"
 	} > "$D/result"
 	[ -e "$D/THERMAL" ] && echo "!! THERMAL ALERT: the job was stopped. Let the PS3 cool down." >&2
 	mkdir -p $OUT; mv "$D" $OUT/; D=$OUT/${D##*/}
