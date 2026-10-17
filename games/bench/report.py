@@ -13,6 +13,7 @@ across games. Columns:
   avail   lowest MemAvailable (KiB)
   so      pages swapped out until the load ended / during the whole run
   vsw     VRAM swap: peak pages in VRAM, pages written back to the disk (shrinks)
+  xrun    ALSA underruns (the sound buffer ran dry: audible chopping)
   snd     the sound card state(s) at SOUND_AT seconds; end: how the run ended (exit, end, duration)"""
 import re
 import statistics
@@ -42,6 +43,8 @@ def run(d):
     label = re.sub(r"^(ps3-bench-)?\d{8}T\d{6}Z-", "", d.name)
     r = {"game": b.get("game") or label, "variant": b.get("variant") or "-", "dir": d.name,
          "snd": b.get("sound") or "-", "end": b.get("ended") or "-"}
+    if (v := num(b.get("underruns"))) is not None:
+        r["xrun"] = int(v)
     for k in ("fps", "maxms", "load"):
         if (v := num(b.get(k))) is not None:
             r[k] = v
@@ -97,7 +100,7 @@ def run(d):
 
 
 COLS = ["load", "fps", "maxms", "hud", "cpu", "rss", "vram", "gart", "avail", "so_load", "so_all",
-        "vsw_peak", "vsw_wb", "snd", "end"]
+        "vsw_peak", "vsw_wb", "xrun", "snd", "end"]
 RANGED = ("load", "fps", "maxms", "hud_med")
 
 

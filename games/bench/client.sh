@@ -153,6 +153,8 @@ load=$(last "$LOAD_RE"); [ -z "$load" ] && load=$t_load
   echo "ended=$ended"; echo "rc=$rc"; echo "seconds=$t_run"
   echo "fps=$(last "$FPS_RE")"; echo "maxms=$(last "$MAXMS_RE")"; echo "load=$load"
   echo "hud_skip=$HUD_SKIP"; echo "hwm=$(cat "$D/.hwm" 2>/dev/null)"; echo "sound=$(cat "$D/.sound" 2>/dev/null)"
+  # ALSA's "underrun occurred": the sound buffer ran dry (what a listener hears as chopping)
+  echo "underruns=$(grep -ac 'underrun occurred' "$D/game.log" 2>/dev/null)"
   parse; } > "$D/bench.txt"
 rm -f "$D/.hwm" "$D/.pid" "$D/.sound"
 sed 's/^/bench: /' "$D/bench.txt"

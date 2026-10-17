@@ -177,6 +177,19 @@ Each is fixed only once a stage needs it.
 - New validator rejects and graph exceptions go into RSX.md, with a reproducer in
   `ps3-gpu-tools/mesa-tests`.
 
+### Performance work done (2026-10-17)
+
+- Mesa ps3.246 (patches 0015-0017): no fence reference work when the fence is unchanged, one
+  fence read per validate, no duplicate krefs in the pushbuf validation. Same command stream.
+  gl-texsub/texfmt/genmip/mipread pass. X-Moto 35 -> 37 fps (HUD median; underruns 208 -> 126),
+  ClassiCube's demo 43.2 -> 44.9 fps.
+- ps3rsx 0.249 (9e2a3b9): a fast-path table in the validator (one lookup per word; inline data
+  ~13x cheaper on the host), the shadow written per burst, dirty bitmaps so a channel switch
+  restores and takes only what changed (~14.6 -> 1.3 us on the host), and a pre-existing bug
+  fixed: a rejected push in a multi-push submit left the earlier pushes' object bindings in the
+  validator's state (the 0x109 kind of wedge). Not yet run on the PS3: it needs a reboot, then the
+  GL tests, X with a GL client, VT switches, Neverball, the suite with perf.
+
 ### Performance: where the CPU goes (perf, 2026-10-17, Mesa ps3.223, 15 s per game)
 
 Every game is CPU-bound on the PPE, and most of the CPU is the driver stack, not the game:
@@ -227,6 +240,7 @@ Load times are compared with the same shader cache state (Mesa's disk cache is o
 | ClassiCube | runs | under 60 fps | performance | fly-through demo (plugin, 3000 fixed frames): 43.2 fps, frame ms 9/23/53/278 (min/avg/p99/max), 0 chunks built in the run |
 | dsda-doom, software renderer 960x540 | runs, colours right (our dsda-doom package: the frame now uses the SDL texture's own pixel format; the old one swapped red and green on big-endian) | CPU-bound: sound can stutter | performance | 20 fps HUD median (cut at 90 s) |
 | dsda-doom, GL renderer 1920x1080 | runs (our package: indexed textures as GL_LUMINANCE_ALPHA without ARB_texture_rg) | | performance | 48.2 fps, Freedoom DEMO1 timedemo complete |
+| dsda-doom, sound | choppy: the MIDI music is synthesized on the PPE | | SPU (SPU-OFFLOAD-PLAN.md 3b); a default for now | ALSA underruns in 60 s of play: fluidsynth 1280, OPL ("opl") 877, OPL + 48 kHz + 2048-sample buffer + 60 fps cap 340, no music 18; a 35 fps cap or 48 kHz alone don't help |
 | X-Moto | runs (Mesa ps3.186) | 35 fps, CPU-bound (one PPE thread flat out); no sound bug: the engine and effects play in replays (checked with the PS3's own binaries under qemu), but the engine is quiet and bass-heavy, ~15-20 dB under the music | performance; sound effects | 35.0 fps avg (credits replay, `--timedemo --benchmark`) |
 | Neverball | runs (Mesa ps3.225): picture, fonts, overlays and sound right | the shipped replay is shorter than the 60 s run, so the HUD mixes replay and end menu | a patch printing fps and exiting at the replay's end | ~70 fps HUD median (replay + menu) |
 | Extreme Tux Racer | runs (menus) | | | 42 fps HUD median in the menu; a race needs a player |
@@ -238,7 +252,9 @@ Load times are compared with the same shader cache state (Mesa's disk cache is o
 |---|---|---|
 | L8A8 (GL_LUMINANCE_ALPHA) samples with L and A swapped (gl-texfmt) | Neverball, fonts in many games | Mesa 0012 (ps3.223), gl-texfmt passes |
 | GPU mipmap generation of non-square textures: 1-pixel levels are swizzled render targets the validator refuses, the push is lost (gl-genmip) | Neverball, SuperTuxKart, Luanti | Mesa 0013 (ps3.223), gl-genmip passes |
-| Graph exception 0x105: nv30's 3D blit sampled a mip level at an offset not 128-byte aligned (Mesa's CPU mipmap generation reading back the 2x2 level of a 32x32 L8A8 texture) | Neverball (every game generating mipmaps for L8A8/L8/A8/I8/4444/5551) | Mesa 0014 (ps3.225); gl-mipread passes all 70 cases. A ps3rsx validator rule refusing unaligned texture offsets is proposed (not done: the 128-byte threshold is inferred) |
+| Graph exception 0x105: nv30's 3D blit sampled a mip level at an offset not 128-byte aligned (Mesa's CPU mipmap generation reading back the 2x2 level of a 32x32 L8A8 texture) | Neverball (every game generating mipmaps for L8A8/L8/A8/I8/4444/5551) | Mesa 0014 (ps3.225); gl-mipread passes all 70 cases. ps3rsx 0.249 refuses texture offsets not 128-byte aligned (8e99b76; built, loads at the next boot, untested) |
+| SDL3's accelerated window framebuffer on big-endian was BGRA8888, so apps writing 0xAARRGGBB words (OpenTTD) showed a blue cast | OpenTTD (any SDL window-surface app) | our libsdl3 +ps3.242 (colours right, the user confirmed); but that path converts every frame on the CPU: OpenTTD ~2 fps by the HUD, audio starved. A native upload (GL_BGRA + 8_8_8_8_REV) is being added; until then OpenTTD's recipe uses SDL_FRAMEBUFFER_ACCELERATION=0 |
+| Debian's LuaJIT on big-endian ppc64 allocates between 2 and 4 GB, which it then refuses: luaL_newstate failed ~40% of the time | Luanti | our luajit package (331c539); Luanti's 330 unit tests pass |
 | No ARB_texture_rg (glxinfo) | dsda-doom GL, OpenTTD GL | dsda-doom: a GL_LUMINANCE_ALPHA fallback in our dsda-doom package (works); OpenTTD: open |
 | Every X after the first started black: ps3rsx's reflip muted the video for an active CRTC with no framebuffer, and ps3fb's console blank muted it before X owned the GPU | all (every bench run) | a1f1b91, 8baa747 (ps3rsx 0.219) |
 | No window manager under the bench's bare X: SDL fullscreen windows never shown | all SDL games | client.sh starts Openbox (fa723f9) |

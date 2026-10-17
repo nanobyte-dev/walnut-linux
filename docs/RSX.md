@@ -101,8 +101,14 @@ and the M2MF. A write-combining kernel mapping is no faster than the guarded one
 ## Errors
 
 A graph exception (seen: cause 0x109, M2MF methods sent to the surface-2D object; cause 0x105,
-M2MF transfer in a fresh context whose notifier DMA was never set) is reported through ps3fb's
-interrupt (also for channel 1), which dumps the PFIFO cache and sets word 1023 of the FIFO area.
+M2MF transfer in a fresh context whose notifier DMA was never set, and also a 3D texture sampled
+at an offset not 128-byte aligned: +0xaa0 by Mesa's blit reading back a 2x2 mip level for
+Neverball, 2026-10-17, fixed in Mesa 0014 and refused by ps3rsx 0.249) is reported through
+ps3fb's interrupt (also for channel 1), which dumps the PFIFO cache and sets word 1023 of the
+FIFO area. The dump is read with care: each pair is fifo_cache:graph_fifo (subchannel =
+(a>>13)&7, method = a & 0x1ffc), but ps3fb prints entries 4i..4i+3 for i = 0, 4, ..., 28 (entries
+0-3, 16-19, ..., 112-115 of the 512), not the ones around GET, and its G/P markers compare GET/PUT
+with i (task #29: print the 32 entries ending at GET).
 
 **Cause 0x106: rendering to a swizzled surface 1 pixel wide** (RT_FORMAT type swizzled, log2
 width 0). Found 2026-10-14 from xeglgears/LXQt crashes (glamor draws into 1-pixel-wide

@@ -3,7 +3,16 @@
 # indexed textures as GL_RG, which nv30 lacks (docs/GAME-PLAN.md), so expect missing textures there.
 SUITE=1
 COMM=dsda-doom
-BACKUP=("$HOME/.dsda-doom/dsda-doom.cfg")
+DD_CFG=$HOME/.local/share/dsda-doom/dsda-doom.cfg
+BACKUP=("$DD_CFG")
+DD_SET=()	# "key value" pairs written into the config before the run
+setup() {
+	[ ${#DD_SET[@]} -gt 0 ] && [ -e "$DD_CFG" ] || return 0
+	local kv
+	for kv in "${DD_SET[@]}"; do
+		sed -i -E "s|^(${kv%% *}[[:space:]]+).*|\1${kv#* }|" "$DD_CFG"
+	done
+}
 # The software renderer draws 960x540 (SDL scales it to the screen): at 1920x1080 the PPE managed
 # ~5 fps and the timedemo didn't end within 180 s
 DD_MODE=sw DD_W=960 DD_H=540
@@ -22,3 +31,22 @@ variant_gles() { ENV+=(SDL_RENDER_DRIVER=opengles2); }
 # SDL's software renderer: no GL at all in presenting the frame (tells a GPU-path colour bug from
 # the game's or SDL's own)
 variant_sdlsw() { ENV+=(SDL_RENDER_DRIVER=software); }
+# the demo at normal speed (35 tics/s, as in play) with the GL renderer: does the sound keep up when
+# the game isn't rendering flat out? (60 s, HUD fps)
+variant_play() {
+	DD_MODE=gl DD_W=1920 DD_H=1080; dd_cmd
+	CMD=("${CMD[@]/-timedemo/-playdemo}"); DURATION=60
+}
+# play without the MIDI music (fluidsynth synthesizes it in software on the PPE): effects only
+variant_playnomusic() { variant_play; CMD+=(-nomusic); }
+# sound tuning for the PPE, music on (plain play stuttered: fluidsynth took ~40% of a thread and
+# rendering ran uncapped): OPL music emulation (snd_midiplayer "opl"), mixing at the device's 48 kHz (no resampling),
+# a larger buffer, frames capped at 60
+variant_tuned() {
+	variant_play
+	DD_SET=('snd_midiplayer "opl"' 'snd_samplerate 48000' 'snd_samplecount 2048' 'dsda_fps_limit 60')
+}
+# one sound setting at a time against the underrun count (bench.txt underruns=)
+variant_playopl() { variant_play; DD_SET=('snd_midiplayer "opl"'); }
+variant_playcap35() { variant_play; DD_SET=('dsda_fps_limit 35'); }
+variant_play48k() { variant_play; DD_SET=('snd_samplerate 48000'); }
