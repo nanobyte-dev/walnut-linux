@@ -10,10 +10,15 @@
 #          its own that thaws the system services even if this never runs.
 # Entering, in order; the game starts when it is done (at most 30 s later):
 #   1. the gamepads off the X pointer (xinput), so the sticks don't move the cursor in the game
-#   2. ps3-desktop.slice frozen (cgroup.freeze, like SIGSTOP: the panel, tray applets,
+#   2. the PCManFM desktop off (pcmanfm --desktop-off): its window and wallpaper go, and with no
+#      file manager window open the whole process exits. The root window gets a plain colour,
+#      else X keeps the wallpaper (pcmanfm sets it as the root background too): 8 MB of picture
+#      in VRAM or GART. leave starts pcmanfm --desktop again (icons and wallpaper come from its
+#      configuration; nothing is saved or changed)
+#   3. ps3-desktop.slice frozen (cgroup.freeze, like SIGSTOP: the panel, tray applets,
 #      notifications, polkit agent, gvfs, file manager windows and terminals keep their state)
 #      and its memory pushed out: anonymous pages to swap first, then its file pages
-#   3. root (sudo ps3-game-mode on): system services' share (see ps3-game-mode)
+#   4. root (sudo ps3-game-mode on): system services' share (see ps3-game-mode)
 # PS3_GAME_MODE=pads (from ps3-game): step 1 only, a baseline to measure against.
 # State: $S (in the runtime directory: gone at logout); log: the user journal.
 M=/usr/lib/ps3/sbin/ps3-game-mode
@@ -40,6 +45,35 @@ freeze() {	# freeze CG and wait (up to 5 s) until it is
 	echo 1 > "$1/cgroup.freeze" 2>/dev/null || return 1
 	i=0
 	while [ $i -lt 50 ] && ! grep -q '^frozen 1' "$1/cgroup.events"; do sleep 0.1; i=$((i + 1)); done
+}
+
+# the desktop's PCManFM: the instance ps3-session started (exactly this command line; one
+# started otherwise is left alone, both ways)
+desktop() { pgrep -u "$(id -u)" -x -f '(/[^ ]*/)?pcmanfm --desktop' >/dev/null; }
+desktop_off() {
+	[ -n "${DISPLAY:-}" ] && desktop || return 0
+	: > "$S/desktop"
+	timeout 20 pcmanfm --desktop-off >/dev/null 2>&1
+	i=0	# it exits within moments unless a file manager window keeps it
+	while [ $i -lt 20 ] && desktop; do sleep 0.1; i=$((i + 1)); done
+	xsetroot -solid '#14304d'
+	xprop -root -remove _XROOTPMAP_ID 2>/dev/null; xprop -root -remove _XROOTMAP_ID 2>/dev/null
+}
+desktop_on() {
+	[ -e "$S/desktop" ] || return 0
+	rm -f "$S/desktop"
+	# a scope in ps3-desktop.slice, as ps3-session starts it (apps opened from the desktop
+	# outlive it). If the instance still runs (a file manager window), this one hands it the
+	# --desktop and exits. Waited for until it has left this cgroup: systemd kills what an
+	# ExecStopPost leaves behind.
+	read -r me 2>/dev/null < /proc/self/cgroup
+	GDK_GL=disable setsid systemd-run --user --scope --slice=ps3-desktop.slice -q \
+		pcmanfm --desktop < /dev/null > /dev/null 2>&1 &
+	p=$! i=0
+	while [ $i -lt 100 ] && read -r c 2>/dev/null < "/proc/$p/cgroup" && [ "$c" = "$me" ]; do
+		sleep 0.1; i=$((i + 1))
+	done
+	[ $i -lt 100 ] || log "pcmanfm --desktop didn't start"
 }
 
 pads() {	# X device ids of the gamepads (udev ID_INPUT_JOYSTICK) attached as pointers
@@ -72,6 +106,7 @@ enter() {
 	log "entering game mode (${PS3_GAME_MODE:-on})"
 	pads_off
 	[ "${PS3_GAME_MODE:-on}" = pads ] && return
+	desktop_off
 	cg=$(slice_cg ps3-desktop.slice)
 	if [ -n "$cg" ] && freeze "$cg"; then
 		: > "$S/frozen"
@@ -89,6 +124,7 @@ leave() {
 	if [ -e "$S/root" ]; then timeout 60 sudo -n $M off || log "ps3-game-mode off failed"; fi
 	rm -f "$S/root"
 	pads_on
+	desktop_on
 	rm -f "$S/entered" "$S/entering" "$S/leaving"
 }
 

@@ -32,7 +32,7 @@ live() {	# the guard's service exists (its state files count only then)
 }
 stale() {	# game mode's state left with no guard (one killed with its whole cgroup, whose
 	# ExecStopPost was killed too): undone here, by the next game or the end of a running one
-	if ! live && { [ -e "$S/frozen" ] || [ -e "$S/root" ] || [ -e "$S/pads" ]; }; then
+	if ! live && { [ -e "$S/frozen" ] || [ -e "$S/root" ] || [ -e "$S/pads" ] || [ -e "$S/desktop" ]; }; then
 		echo "ps3-game: game mode left behind by a guard that died: undoing it" >&2
 		"$G" leave
 	fi
