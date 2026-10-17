@@ -24,6 +24,8 @@ The plan is in docs/PLAN.md, background facts in docs/RESEARCH.md, measured GPU 
   user expects stay (wallpaper, applets, services in normal use). The memory comes from game mode:
   while a game runs, the rest gets out of the way (unloaded, frozen, paused) and comes back after,
   instead of being disabled for good. Careful work: an Opus agent, nothing risky shipped untested.
+- Game mode turns on and off by itself (the user, 2026-10-17): any fullscreen 3D app is detected and
+  gets it, with an env variable (PS3_GAME_MODE=off) to opt out; launchers aren't the only way in.
 
 ## PS3 safety rules (hard constraints)
 - No permanent alterations to the PS3 beyond installing Linux (OtherOS++ / Petitboot / HDD region for Linux).
