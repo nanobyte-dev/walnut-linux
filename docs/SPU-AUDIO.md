@@ -1,6 +1,8 @@
 # SPU audio: OpenAL Soft's voice mixing on an SPE
 
-2026-10-16. Design only, nothing built. Follows docs/SPU-OFFLOAD-SURVEY.md ("Measured: step 0":
+2026-10-16. Design only, nothing built for OpenAL (2026-10-17: M0 measured, OpenAL Soft is 3.7-4.7%
+of a game's samples, under the 6% bar, so the SPU mixer waits; section 5, fluidsynth, is built and
+measured). Follows docs/SPU-OFFLOAD-SURVEY.md ("Measured: step 0":
 sound costs ~10% of OpenArena's frame rate, the mixer thread is 11% of the game's samples) and
 the plan's section 7. Source read: Debian's `openal-soft` 1:1.25.2-1 (the version in the
 snapshot and on the PS3, `build/apt-cache/libopenal1_1%3a1.25.2-1_ppc64.deb`; .dsc sha256
@@ -174,7 +176,11 @@ alc/alc.cpp:1131). So:
 ## 2. Measurements before any code (M0, free)
 
 Through the game suite (games/bench, docs/GAME-PLAN.md), not `step0.sh` (its window never
-reached the screen). Set up 2026-10-17, not run yet.
+reached the screen). Set up 2026-10-17 and run the same day (Mesa ps3.262, our build with its dbgsym):
+libopenal's own share was OpenArena 4.7% (renderSamples 1.3,
+Resample_Cubic_C 1.2, Mix_C 0.8, LoadSamples 0.5) plus libasound 2.8%, ClassiCube 3.7%; Yamagi's
+audio thread 11% (its SDL path); Luanti's flight plays no sound. No game reached 6%. The variants'
+frame rates (b16, f44, alnull) were not run.
 
 **Which games.** OpenAL Soft plays the sound of OpenArena (ioquake3 dlopens libopenal.so.1),
 Yamagi Quake II (`s_openal 1`, its default), ClassiCube and Luanti in the suite, and
@@ -564,8 +570,9 @@ used 53 s of CPU in 60 s with fluidsynth music against 29 s without, and ALSA un
 18 to 1280 a minute. Source read: Debian's `fluidsynth` 2.6.1+dfsg-1 (what the PS3 runs; our
 `fluidsynth/` package, .dsc sha256 `a562a72f...1520f`). Line numbers are from that tree.
 Built: `fluidsynth/patches/0001-rvoice-voice-DSP-through-libspeq-on-the-PS3-s-SPEs.patch`,
-libspeq's `speq_synth_*_v1` (`ps3-spu/lib/synth.c`, `lib/synth-kern.h`, `spu/synth-op.c`). Not
-run on the PS3 yet; "estimate" marks numbers nobody measured here.
+libspeq's `speq_synth_*_v1` (`ps3-spu/lib/synth.c`, `lib/synth-kern.h`, `spu/synth-op.c`). The
+first version ran on the PS3 the same day ((e): the CPU moved off, the chopping stayed); the second
+is built, not run. "Estimate" marks numbers nobody measured here.
 
 ### (a) The render path in 2.6.1
 
@@ -723,7 +730,7 @@ precision, the job and the wait)
 - Not covered on the host: the SPU program itself (built with spu-elf GCC 16.2, never run), its
   double-precision speed, DMA on hardware.
 
-### (d) On the PS3 (to run)
+### (d) On the PS3 (run 2026-10-17 for the first version: (e))
 
 - dsda-doom `play` (games/bench/recipes/dsda-doom.sh) with variants for `SPEQ_SYNTH=spu`,
   `ppe` and `off`, interleaved, `SPEQ_DEBUG=1` in the log: CPU time and `underruns=` in

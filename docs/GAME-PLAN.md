@@ -10,25 +10,33 @@ of seconds because memory runs out. Getting here took six big-endian bugs in gam
 and five nv30/ps3rsx driver bugs, all fixed; no open GPU bug blocks a game. The first round of
 driver speedups (Mesa ps3.246, ps3rsx 0.249) gave +2 to +9%.
 
+**Update, 2026-10-17 evening** (the table below is current; the rounds behind it are under
+"Measured"): Mesa ps3.262 to ps3.299 gave +5 to +24% in most games and, through 0027's adaptive
+submission, took Armagetron back to 61.5. Batching the GL calls in the games themselves did far more:
+our X-Moto runs its replay at 166.5 fps instead of 44.5, Extreme Tux Racer at 59 instead of 52.
+OpenArena opengl2 with our ioquake3 memory patches: 26-32 fps, longest stall 6 s instead of 24.7.
+SuperTuxKart now loads (karts render, the track doesn't: out of VRAM). dsda-doom's GL renderer and
+ClassiCube are getting the same batching (agents at work).
+
 Every number is 1920x1080, measured through games/bench with the picture checked on the webcam.
 
 | Game | Runs | Picture | Sound | Demo (repeatable) | fps | Against ~60 | Left to do |
 |---|---|---|---|---|---|---|---|
 | QuakeSpasm | yes | right | right | timedemo demo1 (our quake.rc) | 78.6 (73-84, Mesa ps3.262) | **meets it** | - |
-| Armagetron | yes | right | right | recorded AI round, `--playback --benchmark` | 60 HUD on ps3.246; **52-53 on ps3.262** | was meets it | ps3.262 regression (A/B confirmed, not 0020): bisect with per-patch switches (Mesa agent) |
+| Armagetron | yes | right | right | recorded AI round, `--playback --benchmark` | 61.5 HUD (Mesa ps3.299; 60 on ps3.246, 50-53 on ps3.262/282) | **meets it** | - (ps3.262's loss was the missing CPU/GPU overlap without relocations; 0027 fixed it) |
 | Neverball | yes (ps3rsx 0.249: no wedge) | right | 15-36 underruns a run | shipped replay (only ~20 s); our NEVERBALL_BENCH prints fps and quits at its end | 70-76 (its own count); 320-380 ms stalls at the start | **meets it** | a longer replay of the user's (the start-up stutters weigh too much in 20 s) |
 | Yamagi Quake II | yes | right | right (our fix) | timedemo q2demo1 | 63.9 (ps3.262) | **meets it** | - |
-| dsda-doom (GL renderer) | yes | right (our fixes) | **choppy** (MIDI synthesis) | Freedoom DEMO1 timedemo | 48.8 | under | music default; SPU synth; performance |
-| Extreme Tux Racer | yes | right | right | the user's race, replayed (evemu) | 53 HUD median (ps3.262) | under | performance |
-| ClassiCube | yes | right | right | fly-through plugin, 3000 fixed frames | 50.1, load 11.6 s (ps3.262) | under | performance |
-| OpenArena (opengl1) | yes | right | right | timedemo bench | 54.4, load 8.2 s (ps3.262) | close | performance |
-| X-Moto | yes | right | right (engine quiet under the music) | credits replay | 47 HUD (ps3.262) | under | performance |
+| dsda-doom (GL renderer) | yes | right (our fixes) | **choppy** (MIDI synthesis) | Freedoom DEMO1 timedemo | 48.8 | under | game-side batching (agent); fluidsynth on the SPEs: v1 cut its CPU (49 -> 32 s a minute) but 1097 underruns remain, v2 built; music default |
+| Extreme Tux Racer | yes | right | right | the user's race, replayed (evemu) | 59 HUD median (our batching, ps3.324; 52 without, Mesa ps3.299) | close | performance |
+| ClassiCube | yes | right | right | fly-through plugin, 3000 fixed frames | 50.1, load 11.6 s (ps3.262); 46.5 on a later boot (ps3.299, ps3.282 46.9 on that boot) | under | game-side batching (agent) |
+| OpenArena (opengl1) | yes | right | right | timedemo bench | 52.4 (ps3.299); 54.4, load 8.2 s (ps3.262) | close | our ioquake3 0011-0018 (engine and renderer CPU) built, to run |
+| X-Moto | yes | right | right (engine quiet under the music) | credits replay | 166.5 HUD (our batching, ps3.323; 44.5 without, Mesa ps3.299) | **meets it** | - |
 | dsda-doom (software) | yes | right (our fix) | choppy | as GL | 38, the timedemo now finishes (ps3.262) | under | the GL renderer is the way |
-| OpenTTD | yes (software video) | right | choppy (~1000-1170 underruns a minute, either path) | title-screen demo game; simulation 20000 ticks in 13.4 s | 8 (SDL3 ps3.254 accel, HUD median; ps3.242 was ~2), 12 with the 8bpp blitter | far under | its own software drawing: the GL driver (needs ARB_texture_rg) |
-| Luanti | yes (first run 2026-10-17) | right (the user) | no underruns | our ps3bench mod flies a fixed path | 67 HUD median in flight, p10 23, stalls to 0 while chunks load | median meets it, stalls don't | memory (177 MB swapped out, 32 MB free): view range, mesh threads |
-| Sauerbraten | yes, CPU skinning (2026-10-17) | right; "surprisingly smooth" between stalls (the user) | 236 underruns | CubeScript counts frames on map cave (not reached yet: loading takes over 60 s) | 15 HUD median incl. loading | under (memory) | OOM-killed without the VRAM swap (smoke's default); with it, 138 MB VRAM and the swap full: memory settings. GPU skinning runs (no wedge, 2026-10-17) but at 11 fps by its own counter and stutters badly: CPU skinning (`gpuskel 0`, 28) is the PS3 default to ship in our cube2. Open: the hud gun isn't drawn in either mode (models installed, `hudgun 1`, no load error): the map loaded by `-l` may be a gunless mode, or nv30 mishandles its separate depth range |
-| SuperTuxKart | no: quits while loading (2026-10-17) | | | profile mode: AI drives `--profile-time=60` on lighthouse, prints Average FPS | | | its .spm mesh loader refuses big-endian ("Not little endian machine"): a byte-swap patch in our build (agent working) |
-| OpenArena (opengl2) | yes, gl2min (2026-10-17) | right (webcam) | right | timedemo bench (97 GLSL programs compiled twice: ~22-30 s each) | gl2min 13.6 average with one 36 s stall, ~31 HUD median; Debian defaults (gl2, 115 programs) 10.7, a 28 s stall, ~23 HUD median | under (memory) | 161-164 MB VRAM, the VRAM swap full and 184-215 MB to disk: memory |
+| OpenTTD | yes (software video) | right | choppy (~1000-1170 underruns a minute, either path) | title-screen demo game; simulation 20000 ticks in 13.4 s | 8 (SDL3 ps3.254 accel, HUD median; ps3.242 was ~2), 12 with the 8bpp blitter | far under | its own software drawing: our OpenGL driver patches (GL 2.1 without ARB_texture_rg) built, recipe variant `gl`, to run |
+| Luanti | yes (first run 2026-10-17) | right (the user) | no underruns | our ps3bench mod flies a fixed path | 67 HUD median in flight, p10 23, stalls to 0 while chunks load | median meets it, stalls don't | memory (177 MB swapped out, 32 MB free): 20 recipe variants built (view range, block unloading, mesh delay, heap, lean), to run; package defaults once measured |
+| Sauerbraten | yes, CPU skinning (2026-10-17) | right; "surprisingly smooth" between stalls (the user) | 236 underruns | CubeScript counts frames on map cave (not reached yet: loading takes over 60 s) | 15 HUD median incl. loading | under (memory) | OOM-killed without the VRAM swap (smoke's default); with it, 138 MB VRAM and the swap full: memory settings. GPU skinning runs (no wedge, 2026-10-17) but at 11 fps by its own counter and stutters badly: CPU skinning (`gpuskel 0`, 28) is the default in our cube2 (+ps3.272, with memory patches and the SPU skinning hook; to run). The hud gun: `-l` spawns with the pistol, which the data has no model for (variant `gun`) |
+| SuperTuxKart | yes with our +ps3.264 (2026-10-17): karts render, **no track** | track missing | | profile mode: AI drives `--profile-time=60` on lighthouse, prints Average FPS | | under (memory) | VRAM exhausted (210 failed buffer allocations), minimap FBO incomplete, SIGSEGV at exit: fixes 0003-0004 (no crash, power-of-two minimap, opaque textures as DXT1) and memory variants (`lean`) built, to run |
+| OpenArena (opengl2) | yes, gl2min (2026-10-17) | right (webcam) | right | timedemo bench (97 GLSL programs compiled twice: ~22-30 s each) | our ioquake3 +ps3.285: gl2min 26.1-31.8, longest frame 6 s (14.8 and a 24.7 s stall with the patches off), cpuanim 30.5 at 41 MB VRAM; gl2 (Debian's settings) 15.9 (10.7 on Debian's build) | under (memory) | 112-138 MB VRAM, 12-14 MB MemAvailable at the lowest: memory |
 
 ### Done (2026-10-16/17)
 
@@ -65,7 +73,10 @@ Three levers, in this order. Each change gets a recipe variant, so its gain is m
    - SuperTuxKart: its texture and geometry settings, once it loads.
    - Why texture memory is RAM too: the VRAM swap reserves 96 of the 245 MB of VRAM, so a game
      wanting 160 MB of VRAM spills into GART (system RAM), which then swaps. The size of that
-     reserve is a trade-off to measure.
+     reserve is a trade-off to measure. (Correction, 2026-10-17, from ps3rsx/src/mem.c: a buffer
+     that finds no VRAM first makes the VRAM swap hand chunks back, `ps3rsx_vswap_shrink`, whose
+     pages go to the USB disk; only if that fails does it land in GART. So a big game's VRAM costs
+     disk swap traffic first. Which of the two OpenArena opengl2 hit is not measured.)
 2. **Trade stored data for compute where there is headroom** (the user, 2026-10-17). Six SPEs sit
    idle in every game, and the RSX has headroom (the games are PPE-bound):
    | Stored today | Instead | On | Saving |
@@ -80,9 +91,13 @@ Three levers, in this order. Each change gets a recipe variant, so its gain is m
    per-draw work is being cut (agent: cache invalidates on every draw, relocations emitted twice,
    u_vbuf always on). Then the SPU plan (SPU-OFFLOAD-PLAN.md), starting with fluidsynth (3b:
    dsda-doom's chopping music, ~40% of a PPE thread). OpenTTD's GL renderer needs ARB_texture_rg.
+   (2026-10-17 evening: the driver rounds are done for now, 0015-0031; fewer GL calls in the games
+   pays more, X-Moto 3.7x and Extreme Tux Racer +13%, so CPU-bound games get that first: dsda-doom
+   GL and ClassiCube in progress. OpenTTD's GL renderer is patched in the game instead. fluidsynth
+   v1 measured, v2 built.)
 
-Open from the stage: SuperTuxKart's big-endian mesh loader (agent), Sauerbraten's missing hud gun,
-a longer Neverball replay (the user plays ~60 s), Yamagi's 0.249 number rechecked, ps3fb's dump
+Open from the stage: SuperTuxKart's big-endian mesh loader (agent; done 2026-10-17: it loads),
+Sauerbraten's missing hud gun (explained: the pistol has no model), a longer Neverball replay (the user plays ~60 s), Yamagi's 0.249 number rechecked, ps3fb's dump
 (task #29), deb-build.sh's hidden build-dep failure (task #31).
 
 ### Decisions for the user
@@ -276,8 +291,9 @@ Each is fixed only once a stage needs it.
   restores and takes only what changed (~14.6 -> 1.3 us on the host), and a pre-existing bug
   fixed: a rejected push in a multi-push submit left the earlier pushes' object bindings in the
   validator's state (the 0x109 kind of wedge). Not yet run on the PS3: it needs a reboot, then the
-  GL tests, X with a GL client, VT switches, Neverball, the suite with perf.
-- Mesa ps3.262 (patches 0019-0025, built, **not yet run on the PS3**): fewer words per draw
+  GL tests, X with a GL client, VT switches, Neverball, the suite with perf. (Run 2026-10-17
+  morning: GL tests pass, VT switches with a GL client, Neverball without the wedge.)
+- Mesa ps3.262 (patches 0019-0025; measured below, "Measured: Mesa ps3.262"): fewer words per draw
   for ps3rsx to copy and validate. 0019 no relocations on the PS3: the "second emission" of every
   relocated method was two zero words (NOPs the kernel would patch only if a buffer moved; ps3rsx
   never does) plus two relocation records, and the 1024-relocation limit forced a submission about
@@ -291,21 +307,21 @@ Each is fixed only once a stage needs it.
   X-Moto, ClassiCube, Extreme Tux Racer, OpenArena, Neverball (render-to-texture/minimap-like
   updates, font glyph uploads); stale texels point at 0020 (retry with the env variable), wrong
   or exploded geometry at 0022/0025, wrong texture or filter on a surface at 0024.
-- Leads not done: client-memory index arrays (OpenArena's glDrawElements) are pushed inline word
+- Leads (done since in ps3.299, patches 0028, 0030, 0031): client-memory index arrays (OpenArena's glDrawElements) are pushed inline word
   by word; GL_UNSIGNED_BYTE indices from a VBO are read back by the CPU (u_vbuf doesn't rewrite
   them since nv30 claims R8 index support); a fragment-program constant change re-uploads and
   migrates the whole program (GLSL games). Bug seen in passing: nv30_draw_elements' index buffer
   reference is added after validation and reset before the next one, so the index buffer is never
   in the kernel's buffer list nor fenced (an in-place index update can race the GPU).
 
-### Built 2026-10-17, waiting for the PS3
+### Built 2026-10-17 (measured since where noted)
 
-- Mesa ps3.282: a run-time switch per patch (NV30_PS3_RELOCS, NV30_VTX_INVALIDATE_DRAW,
+- Mesa ps3.282 (measured: the Armagetron and kick100 rows below): a run-time switch per patch (NV30_PS3_RELOCS, NV30_VTX_INVALIDATE_DRAW,
   NV30_VTXFMT_ALWAYS, NV30_CONSTBUF_ALLOC, NV30_TEXUNIT_ALWAYS, NV30_VP_CONST_SINGLE, plus
   NV30_TEX_INVALIDATE_ALWAYS) and 0026 NV30_PS3_KICK_DRAWS=N. Likely cause of Armagetron's loss:
   0019 dropped the reloc-limit submissions, so a frame reaches the GPU only at swap (no CPU/GPU
   overlap).
-- Mesa ps3.299 (patches 0027-0031): 0027 NV30_PS3_KICK_AUTO, an adaptive submission rule
+- Mesa ps3.299 (patches 0027-0031; measured below): 0027 NV30_PS3_KICK_AUTO, an adaptive submission rule
   instead of a fixed draw count (kick100 on ps3.282: Armagetron +21%, OpenArena +3%,
   ClassiCube +1%, X-Moto -9%): submit at a draw start once the GPU has passed the last fence
   and 16 KB and 1/4 of the last frame are queued (=0: off; NV30_PS3_KICK_MIN_BYTES,
@@ -315,10 +331,11 @@ Each is fixed only once a stage needs it.
   to GART and fetched by the GPU (NV30_INDEX_UPLOAD=0: inline). 0031 fragment program
   constant changes run from a GART copy, no M2MF re-upload (NV30_FP_CONST_VRAM=1; first time
   the RSX fetches a fragment program from GART).
-- SuperTuxKart: our package 1.5-2+ps3.264 (.spm meshes and armatures byte-swapped, GL textures
+- SuperTuxKart (run: karts render, the track doesn't, out of VRAM; fixes 0003-0004 built since):
+  our package 1.5-2+ps3.264 (.spm meshes and armatures byte-swapped, GL textures
   and vertex colours right on big-endian; upstream #5578 closed as not planned). All 1268 .spm
   files parse identically on amd64 and ppc64.
-- OpenArena opengl2: our ioquake3 +ps3.285, patches 0001-0010. The models, not the shaders, were
+- OpenArena opengl2 (measured below): our ioquake3 +ps3.285, patches 0001-0010. The models, not the shaders, were
   most of the memory: MD3 frames kept at 28 B/vertex on the hunk and again in VBOs, all three LODs,
   a 21 MB VAO cache never drawn from; plus 27 bone and 15-33 FBO-only programs that can't be used.
   Estimate 161 -> ~115 MB VRAM and ~60 MB less RSS; gl2min_* variants isolate each patch.
@@ -328,6 +345,33 @@ Each is fixed only once a stage needs it.
   which the BananaBread data has no model for (variant `gun`).
 - Luanti: 20 recipe variants (chunksize, caches, malloc, mesh merging), memory logged by the
   ps3bench mod every 5 s; package defaults only once measured.
+- Later the same day, also waiting: ioquake3 0011-0018 (OpenArena opengl1's CPU: shader lookups,
+  pk3 reads through libdeflate without crc32, AltiVec, sounds loaded when played; a recipe
+  variant per patch); OpenTTD 15.1-1 with its OpenGL driver on GL 2.1 (checked on llvmpipe forced
+  to GL 2.1; variant `gl`); cube2 0006, Sauerbraten's skinning through libspeq on the SPEs
+  (variants spuskin, ppeskin, offskin; ps3-spu/doc/skin.md); fluidsynth's second SPU version
+  (SPU-AUDIO.md 5(e)); game mode's memory work (DESKTOP-PLAN.md "Game mode": the PCManFM desktop
+  and wallpaper unloaded, services' heaps to swap, page cache dropped, every menu game through
+  ps3-game; `games/bench/gamemode-check.sh`).
+
+### Measured: Mesa ps3.282 and ps3.299, ioquake3 ps3.285, game-side batching (2026-10-17)
+
+ps3rsx 0.249; two runs per cell unless noted; full observations in games/bench/results/fps.csv.
+
+| Game | Before | After | What |
+|---|---|---|---|
+| Armagetron (HUD) | 50 (ps3.282 base) | 60.5 (relocs, kick50/100); 61.5 (ps3.299) | 0019's missing CPU/GPU overlap; 0027 submits once the GPU caught up |
+| OpenArena tc1 | 51.3 (ps3.282) | 53.0 (kick100); 52.4 (ps3.299) | +3%, noise-sized |
+| ClassiCube | 48.3 (ps3.282) | 48.9 (kick100, +9% CPU); 46.5 (ps3.299) against 46.9 (ps3.282) on the same boot | neutral |
+| X-Moto (HUD) | 47.0 (ps3.282, same boot) | 44.5 (ps3.299) | **-5%**: neither 0027 nor 0030 off restores it; 0031 off (fpvram) and 0028 off (idxlate) 46 each, about a frame each |
+| OpenArena opengl2 gl2min | 14.8, a 24.7 s stall, 103 s CPU (patches off) | 26.1-31.8, 6.0 s, 55 s CPU | 0007 (no CPU copy of MD3 vertices) is most of it (17.6 without it); lazy compile adds stalls |
+| X-Moto (HUD) | 44.5 (nobatch) | **166.5** | our xmoto: 18,500 -> 165 GL calls, 1,960 -> 40 draws a frame; picture identical |
+| Extreme Tux Racer (HUD) | 52 (gloff), 83.6 s CPU | 59, 53 s CPU | our etr: 19,400 -> 850 calls, 697 -> 72 draws a frame |
+| dsda-doom play (fluidsynth) | 49.3 s CPU, 1335 underruns (off) | 31.7 s, 1097 (SPEs, v1) | the DSP moved (20227 of 20295 blocks), the chopping stayed; cause not established |
+
+0031 was checked on the webcam with OpenArena opengl2 (the first time the RSX fetches fragment
+programs from GART): right picture, no wedge. GL tests pass on ps3.299. The kick100 rule cost
+X-Moto 9% on ps3.282, so a fixed draw count was no default; 0027's adaptive rule replaced it.
 
 ### Measured: Mesa ps3.262 (2026-10-17, ps3rsx 0.249, one suite round, repeats where noted)
 
@@ -385,9 +429,9 @@ Load times are compared with the same shader cache state (Mesa's disk cache is o
 |---|---|---|
 | L8A8 (GL_LUMINANCE_ALPHA) samples with L and A swapped (gl-texfmt) | Neverball, fonts in many games | Mesa 0012 (ps3.223), gl-texfmt passes |
 | GPU mipmap generation of non-square textures: 1-pixel levels are swizzled render targets the validator refuses, the push is lost (gl-genmip) | Neverball, SuperTuxKart, Luanti | Mesa 0013 (ps3.223), gl-genmip passes |
-| Graph exception 0x105: nv30's 3D blit sampled a mip level at an offset not 128-byte aligned (Mesa's CPU mipmap generation reading back the 2x2 level of a 32x32 L8A8 texture) | Neverball (every game generating mipmaps for L8A8/L8/A8/I8/4444/5551) | Mesa 0014 (ps3.225); gl-mipread passes all 70 cases. ps3rsx 0.249 refuses texture offsets not 128-byte aligned (8e99b76; built, loads at the next boot, untested) |
-| SDL3's accelerated window framebuffer on big-endian was BGRA8888, so apps writing 0xAARRGGBB words (OpenTTD) showed a blue cast | OpenTTD (any SDL window-surface app) | our libsdl3 +ps3.242 (colours right, the user confirmed); but that path converted every frame on the CPU twice (SDL's swizzle, then Mesa's): OpenTTD ~2 fps by the HUD, audio starved. ps3.254 (patch 0002) uploads ARGB/XRGB8888 natively with GL_BGRA + 8_8_8_8_REV as SDL2 did (upload 2.3x faster under qemu, colours exact on opengl and opengles2); untested on the PS3, so OpenTTD's recipe keeps SDL_FRAMEBUFFER_ACCELERATION=0 until then |
+| Graph exception 0x105: nv30's 3D blit sampled a mip level at an offset not 128-byte aligned (Mesa's CPU mipmap generation reading back the 2x2 level of a 32x32 L8A8 texture) | Neverball (every game generating mipmaps for L8A8/L8/A8/I8/4444/5551) | Mesa 0014 (ps3.225); gl-mipread passes all 70 cases. ps3rsx 0.249 refuses texture offsets not 128-byte aligned (8e99b76; loaded since the 2026-10-17 boot) |
+| SDL3's accelerated window framebuffer on big-endian was BGRA8888, so apps writing 0xAARRGGBB words (OpenTTD) showed a blue cast | OpenTTD (any SDL window-surface app) | our libsdl3 +ps3.242 (colours right, the user confirmed); but that path converted every frame on the CPU twice (SDL's swizzle, then Mesa's): OpenTTD ~2 fps by the HUD, audio starved. ps3.254 (patch 0002) uploads ARGB/XRGB8888 natively with GL_BGRA + 8_8_8_8_REV as SDL2 did (upload 2.3x faster under qemu, colours exact on opengl and opengles2); on the PS3 (2026-10-17) OpenTTD went from ~2 to 8 fps with it |
 | Debian's LuaJIT on big-endian ppc64 allocates between 2 and 4 GB, which it then refuses: luaL_newstate failed ~40% of the time | Luanti | our luajit package (331c539); Luanti's 330 unit tests pass |
-| No ARB_texture_rg (glxinfo) | dsda-doom GL, OpenTTD GL | dsda-doom: a GL_LUMINANCE_ALPHA fallback in our dsda-doom package (works); OpenTTD: open |
+| No ARB_texture_rg (glxinfo) | dsda-doom GL, OpenTTD GL | dsda-doom: a GL_LUMINANCE_ALPHA fallback in our dsda-doom package (works); OpenTTD: GL_LUMINANCE8 in our openttd package (built, to run) |
 | Every X after the first started black: ps3rsx's reflip muted the video for an active CRTC with no framebuffer, and ps3fb's console blank muted it before X owned the GPU | all (every bench run) | a1f1b91, 8baa747 (ps3rsx 0.219) |
 | No window manager under the bench's bare X: SDL fullscreen windows never shown | all SDL games | client.sh starts Openbox (fa723f9) |

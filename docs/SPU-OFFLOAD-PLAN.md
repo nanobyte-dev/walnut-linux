@@ -54,6 +54,20 @@ dsda-doom's before; earlier profiles with a large `[unknown]` share were hit by 
   audio thread 11% of its samples (SDL audio path); Luanti's flight plays no sound. The SPU mixer
   waits; first the cheap variants (b16, f44, alnull: the ALSA conversion share).
 - Found on the way: OpenArena spends 13.6% in zlib during its timedemo (pk3 reads while playing).
+  (Our ioquake3 0012 and 0016 since: no crc32 of pk3 entries, libdeflate for whole entries; built,
+  not run.)
+- **fluidsynth on the SPEs, first version** (libspeq 0.288, fluidsynth +ps3.289, dsda-doom `play`,
+  60 s, one run each): CPU 49.3 s with `SPEQ_SYNTH=off` against 31.7 s on the SPEs (no music: ~29 s),
+  but ALSA underruns only 1335 -> 1097 (no music: 18). 20227 of 20295 blocks ran on the SPEs, 55
+  timeouts, mean wait 731 us of a 1.45 ms block, max 9.2 ms: the scalar double-precision kernel
+  took ~12 us per voice block (estimated 3-4), and the audio thread waited for every block in
+  turn. Why the chopping stays is not established (the wait, or something outside the DSP).
+  **Second version built** (single precision in vectors, a round of up to 16 blocks per round trip,
+  both deadline SPEs; SPU-AUDIO.md 5(e)), not run yet.
+- **Skinning** (item 4 of the table): libspeq's `speq_skin_*_v1` and Sauerbraten's hook (cube2
+  0006) built and tested on the host, big-endian included (ps3-spu/doc/skin.md); not run on the
+  PS3. Expected gain on map cave ~1% (the hud gun only, ~3200 vertices); a map with bots would
+  show more.
 
 ## Parked, in the order they would come back
 
@@ -65,13 +79,15 @@ dsda-doom's before; earlier profiles with a large `[unknown]` share were hit by 
 2. **DXT5 in libspeq** (SPU and PPE): Mesa turns generic compressed RGBA into DXT5; today those
    fall back to Mesa's slow encoder (Teeworlds, TORCS per GAME-SUITE.md). Same structure as DXT1
    plus the alpha block (8-entry palette, 48-bit indices).
-3. **Audio** (SPU-AUDIO.md): first the free measurements: re-profile with `libopenal1-dbgsym`
+3. **Audio** (SPU-AUDIO.md). (2026-10-17: M0 done, OpenAL Soft is 3.7-4.7% of a game's samples,
+   under the bar: no SPU mixer for now; the free variants b16/f44 are still to run.) First the free measurements: re-profile with `libopenal1-dbgsym`
    (step 0's profile left the mixer thread unresolved), variants B16 (int16 without limiter and
    dither) and F44 (44.1 kHz device and dmix), across the suite's OpenAL games. Go only if voice
    mixing is >= 6% of a game's samples. Then `speq_mix_v1` (one job per mixer update) and the
    openal-soft debsrc patch. Decide first: one shared queue per process for DXT and audio, or
    audio 1 SPE and DXT 5. Vorbis on SPUs: not worth it (OpenArena's sounds are WAV).
-3b. **MIDI synthesis (fluidsynth) on the SPUs** (the user, 2026-10-17). Measured: dsda-doom
+3b. **MIDI synthesis (fluidsynth) on the SPUs** (the user, 2026-10-17; built and measured the
+   same day, above). Measured: dsda-doom
    playing its demo at normal speed used 53 s of CPU in 60 s with fluidsynth music and 29 s
    without: fluidsynth alone ~40% of a PPE thread, and ALSA underruns went from 18 to 1280 (audible
    chopping). The work is per-voice interpolation, envelopes, filters and mixing into float
@@ -82,6 +98,8 @@ dsda-doom's before; earlier profiles with a large `[unknown]` share were hit by 
 4. **Queue improvements** from speq-bench: per-worker doorbells (a submit to six idle workers
    wakes all of them: 8.6 spurious wakes per job, p99 65 us); a `speq_wait` timeout and a
    no-spin mode (audio needs both); the stop 0x2100/0x2101 printf server and spurun on libspeq.
+   (2026-10-17: the timeout, no-spin wait, `speq_tune`, bulk and deadline queues are done, for
+   fluidsynth; doorbells aren't needed with one or two workers per deadline queue.)
 5. **Probes E16/E8b** (RSX-SPU-FEASIBILITY.md): SPU puts straight into VRAM; only when a
    consumer would write VRAM (decompression into textures, meshing into VBOs).
 6. **Meshing**: ClassiCube chunks on SPUs (showcase), after E16.
