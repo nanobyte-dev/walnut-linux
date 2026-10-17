@@ -32,9 +32,15 @@ fi
 export GDK_GL=disable
 # The helpers run in ps3-desktop.slice, which ps3-game freezes and pushes out of RAM while a
 # game runs; openbox stays with X in ps3-display.slice.
+# Every game in the menu starts in game mode: its entry through ps3-game, written at each login
+# into the runtime directory, which comes first in XDG_DATA_DIRS (ps3-game-menu)
+if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+	export XDG_DATA_DIRS="$XDG_RUNTIME_DIR/ps3-game-menu:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+	/usr/lib/ps3/desktop/ps3-game-menu "$XDG_RUNTIME_DIR/ps3-game-menu" > /dev/null 2>&1 &
+fi
 # The user bus and the services it starts need to know the display
-systemctl --user import-environment DISPLAY XAUTHORITY XDG_CONFIG_DIRS
-dbus-update-activation-environment --systemd DISPLAY XAUTHORITY XDG_CONFIG_DIRS 2>/dev/null
+systemctl --user import-environment DISPLAY XAUTHORITY XDG_CONFIG_DIRS XDG_DATA_DIRS
+dbus-update-activation-environment --systemd DISPLAY XAUTHORITY XDG_CONFIG_DIRS XDG_DATA_DIRS 2>/dev/null
 d() { systemd-run --user --scope --slice=ps3-desktop.slice -q "$@" & }
 d pcmanfm --desktop; d tint2; d nm-applet; d pnmixer; d lxpolkit; d dunst
 exec openbox

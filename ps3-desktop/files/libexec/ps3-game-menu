@@ -1,0 +1,33 @@
+#!/bin/sh
+# ps3-game-menu DIR (ps3-desktop; ps3-session runs it at login): the installed games' menu
+# entries, started through ps3-game (game mode), into DIR/applications. ps3-session puts DIR first
+# in XDG_DATA_DIRS, so each one replaces the game's own entry of the same name (jgmenu, PCManFM).
+# A game is an entry with Categories Game; left as they are: entries already using ps3-game,
+# terminal programs, D-Bus-activated ones. Nothing outside DIR changes; a game installed during
+# the session gets game mode from the next login.
+[ -n "${1:-}" ] || { echo "usage: ps3-game-menu DIR" >&2; exit 2; }
+out=$1/applications
+rm -rf "$out.new" && mkdir -p "$out.new" || exit 1
+set -- /usr/share/applications/*.desktop
+[ -e "$1" ] && awk -v out="$out.new" '
+function flush(   i, f) {
+	if (fname != "" && game && !skip && n_exec) {
+		f = out "/" fname
+		for (i = 1; i <= n; i++) print line[i] > f
+		close(f)
+	}
+	n = 0; game = skip = n_exec = 0
+}
+FNR == 1 { flush(); fname = FILENAME; sub(/.*\//, "", fname) }
+{
+	l = $0
+	if (l ~ /^Categories=/ && l ~ /[=;]Game(;|$)/) game = 1
+	if (l ~ /^(Terminal|DBusActivatable)=true/) skip = 1
+	if (l ~ /^Exec=/) {
+		if (l ~ /ps3-game/) skip = 1
+		else { l = "Exec=ps3-game " substr(l, 6); n_exec++ }
+	}
+	line[++n] = l
+}
+END { flush() }' "$@"
+rm -rf "$out" && mv "$out.new" "$out"
