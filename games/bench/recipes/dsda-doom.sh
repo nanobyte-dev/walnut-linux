@@ -1,6 +1,13 @@
 # dsda-doom 0.30.0 + Freedoom 2 (stands in for PrBoom+ GL): timedemo of Freedoom's own DEMO1 lump,
 # fullscreen 1920x1080. Software renderer first (base, safest), GL as a variant: GL mode uploads
 # indexed textures as GL_RG, which nv30 lacks (docs/GAME-PLAN.md), so expect missing textures there.
+# Steady state: none yet. DEMO1 is 2664 gametics (76 s at 35 Hz; the timedemo takes ~54 s at 49 fps)
+# and dsda-doom can't repeat it: at a timedemo's end G_CheckDemoStatus prints the line and exits
+# (dsda_demo_end_quit; with it off the game stays in the level, no second pass), -playdemo exits the
+# same way (userdemo), and only the first -timedemo argument counts. A small patch to our dsda-doom
+# would do it (g_game.c, the timingdemo branch: per-pass gametics and realtics, G_DeferedPlayDemo
+# again while DSDA_BENCH_LOOPS allows, the same "Timed ..." line each pass). PASSES=1 is set for
+# that: with one pass the run is as before (no window, fps= the timedemo's).
 SUITE=1
 COMM=dsda-doom
 DD_CFG=$HOME/.local/share/dsda-doom/dsda-doom.cfg
@@ -21,6 +28,8 @@ dd_cmd() {
 		-width $DD_W -height $DD_H -fullscreen -timedemo demo1)
 }
 dd_cmd
+PASSES=1
+DURATION=270	# a safety cap (the timedemo exits by itself)
 FPS_RE='Timed [0-9]+ gametics in [0-9]+ realtics = ([0-9.]+) frames per second'
 LOAD_MARK='^(R_Init|S_Init|HU_Init|ST_Init)'
 variant_gl() { DD_MODE=gl DD_W=1920 DD_H=1080; dd_cmd; }
