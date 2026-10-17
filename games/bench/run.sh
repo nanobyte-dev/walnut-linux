@@ -2,8 +2,9 @@
 # run.sh: the game suite runner (docs/GAME-PLAN.md), on the PS3 as tibi over SSH. Every run goes
 # through `ps3-bench.sh x` (desktop stopped, swaps emptied, samples, thermal watchdog) with
 # client.sh and a recipe (recipes/<game>.sh). Copy this directory with `make bench-push`.
-#   run.sh smoke GAME [VARIANT]        a first launch: VRAM swap off (NOVSWAP=0 keeps it), 180 s
-#                                      at most; prints the result, kernel and game errors to check
+#   run.sh smoke GAME [VARIANT]        a first launch: VRAM swap off (NOVSWAP=0 keeps it), 360 s
+#                                      at most (warm-up and window included); prints the result,
+#                                      kernel and game errors to check
 #   run.sh bench GAME "VARIANTS" [N]   N rounds (default 3), the variants interleaved in each round
 #   run.sh suite "VARIANTS" [N]        the same over every recipe with SUITE=1, games interleaved
 #                                      (a game without a variant runs base once per round)
@@ -42,7 +43,7 @@ report() { [ ${#RUNS[@]} -gt 0 ] && python3 "$here/report.py" "${RUNS[@]}"; }
 case ${1:-} in
 smoke)
 	g=${2:?game}; v=${3:-base}
-	BENCH_TIMEOUT=${BENCH_TIMEOUT:-180} BENCH_NOVSWAP=${NOVSWAP:-1} one "smoke-$g-$v" "$g" "$v"
+	BENCH_TIMEOUT=${BENCH_TIMEOUT:-360} BENCH_NOVSWAP=${NOVSWAP:-1} one "smoke-$g-$v" "$g" "$v"
 	d=${RUNS[0]:-}; [ -n "$d" ] || exit 1
 	echo "== $g $v"; cat "$d/bench.txt" 2>/dev/null || echo "(no bench.txt: the client didn't finish)"
 	echo "== kernel, during the run"

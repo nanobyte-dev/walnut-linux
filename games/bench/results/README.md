@@ -10,6 +10,20 @@ One CSV per metric. Every file has the same rows, in the order the configuration
 | `underruns.csv` | ALSA underruns in the run (audible chopping) | lower |
 | `ram_free.csv` | lowest MemAvailable during the run, MiB | higher |
 | `vram.csv` | the game's peak VRAM (ps3rsx per-client, all its buffers), MiB | lower |
+| `fps_steady.csv` | the steady-state frame rate: the median of the game's own fps over its counted passes, the game's own result over its window, else the median of the HUD's per-second fps in the window | higher |
+| `low1.csv` | the 1% low in the window: 1000 / the 99th percentile frame time (HUD frame times; with per-second data only, the slowest 1% of seconds) | higher |
+| `stalls.csv` | frames over 100 ms in the window (per-second data only: seconds under 10 fps) | lower |
+| `longest_ms.csv` | the longest frame in the window, ms (HUD frame times, else the game's own per-pass longest) | lower |
+
+The steady-state files (since 2026-10-17, the user's decision): every run leaves out a warm-up
+(`WARMUP`, 60 s after the game's load ends) and measures at least `MEASURE` (120) s after it; each
+recipe's header says how (the demo repeated in one session, the game's own window, or the HUD
+window). Runs before that have no such cells, and the files began with the rows of `fps.csv` with
+those cells empty. `fps.csv` keeps its meaning where it can: for a repeated demo its cell is the
+first pass, the run as it was before. Where the run itself changed length (SuperTuxKart's profile
+185 s instead of 60, Sauerbraten's and Luanti's longer runs, X-Moto's replay now finishing and
+printing its average over the whole replay), compare `fps.csv` across that date with care, and use
+`--hud xmoto` to keep X-Moto's `fps.csv` cells HUD medians as before.
 
 Columns: `test` (the row name), `date` (UTC date of the newest run in the row, YYYYMMDD), `runs`
 (run directories behind the row), `observations`, then `<game>-<variant>` columns sorted by name
@@ -45,7 +59,8 @@ with names and numbers, and say when a cause is not known.
 - Runs before bench.txt recorded `underruns=` have the count taken from the `underrun occurred`
   lines in `game.log` (the numbers are the same kind, counted afterwards).
 - Cells mix the game's own fps and the HUD median where a recipe has no own counter. Armagetron
-  rows with a playback average use `--hud armagetronad` so every cell is the HUD median.
+  rows with a playback average use `--hud armagetronad` so every cell is the HUD median (the same
+  option picks the HUD window median for `fps_steady.csv`).
 - Perf-recording runs (the "allog" OpenAL runs, the step 0 profiles) and the profile round of
   Mesa ps3.223 are slower than plain runs; their cells are not for comparison.
 - Single runs vary: OpenArena (23 to 54 fps) and QuakeSpasm (66 to 84 fps) both did on Mesa

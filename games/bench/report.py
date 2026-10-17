@@ -5,7 +5,18 @@ than one variant, each variant against the first: fps and load as ratios, so a d
 across games. Columns:
   load    seconds to load (the game's own number, or the stamp of its LOAD_MARK line)
   fps     the game's own average; maxms its longest frame
-  hud     Gallium HUD fps median/p10/min per second after loading
+  hud     Gallium HUD fps median/p10/min per second after loading (the whole run after the load)
+steady state (client.sh: WARMUP s after the load left out, then at least MEASURE s measured; runs
+from before 2026-10-17 have none):
+  steady  the steady-state fps: the median of the counted passes' own fps (src passes), the game's
+          own result over its window (src game), else the median of the HUD's per-second fps in the
+          window (src hud)
+  low1    the 1% low in the window: 1000 / the 99th percentile frame time (from the HUD's frame
+          times; runs with only per-second fps: the 1st percentile of those seconds, src hud1s)
+  stalls  frames over 100 ms in the window (per-second data only: seconds under 10 fps)
+  longest the longest frame in the window, ms (HUD frame times, else the passes' own maxms)
+  win     seconds measured; ftdrift: run time minus the end of the last HUD frame (s: large when the
+          frame times are misplaced against the clock, e.g. a renderer restart's gap)
   cpu     the client's user+sys seconds (the game and its helpers)
   rss     the game's peak RSS (VmHWM, MiB)
   vram    the game's peak VRAM (KiB, ps3rsx per-client, all its buffers)
@@ -61,6 +72,7 @@ def run(d):
         if f:
             r["hud"] = "%d/%d/%d" % (f[len(f) // 2], f[len(f) // 10], f[0])
             r["hud_med"] = f[len(f) // 2]
+    steady(d, b, r)
     # samples: the start is the first stamped output line, the load ends LOAD seconds later
     t0 = None
     out = d / "out.log"
@@ -99,9 +111,91 @@ def run(d):
     return r
 
 
-COLS = ["load", "fps", "maxms", "hud", "cpu", "rss", "vram", "gart", "avail", "so_load", "so_all",
+STALL_MS = 100     # a frame longer than this is a stall
+STALL_FPS = 10     # with per-second data only: a second under this many frames
+
+
+def floats(path):
+    out = []
+    for x in path.read_text(errors="replace").split():
+        try:
+            out.append(float(x))
+        except ValueError:
+            pass
+    return out
+
+
+def steady(d, b, r):
+    """the steady-state metrics of run directory d (bench.txt b) into r"""
+    w = (b.get("window") or "").split()
+    if len(w) != 2:
+        return
+    a, z = float(w[0]), float(w[1])
+    t1 = num(b.get("hud_t1"))
+    secs = num(b.get("seconds"))
+    ft_path, fps_path = d / "hud" / "frametime(ms)", d / "hud" / "fps"
+    if ft_path.exists() and (ft := floats(ft_path)):
+        # frame i ends at t1 + the frame times after the first (t1: when the dump got its first value)
+        ends, t = [], (t1 if t1 is not None else (secs or 0) - sum(ft[1:]) / 1000)
+        for i, v in enumerate(ft):
+            if i:
+                t += v / 1000
+            ends.append(t)
+        if secs is not None:
+            r["ftdrift"] = round(secs - ends[-1], 1)
+        inw = [(e, v) for e, v in zip(ends, ft) if a < e <= z]
+        if inw:
+            ms = sorted(v for _, v in inw)
+            bins = [0] * max(int(z - a), 1)
+            for e, _ in inw:
+                k = int(e - a)
+                if k < len(bins):
+                    bins[k] += 1
+            bins.sort()
+            r["hud_win"] = bins[len(bins) // 2]
+            r["low1"] = round(1000 / ms[max(0, -(-len(ms) * 99 // 100) - 1)], 1)
+            r["stalls"] = sum(1 for v in ms if v > STALL_MS)
+            r["longest"] = round(ms[-1], 1)
+            r["win"] = round(min(z, inw[-1][0]) - a, 1)
+            r["src"] = "hud"
+    elif fps_path.exists() and (f := floats(fps_path)):
+        # one value per second: value i ends about i + 1 s after the HUD's first value
+        t0 = (t1 - 1) if t1 is not None else 0
+        inw = [v for i, v in enumerate(f) if a < t0 + i + 1 <= z]
+        if inw:
+            v = sorted(inw)
+            r["hud_win"] = int(v[len(v) // 2])
+            r["low1"] = round(v[len(v) // 100], 1)
+            r["stalls"] = sum(1 for x in v if x < STALL_FPS)
+            r["win"] = len(v)
+            r["src"] = "hud1s"
+    if "hud_win" in r:
+        r["steady"] = r["hud_win"]
+    # the game's own numbers over the window, when it measures itself
+    passes = [b[k].split() for k in sorted(b, key=lambda k: int(k[4:]) if k[4:].isdigit() else 0)
+              if re.fullmatch(r"pass\d+", k)]
+    counted = [p for p in passes if len(p) == 5 and p[4] == "1"]
+    if passes:
+        r["passes"] = "%d/%d" % (len(counted), len(passes))
+    pf = [x for x in (num(p[2]) for p in counted) if x is not None]
+    if pf:
+        r["steady"] = round(statistics.median(pf), 2)
+        r["src"] = "passes"
+        r["win"] = round(z - a, 1)
+        pm = [x for x in (num(p[3]) for p in counted) if x is not None]
+        if pm and "longest" not in r:
+            r["longest"] = max(pm)
+    elif (v := num(b.get("steady_fps"))) is not None:
+        r["steady"] = v
+        r["src"] = "game"
+        if (m := num(b.get("steady_maxms"))) is not None and "longest" not in r:
+            r["longest"] = m
+
+
+COLS = ["load", "fps", "maxms", "hud", "steady", "src", "low1", "stalls", "longest", "win", "passes",
+        "ftdrift", "cpu", "rss", "vram", "gart", "avail", "so_load", "so_all",
         "vsw_peak", "vsw_wb", "xrun", "snd", "end"]
-RANGED = ("load", "fps", "maxms", "hud_med")
+RANGED = ("load", "fps", "maxms", "hud_med", "steady", "low1")
 
 
 def show(r):
@@ -133,7 +227,8 @@ def main(dirs):
 
     games = list(dict.fromkeys(g for g, _ in keys))
     if any(len([k for k in keys if k[0] == g]) > 1 for g in games):
-        print("\nagainst each game's first variant (fps: game's own, else HUD median):")
+        print("\nagainst each game's first variant (fps: game's own, else HUD median; steady: the"
+              " steady-state fps):")
         for g in games:
             vs = [k for k in keys if k[0] == g]
             if len(vs) < 2:
@@ -145,7 +240,8 @@ def main(dirs):
                 fb = m.get("fps") or m.get("hud_med")
                 fr = "%.3f" % (fb / fa) if fa and fb else "-"
                 lr = "%.3f" % (m["load"] / a["load"]) if a.get("load") and m.get("load") else "-"
-                print("  %-14s %s/%s  fps x%s  load x%s" % (g, k[1], vs[0][1], fr, lr))
+                sr = "%.3f" % (m["steady"] / a["steady"]) if a.get("steady") and m.get("steady") else "-"
+                print("  %-14s %s/%s  fps x%s  steady x%s  load x%s" % (g, k[1], vs[0][1], fr, sr, lr))
 
 
 if __name__ == "__main__":

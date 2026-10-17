@@ -9,16 +9,27 @@ can be filled over several sessions. Files:
   underruns.csv  ALSA underruns in the run (audible chopping; lower is better)
   ram_free.csv   lowest MemAvailable during the run, MiB (higher is better)
   vram.csv       the game's peak VRAM, MiB
+the steady state (report.py: WARMUP s after the load left out, then at least MEASURE s; runs from
+before 2026-10-17 have no such cells):
+  fps_steady.csv the steady-state fps: the game's own over its counted passes or window, else the HUD
+                 window's per-second median (higher is better)
+  low1.csv       the 1% low: 1000 / the 99th percentile frame time in the window (higher is better)
+  stalls.csv     frames over 100 ms in the window (lower is better)
+  longest_ms.csv the longest frame in the window, ms (lower is better)
+A new metric file starts with the rows fps.csv has (cells empty), so every file has the same rows.
+BENCH_RESULTS=<dir> writes the files there instead (the self-test).
 Columns: test, date (of the newest run), runs (count), observations (did the games run, what was wrong, what this row proves), then the game-variants, sorted.
   --obs TEXT   the row's observations (plain sentences: did the games run, picture, sound, the bug found, the fix proven)
   --replace    drop the row's old cells and runs first (default: the new runs join what the row has)
-  --hud GAMES  comma-separated games whose fps cell is the Gallium HUD median even when the run has the
-               game's own fps (Armagetron's benchmark average and its HUD median are different numbers)
+  --hud GAMES  comma-separated games whose fps and fps_steady cells are the Gallium HUD medians even when
+               the run has the game's own fps (Armagetron's benchmark average and its HUD median are
+               different numbers; X-Moto's average covers its whole replay since 2026-10-17)
 Run directories of the first day have no bench.txt (the old OpenArena harness, or a run cut short): the
 game and variant come from the label (oa-tc1, smoke-dsda-doom-base), OpenArena's fps from the timedemo
 line, ALSA underruns from the game.log lines. Test runs (gl-*, t-*, xtest*, speq-*, ...) count in
 `runs` but make no cell."""
 import csv
+import os
 import re
 import statistics
 import sys
@@ -27,7 +38,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from report import run  # noqa: E402
 
-RESULTS = Path(__file__).resolve().parent / "results"
+RESULTS = Path(os.environ.get("BENCH_RESULTS") or Path(__file__).resolve().parent / "results")
 HUD_GAMES = set()
 METRICS = {
     "fps": lambda r: r.get("hud_med") if r["game"] in HUD_GAMES else r.get("fps") or r.get("hud_med"),
@@ -35,6 +46,10 @@ METRICS = {
     "underruns": lambda r: r.get("xrun"),
     "ram_free": lambda r: round(r["avail"] / 1024, 1) if r.get("avail") else None,
     "vram": lambda r: round(r["vram"] / 1024, 1) if r.get("vram") else None,
+    "fps_steady": lambda r: r.get("hud_win") if r["game"] in HUD_GAMES else r.get("steady"),
+    "low1": lambda r: r.get("low1"),
+    "stalls": lambda r: r.get("stalls"),
+    "longest_ms": lambda r: r.get("longest"),
 }
 FIXED = ["test", "date", "runs", "observations"]
 RECIPES = sorted((p.stem for p in (Path(__file__).resolve().parent / "recipes").glob("*.sh")),
@@ -113,6 +128,8 @@ def main(argv):
     for name, get in METRICS.items():
         path = RESULTS / f"{name}.csv"
         cols, rows = load(path)
+        if not path.exists() and name != "fps":  # a new metric: the rows fps.csv has, no cells
+            rows = {t: {k: r.get(k, "") for k in FIXED} for t, r in load(RESULTS / "fps.csv")[1].items()}
         if replace and row in rows:  # keeps the row's place in the history
             rows[row] = {"test": row}
         r = rows.setdefault(row, {"test": row})
