@@ -11,15 +11,16 @@ without it, or when it declines (SPEQ_SYNTH=off, no SPEs), the mixer is stock.
 fluid_rvoice_write() is split into its control part, fluid_rvoice_write_ctl() (sample sanity,
 envelopes, LFOs, amplitude, pitch, filter coefficients), and its DSP chain,
 fluid_rvoice_write_dsp(); fluid_rvoice_write() is the two together, as before. The
-single-thread render loop gets a block-by-block variant, used when libspeq opened: for each
-block, every voice's control part here, then one libspeq call renders the DSP and the mix of
-the voices it takes (4th order, linear and no interpolation, 16-bit samples) while the others
-(sinc interpolation, 24-bit samples, voices libspeq refuses) render here; any libspeq failure
-renders that block's voices here from their unchanged state. A block is mixed as
-fluid_mixer_buffers_render_one() mixes a run of blocks, and finished voices are finished in
-voice order, so the output equals the stock loop's up to the order of floating-point sums
-(identical when the filter is built without -ffast-math). All policy (which unit, sizes,
-timeouts) lives in libspeq.
+single-thread render loop gets a variant used when libspeq opened, a round of blocks at a time:
+for each block, every voice's control part here, its DSP handed to libspeq, which advances the
+voice to its state after the block at once (the control part needs nothing the DSP computes
+from samples: the phase, the count and the filters' parameters follow from their values before
+the block; only the filters' histories depend on the samples). At the round's end one libspeq
+call renders the voices it took (on the SPEs, in single precision) and hands back their mix and
+histories. Voices libspeq doesn't take (sinc interpolation, 24-bit samples) render here. A block
+is mixed as fluid_mixer_buffers_render_one() mixes a run of blocks, and finished voices are
+finished in voice order. All policy (which unit, sizes, timeouts, the fallback) lives in
+libspeq.
 
 Forwarded: no
 
@@ -194,76 +195,97 @@ diff --git a/src/rvoice/fluid_rvoice_mixer.c b/src/rvoice/fluid_rvoice_mixer.c
  #if ENABLE_MIXER_THREADS
  //  int sleeping_threads;        /**< Atomic: number of threads currently asleep */
  //  int active_threads;          /**< Atomic: number of threads in the thread loop */
-@@ -678,6 +683,176 @@ DECLARE_FLUID_RVOICE_FUNCTION(fluid_rvoice_mixer_set_polyphony)
+@@ -678,6 +683,136 @@ DECLARE_FLUID_RVOICE_FUNCTION(fluid_rvoice_mixer_set_polyphony)
  }
  
  
 +#if FLUID_SPEQ
-+/* One voice's block here: fluid_rvoice_write() after its control part */
-+static FLUID_INLINE void
-+fluid_speq_render_here(fluid_rvoice_t *rvoice, int is_looping, fluid_real_t *local_buf, int b,
-+                       fluid_real_t **bufs, int bufcount, char *done)
-+{
-+    int s = fluid_rvoice_write_dsp(rvoice, &local_buf[b * FLUID_BUFSIZE], is_looping);
-+
-+    fluid_rvoice_buffers_mix(&rvoice->buffers, local_buf, b, s, bufs, bufcount);
-+
-+    if(s < FLUID_BUFSIZE)
-+    {
-+        *done = 1;
-+    }
-+}
-+
 +/*
-+ * fluid_render_loop_singlethread() block by block, the voices' DSP through libspeq: for each
-+ * block, every voice's control part here (fluid_rvoice_write_ctl()), then one libspeq call for
-+ * the DSP and the mix of all of them while the voices it declines render here. Each block is
-+ * mixed as fluid_mixer_buffers_render_one() mixes a run of blocks (its ramp: the first block;
-+ * after it current_amp == target_amp), finished voices are finished in voice order.
++ * fluid_render_loop_singlethread() through libspeq, a round of blocks at a time: for each block,
++ * every voice's control part here (fluid_rvoice_write_ctl()), its DSP handed to libspeq, which
++ * advances the voice to its state after the block at once (the control part needs nothing the
++ * DSP computes from samples); voices libspeq doesn't take render here. At the round's end one
++ * libspeq call renders all it took (on the SPEs) and hands back the mix and the filters'
++ * histories. Each block is mixed as fluid_mixer_buffers_render_one() mixes a run of blocks (its
++ * ramp: the first block; after it current_amp == target_amp); finished voices are finished in
++ * voice order.
 + */
 +static void
 +fluid_render_loop_speq(fluid_rvoice_mixer_t *mixer, int blockcount)
 +{
 +    fluid_speq_t *sp = mixer->speq;
 +    int active = mixer->active_voices;
-+    int i, k, b, n, j;
++    int i, b, b0, k, j, nb, taken;
 +    FLUID_DECLARE_VLA(fluid_real_t *, bufs,
 +                      mixer->buffers.buf_count * 2 + mixer->buffers.fx_buf_count * 2);
 +    FLUID_DECLARE_VLA(char, done, active + 1);
-+    FLUID_DECLARE_VLA(int, idx, active + 1);
-+    FLUID_DECLARE_VLA(char, looping, active + 1);
++    FLUID_DECLARE_VLA(char, mine, active + 1); /* in libspeq's round */
++    FLUID_DECLARE_VLA(char, here, active + 1); /* rendered here this round */
 +    int bufcount = fluid_mixer_buffers_prepare(&mixer->buffers, bufs);
 +    fluid_real_t *local_buf = fluid_align_ptr(mixer->buffers.local_buf, FLUID_DEFAULT_ALIGNMENT);
++    const void *sincos = mixer->rvoices[0]->resonant_filter.sincos_table;
 +
 +    FLUID_MEMSET(done, 0, active + 1);
 +
-+    for(b = 0; b < blockcount; b++)
++    for(b0 = 0; b0 < blockcount; b0 += nb)
 +    {
-+        int queued = fluid_speq_begin(sp) == 0;
++        nb = fluid_speq_begin(sp, active, blockcount - b0, sincos);
++        taken = nb > 0;
 +
-+        n = 0;
-+
-+        for(i = 0; i < active; i++)
++        if(!taken)
 +        {
-+            fluid_rvoice_t *rvoice = mixer->rvoices[i];
-+            int is_looping, r;
++            nb = 1; /* libspeq declines: one block here, then ask again */
++        }
 +
-+            if(done[i])
++        FLUID_MEMSET(mine, 0, active + 1);
++        FLUID_MEMSET(here, !taken, active + 1);
++
++        for(b = b0; b < b0 + nb; b++)
++        {
++            for(i = 0; i < active; i++)
 +            {
-+                continue;
-+            }
++                fluid_rvoice_t *rvoice = mixer->rvoices[i];
++                int is_looping, r, s;
 +
-+            r = fluid_rvoice_write_ctl(rvoice, &is_looping);
++                if(done[i])
++                {
++                    continue;
++                }
 +
-+            if(r == 0)
-+            {
-+                done[i] = 1; /* finished */
-+                continue;
-+            }
++                r = fluid_rvoice_write_ctl(rvoice, &is_looping);
 +
-+            if(r == FLUID_RVOICE_CTL_SILENT)
-+            {
-+                int s = fluid_rvoice_dsp_silence(rvoice, &local_buf[b * FLUID_BUFSIZE], is_looping);
++                if(r == 0)
++                {
++                    done[i] = 1; /* finished */
++                    continue;
++                }
++
++                if(r == FLUID_RVOICE_CTL_SILENT)
++                {
++                    s = fluid_rvoice_dsp_silence(rvoice, &local_buf[b * FLUID_BUFSIZE], is_looping);
++                }
++                else if(r != FLUID_RVOICE_CTL_RENDER)
++                {
++                    continue; /* quiet */
++                }
++                else if(!here[i] && fluid_speq_add(sp, i, b - b0, rvoice, is_looping, bufs,
++                                                   bufcount, &s) == 0)
++                {
++                    mine[i] = 1;
++
++                    if(s < FLUID_BUFSIZE)
++                    {
++                        done[i] = 1;
++                    }
++
++                    continue;
++                }
++                else
++                {
++                    /* libspeq never refuses a voice it has: here only from its first block */
++                    here[i] = 1;
++                    s = fluid_rvoice_write_dsp(rvoice, &local_buf[b * FLUID_BUFSIZE], is_looping);
++                }
 +
 +                fluid_rvoice_buffers_mix(&rvoice->buffers, local_buf, b, s, bufs, bufcount);
 +
@@ -271,87 +293,26 @@ diff --git a/src/rvoice/fluid_rvoice_mixer.c b/src/rvoice/fluid_rvoice_mixer.c
 +                {
 +                    done[i] = 1;
 +                }
-+
-+                continue;
-+            }
-+
-+            if(r != FLUID_RVOICE_CTL_RENDER)
-+            {
-+                continue; /* quiet */
-+            }
-+
-+            if(queued && fluid_speq_add(sp, rvoice, is_looping, bufs, bufcount) == 0)
-+            {
-+                idx[n] = i;
-+                looping[n] = is_looping;
-+                n++;
-+            }
-+            else
-+            {
-+                fluid_speq_render_here(rvoice, is_looping, local_buf, b, bufs, bufcount, &done[i]);
 +            }
 +        }
 +
-+        if(!queued)
++        if(taken)
 +        {
-+            continue;
-+        }
++            /* libspeq's round: the mix of its voices, block by block */
++            const float *out = fluid_speq_render(sp, mixer->rvoices, mine, active);
 +
-+        if(fluid_speq_submit(sp) != 0)
-+        {
-+            for(k = 0; k < n; k++)
++            for(b = b0; out != NULL && b < b0 + nb; b++)
 +            {
-+                fluid_speq_render_here(mixer->rvoices[idx[k]], looping[k], local_buf, b, bufs,
-+                                       bufcount, &done[idx[k]]);
-+            }
-+
-+            continue;
-+        }
-+
-+        for(k = 0; k < n; k++)
-+        {
-+            if(fluid_speq_refused(sp, k))
-+            {
-+                fluid_speq_render_here(mixer->rvoices[idx[k]], looping[k], local_buf, b, bufs,
-+                                       bufcount, &done[idx[k]]);
-+                idx[k] = -1 - idx[k];
-+            }
-+        }
-+
-+        if(fluid_speq_wait(sp) != 0)
-+        {
-+            for(k = 0; k < n; k++)
-+            {
-+                if(idx[k] >= 0)
++                for(j = 0; j < bufcount; j++, out += FLUID_BUFSIZE)
 +                {
-+                    fluid_speq_render_here(mixer->rvoices[idx[k]], looping[k], local_buf, b, bufs,
-+                                           bufcount, &done[idx[k]]);
-+                }
-+            }
++                    fluid_real_t *FLUID_RESTRICT buf = bufs[j];
 +
-+            continue;
-+        }
-+
-+        for(k = 0; k < n; k++)
-+        {
-+            if(idx[k] >= 0 && fluid_speq_result(sp, k, mixer->rvoices[idx[k]]) < FLUID_BUFSIZE)
-+            {
-+                done[idx[k]] = 1;
-+            }
-+        }
-+
-+        {
-+            const fluid_real_t *out = fluid_speq_out(sp);
-+
-+            for(j = 0; out != NULL && j < bufcount; j++, out += FLUID_BUFSIZE)
-+            {
-+                fluid_real_t *FLUID_RESTRICT buf = bufs[j];
-+
-+                if(buf != NULL)
-+                {
-+                    for(i = 0; i < FLUID_BUFSIZE; i++)
++                    if(buf != NULL)
 +                    {
-+                        buf[b * FLUID_BUFSIZE + i] += out[i];
++                        for(k = 0; k < FLUID_BUFSIZE; k++)
++                        {
++                            buf[b * FLUID_BUFSIZE + k] += out[k];
++                        }
 +                    }
 +                }
 +            }
@@ -371,7 +332,7 @@ diff --git a/src/rvoice/fluid_rvoice_mixer.c b/src/rvoice/fluid_rvoice_mixer.c
  static void
  fluid_render_loop_singlethread(fluid_rvoice_mixer_t *mixer, int blockcount)
  {
-@@ -883,6 +1058,15 @@ new_fluid_rvoice_mixer(int buf_count, int fx_buf_count, int fx_units,
+@@ -883,6 +1018,15 @@ new_fluid_rvoice_mixer(int buf_count, int fx_buf_count, int fx_units,
          goto error_recovery;
      }
  
@@ -387,7 +348,7 @@ diff --git a/src/rvoice/fluid_rvoice_mixer.c b/src/rvoice/fluid_rvoice_mixer.c
  #if ENABLE_MIXER_THREADS
      mixer->thread_ready = new_fluid_cond();
      mixer->wakeup_threads = new_fluid_cond();
-@@ -928,6 +1112,10 @@ void delete_fluid_rvoice_mixer(fluid_rvoice_mixer_t *mixer)
+@@ -928,6 +1072,10 @@ void delete_fluid_rvoice_mixer(fluid_rvoice_mixer_t *mixer)
  
      fluid_return_if_fail(mixer != NULL);
  
@@ -398,7 +359,7 @@ diff --git a/src/rvoice/fluid_rvoice_mixer.c b/src/rvoice/fluid_rvoice_mixer.c
  #if ENABLE_MIXER_THREADS
      delete_rvoice_mixer_threads(mixer);
  
-@@ -1754,6 +1942,13 @@ fluid_rvoice_mixer_render(fluid_rvoice_mixer_t *mixer, int blockcount)
+@@ -1754,6 +1902,13 @@ fluid_rvoice_mixer_render(fluid_rvoice_mixer_t *mixer, int blockcount)
          fluid_render_loop_multithread(mixer, blockcount);
      }
      else
@@ -416,7 +377,7 @@ diff --git a/src/rvoice/fluid_rvoice_speq.c b/src/rvoice/fluid_rvoice_speq.c
 new file mode 100644
 --- /dev/null
 +++ b/src/rvoice/fluid_rvoice_speq.c
-@@ -0,0 +1,337 @@
+@@ -0,0 +1,305 @@
 +/* FluidSynth - A Software Synthesizer
 + *
 + * This library is free software; you can redistribute it and/or
@@ -426,11 +387,11 @@ new file mode 100644
 + */
 +
 +/*
-+ * The voice DSP through libspeq.so.0 (ps3-spu: speq_synth_*_v1), loaded with dlopen: FluidSynth
-+ * doesn't depend on it. libspeq runs fluid_rvoice_write_dsp() and fluid_rvoice_buffers_mix()
-+ * for a block of voices on the Cell's SPEs; FluidSynth keeps the control part
-+ * (fluid_rvoice_write_ctl()) and copies each voice's DSP state to libspeq and back. All policy
-+ * (which unit, sizes, timeouts, SPEQ_SYNTH=auto|spu|ppe|off) lives in libspeq.
++ * The voice DSP through libspeq.so.0 (ps3-spu: speq_synth_*_v2), loaded with dlopen: FluidSynth
++ * doesn't depend on it. libspeq renders fluid_rvoice_write_dsp() and fluid_rvoice_buffers_mix()
++ * for a round of blocks of the voices on the Cell's SPEs, in single precision; FluidSynth keeps
++ * the control part (fluid_rvoice_write_ctl()) and copies each voice's state to libspeq and back.
++ * All policy (which unit, sizes, timeouts, SPEQ_SYNTH=auto|spu|ppe|off) lives in libspeq.
 + */
 +
 +#include "fluid_rvoice_speq.h"
@@ -441,10 +402,9 @@ new file mode 100644
 +#include <pthread.h>
 +#include <stdint.h>
 +
-+/* libspeq's speq.h, the part this uses: SPEQ_SYNTH_ABI 1, frozen (a change is a _v2) */
-+#define SPEQ_SYNTH_ABI 1
++/* libspeq's speq.h, the part this uses: SPEQ_SYNTH_ABI 2, frozen (a change is a _v3) */
++#define SPEQ_SYNTH_ABI 2
 +#define SPEQ_SYNTH_BUFS 4
-+#define SPEQ_SYNTH_PPE (-2)
 +enum { SPEQ_SYNTH_NONE, SPEQ_SYNTH_LINEAR, SPEQ_SYNTH_CUBIC };
 +enum { SPEQ_SYNTH_IIR_OFF, SPEQ_SYNTH_IIR_LOWPASS, SPEQ_SYNTH_IIR_HIGHPASS };
 +#define SPEQ_SYNTH_IIR_NO_GAIN 1u
@@ -472,8 +432,8 @@ new file mode 100644
 +    double cur_amp[SPEQ_SYNTH_BUFS], tgt_amp[SPEQ_SYNTH_BUFS];
 +    struct speq_synth_filter custom, res;
 +    int32_t count;
-+    uint32_t priv[19];
-+} __attribute__((aligned(16)));
++    uint32_t pad1;
++};
 +
 +struct speq_synth_params
 +{
@@ -485,26 +445,17 @@ new file mode 100644
 +    const double *linear;
 +};
 +
-+struct speq_synth_block
-+{
-+    struct speq_synth_voice *voice;
-+    unsigned cap, lines;
-+    const double *out;
-+    const void *sincos;
-+    uint32_t sincos_n;
-+};
-+
 +struct speq_synth;
 +
-+typedef char speq_voice_is_384[sizeof(struct speq_synth_voice) == 384 ? 1 : -1];
++typedef char speq_voice_is_312[sizeof(struct speq_synth_voice) == 312 ? 1 : -1];
 +typedef char speq_bufs_match[FLUID_RVOICE_MAX_BUFS == SPEQ_SYNTH_BUFS ? 1 : -1];
 +
 +static struct
 +{
 +    int (*open)(struct speq_synth **, const struct speq_synth_params *);
-+    struct speq_synth_block *(*begin)(struct speq_synth *);
-+    int (*submit)(struct speq_synth *, struct speq_synth_block *, unsigned);
-+    int (*wait)(struct speq_synth *, struct speq_synth_block *);
++    unsigned (*begin)(struct speq_synth *, unsigned, unsigned, const void *, uint32_t);
++    int (*add)(struct speq_synth *, unsigned, unsigned, struct speq_synth_voice *);
++    int (*render)(struct speq_synth *, const float **, const float **);
 +    void (*close)(struct speq_synth *);
 +} speq;
 +static pthread_once_t speq_once = PTHREAD_ONCE_INIT;
@@ -515,8 +466,7 @@ new file mode 100644
 +struct _fluid_speq_t
 +{
 +    struct speq_synth *s;
-+    struct speq_synth_block *blk;
-+    unsigned n;
++    const void *sincos;
 +};
 +
 +static void speq_load(void)
@@ -528,13 +478,13 @@ new file mode 100644
 +        return;
 +    }
 +
-+    speq.open = (int (*)(struct speq_synth **, const struct speq_synth_params *))dlsym(h, "speq_synth_open_v1");
-+    speq.begin = (struct speq_synth_block * (*)(struct speq_synth *))dlsym(h, "speq_synth_begin_v1");
-+    speq.submit = (int (*)(struct speq_synth *, struct speq_synth_block *, unsigned))dlsym(h, "speq_synth_submit_v1");
-+    speq.wait = (int (*)(struct speq_synth *, struct speq_synth_block *))dlsym(h, "speq_synth_wait_v1");
-+    speq.close = (void (*)(struct speq_synth *))dlsym(h, "speq_synth_close_v1");
++    speq.open = (int (*)(struct speq_synth **, const struct speq_synth_params *))dlsym(h, "speq_synth_open_v2");
++    speq.begin = (unsigned (*)(struct speq_synth *, unsigned, unsigned, const void *, uint32_t))dlsym(h, "speq_synth_begin_v2");
++    speq.add = (int (*)(struct speq_synth *, unsigned, unsigned, struct speq_synth_voice *))dlsym(h, "speq_synth_add_v2");
++    speq.render = (int (*)(struct speq_synth *, const float **, const float **))dlsym(h, "speq_synth_render_v2");
++    speq.close = (void (*)(struct speq_synth *))dlsym(h, "speq_synth_close_v2");
 +
-+    if(!speq.open || !speq.begin || !speq.submit || !speq.wait || !speq.close)
++    if(!speq.open || !speq.begin || !speq.add || !speq.render || !speq.close)
 +    {
 +        speq.open = NULL;
 +    }
@@ -586,11 +536,10 @@ new file mode 100644
 +    }
 +}
 +
-+int fluid_speq_begin(fluid_speq_t *sp)
++int fluid_speq_begin(fluid_speq_t *sp, int nvoices, int blocks, const void *sincos)
 +{
-+    sp->n = 0;
-+    sp->blk = speq.begin(sp->s);
-+    return sp->blk != NULL ? 0 : -1;
++    sp->sincos = sincos;
++    return (int)speq.begin(sp->s, nvoices, blocks, sincos, SINCOS_TAB_SIZE);
 +}
 +
 +static void filter_in(struct speq_synth_filter *f, const fluid_iir_filter_t *iir)
@@ -614,11 +563,9 @@ new file mode 100644
 +    f->flags = (iir->flags & FLUID_IIR_NO_GAIN_AMP) ? SPEQ_SYNTH_IIR_NO_GAIN : 0;
 +}
 +
-+/* what fluid_iir_filter_apply() changes */
++/* what fluid_iir_filter_apply() changes, but the histories (they come with the round) */
 +static void filter_out(fluid_iir_filter_t *iir, const struct speq_synth_filter *f)
 +{
-+    iir->hist1 = f->hist1;
-+    iir->hist2 = f->hist2;
 +    iir->last_fres = f->last_fres;
 +    iir->fres_incr_count = f->fres_incr_count;
 +    iir->last_q = f->last_q;
@@ -630,18 +577,17 @@ new file mode 100644
 +    iir->a2 = f->a2;
 +}
 +
-+int fluid_speq_add(fluid_speq_t *sp, fluid_rvoice_t *rvoice, int is_looping,
-+                   fluid_real_t **dest_bufs, int dest_bufcount)
++int fluid_speq_add(fluid_speq_t *sp, int vi, int b, fluid_rvoice_t *rvoice, int is_looping,
++                   fluid_real_t **dest_bufs, int dest_bufcount, int *count)
 +{
-+    struct speq_synth_voice *v;
++    struct speq_synth_voice v;
 +    const fluid_sample_t *sample = rvoice->dsp.sample;
-+    const void *sincos = rvoice->resonant_filter.sincos_table;
 +    unsigned int i;
 +    int interp;
 +
-+    if(sp->blk == NULL || sp->n >= sp->blk->cap || sample == NULL || sample->data == NULL
-+            || sample->data24 != NULL || rvoice->resonant_custom_filter.sincos_table != sincos
-+            || (sp->n > 0 && sincos != sp->blk->sincos))
++    if(sample == NULL || sample->data == NULL || sample->data24 != NULL
++            || rvoice->resonant_filter.sincos_table != sp->sincos
++            || rvoice->resonant_custom_filter.sincos_table != sp->sincos)
 +    {
 +        return -1;
 +    }
@@ -666,91 +612,74 @@ new file mode 100644
 +        break;
 +    }
 +
-+    v = &sp->blk->voice[sp->n];
-+    v->data = (uintptr_t)sample->data;
-+    v->phase = rvoice->dsp.phase;
-+    v->phase_incr = rvoice->dsp.phase_incr;
-+    v->start = rvoice->dsp.start;
-+    v->end = rvoice->dsp.end;
-+    v->loopstart = rvoice->dsp.loopstart;
-+    v->loopend = rvoice->dsp.loopend;
-+    v->interp = interp;
-+    v->looping = is_looping != 0;
-+    v->has_looped = rvoice->dsp.has_looped != 0;
++    v.data = (uintptr_t)sample->data;
++    v.phase = rvoice->dsp.phase;
++    v.phase_incr = rvoice->dsp.phase_incr;
++    v.start = rvoice->dsp.start;
++    v.end = rvoice->dsp.end;
++    v.loopstart = rvoice->dsp.loopstart;
++    v.loopend = rvoice->dsp.loopend;
++    v.interp = interp;
++    v.looping = is_looping != 0;
++    v.has_looped = rvoice->dsp.has_looped != 0;
++    v.pad0 = 0;
 +
 +    for(i = 0; i < SPEQ_SYNTH_BUFS; i++)
 +    {
 +        int j = i < rvoice->buffers.count ? rvoice->buffers.bufs[i].mapping : -1;
 +
 +        /* get_dest_buf(): an unmapped or absent buffer isn't mixed */
-+        v->line[i] = (j >= 0 && j < dest_bufcount && dest_bufs[j] != NULL) ? j : -1;
-+        v->cur_amp[i] = i < rvoice->buffers.count ? rvoice->buffers.bufs[i].current_amp : 0;
-+        v->tgt_amp[i] = i < rvoice->buffers.count ? rvoice->buffers.bufs[i].target_amp : 0;
++        v.line[i] = (j >= 0 && j < dest_bufcount && dest_bufs[j] != NULL) ? j : -1;
++        v.cur_amp[i] = i < rvoice->buffers.count ? rvoice->buffers.bufs[i].current_amp : 0;
++        v.tgt_amp[i] = i < rvoice->buffers.count ? rvoice->buffers.bufs[i].target_amp : 0;
 +    }
 +
-+    filter_in(&v->custom, &rvoice->resonant_custom_filter);
-+    filter_in(&v->res, &rvoice->resonant_filter);
++    filter_in(&v.custom, &rvoice->resonant_custom_filter);
++    filter_in(&v.res, &rvoice->resonant_filter);
 +
-+    if(sp->n == 0)
++    if(speq.add(sp->s, vi, b, &v) != 0)
 +    {
-+        sp->blk->sincos = sincos;
-+        sp->blk->sincos_n = SINCOS_TAB_SIZE;
++        return -1;
 +    }
 +
-+    sp->n++;
-+    return 0;
-+}
-+
-+int fluid_speq_submit(fluid_speq_t *sp)
-+{
-+    int ret = speq.submit(sp->s, sp->blk, sp->n);
-+
-+    if(ret != 0)
-+    {
-+        sp->blk = NULL;
-+    }
-+
-+    return ret;
-+}
-+
-+int fluid_speq_refused(fluid_speq_t *sp, int k)
-+{
-+    return sp->blk->voice[k].count == SPEQ_SYNTH_PPE;
-+}
-+
-+int fluid_speq_wait(fluid_speq_t *sp)
-+{
-+    int ret = speq.wait(sp->s, sp->blk);
-+
-+    if(ret != 0)
-+    {
-+        sp->blk = NULL;
-+    }
-+
-+    return ret;
-+}
-+
-+int fluid_speq_result(fluid_speq_t *sp, int k, fluid_rvoice_t *rvoice)
-+{
-+    const struct speq_synth_voice *v = &sp->blk->voice[k];
-+    unsigned int i;
-+
-+    rvoice->dsp.phase = v->phase;
-+    rvoice->dsp.has_looped = v->has_looped;
-+    filter_out(&rvoice->resonant_custom_filter, &v->custom);
-+    filter_out(&rvoice->resonant_filter, &v->res);
++    /* the voice after the block, as fluid_rvoice_write_dsp() and the mix leave it */
++    rvoice->dsp.phase = v.phase;
++    rvoice->dsp.has_looped = v.has_looped;
++    filter_out(&rvoice->resonant_custom_filter, &v.custom);
++    filter_out(&rvoice->resonant_filter, &v.res);
 +
 +    for(i = 0; i < rvoice->buffers.count && i < SPEQ_SYNTH_BUFS; i++)
 +    {
-+        rvoice->buffers.bufs[i].current_amp = v->cur_amp[i];
++        rvoice->buffers.bufs[i].current_amp = v.cur_amp[i];
 +    }
 +
-+    return v->count;
++    *count = v.count;
++    return 0;
 +}
 +
-+const fluid_real_t *fluid_speq_out(fluid_speq_t *sp)
++const float *fluid_speq_render(fluid_speq_t *sp, fluid_rvoice_t **rvoices, const char *mine,
++                               int nvoices)
 +{
-+    return sp->blk->out;
++    const float *out, *hist;
++    int i;
++
++    if(speq.render(sp->s, &out, &hist) != 0)
++    {
++        return NULL;
++    }
++
++    for(i = 0; i < nvoices; i++)
++    {
++        if(mine[i])
++        {
++            rvoices[i]->resonant_custom_filter.hist1 = hist[4 * i];
++            rvoices[i]->resonant_custom_filter.hist2 = hist[4 * i + 1];
++            rvoices[i]->resonant_filter.hist1 = hist[4 * i + 2];
++            rvoices[i]->resonant_filter.hist2 = hist[4 * i + 3];
++        }
++    }
++
++    return out;
 +}
 +
 +#endif
@@ -758,7 +687,7 @@ diff --git a/src/rvoice/fluid_rvoice_speq.h b/src/rvoice/fluid_rvoice_speq.h
 new file mode 100644
 --- /dev/null
 +++ b/src/rvoice/fluid_rvoice_speq.h
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,54 @@
 +/* FluidSynth - A Software Synthesizer
 + *
 + * This library is free software; you can redistribute it and/or
@@ -797,18 +726,16 @@ new file mode 100644
 +fluid_speq_t *fluid_speq_open(int lines, int max_voices);
 +void fluid_speq_close(fluid_speq_t *sp);
 +
-+/* One block: begin, add each voice after fluid_rvoice_write_ctl() (0: libspeq has it, else
-+ * render it yourself), submit (0: queued; else render all added), refused(k) for each added
-+ * voice (render it yourself now), wait (0: result(k) copies voice k's new state back and
-+ * returns its sample count, out() the sum of their mix; else render the not refused ones) */
-+int fluid_speq_begin(fluid_speq_t *sp);
-+int fluid_speq_add(fluid_speq_t *sp, fluid_rvoice_t *rvoice, int is_looping,
-+                   fluid_real_t **dest_bufs, int dest_bufcount);
-+int fluid_speq_submit(fluid_speq_t *sp);
-+int fluid_speq_refused(fluid_speq_t *sp, int k);
-+int fluid_speq_wait(fluid_speq_t *sp);
-+int fluid_speq_result(fluid_speq_t *sp, int k, fluid_rvoice_t *rvoice);
-+const fluid_real_t *fluid_speq_out(fluid_speq_t *sp);
++/* A round: begin (the blocks libspeq takes, 0: render them here), then for each block and
++ * each voice after fluid_rvoice_write_ctl() add (0: libspeq renders it, the voice is advanced
++ * to its state after the block and the count returned in *count; else render it here: only at
++ * a voice's first block of the round), then render (out: blocks x lines x FLUID_BUFSIZE
++ * floats to add to the buffers; the voices' filter histories are written back) */
++int fluid_speq_begin(fluid_speq_t *sp, int nvoices, int blocks, const void *sincos);
++int fluid_speq_add(fluid_speq_t *sp, int vi, int b, fluid_rvoice_t *rvoice, int is_looping,
++                   fluid_real_t **dest_bufs, int dest_bufcount, int *count);
++const float *fluid_speq_render(fluid_speq_t *sp, fluid_rvoice_t **rvoices, const char *mine,
++                               int nvoices);
 +#endif
 +
 +#ifdef __cplusplus

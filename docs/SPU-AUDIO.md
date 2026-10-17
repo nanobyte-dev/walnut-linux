@@ -618,7 +618,8 @@ run on the PS3 yet; "estimate" marks numbers nobody measured here.
   instead of one per call, which barely differs in dsda-doom (MIDI events split its calls into
   a few blocks each). The mixer keeps the stock path whenever cpu-cores > 1.
 
-### (b) Design
+### (b) Design (first version, ps3-spu 0.288 / fluidsynth +ps3.289; (e) replaces the DSP's
+precision, the job and the wait)
 
 - **The split.** `fluid_rvoice_write` = `fluid_rvoice_write_ctl` (control) +
   `fluid_rvoice_write_dsp` (interpolation and filters); stock behaviour is the two together.
@@ -732,3 +733,60 @@ run on the PS3 yet; "estimate" marks numbers nobody measured here.
 - `perf record -p` on the dsda-doom process with libfluidsynth3-dbgsym: the share left in
   `fluid_rvoice_write_ctl`, `fluid_rvoice_buffers_mix` (silent voices), the hook's loop, and
   how much of libfluidsynth was reverb/chorus or the player (not offloaded).
+
+### (e) Second version: rounds, single precision, two workers
+
+**Measured** on the PS3 (the first version, dsda-doom `play`, 60 s, Mesa ps3.282): CPU 49.3 s
+with `SPEQ_SYNTH=off` against 31.7 s with `spu` (no music: ~29 s), ALSA underruns 1335 against
+1097, HUD 53 and 54 fps. `SPEQ_DEBUG`: 20295 blocks, 20227 on the SPEs (1167898 voices, ~58 a
+block), 731 us mean wait, 9165 us max, 55 timeouts. So the PPE's work moved off, but the audio
+thread waited half of every 1.45 ms block, serially, at ~12 us per voice block on one SPE
+(estimated 3-4): the scalar double-precision code (4 int-to-double conversions and ~10
+unpipelined double operations per sample, every one a 6-cycle stall) was ~550 cycles a sample.
+
+**Changes** (libspeq `speq_synth_*_v2`, SPEQ_SYNTH_ABI 2; the fluidsynth patch's render loop):
+- **Single precision, vectors.** lib/synth-kern.h now runs in float with 4-wide vectors (SPU
+  intrinsics in the hot loops, GCC's generic vectors elsewhere: AltiVec on the PPE path). The
+  window's int16 samples are converted once (8 per step: a quadword shuffle, a shift, a
+  conversion) into a float "ext" window, with fluidsynth's end points written in where its
+  interpolation uses them; every cubic output is then one unaligned 4-float load times a
+  coefficient row, four outputs' horizontal sums at once. The filter's recurrence takes the older
+  history first (one multiply-add per sample on the dependency chain, 6 cycles), the volume
+  envelope's gain is applied afterwards in vectors, the mix is vectors. 64-bit divisions and
+  multiplications (libgcc calls on the SPU) are gone from the per-segment code (a 6-bit long
+  division: the step counts only matter below 64). The cubic's start segment (start_point and
+  the 3 samples after it, which past a 2-sample loop's end are samples, not the end points)
+  reads the int16 window directly, exactly as fluidsynth does.
+- **Rounds instead of blocks.** fluidsynth's control part needs nothing the DSP computes from
+  samples: the phase, has_looped and the count after a block come from the interpolation's
+  loop structure (integer code), the filters' coefficients, cutoff, Q and gain from the
+  smoothing counters; only the filters' histories depend on the samples, and the control never
+  reads them. So `speq_synth_add_v2` runs that sample-free part on the PPE (synth-kern.h
+  `sk_control`, `sk_filter_end`) and hands the voice's next state back at once: fluidsynth goes
+  through every block of a `fluid_synth_write_*` request (up to 16 blocks: a job's 16 KB output
+  and 512 entries of 256 bytes per round), then `speq_synth_render_v2` renders the whole round in
+  one round trip. Entries sit voice-major, so a job renders whole voices block after block,
+  carrying the histories; jobs are cut so that both workers get work.
+- **Both deadline SPEs.** `SPEQ_SYNTH_SPES` defaults to 2 (the two the DXT bulk queue leaves);
+  an OpenAL mixer in the same process would make 7 contexts, so it should join this queue or
+  set `SPEQ_SYNTH_SPES=1`.
+- **Fallback.** The SPU never writes a round's entries or input histories, so a late or failed
+  round is redone on the PPE from them (libspeq's same DSP code), and render always delivers;
+  voices whose windows exceed a job's local store (a pitch above ~30 times the sample's rate)
+  are rendered by the PPE while the SPEs work. Timeout: 2 ms plus 5 us per voice block. The
+  back-off and the broken-queue rules are unchanged.
+
+**Estimate per voice block** (from the generated SPU code, not measured): the cubic loop ~30
+instructions a sample (~20 cycles dual-issued), the filter ~6-8 cycles a sample on its chain,
+the mix and the conversion ~2: ~1500-2000 cycles, 0.5-0.6 us at 3.2 GHz, against the ~12 us
+measured. 58 voices x ~5 blocks a request (dsda-doom's events split its writes) on two SPEs:
+~80 us of SPU time a request, one futex wake (~62 us) instead of five.
+
+**Accuracy.** No longer bit-exact to Debian's double path. tests/fs-kern.c (200000 random voice
+blocks against fluidsynth's own functions): the control results identical, the samples at 96 dB
+SNR overall (random states include high-pass custom filters at low cutoffs, where single
+precision cancels). Whole renders of the generated GM piece (test-fluidsynth): 129-131 dB SNR
+against unpatched fluidsynth, with reverb and chorus 127-128 dB; the SPU path against the PPE path
+132 dB (the jobs sum in another order). The SPU rounds float results toward zero, the host
+tests to nearest, so the PS3 will be a few dB below these; still far under 16-bit output.
+
