@@ -101,10 +101,16 @@ for d in "$STAGE"/*.deb; do
 done
 
 # Dev builds (~dev versions, from a tree with uncommitted changes) never go to the stable suite
-if [ "$DIST" = ps3 ] && { compgen -G "$STAGE/*~dev*" || compgen -G "$LSTAGE/*~dev*"; } >/dev/null; then
-	echo "!! dev builds can't be published to the stable suite (commit, rebuild, then publish):" >&2
-	ls "$STAGE"/*~dev* "$LSTAGE"/*~dev* 2>/dev/null | sed 's|.*/|   |' >&2
-	exit 1
+if [ "$DIST" = ps3 ]; then
+	devs=$(for d in "$STAGE"/*.deb "$LSTAGE"/*.deb; do
+		[ -e "$d" ] || continue
+		case $(dpkg-deb -f "$d" Version) in *~dev*) echo "   ${d##*/}" ;; esac
+	done)
+	if [ -n "$devs" ]; then
+		echo "!! dev builds can't be published to the stable suite (commit, rebuild, then publish):" >&2
+		echo "$devs" >&2
+		exit 1
+	fi
 fi
 # Official versions only ever grow (stable and licensed)
 if [ "$DIST" = ps3 ]; then versions_grow "$REPO" "$STAGE"/*.deb; fi
