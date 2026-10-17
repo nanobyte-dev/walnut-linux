@@ -11,6 +11,12 @@
      line, a line split by the client's 0.25 s HUD polling
   4. every recipe and variant sourced as client.sh does: CMD set, and the durations against
      load + WARMUP + MEASURE (a variant that can't hold a window is listed, not an error)
+  5. stalls.py on a made-up stalls.rec: one stall per cause the host can't make (GPU fence wait,
+     zram and VRAM swap-ins, direct reclaim, GART growth, runnable without CPU) classified as such
+  6. ps3-stallrec end to end (built with the host's cc into the scratch directory) on a fake game
+     that stalls three known ways: major faults on a file dropped from the page cache
+     (POSIX_FADV_DONTNEED, MADV_RANDOM, on a disk-backed directory), a busy loop, a futex wait;
+     each stall must come out as disk, cpu and wait, and the recorder's own CPU is printed
 Exit status 0 when every check passes; scratch files in a temporary directory, removed at the end."""
 import os
 import shutil
@@ -160,6 +166,8 @@ def matrix(tmp, runs):
         check("matrix: runs counted once", last["runs"] == "6", last["runs"])
     if "stalls" in rows:
         check("matrix: stalls cell", rows["stalls"][-1].get("fake-base") == "2", rows["stalls"][-1])
+    check("matrix: no stall cause files without a stalls.rec", not list(res.glob("stall_*_s.csv")),
+          [x.name for x in res.glob("stall_*_s.csv")])
 
 
 # --- 3. client.sh with a fake game -----------------------------------------------------------
@@ -279,6 +287,229 @@ def client(tmp):
     check("own: report steady 49.5 (game)", r.get("steady") == 49.5 and r.get("src") == "game", (r.get("steady"), r.get("src")))
 
 
+# --- 5. stalls.py on a made-up record ---------------------------------------------------------
+REC_HEAD = """# stallrec 1 interval_us=10000 slow=10 arch=ppc64 kernel=test locked=1 prio=nice-10
+# clock mono=100.000000000 real=1000.000000000
+# hz=100
+# sys read=3 ioctl=54 futex=221 openat=286
+# vmstat 0=pswpin 1=pswpout 2=pgmajfault 3=allocstall_normal 4=pgscan_direct 5=compact_stall 6=cma_alloc_success
+# disk 0=sda 1=zram0 2=ps3vswap0 3=sda3
+# other 0=Xorg 1=kswapd0
+W 1 dma_fence_default_wait
+W 2 futex_wait_queue
+W 3 folio_wait_bit_common
+D 1 /dev/dri/renderD128
+P 0 pid=10 tid=10 comm=fake
+"""
+# each stall: the sample line (without its time) repeated over its 200 ms
+REC_STALLS = [
+    ("gpu", "s=S w=1 y=54 d=1 c=200"),
+    ("swap_zram", "s=R c=9000 mj=40 Mj=40 v0=40 v2=40 k1=40:320:0:0:10:0"),
+    ("swap_vswap", "s=D w=3 y=-1 c=100 k2=5:40:0:0:10:1"),
+    ("reclaim", "s=R c=9500 v3=1 v4=500 mn=3"),
+    ("gart", "s=R c=9500 v6=1 v5=1"),
+    ("runq", "s=R c=1000"),
+    ("disk", "s=D w=3 y=-1 c=50 k0=3:24:0:0:10:1 k3=3:24:0:0:10:1"),
+    ("io", "s=D w=3 y=3 c=50 k0=2:256:0:0:10:1"),
+    ("wait", "s=S w=2 y=221"),
+]
+
+
+def stalls_synthetic(tmp):
+    import stalls
+    d = tmp / "ps3-bench-20261018T020000Z-fakestall-base"
+    lines, ft, t = [], [], 0.0
+    # 1 s of 20 ms frames, then each stall (200 ms) followed by 0.5 s of 20 ms frames
+    frames_at = []
+
+    def normal(n):
+        nonlocal t
+        for _ in range(n):
+            for _ in range(2):
+                t += 0.01
+                lines.append("%d s=R c=9000" % round(t * 1e6))
+            frames_at.append(t)
+            ft.append(20.0)
+    normal(50)
+    for _, sample in REC_STALLS:
+        for _ in range(20):
+            t += 0.01
+            lines.append("%d %s" % (round(t * 1e6), sample))
+        frames_at.append(t)
+        ft.append(200.0)
+        normal(25)
+    # the frames as the recorder saw them: f= on the sample where each frame ended
+    out, k = [], 0
+    for line in lines:
+        tt = int(line.split()[0]) / 1e6
+        n = 0
+        while k < len(frames_at) and frames_at[k] <= tt + 1e-9:
+            n += 1
+            k += 1
+        out.append(line + (" f=%d" % n if n else ""))
+    write(d / "stalls.rec", REC_HEAD + "\n".join(out) + "\n# end t=%d samples=%d late=0 maxgap_us=10000 "
+          "self_user_us=1000 self_sys_us=2000 maxrss_kb=1000 stacks=0\n" % (t * 1e6, len(out)))
+    write(d / "hud" / "frametime_(ms)", "".join("%g\n" % v for v in ft))
+    # the client started 0.5 s before the recorder's clock started counting
+    bench(d, game="fakestall", variant="base", ended="exit", seconds="%.2f" % (t + 0.5), load_end="0.60",
+          hud_t1="%.2f" % (frames_at[0] + 0.5), window="0.50 %.2f" % (t + 0.5), t0="999.5")
+    res = stalls.analyze(d)
+    check("stalls: aligned by frames, offset -0.5 s", res and res["align"] == "frames" and
+          abs(res["offset"] + 0.5) < 0.011, res and (res["align"], res["offset"]))
+    got = [x["cause"] for x in sorted(res["stalls"], key=lambda x: x["at"])] if res else []
+    check("stalls: %d stalls, causes in order" % len(REC_STALLS), got == [c for c, _ in REC_STALLS], got)
+    if res:
+        check("stalls: window seconds by cause add up to the stall seconds (1.8 s)",
+              abs(sum(res["window"].values()) - 1.8) < 0.01, dict(res["window"]))
+        check("stalls: t0 agrees with the frames", abs(res.get("t0_offset", 9)) < 0.02, res.get("t0_offset"))
+    r = report.run(d)
+    check("report: stall columns (gpu 0.2, swap 0.4, reclaim 0.4, cpu 0.2, other 0)",
+          r.get("stall_gpu_s") == 0.2 and r.get("stall_swap_s") == 0.4 and r.get("stall_reclaim_s") == 0.4
+          and r.get("stall_cpu_s") == 0.2 and r.get("stall_other_s") == 0.0,
+          {k: v for k, v in r.items() if k.startswith("stall_")})
+    res2 = tmp / "results-stalls"
+    res2.mkdir()
+    p = subprocess.run([sys.executable, str(HERE / "matrix.py"), "stall row", str(d)],
+                       env=dict(os.environ, BENCH_RESULTS=str(res2)), capture_output=True, text=True)
+    import csv
+    f = res2 / "stall_gpu_s.csv"
+    rows = list(csv.DictReader(f.open())) if f.exists() else []
+    check("matrix: stall_gpu_s.csv made by a run with a record, cell 0.2",
+          p.returncode == 0 and rows and rows[-1].get("fakestall-base") == "0.2", (p.stderr[-300:], rows))
+    stalls.show(d)
+    print()
+
+
+# --- 6. ps3-stallrec on a fake game that stalls ----------------------------------------------
+def fake_stall_game(hud, pidfile, data):
+    """a game whose frames stall three ways, 300 ms each, in this order: disk, cpu, futex"""
+    import mmap
+    import threading
+    with open(pidfile, "w") as f:
+        f.write("%d\n" % os.getpid())
+    ft = open(os.path.join(hud, "frametime_(ms)"), "a", buffering=1)
+    last = [time.monotonic()]
+    first = [True]
+
+    def frame():
+        now = time.monotonic()
+        if not first[0]:
+            ft.write("%.3f\n" % ((now - last[0]) * 1000))
+        first[0] = False
+        last[0] = now
+
+    def normal(seconds):
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            time.sleep(0.02)
+            frame()
+    normal(1.5)
+    fd = os.open(data, os.O_RDONLY)
+    size = os.fstat(fd).st_size
+    os.posix_fadvise(fd, 0, size, os.POSIX_FADV_DONTNEED)
+    m = mmap.mmap(fd, size, prot=mmap.PROT_READ)
+    m.madvise(mmap.MADV_RANDOM)
+    pages, i, end, x = size // 4096, 0, time.monotonic() + 0.3, 0
+    while time.monotonic() < end:     # disk: one major fault per page
+        x += m[(i * 7919 % pages) * 4096]
+        i += 1
+    frame()
+    normal(0.5)
+    end = time.monotonic() + 0.3
+    while time.monotonic() < end:     # cpu
+        x += 1
+    frame()
+    normal(0.5)
+    lock = threading.Lock()
+    lock.acquire()
+    lock.acquire(timeout=0.3)         # futex
+    frame()
+    normal(0.5)
+    print("faulted %d pages" % i)
+
+
+def block_dev(path):
+    """the partition and the disk a path is on (names in /sys/class/block), or ()"""
+    st = os.stat(path)
+    p = Path("/sys/dev/block/%d:%d" % (os.major(st.st_dev), os.minor(st.st_dev)))
+    if not p.exists():
+        return ()
+    p = p.resolve()
+    names = [p.name]
+    if (p / "partition").exists():
+        names.append(p.parent.name)
+    return tuple(names)
+
+
+def stallrec_e2e(tmp):
+    import stalls
+    src = HERE.parent.parent / "ps3-gpu-tools" / "src" / "ps3-stallrec.c"
+    exe = tmp / "ps3-stallrec"
+    cc = shutil.which("cc") or shutil.which("gcc")
+    if not cc or not src.exists():
+        check("stallrec: a C compiler and %s" % src, False, cc)
+        return
+    p = subprocess.run([cc, "-O2", "-Wall", "-Wextra", "-o", str(exe), str(src)], capture_output=True, text=True)
+    check("stallrec: builds without warnings", p.returncode == 0 and not p.stderr.strip(), p.stderr[-800:])
+    if p.returncode:
+        return
+    # the data file on a disk (not tmpfs): faults must read it
+    ddir = None
+    for c in (os.environ.get("STALLS_DISKDIR"), "/var/tmp", str(HERE)):
+        if c and os.path.isdir(c) and block_dev(c):
+            ddir = c
+            break
+    if not ddir:
+        print("SKIP stallrec end to end: no disk-backed directory (STALLS_DISKDIR=...)")
+        return
+    data = Path(tempfile.mkstemp(prefix="stalls-selftest-", dir=ddir)[1])
+    try:
+        with data.open("wb") as f:
+            for _ in range(64):
+                f.write(os.urandom(1 << 20))
+            f.flush()
+            os.fsync(f.fileno())
+        d = tmp / "ps3-bench-20261018T030000Z-fakestallrec-base"
+        (d / "hud").mkdir(parents=True)
+        args = [str(exe), "-o", str(d / "stalls.rec"), "-p", str(d / ".pid"), "-f", str(d / "hud" / "frametime_(ms)"),
+                "-s", str(d / "stop"), "-x", "kswapd0", "-n"]
+        for n in block_dev(ddir):
+            args += ["-d", n]
+        rec = subprocess.Popen(args)
+        t0 = time.time()
+        g = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--fake-stall-game", str(d / "hud"),
+                            str(d / ".pid"), str(data)], capture_output=True, text=True)
+        secs = time.time() - t0
+        (d / "stop").touch()
+        try:
+            rec.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            rec.kill()
+            rec.wait()
+        check("stallrec: fake game ran", g.returncode == 0, g.stderr[-500:])
+        print("  fake game: " + g.stdout.strip())
+        # bench.txt as client.sh writes it: the whole run is the window
+        b0 = report.floats(d / "hud" / "frametime_(ms)")
+        bench(d, game="fakestallrec", variant="base", ended="exit", seconds="%.2f" % secs, load_end="1.00",
+              hud_t1="%.2f" % (secs - sum(b0[1:]) / 1000), window="0.00 %.2f" % secs, t0="%.6f" % t0)
+        res = stalls.analyze(d)
+        got = [x["cause"] for x in sorted(res["stalls"], key=lambda x: x["at"])] if res else []
+        check("stallrec: three stalls: disk, cpu, wait", got == ["disk", "cpu", "wait"],
+              [(x["cause"], round(x["ms"]), x["evidence"][:150]) for x in (res or {}).get("stalls", [])])
+        if res:
+            check("stallrec: frames and t0 agree within 0.05 s", abs(res.get("t0_offset", 9)) < 0.05,
+                  res.get("t0_offset"))
+            e = res["rec"].end
+            own = (int(e.get("self_user_us", 0)) + int(e.get("self_sys_us", 0))) / 1e6
+            run_s = int(e.get("t", 1)) / 1e6
+            print("  recorder: own CPU %.3f s over %.1f s (%.2f%% of one thread), %s samples, cost per "
+                  "sample (us): %s" % (own, run_s, 100 * own / run_s, e.get("samples"),
+                                      " ".join("%s %s" % kv for kv in res["rec"].cost.items())))
+        stalls.show(d)
+    finally:
+        data.unlink()
+
+
 # --- 4. every recipe and variant ---------------------------------------------------------------
 LINT = r'''
 here=$1; ASSETS=$here/assets; D=/nonexistent; g=$2
@@ -321,12 +552,17 @@ if __name__ == "__main__":
     if len(sys.argv) > 2 and sys.argv[1] == "--fake-game":
         fake_game(sys.argv[2])
         sys.exit(0)
+    if len(sys.argv) > 4 and sys.argv[1] == "--fake-stall-game":
+        fake_stall_game(*sys.argv[2:5])
+        sys.exit(0)
     tmp = Path(tempfile.mkdtemp(prefix="bench-selftest-"))
     try:
         runs = synthetic(tmp)
         matrix(tmp, runs)
         client(tmp)
         lint()
+        stalls_synthetic(tmp)
+        stallrec_e2e(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("\n%d check(s) failed: %s" % (len(FAILS), ", ".join(FAILS)) if FAILS else "\nall checks passed")

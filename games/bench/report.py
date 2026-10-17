@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""report.py <run dir>...: one line per games/bench run (ps3-bench.sh run directories with the
+"""report.py [--stalls] <run dir>...: one line per games/bench run (ps3-bench.sh run directories with the
 bench.txt client.sh writes), then the median per game and variant, then, when a game ran in more
 than one variant, each variant against the first: fps and load as ratios, so a decision reads
 across games. Columns:
@@ -28,6 +28,11 @@ from before 2026-10-17 have none):
   so      pages swapped out until the load ended / during the whole run
   vsw     VRAM swap: peak pages in VRAM, pages written back to the disk (shrinks)
   xrun    ALSA underruns (the sound buffer ran dry: audible chopping)
+stall causes (runs with a stalls.rec: ps3-bench.sh BENCH_STALLS=1, run.sh STALLS=1; stalls.py):
+  stall_disk_s, _swap_s (zram + VRAM swap), _reclaim_s (direct reclaim, compaction, GART growth),
+  _gpu_s, _cpu_s (running, or runnable without CPU), _io_s (the game's own reads), _wait_s (futex,
+          poll, sleep), _other_s (faults without I/O, unknown): the window's stall_s split by
+          what the game's main thread and the counters did; stall_why the largest of them
   snd     the sound card state(s) at SOUND_AT seconds; end: how the run ended (exit, end, duration)"""
 import re
 import statistics
@@ -111,6 +116,9 @@ def run(d):
     r.update(vram=vram, gart=gart, avail=avail, vsw_peak=vv,
              so_load=(so_load or 0) - (so0 or 0), so_all=(so_end or 0) - (so0 or 0),
              vsw_wb=(wb_end or 0) - (wb0 or 0))
+    if (d / "stalls.rec").exists():
+        import stalls
+        r.update(stalls.summary(d))
     return r
 
 
@@ -128,13 +136,31 @@ def floats(path):
     return out
 
 
-def steady(d, b, r):
-    """the steady-state metrics of run directory d (bench.txt b) into r"""
+def window(b):
+    """the window's pieces [(start, end)] in seconds from the client's start, or None"""
     w = [float(x) for x in (b.get("window") or "").split()]
     if not w or len(w) % 2:
+        return None
+    return list(zip(w[::2], w[1::2]))   # maybe in pieces (WIN_ON_RE/WIN_OFF_RE)
+
+
+def frame_ends(ft, b):
+    """when each HUD frame ended, seconds from the client's start: frame i ends at t1 + the frame
+    times after the first (t1: when the dump got its first value)"""
+    t1, secs = num(b.get("hud_t1")), num(b.get("seconds"))
+    ends, t = [], (t1 if t1 is not None else (secs or 0) - sum(ft[1:]) / 1000)
+    for i, v in enumerate(ft):
+        if i:
+            t += v / 1000
+        ends.append(t)
+    return ends
+
+
+def steady(d, b, r):
+    """the steady-state metrics of run directory d (bench.txt b) into r"""
+    segs = window(b)
+    if not segs:
         return
-    segs = list(zip(w[::2], w[1::2]))   # the window, maybe in pieces (WIN_ON_RE/WIN_OFF_RE)
-    a, z = segs[0][0], segs[-1][1]
 
     def inside(e):
         return any(s < e <= t for s, t in segs)
@@ -142,12 +168,7 @@ def steady(d, b, r):
     secs = num(b.get("seconds"))
     ft_path, fps_path = d / "hud" / "frametime_(ms)", d / "hud" / "fps"
     if ft_path.exists() and (ft := floats(ft_path)):
-        # frame i ends at t1 + the frame times after the first (t1: when the dump got its first value)
-        ends, t = [], (t1 if t1 is not None else (secs or 0) - sum(ft[1:]) / 1000)
-        for i, v in enumerate(ft):
-            if i:
-                t += v / 1000
-            ends.append(t)
+        ends = frame_ends(ft, b)
         if secs is not None:
             r["ftdrift"] = round(secs - ends[-1], 1)
         inw = [(e, v) for e, v in zip(ends, ft) if inside(e)]
@@ -207,7 +228,8 @@ def steady(d, b, r):
 
 COLS = ["load", "fps", "maxms", "hud", "steady", "src", "low1", "stalls", "smooth", "stall_s", "longest", "win", "passes",
         "ftdrift", "cpu", "rss", "vram", "gart", "avail", "so_load", "so_all",
-        "vsw_peak", "vsw_wb", "xrun", "snd", "end"]
+        "vsw_peak", "vsw_wb", "xrun", "snd", "end", "stall_disk_s", "stall_swap_s", "stall_reclaim_s",
+        "stall_gpu_s", "stall_cpu_s", "stall_io_s", "stall_wait_s", "stall_other_s", "stall_why"]
 RANGED = ("load", "fps", "maxms", "hud_med", "steady", "low1", "smooth", "stall_s")
 
 
@@ -258,4 +280,13 @@ def main(dirs):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    args = sys.argv[1:]
+    detail = "--stalls" in args     # stalls.py's tables for every run with a record, after the summary
+    args = [a for a in args if a != "--stalls"]
+    main(args)
+    if detail:
+        import stalls
+        for d in args:
+            if (Path(d) / "stalls.rec").exists():
+                print()
+                stalls.show(d)

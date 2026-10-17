@@ -14,6 +14,7 @@ One CSV per metric. Every file has the same rows, in the order the configuration
 | `low1.csv` | the 1% low in the window: 1000 / the 99th percentile frame time (HUD frame times; with per-second data only, the slowest 1% of seconds) | higher |
 | `stalls.csv` | frames over 100 ms in the window (per-second data only: seconds under 10 fps) | lower |
 | `longest_ms.csv` | the longest frame in the window, ms (HUD frame times, else the game's own per-pass longest) | lower |
+| `stall_disk_s.csv`, `stall_swap_s.csv`, `stall_reclaim_s.csv`, `stall_gpu_s.csv`, `stall_cpu_s.csv` | seconds of the window's stalls spent on each cause (runs recorded with `STALLS=1`; docs/STALLS.md says how a cause is decided); each file is created by the first run that has the number | lower |
 
 The steady-state files (since 2026-10-17, the user's decision): every run leaves out a warm-up
 (`WARMUP`, 60 s after the game's load ends) and measures at least `MEASURE` (120) s after it; each

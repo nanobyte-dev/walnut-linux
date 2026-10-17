@@ -10,12 +10,15 @@
 #                                      (a game without a variant runs base once per round)
 #   run.sh list                        recipes and their variants
 # Variant `base` is the recipe as written. End the session with `ps3-bench.sh desktop`.
+# STALLS=1: the stall recorder runs alongside (ps3-bench.sh BENCH_STALLS=1, docs/STALLS.md); smoke
+# then prints stalls.py's tables, else `python3 stalls.py <run dir>...` does.
 # Results: /var/tmp/ps3-bench/<stamp>-<game>-<variant>/; report.py summarises them.
 {
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 B=ps3-bench.sh
 LOG=/dev/shm/run.sh.$$
+[ -n "${STALLS:-}" ] && export BENCH_STALLS=$STALLS
 RUNS=()
 
 one() {	# one LABEL GAME VARIANT: one run, its directory appended to RUNS
@@ -38,7 +41,7 @@ versions() {	# versions GAME VARIANT: the game's package and the graphics stack 
 	uname -r
 }
 variants() { grep -o '^variant_[a-z0-9_]*' "$here/recipes/$1.sh" | sed 's/^variant_//' | tr '\n' ' '; }
-report() { [ ${#RUNS[@]} -gt 0 ] && python3 "$here/report.py" "${RUNS[@]}"; }
+report() { [ ${#RUNS[@]} -gt 0 ] && python3 "$here/report.py" "$@" "${RUNS[@]}"; }
 
 case ${1:-} in
 smoke)
@@ -51,7 +54,7 @@ smoke)
 	echo "== game output: lines worth a look"
 	grep -aiE 'error|fail|unsupported|not supported|missing|shader|link|segmentation|abort|assert|nouveau|out of temps' \
 		"$d/game.log" 2>/dev/null | head -30
-	report
+	report --stalls
 	echo "Check on the TV: picture and colours. Sound card state at ${SOUND_AT:-15} s is in bench.txt."
 	;;
 bench)

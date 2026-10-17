@@ -14,7 +14,8 @@
 # (load + WARMUP + MEASURE) is over (the HUD measures it). STEADY_RE/STEADY_MAXMS_RE: the game's own
 # result over its own window. WIN_ON_RE/WIN_OFF_RE: the game marks its own window, maybe in pieces
 # (each ON line opens one, the next OFF line closes it; it replaces load + WARMUP). bench.txt gets
-# load_end, window (start end pairs), pass<N> and steady_* for report.py.
+# load_end, window (start end pairs), pass<N> and steady_* for report.py; t0 (the start, epoch
+# seconds) places them on the clock of ps3-stallrec's record (stalls.py).
 {
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
@@ -238,6 +239,7 @@ secs measured "$measured"
   echo "fps=$($pick "$FPS_RE")"; echo "maxms=$($pick "$MAXMS_RE")"; echo "load=$load"
   # steady state: settings, the load's end and the HUD's first value (s from the start), the window
   echo "warmup=$WARMUP"; echo "measure=$MEASURE"; echo "load_end=${load_end:-}"; echo "hud_t1=${hud_t1:-}"
+  echo "t0=$t0"	# the start as $EPOCHREALTIME: the other times are seconds after it (stalls.py)
   echo "window=$window"
   [ "$PASSES" = 1 ] && { echo "passes=$np"; echo "measured=$measured"; printf '%s\n' "${PASS[@]}"; }
   [ -n "$STEADY_RE" ] && { echo "steady_fps=$(first "$STEADY_RE")"; echo "steady_maxms=$(first "$STEADY_MAXMS_RE")"; }

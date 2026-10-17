@@ -16,6 +16,9 @@ before 2026-10-17 have no such cells):
   low1.csv       the 1% low: 1000 / the 99th percentile frame time in the window (higher is better)
   stalls.csv     frames over 100 ms in the window (lower is better)
   longest_ms.csv the longest frame in the window, ms (lower is better)
+the stall causes (runs recorded with STALLS=1, stalls.py; a file is created by the first run that has
+the number): seconds of the window's stalls spent on each cause (lower is better)
+  stall_disk_s.csv, stall_swap_s.csv, stall_reclaim_s.csv, stall_gpu_s.csv, stall_cpu_s.csv
 A new metric file starts with the rows fps.csv has (cells empty), so every file has the same rows.
 BENCH_RESULTS=<dir> writes the files there instead (the self-test).
 Columns: test, date (of the newest run), runs (count), observations (did the games run, what was wrong, what this row proves), then the game-variants, sorted.
@@ -51,6 +54,9 @@ METRICS = {
     "stalls": lambda r: r.get("stalls"),
     "longest_ms": lambda r: r.get("longest"),
 }
+OPTIONAL = ("stall_disk_s", "stall_swap_s", "stall_reclaim_s", "stall_gpu_s", "stall_cpu_s")
+for _m in OPTIONAL:
+    METRICS[_m] = lambda r, m=_m: r.get(m)
 FIXED = ["test", "date", "runs", "observations"]
 RECIPES = sorted((p.stem for p in (Path(__file__).resolve().parent / "recipes").glob("*.sh")),
                  key=len, reverse=True)
@@ -127,6 +133,9 @@ def main(argv):
     RESULTS.mkdir(exist_ok=True)
     for name, get in METRICS.items():
         path = RESULTS / f"{name}.csv"
+        if name in OPTIONAL and not path.exists() and not any(
+                isinstance(get(x), (int, float)) for x in runs if x["game"]):
+            continue    # no run has it yet: no file of empty cells
         cols, rows = load(path)
         if not path.exists() and name != "fps":  # a new metric: the rows fps.csv has, no cells
             rows = {t: {k: r.get(k, "") for k in FIXED} for t, r in load(RESULTS / "fps.csv")[1].items()}
@@ -150,6 +159,8 @@ def main(argv):
     _, fr = load(RESULTS / "fps.csv")
     for name in METRICS:
         path = RESULTS / f"{name}.csv"
+        if not path.exists():
+            continue
         cols, rows = load(path)
         if row in rows:
             rows[row]["runs"] = fr[row]["runs"]
