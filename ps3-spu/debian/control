@@ -13,8 +13,9 @@ Recommends: ps3-spu-programs
 Description: SPU program runner and libspeq tools for the PS3's Cell SPEs
  spurun loads and runs an SPU program through spufs; speq-dxt tests and benchmarks libspeq's
  DXT1 texture encoder; speq-bench measures libspeq's queue (wake and completion latency,
- parking, the 0x2104 syscall path, the decrementer, DMA bandwidth) with bench.spu. The
- package loads spufs at boot and mounts it at /spu.
+ parking, the 0x2104 syscall path, the decrementer, DMA bandwidth) with bench.spu;
+ speq-skin tests and benchmarks libspeq's vertex skinning. The package loads spufs at
+ boot and mounts it at /spu.
 
 Package: ps3-spu-programs
 Architecture: all
@@ -24,22 +25,26 @@ Replaces: ps3-spu (<< ${source:Version})
 Description: SPU programs for the PS3
  SPU programs (*.spu, built with spu-elf GCC) in /usr/lib/ps3/spu: hello.spu, run with
  spurun; bench.spu, libspeq's resident worker with the operations speq-bench uses;
- dxt.spu, the worker libspeq's DXT1 texture compression runs on the SPEs; and synth.spu,
- the worker that renders fluidsynth's voices (MIDI synthesis) on the SPEs.
+ dxt.spu, the worker libspeq's DXT1 texture compression runs on the SPEs; synth.spu,
+ the worker that renders fluidsynth's voices (MIDI synthesis) on the SPEs; and skin.spu,
+ the worker that skins skeletal models' vertices for games (Sauerbraten).
 
 Package: libspeq0
 Section: libs
 Architecture: ppc64
 Multi-Arch: same
 Depends: ps3-spu, ps3-spu-programs (= ${source:Version}), ${shlibs:Depends}, ${misc:Depends}
-Description: work queues on the PS3's SPEs, DXT1 compression, MIDI synthesis
+Description: work queues on the PS3's SPEs, DXT1 compression, MIDI synthesis, skinning
  libspeq runs jobs on resident SPU workers fed through spufs, and provides services built on
  them. S3TC DXT1 texture compression, which Mesa loads at run time
  (speq_s3tc_compress_v1): van Waveren's real-time DXT1 on the SPEs (dxt.spu), and on the
  PPE for small images or when no SPE is available, with the same output
  (SPEQ_S3TC=auto|spu|ppe|off). fluidsynth's voice rendering, which our fluidsynth loads at
- run time (speq_synth_*_v1): sample interpolation, filters and mixing on the SPEs
- (synth.spu, SPEQ_SYNTH=auto|spu|ppe|off). SPEQ_DEBUG=1 logs what each service does.
+ run time (speq_synth_*_v2): sample interpolation, filters and mixing on the SPEs
+ (synth.spu, SPEQ_SYNTH=auto|spu|ppe|off). Vertex skinning of skeletal models, which our
+ Sauerbraten loads at run time (speq_skin_*_v1): dual quaternion or matrix palettes,
+ positions, normals and tangents on the SPEs (skin.spu, SPEQ_SKIN=auto|spu|ppe|off).
+ SPEQ_DEBUG=1 logs what each service does.
 
 Package: libspeq-dev
 Section: libdevel

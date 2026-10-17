@@ -7,7 +7,8 @@
 #                   queue-test, speq-bench-fake --quick (bench.spu's ops), speq-dxt-fake --check
 #                   on the spu and auto paths (dxt.spu's op and encoder: the whole SPU path),
 #                   synth-test (synth.spu's op, every read checked against its DMA plan, against
-#                   libspeq's PPE path)
+#                   libspeq's PPE path), speq-skin-fake --check on the spu and ppe paths (skin.spu's
+#                   op and libspeq's PPE path against Sauerbraten's skinning written out in C)
 #   make test-fluidsynth  fluidsynth with the libspeq hook against unpatched fluidsynth, both
 #                   built for the host, on a generated MIDI file (tests/fluidsynth-compare.sh)
 #   make test-mesa  our encoder against Mesa's on a corpus (tests/mesa-compare.sh)
@@ -22,19 +23,21 @@ override SPU_CFLAGS += -Wall -std=gnu11 -Ilib -Ispu
 TEST_OUT ?= ../build/speq-test
 MESA    ?= ../build/work/mesa
 
-SPEQ_SRC := lib/s3tc.c lib/dxt-ref.c lib/synth.c lib/queue.c lib/spe.c
+SPEQ_SRC := lib/s3tc.c lib/dxt-ref.c lib/synth.c lib/skin.c lib/queue.c lib/spe.c
 SPEQ_HDR := $(wildcard lib/*.h)
 # the fake backend: the SPU runtime and a program's ops built for the host (tests only)
 FAKE_SRC := lib/fake.c spu/runtime.c spu/bench.c
 FAKE_DXT := lib/fake.c spu/runtime.c spu/dxt-op.c spu/dxt.c
 FAKE_SYNTH := lib/fake.c spu/runtime.c spu/synth-op.c
+FAKE_SKIN := lib/fake.c spu/runtime.c spu/skin-op.c
 SPU_HDR  := $(wildcard spu/*.h)
 # dxt.spu's encoder at -O3, as timed (135 cycles per block)
 DXT_SPU_OPT ?= -O3
 
 .PHONY: ppe spu test test-mesa test-fluidsynth
-ppe: $(OUT)/libspeq.so.0 $(OUT)/speq-dxt $(OUT)/spurun $(OUT)/speq-bench
-spu: $(OUT)/hello.spu $(OUT)/libspeq-spu.a $(OUT)/bench.spu $(OUT)/dxt.spu $(OUT)/synth.spu
+ppe: $(OUT)/libspeq.so.0 $(OUT)/speq-dxt $(OUT)/spurun $(OUT)/speq-bench $(OUT)/speq-skin
+spu: $(OUT)/hello.spu $(OUT)/libspeq-spu.a $(OUT)/bench.spu $(OUT)/dxt.spu $(OUT)/synth.spu \
+	$(OUT)/skin.spu
 
 # only speq_* exported (lib/libspeq.map), SONAME libspeq.so.0
 $(OUT)/libspeq.so.0: $(SPEQ_SRC) $(SPEQ_HDR) lib/libspeq.map
@@ -48,6 +51,9 @@ $(OUT)/speq-dxt: tools/speq-dxt.c $(SPEQ_SRC) $(SPEQ_HDR)
 $(OUT)/speq-bench: tools/speq-bench.c $(SPEQ_SRC) $(SPEQ_HDR) spu/bench.h
 	@mkdir -p $(OUT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Ilib -Ispu $(LDFLAGS) -o $@ tools/speq-bench.c $(SPEQ_SRC) -lm -lpthread
+$(OUT)/speq-skin: tools/speq-skin.c $(SPEQ_SRC) $(SPEQ_HDR)
+	@mkdir -p $(OUT)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Ilib $(LDFLAGS) -o $@ tools/speq-skin.c $(SPEQ_SRC) -lm -lpthread
 $(OUT)/spurun: src/spurun.c
 	@mkdir -p $(OUT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $<
@@ -71,12 +77,16 @@ $(OUT)/dxt.spu: spu/dxt-op.c spu/dxt.c $(SPU_HDR) lib/dxt-job.h $(OUT)/libspeq-s
 # lib/synth-kern.h, shared with the PPE path)
 $(OUT)/synth.spu: spu/synth-op.c lib/synth-kern.h lib/synth-job.h $(SPU_HDR) $(OUT)/libspeq-spu.a
 	$(SPU_CC) $(SPU_CFLAGS) -o $@ spu/synth-op.c $(OUT)/libspeq-spu.a
+# skin.spu: speq_skin_*_v1's worker (spu/skin-op.c: DMA, double buffering; the kernel in
+# lib/skin-kern.h, shared with the PPE path)
+$(OUT)/skin.spu: spu/skin-op.c lib/skin-kern.h lib/skin-job.h $(SPU_HDR) $(OUT)/libspeq-spu.a
+	$(SPU_CC) $(SPU_CFLAGS) -O3 -o $@ spu/skin-op.c $(OUT)/libspeq-spu.a
 
 # host tests (x86 or ppc64): nothing but cc
 test:
 	$(MAKE) OUT=$(TEST_OUT) $(TEST_OUT)/libspeq.so.0 $(TEST_OUT)/speq-dxt $(TEST_OUT)/dlopen-check \
 		$(TEST_OUT)/queue-test $(TEST_OUT)/speq-bench-fake $(TEST_OUT)/speq-dxt-fake \
-		$(TEST_OUT)/synth-test
+		$(TEST_OUT)/synth-test $(TEST_OUT)/speq-skin-fake
 	$(TEST_OUT)/speq-dxt --check
 	SPEQ_FAKE=1 $(TEST_OUT)/speq-dxt-fake --check --path spu
 	SPEQ_FAKE=1 $(TEST_OUT)/speq-dxt-fake --check --path auto
@@ -84,6 +94,9 @@ test:
 	SPEQ_FAKE=1 $(TEST_OUT)/queue-test $(wildcard $(TEST_OUT)/bench.spu)
 	SPEQ_FAKE=1 $(TEST_OUT)/speq-bench-fake --quick --gap 0
 	SPEQ_FAKE=1 $(TEST_OUT)/synth-test
+	SPEQ_FAKE=1 $(TEST_OUT)/speq-skin-fake --check --path spu
+	SPEQ_FAKE=1 $(TEST_OUT)/speq-skin-fake --check --path auto
+	$(TEST_OUT)/speq-skin-fake --check --path ppe
 $(OUT)/dlopen-check: tests/dlopen-check.c lib/dxt-ref.c $(SPEQ_HDR)
 	@mkdir -p $(OUT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Ilib $(LDFLAGS) -o $@ tests/dlopen-check.c lib/dxt-ref.c -ldl
@@ -103,6 +116,10 @@ $(OUT)/synth-test: tests/synth-test.c $(SPEQ_SRC) $(FAKE_SYNTH) $(SPEQ_HDR) $(SP
 	@mkdir -p $(OUT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DSPEQ_FAKE -DSK_CHECK -Ilib -Ispu $(LDFLAGS) -o $@ \
 		tests/synth-test.c $(SPEQ_SRC) $(FAKE_SYNTH) -lm -lpthread
+$(OUT)/speq-skin-fake: tools/speq-skin.c $(SPEQ_SRC) $(FAKE_SKIN) $(SPEQ_HDR) $(SPU_HDR)
+	@mkdir -p $(OUT)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DSPEQ_FAKE -Ilib -Ispu $(LDFLAGS) -o $@ tools/speq-skin.c \
+		$(SPEQ_SRC) $(FAKE_SKIN) -lm -lpthread
 # libspeq.so.0 with the fake backend and synth.spu's op (SPEQ_FAKE=1), for fluidsynth's hook
 $(OUT)/fake/libspeq.so.0: $(SPEQ_SRC) $(FAKE_SYNTH) $(SPEQ_HDR) $(SPU_HDR) lib/libspeq.map
 	@mkdir -p $(OUT)/fake

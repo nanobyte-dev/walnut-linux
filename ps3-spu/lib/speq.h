@@ -192,6 +192,98 @@ int speq_synth_render_v2(struct speq_synth *s, const float **out, const float **
 /* Waits for its jobs in flight (bounded), then frees it */
 void speq_synth_close_v2(struct speq_synth *s);
 
+/* --- Vertex skinning: a skeletal model's vertices moved by its bones, on the SPEs ---
+ * What a game's CPU skinning does each frame before it uploads a vertex buffer: every vertex's
+ * position, normal and tangent transformed by one palette entry (a dual quaternion or a 3x4
+ * matrix: a bone, or a blend of bones the game made) or by a blend of up to 4 bones with 8-bit
+ * weights. A batch is one output buffer, owned by libspeq, with any number of meshes at their
+ * offsets in it (Sauerbraten: a mesh group's vertex buffer); the game uploads that buffer.
+ *   speq_skin_begin_v1(s, out_bytes, nverts)   0: a batch; < 0: skin it yourself
+ *   speq_skin_add_v1(s, &mesh)                 per mesh: its jobs start on the SPEs at once
+ *   speq_skin_end_v1(s, &out)                  0: out holds every mesh added, each at its
+ *                                              dst_offset; < 0: skin the batch yourself
+ * Between begin and end the inputs (palettes, sources, templates) must stay as they are; after
+ * an end that failed or timed out libspeq never hands out that batch's late results. out
+ * stays valid (and writable) until the next begin on s. An add that fails spoils the batch:
+ * end then returns its error.
+ * Every field the op writes is replaced; the output's other bytes come from the template
+ * (tmpl, dst_stride bytes per vertex: a game's interleaved buffer with its texture
+ * coordinates), or are zero without one.
+ * Policy is libspeq's: SPEQ_SKIN=auto|spu|ppe|off (auto, the default: the SPEs for batches of
+ * at least SPEQ_SKIN_MIN vertices (256), else begin declines; spu: every batch; ppe: libspeq's
+ * code on the calling thread, no SPEs; off: speq_skin_open_v1 fails), SPEQ_SKIN_SPES (workers,
+ * 2), SPEQ_SKIN_TIMEOUT_US (end waits 2000 + 0.05 per vertex, then declines; spinning
+ * SPEQ_SKIN_SPIN_US first, 300), SPEQ_DEBUG=1 (a line of counters every 10 s and at close).
+ * Three failed batches in a row put the SPEs aside for 5 s; a queue that broke, for good. One
+ * speq_skin per thread; they share the queue. */
+
+#define SPEQ_SKIN_ABI		1	/* layout of struct speq_skin_mesh (the _v1 calls) */
+#define SPEQ_SKIN_NONE		0xffff	/* an absent field's offset */
+
+enum {	/* .palette_fmt */
+	SPEQ_SKIN_DQ,		/* 8 floats: real x y z w, dual x y z w (Sauerbraten's dualquat) */
+	SPEQ_SKIN_MAT		/* 12 floats: 3 rows of 4, x' = row0 . (x, y, z, 1) */
+};
+enum {	/* .influence */
+	SPEQ_SKIN_IDX_S32,	/* the palette entry's index: int32 at index.off */
+	SPEQ_SKIN_IDX_U16,
+	SPEQ_SKIN_IDX_U8,
+	SPEQ_SKIN_W4		/* 4 uint8 indices at index.off, 4 uint8 weights (/255) at
+				 * weights.off: DQ blended and normalized as Sauerbraten blends,
+				 * matrices summed */
+};
+enum {	/* .tan_in */
+	SPEQ_SKIN_TAN_NONE,
+	SPEQ_SKIN_TAN_VEC4,	/* float x y z rotated, w (handedness) kept */
+	SPEQ_SKIN_TAN_QUAT	/* float quaternion of the tangent frame, DQ only: rotated (real *
+				 * q) and its sign fixed as Sauerbraten's fixqtangent, w < 0 the
+				 * bitangent's sign */
+};
+enum {	/* .tan_out */
+	SPEQ_SKIN_OUT_F32,	/* 4 floats */
+	SPEQ_SKIN_OUT_S16	/* 4 int16: (short)(x * 32767.5f - 0.5f), Sauerbraten's squat */
+};
+
+/* An input field: its stream (0, 1) and its byte offset in the stream's vertex */
+struct speq_skin_field {
+	uint16_t off;			/* SPEQ_SKIN_NONE: absent */
+	uint8_t stream, pad;
+};
+
+/* One mesh. Positions and normals are 3 floats, tangents 4; every offset and stride a multiple
+ * of 4, palettes 16-aligned, (tmpl - dst_offset) 16-aligned (the template at the output's
+ * alignment); palette entries at most 1536 (DQ) or 1024 (MAT) in all. */
+struct speq_skin_mesh {
+	uint32_t nverts;
+	uint8_t palette_fmt, influence, tan_in, tan_out;
+	const void *palette[2];		/* entries [0, npal[0]) from palette[0], the next npal[1]
+					 * from palette[1] (a game's bones, then its blends) */
+	uint32_t npal[2];
+	const void *src[2];		/* vertex streams */
+	uint32_t src_stride[2];
+	struct speq_skin_field pos, norm, tan, index, weights;	/* pos and index required */
+	const void *tmpl;		/* nverts x dst_stride bytes, or NULL */
+	uint32_t dst_offset;		/* the mesh's vertex 0 in the batch's output */
+	uint32_t dst_stride;
+	uint16_t dst_pos, dst_norm, dst_tan;	/* SPEQ_SKIN_NONE: not written */
+	uint16_t pad;
+};
+
+struct speq_skin;
+/* abi: SPEQ_SKIN_ABI, mesh_size: sizeof(struct speq_skin_mesh). 0, or -ENOTSUP (SPEQ_SKIN=off),
+ * -EPROTO (another ABI), or the queue's error (-ENOENT, -EBUSY, ...): then skin yourself */
+int speq_skin_open_v1(struct speq_skin **s, unsigned abi, unsigned mesh_size);
+/* nverts: the batch's vertices (the auto policy's measure). -ENOTSUP: declined (small, the SPEs
+ * set aside, no free buffer), -EINVAL, -ENOMEM */
+int speq_skin_begin_v1(struct speq_skin *s, uint32_t out_bytes, uint32_t nverts);
+/* 0, or -EINVAL / -ENOTSUP (a mesh outside the formats and limits above), -ENOSPC (too many
+ * meshes in a batch), the queue's error */
+int speq_skin_add_v1(struct speq_skin *s, const struct speq_skin_mesh *m);
+/* 0 and *out; or the batch's error, -ETIMEDOUT (late), -EIO (the SPEs failed) */
+int speq_skin_end_v1(struct speq_skin *s, void **out);
+/* Waits for its batches in flight (bounded), then frees it */
+void speq_skin_close_v1(struct speq_skin *s);
+
 #ifdef __cplusplus
 }
 #endif

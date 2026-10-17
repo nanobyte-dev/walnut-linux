@@ -97,6 +97,22 @@ extern int spq_s3tc_fault;
 enum { SPQ_SYNTH_OFF, SPQ_SYNTH_PPE, SPQ_SYNTH_SPU, SPQ_SYNTH_AUTO };
 void spq_synth_tune(int mode, long timeout_us, int per_block_us, int min_voices);
 
+/* skin.c: for speq-skin and the tests. Mode SPQ_SKIN_* (-1: unchanged), the wait's timeout, its
+ * allowance per vertex (ns) and the auto mode's minimum (< 0: unchanged). A speq_skin opened
+ * before keeps its queue (ppe: none). */
+enum { SPQ_SKIN_OFF, SPQ_SKIN_PPE, SPQ_SKIN_SPU, SPQ_SKIN_AUTO };
+struct spq_skin_stats {
+	unsigned long batches, spu, ppe, small, declined, meshes_spu, verts_spu, verts_ppe, jobs,
+		      timeouts, errors, refused, nofree, backoffs;
+	double wait_us, wait_max;
+};
+struct speq_skin;
+void spq_skin_tune(int mode, long timeout_us, int per_vert_ns, int min_verts);
+void spq_skin_stats(struct speq_skin *s, struct spq_skin_stats *st);
+/* Tests: when n > 0, the n-th mesh added on the SPEs from now gets an unmapped stream EA, so
+ * its jobs fault */
+extern int spq_skin_fault;
+
 /* fake.c (SPEQ_FAKE builds only) */
 extern const struct spq_backend spq_fake;
 

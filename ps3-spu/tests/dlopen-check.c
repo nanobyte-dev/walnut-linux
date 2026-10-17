@@ -78,6 +78,32 @@ int main(int argc, char **argv)
 			sclose(s);
 		}
 	}
+	{
+		/* the skinning hook's calls (Sauerbraten's), and without spufs: auto can't open
+		 * its queue, ppe needs none, off declines */
+		int (*kopen)(struct speq_skin **, unsigned, unsigned) =
+			(int (*)(struct speq_skin **, unsigned, unsigned))dlsym(h, "speq_skin_open_v1");
+		void (*kclose)(struct speq_skin *) =
+			(void (*)(struct speq_skin *))dlsym(h, "speq_skin_close_v1");
+		struct speq_skin *k = (struct speq_skin *)&k;
+		const char *m = getenv("SPEQ_SKIN");
+
+		check(kopen && kclose && dlsym(h, "speq_skin_begin_v1") &&
+		      dlsym(h, "speq_skin_add_v1") && dlsym(h, "speq_skin_end_v1") &&
+		      !dlsym(h, "spq_skin_tune"), "speq_skin_*_v1 exported (Sauerbraten's hook)");
+		if (kopen && kclose) {
+			check(kopen(&k, SPEQ_SKIN_ABI + 1, sizeof(struct speq_skin_mesh)) == -EPROTO &&
+			      !k, "skin of another ABI: -EPROTO");
+			ret = kopen(&k, SPEQ_SKIN_ABI, sizeof(struct speq_skin_mesh));
+			if (m && !strcmp(m, "ppe"))
+				check(ret == 0 && k, "SPEQ_SKIN=ppe: a skin without a queue");
+			else if (m && !strcmp(m, "off"))
+				check(ret == -ENOTSUP && !k, "SPEQ_SKIN=off: -ENOTSUP");
+			else
+				check(ret < 0 && ret != -EPROTO && !k, "skin without spufs: an error");
+			kclose(k);
+		}
+	}
 	if (!f || !abi || !open_q)
 		return 1;
 	check(abi() == 2, "speq_abi_version() == 2");

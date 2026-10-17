@@ -7,6 +7,11 @@ libspeq.so.0 libspeq0 #MINVER#
  speq_open@SPEQ_0 0.189
  speq_run@SPEQ_0 0.189
  speq_s3tc_compress_v1@SPEQ_0 0.189
+ speq_skin_add_v1@SPEQ_0 0.314
+ speq_skin_begin_v1@SPEQ_0 0.314
+ speq_skin_close_v1@SPEQ_0 0.314
+ speq_skin_end_v1@SPEQ_0 0.314
+ speq_skin_open_v1@SPEQ_0 0.314
  speq_submit@SPEQ_0 0.189
  speq_synth_add_v2@SPEQ_0 0.308
  speq_synth_begin_v2@SPEQ_0 0.308
