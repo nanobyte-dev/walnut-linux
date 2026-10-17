@@ -1,2 +1,4 @@
 0001-Load-.spm-meshes-on-big-endian-hosts.patch
 0002-Right-colours-on-big-endian-with-the-OpenGL-driver.patch
+0003-Legacy-renderer-minimap-render-target-power-of-two-s.patch
+0004-OpenGL-driver-texture-compression-for-opaque-power-o.patch

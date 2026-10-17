@@ -1,0 +1,110 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Sat, 17 Oct 2026 16:03:36 +0300
+Subject: OpenGL driver: texture compression for opaque power-of-two textures
+
+enable_texture_compression only reached the GLSL renderer (SPTexture) and
+Vulkan: with the OpenGL driver (the legacy renderer, GL 2.1) every texture
+went to the GPU as RGBA8, 4 bytes a pixel, without mipmaps. With the
+setting on (the default) and GL_EXT_texture_compression_s3tc present,
+GEGLTexture now uploads the textures it loads from files as DXT1 (half a
+byte a pixel, compressed by the driver at upload) when both sides are a
+power of two and every pixel is opaque. Textures with alpha keep RGBA8,
+since DXT1 has no smooth alpha; so do non-power-of-two ones, which old
+GPUs such as nv30 cannot sample compressed. --disable-texture-compression
+or enable_texture_compression="false" turns it off.
+
+diff --git a/lib/graphics_engine/src/ge_gl_texture.cpp b/lib/graphics_engine/src/ge_gl_texture.cpp
+--- a/lib/graphics_engine/src/ge_gl_texture.cpp
++++ b/lib/graphics_engine/src/ge_gl_texture.cpp
+@@ -107,16 +107,44 @@ void GEGLTexture::reload()
+     if (m_texture_name == 0)
+         glGenTextures(1, &m_texture_name);
+     uint8_t* data = (uint8_t*)texture_image->lock();
+-    upload(data);
++    upload(data, true/*may_compress*/);
+     texture_image->unlock();
+     texture_image->drop();
+ }   // reload
+ 
+ // ----------------------------------------------------------------------------
+-void GEGLTexture::upload(uint8_t* data)
++/** Whether a texture loaded from a file goes to the GPU as DXT1 (with the
++ *  OpenGL driver; the GLSL renderer compresses its textures itself): texture
++ *  compression enabled and supported, both sides a power of two (old GPUs
++ *  such as nv30 have no linear compressed textures) and every pixel opaque
++ *  (DXT1 keeps no smooth alpha; such textures stay RGBA8). The driver
++ *  compresses them at upload, to an eighth of RGBA8's memory. */
++static bool useDXT1(const uint8_t* data, unsigned w, unsigned h)
++{
++    if (!getGEConfig()->m_texture_compression || w < 4 || h < 4 ||
++        (w & (w - 1)) != 0 || (h & (h - 1)) != 0)
++        return false;
++    static const bool has_s3tc =
++        hasGLExtension("GL_EXT_texture_compression_s3tc");
++    if (!has_s3tc)
++        return false;
++    // ECF_A8R8G8B8: native 32-bit words, alpha in the top byte
++    const uint32_t* px = (const uint32_t*)data;
++    for (unsigned i = 0; i < w * h; i++)
++    {
++        if ((px[i] >> 24) != 0xff)
++            return false;
++    }
++    return true;
++}   // useDXT1
++
++// ----------------------------------------------------------------------------
++void GEGLTexture::upload(uint8_t* data, bool may_compress)
+ {
+     const unsigned int w = m_size.Width;
+     const unsigned int h = m_size.Height;
++    const bool dxt1 = may_compress && !m_single_channel &&
++        m_driver_type == video::EDT_OPENGL && useDXT1(data, w, h);
+     unsigned int format = m_single_channel ? GL_RED : GL_BGRA;
+     unsigned int internal_format = m_single_channel ? GL_R8 : GL_RGBA8;
+     // ECF_A8R8G8B8 pixels are native 32-bit words (0xAARRGGBB): as bytes
+@@ -128,6 +156,9 @@ void GEGLTexture::upload(uint8_t* data)
+         type = GL_UNSIGNED_INT_8_8_8_8_REV;
+ #endif
+ 
++    if (dxt1)
++        internal_format = GL_COMPRESSED_RGB_S3TC_DXT1_EXT;
++
+     if (m_driver_type == video::EDT_OGLES2)
+     {
+         type = GL_UNSIGNED_BYTE;
+@@ -153,7 +184,7 @@ void GEGLTexture::upload(uint8_t* data)
+     if (hasMipMaps())
+         glGenerateMipmap(GL_TEXTURE_2D);
+     glBindTexture(GL_TEXTURE_2D, 0);
+-    m_texture_size = w * h * (m_single_channel ? 1 : 4);
++    m_texture_size = dxt1 ? w * h / 2 : w * h * (m_single_channel ? 1 : 4);
+ }   // upload
+ 
+ // ----------------------------------------------------------------------------
+diff --git a/lib/graphics_engine/src/ge_gl_texture.hpp b/lib/graphics_engine/src/ge_gl_texture.hpp
+--- a/lib/graphics_engine/src/ge_gl_texture.hpp
++++ b/lib/graphics_engine/src/ge_gl_texture.hpp
+@@ -31,7 +31,7 @@ private:
+     bool m_single_channel;
+ 
+     // ------------------------------------------------------------------------
+-    void upload(uint8_t* data);
++    void upload(uint8_t* data, bool may_compress = false);
+     // ------------------------------------------------------------------------
+     void formatConversion(uint8_t* data, unsigned int* format, unsigned int w,
+                           unsigned int h) const;
+diff --git a/src/graphics/irr_driver.cpp b/src/graphics/irr_driver.cpp
+--- a/src/graphics/irr_driver.cpp
++++ b/src/graphics/irr_driver.cpp
+@@ -556,6 +556,9 @@ begin:
+         }
+ 
+ #ifndef SERVER_ONLY
++        // The OpenGL driver's GEGLTexture compresses with it too
++        GE::getGEConfig()->m_texture_compression =
++            UserConfigParams::m_texture_compression;
+         GE::getGEConfig()->m_fullscreen_desktop =
+             (driver_created == video::EDT_VULKAN &&
+             UserConfigParams::m_vulkan_fullscreen_desktop) ||

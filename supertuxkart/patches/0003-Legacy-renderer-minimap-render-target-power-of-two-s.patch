@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Sat, 17 Oct 2026 16:02:23 +0300
+Subject: Legacy renderer: minimap render target power-of-two sized, skipped
+ when hidden; no crash when render to texture failed
+
+GL1RenderTarget's destructor dereferenced its texture, which is NULL when
+the FBO could not be made ("GL1RenderTarget: Cannot render to texture"):
+the game crashed with SIGSEGV when the race ended. Check it first.
+
+The minimap is rendered once per race into an FBO colour texture with a
+depth renderbuffer of twice the minimap's size, which is not a power of
+two (810x810 at 1080p): with the legacy renderer use the largest power of
+two not above it (512x512), the size old GPUs render to natively and less
+memory; the minimap coordinates already scale with the texture's size.
+When the minimap is hidden (Minimap display="2") nothing draws it, so it
+isn't rendered at all.
+
+diff --git a/src/graphics/render_target.cpp b/src/graphics/render_target.cpp
+--- a/src/graphics/render_target.cpp
++++ b/src/graphics/render_target.cpp
+@@ -51,8 +51,10 @@ GL1RenderTarget::GL1RenderTarget(const irr::core::dimension2du &dimension,
+ 
+ GL1RenderTarget::~GL1RenderTarget()
+ {
+-    // GE doesn't add rtt texture to cache
+-    if (m_render_target_texture->getDriverType() == video::EDT_VULKAN)
++    // GE doesn't add rtt texture to cache. NULL when render to texture
++    // failed (the destructor dereferenced it: a crash when the race ended)
++    if (m_render_target_texture != NULL &&
++        m_render_target_texture->getDriverType() == video::EDT_VULKAN)
+         m_render_target_texture->drop();
+ }
+ 
+diff --git a/src/tracks/track.cpp b/src/tracks/track.cpp
+--- a/src/tracks/track.cpp
++++ b/src/tracks/track.cpp
+@@ -1230,11 +1230,32 @@ void Track::loadMinimap()
+     if (GUIEngine::isNoGraphics())
+         return;
+ 
++    // A hidden minimap is never drawn (RaceGUI): don't render it at all,
++    // which saves its colour texture and depth buffer (the overworld draws
++    // its map whatever the setting)
++    if (UserConfigParams::m_minimap_display == 2 &&
++        RaceManager::get()->getMinorMode() !=
++        RaceManager::MINOR_MODE_OVERWORLD)
++        return;
++
+     //Create the minimap resizing it as necessary.
+     core::dimension2du mini_map_size = World::getWorld()->getRaceGUI()->getMiniMapSize();
+ 
+     //Use twice the size of the rendered minimap to reduce significantly aliasing
+-    m_render_target = Graph::get()->makeMiniMap(mini_map_size * 2,
++    core::dimension2du rtt_size = mini_map_size * 2;
++    if (!CVS->isGLSL())
++    {
++        // The legacy renderer renders it into an FBO texture with a depth
++        // renderbuffer of the same size: keep both power-of-two sized (the
++        // largest not above the wanted size), which old GPUs such as nv30
++        // render to in their native (swizzled) layout, and smaller
++        unsigned pot = 64;
++        const unsigned want = std::min(rtt_size.Width, rtt_size.Height);
++        while (pot * 2 <= want)
++            pot *= 2;
++        rtt_size = core::dimension2du(pot, pot);
++    }
++    m_render_target = Graph::get()->makeMiniMap(rtt_size,
+         "minimap::" + m_ident, video::SColor(127, 255, 255, 255),
+         m_minimap_invert_x_z);
+ 
