@@ -1,0 +1,95 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 13:54:48 +0300
+Subject: Sky boxes and cube maps from their .dds, and one side at a time
+
+The map "cave" has a sky of six 2048x2048 PNGs. The engine decoded them twice at load: once as the sky textures (12 MB each, then compressed to DXT1 on the PPE/SPUs), and once more for the sky environment map, where all six sides stayed decoded at once (72 MB) until the upload scaled them to 128x128.
+
+The data ships a 256x256 DXT1 .dds next to each side. The new skydds variable (default 1) makes loadsky and cubemapload use a .dds sibling when there is one; skydds 0 gives the old behaviour. Cube maps built from uncompressed sides are now shrunk to the environment map size as each side loads, so the full-size copies no longer pile up.
+
+diff --git a/engine/rendersky.cpp b/engine/rendersky.cpp
+--- a/engine/rendersky.cpp
++++ b/engine/rendersky.cpp
+@@ -1,5 +1,7 @@
+ #include "engine.h"
+ 
++extern bool skyddsname(const char *name, char *dds, size_t len);
++
+ Texture *sky[6] = { 0, 0, 0, 0, 0, 0 }, *clouds[6] = { 0, 0, 0, 0, 0, 0 };
+ 
+ void loadsky(const char *basename, Texture *texs[6])
+@@ -10,16 +12,19 @@ void loadsky(const char *basename, Texture *texs[6])
+         const char *side = cubemapsides[i].name;
+         string name;
+         copystring(name, makerelpath("packages", basename));
++        string ddsname;
+         if(wildcard)
+         {
+             char *chop = strchr(name, '*');
+             if(chop) { *chop = '\0'; concatstring(name, side); concatstring(name, wildcard+1); }
++            if(skyddsname(name, ddsname, sizeof(ddsname)) && (texs[i] = textureload(ddsname, 3, true, false))!=notexture) continue;
+             texs[i] = textureload(name, 3, true, false); 
+         }
+         else
+         {
+             defformatstring(ext, "_%s.jpg", side);
+             concatstring(name, ext);
++            if(skyddsname(name, ddsname, sizeof(ddsname)) && (texs[i] = textureload(ddsname, 3, true, false))!=notexture) continue;
+             if((texs[i] = textureload(name, 3, true, false))==notexture)
+             {
+                 strcpy(name+strlen(name)-3, "png");
+diff --git a/engine/texture.cpp b/engine/texture.cpp
+--- a/engine/texture.cpp
++++ b/engine/texture.cpp
+@@ -1377,8 +1377,22 @@ static vec parsevec(const char *arg)
+ 
+ VAR(usedds, 0, 1, 1);
+ VAR(dbgdds, 0, 0, 1);
++// sky boxes and cube maps: use a .dds next to the .jpg or .png when there is one (the data ships
++// them at 256x256), instead of decoding six images of 2048x2048 (12 MB each) at every load
++VAR(skydds, 0, 1, 1);
+ VAR(scaledds, 0, 2, 4);
+ 
++// "name.jpg" or "name.png" -> "name.dds" when that file exists and skydds is on
++bool skyddsname(const char *name, char *dds, size_t len)
++{
++    if(!skydds || !usedds || !hasS3TC) return false;
++    size_t n = strlen(name);
++    if(n < 5 || n + 1 > len || name[n-4] != '.') return false;
++    memcpy(dds, name, n-3);
++    memcpy(dds + n-3, "dds", 4);
++    return canloadsurface(dds);
++}
++
+ static bool texturedata(ImageData &d, const char *tname, Slot::Tex *tex = NULL, bool msg = true, int *compress = NULL, int *wrap = NULL)
+ {
+     const char *cmds = NULL, *file = tname;
+@@ -2568,6 +2582,9 @@ Texture *cubemaploadwildcard(Texture *t, const char *name, bool mipit, bool msg,
+             return NULL;
+         }
+         tsize = max(tsize, max(s.w, s.h));
++        // the cube map is at most 1<<envmapsize wide: shrink each side now instead of holding
++        // all six at full size (72 MB for 2048x2048 sides) until the upload
++        if(!s.compressed && s.w > (1<<envmapsize)) scaleimage(s, 1<<envmapsize, 1<<envmapsize);
+     }
+     if(name)
+     {
+@@ -2647,6 +2664,18 @@ Texture *cubemapload(const char *name, bool mipit, bool msg, bool transient)
+     if(!strchr(pname, '*'))
+     {
+         defformatstring(jpgname, "%s_*.jpg", pname);
++        string ddsname;
++        if(skydds && usedds && hasS3TC)
++        {
++            string side0;
++            formatstring(side0, "%s_%s.dds", pname, cubemapsides[0].name);
++            if(canloadsurface(side0))
++            {
++                formatstring(ddsname, "%s_*.dds", pname);
++                t = cubemaploadwildcard(NULL, ddsname, mipit, false, transient);
++                if(t) return t;
++            }
++        }
+         t = cubemaploadwildcard(NULL, jpgname, mipit, false, transient);
+         if(!t)
+         {

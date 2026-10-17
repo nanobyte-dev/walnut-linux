@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 13:53:23 +0300
+Subject: Build only the world shader variants that can be drawn
+
+Each world shader came with five dynamic light variants (maxdynlights defaults to 3, so two were never used), each again with a shadowmap copy and a water fade copy: dozens of GLSL programs per shader, compiled at load and kept (with their sources) for the session.
+
+The dynamic light variants now stop at maxdynlights, and the water fade variants are only built with waterrefract and waterfade on, which is the only case where they are drawn. Raising either setting after the shaders loaded falls back to the nearest variant that exists (no fade, fewer lights) until restart.
+
+diff --git a/engine/shader.cpp b/engine/shader.cpp
+--- a/engine/shader.cpp
++++ b/engine/shader.cpp
+@@ -753,6 +753,10 @@ static void gengenericvariant(Shader &s, const char *sname, const char *vs, cons
+ static bool genwatervariant(Shader &s, const char *sname, const char *vs, const char *ps, int row = 2)
+ {
+     if(!strstr(vs, "//:water") && !strstr(ps, "//:water")) return false;
++    // the fading variants only draw with waterrefract and waterfade; without them the world
++    // shaders would carry a second copy of every variant
++    extern int waterrefract, waterfade;
++    if(!waterrefract || !waterfade) return false;
+ 
+     vector<char> vsw, psw;
+ 
+@@ -803,8 +807,11 @@ static void gendynlightvariant(Shader &s, const char *sname, const char *vs, con
+     if(vsmain > vspragma) vsmain = vs;
+     if(psmain > pspragma) psmain = ps;
+ 
++    // lights above maxdynlights are never drawn: their variants are not built (the nearest
++    // lower one is used if maxdynlights is raised later)
++    extern int maxdynlights;
+     vector<char> vsdl, psdl;
+-    loopi(MAXDYNLIGHTS)
++    loopi(min(int(maxdynlights), int(MAXDYNLIGHTS)))
+     {
+         vsdl.setsize(0);
+         psdl.setsize(0);

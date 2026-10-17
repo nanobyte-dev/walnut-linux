@@ -1,1 +1,5 @@
 0001-Compress-textures-at-upload-on-Mesa-too-texcompress.patch
+0002-CPU-skinning-by-default-and-no-GPU-skinning-shaders-.patch
+0003-Build-only-the-world-shader-variants-that-can-be-dra.patch
+0004-Sky-boxes-and-cube-maps-from-their-.dds-and-one-side.patch
+0005-Free-the-lightmaps-CPU-copies-once-uploaded.patch

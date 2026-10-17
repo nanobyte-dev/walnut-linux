@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 13:52:57 +0300
+Subject: CPU skinning by default, and no GPU skinning shaders without gpuskel
+
+GPU skinning indexes a bone array in the vertex shader, which nv30 turns into if/else trees: 11 fps on the PS3 against 28 with CPU skinning. gpuskel now defaults to 0.
+
+Every model shader also compiled four bone-count variants (and four more for glare), plus the same for the shadowmap caster and the stencil model shader, about 80% of the model programs of a map, with their sources kept for the whole session. variantshader now skips those variants when gpuskel was off as the shaders loaded (gpuskelshaders), and GPU skinning stays off for the session then, since the shaders for it do not exist. To use it, set gpuskel 1 in autoexec.cfg and restart.
+
+diff --git a/engine/shader.cpp b/engine/shader.cpp
+--- a/engine/shader.cpp
++++ b/engine/shader.cpp
+@@ -19,8 +19,13 @@ VAR(maxfsuniforms, 1, 0, 0);
+ VAR(maxvaryings, 1, 0, 0);
+ VAR(dbgshader, 0, 0, 2);
+ 
++// GPU skinning shaders are only built when gpuskel was on as the shaders were loaded
++int gpuskelshaders = 0;
++extern int gpuskel;
++
+ void loadshaders()
+ {
++    gpuskelshaders = gpuskel;
+     standardshaders = true;
+     execfile("data/glsl.cfg");
+     standardshaders = false;
+@@ -1111,6 +1116,7 @@ void variantshader(int *type, char *name, int *row, char *vs, char *ps)
+         return;
+     }
+     else if(*row >= MAXVARIANTROWS) return;
++    if(!gpuskelshaders && strstr(vs, "vboneindex")) return;
+ 
+     Shader *s = lookupshaderbyname(name);
+     if(!s) return;
+diff --git a/engine/skelmodel.h b/engine/skelmodel.h
+--- a/engine/skelmodel.h
++++ b/engine/skelmodel.h
+@@ -1,4 +1,5 @@
+-VARP(gpuskel, 0, 1, 1);
++VARP(gpuskel, 0, 0, 1);
++extern int gpuskelshaders;
+ 
+ VAR(maxskelanimdata, 1, 192, 0);
+ VAR(testtags, 0, 0, 1);
+@@ -805,7 +806,7 @@ struct skelmodel : animmodel
+         }
+ 
+         int availgpubones() const { return min(maxvsuniforms - reservevpparams - 10, maxskelanimdata) / 2; }
+-        bool gpuaccelerate() const { return numframes && gpuskel && numgpubones<=availgpubones(); }
++        bool gpuaccelerate() const { return numframes && gpuskel && gpuskelshaders && numgpubones<=availgpubones(); }
+ 
+         float calcdeviation(const vec &axis, const vec &forward, const dualquat &pose1, const dualquat &pose2)
+         {

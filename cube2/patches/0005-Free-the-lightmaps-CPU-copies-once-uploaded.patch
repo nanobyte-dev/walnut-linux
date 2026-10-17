@@ -1,0 +1,111 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 13:55:52 +0300
+Subject: Free the lightmaps' CPU copies once uploaded
+
+Every lightmap (512x512 RGB, 768 KB) was kept in RAM for the whole session next to its GL texture: 32 of them, 24 MB, in the map "cave". They are only read when the lighting is calculated or edited.
+
+The new lmfreedata variable (default 1) frees them at the end of initlights. Edit mode is refused while they are gone (set lmfreedata 0 in autoexec.cfg to edit). A GL reset after the free (changing video settings in the menu) would upload black lightmaps until the map is loaded again.
+
+diff --git a/engine/lightmap.cpp b/engine/lightmap.cpp
+--- a/engine/lightmap.cpp
++++ b/engine/lightmap.cpp
+@@ -1962,6 +1962,8 @@ void previewblends(const ivec &bo, const ivec &bs)
+         commitchanges(true);
+ }
+                             
++bool lightmapsfreed = false;    // see lmfreedata
++
+ void cleanuplightmaps()
+ {
+     loopv(lightmaps)
+@@ -1978,6 +1980,7 @@ void resetlightmaps(bool fullclean)
+ {
+     cleanuplightmaps();
+     lightmaps.shrink(0);
++    lightmapsfreed = false;
+     compressed.clear();
+     clearlightcache();
+     if(fullclean) while(lightmapworkers.length()) delete lightmapworkers.pop();
+@@ -2438,6 +2441,23 @@ static void findunlit(int i)
+     }
+ }
+ 
++// The CPU copies of the lightmaps (768 KB each, 24 MB for a map like "cave") are only read when the
++// lighting is calculated or edited; play needs the uploaded textures alone.
++VAR(lmfreedata, 0, 1, 1);
++
++static void freelightmapdata()
++{
++    if(!lmfreedata || editmode) return;
++    loopv(lightmaps)
++    {
++        LightMap &lm = lightmaps[i];
++        if(lm.tex < 0 || !lm.data) continue;
++        delete[] lm.data;
++        lm.data = NULL;
++        lightmapsfreed = true;
++    }
++}
++
+ VARF(roundlightmaptex, 0, 4, 16, { cleanuplightmaps(); initlights(); allchanged(); });
+ VARF(batchlightmaps, 0, 4, 256, { cleanuplightmaps(); initlights(); allchanged(); });
+ 
+@@ -2453,7 +2473,7 @@ void genlightmaptexs(int flagmask, int flagval)
+         int type = lm.type&LM_TYPE;
+         remaining[type]++; 
+         total++;
+-        if(lm.unlitx < 0) findunlit(i);
++        if(lm.unlitx < 0 && lm.data) findunlit(i);
+     }
+ 
+     int sizelimit = (maxtexsize ? min(maxtexsize, hwtexsize) : hwtexsize)/max(LM_PACKW, LM_PACKH);
+@@ -2488,6 +2508,7 @@ void genlightmaptexs(int flagmask, int flagval)
+         tex.h = LM_PACKH<<(used/2);
+         int bpp = firstlm->bpp;
+         uchar *data = used ? new uchar[bpp*tex.w*tex.h] : NULL;
++        if(data && lightmapsfreed) memset(data, 0, bpp*tex.w*tex.h);
+         int offsetx = 0, offsety = 0;
+         loopv(lightmaps)
+         {
+@@ -2503,7 +2524,7 @@ void genlightmaptexs(int flagmask, int flagval)
+                 tex.unlity = offsety + lm.unlity;
+             }
+ 
+-            if(data) copylightmap(lm, &data[bpp*(offsety*tex.w + offsetx)], bpp*tex.w);
++            if(data && lm.data) copylightmap(lm, &data[bpp*(offsety*tex.w + offsetx)], bpp*tex.w);
+ 
+             offsetx += LM_PACKW;
+             if(offsetx >= tex.w) { offsetx = 0; offsety += LM_PACKH; }
+@@ -2570,6 +2591,7 @@ void initlights()
+     clearlightcache();
+     genlightmaptexs(LM_ALPHA, 0);
+     genlightmaptexs(LM_ALPHA, LM_ALPHA);
++    freelightmapdata();
+     brightengeom = false;
+     shouldlightents = true; 
+ }
+@@ -2718,6 +2740,7 @@ void dumplms()
+ {
+     loopv(lightmaps)
+     {
++        if(!lightmaps[i].data) continue;
+         ImageData temp(LM_PACKW, LM_PACKH, lightmaps[i].bpp, lightmaps[i].data);
+         const char *map = game::getclientmap(), *name = strrchr(map, '/');
+         defformatstring(buf, "lightmap_%s_%d.png", name ? name+1 : map, i);
+diff --git a/engine/octaedit.cpp b/engine/octaedit.cpp
+--- a/engine/octaedit.cpp
++++ b/engine/octaedit.cpp
+@@ -157,6 +157,12 @@ void cancelsel()
+ 
+ void toggleedit(bool force)
+ {
++    extern bool lightmapsfreed;
++    if(!editmode && lightmapsfreed)
++    {
++        conoutf(CON_ERROR, "the lightmaps' CPU copies were freed to save memory: set lmfreedata 0 in autoexec.cfg to edit");
++        return;
++    }
+     if(!force)
+     {
+         if(!isconnected()) return;
