@@ -249,9 +249,16 @@ fi
 
 if [ "$CRASH" = 1 ]; then
 	echo ">> crash 1: the launcher's process group killed (game and launcher)"
-	PS3_GAME_MODE=$MODE setsid ps3-game sleep 600 & L=$!
+	PS3_GAME_MODE=$MODE setsid ps3-game sleep 600 & L=$!	# its own process group, as client.sh
 	waitfor 60 entered; sleep 2
-	kill -KILL -- -$L 2>/dev/null; wait $L 2>/dev/null
+	lp=$(ls "$GS/games" | head -1)	# the launcher's pid (setsid may have forked)
+	pg=$(ps -o pgid= -p "$lp" | tr -d ' ')
+	if [ -n "$pg" ] && [ "$pg" != "$(ps -o pgid= -p $$ | tr -d ' ')" ]; then
+		kill -KILL -- -"$pg"
+	else
+		fail "crash-group: no process group of the launcher to kill"
+	fi
+	wait $L 2>/dev/null
 	after_checks crash-group
 	echo ">> crash 2: the guard killed while the game runs"
 	PS3_GAME_MODE=$MODE ps3-game sleep 600 & L=$!
