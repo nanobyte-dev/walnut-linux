@@ -1,0 +1,102 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 13:04:39 +0300
+Subject: nouveau/winsys: no relocations on the PS3
+
+Every method that carries a buffer address (vertex buffer offsets, texture offsets and
+formats, the fragment program, render targets) is written where its state is emitted, at the
+buffer's presumed offset, and validation then appends two zero words with two relocations
+for them: should the kernel find the buffer moved, it patches the zeros into the method's
+header and its corrected data, otherwise they stay NOPs. Every relocation also counts
+against the kernel's 1024 per submission, and a draw that rebinds its arrays adds two per
+vertex attribute, so a stream of such draws was flushed for want of relocations about every
+hundred draws (each flush a submission, and all bound state relocated again in the next).
+
+ps3rsx never moves a buffer object, and it skips every relocation whose buffer's presumed
+offset is marked valid, which Mesa always marks (ps3rsx/src/submit.c, apply_relocs): on the
+PS3 the zeros always stay NOPs. Push buffers on the PS3 now send no relocations: the zero
+pairs aren't written, and nouveau_pushbuf_reloc (PUSH_RELOC) returns the presumed value it
+already wrote without recording a relocation.
+
+Saves per relocated method per validation two push buffer words, two relocation records
+(28 bytes each, copied into the kernel and scanned once per push), the kernel's copy and
+validation of the two words, and the reloc-limit flushes. The command stream loses only the
+NOP pairs: every method the GPU sees, and its value, is the same. Other kernels (nouveau
+on the 7600 GT) keep relocations.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nouveau_screen.c b/src/gallium/drivers/nouveau/nouveau_screen.c
+--- a/src/gallium/drivers/nouveau/nouveau_screen.c
++++ b/src/gallium/drivers/nouveau/nouveau_screen.c
+@@ -255,6 +255,9 @@ nouveau_pushbuf_create(struct nouveau_screen *screen, struct nouveau_context *co
+    p->context = context;
+    (*push)->kick_notify = nouveau_pushbuf_cb;
+    (*push)->user_priv = p;
++   /* ps3rsx never moves a buffer object and applies no relocation whose buffer's presumed
++    * offset is valid, which Mesa's always is (ps3rsx/src/submit.c, apply_relocs) */
++   (*push)->no_relocs = screen->is_ps3;
+    return 0;
+ }
+ 
+diff --git a/src/gallium/winsys/nouveau/drm/nouveau.c b/src/gallium/winsys/nouveau/drm/nouveau.c
+--- a/src/gallium/winsys/nouveau/drm/nouveau.c
++++ b/src/gallium/winsys/nouveau/drm/nouveau.c
+@@ -1411,10 +1411,18 @@ pushbuf_krel_kref(struct nouveau_pushbuf *push, struct drm_nouveau_gem_pushbuf_b
+    struct drm_nouveau_gem_pushbuf_reloc *krel;
+    uint32_t reloc = data;
+ 
+-   krel  = &krec->reloc[krec->nr_reloc++];
+-
+    assert(pkref);
+    assert(bkref);
++
++   if (push->no_relocs) {
++      if (flags & NOUVEAU_BO_LOW)
++         reloc = bkref->presumed.offset + data;
++      if (flags & NOUVEAU_BO_OR)
++         reloc |= (bkref->presumed.domain & NOUVEAU_GEM_DOMAIN_VRAM) ? vor : tor;
++      return reloc;
++   }
++
++   krel  = &krec->reloc[krec->nr_reloc++];
+    krel->reloc_bo_index = pkref - krec->buffer;
+    krel->reloc_bo_offset = (push->cur - nvpb->ptr) * 4;
+    krel->bo_index = bkref - krec->buffer;
+@@ -1509,7 +1517,7 @@ pushbuf_validate(struct nouveau_pushbuf *push, bool retry)
+    struct nouveau_pushbuf_krec *krec = nvpb->krec;
+    struct drm_nouveau_gem_pushbuf_bo *kref;
+    struct nouveau_bufctx *bctx = push->bufctx;
+-   int relocs = bctx ? bctx->relocs * 2: 0;
++   int relocs = bctx && !push->no_relocs ? bctx->relocs * 2 : 0;
+    int sref, srel, ret;
+ 
+    ret = nouveau_pushbuf_space(push, relocs, relocs, 0);
+@@ -1544,7 +1552,12 @@ pushbuf_validate(struct nouveau_pushbuf *push, bool retry)
+          kref_flags = bref->flags & kref_mask;
+       }
+ 
+-      if (bref->packet) {
++      /* The method was written where the state is emitted (PUSH_MTHD*), at the presumed
++       * offset. These two words, zero, are its copy for the kernel to relocate should the
++       * buffer have moved: the method's header, then its data. Where buffers never move
++       * they would stay two NOPs.
++       */
++      if (bref->packet && !push->no_relocs) {
+          if (!pkref)
+             pkref = cli_kref_get(push->client, nvpb->bo);
+          pushbuf_krel_kref(push, pkref, kref, bref->packet, 0, 0, 0);
+diff --git a/src/gallium/winsys/nouveau/drm/nouveau.h b/src/gallium/winsys/nouveau/drm/nouveau.h
+--- a/src/gallium/winsys/nouveau/drm/nouveau.h
++++ b/src/gallium/winsys/nouveau/drm/nouveau.h
+@@ -114,6 +114,10 @@ struct nouveau_pushbuf {
+    uint32_t flags;
+    uint32_t *cur;
+    uint32_t *end;
++
++   /* The kernel never moves a buffer (the PS3's ps3rsx): every presumed offset stays right,
++    * so no relocations are sent. */
++   bool no_relocs;
+ };
+ 
+ struct nouveau_pushbuf_refn {

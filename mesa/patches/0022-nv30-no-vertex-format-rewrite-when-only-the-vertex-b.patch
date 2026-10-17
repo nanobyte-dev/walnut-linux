@@ -1,0 +1,90 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 13:07:29 +0300
+Subject: nv30: no vertex format rewrite when only the vertex buffers change
+
+nv30_vbo_validate runs whenever the vertex buffers or elements change, and wrote the whole
+VTXFMT burst each time: one word per attribute plus the header. The formats depend only on
+the vertex elements (their formats and strides) and on whether vertices are pushed inline,
+not on the buffers, and Mesa's state tracker rebinds vertex buffers far more often than it
+changes the element layout: u_vbuf binds a new upload buffer for user arrays in every draw,
+immediate mode and streaming games rebind theirs, and games that use one layout for all
+their meshes switch only buffers.
+
+The context now keeps the VTXFMT words the GPU holds (state.vtxfmt, carried over a context
+switch with the rest of nv30->state; the swtnl path, the only other writer, records its own)
+and leaves the burst out when it would write the same words. The GPU state is the same:
+ps3rsx shadows VTXFMT and puts it back after another channel ran, and the offsets
+(VTXBUF) are written as before; they were already rewritten on their own after every push
+buffer flush.
+
+Saves 1 + n words (n attributes, typically 2-4) per draw that only rebinds buffers, in the
+push buffer and in the kernel's copy and validation. Changes the command stream: identical
+rewrites of 0x1740.. are left out. Low risk; a hardware test would show corrupt or exploded
+geometry after a layout change.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+@@ -52,6 +52,9 @@ struct nv30_context {
+       unsigned rt_enable;
+       unsigned scissor_off;
+       unsigned num_vtxelts;
++      /* VTXFMT words the GPU holds, for the first vtxfmt_nr attributes */
++      uint32_t vtxfmt[16];
++      unsigned vtxfmt_nr;
+       int index_bias;
+       bool prim_restart;
+       struct nv30_fragprog *fragprog;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_draw.c b/src/gallium/drivers/nouveau/nv30/nv30_draw.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_draw.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_draw.c
+@@ -361,6 +361,8 @@ nv30_render_validate(struct nv30_context *nv30)
+ 
+    BEGIN_NV04(push, NV30_3D(VTXFMT(0)), 16);
+    PUSH_DATAp(push, r->vtxfmt, 16);
++   memcpy(nv30->state.vtxfmt, r->vtxfmt, sizeof(nv30->state.vtxfmt));
++   nv30->state.vtxfmt_nr = 16;
+ 
+    BEGIN_NV04(push, NV30_3D(VP_START_FROM_ID), 1);
+    PUSH_DATA (push, r->vertprog->start);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+@@ -214,20 +214,28 @@ nv30_vbo_validate(struct nv30_context *nv30)
+    if (redefine == 0)
+       return;
+ 
+-   BEGIN_NV04(push, NV30_3D(VTXFMT(0)), redefine);
++   /* The formats only depend on the vertex elements (and vbo_fifo): a draw that only rebinds
++    * its buffers writes the very words the GPU holds. Leave them out then. */
++   uint32_t vtxfmt[16];
+ 
+    for (i = 0; i < vertex->num_elements; i++) {
+       ve = &vertex->pipe[i];
+-      vb = &nv30->vtxbuf[ve->vertex_buffer_index];
+ 
+       if (likely(vertex->strides[ve->vertex_buffer_index]) || nv30->vbo_fifo)
+-         PUSH_DATA (push, (vertex->strides[ve->vertex_buffer_index] << 8) | vertex->element[i].state);
++         vtxfmt[i] = (vertex->strides[ve->vertex_buffer_index] << 8) | vertex->element[i].state;
+       else
+-         PUSH_DATA (push, NV30_3D_VTXFMT_TYPE_V32_FLOAT);
++         vtxfmt[i] = NV30_3D_VTXFMT_TYPE_V32_FLOAT;
+    }
+ 
+-   for (; i < nv30->state.num_vtxelts; i++) {
+-      PUSH_DATA (push, NV30_3D_VTXFMT_TYPE_V32_FLOAT);
++   for (; i < redefine; i++)
++      vtxfmt[i] = NV30_3D_VTXFMT_TYPE_V32_FLOAT;
++
++   if (redefine > nv30->state.vtxfmt_nr ||
++       memcmp(vtxfmt, nv30->state.vtxfmt, redefine * sizeof(vtxfmt[0]))) {
++      BEGIN_NV04(push, NV30_3D(VTXFMT(0)), redefine);
++      PUSH_DATAp(push, vtxfmt, redefine);
++      memcpy(nv30->state.vtxfmt, vtxfmt, redefine * sizeof(vtxfmt[0]));
++      nv30->state.vtxfmt_nr = MAX2(nv30->state.vtxfmt_nr, redefine);
+    }
+ 
+    for (i = 0; i < vertex->num_elements; i++) {

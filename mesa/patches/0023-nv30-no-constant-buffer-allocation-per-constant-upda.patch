@@ -1,0 +1,115 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 13:08:31 +0300
+Subject: nv30: no constant buffer allocation per constant update
+
+The state tracker hands nv30 its shader constants as user memory, again whenever they
+change: in fixed-function GL that is about every draw, each object coming with its own
+modelview matrix. nv30_set_constant_buffer wrapped each such pointer in a new nv04_resource
+(a zeroed allocation, a range and a reference count set up) and freed the previous wrapper
+(reference drop, buffer destroy, free), so every constant update cost an allocation and a
+free on the PPE.
+
+Only the wrapper's data pointer and size are ever read (vertex and fragment program
+validation, the swtnl path), and nothing but the context's constbuf slot references a
+wrapper. While the slot still holds the wrapper made by the last call and nothing else
+references it, it is now pointed at the new memory instead; a real constant buffer, or a
+wrapper someone else holds on to, takes the old path. Constants are uploaded exactly as
+before (nv30_vertprog_validate compares them against what was uploaded, one by one).
+
+Saves an allocation and a free, and two atomic reference count updates, per constant update
+of each stage. Same command stream.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+@@ -87,6 +87,8 @@ struct nv30_context {
+ 
+       struct pipe_resource *constbuf;
+       unsigned constbuf_nr;
++      /* constbuf when it wraps user memory (set_constant_buffer), or NULL */
++      struct pipe_resource *constbuf_user;
+ 
+       struct pipe_sampler_view *textures[PIPE_MAX_SAMPLERS];
+       unsigned num_textures;
+@@ -100,6 +102,8 @@ struct nv30_context {
+ 
+       struct pipe_resource *constbuf;
+       unsigned constbuf_nr;
++      /* constbuf when it wraps user memory (set_constant_buffer), or NULL */
++      struct pipe_resource *constbuf_user;
+ 
+       struct pipe_sampler_view *textures[PIPE_MAX_SAMPLERS];
+       unsigned num_textures;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state.c b/src/gallium/drivers/nouveau/nv30/nv30_state.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_state.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_state.c
+@@ -332,9 +332,43 @@ nv30_set_constant_buffer(struct pipe_context *pipe,
+ {
+    struct nv30_context *nv30 = nv30_context(pipe);
+    struct pipe_resource *buf = cb ? cb->buffer : NULL;
++   struct pipe_resource **pconst, **puser;
++   unsigned *pnr;
+    unsigned size;
+ 
++   if (shader == MESA_SHADER_VERTEX) {
++      pconst = &nv30->vertprog.constbuf;
++      puser = &nv30->vertprog.constbuf_user;
++      pnr = &nv30->vertprog.constbuf_nr;
++      nv30->dirty |= NV30_NEW_VERTCONST;
++   } else
++   if (shader == MESA_SHADER_FRAGMENT) {
++      pconst = &nv30->fragprog.constbuf;
++      puser = &nv30->fragprog.constbuf_user;
++      pnr = &nv30->fragprog.constbuf_nr;
++      nv30->dirty |= NV30_NEW_FRAGCONST;
++   } else
++      return;
++
+    if (cb && cb->user_buffer) {
++      /* The state tracker passes new user constants whenever they change, which in
++       * fixed-function GL is about every draw (a new modelview matrix per object). Only the
++       * wrapper's data pointer is ever read (vertprog/fragprog validate, swtnl): while this
++       * context holds the only reference to the wrapper it made last time, point that one
++       * at the new memory instead of allocating a wrapper per call and freeing the last. */
++      struct pipe_resource *user = *puser;
++
++      if (user && user == *pconst && p_atomic_read(&user->reference.count) == 1) {
++         struct nv04_resource *res = nv04_resource(user);
++
++         res->data = (void *)cb->user_buffer;
++         user->width0 = cb->buffer_size;
++         util_range_set_empty(&res->valid_buffer_range);
++         util_range_add(user, &res->valid_buffer_range, 0, cb->buffer_size);
++         *pnr = cb->buffer_size / (4 * sizeof(float));
++         return;
++      }
++
+       buf = nouveau_user_buffer_create(pipe->screen, (void*)cb->user_buffer,
+                                        cb->buffer_size,
+                                        PIPE_BIND_CONSTANT_BUFFER);
+@@ -344,18 +378,12 @@ nv30_set_constant_buffer(struct pipe_context *pipe,
+    if (buf)
+       size = buf->width0 / (4 * sizeof(float));
+ 
+-   if (shader == MESA_SHADER_VERTEX) {
+-      pipe_resource_reference(&nv30->vertprog.constbuf, buf);
+-      nv30->vertprog.constbuf_nr = size;
+-      nv30->dirty |= NV30_NEW_VERTCONST;
+-   } else
+-   if (shader == MESA_SHADER_FRAGMENT) {
+-      pipe_resource_reference(&nv30->fragprog.constbuf, buf);
+-      nv30->fragprog.constbuf_nr = size;
+-      nv30->dirty |= NV30_NEW_FRAGCONST;
+-   }
++   pipe_resource_reference(pconst, buf);
++   *pnr = size;
++   *puser = NULL;
+ 
+    if (cb && cb->user_buffer) {
++      *puser = buf;
+       pipe_resource_reference(&buf, NULL);
+    }
+ }

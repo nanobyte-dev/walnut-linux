@@ -1,0 +1,163 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 13:06:30 +0300
+Subject: nv30: invalidate the texture cache only after texture memory may have
+ changed
+
+nv30_state_validate ended every draw with the texture cache invalidate the NVIDIA blob was
+traced doing (TEX_CACHE_CTL 2, then 1: the vertex and the fragment texture caches, then three
+0x1718 PIPE_NOPs), ten words in the push buffer, ten more for the kernel to copy and check,
+and a flush of the GPU's texture caches before each draw. libgcm leaves the invalidate to the
+application, after it changed texels (docs/RSX-PROGRAMS.md); binding other textures needs
+none.
+
+The screen now counts the events after which texture memory may hold something the cache
+doesn't (tex_gen, bumped atomically by any context): a copy into or out of a texture
+(nv30_transfer_rect: uploads, readbacks, copies, the 3D blit), a new framebuffer (what was
+rendered may be sampled from now on; also after a context switch, which revalidates it), and
+a flush (another context of the process, on the same channel, may sample what this one
+rendered). A context emits the same sequence as before, at the same place, before its first
+draw after the count moved. ps3rsx already invalidates both caches whenever another channel
+ran (shadow.c), so other processes' rendering and uploads are covered. nv30 doesn't expose
+texture barriers, so sampling a bound render target isn't defined anyway.
+
+NV30_TEX_INVALIDATE_ALWAYS=1 restores the invalidate before every draw, to tell a stale
+texture from another bug on the PS3.
+
+Changes the command stream: the ten words are left out of draws that follow no upload, copy,
+framebuffer change or flush (most draws of a frame). Needs a hardware test: watch for stale
+texels, a texture showing what it held before (just-uploaded glyphs, minimap or atlas
+updates, render-to-texture effects), and compare with NV30_TEX_INVALIDATE_ALWAYS=1.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.c b/src/gallium/drivers/nouveau/nv30/nv30_context.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.c
+@@ -24,6 +24,7 @@
+  */
+ 
+ #include "draw/draw_context.h"
++#include "util/u_atomic.h"
+ #include "util/u_upload_mgr.h"
+ 
+ #include "nv_object.xml.h"
+@@ -85,6 +86,9 @@ nv30_context_flush(struct pipe_context *pipe, struct pipe_fence_handle **fence,
+       return;
+    PUSH_KICK(push);
+ 
++   /* another context may sample what this one rendered or copied */
++   p_atomic_inc(&nv30->screen->tex_gen);
++
+    nouveau_context_update_frame_stats(&nv30->base);
+ }
+ 
+@@ -250,6 +254,7 @@ nv30_context_create(struct pipe_screen *pscreen, void *priv, unsigned ctxflags)
+       nv30->draw_flags |= NV30_NEW_SWTNL;
+ 
+    nv30->sample_mask = 0xffff;
++   nv30->tex_gen = p_atomic_read(&screen->tex_gen) - 1;	/* invalidate before the first draw */
+    nv30_vbo_init(pipe);
+    nv30_query_init(pipe);
+    nv30_state_init(pipe);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+@@ -59,6 +59,9 @@ struct nv30_context {
+ 
+    uint32_t dirty;
+ 
++   /* nv30_screen::tex_gen when this context last invalidated the texture cache */
++   uint32_t tex_gen;
++
+    /* PS3: bytes of texture upload staging (GART) whose copies may still be pending */
+    unsigned staging_inflight;
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -522,6 +522,7 @@ nv30_screen_create(struct nouveau_device *dev)
+     */
+    const bool ps3 = screen->base.is_ps3;
+    screen->ps3_vbo_fifo = ps3 && debug_get_bool_option("NV30_PS3_VBO_FIFO", false);
++   screen->tex_invalidate_always = debug_get_bool_option("NV30_TEX_INVALIDATE_ALWAYS", false);
+    if (!screen->ps3_vbo_fifo)
+       screen->base.vidmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
+    screen->base.sysmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -21,6 +21,14 @@ struct nv30_screen {
+ 
+    bool ps3_vbo_fifo; /* PS3: push vertices inline instead of fetching (NV30_PS3_VBO_FIFO) */
+ 
++   /* Bumped (atomically, by any context) whenever texture memory may have changed: a copy
++    * into or out of a texture, a new framebuffer (what was rendered may be sampled now), a
++    * flush (another context may sample what this one rendered). Each context invalidates the
++    * texture cache before its next draw once it differs from what it last saw.
++    */
++   uint32_t tex_gen;
++   bool tex_invalidate_always; /* NV30_TEX_INVALIDATE_ALWAYS: before every draw, as before */
++
+    struct nouveau_bo *notify;
+ 
+    struct nouveau_object *ntfy;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+@@ -24,6 +24,7 @@
+  */
+ 
+ #include "util/format/u_format.h"
++#include "util/u_atomic.h"
+ #include "util/u_math.h"
+ #include "util/half_float.h"
+ 
+@@ -108,6 +109,9 @@ nv30_validate_fb(struct nv30_context *nv30)
+       return;
+    PUSH_RESET(push, BUFCTX_FB);
+ 
++   /* the previous render targets may be sampled from now on */
++   p_atomic_inc(&nv30->screen->tex_gen);
++
+    BEGIN_NV04(push, SUBC_3D(0x1da4), 1);
+    PUSH_DATA (push, 0);
+    BEGIN_NV04(push, NV30_3D(RT_HORIZ), 3);
+@@ -512,7 +516,15 @@ nv30_state_validate(struct nv30_context *nv30, uint32_t mask, bool hwtnl)
+    /*XXX*/
+    BEGIN_NV04(push, NV30_3D(VTX_CACHE_INVALIDATE_1710), 1);
+    PUSH_DATA (push, 0);
+-   if (nv30->screen->eng3d->oclass >= NV40_3D_CLASS) {
++   /* The texture caches (vertex 2, fragment 1) only need invalidating when texture memory may
++    * have changed since this context last did (nv30_screen::tex_gen), not before every draw:
++    * libgcm leaves it to the application, after it wrote texels (docs/RSX-PROGRAMS.md). Binding
++    * other textures needs none. ps3rsx invalidates both caches when another channel ran.
++    */
++   uint32_t tex_gen = p_atomic_read(&nv30->screen->tex_gen);
++   if (nv30->screen->eng3d->oclass >= NV40_3D_CLASS &&
++       (nv30->tex_gen != tex_gen || nv30->screen->tex_invalidate_always)) {
++      nv30->tex_gen = tex_gen;
+       BEGIN_NV04(push, NV40_3D(TEX_CACHE_CTL), 1);
+       PUSH_DATA (push, 2);
+       BEGIN_NV04(push, NV40_3D(TEX_CACHE_CTL), 1);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
+@@ -27,6 +27,7 @@
+    struct nv30_context *nv30, enum nv30_transfer_filter filter,                \
+    struct nv30_rect *src, struct nv30_rect *dst
+ 
++#include "util/u_atomic.h"
+ #include "util/u_math.h"
+ 
+ #include "nv_object.xml.h"
+@@ -693,6 +694,9 @@ nv30_transfer_rect(struct nv30_context *nv30, enum nv30_transfer_filter filter,
+       {}
+    };
+ 
++   /* texture memory changes: invalidate the texture cache before the next draw */
++   p_atomic_inc(&nv30->screen->tex_gen);
++
+    for (method = methods; method->possible; method++) {
+       if (method->possible(nv30, filter, src, dst)) {
+          method->execute(nv30, filter, src, dst);

@@ -1,0 +1,88 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 13:09:35 +0300
+Subject: nv30: no texture unit rewrite when its view and sampler stay the same
+
+Mesa's state tracker passes nv30 all its sampler views (and binds all its samplers) when any
+of them changes. nv30 marked every unit dirty and dropped every unit's buffer reference, so
+nv30_fragtex_validate rewrote each one: TEX_SIZE1, the eight TEX_OFFSET.. words with two
+buffer relocations, TEX_FILTER_OPTIMIZATION, 13 words and two buffer references per unit,
+for units that kept what they had. A lightmapped game (OpenArena) switching one of its two
+textures between surfaces wrote both.
+
+A unit is now marked only when its view or its sampler is a different object. The context
+holds a reference to each bound view, so an equal pointer is the same view of the same
+texture; sampler CSOs aren't deleted while bound. A unit that keeps both keeps its texture
+state and its buffer references too (after a flush they are re-referenced as before). The 3D
+blit marks the unit it uses, as before.
+
+A context switch (two contexts of a process on the same channel) marked everything dirty but
+validated only the units changed since the context last drew, so a context could sample the
+other one's textures; with fewer units marked this would show more often. It now marks all
+the context's units.
+
+Saves 13 push buffer words and two buffer references per unchanged unit when the state
+tracker rebinds textures or samplers. Changes the command stream: identical rewrites of a
+unit's texture state are left out. Low risk; a hardware test would show the wrong texture or
+filtering on a surface.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_fragtex.c b/src/gallium/drivers/nouveau/nv30/nv30_fragtex.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_fragtex.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_fragtex.c
+@@ -157,12 +157,18 @@ nv30_fragtex_sampler_states_bind(struct pipe_context *pipe,
+    struct nv30_context *nv30 = nv30_context(pipe);
+    unsigned i;
+ 
++   /* The state tracker binds all its samplers when any changes: a unit keeping its sampler
++    * (and its view, nv30_fragtex_set_sampler_views) needs no new texture state. */
+    for (i = 0; i < nr; i++) {
++      if (nv30->fragprog.samplers[i] == hwcso[i])
++         continue;
+       nv30->fragprog.samplers[i] = hwcso[i];
+       nv30->fragprog.dirty_samplers |= (1 << i);
+    }
+ 
+    for (; i < nv30->fragprog.num_samplers; i++) {
++      if (!nv30->fragprog.samplers[i])
++         continue;
+       nv30->fragprog.samplers[i] = NULL;
+       nv30->fragprog.dirty_samplers |= (1 << i);
+    }
+@@ -179,13 +185,20 @@ nv30_fragtex_set_sampler_views(struct pipe_context *pipe, unsigned nr,
+    struct nv30_context *nv30 = nv30_context(pipe);
+    unsigned i;
+ 
++   /* The state tracker passes all its views when any changes. A unit whose view stays the
++    * same object (it holds a reference, so the same pointer is the same view of the same
++    * texture) keeps its texture state and its buffer reference, unless its sampler changed. */
+    for (i = 0; i < nr; i++) {
++      if (nv30->fragprog.textures[i] == views[i])
++         continue;
+       nouveau_bufctx_reset(nv30->bufctx, BUFCTX_FRAGTEX(i));
+       pipe_sampler_view_reference(&nv30->fragprog.textures[i], views[i]);
+       nv30->fragprog.dirty_samplers |= (1 << i);
+    }
+ 
+    for (; i < nv30->fragprog.num_textures; i++) {
++      if (!nv30->fragprog.textures[i])
++         continue;
+       nouveau_bufctx_reset(nv30->bufctx, BUFCTX_FRAGTEX(i));
+       pipe_sampler_view_reference(&nv30->fragprog.textures[i], NULL);
+       nv30->fragprog.dirty_samplers |= (1 << i);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+@@ -452,6 +452,11 @@ nv30_state_context_switch(struct nv30_context *nv30)
+       nv30->state = prev->state;
+    nv30->dirty = NV30_NEW_ALL;
+ 
++   /* The other context left its own textures in the units: write this one's again (NEW_ALL
++    * alone validates only the units marked since this context last drew). */
++   nv30->fragprog.dirty_samplers |=
++      BITFIELD_MASK(MAX2(nv30->fragprog.num_textures, nv30->fragprog.num_samplers));
++
+    if (!nv30->vertex)
+       nv30->dirty &= ~(NV30_NEW_VERTEX | NV30_NEW_ARRAYS);
+ 
