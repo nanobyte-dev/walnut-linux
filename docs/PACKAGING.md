@@ -254,8 +254,14 @@ resource server (`classicube/sounds.sh`). Same paths as before (`/usr/lib/classi
 `audio/`). `classicube` depends on `classicube-data (>= <upstream version>)`, so a newer engine
 build (dev or release) works with the data already installed; `classicube-data` has
 `Breaks`/`Replaces: classicube (<< 1.3.8~git20261014.aa47929-1+ps3.366~)`, the upgrade from the
-bundled package. Each release of the source package also publishes a new `classicube-data` (about
-9 MB) to `ps3-licensed`, kept forever like the bundled versions in `ps3` were.
+bundled package. Each release of the source package also publishes a new `classicube-data` (15 MB) to
+`ps3-licensed`, kept forever like the bundled versions in `ps3` were. On a PS3 with the bundled
+package, the split needs ps3-system 0.366 or later first (the `ps3-licensed` source), then
+classicube: `make deploy PKGS="ps3-system classicube"` does both (it brings the new sources
+along); by hand, `sudo apt install -t ps3-dev ps3-system`, `sudo apt update`,
+`sudo apt install -t ps3-dev classicube` (classicube-data comes from `ps3-licensed`). Checked
+with dpkg, 2026-10-17: the bundled 330 upgrades to the pair in any unpack order, the files then
+belong to classicube-data.
 
 ## Image snapshots
 
