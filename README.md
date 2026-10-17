@@ -20,6 +20,9 @@ package (Debian source packages; docs/PACKAGING.md).
 | `ps3-boot/` | `ps3-update-kboot`: Petitboot's boot menu from the installed kernels |
 | `yquake2/` | Yamagi Quake II: Debian's `yquake2` source package (`package.conf`: version, .dsc hash, `COMPONENT=contrib`); the game data (Quake shareware, Quake II demo) comes from `make quake-data` |
 | `dsda-doom/` | dsda-doom (PrBoom+ successor): Debian's `dsda-doom` source package (`package.conf`: version and .dsc hash) plus `patches/` (big-endian fixes: dsda-doom.wad's DMX sounds, the software renderer's colours, screenshots; GL renderer without ARB_texture_rg for nv30) |
+| `luanti/` | Luanti: Debian's `luanti` source package plus `packaging/` (ppc64 added to the Architecture of `luanti` and `luanti-server`; LuaJIT kept); `CHECK=1` runs its unit tests in the build; built against our `luajit` |
+| `luajit/` | LuaJIT: Debian's `luajit` source package plus `patches/` (ppc64 big-endian allocates in the low 2 GB, where it checks the state: Debian's fails `luaL_newstate()` about half the time) |
+| `cube2/` | Sauerbraten (Cube 2 engine): Debian's `cube2` source package plus `patches/` (textures compressed at upload on Mesa too; game data from Debian's `cube2-data`) |
 | `classicube/` | ClassiCube: `package.conf` (pinned upstream tarball plus texpack/audio components), `debian/` (launcher, defaults), `sounds.sh` (sounds/music from Mojang by SHA-1) |
 | `ps3-system/` | System configuration package: networking, SSH, swap, ps3gpu nodes, DS3 pairing, apt sources and pins (`files/`, `debian/`) |
 | `ps3-desktop/` | Desktop package: autologin, `ps3-session`, game mode, Openbox/tint2/GTK/PCManFM defaults and default applications in `/etc/xdg/ps3`, X config; also `ps3-apps` (the everyday applications) |
@@ -68,6 +71,9 @@ our own packages, in a minute or two. Everything we build is a .deb in `build/de
 | `ps3-gpu-tools` | RSX probes, driver tests and the GL tests in `/usr/lib/ps3/bin` (on `PATH`) |
 | `mesa-libgallium`, `libgl1-mesa-dri`, `libegl-mesa0`, `libglx-mesa0`, `libgbm1`, … | Debian's Mesa packages rebuilt from `mesa/` (`26.2.4-1+ps3.N`), replacing Debian's |
 | `dsda-doom` | `/usr/games/dsda-doom` (`0.30.0+dfsg-1+ps3.N`), replacing Debian's: right colours on big-endian, `-vidmode gl` on nv30 |
+| `luanti`, `luanti-data`, `luanti-server` | `/usr/games/luanti` (`5.15.2+dfsg-2+ps3.N`; Debian builds none for ppc64); Minetest Game from Debian (`luanti-game-minetest`) |
+| `libluajit-5.1-2`, `luajit`, ... | LuaJIT (`2.1.0+openresty20251030-1+ps3.N`), replacing Debian's: `luaL_newstate()` no longer fails on ppc64 |
+| `cube2`, `cube2-server` | Sauerbraten's engine (`0.0.20201229+dfsg-1+ps3.N`), replacing Debian's: texture compression on Mesa; data from Debian's `cube2-data` |
 | `classicube` | `/usr/games/classicube` (game data per user in `~/.local/share/classicube`) |
 | `yamagi-quake2`, `yamagi-quake2-core` | Yamagi Quake II (`/usr/lib/yamagi-quake2/quake2`, renderers `ref_gl1`, `ref_gl3`), built from Debian's contrib source (debian-ports builds no contrib) |
 | `quake-shareware`, `quake2-demo-data` | game data from game-data-packager (`make quake-data`, `build/debs/quake-data`): `/usr/share/games/quake/id1/pak0.pak`, `/usr/share/games/quake2-demo/baseq2/`; non-free, our LAN repository only |

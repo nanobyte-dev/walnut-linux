@@ -52,3 +52,20 @@ openttd
 openttd-opengfx
 openttd-opensfx
 openttd-openmsx
+# ps3-games, group 3 (docs/GAME-PLAN.md): Sauerbraten's data for our cube2 (it pulls Debian's cube2,
+# which ours replaces) and our cube2's libraries the image lacks; Minetest Game for our luanti (only
+# Recommended by it), our luanti's libraries the image lacks, and luanti-data's fonts. Our luanti
+# needs our luajit (luajit/), not Debian's: that one stays out of here
+cube2-data
+libenet7
+libsdl2-image-2.0-0
+libsdl2-mixer-2.0-0
+luanti-game-minetest
+libjsoncpp26
+libleveldb1d
+libpq5
+libprometheus-cpp-core1.0
+libprometheus-cpp-pull1.0
+libspatialindex8
+fonts-croscore
+fonts-droid-fallback
