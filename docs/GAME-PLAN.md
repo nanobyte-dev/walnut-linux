@@ -298,6 +298,27 @@ Each is fixed only once a stage needs it.
   reference is added after validation and reset before the next one, so the index buffer is never
   in the kernel's buffer list nor fenced (an in-place index update can race the GPU).
 
+### Built 2026-10-17, waiting for the PS3
+
+- Mesa ps3.282: a run-time switch per patch (NV30_PS3_RELOCS, NV30_VTX_INVALIDATE_DRAW,
+  NV30_VTXFMT_ALWAYS, NV30_CONSTBUF_ALLOC, NV30_TEXUNIT_ALWAYS, NV30_VP_CONST_SINGLE, plus
+  NV30_TEX_INVALIDATE_ALWAYS) and 0026 NV30_PS3_KICK_DRAWS=N. Likely cause of Armagetron's loss:
+  0019 dropped the reloc-limit submissions, so a frame reaches the GPU only at swap (no CPU/GPU
+  overlap).
+- SuperTuxKart: our package 1.5-2+ps3.264 (.spm meshes and armatures byte-swapped, GL textures
+  and vertex colours right on big-endian; upstream #5578 closed as not planned). All 1268 .spm
+  files parse identically on amd64 and ppc64.
+- OpenArena opengl2: our ioquake3 +ps3.285, patches 0001-0010. The models, not the shaders, were
+  most of the memory: MD3 frames kept at 28 B/vertex on the hunk and again in VBOs, all three LODs,
+  a 21 MB VAO cache never drawn from; plus 27 bone and 15-33 FBO-only programs that can't be used.
+  Estimate 161 -> ~115 MB VRAM and ~60 MB less RSS; gl2min_* variants isolate each patch.
+- Sauerbraten: our cube2 +ps3.272, patches 0002-0005 (CPU skinning default, only drawable shader
+  variants, the sky from its 256 px .dds instead of six 2048 px PNGs decoded twice: the likely
+  load-time OOM; lightmap CPU copies freed). The missing hud gun: `-l` spawns with the pistol,
+  which the BananaBread data has no model for (variant `gun`).
+- Luanti: 20 recipe variants (chunksize, caches, malloc, mesh merging), memory logged by the
+  ps3bench mod every 5 s; package defaults only once measured.
+
 ### Measured: Mesa ps3.262 (2026-10-17, ps3rsx 0.249, one suite round, repeats where noted)
 
 | Game | ps3.246 | ps3.262 | Change |

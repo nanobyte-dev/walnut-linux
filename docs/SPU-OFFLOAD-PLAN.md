@@ -39,6 +39,22 @@ mirror's -2 builds don't match the snapshot's -1). Audio needs two queue changes
 a `speq_wait` timeout and a no-spin mode. Item 1 (re-check across the suite) is done: the suite's
 numbers are in GAME-PLAN.md.
 
+### Measured 2026-10-17 (our debs with matching dbgsym: libfluidsynth3 +ps3.270, libopenal1 +ps3.273; Mesa ps3.262)
+
+perf needs `--proc-map-timeout=20000` on the PS3: with the default 500 ms it attaches before it has
+read a big process's maps and files most samples under `[unknown]` (77% of OpenArena's, 56% of
+dsda-doom's before; earlier profiles with a large `[unknown]` share were hit by this).
+
+- **fluidsynth: go.** dsda-doom playing (variant play, 15 s profile): libfluidsynth 48.3% of the
+  process's samples; its SDL audio thread 55%. `fluid_rvoice_dsp_interpolate` 31.1%,
+  `fluid_iir_filter_apply` 7.9%, `fluid_rvoice_buffers_mix` 4.2%, `fluid_rvoice_write` 2.2%: the
+  per-voice DSP is ~45% of the game's CPU.
+- **OpenAL: under the 6% bar.** libopenal self: OpenArena 4.7% (renderSamples 1.3, Resample_Cubic_C
+  1.2, Mix_C 0.8, LoadSamples 0.5) plus libasound 2.8%; ClassiCube 3.7% (music playing); Yamagi's
+  audio thread 11% of its samples (SDL audio path); Luanti's flight plays no sound. The SPU mixer
+  waits; first the cheap variants (b16, f44, alnull: the ALSA conversion share).
+- Found on the way: OpenArena spends 13.6% in zlib during its timedemo (pk3 reads while playing).
+
 ## Parked, in the order they would come back
 
 1. **Re-check across the game suite** (GAME-SUITE.md). Step 0's game numbers and D's OpenArena

@@ -24,6 +24,7 @@ package (Debian source packages; docs/PACKAGING.md).
 | `luajit/` | LuaJIT: Debian's `luajit` source package plus `patches/` (ppc64 big-endian allocates in the low 2 GB, where it checks the state: Debian's fails `luaL_newstate()` about half the time) |
 | `openal-soft/` | OpenAL Soft: Debian's `openal-soft` source package (`package.conf`: version and .dsc hash), unpatched so far (the SPU voice mixing of docs/SPU-AUDIO.md will be its patch) |
 | `cube2/` | Sauerbraten (Cube 2 engine): Debian's `cube2` source package plus `patches/` (textures compressed at upload on Mesa too; game data from Debian's `cube2-data`) |
+| `ioquake3/` | ioquake3 (OpenArena's engine): Debian's `ioquake3` source package plus `patches/` (renderer_opengl2 memory: shaders freed after link, no unusable bone/FBO programs, programs kept across map loads, no CPU copy of model vertices, the VAO cache only on demand) |
 | `supertuxkart/` | SuperTuxKart: Debian's `supertuxkart` source package plus `patches/` (big-endian: the .spm mesh and armature loader byte-swaps the little-endian data instead of refusing to run; textures and vertex colours in the right channel order on the OpenGL driver) |
 | `classicube/` | ClassiCube: `package.conf` (pinned upstream tarball plus texpack/audio components), `debian/` (launcher, defaults), `sounds.sh` (sounds/music from Mojang by SHA-1) |
 | `ps3-system/` | System configuration package: networking, SSH, swap, ps3gpu nodes, DS3 pairing, apt sources and pins (`files/`, `debian/`) |
@@ -77,6 +78,7 @@ our own packages, in a minute or two. Everything we build is a .deb in `build/de
 | `libluajit-5.1-2`, `luajit`, ... | LuaJIT (`2.1.0+openresty20251030-1+ps3.N`), replacing Debian's: `luaL_newstate()` no longer fails on ppc64 |
 | `libopenal1`, `libopenal-data`, `libopenal-dev`, `openal-tools` | OpenAL Soft (`1:1.25.2-1+ps3.N`), replacing Debian's: unpatched so far, built here so `libopenal1-dbgsym` matches what runs (docs/SPU-AUDIO.md M0) |
 | `cube2`, `cube2-server` | Sauerbraten's engine (`0.0.20201229+dfsg-1+ps3.N`), replacing Debian's: texture compression on Mesa; data from Debian's `cube2-data` |
+| `ioquake3`, `ioquake3-server` | OpenArena's engine (`1.36+u20260719.58839361+dfsg-1+ps3.N`), replacing Debian's: renderer_opengl2 memory patches |
 | `supertuxkart`, `supertuxkart-data` | `/usr/games/supertuxkart` (`1.5-2+ps3.N`), replacing Debian's: loads its .spm models on big-endian (Debian's quits while loading); `supertuxkart-data` is Debian's data, rebuilt because `supertuxkart` needs it at its own version |
 | `classicube` | `/usr/games/classicube` (game data per user in `~/.local/share/classicube`) |
 | `yamagi-quake2`, `yamagi-quake2-core` | Yamagi Quake II (`/usr/lib/yamagi-quake2/quake2`, renderers `ref_gl1`, `ref_gl3`), built from Debian's contrib source (debian-ports builds no contrib) |
