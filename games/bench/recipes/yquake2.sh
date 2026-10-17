@@ -16,3 +16,13 @@ END_RE='[0-9]+ frames, [0-9.]+ seconds: [0-9.]+ fps'
 # Yamagi's SDL sound backend instead of OpenAL (OpenAL gave white noise on the PS3: 16-bit samples
 # with their bytes swapped somewhere on the way, big-endian)
 variant_sdlsound() { CMD+=(+set s_openal 0); }
+# OpenAL Soft measurements (docs/SPU-AUDIO.md, M0): the shared variants of openal.inc, and no sound
+# at all
+. "$here/recipes/openal.inc"
+variant_allog() { oal_variant allog; }
+variant_b16() { oal_variant b16; }
+variant_f44() { oal_variant f44; }
+variant_b16f44() { oal_variant b16f44; }
+variant_p1024() { oal_variant p1024; }
+variant_alnull() { oal_variant alnull; }
+variant_nosound() { CMD+=(+set s_initsound 0); }

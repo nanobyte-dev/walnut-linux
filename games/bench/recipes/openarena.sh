@@ -35,3 +35,14 @@ variant_gl2() { OA_R=opengl2; oa_cmd; DURATION=240; }
 # tc1 with no window manager, as step 0 ran: the window never reached the screen (SDL's fullscreen
 # went unanswered), so this measures what showing the frames costs
 variant_tc1nowm() { OA_TC=1; oa_cmd; WM=; }
+
+# OpenAL Soft measurements (docs/SPU-AUDIO.md, M0): the shared variants of openal.inc, and no sound
+# at all (step 0's Z)
+. "$here/recipes/openal.inc"
+variant_allog() { oal_variant allog; }
+variant_b16() { oal_variant b16; }
+variant_f44() { oal_variant f44; }
+variant_b16f44() { oal_variant b16f44; }
+variant_p1024() { oal_variant p1024; }
+variant_alnull() { oal_variant alnull; }
+variant_nosound() { OA_X+=(+set s_initsound 0); oa_cmd; }

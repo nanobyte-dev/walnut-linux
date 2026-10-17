@@ -160,3 +160,14 @@ variant_leaner() {
 	variant_lean; variant_leaves; variant_tradeoff; variant_nominimap; variant_nomerge
 	variant_meshdelay
 }
+
+# OpenAL Soft measurements (docs/SPU-AUDIO.md, M0): the shared variants of openal.inc, and no sound
+# at all (5.15 has no setting for it: with no OpenAL backend the device fails to open, "Sound disabled")
+. "$here/recipes/openal.inc"
+variant_allog() { oal_variant allog; }
+variant_b16() { oal_variant b16; }
+variant_f44() { oal_variant f44; }
+variant_b16f44() { oal_variant b16f44; }
+variant_p1024() { oal_variant p1024; }
+variant_alnull() { oal_variant alnull; }
+variant_nosound() { ENV+=(ALSOFT_DRIVERS=none); }

@@ -51,3 +51,17 @@ variant_still() {
 	CC_PLUGIN=0; ENV=(); FPS_RE=; MAXMS_RE=; LOAD_MARK=; DURATION=60; HUD_SKIP=10
 	parse() { :; }
 }
+# OpenAL Soft measurements (docs/SPU-AUDIO.md, M0): the shared variants of openal.inc, and no sound
+# at all (volumes 0: ClassiCube then never opens OpenAL)
+. "$here/recipes/openal.inc"
+variant_allog() { oal_variant allog; }
+variant_b16() { oal_variant b16; }
+variant_f44() { oal_variant f44; }
+variant_b16f44() { oal_variant b16f44; }
+variant_p1024() { oal_variant p1024; }
+variant_alnull() { oal_variant alnull; }
+variant_nosound() { oal_after setup cc_nosound; }
+cc_nosound() {
+	sed -i '/^\(soundsvolume\|musicvolume\)=/d' "$CC_DIR/options.txt"
+	printf 'soundsvolume=0\nmusicvolume=0\n' >> "$CC_DIR/options.txt"
+}
