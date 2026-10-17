@@ -26,8 +26,8 @@ Every number is 1920x1080, measured through games/bench with the picture checked
 | OpenTTD | yes (software video) | right | choppy (~1000-1170 underruns a minute, either path) | title-screen demo game; simulation 20000 ticks in 13.4 s | 8 (SDL3 ps3.254 accel, HUD median; ps3.242 was ~2), 12 with the 8bpp blitter | far under | its own software drawing: the GL driver (needs ARB_texture_rg) |
 | Luanti | yes (first run 2026-10-17) | right (the user) | no underruns | our ps3bench mod flies a fixed path | 67 HUD median in flight, p10 23, stalls to 0 while chunks load | median meets it, stalls don't | memory (177 MB swapped out, 32 MB free): view range, mesh threads |
 | Sauerbraten | yes, CPU skinning (2026-10-17) | right; "surprisingly smooth" between stalls (the user) | 236 underruns | CubeScript counts frames on map cave (not reached yet: loading takes over 60 s) | 15 HUD median incl. loading | under (memory) | OOM-killed without the VRAM swap (smoke's default); with it, 138 MB VRAM and the swap full: memory settings; GPU skinning still to test |
-| SuperTuxKart | not started | | | `--benchmark` | | | group 4 |
-| OpenArena (opengl2) | not started | | | timedemo | | | group 4 |
+| SuperTuxKart | no: quits while loading (2026-10-17) | | | profile mode: AI drives `--profile-time=60` on lighthouse, prints Average FPS | | | its .spm mesh loader refuses big-endian ("Not little endian machine"): a byte-swap patch in our build (agent working) |
+| OpenArena (opengl2) | yes, gl2min (2026-10-17) | right (webcam) | right | timedemo bench (97 GLSL programs compiled twice: ~22-30 s each) | 13.6 average with one 36 s stall; ~31 HUD median | under (memory) | 161 MB VRAM, the VRAM swap full and 184 MB to disk: memory; Debian defaults (gl2) not run yet |
 
 ### Done (2026-10-16/17)
 
@@ -66,7 +66,8 @@ Every number is 1920x1080, measured through games/bench with the picture checked
    profiles still show after 0.249; candidates already found: 6 cache-invalidate methods emitted on
    every nv30 draw (needs a hardware test), every relocated method emitted twice, u_vbuf always on
    for nv30, ARB_texture_rg for OpenTTD's GL renderer.
-5. **Group 4:** SuperTuxKart (RAM first), OpenArena opengl2 (the GLSL compile burst).
+5. **Group 4:** OpenArena opengl2 runs (all 97 GLSL programs link on nv30; memory-bound).
+   SuperTuxKart needs our big-endian fix for its mesh loader (agent), then its first race.
 6. **ps3-games:** add the games that pass (it still lists only OpenArena and ClassiCube).
 7. Queued small items: ps3fb's exception dump prints the wrong FIFO entries (task #29), deb-build.sh
    hides a failed build-dep (task #31).

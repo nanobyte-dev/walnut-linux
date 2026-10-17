@@ -27,9 +27,11 @@ variant_gl2min() {
 		+set r_sunShadows 0 +set r_dlightMode 0 +set r_depthPrepass 0 +set r_hdr 0 +set r_postProcess 0
 		+set r_toneMap 0 +set r_autoExposure 0 +set r_ssao 0 +set r_cubeMapping 0
 		+set r_ext_framebuffer_object 0)
-	oa_cmd
+	oa_cmd; DURATION=240
 }
-variant_gl2() { OA_R=opengl2; oa_cmd; }
+# renderergl2 compiles its 97 GLSL programs (~30 s on the PPE) at start and again when the demo
+# starts (the demo restarts the file system, and with it the renderer), so the gl2 runs get longer
+variant_gl2() { OA_R=opengl2; oa_cmd; DURATION=240; }
 # tc1 with no window manager, as step 0 ran: the window never reached the screen (SDL's fullscreen
 # went unanswered), so this measures what showing the frames costs
 variant_tc1nowm() { OA_TC=1; oa_cmd; WM=; }

@@ -69,3 +69,7 @@ libprometheus-cpp-pull1.0
 libspatialindex8
 fonts-croscore
 fonts-droid-fallback
+
+# Game group 4 (docs/GAME-PLAN.md): SuperTuxKart 1.5, deployed by name (839 MB; not in ps3-games)
+supertuxkart
+supertuxkart-data
