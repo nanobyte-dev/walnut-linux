@@ -32,7 +32,7 @@ Every number is 1920x1080, measured through games/bench with the picture checked
 | dsda-doom (GL renderer) | yes | right (our fixes) | **choppy** (MIDI synthesis) | Freedoom DEMO1 timedemo | 48.8 | under | game-side batching (our dsda-doom 0005, built, to run); fluidsynth on the SPEs: v1 cut its CPU (49 -> 32 s a minute) but 1097 underruns remain, v2 built; music default |
 | Extreme Tux Racer | yes | right | right | the user's race, replayed (evemu) | 59 HUD median (our batching, ps3.324; 52 without, Mesa ps3.299) | close | performance |
 | ClassiCube | yes | right | right | fly-through plugin, 3000 fixed frames | 50.1, load 11.6 s (ps3.262); 46.5 on a later boot (ps3.299, ps3.282 46.9 on that boot) | under | game-side batching (our classicube 0001-0002, built, to run) |
-| OpenArena (opengl1) | yes | right | right | timedemo bench | 52.4 (ps3.299); 54.4, load 8.2 s (ps3.262) | close | our ioquake3 0011-0018 (engine and renderer CPU) built, to run |
+| OpenArena (opengl1) | yes | right | right | timedemo bench | 52.4 (ps3.299); 54.4, load 8.2 s (ps3.262) | close | our ioquake3 0011-0018 (engine and renderer CPU) built, to run; ps3.362 adds 0019-0022 batching (host: 3022 -> 377 calls, 198 -> 79 draws a frame), to run |
 | X-Moto | yes | right | right (engine quiet under the music) | credits replay | 166.5 HUD (our batching, ps3.323; 44.5 without, Mesa ps3.299) | **meets it** | - |
 | dsda-doom (software) | yes | right (our fix) | choppy | as GL | 38, the timedemo now finishes (ps3.262) | under | the GL renderer is the way |
 | OpenTTD | yes (software video) | right | choppy (~1000-1170 underruns a minute, either path) | title-screen demo game; simulation 20000 ticks in 13.4 s | 8 (SDL3 ps3.254 accel, HUD median; ps3.242 was ~2), 12 with the 8bpp blitter | far under | its own software drawing: our OpenGL driver patches (GL 2.1 without ARB_texture_rg) built, recipe variant `gl`, to run |
@@ -334,6 +334,13 @@ Each is fixed only once a stage needs it.
   to GART and fetched by the GPU (NV30_INDEX_UPLOAD=0: inline). 0031 fragment program
   constant changes run from a GART copy, no M2MF re-upload (NV30_FP_CONST_VRAM=1; first time
   the RSX fetches a fragment program from GART).
+- OpenArena opengl1: our ioquake3 +ps3.362 (in ps3-dev), patches 0019-0022, each behind a cvar:
+  lightmap atlas (r_mergeLightmaps; world batches 114 -> 27), GL state cache (r_glStateCache), no
+  compiled vertex array locks (r_lockArrays 0), sky from vertex arrays (r_skyArrays; islanddm's sky
+  1453 -> 18 calls). Host, llvmpipe at GL 2.1: 3022 -> 377 calls, 198 -> 79 draws a frame on the
+  bench demo; delta, oa_dm6, oa_bases3, islanddm similar; pixels equal within 1-4 levels, and with
+  every switch off identical to the old build. Recipe variants mergelm0, glcache0, lockarrays,
+  skystrips, allbatchoff. To run on the PS3: tc1 against allbatchoff, same boot.
 - SuperTuxKart (run: karts render, the track doesn't, out of VRAM; fixes 0003-0004 built since):
   our package 1.5-2+ps3.264 (.spm meshes and armatures byte-swapped, GL textures
   and vertex colours right on big-endian; upstream #5578 closed as not planned). All 1268 .spm
