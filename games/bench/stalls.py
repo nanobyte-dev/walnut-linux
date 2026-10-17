@@ -322,7 +322,8 @@ def analyze(d):
     if t0 is not None and rec.clocks and off is not None:
         res["t0_offset"] = rec.real_to_rec(t0) - off    # the two alignments against each other
     segs = report.window(b)
-    if ft and segs and off is not None:
+    res["measured"] = bool(ft and segs and off is not None)
+    if res["measured"]:
         ends = report.frame_ends(ft, b)
         for k, (e, v) in enumerate(zip(ends, ft)):
             if v <= STALL_MS or not any(s < e <= t for s, t in segs):
@@ -352,8 +353,8 @@ def summary(d):
         res = analyze(d)
     except (OSError, ValueError, KeyError, IndexError):
         return {}
-    if not res or res["offset"] is None:
-        return {}
+    if not res or not res["measured"]:
+        return {}   # no frame times or no window: no stalls to split
     out = {col: round(sum(res["window"].get(c, 0) for c in causes), 1) for col, causes in COLUMNS.items()}
     if res["stalls"]:
         out["stall_why"] = max(res["window"], key=res["window"].get)
