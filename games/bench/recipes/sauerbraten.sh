@@ -155,6 +155,12 @@ variant_towers() { SB_MODE=spawn; SB_MAP=two_towers; sb_cmd; }
 variant_spuskin() { variant_gun; ENV+=(SPEQ_SKIN=spu SPEQ_DEBUG=1); }
 variant_ppeskin() { variant_gun; ENV+=(SPEQ_SKIN=ppe SPEQ_DEBUG=1); }
 variant_offskin() { variant_gun; ENV+=(SPEQ_SKIN=off); }
+# the same three on the recorded demo (base): the two bots' player models are skinned too, more work
+# than the gun alone (the user, 2026-10-18: the spawn runs showed no demo). With
+# sauerbraten-nonfree-data (ps3-licensed) the player models and guns have their real meshes.
+variant_demospu() { ENV+=(SPEQ_SKIN=spu SPEQ_DEBUG=1); }
+variant_demoppe() { ENV+=(SPEQ_SKIN=ppe SPEQ_DEBUG=1); }
+variant_demooff() { ENV+=(SPEQ_SKIN=off); }
 # the recorded demo: the same as base (named for the runs made before base became the demo)
 variant_demo() { SB_MODE=demo; sb_cmd; }
 # Fewer GL calls per frame (our cube2 0007-0009, each behind a cvar that is 1 by default; on cave under
