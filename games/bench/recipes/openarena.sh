@@ -122,8 +122,9 @@ variant_up() { oa_x +set r_shaderTextScan 1 +set fs_zipCrc 1 +set com_altivec 0 
 # to 377 and 79, the same picture (atlas: 74 pixels differ by at most 2). Each variant turns one
 # change back to upstream, allbatchoff all four.
 # 0019: the map's 32 lightmaps as one atlas texture, so a texture lit from several lightmaps is one
-# batch (world batches 114 -> 27 a frame)
-variant_mergelm0() { oa_x +set r_mergeLightmaps 0; }
+# batch (world batches 114 -> 27 a frame). Off by default since 0024: on the PS3 any atlas page adds
+# ~10 s of hitches per run (stall_s 34-36 vs 24), the frame cost equal. mergelm1 turns it back on.
+variant_mergelm1() { oa_x +set r_mergeLightmaps 1; }
 # 0020: texture unit, GL_TEXTURE_2D and client array state sent at every call (not only when a draw
 # needs a change)
 variant_glcache0() { oa_x +set r_glStateCache 0; }
@@ -132,7 +133,9 @@ variant_lockarrays() { oa_x +set r_lockArrays 1; }
 # 0022: the sky box as a glBegin strip per row, a call per vertex (the demo shows no sky: expect no
 # change here; islanddm drops from ~1450 sky calls a frame to 18)
 variant_skystrips() { oa_x +set r_skyArrays 0; }
-variant_allbatchoff() { oa_x +set r_mergeLightmaps 0 +set r_glStateCache 0 +set r_lockArrays 1 +set r_skyArrays 0; }
+variant_allbatchoff() { oa_x +set r_glStateCache 0 +set r_lockArrays 1 +set r_skyArrays 0; }
+# (Before 0024 the atlas was the default and the variant was mergelm0; the notes below were
+# measured that way, "base" there is the atlas on, "mergelm0" the atlas off.)
 # The atlas's ~5% (ps3.362 on Mesa ps3.299) is not in the frames: the window's frames of 100 ms or
 # less render at the same rate with and without it (report.py smooth: 64.0-64.3 fps both ways),
 # the loss is stall time (stall_s 37-45 s with it, 30-37 without). 0023 separates the atlas

@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 01:32:42 +0300
+Subject: renderergl1: r_mergeLightmaps defaults to 0, any atlas page adds
+ about 10 s of hitches per run on the PS3
+
+Measured on the PS3 (OpenArena bench, ps3.378): r_mergeLightmaps 1 or 2, any page size, gives stall_s 34-36 against 24 with 0, the frame cost equal. The batching of 0020-0022 stays on. Modes 1 and 2 stay selectable.
+
+diff --git a/code/renderergl1/tr_bsp.c b/code/renderergl1/tr_bsp.c
+--- a/code/renderergl1/tr_bsp.c
++++ b/code/renderergl1/tr_bsp.c
+@@ -189,6 +189,8 @@ r_mergeLightmapsSize caps a page's side (power of two, 128..1024): 512 holds 16
+ four. r_mergeLightmaps 2 builds the same pages but keeps a shader per lightmap
+ (FixMergedLightmapTexCoords), so the batches and their order are those of r_mergeLightmaps 0:
+ it tells the atlas textures' cost from the batching's.
++Default 0: any atlas page adds about 10 s of hitches to an OpenArena run on the PS3 (stall seconds
++34-36 against 24), the frame cost being equal; 1 and 2 stay for measuring.
+ ===============
+ */
+ static void R_MergeLightmaps( byte *buf, int numReal ) {
+diff --git a/code/renderergl1/tr_init.c b/code/renderergl1/tr_init.c
+--- a/code/renderergl1/tr_init.c
++++ b/code/renderergl1/tr_init.c
+@@ -1066,7 +1066,7 @@ void R_Register( void )
+ 	r_customPixelAspect = ri.Cvar_Get( "r_customPixelAspect", "1", CVAR_ARCHIVE | CVAR_LATCH );
+ 	r_simpleMipMaps = ri.Cvar_Get( "r_simpleMipMaps", "1", CVAR_ARCHIVE | CVAR_LATCH );
+ 	r_vertexLight = ri.Cvar_Get( "r_vertexLight", "0", CVAR_ARCHIVE | CVAR_LATCH );
+-	r_mergeLightmaps = ri.Cvar_Get( "r_mergeLightmaps", "1", CVAR_LATCH );
++	r_mergeLightmaps = ri.Cvar_Get( "r_mergeLightmaps", "0", CVAR_LATCH );
+ 	r_mergeLightmapsSize = ri.Cvar_Get( "r_mergeLightmapsSize", "1024", CVAR_LATCH );
+ 	ri.Cvar_CheckRange( r_mergeLightmapsSize, 128, 1024, qtrue );
+ 	ri.Cvar_SetDescription( r_mergeLightmapsSize, "With r_mergeLightmaps: the largest side of a lightmap atlas page in texels (128..1024, a power of two: 512 holds 16 lightmaps, 256 four)" );
