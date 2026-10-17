@@ -20,10 +20,10 @@ The plan is in docs/PLAN.md, background facts in docs/RESEARCH.md, measured GPU 
 - Don't optimize or fix nouveau/Mesa bugs until the baseline runs. Park side projects (power-control rig, HEVC decoder, Core 2 + 7600 GT setup) unless asked.
 
 ## Memory trims (the user, 2026-10-17)
-- Trim only what doesn't make the general Linux system worse. Things a desktop user expects stay
-  (the wallpaper, applets, services in normal use); game mode unloads or freezes them while a game
-  runs and brings them back after, instead of disabling them for good. System memory trims (task
-  #15) are postponed; the game-side memory work comes first.
+- Trim only what doesn't hurt quality of life: system services keep working and things a desktop
+  user expects stay (wallpaper, applets, services in normal use). The memory comes from game mode:
+  while a game runs, the rest gets out of the way (unloaded, frozen, paused) and comes back after,
+  instead of being disabled for good. Careful work: an Opus agent, nothing risky shipped untested.
 
 ## PS3 safety rules (hard constraints)
 - No permanent alterations to the PS3 beyond installing Linux (OtherOS++ / Petitboot / HDD region for Linux).
