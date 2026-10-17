@@ -15,7 +15,7 @@ Every number is 1920x1080, measured through games/bench with the picture checked
 |---|---|---|---|---|---|---|---|
 | QuakeSpasm | yes | right | right | timedemo demo1 (our quake.rc) | 59-70 | **meets it** | - |
 | Armagetron | yes | right | right | recorded AI round, `--playback --benchmark` | 64.0 | **meets it** | - |
-| Neverball | yes | right | some underruns (50/min) | shipped replay | ~70 (HUD, replay + end menu) | **meets it** | exit-and-fps patch (agent, nearly done) |
+| Neverball | yes | right | some underruns (50/min) | shipped replay; our package's NEVERBALL_BENCH prints fps and quits at its end | ~70 (HUD, replay + end menu) | **meets it** | first run of the bench mode (our neverball, in ps3-dev) |
 | Yamagi Quake II | yes | right | right (our fix) | timedemo q2demo1 | 56 | close | - |
 | dsda-doom (GL renderer) | yes | right (our fixes) | **choppy** (MIDI synthesis) | Freedoom DEMO1 timedemo | 48.8 | under | music default; SPU synth; performance |
 | Extreme Tux Racer | yes | right | right | the user's race, replayed (evemu) | ~45 in the race (18-58) | under | performance |
@@ -57,8 +57,9 @@ Every number is 1920x1080, measured through games/bench with the picture checked
 2. **Group 3 first runs:** Luanti, Sauerbraten with `cpuskel`, then Sauerbraten with GPU skinning.
 3. **SDL3 ps3.254 on the PS3** (built, in ps3-dev): OpenTTD `accel` against `base` (colours,
    HUD fps well above 2, underruns down from 937/min); if it wins, the recipe drops
-   SDL_FRAMEBUFFER_ACCELERATION=0. dsda-doom `sdlsw` uses the same path. Then land Neverball's
-   exit-and-fps patch (agent still building it).
+   SDL_FRAMEBUFFER_ACCELERATION=0. dsda-doom `sdlsw` uses the same path. Neverball's bench mode
+   (our neverball +ps3.257, patch 0001): `run.sh smoke neverball` should end by itself after the
+   replay with fps and maxms in bench.txt.
 4. **Performance, round 2** (the games under ~60 are all CPU-bound in the driver stack): what the
    profiles still show after 0.249; candidates already found: 6 cache-invalidate methods emitted on
    every nv30 draw (needs a hardware test), every relocated method emitted twice, u_vbuf always on
