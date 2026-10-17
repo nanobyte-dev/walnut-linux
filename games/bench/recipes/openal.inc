@@ -20,6 +20,10 @@
 # oal_backend= and oal_device= (format, rate, period / buffer frames as OpenAL got them) to
 # bench.txt. A ~/.alsoftrc, ~/.config/alsoft.conf (or for f44 a ~/.asoundrc) of the player's would
 # change the reference: setup refuses to run then.
+# OAL_PERF=N in run.sh's environment: these variants also record a perf profile of the game for N
+# seconds (at most 30), from SOUND_AT seconds after the start, into the run directory's perf.data
+# (perf record -p, -F 999 -g; never -a). games/bench/oal-perf.sh reads it. Profiled runs are for
+# the split, not for fps.
 OAL_SET=()	# alsoft.conf [general] lines
 OAL_ASOUNDRC=	# ~/.asoundrc content (f44): written by setup, removed after the run (BACKUP)
 OAL_ON=
@@ -41,6 +45,8 @@ oal_variant() {	# oal_variant NAME: variant NAME's settings, the config and log 
 	[ -n "$OAL_ASOUNDRC" ] && BACKUP+=("$HOME/.asoundrc")
 	oal_after setup oal_setup
 	oal_after parse oal_parse any
+	[ -n "${OAL_PERF:-}" ] && oal_after during oal_perf any
+	return 0
 }
 oal_after() {	# oal_after FUNC HOOK [any]: FUNC runs as before, then HOOK if FUNC succeeded (any: always)
 	declare -F "$1" > /dev/null || eval "$1() { :; }"
@@ -69,4 +75,14 @@ oal_parse() {	# OpenAL's "Added "alsa" for playback" and "Post-reset: Stereo, Fl
 		[[ $l =~ Post-reset:\ (.*)\ buffer ]] && dev=${BASH_REMATCH[1]// /}
 	done < "$D/alsoft.log"
 	echo "oal_backend=$b"; echo "oal_device=$dev"
+}
+oal_perf() {	# during(): perf record -p <game> for OAL_PERF s from SOUND_AT s
+	local p= i n=$(( OAL_PERF > 30 ? 30 : OAL_PERF ))
+	for i in $(seq 120); do p=$(cat "$D/.pid" 2>/dev/null); [ -n "$p" ] && break; sleep 0.5; done
+	[ -n "$p" ] || { echo "oal_perf: no $COMM process"; return 1; }
+	sleep "$SOUND_AT"
+	echo "oal_perf: recording pid $p for $n s from $EPOCHREALTIME"
+	sudo -n timeout $(( n + 20 )) perf record -q -F 999 -g -p "$p" -o "$D/perf.data" -- sleep "$n"
+	sudo -n chown "$(id -u):$(id -g)" "$D/perf.data"
+	echo "oal_perf: done at $EPOCHREALTIME"
 }

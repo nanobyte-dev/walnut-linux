@@ -24,3 +24,7 @@ if it exists (`base` needs none).
 | `WM` | window manager started first (default `openbox`; empty: none, the game's window may not show) |
 | `GAMEMODE` | 1: start through `ps3-game` (as the desktop does); default 0, as step 0 |
 | `SOUND_AT` | seconds from start when the sound card state is read (default 15) |
+
+`openal.inc` is not a recipe: the OpenAL Soft variants (`allog`, `b16`, `f44`, `b16f44`, `p1024`,
+`alnull`) the OpenAL games' recipes share (docs/SPU-AUDIO.md, M0), with an optional perf profile
+(`OAL_PERF=N`) that `games/bench/oal-perf.sh` splits by symbol.
