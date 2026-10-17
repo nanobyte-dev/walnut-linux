@@ -1,0 +1,299 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 21:05:42 +0300
+Subject: [PATCH 1/2] OpenGL backend: CC_GL switches, vertex pointers set once
+ per buffer, no repeated buffer binds or culling changes
+
+Gfx_FastChunks, CC_GL=0 turns everything below off, CC_GL_PTR, CC_GL_STATE, CC_GL_CHUNKS (the map renderer's, next patch), CC_GL_STATS=1 prints the draws, buffer binds and pointer sets per frame.
+
+CC_GL_PTR: the vertex, colour and texture coordinate pointers were set again for every draw (3 calls; a chunk part is up to 10 draws). They are set once when a buffer is bound (or the format changes), at the start of the buffer, and a range of the buffer is drawn by entering the index buffer (quads 0 1 2 2 3 0, 4 5 6 6 7 4, ...) at the quad where the range starts: the indices then count from the range's first vertex, as with moved pointers. Ranges that start off a quad or end past 65536 vertices keep the moved pointers.
+
+CC_GL_STATE: glBindBuffer for a buffer that is bound already and glEnable/glDisable(GL_CULL_FACE) for the state it has already are left out (the map renderer set the culling twice around every pair of faces).
+---
+ src/Graphics.h     |   5 ++
+ src/Graphics_GL1.c | 124 ++++++++++++++++++++++++++++++++++++++-------
+ src/_GLShared.h    |   5 ++
+ 3 files changed, 117 insertions(+), 17 deletions(-)
+
+diff --git a/src/Graphics.h b/src/Graphics.h
+index ee3fac6..cf9468c 100644
+--- a/src/Graphics.h
++++ b/src/Graphics.h
+@@ -418,6 +418,11 @@ CC_API void Gfx_DrawVb_IndexedTris_Range(int verticesCount, int startVertex, Dra
+ CC_API void Gfx_DrawVb_IndexedTris(int verticesCount);
+ /* Special case Gfx_DrawVb_IndexedTris_Range for map renderer */
+ void Gfx_DrawIndexedTris_T2fC4b(int verticesCount, int startVertex, DrawHints hints);
++#if CC_GFX_BACKEND == CC_GFX_BACKEND_GL1
++/* How the map renderer draws a chunk part: 0 per face direction (as upstream), 1 neighbouring ranges in one */
++/* draw, 2 all faces of the part in one draw with the face culling left to the GPU (CC_GL_CHUNKS) */
++extern int Gfx_FastChunks;
++#endif
+ 
+ 
+ /*########################################################################################################################*
+diff --git a/src/Graphics_GL1.c b/src/Graphics_GL1.c
+index 4915ea0..b858b90 100644
+--- a/src/Graphics_GL1.c
++++ b/src/Graphics_GL1.c
+@@ -79,10 +79,56 @@ typedef void (*GL_SetupVBRangeFunc)(int startVertex);
+ static GL_SetupVBFunc gfx_setupVBFunc;
+ static GL_SetupVBRangeFunc gfx_setupVBRangeFunc;
+ 
++/* Fewer GL calls per draw (the PS3's driver pays for each one): see CC_GL below.
++ *   CC_GL=0       turns all of these off (CC_GL_PTR=1 etc. turn single ones back on)
++ *   CC_GL_PTR=0   the vertex pointers are set when a vertex buffer is bound, not for every draw: a range of
++ *                 the buffer is drawn with an offset into the index buffer instead of moved pointers
++ *   CC_GL_STATE=0 buffer bindings and face culling are not set again when they already are
++ *   CC_GL_CHUNKS  how the map renderer draws a chunk part (0: a draw per face direction as before, 1: neighbouring
++ *                 ranges joined, 2: all faces in one draw, back faces left to the face culling)
++ *   CC_GL_STATS=1 prints the draws, buffer binds and pointer sets per frame once a second */
++int Gfx_FastChunks = 2;
++static cc_bool fast_ptr = true, fast_state = true, fast_stats;
++static int fast_draws, fast_binds, fast_ptrs, fast_frames;
++static cc_uint64 fast_last;
++#if defined CC_BUILD_POSIX
++#include <stdlib.h>
++static int FastEnv(const char* name, int def) {
++	const char* v = getenv(name);
++	return (v && v[0] >= '0' && v[0] <= '9') ? v[0] - '0' : def;
++}
++static void FastInit(void) {
++	int all = FastEnv("CC_GL", 1);
++	fast_ptr        = FastEnv("CC_GL_PTR", all) != 0;
++	fast_state      = FastEnv("CC_GL_STATE", all) != 0;
++	Gfx_FastChunks  = FastEnv("CC_GL_CHUNKS", all ? 2 : 0);
++	fast_stats      = FastEnv("CC_GL_STATS", 0) != 0;
++}
++#else
++static void FastInit(void) { }
++#endif
++
++/* what the GL has bound / set, as far as we know (-1: unknown) */
++static GLuint gl_arrayBuf, gl_elemBuf;
++static int gl_ptrKind;   /* 0: unknown, 1: coloured pointers at offset 0 of the bound buffer, 2: textured */
++static int gl_cull = -1;
++
++static void GL_BindArray(GfxResourceID id) {
++	if (fast_state && ((GLuint)(cc_uintptr)(id)) == gl_arrayBuf) return;
++	gl_arrayBuf = (GLuint)(cc_uintptr)(id); gl_ptrKind = 0; fast_binds++;
++	_glBindBuffer(GL_ARRAY_BUFFER, id);
++}
++static void GL_BindElem(GfxResourceID id) {
++	if (fast_state && ((GLuint)(cc_uintptr)(id)) == gl_elemBuf) return;
++	gl_elemBuf = (GLuint)(cc_uintptr)(id);
++	_glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, id);
++}
++
+ #include "_GLShared.h"
+ static void GLBackend_Init(void);
+ 
+ void Gfx_Create(void) {
++	FastInit();
+ 	GLContext_Create();
+ #ifdef CC_BUILD_GL11_FALLBACK
+ 	GLContext_GetAll(coreFuncs, Array_Elems(coreFuncs));
+@@ -132,17 +178,18 @@ GfxResourceID Gfx_CreateIb2(int count, Gfx_FillIBFunc fillFunc, void* obj) {
+ 	cc_uint32 size   = count * sizeof(cc_uint16);
+ 
+ 	fillFunc(gl_indices, count, obj);
+-	_glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, id);
++	GL_BindElem(id);
+ 	_glBufferData(GL_ELEMENT_ARRAY_BUFFER, size, gl_indices, GL_STATIC_DRAW);
+ 	return id;
+ }
+ 
+-void Gfx_BindIb(GfxResourceID ib) { _glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ib); }
++void Gfx_BindIb(GfxResourceID ib) { GL_BindElem(ib); }
+ 
+ void Gfx_DeleteIb(GfxResourceID* ib) {
+ 	GfxResourceID id = *ib;
+ 	if (!id) return;
+ 
++	if (((GLuint)(cc_uintptr)(id)) == gl_elemBuf) gl_elemBuf = 0;
+ 	delBuffer(id);
+ 	*ib = 0;
+ }
+@@ -153,16 +200,17 @@ void Gfx_DeleteIb(GfxResourceID* ib) {
+ *#########################################################################################################################*/
+ static GfxResourceID Gfx_AllocStaticVb(VertexFormat fmt, int count) {
+ 	GfxResourceID id = genBuffer();
+-	_glBindBuffer(GL_ARRAY_BUFFER, id);
++	GL_BindArray(id);
+ 	return id;
+ }
+ 
+ void Gfx_BindVb(GfxResourceID vb) { 
+-	_glBindBuffer(GL_ARRAY_BUFFER, vb); 
++	GL_BindArray(vb);
+ }
+ 
+ void Gfx_DeleteVb(GfxResourceID* vb) {
+ 	GfxResourceID id = *vb;
++	if (id && ((GLuint)(cc_uintptr)(id)) == gl_arrayBuf) { gl_arrayBuf = 0; gl_ptrKind = 0; }
+ 	if (id) delBuffer(id);
+ 	*vb = 0;
+ }
+@@ -188,17 +236,18 @@ static GfxResourceID Gfx_AllocDynamicVb(VertexFormat fmt, int maxVertices) {
+ 	GfxResourceID id = genBuffer();
+ 	cc_uint32 size   = maxVertices * strideSizes[fmt];
+ 
+-	_glBindBuffer(GL_ARRAY_BUFFER, id);
++	GL_BindArray(id);
+ 	_glBufferData(GL_ARRAY_BUFFER, size, NULL, GL_DYNAMIC_DRAW);
+ 	return id;
+ }
+ 
+ void Gfx_BindDynamicVb(GfxResourceID vb) {
+-	_glBindBuffer(GL_ARRAY_BUFFER, vb); 
++	GL_BindArray(vb);
+ }
+ 
+ void Gfx_DeleteDynamicVb(GfxResourceID* vb) {
+ 	GfxResourceID id = *vb;
++	if (id && ((GLuint)(cc_uintptr)(id)) == gl_arrayBuf) { gl_arrayBuf = 0; gl_ptrKind = 0; }
+ 	if (id) delBuffer(id);
+ 	*vb = 0;
+ }
+@@ -208,7 +257,7 @@ void* Gfx_LockDynamicVb(GfxResourceID vb, VertexFormat fmt, int count) {
+ }
+ 
+ void Gfx_UnlockDynamicVb(GfxResourceID vb) {
+-	_glBindBuffer(GL_ARRAY_BUFFER, vb);
++	GL_BindArray(vb);
+ 	_glBufferSubData(GL_ARRAY_BUFFER, 0, tmpSize, tmpData);
+ }
+ 
+@@ -218,7 +267,7 @@ void Gfx_UnlockDynamicVb(GfxResourceID vb) {
+ *#########################################################################################################################*/
+ void Gfx_SetScratchVbData(GfxResourceID vb, void* vertices, int vCount) {
+ 	cc_uint32 size = vCount * gfx_stride;
+-	_glBindBuffer(GL_ARRAY_BUFFER, vb);
++	GL_BindArray(vb);
+ 	_glBufferSubData(GL_ARRAY_BUFFER, 0, size, vertices);
+ }
+ 
+@@ -258,6 +307,7 @@ void Gfx_SetVertexFormat(VertexFormat fmt) {
+ 	if (fmt == gfx_format) return;
+ 	gfx_format = fmt;
+ 	gfx_stride = strideSizes[fmt];
++	gl_ptrKind = 0;
+ 
+ 	if (fmt == VERTEX_FORMAT_TEXTURED) {
+ 		_glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+@@ -274,27 +324,65 @@ void Gfx_SetVertexFormat(VertexFormat fmt) {
+ 	}
+ }
+ 
++static void GL_CountDraw(void) {
++	cc_uint64 now;
++	fast_draws++;
++	if (!fast_stats) return;
++	now = Stopwatch_Measure();
++	if (!fast_last) fast_last = now;
++	if (Stopwatch_ElapsedMicroseconds(fast_last, now) < 1000000) return;
++	{
++		int frames = fast_frames ? fast_frames : 1;
++		int draws = fast_draws / frames, binds = fast_binds / frames, ptrs = fast_ptrs / frames;
++		Platform_Log4("CC_GL_STATS: %i draws, %i buffer binds, %i pointer sets per frame (%i frames)", &draws, &binds, &ptrs, &frames);
++	}
++	fast_draws = fast_binds = fast_ptrs = fast_frames = 0; fast_last = now;
++}
++
++/* Draws verticesCount vertices of the bound buffer from startVertex. With CC_GL_PTR the pointers stay at the
++ * start of the buffer and the index buffer (quads 0 1 2 2 3 0, 4 5 6 6 7 4, ...) is entered at the quad
++ * where the range starts, so that the range's indices count from startVertex. */
++static void GL_DrawRange(int kind, int verticesCount, int startVertex) {
++	GL_CountDraw();
++	if (fast_ptr && !(startVertex & 3) && startVertex + verticesCount <= GFX_MAX_VERTICES) {
++		if (gl_ptrKind != kind) {
++			if (kind == 2) GL_SetupVbTextured(); else GL_SetupVbColoured();
++			gl_ptrKind = kind; fast_ptrs += kind == 2 ? 3 : 2;
++		}
++		_glDrawElements(GL_TRIANGLES, ICOUNT(verticesCount), GL_UNSIGNED_SHORT,
++				(const GLvoid*)((cc_uintptr)(startVertex >> 2) * 6 * sizeof(cc_uint16)));
++		return;
++	}
++	if (kind == 2) {
++		cc_uint32 offset = startVertex * SIZEOF_VERTEX_TEXTURED;
++		_glVertexPointer(3, GL_FLOAT,        SIZEOF_VERTEX_TEXTURED, (GLpointer)(VB_PTR + offset +  0));
++		_glColorPointer(4, GL_UNSIGNED_BYTE, SIZEOF_VERTEX_TEXTURED, (GLpointer)(VB_PTR + offset + 12));
++		_glTexCoordPointer(2, GL_FLOAT,      SIZEOF_VERTEX_TEXTURED, (GLpointer)(VB_PTR + offset + 16));
++		fast_ptrs += 3;
++	} else {
++		gfx_setupVBRangeFunc(startVertex); fast_ptrs += 2;
++	}
++	gl_ptrKind = 0;
++	_glDrawElements(GL_TRIANGLES, ICOUNT(verticesCount), GL_UNSIGNED_SHORT, IB_PTR);
++}
++
+ void Gfx_DrawVb_Lines(int verticesCount) {
++	GL_CountDraw();
++	gl_ptrKind = 0;
+ 	gfx_setupVBFunc();
+ 	_glDrawArrays(GL_LINES, 0, verticesCount);
+ }
+ 
+ void Gfx_DrawVb_IndexedTris_Range(int verticesCount, int startVertex, DrawHints hints) {
+-	gfx_setupVBRangeFunc(startVertex);
+-	_glDrawElements(GL_TRIANGLES, ICOUNT(verticesCount), GL_UNSIGNED_SHORT, IB_PTR);
++	GL_DrawRange(gfx_format == VERTEX_FORMAT_TEXTURED ? 2 : 1, verticesCount, startVertex);
+ }
+ 
+ void Gfx_DrawVb_IndexedTris(int verticesCount) {
+-	gfx_setupVBFunc();
+-	_glDrawElements(GL_TRIANGLES, ICOUNT(verticesCount), GL_UNSIGNED_SHORT, IB_PTR);
++	GL_DrawRange(gfx_format == VERTEX_FORMAT_TEXTURED ? 2 : 1, verticesCount, 0);
+ }
+ 
+ void Gfx_DrawIndexedTris_T2fC4b(int verticesCount, int startVertex, DrawHints hints) {
+-	cc_uint32 offset = startVertex * SIZEOF_VERTEX_TEXTURED;
+-	_glVertexPointer(3, GL_FLOAT,        SIZEOF_VERTEX_TEXTURED, (GLpointer)(VB_PTR + offset +  0));
+-	_glColorPointer(4, GL_UNSIGNED_BYTE, SIZEOF_VERTEX_TEXTURED, (GLpointer)(VB_PTR + offset + 12));
+-	_glTexCoordPointer(2, GL_FLOAT,      SIZEOF_VERTEX_TEXTURED, (GLpointer)(VB_PTR + offset + 16));
+-	_glDrawElements(GL_TRIANGLES,        ICOUNT(verticesCount),  GL_UNSIGNED_SHORT, IB_PTR);
++	GL_DrawRange(2, verticesCount, startVertex);
+ }
+ 
+ 
+@@ -410,6 +498,7 @@ static void Gfx_RestoreState(void) {
+ 
+ 	gfx_format = -1;
+ 	lastMatrix = -1;
++	gl_arrayBuf = 0; gl_elemBuf = 0; gl_ptrKind = 0; gl_cull = -1;
+ 
+ 	gfx_clearColor = 0;
+ 	gfx_fogColor   = 0;
+@@ -614,6 +703,7 @@ static void FallbackOpenGL(void) {
+ 		"This is usually caused by graphics drivers not being installed\n\n" \
+ 		"As such you will likely experience very poor performance");
+ 	customMipmapsLevels = false;
++	fast_ptr = false; fast_state = false; Gfx_FastChunks = 0;
+ 		
+ 	genBuffer        = legacy_genBuffer;
+ 	delBuffer        = legacy_deleteBuffer;
+diff --git a/src/_GLShared.h b/src/_GLShared.h
+index 242b585..5bf50d9 100644
+--- a/src/_GLShared.h
++++ b/src/_GLShared.h
+@@ -252,6 +252,10 @@ void Gfx_DisableMipmaps(void) { }
+ static PackedCol gfx_clearColor;
+ 
+ void Gfx_SetFaceCulling(cc_bool enabled) {
++#if CC_GFX_BACKEND == CC_GFX_BACKEND_GL1
++	if (fast_state && gl_cull == (int)enabled) return;
++	gl_cull = enabled;
++#endif
+ 	if (enabled) { _glEnable(GL_CULL_FACE); } else { _glDisable(GL_CULL_FACE); }
+ }
+ 
+@@ -412,6 +416,7 @@ void Gfx_ClearBuffers(GfxBuffers buffers) {
+ 
+ void Gfx_EndFrame(void) {
+ #if CC_GFX_BACKEND == CC_GFX_BACKEND_GL1
++	fast_frames++;
+ 	if (Window_IsObscured()) {
+ 		TickReducedPerformance();
+ #if defined CC_BUILD_SYMBIAN
+-- 
+2.56.0
+

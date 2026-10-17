@@ -1,0 +1,181 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 21:05:42 +0300
+Subject: [PATCH 2/2] map renderer: a chunk part in one draw, neighbouring
+ ranges joined (CC_GL_CHUNKS)
+
+A chunk part is drawn in up to 10 ranges of its buffer (the 4 sprite groups, 2 faces per axis, each kept or left out by which side of the chunk the camera is on), each with its own pointers, and pairs of faces with the culling switched on and off around them.
+
+CC_GL_CHUNKS=1: the same ranges, neighbouring ones joined into one draw, and the face culling on for the whole pass. The faces left out by the camera's side face away from the camera everywhere in its chunk, and the faces of a chunk on one side only all face it, so the culling changes no pixel. Translucent parts are drawn the same way with the culling left off, as before.
+CC_GL_CHUNKS=2 (default): all faces of a normal part in one draw and the culling drops the ones facing away: a draw per chunk part instead of ~4 (the benchmark's 1107 draws a frame become 294), at 75% more indices sent to the GPU (545k against 311k a frame). Parts of more than 65536 vertices keep the ranges. CC_GL_CHUNKS=0 draws as before.
+The vertex count of the debug screen counts the vertices the ranges would have sent in all modes.
+---
+ src/MapRenderer.c | 138 ++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 138 insertions(+)
+
+diff --git a/src/MapRenderer.c b/src/MapRenderer.c
+index fbe36dd..bfd2b1c 100644
+--- a/src/MapRenderer.c
++++ b/src/MapRenderer.c
+@@ -201,6 +201,138 @@ static void RenderNormalBatch(int batch) {
+ 	}
+ }
+ 
++#if CC_GFX_BACKEND == CC_GFX_BACKEND_GL1
++/* The faces of a chunk part are in one vertex buffer range: the sprites (4 groups), then the faces X-, X+, Z-, Z+,
++ * Y-, Y+. A face that can be seen from the chunk's side is drawn; the others face away from the camera in every
++ * position inside its chunk, so face culling drops them too (and for the chunks that get one side only, the faces
++ * drawn all face the camera): with the culling on for the whole pass the picture is the same.
++ * Gfx_FastChunks 1: the ranges to draw, neighbouring ones joined into one draw; 2: the whole part in one draw. */
++struct DrawRun { int start, count; };
++
++static CC_INLINE int AddRun(struct DrawRun* runs, int n, int start, int count) {
++	if (!count) return n;
++	if (n && runs[n - 1].start + runs[n - 1].count == start) { runs[n - 1].count += count; return n; }
++	runs[n].start = start; runs[n].count = count;
++	return n + 1;
++}
++
++/* the part's total vertex count (sprites and all faces) */
++static CC_INLINE int PartVertices(const struct ChunkPartInfo* part) {
++	return part->spriteCount + part->counts[0] + part->counts[1] + part->counts[2]
++		+ part->counts[3] + part->counts[4] + part->counts[5];
++}
++
++static void RenderNormalBatchFast(int batch) {
++	int batchOffset = chunksCount * batch;
++	struct ChunkInfo* info;
++	const struct ChunkPartInfo* part;
++	struct DrawRun runs[16];
++	int i, j, n, offset, count, total;
++	cc_bool whole;
++
++	Gfx_SetFaceCulling(true);
++	for (i = 0; i < renderChunksCount; i++) {
++		info = renderChunks[i];
++		if (!info->normalParts) continue;
++
++		part = &info->normalParts[batchOffset];
++		if (part->offset < 0) continue;
++		hasNormParts[batch] = true;
++
++		Gfx_BindVb_Textured(info->vb);
++		total = PartVertices(part);
++		whole = Gfx_FastChunks == 2 && part->offset + total <= GFX_MAX_VERTICES;
++		if (whole) {
++			Gfx_DrawIndexedTris_T2fC4b(total, part->offset, 0);
++			/* the vertices the one draw per face direction would send (the debug screen shows them) */
++			if (info->drawXMin) Game_Vertices += part->counts[FACE_XMIN];
++			if (info->drawXMax) Game_Vertices += part->counts[FACE_XMAX];
++			if (info->drawZMin) Game_Vertices += part->counts[FACE_ZMIN];
++			if (info->drawZMax) Game_Vertices += part->counts[FACE_ZMAX];
++			if (info->drawYMin) Game_Vertices += part->counts[FACE_YMIN];
++			if (info->drawYMax) Game_Vertices += part->counts[FACE_YMAX];
++			if (part->spriteCount) {
++				count = part->spriteCount >> 2;
++				if (info->drawXMax || info->drawZMin) Game_Vertices += count;
++				if (info->drawXMin || info->drawZMax) Game_Vertices += count;
++				if (info->drawXMin || info->drawZMin) Game_Vertices += count;
++				if (info->drawXMax || info->drawZMax) Game_Vertices += count;
++			}
++			continue;
++		}
++
++		n = 0;
++		offset = part->offset;
++		count  = part->spriteCount >> 2; /* 4 per sprite */
++		if (count) {
++			if (info->drawXMax || info->drawZMin) n = AddRun(runs, n, offset, count);
++			offset += count;
++			if (info->drawXMin || info->drawZMax) n = AddRun(runs, n, offset, count);
++			offset += count;
++			if (info->drawXMin || info->drawZMin) n = AddRun(runs, n, offset, count);
++			offset += count;
++			if (info->drawXMax || info->drawZMax) n = AddRun(runs, n, offset, count);
++			offset += count;
++		}
++		offset = part->offset + part->spriteCount;
++		if (info->drawXMin) n = AddRun(runs, n, offset, part->counts[FACE_XMIN]);
++		offset += part->counts[FACE_XMIN];
++		if (info->drawXMax) n = AddRun(runs, n, offset, part->counts[FACE_XMAX]);
++		offset += part->counts[FACE_XMAX];
++		if (info->drawZMin) n = AddRun(runs, n, offset, part->counts[FACE_ZMIN]);
++		offset += part->counts[FACE_ZMIN];
++		if (info->drawZMax) n = AddRun(runs, n, offset, part->counts[FACE_ZMAX]);
++		offset += part->counts[FACE_ZMAX];
++		if (info->drawYMin) n = AddRun(runs, n, offset, part->counts[FACE_YMIN]);
++		offset += part->counts[FACE_YMIN];
++		if (info->drawYMax) n = AddRun(runs, n, offset, part->counts[FACE_YMAX]);
++
++		for (j = 0; j < n; j++) {
++			Gfx_DrawIndexedTris_T2fC4b(runs[j].count, runs[j].start, 0);
++			Game_Vertices += runs[j].count;
++		}
++	}
++	Gfx_SetFaceCulling(false);
++}
++
++static void RenderTranslucentBatchFast(int batch) {
++	int batchOffset = chunksCount * batch;
++	struct ChunkInfo* info;
++	const struct ChunkPartInfo* part;
++	struct DrawRun runs[6];
++	int i, j, n, offset;
++
++	for (i = 0; i < renderChunksCount; i++) {
++		info = renderChunks[i];
++		if (!info->translucentParts) continue;
++
++		part = &info->translucentParts[batchOffset];
++		if (part->offset < 0) continue;
++		hasTranParts[batch] = true;
++
++		Gfx_BindVb_Textured(info->vb);
++		n = 0;
++		offset = part->offset;
++		if (inTranslucent || info->drawXMin) n = AddRun(runs, n, offset, part->counts[FACE_XMIN]);
++		offset += part->counts[FACE_XMIN];
++		if (inTranslucent || info->drawXMax) n = AddRun(runs, n, offset, part->counts[FACE_XMAX]);
++		offset += part->counts[FACE_XMAX];
++		if (inTranslucent || info->drawZMin) n = AddRun(runs, n, offset, part->counts[FACE_ZMIN]);
++		offset += part->counts[FACE_ZMIN];
++		if (inTranslucent || info->drawZMax) n = AddRun(runs, n, offset, part->counts[FACE_ZMAX]);
++		offset += part->counts[FACE_ZMAX];
++		if (inTranslucent || info->drawYMin) n = AddRun(runs, n, offset, part->counts[FACE_YMIN]);
++		offset += part->counts[FACE_YMIN];
++		if (inTranslucent || info->drawYMax) n = AddRun(runs, n, offset, part->counts[FACE_YMAX]);
++
++		for (j = 0; j < n; j++) {
++			Gfx_DrawIndexedTris_T2fC4b(runs[j].count, runs[j].start, 0);
++			Game_Vertices += runs[j].count;
++		}
++	}
++}
++#endif
++
+ void MapRenderer_RenderNormal(float delta) {
+ 	int batch;
+ 	if (!mapChunks) return;
+@@ -214,6 +346,9 @@ void MapRenderer_RenderNormal(float delta) {
+ 		if (normPartsCount[batch] <= 0) continue;
+ 		if (hasNormParts[batch] || checkNormParts[batch]) {
+ 			Atlas1D_Bind(batch);
++#if CC_GFX_BACKEND == CC_GFX_BACKEND_GL1
++			if (Gfx_FastChunks) RenderNormalBatchFast(batch); else
++#endif
+ 			RenderNormalBatch(batch);
+ 			checkNormParts[batch] = false;
+ 		}
+@@ -246,6 +381,9 @@ static void RenderTranslucentBatch(int batch) {
+ 	cc_bool drawMin, drawMax;
+ 	int i, offset;
+ 
++#if CC_GFX_BACKEND == CC_GFX_BACKEND_GL1
++	if (Gfx_FastChunks) { RenderTranslucentBatchFast(batch); return; }
++#endif
+ 	for (i = 0; i < renderChunksCount; i++) {
+ 		info = renderChunks[i];
+ 		if (!info->translucentParts) continue;
+-- 
+2.56.0
+

@@ -70,3 +70,19 @@ variant_kick100() { ENV+=(NV30_PS3_KICK_DRAWS=100); }
 # Mesa ps3.299 switches, to bisect its cost here: 0027 (adaptive submission) off, 0030 (index upload) off
 variant_autooff() { ENV+=(NV30_PS3_KICK_AUTO=0); }
 variant_idxoff() { ENV+=(NV30_INDEX_UPLOAD=0); }
+# Our classicube build's GL submission switches (classicube/patches, src/Graphics_GL1.c): CC_GL=0 is
+# the game as upstream draws it, the base run has them all on. CC_GL_STATS=1 prints draws, buffer
+# binds and pointer sets per frame once a second into game.log (not for pictures: it adds clock reads).
+variant_gloff() { ENV+=(CC_GL=0); }
+variant_glstats() { ENV+=(CC_GL_STATS=1); }
+variant_noptr() { ENV+=(CC_GL_PTR=0); }	# vertex pointers set for every draw again
+variant_nostate() { ENV+=(CC_GL_STATE=0); }	# buffer binds and face culling set every time again
+variant_chunks0() { ENV+=(CC_GL_CHUNKS=0); }	# a draw per face direction and pair, as upstream
+variant_chunks1() { ENV+=(CC_GL_CHUNKS=1); }	# the same faces, neighbouring ranges in one draw (~770 draws a frame)
+variant_chunks2() { ENV+=(CC_GL_CHUNKS=2); }	# all faces of a chunk part in one draw (the default: ~290 draws, 75% more indices)
+# the game's own render distance (option viewdist, blocks): the fewer chunks in view, the fewer draws
+cc_viewdist() { sed -i '/^viewdist=/d' "$CC_DIR/options.txt"; printf 'viewdist=%s\n' "$1" >> "$CC_DIR/options.txt"; }
+cc_view64() { cc_viewdist 64; }
+cc_view32() { cc_viewdist 32; }
+variant_view64() { oal_after setup cc_view64; }
+variant_view32() { oal_after setup cc_view32; }
