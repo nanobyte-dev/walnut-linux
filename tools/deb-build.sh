@@ -83,6 +83,10 @@ cleanup
 hash=$(sha256sum "build/src/$PKG/$SOURCE-$UPVER/debian/control" | cut -c1-12)
 DEPS=build/chroot/$PKG-deps-$hash.tar
 mkdir -p "$R"
+# packages with LOCAL_DEPS start from the bare chroot every time: a cached one keeps the previous
+# build of our own dependency, which apt-get build-dep doesn't replace when it already satisfies
+# the build dependency (luanti got Debian's libluajit instead of ours)
+[ -z "${LOCAL_DEPS:-}" ] || rm -f "$DEPS"
 if [ -e "$DEPS" ]; then
 	tar -xf "$DEPS" -C "$R"
 else
@@ -102,7 +106,6 @@ if [ -n "${LOCAL_DEPS:-}" ]; then
 	done
 	(cd "$R/build/local" && apt-ftparchive packages . > Packages)
 	echo 'deb [trusted=yes] file:/build/local ./' > "$R/etc/apt/sources.list.d/zz-local.list"
-	rm -f "$DEPS"	# the cache can't hold our own changing builds
 fi
 cp build/src/"$PKG"/*.dsc build/src/"$PKG"/*.tar.* "$R/build/" 2>/dev/null || true
 for f in build/src/"$PKG"/*.orig*.tar.*; do [ ! -e "$f" ] || cp -L "$f" "$R/build/"; done
@@ -118,9 +121,11 @@ if [ ! -e "$DEPS" ]; then
 		| grep -E "^(Need to get|After this|E:)" || true
 	in_chroot apt-get clean
 	rm -rf "$R/build/reproducible-path/$SOURCE-$UPVER.deps-cache"
-	# cache the chroot with the build dependencies, without the source tree
+	# cache the chroot with the build dependencies, without the source tree (not with LOCAL_DEPS)
 	rm -f build/chroot/"$PKG"-deps-*.tar
-	tar --exclude=./build --exclude=./proc --exclude=./sys --exclude=./dev -cf "$DEPS.tmp" -C "$R" . && mv "$DEPS.tmp" "$DEPS"
+	if [ -z "${LOCAL_DEPS:-}" ]; then
+		tar --exclude=./build --exclude=./proc --exclude=./sys --exclude=./dev -cf "$DEPS.tmp" -C "$R" . && mv "$DEPS.tmp" "$DEPS"
+	fi
 	in_chroot sh -c "cd /build/reproducible-path && rm -rf $SOURCE-$UPVER && dpkg-source -x ../$(basename "$DSC") $SOURCE-$UPVER >/dev/null"
 fi
 T1=$(date +%s)
