@@ -5,3 +5,4 @@
 /firmware/
 # PRIVATE: NOR flash dump contains console-unique keys and IDs. Never commit or upload.
 /backups/
+__pycache__/
