@@ -23,7 +23,7 @@ Every number is 1920x1080, measured through games/bench with the picture checked
 | OpenArena (opengl1) | yes | right | right | timedemo bench | 42.2 | under | performance |
 | X-Moto | yes | right | right (engine quiet under the music) | credits replay | 37 (HUD) | under | performance |
 | dsda-doom (software) | yes | right (our fix) | choppy | as GL | 20-29 | under | the GL renderer is the way |
-| OpenTTD | yes (software video) | right (plain X11; our SDL3 fix on the default path) | right | title-screen demo game; simulation 20000 ticks in 13.4 s | not counted yet (the default path is ~2 fps: SDL3 converts every frame) | - | SDL3 fast path (agent); a fps counter; GL renderer refuses (no GL_RG) |
+| OpenTTD | yes (software video) | right (plain X11; our SDL3 fix on the default path) | right | title-screen demo game; simulation 20000 ticks in 13.4 s | not counted yet (SDL3 ps3.242's default path was ~2 fps; ps3.254 uploads natively, untested) | - | try SDL3 ps3.254 (variant accel); a fps counter; GL renderer refuses (no GL_RG) |
 | Luanti | packaged, not run | | | our ps3bench mod flies a fixed path | | | first smoke test |
 | Sauerbraten | packaged, not run | | | CubeScript counts frames on map cave | | | first smoke test (GPU skinning last) |
 | SuperTuxKart | not started | | | `--benchmark` | | | group 4 |
@@ -55,8 +55,10 @@ Every number is 1920x1080, measured through games/bench with the picture checked
    desktop, VT switches, Neverball; then perf profiles as root (to name the kernel hot spot) and
    the suite's numbers against the table above.
 2. **Group 3 first runs:** Luanti, Sauerbraten with `cpuskel`, then Sauerbraten with GPU skinning.
-3. **Land the two agents still working:** Neverball's exit-and-fps patch, SDL3's fast framebuffer
-   (OpenTTD's default path), then an fps number for OpenTTD.
+3. **SDL3 ps3.254 on the PS3** (built, in ps3-dev): OpenTTD `accel` against `base` (colours,
+   HUD fps well above 2, underruns down from 937/min); if it wins, the recipe drops
+   SDL_FRAMEBUFFER_ACCELERATION=0. dsda-doom `sdlsw` uses the same path. Then land Neverball's
+   exit-and-fps patch (agent still building it).
 4. **Performance, round 2** (the games under ~60 are all CPU-bound in the driver stack): what the
    profiles still show after 0.249; candidates already found: 6 cache-invalidate methods emitted on
    every nv30 draw (needs a hardware test), every relocated method emitted twice, u_vbuf always on
@@ -299,7 +301,7 @@ Load times are compared with the same shader cache state (Mesa's disk cache is o
 | L8A8 (GL_LUMINANCE_ALPHA) samples with L and A swapped (gl-texfmt) | Neverball, fonts in many games | Mesa 0012 (ps3.223), gl-texfmt passes |
 | GPU mipmap generation of non-square textures: 1-pixel levels are swizzled render targets the validator refuses, the push is lost (gl-genmip) | Neverball, SuperTuxKart, Luanti | Mesa 0013 (ps3.223), gl-genmip passes |
 | Graph exception 0x105: nv30's 3D blit sampled a mip level at an offset not 128-byte aligned (Mesa's CPU mipmap generation reading back the 2x2 level of a 32x32 L8A8 texture) | Neverball (every game generating mipmaps for L8A8/L8/A8/I8/4444/5551) | Mesa 0014 (ps3.225); gl-mipread passes all 70 cases. ps3rsx 0.249 refuses texture offsets not 128-byte aligned (8e99b76; built, loads at the next boot, untested) |
-| SDL3's accelerated window framebuffer on big-endian was BGRA8888, so apps writing 0xAARRGGBB words (OpenTTD) showed a blue cast | OpenTTD (any SDL window-surface app) | our libsdl3 +ps3.242 (colours right, the user confirmed); but that path converts every frame on the CPU: OpenTTD ~2 fps by the HUD, audio starved. A native upload (GL_BGRA + 8_8_8_8_REV) is being added; until then OpenTTD's recipe uses SDL_FRAMEBUFFER_ACCELERATION=0 |
+| SDL3's accelerated window framebuffer on big-endian was BGRA8888, so apps writing 0xAARRGGBB words (OpenTTD) showed a blue cast | OpenTTD (any SDL window-surface app) | our libsdl3 +ps3.242 (colours right, the user confirmed); but that path converted every frame on the CPU twice (SDL's swizzle, then Mesa's): OpenTTD ~2 fps by the HUD, audio starved. ps3.254 (patch 0002) uploads ARGB/XRGB8888 natively with GL_BGRA + 8_8_8_8_REV as SDL2 did (upload 2.3x faster under qemu, colours exact on opengl and opengles2); untested on the PS3, so OpenTTD's recipe keeps SDL_FRAMEBUFFER_ACCELERATION=0 until then |
 | Debian's LuaJIT on big-endian ppc64 allocates between 2 and 4 GB, which it then refuses: luaL_newstate failed ~40% of the time | Luanti | our luajit package (331c539); Luanti's 330 unit tests pass |
 | No ARB_texture_rg (glxinfo) | dsda-doom GL, OpenTTD GL | dsda-doom: a GL_LUMINANCE_ALPHA fallback in our dsda-doom package (works); OpenTTD: open |
 | Every X after the first started black: ps3rsx's reflip muted the video for an active CRTC with no framebuffer, and ps3fb's console blank muted it before X owned the GPU | all (every bench run) | a1f1b91, 8baa747 (ps3rsx 0.219) |
