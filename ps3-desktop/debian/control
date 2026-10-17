@@ -33,7 +33,9 @@ Description: everyday desktop applications for the PS3
 
 Package: ps3-games
 Architecture: all
-Depends: ${misc:Depends}, openarena, classicube
+Depends: ${misc:Depends}, openarena, classicube, quakespasm, quake-shareware, yamagi-quake2,
+ quake2-demo-data, armagetronad, neverball, xmoto, extremetuxracer, dsda-doom, freedoom, openttd,
+ openttd-opengfx, openttd-opensfx, openttd-openmsx
 Description: the PS3's game suite
  The games this distribution is tested and benchmarked with (docs/GAME-PLAN.md): each one known to
  run on the RSX, with its sound, joins this package once it does. Remove this package to remove
