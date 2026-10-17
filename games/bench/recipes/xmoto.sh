@@ -13,3 +13,5 @@ setup() {
 CMD=(/usr/games/xmoto --nowww -fs -res 1920x1080 --replay credits --timedemo --benchmark)
 FPS_RE='Average framerate: ([0-9.]+) fps'
 SOUND_AT=20
+# Mesa ps3.282: a submission every 100 draws (0026), the Armagetron fix, checked here
+variant_kick100() { ENV+=(NV30_PS3_KICK_DRAWS=100); }

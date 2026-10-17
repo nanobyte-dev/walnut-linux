@@ -65,3 +65,5 @@ cc_nosound() {
 	sed -i '/^\(soundsvolume\|musicvolume\)=/d' "$CC_DIR/options.txt"
 	printf 'soundsvolume=0\nmusicvolume=0\n' >> "$CC_DIR/options.txt"
 }
+# Mesa ps3.282: a submission every 100 draws (0026), the Armagetron fix, checked here
+variant_kick100() { ENV+=(NV30_PS3_KICK_DRAWS=100); }
