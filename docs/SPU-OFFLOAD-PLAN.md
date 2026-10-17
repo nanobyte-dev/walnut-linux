@@ -1,4 +1,4 @@
-# SPU offload plan: status (parked 2026-10-16)
+# SPU offload plan: status (resumed 2026-10-17)
 
 The working plan behind SPU-OFFLOAD-SURVEY.md, as it stood when it was parked so the game suite
 and its driver work (GAME-SUITE.md) could come first. Measured results are in
@@ -16,6 +16,28 @@ game.
 | C: SPU runtime | resident workers (one per SPE, `SPU_CREATE_EVENTS_ENABLED`), reservation-line queue, park/free, futex completion via stop 0x2104, fault recovery; `speq-bench` P1-P5 measured on hardware | `ps3-spu/spu/runtime.c`, `ps3-spu/lib/queue.c`, `ps3-spu/tools/speq-bench.c` |
 | D: SPU DXT1 | `dxt.spu` (SIMD, byte-identical, 379 Mpixel/s per SPE, 1173 on six); `SPEQ_S3TC=auto` default; OpenArena compressed textures load as fast as uncompressed (13.63 vs 13.84 s), 14 MB less VRAM | `ps3-spu/spu/dxt.c`, `dxt-op.c`, `ps3-spu/lib/s3tc.c` |
 | Shipped | OpenArena `r_ext_compressed_textures 1` (ps3-desktop autoexec.cfg) | |
+
+## Resumed 2026-10-17: order by what the CPU-bound games spend
+
+The game stage (GAME-PLAN.md) ended with most games CPU-bound on the PPE. Most of that time is
+the driver stack (Mesa per-draw work, ps3rsx validation), which is branchy, microsecond-sized and
+stays on the PPE (SPU-OFFLOAD-SURVEY.md); it is cut in Mesa instead (patches 0015-0025). The SPU
+wins are the data-parallel work next to it. The user chose fluidsynth and OpenAL first:
+
+| # | Work | Measured cost on the PPE | Games |
+|---|---|---|---|
+| 1 | MIDI synthesis, fluidsynth (3b below) | ~40% of a PPE thread in dsda-doom; the cause of its chopping (1280 underruns a minute against 18 without music) | dsda-doom, OpenTTD's music, SDL_mixer MIDI |
+| 2 | OpenAL Soft's mixer (3 below, SPU-AUDIO.md) | ~10% of OpenArena's frame rate in step 0; ppc64 has no SIMD mixer | OpenArena, QuakeSpasm, Yamagi, Sauerbraten, ETR, SuperTuxKart, Luanti |
+| 3 | OpenTTD's blitter and palette animation | 27% of its CPU (profile 2026-10-17: PaletteAnimate 14%, Draw 13%) | OpenTTD |
+| 4 | CPU skinning | Sauerbraten's default on the PS3 (GPU skinning 11 fps against 28) | Sauerbraten, SuperTuxKart's legacy path |
+| 5 | Chunk meshing, terrain generation (6 below) | Luanti's loading stalls; ClassiCube's chunk builds | Luanti, ClassiCube |
+| 6 | DXT5 in libspeq (2 below) | memory more than CPU: textures stay compressed | every game asking for compressed RGBA |
+
+Both audio libraries become our debsrc packages first (fluidsynth/, openal-soft/): the SPU hooks
+are patches to them, and their debug symbols then match what runs (Debian's dbgsym for the live
+mirror's -2 builds don't match the snapshot's -1). Audio needs two queue changes first (4 below):
+a `speq_wait` timeout and a no-spin mode. Item 1 (re-check across the suite) is done: the suite's
+numbers are in GAME-PLAN.md.
 
 ## Parked, in the order they would come back
 
