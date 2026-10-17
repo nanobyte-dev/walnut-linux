@@ -166,6 +166,20 @@ variant_leaner() {
 	variant_meshdelay
 }
 
+# Our luanti build's GL submission switches (luanti/patches 0004-0006, irr/include/LuGlOpt.h): all on
+# in the base run, LU_GL=0 is the game as upstream draws it. On the host (llvmpipe, GL 2.1, the same
+# flight) they take the GL calls from ~1180 to ~835 a frame and the buffer bytes uploaded from ~32 KB
+# to ~16 KB a frame; each variant turns one off (or all, allbatchoff).
+variant_allbatchoff() { ENV+=(LU_GL=0); }
+variant_nodupup() { ENV+=(LU_GL_UPLOAD=0); }	# new buffers uploaded twice again
+variant_nobind() { ENV+=(LU_GL_BIND=0); }	# every draw binds and unbinds its buffers again
+variant_noxform() { ENV+=(LU_GL_XFORM=0); }	# matrices loaded into GL at every setTransform again
+variant_noptr() { ENV+=(LU_GL_PTR=0); }	# vertex arrays set for every draw again
+variant_nofog() { ENV+=(LU_GL_FOG=0); }	# fog set again for every pass
+variant_noskin() { ENV+=(LU_GL_SKIN=0); }	# the player model skinned and uploaded every frame again
+variant_nosky() { ENV+=(LU_GL_SKY=0); }	# a draw for every sky quad again
+variant_nomatreuse() { ENV+=(LU_GL_MATREUSE=0); }	# material set for every transparent buffer again
+
 # OpenAL Soft measurements (docs/SPU-AUDIO.md, M0): the shared variants of openal.inc, and no sound
 # at all (5.15 has no setting for it: with no OpenAL backend the device fails to open, "Sound disabled")
 . "$here/recipes/openal.inc"

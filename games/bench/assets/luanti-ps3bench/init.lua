@@ -21,6 +21,10 @@ local loop = 0			-- the loop being flown, from 0
 local length = 240		-- nodes flown north
 local straight = 0.75		-- share of the path spent flying straight; the rest is the turn
 
+-- ps3bench_pose (host checks, not the benchmark): hold at the pose of that many seconds into the
+-- path from the start, so screenshots of two builds show the same view
+local fixed_pose = tonumber(core.settings:get("ps3bench_pose"))
+
 local ie = core.request_insecure_environment()	-- at load time; nil unless trusted
 
 local name, alt
@@ -71,7 +75,7 @@ core.register_on_joinplayer(function(player)
 	-- above the ground at the start (the mapgen's own estimate; nil over water or cliffs)
 	alt = (core.get_spawn_level(0, 0) or 10) + 25
 	player:set_physics_override({speed = 0, jump = 0, gravity = 0})
-	place(player, 0)
+	place(player, fixed_pose or 0)
 	log(string.format("joined, altitude %d, warmup %d s, path %d s", alt, warmup, seconds))
 end)
 
@@ -86,7 +90,7 @@ core.register_globalstep(function(dtime)
 		log_mem("tick")
 	end
 	if t < warmup then
-		place(player, 0)
+		place(player, fixed_pose or 0)
 		return
 	end
 	if not started then
@@ -101,7 +105,7 @@ core.register_globalstep(function(dtime)
 		log(string.format("path loop %d", k + 1))
 	end
 	s = s - k * seconds
-	place(player, math.min(s, seconds))
+	place(player, fixed_pose or math.min(s, seconds))
 	if s >= seconds then
 		ended = true
 		log("path end")

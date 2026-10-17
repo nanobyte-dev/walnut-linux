@@ -1,1 +1,5 @@
 0002-unittest-Address-Resolve-s-fallback-of-the-same-fami.patch
+0003-sound-decode-Ogg-Vorbis-to-host-byte-order-big-endia.patch
+0004-irr-OpenGL-driver-fewer-GL-calls-per-draw-LU_GL-swit.patch
+0005-SkinnedMesh-skin-again-only-when-the-pose-changed-LU.patch
+0006-Sky-quads-in-one-draw-LU_GL_SKY-equal-materials-set-.patch

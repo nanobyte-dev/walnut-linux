@@ -1,0 +1,369 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps3 <ps3@localhost>
+Date: Sat, 17 Oct 2026 22:36:26 +0300
+Subject: irr OpenGL driver: fewer GL calls per draw (LU_GL switches)
+
+LU_GL=0 turns everything below off, LU_GL_<name>=0 one of them.
+UPLOAD: a new hardware buffer was uploaded twice (glBufferData, then glBufferSubData of the same bytes because the link's ChangedID was never set).
+BIND: glBindBuffer for the buffer that is bound is left out and the buffers stay bound after a draw; drawing from client memory unbinds first.
+XFORM: the view and world matrices go to GL as one glLoadMatrixf when the next 3D draw needs them, and a transform that changes nothing costs nothing.
+PTR: the vertex arrays of a buffer are not set again for the next draw from the same buffer.
+FOG: the same fog is not set again.
+
+diff --git a/irr/include/LuGlOpt.h b/irr/include/LuGlOpt.h
+new file mode 100644
+--- /dev/null
++++ b/irr/include/LuGlOpt.h
+@@ -0,0 +1,21 @@
++// Our PS3 package: switches for the changes that cut GL calls and uploads (docs in luanti/patches).
++// They are on by default; LU_GL=0 in the environment turns all of them off (the game as upstream
++// draws it), LU_GL_<NAME>=0 turns one off. Read once per call site (keep the result in a static).
++#pragma once
++
++#include <cstdlib>
++
++inline bool luGlOpt(const char *name)
++{
++	const char *all = getenv("LU_GL");
++	if (all && all[0] == '0' && !all[1])
++		return false;
++	const char *v = getenv(name);
++	return !(v && v[0] == '0' && !v[1]);
++}
++
++inline int luGlInt(const char *name, int def)
++{
++	const char *v = getenv(name);
++	return v && *v ? atoi(v) : def;
++}
+diff --git a/irr/src/COpenGLDriver.cpp b/irr/src/COpenGLDriver.cpp
+--- a/irr/src/COpenGLDriver.cpp
++++ b/irr/src/COpenGLDriver.cpp
+@@ -3,6 +3,7 @@
+ // For conditions of distribution and use, see copyright notice in irrlicht.h
+ 
+ #include "COpenGLDriver.h"
++#include "LuGlOpt.h"
+ #include <cassert>
+ #include "CNullDriver.h"
+ #include "IContextManager.h"
+@@ -199,6 +200,22 @@ const core::matrix4 &COpenGLDriver::getTransform(E_TRANSFORMATION_STATE state) c
+ //! sets transformation
+ void COpenGLDriver::setTransform(E_TRANSFORMATION_STATE state, const core::matrix4 &mat)
+ {
++	// LU_GL_XFORM: the matrices go to GL when the next 3D draw needs them (setRenderStates3DMode),
++	// not on every call, and a call that changes nothing costs nothing
++	static const bool lazy = luGlOpt("LU_GL_XFORM");
++	if (lazy && (state == ETS_VIEW || state == ETS_WORLD || state == ETS_PROJECTION)) {
++		const bool same = memcmp(Matrices[state].pointer(), mat.pointer(), 16 * sizeof(f32)) == 0;
++		Matrices[state] = mat;
++		Transformation3DChanged = true;
++		if (!same) {
++			if (state == ETS_PROJECTION)
++				ProjectionDirty = true;
++			else
++				ModelViewDirty = true;
++		}
++		return;
++	}
++
+ 	Matrices[state] = mat;
+ 	Transformation3DChanged = true;
+ 
+@@ -418,6 +435,10 @@ COpenGLDriver::SHWBufferLink *COpenGLDriver::createHardwareBuffer(const scene::I
+ 		deleteHardwareBuffer(HWBuffer);
+ 		return 0;
+ 	}
++	// LU_GL_UPLOAD: the data went up just now, drawBuffers() must not upload it a second time
++	static const bool once = luGlOpt("LU_GL_UPLOAD");
++	if (once)
++		HWBuffer->ChangedID = vb->getChangedID();
+ 
+ 	return HWBuffer;
+ #else
+@@ -439,6 +460,9 @@ COpenGLDriver::SHWBufferLink *COpenGLDriver::createHardwareBuffer(const scene::I
+ 		deleteHardwareBuffer(HWBuffer);
+ 		return 0;
+ 	}
++	static const bool once = luGlOpt("LU_GL_UPLOAD");
++	if (once)
++		HWBuffer->ChangedID = ib->getChangedID();
+ 
+ 	return HWBuffer;
+ #else
+@@ -454,6 +478,12 @@ void COpenGLDriver::deleteHardwareBuffer(SHWBufferLink *_HWBuffer)
+ #if defined(GL_ARB_vertex_buffer_object)
+ 	auto *HWBuffer = (SHWBufferLink_opengl *)_HWBuffer;
+ 	if (HWBuffer->vbo_ID) {
++		// the name may be given out again, and a deleted buffer unbinds itself
++		if (HWBuffer->vbo_ID == BoundArrayBuffer)
++			BoundArrayBuffer = 0;
++		if (HWBuffer->vbo_ID == BoundElementBuffer)
++			BoundElementBuffer = 0;
++		PointersBuffer = 0;
+ 		extGlDeleteBuffers(1, &HWBuffer->vbo_ID);
+ 		HWBuffer->vbo_ID = 0;
+ 	}
+@@ -462,6 +492,17 @@ void COpenGLDriver::deleteHardwareBuffer(SHWBufferLink *_HWBuffer)
+ 	CNullDriver::deleteHardwareBuffer(_HWBuffer);
+ }
+ 
++// client memory arrays and indices are read with no buffer bound (see drawBuffers)
++void COpenGLDriver::unbindArrayBuffers()
++{
++	PointersBuffer = 0;
++	static const bool lazy = luGlOpt("LU_GL_BIND");
++	if (lazy) {
++		extGlBindBuffer(GL_ARRAY_BUFFER, 0);
++		extGlBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
++	}
++}
++
+ void COpenGLDriver::drawBuffers(const scene::IVertexBuffer *vb,
+ 	const scene::IIndexBuffer *ib, u32 PrimitiveCount,
+ 	scene::E_PRIMITIVE_TYPE PrimitiveType)
+@@ -490,10 +531,15 @@ void COpenGLDriver::drawBuffers(const scene::IVertexBuffer *vb,
+ 	drawVertexPrimitiveList(vertices, vb->getCount(), indexList,
+ 		PrimitiveCount, vb->getType(), PrimitiveType, ib->getType());
+ 
+-	if (hwvert)
+-		extGlBindBuffer(GL_ARRAY_BUFFER, 0);
+-	if (hwidx)
+-		extGlBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
++	// LU_GL_BIND: the buffers stay bound for the next draw; everything that draws from client memory
++	// unbinds them first (unbindArrayBuffers)
++	static const bool lazy = luGlOpt("LU_GL_BIND");
++	if (!lazy) {
++		if (hwvert)
++			extGlBindBuffer(GL_ARRAY_BUFFER, 0);
++		if (hwidx)
++			extGlBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
++	}
+ #else
+ 	drawVertexPrimitiveList(vb->getData(), vb->getCount(), ib->getData(),
+ 		PrimitiveCount, vb->getType(), PrimitiveType, ib->getType());
+@@ -665,6 +711,16 @@ void COpenGLDriver::drawVertexPrimitiveList(const void *vertices, u32 vertexCoun
+ 	// draw everything
+ 	setRenderStates3DMode();
+ 
++	{
++		static const bool lazy = luGlOpt("LU_GL_BIND");
++		if (lazy) {
++			if (vertices)
++				extGlBindBuffer(GL_ARRAY_BUFFER, 0);
++			if (indexList)
++				extGlBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
++		}
++	}
++
+ 	if ((pType != scene::EPT_POINTS) && (pType != scene::EPT_POINT_SPRITES))
+ 		CacheHandler->setClientState(true, true, true, true);
+ 	else
+@@ -697,13 +753,26 @@ void COpenGLDriver::drawVertexPrimitiveList(const void *vertices, u32 vertexCoun
+ 		}
+ 	}
+ 
++	// LU_GL_PTR: the arrays of a buffer in GPU memory are the same as those of the draw before, when
++	// the same buffer is bound and the vertex type is the same (every other place that sets arrays
++	// or deletes a buffer calls forgetArrayPointers)
++	static const bool ptr_cache = luGlOpt("LU_GL_PTR");
++	const bool same_pointers = ptr_cache && !vertices && vType == EVT_STANDARD &&
++			PointersBuffer != 0 && PointersBuffer == BoundArrayBuffer && PointersType == vType &&
++			PointersColorSize == colorSize;
++	if (ptr_cache) {
++		PointersBuffer = (!vertices && vType == EVT_STANDARD) ? BoundArrayBuffer : 0;
++		PointersType = vType;
++		PointersColorSize = colorSize;
++	}
++
+ 	switch (vType) {
+ 	case EVT_STANDARD:
+ 		if (vertices) {
+ 			glNormalPointer(GL_FLOAT, sizeof(S3DVertex), &(static_cast<const S3DVertex *>(vertices))[0].Normal);
+ 			glTexCoordPointer(2, GL_FLOAT, sizeof(S3DVertex), &(static_cast<const S3DVertex *>(vertices))[0].TCoords);
+ 			glVertexPointer(3, GL_FLOAT, sizeof(S3DVertex), &(static_cast<const S3DVertex *>(vertices))[0].Pos);
+-		} else {
++		} else if (!same_pointers) {
+ 			glNormalPointer(GL_FLOAT, sizeof(S3DVertex), buffer_offset(12));
+ 			glColorPointer(colorSize, GL_UNSIGNED_BYTE, sizeof(S3DVertex), buffer_offset(24));
+ 			glTexCoordPointer(2, GL_FLOAT, sizeof(S3DVertex), buffer_offset(28));
+@@ -926,6 +995,8 @@ void COpenGLDriver::draw2DVertexPrimitiveList(const void *vertices, u32 vertexCo
+ 	if (vertices && !FeatureAvailable[IRR_ARB_vertex_array_bgra] && !FeatureAvailable[IRR_EXT_vertex_array_bgra])
+ 		getColorBuffer(vertices, vertexCount, vType);
+ 
++	unbindArrayBuffers();
++
+ 	// draw everything
+ 	CacheHandler->getTextureCache().set(0, Material.getTexture(0));
+ 	if (Material.MaterialType == EMT_ONETEXTURE_BLEND) {
+@@ -1093,6 +1164,7 @@ void COpenGLDriver::draw2DImage(const video::ITexture *texture, const core::posi
+ 	if (!FeatureAvailable[IRR_ARB_vertex_array_bgra] && !FeatureAvailable[IRR_EXT_vertex_array_bgra])
+ 		getColorBuffer(Quad2DVertices, 4, EVT_STANDARD);
+ 
++	unbindArrayBuffers();
+ 	CacheHandler->setClientState(true, false, true, true);
+ 
+ 	glTexCoordPointer(2, GL_FLOAT, sizeof(S3DVertex), &(static_cast<const S3DVertex *>(Quad2DVertices))[0].TCoords);
+@@ -1173,6 +1245,7 @@ void COpenGLDriver::draw2DImage(const video::ITexture *texture, const core::rect
+ 	if (!FeatureAvailable[IRR_ARB_vertex_array_bgra] && !FeatureAvailable[IRR_EXT_vertex_array_bgra])
+ 		getColorBuffer(Quad2DVertices, 4, EVT_STANDARD);
+ 
++	unbindArrayBuffers();
+ 	CacheHandler->setClientState(true, false, true, true);
+ 
+ 	glTexCoordPointer(2, GL_FLOAT, sizeof(S3DVertex), &(static_cast<const S3DVertex *>(Quad2DVertices))[0].TCoords);
+@@ -1212,6 +1285,7 @@ void COpenGLDriver::draw2DImage(const video::ITexture *texture, u32 layer, bool
+ 
+ 	Transformation3DChanged = true;
+ 
++	unbindArrayBuffers();
+ 	CacheHandler->setClientState(true, false, false, true);
+ 
+ 	const core::vector3df positionData[4] = {
+@@ -1321,6 +1395,7 @@ void COpenGLDriver::draw2DImageBatch(const video::ITexture *texture,
+ 	if (!FeatureAvailable[IRR_ARB_vertex_array_bgra] && !FeatureAvailable[IRR_EXT_vertex_array_bgra])
+ 		getColorBuffer(Quad2DVertices, 4, EVT_STANDARD);
+ 
++	unbindArrayBuffers();
+ 	CacheHandler->setClientState(true, false, true, true);
+ 
+ 	glTexCoordPointer(2, GL_FLOAT, sizeof(S3DVertex), &(static_cast<const S3DVertex *>(Quad2DVertices))[0].TCoords);
+@@ -1489,6 +1564,7 @@ void COpenGLDriver::draw2DRectangle(const core::rect<s32> &position,
+ 	if (!FeatureAvailable[IRR_ARB_vertex_array_bgra] && !FeatureAvailable[IRR_EXT_vertex_array_bgra])
+ 		getColorBuffer(Quad2DVertices, 4, EVT_STANDARD);
+ 
++	unbindArrayBuffers();
+ 	CacheHandler->setClientState(true, false, true, false);
+ 
+ 	glVertexPointer(2, GL_FLOAT, sizeof(S3DVertex), &(static_cast<const S3DVertex *>(Quad2DVertices))[0].Pos);
+@@ -1525,6 +1601,7 @@ void COpenGLDriver::draw2DLine(const core::position2d<s32> &start,
+ 		if (!FeatureAvailable[IRR_ARB_vertex_array_bgra] && !FeatureAvailable[IRR_EXT_vertex_array_bgra])
+ 			getColorBuffer(Quad2DVertices, 2, EVT_STANDARD);
+ 
++		unbindArrayBuffers();
+ 		CacheHandler->setClientState(true, false, true, false);
+ 
+ 		glVertexPointer(2, GL_FLOAT, sizeof(S3DVertex), &(static_cast<const S3DVertex *>(Quad2DVertices))[0].Pos);
+@@ -1681,6 +1758,8 @@ void COpenGLDriver::setRenderStates3DMode()
+ 
+ 		CacheHandler->setMatrixMode(GL_PROJECTION);
+ 		glLoadMatrixf(Matrices[ETS_PROJECTION].pointer());
++		ModelViewDirty = false;
++		ProjectionDirty = false;
+ 
+ 		ResetRenderStates = true;
+ #ifdef GL_EXT_clip_volume_hint
+@@ -1689,6 +1768,17 @@ void COpenGLDriver::setRenderStates3DMode()
+ #endif
+ 	}
+ 
++	if (ModelViewDirty) {
++		CacheHandler->setMatrixMode(GL_MODELVIEW);
++		glLoadMatrixf((Matrices[ETS_VIEW] * Matrices[ETS_WORLD]).pointer());
++		ModelViewDirty = false;
++	}
++	if (ProjectionDirty) {
++		CacheHandler->setMatrixMode(GL_PROJECTION);
++		glLoadMatrixf(Matrices[ETS_PROJECTION].pointer());
++		ProjectionDirty = false;
++	}
++
+ 	if (ResetRenderStates || LastMaterial != Material) {
+ 		// unset old material
+ 
+@@ -2404,6 +2494,17 @@ void COpenGLDriver::setFog(SColor c, E_FOG_TYPE fogType, f32 start,
+ {
+ 	CNullDriver::setFog(c, fogType, start, end, density, pixelFog, rangeFog);
+ 
++	// LU_GL_FOG: the same fog again (it is set for every pass and material swap) is six calls for nothing
++	static const bool fog_cache = luGlOpt("LU_GL_FOG");
++	if (fog_cache) {
++		const bool same = FogKnown && FogSet.color == c && FogSet.type == fogType && FogSet.start == start &&
++				FogSet.end == end && FogSet.density == density && FogSet.pixel == pixelFog && FogSet.range == rangeFog;
++		if (same)
++			return;
++		FogKnown = true;
++		FogSet = {c, fogType, start, end, density, pixelFog, rangeFog};
++	}
++
+ 	glFogf(GL_FOG_MODE, GLfloat((fogType == EFT_FOG_LINEAR) ? GL_LINEAR : (fogType == EFT_FOG_EXP) ? GL_EXP
+ 																								   : GL_EXP2));
+ 
+@@ -2451,6 +2552,7 @@ void COpenGLDriver::draw3DLine(const core::vector3df &start,
+ 	if (!FeatureAvailable[IRR_ARB_vertex_array_bgra] && !FeatureAvailable[IRR_EXT_vertex_array_bgra])
+ 		getColorBuffer(Quad2DVertices, 2, EVT_STANDARD);
+ 
++	unbindArrayBuffers();
+ 	CacheHandler->setClientState(true, false, true, false);
+ 
+ 	glVertexPointer(3, GL_FLOAT, sizeof(S3DVertex), &(static_cast<const S3DVertex *>(Quad2DVertices))[0].Pos);
+diff --git a/irr/src/COpenGLDriver.h b/irr/src/COpenGLDriver.h
+--- a/irr/src/COpenGLDriver.h
++++ b/irr/src/COpenGLDriver.h
+@@ -357,6 +357,24 @@ class COpenGLDriver : public CNullDriver, public IMaterialRendererServices, publ
+ 	//! bool to make all renderstates reset if set to true.
+ 	bool ResetRenderStates;
+ 	bool Transformation3DChanged;
++	// matrices set but not yet loaded into GL (LU_GL_XFORM)
++	bool ModelViewDirty = false;
++	bool ProjectionDirty = false;
++	void unbindArrayBuffers();
++	// the arrays set for the last draw from a buffer (LU_GL_PTR)
++	GLuint PointersBuffer = 0;
++	E_VERTEX_TYPE PointersType = EVT_STANDARD;
++	GLint PointersColorSize = 0;
++	// the fog set last (LU_GL_FOG)
++	struct SFogSet
++	{
++		SColor color;
++		E_FOG_TYPE type;
++		f32 start, end, density;
++		bool pixel, range;
++	};
++	SFogSet FogSet;
++	bool FogKnown = false;
+ 	u8 AntiAlias;
+ 
+ 	SMaterial Material, LastMaterial;
+diff --git a/irr/src/COpenGLExtensionHandler.h b/irr/src/COpenGLExtensionHandler.h
+--- a/irr/src/COpenGLExtensionHandler.h
++++ b/irr/src/COpenGLExtensionHandler.h
+@@ -4,6 +4,8 @@
+ 
+ #pragma once
+ 
++#include "LuGlOpt.h"
++
+ #ifdef _IRR_COMPILE_WITH_OPENGL_
+ 
+ #include "EDriverFeatures.h"
+@@ -1312,6 +1314,9 @@ class COpenGLExtensionHandler
+ 	PFNGLDRAWBUFFERSATIPROC pGlDrawBuffersATI;
+ 	PFNGLGENBUFFERSARBPROC pGlGenBuffersARB;
+ 	PFNGLBINDBUFFERARBPROC pGlBindBufferARB;
++	// the buffers bound to GL_ARRAY_BUFFER and GL_ELEMENT_ARRAY_BUFFER (LU_GL_BIND)
++	GLuint BoundArrayBuffer = 0;
++	GLuint BoundElementBuffer = 0;
+ 	PFNGLBUFFERDATAARBPROC pGlBufferDataARB;
+ 	PFNGLDELETEBUFFERSARBPROC pGlDeleteBuffersARB;
+ 	PFNGLBUFFERSUBDATAARBPROC pGlBufferSubDataARB;
+@@ -1946,6 +1951,19 @@ inline void COpenGLExtensionHandler::extGlGenBuffers(GLsizei n, GLuint *buffers)
+ 
+ inline void COpenGLExtensionHandler::extGlBindBuffer(GLenum target, GLuint buffer)
+ {
++	// LU_GL_BIND: no bind of the buffer that is bound already
++	static const bool cache = luGlOpt("LU_GL_BIND");
++	if (cache) {
++		if (target == GL_ARRAY_BUFFER) {
++			if (BoundArrayBuffer == buffer)
++				return;
++			BoundArrayBuffer = buffer;
++		} else if (target == GL_ELEMENT_ARRAY_BUFFER) {
++			if (BoundElementBuffer == buffer)
++				return;
++			BoundElementBuffer = buffer;
++		}
++	}
+ 	if (pGlBindBufferARB)
+ 		pGlBindBufferARB(target, buffer);
+ }

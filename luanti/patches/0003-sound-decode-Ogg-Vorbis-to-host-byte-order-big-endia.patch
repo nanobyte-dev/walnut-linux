@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps3 <ps3@localhost>
+Date: Sat, 17 Oct 2026 22:27:58 +0300
+Subject: sound: decode Ogg Vorbis to host byte order (big-endian hosts played
+ noise)
+
+ov_read was always asked for little-endian samples, but OpenAL reads its 16-bit formats in host order, so on a big-endian machine every sound was white noise. This is the only ov_read and the only raw PCM handling in the client's sound code.
+
+diff --git a/src/client/sound/ogg_file.cpp b/src/client/sound/ogg_file.cpp
+--- a/src/client/sound/ogg_file.cpp
++++ b/src/client/sound/ogg_file.cpp
+@@ -161,7 +161,12 @@ std::optional<OggFileDecodeInfo> RAIIOggFile::getDecodeInfo(const std::string &f
+ RAIIALSoundBuffer RAIIOggFile::loadBuffer(const OggFileDecodeInfo &decode_info,
+ 		ALuint pcm_start, ALuint pcm_end)
+ {
+-	constexpr int endian = 0; // 0 for Little-Endian, 1 for Big-Endian
++	// ov_read: 0 for Little-Endian, 1 for Big-Endian. OpenAL reads AL_FORMAT_*16 buffers in host order.
++#if defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++	constexpr int endian = 1;
++#else
++	constexpr int endian = 0;
++#endif
+ 	constexpr int word_size = 2; // we use s16 samples
+ 	constexpr int word_signed = 1; // ^
+ 

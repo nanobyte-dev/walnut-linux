@@ -1,0 +1,178 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps3 <ps3@localhost>
+Date: Sat, 17 Oct 2026 22:36:26 +0300
+Subject: Sky quads in one draw (LU_GL_SKY), equal materials set once in
+ renderMap (LU_GL_MATREUSE)
+
+The fog bands and the sun and moon halos are quads of one material drawn one after the other: one list, same order, same pixels. renderMap sets the material of a buffer again for every transparent partial buffer; one equal to the one before is skipped.
+
+diff --git a/src/client/clientmap.cpp b/src/client/clientmap.cpp
+--- a/src/client/clientmap.cpp
++++ b/src/client/clientmap.cpp
+@@ -23,6 +23,7 @@
+ #include "client/renderingengine.h"
+ 
+ #include <queue>
++#include <LuGlOpt.h>
+ 
+ namespace {
+ 	// data structure that groups block meshes by material
+@@ -1098,6 +1099,12 @@ void ClientMap::renderMap(video::IVideoDriver* driver, s32 pass)
+ 	// Render all mesh buffers in order
+ 	drawcall_count += draw_order.size();
+ 
++	// LU_GL_MATREUSE: a buffer with the material of the one drawn before (the transparent
++	// pass is a buffer for each block and material) doesn't set it again
++	static const bool reuse_equal = luGlOpt("LU_GL_MATREUSE");
++	video::SMaterial last_material;
++	bool have_last_material = false;
++
+ 	for (auto &descriptor : draw_order) {
+ 		if (!descriptor.m_reuse_material) {
+ 			auto &material = descriptor.getMaterial();
+@@ -1124,8 +1131,16 @@ void ClientMap::renderMap(video::IVideoDriver* driver, s32 pass)
+ 				layer.AnisotropicFilter = 0;
+ 			}
+ 
+-			driver->setMaterial(material);
+-			++material_swaps;
++			if (reuse_equal && have_last_material && material == last_material) {
++				// the driver has it set already
++			} else {
++				driver->setMaterial(material);
++				++material_swaps;
++				if (reuse_equal) {
++					last_material = material;
++					have_last_material = true;
++				}
++			}
+ 			if (auto *tex = material.getTexture(0); tex && tex->getType() == video::ETT_2D_ARRAY)
+ 				++array_texture_use;
+ 
+diff --git a/src/client/sky.cpp b/src/client/sky.cpp
+--- a/src/client/sky.cpp
++++ b/src/client/sky.cpp
+@@ -4,6 +4,7 @@
+ // Copyright (C) 2020 numzero, Lobachevskiy Vitaliy <numzer0@yandex.ru>
+ 
+ #include "sky.h"
++#include <LuGlOpt.h>
+ 
+ #include "camera.h"
+ #include "client/renderingengine.h"
+@@ -95,6 +96,39 @@ void Sky::OnRegisterSceneNode()
+ 	scene::ISceneNode::OnRegisterSceneNode();
+ }
+ 
++namespace {
++// LU_GL_SKY: quads of the same material drawn one after the other (the fog bands, the halos of the
++// sun and moon) go to the driver as one list, in the same order: the same pixels, a draw each less
++struct SkyQuads
++{
++	video::IVideoDriver *driver;
++	bool batch = luGlOpt("LU_GL_SKY");
++	std::vector<video::S3DVertex> vertices;
++	std::vector<u16> indices;
++
++	explicit SkyQuads(video::IVideoDriver *driver) : driver(driver) {}
++
++	void add(const video::S3DVertex *quad)
++	{
++		const u16 base = vertices.size();
++		vertices.insert(vertices.end(), quad, quad + 4);
++		for (u16 i : {0, 1, 2, 0, 2, 3})
++			indices.push_back(base + i);
++		if (!batch)
++			flush();
++	}
++
++	void flush()
++	{
++		if (vertices.empty())
++			return;
++		driver->drawIndexedTriangleList(vertices.data(), vertices.size(), indices.data(), indices.size() / 3);
++		vertices.clear();
++		indices.clear();
++	}
++};
++}
++
+ void Sky::render()
+ {
+ 	video::IVideoDriver *driver = SceneManager->getVideoDriver();
+@@ -209,6 +243,7 @@ void Sky::render()
+ 		// Draw far cloudy fog thing blended with skycolor
+ 		if (m_visible) {
+ 			driver->setMaterial(m_materials[1]);
++			SkyQuads quads(driver);
+ 			for (u32 j = 0; j < 4; j++) {
+ 				vertices[0] = video::S3DVertex(-1, -0.02, -1, 0, 0, 1, m_bgcolor, t, t);
+ 				vertices[1] = video::S3DVertex( 1, -0.02, -1, 0, 0, 1, m_bgcolor, o, t);
+@@ -228,8 +263,9 @@ void Sky::render()
+ 						// Switch from -Z (south) to +Z (north)
+ 						vertex.Pos.rotateXZBy(-180);
+ 				}
+-				driver->drawIndexedTriangleList(&vertices[0], 4, indices, 2);
++				quads.add(vertices);
+ 			}
++			quads.flush();
+ 		}
+ 
+ 		// Draw stars before sun and moon to be behind them
+@@ -274,6 +310,7 @@ void Sky::render()
+ 		// and stars.
+ 		if (m_visible) {
+ 			driver->setMaterial(m_materials[1]);
++			SkyQuads quads(driver);
+ 
+ 			for (u32 j = 0; j < 4; j++) {
+ 				video::SColor c = cloudyfogcolor;
+@@ -295,7 +332,7 @@ void Sky::render()
+ 						// Switch from -Z (south) to +Z (north)
+ 						vertex.Pos.rotateXZBy(-180);
+ 				}
+-				driver->drawIndexedTriangleList(&vertices[0], 4, indices, 2);
++				quads.add(vertices);
+ 			}
+ 
+ 			// Draw bottom far cloudy fog thing in front of sun, moon and stars
+@@ -304,7 +341,8 @@ void Sky::render()
+ 			vertices[1] = video::S3DVertex( 1, -1.0, -1, 0, 1, 0, c, o, t);
+ 			vertices[2] = video::S3DVertex( 1, -1.0, 1, 0, 1, 0, c, o, o);
+ 			vertices[3] = video::S3DVertex(-1, -1.0, 1, 0, 1, 0, c, t, o);
+-			driver->drawIndexedTriangleList(&vertices[0], 4, indices, 2);
++			quads.add(vertices);
++			quads.flush();
+ 		}
+ 	}
+ }
+@@ -570,11 +608,13 @@ void Sky::draw_sun(video::IVideoDriver *driver, const video::SColor &suncolor,
+ 		c1.setAlpha(0.05 * 255);
+ 		c2.setAlpha(0.15 * 255);
+ 		const video::SColor colors[4] = {c1, c2, suncolor, suncolor2};
++		SkyQuads quads(driver);
+ 		for (int i = 0; i < 4; i++) {
+ 			draw_sky_body(vertices, -sunsizes[i], sunsizes[i], colors[i]);
+ 			place_sky_body(vertices, 90, wicked_time_of_day * 360 - 90);
+-			driver->drawIndexedTriangleList(&vertices[0], 4, indices, 2);
++			quads.add(vertices.data());
+ 		}
++		quads.flush();
+ 	} else {
+ 		driver->setMaterial(m_materials[3]);
+ 		// Another magic number that contributes to the ratio 1.57 sun/moon size
+@@ -624,11 +664,13 @@ void Sky::draw_moon(video::IVideoDriver *driver, const video::SColor &mooncolor,
+ 		c1.setAlpha(0.05 * 255);
+ 		c2.setAlpha(0.15 * 255);
+ 		const video::SColor colors[4] = {c1, c2, mooncolor, mooncolor2};
++		SkyQuads quads(driver);
+ 		for (int i = 0; i < 4; i++) {
+ 			draw_sky_body(vertices, moonsizes_1[i], moonsizes_2[i], colors[i]);
+ 			place_sky_body(vertices, -90, wicked_time_of_day * 360 - 90);
+-			driver->drawIndexedTriangleList(&vertices[0], 4, indices, 2);
++			quads.add(vertices.data());
+ 		}
++		quads.flush();
+ 	} else {
+ 		driver->setMaterial(m_materials[4]);
+ 		// Another magic number that contributes to the ratio 1.57 sun/moon size

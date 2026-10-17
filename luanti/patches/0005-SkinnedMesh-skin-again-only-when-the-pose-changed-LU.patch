@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps3 <ps3@localhost>
+Date: Sat, 17 Oct 2026 22:36:26 +0300
+Subject: SkinnedMesh: skin again only when the pose changed (LU_GL_SKIN)
+
+skinMesh marked the buffers dirty on every call, so the driver uploaded the player model every frame. A joint matrix element off by less than LU_GL_SKIN_EPS/1e6 (2000) counts as the same pose; the head follows the camera pitch with a smoothing that never quite stops.
+
+diff --git a/irr/include/SkinnedMesh.h b/irr/include/SkinnedMesh.h
+--- a/irr/include/SkinnedMesh.h
++++ b/irr/include/SkinnedMesh.h
+@@ -361,6 +361,9 @@ class SkinnedMesh : public IAnimatedMesh
+ 	f32 FramesPerSecond;
+ 
+ 	bool HasAnimation;
++	// the pose skinMesh() skinned last (LU_GL_SKIN)
++	std::vector<core::matrix4> SkinnedPose;
++	const std::vector<SSkinMeshBuffer *> *SkinnedBuffers = nullptr;
+ 	bool PreparedForSkinning;
+ 
+ 	SourceFormat SrcFormat;
+diff --git a/irr/src/SkinnedMesh.cpp b/irr/src/SkinnedMesh.cpp
+--- a/irr/src/SkinnedMesh.cpp
++++ b/irr/src/SkinnedMesh.cpp
+@@ -3,6 +3,8 @@
+ // For conditions of distribution and use, see copyright notice in irrlicht.h
+ 
+ #include "SkinnedMesh.h"
++#include "LuGlOpt.h"
++#include <cmath>
+ #include "SSkinMeshBuffer.h"
+ #include "Transform.h"
+ #include "aabbox3d.h"
+@@ -79,6 +81,30 @@ void SkinnedMesh::skinMesh(const std::vector<core::matrix4> &global_matrices)
+ 	if (!HasAnimation)
+ 		return;
+ 
++	// LU_GL_SKIN: skinning (nearly) the same pose again changes no vertex that could be seen, and
++	// marking the buffers dirty makes the driver upload them again every frame. The head of the
++	// player model follows the camera's pitch with a smoothing that never quite stops, for example
++	// (a joint matrix element off by under LU_GL_SKIN_EPS/1000000, 2000 by default, is the same pose).
++	static const bool memo = luGlOpt("LU_GL_SKIN");
++	static const float eps = luGlInt("LU_GL_SKIN_EPS", 2000) / 1000000.0f;
++	if (memo) {
++		bool same = SkinnedPose.size() == global_matrices.size() && SkinnedBuffers == SkinningBuffers;
++		for (size_t i = 0; same && i < global_matrices.size(); i++) {
++			const f32 *a = SkinnedPose[i].pointer();
++			const f32 *b = global_matrices[i].pointer();
++			for (int k = 0; k < 16; k++) {
++				if (fabsf(a[k] - b[k]) > eps) {
++					same = false;
++					break;
++				}
++			}
++		}
++		if (same)
++			return;
++		SkinnedPose = global_matrices;
++		SkinnedBuffers = SkinningBuffers;
++	}
++
+ 	// rigid animation
+ 	for (size_t i = 0; i < AllJoints.size(); ++i) {
+ 		auto *joint = AllJoints[i];
