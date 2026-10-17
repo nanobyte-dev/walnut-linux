@@ -24,6 +24,8 @@ push buffer and in the kernel's copy and validation. Changes the command stream:
 rewrites of 0x1740.. are left out. Low risk; a hardware test would show corrupt or exploded
 geometry after a layout change.
 
+NV30_VTXFMT_ALWAYS=1 (read once, at screen creation) writes the burst every time, as before.
+
 Forwarded: no
 
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
@@ -51,6 +53,28 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_draw.c b/src/gallium/drivers/
  
     BEGIN_NV04(push, NV30_3D(VP_START_FROM_ID), 1);
     PUSH_DATA (push, r->vertprog->start);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -524,6 +524,7 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->ps3_vbo_fifo = ps3 && debug_get_bool_option("NV30_PS3_VBO_FIFO", false);
+    screen->tex_invalidate_always = debug_get_bool_option("NV30_TEX_INVALIDATE_ALWAYS", false);
+    screen->vtx_invalidate_draw = debug_get_bool_option("NV30_VTX_INVALIDATE_DRAW", false);
++   screen->vtxfmt_always = debug_get_bool_option("NV30_VTXFMT_ALWAYS", false);
+    if (!screen->ps3_vbo_fifo)
+       screen->base.vidmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
+    screen->base.sysmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -29,6 +29,7 @@ struct nv30_screen {
+    uint32_t tex_gen;
+    bool tex_invalidate_always; /* NV30_TEX_INVALIDATE_ALWAYS: before every draw, as before */
+    bool vtx_invalidate_draw;   /* NV30_VTX_INVALIDATE_DRAW: the draw-time 0x1710 too, as before */
++   bool vtxfmt_always;         /* NV30_VTXFMT_ALWAYS: rewrite VTXFMT even when unchanged */
+ 
+    struct nouveau_bo *notify;
+ 
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
@@ -92,7 +116,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/n
 +   for (; i < redefine; i++)
 +      vtxfmt[i] = NV30_3D_VTXFMT_TYPE_V32_FLOAT;
 +
-+   if (redefine > nv30->state.vtxfmt_nr ||
++   if (redefine > nv30->state.vtxfmt_nr || unlikely(nv30->screen->vtxfmt_always) ||
 +       memcmp(vtxfmt, nv30->state.vtxfmt, redefine * sizeof(vtxfmt[0]))) {
 +      BEGIN_NV04(push, NV30_3D(VTXFMT(0)), redefine);
 +      PUSH_DATAp(push, vtxfmt, redefine);

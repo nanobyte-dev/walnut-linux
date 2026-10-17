@@ -26,39 +26,46 @@ tracker rebinds textures or samplers. Changes the command stream: identical rewr
 unit's texture state are left out. Low risk; a hardware test would show the wrong texture or
 filtering on a surface.
 
+NV30_TEXUNIT_ALWAYS=1 (read once, at screen creation) marks every rebound unit, as before; the
+context switch fix stays.
+
 Forwarded: no
 
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_fragtex.c b/src/gallium/drivers/nouveau/nv30/nv30_fragtex.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_fragtex.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_fragtex.c
-@@ -157,12 +157,18 @@ nv30_fragtex_sampler_states_bind(struct pipe_context *pipe,
+@@ -157,12 +157,20 @@ nv30_fragtex_sampler_states_bind(struct pipe_context *pipe,
     struct nv30_context *nv30 = nv30_context(pipe);
     unsigned i;
  
 +   /* The state tracker binds all its samplers when any changes: a unit keeping its sampler
 +    * (and its view, nv30_fragtex_set_sampler_views) needs no new texture state. */
++   const bool always = nv30->screen->texunit_always;
++
     for (i = 0; i < nr; i++) {
-+      if (nv30->fragprog.samplers[i] == hwcso[i])
++      if (nv30->fragprog.samplers[i] == hwcso[i] && !always)
 +         continue;
        nv30->fragprog.samplers[i] = hwcso[i];
        nv30->fragprog.dirty_samplers |= (1 << i);
     }
  
     for (; i < nv30->fragprog.num_samplers; i++) {
-+      if (!nv30->fragprog.samplers[i])
++      if (!nv30->fragprog.samplers[i] && !always)
 +         continue;
        nv30->fragprog.samplers[i] = NULL;
        nv30->fragprog.dirty_samplers |= (1 << i);
     }
-@@ -179,13 +185,20 @@ nv30_fragtex_set_sampler_views(struct pipe_context *pipe, unsigned nr,
+@@ -179,13 +187,22 @@ nv30_fragtex_set_sampler_views(struct pipe_context *pipe, unsigned nr,
     struct nv30_context *nv30 = nv30_context(pipe);
     unsigned i;
  
 +   /* The state tracker passes all its views when any changes. A unit whose view stays the
 +    * same object (it holds a reference, so the same pointer is the same view of the same
 +    * texture) keeps its texture state and its buffer reference, unless its sampler changed. */
++   const bool always = nv30->screen->texunit_always;
++
     for (i = 0; i < nr; i++) {
-+      if (nv30->fragprog.textures[i] == views[i])
++      if (nv30->fragprog.textures[i] == views[i] && !always)
 +         continue;
        nouveau_bufctx_reset(nv30->bufctx, BUFCTX_FRAGTEX(i));
        pipe_sampler_view_reference(&nv30->fragprog.textures[i], views[i]);
@@ -66,11 +73,33 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_fragtex.c b/src/gallium/drive
     }
  
     for (; i < nv30->fragprog.num_textures; i++) {
-+      if (!nv30->fragprog.textures[i])
++      if (!nv30->fragprog.textures[i] && !always)
 +         continue;
        nouveau_bufctx_reset(nv30->bufctx, BUFCTX_FRAGTEX(i));
        pipe_sampler_view_reference(&nv30->fragprog.textures[i], NULL);
        nv30->fragprog.dirty_samplers |= (1 << i);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -526,6 +526,7 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->vtx_invalidate_draw = debug_get_bool_option("NV30_VTX_INVALIDATE_DRAW", false);
+    screen->vtxfmt_always = debug_get_bool_option("NV30_VTXFMT_ALWAYS", false);
+    screen->constbuf_alloc = debug_get_bool_option("NV30_CONSTBUF_ALLOC", false);
++   screen->texunit_always = debug_get_bool_option("NV30_TEXUNIT_ALWAYS", false);
+    if (!screen->ps3_vbo_fifo)
+       screen->base.vidmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
+    screen->base.sysmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -31,6 +31,7 @@ struct nv30_screen {
+    bool vtx_invalidate_draw;   /* NV30_VTX_INVALIDATE_DRAW: the draw-time 0x1710 too, as before */
+    bool vtxfmt_always;         /* NV30_VTXFMT_ALWAYS: rewrite VTXFMT even when unchanged */
+    bool constbuf_alloc;        /* NV30_CONSTBUF_ALLOC: a new user constant wrapper per update */
++   bool texunit_always;        /* NV30_TEXUNIT_ALWAYS: rewrite every rebound texture unit */
+ 
+    struct nouveau_bo *notify;
+ 
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c

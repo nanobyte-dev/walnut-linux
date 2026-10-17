@@ -21,18 +21,43 @@ in the kernel's copy and validation. Changes the command stream: the same consta
 with fewer method headers. Low risk; a hardware test would show misplaced or exploded
 geometry, wrong lighting or fog.
 
+NV30_VP_CONST_SINGLE=1 (read once, at screen creation) sends one constant per burst, as before.
+
 Forwarded: no
 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -527,6 +527,7 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->vtxfmt_always = debug_get_bool_option("NV30_VTXFMT_ALWAYS", false);
+    screen->constbuf_alloc = debug_get_bool_option("NV30_CONSTBUF_ALLOC", false);
+    screen->texunit_always = debug_get_bool_option("NV30_TEXUNIT_ALWAYS", false);
++   screen->vp_const_single = debug_get_bool_option("NV30_VP_CONST_SINGLE", false);
+    if (!screen->ps3_vbo_fifo)
+       screen->base.vidmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
+    screen->base.sysmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -32,6 +32,7 @@ struct nv30_screen {
+    bool vtxfmt_always;         /* NV30_VTXFMT_ALWAYS: rewrite VTXFMT even when unchanged */
+    bool constbuf_alloc;        /* NV30_CONSTBUF_ALLOC: a new user constant wrapper per update */
+    bool texunit_always;        /* NV30_TEXUNIT_ALWAYS: rewrite every rebound texture unit */
++   bool vp_const_single;       /* NV30_VP_CONST_SINGLE: one constant per upload burst */
+ 
+    struct nouveau_bo *notify;
+ 
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c b/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c
-@@ -174,24 +174,39 @@ nv30_vertprog_validate(struct nv30_context *nv30)
+@@ -174,24 +174,40 @@ nv30_vertprog_validate(struct nv30_context *nv30)
  
     if (vp->nr_consts) {
        struct nv04_resource *res = nv04_resource(nv30->vertprog.constbuf);
 +      /* Changed constants in consecutive slots go up in one burst: the GPU moves to the next
 +       * slot after every four words (libgcm writes up to eight per burst), up to the four
 +       * VP_UPLOAD_CONST the method window has. A matrix is four such slots. */
++      const unsigned max_run = nv30->screen->vp_const_single ? 1 : NV30_3D_VP_UPLOAD_CONST__LEN;
 +      unsigned run = 0;
  
 -      for (i = 0; i < vp->nr_consts; i++) {
@@ -66,7 +91,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c b/src/gallium/driv
 -         BEGIN_NV04(push, NV30_3D(VP_UPLOAD_CONST_ID), 5);
 -         PUSH_DATA (push, vp->data->start + i);
 -         PUSH_DATAp(push, data->value, 4);
-+         if (run && (!upload || run == NV30_3D_VP_UPLOAD_CONST__LEN)) {
++         if (run && (!upload || run == max_run)) {
 +            unsigned first = i - run;
 +
 +            BEGIN_NV04(push, NV30_3D(VP_UPLOAD_CONST_ID), 1 + 4 * run);

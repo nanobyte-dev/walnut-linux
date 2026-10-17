@@ -20,6 +20,9 @@ before (nv30_vertprog_validate compares them against what was uploaded, one by o
 Saves an allocation and a free, and two atomic reference count updates, per constant update
 of each stage. Same command stream.
 
+NV30_CONSTBUF_ALLOC=1 (read once, at screen creation) allocates a new wrapper per update, as
+before.
+
 Forwarded: no
 
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
@@ -43,10 +46,32 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drive
  
        struct pipe_sampler_view *textures[PIPE_MAX_SAMPLERS];
        unsigned num_textures;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -525,6 +525,7 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->tex_invalidate_always = debug_get_bool_option("NV30_TEX_INVALIDATE_ALWAYS", false);
+    screen->vtx_invalidate_draw = debug_get_bool_option("NV30_VTX_INVALIDATE_DRAW", false);
+    screen->vtxfmt_always = debug_get_bool_option("NV30_VTXFMT_ALWAYS", false);
++   screen->constbuf_alloc = debug_get_bool_option("NV30_CONSTBUF_ALLOC", false);
+    if (!screen->ps3_vbo_fifo)
+       screen->base.vidmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
+    screen->base.sysmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -30,6 +30,7 @@ struct nv30_screen {
+    bool tex_invalidate_always; /* NV30_TEX_INVALIDATE_ALWAYS: before every draw, as before */
+    bool vtx_invalidate_draw;   /* NV30_VTX_INVALIDATE_DRAW: the draw-time 0x1710 too, as before */
+    bool vtxfmt_always;         /* NV30_VTXFMT_ALWAYS: rewrite VTXFMT even when unchanged */
++   bool constbuf_alloc;        /* NV30_CONSTBUF_ALLOC: a new user constant wrapper per update */
+ 
+    struct nouveau_bo *notify;
+ 
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state.c b/src/gallium/drivers/nouveau/nv30/nv30_state.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_state.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_state.c
-@@ -332,9 +332,43 @@ nv30_set_constant_buffer(struct pipe_context *pipe,
+@@ -332,9 +332,44 @@ nv30_set_constant_buffer(struct pipe_context *pipe,
  {
     struct nv30_context *nv30 = nv30_context(pipe);
     struct pipe_resource *buf = cb ? cb->buffer : NULL;
@@ -76,7 +101,8 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state.c b/src/gallium/drivers
 +       * at the new memory instead of allocating a wrapper per call and freeing the last. */
 +      struct pipe_resource *user = *puser;
 +
-+      if (user && user == *pconst && p_atomic_read(&user->reference.count) == 1) {
++      if (user && user == *pconst && p_atomic_read(&user->reference.count) == 1 &&
++          likely(!nv30->screen->constbuf_alloc)) {
 +         struct nv04_resource *res = nv04_resource(user);
 +
 +         res->data = (void *)cb->user_buffer;
@@ -90,7 +116,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state.c b/src/gallium/drivers
        buf = nouveau_user_buffer_create(pipe->screen, (void*)cb->user_buffer,
                                         cb->buffer_size,
                                         PIPE_BIND_CONSTANT_BUFFER);
-@@ -344,18 +378,12 @@ nv30_set_constant_buffer(struct pipe_context *pipe,
+@@ -344,18 +379,12 @@ nv30_set_constant_buffer(struct pipe_context *pipe,
     if (buf)
        size = buf->width0 / (4 * sizeof(float));
  

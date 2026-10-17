@@ -22,3 +22,4 @@
 0023-nv30-no-constant-buffer-allocation-per-constant-upda.patch
 0024-nv30-no-texture-unit-rewrite-when-its-view-and-sampl.patch
 0025-nv30-upload-consecutive-changed-vertex-program-const.patch
+0026-nv30-optional-submission-every-N-draws-on-the-PS3-NV.patch

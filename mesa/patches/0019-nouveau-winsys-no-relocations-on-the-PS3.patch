@@ -24,20 +24,43 @@ validation of the two words, and the reloc-limit flushes. The command stream los
 NOP pairs: every method the GPU sees, and its value, is the same. Other kernels (nouveau
 on the 7600 GT) keep relocations.
 
+NV30_PS3_RELOCS=1 (read once, at screen creation) sends relocations on the PS3 as before,
+zero pairs and reloc-limit flushes included.
+
 Forwarded: no
 
 diff --git a/src/gallium/drivers/nouveau/nouveau_screen.c b/src/gallium/drivers/nouveau/nouveau_screen.c
 --- a/src/gallium/drivers/nouveau/nouveau_screen.c
 +++ b/src/gallium/drivers/nouveau/nouveau_screen.c
-@@ -255,6 +255,9 @@ nouveau_pushbuf_create(struct nouveau_screen *screen, struct nouveau_context *co
+@@ -255,6 +255,10 @@ nouveau_pushbuf_create(struct nouveau_screen *screen, struct nouveau_context *co
     p->context = context;
     (*push)->kick_notify = nouveau_pushbuf_cb;
     (*push)->user_priv = p;
 +   /* ps3rsx never moves a buffer object and applies no relocation whose buffer's presumed
-+    * offset is valid, which Mesa's always is (ps3rsx/src/submit.c, apply_relocs) */
-+   (*push)->no_relocs = screen->is_ps3;
++    * offset is valid, which Mesa's always is (ps3rsx/src/submit.c, apply_relocs).
++    * NV30_PS3_RELOCS=1 sends them anyway. */
++   (*push)->no_relocs = screen->is_ps3 && !screen->ps3_relocs;
     return 0;
  }
+ 
+@@ -330,6 +334,7 @@ nouveau_screen_init(struct nouveau_screen *screen, struct nouveau_device *dev)
+                     !nouveau_getparam(dev, NOUVEAU_GETPARAM_PCI_VENDOR, &vendor) &&
+                     vendor == 0x104d &&
+                     !nouveau_getparam(dev, 0x1000 /* PS3_ABI */, &ps3_abi);
++   screen->ps3_relocs = screen->is_ps3 && debug_get_bool_option("NV30_PS3_RELOCS", false);
+    if (screen->is_ps3) {
+       nv04_data.vram = 0xfeed0000;
+       nv04_data.gart = 0xfeed0001;
+diff --git a/src/gallium/drivers/nouveau/nouveau_screen.h b/src/gallium/drivers/nouveau/nouveau_screen.h
+--- a/src/gallium/drivers/nouveau/nouveau_screen.h
++++ b/src/gallium/drivers/nouveau/nouveau_screen.h
+@@ -69,6 +69,7 @@ struct nouveau_screen {
+    bool is_uma;
+    bool disable_fences;
+    bool is_ps3; /* RSX behind the ps3rsx kernel driver: PS3 handles and offsets */
++   bool ps3_relocs; /* NV30_PS3_RELOCS: send relocations on the PS3 too (as before 0019) */
+    void *svm_cutout;
+    size_t svm_cutout_size;
  
 diff --git a/src/gallium/winsys/nouveau/drm/nouveau.c b/src/gallium/winsys/nouveau/drm/nouveau.c
 --- a/src/gallium/winsys/nouveau/drm/nouveau.c

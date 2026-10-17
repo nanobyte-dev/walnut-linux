@@ -1,0 +1,92 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 14:30:48 +0300
+Subject: nv30: optional submission every N draws on the PS3
+ (NV30_PS3_KICK_DRAWS)
+
+Until 0019 the PS3's push buffers were also submitted whenever they held 1024 relocations,
+which with two relocations per vertex attribute or texture word came about every hundred
+draws. Without relocations a context submits only when its 256 KB push buffer fills, on a
+flush (SwapBuffers, glFlush, fences), for a query or when it waits on a fence, so a frame
+that fits in the buffer reaches the GPU in one piece at its end: the GPU no longer works on
+the first part of a frame while the CPU builds the rest, and waits for a buffer the GPU
+still uses are waits for the whole frame. Armagetron, many small draws at 60 fps, lost about
+12% with ps3.262 at the same CPU time.
+
+NV30_PS3_KICK_DRAWS=N (read once, at screen creation; PS3 only; 0, the default, is off)
+submits what a context queued every N draws, at the start of a draw where no primitive is
+open. The counter restarts at each flush. Values around the old cadence (100-200) bring
+back the overlap at one submission's cost each (an ioctl, the kernel's buffer lookups and
+fences, the bound buffers referenced again); smaller values trade more CPU for earlier GPU
+starts.
+
+Same command stream, cut into more submissions when set. Nothing changes by default.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.c b/src/gallium/drivers/nouveau/nv30/nv30_context.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.c
+@@ -85,6 +85,7 @@ nv30_context_flush(struct pipe_context *pipe, struct pipe_fence_handle **fence,
+    if (!PUSH_SPACE(push, 16))
+       return;
+    PUSH_KICK(push);
++   nv30->draws_since_kick = 0;
+ 
+    /* another context may sample what this one rendered or copied */
+    p_atomic_inc(&nv30->screen->tex_gen);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+@@ -65,6 +65,9 @@ struct nv30_context {
+    /* nv30_screen::tex_gen when this context last invalidated the texture cache */
+    uint32_t tex_gen;
+ 
++   /* draws since the last submission of this context (NV30_PS3_KICK_DRAWS) */
++   unsigned draws_since_kick;
++
+    /* PS3: bytes of texture upload staging (GART) whose copies may still be pending */
+    unsigned staging_inflight;
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -528,6 +528,7 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->constbuf_alloc = debug_get_bool_option("NV30_CONSTBUF_ALLOC", false);
+    screen->texunit_always = debug_get_bool_option("NV30_TEXUNIT_ALWAYS", false);
+    screen->vp_const_single = debug_get_bool_option("NV30_VP_CONST_SINGLE", false);
++   screen->ps3_kick_draws = ps3 ? debug_get_num_option("NV30_PS3_KICK_DRAWS", 0) : 0;
+    if (!screen->ps3_vbo_fifo)
+       screen->base.vidmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
+    screen->base.sysmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -33,6 +33,7 @@ struct nv30_screen {
+    bool constbuf_alloc;        /* NV30_CONSTBUF_ALLOC: a new user constant wrapper per update */
+    bool texunit_always;        /* NV30_TEXUNIT_ALWAYS: rewrite every rebound texture unit */
+    bool vp_const_single;       /* NV30_VP_CONST_SINGLE: one constant per upload burst */
++   unsigned ps3_kick_draws;    /* NV30_PS3_KICK_DRAWS: submit every this many draws (0: off) */
+ 
+    struct nouveau_bo *notify;
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+@@ -595,6 +595,16 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+    struct nv30_context *nv30 = nv30_context(pipe);
+    struct nouveau_pushbuf *push = nv30->base.pushbuf;
+ 
++   /* PS3, NV30_PS3_KICK_DRAWS=N: hand the GPU what is queued every N draws, so it starts on
++    * a frame while the CPU still builds it. No primitive is open here, and all state stays
++    * (bound buffers are referenced again in the next submission). */
++   if (unlikely(nv30->screen->ps3_kick_draws) &&
++       ++nv30->draws_since_kick >= nv30->screen->ps3_kick_draws) {
++      if (PUSH_SPACE(push, 16))
++         PUSH_KICK(push);
++      nv30->draws_since_kick = 0;
++   }
++
+    if (!info->primitive_restart &&
+        !u_trim_pipe_prim(info->mode, (unsigned*)&draws[0].count))
+       return;
