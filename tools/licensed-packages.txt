@@ -8,5 +8,8 @@ quake-shareware
 quake2-demo-data
 # ClassiCube's textures, sounds and music, Mojang's (classicube/, Section local/games)
 classicube-data
+# Sauerbraten's models and sounds that Debian's cube2-data leaves out, CC BY-NC and the like
+# (sauerbraten-nonfree-data/, Section local/games)
+sauerbraten-nonfree-data
 # The metapackage that pulls the licensed data in with ps3-games (ps3-games-licensed/, Section local/games)
 ps3-games-licensed

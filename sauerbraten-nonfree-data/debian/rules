@@ -1,0 +1,14 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+# Same place as cube2-data's packages/ (cube2-data's /usr/games/cube2 runs the engine with
+# -k/usr/share/games/cube2); only files cube2-data does not ship, so the two never overlap.
+override_dh_auto_install:
+	install -d debian/sauerbraten-nonfree-data/usr/share/games/cube2
+	cp -a packages debian/sauerbraten-nonfree-data/usr/share/games/cube2/
+	find debian/sauerbraten-nonfree-data -type d -exec chmod 755 {} +
+	find debian/sauerbraten-nonfree-data -type f -exec chmod 644 {} +
+
+# nothing to strip or compress, and the files are already compressed
+override_dh_strip_nondeterminism override_dh_compress:

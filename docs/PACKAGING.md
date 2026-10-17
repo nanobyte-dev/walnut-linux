@@ -87,7 +87,8 @@ change them in a disposable git tree:
 - Licensed packages: a package is licensed when its Debian Section is `non-free/*` or `local/*`
   (game-data-packager marks non-redistributable data `local/`) or its name is in
   `tools/licensed-packages.txt` (the list catches one whose Section doesn't say so). Now:
-  `classicube-data` (Mojang's textures and audio), `quake-shareware`, `quake2-demo-data`.
+  `classicube-data` (Mojang's textures and audio), `quake-shareware`, `quake2-demo-data`,
+  `sauerbraten-nonfree-data` (Sauerbraten models and sounds Debian's cube2-data lacks).
   `tools/aptly-publish.sh` sends them to `ps3-licensed` whatever `DIST` is, never into `ps3` or
   `ps3-dev` (and removes any it finds in `ps3-dev`), so licensed files never sit in the `ps3`
   pool. `ps3-licensed` is kept like the stable suite: versions only grow, nothing is removed, the
@@ -271,6 +272,46 @@ writes them under that directory, nothing outside it. Our patches leave this alo
 user, or for copying the files by hand, are in `/usr/share/doc/classicube/README.Debian`
 (`classicube/debian/classicube.README.Debian`).
 
+### Sauerbraten's models and sounds (`sauerbraten-nonfree-data`)
+
+Debian's `cube2-data` 1.3-1 is not a DFSG-cleaned Sauerbraten: it is the BananaBread content
+(gitlab.com/cube2-data/cube2-data, 295 MB, 989 files under `packages/`, installed in
+`/usr/share/games/cube2`, which its `/usr/games/cube2` passes to the engine as `-k`). The engine
+(cube2 0.0.20201229, Sauerbraten's `fpsgame`) loads models and sounds by names compiled in
+(`entities.cpp`, `render.cpp`, `weapon.cpp`, `monster.cpp`) or from `data/sounds.cfg`, and BananaBread
+lacks most of them, hence "could not load model" for the pickups, hud guns, gibs and so on and
+"failed to load sample". The match is the SourceForge release `2020_12_29`
+(`sauerbraten_2020_12_29_linux.tar.bz2`, 985,823,440 bytes, MD5 `b50d018f...` as SourceForge lists
+it, SHA256 `cdba7c4a...`, both in `config.mk`; kept in `build/downloads/game-data`).
+
+Of the 8,914 files under that release's `packages/`, 8,780 are not in cube2-data (the maps' textures,
+map models, skyboxes, music; cube2-data's own maps don't use them). Package only what the game
+code and `sounds.cfg` need: `sauerbraten-nonfree-data/files.txt`, 912 files, 149 MB unpacked: the
+models `ammo health boost quad quadrings quadspheres teleporter carrot checkpoint hudguns vwep
+projectiles gibs debris barreldebris base skull flags armor` and the five player models (`mrfixit
+snoutx10k ogro2 inky captaincannon`, with their `armor/` and `hudguns/`), `ogro` and `monster`, plus
+every sound cube2-data lacks. Files cube2-data has are not repeated (a few differ in the release,
+e.g. `models/debris/md2.cfg`, `models/armor/armor.txt`: cube2-data's win), so the package installs
+next to cube2-data without a conflict. Not packaged: the other 7,868 files (mapmodels, the Sauerbraten maps'
+textures and so on); add them to `files.txt` if Sauerbraten's own maps are ever wanted.
+
+Why they are left out of Debian: the licenses are not DFSG-free. By directory, from the license
+and readme files kept in the package: `ammo boost health flags gibs debris barreldebris` (makkE)
+CC BY-NC-SA; `hudguns vwep mrfixit inky captaincannon` (geartrooper and others) CC BY-NC 3.0;
+`snoutx10k` CC BY 3.0 and `skull` CC BY-SA 3.0 (free, but in the same release); `quad` by DCP,
+converted by makkE; `teleporter` (Todretter) "all rights reserved so far"; `ogro`/`ogro2` carry the
+1998 Quake II player model's own readme; the sounds are mixed (`ambience`: CC Sampling+; `q009`
+CC BY-SA; `free`/`awesund` modified by Darthvim, others per their README). Personal and LAN use
+only, so `ps3-licensed`. Section `local/games`, version `0.0.20201229-1+ps3.N`, arch all.
+`cube2` and `cube2-server` don't depend on it (cube2 isn't rebuilt for a `Suggests`); the package
+`Depends: cube2-data`, and `ps3-games-licensed` depends on it.
+
+The source tarball is made by `tools/sauerbraten-data.sh` (`make sauerbraten-nonfree-data-src`:
+the release downloaded once and checked, the listed files with a fixed owner and mtime, `gzip -n`),
+the deb with `make sauerbraten-nonfree-data-deb` (indep builder, no qemu); the same files give the
+same deb for a given commit. As for the Quake data, once a version is published, never build it again
+under that version: take the published file.
+
 ### The rule: free packages never depend on licensed ones
 
 Every free package (the engines, `ps3-games`, `ps3-desktop`, ...) must be installable and
@@ -279,7 +320,7 @@ distributable on its own, so none of them has a `Depends` or `Recommends` on a l
 user puts the data in the game directory (each game's docs say where and how to get it). Our own
 machines get the data from the `ps3-licensed` suite through the metapackage `ps3-games-licensed`
 (`ps3-games-licensed/`, Section `local/games`, so `ps3-licensed` only): it depends on `ps3-games`,
-`classicube-data`, `quake-shareware` and `quake2-demo-data`, so `sudo apt install ps3-games-licensed`
+`classicube-data`, `quake-shareware`, `quake2-demo-data` and `sauerbraten-nonfree-data`, so `sudo apt install ps3-games-licensed`
 gives the whole suite with its data. Personal and LAN use only. A new licensed game data package
 goes into `tools/licensed-packages.txt` and into that metapackage's `Depends`.
 

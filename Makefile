@@ -130,6 +130,19 @@ $(GAMES_BUILDER_STAMP): docker/Dockerfile.games | $(BUILDER_STAMP)
 	docker build -q -t $(GAMES_BUILDER_TAG) -f docker/Dockerfile.games --build-arg BUILDER=$(BUILDER_TAG) docker
 	@touch $@
 
+# --- Sauerbraten's models and sounds missing from cube2-data (sauerbraten-nonfree-data, Section local/games) ---
+SAUER_RELEASE := $(DOWNLOADS)/game-data/$(SAUER_RELEASE_FILE)
+SB_ORIG := $(BUILD)/sauerbraten-nonfree-data/sauerbraten-nonfree-data-0.0.20201229.tar.gz
+$(SAUER_RELEASE):
+	mkdir -p $(dir $@)
+	curl -fsSL -o $@.tmp $(SAUER_RELEASE_URL)
+	echo "$(SAUER_RELEASE_MD5)  $@.tmp" | md5sum -c --quiet
+	echo "$(SAUER_RELEASE_SHA256)  $@.tmp" | sha256sum -c --quiet
+	mv $@.tmp $@
+$(SB_ORIG): $(SAUER_RELEASE) sauerbraten-nonfree-data/files.txt tools/sauerbraten-data.sh
+	mkdir -p $(dir $@)
+	tools/sauerbraten-data.sh $(SAUER_RELEASE) sauerbraten-nonfree-data/files.txt $@ sauerbraten-nonfree-data-0.0.20201229
+
 # Sounds and music, fetched and converted as the game's launcher would (classicube/sounds.sh)
 CC_AUDIO := $(BUILD)/classicube/audio
 classicube-audio: $(CC_AUDIO)/default2.zip
@@ -327,8 +340,9 @@ $(foreach b,BUILDER GAMES_BUILDER SPU_BUILDER REPO_BUILDER,\
 
 # --- Debian source packages (deb-src + our patches; docs/PLAN.md, packaging plan) ---------------
 DEB_ENV := -e OWNER=$(UID_GID) -e DEBIAN_SUITE=$(DEBIAN_SUITE) -e DEBIAN_MIRROR=$(DEBIAN_MIRROR) -e HOME=/tmp \
-	-e CC_TARBALL=$(CC_TARBALL) -e CC_TEXPACK=$(CC_TEXPACK) -e CC_AUDIO=$(CC_AUDIO) -e KERNEL_RELEASE=$(KERNEL_RELEASE) -e KERNEL_FLAVOUR=$(KERNEL_FLAVOUR)
+	-e SB_ORIG=$(SB_ORIG) -e CC_TARBALL=$(CC_TARBALL) -e CC_TEXPACK=$(CC_TEXPACK) -e CC_AUDIO=$(CC_AUDIO) -e KERNEL_RELEASE=$(KERNEL_RELEASE) -e KERNEL_FLAVOUR=$(KERNEL_FLAVOUR)
 # upstream tarballs a package's source is made from
+sauerbraten-nonfree-data-src: $(SB_ORIG)
 classicube-src: $(CC_TARBALL) $(CC_TEXPACK) $(CC_AUDIO)/default2.zip
 # KERNEL_RELEASE and KERNEL_FLAVOUR are set only by ps3rsx-modules (below), per kernel.
 # ps3rsx for both kernels built by linux-deb (build/debs/linux), release and debug: modules
@@ -376,6 +390,6 @@ DEB_JOBS ?= 16
 # KEEP_TREE=1: make linux-deb keeps the cross build tree (build/chroot/cross-linux)
 KEEP_TREE ?= 0
 # All our packages, the kernel first: ps3rsx builds against its headers
-SRC_PACKAGES := linux mesa plymouth ps3-boot ps3-gpu-tools ps3-spu classicube fluidsynth openal-soft dsda-doom neverball ioquake3 supertuxkart openttd xmoto etr ps3-system ps3-desktop ps3-splash ps3-games-licensed
+SRC_PACKAGES := linux mesa plymouth ps3-boot ps3-gpu-tools ps3-spu classicube fluidsynth openal-soft dsda-doom neverball ioquake3 supertuxkart openttd xmoto etr ps3-system ps3-desktop ps3-splash sauerbraten-nonfree-data ps3-games-licensed
 packages: $(SRC_PACKAGES:%=%-deb)
 	$(MAKE) --no-print-directory ps3rsx-modules

@@ -20,6 +20,13 @@ CLASSICUBE_URL      := https://github.com/ClassiCube/ClassiCube/archive/$(CLASSI
 CLASSICUBE_TEXPACK_SHA256 := 55eac12a9727d209b42694d07dfdca8d50349779ab77ffc11a31d2cb66b45635
 CLASSICUBE_TEXPACK_URL := http://static.classicube.net/default.zip
 
+# --- Sauerbraten's models and sounds missing from cube2-data (sauerbraten-nonfree-data/) --------
+# The 2020_12_29 Linux release (SourceForge publishes the MD5 only; the SHA256 is of our download)
+SAUER_RELEASE_FILE   := sauerbraten_2020_12_29_linux.tar.bz2
+SAUER_RELEASE_MD5    := b50d018f7dd6259f1fc12b56028a51b5
+SAUER_RELEASE_SHA256 := cdba7c4a47cefd30d0afdd6a912199a1384319cf1619923cb7189e72e468be70
+SAUER_RELEASE_URL    := https://sourceforge.net/projects/sauerbraten/files/sauerbraten/2020_11_29/$(SAUER_RELEASE_FILE)/download
+
 # --- SPU toolchain (spu-elf, for the Cell's SPEs) ---------------------------------
 # The same GCC and binutils versions as the PPE (docs/PLAN.md): GCC 16.2 with our port of the SPU
 # backend (removed upstream in GCC 10; spu-toolchain/gcc/*.patch, docs/SPU-GCC.md), binutils 2.47 (SPU still
