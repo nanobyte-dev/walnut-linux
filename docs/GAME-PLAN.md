@@ -14,16 +14,16 @@ Every number is 1920x1080, measured through games/bench with the picture checked
 
 | Game | Runs | Picture | Sound | Demo (repeatable) | fps | Against ~60 | Left to do |
 |---|---|---|---|---|---|---|---|
-| QuakeSpasm | yes | right | right | timedemo demo1 (our quake.rc) | 70.5 (GLSL; 0.249) | **meets it** | - |
-| Armagetron | yes | right | right | recorded AI round, `--playback --benchmark` | 64.0 | **meets it** | - |
+| QuakeSpasm | yes | right | right | timedemo demo1 (our quake.rc) | 78.6 (73-84, Mesa ps3.262) | **meets it** | - |
+| Armagetron | yes | right | right | recorded AI round, `--playback --benchmark` | 60 HUD on ps3.246; **52-53 on ps3.262** | was meets it | ps3.262 regression (A/B confirmed, not 0020): bisect with per-patch switches (Mesa agent) |
 | Neverball | yes (ps3rsx 0.249: no wedge) | right | 15-36 underruns a run | shipped replay (only ~20 s); our NEVERBALL_BENCH prints fps and quits at its end | 70-76 (its own count); 320-380 ms stalls at the start | **meets it** | a longer replay of the user's (the start-up stutters weigh too much in 20 s) |
-| Yamagi Quake II | yes | right | right (our fix) | timedemo q2demo1 | 56; 51.4 in the 0.249 suite (ran last, 31 MB free: recheck) | close | - |
+| Yamagi Quake II | yes | right | right (our fix) | timedemo q2demo1 | 63.9 (ps3.262) | **meets it** | - |
 | dsda-doom (GL renderer) | yes | right (our fixes) | **choppy** (MIDI synthesis) | Freedoom DEMO1 timedemo | 48.8 | under | music default; SPU synth; performance |
-| Extreme Tux Racer | yes | right | right | the user's race, replayed (evemu) | 46 HUD median (0.249) | under | performance |
-| ClassiCube | yes | right | right | fly-through plugin, 3000 fixed frames | 47.6 (0.249) | under | performance |
-| OpenArena (opengl1) | yes | right | right | timedemo bench | 44.2, load 8.6 s (0.249) | under | performance |
-| X-Moto | yes | right | right (engine quiet under the music) | credits replay | 39 HUD (0.249) | under | performance |
-| dsda-doom (software) | yes | right (our fix) | choppy | as GL | 33 HUD (SDL3 ps3.254: was 20) | under | the GL renderer is the way |
+| Extreme Tux Racer | yes | right | right | the user's race, replayed (evemu) | 53 HUD median (ps3.262) | under | performance |
+| ClassiCube | yes | right | right | fly-through plugin, 3000 fixed frames | 50.1, load 11.6 s (ps3.262) | under | performance |
+| OpenArena (opengl1) | yes | right | right | timedemo bench | 54.4, load 8.2 s (ps3.262) | close | performance |
+| X-Moto | yes | right | right (engine quiet under the music) | credits replay | 47 HUD (ps3.262) | under | performance |
+| dsda-doom (software) | yes | right (our fix) | choppy | as GL | 38, the timedemo now finishes (ps3.262) | under | the GL renderer is the way |
 | OpenTTD | yes (software video) | right | choppy (~1000-1170 underruns a minute, either path) | title-screen demo game; simulation 20000 ticks in 13.4 s | 8 (SDL3 ps3.254 accel, HUD median; ps3.242 was ~2), 12 with the 8bpp blitter | far under | its own software drawing: the GL driver (needs ARB_texture_rg) |
 | Luanti | yes (first run 2026-10-17) | right (the user) | no underruns | our ps3bench mod flies a fixed path | 67 HUD median in flight, p10 23, stalls to 0 while chunks load | median meets it, stalls don't | memory (177 MB swapped out, 32 MB free): view range, mesh threads |
 | Sauerbraten | yes, CPU skinning (2026-10-17) | right; "surprisingly smooth" between stalls (the user) | 236 underruns | CubeScript counts frames on map cave (not reached yet: loading takes over 60 s) | 15 HUD median incl. loading | under (memory) | OOM-killed without the VRAM swap (smoke's default); with it, 138 MB VRAM and the swap full: memory settings. GPU skinning runs (no wedge, 2026-10-17) but at 11 fps by its own counter and stutters badly: CPU skinning (`gpuskel 0`, 28) is the PS3 default to ship in our cube2. Open: the hud gun isn't drawn in either mode (models installed, `hudgun 1`, no load error): the map loaded by `-l` may be a gunless mode, or nv30 mishandles its separate depth range |
@@ -297,6 +297,23 @@ Each is fixed only once a stage needs it.
   migrates the whole program (GLSL games). Bug seen in passing: nv30_draw_elements' index buffer
   reference is added after validation and reset before the next one, so the index buffer is never
   in the kernel's buffer list nor fenced (an in-place index update can race the GPU).
+
+### Measured: Mesa ps3.262 (2026-10-17, ps3rsx 0.249, one suite round, repeats where noted)
+
+| Game | ps3.246 | ps3.262 | Change |
+|---|---|---|---|
+| OpenArena tc1 | 44.2 | 54.4 | +23% |
+| Yamagi Quake II | 51.4 (56 the day before) | 63.9 | +14-24% |
+| X-Moto (HUD) | 39 | 47 | +21% |
+| Extreme Tux Racer (HUD) | 46 | 53 | +15% |
+| dsda-doom software (HUD) | 33, demo unfinished | 38, finished | +15% |
+| ClassiCube | 47.6 | 50.1 | +5% |
+| QuakeSpasm | 70.5 | 78.6 (73, 84) | +11% |
+| Neverball | 78.2 | 75.9 (74, 78) | noise |
+| Armagetron (HUD) | 60 (59, 61, A/B same boot) | 52.5 (53, 53, 52, 51) | **-13%**, not 0020 (NV30_TEX_INVALIDATE_ALWAYS=1: 52) |
+
+gl-texsub/texfmt/genmip/mipread pass, no validator rejects, glxgears 1250 -> 1360. The Mesa
+agent's estimate ("a few percent, up to 10%") was low for the PPE-bound games.
 
 ### Performance: where the CPU goes (perf, 2026-10-17, Mesa ps3.223, 15 s per game)
 
