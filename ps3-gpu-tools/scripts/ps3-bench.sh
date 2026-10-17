@@ -8,6 +8,12 @@
 # Results: /var/tmp/ps3-bench/<UTC stamp>-<label>/ (out.log with $EPOCHREALTIME stamps, samples,
 # snapshots); written to /dev/shm while the command runs, so the USB disk stays out of it.
 # The first quiet of a session takes the bench lock (no deploys meanwhile); desktop releases it.
+# Every quiet also pauses the systemd timers of periodic jobs (BENCH_TIMERS: apt-daily, apt-daily-
+# upgrade, man-db, e2scrub_all, fstrim, logrotate, dpkg-db-backup) and waits for a job they started
+# (stopping the harmless ones after 120 s): they stay paused for the whole session and come back at
+# desktop (a session never ended gets them back at the next boot: stop is not disable). Not after
+# each run: apt-daily's timer is Persistent, so starting it again would fire the missed run into the
+# next measurement. bench.txt and result get timers_paused=.
 # Games and their config files are the business of games/bench (its client.sh backs up and
 # restores what each game rewrites).
 # A watchdog stops the command on a "PS3 Thermal Alert" (Linux can't read temperatures).
@@ -15,8 +21,13 @@
 # HUD into the run directory. BENCH_NOVSWAP=1: VRAM swap off for the run (the first run of anything
 # that might wedge the GPU); desktop turns it back on. BENCH_STALLS=1: ps3-stallrec records the
 # game's main thread and the memory and disk counters every BENCH_STALLS_MS (default 10) ms into
-# stalls.rec, for games/bench/stalls.py (why frames stall, docs/STALLS.md). The command sees the run
-# directory as $BENCH_DIR.
+# stalls.rec, for games/bench/stalls.py (why frames stall, docs/STALLS.md). BENCH_PERF=1: perf
+# record (call graphs, BENCH_PERF_HZ samples a second, default 499) of the game's threads, Xorg and
+# kswapd0, started disabled once client.sh's .pid appears and switched on and off by client.sh over
+# the measured window through the fifo $BENCH_PERF_CTL; perf.data goes to the disk, not /dev/shm,
+# and into the run directory at the end (docs/PROFILING.md; games/bench/perf-post.sh reads it).
+# BENCH_PERF_ALL=1 adds a system-wide perf without call graphs (perf-sys.data). The command sees the
+# run directory as $BENCH_DIR.
 {
 set -u
 LOCK=/dev/shm/ps3-bench.lock
@@ -99,8 +110,40 @@ vswap_on() {	# the VRAM swap back on if it has its backing but is off
 	fi
 }
 
+# Periodic jobs paused for the session (see the top); the list of what was paused in $TIMERS
+TIMERS=/dev/shm/ps3-bench.timers
+BENCH_TIMERS=${BENCH_TIMERS-apt-daily.timer apt-daily-upgrade.timer man-db.timer e2scrub_all.timer fstrim.timer logrotate.timer dpkg-db-backup.timer}
+STOPPABLE=" apt-daily.service man-db.service logrotate.service fstrim.service dpkg-db-backup.service "
+running() { case $(systemctl is-active "$1" 2>/dev/null) in active|activating|deactivating|reloading) return 0 ;; esac; return 1; }
+pause_timers() {
+	local t s i paused=
+	for t in $BENCH_TIMERS; do
+		systemctl is-active -q "$t" || continue
+		sudo systemctl stop "$t" && echo "$t" >> $TIMERS && paused="$paused $t"
+	done
+	[ -n "$paused" ] && echo ">> timers paused for the session:$paused"
+	[ -e $TIMERS ] && sort -u -o $TIMERS $TIMERS
+	for t in $BENCH_TIMERS; do	# a job one of them started, still running
+		s=${t%.timer}.service
+		running "$s" || continue
+		echo ">> $s is running: waiting for it (120 s at most)"
+		for i in $(seq 120); do running "$s" || break; sleep 1; done
+		running "$s" || continue
+		case $STOPPABLE in
+		*" $s "*) echo ">> stopping $s"; sudo systemctl stop "$s" ;;
+		*) die "$s still running after 120 s (not one to interrupt): try again later" ;;
+		esac
+	done
+}
+resume_timers() {
+	[ -s $TIMERS ] || { rm -f $TIMERS; return 0; }
+	sudo systemctl start $(cat $TIMERS) && echo ">> timers back: $(tr '\n' ' ' < $TIMERS)"
+	rm -f $TIMERS
+}
+
 quiet() {
 	session_start
+	pause_timers
 	stop_desktop
 	drop_caches
 	empty_swaps
@@ -169,8 +212,66 @@ start_stallrec() {
 	STALLREC=$!
 }
 
+# The profiler (BENCH_PERF=1, docs/PROFILING.md). perf.data is ~20 MB a run: written to the disk
+# ($OUT/.perf-<run>, moved into the run directory at the end), not to /dev/shm where it would be
+# RAM the game doesn't get. cpu-clock: perf_events has no driver for the Cell PMU. Call graphs by
+# frame pointer: on ppc64 that is the ABI's stack back chain, there in every frame whatever the
+# compiler flags, so no dwarf stack copies (8 KiB a sample). --buildid-mmap: the build ids come
+# with the mmap events, no pass over the file at the end. The control fifos are made here, before
+# the job starts, and exported for client.sh: it writes enable/disable at the window's ends.
+PERFJOB= PD=
+prep_perf() {
+	unset BENCH_PERF_CTL
+	[ "${BENCH_PERF:-0}" = 1 ] || return 0
+	if ! command -v perf >/dev/null; then
+		echo '!! BENCH_PERF=1 but no perf (linux-perf): profiling nothing' >&2
+		return 0
+	fi
+	PD=$OUT/.perf-${D##*/}
+	mkdir -p "$PD"
+	mkfifo "$D/.perf.ctl" "$D/.perf.ack"
+	BENCH_PERF_CTL="$D/.perf.ctl:$D/.perf.ack"
+	if [ "${BENCH_PERF_ALL:-0}" = 1 ]; then
+		mkfifo "$D/.perfsys.ctl" "$D/.perfsys.ack"
+		BENCH_PERF_CTL="$BENCH_PERF_CTL $D/.perfsys.ctl:$D/.perfsys.ack"
+	fi
+	export BENCH_PERF_CTL
+}
+start_perf() {
+	[ -n "$PD" ] || return 0
+	sudo env D="$D" PD="$PD" HZ="${BENCH_PERF_HZ:-499}" ALL="${BENCH_PERF_ALL:-0}" bash -c '
+		# the tick: a read timing out on a fifo nobody writes (no sleep forked every 0.25 s)
+		mkfifo "$D/.perf.tick"; exec 9<> "$D/.perf.tick"; rm -f "$D/.perf.tick"
+		for i in $(seq 2400); do [ -s "$D/.pid" ] && break; [ -e "$D/stop" ] && exit 0; read -r -t 0.25 -u 9; done
+		read -r p < "$D/.pid" 2>/dev/null && [ -n "$p" ] || exit 0
+		x=$(pidof -s Xorg); k=$(pgrep -x kswapd0 | head -1)
+		readlink -f "/proc/$p/exe" > "$D/perf.exe"
+		echo "game=$p xorg=$x kswapd0=$k hz=$HZ" > "$D/perf.targets"
+		s=
+		if [ "$ALL" = 1 ]; then	# no -g: system-wide call graphs hung the PS3 once (docs/PERF.md)
+			perf record -q -e cpu-clock -F "$HZ" -a -k mono -N --buildid-mmap -D -1 \
+				--control "fifo:$D/.perfsys.ctl,$D/.perfsys.ack" -o "$PD/perf-sys.data" 2> "$D/perf-sys.err" &
+			s=$!
+		fi
+		perf record -q -e cpu-clock -F "$HZ" -g -k mono -N --buildid-mmap -D -1 \
+			--control "fifo:$D/.perf.ctl,$D/.perf.ack" --proc-map-timeout=20000 \
+			-p "$p${x:+,$x}${k:+,$k}" -o "$PD/perf.data" 2> "$D/perf.err" &
+		r=$!
+		echo "$r $s" > "$D/.perf.pid"	# client.sh reads their CPU time over the window
+		while kill -0 $r 2>/dev/null; do	# kswapd0 never exits: stopped by the stop file
+			[ -e "$D/stop" ] && kill -INT $r $s 2>/dev/null
+			read -r -t 0.5 -u 9
+		done
+		wait $r $s' &
+	PERFJOB=$!
+}
+
 stop_sampler() {
 	touch "$D/stop"; wait "$SAMPLER" 2>/dev/null
+	if [ -n "$PERFJOB" ]; then	# perf writes its last buffers on SIGINT
+		for i in $(seq 240); do kill -0 "$PERFJOB" 2>/dev/null || break; sleep 0.25; done
+		kill "$PERFJOB" 2>/dev/null; wait "$PERFJOB" 2>/dev/null; PERFJOB=
+	fi
 	if [ -n "$STALLREC" ]; then	# it looks at the stop file every 10 samples
 		for i in $(seq 30); do kill -0 "$STALLREC" 2>/dev/null || break; sleep 0.1; done
 		kill "$STALLREC" 2>/dev/null; wait "$STALLREC" 2>/dev/null; STALLREC=
@@ -185,6 +286,7 @@ run_job() {
 	mkdir -p "$D"
 	printf '%q ' "$@" > "$D/cmd"; echo >> "$D/cmd"
 	export BENCH_DIR=$D	# for the command: a place for its own output
+	prep_perf
 	if [ "${BENCH_HUD:-0}" = 1 ]; then	# per-second fps from the Gallium HUD, into $D/hud/fps
 		mkdir -p "$D/hud"
 		export GALLIUM_HUD=fps GALLIUM_HUD_VISIBLE=false GALLIUM_HUD_PERIOD=1 GALLIUM_HUD_DUMP_DIR=$D/hud
@@ -198,10 +300,15 @@ run_job() {
 	for i in 1 2 3 4 5 6 7 8 9 10; do [ -s "$D/pgid" ] && break; sleep 0.1; done
 	start_sampler "$(cat "$D/pgid" 2>/dev/null || echo 0)"
 	start_stallrec
+	start_perf
 	wait $pipe; rc=$?
 	t1=$EPOCHREALTIME
 	stop_sampler
 	snap post
+	if [ -s $TIMERS ]; then	# which periodic jobs were kept out of this run
+		[ -e "$D/bench.txt" ] && echo "timers_paused=$(tr '\n' ' ' < $TIMERS)" >> "$D/bench.txt"
+		cp $TIMERS "$D/timers-paused"
+	fi
 	for x in "$HOME/.local/share/xorg/Xorg.0.log" /var/log/Xorg.0.log; do	# the bare X's log
 		[ "$x" -nt "$D/cmd" ] && cp "$x" "$D/" && break
 	done
@@ -214,14 +321,22 @@ run_job() {
 	  [ -s "$D/hud/fps" ] && awk -v s="$skip" 'NR>s{print int($1)}' "$D/hud/fps" | sort -n |
 		awk '{a[NR]=$1} END{if (NR) printf "hud fps: median %d p10 %d min %d (%d s)\n", a[int(NR/2)+1], a[int(NR/10)+1], a[1], NR}'
 	  awk 'NR==1{m=$2} $2<m{m=$2} END{if (NR) printf "min MemAvailable %d kB\n", m}' "$D/samples" 2>/dev/null
+	  [ -s "$D/timers-paused" ] && echo "timers paused: $(tr '\n' ' ' < "$D/timers-paused")"
 	  # the stall recorder's own cost (its trailer)
 	  [ -s "$D/stalls.rec" ] && awk '$1 == "#" && $2 == "end" { for (i = 3; i <= NF; i++) { split($i, kv, "="); v[kv[1]] = kv[2] }
 		s = v["t"] / 1e6; c = (v["self_user_us"] + v["self_sys_us"]) / 1e6
 		printf "stallrec: %d samples, own CPU %.2f s (%.2f%% of a thread), late %d, largest gap %d ms\n",
 			v["samples"], c, s ? 100 * c / s : 0, v["late"], v["maxgap_us"] / 1000 }' "$D/stalls.rec"
+	  # perf's own CPU over the window (client.sh's perf_cpu=) and its file
+	  [ -e "$D/perf.targets" ] && awk -F= '$1 == "perf_win" { w = $2 } $1 == "perf_cpu" { c = $2 }
+		END { printf "perf: window %s, perf itself %s s of CPU in it\n", w ? w : "never enabled", c ? c : "?" }' "$D/bench.txt"
 	} > "$D/result"
 	[ -e "$D/THERMAL" ] && echo "!! THERMAL ALERT: the job was stopped. Let the PS3 cool down." >&2
 	mkdir -p $OUT; mv "$D" $OUT/; D=$OUT/${D##*/}
+	if [ -n "$PD" ]; then	# the profile from the disk into the run directory, readable by us
+		sudo chown -R "$(id -u):$(id -g)" "$PD"
+		mv "$PD"/* "$D/" 2>/dev/null; rmdir "$PD"; PD=
+	fi
 	sed 's/^/>> /' "$D/result"; echo ">> $D"
 }
 
@@ -242,6 +357,7 @@ run|x)
 	;;
 desktop)
 	vswap_on
+	resume_timers
 	rm -f $LOCK
 	sudo systemctl start getty@tty1
 	echo '>> desktop started, bench session over'

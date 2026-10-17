@@ -7,12 +7,13 @@ P := debian/ps3-gpu-tools
 	dh $@
 
 override_dh_auto_build:
-	$(MAKE) CROSS= OUT=$(CURDIR)/b/tools
+	$(MAKE) CROSS= OUT=$(CURDIR)/b/tools LIBOUT=$(CURDIR)/b/lib
 	$(MAKE) -C mesa-tests CROSS= SYSROOT=/ OUT=$(CURDIR)/b/tests
 
 override_dh_auto_install:
-	install -d $(P)/usr/lib/ps3/bin $(P)/usr/bin
+	install -d $(P)/usr/lib/ps3/bin $(P)/usr/lib/ps3/lib $(P)/usr/bin
 	install -m 755 b/tools/* b/tests/* scripts/*.sh $(P)/usr/lib/ps3/bin/
+	install -m 644 b/lib/*.so $(P)/usr/lib/ps3/lib/
 	for f in $(P)/usr/lib/ps3/bin/*; do ln -s ../lib/ps3/bin/$${f##*/} $(P)/usr/bin/$${f##*/}; done
 
 override_dh_auto_clean:

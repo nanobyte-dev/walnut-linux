@@ -12,6 +12,12 @@
 # Variant `base` is the recipe as written. End the session with `ps3-bench.sh desktop`.
 # STALLS=1: the stall recorder runs alongside (ps3-bench.sh BENCH_STALLS=1, docs/STALLS.md); smoke
 # then prints stalls.py's tables, else `python3 stalls.py <run dir>...` does.
+# PERF=1: perf profiles the measured window (ps3-bench.sh BENCH_PERF=1, docs/PROFILING.md;
+# PERF_HZ samples a second, default 499; PERF_ALL=1 adds a system-wide record without call graphs);
+# after each run, outside the timed part, perf-post.sh turns perf.data into perf-report.txt,
+# perf.folded and the perf_* columns (PERF_SYMS=1: also the symbols for the PC). Profiled runs are
+# for profiles, not for fps. MEM=1: the game's memory by mapping class, glibc's malloc numbers and
+# its GPU buffers at the window's start, middle and end (client.sh, memprof.py; mem_* columns).
 # Results: /var/tmp/ps3-bench/<stamp>-<game>-<variant>/; report.py summarises them.
 {
 set -u
@@ -19,6 +25,10 @@ here=$(cd "$(dirname "$0")" && pwd)
 B=ps3-bench.sh
 LOG=/dev/shm/run.sh.$$
 [ -n "${STALLS:-}" ] && export BENCH_STALLS=$STALLS
+[ -n "${PERF:-}" ] && export BENCH_PERF=$PERF
+[ -n "${PERF_HZ:-}" ] && export BENCH_PERF_HZ=$PERF_HZ
+[ -n "${PERF_ALL:-}" ] && export BENCH_PERF_ALL=$PERF_ALL
+[ -n "${MEM:-}" ] && export BENCH_MEM=$MEM
 RUNS=()
 
 one() {	# one LABEL GAME VARIANT: one run, its directory appended to RUNS
@@ -28,6 +38,8 @@ one() {	# one LABEL GAME VARIANT: one run, its directory appended to RUNS
 	d=$(sed -n 's/^>> \(\/var\/tmp\/ps3-bench\/[^ ]*\)$/\1/p' "$LOG" | tail -1)
 	rm -f "$LOG"
 	[ -n "$d" ] && RUNS+=("$d") && versions "$2" "$3" > "$d/versions"
+	# the profile's text, between runs (the next run's quiet drops the caches and swaps again)
+	[ "${BENCH_PERF:-0}" = 1 ] && [ -s "$d/perf.data" ] && "$here/perf-post.sh" "$d"
 	[ "$rc" = 0 ] || { echo "!! ps3-bench.sh failed ($rc): stopping"; return 1; }
 	[ -e "$d/THERMAL" ] && { echo "!! thermal alert: stopping"; return 1; }
 	return 0
@@ -54,7 +66,7 @@ smoke)
 	echo "== game output: lines worth a look"
 	grep -aiE 'error|fail|unsupported|not supported|missing|shader|link|segmentation|abort|assert|nouveau|out of temps' \
 		"$d/game.log" 2>/dev/null | head -30
-	report --stalls
+	report --stalls --perf --mem
 	echo "Check on the TV: picture and colours. Sound card state at ${SOUND_AT:-15} s is in bench.txt."
 	;;
 bench)

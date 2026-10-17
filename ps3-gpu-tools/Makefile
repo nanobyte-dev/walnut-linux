@@ -3,9 +3,15 @@ CROSS   ?= powerpc64-linux-gnu-
 CC      := $(CROSS)gcc
 CFLAGS  ?= -O2 -Wall -Wextra -mcpu=cell
 OUT     ?= ../build/gpu
+LIBOUT  ?= $(OUT)/lib
 TOOLS   := $(patsubst src/%.c,$(OUT)/%,$(wildcard src/*.c))
+# preloaded libraries (preload/*.c -> <name>.so, installed in /usr/lib/ps3/lib)
+LIBS    := $(patsubst preload/%.c,$(LIBOUT)/%.so,$(wildcard preload/*.c))
 
-all: $(TOOLS)
+all: $(TOOLS) $(LIBS)
 $(OUT)/%: src/%.c
 	@mkdir -p $(OUT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $<
+$(LIBOUT)/%.so: preload/%.c
+	@mkdir -p $(LIBOUT)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -fPIC -shared $(LDFLAGS) -o $@ $< -lpthread

@@ -17,6 +17,13 @@
      that stalls three known ways: major faults on a file dropped from the page cache
      (POSIX_FADV_DONTNEED, MADV_RANDOM, on a disk-backed directory), a busy loop, a futex wait;
      each stall must come out as disk, cpu and wait, and the recorder's own CPU is printed
+  7. perfprof.py on a made-up perf script output (call chains, and the one-line form of the
+     system-wide record): folded stacks, the class shares of report.py's perf_* columns by hand
+  8. client.sh with PERF and MEM: a fake perf on the control fifos (enable/disable at the window's
+     ends, acknowledged), ps3-mallocstat.so (built with the host's cc) preloaded into the fake game,
+     the snapshots at the window's start, middle and end, memprof.py's columns from them
+  9. memprof.py on a real process (a C program, built here) whose thread stacks and malloc arenas
+     are known from inside it: every one classified as such
 Exit status 0 when every check passes; scratch files in a temporary directory, removed at the end."""
 import os
 import shutil
@@ -510,6 +517,244 @@ def stallrec_e2e(tmp):
         data.unlink()
 
 
+# --- 7. perfprof.py on made-up perf script output -------------------------------------------
+GL = "/usr/lib/powerpc64-linux-gnu/libgallium-26.2.4-1+ps3.299.so"
+NOUV = "/usr/lib/powerpc64-linux-gnu/libdrm_nouveau.so.2.0.0"
+LIBC = "/usr/lib/powerpc64-linux-gnu/libc.so.6"
+EXE = "/usr/lib/ioquake3/ioquake3"
+REND = "/usr/lib/ioquake3/renderer_opengl1_ppc64.so"
+OAL = "/usr/lib/powerpc64-linux-gnu/libopenal.so.1.25.2"
+# (count, pid, tid, comm, leaf first: (sym, dso)...)
+PERF_SAMPLES = [
+    (10, 1000, 1000, "ioquake3", [("RB_RenderThread", EXE), ("main", EXE)]),
+    (5, 1000, 1000, "ioquake3", [("R_DrawElements", REND), ("RB_RenderThread", EXE), ("main", EXE)]),
+    (20, 1000, 1000, "ioquake3", [("nv30_draw_vbo", GL), ("R_DrawElements", REND), ("main", EXE)]),
+    (5, 1000, 1000, "ioquake3", [("pushbuf_krel", NOUV), ("nv30_draw_vbo", GL), ("main", EXE)]),
+    (6, 1000, 1000, "ioquake3", [("ps3rsx_validate", "[ps3rsx]"), ("drm_ioctl", "[kernel.kallsyms]"),
+                                 ("ioctl", LIBC), ("pushbuf_kick", NOUV), ("main", EXE)]),
+    (2, 1000, 1000, "ioquake3", [("drm_ioctl", "[kernel.kallsyms]"), ("ioctl", LIBC), ("main", EXE)]),
+    (4, 1000, 1000, "ioquake3", [("do_page_fault", "[kernel.kallsyms]"), ("main", EXE)]),
+    (3, 1000, 1000, "ioquake3", [("memcpy", LIBC), ("nv30_transfer", GL), ("main", EXE)]),
+    (4, 1000, 1000, "ioquake3", [("Mix_C", OAL), ("main", EXE)]),
+    (1, 1000, 1000, "ioquake3", [("[unknown]", "[unknown]")]),
+    (2, 1000, 1003, "alsoft-mixer", [("Resample_Cubic_C", OAL), ("start_thread", LIBC)]),
+    (7, 900, 900, "Xorg", [("glamor_poly", "/usr/lib/xorg/modules/libglamoregl.so"), ("main", "/usr/lib/xorg/Xorg")]),
+    (3, 50, 50, "kswapd0", [("zram_write", "[kernel.kallsyms]"), ("kswapd", "[kernel.kallsyms]")]),
+]
+
+
+def perf_script_text(samples):
+    out, t = [], 100.0
+    for n, pid, tid, comm, frames in samples:
+        for _ in range(n):
+            t += 0.002
+            out.append("%s  %d/%d  %.6f:    2004008 " % (comm, pid, tid, t))
+            for i, (sym, dso) in enumerate(frames):
+                out.append("\t    %x %s (%s)" % (0x10000000 + 16 * i, sym, dso))
+            out.append("")
+    return "\n".join(out) + "\n"
+
+
+def perf_synthetic(tmp):
+    import perfprof
+    d = tmp / "ps3-bench-20261018T040000Z-fakeperf-base"
+    d.mkdir(parents=True)
+    write(d / "perf.targets", "game=1000 xorg=900 kswapd0=50 hz=499\n")
+    write(d / "perf.exe", EXE + "\n")
+    write(d / "perf-pkgs.txt", "%s\tioquake3\n%s\tioquake3\n%s\tlibc6:ppc64\n" % (EXE, REND, LIBC))
+    bench(d, game="fakeperf", variant="base", ended="window", seconds="200", load_end="10.00",
+          window="70.00 190.00", perf_win="70.00 190.00", perf_cpu="1.20")
+    import io
+    n = perfprof.collapse(io.StringIO(perf_script_text(PERF_SAMPLES)), d)
+    check("perf: %d samples collapsed" % n, n == sum(x[0] for x in PERF_SAMPLES), n)
+    folded = (d / "perf.folded").read_text()
+    check("perf: a stack folded outermost first, kernel frames _[k]",
+          "ioquake3;main;pushbuf_kick;ioctl;drm_ioctl_[k];ps3rsx_validate_[k] 6\n" in folded, folded[:400])
+    check("perf: a thread's stacks under its own name", "alsoft-mixer;start_thread;Resample_Cubic_C 2\n" in folded)
+    r = perfprof.summary(d)
+    # the game: 62 samples by leaf: game 10+5, mesa 20, drm 5, kgpu 6+2, kernel 4, libc 3 (memcpy), other
+    # 4+2, unk 1
+    want = {"perf_n": 62, "perf_game": 24.2, "perf_mesa": 32.3, "perf_drm": 8.1, "perf_kgpu": 12.9,
+            "perf_kernel": 6.5, "perf_libc": 4.8, "perf_other": 9.7, "perf_unk": 1.6,
+            "perf_xorg": 11.3, "perf_kswapd": 4.8, "perf_self": 1.0}
+    check("perf: summary columns as by hand", all(r.get(k) == v for k, v in want.items()),
+          {k: (r.get(k), v) for k, v in want.items() if r.get(k) != v})
+    # the system-wide record: one line per sample, comm right-aligned
+    sys_lines = []
+    for n, comm, pid, sym in ((60, "swapper", 0, "cpu_idle"), (30, "ioquake3", 1000, "main"), (5, "Xorg", 900, "main"),
+                              (3, "kworker/0:1", 12, "worker_thread"), (2, "kswapd0", 50, "kswapd")):
+        for i in range(n):
+            sys_lines.append("%16s %6d/%-6d %.6f:    2004008      %x %s (%s)" % (comm, pid, pid, 100 + i / 1000, 0xc0000000 + i,
+                                                                             sym, "[kernel.kallsyms]"))
+    perfprof.collapse(io.StringIO("\n".join(sys_lines) + "\n"), d, sysmode=True)
+    r = report.run(d)
+    check("perf: system-wide shares (idle 60, game 30, xorg 5, kworker 3, kswapd 2)",
+          (r.get("perf_sys_idle"), r.get("perf_sys_game"), r.get("perf_sys_xorg"), r.get("perf_sys_kworker"),
+           r.get("perf_sys_kswapd")) == (60.0, 30.0, 5.0, 3.0, 2.0),
+          {k: v for k, v in r.items() if k.startswith("perf_sys")})
+    line = report.show(r)
+    check("report: perf columns shown, mem columns not", "perf_mesa=32.3" in line and "mem_rss" not in line, line[-300:])
+    perfprof.show(d)
+    print()
+
+
+# --- 8. client.sh with PERF and MEM ---------------------------------------------------------
+def fake_perf(ctl, ack, log):
+    """perf record --control's side: reads enable/disable lines, writes ack for each"""
+    import threading
+    fd = os.open(ctl, os.O_RDWR)
+    afd = os.open(ack, os.O_RDWR)
+
+    def run():
+        buf = b""
+        while True:
+            b = os.read(fd, 256)
+            if not b:
+                return
+            buf += b
+            while b"\n" in buf:
+                cmd, buf = buf.split(b"\n", 1)
+                log.append((time.time(), cmd.decode()))
+                os.write(afd, b"ack\n")
+                if cmd == b"stop":
+                    return
+    th = threading.Thread(target=run, daemon=True)
+    th.start()
+    return fd, afd, th
+
+
+def client_prof(tmp):
+    import memprof
+    cc = shutil.which("cc") or shutil.which("gcc")
+    so = tmp / "ps3-mallocstat.so"
+    src = HERE.parent.parent / "ps3-gpu-tools" / "preload" / "ps3-mallocstat.c"
+    p = subprocess.run([cc, "-O2", "-Wall", "-Wextra", "-fPIC", "-shared", "-o", str(so), str(src), "-lpthread"],
+                       capture_output=True, text=True) if cc else None
+    check("mallocstat: builds without warnings", p is not None and p.returncode == 0 and not p.stderr.strip(),
+          p and p.stderr[-600:])
+    rdir = tmp / "recipes-prof"
+    rdir.mkdir()
+    fake = tmp / "fake-game"   # made by client()
+    comm = Path(sys.executable).name[:15]
+    write(rdir / "fakeprof.sh", 'CMD=("%s" --fake-game hudwin); COMM=%s; LOAD_MARK=\'^loaded\'; WARMUP=2; MEASURE=6\n'
+          'WINDOW_STOP=1; DURATION=25\n' % (fake, comm))
+    d = tmp / "ps3-bench-20261018T050000Z-fakeprof-base"
+    d.mkdir()
+    os.mkfifo(d / ".perf.ctl")
+    os.mkfifo(d / ".perf.ack")
+    write(d / ".perf.pid", "%d\n" % os.getpid())
+    log = []
+    fds = fake_perf(str(d / ".perf.ctl"), str(d / ".perf.ack"), log)
+    env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "GALLIUM_HUD",
+                                                            "GALLIUM_HUD_DUMP_DIR", "LD_PRELOAD")}
+    env.update(BENCH_RECIPES=str(rdir), BENCH_BACKUP=str(tmp / "backup"), BENCH_DIR=str(d), BENCH_MEM="1",
+               BENCH_MALLOCSTAT=str(so), BENCH_PERF_CTL="%s:%s" % (d / ".perf.ctl", d / ".perf.ack"))
+    t0 = time.time()
+    p = subprocess.run(["bash", str(HERE / "client.sh"), "fakeprof", "base"], env=env, capture_output=True, text=True)
+    check("prof client: exit 0", p.returncode == 0, p.stdout[-800:] + p.stderr[-800:])
+    os.close(fds[0])
+    b = report.kv(d / "bench.txt")
+    le = float(b.get("load_end") or 0)
+    w = [float(x) for x in (b.get("perf_win") or "").split()]
+    check("perf: on at load + WARMUP, off at + WARMUP + MEASURE",
+          len(w) == 2 and abs(w[0] - le - 2) < 0.1 and abs(w[1] - le - 8) < 0.15, (le, w))
+    check("perf: the fake perf got enable, then disable, each acknowledged",
+          [c for _, c in log] == ["enable", "disable"] and b.get("perf_ack") == "ok", (log, b.get("perf_ack")))
+    if len(log) == 2 and len(w) == 2:
+        check("perf: client stamps agree with the fake perf's clock",
+              abs(log[0][0] - t0 - w[0]) < 0.3 and abs(log[1][0] - t0 - w[1]) < 0.3,
+              [x - t0 for x, _ in log])
+    check("perf: perf_cpu written", b.get("perf_cpu") not in (None, ""), b.get("perf_cpu"))
+    snaps = dict(x.split(":", 1) for x in (b.get("mem_snaps") or "").split())
+    check("mem: start, mid and end snapshots", sorted(snaps) == ["end", "mid", "start"], b.get("mem_snaps"))
+    at = {k: float(v.split(":")[0]) - le - 2 for k, v in snaps.items()}
+    check("mem: at window + 1, + 3, + 4 s", abs(at.get("start", 9) - 1) < 0.2 and abs(at.get("mid", 9) - 3) < 0.2
+          and abs(at.get("end", 9) - 4) < 0.2, at)
+    mem = d / "mem"
+    for lb in ("start", "mid", "end"):
+        have = [x for x in ("smaps", "rollup", "status", "tasks", "info", "meminfo", "malloc") if (mem / f"{lb}.{x}").exists()]
+        check("mem: %s has smaps, rollup, status, tasks, info, meminfo, malloc" % lb, len(have) == 7, have)
+    ml = (mem / "mid.malloc").read_text() if (mem / "mid.malloc").exists() else ""
+    check("mallocstat: mallinfo2 line and malloc_info XML", ml.startswith("mallinfo2 ") and '<heap nr="0">' in ml, ml[:200])
+    r = memprof.summary(d)
+    check("mem: summary: rss, heap, malloc in use, arenas, smaps read time",
+          r.get("mem_rss", 0) > 3 and r.get("mem_heap_rss", 0) > 0 and r.get("mem_malloc_used", 0) > 0
+          and r.get("mem_arenas", 0) >= 1 and r.get("mem_smaps_ms") is not None,
+          {k: v for k, v in r.items() if k in ("mem_rss", "mem_heap_rss", "mem_malloc_used", "mem_arenas", "mem_smaps_ms")})
+    st = memprof.snapshot(d, "mid")
+    if st:
+        tot = sum(st["tot"][c]["Rss"] for c in memprof.CLASSES)
+        roll = 0
+        for line in (mem / "mid.rollup").read_text().splitlines():
+            if line.startswith("Rss:"):
+                roll = int(line.split()[1])
+        check("mem: the classes add up to smaps_rollup's Rss (within 2%)", roll and abs(tot - roll) <= 0.02 * roll,
+              (tot, roll))
+        check("mem: the game's interpreter classified as game", st["tot"]["game"]["Rss"] > 0, st["tot"]["game"])
+    print("  mem snapshot cost: smaps read in %s ms (python, %.0f MiB Rss)" % (r.get("mem_smaps_ms"), r.get("mem_rss", 0)))
+    memprof.show(d)
+    print()
+
+
+# --- 9. memprof.py on a real process ---------------------------------------------------------
+THR_C = r"""
+#define _GNU_SOURCE
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+static pthread_barrier_t b;
+static void *work(void *a) {
+	void **out = a; pthread_attr_t at; void *sa; size_t ss;
+	out[0] = malloc(1000);	/* from this thread's arena */
+	pthread_getattr_np(pthread_self(), &at); pthread_attr_getstack(&at, &sa, &ss);
+	out[1] = (char *)sa + ss / 2;
+	pthread_barrier_wait(&b); sleep(2); return 0;
+}
+int main(void) {
+	enum { N = 4 }; pthread_t t[N]; void *o[N][2];
+	pthread_barrier_init(&b, 0, N + 1);
+	for (int i = 0; i < N; i++) pthread_create(&t[i], 0, work, o[i]);
+	pthread_barrier_wait(&b);
+	void *small = malloc(100);
+	for (int i = 0; i < N; i++) printf("heap %p\nstack %p\n", o[i][0], o[i][1]);
+	printf("heap %p\nready\n", small); fflush(stdout);
+	for (int i = 0; i < N; i++) pthread_join(t[i], 0);
+	return 0;
+}
+"""
+
+
+def memprof_real(tmp):
+    import glob
+    import memprof
+    cc = shutil.which("cc") or shutil.which("gcc")
+    src, exe = tmp / "thr.c", tmp / "thr"
+    write(src, THR_C)
+    p = subprocess.run([cc, "-O2", "-o", str(exe), str(src), "-lpthread"], capture_output=True, text=True)
+    if p.returncode:
+        check("memprof: test program builds", False, p.stderr[-400:])
+        return
+    g = subprocess.Popen([str(exe)], stdout=subprocess.PIPE, text=True)
+    truth = []
+    for line in g.stdout:
+        if line.strip() == "ready":
+            break
+        truth.append(line.split())
+    sm = Path("/proc/%d/smaps" % g.pid).read_text()
+    tasks = ""
+    for t in sorted(glob.glob("/proc/%d/task/*" % g.pid)):
+        tasks += "%s\t%s\t%s\n" % (t.rsplit("/", 1)[1], Path(t, "comm").read_text().strip(),
+                                    Path(t, "syscall").read_text().strip())
+    g.wait()
+    write(tmp / "thr.tasks", tasks)
+    maps = memprof.classify(memprof.parse_smaps(sm), str(exe), memprof.stack_pointers(tmp / "thr.tasks"))
+    got = [(want, [m["cls"] for m in maps if m["start"] <= int(a, 16) < m["end"]]) for want, a in truth]
+    check("memprof: 4 thread stacks and 5 malloc arenas (main + 4) found in a real process",
+          all(c == [w] for w, c in got), got)
+    check("memprof: the executable classified as game", any(m["cls"] == "game" for m in maps))
+
+
 # --- 4. every recipe and variant ---------------------------------------------------------------
 LINT = r'''
 here=$1; ASSETS=$here/assets; D=/nonexistent; g=$2
@@ -563,6 +808,9 @@ if __name__ == "__main__":
         lint()
         stalls_synthetic(tmp)
         stallrec_e2e(tmp)
+        perf_synthetic(tmp)
+        client_prof(tmp)
+        memprof_real(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("\n%d check(s) failed: %s" % (len(FAILS), ", ".join(FAILS)) if FAILS else "\nall checks passed")

@@ -16,6 +16,15 @@
 # (each ON line opens one, the next OFF line closes it; it replaces load + WARMUP). bench.txt gets
 # load_end, window (start end pairs), pass<N> and steady_* for report.py; t0 (the start, epoch
 # seconds) places them on the clock of ps3-stallrec's record (stalls.py).
+# Profiling (docs/PROFILING.md). BENCH_PERF_CTL (ps3-bench.sh BENCH_PERF=1, run.sh PERF=1): perf's
+# control fifos as ctl:ack pairs; perf is switched on WARMUP s after the load (0.9 x WARMUP with
+# PASSES=1, where the first counted pass may start that early; with WIN_ON_RE at each ON line) and
+# off at the window's end (MEASURE s later, the last counted pass, each OFF line); bench.txt gets
+# perf_win (on off pairs), perf_cpu (perf's own CPU seconds in them), perf_ack. BENCH_MEM=1 (run.sh
+# MEM=1): the game's smaps, smaps_rollup and status, ps3rsx's buffer census (debugfs ps3rsx_mm, once
+# a snapshot) and glibc's malloc statistics (ps3-mallocstat.so preloaded: BENCH_MALLOCSTAT is its
+# path, "" turns it off) at the window's start, middle and end into $D/mem/ (memprof.py); bench.txt
+# gets mem_snaps (label:seconds:ms reading smaps).
 {
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
@@ -68,6 +77,20 @@ if [ "$HUD" = 1 ] && [ -z "${GALLIUM_HUD:-}" ]; then
 elif [ -n "${GALLIUM_HUD_DUMP_DIR:-}" ]; then	# ps3-bench.sh's BENCH_HUD=1: per-second fps only
 	hud_file=$GALLIUM_HUD_DUMP_DIR/fps
 fi
+# MEM=1: the malloc statistics library in the game (it acts only in the process named COMM), asked
+# through a fifo
+MEM=${BENCH_MEM:-0}; MALLOC_FD=
+MALLOCSTAT=${BENCH_MALLOCSTAT-/usr/lib/ps3/lib/ps3-mallocstat.so}
+MEM_SUDO=0
+if [ "$MEM" = 1 ]; then
+	mkdir -p "$D/mem"
+	sudo -n true 2>/dev/null && MEM_SUDO=1	# ps3rsx's census is in debugfs (root only)
+	if [ -n "$MALLOCSTAT" ] && [ -e "$MALLOCSTAT" ] && [ -n "$COMM" ]; then
+		rm -f "$D/.malloc.fifo"; mkfifo "$D/.malloc.fifo"
+		ENV+=(LD_PRELOAD="$MALLOCSTAT${LD_PRELOAD:+:$LD_PRELOAD}" PS3_MALLOCSTAT_FIFO="$D/.malloc.fifo"
+		      PS3_MALLOCSTAT_DIR="$D/mem" PS3_MALLOCSTAT_COMM="$COMM")
+	fi
+fi
 launch=(); [ "$GAMEMODE" = 1 ] && launch=(ps3-game)
 # GAMEMODE=0 means no game mode: not even ps3-game-detect's (it reads the game's environment)
 [ "$GAMEMODE" = 1 ] || ENV+=(PS3_GAME_MODE=off)
@@ -96,6 +119,13 @@ env "${ENV[@]}" "${launch[@]}" stdbuf -oL -eL "${CMD[@]}" < /dev/null > "$fifo" 
 gp=$!
 set +m
 exec 3< "$fifo"
+# perf's control fifos and the malloc fifo, opened read-write (never blocks) after the game started
+# (it inherits none of them)
+PERF_FD=(); PERF_ACK=()
+for c in ${BENCH_PERF_CTL:-}; do
+	exec {f}<> "${c%%:*}"; PERF_FD+=("$f"); exec {f}<> "${c#*:}"; PERF_ACK+=("$f")
+done
+[ -e "$D/.malloc.fifo" ] && exec {MALLOC_FD}<> "$D/.malloc.fifo"
 stop_game() {
 	kill -0 "$gp" 2>/dev/null || return 0
 	kill -TERM -- -"$gp" 2>/dev/null
@@ -140,6 +170,86 @@ us() { local t=${1:-$EPOCHREALTIME}; US=$(( ${t%.*} * 1000000 + 10#${t#*.} )); }
 us "$t0"; u0=$US
 age() { us; local d=$(( US - u0 )); printf '%d.%02d' $((d / 1000000)) $((d % 1000000 / 10000)); }
 secs() { printf -v "$1" '%d.%02d' $(($2 / 1000000)) $(($2 % 1000000 / 10000)); }	# secs VAR MICROSECONDS
+
+# profiling: PERF_AT/PERF_END when perf goes on/off, MEM_AT/MEM_LB the snapshots (microseconds from
+# the start); prof_due runs what is due and sets PROF_NEXT to the next one
+PERF_AT=; PERF_END=; PERF_ON=0; PERF_WIN=(); PERF_TICKS=0; PERF_T0=; PERF_ACKS=ok; MEM_AT=(); MEM_LB=()
+MEM_JOBS=(); MEM_DONE=(); PROF_NEXT=
+perf_ticks() {	# perf_ticks VAR: user+sys clock ticks of the perf processes so far (locals _*: not VAR)
+	local _p _f _t=0 _pids=
+	read -r _pids < "$D/.perf.pid" 2>/dev/null
+	for _p in $_pids; do
+		read -r -a _f < "/proc/$_p/stat" 2>/dev/null && _t=$(( _t + _f[13] + _f[14] ))
+	done
+	printf -v "$1" '%d' "$_t"
+}
+perf_ctl() {	# perf_ctl enable|disable: every perf, waiting 1 s at most for each one's ack
+	local i a t
+	[ ${#PERF_FD[@]} -gt 0 ] || return 0
+	[ "$1" = enable ] && [ "$PERF_ON" = 1 ] && return 0
+	[ "$1" = disable ] && [ "$PERF_ON" = 0 ] && return 0
+	for i in "${!PERF_FD[@]}"; do
+		printf '%s\n' "$1" >&"${PERF_FD[$i]}"
+		read -r -t 1 -u "${PERF_ACK[$i]}" a && [ "$a" = ack ] || PERF_ACKS=missing
+	done
+	us; secs t $(( US - u0 )); PERF_WIN+=("$t")
+	if [ "$1" = enable ]; then PERF_ON=1; perf_ticks PERF_T0
+	else PERF_ON=0; perf_ticks a; PERF_TICKS=$(( PERF_TICKS + a - PERF_T0 )); fi
+}
+mem_snap() {	# mem_snap LABEL: the game's memory now into $D/mem/LABEL.*
+	local p a b t m
+	read -r p < "$D/.pid" 2>/dev/null && [ -e "/proc/$p/smaps" ] || return 0
+	[ -n "$MALLOC_FD" ] && printf '%s\n' "$1" >&"$MALLOC_FD"	# the game writes LABEL.malloc
+	us; a=$US
+	cat "/proc/$p/smaps" > "$D/mem/$1.smaps" 2>/dev/null
+	us; b=$US
+	cat "/proc/$p/smaps_rollup" > "$D/mem/$1.rollup" 2>/dev/null
+	cat "/proc/$p/status" > "$D/mem/$1.status" 2>/dev/null
+	# every thread's name and stack pointer (in a system call: memprof.py finds the thread stacks)
+	local tk c y
+	for tk in /proc/$p/task/*; do
+		read -r c < "$tk/comm"; read -r y < "$tk/syscall"; printf '%s\t%s\t%s\n' "${tk##*/}" "$c" "$y"
+	done > "$D/mem/$1.tasks" 2>/dev/null
+	cat /proc/meminfo > "$D/mem/$1.meminfo"
+	# ps3rsx's buffers per client (takes mm_lock and walks them: once a snapshot)
+	[ "$MEM_SUDO" = 1 ] && sudo -n sh -c 'cat /sys/kernel/debug/dri/*/ps3rsx_mm' > "$D/mem/$1.gpu" 2>/dev/null
+	secs t $(( a - u0 )); m=$(( (b - a) / 1000 ))
+	printf 'label=%s pid=%s t=%s smaps_ms=%s exe=%s comm=%s\n' "$1" "$p" "$t" "$m" \
+		"$(readlink "/proc/$p/exe" 2>/dev/null)" "$COMM" > "$D/mem/$1.info"
+}
+prof_plan() {	# prof_plan START_US: the window starts at START_US: perf on then, snapshots in it
+	local s=$1
+	if [ ${#PERF_FD[@]} -gt 0 ] && [ -z "$WIN_ON_RE" ]; then
+		PERF_AT=$s
+		[ "$PASSES" = 1 ] || PERF_END=$(( s + MEASURE * 1000000 ))
+	fi
+	if [ "$MEM" = 1 ]; then
+		MEM_AT=($(( s + 1000000 )) $(( s + MEASURE * 500000 ))); MEM_LB=(start mid)
+		# the end 2 s before the window's (the snapshot is done before WINDOW_STOP stops the
+		# game); PASSES=1: at the last counted pass, when the client stops the game
+		[ "$PASSES" = 1 ] || { MEM_AT+=($(( s + MEASURE * 1000000 - 2000000 ))); MEM_LB+=(end); }
+	fi
+}
+prof_due() {	# runs the profiling events due now (US); PROF_NEXT: the next one's time, or empty
+	local now=$(( US - u0 ))
+	PROF_NEXT=
+	if [ -n "$PERF_AT" ]; then
+		if [ $now -ge "$PERF_AT" ]; then perf_ctl enable; PERF_AT=; else PROF_NEXT=$PERF_AT; fi
+	fi
+	if [ -z "$PERF_AT" ] && [ -n "$PERF_END" ]; then
+		if [ $now -ge "$PERF_END" ]; then perf_ctl disable; PERF_END=
+		elif [ -z "$PROF_NEXT" ] || [ "$PERF_END" -lt "$PROF_NEXT" ]; then PROF_NEXT=$PERF_END; fi
+	fi
+	while [ ${#MEM_AT[@]} -gt 0 ]; do
+		if [ $now -ge "${MEM_AT[0]}" ]; then
+			mem_snap "${MEM_LB[0]}" > /dev/null 2>&1 & MEM_JOBS+=($!); MEM_DONE+=("${MEM_LB[0]}")
+			MEM_AT=("${MEM_AT[@]:1}"); MEM_LB=("${MEM_LB[@]:1}")
+		else
+			[ -z "$PROF_NEXT" ] || [ "${MEM_AT[0]}" -lt "$PROF_NEXT" ] && PROF_NEXT=${MEM_AT[0]}
+			break
+		fi
+	done
+}
 # the steady-state window, in microseconds from the start: load_us when the load ended (LOAD_MARK,
 # the first LOAD_RE line, else the HUD's first frame), hud_us when the HUD's dump got its first
 # value, stop_us when WINDOW_STOP ends the run; passes (PASSES=1) in PASS, measured their counted time
@@ -147,6 +257,10 @@ load_us=; hud_us=; stop_us=; np=0; plast=; measured=0; win0=; win1=; PASS=(); so
 loaded() {	# the load ended now (US)
 	load_us=$(( US - u0 ))
 	[ "$WINDOW_STOP" = 1 ] && stop_us=$(( load_us + (WARMUP + MEASURE + 2) * 1000000 ))
+	if [ -z "$WIN_ON_RE" ]; then	# profiling from the window's start (PASSES: 0.9 x WARMUP)
+		if [ "$PASSES" = 1 ]; then prof_plan $(( load_us + WARMUP * 900000 ))
+		else prof_plan $(( load_us + WARMUP * 1000000 )); fi
+	fi
 }
 pass() {	# pass LINE (BASH_REMATCH from FPS_RE): a pass ended now; true once the counted passes cover MEASURE
 	local f=${BASH_REMATCH[1]} ms= end=$(( US - u0 )) start=${plast:-${load_us:-0}} c=0 s e
@@ -166,6 +280,7 @@ while :; do
 		hud_us=$(( US - u0 ))
 		[ -z "$load_us$LOAD_MARK$LOAD_RE" ] && loaded
 	fi
+	prof_due
 	lim=; why=; wt=
 	[ "$DURATION" -gt 0 ] && { lim=$(( DURATION * 1000000 )); why=duration; }
 	[ -n "$stop_us" ] && { [ -z "$lim" ] || [ "$stop_us" -lt "$lim" ]; } && { lim=$stop_us; why=window; }
@@ -175,6 +290,11 @@ while :; do
 	fi
 	# until the HUD's first value: a look at its dump file every 0.25 s
 	[ -n "$hud_file" ] && [ -z "$hud_us" ] && { [ -z "$wt" ] || [ $wt -gt 250000 ]; } && wt=250000
+	# the next profiling event (perf on/off, a memory snapshot)
+	if [ -n "$PROF_NEXT" ]; then
+		pw=$(( PROF_NEXT - US + u0 )); [ $pw -lt 1000 ] && pw=1000
+		[ -z "$wt" ] || [ $wt -gt $pw ] && wt=$pw
+	fi
 	l=
 	if [ -n "$wt" ]; then
 		printf -v wt '%d.%06d' $((wt / 1000000)) $((wt % 1000000))
@@ -192,14 +312,22 @@ while :; do
 	if [ -z "$t_load" ] && [ -n "$LOAD_MARK" ] && [[ $l =~ $LOAD_MARK ]]; then t_load=$(age); fi
 	if [ -n "$WIN_ON_RE" ]; then	# the game's own window pieces
 		if [ -z "$son" ] && [[ $l =~ $WIN_ON_RE ]]; then son=$(( US - u0 ))
+			perf_ctl enable; [ ${#SEGS[@]} -eq 0 ] && prof_plan "$son"
 		elif [ -n "$son" ] && [ -n "$WIN_OFF_RE" ] && [[ $l =~ $WIN_OFF_RE ]]; then
 			secs a "$son"; secs b $(( US - u0 )); SEGS+=("$a $b"); son=
+			perf_ctl disable
 		fi
 	fi
 	if [ "$PASSES" = 1 ] && [ -n "$FPS_RE" ] && [[ $l =~ $FPS_RE ]] && pass "$l"; then ended=window; break; fi
 	if [ -n "$END_RE" ] && [[ $l =~ $END_RE ]]; then ended=end; break; fi
 done
 us; run_us=$(( US - u0 )); secs t_run "$run_us"
+# the window is over (or the game is): perf off, the last snapshot while the game still runs
+perf_ctl disable
+[ ${#MEM_JOBS[@]} -gt 0 ] && wait "${MEM_JOBS[@]}"
+if [ "$MEM" = 1 ] && [ ${#MEM_DONE[@]} -gt 0 ] && [[ " ${MEM_DONE[*]} " != *" end "* ]]; then
+	mem_snap end > /dev/null 2>&1; MEM_DONE+=(end)
+fi
 stop_game
 while IFS= read -r -t 2 -u 3 l; do l=$part$l; part=; printf '%s\n' "$l"; printf '%s\n' "$l" >> "$D/game.log"; done
 wait "$gp" 2>/dev/null; rc=$?
@@ -244,10 +372,17 @@ secs measured "$measured"
   [ "$PASSES" = 1 ] && { echo "passes=$np"; echo "measured=$measured"; printf '%s\n' "${PASS[@]}"; }
   [ -n "$STEADY_RE" ] && { echo "steady_fps=$(first "$STEADY_RE")"; echo "steady_maxms=$(first "$STEADY_MAXMS_RE")"; }
   echo "hud_skip=$HUD_SKIP"; echo "hwm=$(cat "$D/.hwm" 2>/dev/null)"; echo "sound=$(cat "$D/.sound" 2>/dev/null)"
+  if [ ${#PERF_FD[@]} -gt 0 ]; then
+	echo "perf_win=${PERF_WIN[*]}"; echo "perf_ack=$PERF_ACKS"
+	awk -v t="$PERF_TICKS" 'BEGIN { printf "perf_cpu=%.2f\n", t / 100 }'	# USER_HZ
+  fi
+  if [ "$MEM" = 1 ]; then
+	echo "mem_snaps=$(for f in "$D"/mem/*.info; do [ -e "$f" ] && sed -E 's/.*label=([^ ]*) .* t=([^ ]*) smaps_ms=([^ ]*) .*/\1:\2:\3/' "$f"; done | tr '\n' ' ')"
+  fi
   # ALSA's "underrun occurred": the sound buffer ran dry (what a listener hears as chopping)
   echo "underruns=$(grep -ac 'underrun occurred' "$D/game.log" 2>/dev/null)"
   parse; } > "$D/bench.txt"
-rm -f "$D/.hwm" "$D/.pid" "$D/.sound"
+rm -f "$D/.hwm" "$D/.pid" "$D/.sound" "$D/.malloc.fifo"
 sed 's/^/bench: /' "$D/bench.txt"
 exit 0
 }

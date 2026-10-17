@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""report.py [--stalls] <run dir>...: one line per games/bench run (ps3-bench.sh run directories with the
+"""report.py [--stalls] [--perf] [--mem] <run dir>...: one line per games/bench run (ps3-bench.sh run directories with the
 bench.txt client.sh writes), then the median per game and variant, then, when a game ran in more
 than one variant, each variant against the first: fps and load as ratios, so a decision reads
 across games. Columns:
@@ -33,7 +33,20 @@ stall causes (runs with a stalls.rec: ps3-bench.sh BENCH_STALLS=1, run.sh STALLS
   _gpu_s, _cpu_s (running, or runnable without CPU), _io_s (the game's own reads), _wait_s (futex,
           poll, sleep), _other_s (faults without I/O, unknown): the window's stall_s split by
           what the game's main thread and the counters did; stall_why the largest of them
-  snd     the sound card state(s) at SOUND_AT seconds; end: how the run ended (exit, end, duration)"""
+  snd     the sound card state(s) at SOUND_AT seconds; end: how the run ended (exit, end, duration)
+profiles (docs/PROFILING.md; shown only for runs that have them):
+  perf_*  runs with PERF=1 (after perf-post.sh): percent of the game's samples in the window by
+          class: perf_game, _mesa, _drm (libdrm, libdrm_nouveau), _kgpu (ps3rsx and the kernel's
+          drm/dma_fence), _kernel (the rest), _libc, _other, _unk (unplaced); perf_xorg and
+          perf_kswapd their samples as percent of the game's; perf_n samples; perf_self perf's own CPU
+          (% of a thread); perf_sys_* (PERF_ALL=1) shares of both CPUs: game, idle, xorg, kswapd,
+          kworker, vswap, other (perfprof.py)
+  mem_*   runs with MEM=1: at the window's middle, MiB of Rss and swap by mapping class:
+          mem_<game|mesa|libs|heap|anon|stack|gpu|shm|files|other>_rss and _swap, totals mem_rss,
+          mem_swap, mem_anon; mem_topswap the 5 mappings with the most swap; mem_grow (end - start,
+          Rss + swap); mem_malloc_used/_free and mem_arenas (glibc); mem_gpu_vram/_gart (the
+          game's ps3rsx buffers); mem_smaps_ms the longest smaps read (memprof.py)
+  --perf, --mem print perfprof.py's and memprof.py's tables for every run that has them"""
 import re
 import statistics
 import sys
@@ -119,6 +132,12 @@ def run(d):
     if (d / "stalls.rec").exists():
         import stalls
         r.update(stalls.summary(d))
+    if (d / "perf-leaf.txt").exists():
+        import perfprof
+        r.update(perfprof.summary(d))
+    if (d / "mem").is_dir():
+        import memprof
+        r.update(memprof.summary(d))
     return r
 
 
@@ -230,11 +249,21 @@ COLS = ["load", "fps", "maxms", "hud", "steady", "src", "low1", "stalls", "smoot
         "ftdrift", "cpu", "rss", "vram", "gart", "avail", "so_load", "so_all",
         "vsw_peak", "vsw_wb", "xrun", "snd", "end", "stall_disk_s", "stall_swap_s", "stall_reclaim_s",
         "stall_gpu_s", "stall_cpu_s", "stall_io_s", "stall_wait_s", "stall_other_s", "stall_why"]
+# the profiles' columns: printed only for the runs that have them
+PROF_COLS = (["perf_n", "perf_game", "perf_mesa", "perf_drm", "perf_kgpu", "perf_kernel", "perf_libc", "perf_other",
+              "perf_unk", "perf_xorg", "perf_kswapd", "perf_self"]
+             + ["perf_sys_" + k for k in ("game", "idle", "xorg", "kswapd", "kworker", "vswap", "other")]
+             + ["mem_rss", "mem_swap", "mem_anon"]
+             + ["mem_%s_%s" % (c, k) for c in ("game", "mesa", "libs", "heap", "anon", "stack", "gpu", "shm",
+                                              "files", "other") for k in ("rss", "swap")]
+             + ["mem_grow", "mem_malloc_used", "mem_malloc_free", "mem_arenas", "mem_gpu_vram", "mem_gpu_gart",
+                "mem_smaps_ms", "mem_topswap"])
+COLS += PROF_COLS
 RANGED = ("load", "fps", "maxms", "hud_med", "steady", "low1", "smooth", "stall_s")
 
 
 def show(r):
-    return "  ".join("%s=%s" % (c, r.get(c, "-")) for c in COLS)
+    return "  ".join("%s=%s" % (c, r.get(c, "-")) for c in COLS if c not in PROF_COLS or c in r)
 
 
 def main(dirs):
@@ -282,7 +311,8 @@ def main(dirs):
 if __name__ == "__main__":
     args = sys.argv[1:]
     detail = "--stalls" in args     # stalls.py's tables for every run with a record, after the summary
-    args = [a for a in args if a != "--stalls"]
+    pdetail, mdetail = "--perf" in args, "--mem" in args
+    args = [a for a in args if a not in ("--stalls", "--perf", "--mem")]
     main(args)
     if detail:
         import stalls
@@ -290,3 +320,15 @@ if __name__ == "__main__":
             if (Path(d) / "stalls.rec").exists():
                 print()
                 stalls.show(d)
+    if pdetail:
+        import perfprof
+        for d in args:
+            if (Path(d) / "perf-leaf.txt").exists():
+                print()
+                perfprof.show(d)
+    if mdetail:
+        import memprof
+        for d in args:
+            if (Path(d) / "mem").is_dir():
+                print()
+                memprof.show(d)
