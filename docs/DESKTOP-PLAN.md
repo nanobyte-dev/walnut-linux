@@ -99,3 +99,28 @@ Bluetooth keyboard types; `free -m` after login with the desktop idle.
   after X starts (LXQt 20-25 s).
 - Hardware cursor: X uses the cursor plane but nothing shows; the 0x10d init froze the PS3
   (probably wrong first argument: RPCS3 shows a3=1). Software cursor until tested supervised.
+
+## Game mode (2026-10-17)
+
+Rule from the user: memory comes from game mode, not from trimming the desktop. While a game
+runs the rest gets out of the way and comes back intact after, however the game ends; nothing
+is disabled for good, and system services (network, SSH, sound, the DualShock 3 over USB and
+Bluetooth, apt, time sync, logging) keep working.
+
+- `ps3-game` registers the game and starts or joins `ps3-game-guard` (the user service
+  `ps3-game-mode.service`, in ps3-game.slice). Entering: gamepads off the X pointer; the PCManFM
+  desktop off (`--desktop-off`; the root window's wallpaper pixmap released with it);
+  ps3-desktop.slice frozen and reclaimed (anonymous pages first); the user manager's other
+  services' anonymous memory to swap; then root (`ps3-game-mode on`): udisks2, polkit and
+  blueman's helper frozen and reclaimed, system.slice's anonymous memory to swap, the unmapped
+  page cache dropped, memory compacted. The game starts after that (at most 30 s).
+- Leaving runs when the last registered game is gone: the guard's ExecStopPost, a root watcher
+  on the guard's pid (thaws the system units), and any later `ps3-game` that finds state with no
+  guard. Two games share one game mode.
+- At login, `ps3-game-menu` writes the installed games' menu entries with Exec through
+  `ps3-game` into the runtime directory, first in XDG_DATA_DIRS.
+- Knobs: `PS3_GAME_MODE=pads|off` per run (baselines); `/etc/default/ps3-game-mode`
+  (FREEZE_UNITS, RECLAIM_SYSTEM, DROP_CACHES, COMPACT, GAME_SYSCTLS: vm.* values only while a
+  game runs).
+- Measured with `games/bench/gamemode-check.sh` on the desktop (idle, game mode, after; checks
+  that everything is back). Not yet run on the PS3.
