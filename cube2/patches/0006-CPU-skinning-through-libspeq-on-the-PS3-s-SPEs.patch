@@ -1,0 +1,223 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 16:54:13 +0300
+Subject: CPU skinning through libspeq on the PS3's SPEs
+
+With GPU skinning off (the PS3 default, 0002), every animated skeletal mesh group is skinned on the CPU each frame: interpverts moves every vertex by its bone or blended dual quaternion into vdata, which is then uploaded. On the PS3 that is PPE time the game's frame waits on. libspeq (ps3-spu) does the same transform on the Cell's SPEs, or with its own vector code on the PPE, into a buffer of its own that is uploaded instead.
+
+libspeq is loaded at run time with dlopen: the engine doesn't depend on it, and without it, when it declines (SPEQ_SKIN=off, a mesh group under SPEQ_SKIN_MIN vertices, the SPEs set aside after failures), when it is late (its timeout) or with speqskin 0, the engine skins as before. A mesh group libspeq can't take (a palette over 1536 entries) is remembered and left to the engine. vdata is the template of libspeq's output, so the texture coordinates come along. All policy (which unit, sizes, timeouts, SPEQ_SKIN=auto|spu|ppe|off, SPEQ_DEBUG) lives in libspeq.
+
+Forwarded: no
+
+diff --git a/engine/skelmodel.h b/engine/skelmodel.h
+--- a/engine/skelmodel.h
++++ b/engine/skelmodel.h
+@@ -1,6 +1,8 @@
+ VARP(gpuskel, 0, 0, 1);
+ extern int gpuskelshaders;
+ 
++#include "speqskin.h"
++
+ VAR(maxskelanimdata, 1, 192, 0);
+ VAR(testtags, 0, 0, 1);
+ 
+@@ -1115,8 +1117,9 @@ struct skelmodel : animmodel
+         bool vtangents;
+         int vlen, vertsize, vblends, vweights;
+         uchar *vdata;
++        bool speqrefused; // libspeq can't take this group's meshes (formats, sizes): skin here
+ 
+-        skelmeshgroup() : skel(NULL), edata(NULL), ebuf(0), vtangents(false), vlen(0), vertsize(0), vblends(0), vweights(0), vdata(NULL)
++        skelmeshgroup() : skel(NULL), edata(NULL), ebuf(0), vtangents(false), vlen(0), vertsize(0), vblends(0), vweights(0), vdata(NULL), speqrefused(false)
+         {
+             memset(numblends, 0, sizeof(numblends));
+         }
+@@ -1374,6 +1377,75 @@ struct skelmodel : animmodel
+             }
+         }
+ 
++#ifdef __linux__
++        // interpverts for every mesh into libspeq's buffer (the SPEs), uploaded instead of vdata;
++        // false: nothing uploaded, skin here. vdata is the template: the texture coordinates
++        // fillverts put there come along.
++        bool speqskinverts(skelcacheentry &sc, blendcacheentry *bc, bool tangents, vbocacheentry &vc)
++        {
++            speq_skin *k = speqrefused ? NULL : speqskinget();
++            if(!k || speqskinlib.begin(k, vlen*vertsize, vlen)) return false;
++            vvertn vn;
++            vvertbump vb;
++            loopv(meshes)
++            {
++                skelmesh &m = *(skelmesh *)meshes[i];
++                speq_skin_mesh d;
++                memset(&d, 0, sizeof(d));
++                d.nverts = m.numverts;
++                d.palette_fmt = SPEQ_SKIN_DQ;
++                d.influence = SPEQ_SKIN_IDX_S32;
++                // interpverts' bdata1 below skel->numgpubones, bdata2 (the blends) from there
++                d.palette[0] = sc.bdata;
++                d.npal[0] = skel->numgpubones;
++                d.palette[1] = bc ? bc->bdata : NULL;
++                d.npal[1] = bc ? vblends : 0;
++                d.src[0] = m.verts;
++                d.src_stride[0] = sizeof(vert);
++                d.pos.off = offsetof(vert, pos);
++                d.index.off = offsetof(vert, interpindex);
++                d.weights.off = SPEQ_SKIN_NONE;
++                d.tmpl = vdata + m.voffset*vertsize;
++                d.dst_offset = m.voffset*vertsize;
++                d.dst_stride = vertsize;
++                if(tangents)
++                {
++                    d.src[1] = m.bumpverts;
++                    d.src_stride[1] = sizeof(bumpvert);
++                    d.norm.off = SPEQ_SKIN_NONE;
++                    d.tan.off = 0;
++                    d.tan.stream = 1;
++                    d.tan_in = SPEQ_SKIN_TAN_QUAT;
++                    d.tan_out = SPEQ_SKIN_OUT_S16;
++                    d.dst_pos = (uchar *)&vb.pos - (uchar *)&vb;
++                    d.dst_norm = SPEQ_SKIN_NONE;
++                    d.dst_tan = (uchar *)&vb.tangent - (uchar *)&vb;
++                }
++                else
++                {
++                    d.norm.off = offsetof(vert, norm);
++                    d.tan.off = SPEQ_SKIN_NONE;
++                    d.dst_pos = (uchar *)&vn.pos - (uchar *)&vn;
++                    d.dst_norm = (uchar *)&vn.norm - (uchar *)&vn;
++                    d.dst_tan = SPEQ_SKIN_NONE;
++                }
++                int err = speqskinlib.add(k, &d);
++                if(err)
++                {
++                    if(err == -EINVAL || err == -ENOTSUP || err == -ENOSPC) speqrefused = true;
++                    break;
++                }
++            }
++            void *out = NULL;
++            if(speqskinlib.end(k, &out) || !out) return false;
++            gle::bindvbo(vc.vbuf);
++            glBufferData_(GL_ARRAY_BUFFER, vlen*vertsize, out, GL_STREAM_DRAW);
++            return true;
++        }
++#else
++        bool speqskinverts(skelcacheentry &sc, blendcacheentry *bc, bool tangents, vbocacheentry &vc) { return false; }
++#endif
++
+         void cleanup()
+         {
+             loopi(MAXBLENDCACHE)
+@@ -1479,13 +1551,16 @@ struct skelmodel : animmodel
+                 { 
+                     vc.owner = owner;
+                     (animcacheentry &)vc = sc;
+-                    loopv(meshes)
++                    if(!speqskinverts(sc, bc, tangents, vc))
+                     {
+-                        skelmesh &m = *(skelmesh *)meshes[i];
+-                        m.interpverts(sc.bdata, bc ? bc->bdata : NULL, tangents, vdata + m.voffset*vertsize, p->skins[i]);
++                        loopv(meshes)
++                        {
++                            skelmesh &m = *(skelmesh *)meshes[i];
++                            m.interpverts(sc.bdata, bc ? bc->bdata : NULL, tangents, vdata + m.voffset*vertsize, p->skins[i]);
++                        }
++                        gle::bindvbo(vc.vbuf);
++                        glBufferData_(GL_ARRAY_BUFFER, vlen*vertsize, vdata, GL_STREAM_DRAW);
+                     }
+-                    gle::bindvbo(vc.vbuf);
+-                    glBufferData_(GL_ARRAY_BUFFER, vlen*vertsize, vdata, GL_STREAM_DRAW);
+                 }
+ 
+                 bindvbo(as, vc, &sc, bc);
+diff --git a/engine/speqskin.h b/engine/speqskin.h
+new file mode 100644
+--- /dev/null
++++ b/engine/speqskin.h
+@@ -0,0 +1,86 @@
++// PS3 (Cell): CPU skinning through libspeq (ps3-spu: speq_skin_*_v1), which moves each skeletal
++// mesh group's vertices on the SPEs (or with its own vector code on the PPE) into a buffer of its
++// own that the engine then uploads instead of vdata. Loaded at run time with dlopen: the engine
++// doesn't depend on it, and without it, when it declines (SPEQ_SKIN=off, small meshes, the SPEs
++// busy or late) or with speqskin 0, skelmeshgroup::render skins as before. All policy (which
++// unit, sizes, timeouts, SPEQ_SKIN=auto|spu|ppe|off, SPEQ_DEBUG) lives in libspeq.
++
++#ifdef __linux__
++#include <dlfcn.h>
++#include <errno.h>
++#include <stddef.h>
++#include <stdint.h>
++
++VAR(speqskin, 0, 1, 1);
++
++// libspeq's speq.h, the part this uses: SPEQ_SKIN_ABI 1, frozen (a change is a _v2)
++#define SPEQ_SKIN_ABI 1
++#define SPEQ_SKIN_NONE 0xffff
++enum { SPEQ_SKIN_DQ, SPEQ_SKIN_MAT };
++enum { SPEQ_SKIN_IDX_S32, SPEQ_SKIN_IDX_U16, SPEQ_SKIN_IDX_U8, SPEQ_SKIN_W4 };
++enum { SPEQ_SKIN_TAN_NONE, SPEQ_SKIN_TAN_VEC4, SPEQ_SKIN_TAN_QUAT };
++enum { SPEQ_SKIN_OUT_F32, SPEQ_SKIN_OUT_S16 };
++
++struct speq_skin_field
++{
++    uint16_t off;
++    uint8_t stream, pad;
++};
++
++struct speq_skin_mesh
++{
++    uint32_t nverts;
++    uint8_t palette_fmt, influence, tan_in, tan_out;
++    const void *palette[2];
++    uint32_t npal[2];
++    const void *src[2];
++    uint32_t src_stride[2];
++    speq_skin_field pos, norm, tan, index, weights;
++    const void *tmpl;
++    uint32_t dst_offset;
++    uint32_t dst_stride;
++    uint16_t dst_pos, dst_norm, dst_tan;
++    uint16_t pad;
++};
++
++struct speq_skin;
++
++static struct
++{
++    int (*open)(speq_skin **, unsigned, unsigned);
++    int (*begin)(speq_skin *, uint32_t, uint32_t);
++    int (*add)(speq_skin *, const speq_skin_mesh *);
++    int (*end)(speq_skin *, void **);
++    void (*close)(speq_skin *);
++    speq_skin *s;
++    int state; // 0: not tried yet, 1: open, -1: none
++} speqskinlib = { NULL, NULL, NULL, NULL, NULL, NULL, 0 };
++
++static void speqskinclose()
++{
++    if(speqskinlib.s) { speqskinlib.close(speqskinlib.s); speqskinlib.s = NULL; }
++    speqskinlib.state = -1;
++}
++
++// The process's speq_skin, opened at the first skinned frame; NULL: skin here
++static speq_skin *speqskinget()
++{
++    if(!speqskin) return NULL;
++    if(!speqskinlib.state)
++    {
++        speqskinlib.state = -1;
++        void *h = dlopen("libspeq.so.0", RTLD_NOW | RTLD_LOCAL);
++        if(!h) return NULL;
++        speqskinlib.open = (int (*)(speq_skin **, unsigned, unsigned))dlsym(h, "speq_skin_open_v1");
++        speqskinlib.begin = (int (*)(speq_skin *, uint32_t, uint32_t))dlsym(h, "speq_skin_begin_v1");
++        speqskinlib.add = (int (*)(speq_skin *, const speq_skin_mesh *))dlsym(h, "speq_skin_add_v1");
++        speqskinlib.end = (int (*)(speq_skin *, void **))dlsym(h, "speq_skin_end_v1");
++        speqskinlib.close = (void (*)(speq_skin *))dlsym(h, "speq_skin_close_v1");
++        if(!speqskinlib.open || !speqskinlib.begin || !speqskinlib.add || !speqskinlib.end || !speqskinlib.close) return NULL;
++        if(speqskinlib.open(&speqskinlib.s, SPEQ_SKIN_ABI, sizeof(speq_skin_mesh))) { speqskinlib.s = NULL; return NULL; }
++        speqskinlib.state = 1;
++        atexit(speqskinclose); // its SPEQ_DEBUG counters at the end
++    }
++    return speqskinlib.state > 0 ? speqskinlib.s : NULL;
++}
++#endif

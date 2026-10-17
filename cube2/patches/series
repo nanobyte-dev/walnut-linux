@@ -3,3 +3,4 @@
 0003-Build-only-the-world-shader-variants-that-can-be-dra.patch
 0004-Sky-boxes-and-cube-maps-from-their-.dds-and-one-side.patch
 0005-Free-the-lightmaps-CPU-copies-once-uploaded.patch
+0006-CPU-skinning-through-libspeq-on-the-PS3-s-SPEs.patch
