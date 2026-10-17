@@ -69,6 +69,16 @@ dsda-doom's before; earlier profiles with a large `[unknown]` share were hit by 
   PS3. Expected gain on map cave ~1% (the hud gun only, ~3200 vertices); a map with bots would
   show more.
 
+### fluidsynth on the SPEs works (2026-10-17 evening)
+
+v2 (libfluidsynth3 +ps3.309, libspeq 0.318: single-precision SIMD kernel, the control part of a
+whole write request first, then one SPU round for up to 16 blocks, 2 SPEs) in dsda-doom with
+fluidsynth music: underruns 1231 -> 588 and 1331 -> 709 against stock in the same session, CPU
+44.5 -> 31.8 s a minute (no music ~29 s). The user, listening: "night and day, spu makes a huge
+difference"; what glitches remain line up with the game's own frame stalls. SPEQ_SYNTH=auto (the
+default) uses the SPEs, so installing the two packages is enough. Next: the shared deadline pool
+(libspeq, in progress), then a stable publish once proven across a few games (ask first).
+
 ## Parked, in the order they would come back
 
 1. **Re-check across the game suite** (GAME-SUITE.md). Step 0's game numbers and D's OpenArena
