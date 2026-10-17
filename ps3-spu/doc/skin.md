@@ -160,6 +160,10 @@ and on the ppe path. Against a scalar reference written from Sauerbraten's sourc
   their jobs, their buffers back afterwards, none short of a buffer), the back-off after three
   failures, auto's minimum, two threads with their own handles (200 batches each).
 - `dlopen-check`: the exports, -EPROTO for another ABI, `SPEQ_SKIN=ppe|off` without spufs.
+- The same `make test` big-endian, in the ppc64 build chroot under qemu-user (`-O2 -mcpu=cell`:
+  the PPE path in AltiVec, the fake SPU path too): all pass; Sauerbraten's formats again equal to
+  the reference, the general ones within 5.7e-6. The checks wait up to 20 s per batch (the
+  emulated "SPU" is slow; a timeout there would free inputs a late job still reads).
 
 Not covered on the host: skin.spu itself (built with spu-elf GCC 16.2, never run), its speed,
 the SPU's rounding (toward zero: a few more ulps), DMA on hardware. The x86 host's benchmark

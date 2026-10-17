@@ -32,6 +32,8 @@
 #include "speq-int.h"
 #include "skin-job.h"
 
+#define CHECK_TIMEOUT_US	20000000
+
 static int failures, verbose;
 static unsigned rng = 20261017;
 
@@ -634,8 +636,8 @@ static void case_c2(int bump, int nm, const int *nverts, int nb, int nblend, con
 		}
 	}
 	snprintf(line, sizeof(line), "%s %s: %s (%d vertices, %d bones + %d blends): max rel %.2g, "
-		 "short %d, bad bytes %lu", path_name[path], bump ? "c2 bump" : "c2 norm", what, total,
-		 nb, nblend, c.maxrel, c.maxs16, c.bytes_bad);
+		 "short %d, bad bytes %lu (%d)", path_name[path], bump ? "c2 bump" : "c2 norm", what, total,
+		 nb, nblend, c.maxrel, c.maxs16, c.bytes_bad, ret);
 	check(!ret && cmp_ok(&c), line);
 	if (!ret && sk_ppe && path != SPQ_SKIN_PPE) {
 		got2 = xalign(16, (size_t)total * stride);
@@ -906,7 +908,7 @@ static void case_errors(void)
 			ret = run_batch(sk, &f.m, 1, f.n * sizeof(struct c2vvertn) + 64, &out);
 			check(ret == -ETIMEDOUT || ret == 0, "timeout 0: late (or already done)");
 		}
-		spq_skin_tune(-1, 2000, 50, -1);
+		spq_skin_tune(-1, CHECK_TIMEOUT_US, 0, -1);
 		usleep(20000);
 		for (i = 0; i < 6; i++) {
 			ret = run_batch(sk, &f.m, 1, f.n * sizeof(struct c2vvertn) + 64, &out);
@@ -992,6 +994,8 @@ static int run_check(void)
 	struct thr th[2];
 	int ret, i;
 
+	/* correctness first: a slow host (qemu-user in the package build) must not time out */
+	spq_skin_tune(-1, CHECK_TIMEOUT_US, 0, -1);
 	ret = open_skin(&sk, path);
 	if (ret) {
 		printf("FAIL speq_skin_open_v1 (%s): %s\n", path_name[path], strerror(-ret));
