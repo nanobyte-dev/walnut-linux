@@ -1,11 +1,56 @@
 #!/bin/sh
-# ps3-game-mode on|off (root; ps3-game runs it through sudo)
-units="udisks2.service polkit.service"
-case "$1" in
-on)	for u in $units; do
-		systemctl freeze "$u" 2>/dev/null &&
-			echo 64M > "/sys/fs/cgroup/system.slice/$u/memory.reclaim" 2>/dev/null
-	done; true ;;
-off)	for u in $units; do systemctl thaw "$u" 2>/dev/null; done; true ;;
-*)	echo "usage: ps3-game-mode on|off" >&2; exit 2 ;;
+# ps3-game-mode on <guard pid> | off (root; ps3-game-guard runs it through sudo): game mode's
+# system side. Nothing is stopped: network, SSH, sound, Bluetooth (the DualShock 3), logging, time
+# sync and apt keep running.
+#   on   1. a watcher (ps3-game-mode-watch.service) that undoes all of it once the guard's pid is
+#           gone, whatever happened to the guard (its ExecStopPost: `thaw`)
+#        2. units no game needs (FREEZE_UNITS, the running ones) frozen and their memory reclaimed
+#   off  stops the watcher, which thaws everything (and thaws once more itself)
+# Settings: /etc/default/ps3-game-mode (shell; not shipped, these are the defaults).
+FREEZE_UNITS="udisks2.service polkit.service blueman-mechanism.service"
+[ -r /etc/default/ps3-game-mode ] && . /etc/default/ps3-game-mode
+SELF=/usr/lib/ps3/sbin/ps3-game-mode
+R=/run/ps3-game-mode
+SYS=/sys/fs/cgroup/system.slice
+
+# as in ps3-game-guard: anonymous pages first (swap only), then file pages
+reclaim() {
+	cur=$(cat "$1/memory.current" 2>/dev/null) || return 0
+	timeout 30 sh -c 'echo "$1 swappiness=200" > "$2/memory.reclaim"' - "$cur" "$1" 2>/dev/null
+	cur=$(cat "$1/memory.current" 2>/dev/null) || return 0
+	timeout 30 sh -c 'echo "$1" > "$2/memory.reclaim"' - "$cur" "$1" 2>/dev/null
+}
+
+thaw() {	# only what on froze (a unit someone else froze stays so)
+	for u in $(cat $R/frozen 2>/dev/null); do systemctl thaw "$u" 2>/dev/null; done
+	rm -f $R/frozen
+}
+
+on() {
+	pid=$1
+	case $pid in ''|*[!0-9]*) echo "ps3-game-mode on: a pid" >&2; exit 2 ;; esac
+	[ -d "/proc/$pid" ] || exit 1
+	if [ -n "${SUDO_UID:-}" ] && [ "$(stat -c %u "/proc/$pid")" != "$SUDO_UID" ]; then
+		echo "ps3-game-mode on: pid $pid isn't yours" >&2; exit 1
+	fi
+	mkdir -p $R
+	systemctl stop ps3-game-mode-watch.service 2>/dev/null	# an earlier game mode's: thaws it
+	systemd-run --unit=ps3-game-mode-watch --collect -q -p "ExecStopPost=$SELF thaw" \
+		$SELF watch "$pid" || echo "ps3-game-mode: no watcher" >&2
+	for u in $FREEZE_UNITS; do
+		systemctl is-active -q "$u" || continue
+		systemctl freeze "$u" 2>/dev/null || continue
+		echo "$u" >> $R/frozen
+		reclaim "$SYS/$u"
+	done
+	true
+}
+
+case ${1:-} in
+on) on "${2:-}" ;;
+off) systemctl stop ps3-game-mode-watch.service 2>/dev/null; thaw ;;
+thaw) thaw ;;
+watch)	case ${2:-} in ''|*[!0-9]*) exit 2 ;; esac
+	while [ -d "/proc/$2" ]; do sleep 2; done ;;
+*) echo "usage: ps3-game-mode on <pid>|off" >&2; exit 2 ;;
 esac

@@ -11,6 +11,8 @@ override_dh_auto_install:
 	install -d $(P)/usr/bin $(P)/usr/lib/ps3/sbin
 	install -m 755 files/bin/* $(P)/usr/bin/
 	install -m 755 files/sbin/* $(P)/usr/lib/ps3/sbin/
+	install -d $(P)/usr/lib/ps3/desktop
+	install -m 755 files/libexec/* $(P)/usr/lib/ps3/desktop/
 	install -D -m 755 files/generators/ps3-desktop-autologin \
 		$(P)/usr/lib/systemd/system-generators/ps3-desktop-autologin
 	install -D -m 644 files/profile.d/ps3-desktop.sh $(P)/etc/profile.d/ps3-desktop.sh
