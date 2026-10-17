@@ -1,0 +1,310 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 22:05:18 +0300
+Subject: renderergl1: r_glStateCache, texture unit and client array state sent
+ only when a draw needs it
+
+RB_StageIteratorGeneric and DrawMultitextured set the same state around every batch and pass:
+color and texture coordinate arrays disabled and enabled again, the same pointers into tess set
+again, texture unit 1 enabled before and disabled after each multitextured draw, unit 0 and 1
+selected twice (glActiveTexture and glClientActiveTexture). Mesa takes each call through its
+dispatch, and a GL_TEXTURE_2D toggle invalidates the fixed function state it validates at the next
+draw. With r_glStateCache 1 (latched) GL_SelectTexture only records the unit; glEnable and
+glDisable of GL_TEXTURE_2D, the client array enables and the vertex, color and texture coordinate
+pointers are recorded per unit (tr_local.h maps those qgl names to GLC_*), and GLC_Flush, which
+glDrawElements and glBegin call first, sends what differs from what GL has. Calls that work on the
+active unit (glBindTexture, glTexEnvf, glTexParameter, glTexImage2D, glTexSubImage2D) select it in
+GL first. GL_SetDefaultState marks everything unknown. OpenArena's demo on llvmpipe (GL 2.1), with
+r_mergeLightmaps: GL calls 1026 -> 482 a frame for the same 79 draws, the same pixels.
+r_glStateCache 0 sends every call as before.
+
+diff --git a/code/renderergl1/tr_backend.c b/code/renderergl1/tr_backend.c
+--- a/code/renderergl1/tr_backend.c
++++ b/code/renderergl1/tr_backend.c
+@@ -61,6 +61,186 @@ void GL_Bind( image_t *image ) {
+ 	}
+ }
+ 
++/*
++** r_glStateCache (see tr_local.h)
++*/
++#define GLC_ARRAYS	4	// vertex, color, texture coordinates of units 0 and 1
++
++typedef struct {
++	GLint			size;	// 0: not set
++	GLenum			type;
++	GLsizei			stride;
++	const GLvoid	*ptr;
++} glcPointer_t;
++
++static struct {
++	qboolean		on;
++	int				serverUnit, clientUnit;		// in GL, -1: not known
++	int				tex2D[2], tex2DWant[2];		// GL_TEXTURE_2D per unit, in GL (-1: not known) and wanted
++	int				array[GLC_ARRAYS], arrayWant[GLC_ARRAYS];
++	glcPointer_t	ptr[GLC_ARRAYS], ptrWant[GLC_ARRAYS];
++} glc;
++
++// GL_SetDefaultState: nothing in GL is known, the wanted state is GL's default
++void GLC_Reset( void ) {
++	Com_Memset( &glc, 0, sizeof( glc ) );
++	glc.on = r_glStateCache->integer != 0;
++	glc.serverUnit = glc.clientUnit = -1;
++	glc.tex2D[0] = glc.tex2D[1] = -1;
++	glc.array[0] = glc.array[1] = glc.array[2] = glc.array[3] = -1;
++}
++
++static void GLC_SetServerUnit( int unit ) {
++	if ( glc.serverUnit != unit && qglActiveTextureARB ) {
++		qglActiveTextureARB( GL_TEXTURE0_ARB + unit );
++		glc.serverUnit = unit;
++	}
++}
++
++static void GLC_SetClientUnit( int unit ) {
++	if ( glc.clientUnit != unit && qglClientActiveTextureARB ) {
++		qglClientActiveTextureARB( GL_TEXTURE0_ARB + unit );
++		glc.clientUnit = unit;
++	}
++}
++
++// before a call that works on the active texture unit
++void GLC_ServerUnit( void ) {
++	if ( glc.on ) {
++		GLC_SetServerUnit( glState.currenttmu );
++	}
++}
++
++void GLC_Enable( GLenum cap ) {
++	if ( glc.on && cap == GL_TEXTURE_2D ) {
++		glc.tex2DWant[glState.currenttmu] = 1;
++		return;
++	}
++	(qglEnable)( cap );
++}
++
++void GLC_Disable( GLenum cap ) {
++	if ( glc.on && cap == GL_TEXTURE_2D ) {
++		glc.tex2DWant[glState.currenttmu] = 0;
++		return;
++	}
++	(qglDisable)( cap );
++}
++
++static int GLC_ArrayIndex( GLenum array ) {
++	switch ( array ) {
++	case GL_VERTEX_ARRAY:			return 0;
++	case GL_COLOR_ARRAY:			return 1;
++	case GL_TEXTURE_COORD_ARRAY:	return 2 + glState.currenttmu;
++	default:						return -1;
++	}
++}
++
++void GLC_EnableClientState( GLenum array ) {
++	int i = GLC_ArrayIndex( array );
++
++	if ( glc.on && i >= 0 ) {
++		glc.arrayWant[i] = 1;
++		return;
++	}
++	(qglEnableClientState)( array );
++}
++
++void GLC_DisableClientState( GLenum array ) {
++	int i = GLC_ArrayIndex( array );
++
++	if ( glc.on && i >= 0 ) {
++		glc.arrayWant[i] = 0;
++		return;
++	}
++	(qglDisableClientState)( array );
++}
++
++static void GLC_SetPointer( int i, GLint size, GLenum type, GLsizei stride, const GLvoid *ptr ) {
++	glcPointer_t *p = &glc.ptrWant[i];
++
++	p->size = size;
++	p->type = type;
++	p->stride = stride;
++	p->ptr = ptr;
++}
++
++void GLC_VertexPointer( GLint size, GLenum type, GLsizei stride, const GLvoid *ptr ) {
++	if ( glc.on ) {
++		GLC_SetPointer( 0, size, type, stride, ptr );
++		return;
++	}
++	(qglVertexPointer)( size, type, stride, ptr );
++}
++
++void GLC_ColorPointer( GLint size, GLenum type, GLsizei stride, const GLvoid *ptr ) {
++	if ( glc.on ) {
++		GLC_SetPointer( 1, size, type, stride, ptr );
++		return;
++	}
++	(qglColorPointer)( size, type, stride, ptr );
++}
++
++void GLC_TexCoordPointer( GLint size, GLenum type, GLsizei stride, const GLvoid *ptr ) {
++	if ( glc.on ) {
++		GLC_SetPointer( 2 + glState.currenttmu, size, type, stride, ptr );
++		return;
++	}
++	(qglTexCoordPointer)( size, type, stride, ptr );
++}
++
++// before a draw: what the code asked for since the last one, where GL has something else
++void GLC_Flush( void ) {
++	int i;
++
++	if ( !glc.on ) {
++		return;
++	}
++
++	for ( i = 0; i < 2; i++ ) {
++		if ( glc.tex2D[i] != glc.tex2DWant[i] ) {
++			GLC_SetServerUnit( i );
++			if ( glc.tex2DWant[i] ) {
++				(qglEnable)( GL_TEXTURE_2D );
++			} else {
++				(qglDisable)( GL_TEXTURE_2D );
++			}
++			glc.tex2D[i] = glc.tex2DWant[i];
++		}
++	}
++
++	for ( i = 0; i < GLC_ARRAYS; i++ ) {
++		glcPointer_t *want = &glc.ptrWant[i], *have = &glc.ptr[i];
++		qboolean setPointer = want->size && glc.arrayWant[i] &&
++			( want->ptr != have->ptr || want->size != have->size || want->type != have->type || want->stride != have->stride );
++
++		if ( glc.array[i] == glc.arrayWant[i] && !setPointer ) {
++			continue;
++		}
++		if ( i >= 2 ) {
++			GLC_SetClientUnit( i - 2 );
++		}
++		if ( setPointer ) {
++			switch ( i ) {
++			case 0:	(qglVertexPointer)( want->size, want->type, want->stride, want->ptr ); break;
++			case 1:	(qglColorPointer)( want->size, want->type, want->stride, want->ptr ); break;
++			default: (qglTexCoordPointer)( want->size, want->type, want->stride, want->ptr ); break;
++			}
++			*have = *want;
++		}
++		if ( glc.array[i] != glc.arrayWant[i] ) {
++			GLenum array = i == 0 ? GL_VERTEX_ARRAY : i == 1 ? GL_COLOR_ARRAY : GL_TEXTURE_COORD_ARRAY;
++
++			if ( glc.arrayWant[i] ) {
++				(qglEnableClientState)( array );
++			} else {
++				(qglDisableClientState)( array );
++			}
++			glc.array[i] = glc.arrayWant[i];
++		}
++	}
++}
++
+ /*
+ ** GL_SelectTexture
+ */
+@@ -71,6 +251,16 @@ void GL_SelectTexture( int unit )
+ 		return;
+ 	}
+ 
++	if ( glc.on )
++	{
++		// GLC_ServerUnit and GLC_Flush select it in GL when something needs it
++		if ( unit < 0 || unit > 1 ) {
++			ri.Error( ERR_DROP, "GL_SelectTexture: unit = %i", unit );
++		}
++		glState.currenttmu = unit;
++		return;
++	}
++
+ 	if ( unit == 0 )
+ 	{
+ 		qglActiveTextureARB( GL_TEXTURE0_ARB );
+diff --git a/code/renderergl1/tr_init.c b/code/renderergl1/tr_init.c
+--- a/code/renderergl1/tr_init.c
++++ b/code/renderergl1/tr_init.c
+@@ -114,6 +114,7 @@ cvar_t	*r_drawBuffer;
+ cvar_t	*r_lightmap;
+ cvar_t	*r_vertexLight;
+ cvar_t	*r_mergeLightmaps;
++cvar_t	*r_glStateCache;
+ cvar_t	*r_uiFullScreen;
+ cvar_t	*r_shadows;
+ cvar_t	*r_flares;
+@@ -838,6 +839,8 @@ const void *RB_TakeVideoFrameCmd( const void *data )
+ */
+ void GL_SetDefaultState( void )
+ {
++	GLC_Reset();
++
+ 	qglClearDepth( 1.0f );
+ 
+ 	qglCullFace(GL_FRONT);
+@@ -1061,6 +1064,8 @@ void R_Register( void )
+ 	r_simpleMipMaps = ri.Cvar_Get( "r_simpleMipMaps", "1", CVAR_ARCHIVE | CVAR_LATCH );
+ 	r_vertexLight = ri.Cvar_Get( "r_vertexLight", "0", CVAR_ARCHIVE | CVAR_LATCH );
+ 	r_mergeLightmaps = ri.Cvar_Get( "r_mergeLightmaps", "1", CVAR_LATCH );
++	r_glStateCache = ri.Cvar_Get( "r_glStateCache", "1", CVAR_LATCH );
++	ri.Cvar_SetDescription( r_glStateCache, "Send texture unit, texture enable and client array state to GL only when a draw needs it and it changed (0: every call as upstream)" );
+ 	ri.Cvar_SetDescription( r_mergeLightmaps, "Pack the map's lightmaps into a few atlas textures, so surfaces with the same texture and different lightmaps draw in one batch" );
+ 	r_uiFullScreen = ri.Cvar_Get( "r_uifullscreen", "0", 0);
+ 	r_subdivisions = ri.Cvar_Get ("r_subdivisions", "4", CVAR_ARCHIVE | CVAR_LATCH);
+diff --git a/code/renderergl1/tr_local.h b/code/renderergl1/tr_local.h
+--- a/code/renderergl1/tr_local.h
++++ b/code/renderergl1/tr_local.h
+@@ -1058,7 +1058,8 @@ extern	cvar_t	*r_offsetUnits;
+ extern	cvar_t	*r_fullbright;					// avoid lightmap pass
+ extern	cvar_t	*r_lightmap;					// render lightmaps only
+ extern	cvar_t	*r_vertexLight;
+-extern	cvar_t	*r_mergeLightmaps;				// BSP lightmaps packed into a few atlas textures					// vertex lighting mode for better performance
++extern	cvar_t	*r_mergeLightmaps;				// BSP lightmaps packed into a few atlas textures
++extern	cvar_t	*r_glStateCache;				// deferred, filtered texture unit and array state					// vertex lighting mode for better performance
+ extern	cvar_t	*r_uiFullScreen;				// ui is running fullscreen
+ 
+ extern	cvar_t	*r_logFile;						// number of frames to emit GL logs
+@@ -1629,6 +1630,40 @@ void RE_TakeVideoFrame( int width, int height,
+ void R_DrawElements( int numIndexes, const glIndex_t *indexes );
+ void VectorArrayNormalize( vec4_t *normals, unsigned int count );
+ 
++/*
++r_glStateCache (tr_backend.c): the texture unit selection, GL_TEXTURE_2D per unit, the client
++arrays and their pointers are only recorded where the code sets them, and sent to GL when a draw
++needs them, if they differ from what GL has; a call that depends on the active texture unit
++selects it first. Every renderergl1 file reaches GL through these names, so the deferred state
++is always applied before GL could see the difference.
++*/
++void GLC_Reset( void );
++void GLC_Flush( void );
++void GLC_ServerUnit( void );
++void GLC_Enable( GLenum cap );
++void GLC_Disable( GLenum cap );
++void GLC_EnableClientState( GLenum array );
++void GLC_DisableClientState( GLenum array );
++void GLC_VertexPointer( GLint size, GLenum type, GLsizei stride, const GLvoid *ptr );
++void GLC_ColorPointer( GLint size, GLenum type, GLsizei stride, const GLvoid *ptr );
++void GLC_TexCoordPointer( GLint size, GLenum type, GLsizei stride, const GLvoid *ptr );
++
++#define qglEnable( cap )					GLC_Enable( cap )
++#define qglDisable( cap )					GLC_Disable( cap )
++#define qglEnableClientState( a )			GLC_EnableClientState( a )
++#define qglDisableClientState( a )			GLC_DisableClientState( a )
++#define qglVertexPointer( n, t, s, p )		GLC_VertexPointer( n, t, s, p )
++#define qglColorPointer( n, t, s, p )		GLC_ColorPointer( n, t, s, p )
++#define qglTexCoordPointer( n, t, s, p )	GLC_TexCoordPointer( n, t, s, p )
++#define qglDrawElements( m, c, t, i )		( GLC_Flush(), qglDrawElements( m, c, t, i ) )
++#define qglBegin( m )						( GLC_Flush(), qglBegin( m ) )
++#define qglBindTexture( t, n )				( GLC_ServerUnit(), qglBindTexture( t, n ) )
++#define qglTexEnvf( t, p, v )				( GLC_ServerUnit(), qglTexEnvf( t, p, v ) )
++#define qglTexParameterf( t, p, v )			( GLC_ServerUnit(), qglTexParameterf( t, p, v ) )
++#define qglTexParameteri( t, p, v )			( GLC_ServerUnit(), qglTexParameteri( t, p, v ) )
++#define qglTexImage2D( t, l, f, w, h, b, e, y, p )	( GLC_ServerUnit(), qglTexImage2D( t, l, f, w, h, b, e, y, p ) )
++#define qglTexSubImage2D( t, l, x, y, w, h, f, e, p )	( GLC_ServerUnit(), qglTexSubImage2D( t, l, x, y, w, h, f, e, p ) )
++
+ #ifdef idppc_altivec
+ void LerpMeshVertexes_altivec( md3Surface_t *surf, float backlerp );
+ void ProjectDlightTexture_altivec( void );

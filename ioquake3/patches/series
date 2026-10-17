@@ -15,3 +15,7 @@
 0015-OpenAL-s_alLazy-the-sounds-of-a-player-are-loaded-wh.patch
 0016-unzip-inflate-whole-pk3-entries-with-libdeflate-USE_.patch
 0018-msg-the-message-Huffman-trees-from-tables-msg_huffSl.patch
+0019-renderergl1-r_mergeLightmaps-the-map-s-lightmaps-in-.patch
+0020-renderergl1-r_glStateCache-texture-unit-and-client-a.patch
+0021-renderergl1-r_lockArrays-0-no-glLockArraysEXT-around.patch
+0022-renderergl1-r_skyArrays-a-sky-box-side-in-one-glDraw.patch

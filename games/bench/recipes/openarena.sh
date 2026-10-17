@@ -117,6 +117,22 @@ variant_zlib() { oa_x +set fs_zipFast 0; }
 variant_huffslow() { oa_cmd; CMD+=(+set msg_huffSlow 1); }
 # all of them as before (not the build flags, nor the AltiVec code being compiled in)
 variant_up() { oa_x +set r_shaderTextScan 1 +set fs_zipCrc 1 +set com_altivec 0 +set r_markClear 1 +set s_alLazy 0 +set fs_zipFast 0; CMD+=(+set msg_huffSlow 1); }
+# Batching (ioquake3 0019-0022, docs/IDEAS.md #1): fewer GL calls and draws a frame from
+# renderergl1. On llvmpipe forced to GL 2.1 the demo went from 3022 GL calls and 198 draws a frame
+# to 377 and 79, the same picture (atlas: 74 pixels differ by at most 2). Each variant turns one
+# change back to upstream, allbatchoff all four.
+# 0019: the map's 32 lightmaps as one atlas texture, so a texture lit from several lightmaps is one
+# batch (world batches 114 -> 27 a frame)
+variant_mergelm0() { oa_x +set r_mergeLightmaps 0; }
+# 0020: texture unit, GL_TEXTURE_2D and client array state sent at every call (not only when a draw
+# needs a change)
+variant_glcache0() { oa_x +set r_glStateCache 0; }
+# 0021: glLockArraysEXT/glUnlockArraysEXT around every batch (Mesa only records the range)
+variant_lockarrays() { oa_x +set r_lockArrays 1; }
+# 0022: the sky box as a glBegin strip per row, a call per vertex (the demo shows no sky: expect no
+# change here; islanddm drops from ~1450 sky calls a frame to 18)
+variant_skystrips() { oa_x +set r_skyArrays 0; }
+variant_allbatchoff() { oa_x +set r_mergeLightmaps 0 +set r_glStateCache 0 +set r_lockArrays 1 +set r_skyArrays 0; }
 # tc1 with no window manager, as step 0 ran: the window never reached the screen (SDL's fullscreen
 # went unanswered), so this measures what showing the frames costs
 variant_tc1nowm() { OA_TC=1; oa_cmd; WM=; }

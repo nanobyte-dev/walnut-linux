@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 22:08:19 +0300
+Subject: renderergl1: r_lockArrays 0, no glLockArraysEXT around every batch
+
+RB_StageIteratorGeneric locks the vertex arrays of every batch (glLockArraysEXT, then
+glUnlockArraysEXT), two calls a batch, 105 a frame in OpenArena's demo. Mesa only records the
+range (_mesa_LockArraysEXT sets LockFirst and LockCount, which no driver reads). With
+r_lockArrays 0 the calls are skipped while R_DrawElements still takes glDrawElements because the
+extension is there; r_lockArrays 1 locks as before. llvmpipe (GL 2.1), the demo with
+r_mergeLightmaps and r_glStateCache: 482 -> 377 GL calls a frame, the same pixels.
+
+diff --git a/code/renderergl1/tr_init.c b/code/renderergl1/tr_init.c
+--- a/code/renderergl1/tr_init.c
++++ b/code/renderergl1/tr_init.c
+@@ -115,6 +115,7 @@ cvar_t	*r_lightmap;
+ cvar_t	*r_vertexLight;
+ cvar_t	*r_mergeLightmaps;
+ cvar_t	*r_glStateCache;
++cvar_t	*r_lockArrays;
+ cvar_t	*r_uiFullScreen;
+ cvar_t	*r_shadows;
+ cvar_t	*r_flares;
+@@ -1065,6 +1066,8 @@ void R_Register( void )
+ 	r_vertexLight = ri.Cvar_Get( "r_vertexLight", "0", CVAR_ARCHIVE | CVAR_LATCH );
+ 	r_mergeLightmaps = ri.Cvar_Get( "r_mergeLightmaps", "1", CVAR_LATCH );
+ 	r_glStateCache = ri.Cvar_Get( "r_glStateCache", "1", CVAR_LATCH );
++	r_lockArrays = ri.Cvar_Get( "r_lockArrays", "0", 0 );
++	ri.Cvar_SetDescription( r_lockArrays, "1: lock the vertex arrays of each batch with glLockArraysEXT (compiled vertex arrays) as upstream; Mesa ignores the lock" );
+ 	ri.Cvar_SetDescription( r_glStateCache, "Send texture unit, texture enable and client array state to GL only when a draw needs it and it changed (0: every call as upstream)" );
+ 	ri.Cvar_SetDescription( r_mergeLightmaps, "Pack the map's lightmaps into a few atlas textures, so surfaces with the same texture and different lightmaps draw in one batch" );
+ 	r_uiFullScreen = ri.Cvar_Get( "r_uifullscreen", "0", 0);
+diff --git a/code/renderergl1/tr_local.h b/code/renderergl1/tr_local.h
+--- a/code/renderergl1/tr_local.h
++++ b/code/renderergl1/tr_local.h
+@@ -1059,7 +1059,8 @@ extern	cvar_t	*r_fullbright;					// avoid lightmap pass
+ extern	cvar_t	*r_lightmap;					// render lightmaps only
+ extern	cvar_t	*r_vertexLight;
+ extern	cvar_t	*r_mergeLightmaps;				// BSP lightmaps packed into a few atlas textures
+-extern	cvar_t	*r_glStateCache;				// deferred, filtered texture unit and array state					// vertex lighting mode for better performance
++extern	cvar_t	*r_glStateCache;				// deferred, filtered texture unit and array state
++extern	cvar_t	*r_lockArrays;					// call glLockArraysEXT around each batch					// vertex lighting mode for better performance
+ extern	cvar_t	*r_uiFullScreen;				// ui is running fullscreen
+ 
+ extern	cvar_t	*r_logFile;						// number of frames to emit GL logs
+@@ -1664,6 +1665,11 @@ void GLC_TexCoordPointer( GLint size, GLenum type, GLsizei stride, const GLvoid
+ #define qglTexImage2D( t, l, f, w, h, b, e, y, p )	( GLC_ServerUnit(), qglTexImage2D( t, l, f, w, h, b, e, y, p ) )
+ #define qglTexSubImage2D( t, l, x, y, w, h, f, e, p )	( GLC_ServerUnit(), qglTexSubImage2D( t, l, x, y, w, h, f, e, p ) )
+ 
++// r_lockArrays 0: no glLockArraysEXT/glUnlockArraysEXT calls (Mesa only records the range), while
++// R_DrawElements keeps using glDrawElements as it does when the extension is there
++#define qglLockArraysEXT( f, c )			do { if ( r_lockArrays->integer ) qglLockArraysEXT( f, c ); } while ( 0 )
++#define qglUnlockArraysEXT()				do { if ( r_lockArrays->integer ) qglUnlockArraysEXT(); } while ( 0 )
++
+ #ifdef idppc_altivec
+ void LerpMeshVertexes_altivec( md3Surface_t *surf, float backlerp );
+ void ProjectDlightTexture_altivec( void );

@@ -1,0 +1,540 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 21:59:08 +0300
+Subject: renderergl1: r_mergeLightmaps, the map's lightmaps in a few atlas
+ textures
+
+A world surface's shader is found by texture and lightmap, so one texture lit from N lightmaps is N
+shaders, and RB_RenderDrawSurfList ends a batch at every shader change: OpenArena's demo map has
+32 lightmaps and drew 114 world batches a frame from 22 textures. R_MergeLightmaps packs the
+128x128 lightmaps into pages of 2^k lightmaps each (2^k the largest that fits, at most 64 in 1024x1024,
+then the rest the same way), so the texels are those of the separate lightmaps and no VRAM goes
+to empty cells; ParseFace and ParseMesh move the surfaces' lightmap coordinates into their cell
+(before patch subdivision, which interpolates them linearly), and the shader of a lightmapped
+surface is that of its page. Stages that do more with lightmap coordinates (tcMods on $lightmap,
+another tcGen on it, tcGen lightmap on an external lightmap image) get a tcMod transform back to
+the lightmap's own space and, if they sample the atlas, one into the cell after their own tcMods;
+such a shader is kept per lightmap (lmRealIndex). RE_RegisterShaderLightMap takes the BSP's
+lightmap numbers as before. Lightmaps have no mipmaps and are sampled at texel centres, so cells
+don't bleed: on llvmpipe the demo's frames differ from the separate lightmaps in 74 pixels by at
+most 2 (rounding of the moved coordinates). The demo: 32 lightmaps in one 1024x512 page, world
+batches 114 -> 27 a frame, GL calls 3022 -> 1026, draws 198 -> 79 (llvmpipe, GL 2.1).
+r_mergeLightmaps 0 (latched) loads them as before.
+
+diff --git a/code/renderergl1/tr_bsp.c b/code/renderergl1/tr_bsp.c
+--- a/code/renderergl1/tr_bsp.c
++++ b/code/renderergl1/tr_bsp.c
+@@ -132,13 +132,152 @@ R_LoadLightmaps
+ ===============
+ */
+ #define	LIGHTMAP_SIZE	128
++
++// one BSP lightmap (24 bit) to RGBA at dst, rows dstStride bytes apart
++static void R_LightmapToRGBA( byte *buf_p, byte *dst, int dstStride, float *maxIntensity ) {
++	int		x, y;
++
++	for ( y = 0 ; y < LIGHTMAP_SIZE ; y++ ) {
++		byte *image = dst + y * dstStride;
++		byte *src = buf_p + y * LIGHTMAP_SIZE * 3;
++
++		for ( x = 0 ; x < LIGHTMAP_SIZE ; x++ ) {
++			if ( r_lightmap->integer == 2 )
++			{	// color code by intensity as development tool	(FIXME: check range)
++				float r = src[x*3+0];
++				float g = src[x*3+1];
++				float b = src[x*3+2];
++				float intensity;
++				float out[3] = {0.0, 0.0, 0.0};
++
++				intensity = 0.33f * r + 0.685f * g + 0.063f * b;
++
++				if ( intensity > 255 )
++					intensity = 1.0f;
++				else
++					intensity /= 255.0f;
++
++				if ( intensity > *maxIntensity )
++					*maxIntensity = intensity;
++
++				HSVtoRGB( intensity, 1.00, 0.50, out );
++
++				image[x*4+0] = out[0] * 255;
++				image[x*4+1] = out[1] * 255;
++				image[x*4+2] = out[2] * 255;
++				image[x*4+3] = 255;
++			} else {
++				R_ColorShiftLightingBytes( &src[x*3], &image[x*4] );
++				image[x*4+3] = 255;
++			}
++		}
++	}
++}
++
++/*
++===============
++R_MergeLightmaps
++
++r_mergeLightmaps: the lightmaps go into a few atlas pages instead of one texture each. Surfaces
++of one texture with different lightmaps are different shaders, and every shader change ends a
++batch (RB_RenderDrawSurfList), so a map drawn from N lightmaps splits its world into up to N
++batches per texture. The pages hold 2^k lightmaps each (2^k for the largest k that fits, at most
++64, then the rest the same way), so the texels add up to what the separate lightmaps had: no VRAM is wasted on
++empty cells. ParseFace and ParseMesh move each surface's lightmap coordinates into its cell; the
++lightmaps are sampled at texel centres without mipmaps, so a cell's neighbours never bleed in.
++===============
++*/
++static void R_MergeLightmaps( byte *buf, int numReal ) {
++	int		maxSide, maxTiles, numPages, first, page, i;
++	float	maxIntensity = 0;
++
++	// at most 1024x1024 (64 lightmaps, 4 MB of temporary memory while it is built): the pages are
++	// powers of two in lightmaps, so a larger page would only help maps with 128 or more
++	maxSide = glConfig.maxTextureSize < 1024 ? glConfig.maxTextureSize : 1024;
++	maxTiles = ( maxSide / LIGHTMAP_SIZE ) * ( maxSide / LIGHTMAP_SIZE );
++	if ( maxTiles < 1 )
++		maxTiles = 1;
++
++	for ( numPages = 0, first = 0 ; first < numReal ; numPages++ ) {
++		int tiles = 1;
++		while ( tiles * 2 <= numReal - first && tiles * 2 <= maxTiles )
++			tiles *= 2;
++		first += tiles;
++	}
++
++	tr.numLightmaps = numPages;
++	tr.numRealLightmaps = numReal;
++	tr.lightmaps = ri.Hunk_Alloc( numPages * sizeof(image_t *), h_low );
++	tr.lightmapPlaces = ri.Hunk_Alloc( numReal * sizeof(lightmapPlace_t), h_low );
++
++	for ( page = 0, first = 0 ; page < numPages ; page++ ) {
++		int tiles = 1, log2tiles = 0, cols, rows, width, height;
++		byte *image;
++
++		while ( tiles * 2 <= numReal - first && tiles * 2 <= maxTiles ) {
++			tiles *= 2;
++			log2tiles++;
++		}
++		cols = 1 << ( ( log2tiles + 1 ) / 2 );
++		rows = tiles / cols;
++		width = cols * LIGHTMAP_SIZE;
++		height = rows * LIGHTMAP_SIZE;
++
++		image = ri.Hunk_AllocateTempMemory( width * height * 4 );
++		for ( i = 0 ; i < tiles ; i++ ) {
++			lightmapPlace_t *place = &tr.lightmapPlaces[first + i];
++			int col = i % cols, row = i / cols;
++
++			R_LightmapToRGBA( buf + ( first + i ) * LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3,
++				image + ( row * LIGHTMAP_SIZE * width + col * LIGHTMAP_SIZE ) * 4, width * 4, &maxIntensity );
++
++			place->page = page;
++			place->scale[0] = 1.0f / cols;
++			place->scale[1] = 1.0f / rows;
++			place->offset[0] = (float)col / cols;
++			place->offset[1] = (float)row / rows;
++		}
++
++		tr.lightmaps[page] = R_CreateImage( va("*lightmap%d",page), image,
++			width, height, IMGTYPE_COLORALPHA,
++			IMGFLAG_NOLIGHTSCALE | IMGFLAG_NO_COMPRESSION | IMGFLAG_CLAMPTOEDGE, 0 );
++		ri.Hunk_FreeTempMemory( image );
++		first += tiles;
++	}
++
++	ri.Printf( PRINT_DEVELOPER, "%d lightmaps merged into %d pages\n", numReal, numPages );
++	if ( r_lightmap->integer == 2 )	{
++		ri.Printf( PRINT_ALL, "Brightest lightmap value: %d\n", ( int ) ( maxIntensity * 255 ) );
++	}
++}
++
++// r_mergeLightmaps: a BSP lightmap's coordinates moved into its atlas cell
++static void R_MergedLightmapCoords( int lightmapNum, float *st ) {
++	const lightmapPlace_t *place;
++
++	if ( !tr.lightmapPlaces || lightmapNum < 0 || lightmapNum >= tr.numRealLightmaps )
++		return;
++	place = &tr.lightmapPlaces[lightmapNum];
++	st[0] = place->offset[0] + st[0] * place->scale[0];
++	st[1] = place->offset[1] + st[1] * place->scale[1];
++}
++
++/*
++===============
++R_LoadLightmaps
++
++===============
++*/
+ static	void R_LoadLightmaps( lump_t *l ) {
+ 	byte		*buf, *buf_p;
+ 	int			len;
+ 	byte		image[LIGHTMAP_SIZE*LIGHTMAP_SIZE*4];
+-	int			i, j;
++	int			i, numReal;
+ 	float maxIntensity = 0;
+ 
++	tr.numRealLightmaps = 0;
++	tr.lightmapPlaces = NULL;
++
+ 	len = l->filelen;
+ 	if ( !len ) {
+ 		return;
+@@ -149,7 +288,8 @@ static	void R_LoadLightmaps( lump_t *l ) {
+ 	R_IssuePendingRenderCommands();
+ 
+ 	// create all the lightmaps
+-	tr.numLightmaps = len / (LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3);
++	numReal = len / (LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3);
++	tr.numLightmaps = numReal;
+ 	if ( tr.numLightmaps == 1 ) {
+ 		//FIXME: HACK: maps with only one lightmap turn up fullbright for some reason.
+ 		//this avoids this, but isn't the correct solution.
+@@ -161,44 +301,17 @@ static	void R_LoadLightmaps( lump_t *l ) {
+ 		return;
+ 	}
+ 
++	if ( r_mergeLightmaps->integer && numReal > 1 ) {
++		R_MergeLightmaps( buf, numReal );
++		return;
++	}
++
+ 	tr.lightmaps = ri.Hunk_Alloc( tr.numLightmaps * sizeof(image_t *), h_low );
+ 	for ( i = 0 ; i < tr.numLightmaps ; i++ ) {
+ 		// expand the 24 bit on-disk to 32 bit
+ 		buf_p = buf + i * LIGHTMAP_SIZE*LIGHTMAP_SIZE * 3;
+ 
+-		if ( r_lightmap->integer == 2 )
+-		{	// color code by intensity as development tool	(FIXME: check range)
+-			for ( j = 0; j < LIGHTMAP_SIZE * LIGHTMAP_SIZE; j++ )
+-			{
+-				float r = buf_p[j*3+0];
+-				float g = buf_p[j*3+1];
+-				float b = buf_p[j*3+2];
+-				float intensity;
+-				float out[3] = {0.0, 0.0, 0.0};
+-
+-				intensity = 0.33f * r + 0.685f * g + 0.063f * b;
+-
+-				if ( intensity > 255 )
+-					intensity = 1.0f;
+-				else
+-					intensity /= 255.0f;
+-
+-				if ( intensity > maxIntensity )
+-					maxIntensity = intensity;
+-
+-				HSVtoRGB( intensity, 1.00, 0.50, out );
+-
+-				image[j*4+0] = out[0] * 255;
+-				image[j*4+1] = out[1] * 255;
+-				image[j*4+2] = out[2] * 255;
+-				image[j*4+3] = 255;
+-			}
+-		} else {
+-			for ( j = 0 ; j < LIGHTMAP_SIZE * LIGHTMAP_SIZE; j++ ) {
+-				R_ColorShiftLightingBytes( &buf_p[j*3], &image[j*4] );
+-				image[j*4+3] = 255;
+-			}
+-		}
++		R_LightmapToRGBA( buf_p, image, LIGHTMAP_SIZE * 4, &maxIntensity );
+ 		tr.lightmaps[i] = R_CreateImage( va("*lightmap%d",i), image, 
+ 			LIGHTMAP_SIZE, LIGHTMAP_SIZE, IMGTYPE_COLORALPHA,
+ 			IMGFLAG_NOLIGHTSCALE | IMGFLAG_NO_COMPRESSION | IMGFLAG_CLAMPTOEDGE, 0 );
+@@ -284,7 +397,16 @@ static shader_t *ShaderForShaderNum( int shaderNum, int lightmapNum ) {
+ 		lightmapNum = LIGHTMAP_WHITEIMAGE;
+ 	}
+ 
+-	shader = R_FindShader( dsh->shader, lightmapNum, qtrue );
++	if ( tr.lightmapPlaces && lightmapNum >= 0 ) {
++		// r_mergeLightmaps: the shader of the lightmap's atlas page
++		if ( lightmapNum < tr.numRealLightmaps ) {
++			shader = R_FindShaderEx( dsh->shader, tr.lightmapPlaces[lightmapNum].page, qtrue, lightmapNum, qfalse );
++		} else {
++			shader = R_FindShader( dsh->shader, LIGHTMAP_BY_VERTEX, qtrue );
++		}
++	} else {
++		shader = R_FindShader( dsh->shader, lightmapNum, qtrue );
++	}
+ 
+ 	// if the shader had errors, just use default shader
+ 	if ( shader->defaultShader ) {
+@@ -346,6 +468,7 @@ static void ParseFace( dsurface_t *ds, drawVert_t *verts, msurface_t *surf, int
+ 			cv->points[i][3+j] = LittleFloat( verts[i].st[j] );
+ 			cv->points[i][5+j] = LittleFloat( verts[i].lightmap[j] );
+ 		}
++		R_MergedLightmapCoords( lightmapNum, &cv->points[i][5] );
+ 		R_ColorShiftLightingBytes( verts[i].color, (byte *)&cv->points[i][7] );
+ 	}
+ 
+@@ -413,6 +536,7 @@ static void ParseMesh ( dsurface_t *ds, drawVert_t *verts, msurface_t *surf ) {
+ 			points[i].st[j] = LittleFloat( verts[i].st[j] );
+ 			points[i].lightmap[j] = LittleFloat( verts[i].lightmap[j] );
+ 		}
++		R_MergedLightmapCoords( lightmapNum, points[i].lightmap );
+ 		R_ColorShiftLightingBytes( verts[i].color, points[i].color );
+ 	}
+ 
+diff --git a/code/renderergl1/tr_init.c b/code/renderergl1/tr_init.c
+--- a/code/renderergl1/tr_init.c
++++ b/code/renderergl1/tr_init.c
+@@ -113,6 +113,7 @@ cvar_t  *r_ext_multisample;
+ cvar_t	*r_drawBuffer;
+ cvar_t	*r_lightmap;
+ cvar_t	*r_vertexLight;
++cvar_t	*r_mergeLightmaps;
+ cvar_t	*r_uiFullScreen;
+ cvar_t	*r_shadows;
+ cvar_t	*r_flares;
+@@ -1059,6 +1060,8 @@ void R_Register( void )
+ 	r_customPixelAspect = ri.Cvar_Get( "r_customPixelAspect", "1", CVAR_ARCHIVE | CVAR_LATCH );
+ 	r_simpleMipMaps = ri.Cvar_Get( "r_simpleMipMaps", "1", CVAR_ARCHIVE | CVAR_LATCH );
+ 	r_vertexLight = ri.Cvar_Get( "r_vertexLight", "0", CVAR_ARCHIVE | CVAR_LATCH );
++	r_mergeLightmaps = ri.Cvar_Get( "r_mergeLightmaps", "1", CVAR_LATCH );
++	ri.Cvar_SetDescription( r_mergeLightmaps, "Pack the map's lightmaps into a few atlas textures, so surfaces with the same texture and different lightmaps draw in one batch" );
+ 	r_uiFullScreen = ri.Cvar_Get( "r_uifullscreen", "0", 0);
+ 	r_subdivisions = ri.Cvar_Get ("r_subdivisions", "4", CVAR_ARCHIVE | CVAR_LATCH);
+ 	r_stereoEnabled = ri.Cvar_Get( "r_stereoEnabled", "0", CVAR_ARCHIVE | CVAR_LATCH);
+diff --git a/code/renderergl1/tr_local.h b/code/renderergl1/tr_local.h
+--- a/code/renderergl1/tr_local.h
++++ b/code/renderergl1/tr_local.h
+@@ -375,6 +375,13 @@ typedef struct shader_s {
+ 
+   struct shader_s *remappedShader;                  // current shader this one is remapped too
+ 
++	// r_mergeLightmaps: >= 0 when the stages' texture coordinates were fixed up for the atlas cell
++	// of this BSP lightmap (tcMods on the lightmap, tcGen lightmap on another image), so the shader
++	// serves only surfaces of that lightmap; lmCoordsReal: the caller's coordinates are in the
++	// lightmap's own 0..1 space (RE_RegisterShaderLightMap), not in the atlas
++	int			lmRealIndex;
++	qboolean	lmCoordsReal;
++
+ 	struct	shader_s	*next;
+ } shader_t;
+ 
+@@ -838,6 +845,12 @@ typedef struct {
+ 
+ 
+ // the renderer front end should never modify glstate_t
++typedef struct {
++	int			page;
++	float		scale[2];
++	float		offset[2];
++} lightmapPlace_t;
++
+ typedef struct {
+ 	int			currenttextures[2];
+ 	int			currenttmu;
+@@ -920,6 +933,11 @@ typedef struct {
+ 	int						numLightmaps;
+ 	image_t					**lightmaps;
+ 
++	// r_mergeLightmaps: where each of the BSP's numRealLightmaps lightmaps went (NULL when they
++	// were not merged): tr.lightmaps[page], at offset + st * scale
++	int						numRealLightmaps;
++	lightmapPlace_t			*lightmapPlaces;
++
+ 	trRefEntity_t			*currentEntity;
+ 	trRefEntity_t			worldEntity;		// point currentEntity at this when rendering world
+ 	int						currentEntityNum;
+@@ -1039,7 +1057,8 @@ extern	cvar_t	*r_offsetUnits;
+ 
+ extern	cvar_t	*r_fullbright;					// avoid lightmap pass
+ extern	cvar_t	*r_lightmap;					// render lightmaps only
+-extern	cvar_t	*r_vertexLight;					// vertex lighting mode for better performance
++extern	cvar_t	*r_vertexLight;
++extern	cvar_t	*r_mergeLightmaps;				// BSP lightmaps packed into a few atlas textures					// vertex lighting mode for better performance
+ extern	cvar_t	*r_uiFullScreen;				// ui is running fullscreen
+ 
+ extern	cvar_t	*r_logFile;						// number of frames to emit GL logs
+@@ -1203,6 +1222,7 @@ const void *RB_TakeVideoFrameCmd( const void *data );
+ // tr_shader.c
+ //
+ shader_t	*R_FindShader( const char *name, int lightmapIndex, qboolean mipRawImage );
++shader_t	*R_FindShaderEx( const char *name, int lightmapIndex, qboolean mipRawImage, int realLightmapIndex, qboolean coordsReal );
+ shader_t	*R_GetShaderByHandle( qhandle_t hShader );
+ shader_t	*R_GetShaderByState( int index, long *cycleTime );
+ shader_t *R_FindShaderByName( const char *name );
+diff --git a/code/renderergl1/tr_shader.c b/code/renderergl1/tr_shader.c
+--- a/code/renderergl1/tr_shader.c
++++ b/code/renderergl1/tr_shader.c
+@@ -2172,6 +2172,10 @@ static void VertexLightingCollapse( void ) {
+ 	}
+ }
+ 
++// r_mergeLightmaps: the BSP lightmap of the shader being built (R_FindShaderEx)
++static int		shader_realLightmapIndex = -1;
++static qboolean	shader_lmCoordsReal;
++
+ /*
+ ===============
+ InitShader
+@@ -2186,12 +2190,104 @@ static void InitShader( const char *name, int lightmapIndex ) {
+ 
+ 	Q_strncpyz( shader.name, name, sizeof( shader.name ) );
+ 	shader.lightmapIndex = lightmapIndex;
++	shader.lmRealIndex = -1;
++	shader_realLightmapIndex = -1;
++	shader_lmCoordsReal = qfalse;
+ 
+ 	for ( i = 0 ; i < MAX_SHADER_STAGES ; i++ ) {
+ 		stages[i].bundle[0].texMods = texMods[i];
+ 	}
+ }
+ 
++/*
++===============
++FixMergedLightmapTexCoords
++
++r_mergeLightmaps: a surface's lightmap coordinates point into its lightmap's cell of an atlas
++page (R_MergeLightmaps). That is all a plain $lightmap stage needs. Stages that do more with
++those coordinates get them back in the lightmap's own 0..1 space (a tcMod transform in front)
++and, when they sample the atlas, moved back into the cell after their own tcMods: tcMods on a
++$lightmap stage, tcGen other than lightmap on it, tcGen lightmap on another image (external
++lightmaps). Such a shader then belongs to one lightmap (lmRealIndex) instead of to its page.
++===============
++*/
++static qboolean AddLightmapTransform( textureBundle_t *bundle, qboolean front, qboolean toCell,
++		const lightmapPlace_t *place ) {
++	texModInfo_t *tmi;
++
++	if ( bundle->numTexMods >= TR_MAX_TEXMODS ) {
++		ri.Printf( PRINT_DEVELOPER, "WARNING: too many tcMods to fix lightmap texcoords for r_mergeLightmaps in shader '%s'\n", shader.name );
++		return qfalse;
++	}
++	if ( front ) {
++		memmove( &bundle->texMods[1], &bundle->texMods[0], bundle->numTexMods * sizeof( texModInfo_t ) );
++		tmi = &bundle->texMods[0];
++	} else {
++		tmi = &bundle->texMods[bundle->numTexMods];
++	}
++	bundle->numTexMods++;
++
++	Com_Memset( tmi, 0, sizeof( *tmi ) );
++	tmi->type = TMOD_TRANSFORM;
++	if ( toCell ) {
++		tmi->matrix[0][0] = place->scale[0];
++		tmi->matrix[1][1] = place->scale[1];
++		tmi->translate[0] = place->offset[0];
++		tmi->translate[1] = place->offset[1];
++	} else {
++		tmi->matrix[0][0] = 1.0f / place->scale[0];
++		tmi->matrix[1][1] = 1.0f / place->scale[1];
++		tmi->translate[0] = -place->offset[0] / place->scale[0];
++		tmi->translate[1] = -place->offset[1] / place->scale[1];
++	}
++	return qtrue;
++}
++
++static void FixMergedLightmapTexCoords( void ) {
++	const lightmapPlace_t *place;
++	int stage;
++	qboolean fixed = qfalse;
++
++	if ( !tr.lightmapPlaces || shader.lightmapIndex < 0 || shader_realLightmapIndex < 0 ||
++			shader_realLightmapIndex >= tr.numRealLightmaps ) {
++		return;
++	}
++	place = &tr.lightmapPlaces[shader_realLightmapIndex];
++
++	for ( stage = 0; stage < MAX_SHADER_STAGES; stage++ ) {
++		textureBundle_t *bundle = &stages[stage].bundle[0];
++
++		if ( !stages[stage].active ) {
++			break;
++		}
++
++		if ( bundle->isLightmap ) {
++			// the common case: the cell's coordinates as they are
++			if ( !shader_lmCoordsReal && bundle->tcGen == TCGEN_LIGHTMAP && !bundle->numTexMods ) {
++				continue;
++			}
++			if ( bundle->numTexMods + 1 + ( !shader_lmCoordsReal && bundle->tcGen == TCGEN_LIGHTMAP ) > TR_MAX_TEXMODS ) {
++				ri.Printf( PRINT_DEVELOPER, "WARNING: too many tcMods to fix lightmap texcoords for r_mergeLightmaps in shader '%s'\n", shader.name );
++				continue;
++			}
++			if ( !shader_lmCoordsReal && bundle->tcGen == TCGEN_LIGHTMAP ) {
++				AddLightmapTransform( bundle, qtrue, qfalse, place );
++			}
++			AddLightmapTransform( bundle, qfalse, qtrue, place );
++			fixed = qtrue;
++		} else if ( !shader_lmCoordsReal && bundle->tcGen == TCGEN_LIGHTMAP ) {
++			if ( AddLightmapTransform( bundle, qtrue, qfalse, place ) ) {
++				fixed = qtrue;
++			}
++		}
++	}
++
++	if ( fixed || shader_lmCoordsReal ) {
++		shader.lmRealIndex = shader_realLightmapIndex;
++		shader.lmCoordsReal = shader_lmCoordsReal;
++	}
++}
++
+ /*
+ =========================
+ FinishShader
+@@ -2350,6 +2446,8 @@ static shader_t *FinishShader( void ) {
+ 		hasLightmapStage = qfalse;
+ 	}
+ 
++	FixMergedLightmapTexCoords();
++
+ 	//
+ 	// look for multitexture potential
+ 	//
+@@ -2518,6 +2616,19 @@ most world construction surfaces.
+ ===============
+ */
+ shader_t *R_FindShader( const char *name, int lightmapIndex, qboolean mipRawImage ) {
++	return R_FindShaderEx( name, lightmapIndex, mipRawImage, -1, qfalse );
++}
++
++/*
++===============
++R_FindShaderEx
++
++R_FindShader for r_mergeLightmaps: lightmapIndex is the atlas page, realLightmapIndex the BSP
++lightmap the surface uses (-1: none), coordsReal says the caller's lightmap coordinates are in
++that lightmap's own space. See FixMergedLightmapTexCoords.
++===============
++*/
++shader_t *R_FindShaderEx( const char *name, int lightmapIndex, qboolean mipRawImage, int realLightmapIndex, qboolean coordsReal ) {
+ 	char		strippedName[MAX_QPATH];
+ 	int			hash;
+ 	char		*shaderText;
+@@ -2551,13 +2662,17 @@ shader_t *R_FindShader( const char *name, int lightmapIndex, qboolean mipRawImag
+ 		// have to check all default shaders otherwise for every call to R_FindShader
+ 		// with that same strippedName a new default shader is created.
+ 		if ( (sh->lightmapIndex == lightmapIndex || sh->defaultShader) &&
+-		     !Q_stricmp(sh->name, strippedName)) {
++		     !Q_stricmp(sh->name, strippedName) &&
++		     sh->lmCoordsReal == coordsReal &&
++		     (sh->lmRealIndex < 0 || sh->lmRealIndex == realLightmapIndex) ) {
+ 			// match found
+ 			return sh;
+ 		}
+ 	}
+ 
+ 	InitShader( strippedName, lightmapIndex );
++	shader_realLightmapIndex = realLightmapIndex;
++	shader_lmCoordsReal = coordsReal;
+ 
+ 	// FIXME: set these "need" values appropriately
+ 	shader.needsNormal = qtrue;
+@@ -2778,7 +2893,16 @@ qhandle_t RE_RegisterShaderLightMap( const char *name, int lightmapIndex ) {
+ 		return 0;
+ 	}
+ 
+-	sh = R_FindShader( name, lightmapIndex, qtrue );
++	if ( tr.lightmapPlaces && lightmapIndex >= 0 ) {
++		// r_mergeLightmaps: the caller's lightmap coordinates are the lightmap's own
++		if ( lightmapIndex < tr.numRealLightmaps ) {
++			sh = R_FindShaderEx( name, tr.lightmapPlaces[lightmapIndex].page, qtrue, lightmapIndex, qtrue );
++		} else {
++			sh = R_FindShader( name, LIGHTMAP_BY_VERTEX, qtrue );
++		}
++	} else {
++		sh = R_FindShader( name, lightmapIndex, qtrue );
++	}
+ 
+ 	// we want to return 0 if the shader failed to
+ 	// load for some reason, but R_FindShader should

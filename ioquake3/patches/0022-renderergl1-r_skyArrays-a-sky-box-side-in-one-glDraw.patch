@@ -1,0 +1,121 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 22:08:19 +0300
+Subject: renderergl1: r_skyArrays, a sky box side in one glDrawElements
+
+DrawSkySide drew each row of a sky box side as a glBegin triangle strip with a glTexCoord2fv and a
+glVertex3fv per vertex: about 1450 GL calls a frame on islanddm with the sky in view, 45% of all
+the frame's calls. With r_skyArrays 1 the rows' strips become the triangles they stand for (the
+same vertices in the same order, odd triangles with their first two swapped as GL does), drawn
+with one glDrawElements per side from s_skyPoints and s_skyTexCoords as vertex arrays, the color
+array off so the glColor3f before it applies as before. islanddm (fixed time step, the view at
+the spawn point) on llvmpipe, GL 2.1: GL calls 1453 -> 18 a frame for the sky, the same pixels.
+r_skyArrays 0 draws the strips as before.
+
+diff --git a/code/renderergl1/tr_init.c b/code/renderergl1/tr_init.c
+--- a/code/renderergl1/tr_init.c
++++ b/code/renderergl1/tr_init.c
+@@ -116,6 +116,7 @@ cvar_t	*r_vertexLight;
+ cvar_t	*r_mergeLightmaps;
+ cvar_t	*r_glStateCache;
+ cvar_t	*r_lockArrays;
++cvar_t	*r_skyArrays;
+ cvar_t	*r_uiFullScreen;
+ cvar_t	*r_shadows;
+ cvar_t	*r_flares;
+@@ -1067,6 +1068,8 @@ void R_Register( void )
+ 	r_mergeLightmaps = ri.Cvar_Get( "r_mergeLightmaps", "1", CVAR_LATCH );
+ 	r_glStateCache = ri.Cvar_Get( "r_glStateCache", "1", CVAR_LATCH );
+ 	r_lockArrays = ri.Cvar_Get( "r_lockArrays", "0", 0 );
++	r_skyArrays = ri.Cvar_Get( "r_skyArrays", "1", 0 );
++	ri.Cvar_SetDescription( r_skyArrays, "Draw each sky box side with one glDrawElements from vertex arrays (0: a glBegin strip per row, a call per texture coordinate and vertex, as upstream)" );
+ 	ri.Cvar_SetDescription( r_lockArrays, "1: lock the vertex arrays of each batch with glLockArraysEXT (compiled vertex arrays) as upstream; Mesa ignores the lock" );
+ 	ri.Cvar_SetDescription( r_glStateCache, "Send texture unit, texture enable and client array state to GL only when a draw needs it and it changed (0: every call as upstream)" );
+ 	ri.Cvar_SetDescription( r_mergeLightmaps, "Pack the map's lightmaps into a few atlas textures, so surfaces with the same texture and different lightmaps draw in one batch" );
+diff --git a/code/renderergl1/tr_local.h b/code/renderergl1/tr_local.h
+--- a/code/renderergl1/tr_local.h
++++ b/code/renderergl1/tr_local.h
+@@ -1060,7 +1060,8 @@ extern	cvar_t	*r_lightmap;					// render lightmaps only
+ extern	cvar_t	*r_vertexLight;
+ extern	cvar_t	*r_mergeLightmaps;				// BSP lightmaps packed into a few atlas textures
+ extern	cvar_t	*r_glStateCache;				// deferred, filtered texture unit and array state
+-extern	cvar_t	*r_lockArrays;					// call glLockArraysEXT around each batch					// vertex lighting mode for better performance
++extern	cvar_t	*r_lockArrays;					// call glLockArraysEXT around each batch
++extern	cvar_t	*r_skyArrays;					// sky box sides from vertex arrays					// vertex lighting mode for better performance
+ extern	cvar_t	*r_uiFullScreen;				// ui is running fullscreen
+ 
+ extern	cvar_t	*r_logFile;						// number of frames to emit GL logs
+diff --git a/code/renderergl1/tr_sky.c b/code/renderergl1/tr_sky.c
+--- a/code/renderergl1/tr_sky.c
++++ b/code/renderergl1/tr_sky.c
+@@ -373,12 +373,70 @@ static int	sky_texorder[6] = {0,2,1,3,4,5};
+ static vec3_t	s_skyPoints[SKY_SUBDIVISIONS+1][SKY_SUBDIVISIONS+1];
+ static float	s_skyTexCoords[SKY_SUBDIVISIONS+1][SKY_SUBDIVISIONS+1][2];
+ 
++/*
++r_skyArrays: a sky box side as one glDrawElements of the triangles its rows of strips make, from
++s_skyPoints and s_skyTexCoords as vertex arrays, instead of a glBegin strip per row with a
++glTexCoord2fv and a glVertex3fv per vertex (~1450 GL calls a frame with the whole sky in view).
++The triangles are those of the strips, with the same vertices in the same order.
++*/
++static void DrawSkySideArrays( const int mins[2], const int maxs[2] )
++{
++	static glIndex_t indexes[SKY_SUBDIVISIONS * SKY_SUBDIVISIONS * 6];
++	int t, numIndexes = 0;
++
++	for ( t = mins[1]+HALF_SKY_SUBDIVISIONS; t < maxs[1]+HALF_SKY_SUBDIVISIONS; t++ )
++	{
++		// the strip (t,s0) (t+1,s0) (t,s0+1) (t+1,s0+1) ... as triangles: even ones in strip
++		// order, odd ones with their first two vertices swapped, as GL does
++		int first = mins[0]+HALF_SKY_SUBDIVISIONS, n = 2 * ( maxs[0] - mins[0] + 1 ), k;
++
++		for ( k = 0; k + 2 < n; k++ )
++		{
++			glIndex_t v[3];
++			int j;
++
++			for ( j = 0; j < 3; j++ )
++			{
++				int p = k + j;
++				v[j] = ( t + ( p & 1 ) ) * ( SKY_SUBDIVISIONS + 1 ) + first + ( p >> 1 );
++			}
++			if ( k & 1 )
++			{
++				indexes[numIndexes++] = v[1];
++				indexes[numIndexes++] = v[0];
++			}
++			else
++			{
++				indexes[numIndexes++] = v[0];
++				indexes[numIndexes++] = v[1];
++			}
++			indexes[numIndexes++] = v[2];
++		}
++	}
++
++	if ( !numIndexes )
++		return;
++
++	GL_SelectTexture( 0 );
++	qglDisableClientState( GL_COLOR_ARRAY );
++	qglEnableClientState( GL_TEXTURE_COORD_ARRAY );
++	qglTexCoordPointer( 2, GL_FLOAT, 0, s_skyTexCoords[0][0] );
++	qglVertexPointer( 3, GL_FLOAT, 0, s_skyPoints[0][0] );
++	qglDrawElements( GL_TRIANGLES, numIndexes, GL_INDEX_TYPE, indexes );
++}
++
+ static void DrawSkySide( struct image_s *image, const int mins[2], const int maxs[2] )
+ {
+ 	int s, t;
+ 
+ 	GL_Bind( image );
+ 
++	if ( r_skyArrays->integer )
++	{
++		DrawSkySideArrays( mins, maxs );
++		return;
++	}
++
+ 	for ( t = mins[1]+HALF_SKY_SUBDIVISIONS; t < maxs[1]+HALF_SKY_SUBDIVISIONS; t++ )
+ 	{
+ 		qglBegin( GL_TRIANGLE_STRIP );
