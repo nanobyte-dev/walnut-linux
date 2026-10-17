@@ -26,3 +26,9 @@ variant_record() { CMD=(/usr/games/armagetronad --record /var/tmp/armagetronad-b
 variant_live() { CMD=(/usr/games/armagetronad); DURATION=45; HUD_SKIP=15; }
 # Mesa 0020 off (texture caches invalidated on every draw, as before ps3.262): bisects its cost
 variant_texinv() { ENV+=(NV30_TEX_INVALIDATE_ALWAYS=1); }
+# Mesa ps3.282 switches (docs/GAME-PLAN.md): relocations back on (0019 off), or 0019 kept with a
+# submission every N draws (0026)
+variant_relocs() { ENV+=(NV30_PS3_RELOCS=1); }
+variant_kick150() { ENV+=(NV30_PS3_KICK_DRAWS=150); }
+variant_kick100() { ENV+=(NV30_PS3_KICK_DRAWS=100); }
+variant_kick50() { ENV+=(NV30_PS3_KICK_DRAWS=50); }
