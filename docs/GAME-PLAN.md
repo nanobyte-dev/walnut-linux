@@ -277,7 +277,7 @@ Each is fixed only once a stage needs it.
   fixed: a rejected push in a multi-push submit left the earlier pushes' object bindings in the
   validator's state (the 0x109 kind of wedge). Not yet run on the PS3: it needs a reboot, then the
   GL tests, X with a GL client, VT switches, Neverball, the suite with perf.
-- Mesa ps3.VERSION (patches 0019-0025, built, **not yet run on the PS3**): fewer words per draw
+- Mesa ps3.262 (patches 0019-0025, built, **not yet run on the PS3**): fewer words per draw
   for ps3rsx to copy and validate. 0019 no relocations on the PS3: the "second emission" of every
   relocated method was two zero words (NOPs the kernel would patch only if a buffer moved; ps3rsx
   never does) plus two relocation records, and the 1024-relocation limit forced a submission about
