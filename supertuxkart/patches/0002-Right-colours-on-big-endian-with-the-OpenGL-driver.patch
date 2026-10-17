@@ -1,0 +1,79 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Sat, 17 Oct 2026 13:27:02 +0300
+Subject: Right colours on big-endian with the OpenGL driver
+
+Textures: GEGLTexture uploaded ECF_A8R8G8B8 images (native 32-bit words,
+0xAARRGGBB) as GL_BGRA bytes, which they are only on little-endian hosts;
+on big-endian every texture came out with its channels rotated. Upload
+and read back with GL_UNSIGNED_INT_8_8_8_8_REV there, as Irrlicht's own
+COpenGLTexture does. Little-endian builds are unchanged.
+
+Vertex colours: with ARB/EXT_vertex_array_bgra the legacy driver passes
+SColor arrays as GL_BGRA bytes, wrong on big-endian for the same reason
+(Debian #714519). On big-endian hosts treat both extensions as absent,
+so the driver converts the colours to RGBA bytes itself.
+
+diff --git a/lib/graphics_engine/src/ge_gl_texture.cpp b/lib/graphics_engine/src/ge_gl_texture.cpp
+--- a/lib/graphics_engine/src/ge_gl_texture.cpp
++++ b/lib/graphics_engine/src/ge_gl_texture.cpp
+@@ -119,9 +119,18 @@ void GEGLTexture::upload(uint8_t* data)
+     const unsigned int h = m_size.Height;
+     unsigned int format = m_single_channel ? GL_RED : GL_BGRA;
+     unsigned int internal_format = m_single_channel ? GL_R8 : GL_RGBA8;
++    // ECF_A8R8G8B8 pixels are native 32-bit words (0xAARRGGBB): as bytes
++    // they are B,G,R,A only on little-endian hosts. A packed type reads the
++    // words the same way on any host (as Irrlicht's COpenGLTexture does).
++    unsigned int type = GL_UNSIGNED_BYTE;
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++    if (!m_single_channel)
++        type = GL_UNSIGNED_INT_8_8_8_8_REV;
++#endif
+ 
+     if (m_driver_type == video::EDT_OGLES2)
+     {
++        type = GL_UNSIGNED_BYTE;
+         formatConversion(data, &format, w, h);
+         int gl_major_version = 0;
+         glGetIntegerv(GL_MAJOR_VERSION, &gl_major_version);
+@@ -140,7 +149,7 @@ void GEGLTexture::upload(uint8_t* data)
+         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, GL_RED);
+     }
+     glTexImage2D(GL_TEXTURE_2D, 0, internal_format, w, h, 0, format,
+-        GL_UNSIGNED_BYTE, data);
++        type, data);
+     if (hasMipMaps())
+         glGenerateMipmap(GL_TEXTURE_2D);
+     glBindTexture(GL_TEXTURE_2D, 0);
+@@ -171,7 +180,12 @@ void* GEGLTexture::lock(video::E_TEXTURE_LOCK_MODE mode, u32 mipmap_level)
+     GLint tmp_texture;
+     glGetIntegerv(GL_TEXTURE_BINDING_2D, &tmp_texture);
+     glBindTexture(GL_TEXTURE_2D, m_texture_name);
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++    glGetTexImage(GL_TEXTURE_2D, 0, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV,
++        m_locked_data);
++#else
+     glGetTexImage(GL_TEXTURE_2D, 0, GL_BGRA, GL_UNSIGNED_BYTE, m_locked_data);
++#endif
+     glBindTexture(GL_TEXTURE_2D, tmp_texture);
+     return m_locked_data;
+ }   // lock
+diff --git a/lib/irrlicht/source/Irrlicht/COpenGLExtensionHandler.cpp b/lib/irrlicht/source/Irrlicht/COpenGLExtensionHandler.cpp
+--- a/lib/irrlicht/source/Irrlicht/COpenGLExtensionHandler.cpp
++++ b/lib/irrlicht/source/Irrlicht/COpenGLExtensionHandler.cpp
+@@ -385,6 +385,15 @@ void COpenGLExtensionHandler::initExtensions(bool stencilBuffer, bool useCoreCon
+ 		delete [] str;
+ 	}
+ 
++#ifdef __BIG_ENDIAN__
++	// Vertex colours are SColor, a native u32 (0xAARRGGBB). Passed with
++	// GL_BGRA they are read as the bytes B,G,R,A, which they are only on
++	// little-endian hosts (Debian #714519, wrong colours on powerpc). Without
++	// these extensions the driver converts them to RGBA bytes itself.
++	FeatureAvailable[IRR_ARB_vertex_array_bgra] = false;
++	FeatureAvailable[IRR_EXT_vertex_array_bgra] = false;
++#endif
++
+ 	MultiTextureExtension = FeatureAvailable[IRR_ARB_multitexture];
+ 	TextureCompressionExtension = FeatureAvailable[IRR_ARB_texture_compression];
+ 	StencilBuffer=stencilBuffer;

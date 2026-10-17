@@ -1,0 +1,413 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Sat, 17 Oct 2026 13:26:32 +0300
+Subject: Load .spm meshes on big-endian hosts
+
+The SPM loader refused to run on big-endian machines ("Not little endian
+machine"), so no kart, track or model loaded. The files are little-endian:
+read every multi-byte field (header bounding box, counts, positions, packed
+normals and tangents, half-float UVs and weights, joint indices, indices,
+armature joints, parent infos, frames and their loc/rot/scale floats)
+through GE::readLE, which byte-swaps after the read on big-endian hosts and
+does nothing on little-endian ones.
+
+The armature reader also read 1- and 2-byte fields into 4-byte unsigned
+variables, which only gives the right value on little-endian hosts; they
+are read into variables of the stored width now.
+
+diff --git a/lib/graphics_engine/include/ge_animation.hpp b/lib/graphics_engine/include/ge_animation.hpp
+--- a/lib/graphics_engine/include/ge_animation.hpp
++++ b/lib/graphics_engine/include/ge_animation.hpp
+@@ -26,6 +26,7 @@
+ #define HEADER_GE_ANIMATION_HPP
+ 
+ #include <IReadFile.h>
++#include "ge_read_le.hpp"
+ #include <matrix4.h>
+ #include <quaternion.h>
+ 
+@@ -60,7 +61,7 @@ struct LocRotScale
+     void read(irr::io::IReadFile* spm)
+     {
+         float tmp[10];
+-        spm->read(&tmp, 40);
++        readLE(spm, tmp, 10);
+         m_loc = core::vector3df(tmp[0], tmp[1], tmp[2]);
+         m_rot = core::quaternion(tmp[3], tmp[4], tmp[5], tmp[6]);
+         m_rot.normalize();
+@@ -89,15 +90,20 @@ struct Armature
+     void read(irr::io::IReadFile* spm)
+     {
+         LocRotScale lrs;
+-        spm->read(&m_joint_used, 2);
++        // Read into variables of the stored width: a 2-byte read into an
++        // unsigned only works on little-endian hosts
++        uint16_t joint_used = 0;
++        readLE(spm, &joint_used);
++        m_joint_used = joint_used;
+         assert(m_joint_used > 0);
+-        unsigned all_joints_size = 0;
+-        spm->read(&all_joints_size, 2);
++        uint16_t all_joints_size_16 = 0;
++        readLE(spm, &all_joints_size_16);
++        unsigned all_joints_size = all_joints_size_16;
+         assert(all_joints_size > 0);
+         m_joint_names.resize(all_joints_size);
+         for (unsigned i = 0; i < all_joints_size; i++)
+         {
+-            unsigned str_len = 0;
++            uint8_t str_len = 0;
+             spm->read(&str_len, 1);
+             m_joint_names[i].resize(str_len);
+             spm->read(&m_joint_names[i].front(), str_len);
+@@ -116,7 +122,7 @@ struct Armature
+         for (unsigned i = 0; i < all_joints_size; i++)
+         {
+             int16_t info = 0;
+-            spm->read(&info, 2);
++            readLE(spm, &info);
+             if (info == -1)
+             {
+                 non_parent_bone = true;
+@@ -128,14 +134,15 @@ struct Armature
+             printf("SPMeshLoader::Armature: Non-parent bone missing in armature");
+             exit(-1);
+         }
+-        unsigned frame_size = 0;
+-        spm->read(&frame_size, 2);
++        uint16_t frame_size_16 = 0;
++        readLE(spm, &frame_size_16);
++        unsigned frame_size = frame_size_16;
+         m_frame_pose_matrices.resize(frame_size);
+         for (unsigned i = 0; i < frame_size; i++)
+         {
+             m_frame_pose_matrices[i].second.resize(all_joints_size);
+-            unsigned frame_index = 0;
+-            spm->read(&frame_index, 2);
++            uint16_t frame_index = 0;
++            readLE(spm, &frame_index);
+             m_frame_pose_matrices[i].first = frame_index;
+             for (unsigned j = 0; j < m_frame_pose_matrices[i].second.size(); j++)
+             {
+diff --git a/lib/graphics_engine/include/ge_read_le.hpp b/lib/graphics_engine/include/ge_read_le.hpp
+new file mode 100644
+--- /dev/null
++++ b/lib/graphics_engine/include/ge_read_le.hpp
+@@ -0,0 +1,58 @@
++#ifndef HEADER_GE_READ_LE_HPP
++#define HEADER_GE_READ_LE_HPP
++
++// Reading little-endian binary data (.spm meshes) on any host: each value
++// is read as stored, then its bytes are reversed in place on a big-endian
++// host. On little-endian hosts the conversions compile to nothing.
++
++#include <IReadFile.h>
++
++#include <cstddef>
++#include <cstdint>
++
++namespace GE
++{
++
++inline bool isBigEndianHost()
++{
++#if defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__)
++    return __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__;
++#else
++    const uint16_t probe = 1;
++    return *(const uint8_t*)&probe == 0;
++#endif
++}
++
++// ----------------------------------------------------------------------------
++/** Converts count values of type T (2, 4 or 8 bytes each: integers, floats)
++ *  from little-endian to the host's byte order, in place. */
++template<typename T>
++inline void fromLE(T* data, size_t count = 1)
++{
++    if (sizeof(T) == 1 || !isBigEndianHost())
++        return;
++    uint8_t* p = (uint8_t*)data;
++    for (size_t i = 0; i < count; i++, p += sizeof(T))
++    {
++        for (size_t a = 0, b = sizeof(T) - 1; a < b; a++, b--)
++        {
++            uint8_t t = p[a];
++            p[a] = p[b];
++            p[b] = t;
++        }
++    }
++}
++
++// ----------------------------------------------------------------------------
++/** Reads count little-endian values of type T into dst, in host order. */
++template<typename T>
++inline irr::s32 readLE(irr::io::IReadFile* f, T* dst, size_t count = 1)
++{
++    irr::s32 n = f->read(dst, (irr::u32)(sizeof(T) * count));
++    fromLE(dst, count);
++    return n;
++}
++
++}
++
++#endif
+diff --git a/src/graphics/sp_mesh_loader.cpp b/src/graphics/sp_mesh_loader.cpp
+--- a/src/graphics/sp_mesh_loader.cpp
++++ b/src/graphics/sp_mesh_loader.cpp
+@@ -30,6 +30,7 @@
+ #include "utils/string_utils.hpp"
+ 
+ #include "../../lib/irrlicht/source/Irrlicht/CSkinnedMesh.h"
++#include <ge_read_le.hpp>
+ const uint8_t VERSION_NOW = 1;
+ 
+ #include <algorithm>
+@@ -56,11 +57,6 @@ scene::IAnimatedMesh* SPMeshLoader::createMesh(io::IReadFile* f)
+ #else
+     const bool real_spm = false;
+ #endif
+-    if (!IS_LITTLE_ENDIAN)
+-    {
+-        Log::error("SPMeshLoader", "Not little endian machine.");
+-        return NULL;
+-    }
+     if (f == NULL)
+     {
+         return NULL;
+@@ -118,9 +114,9 @@ scene::IAnimatedMesh* SPMeshLoader::createMesh(io::IReadFile* f)
+     const bool is_skinned = header == "SPMA";
+     const SPVertexType vt = is_skinned ? SPVT_SKINNED : SPVT_NORMAL;
+     float bbox[6];
+-    f->read(bbox, 24);
++    GE::readLE(f, bbox, 6);
+     uint16_t size_num = 0;
+-    f->read(&size_num, 2);
++    GE::readLE(f, &size_num);
+     unsigned id = 0;
+     std::unordered_map<unsigned, std::tuple<video::SMaterial, bool,
+         bool> > mat_map;
+@@ -212,24 +208,24 @@ scene::IAnimatedMesh* SPMeshLoader::createMesh(io::IReadFile* f)
+         size_num--;
+         id++;
+     }
+-    f->read(&size_num, 2);
++    GE::readLE(f, &size_num);
+     while (size_num != 0)
+     {
+         uint16_t mat_size;
+-        f->read(&mat_size, 2);
++        GE::readLE(f, &mat_size);
+         while (mat_size != 0)
+         {
+             uint32_t vertices_count, indices_count;
+             uint16_t mat_id;
+-            f->read(&vertices_count, 4);
++            GE::readLE(f, &vertices_count);
+             if (vertices_count > 65535)
+             {
+                 Log::error("SPMeshLoader", "32bit index not supported.");
+                 m_mesh->drop();
+                 return NULL;
+             }
+-            f->read(&indices_count, 4);
+-            f->read(&mat_id, 2);
++            GE::readLE(f, &indices_count);
++            GE::readLE(f, &mat_id);
+             if (real_spm)
+             {
+                 assert(mat_id < sp_mat_map.size());
+@@ -260,7 +256,7 @@ scene::IAnimatedMesh* SPMeshLoader::createMesh(io::IReadFile* f)
+         {
+             // Reserved, never used
+             assert(false);
+-            f->read(bbox, 24);
++            GE::readLE(f, bbox, 6);
+         }
+         size_num--;
+     }
+@@ -280,7 +276,7 @@ scene::IAnimatedMesh* SPMeshLoader::createMesh(io::IReadFile* f)
+         // Reserved, never used
+         assert(false);
+         uint16_t pre_computed_size = 0;
+-        f->read(&pre_computed_size, 2);
++        GE::readLE(f, &pre_computed_size);
+     }
+     const bool has_armature = !m_all_armatures.empty();
+     if (real_spm)
+@@ -353,10 +349,10 @@ void SPMeshLoader::decompressSPM(irr::io::IReadFile* spm,
+     {
+         video::S3DVertexSkinnedMesh vertex = {};
+         // 3 * float position
+-        spm->read(&vertex.m_position, 12);
++        GE::readLE(spm, &vertex.m_position.X, 3);
+         if (read_normal)
+         {
+-            spm->read(&vertex.m_normal, 4);
++            GE::readLE(spm, &vertex.m_normal);
+         }
+         else
+         {
+@@ -388,14 +384,14 @@ void SPMeshLoader::decompressSPM(irr::io::IReadFile* spm,
+         }
+         if (uv_one)
+         {
+-            spm->read(&vertex.m_all_uvs[0], 4);
++            GE::readLE(spm, &vertex.m_all_uvs[0], 2);
+             if (uv_two)
+             {
+-                spm->read(&vertex.m_all_uvs[2], 4);
++                GE::readLE(spm, &vertex.m_all_uvs[2], 2);
+             }
+             if (read_tangent)
+             {
+-                spm->read(&vertex.m_tangent, 4);
++                GE::readLE(spm, &vertex.m_tangent);
+             }
+             else
+             {
+@@ -404,7 +400,8 @@ void SPMeshLoader::decompressSPM(irr::io::IReadFile* spm,
+         }
+         if (vt == SPVT_SKINNED)
+         {
+-            spm->read(&vertex.m_joint_idx[0], 16);
++            GE::readLE(spm, &vertex.m_joint_idx[0], 4);
++            GE::readLE(spm, &vertex.m_weight[0], 4);
+             if (vertex.m_joint_idx[0] == -1 ||
+                 vertex.m_weight[0] == 0 ||
+                 // -0.0 in half float (16bit)
+@@ -423,7 +420,7 @@ void SPMeshLoader::decompressSPM(irr::io::IReadFile* spm,
+     indices.resize(indices_count);
+     if (idx_size == 2)
+     {
+-        spm->read(indices.data(), indices_count * 2);
++        GE::readLE(spm, indices.data(), indices_count);
+     }
+     else
+     {
+@@ -459,10 +456,10 @@ void SPMeshLoader::decompressGESPM(irr::io::IReadFile* spm,
+     {
+         video::S3DVertexSkinnedMesh vertex = {};
+         // 3 * float position
+-        spm->read(&vertex.m_position, 12);
++        GE::readLE(spm, &vertex.m_position.X, 3);
+         if (read_normal)
+         {
+-            spm->read(&vertex.m_normal, 4);
++            GE::readLE(spm, &vertex.m_normal);
+         }
+         else
+         {
+@@ -494,14 +491,14 @@ void SPMeshLoader::decompressGESPM(irr::io::IReadFile* spm,
+         }
+         if (uv_one)
+         {
+-            spm->read(&vertex.m_all_uvs[0], 4);
++            GE::readLE(spm, &vertex.m_all_uvs[0], 2);
+             if (uv_two)
+             {
+-                spm->read(&vertex.m_all_uvs[2], 4);
++                GE::readLE(spm, &vertex.m_all_uvs[2], 2);
+             }
+             if (read_tangent)
+             {
+-                spm->read(&vertex.m_tangent, 4);
++                GE::readLE(spm, &vertex.m_tangent);
+             }
+             else
+             {
+@@ -510,7 +507,8 @@ void SPMeshLoader::decompressGESPM(irr::io::IReadFile* spm,
+         }
+         if (vt == SPVT_SKINNED)
+         {
+-            spm->read(&vertex.m_joint_idx[0], 16);
++            GE::readLE(spm, &vertex.m_joint_idx[0], 4);
++            GE::readLE(spm, &vertex.m_weight[0], 4);
+             if (vertex.m_joint_idx[0] == -1 ||
+                 vertex.m_weight[0] == 0 ||
+                 // -0.0 in half float (16bit)
+@@ -530,7 +528,7 @@ void SPMeshLoader::decompressGESPM(irr::io::IReadFile* spm,
+     indices.resize(indices_count);
+     if (idx_size == 2)
+     {
+-        spm->read(indices.data(), indices_count * 2);
++        GE::readLE(spm, indices.data(), indices_count);
+     }
+     else
+     {
+@@ -574,12 +572,12 @@ void SPMeshLoader::decompress(irr::io::IReadFile* spm, unsigned vertices_count,
+     {
+         video::S3DVertex2TCoords vertex;
+         // 3 * float position
+-        spm->read(&vertex.Pos, 12);
++        GE::readLE(spm, &vertex.Pos.X, 3);
+         if (read_normal)
+         {
+             // 3 10 + 2 bits normal
+             uint32_t packed;
+-            spm->read(&packed, 4);
++            GE::readLE(spm, &packed);
+             vertex.Normal = decompressVector3(packed);
+         }
+         if (read_vcolor)
+@@ -608,14 +606,14 @@ void SPMeshLoader::decompress(irr::io::IReadFile* spm, unsigned vertices_count,
+         if (uv_one)
+         {
+             short hf[2];
+-            spm->read(hf, 4);
++            GE::readLE(spm, hf, 2);
+             vertex.TCoords.X = toFloat32(hf[0]);
+             vertex.TCoords.Y = toFloat32(hf[1]);
+             assert(!std::isnan(vertex.TCoords.X));
+             assert(!std::isnan(vertex.TCoords.Y));
+             if (uv_two)
+             {
+-                spm->read(hf, 4);
++                GE::readLE(spm, hf, 2);
+                 vertex.TCoords2.X = toFloat32(hf[0]);
+                 vertex.TCoords2.Y = toFloat32(hf[1]);
+                 assert(!std::isnan(vertex.TCoords2.X));
+@@ -624,19 +622,20 @@ void SPMeshLoader::decompress(irr::io::IReadFile* spm, unsigned vertices_count,
+             if (read_tangent)
+             {
+                 uint32_t packed;
+-                spm->read(&packed, 4);
++                GE::readLE(spm, &packed);
+             }
+         }
+         if (vt == SPVT_SKINNED)
+         {
+             std::array<short, 4> joint_idx;
+-            spm->read(joint_idx.data(), 8);
++            GE::readLE(spm, joint_idx.data(), 4);
+             spm->read(tmp, 8);
+             std::array<float, 4> joint_weight = {};
+             for (int j = 0; j < 8; j += 2)
+             {
+                 short hf;
+                 memcpy(&hf, tmp + j, 2);
++                GE::fromLE(&hf);
+                 const unsigned idx = j >> 1;
+                 joint_weight[idx] = toFloat32(hf);
+                 assert(!std::isnan(joint_weight[idx]));
+@@ -663,7 +662,7 @@ void SPMeshLoader::decompress(irr::io::IReadFile* spm, unsigned vertices_count,
+     mb->Indices.set_used(indices_count);
+     if (idx_size == 2)
+     {
+-        spm->read(mb->Indices.pointer(), indices_count * 2);
++        GE::readLE(spm, mb->Indices.pointer(), indices_count);
+     }
+     else
+     {
+@@ -700,8 +699,9 @@ void SPMeshLoader::createAnimationData(irr::io::IReadFile* spm)
+     uint8_t armature_size = 0;
+     spm->read(&armature_size, 1);
+     assert(armature_size > 0);
+-    m_bind_frame = 0;
+-    spm->read(&m_bind_frame, 2);
++    uint16_t bind_frame = 0;
++    GE::readLE(spm, &bind_frame);
++    m_bind_frame = bind_frame;
+     m_all_armatures.resize(armature_size);
+     for (unsigned i = 0; i < armature_size; i++)
+     {
