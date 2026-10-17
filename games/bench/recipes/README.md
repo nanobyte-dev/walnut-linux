@@ -25,7 +25,7 @@ if it exists (`base` needs none).
 | `RESULT_FILE` | files the game writes, copied into the run directory |
 | `during()` | runs in the background while the game runs (its output in during.log), stopped at the end |
 | `parse()` | prints extra `key=value` lines into bench.txt |
-| `HUD` | 1 (default): Gallium HUD fps per second into `hud/fps` and every frame's time (ms) into `hud/frametime(ms)` |
+| `HUD` | 1 (default): Gallium HUD fps per second into `hud/fps` and every frame's time (ms) into `hud/frametime_(ms)` |
 | `WM` | window manager started first (default `openbox`; empty: none, the game's window may not show) |
 | `GAMEMODE` | 1: start through `ps3-game` (as the desktop does); default 0, as step 0 |
 | `SOUND_AT` | seconds from start when the sound card state is read (default 15) |

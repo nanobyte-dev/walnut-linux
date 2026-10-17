@@ -54,7 +54,7 @@ def synthetic(tmp):
             v = stalls.pop(at)
         ft.append(v)
         t += v / 1000
-    write(d / "hud" / "frametime(ms)", "".join("%g\n" % v for v in ft))
+    write(d / "hud" / "frametime_(ms)", "".join("%g\n" % v for v in ft))
     write(d / "hud" / "fps", "".join("%d\n" % (25 if i < 65 else 50) for i in range(195)))
     bench(d, game="fake", variant="base", ended="window", seconds="%.2f" % t, load="8.0",
           hud_skip=12, warmup=60, measure=120, load_end="10.00", hud_t1="5.00", window="70.00 190.00")
@@ -177,7 +177,7 @@ def fake_game(mode):
         out.flush()
         time.sleep(0.6)
         say("aded")
-    ft = open(os.path.join(hud, "frametime(ms)"), "a", buffering=1) if hud else None
+    ft = open(os.path.join(hud, "frametime_(ms)"), "a", buffering=1) if hud else None
     fp = open(os.path.join(hud, "fps"), "a", buffering=1) if hud else None
     last = sec = time.monotonic()
     frames = passn = 0

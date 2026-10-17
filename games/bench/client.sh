@@ -56,13 +56,14 @@ done
 trap restore EXIT	# also when this script dies of an error
 setup || { echo "!! $GAME: setup failed"; exit 2; }
 
-# per-second fps (hud/fps, as ps3-bench.sh BENCH_HUD=1) and every frame's time in ms (hud/frametime(ms):
-# the HUD's frametime graph adds a value at every swap whatever the period; the first frame has none)
+# per-second fps (hud/fps, as ps3-bench.sh BENCH_HUD=1) and every frame's time in ms (hud/frametime_(ms):
+# the HUD's frametime graph adds a value at every swap whatever the period; the first frame has none;
+# the file is the graph's name "frametime (ms)" with the space made '_', hud_context.c)
 hud_file=
 if [ "$HUD" = 1 ] && [ -z "${GALLIUM_HUD:-}" ]; then
 	mkdir -p "$D/hud"
 	ENV+=(GALLIUM_HUD=fps,frametime GALLIUM_HUD_VISIBLE=false GALLIUM_HUD_PERIOD=1 GALLIUM_HUD_DUMP_DIR=$D/hud)
-	hud_file="$D/hud/frametime(ms)"
+	hud_file="$D/hud/frametime_(ms)"
 elif [ -n "${GALLIUM_HUD_DUMP_DIR:-}" ]; then	# ps3-bench.sh's BENCH_HUD=1: per-second fps only
 	hud_file=$GALLIUM_HUD_DUMP_DIR/fps
 fi

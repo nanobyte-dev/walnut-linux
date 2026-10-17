@@ -137,7 +137,7 @@ def steady(d, b, r):
         return any(s < e <= t for s, t in segs)
     t1 = num(b.get("hud_t1"))
     secs = num(b.get("seconds"))
-    ft_path, fps_path = d / "hud" / "frametime(ms)", d / "hud" / "fps"
+    ft_path, fps_path = d / "hud" / "frametime_(ms)", d / "hud" / "fps"
     if ft_path.exists() and (ft := floats(ft_path)):
         # frame i ends at t1 + the frame times after the first (t1: when the dump got its first value)
         ends, t = [], (t1 if t1 is not None else (secs or 0) - sum(ft[1:]) / 1000)
