@@ -12,6 +12,13 @@
 # water fade shader variants only as far as maxdynlights, waterrefract and waterfade ask. "base" is
 # that; every variant below changes one thing (or, lean, the bundle that is meant to ship).
 # Memory per run: during.log has MemAvailable and SwapFree every 5 s, bench.txt their lowest.
+# Steady state: the script also counts its own window, 60 s after the first frame for 120 s, and
+# prints "ps3bench: steady <n> frames in <ms> ms: <fps> fps, longest <ms> ms" (STEADY_RE) before it
+# quits; the old line (10 s to 40 s) still comes first, so fps= and maxms= mean what they did. The
+# view is static (the player stands at the spawn): what the window measures is one view's
+# rendering once loading and the first stalls are over. Planned: a demo recorded once by the user
+# (cube2's `recorddemo 1` in a local game, saved as a .dmo) as the run; variant demo plays
+# assets/sauerbraten-bench.dmo, looped (demoend), with the same counters, when that file exists.
 SUITE=1
 COMM=cube2_client
 SB_HOME=$HOME/.cube2
@@ -19,21 +26,36 @@ BACKUP=("$SB_HOME/autoexec.cfg" "$SB_HOME/config.cfg" "$SB_HOME/restore.cfg" "$S
 SB_MAP=cave
 SB_SET=()	# extra CubeScript lines for autoexec.cfg (variants)
 SB_INIT=()	# extra lines for init.cfg, which the engine reads before it starts the sound (soundfreq...)
+SB_DEMO=	# a demo file to play instead of standing on SB_MAP (variant demo)
 setup() {
 	mkdir -p "$SB_HOME"
+	if [ -n "$SB_DEMO" ]; then
+		[ -e "$SB_DEMO" ] || { echo "!! no $SB_DEMO: record the demo first (recipe header)"; return 1; }
+		mkdir -p "$SB_HOME/demo"; cp "$SB_DEMO" "$SB_HOME/demo/bench.dmo"
+	fi
 	printf '%s\n' "fullscreen 1" "vsync 0" "maxfps 0" "${SB_SET[@]}" > "$SB_HOME/autoexec.cfg"
 	[ ${#SB_INIT[@]} -eq 0 ] || printf '%s\n' "${SB_INIT[@]}" >> "$SB_HOME/init.cfg"
 }
 SB_SCRIPT='ps3f = 0; ps3max = 0
 ps3count = [ps3f = (+ $ps3f 1); ps3now = (getmillis 1); ps3max = (max $ps3max (- $ps3now $ps3last)); ps3last = $ps3now; sleep 1 ps3count]
-sleep 1 [echo "ps3bench: first frame"; sleep 10000 [echo "ps3bench: start"; ps3t = (getmillis 1); ps3last = $ps3t; ps3count; sleep 30000 [ps3ms = (- (getmillis 1) $ps3t); echo (format "ps3bench: %1 frames in %2 ms: %3 fps, longest %4 ms" $ps3f $ps3ms (divf (*f $ps3f 1000) $ps3ms) $ps3max); quit]]]'
-sb_cmd() { CMD=(/usr/games/cube2 -w1920 -h1080 -t1 "-l$SB_MAP" "-x$SB_SCRIPT"); }
+sleep 1 [echo "ps3bench: first frame"; sleep 10000 [echo "ps3bench: start"; ps3t = (getmillis 1); ps3last = $ps3t; ps3count; sleep 30000 [ps3ms = (- (getmillis 1) $ps3t); echo (format "ps3bench: %1 frames in %2 ms: %3 fps, longest %4 ms" $ps3f $ps3ms (divf (*f $ps3f 1000) $ps3ms) $ps3max)]; sleep 50000 [ps3f0 = $ps3f; ps3t2 = (getmillis 1); ps3max = 0]; sleep 170000 [ps3ms = (- (getmillis 1) $ps3t2); ps3n = (- $ps3f $ps3f0); echo (format "ps3bench: steady %1 frames in %2 ms: %3 fps, longest %4 ms" $ps3n $ps3ms (divf (*f $ps3n 1000) $ps3ms) $ps3max); quit]]]'
+sb_cmd() {
+	if [ -n "$SB_DEMO" ]; then	# the demo from ~/.cube2/demo/bench.dmo (mode -1), again at its end
+		CMD=(/usr/games/cube2 -w1920 -h1080 -t1 "-xdemoend = [mode -1; map bench]; mode -1; map bench
+$SB_SCRIPT")
+	else
+		CMD=(/usr/games/cube2 -w1920 -h1080 -t1 "-l$SB_MAP" "-x$SB_SCRIPT")
+	fi
+}
 sb_cmd
 FPS_RE='^ps3bench: [0-9]+ frames in [0-9]+ ms: ([0-9.]+) fps'
 MAXMS_RE='^ps3bench: .* longest ([0-9]+) ms'
+STEADY_RE='^ps3bench: steady [0-9]+ frames in [0-9]+ ms: ([0-9.]+) fps'
+STEADY_MAXMS_RE='^ps3bench: steady .* longest ([0-9]+) ms'
 LOAD_MARK='^read map '
-# a safety net: loading (27-34 s at best, over 100 s while the memory swaps), 10 s, 30 s measured;
-# quits by itself. The first version's 170 s cut the run before the measurement printed.
+# a safety net: loading (27-34 s at best, over 100 s while the memory swaps), then 180 s (the old
+# window at 10-40 s, the steady one at 60-180 s); quits by itself. The first version's 170 s cut the
+# run before the measurement printed.
 DURATION=330
 during() {
 	while :; do
@@ -108,3 +130,5 @@ variant_towers() { SB_MAP=two_towers; sb_cmd; }
 variant_spuskin() { variant_gun; ENV+=(SPEQ_SKIN=spu SPEQ_DEBUG=1); }
 variant_ppeskin() { variant_gun; ENV+=(SPEQ_SKIN=ppe SPEQ_DEBUG=1); }
 variant_offskin() { variant_gun; ENV+=(SPEQ_SKIN=off); }
+# the recorded demo (recipe header), if assets/sauerbraten-bench.dmo exists: the same counters
+variant_demo() { SB_DEMO=$ASSETS/sauerbraten-bench.dmo; BACKUP+=("$SB_HOME/demo/bench.dmo"); sb_cmd; }
