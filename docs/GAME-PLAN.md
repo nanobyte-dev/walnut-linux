@@ -424,6 +424,65 @@ installed for the profiles and removed again: reinstall them for the next profil
 Out of scope: DXT5 (Teeworlds, TORCS; it waits for the SPU plan) and games that need GL 3. 3D
 textures are supported by nv30 (sampling; rendering into them is refused).
 
+## Smoke tests (not benchmarked)
+
+Decided with the user 2026-10-17: games we never tried get one launch each, to see whether they
+start and play; no numbers, no repeats, not part of `suite` (their recipes have `SUITE=0`). Wesnoth
+is out (2-4 GB of RAM, and Debian doesn't build it for ppc64: Boost). Recipes: `games/bench/recipes/<game>.sh`
+with `smoke.inc` (120 s, `SMOKE_SECS=N` and `BENCH_TIMEOUT=N` for longer, vblank_mode=0, HUD fps
+only for the report), config written by `setup()` and restored after the run, a first look at the
+picture on the TV and the game's own log lines (`run.sh smoke` prints both). Every game below is in
+Debian ports ppc64 main at the same version as our 20261013 snapshot (Crispy Doom live: 7.2-1) and
+the PS3's apt reads the live ports, so no `make deps` is needed; add the names to `image/deps.txt`
+only for the games that stay (the data of torcs and redeclipse is 1.5 GB between them).
+
+On the PS3, before the session (the desktop may be up; about 1.5 GB download, 2 GB installed; check
+`df -h /` first, and leave redeclipse-data and torcs-data for last if the space is short):
+
+    sudo apt install teeworlds teeworlds-server supertux trigger-rally chromium-bsu frozen-bubble pingus
+    sudo apt install --no-install-recommends chocolate-doom crispy-doom woof-doom freedoom
+    sudo apt install torcs redeclipse
+    make bench-push        # on the PC: games/bench to the PS3
+
+| Game | Package, download | How it starts | Risks | Result |
+|---|---|---|---|---|
+| Teeworlds 0.7.5 | `teeworlds`, `teeworlds-server`, `-data`: 8 MB | into a game at once: the client connects to a teeworlds-server (map dm1) that the recipe starts; no bots, you run around alone. Variants notc, menu, window, s3tcppe, s3tcspu | DXT5 (`gfx_texture_compression 1`: Mesa makes DXT5 of the alpha textures; libspeq 0.367 does it with Mesa 0032, not in a Mesa deb yet, so the PPE does it: note the load time and whether the log shows SPEQ lines) and the tile maps as 3D textures; SDL2 audio | to run |
+| TORCS 1.3.7 | `torcs`, `torcs-data`: 326 MB | menu only (`-r` is the console mode): Race > Quick Race > New Race, arrow keys. Variants notc, window, single | texture compression ARB (setup() enables it in graph.xml, key names unverified; the Graphic options screen has it), fullscreen through GLUT game mode and XRandR, 4 robots on the PPE, RAM | to run |
+| SuperTux 0.6.3 | `supertux`, `supertux-data`: 160 MB | level "Welcome to Antarctica" at once, `--renderer opengl20`, fps shown; Tux stands still until played. Variants worldmap, menu, sdl, nomusic | FBO use on nv30, SDL2_image colours, RAM | to run |
+| Trigger Rally 0.6.6 | `trigger-rally`, `-data`: 116 MB | menu only (no command line): Single Race, arrow keys. Cheap graphics written into its config. Variant full | big stage textures (RAM), terrain draws on the PPE, GLEW | to run |
+| Red Eclipse 1.6.0 | `redeclipse`, `redeclipse-data`: 842 MB (959 MB installed) | `dm torus` at once (smallest map, 2 bots, lowest settings in autoexec.cfg; RE_MAP or variants singularity, disco, cyanide). Variants tc (texture compression on again), defaults, menu | **out of memory**: Sauerbraten OOM-killed here until our cube2 memory patches, and RE has none (watch dmesg.log and MemAvailable); GLSL 1.20 shader limits; compression is off on Mesa by default | to run |
+| Chromium B.S.U. | `chromium-bsu`, `-data`: 1 MB | menu only: Enter on Start Game, arrows or mouse, Space fires. Variants full, min, noblend, nosound | immediate-mode sprites, GLC text, OpenAL/ALUT | to run |
+| Frozen Bubble 2.212 | `frozen-bubble`, `-data`: 21 MB | straight into level 1 (`--solo`), Left/Right/Up. Variants menu, nosound, slow, window | the game is 640x480 on SDL 1.2: sdl12-compat's fullscreen scaling and colours; Perl start-up | to run |
+| Chocolate Doom 3.1.1 | `chocolate-doom` + `freedoom` (in the image): 1 MB | Freedoom 2 MAP01 at once. Variants demo (DEMO1, exits), attract (title and demo loop), nomusic, sdlsw, gles | SDL2 renderer path and the big-endian window texture (dsda's frame was green-tinted before our SDL3 patch), OPL music CPU, underruns | to run |
+| Crispy Doom 7.1 | `crispy-doom`: 1 MB | same, vanilla resolution (hires off). Variants as Chocolate plus hires, uncapped | as Chocolate | to run |
+| Woof 16 | `woof-doom`: 1 MB | same, 400 lines scaled up. Variants as Chocolate plus uncapped | SDL3's renderer and our libsdl3, OpenAL + fluidsynth (SPE voices) CPU and underruns | to run |
+| Pingus 0.7.6 | `pingus`, `-data`: 11 MB | the first tutorial level at once, `-r opengl`, mouse only. Variants menu, sdl, delta, swcursor, nosound | sdl12-compat with an OpenGL surface at fullscreen, texture uploads of the big backgrounds | to run |
+
+Commands (as tibi on the PS3, one after the other; `ps3-bench.sh desktop` at the end of the session
+as always; the no-VSWAP default of `smoke` stays):
+
+    cd /var/tmp/bench      # where make bench-push puts games/bench
+    ./run.sh smoke chocolate-doom;  ./run.sh smoke crispy-doom;  ./run.sh smoke woof
+    ./run.sh smoke frozen-bubble;   ./run.sh smoke chromium-bsu; ./run.sh smoke pingus
+    ./run.sh smoke supertux;        ./run.sh smoke teeworlds;    ./run.sh smoke trigger-rally
+    ./run.sh smoke torcs;           ./run.sh smoke redeclipse    # the two heavy ones last
+
+The safe order is the one of the first session (software renderers first, the heaviest last):
+a graph exception ends the session. Games that start in a menu need someone at the controller; give
+them time with `SMOKE_SECS=300 BENCH_TIMEOUT=420 ./run.sh smoke torcs`.
+
+Hedgewars 1.0.3 is skipped. Debian builds no ppc64 binary (2 of 7 engine Lua tests fail). The
+build log (hedgewars 1.0.3-5, ppc64, 2026-09-21) shows two different failures, not one: `stuckcake.lua`
+dies with `EInvalidOp: Invalid floating point operation` in game set-up, and in `gravity_get_set.lua`
+the grenade stops at the wrong height when gravity is 200 or 300 (Y -10 and -4, expected 2 and 253),
+a physics divergence with no exception. So masking the FPU exceptions would not be a test-only fix.
+The engine has no exception-mask code of its own. What differs on ppc64 is the compiler:
+`debian/rules` builds the engine with Free Pascal 3.2.2 where `fp-compiler` is installed (amd64, arm64, ppc64 and the rest) and translates it to C with `pas2c` (GHC) and clang on armel, armhf, i386, mipsel and ppc64el,
+where it passes. Trying that on ppc64 is a change to the architecture lists in `debian/control` (clang and
+libghc-parsec3-dev for ppc64, no fp-*), but it needs the GHC-built pas2c and a clang build of a very large C file, with the Qt5
+frontend and the Haskell server, under qemu: hours, and no guarantee that the C engine is
+big-endian clean. The frontend would also be a Qt5 program on 217 MB of RAM. Not started.
+
 ## Sessions
 
 Before each session the webMAN fan is on SYSCON (or at least 60%) and the user boots through

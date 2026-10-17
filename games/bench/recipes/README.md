@@ -40,3 +40,9 @@ matrix.py with a fake game and made-up runs, and sources every recipe and varian
 `openal.inc` is not a recipe: the OpenAL Soft variants (`allog`, `b16`, `f44`, `b16f44`, `p1024`,
 `alnull`) the OpenAL games' recipes share (docs/SPU-AUDIO.md, M0), with an optional perf profile
 (`OAL_PERF=N`) that `games/bench/oal-perf.sh` splits by symbol.
+
+`smoke.inc` is not a recipe either: the shared header of the smoke recipes (`SUITE=0`, a 120 s
+`DURATION` that `SMOKE_SECS` overrides, a short HUD window, `vblank_mode=0`). A smoke recipe is a
+game tried once to see whether it starts and plays, not measured (docs/GAME-PLAN.md, "Smoke tests
+(not benchmarked)"): `run.sh smoke <game> [variant]`. Current ones: teeworlds, torcs, supertux,
+trigger-rally, redeclipse, chromium-bsu, frozen-bubble, chocolate-doom, crispy-doom, woof, pingus.
