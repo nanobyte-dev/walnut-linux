@@ -1,0 +1,111 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 03:52:31 +0300
+Subject: render/opengl: upload ARGB8888/ABGR8888 natively on big-endian
+
+The OpenGL renderer lists only byte-order formats (BGRA32, RGBA32, BGRX32,
+RGBX32) and uploads them with GL_UNSIGNED_BYTE. On big-endian those are
+BGRA8888 etc., so ARGB8888/XRGB8888 textures (the accelerated window
+framebuffer, which applications fill with 0xAARRGGBB words, and most
+software-rendered frames) got a native texture in another format and SDL
+converted every update on the CPU: SDL_ConvertPixels of the updated
+rectangle into the locked native texture, then the upload. At 1920x1080
+on the PS3 (Cell PPE, Mesa nv30) OpenTTD's title screen ran at about 2 fps
+through the window framebuffer, with audio starving.
+
+On big-endian, list ARGB8888/XRGB8888 (with GL_BGRA) and ABGR8888/XBGR8888
+(with GL_RGBA) as well and upload them with GL_UNSIGNED_INT_8_8_8_8_REV,
+which reads each pixel as a native 32-bit word, first component in the low
+byte: no conversion, the way SDL2 uploaded them. They need OpenGL 1.2 (or
+GL_APPLE_packed_pixels); ARGB8888 comes first, as BGRA32 (the same format)
+does on little-endian. Readback of such a render target uses the same
+format and type. Little-endian builds are unchanged.
+
+Forwarded: no
+
+diff --git a/src/render/opengl/SDL_render_gl.c b/src/render/opengl/SDL_render_gl.c
+--- a/src/render/opengl/SDL_render_gl.c
++++ b/src/render/opengl/SDL_render_gl.c
+@@ -432,6 +432,26 @@ static bool convert_format(Uint32 pixel_format, GLint *internalFormat, GLenum *f
+         *format = GL_RGBA;
+         *type = GL_UNSIGNED_BYTE; // previously GL_UNSIGNED_INT_8_8_8_8_REV, seeing if this is better in modern times.
+         break;
++#if SDL_BYTEORDER == SDL_BIG_ENDIAN
++    /* The packed 32-bit formats are BGRA32 etc. only on little-endian. On big-endian,
++     * GL_UNSIGNED_INT_8_8_8_8_REV reads each pixel as a native 32-bit word with the
++     * first component in its low byte, which is ARGB8888 (GL_BGRA) and ABGR8888
++     * (GL_RGBA): uploaded as they are, without a conversion on every update (the
++     * window framebuffer, OpenTTD and other software renderers write 0xAARRGGBB words).
++     * SDL2 uploaded them this way on every platform. */
++    case SDL_PIXELFORMAT_ARGB8888:
++    case SDL_PIXELFORMAT_XRGB8888:
++        *internalFormat = GL_RGBA8;
++        *format = GL_BGRA;
++        *type = GL_UNSIGNED_INT_8_8_8_8_REV;
++        break;
++    case SDL_PIXELFORMAT_ABGR8888:
++    case SDL_PIXELFORMAT_XBGR8888:
++        *internalFormat = GL_RGBA8;
++        *format = GL_RGBA;
++        *type = GL_UNSIGNED_INT_8_8_8_8_REV;
++        break;
++#endif
+     case SDL_PIXELFORMAT_INDEX8:
+     case SDL_PIXELFORMAT_YV12:
+     case SDL_PIXELFORMAT_IYUV:
+@@ -745,7 +765,8 @@ static bool GL_CreateTexture(SDL_Renderer *renderer, SDL_Texture *texture, SDL_P
+ 
+     if (texture->format == SDL_PIXELFORMAT_INDEX8) {
+         data->shader = SHADER_PALETTE_NEAREST;
+-    } else if (texture->format == SDL_PIXELFORMAT_RGBA32 || texture->format == SDL_PIXELFORMAT_BGRA32) {
++    } else if (texture->format == SDL_PIXELFORMAT_RGBA32 || texture->format == SDL_PIXELFORMAT_BGRA32 ||
++               texture->format == SDL_PIXELFORMAT_ABGR8888 || texture->format == SDL_PIXELFORMAT_ARGB8888) {
+         data->shader = SHADER_RGBA;
+     } else {
+         data->shader = SHADER_RGB;
+@@ -1771,6 +1792,9 @@ static bool GL_CreateRenderer(SDL_Renderer *renderer, SDL_Window *window, SDL_Pr
+     const char *hint, *verstr;
+     bool non_power_of_two_supported = false;
+     bool bgra_supported = false;
++#if SDL_BYTEORDER == SDL_BIG_ENDIAN
++    bool packed_supported = false;
++#endif
+ 
+     SDL_SetupRendererColorspace(renderer, create_props);
+ 
+@@ -1937,6 +1961,20 @@ static bool GL_CreateRenderer(SDL_Renderer *renderer, SDL_Window *window, SDL_Pr
+         }
+     }
+ 
++#if SDL_BYTEORDER == SDL_BIG_ENDIAN
++    // GL_UNSIGNED_INT_8_8_8_8_REV: OpenGL 1.2, or GL_APPLE_packed_pixels
++    if (real_major > 1 || (real_major == 1 && real_minor >= 2) ||
++        SDL_GL_ExtensionSupported("GL_APPLE_packed_pixels")) {
++        packed_supported = true;
++    }
++    // ARGB8888 first, as on little-endian, where it is BGRA32
++    if (bgra_supported && packed_supported) {
++        SDL_AddSupportedTextureFormat(renderer, SDL_PIXELFORMAT_ARGB8888);
++    }
++    if (packed_supported) {
++        SDL_AddSupportedTextureFormat(renderer, SDL_PIXELFORMAT_ABGR8888);
++    }
++#endif
+     // RGBA32 is always supported with OpenGL
+     if (bgra_supported) {
+         SDL_AddSupportedTextureFormat(renderer, SDL_PIXELFORMAT_BGRA32);    // SDL_PIXELFORMAT_ARGB8888 on little endian systems
+@@ -1948,6 +1986,14 @@ static bool GL_CreateRenderer(SDL_Renderer *renderer, SDL_Window *window, SDL_Pr
+     SDL_LogInfo(SDL_LOG_CATEGORY_RENDER, "OpenGL shaders: %s",
+                 data->shaders ? "ENABLED" : "DISABLED");
+     if (GL_SupportsShader(data->shaders, SHADER_RGB)) {
++#if SDL_BYTEORDER == SDL_BIG_ENDIAN
++        if (bgra_supported && packed_supported) {
++            SDL_AddSupportedTextureFormat(renderer, SDL_PIXELFORMAT_XRGB8888);
++        }
++        if (packed_supported) {
++            SDL_AddSupportedTextureFormat(renderer, SDL_PIXELFORMAT_XBGR8888);
++        }
++#endif
+         if (bgra_supported) {
+             SDL_AddSupportedTextureFormat(renderer, SDL_PIXELFORMAT_BGRX32);
+         }

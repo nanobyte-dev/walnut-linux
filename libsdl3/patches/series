@@ -1,1 +1,2 @@
 0001-video-window-framebuffer-texture-in-ARGB8888-XRGB888.patch
+0002-render-opengl-upload-ARGB8888-ABGR8888-natively-on-b.patch
