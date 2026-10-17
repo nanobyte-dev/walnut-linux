@@ -660,7 +660,8 @@ precision, the job and the wait)
   swapped-out SoundFont page comes back there, not as a fault on the worker's thread). The SPU
   fetches a voice's windows while the voice before it renders (two buffer sets); the cubic and
   linear coefficient tables (12 KB, copied by libspeq to 16-byte alignment) stay in local store.
-  synth.spu: 22 KB code, 113 KB data.
+  synth.spu: 22 KB code, 113 KB data (until 0.367; since then the synth op lives in deadline.spu,
+  see the pool below).
 - **Precision.** The SPU computes in double, like Debian's fluidsynth (SPU double precision is
   IEEE, round to nearest; its single precision truncates). The DSP code is one C file for both
   sides (lib/synth-kern.h), a port of the three interpolations, the filter and the mix with the
@@ -682,8 +683,8 @@ precision, the job and the wait)
   the calling thread (the hook's path without SPEs, for telling hook bugs from SPU bugs);
   `off` keeps fluidsynth stock. `SPEQ_DEBUG=1`: a line of counters every 10 s and at close
   (blocks on the SPEs, voices, jobs, mean and max wait, refusals, timeouts, errors, backoffs).
-- **The queue: one per service, the SPEs split, not one shared queue** (risk 5 in 3(f)
-  above). The synth has its own queue, opened once per process at the first synth's creation
+- **The queue (v1, superseded in libspeq 0.367 by the shared deadline pool: ps3-spu/doc/pool.md).**
+  Before 0.367: one per service, the SPEs split, not one shared queue (risk 5 in 3(f) above). The synth has its own queue, opened once per process at the first synth's creation
   (`new_fluid_synth`, not the audio callback: opening costs 1.6 ms), one worker (a deadline
   queue), workers parking after 200 ms idle (music stopped) instead of 10 ms and freeing their
   context after a minute; the DXT queue became a bulk queue (`SPEQ_OPEN_BULK`): with nworkers
@@ -774,9 +775,12 @@ unpipelined double operations per sample, every one a 6-cycle stall) was ~550 cy
   and 512 entries of 256 bytes per round), then `speq_synth_render_v2` renders the whole round in
   one round trip. Entries sit voice-major, so a job renders whole voices block after block,
   carrying the histories; jobs are cut so that both workers get work.
-- **Both deadline SPEs.** `SPEQ_SYNTH_SPES` defaults to 2 (the two the DXT bulk queue leaves);
-  an OpenAL mixer in the same process would make 7 contexts, so it should join this queue or
-  set `SPEQ_SYNTH_SPES=1`.
+- **Both deadline SPEs.** Since libspeq 0.367 the synth and skinning share one deadline pool per
+  process (`SPEQ_POOL_SPES`, default 2, the two the DXT bulk queue leaves; one SPU program,
+  deadline.spu, workers pick the earliest deadline among the first 16 queued jobs; design in
+  ps3-spu/doc/pool.md). `SPEQ_SYNTH_SPES` now caps how many pool workers one round is split
+  across (default all) and opens nothing. An OpenAL mixer joins the pool as another op (its
+  ~70 KB of buffers fit the shared arena, estimate), so a process stays at 6 contexts.
 - **Fallback.** The SPU never writes a round's entries or input histories, so a late or failed
   round is redone on the PPE from them (libspeq's same DSP code), and render always delivers;
   voices whose windows exceed a job's local store (a pitch above ~30 times the sample's rate)
