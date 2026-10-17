@@ -50,3 +50,8 @@ variant_tuned() {
 variant_playopl() { variant_play; DD_SET=('snd_midiplayer "opl"'); }
 variant_playcap35() { variant_play; DD_SET=('dsda_fps_limit 35'); }
 variant_play48k() { variant_play; DD_SET=('snd_samplerate 48000'); }
+# fluidsynth's voice DSP on the SPEs (our libfluidsynth3 +ps3.289 with libspeq0 0.288,
+# docs/SPU-AUDIO.md 5): spu always, ppe = libspeq's code on the PPE, off = stock fluidsynth
+variant_playspu() { variant_play; ENV+=(SPEQ_SYNTH=spu SPEQ_DEBUG=1); }
+variant_playppe() { variant_play; ENV+=(SPEQ_SYNTH=ppe SPEQ_DEBUG=1); }
+variant_playoff() { variant_play; ENV+=(SPEQ_SYNTH=off); }
