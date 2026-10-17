@@ -1,0 +1,172 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 15:44:58 +0300
+Subject: nv30: submit when the GPU caught up and a share of a frame is queued
+ (PS3, NV30_PS3_KICK_AUTO)
+
+Without relocations (0019) a context submits only when its push buffer fills, on a flush or
+for a query, so a frame reaches the GPU in one piece at SwapBuffers and the GPU idles while
+the CPU builds it. 0026's submission every N draws brings the overlap back where draws are
+big (ps3.282, fps: Armagetron 50 -> 60.5 at N=100, OpenArena 51.3 -> 53.1, ClassiCube
+48.3 -> 48.9) but costs where they are tiny and many (X-Moto 47.5 -> 43.0): each submission is an ioctl, the
+kernel's buffer list and fences, and every bound buffer referenced again, and X-Moto's
+immediate-mode draws made dozens of them per frame. A draw count is the wrong measure.
+
+NV30_PS3_KICK_AUTO (on by default on the PS3; =0 restores ps3.282's behaviour) submits at
+the start of a draw only when both hold, checked without an ioctl:
+ - the work queued since the last submission is at least NV30_PS3_KICK_MIN_BYTES (16384)
+   and at least 1/NV30_PS3_KICK_SPLIT (4) of the words the last frame queued (frames end at
+   flushes with PIPE_FLUSH_END_OF_FRAME), so a frame is cut into at most about that many
+   parts whatever its draw count: a few extra submissions per frame, never dozens;
+ - the GPU has finished everything submitted before: the fence notifier (a plain read of
+   mapped memory, nv30_screen_fence_update) has caught up with the last fence emitted. While
+   the GPU still works on earlier work a submission adds no overlap, only its cost, and the
+   check comes again at the next draw.
+NV30_PS3_KICK_DRAWS=N still overrides it (and turns it off). All read once at screen
+creation.
+
+Same command stream, cut into more submissions. What would confirm it on the PS3 (HUD fps,
+against ps3.282's defaults / kick100): Armagetron near kick100's 60.5 (defaults 50),
+X-Moto at least the defaults' 47.5 (kick100: 43.0), OpenArena near kick100's 53.1 (51.3),
+ClassiCube at least its defaults' 48.3 (kick100: 48.9). If X-Moto still loses, try NV30_PS3_KICK_SPLIT=2 or a
+larger NV30_PS3_KICK_MIN_BYTES; if Armagetron gains less than kick100, NV30_PS3_KICK_SPLIT=8.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.c b/src/gallium/drivers/nouveau/nv30/nv30_context.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.c
+@@ -42,6 +42,14 @@ nv30_context_kick_notify(struct nouveau_pushbuf *push)
+    struct nouveau_pushbuf_priv *p = push->user_priv;
+    struct nouveau_screen *screen = p->screen;
+ 
++   /* NV30_PS3_KICK_AUTO: this submission's words count towards the frame's size */
++   struct nv30_context *nv30 = nv30_context(&p->context->pipe);
++   if (nv30->kick_mark) {
++      if (push->cur >= nv30->kick_mark && push->cur - nv30->kick_mark <= (1 << 20))
++         nv30->frame_words += push->cur - nv30->kick_mark;
++      nv30->kick_mark = NULL;
++   }
++
+    if (!_nouveau_fence_next(p->context))
+       return false;
+    _nouveau_fence_update(screen, true);
+@@ -86,6 +94,10 @@ nv30_context_flush(struct pipe_context *pipe, struct pipe_fence_handle **fence,
+       return;
+    PUSH_KICK(push);
+    nv30->draws_since_kick = 0;
++   if (flags & PIPE_FLUSH_END_OF_FRAME) {
++      nv30->frame_words_last = nv30->frame_words;
++      nv30->frame_words = 0;
++   }
+ 
+    /* another context may sample what this one rendered or copied */
+    p_atomic_inc(&nv30->screen->tex_gen);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+@@ -68,6 +68,12 @@ struct nv30_context {
+    /* draws since the last submission of this context (NV30_PS3_KICK_DRAWS) */
+    unsigned draws_since_kick;
+ 
++   /* NV30_PS3_KICK_AUTO: the push buffer position at the first draw after the last
++    * submission (NULL: none since), and the words queued in this frame and the last one */
++   uint32_t *kick_mark;
++   unsigned frame_words;
++   unsigned frame_words_last;
++
+    /* PS3: bytes of texture upload staging (GART) whose copies may still be pending */
+    unsigned staging_inflight;
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -529,6 +529,11 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->texunit_always = debug_get_bool_option("NV30_TEXUNIT_ALWAYS", false);
+    screen->vp_const_single = debug_get_bool_option("NV30_VP_CONST_SINGLE", false);
+    screen->ps3_kick_draws = ps3 ? debug_get_num_option("NV30_PS3_KICK_DRAWS", 0) : 0;
++   screen->ps3_kick_auto = ps3 && !screen->ps3_kick_draws &&
++                           debug_get_bool_option("NV30_PS3_KICK_AUTO", true);
++   screen->ps3_kick_min_words =
++      MAX2(debug_get_num_option("NV30_PS3_KICK_MIN_BYTES", 16384), 1024) / 4;
++   screen->ps3_kick_split = MAX2(debug_get_num_option("NV30_PS3_KICK_SPLIT", 4), 1);
+    if (!screen->ps3_vbo_fifo)
+       screen->base.vidmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
+    screen->base.sysmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -34,6 +34,9 @@ struct nv30_screen {
+    bool texunit_always;        /* NV30_TEXUNIT_ALWAYS: rewrite every rebound texture unit */
+    bool vp_const_single;       /* NV30_VP_CONST_SINGLE: one constant per upload burst */
+    unsigned ps3_kick_draws;    /* NV30_PS3_KICK_DRAWS: submit every this many draws (0: off) */
++   bool ps3_kick_auto;         /* NV30_PS3_KICK_AUTO: submit once the GPU caught up (nv30_vbo.c) */
++   unsigned ps3_kick_min_words; /* NV30_PS3_KICK_MIN_BYTES / 4: least work worth a submission */
++   unsigned ps3_kick_split;    /* NV30_PS3_KICK_SPLIT: at most about this many parts per frame */
+ 
+    struct nouveau_bo *notify;
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+@@ -577,6 +577,40 @@ nv30_draw_elements(struct nv30_context *nv30, bool shorten,
+    }
+ }
+ 
++/* PS3, NV30_PS3_KICK_AUTO: submit what this context queued when that buys CPU/GPU overlap,
++ * at the start of a draw (no primitive open). Two conditions, both cheap (no ioctl):
++ *  - enough work queued since the last submission: at least NV30_PS3_KICK_MIN_BYTES and a
++ *    1/NV30_PS3_KICK_SPLIT share of the last frame's words, so a frame is cut into at most
++ *    about that many parts however many draws it has (many tiny draws don't mean many
++ *    submissions);
++ *  - the GPU has finished everything submitted so far (the fence notifier has caught up with
++ *    the last fence emitted, a plain memory read): while it is still busy, a submission adds
++ *    no overlap, only its cost.
++ */
++static inline void
++nv30_ps3_kick_auto(struct nv30_context *nv30, struct nouveau_pushbuf *push)
++{
++   struct nouveau_screen *screen = &nv30->screen->base;
++
++   /* (a mark outside the current push buffer: it switched buffers; start over) */
++   if (!nv30->kick_mark || push->cur < nv30->kick_mark ||
++       push->cur - nv30->kick_mark > (1 << 20)) {
++      nv30->kick_mark = push->cur;
++      return;
++   }
++
++   unsigned queued = push->cur - nv30->kick_mark;
++   if (queued < nv30->screen->ps3_kick_min_words ||
++       queued < nv30->frame_words_last / nv30->screen->ps3_kick_split)
++      return;
++
++   if ((int32_t)(screen->fence.sequence - screen->fence.update(&screen->base)) > 0)
++      return;
++
++   if (PUSH_SPACE(push, 16))
++      PUSH_KICK(push);
++}
++
+ static void
+ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+               unsigned drawid_offset,
+@@ -598,11 +632,14 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+    /* PS3, NV30_PS3_KICK_DRAWS=N: hand the GPU what is queued every N draws, so it starts on
+     * a frame while the CPU still builds it. No primitive is open here, and all state stays
+     * (bound buffers are referenced again in the next submission). */
+-   if (unlikely(nv30->screen->ps3_kick_draws) &&
+-       ++nv30->draws_since_kick >= nv30->screen->ps3_kick_draws) {
+-      if (PUSH_SPACE(push, 16))
+-         PUSH_KICK(push);
+-      nv30->draws_since_kick = 0;
++   if (unlikely(nv30->screen->ps3_kick_draws)) {
++      if (++nv30->draws_since_kick >= nv30->screen->ps3_kick_draws) {
++         if (PUSH_SPACE(push, 16))
++            PUSH_KICK(push);
++         nv30->draws_since_kick = 0;
++      }
++   } else if (nv30->screen->ps3_kick_auto) {
++      nv30_ps3_kick_auto(nv30, push);
+    }
+ 
+    if (!info->primitive_restart &&

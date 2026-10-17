@@ -1,0 +1,87 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 15:45:28 +0300
+Subject: nv30: reference the index buffer before validation, so it is fenced
+ (NV30_IDXBUF_LATE_REF)
+
+nv30_draw_elements added the index buffer to the buffer context only while emitting the
+draw, after nv30_state_validate had already put the context's buffers in the kernel's list
+and fenced them, and reset it right after the draw. So the buffer the GPU fetches indices
+from was in neither: nouveau_buffer saw it idle (an in-place glBufferSubData of indices could
+overwrite them while the GPU still read them), a slab allocation was released at once when
+the buffer was freed (reused for other data under the GPU's fetch), and the kernel attached
+no fence to it (ps3rsx's cpu_prep and buffer lifetime rely on those).
+
+The buffer is now referenced before validation, in the same bin, and still reset after the
+draw (also on the software TNL and inline push paths). NV30_IDXBUF_LATE_REF=1 (read once at
+screen creation) restores the old order.
+
+Same command stream. A draw whose index buffer is busy may now wait or take a staging copy
+where it used to race.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -528,6 +528,7 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->constbuf_alloc = debug_get_bool_option("NV30_CONSTBUF_ALLOC", false);
+    screen->texunit_always = debug_get_bool_option("NV30_TEXUNIT_ALWAYS", false);
+    screen->vp_const_single = debug_get_bool_option("NV30_VP_CONST_SINGLE", false);
++   screen->idxbuf_late_ref = debug_get_bool_option("NV30_IDXBUF_LATE_REF", false);
+    screen->ps3_kick_draws = ps3 ? debug_get_num_option("NV30_PS3_KICK_DRAWS", 0) : 0;
+    screen->ps3_kick_auto = ps3 && !screen->ps3_kick_draws &&
+                            debug_get_bool_option("NV30_PS3_KICK_AUTO", true);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -34,6 +34,7 @@ struct nv30_screen {
+    bool texunit_always;        /* NV30_TEXUNIT_ALWAYS: rewrite every rebound texture unit */
+    bool vp_const_single;       /* NV30_VP_CONST_SINGLE: one constant per upload burst */
+    unsigned ps3_kick_draws;    /* NV30_PS3_KICK_DRAWS: submit every this many draws (0: off) */
++   bool idxbuf_late_ref;       /* NV30_IDXBUF_LATE_REF: index buffer referenced after validation */
+    bool ps3_kick_auto;         /* NV30_PS3_KICK_AUTO: submit once the GPU caught up (nv30_vbo.c) */
+    unsigned ps3_kick_min_words; /* NV30_PS3_KICK_MIN_BYTES / 4: least work worth a submission */
+    unsigned ps3_kick_split;    /* NV30_PS3_KICK_SPLIT: at most about this many parts per frame */
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+@@ -668,13 +668,38 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+    if (nv30->vbo_user && !(nv30->dirty & (NV30_NEW_VERTEX | NV30_NEW_ARRAYS)))
+       nv30_update_user_vbufs(nv30);
+ 
++   /* The index buffer the GPU fetches from is referenced before validation, like every other
++    * buffer a draw reads: then nv30_state_validate puts it in the kernel's buffer list and
++    * fences it. Referenced only while emitting the draw (as before), it was in neither, so
++    * nothing kept an in-place index update (or the storage's reuse after the buffer was
++    * freed) from racing the GPU's fetch. NV30_IDXBUF_LATE_REF=1: as before. */
++   bool idxbuf_ref = false;
++   if (info->index_size > 1 && !info->has_user_indices &&
++       nv30->screen->eng3d->oclass == NV40_3D_CLASS &&
++       likely(!nv30->screen->idxbuf_late_ref)) {
++      struct nv04_resource *res = nv04_resource(info->index.resource);
++
++      if (nouveau_resource_mapped_by_gpu(&res->base)) {
++         struct nouveau_bufref *bref =
++            nouveau_bufctx_refn(nv30->bufctx, BUFCTX_IDXBUF, res->bo,
++                                res->domain | NOUVEAU_BO_RD);
++         if (bref)
++            bref->priv = res;
++         idxbuf_ref = true;
++      }
++   }
++
+    nv30_state_validate(nv30, ~0, true);
+    if (nv30->draw_flags) {
+       nv30_render_vbo(pipe, info, drawid_offset, &draws[0]);
++      if (idxbuf_ref)
++         nouveau_bufctx_reset(nv30->bufctx, BUFCTX_IDXBUF);
+       return;
+    } else
+    if (nv30->vbo_fifo) {
+       nv30_push_vbo(nv30, info, &draws[0]);
++      if (idxbuf_ref)
++         nouveau_bufctx_reset(nv30->bufctx, BUFCTX_IDXBUF);
+       return;
+    }
+ 

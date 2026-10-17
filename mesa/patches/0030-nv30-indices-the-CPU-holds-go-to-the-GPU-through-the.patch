@@ -1,0 +1,196 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 15:47:26 +0300
+Subject: nv30: indices the CPU holds go to the GPU through the upload buffer
+ (NV30_INDEX_UPLOAD)
+
+Index data the GPU can't fetch from an index buffer was packed into the push buffer word by
+word: glDrawElements from client memory (OpenArena's vanilla renderer, every surface: 32-bit
+indices, one or two per word) and 8-bit indices from a buffer object (the RSX's index fetch
+has 16- and 32-bit formats only; nv30 claims R8 index buffers so u_vbuf doesn't rewrite them,
+and the CPU reads them from nouveau_buffer's cached copy, read back from VRAM once per
+buffer, not per draw). Every index then crossed the CPU twice more: packed by Mesa, and
+copied by ps3rsx into its ring.
+
+Now, from NV30_INDEX_UPLOAD indices up (32 by default on the PS3; 0 restores the inline
+pushes, the default elsewhere; read once at screen creation), they are copied once into the
+stream upload buffer (GART, persistently mapped: u_upload_alloc is a pointer bump), 16- and
+32-bit indices with memcpy, 8-bit ones widened to 16 bits, and the GPU fetches them like an
+index buffer: IDXBUF_OFFSET/IDXBUF_FORMAT (location GART) and VB_INDEX_BATCH words, a dozen
+words whatever the count. The upload buffer is referenced before validation (fenced, in the
+kernel's list, like 0028's index buffers). Shorter arrays stay inline, where the few words
+cost less than the reference.
+
+Changes the command stream for such draws: IDXBUF_OFFSET, IDXBUF_FORMAT with the GART bit
+and VB_INDEX_BATCH instead of VB_ELEMENT_U16/U32 bursts. All are in ps3rsx's allowlist with
+no data checks, and the RSX's index fetch from GART (DMA_VTXBUF1, the IO window) is the path
+u_vbuf's uploaded client vertex arrays already take. Restart indices are unchanged by the
+widening (an 8-bit restart index compares equal as 16 bits).
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -528,6 +528,7 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->constbuf_alloc = debug_get_bool_option("NV30_CONSTBUF_ALLOC", false);
+    screen->texunit_always = debug_get_bool_option("NV30_TEXUNIT_ALWAYS", false);
+    screen->vp_const_single = debug_get_bool_option("NV30_VP_CONST_SINGLE", false);
++   screen->index_upload = debug_get_num_option("NV30_INDEX_UPLOAD", ps3 ? 32 : 0);
+    screen->ctx_state_keep = debug_get_bool_option("NV30_CTX_STATE_KEEP", false);
+    screen->idxbuf_late_ref = debug_get_bool_option("NV30_IDXBUF_LATE_REF", false);
+    screen->ps3_kick_draws = ps3 ? debug_get_num_option("NV30_PS3_KICK_DRAWS", 0) : 0;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -34,6 +34,7 @@ struct nv30_screen {
+    bool texunit_always;        /* NV30_TEXUNIT_ALWAYS: rewrite every rebound texture unit */
+    bool vp_const_single;       /* NV30_VP_CONST_SINGLE: one constant per upload burst */
+    unsigned ps3_kick_draws;    /* NV30_PS3_KICK_DRAWS: submit every this many draws (0: off) */
++   unsigned index_upload;      /* NV30_INDEX_UPLOAD: least count of CPU-held indices uploaded */
+    bool ctx_state_keep;        /* NV30_CTX_STATE_KEEP: trust the state after the last context went */
+    bool idxbuf_late_ref;       /* NV30_IDXBUF_LATE_REF: index buffer referenced after validation */
+    bool ps3_kick_auto;         /* NV30_PS3_KICK_AUTO: submit once the GPU caught up (nv30_vbo.c) */
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+@@ -27,6 +27,7 @@
+ #include "util/u_draw.h"
+ #include "util/u_inlines.h"
+ #include "util/u_prim.h"
++#include "util/u_upload_mgr.h"
+ #include "translate/translate.h"
+ 
+ #include "nouveau_fence.h"
+@@ -494,7 +495,8 @@ nv30_draw_elements(struct nv30_context *nv30, bool shorten,
+                    const struct pipe_draw_info *info,
+                    unsigned mode, unsigned start, unsigned count,
+                    unsigned instance_count, int32_t index_bias,
+-		   unsigned index_size)
++		   unsigned index_size, struct nv04_resource *upload,
++                   unsigned upload_offset)
+ {
+    struct nouveau_pushbuf *push = nv30->base.pushbuf;
+    struct nouveau_object *eng3d = nv30->screen->eng3d;
+@@ -506,11 +508,18 @@ nv30_draw_elements(struct nv30_context *nv30, bool shorten,
+       nv30->state.index_bias = index_bias;
+    }
+ 
+-   if (eng3d->oclass == NV40_3D_CLASS && index_size > 1 &&
+-       !info->has_user_indices) {
++   if (upload || (eng3d->oclass == NV40_3D_CLASS && index_size > 1 &&
++                  !info->has_user_indices)) {
+       struct nv04_resource *res = nv04_resource(info->index.resource);
+       unsigned offset = 0;
+ 
++      /* indices copied to the upload buffer (nv30_upload_indices): 8-bit ones as 16-bit */
++      if (upload) {
++         res = upload;
++         offset = upload_offset;
++         index_size = MAX2(index_size, 2);
++      }
++
+       assert(nouveau_resource_mapped_by_gpu(&res->base));
+ 
+       BEGIN_NV04(push, NV30_3D(IDXBUF_OFFSET), 2);
+@@ -577,6 +586,47 @@ nv30_draw_elements(struct nv30_context *nv30, bool shorten,
+    }
+ }
+ 
++/* NV30_INDEX_UPLOAD: copies the indices of a draw whose index data the CPU holds (client
++ * memory, or 8-bit indices, which the GPU can't fetch: then widened to 16 bits) to the stream
++ * upload buffer (GART), for the GPU to fetch like an index buffer. Returns the upload buffer
++ * (referenced) and the copy's offset, or NULL to push the indices inline as before.
++ */
++static struct pipe_resource *
++nv30_upload_indices(struct nv30_context *nv30, const struct pipe_draw_info *info,
++                    const struct pipe_draw_start_count_bias *draw, unsigned *offset)
++{
++   const unsigned count = draw->count;
++   const unsigned size = MAX2(info->index_size, 2);
++   struct pipe_resource *buf = NULL;
++   const uint8_t *src;
++   void *map = NULL;
++
++   if (info->has_user_indices)
++      src = info->index.user;
++   else /* the CPU's cached copy of the buffer (read back once) */
++      src = nouveau_resource_map_offset(&nv30->base, nv04_resource(info->index.resource),
++                                        0, NOUVEAU_BO_RD);
++   if (!src)
++      return NULL;
++   src += draw->start * info->index_size;
++
++   u_upload_alloc_ref(nv30->base.pipe.stream_uploader, 0, count * size, 64, offset, &buf,
++                      &map);
++   if (!buf || !map) {
++      pipe_resource_reference(&buf, NULL);
++      return NULL;
++   }
++
++   if (info->index_size == 1) {
++      uint16_t *dst = map;
++      for (unsigned i = 0; i < count; i++)
++         dst[i] = src[i];
++   } else {
++      memcpy(map, src, count * size);
++   }
++   return buf;
++}
++
+ /* PS3, NV30_PS3_KICK_AUTO: submit what this context queued when that buys CPU/GPU overlap,
+  * at the start of a draw (no primitive open). Two conditions, both cheap (no ioctl):
+  *  - enough work queued since the last submission: at least NV30_PS3_KICK_MIN_BYTES and a
+@@ -689,17 +739,38 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+       }
+    }
+ 
++   /* Indices the CPU holds: one copy into the upload buffer, fetched by the GPU, instead of
++    * every index packed into the push buffer (and copied again into ps3rsx's ring) */
++   struct pipe_resource *idx_upload = NULL;
++   unsigned idx_upload_offset = 0;
++   if (info->index_size && (info->has_user_indices || info->index_size == 1) &&
++       nv30->screen->index_upload && draws[0].count >= nv30->screen->index_upload &&
++       nv30->screen->eng3d->oclass == NV40_3D_CLASS) {
++      idx_upload = nv30_upload_indices(nv30, info, &draws[0], &idx_upload_offset);
++      if (idx_upload) {
++         struct nv04_resource *res = nv04_resource(idx_upload);
++         struct nouveau_bufref *bref =
++            nouveau_bufctx_refn(nv30->bufctx, BUFCTX_IDXBUF, res->bo,
++                                res->domain | NOUVEAU_BO_RD);
++         if (bref)
++            bref->priv = res;
++         idxbuf_ref = true;
++      }
++   }
++
+    nv30_state_validate(nv30, ~0, true);
+    if (nv30->draw_flags) {
+       nv30_render_vbo(pipe, info, drawid_offset, &draws[0]);
+       if (idxbuf_ref)
+          nouveau_bufctx_reset(nv30->bufctx, BUFCTX_IDXBUF);
++      pipe_resource_reference(&idx_upload, NULL);
+       return;
+    } else
+    if (nv30->vbo_fifo) {
+       nv30_push_vbo(nv30, info, &draws[0]);
+       if (idxbuf_ref)
+          nouveau_bufctx_reset(nv30->bufctx, BUFCTX_IDXBUF);
++      pipe_resource_reference(&idx_upload, NULL);
+       return;
+    }
+ 
+@@ -755,8 +826,11 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+       }
+ 
+       nv30_draw_elements(nv30, shorten, info,
+-                         info->mode, draws[0].start, draws[0].count,
+-                         info->instance_count, draws[0].index_bias, info->index_size);
++                         info->mode, idx_upload ? 0 : draws[0].start, draws[0].count,
++                         info->instance_count, draws[0].index_bias, info->index_size,
++                         nv04_resource(idx_upload), idx_upload_offset);
++      /* the bin was reset after the draw; the GPU's use is fenced */
++      pipe_resource_reference(&idx_upload, NULL);
+    }
+ 
+    nv30_state_release(nv30);

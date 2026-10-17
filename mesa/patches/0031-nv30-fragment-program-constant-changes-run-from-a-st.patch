@@ -1,0 +1,210 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 15:48:36 +0300
+Subject: nv30: fragment program constant changes run from a stream copy, not a
+ VRAM re-upload (NV30_FP_CONST_VRAM)
+
+NV4x fragment programs carry their constants in their code. Every constant change (GLSL
+uniforms: OpenArena opengl2, Sauerbraten, Luanti; fixed-function fog and texenv colours)
+uploaded the whole program again into its VRAM buffer: a transfer, a GART staging allocation
+from the slab, the halfword-swapped copy, an M2MF copy into VRAM (a dozen words on another
+subchannel, which the GPU starts only once the 3D work before it is done) and a fence work
+item to free the staging. Constants are compared again at every program switch, so programs
+that alternate with different uniforms paid it at each bind.
+
+Now a constant change writes the program, with its new constants, into the stream upload
+buffer (GART, persistently mapped, u_upload_alloc a pointer bump; 256-byte aligned for
+FP_ACTIVE_PROGRAM) and points FP_ACTIVE_PROGRAM there (location GART: DMA_TEXTURE1, the IO
+window, as libgcm's CELL_GCM_LOCATION_MAIN programs). The program keeps running from that
+copy while it stays bound; bound again with unchanged constants it settles back into its
+VRAM buffer with one upload as before, so programs whose constants are stable run from VRAM.
+The context holds a reference to the upload buffer of the bound copy; the bin is fenced as
+before.
+
+NV30_FP_CONST_VRAM=1 (read once at screen creation) restores the VRAM re-upload; it is the
+default off the PS3.
+
+Changes the command stream: FP_ACTIVE_PROGRAM with a GART offset and location bit 2 instead
+of an M2MF copy (DMA_BUFFER_IN, OFFSET_IN..., NOP, OFFSET_OUT) before it. FP_ACTIVE_PROGRAM
+(0x08e4) is in ps3rsx's allowlist with no data check. A fragment program fetched from GART
+was not run on the RSX before this patch: wrong colours or a graph exception in GLSL games
+point here (retry with NV30_FP_CONST_VRAM=1).
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.c b/src/gallium/drivers/nouveau/nv30/nv30_context.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.c
+@@ -187,6 +187,8 @@ nv30_context_destroy(struct pipe_context *pipe)
+    if (nv30->blit_fp)
+       pipe_resource_reference(&nv30->blit_fp, NULL);
+ 
++   pipe_resource_reference(&nv30->fragprog.stream, NULL);
++
+    nv30_framebuffer_init(pipe, NULL, nv30->fb_cbufs, &nv30->fb_zsbuf);
+    util_unreference_framebuffer_state(&nv30->framebuffer);
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+@@ -114,6 +114,9 @@ struct nv30_context {
+       /* constbuf when it wraps user memory (set_constant_buffer), or NULL */
+       struct pipe_resource *constbuf_user;
+ 
++      /* the upload buffer holding the last stream copy of a program (NV30_FP_CONST_VRAM) */
++      struct pipe_resource *stream;
++
+       struct pipe_sampler_view *textures[PIPE_MAX_SAMPLERS];
+       unsigned num_textures;
+       struct nv30_sampler_state *samplers[PIPE_MAX_SAMPLERS];
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c b/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
+@@ -24,6 +24,7 @@
+  */
+ 
+ #include "draw/draw_context.h"
++#include "util/u_upload_mgr.h"
+ #include "tgsi/tgsi_parse.h"
+ #include "nir/nir_to_tgsi.h"
+ 
+@@ -33,6 +34,38 @@
+ #include "nv30/nv30_winsys.h"
+ #include "nv30/nvfx_shader.h"
+ 
++/* The program's words as the GPU fetches them (halfword-swapped on big-endian hosts) */
++static void
++nv30_fragprog_copy(uint32_t *dst, const struct nv30_fragprog *fp)
++{
++#if !UTIL_ARCH_BIG_ENDIAN
++   memcpy(dst, fp->insn, fp->insn_len * 4);
++#else
++   for (unsigned i = 0; i < fp->insn_len; i++)
++      dst[i] = (fp->insn[i] >> 16) | (fp->insn[i] << 16);
++#endif
++}
++
++/* A copy of the program, with its current constants, in the stream upload buffer (GART):
++ * returns the buffer (referenced) and the copy's offset, or NULL. */
++static struct pipe_resource *
++nv30_fragprog_stream(struct nv30_context *nv30, unsigned *offset)
++{
++   struct nv30_fragprog *fp = nv30->fragprog.program;
++   struct pipe_resource *buf = NULL;
++   void *map = NULL;
++
++   /* 256: FP_ACTIVE_PROGRAM's offset field (docs/RSX-PROGRAMS.md) */
++   u_upload_alloc_ref(nv30->base.pipe.stream_uploader, 0, fp->insn_len * 4, 256, offset,
++                      &buf, &map);
++   if (!buf || !map) {
++      pipe_resource_reference(&buf, NULL);
++      return NULL;
++   }
++   nv30_fragprog_copy(map, fp);
++   return buf;
++}
++
+ static void
+ nv30_fragprog_upload(struct nv30_context *nv30)
+ {
+@@ -70,7 +103,9 @@ nv30_fragprog_validate(struct nv30_context *nv30)
+    struct nouveau_pushbuf *push = nv30->base.pushbuf;
+    struct nouveau_object *eng3d = nv30->screen->eng3d;
+    struct nv30_fragprog *fp = nv30->fragprog.program;
+-   bool upload = false;
++   struct pipe_resource *stream = NULL;
++   unsigned stream_offset = 0;
++   bool upload = false, changed = false;
+    int i;
+ 
+    if (!fp->translated) {
+@@ -95,26 +130,50 @@ nv30_fragprog_validate(struct nv30_context *nv30)
+          if (!memcmp(&fp->insn[off], &cbuf[idx], 4 * 4))
+             continue;
+          memcpy(&fp->insn[off], &cbuf[idx], 4 * 4);
+-         upload = true;
++         changed = true;
+       }
+    }
+ 
+-   if (upload)
++   /* Constants live in the program's code. Uploading it again to its VRAM buffer for a
++    * constant change costs a GART staging allocation, a copy and an M2MF copy into VRAM,
++    * which the GPU runs only once the 3D work before it is done. A copy in the stream upload
++    * buffer (GART) costs the copy alone, so constant changes go there: the program runs from
++    * that copy until it is bound again with its constants unchanged, then it settles back in
++    * VRAM with one upload (programs that keep their constants run from VRAM, as before).
++    * NV30_FP_CONST_VRAM=1: every change re-uploads the VRAM program, as before. */
++   if (changed && !upload && likely(!nv30->screen->fp_const_vram))
++      stream = nv30_fragprog_stream(nv30, &stream_offset);
++
++   if (stream) {
++      fp->vram_stale = true;
++   } else if (upload || changed ||
++              (fp->vram_stale && nv30->state.fragprog != fp)) {
+       nv30_fragprog_upload(nv30);
++      fp->vram_stale = false;
++      upload = true;
++   }
+ 
+    /* FP_ACTIVE_PROGRAM needs to be done again even if only the consts
+     * were updated.  TEX_CACHE_CTL magic is not enough to convince the
+     * GPU that it should re-read the fragprog from VRAM... sigh.
+     */
+-   if (nv30->state.fragprog != fp || upload) {
+-      struct nv04_resource *r = nv04_resource(fp->buffer);
++   if (nv30->state.fragprog != fp || upload || stream) {
++      struct nv04_resource *r = nv04_resource(stream ? stream : fp->buffer);
+ 
+-      if (!PUSH_SPACE(push, 8))
++      if (!PUSH_SPACE(push, 8)) {
++         pipe_resource_reference(&stream, NULL);
+          return;
++      }
+       PUSH_RESET(push, BUFCTX_FRAGPROG);
+ 
++      /* the bin's reference to the last stream copy is gone: the buffer may go too */
++      if (stream || nv30->fragprog.stream) {
++         pipe_resource_reference(&nv30->fragprog.stream, NULL);
++         nv30->fragprog.stream = stream;	/* our reference, for as long as it is bound */
++      }
++
+       BEGIN_NV04(push, NV30_3D(FP_ACTIVE_PROGRAM), 1);
+-      PUSH_RESRC(push, NV30_3D(FP_ACTIVE_PROGRAM), BUFCTX_FRAGPROG, r, 0,
++      PUSH_RESRC(push, NV30_3D(FP_ACTIVE_PROGRAM), BUFCTX_FRAGPROG, r, stream_offset,
+                        NOUVEAU_BO_LOW | NOUVEAU_BO_RD | NOUVEAU_BO_OR,
+                        NV30_3D_FP_ACTIVE_PROGRAM_DMA0,
+                        NV30_3D_FP_ACTIVE_PROGRAM_DMA1);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -528,6 +528,7 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->constbuf_alloc = debug_get_bool_option("NV30_CONSTBUF_ALLOC", false);
+    screen->texunit_always = debug_get_bool_option("NV30_TEXUNIT_ALWAYS", false);
+    screen->vp_const_single = debug_get_bool_option("NV30_VP_CONST_SINGLE", false);
++   screen->fp_const_vram = debug_get_bool_option("NV30_FP_CONST_VRAM", !ps3);
+    screen->index_upload = debug_get_num_option("NV30_INDEX_UPLOAD", ps3 ? 32 : 0);
+    screen->ctx_state_keep = debug_get_bool_option("NV30_CTX_STATE_KEEP", false);
+    screen->idxbuf_late_ref = debug_get_bool_option("NV30_IDXBUF_LATE_REF", false);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -34,6 +34,7 @@ struct nv30_screen {
+    bool texunit_always;        /* NV30_TEXUNIT_ALWAYS: rewrite every rebound texture unit */
+    bool vp_const_single;       /* NV30_VP_CONST_SINGLE: one constant per upload burst */
+    unsigned ps3_kick_draws;    /* NV30_PS3_KICK_DRAWS: submit every this many draws (0: off) */
++   bool fp_const_vram;         /* NV30_FP_CONST_VRAM: constant changes re-upload the VRAM program */
+    unsigned index_upload;      /* NV30_INDEX_UPLOAD: least count of CPU-held indices uploaded */
+    bool ctx_state_keep;        /* NV30_CTX_STATE_KEEP: trust the state after the last context went */
+    bool idxbuf_late_ref;       /* NV30_IDXBUF_LATE_REF: index buffer referenced after validation */
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state.h b/src/gallium/drivers/nouveau/nv30/nv30_state.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_state.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_state.h
+@@ -121,6 +121,7 @@ struct nv30_fragprog {
+    unsigned nr_consts;
+ 
+    struct pipe_resource *buffer;
++   bool vram_stale;	/* NV30_FP_CONST_VRAM: insn's constants only in a stream copy */
+    uint32_t vp_or; /* appended to VP_RESULT_EN */
+    uint32_t fp_control;
+    uint32_t point_sprite_control;

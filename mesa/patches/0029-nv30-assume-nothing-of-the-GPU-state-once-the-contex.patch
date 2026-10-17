@@ -1,0 +1,88 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 15:46:03 +0300
+Subject: nv30: assume nothing of the GPU state once the context that drew last
+ is gone (NV30_CTX_STATE_KEEP)
+
+A context that draws after another one copies that one's view of the GPU state. When the
+context that drew last is destroyed, the next one to draw kept its own view from whenever it
+last drew (or a new context's zeroes), though the GPU holds the destroyed context's state:
+ - state.fragprog: if the destroyed context's program was freed and one of ours was later
+   created at the same address and already translated, FP_ACTIVE_PROGRAM was skipped and the
+   GPU kept running the freed program's code (from freed memory);
+ - state.num_vtxelts: attributes the destroyed context had enabled beyond ours stayed enabled
+   (fetching from its freed vertex buffers);
+ - state.index_bias and state.prim_restart: its base index and restart setting stayed.
+0022 already forgot the vertex formats in that case. Now the whole cached state is reset:
+the fragment program is set again, all 16 vertex formats are written, the base index and
+restart state go out with the next indexed draw. NV30_CTX_STATE_KEEP=1 (read once at screen
+creation) restores the old behaviour.
+
+Changes the command stream only on the first draw of a context after the one that drew last
+was destroyed (and a new context's first draw): up to 16 VTXFMT words, VB_ELEMENT_BASE and
+PRIM_RESTART_ENABLE, methods Mesa already sends.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+@@ -56,7 +56,7 @@ struct nv30_context {
+       uint32_t vtxfmt[16];
+       unsigned vtxfmt_nr;
+       int index_bias;
+-      bool prim_restart;
++      uint8_t prim_restart;	/* 2: unknown */
+       struct nv30_fragprog *fragprog;
+    } state;
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -528,6 +528,7 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->constbuf_alloc = debug_get_bool_option("NV30_CONSTBUF_ALLOC", false);
+    screen->texunit_always = debug_get_bool_option("NV30_TEXUNIT_ALWAYS", false);
+    screen->vp_const_single = debug_get_bool_option("NV30_VP_CONST_SINGLE", false);
++   screen->ctx_state_keep = debug_get_bool_option("NV30_CTX_STATE_KEEP", false);
+    screen->idxbuf_late_ref = debug_get_bool_option("NV30_IDXBUF_LATE_REF", false);
+    screen->ps3_kick_draws = ps3 ? debug_get_num_option("NV30_PS3_KICK_DRAWS", 0) : 0;
+    screen->ps3_kick_auto = ps3 && !screen->ps3_kick_draws &&
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -34,6 +34,7 @@ struct nv30_screen {
+    bool texunit_always;        /* NV30_TEXUNIT_ALWAYS: rewrite every rebound texture unit */
+    bool vp_const_single;       /* NV30_VP_CONST_SINGLE: one constant per upload burst */
+    unsigned ps3_kick_draws;    /* NV30_PS3_KICK_DRAWS: submit every this many draws (0: off) */
++   bool ctx_state_keep;        /* NV30_CTX_STATE_KEEP: trust the state after the last context went */
+    bool idxbuf_late_ref;       /* NV30_IDXBUF_LATE_REF: index buffer referenced after validation */
+    bool ps3_kick_auto;         /* NV30_PS3_KICK_AUTO: submit once the GPU caught up (nv30_vbo.c) */
+    unsigned ps3_kick_min_words; /* NV30_PS3_KICK_MIN_BYTES / 4: least work worth a submission */
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+@@ -448,10 +448,22 @@ nv30_state_context_switch(struct nv30_context *nv30)
+ {
+    struct nv30_context *prev = nv30->screen->cur_ctx;
+ 
+-   if (prev)
++   if (prev) {
+       nv30->state = prev->state;
+-   else
++   } else if (unlikely(nv30->screen->ctx_state_keep)) {
+       nv30->state.vtxfmt_nr = 0;	/* the last context to draw is gone: GPU formats unknown */
++   } else {
++      /* The context that drew last is gone, and the GPU holds its state, not what this
++       * context last left (nor what a new one assumes). Assume nothing: the fragment program
++       * pointer may even be a freed program's address, now reused by one of ours, which would
++       * skip FP_ACTIVE_PROGRAM and leave the GPU on the freed program's code. All 16 vertex
++       * formats are written again (attributes the other context enabled get disabled), and
++       * the base index and primitive restart are sent with the next indexed draw. */
++      memset(&nv30->state, 0, sizeof(nv30->state));
++      nv30->state.num_vtxelts = 16;
++      nv30->state.index_bias = INT32_MIN;
++      nv30->state.prim_restart = 2;
++   }
+    nv30->dirty = NV30_NEW_ALL;
+ 
+    /* The other context left its own textures in the units: write this one's again (NEW_ALL

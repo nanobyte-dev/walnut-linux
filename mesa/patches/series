@@ -23,3 +23,8 @@
 0024-nv30-no-texture-unit-rewrite-when-its-view-and-sampl.patch
 0025-nv30-upload-consecutive-changed-vertex-program-const.patch
 0026-nv30-optional-submission-every-N-draws-on-the-PS3-NV.patch
+0027-nv30-submit-when-the-GPU-caught-up-and-a-share-of-a-.patch
+0028-nv30-reference-the-index-buffer-before-validation-so.patch
+0029-nv30-assume-nothing-of-the-GPU-state-once-the-contex.patch
+0030-nv30-indices-the-CPU-holds-go-to-the-GPU-through-the.patch
+0031-nv30-fragment-program-constant-changes-run-from-a-st.patch
