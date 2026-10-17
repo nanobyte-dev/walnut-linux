@@ -19,6 +19,12 @@ The plan is in docs/PLAN.md, background facts in docs/RESEARCH.md, measured GPU 
 - Target is the PS3 directly: get existing nouveau/Mesa nv30 running on the RSX with the least new code. The Core 2 + 7600 GT is only a side reference.
 - Don't optimize or fix nouveau/Mesa bugs until the baseline runs. Park side projects (power-control rig, HEVC decoder, Core 2 + 7600 GT setup) unless asked.
 
+## Memory trims (the user, 2026-10-17)
+- Trim only what doesn't make the general Linux system worse. Things a desktop user expects stay
+  (the wallpaper, applets, services in normal use); game mode unloads or freezes them while a game
+  runs and brings them back after, instead of disabling them for good. System memory trims (task
+  #15) are postponed; the game-side memory work comes first.
+
 ## PS3 safety rules (hard constraints)
 - No permanent alterations to the PS3 beyond installing Linux (OtherOS++ / Petitboot / HDD region for Linux).
 - Never leave it in a state that isn't recoverable. Back up NAND/NOR flash before anything touches flash, and verify the dump.
