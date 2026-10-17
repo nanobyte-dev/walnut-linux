@@ -25,9 +25,9 @@ Every number is 1920x1080, measured through games/bench with the picture checked
 | dsda-doom (software) | yes | right (our fix) | choppy | as GL | 20-29 | under | the GL renderer is the way |
 | OpenTTD | yes (software video) | right | choppy (~1000-1170 underruns a minute, either path) | title-screen demo game; simulation 20000 ticks in 13.4 s | 8 (SDL3 ps3.254 accel, HUD median; ps3.242 was ~2), 12 with the 8bpp blitter | far under | its own software drawing: the GL driver (needs ARB_texture_rg) |
 | Luanti | yes (first run 2026-10-17) | right (the user) | no underruns | our ps3bench mod flies a fixed path | 67 HUD median in flight, p10 23, stalls to 0 while chunks load | median meets it, stalls don't | memory (177 MB swapped out, 32 MB free): view range, mesh threads |
-| Sauerbraten | yes, CPU skinning (2026-10-17) | right; "surprisingly smooth" between stalls (the user) | 236 underruns | CubeScript counts frames on map cave (not reached yet: loading takes over 60 s) | 15 HUD median incl. loading | under (memory) | OOM-killed without the VRAM swap (smoke's default); with it, 138 MB VRAM and the swap full: memory settings; GPU skinning still to test |
+| Sauerbraten | yes, CPU skinning (2026-10-17) | right; "surprisingly smooth" between stalls (the user) | 236 underruns | CubeScript counts frames on map cave (not reached yet: loading takes over 60 s) | 15 HUD median incl. loading | under (memory) | OOM-killed without the VRAM swap (smoke's default); with it, 138 MB VRAM and the swap full: memory settings. GPU skinning runs (no wedge, 2026-10-17) but at 11 fps by its own counter and stutters badly: CPU skinning (`gpuskel 0`, 28) is the PS3 default to ship in our cube2 |
 | SuperTuxKart | no: quits while loading (2026-10-17) | | | profile mode: AI drives `--profile-time=60` on lighthouse, prints Average FPS | | | its .spm mesh loader refuses big-endian ("Not little endian machine"): a byte-swap patch in our build (agent working) |
-| OpenArena (opengl2) | yes, gl2min (2026-10-17) | right (webcam) | right | timedemo bench (97 GLSL programs compiled twice: ~22-30 s each) | 13.6 average with one 36 s stall; ~31 HUD median | under (memory) | 161 MB VRAM, the VRAM swap full and 184 MB to disk: memory; Debian defaults (gl2) not run yet |
+| OpenArena (opengl2) | yes, gl2min (2026-10-17) | right (webcam) | right | timedemo bench (97 GLSL programs compiled twice: ~22-30 s each) | gl2min 13.6 average with one 36 s stall, ~31 HUD median; Debian defaults (gl2, 115 programs) 10.7, a 28 s stall, ~23 HUD median | under (memory) | 161-164 MB VRAM, the VRAM swap full and 184-215 MB to disk: memory |
 
 ### Done (2026-10-16/17)
 
@@ -66,7 +66,8 @@ Every number is 1920x1080, measured through games/bench with the picture checked
    profiles still show after 0.249; candidates already found: 6 cache-invalidate methods emitted on
    every nv30 draw (needs a hardware test), every relocated method emitted twice, u_vbuf always on
    for nv30, ARB_texture_rg for OpenTTD's GL renderer.
-5. **Group 4:** OpenArena opengl2 runs (all 97 GLSL programs link on nv30; memory-bound).
+5. **Group 4:** OpenArena opengl2 runs, min and default settings (97 and 115 GLSL programs link on
+   nv30; memory-bound).
    SuperTuxKart needs our big-endian fix for its mesh loader (agent), then its first race.
 6. **ps3-games:** add the games that pass (it still lists only OpenArena and ClassiCube).
 7. Queued small items: ps3fb's exception dump prints the wrong FIFO entries (task #29), deb-build.sh
@@ -264,6 +265,26 @@ Each is fixed only once a stage needs it.
   fixed: a rejected push in a multi-push submit left the earlier pushes' object bindings in the
   validator's state (the 0x109 kind of wedge). Not yet run on the PS3: it needs a reboot, then the
   GL tests, X with a GL client, VT switches, Neverball, the suite with perf.
+- Mesa ps3.VERSION (patches 0019-0025, built, **not yet run on the PS3**): fewer words per draw
+  for ps3rsx to copy and validate. 0019 no relocations on the PS3: the "second emission" of every
+  relocated method was two zero words (NOPs the kernel would patch only if a buffer moved; ps3rsx
+  never does) plus two relocation records, and the 1024-relocation limit forced a submission about
+  every hundred draws. 0020 texture cache invalidate (10 words) only after a texture copy/upload,
+  a framebuffer change or a flush, not before every draw; `NV30_TEX_INVALIDATE_ALWAYS=1` restores
+  the old behaviour. 0021 no duplicate 0x1710. 0022 no identical VTXFMT rewrites when only buffers
+  change. 0023 no constant-buffer allocation per constant update. 0024 no rewrite of texture units
+  whose view and sampler stayed (and all units rewritten after a context switch, an old bug).
+  0025 changed VP constants in consecutive slots uploaded in one burst. Estimate: a typical GL 1.x
+  draw goes from ~40-75 words to ~15-50. Test: gl-texsub, gl-texfmt, gl-genmip, gl-mipread; then
+  X-Moto, ClassiCube, Extreme Tux Racer, OpenArena, Neverball (render-to-texture/minimap-like
+  updates, font glyph uploads); stale texels point at 0020 (retry with the env variable), wrong
+  or exploded geometry at 0022/0025, wrong texture or filter on a surface at 0024.
+- Leads not done: client-memory index arrays (OpenArena's glDrawElements) are pushed inline word
+  by word; GL_UNSIGNED_BYTE indices from a VBO are read back by the CPU (u_vbuf doesn't rewrite
+  them since nv30 claims R8 index support); a fragment-program constant change re-uploads and
+  migrates the whole program (GLSL games). Bug seen in passing: nv30_draw_elements' index buffer
+  reference is added after validation and reset before the next one, so the index buffer is never
+  in the kernel's buffer list nor fenced (an in-place index update can race the GPU).
 
 ### Performance: where the CPU goes (perf, 2026-10-17, Mesa ps3.223, 15 s per game)
 
