@@ -1,16 +1,17 @@
-/* synth.spu: libspeq's MIDI synthesis worker (speq_synth_*_v2, lib/synth.c). Links libspeq-spu.a
- * (main, the claim loop); one operation, SYNTH_OP_ROUND (lib/synth-job.h): every block of a
- * range of voices, rendered with fluidsynth's DSP in single precision (lib/synth-kern.h) into
- * the job's output, the filters' histories carried from block to block.
+/* The synth op of deadline.spu (the deadline pool's program, spu/deadline.c, lib/pool-job.h):
+ * libspeq's MIDI synthesis (speq_synth_*_v2, lib/synth.c). SYNTH_OP_ROUND (lib/synth-job.h):
+ * every block of a range of voices, rendered with fluidsynth's DSP in single precision
+ * (lib/synth-kern.h) into the job's output, the filters' histories carried from block to block.
  *
  * The entries (up to 128, 32 KB) and the voices' histories come in at once; then each voice
  * block's reads (its two sample windows and its filters' sin/cos slices) are fetched two entries
  * ahead, in three buffer sets (tags 0-2), while the entries before render. The output (zeroed
  * here) and the new histories go back at the end. The coefficient tables stay in local store,
  * fetched again only when their EA changes. Every DMA is split at 16 KB and where the EA's high
- * word changes. Local store: entries 32 KB, output 16 KB, reads 3 x 16.5 KB, ext 16.5 KB,
- * tables 6 KB. */
+ * word changes. Local store: in the pool's arena (other ops' jobs overwrite it between ours),
+ * entries 32 KB, output 16 KB, reads 3 x 16.3 KB, ext 16.1 KB; outside it, the tables 6 KB. */
 #include "speq-spu.h"
+#include "deadline.h"
 #include "synth-kern.h"
 
 #define MAXDMA		16384
@@ -24,16 +25,23 @@ struct reads {
 	uint8_t tab[2][TAB_BYTES] __attribute__((aligned(128)));
 };
 
-static SPEQ_LOCAL struct synth_ent ents[SYNTH_JOB_ENTS] __attribute__((aligned(128)));
-static SPEQ_LOCAL float out[SYNTH_OUT_MAX * SK_BUF] __attribute__((aligned(128)));
-static SPEQ_LOCAL float hist[SYNTH_JOB_ENTS * 4] __attribute__((aligned(128)));
-static SPEQ_LOCAL float buf[SK_BUF] __attribute__((aligned(128)));
-static SPEQ_LOCAL float ext[2][SYNTH_WIN_MAX + 16] __attribute__((aligned(128)));
-static SPEQ_LOCAL struct reads rd[NSET];
+/* a job's buffers, in the pool's arena */
+struct synth_ls {
+	struct synth_ent ents[SYNTH_JOB_ENTS] __attribute__((aligned(128)));
+	float out[SYNTH_OUT_MAX * SK_BUF] __attribute__((aligned(128)));
+	float hist[SYNTH_JOB_ENTS * 4] __attribute__((aligned(128)));
+	float buf[SK_BUF] __attribute__((aligned(128)));
+	float ext[2][SYNTH_WIN_MAX + 16] __attribute__((aligned(128)));
+	struct reads rd[NSET];
+	uint16_t todo[SYNTH_JOB_ENTS];
+};
+_Static_assert(sizeof(struct synth_ls) <= POOL_ARENA_BYTES, "synth's buffers fit the arena");
+#define L ((struct synth_ls *)pool_arena)
+
+/* kept from job to job: outside the arena */
 static SPEQ_LOCAL v4f cubic[SYNTH_INTERP_ROWS] __attribute__((aligned(128)));
 static SPEQ_LOCAL float linear[SYNTH_INTERP_ROWS * 2] __attribute__((aligned(128)));
 static SPEQ_LOCAL uint64_t cubic_ea, linear_ea;
-static SPEQ_LOCAL uint16_t todo[SYNTH_JOB_ENTS];
 
 /* size bytes, both sides 16-aligned and size a multiple of 16 */
 static void dma(volatile void *lsp, uint64_t ea, uint32_t size, unsigned tag, int put)
@@ -75,11 +83,11 @@ static void fetch_ent(const struct synth_ent *e, int k, uint64_t sincos, struct 
 		int32_t lo = e->elo[i] < 0 ? 0 : e->elo[i];
 		int32_t n = e->en[i] - (lo - e->elo[i]);
 
-		r->win[i] = (const int16_t *)fetch(rd[k].win[i], e->data + 2ull * lo,
+		r->win[i] = (const int16_t *)fetch(L->rd[k].win[i], e->data + 2ull * lo,
 						   n > 0 ? 2 * n : 0, k);
-		r->tab[i] = (const struct sk_sincos *)fetch(rd[k].tab[i], sincos + 8ull * e->tab_first[i],
+		r->tab[i] = (const struct sk_sincos *)fetch(L->rd[k].tab[i], sincos + 8ull * e->tab_first[i],
 							     8 * e->tab_n[i], k);
-		r->ext[i] = ext[i];
+		r->ext[i] = L->ext[i];
 	}
 }
 
@@ -98,7 +106,7 @@ static int ent_ok(const struct synth_ent *e, unsigned nlines)
 	return 1;
 }
 
-static int op_round(const struct speq_job *j)
+int pool_op_synth(const struct speq_job *j)
 {
 	uint64_t eea = j->arg[SYNTH_ARG_ENTS], oea = j->arg[SYNTH_ARG_OUT];
 	uint64_t hin = j->arg[SYNTH_ARG_HIST], hout = j->arg[SYNTH_ARG_HIST_OUT];
@@ -117,8 +125,8 @@ static int op_round(const struct speq_job *j)
 		return -22;
 	ne = nv * K;
 	/* tags: 0-2 the reads, 3 entries, histories and tables, 4 the output */
-	dma(ents, eea, ne * sizeof(struct synth_ent), 3, 0);
-	dma(hist, hin, nv * 4 * sizeof(float), 3, 0);
+	dma(L->ents, eea, ne * sizeof(struct synth_ent), 3, 0);
+	dma(L->hist, hin, nv * 4 * sizeof(float), 3, 0);
 	if (cubic_ea != j->arg[SYNTH_ARG_CUBIC]) {
 		cubic_ea = j->arg[SYNTH_ARG_CUBIC];
 		dma(cubic, cubic_ea, sizeof(cubic), 3, 0);
@@ -128,16 +136,16 @@ static int op_round(const struct speq_job *j)
 		dma(linear, linear_ea, sizeof(linear), 3, 0);
 	}
 	for (i = 0; i < K * nlines * SK_BUF / 4; i++)
-		((v4f *)out)[i] = (v4f){ 0, 0, 0, 0 };
+		((v4f *)L->out)[i] = (v4f){ 0, 0, 0, 0 };
 	speq_wait_tags(1u << 3);
 	for (i = 0; i < ne; i++) {
-		if (ents[i].flags & (SYNTH_ENT_SKIP | SYNTH_ENT_PPE))
+		if (L->ents[i].flags & (SYNTH_ENT_SKIP | SYNTH_ENT_PPE))
 			continue;
-		if (!ent_ok(&ents[i], nlines)) {
+		if (!ent_ok(&L->ents[i], nlines)) {
 			cubic_ea = linear_ea = 0;	/* not trusted either */
 			return -22;
 		}
-		todo[n++] = i;
+		L->todo[n++] = i;
 	}
 	t.cubic = cubic;
 	t.linear = linear;
@@ -145,15 +153,15 @@ static int op_round(const struct speq_job *j)
 
 	/* reads two entries ahead */
 	for (k = 0; k < 2 && k < n; k++)
-		fetch_ent(&ents[todo[k]], k, sincos, &r[k]);
+		fetch_ent(&L->ents[L->todo[k]], k, sincos, &r[k]);
 	for (k = 0; k < n; k++) {
-		const struct synth_ent *e = &ents[todo[k]];
-		unsigned v = todo[k] / K, b = todo[k] % K, s = k % NSET;
+		const struct synth_ent *e = &L->ents[L->todo[k]];
+		unsigned v = L->todo[k] / K, b = L->todo[k] % K, s = k % NSET;
 
 		if (k + 2 < n)
-			fetch_ent(&ents[todo[k + 2]], (k + 2) % NSET, sincos, &r[(k + 2) % NSET]);
+			fetch_ent(&L->ents[L->todo[k + 2]], (k + 2) % NSET, sincos, &r[(k + 2) % NSET]);
 		speq_wait_tags(1u << s);
-		if (sk_entry(e, &r[s], hist + 4 * v, buf, out + b * nlines * SK_BUF, &t)) {
+		if (sk_entry(e, &r[s], L->hist + 4 * v, L->buf, L->out + b * nlines * SK_BUF, &t)) {
 			err = -5;
 			break;
 		}
@@ -161,12 +169,8 @@ static int op_round(const struct speq_job *j)
 	speq_wait_tags(7);	/* no read still landing in local store */
 	if (err)
 		return err;
-	dma(out, oea, K * nlines * SK_BUF * sizeof(float), 4, 1);
-	dma(hist, hout, nv * 4 * sizeof(float), 4, 1);
+	dma(L->out, oea, K * nlines * SK_BUF * sizeof(float), 4, 1);
+	dma(L->hist, hout, nv * 4 * sizeof(float), 4, 1);
 	return 0;	/* the runtime waits for the puts before completing the job */
 }
 
-const speq_op_fn speq_ops[SYNTH_NOPS] = {
-	[SYNTH_OP_ROUND] = op_round,
-};
-const unsigned speq_nops = SYNTH_NOPS;

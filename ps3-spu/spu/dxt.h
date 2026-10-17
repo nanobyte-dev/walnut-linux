@@ -1,5 +1,5 @@
-/* The SPU DXT1 encoder (dxt.c): van Waveren's real-time DXT1 on 4x4 blocks, byte for byte the
- * same output as libspeq's scalar reference (lib/dxt-ref.c). Built for the SPU (spu-elf-gcc,
+/* The SPU DXT1 and DXT5 encoder (dxt.c): van Waveren's real-time DXT1 on 4x4 blocks and DXT5 on
+ * top of it, byte for byte the same output as libspeq's scalar reference (lib/dxt-ref.c). Built for the SPU (spu-elf-gcc,
  * SIMD), with -DDXT_SCALAR as plain C (debugging), or for the host with dxt-emu.h emulating the
  * SPU intrinsics (tests). */
 #ifndef DXT_H
@@ -23,5 +23,9 @@ void dxt1_encode_rows(const uint8_t *src, unsigned src_offset, unsigned width, u
  * column strip of a wider image, its rows fetched one by one (dxt.spu's wide images) */
 void dxt1_encode_rows_stride(const uint8_t *src, unsigned src_offset, unsigned width,
 			     unsigned src_stride, unsigned block_rows, uint8_t *dst, int alpha_mode);
+/* DXT5 (lib/dxt-ref.c's dxt5_ref_block), the source as for dxt1_encode_rows_stride: 16 bytes a
+ * block, block rows one after the other (4 * width bytes each); dst 16-byte aligned */
+void dxt5_encode_rows_stride(const uint8_t *src, unsigned src_offset, unsigned width,
+			     unsigned src_stride, unsigned block_rows, uint8_t *dst);
 
 #endif

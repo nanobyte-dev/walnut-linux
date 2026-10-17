@@ -7,7 +7,22 @@
  *   line 0       struct speq_ctl: tail|parked (one word), head, quit, abi, tunables
  *   lines 1..8   struct speq_wline: one per worker, written only by its SPU (the held job)
  *   lines 9..72  the job ring: struct speq_job (speq.h), SPEQ_JOBS of them
- * Every word one side changes atomically lives in the first 8 bytes of its line. */
+ *   lines 73..76 the ring's deadlines: one uint64_t per slot (deadline-ordered queues)
+ * Every word one side changes atomically lives in the first 8 bytes of its line.
+ *
+ * Claim order. A queue in arrival order (ctl.order SPEQ_ORDER_FIFO, every queue but the
+ * deadline pool) is claimed at head: a worker moves head past the job it takes. A queue in
+ * deadline order (SPEQ_ORDER_DEADLINE: libspeq's deadline pool, lib/pool.c) is claimed by job:
+ * the submitter writes each job's deadline into the slot's entry of the deadline lines, then
+ * (after a barrier) the job's flags word as its sequence number; a worker looks at the jobs
+ * from head on (SPEQ_SCAN at most), takes the one with the earliest deadline (the earliest
+ * queued on a tie) by setting SPEQ_JOB_CLAIMED in its flags word with getllar/putllc (the
+ * sequence number must still match: the slot can have been reused), then moves head past every
+ * claimed job at head. A slot is reused only once head has passed it, so an unclaimed job stays
+ * where it is until a worker takes it. A deadline is only a scheduling hint: a stale one picks
+ * another job first, never a wrong one. A program built before the order field claims at head
+ * in both orders, which stays correct (every worker of a queue runs the same program), just
+ * in arrival order: no ABI step. */
 #ifndef SPEQ_ABI_H
 #define SPEQ_ABI_H
 
@@ -63,7 +78,16 @@
 
 #define SPEQ_WLINE_OFF(i)	(SPEQ_LINE * (1 + (i)))
 #define SPEQ_RING_OFF		(SPEQ_LINE * (1 + SPEQ_MAX_WORKERS))
-#define SPEQ_CB_SIZE		(SPEQ_RING_OFF + SPEQ_LINE * SPEQ_JOBS)
+#define SPEQ_DL_OFF		(SPEQ_RING_OFF + SPEQ_LINE * SPEQ_JOBS)
+#define SPEQ_CB_SIZE		(SPEQ_DL_OFF + 8 * SPEQ_JOBS)
+
+/* ctl.order */
+#define SPEQ_ORDER_FIFO		0
+#define SPEQ_ORDER_DEADLINE	1
+/* A job's flags word in a deadline-ordered ring: its sequence number (SPEQ_SEQ_MASK), and
+ * SPEQ_JOB_CLAIMED once a worker (or the PPE failing it) took it */
+#define SPEQ_JOB_CLAIMED	0x80000000u
+#define SPEQ_SCAN		16	/* jobs from head a worker compares */
 
 /* Line 0 */
 struct speq_ctl {
@@ -75,7 +99,8 @@ struct speq_ctl {
 	uint32_t tb_hz;		/* timebase = decrementer frequency (/proc/cpuinfo) */
 	uint32_t idle_ticks;	/* idle time before a worker parks, decrementer ticks; 0: never */
 	uint32_t poke;		/* a word the PPE may store to (speq-bench P1); no meaning */
-	uint32_t pad[24];
+	uint32_t order;		/* SPEQ_ORDER_*: how workers pick jobs */
+	uint32_t pad[23];
 };
 
 /* Lines 1..8: worker i's line, put by its SPU at every claim and completion. held is nonzero

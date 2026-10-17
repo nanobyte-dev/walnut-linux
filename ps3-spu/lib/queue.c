@@ -13,6 +13,7 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <limits.h>
+#include <stdint.h>
 #include <linux/futex.h>
 #include <sched.h>
 #include <signal.h>
@@ -116,6 +117,11 @@ static struct speq_job *ring(struct speq *q, uint32_t seq)
 	return (struct speq_job *)((char *)q->ctl + SPEQ_RING_OFF + (seq % SPEQ_JOBS) * SPEQ_LINE);
 }
 
+static uint64_t *dl_slot(struct speq *q, uint32_t seq)
+{
+	return (uint64_t *)((char *)q->ctl + SPEQ_DL_OFF) + seq % SPEQ_JOBS;
+}
+
 static struct speq_wline *wline(struct speq *q, unsigned i)
 {
 	return (struct speq_wline *)((char *)q->ctl + SPEQ_WLINE_OFF(i));
@@ -151,13 +157,28 @@ void spq_fail_job(struct speq_done *done, int err)
 }
 
 /* Claims and fails every queued job, when no worker is left to run them (close, all broken).
- * A PPE stwcx. on head is safe against an SPU claiming at the same time: same line. */
+ * A PPE stwcx. on head is safe against an SPU claiming at the same time: same line. In deadline
+ * order each job is claimed in its own line first (as a worker claims it), then head moves. */
 static void drain_ring(struct speq *q, int err)
 {
 	struct speq_ctl *c = q->ctl;
-	uint32_t head, tail;
+	uint32_t head, tail, seq, f;
 	uint64_t done;
 
+	while (q->order == SPEQ_ORDER_DEADLINE) {
+		head = LOAD(&c->head);
+		tail = LOAD(&c->tail_parked) >> SPEQ_TAIL_SHIFT;
+		if (head == tail)
+			return;
+		for (seq = head; seq != tail; seq = (seq + 1) & SPEQ_SEQ_MASK) {
+			struct speq_job *s = ring(q, seq);
+
+			f = seq;
+			if (CAS(&s->flags, &f, seq | SPEQ_JOB_CLAIMED))
+				spq_fail_job((struct speq_done *)(uintptr_t)s->done, err);
+		}
+		CAS(&c->head, &head, tail);
+	}
 	for (;;) {
 		head = LOAD(&c->head);
 		tail = LOAD(&c->tail_parked) >> SPEQ_TAIL_SHIFT;
@@ -383,6 +404,29 @@ static void unlist(struct speq *q)
 
 int speq_open(struct speq **qp, const char *prog, unsigned nworkers, unsigned flags)
 {
+	if (flags & ~SPEQ_OPEN_BULK) {
+		if (qp)
+			*qp = NULL;
+		return -EINVAL;
+	}
+	return spq_open_ex(qp, prog, nworkers, flags);
+}
+
+static unsigned held_spes(void)
+{
+	unsigned held = 0;
+	struct speq *o;
+
+	pthread_mutex_lock(&queues_lock);
+	for (o = queues; o; o = o->next)
+		if (!o->forked)
+			held += o->nworkers;
+	pthread_mutex_unlock(&queues_lock);
+	return held;
+}
+
+int spq_open_ex(struct speq **qp, const char *prog, unsigned nworkers, unsigned flags)
+{
 	struct speq *q;
 	sigset_t all, old;
 	pthread_attr_t attr;
@@ -393,12 +437,14 @@ int speq_open(struct speq **qp, const char *prog, unsigned nworkers, unsigned fl
 	if (!qp)
 		return -EINVAL;
 	*qp = NULL;
-	if (!prog || (flags & ~SPEQ_OPEN_BULK))
+	if (!prog || (flags & ~(SPEQ_OPEN_BULK | SPQ_OPEN_DEADLINE | SPQ_OPEN_FREE)))
 		return -EINVAL;
 	q = calloc(1, sizeof(*q));
 	if (!q)
 		return -ENOMEM;
 	pthread_mutex_init(&q->lock, NULL);
+	snprintf(q->prog, sizeof(q->prog), "%s", prog);
+	q->order = flags & SPQ_OPEN_DEADLINE ? SPEQ_ORDER_DEADLINE : SPEQ_ORDER_FIFO;
 	if (use_fake()) {
 #ifdef SPEQ_FAKE
 		q->be = &spq_fake;
@@ -416,18 +462,17 @@ int speq_open(struct speq **qp, const char *prog, unsigned nworkers, unsigned fl
 	 * SPEs no other open queue of this process holds (at least one); a bulk queue also leaves
 	 * SPEQ_DEADLINE_SPES to the deadline queues, open or not */
 	if (!nworkers) {
-		unsigned held = 0;
-		struct speq *o;
+		unsigned held = held_spes();
 
-		pthread_mutex_lock(&queues_lock);
-		for (o = queues; o; o = o->next)
-			if (!o->forked)
-				held += o->nworkers;
-		pthread_mutex_unlock(&queues_lock);
 		nworkers = held < nspe ? nspe - held : 1;
 		if ((flags & SPEQ_OPEN_BULK) && nspe > SPEQ_DEADLINE_SPES &&
 		    nworkers > nspe - SPEQ_DEADLINE_SPES)
 			nworkers = nspe - SPEQ_DEADLINE_SPES;
+	} else if (flags & SPQ_OPEN_FREE) {	/* no more than the SPEs left (at least one) */
+		unsigned held = held_spes(), left = held < nspe ? nspe - held : 1;
+
+		if (nworkers > left)
+			nworkers = left;
 	}
 	q->nworkers = nworkers < nspe ? nworkers : nspe;
 	if (q->nworkers > SPEQ_MAX_WORKERS)
@@ -446,6 +491,7 @@ int speq_open(struct speq **qp, const char *prog, unsigned nworkers, unsigned fl
 	q->ctl->nworkers = q->nworkers;
 	q->ctl->tb_hz = spq_tb_hz();
 	q->ctl->idle_ticks = idle_ticks(env_uint("SPEQ_IDLE_US", IDLE_US));
+	q->ctl->order = q->order;
 	q->alive = q->nworkers;
 	pthread_mutex_lock(&queues_lock);
 	q->id = next_id++;
@@ -478,7 +524,13 @@ int speq_open(struct speq **qp, const char *prog, unsigned nworkers, unsigned fl
 	sigfillset(&all);
 	pthread_sigmask(SIG_SETMASK, &all, &old);
 	pthread_attr_init(&attr);
+#ifdef SPEQ_FAKE
+	/* glibc carves a thread's static TLS out of its stack: the host-built programs' local
+	 * stores are __thread (all of them in every thread: up to ~260 KB with pool-test's three) */
+	pthread_attr_setstacksize(&attr, 4096 * 1024);
+#else
 	pthread_attr_setstacksize(&attr, 256 * 1024);
+#endif
 	for (i = 0; i < q->nworkers; i++) {
 		char name[16];
 
@@ -503,6 +555,17 @@ fail:
 }
 
 int speq_submit(struct speq *q, const struct speq_job *jobs, unsigned n, struct speq_done *done)
+{
+	return spq_submit_dl(q, jobs, n, done, UINT64_MAX);
+}
+
+uint64_t spq_deadline(double us_from_now)
+{
+	return (uint64_t)(spq_now_us() + (us_from_now > 0 ? us_from_now : 0));
+}
+
+int spq_submit_dl(struct speq *q, const struct speq_job *jobs, unsigned n, struct speq_done *done,
+		  uint64_t deadline)
 {
 	struct speq_ctl *c;
 	uint32_t head, tail, v, space, k, j, i = 0;
@@ -531,9 +594,22 @@ int speq_submit(struct speq *q, const struct speq_job *jobs, unsigned n, struct 
 		k = n - i < space ? n - i : space;
 		for (j = 0; j < k; j++) {
 			struct speq_job *s = ring(q, tail + j);
+			uint32_t seq = (tail + j) & SPEQ_SEQ_MASK;
 
-			memcpy(s, &jobs[i + j], sizeof(*s));
-			s->done = (uintptr_t)done;
+			if (q->order != SPEQ_ORDER_DEADLINE) {
+				memcpy(s, &jobs[i + j], sizeof(*s));
+				s->done = (uintptr_t)done;
+				continue;
+			}
+			/* deadline order: the line reads as claimed until it is whole (a worker
+			 * may look at a slot it saw earlier), then lwsync and its sequence number */
+			struct speq_job t = jobs[i + j];
+
+			t.flags = SPEQ_JOB_CLAIMED;
+			t.done = (uintptr_t)done;
+			memcpy(s, &t, sizeof(*s));
+			*dl_slot(q, seq) = deadline;
+			__atomic_store_n(&s->flags, seq, __ATOMIC_RELEASE);
 		}
 		/* One stwcx.: the tail moves and the parked mask is taken and cleared. The sync
 		 * before it (seq_cst) orders the job lines ahead of the tail for the SPUs' DMA.

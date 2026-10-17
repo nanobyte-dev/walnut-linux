@@ -1,4 +1,4 @@
-/* synth-test: speq_synth_*_v2 on the SPU path (SPEQ_FAKE=1: synth.spu's op on host threads) against
+/* synth-test: speq_synth_*_v2 on the SPU path (SPEQ_FAKE=1: deadline.spu's synth op on host threads) against
  * libspeq's PPE path (the same DSP code on this thread), driven the way fluidsynth's hook drives
  * them: rounds of up to 16 blocks over 1-100 voice slots, each voice block added after a
  * stand-in for fluidsynth's control part (gains, filter sweeps, envelope ramps change between

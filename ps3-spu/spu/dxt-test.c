@@ -1,14 +1,15 @@
-/* dxt-test: the SPU DXT1 encoder (dxt.c) against the reference's blocks, then its speed.
+/* dxt-test: the SPU DXT1 and DXT5 encoder (dxt.c) against the reference's blocks, then its speed.
  * Standalone SPU program (no libspeq runtime), built by dxt-test.mk:
  *   spurun dxt-test.spu result
  * Every test image (dxt-test-data.h, made on the host by dxt-gen with lib/dxt-ref.c) is
- * encoded in both modes at every source offset 0..15, with the destination at 0 and 8 mod 16,
+ * encoded in both DXT1 modes and DXT5 (mode 2, destination 16-aligned) at every source offset
+ * 0..15, with the destination at 0 and 8 mod 16,
  * whole and one block row per call, the source pointer aligned and not; the blocks must match
  * the reference's byte for byte and the bytes around the output stay untouched. Then a 256-wide
  * image (the stone crop tiled), 64 block rows, is timed with the decrementer per mode.
  * The summary goes to the local-store string `result` (SPU printf isn't served by spurun); the
  * exit code is 0 when everything matched. Built for the host (dxt-emu.h or DXT_SCALAR) it also
- * prints the summary and fuzzes single blocks against dxt1_ref_block. */
+ * prints the summary and fuzzes single blocks against dxt1_ref_block and dxt5_ref_block. */
 #include <stdint.h>
 #include <string.h>
 #include "dxt.h"
@@ -16,7 +17,7 @@
 struct test_img {
 	const char *name;
 	unsigned w, h;
-	const unsigned char *px, *ref[2];
+	const unsigned char *px, *ref[3];
 };
 #include "dxt-test-data.h"
 
@@ -34,10 +35,10 @@ struct test_img {
 #define TIME_W		256
 #define TIME_ROWS	64		/* block rows timed, in calls of 4 */
 
-char result[320];
+char result[400];
 
 static uint8_t work[64 * 64 * 4 + 64] __attribute__((aligned(128)));
-static uint8_t out[64 * 64 / 2 + 64] __attribute__((aligned(128)));
+static uint8_t out[64 * 64 + 64] __attribute__((aligned(128)));
 
 static unsigned nblocks, nbad, nguard;
 static char first[160];
@@ -112,19 +113,29 @@ static void note_first(const struct test_img *im, unsigned mode, unsigned off, u
 	p = putu(p, blk);
 	if (got) {
 		p = put(p, " got ");
-		p = puthex(p, got, 8);
+		p = puthex(p, got, mode == 2 ? 16 : 8);
 		p = put(p, " want ");
-		p = puthex(p, want, 8);
+		p = puthex(p, want, mode == 2 ? 16 : 8);
 	} else
 		p = put(p, " wrote outside its output");
 	memcpy(first, result, sizeof(first) - 1);
 	result[0] = 0;
 }
 
+/* mode 0, 1: DXT1 RGB, RGBA; 2: DXT5 */
+static void encode_rows(const uint8_t *src, unsigned off, unsigned w, unsigned rows, uint8_t *d,
+			unsigned mode)
+{
+	if (mode == 2)
+		dxt5_encode_rows_stride(src, off, w, 4 * w, rows, d);
+	else
+		dxt1_encode_rows(src, off, w, rows, d, mode);
+}
+
 static void run(const struct test_img *im, unsigned mode, unsigned off)
 {
-	unsigned len = im->w * im->h * 4, blen = im->w / 4 * (im->h / 4) * 8, i, by;
-	unsigned dstoff = off & 1 ? 8 : 0;
+	unsigned bb = mode == 2 ? 16 : 8, len = im->w * im->h * 4, blen = im->w / 4 * (im->h / 4) * bb;
+	unsigned dstoff = off & 1 && mode != 2 ? 8 : 0, i, by;
 	uint8_t *d = out + 16 + dstoff;
 
 	memset(work, 0xa5, sizeof(work));
@@ -132,16 +143,16 @@ static void run(const struct test_img *im, unsigned mode, unsigned off)
 	memset(out, 0xee, sizeof(out));
 	if (off == 5 || off == 10)	/* one block row per call */
 		for (by = 0; by < im->h / 4; by++)
-			dxt1_encode_rows(work + by * 16 * im->w, off, im->w, 1, d + by * 2 * im->w, mode);
+			encode_rows(work + by * 16 * im->w, off, im->w, 1, d + by * bb / 4 * im->w, mode);
 	else if (off % 4 == 3)		/* the shift in the pointer */
-		dxt1_encode_rows(work + off, 0, im->w, im->h / 4, d, mode);
+		encode_rows(work + off, 0, im->w, im->h / 4, d, mode);
 	else
-		dxt1_encode_rows(work, off, im->w, im->h / 4, d, mode);
-	for (i = 0; i < blen; i += 8) {
+		encode_rows(work, off, im->w, im->h / 4, d, mode);
+	for (i = 0; i < blen; i += bb) {
 		nblocks++;
-		if (memcmp(d + i, im->ref[mode] + i, 8)) {
+		if (memcmp(d + i, im->ref[mode] + i, bb)) {
 			nbad++;
-			note_first(im, mode, off, dstoff, i / 8, d + i, im->ref[mode] + i);
+			note_first(im, mode, off, dstoff, i / bb, d + i, im->ref[mode] + i);
 		}
 	}
 	for (i = 0; i < sizeof(out); i++)
@@ -173,7 +184,7 @@ static unsigned long long time_mode(unsigned mode)
 	for (rep = 0; rep < 3; rep++) {
 		t0 = ticks_now();
 		for (k = 0; k < TIME_ROWS / 4; k++)
-			dxt1_encode_rows(work, 8, TIME_W, 4, out, mode);
+			encode_rows(work, 8, TIME_W, 4, out, mode);
 		t = (t0 - ticks_now()) & 0xffffffffull;
 		if (t < best)
 			best = t;
@@ -185,12 +196,12 @@ static unsigned long long time_mode(unsigned mode)
 static unsigned fuzz(void)
 {
 	static uint8_t blk[16 * 4 + 32] __attribute__((aligned(16))), o[16] __attribute__((aligned(16)));
-	uint8_t px[16][4], b[8];
+	uint8_t px[16][4], b[16];
 	uint32_t s = 777;
 	unsigned n, i, k, bad = 0, kind, base[4], range;
 
 	for (n = 0; n < 2000000; n++) {
-		kind = n % 5;
+		kind = n % 7;
 		for (k = 0; k < 4; k++) {
 			s = s * 1664525 + 1013904223;
 			base[k] = s >> 24;
@@ -213,8 +224,16 @@ static unsigned fuzz(void)
 				case 3:	/* few levels: exact ties */
 					px[i][k] = (s >> 30) * 85;
 					break;
-				default:	/* alpha near the cut */
+				case 4:	/* alpha near the cut */
 					px[i][k] = k == 3 ? 120 + (s >> 24) % 16 : s >> 24;
+					break;
+				case 5:	/* alpha: 0 and 255 next to a few soft values */
+					px[i][k] = k < 3 ? s >> 24 : (s >> 29) < 3 ? 0 : (s >> 29) < 6 ? 255 :
+						   base[3] + (s >> 24) % range;
+					break;
+				default:	/* alpha: a narrow band, colours against each other */
+					px[i][k] = k == 3 ? base[3] / 2 + (s >> 24) % range :
+						   k == 1 ? 255u - px[i][0] : s >> 24;
 				}
 			}
 		for (i = 0; i < 16; i++)
@@ -227,8 +246,19 @@ static unsigned fuzz(void)
 				       n, k, o[0], o[1], o[2], o[3], o[4], o[5], o[6], o[7],
 				       b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]);
 		}
+		dxt5_ref_block(b, (const uint8_t (*)[4])px);
+		dxt5_encode_rows_stride(blk, 3, 4, 16, 1, o);
+		if (memcmp(o, b, 16) && bad++ < 5) {
+			printf("fuzz %u dxt5: got ", n);
+			for (k = 0; k < 16; k++)
+				printf("%02x", o[k]);
+			printf(" want ");
+			for (k = 0; k < 16; k++)
+				printf("%02x", b[k]);
+			printf("\n");
+		}
 	}
-	printf("fuzz: %u of 4000000 blocks differ\n", bad);
+	printf("fuzz: %u of 6000000 blocks differ\n", bad);
 	return bad;
 }
 #endif
@@ -237,7 +267,7 @@ int main(void)
 {
 	unsigned nimg = sizeof(test_imgs) / sizeof(test_imgs[0]), i, mode, off, x, y;
 	const struct test_img *tim = &test_imgs[TEST_TIMING_IMG];
-	unsigned long long ticks[2];
+	unsigned long long ticks[3];
 	int sumb_ok = 1;
 	char *p;
 
@@ -250,7 +280,7 @@ int main(void)
 		sumb_ok = spu_extract(s, 0) == 100 && spu_extract(s, 1) == 10;
 	}
 #endif
-	for (mode = 0; mode < 2; mode++)
+	for (mode = 0; mode < 3; mode++)
 		for (off = 0; off < 16; off++)
 			for (i = 0; i < nimg; i++)
 				run(&test_imgs[i], mode, off);
@@ -264,6 +294,7 @@ int main(void)
 #endif
 	ticks[0] = time_mode(0);
 	ticks[1] = time_mode(1);
+	ticks[2] = time_mode(2);
 
 	p = put(result, nbad || nguard || !sumb_ok ? "FAIL " : "PASS ");
 	p = putu(p, nbad);
@@ -277,10 +308,10 @@ int main(void)
 	}
 	if (!sumb_ok)
 		p = put(p, ", spu_sumb operands swapped");
-	for (mode = 0; mode < 2; mode++) {
+	for (mode = 0; mode < 3; mode++) {
 		unsigned long long blocks = TIME_W / 4 * TIME_ROWS, pixels = blocks * 16;
 
-		p = put(p, mode ? "; rgba " : "; rgb ");
+		p = put(p, mode == 2 ? "; dxt5 " : mode ? "; rgba " : "; rgb ");
 		if (!ticks[mode]) {
 			p = put(p, "decrementer not counting");
 			continue;

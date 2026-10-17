@@ -1,5 +1,5 @@
 /* The SPU side of libspeq: what an SPU program links against (libspeq-spu.a gives main and
- * the claim loop; the program gives speq_ops[]). On the SPU the primitives are the MFC
+ * the claim loop; the program gives its operation table, SPEQ_PROGRAM). On the SPU the primitives are the MFC
  * channels; built for the host (SPEQ_FAKE, the tests) they are emulated by lib/fake.c, and
  * the program runs on a thread per "SPE", so its state must be SPEQ_LOCAL.
  *
@@ -22,8 +22,31 @@
 /* One operation: runs a job (a copy in local store) and returns 0 or an error for the done
  * word (-errno, or the program's own code). Its output DMAs need not be waited for. */
 typedef int (*speq_op_fn)(const struct speq_job *job);
+
+/* A program's operation table, defined once per program:
+ *   SPEQ_PROGRAM(dxt, "dxt.spu", DXT_NOPS) = { [DXT_OP_ROWS] = op_rows };
+ * On the SPU it is speq_ops[] and speq_nops, which the runtime dispatches through. Built for the
+ * host (the fake backend) every program linked in registers its table under its file name, and
+ * each fake context runs the table of the program its queue opened, so one test process can
+ * run several programs at once, as a game does (lib/fake.c). */
+#ifdef __SPU__
 extern const speq_op_fn speq_ops[];
 extern const unsigned speq_nops;
+#define SPEQ_PROGRAM(id, name, n) \
+	const unsigned speq_nops = (n); \
+	const speq_op_fn speq_ops[n]
+#else
+void spq_fake_register(const char *name, const speq_op_fn *ops, unsigned n);
+extern __thread const speq_op_fn *spq_fake_ops;	/* the running context's program */
+extern __thread unsigned spq_fake_nops;
+#define speq_ops spq_fake_ops
+#define speq_nops spq_fake_nops
+#define SPEQ_PROGRAM(id, name, n) \
+	extern const speq_op_fn spq_prog_##id[n]; \
+	__attribute__((constructor)) static void spq_prog_reg_##id(void) \
+	{ spq_fake_register(name, spq_prog_##id, n); } \
+	const speq_op_fn spq_prog_##id[n]
+#endif
 
 /* From the runtime: this worker's index, the decrementer's frequency */
 unsigned speq_worker(void);

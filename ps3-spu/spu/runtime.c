@@ -3,6 +3,8 @@
  * __ea_local_store). It claims jobs from the ring in the control block (speq-abi.h), runs
  * speq_ops[job.op], completes the job's done word, and sleeps in the event wait while there is
  * nothing to do; idle past ctl.idle_ticks it parks (stop 0x2110) and the PPE thread sleeps.
+ * A queue in deadline order (ctl.order, speq-abi.h) is claimed by job, earliest deadline
+ * first, instead of at head.
  *
  * Only hardware can tell (speq-bench P1, P4):
  * - that a PPE store to line 0 raises LLR_LOST on an SPU blocked in the event wait, and how
@@ -19,6 +21,8 @@ static SPEQ_LOCAL struct speq_ctl ctl __attribute__((aligned(128)));
 static SPEQ_LOCAL struct speq_job job __attribute__((aligned(128)));
 static SPEQ_LOCAL struct speq_done dline __attribute__((aligned(128)));
 static SPEQ_LOCAL struct speq_wline wl __attribute__((aligned(128)));
+static SPEQ_LOCAL struct speq_job scan[SPEQ_SCAN] __attribute__((aligned(128)));
+static SPEQ_LOCAL uint64_t dl[SPEQ_JOBS] __attribute__((aligned(128)));
 static SPEQ_LOCAL uint64_t cb_ea;
 static SPEQ_LOCAL unsigned me;
 static SPEQ_LOCAL uint32_t tb_hz;
@@ -74,10 +78,78 @@ static void park(void)
 	speq_stop_park();
 }
 
+static uint64_t slot_ea(uint32_t seq)
+{
+	return cb_ea + SPEQ_RING_OFF + (seq % SPEQ_JOBS) * SPEQ_LINE;
+}
+
+/* Deadline order: moves head past the claimed jobs at it. Anyone may (the PPE never does while
+ * workers run); a lost reservation means someone else moved it, so look again. */
+static void advance(void)
+{
+	uint32_t h, f;
+
+	for (;;) {
+		speq_getllar(&ctl, cb_ea);
+		h = ctl.head;
+		if (h == ctl.tail_parked >> SPEQ_TAIL_SHIFT)
+			return;
+		speq_get(&scan[0], slot_ea(h), 16, SPEQ_RT_TAG);
+		speq_wait_tags(1u << SPEQ_RT_TAG);
+		f = scan[0].flags;
+		if (f != (h | SPEQ_JOB_CLAIMED))
+			return;	/* not taken yet: it stays at head */
+		ctl.head = (h + 1) & SPEQ_SEQ_MASK;
+		speq_putllc(&ctl, cb_ea);
+	}
+}
+
+/* Deadline order: claims into job the queued job with the earliest deadline (the earliest
+ * queued on a tie) among the first SPEQ_SCAN from head. 1: claimed, *seqp its sequence number;
+ * 0: none to claim (all taken, head not moved yet); -1: lost it to another claim */
+static int claim_dl(uint32_t head, uint32_t tail, uint32_t *seqp)
+{
+	uint32_t n = (tail - head) & SPEQ_SEQ_MASK, i0 = head % SPEQ_JOBS, first, k, seq;
+	uint64_t best_dl = 0, ea;
+	int best = -1;
+
+	if (n > SPEQ_SCAN)
+		n = SPEQ_SCAN;
+	first = SPEQ_JOBS - i0 < n ? SPEQ_JOBS - i0 : n;
+	speq_get(scan, cb_ea + SPEQ_RING_OFF + i0 * SPEQ_LINE, first * SPEQ_LINE, SPEQ_RT_TAG);
+	if (n > first)
+		speq_get(&scan[first], cb_ea + SPEQ_RING_OFF, (n - first) * SPEQ_LINE, SPEQ_RT_TAG);
+	speq_get(dl, cb_ea + SPEQ_DL_OFF, sizeof(dl), SPEQ_RT_TAG);
+	speq_wait_tags(1u << SPEQ_RT_TAG);
+	for (k = 0; k < n; k++) {
+		seq = (head + k) & SPEQ_SEQ_MASK;
+		if (scan[k].flags != seq)
+			continue;	/* claimed */
+		if (best < 0 || dl[seq % SPEQ_JOBS] < best_dl) {
+			best = k;
+			best_dl = dl[seq % SPEQ_JOBS];
+		}
+	}
+	if (best < 0)
+		return 0;
+	seq = (head + best) & SPEQ_SEQ_MASK;
+	ea = slot_ea(seq);
+	/* the line itself, reserved: still this job, unclaimed? (the slot is reused only after
+	 * head passed it, as job seq + SPEQ_JOBS) */
+	speq_getllar(&job, ea);
+	if (job.flags != seq)
+		return -1;
+	job.flags = seq | SPEQ_JOB_CLAIMED;
+	if (speq_putllc(&job, ea))
+		return -1;
+	*seqp = seq;
+	return 1;
+}
+
 int SPEQ_MAIN(unsigned long long speid, unsigned long long argp, unsigned long long envp)
 {
-	uint32_t head, tail, ev = 0, err, armed = 0;
-	int idle = 0, woke = 0;
+	uint32_t head, tail, ev = 0, err, armed = 0, seq;
+	int idle = 0, woke = 0, r;
 
 	(void)envp;
 	me = speid;
@@ -101,19 +173,30 @@ int SPEQ_MAIN(unsigned long long speid, unsigned long long argp, unsigned long l
 			break;
 		head = ctl.head;
 		tail = ctl.tail_parked >> SPEQ_TAIL_SHIFT;
-		if (head != tail) {
+		if (head != tail && ctl.order == SPEQ_ORDER_DEADLINE) {
+			r = claim_dl(head, tail, &seq);
+			if (r < 0)
+				wl.lost++;
+			advance();	/* past ours, or past others' claims not moved yet */
+			if (r < 0 || (r == 0 && ctl.head != head))
+				continue;
+			if (r == 0)
+				tail = head;	/* nothing to take (can't stay so): wait as idle */
+		} else if (head != tail) {
 			/* Fetch the job before the claim: once head moves past it the PPE may
 			 * refill the slot. A failed claim drops the copy. */
-			speq_get(&job, cb_ea + SPEQ_RING_OFF + (head % SPEQ_JOBS) * SPEQ_LINE,
-				 sizeof(job), SPEQ_RT_TAG);
+			speq_get(&job, slot_ea(head), sizeof(job), SPEQ_RT_TAG);
 			speq_wait_tags(1u << SPEQ_RT_TAG);
 			ctl.head = (head + 1) & SPEQ_SEQ_MASK;
 			if (speq_putllc(&ctl, cb_ea)) {
 				wl.lost++;
 				continue;
 			}
+			seq = head;
+		}
+		if (head != tail) {
 			wl.held = 1;
-			wl.seq = head;
+			wl.seq = seq;
 			wl.done = job.done;
 			wl.claims++;
 			put_wline();

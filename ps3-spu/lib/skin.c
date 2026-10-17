@@ -1,12 +1,14 @@
-/* speq_skin_*_v1: a game's CPU skinning on the SPEs (skin.spu), called by the game (through
+/* speq_skin_*_v1: a game's CPU skinning on the SPEs (deadline.spu's skinning op), called by the game (through
  * dlopen) once per skinned vertex buffer. The policy lives here, so tuning never needs a game
  * rebuild.
  *
- * Modes (SPEQ_SKIN): auto (default) and spu use the process's skin queue: SPEQ_SKIN_SPES workers
- * (2), opened by the first speq_skin_open_v1 and never closed, a deadline queue (no
- * SPEQ_OPEN_BULK: the game's frame waits on it; with the DXT bulk queue that makes 4 + 2 = 6
- * contexts on the 6 SPEs, never time-sliced); its workers stay resident 200 ms past their last
- * job (frames come every 15-60 ms) and free their contexts after a minute. auto takes batches of
+ * Modes (SPEQ_SKIN): auto (default) and spu use the process's deadline pool (lib/pool.c: two
+ * workers running deadline.spu, shared with fluidsynth's synth and every other latency-bound
+ * service, jobs taken by deadline; with the DXT bulk queue that makes 4 + 2 = 6 contexts on the
+ * 6 SPEs, never time-sliced), opened by the first speq_skin_open_v1 or another service and never
+ * closed; its workers stay resident 200 ms past their last job (frames come every 15-60 ms) and
+ * free their contexts after a minute. A mesh's jobs go to at most SPEQ_SKIN_SPES of its workers
+ * (default all). auto takes batches of
  * at least SPEQ_SKIN_MIN vertices (256: below that a round trip costs about what the PPE
  * spends), spu every batch. ppe runs the same kernel (skin-kern.h) on the calling thread, into
  * libspeq's buffer: the hook's whole path without SPEs. off: speq_skin_open_v1 fails.
@@ -15,7 +17,9 @@
  * every page touched). add checks the mesh (skin-kern.h sk_check), writes its descriptor, touches
  * its inputs' pages (an SPU DMA from a page that isn't resident is served on the worker's thread,
  * 40-87 us a page, far more for a swapped one) and queues its jobs at once: up to one per worker,
- * at least JOB_VERTS vertices each. end spins SPEQ_SKIN_SPIN_US (300; the jobs take tens of us,
+ * at least JOB_VERTS vertices each, at most JOB_MAX_VERTS (a running job isn't preempted: the
+ * pool's other services wait for it at most that long, estimate 0.1 ms), their deadline the
+ * time end would give up on them. end spins SPEQ_SKIN_SPIN_US (300; the jobs take tens of us,
  * a futex sleep adds ~62) then sleeps on the done word, for at most SPEQ_SKIN_TIMEOUT_US + 50 ns
  * per vertex. A late batch is left to its jobs (taken again once its done word completes; its
  * output is never handed out) and the game skins it itself; MAX_FAILS late or failed batches in
@@ -29,19 +33,18 @@
 #include "speq-int.h"
 #include "skin-kern.h"
 
-#define SKIN_PROG	"skin.spu"
 #define NBATCH		4
 #define MAX_MESHES	32
 #define JOB_VERTS	256
+#define JOB_MAX_VERTS	4096	/* ~60-75 cycles a vertex (estimate): ~0.1 ms */
+#define MAX_JOBS	32	/* per mesh; past 32 x 4096 vertices the jobs grow */
 #define MIN_VERTS	256
-#define SPES		2
+#define SPES		0	/* all of the pool's workers */
 #define TIMEOUT_US	2000
 #define VERT_NS		50	/* added to the timeout per vertex */
 #define SPIN_US		300
 #define MAX_FAILS	3
 #define BACKOFF_MS	5000
-#define IDLE_US		200000
-#define FREE_MS		60000
 #define STATS_S		10
 #define MAX_OUT		(64u << 20)
 
@@ -54,10 +57,6 @@ static unsigned min_verts = MIN_VERTS, spes = SPES;
 static long timeout_us = TIMEOUT_US, vert_ns = VERT_NS;
 static int spin_us = SPIN_US;
 static long page;
-
-static pthread_mutex_t qlock = PTHREAD_MUTEX_INITIALIZER;
-static struct speq *queue;	/* set once, never closed */
-static int qerr;		/* the open's error, or -EIO once the queue broke */
 
 int spq_skin_fault;
 
@@ -128,40 +127,6 @@ void spq_skin_tune(int m, long timeout, int per_vert_ns, int min)
 void spq_skin_stats(struct speq_skin *s, struct spq_skin_stats *st)
 {
 	*st = s->st;
-}
-
-static struct speq *get_queue(int *err)
-{
-	struct speq *q;
-	int ret;
-
-	pthread_mutex_lock(&qlock);
-	if (!queue && !qerr) {
-		ret = speq_open(&q, SKIN_PROG, spes, 0);
-		if (ret) {
-			qerr = ret;
-		} else {
-			speq_tune(q, spin_us, IDLE_US, FREE_MS);
-			__atomic_store_n(&queue, q, __ATOMIC_RELEASE);
-		}
-	}
-	q = qerr ? NULL : queue;
-	*err = qerr;
-	pthread_mutex_unlock(&qlock);
-	return q;
-}
-
-static void queue_broke(void)
-{
-	pthread_mutex_lock(&qlock);
-	if (!qerr)
-		qerr = -EIO;
-	pthread_mutex_unlock(&qlock);
-}
-
-static int queue_ok(void)
-{
-	return !__atomic_load_n(&qerr, __ATOMIC_ACQUIRE);
 }
 
 static void print_stats(struct speq_skin *s, const char *when)
@@ -246,7 +211,7 @@ int speq_skin_open_v1(struct speq_skin **sp, unsigned abi, unsigned mesh_size)
 		s->b[i] = p;
 	}
 	if (mode != M_PPE) {
-		s->q = get_queue(&err);
+		s->q = spq_pool(&err);
 		if (!s->q) {
 			free_skin(s);
 			return err;
@@ -300,7 +265,7 @@ int speq_skin_begin_v1(struct speq_skin *s, uint32_t out_bytes, uint32_t nverts)
 		drop(s, s->cur);
 		s->cur = NULL;
 	}
-	if (s->q && !queue_ok()) {
+	if (s->q && !spq_pool_ok()) {
 		s->st.declined++;
 		return -ENOTSUP;
 	}
@@ -367,7 +332,7 @@ static int spoil(struct speq_skin *s, struct batch *b, int err)
 int speq_skin_add_v1(struct speq_skin *s, const struct speq_skin_mesh *m)
 {
 	struct batch *b = s ? s->cur : NULL;
-	struct speq_job jobs[SPEQ_MAX_WORKERS];
+	struct speq_job jobs[MAX_JOBS];
 	struct skin_desc *d;
 	const struct speq_skin_field *f[SKIN_NF];
 	uint32_t n, nw, nj, per, v0, j;
@@ -444,11 +409,15 @@ int speq_skin_add_v1(struct speq_skin *s, const struct speq_skin_mesh *m)
 		d->src[streams & 1 ? 0 : 1] = 0x1000;	/* tests: an unmapped EA, the job faults */
 
 	nw = speq_nworkers(s->q);
+	if (spes && nw > spes)
+		nw = spes;
 	nj = n / JOB_VERTS;
 	if (nj > nw)
 		nj = nw;
-	if (nj > SPEQ_MAX_WORKERS)
-		nj = SPEQ_MAX_WORKERS;
+	if (nj < (n + JOB_MAX_VERTS - 1) / JOB_MAX_VERTS)
+		nj = (n + JOB_MAX_VERTS - 1) / JOB_MAX_VERTS;
+	if (nj > MAX_JOBS)
+		nj = MAX_JOBS;
 	if (!nj)
 		nj = 1;
 	per = (n + nj - 1) / nj;
@@ -460,10 +429,10 @@ int speq_skin_add_v1(struct speq_skin *s, const struct speq_skin_mesh *m)
 		jobs[j].arg[SKIN_ARG_COUNT] = n - v0 < per ? n - v0 : per;
 	}
 	nj = j;
-	ret = speq_submit(s->q, jobs, nj, &b->done);
+	ret = spq_submit_dl(s->q, jobs, nj, &b->done,
+			    spq_deadline(timeout_us + (double)n * vert_ns / 1000));
 	if (ret) {
-		if (ret == -EIO || __atomic_load_n(&s->q->dead, __ATOMIC_ACQUIRE))
-			queue_broke();
+		spq_pool_check(s->q, ret);
 		b->queued = 1;	/* some may have gone: end looks */
 		s->st.errors++;
 		fail(s);
@@ -500,8 +469,7 @@ int speq_skin_end_v1(struct speq_skin *s, void **out)
 		return 0;
 	}
 	t0 = spq_now_us();
-	ret = speq_wait_timeout(s->q, &b->done, timeout_us + (long)(b->nverts * vert_ns / 1000),
-				spin_us ? 0 : SPEQ_WAIT_NOSPIN);
+	ret = spq_wait_ex(s->q, &b->done, spin_us, timeout_us + (long)(b->nverts * vert_ns / 1000));
 	dt = spq_now_us() - t0;
 	if (ret == -ETIMEDOUT) {
 		b->state = B_LOST;
@@ -514,8 +482,7 @@ int speq_skin_end_v1(struct speq_skin *s, void **out)
 	if (ret) {
 		if (debug)
 			fprintf(stderr, "speq: skin %p: a batch failed on the SPEs: %d\n", (void *)s, ret);
-		if (__atomic_load_n(&s->q->dead, __ATOMIC_ACQUIRE))
-			queue_broke();
+		spq_pool_check(s->q, 0);
 		s->st.errors++;
 		fail(s);
 		maybe_print(s);

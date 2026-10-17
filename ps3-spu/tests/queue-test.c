@@ -46,6 +46,7 @@ static int wait10(struct speq_done *d)
 
 static uint32_t counter[32] __attribute__((aligned(128)));
 static unsigned long expected;
+static int use_dl;	/* submitters give random deadlines (a deadline-ordered queue) */
 
 /* A submitter: its own done word, batches of 1..20 jobs (nops, short spins, adds, sometimes
  * a failure), waited for with the default spin or none (futex at once) */
@@ -69,7 +70,8 @@ static void *submitter(void *arg)
 			if (i != fail && k == 2)
 				__atomic_fetch_add(&expected, 1, __ATOMIC_RELAXED);
 		}
-		if (speq_submit(q, jobs, n, &d)) {
+		if (use_dl ? spq_submit_dl(q, jobs, n, &d, spq_deadline(rand_r(&seed) % 5000)) :
+			     speq_submit(q, jobs, n, &d)) {
 			bad++;
 			continue;
 		}
@@ -93,6 +95,7 @@ int main(int argc, char **argv)
 	struct speq_done d __attribute__((aligned(128)));
 	struct speq_job jobs[200];
 	struct spq_stats s, s0;
+	struct speq *q2 = NULL;
 	pthread_t th[THREADS];
 	void *rv;
 	unsigned i, bad;
@@ -242,6 +245,94 @@ int main(int argc, char **argv)
 	check(speq_open(&q, "bench.spu", 0, SPEQ_OPEN_BULK) == 0 && speq_nworkers(q) == 4,
 	      "bulk queue alone, nworkers 0: 4 of 6 (two left to deadline queues)");
 	speq_close(q);
+
+	/* deadline order (the pool's queue): the earliest deadline first, ties in arrival order */
+	{
+		static uint32_t tick[32] __attribute__((aligned(128)));
+		static uint32_t got[SPEQ_SCAN + 1] __attribute__((aligned(16)));
+		static uint64_t dls[SPEQ_SCAN];
+		struct speq_done d2 __attribute__((aligned(128)));
+		unsigned k, rank, seed = 7, ok = 1;
+		uint64_t base = spq_deadline(0);
+		double t0;
+
+		check(spq_open_ex(&q, "bench.spu", 1, SPQ_OPEN_DEADLINE) == 0 && q,
+		      "deadline queue, 1 worker");
+		memset(tick, 0, sizeof(tick));
+		memset(&d, 0, sizeof(d));
+		memset(&d2, 0, sizeof(d2));
+		jobs[0] = (struct speq_job){ .op = BENCH_TICKET, .arg = { (uintptr_t)tick,
+				(uintptr_t)&got[SPEQ_SCAN], 30000 } };
+		spq_submit_dl(q, jobs, 1, &d, base + 1000000);	/* holds the worker 30 ms */
+		t0 = spq_now_us();
+		while (!__atomic_load_n(&tick[0], __ATOMIC_ACQUIRE) && spq_now_us() - t0 < 5e6)
+			usleep(100);
+		for (i = 0; i < SPEQ_SCAN; i++) {	/* queued behind it, deadlines with ties */
+			dls[i] = base + 1000 + rand_r(&seed) % 6;
+			jobs[0] = (struct speq_job){ .op = BENCH_TICKET, .arg = { (uintptr_t)tick,
+					(uintptr_t)&got[i], 0 } };
+			spq_submit_dl(q, jobs, 1, &d2, dls[i]);
+		}
+		check(wait10(&d) == 0 && wait10(&d2) == 0, "... every job ran");
+		for (i = 0; i < SPEQ_SCAN; i++) {
+			for (rank = 1, k = 0; k < SPEQ_SCAN; k++)
+				rank += dls[k] < dls[i] || (dls[k] == dls[i] && k < i);
+			ok &= got[i] == rank;
+		}
+		check(ok, "16 jobs queued behind a running one start earliest deadline first, ties in "
+		      "arrival order");
+		memset(&d, 0, sizeof(d));
+		memset(&d2, 0, sizeof(d2));
+		memset(tick, 0, sizeof(tick));
+		jobs[0] = (struct speq_job){ .op = BENCH_TICKET, .arg = { (uintptr_t)tick,
+				(uintptr_t)&got[SPEQ_SCAN], 30000 } };
+		spq_submit_dl(q, jobs, 1, &d, 0);
+		while (!__atomic_load_n(&tick[0], __ATOMIC_ACQUIRE) && spq_now_us() - t0 < 10e6)
+			usleep(100);
+		jobs[0].arg[1] = (uintptr_t)&got[0];
+		jobs[0].arg[2] = 0;
+		speq_submit(q, jobs, 1, &d2);	/* no deadline: after the deadlines */
+		jobs[0].arg[1] = (uintptr_t)&got[1];
+		spq_submit_dl(q, jobs, 1, &d2, spq_deadline(1e6));
+		check(wait10(&d) == 0 && wait10(&d2) == 0 && got[1] == 1 && got[0] == 2,
+		      "... speq_submit's jobs (no deadline) after those with one");
+		ret = speq_run(q, &(struct speq_job){ .op = BENCH_TOUCH, .arg = { 0x1000, 16, 16 } });
+		check(ret == -EFAULT && speq_run(q, &(struct speq_job){ .op = BENCH_NOP }) == 0,
+		      "... a fault fails its job, the queue goes on");
+		memset(&d, 0, sizeof(d));
+		for (i = 0; i < 64; i++)
+			jobs[i] = job(BENCH_SPIN, 2000, 0);
+		spq_submit_dl(q, jobs, 64, &d, spq_deadline(5000));
+		speq_close(q);
+		check(!d.pending && d.error == -ECANCELED, "... close: queued jobs fail with -ECANCELED");
+
+		/* many submitters, random deadlines, three workers claiming by deadline */
+		check(spq_open_ex(&q, "bench.spu", 3, SPQ_OPEN_DEADLINE) == 0, "deadline queue, 3 workers");
+		spq_tune(q, -1, 2000, 5000);
+		memset(counter, 0, sizeof(counter));
+		expected = 0;
+		use_dl = 1;
+		for (i = 0; i < THREADS; i++)
+			pthread_create(&th[i], NULL, submitter, (void *)(uintptr_t)(i + 1));
+		bad = 0;
+		for (i = 0; i < THREADS; i++) {
+			pthread_join(th[i], &rv);
+			bad += (uintptr_t)rv;
+		}
+		use_dl = 0;
+		spq_stats(q, &s);
+		check(!bad && counter[0] == expected,
+		      "8 submitters x 300 batches, random deadlines: every batch right, every add once");
+		printf("stats: claims %lu lost %lu spurious %lu\n", s.claims, s.lost, s.spurious);
+		speq_close(q);
+
+		/* SPQ_OPEN_FREE: no more workers than the SPEs other queues leave */
+		check(speq_open(&q, "bench.spu", 4, 0) == 0 &&
+		      spq_open_ex(&q2, "bench.spu", 3, SPQ_OPEN_FREE) == 0 && speq_nworkers(q2) == 2,
+		      "SPQ_OPEN_FREE next to 4 of 6: 3 asked, 2 given");
+		speq_close(q2);
+		speq_close(q);
+	}
 
 	/* one worker; the queue must not lose a job when the only worker parks and frees */
 	check(speq_open(&q, "bench.spu", 1, 0) == 0, "open 1 worker");

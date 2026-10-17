@@ -6,7 +6,8 @@ Item 4 of docs/SPU-OFFLOAD-PLAN.md. Sauerbraten on the PS3 skins its skeletal mo
 (cube2 0006). Built 2026-10-17, not run on the PS3 yet; "estimate" marks numbers nobody measured.
 
 Files: `lib/skin-kern.h` (the kernel, shared by both sides), `lib/skin-job.h` (the job),
-`lib/skin.c` (the API and its policy), `spu/skin-op.c` (skin.spu), `tools/speq-skin.c` (tests,
+`lib/skin.c` (the API and its policy), `spu/skin-op.c` (the op, in the deadline pool's
+deadline.spu since 2026-10-17: doc/pool.md), `tools/speq-skin.c` (tests,
 the reference, the benchmark), `cube2/patches/0006-*.patch` (the hook),
 `games/bench/recipes/sauerbraten.sh` (variants spuskin, ppeskin, offskin).
 
@@ -78,27 +79,25 @@ Line numbers: `engine/skelmodel.h` of our cube2 source up to patch 0005 (Debian
   lines, so a chunk's first and last partial quadwords go out as 4- and 8-byte DMAs of its own
   bytes. Local store: 20 KB code, 100 KB buffers.
 - **The kernel** (`skin-kern.h`): one vertex at a time in 4-wide float vectors, GCC's generic
-  vectors, the same source for skin.spu, libspeq's PPE path (AltiVec) and the host tests.
+  vectors, the same source for the SPU op, libspeq's PPE path (AltiVec) and the host tests.
   Fields are read and written through aligned quadwords and byte shuffles with precomputed
   masks (the SPU has no unaligned access; on the PPE this also avoids load-hit-store), touching
   only quadwords that hold a byte of the field. Sauerbraten's formulas in its order; the sign
   fix is branch-free. Two formats are compiled with constants (Sauerbraten's), the rest go
   through the general loop. The loop is unrolled twice so two vertices' dependency chains
-  interleave. skin.spu's loop: ~119 instructions a vertex with tangent frames, ~100 with
+  interleave. The SPU loop: ~119 instructions a vertex with tangent frames, ~100 with
   normals; estimate 60-75 cycles a vertex on one SPE (0.1 ms for the hud gun on one SPE, half
   on two).
-- **The queue: its own, two workers, a deadline queue.** skinning is short work (tens of us)
-  that the game's frame waits on, like audio and unlike DXT (long jobs, load time). The
-  fluidsynth design opens a queue per service: DXT a bulk queue (`SPEQ_OPEN_BULK`: the SPEs
-  other queues don't hold, leaving `SPEQ_DEADLINE_SPES` = 2), audio one per service on those
-  two. Skinning takes the two deadline SPEs (`SPEQ_SKIN_SPES`, 2): in Sauerbraten (DXT at load,
-  no fluidsynth) that is 4 + 2 = 6 contexts on 6 SPEs, never time-sliced, and a skin job never
-  waits behind a texture. A game with fluidsynth music and skinning would have 2 + 2 deadline
-  workers: set `SPEQ_SKIN_SPES=1` (or `SPEQ_SYNTH_SPES=1`) there, or open DXT after both (it
-  then takes what is left). Not one shared queue for the same reasons as audio (SPU-AUDIO.md
-  5(b)): separate programs, local stores and ABI steps. Workers stay resident 200 ms past their
-  last job (a frame is 15-60 ms; a parked worker costs ~90 us to wake) and free their contexts
-  after a minute.
+- **The queue: the deadline pool** (doc/pool.md, since 2026-10-17; before it skinning had its
+  own queue of two workers). Skinning is short work (tens of us) that the game's frame waits
+  on, like audio and unlike DXT (long jobs, load time). Its jobs go to the process's deadline
+  pool, two workers running deadline.spu shared with fluidsynth's synth, taken by deadline
+  (a mesh's: when end would give up on it), next to DXT's bulk queue of four: 6 contexts on 6
+  SPEs with or without music, never time-sliced, and a skin job never waits behind a texture.
+  A mesh is cut into jobs of at most 4096 vertices (a running job isn't preempted: the synth
+  waits for one at most, estimate 0.1 ms). `SPEQ_SKIN_SPES`: the most of the pool's workers a
+  mesh is split across (default all). Workers stay resident 200 ms past their last job (a frame
+  is 15-60 ms; a parked worker costs ~90 us to wake) and free their contexts after a minute.
 - **The wait point.** The hook submits at the point the engine would skin and waits right after
   the adds, before its upload: Sauerbraten skins a mesh group inside its draw call
   (`skelmeshgroup::render`), with the animation state computed just before. Submitting earlier
@@ -138,7 +137,7 @@ at open.
 
 ## 4. Tests (host, 2026-10-17)
 
-`make -C ps3-spu test` runs `speq-skin-fake --check` on the spu path (skin.spu's op on host
+`make -C ps3-spu test` runs `speq-skin-fake --check` on the spu path (the skinning op on host
 threads, `SPEQ_FAKE=1`, its DMAs checked against the MFC's size and alignment rules), on auto,
 and on the ppe path. Against a scalar reference written from Sauerbraten's source
 (`interpverts`, `dualquat::transform`, `quat::rotate`, `quat::mul`, `fixqtangent`, `squat`,
@@ -165,7 +164,8 @@ and on the ppe path. Against a scalar reference written from Sauerbraten's sourc
   the reference, the general ones within 5.7e-6. The checks wait up to 20 s per batch (the
   emulated "SPU" is slow; a timeout there would free inputs a late job still reads).
 
-Not covered on the host: skin.spu itself (built with spu-elf GCC 16.2, never run), its speed,
+Not covered on the host: the op on an SPU (deadline.spu, built with spu-elf GCC 16.2, never
+run), its speed,
 the SPU's rounding (toward zero: a few more ulps), DMA on hardware. The x86 host's benchmark
 says nothing about the PS3 (baseline x86-64 has no byte shuffle, so the vector kernel runs
 emulated shuffles there; with -march=native it is 2.6-4x faster than the engine's loop).

@@ -4,7 +4,7 @@
 # rendering a generated MIDI file (tests/make-midi.py) through tests/fs-render.c, which writes in
 # chunks of 1-3000 frames as a game does. FLUIDSYNTH_TREE is make fluidsynth-work's git tree
 # (build/work/fluidsynth): the hook is its working tree, the unpatched build its base tag.
-# The hook loads TEST_OUT/fake/libspeq.so.0 (make test-fluidsynth builds it: synth.spu's op on
+# The hook loads TEST_OUT/fake/libspeq.so.0 (make test-fluidsynth builds it: deadline.spu's ops on
 # host threads, SPEQ_FAKE=1, every read checked against its DMA plan). Per interpolation (cubic,
 # the default; linear; none; sinc, which libspeq leaves to fluidsynth), and once with reverb
 # and chorus on:
@@ -79,7 +79,7 @@ fails=0
 S=$OUT/base-src
 cc -O2 -std=gnu11 -I"$S/src" -I"$S/src/utils" -I"$S/src/rvoice" -I"$S/src/synth" -I"$S/src/sfloader" \
 	-I"$S/src/midi" -I"$S/include" -I"$OUT/base/include" -I"$OUT/base" -I"$HERE/../lib" \
-	-o "$OUT/base/fs-kern" "$HERE/fs-kern.c" "$HERE/../lib/synth.c" "$HERE/../lib/queue.c" \
+	-o "$OUT/base/fs-kern" "$HERE/fs-kern.c" "$HERE/../lib/synth.c" "$HERE/../lib/pool.c" "$HERE/../lib/queue.c" \
 	"$HERE/../lib/spe.c" $(find "$OUT/base/src/CMakeFiles/libfluidsynth-OBJ.dir" -name '*.o') \
 	-lstdc++ -fopenmp -lm -lpthread
 echo "libspeq's DSP (single precision) against fluidsynth's DSP functions"

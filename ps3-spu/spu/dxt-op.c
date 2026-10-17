@@ -1,6 +1,6 @@
-/* dxt.spu: libspeq's DXT1 worker. Links libspeq-spu.a (main, the claim loop) and dxt.c (the
- * encoder); one operation, DXT_OP_ROWS (lib/dxt-job.h): a range of block rows of a tightly
- * packed RGBA8 image from main memory to DXT1 blocks in main memory.
+/* dxt.spu: libspeq's DXT1 and DXT5 worker. Links libspeq-spu.a (main, the claim loop) and dxt.c
+ * (the encoder); one operation, DXT_OP_ROWS (lib/dxt-job.h): a range of block rows of a tightly
+ * packed RGBA8 image from main memory to DXT1 or DXT5 blocks in main memory.
  *
  * A job is cut into units, double-buffered: the source of unit n+1 is fetched while unit n is
  * encoded, and unit n-1's output is still being put.
@@ -11,10 +11,11 @@
  * - Wider, a unit is one block row's column strip of up to DXT_CHUNK_W pixels: its four
  *   pixel rows are fetched one by one into rows RS bytes apart (4 * width is a multiple of 16,
  *   so all four have the same misalignment, and so does every strip).
- * - Output: each block row (strip) goes to dst + stride * row (+ 2 * x0), 8-aligned: an 8-byte
- *   head when the EA is 8 mod 16, the 16-byte body, an 8-byte tail; the encoder writes each row
- *   at the local-store offset that matches its EA's low 4 bits. Nothing past the row is
- *   written. Packed rows (stride == 2 * width) go out as one run per unit.
+ * - Output: each block row (strip) goes to dst + stride * row (+ 2 * x0; DXT5 4 * x0),
+ *   8-aligned: an 8-byte head when the EA is 8 mod 16, the 16-byte body, an 8-byte tail (DXT5:
+ *   16-aligned, whole quadwords); the encoder writes each row at the local-store offset that
+ *   matches its EA's low 4 bits. Nothing past the row is written. Packed rows (stride == a
+ *   block row) go out as one run per unit.
  * - Every DMA is split at 16 KB and where the EA's high word changes.
  * Local store: 2 x 16.1 KB source, 2 x 8 KB output. */
 #include "dxt-job.h"
@@ -28,7 +29,8 @@
 #define CW	DXT_CHUNK_W
 #define RS	(4 * CW + 16)			/* a strip's pixel rows in local store */
 #define SBUF	(4 * RS + 32)			/* >= 16 KB + 16 (contiguous) + 16 read past */
-#define OBUF	8192				/* k rows of roundup16(2w) + 16: at most 8 KB */
+#define OBUF	8192				/* k rows of roundup16(2w) + 16 (DXT5 4w + 16): at
+						 * most 8 KB */
 #define MAXDMA	16384
 
 static SPEQ_LOCAL uint8_t sbuf[2][SBUF] __attribute__((aligned(128)));
@@ -45,7 +47,8 @@ struct jobp {
 	uint32_t k;		/* contiguous: block rows per unit; 0: strips */
 	uint32_t nch;		/* strips per block row */
 	uint32_t units;
-	int packed;		/* contiguous and stride == 2 * w: a unit's rows are one run */
+	uint32_t bpp;		/* output bytes per 4 pixels of a block row: 2 (DXT1), 4 (DXT5) */
+	int packed;		/* contiguous and stride == a block row: a unit's rows are one run */
 };
 
 /* size bytes, both sides 16-aligned and size a multiple of 16 (or one small transfer) */
@@ -121,17 +124,26 @@ static unsigned fetch(const struct jobp *p, const struct unit *un, uint8_t *s, u
 	return off;
 }
 
+static void encode(const struct jobp *p, const uint8_t *s, unsigned off, unsigned cw,
+		   unsigned sstride, unsigned rows, uint8_t *d)
+{
+	if (p->mode == DXT_JOB_DXT5)
+		dxt5_encode_rows_stride(s, off, cw, sstride, rows, d);
+	else
+		dxt1_encode_rows_stride(s, off, cw, sstride, rows, d, p->mode);
+}
+
 /* Encodes the unit from s into o and starts its puts */
 static void encode_put(const struct jobp *p, const struct unit *un, const uint8_t *s,
 		       unsigned off, uint8_t *o, unsigned tag)
 {
-	uint32_t rowbytes = 2 * un->cw, slot = ((rowbytes + 15) & ~15u) + 16, i;
-	uint64_t ea = p->dst + (uint64_t)p->stride * un->row + 2 * un->x0;
+	uint32_t rowbytes = p->bpp * un->cw, slot = ((rowbytes + 15) & ~15u) + 16, i;
+	uint64_t ea = p->dst + (uint64_t)p->stride * un->row + p->bpp * un->x0;
 
 	if (p->packed) {
 		uint8_t *d = o + (ea & 15);
 
-		dxt1_encode_rows_stride(s, off, un->cw, 4 * p->w, un->rows, d, p->mode);
+		encode(p, s, off, un->cw, 4 * p->w, un->rows, d);
 		put_run(d, ea, rowbytes * un->rows, tag);
 		return;
 	}
@@ -139,9 +151,9 @@ static void encode_put(const struct jobp *p, const struct unit *un, const uint8_
 		uint8_t *d = o + i * slot + (ea & 15);
 
 		if (p->k)
-			dxt1_encode_rows_stride(s + 16 * p->w * i, off, un->cw, 4 * p->w, 1, d, p->mode);
+			encode(p, s + 16 * p->w * i, off, un->cw, 4 * p->w, 1, d);
 		else
-			dxt1_encode_rows_stride(s, off, un->cw, RS, 1, d, p->mode);
+			encode(p, s, off, un->cw, RS, 1, d);
 		put_run(d, ea, rowbytes, tag);
 	}
 }
@@ -160,16 +172,18 @@ static int op_rows(const struct speq_job *j)
 	p.rows = j->arg[DXT_ARG_ROWS];
 	p.stride = j->arg[DXT_ARG_STRIDE];
 	p.mode = j->arg[DXT_ARG_MODE];
+	p.bpp = p.mode == DXT_JOB_DXT5 ? 4 : 2;
 	if (!p.w || p.w % 4 || p.w != j->arg[DXT_ARG_WIDTH] || !p.rows ||
 	    p.rows != j->arg[DXT_ARG_ROWS] || (p.dst & 7) || (p.stride & 7) ||
-	    p.stride < 2 * p.w || p.stride != j->arg[DXT_ARG_STRIDE] ||
-	    (p.mode != DXT1_MODE_RGB && p.mode != DXT1_MODE_RGBA))
+	    p.stride < p.bpp * p.w || p.stride != j->arg[DXT_ARG_STRIDE] ||
+	    (p.mode != DXT1_MODE_RGB && p.mode != DXT1_MODE_RGBA && p.mode != DXT_JOB_DXT5) ||
+	    (p.mode == DXT_JOB_DXT5 && ((p.dst | p.stride) & 15)))
 		return -22;
 	if (p.w <= CW) {
 		p.k = MAXDMA / (16 * p.w);
 		p.nch = 1;
 		p.units = (p.rows + p.k - 1) / p.k;
-		p.packed = p.stride == 2 * p.w;
+		p.packed = p.stride == p.bpp * p.w;
 	} else {
 		p.k = 0;
 		p.nch = (p.w + CW - 1) / CW;
@@ -196,7 +210,6 @@ static int op_rows(const struct speq_job *j)
 	return 0;	/* the runtime waits for the puts before completing the job */
 }
 
-const speq_op_fn speq_ops[DXT_NOPS] = {
+SPEQ_PROGRAM(dxt, "dxt.spu", DXT_NOPS) = {
 	[DXT_OP_ROWS] = op_rows,
 };
-const unsigned speq_nops = DXT_NOPS;

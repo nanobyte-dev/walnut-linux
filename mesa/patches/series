@@ -28,3 +28,4 @@
 0029-nv30-assume-nothing-of-the-GPU-state-once-the-contex.patch
 0030-nv30-indices-the-CPU-holds-go-to-the-GPU-through-the.patch
 0031-nv30-fragment-program-constant-changes-run-from-a-st.patch
+0032-s3tc-dxt5-libspeq.patch

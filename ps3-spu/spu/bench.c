@@ -150,7 +150,26 @@ static int op_add(const struct speq_job *j)
 	return 0;
 }
 
-const speq_op_fn speq_ops[BENCH_NOPS] = {
+static int op_ticket(const struct speq_job *j)
+{
+	uint32_t t, t0, n = us_ticks(j->arg[2]);
+
+	if (j->arg[1] & 3)
+		return -22;
+	do {
+		speq_getllar(line, j->arg[0]);
+		t = (*(uint32_t *)line)++;
+	} while (speq_putllc(line, j->arg[0]));
+	word[(j->arg[1] & 15) >> 2] = t;
+	speq_put(&word[(j->arg[1] & 15) >> 2], j->arg[1], 4, 0);
+	speq_wait_tags(1);	/* word is reused by the next job */
+	t0 = speq_dec_read();
+	while (t0 - speq_dec_read() < n)
+		;
+	return 0;
+}
+
+SPEQ_PROGRAM(bench, "bench.spu", BENCH_NOPS) = {
 	[BENCH_NOP] = op_nop,
 	[BENCH_SPIN] = op_spin,
 	[BENCH_DMA] = op_dma,
@@ -160,5 +179,5 @@ const speq_op_fn speq_ops[BENCH_NOPS] = {
 	[BENCH_DEC] = op_dec,
 	[BENCH_FAIL] = op_fail,
 	[BENCH_ADD] = op_add,
+	[BENCH_TICKET] = op_ticket,
 };
-const unsigned speq_nops = BENCH_NOPS;

@@ -14,7 +14,11 @@
  *   LLR_LOST, as a context restore does.
  * - DMA: memcpy, with the MFC's size and alignment rules checked (DMA_ALIGNMENT event);
  *   an EA below 64 KB is a DATA_STORAGE fault (the context dies, as on hardware).
- * - stop 0x2104: getpid and futex, mapped to the host's syscall numbers. */
+ * - stop 0x2104: getpid and futex, mapped to the host's syscall numbers.
+ * - programs: every program linked into the test registers its operation table under its file
+ *   name (SPEQ_PROGRAM, spu/speq-spu.h); a context runs the one its queue opened (the only one,
+ *   when just one is linked in), so DXT's queue and the deadline pool run side by side as on
+ *   the PS3. A name nothing registered is -ENOENT, as a missing file. */
 #define _GNU_SOURCE
 #include <errno.h>
 #include <pthread.h>
@@ -26,6 +30,47 @@
 #include <unistd.h>
 #include "speq-int.h"
 #include "speq-spu.h"
+
+#define MAX_PROGS	8
+
+static struct {
+	const char *name;
+	const speq_op_fn *ops;
+	unsigned n;
+} progs[MAX_PROGS];
+static unsigned nprogs;
+
+__thread const speq_op_fn *spq_fake_ops;
+__thread unsigned spq_fake_nops;
+
+/* constructors, before main: no lock needed */
+void spq_fake_register(const char *name, const speq_op_fn *ops, unsigned n)
+{
+	if (nprogs < MAX_PROGS) {
+		progs[nprogs].name = name;
+		progs[nprogs].ops = ops;
+		progs[nprogs].n = n;
+		nprogs++;
+	}
+}
+
+static int find_prog(const char *prog, unsigned *k)
+{
+	const char *base = strrchr(prog, '/');
+	unsigned i;
+
+	base = base ? base + 1 : prog;
+	for (i = 0; i < nprogs; i++)
+		if (!strcmp(progs[i].name, base)) {
+			*k = i;
+			return 0;
+		}
+	if (nprogs == 1) {	/* a tool given a path to its program */
+		*k = 0;
+		return 0;
+	}
+	return -ENOENT;
+}
 
 struct fake {
 	pthread_t th;
@@ -41,6 +86,8 @@ struct fake {
 	uint32_t dec_v0;
 	int dec_armed;
 	uint32_t mask, pending;
+	const speq_op_fn *ops;
+	unsigned nops;
 };
 
 static __thread struct fake *cur;
@@ -77,6 +124,8 @@ static void *spu_thread(void *arg)
 	int ret;
 
 	cur = f;
+	spq_fake_ops = f->ops;
+	spq_fake_nops = f->nops;
 	ret = speq_fake_main(f->r3, f->r4, 0);
 	fake_stop(f, (SPEQ_STOP_EXIT | (ret & 0xff)) << 16 | SPU_STATUS_STOPPED_BY_STOP, 0, 1);
 	return NULL;
@@ -84,10 +133,16 @@ static void *spu_thread(void *arg)
 
 static int fake_create(struct spq_worker *w)
 {
-	struct fake *f = calloc(1, sizeof(*f));
+	struct fake *f;
+	unsigned k;
 
+	if (find_prog(w->q->prog, &k))
+		return -ENOENT;
+	f = calloc(1, sizeof(*f));
 	if (!f)
 		return -ENOMEM;
+	f->ops = progs[k].ops;
+	f->nops = progs[k].n;
 	pthread_mutex_init(&f->m, NULL);
 	pthread_cond_init(&f->cv, NULL);
 	f->r3 = w->idx;

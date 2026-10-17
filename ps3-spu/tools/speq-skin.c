@@ -1152,7 +1152,7 @@ static int run_bench(void)
 	if (!path_given || path != SPQ_SKIN_PPE) {
 		ret = open_skin(&spu, SPQ_SKIN_SPU);
 		if (ret) {
-			printf("bench spu: no queue (%s): is skin.spu installed, spufs mounted?\n",
+			printf("bench spu: no queue (%s): is deadline.spu installed, spufs mounted?\n",
 			       strerror(-ret));
 			spu = NULL;
 		}

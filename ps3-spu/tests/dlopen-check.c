@@ -125,6 +125,9 @@ int main(int argc, char **argv)
 		dxt1_ref_image(src, 3, 128, 64, a, 256, 0);
 		check(!f(SPEQ_GL_COMPRESSED_RGB_S3TC_DXT1_EXT, 3, src, 128, 64, b, 0) &&
 		      !memcmp(a, b, sizeof(a)), "RGB DXT1 from RGB through dlsym = reference");
+		dxt5_ref_image(src, 4, 64, 64, a, 256);	/* Mesa 0032's call: 64x64 is a's size */
+		check(!f(SPEQ_GL_COMPRESSED_RGBA_S3TC_DXT5_EXT, 4, src, 64, 64, b, 256) &&
+		      !memcmp(a, b, sizeof(a)), "RGBA DXT5 through dlsym = reference");
 	}
 	printf("%s: %d failure%s\n", failures ? "FAIL" : "ok", failures, failures == 1 ? "" : "s");
 	return failures ? 1 : 0;

@@ -122,11 +122,54 @@ static inline vec_ushort8 emu_sumb(vec_uchar16 a, vec_uchar16 b)
 /* mpyu: the odd (right) halfwords of each word, unsigned, to 32 bits */
 static inline vec_uint4 emu_mulo(vec_ushort8 a, vec_ushort8 b)
 {
-	vec_uint4 r;
+	vec_uint4 r = { 0 };
 	int i;
 
 	for (i = 0; i < 4; i++)	/* SPU halfword 2i+1 is host halfword 6-2i, word i is host 3-i */
 		r[3 - i] = (unsigned)a[6 - 2 * i] * b[6 - 2 * i];
+	return r;
+}
+
+/* mpyhhu: the even (left) halfwords of each word, unsigned, to 32 bits */
+static inline vec_uint4 emu_mule(vec_ushort8 a, vec_ushort8 b)
+{
+	vec_uint4 r = { 0 };
+	int i;
+
+	for (i = 0; i < 4; i++)	/* SPU halfword 2i is host halfword 7-2i */
+		r[3 - i] = (unsigned)a[7 - 2 * i] * b[7 - 2 * i];
+	return r;
+}
+
+/* mpy and mpyhh: the same, signed */
+static inline vec_int4 emu_mulo_s(vec_short8 a, vec_short8 b)
+{
+	vec_int4 r = { 0 };
+	int i;
+
+	for (i = 0; i < 4; i++)
+		r[3 - i] = (int)a[6 - 2 * i] * b[6 - 2 * i];
+	return r;
+}
+
+static inline vec_int4 emu_mule_s(vec_short8 a, vec_short8 b)
+{
+	vec_int4 r = { 0 };
+	int i;
+
+	for (i = 0; i < 4; i++)
+		r[3 - i] = (int)a[7 - 2 * i] * b[7 - 2 * i];
+	return r;
+}
+
+/* avgb: (a + b + 1) >> 1 per byte */
+static inline vec_uchar16 emu_avg(vec_uchar16 a, vec_uchar16 b)
+{
+	vec_uchar16 r = { 0 };
+	int i;
+
+	for (i = 0; i < 16; i++)
+		r[i] = (a[i] + b[i] + 1) >> 1;
 	return r;
 }
 
@@ -171,7 +214,9 @@ static inline vec_uint4 emu_cnt_s(int n) { return ((vec_uint4){} + (unsigned)n) 
 				   (__typeof__(a))((_a << _n) | (_a >> ((32 - _n) & 31))); })
 #define spu_absd(a, b)		emu_absd(a, b)
 #define spu_sumb(a, b)		emu_sumb(a, b)
-#define spu_mulo(a, b)		emu_mulo(a, b)
+#define spu_mulo(a, b)		_Generic((a), vec_short8: emu_mulo_s, default: emu_mulo)(a, b)
+#define spu_mule(a, b)		_Generic((a), vec_short8: emu_mule_s, default: emu_mule)(a, b)
+#define spu_avg(a, b)		emu_avg(a, b)
 #define spu_orx(a)		emu_orx(a)
 #define spu_shuffle(a, b, p)	((__typeof__(a))emu_shuffle((vec_uchar16)(a), (vec_uchar16)(b), p))
 #define spu_rlqwbyte(a, n)	((__typeof__(a))emu_rlqwbyte((vec_uchar16)(a), n))

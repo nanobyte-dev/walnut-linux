@@ -1,4 +1,5 @@
-/* synth.spu's job (spu/synth-op.c), shared with the PPE side (lib/synth.c). A round is K blocks
+/* The synth op's job (spu/synth-op.c, in the deadline pool's deadline.spu: pool-job.h), shared
+ * with the PPE side (lib/synth.c). A round is K blocks
  * of a synth's voices; its entries (struct synth_ent, one per voice and block, the voice's
  * state before that block) sit voice-major: voice slot v's block b at entries[v * K + b]. One
  * SYNTH_OP_ROUND job renders a range of voices, every block of each in order, carrying the
@@ -24,11 +25,9 @@
 #define SYNTH_JOB_H
 
 #include <stdint.h>
+#include "pool-job.h"
 
-enum {
-	SYNTH_OP_ROUND,
-	SYNTH_NOPS
-};
+#define SYNTH_OP_ROUND	POOL_OP_SYNTH
 
 enum {
 	SYNTH_ARG_ENTS,

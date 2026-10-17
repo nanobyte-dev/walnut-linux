@@ -1,12 +1,14 @@
-/* speq_synth_*_v2: fluidsynth's voice DSP on the SPEs (synth.spu), called by fluidsynth's mixer
+/* speq_synth_*_v2: fluidsynth's voice DSP on the SPEs (deadline.spu's synth op), called by fluidsynth's mixer
  * (through dlopen) a round of blocks at a time. The policy lives here, so tuning never needs a
  * fluidsynth rebuild.
  *
- * Modes (SPEQ_SYNTH): auto (default) and spu use the process's synth queue: SPEQ_SYNTH_SPES
- * workers (2: the two SPEs bulk queues leave to deadline queues, speq.h SPEQ_OPEN_BULK) running
- * synth.spu, opened by the first speq_synth_open_v2 (a synth's creation, not its audio callback)
- * and never closed; its workers park after 200 ms idle (music stopped) and free their contexts
- * after a minute. auto takes rounds of at least SPEQ_SYNTH_MIN voices (4: below that the PPE
+ * Modes (SPEQ_SYNTH): auto (default) and spu use the process's deadline pool (lib/pool.c: two
+ * workers running deadline.spu, shared with skinning and every other latency-bound service,
+ * jobs taken by deadline), opened by the first speq_synth_open_v2 (a synth's creation, not its
+ * audio callback) or another service, and never closed; its workers park after 200 ms idle
+ * (music stopped) and free their contexts after a minute. A round's jobs go to at most
+ * SPEQ_SYNTH_SPES of its workers (default all). auto takes rounds of at least SPEQ_SYNTH_MIN
+ * voices (4: below that the PPE
  * renders them faster than a round trip costs), spu every round. ppe runs the same DSP
  * (synth-kern.h) on the calling thread: the hook's whole path without SPEs. off:
  * speq_synth_open_v2 fails and fluidsynth stays stock.
@@ -20,8 +22,9 @@
  * swapped-out SoundFont page far more) and writes the entry. A voice whose windows exceed what a
  * job's local store holds is rendered by the PPE instead (all its blocks of the round). render
  * cuts the voices into jobs (whole voices; enough jobs for every worker), queues them, renders
- * the PPE's voices meanwhile, sleeps on the done word (no spin by default: the thread shares the
- * PPE with the game) for at most SPEQ_SYNTH_TIMEOUT_US + 5 us per voice block, then sums the
+ * the PPE's voices meanwhile (their deadline: when the wait below gives up), sleeps on the done
+ * word (no spin by default: the thread shares the PPE with the game) for at most
+ * SPEQ_SYNTH_TIMEOUT_US + 5 us per voice block, then sums the
  * outputs. A late or failed round is redone on the PPE from its entries (the SPU never writes
  * them) and abandoned to its jobs (taken again once its done word completes); MAX_FAILS in a row
  * put the SPEs aside for BACKOFF_MS; a queue whose workers all broke, for good. */
@@ -35,18 +38,15 @@
 #include "speq-int.h"
 #include "synth-kern.h"
 
-#define SYNTH_PROG	"synth.spu"
 #define NROUND		2
 #define ENTS		512	/* voice blocks per round */
 #define MAX_JOBS	8
 #define MIN_VOICES	4
-#define SPES		2
+#define SPES		0	/* all of the pool's workers */
 #define TIMEOUT_US	2000
 #define ENT_US		5	/* added to the timeout per voice block */
 #define MAX_FAILS	3
 #define BACKOFF_MS	5000
-#define IDLE_US		200000	/* workers stay resident between audio callbacks */
-#define FREE_MS		60000
 #define STATS_S		10
 
 enum { M_OFF, M_PPE, M_SPU, M_AUTO };
@@ -59,10 +59,6 @@ static unsigned min_voices = MIN_VOICES, spes = SPES;
 static long timeout_us = TIMEOUT_US, ent_us = ENT_US;
 static int spin_us;
 static long page;
-
-static pthread_mutex_t qlock = PTHREAD_MUTEX_INITIALIZER;
-static struct speq *queue;	/* set once, never closed */
-static int qerr;		/* the open's error, or -EIO once the queue broke */
 
 struct round {
 	struct speq_done done;
@@ -93,11 +89,7 @@ struct speq_synth {
 	unsigned maxv;
 	int fails;
 	double backoff_until, last_print;
-	struct {
-		unsigned long rounds, spu, ppe, small, ents_spu, ents_ppe, jobs, timeouts, errors,
-			      nofree, backoffs, redone;
-		double wait_us, wait_max;
-	} st;
+	struct spq_synth_stats st;
 };
 
 static unsigned env_u(const char *name, unsigned def)
@@ -144,38 +136,9 @@ void spq_synth_tune(int m, long timeout, int per_ent_us, int min)
 		min_voices = min;
 }
 
-static struct speq *get_queue(int *err)
+void spq_synth_stats(struct speq_synth *s, struct spq_synth_stats *st)
 {
-	struct speq *q;
-	int ret;
-
-	pthread_mutex_lock(&qlock);
-	if (!queue && !qerr) {
-		ret = speq_open(&q, SYNTH_PROG, spes, 0);
-		if (ret) {
-			qerr = ret;
-		} else {
-			speq_tune(q, spin_us, IDLE_US, FREE_MS);
-			__atomic_store_n(&queue, q, __ATOMIC_RELEASE);
-		}
-	}
-	q = qerr ? NULL : queue;
-	*err = qerr;
-	pthread_mutex_unlock(&qlock);
-	return q;
-}
-
-static void queue_broke(void)
-{
-	pthread_mutex_lock(&qlock);
-	if (!qerr)
-		qerr = -EIO;
-	pthread_mutex_unlock(&qlock);
-}
-
-static int queue_ok(void)
-{
-	return !__atomic_load_n(&qerr, __ATOMIC_ACQUIRE);
+	*st = s->st;
 }
 
 static void print_stats(struct speq_synth *s, const char *when)
@@ -325,7 +288,7 @@ int speq_synth_open_v2(struct speq_synth **sp, const struct speq_synth_params *p
 		return -ENOMEM;
 	}
 	if (mode != M_PPE) {
-		s->q = get_queue(&err);
+		s->q = spq_pool(&err);
 		if (!s->q) {
 			free_synth(s);
 			return err;
@@ -344,7 +307,7 @@ unsigned speq_synth_begin_v2(struct speq_synth *s, unsigned nv, unsigned blocks,
 
 	if (!s || !nv || !blocks || nv > s->maxv || !sincos || !sincos_n)
 		return 0;
-	if (s->q && !queue_ok())
+	if (s->q && !spq_pool_ok())
 		return 0;
 	if (s->backoff_until) {
 		if (spq_now_us() < s->backoff_until)
@@ -683,6 +646,8 @@ static unsigned make_jobs(struct speq_synth *s, struct round *r)
 				r->ents[v * r->K + b].flags |= SYNTH_ENT_PPE;
 	vj = SYNTH_JOB_ENTS / r->K;
 	nw = speq_nworkers(s->q);
+	if (spes && nw > spes)
+		nw = spes;
 	per = (end - first + nw - 1) / nw;
 	if (per < vj)
 		vj = per;
@@ -752,10 +717,10 @@ int speq_synth_render_v2(struct speq_synth *s, const float **out, const float **
 		r->njobs = nj;
 		if (nj) {
 			memset(&r->done, 0, sizeof(r->done));
-			ret = speq_submit(s->q, s->jobs, nj, &r->done);
+			ret = spq_submit_dl(s->q, s->jobs, nj, &r->done,
+					    spq_deadline(timeout_us + ent_us * (double)spu_ents));
 			if (ret) {
-				if (ret == -EIO || __atomic_load_n(&s->q->dead, __ATOMIC_ACQUIRE))
-					queue_broke();
+				spq_pool_check(s->q, ret);
 				/* jobs it queued may still run: the round is theirs until done */
 				if (speq_wait_timeout(s->q, &r->done, 0, SPEQ_WAIT_NOSPIN) == -ETIMEDOUT)
 					r->state = R_LOST;
@@ -784,8 +749,7 @@ int speq_synth_render_v2(struct speq_synth *s, const float **out, const float **
 		return 0;
 	}
 	t0 = spq_now_us();
-	ret = speq_wait_timeout(s->q, &r->done, timeout_us + ent_us * (long)spu_ents,
-				spin_us ? 0 : SPEQ_WAIT_NOSPIN);
+	ret = spq_wait_ex(s->q, &r->done, spin_us, timeout_us + ent_us * (long)spu_ents);
 	dt = spq_now_us() - t0;
 	if (ret) {
 		/* late or failed: the SPU's voices again here; the round stays the jobs' if late */
@@ -796,8 +760,7 @@ int speq_synth_render_v2(struct speq_synth *s, const float **out, const float **
 			s->st.timeouts++;
 		} else {
 			r->state = R_FREE;
-			if (__atomic_load_n(&s->q->dead, __ATOMIC_ACQUIRE))
-				queue_broke();
+			spq_pool_check(s->q, 0);
 			s->st.errors++;
 		}
 		fail(s);

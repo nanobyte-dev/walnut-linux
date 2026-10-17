@@ -1,11 +1,15 @@
 /* speq_s3tc_compress_v1: the one entry point Mesa's S3TC texstore calls (through dlopen, before
- * its own tx_compress_dxt1). The policy lives here, so tuning never needs a Mesa rebuild.
+ * its own tx_compress_dxt1 or tx_compress_dxt5). The policy lives here, so tuning never needs a
+ * Mesa rebuild. Formats: RGB and RGBA DXT1, and RGBA DXT5 (Mesa's choice for generic compressed
+ * RGBA: Teeworlds, TORCS, any game asking for compressed alpha textures); DXT5 can be sent back
+ * to Mesa's encoder alone with SPEQ_S3TC_DXT5=off.
  *
  * Paths (SPEQ_S3TC):
  * - auto (default): the SPEs (dxt.spu) for RGBA sources of at least SPEQ_S3TC_MIN pixels
  *   (default 64x64), when the queue opens; the PPE encoder (lib/dxt-ref.c) otherwise.
- * - spu: the SPEs for every image they can take (RGBA source, 8-aligned dst and stride), any
- *   size; the PPE for the rest. A queue that doesn't open is returned as the error.
+ * - spu: the SPEs for every image they can take (RGBA source, 8-aligned dst and stride, DXT5
+ *   16-aligned), any size; the PPE for the rest. A queue that doesn't open is returned as the
+ *   error.
  * - ppe: the PPE encoder. off: -ENOTSUP (Mesa's encoder).
  * Both encoders give the same bytes. SPEQ_DEBUG=1: one line per call on stderr.
  *
@@ -37,7 +41,7 @@
 #define MAX_FAILS	3		/* images failed on the SPEs in a row: the PPE from then on */
 
 static pthread_once_t once = PTHREAD_ONCE_INIT;
-static int mode = SPQ_S3TC_AUTO, debug;
+static int mode = SPQ_S3TC_AUTO, debug, dxt5 = 1;
 static unsigned long min_px = MIN_PX;
 
 static pthread_mutex_t qlock = PTHREAD_MUTEX_INITIALIZER;
@@ -55,6 +59,7 @@ static struct spq_s3tc_stats stats;
 static void init(void)
 {
 	const char *s = getenv("SPEQ_S3TC"), *d = getenv("SPEQ_DEBUG"), *m = getenv("SPEQ_S3TC_MIN");
+	const char *five = getenv("SPEQ_S3TC_DXT5");
 	unsigned long a, b;
 	char x;
 
@@ -74,6 +79,7 @@ static void init(void)
 	else if (m && *m)
 		min_px = strtoul(m, NULL, 0);
 	debug = d && *d && strcmp(d, "0");
+	dxt5 = !five || !*five || (strcmp(five, "0") && strcmp(five, "off"));
 	page = sysconf(_SC_PAGESIZE);
 	if (page <= 0)
 		page = 4096;
@@ -159,9 +165,9 @@ static void touch(uint8_t *dst, unsigned rows, unsigned rowbytes, unsigned strid
 	(void)sink;
 }
 
-/* The SPU path: 0, or -errno with the image to be redone on the PPE */
+/* The SPU path: 0, or -errno with the image to be redone on the PPE. jmode: DXT_JOB_* */
 static int spu_encode(struct speq *q, const uint8_t *src, unsigned w, unsigned h, uint8_t *dst,
-		      unsigned stride, int punch, unsigned *njobs)
+		      unsigned stride, unsigned jmode, unsigned *njobs)
 {
 	struct speq_job jobs[SPEQ_MAX_WORKERS];
 	struct speq_done done __attribute__((aligned(128)));
@@ -185,9 +191,9 @@ static int spu_encode(struct speq *q, const uint8_t *src, unsigned w, unsigned h
 		jobs[i].arg[DXT_ARG_DST] = bad && i == (bad - 1 < n ? bad - 1 : n - 1) ?
 					   BAD_EA : (uintptr_t)dst;
 		jobs[i].arg[DXT_ARG_STRIDE] = stride;
-		jobs[i].arg[DXT_ARG_MODE] = punch ? DXT_JOB_RGBA : DXT_JOB_RGB;
+		jobs[i].arg[DXT_ARG_MODE] = jmode;
 	}
-	touch(dst, rows, 2 * w, stride, src, (size_t)16 * w * rows);
+	touch(dst, rows, jmode == DXT_JOB_DXT5 ? 4 * w : 2 * w, stride, src, (size_t)16 * w * rows);
 	memset(&done, 0, sizeof(done));
 	ret = speq_submit(q, jobs, n, &done);
 	if (ret == -EINVAL)
@@ -204,10 +210,10 @@ static int spu_encode(struct speq *q, const uint8_t *src, unsigned w, unsigned h
 int speq_s3tc_compress_v1(unsigned fmt, unsigned srccomps, const void *src, unsigned w,
 			  unsigned h, void *dst, unsigned dst_stride)
 {
-	const char *why = "", *path = "ppe";
+	const char *why = "", *path = "ppe", *name;
 	double t0 = 0, open_us = -1;
-	unsigned njobs = 0;
-	int ret = 0, punch, use_spu = 0, err = 0, spu_ret = 0;
+	unsigned njobs = 0, rowb, align, jmode;
+	int ret = 0, punch, is5, use_spu = 0, err = 0, spu_ret = 0;
 	struct speq *q = NULL;
 	char extra[64] = "";
 
@@ -215,8 +221,15 @@ int speq_s3tc_compress_v1(unsigned fmt, unsigned srccomps, const void *src, unsi
 	if (debug)
 		t0 = spq_now_us();
 	punch = fmt == SPEQ_GL_COMPRESSED_RGBA_S3TC_DXT1_EXT;
-	if (fmt != SPEQ_GL_COMPRESSED_RGB_S3TC_DXT1_EXT && !punch)
-		ret = -ENOTSUP;	/* DXT3/5: later */
+	is5 = fmt == SPEQ_GL_COMPRESSED_RGBA_S3TC_DXT5_EXT;
+	name = is5 ? "dxt5" : punch ? "dxt1a" : "dxt1";
+	rowb = is5 ? 4 * w : 2 * w;	/* bytes per block row */
+	align = is5 ? 16 : 8;		/* the SPEs' dst and stride: whole blocks in quadwords */
+	jmode = is5 ? DXT_JOB_DXT5 : punch ? DXT_JOB_RGBA : DXT_JOB_RGB;
+	if (fmt != SPEQ_GL_COMPRESSED_RGB_S3TC_DXT1_EXT && !punch && !is5)
+		ret = -ENOTSUP;	/* DXT3: Mesa's encoder */
+	else if (is5 && !dxt5)
+		ret = -ENOTSUP;	/* SPEQ_S3TC_DXT5=off */
 	else if (srccomps != 3 && srccomps != 4)
 		ret = -ENOTSUP;
 	else if (w % 4 || h % 4)
@@ -231,15 +244,15 @@ int speq_s3tc_compress_v1(unsigned fmt, unsigned srccomps, const void *src, unsi
 		path = "-";
 		goto out;
 	}
-	if (dst_stride < 2 * w)	/* as tx_compress_dxt1: packed rows */
-		dst_stride = 2 * w;
+	if (dst_stride < rowb)	/* as tx_compress_dxt1/5: packed rows */
+		dst_stride = rowb;
 
 	if (mode == SPQ_S3TC_PPE)
 		why = " (SPEQ_S3TC=ppe)";
 	else if (srccomps != 4)
 		why = " (RGB source)";
-	else if (((uintptr_t)dst | dst_stride) & 7)
-		why = " (dst not 8-aligned)";
+	else if (((uintptr_t)dst | dst_stride) & (align - 1))
+		why = is5 ? " (dst not 16-aligned)" : " (dst not 8-aligned)";
 	else if (mode == SPQ_S3TC_AUTO && (unsigned long)w * h < min_px)
 		why = " (small)";
 	else if (!(q = get_queue(&err, &open_us))) {
@@ -254,7 +267,7 @@ int speq_s3tc_compress_v1(unsigned fmt, unsigned srccomps, const void *src, unsi
 		use_spu = 1;
 
 	if (use_spu) {
-		spu_ret = spu_encode(q, src, w, h, dst, dst_stride, punch, &njobs);
+		spu_ret = spu_encode(q, src, w, h, dst, dst_stride, jmode, &njobs);
 		__atomic_fetch_add(&stats.jobs, njobs, __ATOMIC_RELAXED);
 		if (!spu_ret) {
 			__atomic_store_n(&fails, 0, __ATOMIC_RELAXED);
@@ -273,7 +286,10 @@ int speq_s3tc_compress_v1(unsigned fmt, unsigned srccomps, const void *src, unsi
 		snprintf(extra, sizeof(extra), " (spu failed: %s, redone)", strerror(-spu_ret));
 	}
 	INC(&stats.ppe);
-	dxt1_ref_image(src, srccomps, w, h, dst, dst_stride, punch);
+	if (is5)
+		dxt5_ref_image(src, srccomps, w, h, dst, dst_stride);
+	else
+		dxt1_ref_image(src, srccomps, w, h, dst, dst_stride, punch);
 out:
 	if (debug) {
 		char o[32] = "";
@@ -281,7 +297,7 @@ out:
 		if (open_us >= 0)
 			snprintf(o, sizeof(o), ", open %.0f us", open_us);
 		fprintf(stderr, "speq: s3tc %s %ux%u comps %u stride %u: %s%s%s, %u jobs%s, %.0f us%s%s\n",
-			punch ? "dxt1a" : "dxt1", w, h, srccomps, dst_stride, path, why, extra, njobs,
+			name, w, h, srccomps, dst_stride, path, why, extra, njobs,
 			o, spq_now_us() - t0, ret ? ": " : "", ret ? strerror(-ret) : "");
 	}
 	return ret;

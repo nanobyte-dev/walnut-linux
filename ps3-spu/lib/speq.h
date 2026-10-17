@@ -43,8 +43,9 @@ struct speq_done {
  * (at least one), so services with their own queues share the six SPEs instead of having
  * spufs time-slice them (80 ms slices: past any audio deadline).
  * flags: SPEQ_OPEN_BULK, a queue of long jobs without deadlines (texture compression): with
- * nworkers 0 it also leaves SPEQ_DEADLINE_SPES to deadline queues (audio: one worker each,
- * opened before or after it), so their jobs never wait behind its jobs or for a time slice. */
+ * nworkers 0 it also leaves SPEQ_DEADLINE_SPES to libspeq's deadline pool (the one queue of
+ * every latency-bound service: audio, skinning; opened before or after it), so their jobs never
+ * wait behind its jobs or for a time slice. */
 #define SPEQ_OPEN_BULK		1u
 #define SPEQ_DEADLINE_SPES	2
 int speq_open(struct speq **q, const char *prog, unsigned nworkers, unsigned flags);
@@ -82,18 +83,22 @@ unsigned speq_abi_version(void);
 
 #define SPEQ_GL_COMPRESSED_RGB_S3TC_DXT1_EXT	0x83F0
 #define SPEQ_GL_COMPRESSED_RGBA_S3TC_DXT1_EXT	0x83F1
+#define SPEQ_GL_COMPRESSED_RGBA_S3TC_DXT5_EXT	0x83F3	/* an older libspeq: -ENOTSUP */
 
 /* Compresses a w x h image of srccomps (3: RGB, 4: RGBA) bytes per pixel, tightly packed
- * (srccomps * w bytes per row), to fmt (the GL enum: DXT1 RGB or RGBA) at dst, one row of
- * 4x4 blocks every dst_stride bytes (dst_stride < 2 * w: rows packed, as Mesa's
- * tx_compress_dxt1 takes it). RGBA DXT1: alpha <= 127 is transparent.
- * Returns 0, or -ENOTSUP (DXT3/5, srccomps not 3/4, w or h not a multiple of 4, SPEQ_S3TC=off),
- * -EINVAL, or with SPEQ_S3TC=spu the error of a queue that can't open (-ENOENT, -EBUSY, ...)
- * or broke (3 images in a row failed); dst is then untouched. A failed SPU job never shows
- * otherwise: the image is redone on the PPE.
+ * (srccomps * w bytes per row), to fmt (the GL enum: DXT1 RGB or RGBA, DXT5 RGBA) at dst, one
+ * row of 4x4 blocks every dst_stride bytes (dst_stride below a block row, 2 * w for DXT1 and
+ * 4 * w for DXT5: rows packed, as Mesa's tx_compress_dxt1/5 take it). RGBA DXT1: alpha <= 127
+ * is transparent. DXT5: its colour block never relies on the 3-colour mode (decoders read
+ * DXT5's in 4-colour mode).
+ * Returns 0, or -ENOTSUP (DXT3, DXT5 with SPEQ_S3TC_DXT5=off, srccomps not 3/4, w or h not a
+ * multiple of 4, SPEQ_S3TC=off), -EINVAL, or with SPEQ_S3TC=spu the error of a queue that can't
+ * open (-ENOENT, -EBUSY, ...) or broke (3 images in a row failed); dst is then untouched. A
+ * failed SPU job never shows otherwise: the image is redone on the PPE.
  * Env: SPEQ_S3TC=auto|spu|ppe|off (default auto: the SPEs for RGBA images of at least
  * SPEQ_S3TC_MIN pixels, a count or WxH, default 64x64, when dxt.spu's queue opens; the PPE
- * otherwise), SPEQ_DEBUG=1 (one line per call on stderr). Safe to call from several threads. */
+ * otherwise), SPEQ_S3TC_DXT5=off (DXT5 back to the caller's encoder), SPEQ_DEBUG=1 (one line per
+ * call on stderr). Safe to call from several threads. */
 int speq_s3tc_compress_v1(unsigned fmt, unsigned srccomps, const void *src, unsigned w,
 			  unsigned h, void *dst, unsigned dst_stride);
 
@@ -119,10 +124,12 @@ int speq_s3tc_compress_v1(unsigned fmt, unsigned srccomps, const void *src, unsi
  * voice block) is redone on the PPE from the round's entries. Policy is libspeq's:
  * SPEQ_SYNTH=auto|spu|ppe|off (auto, the default: the SPEs for rounds of at least SPEQ_SYNTH_MIN
  * voices (4), else begin returns 0; spu: every round; ppe: libspeq's DSP on the calling thread;
- * off: speq_synth_open_v2 fails), SPEQ_SYNTH_SPES (workers, 2), SPEQ_SYNTH_SPIN_US (0: sleep at
- * once), SPEQ_DEBUG=1 (a line of counters every 10 s and at close). Repeated failures put the
- * SPEs aside for a while (begin returns 0); a queue that broke for good, for the process. One
- * synth per thread; synths share the queue. */
+ * off: speq_synth_open_v2 fails), SPEQ_SYNTH_SPES (the most of the pool's workers a round is
+ * split across, default all), SPEQ_SYNTH_SPIN_US (0: sleep at once), SPEQ_DEBUG=1 (a line of
+ * counters every 10 s and at close). The SPEs: the process's deadline pool, shared with
+ * skinning (SPEQ_POOL_SPES workers, 2: jobs taken by deadline). Repeated failures put the SPEs
+ * aside for a while (begin returns 0); a pool that broke for good, for the process. One synth
+ * per thread; synths share the pool. */
 
 #define SPEQ_SYNTH_ABI		2	/* layout of the structs below (the _v2 calls) */
 #define SPEQ_SYNTH_BLOCK	64	/* samples per block: FLUID_BUFSIZE */
@@ -211,11 +218,13 @@ void speq_synth_close_v2(struct speq_synth *s);
  * coordinates), or are zero without one.
  * Policy is libspeq's: SPEQ_SKIN=auto|spu|ppe|off (auto, the default: the SPEs for batches of
  * at least SPEQ_SKIN_MIN vertices (256), else begin declines; spu: every batch; ppe: libspeq's
- * code on the calling thread, no SPEs; off: speq_skin_open_v1 fails), SPEQ_SKIN_SPES (workers,
- * 2), SPEQ_SKIN_TIMEOUT_US (end waits 2000 + 0.05 per vertex, then declines; spinning
- * SPEQ_SKIN_SPIN_US first, 300), SPEQ_DEBUG=1 (a line of counters every 10 s and at close).
- * Three failed batches in a row put the SPEs aside for 5 s; a queue that broke, for good. One
- * speq_skin per thread; they share the queue. */
+ * code on the calling thread, no SPEs; off: speq_skin_open_v1 fails), SPEQ_SKIN_SPES (the most
+ * of the pool's workers a mesh is split across, default all), SPEQ_SKIN_TIMEOUT_US (end waits
+ * 2000 + 0.05 per vertex, then declines; spinning SPEQ_SKIN_SPIN_US first, 300), SPEQ_DEBUG=1
+ * (a line of counters every 10 s and at close). The SPEs: the process's deadline pool, shared
+ * with the synth (SPEQ_POOL_SPES workers, 2: jobs taken by deadline). Three failed batches in a
+ * row put the SPEs aside for 5 s; a pool that broke, for good. One speq_skin per thread; they
+ * share the pool. */
 
 #define SPEQ_SKIN_ABI		1	/* layout of struct speq_skin_mesh (the _v1 calls) */
 #define SPEQ_SKIN_NONE		0xffff	/* an absent field's offset */

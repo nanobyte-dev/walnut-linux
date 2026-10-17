@@ -1,15 +1,17 @@
-/* skin.spu: libspeq's vertex skinning worker (speq_skin_*_v1, lib/skin.c). Links libspeq-spu.a
- * (main, the claim loop); one operation, SKIN_OP_RANGE (lib/skin-job.h): a range of one mesh's
- * vertices, skinned by lib/skin-kern.h (the PPE path's code) into the batch's output.
+/* The skinning op of deadline.spu (the deadline pool's program, spu/deadline.c,
+ * lib/pool-job.h): libspeq's vertex skinning (speq_skin_*_v1, lib/skin.c). SKIN_OP_RANGE
+ * (lib/skin-job.h): a range of one mesh's vertices, skinned by lib/skin-kern.h (the PPE path's
+ * code) into the batch's output.
  *
  * The descriptor and the palette come in first (up to 48 KB, kept for the job); then the
  * vertices in chunks of up to 8 KB per stream (the output's template too), fetched one chunk
  * ahead into two buffer sets while the chunk before is skinned, each chunk's output put back as
  * it is done. The output's first and last quadwords may hold a neighbour's bytes (another job,
  * another mesh): those are put as 4- and 8-byte DMAs of our bytes only. Every DMA is split at
- * 16 KB and where the EA's high word changes. Local store: palette 48 KB, streams 2 x 2 x 8 KB,
- * output 2 x 8 KB. */
+ * 16 KB and where the EA's high word changes. Local store, in the pool's arena: palette 48 KB,
+ * streams 2 x 2 x 8 KB, output 2 x 8 KB. */
 #include "speq-spu.h"
+#include "deadline.h"
 #include "skin-kern.h"
 
 #define MAXDMA		16384
@@ -18,10 +20,15 @@
 #define TAG_PUT		2			/* + set; fetches use tag = set */
 #define TAG_IN		4			/* descriptor, palette */
 
-static SPEQ_LOCAL struct skin_desc desc __attribute__((aligned(128)));
-static SPEQ_LOCAL sv4f pal[SKIN_PAL_BYTES / 16] __attribute__((aligned(128)));
-static SPEQ_LOCAL uint8_t sbuf[NSET][2][BUF] __attribute__((aligned(128)));
-static SPEQ_LOCAL uint8_t obuf[NSET][BUF] __attribute__((aligned(128)));
+/* a job's buffers, in the pool's arena */
+struct skin_ls {
+	struct skin_desc desc __attribute__((aligned(128)));
+	sv4f pal[SKIN_PAL_BYTES / 16] __attribute__((aligned(128)));
+	uint8_t sbuf[NSET][2][BUF] __attribute__((aligned(128)));
+	uint8_t obuf[NSET][BUF] __attribute__((aligned(128)));
+};
+_Static_assert(sizeof(struct skin_ls) <= POOL_ARENA_BYTES, "skinning's buffers fit the arena");
+#define L ((struct skin_ls *)pool_arena)
 
 /* size bytes, both sides 16-aligned and size a multiple of 16 */
 static void dma(volatile void *lsp, uint64_t ea, uint32_t size, unsigned tag, int put)
@@ -90,18 +97,18 @@ struct chunk {
 
 static void fetch_chunk(struct chunk *c, unsigned set, unsigned streams)
 {
-	uint32_t ds = desc.dst_stride, s;
+	uint32_t ds = L->desc.dst_stride, s;
 
 	for (s = 0; s < 2; s++)
 		c->s[s] = streams & (1u << s) ?
-			  fetch(sbuf[set][s], desc.src[s] + (uint64_t)c->v * desc.src_stride[s],
-				c->n * desc.src_stride[s], set) : sbuf[set][s];
-	c->o = obuf[set] + ((desc.dst + (uint64_t)c->v * ds) & 15);
-	if (desc.tmpl)
-		fetch(obuf[set], desc.tmpl + (uint64_t)c->v * ds, c->n * ds, set);
+			  fetch(L->sbuf[set][s], L->desc.src[s] + (uint64_t)c->v * L->desc.src_stride[s],
+				c->n * L->desc.src_stride[s], set) : L->sbuf[set][s];
+	c->o = L->obuf[set] + ((L->desc.dst + (uint64_t)c->v * ds) & 15);
+	if (L->desc.tmpl)
+		fetch(L->obuf[set], L->desc.tmpl + (uint64_t)c->v * ds, c->n * ds, set);
 }
 
-static int op_range(const struct speq_job *j)
+int pool_op_skin(const struct speq_job *j)
 {
 	uint64_t dea = j->arg[SKIN_ARG_DESC];
 	uint32_t first = j->arg[SKIN_ARG_FIRST], count = j->arg[SKIN_ARG_COUNT];
@@ -112,24 +119,24 @@ static int op_range(const struct speq_job *j)
 
 	if (!dea || (dea & 127) || first != j->arg[SKIN_ARG_FIRST] || count != j->arg[SKIN_ARG_COUNT])
 		return -22;
-	dma(&desc, dea, sizeof(desc), TAG_IN, 0);
+	dma(&L->desc, dea, sizeof(L->desc), TAG_IN, 0);
 	speq_wait_tags(1u << TAG_IN);
-	if (sk_check(&desc) || first > desc.nverts || count > desc.nverts - first)
+	if (sk_check(&L->desc) || first > L->desc.nverts || count > L->desc.nverts - first)
 		return -22;
 	if (!count)
 		return 0;
-	ebytes = desc.palette_fmt == SPEQ_SKIN_DQ ? 32 : 48;
-	npal = desc.npal[0] + desc.npal[1];
-	dma(pal, desc.pal[0], desc.npal[0] * ebytes, TAG_IN, 0);
-	dma((uint8_t *)pal + desc.npal[0] * ebytes, desc.pal[1], desc.npal[1] * ebytes, TAG_IN, 0);
-	pl.p0 = pl.p1 = pal;
+	ebytes = L->desc.palette_fmt == SPEQ_SKIN_DQ ? 32 : 48;
+	npal = L->desc.npal[0] + L->desc.npal[1];
+	dma(L->pal, L->desc.pal[0], L->desc.npal[0] * ebytes, TAG_IN, 0);
+	dma((uint8_t *)L->pal + L->desc.npal[0] * ebytes, L->desc.pal[1], L->desc.npal[1] * ebytes, TAG_IN, 0);
+	pl.p0 = pl.p1 = L->pal;
 	pl.n0 = pl.n = npal;
 
-	streams = sk_streams(&desc);
-	maxs = desc.dst_stride;
+	streams = sk_streams(&L->desc);
+	maxs = L->desc.dst_stride;
 	for (k = 0; k < 2; k++)
-		if ((streams & (1u << k)) && desc.src_stride[k] > maxs)
-			maxs = desc.src_stride[k];
+		if ((streams & (1u << k)) && L->desc.src_stride[k] > maxs)
+			maxs = L->desc.src_stride[k];
 	C = SKIN_CHUNK / maxs;
 	nch = (count + C - 1) / C;
 	end = first + count;
@@ -150,24 +157,20 @@ static int op_range(const struct speq_job *j)
 			fetch_chunk(&ch[t], t, streams);
 		}
 		speq_wait_tags(1u << s);
-		if (!desc.tmpl) {
-			sv4f *q = (sv4f *)obuf[s];
-			uint32_t i, nq = ((c->o - obuf[s]) + c->n * desc.dst_stride + 15) >> 4;
+		if (!L->desc.tmpl) {
+			sv4f *q = (sv4f *)L->obuf[s];
+			uint32_t i, nq = ((c->o - L->obuf[s]) + c->n * L->desc.dst_stride + 15) >> 4;
 
 			for (i = 0; i < nq; i++)
 				q[i] = (sv4f){ 0, 0, 0, 0 };
 		}
-		err = sk_run(&desc, &pl, c->s[0], c->s[1], c->o, c->n);
+		err = sk_run(&L->desc, &pl, c->s[0], c->s[1], c->o, c->n);
 		if (err)
 			break;
-		put_exact(c->o, desc.dst + (uint64_t)c->v * desc.dst_stride, c->n * desc.dst_stride,
+		put_exact(c->o, L->desc.dst + (uint64_t)c->v * L->desc.dst_stride, c->n * L->desc.dst_stride,
 			  TAG_PUT + s);
 	}
 	speq_wait_tags(3);	/* no fetch still landing in local store */
 	return err;	/* the runtime waits for the puts before completing the job */
 }
 
-const speq_op_fn speq_ops[SKIN_NOPS] = {
-	[SKIN_OP_RANGE] = op_range,
-};
-const unsigned speq_nops = SKIN_NOPS;

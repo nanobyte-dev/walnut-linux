@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 22:30:45 +0300
+Subject: mesa: S3TC DXT5 compression through libspeq on the PS3
+
+Generic compressed RGBA requests (GL_COMPRESSED_RGBA: Teeworlds, TORCS, any game asking for
+compressed alpha textures) and RGBA_DXT5 become DXT5, which Mesa encoded with its own encoder
+on the PPE. libspeq (0011's hook, the same entry point with the DXT5 format) now encodes them
+on the SPEs, or with its own PPE encoder for small images, with a colour block that never
+relies on the 3-colour mode (DXT5's is always decoded in 4-colour mode). An older libspeq
+returns -ENOTSUP for DXT5 and Mesa's encoder runs as before. The switch is libspeq's:
+SPEQ_S3TC_DXT5=off gives DXT5 back to Mesa's encoder (SPEQ_S3TC=off all formats), no Mesa
+rebuild.
+
+Forwarded: no
+
+diff --git a/src/mesa/main/texcompress_s3tc.c b/src/mesa/main/texcompress_s3tc.c
+--- a/src/mesa/main/texcompress_s3tc.c
++++ b/src/mesa/main/texcompress_s3tc.c
+@@ -260,6 +260,10 @@ _mesa_texstore_rgba_dxt5(TEXSTORE_PARAMS)
+ 
+    dst = dstSlices[0];
+ 
++#if DETECT_ARCH_PPC_64
++   if (!_mesa_s3tc_speq(GL_COMPRESSED_RGBA_S3TC_DXT5_EXT, 4, pixels, srcWidth, srcHeight,
++                        dst, dstRowStride))
++#endif
+    tx_compress_dxt5(4, srcWidth, srcHeight, pixels, dst, dstRowStride);
+ 
+    free((void *) tempImage);

@@ -21,6 +21,9 @@ enum {
 			 * polls, v2 first value, v3 last value (P4) */
 	BENCH_FAIL,	/* returns arg0 as the job's error */
 	BENCH_ADD,	/* adds 1 to the u32 at arg0 (128-aligned line) with getllar/putllc */
+	BENCH_TICKET,	/* takes a ticket: adds 1 to the u32 at arg0 (128-aligned line), puts the
+			 * value it had to the u32 at arg1 (4-aligned), then spins arg2 us: the
+			 * order jobs started in (queue-test, the deadline order) */
 	BENCH_NOPS
 };
 

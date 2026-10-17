@@ -6,12 +6,14 @@
 #                   the fake backend (SPEQ_FAKE=1: the SPU programs' ops on host threads):
 #                   queue-test, speq-bench-fake --quick (bench.spu's ops), speq-dxt-fake --check
 #                   on the spu and auto paths (dxt.spu's op and encoder: the whole SPU path),
-#                   synth-test (synth.spu's op, every read checked against its DMA plan, against
-#                   libspeq's PPE path), speq-skin-fake --check on the spu and ppe paths (skin.spu's
-#                   op and libspeq's PPE path against Sauerbraten's skinning written out in C)
+#                   synth-test (deadline.spu's synth op, every read checked against its DMA plan,
+#                   against libspeq's PPE path), speq-skin-fake --check on the spu and ppe paths
+#                   (deadline.spu's skinning op and libspeq's PPE path against Sauerbraten's
+#                   skinning written out in C), pool-test (synth and skinning sharing the deadline
+#                   pool next to DXT's bulk queue: deadlines, a slow job, faults)
 #   make test-fluidsynth  fluidsynth with the libspeq hook against unpatched fluidsynth, both
 #                   built for the host, on a generated MIDI file (tests/fluidsynth-compare.sh)
-#   make test-mesa  our encoder against Mesa's on a corpus (tests/mesa-compare.sh)
+#   make test-mesa  our DXT1 and DXT5 encoders against Mesa's on a corpus (tests/mesa-compare.sh)
 CC      ?= cc
 SPU_CC  ?= spu-elf-gcc
 SPU_AR  ?= $(patsubst %gcc,%ar,$(SPU_CC))
@@ -23,21 +25,24 @@ override SPU_CFLAGS += -Wall -std=gnu11 -Ilib -Ispu
 TEST_OUT ?= ../build/speq-test
 MESA    ?= ../build/work/mesa
 
-SPEQ_SRC := lib/s3tc.c lib/dxt-ref.c lib/synth.c lib/skin.c lib/queue.c lib/spe.c
+SPEQ_SRC := lib/s3tc.c lib/dxt-ref.c lib/synth.c lib/skin.c lib/pool.c lib/queue.c lib/spe.c
 SPEQ_HDR := $(wildcard lib/*.h)
 # the fake backend: the SPU runtime and a program's ops built for the host (tests only)
 FAKE_SRC := lib/fake.c spu/runtime.c spu/bench.c
 FAKE_DXT := lib/fake.c spu/runtime.c spu/dxt-op.c spu/dxt.c
-FAKE_SYNTH := lib/fake.c spu/runtime.c spu/synth-op.c
-FAKE_SKIN := lib/fake.c spu/runtime.c spu/skin-op.c
+# deadline.spu: the deadline pool's program, the synth and skinning ops (lib/pool-job.h)
+POOL_SPU := spu/deadline.c spu/synth-op.c spu/skin-op.c
+POOL_HDR := lib/pool-job.h lib/synth-kern.h lib/synth-job.h lib/skin-kern.h lib/skin-job.h
+FAKE_POOL := lib/fake.c spu/runtime.c $(POOL_SPU)
+# every program at once: the pool next to DXT's bulk queue and bench.spu (pool-test)
+FAKE_ALL := lib/fake.c spu/runtime.c $(POOL_SPU) spu/dxt-op.c spu/dxt.c spu/bench.c
 SPU_HDR  := $(wildcard spu/*.h)
 # dxt.spu's encoder at -O3, as timed (135 cycles per block)
 DXT_SPU_OPT ?= -O3
 
 .PHONY: ppe spu test test-mesa test-fluidsynth
 ppe: $(OUT)/libspeq.so.0 $(OUT)/speq-dxt $(OUT)/spurun $(OUT)/speq-bench $(OUT)/speq-skin
-spu: $(OUT)/hello.spu $(OUT)/libspeq-spu.a $(OUT)/bench.spu $(OUT)/dxt.spu $(OUT)/synth.spu \
-	$(OUT)/skin.spu
+spu: $(OUT)/hello.spu $(OUT)/libspeq-spu.a $(OUT)/bench.spu $(OUT)/dxt.spu $(OUT)/deadline.spu
 
 # only speq_* exported (lib/libspeq.map), SONAME libspeq.so.0
 $(OUT)/libspeq.so.0: $(SPEQ_SRC) $(SPEQ_HDR) lib/libspeq.map
@@ -58,7 +63,7 @@ $(OUT)/spurun: src/spurun.c
 	@mkdir -p $(OUT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $<
 
-# SPU side: libspeq-spu.a gives main and the claim loop; a program gives speq_ops[]
+# SPU side: libspeq-spu.a gives main and the claim loop; a program gives its ops (SPEQ_PROGRAM)
 $(OUT)/hello.spu: spu/hello.c
 	@mkdir -p $(OUT)
 	$(SPU_CC) -O2 -Wall -o $@ $<
@@ -73,20 +78,27 @@ $(OUT)/bench.spu: spu/bench.c $(SPU_HDR) $(OUT)/libspeq-spu.a
 # dxt.spu: speq_s3tc_compress_v1's worker (spu/dxt-op.c: DMA, double buffering; spu/dxt.c)
 $(OUT)/dxt.spu: spu/dxt-op.c spu/dxt.c $(SPU_HDR) lib/dxt-job.h $(OUT)/libspeq-spu.a
 	$(SPU_CC) $(SPU_CFLAGS) $(DXT_SPU_OPT) -o $@ spu/dxt-op.c spu/dxt.c $(OUT)/libspeq-spu.a
-# synth.spu: speq_synth_*_v1's worker (spu/synth-op.c: DMA plan, double buffering; the DSP in
-# lib/synth-kern.h, shared with the PPE path)
-$(OUT)/synth.spu: spu/synth-op.c lib/synth-kern.h lib/synth-job.h $(SPU_HDR) $(OUT)/libspeq-spu.a
-	$(SPU_CC) $(SPU_CFLAGS) -o $@ spu/synth-op.c $(OUT)/libspeq-spu.a
-# skin.spu: speq_skin_*_v1's worker (spu/skin-op.c: DMA, double buffering; the kernel in
-# lib/skin-kern.h, shared with the PPE path)
-$(OUT)/skin.spu: spu/skin-op.c lib/skin-kern.h lib/skin-job.h $(SPU_HDR) $(OUT)/libspeq-spu.a
-	$(SPU_CC) $(SPU_CFLAGS) -O3 -o $@ spu/skin-op.c $(OUT)/libspeq-spu.a
+# deadline.spu: the deadline pool's worker (lib/pool.c), one program for the latency-bound
+# services: speq_synth_*_v2's op (spu/synth-op.c: DMA plan, double buffering; the DSP in
+# lib/synth-kern.h, shared with the PPE path; -O2 as it was built alone) and speq_skin_*_v1's
+# (spu/skin-op.c: DMA, double buffering; the kernel in lib/skin-kern.h; -O3), their buffers in one
+# arena (spu/deadline.c)
+$(OUT)/deadline-synth.o: spu/synth-op.c $(POOL_HDR) $(SPU_HDR) lib/speq-abi.h lib/speq.h
+	@mkdir -p $(OUT)
+	$(SPU_CC) $(SPU_CFLAGS) -c -o $@ spu/synth-op.c
+$(OUT)/deadline-skin.o: spu/skin-op.c $(POOL_HDR) $(SPU_HDR) lib/speq-abi.h lib/speq.h
+	@mkdir -p $(OUT)
+	$(SPU_CC) $(SPU_CFLAGS) -O3 -c -o $@ spu/skin-op.c
+$(OUT)/deadline.spu: spu/deadline.c $(OUT)/deadline-synth.o $(OUT)/deadline-skin.o $(POOL_HDR) \
+		$(SPU_HDR) $(OUT)/libspeq-spu.a
+	$(SPU_CC) $(SPU_CFLAGS) -o $@ spu/deadline.c $(OUT)/deadline-synth.o $(OUT)/deadline-skin.o \
+		$(OUT)/libspeq-spu.a
 
 # host tests (x86 or ppc64): nothing but cc
 test:
 	$(MAKE) OUT=$(TEST_OUT) $(TEST_OUT)/libspeq.so.0 $(TEST_OUT)/speq-dxt $(TEST_OUT)/dlopen-check \
 		$(TEST_OUT)/queue-test $(TEST_OUT)/speq-bench-fake $(TEST_OUT)/speq-dxt-fake \
-		$(TEST_OUT)/synth-test $(TEST_OUT)/speq-skin-fake
+		$(TEST_OUT)/synth-test $(TEST_OUT)/speq-skin-fake $(TEST_OUT)/pool-test
 	$(TEST_OUT)/speq-dxt --check
 	SPEQ_FAKE=1 $(TEST_OUT)/speq-dxt-fake --check --path spu
 	SPEQ_FAKE=1 $(TEST_OUT)/speq-dxt-fake --check --path auto
@@ -97,6 +109,7 @@ test:
 	SPEQ_FAKE=1 $(TEST_OUT)/speq-skin-fake --check --path spu
 	SPEQ_FAKE=1 $(TEST_OUT)/speq-skin-fake --check --path auto
 	$(TEST_OUT)/speq-skin-fake --check --path ppe
+	SPEQ_FAKE=1 $(TEST_OUT)/pool-test
 $(OUT)/dlopen-check: tests/dlopen-check.c lib/dxt-ref.c $(SPEQ_HDR)
 	@mkdir -p $(OUT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Ilib $(LDFLAGS) -o $@ tests/dlopen-check.c lib/dxt-ref.c -ldl
@@ -112,20 +125,24 @@ $(OUT)/speq-bench-fake: tools/speq-bench.c $(SPEQ_SRC) $(FAKE_SRC) $(SPEQ_HDR) $
 	@mkdir -p $(OUT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DSPEQ_FAKE -Ilib -Ispu $(LDFLAGS) -o $@ tools/speq-bench.c \
 		$(SPEQ_SRC) $(FAKE_SRC) -lm -lpthread
-$(OUT)/synth-test: tests/synth-test.c $(SPEQ_SRC) $(FAKE_SYNTH) $(SPEQ_HDR) $(SPU_HDR)
+$(OUT)/synth-test: tests/synth-test.c $(SPEQ_SRC) $(FAKE_POOL) $(SPEQ_HDR) $(SPU_HDR)
 	@mkdir -p $(OUT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DSPEQ_FAKE -DSK_CHECK -Ilib -Ispu $(LDFLAGS) -o $@ \
-		tests/synth-test.c $(SPEQ_SRC) $(FAKE_SYNTH) -lm -lpthread
-$(OUT)/speq-skin-fake: tools/speq-skin.c $(SPEQ_SRC) $(FAKE_SKIN) $(SPEQ_HDR) $(SPU_HDR)
+		tests/synth-test.c $(SPEQ_SRC) $(FAKE_POOL) -lm -lpthread
+$(OUT)/speq-skin-fake: tools/speq-skin.c $(SPEQ_SRC) $(FAKE_POOL) $(SPEQ_HDR) $(SPU_HDR)
 	@mkdir -p $(OUT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DSPEQ_FAKE -Ilib -Ispu $(LDFLAGS) -o $@ tools/speq-skin.c \
-		$(SPEQ_SRC) $(FAKE_SKIN) -lm -lpthread
-# libspeq.so.0 with the fake backend and synth.spu's op (SPEQ_FAKE=1), for fluidsynth's hook
-$(OUT)/fake/libspeq.so.0: $(SPEQ_SRC) $(FAKE_SYNTH) $(SPEQ_HDR) $(SPU_HDR) lib/libspeq.map
+		$(SPEQ_SRC) $(FAKE_POOL) -lm -lpthread
+$(OUT)/pool-test: tests/pool-test.c $(SPEQ_SRC) $(FAKE_ALL) $(SPEQ_HDR) $(SPU_HDR)
+	@mkdir -p $(OUT)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DSPEQ_FAKE -DSK_CHECK -Ilib -Ispu $(LDFLAGS) -o $@ \
+		tests/pool-test.c $(SPEQ_SRC) $(FAKE_ALL) -lm -lpthread
+# libspeq.so.0 with the fake backend and deadline.spu's ops (SPEQ_FAKE=1), for fluidsynth's hook
+$(OUT)/fake/libspeq.so.0: $(SPEQ_SRC) $(FAKE_POOL) $(SPEQ_HDR) $(SPU_HDR) lib/libspeq.map
 	@mkdir -p $(OUT)/fake
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DSPEQ_FAKE -DSK_CHECK -Ilib -Ispu -fPIC -shared \
 		-Wl,-soname,libspeq.so.0 -Wl,--version-script=lib/libspeq.map $(LDFLAGS) -o $@ \
-		$(SPEQ_SRC) $(FAKE_SYNTH) -lm -lpthread
+		$(SPEQ_SRC) $(FAKE_POOL) -lm -lpthread
 
 # Mesa's encoder (texcompress_s3tc_tmp.h from make mesa-work) as a host tool, then the corpus
 # comparison (needs python3 with PIL, and the OpenArena textures deb in build/apt-cache)

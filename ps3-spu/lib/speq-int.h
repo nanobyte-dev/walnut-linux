@@ -47,6 +47,8 @@ struct speq {
 	unsigned spin_us, free_ms;
 	uint8_t *img;		/* the SPU ELF */
 	size_t img_size;
+	char prog[64];		/* the program as speq_open got it (the fake backend's lookup) */
+	unsigned order;		/* SPEQ_ORDER_* (speq-abi.h) */
 	char spufs[64];
 	struct spq_worker w[SPEQ_MAX_WORKERS];
 	struct speq *next;	/* open queues, for the fork handler */
@@ -63,12 +65,32 @@ struct spq_stats {
 };
 
 /* queue.c */
+/* speq_open with libspeq's own flags too: SPQ_OPEN_DEADLINE, workers claim jobs by deadline
+ * (speq-abi.h, the deadline pool); SPQ_OPEN_FREE, nworkers but no more than the SPEs other
+ * queues leave (at least one) */
+#define SPQ_OPEN_DEADLINE	0x100u
+#define SPQ_OPEN_FREE		0x200u
+int spq_open_ex(struct speq **q, const char *prog, unsigned nworkers, unsigned flags);
+/* speq_submit with the jobs' deadline (spq_deadline: microseconds of CLOCK_MONOTONIC), the
+ * order workers of a deadline queue take them in; speq_submit's jobs come after every deadline
+ * (UINT64_MAX), in arrival order. Other queues ignore it. */
+int spq_submit_dl(struct speq *q, const struct speq_job *jobs, unsigned n, struct speq_done *done,
+		  uint64_t deadline);
+uint64_t spq_deadline(double us_from_now);
 int spq_wait_ex(struct speq *q, struct speq_done *done, int spin_us, long timeout_us);
 void spq_tune(struct speq *q, int spin_us, int idle_us, int free_ms);	/* < 0: unchanged */
 void spq_stats(struct speq *q, struct spq_stats *s);
 uint32_t spq_tb_hz(void);
 double spq_now_us(void);
 void spq_fail_job(struct speq_done *done, int err);
+
+/* pool.c: the process's deadline pool (deadline.spu), opened on first use; NULL with *err once
+ * it can't be had. spq_pool_check(q, ret) after a failed submit (its return; after a failed
+ * wait, 0: a job's own -EIO is not the pool's): marks it broken when its workers are gone. */
+struct speq *spq_pool(int *err);
+int spq_pool_ok(void);
+void spq_pool_broke(void);
+void spq_pool_check(struct speq *q, int ret);
 
 /* spe.c */
 extern const struct spq_backend spq_spufs;
@@ -95,7 +117,14 @@ extern int spq_s3tc_fault;
  * per voice block and the auto mode's minimum (< 0: unchanged). A synth opened before keeps its
  * queue (ppe: none). */
 enum { SPQ_SYNTH_OFF, SPQ_SYNTH_PPE, SPQ_SYNTH_SPU, SPQ_SYNTH_AUTO };
+struct spq_synth_stats {
+	unsigned long rounds, spu, ppe, small, ents_spu, ents_ppe, jobs, timeouts, errors,
+		      nofree, backoffs, redone;
+	double wait_us, wait_max;
+};
+struct speq_synth;
 void spq_synth_tune(int mode, long timeout_us, int per_block_us, int min_voices);
+void spq_synth_stats(struct speq_synth *s, struct spq_synth_stats *st);
 
 /* skin.c: for speq-skin and the tests. Mode SPQ_SKIN_* (-1: unchanged), the wait's timeout, its
  * allowance per vertex (ns) and the auto mode's minimum (< 0: unchanged). A speq_skin opened

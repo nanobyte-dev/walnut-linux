@@ -1,4 +1,5 @@
-/* skin.spu's job (spu/skin-op.c), shared with the PPE side (lib/skin.c). A batch's meshes each
+/* The skinning op's job (spu/skin-op.c, in the deadline pool's deadline.spu: pool-job.h), shared
+ * with the PPE side (lib/skin.c). A batch's meshes each
  * have a descriptor (struct skin_desc, one 128-byte line, libspeq's memory); one SKIN_OP_RANGE
  * job skins a range of one mesh's vertices into the batch's output.
  *   arg[SKIN_ARG_DESC]   EA of the mesh's descriptor (128-aligned)
@@ -13,11 +14,9 @@
 #define SKIN_JOB_H
 
 #include <stdint.h>
+#include "pool-job.h"
 
-enum {
-	SKIN_OP_RANGE,
-	SKIN_NOPS
-};
+#define SKIN_OP_RANGE	POOL_OP_SKIN
 
 enum {
 	SKIN_ARG_DESC,

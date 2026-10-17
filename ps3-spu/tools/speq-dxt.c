@@ -1,5 +1,5 @@
-/* speq-dxt: tests and benchmarks libspeq's DXT1 encoder.
- *   speq-dxt [--path spu|ppe|auto] [--fmt dxt1|dxt1a] [--out f.dds|f.blocks] [--decode f.pam]
+/* speq-dxt: tests and benchmarks libspeq's DXT1 and DXT5 encoders.
+ *   speq-dxt [--path spu|ppe|auto] [--fmt dxt1|dxt1a|dxt5] [--out f.dds|f.blocks] [--decode f.pam]
  *            [--compare other] [--bench N] [--raw WxH] image
  *   speq-dxt [--path P] --check [image]
  *   speq-dxt [--path P] [--fmt F] --bench
@@ -9,15 +9,17 @@
  * result against the original printed. --compare decodes another encoding of the same image
  * (raw blocks or DDS, e.g. Mesa's) and prints its RMSE next to ours.
  * --path: the encoder speq_s3tc_compress_v1 uses (as SPEQ_S3TC, which it overrides).
- * --check: the reference encoder on special blocks (flat, transparent, two-colour, gradient)
- * and its determinism; then the API on the chosen path against the reference, byte for byte:
- * sizes up to 4096 wide, both modes, source offsets (8 mod 16 and others), destinations with
- * row padding and 8 mod 16, a job forced to fault (the image must be redone on the PPE), a fork
- * child, four threads at once, and last three faulting images in a row (then auto uses the
- * PPE, spu declines).
+ * --check: the reference encoders on special blocks (flat, transparent, two-colour, gradient;
+ * DXT5: alpha ramps, cut-outs, 0 and 255 next to soft values, colours against the box's
+ * diagonal) and their determinism; then the API on the chosen path against the reference, byte
+ * for byte: sizes up to 4096 wide, the three formats, source offsets (8 mod 16 and others),
+ * destinations with row padding and 8 mod 16 (DXT5 takes the SPEs only 16-aligned), a job
+ * forced to fault (the image must be redone on the PPE), a fork child, four threads at once,
+ * and last three faulting images in a row (then auto uses the PPE, spu declines).
  * On the PS3, --path spu checks the SPEs.
  * --bench (no image): Mpixel/s of speq_s3tc_compress_v1 for 256x256, 512x512 and 1024x1024
- * RGBA (to RGBA DXT1 unless --fmt dxt1) on the PPE and the SPEs (or the --path one), back to back (hot), after the workers parked (30 ms idle),
+ * RGBA (to RGBA DXT1 unless --fmt dxt1 or dxt5) on the PPE and the SPEs (or the --path one),
+ * back to back (hot), after the workers parked (30 ms idle),
  * and into a fresh destination each time (its page faults). The SPE load stays a few seconds.
  * The reference encoder and decoder are compiled in (lib/dxt-ref.c), and libspeq's code with
  * them (its internals: the path, the statistics, the fault). */
@@ -34,6 +36,28 @@
 #include <unistd.h>
 #include "dxt-ref.h"
 #include "speq-int.h"
+
+/* the formats: RGB DXT1, RGBA DXT1 (punch-through), RGBA DXT5 */
+enum { F_DXT1, F_DXT1A, F_DXT5, NFMT };
+static const char *const fmt_name[NFMT] = { "dxt1 ", "dxt1a", "dxt5 " };
+static const unsigned fmt_gl[NFMT] = { SPEQ_GL_COMPRESSED_RGB_S3TC_DXT1_EXT,
+				       SPEQ_GL_COMPRESSED_RGBA_S3TC_DXT1_EXT,
+				       SPEQ_GL_COMPRESSED_RGBA_S3TC_DXT5_EXT };
+
+/* bytes per block row of a w wide image */
+static unsigned row_bytes(int f, unsigned w)
+{
+	return f == F_DXT5 ? 4 * w : 2 * w;
+}
+
+static void ref_image(int f, const uint8_t *src, unsigned comps, unsigned w, unsigned h,
+		      uint8_t *dst, unsigned stride)
+{
+	if (f == F_DXT5)
+		dxt5_ref_image(src, comps, w, h, dst, stride);
+	else
+		dxt1_ref_image(src, comps, w, h, dst, stride, f == F_DXT1A);
+}
 
 static void die(const char *fmt, const char *arg)
 {
@@ -177,8 +201,8 @@ static void put32(uint8_t *p, uint32_t v)
 	p[3] = v >> 24;
 }
 
-/* DDS header for one DXT1 surface, little-endian whatever the host */
-static void dds_header(uint8_t h[128], unsigned w, unsigned h_, int punch)
+/* DDS header for one DXT1 or DXT5 surface, little-endian whatever the host */
+static void dds_header(uint8_t h[128], unsigned w, unsigned h_, int f)
 {
 	memset(h, 0, 128);
 	memcpy(h, "DDS ", 4);
@@ -186,44 +210,49 @@ static void dds_header(uint8_t h[128], unsigned w, unsigned h_, int punch)
 	put32(h + 8, 0x1 | 0x2 | 0x4 | 0x1000 | 0x80000);	/* CAPS HEIGHT WIDTH PIXELFORMAT LINEARSIZE */
 	put32(h + 12, h_);
 	put32(h + 16, w);
-	put32(h + 20, w / 4 * (h_ / 4) * 8);
+	put32(h + 20, h_ / 4 * row_bytes(f, w));
 	put32(h + 76, 32);					/* pixel format */
-	put32(h + 80, 0x4 | (punch ? 0x1 : 0));		/* FOURCC, ALPHAPIXELS */
-	memcpy(h + 84, "DXT1", 4);
+	put32(h + 80, 0x4 | (f != F_DXT1 ? 0x1 : 0));		/* FOURCC, ALPHAPIXELS */
+	memcpy(h + 84, f == F_DXT5 ? "DXT5" : "DXT1", 4);
 	put32(h + 108, 0x1000);					/* TEXTURE */
 }
 
-static void decode_image(const uint8_t *blocks, unsigned w, unsigned h, int punch, uint8_t *rgba)
+static void decode_image(const uint8_t *blocks, unsigned w, unsigned h, int f, uint8_t *rgba)
 {
 	uint8_t px[16][4];
 	unsigned bx, by, y;
 
 	for (by = 0; by < h; by += 4)
-		for (bx = 0; bx < w; bx += 4, blocks += 8) {
-			dxt1_decode_block(px, blocks, punch);
+		for (bx = 0; bx < w; bx += 4, blocks += f == F_DXT5 ? 16 : 8) {
+			if (f == F_DXT5)
+				dxt5_decode_block(px, blocks);
+			else
+				dxt1_decode_block(px, blocks, f == F_DXT1A);
 			for (y = 0; y < 4; y++)
 				memcpy(rgba + ((size_t)(by + y) * w + bx) * 4, px[y * 4], 16);
 		}
 }
 
 /* RMSE of an encoding against the original: R, G, B over the pixels that are opaque in the
- * original (all of them for RGB DXT1), A (RGBA DXT1 only) over all; total over all samples */
-static double rmse(const char *label, const struct image *im, const uint8_t *blocks, int punch)
+ * original (RGBA DXT1; RGB DXT1 and DXT5: all of them), A (RGBA DXT1 and DXT5) over all; total
+ * over all samples, and for DXT5 the PSNR of R, G, B, A */
+static double rmse(const char *label, const struct image *im, const uint8_t *blocks, int f)
 {
+	int punch = f == F_DXT1A, alpha = f != F_DXT1;
 	uint8_t *dec = xmalloc((size_t)im->w * im->h * 4);
 	double sum[4] = { 0 }, n_rgb = 0, n_a = 0, all;
 	size_t i, n = (size_t)im->w * im->h;
 	int k;
 
-	decode_image(blocks, im->w, im->h, punch, dec);
+	decode_image(blocks, im->w, im->h, f, dec);
 	for (i = 0; i < n; i++) {
 		const uint8_t *o = im->px + i * im->comps, *d = dec + i * 4;
 		int a = im->comps == 4 ? o[3] : 255;
 
-		if (punch) {
+		if (alpha) {
 			sum[3] += (double)(a - d[3]) * (a - d[3]);
 			n_a++;
-			if (a <= DXT1_ALPHACUT)
+			if (punch && a <= DXT1_ALPHACUT)
 				continue;
 		}
 		for (k = 0; k < 3; k++)
@@ -236,9 +265,12 @@ static double rmse(const char *label, const struct image *im, const uint8_t *blo
 		return all;
 	printf("%-6s rmse R %.3f G %.3f B %.3f", label, sqrt(sum[0] / (n_rgb ? n_rgb : 1)),
 	       sqrt(sum[1] / (n_rgb ? n_rgb : 1)), sqrt(sum[2] / (n_rgb ? n_rgb : 1)));
-	if (punch)
+	if (alpha)
 		printf(" A %.3f", sqrt(sum[3] / (n_a ? n_a : 1)));
-	printf(" total %.3f\n", all);
+	printf(" total %.3f", all);
+	if (f == F_DXT5)
+		printf(" psnr %.2f", all > 0 ? 20 * log10(255 / all) : 99.0);
+	printf("\n");
 	return all;
 }
 
@@ -299,6 +331,45 @@ static void check_block(const char *name, const uint8_t px[16][4], int punch, un
 	check(worst <= maxerr && !holes && !alpha_bad, what, detail);
 }
 
+/* DXT5: encodes a block with the reference and decodes it: alpha within maxa of the original
+ * (the values maxa0 names exact: 0 and 255 when it is 1), colour within maxc, color0 >= color1
+ * and every index 0 when they are equal (a 4-colour decoder reads it as a 3-colour one would) */
+static void check_block5(const char *name, const uint8_t px[16][4], unsigned maxa, unsigned maxc,
+			 int exact01)
+{
+	uint8_t out[16], dec[16][4];
+	unsigned i, k, c0, c1, bits, worsta = 0, worstc = 0, bad = 0;
+	char what[96], detail[160];
+
+	dxt5_ref_block(out, px);
+	dxt5_decode_block(dec, out);
+	c0 = out[8] | out[9] << 8;
+	c1 = out[10] | out[11] << 8;
+	bits = out[12] | out[13] << 8 | out[14] << 16 | (unsigned)out[15] << 24;
+	if (c0 < c1 || (c0 == c1 && bits))
+		bad = 1;
+	for (i = 0; i < 16; i++) {
+		unsigned e = px[i][3] > dec[i][3] ? px[i][3] - dec[i][3] : dec[i][3] - px[i][3];
+
+		if (e > worsta)
+			worsta = e;
+		if (exact01 && (px[i][3] == 0 || px[i][3] == 255) && e)
+			bad |= 2;
+		for (k = 0; k < 3; k++) {
+			e = px[i][k] > dec[i][k] ? px[i][k] - dec[i][k] : dec[i][k] - px[i][k];
+			if (e > worstc)
+				worstc = e;
+		}
+	}
+	snprintf(what, sizeof(what), "dxt5  %s", name);
+	snprintf(detail, sizeof(detail), "%02x %02x %02x%02x%02x%02x%02x%02x %02x%02x %02x%02x "
+		 "%02x%02x%02x%02x, alpha error %u, colour %u%s%s", out[0], out[1], out[2], out[3],
+		 out[4], out[5], out[6], out[7], out[8], out[9], out[10], out[11], out[12], out[13],
+		 out[14], out[15], worsta, worstc, bad & 1 ? ", 3-colour order" : "",
+		 bad & 2 ? ", 0 or 255 not exact" : "");
+	check(worsta <= maxa && worstc <= maxc && !bad, what, detail);
+}
+
 static void fill(uint8_t px[16][4], unsigned r, unsigned g, unsigned b, unsigned a)
 {
 	int i;
@@ -323,34 +394,32 @@ static unsigned rnd(void)
  * against the image is within bound, and the API gives the reference's bytes */
 static void check_image(const char *name, const struct image *im, double bound)
 {
-	size_t blen = (size_t)im->w / 4 * (im->h / 4) * 8;
+	size_t blen = (size_t)im->w / 4 * (im->h / 4) * 16;
 	uint8_t *a = xmalloc(blen), *b = xmalloc(blen), *c = xmalloc(blen + 64);
-	int punch, ret;
+	int f, ret;
 	char what[96], detail[64];
 	double e;
 
-	for (punch = 0; punch < 2; punch++) {
-		unsigned fmt = punch ? SPEQ_GL_COMPRESSED_RGBA_S3TC_DXT1_EXT :
-				       SPEQ_GL_COMPRESSED_RGB_S3TC_DXT1_EXT;
+	for (f = 0; f < NFMT; f++) {
+		size_t len = (size_t)im->h / 4 * row_bytes(f, im->w);
 
 		memset(a, 0x11, blen);
 		memset(b, 0x22, blen);
-		dxt1_ref_image(im->px, im->comps, im->w, im->h, a, im->w * 2, punch);
-		dxt1_ref_image(im->px, im->comps, im->w, im->h, b, im->w * 2, punch);
-		snprintf(what, sizeof(what), "%s %s: reference twice, same bytes",
-			 punch ? "dxt1a" : "dxt1 ", name);
-		check(!memcmp(a, b, blen), what, NULL);
-		e = rmse(NULL, im, a, punch);
-		snprintf(what, sizeof(what), "%s %s: RMSE within %.1f", punch ? "dxt1a" : "dxt1 ",
-			 name, bound);
+		ref_image(f, im->px, im->comps, im->w, im->h, a, row_bytes(f, im->w));
+		ref_image(f, im->px, im->comps, im->w, im->h, b, row_bytes(f, im->w));
+		snprintf(what, sizeof(what), "%s %s: reference twice, same bytes", fmt_name[f], name);
+		check(!memcmp(a, b, len), what, NULL);
+		e = rmse(NULL, im, a, f);
+		snprintf(what, sizeof(what), "%s %s: RMSE within %.1f", fmt_name[f], name, bound);
 		snprintf(detail, sizeof(detail), "%.3f", e);
 		check(e <= bound, what, detail);
 
-		snprintf(what, sizeof(what), "%s %s: speq_s3tc_compress_v1 = reference",
-			 punch ? "dxt1a" : "dxt1 ", name);
+		snprintf(what, sizeof(what), "%s %s: speq_s3tc_compress_v1 = reference", fmt_name[f],
+			 name);
 		memset(c, 0x33, blen + 64);
-		ret = speq_s3tc_compress_v1(fmt, im->comps, im->px, im->w, im->h, c, im->w * 2);
-		check(!ret && !memcmp(a, c, blen) && c[blen] == 0x33, what, ret ? strerror(-ret) : NULL);
+		ret = speq_s3tc_compress_v1(fmt_gl[f], im->comps, im->px, im->w, im->h, c,
+					    row_bytes(f, im->w));
+		check(!ret && !memcmp(a, c, len) && c[len] == 0x33, what, ret ? strerror(-ret) : NULL);
 	}
 	free(a);
 	free(b);
@@ -406,8 +475,8 @@ struct pcase {
 	unsigned w, h, comps;
 	unsigned off;		/* source pointer mod 128 */
 	unsigned doff;		/* destination: page-aligned + doff */
-	unsigned stride;	/* passed as dst_stride (< 2w: packed) */
-	int punch;
+	unsigned stride;	/* passed as dst_stride (< a block row: packed) */
+	int f;			/* F_* */
 };
 
 /* One image through speq_s3tc_compress_v1 and the reference into identical buffers (guard
@@ -415,10 +484,8 @@ struct pcase {
  * a description of the mismatch in msg. */
 static int run_case(const struct pcase *c, int *spu, char *msg, size_t msglen)
 {
-	unsigned fmt = c->punch ? SPEQ_GL_COMPRESSED_RGBA_S3TC_DXT1_EXT :
-				  SPEQ_GL_COMPRESSED_RGB_S3TC_DXT1_EXT;
-	unsigned stride = c->stride < 2 * c->w ? 2 * c->w : c->stride, rows = c->h / 4;
-	size_t slen = (size_t)c->w * c->h * c->comps, dlen = (size_t)(rows - 1) * stride + 2 * c->w;
+	unsigned rb = row_bytes(c->f, c->w), stride = c->stride < rb ? rb : c->stride, rows = c->h / 4;
+	size_t slen = (size_t)c->w * c->h * c->comps, dlen = (size_t)(rows - 1) * stride + rb;
 	size_t blen = GUARD + c->doff + dlen + GUARD, i;
 	uint8_t *src = xalign(128, slen + 256), *a = xalign(4096, blen), *b = xalign(4096, blen);
 	struct spq_s3tc_stats s0, s1;
@@ -436,10 +503,10 @@ static int run_case(const struct pcase *c, int *spu, char *msg, size_t msglen)
 	}
 	memset(a, 0xa5, blen);
 	memset(b, 0xa5, blen);
-	dxt1_ref_image(src + c->off, c->comps, c->w, c->h, a + GUARD + c->doff, stride, c->punch);
+	ref_image(c->f, src + c->off, c->comps, c->w, c->h, a + GUARD + c->doff, stride);
 	spq_s3tc_stats(&s0);
-	ret = speq_s3tc_compress_v1(fmt, c->comps, src + c->off, c->w, c->h, b + GUARD + c->doff,
-				    c->stride);
+	ret = speq_s3tc_compress_v1(fmt_gl[c->f], c->comps, src + c->off, c->w, c->h,
+				    b + GUARD + c->doff, c->stride);
 	spq_s3tc_stats(&s1);
 	*spu = s1.spu > s0.spu;
 	if (ret) {
@@ -451,13 +518,13 @@ static int run_case(const struct pcase *c, int *spu, char *msg, size_t msglen)
 		if (i < GUARD + c->doff || i >= GUARD + c->doff + dlen)
 			snprintf(msg, msglen, "wrote outside the image at %+ld",
 				 (long)i - GUARD - (long)c->doff);
-		else if ((i - GUARD - c->doff) % stride >= 2 * c->w)
+		else if ((i - GUARD - c->doff) % stride >= rb)
 			snprintf(msg, msglen, "wrote into the row padding (row %zu)",
 				 (i - GUARD - c->doff) / stride);
 		else
 			snprintf(msg, msglen, "block row %zu block %zu differs",
 				 (i - GUARD - c->doff) / stride,
-				 (i - GUARD - c->doff) % stride / 8);
+				 (i - GUARD - c->doff) % stride / (c->f == F_DXT5 ? 16 : 8));
 		bad = 1;
 	}
 	free(src);
@@ -469,7 +536,9 @@ static int run_case(const struct pcase *c, int *spu, char *msg, size_t msglen)
 /* Whether the path may (spu: must) take the SPEs for this case */
 static int spu_eligible(const struct pcase *c)
 {
-	return c->comps == 4 && !(c->doff % 8) && !(c->stride % 8);
+	unsigned a = c->f == F_DXT5 ? 16 : 8;
+
+	return c->comps == 4 && !(c->doff % a) && !(c->stride % a);
 }
 
 static void case_check(const struct pcase *c, int path, unsigned *nspu, unsigned *nppe)
@@ -489,7 +558,7 @@ static void case_check(const struct pcase *c, int path, unsigned *nspu, unsigned
 	if (!bad)
 		return;
 	snprintf(what, sizeof(what), "%s %s %ux%u comps %u src+%u dst+%u stride %u (%s)",
-		 path_name[path], c->punch ? "dxt1a" : "dxt1 ", c->w, c->h, c->comps, c->off,
+		 path_name[path], fmt_name[c->f], c->w, c->h, c->comps, c->off,
 		 c->doff, c->stride, spu ? "spu" : "ppe");
 	check(0, what, msg);
 }
@@ -508,7 +577,7 @@ static void *thread_main(void *arg)
 
 	for (k = 0; k < 8; k++) {
 		struct pcase c = { 64 << (k + t->idx) % 4, 32 << (k * 3 + t->idx) % 3, 4,
-				   8 * ((k + t->idx) % 3), 0, 0, (k + t->idx) & 1 };
+				   8 * ((k + t->idx) % 3), 0, 0, (k + t->idx) % NFMT };
 
 		if (run_case(&c, &spu, msg, sizeof(msg)))
 			t->bad++;
@@ -531,38 +600,45 @@ static void check_paths(int path)
 	struct thr th[4];
 	struct pcase c;
 	char msg[160];
-	int punch, spu;
+	int f, spu;
 
 	printf("path %s: the API against the reference%s\n", path_name[path],
-	       path == SPQ_S3TC_SPU ? " (every RGBA image with an 8-aligned dst on the SPEs)" : "");
+	       path == SPQ_S3TC_SPU ? " (every RGBA image with an 8-aligned dst on the SPEs, DXT5 "
+	       "16-aligned)" : "");
 	for (i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++)
-		for (punch = 0; punch < 2; punch++)
+		for (f = 0; f < NFMT; f++)
 			for (v = 0; v < 2; v++) {
-				unsigned w = sizes[i][0], pads[5] = { 0, 2 * w, 2 * w + 8,
-								      (2 * w + 63) & ~63u, 2 * w + 128 };
+				unsigned w = sizes[i][0], rb = row_bytes(f, w),
+					 pads[5] = { 0, rb, rb + 8, (rb + 63) & ~63u, rb + 128 };
 
 				c.w = w;
 				c.h = sizes[i][1];
 				c.comps = 4;
-				c.off = v ? offs[(2 * i + punch) % 8] : 8;	/* 8: ioq3's hunk */
+				c.off = v ? offs[(2 * i + f) % 8] : 8;	/* 8: ioq3's hunk */
 				c.doff = (i + v) % 3 == 2 ? 8 : 0;
-				c.stride = pads[(i + punch + v) % 5];
-				c.punch = punch;
+				c.stride = pads[(i + f + v) % 5];
+				c.f = f;
 				case_check(&c, path, &nspu, &nppe);
 			}
-	/* the PPE's cases: RGB source, a dst or stride not 8-aligned */
-	c = (struct pcase){ 128, 64, 3, 8, 0, 0, 0 };
+	/* the PPE's cases: RGB source, a dst or stride not 8-aligned (DXT5: 16) */
+	c = (struct pcase){ 128, 64, 3, 8, 0, 0, F_DXT1 };
 	case_check(&c, path, &nspu, &nppe);
-	c = (struct pcase){ 256, 64, 4, 8, 4, 0, 1 };
+	c = (struct pcase){ 128, 64, 3, 8, 0, 0, F_DXT5 };
 	case_check(&c, path, &nspu, &nppe);
-	c = (struct pcase){ 256, 64, 4, 8, 0, 516, 1 };
+	c = (struct pcase){ 256, 64, 4, 8, 4, 0, F_DXT1A };
+	case_check(&c, path, &nspu, &nppe);
+	c = (struct pcase){ 256, 64, 4, 8, 0, 516, F_DXT1A };
+	case_check(&c, path, &nspu, &nppe);
+	c = (struct pcase){ 256, 64, 4, 8, 8, 0, F_DXT5 };
+	case_check(&c, path, &nspu, &nppe);
+	c = (struct pcase){ 256, 64, 4, 8, 0, 1032, F_DXT5 };
 	case_check(&c, path, &nspu, &nppe);
 	snprintf(msg, sizeof(msg), "%u images on the SPEs, %u on the PPE", nspu, nppe);
 	check(failures == f0, "path matrix: speq_s3tc_compress_v1 = reference", msg);
 
 	/* a job that faults: the image is redone on the PPE, and the next one is on the SPEs */
 	if (path != SPQ_S3TC_PPE && spq_s3tc_queue()) {
-		c = (struct pcase){ 512, 256, 4, 8, 0, 0, 1 };
+		c = (struct pcase){ 512, 256, 4, 8, 0, 0, F_DXT1A };
 		spq_s3tc_stats(&s0);
 		spq_s3tc_fault = 2;
 		msg[0] = 0;
@@ -579,6 +655,14 @@ static void check_paths(int path)
 		spq_s3tc_stats(&s1);
 		check(!v && spu && s1.redone == s0.redone, "the next image on the SPEs again",
 		      v ? msg : NULL);
+		c = (struct pcase){ 512, 256, 4, 8, 0, 0, F_DXT5 };
+		spq_s3tc_stats(&s0);
+		spq_s3tc_fault = 2;
+		msg[0] = 0;
+		v = run_case(&c, &spu, msg, sizeof(msg));
+		spq_s3tc_stats(&s1);
+		check(!v && s1.redone == s0.redone + 1 && s1.spu == s0.spu,
+		      "a faulting DXT5 job: the image redone on the PPE, = reference", v ? msg : NULL);
 	} else {
 		check(1, "a faulting job", path == SPQ_S3TC_PPE ? "skipped (ppe)" : "skipped (no queue)");
 	}
@@ -588,7 +672,7 @@ static void check_paths(int path)
 		pid_t pid;
 		int st = 0;
 
-		c = (struct pcase){ 256, 128, 4, 8, 0, 0, 1 };
+		c = (struct pcase){ 256, 128, 4, 8, 0, 0, F_DXT1A };
 		fflush(stdout);
 		pid = fork();
 		if (!pid) {
@@ -621,7 +705,7 @@ static void check_paths(int path)
 
 	/* last (it ends the SPU path for this process): 3 failed images in a row, then the PPE */
 	if (path != SPQ_S3TC_PPE && spq_s3tc_queue()) {
-		c = (struct pcase){ 256, 128, 4, 8, 0, 0, 0 };
+		c = (struct pcase){ 256, 128, 4, 8, 0, 0, F_DXT1 };
 		spq_s3tc_stats(&s0);
 		for (v = 0, i = 0; i < 3; i++) {
 			spq_s3tc_fault = 1;
@@ -658,27 +742,26 @@ static double median(double *v, unsigned n)
 	return n % 2 ? v[n / 2] : (v[n / 2 - 1] + v[n / 2]) / 2;
 }
 
-static void bench_line(const char *path, const char *how, unsigned w, unsigned h, int punch,
+static void bench_line(const char *path, const char *how, unsigned w, unsigned h, int f,
 		       double us, unsigned n, double jobs)
 {
-	printf("bench %s %4ux%-4u %-3s %-6s %8.1f Mpixel/s %8.0f us/image", punch ? "dxt1a" : "dxt1 ",
+	printf("bench %s %4ux%-4u %-3s %-6s %8.1f Mpixel/s %8.0f us/image", fmt_name[f],
 	       w, h, path, how, w * h / us, us);
 	if (jobs > 0)
 		printf("  %.1f jobs", jobs);
 	printf("  (%u image%s)\n", n, n == 1 ? "" : "s");
 }
 
-static int encode(int punch, const uint8_t *src, unsigned w, unsigned h, uint8_t *dst)
+static int encode(int f, const uint8_t *src, unsigned w, unsigned h, uint8_t *dst)
 {
-	return speq_s3tc_compress_v1(punch ? SPEQ_GL_COMPRESSED_RGBA_S3TC_DXT1_EXT :
-				     SPEQ_GL_COMPRESSED_RGB_S3TC_DXT1_EXT, 4, src, w, h, dst, 2 * w);
+	return speq_s3tc_compress_v1(fmt_gl[f], 4, src, w, h, dst, row_bytes(f, w));
 }
 
 /* hot: back to back for ~0.25 s; parked (SPEs): 30 ms idle before each; fresh: a new mmap
  * destination each time (its first touch is in the timing) */
 static void bench_size(int path, unsigned w, unsigned h, int punch)
 {
-	size_t blen = (size_t)w * h / 2;
+	size_t blen = (size_t)h / 4 * row_bytes(punch, w);
 	uint8_t *src = xalign(128, (size_t)w * h * 4 + 8) + 8, *dst = xalign(4096, blen);
 	const char *pn = path_name[path];
 	struct spq_s3tc_stats s0, s1;
@@ -727,7 +810,7 @@ static void bench_size(int path, unsigned w, unsigned h, int punch)
 	free(dst);
 }
 
-static int run_bench(int path, int punch)
+static int run_bench(int path, int punch)	/* punch: the format, F_* */
 {
 	static const unsigned sizes[] = { 256, 512, 1024 };
 	int paths[2], np = 0, p, ret;
@@ -746,7 +829,7 @@ static int run_bench(int path, int punch)
 			/* the first SPU call opens the queue: worker per SPE */
 			spq_s3tc_mode(SPQ_S3TC_SPU);
 			src = xalign(128, 256 * 256 * 4);
-			dst = xalign(4096, 256 * 256 / 2);
+			dst = xalign(4096, 256 * 256);
 			test_image(src, 256, 256, 3);
 			t0 = now();
 			ret = encode(punch, src, 256, 256, dst);
@@ -819,6 +902,53 @@ static int run_check(const struct image *input, int path)
 		check_block("grey ramp", (const uint8_t (*)[4])px, punch, 24, out);
 	}
 
+	/* DXT5: golden flat red, then alpha and colour shapes */
+	{
+		uint8_t o5[16];
+
+		fill(px, 255, 0, 0, 255);
+		dxt5_ref_block(o5, (const uint8_t (*)[4])px);
+		check(!memcmp(o5, "\xff\xff\0\0\0\0\0\0\x00\xf8\x00\xf8\0\0\0\0", 16),
+		      "golden dxt5 flat red", "ff ff 000000000000 00f8 00f8 00000000");
+		fill(px, 10, 20, 30, 0);
+		dxt5_ref_block(o5, (const uint8_t (*)[4])px);
+		check(o5[0] == 0 && o5[1] == 0 && !memcmp(o5 + 2, "\0\0\0\0\0\0", 6),
+		      "golden dxt5 transparent: alpha 0 0, indices 0", NULL);
+	}
+	fill(px, 200, 100, 50, 255);
+	check_block5("flat opaque", (const uint8_t (*)[4])px, 0, 7, 1);
+	for (i = 0; i < 16; i++)
+		px[i][3] = i * 17;	/* 0 .. 255 */
+	check_block5("alpha ramp 0-255", (const uint8_t (*)[4])px, 18, 7, 0);
+	for (i = 0; i < 16; i++)
+		px[i][3] = 100 + i * 3;	/* 100 .. 145 */
+	check_block5("alpha ramp 100-145", (const uint8_t (*)[4])px, 4, 7, 1);
+	for (i = 0; i < 16; i++)	/* a cut-out with a soft edge */
+		px[i][3] = i % 4 == 0 ? 0 : i % 4 == 3 ? 255 : i % 4 == 1 ? 90 : 170;
+	check_block5("cut-out, soft edge", (const uint8_t (*)[4])px, 18, 7, 1);
+	for (i = 0; i < 16; i++)
+		px[i][3] = i & 1 ? 255 : 0;
+	check_block5("0 and 255 only", (const uint8_t (*)[4])px, 0, 7, 1);
+	for (i = 0; i < 16; i++) {	/* red falls as green rises: the box's other diagonal */
+		px[i][0] = 255 - i * 15;
+		px[i][1] = i * 15;
+		px[i][2] = 40;
+		px[i][3] = 255;
+	}
+	check_block5("red against green", (const uint8_t (*)[4])px, 0, 40, 1);
+	for (i = 0; i < 16; i++) {	/* channels rising together */
+		px[i][0] = i % 4 * 60 + i / 4 * 20;
+		px[i][1] = i % 4 * 40 + i / 4 * 30 + 10;
+		px[i][2] = i % 4 * 20 + i / 4 * 10 + 100;
+		px[i][3] = 128;
+	}
+	check_block5("gradient, alpha 128", (const uint8_t (*)[4])px, 0, 48, 1);
+	for (i = 0; i < 16; i++) {
+		px[i][0] = px[i][1] = px[i][2] = rnd();
+		px[i][3] = rnd();
+	}
+	check_block5("grey noise, alpha noise", (const uint8_t (*)[4])px, 40, 64, 1);
+
 	/* API corner cases (dst untouched on refusal) */
 	fill(px, 1, 2, 3, 255);
 	memset(buf, 0x5a, sizeof(buf));
@@ -871,17 +1001,17 @@ static int run_check(const struct image *input, int path)
 static void usage(void)
 {
 	fprintf(stderr,
-		"usage: speq-dxt [--path spu|ppe|auto] [--fmt dxt1|dxt1a] [--out f.dds|f.blocks]\n"
+		"usage: speq-dxt [--path spu|ppe|auto] [--fmt dxt1|dxt1a|dxt5] [--out f.dds|f.blocks]\n"
 		"                [--decode f.pam] [--compare other.blocks|.dds] [--bench N] [--raw WxH] image\n"
 		"       speq-dxt [--path spu|ppe|auto] --check [image]\n"
-		"       speq-dxt [--path spu|ppe|auto] [--fmt dxt1|dxt1a] --bench\n");
+		"       speq-dxt [--path spu|ppe|auto] [--fmt dxt1|dxt1a|dxt5] --bench\n");
 	exit(2);
 }
 
 int main(int argc, char **argv)
 {
 	const char *in = NULL, *out = NULL, *decode = NULL, *compare = NULL, *raw = NULL;
-	int punch = -1, check_only = 0, bench_all = 0, path = -1, i, ret;
+	int f = -1, check_only = 0, bench_all = 0, path = -1, i, ret;
 	unsigned bench = 0, fmt;
 	struct image im;
 	uint8_t *blocks;
@@ -912,9 +1042,11 @@ int main(int argc, char **argv)
 		else if (!strcmp(a, "--fmt")) {
 			a = argv[++i];
 			if (!strcmp(a, "dxt1"))
-				punch = 0;
+				f = F_DXT1;
 			else if (!strcmp(a, "dxt1a"))
-				punch = 1;
+				f = F_DXT1A;
+			else if (!strcmp(a, "dxt5"))
+				f = F_DXT5;
 			else
 				usage();
 		} else if (!strcmp(a, "--out"))
@@ -941,20 +1073,21 @@ int main(int argc, char **argv)
 	if (check_only)
 		return run_check(in ? &im : NULL, spq_s3tc_mode(-1));
 	if (bench_all && !in)
-		return run_bench(path, punch != 0);	/* default RGBA DXT1, as OpenArena */
-	punch = punch > 0;
+		return run_bench(path, f < 0 ? F_DXT1A : f);	/* default RGBA DXT1, as OpenArena */
+	if (f < 0)
+		f = F_DXT1;
 	if (!in)
 		usage();
 	if (im.w % 4 || im.h % 4)
 		die("%s: width and height must be multiples of 4", in);
 
-	fmt = punch ? SPEQ_GL_COMPRESSED_RGBA_S3TC_DXT1_EXT : SPEQ_GL_COMPRESSED_RGB_S3TC_DXT1_EXT;
-	blen = (size_t)im.w / 4 * (im.h / 4) * 8;
+	fmt = fmt_gl[f];
+	blen = (size_t)im.h / 4 * row_bytes(f, im.w);
 	blocks = xmalloc(blen);
-	ret = speq_s3tc_compress_v1(fmt, im.comps, im.px, im.w, im.h, blocks, im.w * 2);
+	ret = speq_s3tc_compress_v1(fmt, im.comps, im.px, im.w, im.h, blocks, row_bytes(f, im.w));
 	if (ret)
 		die("speq_s3tc_compress_v1: %s", strerror(-ret));
-	rmse("ours", &im, blocks, punch);
+	rmse("ours", &im, blocks, f);
 	if (compare) {
 		size_t len;
 		uint8_t *other = read_file(compare, &len), *p = other;
@@ -965,7 +1098,7 @@ int main(int argc, char **argv)
 		}
 		if (len < blen)
 			die("%s: shorter than the image's blocks", compare);
-		rmse("other", &im, p, punch);
+		rmse("other", &im, p, f);
 		free(other);
 	}
 	if (out) {
@@ -973,7 +1106,7 @@ int main(int argc, char **argv)
 		int dds = has_suffix(out, ".dds");
 
 		if (dds)
-			dds_header(hdr, im.w, im.h, punch);
+			dds_header(hdr, im.w, im.h, f);
 		write_file(out, hdr, dds ? 128 : 0, blocks, blen);
 	}
 	if (decode) {
@@ -982,8 +1115,8 @@ int main(int argc, char **argv)
 		size_t n = (size_t)im.w * im.h, k;
 		int hl;
 
-		decode_image(blocks, im.w, im.h, punch, rgba);
-		if (punch) {
+		decode_image(blocks, im.w, im.h, f, rgba);
+		if (f != F_DXT1) {
 			hl = snprintf(hdr, sizeof(hdr), "P7\nWIDTH %u\nHEIGHT %u\nDEPTH 4\nMAXVAL 255\n"
 				      "TUPLTYPE RGB_ALPHA\nENDHDR\n", im.w, im.h);
 			write_file(decode, hdr, hl, rgba, n * 4);
@@ -1003,7 +1136,8 @@ int main(int argc, char **argv)
 		unsigned k;
 
 		for (k = 0; k < bench; k++)
-			if ((ret = speq_s3tc_compress_v1(fmt, im.comps, im.px, im.w, im.h, blocks, im.w * 2)))
+			if ((ret = speq_s3tc_compress_v1(fmt, im.comps, im.px, im.w, im.h, blocks,
+							 row_bytes(f, im.w))))
 				die("speq_s3tc_compress_v1: %s", strerror(-ret));
 		t = now() - t0;
 		printf("bench  %u x %ux%u in %.3f s: %.2f Mpixel/s, %.0f us per image\n", bench, im.w,
