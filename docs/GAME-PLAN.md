@@ -305,6 +305,16 @@ Each is fixed only once a stage needs it.
   NV30_TEX_INVALIDATE_ALWAYS) and 0026 NV30_PS3_KICK_DRAWS=N. Likely cause of Armagetron's loss:
   0019 dropped the reloc-limit submissions, so a frame reaches the GPU only at swap (no CPU/GPU
   overlap).
+- Mesa ps3.299 (patches 0027-0031): 0027 NV30_PS3_KICK_AUTO, an adaptive submission rule
+  instead of a fixed draw count (kick100 on ps3.282: Armagetron +21%, OpenArena +3%,
+  ClassiCube +1%, X-Moto -9%): submit at a draw start once the GPU has passed the last fence
+  and 16 KB and 1/4 of the last frame are queued (=0: off; NV30_PS3_KICK_MIN_BYTES,
+  NV30_PS3_KICK_SPLIT tune it; NV30_PS3_KICK_DRAWS=N overrides). 0028 index buffer fenced
+  (bug; NV30_IDXBUF_LATE_REF=1). 0029 GPU state forgotten when the context that drew last is
+  gone (bug; NV30_CTX_STATE_KEEP=1). 0030 client-memory and 8-bit index arrays (32+) uploaded
+  to GART and fetched by the GPU (NV30_INDEX_UPLOAD=0: inline). 0031 fragment program
+  constant changes run from a GART copy, no M2MF re-upload (NV30_FP_CONST_VRAM=1; first time
+  the RSX fetches a fragment program from GART).
 - SuperTuxKart: our package 1.5-2+ps3.264 (.spm meshes and armatures byte-swapped, GL textures
   and vertex colours right on big-endian; upstream #5578 closed as not planned). All 1268 .spm
   files parse identically on amd64 and ppc64.
