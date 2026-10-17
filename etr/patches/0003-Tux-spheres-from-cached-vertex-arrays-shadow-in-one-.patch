@@ -1,0 +1,344 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 18:40:38 +0300
+Subject: Tux: spheres from cached vertex arrays, shadow in one draw
+ (ETR_GL_TUX, ETR_GL_SHADOW)
+
+gluSphere sent ~400 glNormal3f/glVertex3f calls in a dozen glBegin/glEnd pairs for each of 15 spheres in every frame. The same vertices (GLU's algorithm, floats) are made once per number of divisions as triangles in a buffer object. Nodes with the same material as the one before do not set it again.
+
+The shadow's fans and strips went through glBegin/glNormal3d/glVertex3d per vertex (the normals unused, lighting is off); now the triangles of all spheres are collected and drawn at once.
+
+diff --git a/src/tux.cpp b/src/tux.cpp
+--- a/src/tux.cpp
++++ b/src/tux.cpp
+@@ -30,8 +30,11 @@ still shaped with spheres.
+ #include "textures.h"
+ #include "course.h"
+ #include "physics.h"
++#include "glfast.h"
+ #include <GL/glu.h>
+ #include <algorithm>
++#include <cmath>
++#include <vector>
+ 
+ #define MAX_ARM_ANGLE2 30.0
+ #define MAX_PADDLING_ANGLE2 35.0
+@@ -363,7 +366,158 @@ void CCharShape::CreateMaterial(const std::string& line) {
+ //				drawing
+ // --------------------------------------------------------------------
+ 
++// --------------------------------------------------------------------
++// ETR_GL_TUX: gluSphere sends ~400 glNormal3f/glVertex3f calls in a dozen
++// glBegin/glEnd pairs for each of Tux's 15 spheres, in every frame. The same
++// vertices (the algorithm of GLU's gluSphere with smooth normals, outside,
++// filled, no texture coordinates; floats as there) are made once per number
++// of divisions, as triangles in a buffer object: one draw per sphere. The
++// quads of the strips are split along one diagonal.
++// --------------------------------------------------------------------
++
++namespace {
++
++struct SphereVerts {
++	std::vector<GLfloat> data;	// per vertex: normal, position
++	GLsizei count = 0;
++	GLuint vbo = 0;
++	int context = -1;
++};
++
++SphereVerts spheres[MAX_SPHERE_DIV + 1];
++bool sphere_active = false;
++int sphere_bound_div = -1;
++bool material_valid = false;
++sf::Color material_diffuse, material_specular;
++float material_exp = 0;
++
++void MakeSphere(SphereVerts& s, int stacks) {
++	const int slices = 2 * stacks;
++	const double PI = 3.14159265358979323846;
++	const GLfloat radius = 1.0f;
++	std::vector<GLfloat> sin1a(slices + 1), cos1a(slices + 1);
++	std::vector<GLfloat> sin1b(stacks + 1), cos1b(stacks + 1), sin2b(stacks + 1), cos2b(stacks + 1);
++	for (int i = 0; i < slices; i++) {
++		GLfloat angle = 2 * PI * i / slices;
++		sin1a[i] = std::sin((double)angle);
++		cos1a[i] = std::cos((double)angle);
++	}
++	sin1a[slices] = sin1a[0];
++	cos1a[slices] = cos1a[0];
++	for (int j = 0; j <= stacks; j++) {
++		GLfloat angle = PI * j / stacks;
++		sin2b[j] = std::sin((double)angle);
++		cos2b[j] = std::cos((double)angle);
++		sin1b[j] = radius * std::sin((double)angle);
++		cos1b[j] = radius * std::cos((double)angle);
++	}
++	sin1b[0] = 0;
++	sin1b[stacks] = 0;
++
++	std::vector<GLfloat>& d = s.data;
++	d.clear();
++	auto vertex = [&d](GLfloat nx, GLfloat ny, GLfloat nz, GLfloat x, GLfloat y, GLfloat z) {
++		d.push_back(nx); d.push_back(ny); d.push_back(nz);
++		d.push_back(x); d.push_back(y); d.push_back(z);
++	};
++
++	// the end at +z: a fan with the apex first, the other vertices from slices down to 0
++	{
++		GLfloat st2 = sin1b[1], zh = cos1b[1], st3 = sin2b[1], ct3 = cos2b[1];
++		GLfloat ax = sin1a[0] * sin2b[0], ay = cos1a[0] * sin2b[0], az = cos2b[0];
++		for (int i = slices; i > 0; i--) {
++			vertex(ax, ay, az, 0.0f, 0.0f, radius);
++			vertex(sin1a[i] * st3, cos1a[i] * st3, ct3, st2 * sin1a[i], st2 * cos1a[i], zh);
++			vertex(sin1a[i-1] * st3, cos1a[i-1] * st3, ct3, st2 * sin1a[i-1], st2 * cos1a[i-1], zh);
++		}
++	}
++	// the strips
++	for (int j = 1; j < stacks - 1; j++) {
++		GLfloat zl = cos1b[j], zh = cos1b[j + 1];
++		GLfloat st1 = sin1b[j], st2 = sin1b[j + 1];
++		GLfloat st3 = sin2b[j + 1], ct3 = cos2b[j + 1], st4 = sin2b[j], ct4 = cos2b[j];
++		for (int i = 0; i < slices; i++) {
++			// a(i): high, b(i): low; the quad is a(i) b(i) b(i+1) a(i+1)
++			GLfloat ahn[3] = { sin1a[i] * st3, cos1a[i] * st3, ct3 };
++			GLfloat ahp[3] = { st2 * sin1a[i], st2 * cos1a[i], zh };
++			GLfloat bln[3] = { sin1a[i] * st4, cos1a[i] * st4, ct4 };
++			GLfloat blp[3] = { st1 * sin1a[i], st1 * cos1a[i], zl };
++			GLfloat ahn1[3] = { sin1a[i+1] * st3, cos1a[i+1] * st3, ct3 };
++			GLfloat ahp1[3] = { st2 * sin1a[i+1], st2 * cos1a[i+1], zh };
++			GLfloat bln1[3] = { sin1a[i+1] * st4, cos1a[i+1] * st4, ct4 };
++			GLfloat blp1[3] = { st1 * sin1a[i+1], st1 * cos1a[i+1], zl };
++			vertex(ahn[0], ahn[1], ahn[2], ahp[0], ahp[1], ahp[2]);
++			vertex(bln[0], bln[1], bln[2], blp[0], blp[1], blp[2]);
++			vertex(bln1[0], bln1[1], bln1[2], blp1[0], blp1[1], blp1[2]);
++			vertex(ahn[0], ahn[1], ahn[2], ahp[0], ahp[1], ahp[2]);
++			vertex(bln1[0], bln1[1], bln1[2], blp1[0], blp1[1], blp1[2]);
++			vertex(ahn1[0], ahn1[1], ahn1[2], ahp1[0], ahp1[1], ahp1[2]);
++		}
++	}
++	// the end at -z: a fan, the other vertices from 0 up to slices
++	{
++		GLfloat st2 = sin1b[stacks - 1], zh = cos1b[stacks - 1], st3 = sin2b[stacks - 1], ct3 = cos2b[stacks - 1];
++		// GLU takes the cache of the slices at index stacks for this normal
++		GLfloat apx = sin1a[stacks] * sin2b[stacks], apy = cos1a[stacks] * sin2b[stacks], az = cos2b[stacks];
++		for (int i = 0; i < slices; i++) {
++			vertex(apx, apy, az, 0.0f, 0.0f, -radius);
++			vertex(sin1a[i] * st3, cos1a[i] * st3, ct3, st2 * sin1a[i], st2 * cos1a[i], zh);
++			vertex(sin1a[i+1] * st3, cos1a[i+1] * st3, ct3, st2 * sin1a[i+1], st2 * cos1a[i+1], zh);
++		}
++	}
++	s.count = (GLsizei)(d.size() / 6);
++}
++
++void SphereBegin() {
++	sphere_active = true;
++	sphere_bound_div = -1;
++	material_valid = false;
++	glEnableClientState(GL_VERTEX_ARRAY);
++	glEnableClientState(GL_NORMAL_ARRAY);
++}
++
++void SphereEnd() {
++	sphere_active = false;
++	glDisableClientState(GL_NORMAL_ARRAY);
++	glDisableClientState(GL_VERTEX_ARRAY);
++	if (GlFastHaveVBO()) GlFastBindArrayBuffer(0);
++}
++
++void DrawCachedSphere(int div) {
++	SphereVerts& s = spheres[div];
++	const bool vbo = GlFastHaveVBO();
++	if (s.count == 0 || (vbo && s.context != GlFastGeneration())) {
++		MakeSphere(s, div);
++		if (vbo) {
++			s.vbo = GlFastGenBuffer();
++			s.context = GlFastGeneration();
++			GlFastBindArrayBuffer(s.vbo);
++			GlFastBufferData((GLsizeiptr)(s.data.size() * sizeof(GLfloat)), s.data.data());
++			sphere_bound_div = div;
++			glNormalPointer(GL_FLOAT, 6 * sizeof(GLfloat), (const void*)0);
++			glVertexPointer(3, GL_FLOAT, 6 * sizeof(GLfloat), (const void*)(3 * sizeof(GLfloat)));
++		}
++	}
++	if (sphere_bound_div != div) {
++		sphere_bound_div = div;
++		const GLfloat* base = s.data.data();
++		if (vbo) {
++			GlFastBindArrayBuffer(s.vbo);
++			base = nullptr;
++		}
++		glNormalPointer(GL_FLOAT, 6 * sizeof(GLfloat), base);
++		glVertexPointer(3, GL_FLOAT, 6 * sizeof(GLfloat), base ? base + 3 : (const void*)(3 * sizeof(GLfloat)));
++	}
++	glDrawArrays(GL_TRIANGLES, 0, s.count);
++}
++
++}
++
+ void CCharShape::DrawCharSphere(int num_divisions) const {
++	if (sphere_active && num_divisions >= 1 && num_divisions <= MAX_SPHERE_DIV) {
++		DrawCachedSphere(num_divisions);
++		return;
++	}
+ 	GLUquadricObj *qobj = gluNewQuadric();
+ 	gluQuadricDrawStyle(qobj, GLU_FILL);
+ 	gluQuadricOrientation(qobj, GLU_OUTSIDE);
+@@ -386,7 +540,16 @@ void CCharShape::DrawNodes(const TCharNode *node) {
+ 	}
+ 
+ 	if (node->visible == true) {
+-		set_material(mat->diffuse, mat->specular, mat->exp);
++		// the same material as the sphere before: nothing to tell GL (lighting only,
++		// no colour material in this mode)
++		if (!sphere_active || !material_valid || mat->diffuse != material_diffuse ||
++		        mat->specular != material_specular || mat->exp != material_exp) {
++			set_material(mat->diffuse, mat->specular, mat->exp);
++			material_diffuse = mat->diffuse;
++			material_specular = mat->specular;
++			material_exp = mat->exp;
++			material_valid = true;
++		}
+ 
+ 		DrawCharSphere(node->divisions);
+ 	}
+@@ -411,7 +574,10 @@ void CCharShape::Draw() {
+ 	const TCharNode *node = GetNode(0);
+ 	if (node == nullptr) return;
+ 
++	const bool fast = GlFastOn(GLF_TUX) && !useHighlighting;
++	if (fast) SphereBegin();
+ 	DrawNodes(node);
++	if (fast) SphereEnd();
+ 	glDisable(GL_NORMALIZE);
+ 	if (param.perf_level > 2 && g_game.argument == 0) DrawShadow();
+ 	highlighted = false;
+@@ -638,13 +804,68 @@ bool CCharShape::Collision(const TVector3d& pos, const TPolyhedron& ph) {
+ //				shadow
+ // --------------------------------------------------------------------
+ 
++// --------------------------------------------------------------------
++// ETR_GL_SHADOW: the shadow is made of the primitives of ~15 small
++// spheres, each vertex a glNormal3d (unused: the lighting is off) and a
++// glVertex3d. Here the vertices of all the fans and strips go into one list
++// of triangles (a strip's odd triangles with their first two vertices swapped,
++// so that they keep their winding) and are drawn at once.
++// --------------------------------------------------------------------
++
++namespace {
++
++bool shadow_batch = false;
++GLenum shadow_mode;
++std::vector<GLfloat> shadow_prim;	// the vertices of the primitive in the making
++std::vector<GLfloat> shadow_tris;	// all the triangles
++
++void ShadowBegin(GLenum mode) {
++	if (!shadow_batch) {
++		glBegin(mode);
++		return;
++	}
++	shadow_mode = mode;
++	shadow_prim.clear();
++}
++
++void ShadowEnd() {
++	if (!shadow_batch) {
++		glEnd();
++		return;
++	}
++	const std::size_t n = shadow_prim.size() / 3;
++	const GLfloat* v = shadow_prim.data();
++	auto tri = [](const GLfloat* a, const GLfloat* b, const GLfloat* c) {
++		shadow_tris.insert(shadow_tris.end(), a, a + 3);
++		shadow_tris.insert(shadow_tris.end(), b, b + 3);
++		shadow_tris.insert(shadow_tris.end(), c, c + 3);
++	};
++	if (shadow_mode == GL_TRIANGLE_FAN) {
++		for (std::size_t i = 1; i + 1 < n; i++) tri(v, v + 3 * i, v + 3 * (i + 1));
++	} else {
++		for (std::size_t i = 0; i + 2 < n; i++) {
++			if (i % 2 == 0) tri(v + 3 * i, v + 3 * (i + 1), v + 3 * (i + 2));
++			else tri(v + 3 * (i + 1), v + 3 * i, v + 3 * (i + 2));
++		}
++	}
++}
++
++}
++
+ void CCharShape::DrawShadowVertex(double x, double y, double z, const TMatrix<4, 4>& mat) const {
+ 	TVector3d pt(x, y, z);
+ 	pt = TransformPoint(mat, pt);
+ 	double old_y = pt.y;
+-	TVector3d nml = Course.FindCourseNormal(pt.x, pt.z);
++	TVector3d nml;
++	if (!shadow_batch) nml = Course.FindCourseNormal(pt.x, pt.z);
+ 	pt.y = Course.FindYCoord(pt.x, pt.z) + SHADOW_HEIGHT;
+ 	if (pt.y > old_y) pt.y = old_y;
++	if (shadow_batch) {
++		shadow_prim.push_back((GLfloat)pt.x);
++		shadow_prim.push_back((GLfloat)pt.y);
++		shadow_prim.push_back((GLfloat)pt.z);
++		return;
++	}
+ 	glNormal3(nml);
+ 	glVertex3(pt);
+ }
+@@ -669,7 +890,7 @@ void CCharShape::DrawShadowSphere(const TMatrix<4, 4>& mat) const {
+ 		cos_phi_d_phi = std::cos(phi + d_phi);
+ 
+ 		if (phi <= eps) {
+-			glBegin(GL_TRIANGLE_FAN);
++			ShadowBegin(GL_TRIANGLE_FAN);
+ 			DrawShadowVertex(0., 0., 1., mat);
+ 
+ 			for (theta = 0.0; theta + eps < twopi; theta += d_theta) {
+@@ -685,9 +906,9 @@ void CCharShape::DrawShadowSphere(const TMatrix<4, 4>& mat) const {
+ 			y = 0.0;
+ 			z = cos_phi_d_phi;
+ 			DrawShadowVertex(x, y, z, mat);
+-			glEnd();
++			ShadowEnd();
+ 		} else if (phi + d_phi + eps >= M_PI) {
+-			glBegin(GL_TRIANGLE_FAN);
++			ShadowBegin(GL_TRIANGLE_FAN);
+ 			DrawShadowVertex(0., 0., -1., mat);
+ 			for (theta = twopi; theta - eps > 0; theta -= d_theta) {
+ 				sin_theta = std::sin(theta);
+@@ -701,9 +922,9 @@ void CCharShape::DrawShadowSphere(const TMatrix<4, 4>& mat) const {
+ 			y = 0.0;
+ 			z = cos_phi;
+ 			DrawShadowVertex(x, y, z, mat);
+-			glEnd();
++			ShadowEnd();
+ 		} else {
+-			glBegin(GL_TRIANGLE_STRIP);
++			ShadowBegin(GL_TRIANGLE_STRIP);
+ 			for (theta = 0.0; theta + eps < twopi; theta += d_theta) {
+ 				sin_theta = std::sin(theta);
+ 				cos_theta = std::cos(theta);
+@@ -725,7 +946,7 @@ void CCharShape::DrawShadowSphere(const TMatrix<4, 4>& mat) const {
+ 			y = 0.0;
+ 			z = cos_phi_d_phi;
+ 			DrawShadowVertex(x, y, z, mat);
+-			glEnd();
++			ShadowEnd();
+ 		}
+ 	}
+ }
+@@ -753,7 +974,18 @@ void CCharShape::DrawShadow() const {
+ 		Message("couldn't find tux's root node");
+ 		return;
+ 	}
++	shadow_batch = GlFastOn(GLF_SHADOW);
++	if (shadow_batch) shadow_tris.clear();
+ 	TraverseDagForShadow(node, TMatrix<4, 4>::getIdentity());
++	if (shadow_batch) {
++		shadow_batch = false;
++		if (!shadow_tris.empty()) {
++			glEnableClientState(GL_VERTEX_ARRAY);
++			glVertexPointer(3, GL_FLOAT, 0, shadow_tris.data());
++			glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(shadow_tris.size() / 3));
++			glDisableClientState(GL_VERTEX_ARRAY);
++		}
++	}
+ }
+ 
+ // --------------------------------------------------------------------

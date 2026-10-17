@@ -47,3 +47,17 @@ during() {
 	fi
 }
 variant_record() { ETR_MODE=record; DURATION=600; }
+# Our extremetuxracer (etr/): fewer, larger GL submissions, each with an environment variable
+# (src/glfast.h in the package). base has them all on, gloff is ETR_GL=0 (the game as Debian
+# draws it), a no* variant is base with one change off.
+variant_gloff() { ENV+=(ETR_GL=0); }
+variant_noterrain() { ENV+=(ETR_GL_TERRAIN=0); }
+variant_notux() { ENV+=(ETR_GL_TUX=0); }
+variant_noshadow() { ENV+=(ETR_GL_SHADOW=0); }
+variant_notracks() { ENV+=(ETR_GL_TRACKS=0); }
+variant_notrees() { ENV+=(ETR_GL_TREES=0); }
+variant_treesorder() { ENV+=(ETR_GL_TREES_GROUP=0); }	# trees and items by type only where the course's list has them so
+variant_noparticles() { ENV+=(ETR_GL_PARTICLES=0); }
+variant_nosnow() { ENV+=(ETR_GL_SNOW=0); }
+variant_nohud() { ENV+=(ETR_GL_HUD=0); }
+variant_nobind() { ENV+=(ETR_GL_BIND=0); }

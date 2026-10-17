@@ -1,0 +1,6 @@
+0001-ETR_GL-switches-no-repeated-glBindTexture-the-HUD-nu.patch
+0002-terrain-from-buffer-objects-one-quadtree-walk-ETR_GL.patch
+0003-Tux-spheres-from-cached-vertex-arrays-shadow-in-one-.patch
+0004-track-marks-as-arrays-only-what-the-camera-sees-ETR_.patch
+0005-trees-and-items-one-draw-for-each-texture-ETR_GL_TRE.patch
+0006-snow-spray-falling-snow-and-snow-curtains-in-one-dra.patch

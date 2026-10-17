@@ -1,0 +1,216 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 18:40:38 +0300
+Subject: trees and items: one draw for each texture (ETR_GL_TREES)
+
+Each tree was a glPushMatrix, glTranslated, glRotatef, glNormal3i, array set-up, glDrawArrays and glPopMatrix. The corners of all trees of a type (and the items') that are not clipped are moved to the course by CPU, as the translation and the one degree turn would, and drawn at once. glNormal3i(0, 0, 1) is the direction (1, 1, 3) in GL (integer normals map (2c+1)/(2^32-1)), which the batch keeps. ETR_GL_TREES_GROUP=0 keeps the order of the course's list between types.
+
+diff --git a/src/course_render.cpp b/src/course_render.cpp
+--- a/src/course_render.cpp
++++ b/src/course_render.cpp
+@@ -28,6 +28,9 @@ GNU General Public License for more details.
+ #include "env.h"
+ #include "game_ctrl.h"
+ #include "physics.h"
++#include "glfast.h"
++#include <cmath>
++#include <vector>
+ 
+ #define TEX_SCALE 6
+ static const bool clip_course = true;
+@@ -49,7 +52,195 @@ void RenderCourse() {
+ 	RenderQuadtree();
+ }
+ 
++// --------------------------------------------------------------------
++// ETR_GL_TREES: a tree is two crossed quads, and the original draws each with
++// its own glPushMatrix, glTranslated, glRotatef, glNormal3i, client array set-up,
++// glDrawArrays and glPopMatrix (a dozen calls). The trees are sorted by type, so
++// here the corners of all trees of a type that are not clipped, moved to the
++// course by the translation and the one degree turn, go into one array and
++// are drawn at once, in the same order; the normal, turned the same way, is a
++// constant. The items (herring, flags) have a normal of their own: an array
++// of normals, and a draw for every run of items of the same type.
++// --------------------------------------------------------------------
++
++namespace {
++
++std::vector<GLfloat> batch_vtx;
++std::vector<GLshort> batch_tex;
++std::vector<GLfloat> batch_nrm;
++
++void FlushBatch(TTexture* texture, const GLfloat* const_normal) {
++	if (batch_vtx.empty()) return;
++	texture->Bind();
++	glEnableClientState(GL_VERTEX_ARRAY);
++	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
++	glVertexPointer(3, GL_FLOAT, 0, batch_vtx.data());
++	glTexCoordPointer(2, GL_SHORT, 0, batch_tex.data());
++	if (const_normal == nullptr) {
++		glEnableClientState(GL_NORMAL_ARRAY);
++		glNormalPointer(GL_FLOAT, 0, batch_nrm.data());
++	} else {
++		glNormal3fv(const_normal);
++	}
++	glDrawArrays(GL_QUADS, 0, (GLsizei)(batch_vtx.size() / 3));
++	if (const_normal == nullptr) glDisableClientState(GL_NORMAL_ARRAY);
++	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
++	glDisableClientState(GL_VERTEX_ARRAY);
++	batch_vtx.clear();
++	batch_tex.clear();
++	batch_nrm.clear();
++}
++
++void DrawTreesFast() {
++	const CControl*	ctrl = g_game.player->ctrl;
++
++	ScopedRenderMode rm(TREES);
++	double fwd_clip_limit = param.forward_clip_distance;
++	double bwd_clip_limit = param.backward_clip_distance;
++
++	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
++	set_material(colWhite, colBlack, 1.0);
++
++	static const GLshort tree_tex[] = {
++		0, 1, 1, 1, 1, 0, 0, 0,
++		0, 1, 1, 1, 1, 0, 0, 0
++	};
++	static const GLshort item_tex[] = {
++		0, 1, 1, 1, 1, 0, 0, 0
++	};
++
++	// Trees: glRotatef(1, 0, 1, 0) at perf_level > 1: (x, y, z) -> (c x + s z, y, -s x + c z)
++	const bool turn = param.perf_level > 1;
++	GLfloat rs = 0.f, rc = 1.f;
++	if (turn) {
++		rs = std::sin(1.0 * M_PI / 180.0);
++		rc = std::cos(1.0 * M_PI / 180.0);
++	}
++	// glNormal3i(0, 0, 1), turned: an integer normal component c is (2c+1)/(2^32-1) in GL, so
++	// this is (1, 1, 3) up to its length, not (0, 0, 1) (the lighting normalizes it)
++	const double nl = std::sqrt(11.0);
++	const GLfloat tree_normal[3] = { (GLfloat)((rc * 1 + rs * 3) / nl), (GLfloat)(1 / nl), (GLfloat)((-rs * 1 + rc * 3) / nl) };
++
++	static const bool group = GlFastEnv("ETR_GL_TREES_GROUP", true);
++	static std::vector<std::vector<GLfloat> > groups;
++	if (group && groups.size() < Course.ObjTypes.size()) groups.resize(Course.ObjTypes.size());
++
++	std::size_t tree_type = (std::size_t)-1;
++	for (std::size_t i = 0; i< Course.CollArr.size(); i++) {
++		const TCollidable& tree = Course.CollArr[i];
++		if (clip_course) {
++			if (ctrl->viewpos.z - tree.pt.z > fwd_clip_limit) continue;
++			if (tree.pt.z - ctrl->viewpos.z > bwd_clip_limit) continue;
++		}
++
++		if (!group && tree.tree_type != tree_type) {
++			if (tree_type != (std::size_t)-1) FlushBatch(Course.ObjTypes[tree_type].texture, tree_normal);
++			tree_type = tree.tree_type;
++		}
++		std::vector<GLfloat>& out = group ? groups[tree.tree_type] : batch_vtx;
++
++		const double r = tree.diam / 2.0;
++		const double h = tree.height;
++		// the corners as in the original, (x, y, z) relative to the tree
++		const double c[8][3] = {
++			{ -r, 0, 0 }, { r, 0, 0 }, { r, h, 0 }, { -r, h, 0 },
++			{ 0, 0, -r }, { 0, 0, r }, { 0, h, r }, { 0, h, -r }
++		};
++		for (int k = 0; k < 8; k++) {
++			out.push_back((GLfloat)(tree.pt.x + rc * c[k][0] + rs * c[k][2]));
++			out.push_back((GLfloat)(tree.pt.y + c[k][1]));
++			out.push_back((GLfloat)(tree.pt.z - rs * c[k][0] + rc * c[k][2]));
++		}
++		if (!group) batch_tex.insert(batch_tex.end(), tree_tex, tree_tex + 16);
++	}
++	if (!group) {
++		if (tree_type != (std::size_t)-1) FlushBatch(Course.ObjTypes[tree_type].texture, tree_normal);
++	} else {
++		for (std::size_t t = 0; t < groups.size(); t++) {
++			if (groups[t].empty()) continue;
++			batch_vtx.swap(groups[t]);
++			for (std::size_t k = 0; k < batch_vtx.size() / 24; k++) batch_tex.insert(batch_tex.end(), tree_tex, tree_tex + 16);
++			FlushBatch(Course.ObjTypes[t].texture, tree_normal);
++			groups[t].clear();
++		}
++	}
++
++	// Items
++	static std::vector<std::vector<GLfloat> > igroups_vtx, igroups_nrm;
++	if (group && igroups_vtx.size() < Course.ObjTypes.size()) {
++		igroups_vtx.resize(Course.ObjTypes.size());
++		igroups_nrm.resize(Course.ObjTypes.size());
++	}
++	const TObjectType* item_type = nullptr;
++
++	for (std::size_t i = 0; i< Course.NocollArr.size(); i++) {
++		const TItem& item = Course.NocollArr[i];
++		if (item.collectable == 0 || item.type.drawable == false) continue;
++		if (clip_course) {
++			if (ctrl->viewpos.z - item.pt.z > fwd_clip_limit) continue;
++			if (item.pt.z - ctrl->viewpos.z > bwd_clip_limit) continue;
++		}
++
++		if (!group && &item.type != item_type) {
++			if (item_type != nullptr) FlushBatch(item_type->texture, nullptr);
++		}
++		item_type = &item.type;
++		const std::size_t type_idx = item_type - &Course.ObjTypes[0];
++
++		double itemRadius = item.diam / 2;
++		double itemHeight = item.height;
++
++		TVector3d normal;
++		if (item_type->use_normal) {
++			normal = item_type->normal;
++		} else {
++			normal = ctrl->viewpos - item.pt;
++			normal.Norm();
++		}
++		const GLfloat nx = (GLfloat)normal.x, ny = (GLfloat)normal.y, nz = (GLfloat)normal.z;
++		normal.y = 0.0;
++		normal.Norm();
++
++		const double c[4][3] = {
++			{ -itemRadius * normal.z, 0.0, itemRadius * normal.x },
++			{ itemRadius * normal.z, 0.0, -itemRadius * normal.x },
++			{ itemRadius * normal.z, itemHeight, -itemRadius * normal.x },
++			{ -itemRadius * normal.z, itemHeight, itemRadius * normal.x }
++		};
++		std::vector<GLfloat>& ovtx = group ? igroups_vtx[type_idx] : batch_vtx;
++		std::vector<GLfloat>& onrm = group ? igroups_nrm[type_idx] : batch_nrm;
++		for (int k = 0; k < 4; k++) {
++			ovtx.push_back((GLfloat)(item.pt.x + c[k][0]));
++			ovtx.push_back((GLfloat)(item.pt.y + c[k][1]));
++			ovtx.push_back((GLfloat)(item.pt.z + c[k][2]));
++			onrm.push_back(nx);
++			onrm.push_back(ny);
++			onrm.push_back(nz);
++		}
++		if (!group) batch_tex.insert(batch_tex.end(), item_tex, item_tex + 8);
++	}
++	if (!group) {
++		if (item_type != nullptr) FlushBatch(item_type->texture, nullptr);
++	} else {
++		for (std::size_t t = 0; t < igroups_vtx.size(); t++) {
++			if (igroups_vtx[t].empty()) continue;
++			batch_vtx.swap(igroups_vtx[t]);
++			batch_nrm.swap(igroups_nrm[t]);
++			for (std::size_t k = 0; k < batch_vtx.size() / 12; k++) batch_tex.insert(batch_tex.end(), item_tex, item_tex + 8);
++			FlushBatch(Course.ObjTypes[t].texture, nullptr);
++			igroups_vtx[t].clear();
++			igroups_nrm[t].clear();
++		}
++	}
++}
++
++}
++
+ void DrawTrees() {
++	if (GlFastOn(GLF_TREES)) {
++		DrawTreesFast();
++		return;
++	}
+ 	std::size_t tree_type = -1;
+ 	const CControl*	ctrl = g_game.player->ctrl;
+ 

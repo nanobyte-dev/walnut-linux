@@ -1,0 +1,319 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 18:40:38 +0300
+Subject: track marks as arrays, only what the camera sees (ETR_GL_TRACKS)
+
+DrawTrackmarks sent every quad of the track, up to 10000, as immediate mode calls, seen or not. The quads are kept in groups of 64 with a box each; only groups that touch the view frustum (without its far plane) go into one array, in the same order and with the same per-vertex colour, normal and texture coordinates. Strips are drawn as the separate quads they are, one draw for each run of the same texture.
+
+diff --git a/src/track_marks.cpp b/src/track_marks.cpp
+--- a/src/track_marks.cpp
++++ b/src/track_marks.cpp
+@@ -24,7 +24,10 @@ GNU General Public License for more details.
+ #include "textures.h"
+ #include "course.h"
+ #include "physics.h"
++#include "view.h"
++#include "glfast.h"
+ #include <list>
++#include <vector>
+ 
+ #define TRACK_WIDTH 0.7
+ #define MAX_TRACK_MARKS 10000
+@@ -46,6 +49,7 @@ struct track_quad_t {
+ 	TVector3d n1, n2, n3, n4;
+ 	track_types_t track_type;
+ 	uint8_t alpha;
++	unsigned idx;		// place in the list, kept when the quad is used again
+ };
+ 
+ struct track_marks_t {
+@@ -56,6 +60,200 @@ struct track_marks_t {
+ static track_marks_t track_marks;
+ static bool continuing_track;
+ 
++// --------------------------------------------------------------------
++// ETR_GL_TRACKS: DrawTrackmarks sends every quad of the track, 10000 at the
++// end of a long race, as glBegin/glNormal/glTexCoord/glVertex calls, whether
++// the camera sees it or not. Here the quads are kept in groups of 64 with a
++// box each (made again when a quad in it changed, which is the newest ones),
++// and only the quads of the groups that touch the view frustum (without its
++// far plane) go into one array: the same quads, in the same order, so the
++// same blending, with each vertex' colour and normal and texture coordinates.
++// Strips are drawn as the separate quads they are, GL_QUADS instead of
++// GL_QUAD_STRIP, each starting at its second vertex (that is where Mesa
++// splits a strip's quad); one draw for every run of the same texture.
++// --------------------------------------------------------------------
++
++#define TRACK_CHUNK 64
++
++namespace {
++
++struct TrackVertex {
++	GLfloat pos[3];
++	GLfloat nrm[3];
++	GLfloat tex[2];
++	GLubyte col[4];
++};
++
++std::vector<const track_quad_t*> tq_ptr;	// by idx
++std::vector<uint8_t> tq_type;
++std::vector<uint8_t> tq_role;
++std::vector<uint8_t> tq_tex;	// the texture the quad is drawn with
++std::vector<unsigned char> chunk_dirty;
++std::vector<TVector3d> chunk_min, chunk_max;
++std::vector<TrackVertex> tq_verts;
++struct TrackRun {
++	std::size_t tex;
++	GLint first;
++	GLsizei count;
++};
++std::vector<TrackRun> tq_runs;
++
++enum { ROLE_SINGLE, ROLE_START, ROLE_CONT };
++
++void touch_quad(const track_quad_t* q) {
++	if (q->idx >= tq_ptr.size()) return;
++	tq_type[q->idx] = (uint8_t)q->track_type;
++	chunk_dirty[q->idx / TRACK_CHUNK] = 1;
++}
++
++void reset_fast() {
++	tq_ptr.clear();
++	tq_type.clear();
++	chunk_dirty.clear();
++	chunk_min.clear();
++	chunk_max.clear();
++}
++
++void register_quad(const track_quad_t* q) {
++	tq_ptr.push_back(q);
++	tq_type.push_back((uint8_t)q->track_type);
++	if (tq_ptr.size() > chunk_dirty.size() * TRACK_CHUNK) {
++		chunk_dirty.push_back(1);
++		chunk_min.emplace_back();
++		chunk_max.emplace_back();
++	}
++	chunk_dirty[q->idx / TRACK_CHUNK] = 1;
++}
++
++inline void put_vertex(const TVector3d& v, const TVector3d& n, const TVector2d& t, uint8_t alpha) {
++	TrackVertex tv;
++	tv.pos[0] = (GLfloat)v.x; tv.pos[1] = (GLfloat)v.y; tv.pos[2] = (GLfloat)v.z;
++	tv.nrm[0] = (GLfloat)n.x; tv.nrm[1] = (GLfloat)n.y; tv.nrm[2] = (GLfloat)n.z;
++	tv.tex[0] = (GLfloat)t.x; tv.tex[1] = (GLfloat)t.y;
++	tv.col[0] = tv.col[1] = tv.col[2] = 255; tv.col[3] = alpha;
++	tq_verts.push_back(tv);
++}
++
++void begin_quad(std::size_t tex) {
++	if (tq_runs.empty() || tq_runs.back().tex != tex) {
++		TrackRun r = { tex, (GLint)tq_verts.size(), 0 };
++		tq_runs.push_back(r);
++	}
++	tq_runs.back().count += 4;
++}
++
++void update_chunk(std::size_t c) {
++	std::size_t first = c * TRACK_CHUNK;
++	std::size_t last = std::min(first + TRACK_CHUNK, tq_ptr.size());
++	TVector3d mn = tq_ptr[first]->v1, mx = mn;
++	for (std::size_t k = first; k < last; k++) {
++		const track_quad_t* q = tq_ptr[k];
++		const TVector3d* v[4] = { &q->v1, &q->v2, &q->v3, &q->v4 };
++		for (int i = 0; i < 4; i++) {
++			mn.x = std::min(mn.x, v[i]->x); mx.x = std::max(mx.x, v[i]->x);
++			mn.y = std::min(mn.y, v[i]->y); mx.y = std::max(mx.y, v[i]->y);
++			mn.z = std::min(mn.z, v[i]->z); mx.z = std::max(mx.z, v[i]->z);
++		}
++	}
++	chunk_min[c] = mn;
++	chunk_max[c] = mx;
++	chunk_dirty[c] = 0;
++}
++
++void draw_trackmarks_fast(TTexture* const* textures, sf::Color track_colour) {
++	const std::size_t n = tq_ptr.size();
++	if (tq_role.size() < n) {
++		tq_role.resize(n);
++		tq_tex.resize(n);
++	}
++
++	// which quad starts a strip, which goes on with it (the loop of the original, on the types)
++	bool in_strip = false;
++	uint8_t strip_tex = 0;
++	for (std::size_t k = 0; k < n; k++) {
++		uint8_t t = tq_type[k];
++		if (in_strip && t != TRACK_TAIL) {
++			tq_role[k] = ROLE_CONT;
++			tq_tex[k] = strip_tex;
++		} else if (t == TRACK_MARK) {
++			tq_role[k] = ROLE_START;
++			tq_tex[k] = strip_tex = t;
++			in_strip = true;
++		} else {
++			tq_role[k] = ROLE_SINGLE;
++			tq_tex[k] = t;
++			in_strip = false;
++		}
++	}
++
++	tq_verts.clear();
++	tq_runs.clear();
++	const std::size_t nchunks = (n + TRACK_CHUNK - 1) / TRACK_CHUNK;
++	for (std::size_t c = 0; c < nchunks; c++) {
++		if (chunk_dirty[c]) update_chunk(c);
++		if (aabb_outside_view_sides(chunk_min[c], chunk_max[c])) continue;
++
++		std::size_t last = std::min((c + 1) * TRACK_CHUNK, n);
++		for (std::size_t k = c * TRACK_CHUNK; k < last; k++) {
++			const track_quad_t* q = tq_ptr[k];
++			switch (tq_role[k]) {
++				case ROLE_SINGLE:
++					begin_quad(tq_tex[k]);
++					put_vertex(q->v1, q->n1, q->t1, q->alpha);
++					put_vertex(q->v2, q->n2, q->t2, q->alpha);
++					put_vertex(q->v4, q->n4, q->t4, q->alpha);
++					put_vertex(q->v3, q->n3, q->t3, q->alpha);
++					break;
++				case ROLE_START:
++					begin_quad(tq_tex[k]);
++					put_vertex(q->v1, q->n1, q->t1, q->alpha);
++					put_vertex(q->v3, q->n3, q->t3, q->alpha);
++					put_vertex(q->v4, q->n4, q->t4, q->alpha);
++					put_vertex(q->v2, q->n2, q->t2, q->alpha);
++					break;
++				default: {
++					const track_quad_t* p = tq_ptr[k - 1];
++					begin_quad(tq_tex[k]);
++					put_vertex(p->v3, p->n3, p->t3, p->alpha);
++					put_vertex(q->v3, q->n3, q->t3, q->alpha);
++					put_vertex(q->v4, q->n4, q->t4, q->alpha);
++					put_vertex(p->v4, p->n4, p->t4, p->alpha);
++					break;
++				}
++			}
++		}
++	}
++
++	if (!tq_verts.empty()) {
++	glEnableClientState(GL_VERTEX_ARRAY);
++	glEnableClientState(GL_NORMAL_ARRAY);
++	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
++	glEnableClientState(GL_COLOR_ARRAY);
++	const TrackVertex* base = tq_verts.data();
++	glVertexPointer(3, GL_FLOAT, sizeof(TrackVertex), base->pos);
++	glNormalPointer(GL_FLOAT, sizeof(TrackVertex), base->nrm);
++	glTexCoordPointer(2, GL_FLOAT, sizeof(TrackVertex), base->tex);
++	glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(TrackVertex), base->col);
++	for (std::size_t r = 0; r < tq_runs.size(); r++) {
++		textures[tq_runs[r].tex]->Bind();
++		glDrawArrays(GL_QUADS, tq_runs[r].first, tq_runs[r].count);
++	}
++	glDisableClientState(GL_COLOR_ARRAY);
++	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
++	glDisableClientState(GL_NORMAL_ARRAY);
++	glDisableClientState(GL_VERTEX_ARRAY);
++	}
++
++	// the colour the original leaves behind: the last quad's
++	if (n > 0) {
++		track_colour.a = tq_ptr[n - 1]->alpha;
++		set_material_diffuse(track_colour);
++	}
++}
++
++}
++
++
+ static int trackid1 = 1;
+ static int trackid2 = 2;
+ static int trackid3 = 3;
+@@ -70,6 +268,7 @@ void init_track_marks() {
+ 	track_marks.quads.clear();
+ 	track_marks.current_mark = track_marks.quads.begin();
+ 	continuing_track = false;
++	reset_fast();
+ }
+ 
+ template<typename T>
+@@ -106,6 +305,11 @@ void DrawTrackmarks() {
+ 
+ 	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+ 
++	if (GlFastOn(GLF_TRACKS)) {
++		draw_trackmarks_fast(textures, track_colour);
++		return;
++	}
++
+ 	for (std::list<track_quad_t>::const_iterator q = track_marks.quads.begin(); q != track_marks.quads.end(); ++q) {
+ 		if (q->alpha != track_colour.a) {
+ 			track_colour.a = q->alpha;
+@@ -191,7 +395,9 @@ void break_track_marks() {
+ 		if (qprev != track_marks.quads.end()) {
+ 			qprev->t3.y = std::max(qprev->t3.y+0.5, qprev->t1.y+1.0);
+ 			qprev->t4.y = std::max(qprev->t3.y+0.5, qprev->t1.y+1.0);
++			touch_quad(&*qprev);
+ 		}
++		touch_quad(&*q);
+ 	}
+ 	continuing_track = false;
+ }
+@@ -244,8 +450,11 @@ void add_track_mark(const CControl *ctrl, int *id) {
+ 		return;
+ 	}
+ 
+-	if (track_marks.quads.size() < MAX_TRACK_MARKS)
++	if (track_marks.quads.size() < MAX_TRACK_MARKS) {
+ 		track_marks.quads.emplace_back();
++		track_marks.quads.back().idx = (unsigned)track_marks.quads.size() - 1;
++		register_quad(&track_marks.quads.back());
++	}
+ 	std::list<track_quad_t>::iterator qprev = track_marks.current_mark;
+ 	if (track_marks.current_mark == track_marks.quads.end())
+ 		track_marks.current_mark = track_marks.quads.begin();
+@@ -287,6 +496,8 @@ void add_track_mark(const CControl *ctrl, int *id) {
+ 	}
+ 	q->alpha = std::min(static_cast<int>((2*comp_depth-dist_from_surface)/(4*comp_depth)*255), 255);
+ 	continuing_track = true;
++	touch_quad(&*q);
++	if (qprev != track_marks.quads.end()) touch_quad(&*qprev);
+ }
+ 
+ void UpdateTrackmarks(const CControl *ctrl) {
+diff --git a/src/view.cpp b/src/view.cpp
+--- a/src/view.cpp
++++ b/src/view.cpp
+@@ -390,6 +390,22 @@ clip_result_t clip_aabb_to_view_frustum(const TVector3d& min, const TVector3d& m
+ 	return NoClip;
+ }
+ 
++// The box is outside one of the near plane and the four sides of the view frustum. The far
++// plane is not tested: the frustum's is at the forward clip distance, the projection's 5 further.
++bool aabb_outside_view_sides(const TVector3d& min, const TVector3d& max) {
++	for (int i=0; i<6; i++) {
++		if (i == 1) continue;
++		TVector3d n = max;
++
++		if (p_vertex_code[i] & 4) n.x = min.x;
++		if (p_vertex_code[i] & 2) n.y = min.y;
++		if (p_vertex_code[i] & 1) n.z = min.z;
++
++		if (DotProduct(n, frustum_planes[i].nml) + frustum_planes[i].d > 0) return true;
++	}
++	return false;
++}
++
+ const TPlane& get_far_clip_plane() { return frustum_planes[1]; }
+ const TPlane& get_left_clip_plane() { return frustum_planes[2]; }
+ const TPlane& get_right_clip_plane() { return frustum_planes[3]; }
+diff --git a/src/view.h b/src/view.h
+--- a/src/view.h
++++ b/src/view.h
+@@ -38,6 +38,7 @@ enum clip_result_t {
+ 
+ void SetupViewFrustum(const CControl *ctrl);
+ clip_result_t clip_aabb_to_view_frustum(const TVector3d& min, const TVector3d& max);
++bool aabb_outside_view_sides(const TVector3d& min, const TVector3d& max);	// near and the four sides, not the far plane
+ 
+ const TPlane& get_far_clip_plane();
+ const TPlane& get_left_clip_plane();

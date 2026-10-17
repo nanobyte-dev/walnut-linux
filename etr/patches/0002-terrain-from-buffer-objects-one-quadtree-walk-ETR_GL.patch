@@ -1,0 +1,289 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 18:40:38 +0300
+Subject: terrain from buffer objects, one quadtree walk (ETR_GL_TERRAIN)
+
+The original walks the quadtree once for each terrain type, draws from client arrays (Mesa copies every vertex from the lowest to the highest index of the draw, ~200 KB for 130 triangles, 13 times a frame) and writes the alpha of each vertex into the array before each draw.
+
+Now one walk puts the triangles in lists by terrain, in the order the walks had; positions and normals are a buffer object made once per course; the alpha of a vertex in a pass (terrain >= pass, terrain == pass) is a buffer of 4 bytes a vertex, made when a pass first needs it. Blended passes that add nothing (a terrain no vertex of the three-terrain triangles has) are not drawn.
+
+diff --git a/src/course.cpp b/src/course.cpp
+--- a/src/course.cpp
++++ b/src/course.cpp
+@@ -245,6 +245,7 @@ void CCourse::MakeCourseNormals() {
+ // --------------------------------------------------------------------
+ 
+ void CCourse::FillGlArrays() {
++	vnc_array_gen++;
+ 	if (vnc_array == nullptr)
+ 		vnc_array = new GLubyte[STRIDE_GL_ARRAY * nx * ny];
+ 
+diff --git a/src/course.h b/src/course.h
+--- a/src/course.h
++++ b/src/course.h
+@@ -171,6 +171,7 @@ public:
+ 
+ 	std::vector<CourseFields>	Fields;
+ 	GLubyte *vnc_array;
++	unsigned vnc_array_gen = 0;
+ 
+ 	CCourseList* getGroup(std::size_t index);
+ 
+@@ -184,6 +185,7 @@ public:
+ 	bool LoadObjectTypes();
+ 	void MakeStandardPolyhedrons();
+ 	GLubyte* GetGLArrays() const { return vnc_array; }
++	unsigned GetGLArraysGen() const { return vnc_array_gen; }	// counts FillGlArrays
+ 	void FillGlArrays();
+ 
+ 	const TVector2d& GetDimensions() const { return curr_course->size; }
+diff --git a/src/quadtree.cpp b/src/quadtree.cpp
+--- a/src/quadtree.cpp
++++ b/src/quadtree.cpp
+@@ -7,9 +7,11 @@
+ #include "textures.h"
+ #include "course.h"
+ #include "ogl.h"
++#include "glfast.h"
+ 
+ #include <climits>
+ #include <cstring>
++#include <vector>
+ 
+ #define TERRAIN_ERROR_SCALE 0.1f
+ #define VERTEX_FORCE_THRESHOLD 100
+@@ -931,6 +933,203 @@ void quadsquare::RenderAux(const quadcornerdata& cd, clip_result_t vis, int terr
+ }
+ 
+ 
++// --------------------------------------------------------------------
++// ETR_GL_TERRAIN: the terrain from buffer objects. The original walks the
++// quadtree once for every terrain type (a dozen times), draws from client
++// arrays, so that Mesa copies every vertex between the lowest and the highest
++// index to the GPU for each draw (some 200 KB for 130 triangles), and writes
++// the alpha of the triangles' vertices into the array before each draw.
++// Here: one walk sorts every triangle into the lists of the terrains it
++// touches (same order as the walks had), the positions and normals are a
++// buffer object made once per course, and the alpha of a vertex, which only
++// depends on the terrain pass, is a buffer of 4 bytes per vertex made the
++// first time a pass needs it. Draws that add nothing (a terrain that no
++// vertex of the blended triangles has) are left out.
++// --------------------------------------------------------------------
++
++namespace {
++
++struct TerrainBuffers {
++	int context = -1;		// GlFastGeneration()
++	unsigned course = 0;		// Course.GetGLArraysGen()
++	const GLubyte* array = nullptr;
++	std::size_t nverts = 0;
++	GLuint vnc = 0;
++	std::vector<GLuint> alpha_ge;	// by terrain: alpha 255 where the vertex' terrain is >= it
++	std::vector<GLuint> alpha_eq;	// by terrain: alpha 255 where it is it
++};
++
++TerrainBuffers tbuf;
++std::vector<std::vector<GLuint> > tri_lists;	// index triples by terrain
++std::vector<GLuint> special_list;		// triangles with three different terrains
++std::vector<unsigned char> special_present;	// terrains of these
++int fast_num_terrains;
++bool fast_blend;
++
++inline void AddTri(int t, GLuint a, GLuint b, GLuint c) {
++	if (t < 0 || t >= fast_num_terrains) return;
++	std::vector<GLuint>& l = tri_lists[t];
++	l.push_back(a);
++	l.push_back(b);
++	l.push_back(c);
++}
++
++}
++
++static void FastTri(int a, int b, int c, int) {
++	int ta = VertexTerrains[a], tb = VertexTerrains[b], tc = VertexTerrains[c];
++	GLuint ia = VertexIndices[a], ib = VertexIndices[b], ic = VertexIndices[c];
++	if (fast_blend) {
++		// MakeTri: the triangle is in the pass of each terrain one of its vertices has
++		AddTri(ta, ia, ib, ic);
++		if (tb != ta) AddTri(tb, ia, ib, ic);
++		if (tc != ta && tc != tb) AddTri(tc, ia, ib, ic);
++		// MakeSpecialTri
++		if (ta != tb && ta != tc && tb != tc) {
++			special_list.push_back(ia);
++			special_list.push_back(ib);
++			special_list.push_back(ic);
++			if (ta < fast_num_terrains) special_present[ta] = 1;
++			if (tb < fast_num_terrains) special_present[tb] = 1;
++			if (tc < fast_num_terrains) special_present[tc] = 1;
++		}
++	} else {
++		// MakeNoBlendTri: the pass of the lowest terrain only
++		int t = ta < tb ? ta : tb;
++		if (tc < t) t = tc;
++		AddTri(t, ia, ib, ic);
++	}
++}
++
++void quadsquare::RenderAuxFast(const quadcornerdata& cd, clip_result_t vis) {
++	int	half = 1 << cd.Level;
++	int	whole = 2 << cd.Level;
++	if (vis != NoClip) {
++		vis = ClipSquare(cd);
++		if (vis == NotVisible) return;
++	}
++
++	int	flags = 0;
++	int	mask = 1;
++	quadcornerdata	q;
++
++	for (int i = 0; i < 4; i++, mask <<= 1) {
++		if (EnabledFlags & (16 << i)) {
++			SetupCornerData(&q, cd, i);
++			Child[i]->RenderAuxFast(q, vis);
++		} else {
++			flags |= mask;
++		}
++	}
++
++	if (flags == 0) return;
++
++	InitVert(0, cd.xorg + half, cd.zorg + half);
++	InitVert(1, cd.xorg + whole, cd.zorg + half);
++	InitVert(2, cd.xorg + whole, cd.zorg);
++	InitVert(3, cd.xorg + half, cd.zorg);
++	InitVert(4, cd.xorg, cd.zorg);
++	InitVert(5, cd.xorg, cd.zorg + half);
++	InitVert(6, cd.xorg, cd.zorg + whole);
++	InitVert(7, cd.xorg + half, cd.zorg + whole);
++	InitVert(8, cd.xorg + whole, cd.zorg + whole);
++	make_tri_list(FastTri, EnabledFlags, flags, 0);
++}
++
++static GLuint MakeAlphaBuffer(std::size_t nverts, const CourseFields* fields, int j, bool equal) {
++	std::vector<GLubyte> col(nverts * 4);
++	for (std::size_t v = 0; v < nverts; v++) {
++		int t = fields[v].terrain;
++		col[4*v] = col[4*v+1] = col[4*v+2] = 255;
++		col[4*v+3] = (equal ? t == (char)j : j <= t) ? 255 : 0;
++	}
++	GLuint b = GlFastGenBuffer();
++	GlFastBindArrayBuffer(b);
++	GlFastBufferData((GLsizeiptr)col.size(), col.data());
++	return b;
++}
++
++void quadsquare::RenderFast(const quadcornerdata& cd, GLubyte *vnc_array) {
++	const std::size_t numTerrains = Course.TerrList.size();
++	const std::size_t nverts = (std::size_t)RowSize * NumRows;
++
++	// buffers: new course (or mirrored one), or a new context
++	if (tbuf.context != GlFastGeneration() || tbuf.course != Course.GetGLArraysGen() ||
++	        tbuf.array != vnc_array || tbuf.nverts != nverts || tbuf.alpha_ge.size() != numTerrains) {
++		if (tbuf.context == GlFastGeneration()) {
++			GlFastDeleteBuffer(tbuf.vnc);
++			for (std::size_t j = 0; j < tbuf.alpha_ge.size(); j++) {
++				GlFastDeleteBuffer(tbuf.alpha_ge[j]);
++				GlFastDeleteBuffer(tbuf.alpha_eq[j]);
++			}
++		}
++		tbuf.context = GlFastGeneration();
++		tbuf.course = Course.GetGLArraysGen();
++		tbuf.array = vnc_array;
++		tbuf.nverts = nverts;
++		tbuf.vnc = GlFastGenBuffer();
++		GlFastBindArrayBuffer(tbuf.vnc);
++		GlFastBufferData((GLsizeiptr)(nverts * STRIDE_GL_ARRAY), vnc_array);
++		tbuf.alpha_ge.assign(numTerrains, 0);
++		tbuf.alpha_eq.assign(numTerrains, 0);
++	}
++
++	// one walk
++	fast_num_terrains = (int)numTerrains;
++	fast_blend = param.perf_level > 1;
++	if (tri_lists.size() < numTerrains) tri_lists.resize(numTerrains);
++	for (std::size_t j = 0; j < numTerrains; j++) tri_lists[j].clear();
++	special_list.clear();
++	special_present.assign(numTerrains, 0);
++	RenderAuxFast(cd, SomeClip);
++
++	glEnableClientState(GL_VERTEX_ARRAY);
++	glEnableClientState(GL_NORMAL_ARRAY);
++	glEnableClientState(GL_COLOR_ARRAY);
++	GlFastBindArrayBuffer(tbuf.vnc);
++	glVertexPointer(3, GL_FLOAT, STRIDE_GL_ARRAY, (const void*)0);
++	glNormalPointer(GL_FLOAT, STRIDE_GL_ARRAY, (const void*)(4 * sizeof(GLfloat)));
++
++	for (std::size_t j = 0; j < numTerrains; j++) {
++		const std::vector<GLuint>& l = tri_lists[j];
++		if (Course.TerrList[j].texture == nullptr || l.empty()) continue;
++		if (tbuf.alpha_ge[j] == 0) tbuf.alpha_ge[j] = MakeAlphaBuffer(nverts, Fields, (int)j, false);
++		Course.TerrList[j].texture->Bind();
++		GlFastBindArrayBuffer(tbuf.alpha_ge[j]);
++		glColorPointer(4, GL_UNSIGNED_BYTE, 0, (const void*)0);
++		glDrawElements(GL_TRIANGLES, (GLsizei)l.size(), GL_UNSIGNED_INT, l.data());
++	}
++
++	if (fast_blend && !special_list.empty()) {
++		const GLsizei n = (GLsizei)special_list.size();
++		glDisable(GL_FOG);
++		glDisableClientState(GL_COLOR_ARRAY);
++		glColor4ub(0, 0, 0, 255);
++		if (Course.TerrList[0].texture != nullptr) Course.TerrList[0].texture->Bind();
++		glDrawElements(GL_TRIANGLES, n, GL_UNSIGNED_INT, special_list.data());
++		glEnable(GL_FOG);
++		glBlendFunc(GL_SRC_ALPHA, GL_ONE);
++		glEnableClientState(GL_COLOR_ARRAY);
++
++		for (std::size_t j = 0; j < numTerrains; j++) {
++			if (Course.TerrList[j].texture == nullptr || !special_present[j]) continue;
++			if (tbuf.alpha_eq[j] == 0) tbuf.alpha_eq[j] = MakeAlphaBuffer(nverts, Fields, (int)j, true);
++			Course.TerrList[j].texture->Bind();
++			GlFastBindArrayBuffer(tbuf.alpha_eq[j]);
++			glColorPointer(4, GL_UNSIGNED_BYTE, 0, (const void*)0);
++			glDrawElements(GL_TRIANGLES, n, GL_UNSIGNED_INT, special_list.data());
++		}
++		glColor4ub(255, 255, 255, 255);
++	}
++	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++
++	GlFastBindArrayBuffer(0);
++	glDisableClientState(GL_VERTEX_ARRAY);
++	glDisableClientState(GL_NORMAL_ARRAY);
++	glDisableClientState(GL_COLOR_ARRAY);
++}
++
++
+ void quadsquare::SetupCornerData(quadcornerdata* q, const quadcornerdata& cd, int ChildIndex) {
+ 	int	half = 1 << cd.Level;
+ 
+@@ -1127,6 +1326,11 @@ void UpdateQuadtree(const TVector3d& view_pos, float detail) {
+ void RenderQuadtree() {
+ 	GLubyte *vnc_array = Course.GetGLArrays();
+ 
++	if (GlFastOn(GLF_TERRAIN) && GlFastHaveVBO()) {
++		root->RenderFast(root_corner_data, vnc_array);
++		return;
++	}
++
+ 	glEnableClientState(GL_VERTEX_ARRAY);
+ 	glVertexPointer(3, GL_FLOAT, STRIDE_GL_ARRAY, vnc_array);
+ 
+diff --git a/src/quadtree.h b/src/quadtree.h
+--- a/src/quadtree.h
++++ b/src/quadtree.h
+@@ -95,6 +95,7 @@ struct quadsquare {
+ 	int		CountNodes();
+ 	void	Update(const quadcornerdata& cd, const TVector3d& ViewerLocation, float Detail);
+ 	void	Render(const quadcornerdata& cd, GLubyte *vnc_array);
++	void	RenderFast(const quadcornerdata& cd, GLubyte *vnc_array);
+ 	float	GetHeight(const quadcornerdata& cd, float x, float z);
+ 	void	SetScale(double x, double z);
+ 	void	SetFields(CourseFields* fields);
+@@ -119,6 +120,7 @@ private:
+ 	                  float CenterError, clip_result_t vis);
+ 	void	RenderAux(const quadcornerdata &cd, clip_result_t vis,
+ 	                  int terrain);
++	void	RenderAuxFast(const quadcornerdata &cd, clip_result_t vis);
+ 	void	SetStatic(const quadcornerdata &cd);
+ 	void	InitVert(int i, int x, int z);
+ 	bool	VertexTest(int x, float y, int z, float error, const float Viewer[3],

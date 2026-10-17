@@ -1,0 +1,449 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 18:40:38 +0300
+Subject: ETR_GL switches, no repeated glBindTexture, the HUD numbers in one
+ draw
+
+glfast.h: one environment variable per change (ETR_GL_TERRAIN, TUX, SHADOW, TRACKS, TREES, PARTICLES, SNOW, HUD, BIND), ETR_GL=0 turns all off, and the OpenGL 1.5 buffer functions the later changes use.
+
+TTexture::Bind: SFML's Texture::bind is glBindTexture plus three matrix calls and a context lock; a texture that is bound already is left alone (the choice is forgotten at every frame, at beginSFML/endSFML and when a texture is loaded). The size of a texture is asked from GL once. DrawNumStr draws all characters of a string as one GL_QUADS.
+
+diff --git a/src/Makefile.am b/src/Makefile.am
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -15,6 +15,7 @@ etr_SOURCES =		\
+ 	game_ctrl.cpp	\
+ 	game_over.cpp	\
+ 	game_type_select.cpp \
++	glfast.cpp	\
+ 	gui.cpp		\
+ 	help.cpp	\
+ 	hud.cpp		\
+@@ -67,6 +68,7 @@ noinst_HEADERS =	\
+ 	game_ctrl.h	\
+ 	game_over.h	\
+ 	game_type_select.h \
++	glfast.h	\
+ 	gui.h		\
+ 	help.h		\
+ 	hud.h		\
+diff --git a/src/glfast.cpp b/src/glfast.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/glfast.cpp
+@@ -0,0 +1,118 @@
++/* --------------------------------------------------------------------
++Fewer, larger OpenGL submissions: see glfast.h.
++---------------------------------------------------------------------*/
++
++#ifdef HAVE_CONFIG_H
++#include <etr_config.h>
++#endif
++
++#include "glfast.h"
++#include <cstdlib>
++#include <cstring>
++#include <iostream>
++
++static bool features[GLF_COUNT];
++static bool features_read = false;
++
++static const char* const feature_names[GLF_COUNT] = {
++	"TERRAIN", "TUX", "SHADOW", "TRACKS", "TREES", "PARTICLES", "SNOW", "HUD", "BIND"
++};
++
++static bool EnvOff(const char* name) {
++	const char* v = std::getenv(name);
++	return v && v[0] == '0';
++}
++
++static bool EnvSet(const char* name) {
++	return std::getenv(name) != nullptr;
++}
++
++static void ReadFeatures() {
++	features_read = true;
++	bool master = !EnvOff("ETR_GL");
++	std::string on;
++	for (int i = 0; i < GLF_COUNT; i++) {
++		std::string name = std::string("ETR_GL_") + feature_names[i];
++		// ETR_GL=0 turns all off, a variable of its own decides for its change
++		features[i] = EnvSet(name.c_str()) ? !EnvOff(name.c_str()) : master;
++		if (features[i]) on += std::string(" ") + feature_names[i];
++	}
++	std::cout << "GL submission changes on:" << (on.empty() ? " none" : on) << std::endl;
++}
++
++bool GlFastOn(GlFastFeature f) {
++	if (!features_read) ReadFeatures();
++	return features[f];
++}
++
++bool GlFastEnv(const char* name, bool def) {
++	return EnvSet(name) ? !EnvOff(name) : def;
++}
++
++static PFNGLGENBUFFERSPROC p_glGenBuffers = nullptr;
++static PFNGLDELETEBUFFERSPROC p_glDeleteBuffers = nullptr;
++static PFNGLBINDBUFFERPROC p_glBindBuffer = nullptr;
++static PFNGLBUFFERDATAPROC p_glBufferData = nullptr;
++static GLuint bound_array_buffer = 0;
++
++void GlFastInit() {
++	if (!features_read) ReadFeatures();
++	p_glGenBuffers = (PFNGLGENBUFFERSPROC)sf::Context::getFunction("glGenBuffers");
++	p_glDeleteBuffers = (PFNGLDELETEBUFFERSPROC)sf::Context::getFunction("glDeleteBuffers");
++	p_glBindBuffer = (PFNGLBINDBUFFERPROC)sf::Context::getFunction("glBindBuffer");
++	p_glBufferData = (PFNGLBUFFERDATAPROC)sf::Context::getFunction("glBufferData");
++	if (!GlFastHaveVBO()) {
++		std::cout << "no buffer objects: the terrain stays on client arrays" << std::endl;
++		p_glGenBuffers = nullptr;
++	}
++}
++
++bool GlFastHaveVBO() {
++	return p_glGenBuffers && p_glDeleteBuffers && p_glBindBuffer && p_glBufferData;
++}
++
++GLuint GlFastGenBuffer() {
++	GLuint b = 0;
++	p_glGenBuffers(1, &b);
++	return b;
++}
++
++void GlFastDeleteBuffer(GLuint buf) {
++	if (buf && p_glDeleteBuffers) p_glDeleteBuffers(1, &buf);
++}
++
++void GlFastBindArrayBuffer(GLuint buf) {
++	if (buf == bound_array_buffer) return;
++	p_glBindBuffer(GL_ARRAY_BUFFER, buf);
++	bound_array_buffer = buf;
++}
++
++void GlFastBufferData(GLsizeiptr size, const void* data) {
++	p_glBufferData(GL_ARRAY_BUFFER, size, data, GL_STATIC_DRAW);
++}
++
++static const void* bound_texture = nullptr;
++
++void GlFastForgetBind() {
++	bound_texture = nullptr;
++}
++
++bool GlFastIsBound(const void* tex) {
++	return bound_texture == tex;
++}
++
++void GlFastSetBound(const void* tex) {
++	bound_texture = tex;
++}
++
++static int generation = 0;
++
++void GlFastReset() {
++	bound_texture = nullptr;
++	bound_array_buffer = 0;
++	generation++;
++}
++
++int GlFastGeneration() {
++	return generation;
++}
+diff --git a/src/glfast.h b/src/glfast.h
+new file mode 100644
+--- /dev/null
++++ b/src/glfast.h
+@@ -0,0 +1,55 @@
++/* --------------------------------------------------------------------
++Fewer, larger OpenGL submissions (Ps3Stuff patches): which of them are on,
++and the buffer object functions they use (OpenGL 1.5, loaded at run time
++like glLockArraysEXT).
++Each change has an environment variable: "0" turns it off, "1" on. ETR_GL=0
++turns all off (the game then draws as before) except the ones whose own
++variable is 1:
++  ETR_GL_TERRAIN    the terrain from buffer objects, one quadtree walk
++  ETR_GL_TUX        Tux's spheres from one vertex array each
++  ETR_GL_SHADOW     Tux's shadow in one draw
++  ETR_GL_TRACKS     the track marks as arrays, only what the camera sees
++  ETR_GL_TREES      trees and items: one draw per texture
++  ETR_GL_PARTICLES  the snow Tux throws up: one draw
++  ETR_GL_SNOW       falling snow and snow curtains: one draw each
++  ETR_GL_HUD        the numbers of the hud: one draw per string
++  ETR_GL_BIND       no glBindTexture and texture matrix for a bound texture
++---------------------------------------------------------------------*/
++
++#ifndef GLFAST_H
++#define GLFAST_H
++
++#include "bh.h"
++
++enum GlFastFeature {
++	GLF_TERRAIN,
++	GLF_TUX,
++	GLF_SHADOW,
++	GLF_TRACKS,
++	GLF_TREES,
++	GLF_PARTICLES,
++	GLF_SNOW,
++	GLF_HUD,
++	GLF_BIND,
++	GLF_COUNT
++};
++
++bool GlFastOn(GlFastFeature f);
++bool GlFastEnv(const char* name, bool def);	// a variable of its own: def when not set, else not "0"
++void GlFastInit();	// the context exists
++void GlFastReset();	// the context is a new one: buffers made before are not to be used
++int GlFastGeneration();	// counts the resets
++bool GlFastHaveVBO();
++
++// buffer objects (GL 1.5)
++GLuint GlFastGenBuffer();
++void GlFastDeleteBuffer(GLuint buf);
++void GlFastBindArrayBuffer(GLuint buf);
++void GlFastBufferData(GLsizeiptr size, const void* data);	// GL_ARRAY_BUFFER, GL_STATIC_DRAW
++
++// the texture bound last (TTexture::Bind); forgotten whenever SFML may bind its own
++void GlFastForgetBind();
++bool GlFastIsBound(const void* tex);
++void GlFastSetBound(const void* tex);
++
++#endif
+diff --git a/src/ogl.cpp b/src/ogl.cpp
+--- a/src/ogl.cpp
++++ b/src/ogl.cpp
+@@ -22,6 +22,7 @@ GNU General Public License for more details.
+ #include "ogl.h"
+ #include "spx.h"
+ #include "winsys.h"
++#include "glfast.h"
+ #include <GL/glu.h>
+ #include <stack>
+ #include <climits> // INT_MAX
+@@ -56,6 +57,7 @@ PFNGLLOCKARRAYSEXTPROC glLockArraysEXT_p = nullptr;
+ PFNGLUNLOCKARRAYSEXTPROC glUnlockArraysEXT_p = nullptr;
+ 
+ void InitOpenglExtensions() {
++	GlFastInit();
+ 	glLockArraysEXT_p = (PFNGLLOCKARRAYSEXTPROC)sf::Context::getFunction("glLockArraysEXT");
+ 	glUnlockArraysEXT_p = (PFNGLUNLOCKARRAYSEXTPROC)sf::Context::getFunction("glUnlockArraysEXT");
+ 
+diff --git a/src/states.cpp b/src/states.cpp
+--- a/src/states.cpp
++++ b/src/states.cpp
+@@ -22,6 +22,7 @@ GNU General Public License for more details.
+ #include "states.h"
+ #include "ogl.h"
+ #include "winsys.h"
++#include "glfast.h"
+ 
+ State::Manager State::manager(Winsys);
+ 
+@@ -93,6 +94,7 @@ void State::Manager::PollEvent() {
+ void State::Manager::CallLoopFunction() {
+ 	check_gl_error();
+ 
++	GlFastForgetBind();
+ 	g_game.time_step = std::max(0.0001f, timer.getElapsedTime().asSeconds());
+ 	timer.restart();
+ 	current->Loop(g_game.time_step);
+diff --git a/src/textures.cpp b/src/textures.cpp
+--- a/src/textures.cpp
++++ b/src/textures.cpp
+@@ -24,6 +24,7 @@ GNU General Public License for more details.
+ #include "winsys.h"
+ #include "ogl.h"
+ #include "gui.h"
++#include "glfast.h"
+ #include <cctype>
+ 
+ 
+@@ -40,6 +41,8 @@ static const GLshort fullsize_texture[] = {
+ // --------------------------------------------------------------------
+ 
+ bool TTexture::Load(const std::string& filename, bool repeatable) {
++	GlFastForgetBind();
++	size_w = size_h = 0;
+ 	texture.setSmooth(true);
+ 	texture.setRepeated(repeatable);
+ 	return texture.loadFromFile(filename);
+@@ -50,9 +53,30 @@ bool TTexture::Load(const std::string& dir, const std::string& filename, bool re
+ }
+ 
+ void TTexture::Bind() {
++	// the same texture again: SFML would bind it and load the texture matrix once more
++	if (GlFastOn(GLF_BIND) && !Winsys.SFMLRenders()) {
++		if (GlFastIsBound(&texture)) return;
++		GlFastSetBound(&texture);
++	} else {
++		GlFastForgetBind();
++	}
+ 	sf::Texture::bind(&texture);
+ }
+ 
++void TTexture::GetSize(GLint& w, GLint& h) {
++	if (GlFastOn(GLF_HUD)) {
++		if (size_w == 0) {
++			glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &size_w);
++			glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &size_h);
++		}
++		w = size_w;
++		h = size_h;
++		return;
++	}
++	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &w);
++	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &h);
++}
++
+ void TTexture::Draw() {
+ 	GLint w, h;
+ 
+@@ -60,8 +84,7 @@ void TTexture::Draw() {
+ 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+ 	Bind();
+ 
+-	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &w);
+-	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &h);
++	GetSize(w, h);
+ 
+ 	glColor4f(1.0, 1.0, 1.0, 1.0);
+ 	const GLint vtx[] = {
+@@ -89,8 +112,7 @@ void TTexture::Draw(int x, int y, float size) {
+ 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+ 	Bind();
+ 
+-	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &w);
+-	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &h);
++	GetSize(w, h);
+ 
+ 	width  = w * size;
+ 	height = h * size;
+@@ -243,7 +265,8 @@ void CTexture::DrawFrame(std::size_t idx, int x, int y, double w, double h, int
+ 
+ // -------------------------- numeric strings -------------------------
+ 
+-void CTexture::DrawNumChr(char c, int x, int y, int w, int h) {
++// the corners and texture coordinates of a character of the numeric font; false for others
++static bool NumChrQuad(char c, int x, int y, int w, int h, GLfloat* vtx, GLfloat* tex) {
+ 	int idx;
+ 	if (std::isdigit((unsigned char)c))
+ 		idx = c - '0';
+@@ -252,20 +275,20 @@ void CTexture::DrawNumChr(char c, int x, int y, int w, int h) {
+ 	else if (c == ' ')
+ 		idx = 11;
+ 	else
+-		return;
++		return false;
+ 
+ 	// texture coords
+ 	float texw = 22.0 / 256.0;
+ 	float texleft = idx * texw;
+ 	float texright = (idx + 1) * texw;
+ 
+-	const GLfloat tex[] = {
++	const GLfloat t[] = {
+ 		texleft, 1,
+ 		texright, 1,
+ 		texright, 0,
+ 		texleft, 0
+ 	};
+-	const GLfloat vtx[] = {
++	const GLfloat v[] = {
+ 		static_cast<GLfloat>(x),
+ 		static_cast<GLfloat>(Winsys.resolution.height - y - h),
+ 		static_cast<GLfloat>(x + w * 0.9f),
+@@ -275,6 +298,16 @@ void CTexture::DrawNumChr(char c, int x, int y, int w, int h) {
+ 		static_cast<GLfloat>(x),
+ 		static_cast<GLfloat>(Winsys.resolution.height - y)
+ 	};
++	for (int i = 0; i < 8; i++) {
++		tex[i] = t[i];
++		vtx[i] = v[i];
++	}
++	return true;
++}
++
++void CTexture::DrawNumChr(char c, int x, int y, int w, int h) {
++	GLfloat vtx[8], tex[8];
++	if (!NumChrQuad(c, x, y, w, h, vtx, tex)) return;
+ 
+ 	glVertexPointer(2, GL_FLOAT, 0, vtx);
+ 	glTexCoordPointer(2, GL_FLOAT, 0, tex);
+@@ -294,6 +327,21 @@ void CTexture::DrawNumStr(const std::string& s, int x, int y, float size, const
+ 	glColor(col);
+ 	glEnableClientState(GL_VERTEX_ARRAY);
+ 	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
++	if (GlFastOn(GLF_HUD)) {
++		// ETR_GL_HUD: the characters of the string in one draw
++		static std::vector<GLfloat> vtx, tex;
++		vtx.resize(8 * s.size());
++		tex.resize(8 * s.size());
++		std::size_t n = 0;
++		for (std::size_t i=0; i < s.size(); i++) {
++			if (NumChrQuad(s[i], x + (int)i*qw, y, qw, qh, &vtx[8 * n], &tex[8 * n])) n++;
++		}
++		if (n > 0) {
++			glVertexPointer(2, GL_FLOAT, 0, vtx.data());
++			glTexCoordPointer(2, GL_FLOAT, 0, tex.data());
++			glDrawArrays(GL_QUADS, 0, (GLsizei)(4 * n));
++		}
++	} else
+ 	for (std::size_t i=0; i < s.size(); i++) {
+ 		DrawNumChr(s[i], x + (int)i*qw, y, qw, qh);
+ 	}
+diff --git a/src/textures.h b/src/textures.h
+--- a/src/textures.h
++++ b/src/textures.h
+@@ -63,7 +63,9 @@ GNU General Public License for more details.
+ 
+ class TTexture {
+ 	sf::Texture texture;
++	GLint size_w = 0, size_h = 0;	// level 0 as OpenGL has it, asked once (ETR_GL_HUD)
+ 	friend class CTexture;
++	void GetSize(GLint& w, GLint& h);
+ public:
+ 	bool Load(const std::string& filename, bool repeatable = false);
+ 	bool Load(const std::string& dir, const std::string& filename, bool repeatable = false);
+diff --git a/src/winsys.cpp b/src/winsys.cpp
+--- a/src/winsys.cpp
++++ b/src/winsys.cpp
+@@ -27,6 +27,7 @@ GNU General Public License for more details.
+ #include "score.h"
+ #include "ogl.h"
+ #include "translation.h"
++#include "glfast.h"
+ #include <iostream>
+ 
+ TVector2i cursor_pos(0, 0);
+@@ -107,6 +108,7 @@ void CWinsys::SetupVideoMode(const TScreenRes& res) {
+ #endif
+ 
+ 	window.create(sf::VideoMode({resolution.width, resolution.height}, bpp), WINDOW_TITLE, style, state, ctx);
++	GlFastReset();
+ 	if (param.framerate)
+ 		window.setFramerateLimit(param.framerate);
+ #ifdef _WIN32
+diff --git a/src/winsys.h b/src/winsys.h
+--- a/src/winsys.h
++++ b/src/winsys.h
+@@ -19,6 +19,7 @@ GNU General Public License for more details.
+ #define WINSYS_H
+ 
+ #include "bh.h"
++#include "glfast.h"
+ 
+ #define NUM_RESOLUTIONS 10
+ #define SCREENSHOT_FORMAT ".png"
+@@ -60,8 +61,9 @@ public:
+ 	void Terminate();
+ 	void draw(const sf::Drawable& drawable, const sf::RenderStates& states = sf::RenderStates::Default) { window.draw(drawable, states); }
+ 	void clear() { window.clear(colBackgr); }
+-	void beginSFML() { if (!sfmlRenders) window.pushGLStates(); sfmlRenders = true; }
+-	void endSFML() { if (sfmlRenders) window.popGLStates(); sfmlRenders = false; }
++	void beginSFML() { if (!sfmlRenders) window.pushGLStates(); sfmlRenders = true; GlFastForgetBind(); }
++	void endSFML() { if (sfmlRenders) window.popGLStates(); sfmlRenders = false; GlFastForgetBind(); }
++	bool SFMLRenders() const { return sfmlRenders; }
+ 	std::optional<sf::Event> PollEvent() { return window.pollEvent(); }
+ 	const sf::Window& getWindow() const { return window; }
+ 	void TakeScreenshot() const;
