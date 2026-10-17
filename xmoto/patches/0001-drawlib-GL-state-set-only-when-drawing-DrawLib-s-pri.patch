@@ -1,0 +1,1240 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 18:31:21 +0300
+Subject: drawlib: GL state set only when drawing, DrawLib's primitives batched
+ (XMOTO_GL_BATCH)
+
+On the PS3 (Mesa nv30, one in-order PPE core) the credits replay spends most of its CPU in
+Mesa and the kernel per GL call and per draw: about 18500 GL calls and 1960 draws a frame,
+1009 glBegin/glEnd pairs among them (933 of them the minimap's polygons) and 954
+glDrawArrays of one polygon each, every sprite switching GL_BLEND and GL_TEXTURE_2D off and
+on again.
+
+xm_OpenGL.h now routes every GL call of the game through a small layer (drawlib/GLBatch).
+GL_TEXTURE_2D, GL_BLEND, GL_ALPHA_TEST, the bound texture, the blend and alpha functions,
+the current colour, the client arrays and the array buffer are recorded and reach the GL
+only when something is drawn, and only where they differ. DrawLib's startDraw/glVertex/
+endDraw and the font code no longer use glBegin/glEnd: their polygons and quads go as
+triangles into one client vertex array (position, texcoord, colour), drawn with one
+glDrawArrays per run of equal state. Any other GL call first draws what is pending and sets
+the recorded state, so every draw sees the state the game's own calls gave it, in the same
+order; state changes between startDraw and endDraw are ignored as the GL ignored them inside
+glBegin/glEnd. The triangles follow the order Mesa splits GL_POLYGON and GL_QUADS into, so
+llvmpipe draws the same pixels. The ghost overlay's fade quad gave its vertices to the GL
+directly; it goes through DrawLib now.
+
+XMOTO_GL_BATCH=0 turns it off (glBegin/glEnd as before); XMOTO_GL_STATS=1 prints draws,
+vertices and syncs per frame every 5 s (stderr and xmoto.log). The layer also draws ranges of
+a static buffer (drawStatic, for the level buffer of the next patch, XMOTO_GL_BLOCKS).
+
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -173,6 +173,7 @@ set(drawlib_src
+ if(USE_OPENGL)
+   list(APPEND drawlib_src
+     drawlib/DrawLibOpenGL.cpp drawlib/DrawLibOpenGL.h
++    drawlib/GLBatch.cpp drawlib/GLBatch.h
+   )
+ endif()
+ if(USE_SDLGFX)
+diff --git a/src/drawlib/DrawLibOpenGL.cpp b/src/drawlib/DrawLibOpenGL.cpp
+--- a/src/drawlib/DrawLibOpenGL.cpp
++++ b/src/drawlib/DrawLibOpenGL.cpp
+@@ -208,21 +208,48 @@ DrawLibOpenGL::DrawLibOpenGL()
+     XMFS::FullPath(FDT_DATA, FontManager::getMonospaceFontFile()), 12, 7);
+ 
+   m_glContext = NULL;
++  m_curU = m_curV = 0.0f;
++  m_primMode = GL_POLYGON;
++  m_inPrim = false;
++  m_prim.reserve(256);
+ };
+ 
+ /*===========================================================================
+   Transform an OpenGL vertex to pure 2D
+   ===========================================================================*/
++void DrawLibOpenGL::primVertex(float x, float y) {
++  if (!m_inPrim)
++    return; /* outside glBegin/glEnd the GL ignored it */
++  xmgl::Vtx v;
++  v.x = x;
++  v.y = y;
++  v.u = m_curU;
++  v.v = m_curV;
++  memcpy(v.c, xmgl::curUb, 4);
++  m_prim.push_back(v);
++}
++
+ void DrawLibOpenGL::glVertexSP(float x, float y) {
++  if (xmgl::on) {
++    primVertex(x, m_renderSurf->getDispHeight() - y);
++    return;
++  }
+   glVertex2f(x, m_renderSurf->getDispHeight() - y);
+ }
+ 
+ void DrawLibOpenGL::glVertex(float x, float y) {
++  if (xmgl::on) {
++    primVertex(x, y);
++    return;
++  }
+   glVertex2f(x, y);
+ }
+ 
+ void DrawLibOpenGL::glTexCoord(float x, float y) {
+-  glTexCoord2f(x, y);
++  m_curU = x;
++  m_curV = y;
++  if (!xmgl::on)
++    glTexCoord2f(x, y);
+ }
+ 
+ void DrawLibOpenGL::setClipRect(int x, int y, unsigned int w, unsigned int h) {
+@@ -362,6 +389,7 @@ void DrawLibOpenGL::init(unsigned int nDispWidth,
+       throw Exception(err);
+     }
+   }
++  xmgl::init();
+ 
+   /* OpenGL fully initialized */
+ 
+@@ -510,6 +538,25 @@ Img *DrawLibOpenGL::grabScreen(int i_reduce) {
+ }
+ 
+ void DrawLibOpenGL::startDraw(DrawMode mode) {
++  if (xmgl::on) {
++    switch (mode) {
++      case DRAW_MODE_POLYGON:
++        m_primMode = GL_POLYGON;
++        break;
++      case DRAW_MODE_LINE_LOOP:
++        m_primMode = GL_LINE_LOOP;
++        break;
++      case DRAW_MODE_LINE_STRIP:
++        m_primMode = GL_LINE_STRIP;
++        break;
++      default:
++        return;
++    }
++    m_prim.clear();
++    m_inPrim = true;
++    xmgl::primBegin();
++    return;
++  }
+   switch (mode) {
+     case DRAW_MODE_POLYGON:
+       glBegin(GL_POLYGON);
+@@ -526,13 +573,20 @@ void DrawLibOpenGL::startDraw(DrawMode mode) {
+ }
+ 
+ void DrawLibOpenGL::endDraw() {
+-  glEnd();
++  endDrawKeepProperties();
+   if (m_blendMode != BLEND_MODE_NONE) {
+     glDisable(GL_BLEND);
+   }
+ }
+ 
+ void DrawLibOpenGL::endDrawKeepProperties() {
++  if (xmgl::on) {
++    if (m_inPrim) {
++      m_inPrim = false;
++      xmgl::primEnd(m_primMode, m_prim.data(), m_prim.size());
++    }
++    return;
++  }
+   glEnd();
+ }
+ 
+@@ -607,6 +661,7 @@ void DrawLibOpenGL::clearGraphics() {
+  * Flush the graphics. In memory graphics will now be displayed
+  **/
+ void DrawLibOpenGL::flushGraphics() {
++  xmgl::frameEnd();
+   /* Swap buffers */
+   SDL_GL_SwapWindow(m_window);
+ }
+@@ -1131,7 +1186,9 @@ void GLFontManager::printStringGradOne(DrawLib *pDrawLib,
+     glEnable(GL_BLEND);
+     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+     // the first glBegin/glEnd will draw nothing
+-    glBegin(GL_QUADS);
++    std::vector<xmgl::Vtx> v_quads; /* xmgl::on: the glyphs of one texture */
++    if (xmgl::on == false)
++      glBegin(GL_QUADS);
+ 
+     v_longuest_linesize = getLonguestLineSize(v_value);
+     v_size = v_value.size();
+@@ -1172,12 +1229,63 @@ void GLFontManager::printStringGradOne(DrawLib *pDrawLib,
+ 
+           newTextureId = v_glyphLetter->GLID();
+           if (newTextureId != oldTextureId) {
+-            glEnd();
+-            glBindTexture(GL_TEXTURE_2D, newTextureId);
+-            glBegin(GL_QUADS);
++            if (xmgl::on) {
++              if (v_quads.size() > 0) {
++                xmgl::primBegin();
++                xmgl::primEnd(GL_QUADS, v_quads.data(), v_quads.size());
++                v_quads.clear();
++              }
++              glBindTexture(GL_TEXTURE_2D, newTextureId);
++            } else {
++              glEnd();
++              glBindTexture(GL_TEXTURE_2D, newTextureId);
++              glBegin(GL_QUADS);
++            }
+             oldTextureId = newTextureId;
+           }
+ 
++          if (xmgl::on) {
++            xmgl::Vtx q;
++            q.c[0] = r1;
++            q.c[1] = g1;
++            q.c[2] = b1;
++            q.c[3] = a1;
++            q.u = v_glyphLetter->m_u.x;
++            q.v = v_glyphLetter->m_v.y;
++            q.x = v_x;
++            q.y = v_y;
++            v_quads.push_back(q);
++            q.c[0] = r2;
++            q.c[1] = g2;
++            q.c[2] = b2;
++            q.c[3] = a2;
++            q.u = v_glyphLetter->m_v.x;
++            q.v = v_glyphLetter->m_v.y;
++            q.x = v_x + v_glyphLetter->drawWidth();
++            q.y = v_y;
++            v_quads.push_back(q);
++            q.c[0] = r4;
++            q.c[1] = g4;
++            q.c[2] = b4;
++            q.c[3] = a4;
++            q.u = v_glyphLetter->m_v.x;
++            q.v = v_glyphLetter->m_u.y;
++            q.x = v_x + v_glyphLetter->drawWidth();
++            q.y = v_y + v_glyphLetter->drawHeight();
++            v_quads.push_back(q);
++            q.c[0] = r3;
++            q.c[1] = g3;
++            q.c[2] = b3;
++            q.c[3] = a3;
++            q.u = v_glyphLetter->m_u.x;
++            q.v = v_glyphLetter->m_u.y;
++            q.x = v_x;
++            q.y = v_y + v_glyphLetter->drawHeight();
++            v_quads.push_back(q);
++            v_x += v_glyphLetter->realWidth() + UTF8_INTERCHAR_SPACE;
++            continue;
++          }
++
+           glColor4ub(r1, g1, b1, a1);
+           glTexCoord2f(v_glyphLetter->m_u.x, v_glyphLetter->m_v.y);
+           glVertex2i(v_x, v_y);
+@@ -1200,7 +1308,15 @@ void GLFontManager::printStringGradOne(DrawLib *pDrawLib,
+       }
+     }
+ 
+-    glEnd();
++    if (xmgl::on) {
++      if (v_quads.size() > 0) {
++        xmgl::primBegin();
++        xmgl::primEnd(GL_QUADS, v_quads.data(), v_quads.size());
++      }
++      if (oldTextureId != -1) /* the last glColor4ub inside glBegin/glEnd */
++        glColor4ub(r3, g3, b3, a3);
++    } else
++      glEnd();
+     glDisable(GL_BLEND);
+     glDisable(GL_TEXTURE_2D);
+ 
+diff --git a/src/drawlib/DrawLibOpenGL.h b/src/drawlib/DrawLibOpenGL.h
+--- a/src/drawlib/DrawLibOpenGL.h
++++ b/src/drawlib/DrawLibOpenGL.h
+@@ -105,6 +105,13 @@ public:
+ 
+ private:
+   SDL_GLContext m_glContext;
++
++  /* the primitive between startDraw and endDraw (xmgl::on) */
++  void primVertex(float x, float y);
++  std::vector<xmgl::Vtx> m_prim;
++  float m_curU, m_curV;
++  GLenum m_primMode;
++  bool m_inPrim;
+ };
+ 
+ #endif
+diff --git a/src/drawlib/GLBatch.cpp b/src/drawlib/GLBatch.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/drawlib/GLBatch.cpp
+@@ -0,0 +1,721 @@
++/*=============================================================================
++XMOTO
++
++This file is part of XMOTO.
++
++XMOTO is free software; you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation; either version 2 of the License, or
++(at your option) any later version.
++
++XMOTO is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with XMOTO; if not, write to the Free Software
++Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
++=============================================================================*/
++
++/* See GLBatch.h. This file calls the GL itself (glad_gl*). */
++#define XM_GLBATCH_IMPL
++#include "common/BuildConfig.h"
++#include "include/xm_SDL.h"
++#include "include/xm_OpenGL.h"
++#include "helpers/Log.h"
++#include <stdlib.h>
++#include <string.h>
++#include <stdio.h>
++#include <time.h>
++
++#ifdef ENABLE_OPENGL
++
++namespace xmgl {
++
++bool on = false;
++bool blocks = false;
++bool dirty = false;
++GLubyte curUb[4] = { 255, 255, 255, 255 };
++
++namespace {
++
++struct State {
++  bool tex2d, blend, alpha;
++  GLuint tex;
++  GLenum bsrc, bdst;
++  GLenum afunc;
++  GLclampf aref;
++};
++
++struct Colour {
++  bool isFloat;
++  GLubyte ub[4];
++  GLfloat f[4];
++};
++
++/* where the vertex and texcoord pointers point */
++enum Arrays { ARR_GAME, ARR_BATCH, ARR_STATIC };
++
++State want, have;
++Colour cwant, chave;
++bool chaveKnown;
++bool wantV, wantT, wantC; /* the game's client arrays */
++bool haveV, haveT, haveC;
++GLuint wantBuf, haveBuf;
++Arrays arrays;
++GLuint arraysBuf;
++const void *arraysBase;
++
++bool inGameBegin; /* inside the game's own glBegin/glEnd */
++bool inPrim; /* inside a DrawLib primitive */
++bool haveVBO;
++
++/* immediate batch */
++const int BATCH_MAX = 32768;
++Vtx *batch;
++int nBatch;
++GLenum batchMode;
++
++/* pending static range */
++bool stPending;
++GLuint stBuf;
++const void *stBase;
++GLenum stMode;
++int stFirst, stCount;
++
++/* stats */
++bool stats;
++unsigned long sFrames, sDraws, sBatchDraws, sStaticDraws, sGameDraws, sGameBegins,
++  sVerts, sBatchVerts, sSyncs;
++double sLast;
++
++double now() {
++  struct timespec t;
++  clock_gettime(CLOCK_MONOTONIC, &t);
++  return t.tv_sec + t.tv_nsec / 1e9;
++}
++
++void bindArrayBuffer(GLuint b) {
++  if (haveBuf != b) {
++    glad_glBindBufferARB(GL_ARRAY_BUFFER_ARB, b);
++    haveBuf = b;
++  }
++}
++
++void clientArray(GLenum a, bool &have, bool want) {
++  if (have != want) {
++    if (want)
++      glad_glEnableClientState(a);
++    else
++      glad_glDisableClientState(a);
++    have = want;
++  }
++}
++
++void setCap(GLenum cap, bool &h, bool w) {
++  if (h != w) {
++    if (w)
++      glad_glEnable(cap);
++    else
++      glad_glDisable(cap);
++    h = w;
++  }
++}
++
++/* the state a draw depends on */
++bool drawStateDiffers() {
++  if (want.tex2d != have.tex2d || want.blend != have.blend ||
++      want.alpha != have.alpha)
++    return true;
++  if (want.tex2d && want.tex != have.tex)
++    return true;
++  if (want.blend && (want.bsrc != have.bsrc || want.bdst != have.bdst))
++    return true;
++  if (want.alpha && (want.afunc != have.afunc || want.aref != have.aref))
++    return true;
++  return false;
++}
++
++void applyDrawState() {
++  if (want.tex2d && want.tex != have.tex) {
++    glad_glBindTexture(GL_TEXTURE_2D, want.tex);
++    have.tex = want.tex;
++  }
++  setCap(GL_TEXTURE_2D, have.tex2d, want.tex2d);
++  if (want.blend && (want.bsrc != have.bsrc || want.bdst != have.bdst)) {
++    glad_glBlendFunc(want.bsrc, want.bdst);
++    have.bsrc = want.bsrc;
++    have.bdst = want.bdst;
++  }
++  setCap(GL_BLEND, have.blend, want.blend);
++  if (want.alpha && (want.afunc != have.afunc || want.aref != have.aref)) {
++    glad_glAlphaFunc(want.afunc, want.aref);
++    have.afunc = want.afunc;
++    have.aref = want.aref;
++  }
++  setCap(GL_ALPHA_TEST, have.alpha, want.alpha);
++}
++
++void applyAllState() {
++  applyDrawState();
++  if (want.tex != have.tex) {
++    glad_glBindTexture(GL_TEXTURE_2D, want.tex);
++    have.tex = want.tex;
++  }
++  if (want.bsrc != have.bsrc || want.bdst != have.bdst) {
++    glad_glBlendFunc(want.bsrc, want.bdst);
++    have.bsrc = want.bsrc;
++    have.bdst = want.bdst;
++  }
++  if (want.afunc != have.afunc || want.aref != have.aref) {
++    glad_glAlphaFunc(want.afunc, want.aref);
++    have.afunc = want.afunc;
++    have.aref = want.aref;
++  }
++}
++
++bool colourDiffers() {
++  if (!chaveKnown || chave.isFloat != cwant.isFloat)
++    return true;
++  if (cwant.isFloat)
++    return memcmp(chave.f, cwant.f, sizeof(cwant.f)) != 0;
++  return memcmp(chave.ub, cwant.ub, sizeof(cwant.ub)) != 0;
++}
++
++void applyColour() {
++  if (colourDiffers()) {
++    if (cwant.isFloat)
++      glad_glColor4f(cwant.f[0], cwant.f[1], cwant.f[2], cwant.f[3]);
++    else
++      glad_glColor4ub(cwant.ub[0], cwant.ub[1], cwant.ub[2], cwant.ub[3]);
++    chave = cwant;
++    chaveKnown = true;
++  }
++}
++
++void flushBatch() {
++  if (nBatch == 0)
++    return;
++  if (haveVBO)
++    bindArrayBuffer(0);
++  if (arrays != ARR_BATCH) {
++    glad_glVertexPointer(2, GL_FLOAT, sizeof(Vtx), &batch[0].x);
++    glad_glTexCoordPointer(2, GL_FLOAT, sizeof(Vtx), &batch[0].u);
++    glad_glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(Vtx), &batch[0].c);
++    arrays = ARR_BATCH;
++  }
++  clientArray(GL_VERTEX_ARRAY, haveV, true);
++  clientArray(GL_TEXTURE_COORD_ARRAY, haveT, true);
++  clientArray(GL_COLOR_ARRAY, haveC, true);
++  glad_glDrawArrays(batchMode, 0, nBatch);
++  chaveKnown = false; /* undefined after a draw with a colour array */
++  sDraws++;
++  sBatchDraws++;
++  sVerts += nBatch;
++  sBatchVerts += nBatch;
++  nBatch = 0;
++}
++
++void flushStatic() {
++  if (!stPending)
++    return;
++  if (haveVBO)
++    bindArrayBuffer(stBuf);
++  if (arrays != ARR_STATIC || arraysBuf != stBuf || arraysBase != stBase) {
++    glad_glVertexPointer(2, GL_FLOAT, 4 * sizeof(float), stBase);
++    glad_glTexCoordPointer(
++      2, GL_FLOAT, 4 * sizeof(float), (const char *)stBase + 2 * sizeof(float));
++    arrays = ARR_STATIC;
++    arraysBuf = stBuf;
++    arraysBase = stBase;
++  }
++  clientArray(GL_VERTEX_ARRAY, haveV, true);
++  clientArray(GL_TEXTURE_COORD_ARRAY, haveT, true);
++  clientArray(GL_COLOR_ARRAY, haveC, false);
++  glad_glDrawArrays(stMode, stFirst, stCount);
++  sDraws++;
++  sStaticDraws++;
++  sVerts += stCount;
++  stPending = false;
++}
++
++void flushAll() {
++  flushBatch();
++  flushStatic();
++}
++
++void markDirty() {
++  dirty = true;
++}
++
++} // namespace
++
++void init() {
++  const char *e = getenv("XMOTO_GL_BATCH");
++  on = !(e && e[0] == '0');
++  e = getenv("XMOTO_GL_BLOCKS");
++  blocks = on && !(e && e[0] == '0');
++  e = getenv("XMOTO_GL_STATS");
++  stats = e && e[0] && e[0] != '0';
++  haveVBO = glad_glBindBufferARB != NULL;
++
++  /* the GL's initial state */
++  want.tex2d = want.blend = want.alpha = false;
++  want.tex = 0;
++  want.bsrc = GL_ONE;
++  want.bdst = GL_ZERO;
++  want.afunc = GL_ALWAYS;
++  want.aref = 0.0f;
++  have = want;
++  cwant.isFloat = true;
++  cwant.f[0] = cwant.f[1] = cwant.f[2] = cwant.f[3] = 1.0f;
++  memset(cwant.ub, 0, sizeof(cwant.ub));
++  chave = cwant;
++  chaveKnown = true;
++  wantV = wantT = wantC = false;
++  haveV = haveT = haveC = false;
++  wantBuf = haveBuf = 0;
++  arrays = ARR_GAME;
++  inGameBegin = inPrim = false;
++  if (batch == NULL)
++    batch = (Vtx *)malloc(BATCH_MAX * sizeof(Vtx));
++  nBatch = 0;
++  stPending = false;
++  dirty = false;
++  sLast = now();
++
++  LogInfo("GL: draw batching %s (XMOTO_GL_BATCH), level buffer %s "
++          "(XMOTO_GL_BLOCKS)",
++          on ? "on" : "off",
++          blocks ? "on" : "off");
++}
++
++void sync() {
++  sSyncs++;
++  flushAll();
++  applyAllState();
++  applyColour();
++  clientArray(GL_VERTEX_ARRAY, haveV, wantV);
++  clientArray(GL_TEXTURE_COORD_ARRAY, haveT, wantT);
++  clientArray(GL_COLOR_ARRAY, haveC, wantC);
++  if (haveVBO)
++    bindArrayBuffer(wantBuf);
++  dirty = false;
++}
++
++static bool lazyCap(GLenum cap, bool **w) {
++  switch (cap) {
++    case GL_TEXTURE_2D:
++      *w = &want.tex2d;
++      return true;
++    case GL_BLEND:
++      *w = &want.blend;
++      return true;
++    case GL_ALPHA_TEST:
++      *w = &want.alpha;
++      return true;
++  }
++  return false;
++}
++
++void enable(GLenum cap) {
++  bool *w;
++  if (!on || inGameBegin) {
++    glad_glEnable(cap);
++    return;
++  }
++  if (inPrim)
++    return; /* the GL ignores it inside glBegin/glEnd */
++  if (lazyCap(cap, &w)) {
++    *w = true;
++    markDirty();
++  } else {
++    pre();
++    glad_glEnable(cap);
++  }
++}
++
++void disable(GLenum cap) {
++  bool *w;
++  if (!on || inGameBegin) {
++    glad_glDisable(cap);
++    return;
++  }
++  if (inPrim)
++    return;
++  if (lazyCap(cap, &w)) {
++    *w = false;
++    markDirty();
++  } else {
++    pre();
++    glad_glDisable(cap);
++  }
++}
++
++void bindTexture(GLenum target, GLuint tex) {
++  if (!on || inGameBegin || target != GL_TEXTURE_2D) {
++    if (on && !inGameBegin)
++      pre();
++    glad_glBindTexture(target, tex);
++    return;
++  }
++  if (inPrim)
++    return;
++  want.tex = tex;
++  markDirty();
++}
++
++void deleteTextures(GLsizei n, const GLuint *tex) {
++  if (on)
++    pre();
++  glad_glDeleteTextures(n, tex);
++  for (GLsizei i = 0; i < n; i++) {
++    /* the GL binds 0 in place of a deleted bound texture */
++    if (have.tex == tex[i])
++      have.tex = 0;
++    if (want.tex == tex[i])
++      want.tex = 0;
++  }
++}
++
++void blendFunc(GLenum s, GLenum d) {
++  if (!on || inGameBegin) {
++    glad_glBlendFunc(s, d);
++    return;
++  }
++  if (inPrim)
++    return;
++  want.bsrc = s;
++  want.bdst = d;
++  markDirty();
++}
++
++void alphaFunc(GLenum f, GLclampf ref) {
++  if (!on || inGameBegin) {
++    glad_glAlphaFunc(f, ref);
++    return;
++  }
++  if (inPrim)
++    return;
++  want.afunc = f;
++  want.aref = ref;
++  markDirty();
++}
++
++void color4ub(GLubyte r, GLubyte g, GLubyte b, GLubyte a) {
++  if (!on || inGameBegin) {
++    glad_glColor4ub(r, g, b, a);
++    if (on) {
++      chaveKnown = false;
++      markDirty();
++    }
++    return;
++  }
++  /* allowed inside glBegin/glEnd: the current colour */
++  curUb[0] = r;
++  curUb[1] = g;
++  curUb[2] = b;
++  curUb[3] = a;
++  cwant.isFloat = false;
++  cwant.ub[0] = r;
++  cwant.ub[1] = g;
++  cwant.ub[2] = b;
++  cwant.ub[3] = a;
++  markDirty();
++}
++
++void color4f(GLfloat r, GLfloat g, GLfloat b, GLfloat a) {
++  if (!on || inGameBegin) {
++    glad_glColor4f(r, g, b, a);
++    if (on) {
++      chaveKnown = false;
++      markDirty();
++    }
++    return;
++  }
++  for (int i = 0; i < 4; i++) {
++    GLfloat c = i == 0 ? r : i == 1 ? g : i == 2 ? b : a;
++    c = c < 0.0f ? 0.0f : c > 1.0f ? 1.0f : c;
++    curUb[i] = (GLubyte)(c * 255.0f + 0.5f);
++  }
++  cwant.isFloat = true;
++  cwant.f[0] = r;
++  cwant.f[1] = g;
++  cwant.f[2] = b;
++  cwant.f[3] = a;
++  markDirty();
++}
++
++void enableClientState(GLenum a) {
++  if (!on) {
++    glad_glEnableClientState(a);
++    return;
++  }
++  switch (a) {
++    case GL_VERTEX_ARRAY:
++      wantV = true;
++      break;
++    case GL_TEXTURE_COORD_ARRAY:
++      wantT = true;
++      break;
++    case GL_COLOR_ARRAY:
++      wantC = true;
++      break;
++    default:
++      pre();
++      glad_glEnableClientState(a);
++      return;
++  }
++  markDirty();
++}
++
++void disableClientState(GLenum a) {
++  if (!on) {
++    glad_glDisableClientState(a);
++    return;
++  }
++  switch (a) {
++    case GL_VERTEX_ARRAY:
++      wantV = false;
++      break;
++    case GL_TEXTURE_COORD_ARRAY:
++      wantT = false;
++      break;
++    case GL_COLOR_ARRAY:
++      wantC = false;
++      break;
++    default:
++      pre();
++      glad_glDisableClientState(a);
++      return;
++  }
++  markDirty();
++}
++
++void bindBuffer(GLenum target, GLuint buf) {
++  if (!on || target != GL_ARRAY_BUFFER_ARB) {
++    if (on)
++      pre();
++    glad_glBindBufferARB(target, buf);
++    return;
++  }
++  wantBuf = buf;
++  markDirty();
++}
++
++void deleteBuffers(GLsizei n, const GLuint *buf) {
++  if (on)
++    pre();
++  glad_glDeleteBuffersARB(n, buf);
++  for (GLsizei i = 0; i < n; i++) {
++    if (haveBuf == buf[i])
++      haveBuf = 0;
++    if (wantBuf == buf[i])
++      wantBuf = 0;
++    if (arraysBuf == buf[i] && arrays == ARR_STATIC)
++      arrays = ARR_GAME;
++  }
++}
++
++void vertexPointer(GLint size, GLenum type, GLsizei stride, const void *p) {
++  if (on) {
++    pre();
++    arrays = ARR_GAME;
++  }
++  glad_glVertexPointer(size, type, stride, p);
++}
++
++void texCoordPointer(GLint size, GLenum type, GLsizei stride, const void *p) {
++  if (on) {
++    pre();
++    arrays = ARR_GAME;
++  }
++  glad_glTexCoordPointer(size, type, stride, p);
++}
++
++void drawArrays(GLenum mode, GLint first, GLsizei count) {
++  if (on) {
++    pre();
++    sDraws++;
++    sGameDraws++;
++  }
++  glad_glDrawArrays(mode, first, count);
++}
++
++void begin(GLenum mode) {
++  if (on) {
++    pre();
++    inGameBegin = true;
++    sDraws++;
++    sGameBegins++;
++  }
++  glad_glBegin(mode);
++}
++
++void end() {
++  glad_glEnd();
++  if (on) {
++    inGameBegin = false;
++    chaveKnown = false; /* glColor may have been called inside */
++    markDirty();
++  }
++}
++
++void primBegin() {
++  inPrim = true;
++}
++
++static inline void put(const Vtx &v) {
++  batch[nBatch++] = v;
++}
++
++void primEnd(GLenum mode, const Vtx *v, int n) {
++  inPrim = false;
++  GLenum target;
++  int need;
++
++  switch (mode) {
++    case GL_POLYGON:
++      if (n < 3)
++        return;
++      target = GL_TRIANGLES;
++      need = 3 * (n - 2);
++      break;
++    case GL_QUADS:
++      n -= n % 4;
++      if (n == 0)
++        return;
++      target = GL_TRIANGLES;
++      need = n / 4 * 6;
++      break;
++    case GL_TRIANGLES:
++      n -= n % 3;
++      if (n == 0)
++        return;
++      target = GL_TRIANGLES;
++      need = n;
++      break;
++    default: /* lines: drawn on their own, as they came */
++      if (n == 0)
++        return;
++      target = mode;
++      need = n;
++      break;
++  }
++  if (need > BATCH_MAX) {
++    /* too large for the batch: as the game did */
++    pre();
++    applyDrawState();
++    glad_glBegin(mode);
++    for (int i = 0; i < n; i++) {
++      glad_glColor4ub(v[i].c[0], v[i].c[1], v[i].c[2], v[i].c[3]);
++      glad_glTexCoord2f(v[i].u, v[i].v);
++      glad_glVertex2f(v[i].x, v[i].y);
++    }
++    glad_glEnd();
++    chaveKnown = false;
++    markDirty();
++    return;
++  }
++
++  flushStatic();
++  if (nBatch > 0 &&
++      (batchMode != target || target != GL_TRIANGLES ||
++       nBatch + need > BATCH_MAX || drawStateDiffers()))
++    flushBatch();
++  if (nBatch == 0) {
++    applyDrawState();
++    batchMode = target;
++  }
++
++  /* triangles in the order Mesa splits polygons and quads into (llvmpipe:
++     the same pixels as glBegin/glEnd) */
++  switch (mode) {
++    case GL_POLYGON:
++      for (int i = 0; i + 2 < n; i++) {
++        put(v[i + 1]);
++        put(v[i + 2]);
++        put(v[0]);
++      }
++      break;
++    case GL_QUADS:
++      for (int i = 0; i + 3 < n; i += 4) {
++        put(v[i + 0]);
++        put(v[i + 1]);
++        put(v[i + 2]);
++        put(v[i + 0]);
++        put(v[i + 2]);
++        put(v[i + 3]);
++      }
++      break;
++    default:
++      for (int i = 0; i < n; i++)
++        put(v[i]);
++      break;
++  }
++  markDirty();
++  if (target != GL_TRIANGLES)
++    flushBatch();
++}
++
++void drawStatic(GLuint buf, const void *base, GLenum mode, int first, int count) {
++  if (count <= 0)
++    return;
++
++  flushBatch();
++  if (stPending &&
++      (stBuf != buf || stBase != base || stMode != mode ||
++       stFirst + stCount != first || drawStateDiffers() || colourDiffers()))
++    flushStatic();
++  if (stPending) {
++    stCount += count;
++    return;
++  }
++  applyDrawState();
++  applyColour();
++  stPending = true;
++  stBuf = buf;
++  stBase = base;
++  stMode = mode;
++  stFirst = first;
++  stCount = count;
++  markDirty();
++}
++
++void frameEnd() {
++  if (!on)
++    return;
++  sync();
++  if (!stats)
++    return;
++  sFrames++;
++  double t = now();
++  if (t - sLast >= 5.0) {
++    double f = sFrames;
++    char line[512];
++    snprintf(line,
++             sizeof(line),
++             "GL stats: %.1f fps, per frame: %.1f draws (%.1f batched, %.1f "
++             "static ranges, %.1f game glDrawArrays, %.1f game glBegin), %.0f "
++             "vertices (%.0f from client memory), %.1f syncs",
++             f / (t - sLast),
++             sDraws / f,
++             sBatchDraws / f,
++             sStaticDraws / f,
++             sGameDraws / f,
++             sGameBegins / f,
++             sVerts / f,
++             sBatchVerts / f,
++             sSyncs / f);
++    LogInfo("%s", line);
++    fprintf(stderr, "%s\n", line);
++    sFrames = sDraws = sBatchDraws = sStaticDraws = sGameDraws = sGameBegins =
++      sVerts = sBatchVerts = sSyncs = 0;
++    sLast = t;
++  }
++}
++
++} // namespace xmgl
++
++#endif
+diff --git a/src/drawlib/GLBatch.h b/src/drawlib/GLBatch.h
+new file mode 100644
+--- /dev/null
++++ b/src/drawlib/GLBatch.h
+@@ -0,0 +1,211 @@
++/*=============================================================================
++XMOTO
++
++This file is part of XMOTO.
++
++XMOTO is free software; you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation; either version 2 of the License, or
++(at your option) any later version.
++
++XMOTO is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with XMOTO; if not, write to the Free Software
++Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
++=============================================================================*/
++
++/*
++ * Fewer, larger OpenGL draws (included by xm_OpenGL.h after glad.h).
++ *
++ * Every GL call of the game goes through the macros at the end of this file.
++ * The state the 2D drawing changes all the time (GL_TEXTURE_2D, GL_BLEND,
++ * GL_ALPHA_TEST, the bound texture, the blend and alpha functions, the
++ * current colour, the client arrays) is recorded and set on the GL only when
++ * something is drawn, and only where it differs. The primitives DrawLib draws
++ * (glBegin/glEnd before) are collected as triangles into one client vertex
++ * array and drawn with one glDrawArrays per run of equal state; the level's
++ * blocks are ranges of one static buffer (drawStatic), adjacent ranges with the
++ * same state being one draw. Any other GL call first draws what is pending and
++ * sets the recorded state, so the GL sees the same state at every draw as with
++ * the game's own calls, in the same order.
++ *
++ * XMOTO_GL_BATCH=0 turns it off (every call goes to the GL at once and DrawLib
++ * uses glBegin/glEnd again), XMOTO_GL_BLOCKS=0 the level buffer (the blocks
++ * drawn polygon by polygon again); XMOTO_GL_STATS=1 logs the GL draws per
++ * frame (stderr and xmoto.log, every 5 s).
++ */
++
++#ifndef __XM_GLBATCH_H__
++#define __XM_GLBATCH_H__
++
++namespace xmgl {
++
++struct Vtx {
++  float x, y, u, v;
++  unsigned char c[4];
++};
++
++extern bool on; /* XMOTO_GL_BATCH, read once at start */
++extern bool blocks; /* XMOTO_GL_BLOCKS (and on): blocks from one level buffer */
++extern bool dirty; /* something pending, or recorded state not on the GL */
++extern GLubyte curUb[4]; /* the current colour, for DrawLib's vertices */
++
++void init(); /* after the context exists */
++void sync(); /* draw what is pending, then put the recorded state on the GL */
++inline void pre() {
++  if (dirty)
++    sync();
++}
++
++/* recorded state (the macros below route the game's calls here) */
++void enable(GLenum cap);
++void disable(GLenum cap);
++void bindTexture(GLenum target, GLuint tex);
++void deleteTextures(GLsizei n, const GLuint *tex);
++void blendFunc(GLenum s, GLenum d);
++void alphaFunc(GLenum f, GLclampf ref);
++void color4ub(GLubyte r, GLubyte g, GLubyte b, GLubyte a);
++void color4f(GLfloat r, GLfloat g, GLfloat b, GLfloat a);
++void enableClientState(GLenum a);
++void disableClientState(GLenum a);
++void bindBuffer(GLenum target, GLuint buf);
++void deleteBuffers(GLsizei n, const GLuint *buf);
++void vertexPointer(GLint size, GLenum type, GLsizei stride, const void *p);
++void texCoordPointer(GLint size, GLenum type, GLsizei stride, const void *p);
++void drawArrays(GLenum mode, GLint first, GLsizei count);
++void begin(GLenum mode); /* the game's own glBegin/glEnd */
++void end();
++
++/* DrawLib: between primBegin and primEnd state changes are ignored, as the GL
++   ignores them inside glBegin/glEnd */
++void primBegin();
++/* mode: GL_POLYGON, GL_QUADS, GL_TRIANGLES, GL_LINE_LOOP, GL_LINE_STRIP;
++   vertices in the order glVertex got them */
++void primEnd(GLenum mode, const Vtx *v, int n);
++
++/* a range of a static buffer of x,y,u,v floats (buf 0: client memory at base),
++   drawn with the recorded state and current colour */
++void drawStatic(GLuint buf, const void *base, GLenum mode, int first, int count);
++
++void frameEnd(); /* before the swap: draws what is pending, counts the frame */
++
++} // namespace xmgl
++
++#ifndef XM_GLBATCH_IMPL
++/* state the layer records */
++#undef glEnable
++#define glEnable(c) xmgl::enable(c)
++#undef glDisable
++#define glDisable(c) xmgl::disable(c)
++#undef glBindTexture
++#define glBindTexture(t, x) xmgl::bindTexture(t, x)
++#undef glDeleteTextures
++#define glDeleteTextures(n, x) xmgl::deleteTextures(n, x)
++#undef glBlendFunc
++#define glBlendFunc(s, d) xmgl::blendFunc(s, d)
++#undef glAlphaFunc
++#define glAlphaFunc(f, r) xmgl::alphaFunc(f, r)
++#undef glColor4ub
++#define glColor4ub(r, g, b, a) xmgl::color4ub(r, g, b, a)
++#undef glColor4f
++#define glColor4f(r, g, b, a) xmgl::color4f(r, g, b, a)
++#undef glEnableClientState
++#define glEnableClientState(a) xmgl::enableClientState(a)
++#undef glDisableClientState
++#define glDisableClientState(a) xmgl::disableClientState(a)
++#undef glBindBufferARB
++#define glBindBufferARB(t, b) xmgl::bindBuffer(t, b)
++#undef glDeleteBuffersARB
++#define glDeleteBuffersARB(n, b) xmgl::deleteBuffers(n, b)
++#undef glVertexPointer
++#define glVertexPointer(s, t, st, p) xmgl::vertexPointer(s, t, st, p)
++#undef glTexCoordPointer
++#define glTexCoordPointer(s, t, st, p) xmgl::texCoordPointer(s, t, st, p)
++#undef glDrawArrays
++#define glDrawArrays(m, f, c) xmgl::drawArrays(m, f, c)
++#undef glBegin
++#define glBegin(m) xmgl::begin(m)
++#undef glEnd
++#define glEnd() xmgl::end()
++
++/* everything else: what is pending first */
++#define XMGL_PRE(f, ...) (xmgl::pre(), glad_##f(__VA_ARGS__))
++#undef glAttachObjectARB
++#define glAttachObjectARB(...) XMGL_PRE(glAttachObjectARB, __VA_ARGS__)
++#undef glBindFramebufferEXT
++#define glBindFramebufferEXT(...) XMGL_PRE(glBindFramebufferEXT, __VA_ARGS__)
++#undef glBufferDataARB
++#define glBufferDataARB(...) XMGL_PRE(glBufferDataARB, __VA_ARGS__)
++#undef glClear
++#define glClear(...) XMGL_PRE(glClear, __VA_ARGS__)
++#undef glClearColor
++#define glClearColor(...) XMGL_PRE(glClearColor, __VA_ARGS__)
++#undef glCompileShaderARB
++#define glCompileShaderARB(...) XMGL_PRE(glCompileShaderARB, __VA_ARGS__)
++#undef glCreateProgramObjectARB
++#define glCreateProgramObjectARB() (xmgl::pre(), glad_glCreateProgramObjectARB())
++#undef glCreateShaderObjectARB
++#define glCreateShaderObjectARB(...) XMGL_PRE(glCreateShaderObjectARB, __VA_ARGS__)
++#undef glDeleteFramebuffersEXT
++#define glDeleteFramebuffersEXT(...) XMGL_PRE(glDeleteFramebuffersEXT, __VA_ARGS__)
++#undef glFramebufferTexture2DEXT
++#define glFramebufferTexture2DEXT(...) XMGL_PRE(glFramebufferTexture2DEXT, __VA_ARGS__)
++#undef glGenBuffersARB
++#define glGenBuffersARB(...) XMGL_PRE(glGenBuffersARB, __VA_ARGS__)
++#undef glGenFramebuffersEXT
++#define glGenFramebuffersEXT(...) XMGL_PRE(glGenFramebuffersEXT, __VA_ARGS__)
++#undef glGenTextures
++#define glGenTextures(...) XMGL_PRE(glGenTextures, __VA_ARGS__)
++#undef glGetFloatv
++#define glGetFloatv(...) XMGL_PRE(glGetFloatv, __VA_ARGS__)
++#undef glGetInfoLogARB
++#define glGetInfoLogARB(...) XMGL_PRE(glGetInfoLogARB, __VA_ARGS__)
++#undef glGetIntegerv
++#define glGetIntegerv(...) XMGL_PRE(glGetIntegerv, __VA_ARGS__)
++#undef glGetObjectParameterivARB
++#define glGetObjectParameterivARB(...) XMGL_PRE(glGetObjectParameterivARB, __VA_ARGS__)
++#undef glLineWidth
++#define glLineWidth(...) XMGL_PRE(glLineWidth, __VA_ARGS__)
++#undef glLinkProgramARB
++#define glLinkProgramARB(...) XMGL_PRE(glLinkProgramARB, __VA_ARGS__)
++#undef glLoadIdentity
++#define glLoadIdentity() (xmgl::pre(), glad_glLoadIdentity())
++#undef glMatrixMode
++#define glMatrixMode(...) XMGL_PRE(glMatrixMode, __VA_ARGS__)
++#undef glOrtho
++#define glOrtho(...) XMGL_PRE(glOrtho, __VA_ARGS__)
++#undef glPopMatrix
++#define glPopMatrix() (xmgl::pre(), glad_glPopMatrix())
++#undef glPushMatrix
++#define glPushMatrix() (xmgl::pre(), glad_glPushMatrix())
++#undef glReadBuffer
++#define glReadBuffer(...) XMGL_PRE(glReadBuffer, __VA_ARGS__)
++#undef glReadPixels
++#define glReadPixels(...) XMGL_PRE(glReadPixels, __VA_ARGS__)
++#undef glRotatef
++#define glRotatef(...) XMGL_PRE(glRotatef, __VA_ARGS__)
++#undef glScalef
++#define glScalef(...) XMGL_PRE(glScalef, __VA_ARGS__)
++#undef glScissor
++#define glScissor(...) XMGL_PRE(glScissor, __VA_ARGS__)
++#undef glShaderSourceARB
++#define glShaderSourceARB(...) XMGL_PRE(glShaderSourceARB, __VA_ARGS__)
++#undef glTexImage2D
++#define glTexImage2D(...) XMGL_PRE(glTexImage2D, __VA_ARGS__)
++#undef glTexParameteri
++#define glTexParameteri(...) XMGL_PRE(glTexParameteri, __VA_ARGS__)
++#undef glTranslatef
++#define glTranslatef(...) XMGL_PRE(glTranslatef, __VA_ARGS__)
++#undef glUseProgramObjectARB
++#define glUseProgramObjectARB(...) XMGL_PRE(glUseProgramObjectARB, __VA_ARGS__)
++#undef glViewport
++#define glViewport(...) XMGL_PRE(glViewport, __VA_ARGS__)
++/* inside the game's own glBegin/glEnd, which begin() starts with a sync */
++/* glVertex2f, glVertex2i, glTexCoord2f go to the GL directly */
++#endif
++
++#endif
+diff --git a/src/include/xm_OpenGL.h b/src/include/xm_OpenGL.h
+--- a/src/include/xm_OpenGL.h
++++ b/src/include/xm_OpenGL.h
+@@ -15,5 +15,7 @@
+ #include <GL/glu.h> /* Header File For The GLU Library */
+ #endif
+ 
++/* fewer, larger draws: every GL call of the game goes through it */
++#include "drawlib/GLBatch.h"
+ 
+ #endif
+diff --git a/src/xmoto/RendererFBO.cpp b/src/xmoto/RendererFBO.cpp
+--- a/src/xmoto/RendererFBO.cpp
++++ b/src/xmoto/RendererFBO.cpp
+@@ -264,10 +264,10 @@ void SFXOverlay::fade(float f, unsigned int i_frameNumber) {
+     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+     m_drawLib->startDraw(DRAW_MODE_POLYGON);
+     m_drawLib->setColorRGBA(0, 0, 0, (int)(f * 255));
+-    glVertex2f(0, 0);
+-    glVertex2f(1, 0);
+-    glVertex2f(1, 1);
+-    glVertex2f(0, 1);
++    m_drawLib->glVertex(0, 0);
++    m_drawLib->glVertex(1, 0);
++    m_drawLib->glVertex(1, 1);
++    m_drawLib->glVertex(0, 1);
+     m_drawLib->endDraw();
+     glDisable(GL_BLEND);
+ 

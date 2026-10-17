@@ -1,0 +1,310 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 18:31:21 +0300
+Subject: renderer: the level's blocks and edges drawn from one buffer
+ (XMOTO_GL_BLOCKS)
+
+Each convex polygon of a block had two buffer objects (positions, texture coordinates) and
+was drawn alone (two binds, two pointers, a glDrawArrays of GL_POLYGON), and so was each
+polygon of each edge: 954 draws a frame in the credits replay.
+
+LevelGeoms::buildBuffer puts all of a level's block polygons (as the triangles Mesa draws
+for GL_POLYGON) and edge quads into one interleaved buffer object once, each block followed
+by its edges in the order they are drawn; a block or an edge geom is then one range of it,
+and adjacent ranges with the same texture and colour are one draw (xmgl::drawStatic). The
+buffers per polygon are not made then. The credits replay draws 18 ranges a frame in place
+of 954 draws, for 40 GL draws a frame in all.
+
+On llvmpipe the pixels are the same as Debian's with a draw per range; with adjacent edge
+ranges merged, up to 5 pixels a frame differ by 1 in one channel (where Mesa splits the
+quads of a longer draw).
+
+XMOTO_GL_BLOCKS=0 draws polygon by polygon again; it needs XMOTO_GL_BATCH (off with it).
+
+diff --git a/src/xmoto/GeomsManager.cpp b/src/xmoto/GeomsManager.cpp
+--- a/src/xmoto/GeomsManager.cpp
++++ b/src/xmoto/GeomsManager.cpp
+@@ -29,11 +29,17 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ Geom::Geom() {
+   pTexture = NULL;
+   pSprite = NULL;
++  bufId = 0;
++  bufBase = NULL;
++  bufFirst = -1;
++  bufCount = 0;
+ }
+ 
+ LevelGeoms::LevelGeoms(const std::string &i_levelId) {
+   m_levelId = i_levelId;
+   m_geomsLoaded = false;
++  m_bufId = 0;
++  m_bufBuilt = false;
+ }
+ 
+ LevelGeoms::~LevelGeoms() {
+@@ -42,6 +48,106 @@ LevelGeoms::~LevelGeoms() {
+ 
+   deleteGeoms(m_blockGeoms);
+   deleteGeoms(m_edgeGeoms, true);
++#ifdef ENABLE_OPENGL
++  if (m_bufId != 0) {
++    glDeleteBuffersARB(1, (GLuint *)&m_bufId);
++  }
++#endif
++}
++
++/* block polygons as the triangles Mesa draws for GL_POLYGON (in the same
++   order, so the pixels are the same), edges as they are (GL_QUADS) */
++static void appendGeom(std::vector<float> &o_data, Geom *i_geom, bool i_quads) {
++  i_geom->bufFirst = o_data.size() / 4;
++  for (unsigned int j = 0; j < i_geom->Polys.size(); j++) {
++    GeomPoly *pPoly = i_geom->Polys[j];
++    int n = pPoly->nNumVertices;
++    std::vector<int> v_idx;
++    if (i_quads) {
++      /* whole quads only, so the next ones stay aligned */
++      for (int i = 0; i < n - n % 4; i++) {
++        v_idx.push_back(i);
++      }
++    } else {
++      for (int i = 0; i + 2 < n; i++) {
++        v_idx.push_back(i + 1);
++        v_idx.push_back(i + 2);
++        v_idx.push_back(0);
++      }
++    }
++    for (unsigned int k = 0; k < v_idx.size(); k++) {
++      o_data.push_back(pPoly->pVertices[v_idx[k]].x);
++      o_data.push_back(pPoly->pVertices[v_idx[k]].y);
++      o_data.push_back(pPoly->pTexCoords[v_idx[k]].x);
++      o_data.push_back(pPoly->pTexCoords[v_idx[k]].y);
++    }
++  }
++  i_geom->bufCount = o_data.size() / 4 - i_geom->bufFirst;
++}
++
++void LevelGeoms::buildBuffer(bool i_useVBO) {
++  if (m_bufBuilt) {
++    return;
++  }
++  m_bufBuilt = true;
++
++  /* each block, then its edges, in the order they are drawn: edges of the
++     same texture follow each other, so they are one draw */
++  m_bufData.clear();
++  for (unsigned int i = 0; i < m_savedBlockGeoms.size(); i++) {
++    if (m_savedBlockGeoms[i].gmain != NULL &&
++        m_savedBlockGeoms[i].gmain->bufFirst < 0) {
++      appendGeom(m_bufData, m_savedBlockGeoms[i].gmain, false);
++    }
++    for (unsigned int j = 0; j < m_savedBlockGeoms[i].gedges.size(); j++) {
++      if (m_savedBlockGeoms[i].gedges[j]->bufFirst < 0) {
++        appendGeom(m_bufData, m_savedBlockGeoms[i].gedges[j], true);
++      }
++    }
++  }
++  for (unsigned int i = 0; i < m_blockGeoms.size(); i++) {
++    if (m_blockGeoms[i]->bufFirst < 0) {
++      appendGeom(m_bufData, m_blockGeoms[i], false);
++    }
++  }
++  for (unsigned int i = 0; i < m_edgeGeoms.size(); i++) {
++    if (m_edgeGeoms[i]->bufFirst < 0) {
++      appendGeom(m_bufData, m_edgeGeoms[i], true);
++    }
++  }
++
++  int v_nVertices = m_bufData.size() / 4;
++  const float *v_base = m_bufData.size() > 0 ? &m_bufData[0] : NULL;
++#ifdef ENABLE_OPENGL
++  if (i_useVBO && m_bufData.size() > 0) {
++    glGenBuffersARB(1, (GLuint *)&m_bufId);
++    glBindBufferARB(GL_ARRAY_BUFFER_ARB, m_bufId);
++    glBufferDataARB(GL_ARRAY_BUFFER_ARB,
++                    m_bufData.size() * sizeof(float),
++                    v_base,
++                    GL_STATIC_DRAW_ARB);
++    glBindBufferARB(GL_ARRAY_BUFFER_ARB, 0);
++    v_base = NULL; /* offsets into the buffer */
++  }
++#endif
++  for (unsigned int i = 0; i < m_blockGeoms.size(); i++) {
++    m_blockGeoms[i]->bufId = m_bufId;
++    m_blockGeoms[i]->bufBase = v_base;
++  }
++  for (unsigned int i = 0; i < m_edgeGeoms.size(); i++) {
++    m_edgeGeoms[i]->bufId = m_bufId;
++    m_edgeGeoms[i]->bufBase = v_base;
++  }
++  if (m_bufId != 0) {
++    /* the data is in the buffer object */
++    std::vector<float>().swap(m_bufData);
++  }
++
++  LogInfo("GL: level buffer of %d blocks and %d edges, %d vertices (%s)",
++          (int)m_blockGeoms.size(),
++          (int)m_edgeGeoms.size(),
++          v_nVertices,
++          m_bufId != 0 ? "VBO" : "client memory");
+ }
+ 
+ unsigned int LevelGeoms::getNumberOfRegisteredScenes() {
+@@ -173,7 +279,7 @@ Geom *LevelGeoms::loadBlockGeom(Block *pBlock,
+     o_geomBytes += pPoly->nNumVertices * (4 * sizeof(float));
+ #ifdef ENABLE_OPENGL
+     /* Use VBO optimization? */
+-    if (GameApp::instance()->getDrawLib()->useVBOs()) {
++    if (GameApp::instance()->getDrawLib()->useVBOs() && !xmgl::blocks) {
+       /* Copy static coordinates unto video memory */
+       glGenBuffersARB(1, (GLuint *)&pPoly->nVertexBufferID);
+       glBindBufferARB(GL_ARRAY_BUFFER_ARB, pPoly->nVertexBufferID);
+@@ -657,7 +763,7 @@ std::vector<Geom *> LevelGeoms::loadBlockEdgeGeom(Block *pBlock,
+ 
+ #ifdef ENABLE_OPENGL
+   /* Use VBO optimization? */
+-  if (GameApp::instance()->getDrawLib()->useVBOs()) {
++  if (GameApp::instance()->getDrawLib()->useVBOs() && !xmgl::blocks) {
+     for (unsigned int k = 0; k < v_geoms.size(); k++) {
+       for (unsigned int l = 0; l < v_geoms[k]->Polys.size(); l++) {
+         GeomPoly *pPoly = v_geoms[k]->Polys[l];
+diff --git a/src/xmoto/GeomsManager.h b/src/xmoto/GeomsManager.h
+--- a/src/xmoto/GeomsManager.h
++++ b/src/xmoto/GeomsManager.h
+@@ -59,6 +59,14 @@ struct Geom {
+   TColor edgeBlendColor;
+   Vector2f Min, Max; /* AABB */
+   bool isUpper;
++
++  /* its polygons in its level's buffer (LevelGeoms::buildBuffer,
++     XMOTO_GL_BLOCKS), one draw: triangles for a block, quads for an edge;
++     x, y, u, v floats from bufBase (bufId 0: client memory) or in the buffer
++     object bufId; bufFirst < 0: not built */
++  unsigned int bufId;
++  const float *bufBase;
++  int bufFirst, bufCount;
+ };
+ 
+ struct BlockGeoms {
+@@ -83,6 +91,9 @@ public:
+   void register_scene(Scene *i_scene);
+   void unregister_scene(Scene *i_scene);
+ 
++  /* one buffer with all its geoms, in the order they are drawn (once) */
++  void buildBuffer(bool i_useVBO);
++
+ private:
+   Geom *loadBlockGeom(Block *pBlock,
+                       const Vector2f &Center,
+@@ -134,6 +145,10 @@ private:
+   bool m_geomsLoaded; // once a level has load all the geoms, this is true and
+   // all geoms can be reused for new levels
+   std::vector<BlockGeoms> m_savedBlockGeoms;
++
++  std::vector<float> m_bufData;
++  unsigned int m_bufId;
++  bool m_bufBuilt;
+ };
+ 
+ class GeomsManager : public Singleton<GeomsManager> {
+diff --git a/src/xmoto/Renderer.cpp b/src/xmoto/Renderer.cpp
+--- a/src/xmoto/Renderer.cpp
++++ b/src/xmoto/Renderer.cpp
+@@ -213,6 +213,11 @@ void GameRenderer::prepareForNewLevel(Universe *i_universe) {
+       }
+     }
+     GeomsManager::instance()->register_end(i_universe->getScenes()[u]);
++#ifdef ENABLE_OPENGL
++    if (xmgl::blocks) {
++      v_lg->buildBuffer(GameApp::instance()->getDrawLib()->useVBOs());
++    }
++#endif
+ 
+     LogInfo("GL: %d kB vertex buffers", nVertexBytes / 1024);
+ 
+@@ -2080,8 +2085,11 @@ void GameRenderer::_RenderDynamicBlocks(Scene *i_scene, bool bBackground) {
+ 
+       if (pDrawlib->getBackend() == DrawLib::backend_OpenGl) {
+ #ifdef ENABLE_OPENGL
+-        glEnableClientState(GL_VERTEX_ARRAY);
+-        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
++        bool v_levelBuffer = xmgl::blocks && geom->bufFirst >= 0;
++        if (!v_levelBuffer) {
++          glEnableClientState(GL_VERTEX_ARRAY);
++          glEnableClientState(GL_TEXTURE_COORD_ARRAY);
++        }
+ 
+         /* we're working with modelview matrix*/
+         glPushMatrix();
+@@ -2114,7 +2122,13 @@ void GameRenderer::_RenderDynamicBlocks(Scene *i_scene, bool bBackground) {
+         }
+ 
+         /* VBO optimized? */
+-        if (pDrawlib->useVBOs()) {
++        if (v_levelBuffer) {
++          xmgl::drawStatic(geom->bufId,
++                           geom->bufBase,
++                           GL_TRIANGLES,
++                           geom->bufFirst,
++                           geom->bufCount);
++        } else if (pDrawlib->useVBOs() && !xmgl::blocks) {
+           for (unsigned int j = 0; j < geom->Polys.size(); j++) {
+             GeomPoly *pPoly = geom->Polys[j];
+ 
+@@ -2141,8 +2155,10 @@ void GameRenderer::_RenderDynamicBlocks(Scene *i_scene, bool bBackground) {
+ 
+         glPopMatrix();
+ 
+-        glDisableClientState(GL_VERTEX_ARRAY);
+-        glDisableClientState(GL_TEXTURE_COORD_ARRAY);
++        if (!v_levelBuffer) {
++          glDisableClientState(GL_VERTEX_ARRAY);
++          glDisableClientState(GL_TEXTURE_COORD_ARRAY);
++        }
+ #endif
+       } else if (pDrawlib->getBackend() == DrawLib::backend_SdlGFX) {
+         if (geom->Polys.size() > 0) {
+@@ -2281,13 +2297,23 @@ void GameRenderer::_RenderStaticBlock(Block *block) {
+     pDrawlib->setColorRGBA(0, 0, 0, 255);
+   }
+ 
+-  if (pDrawlib->getBackend() == DrawLib::backend_OpenGl) {
++  if (pDrawlib->getBackend() == DrawLib::backend_OpenGl &&
++      xmgl::blocks && geom->bufFirst >= 0) {
++#ifdef ENABLE_OPENGL
++    /* the triangles of all its polygons in one draw */
++    xmgl::drawStatic(
++      geom->bufId, geom->bufBase, GL_TRIANGLES, geom->bufFirst, geom->bufCount);
++    if (XMSession::instance()->gameGraphics() != GFX_LOW) {
++      _RenderBlockEdges(block);
++    }
++#endif
++  } else if (pDrawlib->getBackend() == DrawLib::backend_OpenGl) {
+ #ifdef ENABLE_OPENGL
+     glEnableClientState(GL_VERTEX_ARRAY);
+     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+ 
+-    /* VBO optimized? */
+-    if (pDrawlib->useVBOs()) {
++    /* VBO optimized? (no buffers per polygon with the level buffer) */
++    if (pDrawlib->useVBOs() && !xmgl::blocks) {
+       for (unsigned int j = 0; j < geom->Polys.size(); j++) {
+         GeomPoly *pPoly = geom->Polys[j];
+ 
+@@ -2375,8 +2401,15 @@ void GameRenderer::_RenderBlockEdges(Block *pBlock) {
+                              v_blendColor.Blue(),
+                              v_blendColor.Alpha());
+ 
+-      /* VBO optimized? */
+-      if (pDrawlib->useVBOs()) {
++      Geom *v_edge = pBlock->getEdgeGeoms()[i];
++      if (xmgl::blocks && v_edge->bufFirst >= 0) {
++        xmgl::drawStatic(v_edge->bufId,
++                         v_edge->bufBase,
++                         GL_QUADS,
++                         v_edge->bufFirst,
++                         v_edge->bufCount);
++      } else if (pDrawlib->useVBOs() && !xmgl::blocks) {
++        /* VBO optimized? (no buffers per polygon with the level buffer) */
+         for (unsigned int j = 0; j < pBlock->getEdgeGeoms()[i]->Polys.size();
+              j++) {
+           GeomPoly *pPoly = pBlock->getEdgeGeoms()[i]->Polys[j];
