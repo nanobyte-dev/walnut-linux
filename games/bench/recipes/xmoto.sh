@@ -2,6 +2,13 @@
 # assets/xmoto-credits.rpl is it, extracted, MD5 05a7200d...) with --timedemo --benchmark
 # (draws every frame, prints the average and exits), fullscreen 1920x1080, no network. It sets no
 # swap interval itself: vblank_mode=0.
+# The replay runs in real time (physics steps by the wall clock; --timedemo only lifts the frame
+# cap): ~144 s, so runs before 2026-10-17's steady state (cut at 90 s) never printed the average.
+# Steady state: the HUD window, 60 s from the first frame to the replay's end (~80 s, less than the
+# 120 s wanted; report.py's win says how much). The game's average (fps=) covers the whole replay.
+# Repeating the replay needs a small patch to our xmoto (StateReplaying::update, at the benchmark
+# end: XMOTO_BENCH_LOOPS=N, the lines printed with the pass, replaceState with a new
+# StatePreplayingReplay instead of closing); then PASSES=1 and two passes (~300 s).
 SUITE=1
 COMM=xmoto
 ENV=(vblank_mode=0)
@@ -12,6 +19,7 @@ setup() {
 }
 CMD=(/usr/games/xmoto --nowww -fs -res 1920x1080 --replay credits --timedemo --benchmark)
 FPS_RE='Average framerate: ([0-9.]+) fps'
+DURATION=270	# a safety cap: the game exits at the replay's end (~150 s with the load)
 SOUND_AT=20
 # Mesa ps3.282: a submission every 100 draws (0026), the Armagetron fix, checked here
 variant_kick100() { ENV+=(NV30_PS3_KICK_DRAWS=100); }
