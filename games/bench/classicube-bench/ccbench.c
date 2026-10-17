@@ -24,6 +24,10 @@
  * then the game closes as if its window was closed (options are saved, plugins freed).
  * CC_BENCH_SHOTS=<dir>: the back buffer of every keyframe as <dir>/frame-NNNNN.ppm (for checking
  * the path; the time they take is left out of the numbers).
+ * CC_BENCH_PASSES=N: the path flown N times, each pass with its own report (after a line
+ *   "ccbench: pass K of N"), the game closed after the last: the first passes are a warm-up for
+ *   the harness (games/bench/client.sh counts the later ones). The camera jumps back to the first
+ *   pose between passes; the map is built by then, so no pass builds chunks.
  *
  * Built against the headers of the ClassiCube it runs in (Makefile); uses only exported symbols
  * (CC_API/CC_VAR): Game, Camera, Entities, WindowInfo, WindowEvents, Event_RaiseVoid, and
@@ -65,6 +69,7 @@ static struct Camera* orig;
 static int hook = -1;
 static long chunks_warm, chunks_run;  /* chunks built in the warm-up and during the run */
 static const char* shots;         /* CC_BENCH_SHOTS: a directory for keyframe screenshots */
+static int passes = 1, pass = 1;  /* CC_BENCH_PASSES: times the path is flown; the current one */
 
 /* from the game's libGL (the plugin is loaded into the game) */
 extern void glReadPixels(int x, int y, int w, int h, unsigned fmt, unsigned type, void* px);
@@ -262,6 +267,7 @@ static void report(void) {
 		}
 	}
 	say("%s", line);
+	if (passes > 1) say("ccbench: pass %d of %d", pass, passes);
 	say("ccbench: chunks built: %ld in the warm-up, %ld during the run", chunks_warm, chunks_run);
 	if (resets) say("ccbench: warning: the game switched the camera %d times during the run", resets);
 	say("ccbench: %d frames %.2f seconds %.2f fps, frame ms min/avg/p99/max %.1f/%.1f/%.1f/%.1f",
@@ -296,8 +302,16 @@ static void Bench_Frame(float delta) {
 		/* screenshots are for checking the path, not timing: their time is left out */
 		if (shots && is_key(frame)) { shot(frame); t_last = now(); }
 		if (frame == nframes) {
-			state = DONE;
 			report();
+			if (pass < passes) {	/* the next pass: from the first pose, timed from now */
+				pass++;
+				chunks_run = 0; resets = 0;
+				frame = 1;
+				use_camera();
+				t_last = now();
+				break;
+			}
+			state = DONE;
 			close_game();
 			break;
 		}
@@ -323,6 +337,7 @@ static void Bench_Init(void) {
 	}
 	shots = getenv("CC_BENCH_SHOTS");
 	if (shots && !*shots) shots = NULL;
+	if (getenv("CC_BENCH_PASSES") && atoi(getenv("CC_BENCH_PASSES")) > 1) passes = atoi(getenv("CC_BENCH_PASSES"));
 	Game.Draw2DHooks[hook] = Bench_Frame;
 	state = WAIT_MAP;
 	say("ccbench: %s: %d keyframes, %d frames; warm-up %g-%g s, %g s without chunk builds",
@@ -342,7 +357,7 @@ static void Bench_OnNewMapLoaded(void) {
 
 static void Bench_Free(void) {
 	if (state == WARMUP || state == RUN)
-		say("ccbench: the game closed before the end (frame %d of %d)", frame, nframes);
+		say("ccbench: the game closed before the end (frame %d of %d, pass %d of %d)", frame, nframes, pass, passes);
 	if (hook >= 0 && Game.Draw2DHooks[hook] == Bench_Frame) Game.Draw2DHooks[hook] = NULL;
 	if (orig && Camera.Active == &cam) Camera.Active = orig;
 	free(keys); keys = NULL;
