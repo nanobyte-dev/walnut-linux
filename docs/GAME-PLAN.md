@@ -27,7 +27,7 @@ Every number is 1920x1080, measured through games/bench with the picture checked
 |---|---|---|---|---|---|---|---|
 | QuakeSpasm | yes | right | right | timedemo demo1 (our quake.rc) | 78.6 (73-84, Mesa ps3.262) | **meets it** | - |
 | Armagetron | yes | right | right | recorded AI round, `--playback --benchmark` | 61.5 HUD (Mesa ps3.299; 60 on ps3.246, 50-53 on ps3.262/282) | **meets it** | - (ps3.262's loss was the missing CPU/GPU overlap without relocations; 0027 fixed it) |
-| Neverball | yes (ps3rsx 0.249: no wedge) | right | 15-36 underruns a run | shipped replay (only ~20 s); our NEVERBALL_BENCH prints fps and quits at its end | 70-76 (its own count); 320-380 ms stalls at the start | **meets it** | a longer replay of the user's (the start-up stutters weigh too much in 20 s) |
+| Neverball | yes (ps3rsx 0.249: no wedge) | right | 15-36 underruns a run | shipped replay (only ~20 s); our NEVERBALL_BENCH prints fps and quits at its end | 70-76 (its own count); 320-380 ms stalls at the start | **meets it** | a longer replay of the user's (the start-up stutters weigh too much in 20 s); ps3.370 batching (host: 2154 -> 844 calls, 137 -> 74 draws a frame), to run |
 | Yamagi Quake II | yes | right | right (our fix) | timedemo q2demo1 | 63.9 (ps3.262) | **meets it** | - |
 | dsda-doom (GL renderer) | yes | right (our fixes) | **choppy** (MIDI synthesis) | Freedoom DEMO1 timedemo | 48.8 | under | game-side batching (our dsda-doom 0005, built, to run); fluidsynth on the SPEs: v1 cut its CPU (49 -> 32 s a minute) but 1097 underruns remain, v2 built; music default |
 | Extreme Tux Racer | yes | right | right | the user's race, replayed (evemu) | 59 HUD median (our batching, ps3.324; 52 without, Mesa ps3.299) | close | performance |
@@ -341,6 +341,17 @@ Each is fixed only once a stage needs it.
   bench demo; delta, oa_dm6, oa_bases3, islanddm similar; pixels equal within 1-4 levels, and with
   every switch off identical to the old build. Recipe variants mergelm0, glcache0, lockarrays,
   skystrips, allbatchoff. To run on the PS3: tc1 against allbatchoff, same boot.
+- Neverball: our neverball +ps3.370 (built, not published), patch 0003, each change behind an
+  environment switch: one vertex and element buffer per solid file and one for the five item files
+  (NEVERBALL_GL_MESH), items drawn in a row with the mesh state kept (NEVERBALL_GL_ITEMS), the
+  background billboards transformed on the CPU and drawn per material run (NEVERBALL_GL_BACK; 76 ->
+  13 draws), no depth toggles around empty passes and one texture unit where only one is used
+  (NEVERBALL_GL_STATE); NEVERBALL_GL=0 all off. Host, llvmpipe at GL 2.1, fixed 33 ms clock:
+  gui/demo1.nbr 2154 -> 844 calls, 137 -> 74 draws a frame; demo2 2916 -> 1285; level intro views
+  greed 6289 -> 1915, mover 8205 -> 2463 (592 -> 171 draws); Neverputt 565 -> 431. Pixels: identical
+  except BACK's rounding at cloud edges (demo1: 163 pixels over 7 frames, 1 level, one pixel 11);
+  all switches off gives the old build's exact call stream. Recipe variants gloff, nomesh, noitems,
+  noback, nostate. To run on the PS3: base against gloff, same boot.
 - SuperTuxKart (run: karts render, the track doesn't, out of VRAM; fixes 0003-0004 built since):
   our package 1.5-2+ps3.264 (.spm meshes and armatures byte-swapped, GL textures
   and vertex colours right on big-endian; upstream #5578 closed as not planned). All 1268 .spm
