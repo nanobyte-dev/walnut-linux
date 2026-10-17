@@ -1,0 +1,62 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 16:48:09 +0300
+Subject: renderergl1: no scan of the whole shader text after a miss in the
+ script hash table
+
+R_FindShader looks a name up in the hash table of shader scripts and, on a miss, parsed the
+concatenated text of every script from the start (COM_ParseExt, SkipBracedSection) looking for it
+again. The table is built from the same parse of the same text, so the second search cannot find
+what the first did not, but it runs for every shader name a model skin or a texture uses without
+a script: ~50000 skipped sections in OpenArena's demo (players joining), 22% of the instructions
+of a whole run with the level load. r_shaderTextScan 1 brings the scan back.
+
+diff --git a/code/renderergl1/tr_init.c b/code/renderergl1/tr_init.c
+--- a/code/renderergl1/tr_init.c
++++ b/code/renderergl1/tr_init.c
+@@ -157,6 +157,7 @@ cvar_t	*r_directedScale;
+ cvar_t	*r_debugLight;
+ cvar_t	*r_debugSort;
+ cvar_t	*r_printShaders;
++cvar_t	*r_shaderTextScan;
+ cvar_t	*r_saveFontData;
+ 
+ cvar_t	*r_marksOnTriangleMeshes;
+@@ -1107,6 +1108,8 @@ void R_Register( void )
+ 	r_debugLight = ri.Cvar_Get( "r_debuglight", "0", CVAR_TEMP );
+ 	r_debugSort = ri.Cvar_Get( "r_debugSort", "0", CVAR_CHEAT );
+ 	r_printShaders = ri.Cvar_Get( "r_printShaders", "0", 0 );
++	r_shaderTextScan = ri.Cvar_Get( "r_shaderTextScan", "0", 0 );
++	ri.Cvar_SetDescription( r_shaderTextScan, "1: after a miss in the shader script hash table, scan all the script text for the name, as upstream (the same answer, the cost of parsing every script)" );
+ 	r_saveFontData = ri.Cvar_Get( "r_saveFontData", "0", 0 );
+ 
+ 	r_nocurves = ri.Cvar_Get ("r_nocurves", "0", CVAR_CHEAT );
+diff --git a/code/renderergl1/tr_local.h b/code/renderergl1/tr_local.h
+--- a/code/renderergl1/tr_local.h
++++ b/code/renderergl1/tr_local.h
+@@ -1077,6 +1077,7 @@ extern	cvar_t	*r_showImages;
+ extern	cvar_t	*r_debugSort;
+ 
+ extern	cvar_t	*r_printShaders;
++extern	cvar_t	*r_shaderTextScan;
+ 
+ extern cvar_t	*r_marksOnTriangleMeshes;
+ 
+diff --git a/code/renderergl1/tr_shader.c b/code/renderergl1/tr_shader.c
+--- a/code/renderergl1/tr_shader.c
++++ b/code/renderergl1/tr_shader.c
+@@ -2416,6 +2416,14 @@ static char *FindShaderInShaderText( const char *shadername ) {
+ 		}
+ 	}
+ 
++	// The hash table lists every shader of s_shaderText, found by the same parse as the scan
++	// below and under a hash that equal names share (case-insensitive like Q_stricmp), so a
++	// miss there is a miss in the text. Scanning it (every script, ~50000 skipped sections
++	// for the models' skin images alone in OpenArena's demo) found nothing.
++	if ( !r_shaderTextScan->integer ) {
++		return NULL;
++	}
++
+ 	p = s_shaderText;
+ 
+ 	if ( !p ) {

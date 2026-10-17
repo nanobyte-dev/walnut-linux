@@ -1,0 +1,215 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 17:07:08 +0300
+Subject: renderergl1: build the AltiVec code (com_altivec), fixed for vec4
+ normals
+
+q_platform.h only knows the PowerPC compiler macros of the 2000s (powerpc, ppc, __ppc__), none of
+which GCC defines on Linux today, so idppc_altivec was 0 and the renderer's AltiVec versions of
+MD3 vertex interpolation, diffuse lighting and dynamic lights never made it into the binary
+(no vector instruction in Debian's renderer_opengl1.so). Take __powerpc__ with __VEC__ for
+idppc_altivec (idppc, with the PowerPC assembly of Q_rsqrt and friends, stays 0), build the
+renderer with -maltivec on PowerPC, and keep the AltiVec path off CPUs without it.
+
+Tested against the scalar functions in a qemu-ppc64 970fx (AltiVec, no VSX) harness with random
+data, 200 rounds of up to 900 vertices:
+- LerpMeshVertexes_altivec: same vertices and normals.
+- RB_CalcDiffuseColor_altivec read the normals at the wrong offset (it steps by 12 bytes, the
+  normals are vec4_t since 2006) and truncated where ri.ftol (lrintf) rounds: rewritten, now
+  byte for byte the scalar colors. The scalar version converts every channel through ri.ftol,
+  an indirect call into libm that stores and reloads the value.
+- ProjectDlightTexture_altivec leaves the texture coordinates of back-facing vertices unset
+  that triangles with other lit vertices still use: not dispatched to any more.
+com_altivec 0 selects the scalar functions again.
+
+diff --git a/cmake/renderer_gl1.cmake b/cmake/renderer_gl1.cmake
+--- a/cmake/renderer_gl1.cmake
++++ b/cmake/renderer_gl1.cmake
+@@ -51,6 +51,11 @@ if(USE_RENDERER_DLOPEN)
+     target_compile_options(     ${RENDERER_GL1_BINARY} PRIVATE ${RENDERER_COMPILE_OPTIONS})
+     target_link_options(        ${RENDERER_GL1_BINARY} PRIVATE ${RENDERER_LINK_OPTIONS})
+ 
++    # tr_altivec.c and the code that calls it (com_altivec) are only compiled with AltiVec on
++    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(ppc|powerpc)")
++        target_compile_options(${RENDERER_GL1_BINARY} PRIVATE -maltivec)
++    endif()
++
+     set_output_dirs(${RENDERER_GL1_BINARY})
+ endif()
+ 
+diff --git a/code/qcommon/q_platform.h b/code/qcommon/q_platform.h
+--- a/code/qcommon/q_platform.h
++++ b/code/qcommon/q_platform.h
+@@ -56,6 +56,14 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ #else
+ #define idppc_altivec 0
+ #endif
++#elif defined(__powerpc__) && defined(__VEC__) && !defined(C_ONLY)
++// GCC on Linux defines __powerpc__ and none of the names above, so idppc stays 0 (and with it
++// the PowerPC assembly versions of Q_rsqrt and friends), but the AltiVec renderer code, built
++// with -maltivec, doesn't depend on those.
++#define idppc 0
++#define idppc_altivec 1
++#define VECCONST_UINT8(a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p) \
++	(vector unsigned char) {a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p}
+ #else
+ #define idppc 0
+ #define idppc_altivec 0
+diff --git a/code/renderergl1/tr_altivec.c b/code/renderergl1/tr_altivec.c
+--- a/code/renderergl1/tr_altivec.c
++++ b/code/renderergl1/tr_altivec.c
+@@ -217,69 +217,59 @@ void ProjectDlightTexture_altivec( void ) {
+ void RB_CalcDiffuseColor_altivec( unsigned char *colors )
+ {
+ 	int				i;
+-	float			*v, *normal;
++	float			*normal;
+ 	trRefEntity_t	*ent;
+-	int				ambientLightInt;
+-	vec3_t			lightDir;
+ 	int				numVertexes;
++	float			lightDir[4] Q_ALIGN(16);
++	float			directedLight[4] Q_ALIGN(16);
++	float			ambientLight[4] Q_ALIGN(16);
++	float			half[4] Q_ALIGN(16) = { 0.5f, 0.5f, 0.5f, 0.5f };
+ 	vector unsigned char vSel = VECCONST_UINT8(0x00, 0x00, 0x00, 0xff,
+                                                0x00, 0x00, 0x00, 0xff,
+                                                0x00, 0x00, 0x00, 0xff,
+                                                0x00, 0x00, 0x00, 0xff);
+-	vector float ambientLightVec;
+-	vector float directedLightVec;
+-	vector float lightDirVec;
+-	vector float normalVec0, normalVec1;
+-	vector float incomingVec0, incomingVec1, incomingVec2;
+-	vector float zero, jVec;
++	vector float ambientLightVec, directedLightVec, lightDirVec, halfVec;
++	vector float normalVec, incomingVec0, incomingVec1, incomingVec2, jVec, zero;
+ 	vector signed int jVecInt;
+ 	vector signed short jVecShort;
+-	vector unsigned char jVecChar, normalPerm;
++	vector unsigned char jVecChar;
++
+ 	ent = backEnd.currentEntity;
+-	ambientLightInt = ent->ambientLightInt;
+-	// A lot of this could be simplified if we made sure
+-	// entities light info was 16-byte aligned.
+-	jVecChar = vec_lvsl(0, ent->ambientLight);
+-	ambientLightVec = vec_ld(0, (vector float *)ent->ambientLight);
+-	jVec = vec_ld(11, (vector float *)ent->ambientLight);
+-	ambientLightVec = vec_perm(ambientLightVec,jVec,jVecChar);
+-
+-	jVecChar = vec_lvsl(0, ent->directedLight);
+-	directedLightVec = vec_ld(0,(vector float *)ent->directedLight);
+-	jVec = vec_ld(11,(vector float *)ent->directedLight);
+-	directedLightVec = vec_perm(directedLightVec,jVec,jVecChar);	 
+-
+-	jVecChar = vec_lvsl(0, ent->lightDir);
+-	lightDirVec = vec_ld(0,(vector float *)ent->lightDir);
+-	jVec = vec_ld(11,(vector float *)ent->lightDir);
+-	lightDirVec = vec_perm(lightDirVec,jVec,jVecChar);	 
+ 
+-	zero = (vector float)vec_splat_s8(0);
++	// The entity's vec3_t light vectors have no 16-byte alignment: copy them into vectors.
+ 	VectorCopy( ent->lightDir, lightDir );
++	lightDir[3] = 0.0f;
++	VectorCopy( ent->directedLight, directedLight );
++	directedLight[3] = 0.0f;
++	VectorCopy( ent->ambientLight, ambientLight );
++	ambientLight[3] = 0.0f;
++	lightDirVec = vec_ld( 0, lightDir );
++	directedLightVec = vec_ld( 0, directedLight );
++	ambientLightVec = vec_ld( 0, ambientLight );
++	halfVec = vec_ld( 0, half );
++	// the sums of the scalar version are rounded to nearest (ri.ftol is lrintf) where vec_cts
++	// truncates: the lights are never negative, so add one half first
++	ambientLightVec = vec_add( ambientLightVec, halfVec );
++	zero = (vector float)vec_splat_s8(0);
+ 
+-	v = tess.xyz[0];
++	// tess.normal is a 16-byte aligned array of vec4_t
+ 	normal = tess.normal[0];
+-
+-	normalPerm = vec_lvsl(0,normal);
+ 	numVertexes = tess.numVertexes;
+-	for (i = 0 ; i < numVertexes ; i++, v += 4, normal += 4) {
+-		normalVec0 = vec_ld(0,(vector float *)normal);
+-		normalVec1 = vec_ld(11,(vector float *)normal);
+-		normalVec0 = vec_perm(normalVec0,normalVec1,normalPerm);
+-		incomingVec0 = vec_madd(normalVec0, lightDirVec, zero);
+-		incomingVec1 = vec_sld(incomingVec0,incomingVec0,4);
+-		incomingVec2 = vec_add(incomingVec0,incomingVec1);
+-		incomingVec1 = vec_sld(incomingVec1,incomingVec1,4);
+-		incomingVec2 = vec_add(incomingVec2,incomingVec1);
+-		incomingVec0 = vec_splat(incomingVec2,0);
+-		incomingVec0 = vec_max(incomingVec0,zero);
+-		normalPerm = vec_lvsl(12,normal);
+-		jVec = vec_madd(incomingVec0, directedLightVec, ambientLightVec);
+-		jVecInt = vec_cts(jVec,0);	// RGBx
+-		jVecShort = vec_pack(jVecInt,jVecInt);		// RGBxRGBx
+-		jVecChar = vec_packsu(jVecShort,jVecShort);	// RGBxRGBxRGBxRGBx
+-		jVecChar = vec_sel(jVecChar,vSel,vSel);		// RGBARGBARGBARGBA replace alpha with 255
+-		vec_ste((vector unsigned int)jVecChar,0,(unsigned int *)&colors[i*4]);	// store color
++	for (i = 0 ; i < numVertexes ; i++, normal += 4) {
++		normalVec = vec_ld( 0, normal );
++		incomingVec0 = vec_madd( normalVec, lightDirVec, zero );	// x, y, z (and 0)
++		incomingVec1 = vec_sld( incomingVec0, incomingVec0, 4 );
++		incomingVec2 = vec_add( incomingVec0, incomingVec1 );		// x+y in element 0
++		incomingVec1 = vec_sld( incomingVec1, incomingVec1, 4 );
++		incomingVec2 = vec_add( incomingVec2, incomingVec1 );		// x+y+z
++		incomingVec0 = vec_splat( incomingVec2, 0 );
++		incomingVec0 = vec_max( incomingVec0, zero );
++		jVec = vec_madd( incomingVec0, directedLightVec, ambientLightVec );
++		jVecInt = vec_cts( jVec, 0 );							// RGBx
++		jVecShort = vec_pack( jVecInt, jVecInt );				// RGBxRGBx
++		jVecChar = vec_packsu( jVecShort, jVecShort );			// RGBxRGBxRGBxRGBx, above 255 as 255
++		jVecChar = vec_sel( jVecChar, vSel, vSel );				// alpha 255
++		vec_ste( (vector unsigned int)jVecChar, 0, (unsigned int *)&colors[i*4] );	// store color
+ 	}
+ }
+ 
+diff --git a/code/renderergl1/tr_init.c b/code/renderergl1/tr_init.c
+--- a/code/renderergl1/tr_init.c
++++ b/code/renderergl1/tr_init.c
+@@ -22,6 +22,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ // tr_init.c -- functions that are not called every frame
+ 
+ #include "tr_local.h"
++#if idppc_altivec
++#include <sys/auxv.h>
++#endif
+ 
+ glconfig_t  glConfig;
+ qboolean    textureFilterAnisotropic = qfalse;
+@@ -1014,6 +1017,12 @@ void R_Register( void )
+ 	#ifdef USE_RENDERER_DLOPEN
+ 	com_altivec = ri.Cvar_Get("com_altivec", "1", CVAR_ARCHIVE);
+ 	#endif	
++	#if idppc_altivec
++	// the engine only checks the CPU where idppc is set, which GCC on Linux doesn't do
++	if ( com_altivec->integer && !( getauxval( AT_HWCAP ) & 0x10000000 /* PPC_FEATURE_HAS_ALTIVEC */ ) ) {
++		ri.Cvar_Set( "com_altivec", "0" );
++	}
++	#endif
+ 
+ 	//
+ 	// latched and archived variables
+diff --git a/code/renderergl1/tr_shade.c b/code/renderergl1/tr_shade.c
+--- a/code/renderergl1/tr_shade.c
++++ b/code/renderergl1/tr_shade.c
+@@ -557,13 +557,9 @@ static void ProjectDlightTexture_scalar( void ) {
+ }
+ 
+ static void ProjectDlightTexture( void ) {
+-#if idppc_altivec
+-	if (com_altivec->integer) {
+-		// must be in a separate translation unit or G3 systems will crash.
+-		ProjectDlightTexture_altivec();
+-		return;
+-	}
+-#endif
++	// ProjectDlightTexture_altivec (tr_altivec.c) is not used: unlike this one it leaves the
++	// texture coordinates of the vertices facing away from the light unset, where triangles
++	// that have other vertices lit still use them.
+ 	ProjectDlightTexture_scalar();
+ }
+ 

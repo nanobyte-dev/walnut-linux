@@ -1,0 +1,72 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 16:54:02 +0300
+Subject: unzip: no crc32 of the pk3 entries read, fs_zipCrc 1 brings it back
+
+unzReadCurrentFile runs crc32 over every byte it inflates (or copies) and unzCloseCurrentFile
+compares it with the entry's, but FS_FCloseFile ignores what that returns, so the check never
+had an effect. On the PS3's PPE it is table-driven code over the 38 MB OpenArena's demo reads
+from the pk3 files while players join. fs_zipCrc (read when an entry is opened) turns it back
+on.
+
+diff --git a/code/qcommon/unzip.c b/code/qcommon/unzip.c
+--- a/code/qcommon/unzip.c
++++ b/code/qcommon/unzip.c
+@@ -105,6 +105,7 @@ typedef struct
+ 
+     uLong crc32;                /* crc32 of all data uncompressed */
+     uLong crc32_wait;           /* crc32 we must obtain after decompress all */
++    int   check_crc;            /* fs_zipCrc: crc32 is computed and compared */
+     uLong rest_read_compressed; /* number of byte to be decompressed */
+     uLong rest_read_uncompressed;/*number of byte to be obtained after decomp*/
+     zlib_filefunc_def z_filefunc;
+@@ -1128,6 +1129,16 @@ extern int ZEXPORT unzOpenCurrentFile3 (file, method, level, raw, password)
+ 
+     pfile_in_zip_read_info->crc32_wait=s->cur_file_info.crc;
+     pfile_in_zip_read_info->crc32=0;
++    {
++        // Nobody looks at the result (FS_FCloseFile ignores what unzCloseCurrentFile returns),
++        // so the crc32 of every byte read is wasted time unless asked for.
++        static cvar_t *fs_zipCrc;
++        if (!fs_zipCrc) {
++            fs_zipCrc = Cvar_Get("fs_zipCrc", "0", 0);
++            Cvar_SetDescription(fs_zipCrc, "1: check the crc32 of the pk3 entries read, as upstream (which ignores the result)");
++        }
++        pfile_in_zip_read_info->check_crc = fs_zipCrc->integer;
++    }
+     pfile_in_zip_read_info->compression_method =
+             s->cur_file_info.compression_method;
+     pfile_in_zip_read_info->filestream=s->filestream;
+@@ -1333,7 +1344,8 @@ extern int ZEXPORT unzReadCurrentFile  (file, buf, len)
+                 *(pfile_in_zip_read_info->stream.next_out+i) =
+                         *(pfile_in_zip_read_info->stream.next_in+i);
+ 
+-            pfile_in_zip_read_info->crc32 = crc32(pfile_in_zip_read_info->crc32,
++            if (pfile_in_zip_read_info->check_crc)
++                pfile_in_zip_read_info->crc32 = crc32(pfile_in_zip_read_info->crc32,
+                                 pfile_in_zip_read_info->stream.next_out,
+                                 uDoCopy);
+             pfile_in_zip_read_info->rest_read_uncompressed-=uDoCopy;
+@@ -1368,9 +1380,10 @@ extern int ZEXPORT unzReadCurrentFile  (file, buf, len)
+             uTotalOutAfter = pfile_in_zip_read_info->stream.total_out;
+             uOutThis = uTotalOutAfter-uTotalOutBefore;
+ 
+-            pfile_in_zip_read_info->crc32 =
+-                crc32(pfile_in_zip_read_info->crc32,bufBefore,
+-                        (uInt)(uOutThis));
++            if (pfile_in_zip_read_info->check_crc)
++                pfile_in_zip_read_info->crc32 =
++                    crc32(pfile_in_zip_read_info->crc32,bufBefore,
++                            (uInt)(uOutThis));
+ 
+             pfile_in_zip_read_info->rest_read_uncompressed -=
+                 uOutThis;
+@@ -1514,7 +1527,7 @@ extern int ZEXPORT unzCloseCurrentFile (file)
+ 
+ 
+     if ((pfile_in_zip_read_info->rest_read_uncompressed == 0) &&
+-        (!pfile_in_zip_read_info->raw))
++        (!pfile_in_zip_read_info->raw) && pfile_in_zip_read_info->check_crc)
+     {
+         if (pfile_in_zip_read_info->crc32 != pfile_in_zip_read_info->crc32_wait)
+             err=UNZ_CRCERROR;

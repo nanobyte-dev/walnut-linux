@@ -85,6 +85,27 @@ variant_gl2min_cpuanim() { oa_gl2min +set r_gpuVertexAnimation 0; }
 variant_gl2min_lean() { oa_gl2min +set r_glslLazy 1 +set r_md3Lods 1; }
 variant_gl2min_picmip2() { oa_gl2min +set r_picmip 2; }
 variant_gl2min_tc0() { OA_TC=0; oa_gl2min; }
+# CPU time of the opengl1 renderer and the engine (docs/GAME-PLAN.md: 13.6% zlib, 35% renderer). Our
+# ioquake3 patches 0011-0018 are on in tc1/base; each variant turns one back to upstream, `up` all of
+# them, so that base against the variant is that patch's gain. oa_x appends cvars (autoexec.cfg).
+oa_x() { OA_X+=("$@"); oa_cmd; }
+# 0011: R_FindShader scanned the whole shader text again after a miss in its hash table
+variant_scan() { oa_x +set r_shaderTextScan 1; }
+# 0012: crc32 of every pk3 entry read (nobody looks at the result)
+variant_crc() { oa_x +set fs_zipCrc 1; }
+# 0013: the AltiVec versions of the MD3 interpolation and the diffuse lighting (needs the -maltivec build)
+variant_noaltivec() { oa_x +set com_altivec 0; }
+# 0014: two 272-byte memsets for every plane a decal triangle is clipped against
+variant_markclear() { oa_x +set r_markClear 1; }
+# 0015: the sounds of a player model read and decoded when the player joins instead of at their first play
+variant_sndeager() { oa_x +set s_alLazy 0; }
+# 0016: zlib instead of libdeflate for the pk3 entries
+variant_zlib() { oa_x +set fs_zipFast 0; }
+# 0018: the message Huffman trees fed 1053340 symbols at the first message (a command line cvar: the
+# first message comes before autoexec.cfg)
+variant_huffslow() { oa_cmd; CMD+=(+set msg_huffSlow 1); }
+# all of them as before (not the build flags, nor the AltiVec code being compiled in)
+variant_up() { oa_x +set r_shaderTextScan 1 +set fs_zipCrc 1 +set com_altivec 0 +set r_markClear 1 +set s_alLazy 0 +set fs_zipFast 0; CMD+=(+set msg_huffSlow 1); }
 # tc1 with no window manager, as step 0 ran: the window never reached the screen (SDL's fullscreen
 # went unanswered), so this measures what showing the frames costs
 variant_tc1nowm() { OA_TC=1; oa_cmd; WM=; }

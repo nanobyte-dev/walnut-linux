@@ -8,3 +8,10 @@
 0008-renderergl2-no-tangents-in-MD3-VBOs-without-normal-m.patch
 0009-renderergl2-r_md3Lods-and-no-MD3-LODs-that-r_lodbias.patch
 0010-renderergl2-r_gpuVertexAnimation-to-animate-MD3-mode.patch
+0011-renderergl1-no-scan-of-the-whole-shader-text-after-a.patch
+0012-unzip-no-crc32-of-the-pk3-entries-read-fs_zipCrc-1-b.patch
+0013-renderergl1-build-the-AltiVec-code-com_altivec-fixed.patch
+0014-renderergl1-R_ChopPolyBehindPlane-doesn-t-clear-its-.patch
+0015-OpenAL-s_alLazy-the-sounds-of-a-player-are-loaded-wh.patch
+0016-unzip-inflate-whole-pk3-entries-with-libdeflate-USE_.patch
+0018-msg-the-message-Huffman-trees-from-tables-msg_huffSl.patch

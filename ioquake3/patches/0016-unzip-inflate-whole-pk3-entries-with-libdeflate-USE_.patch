@@ -1,0 +1,201 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sat, 17 Oct 2026 17:23:19 +0300
+Subject: unzip: inflate whole pk3 entries with libdeflate (USE_LIBDEFLATE,
+ fs_zipFast)
+
+On the first read from a deflated entry, read its compressed bytes at once and inflate them with
+libdeflate, straight into the caller's buffer if that is as long as the entry (FS_ReadFile), else
+into a buffer the following reads are served from (the WAV loader reads a header first). Anything
+unusual (encrypted, over 16 MB, a libdeflate error) goes the zlib way as before. libdeflate needs
+about 42% fewer instructions than zlib 1.3.2 on powerpc64 (qemu-ppc64 instruction counts over the 133
+entries OpenArena's demo reads: all inflate to the same bytes, crc32 checked). Off by default in
+cmake (USE_LIBDEFLATE), fs_zipFast 0 uses zlib at run time.
+
+diff --git a/cmake/libraries/all.cmake b/cmake/libraries/all.cmake
+--- a/cmake/libraries/all.cmake
++++ b/cmake/libraries/all.cmake
+@@ -10,6 +10,7 @@ endforeach()
+ include(libraries/curl)
+ include(libraries/freetype)
+ include(libraries/jpeg)
++include(libraries/libdeflate)
+ include(libraries/ogg)
+ include(libraries/opus)
+ include(libraries/openal)
+diff --git a/cmake/libraries/libdeflate.cmake b/cmake/libraries/libdeflate.cmake
+new file mode 100644
+--- /dev/null
++++ b/cmake/libraries/libdeflate.cmake
+@@ -0,0 +1,13 @@
++option(USE_LIBDEFLATE "Inflate the pk3 entries with libdeflate (faster than zlib)" OFF)
++
++if(USE_LIBDEFLATE)
++    find_path(LIBDEFLATE_INCLUDE_DIR libdeflate.h REQUIRED)
++    find_library(LIBDEFLATE_LIBRARY NAMES deflate libdeflate REQUIRED)
++
++    list(APPEND SERVER_LIBRARIES ${LIBDEFLATE_LIBRARY})
++    list(APPEND SERVER_INCLUDE_DIRS ${LIBDEFLATE_INCLUDE_DIR})
++    list(APPEND SERVER_DEFINITIONS USE_LIBDEFLATE)
++    list(APPEND CLIENT_LIBRARIES ${LIBDEFLATE_LIBRARY})
++    list(APPEND CLIENT_INCLUDE_DIRS ${LIBDEFLATE_INCLUDE_DIR})
++    list(APPEND CLIENT_DEFINITIONS USE_LIBDEFLATE)
++endif()
+diff --git a/code/qcommon/unzip.c b/code/qcommon/unzip.c
+--- a/code/qcommon/unzip.c
++++ b/code/qcommon/unzip.c
+@@ -45,6 +45,11 @@ woven in by Terry Thorsen 1/2003.
+ #include "../qcommon/qcommon.h"
+ #include "unzip.h"
+ 
++#ifdef USE_LIBDEFLATE
++#include <libdeflate.h>
++#include <stdlib.h>
++#endif
++
+ #ifndef local
+ #  define local static
+ #endif
+@@ -113,6 +118,11 @@ typedef struct
+     uLong compression_method;   /* compression method (0==store) */
+     uLong byte_before_the_zipfile;/* byte before the zipfile, (>0 for sfx)*/
+     int   raw;
++#ifdef USE_LIBDEFLATE
++    int   fast;                 /* 0: try libdeflate on the first read, 1: use zlib */
++    unsigned char *whole;       /* the entry inflated, when the first read was a part of it */
++    uLong whole_pos;
++#endif
+ } file_in_zip_read_info_s;
+ 
+ 
+@@ -1233,6 +1243,90 @@ extern int ZEXPORT unzOpenCurrentFile2 (file,method,level,raw)
+     return unzOpenCurrentFile3(file, method, level, raw, NULL);
+ }
+ 
++#ifdef USE_LIBDEFLATE
++#define UNZ_FAST_MAX (16 << 20)		/* entries up to this size are inflated at once */
++#define UNZ_FAST_NOT_HANDLED (-1000)
++
++/*
++  Inflate a whole deflated entry with libdeflate on the first read from it: the compressed bytes
++  in one read, the output straight into the caller's buffer if that is as long as the entry,
++  else into a buffer the reads are served from. About 40% fewer instructions than zlib's
++  inflate on PowerPC. Returns UNZ_FAST_NOT_HANDLED where zlib has to do it (the stream and the
++  file position then are as they were, bar the position, which every zlib read sets itself).
++*/
++local int unzFastRead(unz_s *s, file_in_zip_read_info_s *info, voidp buf, unsigned len)
++{
++    unsigned char *comp, *out;
++    struct libdeflate_decompressor *dec;
++    enum libdeflate_result res;
++    size_t actual = 0, usize = info->rest_read_uncompressed;
++    uLong csize = info->rest_read_compressed;
++
++    if (info->whole)
++    {
++        uLong n = usize;
++        if (n > len)
++            n = len;
++        memcpy(buf, info->whole + info->whole_pos, n);
++        info->whole_pos += n;
++        info->rest_read_uncompressed -= n;
++        info->stream.total_out += n;
++        return (int)n;
++    }
++
++    if (info->fast || info->compression_method != Z_DEFLATED || info->raw || s->encrypted ||
++        info->stream.total_out != 0 || info->stream.avail_in != 0 ||
++        usize == 0 || usize > UNZ_FAST_MAX || csize == 0 || csize > UNZ_FAST_MAX)
++    {
++        info->fast = 1;
++        return UNZ_FAST_NOT_HANDLED;
++    }
++    info->fast = 1;			/* one try */
++
++    comp = (unsigned char *)malloc(csize);
++    if (!comp)
++        return UNZ_FAST_NOT_HANDLED;
++    if (ZSEEK(info->z_filefunc, info->filestream,
++              info->pos_in_zipfile + info->byte_before_the_zipfile,
++              ZLIB_FILEFUNC_SEEK_SET) != 0 ||
++        ZREAD(info->z_filefunc, info->filestream, comp, csize) != csize)
++    {
++        free(comp);
++        return UNZ_FAST_NOT_HANDLED;
++    }
++
++    if (len >= usize)
++        out = (unsigned char *)buf;
++    else
++        out = (unsigned char *)malloc(usize);
++    dec = out ? libdeflate_alloc_decompressor() : NULL;
++    res = dec ? libdeflate_deflate_decompress(dec, comp, csize, out, usize, &actual) : LIBDEFLATE_INSUFFICIENT_SPACE;
++    if (dec)
++        libdeflate_free_decompressor(dec);
++    free(comp);
++    if (res != LIBDEFLATE_SUCCESS || actual != usize)
++    {
++        if (out && out != buf)
++            free(out);
++        return UNZ_FAST_NOT_HANDLED;
++    }
++
++    if (info->check_crc)
++        info->crc32 = crc32(0, out, (uInt)usize);
++    info->pos_in_zipfile += csize;
++    info->rest_read_compressed = 0;
++    if (out == buf)
++    {
++        info->rest_read_uncompressed = 0;
++        info->stream.total_out = usize;
++        return (int)usize;
++    }
++    info->whole = out;
++    info->whole_pos = 0;
++    return unzFastRead(s, info, buf, len);
++}
++#endif
++
+ /*
+   Read bytes from the current file.
+   buf contain buffer where data must be copied
+@@ -1266,6 +1360,28 @@ extern int ZEXPORT unzReadCurrentFile  (file, buf, len)
+     if (len==0)
+         return 0;
+ 
++#ifdef USE_LIBDEFLATE
++    if (pfile_in_zip_read_info->whole || !pfile_in_zip_read_info->fast)
++    {
++        static cvar_t *fs_zipFast;
++        int r;
++
++        if (!fs_zipFast)
++        {
++            fs_zipFast = Cvar_Get("fs_zipFast", "1", 0);
++            Cvar_SetDescription(fs_zipFast, "1: inflate pk3 entries with libdeflate (faster), 0: with zlib, as upstream");
++        }
++        if (!fs_zipFast->integer && !pfile_in_zip_read_info->whole)
++            pfile_in_zip_read_info->fast = 1;
++        else
++        {
++            r = unzFastRead(s, pfile_in_zip_read_info, buf, len);
++            if (r != UNZ_FAST_NOT_HANDLED)
++                return r;
++        }
++    }
++#endif
++
+     pfile_in_zip_read_info->stream.next_out = (Bytef*)buf;
+ 
+     pfile_in_zip_read_info->stream.avail_out = (uInt)len;
+@@ -1534,6 +1650,10 @@ extern int ZEXPORT unzCloseCurrentFile (file)
+     }
+ 
+ 
++#ifdef USE_LIBDEFLATE
++    free(pfile_in_zip_read_info->whole);
++    pfile_in_zip_read_info->whole = NULL;
++#endif
+     TRYFREE(pfile_in_zip_read_info->read_buffer);
+     pfile_in_zip_read_info->read_buffer = NULL;
+     if (pfile_in_zip_read_info->stream_initialised)
