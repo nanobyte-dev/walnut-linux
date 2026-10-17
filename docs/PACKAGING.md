@@ -251,8 +251,8 @@ holds the files ClassiCube's launcher otherwise extracts from Mojang's Minecraft
 1.6.2 client jars (`terrain.png`, `char.png`, the mob skins..., the "classic jar files" in the
 pinned `src/Resources.c`) with ClassiCube's patches; the sounds and music come from Mojang's
 resource server (`classicube/sounds.sh`). Same paths as before (`/usr/lib/classicube/texpacks`,
-`audio/`). `classicube` depends on `classicube-data (>= <upstream version>)`, so a newer engine
-build (dev or release) works with the data already installed; `classicube-data` has
+`audio/`). `classicube` does not depend on `classicube-data` (only `Suggests`: free packages never
+depend on licensed ones, see "The rule" below); `classicube-data` has
 `Breaks`/`Replaces: classicube (<< 1.3.8~git20261014.aa47929-1+ps3.366~)`, the upgrade from the
 bundled package. Each release of the source package also publishes a new `classicube-data` (15 MB) to
 `ps3-licensed`, kept forever like the bundled versions in `ps3` were. On a PS3 with the bundled
@@ -262,6 +262,26 @@ along); by hand, `sudo apt install -t ps3-dev ps3-system`, `sudo apt update`,
 `sudo apt install -t ps3-dev classicube` (classicube-data comes from `ps3-licensed`). Checked
 with dpkg, 2026-10-17: the bundled 330 upgrades to the pair in any unpack order, the files then
 belong to classicube-data.
+
+Without the data the engine still works: `/usr/games/classicube` runs it from
+`~/.local/share/classicube`, and ClassiCube's launcher (the pinned source's `Resources_CheckExistence`)
+finds `texpacks/classicube.zip` missing, asks to fetch it and the sounds and music (the texture pack
+from `static.classicube.net`, the audio from Mojang's resource server; BearSSL is built in), and
+writes them under that directory, nothing outside it. Our patches leave this alone. The steps for a
+user, or for copying the files by hand, are in `/usr/share/doc/classicube/README.Debian`
+(`classicube/debian/classicube.README.Debian`).
+
+### The rule: free packages never depend on licensed ones
+
+Every free package (the engines, `ps3-games`, `ps3-desktop`, ...) must be installable and
+distributable on its own, so none of them has a `Depends` or `Recommends` on a licensed package
+(`tools/licensed-packages.txt`, or a Section `non-free/*` or `local/*`); `Suggests` is fine. The
+user puts the data in the game directory (each game's docs say where and how to get it). Our own
+machines get the data from the `ps3-licensed` suite through the metapackage `ps3-games-licensed`
+(`ps3-games-licensed/`, Section `local/games`, so `ps3-licensed` only): it depends on `ps3-games`,
+`classicube-data`, `quake-shareware` and `quake2-demo-data`, so `sudo apt install ps3-games-licensed`
+gives the whole suite with its data. Personal and LAN use only. A new licensed game data package
+goes into `tools/licensed-packages.txt` and into that metapackage's `Depends`.
 
 ## Image snapshots
 

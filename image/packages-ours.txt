@@ -18,4 +18,5 @@ ps3-spu-programs
 libspeq0
 ps3-apps
 ps3-games
+ps3-games-licensed
 classicube

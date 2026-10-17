@@ -8,3 +8,5 @@ quake-shareware
 quake2-demo-data
 # ClassiCube's textures, sounds and music, Mojang's (classicube/, Section local/games)
 classicube-data
+# The metapackage that pulls the licensed data in with ps3-games (ps3-games-licensed/, Section local/games)
+ps3-games-licensed

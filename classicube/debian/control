@@ -9,12 +9,14 @@ Homepage: https://www.classicube.net/
 
 Package: classicube
 Architecture: ppc64
-Depends: ${shlibs:Depends}, ${misc:Depends}, libopenal1,
- classicube-data (>= ${source:Upstream-Version})
+Depends: ${shlibs:Depends}, ${misc:Depends}, libopenal1
+Suggests: classicube-data (>= ${source:Upstream-Version})
 Description: ClassiCube block building game
  A Minecraft Classic compatible game (SDL3 window and gamepad, desktop GL 1, OpenAL).
  /usr/games/classicube runs it from a per-user directory (~/.local/share/classicube), where it
- keeps options, maps and screenshots. Its textures, sounds and music are in classicube-data.
+ keeps options, maps and screenshots. It does not contain Mojang's textures, sounds and music:
+ the game's launcher downloads them on first run, or classicube-data (our LAN repository only)
+ installs them. See /usr/share/doc/classicube/README.Debian.
 
 # Mojang's textures and audio: licensed content we may not redistribute (Section local/*), so
 # tools/repo-publish.sh puts it in the ps3-licensed suite, never in ps3 or ps3-dev. Until

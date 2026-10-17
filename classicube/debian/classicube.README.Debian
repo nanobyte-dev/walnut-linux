@@ -1,0 +1,46 @@
+ClassiCube for Debian / the PS3
+===============================
+
+This package is the game engine only. The textures, sounds and music are Mojang's and are not
+part of it, so that the package can be distributed on its own. The game needs them, and gets
+them in one of three ways. All files live in the per-user game directory
+
+    ~/.local/share/classicube/        ($XDG_DATA_HOME/classicube)
+
+which /usr/games/classicube creates and runs the game from.
+
+1. The game's own download (needs internet, the launcher shows the size)
+   Start ClassiCube. With no data present its launcher shows "Some required resources weren't
+   found" with the size and a Yes/No question. Answer Yes. It fetches
+     - the texture pack, http://static.classicube.net/default.zip, saved as
+       ~/.local/share/classicube/texpacks/classicube.zip
+     - the sounds and music from Mojang's resource server
+       (https://resources.download.minecraft.net/), saved as audio/default2.zip (sounds, written
+       by the game itself) and audio/*.ogg (music)
+   and then shows the main menu. Nothing is written outside the user directory. The launcher is
+   driven with mouse and keyboard.
+
+2. Copy the files by hand (no internet on the machine)
+   Take them from another ClassiCube install (its texpacks/ and audio/ directories, made by
+   the launcher as in 1.) and put them in the same places:
+     ~/.local/share/classicube/texpacks/classicube.zip
+     ~/.local/share/classicube/audio/default2.zip     (this name on big-endian machines like
+                                                       the PS3, default.zip elsewhere)
+     ~/.local/share/classicube/audio/*.ogg            (calm1-3, hal1-4 and so on)
+   Sounds made on a little-endian machine (audio/default.zip) are not usable on the PS3: let
+   the launcher fetch them there, or copy default2.zip from a PS3 install. The files the
+   launcher builds from an installed Minecraft Classic client are the same Mojang assets.
+   With every file present the launcher goes straight to the main menu. The game also runs
+   without sounds or music; the texture pack is required.
+
+3. The classicube-data package (our own LAN repository only)
+   In the PS3 project's apt repository, the ps3-licensed suite has classicube-data, which
+   installs the same files under /usr/lib/classicube/. /usr/games/classicube then copies them
+   into the user directory on first start. It is for personal / LAN use and is not distributed
+   with the game. ps3-games-licensed pulls it in along with the other licensed game data:
+
+       sudo apt install ps3-games-licensed
+       (or just: sudo apt install classicube-data)
+
+Starting over: delete ~/.local/share/classicube/texpacks and audio; the next start fetches (or
+copies) them again. Options, maps and screenshots in the same directory are left alone.
