@@ -16,7 +16,10 @@ submission, took Armagetron back to 61.5. Batching the GL calls in the games the
 our X-Moto runs its replay at 166.5 fps instead of 44.5, Extreme Tux Racer at 59 instead of 52.
 OpenArena opengl2 with our ioquake3 memory patches: 26-32 fps, longest stall 6 s instead of 24.7.
 SuperTuxKart now loads (karts render, the track doesn't: out of VRAM). dsda-doom's GL renderer and
-ClassiCube are getting the same batching (agents at work).
+ClassiCube got the same batching late in the day (built, not run on the PS3: dsda-doom's gl
+timedemo ~1960 -> ~390 GL calls and ~205 -> ~44 draws a frame, ClassiCube's path 5127 -> 1524
+calls and 1107 -> 294 draws, both counted on llvmpipe). SuperTuxKart ps3.306: VRAM 210 -> 132 MB
+(98 MB with nohd or lean), HUD 13-19 fps, still "out of VRAM" lines, picture not yet confirmed.
 
 Every number is 1920x1080, measured through games/bench with the picture checked on the webcam.
 
@@ -26,9 +29,9 @@ Every number is 1920x1080, measured through games/bench with the picture checked
 | Armagetron | yes | right | right | recorded AI round, `--playback --benchmark` | 61.5 HUD (Mesa ps3.299; 60 on ps3.246, 50-53 on ps3.262/282) | **meets it** | - (ps3.262's loss was the missing CPU/GPU overlap without relocations; 0027 fixed it) |
 | Neverball | yes (ps3rsx 0.249: no wedge) | right | 15-36 underruns a run | shipped replay (only ~20 s); our NEVERBALL_BENCH prints fps and quits at its end | 70-76 (its own count); 320-380 ms stalls at the start | **meets it** | a longer replay of the user's (the start-up stutters weigh too much in 20 s) |
 | Yamagi Quake II | yes | right | right (our fix) | timedemo q2demo1 | 63.9 (ps3.262) | **meets it** | - |
-| dsda-doom (GL renderer) | yes | right (our fixes) | **choppy** (MIDI synthesis) | Freedoom DEMO1 timedemo | 48.8 | under | game-side batching (agent); fluidsynth on the SPEs: v1 cut its CPU (49 -> 32 s a minute) but 1097 underruns remain, v2 built; music default |
+| dsda-doom (GL renderer) | yes | right (our fixes) | **choppy** (MIDI synthesis) | Freedoom DEMO1 timedemo | 48.8 | under | game-side batching (our dsda-doom 0005, built, to run); fluidsynth on the SPEs: v1 cut its CPU (49 -> 32 s a minute) but 1097 underruns remain, v2 built; music default |
 | Extreme Tux Racer | yes | right | right | the user's race, replayed (evemu) | 59 HUD median (our batching, ps3.324; 52 without, Mesa ps3.299) | close | performance |
-| ClassiCube | yes | right | right | fly-through plugin, 3000 fixed frames | 50.1, load 11.6 s (ps3.262); 46.5 on a later boot (ps3.299, ps3.282 46.9 on that boot) | under | game-side batching (agent) |
+| ClassiCube | yes | right | right | fly-through plugin, 3000 fixed frames | 50.1, load 11.6 s (ps3.262); 46.5 on a later boot (ps3.299, ps3.282 46.9 on that boot) | under | game-side batching (our classicube 0001-0002, built, to run) |
 | OpenArena (opengl1) | yes | right | right | timedemo bench | 52.4 (ps3.299); 54.4, load 8.2 s (ps3.262) | close | our ioquake3 0011-0018 (engine and renderer CPU) built, to run |
 | X-Moto | yes | right | right (engine quiet under the music) | credits replay | 166.5 HUD (our batching, ps3.323; 44.5 without, Mesa ps3.299) | **meets it** | - |
 | dsda-doom (software) | yes | right (our fix) | choppy | as GL | 38, the timedemo now finishes (ps3.262) | under | the GL renderer is the way |

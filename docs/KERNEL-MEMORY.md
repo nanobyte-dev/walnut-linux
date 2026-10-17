@@ -13,7 +13,8 @@ How the numbers were obtained:
   shipped `vmlinux` section for section, so deltas are real. "Resident" = sum of the sizes of all
   alloc sections outside the init range, ignoring the 16 MiB padding (the padding gets its own row).
 - **computed**: from the named source file or from `size`/`nm` on the build output.
-- Nothing was booted: every kernel row below still needs one reboot test.
+- Nothing was booted when this was written; the recommended set (section 4) shipped 2026-10-16 as
+  the `ps3-release` flavour and measured `MemTotal` +8712 kB. The other rows are still unbooted.
 
 ## 1. What the 35 MB "reserved" is
 

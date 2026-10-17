@@ -4,6 +4,11 @@ Goal: a responsive lightweight desktop. The PPE is in-order (per thread closer t
 than a Core 2), and Linux gets 165 MB of the 256 MB XDR, so the target is "snappy LXQt", not
 Core 2 Duo numbers. Measure before and after every change.
 
+**Status 2026-10-17:** a record of the first days. Since then the desktop is Openbox + PCManFM
+(DESKTOP-PLAN.md), the root is on the USB disk, the GART grows on demand from CMA, swap lives in
+VRAM (ps3vswap, PLAN.md) and the release kernel gives Linux 222 MB. The "Next" list below is done
+or superseded; game and driver performance is in GAME-PLAN.md, open ideas in IDEAS.md.
+
 ## Found so far
 
 | Problem | Effect | Fix |

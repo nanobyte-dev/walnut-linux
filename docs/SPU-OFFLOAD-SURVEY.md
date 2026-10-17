@@ -1,6 +1,8 @@
 # SPU offload: what to move, with memory as the main constraint
 
-2026-10-15. Follow-up to docs/SPU-OFFLOAD.md (same day), which ranked candidates by PPE time.
+2026-10-15. (Status 2026-10-17: #1 and #2 are done for DXT1, #3 split into fluidsynth (built and
+measured) and OpenAL Soft (under the 6% bar); the plan is SPU-OFFLOAD-PLAN.md, open ideas in
+IDEAS.md.) Follow-up to docs/SPU-OFFLOAD.md (same day), which ranked candidates by PPE time.
 This pass adds what we learned since: the memory budget (docs/PLAN.md "Memory budget"), the
 VRAM swap work (ps3vswap) and new profiles. "Unverified" marks numbers nobody has measured here.
 

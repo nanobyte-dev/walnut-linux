@@ -1,6 +1,7 @@
 # Game test suite: candidates, picks and a benchmark runner
 
-2026-10-16. Research only, nothing here was run on the PS3. Why: step 0 (SPU-OFFLOAD-SURVEY.md)
+2026-10-16. Research only, nothing here was run on the PS3. (2026-10-17: every pick has run since;
+results and status are in GAME-PLAN.md, which supersedes this file where they differ.) Why: step 0 (SPU-OFFLOAD-SURVEY.md)
 rested on OpenArena alone, which misled us about VRAM and sound; SPU offload (DXT, audio) and memory
 decisions need 5-10 titles. Sources: the debian-ports snapshot we pin (`20261013T000000Z`, ppc64 and
 all; contrib too), live debian-ports, buildd.debian.org logs, the Debian BTS, upstream issue trackers

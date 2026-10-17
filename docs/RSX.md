@@ -97,6 +97,8 @@ semaphores (FIFO), 0x66626660 reports, 0x66604200 notifier.
 
 CPU access to VRAM is unusable for real work: uploads and readbacks must go through XDR buffers
 and the M2MF. A write-combining kernel mapping is no faster than the guarded one (69 vs 70 MB/s, E8).
+(That loop timed each page's first touch too, so the hash faults may hide a difference:
+RSX-SPU-FEASIBILITY.md section 1, probe E8b, not run.)
 
 ## Errors
 
@@ -201,3 +203,13 @@ Measured with ps3-gpu-tools/mesa-tests (2026-10-17):
 - gl-genmip: GPU mipmap generation is right for square power-of-two textures; for non-square ones
   the levels 1 pixel wide or high are swizzled render targets ps3rsx's validator refuses, and the
   whole push is lost with them (level 0's upload included).
+- Both fixed in Mesa 0012 and 0013 (ps3.223): gl-texfmt and gl-genmip pass.
+
+## Submission and fetch (2026-10-17, Mesa ps3.262-ps3.299)
+
+- Without relocations (Mesa 0019) nothing forced a submission mid-frame, so a frame reached the GPU
+  in one piece at SwapBuffers and the GPU idled while the CPU built it: Armagetron 60 -> 50 fps at
+  the same CPU time. Submitting every 100 draws, or (0027) at a draw start once the GPU has passed
+  the last fence and enough is queued, gave the overlap back (61.5).
+- The RSX fetches fragment programs from GART (Mesa 0031, constant changes run from a GART copy):
+  right picture in OpenArena opengl2, no exception.
