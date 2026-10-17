@@ -3,18 +3,28 @@
 SUITE=1
 COMM=ioquake3
 SOUND_AT=25	# after the level load (a cold first run takes ~12 s), during the demo
-BACKUP=("$HOME/.openarena/baseoa/q3config.cfg")
+OA_AUTOEXEC=$HOME/.openarena/baseoa/autoexec.cfg
+BACKUP=("$HOME/.openarena/baseoa/q3config.cfg" "$OA_AUTOEXEC")
 setup() {
 	mkdir -p "$HOME/.openarena/baseoa/demos"
+	# the variant's cvars (OA_X) as set lines: the engine runs autoexec.cfg at start, before the
+	# renderer comes up, like q3config.cfg
+	local i
+	: > "$OA_AUTOEXEC"
+	for ((i = 0; i + 2 < ${#OA_X[@]} + 1; i += 3)); do
+		[ "${OA_X[i]}" = +set ] && printf 'set %s "%s"\n' "${OA_X[i+1]}" "${OA_X[i+2]}" >> "$OA_AUTOEXEC"
+	done
 	cmp -s "$ASSETS/openarena-bench.dm_71" "$HOME/.openarena/baseoa/demos/bench.dm_71" ||
 		cp "$ASSETS/openarena-bench.dm_71" "$HOME/.openarena/baseoa/demos/bench.dm_71"
 }
 # at the demo's end meminfo prints the hunk in use (parse(): hunk_*), with the level still loaded.
-# The engine cuts its command line at 1023 characters (MAX_STRING_CHARS, sys_main.c): gl2min_up,
-# the longest, is ~800 with the wrapper's own +set; past that, +demo bench is lost and the menu stays.
+# The engine keeps at most 32 '+' commands from its command line (MAX_CONSOLE_LINES, common.c) and
+# drops the rest silently; Debian's openarena wrapper already passes ~10. So the variants' cvars
+# (OA_X, "+set name value" triples) go into autoexec.cfg (setup()), not onto the command line:
+# gl2min_up's 36 commands lost +demo bench and sat in the menu (2026-10-17).
 OA_TD=(+set r_swapInterval 0 +set com_maxfps 0 +set timedemo 1 +set nextdemo "meminfo; quit" +demo bench)
 OA_R=opengl1; OA_TC=1; OA_X=()
-oa_cmd() { CMD=(/usr/games/openarena +set cl_renderer $OA_R +set r_ext_compressed_textures $OA_TC "${OA_X[@]}" "${OA_TD[@]}"); }
+oa_cmd() { CMD=(/usr/games/openarena +set cl_renderer $OA_R +set r_ext_compressed_textures $OA_TC "${OA_TD[@]}"); }
 oa_cmd
 FPS_RE='[0-9]+ frames [0-9.]+ seconds ([0-9.]+) fps'
 MAXMS_RE='[0-9.]+ fps [0-9.]+/[0-9.]+/([0-9.]+)/'
