@@ -6,6 +6,12 @@
 # load = seconds to the first measured frame (map load and warm-up). The plugin does nothing without
 # CC_BENCH; the run removes it again (BACKUP: it wasn't there before). Options and plugins live next
 # to the game in ~/.local/share/classicube.
+# Steady state: the plugin flies the path up to 6 times (CC_BENCH_PASSES, assets/classicube-bench.so
+# of 2026-10-17: a report per pass, after "ccbench: pass K of N"); PASSES=1: client.sh counts the
+# passes that start 54 s or more after the first measured frame (a pass is ~60 s at 50 fps, so the
+# first is the warm-up) and stops the game once they cover ~120 s (2 passes). fps=, maxms= are the
+# first pass's (the run as before); steady is the median of the counted passes. An older plugin
+# ignores CC_BENCH_PASSES: one pass, as before.
 SUITE=1
 COMM=ClassiCube
 CC_DIR=${XDG_DATA_HOME:-$HOME/.local/share}/classicube
@@ -22,14 +28,15 @@ setup() {
 	printf 'fpslimit=%s\nwindow-width=1920\nwindow-height=1080\n' "$CC_LIMIT" >> "$CC_DIR/options.txt"
 }
 CMD=(/usr/games/classicube "$CC_DIR/maps/bench.cw")
-ENV=(CC_BENCH="$ASSETS/classicube-bench.path")
+ENV=(CC_BENCH="$ASSETS/classicube-bench.path" CC_BENCH_PASSES=6)
+PASSES=1
 # ccbench: 3000 frames 58.21 seconds 51.54 fps, frame ms min/avg/p99/max 12.1/19.4/31.0/45.6
 FPS_RE='^ccbench: [0-9]+ frames [0-9.]+ seconds ([0-9.]+) fps'
 MAXMS_RE='^ccbench: [0-9]+ frames .* min/avg/p99/max [0-9.]+/[0-9.]+/[0-9.]+/([0-9.]+)'
 LOAD_MARK='^ccbench: start after'
 # the game quits by itself; this only stops a run that hangs or crawls (under ~19 fps it can't
 # finish: run.sh smoke stops everything at 180 s)
-DURATION=120	# a safety cap: the plugin quits by itself (~70 s of demo after ~15 s of load)
+DURATION=330	# a safety cap: ~15 s of load, passes of ~60 s, stopped after the third (or the fourth)
 parse() {	# frame time spread and chunk builds during the run (0: the frames were the same)
 	local l
 	[ -e "$D/game.log" ] || return 0
@@ -44,11 +51,12 @@ parse() {	# frame time spread and chunk builds during the run (0: the frames wer
 variant_vsync() { CC_LIMIT=LimitVSync; }
 # the path with a screenshot of every keyframe into the run directory (frame-NNNNN.ppm, 1920x1080,
 # 6 MB each; their time is left out of the numbers): check the PS3's frames against another build
-variant_shots() { ENV+=(CC_BENCH_SHOTS="$D"); }
-# the old run: standing still at the map's spawn for 60 s, no plugin, fps from the Gallium HUD only
-# (the map loads in a few seconds and prints nothing: the HUD's first 10 s count as loading)
+variant_shots() { ENV+=(CC_BENCH_SHOTS="$D" CC_BENCH_PASSES=1); }
+# the old run: standing still at the map's spawn, no plugin, fps from the Gallium HUD only (the map
+# loads in a few seconds and prints nothing: the HUD's first 10 s count as loading); 60 s before the
+# steady state, now the HUD window (60 s from the first frame, 120 s, then stopped)
 variant_still() {
-	CC_PLUGIN=0; ENV=(); FPS_RE=; MAXMS_RE=; LOAD_MARK=; DURATION=60; HUD_SKIP=10
+	CC_PLUGIN=0; ENV=(); FPS_RE=; MAXMS_RE=; LOAD_MARK=; DURATION=240; HUD_SKIP=10; PASSES=0; WINDOW_STOP=1
 	parse() { :; }
 }
 # OpenAL Soft measurements (docs/SPU-AUDIO.md, M0): the shared variants of openal.inc, and no sound
