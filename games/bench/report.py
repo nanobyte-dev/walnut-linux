@@ -14,6 +14,9 @@ from before 2026-10-17 have none):
   low1    the 1% low in the window: 1000 / the 99th percentile frame time (from the HUD's frame
           times; runs with only per-second fps: the 1st percentile of those seconds, src hud1s)
   stalls  frames over 100 ms in the window (per-second data only: seconds under 10 fps)
+  smooth  fps over the window's frames of 100 ms or less (HUD frame times): the rendering rate with
+          the stalls left out; stall_s the seconds the window spent in frames over 100 ms. A
+          change in steady with smooth unchanged is a change in stalls, not in the cost of a frame
   longest the longest frame in the window, ms (HUD frame times, else the passes' own maxms)
   win     seconds measured; ftdrift: run time minus the end of the last HUD frame (s: large when the
           frame times are misplaced against the clock, e.g. a renderer restart's gap)
@@ -161,6 +164,10 @@ def steady(d, b, r):
             r["hud_win"] = bins[len(bins) // 2]
             r["low1"] = round(1000 / ms[max(0, -(-len(ms) * 99 // 100) - 1)], 1)
             r["stalls"] = sum(1 for v in ms if v > STALL_MS)
+            short = [v for v in ms if v <= STALL_MS]
+            if short:
+                r["smooth"] = round(1000 * len(short) / sum(short), 1)
+            r["stall_s"] = round(sum(v for v in ms if v > STALL_MS) / 1000, 1)
             r["longest"] = round(ms[-1], 1)
             r["win"] = round(sum(min(t, inw[-1][0]) - s for s, t in segs if s < inw[-1][0]), 1)
             r["src"] = "hud"
@@ -198,10 +205,10 @@ def steady(d, b, r):
             r["longest"] = m
 
 
-COLS = ["load", "fps", "maxms", "hud", "steady", "src", "low1", "stalls", "longest", "win", "passes",
+COLS = ["load", "fps", "maxms", "hud", "steady", "src", "low1", "stalls", "smooth", "stall_s", "longest", "win", "passes",
         "ftdrift", "cpu", "rss", "vram", "gart", "avail", "so_load", "so_all",
         "vsw_peak", "vsw_wb", "xrun", "snd", "end"]
-RANGED = ("load", "fps", "maxms", "hud_med", "steady", "low1")
+RANGED = ("load", "fps", "maxms", "hud_med", "steady", "low1", "smooth", "stall_s")
 
 
 def show(r):
