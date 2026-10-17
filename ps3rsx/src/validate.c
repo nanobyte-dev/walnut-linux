@@ -8,6 +8,7 @@
  * slots (0x180-0x1bc) only with its known context DMAs, and a per-class method allowlist: the
  * methods Mesa's nv30 driver can emit (docs/MESA-METHODS.md section 4, indexed arrays
  * expanded to all units) plus what our raw tests use, all of which ran on the RSX.
+ * Data checks: vertex format type 0, 1-pixel-wide swizzled render targets, SIFM surfaces.
  * Not yet: bounds checks of offsets against BOs at trigger methods.
  */
 #include <linux/kernel.h>
@@ -82,10 +83,26 @@ static const struct mrange m_sifm[] = {
 /*
  * The allowlist as one bit per method, built from the ranges at module load: the check runs for
  * every word of every push, and searching the ranges was the driver's largest cost in a game
- * (OpenArena, 2026-10-15).
+ * (OpenArena, 2026-10-15). VC_NONE: no object bound, or one without methods (image from CPU).
  */
-enum { VC_3D, VC_M2MF, VC_SURF2D, VC_SWZ, VC_SIFM, VC_N };
+enum { VC_NONE, VC_3D, VC_M2MF, VC_SURF2D, VC_SWZ, VC_SIFM, VC_N };
 static unsigned long allowed[VC_N][BITS_TO_LONGS(0x2000 / 4)];
+
+/*
+ * The validator's fast path, fast[class][method / 4]: F_OK when check_method() accepts that
+ * method on that class whatever the data, and changes nothing (allowed, not a bind or host
+ * method, not data-checked: fast_kind()); F_VTXFMT when its only check is the vertex format
+ * type. Such words, nearly all of a push, cost a table lookup; a non-incrementing burst to an
+ * F_OK method (inline vertex and index data) costs one for all its words. Everything else goes
+ * through check_method(), so the fast path accepts nothing it wouldn't.
+ */
+enum { F_SLOW, F_OK, F_VTXFMT };
+static u8 fast[VC_N][0x2000 / 4];
+
+static __always_inline bool fast_ok(u8 f, u32 data)
+{
+	return f == F_OK || (f == F_VTXFMT && (data & 0xf));
+}
 
 static void allow(int c, const struct mrange *r, int n)
 {
@@ -97,30 +114,41 @@ static void allow(int c, const struct mrange *r, int n)
 			__set_bit(m / 4, allowed[c]);
 }
 
+static u8 fast_kind(int c, u32 m);
+
 void ps3rsx_validate_init(void)
 {
+	int c;
+	u32 m;
+
 	allow(VC_3D, m_3d, ARRAY_SIZE(m_3d));
 	allow(VC_M2MF, m_m2mf, ARRAY_SIZE(m_m2mf));
 	allow(VC_SURF2D, m_surf2d, ARRAY_SIZE(m_surf2d));
 	allow(VC_SWZ, m_swz, ARRAY_SIZE(m_swz));
 	allow(VC_SIFM, m_sifm, ARRAY_SIZE(m_sifm));
+	for (c = VC_NONE + 1; c < VC_N; c++)
+		for (m = 0x100; m < 0x2000; m += 4)
+			fast[c][m / 4] = test_bit(m / 4, allowed[c]) ? fast_kind(c, m) : F_SLOW;
+}
+
+/* The validator class of an object handle */
+static u8 vclass(u32 handle)
+{
+	switch (handle) {
+	case 0x31337000: return VC_3D;
+	case 0x31337303:
+	case 0x3137c0de: return VC_M2MF;
+	case 0x313371c3: return VC_SURF2D;
+	case 0x31337a73: return VC_SWZ;
+	case 0x3137af00: return VC_SIFM;
+	default:	 return VC_NONE;	/* image-from-CPU: Mesa doesn't use it */
+	}
 }
 
 /* Is method m (at most 0x1ffc) allowed on the object with this handle? */
 static bool method_allowed(u32 handle, u32 m)
 {
-	int c;
-
-	switch (handle) {
-	case 0x31337000: c = VC_3D; break;
-	case 0x31337303:
-	case 0x3137c0de: c = VC_M2MF; break;
-	case 0x313371c3: c = VC_SURF2D; break;
-	case 0x31337a73: c = VC_SWZ; break;
-	case 0x3137af00: c = VC_SIFM; break;
-	default:	 return false;	/* image-from-CPU: Mesa doesn't use it */
-	}
-	return test_bit(m / 4, allowed[c]);
+	return test_bit(m / 4, allowed[vclass(handle)]);
 }
 
 bool ps3rsx_known_object(u32 handle)
@@ -143,6 +171,23 @@ static bool known_dma(u32 handle)
 	return false;
 }
 
+/*
+ * How the fast path may take allowed method m of class c, from what check_method() does with
+ * it (keep in step: a data check missing here would be skipped).
+ */
+static u8 fast_kind(int c, u32 m)
+{
+	if (m >= 0x180 && m <= 0x1bc)
+		return F_SLOW;			/* context DMAs; SIFM 0x198 surface */
+	if (c != VC_3D)
+		return F_OK;
+	if (m == 0x1808 || m == 0x208)
+		return F_SLOW;			/* BEGIN_END state, RT_FORMAT */
+	if (m >= 0x1740 && m <= 0x177c)
+		return F_VTXFMT;		/* vertex format type 0 */
+	return F_OK;
+}
+
 /* One method write: returns 0 or a negative errno (the caller logs where) */
 static int check_method(struct ps3rsx_vstate *vs, u32 subch, u32 mthd, u32 data, const char **why)
 {
@@ -152,6 +197,7 @@ static int check_method(struct ps3rsx_vstate *vs, u32 subch, u32 mthd, u32 data,
 			return -EINVAL;
 		}
 		vs->bound[subch] = data;
+		vs->cls[subch] = vclass(data);
 		return 0;
 	}
 	if (mthd < 0x100) {
@@ -201,20 +247,20 @@ static int check_method(struct ps3rsx_vstate *vs, u32 subch, u32 mthd, u32 data,
 }
 
 /*
- * Checks a push and, in the same pass, replays each accepted word into the channel's shadow
- * (shadow.c). A rejected push fails the whole submit, so the shadow is then cleared: the
- * channel's state is unknown, and nothing of it is restored any more.
+ * Checks a push. *vs follows the push's binds and primitives as it goes: the caller keeps it,
+ * and replays the pushes into the channel's shadow (ps3rsx_shadow_push()), only once the whole
+ * submit passed and went to the GPU, so a rejected push changes nothing.
  */
-int ps3rsx_validate(struct ps3rsx_vstate *chan_vs, struct ps3rsx_shadow *sh, const u32 *w,
-		    u32 nwords)
+int ps3rsx_validate(struct ps3rsx_vstate *vs, const u32 *w, u32 nwords)
 {
-	struct ps3rsx_vstate tmp = *chan_vs, *vs = &tmp;	/* kept only if the push passes */
 	const char *why = NULL;
 	u32 i = 0, k;
 	int ret;
 
 	while (i < nwords) {
 		u32 h = w[i], count, subch, mthd;
+		const u32 *data = &w[i + 1];
+		const u8 *ok;
 		bool noninc;
 
 		if (h == 0) {		/* NOP header */
@@ -236,24 +282,41 @@ int ps3rsx_validate(struct ps3rsx_vstate *chan_vs, struct ps3rsx_shadow *sh, con
 			why = "burst runs past the end of the push";
 			goto bad;
 		}
-		for (k = 0; k < count; k++) {
-			u32 m = noninc ? mthd : mthd + 4 * k;
+		ok = fast[vs->cls[subch]];
+		if (noninc) {
+			/* the same method for every word: one lookup when its data isn't checked */
+			u8 f = ok[mthd / 4];
 
-			if (m > 0x1ffc) {
-				why = "method burst past 0x1ffc";
-				goto bad;
+			if (f != F_OK) {
+				for (k = 0; k < count; k++) {
+					if (fast_ok(f, data[k]))
+						continue;
+					ret = check_method(vs, subch, mthd, data[k], &why);
+					if (ret)
+						goto bad;
+					f = fast[vs->cls[subch]][mthd / 4];	/* a bind */
+				}
 			}
-			ret = check_method(vs, subch, m, w[i + 1 + k], &why);
-			if (ret)
-				goto bad;
-			ps3rsx_shadow_write(sh, subch, m, w[i + 1 + k]);
+		} else {
+			for (k = 0; k < count; k++) {
+				u32 m = mthd + 4 * k;
+
+				if (m > 0x1ffc) {
+					why = "method burst past 0x1ffc";
+					goto bad;
+				}
+				if (fast_ok(ok[m / 4], data[k]))
+					continue;
+				ret = check_method(vs, subch, m, data[k], &why);
+				if (ret)
+					goto bad;
+				ok = fast[vs->cls[subch]];	/* a bind changes the class */
+			}
 		}
 		i += 1 + count;
 	}
-	*chan_vs = tmp;
 	return 0;
 bad:
 	pr_warn("ps3rsx: rejected push: %s at word %u (%08x)\n", why, i, w[i]);
-	ps3rsx_shadow_clear(sh);
 	return -EINVAL;
 }

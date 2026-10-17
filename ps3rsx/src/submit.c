@@ -302,8 +302,9 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	struct drm_gem_object **objs = NULL;
 	struct ww_acquire_ctx ticket;
 	struct dma_fence *fence = NULL;
-	bool held = false;
+	bool held = false, switched;
 	struct ps3rsx_chan *ch;
+	struct ps3rsx_vstate vs;
 	bool sync = req->vram_available & NOUVEAU_GEM_PUSHBUF_SYNC;
 	u64 total = 0;
 	u32 i, *ring, restore;
@@ -413,7 +414,8 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	}
 	/* another channel ran last: put this channel's state back first */
 	restore = 0;
-	if (ctxsw && rsx->last_chan != ch->id) {
+	switched = READ_ONCE(ctxsw) && rsx->last_chan != ch->id;
+	if (switched) {
 		hw_shadow_sync(rsx);
 		ret = ps3rsx_shadow_restore(ch->shadow, rsx->hw_shadow, rsx->restore_buf,
 					    RESTORE_MAX_WORDS);
@@ -429,6 +431,11 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 		goto out;
 	}
 	memcpy(ring, rsx->restore_buf, restore);
+	/*
+	 * Every push is checked before anything of the submit counts: the binds and primitives
+	 * they leave go into a copy of the channel's validator state, kept only if all pass.
+	 */
+	vs = ch->vstate;
 	{
 		u32 *dst = ring + restore / 4;
 
@@ -439,7 +446,7 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 			ps3rsx_gart_read(rsx, dst, pb->offset + push[i].offset, len);
 			apply_relocs(relocs, req->nr_relocs, bos, objs, req->nr_buffers,
 				     push[i].bo_index, push[i].offset, dst, len);
-			ret = ps3rsx_validate(&ch->vstate, ch->shadow, dst, len / 4);
+			ret = ps3rsx_validate(&vs, dst, len / 4);
 			if (ret) {
 				mutex_unlock(&rsx->exec_lock);
 				goto out;
@@ -452,16 +459,28 @@ int ps3rsx_ioctl_gem_pushbuf(struct drm_device *dev, void *data, struct drm_file
 	}
 	fence = ps3rsx_ring_commit(rsx, restore + total, !dry_run);
 	if (!IS_ERR(fence)) {
+		u32 *dst = ring + restore / 4;
+
 		/*
-		 * The GPU now holds this channel's state, then what its pushes set; the validator
-		 * already replayed the pushes into the channel's shadow. Until another channel
-		 * runs, the GPU's state is hw_shadow with this channel's taken over it
-		 * (hw_shadow_sync), so the pushes aren't replayed into hw_shadow word by word too.
+		 * The GPU now holds this channel's state, then what its pushes set: they go into
+		 * the channel's validator state and shadow (from the ring, where they still are).
+		 * Until another channel runs, the GPU's state is hw_shadow with this channel's
+		 * taken over it (hw_shadow_sync), so the pushes aren't replayed into hw_shadow
+		 * word by word too. After a switch hw_shadow takes the restore now (before the
+		 * pushes go into the channel's shadow), the pushes at the next sync.
 		 */
 		if (rsx->hw_behind != ch->shadow)
 			hw_shadow_sync(rsx);
-		if (ctxsw && rsx->last_chan != ch->id)
-			ps3rsx_shadow_take(ch->shadow, rsx->hw_shadow);
+		if (switched)
+			ps3rsx_shadow_take_restored(ch->shadow, rsx->hw_shadow, rsx->restore_buf,
+						    restore / 4);
+		ch->vstate = vs;
+		for (i = 0; i < req->nr_push; i++) {
+			u64 len = push[i].length & ~(u64)NOUVEAU_GEM_PUSHBUF_NO_PREFETCH;
+
+			ps3rsx_shadow_push(ch->shadow, dst, len / 4);
+			dst += len / 4;
+		}
 		rsx->hw_behind = ch->shadow;
 		rsx->last_chan = ch->id;
 		/* who to blame if the GPU raises an exception on this submit */

@@ -289,10 +289,12 @@ bool ps3rsx_exec_idle(struct ps3rsx_device *rsx)
 	return !READ_ONCE(rsx->prim_owner) && seq_passed(ref_read(rsx), rsx->seqno);
 }
 
-/* ps3fb had the GPU: what PGRAPH holds is unknown (no submit is running) */
+/* ps3fb had the GPU: what PGRAPH holds is unknown (no submit is running). The last channel is
+ * taken first, which also resets what its shadow marks as changed. */
 void ps3rsx_exec_forget_hw_state(struct ps3rsx_device *rsx)
 {
 	mutex_lock(&rsx->exec_lock);
+	ps3rsx_hw_shadow_sync(rsx);
 	ps3rsx_shadow_clear(rsx->hw_shadow);
 	rsx->hw_behind = NULL;
 	rsx->last_chan = -1;

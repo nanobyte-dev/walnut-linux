@@ -192,7 +192,9 @@ struct ps3rsx_shadow *ps3rsx_shadow_new(void);
 void ps3rsx_shadow_free(struct ps3rsx_shadow *sh);
 int ps3rsx_shadow_restore(const struct ps3rsx_shadow *ch, const struct ps3rsx_shadow *hw,
 			  u32 *buf, u32 max_words);
-void ps3rsx_shadow_take(const struct ps3rsx_shadow *ch, struct ps3rsx_shadow *hw);
+void ps3rsx_shadow_take(struct ps3rsx_shadow *ch, struct ps3rsx_shadow *hw);
+void ps3rsx_shadow_take_restored(struct ps3rsx_shadow *ch, struct ps3rsx_shadow *hw,
+				 const u32 *buf, u32 nwords);
 struct seq_file;
 void ps3rsx_shadow_show(struct seq_file *m, const struct ps3rsx_shadow *sh);
 void ps3rsx_submit_debugfs_init(struct ps3rsx_device *rsx);
@@ -232,8 +234,11 @@ void ps3rsx_gart_read(struct ps3rsx_device *rsx, void *dst, u64 io, size_t len);
 void ps3rsx_gart_clear(struct ps3rsx_device *rsx, u64 io, size_t len);
 bool ps3rsx_seq_done(struct ps3rsx_device *rsx, u32 seq);
 
-int ps3rsx_validate(struct ps3rsx_vstate *vs, struct ps3rsx_shadow *sh, const u32 *w, u32 nwords);
+int ps3rsx_validate(struct ps3rsx_vstate *vs, const u32 *w, u32 nwords);
 void ps3rsx_shadow_write(struct ps3rsx_shadow *sh, u32 subch, u32 m, u32 v);
+void ps3rsx_shadow_burst(struct ps3rsx_shadow *sh, u32 subch, u32 mthd, bool noninc,
+			 const u32 *v, u32 n);
+void ps3rsx_shadow_push(struct ps3rsx_shadow *sh, const u32 *w, u32 nwords);
 void ps3rsx_validate_init(void);
 void ps3rsx_shadow_init(void);
 
@@ -251,6 +256,7 @@ int ps3rsx_ioctl_gem_cpu_fini(struct drm_device *dev, void *data, struct drm_fil
 /* Per channel validator state: which object this channel bound on each subchannel */
 struct ps3rsx_vstate {
 	u32 bound[8];
+	u8 cls[8];		/* validate.c's class of each bound object */
 	bool prim_open;		/* the channel's last BEGIN_END opened a primitive */
 };
 
