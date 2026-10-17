@@ -232,7 +232,7 @@ Task numbers refer to the session task list. "Reboot" marks steps that need one.
    kernel package next to the debug one, so Petitboot offers both.
 4. **720p console** (`ps3fb=5M`, mode 131; −4 MB). The user decides: X shares the mode, so the
    desktop and games run at 720p too (also 2.25× fewer pixels per frame).
-5. **Userspace trims:** zram off now that VRAM swap works (1.5 MB table plus its pages);
+5. **Userspace trims (dropped 2026-10-17, the user: memory comes from game mode, see CLAUDE.md "Memory trims"):** zram off now that VRAM swap works (1.5 MB table plus its pages);
    wallpaper out of the 8 MB shared segment (in VRAM, or a solid colour); unload `cfg80211`
    when Wi-Fi is unused; `systemd-networkd` duplicates NetworkManager here; journal size limit;
    the seccomp filters of services that don't need them (1 MB). Re-measure the budget after.

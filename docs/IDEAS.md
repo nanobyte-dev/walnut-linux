@@ -88,19 +88,15 @@ entry the kernel BUG()s); ask before trying it.
 7. **dcbz.** `perf stat -e alignment-faults,emulation-faults` on Xorg with the desktop busy and on
    one game; thousands per second mean the trap.
 
-## Open decisions
+## Decisions (the user, 2026-10-17)
 
-1. **System trims against the memory-trims rule.** PLAN.md item 5 (zram off, seccomp filters,
-   cfg80211, networkd, journal size) predates CLAUDE.md's rule that memory comes from game mode.
-   Drop the item, or keep the trims that don't touch quality of life?
-2. **VRAM swap and game VRAM.** GAME-PLAN said the 96 MB reserve pushes a big game's textures
-   into GART; ps3rsx's mem.c makes the swap give chunks back first (their pages go to the disk).
-   Which happens in the heavy games is unmeasured, so the reserve's size (#4) is open.
-3. **SPU queues with several deadline services.** SPU-AUDIO 3(f)5 recommended one shared queue
-   with two job classes; 5(b) built a queue per service (DXT bulk on 4 SPEs, 2 left for deadline
-   queues). Skinning and fluidsynth take 2 each, so a game with both plus DXT would run 8
-   contexts on 6 SPEs and time-slice; today only `SPEQ_*_SPES=1` avoids it.
-4. **Same-boot baselines.** ClassiCube gave 50.1 fps on one boot and 46.5-46.9 on another, with
-   no change in Mesa between them. Should every round carry a same-boot baseline per game?
-5. **E8's write-combining result.** RSX.md says a WC mapping is no faster (69 against 70 MB/s);
-   RSX-SPU-FEASIBILITY says that loop timed page faults too. Run E8b before relying on either.
+1. **System trims:** dropped. PLAN.md item 5's permanent trims go; memory comes from game mode
+   (CLAUDE.md "Memory trims"), which already unloads the wallpaper and freezes the desktop.
+2. **VRAM swap and game VRAM:** a measurement, not a decision (#4): which path the heavy games
+   take (the swap giving VRAM back, or GART spill) is measured before the reserve is resized.
+3. **SPU queues:** one shared deadline pool of 2 SPEs for every latency-bound service (audio,
+   skinning: jobs from all of them in one queue, by deadline), DXT keeps its 4 bulk SPEs, so a
+   process never runs more contexts than SPEs.
+4. **Same-boot baselines:** yes, the rule. Every measured change runs against its off-switch (or
+   the previous build) in the same PS3 session; numbers from different boots are not compared.
+5. **E8's write-combining result:** a measurement (probe E8b) before either doc is relied on.
