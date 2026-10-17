@@ -1,9 +1,26 @@
 # Sauerbraten (our cube2 build: textures compressed at upload on Mesa too) with cube2-data 1.3's
-# maps (the BananaBread content). No timedemo: -l loads map "cave" (its only player start, so every
-# run looks from the same spot) and the player stands still; a CubeScript (-x) counts frames for 30 s
-# from 10 s after the first frame (a sleep re-armed every frame, wall time from getmillis 1), prints
-# "ps3bench: <n> frames in <ms> ms: <fps> fps, longest <ms> ms" and quits. getfps itself averages
-# only the last 60 frames. Settings go into ~/.cube2/autoexec.cfg (run after config.cfg, so the
+# maps (the BananaBread content).
+# base: the user's recorded demo (assets/sauerbraten-bench.dmo, 2026-10-17: an FFA round on cave with
+# two bots, 93 s of game time, recorded by the local server with `recorddemo 1` and a map reload,
+# saved with getdemo), copied to ~/.cube2/demo/bench.dmo and played with `mode -1; map bench` (demo mode on
+# the local server, as the data's `demo` command does it: the server's setupdemoplayback reads <demodir>/bench.dmo and
+# sends the recorded packets, so the client loads cave from them and runs `mapstart`; at the end,
+# "demo playback finished" and the client runs `demoend`). A CubeScript (-x) counts frames (a sleep
+# re-armed every frame, wall time from getmillis 1): each playback ("loop") prints "ps3bench: loop
+# <k>: <n> frames in <ms> ms: <fps> fps, longest <ms> ms" at its end (fps= and maxms= are loop 1's,
+# the whole first playback). Steady state: the window opens 60 s after the first mapstart (the map
+# loaded) and closes at the playback's end; demoend plays the demo again (a reload, left out of
+# the window: it reopens at the next mapstart) until the window holds ~120 s (114 s: the rest of loop
+# 1 and loop 2), then "ps3bench: steady <n> frames in <ms> ms: <fps> fps, longest <ms> ms" and quit.
+# The script marks the window ("ps3bench: window on/off": WIN_ON_RE, WIN_OFF_RE) so the HUD metrics
+# use the same pieces. The bots in a demo are played back, not simulated: every run is the same.
+# variant spawn: the method before the demo: -l loads map "cave" (its only player start, so every
+# run looks from the same spot) and the player stands still; the script counts frames for 30 s from
+# 10 s after the first frame and prints "ps3bench: <n> frames in <ms> ms: <fps> fps, longest <ms>
+# ms" (fps=, maxms=), then its own steady window, 60 s after the first frame for 120 s
+# (STEADY_RE), and quits. The view is static: one view's rendering once loading is over. The gun,
+# towers and *skin variants use it (the hud gun and the other map only exist there).
+# getfps itself averages only the last 60 frames. Settings go into ~/.cube2/autoexec.cfg (run after config.cfg, so the
 # player's saved fullscreen or vsync can't override them); both files are restored after the run.
 # Our cube2 (ps3.N, docs/GAME-PLAN.md) ships the memory defaults of cube2/patches: CPU skinning
 # (gpuskel 0: GPU skinning indexes a bone array in the vertex shader, which nv30 compiles to if/else
@@ -12,24 +29,19 @@
 # water fade shader variants only as far as maxdynlights, waterrefract and waterfade ask. "base" is
 # that; every variant below changes one thing (or, lean, the bundle that is meant to ship).
 # Memory per run: during.log has MemAvailable and SwapFree every 5 s, bench.txt their lowest.
-# Steady state: the script also counts its own window, 60 s after the first frame for 120 s, and
-# prints "ps3bench: steady <n> frames in <ms> ms: <fps> fps, longest <ms> ms" (STEADY_RE) before it
-# quits; the old line (10 s to 40 s) still comes first, so fps= and maxms= mean what they did. The
-# view is static (the player stands at the spawn): what the window measures is one view's
-# rendering once loading and the first stalls are over. Planned: a demo recorded once by the user
-# (cube2's `recorddemo 1` in a local game, saved as a .dmo) as the run; variant demo plays
-# assets/sauerbraten-bench.dmo, looped (demoend), with the same counters, when that file exists.
 SUITE=1
 COMM=cube2_client
 SB_HOME=$HOME/.cube2
-BACKUP=("$SB_HOME/autoexec.cfg" "$SB_HOME/config.cfg" "$SB_HOME/restore.cfg" "$SB_HOME/init.cfg")
+BACKUP=("$SB_HOME/autoexec.cfg" "$SB_HOME/config.cfg" "$SB_HOME/restore.cfg" "$SB_HOME/init.cfg"
+	"$SB_HOME/demo/bench.dmo")
 SB_MAP=cave
 SB_SET=()	# extra CubeScript lines for autoexec.cfg (variants)
 SB_INIT=()	# extra lines for init.cfg, which the engine reads before it starts the sound (soundfreq...)
-SB_DEMO=	# a demo file to play instead of standing on SB_MAP (variant demo)
+SB_MODE=demo	# demo: play SB_DEMO; spawn: stand at SB_MAP's player start (variant spawn)
+SB_DEMO=$ASSETS/sauerbraten-bench.dmo
 setup() {
 	mkdir -p "$SB_HOME"
-	if [ -n "$SB_DEMO" ]; then
+	if [ "$SB_MODE" = demo ]; then
 		[ -e "$SB_DEMO" ] || { echo "!! no $SB_DEMO: record the demo first (recipe header)"; return 1; }
 		mkdir -p "$SB_HOME/demo"; cp "$SB_DEMO" "$SB_HOME/demo/bench.dmo"
 	fi
@@ -39,23 +51,33 @@ setup() {
 SB_SCRIPT='ps3f = 0; ps3max = 0
 ps3count = [ps3f = (+ $ps3f 1); ps3now = (getmillis 1); ps3max = (max $ps3max (- $ps3now $ps3last)); ps3last = $ps3now; sleep 1 ps3count]
 sleep 1 [echo "ps3bench: first frame"; sleep 10000 [echo "ps3bench: start"; ps3t = (getmillis 1); ps3last = $ps3t; ps3count; sleep 30000 [ps3ms = (- (getmillis 1) $ps3t); echo (format "ps3bench: %1 frames in %2 ms: %3 fps, longest %4 ms" $ps3f $ps3ms (divf (*f $ps3f 1000) $ps3ms) $ps3max)]; sleep 50000 [ps3f0 = $ps3f; ps3t2 = (getmillis 1); ps3max = 0]; sleep 170000 [ps3ms = (- (getmillis 1) $ps3t2); ps3n = (- $ps3f $ps3f0); echo (format "ps3bench: steady %1 frames in %2 ms: %3 fps, longest %4 ms" $ps3n $ps3ms (divf (*f $ps3n 1000) $ps3ms) $ps3max); quit]]]'
+# the demo's counters (recipe header): ps3play while a playback runs, ps3on while the window is open
+SB_DSCRIPT='ps3f = 0; ps3max = 0; ps3lmax = 0; ps3last = 0; ps3on = 0; ps3loop = 0; ps3mf = 0; ps3mt = 0; ps3warm = 0; ps3play = 0
+ps3count = [ps3f = (+ $ps3f 1); ps3now = (getmillis 1); ps3d = (- $ps3now $ps3last); if $ps3play [ps3lmax = (max $ps3lmax $ps3d)]; if $ps3on [ps3max = (max $ps3max $ps3d)]; ps3last = $ps3now; sleep 1 ps3count]
+ps3wake = [ps3on = 1; ps3f0 = $ps3f; ps3t0 = (getmillis 1); echo "ps3bench: window on"]
+mapstart = [ps3loop = (+ $ps3loop 1); ps3play = 1; ps3lf = $ps3f; ps3lt = (getmillis 1); ps3lmax = 0; ps3last = $ps3lt; if (= $ps3loop 1) [echo "ps3bench: first frame"; ps3count; sleep 60000 [ps3warm = 1; if $ps3play [ps3wake]]] [if $ps3warm [ps3wake]]]
+demoend = [ps3play = 0; ps3now = (getmillis 1); ps3n = (- $ps3f $ps3lf); ps3ms = (- $ps3now $ps3lt); echo (format "ps3bench: loop %1: %2 frames in %3 ms: %4 fps, longest %5 ms" $ps3loop $ps3n $ps3ms (divf (*f $ps3n 1000) $ps3ms) $ps3lmax); if $ps3on [ps3on = 0; ps3mf = (+ $ps3mf (- $ps3f $ps3f0)); ps3mt = (+ $ps3mt (- $ps3now $ps3t0)); echo "ps3bench: window off"]; if (>= $ps3mt 114000) [echo (format "ps3bench: steady %1 frames in %2 ms: %3 fps, longest %4 ms" $ps3mf $ps3mt (divf (*f $ps3mf 1000) $ps3mt) $ps3max); sleep 100 [quit]] [sleep 100 [mode -1; map bench]]]
+mode -1; map bench'
 sb_cmd() {
-	if [ -n "$SB_DEMO" ]; then	# the demo from ~/.cube2/demo/bench.dmo (mode -1), again at its end
-		CMD=(/usr/games/cube2 -w1920 -h1080 -t1 "-xdemoend = [mode -1; map bench]; mode -1; map bench
-$SB_SCRIPT")
+	if [ "$SB_MODE" = demo ]; then
+		CMD=(/usr/games/cube2 -w1920 -h1080 -t1 "-x$SB_DSCRIPT")
+		FPS_RE='^ps3bench: loop 1: [0-9]+ frames in [0-9]+ ms: ([0-9.]+) fps'
+		MAXMS_RE='^ps3bench: loop 1: .* longest ([0-9]+) ms'
+		WIN_ON_RE='^ps3bench: window on'; WIN_OFF_RE='^ps3bench: window off'
 	else
 		CMD=(/usr/games/cube2 -w1920 -h1080 -t1 "-l$SB_MAP" "-x$SB_SCRIPT")
+		FPS_RE='^ps3bench: [0-9]+ frames in [0-9]+ ms: ([0-9.]+) fps'
+		MAXMS_RE='^ps3bench: .* longest ([0-9]+) ms'
+		WIN_ON_RE=; WIN_OFF_RE=
 	fi
 }
 sb_cmd
-FPS_RE='^ps3bench: [0-9]+ frames in [0-9]+ ms: ([0-9.]+) fps'
-MAXMS_RE='^ps3bench: .* longest ([0-9]+) ms'
 STEADY_RE='^ps3bench: steady [0-9]+ frames in [0-9]+ ms: ([0-9.]+) fps'
 STEADY_MAXMS_RE='^ps3bench: steady .* longest ([0-9]+) ms'
 LOAD_MARK='^read map '
-# a safety net: loading (27-34 s at best, over 100 s while the memory swaps), then 180 s (the old
-# window at 10-40 s, the steady one at 60-180 s); quits by itself. The first version's 170 s cut the
-# run before the measurement printed.
+# a safety net: loading (27-34 s at best, over 100 s while the memory swaps), then ~200 s (demo: two
+# playbacks and a reload; spawn: 180 s); quits by itself. The first version's 170 s cut the run
+# before the measurement printed.
 DURATION=330
 during() {
 	while :; do
@@ -114,14 +136,17 @@ variant_notc() { SB_SET+=("texcompress 0"); }
 # (the BananaBread content) has no pistol or fist hud gun model (models/hudguns: chaing gl rifle
 # rocket shotg), so nothing is drawn. This switches to the grenade launcher (1 grenade at spawn) 2 s
 # after the first frame, which adds the one skeletal model that CPU or GPU skinning has to move
+# the method before the demo (recipe header)
+variant_spawn() { SB_MODE=spawn; sb_cmd; }
 variant_gun() {
+	SB_MODE=spawn
 	SB_SCRIPT=${SB_SCRIPT/'echo "ps3bench: first frame";'/'echo "ps3bench: first frame"; sleep 2000 [weapon gl];'}
 	sb_cmd
 }
 # the same with GPU skinning, to compare against gun
 variant_gungpu() { variant_gun; SB_SET+=("gpuskel 1"); }
 # the biggest map with one player start (66 lights, an 8192 world)
-variant_towers() { SB_MAP=two_towers; sb_cmd; }
+variant_towers() { SB_MODE=spawn; SB_MAP=two_towers; sb_cmd; }
 # CPU skinning through libspeq (our cube2 0006, ps3-spu's skin.spu), on the hud gun of variant gun
 # (hands 1497 + grenade launcher 1683 vertices with tangent frames: the only skinned model on cave):
 # on the SPEs, with libspeq's vector code on the PPE, or the engine's own loop (as before 0006).
@@ -130,8 +155,8 @@ variant_towers() { SB_MAP=two_towers; sb_cmd; }
 variant_spuskin() { variant_gun; ENV+=(SPEQ_SKIN=spu SPEQ_DEBUG=1); }
 variant_ppeskin() { variant_gun; ENV+=(SPEQ_SKIN=ppe SPEQ_DEBUG=1); }
 variant_offskin() { variant_gun; ENV+=(SPEQ_SKIN=off); }
-# the recorded demo (recipe header), if assets/sauerbraten-bench.dmo exists: the same counters
-variant_demo() { SB_DEMO=$ASSETS/sauerbraten-bench.dmo; BACKUP+=("$SB_HOME/demo/bench.dmo"); sb_cmd; }
+# the recorded demo: the same as base (named for the runs made before base became the demo)
+variant_demo() { SB_MODE=demo; sb_cmd; }
 # Fewer GL calls per frame (our cube2 0007-0009, each behind a cvar that is 1 by default; on cave under
 # llvmpipe as GL 2.1 without GL_EXT_gpu_shader4, like the PS3: 1657 GL calls and 199 draws a frame with
 # all off, 1300 and 199 with all on, with the hud gun; the same pixels). Each variant turns one off, to
