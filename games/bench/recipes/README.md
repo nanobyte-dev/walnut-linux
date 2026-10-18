@@ -11,6 +11,7 @@ if it exists (`base` needs none).
 | `SUITE=1` | part of `run.sh suite` |
 | `COMM` | the game's process name (ps3rsx per-client VRAM, peak RSS) |
 | `BACKUP=(...)` | files the game rewrites (configs): restored after every run |
+| `DATA_DIRS=(...)` | the game's data directories (absolute): `GAMEDATA=ssd` (run.sh, an ENVS token) runs the game with each one bind-mounted from its SSD copy (`ssd-arm.sh copy GAME` makes it; docs/GAMEOS-HDD.md "Test drive, Phase A") |
 | `setup()` | puts assets and config in place (`$ASSETS` is `games/bench/assets`) |
 | `END_RE` | output line after which the game is stopped (games that don't quit) |
 | `DURATION` | seconds from start after which the game is stopped: a safety cap (default 270: load + 60 s warm-up + 120 s measured + margin) |

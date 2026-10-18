@@ -43,6 +43,13 @@
 # disk shader cache for the run (client.sh BENCH_SHADERCACHE; the user's own cache is left alone;
 # report.py base@sccold, base@scwarm, base@scprime for the run that filled the warm one), e.g.
 # PERF_LOAD=1 ENVS="SHADERCACHE=cold SHADERCACHE=warm" run.sh bench openarena gl2min 2.
+# GAMEDATA=ssd, SWAP=ssd (also as ENVS tokens: ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd"): the SSD
+# test drive's arms (docs/GAMEOS-HDD.md "Test drive, Phase A"), put in place by ssd-arm.sh before each
+# run's quiet and taken back for runs without them (usb, the default): the game's data dirs (the
+# recipe's DATA_DIRS) from the SSD copy, the VRAM swap's spill on the SSD; a switch of the swap arm
+# stops the desktop and empties the swaps first (ps3-bench.sh quiet). client.sh checks the arm is
+# there and records gamedata=, swap= (report.py: base@gdssd, base@gdssd+swssd). Everything back to
+# usb when run.sh ends (ssd-arm.sh reset).
 # Interference (docs/STALLS.md "Interference"): ps3-bench.sh's detector flags a run somebody
 # disturbed (input, a VT switch, a device, an SSH login or command); run.sh prints a warning after it,
 # report.py marks it and leaves it out of the medians, matrix.py skips it. RERUN_INTERFERED=1 runs
@@ -59,10 +66,21 @@ LOG=/dev/shm/run.sh.$$
 [ -n "${PERF_ALL:-}" ] && export BENCH_PERF_ALL=$PERF_ALL
 [ -n "${PERF_LOAD:-}" ] && export BENCH_PERF_LOAD=$PERF_LOAD
 [ -n "${MEM:-}" ] && export BENCH_MEM=$MEM
-for v in STALLS_MS STALLS_CPU STALLS_NOWRITE WAKER WAKER_MODE WAKER_CPU PROBE PROBE_MS PROBE_CPU MALLOC MALLOC_TRIM_S GAMEPREFETCH GAMEPREFETCH_MB GAMEPREFETCH_RESERVE_MB GAMEPREFETCH_IO SHADERCACHE SHADERCACHE_ROOT LDSTATS PERF_LOAD_WAIT; do
+for v in STALLS_MS STALLS_CPU STALLS_NOWRITE WAKER WAKER_MODE WAKER_CPU PROBE PROBE_MS PROBE_CPU MALLOC MALLOC_TRIM_S GAMEPREFETCH GAMEPREFETCH_MB GAMEPREFETCH_RESERVE_MB GAMEPREFETCH_IO SHADERCACHE SHADERCACHE_ROOT LDSTATS PERF_LOAD_WAIT GAMEDATA SWAP; do
 	[ -n "${!v:-}" ] && export "BENCH_$v=${!v}"
 done
 RUNS=()
+ARMST=${BENCH_SSDARM_STATE:-/dev/shm}
+arm_used() { [ -s "$ARMST/ps3-ssdarm.binds" ] || [ "$(cat "$ARMST/ps3-ssdarm.swap" 2>/dev/null || echo usb)" != usb ]; }
+arm() {	# arm GAME VARIANT GAMEDATA SWAP: this run's SSD arm (ssd-arm.sh), before ps3-bench.sh's quiet
+	[ "$3" = usb ] && [ "$4" = usb ] && ! arm_used && return 0
+	if [ "$4" != "$(cat "$ARMST/ps3-ssdarm.swap" 2>/dev/null || echo usb)" ]; then
+		$B quiet || return 1	# desktop down, swaps empty: the VRAM swap goes off next
+	fi
+	"$here/ssd-arm.sh" set "$@"
+}
+arm_reset() { arm_used && "$here/ssd-arm.sh" reset; return 0; }
+trap arm_reset EXIT
 
 one() {	# one LABEL GAME VARIANT [ENVTOKEN]: one run, its directory appended to RUNS
 	local rc d x n ev=() a=()
@@ -75,6 +93,9 @@ one() {	# one LABEL GAME VARIANT [ENVTOKEN]: one run, its directory appended to 
 		done
 		echo ">> environment for this run: ${ev[*]}"
 	fi
+	local gd=${BENCH_GAMEDATA:-usb} sw=${BENCH_SWAP:-usb}
+	for x in "${ev[@]}"; do case $x in BENCH_GAMEDATA=*) gd=${x#*=} ;; BENCH_SWAP=*) sw=${x#*=} ;; esac; done
+	arm "$2" "$3" "$gd" "$sw" || { echo "!! the SSD arm (GAMEDATA=$gd SWAP=$sw) failed: stopping"; return 1; }
 	env "${ev[@]}" BENCH_WHAT="$2 $3${ev[*]:+ (${ev[*]})}" $B x "$1" -- "$here/client.sh" "$2" "$3" 2>&1 | tee "$LOG"
 	rc=${PIPESTATUS[0]}
 	d=$(sed -n 's/^>> \(\/var\/tmp\/ps3-bench\/[^ ]*\)$/\1/p' "$LOG" | tail -1)

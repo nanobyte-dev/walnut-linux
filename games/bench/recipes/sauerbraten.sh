@@ -31,6 +31,8 @@
 # Memory per run: during.log has MemAvailable and SwapFree every 5 s, bench.txt their lowest.
 SUITE=1
 COMM=cube2_client
+# the game data GAMEDATA=ssd takes from the SSD (cube2-data and sauerbraten-nonfree-data)
+DATA_DIRS=(/usr/share/games/cube2)
 SB_HOME=$HOME/.cube2
 BACKUP=("$SB_HOME/autoexec.cfg" "$SB_HOME/config.cfg" "$SB_HOME/restore.cfg" "$SB_HOME/init.cfg"
 	"$SB_HOME/demo/bench.dmo")

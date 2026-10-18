@@ -15,6 +15,9 @@
 SUITE=1
 COMM=ClassiCube
 CC_DIR=${XDG_DATA_HOME:-$HOME/.local/share}/classicube
+# the game data GAMEDATA=ssd takes from the SSD: the per-user copies of the textures and sounds the game
+# reads (and rewrites: the binds are read-write); the map is copied in by setup() every run
+DATA_DIRS=("$CC_DIR/texpacks" "$CC_DIR/audio")
 BACKUP=("$CC_DIR/options.txt" "$CC_DIR/plugins/ccbench.so")
 CC_LIMIT=LimitNone
 CC_PLUGIN=1

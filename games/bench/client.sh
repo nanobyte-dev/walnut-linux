@@ -45,6 +45,13 @@
 # prime), off (MESA_SHADER_CACHE_DISABLE=true: compiles, no cache reads or writes). bench.txt gets
 # shadercache=<mode> and shadercache_kb=<KiB before> <KiB after>; report.py shows it after the variant
 # (base@sccold).
+# The SSD arms (run.sh GAMEDATA=ssd, SWAP=ssd or ENVS tokens; ssd-arm.sh puts them in place before the
+# run, docs/GAMEOS-HDD.md "Test drive, Phase A"), checked here before anything starts: BENCH_GAMEDATA=ssd
+# needs every one of the recipe's DATA_DIRS to be a bind of the SSD copy (findmnt's FSROOT is
+# BENCH_SSD_FSROOT, default /games, plus the dir), BENCH_SWAP must match the VRAM swap's spill as
+# ssd-arm.sh left it ($BENCH_SSDARM_STATE/ps3-ssdarm.swap, usb when absent), and a run without
+# GAMEDATA=ssd refuses binds left over. A mismatch stops the run (exit 2). bench.txt gets gamedata=,
+# gamedata_dirs=, swap= and swaps= (/proc/swaps: name:priority); report.py shows base@gdssd, base@swssd.
 {
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
@@ -53,7 +60,7 @@ D=${BENCH_DIR:-/dev/shm/bench-client-$$}; mkdir -p "$D"
 ASSETS=$here/assets
 
 # recipe interface (README in recipes/): the recipe sets these, a variant_<name> function changes them
-CMD=(); ENV=(); BACKUP=(); GAMEMODE=0; HUD=1; COMM=; WM=openbox
+CMD=(); ENV=(); BACKUP=(); DATA_DIRS=(); GAMEMODE=0; HUD=1; COMM=; WM=openbox
 # DURATION: a safety cap (load + 60 s warm-up + 120 s measured + margin); recipes set their own
 END_RE=; DURATION=270; HUD_SKIP=12; WARMUP=60; MEASURE=120; PASSES=0; WINDOW_STOP=0; STEADY_RE=
 STEADY_MAXMS_RE=; WIN_ON_RE=; WIN_OFF_RE=; FPS_RE=; MAXMS_RE=; LOAD_RE=; LOAD_MARK=; RESULT_FILE=; SOUND_AT=15
@@ -62,6 +69,24 @@ setup() { :; }; parse() { :; }
 if declare -F "variant_$VARIANT" >/dev/null; then "variant_$VARIANT"
 elif [ "$VARIANT" != base ]; then echo "!! $GAME: no variant $VARIANT"; exit 2; fi
 [ ${#CMD[@]} -gt 0 ] || { echo "!! $GAME: no CMD"; exit 2; }
+
+# the SSD arms (the top): is the system in the arm this run asks for?
+GD=${BENCH_GAMEDATA:-}; SW=${BENCH_SWAP:-}; GD_DIRS=; ARMST=${BENCH_SSDARM_STATE:-/dev/shm}
+case $GD in ''|usb|ssd) ;; *) echo "!! BENCH_GAMEDATA=$GD: usb or ssd"; exit 2 ;; esac
+case $SW in ''|usb|ssd) ;; *) echo "!! BENCH_SWAP=$SW: usb or ssd"; exit 2 ;; esac
+if [ "$GD" = ssd ]; then
+	[ ${#DATA_DIRS[@]} -gt 0 ] || { echo "!! BENCH_GAMEDATA=ssd: $GAME's recipe has no DATA_DIRS"; exit 2; }
+	for d in "${DATA_DIRS[@]}"; do
+		r=$(${BENCH_FINDMNT:-findmnt} -n -o FSROOT --mountpoint "$d" 2>/dev/null)
+		[ "$r" = "${BENCH_SSD_FSROOT:-/games}$d" ] ||
+			{ echo "!! BENCH_GAMEDATA=ssd: $d is not the SSD copy (${r:-not a mount point}): ssd-arm.sh set"; exit 2; }
+		GD_DIRS+="${GD_DIRS:+ }$d"
+	done
+elif [ -s "$ARMST/ps3-ssdarm.binds" ]; then
+	echo "!! SSD binds left from a GAMEDATA=ssd run ($(tr '\n' ' ' < "$ARMST/ps3-ssdarm.binds")): ssd-arm.sh reset"; exit 2
+fi
+a=$(cat "$ARMST/ps3-ssdarm.swap" 2>/dev/null || echo usb)
+[ "${SW:-usb}" = "$a" ] || { echo "!! BENCH_SWAP=${SW:-usb}, but the VRAM swap spills to $a: ssd-arm.sh set or reset"; exit 2; }
 
 # config files the game rewrites on exit: restored after every run, whatever happens. The copies
 # are on disk with a list of what was saved: a run cut short by a reboot (a wedged RSX) leaves them,
@@ -586,6 +611,8 @@ secs measured "$measured"
   [ ${#KPARAM[@]} -gt 0 ] && echo "kparam=${KPARAM[*]}"
   [ -n "$GPF" ] && echo "gprefetch=$GPF"
   [ -n "$SC" ] && { echo "shadercache=$SC"; echo "shadercache_kb=${SC_KB:--} $(sc_kb || echo -)"; }
+  [ -n "$GD" ] && { echo "gamedata=$GD"; [ -n "$GD_DIRS" ] && echo "gamedata_dirs=$GD_DIRS"; }
+  [ -n "$SW" ] && { echo "swap=$SW"; echo "swaps=$(awk 'NR > 1 { printf "%s%s:%s", s, $1, $5; s = " " }' /proc/swaps)"; }
   echo "game_pid=$game_pid"
   if [ "$PLOAD" = 1 ]; then
 	echo "mono_t0=$MONO_T0"

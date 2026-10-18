@@ -10,7 +10,8 @@
      the window stop, passes counted and the stop once they cover MEASURE, a game's own steady
      line, a line split by the client's 0.25 s HUD polling; BENCH_GAMEPREFETCH learn then fetch with
      ps3-desktop's ps3-game-prefetch (a list left, read by the next run, report.py's gpf tag and
-     its warm-up columns)
+     its warm-up columns); the SSD arms (BENCH_GAMEDATA, BENCH_SWAP: checks, bench.txt, report.py's
+     tags) and ssd-arm.sh's root commands in its dry mode
   4. every recipe and variant sourced as client.sh does: CMD set, and the durations against
      load + WARMUP + MEASURE (a variant that can't hold a window is listed, not an error)
   5. stalls.py on a made-up stalls.rec: one stall per cause the host can't make (GPU fence wait,
@@ -474,6 +475,95 @@ def client_gprefetch(tmp):
     check("gprefetch fetch with BENCH_GAMEPREFETCH_MB=1: the budget 1 MB, tag gpffetch_mb1",
           b.get("gprefetch") == "fetch_mb1" and "budget 1.0 MB" in log and
           report.run(d).get("variant") == "base@gpffetch_mb1", (b.get("gprefetch"), log[-300:]))
+
+
+def client_ssdarm(tmp):
+    """the SSD arms (docs/GAMEOS-HDD.md "Test drive, Phase A"): client.sh's checks and bench.txt lines
+    (BENCH_GAMEDATA, BENCH_SWAP; findmnt faked), report.py's gdssd/swssd tags, and ssd-arm.sh's root
+    commands in its dry mode (SSDARM_DRY=1): binds, the VRAM swap's table switch and back"""
+    rdir, arm = tmp / "recipes", tmp / "arm"
+    arm.mkdir()
+    fake = tmp / "fake-game"
+    write(rdir / "fakedata.sh", RECIPES["fakehud"].replace("$FAKE", str(fake)) + '\nDATA_DIRS=(/srv/a "/srv/b c")\n')
+    fm = tmp / "fake-findmnt"   # findmnt -n -o FSROOT --mountpoint DIR: /games/DIR while BOUND exists
+    write(fm, '#!/bin/sh\n[ -e %s ] || exit 1\neval d=\\${$#}\necho "/games$d"\n' % (tmp / "BOUND"))
+    fm.chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "GALLIUM_HUD",
+                                                            "GALLIUM_HUD_DUMP_DIR", "BENCH_GAMEDATA", "BENCH_SWAP")}
+    env.update(BENCH_RECIPES=str(rdir), BENCH_BACKUP=str(tmp / "backup"), BENCH_FINDMNT=str(fm),
+               BENCH_SSDARM_STATE=str(arm))
+
+    def run(n, game="fakedata", **kv):
+        d = tmp / ("ps3-bench-20261018T0300%02dZ-%s-base" % (n, game))
+        e = dict(env, BENCH_DIR=str(d), **kv)
+        p = subprocess.run(["bash", str(HERE / "client.sh"), game, "base"], env=e, capture_output=True, text=True)
+        return p, d
+    (tmp / "BOUND").write_text("")
+    p, d = run(0, BENCH_GAMEDATA="ssd")
+    b = report.kv(d / "bench.txt")
+    check("ssd arm: GAMEDATA=ssd with the dirs bound: exit 0, gamedata=ssd, both dirs",
+          p.returncode == 0 and b.get("gamedata") == "ssd" and b.get("gamedata_dirs") == "/srv/a /srv/b c",
+          (p.returncode, b.get("gamedata"), b.get("gamedata_dirs"), p.stdout[-300:]))
+    check("ssd arm: report variant base@gdssd", report.run(d).get("variant") == "base@gdssd", report.run(d).get("variant"))
+    (tmp / "BOUND").unlink()
+    p, d = run(1, BENCH_GAMEDATA="ssd")
+    check("ssd arm: GAMEDATA=ssd, the dirs not bound: refused", p.returncode == 2 and "not the SSD copy" in p.stdout, p.stdout[-300:])
+    p, d = run(2, game="fakehud", BENCH_GAMEDATA="ssd")
+    check("ssd arm: GAMEDATA=ssd for a recipe without DATA_DIRS: refused", p.returncode == 2 and "no DATA_DIRS" in p.stdout, p.stdout[-300:])
+    (arm / "ps3-ssdarm.binds").write_text("/srv/a\n")
+    p, d = run(3)
+    check("ssd arm: a run without GAMEDATA, binds left over: refused", p.returncode == 2 and "binds left" in p.stdout, p.stdout[-300:])
+    (arm / "ps3-ssdarm.binds").unlink()
+    p, d = run(4, BENCH_SWAP="ssd")
+    check("ssd arm: SWAP=ssd while the VRAM swap spills to USB: refused", p.returncode == 2 and "spills to usb" in p.stdout, p.stdout[-300:])
+    (arm / "ps3-ssdarm.swap").write_text("ssd\n")
+    p, d = run(5)
+    check("ssd arm: a run without SWAP while it spills to the SSD: refused", p.returncode == 2 and "spills to ssd" in p.stdout, p.stdout[-300:])
+    (tmp / "BOUND").write_text("")
+    p, d = run(6, BENCH_SWAP="ssd", BENCH_GAMEDATA="ssd")
+    b = report.kv(d / "bench.txt")
+    check("ssd arm: GAMEDATA=ssd+SWAP=ssd: swap=ssd, swaps= from /proc/swaps, variant base@gdssd+swssd",
+          p.returncode == 0 and b.get("swap") == "ssd" and "swaps" in b and report.run(d).get("variant") == "base@gdssd+swssd",
+          (p.returncode, b.get("swap"), b.get("swaps"), report.run(d).get("variant"), p.stdout[-300:]))
+    (arm / "ps3-ssdarm.swap").unlink()
+    p, d = run(7, game="fakehud")
+    b = report.kv(d / "bench.txt")
+    check("ssd arm: a plain run records no arm, variant base", p.returncode == 0 and "gamedata" not in b and "swap" not in b
+          and report.run(d).get("variant") == "base", (p.returncode, report.run(d).get("variant")))
+
+    # ssd-arm.sh, dry: what it would run as root
+    st = tmp / "armdry"
+    st.mkdir()
+    e = dict(env, SSDARM_DRY="1", BENCH_SSDARM_STATE=str(st))
+
+    def sa(*a):
+        p = subprocess.run(["bash", str(HERE / "ssd-arm.sh")] + list(a), env=e, capture_output=True, text=True)
+        return p.returncode, [x[6:] for x in p.stderr.splitlines() if x.startswith("root: ")], p.stdout
+    rc, cmds, out = sa("set", "fakedata", "base", "ssd", "ssd")
+    want = ["mount --bind -- /mnt/ps3ssd/games/srv/a /srv/a", "mount --bind -- /mnt/ps3ssd/games/srv/b c /srv/b c",
+            "timeout -s INT 180 swapoff /dev/ps3vswap0", "dmsetup suspend ps3vswap-back",
+            "dmsetup load ps3vswap-back --table 0 2097152 linear /dev/mapper/ps3ssd-swap 0",
+            "dmsetup resume ps3vswap-back", "mkswap /dev/ps3vswap0", "swapon -p 300 --discard=pages /dev/ps3vswap0"]
+    check("ssd-arm set ssd ssd: binds, then the VRAM swap's table to the SSD swap device", rc == 0 and cmds == want, (rc, cmds, out[-400:]))
+    check("ssd-arm set: state (binds, swap ssd, the boot's table kept)",
+          (st / "ps3-ssdarm.binds").read_text() == "/srv/a\n/srv/b c\n" and (st / "ps3-ssdarm.swap").read_text().strip() == "ssd"
+          and (st / "ps3-ssdarm.usb-table").read_text().strip() == "0 2097152 linear 8:3 0", out[-300:])
+    rc, cmds, out = sa("set", "fakedata", "base", "ssd", "ssd")
+    check("ssd-arm set again: nothing to do", rc == 0 and cmds == [], cmds)
+    rc, cmds, out = sa("set", "fakehud", "base", "usb", "usb")
+    check("ssd-arm set usb usb: binds undone, the boot's table back",
+          rc == 0 and cmds[:2] == ["umount -- /srv/a", "umount -- /srv/b c"] and
+          "dmsetup load ps3vswap-back --table 0 2097152 linear 8:3 0" in cmds and not (st / "ps3-ssdarm.binds").exists()
+          and (st / "ps3-ssdarm.swap").read_text().strip() == "usb", (rc, cmds))
+    rc, cmds, out = sa("set", "fakehud", "base", "ssd", "usb")
+    check("ssd-arm set ssd for a recipe without DATA_DIRS: refused", rc == 1 and cmds == [] and "no DATA_DIRS" in out, out[-300:])
+    rc, cmds, out = sa("reset")
+    check("ssd-arm reset with nothing on: nothing run", rc == 0 and cmds == [], cmds)
+    rc, cmds, out = sa("set", "fakedata", "base", "ssd", "usb")
+    rc2, cmds2, out2 = sa("set", "fakedata", "base", "ssd", "usb")
+    check("ssd-arm GAMEDATA only: binds, no swap commands; again: nothing", rc == 0 and len(cmds) == 2 and
+          all(c.startswith("mount --bind") for c in cmds) and cmds2 == [], (cmds, cmds2))
+    sa("reset")
 
 
 # --- 5. stalls.py on a made-up record ---------------------------------------------------------
@@ -1438,6 +1528,7 @@ if __name__ == "__main__":
         matrix(tmp, runs)
         client(tmp)
         client_gprefetch(tmp)
+        client_ssdarm(tmp)
         lint()
         stalls_synthetic(tmp)
         stallrec_e2e(tmp)

@@ -22,6 +22,8 @@
 # warm-up; it isn't comparable with runs before 2026-10-17's steady state. The race is AI-driven
 # (rand() seeded from the clock, frame-time physics): close between runs, not identical.
 COMM=supertuxkart
+# the game data GAMEDATA=ssd takes from the SSD (supertuxkart-data)
+DATA_DIRS=(/usr/share/games/supertuxkart)
 STK_CFG=$HOME/.config/supertuxkart/config-0.10/config.xml
 BACKUP=("$STK_CFG")
 STK_TRACK=lighthouse STK_KARTS=4 STK_TIME=180

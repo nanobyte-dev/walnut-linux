@@ -17,6 +17,9 @@
 # reasoning, the sizes assumed for each, and the measurements.
 SUITE=1
 COMM=luanti
+# the game data GAMEDATA=ssd takes from the SSD (luanti-data, Minetest Game); the world is made
+# fresh in /var/tmp each run
+DATA_DIRS=(/usr/share/luanti)
 LU_DIR=/var/tmp/ps3-bench/luanti
 LU_WORLD=$LU_DIR/world
 LU_CONF=$LU_DIR/bench.conf
