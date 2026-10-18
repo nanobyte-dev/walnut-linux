@@ -466,11 +466,11 @@ On the PS3, before the session (the desktop may be up; about 1.5 GB download, 2 
 
 | Game | Package, download | How it starts | Risks | Result |
 |---|---|---|---|---|
-| Teeworlds 0.7.5 | `teeworlds`, `teeworlds-server`, `-data`: 8 MB | into a game at once: the client connects to a teeworlds-server (map dm1) that the recipe starts; no bots, you run around alone. Variants notc, menu, window, s3tcppe, s3tcspu | DXT5 (`gfx_texture_compression 1`: Mesa makes DXT5 of the alpha textures; libspeq 0.367 does it with Mesa 0032, not in a Mesa deb yet, so the PPE does it: note the load time and whether the log shows SPEQ lines) and the tile maps as 3D textures; SDL2 audio | **fails**: connects to the local server, then sits on the loading screen at 52% after 90 s (2026-10-18) |
+| Teeworlds 0.7.5 | our `teeworlds`, `teeworlds-server` (+ps3), Debian's `-data`: 8 MB | into a game at once: the client connects to a teeworlds-server (map dm1) that the recipe starts; no bots, you run around alone. Variants notc, menu, window, s3tcppe, s3tcspu | DXT5 (`gfx_texture_compression 1`: Mesa makes DXT5 of the alpha textures; libspeq 0.367 does it with Mesa 0032, not in a Mesa deb yet, so the PPE does it: note the load time and whether the log shows SPEQ lines) and the tile maps as 3D textures; SDL2 audio | **fails** with Debian's build: connects to the local server, then sits on the loading screen at 52% after 90 s (2026-10-18). Cause: a big-endian bug, the sockets never non-blocking (below); our `teeworlds` 0.7.5-3+ps3.422 fixes it (built, not published; under qemu-ppc64 the patched client enters the game): to run again |
 | TORCS 1.3.7 | `torcs`, `torcs-data`: 326 MB | menu only (`-r` is the console mode): Race > Quick Race > New Race, arrow keys. Variants notc, window, single | texture compression ARB (setup() enables it in graph.xml, key names unverified; the Graphic options screen has it), fullscreen through GLUT game mode and XRandR, 4 robots on the PPE, RAM | to run |
-| SuperTux 0.6.3 | `supertux`, `supertux-data`: 160 MB | level "Welcome to Antarctica" at once, `--renderer opengl20`, fps shown; Tux stands still until played. Variants worldmap, menu, sdl, nomusic | FBO use on nv30, SDL2_image colours, RAM | starts (66 fps HUD) but still on the level title card at 90 s: check whether the level starts |
+| SuperTux 0.6.3 | `supertux`, `supertux-data`: 160 MB | level "Welcome to Antarctica" at once, `--renderer opengl20`, fps shown; Return typed past the title card (virtual keyboard), then Tux stands still until played. Variants worldmap, menu, sdl, nomusic, card | FBO use on nv30, SDL2_image colours, RAM | starts (66 fps HUD) but still on the level title card at 90 s (2026-10-18): expected, the card waits for a key (below); the recipe types Return now (variant card: without): to run again |
 | Trigger Rally 0.6.6 | `trigger-rally`, `-data`: 116 MB | menu only (no command line): Single Race, arrow keys. Cheap graphics written into its config. Variant full | big stage textures (RAM), terrain draws on the PPE, GLEW | to run |
-| Red Eclipse 1.6.0 | `redeclipse`, `redeclipse-data`: 842 MB (959 MB installed) | `dm torus` at once (smallest map, 2 bots, lowest settings in autoexec.cfg; RE_MAP or variants singularity, disco, cyanide). Variants tc (texture compression on again), defaults, menu | **out of memory**: Sauerbraten OOM-killed here until our cube2 memory patches, and RE has none (watch dmesg.log and MemAvailable); GLSL 1.20 shader limits; compression is off on Mesa by default | **OOM-killed** while loading `torus` (2026-10-18): memory work first |
+| Red Eclipse 1.6.0 | `redeclipse`, `redeclipse-data`: 842 MB (959 MB installed) | `dm torus` at once (smallest map, 1 bot, sound at 11 kHz mono, lowest settings; RE_MAP or variants singularity, disco, cyanide). Variants tex512, fullsound, bots0, bots3, defaults, menu | **out of memory**: Sauerbraten OOM-killed here until our cube2 memory patches, and RE has none (watch dmesg.log and MemAvailable); GLSL 1.20 shader limits; compression is off on Mesa by default | **OOM-killed** while loading `torus` (2026-10-18): the samples decoded to 44.1 kHz stereo PCM (~150 MB, below); the recipe sets 11 kHz mono (~137 MB less on the host), 1 bot through the file 1.6 reads: to run again |
 | Chromium B.S.U. | `chromium-bsu`, `-data`: 1 MB | menu only: Enter on Start Game, arrows or mouse, Space fires. Variants full, min, noblend, nosound | immediate-mode sprites, GLC text, OpenAL/ALUT | to run |
 | Frozen Bubble 2.212 | `frozen-bubble`, `-data`: 21 MB | straight into level 1 (`--solo`), Left/Right/Up. Variants menu, nosound, slow, window | the game is 640x480 on SDL 1.2: sdl12-compat's fullscreen scaling and colours; Perl start-up | **runs**: level 1, right picture, 45 fps (2026-10-18) |
 | Chocolate Doom 3.1.1 | `chocolate-doom` + `freedoom` (in the image): 1 MB | Freedoom 2 MAP01 at once. Variants demo (DEMO1, exits), attract (title and demo loop), nomusic, sdlsw, gles | SDL2 renderer path and the big-endian window texture (dsda's frame was green-tinted before our SDL3 patch), OPL music CPU, underruns | **runs**: MAP01, right colours, 35 fps (vanilla cap) (2026-10-18) |
@@ -490,6 +490,52 @@ as always; the no-VSWAP default of `smoke` stays):
 The safe order is the one of the first session (software renderers first, the heaviest last):
 a graph exception ends the session. Games that start in a menu need someone at the controller; give
 them time with `SMOKE_SECS=300 BENCH_TIMEOUT=420 ./run.sh smoke torcs`.
+
+### Smoke fixes (2026-10-18)
+
+- **Teeworlds**: a big-endian bug, not the network or the textures. `net_set_non_blocking()`
+  gives `ioctl(FIONBIO)` a pointer to an `unsigned long`; Linux reads an `int` there, which on
+  ppc64 is the long's high half, 0. So the UDP sockets of client and server stay blocking. The
+  client gets the token and the accept, then blocks in `recvfrom()` inside `CNetClient::Recv`
+  (PumpNetwork) waiting for a packet the server never sends: the server waits for the client's
+  NETMSG_INFO, which the client sends only on its next main loop pass. The screen keeps the last
+  loading frame, the HUD has no frame after the load, the CPU is idle. Reproduced in the ppc64
+  chroot under qemu-user (Xvfb, llvmpipe), the backtrace from qemu's gdb stub with Debian's
+  dbgsym. Our `teeworlds/` package (0001: an `int` on everything but Windows) fixes it: under
+  qemu the client then sends its info, loads dm1 and enters the game ("player has entered the
+  game" in the server log). Emulation needed libfaketime at a tenth of the speed for the server
+  and the client: the connection's fixed 10 s timeouts are shorter than one frame of llvmpipe or
+  softpipe under qemu. No Debian or upstream report found (Debian's only big-endian bug,
+  #504704, is the 0.4 crash of 2008; upstream master's `net_set_non_blocking` still has the
+  `unsigned long`).
+- **SuperTux**: expected behaviour. `LevelIntro::update` (src/supertux/levelintro.cpp) leaves
+  the title card only on Jump, Action, Menu-select, Start or Esc, no timeout, and
+  `GameSession::setup` shows it for every level with coins, badguys or secrets. The recipe's
+  `during()` types Return (smoke.inc's `smoke_keys`, the virtual keyboard of armagetronad.sh)
+  30 s after the window appears, and again 8 s later; Return does nothing inside the level.
+- **Red Eclipse**: the memory is the sound. `addsound` loads each sample at registration and
+  SDL_mixer decodes it whole into PCM in the device's format: the game's ~190 samples at the
+  start, and at the map load every `mapsound` of the map's .cfg (torus: 74 ambience files, 24 MB
+  of .ogg). Debian's amd64 build under Xvfb and llvmpipe on the host (same code; llvmpipe keeps
+  textures in RAM, so absolute numbers are higher than the PS3's): 534 MB RSS after loading torus
+  at 44.1 kHz stereo, 381 MB with no sample loaded (a test preload), 397 MB with `soundmono 1` +
+  `soundfreq 11025` in init.cfg (they only count before the audio device opens), 375 MB with the
+  extra settings below, 326 MB with `maxtexsize 256` + `texreduce 3`. The menu alone: 262 MB, 231
+  without samples. Also found: 1.6 reads `localinit.cfg` for the loopback server, not the
+  `localexec.cfg` the recipe wrote, and the variable is `sv_botlimit` (so the first run had 3
+  bots); `usetexcompress` is read-only (min 1 > max 0), so the old tc variant did nothing; turning
+  compression on needs cube2's patch 0001, which applies to Red Eclipse's tree. Engine patches
+  that would cut more (described, not built): samples loaded when first played instead of at
+  registration (most ambience is never heard), cube2 0002/0003 (shader variants), 0005
+  (lightmap CPU copies), the sky cube map shrunk while its six sides are decoded.
+
+To run again on the PS3 (as tibi; the teeworlds debs first, from the PC: `make deploy
+PKGS="teeworlds teeworlds-server"`, which puts our local builds in ps3-dev and installs them
+with `-t ps3-dev`; then `make bench-push`):
+
+    cd /var/tmp/bench
+    dpkg -l teeworlds teeworlds-server | grep ps3   # both 0.7.5-3+ps3.422
+    ./run.sh smoke supertux;  ./run.sh smoke teeworlds;  ./run.sh smoke redeclipse
 
 Hedgewars 1.0.3 is skipped. Debian builds no ppc64 binary (2 of 7 engine Lua tests fail). The
 build log (hedgewars 1.0.3-5, ppc64, 2026-09-21) shows two different failures, not one: `stuckcake.lua`

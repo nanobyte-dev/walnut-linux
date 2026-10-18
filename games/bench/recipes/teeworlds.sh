@@ -10,6 +10,11 @@
 # Mpixel/s, so the start can take seconds longer; note which it was, the log has libspeq's lines with
 # SPEQ_DEBUG=1), and the tile maps are uploaded as one 3D texture (the tiles as layers), the case
 # GAME-SUITE.md lists it for. Variant notc is the same without compression.
+# Needs our teeworlds and teeworlds-server (0.7.5-3+ps3.N, package teeworlds/): Debian's hang on
+# big-endian 64-bit. Their UDP sockets stay blocking (FIONBIO given an unsigned long, the kernel
+# reads an int: 0 on ppc64), so the client sits in recvfrom() right after the server's accept and
+# the screen keeps the last loading frame (the run of 2026-10-18: 52% at 40 and 90 s, no frame
+# after the load in the HUD). `dpkg -l teeworlds` must show +ps3 before a run.
 # Settings go on the command line (each argument is a console line, run before the client starts);
 # the client also writes them to ~/.teeworlds/settings.cfg at exit, which BACKUP restores.
 COMM=teeworlds
@@ -25,6 +30,9 @@ tw_cmd
 during() {
 	[ -x /usr/games/teeworlds-server ] || { echo "no teeworlds-server: apt install teeworlds-server"; return 1; }
 	[ -n "$TW_CONNECT" ] || { echo "menu variant: no server"; return 0; }
+	local v; for v in teeworlds teeworlds-server; do
+		case $(dpkg-query -W -f '${Version}' $v 2>/dev/null) in *+ps3*) ;; *) echo "WARNING: $v is not ours (+ps3): it hangs after connecting on big-endian";; esac
+	done
 	/usr/games/teeworlds-server "sv_name smoke" "sv_port 8303" "sv_map dm1" "sv_register 0" \
 		"sv_max_clients 4" "sv_gametype dm" &
 	local srv=$!

@@ -8,42 +8,68 @@
 # or a variant picks the map: torus (43 KB .mpz, the smallest real one; a gladiator-style duel
 # map), singularity (58 KB), disco (9 KB, a test map whose config calls it "editing", may have no spawns); the next
 # sizes up are cyanide, relax, oneiroi, eternal (320-370 KB).
-# Settings: ~/.redeclipse/autoexec.cfg (run after config.cfg, so the saved ones can't override
-# it; both restored after the run): vsync 0, maxfps 0, texreduce 2 and maxtexsize 512 (textures a
-# quarter of the size per side, nothing above 512), shaderdetail 1, no water reflection or
-# refraction, no grass, shadow maps, depth effects, motion blur, dynamic lights, bump-mapped
-# models, GPU skinning (nv30 compiles the bone-array vertex shader to if/else trees: 11 fps against
-# 28 in Sauerbraten), decals, anisotropy. The names are from the engine's variable list and
-# some may not exist in 1.6 (the log would say "unknown command"). localexec.cfg (the loopback
-# server's own) caps the bots at 2. Video from the command line: -df1 -dw1920 -dh1080 (saved in init.cfg too).
-# Texture compression: like Sauerbraten the engine turns it off on Mesa (`if(!mesa) usetexcompress = 2`).
-# Variant tc turns it on again (usetexcompress 2, textures from 256 pixels up): the DXT1/DXT5 path,
-# with the encoders of libspeq on the SPEs for DXT1 and the PPE for DXT5 until Mesa 0032 is built.
-# Risks: out of memory (watch dmesg.log and during.log's MemAvailable; the run keeps the VRAM
-# swap off, NOVSWAP=0 turns it on again, as for Sauerbraten), GLSL 1.20 shaders against the 224
-# fragment constants (shader compile or link errors in game.log), EXT_framebuffer_object water
-# passes (off here), a long first load.
+# Settings (run of 2026-10-18: OOM-killed while loading torus; docs/GAME-PLAN.md, "Red Eclipse"):
+# - Sound was the memory. SDL_mixer decodes every sample whole into PCM in the device's format at
+#   registration: the game's ~190 samples at start-up and every `mapsound` of the map's .cfg at the
+#   map load (torus.cfg: 74 ambience files, 24 MB of .ogg). Debian's amd64 build under Xvfb and
+#   llvmpipe (the host, same code): 534 MB RSS after the load with 44.1 kHz stereo, 381 MB with no
+#   sample loaded, 397 MB with `soundmono 1` and `soundfreq 11025` (~137 MB less). On the PS3 the
+#   process grew to ~200 MB (55 resident, ~150 in zram) during that load. soundmono and soundfreq
+#   are read only when the audio device opens, before autoexec.cfg: setup() writes them to
+#   init.cfg (run before initsound; the engine rewrites it at exit, BACKUP restores it).
+#   Variable volumes (mastervol, soundvol) don't stop the decoding; SDL_AUDIODRIVER=none makes
+#   SDL_Init fail (the engine inits audio with video) and the game quits.
+# - Bots: 1.6 reads localinit.cfg for the loopback server (localexec.cfg, the recipe's file until
+#   2026-10-18, is never read), and the variable is sv_botlimit: 1 bot (default: up to 3).
+# - autoexec.cfg (run after config.cfg, so the saved ones can't override it): vsync 0, maxfps 0,
+#   texreduce 3 (world texture slots only, 1/8 per side) and maxtexsize 256 (every mipmapped
+#   texture: models, sky, HUD; host RSS 375 -> 326 MB, on the PS3 mostly VRAM, which is also
+#   swap), shaderdetail 1, no water reflection, refraction or env map, no caustics, glare, grass,
+#   shadow maps, depth effects, motion blur, dynamic lights, bump- or env-mapped models, GPU
+#   skinning (nv30 compiles the bone-array vertex shader to if/else trees: 11 fps against 28 in
+#   Sauerbraten), decals, anisotropy, gore, ragdolls, mumble. Every name checked in the 1.6
+#   source (several are already 0 on GL 2.1). Video from the command line: -df1 -dw1920 -dh1080.
+# Texture compression: like Sauerbraten the engine turns it off on Mesa (rendergl.cpp:
+# `if(!mesa) usetexcompress = 2`), and usetexcompress is read-only (VAR min 1 > max 0), so no
+# setting turns it on; our cube2 patch 0001 applies to Red Eclipse's tree (variant tc was a no-op
+# and is gone). Engine patches that would cut more, none built: samples loaded when first played
+# (sound.cpp addsound/playsound: the PCM of sounds never heard, most of the ambience), cube2
+# 0002/0003 (fewer shader variants), 0005 (lightmap CPU copies freed), the sky cube map shrunk to
+# envmapsize as its six sides are decoded (texture.cpp cubemaploadwildcard).
+# Risks: out of memory still (watch dmesg.log and during.log's MemAvailable; the run keeps the
+# VRAM swap off, NOVSWAP=0 turns it on again, as for Sauerbraten), GLSL 1.20 shaders against the
+# 224 fragment constants (shader compile or link errors in game.log), a long first load (the local
+# server has the client send it the map, then waits ~10 s before the match starts).
 COMM=redeclipse
 . "$here/recipes/smoke.inc"
 RE_HOME=$HOME/.redeclipse
-BACKUP=("$RE_HOME/autoexec.cfg" "$RE_HOME/localexec.cfg" "$RE_HOME/config.cfg" "$RE_HOME/init.cfg")
+BACKUP=("$RE_HOME/autoexec.cfg" "$RE_HOME/localinit.cfg" "$RE_HOME/config.cfg" "$RE_HOME/init.cfg")
 RE_MAP=${RE_MAP:-torus}
-RE_SET=()	# extra CubeScript lines for autoexec.cfg (variants)
+RE_SET=("vsync 0" "maxfps 0" "menufps 30" "texreduce 3" "maxtexsize 256" "shaderdetail 1"
+	"waterreflect 0" "waterrefract 0" "waterfade 0" "waterenvmap 0" "waterfallrefract 0" "caustics 0"
+	"glare 0" "grass 0" "shadowmap 0" "depthfx 0" "motionblur 0" "maxdynlights 0" "bumpmodels 0"
+	"envmapmodels 0" "gpuskel 0" "decals 0" "anisotropy 0" "nogore 2" "deathanim 0" "mumble 0")
+RE_INIT=("soundmono 1" "soundfreq 11025")	# init.cfg: read before the audio device opens
+RE_BOTS=1
 setup() {
 	mkdir -p "$RE_HOME"
-	printf '%s\n' "vsync 0" "maxfps 0" "menufps 30" "texreduce 2" "maxtexsize 512" "shaderdetail 1" \
-		"waterreflect 0" "waterrefract 0" "waterfade 0" "grass 0" "shadowmap 0" "depthfx 0" \
-		"motionblur 0" "maxdynlights 0" "bumpmodels 0" "gpuskel 0" "decals 0" "anisotropy 0" \
-		"${RE_SET[@]}" > "$RE_HOME/autoexec.cfg"
-	printf '%s\n' "botlimit 2" > "$RE_HOME/localexec.cfg"
+	printf '%s\n' "${RE_SET[@]}" > "$RE_HOME/autoexec.cfg"
+	printf '%s\n' "${RE_INIT[@]}" > "$RE_HOME/init.cfg"
+	printf '%s\n' "sv_botlimit $RE_BOTS" > "$RE_HOME/localinit.cfg"
 }
 re_cmd() { CMD=(/usr/games/redeclipse -g -df1 -dw1920 -dh1080 "-xdm $RE_MAP"); }
 re_cmd
 variant_singularity() { RE_MAP=singularity; re_cmd; }
 variant_disco() { RE_MAP=disco; re_cmd; }
 variant_cyanide() { RE_MAP=cyanide; re_cmd; }
-variant_tc() { RE_SET+=("usetexcompress 2" "texcompress 256"); }
-# every setting at the game's own defaults (no autoexec.cfg lines): the cost of the low settings
-variant_defaults() { RE_SET=(); setup() { mkdir -p "$RE_HOME"; : > "$RE_HOME/autoexec.cfg"; printf '%s\n' "botlimit 2" > "$RE_HOME/localexec.cfg"; }; }
-# the main menu only, no game (the engine, shaders and fonts, without a map)
+# the textures of the first smoke run (texreduce 2, maxtexsize 512)
+variant_tex512() { RE_SET+=("texreduce 2" "maxtexsize 512"); }
+# sound at the game's own 44.1 kHz stereo (the OOM of 2026-10-18 on torus)
+variant_fullsound() { RE_INIT=(); }
+# no bots (one player model less), or three (the game's default)
+variant_bots0() { RE_BOTS=0; }
+variant_bots3() { RE_BOTS=3; }
+# every setting at the game's own defaults (empty autoexec.cfg and init.cfg, 3 bots): the old OOM
+variant_defaults() { RE_SET=(); RE_INIT=(); RE_BOTS=3; }
+# the main menu only, no game (the engine, shaders, fonts and the game's sounds, without a map)
 variant_menu() { CMD=(/usr/games/redeclipse -g -df1 -dw1920 -dh1080); }
