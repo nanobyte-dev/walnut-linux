@@ -24,7 +24,8 @@
 # MEM=1): the game's smaps, smaps_rollup and status, ps3rsx's buffer census (debugfs ps3rsx_mm, once
 # a snapshot) and glibc's malloc statistics (ps3-mallocstat.so preloaded: BENCH_MALLOCSTAT is its
 # path, "" turns it off) at the window's start, middle and end into $D/mem/ (memprof.py); bench.txt
-# gets mem_snaps (label:seconds:ms reading smaps).
+# gets mem_snaps (label:seconds:ms reading smaps). BENCH_MALLOC: glibc malloc presets (below,
+# docs/MEMORY.md).
 {
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
@@ -79,6 +80,13 @@ elif [ -n "${GALLIUM_HUD_DUMP_DIR:-}" ]; then	# ps3-bench.sh's BENCH_HUD=1: per-
 fi
 # MEM=1: the malloc statistics library in the game (it acts only in the process named COMM), asked
 # through a fifo
+preload_add() {	# preload_add LIB: LIB first in the game's LD_PRELOAD (the recipe's, or the caller's)
+	local i
+	for i in "${!ENV[@]}"; do
+		[[ ${ENV[$i]} == LD_PRELOAD=* ]] && { ENV[$i]="LD_PRELOAD=$1:${ENV[$i]#LD_PRELOAD=}"; return; }
+	done
+	ENV+=(LD_PRELOAD="$1${LD_PRELOAD:+:$LD_PRELOAD}")
+}
 MEM=${BENCH_MEM:-0}; MALLOC_FD=
 MALLOCSTAT=${BENCH_MALLOCSTAT-/usr/lib/ps3/lib/ps3-mallocstat.so}
 MEM_SUDO=0
@@ -87,9 +95,39 @@ if [ "$MEM" = 1 ]; then
 	sudo -n true 2>/dev/null && MEM_SUDO=1	# ps3rsx's census is in debugfs (root only)
 	if [ -n "$MALLOCSTAT" ] && [ -e "$MALLOCSTAT" ] && [ -n "$COMM" ]; then
 		rm -f "$D/.malloc.fifo"; mkfifo "$D/.malloc.fifo"
-		ENV+=(LD_PRELOAD="$MALLOCSTAT${LD_PRELOAD:+:$LD_PRELOAD}" PS3_MALLOCSTAT_FIFO="$D/.malloc.fifo"
-		      PS3_MALLOCSTAT_DIR="$D/mem" PS3_MALLOCSTAT_COMM="$COMM")
+		preload_add "$MALLOCSTAT"
+		ENV+=(PS3_MALLOCSTAT_FIFO="$D/.malloc.fifo" PS3_MALLOCSTAT_DIR="$D/mem" PS3_MALLOCSTAT_COMM="$COMM")
 	fi
+fi
+# glibc's malloc tuned for this run (docs/MEMORY.md): BENCH_MALLOC (run.sh MALLOC=, or an ENVS token
+# MALLOC=...) is a comma list of presets, added after the recipe and its variant:
+#   arena1, arena2  MALLOC_ARENA_MAX=1 or 2 (glibc's default for the PPE's two threads: 16 arenas)
+#   mmap            fixed thresholds: blocks of 256 KiB and more mmapped and unmapped when freed
+#                   (MALLOC_MMAP_THRESHOLD_=262144), the main heap's top given back once 1 MiB is
+#                   free (MALLOC_TRIM_THRESHOLD_=1048576); setting them stops glibc raising the mmap
+#                   threshold to 32 MiB after the first big free
+#   trim            ps3-malloctrim.so (BENCH_MALLOCTRIM is its path) preloaded: malloc_trim(0) every
+#                   BENCH_MALLOC_TRIM_S seconds (default 10), a "ps3-malloctrim:" line per trim
+#   tune            arena2,mmap,trim
+# bench.txt gets malloc=<the list>; report.py shows it after the variant (base@marena2_trim).
+MALLOC=${BENCH_MALLOC:-}
+MALLOCTRIM=${BENCH_MALLOCTRIM:-/usr/lib/ps3/lib/ps3-malloctrim.so}
+if [ -n "$MALLOC" ]; then
+	for m in ${MALLOC//,/ }; do
+		[ "$m" = tune ] && m="arena2 mmap trim"
+		for m in $m; do
+			case $m in
+			arena1) ENV+=(MALLOC_ARENA_MAX=1) ;;
+			arena2) ENV+=(MALLOC_ARENA_MAX=2) ;;
+			mmap) ENV+=(MALLOC_MMAP_THRESHOLD_=262144 MALLOC_TRIM_THRESHOLD_=1048576) ;;
+			trim)
+				[ -e "$MALLOCTRIM" ] || { echo "!! BENCH_MALLOC=trim: no $MALLOCTRIM (ps3-gpu-tools with docs/MEMORY.md's preload)"; exit 2; }
+				preload_add "$MALLOCTRIM"
+				ENV+=(PS3_MALLOC_TRIM="${BENCH_MALLOC_TRIM_S:-10}" PS3_MALLOC_TRIM_COMM="$COMM" PS3_MALLOC_TRIM_LOG=1) ;;
+			*) echo "!! BENCH_MALLOC: no preset $m (arena1 arena2 mmap trim tune)"; exit 2 ;;
+			esac
+		done
+	done
 fi
 launch=(); [ "$GAMEMODE" = 1 ] && launch=(ps3-game)
 # GAMEMODE=0 means no game mode: not even ps3-game-detect's (it reads the game's environment)
@@ -371,6 +409,7 @@ secs measured "$measured"
   echo "window=$window"
   [ "$PASSES" = 1 ] && { echo "passes=$np"; echo "measured=$measured"; printf '%s\n' "${PASS[@]}"; }
   [ -n "$STEADY_RE" ] && { echo "steady_fps=$(first "$STEADY_RE")"; echo "steady_maxms=$(first "$STEADY_MAXMS_RE")"; }
+  [ -n "$MALLOC" ] && echo "malloc=$MALLOC"
   echo "hud_skip=$HUD_SKIP"; echo "hwm=$(cat "$D/.hwm" 2>/dev/null)"; echo "sound=$(cat "$D/.sound" 2>/dev/null)"
   if [ ${#PERF_FD[@]} -gt 0 ]; then
 	echo "perf_win=${PERF_WIN[*]}"; echo "perf_ack=$PERF_ACKS"

@@ -31,7 +31,9 @@ PASSES=1
 ENV+=(DSDA_BENCH_LOOPS=6)
 DURATION=400	# a safety cap (the game exits after its 6th pass; the client stops it sooner)
 FPS_RE='Timed [0-9]+ gametics in [0-9]+ realtics = ([0-9.]+) frames per second'
-LOAD_MARK='^(R_Init|S_Init|HU_Init|ST_Init)'
+# the load's end: dsda-doom 0.30 on the PS3 doesn't print the R_Init/S_Init lines (none in any run),
+# so the window, PERF=1 and MEM=1 never started; "Playing demo:" comes right before the first pass
+LOAD_MARK='^(R_Init|S_Init|HU_Init|ST_Init|Playing demo:)'
 variant_gl() { DD_MODE=gl DD_W=1920 DD_H=1080; dd_cmd; }
 variant_sw1080() { DD_W=1920 DD_H=1080; dd_cmd; }
 # SDL's GLES2 renderer instead of its desktop-GL one (the software frame goes to the screen through

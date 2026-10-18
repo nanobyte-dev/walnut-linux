@@ -24,6 +24,9 @@
 # round, the tokens interleaved; a token is - (nothing) or NAME=VALUE pairs joined by + (NAME
 # without BENCH_ gets it: WAKER=10+WAKER_CPU=1), e.g. ENVS="- STALLS=1 WAKER=10".
 # Report.py shows each run's switches after its variant (base@rec10, bench.txt harness=).
+# MALLOC=LIST: glibc malloc presets for the game (client.sh BENCH_MALLOC: arena1, arena2, mmap, trim,
+# tune; MALLOC_TRIM_S the trim period), docs/MEMORY.md; as ENVS tokens: ENVS="- MALLOC=arena2
+# MALLOC=tune" (report.py: base@marena2, base@mtune). ENVS works in suite runs too.
 # Results: /var/tmp/ps3-bench/<stamp>-<game>-<variant>/; report.py summarises them.
 {
 set -u
@@ -35,7 +38,7 @@ LOG=/dev/shm/run.sh.$$
 [ -n "${PERF_HZ:-}" ] && export BENCH_PERF_HZ=$PERF_HZ
 [ -n "${PERF_ALL:-}" ] && export BENCH_PERF_ALL=$PERF_ALL
 [ -n "${MEM:-}" ] && export BENCH_MEM=$MEM
-for v in STALLS_MS STALLS_CPU STALLS_NOWRITE WAKER WAKER_MODE WAKER_CPU PROBE PROBE_MS PROBE_CPU; do
+for v in STALLS_MS STALLS_CPU STALLS_NOWRITE WAKER WAKER_MODE WAKER_CPU PROBE PROBE_MS PROBE_CPU MALLOC MALLOC_TRIM_S; do
 	[ -n "${!v:-}" ] && export "BENCH_$v=${!v}"
 done
 RUNS=()
@@ -105,7 +108,7 @@ suite)
 				[ "$v" = base ] || grep -q "^variant_$v()" "$here/recipes/$g.sh" || v=base
 				[ "$v" = base ] && [[ " ${done_base:-} " == *" $g.$i "* ]] && continue
 				[ "$v" = base ] && done_base="${done_base:-} $g.$i"
-				one "$g-$v" "$g" "$v" || break 3
+				for e in ${ENVS:--}; do one "$g-$v" "$g" "$v" "$e" || break 4; done
 			done
 		done
 	done

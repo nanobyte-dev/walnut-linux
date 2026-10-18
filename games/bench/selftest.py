@@ -22,8 +22,12 @@
   8. client.sh with PERF and MEM: a fake perf on the control fifos (enable/disable at the window's
      ends, acknowledged), ps3-mallocstat.so (built with the host's cc) preloaded into the fake game,
      the snapshots at the window's start, middle and end, memprof.py's columns from them
+     with BENCH_MALLOC=arena2,trim: ps3-malloctrim.so preloaded next to it (both threads in the
+     game, its log lines in game.log), malloc= in bench.txt and report.py's variant tag
   9. memprof.py on a real process (a C program, built here) whose thread stacks and malloc arenas
      are known from inside it: every one classified as such
+ 10. ps3-malloctrim.so on a real process (built here) that leaves holes in its main heap and in a
+     thread's arena: the trims give them back (VmRSS before and after, from its own log lines)
 Exit status 0 when every check passes; scratch files in a temporary directory, removed at the end."""
 import os
 import re
@@ -694,6 +698,12 @@ def client_prof(tmp):
                        capture_output=True, text=True) if cc else None
     check("mallocstat: builds without warnings", p is not None and p.returncode == 0 and not p.stderr.strip(),
           p and p.stderr[-600:])
+    trim = tmp / "ps3-malloctrim.so"
+    src = HERE.parent.parent / "ps3-gpu-tools" / "preload" / "ps3-malloctrim.c"
+    p = subprocess.run([cc, "-O2", "-Wall", "-Wextra", "-fPIC", "-shared", "-o", str(trim), str(src), "-lpthread"],
+                       capture_output=True, text=True) if cc else None
+    check("malloctrim: builds without warnings", p is not None and p.returncode == 0 and not p.stderr.strip(),
+          p and p.stderr[-600:])
     rdir = tmp / "recipes-prof"
     rdir.mkdir()
     fake = tmp / "fake-game"   # made by client()
@@ -710,7 +720,8 @@ def client_prof(tmp):
     env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "GALLIUM_HUD",
                                                             "GALLIUM_HUD_DUMP_DIR", "LD_PRELOAD")}
     env.update(BENCH_RECIPES=str(rdir), BENCH_BACKUP=str(tmp / "backup"), BENCH_DIR=str(d), BENCH_MEM="1",
-               BENCH_MALLOCSTAT=str(so), BENCH_PERF_CTL="%s:%s" % (d / ".perf.ctl", d / ".perf.ack"))
+               BENCH_MALLOCSTAT=str(so), BENCH_PERF_CTL="%s:%s" % (d / ".perf.ctl", d / ".perf.ack"),
+               BENCH_MALLOC="arena2,trim", BENCH_MALLOCTRIM=str(trim), BENCH_MALLOC_TRIM_S="1")   # 1 s: not inside the fake game's split line (0-0.7 s)
     t0 = time.time()
     p = subprocess.run(["bash", str(HERE / "client.sh"), "fakeprof", "base"], env=env, capture_output=True, text=True)
     check("prof client: exit 0", p.returncode == 0, p.stdout[-800:] + p.stderr[-800:])
@@ -736,6 +747,15 @@ def client_prof(tmp):
     for lb in ("start", "mid", "end"):
         have = [x for x in ("smaps", "rollup", "status", "tasks", "info", "meminfo", "malloc") if (mem / f"{lb}.{x}").exists()]
         check("mem: %s has smaps, rollup, status, tasks, info, meminfo, malloc" % lb, len(have) == 7, have)
+    tk = (mem / "mid.tasks").read_text() if (mem / "mid.tasks").exists() else ""
+    check("malloc presets: ps3-mallocstat and ps3-malloctrim threads both in the game",
+          "\tps3-mallocstat\t" in tk and "\tps3-malloctrim\t" in tk, tk[-400:])
+    gl = (d / "game.log").read_text(errors="replace") if (d / "game.log").exists() else ""
+    check("malloc presets: trim log lines in game.log", len(re.findall(r"^ps3-malloctrim: \d+ ", gl, re.M)) >= 4,
+          gl[-300:])
+    check("malloc presets: malloc= in bench.txt, the tag after the variant",
+          b.get("malloc") == "arena2,trim" and report.run(d).get("variant") == "base@marena2_trim",
+          (b.get("malloc"), report.run(d).get("variant")))
     ml = (mem / "mid.malloc").read_text() if (mem / "mid.malloc").exists() else ""
     check("mallocstat: mallinfo2 line and malloc_info XML", ml.startswith("mallinfo2 ") and '<heap nr="0">' in ml, ml[:200])
     r = memprof.summary(d)
@@ -817,6 +837,53 @@ def memprof_real(tmp):
     check("memprof: the executable classified as game", any(m["cls"] == "game" for m in maps))
 
 
+# --- 10. ps3-malloctrim.so on a real process -------------------------------------------------
+FRAG_C = r"""
+#include <pthread.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+static void *work(void *a) {	/* 48 MB in a thread's arena, 98% freed in holes */
+	enum { N = 3000 }; static char *p[N]; (void)a;
+	for (int i = 0; i < N; i++) { p[i] = malloc(16000); memset(p[i], 1, 16000); }
+	for (int i = 0; i < N; i++) if (i % 50) free(p[i]);
+	usleep(1500000); return 0;
+}
+int main(void) {	/* and 40 MB in the main heap, the same way */
+	enum { M = 2000 }; static char *m[M]; pthread_t t;
+	pthread_create(&t, 0, work, 0);
+	for (int i = 0; i < M; i++) { m[i] = malloc(20000); memset(m[i], 2, 20000); }
+	for (int i = 0; i < M; i++) if (i % 40) free(m[i]);
+	pthread_join(t, 0);
+	return 0;
+}
+"""
+
+
+def malloctrim_real(tmp):
+    cc = shutil.which("cc") or shutil.which("gcc")
+    so, src, exe = tmp / "trim.so", tmp / "frag.c", tmp / "frag"
+    write(src, FRAG_C)
+    p = subprocess.run([cc, "-O2", "-o", str(exe), str(src), "-lpthread"], capture_output=True, text=True)
+    q = subprocess.run([cc, "-O2", "-fPIC", "-shared", "-o", str(so),
+                        str(HERE.parent.parent / "ps3-gpu-tools" / "preload" / "ps3-malloctrim.c"), "-lpthread"],
+                       capture_output=True, text=True)
+    if p.returncode or q.returncode:
+        check("malloctrim: test program and library build", False, (p.stderr + q.stderr)[-400:])
+        return
+    env = dict(os.environ, LD_PRELOAD=str(so), PS3_MALLOC_TRIM="0.4", PS3_MALLOC_TRIM_LOG="1",
+               PS3_MALLOC_TRIM_COMM="frag")
+    r = subprocess.run([str(exe)], env=env, capture_output=True, text=True, timeout=30)
+    lines = re.findall(r"^ps3-malloctrim: \d+ ([0-9.]+) ms rss (\d+) -> (\d+)", r.stderr, re.M)
+    drop = max((int(a) - int(b) for _, a, b in lines), default=0)
+    check("malloctrim: trims ran in the named process and gave back the holes (> 60 MB of 88)",
+          len(lines) >= 2 and drop > 60000, r.stderr[-400:])
+    env["PS3_MALLOC_TRIM_COMM"] = "other"
+    r = subprocess.run([str(exe)], env=env, capture_output=True, text=True, timeout=30)
+    check("malloctrim: nothing in a process of another name", "ps3-malloctrim" not in r.stderr, r.stderr[-200:])
+    print("  malloctrim: first trim %s ms for %d MB (host)" % (lines[0][0] if lines else "-", drop // 1024))
+
+
 # --- 4. every recipe and variant ---------------------------------------------------------------
 LINT = r'''
 here=$1; ASSETS=$here/assets; D=/nonexistent; g=$2
@@ -873,6 +940,7 @@ if __name__ == "__main__":
         perf_synthetic(tmp)
         client_prof(tmp)
         memprof_real(tmp)
+        malloctrim_real(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("\n%d check(s) failed: %s" % (len(FAILS), ", ".join(FAILS)) if FAILS else "\nall checks passed")
