@@ -1,0 +1,133 @@
+#!/usr/bin/python3 -I
+# ps3-x-ready CGROUP (ps3-desktop; ps3-game-guard runs it before and right after freezing the
+# desktop): whether freezing CGROUP (ps3-desktop.slice's cgroup path, as in /proc/<pid>/cgroup)
+# would leave X held by a frozen program. A program holding the keyboard or the pointer (an open
+# menu: jgmenu, a tray applet's or a file manager's popup) would keep it while frozen: the game gets
+# no input, and nothing can close the menu. The probe grabs both itself for a moment (released at
+# once; the focus events a grab sends say NotifyGrab, which programs ignore): if a grab fails as
+# AlreadyGrabbed, the mapped override-redirect windows (menus, popups) are looked at, and one whose
+# X client (XRes) runs in CGROUP is the holder. A grab without such a window is left alone (a
+# fullscreen game holding its own input).
+# A program holding the whole server (XGrabServer) makes every request of the probe wait: the
+# guard runs it under timeout; "start" is printed first, so a timeout after it means X didn't
+# answer, and one before it means only that Python was slow to start.
+# Exit status: 0 nothing of CGROUP holds X; 1 something does (said on stdout); 2 no display.
+import ctypes
+import sys
+
+print("start", flush=True)
+cg = sys.argv[1] if len(sys.argv) > 1 else ""
+x = ctypes.CDLL("libX11.so.6")
+x.XOpenDisplay.restype = ctypes.c_void_p
+x.XOpenDisplay.argtypes = [ctypes.c_char_p]
+d = x.XOpenDisplay(None)
+if not d:
+    print("no display")
+    sys.exit(2)
+vp, ul = ctypes.c_void_p, ctypes.c_ulong
+# a window gone meanwhile (BadWindow): ignored, not Xlib's default of exiting
+ERR = ctypes.CFUNCTYPE(ctypes.c_int, vp, vp)
+on_error = ERR(lambda dpy, ev: 0)
+x.XSetErrorHandler.argtypes = [ERR]
+x.XSetErrorHandler.restype = vp
+x.XSetErrorHandler(on_error)
+x.XDefaultRootWindow.argtypes = [vp]
+x.XDefaultRootWindow.restype = ul
+x.XGrabKeyboard.argtypes = [vp, ul, ctypes.c_int, ctypes.c_int, ctypes.c_int, ul]
+x.XGrabPointer.argtypes = [vp, ul, ctypes.c_int, ctypes.c_uint, ctypes.c_int, ctypes.c_int, ul, ul, ul]
+x.XUngrabKeyboard.argtypes = x.XUngrabPointer.argtypes = [vp, ul]
+x.XSync.argtypes = [vp, ctypes.c_int]
+root = x.XDefaultRootWindow(d)
+ALREADY = 1
+kb = x.XGrabKeyboard(d, root, 0, 1, 1, 0)	# GrabModeAsync, CurrentTime
+if kb == 0:
+    x.XUngrabKeyboard(d, 0)
+pt = x.XGrabPointer(d, root, 0, 0, 1, 1, 0, 0, 0)
+if pt == 0:
+    x.XUngrabPointer(d, 0)
+x.XSync(d, 0)
+if kb != ALREADY and pt != ALREADY:
+    sys.exit(0)
+held = " and ".join(n for n, s in (("keyboard", kb), ("pointer", pt)) if s == ALREADY)
+
+
+class Attr(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_int), ("y", ctypes.c_int), ("width", ctypes.c_int),
+                ("height", ctypes.c_int), ("border_width", ctypes.c_int), ("depth", ctypes.c_int),
+                ("visual", vp), ("root", ul), ("c_class", ctypes.c_int),
+                ("bit_gravity", ctypes.c_int), ("win_gravity", ctypes.c_int),
+                ("backing_store", ctypes.c_int), ("backing_planes", ul), ("backing_pixel", ul),
+                ("save_under", ctypes.c_int), ("colormap", ul), ("map_installed", ctypes.c_int),
+                ("map_state", ctypes.c_int), ("all_event_masks", ctypes.c_long),
+                ("your_event_mask", ctypes.c_long), ("do_not_propagate_mask", ctypes.c_long),
+                ("override_redirect", ctypes.c_int), ("screen", vp)]
+
+
+class Spec(ctypes.Structure):
+    _fields_ = [("client", ul), ("mask", ctypes.c_uint)]
+
+
+class Val(ctypes.Structure):
+    _fields_ = [("spec", Spec), ("length", ctypes.c_long), ("value", vp)]
+
+
+x.XQueryTree.argtypes = [vp, ul, ctypes.POINTER(ul), ctypes.POINTER(ul),
+                         ctypes.POINTER(ctypes.POINTER(ul)), ctypes.POINTER(ctypes.c_uint)]
+x.XGetWindowAttributes.argtypes = [vp, ul, ctypes.POINTER(Attr)]
+try:
+    r = ctypes.CDLL("libXRes.so.1")
+    r.XResQueryClientIds.argtypes = [vp, ctypes.c_long, ctypes.POINTER(Spec),
+                                     ctypes.POINTER(ctypes.c_long), ctypes.POINTER(ctypes.POINTER(Val))]
+    r.XResGetClientPid.argtypes = [ctypes.POINTER(Val)]
+    r.XResGetClientPid.restype = ctypes.c_int
+except OSError:
+    r = None
+
+
+def pid_of(w):
+    if r is None:
+        return 0
+    spec = Spec(w, 2)	# XRES_CLIENT_ID_PID_MASK
+    n = ctypes.c_long()
+    v = ctypes.POINTER(Val)()
+    if r.XResQueryClientIds(d, 1, ctypes.byref(spec), ctypes.byref(n), ctypes.byref(v)) != 0:
+        return 0
+    for i in range(n.value):
+        p = r.XResGetClientPid(ctypes.byref(v[i]))
+        if p > 0:
+            return p
+    return 0
+
+
+def in_cg(p):
+    try:
+        with open(f"/proc/{p}/cgroup") as f:
+            c = f.read().strip().split("::", 1)[-1]
+    except OSError:
+        return False
+    return bool(cg) and (c == cg or c.startswith(cg + "/"))
+
+
+def comm(p):
+    try:
+        with open(f"/proc/{p}/comm") as f:
+            return f.read().strip()
+    except OSError:
+        return "?"
+
+
+rr, par = ul(), ul()
+kids = ctypes.POINTER(ul)()
+nk = ctypes.c_uint()
+if x.XQueryTree(d, root, ctypes.byref(rr), ctypes.byref(par), ctypes.byref(kids), ctypes.byref(nk)):
+    a = Attr()
+    for i in range(nk.value):
+        w = kids[i]
+        if not x.XGetWindowAttributes(d, w, ctypes.byref(a)):
+            continue
+        if a.override_redirect and a.map_state == 2:	# IsViewable
+            p = pid_of(w)
+            if p and in_cg(p):
+                print(f"the {held} held, a popup of pid {p} ({comm(p)}) open (window {w:#x})")
+                sys.exit(1)
+sys.exit(0)

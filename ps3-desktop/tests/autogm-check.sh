@@ -81,13 +81,18 @@ ren() {
 		-e 's|sudo -n ||g' -e 's|ps3-desktop\.slice|ps3t-desktop.slice|g' -e 's|ps3-display\.slice|ps3t-display.slice|g' \
 		-e 's|ps3-game\.slice|ps3t-game.slice|g' -e 's|app\.slice session\.slice|ps3t-app.slice ps3t-session.slice|g' \
 		-e 's|--unit=ps3-game-mode |--unit=ps3t-game-mode |' -e 's|ps3-game-mode\.service|ps3t-game-mode.service|g' \
-		-e 's|}/ps3-game$|}/ps3t-game|' -e 's|^desktop() {.*|desktop() { false; }	# test: no PCManFM|' "$1" > "$2"
+		-e 's|}/ps3-game$|}/ps3t-game|' -e 's|^desktop() {.*|desktop() { false; }	# test: no PCManFM|' \
+		-e "s|\$HOME/.jgmenu-lockfile|$W/jgmenu-lockfile|g" "$1" > "$2"
 	chmod +x "$2"
 }
 ren "$here/files/libexec/ps3-game-guard" "$W/lib/ps3-game-guard"
 ren "$here/files/libexec/ps3-game-detect" "$W/lib/ps3-game-detect"
 ren "$here/files/bin/ps3-game" "$W/bin/ps3-game"
-cp "$here/files/libexec/ps3-game-prefetch" "$here/files/libexec/ps3_game_prefetch.py" "$W/lib/"
+cp "$here/files/libexec/ps3-game-prefetch" "$here/files/libexec/ps3_game_prefetch.py" "$here/files/libexec/ps3-x-ready" "$W/lib/"
+# the menu (tests/grabmenu.py): "jgmenu" on the PATH (the guard starts it again on leave), and a
+# tray applet's popup by another name
+cp "$here/tests/grabmenu.py" "$W/bin/jgmenu"; cp "$here/tests/grabmenu.py" "$W/bin/trayapplet"
+chmod +x "$W/bin/jgmenu" "$W/bin/trayapplet"
 chmod +x "$W/lib/ps3-game-mode"
 # nothing of the host's left in the copies' code
 if grep -v '^\s*#' "$W/lib/ps3-game-guard" "$W/lib/ps3-game-detect" "$W/bin/ps3-game" |
@@ -281,6 +286,47 @@ kill -USR1 "$G12"; sleep 0.5; kill -USR1 "$G12"
 check "the next window change enters again" wait_for 10 eval 'entered && frozen'
 stop_game "$G12"
 check "and leaves when it exits" wait_for 5 left
+
+echo "== 11. the Games menu (jgmenu) still open, holding the keyboard and pointer, starts a game through ps3-game"
+T11=$(date +%s)
+rm -f "$W/menu.state"
+systemd-run --user --scope --slice=ps3t-desktop.slice --unit=ps3t-menu -q \
+	"$W/bin/jgmenu" --state "$W/menu.state" --spawn "$W/bin/ps3-game" "$W/fsgame" -f -c "$W/c14" > "$W/menu.out" 2>&1 &
+MP=$!; GAMES+=("$MP")
+check "the menu holds its grabs" wait_for 5 grep -q grabbed "$W/menu.state"
+check "game mode: the desktop frozen" wait_for 15 eval 'entered && frozen'
+check "the menu closed first" eval '! grep -qs "^State:.[^Z]" /proc/$MP/status && jr $T11 | grep -q "jgmenu closed"'
+check "X answers other clients" timeout 5 xwininfo -root -tree > /dev/null
+check "the keyboard and pointer are free (the probe)" timeout 8 "$W/lib/ps3-x-ready" "${DCG#/sys/fs/cgroup}"
+check "the game draws" wait_for 10 runs "$W/c14"
+kill "$(pgrep -x fsgame | while read -r p; do grep -q ps3t-game.slice "/proc/$p/cgroup" && echo "$p"; done | head -1)" 2>/dev/null
+check "game mode ends with the game" wait_for 8 left
+menu_back() {	# a hidden jgmenu in the desktop slice
+	local p
+	for p in $(pgrep -x jgmenu); do
+		grep -q -- --hide-on-startup "/proc/$p/cmdline" && grep -q ps3t-desktop.slice "/proc/$p/cgroup" && return 0
+	done
+	return 1
+}
+check "jgmenu started again, hidden, in the desktop slice" wait_for 10 menu_back
+pkill -x jgmenu
+
+echo "== 12. a tray applet's popup open (a grab) when a game is detected"
+T12=$(date +%s)
+rm -f "$W/pop.state"
+systemd-run --user --scope --slice=ps3t-desktop.slice --unit=ps3t-pop -q \
+	"$W/bin/trayapplet" --state "$W/pop.state" > /dev/null 2>&1 &
+PP=$!; GAMES+=("$PP")
+wait_for 5 grep -q grabbed "$W/pop.state"
+systemd-run --user --scope --slice=ps3t-other.slice --unit=ps3t-g15 -q "$W/fsgame" -f -c "$W/c15" > /dev/null 2>&1 &
+G15=$!; GAMES+=("$G15")
+check "game mode, the desktop not frozen (the popup would keep its grab)" eval 'wait_for 10 entered && sleep 7 && ! frozen && runs "$W/panel"'
+check "says why" eval 'jr $T12 | grep -q "not frozen yet: the keyboard and pointer held, a popup of pid $PP"'
+kill "$PP"
+check "the popup closed: the desktop frozen within seconds" wait_for 8 frozen
+check "the game draws" runs "$W/c15"
+stop_game "$G15"
+check "game mode ends" wait_for 8 left
 
 echo "== the end: nothing left"
 check "no registrations" eval '[ -z "$(ls "$S/games" 2>/dev/null)" ]'

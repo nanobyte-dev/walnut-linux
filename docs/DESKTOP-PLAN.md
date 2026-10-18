@@ -173,3 +173,20 @@ Bluetooth, apt, time sync, logging) keep working.
   only (gprefetch-check.py, autogm-check.sh).
 - Measured with `games/bench/gamemode-check.sh` on the desktop (idle, game mode, after; checks
   that everything is back). Not yet run on the PS3.
+- X held by a frozen menu (2026-10-18, on the PS3: Luanti from the Games menu; about 10 s after
+  the click the freeze caught jgmenu, which stays running between uses, with its grab: X stopped
+  answering other clients, Luanti's SDL found no video device and quit; killing jgmenu freed X).
+  Now, before freezing ps3-desktop.slice the guard closes jgmenu (SIGTERM; started again hidden,
+  with the environment it had, at the end of leave, so the panel's button opens it as quickly as
+  before), then `ps3-x-ready` (Python, ctypes) checks X: it grabs the keyboard and pointer for a
+  moment, and if one is already grabbed while an override-redirect window (a menu, a popup) of a
+  ps3-desktop.slice program is mapped, that program holds it; X not answering within 6 s is a
+  server grab. Either defers the freeze (5 s at entering, then every 3 s for a minute while the
+  game runs; the rest of game mode goes on), and it checks again right after freezing (thawed if
+  X is held then: a program caught in the middle of a grab). A grab with no desktop popup is the
+  game's own and is left alone. The journal says `jgmenu closed`, `the desktop not frozen yet:
+  ...`, `the desktop frozen now`. Freezing only once the game's window is mapped was considered
+  and left out: ps3-game enters before the game starts on purpose (the game loads into the memory
+  game mode freed, its prefetch after the page cache drop). Tested on the host (autogm-check.sh
+  11 and 12: a stand-in jgmenu holding both grabs that starts a game through ps3-game; a tray
+  popup holding them when a game is detected).

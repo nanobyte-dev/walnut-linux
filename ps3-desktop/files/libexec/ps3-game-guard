@@ -26,7 +26,15 @@
 #      configuration; nothing is saved or changed)
 #   3. ps3-desktop.slice frozen (cgroup.freeze, like SIGSTOP: the panel, tray applets,
 #      notifications, polkit agent, gvfs, file manager windows and terminals keep their state)
-#      and its memory pushed out: anonymous pages to swap first, then its file pages
+#      and its memory pushed out: anonymous pages to swap first, then its file pages.
+#      Never with X held by one of its programs, which would keep it frozen: X without input, or
+#      without any answer (2026-10-18: Luanti from the Games menu found no X; jgmenu frozen).
+#      jgmenu (the menu, which stays running hidden between uses) is closed first (SIGTERM) and
+#      started again hidden on leave, as it was. Then ps3-x-ready looks at X: a grab held by an
+#      open popup of the desktop (a tray applet's menu), or X not answering at all (a server
+#      grab), defers the freeze, at most 5 s here, then retried every 3 s for a minute while the
+#      game runs (the rest of game mode goes on meanwhile). Right after freezing it looks again:
+#      X held then (a program frozen in the middle of a grab) thaws the desktop, retried the same.
 #   4. the user manager's own services (the user bus; app.slice, session.slice) keep running,
 #      their anonymous memory pushed to swap; they fault back in what they use
 #   5. root (sudo ps3-game-mode on): system services' share (see ps3-game-mode)
@@ -76,6 +84,64 @@ reclaim_anon() {	# anonymous memory only: running services, and the desktop with
 	return 0
 }
 
+# x_ready CG: nothing of CG holds X (ps3-x-ready, see the top); else 1, and XWHY says what does.
+# A probe that fails by itself (no Python, no display, slow to start) doesn't hold the freeze up.
+XR=/usr/lib/ps3/desktop/ps3-x-ready
+x_ready() {
+	[ -n "${DISPLAY:-}" ] && [ -x "$XR" ] || return 0
+	out=$(timeout 6 "$XR" "${1#/sys/fs/cgroup}" 2>&1); rc=$?
+	case $rc/$out in
+	124/start*) XWHY="X doesn't answer (a server grab?)"; return 1 ;;
+	1/start*held*) XWHY=$(echo "$out" | sed 1d); return 1 ;;
+	esac
+	return 0
+}
+
+# menus_off CG: jgmenu in CG closed (it runs hidden between uses and holds the keyboard and
+# pointer while open: frozen open, it would keep them). Its environment is kept for menus_on.
+menus_off() {
+	rel=${1#/sys/fs/cgroup} ps=
+	for p in $(pgrep -u "$(id -u)" -x jgmenu); do
+		read -r c 2>/dev/null < "/proc/$p/cgroup" || continue
+		case ${c#0::} in "$rel"/*) ;; *) continue ;; esac
+		[ -s "$S/jgmenu.env" ] || cat "/proc/$p/environ" > "$S/jgmenu.env" 2>/dev/null
+		kill -TERM "$p" && ps="$ps $p"
+	done
+	[ -n "$ps" ] || return 0
+	i=0
+	while [ $i -lt 30 ]; do
+		n=0
+		for p in $ps; do case $(proc "$p") in Z\ *|X\ *|'') ;; *) n=1 ;; esac; done
+		[ $n = 0 ] && break
+		sleep 0.1; i=$((i + 1))
+	done
+	if [ $n = 1 ]; then	# SIGKILL: its lockfile stays (jgmenu_run copes, menus_on too)
+		# shellcheck disable=SC2086 # pids
+		kill -KILL $ps 2>/dev/null
+		log "jgmenu killed (pid$ps): it didn't exit"
+	else
+		log "jgmenu closed (pid$ps)"
+	fi
+}
+# menus_on: jgmenu started again hidden (as it ran before; the panel's button shows it), in a scope
+# of ps3-desktop.slice with the environment it had, if none runs by now
+menus_on() {
+	[ -e "$S/jgmenu.env" ] || return 0
+	if ! pgrep -u "$(id -u)" -x jgmenu > /dev/null; then
+		rm -f "$HOME/.jgmenu-lockfile"
+		set --
+		while IFS= read -r kv; do [ -n "$kv" ] && set -- "$@" "$kv"; done <<END_ENV
+$(tr '\0' '\n' < "$S/jgmenu.env")
+END_ENV
+		if in_desktop env -i "$@" nice -n 10 jgmenu --hide-on-startup; then
+			log "leave: jgmenu started again (hidden)"
+		else
+			log "jgmenu didn't start again (the panel's button starts it)"
+		fi
+	fi
+	rm -f "$S/jgmenu.env"
+}
+
 freeze() {	# freeze CG and wait (up to 5 s) until it is
 	echo 1 > "$1/cgroup.freeze" 2>/dev/null || return 1
 	i=0
@@ -94,21 +160,25 @@ desktop_off() {
 	xsetroot -solid '#14304d'
 	xprop -root -remove _XROOTPMAP_ID 2>/dev/null; xprop -root -remove _XROOTMAP_ID 2>/dev/null
 }
-desktop_on() {
-	[ -e "$S/desktop" ] || return 0
-	rm -f "$S/desktop"
-	# a scope in ps3-desktop.slice, as ps3-session starts it (apps opened from the desktop
-	# outlive it). If the instance still runs (a file manager window), this one hands it the
-	# --desktop and exits. Waited for until it has left this cgroup: systemd kills what an
-	# ExecStopPost leaves behind.
+# in_desktop COMMAND...: started in a scope of ps3-desktop.slice, as ps3-session starts the
+# desktop's programs. Waited for until it has left this cgroup: systemd kills what an
+# ExecStopPost leaves behind.
+in_desktop() {
 	read -r me 2>/dev/null < /proc/self/cgroup
-	GDK_GL=disable setsid systemd-run --user --scope --slice=ps3-desktop.slice -q \
-		pcmanfm --desktop < /dev/null > /dev/null 2>&1 &
+	setsid systemd-run --user --scope --slice=ps3-desktop.slice -q "$@" < /dev/null > /dev/null 2>&1 &
 	p=$! i=0
 	while [ $i -lt 100 ] && read -r c 2>/dev/null < "/proc/$p/cgroup" && [ "$c" = "$me" ]; do
 		sleep 0.1; i=$((i + 1))
 	done
-	[ $i -lt 100 ] && log "leave: PCManFM desktop started" || log "pcmanfm --desktop didn't start"
+	[ $i -lt 100 ]
+}
+desktop_on() {
+	[ -e "$S/desktop" ] || return 0
+	rm -f "$S/desktop"
+	# apps opened from the desktop outlive it. If the instance still runs (a file manager
+	# window), this one hands it the --desktop and exits.
+	if GDK_GL=disable in_desktop pcmanfm --desktop; then log "leave: PCManFM desktop started"
+	else log "pcmanfm --desktop didn't start"; fi
 }
 
 procs() {	# the pids in the cgroups of the user units given
@@ -178,6 +248,44 @@ alive() {	# alive FILE: one of its processes still runs (a reused pid wouldn't c
 	return 1
 }
 
+# freeze_desktop CG WAIT: ps3-desktop.slice frozen and pushed out (step 3), once X is free of it
+# (x_ready; waited for up to WAIT seconds), and only if X is still free with it frozen. Not now:
+# 1, and $S/freeze-pending for run to try again.
+freeze_desktop() {
+	i=0
+	until x_ready "$1"; do
+		if [ $i -ge "$2" ]; then
+			[ -e "$S/freeze-pending" ] || log "the desktop not frozen yet: $XWHY"
+			: > "$S/freeze-pending"; return 1
+		fi
+		sleep 1; i=$((i + 1))
+	done
+	freeze "$1" || return 1
+	if ! x_ready "$1"; then
+		echo 0 > "$1/cgroup.freeze"
+		log "the desktop thawed again: frozen, it held X ($XWHY)"
+		: > "$S/freeze-pending"; return 1
+	fi
+	[ -e "$S/freeze-pending" ] && log "the desktop frozen now"
+	rm -f "$S/freeze-pending"
+	echo "$1" > "$S/frozen"	# for leave: thawing needs no program then
+	if [ "${PS3_GAME_PREFETCH:-on}" = keep ]; then
+		reclaim_anon "$1"
+		cur=$(cat "$1/memory.current" 2>/dev/null) && log "reclaimed ${1##*/} (anonymous only): $((cur / 1024)) kB left"
+	else
+		reclaim "$1"
+	fi
+}
+freeze_retry() {	# from run, every 3 s for a minute: a freeze deferred by freeze_desktop
+	[ -e "$S/freeze-pending" ] && [ $((T % 3)) = 0 ] || return 0
+	if [ "$T" -gt 60 ]; then
+		rm -f "$S/freeze-pending"
+		log "the desktop stays unfrozen for this game: X still held ($XWHY)"
+		return 0
+	fi
+	cg=$(slice_cg ps3-desktop.slice) && freeze_desktop "$cg" 0
+}
+
 enter() {
 	log "entering game mode (${PS3_GAME_MODE:-on}, prefetch ${PS3_GAME_PREFETCH:-on})"
 	pads_off
@@ -185,14 +293,9 @@ enter() {
 	[ "${PS3_GAME_PREFETCH:-on}" = off ] || record
 	desktop_off
 	cg=$(slice_cg ps3-desktop.slice)
-	if [ -n "$cg" ] && freeze "$cg"; then
-		echo "$cg" > "$S/frozen"	# for leave: thawing needs no program then
-		if [ "${PS3_GAME_PREFETCH:-on}" = keep ]; then
-			reclaim_anon "$cg"
-			cur=$(cat "$cg/memory.current" 2>/dev/null) && log "reclaimed ${cg##*/} (anonymous only): $((cur / 1024)) kB left"
-		else
-			reclaim "$cg"
-		fi
+	if [ -n "$cg" ]; then
+		menus_off "$cg"
+		freeze_desktop "$cg" 5
 	fi
 	for u in app.slice session.slice; do
 		cg=$(slice_cg $u) && reclaim_anon "$cg"
@@ -217,7 +320,7 @@ leave() {
 	if [ -n "$cg" ] && echo 0 > "$cg/cgroup.freeze" 2>/dev/null && [ -e "$S/frozen" ]; then
 		log "leave: desktop thawed"
 	fi
-	rm -f "$S/frozen"
+	rm -f "$S/frozen" "$S/freeze-pending"
 	pads_on
 	desktop_on
 	if [ -e "$S/root" ]; then
@@ -230,6 +333,7 @@ leave() {
 	# the games' records into their lists, with the desktop back (ps3-game-prefetch game-learn)
 	set -- "$S"/gp/*.seen
 	[ -e "$1" ] && [ -x "$P" ] && timeout 60 "$P" game-learn "$S" 9>&-
+	menus_on	# last: its start costs CPU, and nothing needs it at once
 	return 0
 }
 
@@ -268,8 +372,9 @@ run() {
 	watch_start
 	exec 9> "$S/lock"
 	flock 9; rm -f "$S/entering"; : > "$S/entered"; flock -u 9
+	T=0
 	while :; do
-		sleep 1
+		sleep 1; T=$((T + 1))
 		flock 9
 		n=0
 		for f in "$S"/games/*; do
@@ -284,6 +389,7 @@ run() {
 		fi
 		flock -u 9
 		watch_check
+		freeze_retry
 	done
 }
 
@@ -297,7 +403,8 @@ live() {	# the guard's service exists (its state files count only then)
 }
 stale() {	# game mode's state left with no guard (one killed with its whole cgroup, whose
 	# ExecStopPost was killed too): undone here, by the next join or quit
-	if ! live && { [ -e "$S/frozen" ] || [ -e "$S/root" ] || [ -e "$S/pads" ] || [ -e "$S/desktop" ]; }; then
+	if ! live && { [ -e "$S/frozen" ] || [ -e "$S/root" ] || [ -e "$S/pads" ] || [ -e "$S/desktop" ] ||
+		[ -e "$S/jgmenu.env" ]; }; then
 		log "game mode left behind by a guard that died: undoing it"
 		"$0" leave 9>&-	# not the lock's descriptor: the pcmanfm it starts would hold the lock
 	fi
