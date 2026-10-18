@@ -89,7 +89,9 @@ geometry in XDR.
 Status 2026-10-17: 1 done (ps3rsx kcopy.c, swap-ins ~10x faster); 2 partly: the release kernel
 (+8.7 MB) shipped, the wallpaper leaves in game mode, the other trims wait (CLAUDE.md "Memory
 trims"); 3 not run; 4 not started; 5 done for OpenArena (S3TC through libspeq's SPU encoder). The
-open items are ranked again with today's measurements in IDEAS.md.
+open items are ranked again with today's measurements in IDEAS.md. (2026-10-18: 3 and 4 still not
+started; for 2, the console frame release (local/0043, up to 8 MB while X runs) is built into kernel
+.457 and the 720p console is still the user's call; 5's S3TC for every game is IDEAS #4.)
 
 1. **Finish VRAM swap with GPU copies (M2MF) for swap-in and write-back.** It's the biggest
    RAM lever (~96 MB of fast swap), and the 10 MB/s PPE read path is its bottleneck: swap-in

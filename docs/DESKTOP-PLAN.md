@@ -213,3 +213,13 @@ Bluetooth, apt, time sync, logging) keep working.
   game mode is on). Tested on the host (autogm-check.sh 13 to 15: a game ignoring SIGTERM closed
   by the escape, BTN_MODE events into the listener, Alt+Tab and Win+D through XTEST with
   Openbox), not on the PS3 yet.
+- Status on the PS3 (2026-10-18 evening, dated note): seen there so far are the menu path (`ps3-game`,
+  which caught the jgmenu freeze above), the wallpaper and services getting out of the way, and the
+  slow return after OpenArena (about 30 s, which led to the desktop prefetch). ps3-desktop 0.458 (the
+  jgmenu fix, `ps3-x-ready`, the escape keys) is installed on the PS3 and has not been tried at the TV.
+  Not yet seen on the PS3: the automatic start (`ps3-game-detect`, including F11 and a game started
+  from a terminal), the desktop prefetch's return time, the game kicker unit (`ps3-game-kick`; it skips
+  itself on a kernel with `ps3_idle_prep` on), the game prefetch from game mode (the bench learn runs
+  used the harness's `game-run`), and `gamemode-check.sh`'s numbers. The manual list for the user's
+  return is: Luanti from the menu (sound and game mode), a terminal game with F11, the desktop's
+  return time, Ctrl+Alt+Esc and the PS button hold, Alt+Tab/Win+D.

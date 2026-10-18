@@ -297,7 +297,8 @@ stretch with interrupts off would show on both threads and in dmesg's RCU or wat
 ### The fix
 
 linux/patches/local/0009-ps3-idle-no-pause-with-irq-pending.patch (in the series since
-2026-10-18, a test kernel; built, not yet booted): `ps3_power_save()` calls `prep_irq_for_idle()`
+2026-10-18, a test kernel; built, not yet booted; booted since in .419 and .433 and confirmed, see
+"The fix on the PS3" below): `ps3_power_save()` calls `prep_irq_for_idle()`
 first, as pseries and the native Cell's `cbe_power_save()` do. It hard-disables and returns without
 pausing when something was masked since `local_irq_disable()` (the replay in `local_irq_enable()`
 runs it), otherwise it marks the thread soft-enabled; then `__hard_irq_enable()` and, unless
@@ -325,7 +326,10 @@ Until a fixed kernel is in, a stopgap is the kicker during game mode (ps3-deskto
 start `ps3-waker -m kick -i 10 -c 1`, 100 wakeups a second on each side). ps3rsx could also retire
 fences from its vsync interrupt (thread 0, 60 Hz) as well as from the poll timer, so that no fence
 depends on one thread's timer; that bounds a fence wait to 17 ms but leaves every other timer of the
-stuck thread waiting. Neither is done; the kernel fix comes first.
+stuck thread waiting. Neither is done; the kernel fix comes first. (Later on 2026-10-18: the kicker is
+done, `ps3-kick` in ps3-system, started by game mode as `ps3-game-kick` and skipped when
+`ps3_idle_prep` is on; not yet seen running through game mode on the PS3. The vsync retire is not
+done and is not needed with the fixed kernel.)
 
 The OpenArena analysis above ("what stalls and why") came from recorder runs, so it describes the
 stalls that are left with the recorder running: the reloads and the bot joins are real either way,
@@ -446,7 +450,10 @@ report.py gained the first minute, which the window leaves out: `stalls_warm`, `
 `games/bench/selftest.py` covers client.sh with learn, then fetch, then a budget, plus the warm-up
 columns. Under a host load of 10-15, autogm-check failed one timing check in 3 of 6 runs, a
 different one each time, and the last 3 passed. The unchanged HEAD version passed the one run made
-at that load. Nothing has run on the PS3 yet.
+at that load. Nothing has run on the PS3 yet. (2026-10-18 afternoon: ps3-desktop 0.446 installed and
+step 0's learn runs made for Sauerbraten, OpenArena gl2min and Luanti; SuperTuxKart's was interrupted
+by the reboot session. The lists are in `/var/tmp/ps3-bench/gprefetch` on the PS3. Step 1, the
+measured A/B, has not run.)
 
 ### The A/B on the PS3
 
@@ -495,6 +502,14 @@ ps3-bench-20261018T120716Z-probe-fixon and ...-probe-fixoff: with `ps3_idle_prep
 worst wakeup was 3.6 / 4.0 ms (none 10 ms or later); with the switch at 0 thread 1 was up to 1103 ms
 late (11 wakeups 100 ms or more, 1 over 1 s), thread 0 16.7 ms. The fix removes the lost decrementer
 and does better than the 10 ms kicker (19.4 ms worst).
+
+In a game, same boot, no kicker, OpenArena base with the switch on/off/on/off (results row "kernel
+6.12.111+ps3.419 idle fix on/off"): gameplay stalls 0.5 / 8.2 / 0.1 / 5.6 s, longest frame 285 / 2598 /
+122 / 982 ms, steady 71.2 / 64.4 / 66.7 / 67.0 fps. An SSH wait loop polled the PS3 through all four
+runs (listed in results/interfered.txt), so the absolute numbers aren't clean, but the on/off
+difference held in both pairs. Kernel .433 (the fix plus the hwmon, fan and shutdown patches) booted
+next with the fix active. Still to do: the clean repeat on .433, then the fixed kernel as the default
+and the kicker retired.
 
 ## Interference (2026-10-18)
 
@@ -600,7 +615,10 @@ the sky. Clean runs have an empty hotbar and no hand. So "lean renders less terr
 nearby terrain at 150 s)" was most likely someone digging and looking around, not the variant.
 The same row's base, compared with cliunload ("gameplay stalls 6.5 -> 0.8 s, longest frame 1943 ->
 259 ms", PLAN.md decision 2), had its worst frames right at the digs. Both comparisons need clean
-runs of base, cliunload and lean before the decision. The same photos show a solitaire game in
+runs of base, cliunload and lean before the decision (done 2026-10-18 evening, results row "Luanti
+ps3.405 clean re-runs": base 1.5 and 2.1 s, cliunload worse at 3.8 and 5.2 s, lean a black void on the
+webcam at 150 s in both clean runs: the interfered run's photo was the digging, but lean does
+fail to draw the world). The same photos show a solitaire game in
 progress on the PC's screen at those minutes (12:39-12:44 local). If the mouse used there is also
 paired with the PS3's Logitech receiver, the user's own mouse reaches the PS3; worth checking.
 
@@ -616,6 +634,11 @@ SSH every ~11 s through all four, and SSH scans of the journal and Xorg logs ran
 The on/off difference held across the alternation, but the absolute numbers need the clean repeat.
 
 ### Checking it on the PS3
+
+(2026-10-18 evening: ps3-gpu-tools 0.453 is installed and the detector runs with every bench run since
+batch 15; the six clean Luanti re-runs report `interfered=0`. The deliberate checks below, which need
+someone at the PS3, have not been done, and neither the tty8 screen nor the detector's PPE cost has
+been looked at.)
 
 Needs ps3-gpu-tools with `ps3-intfwatch` (0.453 or later: `make ps3-gpu-tools-deb`, then a deploy) and
 `make bench-push`. Nobody may be using the PS3; webMAN fan on SYSCON.

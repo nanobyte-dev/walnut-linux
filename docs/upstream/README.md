@@ -9,8 +9,8 @@ Rebase onto each project's current head before sending.
 | # | Item | Where to submit | Files | Status |
 |---|---|---|---|---|
 | 1 | Teeworlds FIONBIO int (big-endian 64-bit) | GitHub teeworlds/teeworlds issue + PR; Debian BTS for `teeworlds` | `teeworlds.md`, `teeworlds-0001-ioctl-fionbio-int.patch` | draft, not sent. Master has the same code; tested on PS3 and qemu |
-| 2 | Linux ps3_power_save() lost decrementer | mail: geoff@infradead.org, linuxppc-dev | `linux-ps3-idle.md`, `linux-ps3-0001-idle-lost-decrementer.patch` | draft, not sent. RFC: problem measured, fix not yet booted |
-| 3 | Linux ps3_sys_manager_fin() hang | mail: same recipients | `linux-ps3-sys-manager.md`, `linux-ps3-0002-sys-manager-fin-wait-for-command.patch` | draft, not sent. RFC: compiled only, untested on hardware |
+| 2 | Linux ps3_power_save() lost decrementer | mail: geoff@infradead.org, linuxppc-dev | `linux-ps3-idle.md`, `linux-ps3-0001-idle-lost-decrementer.patch` | draft, not sent. RFC: problem measured; the fix booted on 2026-10-18 (kernel .419: worst idle wakeup 4 ms with it, 1103 ms without), numbers not yet in the commit message |
+| 3 | Linux ps3_sys_manager_fin() hang | mail: same recipients | `linux-ps3-sys-manager.md`, `linux-ps3-0002-sys-manager-fin-wait-for-command.patch` | draft, not sent. RFC: compiled only; in the booted kernel .433 since 2026-10-18, but its power-off and button checks have not run |
 | 4 | Yamagi Quake II KISS table | GitHub yquake2/yquake2 issue + PR | `yquake2.md`, `yquake2-0001-kiss-table-size.patch` | draft, not sent. Smallest form of our fix; measured with the heap variant |
 | 5 | Mesa translate_generic 8-bit LUT | gitlab.freedesktop.org/mesa/mesa MR | `mesa.md`, `mesa-0001-translate-8bit-lut.patch` | draft, not sent. Generic (all u_vbuf/draw users); upstream form not compiled |
 
@@ -23,7 +23,7 @@ Rebase onto each project's current head before sending.
 
 ## Open points
 
-- Boot session: idle patch numbers with the fix (see `linux-ps3-idle.md`), sys-manager patch sanity.
+- Boot session: idle patch numbers with the fix (see `linux-ps3-idle.md`; measured 2026-10-18, to be written into the message), sys-manager patch sanity (still open).
 - Mesa: the PC-side test harness is not saved in the repo; recreate before offering a test.
 - Yamagi: nobody checked whether demos or savegames depend on the random sequence.
 - All patches were cut against our tarballs, not against each project's head. Upstream-head checks done:

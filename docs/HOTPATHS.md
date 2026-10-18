@@ -204,7 +204,8 @@ play. 0028 (index fencing) shows as `nouveau_fence_ref < nv30_state_validate`, 0
 ## Implemented
 
 Both in `build/work/mesa`, exported as `mesa/patches/0033-*` and `0034-*`, built into
-`build/debs/mesa` (26.2.4-1+ps3.407), not published, not on the PS3.
+`build/debs/mesa` (26.2.4-1+ps3.407), not published, not on the PS3. (Installed on the PS3 since and
+measured, "Measured on the PS3" below.)
 
 **0033 translate: 8-bit vertex attributes to floats through a table (`NV30_TRANSLATE_LUT`, on by default since the PS3 measurement: Sauerbraten +53% steady fps, 25.9 -> 39.6; `NV30_TRANSLATE_LUT=0` is the off switch).**
 In translate_generic, an element whose input is a plain 8-bit array format with identity swizzle
@@ -447,6 +448,25 @@ Same boot, interleaved, desktop stopped, webcam photos checked as always:
 `/sys/module/ps3rsx/parameters/name` for that run and the old one back after it, bench.txt gets
 `kparam=`, report.py shows `base@rsx_shadow_fast1`. The NV30_* tokens show as `base@query_wait0`,
 `base@staging_pool16`.
+
+## Measured on the PS3 (2026-10-18, dated note)
+
+Same-boot rows in games/bench/results/ (row = fps.csv row), all with the 10 ms kicker; single runs
+where it says so:
+
+| Change | Result | Row | Verdict |
+|---|---|---|---|
+| 0033 `NV30_TRANSLATE_LUT` | Sauerbraten 25.9 -> 39.6 steady, low1 18.3 -> 26.9 (x2) on the spectator demo of that night; QuakeSpasm 91.0/90.8 against 90.9/91.0, CPU about -3% | 57, 58 | on by default; not re-measured on the first-person demo used since row 64 |
+| 0034 `NV30_FENCE_BO_POOL=16` | ClassiCube 48.4 both ways | 58 | neutral, stays off |
+| 0035 `NV30_QUERY_WAIT=200` | Sauerbraten 45.6 against 25.0 in one run, then 23.0/33.4 against 26.0/37.9 in the interleaved repeat; CPU lower with it | 64, 65 | no fps gain, stays off; the first-person demo's run-to-run spread needs more rounds for small A/Bs |
+| cube2 0010 `oqwaterlag` | 39.4 steady / 43.5 smooth against base 25.0 / 30.3, one run | 64 | promising, repeat needed |
+| 0036 `NV30_STAGING_POOL` | ClassiCube same fps, CPU -4% | 64 | neutral in fps |
+| ClassiCube `chunks1` | 50.9 against 48.4 (base, `CC_GL_CHUNKS=2`), +5%, one run | 64 | the recommendation above holds so far; repeat x3 before changing the default |
+| xmoto 0004 `XMOTO_GL_STREAM` | 163.1 against 160.4, longest frame 146 against 404 ms | 64 | small gain, fewer hitches; repeat |
+| ps3rsx `shadow_fast` | not run: its modules are built for kernels .433 and .457 | - | next boot |
+
+The Mesa ps3.416~dev and ps3rsx 0.250~dev builds in the table above ran on the PS3 for rows 64-65
+(Mesa) or not at all (ps3rsx 0.250, which needs its kernel).
 
 ## Reproducing the analysis on the PC
 

@@ -12,6 +12,34 @@ MEMORY.md, STALLS.md, DESKTOP-PLAN.md, and `games/bench/results/*.csv`. "fps.csv
 Nth data row of the matrices (same rows in every CSV; the `observations` column has the text).
 Every row cited as proof has the picture checked on the webcam unless said otherwise.
 
+## 0. Since the draft (2026-10-18 evening, dated note)
+
+Still nothing published to stable. What changed for the verdicts below (rows 63-67 of the matrices,
+the boots of .419 and .433):
+
+- **Kernels.** .419 booted (lost-decrementer fix confirmed: worst idle wakeup 4 ms against 1103 ms
+  with the switch off; `dev_hdd0` mounted read-only), then .433 (the fix, hwmon temperatures, fan
+  SYSCON automatic and full speed, gelic, spufs: all passed). .433 moves from NOT YET towards
+  NEEDS-CHECK: left are local/0041's power-off, button and reboot checks, then an official rebuild
+  (it is `~dev`). .457 is built for the next boot (NLS for `dev_hdd1`, local/0043 off by default,
+  ps3rsx 0.443 with `shadow_fast` off). .178 stays the READY kernel until then.
+- **Mesa.** The READY candidate stays the proven tree (ps3.408~dev rebuilt as official). 0034, 0035 and
+  0036 measured neutral in fps (rows 58, 64, 65). The +53% cited for 0033 (row 57) is from the
+  spectator demo; the heavier first-person demo was not used for that A/B. ps3.442~dev (0037, switches
+  off by default) is in ps3-dev and never ran on the PS3: not a candidate yet.
+- **Luanti 405**: READY as before. The clean re-runs (row 67) keep base as the default, so the package
+  needs no new default (`cliunload` is worse, `lean` draws nothing).
+- **ioquake3**: the candidate stays 396; 462 (0027-0029) is unmeasured. **cube2**: the candidate stays
+  354; 442~dev (0011, off by default) is unmeasured.
+- **supertuxkart**: one more check: every run logged `sound=none` (the ALSA device never opened).
+- **ps3-gpu-tools**: 0.453 (with `ps3-intfwatch`) runs on the PS3 in every bench run since batch 15;
+  rebuild that as the candidate instead of 0.428.
+- **ps3-desktop**: 0.458 (jgmenu freeze fix, escape keys) is installed on the PS3, not yet tried at
+  the TV; the NEEDS-CHECK list below still applies, at the newer version.
+- **ps3-system**: 0.457 built (the `ps3-gameos-mount` vfat retry); the game-mode kicker is still not
+  seen running through game mode (and skips itself on the fixed kernels).
+- **New, NOT YET**: `darkplaces-gl2` (Nexuiz, not run on the PS3).
+
 ## 1. What is where
 
 ### Stable `ps3` now (everything dates from 2026-10-16 morning, builds up to .163)

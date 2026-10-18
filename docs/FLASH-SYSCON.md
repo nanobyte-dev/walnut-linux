@@ -303,6 +303,11 @@ Gaps:
 
 Value for this project at acceptable risk, in order. The first four write nothing persistent.
 
+(Status 2026-10-18 evening: 4 is done another way: the System Manager answers the Linux LPAR, and
+the fan policy driver (local/0040, 0042, docs/THERMAL.md) set SYSCON automatic and full speed on
+kernel .433; the sysmgr character device mentioned in 4 is dropped from our kernels. 1, 2 and 3 have
+not been tried; 5-7 stay off without the owner's request.)
+
 1. **Use the 7th SPE (no write).** Add a Petitboot entry with `spu_base.enum_shared=1` next to the
    normal one, and check `/sys/devices/system/spu` shows 7. Then re-run the speq benchmarks and
    `ps3-gameos-mount` in the same boot as the 6-SPE baseline (same-boot rule). Off-switch: boot the
@@ -357,7 +362,10 @@ a bigger OtherOS HDD region (we boot from USB/NFS; resizing again wipes GameOS's
   after boot?
 - Which ROS bank is active right now?
 - Does a Sherwood SW2 still answer on UART after a thermal config with a bad checksum?
-- Can the System Manager set the fan policy from Linux under OtherOS++? (THERMAL.md)
+- ~~Can the System Manager set the fan policy from Linux under OtherOS++?~~ Yes: SYSCON automatic and
+  full speed from Linux on kernel .433 (2026-10-18, THERMAL.md).
+- What makes the kernel try to write the OS area ("os_area_queue_work_handler: Could not update FLASH
+  ROM", 2026-10-15)? Still not looked at (PLAN.md open questions).
 
 ## 8. Sources
 

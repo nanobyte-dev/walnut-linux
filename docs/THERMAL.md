@@ -7,6 +7,10 @@ probe. Not booted on the PS3 yet. Part B (fan control) was research; after the u
 driver" below): SYSCON automatic at boot and on every exit path, full speed or a fixed floor on
 request, nothing else sent to SYSCON. Not booted either.
 
+(Status 2026-10-18 evening: both are booted. Kernel .433 ran with them: the temperatures through hwmon,
+SYSCON automatic at boot and the full-speed round trip passed; see "On the PS3 with kernel .433" at the
+end. Not tried yet: a floor, the panic path, and local/0041's power-off, button and reboot steps.)
+
 ## Where the temperatures come from
 
 - Every thermal sensor on the board hangs off SYSCON. The Cell BE and the RSX each have a
@@ -520,3 +524,15 @@ default.
 Linux LPAR. Zone 0 (Cell) 65.76 C, zone 1 (RSX) 60.00 C, status 0; reply service id 14, tag 0, payload
 8 bytes (`0100000041c30000`, `010100003c000000`: {ver, zone, status, 0, integer C, fraction/256, 0, 0}).
 The hwmon driver's accepted formats cover this.
+
+### On the PS3 with kernel .433 (2026-10-18 evening, dated note)
+
+Kernel 6.12.111+ps3.433 (local/0040, 0041, 0042 and the rest of that series) booted from Petitboot.
+From the session notes: the hwmon `ps3_sm` temperatures read, the fan went to SYSCON automatic at
+boot, and test step 3 (full speed through `pwm1_enable=0`, then back to 2) worked. The exact bytes of
+the get reply (whether the layout guess was confirmed) are in that boot's dmesg and are not copied
+here; read them before relying on `pwm1` in automatic mode. Not done yet: step 1's `fan_policy=keep`
+boot (if it was skipped, nothing is lost: the default sends only the automatic policy), step 4
+(full speed across a reboot), step 5 (a floor, only with the user's OK), step 6 (panic), and the
+power-off, button-tap and reboot checks of local/0041 in "PS3 test steps" 5. Game mode has no fan
+hook yet ("Game mode hook" above), and nothing measured whether a floor would help a game.

@@ -5,7 +5,7 @@ docs/SPU-OFFLOAD-SURVEY.md left. Nothing here was run on the PS3; each answer sa
 from source or documentation and what still needs a probe. (Status 2026-10-17: section 3 is built,
 ps3rsx/src/kcopy.c, with swap-ins ~10x faster, PLAN.md item 1. E8b, E16, E17, the memcpy check,
 egl-deriv, instancing and VTF have not run, and the validator still lets 0x900-0x97c through with
-unchecked data. Ranked in IDEAS.md.) Confidence: **high** = read in code
+unchecked data. Ranked in IDEAS.md. Unchanged on 2026-10-18: none of these probes has run.) Confidence: **high** = read in code
 or a primary document, **medium** = inferred from several sources, **low** = plausible, unchecked.
 
 Sources used throughout:

@@ -177,6 +177,15 @@ it says built).
 Not worth a change at these sizes: thread stacks, X-Moto's heap (0.3 MB free), QuakeSpasm's heap,
 OpenArena's 176 MB hunk mapping (untouched pages).
 
+**Measured since (2026-10-18, same-boot rows of games/bench/results/, row = fps.csv row):** #1 is the
+default (row 57: RSS 125 -> 56 MB, stalls 22.6 -> 0.05 s). #2 as `trim16`: no gain and more stalls
+(3.35 -> 8.6 s, row 57), rejected. #3, #4 (`MALLOC=trim`, `mmap` on Sauerbraten and OpenArena, x2 in
+batch 8): the rounds disagreed with each other, read as noise (row 61); not shipped, and the MB they
+free were not read out of those runs' `ps3-malloctrim:` lines here. #7: the clean Luanti re-runs (row
+67, interference detector on) keep base; `cliunload` has more stalls (3.8 and 5.2 s against 1.5 and
+2.1 s) and `lean` draws a black void. `vm.watermark_boost_factor=0` on Luanti: no clear gain (row 62).
+None of the malloc presets is a default.
+
 ## What was implemented
 
 All defaults unchanged; nothing deployed or published.
@@ -222,6 +231,10 @@ leaves 88 MB of holes in its main heap and a thread arena (over 60 MB given back
 process of another name is left alone.
 
 ## Packages (built, not deployed, not published)
+
+(2026-10-18 evening: ps3-gpu-tools 0.403 or later, luanti 405 and yamagi-quake2 408 are installed on
+the PS3 and were measured, above. ioquake3 ps3.462, Mesa ps3.442~dev and cube2 ps3.442~dev are in
+ps3-dev, not installed; their A/Bs below are pending.)
 
 | Package | Version | What changed |
 |---|---|---|

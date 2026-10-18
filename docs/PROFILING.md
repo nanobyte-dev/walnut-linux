@@ -252,6 +252,9 @@ Measured on the host (Zen 2), estimated for the PPE; every run states its own nu
   `perf_self` (0.25% of a Zen 2 thread for two busy processes in the container test). Data: about
   250-400 bytes a sample to the disk. Measure it once with a same-boot A/B (`PERF=0` against
   `PERF=1`, three rounds) before reading fps off profiled runs at all; `PERF_HZ=199` cuts it by 2.5.
+  (2026-10-18: the profiling batch had OpenArena at 50.7, 50.5 and 52.7 fps profiled against 52.7 and
+  50.2 without, inside the noise; docs/HOTPATHS.md. That is one game and no interleaved A/B, so the
+  rule above still holds.)
 - perf-post.sh: after the run, nothing during it (perf script and the collapser: a minute or two
   on the PPE).
 - MEM: three snapshots. Reading smaps walks the game's page tables under its mmap lock: under 1 ms

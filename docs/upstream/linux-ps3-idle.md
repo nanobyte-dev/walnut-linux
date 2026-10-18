@@ -7,6 +7,13 @@ drops the `ps3_idle_prep` core_param A/B switch and the comment that mentions it
 
 ## Needs your attention before sending
 
+(2026-10-18 evening: the with-fix numbers exist now. Kernel 6.12.111+ps3.419, same boot, probe test 1
+with `ps3_idle_prep` on: worst wakeup 3.6 ms on thread 0 and 4.0 ms on thread 1, none 10 ms or later;
+with it off thread 1 was up to 1103 ms late (11 wakeups 100 ms or more). In a game (OpenArena, no
+kicker) gameplay stalls 0.5 and 0.1 s with the fix against 8.2 and 5.6 s without, but those four runs
+had an SSH poll running through them (docs/STALLS.md "The fix on the PS3"). The first point below can
+be closed with these; the rebase still stands.)
+
 - The fix itself is not tested on hardware. STALLS.md says "built, not yet booted". The evidence in the
   commit message shows the problem (probe: thread 1 up to 1439 ms late idle, 19.4 ms with a 10 ms
   kicker) but not the patched kernel. That is why the subject says RFC. Better: boot the test kernel

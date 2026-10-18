@@ -182,7 +182,9 @@ Leave it.
 ## 4. Ranked changes
 
 Savings are steady-state RAM. "Reboot" = needs a boot test on the PS3 (all kernel rows do; nothing
-here was booted).
+here was booted when this was written; rows 1, 3, 4, 8, 9, 10 and 15 have been since, as the release
+flavour, below; row 2 waits for the user's 720p decision, rows 5-7 for game mode, CLAUDE.md "Memory
+trims").
 
 | # | Change | Saves | Risk | Where |
 |---|---|---:|---|---|
@@ -328,6 +330,9 @@ above) and the should-fixes (refill out of the handover, no RW scratch, page all
 CMA, retry backoff, takeover after shutdown) are in the patch.
 
 ### PS3 test plan (needs a dev build, netboot; nothing of this ran yet)
+
+(2026-10-18 evening: it is in kernel 6.12.111+ps3.457 (built, not yet installed; it goes in next to .433 and boots from Petitboot's menu, no netboot needed);
+steps 1-9 are for the next boot session, with .433 kept as the default.)
 
 Built into 6.12.111+ps3.457 (with ps3rsx 0.250 modules, 2026-10-18), switch off by default; the install
 and the other checks for that boot are in the session notes (docs/GAMEOS-HDD.md for the disk mount).

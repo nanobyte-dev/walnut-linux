@@ -134,7 +134,9 @@ None of them touches the hypervisor, flash or syscon. Build: `make linux-deb` on
 spufs as a module, ps3/spu.c); the test debs are in `build/keep/debs-linux-6.12.111+ps3.420dev-oospp`,
 not deployed. Nothing is booted yet: they need a PS3 run before the next
 stable kernel (gelic: an `scp` of a large file plus a game, watching dmesg; spufs: the libspeq
-tests, `make test-*` in ps3-spu, and a game with SPU audio).
+tests, `make test-*` in ps3-spu, and a game with SPU audio). (2026-10-18 evening: booted in kernels
+.419 and .433; on .433 a 200 MB transfer over gelic and the spufs checks passed. A gelic RX allocation
+failure under memory pressure, the case 0020 is for, has not been provoked on purpose.)
 
 ## For the user's decision (CAREFUL and FORBIDDEN-capable items)
 
@@ -180,6 +182,9 @@ raw-device parts of docs/THERMAL.md talk to `/dev/ps3sysmngr` and no longer have
 7. **`vm.watermark_boost_factor=0`** (T2, Gentoo): a sysctl in ps3-system's
    `60-ps3-memory.conf`, no kernel change. Might reduce kswapd bursts after fragmentation; measure
    it against its off-switch in one boot (docs/STALLS.md protocol) before shipping.
+   **Measured 2026-10-18** (Luanti, kicker on, 15000/0/15000/0): gameplay stalls 12.5 / 0.8 / 2.0 /
+   2.1 s, the first run an outlier: no clear gain, not shipped (results row "smoke re-runs ...
+   vm.watermark_boost_factor A/B").
 
 Already safe by configuration, keep as is: `PS3_FLASH*`, `PS3_NOR_FLASH`, `PS3_STRGMNGR`,
 `PS3_ENCDEC`, `SPUISO_FS`, `SPULDR_FS`, `PS3_REPOSITORY_WRITE` all off; `PS3_LV1CALL` and

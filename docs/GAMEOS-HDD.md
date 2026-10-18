@@ -50,11 +50,13 @@ them from Linux is not part of the project.
 ## Not verified yet
 
 The mount itself needs a kernel with the `ufs` module booted on the PS3 (6.12.111+ps3.403 or
-later). The first try on 6.12.111+ps3.433 (2026-10-18): hdd0 not tried, hdd1 failed because
+later). (2026-10-18 evening: `dev_hdd0` did mount read-only on the 6.12.111+ps3.419 boot: an 864 GB
+file system, 22 games listed under it. So hdd0 works; only hdd1 is left.) The first try on
+6.12.111+ps3.433 (2026-10-18): hdd0 not tried, hdd1 failed because
 `mount -o iocharset=utf8` found no `nls_utf8` ("missing codepage or helper program"). Fixed
 2026-10-18: the kernel config has `CONFIG_NLS_UTF8=y`, `NLS_CODEPAGE_437=y` and
 `NLS_ISO8859_1=y` (vfat's defaults) built in from 6.12.111+ps3.457, and `ps3-gameos-mount` retries
 a failed vfat mount without `iocharset` (file names with non-ASCII characters then show as `?`).
-Still to check on 6.12.111+ps3.457: `sudo ps3-gameos-mount` mounts both, `ls /mnt/gameos/hdd0` and
+Still to check on 6.12.111+ps3.457 (built, for the next boot): `sudo ps3-gameos-mount` mounts both, `ls /mnt/gameos/hdd0` and
 `/mnt/gameos/hdd1` list files, `dmesg | tail` shows no UFS/FAT errors, `sudo ps3-gameos-mount -u`
 unmounts both.

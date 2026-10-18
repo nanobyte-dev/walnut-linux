@@ -24,6 +24,21 @@ timedemo ~1960 -> ~390 GL calls and ~205 -> ~44 draws a frame, ClassiCube's path
 calls and 1107 -> 294 draws, both counted on llvmpipe). SuperTuxKart ps3.306: VRAM 210 -> 132 MB
 (98 MB with nohd or lean), HUD 13-19 fps, still "out of VRAM" lines, picture not yet confirmed.
 
+**Update, 2026-10-18 evening.** The table below is from 2026-10-17; the current per-game numbers
+(steady fps, stalls, memory, sound) are in docs/PLAN.md "Per game status", from the same-boot rows of
+games/bench/results/. What changed since: Luanti's clean re-runs (row 67, interference detector on,
+kernel .433) keep base as the default (1.5 and 2.1 s of gameplay stalls, 45-46 fps): `cliunload` is
+worse (3.8 and 5.2 s, 2 s hitches when unloaded blocks come back) and `lean` (56-57 fps) shows a
+black void on the webcam at 150 s in both runs; the earlier "cliunload 6.5 -> 0.8 s" and "lean renders
+less terrain" came from runs someone played in (docs/STALLS.md "Interference"). Sauerbraten's +53%
+with `NV30_TRANSLATE_LUT` was measured on the earlier spectator demo; the first-person demo since row
+64 is heavier (base 23-38 steady, wide spread) and Mesa 0035's query wait gave no gain there (row 65).
+SuperTuxKart draws its track (row 61) but every run logged `sound=none`: open. OpenArena opengl2's
+"16 s gameplay freeze" was the reload's last frame (report.py fixed: 54.7 -> 16.0 s of gameplay
+stalls); its remaining stalls are memory, with ioquake3 0027-0029 and Mesa 0037 built against them
+(docs/MEMORY.md). All 8 hands-off smoke games run; TORCS, Trigger Rally and Chromium B.S.U. (menu only)
+and Nexuiz on `darkplaces-gl2` wait for the user.
+
 Every number is 1920x1080, measured through games/bench with the picture checked on the webcam.
 
 | Game | Runs | Picture | Sound | Demo (repeatable) | fps | Against ~60 | Left to do |
@@ -39,8 +54,8 @@ Every number is 1920x1080, measured through games/bench with the picture checked
 | X-Moto | yes | right | right (engine quiet under the music) | credits replay | 166.5 HUD (our batching, ps3.323; 44.5 without, Mesa ps3.299) | **meets it** | - |
 | dsda-doom (software) | yes | right (our fix) | choppy | as GL | 38, the timedemo now finishes (ps3.262) | under | the GL renderer is the way |
 | OpenTTD | yes (software video) | right | choppy (~1000-1170 underruns a minute, either path) | title-screen demo game; simulation 20000 ticks in 13.4 s | 8 (SDL3 ps3.254 accel, HUD median; ps3.242 was ~2), 12 with the 8bpp blitter | far under | its own software drawing: our OpenGL driver patches (GL 2.1 without ARB_texture_rg) built, recipe variant `gl`, to run |
-| Luanti | yes (first run 2026-10-17) | right (the user) | no underruns | our ps3bench mod flies a fixed path | 67 HUD median in flight, p10 23, stalls to 0 while chunks load | median meets it, stalls don't | memory (177 MB swapped out, 32 MB free): 20 recipe variants built (view range, block unloading, mesh delay, heap, lean), to run; package defaults once measured |
-| Sauerbraten | yes, CPU skinning (2026-10-17) | right; "surprisingly smooth" between stalls (the user) | 236 underruns | CubeScript counts frames on map cave (not reached yet: loading takes over 60 s) | 15 HUD median incl. loading; steady 25.9 -> 39.6 fps (+53%) with `NV30_TRANSLATE_LUT`, now the Mesa default (`=0` turns it off; same-boot PS3 A/B, 2026-10-18) | under (memory) | OOM-killed without the VRAM swap (smoke's default); with it, 138 MB VRAM and the swap full: memory settings. GPU skinning runs (no wedge, 2026-10-17) but at 11 fps by its own counter and stutters badly: CPU skinning (`gpuskel 0`, 28) is the default in our cube2 (+ps3.272, with memory patches and the SPU skinning hook; to run). The hud gun: `-l` spawns with the pistol, which the data has no model for (variant `gun`) |
+| Luanti | yes (first run 2026-10-17) | right (the user) | no underruns | our ps3bench mod flies a fixed path | 67 HUD median in flight, p10 23, stalls to 0 while chunks load | median meets it, stalls don't | memory (177 MB swapped out, 32 MB free): 20 recipe variants built (view range, block unloading, mesh delay, heap, lean), to run; package defaults once measured. (2026-10-18 evening: measured clean, base stays; `cliunload` worse, `lean` renders nothing, `trim16` rejected) |
+| Sauerbraten | yes, CPU skinning (2026-10-17) | right; "surprisingly smooth" between stalls (the user) | 236 underruns | CubeScript counts frames on map cave (not reached yet: loading takes over 60 s) | 15 HUD median incl. loading; steady 25.9 -> 39.6 fps (+53%) with `NV30_TRANSLATE_LUT` on the spectator demo, now the Mesa default (`=0` turns it off; same-boot PS3 A/B, 2026-10-18; the first-person demo since is heavier, 23-38) | under (memory) | OOM-killed without the VRAM swap (smoke's default); with it, 138 MB VRAM and the swap full: memory settings. GPU skinning runs (no wedge, 2026-10-17) but at 11 fps by its own counter and stutters badly: CPU skinning (`gpuskel 0`, 28) is the default in our cube2 (+ps3.272, with memory patches and the SPU skinning hook; to run). The hud gun: `-l` spawns with the pistol, which the data has no model for (variant `gun`) |
 | SuperTuxKart | yes with our +ps3.264 (2026-10-17): karts render, **no track** | track missing | | profile mode: AI drives `--profile-time=60` on lighthouse, prints Average FPS | | under (memory) | VRAM exhausted (210 failed buffer allocations), minimap FBO incomplete, SIGSEGV at exit: fixes 0003-0004 (no crash, power-of-two minimap, opaque textures as DXT1) and memory variants (`lean`) built, to run |
 | OpenArena (opengl2) | yes, gl2min (2026-10-17) | right (webcam) | right | timedemo bench (97 GLSL programs compiled twice: ~22-30 s each) | our ioquake3 +ps3.285: gl2min 26.1-31.8, longest frame 6 s (14.8 and a 24.7 s stall with the patches off), cpuanim 30.5 at 41 MB VRAM; gl2 (Debian's settings) 15.9 (10.7 on Debian's build) | under (memory) | 112-138 MB VRAM, 12-14 MB MemAvailable at the lowest: memory |
 
@@ -470,11 +485,11 @@ On the PS3, before the session (the desktop may be up; about 1.5 GB download, 2 
 | Game | Package, download | How it starts | Risks | Result |
 |---|---|---|---|---|
 | Teeworlds 0.7.5 | our `teeworlds`, `teeworlds-server` (+ps3), Debian's `-data`: 8 MB | into a game at once: the client connects to a teeworlds-server (map dm1) that the recipe starts; no bots, you run around alone. Variants notc, menu, window, s3tcppe, s3tcspu | DXT5 (`gfx_texture_compression 1`: Mesa makes DXT5 of the alpha textures; libspeq 0.367 does it with Mesa 0032, not in a Mesa deb yet, so the PPE does it: note the load time and whether the log shows SPEQ lines) and the tile maps as 3D textures; SDL2 audio | **runs** with our BE fix (+ps3.422): in game on dm1, 183 fps (2026-10-18) |
-| TORCS 1.3.7 | `torcs`, `torcs-data`: 326 MB | menu only (`-r` is the console mode): Race > Quick Race > New Race, arrow keys. Variants notc, window, single | texture compression ARB (setup() enables it in graph.xml, key names unverified; the Graphic options screen has it), fullscreen through GLUT game mode and XRandR, 4 robots on the PPE, RAM | to run |
+| TORCS 1.3.7 | `torcs`, `torcs-data`: 326 MB | menu only (`-r` is the console mode): Race > Quick Race > New Race, arrow keys. Variants notc, window, single | texture compression ARB (setup() enables it in graph.xml, key names unverified; the Graphic options screen has it), fullscreen through GLUT game mode and XRandR, 4 robots on the PPE, RAM | installed on the PS3, needs the user at the controller (2026-10-18) |
 | SuperTux 0.6.3 | `supertux`, `supertux-data`: 160 MB | level "Welcome to Antarctica" at once, `--renderer opengl20`, fps shown; Return typed past the title card (virtual keyboard), then Tux stands still until played. Variants worldmap, menu, sdl, nomusic, card | FBO use on nv30, SDL2_image colours, RAM | **runs**: in the level via XTEST keys (xkeys.py), 63-66 fps (2026-10-18) |
-| Trigger Rally 0.6.6 | `trigger-rally`, `-data`: 116 MB | menu only (no command line): Single Race, arrow keys. Cheap graphics written into its config. Variant full | big stage textures (RAM), terrain draws on the PPE, GLEW | to run |
+| Trigger Rally 0.6.6 | `trigger-rally`, `-data`: 116 MB | menu only (no command line): Single Race, arrow keys. Cheap graphics written into its config. Variant full | big stage textures (RAM), terrain draws on the PPE, GLEW | installed on the PS3, needs the user at the controller (2026-10-18) |
 | Red Eclipse 1.6.0 | `redeclipse`, `redeclipse-data`: 842 MB (959 MB installed) | `dm torus` at once (smallest map, 1 bot, sound at 11 kHz mono, lowest settings; RE_MAP or variants singularity, disco, cyanide). Variants tex512, fullsound, bots0, bots3, defaults, menu | **out of memory**: Sauerbraten OOM-killed here until our cube2 memory patches, and RE has none (watch dmesg.log and MemAvailable); GLSL 1.20 shader limits; compression is off on Mesa by default | **runs**: in the match on torus (spectator), lean sound/textures + player name, no OOM, 86 fps HUD peak (2026-10-18) |
-| Chromium B.S.U. | `chromium-bsu`, `-data`: 1 MB | menu only: Enter on Start Game, arrows or mouse, Space fires. Variants full, min, noblend, nosound | immediate-mode sprites, GLC text, OpenAL/ALUT | to run |
+| Chromium B.S.U. | `chromium-bsu`, `-data`: 1 MB | menu only: Enter on Start Game, arrows or mouse, Space fires. Variants full, min, noblend, nosound | immediate-mode sprites, GLC text, OpenAL/ALUT | installed on the PS3, needs the user at the controller (2026-10-18) |
 | Frozen Bubble 2.212 | `frozen-bubble`, `-data`: 21 MB | straight into level 1 (`--solo`), Left/Right/Up. Variants menu, nosound, slow, window | the game is 640x480 on SDL 1.2: sdl12-compat's fullscreen scaling and colours; Perl start-up | **runs**: level 1, right picture, 45 fps (2026-10-18) |
 | Chocolate Doom 3.1.1 | `chocolate-doom` + `freedoom` (in the image): 1 MB | Freedoom 2 MAP01 at once. Variants demo (DEMO1, exits), attract (title and demo loop), nomusic, sdlsw, gles | SDL2 renderer path and the big-endian window texture (dsda's frame was green-tinted before our SDL3 patch), OPL music CPU, underruns | **runs**: MAP01, right colours, 35 fps (vanilla cap) (2026-10-18) |
 | Crispy Doom 7.1 | `crispy-doom`: 1 MB | same, vanilla resolution (hires off). Variants as Chocolate plus hires, uncapped | as Chocolate | **runs**: MAP01, right picture, 35 fps (2026-10-18) |
@@ -553,6 +568,9 @@ frontend and the Haskell server, under qemu: hours, and no guarantee that the C 
 big-endian clean. The frontend would also be a Qt5 program on 217 MB of RAM. Not started.
 
 ### Nexuiz Classic on darkplaces-gl2 (built 2026-10-18, not run on the PS3)
+
+(Status 2026-10-18 evening: built and in ps3-dev, not installed; the smoke run waits for the user at
+the console: `darkplaces-gl2`, `nexuiz-data`, `nexuiz-textures`, about 800 MB.)
 
 Debian's darkplaces (0~20180908 and the 2026 git snapshot) has only the GL 3.2 core and GLES2
 renderpaths, so it can't run on the RSX (GL 2.1). The last snapshot with the GL 1.1/1.3/2.0

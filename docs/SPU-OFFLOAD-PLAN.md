@@ -79,6 +79,21 @@ difference"; what glitches remain line up with the game's own frame stalls. SPEQ
 default) uses the SPEs, so installing the two packages is enough. Next: the shared deadline pool
 (libspeq, in progress), then a stable publish once proven across a few games (ask first).
 
+### Since then (2026-10-18, dated note)
+
+- The shared deadline pool is in (libspeq 0.367, 2 SPEs for the synth and skinning): dsda-doom's music
+  465 underruns a minute on the pool against 1095 on the PPE, 4530 rounds on the SPEs, 0 timeouts
+  (results row "libspeq 0.367 (shared deadline pool)"). The music still chops audibly; why is open
+  (IDEAS #8).
+- Skinning measured (Sauerbraten, row "Luanti ps3.364 batching ... Sauerbraten libspeq 0.381"): libspeq's
+  PPE path 28.1 fps with no stalls, the SPU path 23.6 with 21 stalls (4.3 s), the engine's own 23.0.
+  The SPU path adds hitches; cube2 keeps CPU skinning by default, `SPEQ_SKIN` selects.
+- DXT5 (libspeq, Mesa 0032) and RGB sources on the SPEs (libspeq 0.394: 1024x1024 RGB in 1.0 ms on 4
+  SPEs against about 175 ms on the PPE) are done. No game in the suite has exercised the RGB path yet
+  (Sauerbraten's demo uploads none), and Teeworlds' DXT5 has not shown a `SPEQ` line in a log.
+- Not started: E16/E8b, meshing, the 7th SPE (`spu_base.enum_shared=1`, FLASH-SYSCON.md 6.1),
+  compression at upload for every game (IDEAS #4).
+
 ## Parked, in the order they would come back
 
 1. **Re-check across the game suite** (GAME-SUITE.md). Step 0's game numbers and D's OpenArena

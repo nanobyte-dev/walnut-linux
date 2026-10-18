@@ -429,6 +429,14 @@ The load pointers are restored afterwards.
 | kexec from our Linux crashes the console | find the handover step that breaks it (would remove most XMB trips) |
 | One boot hung at 11 s (netconsole?) | reproduce; delay netconsole until userspace if it recurs |
 
+Status of this table (2026-10-18, dated note): the CPU/VRAM row became the VRAM swap's GPU copies
+(ps3rsx kcopy.c, swap-ins ~10x faster) and the dynamic GART from CMA; the rest is open. Not tried:
+the probe above 224 MB, a hardware context save area, the context-limit stall, exception recovery
+without a console reboot (or whether a Petitboot-only reboot clears a wedge), 64 KB IO pages, tiling
+and Z-cull, lifting ps3fb's size, kexec. The validator still lets the vertex texture methods
+0x900-0x97c through unchecked (PLAN.md item 6). The ps3rsx side has grown since: the validator fast
+path and dirty-bitmap shadow (0.249), `shadow_fast` (0.250, built, not run on the PS3).
+
 ## Verification
 
 | Phase | Done when |

@@ -801,3 +801,10 @@ against unpatched fluidsynth, with reverb and chorus 127-128 dB; the SPU path ag
 132 dB (the jobs sum in another order). The SPU rounds float results toward zero, the host
 tests to nearest, so the PS3 will be a few dB below these; still far under 16-bit output.
 
+**Measured on the PS3** (dated note, 2026-10-18): v2 halved the underruns in the same session (1231 ->
+588, 1331 -> 709), CPU 44.5 -> 31.8 s a minute, and the user heard the difference ("night and day").
+On libspeq 0.367's shared pool: 465 underruns a minute against 1095 on the PPE, 0 timeouts, 0.84 ms
+mean wait (games/bench/results row "libspeq 0.367 (shared deadline pool)"). dsda-doom's music still
+chops, less; whether the rest is the pool's wait, SDL's audio buffer or the game's own frame stalls is
+not established. OpenAL Soft's mixer stays on the PPE (3.7-4.7%, under the bar).
+
