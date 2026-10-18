@@ -3,8 +3,11 @@
 # suite, result and seconds; exit 1 when any failed. Output of each suite: build/tmp/tests/<suite>.log
 # (shown for failures). A suite whose prerequisites are missing is "skip", not a failure.
 #   default  quick suites: bench-selftest, gprefetch, ps3rsx-shadow, ps3-spu, xmoto-glbatch,
-#            mesa-forcedxt (Mesa 0038's NV30_FORCE_DXT decision, mesa/tests)
-#   --slow   also autogm (ps3-desktop/tests/autogm-check.sh: needs Xvfb+openbox or docker/podman)
+#            mesa-forcedxt (Mesa 0038's NV30_FORCE_DXT decision, mesa/tests), ssdimg (the SSD test
+#            drive's stamp.py, ps3-imgmap on a fake UFS layer, ps3-vswap's device-mapper backing)
+#   --slow   also autogm (ps3-desktop/tests/autogm-check.sh: needs Xvfb+openbox or docker/podman) and
+#            ssdimg-vm (tools/ssdimg/vm-e2e.sh: ps3-imgmap on a real big-endian UFS2 image in a KVM
+#            guest of the host's kernel; needs docker, qemu-system-x86_64, /dev/kvm)
 set -u
 cd "$(dirname "$0")/.."
 slow=0; only=""
@@ -69,7 +72,9 @@ run ps3rsx-shadow bash -c "$(declare -f need t_ps3rsx); t_ps3rsx"
 run ps3-spu make -C ps3-spu test
 run xmoto-glbatch bash -c "$(declare -f need t_xmoto); t_xmoto"
 run mesa-forcedxt bash -c "$(declare -f need t_forcedxt); t_forcedxt"
+run ssdimg python3 tools/ssdimg/test_ssdimg.py
 [ $slow = 1 ] && run autogm bash -c "$(declare -f t_autogm); t_autogm"
+[ $slow = 1 ] && run ssdimg-vm tools/ssdimg/vm-e2e.sh
 
 echo; printf '%-18s %-6s %s\n' suite result seconds
 for i in "${!names[@]}"; do printf '%-18s %-6s %s\n' "${names[$i]}" "${res[$i]}" "${secs[$i]}"; done

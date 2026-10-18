@@ -1,0 +1,630 @@
+#!/usr/bin/env python3
+"""ps3-imgmap: a disk for Linux out of a stamped image file on GameOS's dev_hdd0 (docs/GAMEOS-HDD.md
+"Test drive, Phase A"). Runs as root on the PS3.
+
+  ps3-imgmap map FILE [--out MAP] [--every-fragment]
+        FILE is on the read-only UFS2 mount of /dev/ps3db (sudo ps3-gameos-mount). Reads the file's
+        block list with FIBMAP, merges it into extents (512-byte sectors of /dev/ps3db) and saves
+        them as JSON (default /var/lib/ps3-imgmap/<name>.map.json) with the file size, the UUID of
+        its first stamp and the sha256 of the list. Refuses a read-write mount, another device, a
+        hole, a tail fragment, a file that isn't a stamped image.
+  ps3-imgmap verify MAP
+        Reads every 4 KiB block of the image straight from /dev/ps3db (O_DIRECT) through the extents
+        and checks each stamp: magic, UUID, offset, CRC, zero tail. A pass is recorded by the map's
+        sha256; a failure removes an earlier pass. Needs no mount. Refused once a disk was created
+        from the map (its stamps are then overwritten on purpose; recheck is the check from then on).
+  ps3-imgmap recheck MAP
+        FIBMAP again (the UFS2 mount as for map) and compares with the saved list: a file GameOS
+        deleted, rewrote or moved is caught. A match is recorded for this boot (create needs it);
+        a mismatch removes the map's verify pass.
+  ps3-imgmap create MAP NAME [--swap-mib N] [--yes]
+        Needs: a recorded verify pass of this exact map (sha256), a recheck in this boot, the header
+        area's stamps (the image's first MiB, never mapped) still read back through the extents,
+        /dev/ps3db not mounted (device-mapper must claim it). Then blockdev --setro /dev/ps3da and
+        dm-linear devices over the image after its 1 MiB header area: /dev/mapper/NAME, and with
+        --swap-mib the image's last N MiB as /dev/mapper/NAME-swap.
+  ps3-imgmap remove NAME
+        dmsetup remove NAME (and NAME-swap).
+
+map, verify and recheck only read /dev/ps3db (opened read-only; the UFS2 mount is read-only and our
+kernel's ufs has no write code). Nothing up to create writes anywhere on the internal disk; create
+writes nothing either, it hands the extents to device-mapper, and only what is written to
+/dev/mapper/NAME afterwards lands inside the image file's own blocks. This tool never opens
+/dev/ps3db or /dev/ps3da for writing.
+
+Units: Linux's ufs sets the super block's block size (s_blocksize, FIGETBSZ, statvfs f_bsize) to the
+fragment size fs_fsize, and ufs_bmap (generic_block_bmap over ufs_getfrag_block) takes a logical
+fragment number and returns the physical fragment number (block address + fragment in block,
+s_sbbase 0 for UFS2), so FIBMAP's unit is fs_fsize bytes on both sides; times fs_fsize / 512 it
+is a sector of /dev/ps3db, the device the file system starts on.
+
+Phase B (not here): the header written into the image's first MiB (magic, UUID, the list's
+sha256), the recheck from an initramfs at every boot, a kboot entry with that initramfs.
+"""
+import array
+import argparse
+import datetime
+import fcntl
+import hashlib
+import json
+import mmap
+import os
+import random
+import re
+import struct
+import subprocess
+import sys
+import time
+import uuid as uuidlib
+import zlib
+
+VERSION = "ps3-imgmap 1"
+FIBMAP = 1      # _IO(0x00, 1)
+FIGETBSZ = 2    # _IO(0x00, 2)
+MAGIC = b"PS3IMGv1"
+BLOCK = 4096
+STAMP_LEN = 36
+HEADER_SECTORS = 2048            # the first MiB: the image's header area, never mapped
+UFS2_SBLOCK = 65536
+UFS2_MAGIC = 0x19540119
+CHUNK = 4 << 20                  # verify's read size
+
+# test seams (never set on the PS3): the device, the whole-disk device, state dir, mountinfo, commands
+DEVICE = os.environ.get("PS3_IMGMAP_TEST_DEVICE") or "/dev/ps3db"
+WHOLE = os.environ.get("PS3_IMGMAP_TEST_WHOLE") or "/dev/ps3da"
+STATE = os.environ.get("PS3_IMGMAP_STATE") or "/var/lib/ps3-imgmap"
+MOUNTINFO = os.environ.get("PS3_IMGMAP_MOUNTINFO") or "/proc/self/mountinfo"
+DMSETUP = (os.environ.get("PS3_IMGMAP_DMSETUP") or "dmsetup").split()
+BLOCKDEV = (os.environ.get("PS3_IMGMAP_BLOCKDEV") or "blockdev").split()
+SYSBLOCK = os.environ.get("PS3_IMGMAP_SYSBLOCK") or "/sys/class/block"
+BOOT_ID = os.environ.get("PS3_IMGMAP_BOOT_ID_FILE") or "/proc/sys/kernel/random/boot_id"
+
+
+class Refuse(Exception):
+    pass
+
+
+def say(*a):
+    print(">>", *a, flush=True)
+
+
+# --- stamps (the same format as stamp.py) ---------------------------------------------------------
+def stamp(uid, offset):
+    head = MAGIC + uid + struct.pack(">Q", offset)
+    return head + struct.pack(">I", zlib.crc32(head) & 0xFFFFFFFF)
+
+
+ZERO_TAIL = bytes(BLOCK - STAMP_LEN)
+
+
+def expected(uid, off, n):
+    """the bytes the image should hold at [off, off + n)"""
+    if off % BLOCK == 0 and n % BLOCK == 0:
+        return b"".join(stamp(uid, o) + ZERO_TAIL for o in range(off, off + n, BLOCK))
+    out = bytearray(n)
+    for bs in range(off - off % BLOCK, off + n, BLOCK):
+        s = stamp(uid, bs)
+        a, b = max(bs, off), min(bs + STAMP_LEN, off + n)
+        if a < b:
+            out[a - off:b - off] = s[a - bs:b - bs]
+    return bytes(out)
+
+
+def describe(uid, off, b):
+    """what is in the 4 KiB block that should be the image's block at OFF"""
+    if b == bytes(len(b)):
+        return "zeros"
+    if b[:8] != MAGIC:
+        return "no stamp (other data)"
+    head, crc = b[:32], struct.unpack(">I", b[32:36])[0]
+    if zlib.crc32(head) & 0xFFFFFFFF != crc:
+        return "stamp with a bad CRC"
+    if b[8:24] != uid:
+        return "stamp of another image (uuid %s)" % uuidlib.UUID(bytes=bytes(b[8:24]))
+    o = struct.unpack(">Q", b[24:32])[0]
+    if o != off:
+        return "stamp of this image's block at %d (off by %+d)" % (o, o - off)
+    return "stamp right, tail not zero"
+
+
+# --- the mount, the device ---------------------------------------------------------------------
+def mountinfo():
+    """[(major:minor, mount point, mount options, fs type, source, super options)]"""
+    out = []
+    with open(MOUNTINFO) as f:
+        for line in f:
+            pre, _, post = line.rstrip("\n").partition(" - ")
+            a, b = pre.split(), post.split()
+            if len(a) < 6 or len(b) < 3:
+                continue
+            unesc = lambda s: re.sub(r"\\([0-7]{3})", lambda m: chr(int(m[1], 8)), s)
+            out.append((a[2], unesc(a[4]), a[5].split(","), b[0], unesc(b[1]), b[2].split(",")))
+    return out
+
+
+def devnum(path):
+    st = os.stat(path)
+    return "%d:%d" % (os.major(st.st_rdev), os.minor(st.st_rdev))
+
+
+def check_mount(fd, path):
+    """the mount holding FILE: UFS, read-only, on DEVICE itself; returns its mountinfo entry"""
+    st = os.fstat(fd)
+    dev = "%d:%d" % (os.major(st.st_dev), os.minor(st.st_dev))
+    ent = [m for m in mountinfo() if m[0] == dev]
+    if not ent:
+        raise Refuse("%s: its file system (%s) is not in %s" % (path, dev, MOUNTINFO))
+    mnt = max(ent, key=lambda m: len(m[1]))
+    _, point, mopts, fstype, source, sopts = mnt
+    if fstype != "ufs":
+        raise Refuse("%s is on %s (%s), not GameOS's UFS2" % (path, point, fstype))
+    if "ro" not in mopts or "ro" not in sopts:
+        raise Refuse("%s: %s is not mounted read-only (%s / %s): mount it with ps3-gameos-mount" % (
+            path, point, ",".join(mopts), ",".join(sopts)))
+    if "ufstype=ufs2" not in sopts and "ufstype=ufs2" not in mopts:
+        raise Refuse("%s: %s is not mounted with ufstype=ufs2 (%s)" % (path, point, ",".join(sopts)))
+    if not os.path.exists(DEVICE) or devnum(DEVICE) != dev:
+        raise Refuse("%s: its device (%s, %s) is not %s" % (path, source, dev, DEVICE))
+    return mnt
+
+
+def mounted_from(devpath):
+    """mount points of DEVPATH's device"""
+    d = devnum(devpath)
+    return [m[1] for m in mountinfo() if m[0] == d]
+
+
+def ro_open(path, direct=False):
+    """the only way this tool opens a device: read-only"""
+    return os.open(path, os.O_RDONLY | (os.O_DIRECT if direct else 0) | os.O_CLOEXEC)
+
+
+def device_bytes(path):
+    fd = ro_open(path)
+    try:
+        return os.lseek(fd, 0, os.SEEK_END)
+    finally:
+        os.close(fd)
+
+
+def ufs_super(path):
+    """(fs_bsize, fs_fsize, byte order) from the UFS2 super block at 64 KiB of DEVICE"""
+    fd = ro_open(path)
+    try:
+        sb = os.pread(fd, 4096, UFS2_SBLOCK)
+    finally:
+        os.close(fd)
+    for e in (">", "<"):
+        if len(sb) >= 1376 and struct.unpack(e + "I", sb[1372:1376])[0] == UFS2_MAGIC:
+            bsize, fsize = struct.unpack(e + "ii", sb[48:56])
+            return bsize, fsize, "big-endian" if e == ">" else "little-endian"
+    raise Refuse("%s: no UFS2 super block at %d" % (path, UFS2_SBLOCK))
+
+
+# --- FIBMAP ---------------------------------------------------------------------------------------
+def figetbsz(fd):
+    b = array.array("i", [0])
+    fcntl.ioctl(fd, FIGETBSZ, b, True)
+    return b[0]
+
+
+def fibmap(fd, n):
+    """the physical fragment of logical fragment N (0: a hole)"""
+    b = array.array("i", [n])
+    try:
+        fcntl.ioctl(fd, FIBMAP, b, True)
+    except OSError as e:
+        raise Refuse("FIBMAP of fragment %d: %s%s" % (n, e, " (needs root)" if e.errno == 1 else ""))
+    return b[0]
+
+
+def merge(runs):
+    """[(logical, physical, count)] in logical order -> the same with contiguous neighbours joined"""
+    out = []
+    for l, p, n in runs:
+        if out and out[-1][0] + out[-1][2] == l and out[-1][1] + out[-1][2] == p:
+            out[-1][2] += n
+        else:
+            out.append([l, p, n])
+    return [tuple(x) for x in out]
+
+
+def to_sectors(extents, fsize):
+    if fsize % 512:
+        raise Refuse("fragment size %d is not a multiple of 512" % fsize)
+    k = fsize // 512
+    return [(l * k, p * k, n * k) for l, p, n in extents]
+
+
+def block_list(fd, size, fsize, bsize, every=False, progress=True):
+    """the file's extents in fragments: FIBMAP of each block's first and last fragment (the
+    fragments of a full UFS block are contiguous by construction), of every fragment with EVERY"""
+    if size % bsize:
+        raise Refuse("size %d is not a whole number of %d-byte UFS blocks (a tail fragment)" % (size, bsize))
+    fpb = bsize // fsize
+    nblocks = size // bsize
+    runs, t0, last = [], time.monotonic(), time.monotonic()
+    for b in range(nblocks):
+        f0 = b * fpb
+        p0 = fibmap(fd, f0)
+        if p0 == 0:
+            raise Refuse("hole at byte %d (fragment %d): the file must be written out in full" % (f0 * fsize, f0))
+        if every:
+            for i in range(1, fpb):
+                p = fibmap(fd, f0 + i)
+                if p != p0 + i:
+                    raise Refuse("block %d: fragment %d at %d, not %d (not contiguous)" % (b, f0 + i, p, p0 + i))
+        elif fpb > 1:
+            p = fibmap(fd, f0 + fpb - 1)
+            if p != p0 + fpb - 1:
+                raise Refuse("block %d: last fragment at %d, first at %d: not contiguous "
+                             "(the unit assumption is wrong: stop)" % (b, p, p0))
+        runs.append((f0, p0, fpb))
+        if progress and time.monotonic() - last >= 2:
+            last = time.monotonic()
+            print("\r>> FIBMAP %d of %d blocks (%.0f%%)" % (b + 1, nblocks, 100 * (b + 1) / nblocks),
+                  end="", file=sys.stderr, flush=True)
+    if progress and time.monotonic() - t0 >= 2:
+        print(file=sys.stderr)
+    return merge(runs)
+
+
+def digest(size, uid_text, extents):
+    """sha256 of the canonical list: "ps3-imgmap 1", size, uuid, then "logical device count" lines"""
+    h = hashlib.sha256()
+    h.update(("%s\nsize %d\nuuid %s\n" % (VERSION, size, uid_text)).encode())
+    for l, p, n in extents:
+        h.update(b"%d %d %d\n" % (l, p, n))
+    return h.hexdigest()
+
+
+def check_extents(extents, size, dev_sectors):
+    """the extents cover [0, size) in order, stay on the device past the UFS super block, never overlap"""
+    want = 0
+    for l, p, n in extents:
+        if l != want or n <= 0:
+            raise Refuse("extents don't cover the file in order at sector %d" % want)
+        if p < (UFS2_SBLOCK + 8192) // 512 or p + n > dev_sectors:
+            raise Refuse("extent at device sector %d+%d is outside the data area" % (p, n))
+        want += n
+    if want * 512 != size:
+        raise Refuse("extents cover %d bytes, the file has %d" % (want * 512, size))
+    s = sorted(extents, key=lambda e: e[1])
+    for a, b in zip(s, s[1:]):
+        if a[1] + a[2] > b[1]:
+            raise Refuse("extents overlap at device sector %d" % b[1])
+
+
+def scan(path, every=False):
+    """map's and recheck's common part: the mount checks, FIBMAP, the UUID; returns the map dict"""
+    fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
+    try:
+        mnt = check_mount(fd, path)
+        st = os.fstat(fd)
+        size = st.st_size
+        bsize, fsize, order = ufs_super(DEVICE)
+        bsz, vfs = figetbsz(fd), os.statvfs(path).f_bsize
+        if bsz != fsize or vfs != fsize:
+            raise Refuse("FIGETBSZ %d, statvfs %d, the super block's fs_fsize %d: they should be equal "
+                         "(the unit assumption is wrong: stop)" % (bsz, vfs, fsize))
+        if not (512 <= fsize <= bsize <= 65536) or bsize % fsize:
+            raise Refuse("odd UFS geometry: block %d, fragment %d" % (bsize, fsize))
+        if size < 2 * HEADER_SECTORS * 512 or size % BLOCK:
+            raise Refuse("%s: %d bytes: not a stamped image (whole 4 KiB blocks, at least 2 MiB)" % (path, size))
+        head = os.pread(fd, BLOCK, 0)
+        if head[:8] != MAGIC or expected(head[8:24], 0, BLOCK) != head:
+            raise Refuse("%s: its first block is no stamp of offset 0: not a stamped image "
+                         "(or already written: an image in use is rechecked, not mapped again)" % path)
+        uid = uuidlib.UUID(bytes=bytes(head[8:24]))
+        dev_sectors = device_bytes(DEVICE) // 512
+        ext = to_sectors(block_list(fd, size, fsize, bsize, every), fsize)
+        check_extents(ext, size, dev_sectors)
+    finally:
+        os.close(fd)
+    return {"format": VERSION, "file": os.path.abspath(path), "mount": mnt[1], "device": DEVICE,
+            "device_sectors": dev_sectors, "inode": st.st_ino, "mtime_ns": st.st_mtime_ns,
+            "file_size": size, "fragment_size": fsize, "block_size": bsize, "byte_order": order,
+            "uuid": str(uid), "extents": [list(e) for e in ext],
+            "extents_sha256": digest(size, str(uid), ext)}
+
+
+def load_map(path):
+    with open(path) as f:
+        m = json.load(f)
+    if m.get("format") != VERSION:
+        raise Refuse("%s: not a %s map" % (path, VERSION))
+    ext = [tuple(e) for e in m["extents"]]
+    if digest(m["file_size"], m["uuid"], ext) != m["extents_sha256"]:
+        raise Refuse("%s: its sha256 doesn't match its extents (edited or damaged)" % path)
+    if m["device"] != DEVICE:
+        raise Refuse("%s: made for %s, this run uses %s" % (path, m["device"], DEVICE))
+    check_extents(ext, m["file_size"], m["device_sectors"])
+    m["extents"] = ext
+    return m
+
+
+def write_json(path, obj):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(obj, f, indent=1)
+        f.write("\n")
+    os.replace(tmp, path)
+
+
+def record(kind, sha):
+    return os.path.join(STATE, "%s-%s.json" % (kind, sha))
+
+
+def boot_id():
+    with open(BOOT_ID) as f:
+        return f.read().strip()
+
+
+def now():
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# --- the commands ---------------------------------------------------------------------------------
+def cmd_map(a):
+    m = scan(a.file, a.every_fragment)
+    m["made"] = now()
+    m["kernel"] = os.uname().release
+    out = a.out or os.path.join(STATE, re.sub(r"\.img$", "", os.path.basename(a.file)) + ".map.json")
+    write_json(out, m)
+    ext = m["extents"]
+    say("%s: %d bytes, uuid %s, UFS2 %s block %d fragment %d" % (
+        m["file"], m["file_size"], m["uuid"], m["byte_order"], m["block_size"], m["fragment_size"]))
+    say("%d extents (largest %d MiB), %s sectors %d-%d" % (
+        len(ext), max(e[2] for e in ext) // 2048, DEVICE, min(e[1] for e in ext), max(e[1] + e[2] for e in ext)))
+    say("map %s, sha256 %s" % (out, m["extents_sha256"]))
+    say("next: ps3-imgmap verify %s" % out)
+    return 0
+
+
+def read_dev(fd, buf, dev_off, n):
+    """N bytes of the device at DEV_OFF through the page-aligned BUF (O_DIRECT): the aligned superset
+    is read, the wanted part returned as a memoryview"""
+    a = dev_off - dev_off % BLOCK
+    e = -(-(dev_off + n) // BLOCK) * BLOCK
+    if e - a > len(buf):
+        raise ValueError("read too big")
+    got = os.preadv(fd, [memoryview(buf)[:e - a]], a)
+    if got != e - a:
+        raise Refuse("short read at device byte %d: %d of %d" % (a, got, e - a))
+    return memoryview(buf)[dev_off - a:dev_off - a + n]
+
+
+def walk(m, start=0, end=None):
+    """(logical byte, device byte, length) pieces of at most CHUNK bytes covering [start, end)"""
+    end = m["file_size"] if end is None else end
+    for l, p, n in m["extents"]:
+        lo, hi = l * 512, (l + n) * 512
+        a, b = max(lo, start), min(hi, end)
+        while a < b:
+            k = min(CHUNK, b - a)
+            yield a, p * 512 + (a - lo), k
+            a += k
+
+
+def cmd_verify(a):
+    m = load_map(a.map)
+    c = record("created", m["extents_sha256"])
+    if os.path.exists(c) and not a.force:
+        raise Refuse("a disk was created from this map (%s): its stamps are overwritten by design, "
+                     "so verify would only fail. recheck is the check of a map in use (--force: verify anyway, "
+                     "a failure then voids the map)" % c)
+    uid = uuidlib.UUID(m["uuid"]).bytes
+    size = m["file_size"]
+    if device_bytes(DEVICE) // 512 != m["device_sectors"]:
+        raise Refuse("%s has %d sectors, the map says %d" % (DEVICE, device_bytes(DEVICE) // 512, m["device_sectors"]))
+    fd = ro_open(DEVICE, direct=True)
+    buf = mmap.mmap(-1, CHUNK + 2 * BLOCK)
+    bad, shown, done = 0, 0, 0
+    t0 = last = time.monotonic()
+    try:
+        for lo, do, n in walk(m):
+            got = read_dev(fd, buf, do, n)
+            if got != expected(uid, lo, n):
+                for bo in range(lo - lo % BLOCK, lo + n, BLOCK):   # which blocks, and what is there
+                    a, b = max(bo, lo), min(bo + BLOCK, lo + n)
+                    if got[a - lo:b - lo] != expected(uid, a, b - a):
+                        bad += 1
+                        if shown < 20:
+                            shown += 1
+                            whole = b - a == BLOCK
+                            print("!! image byte %d (device byte %d): %s" % (
+                                bo, do + (bo - lo), describe(uid, bo, got[a - lo:b - lo]) if whole else "partial block differs"))
+            done += n
+            if time.monotonic() - last >= 2:
+                last = time.monotonic()
+                print("\r>> verify %.2f of %.2f GiB (%.0f%%), %.1f MB/s, %d bad blocks" % (
+                    done / 2**30, size / 2**30, 100 * done / size, done / (last - t0) / 2**20, bad),
+                    end="", file=sys.stderr, flush=True)
+    finally:
+        os.close(fd)
+    dt = time.monotonic() - t0
+    if dt >= 2:
+        print(file=sys.stderr)
+    rec = record("verified", m["extents_sha256"])
+    if bad:
+        if os.path.exists(rec):
+            os.unlink(rec)
+        say("FAILED: %d of %d blocks wrong (%.0f s). Don't create a disk from this map." % (bad, size // BLOCK, dt))
+        return 1
+    write_json(rec, {"map": os.path.abspath(a.map), "extents_sha256": m["extents_sha256"], "uuid": m["uuid"],
+                     "blocks": size // BLOCK, "seconds": round(dt, 1), "verified": now(),
+                     "kernel": os.uname().release, "boot_id": boot_id()})
+    say("all %d blocks right (%.0f s, %.1f MB/s): pass recorded in %s" % (
+        size // BLOCK, dt, size / dt / 2**20 if dt else 0, rec))
+    return 0
+
+
+def cmd_recheck(a):
+    m = load_map(a.map)
+    path = a.file or m["file"]
+    fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
+    try:
+        check_mount(fd, path)
+        st = os.fstat(fd)
+        bsize, fsize, _ = ufs_super(DEVICE)
+        why = []
+        if st.st_size != m["file_size"]:
+            why.append("size %d, map %d" % (st.st_size, m["file_size"]))
+        if st.st_ino != m["inode"]:
+            why.append("inode %d, map %d (the file was replaced)" % (st.st_ino, m["inode"]))
+        if fsize != m["fragment_size"] or bsize != m["block_size"]:
+            why.append("UFS geometry changed")
+        if not why:
+            ext = to_sectors(block_list(fd, st.st_size, fsize, bsize, a.every_fragment), fsize)
+            if ext != m["extents"]:
+                diff = sum(1 for x, y in zip(ext, m["extents"]) if x != y) + abs(len(ext) - len(m["extents"]))
+                why.append("block list differs (%d of %d extents)" % (diff, len(m["extents"])))
+    finally:
+        os.close(fd)
+    if why:
+        v = record("verified", m["extents_sha256"])
+        if os.path.exists(v):
+            os.unlink(v)
+        say("CHANGED: %s. The map is void: its verify pass is removed; never create a disk from it." % "; ".join(why))
+        return 1
+    write_json(record("rechecked", m["extents_sha256"]), {"map": os.path.abspath(a.map), "boot_id": boot_id(),
+                                                          "rechecked": now(), "kernel": os.uname().release})
+    say("%s: the block list is the map's (%d extents, sha256 %s)" % (path, len(m["extents"]), m["extents_sha256"]))
+    return 0
+
+
+def table(m, start, end):
+    """dm-linear lines for image sectors [start, end)"""
+    out, t = [], 0
+    for l, p, n in m["extents"]:
+        a, b = max(l, start), min(l + n, end)
+        if a < b:
+            out.append("%d %d linear %s %d" % (t, b - a, DEVICE, p + (a - l)))
+            t += b - a
+    return out
+
+
+def run(cmd, **kw):
+    return subprocess.run(cmd, check=True, **kw)
+
+
+def cmd_create(a):
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,60}", a.name):
+        raise Refuse("name %r: letters, digits, _ . -" % a.name)
+    m = load_map(a.map)
+    sha = m["extents_sha256"]
+    if not os.path.exists(record("verified", sha)):
+        raise Refuse("no verify pass recorded for this map (sha256 %s): ps3-imgmap verify %s" % (sha, a.map))
+    try:
+        with open(record("rechecked", sha)) as f:
+            rb = json.load(f).get("boot_id")
+    except FileNotFoundError:
+        rb = None
+    if rb != boot_id():
+        raise Refuse("no recheck in this boot: sudo ps3-gameos-mount; ps3-imgmap recheck %s; "
+                     "sudo ps3-gameos-mount -u" % a.map)
+    if mounted_from(DEVICE):
+        raise Refuse("%s is mounted (%s): device-mapper can't claim it while UFS holds it; "
+                     "sudo ps3-gameos-mount -u first" % (DEVICE, ", ".join(mounted_from(DEVICE))))
+    for n in (a.name, a.name + "-swap"):
+        if os.path.exists("/dev/mapper/" + n):
+            raise Refuse("/dev/mapper/%s exists: ps3-imgmap remove %s" % (n, a.name))
+    total = m["file_size"] // 512
+    swap = a.swap_mib * 2048
+    if a.swap_mib < 0 or total - HEADER_SECTORS - swap < 2048 * 2:
+        raise Refuse("--swap-mib %d leaves less than 2 MiB for the file system" % a.swap_mib)
+    # the header area (never mapped, so never written by Linux in Phase A): its stamps read back
+    # through the extents now prove the list still points at our file
+    uid = uuidlib.UUID(m["uuid"]).bytes
+    fd = ro_open(DEVICE, direct=True)
+    buf = mmap.mmap(-1, CHUNK + 2 * BLOCK)
+    try:
+        for lo, do, n in walk(m, 0, HEADER_SECTORS * 512):
+            if read_dev(fd, buf, do, n) != expected(uid, lo, n):
+                raise Refuse("the header area's stamps don't read back through the map at image byte %d: "
+                             "the file is not where the map says" % lo)
+    finally:
+        os.close(fd)
+    data = table(m, HEADER_SECTORS, total - swap)
+    swp = table(m, total - swap, total) if swap else []
+    say("%s: %d MiB for /dev/mapper/%s (%d extents)%s" % (
+        m["file"], (total - HEADER_SECTORS - swap) // 2048, a.name, len(data),
+        ", %d MiB for /dev/mapper/%s-swap (%d extents)" % (a.swap_mib, a.name, len(swp)) if swap else ""))
+    if not a.yes:
+        if not sys.stdin.isatty():
+            raise Refuse("not a terminal: --yes after the user's go")
+        if input(">> create it (writes to it then land in the image's blocks on %s)? type yes: " % DEVICE) != "yes":
+            say("nothing done")
+            return 1
+    run(BLOCKDEV + ["--setro", WHOLE])
+    ro = os.path.join(SYSBLOCK, os.path.basename(WHOLE), "ro")
+    with open(ro) as f:
+        if f.read().strip() != "1":
+            raise Refuse("%s is not read-only after blockdev --setro (%s)" % (WHOLE, ro))
+    say("%s read-only" % WHOLE)
+    os.makedirs(STATE, exist_ok=True)
+    for n, t in ((a.name, data), (a.name + "-swap", swp)):
+        if not t:
+            continue
+        with open(os.path.join(STATE, n + ".table"), "w") as f:
+            f.write("\n".join(t) + "\n")
+        run(DMSETUP + ["create", n], input="\n".join(t) + "\n", text=True)
+        say("/dev/mapper/%s: %d sectors" % (n, sum(int(x.split()[1]) for x in t)))
+    if not os.path.exists(record("created", sha)):
+        write_json(record("created", sha), {"map": os.path.abspath(a.map), "name": a.name, "created": now(),
+                                            "swap_mib": a.swap_mib, "boot_id": boot_id()})
+    return 0
+
+
+def cmd_remove(a):
+    rc = 0
+    for n in (a.name + "-swap", a.name):
+        if os.path.exists("/dev/mapper/" + n) or os.environ.get("PS3_IMGMAP_DMSETUP"):
+            try:
+                run(DMSETUP + ["remove", n])
+                say("removed /dev/mapper/%s" % n)
+            except subprocess.CalledProcessError:
+                print("!! dmsetup remove %s failed (mounted or swap on it?)" % n)
+                rc = 1
+    return rc
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="ps3-imgmap", description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("map", help="FIBMAP the file into a saved extent list (read-only)")
+    s.add_argument("file")
+    s.add_argument("--out")
+    s.add_argument("--every-fragment", action="store_true", help="FIBMAP every fragment, not two per block")
+    s = sub.add_parser("verify", help="read every stamp through the map from the device (read-only)")
+    s.add_argument("map")
+    s.add_argument("--force", action="store_true", help="verify a map a disk was created from")
+    s = sub.add_parser("recheck", help="FIBMAP again and compare with the map (read-only)")
+    s.add_argument("map")
+    s.add_argument("--file", help="the file, if its path changed")
+    s.add_argument("--every-fragment", action="store_true")
+    s = sub.add_parser("create", help="dm-linear devices from a verified, rechecked map")
+    s.add_argument("map")
+    s.add_argument("name")
+    s.add_argument("--swap-mib", type=int, default=0, help="the image's last N MiB as NAME-swap")
+    s.add_argument("--yes", action="store_true", help="no question (the user's go was given)")
+    s = sub.add_parser("remove", help="dmsetup remove NAME and NAME-swap")
+    s.add_argument("name")
+    a = p.parse_args(argv)
+    if DEVICE != "/dev/ps3db":
+        print("!! test mode: device %s instead of /dev/ps3db" % DEVICE, file=sys.stderr)
+    try:
+        return {"map": cmd_map, "verify": cmd_verify, "recheck": cmd_recheck,
+                "create": cmd_create, "remove": cmd_remove}[a.cmd](a)
+    except Refuse as e:
+        print("!! refused: %s" % e, file=sys.stderr)
+        return 2
+    except subprocess.CalledProcessError as e:
+        print("!! %s failed (%d)" % (" ".join(e.cmd), e.returncode), file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
