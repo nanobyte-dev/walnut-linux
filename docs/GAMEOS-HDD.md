@@ -466,6 +466,25 @@ Checks for the user at Petitboot's shell, all read-only: `grep ps3d /proc/partit
 `grep petitboot /proc/mounts`, `ls /var/petitboot/mnt/ps3dc`, `dmesg | grep -i -e ufs -e fat`,
 `ps3-bl-option -o` and `-p` (timeout and stored default).
 
+### /boot on dev_hdd1 kept alive by webMAN (proposed 2026-10-18, not tried)
+
+GameOS gets control before every Linux session (the boot flag is set from GameOS and every boot goes
+through it), so a GameOS-side script can put the boot files back on dev_hdd1 even if GameOS clears that
+cache partition. No custom plugin needed: webMAN MOD runs `/dev_hdd0/autoexec.bat` (or
+`/dev_hdd0/boot_init.txt`) at startup and `/dev_hdd0/onxmb.bat` when the XMB is up (its README;
+`include/feat/script.h`: `if exist`/`if not exist`, `md`, `copy <src>=<dst>`, `del`, `wait`). Sketch:
+- Master copy on dev_hdd0 (`/dev_hdd0/linux/boot/`: kboot.conf, kernel, initramfs), plain files
+  GameOS can read and write; Linux never writes UFS.
+- Linux writes new kernels to dev_hdd1 (vfat, `/linux/` plus `/kboot.conf` at its root, which is
+  where Petitboot looks) and drops a flag file; at the next GameOS start the script copies dev_hdd1 to
+  the master and deletes the flag. If dev_hdd1's files are missing, the script copies the master back.
+- Petitboot finds `ps3dc:/kboot.conf`; entries name `ps3dc:/linux/vmlinux-...`. The USB disk's
+  kboot.conf stays as the fallback, with different labels.
+- Open: whether GameOS ever clears dev_hdd1 (a file left there through a few GameOS sessions and
+  games tells), whether Petitboot sees ps3dc (its shell's `/proc/partitions`), and the user's webMAN
+  version running autoexec.bat. The kernel guard then allows writes to ps3dc (Linux's own files only)
+  and keeps ps3da read-only.
+
 ### Getting more than 22 GiB (no-go for now)
 
 - **Custom `emer_init`:** **[inference]** For 64 GiB the instruction would be `addis r7,r9,-0x800`
