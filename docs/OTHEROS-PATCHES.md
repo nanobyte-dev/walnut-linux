@@ -175,6 +175,8 @@ raw-device parts of docs/THERMAL.md talk to `/dev/ps3sysmngr` and no longer have
 6. **T2's ps3fb-in-VRAM (0666)**: up to 8.5 MB of XDR back (the console shadow), but 23 MB more
    VRAM, which is scarce here (vswap), and it conflicts with how ps3rsx shares ps3fb's command
    area. A reworked version that keeps 9 MB of VRAM is possible; it is a design job, not a port.
+   Instead (2026-10-18): local/0043 frees 8 of the 9 MB of XDR only while ps3rsx owns the GPU,
+   no VRAM change (switch `ps3fb.shadow_release`, off until measured; docs/KERNEL-MEMORY.md 6).
 7. **`vm.watermark_boost_factor=0`** (T2, Gentoo): a sysctl in ps3-system's
    `60-ps3-memory.conf`, no kernel change. Might reduce kswapd bursts after fragmentation; measure
    it against its off-switch in one boot (docs/STALLS.md protocol) before shipping.

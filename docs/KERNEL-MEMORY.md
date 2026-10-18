@@ -168,7 +168,7 @@ against 3208K measured (2% off):
 - Idea with a real payoff but real risk: allocate the console frame from a CMA area only while the
   console is visible, and release it while X owns the screen (VT in graphics mode). Saves up to
   8.5 MB during games; needs ps3fb's GPU iomap and vsync blit task to cope with the buffer
-  disappearing.
+  disappearing. Written 2026-10-18 as local/0043, behind a switch: section 6.
 
 ### CMA size (`ps3rsx_cma=64M`)
 
@@ -229,3 +229,133 @@ Fragments live in `build/kexp/cfg/`. `DEBUG_INFO=n` is `CONFIG_DEBUG_INFO_NONE=y
 `# CONFIG_DEBUG_INFO is not set` has no effect: `DEBUG_INFO` is a derived symbol). The release flavour
 could be a second `KERNEL_FRAGMENTS` entry in config.mk next to `ps3.config`, built as a
 separate `KERNEL_LOCALVERSION`.
+
+## 6. ps3fb's console shadow while X owns the display (local/0043, switch off by default)
+
+Measured on the PS3 (2026-10-18): during games ps3fb's blit thread `ps3fbd` is idle (0 CPU s over
+20 s), so ps3fb costs no game time, but its XDR shadow stays allocated while ps3rsx owns the GPU
+and nobody sees the console. local/0043 (`0043-ps3fb-release-console-shadow.patch`) gives that
+memory back. Written 2026-10-18, compile-tested (`ps3fb.o` clean with W=1 for both configs,
+`vmlinux` links) and built as `6.12.111+ps3.436~dev20261018101906` (release and debug, debs in
+`build/keep/debs-linux-436dev-fbshadow`, ps3rsx modules not built for it), **not booted**.
+
+### What is freed, and where it comes from
+
+- `ps3fb_videomemory` is a 1 MiB-aligned `memblock_alloc` in setup_arch (setup.c, 9 MiB with
+  `CONFIG_FB_PS3_DEFAULT_SIZE_M=9`): `PageReserved` pages with struct pages, outside the buddy
+  allocator. ps3fb maps all of it into IO space 0 of its own lv1 GPU context
+  (`lv1_gpu_context_iomap`, IO pages are 1 MiB). Layout: 0-4K reset program, 4K-64K FIFO,
+  512K-9M the frame (8160K at 1080p, `GPU_FB_START` = 512K).
+- **The first MiB stays**: it is IO page 0 (FIFO and reset program; ps3rsx copies the reset
+  program from it at load, exec.c; `/dev/ps3gpu` minor 1 maps it). The other 8 MiB go: at the
+  default 9M, **8192 KiB**.
+- The first release hands the boot memory to the page allocator with `memblock_phys_free()`
+  (powerpc keeps memblock) and `free_reserved_area()` (what `free_initmem` uses): `MemTotal`
+  grows by 8192 kB for good. From then on the frame lives in **1 MiB chunks**: `alloc_pages(order 8,
+  __GFP_NORETRY)` first, else ps3rsx's CMA area (`ps3rsx_cma_alloc(1)`). The page allocator
+  comes first because the GART has no source but the CMA area (`chunk_back` fails when it is
+  full) and scattered console chunks there would also break the contiguous ring allocation on a
+  ps3rsx reload. Chunks need no physical contiguity: each is one GPU IO page, the CPU sees them
+  through one `vmap()` (first MiB + chunks), `/dev/fb0` mmap maps them chunk by chunk (shared
+  mappings only in that layout: `remap_pfn_range` takes a private mapping only whole).
+  Not contiguous on purpose: one 8 MiB CMA allocation can fail on fragmentation (GART chunks),
+  eight 1 MiB ones practically can't. A dedicated ps3fb CMA area was rejected: CMA areas come in
+  pageblocks, 16 MiB here (`pageblock_order` = 12 with 4K pages, `MAX_PAGE_ORDER` 12), so it would
+  take 16 MiB of movable-only memory for a 8 MiB need.
+- When the page allocator has no free 1 MiB blocks, the console's 8 MiB come out of the 64 MiB
+  `ps3rsx_cma` area while it is visible: the GART ceiling is up to 8 MiB lower then (X is away or
+  gone; 6-14 MB of GART were measured in games). Cost not measured: fbcon now draws through 4K
+  vmalloc mappings instead of the linear map's 16M pages (more hash table misses on scrolls).
+
+### When
+
+The hook is the existing GPU handover, `ps3fb_gpu_takeover()` (local/0005); ps3rsx is unchanged.
+
+- **Release**: `takeover(true)` (X's `master_set`, VT switch to X, a client without X submitting)
+  schedules a work after `shadow_release_delay_ms` (3 s); if ps3rsx still owns the GPU then and
+  no process has `/dev/fbN` open, it releases. The delay keeps a quick VT switch round trip or a
+  short offscreen GL run from churning 8 MiB through the allocator.
+- **Take back**: `takeover(false)` (X's `master_drop` on VT switch away or exit, ps3rsx's 2 s idle
+  release, ps3rsx unload) hands the GPU back at once and queues the work, which allocates with
+  no lock held (reclaim or CMA migration can take seconds right after a game exits; doing it
+  inside the handover would stall ps3rsx's `own_lock`: `master_set`, every submitter, the vswap
+  copies), then under `gpu_own_lock` checks the console is still wanted, maps the chunks, installs
+  them; fbcon resumes and redraws the visible console, the next vsync blits it. Until then the
+  screen shows ps3fb's last DDR frame (ps3rsx flips to it). Without memory the console stays dark
+  and the work tries again after 1, 2, 4 ... 32 s (reset by the next handover).
+- Runtime switch: `/sys/module/ps3fb/parameters/shadow_release` (0644, boot: `ps3fb.shadow_release=1`).
+  Writing 1 while X runs releases at once; writing 0 takes the memory back at once (the console
+  stays hidden until X lets it go). That allows same-boot A/B measurements.
+
+### What keeps off the freed memory (release order)
+
+1. Under `console_lock` and `shadow_lock` (which `open` and `mmap` take): `released` set,
+   `fb_set_suspend(info, 1)` (fbcon takes its cursor off while the memory is still there, then
+   `FBINFO_STATE_SUSPENDED`), `screen_base = NULL`. All under `shadow_lock`, because `fb_read` and
+   `fb_write` check the state unlocked and then use `screen_base`: a process opening `/dev/fbN`
+   after the check of the open count must already see the suspended state (found in review).
+2. The frame's IO pages (1..8) are pointed at the first MiB, read-only (like ps3rsx's GART
+   scratch chunk, which is RW): a stray GPU fetch must never fault, a fault wedges the GPU until a
+   reboot. Read-write would let a stray GPU write hit the FIFO and reset program, so if lv1
+   refuses read-only, the old mappings go back and nothing is freed (dmesg `iomap of IO page`;
+   then the feature can't work as written).
+3. Then the memory is freed (or the chunks, `vunmap` first).
+
+Gates while released: fbcon (`fbcon_is_inactive` and every `sys_*` draw op check
+`info->state`); `fb_read`/`fb_write` (same check); `ps3fb_set_par` skips its memset
+(`screen_base` NULL, changed only under `console_lock`, which `set_par` always runs under);
+`ps3fb_sync_image` returns (covers the vsync blits, `FSEL`, the DDR clear in `set_par`, the
+last-close sync); `mmap` returns -EBUSY; `PS3GPU_IOCTL_ENTER` returns -EBUSY (direct-GPU users
+use the frame as their "gart"). A process holding `/dev/fbN` open blocks the release (an mmap
+keeps the file open); the last close triggers it. ps3fb's own GPU work stops at
+`takeover(true)` already (FIFO fenced), so the GPU reads nothing from the frame while released.
+Shutdown/reboot while released unmaps IO pages one by one with what each maps now; a
+`takeover()` after ps3fb's shutdown returns -ENODEV (before, it ran the reset program on the
+freed context).
+
+**Panic/oops while released**: nothing is drawn: fbcon is suspended, `fbcon_is_inactive()` in this
+tree has no forced-output path (no `FBINFO_CAN_FORCE_OUTPUT`), so no CPU write can reach freed
+memory or a NULL `screen_base`. This is no loss: with X in front the VT is in `KD_GRAPHICS` and
+ps3fb doesn't blit while ps3rsx owns the GPU, so a panic under X showed nothing on screen before
+either. Panic output while X runs goes to netconsole (`tools/listen-debug.sh`) only, as it did.
+With the console in front nothing changes (the buffer is there).
+
+With `shadow_release=0` the only differences are the open count, the `shadow_lock` around
+`mmap`, and the -ENODEV after shutdown.
+
+Reviewed by a second agent (Opus) before the build: one blocker (the `fb_read`/`fb_write` race
+above) and the should-fixes (refill out of the handover, no RW scratch, page allocator before
+CMA, retry backoff, takeover after shutdown) are in the patch.
+
+### PS3 test plan (needs a dev build, netboot; nothing of this ran yet)
+
+Protocol: same boot for A/B (the runtime switch), user not at the PS3, webcam photo for every
+"console visible" step. Values: `grep -E 'MemTotal|MemFree|MemAvailable|CmaFree' /proc/meminfo`
+and `dmesg | grep ps3fb`.
+
+1. Boot the dev kernel by netboot with its args (switch off). Text console: meminfo (T0).
+2. Start the desktop, 60 s idle: meminfo (A0). `echo 1 > /sys/module/ps3fb/parameters/shadow_release`;
+   expect `console shadow released ... (8192 KiB)` at once; meminfo (A1). Expected: `MemTotal`
+   +8192 kB (first release only), `MemAvailable` about +8 MB.
+   First thing to check: no `iomap of IO page ... failed` line (lv1 took the read-only mapping;
+   if it refused, nothing was freed and the patch needs another scratch).
+3. Cycle the switch 0/1 three times with X in front: each 0 takes 8 MiB back (`MemFree`, or
+   `CmaFree` when there were no free 1 MiB blocks; `console shadow back`), each 1 gives it back;
+   `MemTotal` stays after the first release; X's picture unchanged throughout.
+4. VT switch: Ctrl+Alt+F1, the login prompt is readable within ~1 s (photo), type something;
+   Ctrl+Alt+F7, X's frame is back; after 3 s `released`. 10 rounds; then the same with a game
+   running (memory under pressure): time until the console is readable, no `no memory` warning.
+5. X exit (stop the display manager): the console comes back with the text that was there before
+   X started plus what came after; `fbset -i` works; a write test through mmap of `/dev/fb0` (a
+   pattern shows on screen) and `dd if=/dev/zero of=/dev/fb0` (screen clears) in chunk mode.
+6. `sleep 600 </dev/fb0 &` before starting X: no release while it runs; kill it: release follows.
+7. ps3rsx unload with X stopped, then reload and start X again: release and return still work.
+8. Games: 5-10 game suite with the switch on vs off in the same boot: `MemAvailable` during play
+   +8 MB, FPS unchanged (ps3fbd is idle in games anyway), swap use lower.
+9. Reboot and power off from X with the console released: clean (netconsole shows no lv1 errors).
+10. Panic (only with the user's OK, it needs the power button): `echo c > /proc/sysrq-trigger`
+    from X with the console released: screen shows nothing (as before), netconsole has the oops,
+    no second oops from ps3fb.
+
+When it passes: default on (`ps3fb.shadow_release=1` in `linux/flavours/*.args`, or the default
+in the patch), then the release flavour.

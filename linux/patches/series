@@ -9,6 +9,7 @@
 # 0170 (gelic eurus repository write), 0316 (jupiter alias). local/0040 no longer needs the misc device.
 # local/0040: SM temperatures as hwmon; 0041: the final shutdown poll waits for the SM's shutdown command (docs/THERMAL.md).
 # local/0042: fan policy through the SM (hwmon pwm1; SYSCON automatic at boot and on every exit path; docs/THERMAL.md).
+# local/0043: ps3fb frees its console's XDR frame (8 MiB) while ps3rsx owns the GPU; ps3fb.shadow_release=1, default off (docs/KERNEL-MEMORY.md 6).
 ps3/0020-ps3stor-send-cmd-timeout.patch
 ps3/0035-ps3flash.patch
 ps3/0040-ps3-partition.patch
@@ -66,3 +67,4 @@ local/0032-spufs-setattr-prepare.patch
 local/0040-ps3-sys-manager-hwmon-temperatures.patch
 local/0041-ps3-sys-manager-fin-wait-for-shutdown-command.patch
 local/0042-ps3-sys-manager-fan-policy.patch
+local/0043-ps3fb-release-console-shadow.patch

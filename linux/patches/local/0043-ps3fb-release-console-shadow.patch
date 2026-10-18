@@ -1,0 +1,568 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 13:15:09 +0300
+Subject: ps3fb: release the console's XDR shadow while the RSX driver owns the
+ GPU
+
+While an RSX driver (ps3rsx) owns the GPU, ps3fb neither blits nor
+flips, and with X in front nobody sees the console, yet the frame part of
+ps3fb_videomemory (8 of the default 9 MiB) stays allocated. With
+ps3fb.shadow_release=1 (default 0; writable at runtime through
+/sys/module/ps3fb/parameters/shadow_release) ps3fb gives it back:
+
+- shadow_release_delay_ms (3000) after ps3fb_gpu_takeover(true), if the
+  GPU is still taken and no process has /dev/fbN open: fbcon is suspended
+  (fb_set_suspend), screen_base becomes NULL, the frame's IO pages are
+  pointed at the first MiB (read only, so a stray GPU fetch never
+  faults; if lv1 refuses, nothing is freed), then the memory is freed.
+  The first time that is the boot memblock (memblock_phys_free, free_reserved_area: MemTotal
+  grows), later the chunks. The state change happens under the lock
+  open takes, as fb_read/fb_write check the state unlocked.
+- ps3fb_gpu_takeover(false) hands the GPU back at once and queues the
+  work, which takes 1 MiB chunks with no lock held (alloc_pages with
+  __GFP_NORETRY, else ps3rsx's CMA area), maps them at their IO pages,
+  vmaps the first MiB and the chunks for fbcon and resumes fbcon, which
+  redraws. Without memory it tries again after 1, 2, 4 ... 32 s.
+- The first MiB (reset program, FIFO, the first 512 KiB of the frame)
+  stays where it is.
+
+While released the blits, set_par's memset, mmap (-EBUSY) and
+PS3GPU_IOCTL_ENTER (-EBUSY) keep off the frame; fbcon, fb_read and
+fb_write are gated by FBINFO_STATE_SUSPENDED. Panic output is not drawn
+while released, which is no change: with X in front the VT is in
+KD_GRAPHICS and ps3fb doesn't blit while the GPU is taken. mmap after the
+first release maps the chunks one by one (shared mappings only).
+Shutdown unmaps each IO page with what it maps now, and a takeover after
+shutdown now returns -ENODEV instead of running the reset program on the
+freed context.
+
+With the switch off nothing changes but an open count, a mutex around
+mmap and the -ENODEV after shutdown. Compile-tested only; the PS3 test
+plan is in docs/KERNEL-MEMORY.md.
+
+Forwarded: no (test on the PS3 first; docs/KERNEL-MEMORY.md)
+
+diff --git a/drivers/video/fbdev/ps3fb.c b/drivers/video/fbdev/ps3fb.c
+--- a/drivers/video/fbdev/ps3fb.c
++++ b/drivers/video/fbdev/ps3fb.c
+@@ -27,6 +27,10 @@
+ #include <linux/ioctl.h>
+ #include <linux/kthread.h>
+ #include <linux/freezer.h>
++#include <linux/memblock.h>
++#include <linux/sizes.h>
++#include <linux/vmalloc.h>
++#include <linux/workqueue.h>
+ #include <linux/uaccess.h>
+ #include <linux/fb.h>
+ #include <linux/fbcon.h>
+@@ -181,7 +185,8 @@ struct ps3fb_par {
+ 
+ static struct ps3fb_priv ps3fb;
+ 
+-/* Experiments only: lets a test module use ps3fb's GPU memory and context handles. */
++/* Experiments only: lets a test module use ps3fb's GPU memory and context handles. With
++ * shadow_release only the first MiB of xdr stays valid while the RSX driver owns the GPU. */
+ void ps3fb_gpu_handles(u64 *memory_handle, u64 *context_handle, u64 *ddr_lpar,
+ 		       void **xdr, unsigned long *xdr_size)
+ {
+@@ -206,6 +211,50 @@ static u64 gpu_ctx_iomap[256];		/* lpar mapped at each 1 MiB IO page of gpu_ctx,
+ static const struct ps3fb_gpu_hook *gpu_hook;
+ static unsigned int gpu_exceptions;	/* sticky: restore_state clears GPU_USER_DEBUG */
+ 
++/*
++ * The console's XDR shadow (ps3fb.shadow_release=1, docs/KERNEL-MEMORY.md): while the RSX driver
++ * owns the GPU, nobody sees the console, so the frame part of ps3fb_videomemory is given back to
++ * the page allocator and taken again (in 1 MiB chunks, the GPU's IO page size) when ps3fb gets
++ * the GPU back. The first MiB (the FIFO, the reset program the RSX driver copies, and the first
++ * 512 KiB of the frame) stays: it is IO page 0 of ps3fb's context. While released, fbcon is
++ * suspended (FBINFO_STATE_SUSPENDED: no drawing, also not on panic), screen_base is NULL, the
++ * blits are off, mmap is refused, and the frame's IO pages read the first MiB instead, so a
++ * stray GPU fetch never faults. released, screen_base on release, users and ready change
++ * under shadow_lock, which nests inside everything else (open and mmap take it); the layout
++ * changes only under gpu_own_lock and while released. The memory is taken back by the work,
++ * not under the GPU handover's locks (CMA migration and reclaim may take seconds).
++ */
++#define SHADOW_CHUNK		SZ_1M
++#define SHADOW_ORDER		get_order(SHADOW_CHUNK)
++#define SHADOW_MAX_PAGES	(GPU_WONDOW_MAX / SHADOW_CHUNK)	/* IO pages, the first included */
++#define SHADOW_RETRY_MAX	(32 * HZ)
++
++static bool shadow_release;		/* the switch (default off until measured on the PS3) */
++static unsigned int shadow_release_delay_ms = 3000;
++static DEFINE_MUTEX(shadow_lock);
++
++/* the frame after the first release: 1 MiB chunks (chunk[0] unused: the first MiB stays) */
++struct shadow_buf {
++	struct page *chunk[SHADOW_MAX_PAGES];
++	bool cma[SHADOW_MAX_PAGES];
++	void *vaddr;			/* vmap of the first MiB and the chunks */
++};
++
++static struct {
++	bool ready;			/* probe done, not shut down: the work may be queued */
++	bool dead;			/* ps3fb shut down (under gpu_own_lock) */
++	bool released;			/* frame memory freed, fbcon suspended */
++	bool boot_tail;			/* the frame is still the boot memblock (linear map) */
++	bool changed;			/* the IO map differs from probe's single mapping */
++	unsigned int pages;		/* IO pages of ps3fb_videomemory, the first included */
++	unsigned int users;		/* opens of /dev/fbN (not fbcon's) */
++	unsigned long retry;		/* jiffies until the next try to take the frame back */
++	struct shadow_buf buf;		/* vaddr NULL: boot layout or released */
++	u64 map_lpar[SHADOW_MAX_PAGES];	/* what each IO page maps now */
++} shadow = { .retry = HZ };
++static void shadow_work_fn(struct work_struct *work);
++static DECLARE_DELAYED_WORK(shadow_work, shadow_work_fn);
++
+ static const struct fb_videomode ps3fb_modedb[] = {
+ 	/* 60 Hz broadcast modes (modes "1" to "5") */
+ 	{
+@@ -1456,7 +1505,7 @@ static void ps3fb_sync_image(struct device *dev, u64 frame_offset,
+ {
+ 	int status;
+ 
+-	if (READ_ONCE(gpu_owned))
++	if (READ_ONCE(gpu_owned) || READ_ONCE(shadow.released))
+ 		return;
+ 	src_offset += GPU_FB_START;
+ 	mutex_lock(&ps3_gpu_mutex);
+@@ -1503,12 +1552,25 @@ static int ps3fb_sync(struct fb_info *info, u32 frame)
+ 
+ static int ps3fb_open(struct fb_info *info, int user)
+ {
++	if (user) {
++		mutex_lock(&shadow_lock);
++		shadow.users++;
++		mutex_unlock(&shadow_lock);
++	}
+ 	atomic_inc(&ps3fb.f_count);
+ 	return 0;
+ }
+ 
+ static int ps3fb_release(struct fb_info *info, int user)
+ {
++	if (user) {
++		mutex_lock(&shadow_lock);
++		/* the last user gone while the RSX driver owns the GPU: release now */
++		if (!--shadow.users && READ_ONCE(shadow_release) && READ_ONCE(gpu_owned) &&
++		    shadow.ready)
++			mod_delayed_work(system_wq, &shadow_work, 0);
++		mutex_unlock(&shadow_lock);
++	}
+ 	if (atomic_dec_and_test(&ps3fb.f_count))
+ 		if (atomic_read(&ps3fb.ext_flip)) {
+ 			atomic_set(&ps3fb.ext_flip, 0);
+@@ -1627,8 +1689,9 @@ static int ps3fb_set_par(struct fb_info *info)
+ 		}
+ 		par->mode_id = par->new_mode_id;
+ 	}
+-	/* Clear XDR frame buffer memory */
+-	memset((void __force *)info->screen_base, 0, info->fix.smem_len);
++	/* Clear XDR frame buffer memory (none while the shadow is released) */
++	if (info->screen_base)
++		memset((void __force *)info->screen_base, 0, info->fix.smem_len);
+ 	/* Clear DDR frame buffer memory */
+ 	lines = vmode->yres * par->num_frames;
+ 	if (par->full_offset)
+@@ -1666,11 +1729,45 @@ static int ps3fb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info
+ 	return 0;
+ }
+ 
++/* The frame in chunks (after a shadow release): map it one IO page at a time */
++static int ps3fb_mmap_chunks(struct fb_info *info, struct vm_area_struct *vma)
++{
++	unsigned long len = vma->vm_end - vma->vm_start, addr = vma->vm_start, off, x, n, pfn;
++	int r;
++
++	/* remap_pfn_range covers a private (COW) mapping only whole */
++	if (!(vma->vm_flags & VM_SHARED) || vma->vm_pgoff >= info->fix.smem_len >> PAGE_SHIFT)
++		return -EINVAL;
++	off = vma->vm_pgoff << PAGE_SHIFT;
++	if (len > info->fix.smem_len - off)
++		return -EINVAL;
++	for (x = GPU_FB_START + off; len; x += n, addr += n, len -= n) {
++		unsigned int i = x / SHADOW_CHUNK;
++
++		n = min(len, (i + 1) * SHADOW_CHUNK - x);
++		if (i)
++			pfn = page_to_pfn(shadow.buf.chunk[i]) + ((x % SHADOW_CHUNK) >> PAGE_SHIFT);
++		else
++			pfn = virt_to_pfn(ps3fb_videomemory.address + x);
++		r = remap_pfn_range(vma, addr, pfn, n, vma->vm_page_prot);
++		if (r)
++			return r;
++	}
++	return 0;
++}
++
+ static int ps3fb_mmap(struct fb_info *info, struct vm_area_struct *vma)
+ {
+ 	int r;
+ 
+-	r = vm_iomap_memory(vma, info->fix.smem_start, info->fix.smem_len);
++	mutex_lock(&shadow_lock);
++	if (shadow.released)
++		r = -EBUSY;	/* no frame while the RSX driver owns the GPU */
++	else if (shadow.buf.vaddr)
++		r = ps3fb_mmap_chunks(info, vma);
++	else
++		r = vm_iomap_memory(vma, info->fix.smem_start, info->fix.smem_len);
++	mutex_unlock(&shadow_lock);
+ 	dev_dbg(info->device, "ps3fb: mmap framebuffer P(%lx)->V(%lx)\n",
+ 		info->fix.smem_start + (vma->vm_pgoff << PAGE_SHIFT),
+ 		vma->vm_start);
+@@ -1937,7 +2034,7 @@ static int ps3fb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg
+ 				retval = -EBUSY;
+ 				break;
+ 			}
+-			if (gpu_owned) {
++			if (gpu_owned || shadow.released) {
+ 				retval = -EBUSY;
+ 			} else {
+ 				StartStopTask(1);
+@@ -2050,6 +2147,242 @@ static irqreturn_t ps3fb_vsync_interrupt(int irq, void *ptr)
+ 
+ 	return IRQ_HANDLED;
+ }
++/* --- the console's XDR shadow (shadow_release) ------------------------------------------ */
++
++static int shadow_map(unsigned int i, u64 lpar, u64 flags)
++{
++	int status = lv1_gpu_context_iomap(ps3fb.context_handle, GPU_IOIF + (u64)i * SHADOW_CHUNK,
++					   lpar, SHADOW_CHUNK, flags);
++
++	if (status)
++		pr_err("ps3fb: iomap of IO page %u to %#llx failed: %d\n", i, lpar, status);
++	else
++		shadow.map_lpar[i] = lpar;
++	return status;
++}
++
++/* IO page i reads the first MiB, read only (writable it would expose the FIFO) */
++static int shadow_map_scratch(unsigned int i)
++{
++	return shadow_map(i, shadow.map_lpar[0], CBE_IOPTE_PP_R | CBE_IOPTE_M);
++}
++
++static void shadow_buf_free(struct shadow_buf *buf)
++{
++	unsigned int i;
++
++	if (buf->vaddr)
++		vunmap(buf->vaddr);
++	buf->vaddr = NULL;
++	for (i = 1; i < shadow.pages; i++) {
++		if (!buf->chunk[i])
++			continue;
++		if (IS_ENABLED(CONFIG_CMA) && buf->cma[i])
++			ps3rsx_cma_free(buf->chunk[i], 1);
++		else
++			__free_pages(buf->chunk[i], SHADOW_ORDER);
++		buf->chunk[i] = NULL;
++	}
++}
++
++/*
++ * Give the frame back to the page allocator. gpu_own_lock held, the RSX driver owns the GPU
++ * (ps3fb's FIFO has drained and issues nothing). Nothing happens while /dev/fbN is open.
++ */
++static void shadow_free(void)
++{
++	struct fb_info *info = ps3fb.fbinfo;
++	char __iomem *screen_base = info->screen_base;
++	unsigned long kib = (shadow.pages - 1) * (SHADOW_CHUNK >> 10);
++	unsigned int i, j;
++
++	console_lock();
++	mutex_lock(&shadow_lock);
++	if (shadow.users) {
++		mutex_unlock(&shadow_lock);
++		console_unlock();
++		return;			/* the last close tries again */
++	}
++	/* under shadow_lock: whoever opens /dev/fbN after this sees the suspended state
++	 * (fb_read/fb_write check it unlocked, then use screen_base) */
++	shadow.released = true;
++	fb_set_suspend(info, 1);	/* fbcon takes its cursor off first: still mapped */
++	info->screen_base = NULL;
++	mutex_unlock(&shadow_lock);
++	console_unlock();
++
++	shadow.changed = true;
++	for (i = 1; i < shadow.pages; i++) {
++		if (shadow_map_scratch(i)) {
++			/* lv1 refused: back to the frame, keep the memory */
++			for (j = 1; j < i; j++)
++				shadow_map(j, shadow.buf.chunk[j] ?
++					   ps3_mm_phys_to_lpar(page_to_phys(shadow.buf.chunk[j])) :
++					   shadow.map_lpar[0] + (u64)j * SHADOW_CHUNK,
++					   CBE_IOPTE_PP_W | CBE_IOPTE_PP_R | CBE_IOPTE_M);
++			console_lock();
++			mutex_lock(&shadow_lock);
++			info->screen_base = screen_base;
++			shadow.released = false;
++			mutex_unlock(&shadow_lock);
++			fb_set_suspend(info, 0);
++			console_unlock();
++			return;
++		}
++	}
++	if (shadow.buf.vaddr) {
++		shadow_buf_free(&shadow.buf);
++	} else if (shadow.boot_tail) {
++		void *start = ps3fb_videomemory.address + SHADOW_CHUNK;
++		unsigned long len = (shadow.pages - 1) * SHADOW_CHUNK;
++
++#ifdef CONFIG_ARCH_KEEP_MEMBLOCK
++		memblock_phys_free(__pa(start), len);	/* memblock and kmemleak forget it too */
++#endif
++		free_reserved_area(start, start + len, -1, NULL);
++		shadow.boot_tail = false;
++	}
++	pr_info("ps3fb: console shadow released while the GPU is taken (%lu KiB)\n", kib);
++}
++
++/*
++ * New frame memory: 1 MiB chunks from the page allocator (no hard reclaim), else from ps3rsx's
++ * CMA area (its GART has no other source, so it comes second), cleared, and one kernel mapping
++ * of the first MiB and the chunks for fbcon. No locks held: this may sleep for a while.
++ */
++static int shadow_alloc(struct shadow_buf *buf)
++{
++	unsigned int i, j, n = shadow.pages * (SHADOW_CHUNK >> PAGE_SHIFT);
++	struct page **pages;
++
++	for (i = 1; i < shadow.pages; i++) {
++		struct page *page = alloc_pages(GFP_KERNEL | __GFP_NOWARN | __GFP_NORETRY,
++						SHADOW_ORDER);
++
++		buf->cma[i] = false;
++		if (!page && IS_ENABLED(CONFIG_CMA)) {
++			page = ps3rsx_cma_alloc(1);
++			buf->cma[i] = true;
++		}
++		if (!page)
++			goto fail;
++		buf->chunk[i] = page;
++	}
++	pages = kvmalloc_array(n, sizeof(*pages), GFP_KERNEL);
++	if (!pages)
++		goto fail;
++	for (j = 0; j < n; j++) {
++		unsigned int c = j / (SHADOW_CHUNK >> PAGE_SHIFT), k = j % (SHADOW_CHUNK >> PAGE_SHIFT);
++
++		pages[j] = c ? buf->chunk[c] + k :
++			virt_to_page(ps3fb_videomemory.address + ((unsigned long)k << PAGE_SHIFT));
++	}
++	buf->vaddr = vmap(pages, n, VM_MAP, PAGE_KERNEL);
++	kvfree(pages);
++	if (!buf->vaddr)
++		goto fail;
++	memset(buf->vaddr + GPU_FB_START, 0, (unsigned long)shadow.pages * SHADOW_CHUNK - GPU_FB_START);
++	return 0;
++
++fail:
++	shadow_buf_free(buf);
++	return -ENOMEM;
++}
++
++/* Map buf's chunks at their IO pages; gpu_own_lock held, released */
++static int shadow_map_buf(struct shadow_buf *buf)
++{
++	unsigned int i, j;
++
++	for (i = 1; i < shadow.pages; i++) {
++		if (shadow_map(i, ps3_mm_phys_to_lpar(page_to_phys(buf->chunk[i])),
++			       CBE_IOPTE_PP_W | CBE_IOPTE_PP_R | CBE_IOPTE_M)) {
++			for (j = 1; j < i; j++)
++				if (shadow_map_scratch(j))
++					buf->chunk[j] = NULL;	/* still mapped: leak it */
++			return -EIO;
++		}
++	}
++	return 0;
++}
++
++/* Release while the GPU is taken; take back when it isn't (or the switch went off) */
++static void shadow_work_fn(struct work_struct *work)
++{
++	struct shadow_buf buf = {};
++	struct fb_info *info = ps3fb.fbinfo;
++	bool want;
++
++	mutex_lock(&gpu_own_lock);
++	if (shadow.dead || !shadow.ready)
++		goto out;
++	if (gpu_owned && READ_ONCE(shadow_release) && !shadow.released) {
++		shadow_free();
++		goto out;
++	}
++	want = shadow.released && (!gpu_owned || !READ_ONCE(shadow_release));
++	mutex_unlock(&gpu_own_lock);
++	if (!want)
++		return;
++
++	if (shadow_alloc(&buf))
++		goto retry;
++	mutex_lock(&gpu_own_lock);
++	want = !shadow.dead && shadow.released && (!gpu_owned || !READ_ONCE(shadow_release));
++	if (!want) {
++		shadow_buf_free(&buf);		/* taken again meanwhile */
++		goto out;
++	}
++	if (shadow_map_buf(&buf)) {
++		shadow_buf_free(&buf);
++		mutex_unlock(&gpu_own_lock);
++		goto retry;
++	}
++	console_lock();
++	mutex_lock(&shadow_lock);
++	shadow.buf = buf;
++	info->screen_base = (char __force __iomem *)buf.vaddr + GPU_FB_START;
++	shadow.released = false;
++	mutex_unlock(&shadow_lock);
++	fb_set_suspend(info, 0);	/* fbcon redraws the visible console */
++	if (!gpu_owned)
++		ps3fb_sync(info, 0);
++	console_unlock();
++	shadow.retry = HZ;
++	pr_info("ps3fb: console shadow back\n");
++out:
++	mutex_unlock(&gpu_own_lock);
++	return;
++
++retry:
++	pr_warn_ratelimited("ps3fb: no memory for the console yet, next try in %lu s\n",
++			    shadow.retry / HZ);
++	mod_delayed_work(system_wq, &shadow_work, shadow.retry);
++	shadow.retry = min(shadow.retry * 2, (unsigned long)SHADOW_RETRY_MAX);
++}
++
++static int shadow_param_set(const char *val, const struct kernel_param *kp)
++{
++	int ret = param_set_bool(val, kp);
++
++	mutex_lock(&shadow_lock);
++	if (!ret && shadow.ready)
++		mod_delayed_work(system_wq, &shadow_work, 0);
++	mutex_unlock(&shadow_lock);
++	return ret;
++}
++
++static const struct kernel_param_ops shadow_param_ops = {
++	.set = shadow_param_set,
++	.get = param_get_bool,
++};
++module_param_cb(shadow_release, &shadow_param_ops, &shadow_release, 0644);
++MODULE_PARM_DESC(shadow_release,
++	"Free the console's XDR frame while the RSX driver owns the GPU (default: off)");
++module_param(shadow_release_delay_ms, uint, 0644);
++MODULE_PARM_DESC(shadow_release_delay_ms,
++	"How long the RSX driver must have owned the GPU before the frame goes (default: 3000)");
++
+ /* --- GPU sharing API (asm/ps3gpu.h) ----------------------------------------------------- */
+ 
+ int ps3fb_gpu_get_info(struct ps3fb_gpu_info *gi)
+@@ -2172,12 +2505,18 @@ static int ps3fb_fifo_fence(void)
+  * own = true: ps3fb stops touching the GPU (no console blits or flips, no direct-GPU ioctls,
+  * no mode changes or blanking) once its last command has executed. own = false: the caller
+  * has drained its own work; ps3fb re-runs its reset program and redraws the console.
++ * With shadow_release, own = true also frees the console's frame after a delay, and own = false
++ * has the work take it back (the console returns once that has found memory).
+  */
+ int ps3fb_gpu_takeover(bool own)
+ {
+ 	int ret = 0;
+ 
+ 	mutex_lock(&gpu_own_lock);
++	if (shadow.dead) {
++		ret = -ENODEV;		/* ps3fb has shut down: its context is gone */
++		goto out;
++	}
+ 	if (own == gpu_owned)
+ 		goto out;
+ 	if (own && !ps3fb.task) {
+@@ -2194,10 +2533,19 @@ int ps3fb_gpu_takeover(bool own)
+ 			pr_err("%s: ps3fb's FIFO did not drain: %d\n", __func__, ret);
+ 		}
+ 		mutex_unlock(&ps3_gpu_mutex);
++		if (!ret && READ_ONCE(shadow_release) && READ_ONCE(shadow.ready))
++			mod_delayed_work(system_wq, &shadow_work,
++					 msecs_to_jiffies(READ_ONCE(shadow_release_delay_ms)));
+ 	} else {
+ 		ret = ps3gpu_restore_state();
+ 		mutex_unlock(&ps3_gpu_mutex);
+ 		WRITE_ONCE(gpu_owned, false);
++		if (shadow.released) {
++			/* the work takes the frame back, outside these locks; until then the
++			 * console stays suspended and the blits off */
++			shadow.retry = HZ;
++			mod_delayed_work(system_wq, &shadow_work, 0);
++		}
+ 		if (ps3fb.fbinfo)
+ 			ps3fb_sync(ps3fb.fbinfo, 0);
+ 	}
+@@ -2338,6 +2686,7 @@ static int ps3fb_probe(struct ps3_system_bus_device *dev)
+ 	int status;
+ 	struct task_struct *task;
+ 	unsigned long max_ps3fb_size;
++	unsigned int i;
+ 
+ 	if (ps3fb_videomemory.size < GPU_CMD_BUF_SIZE)	{
+ 		dev_err(&dev->core, "%s: Not enough video memory\n", __func__);
+@@ -2446,6 +2795,10 @@ static int ps3fb_probe(struct ps3_system_bus_device *dev)
+ 	}
+ 	dev_dbg(&dev->core, "video:%p ioif:%lx lpar:%llx size:%lx\n",
+ 		ps3fb_videomemory.address, GPU_IOIF, xdr_lpar,	ps3fb_videomemory.size);
++	shadow.pages = ps3fb_videomemory.size / SHADOW_CHUNK;
++	for (i = 0; i < shadow.pages; i++)
++		shadow.map_lpar[i] = xdr_lpar + (u64)i * SHADOW_CHUNK;
++	shadow.boot_tail = true;
+ 	/* FIFO control */  
+ 	ps3fb.fifo.ctrl = (void __force *)ioremap( ps3fb.ctrl_lpar, ps3fb.ctrl_size);
+ 	if (!ps3fb.fifo.ctrl) {
+@@ -2517,6 +2870,9 @@ static int ps3fb_probe(struct ps3_system_bus_device *dev)
+ 		ps3fb_gpu_major = status;
+ 	dev_info(&dev->core, "%s: using major %d for direct GPU access\n",
+ 		__func__, ps3fb_gpu_major);
++	mutex_lock(&shadow_lock);
++	shadow.ready = true;
++	mutex_unlock(&shadow_lock);
+ 
+ 	return 0;
+ 
+@@ -2554,6 +2910,13 @@ static void ps3fb_shutdown(struct ps3_system_bus_device *dev)
+ 	u64 xdr_lpar = ps3_mm_phys_to_lpar(__pa(ps3fb_videomemory.address));
+ 
+ 	dev_dbg(&dev->core, " -> %s:%d\n", __func__, __LINE__);
++	mutex_lock(&shadow_lock);
++	shadow.ready = false;		/* no more queueing from params or closes */
++	mutex_unlock(&shadow_lock);
++	mutex_lock(&gpu_own_lock);
++	shadow.dead = true;
++	mutex_unlock(&gpu_own_lock);
++	cancel_delayed_work_sync(&shadow_work);
+ 	unregister_chrdev(ps3fb_gpu_major, DEVICE_NAME);
+ 	atomic_inc(&ps3fb.ext_flip);	/* flip off */
+ 	ps3fb.dinfo->irq.mask = 0;
+@@ -2576,9 +2939,19 @@ static void ps3fb_shutdown(struct ps3_system_bus_device *dev)
+ 	iounmap((u8 __force __iomem *)ps3fb.fifo.ctrl);
+ 	ps3fb_gpu_ctx_free();
+ 	lv1_gpu_fb_close(ps3fb.context_handle);
+-	lv1_gpu_context_iomap(ps3fb.context_handle, GPU_IOIF, xdr_lpar, ps3fb_videomemory.size, CBE_IOPTE_M);
++	if (shadow.changed) {
++		unsigned int i;
++
++		for (i = 0; i < shadow.pages; i++)
++			lv1_gpu_context_iomap(ps3fb.context_handle, GPU_IOIF + (u64)i * SHADOW_CHUNK,
++					      shadow.map_lpar[i], SHADOW_CHUNK, CBE_IOPTE_M);
++	} else {
++		lv1_gpu_context_iomap(ps3fb.context_handle, GPU_IOIF, xdr_lpar,
++				      ps3fb_videomemory.size, CBE_IOPTE_M);
++	}
+ 	lv1_gpu_context_free(ps3fb.context_handle);
+ 	lv1_gpu_memory_free(ps3fb.memory_handle);
++	shadow_buf_free(&shadow.buf);
+ 	ps3_close_hv_device(dev);
+ 	dev_dbg(&dev->core, " <- %s:%d\n", __func__, __LINE__);	
+ }
