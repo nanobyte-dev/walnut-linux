@@ -1,10 +1,178 @@
 # Plan: modern Linux with a working GPU on the PS3
 
 Hard constraints are in CLAUDE.md (no permanent changes beyond installing Linux, GameOS stays the
-default boot OS, no syscon writes, supervised sessions). The original wish list is `backlog.txt`.
-Restructured 2026-10-15 evening around what the day established: **RAM, not the GPU or the CPU,
-is the binding constraint**, and most of the next work is about it. The current phase (games from
-playable to good) is in "Where we are (2026-10-17)"; the open ideas, ranked, in docs/IDEAS.md.
+default boot OS, no syscon writes beyond the fan policy of 2026-10-18, supervised sessions). The
+original wish list is `backlog.txt`. This file is the plan of record with its progress, brought up
+to date on 2026-10-18; the open ideas, ranked, are in docs/IDEAS.md, the per-game detail in
+docs/GAME-PLAN.md.
+
+## Goal
+
+An open, Sony-independent PS3: Linux with a working GPU driver, a desktop, and open-source games that
+play well. Played well means about 60 fps at 1080p for the light games, and **smoothness ranks above
+average fps** (the user's rule, 2026-10-18): a lower frame rate that never stalls beats a higher one
+with hitches, so every game is judged on its steady fps together with its stalls (frames over
+100 ms), its 1% low and its longest frame. AAA titles are not the goal. The long-term form is a live
+system that boots from USB or NFS through Petitboot, with the RSX driver, desktop and games working
+out of the box, and an optional installer for the OtherOS++ Linux region (see "Long-term goal").
+
+## Summary (2026-10-18)
+
+**Where we are.** The infrastructure is finished and published to our own repository (kernel, ps3rsx,
+Mesa nv30, SPU toolchain, desktop, splash, packaging). The work is in the phase "games from playable
+to good". RAM (217 MB for Linux) is the binding constraint, then the PPE (the driver stack takes
+30-55% of a game's CPU), not the RSX or the SPEs. The last two days found and measured most of what
+decides smoothness:
+
+- **Fewer GL calls in the game beats driver work by far.** X-Moto 44.5 -> 166.5 fps (18,500 -> 165 GL
+  calls a frame), Extreme Tux Racer 52 -> 59, against +5 to +24% from Mesa rounds 0015-0031.
+- **A kernel bug caused many of the "random" stalls.** The decrementer of an idle PPE thread is lost
+  on the way into `lv1_pause`: a probe on the idle PS3 saw wakeups up to 1439 ms late on thread 1, and
+  none over 19.4 ms with a 10 ms kicker (docs/STALLS.md). OpenArena's gameplay stalls fell from 16.1 and
+  13.3 s to 6.5 and 6.2 s with the kicker alone. The fix (local/0009) is in the test kernels, not
+  booted; game mode starts a stopgap kicker (`ps3-kick`).
+- **Memory patches in the games** remove the stalls that are left: OpenArena's preload (ioquake3
+  0025-0026) took gameplay stalls from 9.9 and 9.0 s to 0, its longest frame from 1057 and 807 ms to
+  64 and 47 ms, and steady fps from 64.6 to 70.4; Yamagi Quake II's small PRNG table saves 70 MB
+  (stalls 22.6 -> 0.05 s); Luanti's `cliunload` cuts gameplay stalls 6.5 -> 0.8 s with the same picture.
+- **Mesa's translate LUT** (patch 0033, now the default) gave Sauerbraten +53% (25.9 -> 39.6 fps).
+- **Tools to see why**: the stall recorder (`STALLS=1`), the perf and memory profiles (`PERF=1`,
+  `MEM=1`), a webcam photo at 30 and 60 s of every run, same-boot A/B rows in `games/bench/results/`.
+
+**Games.** Of the 13 suite games, six meet 60 fps with no gameplay stalls worth the name (QuakeSpasm,
+Yamagi Quake II, X-Moto, Armagetron, Neverball, OpenArena opengl1) and Extreme Tux Racer is at 59.
+ClassiCube (48), dsda-doom (56) and Luanti (48) are CPU-bound or still stall a little. The heavy ones are
+limited by memory and are smooth only after more work (Sauerbraten, SuperTuxKart, OpenArena opengl2),
+and OpenTTD is far under. Eight of the 11 smoke-tested new games run (Teeworlds, SuperTux, Red Eclipse,
+Frozen Bubble, Chocolate, Crispy and Woof Doom, Pingus); TORCS, Trigger Rally and Chromium B.S.U. are
+not run yet. Table below.
+
+**Built but not yet seen on the PS3** (the reboot session decides them): the fixed kernel (lost
+decrementer), the hwmon temperatures and the fan policy, game mode's automatic start and its file
+prefetch, the console frame freed while X runs (local/0043, 8 MB), the OtherOS++ patch survey set.
+
+### Open decisions for the user
+
+1. **Stable publish of the READY set** (docs/RELEASE-CANDIDATES.md): the kernel `.178` with ps3rsx
+   0.249, Mesa, libspeq/ps3-spu, ps3-gpu-tools, libsdl3, luajit, ioquake3, yamagi-quake2, dsda-doom,
+   fluidsynth, extremetuxracer, neverball, luanti, cube2, openttd. Needs the rebuilds and an explicit
+   `DEBS=` list; `build/aptly` is backed up first. Seven more items need one check each (xmoto,
+   classicube, supertuxkart, teeworlds, ps3-system/desktop/games, ps3-boot, splash). Nothing is
+   published.
+2. **Luanti's package default**: `cliunload` (client-side block unloading) as the default? Measured:
+   stalls 6.5 -> 0.8 s, longest frame 1943 -> 259 ms, steady 45 -> 48 fps, picture unchanged.
+   `lean` (0.2 s of stalls, 54 fps) renders less terrain, `view40` (59 fps) has closer fog.
+3. **A test-kernel boot session** (the user reboots; Petitboot is the only way in): `.433`/`.435`
+   with the lost-decrementer fix, the hwmon temperatures, the fan policy, the shutdown poll fix and the
+   read-only GameOS mount. First boot with `ps3_sys_manager.fan_policy=keep`, then the default.
+4. **Fan floor**: the fan policy is SYSCON automatic at boot and on every exit path, full speed on
+   request. A fixed floor (>= 60%, `pwm1`) only with the user's explicit OK during the fan test
+   (docs/THERMAL.md "PS3 test plan for the fan").
+5. **Flash and SYSCON** (docs/FLASH-SYSCON.md, nothing tried): the recommendation is the 7th SPE by
+   `spu_base.enum_shared=1` (no write), then the missing read-only backups (second flash dump, EEPROM,
+   error log), then a read-only probe of lv1 peek. Everything that writes stays off the table until
+   recovery hardware exists, and that is a hardware mod, so only on request.
+6. **7th SPE test**: add a Petitboot entry with `spu_base.enum_shared=1` and run the speq benchmarks in
+   the same boot against the 6-SPE baseline (part of the reboot session).
+7. **SuperTuxKart default**: ship `lean` (21.4 smooth fps and 2.4 s of stalls against 13 fps and 13.5 s)?
+8. **Still open from before**: the 720p console (-4 MB; the desktop and games would run at 720p) and
+   dsda-doom's music default (OPL or off).
+
+### Per game status
+
+Steady fps is the median over the 120 s window after a 60 s warm-up, 1920x1080, picture checked on the
+webcam, same-boot rows with the 10 ms kicker (`wkkick10`) from `games/bench/results/` (row = fps.csv
+row). "Stalls" is gameplay stall time in the window (frames over 100 ms), "longest" the longest frame.
+Detail and history per game in docs/GAME-PLAN.md.
+
+| Game | Steady fps | Smoothness | Memory | Picture, sound | Next step |
+|---|---|---|---|---|---|
+| QuakeSpasm | 91.0 (row 58) | 1% low 48.6, stalls 2.5 s | 45 MB free at the lowest | right, right | none |
+| Yamagi Quake II | 68.7 (row 57, kiss4k) | stalls 0.1 s, longest 91 ms | 46 MB free (12 before); RSS 125 -> 56 MB | right, right | none |
+| X-Moto | 160.4, 163.1 with the stream buffer (row 64) | 1% low 100, stalls 0.4 s | 53 MB free | right, right (engine quiet) | none |
+| Armagetron | 83 live AI rounds (row 60) | one 127 ms frame in 2 min | 58 MB free | right, right | none |
+| Neverball | 66.5 (row 54) | 51 frames over 100 ms in 20 s of replay | 58 MB free | right, 118 underruns | a longer replay; batching gives CPU -19% |
+| OpenArena (opengl1) | 70.6 (row 59) | stalls 0.0 s, longest 64 ms | 26 MB free | right, right | none |
+| Extreme Tux Racer | 59 HUD (row 49, batching) | not re-measured | 53 MB free | right, right | steady-state row with stalls |
+| ClassiCube | 48.4, 50.9 with chunks1 (row 64) | stalls 0.0 s, 1% low 31.6 | 57 MB free | right, right | decide chunks1 and the -4% of batching |
+| dsda-doom (GL) | 55.9 (row 61) | stalls 0.0 s, 1% low 40.3 | 43 MB free | right, **music chops** (465 underruns a minute on the SPE pool against 1095) | the chopping's cause |
+| Luanti | 48 with cliunload (row 63; 45 base) | stalls 0.8 s (6.5 base), longest 259 ms | 21 MB free (13 base) | right, right | cliunload as default (decision 2) |
+| Sauerbraten | 25-39 depending on the demo (rows 57, 64, 65) | stalls 2.8 s, 1% low 13.9 | 117-120 MB VRAM, 19 MB free | right, 130 underruns | memory; Mesa 0035 query wait measured no gain |
+| SuperTuxKart | lean 21.4 smooth (row 61) | stalls 2.4 s (13.5 default) | 96 MB VRAM, "out of VRAM" lines remain | track draws; sound not recorded | `lean` default, sound check |
+| OpenArena (opengl2) | 53.4 profiled (row 61) | stalls 54.7 s, longest 16 s | 115 MB VRAM, 9.7 MB free | right, right | memory (not a 60 fps game yet) |
+| OpenTTD | 21 with the GL driver (software 8-12) | stalls 6.3 s, 3893 underruns | 17 MB free | right, **choppy** | sound, then fps |
+
+Smoke-tested only (no benchmark, `SUITE=0`): Teeworlds 183 fps (our BE fix), SuperTux 63-66, Red Eclipse
+86 HUD peak with lean settings and no OOM, Frozen Bubble 45, Chocolate and Crispy Doom 35 (the vanilla
+cap), Woof 34, Pingus 39. TORCS, Trigger Rally and Chromium B.S.U. are not run.
+
+## Progress by area (2026-10-18)
+
+### Games and the graphics stack
+- **Done:** game-side GL batching in X-Moto (44.5 -> 166.5 fps), Extreme Tux Racer (52 -> 59), dsda-doom
+  (+3%, 1% low 36.4 -> 40.3), Neverball (CPU -19%), Luanti (stalls 9.1 -> 6.25 s), ClassiCube (-4%
+  steady, better lows; chunks1 +5%), OpenArena opengl1 (neutral; the lightmap atlas is off by default
+  because any atlas page adds about 10 s of hitches). Mesa 0015-0035 (switches per patch). ps3rsx 0.249
+  and `shadow_fast` (built, default off). Mesa `NV30_TRANSLATE_LUT` default: Sauerbraten +53%.
+- **Memory patches in the games:** OpenArena opengl2 14.8 -> 26-32 fps and longest stall 24.7 -> 6 s
+  (ioquake3 0001-0010); OpenArena preload as above; Yamagi -70 MB; Sauerbraten no longer OOM-killed;
+  Red Eclipse loads without OOM with lean sound; Luanti cliunload. docs/MEMORY.md has the per-game
+  accounting (Luanti 102 + 47 MB swapped, OpenArena 71 + 20, Sauerbraten 78 + 12) and the ranked cuts.
+- **Bugs fixed in games:** big-endian bugs in dsda-doom, Yamagi (OpenAL noise), SDL3, LuaJIT, SuperTuxKart
+  (.spm meshes), Teeworlds (`FIONBIO` takes an int: the client hung in `recvfrom`), Luanti (Ogg Vorbis byte
+  order); OpenTTD's GL driver runs (21 fps); the SuperTuxKart track draws.
+- **In progress:** the heavy games' memory (Sauerbraten, SuperTuxKart, OpenArena opengl2); ClassiCube's
+  cost (the -4%) and the GPU-bound finding in docs/HOTPATHS.md; the dsda-doom chopping.
+- **Next:** the remaining batching (IDEAS #1), compression for every game (#3), DXT5 users, the three
+  smoke games not run yet.
+
+### Stalls and measurement
+- **Done:** the stall recorder (`ps3-stallrec`, causes per 10 ms sample), `PERF=1` and `MEM=1`, gameplay-only
+  stall columns, steady-state windows, the webcam check on every run, same-boot A/B rows
+  (`fps.csv` has 65 rows). Finding: the recorder itself removed stalls (OpenArena gameplay stalls 28.9 and
+  20.7 s off, 7.1 and 7.3 s on), which led to the lost-decrementer bug (confirmed on the idle PS3).
+  Stopgap in game mode: a 10 ms kicker for thread 1 (`ps3-kick`, built, not yet run through game mode).
+  Game prefetch (a game's own files read at its start) is built.
+- **In progress:** the kernel fix local/0009 (test kernel, not booted); the prefetch A/B
+  (docs/STALLS.md "The A/B on the PS3", 24 runs, not run).
+- **Next:** the A/B with `ps3_idle_prep=0/1` in one boot; then drop the stopgap if equal.
+
+### Memory and game mode
+- **Done:** release kernel (+8.7 MB), VRAM swap with GPU copies (swap-ins ~10x faster), automatic game
+  mode for fullscreen 3D programs (`ps3-game-detect`) with the wallpaper unloaded, services' heaps
+  pushed to swap and the desktop's files prefetched on leaving. System trims stay dropped (CLAUDE.md
+  "Memory trims").
+- **Built, not booted:** local/0043 frees 8 of the console's 9 MB of XDR while ps3rsx owns the GPU
+  (docs/KERNEL-MEMORY.md 6).
+- **Open:** the 720p console, the VRAM reserve against a game's VRAM (a measurement: which path the
+  heavy games take), game mode's numbers on the PS3.
+
+### SPUs
+- **Done:** libspeq (queue, DXT1/DXT5, RGB sources: 1024x1024 RGB DXT in 1.0 ms on 4 SPEs against about
+  175 ms on the PPE), the shared 2-SPE deadline pool, fluidsynth's voice DSP on the SPEs (CPU 44.5 ->
+  31.8 s a minute, underruns about halved, the user by ear: "night and day"), skinning for Sauerbraten
+  (selectable, no gain on the demo). OpenAL Soft's mixer stays on the PPE (3.7-4.7%).
+- **Next:** probe E16 (SPU DMA into VRAM), DXT for every game, the 7th SPE.
+
+### Hardware, safety and the kernel
+- **Temperatures and fan:** the System Manager answers the Linux LPAR on our OtherOS++ (Cell 65.8 C, RSX
+  60.0 C, through the raw device of kernel .178). The hwmon driver (local/0040) and the fan policy
+  (local/0042: SYSCON automatic at boot and on every exit, full speed or a fixed floor on request) are
+  built and compile-tested, not booted. CLAUDE.md allows the fan policy from Linux; every other SYSCON
+  write stays forbidden.
+- **OtherOS++ patch survey** (docs/OTHEROS-PATCHES.md): 13 safe fixes ported as local/0020-0032 (gelic RX,
+  ten spufs fixes); the user dropped `/dev/ps3sysmngr`, the BD vendor commands, the Jupiter Wi-Fi
+  driver with its repository write, and switched the dispatcher manager off. Nothing booted yet.
+- **GameOS disk readable read-only** (docs/GAMEOS-HDD.md): `dev_hdd0` (957 GB UFS2) and `dev_hdd1` through
+  `ps3-gameos-mount`, with UFS write support not built; needs the test kernel.
+- **Flash and SYSCON research** (docs/FLASH-SYSCON.md): nothing written; ranked recommendation in
+  decision 5.
+
+### Packages and repository
+- Suites `ps3` (kept forever), `ps3-dev`, and since 2026-10-17 `ps3-licensed` for licensed game content
+  (`sauerbraten-nonfree-data`, `classicube-data`, Quake data; `ps3-games` holds only free packages).
+- The stable suite still holds the 2026-10-16 morning builds (kernel .152, Mesa .152). The READY set
+  (docs/RELEASE-CANDIDATES.md) is the step that makes the games reachable from stable.
 
 ## Base and toolchain (decided 2026-10-15)
 
@@ -54,7 +222,7 @@ A live environment for the PS3 that boots from USB or over NFS through Petitboot
 driver, desktop and games working out of the box, plus an optional installer that installs it
 permanently (to the OtherOS++ Linux region of the HDD, within the safety rules).
 
-## Where we are (2026-10-17)
+## Earlier status (2026-10-17, kept for the reasoning; numbers superseded by the summary above)
 
 **Phase: the games, from playable to good.** The game stage's baseline is done (docs/GAME-PLAN.md,
 status table): every game of the suite has run on the PS3 at 1920x1080 with the picture checked on
@@ -68,7 +236,8 @@ this order (GAME-PLAN.md "Next phase"):
    took OpenArena opengl2 from 14.8 to 26-32 fps and its longest stall from 24.7 to 6 s; game mode
    now unloads the PCManFM desktop and wallpaper, pushes the services' heaps to swap, drops the page
    cache and compacts (built, not measured on the PS3 yet); Sauerbraten, Luanti and SuperTuxKart have
-   memory patches or variants waiting for a run.
+   memory patches or variants waiting for a run (2026-10-18: run since, see the summary: Sauerbraten no
+   longer OOMs, Luanti cliunload, SuperTuxKart lean).
 2. **Stored data for compute** where the SPEs and the RSX have headroom: compressed textures
    (DXT1 on the SPEs, done for OpenArena; every game next), mip chains on the GPU, compressed
    sound, smaller vertex formats.
@@ -98,7 +267,7 @@ Lessons (2026-10-17):
 - OpenArena keeps only 32 `+` commands on its command line (Debian's wrapper passes ~10): recipe
   cvars go into autoexec.cfg.
 
-## Where we are (2026-10-16)
+## Earlier status (2026-10-16)
 
 - **Done 2026-10-16:** the splash (docs/PACKAGING.md, "The boot splash"): our Plymouth
   (Debian's 26.134.222-1 plus one patch: the script plugin crashed on
@@ -233,7 +402,8 @@ Task numbers refer to the session task list. "Reboot" marks steps that need one.
    built-ins (a module costs 1.5–3× its size). Check ps3rsx builds without debugfs. As a new
    kernel package next to the debug one, so Petitboot offers both.
 4. **720p console** (`ps3fb=5M`, mode 131; −4 MB). The user decides: X shares the mode, so the
-   desktop and games run at 720p too (also 2.25× fewer pixels per frame).
+   desktop and games run at 720p too (also 2.25× fewer pixels per frame). Still open (2026-10-18).
+   Meanwhile local/0043 frees 8 of the console's 9 MB while ps3rsx owns the GPU (built, not booted).
 5. **Userspace trims (dropped 2026-10-17, the user: memory comes from game mode, see CLAUDE.md "Memory trims"):** zram off now that VRAM swap works (1.5 MB table plus its pages);
    wallpaper out of the 8 MB shared segment (in VRAM, or a solid colour); unload `cfg80211`
    when Wi-Fi is unused; `systemd-networkd` duplicates NetworkManager here; journal size limit;
@@ -259,6 +429,8 @@ Task numbers refer to the session task list. "Reboot" marks steps that need one.
    faults); listen on the TV; DS3 bindings in play. (2026-10-17: ioquake3 is our package now;
    0011-0018 cut the engine's and renderer_opengl1's CPU time: no shader-script rescan, no crc32 of
    pk3 entries, libdeflate, AltiVec, sounds loaded when played. Built, not run on the PS3 yet.)
+   (2026-10-18 result: ioquake3 0025-0026 took OpenArena's gameplay stalls from 9.9 and 9.0 s to 0 and
+   its longest frame from 1057 and 807 ms to 64 and 47 ms, steady 64.6 -> 70.4 fps, same boot, row 59.)
    (2026-10-18: the bots' models load when OpenArena's qagame says loaddefered, which is why
    cg_deferPlayers did nothing; ioquake3 0025-0026 load them with the next load of the same map and
    keep textures across same-map reloads: docs/STALLS.md "OpenArena".)
@@ -318,7 +490,8 @@ Only when content needs them (OpenArena and ClassiCube don't):
 - **Reproducibility check:** two image builds, same `make checksums`. Image size: Debian's
   Mesa and LLVM. `make disk-image` (raw `.img.xz`, `systemd-repart` grows it on first boot).
 - **DualShock 3:** pairing works (one USB plug); check SDL mappings in play, rumble, LEDs.
-- **Fan:** read the thermal sensors under Linux, read-only first: built, not booted yet
+- **Fan:** read the thermal sensors under Linux, read-only first: the System Manager answers the Linux LPAR
+  (Cell 65.8 C, RSX 60.0 C, kernel .178); the hwmon driver is built, not booted yet
   (docs/THERMAL.md: hwmon ps3_sm in kernel patch local/0040, the bench stops at BENCH_TEMP_MAX).
   Fan policy (user decision 2026-10-18): local/0042, SYSCON automatic at boot and on every exit
   path, full speed or a fixed floor >= 60% through hwmon pwm1; built, not booted (THERMAL.md test
@@ -402,7 +575,10 @@ output package (README).
 
 - Does Remote Start (Remote Play settings) respond to Wake-on-LAN? That would allow remote
   power-on.
-- Can the PS3's thermal sensors be read under Linux without syscon writes?
+- ~~Can the PS3's thermal sensors be read under Linux without syscon writes?~~ Yes: the System Manager
+  answers (2026-10-18); the hwmon driver waits for the test-kernel boot.
+- Does `spu_base.enum_shared=1` give 7 SPEs on our kernel, and does anything we use break (FLASH-SYSCON.md)?
+- Does the fixed idle path (local/0009) end the lost decrementers without making the idle threads spin hot?
 - Can a Petitboot-only reboot clear a wedged GPU, instead of a full console reboot?
 - Can the CPU still read VRAM after a graph exception? (VRAM swap's fallback assumes so.)
 - The kernel tried to write the flash OS area ("os_area_queue_work_handler: Could not update
