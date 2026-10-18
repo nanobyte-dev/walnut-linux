@@ -236,7 +236,7 @@ need the account re-activated: xai "Activate account" or the backed-up `act.dat`
 | `create_hdd_region.sh` on the wrong layout (no gap) | It computes a negative or tiny size; lv1 should refuse, the script won't | Run it only after checking: 3 regions, about 46137344 free sectors (step U7) |
 | A region op corrupts the table | GameOS reformats the disk and the Linux region is gone (glevand) | Class 2 in FLASH-SYSCON.md 3: Recovery restores GameOS; Linux comes back from our image |
 | GameOS later reformats for any reason (a "file system corrupted" screen answered with format, Format Utility, Restore PS3 System) | Linux region deleted | Never use those without a Linux backup; "Restore File System" and "Rebuild Database" are fine |
-| A Linux write to the wrong region: our ps3/0010 exposes `ps3da` (whole disk, VFLASH included) and `ps3db` read-write, one letter from `ps3dd` | `mkfs` on `ps3da` wipes VFLASH (firmware reinstall from Recovery) and the region table; on `ps3db` it destroys GameOS | Before root moves: make every region except the OtherOS one read-only in the kernel (setsid's policy, our change 1); installer guards (change 3) |
+| A Linux write to the wrong region: our ps3/0010 exposes `ps3da` (whole disk, VFLASH included) and `ps3db` read-write, one letter from `ps3dd` | `mkfs` on `ps3da` wipes VFLASH (firmware reinstall from Recovery) and the region table; on `ps3db` it destroys GameOS | The kernel guard (local/0045, section "The kernel guard"): `ps3da` read-only, `ps3db` writable only inside the ranges a boot tool registered, `ps3dc` and `ps3dd` writable; installer guards (change 3) |
 | Encryption | The SSD's Linux data is readable only in this console | Linux is rebuilt from our image; back up `/home` and the machine's state to the PC |
 | The PS3's storage path | One command at a time per disk (one bounce buffer); setsid found a 2021 ps3disk offset bug that corrupts multi-segment I/O | Ours already has that fix (OTHEROS-PATCHES.md, "T2 1000-ps3disk-fix-bvec-memcpy"); our 0010 serialises regions with a busy flag; the hdd0 read-only mount shows it works |
 | GameOS's 1-2 TB format issues (psdevwiki Harddrive) | | Not us: 960 GB |
@@ -253,9 +253,10 @@ names a disk after its region index, like Petitboot and setsid's patch) and `ps3
 needs no change. The new disk is `/dev/ps3dd`; check `/sys/block/ps3dd/size` = 46137320 on the
 first boot.
 
-1. **Kernel:** a local patch (or an 0010 change) so ps3disk marks every region read-only except
-   the OtherOS one, with an override parameter, before anything writes `ps3dd`. setsid's rule: the
-   highest region that is neither region 0 nor the whole drive.
+1. **Kernel:** the guard (local/0045, section "The kernel guard"), before anything writes `ps3dd`:
+   `ps3da` read-only, `ps3db` writable only inside registered ranges (none in this route, so
+   read-only), `ps3dc` and `ps3dd` writable, by region index; no override parameter. setsid marks
+   every region read-only except the highest one that is neither region 0 nor the whole drive.
 2. **ps3-system:** a udev rule for `ps3d*`. **[fact]** systemd's `60-persistent-storage.rules` skips
    `ps3d*`, so no `/dev/disk/by-*` links appear (setsid: the swap unit by label timed out after
    90 s). **[inference]** Our root by `PARTUUID=` is resolved by the kernel (no initramfs), but
@@ -298,8 +299,9 @@ blocks, never UFS metadata; GameOS sees an unchanged file. The two OSes never ru
   UUID, a hash of the block list) is checked at every boot: if the list changed (file deleted,
   rewritten, cleared by a GameOS fsck), the disk isn't activated. The file is a whole number of UFS
   blocks (no tail fragment) and has no holes.
-- **Kernel guard:** `ps3da` and `ps3dc` read-only; writes to `ps3db` allowed only inside the
-  registered extents (a small ps3disk check), so a mistyped mkfs can't reach GameOS's data.
+- **Kernel guard:** `ps3da` read-only; writes to `ps3db` allowed only inside the registered extents
+  (a small ps3disk check), so a mistyped mkfs can't reach GameOS's data; `ps3dc` writable for
+  Linux's boot files. Built as local/0045, section "The kernel guard" below.
 - **Boot:** Petitboot can't see a device-mapper disk (its kernel has no device-mapper at all), so
   the kernel and kboot.conf stay readable to it. Petitboot's 2.6.30 kernel has ext2, ext3, ext4,
   vfat, msdos, iso9660, udf, ntfs and ufs built in, plus loop (strings of
@@ -500,8 +502,8 @@ cache partition. No custom plugin needed: webMAN MOD runs `/dev_hdd0/autoexec.ba
   mechanism that lets a game's `/dev_hdd1` be a directory. Neither page says when it is cleared.
 - Open: whether GameOS ever clears dev_hdd1's root in practice (a file left there through a few GameOS sessions and
   games tells), whether Petitboot sees ps3dc (its shell's `/proc/partitions`), and the user's webMAN
-  version running autoexec.bat. The kernel guard then allows writes to ps3dc (Linux's own files only)
-  and keeps ps3da read-only.
+  version running autoexec.bat. The kernel guard (local/0045) leaves ps3dc writable for this (all of
+  it: a block driver can't tell Linux's files from GameOS's) and keeps ps3da read-only.
 
 ### The GameOS installer (design, the user, 2026-10-18; nothing built)
 
@@ -1025,10 +1027,130 @@ medians to compare, a difference counting when both SSD boots agree against both
   `ps3-imgmap header-write`), so the boot map can be checked against the image itself and the state
   needn't live on the USB root.
 - `/boot` on dev_hdd1 with the webMAN autoexec mirror (sections above), so the USB disk can go.
-- The kernel guard: ps3da and ps3dc read-only in the kernel, writes to ps3db only inside the
-  registered extents (a small ps3disk check).
+- The kernel guard: built (local/0045, next section; ps3da read-only, ps3db only inside the
+  registered ranges, ps3dc writable for the boot files). To do: `ps3-imgmap-boot create` registers
+  and seals its tables' ranges (the steps there), then the patch goes into the series.
 - Kernel updates in one step for both roots (a kernel hook that rebuilds the initramfs and the entry).
 - The GameOS installer (design above).
+
+### The kernel guard (local/0045; built 2026-10-19, not booted, off in the series)
+
+`linux/patches/local/0045-ps3disk-write-guard.patch`. The entry in `linux/patches/series` is commented
+out: a kernel with it refuses every write to `ps3db` that no boot tool registered, which would make
+Phase A's and Phase B's devices read-only (ext4 gets EIO). It goes in together with the boot tool's
+registration below.
+
+**Policy**, by region index, fixed at build time (no parameter, no command-line switch):
+
+| disk | region | policy | why |
+|---|---|---|---|
+| `ps3da` | 0 | read-only | the whole drive: VFLASH, the region table, every OS |
+| `ps3db` | 1 | writes only inside the ranges registered and sealed in this boot | GameOS's dev_hdd0; our image file's blocks are the only part Linux may write |
+| `ps3dc` | 2 | writable | GameOS's dev_hdd1. Linux keeps its boot files there (`kboot.conf`, kernels, initramfs; the webMAN autoexec mirrors them to dev_hdd0), so it must stay writable (decision 2026-10-19). The risk: a mistyped mkfs on `ps3dc` wipes GameOS's cache partition. **[inference]** GameOS recreates a dev_hdd1 it finds broken (the cache section above), so what is lost is caches and our boot files, which the autoexec restores from dev_hdd0 |
+| `ps3dd` and up | 3+ | writable, as before | the OtherOS++ region |
+
+`ps3da` is marked read-only at probe (`/sys/block/ps3da/ro` is 1, mounts are read-only, `write(2)`
+gets EPERM), `blockdev --setrw` (BLKROSET 0) is refused with EPERM, and the request check below
+refuses its writes too, since the block layer only warns about a bio sent to a read-only disk and
+device-mapper can still send one. `blockdev --setro` (what Phase A's `create` and `ps3-imgmap-boot`
+do) still succeeds. Nothing turns it writable short of a rebuilt kernel.
+
+**The check** runs in ps3disk's `queue_rq` for every request, under the driver's lock, before the
+data is copied to the bounce buffer and before anything goes to lv1. Reads and flushes without data
+always pass. Every other operation counts as a write (fail closed): writes, the data part of a
+PREFLUSH/FUA write (blk-mq sends the flush as its own request and the data as a plain write; the
+queue has no FUA), discard and write-zeroes (not advertised by ps3disk, refused here too). A write's
+[start, start + sectors), what lv1 is given, and every bio of the request have to lie inside one of
+the merged ranges; a merged request that is only partly inside is refused whole. Bios arrive with
+absolute sectors of the region: partitions and dm-linear are remapped before ps3disk sees them.
+Whitelist writes also need 512-byte device blocks (ps3disk scales positions by the block size). A refused request fails with EIO and one kernel line, rate-limited to 10 per 5 s per region:
+
+    ps3disk <device>: ps3db: write guard refused WRITE of 8 sectors at 123456: outside the registered ranges
+
+(the reasons: `read-only region`, `no ranges sealed`, `outside the registered ranges`, `block size
+is not 512`). `write_guard/refused` counts them. At boot each disk logs its region and policy
+(`ps3db (region 1 id N, start S, L sectors): write guard: writes only inside the ranges sealed in
+write_guard/`): the first boot shows whether index 1 really is dev_hdd0's region.
+
+**The interface**, `/sys/block/ps3dX/write_guard/`; writing needs root (CAP_SYS_ADMIN):
+
+| file | disks | mode | content |
+|---|---|---|---|
+| `policy` | all | r | `read-only`, `whitelist` or `writable` |
+| `refused` | ps3da, ps3db | r | writes refused since boot |
+| `ranges` | ps3db | w (0200) | lines of `start sectors`: decimal, 512-byte sectors of ps3db (the units of a dm-linear table's device offset), blanks between, one range per line, every line ending with a newline (the last one too). Appended until the seal. Each write(2) is taken whole or not at all. EINVAL: a malformed line, hex, a sign, an empty range, one reaching past the end of ps3db, no final newline; ENOSPC: more than 65536 ranges in all; EPERM: after the seal. sysfs cuts a write longer than 4096 bytes at 4096 without telling the driver: a cut inside a line gives EINVAL (the newline rule), a cut at a line end a short count, so a writer sends at most 4096 bytes of whole lines per write(2) and stops at the first error or short count |
+| `sealed` | ps3db | rw (0644) | `0` or `1`. Writing `1` sorts the ranges, merges those that overlap or touch, and turns them on; from then on `ranges` and `sealed` refuse with EPERM until the next boot. Writing `0`: EINVAL |
+| `nr_ranges` | ps3db | r | ranges registered so far; after the seal, the merged ranges |
+| `nr_sectors` | ps3db | r | sectors the merged ranges cover; 0 before the seal |
+
+Until the seal every write to `ps3db` is refused; sealing with no ranges keeps it read-only for the
+rest of the boot. A new probe would forget the seal, so ps3disk has no sysfs bind/unbind
+(`suppress_bind_attrs`), and the seal takes a reference on the module (ours is built in,
+`CONFIG_PS3_DISK=y`, but a modular build can't be unloaded once sealed).
+
+**What the boot tool does** (`ps3-imgmap-boot create` in the initramfs; Phase A's `ps3-imgmap create`
+the same way if it runs on a kernel with the guard), in this order:
+
+1. The recheck as now (dev_hdd0 mounted read-only, then unmounted). Only reads.
+2. `write_guard/policy` must read `whitelist` and `sealed` `0`. Missing: the kernel has no guard;
+   refuse (the initramfs is built for one kernel release, so this only happens with a wrong
+   initramfs). `sealed` already `1`: something else sealed in this boot, refuse.
+3. The dm-linear devices (root and swap) loaded, read back and compared, as now. Still no writes.
+4. Register exactly the device side of every target of both tables: for a target `<lstart> <len>
+   linear /dev/ps3db <offset>` the line `<offset> <len>`. Taken from the tables read back from the
+   kernel, so the ranges are what device-mapper really uses. Not the image's header area (its first
+   MiB, never mapped): it stays unwritable, which is what Phase B wants. Lines are written in
+   chunks of at most 4096 bytes that end with a line's newline, each with a single write(2) that
+   must return the whole count; an error or a short count: refuse.
+5. `echo 1 > sealed`.
+6. Check: `nr_ranges` equals the tool's own count after sorting by offset and merging ranges that
+   touch (adjacent extents merge), `nr_sectors` the sum of the target lengths (the map's extents
+   never overlap, `check_extents`). Different: refuse.
+7. Only now mount root (ext4's journal replay writes) and later swapon.
+
+A refusal after step 5 can't be retried in the same boot (the ranges are fixed): the rescue shell's
+`reboot -f`. Boots without the SSD root (the USB root) register nothing, so `ps3db` refuses every
+write; a unit that seals an empty list early in those boots would also stop a later process from
+registering, if we want that.
+
+**Not covered**: root making raw lv1 storage calls through `/dev/ps3lv1call` (`CONFIG_PS3_LV1CALL=m`,
+loaded by hand for GPU research) goes around the block layer; kernels without the patch (older ones,
+a kexec'd foreign kernel) have no guard (`write_guard/` absent). A buffered write to `/dev/ps3db`
+that the guard refused leaves the changed data in the page cache although the disk is unchanged:
+`blockdev --flushbufs /dev/ps3db` drops it. A refused write through a dm device shows as EIO in
+ext4 (its `errors=` policy then applies). A stray write to `/dev/ps3db` that the block layer merges
+with a dm write fails both (closed, but it would hit ps3root); `CONFIG_BLK_DEV_WRITE_MOUNTED=n` would
+stop anyone opening ps3db for writing while device-mapper holds it, but it changes that for every
+mounted disk and isn't set (fsck tools that open a mounted device read-write would get EBUSY).
+
+**No debug switch.** A command-line or runtime switch that turns the check off is not built: anything
+that needs writes elsewhere on ps3db can register those ranges for its boot, and a switch would make
+one mistyped kernel argument (Petitboot's editable command line, a kboot.conf entry) enough to expose
+dev_hdd0 again. A different region layout needs a changed patch, not a switch.
+
+**Tested on the PC** (2026-10-19): `linux/tests/ps3disk-guard.sh` takes `ps3disk_guard.h` (the
+parser, the seal's sort and merge, the check, the policy decision; no kernel APIs) straight from the
+patch and runs `ps3disk-guard-test.c` on it, plain with `-Werror` and under ASan/UBSan: about 50 fixed
+cases (malformed lines, a write cut inside a line, overflow at 2^64, the region's end, alignment, the
+4096-byte page full of ranges, ranges that touch or overlap, runs across a merged boundary or into a gap, empty and wrapping
+runs, every policy sealed and unsealed), 65536 reversed ranges, and 2000 seeded random rounds of
+several writes each checked sector by sector against a bitmap. Five deliberate off-by-one mutations of
+the header each fail it. The patch applies on the series as of 0044, `ps3disk.o` compiles without
+warnings with `W=1` (also as a module), and a full `vmlinux` links, with both `ps3.config` and
+`ps3.config` + `ps3-release.config` on `ps3_defconfig` (the host's powerpc64-linux-gnu-gcc 16.2.1). A
+second agent (Opus) reviewed the request path against the 6.12 block layer (merging, the flush
+machine, requeue, partitions, dm, sysfs, BLKROSET); its should-fixes are in. Not tested: the PS3,
+sysfs and the request path in a running kernel.
+
+**On the PS3** (with the boot tool's change, in the first SSD boot): `dmesg | grep 'write guard'`
+(one policy line per disk, then `ps3db: write guard sealed: N ranges, S sectors writable`); `cat
+/sys/block/ps3d?/write_guard/policy`; `cat /sys/block/ps3da/ro` (1); `sudo blockdev --setrw
+/dev/ps3da` (EPERM); `echo '0 8' | sudo tee /sys/block/ps3db/write_guard/ranges` (EPERM, sealed);
+ext4 and swap on the dm devices work (`refused` stays 0 through a bench run). A refusal test only with
+data that is already there, so even a broken guard changes nothing: one 4 KiB block of the image's
+header area (unmapped, its stamp known) read with `dd iflag=direct` and written back to the same
+sector of `/dev/ps3db` with `oflag=direct`: expect EIO, `refused` + 1, the log line, and the stamp
+unchanged.
 
 ### Getting more than 22 GiB (no-go for now)
 

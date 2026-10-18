@@ -1,0 +1,763 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Mon, 19 Oct 2026 12:00:00 +0300
+Subject: ps3disk: write guard for GameOS's disk regions
+
+ps3stor-multiple-regions (ps3/0010) exposes every region of the internal
+disk read-write: ps3da is the whole disk (VFLASH, the region table and
+every OS), ps3db is GameOS's dev_hdd0, ps3dc its dev_hdd1. A mistyped
+mkfs or dd one letter away from ps3dd wipes GameOS or the firmware.
+Each region device now gets a policy from its index, fixed at build
+time:
+
+- ps3da (region 0): read-only. set_disk_ro() at probe, BLKROSET 0 is
+  refused (block_device_operations.set_read_only), and queue_rq fails
+  every write itself, since the block layer only warns about a bio to a
+  read-only disk (bio_check_ro) and device-mapper can still send one.
+- ps3db (region 1): writes only inside sector ranges that root registers
+  once per boot in /sys/block/ps3db/write_guard/ (the extents of the
+  Linux image file that dm-linear maps, docs/GAMEOS-HDD.md). Until the
+  seal every write is refused; after it the ranges never change again.
+- ps3dc, ps3dd and any other region: writable, as before.
+
+The check runs in ps3disk_queue_rq() under the driver's lock, before the
+data is gathered into the bounce buffer and before anything is sent to
+lv1. Reads and flushes without data always pass. Any other operation is
+a write as far as the guard goes, fail closed: writes, the data part of
+a flush (blk-mq sends the preflush as a separate REQ_OP_FLUSH and the
+data as REQ_OP_WRITE; FUA is emulated, the queue has no BLK_FEAT_FUA),
+and discard and write-zeroes, which the driver doesn't advertise. A
+write's [pos, pos + sectors), what lv1 is given, and every bio of the
+request must lie inside one merged range (the same for a contiguous
+request; the bios are what a multi-range discard writes). A merged
+request that is only partly inside is refused whole. Whitelist writes
+also need 512-byte device blocks (ps3disk scales positions by
+blk_size / 512). Bios reach the
+queue with absolute sectors of the region (partitions and dm-linear are
+remapped before). A refused request ends with BLK_STS_IOERR (-EIO),
+RQF_QUIET, and one rate-limited line (10 per 5 s per region) naming the
+disk, op, sectors and reason; write_guard/refused counts them.
+
+The interface, all root only (CAP_SYS_ADMIN) to write:
+
+  policy      read-only | whitelist | writable (every region)
+  refused     writes refused since boot (ps3da, ps3db)
+  ranges      ps3db, write only: lines of "start sectors", decimal,
+              512-byte sectors of ps3db; appended until the seal, each
+              write taken whole or not at all and ending with a newline
+              (-EINVAL for a bad line, an empty range or one past the
+              region, -ENOSPC past 65536 ranges). sysfs cuts a longer
+              write at PAGE_SIZE without telling the driver; the newline
+              rule turns a cut inside a line into -EINVAL instead of a
+              shorter range, and a cut at a line end shows as a short
+              write count. Writers send whole lines, at most PAGE_SIZE
+              bytes per write(2), and stop at the first error or short
+              count
+  sealed      ps3db: 0 or 1; writing 1 sorts and merges the ranges and
+              turns them on; afterwards ranges and sealed give -EPERM
+  nr_ranges   ps3db: ranges registered, merged ones after the seal
+  nr_sectors  ps3db: sectors covered after the seal
+
+Sealing with no ranges keeps ps3db read-only for the boot. A new probe
+would forget the seal, so the driver has no sysfs bind/unbind
+(suppress_bind_attrs), and the seal takes a module reference (ours is
+built in, CONFIG_PS3_DISK=y). The probe logs each disk's region id,
+start, size and policy. BLKROSET's hook takes the policy from the region
+index, not from drvdata, which remove clears.
+
+The range logic (parsing, the seal's heap sort and merge, the binary
+search, the policy decision) is in ps3disk_guard.h without kernel APIs,
+so that linux/tests/ps3disk-guard.sh compiles the same code in
+userspace. There is deliberately no command-line switch to turn the
+guard off. Not covered: root issuing raw lv1 storage calls through
+/dev/ps3lv1call (CONFIG_PS3_LV1CALL=m), which bypasses the block layer.
+
+diff --git a/drivers/block/ps3disk.c b/drivers/block/ps3disk.c
+index 03601b76e..eabb99452 100644
+--- a/drivers/block/ps3disk.c
++++ b/drivers/block/ps3disk.c
+@@ -8,6 +8,11 @@
+ 
+ #include <linux/ata.h>
+ #include <linux/blk-mq.h>
++#include <linux/capability.h>
++#include <linux/mm.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/ratelimit.h>
+ #include <linux/slab.h>
+ #include <linux/module.h>
+ 
+@@ -15,6 +20,7 @@
+ #include <asm/ps3stor.h>
+ #include <asm/firmware.h>
+ 
++#include "ps3disk_guard.h"
+ 
+ #define DEVICE_NAME		"ps3disk"
+ 
+@@ -25,6 +31,35 @@
+ 
+ #define PS3DISK_NAME		"ps3d%c"
+ 
++/*
++ * The write guard (docs/GAMEOS-HDD.md, "The kernel guard"). Each region
++ * device gets a policy from its index, fixed at build time:
++ *
++ *   0  ps3da  the whole disk (VFLASH, the region table, every OS): read-only
++ *   1  ps3db  GameOS's dev_hdd0 (UFS2): writes only inside ranges that root
++ *             registers once per boot in /sys/block/ps3db/write_guard/
++ *   2  ps3dc  GameOS's dev_hdd1 (FAT32 cache): writable (Linux keeps its
++ *             boot files there)
++ *   3+ ps3dd  the OtherOS++ region and any other: writable
++ *
++ * The check runs in ps3disk_queue_rq() on every request, before its data
++ * is gathered or anything is sent to lv1. Reads and flushes without data
++ * always pass; every other operation is a write as far as the guard goes.
++ */
++struct ps3disk_guard {
++	enum ps3disk_guard_policy policy;
++	struct mutex mutex;		/* ranges_store(), sealed_store() */
++	struct ps3disk_range *ranges;	/* registered; after the seal sorted,
++					   merged and never changed again */
++	unsigned int nr_ranges;
++	unsigned int room;
++	u64 nr_sectors;			/* after the seal */
++	bool sealed;			/* smp_store_release() once, then
++					   read without the mutex */
++	atomic_long_t refused;
++	struct ratelimit_state rs;
++};
++
+ struct ps3disk_private {
+ 	spinlock_t lock;		/* Request queue spinlock */
+ 	struct blk_mq_tag_set tag_set[PS3DISK_MAX_NUM_REGS];
+@@ -35,6 +70,7 @@ struct ps3disk_private {
+ 	unsigned char model[ATA_ID_PROD_LEN+1];
+ 	unsigned int root_queue;
+ 	unsigned char next_queue[PS3DISK_MAX_NUM_REGS];
++	struct ps3disk_guard guard[PS3DISK_MAX_NUM_REGS];
+ };
+ 
+ #define LV1_STORAGE_SEND_ATA_COMMAND	(2)
+@@ -70,11 +106,310 @@ enum lv1_ata_in_out {
+ 
+ static int ps3disk_major;
+ 
++static unsigned int ps3disk_region_idx(struct gendisk *disk)
++{
++	return disk->first_minor / PS3DISK_MINORS;
++}
++
++static struct ps3disk_guard *ps3disk_guard_of(struct gendisk *disk)
++{
++	struct ps3_storage_device *dev = disk->private_data;
++	struct ps3disk_private *priv = ps3_system_bus_get_drvdata(&dev->sbd);
++
++	return &priv->guard[ps3disk_region_idx(disk)];
++}
++
++static enum ps3disk_guard_policy ps3disk_region_policy(unsigned int idx)
++{
++	switch (idx) {
++	case 0:
++		return PS3DISK_GUARD_READONLY;
++	case 1:
++		return PS3DISK_GUARD_WHITELIST;
++	default:
++		return PS3DISK_GUARD_WRITABLE;
++	}
++}
++
++static const char *ps3disk_guard_refusal(struct ps3disk_guard *g,
++					 struct request *req,
++					 unsigned int blocking_factor)
++{
++	bool harmless = req_op(req) == REQ_OP_READ ||
++			(req_op(req) == REQ_OP_FLUSH && !blk_rq_sectors(req));
++	struct bio *bio;
++
++	switch (ps3disk_guard_decide(g->policy, smp_load_acquire(&g->sealed),
++				     harmless)) {
++	case PS3DISK_GUARD_ALLOW:
++		return NULL;
++	case PS3DISK_GUARD_CHECK_RANGES:
++		break;
++	case PS3DISK_GUARD_REFUSE_UNSEALED:
++		return "no ranges sealed";
++	default:
++		return "read-only region";
++	}
++	if (!req->bio)
++		return "no bio";
++	/* ps3disk_submit_request_sg() scales by it; ranges are 512-byte sectors */
++	if (blocking_factor != 1)
++		return "block size is not 512";
++	/*
++	 * What lv1 gets for a write: [pos, pos + sectors) of the request.
++	 * Then every bio, which is the same for a contiguous request and
++	 * what a multi-range discard really writes.
++	 */
++	if (req_op(req) == REQ_OP_WRITE &&
++	    !ps3disk_guard_contains(g->ranges, g->nr_ranges, blk_rq_pos(req),
++				    blk_rq_sectors(req)))
++		return "outside the registered ranges";
++	__rq_for_each_bio(bio, req)
++		if (!ps3disk_guard_contains(g->ranges, g->nr_ranges,
++					    bio->bi_iter.bi_sector,
++					    bio_sectors(bio)))
++			return "outside the registered ranges";
++	return NULL;
++}
++
++/* called with priv->lock held: false fails the request with BLK_STS_IOERR */
++static bool ps3disk_guard_allows(struct ps3_storage_device *dev,
++				 struct ps3disk_guard *g, struct request *req)
++{
++	struct ps3disk_private *priv = ps3_system_bus_get_drvdata(&dev->sbd);
++	const char *why = ps3disk_guard_refusal(g, req, priv->blocking_factor);
++
++	if (!why)
++		return true;
++	atomic_long_inc(&g->refused);
++	if (__ratelimit(&g->rs))
++		dev_warn(&dev->sbd.core,
++			 "%s: write guard refused %s of %u sectors at %llu: %s\n",
++			 req->q->disk->disk_name, blk_op_str(req_op(req)),
++			 blk_rq_sectors(req), (unsigned long long)blk_rq_pos(req),
++			 why);
++	req->rq_flags |= RQF_QUIET;
++	return false;
++}
++
++/*
++ * BLKROSET: a read-only region stays read-only, partitions included. From
++ * the index, not drvdata, which ps3disk_remove() clears while an open
++ * file can still get here.
++ */
++static int ps3disk_set_read_only(struct block_device *bdev, bool ro)
++{
++	if (!ro && ps3disk_region_policy(ps3disk_region_idx(bdev->bd_disk)) ==
++	    PS3DISK_GUARD_READONLY)
++		return -EPERM;
++	return 0;
++}
+ 
+ static const struct block_device_operations ps3disk_fops = {
+ 	.owner		= THIS_MODULE,
++	.set_read_only	= ps3disk_set_read_only,
+ };
+ 
++/*
++ * /sys/block/ps3dX/write_guard/:
++ *   policy      read-only | whitelist | writable
++ *   refused     writes refused since boot (read-only and whitelist regions)
++ * and on the whitelist region only (all root only to write):
++ *   ranges      write: "start sectors" lines, 512-byte sectors of the
++ *               region, appended until the seal; each write is taken whole
++ *               or not at all and must end with a newline; sysfs cuts a
++ *               write at PAGE_SIZE (a short count), so the writer sends at
++ *               most PAGE_SIZE bytes of whole lines per write(2)
++ *   sealed      0 or 1; write 1 once to sort, merge and activate the
++ *               ranges; after that ranges and sealed refuse with EPERM
++ *               until the next boot
++ *   nr_ranges   ranges registered (before the seal) or merged (after it)
++ *   nr_sectors  sectors the merged ranges cover (0 before the seal)
++ */
++static ssize_t policy_show(struct device *d, struct device_attribute *attr,
++			   char *buf)
++{
++	static const char * const name[] = {
++		[PS3DISK_GUARD_WRITABLE] = "writable",
++		[PS3DISK_GUARD_READONLY] = "read-only",
++		[PS3DISK_GUARD_WHITELIST] = "whitelist",
++	};
++
++	return sysfs_emit(buf, "%s\n", name[ps3disk_guard_of(dev_to_disk(d))->policy]);
++}
++
++static ssize_t refused_show(struct device *d, struct device_attribute *attr,
++			    char *buf)
++{
++	return sysfs_emit(buf, "%ld\n",
++		atomic_long_read(&ps3disk_guard_of(dev_to_disk(d))->refused));
++}
++
++static ssize_t ranges_store(struct device *d, struct device_attribute *attr,
++			    const char *buf, size_t count)
++{
++	struct gendisk *disk = dev_to_disk(d);
++	struct ps3disk_guard *g = ps3disk_guard_of(disk);
++	struct ps3_storage_device *dev = disk->private_data;
++	unsigned int most, n;
++	int err;
++
++	if (!capable(CAP_SYS_ADMIN))
++		return -EPERM;
++	mutex_lock(&g->mutex);
++	err = -EPERM;
++	if (g->sealed)
++		goto out;
++	/* k ranges take at least 4k bytes ("0 1\n", newline-terminated) */
++	most = min_t(size_t, count / 4 + 1,
++		     PS3DISK_GUARD_MAX_RANGES - g->nr_ranges);
++	if (g->room - g->nr_ranges < most) {
++		unsigned int room = max(g->room * 2, g->nr_ranges + most);
++		struct ps3disk_range *r;
++
++		room = min_t(unsigned int, room, PS3DISK_GUARD_MAX_RANGES);
++		err = -ENOMEM;
++		r = kvrealloc(g->ranges, array_size(room, sizeof(*r)),
++			      GFP_KERNEL);
++		if (!r)
++			goto out;
++		g->ranges = r;
++		g->room = room;
++	}
++	err = ps3disk_guard_parse(buf, count, get_capacity(disk),
++				  dev->blk_size >> 9,
++				  g->ranges + g->nr_ranges,
++				  g->room - g->nr_ranges, &n);
++	if (err)
++		goto out;
++	g->nr_ranges += n;
++	err = 0;
++out:
++	mutex_unlock(&g->mutex);
++	return err ? err : count;
++}
++
++static ssize_t sealed_show(struct device *d, struct device_attribute *attr,
++			   char *buf)
++{
++	return sysfs_emit(buf, "%d\n",
++		smp_load_acquire(&ps3disk_guard_of(dev_to_disk(d))->sealed));
++}
++
++static ssize_t sealed_store(struct device *d, struct device_attribute *attr,
++			    const char *buf, size_t count)
++{
++	struct gendisk *disk = dev_to_disk(d);
++	struct ps3disk_guard *g = ps3disk_guard_of(disk);
++	struct ps3_storage_device *dev = disk->private_data;
++	bool v;
++	int err;
++
++	if (!capable(CAP_SYS_ADMIN))
++		return -EPERM;
++	err = kstrtobool(buf, &v);
++	if (err)
++		return err;
++	if (!v)
++		return -EINVAL;
++	mutex_lock(&g->mutex);
++	err = -EPERM;
++	if (g->sealed)
++		goto out;
++	g->nr_ranges = ps3disk_guard_normalize(g->ranges, g->nr_ranges,
++					       &g->nr_sectors);
++	/*
++	 * With ps3disk as a module, unloading and loading it again would
++	 * forget the seal: pin it for the rest of the boot.
++	 */
++	__module_get(THIS_MODULE);
++	/* the ranges are complete before queue_rq can see sealed */
++	smp_store_release(&g->sealed, true);
++	dev_info(&dev->sbd.core,
++		 "%s: write guard sealed: %u ranges, %llu sectors writable\n",
++		 disk->disk_name, g->nr_ranges,
++		 (unsigned long long)g->nr_sectors);
++	err = 0;
++out:
++	mutex_unlock(&g->mutex);
++	return err ? err : count;
++}
++
++static ssize_t nr_ranges_show(struct device *d, struct device_attribute *attr,
++			      char *buf)
++{
++	struct ps3disk_guard *g = ps3disk_guard_of(dev_to_disk(d));
++	unsigned int n;
++
++	mutex_lock(&g->mutex);
++	n = g->nr_ranges;
++	mutex_unlock(&g->mutex);
++	return sysfs_emit(buf, "%u\n", n);
++}
++
++static ssize_t nr_sectors_show(struct device *d, struct device_attribute *attr,
++			       char *buf)
++{
++	struct ps3disk_guard *g = ps3disk_guard_of(dev_to_disk(d));
++	u64 n;
++
++	mutex_lock(&g->mutex);
++	n = g->nr_sectors;
++	mutex_unlock(&g->mutex);
++	return sysfs_emit(buf, "%llu\n", (unsigned long long)n);
++}
++
++static DEVICE_ATTR_RO(policy);
++static DEVICE_ATTR_RO(refused);
++static DEVICE_ATTR_WO(ranges);
++static DEVICE_ATTR_RW(sealed);
++static DEVICE_ATTR_RO(nr_ranges);
++static DEVICE_ATTR_RO(nr_sectors);
++
++static struct attribute *ps3disk_guard_attrs[] = {
++	&dev_attr_policy.attr,
++	&dev_attr_refused.attr,
++	&dev_attr_ranges.attr,
++	&dev_attr_sealed.attr,
++	&dev_attr_nr_ranges.attr,
++	&dev_attr_nr_sectors.attr,
++	NULL,
++};
++
++static umode_t ps3disk_guard_visible(struct kobject *kobj,
++				     struct attribute *a, int n)
++{
++	struct gendisk *disk = dev_to_disk(kobj_to_dev(kobj));
++	enum ps3disk_guard_policy policy = ps3disk_guard_of(disk)->policy;
++
++	if (a == &dev_attr_policy.attr)
++		return a->mode;
++	if (a == &dev_attr_refused.attr)
++		return policy == PS3DISK_GUARD_WRITABLE ? 0 : a->mode;
++	if (policy != PS3DISK_GUARD_WHITELIST)
++		return 0;
++	return a->mode;
++}
++
++static const struct attribute_group ps3disk_guard_group = {
++	.name		= "write_guard",
++	.attrs		= ps3disk_guard_attrs,
++	.is_visible	= ps3disk_guard_visible,
++};
++
++static const struct attribute_group *ps3disk_disk_groups[] = {
++	&ps3disk_guard_group,
++	NULL,
++};
++
++static void ps3disk_guard_free(struct ps3disk_private *priv)
++{
++	unsigned int i;
++
++	for (i = 0; i < PS3DISK_MAX_NUM_REGS; i++)
++		kvfree(priv->guard[i].ranges);
++}
++
+ static unsigned int region_flags[] =
+ {
+ 	0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+@@ -183,7 +518,10 @@ static blk_status_t ps3disk_queue_rq(struct blk_mq_hw_ctx *hctx,
+ #ifdef DEBUG
+ 	dev_dbg(&dev->sbd.core, "%s:%u\n", __func__, __LINE__);
+ #endif
+-	if (req_op(bd->rq) == REQ_OP_FLUSH) {
++	if (!ps3disk_guard_allows(dev,
++			&priv->guard[ps3disk_region_idx(q->disk)], bd->rq)) {
++		ret = BLK_STS_IOERR;
++	} else if (req_op(bd->rq) == REQ_OP_FLUSH) {
+ 		ret = ps3disk_submit_flush_request(dev, bd->rq);		
+ 	} else if(req_op(bd->rq) == REQ_OP_READ || req_op(bd->rq) == REQ_OP_WRITE)
+ 		ret = ps3disk_submit_request_sg(dev, bd->rq);
+@@ -401,6 +739,13 @@ static int ps3disk_probe(struct ps3_system_bus_device *_dev)
+ 		dev->regions[devidx].flags = region_flags[devidx];
+ 		priv->next_queue[devidx] = devidx+1;
+ 	}
++	for (devidx = 0; devidx < PS3DISK_MAX_NUM_REGS; devidx++) {
++		struct ps3disk_guard *g = &priv->guard[devidx];
++
++		g->policy = ps3disk_region_policy(devidx);
++		mutex_init(&g->mutex);
++		ratelimit_state_init(&g->rs, 5 * HZ, 10);
++	}
+ 	priv->next_queue[dev->num_regions-1] = 0;
+ 
+ 	error = ps3stor_setup(dev, ps3disk_interrupt);
+@@ -445,13 +790,26 @@ static int ps3disk_probe(struct ps3_system_bus_device *_dev)
+ 		priv->blocking_factor = dev->blk_size >> 9;
+ 		set_capacity(gendisk,
+ 			     dev->regions[devidx].size*priv->blocking_factor);
++		if (priv->guard[devidx].policy == PS3DISK_GUARD_READONLY)
++			set_disk_ro(gendisk, true);
+ 		dev_info(&dev->sbd.core,
+ 			 "%s is a %s (%llu MiB total, %llu MiB for OtherOS)\n",
+ 			 gendisk->disk_name, priv->model, priv->raw_capacity >> 11,
+ 			 get_capacity(gendisk) >> 11);			 	
+-		error = device_add_disk(&dev->sbd.core, gendisk, NULL);
++		error = device_add_disk(&dev->sbd.core, gendisk,
++					ps3disk_disk_groups);
+ 		if (error)
+ 			goto fail_free_tag_set;
++		dev_info(&dev->sbd.core,
++			 "%s (region %u id %u, start %llu, %llu sectors): write guard: %s\n",
++			 gendisk->disk_name, devidx, dev->regions[devidx].id,
++			 (unsigned long long)dev->regions[devidx].start,
++			 (unsigned long long)dev->regions[devidx].size,
++			 priv->guard[devidx].policy == PS3DISK_GUARD_READONLY ?
++			 "read-only" :
++			 priv->guard[devidx].policy == PS3DISK_GUARD_WHITELIST ?
++			 "writes only inside the ranges sealed in write_guard/" :
++			 "writable");
+ 	}
+ 	return 0;
+ 
+@@ -466,6 +824,7 @@ static int ps3disk_probe(struct ps3_system_bus_device *_dev)
+ fail_free_bounce:
+ 	kfree(dev->bounce_buf);
+ fail_free_priv:
++	ps3disk_guard_free(priv);
+ 	kfree(priv);
+ 	ps3_system_bus_set_drvdata(_dev, NULL);
+ fail:
+@@ -487,6 +846,7 @@ static void ps3disk_remove(struct ps3_system_bus_device *_dev)
+ 	ps3disk_sync_cache(dev);
+ 	ps3stor_teardown(dev);
+ 	kfree(dev->bounce_buf);
++	ps3disk_guard_free(priv);
+ 	kfree(priv);
+ 	ps3_system_bus_set_drvdata(_dev, NULL);
+ }
+@@ -495,6 +855,8 @@ static struct ps3_system_bus_driver ps3disk = {
+ 	.match_id	= PS3_MATCH_ID_STOR_DISK,
+ 	.core.name	= DEVICE_NAME,
+ 	.core.owner	= THIS_MODULE,
++	/* no unbind and bind: a new probe would forget the write guard's seal */
++	.core.suppress_bind_attrs = true,
+ 	.probe		= ps3disk_probe,
+ 	.remove		= ps3disk_remove,
+ 	.shutdown	= ps3disk_remove,
+diff --git a/drivers/block/ps3disk_guard.h b/drivers/block/ps3disk_guard.h
+new file mode 100644
+index 000000000..4397e2403
+--- /dev/null
++++ b/drivers/block/ps3disk_guard.h
+@@ -0,0 +1,225 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * ps3disk write guard: the range logic.
++ *
++ * Kept free of kernel APIs (only u64, bool and errno values) so that a
++ * userspace test can compile this same file. Ranges are in 512-byte
++ * sectors of one region device, the units of blk_rq_pos() and of a
++ * dm-linear table's offsets.
++ */
++#ifndef _PS3DISK_GUARD_H
++#define _PS3DISK_GUARD_H
++
++enum ps3disk_guard_policy {
++	PS3DISK_GUARD_WRITABLE,		/* no checks */
++	PS3DISK_GUARD_READONLY,		/* every write refused */
++	PS3DISK_GUARD_WHITELIST,	/* writes only inside the sealed ranges */
++};
++
++/* [start, end), end > start */
++struct ps3disk_range {
++	u64 start;
++	u64 end;
++};
++
++#define PS3DISK_GUARD_MAX_RANGES	65536
++
++enum ps3disk_guard_verdict {
++	PS3DISK_GUARD_ALLOW,
++	PS3DISK_GUARD_CHECK_RANGES,	/* allowed if every bio is inside */
++	PS3DISK_GUARD_REFUSE_READONLY,
++	PS3DISK_GUARD_REFUSE_UNSEALED,
++};
++
++/*
++ * The decision before the ranges: harmless is a read or a flush without
++ * data; anything else (write, discard, write-zeroes, an unknown op) is a
++ * write as far as the guard goes, fail closed.
++ */
++static inline enum ps3disk_guard_verdict
++ps3disk_guard_decide(enum ps3disk_guard_policy policy, bool sealed,
++		     bool harmless)
++{
++	if (harmless || policy == PS3DISK_GUARD_WRITABLE)
++		return PS3DISK_GUARD_ALLOW;
++	if (policy != PS3DISK_GUARD_WHITELIST)
++		return PS3DISK_GUARD_REFUSE_READONLY;
++	if (!sealed)
++		return PS3DISK_GUARD_REFUSE_UNSEALED;
++	return PS3DISK_GUARD_CHECK_RANGES;
++}
++
++static inline int ps3disk_guard_parse_u64(const char **p, const char *e,
++					  u64 *v)
++{
++	const char *s = *p;
++	u64 x = 0;
++
++	if (s == e || *s < '0' || *s > '9')
++		return -EINVAL;
++	for (; s < e && *s >= '0' && *s <= '9'; s++) {
++		unsigned int d = *s - '0';
++
++		if (x > (~(u64)0 - d) / 10)
++			return -EINVAL;
++		x = x * 10 + d;
++	}
++	*p = s;
++	*v = x;
++	return 0;
++}
++
++static inline bool ps3disk_guard_blank(char c)
++{
++	return c == ' ' || c == '\t';
++}
++
++/*
++ * Parse len bytes at buf: lines of "start len" (decimal, separated by
++ * blanks, one pair per line, empty lines fine). The buffer must end with
++ * a newline: sysfs cuts a longer write at PAGE_SIZE without telling the
++ * driver, and a cut must never turn into a shorter range. Each range must
++ * be non-empty, inside [0, capacity) and aligned to align sectors. Up to room ranges go to out; *n is their number.
++ * Returns 0, -EINVAL for any malformed or out-of-range line, -ENOSPC for
++ * more than room ranges. On an error *n is unspecified and the caller
++ * must keep nothing of out.
++ */
++static inline int ps3disk_guard_parse(const char *buf, unsigned long len,
++				      u64 capacity, u64 align,
++				      struct ps3disk_range *out,
++				      unsigned int room, unsigned int *n)
++{
++	const char *p = buf, *e = buf + len;
++	unsigned int k = 0;
++
++	if (!align || (len && buf[len - 1] != '\n'))
++		return -EINVAL;
++	while (p < e) {
++		u64 start, sectors;
++		int err;
++
++		while (p < e && ps3disk_guard_blank(*p))
++			p++;
++		if (p < e && *p == '\n') {
++			p++;
++			continue;
++		}
++		if (p == e)
++			break;
++		err = ps3disk_guard_parse_u64(&p, e, &start);
++		if (err)
++			return err;
++		if (p == e || !ps3disk_guard_blank(*p))
++			return -EINVAL;
++		while (p < e && ps3disk_guard_blank(*p))
++			p++;
++		err = ps3disk_guard_parse_u64(&p, e, &sectors);
++		if (err)
++			return err;
++		while (p < e && ps3disk_guard_blank(*p))
++			p++;
++		if (p < e && *p != '\n')
++			return -EINVAL;
++		if (!sectors || start >= capacity || sectors > capacity - start)
++			return -EINVAL;
++		if (start % align || sectors % align)
++			return -EINVAL;
++		if (k == room)
++			return -ENOSPC;
++		out[k].start = start;
++		out[k].end = start + sectors;
++		k++;
++	}
++	*n = k;
++	return 0;
++}
++
++static inline bool ps3disk_guard_before(const struct ps3disk_range *a,
++					const struct ps3disk_range *b)
++{
++	return a->start < b->start || (a->start == b->start && a->end < b->end);
++}
++
++static inline void ps3disk_guard_sift(struct ps3disk_range *r, unsigned int i,
++				      unsigned int n)
++{
++	for (;;) {
++		unsigned int c = 2 * i + 1;
++		struct ps3disk_range t;
++
++		if (c >= n)
++			return;
++		if (c + 1 < n && ps3disk_guard_before(&r[c], &r[c + 1]))
++			c++;
++		if (!ps3disk_guard_before(&r[i], &r[c]))
++			return;
++		t = r[i];
++		r[i] = r[c];
++		r[c] = t;
++		i = c;
++	}
++}
++
++/*
++ * Sort r[0..n) by start (in place, heap sort: no recursion, no
++ * allocation) and merge ranges that overlap or touch. Returns the new
++ * number of ranges; *sectors gets the number of sectors they cover.
++ */
++static inline unsigned int ps3disk_guard_normalize(struct ps3disk_range *r,
++						   unsigned int n, u64 *sectors)
++{
++	unsigned int i, k;
++	u64 total = 0;
++
++	for (i = n / 2; i-- > 0;)
++		ps3disk_guard_sift(r, i, n);
++	for (i = n; i-- > 1;) {
++		struct ps3disk_range t = r[0];
++
++		r[0] = r[i];
++		r[i] = t;
++		ps3disk_guard_sift(r, 0, i);
++	}
++	k = 0;
++	for (i = 0; i < n; i++) {
++		if (k && r[i].start <= r[k - 1].end) {
++			if (r[i].end > r[k - 1].end)
++				r[k - 1].end = r[i].end;
++			continue;
++		}
++		r[k++] = r[i];
++	}
++	for (i = 0; i < k; i++)
++		total += r[i].end - r[i].start;
++	*sectors = total;
++	return k;
++}
++
++/*
++ * Whether [pos, pos + sectors) lies inside one range of r[0..n), which
++ * ps3disk_guard_normalize() made sorted and disjoint (so a run inside
++ * the union of the ranges is inside one of them). An empty or wrapping
++ * run is never inside.
++ */
++static inline bool ps3disk_guard_contains(const struct ps3disk_range *r,
++					  unsigned int n, u64 pos, u64 sectors)
++{
++	unsigned int lo = 0, hi = n;
++
++	if (!sectors || pos + sectors < pos)
++		return false;
++	/* the first range with start > pos */
++	while (lo < hi) {
++		unsigned int mid = lo + (hi - lo) / 2;
++
++		if (r[mid].start <= pos)
++			lo = mid + 1;
++		else
++			hi = mid;
++	}
++	if (!lo)
++		return false;
++	return pos < r[lo - 1].end && sectors <= r[lo - 1].end - pos;
++}
++
++#endif /* _PS3DISK_GUARD_H */

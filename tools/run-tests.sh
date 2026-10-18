@@ -6,7 +6,8 @@
 #            mesa-forcedxt (Mesa 0038's NV30_FORCE_DXT decision, mesa/tests), ssdimg (the SSD test
 #            drive's stamp.py, ps3-imgmap on a fake UFS layer, ps3-vswap's device-mapper backing;
 #            ps3-imgmap-boot's maps and tables against ps3-imgmap's), ps3-boot (ps3-update-kboot's
-#            entries and its /etc/kboot.d extras on a fake root)
+#            entries and its /etc/kboot.d extras on a fake root), ps3disk-guard (kernel local/0045's
+#            range checks, linux/tests/ps3disk-guard.sh)
 #   --slow   also autogm (ps3-desktop/tests/autogm-check.sh: needs Xvfb+openbox or docker/podman) and
 #            ssdimg-vm (tools/ssdimg/vm-e2e.sh: ps3-imgmap on a real big-endian UFS2 image in a KVM
 #            guest of the host's kernel, then Phase B: ps3-imgmap-boot's devices, the initramfs
@@ -77,6 +78,7 @@ run xmoto-glbatch bash -c "$(declare -f need t_xmoto); t_xmoto"
 run mesa-forcedxt bash -c "$(declare -f need t_forcedxt); t_forcedxt"
 run ssdimg python3 tools/ssdimg/test_ssdimg.py
 run ps3-boot python3 ps3-boot/tests/test_kboot.py
+run ps3disk-guard linux/tests/ps3disk-guard.sh
 [ $slow = 1 ] && run autogm bash -c "$(declare -f t_autogm); t_autogm"
 [ $slow = 1 ] && run ssdimg-vm tools/ssdimg/vm-e2e.sh
 
