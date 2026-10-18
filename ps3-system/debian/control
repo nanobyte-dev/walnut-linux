@@ -15,4 +15,4 @@ Description: PS3 system configuration (Linux on the PlayStation 3)
  /dev/ps3gpu_* nodes, swap (zram, and the disk swap behind spare VRAM from ps3rsx), a larger
  free-memory reserve, NetworkManager kept off the wired port, DualShock 3 pairing over USB, and
  the apt sources (Debian ports plus the PS3 repository, with pins that keep the PS3 kernel and
- Mesa). Replaces the files the image used to write (archived in /var/backups on upgrade).
+ Mesa), and ps3-gameos-mount (GameOS's disk, read-only, on demand). Replaces the files the image used to write (archived in /var/backups on upgrade).

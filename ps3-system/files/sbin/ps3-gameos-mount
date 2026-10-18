@@ -1,0 +1,32 @@
+#!/bin/sh
+# ps3-gameos-mount [-u]: mounts GameOS's disk read-only under /mnt/gameos (docs/GAMEOS-HDD.md):
+#   /dev/ps3db (dev_hdd0, UFS2) -> /mnt/gameos/hdd0, /dev/ps3dc (dev_hdd1, vfat) -> /mnt/gameos/hdd1
+# -u unmounts. On demand only; never read-write (the kernel has no UFS write support either).
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+B=/mnt/gameos
+case "${1:-}" in
+-u)
+	for m in hdd0 hdd1; do
+		mountpoint -q "$B/$m" && umount "$B/$m"
+	done
+	exit 0 ;;
+"") ;;
+rw|-w|--rw|-o) echo "ps3-gameos-mount: read-write is refused, GameOS's disk is never written from Linux" >&2; exit 2 ;;
+*) echo "usage: ps3-gameos-mount [-u]" >&2; exit 2 ;;
+esac
+[ "$(id -u)" = 0 ] || { echo "ps3-gameos-mount: needs root" >&2; exit 1; }
+rc=0
+# mount_one <device> <expected type> <mount options> <dir>
+mount_one() {
+	dev=$1 want=$2 opts=$3 dir=$B/$4
+	[ -b "$dev" ] || { echo "$dev: no such device (OtherOS++ only)" >&2; rc=1; return; }
+	mountpoint -q "$dir" && { echo "$dir: already mounted"; return; }
+	got=$(blkid -p -o value -s TYPE "$dev" 2>/dev/null)
+	[ "$got" = "$want" ] || { echo "$dev: is '${got:-unknown}', not $want, left alone" >&2; rc=1; return; }
+	mkdir -p "$dir"
+	if [ "$want" = ufs ]; then modprobe ufs || { echo "$dev: no ufs module in this kernel" >&2; rc=1; return; }; fi
+	mount -t "$want" -o "$opts" "$dev" "$dir" && echo "$dev -> $dir (read-only)" || rc=1
+}
+mount_one /dev/ps3db ufs ro,noatime,nodev,nosuid,noexec,ufstype=ufs2 hdd0
+mount_one /dev/ps3dc vfat ro,noatime,nodev,nosuid,noexec,iocharset=utf8 hdd1
+exit $rc
