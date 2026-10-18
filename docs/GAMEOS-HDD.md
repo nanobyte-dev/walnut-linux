@@ -489,7 +489,9 @@ cache partition. No custom plugin needed: webMAN MOD runs `/dev_hdd0/autoexec.ba
   `/kboot.conf` and `/linux/` at the root should survive [inference: RPCS3 models observed
   behaviour, not Sony's code]. Not covered: the Recovery Menu's Restore/format and a dev_hdd1 GameOS
   finds corrupt, which recreate it; the webMAN restore covers both. psdevwiki's Harddrive page only
-  calls dev_hdd1 the "system cache".
+  calls dev_hdd1 the "system cache"; "Files on the PS3" adds "system cache: 2GB fixed size FAT32"
+  and lists path mounts (`CELL_FS_PATH:`, e.g. a directory mounted over `/dev_bdvd/PS3_GAME`), the
+  mechanism that lets a game's `/dev_hdd1` be a directory. Neither page says when it is cleared.
 - Open: whether GameOS ever clears dev_hdd1's root in practice (a file left there through a few GameOS sessions and
   games tells), whether Petitboot sees ps3dc (its shell's `/proc/partitions`), and the user's webMAN
   version running autoexec.bat. The kernel guard then allows writes to ps3dc (Linux's own files only)
