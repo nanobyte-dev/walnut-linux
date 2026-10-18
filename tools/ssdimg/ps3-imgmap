@@ -59,8 +59,13 @@ import uuid as uuidlib
 import zlib
 
 VERSION = "ps3-imgmap 1"
-FIBMAP = 1      # _IO(0x00, 1)
-FIGETBSZ = 2    # _IO(0x00, 2)
+# _IO(0x00, nr): the direction bits are arch-specific. powerpc (and mips, sparc) encode "none" as 1
+# in bits 29-31, so on the PS3 FIBMAP is 0x20000001, not x86's 1 (which gives ENOTTY there).
+_IOC_NONE_PPC = os.uname().machine.startswith(("ppc", "powerpc", "mips", "sparc"))
+def _IO(typ, nr):
+    return ((1 << 29) if _IOC_NONE_PPC else 0) | (typ << 8) | nr
+FIBMAP = _IO(0x00, 1)
+FIGETBSZ = _IO(0x00, 2)
 MAGIC = b"PS3IMGv1"
 BLOCK = 4096
 STAMP_LEN = 36
