@@ -34,10 +34,17 @@
  11. the interference detector (intfcheck.py, docs/STALLS.md "Interference"): ps3-intfwatch's input
      filter on recorded event streams in both byte orders, its process, session, VT and kernel log
      rules live on this machine, report.py's intf column and matrix.py's skip, interference-scan.py
+ 12. the start-up profile (docs/PROFILING.md "Start-up profiling"): perfprof.py collapse --load and
+     loadprof.py on made-up stacks (one per group, the load and the warm-up), I/O snapshots, ld.so
+     statistics and a stalls.rec, every number by hand, report.py's lp_* columns and --load;
+     client.sh with BENCH_PERF_LOAD and a fake perf that acknowledges late: the game held at the gate
+     until then, perf off at the window's start, the counters, LD_DEBUG's files; BENCH_SHADERCACHE
+     cold, warm (prime first) and off
 Exit status 0 when every check passes; scratch files in a temporary directory, removed at the end."""
 import os
 import re
 import shutil
+from collections import Counter
 import subprocess
 import sys
 import tempfile
@@ -292,9 +299,12 @@ def fake_game(mode):
         out.flush()
         time.sleep(0.6)
         say("aded")
+    if os.environ.get("FAKE_T0_FILE"):   # when the game itself started (the start-up profile's gate)
+        with open(os.environ["FAKE_T0_FILE"], "w") as f:
+            f.write("%.6f\n" % time.time())
     for k in sorted(os.environ):
-        if k.startswith("NV30_"):   # the Mesa driver switches the game got (client.sh's genv)
-            say("env %s=%s" % (k, os.environ[k]))
+        if k.startswith("NV30_") or k.startswith("MESA_SHADER_CACHE") or k.startswith("LD_DEBUG"):
+            say("env %s=%s" % (k, os.environ[k]))   # the switches the game got (client.sh's genv, shadercache)
     ft = open(os.path.join(hud, "frametime_(ms)"), "a", buffering=1) if hud else None
     fp = open(os.path.join(hud, "fps"), "a", buffering=1) if hud else None
     last = sec = time.monotonic()
@@ -845,8 +855,9 @@ def perf_fill(tmp):
 
 
 # --- 8. client.sh with PERF and MEM ---------------------------------------------------------
-def fake_perf(ctl, ack, log):
-    """perf record --control's side: reads enable/disable lines, writes ack for each"""
+def fake_perf(ctl, ack, log, delay=0.0):
+    """perf record --control's side: reads enable/disable lines, writes ack for each (the first one
+    delay s late: perf attaching)"""
     import threading
     fd = os.open(ctl, os.O_RDWR)
     afd = os.open(ack, os.O_RDWR)
@@ -860,6 +871,8 @@ def fake_perf(ctl, ack, log):
             buf += b
             while b"\n" in buf:
                 cmd, buf = buf.split(b"\n", 1)
+                if delay and not log:
+                    time.sleep(delay)
                 log.append((time.time(), cmd.decode()))
                 os.write(afd, b"ack\n")
                 if cmd == b"stop":
@@ -1094,6 +1107,284 @@ done
 '''
 
 
+# --- 12. the start-up profile: loadprof.py on made-up data, client.sh's gate -----------------
+LP_EXE = "/usr/lib/ioquake3/ioquake3"
+LP_GL = "/usr/lib/powerpc64-linux-gnu/libgallium-26.2.4-1+ps3.299.so"
+LP_LIBC = "/usr/lib/powerpc64-linux-gnu/libc.so.6"
+LP_LD = "/usr/lib/powerpc64-linux-gnu/ld64.so.2"
+LP_K = "[kernel.kallsyms]"
+# (samples, phase, pid, tid, comm, the group expected, frames leaf first: (sym, dso))
+LP_SAMPLES = [
+    (50, "load", 2000, 2000, "ioquake3", "zlib", [("inflate_fast", "/usr/lib/powerpc64-linux-gnu/libz.so.1.3.1"),
+                                                  ("unzReadCurrentFile", LP_EXE), ("FS_ReadFile", LP_EXE), ("main", LP_EXE)]),
+    (20, "load", 2000, 2000, "ioquake3", "png", [("png_read_filter_row_paeth4", "/usr/lib/powerpc64-linux-gnu/libpng16.so.16"),
+                                                 ("png_read_row", "/usr/lib/powerpc64-linux-gnu/libpng16.so.16"),
+                                                 ("R_LoadImage", LP_EXE), ("main", LP_EXE)]),
+    (30, "load", 2000, 2000, "ioquake3", "link", [("_dl_relocate_object", LP_LD), ("dl_main", LP_LD)]),
+    (10, "load", 2000, 2000, "ioquake3", "link", [(".do_page_fault", LP_K), ("_dl_relocate_object", LP_LD), ("dl_main", LP_LD)]),
+    (15, "load", 2000, 2000, "ioquake3", "tex", [("memcpy", LP_LIBC), ("_mesa_texstore_rgba8888", LP_GL),
+                                                 ("st_TexImage", LP_GL), ("qglTexImage2D", LP_EXE), ("main", LP_EXE)]),
+    (25, "load", 2000, 2000, "ioquake3", "shader.glsl", [
+        ("(anonymous namespace)::ir_constant_propagation_visitor::visit(ir_assignment*)", LP_GL),
+        ("do_common_optimization(exec_list*, bool)", LP_GL), ("_mesa_glsl_link_shader", LP_GL), ("main", LP_EXE)]),
+    (10, "load", 2000, 2000, "ioquake3", "shader.glsl", [("nir_opt_algebraic", LP_GL), ("st_link_glsl_to_nir", LP_GL),
+                                                         ("st_link_shader", LP_GL), ("main", LP_EXE)]),
+    (12, "load", 2000, 2000, "ioquake3", "shader.backend", [("ntt_emit_alu", LP_GL), ("nir_to_tgsi_options", LP_GL),
+                                                            ("nv30_fp_state_create", LP_GL), ("st_create_fp_variant", LP_GL),
+                                                            ("st_link_shader", LP_GL), ("main", LP_EXE)]),
+    (8, "load", 2000, 2001, "disk$0", "shader.cache", [("ZSTD_compressBlock_internal", "/usr/lib/powerpc64-linux-gnu/libzstd.so.1.5.7"),
+                                                        ("util_compress_deflate", LP_GL), ("cache_put_job", LP_GL),
+                                                        ("util_queue_thread_func", LP_GL)]),
+    (6, "load", 2000, 2000, "ioquake3", "k.read", [(".__copy_tofrom_user", LP_K), (".filemap_read", LP_K), (".ksys_read", LP_K),
+                                                   ("read", LP_LIBC), ("FS_Read", LP_EXE), ("main", LP_EXE)]),
+    (5, "load", 2000, 2000, "ioquake3", "k.fault", [(".clear_user_page", LP_K), (".handle_mm_fault", LP_K),
+                                                    (".do_page_fault", LP_K), ("R_ResampleTexture", LP_EXE), ("main", LP_EXE)]),
+    (9, "load", 2000, 2000, "ioquake3", "dxt", [("speq_dxt_wait", "/usr/lib/powerpc64-linux-gnu/libspeq.so.0"),
+                                                ("st_TexImage", LP_GL), ("main", LP_EXE)]),
+    (7, "load", 2000, 2000, "ioquake3", "mipmap", [("do_row", LP_GL), ("make_2d_mipmap", LP_GL),
+                                                   ("_mesa_generate_mipmap", LP_GL), ("main", LP_EXE)]),
+    (10, "load", 2000, 2000, "ioquake3", "game", [("CL_ParseServerMessage", LP_EXE), ("main", LP_EXE)]),
+    (4, "load", 2000, 2000, "ioquake3", "jpeg", [("jsimd_idct_islow_altivec", "/usr/lib/powerpc64-linux-gnu/libjpeg.so.62.4.0"),
+                                                 ("jpeg_read_scanlines", "/usr/lib/powerpc64-linux-gnu/libjpeg.so.62.4.0"),
+                                                 ("main", LP_EXE)]),
+    (3, "load", 2000, 2002, "ioquake3", "audio", [("ov_read", "/usr/lib/powerpc64-linux-gnu/libvorbisfile.so.3.3.8"),
+                                                  ("S_OGG_CodecReadStream", LP_EXE)]),
+    (6, "load", 900, 900, "Xorg", None, [("glamor_poly", "/usr/lib/xorg/modules/libglamoregl.so"), ("main", "/usr/lib/xorg/Xorg")]),
+    (3, "load", 50, 50, "kswapd0", None, [(".shrink_folio_list", LP_K), (".kswapd", LP_K)]),
+    (5, "load", 2000, 2000, "ioquake3", "init", [("some_ctor", "/usr/lib/powerpc64-linux-gnu/libfoo.so.1"),
+                                                 ("call_init", LP_LD), ("_dl_init", LP_LD), ("dl_open_worker", LP_LD),
+                                                 ("dlopen", LP_LIBC), ("main", LP_EXE)]),
+    (4, "load", 2000, 2000, "ioquake3", "libc", [("malloc", LP_LIBC), ("main", LP_EXE)]),
+    (40, "warmup", 2000, 2000, "ioquake3", "mesa", [("nv30_draw_vbo", LP_GL), ("main", LP_EXE)]),
+    (15, "warmup", 2000, 2000, "ioquake3", "shader.glsl", [("ast_expression::hir(exec_list*, _mesa_glsl_parse_state*)", LP_GL),
+                                                           ("_mesa_ast_to_hir", LP_GL), ("_mesa_glsl_compile_shader", LP_GL),
+                                                           ("main", LP_EXE)]),
+    (10, "warmup", 2000, 2000, "ioquake3", "game", [("CL_Frame", LP_EXE), ("main", LP_EXE)]),
+]
+
+
+def lp_stat(pid, minflt, majflt, utime, stime, threads=3):
+    # /proc/<pid>/stat: fields 3.. after "(comm)"; minflt 10, majflt 12, utime 14, stime 15, threads 20
+    f = ["S", "1", str(pid), str(pid), "0", "-1", "0", str(minflt), "0", str(majflt), "0", str(utime), str(stime),
+         "0", "0", "20", "0", str(threads)] + ["0"] * 34
+    return "%d (ioquake3 x) %s\n" % (pid, " ".join(f))
+
+
+def lp_disks(reads, sectors, ms, io_ms, zram_reads=0):
+    z = "   8       0 sda %d 0 %d %d 10 0 80 5 0 %d %d 0 0 0 0 0 0\n" % (reads, sectors, ms, io_ms, io_ms)
+    z += "   8       1 sda1 %d 0 %d %d 10 0 80 5 0 %d %d 0 0 0 0 0 0\n" % (reads, sectors, ms, io_ms, io_ms)
+    z += " 252       0 zram0 %d 0 %d 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n" % (zram_reads, zram_reads * 8)
+    return z
+
+
+def loadprof_synthetic(tmp):
+    import io
+    import loadprof
+    import perfprof
+    d = tmp / "ps3-bench-20261018T060000Z-fakeload-base"
+    d.mkdir(parents=True)
+    write(d / "perf-load.targets", "game=1999 xorg=900 kswapd0=50 hz=499 launch=1\n")
+    write(d / "perf-load.exe", LP_EXE + "\n")
+    # the clock: mono_t0 1000.00, the load ends 5 s later, the warm-up until 8 s (perf_load_win)
+    bench(d, game="fakeload", variant="base", ended="window", seconds="10.5", load_end="5.00", warmup="3",
+          window="8.00 10.00", t0="1000.0", mono_t0="1000.00", perf_load_win="0.00 8.00", perf_load_ack="ok",
+          perf_load_cpu="0.40", game_pid="2000", shadercache="cold", shadercache_kb="4 2316", harness="rec10+perfload")
+    lines, tl, tw = [], 1000.001, 1005.001
+    for n, ph, pid, tid, comm, _, frames in LP_SAMPLES:
+        for _ in range(n):
+            if ph == "load":
+                tl += 0.004
+                t = tl
+            else:
+                tw += 0.004
+                t = tw
+            lines.append((t, "%s  %d/%d  %.6f:    2000000 " % (comm, pid, tid, t),
+                          ["\t    %x %s (%s)" % (0x10000000 + 16 * i, sym, dso) for i, (sym, dso) in enumerate(frames)]))
+    check("loadprof: the made-up load fits in its 5 s", tl < 1005.0, tl)
+    lines.sort(key=lambda x: x[0])   # perf script's order: by time
+    text = "".join("%s\n%s\n\n" % (h, "\n".join(fr)) for _, h, fr in lines)
+    n = perfprof.collapse(io.StringIO(text), d, prefix="perf-load", split=(1000.0, 5.0))
+    check("loadprof: %d samples collapsed" % n, n == sum(x[0] for x in LP_SAMPLES), n)
+    folded = (d / "perf-load.folded").read_text()
+    check("loadprof: perf-load.folded has the phase as the outermost frame",
+          "load;ioquake3;main;FS_ReadFile;unzReadCurrentFile;inflate_fast 50\n" in folded and
+          "warmup;ioquake3;main;CL_Frame 10\n" in folded, folded[:300])
+    check("loadprof: perf-load-leaf.txt and perf-load-stacks.tsv written",
+          (d / "perf-load-leaf.txt").exists() and (d / "perf-load-stacks.tsv").read_text().startswith("# boundary=1005.000000"))
+    # the I/O snapshots: 100 MB read in the load, 10 MB in the warm-up; 500 + 20 major faults
+    write(d / "load-io" / "timebase", "79800000\n")
+    for lab, disk, vm in (("start", lp_disks(100, 2000, 50, 30), "pgmajfault 10\npswpin 0\npgscan_direct 0\nallocstall_normal 0\n"),
+                          ("load", lp_disks(1100, 2000 + 195313, 4050, 3030, 5), "pgmajfault 510\npswpin 7\npgscan_direct 64\nallocstall_normal 2\n"),
+                          ("warm", lp_disks(1200, 2000 + 195313 + 19531, 4450, 3430, 5), "pgmajfault 530\npswpin 7\npgscan_direct 64\nallocstall_normal 2\n")):
+        write(d / "load-io" / (lab + ".diskstats"), disk)
+        write(d / "load-io" / (lab + ".vmstat"), vm)
+        write(d / "load-io" / (lab + ".info"), "label=%s real=1000.0 pid=2000\n" % lab)
+    write(d / "load-io" / "load.stat", lp_stat(2000, 40000, 500, 450, 50))
+    write(d / "load-io" / "load.mainstat", lp_stat(2000, 30000, 400, 380, 40))
+    write(d / "load-io" / "load.io", "rchar: 300000000\nwchar: 0\nsyscr: 5000\nsyscw: 0\nread_bytes: 100000000\n")
+    write(d / "load-io" / "load.status", "Name:\tioquake3\nvoluntary_ctxt_switches:\t900\nnonvoluntary_ctxt_switches:\t50\n")
+    write(d / "load-io" / "warm.stat", lp_stat(2000, 41000, 520, 700, 60))
+    write(d / "load-io" / "warm.mainstat", lp_stat(2000, 30500, 410, 600, 45))
+    write(d / "load-io" / "warm.io", "rchar: 320000000\nwchar: 0\nsyscr: 5400\nsyscw: 0\nread_bytes: 110000000\n")
+    write(d / "load-io" / "warm.status", "Name:\tioquake3\nvoluntary_ctxt_switches:\t1900\nnonvoluntary_ctxt_switches:\t80\n")
+    # ld.so's statistics: the shell's exec first, then the game's (79.8 MHz timebase: 0.1 s, 0.05 s relocation)
+    blk = ("      2000:\t\n      2000:\truntime linker statistics:\n"
+           "      2000:\t  total startup time in dynamic loader: %d cycles\n"
+           "      2000:\t            time needed for relocation: %d cycles (50.0%%)\n"
+           "      2000:\t                 number of relocations: %d\n"
+           "      2000:\t      number of relocations from cache: 3\n"
+           "      2000:\t        number of relative relocations: 1000\n"
+           "      2000:\t           time needed to load objects: %d cycles (25.0%%)\n")
+    write(d / "ld" / "stats.2000", blk % (79800, 39900, 100, 19950) + blk % (7980000, 3990000, 4321, 1995000) +
+          "      2000:\t\n      2000:\truntime linker statistics:\n      2000:\t           final number of relocations: 54321\n"
+          "      2000:\tfinal number of relocations from cache: 99\n")
+    write(d / "ld" / "stats.2005", blk % (1000, 500, 10, 200))
+    # the main thread's states: disk for 1 s, then on the CPU; the warm-up: 1 s asleep, 2 s on the CPU
+    rec = []
+    for i in range(1, 801):
+        t = i * 0.01
+        if t <= 1.0:
+            smp = "s=D w=3 y=-1 c=50 k0=3:24:0:0:10:1"
+        elif t <= 5.0:
+            smp = "s=R c=9500"
+        elif t <= 6.0:
+            smp = "s=S w=2 y=221 c=0"
+        else:
+            smp = "s=R c=9500"
+        rec.append("%d %s" % (round(t * 1e6), smp))
+    write(d / "stalls.rec", REC_HEAD + "\n".join(rec) + "\n# end t=8000000 samples=800 late=0 maxgap_us=10000 "
+          "self_user_us=1000 self_sys_us=2000 maxrss_kb=1000 stacks=0\n")
+    import stalls
+    st = stalls.analyze(d)
+    check("stalls: the load (disk ~1 s, cpu 4 s) and the warm-up (wait 1 s, cpu 2 s) apart",
+          st and st["load"] and abs(st["load"][1].get("disk", 0) - 1.0) < 0.03 and abs(st["load"][1].get("cpu", 0) - 4.0) < 0.03
+          and st["warmup"] and abs(st["warmup"][2].get("wait", 0) - 1.0) < 0.03 and abs(st["warmup"][2].get("cpu", 0) - 2.0) < 0.03,
+          st and (st["load"] and dict(st["load"][1]), st["warmup"] and dict(st["warmup"][2])))
+    res = loadprof.analyze(d)
+    want = Counter()
+    for n, ph, pid, tid, comm, g, frames in LP_SAMPLES:
+        if g:
+            want[(ph, g)] += n * 0.002
+    got = Counter()
+    for ph in loadprof.PHASES:
+        for g, v in res["ph"][ph]["grp"].items():
+            got[(ph, g)] = v
+    bad = {k: (round(got[k], 4), round(v, 4)) for k, v in want.items() if abs(got[k] - v) > 1e-6}
+    bad.update({k: (round(v, 4), 0) for k, v in got.items() if k not in want and v > 1e-6})
+    check("loadprof: every made-up stack in its group, per phase", not bad, bad)
+    L, W = res["ph"]["load"], res["ph"]["warmup"]
+    main_want = sum(n * 0.002 for n, ph, pid, tid, *_ in LP_SAMPLES if ph == "load" and tid == 2000)
+    check("loadprof: the main thread's load CPU (%.3f s) and the disk$0 thread apart" % main_want,
+          abs(L["cpu_main"] - main_want) < 1e-6 and L["grp_main"]["shader.cache"] == 0 and L["grp"]["shader.cache"] > 0,
+          (L["cpu_main"], dict(L["grp_main"])))
+    check("loadprof: Xorg and kswapd0 counted apart (0.012, 0.006 s)",
+          abs(L["others"]["xorg"] - 0.012) < 1e-6 and abs(L["others"]["kswapd0"] - 0.006) < 1e-6, dict(L["others"]))
+    check("loadprof: AltiVec jpeg samples seen", abs(L["altivec"] - 0.008) < 1e-6, L["altivec"])
+    io_ = res["io"]
+    check("loadprof: disk MB per phase (100.0, 10.0), sda1 and zram0 not counted as the disk",
+          abs(io_["load"]["hdd_mb"] - 100.0) < 0.01 and abs(io_["warmup"]["hdd_mb"] - 10.0) < 0.01
+          and io_["load"]["zram_reads"] == 5 and io_["load"]["hdd_reads"] == 1000,
+          (io_.get("load"), io_.get("warmup")))
+    check("loadprof: the game's counters (majflt 500 then 20, CPU 5.0 s then 2.6 s, read_bytes)",
+          io_["load"]["stat_majflt"] == 500 and io_["warmup"]["stat_majflt"] == 20
+          and abs(io_["load"]["stat_utime"] + io_["load"]["stat_stime"] - 5.0) < 1e-9
+          and abs(io_["warmup"]["stat_utime"] + io_["warmup"]["stat_stime"] - 2.6) < 1e-9
+          and io_["load"]["io_read_bytes"] == 100000000 and io_["warmup"]["io_read_bytes"] == 10000000
+          and io_["load"]["pswpin"] == 7 and io_["load"]["direct_scan"] == 64, (io_["load"], io_["warmup"]))
+    ld = res["ld"]
+    check("loadprof: ld.so's statistics of the game's exec (the second block: 0.1 s, relocation 0.05 s, 4321, final 54321)",
+          ld and ld.get("execs") == 2 and abs(ld.get("startup_s", 0) - 0.1) < 1e-9 and abs(ld.get("reloc_time_s", 0) - 0.05) < 1e-9
+          and ld.get("relocs") == 4321 and ld.get("final_relocs") == 54321 and ld.get("file") == "stats.2000", ld)
+    r = report.run(d)
+    check("report: lp_* columns (link 0.08, glsl 0.1, shbe 0.024, tex 0.03, decomp 0.154, lp_mb 100.0, lp_ld 0.1, lp_disk ~1)",
+          r.get("lp_link") == 0.08 and r.get("lp_glsl") == 0.1 and r.get("lp_shbe") == 0.02 and r.get("lp_tex") == 0.03
+          and r.get("lp_decomp") == 0.15 and r.get("lp_mb") == 100.0 and r.get("lp_wmb") == 10.0 and r.get("lp_ld") == 0.1
+          and r.get("lp_majflt") == 500 and abs((r.get("lp_disk") or 0) - 1.0) < 0.05 and r.get("lp_wshader") == 0.03,
+          {k: v for k, v in r.items() if k.startswith("lp_")})
+    check("report: the shader cache and the start-up profile in the variant (base@rec10+perfload+sccold)",
+          r.get("variant") == "base@rec10+perfload+sccold", r.get("variant"))
+    check("report: warmup_disk_s 0", r.get("warmup_disk_s") == 0.0, r.get("warmup_disk_s"))
+    p = subprocess.run([sys.executable, str(HERE / "report.py"), "--load", str(d)], capture_output=True, text=True)
+    check("report --load: loadprof's tables printed", p.returncode == 0 and "levers over the start-up span" in p.stdout
+          and "shader.glsl" in p.stdout, p.stdout[-600:] + p.stderr[-600:])
+    print(p.stdout[p.stdout.find("== "):])
+
+
+def client_load(tmp):
+    """client.sh with BENCH_PERF_LOAD: the gate holds the game until the fake perf acknowledged enable,
+    perf off at the window's start, the counters and ld.so's statistics; BENCH_SHADERCACHE cold, warm
+    (its first run prime), off"""
+    rdir = tmp / "recipes-load"
+    rdir.mkdir()
+    fake = tmp / "fake-game"   # made by client()
+    comm = Path(sys.executable).name[:15]
+    write(rdir / "fakeload.sh", 'CMD=("%s" --fake-game hudwin); COMM=%s; LOAD_MARK=\'^loaded\'; WARMUP=2; MEASURE=2\n'
+          'WINDOW_STOP=1; DURATION=25\n' % (fake, comm))
+    env0 = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "GALLIUM_HUD",
+                                                             "GALLIUM_HUD_DUMP_DIR", "LD_PRELOAD", "LD_DEBUG")}
+    env0.update(BENCH_RECIPES=str(rdir), BENCH_BACKUP=str(tmp / "backup"), BENCH_SHADERCACHE_ROOT=str(tmp / "shc"))
+    d = tmp / "ps3-bench-20261018T070000Z-fakeload-base"
+    d.mkdir()
+    os.mkfifo(d / ".perfload.ctl")
+    os.mkfifo(d / ".perfload.ack")
+    write(d / ".perfload.pid", "%d\n" % os.getpid())
+    log = []
+    # the ack 1.5 s late: longer than the fake game takes to start, so only the gate makes it wait
+    fds = fake_perf(str(d / ".perfload.ctl"), str(d / ".perfload.ack"), log, delay=1.5)
+    env = dict(env0, BENCH_DIR=str(d), BENCH_PERF_LOAD="1", FAKE_T0_FILE=str(d / "fake.t0"), BENCH_SHADERCACHE="cold",
+               BENCH_PERF_LOAD_CTL="%s:%s" % (d / ".perfload.ctl", d / ".perfload.ack"))
+    t0 = time.time()
+    p = subprocess.run(["bash", str(HERE / "client.sh"), "fakeload", "base"], env=env, capture_output=True, text=True)
+    check("load client: exit 0", p.returncode == 0, p.stdout[-800:] + p.stderr[-800:])
+    os.close(fds[0])
+    b = report.kv(d / "bench.txt")
+    le = float(b.get("load_end") or 0)
+    w = [float(x) for x in (b.get("perf_load_win") or "").split()]
+    check("perf-load: on from the exec (0.00) to the window's start (load + WARMUP)",
+          len(w) == 2 and w[0] == 0.0 and abs(w[1] - le - 2) < 0.15, (le, w))
+    check("perf-load: the fake perf got enable, then disable, acknowledged",
+          [c for _, c in log] == ["enable", "disable"] and b.get("perf_load_ack") == "ok", (log, b.get("perf_load_ack")))
+    gt = float((d / "fake.t0").read_text()) if (d / "fake.t0").exists() else 0
+    check("perf-load: the game started only after perf's ack (the gate), the clock with it",
+          log and gt >= log[0][0] and 0 <= float(b.get("t0") or 0) - log[0][0] < 0.2, (log[:1], gt, b.get("t0")))
+    check("perf-load: launch pid, game_pid, mono_t0, perf_load_cpu in bench.txt",
+          b.get("game_pid", "").isdigit() and re.fullmatch(r"\d+\.\d\d", b.get("mono_t0") or "") and
+          b.get("perf_load_cpu") not in (None, ""), (b.get("game_pid"), b.get("mono_t0"), b.get("perf_load_cpu")))
+    have = sorted(x.name for x in (d / "load-io").glob("*")) if (d / "load-io").is_dir() else []
+    check("perf-load: the counters at the gate, the load's end and the window's start",
+          all(x in have for x in ("start.diskstats", "start.vmstat", "load.diskstats", "load.stat", "load.io",
+                                  "load.mainstat", "warm.diskstats", "warm.stat", "warm.vmstat")), have)
+    lds = list((d / "ld").glob("stats.*")) if (d / "ld").is_dir() else []
+    gl = (d / "game.log").read_text(errors="replace") if (d / "game.log").exists() else ""
+    check("perf-load: ld.so's statistics written for the game's pid (LD_DEBUG not in its output)",
+          any(x.name == "stats.%s" % b.get("game_pid") and "runtime linker statistics" in x.read_text(errors="replace")
+              for x in lds) and "runtime linker" not in gl, ([x.name for x in lds], gl[:200]))
+    check("perf-load: perf-load.exe names the game", (d / "perf-load.exe").exists() and
+          comm[:6] in (d / "perf-load.exe").read_text(), (d / "perf-load.exe").exists() and (d / "perf-load.exe").read_text())
+    import loadprof
+    res = loadprof.analyze(d)
+    check("loadprof: a run without perf-load-stacks.tsv: the I/O and ld.so still read",
+          res and "load" in res["io"] and "stat_majflt" in res["io"]["load"] and res["ld"] and "startup" in res["ld"],
+          res and (res["io"], res["ld"]))
+    m = re.search(r"^env MESA_SHADER_CACHE_DIR=(\S+)$", gl, re.M)
+    check("shadercache cold: an empty directory for the game, removed after; shadercache= in bench.txt",
+          m and "/cold." in m[1] and not Path(m[1]).exists() and b.get("shadercache") == "cold", (m and m[1], b.get("shadercache")))
+    # warm: the first run fills the directory (prime), the second finds it (warm); off disables the cache
+    tags = []
+    for i, mode in enumerate(("warm", "warm", "off")):
+        d2 = tmp / ("ps3-bench-20261018T07010%dZ-fakeload-base" % i)
+        env = dict(env0, BENCH_DIR=str(d2), BENCH_SHADERCACHE=mode)
+        p = subprocess.run(["bash", str(HERE / "client.sh"), "fakeload", "base"], env=env, capture_output=True, text=True)
+        b2 = report.kv(d2 / "bench.txt")
+        g2 = (d2 / "game.log").read_text(errors="replace") if (d2 / "game.log").exists() else ""
+        tags.append((b2.get("shadercache"), report.run(d2).get("variant"), "MESA_SHADER_CACHE_DISABLE=true" in g2))
+        if i == 0:   # what Mesa would have written
+            write(tmp / "shc" / "warm-fakeload" / "mesa_shader_cache" / "index", "x" * 5000)
+    check("shadercache warm: prime first, then warm (base@scprime, base@scwarm), off: MESA_SHADER_CACHE_DISABLE",
+          tags == [("prime", "base@scprime", False), ("warm", "base@scwarm", False), ("off", "base@scoff", True)], tags)
+    print()
+
+
 def lint():
     print("\nrecipes: game variant DURATION WARMUP MEASURE steady-source WINDOW_STOP")
     short = []
@@ -1132,6 +1423,8 @@ if __name__ == "__main__":
         perf_synthetic(tmp)
         perf_fill(tmp)
         client_prof(tmp)
+        loadprof_synthetic(tmp)
+        client_load(tmp)
         memprof_real(tmp)
         malloctrim_real(tmp)
         import intfcheck

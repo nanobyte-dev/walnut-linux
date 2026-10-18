@@ -8,6 +8,11 @@
           perf-leaf.txt   samples by process, DSO and symbol of the sampled instruction (TSV), the
                           numbers report.py's perf_* columns come from
         --sys: the system-wide record (perf-sys.data, no call graphs) into perf-sys-leaf.txt
+        --load: the start-up record (perf-load.data, docs/PROFILING.md "Start-up profiling") into
+          perf-load.folded (the phase, load or warmup, as the outermost frame), perf-load-leaf.txt
+          and perf-load-stacks.tsv (per phase, process, thread and stack: samples, period, every
+          frame's symbol and DSO, for loadprof.py); the phases split at bench.txt's load_end on
+          perf's clock (mono_t0 + load_end; without mono_t0 the first sample + load_end)
   perfprof.py RUN_DIR...   the table per run: the game's samples by class and its top symbols
 summary(d) gives report.py its columns (percent of the game process's samples, all its threads):
   perf_game   the game's own code: its executable, the libraries in its package or directory
@@ -193,24 +198,31 @@ class Fill:
 SMAPS_MAP = re.compile(r"^(?P<a>[0-9a-f]+)-(?P<b>[0-9a-f]+) (?P<perm>\S+) (?P<off>[0-9a-f]+) \S+ \d+\s+(?P<path>/\S.*)$")
 
 
-def collapse(lines, out_dir, sysmode=False):
-    """perf script lines -> perf.folded and perf-leaf.txt (perf-sys-leaf.txt with sysmode)"""
-    fill = None if sysmode else Fill(out_dir)
+def collapse(lines, out_dir, sysmode=False, prefix="perf", split=None):
+    """perf script lines -> perf.folded and perf-leaf.txt (perf-sys-leaf.txt with sysmode);
+    prefix perf-load (the start-up record): <prefix>.folded, <prefix>-leaf.txt and, with split =
+    (mono_t0 or None, load_end), the phases and <prefix>-stacks.tsv"""
+    fill = None if sysmode or prefix != "perf" else Fill(out_dir)
     if fill is not None and not fill:
         fill = None
+    boundary = None
+    if split is not None and split[0] is not None and split[1] is not None:
+        boundary = split[0] + split[1]
+    rich = Counter()       # (phase, pid, tid, comm, frames) -> samples
+    rich_p = Counter()     # the same -> period
     stacks = Counter()
     leaf = Counter()       # (pid, comm, dso, sym) -> samples
     period = Counter()     # (pid, comm, dso, sym) -> period sum
     comms = {}
     first = last = None
     n = 0
-    cur = None             # [comm, pid, period, frames]
+    cur = None             # [comm, pid, period, frames, tid, time]
 
     def flush():
-        nonlocal n
+        nonlocal n, boundary
         if cur is None:
             return
-        comm, pid, per, frames = cur
+        comm, pid, per, frames, tid, t = cur
         n += 1
         if fill is not None:
             frames = fill.fix(pid, frames)
@@ -223,7 +235,17 @@ def collapse(lines, out_dir, sysmode=False):
         period[key] += per
         if not sysmode:
             chain = [frame_name(f[0], f[1]) for f in reversed(frames)] or ["[unknown]"]
-            stacks[";".join([comm.replace(" ", "_").replace(";", ":")] + chain)] += 1
+            root = [comm.replace(" ", "_").replace(";", ":")]
+            if split is not None:
+                if boundary is None and split[1] is not None:
+                    boundary = t + split[1]   # no mono_t0: the first sample is the gate's opening
+                phase = "load" if boundary is None or t < boundary else "warmup"
+                root.insert(0, phase)
+                fk = tuple((f[0] or "[unknown]", f[1] or "[unknown]") for f in reversed(frames))
+                k2 = (phase, pid, tid, comm, fk)
+                rich[k2] += 1
+                rich_p[k2] += per
+            stacks[";".join(root + chain)] += 1
 
     for line in lines:
         if line[:1] == "\t":      # a call chain frame: "\t    ip sym (dso)" (the fast path)
@@ -247,7 +269,7 @@ def collapse(lines, out_dir, sysmode=False):
         t = float(m["time"])
         first = t if first is None else first
         last = t
-        cur = [m["comm"], pid, int(m["period"] or 1), []]
+        cur = [m["comm"], pid, int(m["period"] or 1), [], int(m["tid"]), t]
         # without call chains the sampled ip, symbol and DSO follow on the same line
         rest = line.lstrip()[m.end():].strip()
         if rest and (fm := FRAME.match("\t" + rest)):
@@ -255,10 +277,20 @@ def collapse(lines, out_dir, sysmode=False):
     flush()
     out_dir = Path(out_dir)
     if not sysmode:
-        with (out_dir / "perf.folded").open("w") as f:
+        with (out_dir / (prefix + ".folded")).open("w") as f:
             for s, c in sorted(stacks.items(), key=lambda x: -x[1]):
                 f.write("%s %d\n" % (s, c))
-    name = "perf-sys-leaf.txt" if sysmode else "perf-leaf.txt"
+    if split is not None:
+        # loadprof.py's input: frames outermost first, each "symbol\x1fDSO", tab separated
+        with (out_dir / (prefix + "-stacks.tsv")).open("w") as f:
+            f.write("# boundary=%s load_end=%s\n" % ("%.6f" % boundary if boundary is not None else "",
+                                                      split[1] if split[1] is not None else ""))
+            f.write("# phase\tpid\ttid\tcomm\tsamples\tperiod\tframes...\n")
+            for k, c in sorted(rich.items(), key=lambda x: -x[1]):
+                phase, pid, tid, comm, fk = k
+                f.write("%s\t%d\t%d\t%s\t%d\t%d\t%s\n" % (phase, pid, tid, comm.replace("\t", " "), c, rich_p[k],
+                                                          "\t".join("%s\x1f%s" % (a.replace("\t", " "), b) for a, b in fk)))
+    name = "perf-sys-leaf.txt" if sysmode else prefix + "-leaf.txt"
     with (out_dir / name).open("w") as f:
         f.write("# samples=%d first=%.6f last=%.6f\n" % (n, first or 0, last or 0))
         if fill is not None and fill.filled:
@@ -467,10 +499,25 @@ def show(d, top=25):
 def main(argv):
     if argv and argv[0] == "collapse":
         args = argv[1:]
-        sysmode = "--sys" in args
-        args = [a for a in args if a != "--sys"]
+        sysmode, load = "--sys" in args, "--load" in args
+        args = [a for a in args if a not in ("--sys", "--load")]
         if len(args) != 1:
             sys.exit(__doc__)
+        if load:
+            b = kv_line_text("")
+            bp = Path(args[0]) / "bench.txt"
+            if bp.exists():
+                for line in bp.read_text(errors="replace").splitlines():
+                    k, _, v = line.partition("=")
+                    b[k] = v
+            def num(x):
+                try:
+                    return float(x)
+                except (TypeError, ValueError):
+                    return None
+            n = collapse(sys.stdin, args[0], prefix="perf-load", split=(num(b.get("mono_t0")), num(b.get("load_end"))))
+            print("perfprof: %d samples" % n, file=sys.stderr)
+            return
         n = collapse(sys.stdin, args[0], sysmode)
         print("perfprof: %d samples" % n, file=sys.stderr)
         return

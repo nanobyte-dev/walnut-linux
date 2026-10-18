@@ -11,6 +11,9 @@ selftest.py.
   and kswapd0 alongside.
 - `MEM=1`: the game's memory by mapping class, glibc's malloc numbers and its GPU buffers at the
   window's start, middle and end.
+- `PERF_LOAD=1`: a perf profile of the start-up (exec, loading screens, warm-up), the load's I/O
+  and ld.so's statistics; `SHADERCACHE=cold|warm|off` for Mesa's shader cache (below, "Start-up
+  profiling").
 
 **Profiled runs are for profiles, not for fps.** perf adds work to every sample (see Overhead), and
 a memory snapshot holds the game's mmap lock while the kernel walks its page tables. Base fps and
@@ -241,6 +244,180 @@ How to read it: swap is what to cut first (each swapped page is a later stall). 
 with a large `mem_malloc_free` mean memory malloc keeps; `mesa` Private_Dirty is the driver's own
 data; texture copies kept by the game or Mesa land in `heap`/`anon`, the GPU's copies in
 `mem_gpu_*`.
+
+## Start-up profiling
+
+The user (2026-10-18): find where game start-up time could be won, at the system and library level
+as much as per game: the USB disk, decompression (zlib for pk3/zip, libpng, libjpeg-turbo,
+libvorbis), Mesa's texture uploads, format conversion and mipmaps, DXT compression, shader
+compiles, dynamic linking, kernel I/O, reclaim and swap during the load. Then the scope widened to
+the whole span the measured window leaves out: the game's exec, its loading screens **and the
+warm-up** (WARMUP s of play after the load: late loads, shaders compiled on first use, textures
+streamed in). `PERF_LOAD=1` profiles that span; `STALLS=1` alongside says what the main thread
+waited for.
+
+### Running it
+
+On the PS3, ps3-gpu-tools with `BENCH_PERF_LOAD` (0.469 or later, `make ps3-gpu-tools-deb` and a
+deploy) and this games/bench (`make bench-push`). One run per game: the quiet before every run
+drops the page cache, so each start reads its files from the disk as a first start after boot
+does. Leave `GAMEPREFETCH` unset (the game prefetch would read the files ahead and hide the disk:
+client.sh then also turns game mode's own prefetch off). Without `SHADERCACHE` the game uses the
+user's own Mesa cache (`~/.cache/mesa_shader_cache`): warm for any game played before.
+
+    PERF_LOAD=1 STALLS=1 /var/tmp/bench/run.sh bench sauerbraten base 1
+    PERF_LOAD=1 STALLS=1 /var/tmp/bench/run.sh bench openarena gl2min 1
+    PERF_LOAD=1 STALLS=1 /var/tmp/bench/run.sh bench luanti base 1
+    PERF_LOAD=1 STALLS=1 /var/tmp/bench/run.sh bench supertuxkart lean 1
+    PERF_LOAD=1 STALLS=1 /var/tmp/bench/run.sh bench classicube base 1
+    python3 /var/tmp/bench/report.py --load --stalls /var/tmp/ps3-bench/<run dir>...
+
+The shader cache, cold against warm over the same span (OpenArena gl2min is the clearest case: about
+55 GLSL programs, ~3 s at its first start; Sauerbraten and Luanti use GLSL too). `SHADERCACHE=warm`
+keeps a cache per game in `/var/tmp/ps3-bench/shadercache/warm-<game>`; its first run fills it and
+is tagged `scprime`, so prime once, then alternate in the same session:
+
+    PERF_LOAD=1 STALLS=1 ENVS="SHADERCACHE=warm" /var/tmp/bench/run.sh bench openarena gl2min 1   # scprime
+    PERF_LOAD=1 STALLS=1 ENVS="SHADERCACHE=cold SHADERCACHE=warm" /var/tmp/bench/run.sh bench openarena gl2min 1
+    PERF_LOAD=1 STALLS=1 ENVS="SHADERCACHE=warm" /var/tmp/bench/run.sh bench sauerbraten base 1
+    PERF_LOAD=1 STALLS=1 ENVS="SHADERCACHE=cold SHADERCACHE=warm" /var/tmp/bench/run.sh bench sauerbraten base 1
+    PERF_LOAD=1 STALLS=1 ENVS="SHADERCACHE=warm" /var/tmp/bench/run.sh bench luanti base 1
+    PERF_LOAD=1 STALLS=1 ENVS="SHADERCACHE=cold SHADERCACHE=warm" /var/tmp/bench/run.sh bench luanti base 1
+
+Compare `lp_glsl`, `lp_shbe`, `lp_shcache`, `lp_wshader` and the `load` column of the `sccold` and
+`scwarm` runs: the difference in `lp_glsl` (and in load time) is what Mesa's cache saves, `lp_shbe`
+is what it can't. `shadercache_kb` in bench.txt (before and after the run) is the cache's size: a
+cold run's "after" is the whole cache of that game. A warm run whose cache grew a lot was not warm
+(the cache is keyed by the driver's build id: a new Mesa build makes every entry miss).
+
+| Variable | Default | What |
+|---|---|---|
+| `PERF_LOAD=1` | off | perf record of the start-up span (ps3-bench.sh `BENCH_PERF_LOAD=1`); with `PERF=1` both records, each its own perf |
+| `SHADERCACHE` | the user's cache | `cold`: an empty `MESA_SHADER_CACHE_DIR` (removed after the run), `warm`: one per game kept in `SHADERCACHE_ROOT` (`/var/tmp/ps3-bench/shadercache`), `off`: `MESA_SHADER_CACHE_DISABLE=true` (compiles, no cache reads or writes). The user's own cache is never touched |
+| `LDSTATS=0` | on with `PERF_LOAD` | no `LD_DEBUG=statistics` |
+| `PERF_LOAD_WAIT` | 120 | seconds client.sh waits for perf to attach before it starts the game anyway |
+| `LOADPROF_DISK_MBS` | 30 | loadprof.py: the disk's sequential read rate for the read-ahead estimate (USB 2.0) |
+
+### What PERF_LOAD=1 records
+
+- **From the exec.** client.sh starts the game through a gate: a bash that waits on a fifo and then
+  execs the game command (same pid; perf's inherit follows whatever it forks). ps3-bench.sh's perf
+  job finds the gate's pid in `$D/.launch.pid` and attaches (`perf record -e cpu-clock -F 499 -g
+  -k mono -N --buildid-mmap -D -1 --control fifo:... -p <gate>,<Xorg>,<kswapd0> -o perf-load.data`).
+  client.sh writes `enable` into the control fifo and waits for the ack (perf has the processes),
+  then takes the first counters, starts its clock (`t0`) and opens the gate. perf's own start-up
+  is outside the timed load. Attached before the exec, perf gets the exec's comm and every mmap of
+  the load, dlopened libraries included (no `perf.track` trick needed).
+- **To the window's start.** `disable` where the measured window begins: load + WARMUP, 0.9 x
+  WARMUP for games that repeat a demo (`PASSES=1`), the first `WIN_ON_RE` line for games that mark
+  their own window (Sauerbraten). bench.txt: `perf_load_win` (on, off: seconds from t0),
+  `perf_load_ack`, `perf_load_cpu` (perf's own CPU over the span), `mono_t0` (`/proc/uptime` read
+  next to t0: perf's clock, CLOCK_MONOTONIC, equals CLOCK_BOOTTIME on a PS3 that never suspends;
+  10 ms resolution), `game_pid`.
+- **The counters** (`load-io/`, with or without perf): `/proc/diskstats` and `/proc/vmstat` at the
+  gate (`start`), at the load's end (`load`) and at the window's start (`warm`); the game's
+  `/proc/<pid>/stat`, `io`, `status` and its main thread's stat at the last two (copied with bash's
+  builtins: no fork while the game runs); `timebase` from `/proc/cpuinfo`.
+- **ld.so's statistics**: `LD_DEBUG=statistics LD_DEBUG_OUTPUT=$D/ld/stats` in the game's
+  environment, one file per pid (`ld/stats.<pid>`). Every exec in the pid appends a start-up block
+  (env, stdbuf, then the game); loadprof.py takes the game's (the last), and its exit block (`final
+  number of relocations`, dlopen's included). The times are in timebase ticks on ppc64 (glibc's
+  hp-timing reads the timebase: 79.8 MHz on the PS3). Only the start-up is timed; dlopen's
+  relocations show in perf as group `link`.
+- **The stall recorder** (`STALLS=1`): stalls.py now prints the warm-up (load end to the window's
+  start, all of it) next to the load; report.py `warmup_disk_s`. The recorder finds the game
+  through `.pid` (watch_game's poll, every 0.5 s), so its record starts up to a second after the
+  exec: the first part of the dynamic linking has no main-thread states.
+
+perf-post.sh (run.sh calls it after the run) writes `perf-load-report.txt` (the game process, dso,
+sym), `perf-load-threads.txt`, `perf-load.folded` (the phase, `load` or `warmup`, as the outermost
+frame: one flame graph shows both side by side), `perf-load-leaf.txt`, `perf-load-stacks.tsv`
+(per phase, process, thread and stack: samples, period, every frame's symbol and DSO), merges the
+build ids and packages into `perf-buildids.txt`/`perf-pkgs.txt`, and prints loadprof.py's tables.
+`perf-load.data` stays on the PS3 unless `make bench-pull PERFDATA=1`.
+
+### loadprof.py
+
+`python3 loadprof.py <run dir>...` or `report.py --load`. Per phase (load, warm-up): the wall time,
+the main thread's and all threads' CPU, Xorg's and kswapd0's, the main thread's disk wait
+(stalls.rec: disk, io and swap-in seconds), MB read from the disks and the disk's busy seconds,
+major faults, swap-ins; then the CPU by group with each group's top functions, by the leaf's DSO
+class, the busiest threads; ld.so's statistics; and the levers.
+
+A sample's group is the innermost frame of its stack that matches a rule: first the umbrella rules
+over every user frame (what runs under them is theirs: a page fault under `_dl_relocate_object` is
+linking, zstd under the shader cache's writer is the cache), then for a kernel leaf the kernel's
+paths, then the leaf rules over the user frames from the leaf outwards (memcpy under
+`_mesa_texstore` is a texture upload), else the leaf's DSO class.
+
+| Group | What | Lever |
+|---|---|---|
+| `link` | ld.so: mapping, relocation, symbol lookup, lazy binding, dlopen | fewer and smaller DSOs, `-z now` against lazy binding, prelinking |
+| `init` | library and static constructors (`_dl_init`) | less work in constructors |
+| `shader.glsl` | the GL front end: GLSL compile and link, NIR at link, ARB and fixed-function programs | Mesa's disk cache skips it on a hit |
+| `shader.backend` | st variants, `nir_to_tgsi`, nvfx translate | runs at every start, warm or not (below) |
+| `shader.cache` | Mesa's disk cache: hashing, (de)serialising, compression | what a hit costs instead |
+| `dxt` | libspeq (the PPE's share), Mesa's s3tc, the games' own | precompressed textures |
+| `mipmap` | Mesa's and the games' mipmap generation | precomputed or GPU mips |
+| `tex` | Mesa texture upload: texstore, format conversion, miptree transfers | formats the RSX takes as they are |
+| `buffers` | Mesa buffer uploads | fewer, larger |
+| `zlib`, `png`, `jpeg`, `audio`, `zstd`, `image` | inflate (libz and the games' own), PNG filters, JPEG, Vorbis/Ogg/FLAC/Opus/SF2, other decompressors, other image decoders | zlib-ng (about 2x on inflate), stored pk3 members, another texture format, decoding on first use |
+| `files` | the game's file system code (pk3 scans, path hashing) | fewer archives, an index |
+| `lua`, `fonts` | LuaJIT; FreeType, fontconfig, HarfBuzz | less at start |
+| `k.fault`, `k.read`, `k.open`, `k.mmap`, `k.exec`, `k.reclaim`, `kgpu`, `k.other` | the kernel by path (the I/O wait of file faults is the disk wait, not CPU) | |
+| `game`, `mesa`, `drm`, `libc`, `cxx`, `other`, `unk` | the rest, by DSO | |
+
+The lever table lists every group's main-thread seconds in the load and in the warm-up and all
+threads' seconds. The main thread is the critical path of a load: the group's main-thread load
+seconds are the most its removal can take off the load time, half of them if it ran twice as fast
+(work on other threads only counts where the main thread waits for it). For the disk: the main
+thread's wait against the same MB read sequentially at `LOADPROF_DISK_MBS`: the difference is what
+reading ahead in big blocks could win, the whole wait what having the files in RAM wins (the game
+prefetch's job). report.py's columns: `lp_cpu`, `lp_main` (the load's CPU, all threads and the main
+thread), `lp_wcpu` (the warm-up's), `lp_link`, `lp_glsl`, `lp_shbe`, `lp_shcache`, `lp_tex`,
+`lp_mip`, `lp_dxt`, `lp_decomp` (all threads, both phases), `lp_wshader` (the three shader groups
+in the warm-up alone), `lp_mb`, `lp_wmb`, `lp_majflt`, `lp_ld`, `lp_disk`.
+
+### What Mesa's shader cache covers on nv30 (from the source, Mesa 26.2.4 with our patches)
+
+- nv30 has a disk cache: `nouveau_screen_init()` (common to nv30, nv50, nvc0) creates
+  `screen->disk_shader_cache` (keyed by the driver binary's build id, `nouveau_screen.c:177-198`)
+  and hooks `get_disk_shader_cache`, so the state tracker's cache is on (`st_context.c:795`). Only
+  nvc0 also stores its own machine code in it (`nvc0_program.c:576-665`); nv30 never touches it.
+- What the GL layer caches: the program's metadata and each stage's serialized NIR after GLSL
+  link and `st_link_glsl_to_nir` (`st_shader_cache.c:110`, `shader_cache.cpp:84`). A hit skips the
+  GLSL compile and link (LINKING_SKIPPED) and deserializes the NIR. ARB and fixed-function programs
+  go the same way.
+- What runs anyway, at every start: the variant (`st_create_fp_variant`, `st_finalize_nir`), nv30's
+  `nir_to_tgsi` (`nv30_fragprog.c:145`, `nv30_vertprog.c:231`) and the nvfx translation to machine
+  code, lazily at the first validate (`_nvfx_fragprog_translate`, `nvfx_fragprog.c:1072`;
+  `_nvfx_vertprog_translate`, `nvfx_vertprog.c:956`, again whenever the bound fragment program's
+  texcoord mapping or the enabled clip planes change). That is group `shader.backend`.
+- An nv30-side cache of the final code would wrap those two translate calls: key
+  `disk_cache_compute_key()` over the TGSI tokens, the stage, nv40-or-not, `NV40_FP_EXPORT32` and,
+  for vertex programs, `texcoord[10]` and the enabled clip planes; store the fragment program's
+  `insn[]` with the constants unpatched (they are patched in at validate) and its control words, the
+  vertex program's unrelocated `insns[]` with its branch and constant relocations. `disk_cache_get`
+  / `disk_cache_put` as nvc0 does. Size: instructions are 16 bytes, programs a few tens of them:
+  0.5-2 KiB a stage, about 60-250 KiB for OpenArena opengl2's ~55 programs (an estimate: a cold
+  run's `shadercache_kb` gives the NIR cache's real size, which is larger). Whether it pays: the
+  warm runs' `lp_shbe` says; build it only if that is a real share of the load.
+- Environment, all honoured in this version: `MESA_SHADER_CACHE_DIR`, `MESA_SHADER_CACHE_DISABLE`,
+  `MESA_SHADER_CACHE_MAX_SIZE` (default 1 GiB), `MESA_SHADER_CACHE_SHOW_STATS`. The default backend
+  is the multi-file one, `mesa_shader_cache/` in `$XDG_CACHE_HOME` or `~/.cache`
+  (`mesa_shader_cache_sf`, `_db` only with `MESA_DISK_CACHE_SINGLE_FILE`/`_DATABASE`).
+  `SHADERCACHE=` uses `MESA_SHADER_CACHE_DIR`, so no cache is moved aside.
+
+### libjpeg-turbo's SIMD on the Cell
+
+Debian's `libjpeg62-turbo 1:3.1.3-4` for ppc64 is built with its AltiVec code: the library has
+2273 AltiVec instructions (vperm, vmladduhm, lvx, ...) and no VSX ones, so it runs on the PPE, and
+the `JSIMD_FORCEALTIVEC`/`JSIMD_FORCENONE` switches. The choice is made at run time from
+`/proc/cpuinfo`: the PPE's line says "altivec supported", so the SIMD paths should be taken. Its
+SIMD functions are static, so perf names them only with `libjpeg62-turbo-dbgsym` (loadprof.py then
+counts the `*altivec*` share of the jpeg group); without it, an A/B with `JSIMD_FORCENONE=1` in the
+game's environment shows what the SIMD saves. Which of the five games decode JPEG at all at start
+the first runs' `jpeg` group says.
 
 ## Overhead
 

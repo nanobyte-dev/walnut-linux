@@ -35,6 +35,14 @@
 # docs/STALLS.md "Game prefetch"): one learn run first, then ENVS="- GAMEPREFETCH=fetch" (report.py:
 # base@gpffetch); lists in /var/tmp/ps3-bench/gprefetch; GAMEPREFETCH_MB, _RESERVE_MB, _IO its budget,
 # reserve and I/O priority (tokens: GAMEPREFETCH=fetch+GAMEPREFETCH_MB=128, report.py gpffetch_mb128).
+# PERF_LOAD=1: perf profiles the start-up instead (ps3-bench.sh BENCH_PERF_LOAD=1, docs/PROFILING.md
+# "Start-up profiling"): from the game's exec through its loading screens and the warm-up to where the
+# window starts; perf-post.sh then writes perf-load.folded, perf-load-report.txt, perf-load-stacks.tsv
+# and loadprof.py's tables (report.py --load). Also the disk, VM and game counters of the load
+# (load-io/) and ld.so's statistics (ld/; LDSTATS=0: without). SHADERCACHE=cold|warm|off: Mesa's
+# disk shader cache for the run (client.sh BENCH_SHADERCACHE; the user's own cache is left alone;
+# report.py base@sccold, base@scwarm, base@scprime for the run that filled the warm one), e.g.
+# PERF_LOAD=1 ENVS="SHADERCACHE=cold SHADERCACHE=warm" run.sh bench openarena gl2min 2.
 # Interference (docs/STALLS.md "Interference"): ps3-bench.sh's detector flags a run somebody
 # disturbed (input, a VT switch, a device, an SSH login or command); run.sh prints a warning after it,
 # report.py marks it and leaves it out of the medians, matrix.py skips it. RERUN_INTERFERED=1 runs
@@ -49,8 +57,9 @@ LOG=/dev/shm/run.sh.$$
 [ -n "${PERF:-}" ] && export BENCH_PERF=$PERF
 [ -n "${PERF_HZ:-}" ] && export BENCH_PERF_HZ=$PERF_HZ
 [ -n "${PERF_ALL:-}" ] && export BENCH_PERF_ALL=$PERF_ALL
+[ -n "${PERF_LOAD:-}" ] && export BENCH_PERF_LOAD=$PERF_LOAD
 [ -n "${MEM:-}" ] && export BENCH_MEM=$MEM
-for v in STALLS_MS STALLS_CPU STALLS_NOWRITE WAKER WAKER_MODE WAKER_CPU PROBE PROBE_MS PROBE_CPU MALLOC MALLOC_TRIM_S GAMEPREFETCH GAMEPREFETCH_MB GAMEPREFETCH_RESERVE_MB GAMEPREFETCH_IO; do
+for v in STALLS_MS STALLS_CPU STALLS_NOWRITE WAKER WAKER_MODE WAKER_CPU PROBE PROBE_MS PROBE_CPU MALLOC MALLOC_TRIM_S GAMEPREFETCH GAMEPREFETCH_MB GAMEPREFETCH_RESERVE_MB GAMEPREFETCH_IO SHADERCACHE SHADERCACHE_ROOT LDSTATS PERF_LOAD_WAIT; do
 	[ -n "${!v:-}" ] && export "BENCH_$v=${!v}"
 done
 RUNS=()
@@ -72,7 +81,7 @@ one() {	# one LABEL GAME VARIANT [ENVTOKEN]: one run, its directory appended to 
 	rm -f "$LOG"
 	[ -n "$d" ] && RUNS+=("$d") && versions "$2" "$3" > "$d/versions"
 	# the profile's text, between runs (the next run's quiet drops the caches and swaps again)
-	[ -s "$d/perf.data" ] && "$here/perf-post.sh" "$d"
+	{ [ -s "$d/perf.data" ] || [ -s "$d/perf-load.data" ]; } && "$here/perf-post.sh" "$d"
 	[ "$rc" = 0 ] || { echo "!! ps3-bench.sh failed ($rc): stopping"; return 1; }
 	[ -e "$d/THERMAL" ] && { echo "!! thermal alert: stopping"; return 1; }
 	[ -e "$d/TEMPLIMIT" ] && { echo "!! temperature limit (BENCH_TEMP_MAX): stopping"; return 1; }
@@ -109,7 +118,7 @@ smoke)
 	echo "== game output: lines worth a look"
 	grep -aiE 'error|fail|unsupported|not supported|missing|shader|link|segmentation|abort|assert|nouveau|out of temps' \
 		"$d/game.log" 2>/dev/null | head -30
-	report --stalls --perf --mem
+	report --stalls --perf --mem --load
 	echo "Check on the TV: picture and colours. Sound card state at ${SOUND_AT:-15} s is in bench.txt."
 	;;
 bench)

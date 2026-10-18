@@ -26,6 +26,25 @@
 # path, "" turns it off) at the window's start, middle and end into $D/mem/ (memprof.py); bench.txt
 # gets mem_snaps (label:seconds:ms reading smaps). BENCH_MALLOC: glibc malloc presets (below,
 # docs/MEMORY.md).
+# Start-up profiling (docs/PROFILING.md "Start-up profiling"): BENCH_PERF_LOAD=1 (run.sh
+# PERF_LOAD=1) covers the span the window leaves out: the game's exec, its loading screens and the
+# warm-up. With ps3-bench.sh's BENCH_PERF_LOAD_CTL the game is started through a gate (a bash that
+# waits on $D/.gate and then execs it): its pid goes to $D/.launch.pid for ps3-bench.sh's perf, the
+# client writes enable, waits for the ack (perf has attached), and only then opens the gate and starts
+# the clock (t0), so perf's start costs the load nothing; disable at the window's start (where the
+# window perf of PERF=1 goes on). bench.txt gets perf_load_win, perf_load_ack, perf_load_cpu,
+# mono_t0 (/proc/uptime at t0: perf's clock, -k mono, for the load/warm-up split), game_pid.
+# Also, with or without perf: the disks' and the VM's counters at the gate, at the load's end and at
+# the window's start, the game's own (stat, io, status, its main thread's stat) at the last two, into
+# $D/load-io/; ld.so's statistics (LD_DEBUG=statistics, LD_DEBUG_OUTPUT=$D/ld/stats: one file per
+# pid; BENCH_LDSTATS=0 turns it off). loadprof.py reads them.
+# BENCH_SHADERCACHE (run.sh SHADERCACHE=, an ENVS token): Mesa's disk shader cache for this run, the
+# user's own (~/.cache/mesa_shader_cache) left alone: cold (MESA_SHADER_CACHE_DIR an empty directory,
+# removed after the run: a first start), warm (a directory per game kept across runs and boots in
+# BENCH_SHADERCACHE_ROOT, default /var/tmp/ps3-bench/shadercache; its first run fills it and is tagged
+# prime), off (MESA_SHADER_CACHE_DISABLE=true: compiles, no cache reads or writes). bench.txt gets
+# shadercache=<mode> and shadercache_kb=<KiB before> <KiB after>; report.py shows it after the variant
+# (base@sccold).
 {
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
@@ -161,6 +180,68 @@ for v in $(compgen -v BENCH_PS3RSX_); do
 	KPARAM_OLD+=("$n=$o"); KPARAM+=("$n=${!v}")
 	trap 'restore; kparam_restore' EXIT
 done
+# Mesa's disk shader cache for this run (BENCH_SHADERCACHE, the top)
+SC=${BENCH_SHADERCACHE:-}; SC_DIR=; SC_KB=
+SC_ROOT=${BENCH_SHADERCACHE_ROOT:-/var/tmp/ps3-bench/shadercache}
+sc_kb() { [ -n "$SC_DIR" ] && [ -d "$SC_DIR" ] && du -sk "$SC_DIR" 2>/dev/null | cut -f1; }
+sc_done() { [ "$SC" = cold ] && [ -n "$SC_DIR" ] && rm -rf "$SC_DIR"; SC_DIR=; }
+case $SC in
+'') ;;
+cold) SC_DIR=$SC_ROOT/cold.$$; rm -rf "$SC_DIR"; mkdir -p "$SC_DIR" ;;
+warm) SC_DIR=$SC_ROOT/warm-$GAME; mkdir -p "$SC_DIR"
+	[ -n "$(find "$SC_DIR" -type f -print -quit 2>/dev/null)" ] || SC=prime ;;	# empty: this run fills it
+off) ENV+=(MESA_SHADER_CACHE_DISABLE=true) ;;
+*) echo "!! BENCH_SHADERCACHE=$SC: cold, warm or off"; exit 2 ;;
+esac
+if [ -n "$SC_DIR" ]; then
+	ENV+=(MESA_SHADER_CACHE_DIR="$SC_DIR"); SC_KB=$(sc_kb)
+	trap 'restore; kparam_restore; sc_done' EXIT
+fi
+# start-up profiling (BENCH_PERF_LOAD, the top): the gate, ld.so's statistics
+PLOAD=${BENCH_PERF_LOAD:-0}; GATE=(); GATE_FD=; PL_FD=; PL_ACK=; PL_ON=0; PL_WIN=(); PL_ACKS=; PL_END=
+PL_TICKS=0; PL_T0=; MONO_T0=
+if [ "$PLOAD" = 1 ]; then
+	mkdir -p "$D/load-io"
+	if [ "${BENCH_LDSTATS:-1}" = 1 ]; then
+		mkdir -p "$D/ld"; ENV+=(LD_DEBUG=statistics LD_DEBUG_OUTPUT="$D/ld/stats")
+	fi
+	while read -r k _ v; do [ "$k" = timebase ] && echo "$v" > "$D/load-io/timebase"; done < /proc/cpuinfo
+	if [ -n "${BENCH_PERF_LOAD_CTL:-}" ]; then
+		rm -f "$D/.gate"; mkfifo "$D/.gate"; exec {GATE_FD}<> "$D/.gate"
+		# the gate: waits for the client's line (BENCH_PERF_LOAD_WAIT + 30 s at most), then execs the game
+		GATE=(bash -c 'exec 9<> "$0"; read -r -t "$1" -u 9 _; exec 9<&-; shift; exec "$@"' "$D/.gate"
+			$(( ${BENCH_PERF_LOAD_WAIT:-120} + 30 )))
+	fi
+fi
+fcopy() {	# fcopy FILE OUT: a /proc file copied by bash's builtins (no fork while the game loads)
+	local l
+	{ while IFS= read -r l || [ -n "$l" ]; do printf '%s\n' "$l"; done < "$1" > "$2"; } 2>/dev/null
+}
+io_snap() {	# io_snap LABEL: the disks, the VM and (once the game's pid is known) the game, into load-io/
+	local o=$D/load-io/$1 p=
+	fcopy /proc/diskstats "$o.diskstats"; fcopy /proc/vmstat "$o.vmstat"
+	read -r p < "$D/.pid" 2>/dev/null
+	if [ -n "$p" ] && [ -e "/proc/$p/stat" ]; then
+		fcopy "/proc/$p/stat" "$o.stat"; fcopy "/proc/$p/task/$p/stat" "$o.mainstat"
+		fcopy "/proc/$p/io" "$o.io"; fcopy "/proc/$p/status" "$o.status"
+	fi
+	printf 'label=%s real=%s pid=%s\n' "$1" "$EPOCHREALTIME" "$p" > "$o.info"
+}
+pload_off() {	# the start-up span is over: perf off, the counters
+	local a t
+	[ "$PLOAD" = 1 ] || return 0
+	PL_END=
+	if [ "$PL_ON" = 1 ]; then
+		printf 'disable\n' >&"$PL_FD"
+		read -r -t 1 -u "$PL_ACK" a && [ "$a" = ack ] || PL_ACKS=missing
+		perf_ticks a "$D/.perfload.pid"; PL_TICKS=$(( a - PL_T0 )); PL_ON=0
+		us; secs t $(( US - u0 )); PL_WIN+=("$t")
+	fi
+	[ -e "$D/load-io/warm.info" ] && return 0
+	io_snap warm
+	read -r a < "$D/.pid" 2>/dev/null && readlink "/proc/$a/exe" > "$D/perf-load.exe" 2>/dev/null
+	return 0
+}
 launch=(); [ "$GAMEMODE" = 1 ] && launch=(ps3-game)
 # GAMEMODE=0 means no game mode: not even ps3-game-detect's (it reads the game's environment)
 [ "$GAMEMODE" = 1 ] || ENV+=(PS3_GAME_MODE=off)
@@ -216,7 +297,7 @@ set -m
 fifo=$D/.game.fifo; rm -f "$fifo"; mkfifo "$fifo"
 t0=$EPOCHREALTIME
 # stdbuf: line-buffered stdio into the pipe, so END_RE and LOAD_MARK lines arrive when printed
-env "${ENV[@]}" "${launch[@]}" stdbuf -oL -eL "${CMD[@]}" < /dev/null > "$fifo" 2>&1 &
+"${GATE[@]}" env "${ENV[@]}" "${launch[@]}" stdbuf -oL -eL "${CMD[@]}" < /dev/null > "$fifo" 2>&1 &
 gp=$!
 set +m
 exec 3< "$fifo"
@@ -227,6 +308,23 @@ for c in ${BENCH_PERF_CTL:-}; do
 	exec {f}<> "${c%%:*}"; PERF_FD+=("$f"); exec {f}<> "${c#*:}"; PERF_ACK+=("$f")
 done
 [ -e "$D/.malloc.fifo" ] && exec {MALLOC_FD}<> "$D/.malloc.fifo"
+# the start-up profile: perf on and attached (its ack) before the gate opens and the clock starts
+if [ ${#GATE[@]} -gt 0 ]; then
+	printf '%s\n' "$gp" > "$D/.launch.pid.new"; mv "$D/.launch.pid.new" "$D/.launch.pid"
+	exec {PL_FD}<> "${BENCH_PERF_LOAD_CTL%%:*}"; exec {PL_ACK}<> "${BENCH_PERF_LOAD_CTL#*:}"
+	printf 'enable\n' >&"$PL_FD"
+	if read -r -t "${BENCH_PERF_LOAD_WAIT:-120}" -u "$PL_ACK" a && [ "$a" = ack ]; then
+		PL_ON=1; PL_ACKS=ok
+	else
+		PL_ACKS="no ack for enable"; echo "!! start-up profile: perf never acknowledged enable (perf-load.err)"
+	fi
+fi
+if [ "$PLOAD" = 1 ]; then
+	io_snap start
+	read -r MONO_T0 _ < /proc/uptime; t0=$EPOCHREALTIME	# the clock starts as the game execs
+	[ -n "$GATE_FD" ] && printf 'go\n' >&"$GATE_FD"
+	[ "$PL_ON" = 1 ] && PL_WIN+=(0.00)
+fi
 stop_game() {
 	kill -0 "$gp" 2>/dev/null || return 0
 	kill -TERM -- -"$gp" 2>/dev/null
@@ -276,14 +374,15 @@ secs() { printf -v "$1" '%d.%02d' $(($2 / 1000000)) $(($2 % 1000000 / 10000)); }
 # the start); prof_due runs what is due and sets PROF_NEXT to the next one
 PERF_AT=; PERF_END=; PERF_ON=0; PERF_WIN=(); PERF_TICKS=0; PERF_T0=; PERF_ACKS=ok; MEM_AT=(); MEM_LB=()
 MEM_JOBS=(); MEM_DONE=(); PROF_NEXT=
-perf_ticks() {	# perf_ticks VAR: user+sys clock ticks of the perf processes so far (locals _*: not VAR)
+perf_ticks() {	# perf_ticks VAR [PIDFILE]: user+sys clock ticks of the perf processes so far (locals _*: not VAR)
 	local _p _f _t=0 _pids=
-	read -r _pids < "$D/.perf.pid" 2>/dev/null
+	read -r _pids < "${2:-$D/.perf.pid}" 2>/dev/null
 	for _p in $_pids; do
 		read -r -a _f < "/proc/$_p/stat" 2>/dev/null && _t=$(( _t + _f[13] + _f[14] ))
 	done
 	printf -v "$1" '%d' "$_t"
 }
+[ "$PL_ON" = 1 ] && perf_ticks PL_T0 "$D/.perfload.pid"	# perf's own CPU from here (its attach before)
 perf_ctl() {	# perf_ctl enable|disable: every perf, waiting 1 s at most for each one's ack
 	local i a t
 	[ ${#PERF_FD[@]} -gt 0 ] || return 0
@@ -320,6 +419,7 @@ mem_snap() {	# mem_snap LABEL: the game's memory now into $D/mem/LABEL.*
 }
 prof_plan() {	# prof_plan START_US: the window starts at START_US: perf on then, snapshots in it
 	local s=$1
+	[ "$PLOAD" = 1 ] && [ ! -e "$D/load-io/warm.info" ] && PL_END=$s	# the start-up profile ends there
 	if [ ${#PERF_FD[@]} -gt 0 ] && [ -z "$WIN_ON_RE" ]; then
 		PERF_AT=$s
 		[ "$PASSES" = 1 ] || PERF_END=$(( s + MEASURE * 1000000 ))
@@ -334,8 +434,12 @@ prof_plan() {	# prof_plan START_US: the window starts at START_US: perf on then,
 prof_due() {	# runs the profiling events due now (US); PROF_NEXT: the next one's time, or empty
 	local now=$(( US - u0 ))
 	PROF_NEXT=
+	if [ -n "$PL_END" ]; then
+		if [ $now -ge "$PL_END" ]; then pload_off; else PROF_NEXT=$PL_END; fi
+	fi
 	if [ -n "$PERF_AT" ]; then
-		if [ $now -ge "$PERF_AT" ]; then perf_ctl enable; PERF_AT=; else PROF_NEXT=$PERF_AT; fi
+		if [ $now -ge "$PERF_AT" ]; then perf_ctl enable; PERF_AT=
+		elif [ -z "$PROF_NEXT" ] || [ "$PERF_AT" -lt "$PROF_NEXT" ]; then PROF_NEXT=$PERF_AT; fi
 	fi
 	if [ -z "$PERF_AT" ] && [ -n "$PERF_END" ]; then
 		if [ $now -ge "$PERF_END" ]; then perf_ctl disable; PERF_END=
@@ -357,6 +461,7 @@ prof_due() {	# runs the profiling events due now (US); PROF_NEXT: the next one's
 load_us=; hud_us=; stop_us=; np=0; plast=; measured=0; win0=; win1=; PASS=(); son=; SEGS=()
 loaded() {	# the load ended now (US)
 	load_us=$(( US - u0 ))
+	[ "$PLOAD" = 1 ] && io_snap load
 	[ "$WINDOW_STOP" = 1 ] && stop_us=$(( load_us + (WARMUP + MEASURE + 2) * 1000000 ))
 	if [ -z "$WIN_ON_RE" ]; then	# profiling from the window's start (PASSES: 0.9 x WARMUP)
 		if [ "$PASSES" = 1 ]; then prof_plan $(( load_us + WARMUP * 900000 ))
@@ -413,6 +518,7 @@ while :; do
 	if [ -z "$t_load" ] && [ -n "$LOAD_MARK" ] && [[ $l =~ $LOAD_MARK ]]; then t_load=$(age); fi
 	if [ -n "$WIN_ON_RE" ]; then	# the game's own window pieces
 		if [ -z "$son" ] && [[ $l =~ $WIN_ON_RE ]]; then son=$(( US - u0 ))
+			[ ${#SEGS[@]} -eq 0 ] && pload_off	# the start-up span ends at the first piece
 			perf_ctl enable; [ ${#SEGS[@]} -eq 0 ] && prof_plan "$son"
 		elif [ -n "$son" ] && [ -n "$WIN_OFF_RE" ] && [[ $l =~ $WIN_OFF_RE ]]; then
 			secs a "$son"; secs b $(( US - u0 )); SEGS+=("$a $b"); son=
@@ -425,6 +531,9 @@ done
 us; run_us=$(( US - u0 )); secs t_run "$run_us"
 # the window is over (or the game is): perf off, the last snapshot while the game still runs
 perf_ctl disable
+pload_off
+[ -n "$GATE_FD" ] && exec {GATE_FD}>&-
+read -r game_pid < "$D/.pid" 2>/dev/null || game_pid=
 [ ${#MEM_JOBS[@]} -gt 0 ] && wait "${MEM_JOBS[@]}"
 if [ "$MEM" = 1 ] && [ ${#MEM_DONE[@]} -gt 0 ] && [[ " ${MEM_DONE[*]} " != *" end "* ]]; then
 	mem_snap end > /dev/null 2>&1; MEM_DONE+=(end)
@@ -476,6 +585,15 @@ secs measured "$measured"
   [ ${#GENV[@]} -gt 0 ] && echo "genv=${GENV[*]}"
   [ ${#KPARAM[@]} -gt 0 ] && echo "kparam=${KPARAM[*]}"
   [ -n "$GPF" ] && echo "gprefetch=$GPF"
+  [ -n "$SC" ] && { echo "shadercache=$SC"; echo "shadercache_kb=${SC_KB:--} $(sc_kb || echo -)"; }
+  echo "game_pid=$game_pid"
+  if [ "$PLOAD" = 1 ]; then
+	echo "mono_t0=$MONO_T0"
+	if [ -n "${BENCH_PERF_LOAD_CTL:-}" ]; then
+		echo "perf_load_win=${PL_WIN[*]}"; echo "perf_load_ack=${PL_ACKS:-missing}"
+		awk -v t="$PL_TICKS" 'BEGIN { printf "perf_load_cpu=%.2f\n", t / 100 }'
+	fi
+  fi
   echo "hud_skip=$HUD_SKIP"; echo "hwm=$(cat "$D/.hwm" 2>/dev/null)"; echo "sound=$(cat "$D/.sound" 2>/dev/null)"
   if [ ${#PERF_FD[@]} -gt 0 ]; then
 	echo "perf_win=${PERF_WIN[*]}"; echo "perf_ack=$PERF_ACKS"
@@ -487,7 +605,7 @@ secs measured "$measured"
   # ALSA's "underrun occurred": the sound buffer ran dry (what a listener hears as chopping)
   echo "underruns=$(grep -ac 'underrun occurred' "$D/game.log" 2>/dev/null)"
   parse; } > "$D/bench.txt"
-rm -f "$D/.hwm" "$D/.pid" "$D/.sound" "$D/.malloc.fifo"
+rm -f "$D/.hwm" "$D/.pid" "$D/.sound" "$D/.malloc.fifo" "$D/.gate" "$D/.launch.pid"
 sed 's/^/bench: /' "$D/bench.txt"
 exit 0
 }

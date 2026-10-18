@@ -19,7 +19,8 @@ recorder sample (default 10 ms) gets one cause, from the game's main thread and 
   wait        asleep by choice: futex (another thread), poll/recvmsg (X), nanosleep
   unknown     D state elsewhere, or no sample
 Prints per run: the stall seconds by cause in the window, the same for the load (the client's
-start until the load ended), and the 10 longest stalls with their evidence (faults, swap-ins, disk
+start until the load ended) and for the warm-up (the load's end until the window's start: the rest of
+the start-up span, docs/PROFILING.md "Start-up profiling"), and the 10 longest stalls with their evidence (faults, swap-ins, disk
 reads, reclaim, CPU, the thread's states, wchans and syscalls, kernel stacks, Xorg and kswapd).
 report.py imports summary() for its stall_*_s columns. Times are seconds from the client's start,
 as in bench.txt."""
@@ -317,7 +318,7 @@ def analyze(d):
     ft = report.floats(ft_path) if ft_path.exists() else []
     off, spread, how = align(rec, b, ft)
     res = {"rec": rec, "frames": len(ft), "rec_frames": len(rec.frames), "align": how, "offset": off,
-           "spread": spread, "stalls": [], "window": Counter(), "load": None}
+           "spread": spread, "stalls": [], "window": Counter(), "load": None, "warmup": None}
     t0 = report.num(b.get("t0"))
     if t0 is not None and rec.clocks and off is not None:
         res["t0_offset"] = rec.real_to_rec(t0) - off    # the two alignments against each other
@@ -356,6 +357,11 @@ def analyze(d):
         # the load: the client's start (or the recorder's, if later) until the load ended
         by, ev, states, wchans, calls, others, stacks = interval(rec, max(off, rec.t[0]), le + off)
         res["load"] = (le, by, evidence(ev, states, wchans, calls, others, stacks))
+        # the warm-up: the load's end until the window's start (all of it, as the load)
+        se = report.startup_end(b)
+        if se is not None and se > le:
+            by, ev, states, wchans, calls, others, stacks = interval(rec, le + off, se + off)
+            res["warmup"] = (le, se, by, evidence(ev, states, wchans, calls, others, stacks))
     return res
 
 
@@ -370,6 +376,8 @@ def summary(d):
     out = {}
     if res["load"]:
         out["load_disk_s"] = round(res["load"][1].get("disk", 0), 1)
+    if res.get("warmup"):
+        out["warmup_disk_s"] = round(res["warmup"][2].get("disk", 0), 1)
     if "warm" in res:
         out["warm_disk_s"] = round(res["warm"].get("disk", 0), 1)
     if not res["measured"]:
@@ -423,6 +431,11 @@ def show(d):
     if res["load"]:
         le, by, ev = res["load"]
         print("  load (0 - %.1f s):" % le)
+        print(table(by))
+        print("    evidence: " + ev)
+    if res.get("warmup"):
+        a, z, by, ev = res["warmup"]
+        print("  warm-up, all of it (%.1f - %.1f s):" % (a, z))
         print(table(by))
         print("    evidence: " + ev)
     if st:

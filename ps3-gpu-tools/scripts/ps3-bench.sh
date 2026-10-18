@@ -31,7 +31,11 @@
 # kswapd0, started disabled once client.sh's .pid appears and switched on and off by client.sh over
 # the measured window through the fifo $BENCH_PERF_CTL; perf.data goes to the disk, not /dev/shm,
 # and into the run directory at the end (docs/PROFILING.md; games/bench/perf-post.sh reads it).
-# BENCH_PERF_ALL=1 adds a system-wide perf without call graphs (perf-sys.data). The command sees the
+# BENCH_PERF_ALL=1 adds a system-wide perf without call graphs (perf-sys.data). BENCH_PERF_LOAD=1:
+# a second perf record (perf-load.data, call graphs) of the start-up: client.sh holds the game at a
+# gate until this perf has attached to it (its pid in $D/.launch.pid), switches it on through the
+# fifo $BENCH_PERF_LOAD_CTL and lets the game exec; off where the measured window starts (exec,
+# loading screens and the warm-up: docs/PROFILING.md "Start-up profiling"). The command sees the
 # run directory as $BENCH_DIR.
 # The A/B switches of docs/STALLS.md "The recorder removes stalls" (ps3-waker: ps3-gpu-tools 0.399+):
 # BENCH_STALLS_CPU=LIST pins the recorder (taskset), BENCH_STALLS_NOWRITE=1 samples without writing
@@ -380,6 +384,7 @@ harness() {
 		t+=("wk${BENCH_WAKER_MODE:-sleep}${BENCH_WAKER}${BENCH_WAKER_CPU:+c$BENCH_WAKER_CPU}")
 	[ "${BENCH_PROBE:-0}" = 1 ] && t+=("probe${BENCH_PROBE_MS:-20}${BENCH_PROBE_CPU:+c$BENCH_PROBE_CPU}")
 	[ "${BENCH_PERF:-0}" = 1 ] && t+=(perf)
+	[ "${BENCH_PERF_LOAD:-0}" = 1 ] && t+=(perfload)
 	local IFS=+
 	echo "${t[*]}" | tr , _
 }
@@ -391,26 +396,58 @@ harness() {
 # compiler flags, so no dwarf stack copies (8 KiB a sample). --buildid-mmap: the build ids come
 # with the mmap events, no pass over the file at the end. The control fifos are made here, before
 # the job starts, and exported for client.sh: it writes enable/disable at the window's ends.
-PERFJOB= PD=
+PERFJOB= PERFLOADJOB= PD=
 prep_perf() {
-	unset BENCH_PERF_CTL
-	[ "${BENCH_PERF:-0}" = 1 ] || return 0
+	unset BENCH_PERF_CTL BENCH_PERF_LOAD_CTL
+	[ "${BENCH_PERF:-0}" = 1 ] || [ "${BENCH_PERF_LOAD:-0}" = 1 ] || return 0
 	if ! command -v perf >/dev/null; then
-		echo '!! BENCH_PERF=1 but no perf (linux-perf): profiling nothing' >&2
+		echo '!! BENCH_PERF=1 or BENCH_PERF_LOAD=1 but no perf (linux-perf): profiling nothing' >&2
 		return 0
 	fi
 	PD=$OUT/.perf-${D##*/}
 	mkdir -p "$PD"
-	mkfifo "$D/.perf.ctl" "$D/.perf.ack"
-	BENCH_PERF_CTL="$D/.perf.ctl:$D/.perf.ack"
-	if [ "${BENCH_PERF_ALL:-0}" = 1 ]; then
-		mkfifo "$D/.perfsys.ctl" "$D/.perfsys.ack"
-		BENCH_PERF_CTL="$BENCH_PERF_CTL $D/.perfsys.ctl:$D/.perfsys.ack"
+	if [ "${BENCH_PERF:-0}" = 1 ]; then
+		mkfifo "$D/.perf.ctl" "$D/.perf.ack"
+		BENCH_PERF_CTL="$D/.perf.ctl:$D/.perf.ack"
+		if [ "${BENCH_PERF_ALL:-0}" = 1 ]; then
+			mkfifo "$D/.perfsys.ctl" "$D/.perfsys.ack"
+			BENCH_PERF_CTL="$BENCH_PERF_CTL $D/.perfsys.ctl:$D/.perfsys.ack"
+		fi
+		export BENCH_PERF_CTL
 	fi
-	export BENCH_PERF_CTL
+	if [ "${BENCH_PERF_LOAD:-0}" = 1 ]; then
+		mkfifo "$D/.perfload.ctl" "$D/.perfload.ack"
+		export BENCH_PERF_LOAD_CTL="$D/.perfload.ctl:$D/.perfload.ack"
+	fi
+}
+# The start-up profile (BENCH_PERF_LOAD=1): perf attaches to client.sh's gate process (a bash that
+# waits on a fifo, then execs the game: same pid, and inherit follows whatever it forks), Xorg and
+# kswapd0, started disabled; client.sh writes enable, waits for the ack, opens the gate, and writes
+# disable at the window's start. Attached before the exec, perf gets the exec's comm and every mmap
+# of the load (no perf.track trick needed). Its CPU time: .perfload.pid.
+start_perf_load() {
+	[ -n "$PD" ] && [ -n "${BENCH_PERF_LOAD_CTL:-}" ] || return 0
+	sudo env D="$D" PD="$PD" HZ="${BENCH_PERF_HZ:-499}" bash -c '
+		mkfifo "$D/.perfload.tick"; exec 9<> "$D/.perfload.tick"; rm -f "$D/.perfload.tick"
+		for i in $(seq 2400); do [ -s "$D/.launch.pid" ] && break; [ -e "$D/stop" ] && exit 0; read -r -t 0.1 -u 9; done
+		read -r p < "$D/.launch.pid" 2>/dev/null && [ -n "$p" ] || exit 0
+		x=$(pidof -s Xorg); k=$(pgrep -x kswapd0 | head -1)
+		echo "game=$p xorg=$x kswapd0=$k hz=$HZ launch=1" > "$D/perf-load.targets"
+		perf record -q -e cpu-clock -F "$HZ" -g -k mono -N --buildid-mmap -D -1 \
+			--control "fifo:$D/.perfload.ctl,$D/.perfload.ack" --proc-map-timeout=20000 \
+			-p "$p${x:+,$x}${k:+,$k}" -o "$PD/perf-load.data" 2> "$D/perf-load.err" &
+		r=$!
+		echo "$r" > "$D/.perfload.pid"
+		while kill -0 $r 2>/dev/null; do	# kswapd0 never exits: stopped by the stop file
+			[ -e "$D/stop" ] && kill -INT $r 2>/dev/null
+			read -r -t 0.5 -u 9
+		done
+		wait $r' &
+	PERFLOADJOB=$!
 }
 start_perf() {
-	[ -n "$PD" ] || return 0
+	start_perf_load
+	[ -n "$PD" ] && [ "${BENCH_PERF:-0}" = 1 ] || return 0
 	sudo env D="$D" PD="$PD" HZ="${BENCH_PERF_HZ:-499}" ALL="${BENCH_PERF_ALL:-0}" bash -c '
 		# the tick: a read timing out on a fifo nobody writes (no sleep forked every 0.25 s)
 		mkfifo "$D/.perf.tick"; exec 9<> "$D/.perf.tick"; rm -f "$D/.perf.tick"
@@ -456,6 +493,10 @@ stop_sampler() {
 	if [ -n "$PERFJOB" ]; then	# perf writes its last buffers on SIGINT
 		for i in $(seq 240); do kill -0 "$PERFJOB" 2>/dev/null || break; sleep 0.25; done
 		kill "$PERFJOB" 2>/dev/null; wait "$PERFJOB" 2>/dev/null; PERFJOB=
+	fi
+	if [ -n "$PERFLOADJOB" ]; then
+		for i in $(seq 240); do kill -0 "$PERFLOADJOB" 2>/dev/null || break; sleep 0.25; done
+		kill "$PERFLOADJOB" 2>/dev/null; wait "$PERFLOADJOB" 2>/dev/null; PERFLOADJOB=
 	fi
 	if [ -n "$STALLREC" ]; then	# it looks at the stop file every 10 samples
 		for i in $(seq 30); do kill -0 "$STALLREC" 2>/dev/null || break; sleep 0.1; done
@@ -551,6 +592,11 @@ run_job() {
 	  [ -e "$D/perf.targets" ] && awk -F= -v t="$(cat "$D/perf.track" 2>/dev/null)" '$1 == "perf_win" { w = $2 } $1 == "perf_cpu" { c = $2 }
 		END { printf "perf: window %s, perf itself %s s of CPU in it, load mmaps tracked: %s\n", w ? w : "never enabled",
 			c ? c : "?", t ? t : "?" }' "$D/bench.txt"
+	  # the start-up profile (client.sh's perf_load_*)
+	  [ -e "$D/perf-load.targets" ] && awk -F= '$1 == "perf_load_win" { w = $2 } $1 == "perf_load_cpu" { c = $2 }
+		$1 == "perf_load_ack" { a = $2 } $1 == "load_end" { l = $2 }
+		END { printf "perf-load: exec to the window %s (load end %s), perf itself %s s of CPU, ack %s\n",
+			w ? w : "never enabled", l ? l : "?", c ? c : "?", a ? a : "?" }' "$D/bench.txt"
 	} > "$D/result"
 	[ -e "$D/THERMAL" ] && echo "!! THERMAL ALERT: the job was stopped. Let the PS3 cool down." >&2
 	[ -e "$D/TEMPLIMIT" ] && echo "!! $(cat "$D/TEMPLIMIT") Let the PS3 cool down." >&2

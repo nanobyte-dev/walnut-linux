@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""report.py [--stalls] [--perf] [--mem] [--include-interfered] <run dir>...: one line per games/bench run (ps3-bench.sh run directories with the
+"""report.py [--stalls] [--perf] [--mem] [--load] [--include-interfered] <run dir>...: one line per games/bench run (ps3-bench.sh run directories with the
 bench.txt client.sh writes), then the median per game and variant, then, when a game ran in more
 than one variant, each variant against the first: fps and load as ratios, so a decision reads
 across games. Columns:
@@ -47,7 +47,8 @@ stall causes (runs with a stalls.rec: ps3-bench.sh BENCH_STALLS=1, run.sh STALLS
           poll, sleep), _other_s (faults without I/O, unknown): the window's stall_s split by
           what the game's main thread and the counters did; stall_why the largest of them;
           load_disk_s the load's seconds waiting on the disk (client start to load_end, all of it,
-          not only stall frames), warm_disk_s the warm-up's stall frames' disk seconds
+          not only stall frames), warm_disk_s the warm-up's stall frames' disk seconds,
+          warmup_disk_s the warm-up's (load_end to the window's start) seconds waiting on the disk
   snd     the sound card state(s) at SOUND_AT seconds; end: how the run ended (exit, end, duration)
   intf    1: somebody disturbed the run (ps3-bench.sh's detector: bench.txt interfered=1, or the
           retro-scan's list results/interfered.txt for runs from before it; docs/STALLS.md
@@ -68,7 +69,17 @@ profiles (docs/PROFILING.md; shown only for runs that have them):
   sysmem_* runs with ENVS token NV30_SYSMEM_STATS=N (Mesa 0037): MiB of nouveau's system memory
           copies of GPU buffers (sysmem_mb the peak; _create_mb, _read_mb how they were made),
           sysmem_readbacks, sysmem_hint the frame the screen-wide copy hint was set (0: never)
-  --perf, --mem print perfprof.py's and memprof.py's tables for every run that has them
+  lp_*    runs with PERF_LOAD=1 (the start-up span: exec, loading screens, warm-up; loadprof.py,
+          docs/PROFILING.md "Start-up profiling"): lp_cpu, lp_main the load's CPU seconds (all the
+          game's threads, its main thread), lp_wcpu the warm-up's; seconds of CPU over the whole span
+          (all threads) in lp_link (ld.so, dlopen), lp_glsl (the GL front end's compiles and links),
+          lp_shbe (nv30's back end: variants, nir_to_tgsi, nvfx), lp_shcache (the disk cache itself),
+          lp_wshader (the three in the warm-up alone), lp_tex (Mesa's texture uploads), lp_mip
+          (mipmap generation), lp_dxt, lp_decomp (inflate, PNG, JPEG, audio and other decoders);
+          lp_mb, lp_wmb MB read from the disks in the load and the warm-up, lp_majflt the game's major
+          faults in the load, lp_ld ld.so's start-up seconds (LD_DEBUG=statistics), lp_disk the main
+          thread's seconds waiting for the disk in the load (with STALLS=1)
+  --perf, --mem, --load print perfprof.py's, memprof.py's and loadprof.py's tables for every run that has them
 A run with something alongside the game shows it after the variant (base@rec10, base@wksleep10c1,
 base@perf: bench.txt harness=, ps3-bench.sh; older runs: rec<ms> from a stalls.rec, perf from
 perf.targets), and is grouped apart: the stall recorder alone takes OpenArena's gameplay stalls from
@@ -142,6 +153,8 @@ def harness(d, b):
         m = "+".join(x for x in (m, k) if x)
     if b.get("gprefetch"):   # client.sh BENCH_GAMEPREFETCH: the game's files read at its start
         m = "+".join(x for x in (m, "gpf" + b["gprefetch"]) if x)
+    if b.get("shadercache"):   # client.sh BENCH_SHADERCACHE: Mesa's disk shader cache cold, warm, prime, off
+        m = "+".join(x for x in (m, "sc" + b["shadercache"]) if x)
     if "harness" in b:
         return "+".join(x for x in (b["harness"], m) if x)
     t = []
@@ -236,6 +249,9 @@ def run(d):
     if (d / "mem").is_dir():
         import memprof
         r.update(memprof.summary(d))
+    if (d / "perf-load-stacks.tsv").exists() or (d / "load-io").is_dir():
+        import loadprof
+        r.update(loadprof.summary(d))
     r.update(sysmem(d))
     return r
 
@@ -376,6 +392,23 @@ def play(d, b, r, segs, inw):
     r["win_play"] = round(sum(t - s for s, t in segs) - cut, 1)
 
 
+def startup_end(b):
+    """where the start-up span ends (seconds from the client's start): the start-up profile's end
+    (client.sh perf_load_win, PERF_LOAD=1: where the window's profile would start), else the window's
+    first piece, else load_end + WARMUP; None without a load end"""
+    le = num(b.get("load_end"))
+    if le is None:
+        return None
+    w = [num(x) for x in (b.get("perf_load_win") or "").split()]
+    if len(w) >= 2 and w[1] is not None and w[1] >= le:
+        return w[1]
+    segs = window(b)
+    if segs and segs[0][0] >= le:
+        return segs[0][0]
+    wu = num(b.get("warmup"))
+    return le + wu if wu else None
+
+
 def warm_segment(b):
     """(start, end) of the warm-up: the load's end (bench.txt load_end) and WARMUP s after, or None"""
     le, w = num(b.get("load_end")), num(b.get("warmup"))
@@ -469,7 +502,7 @@ COLS = ["load", "fps", "maxms", "hud", "steady", "src", "low1", "stalls", "smoot
         "ftdrift", "cpu", "rss", "vram", "gart", "avail", "so_load", "so_all",
         "vsw_peak", "vsw_wb", "xrun", "tmax", "tcell", "trsx", "snd", "end", "intf", "stall_disk_s", "stall_swap_s", "stall_reclaim_s",
         "stall_gpu_s", "stall_cpu_s", "stall_io_s", "stall_wait_s", "stall_other_s", "stall_why",
-        "load_disk_s", "warm_disk_s"]
+        "load_disk_s", "warm_disk_s", "warmup_disk_s"]
 # the profiles' columns: printed only for the runs that have them
 PROF_COLS = (["perf_n", "perf_game", "perf_mesa", "perf_drm", "perf_kgpu", "perf_kernel", "perf_libc", "perf_other",
               "perf_unk", "perf_xorg", "perf_kswapd", "perf_self"]
@@ -479,7 +512,9 @@ PROF_COLS = (["perf_n", "perf_game", "perf_mesa", "perf_drm", "perf_kgpu", "perf
                                               "files", "other") for k in ("rss", "swap")]
              + ["mem_grow", "mem_malloc_used", "mem_malloc_free", "mem_arenas", "mem_gpu_vram", "mem_gpu_gart",
                 "mem_smaps_ms", "mem_topswap"]
-             + ["sysmem_mb", "sysmem_create_mb", "sysmem_read_mb", "sysmem_readbacks", "sysmem_hint"])
+             + ["sysmem_mb", "sysmem_create_mb", "sysmem_read_mb", "sysmem_readbacks", "sysmem_hint"]
+             + ["lp_cpu", "lp_main", "lp_wcpu", "lp_link", "lp_glsl", "lp_shbe", "lp_shcache", "lp_wshader", "lp_tex",
+                "lp_mip", "lp_dxt", "lp_decomp", "lp_mb", "lp_wmb", "lp_majflt", "lp_ld", "lp_disk"])
 COLS += PROF_COLS
 RANGED = ("load", "fps", "maxms", "hud_med", "steady", "low1", "smooth", "stall_s", "stall_play_s", "low1_play",
           "stall_warm_s")
@@ -548,9 +583,9 @@ def main(dirs):
 if __name__ == "__main__":
     args = sys.argv[1:]
     detail = "--stalls" in args     # stalls.py's tables for every run with a record, after the summary
-    pdetail, mdetail = "--perf" in args, "--mem" in args
+    pdetail, mdetail, ldetail = "--perf" in args, "--mem" in args, "--load" in args
     INCLUDE_INTERFERED = "--include-interfered" in args
-    args = [a for a in args if a not in ("--stalls", "--perf", "--mem", "--include-interfered")]
+    args = [a for a in args if a not in ("--stalls", "--perf", "--mem", "--load", "--include-interfered")]
     main(args)
     if detail:
         import stalls
@@ -570,3 +605,9 @@ if __name__ == "__main__":
             if (Path(d) / "mem").is_dir():
                 print()
                 memprof.show(d)
+    if ldetail:
+        import loadprof
+        for d in args:
+            if (Path(d) / "perf-load-stacks.tsv").exists() or (Path(d) / "load-io").is_dir():
+                print()
+                loadprof.show(d)

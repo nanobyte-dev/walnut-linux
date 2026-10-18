@@ -292,14 +292,14 @@ ps3-reboot:
 # The game suite runner (games/bench, docs/GAME-PLAN.md) to /var/tmp/bench on the PS3: unpacked
 # beside the old copy and swapped in with a rename, so a run in progress keeps reading its files.
 # bench-pull: the PS3's run directories (/var/tmp/ps3-bench) into $(BUILD)/bench; the raw profiles
-# (perf.data ~20 MB a run, perf-syms.tar) only with PERFDATA=1 (docs/PROFILING.md)
+# (perf.data ~20 MB a run, perf-load.data, perf-syms.tar) only with PERFDATA=1 (docs/PROFILING.md)
 bench-push:
 	tar -C games -c bench | $(PS3_SSH) 'set -e; rm -rf /var/tmp/bench.new /var/tmp/bench.old; \
 		mkdir /var/tmp/bench.new; tar -C /var/tmp/bench.new --strip-components=1 -x; \
 		[ ! -e /var/tmp/bench ] || mv /var/tmp/bench /var/tmp/bench.old; mv /var/tmp/bench.new /var/tmp/bench'
 bench-pull:
 	mkdir -p $(BUILD)/bench
-	$(PS3_SSH) 'tar -C /var/tmp/ps3-bench -c $(if $(PERFDATA),,--exclude=perf.data --exclude=perf-sys.data --exclude=perf-syms.tar) .' | tar -C $(BUILD)/bench -x
+	$(PS3_SSH) 'tar -C /var/tmp/ps3-bench -c $(if $(PERFDATA),,--exclude=perf.data --exclude=perf-load.data --exclude=perf-sys.data --exclude=perf-syms.tar) .' | tar -C $(BUILD)/bench -x
 	@echo ">> $(BUILD)/bench; summaries: games/bench/report.py $(BUILD)/bench/<run dirs>"
 
 shell: $(BUILDER_STAMP)
