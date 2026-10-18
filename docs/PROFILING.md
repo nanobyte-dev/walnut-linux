@@ -44,7 +44,8 @@ quiet drops the caches and empties the swaps again). By hand, for a run made ear
 - `linux-perf` is in the base image (Debian's; it needs `-D -1`, `--control` and `--buildid-mmap`,
   which Debian's 7.x has: check `perf --version` and `perf.err` after the first run).
 - ps3-gpu-tools with this change (`ps3-mallocstat.so` in `/usr/lib/ps3/lib`, ps3-bench.sh's
-  `BENCH_PERF`): `make ps3-gpu-tools-deb`, then `make deploy` of it.
+  `BENCH_PERF`): `make ps3-gpu-tools-deb`, then `make deploy` of it. 0.412 or later for the mmaps
+  of the load (below); older ones leave libraries dlopened during the load `[unknown]`.
 - Debug symbols, only for the profile runs (they go to the disk, never into images; remove them
   afterwards). Without them perf names only exported functions; static ones show as addresses
   inside the DSO (the class shares are right either way). Each must match the installed version
@@ -82,6 +83,18 @@ ps3-bench.sh (`BENCH_PERF=1`) starts, as root, once client.sh's `.pid` names the
   (2.5 ms in the container test). bench.txt gets `perf_win` (on/off pairs, seconds from the client's
   start), `perf_ack` (ok, or missing when perf never answered: see `perf.err`) and `perf_cpu`
   (perf's own CPU seconds while enabled, from its `/proc` stat).
+- **The load's mmaps** (ps3-gpu-tools 0.412): right after starting perf, ps3-bench.sh writes
+  `enable` and `disable cpu-clock` into the control fifo at once and reads both acks (`perf.track`:
+  `ok`, or which ack never came; the result's perf line repeats it). The tracking event (perf's
+  `dummy:u`, which carries the mmap, comm and task records) stays on, the samples stay off. Without
+  it, perf with `-D -1` on running processes keeps the tracking event off until an exec that never
+  comes, so libraries dlopened during the load (libGLX_mesa, libgallium at context creation) got no
+  map: 25.7% of OpenArena's samples were `[unknown]` in the 2026-10-18 batch. `enable dummy:u`
+  through the fifo is acknowledged but brings no mmap records (tried in a container with Debian's
+  perf 7.2.9, the PS3's version, on a test program that dlopens a library after perf attached:
+  `[unknown]` as before, while enable plus disable cpu-clock named the library's function and kept
+  every sample of the code before out). The one perf loop between the two commands may take a
+  sample of the load (one in the container test).
 - **All the game's threads** (`-p` follows the threads it creates later: inherit), plus Xorg (its
   work for the game) and kswapd0 (background reclaim and zram compression).
 - **cpu-clock**: perf_events has no driver for the Cell PMU, so the samples come from an hrtimer.
@@ -107,18 +120,39 @@ ps3-bench.sh (`BENCH_PERF=1`) starts, as root, once client.sh's `.pid` names the
 | File | What |
 |---|---|
 | `perf-report.txt` | `perf report --no-children --sort dso,sym` of the game process (all its threads), % of its samples |
-| `perf-threads.txt` | samples by pid, thread name and DSO: the game's threads, Xorg, kswapd0 |
+| `perf-threads.txt` | samples (percent and count) by pid, thread name and DSO: the game's threads, Xorg, kswapd0 |
 | `perf.folded` | folded stacks, `thread;outer;...;leaf COUNT` (kernel frames end in `_[k]`, frames without a symbol are `[their DSO]`), for `flamegraph.pl`, `inferno-flamegraph` or speedscope |
 | `perf-leaf.txt` | samples by process, DSO and symbol of the sampled instruction: report.py's columns |
 | `perf-pkgs.txt` | the package of every DSO with samples (dpkg -S): tells the game's own libraries |
 | `perf-buildids.txt` | the build ids of the DSOs with samples |
 | `perf-sys-report.txt`, `perf-sys-leaf.txt` | `PERF_ALL=1`: the system-wide record by comm and DSO |
 | `perf-syms.tar`, `perf-kallsyms` | `PERF_SYMS=1`: the DSOs with samples, their debug files and the ps3rsx module laid out as a root, and the kernel's symbols |
-| `perf.data`, `perf-sys.data`, `perf.err`, `perf.targets`, `perf.exe` | the record, perf's messages, the pids recorded, the game's executable |
+| `perf.data`, `perf-sys.data`, `perf.err`, `perf.targets`, `perf.exe`, `perf.track` | the record, perf's messages, the pids recorded, the game's executable, whether the load's mmaps were tracked |
 
 The collapser is `perfprof.py collapse` (no stackcollapse-perf.pl on the PS3; it reads `perf script
--F comm,pid,tid,time,period,ip,sym,dso`). 100k samples of 20 frames take 2.2 s on a Zen 2 host,
-so about 30-45 s on the PPE; perf script itself takes longer.
+--no-inline -F comm,pid,tid,time,period,ip,sym,dso`). 100k samples of 20 frames take 2.2 s on a Zen 2
+host, so about 30-45 s on the PPE; perf script itself takes longer.
+
+- `--no-inline`: perf script names inlined functions in call chains through addr2line. Debian's
+  perf 7.2 for ppc64 has neither libbfd nor LLVM, so it runs the binutils `addr2line` command, and
+  the image has no binutils: perf wrote to the dead command, died of SIGPIPE (exit 141) after the
+  first few samples, and `perf-post.err` had `addr2line configuration failed` (not always: the
+  ClassiCube, ETR, Neverball and Sauerbraten runs died without the message). perf report with
+  `-g none` never asks for inlines, so `perf-report.txt` and `perf-threads.txt` were complete.
+- After the collapse perf-post.sh compares its sample count with perf report's (the Samples column
+  of `perf-threads.txt`) and prints `!! perf script exit ..., N of M samples collapsed` into its
+  output and `perf-post.err` when they differ by more than 1%.
+- **Frames perf left `[unknown]`** in the game process (records made before ps3-gpu-tools 0.412, or
+  whenever perf missed a map) are filled from the run's MEM=1 smaps (`mem/mid.smaps`, else start
+  or end): the mapping gives the library, the library and its debug file
+  (`/usr/lib/debug/.build-id/`, by the build id in `perf-buildids.txt` or the library's note) the
+  symbol, through `hotpaths/elfsym.py` (it maps the files, so libgallium's 25 MB and its 25 MB debug
+  file cost only the symbol table pages). The link register entry perf could not check against a
+  leaf without a map is dropped by `hotpaths/analyze.py`'s rule (it repeats the next entry or lands
+  in the leaf's function). `perf-leaf.txt` then has `# filled_from_smaps=<dso>:<samples>,...` and
+  `perfprof.py` prints it; more than 3% `[unknown]` left gets a warning. Without MEM=1 those
+  frames stay `[unknown]`. `PERFPROF_ROOT` puts a symbol root in front of the paths (for a run on
+  the PC).
 
 ### report.py's perf columns
 
@@ -127,10 +161,10 @@ the sampled instruction, self time:
 
 | Column | Class |
 |---|---|
-| `perf_game` | the game's executable and its own libraries (same package, same directory, `/usr/lib/<name>`) |
+| `perf_game` | the game's executable and its own libraries (same package, or the package of the recipe's command as run.sh's `versions` names it: OpenArena's cgame and ui are `openarena`'s, the engine `ioquake3`'s; same directory, `/usr/lib/<name>`) |
 | `perf_mesa` | libgallium, `*_dri.so`, libGLX_mesa, libEGL_mesa, libgbm, libglapi, glvnd's libGL/libGLX/libGLdispatch |
 | `perf_drm` | libdrm, libdrm_nouveau (pushbuf, fences, buffer objects) |
-| `perf_kgpu` | the `[ps3rsx]` module, and `drm_*`, `dma_fence*`, `dma_resv*`, `ttm_*`, `nouveau*` in the kernel image |
+| `perf_kgpu` | the `[ps3rsx]` and `[drm*]` modules, and `drm_*`, `dma_fence*`, `dma_resv*`, `ttm_*`, `nouveau*`, `ps3rsx*` in the kernel image (perf on the PS3 names them with ppc64's dot, `.drm_ioctl`, and puts ps3rsx's functions in `[kernel.kallsyms]`: until 2026-10-18 the dot kept them out of this class) |
 | `perf_kernel` | the rest of the kernel: system calls, page faults, reclaim and zram compression done by the game |
 | `perf_libc` | libc, ld.so, libm (memcpy, memset, malloc, string functions) |
 | `perf_other` | every other library: SDL, OpenAL, ALSA, X, LuaJIT, zlib, ... |
@@ -226,15 +260,44 @@ Measured on the host (Zen 2), estimated for the PPE; every run states its own nu
   ps3-mallocstat.so: one sleeping thread, 64 KiB of stack, a few KiB of code; `malloc_info` takes
   each arena's lock in turn for a moment.
 
-## Known problems (the 2026-10-18 batch, docs/HOTPATHS.md)
+## The 2026-10-18 batch (docs/HOTPATHS.md): what went wrong, and the fixes
 
-- `perf.folded` and `perf-leaf.txt` held only the first few samples of every run (`perf script`
-  stopped after `addr2line configuration failed` in `perf-post.err`), so report.py's `perf_*`
-  columns were wrong; `perf-report.txt` and `perf-threads.txt` were complete.
-- perf records no mmap while it is disabled (`-D -1` during the load): libraries dlopened then
-  (libGLX_mesa, libgallium at context creation) are `[unknown]` in the PS3's report.
-- Until both are fixed, read the profiles with `games/bench/hotpaths/` on the PC: it parses
-  `perf.data` itself and fills the missing maps from the MEM=1 smaps (run with `MEM=1` too).
+- `perf.folded` and `perf-leaf.txt` held only the first 1-621 samples of every run (perf script
+  died of SIGPIPE on the missing addr2line, above), so report.py's `perf_*` columns were wrong;
+  `perf-report.txt` and `perf-threads.txt` were complete. Fixed by `--no-inline`.
+- perf recorded no mmap while disabled, so libGLX_mesa and libgallium were `[unknown]` in the PS3's
+  report. Fixed for new records by the tracking step (ps3-gpu-tools 0.412); for this batch's
+  records perfprof.py fills them from the MEM=1 smaps.
+- The batch's perf.data re-processed on the host with the fixed perf-post.sh and the PS3's own perf
+  7.2.9 under qemu-user (below) gives the PC reader's (`games/bench/hotpaths/`) numbers: every
+  sample collapsed (OpenArena 57510), the class shares equal to the tenth (OpenArena game 23.2,
+  mesa 27.3, drm 0.0, kgpu 4.7, kernel 10.8, libc 6.9, other 27.0; Sauerbraten 7.3, 72.0, 0.1, 3.6,
+  6.2, 3.4, 7.5), the same leaf symbols with the same counts. To redo the batch's text files on the
+  PS3: `make bench-push`, then `/var/tmp/bench/perf-post.sh /var/tmp/ps3-bench/<run dir>` for each
+  (the debug symbols of the runs' versions installed, as for the runs).
+- Runs without samples or with the wrong picture: Armagetron's base played back a 90 s recording
+  that draws nothing after its end (black screen with the cursor; the recipe now plays live AI
+  rounds, the recording is variant `playback`); OpenTTD's base has no GL, so no HUD frame ever
+  started the window (the recipe now starts it at the title game's load, `-d sl=1`) and its survey
+  prompt covered the title game (answered in its config); dsda-doom's window never started because
+  its `LOAD_MARK` lines never print (fixed in 6a59892, after the batch: `Playing demo:`). In all
+  three the result's perf line said `window never enabled` or the HUD stopped early.
+
+### Re-processing a run on the PC
+
+perf on the PC can parse the PS3's perf.data, but the PS3's own perf under qemu-user gives the
+PS3's call chain handling as well. `games/bench/hotpaths/perfq.sh` runs it from a root
+(`PERFQ_ROOT`, default `build/tmp/hotpaths-sym`):
+
+    R=build/tmp/hotpaths-sym; mkdir -p $R
+    tar -xf build/rootfs/base.tar -C $R ./usr/bin/perf ./usr/lib/powerpc64-linux-gnu ./usr/lib64 ./lib ./lib64 ./bin
+    games/bench/hotpaths/symroot.sh     # Mesa and its dbgsym, the kernel's System.map, ps3rsx, libc6-dbg
+    # the game's own binaries and dbgsym of the run's versions: unpack their debs into $R too
+    PERFPOST_PERF=games/bench/hotpaths/perfq.sh PERFPROF_ROOT=$R games/bench/perf-post.sh <copy of the run dir>
+
+Module symbols are not in System.map: `[drm]` frames stay unnamed there (still kgpu). The host has
+no dpkg database of the PS3, so `perf-pkgs.txt` comes out empty: write the game's libraries into it
+by hand (`path<TAB>package`) and run `games/bench/perfprof.py <dir>` again. Delete the root after.
 
 ## Getting the data to the PC
 
@@ -251,8 +314,8 @@ The text files and `perf.folded` are symbolised on the PS3 and are all most anal
     cd build/bench/<run dir> && mkdir -p sym && tar -xf perf-syms.tar -C sym
     perf report -i perf.data --symfs sym --kallsyms perf-kallsyms --no-children --sort sym
 
-perf reads ppc64's big-endian perf.data on x86 (it swaps), but this path has not been tried yet; the
-powerpc call chain check above does not run there.
+perf reads ppc64's big-endian perf.data on x86 (it swaps), but the powerpc call chain check above
+does not run there; the PS3's perf under qemu (above, `perfq.sh`) does it.
 
 ## Validation
 
@@ -261,7 +324,11 @@ powerpc call chain check above does not run there.
 - perfprof.py on a made-up `perf script` output (call chains: a game, its renderer library,
   libgallium, libdrm_nouveau, ps3rsx and drm in the kernel, a page fault, memcpy, OpenAL, an audio
   thread, an unknown sample, Xorg and kswapd0 alongside; and the one-line form of the system-wide
-  record): the folded stacks and every report.py column as computed by hand.
+  record): the folded stacks and every report.py column as computed by hand. Then the gaps of the
+  2026-10-18 batch: a library built here, mapped in a made-up smaps, its frames `[unknown]` in the
+  perf script text: filled with its function names, the two kinds of unchecked link register entry
+  dropped, a kernel sample's user address filled, an address in no mapping and another process's
+  frames left alone, `.drm_ioctl` and `[drm]` as kgpu, a library of the `versions` package as game.
 - client.sh with a fake game: a fake perf on the control fifos gets enable at load + WARMUP and
   disable at + MEASURE, each acknowledged, at the times bench.txt says; ps3-mallocstat.so (built with
   the host's cc) preloaded, the three snapshots at window + 1, middle and end, each with all its
@@ -270,4 +337,8 @@ powerpc call chain check above does not run there.
 
 Also checked in a Debian container with Debian's perf 7.2.9 (x86): the exact record command above
 with `-D -1` and the control fifo (samples only between enable and disable, ack in 2.5 ms), and
-perf-post.sh end to end. Not checked: perf on the PS3 itself (the user runs it).
+perf-post.sh end to end. 2026-10-18: the load's mmaps in the same container (a program that
+dlopens a library 4 s after perf attached: `[unknown]` with plain `-D -1` and with `enable
+dummy:u`, the library's function by name with ps3-bench.sh's enable plus disable cpu-clock, none
+of the samples before the window), and perf-post.sh on the batch's perf.data with the PS3's perf
+under qemu (above). Not checked: perf on the PS3 itself (the user runs it).

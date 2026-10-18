@@ -23,8 +23,11 @@ Two problems turned up before any ranking could be made:
   samples are `[unknown]` in the PS3's own report. In OpenArena 011212 that was 25.7% of the
   game's samples; Luanti, Sauerbraten, X-Moto and Armagetron lost libgallium the same way.
 
-Both are fixable on the PS3 side (perf-post.sh: `perf script --no-inline`; the maps: a dummy
-tracking event or the smaps below), not done here.
+Both are fixed on the PS3 side since (docs/PROFILING.md, "The 2026-10-18 batch"): perf script
+`--no-inline` (it died of SIGPIPE on the missing addr2line command), the load's mmaps tracked by
+ps3-bench.sh (ps3-gpu-tools 0.412), and for records without them perfprof.py fills the frames from
+the MEM=1 smaps as below; on this batch's perf.data the fixed perf-post.sh gives this tool's class
+shares to the tenth.
 
 ### Symbolised again on the PC
 

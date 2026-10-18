@@ -26,7 +26,7 @@ Every number is 1920x1080, measured through games/bench with the picture checked
 | Game | Runs | Picture | Sound | Demo (repeatable) | fps | Against ~60 | Left to do |
 |---|---|---|---|---|---|---|---|
 | QuakeSpasm | yes | right | right | timedemo demo1 (our quake.rc) | 78.6 (73-84, Mesa ps3.262) | **meets it** | - |
-| Armagetron | yes | right | right | recorded AI round, `--playback --benchmark` | 61.5 HUD (Mesa ps3.299; 60 on ps3.246, 50-53 on ps3.262/282) | **meets it** | - (ps3.262's loss was the missing CPU/GPU overlap without relocations; 0027 fixed it) |
+| Armagetron | yes | right | right | live AI rounds, the player spectating (the 90 s recording, `--playback --benchmark`, is variant playback: it draws nothing after its end, too short for the 60 + 120 s window) | 61.5 HUD (Mesa ps3.299; 60 on ps3.246, 50-53 on ps3.262/282) | **meets it** | - (ps3.262's loss was the missing CPU/GPU overlap without relocations; 0027 fixed it) |
 | Neverball | yes (ps3rsx 0.249: no wedge) | right | 15-36 underruns a run | shipped replay (only ~20 s); our NEVERBALL_BENCH prints fps and quits at its end | 70-76 (its own count); 320-380 ms stalls at the start | **meets it** | a longer replay of the user's (the start-up stutters weigh too much in 20 s); ps3.370 batching (host: 2154 -> 844 calls, 137 -> 74 draws a frame), to run |
 | Yamagi Quake II | yes | right | right (our fix) | timedemo q2demo1 | 63.9 (ps3.262) | **meets it** | - |
 | dsda-doom (GL renderer) | yes | right (our fixes) | **choppy** (MIDI synthesis) | Freedoom DEMO1 timedemo | 48.8 | under | game-side batching (our dsda-doom 0005, built, to run); fluidsynth on the SPEs: v1 cut its CPU (49 -> 32 s a minute) but 1097 underruns remain, v2 built; music default |
