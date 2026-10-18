@@ -19,7 +19,7 @@ The plan is in docs/PLAN.md, background facts in docs/RESEARCH.md, measured GPU 
 - backups/ holds the private NOR dump: never commit or upload it.
 
 ## Priorities
-- Target is the PS3 directly: get existing nouveau/Mesa nv30 running on the RSX with the least new code. The Core 2 + 7600 GT is only a side reference.
+- Target is the PS3 directly: get existing nouveau/Mesa nv30 running on the RSX with the least new code. The Core 2 + 7600 GT box is for upstreaming driver fixes (the user, 2026-10-18): our nv30 Mesa patches tested on a stock x86 nouveau system the way upstream wants them (piglit/deqp, little-endian); not for game testing or benchmarks, which stay on the PS3.
 - Don't optimize or fix nouveau/Mesa bugs until the baseline runs. Park side projects (power-control rig, HEVC decoder, Core 2 + 7600 GT setup) unless asked.
 
 ## Memory trims (the user, 2026-10-17)
