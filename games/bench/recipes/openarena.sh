@@ -134,6 +134,21 @@ variant_lockarrays() { oa_x +set r_lockArrays 1; }
 # change here; islanddm drops from ~1450 sky calls a frame to 18)
 variant_skystrips() { oa_x +set r_skyArrays 0; }
 variant_allbatchoff() { oa_x +set r_glStateCache 0 +set r_lockArrays 1 +set r_skyArrays 0; }
+# Loads during play (ioquake3 0025-0026, docs/STALLS.md "OpenArena"). Five bots join the demo, one
+# every 200 frames (bot_minplayers, and qagame's loaddefered makes the cgame load each at once): 3
+# models, 3 skins, 3-6 textures each, 4 stalls of 130-400 ms a pass on the PS3; and every pass
+# reloads the map: 3 load-screen stalls of 340/700/380 ms (402 image files read, decoded, DXT on
+# the PPE), 10 of the run's 17.6 s of stalls (games/bench/passsplit.py tells the two apart). Both
+# switches are on in base (llvmpipe: picture identical over three passes; the second pass on loads
+# nothing during the demo, the reload 0.46 -> 0.17 s). The first pass still loads them (unmeasured).
+# 0025: r_keepImages 0, every texture freed and its file loaded again at each map load
+variant_keepimg0() { oa_x +set r_keepImages 0; }
+# 0026: cl_preloadLate 0, the joining players' models and skins loaded when they join
+variant_preload0() { oa_x +set cl_preloadLate 0; }
+variant_loads0() { oa_x +set r_keepImages 0 +set cl_preloadLate 0; }
+# 0026 (opt-in, changes the picture): loaddefered ignored, the bots keep a substitute model (the
+# demo player's) for the whole demo: what the joins cost against no player loads at all
+variant_defer() { oa_x +set cl_deferPlayers 1; }
 # (Before 0024 the atlas was the default and the variant was mergelm0; the notes below were
 # measured that way, "base" there is the atlas on, "mergelm0" the atlas off.)
 # The atlas's ~5% (ps3.362 on Mesa ps3.299) is not in the frames: the window's frames of 100 ms or

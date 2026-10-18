@@ -1,0 +1,224 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 03:52:28 +0300
+Subject: client: cl_preloadLate, what the cgame registered during play loaded
+ with the next same map
+
+The cgame loads a player's models, skins and icon when the player joins during play: OpenArena's
+qagame adds a bot every 10 s (bot_minplayers) and sends loaddefered with each, so cg_deferPlayers
+defers nothing. In the bench demo five bots join, each 3 MD3 models with their LODs, 3 skins and
+3-6 textures, about 30-40 ms a join on llvmpipe and 130-400 ms on the PS3, 4 stalls in every pass
+of the demo played in a loop. With cl_preloadLate 1 (default) CL_CgameSystemCalls notes the
+models, skins and shaders the cgame registers in CA_ACTIVE, and CL_InitCGame registers them again
+after CG_INIT when the next level is the same map and game type, so the load takes them and the
+same events in play find them loaded (a demo played again, a map played once more with the same
+bots); another level starts a new list. Within the session only. On llvmpipe: from the second pass
+on no model, skin or image is loaded during the demo (15, 15 and 35 before), the longest frame
+37 -> 14 ms, 35 registrations in 42 ms of the load; the frames are the same (66 screenshots over
+three passes identical, the random seed fixed). Sounds stay registered across levels already.
+cl_deferPlayers 1 (default 0) drops the server's loaddefered, so the cgame draws a joining player
+with a model it has until its scoreboard shows: changes the picture (in the demo the bots never
+get their own models).
+
+diff --git a/code/client/cl_cgame.c b/code/client/cl_cgame.c
+--- a/code/client/cl_cgame.c
++++ b/code/client/cl_cgame.c
+@@ -321,6 +321,13 @@ rescan:
+ 		goto rescan;
+ 	}
+ 
++	// cl_deferPlayers: the cgame keeps the players who join during play deferred (drawn with a
++	// model it has, cg_deferPlayers) until its scoreboard shows, instead of loading them at once
++	// as the server asks when it adds a bot
++	if ( cl_deferPlayers->integer && !strcmp( cmd, "loaddefered" ) ) {
++		return qfalse;
++	}
++
+ 	if ( !strcmp( cmd, "cs" ) ) {
+ 		CL_ConfigstringModified();
+ 		// reparse the string, because CL_ConfigstringModified may have done another Cmd_TokenizeString()
+@@ -400,6 +407,122 @@ static int	FloatAsInt( float f ) {
+ 	return fi.i;
+ }
+ 
++/*
++====================
++cl_preloadLate
++
++The models, skins and shaders the cgame registers during play (clc.state CA_ACTIVE: a
++player joins, changes model, a weapon is first seen) are loaded on the spot and stall
++that frame. They are noted here, and the next load of the same map and game type
++registers them again at the end of CL_InitCGame, inside the load, so the same events
++during its play find them loaded: a demo played again, a map played once more with the
++same bots. Within the session only; another map forgets them.
++====================
++*/
++
++enum { LATE_MODEL, LATE_SKIN, LATE_SHADER, LATE_SHADERNOMIP };
++
++#define MAX_LATE_ASSETS		512
++#define LATE_HASH_SIZE		256
++
++typedef struct {
++	int		kind;
++	char	name[MAX_QPATH];
++	int		next;		// hash chain, -1 ends it
++} lateAsset_t;
++
++static lateAsset_t	lateAssets[MAX_LATE_ASSETS];
++static int			numLateAssets;
++static int			lateHash[LATE_HASH_SIZE];
++static char			lateLevel[MAX_QPATH + 16];	// the map and game type they were noted in
++
++static int CL_LateHash( const char *name ) {
++	unsigned	h = 0;
++
++	while ( *name ) {
++		h = h * 31 + tolower( (unsigned char)*name++ );
++	}
++	return h & ( LATE_HASH_SIZE - 1 );
++}
++
++static void CL_ClearLateAssets( void ) {
++	int i;
++
++	numLateAssets = 0;
++	for ( i = 0; i < LATE_HASH_SIZE; i++ ) {
++		lateHash[i] = -1;
++	}
++}
++
++/*
++====================
++CL_NoteLateAsset
++
++A registration from the cgame: noted when it comes during play
++====================
++*/
++static void CL_NoteLateAsset( int kind, const char *name ) {
++	lateAsset_t	*a;
++	int			h, i;
++
++	if ( !cl_preloadLate->integer || clc.state != CA_ACTIVE || !name || !name[0] ||
++		strlen( name ) >= MAX_QPATH || !lateLevel[0] ) {
++		return;
++	}
++	h = CL_LateHash( name );
++	for ( i = lateHash[h]; i >= 0; i = lateAssets[i].next ) {
++		if ( lateAssets[i].kind == kind && !Q_stricmp( lateAssets[i].name, name ) ) {
++			return;
++		}
++	}
++	if ( numLateAssets == MAX_LATE_ASSETS ) {
++		return;
++	}
++	a = &lateAssets[numLateAssets];
++	a->kind = kind;
++	Q_strncpyz( a->name, name, sizeof( a->name ) );
++	a->next = lateHash[h];
++	lateHash[h] = numLateAssets++;
++}
++
++/*
++====================
++CL_PreloadLateAssets
++
++CL_InitCGame, after the cgame's own registration: the same map and game type as the last
++level get its late registrations now; another level starts a new list
++====================
++*/
++static void CL_PreloadLateAssets( void ) {
++	const char	*info;
++	char		level[sizeof( lateLevel )];
++	int			i, t;
++
++	info = cl.gameState.stringData + cl.gameState.stringOffsets[ CS_SERVERINFO ];
++	Com_sprintf( level, sizeof( level ), "%s %s", cl.mapname, Info_ValueForKey( info, "g_gametype" ) );
++	if ( !cl_preloadLate->integer || Q_stricmp( level, lateLevel ) ) {
++		CL_ClearLateAssets();
++		Q_strncpyz( lateLevel, level, sizeof( lateLevel ) );
++		return;
++	}
++	if ( !numLateAssets ) {
++		return;
++	}
++	t = Sys_Milliseconds();
++	for ( i = 0; i < numLateAssets; i++ ) {
++		const char *name = lateAssets[i].name;
++
++		switch ( lateAssets[i].kind ) {
++		case LATE_MODEL:		re.RegisterModel( name ); break;
++		case LATE_SKIN:			re.RegisterSkin( name ); break;
++		case LATE_SHADER:		re.RegisterShader( name ); break;
++		case LATE_SHADERNOMIP:	re.RegisterShaderNoMip( name ); break;
++		}
++	}
++	Com_Printf( "cl_preloadLate: %i models, skins and shaders of the last level's play in %i msec\n",
++		numLateAssets, Sys_Milliseconds() - t );
++}
++
+ /*
+ ====================
+ CL_CgameSystemCalls
+@@ -532,12 +655,16 @@ intptr_t CL_CgameSystemCalls( intptr_t *args ) {
+ 		re.LoadWorld( VMA(1) );
+ 		return 0; 
+ 	case CG_R_REGISTERMODEL:
++		CL_NoteLateAsset( LATE_MODEL, VMA(1) );
+ 		return re.RegisterModel( VMA(1) );
+ 	case CG_R_REGISTERSKIN:
++		CL_NoteLateAsset( LATE_SKIN, VMA(1) );
+ 		return re.RegisterSkin( VMA(1) );
+ 	case CG_R_REGISTERSHADER:
++		CL_NoteLateAsset( LATE_SHADER, VMA(1) );
+ 		return re.RegisterShader( VMA(1) );
+ 	case CG_R_REGISTERSHADERNOMIP:
++		CL_NoteLateAsset( LATE_SHADERNOMIP, VMA(1) );
+ 		return re.RegisterShaderNoMip( VMA(1) );
+ 	case CG_R_REGISTERFONT:
+ 		re.RegisterFont( VMA(1), args[2], VMA(3));
+@@ -744,6 +871,9 @@ void CL_InitCGame( void ) {
+ 	// otherwise server commands sent just before a gamestate are dropped
+ 	VM_Call( cgvm, CG_INIT, clc.serverMessageSequence, clc.lastExecutedServerCommand, clc.clientNum );
+ 
++	// what the last level of this map registered during play
++	CL_PreloadLateAssets();
++
+ 	// reset any CVAR_CHEAT cvars registered by cgame
+ 	if ( !clc.demoplaying && !cl_connectedToCheatServer )
+ 		Cvar_SetCheatState();
+diff --git a/code/client/cl_main.c b/code/client/cl_main.c
+--- a/code/client/cl_main.c
++++ b/code/client/cl_main.c
+@@ -74,6 +74,8 @@ cvar_t	*cl_shownet;
+ cvar_t	*cl_showSend;
+ cvar_t	*cl_timedemo;
+ cvar_t	*cl_timedemoLog;
++cvar_t	*cl_preloadLate;
++cvar_t	*cl_deferPlayers;
+ cvar_t	*cl_autoRecordDemo;
+ cvar_t	*cl_aviFrameRate;
+ cvar_t	*cl_aviMotionJpeg;
+@@ -3574,6 +3576,10 @@ void CL_Init( void ) {
+ 
+ 	cl_timedemo = Cvar_Get ("timedemo", "0", 0);
+ 	cl_timedemoLog = Cvar_Get ("cl_timedemoLog", "", CVAR_ARCHIVE);
++	cl_preloadLate = Cvar_Get( "cl_preloadLate", "1", 0 );
++	Cvar_SetDescription( cl_preloadLate, "Register the models, skins and shaders the cgame registered during the last level's play (players joining) again at the end of the next load of the same map, so the same events find them loaded (0: off)" );
++	cl_deferPlayers = Cvar_Get( "cl_deferPlayers", "0", 0 );
++	Cvar_SetDescription( cl_deferPlayers, "1: ignore the server's loaddefered command, so a joining player is drawn with a model already loaded until the scoreboard shows (cg_deferPlayers); changes the picture" );
+ 	cl_autoRecordDemo = Cvar_Get ("cl_autoRecordDemo", "0", CVAR_ARCHIVE);
+ 	cl_aviFrameRate = Cvar_Get ("cl_aviFrameRate", "25", CVAR_ARCHIVE);
+ 	cl_aviMotionJpeg = Cvar_Get ("cl_aviMotionJpeg", "1", CVAR_ARCHIVE);
+diff --git a/code/client/client.h b/code/client/client.h
+--- a/code/client/client.h
++++ b/code/client/client.h
+@@ -366,6 +366,8 @@ extern	refexport_t		re;		// interface to refresh .dll
+ // cvars
+ //
+ extern	cvar_t	*cl_nodelta;
++extern	cvar_t	*cl_preloadLate;
++extern	cvar_t	*cl_deferPlayers;
+ extern	cvar_t	*cl_debugMove;
+ extern	cvar_t	*cl_noprint;
+ extern	cvar_t	*cl_timegraph;

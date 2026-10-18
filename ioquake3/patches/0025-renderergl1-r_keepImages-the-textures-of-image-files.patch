@@ -1,0 +1,457 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 03:52:28 +0300
+Subject: renderergl1: r_keepImages, the textures of image files kept across a
+ map change
+
+Every map load shut the renderer down and deleted every texture, then read, decoded and uploaded
+each image file again, also when the next level was the same map: OpenArena's demo played in a
+loop (games/bench) did that at every pass, 402 image files, and on the PS3 the reload is three
+load-screen stalls of 340, 700 and 380 ms of main-thread CPU (pak4-textures.pk3 read and inflated,
+the images decoded, compressed to DXT on the PPE): 10.2 of the run's 17.6 s of stalls. Players who
+join during play (OpenArena adds a bot every 10 s) loaded their skins again in every pass too.
+With r_keepImages 1 (default) RE_Shutdown without destroying the window moves the textures that
+R_FindImageFile made from files to a list instead of deleting them, and R_FindImageFile takes one
+back by name (same type and flags, else it loads the file again) before it reads the file. If the
+next world is another map, RE_LoadWorldMap frees the list before that map loads its textures, as
+upstream did; r_keepImages 2 keeps them across any map. RE_EndRegistration frees the kept textures
+the new level didn't take back, except those the last level first used during play (players
+joining), which stay until the level ends, for the same events in it. A renderer restart that
+loads no world (a menu, the client restarting it twice on its way to a map) adds to the list. Any
+setting that shapes a texture (picmip, texture bits, compression, texture mode, gamma...) or other
+file system search paths free the list: qcommon sets fs_searchPathId, a hash of the search paths
+(each pk3's checksum and file name, each directory) and of the pure server's pk3 list. A file
+changed in a loose directory between levels needs vid_restart, which frees everything.
+On llvmpipe the demo's reload went from 0.39-0.46 to 0.13-0.20 s (318 textures taken back), and the
+joins' 23 uploads a pass from the second pass on to none; the frames are the same (66 screenshots
+over three passes identical with cl_preloadLate, the random seed fixed).
+
+diff --git a/code/qcommon/files.c b/code/qcommon/files.c
+--- a/code/qcommon/files.c
++++ b/code/qcommon/files.c
+@@ -3352,6 +3352,43 @@ static void FS_InitPathVars( void ) {
+ 	FS_AddPathVar( fs_microsoftstorepath );
+ }
+ 
++/*
++================
++FS_UpdateSearchPathId
++
++fs_searchPathId: a hash of the search paths (each pk3's checksum and file name, each
++directory) and of the pure server's pk3 list, which decide where a file name is read
++from. renderer_opengl1's r_keepImages takes back no texture kept under another one.
++================
++*/
++static void FS_UpdateSearchPathId( void ) {
++	searchpath_t	*sp;
++	unsigned int	h = 5381;
++	const char		*c;
++	int				i;
++
++	for ( sp = fs_searchpaths ; sp ; sp = sp->next ) {
++		if ( sp->pack ) {
++			h = h * 33 ^ sp->pack->checksum;
++			c = sp->pack->pakFilename;
++		} else if ( sp->dir ) {
++			c = sp->dir->fullpath;
++		} else {
++			continue;
++		}
++		for ( ; *c ; c++ ) {
++			h = h * 33 ^ (unsigned char)*c;
++		}
++		h = h * 33 ^ '|';
++	}
++	h = h * 33 ^ fs_numServerPaks;
++	for ( i = 0 ; i < fs_numServerPaks ; i++ ) {
++		h = h * 33 ^ fs_serverPaks[i];
++	}
++	Cvar_Get( "fs_searchPathId", "0", CVAR_ROM );
++	Cvar_Set2( "fs_searchPathId", va( "%u", h ), qtrue );
++}
++
+ /*
+ ================
+ FS_Startup
+@@ -3455,6 +3492,8 @@ static void FS_Startup( const char *gameName )
+ 
+ 	fs_gamedirvar->modified = qfalse; // We just loaded, it's not modified
+ 
++	FS_UpdateSearchPathId();
++
+ 	Com_Printf( "----------------------\n" );
+ 
+ #ifdef FS_MISSING
+@@ -4013,6 +4052,7 @@ void FS_PureServerSetLoadedPaks( const char *pakSums, const char *pakNames ) {
+ 	for ( i = 0 ; i < c ; i++ ) {
+ 		fs_serverPaks[i] = atoi( Cmd_Argv( i ) );
+ 	}
++	FS_UpdateSearchPathId();
+ 
+ 	if (fs_numServerPaks) {
+ 		Com_DPrintf( "Connected to a pure server.\n" );
+diff --git a/code/renderergl1/tr_bsp.c b/code/renderergl1/tr_bsp.c
+--- a/code/renderergl1/tr_bsp.c
++++ b/code/renderergl1/tr_bsp.c
+@@ -1936,6 +1936,8 @@ void RE_LoadWorldMap( const char *name ) {
+ 		ri.Error( ERR_DROP, "ERROR: attempted to redundantly load world map" );
+ 	}
+ 
++	R_KeptImagesWorld( name );
++
+ 	// set default sun direction to be used if it isn't
+ 	// overridden by a shader
+ 	tr.sunDirection[0] = 0.45f;
+diff --git a/code/renderergl1/tr_image.c b/code/renderergl1/tr_image.c
+--- a/code/renderergl1/tr_image.c
++++ b/code/renderergl1/tr_image.c
+@@ -1015,6 +1015,249 @@ void R_LoadImage( const char *name, byte **pic, int *width, int *height )
+ }
+ 
+ 
++/*
++==============================================================================
++
++r_keepImages: the textures of image files kept across a map change (RE_Shutdown
++without destroying the window), so that the next level takes each one back by
++name instead of reading, decoding and uploading its file again.
++
++1: only when the next level loads the same map (a demo played again, a map
++restarted or played once more); any other map frees them when its world loads,
++before it loads its own textures, about when upstream freed them.
++2: across any map change.
++The kept textures the new level hasn't taken back when its registration ends
++(RE_EndRegistration) are freed then, except those the last level first used
++during play (players joining, a weapon first seen), which stay until the new
++level ends, for the same events in it. A change of any setting that shapes a
++texture, or other file system search paths (fs_searchPathId), frees them all.
++
++==============================================================================
++*/
++
++typedef struct {
++	image_t		image;			// as the last level had it (texnum 0: taken or freed)
++	qboolean	late;			// first used after that level's registration
++	int			next;			// hash chain: index in keptImages, -1 ends it
++} keptImage_t;
++
++static keptImage_t	*keptImages;	// MAX_DRAWIMAGES slots, allocated at the first keep
++static int			numKeptImages;
++static int			keptHash[FILE_HASH_SIZE];
++static char			keptMap[MAX_QPATH];			// the level they were kept from
++static char			keptSettings[MAX_STRING_CHARS];
++static char			levelMap[MAX_QPATH];		// this level's, from RE_LoadWorldMap
++static char			levelSettings[MAX_STRING_CHARS];	// this level's, at R_InitImages
++static qboolean		imageFromFile[MAX_DRAWIMAGES];	// by tr.images index
++static qboolean		imageLate[MAX_DRAWIMAGES];
++static qboolean		registrationEnded;
++static int			numTakenImages;		// since the last keep
++
++/*
++================
++R_ImageSettings
++
++What a texture made from a file depends on besides the file
++================
++*/
++static void R_ImageSettings( char *buf, int size ) {
++	Com_sprintf( buf, size, "%s %s %s %s %s %s %s %s %s %s %s %s %s %s %d %d",
++		ri.Cvar_Get( "fs_searchPathId", "0", CVAR_ROM )->string, r_picmip->string, r_roundImagesDown->string, r_colorMipLevels->string,
++		r_texturebits->string, r_simpleMipMaps->string, r_ext_compressed_textures->string,
++		r_textureMode->string, r_ext_texture_filter_anisotropic->string,
++		r_ext_max_anisotropy->string, r_gamma->string, r_intensity->string,
++		r_overBrightBits->string, r_ignorehwgamma->string, glConfig.textureCompression,
++		glConfig.deviceSupportsGamma );
++}
++
++/*
++================
++R_FreeKeptImages
++
++The kept textures nothing took back: all of them, or those not first used during play
++================
++*/
++static void R_FreeKeptImages( qboolean all ) {
++	int		i, n = 0;
++
++	for ( i = 0; i < numKeptImages; i++ ) {
++		keptImage_t *k = &keptImages[i];
++
++		if ( k->image.texnum && ( all || !k->late ) ) {
++			qglDeleteTextures( 1, &k->image.texnum );
++			k->image.texnum = 0;
++			n++;
++		}
++	}
++	if ( n ) {
++		// glGenTextures may hand out a deleted name again: bind whatever is asked next
++		Com_Memset( glState.currenttextures, 0, sizeof( glState.currenttextures ) );
++		ri.Printf( PRINT_DEVELOPER, "r_keepImages: %d kept textures freed\n", n );
++	}
++	if ( all ) {
++		numKeptImages = 0;
++		keptMap[0] = 0;
++	}
++}
++
++/*
++================
++R_KeepImages
++
++RE_Shutdown without destroying the window: the textures made from image files go to
++keptImages instead of being deleted (R_DeleteTextures leaves a texnum of 0 alone)
++================
++*/
++void R_KeepImages( void ) {
++	int		i;
++
++	if ( !r_keepImages->integer ) {
++		R_FreeKeptImages( qtrue );
++		return;
++	}
++	if ( levelMap[0] || !numKeptImages ) {
++		// what the last level kept and this one never took: unused for a whole level
++		R_FreeKeptImages( qtrue );
++		for ( i = 0; i < FILE_HASH_SIZE; i++ ) {
++			keptHash[i] = -1;
++		}
++		Q_strncpyz( keptMap, levelMap, sizeof( keptMap ) );
++	}
++	// else no world was loaded since the last keep (a menu, the client restarting the
++	// renderer twice on its way to a map): add to what is kept, for the level after
++	if ( !keptImages ) {
++		keptImages = ri.Malloc( MAX_DRAWIMAGES * sizeof( *keptImages ) );
++	}
++	for ( i = 0; i < tr.numImages && numKeptImages < MAX_DRAWIMAGES; i++ ) {
++		image_t		*image = tr.images[i];
++		keptImage_t	*k;
++		long		hash;
++
++		if ( !imageFromFile[i] || !image->texnum ) {
++			continue;
++		}
++		k = &keptImages[numKeptImages];
++		k->image = *image;
++		k->image.next = NULL;
++		k->late = imageLate[i];
++		hash = generateHashValue( image->imgName );
++		k->next = keptHash[hash];
++		keptHash[hash] = numKeptImages++;
++		image->texnum = 0;
++	}
++	Q_strncpyz( keptSettings, levelSettings, sizeof( keptSettings ) );
++	numTakenImages = 0;
++	ri.Printf( PRINT_DEVELOPER, "r_keepImages: %d textures kept from %s\n", numKeptImages,
++		keptMap[0] ? keptMap : "no map" );
++}
++
++/*
++================
++R_TakeKeptImage
++
++The kept texture of this name, if it was made with the type and flags asked now
++================
++*/
++static image_t *R_TakeKeptImage( const char *name, imgType_t type, imgFlags_t flags ) {
++	image_t	*image;
++	int		i;
++	long	hash;
++
++	if ( !numKeptImages ) {
++		return NULL;
++	}
++	hash = generateHashValue( name );
++	for ( i = keptHash[hash]; i >= 0; i = keptImages[i].next ) {
++		keptImage_t *k = &keptImages[i];
++
++		if ( !k->image.texnum || strcmp( name, k->image.imgName ) ) {
++			continue;
++		}
++		if ( k->image.type != type || k->image.flags != flags ) {
++			// made another way than asked now: load the file again
++			qglDeleteTextures( 1, &k->image.texnum );
++			k->image.texnum = 0;
++			Com_Memset( glState.currenttextures, 0, sizeof( glState.currenttextures ) );
++			return NULL;
++		}
++		if ( tr.numImages == MAX_DRAWIMAGES ) {
++			ri.Error( ERR_DROP, "R_TakeKeptImage: MAX_DRAWIMAGES hit" );
++		}
++		image = tr.images[tr.numImages] = ri.Hunk_Alloc( sizeof( image_t ), h_low );
++		*image = k->image;
++		imageFromFile[tr.numImages] = qtrue;
++		imageLate[tr.numImages] = registrationEnded;
++		tr.numImages++;
++		image->next = hashTable[hash];
++		hashTable[hash] = image;
++		k->image.texnum = 0;
++		numTakenImages++;
++		return image;
++	}
++	return NULL;
++}
++
++/*
++================
++R_NoteFileImage
++
++R_FindImageFile made this texture from a file: r_keepImages may keep it
++================
++*/
++static void R_NoteFileImage( image_t *image ) {
++	int i = tr.numImages - 1;
++
++	if ( i >= 0 && tr.images[i] == image ) {
++		imageFromFile[i] = qtrue;
++		imageLate[i] = registrationEnded;
++	}
++}
++
++/*
++================
++R_KeptImagesWorld
++
++RE_LoadWorldMap: with r_keepImages 1 another map frees what was kept
++================
++*/
++void R_KeptImagesWorld( const char *name ) {
++	Q_strncpyz( levelMap, name, sizeof( levelMap ) );
++	if ( numKeptImages && r_keepImages->integer < 2 && Q_stricmp( name, keptMap ) ) {
++		R_FreeKeptImages( qtrue );
++	}
++}
++
++/*
++================
++R_KeptImagesEndRegistration
++
++RE_EndRegistration: the kept textures this level's registration didn't take go, but
++those first used during the last level's play stay, for the same events in this one
++================
++*/
++void R_KeptImagesEndRegistration( void ) {
++	if ( numKeptImages ) {
++		ri.Printf( PRINT_DEVELOPER, "r_keepImages: %d kept textures taken back\n", numTakenImages );
++	}
++	R_FreeKeptImages( qfalse );
++	registrationEnded = qtrue;
++}
++
++/*
++================
++R_FreeAllKeptImages
++
++RE_Shutdown destroying the window (vid_restart, quit), while the context is still there
++================
++*/
++void R_FreeAllKeptImages( void ) {
++	R_FreeKeptImages( qtrue );
++	if ( keptImages ) {
++		ri.Free( keptImages );
++		keptImages = NULL;
++	}
++}
++
+ /*
+ ===============
+ R_FindImageFile
+@@ -1051,6 +1294,12 @@ image_t	*R_FindImageFile( const char *name, imgType_t type, imgFlags_t flags )
+ 		}
+ 	}
+ 
++	// a texture kept from the last level (r_keepImages)
++	image = R_TakeKeptImage( name, type, flags );
++	if ( image ) {
++		return image;
++	}
++
+ 	//
+ 	// load the pic from disk
+ 	//
+@@ -1061,6 +1310,7 @@ image_t	*R_FindImageFile( const char *name, imgType_t type, imgFlags_t flags )
+ 
+ 	image = R_CreateImage( ( char * ) name, pic, width, height, type, flags, 0 );
+ 	ri.Free( pic );
++	R_NoteFileImage( image );
+ 	return image;
+ }
+ 
+@@ -1349,6 +1599,15 @@ R_InitImages
+ */
+ void	R_InitImages( void ) {
+ 	Com_Memset(hashTable, 0, sizeof(hashTable));
++	Com_Memset( imageFromFile, 0, sizeof( imageFromFile ) );
++	Com_Memset( imageLate, 0, sizeof( imageLate ) );
++	registrationEnded = qfalse;
++	levelMap[0] = 0;
++	// r_keepImages: nothing made with other settings or from other files
++	R_ImageSettings( levelSettings, sizeof( levelSettings ) );
++	if ( numKeptImages && strcmp( levelSettings, keptSettings ) ) {
++		R_FreeKeptImages( qtrue );
++	}
+ 	// build brightness translation tables
+ 	R_SetColorMappings();
+ 
+diff --git a/code/renderergl1/tr_init.c b/code/renderergl1/tr_init.c
+--- a/code/renderergl1/tr_init.c
++++ b/code/renderergl1/tr_init.c
+@@ -114,6 +114,7 @@ cvar_t	*r_drawBuffer;
+ cvar_t	*r_lightmap;
+ cvar_t	*r_vertexLight;
+ cvar_t	*r_mergeLightmaps;
++cvar_t	*r_keepImages;
+ cvar_t	*r_mergeLightmapsSize;
+ cvar_t	*r_glStateCache;
+ cvar_t	*r_lockArrays;
+@@ -1070,6 +1071,9 @@ void R_Register( void )
+ 	r_mergeLightmapsSize = ri.Cvar_Get( "r_mergeLightmapsSize", "1024", CVAR_LATCH );
+ 	ri.Cvar_CheckRange( r_mergeLightmapsSize, 128, 1024, qtrue );
+ 	ri.Cvar_SetDescription( r_mergeLightmapsSize, "With r_mergeLightmaps: the largest side of a lightmap atlas page in texels (128..1024, a power of two: 512 holds 16 lightmaps, 256 four)" );
++	r_keepImages = ri.Cvar_Get( "r_keepImages", "1", 0 );
++	ri.Cvar_CheckRange( r_keepImages, 0, 2, qtrue );
++	ri.Cvar_SetDescription( r_keepImages, "Keep the textures of image files across a map change and take them back by name instead of loading the files again (1: when the next level is the same map, 2: any map; 0: free them at every map change as upstream)" );
+ 	r_glStateCache = ri.Cvar_Get( "r_glStateCache", "1", CVAR_LATCH );
+ 	r_lockArrays = ri.Cvar_Get( "r_lockArrays", "0", 0 );
+ 	r_skyArrays = ri.Cvar_Get( "r_skyArrays", "1", 0 );
+@@ -1316,6 +1320,11 @@ void RE_Shutdown( qboolean destroyWindow ) {
+ 
+ 	if ( tr.registered ) {
+ 		R_IssuePendingRenderCommands();
++		if ( destroyWindow ) {
++			R_FreeAllKeptImages();
++		} else {
++			R_KeepImages();
++		}
+ 		R_DeleteTextures();
+ 	}
+ 
+@@ -1347,6 +1356,7 @@ Touch all images to make sure they are resident
+ */
+ void RE_EndRegistration( void ) {
+ 	R_IssuePendingRenderCommands();
++	R_KeptImagesEndRegistration();
+ 	if (!ri.Sys_LowPhysicalMemory()) {
+ 		RB_ShowImages();
+ 	}
+diff --git a/code/renderergl1/tr_local.h b/code/renderergl1/tr_local.h
+--- a/code/renderergl1/tr_local.h
++++ b/code/renderergl1/tr_local.h
+@@ -1060,6 +1060,7 @@ extern	cvar_t	*r_lightmap;					// render lightmaps only
+ extern	cvar_t	*r_vertexLight;
+ extern	cvar_t	*r_mergeLightmaps;				// BSP lightmaps packed into a few atlas textures
+ extern	cvar_t	*r_mergeLightmapsSize;			// the largest side of an atlas page
++extern	cvar_t	*r_keepImages;					// image file textures kept across a map change
+ extern	cvar_t	*r_glStateCache;				// deferred, filtered texture unit and array state
+ extern	cvar_t	*r_lockArrays;					// call glLockArraysEXT around each batch
+ extern	cvar_t	*r_skyArrays;					// sky box sides from vertex arrays					// vertex lighting mode for better performance
+@@ -1214,6 +1215,10 @@ void	R_InitFogTable( void );
+ float	R_FogFactor( float s, float t );
+ void	R_InitImages( void );
+ void	R_DeleteTextures( void );
++void	R_KeepImages( void );
++void	R_KeptImagesWorld( const char *name );
++void	R_KeptImagesEndRegistration( void );
++void	R_FreeAllKeptImages( void );
+ int		R_SumOfUsedImages( void );
+ void	R_InitSkins( void );
+ skin_t	*R_GetSkinByHandle( qhandle_t hSkin );

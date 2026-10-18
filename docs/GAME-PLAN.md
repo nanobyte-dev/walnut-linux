@@ -343,6 +343,13 @@ Each is fixed only once a stage needs it.
   2, any size) adds ~10 s of hitches per run with equal frame cost, so 0024 makes r_mergeLightmaps
   0 the default and keeps 1 and 2 selectable. Recipe variants mergelm1 (atlas on), mergelm2,
   lmsize512, lmsize256, glcache0, lockarrays, skystrips, allbatchoff. To run on the PS3: tc1 against allbatchoff, same boot.
+- OpenArena loads during play (2026-10-18, docs/STALLS.md "OpenArena"): of the ~17.6 s of window
+  stalls, ~10 s are the map reload at every pass of the looped demo and ~7 s five bots joining
+  (bot_minplayers, loaded at once by qagame's loaddefered). Our ioquake3 0025 (r_keepImages:
+  textures kept across a reload of the same map) and 0026 (cl_preloadLate: what the cgame loaded
+  during play registered again in the next load of the same map; cl_deferPlayers opt-in), both on
+  by default, host picture identical. To run on the PS3 (STALLS=1): base against loads0, keepimg0,
+  preload0, same boot, passsplit.py for the reload/demo split.
 - Neverball: our neverball +ps3.370 (built, not published), patch 0003, each change behind an
   environment switch: one vertex and element buffer per solid file and one for the five item files
   (NEVERBALL_GL_MESH), items drawn in a row with the mesh state kept (NEVERBALL_GL_ITEMS), the

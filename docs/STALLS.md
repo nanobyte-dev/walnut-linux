@@ -13,6 +13,7 @@ On the PS3 (`ps3-gpu-tools` with `ps3-stallrec` installed, `make bench-push` don
     STALLS=1 /var/tmp/bench/run.sh bench openarena "base tc1" 3
     python3 /var/tmp/bench/stalls.py /var/tmp/ps3-bench/<run dir>...   # the tables for any run
     python3 /var/tmp/bench/report.py [--stalls] <run dir>...          # stall_*_s columns
+    python3 /var/tmp/bench/passsplit.py [-v] <run dir>...  # OpenArena: the reloads' stalls apart
 
 `STALLS=1` sets `BENCH_STALLS=1` for `ps3-bench.sh`. `BENCH_STALLS_MS` changes the period
 (default 10 ms; 20 halves the cost). On the PC after `make bench-pull`, run the same commands on
@@ -103,6 +104,31 @@ time, so a busy second thread hides it.
   disk reads), cpu (290 ms user) and wait (futex), with the frames and `t0` agreeing within 1 ms.
 
 Kernel stacks need root, so the PC test never reads them; the first PS3 run will.
+
+## OpenArena: what stalls and why (2026-10-18)
+
+The first recorder runs (ioquake3 ps3.379, the timedemo looped, 20261017T233701Z and T234549Z)
+put 81% of the window's stall time on the main thread's CPU. `passsplit.py` splits it by where it
+falls in a pass: 10.2-10.8 s of the 17.6-17.9 s are the map reload at the start of every pass (the
+loop reloads the map each time: three load-screen frames of 340, 700 and 380 ms, the world's
+textures read from pak4-textures.pk3, decoded and compressed to DXT on the PPE), 7.1-7.3 s the
+demo itself: four stalls a pass of 130-400 ms, 6.9, 10.1, 13.5 and 16.7 s into it. Those are bots
+joining: the demo starts a match with bot_minplayers, which adds a bot every 10 s of game time (every
+200 timedemo frames), and OpenArena's qagame sends `loaddefered` with every bot added during play,
+so the cgame loads its models, skins and textures at once (cg_deferPlayers can't defer them). The
+same happens in real play at every match with bots. Host trace (llvmpipe, the demo, three passes):
+per pass 5 joins, 15 MD3 models, 15 skins, 35 image lookups and 23 texture uploads during the demo;
+sounds are loaded once per session (OpenAL keeps them across levels).
+
+ioquake3 0025-0026 (+ps3.380 and later, both on by default, host frames identical over three passes):
+`r_keepImages 1` keeps the textures of image files across a map change and takes them back by name
+when the next level is the same map (host reload 0.46 -> 0.17 s, the joins' uploads gone);
+`cl_preloadLate 1` registers what the cgame registered during the last level's play again at the
+end of the next load of the same map (from the second pass on nothing loads during the demo, the
+longest frame 37 -> 14 ms on the host). Both start working at the second pass, which the window
+never includes. `cl_deferPlayers 1` (opt-in) drops `loaddefered`: the bots keep a substitute
+model, which changes the picture. Recipe variants `keepimg0`, `preload0`, `loads0` (both off) and
+`defer` (games/bench/recipes/openarena.sh).
 
 ## What the kernel and the driver could add
 

@@ -259,6 +259,9 @@ Task numbers refer to the session task list. "Reboot" marks steps that need one.
    faults); listen on the TV; DS3 bindings in play. (2026-10-17: ioquake3 is our package now;
    0011-0018 cut the engine's and renderer_opengl1's CPU time: no shader-script rescan, no crc32 of
    pk3 entries, libdeflate, AltiVec, sounds loaded when played. Built, not run on the PS3 yet.)
+   (2026-10-18: the bots' models load when OpenArena's qagame says loaddefered, which is why
+   cg_deferPlayers did nothing; ioquake3 0025-0026 load them with the next load of the same map and
+   keep textures across same-map reloads: docs/STALLS.md "OpenArena".)
 9. ~~**Driver CPU cost**~~: done 2026-10-17 for now: ps3rsx 0.249 (validator fast path, shadow
    per burst, dirty bitmaps) and Mesa patches 0015-0031 (GAME-PLAN.md "Performance work done").
    What is left of the CPU is mostly per-call work in the games, which batching in the games cuts.
