@@ -26,6 +26,8 @@ from before 2026-10-17 have none):
           parse() may print reload_re / reload_after / reload_fixed to bench.txt to set its own.
           Games without a reload in the window (Sauerbraten's WIN_ON/OFF pieces already leave it
           out, SuperTuxKart's one race) get the plain numbers; src hud only
+  *_warm  the first minute: stalls_warm, stall_warm_s, longest_warm over the WARMUP seconds after the
+          load (bench.txt load_end, warmup), which the window leaves out; HUD frame times only
   win     seconds measured; ftdrift: run time minus the end of the last HUD frame (s: large when the
           frame times are misplaced against the clock, e.g. a renderer restart's gap)
   cpu     the client's user+sys seconds (the game and its helpers)
@@ -43,7 +45,9 @@ stall causes (runs with a stalls.rec: ps3-bench.sh BENCH_STALLS=1, run.sh STALLS
   stall_disk_s, _swap_s (zram + VRAM swap), _reclaim_s (direct reclaim, compaction, GART growth),
   _gpu_s, _cpu_s (running, or runnable without CPU), _io_s (the game's own reads), _wait_s (futex,
           poll, sleep), _other_s (faults without I/O, unknown): the window's stall_s split by
-          what the game's main thread and the counters did; stall_why the largest of them
+          what the game's main thread and the counters did; stall_why the largest of them;
+          load_disk_s the load's seconds waiting on the disk (client start to load_end, all of it,
+          not only stall frames), warm_disk_s the warm-up's stall frames' disk seconds
   snd     the sound card state(s) at SOUND_AT seconds; end: how the run ended (exit, end, duration)
 profiles (docs/PROFILING.md; shown only for runs that have them):
   perf_*  runs with PERF=1 (after perf-post.sh): percent of the game's samples in the window by
@@ -89,7 +93,8 @@ def harness(d, b):
     wk<sleep|kick><ms>[c<cpus>], probe<ms>[c<cpus>], perf, joined by +; then m<presets> for client.sh's
     malloc= (BENCH_MALLOC, docs/MEMORY.md), which changes the game itself, and the Mesa switches of its
     genv= (BENCH_NV30_*, docs/HOTPATHS.md: NV30_TRANSLATE_LUT=1 -> translate_lut1); for runs from before the
-    tag: rec<ms> when there is a stalls.rec, perf when perf ran. The recorder changes the stalls it
+    tag: rec<ms> when there is a stalls.rec, perf when perf ran; gpf<mode> for client.sh's game prefetch
+    (gprefetch=, BENCH_GAMEPREFETCH, docs/STALLS.md "Game prefetch"). The recorder changes the stalls it
     records (docs/STALLS.md "The recorder removes stalls"), so such runs are not the same variant"""
     m = ("m" + b["malloc"].replace(",", "_")) if b.get("malloc") else ""   # client.sh BENCH_MALLOC presets
     if b.get("genv"):   # client.sh's Mesa driver switches (BENCH_NV30_*): NV30_TRANSLATE_LUT=1 -> translate_lut1
@@ -98,6 +103,8 @@ def harness(d, b):
     if b.get("kparam"):   # client.sh's ps3rsx module parameters (BENCH_PS3RSX_*): shadow_fast=1 -> rsx_shadow_fast1
         k = "_".join("rsx_" + x.replace("=", "").lower() for x in b["kparam"].split())
         m = "+".join(x for x in (m, k) if x)
+    if b.get("gprefetch"):   # client.sh BENCH_GAMEPREFETCH: the game's files read at its start
+        m = "+".join(x for x in (m, "gpf" + b["gprefetch"]) if x)
     if "harness" in b:
         return "+".join(x for x in (b["harness"], m) if x)
     t = []
@@ -302,6 +309,14 @@ def play(d, b, r, segs, inw):
     r["win_play"] = round(sum(t - s for s, t in segs) - cut, 1)
 
 
+def warm_segment(b):
+    """(start, end) of the warm-up: the load's end (bench.txt load_end) and WARMUP s after, or None"""
+    le, w = num(b.get("load_end")), num(b.get("warmup"))
+    if le is None or not w:
+        return None
+    return le, le + w
+
+
 def steady(d, b, r):
     """the steady-state metrics of run directory d (bench.txt b) into r"""
     segs = window(b)
@@ -339,6 +354,15 @@ def steady(d, b, r):
             r["win"] = round(sum(min(t, inw[-1][0]) - s for s, t in segs if s < inw[-1][0]), 1)
             r["src"] = "hud"
             play(d, b, r, segs, inw)
+    if ft_path.exists() and (ft := floats(ft_path)) and (wseg := warm_segment(b)):
+        # the first minute: the WARMUP seconds after the load, which the window leaves out (where a
+        # prefetch of the game's files shows, docs/STALLS.md "Game prefetch")
+        ws, we = wseg
+        warm = sorted(v for e, v in zip(frame_ends(ft, b), ft) if ws < e <= we)
+        if warm:
+            r["stalls_warm"] = sum(1 for v in warm if v > STALL_MS)
+            r["stall_warm_s"] = round(sum(v for v in warm if v > STALL_MS) / 1000, 1)
+            r["longest_warm"] = round(warm[-1], 1)
     elif fps_path.exists() and (f := floats(fps_path)):
         # one value per second: value i ends about i + 1 s after the HUD's first value
         t0 = (t1 - 1) if t1 is not None else 0
@@ -374,10 +398,11 @@ def steady(d, b, r):
 
 
 COLS = ["load", "fps", "maxms", "hud", "steady", "src", "low1", "stalls", "smooth", "stall_s", "longest", "stalls_play", "stall_play_s", "longest_play", "low1_play", "win_play",
-        "reload_s", "win", "passes",
+        "reload_s", "win", "passes", "stalls_warm", "stall_warm_s", "longest_warm",
         "ftdrift", "cpu", "rss", "vram", "gart", "avail", "so_load", "so_all",
         "vsw_peak", "vsw_wb", "xrun", "tmax", "tcell", "trsx", "snd", "end", "stall_disk_s", "stall_swap_s", "stall_reclaim_s",
-        "stall_gpu_s", "stall_cpu_s", "stall_io_s", "stall_wait_s", "stall_other_s", "stall_why"]
+        "stall_gpu_s", "stall_cpu_s", "stall_io_s", "stall_wait_s", "stall_other_s", "stall_why",
+        "load_disk_s", "warm_disk_s"]
 # the profiles' columns: printed only for the runs that have them
 PROF_COLS = (["perf_n", "perf_game", "perf_mesa", "perf_drm", "perf_kgpu", "perf_kernel", "perf_libc", "perf_other",
               "perf_unk", "perf_xorg", "perf_kswapd", "perf_self"]
@@ -388,7 +413,8 @@ PROF_COLS = (["perf_n", "perf_game", "perf_mesa", "perf_drm", "perf_kgpu", "perf
              + ["mem_grow", "mem_malloc_used", "mem_malloc_free", "mem_arenas", "mem_gpu_vram", "mem_gpu_gart",
                 "mem_smaps_ms", "mem_topswap"])
 COLS += PROF_COLS
-RANGED = ("load", "fps", "maxms", "hud_med", "steady", "low1", "smooth", "stall_s", "stall_play_s", "low1_play")
+RANGED = ("load", "fps", "maxms", "hud_med", "steady", "low1", "smooth", "stall_s", "stall_play_s", "low1_play",
+          "stall_warm_s")
 
 
 def show(r):

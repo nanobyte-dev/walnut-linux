@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+# the byte code postinst made (ps3_game_prefetch.py's)
+if [ "$1" = remove ] || [ "$1" = upgrade ] || [ "$1" = deconfigure ]; then
+	if command -v py3clean >/dev/null 2>&1; then
+		py3clean -p ps3-desktop /usr/lib/ps3/desktop
+	else
+		rm -rf /usr/lib/ps3/desktop/__pycache__
+	fi
+fi
+#DEBHELPER#
+exit 0

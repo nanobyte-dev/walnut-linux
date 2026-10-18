@@ -19,7 +19,8 @@ Description: PS3 desktop (Openbox on the RSX, game mode)
  the RSX (Xorg modesetting with glamor): tint2 panel, PCManFM desktop, network, volume and
  notification helpers. Game mode keeps a game and X resident; while it runs the rest of the
  desktop gets out of the way (frozen, its memory pushed out) and comes back intact when the last
- game exits, however it exits. It starts by itself for any fullscreen 3D program
+ game exits, however it exits; the game's own files are read back at its start in one pass in disk
+ order, from what it used the last time. It starts by itself for any fullscreen 3D program
  (ps3-game-detect; browsers and video players excepted) and with the menu's games (ps3-game);
  PS3_GAME_MODE=off in a program's environment, or system-wide, turns it off. Gamepads move the
  pointer outside games. Shut down and Reboot menu entries, OpenArena's PS3 settings.

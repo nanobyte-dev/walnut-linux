@@ -339,6 +339,18 @@ def analyze(d):
                                   "evidence": evidence(ev, states, wchans, calls, others, stacks)})
             for c, x in by.items():
                 res["window"][c] += x
+    if ft and off is not None and (wseg := report.warm_segment(b)):
+        # the warm-up's stall frames (the first minute after the load), their causes summed
+        res["warm"] = Counter()
+        ends = report.frame_ends(ft, b)
+        for k, (e, v) in enumerate(zip(ends, ft)):
+            if v <= STALL_MS or not wseg[0] < e <= wseg[1]:
+                continue
+            end = rec.frames[k] if k < len(rec.frames) and rec.frames[k] is not None else e + off
+            by = interval(rec, end - v / 1000, end)[0]
+            tot = sum(by.values()) or 1
+            for c, x in by.items():
+                res["warm"][c] += x / tot * v / 1000
     le = report.num(b.get("load_end"))
     if le is not None and off is not None and rec.t:
         # the load: the client's start (or the recorder's, if later) until the load ended
@@ -353,9 +365,16 @@ def summary(d):
         res = analyze(d)
     except (OSError, ValueError, KeyError, IndexError):
         return {}
-    if not res or not res["measured"]:
-        return {}   # no frame times or no window: no stalls to split
-    out = {col: round(sum(res["window"].get(c, 0) for c in causes), 1) for col, causes in COLUMNS.items()}
+    if not res:
+        return {}
+    out = {}
+    if res["load"]:
+        out["load_disk_s"] = round(res["load"][1].get("disk", 0), 1)
+    if "warm" in res:
+        out["warm_disk_s"] = round(res["warm"].get("disk", 0), 1)
+    if not res["measured"]:
+        return out   # no frame times or no window: no stalls to split
+    out.update({col: round(sum(res["window"].get(c, 0) for c in causes), 1) for col, causes in COLUMNS.items()})
     if res["stalls"]:
         out["stall_why"] = max(res["window"], key=res["window"].get)
     return out
@@ -397,6 +416,10 @@ def show(d):
     st = res["stalls"]
     print("  window: %d stalls, %.1f s" % (len(st), sum(x["ms"] for x in st) / 1000))
     print(table(res["window"]))
+    if res.get("warm"):
+        print("  warm-up (the first %g s after the load), stall frames: %.1f s" % (
+            report.num(report.kv(Path(d) / "bench.txt").get("warmup")) or 0, sum(res["warm"].values())))
+        print(table(res["warm"]))
     if res["load"]:
         le, by, ev = res["load"]
         print("  load (0 - %.1f s):" % le)

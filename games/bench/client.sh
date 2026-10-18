@@ -164,6 +164,37 @@ done
 launch=(); [ "$GAMEMODE" = 1 ] && launch=(ps3-game)
 # GAMEMODE=0 means no game mode: not even ps3-game-detect's (it reads the game's environment)
 [ "$GAMEMODE" = 1 ] || ENV+=(PS3_GAME_MODE=off)
+# The game's own files read at its start (docs/STALLS.md "Game prefetch"): BENCH_GAMEPREFETCH (run.sh
+# GAMEPREFETCH=, an ENVS token GAMEPREFETCH=...) fetch (or 1): the list a learn run left read in one
+# pass alongside the load, nothing learnt (every run reads the same list); learn: no fetch, the
+# list made (or grown) from this run; on: both, as game mode does; off, 0 or unset: neither. Without
+# game mode the command runs through `ps3-game-prefetch game-run` (with fetch it execs the game: same
+# pid, nothing of it left in memory); with GAMEMODE=1 game mode's watcher does it
+# (PS3_GAME_PREFETCH_GAME, which is off for bench runs otherwise). Lists in BENCH_GAMEPREFETCH_DIR
+# (/var/tmp/ps3-bench/gprefetch: kept across runs and boots, apart from the desktop's).
+# BENCH_GAMEPREFETCH_MB, _RESERVE_MB, _IO (tokens GAMEPREFETCH_MB=128 ...): the fetch's budget,
+# memory reserve and I/O priority (PS3_GAME_PREFETCH_*: 64, 48, be7 when unset).
+# bench.txt gets gprefetch=<mode>[_mb<N>][_reserve<N>][_io<X>]; report.py shows it after the
+# variant (base@gpffetch, base@gpffetch_mb128).
+GPF=${BENCH_GAMEPREFETCH:-}
+case $GPF in 1) GPF=fetch ;; 0|off) GPF= ;; on|fetch|learn|'') ;;
+*) echo "!! BENCH_GAMEPREFETCH=$GPF: on, fetch (1), learn or off (0)"; exit 2 ;; esac
+GPF_BIN=${BENCH_GAMEPREFETCH_BIN:-/usr/lib/ps3/desktop/ps3-game-prefetch}
+GPF_DIR=${BENCH_GAMEPREFETCH_DIR:-/var/tmp/ps3-bench/gprefetch}
+if [ -n "$GPF" ]; then
+	grep -q '^def game_run' "${GPF_BIN%/*}/ps3_game_prefetch.py" 2>/dev/null ||
+		{ echo "!! BENCH_GAMEPREFETCH: no game-run in $GPF_BIN (ps3-desktop with the game prefetch)"; exit 2; }
+	mkdir -p "$GPF_DIR"
+	for v in MB RESERVE_MB IO; do
+		x=BENCH_GAMEPREFETCH_$v
+		[ -n "${!x:-}" ] || continue
+		ENV+=("PS3_GAME_PREFETCH_$v=${!x}"); t=${v%_MB}; GPF+="_${t,,}${!x}"
+	done
+	if [ "$GAMEMODE" = 1 ]; then ENV+=(PS3_GAME_PREFETCH_GAME="${GPF%%_*}" PS3_GAME_PREFETCH_DIR="$GPF_DIR")
+	else launch=("$GPF_BIN" game-run --mode "${GPF%%_*}" --dir "$GPF_DIR" --key "${CMD[0]}" --); fi
+elif [ "$GAMEMODE" = 1 ]; then
+	ENV+=(PS3_GAME_PREFETCH_GAME=off)
+fi
 
 # a window manager, as on the desktop: without one SDL's fullscreen request goes unanswered and the
 # game's window never reaches the screen (it still renders). Plain openbox: no autostart, no panel.
@@ -444,6 +475,7 @@ secs measured "$measured"
   [ -n "$MALLOC" ] && echo "malloc=$MALLOC"
   [ ${#GENV[@]} -gt 0 ] && echo "genv=${GENV[*]}"
   [ ${#KPARAM[@]} -gt 0 ] && echo "kparam=${KPARAM[*]}"
+  [ -n "$GPF" ] && echo "gprefetch=$GPF"
   echo "hud_skip=$HUD_SKIP"; echo "hwm=$(cat "$D/.hwm" 2>/dev/null)"; echo "sound=$(cat "$D/.sound" 2>/dev/null)"
   if [ ${#PERF_FD[@]} -gt 0 ]; then
 	echo "perf_win=${PERF_WIN[*]}"; echo "perf_ack=$PERF_ACKS"

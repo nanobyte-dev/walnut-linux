@@ -12,7 +12,12 @@ override_dh_auto_install:
 	install -m 755 files/bin/* $(P)/usr/bin/
 	install -m 755 files/sbin/* $(P)/usr/lib/ps3/sbin/
 	install -d $(P)/usr/lib/ps3/desktop
-	install -m 755 files/libexec/* $(P)/usr/lib/ps3/desktop/
+	find files/libexec -maxdepth 1 -type f ! -name '*.py' -exec install -m 755 {} $(P)/usr/lib/ps3/desktop/ \;
+	install -m 644 files/libexec/*.py $(P)/usr/lib/ps3/desktop/
+	# ps3_game_prefetch.py byte-compiled at installation (postinst) and again when python3 changes
+	# (this hook, as dh_python3 writes it for a private directory): ps3-game-prefetch imports it
+	# instead of compiling it at every start, which would cost its game watcher ~5 MB
+	install -D -m 755 debian/python3.rtupdate $(P)/usr/share/python3/runtime.d/ps3-desktop.rtupdate
 	install -D -m 755 files/generators/ps3-desktop-autologin \
 		$(P)/usr/lib/systemd/system-generators/ps3-desktop-autologin
 	install -D -m 644 files/profile.d/ps3-desktop.sh $(P)/etc/profile.d/ps3-desktop.sh

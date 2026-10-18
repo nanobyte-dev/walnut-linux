@@ -31,6 +31,10 @@
 # e.g. ENVS="- NV30_TRANSLATE_LUT=1 NV30_FENCE_BO_POOL=16" (docs/HOTPATHS.md). ps3rsx module
 # parameters as tokens: PS3RSX_NAME=V is written to /sys/module/ps3rsx/parameters/name for that run
 # and put back after it (sudo -n; client.sh kparam=, report.py base@rsx_name<V>).
+# GAMEPREFETCH=fetch|learn|on: the game's own files read at its start (client.sh BENCH_GAMEPREFETCH,
+# docs/STALLS.md "Game prefetch"): one learn run first, then ENVS="- GAMEPREFETCH=fetch" (report.py:
+# base@gpffetch); lists in /var/tmp/ps3-bench/gprefetch; GAMEPREFETCH_MB, _RESERVE_MB, _IO its budget,
+# reserve and I/O priority (tokens: GAMEPREFETCH=fetch+GAMEPREFETCH_MB=128, report.py gpffetch_mb128).
 # Results: /var/tmp/ps3-bench/<stamp>-<game>-<variant>/; report.py summarises them.
 {
 set -u
@@ -42,7 +46,7 @@ LOG=/dev/shm/run.sh.$$
 [ -n "${PERF_HZ:-}" ] && export BENCH_PERF_HZ=$PERF_HZ
 [ -n "${PERF_ALL:-}" ] && export BENCH_PERF_ALL=$PERF_ALL
 [ -n "${MEM:-}" ] && export BENCH_MEM=$MEM
-for v in STALLS_MS STALLS_CPU STALLS_NOWRITE WAKER WAKER_MODE WAKER_CPU PROBE PROBE_MS PROBE_CPU MALLOC MALLOC_TRIM_S; do
+for v in STALLS_MS STALLS_CPU STALLS_NOWRITE WAKER WAKER_MODE WAKER_CPU PROBE PROBE_MS PROBE_CPU MALLOC MALLOC_TRIM_S GAMEPREFETCH GAMEPREFETCH_MB GAMEPREFETCH_RESERVE_MB GAMEPREFETCH_IO; do
 	[ -n "${!v:-}" ] && export "BENCH_$v=${!v}"
 done
 RUNS=()

@@ -40,6 +40,14 @@
 #   PS3_GAME_PREFETCH=on (default): record, reclaim all, fetch back on leave; off: no record, no
 #   fetch (game mode as it was before the prefetch); keep: the desktop keeps its file pages (only its anonymous memory
 #   goes to swap; the recorded size says what that costs), fetch what got evicted anyway.
+# The games' own files (docs/STALLS.md "Game prefetch"; not with PS3_GAME_MODE=pads): once entered,
+# `ps3-game-prefetch game-watch` claims each registered game ($S/gp/<id>.seen), has the files it
+# used last time read in one pass in disk order at low I/O priority while it loads, and looks at
+# it for its first minutes; it exits when no game is left to look at, and run starts another for a
+# game registered later that none has claimed. leave, once the desktop is back, learns every
+# record into its game's list (game-learn). Per game, from its environment:
+# PS3_GAME_PREFETCH_GAME=on (default)|fetch|learn|off, PS3_GAME_PREFETCH_MB, _RESERVE_MB, _IO, _DIR
+# (ps3_game_prefetch.py's header).
 # State: $S (in the runtime directory: gone at logout); log: the user journal.
 M=/usr/lib/ps3/sbin/ps3-game-mode
 P=/usr/lib/ps3/desktop/ps3-game-prefetch
@@ -219,12 +227,45 @@ leave() {
 	[ -n "$pf" ] && wait "$pf"
 	rm -f "$S/prefetch" "$S/entered" "$S/entering" "$S/leaving"
 	log "left game mode"
+	# the games' records into their lists, with the desktop back (ps3-game-prefetch game-learn)
+	set -- "$S"/gp/*.seen
+	[ -e "$1" ] && [ -x "$P" ] && timeout 60 "$P" game-learn "$S" 9>&-
+	return 0
+}
+
+# the games' prefetch (see the top): the watcher started once game mode is on (after
+# ps3-game-mode's drop of the page cache), and again for a game no watcher has claimed; stopped
+# (it saves its records) before leaving
+W=
+watch_start() {
+	[ "${PS3_GAME_MODE:-on}" != pads ] && [ -x "$P" ] || return 0
+	"$P" game-watch "$S" < /dev/null 9>&- & W=$!
+}
+watch_check() {	# a registered game without a record, and no watcher: one is started
+	for f in "$S"/games/*; do
+		case $f in *.new) continue ;; esac
+		[ -e "$f" ] && [ ! -e "$S/gp/${f##*/}.seen" ] || continue
+		if [ -n "$W" ]; then
+			case $(proc "$W") in Z\ *|X\ *|'') wait "$W" 2>/dev/null; W= ;; *) return 0 ;; esac
+		fi
+		watch_start
+		return 0
+	done
+}
+watch_stop() {
+	[ -n "$W" ] || return 0
+	kill -TERM "$W" 2>/dev/null
+	{ sleep 30; kill -KILL "$W"; } 2>/dev/null & k=$!
+	wait "$W" 2>/dev/null
+	kill "$k" 2>/dev/null
+	W=
 }
 
 run() {
 	mkdir -p "$S/games"
 	echo $$ > "$S/guard"
 	enter
+	watch_start
 	exec 9> "$S/lock"
 	flock 9; rm -f "$S/entering"; : > "$S/entered"; flock -u 9
 	while :; do
@@ -237,9 +278,12 @@ run() {
 		done
 		if [ $n = 0 ]; then	# no game left: launchers arriving now wait for leave, then start anew
 			rm -f "$S/entered"; : > "$S/leaving"
+			flock -u 9
+			watch_stop
 			exit 0
 		fi
 		flock -u 9
+		watch_check
 	done
 }
 
@@ -260,7 +304,8 @@ stale() {	# game mode's state left with no guard (one killed with its whole cgro
 }
 start_guard() {	# MODE
 	env="--setenv=PS3_GAME_MODE=$1"
-	for v in DISPLAY XAUTHORITY XDG_CONFIG_DIRS XDG_DATA_DIRS GDK_GL PS3_GAME_PREFETCH PS3_GAME_KICK; do
+	for v in DISPLAY XAUTHORITY XDG_CONFIG_DIRS XDG_DATA_DIRS GDK_GL PS3_GAME_PREFETCH PS3_GAME_KICK \
+		PS3_GAME_PREFETCH_GAME PS3_GAME_PREFETCH_DIR PS3_GAME_PREFETCH_SAMPLE_S; do
 		eval "x=\${$v-}"; [ -n "$x" ] && env="$env --setenv=$v=$x"
 	done
 	# shellcheck disable=SC2086 # the values have no spaces

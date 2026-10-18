@@ -352,3 +352,132 @@ T014942Z-probe-kick): with both threads idle, a SCHED_FIFO sleeper on thread 1 w
 late (13 wakeups 100 ms or more late, 2 over 1 s); thread 0 at most 16.7 ms. With a 10 ms kicker
 (`ps3-waker -m kick -i 10`) thread 1's worst was 19.4 ms, none over 100 ms. The lost-decrementer
 explanation holds for the idle thread; the game batch (ENVS) measures what it costs games.
+
+## Game prefetch (2026-10-18)
+
+The PS3's root file system is a 2.5" hard disk on USB 2.0, 10-20 ms a random read. A game starting
+cold faults its program and libraries in page by page and reads its packs, maps and textures in
+small pieces, and each of those is such a read. The recorder put Sauerbraten's hitches and about a
+third of its 16.5 s load on the disk. ps3-desktop's `ps3-game-prefetch` (code in
+`files/libexec/ps3_game_prefetch.py`, its header has the details) learns what a game used and, at
+its next start, reads that back in one pass in disk order while the game loads.
+
+**What is learnt.** For the first 180 s of a game (`PS3_GAME_PREFETCH_SAMPLE_S`) its processes are
+looked at every 1 s, then every 3 s, then every 10 s: the files mapped or open, the working
+directories, and the game process itself (the largest RSS). When the game is over, a few more files
+are added: every file under the game's data directories (`/usr/share/games/<name>`,
+`/usr/share/<name>`, `~/.<name>`, `~/.local/share/<name>`, `~/.cache/<name>` such as Mesa's shader
+cache, the working directory), which catches maps and textures that were read and closed again,
+plus the files of the old list. Each file's resident pages (mincore) become ranges (holes under 128
+KiB filled), and each range gets its disk address (FIEMAP). The new list is the union with the old
+one, and a file with no page in memory for 3 sessions is dropped. The list is keyed by the game's
+executable (a script's path for an interpreter). Its size and mtime stand for the package version:
+an upgraded binary makes the list stale (it is not read, and gets learnt anew). The command the game
+was started by is a symlink to the same list. Lists live in `~/.cache/ps3-game-prefetch`
+(`PS3_GAME_PREFETCH_DIR`); `ps3-game-prefetch game-list`, `game-show KEY` and `game-forget KEY`
+inspect and drop them.
+
+**What is read.** The budget is min(`PS3_GAME_PREFETCH_MB`, default 64 MB, and MemFree or
+MemAvailable minus `PS3_GAME_PREFETCH_RESERVE_MB`, default 48), counted in pages not already in
+memory. It is filled in the order the game first used its files (program and libraries first, then
+data in first-seen order, files found only by the walk last), and the selection is then sorted by
+disk address. Reads are 256 KiB `preadv`s with readahead off on our descriptors (POSIX_FADV_RANDOM),
+one in flight, at I/O priority `PS3_GAME_PREFETCH_IO` (be7 by default; idle; be0-7) and nice 10.
+A fault of the game therefore waits behind one of our reads at most (about 8 ms of transfer). The
+fetch stops early when MemFree falls under the reserve, on direct reclaim or swapping
+(`/proc/vmstat` allocstall, compact_stall, pswpin/out), after 60 s, or when the game exits. It logs
+one line: `game-fetch KEY: read X MB from N files in T s (Y MB of the list in memory already, ...;
+budget B MB, L MB listed; R reads, io be7)[, stopped: why]`.
+
+**Game mode.** `PS3_GAME_PREFETCH_GAME`, from the game's own environment: on (the default) fetches
+and learns, fetch only fetches, learn only learns, off does neither. Not with
+`PS3_GAME_MODE=pads`. Once game mode has entered (after `ps3-game-mode on`, which drops the
+unmapped page cache), ps3-game-guard starts `ps3-game-prefetch game-watch`. The watcher claims each
+registered game, from ps3-game (key: the command after `ps3-game` in the launcher's command line)
+or from ps3-game-detect (key: the detected process's executable), in a record
+`$XDG_RUNTIME_DIR/ps3-game/gp/<id>.seen`. It starts the game's fetch as a process of its own and
+looks at the game for its first minutes. Once no game is left to look at, it exits, so nothing of it
+stays in memory during play. The guard starts another watcher for a game registered later that no
+record covers. At the end of `leave`, with the desktop already back, `game-learn` turns every record
+into its list. The program is a small stub that imports `ps3_game_prefetch.py` from the byte-code
+cache dh_python3 builds at installation: the watcher costs 4.1 MB anonymous on the host (bare
+`python3` 3.4 MB), against 8.8 MB when the module is compiled at every start.
+
+**The bench harness.** Bench runs normally have no game mode, so `client.sh` runs the game through
+`ps3-game-prefetch game-run` when `BENCH_GAMEPREFETCH` is set (run.sh `GAMEPREFETCH=`, an ENVS token):
+- `fetch` (or `1`) reads the list a learn run left and learns nothing, so every measured run reads
+  the same list. game-run forks a detached fetch and execs the game: same pid, same parent, nothing
+  of Python left beside it.
+- `learn` makes or grows the list and fetches nothing. Python stays as the game's parent: about
+  4 MB, so don't measure these runs.
+- `on` does both.
+
+`GAMEPREFETCH_MB`, `_RESERVE_MB` and `_IO` set the fetch's knobs. Recipes with GAMEMODE=1 get
+`PS3_GAME_PREFETCH_GAME=off` unless the token is given. Lists are kept in
+`/var/tmp/ps3-bench/gprefetch`, apart from the desktop's. bench.txt gets `gprefetch=`, and report.py
+shows it after the variant (`base@gpffetch`, `base@rec10+gpffetch_mb128`).
+
+report.py gained the first minute, which the window leaves out: `stalls_warm`, `stall_warm_s` and
+`longest_warm` over the WARMUP seconds after `load_end`. With a stall record it also gives
+`load_disk_s` (the load's seconds waiting on the disk, all of it, not only stall frames) and
+`warm_disk_s` (the warm-up's stall frames' disk seconds); stalls.py prints the warm-up's causes.
+
+**Host tests.** `python3 ps3-desktop/tests/gprefetch-check.py` (73 checks) covers:
+- the range and wrapper logic, and the data-directory rules;
+- mincore after POSIX_FADV_DONTNEED, FIEMAP extents and addresses (a sparse file too);
+- learning over 5 made-up sessions: union, first-seen times, misses, a changed file, an upgraded
+  program, the command's symlink;
+- the budget's residency-aware selection and its order, exact reads, each early stop (with made-up
+  /proc numbers);
+- game-run end to end: learn, the pages dropped, fetch, the pages back, exec keeping the pid, exit
+  statuses.
+
+`ps3-desktop/tests/autogm-check.sh` (53 checks, 6 new) covers:
+- a detected game's list learnt after leave;
+- that list read by the next detected start and by a ps3-game start, through a second watcher;
+- `PS3_GAME_PREFETCH_GAME=off`.
+
+`games/bench/selftest.py` covers client.sh with learn, then fetch, then a budget, plus the warm-up
+columns. Under a host load of 10-15, autogm-check failed one timing check in 3 of 6 runs, a
+different one each time, and the last 3 passed. The unchanged HEAD version passed the one run made
+at that load. Nothing has run on the PS3 yet.
+
+### The A/B on the PS3
+
+Same boot, desktop stopped. The harness's quiet drops the caches before every run, so each run
+starts cold. The base runs and the prefetch runs interleave within each round. All runs have the
+recorder (`STALLS=1`) for `stall_disk_s` and `load_disk_s`. The recorder changes the stalls it
+records (above), but it does so for both sides alike. ps3-desktop with game-run must be installed,
+and `make bench-push` done.
+
+    # 0. one learn run per game, cold, not measured (the list from the game's own cold start)
+    for g in "sauerbraten base" "openarena gl2min" "luanti base" "supertuxkart lean"; do
+        ENVS="GAMEPREFETCH=learn" /var/tmp/bench/run.sh bench $g 1; done
+    /usr/lib/ps3/desktop/ps3-game-prefetch game-list --dir /var/tmp/ps3-bench/gprefetch
+    /usr/lib/ps3/desktop/ps3-game-prefetch game-show --dir /var/tmp/ps3-bench/gprefetch /usr/games/cube2
+    # 1. base against prefetch, 3 rounds each (24 runs, about 2 h)
+    STALLS=1 ENVS="- GAMEPREFETCH=fetch" /var/tmp/bench/run.sh bench sauerbraten base 3
+    STALLS=1 ENVS="- GAMEPREFETCH=fetch" /var/tmp/bench/run.sh bench openarena gl2min 3
+    STALLS=1 ENVS="- GAMEPREFETCH=fetch" /var/tmp/bench/run.sh bench luanti base 3
+    STALLS=1 ENVS="- GAMEPREFETCH=fetch" /var/tmp/bench/run.sh bench supertuxkart lean 3
+    # 2. if 1 helps: the budget and the I/O priority (Sauerbraten, the most disk-bound)
+    STALLS=1 ENVS="GAMEPREFETCH=fetch GAMEPREFETCH=fetch+GAMEPREFETCH_MB=128 GAMEPREFETCH=fetch+GAMEPREFETCH_IO=idle" \
+        /var/tmp/bench/run.sh bench sauerbraten base 3
+    ps3-bench.sh desktop
+    python3 /var/tmp/bench/report.py --stalls /var/tmp/ps3-bench/<the runs>
+
+Read per game, base@rec10 against base@rec10+gpffetch:
+- `load`, `load_disk_s`;
+- `stalls_warm`, `stall_warm_s`, `warm_disk_s` (the first minute);
+- `stall_play_s`, `stall_disk_s` (the window);
+- `steady` and `low1` (no change expected);
+- `avail`, the lowest MemAvailable: the prefetch must not cost the game memory, so watch `so_all`
+  (swap-outs) as well.
+
+Each prefetch run's game.log has the `game-fetch` line, and its MB read, time and stop reason say
+how the budget went. Expected if the disk is the cost: lower `load_disk_s` and load time, fewer
+`stalls_warm`, and the same fps. If `stopped: memory` shows up, the reserve is too high or the
+budget too large for that game. The webcam check holds as for every run. On the desktop, after the
+bench: start OpenArena twice from the menu with game mode on and read the user journal (`journalctl
+--user -u ps3-game-mode`). The first start should log `nothing learnt yet`, then `game-learn` after
+`left game mode`. The second should log `game-fetch ... read`.

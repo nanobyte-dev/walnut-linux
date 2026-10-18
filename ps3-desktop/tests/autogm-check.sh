@@ -13,7 +13,11 @@
 # environment, fullscreen without the GPU, the exclusion list (a program named mpv) and
 # PS3_GAME_EXCLUDE, output into a pipe read in the desktop (gamepads only), a game started through
 # ps3-game next to a detected one (counted once each), the guard killed (nothing left frozen; the
-# next window change enters again), the detector stopping and starting again with a game running.
+# next window change enters again), the detector stopping and starting again with a game running;
+# the games' own prefetch (ps3-game-prefetch game-watch, game-learn): a detected game's files learnt
+# once game mode has left, read back at the next start of the same program, through ps3-game too, a
+# watcher started again for a game that comes after the first one's looking is over, and
+# PS3_GAME_PREFETCH_GAME=off (lists in DIR/gp, not the host's ~/.cache).
 # Settings: AUTOGM_DISPLAY (:93), AUTOGM_IMAGE (a container image with Xvfb, openbox and x11-utils;
 # built from AUTOGM_BASE, default debian:sid-slim, when missing). DIR (default: a new temporary
 # directory) is removed at the end unless KEEP=1.
@@ -25,6 +29,8 @@ IMG=${AUTOGM_IMAGE:-ps3-autogm-x}
 mkdir -p "$W/bin" "$W/lib" || exit 1
 W=$(cd "$W" && pwd)
 S=$XDG_RUNTIME_DIR/ps3t-game
+export PS3_GAME_PREFETCH_DIR=$W/gp	# the games' lists (the games' environment says where)
+export PS3_GAME_PREFETCH_SAMPLE_S=1	# each game looked at for 1 s: the watcher gone before the next game comes
 DCG=	# the "desktop" slice's cgroup, once it runs
 pass=0 fail=0
 ok() { echo "PASS: $1"; pass=$((pass + 1)); }
@@ -81,7 +87,7 @@ ren() {
 ren "$here/files/libexec/ps3-game-guard" "$W/lib/ps3-game-guard"
 ren "$here/files/libexec/ps3-game-detect" "$W/lib/ps3-game-detect"
 ren "$here/files/bin/ps3-game" "$W/bin/ps3-game"
-cp "$here/files/libexec/ps3-game-prefetch" "$W/lib/"
+cp "$here/files/libexec/ps3-game-prefetch" "$here/files/libexec/ps3_game_prefetch.py" "$W/lib/"
 chmod +x "$W/lib/ps3-game-mode"
 # nothing of the host's left in the copies' code
 if grep -v '^\s*#' "$W/lib/ps3-game-guard" "$W/lib/ps3-game-detect" "$W/bin/ps3-game" |
@@ -159,6 +165,10 @@ check "its registration is gone" eval '[ "$(auto_regs)" = 0 ]'
 sleep 1
 check "the desktop's files were recorded on entering" eval 'jr $T1 | grep -q "ps3-game-prefetch: recorded [1-9]"'
 check "leave: thawed, files fetched back, left (in that order)" eval 'jr $T1 | grep -E "leave: desktop thawed|fetched [0-9]+ files|left game mode" | tr "\n" " " | grep -qE "thawed.*fetched.*left game mode"'
+check "the game's own files: nothing learnt yet at its start" eval 'jr $T1 | grep -q "game-fetch .*fsgame: nothing learnt yet"'
+check "... learnt once game mode has left (the desktop back first)" eval 'jr $T1 | grep -E "game-learn .*fsgame: [1-9][0-9]* files|left game mode" | tr "\n" " " | grep -qE "left game mode.*game-learn"'
+check "... its record gone" eval '[ -z "$(ls "$S/gp" 2>/dev/null)" ]'
+check "... into its list (the program's key)" eval 'ls "$W/gp" | grep -q "fsgame.list$"'
 
 echo "== 3. F11 out of fullscreen and back (Luanti)"
 game g3 -- "$W/fsgame" -f -c "$W/c3"; G3=$GPID
@@ -238,6 +248,7 @@ check "says why" grep -q "pipe of the desktop" "$W/detect.log"
 kill "$G10"; wait_for 5 left
 
 echo "== 9. a game through ps3-game and a detected one"
+T9=$(date +%s)
 systemd-run --user --scope --slice=ps3t-desktop.slice --unit=ps3t-w -q \
 	"$W/bin/ps3-game" "$W/fsgame" -f -c "$W/cw" > "$W/w.out" 2>&1 &
 WP=$!; GAMES+=("$WP")
@@ -248,12 +259,17 @@ check "the detector leaves it to ps3-game (no auto- registration)" eval '[ "$(au
 systemd-run --user --scope --slice=ps3t-other.slice --unit=ps3t-g11 -q "$W/fsgame" -f -c "$W/c11" > /dev/null 2>&1 &
 G11=$!; GAMES+=("$G11")
 check "a detected game joins (one auto- registration)" wait_for 10 eval '[ "$(auto_regs)" = 1 ]'
+check "both had their lists read (game-fetch, the list learnt in 2.)" eval 'sleep 1; [ "$(jr $T9 | grep -c "game-fetch .*fsgame: read")" = 2 ]'
 check "both draw" eval 'runs "$W/c11" && runs "$W/cw"'
 stop_game "$G11"
 sleep 2
 check "the detected one gone: still in game mode (ps3-game's)" eval 'entered && frozen && [ "$(auto_regs)" = 0 ]'
 kill "$(pgrep -P "$WP" -x fsgame)"
 check "ps3-game's game gone: game mode ends" wait_for 5 left
+
+check "PS3_GAME_PREFETCH_GAME=off: game mode, no prefetch" eval 'sleep 2; T=$(date +%s); game g13 PS3_GAME_PREFETCH_GAME=off -- "$W/fsgame" -f -c "$W/c13"; G13=$GPID
+	wait_for 10 entered; sleep 1; stop_game $G13; wait_for 5 left; sleep 0.5
+	jr $T | grep -q "PS3_GAME_PREFETCH_GAME=off" && ! jr $T | grep -qE "game-(fetch|learn)"'
 
 echo "== 10. the guard killed"
 game g12 -- "$W/fsgame" -f -c "$W/c12"; G12=$GPID

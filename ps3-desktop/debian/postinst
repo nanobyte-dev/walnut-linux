@@ -16,6 +16,13 @@ if [ "$1" = configure ]; then
 	else
 		printf 'allowed_users=anybody\nneeds_root_rights=yes\n' > /etc/X11/Xwrapper.config
 	fi
+	# ps3_game_prefetch.py's byte code, so ps3-game-prefetch imports it instead of compiling it
+	# (its game watcher would cost ~5 MB more); again with every python3 (runtime.d hook)
+	if command -v py3compile >/dev/null 2>&1; then
+		py3compile -p ps3-desktop /usr/lib/ps3/desktop
+	else
+		python3 -m compileall -q /usr/lib/ps3/desktop >/dev/null 2>&1 || true
+	fi
 	# RAM: blueman's privileged helper only on demand (first install only)
 	if [ -z "$2" ]; then
 		deb-systemd-helper disable blueman-mechanism.service >/dev/null 2>&1 || true

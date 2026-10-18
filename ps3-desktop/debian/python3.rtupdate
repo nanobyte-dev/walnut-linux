@@ -1,0 +1,8 @@
+#!/bin/sh
+# ps3-desktop: ps3_game_prefetch.py's byte code made again for the new python3 (python3's runtime
+# hook; ps3-game-prefetch imports the module from that cache)
+set -e
+if [ "$1" = rtupdate ]; then
+	py3clean -p ps3-desktop /usr/lib/ps3/desktop
+	py3compile -p ps3-desktop /usr/lib/ps3/desktop
+fi

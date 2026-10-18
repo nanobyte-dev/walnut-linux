@@ -164,5 +164,12 @@ Bluetooth, apt, time sync, logging) keep working.
   leaves the desktop its file pages, only its anonymous memory goes to swap);
   `/etc/default/ps3-game-mode` (FREEZE_UNITS, RECLAIM_SYSTEM, DROP_CACHES, COMPACT,
   GAME_SYSCTLS: vm.* values only while a game runs).
+- The game's own files at its start (2026-10-18, docs/STALLS.md "Game prefetch"). Once game mode
+  is on, `ps3-game-prefetch game-watch` reads what the game used last time, in disk order, at
+  low I/O priority and within a memory budget, while the game loads (both entry paths: ps3-game
+  and the detector). It looks at the game for its first 3 minutes and then exits. leave learns
+  the list anew once the desktop is back. `PS3_GAME_PREFETCH_GAME=on|fetch|learn|off` in the
+  game's environment (default on); lists in `~/.cache/ps3-game-prefetch`. Tested on the host
+  only (gprefetch-check.py, autogm-check.sh).
 - Measured with `games/bench/gamemode-check.sh` on the desktop (idle, game mode, after; checks
   that everything is back). Not yet run on the PS3.

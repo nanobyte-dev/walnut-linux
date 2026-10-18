@@ -8,7 +8,9 @@
   3. client.sh end to end with made-up recipes and a fake game (this file with --fake-game: it
      writes the HUD's dump files as Mesa does and prints its lines), WARMUP and MEASURE in seconds:
      the window stop, passes counted and the stop once they cover MEASURE, a game's own steady
-     line, a line split by the client's 0.25 s HUD polling
+     line, a line split by the client's 0.25 s HUD polling; BENCH_GAMEPREFETCH learn then fetch with
+     ps3-desktop's ps3-game-prefetch (a list left, read by the next run, report.py's gpf tag and
+     its warm-up columns)
   4. every recipe and variant sourced as client.sh does: CMD set, and the durations against
      load + WARMUP + MEASURE (a variant that can't hold a window is listed, not an error)
   5. stalls.py on a made-up stalls.rec: one stall per cause the host can't make (GPU fence wait,
@@ -362,6 +364,54 @@ def client(tmp):
           len(w) == 4 and abs(w[1] - w[0] - 0.5) < 0.1 and abs(w[3] - float(b["seconds"])) < 0.05, w)
     r = report.run(d)
     check("own: report steady 49.5 (game)", r.get("steady") == 49.5 and r.get("src") == "game", (r.get("steady"), r.get("src")))
+
+
+def client_gprefetch(tmp):
+    """client.sh's BENCH_GAMEPREFETCH (docs/STALLS.md "Game prefetch") with ps3-desktop's
+    ps3-game-prefetch from this tree: a learn run leaves a list, a fetch run reads it, the tags and
+    the warm-up columns in report.py"""
+    gp = HERE.parent.parent / "ps3-desktop" / "files" / "libexec" / "ps3-game-prefetch"
+    env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "GALLIUM_HUD",
+                                                            "GALLIUM_HUD_DUMP_DIR")}
+    lists = tmp / "gprefetch"
+    env.update(BENCH_RECIPES=str(tmp / "recipes"), BENCH_BACKUP=str(tmp / "backup"),
+               BENCH_GAMEPREFETCH_BIN=str(gp), BENCH_GAMEPREFETCH_DIR=str(lists))
+    out = {}
+    for mode in ("learn", "1", "bogus", "fetch+mb"):
+        d = tmp / ("ps3-bench-20261018T0200%02dZ-fakehud-base" % len(out))
+        env.update(BENCH_DIR=str(d), BENCH_GAMEPREFETCH=mode.split("+")[0])
+        if mode.endswith("+mb"):
+            env["BENCH_GAMEPREFETCH_MB"] = "1"
+        p = subprocess.run(["bash", str(HERE / "client.sh"), "fakehud", "base"], env=env, capture_output=True, text=True)
+        out[mode] = (d, p)
+    d, p = out["learn"]
+    b = report.kv(d / "bench.txt")
+    check("gprefetch learn: exit 0, gprefetch=learn", p.returncode == 0 and b.get("gprefetch") == "learn",
+          (p.returncode, b.get("gprefetch"), p.stdout[-500:]))
+    log = (d / "game.log").read_text(errors="replace") if (d / "game.log").exists() else ""
+    check("gprefetch learn: the list learnt after the game (game-learn line)", "game-learn" in log, log[-500:])
+    names = sorted(x.name for x in lists.iterdir()) if lists.is_dir() else []
+    check("gprefetch learn: a list and the command's link to it", any(n.endswith("selftest.py.list") for n in names)
+          and any(n.endswith("fake-game.list") and (lists / n).is_symlink() for n in names), names)
+    r = report.run(d)
+    check("gprefetch learn: report variant base@gpflearn", r.get("variant") == "base@gpflearn", r.get("variant"))
+    check("warm-up columns: no stalls in the fake game's 2 s warm-up", r.get("stalls_warm") == 0 and
+          r.get("stall_warm_s") == 0 and 15 <= (r.get("longest_warm") or 0) < 100,
+          (r.get("stalls_warm"), r.get("stall_warm_s"), r.get("longest_warm")))
+    d, p = out["1"]
+    b = report.kv(d / "bench.txt")
+    log = (d / "game.log").read_text(errors="replace") if (d / "game.log").exists() else ""
+    check("gprefetch 1: fetch, the list read (game-fetch line), nothing learnt",
+          p.returncode == 0 and b.get("gprefetch") == "fetch" and "game-fetch" in log and "nothing learnt" not in log
+          and "game-learn" not in log, (b.get("gprefetch"), log[-500:]))
+    check("gprefetch fetch: ended=window as without it", b.get("ended") == "window", b.get("ended"))
+    check("gprefetch bogus: refused", out["bogus"][1].returncode == 2, out["bogus"][1].stdout[-300:])
+    d, p = out["fetch+mb"]
+    b = report.kv(d / "bench.txt")
+    log = (d / "game.log").read_text(errors="replace") if (d / "game.log").exists() else ""
+    check("gprefetch fetch with BENCH_GAMEPREFETCH_MB=1: the budget 1 MB, tag gpffetch_mb1",
+          b.get("gprefetch") == "fetch_mb1" and "budget 1.0 MB" in log and
+          report.run(d).get("variant") == "base@gpffetch_mb1", (b.get("gprefetch"), log[-300:]))
 
 
 # --- 5. stalls.py on a made-up record ---------------------------------------------------------
@@ -1044,6 +1094,7 @@ if __name__ == "__main__":
         runs = synthetic(tmp)
         matrix(tmp, runs)
         client(tmp)
+        client_gprefetch(tmp)
         lint()
         stalls_synthetic(tmp)
         stallrec_e2e(tmp)
