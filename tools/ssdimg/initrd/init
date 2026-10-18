@@ -26,6 +26,7 @@ LOG=$RUN/init.log
 MAPS=/ps3ssd/maps
 TOOL=/sbin/ps3-imgmap-boot
 STEP="starting"
+MADE=0
 
 mkdir -p /proc /sys /dev /run /root /gameos
 mount -t proc -o nosuid,nodev,noexec proc /proc
@@ -73,13 +74,19 @@ fail() {
 	echo "ps3ssd: FAILED at $STEP: $*" >> $LOG
 	echo "<2>ps3ssd: FAILED at $STEP: $*" > /dev/kmsg 2>/dev/null
 	grep -q ' /gameos ' /proc/mounts && umount /gameos
+	if [ "$MADE" = 1 ]; then
+		wrote=" GameOS's data was not touched: dev_hdd0 was only read, and since the devices exist only the
+ image file's own blocks can have been written (an ext4 journal replay at most)."
+	else
+		wrote=" Nothing was written to the internal disk (dev_hdd0 was only read)."
+	fi
 	msg="
 ================================================================================
  ps3ssd: the SSD root was NOT started.
  Failed at: $STEP
  $*
 
- Nothing was written to the internal disk (dev_hdd0 was only read).
+$wrote
  Log: $LOG    Tools: ps3-imgmap-boot, busybox (mount -o ro only!)
  To go back: 'reboot -f' and pick the USB entry in Petitboot, or 'poweroff -f'.
  The boot flag goes back to GameOS at the end of the session, as always.
@@ -168,6 +175,7 @@ grep -q ' /gameos ' /proc/mounts && fail "dev_hdd0 still mounted"
 
 STEP="creating /dev/mapper/$RNAME and /dev/mapper/$SWAP"
 run $TOOL create "$MAP" --root-name "$RNAME" --swap-name "$SWAP" --run $RUN
+MADE=1
 made=$(grep '^>> /dev/mapper/' $LOG | sed 's/^>> //')
 echo "$made" | while read -r l; do log "$l"; done
 

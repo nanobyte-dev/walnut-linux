@@ -63,7 +63,8 @@ done
 do_() {	# do_ CMD...: run it, or print it with --dry-run
 	if [ $DRY = 1 ]; then echo "[dry-run] $*"; else "$@"; fi
 }
-ask() {	# ask QUESTION: yes with --yes or a typed "yes" on the terminal
+ask() {	# ask QUESTION: yes with --yes or a typed "yes" on the terminal (a dry run only says it would ask)
+	[ $DRY = 1 ] && { echo "[dry-run] would ask: $1"; return 0; }
 	[ $YES = 1 ] && return 0
 	[ -t 0 ] || die "$1: not a terminal, --yes after the user's go"
 	read -r -p ">> $1 Type yes: " a
@@ -163,7 +164,7 @@ trap cleanup EXIT
 
 install_root() {
 	[ -n "$TAR" ] || die "--tar <debian-ppc64.tar> (or - for stdin, with --yes)"
-	[ "$TAR" = - ] && [ $YES = 0 ] && die "--tar - reads the image from stdin: no questions possible, --yes after the user's go"
+	[ "$TAR" = - ] && [ $YES = 0 ] && [ $DRY = 0 ] && die "--tar - reads the image from stdin: no questions possible, --yes after the user's go"
 	[ "$TAR" = - ] || [ -s "$TAR" ] || die "no $TAR"
 	# the devices must be free: nothing mounted, no swap, not under the VRAM swap's backing
 	findmnt -S $DEV >/dev/null && die "$DEV is mounted ($(findmnt -n -o TARGET -S $DEV | xargs)): ssd-arm.sh reset; umount it"
