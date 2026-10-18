@@ -1,11 +1,17 @@
 # webMAN MOD startup script (/dev_hdd0/autoexec.bat), draft 2026-10-18, not tried.
-# Puts Linux's boot files back on dev_hdd1 (GameOS's cache partition, where Petitboot finds
-# /kboot.conf) if they are missing. The master copy in /dev_hdd0/linux/boot/ is a pinned rescue
-# kernel that ps3-boot never purges; Linux itself keeps dev_hdd1 current on every kernel install.
-# Merge into an existing autoexec.bat instead of replacing it. docs/GAMEOS-HDD.md.
-if not exist /dev_hdd1/kboot.conf
+# Linux's boot files live on dev_hdd1 (FAT: Linux writes it on every kernel install, and Petitboot
+# reads /kboot.conf there). Linux can't write dev_hdd0 (UFS2, read-only from Linux), so GameOS keeps
+# the backup: at every GameOS start, mirror dev_hdd1 to /dev_hdd0/linux/boot, or put it back if
+# GameOS cleared dev_hdd1. Merge into an existing autoexec.bat instead of replacing it.
+# docs/GAMEOS-HDD.md "/boot on dev_hdd1 kept alive by webMAN".
+if exist /dev_hdd1/kboot.conf
+  md /dev_hdd0/linux
+  md /dev_hdd0/linux/boot
+  copy /dev_hdd1/linux/boot=/dev_hdd0/linux/boot
+  copy /dev_hdd1/kboot.conf=/dev_hdd0/linux/boot/kboot.conf
+else
   md /dev_hdd1/linux
-  copy /dev_hdd0/linux/boot/vmlinux-rescue=/dev_hdd1/linux/vmlinux-rescue
-  copy /dev_hdd0/linux/boot/initrd-rescue=/dev_hdd1/linux/initrd-rescue
+  md /dev_hdd1/linux/boot
+  copy /dev_hdd0/linux/boot=/dev_hdd1/linux/boot
   copy /dev_hdd0/linux/boot/kboot.conf=/dev_hdd1/kboot.conf
 end if

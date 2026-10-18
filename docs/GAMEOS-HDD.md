@@ -478,10 +478,12 @@ cache partition. No custom plugin needed: webMAN MOD runs `/dev_hdd0/autoexec.ba
 - Linux writes new kernels to dev_hdd1 (vfat, `/linux/` plus `/kboot.conf` at its root, which is
   where Petitboot looks) and drops a flag file; at the next GameOS start the script copies dev_hdd1 to
   the master and deletes the flag. If dev_hdd1's files are missing, the script copies the master back.
-- Simplest form (the user, 2026-10-18): only "if missing, copy", ps3-boot/webman/autoexec.bat. The
-  master is then a pinned rescue kernel (ps3-boot never purges it or its modules) with its own
-  kboot.conf, not the newest kernel, so a restored dev_hdd1 never points at a kernel whose modules
-  are gone; the next kernel install from Linux writes the full menu again.
+- As drafted (the user, 2026-10-18; ps3-boot/webman/autoexec.bat): Linux installs every kernel and
+  its initramfs to `/dev_hdd1/linux/boot/` and rewrites `/dev_hdd1/kboot.conf`; at every GameOS start
+  the script mirrors dev_hdd1 to `/dev_hdd0/linux/boot/` when kboot.conf is there, and copies it back
+  when it isn't. No rescue kernel: the backup is at most one Linux session old, and a GameOS start
+  always comes between a Linux session and any game that could clear dev_hdd1. To check on the
+  user's webMAN: that `copy` takes a directory, and how long the mirror takes.
 - Petitboot finds `ps3dc:/kboot.conf`; entries name `ps3dc:/linux/vmlinux-...`. The USB disk's
   kboot.conf stays as the fallback, with different labels.
 - What clears dev_hdd1 (researched 2026-10-18): games get it through the system cache API
