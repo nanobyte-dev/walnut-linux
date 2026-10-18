@@ -723,6 +723,56 @@ window swaps: OpenArena gl2min's 20.1 s of swap stalls, as far as they are spill
 USB disk rather than zram or VRAM hits (the recorder's swap class counts both swaps). The batch will
 say how much of each estimate holds.
 
+**Result, batch ssd1** (2026-10-18 22:10-23:25Z, kernel 6.12.111+ps3.472, USB root, same boot, `STALLS=1 ROTATE=1`,
+arms rotated each round; row "batch ssd1" in games/bench/results; only Sauerbraten (9 runs) and part of
+OpenArena ran, the other three games are still to do). Medians with [min..max]:
+
+| Sauerbraten base, n=3 | USB | GAMEDATA=ssd | ssd + SWAP=ssd |
+|---|---|---|---|
+| load (s) | 16.9 [15.4..19.3] | 15.9 [15.4..16.7] | 16.4 [15.3..17.5] |
+| load_disk_s (sda wait in the load) | 5.5 [4.7..5.6] | 4.9 [4.8..5.5] | 5.4 [5.0..5.4] |
+| window stalls (count / seconds) | 4 / 1.6 s [0.7..2.4] | 3 / 1.0 s [0.4..1.0] | 5 / 1.6 s [0.8..1.7] |
+| longest frame (ms) | 459 [388..665] | 407 [394..443] | 454 [391..460] |
+| 1% low (fps) | 24.1 [23.1..25.9] | 26.4 [24.8..26.5] | 24.1 [23.6..28.2] |
+| steady median (fps) | 38.5 [38.4..38.9] | 39.3 [39.1..40.0] | 38.5 [38.4..39.8] |
+| warm-up stall seconds / sda wait | 16.0 / 3.2 s | 11.9 / 2.9 s | 12.2 / 3.2 s |
+| swapped out pages, whole run | 21.4k | 20.8k | 19.8k |
+
+| OpenArena gl2min | USB (n=2) | GAMEDATA=ssd (n=1) | ssd + SWAP=ssd (n=3) |
+|---|---|---|---|
+| load (s, the game's own) | 10.7 [9.8..11.6] | 7.7 | 7.6 [7.5..7.6] |
+| load_disk_s | 6.3 [6.2..6.4] | 6.5 | 6.4 [6.4..6.7] |
+| window stall seconds (3 map reloads included) | 52 [50..54] | 41 | 43 [42..45] |
+| gameplay-only stalls / seconds | 3 / 0.3 s | 0 / 0 | 1 / 0.1 s [0..0.4] |
+| 1% low, gameplay only (fps) | 23.1 [22.9..23.3] | 23.5 | 24.4 [24.1..25.3] |
+| longest gameplay frame (ms) | 111 [109..113] | 96 | 105 [88..394] |
+| steady median (fps) | 55.9 | 56.1 | 56.1 [56.1..56.6] |
+| warm-up stall seconds / sda wait | 28.6 / 5.6 s | 22.1 / 5.2 s | 20.5 / 4.3 s |
+
+What it shows:
+- The SSD did not turn the loads CPU-bound. The recorder's disk class counts the USB disk (sda) only, and
+  that wait did not move: Sauerbraten 5.5 -> 4.9-5.4 s, OpenArena 6.3 -> 6.4-6.5 s. The game data was
+  only a part of the load's reads from sda (Sauerbraten 93 -> 76 MB, OpenArena 144 -> 93 MB in one run
+  each); the rest is the binary, libraries, Mesa, the shader cache and Xorg, which the arm leaves on
+  USB, and those reads cost the same 5-6 s. The estimate above (-22% to -51%) assumed the load's disk
+  wait was data; it is mostly not. The next arm to try is the whole system on the SSD (Phase B).
+- Sauerbraten: load -6% (SSD) and -3% (SSD + swap) in the medians, but the spread is the first round: with
+  the arm order rotated, round 1 had USB first and cold (19.3 s) and round 3 reads 15.4 / 15.4 / 15.3 s
+  for USB / SSD / SSD + swap. Stalls: SSD 1.0 s against 1.6 s and 1% low 26.4 against 24.1 look better but
+  sit inside the USB runs' own spread (0.7-2.4 s, 23.1-25.9); SSD + swap equals USB. No effect on the
+  steady fps (38.5-39.3). Verdict: no proven gain, a possible small one for the game-data arm; n=3.
+- OpenArena: the game's load is shorter by about 3 s (-28%) in all four SSD runs, against 9.8 and 11.6 s
+  on USB, and the map reloads' stall seconds drop 52 -> 41-45 (-17%). The load's start to first frame
+  (`load_end`) improves by about 3.6 s (28.1 s on USB, 23.5-25.7 s on SSD). The gameplay itself was clean
+  in every arm (stalls 0-3, 1% low 23-25), so there is nothing for the SSD to fix there. n=2/1/3:
+  indicative only. SSD + swap against SSD alone cannot be told apart (swap stall seconds 0.0-0.6 in all arms;
+  the spill is rarely read back in these two games).
+- Memory and sound: swap-outs the same in all arms; ALSA underruns in Sauerbraten
+  (81-187 per run) are the known pattern, not arm-related (SSD 113-165, USB 153-187, SSD + swap 81-168).
+- Excluded: `ps3-bench-20261018T230542Z-openarena-gl2min` (SSD arm, a key press at 195 s: interfered,
+  its window 94 s), and a last OpenArena run at about 23:26Z (killed midway, its arm reset under it;
+  no run directory was pulled). The 16 other runs have a picture (bench-cam photos at 60 and 150 s).
+
 #### Phase B
 
 Built 2026-10-19: the next section, "Phase B: the whole system on the SSD".

@@ -719,3 +719,10 @@ dlopens a library 4 s after perf attached: `[unknown]` with plain `-D -1` and wi
 dummy:u`, the library's function by name with ps3-bench.sh's enable plus disable cpu-clock, none
 of the samples before the window), and perf-post.sh on the batch's perf.data with the PS3's perf
 under qemu (above). Not checked: perf on the PS3 itself (the user runs it).
+
+### Load split with the game data on the SSD (batch ssd1, 2026-10-18)
+
+The load's disk wait (the recorder's sda class) stayed at 4.8-5.5 s in Sauerbraten and 6.2-6.7 s in
+OpenArena with `GAMEDATA=ssd`: only 16-50 MB of the load's 76-144 MB of sda reads are game data, the rest
+(binary, libraries, Mesa, shader cache, Xorg) stays on USB. The load's CPU, fault and io shares did not
+change either. Numbers and verdicts: docs/GAMEOS-HDD.md "Result, batch ssd1".
