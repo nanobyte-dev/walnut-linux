@@ -309,7 +309,10 @@ interrupt handled between the hard-enable and the hcall that doesn't set need_re
 then ends at the next timer event, at most one 4 ms tick. Re-arming DEC before the pause instead
 wouldn't close the window: a decrementer masked after the re-arm is lost the same way.
 
-To test it: install the kernel, boot it, and run test 1 and batch 2 again. Fixed, the switches stop
+To test it: install the kernel, boot it, and run test 1 and batch 2 again. The fix has an off
+switch for same-boot A/B runs: `echo 0 | sudo tee /sys/module/kernel/parameters/ps3_idle_prep`
+brings back the old pause at run time (`1` the fix again), `ps3_idle_prep=0` on the command line
+boots without it. Fixed, the switches stop
 mattering: `-`, `STALLS=1` and kick give the same stall_play_s (about 7 s), and test 1 shows no late
 wakeups. Watch the fan and `uptime` on the first boot: if the pause were skipped every time, the
 idle threads would spin and run hotter (nothing controls the fan under Linux).

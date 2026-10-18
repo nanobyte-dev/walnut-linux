@@ -33,20 +33,39 @@ the hard-enable and the hcall: one that set need_resched is caught by the
 check just before lv1_pause(), and otherwise the pause ends at the next
 timer event (at most one tick with the periodic tick), not seconds later.
 
+ps3_idle_prep=0 on the command line, or 0 written to
+/sys/module/kernel/parameters/ps3_idle_prep at run time, brings back the
+old pause, so the fix can be measured against its absence in one boot.
+
 Forwarded: not yet (test on the PS3 first)
 
 diff --git a/arch/powerpc/platforms/ps3/setup.c b/arch/powerpc/platforms/ps3/setup.c
 --- a/arch/powerpc/platforms/ps3/setup.c
 +++ b/arch/powerpc/platforms/ps3/setup.c
-@@ -16,6 +16,7 @@
+@@ -16,6 +16,8 @@
  #include <linux/cma.h>
  #include <linux/sizes.h>
  #include <linux/of.h>
++#include <linux/moduleparam.h>
 +#include <linux/sched.h>
  
  #include <asm/machdep.h>
  #include <asm/firmware.h>
-@@ -66,9 +67,36 @@ static void ps3_power_save(void)
+@@ -60,15 +62,55 @@ int ps3_compare_firmware_version(u16 major, u16 minor, u16 rev)
+ }
+ EXPORT_SYMBOL_GPL(ps3_compare_firmware_version);
+ 
++/*
++ * The idle fix below can be switched off for A/B tests in one boot:
++ * ps3_idle_prep=0 on the command line, or at run time
++ * echo 0 > /sys/module/kernel/parameters/ps3_idle_prep (the old pause).
++ */
++static bool ps3_idle_prep = true;
++core_param(ps3_idle_prep, ps3_idle_prep, bool, 0644);
++
+ static void ps3_power_save(void)
+ {
+ 	/*
  	 * lv1_pause() puts the PPE thread into inactive state until an
  	 * irq on an unmasked plug exists. MSR[EE] has no effect.
  	 * flags: 0 = wake on DEC interrupt, 1 = ignore DEC interrupt.
@@ -73,6 +92,11 @@ diff --git a/arch/powerpc/platforms/ps3/setup.c b/arch/powerpc/platforms/ps3/set
 +	 * waits at most until the next timer event, never for a decrementer
 +	 * that was pushed out.
  	 */
++	if (!READ_ONCE(ps3_idle_prep)) {
++		lv1_pause(0);
++		return;
++	}
++
 +	if (!prep_irq_for_idle())
 +		return;
 +
