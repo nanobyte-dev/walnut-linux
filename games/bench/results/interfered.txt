@@ -1,0 +1,12 @@
+# runs found disturbed after the fact (games/bench/interference-scan.py --write, docs/STALLS.md
+# "Interference"): run directory, then the evidence. report.py and matrix.py leave them out.
+ps3-bench-20261017T181626Z-supertuxkart-nohd Xorg.0.log: VT switch away at 127 s after the X start
+ps3-bench-20261017T224350Z-luanti-allbatchoff game.log: Luanti logged 3 player action(s) (mouse buttons in the game) from 61 s: warm-up: 3 digs
+ps3-bench-20261018T081125Z-luanti-base game.log: Luanti logged 1 player action(s) (mouse buttons in the game) from 105 s: window: 1 activates
+ps3-bench-20261018T093700Z-luanti-base game.log: Luanti logged 6 player action(s) (mouse buttons in the game) from 142 s: window: 4 activates, 2 digs
+ps3-bench-20261018T094136Z-luanti-lean game.log: Luanti logged 72 player action(s) (mouse buttons in the game) from 53 s: warm-up: 11 digs; window: 31 activates, 30 digs
+ps3-bench-20261018T094600Z-luanti-tradeoff game.log: Luanti logged 3 player action(s) (mouse buttons in the game) from 109 s: window: 3 activates
+ps3-bench-20261018T121340Z-openarena-base SSH: an agent's wait loop polled the PS3 over ssh every ~11 s through the run (kernel 419 idle fix row, its CAVEAT)
+ps3-bench-20261018T121821Z-openarena-base SSH: an agent's wait loop polled the PS3 over ssh every ~11 s through the run (kernel 419 idle fix row, its CAVEAT)
+ps3-bench-20261018T122303Z-openarena-base SSH: an agent's wait loop polled the PS3 over ssh every ~11 s through the run (kernel 419 idle fix row, its CAVEAT)
+ps3-bench-20261018T122726Z-openarena-base SSH: an agent's wait loop polled the PS3 over ssh every ~11 s through the run (kernel 419 idle fix row, its CAVEAT)

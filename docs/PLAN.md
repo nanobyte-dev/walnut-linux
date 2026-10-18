@@ -62,6 +62,9 @@ prefetch, the console frame freed while X runs (local/0043, 8 MB), the OtherOS++
 2. **Luanti's package default**: `cliunload` (client-side block unloading) as the default? Measured:
    stalls 6.5 -> 0.8 s, longest frame 1943 -> 259 ms, steady 45 -> 48 fps, picture unchanged.
    `lean` (0.2 s of stalls, 54 fps) renders less terrain, `view40` (59 fps) has closer fog.
+   **Interfered** (STALLS.md "Interference", retro-scan): somebody dug and clicked in Luanti during
+   the base, lean and tradeoff runs; base's worst frames came right after the digs, and lean's
+   "missing terrain" photo is the digging. Re-run base, cliunload and lean before deciding.
 3. **A test-kernel boot session** (the user reboots; Petitboot is the only way in): `.433`/`.435`
    with the lost-decrementer fix, the hwmon temperatures, the fan policy, the shutdown poll fix and the
    read-only GameOS mount. First boot with `ps3_sys_manager.fan_policy=keep`, then the default.

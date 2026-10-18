@@ -491,3 +491,143 @@ ps3-bench-20261018T120716Z-probe-fixon and ...-probe-fixoff: with `ps3_idle_prep
 worst wakeup was 3.6 / 4.0 ms (none 10 ms or later); with the switch at 0 thread 1 was up to 1103 ms
 late (11 wakeups 100 ms or more, 1 over 1 s), thread 0 16.7 ms. The fix removes the lost decrementer
 and does better than the 10 ms kicker (19.4 ms worst).
+
+## Interference (2026-10-18)
+
+The user: "add an interference test in the test harness so if someone interferes with the PS3 the
+test is invalidated". Their child was in the room that day, and on 2026-10-17 the user once hit
+Ctrl+Alt+F2 by accident in the middle of a run. Later rules from the user: trying to play the game
+instead of letting the demo play is interference too (no guessing at intent: any real input
+counts); so is running commands on the PS3 during a run (disk activity, swapped pages brought
+back); the mouse gets some tolerance (a phantom movement or a bump is fine, deliberate motion and
+any button or wheel are not).
+
+### The detector
+
+`ps3-intfwatch` (ps3-gpu-tools/src/ps3-intfwatch.c, its header has every rule) runs as root next
+to every `ps3-bench.sh x` and `run`, on by default (`BENCH_INTF=0` turns it off). It starts just
+before the command, so it sees the run's X server take vt1, and stops with the stop file. What
+counts, each a `!` line in the run's `interference.log`:
+
+- **Input** on every `/dev/input/event*` device, including devices connected mid-run (inotify on
+  `/dev/input`): every key press (repeats and releases don't count; the key's code isn't logged,
+  so the log is no key logger), controller and mouse buttons, wheel steps, a stick or trigger
+  leaving its rest position by a quarter of its range (once per excursion; the DualShock 3's
+  sticks jitter by a few units of 255 and stay quiet), any d-pad hat value. Mouse motion counts
+  only when deliberate: one burst of 2 s or more, or 1500 counts within 10 s. A bump is recorded
+  as a `-` line and doesn't count. The DS3's motion sensors (an accelerometer device) aren't
+  watched. A DS3 that is already on before the run is watched like any other device, and one
+  switched on mid-run shows up as a new device.
+- **Devices**: an input device appearing or going away, a kernel line of a USB device connected
+  or disconnected (`/dev/kmsg`). A Bluetooth controller that drops its connection by itself
+  counts too: the log can't tell that from someone switching it off.
+- **VT switches** (`/sys/class/tty/tty0/active`, polled for POLLPRI): everything except the run's
+  X server taking vt1 and giving the VT back after the game has exited.
+- **Logins and commands**: a new logind session (inotify on `/run/systemd/sessions`; every SSH
+  connection opens one, `ssh ps3 cmd` included), a new process in a login session that isn't the
+  run's own, and a process of a login session that already existed and used 1 s of CPU or more
+  during the run. The kernel has no proc connector (CONFIG_PROC_EVENTS is off), so `/proc` is
+  scanned every 250 ms. Only the directory is read; a new pid's stat, cgroup, command line and,
+  when needed, environment are read once. The run's own processes are ps3-bench.sh's descendants
+  and process group, plus anything carrying `BENCH_DIR=<run dir>` in its environment (a daemon
+  a game forks). The run's ancestors (run.sh, the SSH session that started it) belong to the
+  harness, but what they start meanwhile doesn't.
+
+Exempt, recorded as `-` lines: the bench's own evemu keyboards (uinput devices under
+`/devices/virtual/input/` whose `/dev/uinput` is held by `evemu-device`; they carry the real
+receiver's name "Logitech USB Receiver", so the name can't tell them apart), and
+`tools/bench-cam.sh`'s watcher (its command line has `pgrep -x run.sh` and `/dev/shm/ps3-bench-`;
+it and its session are exempt). XTEST (`xkeys.py`) makes no kernel input event at all, so nothing
+is seen. System services' and the user manager's new processes are listed under `info`.
+
+Not seen: a process outside a new session that lives less than one 250 ms scan. The PS3's power
+and reset buttons aren't input devices: the System Manager sends init SIGINT (ctrl-alt-del), the
+reboot ends the run, and its /dev/shm directory goes with it. Nothing before the detector's start
+(the quiet phase) or after the stop is watched. The game window losing focus isn't checked.
+
+Cost on the host: 3 ms of CPU a second with 570 processes, 2 MB RSS. On the PS3 (about 150
+processes, a slower PPE) the `result` line `interference: none (...)` and the log's `# self cpu=`
+give the number; nothing has measured it there yet.
+
+### Results
+
+bench.txt gets `interfered=0|1` and `interference=<summary>` (for example "3 key presses, VT switch
+1->2 at 85 s, 1 login(s): session 12 (tibi, sshd from 10.0.0.45) at 40 s"). The result file and the
+terminal get a loud `!! INTERFERENCE: ... THIS RUN IS INVALID` line. run.sh warns after such a run,
+and `RERUN_INTERFERED=1` runs it once more right away. report.py has an `intf` column (1, 0, - for
+not watched) and marks the run `!INTERFERED`. It leaves interfered runs out of the medians and lists
+them at the end (`--include-interfered` keeps them in). matrix.py skips them and lists what it
+skipped (`--include-interfered` too). Runs from before the detector are listed in
+`games/bench/results/interfered.txt`, which report.py and matrix.py read the same way.
+
+### The bench console
+
+When the desktop stops, the TV used to keep the last frame: the user saw a frozen boot splash and
+thought the PS3 had locked up. Now `quiet` writes a "BENCHMARK RUNNING" screen to tty8 (`BENCH_VT`,
+0 turns it off) and switches to it. The screen says what runs (run.sh passes game and variant as
+`BENCH_WHAT`), when it started, and that any input invalidates the run. tty8 has no getty (logind
+starts autovt gettys on tty1-6 only). The run's X server (`xinit ... vt1`) switches to vt1 and gives
+tty8 back when it exits, so the screen shows again between runs. After an interfered run it says
+so. `desktop` switches to vt1 and frees tty8. The detector expects both of the X server's switches
+(`-x 1 -H 8`) and counts every other one. The kernel has only the 8x16 font, so the banner is drawn
+in `#` blocks.
+
+### Retro-scan of 2026-10-17/18
+
+`games/bench/interference-scan.py` looks at what saved run directories still show: Xorg.0.log (VT
+switches, input devices added or removed mid-run, the evemu keyboards left out), dmesg.log (USB
+connects, non-virtual input devices, Bluetooth HID lines), and game.log for Luanti, which logs
+every player action ("singleplayer digs/activates ..."). The benchmark's flight never digs or
+clicks, so each such line is a mouse button pressed in the game. Run over the 339 pulled
+directories of 2026-10-17 and 18 (`--write` filled results/interfered.txt), it found six:
+
+| Run | Evidence | Matrix row affected |
+|---|---|---|
+| 20261017T181626Z-supertuxkart-nohd | VT switch away 127 s after the X start, back 4 s later (the user's Ctrl+Alt+F2) | none (not in the matrices) |
+| 20261017T224350Z-luanti-allbatchoff | 3 digs at 61 s, in the warm-up (stalls of 2.5 and 0.6 s at 59-62 s) | "Luanti ps3.364 batching ...": allbatchoff is the median of this run and one clean run |
+| 20261018T081125Z-luanti-base | 1 activate (right click, empty hand) at 105 s, in the window | "batch 8 ...": luanti-base@wkkick10+perf |
+| 20261018T093700Z-luanti-base | 4 activates at 142 s and 2 digs at 148 s, in the window; the run's longest frames are right after the digs (698 ms at 147.6 s, 1943 ms at 150.1 s, 546 ms at 150.7 s) | "Luanti ps3.405 memory variants ...": base (its 6.5 s of gameplay stalls and 1943 ms longest frame) |
+| 20261018T094136Z-luanti-lean | 72 actions: 11 digs in the warm-up, 30 digs and 31 activates in the window | the same row: lean |
+| 20261018T094600Z-luanti-tradeoff | 3 activates at 109 s, in the window | the same row: tradeoff |
+
+The lean run's webcam photos confirm it: at 60 s the dig crack and the raised hand are on screen
+and the hotbar holds a block, and at 150 s five blocks sit in the hotbar while the view points at
+the sky. Clean runs have an empty hotbar and no hand. So "lean renders less terrain (missing
+nearby terrain at 150 s)" was most likely someone digging and looking around, not the variant.
+The same row's base, compared with cliunload ("gameplay stalls 6.5 -> 0.8 s, longest frame 1943 ->
+259 ms", PLAN.md decision 2), had its worst frames right at the digs. Both comparisons need clean
+runs of base, cliunload and lean before the decision. The same photos show a solitaire game in
+progress on the PC's screen at those minutes (12:39-12:44 local). If the mouse used there is also
+paired with the PS3's Logitech receiver, the user's own mouse reaches the PS3; worth checking.
+
+What these files can't show: key presses, mouse motion and controller input that left no trace in
+a game's log, the game window losing focus, and SSH logins or commands during a run. The journal
+isn't saved per run. The PS3's kernel journal for 2026-10-18 has no input, USB or Bluetooth connect
+or disconnect lines; its hci0 found/removed lines are mpris-proxy starting and stopping with each
+desktop restart. A run without evidence isn't proven clean. Four runs with no trace in their files
+are known to be contaminated and are listed by hand: the OpenArena `ps3_idle_prep` on/off batch of
+15:13-15:31 local on 2026-10-18 (20261018T121340Z, 121821Z, 122303Z, 122726Z; matrix row "kernel
+6.12.111+ps3.419 idle fix on/off", whose CAVEAT says so). An agent's wait loop polled the PS3 over
+SSH every ~11 s through all four, and SSH scans of the journal and Xorg logs ran in the last one.
+The on/off difference held across the alternation, but the absolute numbers need the clean repeat.
+
+### Checking it on the PS3
+
+Needs ps3-gpu-tools with `ps3-intfwatch` (0.453 or later: `make ps3-gpu-tools-deb`, then a deploy) and
+`make bench-push`. Nobody may be using the PS3; webMAN fan on SYSCON.
+
+1. `run.sh smoke openarena`, then press one key on the PS3's keyboard about 30 s in. The run
+   ends with `!! INTERFERENCE: 1 key presses ...`, bench.txt has `interfered=1`, and
+   interference.log has a `! ... KEY dev="Logitech USB Receiver"` line with no key code.
+   `report.py` on the directory shows `!INTERFERED` and `intf=1`.
+2. The same run untouched: `interference: none (4 input devices watched; ...)` in the result, and
+   only `-` lines in the log apart from the X server's two expected VT lines
+   (`VT 8 -> 1 (the X server takes its VT)`, `VT 1 -> 8 (... after the game)`).
+3. During a run, `ssh ps3 true` from the PC: counted as a login (session N, sshd from
+   10.0.0.45). With `tools/bench-cam.sh` running for the batch, its watcher shows only as
+   `exempt` in the info line.
+4. `run.sh smoke armagetronad` (the evemu keyboard): `DEVADD ... (the bench's virtual device ...)`
+   as a `-` line, no interference from its key presses.
+5. The TV shows the BENCHMARK RUNNING screen while the desktop is stopped and between runs, the
+   game during the run, and the desktop after `ps3-bench.sh desktop` (webcam).
+6. Move the mouse briefly: a `- ... MOUSE ... bump` line, not counted. Move it for 3 s: counted.
