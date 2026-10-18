@@ -43,7 +43,8 @@
 # disk shader cache for the run (client.sh BENCH_SHADERCACHE; the user's own cache is left alone;
 # report.py base@sccold, base@scwarm, base@scprime for the run that filled the warm one), e.g.
 # PERF_LOAD=1 ENVS="SHADERCACHE=cold SHADERCACHE=warm" run.sh bench openarena gl2min 2.
-# GAMEDATA=ssd, SWAP=ssd (also as ENVS tokens: ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd"): the SSD
+# ROTATE=1: bench rotates the ENVS tokens each round (round 2 starts at the second token), against
+# order bias. GAMEDATA=ssd, SWAP=ssd (also as ENVS tokens: ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd"): the SSD
 # test drive's arms (docs/GAMEOS-HDD.md "Test drive, Phase A"), put in place by ssd-arm.sh before each
 # run's quiet and taken back for runs without them (usb, the default): the game's data dirs (the
 # recipe's DATA_DIRS) from the SSD copy, the VRAM swap's spill on the SSD; a switch of the swap arm
@@ -128,6 +129,17 @@ versions() {	# versions GAME VARIANT: the game's package and the graphics stack 
 variants() { grep -o '^variant_[a-z0-9_]*' "$here/recipes/$1.sh" | sed 's/^variant_//' | tr '\n' ' '; }
 report() { [ ${#RUNS[@]} -gt 0 ] && python3 "$here/report.py" "$@" "${RUNS[@]}"; }
 
+# rotated ROUND TOKEN...: the tokens, started at a different one each round when ROTATE=1 (round 1 as
+# given, round 2 from the second, ...), so no arm always runs first in its round; off by default
+# (an order like SHADERCACHE=cold then warm must stay as written).
+rotated() {
+	local r=$1; shift
+	[ "${ROTATE:-0}" = 1 ] || { echo "$@"; return; }
+	local a=("$@") k=$(( (r - 1) % $# )) i
+	for ((i = 0; i < $#; i++)); do printf '%s ' "${a[(k + i) % $#]}"; done
+	echo
+}
+
 case ${1:-} in
 smoke)
 	g=${2:?game}; v=${3:-base}
@@ -146,7 +158,7 @@ bench)
 	g=${2:?game}; vs=${3:-base}; n=${4:-3}
 	for i in $(seq "$n"); do
 		for v in $vs; do
-			for e in ${ENVS:--}; do one "$g-$v" "$g" "$v" "$e" || break 3; done
+			for e in $(rotated "$i" ${ENVS:--}); do one "$g-$v" "$g" "$v" "$e" || break 3; done
 		done
 	done
 	report
