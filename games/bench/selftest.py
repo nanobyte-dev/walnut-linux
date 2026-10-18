@@ -159,6 +159,19 @@ def synthetic(tmp):
     r = report.run(looped("05", "fakeloop", reload_re="LOADED|InitCGame", reload_after=0.5))
     check("play: bench.txt's reload_re/reload_after (segments end 2.5 s into passes 2 and 3)",
           r.get("stalls_play") == 2 and r.get("reload_s") == 5.0, (r.get("stalls_play"), r.get("reload_s")))
+    # the load's last frame starting inside a segment and ending after its cut (2.5 s from 32.5 s,
+    # the cut at 33 s) is the reload's, and the segment ends with it
+    ft2, t2, st2 = [], 5.0, {30.0: 800.0, 32.5: 2500.0, 40.0: 300.0, 50.0: 800.0, 60.0: 300.0}
+    while t2 < 75:
+        v = 20.0
+        for at in [x for x in st2 if t2 >= x]:
+            v = st2.pop(at)
+        ft2.append(v)
+        t2 += v / 1000
+    r = report.run(looped("06", "openarena"))
+    check("play: a frame that starts in a reload and outlasts its cut is the reload's",
+          r.get("stalls") == 5 and r.get("stalls_play") == 2 and r.get("longest_play") == 300.0
+          and 7.9 <= (r.get("reload_s") or 0) <= 8.1, (r.get("stalls"), r.get("stalls_play"), r.get("longest_play"), r.get("reload_s")))
     import passsplit   # shares reload_segments: the same segments for a stall record's times
     check("passsplit uses report.reload_segments", passsplit.report.reload_segments is report.reload_segments)
 

@@ -334,6 +334,10 @@ def play(d, b, r, segs, inw):
     rel = reload_segments(d, b)
     if rel is None:
         return
+    # a frame that starts inside a segment is the reload's too, and the segment ends with it: the
+    # load's last frame can outlast the cut (OpenArena opengl2: the cgame load, cl_preloadLate and
+    # RB_ShowImages in one 8-16 s frame that ends 4-5 s after "CL_InitCGame:" + 1 s)
+    rel = [(s, max([t] + [e for e, v in inw if s < e - v / 1000 < t])) for s, t in rel]
     keep = sorted(v for e, v in inw if not any(s < e <= t for s, t in rel))
     if not keep:
         return

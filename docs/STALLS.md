@@ -146,7 +146,11 @@ left out). matrix.py: `stalls_play.csv`, `stall_play_s.csv`, `low1_play.csv`, `l
 each created by the first run that has the number. HUD frame times only (not the per-second form).
 
 A reload segment is found per pass (the `pass<N>` stamps in bench.txt: start end ...), by the game's
-entry in `report.RELOADS`: a frame that ends inside a segment is the reload's.
+entry in `report.RELOADS`: a frame that ends inside a segment is the reload's, and so is one that
+starts inside it, the segment then ending with that frame (since 2026-10-18: OpenArena opengl2's
+load ends in one 8-16 s frame, the cgame load, cl_preloadLate and RB_ShowImages, that outlasts
+"CL_InitCGame:" + 1 s by 4-5 s and was counted as play: gl2min's 16 s "gameplay freeze". Its
+stall_play_s went 54.7 -> 16.0 s; opengl1 runs change by 0-4 s, docs/MEMORY.md).
 
 | Game | Reload | Segment | Basis |
 |---|---|---|---|
