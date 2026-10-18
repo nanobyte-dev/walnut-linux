@@ -36,6 +36,9 @@ from before 2026-10-17 have none):
   so      pages swapped out until the load ended / during the whole run
   vsw     VRAM swap: peak pages in VRAM, pages written back to the disk (shrinks)
   xrun    ALSA underruns (the sound buffer ran dry: audible chopping)
+  tmax    the hottest temperature over the run per zone, degrees C, Cell/RSX (ps3-bench.sh temp_max=,
+          from the kernel's ps3_sm sensors, docs/THERMAL.md); "!" after it: the run was stopped at
+          BENCH_TEMP_MAX. tcell, trsx the same as numbers (medians in the per-variant line)
 stall causes (runs with a stalls.rec: ps3-bench.sh BENCH_STALLS=1, run.sh STALLS=1; stalls.py):
   stall_disk_s, _swap_s (zram + VRAM swap), _reclaim_s (direct reclaim, compaction, GART growth),
   _gpu_s, _cpu_s (running, or runnable without CPU), _io_s (the game's own reads), _wait_s (futex,
@@ -118,6 +121,12 @@ def run(d):
         r["harness"] = h
     if (v := num(b.get("underruns"))) is not None:
         r["xrun"] = int(v)
+    if b.get("temp_max"):   # ps3-bench.sh: cell:71.5 rsx:66.0 (degrees C)
+        t = dict(x.split(":", 1) for x in b["temp_max"].split() if ":" in x)
+        r["tmax"] = "/".join(t.values()) + ("!" if b.get("temp_stop") == "1" else "")
+        for k, c in (("cell", "tcell"), ("rsx", "trsx")):
+            if (v := num(t.get(k))) is not None:
+                r[c] = v
     for k in ("fps", "maxms", "load"):
         if (v := num(b.get(k))) is not None:
             r[k] = v
@@ -364,7 +373,7 @@ def steady(d, b, r):
 COLS = ["load", "fps", "maxms", "hud", "steady", "src", "low1", "stalls", "smooth", "stall_s", "longest", "stalls_play", "stall_play_s", "longest_play", "low1_play", "win_play",
         "reload_s", "win", "passes",
         "ftdrift", "cpu", "rss", "vram", "gart", "avail", "so_load", "so_all",
-        "vsw_peak", "vsw_wb", "xrun", "snd", "end", "stall_disk_s", "stall_swap_s", "stall_reclaim_s",
+        "vsw_peak", "vsw_wb", "xrun", "tmax", "tcell", "trsx", "snd", "end", "stall_disk_s", "stall_swap_s", "stall_reclaim_s",
         "stall_gpu_s", "stall_cpu_s", "stall_io_s", "stall_wait_s", "stall_other_s", "stall_why"]
 # the profiles' columns: printed only for the runs that have them
 PROF_COLS = (["perf_n", "perf_game", "perf_mesa", "perf_drm", "perf_kgpu", "perf_kernel", "perf_libc", "perf_other",

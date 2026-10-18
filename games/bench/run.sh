@@ -65,6 +65,7 @@ one() {	# one LABEL GAME VARIANT [ENVTOKEN]: one run, its directory appended to 
 	[ -s "$d/perf.data" ] && "$here/perf-post.sh" "$d"
 	[ "$rc" = 0 ] || { echo "!! ps3-bench.sh failed ($rc): stopping"; return 1; }
 	[ -e "$d/THERMAL" ] && { echo "!! thermal alert: stopping"; return 1; }
+	[ -e "$d/TEMPLIMIT" ] && { echo "!! temperature limit (BENCH_TEMP_MAX): stopping"; return 1; }
 	return 0
 }
 

@@ -61,7 +61,7 @@ drive them), Mesa's per-draw paths on the SPEs, compressed swap through a usersp
 Postponed by the user's rule (CLAUDE.md "Memory trims"): system trims that disable things for good
 (zram off, seccomp filters, cfg80211, `dhash_entries`); the same memory is to come from game mode.
 
-Out of scope under the safety rules: fan control (needs syscon writes), anything that writes flash
+Out of scope under the safety rules: fan control (needs syscon writes; researched in THERMAL.md), anything that writes flash
 (the OtherOS area write seen on 2026-10-15 is to be found and disabled, not used), hardware mods (the
 power-control rig). Not recommended: a cacheable PPE mapping of VRAM (E8c: if lv1 refuses the
 entry the kernel BUG()s); ask before trying it.

@@ -318,8 +318,9 @@ Only when content needs them (OpenArena and ClassiCube don't):
 - **Reproducibility check:** two image builds, same `make checksums`. Image size: Debian's
   Mesa and LLVM. `make disk-image` (raw `.img.xz`, `systemd-repart` grows it on first boot).
 - **DualShock 3:** pairing works (one USB plug); check SDL mappings in play, rumble, LEDs.
-- **Fan:** read the thermal sensors under Linux, read-only first. Control needs syscon writes:
-  the user's decision.
+- **Fan:** read the thermal sensors under Linux, read-only first: built, not booted yet
+  (docs/THERMAL.md: hwmon ps3_sm in kernel patch local/0040, the bench stops at BENCH_TEMP_MAX).
+  Control needs a SYSCON set request: researched in THERMAL.md part B, the user's decision.
 - **Networking:** test Wi-Fi from nm-applet; NetworkManager could own eth0 now that the root
   isn't on NFS.
 - **Distribution:** sign and host the apt repository; the SPU and PPE toolchains could ship

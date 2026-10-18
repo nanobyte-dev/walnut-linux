@@ -86,7 +86,15 @@ def synthetic(tmp):
     check("hud: 120 s measured", abs(r.get("win", 0) - 120) < 0.1, r.get("win"))
     check("hud: frame times end with the run (ftdrift ~0)", abs(r.get("ftdrift", 9)) < 0.1, r.get("ftdrift"))
     check("hud: old hud key kept", r.get("hud", "").startswith("50/"), r.get("hud"))
+    check("no sensors: no temperature columns", "tmax" not in r and "tcell" not in r, r.get("tmax"))
     runs = [d]
+
+    # the temperatures ps3-bench.sh adds from the kernel's sensors (docs/THERMAL.md)
+    dt = tmp / "ps3-bench-20261018T000040Z-faketemp-base"
+    bench(dt, game="faketemp", variant="base", ended="exit", temp_max="cell:71.5 rsx:66.0", temp_stop=1)
+    r = report.run(dt)
+    check("temps: tmax 71.5/66.0, stopped", r.get("tmax") == "71.5/66.0!", r.get("tmax"))
+    check("temps: tcell/trsx as numbers", r.get("tcell") == 71.5 and r.get("trsx") == 66.0, (r.get("tcell"), r.get("trsx")))
 
     # the same frames, the window in two pieces (a game marking its own, WIN_ON_RE/WIN_OFF_RE): the
     # 300 ms stall at 100 s falls between them

@@ -16,7 +16,12 @@
 # next measurement. bench.txt and result get timers_paused=.
 # Games and their config files are the business of games/bench (its client.sh backs up and
 # restores what each game rewrites).
-# A watchdog stops the command on a "PS3 Thermal Alert" (Linux can't read temperatures).
+# A watchdog stops the command on a "PS3 Thermal Alert". With the kernel's temperature sensors
+# (hwmon ps3_sm, CONFIG_PS3_SYS_MANAGER_HWMON, docs/THERMAL.md) the sampler also reads them every
+# second into temps (time, then millidegrees per zone, "-" when unreadable; the first line names the
+# zones) and stops the command when one reaches BENCH_TEMP_MAX (degrees C, default 80; SYSCON's own
+# shutdown is around 85-90) or raises its alarm; bench.txt gets temp_max= (the hottest reading per
+# zone) and temp_stop=1 for a stopped run. Without the sensors nothing of this happens.
 # BENCH_TIMEOUT (default 600 s) bounds every command. BENCH_HUD=1: per-second fps from the Gallium
 # HUD into the run directory. BENCH_NOVSWAP=1: VRAM swap off for the run (the first run of anything
 # that might wedge the GPU); desktop turns it back on. BENCH_STALLS=1: ps3-stallrec records the
@@ -177,18 +182,61 @@ snap() {	# snap LABEL: everything, into $D/snap-LABEL.txt
 	  [ -n "$m" ] && sudo cat "$m"; } > "$f"
 }
 
+# The temperature sensors (docs/THERMAL.md): the hwmon directory named ps3_sm, or nothing
+temp_hwmon() {
+	local h
+	for h in /sys/class/hwmon/hwmon*; do
+		[ "$(cat "$h/name" 2>/dev/null)" = ps3_sm ] && { echo "$h"; return; }
+	done
+}
+
+# The hottest reading per zone in $D/temps, as zone:degrees (cell:71.5 rsx:66.0), or nothing
+temp_max() {
+	[ -s "$D/temps" ] && awk 'NR == 1 { n = split(substr($0, 3), z, ","); next }
+		{ for (i = 2; i <= NF && i <= n + 1; i++) if ($i ~ /^-?[0-9]+$/ && (!((i) in m) || $i > m[i])) m[i] = $i }
+		END { for (i = 2; i <= n + 1; i++) if (i in m) {
+			k = tolower(z[i - 1]); sub(/ be$/, "", k); gsub(/[^a-z0-9]/, "", k)
+			printf "%s%s:%.1f", o++ ? " " : "", k, m[i] / 1000 } }' "$D/temps"
+}
+
 # The sampler and the thermal watchdog: one root shell, stopped by $D/stop. One line per 0.5 s:
 # time, MemAvailable, SwapFree, pswpin, pswpout, GART backed (KiB), vswap in VRAM / on disk /
-# written back, then each ps3rsx client as comm:VRAM:GART (KiB).
+# written back, then each ps3rsx client as comm:VRAM:GART (KiB). With the sensors, every second a
+# line into temps (each read is one System Manager request; the driver caches a value for 1 s).
 start_sampler() {	# start_sampler JOBPID
-	sudo env D="$D" M="$(mmfile)" J="$1" bash -c '
+	local h tmax z f
+	h=$(temp_hwmon)
+	tmax=$(( ${BENCH_TEMP_MAX:-80} * 1000 ))
+	if [ -n "$h" ]; then	# the zones' names first: # Cell BE,RSX
+		z=
+		for f in "$h"/temp*_input; do z="$z${z:+,}$(cat "${f%_input}_label" 2>/dev/null || echo "${f##*/}")"; done
+		echo "# $z" > "$D/temps"
+	fi
+	sudo env D="$D" M="$(mmfile)" J="$1" H="$h" TMAX="$tmax" bash -c '
 		dmesg -W > "$D/dmesg.log" 2>&1 & w=$!
 		trap "kill $w 2>/dev/null" EXIT
+		n=0
 		while [ ! -e "$D/stop" ]; do
 			if grep -qi "thermal alert" "$D/dmesg.log"; then
 				echo "THERMAL ALERT at $EPOCHREALTIME: stopping the job" | tee "$D/THERMAL" > /dev/console
 				kill -TERM -- -"$J" 2>/dev/null; sleep 5; kill -KILL -- -"$J" 2>/dev/null
 				break
+			fi
+			if [ -n "$H" ] && [ $((n++ % 2)) = 0 ]; then
+				l=$EPOCHREALTIME hot=
+				for f in "$H"/temp*_input; do
+					v=$(cat "$f" 2>/dev/null) || v=-
+					case $v in ""|*[!0-9-]*) v=- ;; *) [ "$v" -ge "$TMAX" ] && hot="$hot ${f##*/}=$v" ;; esac
+					[ "$(cat "${f%_input}_alarm" 2>/dev/null)" = 1 ] && hot="$hot ${f##*/}:alarm"
+					l="$l $v"
+				done
+				echo "$l" >> "$D/temps"
+				if [ -n "$hot" ]; then
+					echo "TEMPERATURE LIMIT ($((TMAX / 1000)) C) at $EPOCHREALTIME:$hot: stopping the job" |
+						tee "$D/TEMPLIMIT" > /dev/console
+					kill -TERM -- -"$J" 2>/dev/null; sleep 5; kill -KILL -- -"$J" 2>/dev/null
+					break
+				fi
 			fi
 			awk -v t="$EPOCHREALTIME" '\''
 				FILENAME == "/proc/meminfo" && $1 == "MemAvailable:" { a = $2 }
@@ -344,7 +392,7 @@ stop_sampler() {
 
 # run_job LABEL cmd...: the command in its own process group, output stamped line by line
 run_job() {
-	local label=$1 rc t0 t1 h; shift
+	local label=$1 rc t0 t1 h tm; shift
 	D=/dev/shm/ps3-bench-$(date -u +%Y%m%dT%H%M%SZ)-$label
 	mkdir -p "$D"
 	printf '%q ' "$@" > "$D/cmd"; echo >> "$D/cmd"
@@ -371,6 +419,11 @@ run_job() {
 	snap post
 	h=$(harness)
 	[ -n "$h" ] && [ -e "$D/bench.txt" ] && echo "harness=$h" >> "$D/bench.txt"
+	tm=$(temp_max)
+	if [ -e "$D/bench.txt" ]; then
+		[ -n "$tm" ] && echo "temp_max=$tm" >> "$D/bench.txt"
+		[ -e "$D/TEMPLIMIT" ] && echo "temp_stop=1" >> "$D/bench.txt"
+	fi
 	if [ -s $TIMERS ]; then	# which periodic jobs were kept out of this run
 		[ -e "$D/bench.txt" ] && echo "timers_paused=$(tr '\n' ' ' < $TIMERS)" >> "$D/bench.txt"
 		cp $TIMERS "$D/timers-paused"
@@ -389,6 +442,7 @@ run_job() {
 	  awk 'NR==1{m=$2} $2<m{m=$2} END{if (NR) printf "min MemAvailable %d kB\n", m}' "$D/samples" 2>/dev/null
 	  [ -s "$D/timers-paused" ] && echo "timers paused: $(tr '\n' ' ' < "$D/timers-paused")"
 	  [ -n "$h" ] && echo "harness: $h"
+	  [ -n "$tm" ] && echo "temps max: $tm (C; limit ${BENCH_TEMP_MAX:-80})"
 	  # the stall recorder's own cost (its trailer)
 	  for f in "$D/stalls.rec" "$D/stallrec-nowrite.rec"; do
 		[ -s "$f" ] && awk '$1 == "#" && $2 == "end" { for (i = 3; i <= NF; i++) { split($i, kv, "="); v[kv[1]] = kv[2] }
@@ -408,6 +462,7 @@ run_job() {
 			c ? c : "?", t ? t : "?" }' "$D/bench.txt"
 	} > "$D/result"
 	[ -e "$D/THERMAL" ] && echo "!! THERMAL ALERT: the job was stopped. Let the PS3 cool down." >&2
+	[ -e "$D/TEMPLIMIT" ] && echo "!! $(cat "$D/TEMPLIMIT") Let the PS3 cool down." >&2
 	mkdir -p $OUT; mv "$D" $OUT/; D=$OUT/${D##*/}
 	if [ -n "$PD" ]; then	# the profile from the disk into the run directory, readable by us
 		sudo chown -R "$(id -u):$(id -g)" "$PD"
