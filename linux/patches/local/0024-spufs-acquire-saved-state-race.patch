@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Junrui Luo <moonafterrain@outlook.com>
+Date: Wed, 12 Aug 2026 13:48:10 +0800
+Subject: powerpc/spufs: fix context state race in spu_acquire_saved()
+
+spu_acquire_saved() returns with ctx->state_mutex held and the context
+in SPU_STATE_SAVED.  It tests ctx->state once and, if the context is
+still running, sets SPU_SCHED_WAS_ACTIVE and calls spu_deactivate().
+That path reaches __spu_deactivate(ctx, 1, MAX_PRIO), which drops
+state_mutex around spu_schedule() once spu_unschedule() has unbound the
+context, so the test result is stale by the time the function returns.
+
+A second thread reading any saved-state file of the same context can
+take state_mutex in that window, observe SPU_STATE_SAVED and skip its
+own deactivate.  SPU_SCHED_WAS_ACTIVE is a single bit in
+ctx->sched_flags rather than a per-acquirer token, so that thread's
+spu_release_saved() consumes the bit and calls spu_activate(), binding
+the context back onto an SPU.  The first thread then returns from
+spu_acquire_saved() with the context RUNNABLE, reads a save image the
+SPU is concurrently writing, and trips the
+BUG_ON(ctx->state != SPU_STATE_SAVED) in its own spu_release_saved(),
+leaving state_mutex held.
+
+Fix by retesting the state after spu_deactivate() returns, which also
+re-sets SPU_SCHED_WAS_ACTIVE so the acquirer keeps its own reactivation
+token.
+
+Fixes: e65c2f6fcebb ("[POWERPC] spufs: decouple spu scheduler from spufs_spu_run (asynchronous scheduling)")
+Reported-by: Yuhao Jiang <danisjiang@gmail.com>
+Assisted-by: Claude:claude-opus-5
+Cc: stable@vger.kernel.org
+Signed-off-by: Junrui Luo <moonafterrain@outlook.com>
+
+Origin: https://patchwork.ozlabs.org/project/linuxppc-dev/patch/20260812-spufs-fixes-v1-4-449e201d9f64@outlook.com/ (linuxppc-dev, 2026-08-12)
+Forwarded: not-needed (posted to linuxppc-dev by its author; not merged as of 2026-10-18)
+
+diff --git a/arch/powerpc/platforms/cell/spufs/context.c b/arch/powerpc/platforms/cell/spufs/context.c
+--- a/arch/powerpc/platforms/cell/spufs/context.c
++++ b/arch/powerpc/platforms/cell/spufs/context.c
+@@ -107,7 +107,7 @@ void spu_forget(struct spu_context *ctx)
+ 	 * want this context to be rescheduled on release.
+ 	 */
+ 	mutex_lock(&ctx->state_mutex);
+-	if (ctx->state != SPU_STATE_SAVED)
++	while (ctx->state != SPU_STATE_SAVED)
+ 		spu_deactivate(ctx);
+ 
+ 	mm = ctx->owner;
+@@ -150,7 +150,7 @@ int spu_acquire_saved(struct spu_context *ctx)
+ 	if (ret)
+ 		return ret;
+ 
+-	if (ctx->state != SPU_STATE_SAVED) {
++	while (ctx->state != SPU_STATE_SAVED) {
+ 		set_bit(SPU_SCHED_WAS_ACTIVE, &ctx->sched_flags);
+ 		spu_deactivate(ctx);
+ 	}

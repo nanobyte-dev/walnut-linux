@@ -2,7 +2,9 @@
 # Source: psx-place patch set by Sombat Tragoongoson, via github.com/damiandudycz/ps3 (files/kernel-patches/.../6.12).
 # 0010 is refreshed for 6.12.112 (one hunk dropped, already fixed upstream) and must come after the others.
 # 0030 adds /dev/ps3gpu_* (GPU FIFO/ctrl/VRAM access); disabled in Gentoo's 6.12 set, builds fine here.
-# local/ holds our own fixes on top.
+# local/ holds our own fixes on top. local/0020-0032 are other people's fixes (authors kept): gelic
+# and ps3 spu from upstream after 6.12, spufs fixes posted to linuxppc-dev but not merged (2026-08);
+# survey and sources in docs/OTHEROS-PATCHES.md.
 ps3/0020-ps3stor-send-cmd-timeout.patch
 ps3/0035-ps3flash.patch
 ps3/0040-ps3-partition.patch
@@ -49,4 +51,17 @@ local/0006-gelic-poll-controller-passes-card.patch
 local/0007-ps3-rsx-gart-cma.patch
 local/0008-walnut-boot-logo.patch
 local/0009-ps3-idle-no-pause-with-irq-pending.patch
+local/0020-gelic-handle-skb-allocation-failures.patch
+local/0021-gelic-napi-alloc-skb-gro-receive.patch
+local/0022-ps3-spu-cpu-relax.patch
+local/0023-spufs-grab-runnable-context-reference.patch
+local/0024-spufs-acquire-saved-state-race.patch
+local/0025-spufs-ps-fault-lock-inversion.patch
+local/0026-spufs-cntl-mmap-fault-type-confusion.patch
+local/0027-spufs-gang-alive-double-decrement.patch
+local/0028-spufs-spu-run-status-init.patch
+local/0029-spufs-wbox-info-out-of-bounds-read.patch
+local/0030-spufs-free-fs-context.patch
+local/0031-spufs-coredump-context-leak.patch
+local/0032-spufs-setattr-prepare.patch
 local/0040-ps3-sys-manager-hwmon-temperatures.patch

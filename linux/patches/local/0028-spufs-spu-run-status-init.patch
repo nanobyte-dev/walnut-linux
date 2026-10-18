@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Junrui Luo <moonafterrain@outlook.com>
+Date: Tue, 4 Aug 2026 16:50:39 +0800
+Subject: powerpc/spufs: don't leak kernel stack via spu_run
+
+do_spu_run() hands the address of an uninitialized local to
+spufs_run_spu() and then copies it out unconditionally:
+
+	u32 npc, status;
+	...
+	ret = spufs_run_spu(i->i_ctx, &npc, &status);
+	...
+	if (ustatus && put_user(status, ustatus))
+		ret = -EFAULT;
+
+spufs_run_spu() writes through that pointer at exactly one place, the
+"out:" label, and two of its exits never reach it: the interruptible
+acquisition of ctx->run_mutex returns -ERESTARTSYS directly, and a
+failed spu_acquire() jumps to "out_unlock", which sits just after the
+assignment.
+
+Initialize status to 0, which is what userspace would have observed had
+the assignment been reached anyway: spufs_run_spu() resets
+ctx->event_return to 0 on entry, and 0 is the "no events pending" value
+for this word.
+
+Fixes: 67207b9664a8 ("[PATCH] spufs: The SPU file system, base")
+Reported-by: Yuhao Jiang <danisjiang@gmail.com>
+Assisted-by: Claude:claude-opus-5
+Cc: stable@vger.kernel.org
+Signed-off-by: Junrui Luo <moonafterrain@outlook.com>
+
+Origin: https://patchwork.ozlabs.org/project/linuxppc-dev/patch/20260804-fixes-v2-2-5bfd827297f9@outlook.com/ (linuxppc-dev, v2, 2026-08-04)
+Forwarded: not-needed (posted to linuxppc-dev by its author; not merged as of 2026-10-18)
+
+diff --git a/arch/powerpc/platforms/cell/spufs/syscalls.c b/arch/powerpc/platforms/cell/spufs/syscalls.c
+--- a/arch/powerpc/platforms/cell/spufs/syscalls.c
++++ b/arch/powerpc/platforms/cell/spufs/syscalls.c
+@@ -37,7 +37,7 @@ static long do_spu_run(struct file *filp,
+ {
+ 	long ret;
+ 	struct spufs_inode_info *i;
+-	u32 npc, status;
++	u32 npc, status = 0;
+ 
+ 	ret = -EFAULT;
+ 	if (get_user(npc, unpc))

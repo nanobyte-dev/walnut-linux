@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Thorsten Blum <thorsten.blum@linux.dev>
+Date: Tue, 21 Jul 2026 01:11:53 +0200
+Subject: powerpc/ps3: Use cpu_relax() in ps3_create_spu()
+
+Use cpu_relax() to wait for the execution status SPE_EX_STATE_EXECUTED.
+Drop the comments while at it.
+
+Signed-off-by: Thorsten Blum <thorsten.blum@linux.dev>
+Reviewed-by: Christophe Leroy (CS GROUP) <chleroy@kernel.org>
+Signed-off-by: Madhavan Srinivasan <maddy@linux.ibm.com>
+Link: https://patch.msgid.link/20260720231153.116827-2-thorsten.blum@linux.dev
+
+Origin: upstream, commit 6050e3196d974ff4d6ea9eb6a32ec0c1a8ba1bd8, https://git.kernel.org/torvalds/c/6050e3196d97
+
+diff --git a/arch/powerpc/platforms/ps3/spu.c b/arch/powerpc/platforms/ps3/spu.c
+--- a/arch/powerpc/platforms/ps3/spu.c
++++ b/arch/powerpc/platforms/ps3/spu.c
+@@ -13,6 +13,7 @@
+ #include <linux/export.h>
+ #include <linux/io.h>
+ #include <linux/mm.h>
++#include <linux/processor.h>
+ 
+ #include <asm/spu.h>
+ #include <asm/spu_priv1.h>
+@@ -362,12 +363,9 @@ static int __init ps3_create_spu(struct spu *spu, void *data)
+ 	if (result)
+ 		goto fail_enable;
+ 
+-	/* Make sure the spu is in SPE_EX_STATE_EXECUTED. */
+-
+-	/* need something better here!!! */
+-	while (in_be64(&spu_pdata(spu)->shadow->spe_execution_status)
+-		!= SPE_EX_STATE_EXECUTED)
+-		(void)0;
++	while (in_be64(&spu_pdata(spu)->shadow->spe_execution_status) !=
++	       SPE_EX_STATE_EXECUTED)
++		cpu_relax();
+ 
+ 	return result;
+ 

@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Junrui Luo <moonafterrain@outlook.com>
+Date: Wed, 12 Aug 2026 13:48:07 +0800
+Subject: powerpc/spufs: fix memory leak of spufs_fs_context in spufs_free_fc()
+
+spufs_init_fs_context() allocates both a struct spufs_fs_context stored
+in fc->fs_private and a struct spufs_sb_info stored in fc->s_fs_info.
+The ->free callback spufs_free_fc() only releases fc->s_fs_info.
+put_fs_context() never touches fc->fs_private, since releasing it is
+what ->free() exists for, and vfs_clean_context() calls ->free() and
+then clears both pointers itself.
+
+Every spufs fs_context that is constructed and torn down therefore leaks
+the struct spufs_fs_context allocation. The leak is reachable without
+privileges: fsopen() runs ->init_fs_context() before sget_fc() enforces
+spufs's lack of FS_USERNS_MOUNT.
+
+Free fc->fs_private alongside fc->s_fs_info.
+
+Fixes: d2e0981c3b9a ("vfs: Convert spufs to use the new mount API")
+Reported-by: Yuhao Jiang <danisjiang@gmail.com>
+Assisted-by: Claude:claude-opus-5
+Cc: stable@vger.kernel.org
+Signed-off-by: Junrui Luo <moonafterrain@outlook.com>
+
+Origin: https://patchwork.ozlabs.org/project/linuxppc-dev/patch/20260812-spufs-fixes-v1-1-449e201d9f64@outlook.com/ (linuxppc-dev, 2026-08-12)
+Forwarded: not-needed (posted to linuxppc-dev by its author; not merged as of 2026-10-18)
+
+diff --git a/arch/powerpc/platforms/cell/spufs/inode.c b/arch/powerpc/platforms/cell/spufs/inode.c
+--- a/arch/powerpc/platforms/cell/spufs/inode.c
++++ b/arch/powerpc/platforms/cell/spufs/inode.c
+@@ -769,6 +769,7 @@ static int spufs_get_tree(struct fs_context *fc)
+ 
+ static void spufs_free_fc(struct fs_context *fc)
+ {
++	kfree(fc->fs_private);
+ 	kfree(fc->s_fs_info);
+ }
+ 

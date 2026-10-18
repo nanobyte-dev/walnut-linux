@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Junrui Luo <moonafterrain@outlook.com>
+Date: Tue, 4 Aug 2026 16:50:38 +0800
+Subject: powerpc/spufs: fix spu_context leak in coredump
+
+coredump_next_context() returns a spu_context with a reference taken by
+get_spu_context(), which the caller must drop.
+spufs_coredump_extra_notes_size() does so on all of its exits, but
+spufs_coredump_extra_notes_write() never calls put_spu_context(), so
+every context dumped through elf_coredump_extra_notes_write() leaks a
+reference, including on the success path.
+
+Fix by dropping the reference on each of the three exits of the loop,
+mirroring ..._size().
+
+Fixes: 38b407be172d ("powerpc/spufs: Rework fcheck() usage")
+Reported-by: Yuhao Jiang <danisjiang@gmail.com>
+Assisted-by: Claude:claude-opus-5
+Cc: stable@vger.kernel.org
+Signed-off-by: Junrui Luo <moonafterrain@outlook.com>
+
+Origin: https://patchwork.ozlabs.org/project/linuxppc-dev/patch/20260804-fixes-v2-1-5bfd827297f9@outlook.com/ (linuxppc-dev, v2, 2026-08-04)
+Forwarded: not-needed (posted to linuxppc-dev by its author; not merged as of 2026-10-18)
+
+diff --git a/arch/powerpc/platforms/cell/spufs/coredump.c b/arch/powerpc/platforms/cell/spufs/coredump.c
+--- a/arch/powerpc/platforms/cell/spufs/coredump.c
++++ b/arch/powerpc/platforms/cell/spufs/coredump.c
+@@ -164,13 +164,16 @@ int spufs_coredump_extra_notes_write(struct coredump_params *cprm)
+ 	fd = 0;
+ 	while ((ctx = coredump_next_context(&fd)) != NULL) {
+ 		rc = spu_acquire_saved(ctx);
+-		if (rc)
++		if (rc) {
++			put_spu_context(ctx);
+ 			return rc;
++		}
+ 
+ 		for (j = 0; spufs_coredump_read[j].name != NULL; j++) {
+ 			rc = spufs_arch_write_note(ctx, j, cprm, fd);
+ 			if (rc) {
+ 				spu_release_saved(ctx);
++				put_spu_context(ctx);
+ 				return rc;
+ 			}
+ 		}
+@@ -179,6 +182,7 @@ int spufs_coredump_extra_notes_write(struct coredump_params *cprm)
+ 
+ 		/* start searching the next fd next time */
+ 		fd++;
++		put_spu_context(ctx);
+ 	}
+ 
+ 	return 0;

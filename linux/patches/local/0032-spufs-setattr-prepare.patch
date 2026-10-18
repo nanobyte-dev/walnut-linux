@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Junrui Luo <moonafterrain@outlook.com>
+Date: Tue, 4 Aug 2026 16:50:40 +0800
+Subject: powerpc/spufs: check permissions in spufs_setattr()
+
+spufs_setattr() applies the caller's attributes with setattr_copy() but
+never calls setattr_prepare(). notify_change() leaves that to the
+filesystem: it runs only may_setattr(), while inode_owner_or_capable()
+and the CAP_CHOWN test live inside setattr_prepare(). setattr_copy()
+performs no checking of its own.
+
+The handler is installed for every regular spufs file, so mode and
+ownership of another user's context files can be changed without the
+usual authorization.
+
+Call setattr_prepare() before setattr_copy(). The existing ATTR_SIZE
+test stays ahead of it so that resizing a spufs file keeps returning
+-EINVAL. &nop_mnt_idmap matches the adjacent setattr_copy() call.
+
+Fixes: 67207b9664a8 ("[PATCH] spufs: The SPU file system, base")
+Reported-by: Yuhao Jiang <danisjiang@gmail.com>
+Assisted-by: Claude:claude-opus-5
+Cc: stable@vger.kernel.org
+Signed-off-by: Junrui Luo <moonafterrain@outlook.com>
+
+Origin: https://patchwork.ozlabs.org/project/linuxppc-dev/patch/20260804-fixes-v2-3-5bfd827297f9@outlook.com/ (linuxppc-dev, v2, 2026-08-04)
+Forwarded: not-needed (posted to linuxppc-dev by its author; not merged as of 2026-10-18)
+
+diff --git a/arch/powerpc/platforms/cell/spufs/inode.c b/arch/powerpc/platforms/cell/spufs/inode.c
+--- a/arch/powerpc/platforms/cell/spufs/inode.c
++++ b/arch/powerpc/platforms/cell/spufs/inode.c
+@@ -96,10 +96,14 @@ spufs_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
+ 	      struct iattr *attr)
+ {
+ 	struct inode *inode = d_inode(dentry);
++	int ret;
+ 
+ 	if ((attr->ia_valid & ATTR_SIZE) &&
+ 	    (attr->ia_size != inode->i_size))
+ 		return -EINVAL;
++	ret = setattr_prepare(&nop_mnt_idmap, dentry, attr);
++	if (ret)
++		return ret;
+ 	setattr_copy(&nop_mnt_idmap, inode, attr);
+ 	mark_inode_dirty(inode);
+ 	return 0;

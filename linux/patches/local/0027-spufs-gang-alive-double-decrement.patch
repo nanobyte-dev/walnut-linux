@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Zhenhao Wan <whi4ed0g@gmail.com>
+Date: Fri, 14 Aug 2026 23:13:39 +0800
+Subject: powerpc/spufs: fix gang->alive double-decrement on context creation
+
+spufs_create_context() takes a reference on the gang with gang->alive++
+and is meant to hold it until the context directory is closed, at which
+point spufs_dir_close() -> unuse_gang() drops it again.
+
+The error epilogue instead reads:
+
+	ret = spufs_context_open(&path);
+	...
+	if (ret && gang)
+		gang->alive--; // can't reach 0
+
+spufs_context_open() returns a non-negative file descriptor on success,
+which is non-zero whenever the caller already holds an open fd. The
+condition therefore fires on the success path too, dropping the
+reference immediately; unuse_gang() then decrements it a second time at
+close. The unbalanced double decrement can drive gang->alive to zero
+prematurely, while contexts still reference the gang, triggering
+simple_recursive_removal() of the gang directory too early.
+
+Test the sign of the return value instead, so the reference is only
+released on actual failure -- matching the idiom already used by
+spufs_create_gang(), which calls unuse_gang() only on ret < 0.
+
+Fixes: c134deabf478 ("spufs: fix gang directory lifetimes")
+Reported-by: Yuhao Jiang <danisjiang@gmail.com>
+Assisted-by: Claude:claude-opus-5
+Cc: stable@vger.kernel.org
+Signed-off-by: Zhenhao Wan <whi4ed0g@gmail.com>
+
+Origin: https://patchwork.ozlabs.org/project/linuxppc-dev/patch/20260814-spufs-groupa-v1-1-f38f7549ce20@gmail.com/ (linuxppc-dev, 2026-08-14)
+Forwarded: not-needed (posted to linuxppc-dev by its author; not merged as of 2026-10-18)
+
+diff --git a/arch/powerpc/platforms/cell/spufs/inode.c b/arch/powerpc/platforms/cell/spufs/inode.c
+--- a/arch/powerpc/platforms/cell/spufs/inode.c
++++ b/arch/powerpc/platforms/cell/spufs/inode.c
+@@ -480,7 +480,7 @@ spufs_create_context(struct inode *inode, struct dentry *dentry,
+ out_aff_unlock:
+ 	if (affinity)
+ 		mutex_unlock(&gang->aff_mutex);
+-	if (ret && gang)
++	if (ret < 0 && gang)
+ 		gang->alive--; // can't reach 0
+ 	return ret;
+ }

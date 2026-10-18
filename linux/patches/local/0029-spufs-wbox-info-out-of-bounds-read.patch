@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Junrui Luo <moonafterrain@outlook.com>
+Date: Wed, 12 Aug 2026 13:48:08 +0800
+Subject: powerpc/spufs: fix out-of-bounds read in spufs_wbox_info_read()
+
+Reading a context's wbox_info file can copy up to 48 bytes past the end
+of an on-stack buffer to userspace.
+
+spufs_wbox_info_cnt() already returns a byte count: it multiplies the
+number of queued SPU inbound mailbox entries by sizeof(u32), yielding one
+of 0, 4, 8, 12 or 16. spufs_wbox_info_dump() uses it that way and passes
+the result to spufs_dump_emit() unscaled.
+
+spufs_wbox_info_read() instead multiplies it by sizeof(u32) a second time
+and hands the product to simple_read_from_buffer() as the length of the
+available data. The buffer being described is u32
+data[ARRAY_SIZE(ctx->csa.spu_mailbox_data)], i.e. 16 bytes, but the value
+passed reaches 64. simple_read_from_buffer() clamps the transfer against
+that length rather than against the buffer, so once the mailbox holds two
+or more entries, a read reaching past offset 16 - either by requesting
+more than 16 bytes or by seeking there first - copies adjacent kernel
+stack to userspace.
+
+The mailbox occupancy is under unprivileged control. Writing to the
+context's wbox file drives spu_backing_wbox_write(), which lowers the
+free-slot count in mb_stat_R from four down to zero, and wbox_info is
+mode 0444 in spufs_dir_contents[], so the owner of the context can then
+read it back.
+
+This dates to the introduction of spufs_wbox_info_cnt(). Before that
+commit the local count held an entry count, for which the sizeof(u32)
+scaling at the call site was correct.
+
+Pass the byte count through unscaled, as spufs_wbox_info_dump() does.
+
+Fixes: 88413a6bfbbe ("powerpc/spufs: fix copy_to_user while atomic")
+Reported-by: Yuhao Jiang <danisjiang@gmail.com>
+Assisted-by: Claude:claude-opus-5
+Cc: stable@vger.kernel.org
+Signed-off-by: Junrui Luo <moonafterrain@outlook.com>
+
+Origin: https://patchwork.ozlabs.org/project/linuxppc-dev/patch/20260812-spufs-fixes-v1-2-449e201d9f64@outlook.com/ (linuxppc-dev, 2026-08-12)
+Forwarded: not-needed (posted to linuxppc-dev by its author; not merged as of 2026-10-18)
+
+diff --git a/arch/powerpc/platforms/cell/spufs/file.c b/arch/powerpc/platforms/cell/spufs/file.c
+--- a/arch/powerpc/platforms/cell/spufs/file.c
++++ b/arch/powerpc/platforms/cell/spufs/file.c
+@@ -2031,8 +2031,7 @@ static ssize_t spufs_wbox_info_read(struct file *file, char __user *buf,
+ 	spin_unlock(&ctx->csa.register_lock);
+ 	spu_release_saved(ctx);
+ 
+-	return simple_read_from_buffer(buf, len, pos, &data,
+-				count * sizeof(u32));
++	return simple_read_from_buffer(buf, len, pos, &data, count);
+ }
+ 
+ static const struct file_operations spufs_wbox_info_fops = {
