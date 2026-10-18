@@ -18,6 +18,14 @@ from before 2026-10-17 have none):
           the stalls left out; stall_s the seconds the window spent in frames over 100 ms. A
           change in steady with smooth unchanged is a change in stalls, not in the cost of a frame
   longest the longest frame in the window, ms (HUD frame times, else the passes' own maxms)
+  *_play  the same over the gameplay only: the window less the reload segments of a game that loops
+          its demo (stalls_play, stall_play_s, longest_play, low1_play, win_play; reload_s the
+          seconds left out, reload_n the segments). A segment is a pass's start to the load-done
+          line plus 1 s (OpenArena: CL_InitCGame, needs t0 and out.log) or a fixed time after the
+          pass's start (Neverball, dsda-doom, X-Moto); RELOADS below holds each game's, and a recipe's
+          parse() may print reload_re / reload_after / reload_fixed to bench.txt to set its own.
+          Games without a reload in the window (Sauerbraten's WIN_ON/OFF pieces already leave it
+          out, SuperTuxKart's one race) get the plain numbers; src hud only
   win     seconds measured; ftdrift: run time minus the end of the last HUD frame (s: large when the
           frame times are misplaced against the clock, e.g. a renderer restart's gap)
   cpu     the client's user+sys seconds (the game and its helpers)
@@ -163,6 +171,59 @@ def window(b):
     return list(zip(w[::2], w[1::2]))   # maybe in pieces (WIN_ON_RE/WIN_OFF_RE)
 
 
+# where a looped demo reloads (docs/STALLS.md): per game, "re" the output line that says the load is
+# done (the pass's reload ends "after" s later, default 1), "fixed" else a time after the pass's start,
+# in which the frames ending are the reload's (the long load frame ends just after the pass line).
+# No entry: nothing to leave out. bench.txt's reload_re / reload_after / reload_fixed win.
+RELOADS = {
+    "openarena": {"re": r"CL_InitCGame:", "after": 1.0},
+    "neverball": {"fixed": 1.0},     # the replay restarts: frames of 0.15-2 s end 0.4 s after the pass line
+    "dsda-doom": {"fixed": 1.0},     # G_DoLoadLevel after each timed pass (no data from the PS3 yet)
+    "xmoto": {"fixed": 2.0},         # a new StatePreplayingReplay per pass (no data from the PS3 yet)
+}
+
+
+def reload_segments(d, b):
+    """the reload segments [(start, end)] of run directory d (bench.txt b), seconds from the client's
+    start: [] when the game has none in its window, None when they can't be told (the load-done
+    line needs t0 and out.log)"""
+    cfg = dict(RELOADS.get(b.get("game") or "", {}))
+    if b.get("reload_re"):
+        cfg["re"] = b["reload_re"]
+    if (v := num(b.get("reload_after"))) is not None:
+        cfg["after"] = v
+    if (v := num(b.get("reload_fixed"))) is not None:
+        cfg["fixed"] = v
+    passes = []
+    for k, v in b.items():
+        f = v.split()
+        if re.fullmatch(r"pass\d+", k) and len(f) >= 2 and num(f[0]) is not None and num(f[1]) is not None:
+            passes.append((float(f[0]), float(f[1])))
+    passes.sort()
+    if not cfg or not passes:
+        return []
+    if "re" in cfg:
+        t0, out = num(b.get("t0")), Path(d) / "out.log"
+        if t0 is None or not out.exists():
+            return None
+        rx = re.compile(cfg["re"])
+        loads = []
+        for line in out.read_text(errors="replace").splitlines():
+            stamp, _, text = line.partition(" ")
+            if rx.search(text):
+                try:
+                    loads.append(float(stamp) - t0)
+                except ValueError:
+                    pass
+        segs = []
+        for s, e in passes:
+            ld = next((t for t in loads if s <= t < e), None)
+            if ld is not None:
+                segs.append((s, min(e, ld + cfg.get("after", 1.0))))
+        return segs
+    return [(s, min(e, s + cfg["fixed"])) for s, e in passes]
+
+
 def frame_ends(ft, b):
     """when each HUD frame ended, seconds from the client's start: frame i ends at t1 + the frame
     times after the first (t1: when the dump got its first value)"""
@@ -173,6 +234,27 @@ def frame_ends(ft, b):
             t += v / 1000
         ends.append(t)
     return ends
+
+
+def frame_stats(ms):
+    """(1% low, frames over STALL_MS, seconds in them, longest ms) of the sorted frame times ms"""
+    return (round(1000 / ms[max(0, -(-len(ms) * 99 // 100) - 1)], 1), sum(1 for v in ms if v > STALL_MS),
+            round(sum(v for v in ms if v > STALL_MS) / 1000, 1), round(ms[-1], 1))
+
+
+def play(d, b, r, segs, inw):
+    """the gameplay-only stall metrics (*_play) of the window's frames inw [(end, ms)] into r"""
+    rel = reload_segments(d, b)
+    if rel is None:
+        return
+    keep = sorted(v for e, v in inw if not any(s < e <= t for s, t in rel))
+    if not keep:
+        return
+    r["low1_play"], r["stalls_play"], r["stall_play_s"], r["longest_play"] = frame_stats(keep)
+    cut = sum(max(0, min(t, wt) - max(s, ws)) for s, t in rel for ws, wt in segs)
+    r["reload_n"] = len(rel)
+    r["reload_s"] = round(float(cut), 1)
+    r["win_play"] = round(sum(t - s for s, t in segs) - cut, 1)
 
 
 def steady(d, b, r):
@@ -211,6 +293,7 @@ def steady(d, b, r):
             r["longest"] = round(ms[-1], 1)
             r["win"] = round(sum(min(t, inw[-1][0]) - s for s, t in segs if s < inw[-1][0]), 1)
             r["src"] = "hud"
+            play(d, b, r, segs, inw)
     elif fps_path.exists() and (f := floats(fps_path)):
         # one value per second: value i ends about i + 1 s after the HUD's first value
         t0 = (t1 - 1) if t1 is not None else 0
@@ -245,7 +328,8 @@ def steady(d, b, r):
             r["longest"] = m
 
 
-COLS = ["load", "fps", "maxms", "hud", "steady", "src", "low1", "stalls", "smooth", "stall_s", "longest", "win", "passes",
+COLS = ["load", "fps", "maxms", "hud", "steady", "src", "low1", "stalls", "smooth", "stall_s", "longest", "stalls_play", "stall_play_s", "longest_play", "low1_play", "win_play",
+        "reload_s", "win", "passes",
         "ftdrift", "cpu", "rss", "vram", "gart", "avail", "so_load", "so_all",
         "vsw_peak", "vsw_wb", "xrun", "snd", "end", "stall_disk_s", "stall_swap_s", "stall_reclaim_s",
         "stall_gpu_s", "stall_cpu_s", "stall_io_s", "stall_wait_s", "stall_other_s", "stall_why"]
@@ -259,7 +343,7 @@ PROF_COLS = (["perf_n", "perf_game", "perf_mesa", "perf_drm", "perf_kgpu", "perf
              + ["mem_grow", "mem_malloc_used", "mem_malloc_free", "mem_arenas", "mem_gpu_vram", "mem_gpu_gart",
                 "mem_smaps_ms", "mem_topswap"])
 COLS += PROF_COLS
-RANGED = ("load", "fps", "maxms", "hud_med", "steady", "low1", "smooth", "stall_s")
+RANGED = ("load", "fps", "maxms", "hud_med", "steady", "low1", "smooth", "stall_s", "stall_play_s", "low1_play")
 
 
 def show(r):

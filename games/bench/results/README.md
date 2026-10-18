@@ -15,6 +15,7 @@ One CSV per metric. Every file has the same rows, in the order the configuration
 | `stalls.csv` | frames over 100 ms in the window (per-second data only: seconds under 10 fps) | lower |
 | `longest_ms.csv` | the longest frame in the window, ms (HUD frame times, else the game's own per-pass longest) | lower |
 | `stall_disk_s.csv`, `stall_swap_s.csv`, `stall_reclaim_s.csv`, `stall_gpu_s.csv`, `stall_cpu_s.csv` | seconds of the window's stalls spent on each cause (runs recorded with `STALLS=1`; docs/STALLS.md says how a cause is decided); each file is created by the first run that has the number | lower |
+| `stalls_play.csv`, `stall_play_s.csv`, `longest_play_ms.csv`, `low1_play.csv` | the same four over the gameplay only: the window less the reload of a game that loops its demo (OpenArena's map reload at each pass, Neverball's replay restart; docs/STALLS.md). A game without a reload has the plain numbers; a run that can't tell (OpenArena before `t0`, 2026-10-17 23:00) has no cell. Created by the first run that has them; rows before 2026-10-18 stay empty until their runs are fed in again with `--replace` | lower / lower / lower / higher |
 
 The steady-state files (since 2026-10-17, the user's decision): every run leaves out a warm-up
 (`WARMUP`, 60 s after the game's load ends) and measures at least `MEASURE` (120) s after it; each

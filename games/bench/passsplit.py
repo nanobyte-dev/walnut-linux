@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """passsplit.py [--re REGEX] [--after S] [-v] <run dir>...: for a game whose recipe repeats a demo
-(PASSES=1) and reloads its map at every pass (OpenArena), the window's stalls (stalls.py) split
-into the reload and the demo. A stall is the reload's when it starts after its pass's start and
-before S seconds (default 1) after the pass's first out.log line matching REGEX (default
-OpenArena's "CL_InitCGame:", printed when the load is done). Needs the stall record (STALLS=1) and
-bench.txt's t0. -v lists every stall with its pass, the seconds into it and the part."""
+(PASSES=1) and reloads at every pass, the window's stalls (stalls.py) split into the reload and
+the demo. The reload segments are report.py's (reload_segments: each game's RELOADS entry; OpenArena:
+a pass's start to S seconds (default 1) after its first out.log line matching "CL_InitCGame:";
+Neverball, dsda-doom, X-Moto: a fixed time after the pass's start). --re/--after replace the
+game's with a load-done REGEX. Needs the stall record (STALLS=1) and, for a REGEX, bench.txt's t0.
+-v lists every stall with its pass, the seconds into it and the part."""
 import re
 import sys
 from pathlib import Path
@@ -15,21 +16,18 @@ import stalls  # noqa: E402
 
 
 def split(d, load_re, after):
-    """(reload stalls, demo stalls, rows) of run directory d, or None without what it needs"""
+    """(reload stalls, demo stalls, rows) of run directory d, or None without what it needs. The
+    reload segments are report.reload_segments' (load_re/after override the game's, None: its own)"""
     d = Path(d)
     res = stalls.analyze(d)
     b = report.kv(d / "bench.txt")
-    t0 = report.num(b.get("t0"))
-    if not res or not res["measured"] or t0 is None or not (d / "out.log").exists():
+    if load_re is not None:
+        b["reload_re"] = load_re.pattern
+        b["reload_after"] = str(after)
+        b.pop("reload_fixed", None)
+    segs = report.reload_segments(d, b) if res and res["measured"] else None
+    if segs is None:
         return None
-    loads = []
-    for line in (d / "out.log").read_text(errors="replace").splitlines():
-        stamp, _, text = line.partition(" ")
-        if load_re.search(text):
-            try:
-                loads.append(float(stamp) - t0)
-            except ValueError:
-                pass
     passes = []
     for k, v in b.items():
         if k.startswith("pass") and k[4:].isdigit():
@@ -39,8 +37,7 @@ def split(d, load_re, after):
     reload, demo, rows = [], [], []
     for x in sorted(res["stalls"], key=lambda x: x["at"]):
         p = next((q for q in passes if q[0] <= x["at"] < q[1]), None)
-        ld = next((t for t in loads if p and p[0] <= t < p[1]), None)
-        part = "reload" if ld is not None and x["at"] < ld + after else "demo"
+        part = "reload" if any(s <= x["at"] < t for s, t in segs) else "demo"
         (reload if part == "reload" else demo).append(x)
         rows.append("  %8.2f s  %-7s +%6.2f s  %6.0f ms  %-7s %s" % (
             x["at"], p[2] if p else "-", x["at"] - p[0] if p else 0, x["ms"], x["cause"], part))
@@ -48,7 +45,7 @@ def split(d, load_re, after):
 
 
 def main(argv):
-    load_re, after, verbose, dirs = re.compile(r"CL_InitCGame:"), 1.0, False, []
+    load_re, after, verbose, dirs = None, 1.0, False, []
     it = iter(argv)
     for a in it:
         if a == "--re":

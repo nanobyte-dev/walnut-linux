@@ -13,7 +13,7 @@ On the PS3 (`ps3-gpu-tools` with `ps3-stallrec` installed, `make bench-push` don
     STALLS=1 /var/tmp/bench/run.sh bench openarena "base tc1" 3
     python3 /var/tmp/bench/stalls.py /var/tmp/ps3-bench/<run dir>...   # the tables for any run
     python3 /var/tmp/bench/report.py [--stalls] <run dir>...          # stall_*_s columns
-    python3 /var/tmp/bench/passsplit.py [-v] <run dir>...  # OpenArena: the reloads' stalls apart
+    python3 /var/tmp/bench/passsplit.py [-v] <run dir>...  # looped demos: the reloads' stalls apart (*_play columns)
 
 `STALLS=1` sets `BENCH_STALLS=1` for `ps3-bench.sh`. `BENCH_STALLS_MS` changes the period
 (default 10 ms; 20 halves the cost). On the PC after `make bench-pull`, run the same commands on
@@ -129,6 +129,42 @@ longest frame 37 -> 14 ms on the host). Both start working at the second pass, w
 never includes. `cl_deferPlayers 1` (opt-in) drops `loaddefered`: the bots keep a substitute
 model, which changes the picture. Recipe variants `keepimg0`, `preload0`, `loads0` (both off) and
 `defer` (games/bench/recipes/openarena.sh).
+
+## Gameplay-only stalls (2026-10-18)
+
+The user cares about stutter during play, and a looped demo's reload frames are not play: for
+OpenArena 10 of the 18 stall seconds of a run were the map reload at the start of each pass.
+report.py therefore computes the stall numbers a second time over the window less the reload
+segments (the old columns keep the whole window, for history): `stalls_play`, `stall_play_s`,
+`longest_play`, `low1_play`, plus `win_play` (seconds of play), `reload_s` and `reload_n` (what was
+left out). matrix.py: `stalls_play.csv`, `stall_play_s.csv`, `low1_play.csv`, `longest_play_ms.csv`,
+each created by the first run that has the number. HUD frame times only (not the per-second form).
+
+A reload segment is found per pass (the `pass<N>` stamps in bench.txt: start end ...), by the game's
+entry in `report.RELOADS`: a frame that ends inside a segment is the reload's.
+
+| Game | Reload | Segment | Basis |
+|---|---|---|---|
+| OpenArena | map reload at every demo pass | pass start to 1 s after its first out.log line `CL_InitCGame:` (needs bench.txt `t0`) | measured, 20261017T2337/T2345: same split as before (10.2-10.8 s reload, 7.1-7.3 s demo) |
+| Neverball | the replay restarts at every pass | pass start + 1 s | measured: the load frames (0.15-2 s) end 0.4 s after the pass line; runs before t0 was recorded still work, it is a fixed time |
+| dsda-doom | level load after each timed pass | pass start + 1 s | a guess, no PS3 run with frame times yet; check the stalls' seconds into each pass (`passsplit.py -v`) |
+| X-Moto | a new replay state per pass | pass start + 2 s | a guess, same |
+| Sauerbraten | demoend plays the demo again | none: WIN_ON_RE/WIN_OFF_RE pieces already leave the reload out | the play numbers equal the old ones |
+| SuperTuxKart, the rest | one race or session | none | play = old |
+
+A run whose game needs the load line but has no `t0` (OpenArena before 2026-10-17 23:00) has no
+play columns (`-`), not a wrong number. A recipe can set its own with `parse()` printing
+`reload_re=`, `reload_after=` or `reload_fixed=` into bench.txt, which win over the table.
+`passsplit.py` is the same code (`report.reload_segments`), splitting the recorder's stalls with
+their causes; `--re`/`--after` override the game's load line. Test: selftest.py section 1 (a
+synthetic looped demo: OpenArena by load line, Neverball by fixed time, bench.txt overrides, a game
+with none, a missing t0).
+
+Values of 2026-10-17 evening (whole window -> play: stall_s, stalls, low1): OpenArena base T2332 /
+T2337 / T2341 / T2345: 41.4 -> 28.9 s, 34.9 -> 20.7 s (older ioquake3, 80 -> 47 stalls) and 17.9 -> 7.1 s,
+17.6 -> 7.3 s (ioquake3 +ps3.396 era: 58 -> 27 and 52 -> 26 stalls, low1 11 -> 27 and 11 -> 28). Neverball
+base/gloff: 17.2 -> 14.0, 19.6 -> 17.2, 25.6 -> 18.8, 22.7 -> 17.2 s, so Neverball's stalls are mostly
+mid-replay, not the restart. Sauerbraten (the window already leaves the reload out): unchanged.
 
 ## What the kernel and the driver could add
 

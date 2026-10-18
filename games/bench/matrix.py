@@ -19,6 +19,11 @@ before 2026-10-17 have no such cells):
 the stall causes (runs recorded with STALLS=1, stalls.py; a file is created by the first run that has
 the number): seconds of the window's stalls spent on each cause (lower is better)
   stall_disk_s.csv, stall_swap_s.csv, stall_reclaim_s.csv, stall_gpu_s.csv, stall_cpu_s.csv
+the gameplay only (report.py *_play: the window less the reloads of a game that loops its demo,
+OpenArena's map reload at every pass, Neverball's replay restart; a game without one has the plain
+numbers; runs before the reload rules or without t0 where they need it have none; a file is created by
+the first run that has the number): stalls_play.csv, stall_play_s.csv (lower is better), low1_play.csv
+(higher), longest_play_ms.csv (lower). The old stalls/low1/longest_ms files keep the whole window.
 A new metric file starts with the rows fps.csv has (cells empty), so every file has the same rows.
 BENCH_RESULTS=<dir> writes the files there instead (the self-test).
 Columns: test, date (of the newest run), runs (count), observations (did the games run, what was wrong, what this row proves), then the game-variants, sorted.
@@ -54,9 +59,10 @@ METRICS = {
     "stalls": lambda r: r.get("stalls"),
     "longest_ms": lambda r: r.get("longest"),
 }
-OPTIONAL = ("stall_disk_s", "stall_swap_s", "stall_reclaim_s", "stall_gpu_s", "stall_cpu_s")
+OPTIONAL = ("stall_disk_s", "stall_swap_s", "stall_reclaim_s", "stall_gpu_s", "stall_cpu_s",
+            "stalls_play", "stall_play_s", "low1_play", "longest_play_ms")
 for _m in OPTIONAL:
-    METRICS[_m] = lambda r, m=_m: r.get(m)
+    METRICS[_m] = lambda r, m=_m: r.get(m.replace("_ms", ""))
 FIXED = ["test", "date", "runs", "observations"]
 RECIPES = sorted((p.stem for p in (Path(__file__).resolve().parent / "recipes").glob("*.sh")),
                  key=len, reverse=True)

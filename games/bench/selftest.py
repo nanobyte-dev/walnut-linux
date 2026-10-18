@@ -93,6 +93,56 @@ def synthetic(tmp):
           (r.get("stalls"), r.get("longest")))
     check("pieces: 118.5 s measured, median 50", r.get("win") == 118.5 and r.get("hud_win") == 50, (r.get("win"), r.get("hud_win")))
 
+    # gameplay-only stalls (report.py *_play): a demo looped in three 20 s passes (10-30, 30-50,
+    # 50-70), window 30-70. An 800 ms frame ends just after each pass line (the reload) and a 300 ms
+    # one 10 s into pass 2 and 3 (the play); 20 ms frames otherwise
+    ft2, t2, st2 = [], 5.0, {30.0: 800.0, 40.0: 300.0, 50.0: 800.0, 60.0: 300.0}
+    while t2 < 75:
+        v = 20.0
+        for at in [x for x in st2 if t2 >= x]:
+            v = st2.pop(at)
+        ft2.append(v)
+        t2 += v / 1000
+    passes2 = {"pass1": "10.00 30.00 50 30 0", "pass2": "30.00 50.00 50 30 1", "pass3": "50.00 70.00 50 30 1"}
+
+    def looped(name, game, t0=True, out=True, **extra):
+        d = tmp / ("ps3-bench-20261018T0004%s-%s-base" % (name, game))
+        write(d / "hud" / "frametime_(ms)", "".join("%g\n" % v for v in ft2))
+        kv = dict(game=game, variant="base", ended="window", seconds="%.2f" % t2, warmup=60, measure=120,
+                  load_end="10.00", hud_t1="5.00", window="30.00 70.00", passes=3, measured="40.00")
+        if t0:
+            kv["t0"] = "1000.000000"
+        bench(d, **kv, **passes2, **extra)
+        if out:   # the load is done 2 s into passes 1, 2 and 3 (the stamps are the epoch)
+            write(d / "out.log", "".join("%.3f noise\n%.3f CL_InitCGame:  2.0 seconds\n" % (1000 + s - 1, 1000 + s + 2)
+                                         for s in (10, 30, 50)))
+        return d
+    r = report.run(looped("00", "openarena"))
+    check("play: whole window keeps its numbers", r.get("stalls") == 4 and r.get("stall_s") == 2.2, (r.get("stalls"), r.get("stall_s")))
+    check("play: openarena: reloads (pass start to the load line + 1 s) left out",
+          r.get("stalls_play") == 2 and r.get("stall_play_s") == 0.6 and r.get("longest_play") == 300.0,
+          (r.get("stalls_play"), r.get("stall_play_s"), r.get("longest_play")))
+    check("play: 6 s of reloads in the window, 34 s of play", r.get("reload_s") == 6.0 and r.get("win_play") == 34.0
+          and r.get("reload_n") == 3, (r.get("reload_s"), r.get("win_play"), r.get("reload_n")))
+    check("play: 1% low of the play frames (mostly 20 ms)", r.get("low1_play") == 50.0, r.get("low1_play"))
+    r = report.run(looped("01", "neverball", out=False))
+    check("play: neverball: a fixed second after each pass line",
+          r.get("stalls_play") == 2 and r.get("reload_s") == 2.0 and r.get("win_play") == 38.0,
+          (r.get("stalls_play"), r.get("reload_s"), r.get("win_play")))
+    r = report.run(looped("02", "openarena", t0=False))
+    check("play: a load line without t0 can't be placed: no play keys", "stalls_play" not in r and r.get("stalls") == 4, r)
+    r = report.run(looped("03", "fakeloop", out=False))
+    check("play: a game without a reload: the plain numbers", r.get("stalls_play") == 4 and r.get("reload_s") == 0
+          and r.get("stall_play_s") == r.get("stall_s"), (r.get("stalls_play"), r.get("reload_s")))
+    r = report.run(looped("04", "fakeloop", out=False, reload_fixed=5))
+    check("play: bench.txt's reload_fixed sets a game's own", r.get("stalls_play") == 2 and r.get("reload_s") == 10.0,
+          (r.get("stalls_play"), r.get("reload_s")))
+    r = report.run(looped("05", "fakeloop", reload_re="LOADED|InitCGame", reload_after=0.5))
+    check("play: bench.txt's reload_re/reload_after (segments end 2.5 s into passes 2 and 3)",
+          r.get("stalls_play") == 2 and r.get("reload_s") == 5.0, (r.get("stalls_play"), r.get("reload_s")))
+    import passsplit   # shares reload_segments: the same segments for a stall record's times
+    check("passsplit uses report.reload_segments", passsplit.report.reload_segments is report.reload_segments)
+
     # per-second fps only (BENCH_HUD=1 style): the 1st percentile and seconds under 10 fps
     d = tmp / "ps3-bench-20261018T000100Z-fake1s-base"
     vals = [20] * 70 + [60] * 100 + [5] * 2 + [60] * 30
@@ -173,7 +223,10 @@ def matrix(tmp, runs):
         check("matrix: runs counted once", last["runs"] == "6", last["runs"])
     if "stalls" in rows:
         check("matrix: stalls cell", rows["stalls"][-1].get("fake-base") == "2", rows["stalls"][-1])
-    check("matrix: no stall cause files without a stalls.rec", not list(res.glob("stall_*_s.csv")),
+    f = res / "stall_play_s.csv"
+    check("matrix: stall_play_s.csv (the play numbers) written with the fake-base cell",
+          f.exists() and "0.5" in f.read_text().splitlines()[-1].split(","), f.read_text()[-200:] if f.exists() else "-")
+    check("matrix: no stall cause files without a stalls.rec", not [f for f in res.glob("stall_*_s.csv") if f.name != "stall_play_s.csv"],
           [x.name for x in res.glob("stall_*_s.csv")])
 
 
