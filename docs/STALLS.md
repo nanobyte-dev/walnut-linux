@@ -658,3 +658,11 @@ Needs ps3-gpu-tools with `ps3-intfwatch` (0.453 or later: `make ps3-gpu-tools-de
 5. The TV shows the BENCHMARK RUNNING screen while the desktop is stopped and between runs, the
    game during the run, and the desktop after `ps3-bench.sh desktop` (webcam).
 6. Move the mouse briefly: a `- ... MOUSE ... bump` line, not counted. Move it for 3 s: counted.
+
+### Game prefetch measured (2026-10-18, batch 16)
+
+Same boot, kernel 433, 3 rounds base vs `GAMEPREFETCH=fetch` (learnt lists): no gain. Sauerbraten's load
+18.1-18.6 s with prefetch against 15.2-18.8 s without, load disk wait unchanged (4.5-5.5 s); OpenArena
+gl2min about 0.5 s faster to load, stalls within noise; Luanti worse (load +1 to +4 s, two runs with
+3 s hitches in play); SuperTuxKart unchanged. On the USB HDD the prefetch's sorted reads compete with the
+game's own. `PS3_GAME_PREFETCH_GAME` now defaults to off (ps3-desktop); the code stays for a faster disk.

@@ -212,7 +212,7 @@ def fetch(lst):
 # priority PS3_GAME_PREFETCH_IO (be7, default; be0-7; idle) and nice 10, one read in flight and no
 # readahead of ours, so a read of the game waits for one of ours at most. Stops early when MemFree
 # falls under the reserve, on direct reclaim or swapping (/proc/vmstat), after 60 s, when the game
-# is gone. Switch: PS3_GAME_PREFETCH_GAME (the game's environment): on (default): fetch and learn;
+# is gone. Switch: PS3_GAME_PREFETCH_GAME (the game's environment): on: fetch and learn; off is the default (2026-10-18: no gain on the PS3, Luanti slower, see docs/STALLS.md);
 # fetch: fetch only (bench runs against one fixed list); learn: learn only; off. Lists in
 # PS3_GAME_PREFETCH_DIR (default $XDG_CACHE_HOME/ps3-game-prefetch, ~/.cache/ps3-game-prefetch).
 # PS3_GAME_PREFETCH_SAMPLE_S, PS3_GAME_PREFETCH_LEARN_S: the looking and the learning's time limits.
@@ -1102,7 +1102,7 @@ def spawn_fetch(d, keys, env, pid):
 
 
 def mode_of(env):
-    m = knob(env, "PS3_GAME_PREFETCH_GAME", "on")
+    m = knob(env, "PS3_GAME_PREFETCH_GAME", "off")
     return m if m in ("on", "off", "learn", "fetch") else "on"
 
 

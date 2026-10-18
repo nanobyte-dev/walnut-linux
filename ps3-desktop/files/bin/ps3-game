@@ -14,7 +14,7 @@
 # pointer, nothing frozen or reclaimed (a baseline to measure against); off: not even that.
 # In game mode the game's own files are read back at its start, in disk order, from what it used
 # last time (ps3-game-prefetch game-watch, which the guard runs; its key is the command here):
-# PS3_GAME_PREFETCH_GAME=on (default)|fetch|learn|off, docs/STALLS.md "Game prefetch".
+# PS3_GAME_PREFETCH_GAME=on|fetch|learn|off (default off: no gain measured), docs/STALLS.md "Game prefetch".
 G=/usr/lib/ps3/desktop/ps3-game-guard
 [ $# -gt 0 ] || { echo "usage: ps3-game <command...>" >&2; exit 2; }
 # Started from the menu or the desktop, this script runs in ps3-desktop.slice, which game mode

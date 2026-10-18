@@ -58,7 +58,7 @@
 # it for its first minutes; it exits when no game is left to look at, and run starts another for a
 # game registered later that none has claimed. leave, once the desktop is back, learns every
 # record into its game's list (game-learn). Per game, from its environment:
-# PS3_GAME_PREFETCH_GAME=on (default)|fetch|learn|off, PS3_GAME_PREFETCH_MB, _RESERVE_MB, _IO, _DIR
+# PS3_GAME_PREFETCH_GAME=on|fetch|learn|off (default off: no gain measured), PS3_GAME_PREFETCH_MB, _RESERVE_MB, _IO, _DIR
 # (ps3_game_prefetch.py's header).
 # Escape (docs/DESKTOP-PLAN.md): while game mode is on, ps3-pad-escape runs beside the guard
 # (PS3_GAME_PAD_ESCAPE=off: not): holding a gamepad's PS button for 3 s (PS3_GAME_PAD_HOLD_S) runs
