@@ -185,6 +185,11 @@ change them in a disposable git tree:
   kernel without a `-debug` suffix; `debug`: the newest `-debug*` one; the old names `ps3` and
   `ps3-release` still mean debug and release) or `PS3_DEFAULT` (a release, wins while it is
   installed). The image sets `PS3_DEFAULT_FLAVOUR=release`.
+  **Caveat (2026-10-18, from the installed Petitboot's code, docs/GAMEOS-HDD.md "Petitboot's
+  behaviour"):** this Petitboot ignores `default=`, `timeout` and `delay` in kboot.conf. Its default is
+  the entry whose label matches the last one booted by hand (a hash kept in its OS-area settings), its
+  timeout comes from `ps3-bl-option`. The entry order still matters for the list; to be confirmed at
+  the TV.
 - Kernel and Mesa installs on the running PS3 stop the desktop first (`make deploy` does it):
   two kernels unpacked next to the desktop stalled the PS3 in swap on 2026-10-16 (power cycle).
 
