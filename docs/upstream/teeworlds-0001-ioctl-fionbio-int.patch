@@ -1,0 +1,85 @@
+From 14ea8eda08f8627f3a4c7668b005bd8699d79bba Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 18 Oct 2026 14:44:03 +0300
+Subject: [PATCH] Use an int for ioctl(FIONBIO) on non-Windows systems
+
+net_set_non_blocking() and net_set_blocking() pass a pointer to an
+unsigned long to ioctl(FIONBIO). On Linux the kernel reads an int
+through that pointer. On little-endian machines the int is the low half
+of the long and holds the value. On 64-bit big-endian machines (ppc64,
+s390x) it is the high half, which is 0, so the sockets never become
+non-blocking.
+
+The client then blocks in recvfrom() inside CNetClient::Recv after the
+connection is accepted, while the server waits for the NETMSG_INFO that
+the client only sends on its next main loop pass. The client stays on
+the loading screen and never gets into the game.
+
+Keep unsigned long for Windows, where ioctlsocket() takes a u_long *.
+---
+ src/base/system.c | 16 ++++++++++++----
+ 1 file changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/src/base/system.c b/src/base/system.c
+index 9a1a042..51dc6ca 100644
+--- a/src/base/system.c
++++ b/src/base/system.c
+@@ -1279,13 +1279,17 @@ NETSOCKET net_tcp_create(NETADDR bindaddr)
+ 
+ int net_set_non_blocking(NETSOCKET sock)
+ {
++#if defined(CONF_FAMILY_WINDOWS)
+ 	unsigned long mode = 1;
++#else
++	int mode = 1; /* FIONBIO takes an int on Linux: an unsigned long read as an int is 0 on big-endian 64-bit */
++#endif
+ 	if(sock.ipv4sock >= 0)
+ 	{
+ #if defined(CONF_FAMILY_WINDOWS)
+ 		ioctlsocket(sock.ipv4sock, FIONBIO, (unsigned long *)&mode);
+ #else
+-		ioctl(sock.ipv4sock, FIONBIO, (unsigned long *)&mode);
++		ioctl(sock.ipv4sock, FIONBIO, &mode);
+ #endif
+ 	}
+ 
+@@ -1294,7 +1298,7 @@ int net_set_non_blocking(NETSOCKET sock)
+ #if defined(CONF_FAMILY_WINDOWS)
+ 		ioctlsocket(sock.ipv6sock, FIONBIO, (unsigned long *)&mode);
+ #else
+-		ioctl(sock.ipv6sock, FIONBIO, (unsigned long *)&mode);
++		ioctl(sock.ipv6sock, FIONBIO, &mode);
+ #endif
+ 	}
+ 
+@@ -1303,13 +1307,17 @@ int net_set_non_blocking(NETSOCKET sock)
+ 
+ int net_set_blocking(NETSOCKET sock)
+ {
++#if defined(CONF_FAMILY_WINDOWS)
+ 	unsigned long mode = 0;
++#else
++	int mode = 0; /* FIONBIO takes an int on Linux: an unsigned long read as an int is 0 on big-endian 64-bit */
++#endif
+ 	if(sock.ipv4sock >= 0)
+ 	{
+ #if defined(CONF_FAMILY_WINDOWS)
+ 		ioctlsocket(sock.ipv4sock, FIONBIO, (unsigned long *)&mode);
+ #else
+-		ioctl(sock.ipv4sock, FIONBIO, (unsigned long *)&mode);
++		ioctl(sock.ipv4sock, FIONBIO, &mode);
+ #endif
+ 	}
+ 
+@@ -1318,7 +1326,7 @@ int net_set_blocking(NETSOCKET sock)
+ #if defined(CONF_FAMILY_WINDOWS)
+ 		ioctlsocket(sock.ipv6sock, FIONBIO, (unsigned long *)&mode);
+ #else
+-		ioctl(sock.ipv6sock, FIONBIO, (unsigned long *)&mode);
++		ioctl(sock.ipv6sock, FIONBIO, &mode);
+ #endif
+ 	}
+ 
+-- 
+2.56.0
+

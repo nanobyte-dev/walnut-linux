@@ -1,0 +1,109 @@
+From 4817450e68baba480d3baeb7413fdcf7299a8fd5 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 18 Oct 2026 14:45:09 +0300
+Subject: [PATCH RFC] powerpc/ps3: Don't pause a thread with an interrupt
+ already pending
+
+ps3_power_save() calls lv1_pause(0) soft-disabled, with MSR[EE] on. A
+decrementer interrupt that fires between the idle loop's
+local_irq_disable() and the hcall is masked: masked_interrupt sets DEC
+to 0x7fffffff (27 s at the 79.8 MHz timebase) and records PACA_IRQ_DEC
+for the replay. The thread then pauses with no decrementer to wake it,
+and every timer queued on it (the tick, hrtimers, timer-wheel timers)
+waits for the next external interrupt.
+
+ps3_virq_setup() binds all PS3_BINDING_CPU_ANY interrupts to thread 0,
+which therefore recovers within milliseconds. Thread 1 only receives
+IPIs and can stay asleep for seconds. In practice this showed up as
+games freezing for 0.3 to 4 s with the CPU idle: the fence poll of an
+out-of-tree GPU driver is an hrtimer on the waiter's CPU, and the idle
+loop was entered 4000 times a second.
+
+Measured on a PS3 (two PPE threads, 6.12 kernel, periodic tick), two
+120 s runs with both threads idle and a SCHED_FIFO task pinned to each
+thread, sleeping 20 ms at a time:
+
+  nothing else running:     thread 1 woke up to 1439 ms late (13 wakeups
+                            100 ms or more late, 2 over 1 s); thread 0
+                            at most 16.7 ms late
+  a 10 ms timer kick (an    thread 1 at most 19.4 ms late, none over
+  IPI to each thread):      100 ms
+
+Waking the thread often hides the problem, which fits a decrementer
+that was pushed out and not delivered.
+
+Use prep_irq_for_idle(), as pseries_lpar_idle() and cbe_power_save()
+do: it hard-disables and returns false when something was masked, in
+which case we return without pausing and the replay in
+local_irq_enable() runs it. Otherwise pause with MSR[EE] on, the state
+the hcall is entered in today, so from the check on a decrementer or IPI
+is taken as a normal interrupt and re-arms the decrementer.
+
+Pausing with MSR[EE] off (prep_irq_for_idle_irqsoff(), as powernv does)
+would close the last window too, but it relies on lv1_pause() ending on
+a decrementer that is pending while MSR[EE] is off, and on the
+hypervisor keeping that exception pending for the guest. Neither is
+documented beyond "MSR[EE] has no effect". With MSR[EE] on, the one race
+left is an interrupt handled between the hard-enable and the hcall: one
+that set need_resched is caught by the check just before lv1_pause(),
+and otherwise the pause ends at the next timer event, not seconds later.
+
+Signed-off-by: Tiberiu Chibici <chibicitiberiu@gmail.com>
+---
+ arch/powerpc/platforms/ps3/setup.c | 24 +++++++++++++++++++++++-
+ 1 file changed, 23 insertions(+), 1 deletion(-)
+
+diff --git a/arch/powerpc/platforms/ps3/setup.c b/arch/powerpc/platforms/ps3/setup.c
+index 5144f11..1ff77a9 100644
+--- a/arch/powerpc/platforms/ps3/setup.c
++++ b/arch/powerpc/platforms/ps3/setup.c
+@@ -14,6 +14,7 @@
+ #include <linux/export.h>
+ #include <linux/memblock.h>
+ #include <linux/of.h>
++#include <linux/sched.h>
+ 
+ #include <asm/machdep.h>
+ #include <asm/firmware.h>
+@@ -22,6 +23,7 @@
+ #include <asm/udbg.h>
+ #include <asm/lv1call.h>
+ #include <asm/ps3gpu.h>
++#include <asm/hw_irq.h>
+ 
+ #include "platform.h"
+ 
+@@ -64,9 +66,29 @@ static void ps3_power_save(void)
+ 	 * lv1_pause() puts the PPE thread into inactive state until an
+ 	 * irq on an unmasked plug exists. MSR[EE] has no effect.
+ 	 * flags: 0 = wake on DEC interrupt, 1 = ignore DEC interrupt.
++	 *
++	 * The idle loop calls us soft-disabled with MSR[EE] on. A decrementer
++	 * that fires in that state is masked: the masked handler pushes DEC
++	 * out to 0x7fffffff and leaves PACA_IRQ_DEC set for the replay, so a
++	 * pause entered after that sleeps through every timer of this thread
++	 * until some other interrupt arrives. Device interrupts are all bound
++	 * to thread 0, so thread 1 may get nothing but IPIs.
++	 *
++	 * prep_irq_for_idle() hard-disables and returns false when something
++	 * was masked since local_irq_disable(); returning then lets the replay
++	 * in local_irq_enable() run it. Otherwise pause with MSR[EE] on, as
++	 * before, so that a decrementer or IPI from here on is taken as a
++	 * normal interrupt. Interrupts are enabled with the hcall, so one
++	 * that made a task runnable just before it is caught by need_resched().
+ 	 */
+ 
+-	lv1_pause(0);
++	if (!prep_irq_for_idle())
++		return;
++
++	__hard_irq_enable();
++
++	if (!need_resched())
++		lv1_pause(0);
+ }
+ 
+ static void __noreturn ps3_restart(char *cmd)
+-- 
+2.56.0
+

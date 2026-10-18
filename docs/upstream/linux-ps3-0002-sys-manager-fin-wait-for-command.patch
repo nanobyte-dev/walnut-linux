@@ -1,0 +1,96 @@
+From 3976552f28f4452a6aa050dab98c9e40a7a35e27 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 18 Oct 2026 14:45:27 +0300
+Subject: [PATCH RFC] ps3: sys-manager: Wait for the shutdown command in
+ ps3_sys_manager_fin()
+
+ps3_sys_manager_fin() sends the shutdown request and then polls the
+vuart with
+
+	while (ps3_sys_manager_handle_msg(dev))
+		lv1_pause(0);
+
+that is, until a message handler returns 0. ps3_sys_manager_handle_cmd()
+returns 0 after acknowledging the shutdown command, but so does
+ps3_sys_manager_handle_event() for every event. A power or reset button
+press, or a thermal alert or cleared event, that arrives between the
+request and the System Manager's command ends the loop. The command is
+then never read or acknowledged, the hypervisor never destroys the lpar,
+and the console stays at "System Halted, OK to turn off power" until the
+machine is powered off by hand.
+
+Give the acknowledged command its own return value and make the loop
+wait for that value only. Events and errors are handled as before and
+the polling continues. A failed acknowledgment is now returned as an
+error instead of being ignored, so the wait goes on.
+
+This is based on reading the code and has not been tested on hardware
+yet. The window is small and I have not reproduced the hang on purpose.
+
+Signed-off-by: Tiberiu Chibici <chibicitiberiu@gmail.com>
+---
+ drivers/ps3/ps3-sys-manager.c | 28 +++++++++++++++++++++++++---
+ 1 file changed, 25 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
+index ad8ef59..8addcae 100644
+--- a/drivers/ps3/ps3-sys-manager.c
++++ b/drivers/ps3/ps3-sys-manager.c
+@@ -222,6 +222,16 @@ enum ps3_sys_manager_cmd {
+ 
+ static unsigned int ps3_sm_force_power_off;
+ 
++/**
++ * enum ps3_sm_msg_result - Positive ps3_sys_manager_handle_msg() results.
++ * @PS3_SM_MSG_SHUTDOWN_ACKED: The shutdown command was received and
++ *  acknowledged; the lpar is destroyed by the HV soon after.
++ */
++
++enum ps3_sm_msg_result {
++	PS3_SM_MSG_SHUTDOWN_ACKED = 1,
++};
++
+ /**
+  * ps3_sys_manager_write - Helper to write a two part message to the vuart.
+  *
+@@ -513,14 +523,20 @@ static int ps3_sys_manager_handle_cmd(struct ps3_system_bus_device *dev)
+ 		return -EIO;
+ 	}
+ 
+-	ps3_sys_manager_send_response(dev, 0);
+-	return 0;
++	result = ps3_sys_manager_send_response(dev, 0);
++	if (result)
++		return result;
++
++	return PS3_SM_MSG_SHUTDOWN_ACKED;
+ }
+ 
+ /**
+  * ps3_sys_manager_handle_msg - First stage msg handler.
+  *
+  * Can be called directly to manually poll vuart and pump message handler.
++ * Returns PS3_SM_MSG_SHUTDOWN_ACKED once the shutdown command was received and
++ * acknowledged, 0 for any other message that was handled, and an error code
++ * otherwise (-EAGAIN when no message is queued).
+  */
+ 
+ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
+@@ -582,7 +598,13 @@ static void ps3_sys_manager_fin(struct ps3_system_bus_device *dev)
+ 
+ 	pr_emerg("System Halted, OK to turn off power\n");
+ 
+-	while (ps3_sys_manager_handle_msg(dev)) {
++	/*
++	 * Wait for the shutdown command itself. Any other message that
++	 * arrives first (a button press, a thermal event) is handled and
++	 * must not end the wait, or the command is never acknowledged and
++	 * the lpar is not destroyed.
++	 */
++	while (ps3_sys_manager_handle_msg(dev) != PS3_SM_MSG_SHUTDOWN_ACKED) {
+ 		/* pause until next DEC interrupt */
+ 		lv1_pause(0);
+ 	}
+-- 
+2.56.0
+

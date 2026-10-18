@@ -1,0 +1,46 @@
+From 9e7d80c1c62b7e0e4f0292b6db317dad306aaff2 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 18 Oct 2026 14:44:13 +0300
+Subject: [PATCH] Shrink the KISS PRNG lag table from 16 MiB to 32 KiB
+
+rand.c keeps a static table of 0x200000 uint64_t (16 MiB), and
+randk_seed() writes every entry, so all of it becomes resident. The file
+is linked into the client and again into game.so, so a running game
+holds 32 MiB for random numbers. On a machine with 217 MB of RAM
+(PS3, ppc64) that is 15% of memory.
+
+Use 0x1000 entries (32 KiB). The generator is seeded the same way, so
+only the length of the lag table changes. Nothing in the game needs
+the very long period of the large table: randk() serves monster
+decisions, damage rolls, challenge numbers and similar.
+
+Measured on a PS3 (Cell PPE, 217 MB RAM, swap on a VRAM block device
+and zram) with q2demo1 on Yamagi Quake II 8.70: resident set of the
+process 125 -> 56 MB, swap in use 80 -> 9 MB, time spent in frames
+over 100 ms during gameplay 22.6 s -> 0.05 s, steady 65.7 -> 68.7 fps.
+---
+ src/common/shared/rand.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/common/shared/rand.c b/src/common/shared/rand.c
+index 869bca1..cec194d 100644
+--- a/src/common/shared/rand.c
++++ b/src/common/shared/rand.c
+@@ -15,7 +15,13 @@
+ 
+ #include <stdint.h>
+ 
+-#define QSIZE 0x200000
++/*
++ * Size of the lag table, a power of two. It used to be 0x200000
++ * entries (16 MiB), written completely by randk_seed() and linked
++ * into the client and into every game module. 4096 entries (32 KiB)
++ * is plenty for what the game draws.
++ */
++#define QSIZE 0x1000
+ #define CNG (cng = 6906969069ULL * cng + 13579)
+ #define XS (xs ^= (xs << 13), xs ^= (xs >> 17), xs ^= (xs << 43))
+ #define KISS (B64MWC() + CNG + XS)
+-- 
+2.56.0
+

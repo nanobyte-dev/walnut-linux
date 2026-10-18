@@ -1,0 +1,173 @@
+From 88435380f607d09f96d3b51b1ffc1d4d2165fcb3 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 18 Oct 2026 14:46:43 +0300
+Subject: [PATCH] translate: convert 8-bit vertex attributes to float through a
+ table
+
+translate_generic converts every attribute of every vertex with the
+format's unpack function followed by an emit function. For 8-bit
+formats going to 32-bit floats this is slow on CPUs where an integer to
+float conversion is expensive. It matters for drivers that have to
+translate such attributes on the CPU, for example nv30, which has no
+signed 8-bit vertex type, so u_vbuf converts SNORM8 normals to floats
+on every draw.
+
+Build a 256-entry table per channel when the translate key is created,
+holding the bits that the format's own unpack function returns for each
+byte value, and use it in generic_run_one(). Only plain 8-bit array
+formats with identity swizzle (UNORM, SNORM, USCALED, SSCALED, 1 to 4
+channels) going to R32..._FLOAT with the same number of channels take
+the new path; everything else is unchanged. The output is bit-identical
+to the old path: checked on the host for all 16 formats with run,
+run_elts, run_elts16 and run_elts8, mixed with copied attributes.
+
+Free the tables in generic_release(), and use it on the failure path of
+translate_generic_create() as well: tables of earlier elements may
+already be built when a later element is rejected, and FREE(tg) alone
+would leak them.
+
+On a PS3 (Cell PPE, nv30 driver, Mesa 26.2.4), Sauerbraten (SNORM8
+normals) went from 25.9 to 39.6 fps; a profile before the change had 45%
+of the process CPU time in this conversion loop, and 6% in QuakeSpasm.
+---
+ .../auxiliary/translate/translate_generic.c   | 91 ++++++++++++++++++-
+ 1 file changed, 90 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/auxiliary/translate/translate_generic.c b/src/gallium/auxiliary/translate/translate_generic.c
+index 7caac5a..8aaf35d 100644
+--- a/src/gallium/auxiliary/translate/translate_generic.c
++++ b/src/gallium/auxiliary/translate/translate_generic.c
+@@ -73,6 +73,13 @@ struct translate_generic {
+        */
+       int copy_size;
+ 
++      /* 8-bit channels to 32-bit floats through a table per channel
++       * (lut[c * 256 + byte] holds the float's bits), lut_nr channels;
++       * NULL otherwise.
++       */
++      uint32_t *lut;
++      unsigned lut_nr;
++
+    } attrib[TRANSLATE_MAX_ATTRIBS];
+ 
+    unsigned nr_attrib;
+@@ -623,6 +630,17 @@ generic_run_one(struct translate_generic *tg,
+          src = tg->attrib[attr].input_ptr +
+                (ptrdiff_t)tg->attrib[attr].input_stride * index;
+ 
++         if (tg->attrib[attr].lut) {
++            const uint32_t *lut = tg->attrib[attr].lut;
++            unsigned c;
++
++            for (c = 0; c < tg->attrib[attr].lut_nr; c++) {
++               uint32_t v = lut[c * 256 + src[c]];
++               memcpy(dst + 4 * c, &v, 4);
++            }
++            continue;
++         }
++
+          copy_size = tg->attrib[attr].copy_size;
+          if (likely(copy_size >= 0)) {
+             memcpy(dst, src, copy_size);
+@@ -752,11 +770,76 @@ generic_set_buffer(struct translate *translate,
+ static void
+ generic_release(struct translate *translate)
+ {
++   struct translate_generic *tg = translate_generic(translate);
++   unsigned i;
++
++   for (i = 0; i < tg->nr_attrib; i++)
++      FREE(tg->attrib[i].lut);
++
+    /* Refcount?
+     */
+    FREE(translate);
+ }
+ 
++
++/*
++ * 8-bit vertex attributes going to 32-bit floats are converted through a
++ * table instead of the format's unpack function and an emit function per
++ * vertex and attribute. Drivers that cannot fetch such a format themselves
++ * (nv30 has no signed 8-bit type, so u_vbuf turns SNORM8 normals into floats
++ * on every draw) spend a lot of CPU time in that loop. On a big in-order
++ * CPU like the Cell PPE the integer to float conversion goes through memory
++ * and stalls the pipeline for every component.
++ *
++ * The table holds, for every byte value, the bits the format's own unpack
++ * function returns for each channel, so the output is bit-identical to the
++ * generic path. Only plain 8-bit array formats with identity swizzle (UNORM,
++ * SNORM, USCALED, SSCALED, 1 to 4 channels) going to R32..._FLOAT with the
++ * same number of channels take it.
++ */
++static uint32_t *
++generic_lut_create(enum pipe_format input, enum pipe_format output, unsigned *nr)
++{
++   static const enum pipe_format float_out[4] = {
++      PIPE_FORMAT_R32_FLOAT, PIPE_FORMAT_R32G32_FLOAT,
++      PIPE_FORMAT_R32G32B32_FLOAT, PIPE_FORMAT_R32G32B32A32_FLOAT,
++   };
++   const struct util_format_description *desc = util_format_description(input);
++   const struct util_format_unpack_description *unpack =
++      util_format_unpack_description(input);
++   unsigned n, c, v;
++   uint32_t *lut;
++
++   if (!desc || !unpack || !unpack->unpack_rgba)
++      return NULL;
++   n = desc->nr_channels;
++   if (desc->layout != UTIL_FORMAT_LAYOUT_PLAIN || !desc->is_array ||
++       desc->colorspace != UTIL_FORMAT_COLORSPACE_RGB ||
++       n < 1 || n > 4 || desc->block.bits != 8 * n || output != float_out[n - 1])
++      return NULL;
++   for (c = 0; c < n; c++) {
++      if (desc->channel[c].size != 8 || desc->channel[c].pure_integer ||
++          (desc->channel[c].type != UTIL_FORMAT_TYPE_UNSIGNED &&
++           desc->channel[c].type != UTIL_FORMAT_TYPE_SIGNED) ||
++          desc->swizzle[c] != PIPE_SWIZZLE_X + c)
++         return NULL;
++   }
++
++   lut = MALLOC(n * 256 * sizeof(*lut));
++   if (!lut)
++      return NULL;
++   for (v = 0; v < 256; v++) {
++      const uint8_t px[4] = { v, v, v, v };
++      float f[4];
++
++      unpack->unpack_rgba(f, px, 1);
++      for (c = 0; c < n; c++)
++         memcpy(&lut[c * 256 + v], &f[c], 4);
++   }
++   *nr = n;
++   return lut;
++}
++
+ static bool
+ is_legal_int_format_combo(const struct util_format_description *src,
+                           const struct util_format_description *dst)
+@@ -810,7 +893,8 @@ translate_generic_create(const struct translate_key *key)
+                util_format_description(key->element[i].output_format);
+ 
+          if (!is_legal_int_format_combo(format_desc, out_format_desc)) {
+-            FREE(tg);
++            tg->nr_attrib = i;
++            generic_release(&tg->translate);
+             return NULL;
+          }
+       }
+@@ -839,6 +923,11 @@ translate_generic_create(const struct translate_key *key)
+          tg->attrib[i].emit = get_emit_func(key->element[i].output_format);
+       else
+          tg->attrib[i].emit  = NULL;
++
++      if (tg->attrib[i].type == TRANSLATE_ELEMENT_NORMAL && tg->attrib[i].copy_size < 0)
++         tg->attrib[i].lut = generic_lut_create(key->element[i].input_format,
++                                                key->element[i].output_format,
++                                                &tg->attrib[i].lut_nr);
+    }
+ 
+    tg->nr_attrib = key->nr_elements;
+-- 
+2.56.0
+
