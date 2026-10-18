@@ -344,3 +344,11 @@ proposals only; nothing has been built:
   the 1 MiB clear); fence waits in GEM_CPU_PREP and the pushbuf's sync wait (count, ns); waits for
   the primitive owner (`prim_wq`); VRAM swap shrink passes (count, ns). The vswap `stats` file could
   read its counters with READ_ONCE instead of `vs->lock`, so it could be sampled every 10 ms.
+
+### Confirmed on the PS3 (2026-10-18)
+
+Probe without a game, ps3-gpu-tools 0.399, 120 s each (runs ps3-bench-20261018T014733Z-probe-idle and
+T014942Z-probe-kick): with both threads idle, a SCHED_FIFO sleeper on thread 1 woke up to 1439 ms
+late (13 wakeups 100 ms or more late, 2 over 1 s); thread 0 at most 16.7 ms. With a 10 ms kicker
+(`ps3-waker -m kick -i 10`) thread 1's worst was 19.4 ms, none over 100 ms. The lost-decrementer
+explanation holds for the idle thread; the game batch (ENVS) measures what it costs games.
