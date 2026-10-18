@@ -22,6 +22,8 @@ summary(d) gives report.py its columns (percent of the game process's samples, a
   perf_xorg, perf_kswapd   samples of Xorg and kswapd0 in the same window, as percent of the
               game's samples (perf records them alongside: X's work for the game, background reclaim)
   perf_n      the game's samples; perf_self perf's own CPU in the window, % of one thread"""
+import bisect
+import os
 import re
 import sys
 from collections import Counter
@@ -37,6 +39,11 @@ LIBC = re.compile(r"(^|/)(libc\.so[^/]*|libc-[^/]*|ld64\.so[^/]*|ld-linux[^/]*|l
 KGPU_SYM = re.compile(r"^(ps3rsx|drm_|__drm|dma_fence|dma_resv|ttm_|nouveau|gem_|ps3gpu|ps3vswap)")
 
 
+# the packages run.sh's versions file lists for every game (the graphics stack and the harness)
+STACK_PKGS = {"mesa-libgallium", "ps3rsx-modules-ps3", "libspeq0", "libfluidsynth3", "libopenal1", "libsdl3-0",
+              "ps3-gpu-tools"}
+
+
 def is_kernel(dso):
     return dso.startswith("[kernel") or dso in ("[guest.kernel.kallsyms]",) or (
         dso.startswith("[") and dso.endswith("]") and dso not in ("[unknown]", "[vdso]", "[vsyscall]",
@@ -47,10 +54,11 @@ def classify(dso, sym, exe, game_dirs=(), game_pkg=None, pkgs=None):
     """the class of one sample by its DSO (perf's name) and symbol"""
     if dso in ("[unknown]", "") or dso.startswith("//anon") or dso == "[anon]":
         return "unk"
-    if dso == "[ps3rsx]" or dso.startswith("[ps3rsx"):
+    if dso.startswith("[ps3rsx") or dso.startswith("[drm"):   # the RSX driver and the DRM modules
         return "kgpu"
     if is_kernel(dso):
-        return "kgpu" if KGPU_SYM.match(sym or "") else "kernel"
+        # ppc64 ELFv1 kernel symbols are the dot names (.drm_ioctl); ps3rsx's are in [kernel.kallsyms]
+        return "kgpu" if KGPU_SYM.match((sym or "").lstrip(".")) else "kernel"
     if exe and dso == exe:
         return "game"
     if MESA.search(dso):
@@ -59,7 +67,7 @@ def classify(dso, sym, exe, game_dirs=(), game_pkg=None, pkgs=None):
         return "drm"
     if LIBC.search(dso):
         return "libc"
-    if pkgs and game_pkg and pkgs.get(dso) == game_pkg:
+    if pkgs and game_pkg and pkgs.get(dso) in ((game_pkg,) if isinstance(game_pkg, str) else game_pkg):
         return "game"
     if any(dso.startswith(g.rstrip("/") + "/") for g in game_dirs):
         return "game"
@@ -81,8 +89,115 @@ def frame_name(sym, dso):
     return name + ("_[k]" if k else "")
 
 
+class Fill:
+    """Frames perf left [unknown] in the game process: a library mapped while the record was still
+    disabled (ps3-bench.sh before ps3-gpu-tools 0.412 started perf with -D -1 and no tracking event,
+    so libGLX_mesa and libgallium, dlopened during the load, got no mmap record). The DSO comes from
+    the run's MEM=1 smaps (mem/mid.smaps, else start or end), the symbol from the library and its
+    debug file (/usr/lib/debug/.build-id, by the build id in perf-buildids.txt or the library's
+    own note) through hotpaths/elfsym.py, as games/bench/hotpaths/analyze.py does on the PC.
+    PERFPROF_ROOT: where those files are (default /; on the PC a symbol root such as symroot.sh's).
+    Without smaps (a run without MEM=1) the frames stay [unknown]."""
+
+    def __init__(self, run_dir):
+        d = Path(run_dir)
+        self.root = os.environ.get("PERFPROF_ROOT", "").rstrip("/")
+        tg = kv_line(d / "perf.targets")
+        self.game = int(tg["game"]) if tg.get("game", "").isdigit() else None
+        self.maps = []
+        for lab in ("mid", "start", "end"):
+            f = d / "mem" / (lab + ".smaps")
+            if not f.exists():
+                continue
+            for line in f.read_text(errors="replace").splitlines():
+                m = SMAPS_MAP.match(line)
+                if m and "x" in m["perm"]:
+                    self.maps.append((int(m["a"], 16), int(m["b"], 16), int(m["off"], 16), m["path"].strip()))
+            if self.maps:
+                break
+        self.maps.sort()
+        self.starts = [m[0] for m in self.maps]
+        self.bids = {}
+        f = d / "perf-buildids.txt"
+        if f.exists():
+            for line in f.read_text(errors="replace").splitlines():
+                p = line.split()
+                if len(p) == 2:
+                    self.bids[p[1]] = p[0]
+        self.tabs = {}
+        self.cache = {}
+        self.filled = Counter()   # samples whose leaf was filled, by DSO
+
+    def __bool__(self):
+        return bool(self.maps) and self.game is not None
+
+    def symtab(self, path):
+        if path not in self.tabs:
+            tab = None
+            try:
+                sys.path.insert(0, str(Path(__file__).resolve().parent / "hotpaths"))
+                import elfsym
+                rt = self.root + path
+                bid = self.bids.get(path) or elfsym.build_id(rt)
+                dbg = "%s/usr/lib/debug/.build-id/%s/%s.debug" % (self.root, bid[:2], bid[2:]) if bid else None
+                tab, el = elfsym.user_symtab(rt, dbg if dbg and os.path.exists(dbg) else None)
+                tab.elf = el
+            except Exception as ex:  # noqa: BLE001 (a file we can't read: the DSO name only)
+                print("perfprof: no symbols for %s (%s)" % (path, ex), file=sys.stderr)
+            self.tabs[path] = tab
+        return self.tabs[path]
+
+    def frame(self, ip, exact):
+        """(sym, dso) for an address of the game process, None when no mapping holds it"""
+        key = (ip, exact)
+        if key in self.cache:
+            return self.cache[key]
+        r = None
+        i = bisect.bisect_right(self.starts, ip) - 1
+        if i >= 0 and ip < self.maps[i][1]:
+            a, b, off, path = self.maps[i]
+            tab = self.symtab(path) if path.startswith("/") else None
+            sym = None
+            if tab:   # a return address points after the call: look up the call
+                sym = tab.lookup(tab.elf.file_off_to_vaddr((ip if exact else ip - 4) - a + off))
+            r = (sym or "[unknown]", path)
+        self.cache[key] = r
+        return r
+
+    def fix(self, pid, frames):
+        """frames [(sym, dso, ip)], leaf first: the [unknown] ones of the game resolved where possible"""
+        if pid != self.game or not any(f[1] == "[unknown]" for f in frames):
+            return frames
+        ks = [is_kernel(f[1]) or f[1].startswith("[ps3rsx") for f in frames]
+        out = []
+        for i, (sym, dso, ip) in enumerate(frames):
+            if dso == "[unknown]" and ip:
+                # the sampled address (the leaf, or the user address of a kernel sample) is exact,
+                # the others are return addresses
+                r = self.frame(int(ip, 16), i == 0 or (not ks[i] and ks[i - 1]))
+                if r:
+                    sym, dso = r
+            out.append((sym, dso, ip))
+        if frames[0][1] == "[unknown]" and out[0][1] != "[unknown]":
+            self.filled[out[0][1]] += 1
+        # ppc64 stores the link register as the second user entry; perf drops it by the leaf's CFI,
+        # which it could not do for a leaf without a map: drop it when it repeats the next entry or
+        # lands in the leaf's own function (the rule of hotpaths/analyze.py)
+        if not ks[0] and frames[0][1] == "[unknown]" and len(out) > 2:
+            l0, l1, l2 = out[0], out[1], out[2]
+            if l1[2] == l2[2] or (l1[:2] == l0[:2] and l0[0] != "[unknown]"):
+                del out[1]
+        return out
+
+
+SMAPS_MAP = re.compile(r"^(?P<a>[0-9a-f]+)-(?P<b>[0-9a-f]+) (?P<perm>\S+) (?P<off>[0-9a-f]+) \S+ \d+\s+(?P<path>/\S.*)$")
+
+
 def collapse(lines, out_dir, sysmode=False):
     """perf script lines -> perf.folded and perf-leaf.txt (perf-sys-leaf.txt with sysmode)"""
+    fill = None if sysmode else Fill(out_dir)
+    if fill is not None and not fill:
+        fill = None
     stacks = Counter()
     leaf = Counter()       # (pid, comm, dso, sym) -> samples
     period = Counter()     # (pid, comm, dso, sym) -> period sum
@@ -97,15 +212,17 @@ def collapse(lines, out_dir, sysmode=False):
             return
         comm, pid, per, frames = cur
         n += 1
+        if fill is not None:
+            frames = fill.fix(pid, frames)
         if frames:
-            sym, dso = frames[0]
+            sym, dso = frames[0][:2]
         else:
             sym, dso = "[unknown]", "[unknown]"
         key = (pid, comms.get(pid, comm), dso, sym)
         leaf[key] += 1
         period[key] += per
         if not sysmode:
-            chain = [frame_name(s, d) for s, d in reversed(frames)] or ["[unknown]"]
+            chain = [frame_name(f[0], f[1]) for f in reversed(frames)] or ["[unknown]"]
             stacks[";".join([comm.replace(" ", "_").replace(";", ":")] + chain)] += 1
 
     for line in lines:
@@ -114,7 +231,7 @@ def collapse(lines, out_dir, sysmode=False):
                 t = line.strip()
                 i, j = t.find(" "), t.rfind(" (")
                 if i > 0 and j >= i and t.endswith(")"):
-                    cur[3].append((t[i + 1:j], t[j + 2:-1]))
+                    cur[3].append((t[i + 1:j], t[j + 2:-1], t[:i]))
             continue
         line = line.rstrip("\n")
         if not line.strip():
@@ -134,7 +251,7 @@ def collapse(lines, out_dir, sysmode=False):
         # without call chains the sampled ip, symbol and DSO follow on the same line
         rest = line.lstrip()[m.end():].strip()
         if rest and (fm := FRAME.match("\t" + rest)):
-            cur[3].append((fm["sym"], fm["dso"]))
+            cur[3].append((fm["sym"], fm["dso"], fm["ip"]))
     flush()
     out_dir = Path(out_dir)
     if not sysmode:
@@ -144,6 +261,9 @@ def collapse(lines, out_dir, sysmode=False):
     name = "perf-sys-leaf.txt" if sysmode else "perf-leaf.txt"
     with (out_dir / name).open("w") as f:
         f.write("# samples=%d first=%.6f last=%.6f\n" % (n, first or 0, last or 0))
+        if fill is not None and fill.filled:
+            f.write("# filled_from_smaps=%s\n" % ",".join("%s:%d" % (k.rsplit("/", 1)[-1], v)
+                                                          for k, v in fill.filled.most_common()))
         f.write("# samples\tperiod\tpid\tcomm\tdso\tsym\n")
         for k, c in sorted(leaf.items(), key=lambda x: -x[1]):
             pid, comm, dso, sym = k
@@ -163,6 +283,9 @@ def read_leaf(path):
     for line in path.read_text(errors="replace").splitlines():
         if line.startswith("# samples="):
             head = kv_line_text(line[2:])
+            continue
+        if line.startswith("# filled_from_smaps="):
+            head.update(kv_line_text(line[2:]))
             continue
         if line.startswith("#") or not line.strip():
             continue
@@ -203,7 +326,17 @@ def context(d):
     if exe:
         base = exe.rsplit("/", 1)[-1]
         dirs += ["/usr/lib/" + base, "/usr/lib/games/" + base, "/usr/share/games/" + base]
-    return tg, exe, dirs, pkgs.get(exe), pkgs
+    # the game's packages: the executable's, and the recipe command's that run.sh's versions file
+    # names first (OpenArena: /usr/games/openarena from openarena runs ioquake3, its cgame and ui
+    # libraries are openarena's)
+    gpkgs = {pkgs.get(exe)} - {None}
+    v = d / "versions"
+    if v.exists():
+        for line in v.read_text(errors="replace").splitlines():
+            name = line.split("\t")[0].split(":")[0]
+            if name and "\t" in line and name not in STACK_PKGS:
+                gpkgs.add(name)
+    return tg, exe, dirs, tuple(sorted(gpkgs)), pkgs
 
 
 def table(d):
@@ -310,6 +443,11 @@ def show(d, top=25):
     n = t["n"] or 1
     print("   game pid %s, %s, %d samples (all its threads) in the window" % (t["game"], t["exe"] or "?", t["n"]))
     print("   " + "  ".join("%s %.1f%%" % (c, 100 * t["cls"][c] / n) for c in CLASSES))
+    if t["head"].get("filled_from_smaps"):
+        print("   leaves perf had no map for, filled from the MEM=1 smaps: " + t["head"]["filled_from_smaps"])
+    if t["cls"]["unk"] > 0.03 * n:
+        print("   !! %.1f%% of the samples are in no DSO: perf missed maps (ps3-gpu-tools 0.412 or later records"
+              " the load's mmaps; with MEM=1 perf-post.sh fills them from the smaps)" % (100 * t["cls"]["unk"] / n))
     if t["other"]:
         print("   recorded alongside (samples, % of the game's): " +
               ", ".join("%s %d (%.1f%%)" % (k, v, 100 * v / n) for k, v in t["other"].most_common(6)))

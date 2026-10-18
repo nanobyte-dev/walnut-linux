@@ -303,6 +303,19 @@ start_perf() {
 			-p "$p${x:+,$x}${k:+,$k}" -o "$PD/perf.data" 2> "$D/perf.err" &
 		r=$!
 		echo "$r $s" > "$D/.perf.pid"	# client.sh reads their CPU time over the window
+		# the mmaps of the load: -D -1 on running processes records none while disabled (perf keeps
+		# its tracking event off until an exec that never comes, and "enable dummy:u" through the
+		# fifo did not bring them either: perf 7.2.9), so libraries dlopened during the load were
+		# [unknown]. So everything on, then cpu-clock off at once: the tracking event stays on,
+		# the samples wait for client.sh. perf reads the fifo once it has the running processes
+		# maps; the acks are read here, long before client.sh sends anything. perf.track: ok or not.
+		exec 5<> "$D/.perf.ctl" 6<> "$D/.perf.ack"
+		printf "enable\ndisable cpu-clock\n" >&5
+		t=ok
+		read -r -t 30 -u 6 a || t="no ack for enable"
+		read -r -t 5 -u 6 a || { [ "$t" = ok ] && t=; t="${t:+$t; }no ack for disable cpu-clock"; }
+		echo "$t" > "$D/perf.track"
+		exec 5>&- 6>&-
 		while kill -0 $r 2>/dev/null; do	# kswapd0 never exits: stopped by the stop file
 			[ -e "$D/stop" ] && kill -INT $r $s 2>/dev/null
 			read -r -t 0.5 -u 9
@@ -390,8 +403,9 @@ run_job() {
 		END { printf "waker: %s; own CPU %.2f s (%.2f%% of a thread)\n", l, c, v["t"] ? 100 * c / v["t"] : 0 }' "$D/waker.txt"
 	  [ -s "$D/probe.txt" ] && awk '$1 == "cpu" { print "probe: " $0 }' "$D/probe.txt"
 	  # perf's own CPU over the window (client.sh's perf_cpu=) and its file
-	  [ -e "$D/perf.targets" ] && awk -F= '$1 == "perf_win" { w = $2 } $1 == "perf_cpu" { c = $2 }
-		END { printf "perf: window %s, perf itself %s s of CPU in it\n", w ? w : "never enabled", c ? c : "?" }' "$D/bench.txt"
+	  [ -e "$D/perf.targets" ] && awk -F= -v t="$(cat "$D/perf.track" 2>/dev/null)" '$1 == "perf_win" { w = $2 } $1 == "perf_cpu" { c = $2 }
+		END { printf "perf: window %s, perf itself %s s of CPU in it, load mmaps tracked: %s\n", w ? w : "never enabled",
+			c ? c : "?", t ? t : "?" }' "$D/bench.txt"
 	} > "$D/result"
 	[ -e "$D/THERMAL" ] && echo "!! THERMAL ALERT: the job was stopped. Let the PS3 cool down." >&2
 	mkdir -p $OUT; mv "$D" $OUT/; D=$OUT/${D##*/}

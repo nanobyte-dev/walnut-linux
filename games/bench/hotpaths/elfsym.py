@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""ELF64 (ppc64 ELFv1 aware) function symbol tables for symbolising perf samples."""
-import struct, bisect, os
+"""ELF64 (ppc64 ELFv1 aware) function symbol tables for symbolising perf samples.
+Also used on the PS3 by perfprof.py (frames perf left [unknown]): the files are mapped, not read,
+so a 25 MB libgallium and its debug file cost only the pages the symbol tables use."""
+import struct, bisect, os, mmap
 
 
 class Elf:
     def __init__(self, path):
         self.path = path
         with open(path, 'rb') as f:
-            self.buf = b = f.read()
+            self.buf = b = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
         assert b[:4] == b'\x7fELF' and b[4] == 2
         self.e = e = '>' if b[5] == 2 else '<'
         (self.type, self.machine, _, self.entry, phoff, shoff, _, _, phentsize, phnum, shentsize, shnum,
@@ -29,7 +31,7 @@ class Elf:
 
     def _str(self, off, i):
         b = self.buf
-        j = b.index(b'\0', off + i)
+        j = b.find(b'\0', off + i)
         return b[off + i:j].decode('utf-8', 'replace')
 
     def section(self, name):
@@ -80,6 +82,26 @@ class SymTab:
             # inside a gap: still attribute to the preceding symbol if close (assembly without sizes)
             return name + '+gap' if addr - st < 0x10000 and size == 0 else None
         return name
+
+
+def build_id(path):
+    """the GNU build id (hex) from the ELF's notes, or None"""
+    try:
+        el = Elf(path)
+    except (OSError, ValueError, AssertionError):
+        return None
+    for s in el.sections:
+        if s[1] != 7:  # SHT_NOTE
+            continue
+        p, end = s[4], s[4] + s[5]
+        while p + 12 <= end:
+            nsz, dsz, typ = struct.unpack_from(el.e + 'III', el.buf, p)
+            name = el.buf[p + 12:p + 12 + nsz]
+            d = p + 12 + ((nsz + 3) & ~3)
+            if typ == 3 and name[:3] == b'GNU':
+                return el.buf[d:d + dsz].hex()
+            p = d + ((dsz + 3) & ~3)
+    return None
 
 
 def user_symtab(runtime, debug):

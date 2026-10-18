@@ -13,11 +13,19 @@
 # PERF_SYMS=1 also writes perf-syms.tar (the DSOs with samples and their debug files from
 # /usr/lib/debug, the ps3rsx module, laid out as a root for perf --symfs) and perf-kallsyms (the
 # kernel's symbols), so perf report and perf script work on the PC (docs/PROFILING.md).
+# perf script runs with --no-inline: inlined frames come from addr2line, which perf 7.2 on the PS3
+# (no libbfd, no LLVM) runs as the binutils command; the image has no binutils, so perf died of
+# SIGPIPE writing to the missing command after the first few samples ("addr2line configuration
+# failed", exit 141: the 2026-10-18 batch). Frames perf left [unknown] in the game (libraries mapped
+# while perf was disabled: ps3-gpu-tools before 0.412) are filled from the MEM=1 smaps by perfprof.py.
+# The check at the end compares the collapsed samples with perf report's count.
+# PERFPOST_PERF: the perf command (default sudo -n nice -n 19 perf; for tests, e.g. qemu with a root).
 {
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 P=(sudo -n nice -n 19 perf); [ "$(id -u)" = 0 ] && P=(nice -n 19 perf)
-command -v perf > /dev/null || { echo "!! no perf (linux-perf)"; exit 1; }
+if [ -n "${PERFPOST_PERF:-}" ]; then read -r -a P <<< "$PERFPOST_PERF"
+else command -v perf > /dev/null || { echo "!! no perf (linux-perf)"; exit 1; }; fi
 for d in "$@"; do
 	f=$d/perf.data
 	[ -s "$f" ] || { echo "!! $d: no perf.data"; continue; }
@@ -27,14 +35,22 @@ for d in "$@"; do
 	# percentages of the game's samples (--pid keeps its threads, not Xorg's or kswapd0's)
 	"${P[@]}" report -f -i "$f" --stdio --no-children --sort dso,sym -g none --percentage relative \
 		${game:+--pid "$game"} > "$d/perf-report.txt" 2> "$d/perf-post.err"
-	"${P[@]}" report -f -i "$f" --stdio --no-children --sort pid,comm,dso -g none --percentage absolute \
+	"${P[@]}" report -f -i "$f" --stdio --no-children --sort pid,comm,dso -g none --percentage absolute -n \
 		> "$d/perf-threads.txt" 2>> "$d/perf-post.err"
-	"${P[@]}" script -f -i "$f" -F comm,pid,tid,time,period,ip,sym,dso 2>> "$d/perf-post.err" |
+	"${P[@]}" script --no-inline -f -i "$f" -F comm,pid,tid,time,period,ip,sym,dso 2>> "$d/perf-post.err" |
 		python3 "$here/perfprof.py" collapse "$d"
+	rc=${PIPESTATUS[0]}
+	# every sample collapsed? (perf report's count: perf-threads.txt's Samples column)
+	nrep=$(awk '$1 ~ /%$/ && $2 ~ /^[0-9]+$/ { s += $2 } END { print s + 0 }' "$d/perf-threads.txt")
+	ncol=$(sed -n 's/^# samples=\([0-9]*\).*/\1/p' "$d/perf-leaf.txt" 2>/dev/null)
+	if [ "$rc" != 0 ] || [ "${ncol:-0}" -lt $(( nrep * 99 / 100 )) ]; then
+		echo "!! perf script exit $rc, ${ncol:-0} of $nrep samples collapsed: perf.folded and perf-leaf.txt are incomplete (perf-post.err)" |
+			tee -a "$d/perf-post.err"
+	fi
 	if [ -s "$d/perf-sys.data" ]; then
 		"${P[@]}" report -f -i "$d/perf-sys.data" --stdio --no-children --sort comm,dso -g none \
 			--percentage absolute > "$d/perf-sys-report.txt" 2>> "$d/perf-post.err"
-		"${P[@]}" script -f -i "$d/perf-sys.data" -F comm,pid,tid,time,period,ip,sym,dso 2>> "$d/perf-post.err" |
+		"${P[@]}" script --no-inline -f -i "$d/perf-sys.data" -F comm,pid,tid,time,period,ip,sym,dso 2>> "$d/perf-post.err" |
 			python3 "$here/perfprof.py" collapse --sys "$d"
 	fi
 	"${P[@]}" buildid-list -f -i "$f" --with-hits > "$d/perf-buildids.txt" 2>> "$d/perf-post.err"

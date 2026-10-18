@@ -18,7 +18,8 @@
      (POSIX_FADV_DONTNEED, MADV_RANDOM, on a disk-backed directory), a busy loop, a futex wait;
      each stall must come out as disk, cpu and wait, and the recorder's own CPU is printed
   7. perfprof.py on a made-up perf script output (call chains, and the one-line form of the
-     system-wide record): folded stacks, the class shares of report.py's perf_* columns by hand
+     system-wide record): folded stacks, the class shares of report.py's perf_* columns by hand;
+     frames perf left [unknown] filled from a MEM=1 smaps and a library built here (its symbols)
   8. client.sh with PERF and MEM: a fake perf on the control fifos (enable/disable at the window's
      ends, acknowledged), ps3-mallocstat.so (built with the host's cc) preloaded into the fake game,
      the snapshots at the window's start, middle and end, memprof.py's columns from them
@@ -667,6 +668,93 @@ def perf_synthetic(tmp):
     print()
 
 
+def perf_fill(tmp):
+    """7b. the 2026-10-18 batch's gaps: frames perf left [unknown] (a library dlopened while perf was
+    disabled) filled from the MEM=1 smaps and the library's symbols, the link register entry perf
+    could not check dropped, ppc64's dot names for the kernel's DRM functions and the [drm] module
+    counted as kgpu, the recipe command's package (versions) counted as the game"""
+    import io
+    import perfprof
+    cc = shutil.which("cc") or shutil.which("gcc")
+    if not cc:
+        check("perf fill: a C compiler", False)
+        return
+    d = tmp / "ps3-bench-20261018T050000Z-fakefill-base"
+    (d / "mem").mkdir(parents=True)
+    lib = d / "libfakegl.so"
+    src = d / "fakegl.c"
+    write(src, "volatile int v;\n__attribute__((noinline)) void fake_leaf(void) { for (int i = 0; i < 9; i++) v += i; }\n"
+          "__attribute__((noinline)) void fake_draw(void) { fake_leaf(); v++; fake_leaf(); }\n")
+    p = subprocess.run([cc, "-O1", "-fPIC", "-shared", "-o", str(lib), str(src)], capture_output=True, text=True)
+    if p.returncode:
+        check("perf fill: the library builds", False, p.stderr[-400:])
+        return
+    sys.path.insert(0, str(HERE / "hotpaths"))
+    import elfsym
+    el = elfsym.Elf(str(lib))
+    sym = {n: v for n, _, v, _ in el.symbols()}
+    # the mapping as smaps shows it: the whole file executable from BASE (offset 0), so a symbol at
+    # vaddr V is at BASE + its file offset
+    def off(va):
+        for typ, _, poff, pva, filesz, _ in el.phdrs:
+            if typ == 1 and pva <= va < pva + filesz:
+                return va - pva + poff
+        return va
+    base = 0x3fff70000000
+    size = (lib.stat().st_size + 0xffff) & ~0xffff
+    write(d / "mem" / "mid.smaps", "%x-%x r-xp 00000000 08:02 4242   %s\nSize: 64 kB\n" % (base, base + size, lib))
+    write(d / "perf.targets", "game=1000 xorg=900 kswapd0=50 hz=499\n")
+    write(d / "perf.exe", EXE + "\n")
+    cg = "/usr/lib/openarena/baseoa/pak6-patch088/cgameppc64.so"
+    write(d / "perf-pkgs.txt", "%s\tioquake3\n%s\topenarena\n" % (EXE, cg))
+    write(d / "versions", "libopenal1:ppc64\t1:1.25.2-1+ps3.273\nmesa-libgallium:ppc64\t26.2.4-1+ps3.299\n"
+          "openarena\t0.8.8+dfsg-13\nps3-gpu-tools\t0.412\n6.12.111+ps3.178\n")
+    leaf = base + off(sym["fake_leaf"]) + 4
+    ret = base + off(sym["fake_draw"]) + 8      # a return address into fake_draw
+    lr_own = base + off(sym["fake_leaf"]) + 8   # the link register still pointing into the leaf
+    mainip = 0x10001000
+    lines, t = [], 100.0
+
+    def sample(n, pid, comm, frames):
+        nonlocal t
+        for _ in range(n):
+            t += 0.002
+            lines.append("%s  %d/%d  %.6f:    2004008 " % (comm, pid, pid, t))
+            lines.extend("\t    %x %s (%s)" % f for f in frames)
+            lines.append("")
+    sample(6, 1000, "ioquake3", [(leaf, "[unknown]", "[unknown]"), (lr_own, "[unknown]", "[unknown]"),
+                                 (ret, "[unknown]", "[unknown]"), (mainip, "main", EXE)])
+    sample(3, 1000, "ioquake3", [(leaf, "[unknown]", "[unknown]"), (ret, "[unknown]", "[unknown]"),
+                                 (ret, "[unknown]", "[unknown]"), (mainip, "main", EXE)])
+    sample(4, 1000, "ioquake3", [(0xc000000000123450, ".drm_ioctl", "[kernel.kallsyms]"),
+                                 (0xc000000000123460, ".ps3rsx_pushbuf", "[kernel.kallsyms]"), (leaf, "[unknown]", "[unknown]")])
+    sample(2, 1000, "ioquake3", [(0xd000000000001000, "[unknown]", "[drm]"), (mainip, "main", EXE)])
+    sample(3, 1000, "ioquake3", [(0x3fff60001000, "CG_DrawActive", cg), (mainip, "main", EXE)])
+    sample(1, 1000, "ioquake3", [(0x7fff00000000, "[unknown]", "[unknown]"), (mainip, "main", EXE)])
+    sample(2, 900, "Xorg", [(leaf, "[unknown]", "[unknown]")])
+    n = perfprof.collapse(io.StringIO("\n".join(lines) + "\n"), d)
+    check("perf fill: %d samples collapsed" % n, n == 21, n)
+    folded = (d / "perf.folded").read_text()
+    # 6 with the LR entry in the leaf's own function, 3 with it equal to the next entry: both dropped
+    check("perf fill: the leaf and its caller named from the library, the unchecked LR entries dropped",
+          "ioquake3;main;fake_draw;fake_leaf 9\n" in folded, folded)
+    check("perf fill: a kernel sample's user address filled, not deduplicated",
+          "ioquake3;fake_leaf;.ps3rsx_pushbuf_[k];.drm_ioctl_[k] 4\n" in folded, folded)
+    check("perf fill: an address in no mapping stays [unknown], other processes untouched",
+          "ioquake3;main;[unknown] 1\n" in folded and "Xorg;[unknown] 2\n" in folded, folded)
+    head = (d / "perf-leaf.txt").read_text()
+    check("perf fill: perf-leaf.txt names the filled leaves", "# filled_from_smaps=libfakegl.so:9\n" in head
+          and "\t1000\tioquake3\t%s\tfake_leaf\n" % lib in head, head)
+    r = perfprof.summary(d)
+    # 19 game samples: other (the library, outside the game's directories) 9, kgpu 4 (.drm_ioctl) + 2 ([drm]),
+    # game 3 (cgame: openarena from versions), unk 1
+    want = {"perf_n": 19, "perf_other": 47.4, "perf_kgpu": 31.6, "perf_game": 15.8, "perf_unk": 5.3, "perf_kernel": 0.0}
+    check("perf fill: classes (dot names and [drm] as kgpu, the recipe's package as game)",
+          all(r.get(k) == v for k, v in want.items()), {k: (r.get(k), v) for k, v in want.items() if r.get(k) != v})
+    perfprof.show(d)
+    print()
+
+
 # --- 8. client.sh with PERF and MEM ---------------------------------------------------------
 def fake_perf(ctl, ack, log):
     """perf record --control's side: reads enable/disable lines, writes ack for each"""
@@ -944,6 +1032,7 @@ if __name__ == "__main__":
         stalls_synthetic(tmp)
         stallrec_e2e(tmp)
         perf_synthetic(tmp)
+        perf_fill(tmp)
         client_prof(tmp)
         memprof_real(tmp)
         malloctrim_real(tmp)
