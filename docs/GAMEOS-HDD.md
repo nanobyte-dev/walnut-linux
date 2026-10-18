@@ -538,7 +538,7 @@ A GameOS app (PKG, PSL1GHT) so users never need a PC shell. Flow:
 - **Toolchain:** PSL1GHT has its own PPU GCC, an exception to "one GCC everywhere" that the user
   decides (it builds only the GameOS app).
 
-### Test drive, Phase A (built 2026-10-18, not run on the PS3 yet)
+### Test drive, Phase A (built 2026-10-18; on the PS3 since 2026-10-19)
 
 A first, reversible use of the "disk image inside dev_hdd0" route above: a 16 GiB stamped file uploaded
 to dev_hdd0 from the PC over webMAN MOD's FTP, mapped and verified from Linux, then used as an ext4
@@ -723,30 +723,262 @@ window swaps: OpenArena gl2min's 20.1 s of swap stalls, as far as they are spill
 USB disk rather than zram or VRAM hits (the recorder's swap class counts both swaps). The batch will
 say how much of each estimate holds.
 
-#### Phase B (not built)
+#### Phase B
 
-- The header in the image's first MiB: magic, UUID, the list's sha256, room for a boot bundle (the
-  GameOS installer's design above); `ps3-imgmap header-write` then, not in Phase A.
-- An initramfs (our kernels boot without one today: `ps3-no-initramfs`): ufs and dm-mod, mount
-  dev_hdd0 read-only, `recheck`, unmount, `create`, header check, then root from the image.
-- A kboot.conf entry with that initrd, its own label (Petitboot's default is the last label booted).
-- The root file system copied onto the image (as `make usb-root` does), fstab, swap on the image.
-- The kernel guard: `ps3da` and `ps3dc` read-only, writes to `ps3db` only inside the registered
-  extents (a small ps3disk check), so a mistyped mkfs can't reach GameOS's data.
+Built 2026-10-19: the next section, "Phase B: the whole system on the SSD".
 
 #### Open questions
 
-- GameOS's UFS2 geometry (block and fragment size): `map` prints it; the tool handles 512-4096 byte
-  fragments and up to 8 per block (Linux's own limits).
+- GameOS's UFS2 geometry: answered on the PS3 (2026-10-19), block 16384, fragment 4096; the 16 GiB
+  file is 513 extents (one per 32 MiB, where UFS2 puts an indirect block).
 - webMAN's FTP: write speed, and whether its `STOR`/`SIZE` handle a 16 GiB file (64-bit sizes).
-- `dmsetup` is not in our image: installed by hand for Phase A; Phase B's initramfs needs it (or a
-  small dm ioctl helper).
+- `dmsetup`: the image has it now; Phase B's initramfs doesn't use it (ps3-imgmap-boot makes the
+  devices with the device-mapper ioctls itself).
 - The table switch under the VRAM swap (`ps3vswap-back`) is tested only as commands on the PC
   (selftest's dry run, ps3-vswap's stubs): the first `SWAP=ssd` switch on the PS3 is its first real run.
 - Whether GameOS leaves a file's blocks in place for good (no defragmenter is known on the PS3; a
   GameOS fsck after an unclean power-off might move things): `recheck` at every boot is the answer
   either way.
-- Order bias: inside a round the arms always run base, then GAMEDATA=ssd, then both.
+- Order bias: inside a round the arms always run base, then GAMEDATA=ssd, then both (run.sh
+  `ROTATE=1` rotates them since 4954f90).
+
+### Phase B: the whole system on the SSD (built 2026-10-19, not run on the PS3 yet)
+
+The user's decision (2026-10-19): skip a game-data-only stage and put the whole root on the SSD image.
+Petitboot loads the kernel and a small initramfs from the USB disk as today; the initramfs rechecks
+the image's block list from dev_hdd0 (read-only), turns the file's blocks into
+`/dev/mapper/ps3root` and `/dev/mapper/ps3swap`, and starts the system from there. The USB entries
+stay as they are: picking one in Petitboot boots the USB root exactly as before, which is the
+fallback for everything below.
+
+**What was built** (all PC-side; tested on the PC, nothing run on the PS3):
+- `tools/ssdimg/ps3-imgmap-boot.c`: the boot half of `ps3-imgmap` in C, static (glibc, 0.9 MB for
+  ppc64), no Python, no dmsetup, no udev. `check MAP` (the boot map's own sha256 line, the extent
+  list's sha256 by the same digest ps3-imgmap keeps, extents in order, no overlap, past the UFS2
+  super block, the layout), `tables MAP root|swap` (the dm-linear lines, exactly as `ps3-imgmap
+  create` builds them), `recheck MAP MOUNTPOINT` (the mount is ufs, `ro`, `ufstype=ufs2`, from
+  `/dev/ps3db`; the super block's block and fragment size, FIGETBSZ and statvfs agree with the map;
+  the device's size, the file's size and inode, its first block still the stamp of offset 0; then
+  FIBMAP of the first and last fragment of every block, merged, compared extent by extent with the
+  map), `create MAP` (needs this boot's recheck of this map and `/dev/ps3db` unmounted;
+  `BLKROSET` on `/dev/ps3da` and its sysfs `ro` read back; the header area's 256 stamps read back
+  through the extents with O_DIRECT; then DM_DEV_CREATE, DM_TABLE_LOAD, resume, and DM_TABLE_STATUS:
+  the kernel's live table compared target by target with what was loaded; the size checked;
+  `/dev/mapper/<name>` made; anything half made is removed again). Any difference refuses, exit 2.
+  The device names are fixed in the code (no test seams); FIBMAP, BLKROSET and the dm ioctl numbers
+  come from the kernel headers of the target (ppc64's FIBMAP is 0x20000001, checked).
+- Why the dm ioctls and not dmsetup: dmsetup is dynamically linked (libdevmapper, libudev,
+  libselinux, libpcre2 and the loader into the initramfs) and wants udev cookies or
+  `--noudevsync`; the ioctls are about 150 lines, the table goes from the verified extents into the
+  kernel without a text round trip, and the read-back of the live table checks the result in the
+  same program. The KVM test compares the kernel's tables with those `ps3-imgmap create` (dmsetup)
+  makes.
+- `ps3-imgmap export-boot MAP --out FILE`: the boot map, a text file of "key value" lines (image
+  path on dev_hdd0, device, its size, inode, file size, geometry, byte order, UUID, the extent
+  list's sha256, `swap_sectors` from the created record so the boot makes the same two devices Phase
+  A made), the extents, and a closing sha256 line over all of it. Refuses a map without a verify
+  pass. 12 KB for the PS3's 513 extents.
+- The initramfs (`make initrd-ssd IMGMAP=<copy of the PS3's map.json>`, `tools/ssdimg/build-initrd.sh`
+  in the builder): `/init` (`tools/ssdimg/initrd/init`), Debian's busybox-static 1.38.0-3 (pinned by
+  sha256 in config.mk; links only for the applets the init and a rescue shell use, the destructive
+  ones like mke2fs only as `busybox mke2fs`), the static tool, `ufs.ko` and `dm-mod.ko` from the
+  release's linux-image deb (vermagic checked, debug info stripped), the boot maps in
+  `/ps3ssd/maps`, `/etc/ps3ssd-initrd`. A reproducible newc cpio (`tools/ssdimg/mkcpio.py`, owner
+  root, fixed mtimes, `/dev/console` included), xz with CRC32 and a 1 MiB dictionary as the kernel
+  wants. **Size: 1,273,608 bytes (3,879,704 unpacked: busybox 2.57 MB, the tool 0.93 MB, the
+  modules 0.35 MB)**; two builds give the same sha256. Next to it: `.manifest` (sha256 of every
+  file and of the deb's module files), `maps/`, `ps3-imgmap-boot.ppc64`.
+- `/init`: proc, sys, devtmpfs, /run; checks its kernel release; finds the boot map whose image is
+  `ps3ssd.image=`; loads ufs and dm-mod; waits for `/dev/ps3da` and `/dev/ps3db`
+  (`ps3ssd.timeout`, 30 s); `blockdev --setro` on ps3da and ps3dc (checked in sysfs); mounts
+  ps3db `ro,ufstype=ufs2`, `recheck`, unmounts; `create` with the name from `root=/dev/mapper/<name>`
+  and `ps3ssd.swap` (ps3swap); mounts root with `rootfstype=`, `ro`/`rw`, `rootflags=`; moves /dev,
+  /proc, /sys, /run into it; `switch_root` to `init=` (/sbin/init). The log stays readable as
+  `/run/ps3ssd/init.log` (with the recheck's time and the tables in `/run/ps3ssd/*.table`). The
+  root's fsck is systemd's, as on the USB disk (systemd-fsck-root on the read-only root, then
+  systemd-remount-fs). Any failure: a framed message on tty1 and every active console (what failed,
+  that nothing was written, `reboot -f` and the USB entry to go back), the log's tail, and a busybox
+  shell on each. `ps3ssd.break=1` gives a shell after the devices are made, before root is mounted.
+- `ps3-boot` 0.498 (in ps3-dev, not stable): `ps3-update-kboot` appends the entries of
+  `/etc/kboot.d/*.conf` as written, after the kernels' entries, so a kernel install or removal keeps
+  them. Left out, as a comment in kboot.conf and a message: a label already taken, a line that isn't
+  an entry or is a global (`default=` and the like), an entry whose image or `initrd=` is missing on
+  this disk (it comes back by itself once the files are there). Host tests: suite `ps3-boot`.
+- `tools/ssdimg/ssd-install-image.sh` (the PS3, root, from the USB root): `check` (read-only: the
+  USB root is `/`; ps3ssd and ps3ssd-swap exist and their live tables are the ones `ps3-imgmap
+  create` wrote from a verified map rechecked this boot; the initramfs matches its manifest, its
+  boot map is that map and gives the same two tables; the kernel release is in `/boot` with the
+  same ufs and dm-mod files), `install` (a new ext4 labelled ps3root on `/dev/mapper/ps3ssd`, inode
+  tables and journal written at mkfs, no lazy init later; it asks before erasing a file system that
+  is there, e.g. Phase A's game copies; `--reuse` keeps an existing ps3root and moves its contents to
+  `.old-<date>`; the image tar extracted with owners, modes and xattrs; then fstab, hostname, hosts,
+  SSH host keys, Bluetooth pairings, NetworkManager connections, `/home/tibi`, `/var/tmp/bench`,
+  `/var/tmp/ps3-bench`'s state without its run directories, `/var/lib/ps3-imgmap`, the
+  `ps3ssd-udev` unit, and the package difference list), `boot` (`/boot/initrd-ssd-<release>.img`,
+  `/etc/kboot.d/ssd.conf`, `ps3-update-kboot`). `--dry-run` everywhere. It unmounts the new root
+  again if anything fails midway.
+- The SSD root's fstab: `/dev/mapper/ps3root / ext4 defaults,noatime 0 1`,
+  `/dev/mapper/ps3swap none swap sw,pri=200,noauto 0 0` (ps3-vswap takes the first swap line as the
+  VRAM swap's backing, so it needs no new setting; `/etc/default/ps3-vswap` is not copied:
+  `PS3_VSWAP_DM` belongs to Phase A's swap arm), tmpfs `/tmp`, and the USB root at `/mnt/usbroot`
+  `noauto`. No USB swap.
+- `ps3ssd-udev.service` (in the SSD root, enabled in sysinit, only when `/run/ps3ssd/init.log`
+  exists): devices made without udev get no `/dev/mapper` link from udev and, with dmsetup's
+  55-dm.rules, the coldplug "add" marks them not ready for systemd (SYSTEMD_READY=0, 99-systemd.rules).
+  Nothing in the boot waits on them (systemd adds no device dependency for `/`, the swap line is
+  noauto, ps3-vswap uses the node), so this is for consistency: a "change" event per dm device after
+  the coldplug, which 55-dm.rules treats as the activation, then `udevadm settle`.
+- bench.txt has `root=` now (client.sh): the run's root device, USB or `/dev/mapper/ps3root`.
+
+**Boot time of the recheck.** FIBMAP twice per 16 KiB block, about 2.1 million ioctls for the 16 GiB
+file. In the KVM guest on a 640 MiB file (81,920 FIBMAPs) the Python recheck took 0.49-0.53 s and the C
+tool 0.043 s, about 11x less. The PS3's Python map took 79 s; at the same ratio the C recheck is
+[estimate] 5-10 s per boot. The init log prints the measured time. If it matters, FIBMAP of the first
+fragment only would halve it (UFS keeps a full block's fragments together; the last-fragment check is
+the unit cross-check that `map` already did).
+
+**Tested on the PC** (2026-10-19): `make test` suite `ssdimg` (export-boot and its refusals; the C
+tool's `tables` equal `ps3-imgmap create`'s table files on the fake layer, also across several extents
+and a 3 MiB swap; every refusal of a damaged map: edited byte, truncated, extent moved, overlap,
+inside the super block, swap too big, bad path, field order, bad UUID, trailing lines; recheck and
+create refuse a map for another device), suite `ps3-boot`. `make test-slow` suite `ssdimg-vm` adds, per
+geometry (the PS3's 16384/4096, and 4096/512 where the file splits every 2 MiB: 15 and 2 targets): a
+guest runs the C tool against the real ufs and dm (its tables are dmsetup's for the same map; recheck
+on tmpfs refused; create without a recheck, with ps3db mounted, with another boot's recheck, with the
+devices there: refused; BLKROSET set by the tool itself); a second guest runs `ssd-install-image.sh`
+(check before and after create, a dry run that writes nothing, the question before erasing Phase A's
+ext4, refusals while mounted and for `--reuse` on a foreign file system, a real install, a `--reuse`
+install, `boot` into a fake USB root with the repository's ps3-update-kboot); then the guest boots
+with the initramfs `boot` installed and the kernel line from the generated kboot.conf entry (as
+Petitboot passes it, plus `rdinit=` for a wrapper that gives vda and vdb the PS3's names), and the
+installed test root checks the result: root `/dev/mapper/ps3root` ext4 read-only, the swap device,
+ps3da read-only, dev_hdd0 unmounted, the log and tables in /run/ps3ssd, /dev moved, the install's
+fstab, hostname, host key, bench state without run directories, the udev unit, then 3 MiB written.
+Every sector outside the image's mapped part is still the original's, and the writes landed inside.
+Three refused boots (no map for `ps3ssd.image`, a header block zeroed, the file moved by a rebuilt
+UFS) each stop in the rescue shell with their reason and leave the disk image byte for byte as it was.
+The ppc64 build runs `check` and `tables` under qemu-user. Not tested: the PS3 itself (its kernel's dm
+and ufs are the same code; Petitboot passes `initrd=` to `kexec --initrd`, from its source), the
+timing, systemd on the SSD root (the test root is busybox), ps3ssd-udev.
+
+#### The steps on the PS3 (after the batch; the user not at the console)
+
+Phase A's devices stay: `/dev/mapper/ps3ssd` and `ps3ssd-swap`, made this boot. If the PS3 was
+rebooted since, make them again first (Phase A's "every later boot" steps).
+
+1. On the PS3, Phase A's arms off and the game copies unmounted:
+
+       /var/tmp/bench/ssd-arm.sh reset
+       sudo umount /mnt/ps3ssd
+
+2. On the PC, the map and its records, then the initramfs for them (this replaces any
+   build/initrd made from another map):
+
+       rm -rf build/tmp/ssdb/imgmap && mkdir -p build/tmp/ssdb
+       scp -r tibi@10.0.0.77:/var/lib/ps3-imgmap build/tmp/ssdb/imgmap
+       make initrd-ssd IMGMAP=build/tmp/ssdb/imgmap/ssdtest.map.json
+       # prints the root as 15359 MiB and the swap as 1024 MiB, 513 extents
+
+3. The files and the new ps3-boot (0.498, the deb published to ps3-dev: sha256 001760a4...), from
+   the PC (not `make deploy`, which would publish and upgrade everything built locally):
+
+       ssh tibi@10.0.0.77 'rm -rf /var/tmp/ssdb && mkdir -p /var/tmp/ssdb'
+       scp -r build/initrd tools/ssdimg/ssd-install-image.sh build/debs/ps3-boot/ps3-boot_0.498_all.deb \
+           tibi@10.0.0.77:/var/tmp/ssdb/
+       ssh tibi@10.0.0.77 'sha256sum /var/tmp/ssdb/ps3-boot_0.498_all.deb && sudo dpkg -i /var/tmp/ssdb/ps3-boot_0.498_all.deb'
+
+4. On the PS3, the read-only check, then a dry run:
+
+       sudo bash /var/tmp/ssdb/ssd-install-image.sh check --from /var/tmp/ssdb/initrd
+       sudo bash /var/tmp/ssdb/ssd-install-image.sh install --from /var/tmp/ssdb/initrd --tar - --dry-run
+
+5. With the user's go (it erases Phase A's game copies on ps3ssd): the fresh release image
+   (`make rootfs`; build/rootfs/debian-ppc64.tar, 3 GB) streamed from the PC into the install:
+
+       ssh tibi@10.0.0.77 'sudo bash /var/tmp/ssdb/ssd-install-image.sh install \
+           --from /var/tmp/ssdb/initrd --tar - --yes' < build/rootfs/debian-ppc64.tar
+
+   It prints what it copied and how many packages differ from the USB root.
+6. The boot entry on the USB root:
+
+       sudo bash /var/tmp/ssdb/ssd-install-image.sh boot --from /var/tmp/ssdb/initrd
+       # kboot.conf now ends with ssd-6.12.111+ps3.472='/boot/vmlinux-6.12.111+ps3.472
+       #   initrd=/boot/initrd-ssd-6.12.111+ps3.472.img root=/dev/mapper/ps3root rootfstype=ext4 ro
+       #   ps3ssd.image=/linux/ssdtest.img ip=dhcp netconsole=... <the release's arguments>'
+
+7. The user: fan in SYSCON mode (or 60% or more) as before every Linux session, reboot, Petitboot,
+   the entry `ssd-6.12.111+ps3.472`; the boot flag back on GameOS at the end of the session, as
+   always. Petitboot's countdown default is the label picked last (section "Petitboot's
+   behaviour", from its code), so after this an unattended boot goes to the SSD root; picking a USB
+   entry by hand switches back.
+   With `quiet` the initramfs prints nothing on success; a failure is on the screen and, at kernel
+   level 2, on netconsole (`make listen` on the PC) if the screen stays black.
+8. Checks after the first SSD boot (the webcam first: the desktop must show):
+
+       findmnt / ; cat /run/ps3ssd/init.log     # /dev/mapper/ps3root ext4 rw; the recheck's seconds
+       cat /sys/block/ps3vswap0/backing; swapon --show   # /dev/mapper/ps3swap; ps3vswap0 300, zram 100
+       cat /sys/block/ps3da/ro                  # 1
+       systemctl --failed; systemctl status ps3ssd-udev dev-mapper-ps3root.device
+       ls -l /dev/mapper; sudo dmsetup table ps3root | wc -l    # 480 lines
+       dmesg | grep -i -e ext4 -e device-mapper -e ufs
+       ip -4 addr show eth0                     # 10.0.0.77 (the DHCP client ID is the MAC)
+
+9. The bench prerequisites: the packages the USB root has that the fresh image lacks or has in
+   another version, from the list the install wrote (kernels apart), simulated first:
+
+       sudo apt update
+       xargs -a /var/lib/ps3ssd/packages-from-usb.txt sudo apt install -s --allow-downgrades | tail
+       xargs -a /var/lib/ps3ssd/packages-from-usb.txt sudo apt install --allow-downgrades
+
+   A version no longer in any suite (ps3-dev keeps 5) fails by name: install that package's current
+   version on both roots instead. Then `make bench-push` from the PC if games/bench changed since
+   the copy. The same package versions on both roots are what makes their numbers comparable.
+
+**Falling back.** Any initramfs failure ends in its rescue shell with the reason: `reboot -f`, then a
+USB entry. A broken SSD root: a USB entry, nothing on the USB root changed except `/boot` (one more
+file) and `/etc/kboot.d/ssd.conf`. Removing the entry: `sudo rm /etc/kboot.d/ssd.conf
+/boot/initrd-ssd-*.img && sudo ps3-update-kboot` on the USB root. The image file itself is untouched
+by all of this (Linux writes only inside its blocks); deleting it in GameOS is the rollback of
+everything, as in Phase A. While the SSD root runs, `ps3-gameos-mount` can't mount dev_hdd0 (device
+mapper holds ps3db, EBUSY), and kernel updates must go to both roots: the USB root's `/boot` has the
+kernel Petitboot loads, the SSD root has its modules. Install a new kernel on the USB root, build its
+initramfs (`make initrd-ssd INITRD_RELEASE=<release> ...`), run `boot` again, and install the same
+kernel package on the SSD root.
+
+#### The benchmark: USB root against SSD root
+
+Root can't move inside one boot, so this compares across boots (memory "same-boot baselines": the
+exception, made as small as possible). Boots alternate USB, SSD, USB, SSD (two of each), the same
+commands in the same order in every boot, `tools/bench-cam.sh` as always, the measurement protocol
+(desktop stopped, swap emptied, nothing deployed between the boots), the same package versions on
+both roots (step 9) and the same shader cache and bench state (copied by the install). In each boot:
+
+    STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench sauerbraten base 3
+    STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench openarena gl2min 3
+    STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench luanti base 3
+    STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench supertuxkart lean 3
+    STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench classicube base 3
+    STALLS=1 /var/tmp/bench/run.sh bench openarena gl2min 3       # gameplay, without the load profile
+    STALLS=1 /var/tmp/bench/run.sh bench sauerbraten base 3
+    ps3-bench.sh desktop
+
+The first five are the start-up set of batch 16/17 (`load`, `load_disk_s`, loadprof's split,
+`stalls_warm`, `warm_disk_s`); the last two are gameplay, judged by stalls and 1% lows first
+(`stall_disk_s`, `stall_swap_s`; with the SSD root the VRAM swap spills to the SSD too, so this is
+"GAMEDATA=ssd+SWAP=ssd" plus binaries, libraries and the shader cache on the SSD). bench.txt's `root=`
+tells the boots apart in the results; report.py over the run directories of each root gives the
+medians to compare, a difference counting when both SSD boots agree against both USB boots.
+
+#### Later (for a release, not needed for the benchmark)
+
+- The header in the image's first MiB (magic, UUID, the list's sha256, room for a boot bundle;
+  `ps3-imgmap header-write`), so the boot map can be checked against the image itself and the state
+  needn't live on the USB root.
+- `/boot` on dev_hdd1 with the webMAN autoexec mirror (sections above), so the USB disk can go.
+- The kernel guard: ps3da and ps3dc read-only in the kernel, writes to ps3db only inside the
+  registered extents (a small ps3disk check).
+- Kernel updates in one step for both roots (a kernel hook that rebuilds the initramfs and the entry).
+- The GameOS installer (design above).
 
 ### Getting more than 22 GiB (no-go for now)
 

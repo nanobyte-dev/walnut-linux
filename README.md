@@ -17,7 +17,7 @@ package (Debian source packages; docs/PACKAGING.md).
 | `ps3-spu/` | libspeq (`lib/`: resident SPE workers, job queues (bulk and the shared deadline pool), the DXT1/DXT5 encoders, the fluidsynth voice DSP, vertex skinning), the SPU programs (`spu/`: the runtime, `bench`, `dxt` (DXT1/DXT5), `deadline` (the synth and skin ops), `hello`), tools (`tools/`: `speq-dxt`, `speq-bench`, `speq-skin`; `src/spurun.c`), host tests (`tests/`, `make -C ps3-spu test`), design notes (`doc/skin.md`, `doc/pool.md`, `doc/dxt5.md`, `doc/dxt-rgb.md`); packages `libspeq0`, `libspeq-dev`, `ps3-spu`, `ps3-spu-programs` |
 | `plymouth/` | Debian's `plymouth` source package plus `patches/` (the script plugin without a console viewer) |
 | `ps3-splash/` | The Walnut Linux boot splash: Plymouth script theme (`theme/`), artwork generators (`art/`), `debian/` (the DRM renderer diverted, Plymouth drop-ins); also `ps3-no-initramfs` |
-| `ps3-boot/` | `ps3-update-kboot`: Petitboot's boot menu from the installed kernels; `webman/autoexec.bat`: draft GameOS startup script that backs up the boot files from dev_hdd1 to dev_hdd0 and restores them (docs/GAMEOS-HDD.md) |
+| `ps3-boot/` | `ps3-update-kboot`: Petitboot's boot menu from the installed kernels, plus the entries in `/etc/kboot.d/*.conf` as written (the SSD root's); `tests/test_kboot.py` (suite `ps3-boot`); `webman/autoexec.bat`: draft GameOS startup script that backs up the boot files from dev_hdd1 to dev_hdd0 and restores them (docs/GAMEOS-HDD.md) |
 | `yquake2/` | Yamagi Quake II: Debian's `yquake2` source package (`package.conf`: version, .dsc hash, `COMPONENT=contrib`); the game data (Quake shareware, Quake II demo) comes from `make quake-data` |
 | `dsda-doom/` | dsda-doom (PrBoom+ successor): Debian's `dsda-doom` source package (`package.conf`: version and .dsc hash) plus `patches/` (big-endian fixes: dsda-doom.wad's DMX sounds, the software renderer's colours, screenshots; GL renderer without ARB_texture_rg for nv30; batched GL draws, `DSDA_GL_*` switches) |
 | `luanti/` | Luanti: Debian's `luanti` source package plus `packaging/` (ppc64 added to the Architecture of `luanti` and `luanti-server`; LuaJIT kept); `CHECK=1` runs its unit tests in the build; built against our `luajit` |
@@ -45,7 +45,7 @@ package (Debian source packages; docs/PACKAGING.md).
 | `config.mk` | All build/deploy settings (snapshot date, builder pins, IPs, root and netconsole arguments; the kernel's and Mesa's versions are in their `package.conf`) |
 | `docker/` | Pinned build environments: `Dockerfile` (toolchain, mmdebstrap), `.deb` (Debian packaging tools, aptly), `.games` (ClassiCube's sound conversion), `.spu` |
 | `tools/` | Scripts called by the Makefile (`deb-*.sh`: Debian source packages; `repo-*.sh`, `aptly-publish.sh`: the repository, `licensed-packages.txt`: the packages that go to its `ps3-licensed` suite only; `deploy.sh`); `webcam-grab.sh`, `bench-cam.sh` (webcam photos 30 s and 60 s into every PS3 bench run, over one SSH connection) |
-| `tools/ssdimg/` | The SSD test drive (docs/GAMEOS-HDD.md "Test drive, Phase A"): `stamp.py` (PC: the stamped image streamed to dev_hdd0 over webMAN's FTP), `ps3-imgmap` (PS3, root: the file's blocks by FIBMAP from the read-only UFS2 mount, every stamp verified from `/dev/ps3db`, rechecked, then dm-linear disks over them), `test_ssdimg.py` (host tests, suite `ssdimg`), `vm-e2e.sh` + `vm-guest.sh` (the same on a real big-endian UFS2 image in a KVM guest of the PC's kernel, suite `ssdimg-vm`) |
+| `tools/ssdimg/` | The SSD image (docs/GAMEOS-HDD.md "Test drive, Phase A" and "Phase B: the whole system on the SSD"): `stamp.py` (PC: the stamped image streamed to dev_hdd0 over webMAN's FTP), `ps3-imgmap` (PS3, root: the file's blocks by FIBMAP from the read-only UFS2 mount, every stamp verified from `/dev/ps3db`, rechecked, then dm-linear disks over them; `export-boot` the boot map), `ps3-imgmap-boot.c` (the initramfs's recheck and dm devices, static C, dm ioctls), `initrd/init` + `build-initrd.sh` + `mkcpio.py` (the SSD root's initramfs, `make initrd-ssd`), `ssd-install-image.sh` (PS3, root: the release image onto the SSD root, the boot entry on the USB root), `test_ssdimg.py` (host tests, suite `ssdimg`), `vm-e2e.sh` + `vm-guest*.sh`, `vm-init-e2e.sh`, `vm-testroot-init.sh`, `vm-outside.py`, `vm-hdrbreak.py` (the same on a real big-endian UFS2 image in a KVM guest of the PC's kernel: Phase A's tools, then the C tool, the install script and boots of the initramfs, suite `ssdimg-vm`) |
 | `docs/` | `PLAN.md` the plan, `PACKAGING.md` packages, repository and deploys, `DRIVER-PLAN.md` GPU driver phases, `RSX.md` measured GPU facts, `RSX-PROGRAMS.md`, `MESA-METHODS.md`, `RESEARCH.md`, `SPU-GCC.md`, `KERNEL-MEMORY.md`, `OTHEROS-PATCHES.md` (OtherOS++/PS3 kernel patches surveyed for 6.12: what we carry, what was ported, the risky ones), `HARDWARE-LEVERAGE.md`, `RSX-SPU-FEASIBILITY.md`, `SPU-OFFLOAD*.md`, `SPU-AUDIO.md` (OpenAL mixing and fluidsynth on the SPEs), `GAME-PLAN.md` (the game stages, their status and measurements), `GAME-SUITE.md` (the game benchmark suite), `STALLS.md` (the stall recorder), `PROFILING.md` (CPU and memory profiles: `PERF=1`, `MEM=1`), `HOTPATHS.md` (the graphics stack's CPU hot paths ranked across the games, Mesa 0033/0034 and their A/B), `MEMORY.md` (where each game's memory goes, the cuts ranked, the malloc presets), `DESKTOP-PLAN.md` (the desktop and game mode), `IDEAS.md` (the open ideas, ranked), `IMAGE-DIFF.md` (a fresh image against the live PS3), `THERMAL.md` (temperatures from the System Manager: the hwmon driver, the bench's temperature limit; the fan policy driver: SYSCON automatic at boot and exit, pwm1), `FLASH-SYSCON.md` (flash, SYSCON and lv1 writes: what each would unlock, risk, recovery; nothing tried), `GAMEOS-HDD.md` (GameOS's disk read-only from Linux, a Linux region or a disk image on the internal SSD, the image's test drive), `RELEASE-CANDIDATES.md` (what could go from ps3-dev to stable, with the commands), `upstream/` (drafts of upstream bug reports and patches, none sent) |
 | `build/` | Generated (ignored). Ephemeral except `build/aptly` (the published repository's state); see CLAUDE.md |
 | `firmware/` | Petitboot image installed on the console (ignored) |
@@ -71,6 +71,8 @@ package (Debian source packages; docs/PACKAGING.md).
                            #   AUTOREMOVE=1 purges what nothing needs any more)
     make publish           # publish build/debs to the repository server (DEBS=..., DIST=dev for test builds)
     make spu-toolchain     # spu-elf GCC 16.2 (our port) for the SPEs
+    make initrd-ssd IMGMAP=<copy of the PS3's map.json>   # the SSD root's initramfs -> build/initrd
+                           #   (docs/GAMEOS-HDD.md "Phase B: the whole system on the SSD")
 
 The image builds in two layers. `build/rootfs/base.tar` has the Debian packages (dpkg under qemu,
 about 15 minutes; downloads cached in `build/apt-cache/`) and is rebuilt only when
@@ -80,7 +82,7 @@ our own packages, in a minute or two. Everything we build is a .deb in `build/de
 | Package | Installs |
 |---|---|
 | `linux-image-<release>`, `linux-image-ps3`, `linux-image-ps3-debug` | the kernels (release `6.12.111+ps3.N`, debug `6.12.111+ps3.N-debug<stamp>`): `/boot/vmlinux-<release>`, modules, boot arguments; the metas follow the newest |
-| `ps3-boot` | `ps3-update-kboot`: Petitboot's `/etc/kboot.conf` from the installed kernels (newest first, the default) |
+| `ps3-boot` | `ps3-update-kboot`: Petitboot's `/etc/kboot.conf` from the installed kernels (newest first, the default) and `/etc/kboot.d/*.conf` |
 | `ps3-gpu-tools` | RSX probes, driver tests, the GL tests, `ps3-bench.sh`, `ps3-stallrec`, `ps3-waker` and `ps3-intfwatch` in `/usr/lib/ps3/bin` (on `PATH`), `ps3-mallocstat.so` and `ps3-malloctrim.so` in `/usr/lib/ps3/lib` |
 | `mesa-libgallium`, `libgl1-mesa-dri`, `libegl-mesa0`, `libglx-mesa0`, `libgbm1`, … | Debian's Mesa packages rebuilt from `mesa/` (`26.2.4-1+ps3.N`), replacing Debian's |
 | `dsda-doom` | `/usr/games/dsda-doom` (`0.30.0+dfsg-1+ps3.N`), replacing Debian's: right colours on big-endian, `-vidmode gl` on nv30 |
@@ -129,7 +131,8 @@ Host tests (no PS3 needed):
     make test-slow               # plus autogm-check.sh (needs Xvfb+openbox, or docker/podman) and the
                                  #   SSD test drive in a KVM guest (tools/ssdimg/vm-e2e.sh: docker, qemu, /dev/kvm)
     make test ONLY=ps3-spu       # one suite: bench-selftest, gprefetch, ps3rsx-shadow, ps3-spu, xmoto-glbatch,
-                                 #   mesa-forcedxt, ssdimg, autogm, ssdimg-vm (the last two with make test-slow)
+                                 #   mesa-forcedxt, ssdimg, ps3-boot, autogm, ssdimg-vm (the last two with
+                                 #   make test-slow)
 
 `tools/run-tests.sh` runs them: `games/bench/selftest.py`, `ps3-desktop/tests/gprefetch-check.py`,
 `ps3rsx/test` (x86 fuzz with short seeds; the big-endian run under qemu when the cross gcc, qemu and

@@ -184,7 +184,11 @@ change them in a disposable git tree:
   newest kernel unless `/etc/default/ps3-boot` sets `PS3_DEFAULT_FLAVOUR` (`release`: the newest
   kernel without a `-debug` suffix; `debug`: the newest `-debug*` one; the old names `ps3` and
   `ps3-release` still mean debug and release) or `PS3_DEFAULT` (a release, wins while it is
-  installed). The image sets `PS3_DEFAULT_FLAVOUR=release`.
+  installed). The image sets `PS3_DEFAULT_FLAVOUR=release`. Entries that aren't a kernel's (the SSD
+  root's, docs/GAMEOS-HDD.md "Phase B") go in `/etc/kboot.d/*.conf`: ps3-update-kboot (0.498 on)
+  appends them as written, leaving out one whose label is taken or whose image or `initrd=` is
+  missing. The SSD root's initramfs is our own (`make initrd-ssd`), not initramfs-tools: kernels still
+  boot without one (`ps3-no-initramfs`), only that entry passes `initrd=`.
   **Caveat (2026-10-18, from the installed Petitboot's code, docs/GAMEOS-HDD.md "Petitboot's
   behaviour"):** this Petitboot ignores `default=`, `timeout` and `delay` in kboot.conf. Its default is
   the entry whose label matches the last one booted by hand (a hash kept in its OS-area settings), its

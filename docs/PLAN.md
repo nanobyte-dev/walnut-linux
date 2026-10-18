@@ -155,6 +155,7 @@ verdict in its source doc.
 | 1.11 | Menu-only smoke games: TORCS, Trigger Rally, Chromium B.S.U. (installed) | three more games for the suite; TORCS also tests DXT5 | S | user | GAME-PLAN.md "Smoke tests" |
 | 1.12 | Nexuiz smoke: install `darkplaces-gl2 nexuiz-data nexuiz-textures`, `run.sh smoke nexuiz`, then `gl20`, `hires` | a GL 2.0 engine of its own; needs D12 | S | user | GAME-PLAN.md "Nexuiz Classic" |
 | 1.13 | The interference detector's own checks: a key press, an SSH login, a mouse bump, the tty8 screen | it runs in every bench run and decides which rows count, but nobody has checked it catches a real touch | S | user | STALLS.md "Checking it on the PS3" |
+| 1.14 | The whole system on the SSD image (Phase B, the user 2026-10-19): `make initrd-ssd` from the PS3's map, `ssd-install-image.sh install` and `boot`, the user boots the `ssd-<release>` entry, then the start-up set and two gameplay runs in alternating boots USB/SSD/USB/SSD | root, binaries, libraries, shader cache and swap spill on the 100 MB/s, 0.1 ms SSD instead of the 28 MB/s, 20 ms USB disk: loads and disk stalls | M | after the batch: PS3, user (reboots) | GAMEOS-HDD.md "Phase B: the whole system on the SSD" |
 
 ### Stage 2: smoothness and correctness for the suite
 
