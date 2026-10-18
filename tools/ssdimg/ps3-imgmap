@@ -25,6 +25,12 @@
         --swap-mib the image's last N MiB as /dev/mapper/NAME-swap.
   ps3-imgmap remove NAME
         dmsetup remove NAME (and NAME-swap).
+  ps3-imgmap export-boot MAP --out FILE [--state DIR] [--swap-mib N]
+        The boot map of Phase B's initramfs (ps3-imgmap-boot reads it): the map's extents and the facts
+        recheck compares, the image's path on dev_hdd0, the swap tail's size (from the created record,
+        so the boot makes the same two devices create made), and a sha256 line over all of it. Needs a
+        recorded verify pass of this map in DIR (default the state directory). Touches no device: runs
+        on the PC too, with a copy of /var/lib/ps3-imgmap.
 
 map, verify and recheck only read /dev/ps3db (opened read-only; the UFS2 mount is read-only and our
 kernel's ufs has no write code). Nothing up to create writes anywhere on the internal disk; create
@@ -38,8 +44,9 @@ fragment number and returns the physical fragment number (block address + fragme
 s_sbbase 0 for UFS2), so FIBMAP's unit is fs_fsize bytes on both sides; times fs_fsize / 512 it
 is a sector of /dev/ps3db, the device the file system starts on.
 
-Phase B (not here): the header written into the image's first MiB (magic, UUID, the list's
-sha256), the recheck from an initramfs at every boot, a kboot entry with that initramfs.
+Phase B: the recheck and create at every boot from an initramfs, by ps3-imgmap-boot (C) from the
+boot map export-boot writes (docs/GAMEOS-HDD.md "Phase B"). Not yet: the header written into the
+image's first MiB (magic, UUID, the list's sha256).
 """
 import array
 import argparse
@@ -595,6 +602,57 @@ def cmd_remove(a):
     return rc
 
 
+BOOT_FORMAT = "ps3-imgmap-boot 1"
+
+
+def boot_map_text(m, swap_mib):
+    """the boot map: one "key value" per line in a fixed order, the extents, then the sha256 of all of it"""
+    rel = os.path.relpath(m["file"], m["mount"])
+    if rel.startswith("..") or not re.fullmatch(r"[A-Za-z0-9/._+-]+", rel):
+        raise Refuse("%s is not a plain path under its mount %s" % (m["file"], m["mount"]))
+    total = m["file_size"] // 512
+    if swap_mib < 0 or total - HEADER_SECTORS - swap_mib * 2048 < 2048 * 2:
+        raise Refuse("--swap-mib %d leaves less than 2 MiB for the file system" % swap_mib)
+    out = [BOOT_FORMAT, "image /" + rel]
+    for k in ("device", "device_sectors", "inode", "file_size", "fragment_size", "block_size", "byte_order",
+              "uuid", "extents_sha256"):
+        out.append("%s %s" % (k, m[k]))
+    out.append("swap_sectors %d" % (swap_mib * 2048))
+    out.append("extents %d" % len(m["extents"]))
+    out += ["%d %d %d" % tuple(e) for e in m["extents"]]
+    body = "".join(x + "\n" for x in out)
+    return body + "sha256 %s\n" % hashlib.sha256(body.encode()).hexdigest()
+
+
+def cmd_export_boot(a):
+    m = load_map(a.map)
+    sha = m["extents_sha256"]
+    state = a.state or STATE
+    if not os.path.exists(os.path.join(state, "verified-%s.json" % sha)):
+        raise Refuse("no verify pass of this map (sha256 %s) in %s: the boot map is only made from a verified map"
+                     % (sha, state))
+    swap_mib = a.swap_mib
+    try:
+        with open(os.path.join(state, "created-%s.json" % sha)) as f:
+            made = json.load(f).get("swap_mib")
+    except FileNotFoundError:
+        made = None
+    if made is not None and swap_mib is not None and made != swap_mib:
+        raise Refuse("create made the devices with --swap-mib %d, not %d: the boot must make the same ones"
+                     % (made, swap_mib))
+    if swap_mib is None:
+        if made is None:
+            raise Refuse("no created record of this map in %s: give --swap-mib (the layout of the disks)" % state)
+        swap_mib = made
+    text = boot_map_text(m, swap_mib)
+    tmp = a.out + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(text)
+    os.replace(tmp, a.out)
+    say("%s: %s, %d extents, swap %d MiB, sha256 %s" % (a.out, m["file"], len(m["extents"]), swap_mib, sha))
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="ps3-imgmap", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -617,12 +675,17 @@ def main(argv=None):
     s.add_argument("--yes", action="store_true", help="no question (the user's go was given)")
     s = sub.add_parser("remove", help="dmsetup remove NAME and NAME-swap")
     s.add_argument("name")
+    s = sub.add_parser("export-boot", help="the boot map for Phase B's initramfs (touches no device)")
+    s.add_argument("map")
+    s.add_argument("--out", required=True)
+    s.add_argument("--state", help="where the verify and create records are (default the state directory)")
+    s.add_argument("--swap-mib", type=int, help="the swap tail (default: what create used)")
     a = p.parse_args(argv)
     if DEVICE != "/dev/ps3db":
         print("!! test mode: device %s instead of /dev/ps3db" % DEVICE, file=sys.stderr)
     try:
         return {"map": cmd_map, "verify": cmd_verify, "recheck": cmd_recheck,
-                "create": cmd_create, "remove": cmd_remove}[a.cmd](a)
+                "create": cmd_create, "remove": cmd_remove, "export-boot": cmd_export_boot}[a.cmd](a)
     except Refuse as e:
         print("!! refused: %s" % e, file=sys.stderr)
         return 2

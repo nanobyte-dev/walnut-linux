@@ -56,6 +56,17 @@ SPU_NEWLIB_VERSION  := 4.6.0.20260123
 SPU_NEWLIB_SHA256   := 6ff27e3bf022666f43f7802255be680eeff722ac181b1725d21e2e8318604ee3
 SPU_NEWLIB_URL      := https://sourceware.org/pub/newlib/newlib-$(SPU_NEWLIB_VERSION).tar.gz
 
+# --- The SSD root's initramfs (tools/ssdimg/build-initrd.sh, docs/GAMEOS-HDD.md "Phase B") -----------
+# Debian's busybox-static, pinned to its own snapshot and sha256: ppc64 for the PS3 (debian-ports),
+# amd64 for the KVM test (tools/ssdimg/vm-e2e.sh); the same version and configuration
+BUSYBOX_SNAPSHOT    := 20261013T000000Z
+BUSYBOX_PPC64_DEB   := busybox-static_1.38.0-3_ppc64.deb
+BUSYBOX_PPC64_URL   := http://snapshot.debian.org/archive/debian-ports/$(BUSYBOX_SNAPSHOT)/pool-ppc64/main/b/busybox/$(BUSYBOX_PPC64_DEB)
+BUSYBOX_PPC64_SHA256 := cd762eee99372ac2bfa0d0c32cc981a76d35cf3debb6b7c66a3b53b5f7d8cc30
+BUSYBOX_AMD64_DEB   := busybox-static_1.38.0-3+b1_amd64.deb
+BUSYBOX_AMD64_URL   := http://snapshot.debian.org/archive/debian/$(BUSYBOX_SNAPSHOT)/pool/main/b/busybox/$(BUSYBOX_AMD64_DEB)
+BUSYBOX_AMD64_SHA256 := 26801f17e6c88e813be104effc0ea3b43d912bd59ca6295fcd1260528ebb4d41
+
 # --- Build container ----------------------------------------------------------
 # Pinned base image; its apt sources are pointed at the same snapshot date.
 # Debian sid (amd64), upgraded to the same snapshot as the PS3's root, so the cross compiler is the

@@ -26,7 +26,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull \
+.PHONY: initrd-ssd initrd-busybox repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull \
 	classicube classicube-audio classicube-deploy classicube-bench quake-data
 
 help:
@@ -60,6 +60,7 @@ help:
 	@echo "  make ps3-reboot   reboot the running PS3 Linux (lands in GameOS/XMB, not Petitboot)"
 	@echo "  make bench-push   the game suite runner to the PS3 (/var/tmp/bench/run.sh, docs/GAME-PLAN.md)"
 	@echo "  make bench-pull   its results into $(BUILD)/bench (PERFDATA=1: with perf.data and perf-syms.tar)"
+	@echo "  make initrd-ssd   the SSD root's initramfs (IMGMAP=<copy of the PS3's map.json>) -> $(BUILD)/initrd"
 	@echo "  make classicube-bench  ClassiCube's benchmark plugin -> games/bench/assets/classicube-bench.so"
 	@echo "Other:"
 	@echo "  make shell        shell in the builder container"
@@ -224,6 +225,26 @@ $(SPU_TESTS_STAMP): $(SPU_GCC) $(wildcard ps3-spu/Makefile ps3-spu/*/*.[ch] ps3-
 	$(DOCKER_RUN) --user $(UID_GID) $(SPU_BUILDER_TAG) make -C ps3-spu ppe spu \
 		CC=powerpc64-linux-gnu-gcc CFLAGS="-O2 -mcpu=cell" SPU_CC=/work/$(SPU_GCC) OUT=/work/$(BUILD)/spu-tests
 	@touch $@
+# The SSD root's initramfs (docs/GAMEOS-HDD.md "Phase B", tools/ssdimg/build-initrd.sh):
+# IMGMAP=<a copy of the PS3's /var/lib/ps3-imgmap/<name>.map.json, its verified/created records next to
+# it> (or BOOTMAP=<boot maps made by ps3-imgmap export-boot>), INITRD_RELEASE (default: the newest
+# release kernel in build/debs/linux) -> build/initrd/initrd-ssd-<release>.img (+ .manifest)
+INITRD_DL := $(DOWNLOADS)/initrd
+BB_PPC64 := $(INITRD_DL)/$(BUSYBOX_PPC64_DEB)
+BB_AMD64 := $(INITRD_DL)/$(BUSYBOX_AMD64_DEB)
+$(BB_PPC64):
+	mkdir -p $(@D)
+	curl -fsSL -o $@.tmp $(BUSYBOX_PPC64_URL) && echo "$(BUSYBOX_PPC64_SHA256)  $@.tmp" | sha256sum -c --quiet && mv $@.tmp $@
+$(BB_AMD64):
+	mkdir -p $(@D)
+	curl -fsSL -o $@.tmp $(BUSYBOX_AMD64_URL) && echo "$(BUSYBOX_AMD64_SHA256)  $@.tmp" | sha256sum -c --quiet && mv $@.tmp $@
+initrd-busybox: $(BB_PPC64) $(BB_AMD64)
+initrd-ssd: $(BB_PPC64) | $(BUILDER_STAMP)
+	@[ -n "$(IMGMAP)$(BOOTMAP)" ] || { echo "make initrd-ssd IMGMAP=<copy of the PS3's map.json, with its records> (docs/GAMEOS-HDD.md Phase B)"; exit 2; }
+	$(DOCKER_RUN) --user $(UID_GID) -e ARCH=ppc64 -e BUSYBOX_DEB=$(BB_PPC64) -e IMGMAP=$(IMGMAP) \
+		-e BOOTMAP="$(BOOTMAP)" -e RELEASE=$(INITRD_RELEASE) -e INITRD_BUILT=$(shell git describe --always --dirty) \
+		$(BUILDER_TAG) tools/ssdimg/build-initrd.sh
+
 test:
 	tools/run-tests.sh $(if $(ONLY),--only $(ONLY))
 test-slow:

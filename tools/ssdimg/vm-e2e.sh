@@ -8,8 +8,16 @@
 # dm-linear's EBUSY on a mounted disk, create, mkfs.ext4 and writes on the mapped devices, then the
 # proof that every sector outside the file's blocks (UFS metadata, the other files, the header area)
 # is byte for byte the original and the UFS still mounts with the same file contents.
-# Two geometries: block 16384 / fragment 2048 and block 32768 / fragment 4096 (the PS3's is not known
-# yet: ps3-imgmap map prints it).
+# Two geometries: block 16384 / fragment 2048 and block 32768 / fragment 4096 (the PS3's is block
+# 16384, fragment 4096).
+# Phase B (docs/GAMEOS-HDD.md), per geometry, on a fresh copy of the image: a second guest
+# (tools/ssdimg/vm-guest-b.sh) compares ps3-imgmap-boot's devices with ps3-imgmap create's and puts a
+# test root on ext4 on /dev/mapper/ps3root; then the real initramfs (tools/ssdimg/build-initrd.sh,
+# amd64: Debian's busybox-static, the static tool, the host's ufs and dm-mod) boots the guest with
+# root=/dev/mapper/ps3root and the test root checks what it finds (and writes); every sector outside
+# the image's mapped blocks must still be the original's. For the first geometry also three refused
+# boots (no map for the image, a broken header area, the file moved by a rebuilt UFS): each must stop
+# in the rescue shell with its reason, the disk image unchanged.
 # Needs docker (the builder image), qemu-system-x86_64, /dev/kvm, busybox from the alpine image,
 # the host kernel's modules. Exit 77 when one is missing. Scratch in build/tmp/ssdimg/vm, removed after.
 set -u
@@ -59,6 +67,9 @@ mount -t 9p -o trans=virtio,version=9p2000.L,ro,msize=262144 hostroot /host || {
 for d in proc sys dev; do mount --bind /$d /host/$d; done
 mount -t tmpfs tmp /host/tmp; mount -t tmpfs run /host/run
 mkdir -p /host/tmp/mnt
+if grep -q e2e_out=1 /proc/cmdline; then
+	mkdir -p /host/tmp/out; mount -t 9p -o trans=virtio,version=9p2000.L,msize=262144 out /host/tmp/out
+fi
 G=$(sed -n 's/.*e2e_guest=\([^ ]*\).*/\1/p' /proc/cmdline)
 chroot /host /bin/bash "$G"
 echo "E2E guest exit $?"
@@ -81,7 +92,43 @@ docker run --rm -v "$W/msrc:/s" "$IMG_BUILDER" bash -c "cd /s && apt-get update 
 cp "$W"/msrc/makefs-*/builddir/usr.sbin/makefs/makefs "$W/makefs" || exit 1
 rm -rf "$W/msrc"
 
+# Phase B's pieces: the amd64 busybox-static (the PS3's version), ps3-imgmap-boot static for amd64,
+# the rdinit wrapper that gives the virtual disks the PS3's names before the initramfs's /init runs
+PHASEB=1
+make --no-print-directory -s initrd-busybox >/dev/null 2>&1 || { echo "(Phase B skipped: no busybox-static debs)"; PHASEB=0; }
+BB_AMD64=$(ls build/downloads/initrd/busybox-static_*_amd64.deb 2>/dev/null | head -1)
+REL_W=${W#"$ROOT"/}
+if [ $PHASEB = 1 ]; then
+	docker run --rm --network none -u "$(id -u):$(id -g)" -v "$ROOT:/work" -w /work "$IMG_BUILDER" sh -c "
+		gcc -static -O2 -Wall -Wextra -Werror -o $REL_W/pib-amd64 tools/ssdimg/ps3-imgmap-boot.c &&
+		dpkg-deb --fsys-tarfile $BB_AMD64 | tar -x -O ./usr/bin/busybox > $REL_W/busybox && chmod 755 $REL_W/busybox" ||
+		{ echo "Phase B tools build failed"; exit 1; }
+	mkdir -p "$W/e2e-wrap"
+	cp tools/ssdimg/vm-init-e2e.sh "$W/e2e-wrap/init.e2e" && chmod 755 "$W/e2e-wrap/init.e2e"
+	python3 -I tools/ssdimg/mkcpio.py "$W/e2e-wrap" "$W/e2e-wrap.cpio" || exit 1
+fi
+
+# boot_until LOG PATTERN SECONDS QEMU-ARGS...: a guest in the background, until PATTERN is in its
+# console log, it powers off, or SECONDS pass; then it is killed (a guest in the rescue shell waits forever)
+boot_until() {
+	local log=$1 pat=$2 secs=$3; shift 3
+	rm -f "$log"
+	qemu-system-x86_64 -enable-kvm -cpu host -m 1024 -smp 2 -display none -no-reboot -monitor none \
+		-serial file:"$log" "$@" > "$log.qemu" 2>&1 < /dev/null &
+	local pid=$! n=0
+	while kill -0 $pid 2>/dev/null && [ $n -lt $((secs * 2)) ]; do
+		grep -q "$pat" "$log" 2>/dev/null && { sleep 2; break; }
+		sleep 0.5; n=$((n + 1))
+	done
+	kill $pid 2>/dev/null; wait $pid 2>/dev/null
+	tr -d '\r' < "$log" > "$log.txt"
+}
+# outside_same MAP A B: every device sector outside the image's mapped part is the same in A and B;
+# prints how many mapped ranges differ
+outside_same() { python3 -I tools/ssdimg/vm-outside.py "$@"; }
+
 rc=0
+first=1
 for geo in 16384:2048 32768:4096; do
 	b=${geo%:*}; f=${geo#*:}
 	echo "== UFS2 big-endian, block $b, fragment $f"
@@ -107,5 +154,128 @@ for geo in 16384:2048 32768:4096; do
 	tr -d '\r' < "$W/console.log" | grep -E '^(E2E|>>|!!|ok|FAIL)' | sed 's/^/   /'
 	if grep -q '^E2E PASS' <(tr -d '\r' < "$W/console.log"); then echo "== pass ($b/$f)"
 	else echo "== FAILED ($b/$f): console log tail:"; tr -d '\r' < "$W/console.log" | tail -40; rc=1; fi
+done
+
+# Phase B: the PS3's geometry (block 16384, fragment 4096: the 24 MiB file is one extent after the
+# header, its single indirect block covers 32 MiB) and block 4096 / fragment 512, where every 2 MiB of
+# the file has an indirect block between, so both tables have several dm-linear targets (the PS3's
+# 16 GiB file has 513 extents)
+for geo in 16384:4096 4096:512; do
+	[ $PHASEB = 1 ] || break
+	b=${geo%:*}; f=${geo#*:}
+	echo "== Phase B, block $b, fragment $f: ps3-imgmap-boot against ps3-imgmap create"
+	rm -rf "$W/src"; mkdir -p "$W/src/linux" "$W/src/home/00000001"
+	python3 tools/ssdimg/stamp.py dry-run --mib 24 --uuid 0ddba11c-0ffe-4ea5-b0b0-123456789abc \
+		--out "$W/src/linux/ssdtest.img" 2>/dev/null || exit 1
+	head -c 3000000 /dev/urandom > "$W/src/home/00000001/save.dat"
+	head -c 700000 /dev/urandom > "$W/src/zz-after.dat"
+	docker run --rm --network none -u "$(id -u):$(id -g)" -v "$W:/w" "$IMG_BUILDER" \
+		/w/makefs -t ffs -B be -s 64m -o version=2,bsize=$b,fsize=$f /w/ufs.img /w/src > "$W/makefs.log" 2>&1 ||
+		{ cat "$W/makefs.log"; exit 1; }
+	cp "$W/ufs.img" "$W/orig.img"
+	rm -f "$W/whole.img"; truncate -s 8m "$W/whole.img"
+	rm -rf "$W/out"; mkdir -p "$W/out"
+	timeout 600 qemu-system-x86_64 -enable-kvm -cpu host -m 1024 -smp 2 -nographic -no-reboot \
+		-kernel "$KERNEL" -initrd "$W/initrd.gz" \
+		-append "console=ttyS0 panic=-1 loglevel=4 e2e_guest=$ROOT/tools/ssdimg/vm-guest-b.sh e2e_root=$ROOT e2e_work=$W e2e_out=1" \
+		-drive file="$W/ufs.img",if=virtio,format=raw,cache=none \
+		-drive file="$W/whole.img",if=virtio,format=raw \
+		-virtfs local,path=/,mount_tag=hostroot,security_model=none,readonly=on \
+		-virtfs local,path="$W/out",mount_tag=out,security_model=none \
+		> "$W/console-b.log" 2>&1
+	tr -d '\r' < "$W/console-b.log" | grep -E '^(E2E|>>|!!|ok|FAIL)' | sed 's/^/   /'
+	if ! grep -q '^E2E B PASS' <(tr -d '\r' < "$W/console-b.log"); then
+		echo "== FAILED (Phase B guest, $b/$f): console log tail:"; tr -d '\r' < "$W/console-b.log" | tail -40; rc=1; continue
+	fi
+
+	echo "== Phase B, block $b, fragment $f: ssd-install-image.sh check, install, boot"
+	rm -rf "$W/from"
+	docker run --rm --network none -u "$(id -u):$(id -g)" -v "$ROOT:/work" -w /work \
+		-e ARCH=amd64 -e RELEASE="$KVER" -e MODDIR="$REL_W/initrd/mods" -e BUSYBOX_DEB="$BB_AMD64" \
+		-e BOOTMAP="$REL_W/out/ssdtest.map" -e OUT="$REL_W/from/initrd-ssd-$KVER-amd64.img" -e INITRD_BUILT=vm-e2e \
+		-e SOURCE_DATE_EPOCH=0 "$IMG_BUILDER" tools/ssdimg/build-initrd.sh > "$W/build-initrd.log" 2>&1 ||
+		{ cat "$W/build-initrd.log"; echo "initramfs build failed"; rc=1; continue; }
+	grep '^>>' "$W/build-initrd.log" | sed 's/^/   /'
+	# the image to install: busybox and the checking init (tools/ssdimg/vm-testroot-init.sh)
+	rm -rf "$W/testroot"; mkdir -p "$W/testroot"/{bin,sbin,dev,proc,sys,run,tmp,etc,mnt,usr/lib/modules/"$KVER"}
+	cp "$W/busybox" "$W/testroot/bin/"
+	for a in sh cat grep awk test blockdev mount umount sync poweroff head dd stat tr echo sleep ls; do ln -s busybox "$W/testroot/bin/$a"; done
+	install -m 755 tools/ssdimg/vm-testroot-init.sh "$W/testroot/sbin/init"
+	echo "tmpfs /tmp tmpfs defaults 0 0" > "$W/testroot/etc/fstab"
+	tar --owner=0 --group=0 -C "$W/testroot" -cf "$W/testroot.tar" . || exit 1
+	# the USB root's side: kernel, arguments, boot settings, the machine's state, home, the bench
+	U=$W/out/usbroot
+	mkdir -p "$U"/{boot,usr/lib/ps3/boot,etc/default,etc/ssh,home/tibi/.config,var/tmp/bench,var/tmp/ps3-bench/shadercache,var/tmp/ps3-bench/20261019-0100-sauerbraten-base}
+	echo k > "$U/boot/vmlinux-$KVER"
+	echo "console=ttyS0 panic=-1 loglevel=4" > "$U/usr/lib/ps3/boot/$KVER.args"
+	printf 'PS3_ROOT_ARGS="root=PARTUUID=50533301-02 rootfstype=ext4 ro rootwait"\nPS3_EXTRA_ARGS=""\nPS3_DEFAULT_FLAVOUR=release\n' \
+		> "$U/etc/default/ps3-boot"
+	echo ps3-e2e > "$U/etc/hostname"; printf '127.0.0.1 localhost\n' > "$U/etc/hosts"
+	echo key > "$U/etc/ssh/ssh_host_e2e_key"; echo e2e > "$U/home/tibi/.config/e2e"
+	echo run > "$U/var/tmp/bench/run.sh"; echo x > "$U/var/tmp/ps3-bench/shadercache/x"
+	echo y > "$U/var/tmp/ps3-bench/20261019-0100-sauerbraten-base/y"
+	timeout 600 qemu-system-x86_64 -enable-kvm -cpu host -m 1024 -smp 2 -nographic -no-reboot \
+		-kernel "$KERNEL" -initrd "$W/initrd.gz" \
+		-append "console=ttyS0 panic=-1 loglevel=4 e2e_guest=$ROOT/tools/ssdimg/vm-guest-install.sh e2e_root=$ROOT e2e_work=$W e2e_out=1" \
+		-drive file="$W/ufs.img",if=virtio,format=raw,cache=none \
+		-drive file="$W/whole.img",if=virtio,format=raw \
+		-virtfs local,path=/,mount_tag=hostroot,security_model=none,readonly=on \
+		-virtfs local,path="$W/out",mount_tag=out,security_model=none \
+		> "$W/console-i.log" 2>&1
+	tr -d '\r' < "$W/console-i.log" | grep -E '^(E2E|ok|FAIL)' | sed 's/^/   /'
+	if ! grep -q '^E2E I PASS' <(tr -d '\r' < "$W/console-i.log"); then
+		echo "== FAILED (install guest, $b/$f): console log tail:"; tr -d '\r' < "$W/console-i.log" | tail -60; rc=1; continue
+	fi
+
+	echo "== Phase B, block $b, fragment $f: the boot entry's kernel line and initramfs boot root=/dev/mapper/ps3root"
+	# as Petitboot: root= first, initrd= taken out, the image is the kernel (the host's here)
+	entry=$(sed -n "s/^ssd-$KVER='\(.*\)'\$/\1/p" "$U/etc/kboot.conf")
+	[ -n "$entry" ] || { echo "   FAIL - no ssd entry in kboot.conf"; rc=1; continue; }
+	CMD="rdinit=/init.e2e $(echo "$entry" | tr ' ' '\n' | sed '1d; /^initrd=/d' | xargs)"
+	echo "   kernel line: $CMD"
+	cat "$U/boot/initrd-ssd-$KVER.img" "$W/e2e-wrap.cpio" > "$W/initrd-test.img"
+	cp "$W/ufs.img" "$W/ufs.before.img"
+	boot_until "$W/console-boot.log" 'E2E BOOT' 120 -kernel "$KERNEL" -initrd "$W/initrd-test.img" -append "$CMD" \
+		-drive file="$W/ufs.img",if=virtio,format=raw,cache=none -drive file="$W/whole.img",if=virtio,format=raw
+	grep -E '^(ps3ssd|ok|FAIL|E2E)' "$W/console-boot.log.txt" | sed 's/^/   /'
+	if grep -q '^E2E BOOT PASS' "$W/console-boot.log.txt"; then echo "   ok - booted from the image"
+	else echo "== FAILED (boot, $b/$f): console tail:"; tail -40 "$W/console-boot.log.txt"; rc=1; fi
+	for d in ps3root ps3swap; do
+		n=$(sed -n "s|^ps3ssd: /dev/mapper/$d: .*, \([0-9]*\) extents).*|\1|p" "$W/console-boot.log.txt")
+		if [ "$b" = 4096 ] && [ "${n:-0}" -le 1 ]; then echo "   FAIL - $d has ${n:-no} targets, wanted several"; rc=1
+		else echo "   ok - $d is ${n:-?} dm-linear target(s)"; fi
+	done
+	if n=$(outside_same "$W/out/ssdtest.map.json" "$W/ufs.img" "$W/orig.img"); then
+		echo "   ok - outside the image's mapped blocks the disk is the original ($n mapped ranges written)"
+	else echo "   FAIL - $n"; rc=1; fi
+	if n=$(outside_same "$W/out/ssdtest.map.json" "$W/ufs.img" "$W/ufs.before.img") && [ "$n" -gt 0 ]; then
+		echo "   ok - the booted system's writes landed inside the image ($n ranges)"
+	else echo "   FAIL - writes of the booted system: $n"; rc=1; fi
+
+	[ $first = 1 ] || continue
+	first=0
+	# refused boots: the reason on the console, the rescue shell, the disk image unchanged
+	refused() {	# refused WHAT IMAGEFILE PATTERN KERNEL-ARGS...
+		local what=$1 img=$2 pat=$3; shift 3
+		cp "$img" "$W/neg.before.img"
+		boot_until "$W/console-neg.log" "reboot -f" 60 -kernel "$KERNEL" -initrd "$W/initrd-test.img" \
+			-append "$(echo "$CMD" | sed "s|ps3ssd.image=[^ ]*|$1|")" -drive file="$img",if=virtio,format=raw,cache=none \
+			-drive file="$W/whole.img",if=virtio,format=raw
+		if grep -q "$pat" "$W/console-neg.log.txt" && grep -q 'the SSD root was NOT started' "$W/console-neg.log.txt" &&
+		   ! grep -q 'E2E BOOT' "$W/console-neg.log.txt" && cmp -s "$img" "$W/neg.before.img"; then
+			echo "   ok - refused: $what ($(grep -m1 'FAILED at' "$W/console-neg.log.txt" | sed 's/.*FAILED at //' | cut -c1-100))"
+		else echo "   FAIL - $what: console tail:"; tail -30 "$W/console-neg.log.txt"; rc=1; fi
+	}
+	echo "== Phase B: refused boots"
+	refused "no boot map for the image" "$W/ufs.img" "no boot map for ps3ssd.image=/linux/other.img" ps3ssd.image=/linux/other.img
+	cp "$W/ufs.img" "$W/hdr.img"
+	python3 -I tools/ssdimg/vm-hdrbreak.py "$W/out/ssdtest.map.json" "$W/hdr.img" || rc=1
+	refused "a header block no longer stamped" "$W/hdr.img" "header area's stamps don't read back" ps3ssd.image=/linux/ssdtest.img
+	head -c 2000000 /dev/urandom > "$W/src/linux/aaa-before.dat"   # the image's blocks move
+	docker run --rm --network none -u "$(id -u):$(id -g)" -v "$W:/w" "$IMG_BUILDER" \
+		/w/makefs -t ffs -B be -s 64m -o version=2,bsize=$b,fsize=$f /w/moved.img /w/src > "$W/makefs.log" 2>&1 ||
+		{ cat "$W/makefs.log"; exit 1; }
+	refused "the file moved (UFS rebuilt)" "$W/moved.img" "CHANGED" ps3ssd.image=/linux/ssdtest.img
+	rm -f "$W/hdr.img" "$W/moved.img" "$W/neg.before.img" "$W/ufs.before.img"
 done
 exit $rc

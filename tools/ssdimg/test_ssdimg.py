@@ -395,6 +395,170 @@ class Pipeline(unittest.TestCase):
         self.assertFalse(self.log.exists())   # nothing ran: no setro, no dmsetup
 
 
+def build_boot_tool():
+    """ps3-imgmap-boot.c with the host's gcc (the pure parts: check, tables); None without gcc"""
+    if not shutil.which("gcc"):
+        return None
+    out = SCRATCH / "ps3-imgmap-boot"
+    if not out.exists():
+        SCRATCH.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["gcc", "-O2", "-Wall", "-Wextra", "-Werror", "-o", str(out), str(HERE / "ps3-imgmap-boot.c")],
+                       check=True)
+    return out
+
+
+class BootMap(Pipeline):
+    """export-boot and ps3-imgmap-boot (C): the same dm tables as create, and every refusal of a bad map"""
+
+    def setUp(self):
+        super().setUp()
+        self.tool = build_boot_tool()
+        if not self.tool:
+            self.skipTest("no gcc")
+
+    def made(self, swap="1"):
+        self.assertEqual(self.cli("map", str(self.file))[0], 0)
+        self.assertEqual(self.cli("verify", self.mapfile())[0], 0)
+        self.assertEqual(self.cli("recheck", self.mapfile())[0], 0)
+        self.minfo.write_text("")
+        rc, out = self.cli("create", self.mapfile(), "ps3ssd", "--yes", "--swap-mib", swap)
+        self.assertEqual(rc, 0, out)
+
+    def boot(self, *args):
+        r = subprocess.run([str(self.tool)] + [str(a) for a in args], capture_output=True, text=True)
+        return r.returncode, r.stdout, r.stderr
+
+    def export(self, *extra):
+        out = self.d / "boot.map"
+        rc, o = self.cli("export-boot", self.mapfile(), "--out", str(out), *extra)
+        return rc, o, out
+
+    def test_same_tables_as_create(self):
+        self.made()
+        rc, o, bm = self.export()
+        self.assertEqual(rc, 0, o)
+        self.assertIn("swap 1 MiB", o)
+        rc, out, err = self.boot("check", bm)
+        self.assertEqual(rc, 0, err)
+        self.assertIn("root 2 MiB, swap 1 MiB", out)   # 4 MiB image: 1 MiB header, 2 MiB root, 1 MiB swap
+        for part, name in (("root", "ps3ssd"), ("swap", "ps3ssd-swap")):
+            rc, out, err = self.boot("tables", bm, part)
+            self.assertEqual(rc, 0, err)
+            self.assertEqual(out, (self.state / (name + ".table")).read_text(), part)
+            self.assertIn(" linear %s " % self.dev, out)
+        # the digest is ps3-imgmap's: the C side recomputes it (a mismatch would have refused above)
+        text = bm.read_text()
+        self.assertTrue(text.startswith("ps3-imgmap-boot 1\nimage /ssdtest.img\n"), text[:80])
+
+    def test_bigger_swap_and_split_extents(self):
+        """an 8 MiB image, 3 MiB of swap: both tables cross several extents"""
+        self.size = 8 << 20
+        self.file.write_bytes(b"".join(stamp.chunks(UID.bytes, self.size)))
+        self.bsize = self.fsize * 4
+        nb = self.size // self.bsize
+        self.ufs = type(self.ufs)(self.fsize, self.bsize, nb, gaps={3, nb // 3, nb * 2 // 3 + 5, nb * 2 // 3 + 6, nb - 7})
+        self.m.fibmap = self.ufs.fibmap
+        self.m.ufs_super = lambda p: (self.bsize, self.fsize, "big-endian")
+        self.write_device()
+        self.made(swap="3")
+        rc, o, bm = self.export()
+        self.assertEqual(rc, 0, o)
+        for part, name in (("root", "ps3ssd"), ("swap", "ps3ssd-swap")):
+            rc, out, err = self.boot("tables", bm, part)
+            self.assertEqual(out, (self.state / (name + ".table")).read_text(), part)
+            self.assertGreater(len(out.splitlines()), 1, part)
+
+    def test_export_refusals(self):
+        self.assertEqual(self.cli("map", str(self.file))[0], 0)
+        rc, o, bm = self.export("--swap-mib", "1")
+        self.assertEqual(rc, 2)
+        self.assertIn("no verify pass", o)
+        self.assertEqual(self.cli("verify", self.mapfile())[0], 0)
+        rc, o, bm = self.export()
+        self.assertEqual(rc, 2)
+        self.assertIn("give --swap-mib", o)
+        rc, o, bm = self.export("--swap-mib", "1")
+        self.assertEqual(rc, 0, o)   # verified, never created: the layout given by hand
+        self.assertEqual(self.cli("recheck", self.mapfile())[0], 0)
+        self.minfo.write_text("")
+        self.assertEqual(self.cli("create", self.mapfile(), "ps3ssd", "--yes", "--swap-mib", "1")[0], 0)
+        rc, o, bm = self.export("--swap-mib", "2")
+        self.assertEqual(rc, 2)
+        self.assertIn("not 2", o)
+        rc, o, bm = self.export("--swap-mib", "3")
+        self.assertEqual(rc, 2)
+
+    def rewrite(self, bm, edit, fix_digest=False, fix_sha=True):
+        """BM's text through EDIT; optionally the extent digest and the closing sha256 made right again"""
+        import hashlib
+        lines = bm.read_text().splitlines()[:-1]
+        lines = edit(lines)
+        if fix_digest:
+            kv = dict(x.split(" ", 1) for x in lines[1:12])
+            n = int(lines[12].split()[1])
+            ext = [tuple(int(v) for v in x.split()) for x in lines[13:13 + n]]
+            d = self.m.digest(int(kv["file_size"]), kv["uuid"], ext)
+            lines = [("extents_sha256 " + d) if x.startswith("extents_sha256 ") else x for x in lines]
+        body = "".join(x + "\n" for x in lines)
+        out = self.d / "bad.map"
+        out.write_text(body + ("sha256 %s\n" % hashlib.sha256(body.encode()).hexdigest() if fix_sha else "sha256 " + "0" * 64 + "\n"))
+        return out
+
+    def test_bad_maps_refused(self):
+        self.made()
+        rc, o, bm = self.export()
+        self.assertEqual(rc, 0, o)
+        good = bm.read_text()
+        cases = [
+            ("edited byte", lambda b: b.write_text(good.replace("inode ", "inode 1", 1)), "sha256 line doesn't match"),
+            ("truncated", lambda b: b.write_text(good[:len(good) // 2]), "sha256 line"),
+            ("not a map", lambda b: b.write_text("hello\n"), "sha256 line"),
+        ]
+        for what, mk, why in cases:
+            mk(bm)
+            rc, out, err = self.boot("check", bm)
+            self.assertEqual(rc, 2, what)
+            self.assertIn(why, err, what)
+        bm.write_text(good)
+
+        def ext_edit(i, delta):
+            def f(lines):
+                n0 = 13 + i
+                l, p, n = (int(v) for v in lines[n0].split())
+                lines[n0] = "%d %d %d" % (l, p + delta, n)
+                return lines
+            return f
+        for what, edit, fixd, why in (
+                ("extent moved, digest stale", ext_edit(1, 8), False, "extent list's sha256"),
+                ("extents overlap", lambda L: L[:13] + [L[13]] + ["%s %s %s" % (L[14].split()[0], L[13].split()[1], L[14].split()[2])] + L[15:], True, "overlap"),
+                ("inside the super block", lambda L: L[:13] + ["0 16 %s" % L[13].split()[2]] + L[14:], True, "outside the data area"),
+                ("swap too big", lambda L: [("swap_sectors %d" % (8 << 20)) if x.startswith("swap_sectors") else x for x in L], False, "leaves less than 2 MiB"),
+                ("bad image path", lambda L: [("image /../x.img") if x.startswith("image ") else x for x in L], False, "image path"),
+                ("unknown field order", lambda L: [L[0], L[2], L[1]] + L[3:], False, "expected"),
+                ("bad uuid", lambda L: [("uuid " + "Z" * 36) if x.startswith("uuid ") else x for x in L], False, "bad uuid"),
+                ("lines after", lambda L: L + ["0 0 0"], False, "lines after the extents"),
+        ):
+            b = self.rewrite(bm, edit, fix_digest=fixd)
+            rc, out, err = self.boot("check", b)
+            self.assertEqual(rc, 2, (what, err))
+            self.assertIn(why, err, what)
+        b = self.rewrite(bm, lambda L: L, fix_sha=False)
+        self.assertEqual(self.boot("check", b)[0], 2)
+        b = self.rewrite(bm, lambda L: L)
+        self.assertEqual(self.boot("check", b)[0], 0)   # the rewriter itself is faithful
+
+    def test_device_ops_refused_off_the_ps3(self):
+        """recheck and create name /dev/ps3db themselves: a map for another device is refused before any I/O"""
+        self.made()
+        rc, o, bm = self.export()
+        rc, out, err = self.boot("recheck", bm, self.d / "mnt", "--run", self.d / "run")
+        self.assertEqual(rc, 2)
+        self.assertIn("the boot uses /dev/ps3db", err)
+        rc, out, err = self.boot("create", bm, "--run", self.d / "run")
+        self.assertEqual(rc, 2)
+        self.assertIn("the boot uses /dev/ps3db", err)
+
+
 class VswapScript(unittest.TestCase):
     """ps3-system's ps3-vswap with PS3_VSWAP_DM (the SSD swap arm's backing): commands stubbed, /etc
     and /sys under PS3_VSWAP_ROOT; the default (no /etc/default/ps3-vswap) must stay the partition"""

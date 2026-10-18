@@ -1,0 +1,190 @@
+#!/bin/sh
+# /init of the SSD root's initramfs (docs/GAMEOS-HDD.md "Phase B"; built by tools/ssdimg/build-initrd.sh).
+# Root lives in a stamped image file on GameOS's dev_hdd0; this script turns that file into the
+# root device and starts the real system from it:
+#   1. proc, sys, devtmpfs, /run; the ufs and dm-mod modules
+#   2. waits for /dev/ps3da and /dev/ps3db (ps3ssd.timeout, default 30 s)
+#   3. blockdev --setro on /dev/ps3da (the whole disk) and /dev/ps3dc (dev_hdd1), checked in sysfs
+#   4. dev_hdd0 (/dev/ps3db) mounted read-only with ufstype=ufs2, ps3-imgmap-boot recheck of the image
+#      named by ps3ssd.image= against its boot map in /ps3ssd/maps, unmounted again
+#   5. ps3-imgmap-boot create: the header area's stamps read back, /dev/mapper/<root> (root=) and
+#      /dev/mapper/ps3swap (ps3ssd.swap=) as dm-linear over the file's blocks
+#   6. root mounted (rootfstype=, default ext4; ro or rw as the command line says, rootflags=),
+#      /dev, /proc, /sys, /run moved into it, switch_root to init= (default /sbin/init)
+# The file system check of root is systemd's (systemd-fsck-root on the read-only root, as on the
+# USB disk). Any failure stops here, before anything was written: a message on the console and
+# tty1 and a busybox shell on both. Nothing in this script writes to ps3da, ps3db or ps3dc; the
+# only writes to the internal disk ever are what the real system writes to /dev/mapper/*.
+# Kernel arguments read: root= rootfstype= rootflags= ro rw init= quiet, ps3ssd.image=<path on
+# dev_hdd0> (required), ps3ssd.swap=<dm name>, ps3ssd.timeout=<s>, ps3ssd.break=1 (a shell before
+# the root is mounted; leave it and boot goes on).
+PATH=/sbin:/bin
+export PATH
+umask 022
+RUN=/run/ps3ssd
+LOG=$RUN/init.log
+MAPS=/ps3ssd/maps
+TOOL=/sbin/ps3-imgmap-boot
+STEP="starting"
+
+mkdir -p /proc /sys /dev /run /root /gameos
+mount -t proc -o nosuid,nodev,noexec proc /proc
+mount -t sysfs -o nosuid,nodev,noexec sysfs /sys
+grep -q '^[^ ]* /dev ' /proc/mounts || mount -t devtmpfs -o nosuid,mode=0755 devtmpfs /dev
+mount -t tmpfs -o nosuid,nodev,mode=0755 tmpfs /run
+mkdir -p $RUN
+[ -c /dev/console ] && exec </dev/console >/dev/console 2>&1
+
+QUIET=0 ROOT= FSTYPE=ext4 FLAGS= MODE=ro INIT=/sbin/init IMAGE= SWAP=ps3swap TIMEOUT=30 BREAK=0
+set -f
+for a in $(cat /proc/cmdline); do
+	case $a in
+	quiet) QUIET=1 ;;
+	root=*) ROOT=${a#root=} ;;
+	rootfstype=*) FSTYPE=${a#rootfstype=} ;;
+	rootflags=*) FLAGS=${a#rootflags=} ;;
+	ro) MODE=ro ;;
+	rw) MODE=rw ;;
+	init=*) INIT=${a#init=} ;;
+	ps3ssd.image=*) IMAGE=${a#ps3ssd.image=} ;;
+	ps3ssd.swap=*) SWAP=${a#ps3ssd.swap=} ;;
+	ps3ssd.timeout=*) TIMEOUT=${a#ps3ssd.timeout=} ;;
+	ps3ssd.break=1) BREAK=1 ;;
+	esac
+done
+set +f
+
+# messages: the log in /run (kept for the real system: /run/ps3ssd/init.log), the kernel log
+# (netconsole), and the console unless quiet
+log() {
+	echo "ps3ssd: $*" >> $LOG
+	echo "<6>ps3ssd: $*" > /dev/kmsg 2>/dev/null
+	[ $QUIET = 1 ] || echo "ps3ssd: $*"
+}
+
+shell_on() {	# a login-less busybox shell on /dev/$1 (its controlling tty), again whenever it exits
+	while :; do
+		setsid -c sh -i <>/dev/$1 >&0 2>&1
+		sleep 1
+	done
+}
+
+fail() {
+	echo "ps3ssd: FAILED at $STEP: $*" >> $LOG
+	echo "<2>ps3ssd: FAILED at $STEP: $*" > /dev/kmsg 2>/dev/null
+	grep -q ' /gameos ' /proc/mounts && umount /gameos
+	msg="
+================================================================================
+ ps3ssd: the SSD root was NOT started.
+ Failed at: $STEP
+ $*
+
+ Nothing was written to the internal disk (dev_hdd0 was only read).
+ Log: $LOG    Tools: ps3-imgmap-boot, busybox (mount -o ro only!)
+ To go back: 'reboot -f' and pick the USB entry in Petitboot, or 'poweroff -f'.
+ The boot flag goes back to GameOS at the end of the session, as always.
+================================================================================
+"
+	ttys="tty1"
+	for t in $(cat /sys/class/tty/console/active 2>/dev/null); do
+		case " $ttys " in *" $t "*) ;; *) [ -c /dev/$t ] && ttys="$ttys $t" ;; esac
+	done
+	for t in $ttys; do
+		echo "$msg" > /dev/$t 2>/dev/null
+		tail -n 15 $LOG > /dev/$t 2>/dev/null
+	done
+	first=
+	for t in $ttys; do
+		if [ -z "$first" ]; then first=$t; else shell_on $t & fi
+	done
+	shell_on $first
+}
+
+run() {	# run CMD...: its output into the log; on failure its reason (a refusal's "!!" line) on the console
+	n0=$(wc -l < $LOG)
+	"$@" >> $LOG 2>&1 && return 0
+	why=$(tail -n +$((n0 + 1)) $LOG | grep '^!!' | tail -n 1)
+	[ -n "$why" ] || why=$(tail -n 1 $LOG)
+	fail "$why"
+}
+
+REL=$(sed -n 's/^release=//p' /etc/ps3ssd-initrd 2>/dev/null)
+log "initramfs $(xargs < /etc/ps3ssd-initrd 2>/dev/null), kernel $(uname -r)"
+STEP="the kernel command line"
+[ "$REL" = "$(uname -r)" ] || fail "this initramfs is for kernel $REL, the running one is $(uname -r)"
+[ -n "$IMAGE" ] || fail "no ps3ssd.image=<path of the image on dev_hdd0> on the kernel command line"
+case $ROOT in
+/dev/mapper/*) RNAME=${ROOT#/dev/mapper/} ;;
+*) fail "root=$ROOT: this initramfs makes the root itself, root= must be /dev/mapper/<name> (ps3root)" ;;
+esac
+MAP=
+for m in $MAPS/*.map; do
+	[ -e "$m" ] || continue
+	grep -qxF "image $IMAGE" "$m" && { MAP=$m; break; }
+done
+[ -n "$MAP" ] || fail "no boot map for ps3ssd.image=$IMAGE in $MAPS ($(ls $MAPS 2>/dev/null | xargs))"
+run $TOOL check "$MAP"
+
+STEP="loading ufs and dm-mod"
+for mod in ufs dm-mod; do
+	name=$(echo $mod | tr - _)
+	[ -d /sys/module/$name ] && continue
+	f=/lib/modules/$REL/$mod.ko
+	if [ -e $f ]; then run insmod $f; else log "no $mod.ko in the initramfs: built into the kernel?"; fi
+done
+
+STEP="waiting for the internal disk (ps3da, ps3db)"
+n=0
+while [ ! -b /dev/ps3da ] || [ ! -b /dev/ps3db ]; do
+	[ $n -ge $((TIMEOUT * 10)) ] && fail "no /dev/ps3da or /dev/ps3db after $TIMEOUT s ($(ls /dev | grep ps3d | xargs))"
+	usleep 100000
+	n=$((n + 1))
+done
+[ $n -gt 0 ] && log "internal disk after $((n / 10)).$((n % 10)) s"
+
+STEP="making GameOS's regions read-only"
+sysro() {	# the sysfs ro flag of a block device node, by its numbers (names differ in tests)
+	set -- $(stat -L -c '%t %T' "$1")
+	cat /sys/dev/block/$((0x$1)):$((0x$2))/ro 2>/dev/null
+}
+for d in /dev/ps3da /dev/ps3dc; do
+	[ -b $d ] || continue
+	run blockdev --setro $d
+	[ "$(sysro $d)" = 1 ] || fail "$d is not read-only after blockdev --setro"
+done
+log "ps3da (whole disk) and ps3dc read-only until the next boot"
+
+STEP="mounting dev_hdd0 read-only"
+run mount -t ufs -o ro,ufstype=ufs2 /dev/ps3db /gameos
+grep -q '^[^ ]* /gameos ufs ro[, ]' /proc/mounts || fail "/gameos is not a read-only ufs mount: $(grep ' /gameos ' /proc/mounts)"
+
+STEP="rechecking the image's block list ($IMAGE)"
+[ $QUIET = 1 ] || echo "ps3ssd: rechecking $IMAGE on dev_hdd0 (FIBMAP of every block)..."
+run $TOOL recheck "$MAP" /gameos --run $RUN
+
+STEP="unmounting dev_hdd0"
+run umount /gameos
+grep -q ' /gameos ' /proc/mounts && fail "dev_hdd0 still mounted"
+
+STEP="creating /dev/mapper/$RNAME and /dev/mapper/$SWAP"
+run $TOOL create "$MAP" --root-name "$RNAME" --swap-name "$SWAP" --run $RUN
+made=$(grep '^>> /dev/mapper/' $LOG | sed 's/^>> //')
+echo "$made" | while read -r l; do log "$l"; done
+
+if [ $BREAK = 1 ]; then
+	echo "ps3ssd: ps3ssd.break=1: a shell before the root is mounted; 'exit' goes on"
+	setsid -c sh -i </dev/console >/dev/console 2>&1
+fi
+
+STEP="mounting the root ($ROOT, $FSTYPE, $MODE)"
+run mount -t "$FSTYPE" -o "$MODE${FLAGS:+,$FLAGS}" "$ROOT" /root
+STEP="checking init in the root"
+chroot /root test -x "$INIT" || fail "$INIT is not executable in the root on $ROOT"
+
+STEP="switching to the root"
+log "root $ROOT ($FSTYPE, $MODE) from $IMAGE; starting $INIT"
+for d in dev proc sys run; do
+	mkdir -p /root/$d 2>/dev/null
+	mount --move /$d /root/$d || fail "mount --move /$d /root/$d"
+done
+exec switch_root /root "$INIT"
