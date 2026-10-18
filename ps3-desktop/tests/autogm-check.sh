@@ -88,6 +88,11 @@ ren() {
 ren "$here/files/libexec/ps3-game-guard" "$W/lib/ps3-game-guard"
 ren "$here/files/libexec/ps3-game-detect" "$W/lib/ps3-game-detect"
 ren "$here/files/bin/ps3-game" "$W/bin/ps3-game"
+ren "$here/files/libexec/ps3-game-escape" "$W/lib/ps3-game-escape"
+ren "$here/files/libexec/ps3-pad-escape" "$W/lib/ps3-pad-escape"
+# the PS button's listener reads a FIFO, not the host's gamepads (the guard's environment says so)
+mkfifo "$W/pad"
+export PS3_GAME_PAD_DEVICES=$W/pad
 cp "$here/files/libexec/ps3-game-prefetch" "$here/files/libexec/ps3_game_prefetch.py" "$here/files/libexec/ps3-x-ready" "$W/lib/"
 # the menu (tests/grabmenu.py): "jgmenu" on the PATH (the guard starts it again on leave), and a
 # tray applet's popup by another name
@@ -95,7 +100,7 @@ cp "$here/tests/grabmenu.py" "$W/bin/jgmenu"; cp "$here/tests/grabmenu.py" "$W/b
 chmod +x "$W/bin/jgmenu" "$W/bin/trayapplet"
 chmod +x "$W/lib/ps3-game-mode"
 # nothing of the host's left in the copies' code
-if grep -v '^\s*#' "$W/lib/ps3-game-guard" "$W/lib/ps3-game-detect" "$W/bin/ps3-game" |
+if grep -v '^\s*#' "$W/lib/ps3-game-guard" "$W/lib/ps3-game-detect" "$W/bin/ps3-game" "$W/lib/ps3-game-escape" "$W/lib/ps3-pad-escape" |
 	grep -nE 'ps3-(desktop|game|display)\.slice|[ "=]app\.slice|[ "=]session\.slice|/usr/lib/ps3|sudo -n|ps3-game-mode\.service|unit=ps3-game-mode'; then
 	die "the renamed scripts still name the host's units (above)"
 fi
@@ -126,7 +131,8 @@ detect_start() {	# [VAR=value...]: the detector as its service
 	local e=() v
 	for v in "$@"; do e+=("--setenv=$v"); done
 	systemd-run --user --unit=ps3t-game-detect --collect -q -p "StandardOutput=append:$W/detect.log" \
-		-p "StandardError=append:$W/detect.log" "--setenv=DISPLAY=$DPY" "--setenv=PATH=$W/bin:$PATH" "${e[@]}" \
+		-p "StandardError=append:$W/detect.log" "--setenv=DISPLAY=$DPY" "--setenv=PATH=$W/bin:$PATH" \
+		"--setenv=PS3_GAME_PAD_DEVICES=$W/pad" "${e[@]}" \
 		"$W/lib/ps3-game-detect"
 	wait_for 10 grep -q "watching" "$W/detect.log"
 }
@@ -327,6 +333,65 @@ check "the popup closed: the desktop frozen within seconds" wait_for 8 frozen
 check "the game draws" runs "$W/c15"
 stop_game "$G15"
 check "game mode ends" wait_for 8 left
+
+echo "== 13. Ctrl+Alt+Esc (ps3-game-escape, as Openbox runs it) on a hung game (SIGTERM ignored)"
+check "rc.xml binds Ctrl+Alt+Esc to it" eval 'grep -A1 "<keybind key=\"C-A-Escape\">" "$here/files/xdg/openbox/rc.xml" | grep -q "ps3-game-escape key"'
+T13=$(date +%s)
+systemd-run --user --scope --slice=ps3t-desktop.slice --unit=ps3t-h -q \
+	"$W/bin/ps3-game" "$W/fsgame" -f -H -c "$W/c16" > /dev/null 2>&1 &
+GAMES+=("$!")
+wait_for 15 eval 'entered && frozen'
+check "the hung game draws, the desktop frozen" eval 'runs "$W/c16" && frozen'
+check "the PS button's listener runs in game mode" eval 'jr $T13 | grep -q "ps3-pad-escape: reading $W/pad"'
+"$W/lib/ps3-game-escape" key > "$W/esc.out" 2>&1
+check "the game is gone (SIGKILL after 3 s)" eval '! runs "$W/c16" && grep -q "SIGKILL" "$W/esc.out"'
+check "game mode left, the desktop runs" wait_for 5 eval 'left && runs "$W/panel"'
+check "no registration left" eval '[ -z "$(ls "$S/games" 2>/dev/null)" ]'
+check "the listener is gone with game mode" eval '! pgrep -u "$(id -u)" -x ps3-pad-escape > /dev/null'
+"$W/lib/ps3-game-escape" key > "$W/esc2.out" 2>&1
+check "outside game mode, nothing fullscreen: nothing closed" grep -q "no game to close" "$W/esc2.out"
+
+echo "== 14. holding the PS button (BTN_MODE events into the listener's FIFO)"
+pad() { python3 -c 'import struct, sys; sys.stdout.buffer.write(struct.pack("llHHi", 0, 0, 1, 0x13c, int(sys.argv[1])) + struct.pack("llHHi", 0, 0, 0, 0, 0))' "$1" > "$W/pad"; }
+T14=$(date +%s)
+systemd-run --user --scope --slice=ps3t-desktop.slice --unit=ps3t-p -q \
+	"$W/bin/ps3-game" "$W/fsgame" -f -c "$W/c17" > /dev/null 2>&1 &
+GAMES+=("$!")
+wait_for 15 eval 'entered && frozen'
+wait_for 5 eval 'jr $T14 | grep -q "ps3-pad-escape: reading"'
+pad 1; sleep 1; pad 0; sleep 3
+check "a short press: the game plays on" eval 'runs "$W/c17" && entered && frozen'
+pad 1; sleep 4
+check "held 3 s: the game closed, game mode left" wait_for 8 eval '! runs "$W/c17" && left'
+pad 0 &	# the listener is gone: nothing reads the FIFO (this write is dropped below)
+sleep 0.5; kill $! 2>/dev/null
+check "says so" eval 'jr $T14 | grep -q "the PS button held for 3 s"'
+
+echo "== 15. Alt+Tab and Win+D away from a game through ps3-game: the desktop thaws, back: frozen"
+if [ -e /usr/lib64/libXtst.so.6 ] || [ -e /usr/lib/x86_64-linux-gnu/libXtst.so.6 ] || ldconfig -p 2>/dev/null | grep -q libXtst.so.6; then
+	game term -- "$W/fsgame" -x -c "$W/cterm"; GT=$GPID	# a terminal of the desktop (a window, no GL)
+	sleep 1
+	systemd-run --user --scope --slice=ps3t-desktop.slice --unit=ps3t-a -q \
+		"$W/bin/ps3-game" "$W/fsgame" -f -c "$W/c18" > /dev/null 2>&1 &
+	GAMES+=("$!")
+	wait_for 15 eval 'entered && frozen'
+	sleep 1
+	check "the game in front, the desktop frozen" eval 'frozen && ! runs "$W/cterm"'
+	python3 "$here/tests/xkey.py" Alt_L+Tab
+	check "Alt+Tab to the terminal: the desktop thaws (after ~3 s)" wait_for 8 eval '! frozen && runs "$W/cterm"'
+	check "game mode stays on, the game draws" eval 'entered && runs "$W/c18"'
+	python3 "$here/tests/xkey.py" Alt_L+Tab
+	check "Alt+Tab back to the game: frozen again" wait_for 8 frozen
+	python3 "$here/tests/xkey.py" Super_L+d
+	check "Win+D (show the desktop): thawed" wait_for 8 eval '! frozen && runs "$W/panel"'
+	python3 "$here/tests/xkey.py" Super_L+d
+	check "Win+D again (the game back in front): frozen" wait_for 8 frozen
+	kill "$(pgrep -x fsgame | while read -r p; do grep -q ps3t-game.slice "/proc/$p/cgroup" && echo "$p"; done | head -1)" 2>/dev/null
+	check "the game exits: game mode left" wait_for 8 left
+	stop_game "$GT"
+else
+	echo "(no libXtst: Alt+Tab and Win+D not tested)"
+fi
 
 echo "== the end: nothing left"
 check "no registrations" eval '[ -z "$(ls "$S/games" 2>/dev/null)" ]'

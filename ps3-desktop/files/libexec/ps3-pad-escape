@@ -1,0 +1,139 @@
+#!/usr/bin/python3 -I
+# ps3-pad-escape [--device PATH]... (ps3-desktop; ps3-game-guard runs it while game mode is on, in
+# ps3-game.slice, never frozen): holding a gamepad's PS button (BTN_MODE: the DualShock 3's on
+# hid-sony, the "guide" or "home" button of others) for PS3_GAME_PAD_HOLD_S seconds (3) runs
+# ps3-game-escape pad, which closes the game in front and ends game mode. A short press stays the
+# game's. Every input device with a BTN_MODE key is read (/dev/input/event*: the uaccess ACL lets
+# the seat's user read gamepads, nothing is grabbed, so the game reads them all the same); devices
+# are looked for again every 3 s (a pad that connects over Bluetooth during the game).
+# --device PATH, or PS3_GAME_PAD_DEVICES (paths, space-separated): only those (a FIFO too: the
+# tests write events into one). Log: stderr (the user journal, through the guard's service).
+import os
+import select
+import signal
+import stat
+import struct
+import subprocess
+import sys
+import time
+
+HOLD = float(os.environ.get("PS3_GAME_PAD_HOLD_S") or 3)
+ESCAPE = os.environ.get("PS3_GAME_ESCAPE") or "/usr/lib/ps3/desktop/ps3-game-escape"
+EV_KEY, BTN_MODE = 1, 0x13C
+EVENT = struct.Struct("llHHi")	# struct input_event: timeval, type, code, value
+LONG_BITS = 8 * struct.calcsize("l")
+signal.signal(signal.SIGCHLD, signal.SIG_IGN)	# the escapes it starts reap themselves
+
+
+def log(m):
+    print(f"ps3-pad-escape: {m}", file=sys.stderr, flush=True)
+
+
+def has_mode(name):	# its key bitmap (hex longs, the highest first) has BTN_MODE
+    try:
+        with open(f"/sys/class/input/{name}/device/capabilities/key") as f:
+            words = f.read().split()
+    except OSError:
+        return False
+    i = BTN_MODE // LONG_BITS
+    return i < len(words) and (int(words[-1 - i], 16) >> (BTN_MODE % LONG_BITS)) & 1 == 1
+
+
+fixed = (os.environ.get("PS3_GAME_PAD_DEVICES") or "").split()
+a = sys.argv[1:]
+while a:
+    if a[0] == "--device" and len(a) > 1:
+        fixed.append(a[1])
+        a = a[2:]
+    else:
+        sys.exit("usage: ps3-pad-escape [--device PATH]...")
+
+fds = {}	# path -> fd
+names = {}	# fd -> path
+pressed = {}	# fd -> when the button went down
+denied = set()
+
+
+def scan():
+    if fixed:
+        want = fixed
+    else:
+        try:
+            want = [f"/dev/input/{n}" for n in os.listdir("/sys/class/input")
+                    if n.startswith("event") and has_mode(n)]
+        except OSError:
+            want = []
+    for p in want:
+        if p in fds:
+            continue
+        try:
+            fifo = stat.S_ISFIFO(os.stat(p).st_mode)
+            fd = os.open(p, (os.O_RDWR if fifo else os.O_RDONLY) | os.O_NONBLOCK | os.O_CLOEXEC)
+        except OSError as e:
+            if p not in denied:
+                log(f"{p}: {e.strerror}")
+                denied.add(p)
+            continue
+        fds[p] = fd
+        names[fd] = p
+        log(f"reading {p}")
+
+
+def drop(fd):
+    p = names.pop(fd, None)
+    fds.pop(p, None)
+    pressed.pop(fd, None)
+    try:
+        os.close(fd)
+    except OSError:
+        pass
+
+
+def escape():	# in a scope of its own: the guard's service, which this runs in, ends meanwhile
+    log(f"the PS button held for {HOLD:g} s: closing the game")
+    for cmd in (["systemd-run", "--user", "--scope", "--collect", "-q", ESCAPE, "pad"], [ESCAPE, "pad"]):
+        try:
+            subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, close_fds=True)	# it logs with logger
+            return
+        except OSError as e:
+            err = e.strerror
+    log(f"{ESCAPE}: {err}")
+
+
+signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
+last = 0.0
+while True:
+    now = time.monotonic()
+    if now - last >= 3:
+        scan()
+        last = now
+    wait = 3.0
+    for t in pressed.values():
+        wait = min(wait, max(0.0, t + HOLD - now))
+    ready = select.select(list(fds.values()), [], [], wait)[0] if fds else []
+    if not fds:
+        time.sleep(wait)
+    for fd in ready:
+        try:
+            data = os.read(fd, EVENT.size * 64)
+        except BlockingIOError:
+            continue
+        except OSError:	# unplugged
+            drop(fd)
+            continue
+        if not data:
+            drop(fd)
+            continue
+        for i in range(0, len(data) - EVENT.size + 1, EVENT.size):
+            _, _, typ, code, val = EVENT.unpack_from(data, i)
+            if typ == EV_KEY and code == BTN_MODE:
+                if val == 1:
+                    pressed[fd] = time.monotonic()
+                elif val == 0:
+                    pressed.pop(fd, None)
+    now = time.monotonic()
+    for fd, t in list(pressed.items()):
+        if now - t >= HOLD:
+            del pressed[fd]	# once per press: let go and hold again for another
+            escape()

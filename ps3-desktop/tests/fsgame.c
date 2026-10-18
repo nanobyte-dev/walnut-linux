@@ -1,11 +1,12 @@
 /* fsgame: a stand-in game for autogm-check.sh (built on the host, never shipped). An X window
  * with a GLX context (the GL driver mapped, as in a game), drawing about 20 frames a second and
  * writing the frame count to FILE after each one (so a test sees whether it runs or is frozen).
- *   fsgame [-f] [-o] [-n] [-x] [-c FILE]
+ *   fsgame [-f] [-o] [-n] [-x] [-H] [-c FILE]
  *     -f  fullscreen through _NET_WM_STATE_FULLSCREEN (SDL2/SDL3, GLFW: most games)
  *     -o  an override-redirect window covering the screen (SDL 1.2, glxgears -fullscreen)
  *     -n  no _NET_WM_PID (the detector falls back on XRes)
  *     -x  no GL at all (a fullscreen program that is not a game)
+ *     -H  a hung game: SIGTERM and SIGINT ignored (only SIGKILL ends it)
  *   SIGUSR1: toggles fullscreen with a _NET_WM_STATE client message (F11 in Luanti)
  *   SIGUSR2: destroys the window and makes a new one 1.5 s later (OpenArena's vid_restart) */
 #include <X11/Xlib.h>
@@ -99,14 +100,16 @@ int main(int argc, char **argv)
 {
 	const char *count = NULL;
 	int c;
-	while ((c = getopt(argc, argv, "fonxc:")) != -1)
+	int hung = 0;
+	while ((c = getopt(argc, argv, "fonxHc:")) != -1)
 		switch (c) {
 		case 'f': fs = 1; break;
 		case 'o': ovr = 1; break;
 		case 'n': nopid = 1; break;
 		case 'x': nogl = 1; break;
+		case 'H': hung = 1; break;
 		case 'c': count = optarg; break;
-		default: fprintf(stderr, "usage: fsgame [-f] [-o] [-n] [-x] [-c FILE]\n"); return 2;
+		default: fprintf(stderr, "usage: fsgame [-f] [-o] [-n] [-x] [-H] [-c FILE]\n"); return 2;
 		}
 	if (!(dpy = XOpenDisplay(NULL))) { fprintf(stderr, "fsgame: no display\n"); return 1; }
 	if (!nogl) {
@@ -114,6 +117,7 @@ int main(int argc, char **argv)
 		if (!(vi = glXChooseVisual(dpy, DefaultScreen(dpy), attr))) { fprintf(stderr, "fsgame: no visual\n"); return 1; }
 		ctx = glXCreateContext(dpy, vi, NULL, True);
 	}
+	if (hung) { signal(SIGTERM, SIG_IGN); signal(SIGINT, SIG_IGN); }
 	signal(SIGUSR1, on_usr1);
 	signal(SIGUSR2, on_usr2);
 	Window win = make();

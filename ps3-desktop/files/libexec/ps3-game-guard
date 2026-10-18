@@ -9,6 +9,10 @@
 #          used when this join starts it), at most 30 s later. Exit status 1: game mode didn't come.
 #   add ID PID   one more pid for game ID (ps3-game: the game's own, once it runs)
 #   quit ID      unregisters game ID; undoes game mode left behind by a guard that died
+#   away | back  ps3-game-detect's, for games started through ps3-game: no game window in front
+#          for 3 s (Alt+Tab to another window, Win+D: show the desktop) thaws the desktop while
+#          the game keeps game mode; a game window in front again freezes it again (as entering
+#          does: X checked first). A game the detector found leaves game mode instead.
 #   run    enters game mode, then waits until no registered game is alive. A pid line counts
 #          while that process runs in ps3-game.slice (ps3-game's launcher and game), or, with a
 #          start time, while that very process runs anywhere and isn't a zombie (a detected game:
@@ -56,6 +60,9 @@
 # record into its game's list (game-learn). Per game, from its environment:
 # PS3_GAME_PREFETCH_GAME=on (default)|fetch|learn|off, PS3_GAME_PREFETCH_MB, _RESERVE_MB, _IO, _DIR
 # (ps3_game_prefetch.py's header).
+# Escape (docs/DESKTOP-PLAN.md): while game mode is on, ps3-pad-escape runs beside the guard
+# (PS3_GAME_PAD_ESCAPE=off: not): holding a gamepad's PS button for 3 s (PS3_GAME_PAD_HOLD_S) runs
+# ps3-game-escape, as Ctrl+Alt+Esc does (Openbox): the game closed, game mode left.
 # State: $S (in the runtime directory: gone at logout); log: the user journal.
 M=/usr/lib/ps3/sbin/ps3-game-mode
 P=/usr/lib/ps3/desktop/ps3-game-prefetch
@@ -277,7 +284,7 @@ freeze_desktop() {
 	fi
 }
 freeze_retry() {	# from run, every 3 s for a minute: a freeze deferred by freeze_desktop
-	[ -e "$S/freeze-pending" ] && [ $((T % 3)) = 0 ] || return 0
+	[ -e "$S/freeze-pending" ] && [ ! -e "$S/away" ] && [ $((T % 3)) = 0 ] || return 0
 	if [ "$T" -gt 60 ]; then
 		rm -f "$S/freeze-pending"
 		log "the desktop stays unfrozen for this game: X still held ($XWHY)"
@@ -290,6 +297,7 @@ enter() {
 	log "entering game mode (${PS3_GAME_MODE:-on}, prefetch ${PS3_GAME_PREFETCH:-on})"
 	pads_off
 	[ "${PS3_GAME_MODE:-on}" = pads ] && return
+	echo "${PS3_GAME_PREFETCH:-on}" > "$S/prefetch-mode"	# for back
 	[ "${PS3_GAME_PREFETCH:-on}" = off ] || record
 	desktop_off
 	cg=$(slice_cg ps3-desktop.slice)
@@ -320,7 +328,7 @@ leave() {
 	if [ -n "$cg" ] && echo 0 > "$cg/cgroup.freeze" 2>/dev/null && [ -e "$S/frozen" ]; then
 		log "leave: desktop thawed"
 	fi
-	rm -f "$S/frozen" "$S/freeze-pending"
+	rm -f "$S/frozen" "$S/freeze-pending" "$S/away"
 	pads_on
 	desktop_on
 	if [ -e "$S/root" ]; then
@@ -328,7 +336,7 @@ leave() {
 	fi
 	rm -f "$S/root"
 	[ -n "$pf" ] && wait "$pf"
-	rm -f "$S/prefetch" "$S/entered" "$S/entering" "$S/leaving"
+	rm -f "$S/prefetch" "$S/entered" "$S/entering" "$S/leaving" "$S/prefetch-mode"
 	log "left game mode"
 	# the games' records into their lists, with the desktop back (ps3-game-prefetch game-learn)
 	set -- "$S"/gp/*.seen
@@ -365,9 +373,22 @@ watch_stop() {
 	W=
 }
 
+# the PS button's escape (see the top), from before entering (a game hanging while it starts)
+E=/usr/lib/ps3/desktop/ps3-pad-escape
+PE=
+pad_escape_start() {
+	[ "${PS3_GAME_PAD_ESCAPE:-on}" != off ] && [ -x "$E" ] || return 0
+	"$E" < /dev/null 9>&- & PE=$!
+}
+pad_escape_stop() {
+	[ -n "$PE" ] || return 0
+	kill -TERM "$PE" 2>/dev/null; wait "$PE" 2>/dev/null; PE=
+}
+
 run() {
 	mkdir -p "$S/games"
 	echo $$ > "$S/guard"
+	pad_escape_start
 	enter
 	watch_start
 	exec 9> "$S/lock"
@@ -384,6 +405,7 @@ run() {
 		if [ $n = 0 ]; then	# no game left: launchers arriving now wait for leave, then start anew
 			rm -f "$S/entered"; : > "$S/leaving"
 			flock -u 9
+			pad_escape_stop
 			watch_stop
 			exit 0
 		fi
@@ -412,7 +434,8 @@ stale() {	# game mode's state left with no guard (one killed with its whole cgro
 start_guard() {	# MODE
 	env="--setenv=PS3_GAME_MODE=$1"
 	for v in DISPLAY XAUTHORITY XDG_CONFIG_DIRS XDG_DATA_DIRS GDK_GL PS3_GAME_PREFETCH PS3_GAME_KICK \
-		PS3_GAME_PREFETCH_GAME PS3_GAME_PREFETCH_DIR PS3_GAME_PREFETCH_SAMPLE_S; do
+		PS3_GAME_PREFETCH_GAME PS3_GAME_PREFETCH_DIR PS3_GAME_PREFETCH_SAMPLE_S \
+		PS3_GAME_PAD_ESCAPE PS3_GAME_PAD_HOLD_S PS3_GAME_PAD_DEVICES; do
 		eval "x=\${$v-}"; [ -n "$x" ] && env="$env --setenv=$v=$x"
 	done
 	# shellcheck disable=SC2086 # the values have no spaces
@@ -454,6 +477,30 @@ join() {	# ID MODE [PID[:START]]...
 	return 1
 }
 
+# away / back (see the top), under the lock: run's check of the games and leave's start can't
+# come between (back freezes only while the guard's service is active, not once it is leaving)
+away() {
+	# only a desktop frozen, or to be (not with PS3_GAME_MODE=pads, nor after freeze_retry gave up)
+	[ -e "$S/entered" ] && [ ! -e "$S/away" ] && { [ -e "$S/frozen" ] || [ -e "$S/freeze-pending" ]; } ||
+		return 0
+	: > "$S/away"
+	rm -f "$S/freeze-pending"
+	[ -e "$S/frozen" ] || { log "away: no game in front (the desktop wasn't frozen yet)"; return 0; }
+	read -r cg < "$S/frozen"
+	echo 0 > "$cg/cgroup.freeze" 2>/dev/null
+	rm -f "$S/frozen"
+	log "away: no game in front: the desktop thawed (game mode stays on)"
+}
+back() {
+	[ -e "$S/away" ] || return 0
+	rm -f "$S/away"
+	[ -e "$S/entered" ] && [ "$(systemctl --user show -P ActiveState ps3-game-mode.service 2>/dev/null)" = active ] ||
+		return 0
+	log "back: a game in front again"
+	read -r PS3_GAME_PREFETCH 2>/dev/null < "$S/prefetch-mode"	# the game's, not the detector's
+	cg=$(slice_cg ps3-desktop.slice) && freeze_desktop "$cg" 2
+}
+
 case ${1:-} in
 run) run ;;
 leave) leave ;;
@@ -463,5 +510,7 @@ add)	[ $# = 3 ] || exit 2
 	mkdir -p "$S/games"; lock; echo "$3" >> "$S/games/$2"; unlock ;;
 quit)	[ $# = 2 ] || exit 2
 	mkdir -p "$S/games"; lock; rm -f "$S/games/$2"; stale; unlock ;;
-*) echo "usage: ps3-game-guard run|leave|join ID MODE [PID[:START]]...|add ID PID|quit ID" >&2; exit 2 ;;
+away)	mkdir -p "$S/games"; lock; away; unlock ;;
+back)	mkdir -p "$S/games"; lock; back; unlock ;;
+*) echo "usage: ps3-game-guard run|leave|join ID MODE [PID[:START]]...|add ID PID|quit ID|away|back" >&2; exit 2 ;;
 esac

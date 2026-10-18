@@ -34,6 +34,11 @@
 # another window). The game stays in its scope; game mode ends when no game is registered (the
 # guard brings everything back). The game going fullscreen again enters again. This service
 # stopping (or X going away) unregisters its games.
+# Games started through ps3-game (the menu's) keep game mode until they exit, fullscreen or not;
+# what this adds for them: once a window of such a game has been in front, no window of a game in
+# front for AWAY_DELAY seconds (Alt+Tab to another window, Win+D: show the desktop, a click on the
+# panel) thaws the desktop (ps3-game-guard away), and a window of a game in front again freezes it
+# again (ps3-game-guard back). Looked at only while such a game has game mode.
 # Events, not polling: one xev on the root window (substructure and property changes) through an
 # awk filter that passes only the changes that matter (the active window, windows covering the
 # screen appearing, resizing, going); each burst of them gets one look at the windows (xprop,
@@ -42,6 +47,7 @@ set -u
 G=/usr/lib/ps3/desktop/ps3-game-guard
 S=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/ps3-game
 LEAVE_DELAY=5	# seconds without a fullscreen window before a game's game mode ends
+AWAY_DELAY=3	# seconds without a ps3-game game in front before the desktop thaws (vid_restart: 1.5 s)
 RECHECK=2 RECHECKS=4	# a fullscreen window whose process has no GPU (yet): looked at again
 EXCLUDE="firefox firefox-esr firefox-bin navigator chromium chromium-browser chrome google-chrome
 	epiphany epiphany-browser falkon midori qutebrowser surf netsurf netsurf-gtk mpv vlc totem
@@ -370,13 +376,44 @@ evaluate() {
 		fi
 	done
 	for p in "${!recheck[@]}"; do [ "${recheck[$p]}" -le "$now" ] && unset "recheck[$p]"; done
+	focus_check
 }
 declare -A mode_of=() pf_of=()
+
+# focus (see the top): AWAY_AT, when the desktop thaws; ARMED, a ps3-game game was in front
+AWAY_AT= ARMED=
+active_pid() {	# the active window's process
+	local a props
+	a=$(xprop -root -notype -f _NET_ACTIVE_WINDOW 32x ' $0\n' _NET_ACTIVE_WINDOW 2>/dev/null)
+	a=${a#_NET_ACTIVE_WINDOW }
+	[[ $a == 0x* && $a != 0x0 ]] || return 1
+	props=$(getprops "$a") && window_pid "$a" "$props"
+}
+focus_check() {
+	local f has= p
+	for f in "$S"/games/*; do
+		case ${f##*/} in auto-*|*.new) ;; *) [ -e "$f" ] && has=1 && break ;; esac
+	done
+	if [ -z "$has" ] || [ ! -e "$S/entered" ]; then AWAY_AT= ARMED=; return 0; fi
+	if p=$(active_pid) && [[ $(cgroup_of "$p") == */ps3-game.slice/* ]]; then
+		ARMED=1 AWAY_AT=
+		[ -e "$S/away" ] && "$G" back
+		return 0
+	fi
+	[ -n "$ARMED" ] && [ ! -e "$S/away" ] || { AWAY_AT=; return 0; }
+	[ -n "$AWAY_AT" ] || AWAY_AT=$((EPOCHSECONDS + AWAY_DELAY))
+	if [ "$EPOCHSECONDS" -ge "$AWAY_AT" ]; then
+		AWAY_AT=
+		log "no game in front for $AWAY_DELAY s (the game through ps3-game keeps game mode)"
+		"$G" away
+	fi
+}
 
 next_timeout() {	# seconds to the next deadline or recheck (none: empty)
 	local t= p d
 	for p in "${!deadline[@]}"; do d=${deadline[$p]}; [ -z "$t" ] || [ "$d" -lt "$t" ] && t=$d; done
 	for p in "${!recheck[@]}"; do d=${recheck[$p]}; [ -z "$t" ] || [ "$d" -lt "$t" ] && t=$d; done
+	[ -n "$AWAY_AT" ] && { [ -z "$t" ] || [ "$AWAY_AT" -lt "$t" ]; } && t=$AWAY_AT
 	[ -n "$t" ] || return 0
 	t=$((t - EPOCHSECONDS))
 	[ "$t" -ge 1 ] && echo "$t" || echo 0.5

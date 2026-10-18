@@ -1,0 +1,102 @@
+#!/bin/sh
+# ps3-game-escape [key|pad] (ps3-desktop): closes the game in front and ends game mode, for a game
+# that hangs or won't quit. Ctrl+Alt+Esc runs it (Openbox's keybinding: Openbox runs with X in
+# ps3-display.slice, never frozen), and so does holding the PS button of a gamepad for 3 s
+# (ps3-pad-escape, which ps3-game-guard runs during game mode).
+# The games: every game registered with game mode (ps3-game's launchers and their games, the
+# detector's), each by its whole scope in ps3-game.slice: SIGTERM, SIGKILL 3 s later for what is
+# left; then they are unregistered, so game mode ends (the guard's leave, as when a game quits). A
+# game that even SIGKILL can't end (stuck in the kernel) doesn't keep the desktop frozen: the
+# guard's service is stopped then, whose leave thaws everything all the same.
+# Outside game mode: the active window's program, only if its window is fullscreen (a game with
+# PS3_GAME_MODE=off); anything else is left alone.
+# A notice on the screen (xmessage, also in Openbox's slice); log: the user journal
+# (ps3-game-escape).
+G=/usr/lib/ps3/desktop/ps3-game-guard
+S=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/ps3-game
+how=${1:-key}
+log() { echo "ps3-game-escape: $*" >&2; logger -t ps3-game-escape -- "$*" 2>/dev/null; }
+notice() {	# TEXT SECONDS: on the screen, not waited for
+	[ -n "${DISPLAY:-}" ] && command -v xmessage > /dev/null || return 0
+	timeout $(($2 + 5)) xmessage -center -timeout "$2" -buttons '' "$1" > /dev/null 2>&1 &
+}
+gone() {	# PID: exited (or a zombie)
+	read -r st 2>/dev/null < "/proc/$1/stat" || return 0
+	st=${st##*) }
+	case $st in Z\ *|X\ *) return 0 ;; esac
+	return 1
+}
+unit_of() {	# PID: its scope (or service) of ps3-game.slice in the user manager, if it has one
+	read -r c 2>/dev/null < "/proc/$1/cgroup" || return 1
+	case $c in */ps3-game.slice/*) ;; *) return 1 ;; esac
+	c=${c##*/}
+	case $c in *.scope|*.service) [ "$c" != ps3-game-mode.service ] && echo "$c" ;; *) return 1 ;; esac
+}
+
+pids= units= ids=
+for f in "$S"/games/*; do
+	case $f in *.new) continue ;; esac
+	[ -e "$f" ] || continue
+	ids="$ids ${f##*/}"
+	while read -r p t; do
+		[ -n "$p" ] && ! gone "$p" || continue
+		pids="$pids $p"
+		u=$(unit_of "$p") && case " $units " in *" $u "*) ;; *) units="$units $u" ;; esac
+	done < "$f"
+done
+if [ -z "$ids" ] && [ -n "${DISPLAY:-}" ]; then	# no game mode: a fullscreen window's program
+	a=$(xprop -root -notype -f _NET_ACTIVE_WINDOW 32x ' $0\n' _NET_ACTIVE_WINDOW 2>/dev/null)
+	a=${a#_NET_ACTIVE_WINDOW }
+	case $a in 0x0|0x*) ;; *) a= ;; esac
+	if [ -n "$a" ] && [ "$a" != 0x0 ] &&
+		xprop -id "$a" _NET_WM_STATE 2>/dev/null | grep -q _NET_WM_STATE_FULLSCREEN; then
+		p=$(xprop -id "$a" -notype -f _NET_WM_PID 32c ' $0\n' _NET_WM_PID 2>/dev/null)
+		p=${p#_NET_WM_PID }
+		case $p in ''|*[!0-9]*) ;; *) [ "$(stat -c %u "/proc/$p" 2>/dev/null)" = "$(id -u)" ] && pids=$p ;; esac
+	fi
+fi
+if [ -z "$pids" ] && [ -z "$ids" ]; then
+	log "($how) no game to close"
+	notice "No game to close." 2
+	exit 0
+fi
+log "($how) closing the game:${units:-} pids$pids"
+notice "Closing the game..." 4
+# shellcheck disable=SC2086 # unit names and pids have no spaces
+{
+	[ -n "$units" ] && systemctl --user kill --signal=TERM $units 2>/dev/null
+	[ -n "$pids" ] && kill -TERM $pids 2>/dev/null
+}
+i=0 left=$pids
+while [ $i -lt 30 ] && [ -n "$left" ]; do
+	sleep 0.1; i=$((i + 1))
+	l=; for p in $left; do gone "$p" || l="$l $p"; done; left=$l
+done
+if [ -n "$left" ]; then
+	log "still running after 3 s (pids$left): SIGKILL"
+	# shellcheck disable=SC2086
+	{
+		[ -n "$units" ] && systemctl --user kill --signal=KILL $units 2>/dev/null
+		kill -KILL $left 2>/dev/null
+	}
+	i=0
+	while [ $i -lt 20 ] && [ -n "$left" ]; do
+		sleep 0.1; i=$((i + 1))
+		l=; for p in $left; do gone "$p" || l="$l $p"; done; left=$l
+	done
+fi
+# unregistered: game mode ends with the last of them (the guard leaves within a second)
+for id in $ids; do "$G" quit "$id"; done
+if [ -n "$left" ]; then
+	log "pids$left won't die (stuck in the kernel?): game mode stopped without them"
+	systemctl --user stop ps3-game-mode.service 2>/dev/null
+fi
+i=0
+while [ $i -lt 100 ] && systemctl --user is-active -q ps3-game-mode.service 2>/dev/null; do
+	sleep 0.1; i=$((i + 1))
+done
+if systemctl --user is-active -q ps3-game-mode.service 2>/dev/null; then
+	log "game mode still on after 10 s: stopping it"
+	systemctl --user stop ps3-game-mode.service 2>/dev/null
+fi
+log "($how) done"

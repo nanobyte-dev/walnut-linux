@@ -190,3 +190,26 @@ Bluetooth, apt, time sync, logging) keep working.
   game mode freed, its prefetch after the page cache drop). Tested on the host (autogm-check.sh
   11 and 12: a stand-in jgmenu holding both grabs that starts a game through ps3-game; a tray
   popup holding them when a game is detected).
+- Getting out of a game (2026-10-18; the user: a hung game in game mode must not trap you).
+  For the user, at the TV:
+  - **Ctrl+Alt+Esc** closes the game in front and ends game mode (Openbox's keybinding, runs
+    `ps3-game-escape`; Openbox lives with X in ps3-display.slice, never frozen).
+  - **Hold the PS button for 3 s** on the DualShock 3 (or a pad's guide/home button) does the
+    same; a short press stays the game's. `ps3-pad-escape` reads the pads' event devices (no
+    grab) only while game mode is on, so it works even when a game holds the keyboard.
+  - **Alt+Tab** to another window, or **Win+D** (show the desktop), during a menu game: 3 s
+    later the desktop thaws (panel, terminals, file manager answer again; the PCManFM icons stay
+    off until the game ends), game mode stays on; back in the game, the desktop is frozen
+    again. A game the detector found (not from the menu) leaves game mode after 5 s instead, as
+    before.
+  How it closes: every game registered with game mode, by its whole scope in ps3-game.slice
+  (`systemctl --user kill`): SIGTERM, SIGKILL 3 s later for what is left; the registrations are
+  dropped, so the guard leaves at once (the desktop thaws, everything comes back as when a game
+  quits). A game SIGKILL can't end (stuck in the kernel) doesn't keep the desktop frozen: the
+  guard's service is stopped then. Outside game mode Ctrl+Alt+Esc only closes a program whose
+  window is fullscreen (a game with PS3_GAME_MODE=off), nothing else. A notice (xmessage) says
+  "Closing the game..."; the journal has `ps3-game-escape` lines. Knobs (the game's environment):
+  `PS3_GAME_PAD_ESCAPE=off`, `PS3_GAME_PAD_HOLD_S`. ps3-pad-escape is Python (a few MB while
+  game mode is on). Tested on the host (autogm-check.sh 13 to 15: a game ignoring SIGTERM closed
+  by the escape, BTN_MODE events into the listener, Alt+Tab and Win+D through XTEST with
+  Openbox), not on the PS3 yet.
