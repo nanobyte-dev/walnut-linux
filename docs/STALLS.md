@@ -400,8 +400,10 @@ looks at the game for its first minutes. Once no game is left to look at, it exi
 stays in memory during play. The guard starts another watcher for a game registered later that no
 record covers. At the end of `leave`, with the desktop already back, `game-learn` turns every record
 into its list. The program is a small stub that imports `ps3_game_prefetch.py` from the byte-code
-cache dh_python3 builds at installation: the watcher costs 4.1 MB anonymous on the host (bare
-`python3` 3.4 MB), against 8.8 MB when the module is compiled at every start.
+cache that postinst builds (`py3compile`, and again from a python3 runtime.d hook when python3
+changes). With that cache the watcher costs 3.5 MB anonymous in Debian sid's python3 3.14 (the
+package installed in the deb builder), about what the bare interpreter costs. Compiled at every
+start, it would cost 8.8 MB (measured on the host).
 
 **The bench harness.** Bench runs normally have no game mode, so `client.sh` runs the game through
 `ps3-game-prefetch game-run` when `BENCH_GAMEPREFETCH` is set (run.sh `GAMEPREFETCH=`, an ENVS token):
