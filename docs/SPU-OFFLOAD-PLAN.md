@@ -104,6 +104,8 @@ default) uses the SPEs, so installing the two packages is enough. Next: the shar
 2. **DXT5 in libspeq** (SPU and PPE): Mesa turns generic compressed RGBA into DXT5; today those
    fall back to Mesa's slow encoder (Teeworlds, TORCS per GAME-SUITE.md). Same structure as DXT1
    plus the alpha block (8-entry palette, 48-bit indices).
+   (Done 2026-10-18: libspeq 0.367 with Mesa 0032, "Since then" above. What is left of DXT is
+   compression at upload for every game, PLAN.md 2.4.)
 3. **Audio** (SPU-AUDIO.md). (2026-10-17: M0 done, OpenAL Soft is 3.7-4.7% of a game's samples,
    under the bar: no SPU mixer for now; the free variants b16/f44 are still to run.) First the free measurements: re-profile with `libopenal1-dbgsym`
    (step 0's profile left the mixer thread unresolved), variants B16 (int16 without limiter and

@@ -49,8 +49,8 @@ them from Linux is not part of the project.
 
 ## Not verified yet
 
-The mount itself needs a kernel with the `ufs` module booted on the PS3 (6.12.111+ps3.403 or
-later). (2026-10-18 evening: `dev_hdd0` did mount read-only on the 6.12.111+ps3.419 boot: an 864 GB
+The mount itself needs a kernel with the `ufs` module booted on the PS3 (6.12.111+ps3.419 or
+later, the first such kernel that booted; this said .403 before 2026-10-18 evening). (2026-10-18 evening: `dev_hdd0` did mount read-only on the 6.12.111+ps3.419 boot: an 864 GB
 file system, 22 games listed under it. So hdd0 works; only hdd1 is left.) The first try on
 6.12.111+ps3.433 (2026-10-18): hdd0 not tried, hdd1 failed because
 `mount -o iocharset=utf8` found no `nls_utf8` ("missing codepage or helper program"). Fixed

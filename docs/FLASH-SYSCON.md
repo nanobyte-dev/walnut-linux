@@ -95,10 +95,15 @@ What each one gives us, in plain terms:
   `li r0,0x1000`), dispatcher-manager access, repository nodes in any LPAR, storage ACL skip, and
   others. **[fact]** xai_plugin applies its patches at runtime with `lv1_poke32()` and, for the
   EEPROM dump, restores the original words afterwards (`eeprom.cpp`). **[inference]** The
-  interesting one for us is the 4 KB GPU IO page: today ps3rsx reserves a 64 MB GART at boot,
-  iomapped as 1 MB pages (DRIVER-PLAN.md). With 4 KB IO pages the GART could map scattered
-  ordinary pages on demand, which would give back part of that 64 MB. That's a guess about how
-  the patch behaves; nobody I found documents it. **[fact]** No patch in either list exposes raw
+  interesting one for us is the 4 KB GPU IO page. (Corrected 2026-10-18: this line first said
+  ps3rsx reserves a 64 MB GART at boot, which was the early scheme of DRIVER-PLAN.md. The GART
+  now takes 1 MiB chunks from the 64 MiB CMA area on demand, 6-14 MB of it in games, and gives
+  them back when idle; between uses the area holds ordinary movable pages, so it costs RAM only
+  while the GPU uses it: ps3rsx/src/gart.c, KERNEL-MEMORY.md "CMA size".) With 4 KB IO pages the
+  GART could map scattered ordinary pages instead of contiguous 1 MiB chunks. That would save the
+  rounding of partly used chunks and the CMA migrations a new chunk needs, and maybe let the CMA
+  area shrink, which by itself returns no RAM. So a few MB at most (an estimate), not a large win.
+  That's a guess about how the patch behaves; nobody I found documents it. **[fact]** No patch in either list exposes raw
   RSX registers, more XDR, or more VRAM. VRAM is already the full 256 MB, and the XDR size comes
   from lv1's repository (Linux `mm.c`: "Assume a single highmem region").
 - **[inference] Runtime vs flashed, for Linux.** Every trip to Linux is a reboot with the OtherOS flag
@@ -318,9 +323,11 @@ not been tried; 5-7 stay off without the owner's request.)
    git. Write the bank and hashes into a private note next to the dump.
 3. **Probe the running lv1 from Linux, read-only.** Is lv1 peek (hypercall 182) present at Linux
    time? Then peek the `gpu-4kb-iopage` site to see whether Evilnat's flashed lv1 already carries it.
-   If peek is there and the patch isn't, poking it is a RAM-only change (class 1). It might let
-   ps3rsx shrink or drop the 64 MB GART reservation, which matters more than anything else on this
-   list for RAM. Ask the owner before the first poke; a wrong one hangs the console.
+   If peek is there and the patch isn't, poking it is a RAM-only change (class 1). It would let
+   ps3rsx map 4 KB pages into the GART instead of 1 MiB CMA chunks: a few MB at most (corrected
+   2026-10-18: there is no 64 MB GART reservation any more, see section 2), so the probe's value
+   is mostly the yes/no on runtime lv1 patches. Ask the owner before the first poke; a wrong one
+   hangs the console.
 4. **Fan: runtime first.** Settle in THERMAL.md whether Linux can read temperatures and set the
    fan policy through the System Manager (OtherOS++ advertises full System Manager access, and our
    kernel has the sysmgr character device patch). That gets the fan answer without touching the

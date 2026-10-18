@@ -46,7 +46,7 @@ Two consequences shape everything below:
 | **Render-to-texture "bake at load"** | Yes (FBOs) | Works: glamor relies on it | Textures generated once on the GPU, with no file read, no RAM, no staging | Low in the driver; needs engine code (ports/new games) |
 | **Procedural fragment programs per frame** | FP: 4096 instructions, 32 temps, 224 constants | Exposed (GLSL 1.20) | Unlimited detail with no storage | At 1080p60 the budget is ~10² instructions per pixel (24 pipes × 500 MHz, *est.*): fine for skies, water, noise detail, not whole scenes |
 | **Derivatives (dFdx/dFdy)** | NV40 has DDX/DDY | `fragment_shader_derivatives = false` | Anti-aliased procedural textures, normal maps | Low–medium (Mesa cap + compiler) |
-| **Tiling and Z-cull** | lv1 attributes 0x300/0x301 (RPCS3 encodings) | Unused (DRIVER-PLAN.md "Later") | Fill rate and bandwidth, maybe +10–30% in fill-bound scenes *est.* | Medium; low value while we're CPU-bound |
+| **Tiling and Z-cull** | lv1 attributes 0x300/0x301 (RPCS3 encodings) | Unused (DRIVER-PLAN.md "Later") | Fill rate and bandwidth, maybe +10–30% in fill-bound scenes *est.* | Medium; low value while we're CPU-bound (2026-10-18: ClassiCube is GPU-bound now, see "Deferred" below) |
 | **Instancing** | NV40-class GPUs did instancing via stream frequency dividers | `vertex_element_instance_divisor = false` ("xxx = yes?") | Fewer draw calls, which cuts PPE work | Medium; check the RSX method |
 | **Occlusion queries / conditional render** | Yes | Exposed | Engines can skip hidden objects | Engine work only |
 | **Native 720p output** | ps3av mode | One mode for console and KMS | ~2.25× fewer pixels; ~5 MB less ps3fb XDR; smaller VRAM targets | Config; most PS3 games rendered at 720p or below |
@@ -120,6 +120,10 @@ started; for 2, the console frame release (local/0043, up to 8 MB while X runs) 
 
 Deferred: tiling and Z-cull, native 720p, SPU culling and MLAA. They raise GPU throughput or
 image quality, while the frame time today is PPE-bound; revisit after the SPU-offload work.
+(2026-10-18: "PPE-bound" no longer holds for every game. ClassiCube with its chunk batching is
+GPU-bound: 8.5 ms of CPU a frame against upstream's 17.1 ms, and still slower, docs/HOTPATHS.md
+"ClassiCube's batching measured slower". As batching takes more games off the PPE, tiling and
+Z-cull matter again: PLAN.md Stage 3.2, IDEAS #19.)
 
 Sources: Cell read/write rates to RSX local memory from Sony's 2006 developer slides as
 reported by [Bit-Tech](https://bit-tech.net/news/gaming/PS3_hardware_could_be_hobbled/1/) and

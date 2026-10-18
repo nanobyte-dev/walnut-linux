@@ -10,6 +10,12 @@ keyboard/mouse, a DualShock 3 (USB and Bluetooth) and Bluetooth keyboards/mice.
 
 Budget: Linux sees 165 MB of RAM; zram swap. LXQt with openbox is the heaviest thing that fits.
 
+**Now (2026-10-18):** Linux sees 217-222 MB (the release kernel: `MemTotal` 222704 kB, against
+213992 kB on the debug kernel, KERNEL-MEMORY.md), the root is on the USB disk (NFS only for
+development netboots), and swap is the VRAM swap (`ps3vswap0`, up to 96 MB of spare VRAM in front
+of the USB swap partition) plus zram (384 MB, lzo-rle). The 2026-10-14 lines above (LXQt, the root
+on NFS, 165 MB) are kept as the original decision.
+
 ## 1. Kernel (one rebuild, one reboot by the user)
 
 `linux/config/ps3.config`: `NEW_LEDS`, `LEDS_CLASS` (needed by `HID_SONY`), `HID_SONY` +

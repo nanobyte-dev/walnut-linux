@@ -102,7 +102,7 @@ Three levers, in this order. Each change gets a recipe variant, so its gain is m
    idle in every game, and the RSX has headroom (the games are PPE-bound):
    | Stored today | Instead | On | Saving |
    |---|---|---|---|
-   | RGBA8 textures (4 B/pixel) | DXT1/DXT5 (0.5-1 B/pixel), decoded by the RSX | SPU encoder (DXT1 in libspeq; DXT5 to add, which also unblocks Teeworlds and TORCS) | 4-8x texture memory; one Mesa hook for every game (an opt-in driconf switch: lossy) |
+   | RGBA8 textures (4 B/pixel) | DXT1/DXT5 (0.5-1 B/pixel), decoded by the RSX | SPU encoder (DXT1 in libspeq; DXT5 since libspeq 0.367 with Mesa 0032, 2026-10-18) | 4-8x texture memory; one Mesa hook for every game (an opt-in driconf switch: lossy) |
    | mip chains from the CPU | generated on the GPU | RSX (works since Mesa 0013) | a third per texture |
    | decoded 16-bit PCM samples | compressed, decoded when played or streamed | SPU (Vorbis) | ~10x on sound |
    | float32 vertex data | half floats or 16-bit, fetched natively by nv30 | RSX | ~2x vertex buffers |
@@ -141,7 +141,8 @@ The games: the user's list (OpenArena, QuakeSpasm, Yamagi Quake II, Extreme Tux 
 Armagetron, Sauerbraten; stretch: SuperTuxKart, Luanti, PrBoom+ GL) and the research's picks
 (ClassiCube, OpenTTD, X-Moto). PrBoom+ GL is covered by dsda-doom, its successor with the same GL
 renderer, packaged for ppc64. Teeworlds and TORCS stay reserves: they test DXT5, which waits for
-the SPU plan.
+the SPU plan. (2026-10-18: DXT5 is done, libspeq 0.367 with Mesa 0032; Teeworlds runs, TORCS waits
+for the user, PLAN.md 1.11.)
 
 ## Every stage has the same shape
 
@@ -459,7 +460,7 @@ The same per-draw and per-submit costs top every profile, so they are the shared
 Mesa's debug symbols (mesa-libgallium-dbgsym, from the dev suite) name these functions; they were
 installed for the profiles and removed again: reinstall them for the next profile.
 
-Out of scope: DXT5 (Teeworlds, TORCS; it waits for the SPU plan) and games that need GL 3. 3D
+Out of scope: games that need GL 3. (DXT5, once out of scope here for Teeworlds and TORCS, is done since libspeq 0.367 with Mesa 0032, 2026-10-18.) 3D
 textures are supported by nv30 (sampling; rendering into them is refused).
 
 ## Smoke tests (not benchmarked)

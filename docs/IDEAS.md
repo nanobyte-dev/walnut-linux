@@ -9,6 +9,16 @@ The goal they are measured against: an open, Sony-independent PS3 running open-s
 fps** (the user): an idea that removes stalls outranks one that adds a few fps. Every row is judged on
 steady fps together with stall time, 1% low and longest frame.
 
+Since the evening of 2026-10-18 the order of work is PLAN.md's stages (the user: one plan, the
+gaps review's items in priority order, release work last). This file keeps the evidence and the
+ranking by payoff; where each row sits in the stages: #1 -> 1.1, 1.2; #2 -> 2.9; #3 -> 1.5 (the
+kicker 1.2, 1.10); #4 -> 2.4; #5 -> 2.3; #6 -> 3.1; #7 -> 4.2; #8 -> 2.8; #9 -> 4.14; #10 -> 3.9;
+#11 -> 3.4; #12 -> 3.3; #13 -> 3.12; #14 -> 1.9 and D2; #15 -> 4.3; #16-#18 -> 3.9; #19 -> 3.2;
+#20 -> 4.6; #21 -> 3.12; #22 -> 3.9; #23 -> 4.15, 4.9; #24 -> 3.12 (parked); #25 -> 1.3, 1.4;
+#26 -> 2.1; #27 -> 1.6, 1.7. New in the stages and not ranked here: the benchmark round through
+game mode (2.2), the OS-area write (2.5), the repeats (2.6), the soak (2.7), the XMB backups (4.1)
+and the release work (Stage 5).
+
 What the measurements say (GAME-PLAN.md, games/bench/results/, same-boot rows):
 - **Stalls came from three places, in this order of size.** (1) A kernel bug: the decrementer of an idle
   PPE thread is lost into `lv1_pause` (an idle thread's timer fired up to 1439 ms late; none over 19.4 ms
@@ -80,19 +90,19 @@ Effort: S = a day or less, M = days, L = weeks. Risk: what can go wrong, includi
 | 12 | **Probe E16: SPU DMA into a VRAM buffer** (rate, correctness, I\|G against I-only) | RSX-SPU-FEASIBILITY 2, HARDWARE-LEVERAGE 3 | medium, enabling: SPU decompression and generation straight into VRAM, meshes into VBOs | S | low: only the test's buffer is written, no GPU involved | none |
 | 13 | SPU meshing: Luanti's block meshes, ClassiCube's chunks | SPU-OFFLOAD-SURVEY #4, SPU-OFFLOAD-PLAN 5-6 | medium: Luanti's load stalls, ClassiCube's chunk builds | L | medium (engine patches) | #10 if the meshes go straight to VRAM |
 | 14 | Console frame only while visible (local/0043, built, off by default: 8 of the 9 MB while ps3rsx owns the GPU), or the 720p console | KERNEL-MEMORY 3 | medium: up to 8.5 MB of RAM during games (720p: 4 MB always, and X at 720p) | M (720p: S) | medium: ps3fb's GPU iomap and vsync blit must cope; 720p is the user's call | 0043 needs the test-kernel boot and a RAM A/B; 720p is the user's call |
-| 15 | **Read-only probe of lv1 from Linux** (peek, hypercall 182): does Evilnat's lv1 carry the `gpu-4kb-iopage` patch, could ps3rsx shrink the 64 MB GART reservation | FLASH-SYSCON 6.3 | potentially the largest RAM win on the list; unknown until peeked | S to probe | medium: a wrong poke hangs the console; peek only, ask the user before any poke | the user's OK; the reboot session |
+| 15 | **Read-only probe of lv1 from Linux** (peek, hypercall 182): does Evilnat's lv1 carry the `gpu-4kb-iopage` patch | FLASH-SYSCON 6.3 | low for RAM (corrected 2026-10-18: there is no 64 MB GART reservation; the GART takes 1 MiB CMA chunks on demand, 6-14 MB in games, and the area holds page cache between uses, so 4 KB IO pages would save the chunk rounding and the CMA migrations, a few MB at most, est.); the yes/no on runtime lv1 patches is the larger part | S to probe | medium: a wrong poke hangs the console; peek only, ask the user before any poke | the user's OK; the reboot session |
 | 16 | ADPCM sound effects in ioquake3 (OpenAL decodes IMA4 and MSADPCM at mix time) | SPU-AUDIO 3(d') | low-medium: ~7 MB of decoded WAV in OpenArena down to a quarter | M | low (4-bit quality: the user listens) | none |
 | 17 | Half-float or 16-bit vertex data, fetched natively by nv30 | GAME-PLAN "data for compute" | low-medium: vertex buffers /2 | M per engine | low | none |
 | 18 | Mesa: drop shader IR after linking, rebuild from the disk cache when needed | GAME-PLAN "data for compute" | low-medium now: ioquake3 0001 already frees OpenArena's shader objects | M | medium (variant recompiles) | a measurement of what Mesa keeps |
 | 19 | Tiling and Z-cull (lv1 attributes 0x300/0x301) | HARDWARE-LEVERAGE 2, DRIVER-PLAN "Later" | unknown: +10-30% in fill-bound scenes (estimate); matters now that batched games stop being CPU-bound | M-L | medium-high: undocumented lv1 attributes | none |
-| 20 | Validator checks for the vertex texture units (0x900-0x97c) | PLAN item 6, RSX-SPU-FEASIBILITY 4 | safety: today any client can send unchecked data there and wedge the RSX | S | low | none; required before #18 |
+| 20 | Validator checks for the vertex texture units (0x900-0x97c) | PLAN work-queue item 6 (now 4.6), RSX-SPU-FEASIBILITY 4 | safety: today any client can send unchecked data there and wedge the RSX | S | low | none; required before #18 |
 | 21 | Vertex texture fetch, fragment derivatives (GLES2), instancing | HARDWARE-LEVERAGE 2/4, RSX-SPU-FEASIBILITY 4 | low for the current games (none uses them) | M each | medium (exceptions) | #17 for VTF |
 | 22 | OpenAL Soft's free variants (b16, f44) | SPU-AUDIO 2 | low: at most part of 3.7-4.7% | S | none | none |
 | 23 | Dev loop: does a Petitboot-only reboot clear a wedged RSX; kexec from our Linux; Remote Start by Wake-on-LAN | RSX, DRIVER-PLAN, PLAN open questions | low for games, saves XMB trips | S each, needs the user | low (kexec crashed the console once) | the user at the console |
 | 24 | Video decoding on the SPEs (MPEG-2, then H.264; HEVC) | SPU-OFFLOAD #2, RESEARCH | high value, months of work | L | low | parked (CLAUDE.md) |
 | 25 | **Formats nv30 fetches, sent by the games**: the OpenArena opengl2 and Sauerbraten A/Bs (ioquake3 0027-0029, cube2 0011) and Mesa 0037's limits on nouveau's buffer copies (added 2026-10-18 evening) | MEMORY.md "OpenArena opengl2", "nouveau's system memory copies" | high for OpenArena opengl2: ~62 MB of malloc copies of its model VBOs, 62 -> 37.5 MB of VRAM with packed MD3 frames; Sauerbraten's per-draw SNORM8 conversion and copies of its world VBOs | S (runs; built) | low-medium: a wrong vertex fetch loses the models or garbles walls (webcam on every run) | built, in ps3-dev; A/B commands in MEMORY.md |
-| 26 | **SuperTuxKart's sound** (added 2026-10-18 evening): every run logged `sound=none` | bench.txt `sound=`, PLAN.md decision 7 | medium: a game without sound isn't playable as shipped | S to check, M if OpenAL fails on BE | low | a normal start with the webcam microphone (`tools/webcam-audio.sh`) |
-| 27 | **The internal disk and the load phase** (added 2026-10-18 evening): read-only O_DIRECT speed test of `ps3db` against the USB disk, then load-phase profiles of 5 games (`PERF_LOAD=1 STALLS=1`, cold cache) | PLAN.md open questions | unknown, possibly large: the USB 2 disk (one command at a time) is behind most load stalls and every swap stall | S (test), M (profiling) | low: reads only, never a write to `ps3da/db/dc` | queued after batch 16 |
+| 26 | **SuperTuxKart's sound** (added 2026-10-18 evening): every run logged `sound=none` | bench.txt `sound=`, PLAN.md D4 (was decision 7) | medium: a game without sound isn't playable as shipped | S to check, M if OpenAL fails on BE | low | a normal start with the webcam microphone (`tools/webcam-audio.sh`) |
+| 27 | **The internal disk and the load phase** (added 2026-10-18 evening): read-only O_DIRECT speed test of `ps3db` against the USB disk, then load-phase profiles of 5 games (`PERF_LOAD=1 STALLS=1`, cold cache) | PLAN.md 1.6, 1.7 | unknown, possibly large: the USB 2 disk (one command at a time) is behind most load stalls and every swap stall | S (test), M (profiling) | low: reads only, never a write to `ps3da/db/dc` | queued after batch 16 |
 
 Not worth it, measured or reasoned: an SPU mixer for OpenAL Soft (3.7-4.7%, under the 6% bar),
 Vorbis or zlib on the SPEs (WAV effects; libdeflate on the PPE instead), OpenTTD's blitter on the
@@ -159,4 +169,5 @@ recovery hardware and a measured need.
 4. **Open for the user:** the stable publish of the READY set (RELEASE-CANDIDATES.md), Luanti's default,
    the test-kernel boot session, the fan floor, the 7th SPE entry, SuperTuxKart's `lean` default, the
    720p console. (2026-10-18 evening: Luanti's default is settled by the clean runs, base stays; the
-   boot session is half done, .457 next; the upstream drafts in docs/upstream/ wait for the user to send.)
+   boot session is half done, .457 next; the upstream drafts in docs/upstream/ wait for the user to send.
+   The current list of open decisions is PLAN.md's D1-D14.)
