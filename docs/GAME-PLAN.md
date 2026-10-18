@@ -549,6 +549,42 @@ libghc-parsec3-dev for ppc64, no fp-*), but it needs the GHC-built pas2c and a c
 frontend and the Haskell server, under qemu: hours, and no guarantee that the C engine is
 big-endian clean. The frontend would also be a Qt5 program on 217 MB of RAM. Not started.
 
+### Nexuiz Classic on darkplaces-gl2 (built 2026-10-18, not run on the PS3)
+
+Debian's darkplaces (0~20180908 and the 2026 git snapshot) has only the GL 3.2 core and GLES2
+renderpaths, so it can't run on the RSX (GL 2.1). The last snapshot with the GL 1.1/1.3/2.0
+renderpaths (`RENDERPATH_GL11/GL13/GL20`, SDL2 window, `vid_gl20 0` for the combiner path) is
+0~20180412~beta1, Debian buster's `darkplaces` orig tarball (snapshot.debian.org, pinned in
+config.mk). `darkplaces-gl2/` (TYPE=upstream, `make darkplaces-gl2-deb`, ppc64, 2 MB) builds it with
+Debian's 13 patches (link options, no SSE rasterizer off x86, gpu skinning off) and `-std=gnu17` (the
+code uses `false`/`true` as enum names; gcc 15 defaults to C23). It installs as
+`/usr/games/darkplaces-gl2` beside Debian's engine, plus `/usr/games/nexuiz-gl2` (Debian's wrapper:
+`-nexuiz -basedir /usr/share/games/nexuiz`, then `nexuiz-lean.cfg`). Data is Debian's unchanged
+`nexuiz-data` + `nexuiz-textures` 2.5.2-14 (764 MB; Debian's own `nexuiz` package runs that data on
+the system darkplaces, so engine and data versions are compatible; `nexuiz-music` is a separate
+package we leave out). Not published, not deployed.
+
+- Big-endian: no known problem, and a test. DarkPlaces swaps through `LittleLong` and friends
+  (`mem_bigendian` is detected at run time) and Debian builds its 2018-09 successor on s390x (also big-endian). Under qemu-user
+  the dedicated server loaded `aggressor` from the real data: the Q3 BSP (1222 faces, 386 clusters),
+  progs.dat (2040K) and csprogs.dat, 206 entities, "Server spawned", two minutes without a crash. That
+  covers file loading and QuakeC, not the renderer, sound mixing or the client.
+- Nothing in the rendering path was tested: GL 1.3 combiner vs GLSL on nv30, shader compile time and
+  RAM are the open questions.
+- RAM: textures.pk3 is 522 MB, read on demand; the pk3 index (9000 entries) and the textures loaded
+  are what counts. Lean settings in `nexuiz-lean.cfg`: `vid_gl20 0`, `gl_picmip 2`, no realtime
+  lighting, bloom or water, `r_texture_dds_save 1` (compressed texture cache in `~/.nexuiz`), sound
+  mono 22.05 kHz 16 bit, no decals. Order of work on the PS3: variant base (combiner path), then
+  `gl20` and `hires`.
+- Recipe `games/bench/recipes/nexuiz.sh` (`SUITE=0`): `run.sh smoke nexuiz` plays the engine's
+  benchmark demo `demos/bench1.dem` (`-benchmark ... -benchmarkruns 100`, which prints "N frames S
+  seconds F fps" per pass); variant `bench` counts the passes as the Quake II recipe does (SUITE=0
+  still: a game decision needs the 5-10 game suite, not just one more row). Needs `nexuiz-data` and
+  `darkplaces-gl2` on the PS3 (about 800 MB), asked for by the user at the console first.
+- Not a dead end, not proven either. The risks, in order: the GL 2.0 path's shaders on nv30
+  (use vid_gl20 0 first), VRAM and RAM with Nexuiz's maps, sound byte order (SDL, 16-bit: the
+  Quake II OpenAL white noise was a BE bug), CPU cost of the generic (non-SSE) skeletal code.
+
 ## Sessions
 
 Before each session the webMAN fan is on SYSCON (or at least 60%) and the user boots through

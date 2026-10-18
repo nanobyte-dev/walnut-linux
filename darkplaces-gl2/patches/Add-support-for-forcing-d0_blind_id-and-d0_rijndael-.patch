@@ -1,0 +1,125 @@
+From: Simon McVittie <smcv@debian.org>
+Date: Fri, 20 Jan 2012 09:24:18 +0000
+Subject: Add support for forcing d0_blind_id and d0_rijndael to never be
+ dlopen'd
+
+Until these libraries exist as Debian packages, we'd prefer a local copy
+(which might not be compatible) to never be loaded accidentally.
+
+Origin: vendor, Debian
+Forwarded: no
+---
+ crypto.c | 18 ++++++++++++++++++
+ makefile |  8 ++++++++
+ 2 files changed, 26 insertions(+)
+
+diff --git a/crypto.c b/crypto.c
+index 05d763d..2e99175 100644
+--- a/crypto.c
++++ b/crypto.c
+@@ -213,6 +213,8 @@ static D0_EXPORT void (*qd0_blind_id_setmallocfuncs)(d0_malloc_t *m, d0_free_t *
+ static D0_EXPORT void (*qd0_blind_id_setmutexfuncs)(d0_createmutex_t *c, d0_destroymutex_t *d, d0_lockmutex_t *l, d0_unlockmutex_t *u);
+ static D0_EXPORT D0_WARN_UNUSED_RESULT D0_BOOL (*qd0_blind_id_verify_public_id)(const d0_blind_id_t *ctx, D0_BOOL *status);
+ static D0_EXPORT D0_WARN_UNUSED_RESULT D0_BOOL (*qd0_blind_id_verify_private_id)(const d0_blind_id_t *ctx);
++
++#ifndef DISABLE_CRYPTO
+ static dllfunction_t d0_blind_id_funcs[] =
+ {
+ 	{"d0_blind_id_new", (void **) &qd0_blind_id_new},
+@@ -256,11 +258,15 @@ static dllfunction_t d0_blind_id_funcs[] =
+ 	{"d0_blind_id_verify_private_id", (void **) &qd0_blind_id_verify_private_id},
+ 	{NULL, NULL}
+ };
++#endif
+ // end of d0_blind_id interface
+ 
+ static dllhandle_t d0_blind_id_dll = NULL;
+ static qboolean Crypto_OpenLibrary (void)
+ {
++#ifdef DISABLE_CRYPTO
++	return false;
++#else
+ 	const char* dllnames [] =
+ 	{
+ #if defined(WIN32)
+@@ -280,11 +286,14 @@ static qboolean Crypto_OpenLibrary (void)
+ 
+ 	// Load the DLL
+ 	return Sys_LoadLibrary (dllnames, &d0_blind_id_dll, d0_blind_id_funcs);
++#endif
+ }
+ 
+ static void Crypto_CloseLibrary (void)
+ {
++#ifndef DISABLE_CRYPTO
+ 	Sys_UnloadLibrary (&d0_blind_id_dll);
++#endif
+ }
+ 
+ #endif
+@@ -317,6 +326,8 @@ D0_EXPORT void (*qd0_rijndael_decrypt) (const unsigned long *rk, int nrounds,
+ #define D0_RIJNDAEL_KEYLENGTH(keybits) ((keybits)/8)
+ #define D0_RIJNDAEL_RKLENGTH(keybits)  ((keybits)/8+28)
+ #define D0_RIJNDAEL_NROUNDS(keybits)   ((keybits)/32+6)
++
++#ifndef DISABLE_CRYPTO_RIJNDAEL
+ static dllfunction_t d0_rijndael_funcs[] =
+ {
+ 	{"d0_rijndael_setup_decrypt", (void **) &qd0_rijndael_setup_decrypt},
+@@ -325,11 +336,15 @@ static dllfunction_t d0_rijndael_funcs[] =
+ 	{"d0_rijndael_encrypt", (void **) &qd0_rijndael_encrypt},
+ 	{NULL, NULL}
+ };
++#endif
+ // end of d0_blind_id interface
+ 
+ static dllhandle_t d0_rijndael_dll = NULL;
+ static qboolean Crypto_Rijndael_OpenLibrary (void)
+ {
++#ifdef DISABLE_CRYPTO_RIJNDAEL
++	return false;
++#else
+ 	const char* dllnames [] =
+ 	{
+ #if defined(WIN32)
+@@ -349,11 +364,14 @@ static qboolean Crypto_Rijndael_OpenLibrary (void)
+ 
+ 	// Load the DLL
+ 	return Sys_LoadLibrary (dllnames, &d0_rijndael_dll, d0_rijndael_funcs);
++#endif
+ }
+ 
+ static void Crypto_Rijndael_CloseLibrary (void)
+ {
++#ifndef DISABLE_CRYPTO_RIJNDAEL
+ 	Sys_UnloadLibrary (&d0_rijndael_dll);
++#endif
+ }
+ 
+ #endif
+diff --git a/makefile b/makefile
+index e4f1d2c..6a763d8 100644
+--- a/makefile
++++ b/makefile
+@@ -364,6 +364,10 @@ ifeq ($(DP_LINK_CRYPTO), dlopen)
+ 	LIB_CRYPTO=
+ 	CFLAGS_CRYPTO=
+ endif
++ifeq ($(DP_LINK_CRYPTO), never)
++	LIB_CRYPTO=
++	CFLAGS_CRYPTO=-DDISABLE_CRYPTO
++endif
+ ifeq ($(DP_LINK_CRYPTO_RIJNDAEL), shared)
+ 	LIB_CRYPTO_RIJNDAEL=-ld0_rijndael
+ 	CFLAGS_CRYPTO_RIJNDAEL=-DLINK_TO_CRYPTO_RIJNDAEL
+@@ -372,6 +376,10 @@ ifeq ($(DP_LINK_CRYPTO_RIJNDAEL), dlopen)
+ 	LIB_CRYPTO_RIJNDAEL=
+ 	CFLAGS_CRYPTO_RIJNDAEL=
+ endif
++ifeq ($(DP_LINK_CRYPTO_RIJNDAEL), never)
++	LIB_CRYPTO_RIJNDAEL=
++	CFLAGS_CRYPTO_RIJNDAEL=-DDISABLE_CRYPTO_RIJNDAEL
++endif
+ 
+ ifndef PKG_CONFIG
+ 	PKG_CONFIG=pkg-config

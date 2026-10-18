@@ -1,0 +1,28 @@
+From: Simon McVittie <smcv@debian.org>
+Date: Thu, 7 Jul 2011 17:04:19 +0100
+Subject: image_png.h: change name of multiple-inclusion guard to not
+ interfere with <png.h>
+
+This is a prerequisite for using the system <png.h>.
+
+Origin: vendor, Debian
+Forwarded: no
+---
+ image_png.h | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/image_png.h b/image_png.h
+index d290d98..4c94cd7 100644
+--- a/image_png.h
++++ b/image_png.h
+@@ -21,8 +21,8 @@
+ 
+ */
+ 
+-#ifndef PNG_H
+-#define PNG_H
++#ifndef QUAKE_IMAGE_PNG_H
++#define QUAKE_IMAGE_PNG_H
+ 
+ qboolean PNG_OpenLibrary (void);
+ void PNG_CloseLibrary (void);

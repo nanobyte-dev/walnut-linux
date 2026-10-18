@@ -1,0 +1,249 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-name: DarkPlaces
+Source: http://icculus.org/twilight/darkplaces/download.html
+        svn://svn.icculus.org/twilight/trunk/darkplaces
+
+Files: *
+Copyright: © 1994-2001 the XIPHOPHORUS company
+           © 1996-2005 Id Software, Inc.
+           © 1997-1998 Andrew Tridgell
+           © 1999-2000 contributors of the QuakeForge project
+           © 2000-2013 Forest Hale (LordHavoc)
+           © 2000-2002 "mercury"
+           © 2000-2001 "dabb"
+           © 2000-2001 "taniwha"
+           © 2000 "deek"
+           © 2001-2009 Mathieu Olivier (Elric)
+           © 2001-2005 Shawn Walker (EvilTypeGuy)
+           © 2001-2005 T. Joseph Carter (knghtbrd)
+           © 2001 "despair"
+           © 2003-2008 Andreas Kirsch (Black)
+           © 2003-2004 "warp"
+           © 2003 "rain"
+           © 2004 "coderjoe"
+           © 2004-2010 "tomaz"
+           © 2005-2010 "sajt"
+           © 2006 Serge Ziryukin
+           © 2007-2013 Rudolf Polzer (divverent)
+           © 2007-2008 Frank Richter (res)
+           © 2007-2008 "dresk"
+           © 2008-2010 "motorsep"
+           © 2009-2013 "eihrul"
+           © 2009-2013 "VorteX"
+           © 2009-2010 "blub"
+           © 2009 "echon"
+           © 2009-2012 "samual"
+           © 2012 Timofeyev Pavel
+           © 2012 "KrimZon"
+License: GPL-2+
+Comment:
+  Initially packaged by Simon McVittie, based on the quakespasm
+  packaging by David Banks.
+  .
+  Several files do not have any explicit copyright/license given,
+  but except where stated below, I see no reason to believe that they were
+  not written for Darkplaces or are not included in the general GPL-2+ policy.
+  .
+  cap_ogg.c, crypto.c, fs.c, ft2_defs.h, image_png.c, jpeg.c, libcurl.c,
+  snd_modplug.c, snd_ogg.c and world.c contain minimal declarations from the
+  headers of the relevant libraries, all of which are under GPL-compatible
+  licenses.
+
+Files: debian/*
+Copyright: © 2011-2013 David Banks
+           © 2011-2013 Simon McVittie
+           © 2007 Cyril Brulebois
+	   © 2013-2014 David Bate
+License: GPL-2+
+
+Files: matrixlib.c
+Copyright: © 2002-2010 Forest Hale (LordHavoc)
+           © 2002-2003 Mathieu Olivier (Elric)
+           © 2006 "sajt"
+           © 2007-2010 Rudolf Polzer (divverent)
+           © 2009-2010 "eihrul"
+           © David Moore
+License: GPL-2+ and SGI-Free-B
+
+Files: bih.* curves.c lhnet.* polygon.* svbsp.*
+Copyright: no copyright claimed
+License: public-domain
+  Various PD dedications, see the relevant files:
+  .
+  This code written in 2010 by Forest Hale (lordhavoc ghdigital com), and
+  placed into public domain
+  .
+  this code written by Forest Hale, on 2004-10-17, and placed into public
+  domain
+  .
+  Written by Forest Hale 2003-06-15 and placed into public domain.
+  .
+  Polygon clipping routines written by Forest Hale and placed into public
+  domain.
+  .
+  Shadow Volume BSP code written by Forest "LordHavoc" Hale on 2003-11-06 and
+  placed into public domain
+
+Files: keysym2ucs.c
+Copyright: no copyright claimed
+License: public-domain
+  Author: Markus G. Kuhn <http://www.cl.cam.ac.uk/~mgk25/>,
+          University of Cambridge, April 2001
+  .
+  Special thanks to Richard Verhoeven <river@win.tue.nl> for preparing
+  an initial draft of the mapping table.
+  .
+  This software is in the public domain. Share and enjoy!
+
+Files: snd_3dras.?
+Copyright: © 2008 "Qantourisc"
+License: GPL-2+ and zlib
+Comment:
+  The svn log says "Patch from Qantourisc adding support for his 3D
+  sound library" and the files have a comment "BSD", so they were
+  presumably contributed by the copyright holder under some GPL-compatible
+  version of the BSD license. Since 3DRAS, by the same author, is
+  zlib-licensed, that is presumably the BSD-style license that was intended.
+
+Files: snd_3dras_typedefs.h
+Copyright: © 2008 "Qantourisc"
+License: zlib
+Comment:
+  The file does not contain a copyright statement or license grant, but
+  it appears to have been copied verbatim from ./src/misc/typedefs.h in
+  <http://sourceforge.net/projects/threedras/files/3DRAS/block/3DRAS_blocks.tar.bz2/download>
+  which is released under the zlib license as quoted below. The license
+  grant "This licence below applies to all the files included in this project"
+  appears in ./Copyright.txt in that tarball.
+
+Files: utf8lib.c
+Copyright: © 2009-2011 Rudolf Polzer (divverent)
+           © 2009 "blub"
+           © 1991-2001 Unicode, Inc.
+License: GPL-2+ and Unicode
+Comment:
+  Some parts of the file have no explicit copyright statement or license,
+  and are assumed to be under the same license as the rest of the project.
+  .
+  Some parts of the file are from the Unicode consortium under the license
+  referred to below as "Unicode".
+
+Files: vid_agl_mackeys.h
+Copyright: © 1997-2001 Sam Lantinga
+License: LGPL-2+
+
+# -------- Licenses used -----------------------------------------------------
+
+License: GPL-2+
+  This program is free software; you can redistribute it and/or
+  modify it under the terms of the GNU General Public License
+  as published by the Free Software Foundation; either version 2
+  of the License, or (at your option) any later version.
+  .
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+  .
+  See the GNU General Public License for more details.
+  .
+  On Debian systems, a copy of the GNU GPL v2 can be found in the file
+  /usr/share/common-licenses/GPL-2.
+
+License: LGPL-2+
+  This library is free software; you can redistribute it and/or
+  modify it under the terms of the GNU Library General Public
+  License as published by the Free Software Foundation; either
+  version 2 of the License, or (at your option) any later version.
+  .
+  This library is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  Library General Public License for more details.
+  .
+  On Debian systems, a copy of the GNU LGPL v2 can be found in the file
+  /usr/share/common-licenses/LGPL-2.
+
+License: SGI-Free-B
+  Permission to use, copy, modify, and distribute this software for
+  any purpose and without fee is hereby granted, provided that the above
+  copyright notice appear in all copies and that both the copyright notice
+  and this permission notice appear in supporting documentation, and that
+  the name of Silicon Graphics, Inc. not be used in advertising
+  or publicity pertaining to distribution of the software without specific,
+  written prior permission.
+  .
+  THE MATERIAL EMBODIED ON THIS SOFTWARE IS PROVIDED TO YOU "AS-IS"
+  AND WITHOUT WARRANTY OF ANY KIND, EXPRESS, IMPLIED OR OTHERWISE
+  INCLUDING WITHOUT LIMITATION, ANY WARRANTY OF MERCHANTABILITY OR
+  FITNESS FOR A PARTICULAR PURPOSE.  IN NO EVENT SHALL SILICON
+  GRAPHICS, INC.  BE LIABLE TO YOU OR ANYONE ELSE FOR ANY DIRECT,
+  SPECIAL, INCIDENTAL, INDIRECT OR CONSEQUENTIAL DAMAGES OF ANY
+  KIND, OR ANY DAMAGES WHATSOEVER, INCLUDING WITHOUT LIMITATION,
+  LOSS OF PROFIT, LOSS OF USE, SAVINGS OR REVENUE, OR THE CLAIMS OF
+  THIRD PARTIES, WHETHER OR NOT SILICON GRAPHICS, INC.  HAS BEEN
+  ADVISED OF THE POSSIBILITY OF SUCH LOSS, HOWEVER CAUSED AND ON
+  ANY THEORY OF LIABILITY, ARISING OUT OF OR IN CONNECTION WITH THE
+  POSSESSION, USE OR PERFORMANCE OF THIS SOFTWARE.
+  .
+  US Government Users Restricted Rights
+  Use, duplication, or disclosure by the Government is subject to
+  restrictions set forth in FAR 52.227.19(c)(2) or subparagraph
+  (c)(1)(ii) of the Rights in Technical Data and Computer Software
+  clause at DFARS 252.227-7013 and/or in similar or successor
+  clauses in the FAR or the DOD or NASA FAR Supplement.
+  Unpublished-- rights reserved under the copyright laws of the
+  United States.  Contractor/manufacturer is Silicon Graphics,
+  Inc., 2011 N.  Shoreline Blvd., Mountain View, CA 94039-7311.
+
+License: Unicode
+  Permission is hereby granted, free of charge, to any person obtaining
+  a copy of the Unicode data files and any associated documentation (the
+  "Data Files") or Unicode software and any associated documentation (the
+  "Software") to deal in the Data Files or Software without restriction,
+  including without limitation the rights to use, copy, modify, merge,
+  publish, distribute, and/or sell copies of the Data Files or Software,
+  and to permit persons to whom the Data Files or Software are furnished
+  to do so, provided that (a) the above copyright notice(s) and this
+  permission notice appear with all copies of the Data Files or Software,
+  (b) both the above copyright notice(s) and this permission notice appear
+  in associated documentation, and (c) there is clear notice in each
+  modified Data File or in the Software as well as in the documentation
+  associated with the Data File(s) or Software that the data or software
+  has been modified.
+  .
+  THE DATA FILES AND SOFTWARE ARE PROVIDED "AS IS", WITHOUT WARRANTY
+  OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+  WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+  NONINFRINGEMENT OF THIRD PARTY RIGHTS. IN NO EVENT SHALL THE COPYRIGHT
+  HOLDER OR HOLDERS INCLUDED IN THIS NOTICE BE LIABLE FOR ANY CLAIM, OR
+  ANY SPECIAL INDIRECT OR CONSEQUENTIAL DAMAGES, OR ANY DAMAGES WHATSOEVER
+  RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF
+  CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+  CONNECTION WITH THE USE OR PERFORMANCE OF THE DATA FILES OR SOFTWARE.
+  .
+  Except as contained in this notice, the name of a copyright holder
+  shall not be used in advertising or otherwise to promote the sale,
+  use or other dealings in these Data Files or Software without prior
+  written authorization of the copyright holder.
+
+License: zlib
+  This software is provided 'as-is', without any express or implied
+  warranty. In no event will the authors be held liable for any damages
+  arising from the use of this software.
+  .
+  Permission is granted to anyone to use this software for any purpose,
+  including commercial applications, and to alter it and redistribute it
+  freely, subject to the following restrictions:
+  .
+  1. The origin of this software must not be misrepresented; you must not
+  claim that you wrote the original software. If you use this software
+  in a product, an acknowledgment in the product documentation would be
+  appreciated but is not required.
+  .
+  2. Altered source versions must be plainly marked as such, and must not be
+  misrepresented as being the original software.
+  .
+  3. This notice may not be removed or altered from any source
+  distribution.
+
+# vim:set et sw=2 sts=2:

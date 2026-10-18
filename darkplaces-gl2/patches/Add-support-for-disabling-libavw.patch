@@ -1,0 +1,80 @@
+From: Simon McVittie <smcv@debian.org>
+Date: Sat, 18 May 2013 00:36:31 +0100
+Subject: Add support for disabling libavw
+
+As with all the other dlopen()'d libraries, if we're going to use them,
+we should link them properly so dpkg-shlibdeps can pick up the
+right versioned dependencies. Xonotic 0.7.0 doesn't seem to ship
+this one so we can probably just omit it.
+
+Origin: vendor, Debian
+Forwarded: no
+---
+ cl_video_libavw.c | 20 ++++++++++++++++++++
+ makefile          |  4 ++++
+ makefile.inc      |  2 +-
+ 3 files changed, 25 insertions(+), 1 deletion(-)
+
+diff --git a/cl_video_libavw.c b/cl_video_libavw.c
+index 7924127..6ccdb54 100644
+--- a/cl_video_libavw.c
++++ b/cl_video_libavw.c
+@@ -24,6 +24,25 @@
+ // LordHavoc: for some reason this is being #include'd rather than treated as its own file...
+ // LordHavoc: adapted to not require stdint.h as this is not available on MSVC++, using unsigned char instead of uint8_t and fs_offset_t instead of int64_t.
+ 
++#ifdef DISABLE_AVW
++
++static qboolean LibAvW_OpenLibrary(void)
++{
++	return false;
++}
++
++static void *LibAvW_OpenVideo(clvideo_t *video, char *filename, const char **errorstring)
++{
++	return NULL;
++}
++
++
++static void LibAvW_CloseLibrary(void)
++{
++}
++
++#else /* !DISABLE_AVW */
++
+ // scaler type
+ #define LIBAVW_SCALER_BILINEAR  0
+ #define LIBAVW_SCALER_BICUBIC   1
+@@ -384,3 +403,4 @@ static void LibAvW_CloseLibrary(void)
+ 	Sys_UnloadLibrary(&libavw_dll);
+ }
+ 
++#endif /* !DISABLE_AVW */
+diff --git a/makefile b/makefile
+index 6a763d8..5533f14 100644
+--- a/makefile
++++ b/makefile
+@@ -434,6 +434,10 @@ ifeq ($(DP_LINK_FREETYPE2), dlopen)
+ 	LIB_FREETYPE2=
+ endif
+ 
++ifeq ($(DP_LINK_AVW), never)
++	CFLAGS_LIBAVW=-DDISABLE_AVW
++endif
++
+ ##### Sound configuration #####
+ 
+ ifndef DP_SOUND_API
+diff --git a/makefile.inc b/makefile.inc
+index fd420e1..de97fb0 100644
+--- a/makefile.inc
++++ b/makefile.inc
+@@ -171,7 +171,7 @@ OBJ_SDL= builddate.c sys_sdl.o vid_sdl.o thread_sdl.o $(OBJ_MENU) $(OBJ_SND_COMM
+ 
+ 
+ # Compilation
+-CFLAGS_COMMON=$(CFLAGS_MAKEDEP) $(CFLAGS_PRELOAD) $(CFLAGS_FS) $(CFLAGS_WARNINGS) $(CFLAGS_LIBZ) $(CFLAGS_LIBJPEG) $(CFLAGS_LIBVORBIS) $(CFLAGS_LIBTHEORA) $(CFLAGS_LIBPNG) $(CFLAGS_LIBCURL) $(CFLAGS_LIBFREETYPE2) $(CFLAGS_D3D) $(CFLAGS_NET) $(CFLAGS_SDL) -D_FILE_OFFSET_BITS=64 -D__KERNEL_STRICT_NAMES -I../../../
++CFLAGS_COMMON=$(CFLAGS_MAKEDEP) $(CFLAGS_PRELOAD) $(CFLAGS_FS) $(CFLAGS_WARNINGS) $(CFLAGS_LIBZ) $(CFLAGS_LIBJPEG) $(CFLAGS_LIBVORBIS) $(CFLAGS_LIBTHEORA) $(CFLAGS_LIBPNG) $(CFLAGS_LIBCURL) $(CFLAGS_LIBFREETYPE2) $(CFLAGS_LIBAVW) $(CFLAGS_D3D) $(CFLAGS_NET) $(CFLAGS_SDL) -D_FILE_OFFSET_BITS=64 -D__KERNEL_STRICT_NAMES -I../../../
+ CFLAGS_CLIENT=-DCONFIG_MENU -DCONFIG_CD $(CFLAGS_VIDEO_CAPTURE)
+ CFLAGS_SERVER=
+ CFLAGS_DEBUG=-ggdb

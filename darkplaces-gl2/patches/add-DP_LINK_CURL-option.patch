@@ -1,0 +1,388 @@
+From: Simon McVittie <smcv@debian.org>
+Date: Thu, 2 Apr 2015 10:28:35 +0100
+Subject: add DP_LINK_CURL option
+
+In Debian we want library dependencies to work in the conventional way,
+since many tools expect that and use it to generate package
+dependencies.
+
+Origin: vendor, Debian
+Forwarded: no
+---
+ libcurl.c    | 83 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-
+ makefile     | 15 +++++++++++
+ makefile.inc |  4 +--
+ 3 files changed, 99 insertions(+), 3 deletions(-)
+
+diff --git a/libcurl.c b/libcurl.c
+index a1b5690..ae7224e 100644
+--- a/libcurl.c
++++ b/libcurl.c
+@@ -16,6 +16,31 @@ static cvar_t cl_curl_enabled = {CVAR_SAVE, "cl_curl_enabled","1", "whether clie
+ static cvar_t cl_curl_useragent = {0, "cl_curl_useragent","1", "send the User-Agent string (note: turning this off may break stuff)"};
+ static cvar_t cl_curl_useragent_append = {0, "cl_curl_useragent_append","", "a string to append to the User-Agent string (useful for name and version number of your mod)"};
+ 
++#ifdef LINK_TO_CURL
++
++#include <curl/curl.h>
++
++#define qcurl_global_init curl_global_init
++#define qcurl_global_cleanup curl_global_cleanup
++#define qcurl_easy_init curl_easy_init
++#define qcurl_easy_cleanup curl_easy_cleanup
++#define qcurl_easy_setopt curl_easy_setopt
++#define qcurl_easy_strerror curl_easy_strerror
++#define qcurl_easy_getinfo curl_easy_getinfo
++#define qcurl_multi_init curl_multi_init
++#define qcurl_multi_perform curl_multi_perform
++#define qcurl_multi_add_handle curl_multi_add_handle
++#define qcurl_multi_remove_handle curl_multi_remove_handle
++#define qcurl_multi_info_read curl_multi_info_read
++#define qcurl_multi_cleanup curl_multi_cleanup
++#define qcurl_multi_strerror curl_multi_strerror
++#define qcurl_slist_append curl_slist_append
++#define qcurl_slist_free_all curl_slist_free_all
++
++typedef struct curl_slist curl_slist;
++
++#else
++
+ /*
+ =================================================================
+ 
+@@ -189,6 +214,8 @@ static dllfunction_t curlfuncs[] =
+ static dllhandle_t curl_dll = NULL;
+ // will be checked at many places to find out if qcurl calls are allowed
+ 
++#endif
++
+ #define LOADTYPE_NONE 0
+ #define LOADTYPE_PAK 1
+ #define LOADTYPE_CACHEPIC 2
+@@ -247,8 +274,11 @@ Setting the command to NULL clears it.
+ */
+ static void Curl_CommandWhenDone(const char *cmd)
+ {
++#ifndef LINK_TO_CURL
+ 	if(!curl_dll)
+ 		return;
++#endif
++
+ 	if(cmd)
+ 		strlcpy(command_when_done, cmd, sizeof(command_when_done));
+ 	else
+@@ -263,8 +293,11 @@ Problem: what counts as an error?
+ 
+ static void Curl_CommandWhenError(const char *cmd)
+ {
++#ifndef LINK_TO_CURL
+ 	if(!curl_dll)
+ 		return;
++#endif
++
+ 	if(cmd)
+ 		strlcpy(command_when_error, cmd, sizeof(command_when_error));
+ 	else
+@@ -324,8 +357,11 @@ All downloads finished, at least one success since connect, no single failure
+ */
+ static void Curl_CheckCommandWhenDone(void)
+ {
++#ifndef LINK_TO_CURL
+ 	if(!curl_dll)
+ 		return;
++#endif
++
+ 	if(numdownloads_added && ((numdownloads_success + numdownloads_fail) == numdownloads_added))
+ 	{
+ 		if(numdownloads_fail == 0)
+@@ -346,6 +382,7 @@ static void Curl_CheckCommandWhenDone(void)
+ 	}
+ }
+ 
++#ifndef LINK_TO_CURL
+ /*
+ ====================
+ CURL_CloseLibrary
+@@ -392,6 +429,7 @@ static void CURL_CloseLibrary (void)
+ {
+ 	Sys_UnloadLibrary (&curl_dll);
+ }
++#endif
+ 
+ 
+ static CURLM *curlm = NULL;
+@@ -514,8 +552,12 @@ static void Curl_EndDownload(downloadinfo *di, CurlStatus status, CURLcode error
+ {
+ 	char content_type[64];
+ 	qboolean ok = false;
++
++#ifndef LINK_TO_CURL
+ 	if(!curl_dll)
+ 		return;
++#endif
++
+ 	switch(status)
+ 	{
+ 		case CURL_DOWNLOAD_SUCCESS:
+@@ -682,8 +724,12 @@ static void CheckPendingDownloads(void)
+ 	const char *h;
+ 	char urlbuf[1024];
+ 	char vabuf[1024];
++
++#ifndef LINK_TO_CURL
+ 	if(!curl_dll)
+ 		return;
++#endif
++
+ 	if(numdownloads < cl_curl_maxdownloads.integer)
+ 	{
+ 		downloadinfo *di;
+@@ -804,9 +850,12 @@ On Win32, this must be called AFTER WSAStartup has been done!
+ */
+ void Curl_Init(void)
+ {
++#ifndef LINK_TO_CURL
+ 	CURL_OpenLibrary();
+ 	if(!curl_dll)
+ 		return;
++#endif
++
+ 	if (Thread_HasThreads()) curl_mutex = Thread_CreateMutex();
+ 	qcurl_global_init(CURL_GLOBAL_NOTHING);
+ 	curlm = qcurl_multi_init();
+@@ -822,13 +871,17 @@ Surprise... closes all the stuff. Please do this BEFORE shutting down LHNET.
+ void Curl_ClearRequirements(void);
+ void Curl_Shutdown(void)
+ {
++#ifndef LINK_TO_CURL
+ 	if(!curl_dll)
+ 		return;
++#endif
+ 	Curl_ClearRequirements();
+ 	Curl_CancelAll();
+ 	if (curl_mutex) Thread_DestroyMutex(curl_mutex);
++#ifndef LINK_TO_CURL
+ 	CURL_CloseLibrary();
+ 	curl_dll = NULL;
++#endif
+ }
+ 
+ /*
+@@ -841,8 +894,10 @@ Finds the internal information block for a download given by file name.
+ static downloadinfo *Curl_Find(const char *filename)
+ {
+ 	downloadinfo *di;
++#ifndef LINK_TO_CURL
+ 	if(!curl_dll)
+ 		return NULL;
++#endif
+ 	for(di = downloads; di; di = di->next)
+ 		if(!strcasecmp(di->filename, filename))
+ 			return di;
+@@ -852,8 +907,10 @@ static downloadinfo *Curl_Find(const char *filename)
+ void Curl_Cancel_ToMemory(curl_callback_t callback, void *cbdata)
+ {
+ 	downloadinfo *di;
++#ifndef LINK_TO_CURL
+ 	if(!curl_dll)
+ 		return;
++#endif
+ 	for(di = downloads; di; )
+ 	{
+ 		if(di->callback == callback && di->callback_data == cbdata)
+@@ -881,7 +938,14 @@ static qboolean Curl_Begin(const char *URL, const char *extraheaders, double max
+ 		if(loadtype != LOADTYPE_NONE)
+ 			Host_Error("Curl_Begin: loadtype and buffer are both set");
+ 
+-	if(!curl_dll || !cl_curl_enabled.integer)
++#ifndef LINK_TO_CURL
++	if(!curl_dll)
++	{
++		return false;
++	}
++#endif
++
++	if(!cl_curl_enabled.integer)
+ 	{
+ 		return false;
+ 	}
+@@ -1135,8 +1199,10 @@ void Curl_Run(void)
+ 	if(!cl_curl_enabled.integer)
+ 		return;
+ 
++#ifndef LINK_TO_CURL
+ 	if(!curl_dll)
+ 		return;
++#endif
+ 
+ 	if (curl_mutex) Thread_LockMutex(curl_mutex);
+ 
+@@ -1250,8 +1316,10 @@ Stops ALL downloads.
+ */
+ void Curl_CancelAll(void)
+ {
++#ifndef LINK_TO_CURL
+ 	if(!curl_dll)
+ 		return;
++#endif
+ 
+ 	if (curl_mutex) Thread_LockMutex(curl_mutex);
+ 
+@@ -1273,8 +1341,10 @@ returns true iff there is a download running.
+ */
+ qboolean Curl_Running(void)
+ {
++#ifndef LINK_TO_CURL
+ 	if(!curl_dll)
+ 		return false;
++#endif
+ 
+ 	return downloads != NULL;
+ }
+@@ -1289,8 +1359,10 @@ for the given download.
+ */
+ static double Curl_GetDownloadAmount(downloadinfo *di)
+ {
++#ifndef LINK_TO_CURL
+ 	if(!curl_dll)
+ 		return -2;
++#endif
+ 	if(di->curle)
+ 	{
+ 		double length;
+@@ -1313,8 +1385,10 @@ returns the speed of the given download in bytes per second
+ */
+ static double Curl_GetDownloadSpeed(downloadinfo *di)
+ {
++#ifndef LINK_TO_CURL
+ 	if(!curl_dll)
+ 		return -2;
++#endif
+ 	if(di->curle)
+ 	{
+ 		double speed;
+@@ -1337,8 +1411,11 @@ static void Curl_Info_f(void)
+ {
+ 	downloadinfo *di;
+ 	char urlbuf[1024];
++
++#ifndef LINK_TO_CURL
+ 	if(!curl_dll)
+ 		return;
++#endif
+ 	if(Curl_Running())
+ 	{
+ 		if (curl_mutex) Thread_LockMutex(curl_mutex);
+@@ -1398,11 +1475,13 @@ static void Curl_Curl_f(void)
+ 	const char *url;
+ 	const char *name = 0;
+ 
++#ifndef LINK_TO_CURL
+ 	if(!curl_dll)
+ 	{
+ 		Con_Print("libcurl DLL not found, this command is inactive.\n");
+ 		return;
+ 	}
++#endif
+ 
+ 	if(!cl_curl_enabled.integer)
+ 	{
+@@ -1573,6 +1652,7 @@ Curl_downloadinfo_t *Curl_GetDownloadInfo(int *nDownloads, const char **addition
+ 	downloadinfo *di;
+ 	Curl_downloadinfo_t *downinfo;
+ 
++#ifndef LINK_TO_CURL
+ 	if(!curl_dll)
+ 	{
+ 		*nDownloads = 0;
+@@ -1580,6 +1660,7 @@ Curl_downloadinfo_t *Curl_GetDownloadInfo(int *nDownloads, const char **addition
+ 			*additional_info = NULL;
+ 		return NULL;
+ 	}
++#endif
+ 
+ 	if (curl_mutex) Thread_LockMutex(curl_mutex);
+ 
+diff --git a/makefile b/makefile
+index f9db271..7d821ab 100644
+--- a/makefile
++++ b/makefile
+@@ -129,6 +129,7 @@ ifeq ($(DP_MAKE_TARGET), linux)
+ 	DP_LINK_VORBIS?=dlopen
+ 	DP_LINK_THEORA?=dlopen
+ 	DP_LINK_PNG?=dlopen
++	DP_LINK_CURL?=dlopen
+ endif
+ 
+ # Mac OS X configuration
+@@ -167,6 +168,7 @@ ifeq ($(DP_MAKE_TARGET), macosx)
+ 	DP_LINK_VORBIS?=dlopen
+ 	DP_LINK_THEORA?=dlopen
+ 	DP_LINK_PNG?=dlopen
++	DP_LINK_CURL?=dlopen
+ 
+ 	# on OS X, we don't build the CL by default because it uses deprecated
+ 	# and not-implemented-in-64bit Carbon
+@@ -211,6 +213,7 @@ ifeq ($(DP_MAKE_TARGET), sunos)
+ 	DP_LINK_VORBIS?=dlopen
+ 	DP_LINK_THEORA?=dlopen
+ 	DP_LINK_PNG?=dlopen
++	DP_LINK_CURL?=dlopen
+ endif
+ 
+ # BSD configuration
+@@ -249,6 +252,7 @@ endif
+ 	DP_LINK_VORBIS?=dlopen
+ 	DP_LINK_THEORA?=dlopen
+ 	DP_LINK_PNG?=dlopen
++	DP_LINK_CURL?=dlopen
+ endif
+ 
+ # Win32 configuration
+@@ -311,6 +315,7 @@ ifeq ($(DP_MAKE_TARGET), mingw)
+ 	DP_LINK_VORBIS?=dlopen
+ 	DP_LINK_THEORA?=dlopen
+ 	DP_LINK_PNG?=dlopen
++	DP_LINK_CURL?=dlopen
+ endif
+ 
+ # set these to "" if you want to use dynamic loading instead
+@@ -397,6 +402,16 @@ ifeq ($(DP_LINK_PNG), dlopen)
+ 	LIB_PNG=
+ endif
+ 
++# curl
++ifeq ($(DP_LINK_CURL), shared)
++	CFLAGS_LIBCURL=-DLINK_TO_CURL `$(PKG_CONFIG) --cflags libcurl`
++	LIB_CURL=`$(PKG_CONFIG) --libs libcurl`
++endif
++ifeq ($(DP_LINK_CURL), dlopen)
++	CFLAGS_LIBCURL=
++	LIB_CURL=
++endif
++
+ ##### Sound configuration #####
+ 
+ ifndef DP_SOUND_API
+diff --git a/makefile.inc b/makefile.inc
+index 3226041..c5d6c99 100644
+--- a/makefile.inc
++++ b/makefile.inc
+@@ -171,7 +171,7 @@ OBJ_SDL= builddate.c sys_sdl.o vid_sdl.o thread_sdl.o $(OBJ_MENU) $(OBJ_SND_COMM
+ 
+ 
+ # Compilation
+-CFLAGS_COMMON=$(CFLAGS_MAKEDEP) $(CFLAGS_PRELOAD) $(CFLAGS_FS) $(CFLAGS_WARNINGS) $(CFLAGS_LIBZ) $(CFLAGS_LIBJPEG) $(CFLAGS_LIBVORBIS) $(CFLAGS_LIBTHEORA) $(CFLAGS_LIBPNG) $(CFLAGS_D3D) $(CFLAGS_NET) $(CFLAGS_SDL) -D_FILE_OFFSET_BITS=64 -D__KERNEL_STRICT_NAMES -I../../../
++CFLAGS_COMMON=$(CFLAGS_MAKEDEP) $(CFLAGS_PRELOAD) $(CFLAGS_FS) $(CFLAGS_WARNINGS) $(CFLAGS_LIBZ) $(CFLAGS_LIBJPEG) $(CFLAGS_LIBVORBIS) $(CFLAGS_LIBTHEORA) $(CFLAGS_LIBPNG) $(CFLAGS_LIBCURL) $(CFLAGS_D3D) $(CFLAGS_NET) $(CFLAGS_SDL) -D_FILE_OFFSET_BITS=64 -D__KERNEL_STRICT_NAMES -I../../../
+ CFLAGS_CLIENT=-DCONFIG_MENU -DCONFIG_CD $(CFLAGS_VIDEO_CAPTURE)
+ CFLAGS_SERVER=
+ CFLAGS_DEBUG=-ggdb
+@@ -209,7 +209,7 @@ LDFLAGS_RELEASE=$(OPTIM_RELEASE) -DSVNREVISION=`{ test -d .svn && svnversion; }
+ 
+ OBJ_GLX= builddate.c sys_linux.o vid_glx.o thread_pthread.o keysym2ucs.o $(OBJ_MENU) $(OBJ_SOUND) $(OBJ_CD) $(OBJ_VIDEO_CAPTURE) $(OBJ_COMMON)
+ 
+-LDFLAGS_UNIXCOMMON=-lm $(LIB_ODE) $(LIB_Z) $(LIB_JPEG) $(LIB_CRYPTO) $(LIB_CRYPTO_RIJNDAEL) $(LIB_PNG)
++LDFLAGS_UNIXCOMMON=-lm $(LIB_ODE) $(LIB_Z) $(LIB_JPEG) $(LIB_CRYPTO) $(LIB_CRYPTO_RIJNDAEL) $(LIB_PNG) $(LIB_CURL)
+ LDFLAGS_UNIXCL=-L$(UNIX_X11LIBPATH) -lX11 -lXpm -lXext -lXxf86vm -pthread $(LIB_SOUND) $(LIB_VORBIS) $(LIB_THEORA)
+ LDFLAGS_UNIXCL_PRELOAD=-lz -ljpeg -lpng -logg -ltheora -lvorbis -lvorbisenc -lvorbisfile -lcurl
+ LDFLAGS_UNIXSV_PRELOAD=-lz -ljpeg -lpng -lcurl

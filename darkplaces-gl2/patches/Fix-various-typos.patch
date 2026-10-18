@@ -1,0 +1,328 @@
+From: Simon McVittie <smcv@debian.org>
+Date: Fri, 20 Jan 2012 09:34:00 +0000
+Subject: Fix various typos
+
+Picked up by Debian's Lintian package-checking tool.
+
+Origin: vendor, Debian
+Forwarded: no
+---
+ clvm_cmds.c           | 2 +-
+ cmd.c                 | 2 +-
+ curves.c              | 2 +-
+ dpdefs/csprogsdefs.qc | 4 ++--
+ gl_draw.c             | 2 +-
+ gl_textures.c         | 2 +-
+ menu.c                | 2 +-
+ netconn.c             | 4 ++--
+ progsvm.h             | 2 +-
+ prvm_cmds.c           | 8 ++++----
+ prvm_edict.c          | 6 +++---
+ sbar.c                | 2 +-
+ svvm_cmds.c           | 2 +-
+ sys.h                 | 2 +-
+ todo                  | 2 +-
+ vid_sdl.c             | 2 +-
+ vid_shared.c          | 2 +-
+ vid_wgl.c             | 2 +-
+ world.c               | 4 ++--
+ 19 files changed, 27 insertions(+), 27 deletions(-)
+
+diff --git a/clvm_cmds.c b/clvm_cmds.c
+index 27d247f..1dedf29 100644
+--- a/clvm_cmds.c
++++ b/clvm_cmds.c
+@@ -472,7 +472,7 @@ static void VM_CL_findradius (prvm_prog_t *prog)
+ 	else
+ 		chainfield = prog->fieldoffsets.chain;
+ 	if(chainfield < 0)
+-		prog->error_cmd("VM_findchain: %s doesnt have the specified chain field !", prog->name);
++		prog->error_cmd("VM_findchain: %s doesn't have the specified chain field !", prog->name);
+ 
+ 	chain = (prvm_edict_t *)prog->edicts;
+ 
+diff --git a/cmd.c b/cmd.c
+index cab160b..28c722d 100644
+--- a/cmd.c
++++ b/cmd.c
+@@ -1614,7 +1614,7 @@ static void Cmd_TokenizeString (const char *text)
+ 			l = (int)strlen(com_token) + 1;
+ 			if (cmd_tokenizebufferpos + l > CMD_TOKENIZELENGTH)
+ 			{
+-				Con_Printf("Cmd_TokenizeString: ran out of %i character buffer space for command arguements\n", CMD_TOKENIZELENGTH);
++				Con_Printf("Cmd_TokenizeString: ran out of %i character buffer space for command arguments\n", CMD_TOKENIZELENGTH);
+ 				break;
+ 			}
+ 			memcpy (cmd_tokenizebuffer + cmd_tokenizebufferpos, com_token, l);
+diff --git a/curves.c b/curves.c
+index cf7569d..e6ade77 100644
+--- a/curves.c
++++ b/curves.c
+@@ -159,7 +159,7 @@ static int Q3PatchTesselation(float largestsquared3xcurvearea, float tolerance)
+ static float Squared3xCurveArea(const float *a, const float *control, const float *b, int components)
+ {
+ #if 0
+-	// mimicing the old behaviour with the new code...
++	// mimicking the old behaviour with the new code...
+ 
+ 	float deviation;
+ 	float quartercurvearea = 0;
+diff --git a/dpdefs/csprogsdefs.qc b/dpdefs/csprogsdefs.qc
+index 18a8920..02d0b1d 100644
+--- a/dpdefs/csprogsdefs.qc
++++ b/dpdefs/csprogsdefs.qc
+@@ -798,8 +798,8 @@ float(float entitynum, float fldnum) getentity = #504;
+ vector(float entitynum, float fldnum) getentityvec = #504;
+ // description: allows to query parms from render entities, especially useful with attaching CSQC ents to
+ // server entities networked and interpolated by engine (monsters, players), number of entity is it's SVQC number
+-// you can send it via tempentity/CSQC entity message. Note that this builtin doesnt know about entity removing/reallocating
+-// so it's meaning to work for short period of time, dont use it on missiles/grenades whatever will be removed next five seconds
++// you can send it via tempentity/CSQC entity message. Note that this builtin doesn't know about entity removing/reallocating
++// so it's meaning to work for short period of time, don't use it on missiles/grenades whatever will be removed next five seconds
+ 
+ //DP_GFX_FONTS
+ //idea: Blub\0, divVerent
+diff --git a/gl_draw.c b/gl_draw.c
+index 4e0bfd6..a90924c 100644
+--- a/gl_draw.c
++++ b/gl_draw.c
+@@ -530,7 +530,7 @@ static void LoadFont_f(void)
+ 			   "loadfont console gfx/conchars,gfx/fallback 8 12 16 24 32\n"
+ 			   "In many cases, 8 12 16 24 32 should be a good choice.\n"
+ 			   "custom switches:\n"
+-			   " scale x : scale all characters by this amount when rendering (doesnt change line height)\n"
++			   " scale x : scale all characters by this amount when rendering (doesn't change line height)\n"
+ 			   " voffset x : offset all chars vertical when rendering, this is multiplied to character height\n"
+ 			);
+ 		return;
+diff --git a/gl_textures.c b/gl_textures.c
+index 69938da..3f2366b 100644
+--- a/gl_textures.c
++++ b/gl_textures.c
+@@ -337,7 +337,7 @@ void R_MarkDirtyTexture(rtexture_t *rt) {
+ 		return;
+ 	}
+ 
+-	// dont do anything if the texture is already dirty (and make sure this *is* a dynamic texture after all!)
++	// don't do anything if the texture is already dirty (and make sure this *is* a dynamic texture after all!)
+ 	if (glt->flags & GLTEXF_DYNAMIC)
+ 	{
+ 		// mark it as dirty, so R_RealGetTexture gets called
+diff --git a/menu.c b/menu.c
+index aa6fb7b..6344296 100644
+--- a/menu.c
++++ b/menu.c
+@@ -3226,7 +3226,7 @@ static int M_ChooseQuitMessage(int request)
+ 		if (request-- == 0) return M_QuitMessage("All your quit are","belong to long duck","dong",NULL,NULL,NULL,NULL,NULL);
+ 		if (request-- == 0) return M_QuitMessage("Press Y to quit","","But are you too legit?",NULL,NULL,NULL,NULL,NULL);
+ 		if (request-- == 0) return M_QuitMessage("This game was made by","e@chip-web.com","It is by far the best","game ever made.",NULL,NULL,NULL,NULL);
+-		if (request-- == 0) return M_QuitMessage("Even I really dont","know of a game better","Press Y to quit","like rougue chedder",NULL,NULL,NULL,NULL);
++		if (request-- == 0) return M_QuitMessage("Even I really don't","know of a game better","Press Y to quit","like rougue chedder",NULL,NULL,NULL,NULL);
+ 		if (request-- == 0) return M_QuitMessage("After you stop playing","tell the guys who made","counterstrike to just","kill themselves now",NULL,NULL,NULL,NULL);
+ 		if (request-- == 0) return M_QuitMessage("Press Y to exit to DOS","","SSH login as user Y","to exit to Linux",NULL,NULL,NULL,NULL);
+ 		if (request-- == 0) return M_QuitMessage("Press Y like you","were waanderers","from Ys'",NULL,NULL,NULL,NULL,NULL);
+diff --git a/netconn.c b/netconn.c
+index 342d78b..910278d 100755
+--- a/netconn.c
++++ b/netconn.c
+@@ -1590,7 +1590,7 @@ static int NetConn_ClientParsePacket_ServerList_ProcessReply(const char *address
+ 
+ 	if (n == serverlist_cachecount)
+ 	{
+-		// LAN search doesnt require an answer from the master server so we wont
++		// LAN search doesn't require an answer from the master server so we wont
+ 		// know the ping nor will it be initialized already...
+ 
+ 		// find a slot
+@@ -1622,7 +1622,7 @@ static int NetConn_ClientParsePacket_ServerList_ProcessReply(const char *address
+ 		entry->query = SQS_QUERIED;
+ 	} else {
+ 		// convert to unsigned to catch the -1
+-		// I still dont like this but its better than the old 10000 magic ping number - as in easier to type and read :( [11/8/2007 Black]
++		// I still don't like this but its better than the old 10000 magic ping number - as in easier to type and read :( [11/8/2007 Black]
+ 		entry->info.ping = min((unsigned) entry->info.ping, (unsigned) pingtime);
+ 		serverreplycount++;
+ 	}
+diff --git a/progsvm.h b/progsvm.h
+index 0a46d2a..b97f426 100644
+--- a/progsvm.h
++++ b/progsvm.h
+@@ -65,7 +65,7 @@ typedef struct prvm_required_field_s
+ } prvm_required_field_t;
+ 
+ 
+-// AK: I dont call it engine private cause it doesnt really belongs to the engine
++// AK: I don't call it engine private because it doesn't really belong to the engine,
+ //     it belongs to prvm.
+ typedef struct prvm_edict_private_s
+ {
+diff --git a/prvm_cmds.c b/prvm_cmds.c
+index af6d27b..1b225c9 100644
+--- a/prvm_cmds.c
++++ b/prvm_cmds.c
+@@ -1111,7 +1111,7 @@ void VM_findchain(prvm_prog_t *prog)
+ 	else
+ 		chainfield = prog->fieldoffsets.chain;
+ 	if (chainfield < 0)
+-		prog->error_cmd("VM_findchain: %s doesnt have the specified chain field !", prog->name);
++		prog->error_cmd("VM_findchain: %s doesn't have the specified chain field !", prog->name);
+ 
+ 	chain = prog->edicts;
+ 
+@@ -1166,7 +1166,7 @@ void VM_findchainfloat(prvm_prog_t *prog)
+ 	else
+ 		chainfield = prog->fieldoffsets.chain;
+ 	if (chainfield < 0)
+-		prog->error_cmd("VM_findchain: %s doesnt have the specified chain field !", prog->name);
++		prog->error_cmd("VM_findchain: %s doesn't have the specified chain field !", prog->name);
+ 
+ 	chain = (prvm_edict_t *)prog->edicts;
+ 
+@@ -1252,7 +1252,7 @@ void VM_findchainflags(prvm_prog_t *prog)
+ 	else
+ 		chainfield = prog->fieldoffsets.chain;
+ 	if (chainfield < 0)
+-		prog->error_cmd("VM_findchain: %s doesnt have the specified chain field !", prog->name);
++		prog->error_cmd("VM_findchain: %s doesn't have the specified chain field !", prog->name);
+ 
+ 	chain = (prvm_edict_t *)prog->edicts;
+ 
+@@ -4939,7 +4939,7 @@ void VM_buf_implode (prvm_prog_t *prog)
+ /*
+ ========================
+ VM_bufstr_get
+-get a string from buffer, returns tempstring, dont str_unzone it!
++get a string from buffer, returns tempstring, don't str_unzone it!
+ string bufstr_get(float bufhandle, float string_index) = #465;
+ ========================
+ */
+diff --git a/prvm_edict.c b/prvm_edict.c
+index 79c937a..743a690 100644
+--- a/prvm_edict.c
++++ b/prvm_edict.c
+@@ -259,8 +259,8 @@ prvm_edict_t *PRVM_ED_Alloc(prvm_prog_t *prog)
+ 	int i;
+ 	prvm_edict_t *e;
+ 
+-	// the client qc dont need maxclients
+-	// thus it doesnt need to use svs.maxclients
++	// the client qc doesn't need maxclients
++	// thus it doesn't need to use svs.maxclients
+ 	// AK:	changed i=svs.maxclients+1
+ 	// AK:	changed so the edict 0 wont spawn -> used as reserved/world entity
+ 	//		although the menu/client has no world
+@@ -297,7 +297,7 @@ FIXME: walk all entities and NULL out references to this entity
+ */
+ void PRVM_ED_Free(prvm_prog_t *prog, prvm_edict_t *ed)
+ {
+-	// dont delete the null entity (world) or reserved edicts
++	// don't delete the null entity (world) or reserved edicts
+ 	if (ed - prog->edicts <= prog->reserved_edicts)
+ 		return;
+ 
+diff --git a/sbar.c b/sbar.c
+index 5028909..2fbc230 100644
+--- a/sbar.c
++++ b/sbar.c
+@@ -1550,7 +1550,7 @@ void Sbar_Draw (void)
+ 				else
+ 					Sbar_DrawXNum((154-3*24),12,cl.stats[STAT_HEALTH],3,24,0.6,0.7,0.8,1,0);
+ 
+-				// AK dont draw ammo for the laser
++				// AK don't draw ammo for the laser
+ 				if(cl.stats[STAT_ACTIVEWEAPON] != 12)
+ 				{
+ 					if (cl.stats[STAT_ITEMS] & NEX_IT_SHELLS)
+diff --git a/svvm_cmds.c b/svvm_cmds.c
+index e496944..86d4738 100644
+--- a/svvm_cmds.c
++++ b/svvm_cmds.c
+@@ -998,7 +998,7 @@ static void VM_SV_findradius(prvm_prog_t *prog)
+ 	else
+ 		chainfield = prog->fieldoffsets.chain;
+ 	if (chainfield < 0)
+-		prog->error_cmd("VM_findchain: %s doesnt have the specified chain field !", prog->name);
++		prog->error_cmd("VM_findchain: %s doesn't have the specified chain field !", prog->name);
+ 
+ 	chain = (prvm_edict_t *)prog->edicts;
+ 
+diff --git a/sys.h b/sys.h
+index 17ec9a9..7ab2fe6 100644
+--- a/sys.h
++++ b/sys.h
+@@ -74,7 +74,7 @@ void Sys_Error (const char *error, ...) DP_FUNC_PRINTF(1) DP_FUNC_NORETURN;
+ void Sys_PrintToTerminal(const char *text);
+ void Sys_PrintfToTerminal(const char *fmt, ...);
+ 
+-/// INFO: This is only called by Host_Shutdown so we dont need testing for recursion
++/// INFO: This is only called by Host_Shutdown so we don't need testing for recursion
+ void Sys_Shutdown (void);
+ void Sys_Quit (int returnvalue);
+ 
+diff --git a/todo b/todo
+index 1c7b3d5..423448a 100644
+--- a/todo
++++ b/todo
+@@ -376,7 +376,7 @@
+ 2 feature darkplaces client: decal clipping (romi)
+ 2 feature darkplaces client: http download and parse http://www.gameaholic.com/servers/qspy-quake for nq servers (Spike)
+ 2 feature darkplaces client: interpolate scale and alpha changes (Cheapy)
+-2 feature darkplaces client: make CL_Video use TEXF_FRAGMENT again by adding general, transparent support for it in all drawqueue functions (so you dont need to call FragmentLocation) (Black)
++2 feature darkplaces client: make CL_Video use TEXF_FRAGMENT again by adding general, transparent support for it in all drawqueue functions (so you don't need to call FragmentLocation) (Black)
+ 2 feature darkplaces image: add scaling capabilities to Image_CopyMux
+ 2 feature darkplaces loader: add support for fuhquake naming of map textures (textures/start/quake.tga style)
+ 2 feature darkplaces loader: implement vertex cache optimization of models during loading, see this paper: http://home.comcast.net/~tom_forsyth/papers/fast_vert_cache_opt.html (Dresk)
+diff --git a/vid_sdl.c b/vid_sdl.c
+index bad1835..10a3a50 100644
+--- a/vid_sdl.c
++++ b/vid_sdl.c
+@@ -2151,7 +2151,7 @@ void VID_EnableJoystick(qboolean enable)
+ }
+ 
+ #if SDL_MAJOR_VERSION == 1
+-// set the icon (we dont use SDL here since it would be too much a PITA)
++// set the icon (we don't use SDL here since it would be too much a PITA)
+ #ifdef WIN32
+ #include "resource.h"
+ #include <SDL_syswm.h>
+diff --git a/vid_shared.c b/vid_shared.c
+index 26b69ad..77392a8 100644
+--- a/vid_shared.c
++++ b/vid_shared.c
+@@ -174,7 +174,7 @@ cvar_t gl_finish = {0, "gl_finish", "0", "make the cpu wait for the graphics pro
+ cvar_t vid_sRGB = {CVAR_SAVE, "vid_sRGB", "0", "if hardware is capable, modify rendering to be gamma corrected for the sRGB color standard (computer monitors, TVs), recommended"};
+ cvar_t vid_sRGB_fallback = {CVAR_SAVE, "vid_sRGB_fallback", "0", "do an approximate sRGB fallback if not properly supported by hardware (2: also use the fallback if framebuffer is 8bit, 3: always use the fallback even if sRGB is supported)"};
+ 
+-cvar_t vid_touchscreen = {0, "vid_touchscreen", "0", "Use touchscreen-style input (no mouse grab, track mouse motion only while button is down, screen areas for mimicing joystick axes and buttons"};
++cvar_t vid_touchscreen = {0, "vid_touchscreen", "0", "Use touchscreen-style input (no mouse grab, track mouse motion only while button is down, screen areas for mimicking joystick axes and buttons"};
+ cvar_t vid_touchscreen_showkeyboard = {0, "vid_touchscreen_showkeyboard", "0", "shows the platform's screen keyboard for text entry, can be set by csqc or menu qc if it wants to receive text input, does nothing if the platform has no screen keyboard"};
+ cvar_t vid_touchscreen_supportshowkeyboard = {CVAR_READONLY, "vid_touchscreen_supportshowkeyboard", "0", "indicates if the platform supports a virtual keyboard"};
+ cvar_t vid_stick_mouse = {CVAR_SAVE, "vid_stick_mouse", "0", "have the mouse stuck in the center of the screen" };
+diff --git a/vid_wgl.c b/vid_wgl.c
+index 7a48408..e6dee11 100644
+--- a/vid_wgl.c
++++ b/vid_wgl.c
+@@ -501,7 +501,7 @@ void AppActivate(BOOL fActive, BOOL minimize)
+ 	}
+ }
+ 
+-//TODO: move it around in vid_wgl.c since I dont think this is the right position
++//TODO: move it around in vid_wgl.c since I don't think this is the right position
+ void Sys_SendKeyEvents (void)
+ {
+ 	MSG msg;
+diff --git a/world.c b/world.c
+index 60bd093..d3cd827 100644
+--- a/world.c
++++ b/world.c
+@@ -348,8 +348,8 @@ cvar_t physics_ode_world_damping_angular = {0, "physics_ode_world_damping_angula
+ cvar_t physics_ode_world_damping_angular_threshold = {0, "physics_ode_world_damping_angular_threshold", "0.1", "world angular damping threshold (see ODE User Guide); use defaults when set to -1"};
+ cvar_t physics_ode_world_gravitymod = {0, "physics_ode_world_gravitymod", "1", "multiplies gravity got from sv_gravity, this may be needed to tweak if strong damping is used"};
+ cvar_t physics_ode_iterationsperframe = {0, "physics_ode_iterationsperframe", "1", "divisor for time step, runs multiple physics steps per frame"};
+-cvar_t physics_ode_constantstep = {0, "physics_ode_constantstep", "0", "use constant step instead of variable step which tends to increase stability, if set to 1 uses sys_ticrate, instead uses it's own value"};
+-cvar_t physics_ode_autodisable = {0, "physics_ode_autodisable", "1", "automatic disabling of objects which dont move for long period of time, makes object stacking a lot faster"};
++cvar_t physics_ode_constantstep = {0, "physics_ode_constantstep", "0", "use constant step instead of variable step which tends to increase stability, if set to 1 uses sys_ticrate, instead uses its own value"};
++cvar_t physics_ode_autodisable = {0, "physics_ode_autodisable", "1", "automatic disabling of objects which don't move for long period of time, makes object stacking a lot faster"};
+ cvar_t physics_ode_autodisable_steps = {0, "physics_ode_autodisable_steps", "10", "how many steps object should be dormant to be autodisabled"};
+ cvar_t physics_ode_autodisable_time = {0, "physics_ode_autodisable_time", "0", "how many seconds object should be dormant to be autodisabled"};
+ cvar_t physics_ode_autodisable_threshold_linear = {0, "physics_ode_autodisable_threshold_linear", "0.6", "body will be disabled if it's linear move below this value"};

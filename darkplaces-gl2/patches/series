@@ -1,0 +1,14 @@
+Add-support-for-DP_LINK_VORBIS-make-variable.patch
+Add-support-for-DP_LINK_THEORA-shared-default-is-dlo.patch
+image_png.h-change-name-of-multiple-inclusion-guard-.patch
+Be-a-bit-more-type-safe-about-using-libpng.patch
+Add-support-for-DP_LINK_PNG-shared-default-is-dlopen.patch
+add-DP_LINK_CURL-option.patch
+Add-DP_LINK_FREETYPE2-option.patch
+Add-support-for-forcing-d0_blind_id-and-d0_rijndael-.patch
+Add-support-for-disabling-libavw.patch
+Disable-dlopen-support-and-warn-if-it-gets-compiled-.patch
+Fix-OS-detection-of-darkplaces-makefile-to-not-think.patch
+Fix-various-typos.patch
+Don-t-build-SSE-only-software-rasterizer-on-non-x86-.patch
+Disable-gpu-skinning-for-skeletal-models.patch

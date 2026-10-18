@@ -1,0 +1,20 @@
+Source: darkplaces-gl2
+Section: games
+Priority: optional
+Maintainer: PS3 Linux project <ps3@localhost>
+Build-Depends: debhelper-compat (= 13), libjpeg-dev, libogg-dev, libpng-dev, libsdl2-dev,
+ libvorbis-dev, pkg-config, zlib1g-dev
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+Homepage: https://icculus.org/twilight/darkplaces/
+
+Package: darkplaces-gl2
+Architecture: ppc64
+Depends: ${shlibs:Depends}, ${misc:Depends}, libgl1
+Suggests: nexuiz-data
+Description: DarkPlaces engine from before its GL 3.2 core rewrite (GL 1.1/1.3/2.0 renderpaths)
+ The 2018-04-12 snapshot of the DarkPlaces Quake engine (Debian's buster darkplaces), which
+ still has the fixed-function and GL 2.0 renderers that Mesa's nv30 driver (OpenGL 2.1) can
+ run; Debian's current darkplaces needs a GL 3.2 core context. Installed as
+ /usr/games/darkplaces-gl2, beside Debian's darkplaces. /usr/games/nexuiz-gl2 starts Nexuiz
+ Classic (nexuiz-data) with lean settings for the PS3 (/usr/share/darkplaces-gl2/nexuiz-lean.cfg).

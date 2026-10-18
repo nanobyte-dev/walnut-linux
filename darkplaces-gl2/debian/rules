@@ -1,0 +1,39 @@
+#!/usr/bin/make -f
+include /usr/share/dpkg/pkg-info.mk
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+pie,+bindnow
+# a 2018 code base: C23 (gcc 15's default) makes true and false keywords; and -mcpu=cell for the PS3
+DEB_CFLAGS_MAINT_APPEND = -std=gnu17 -fno-strict-aliasing -Wno-error -mcpu=cell -mtune=cell \
+	-Wno-implicit-function-declaration -Wno-incompatible-pointer-types -Wno-int-conversion
+DEB_CPPFLAGS_MAINT_APPEND = -DSVNREVISION=$(DEB_VERSION) -DBUILDTYPE=ps3 -DNO_BUILD_TIMESTAMPS
+NUMJOBS := $(or $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS))),1)
+
+include /usr/share/dpkg/default.mk
+
+%:
+	dh $@
+
+# the build compiles builddate.c with the LDFLAGS, so they carry the CPPFLAGS and CFLAGS too
+override_dh_auto_build:
+	$(MAKE) -j$(NUMJOBS) \
+		CFLAGS_RELEASE="$(CPPFLAGS) $(CFLAGS)" \
+		LDFLAGS_RELEASE="$(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -lvorbis -logg" \
+		DP_MAKE_TARGET=linux DP_MACHINE=$(DEB_HOST_GNU_CPU) \
+		DP_LINK_ZLIB=shared DP_LINK_JPEG=shared DP_LINK_PNG=shared DP_LINK_VORBIS=shared \
+		DP_LINK_ODE=never DP_LINK_CURL=never DP_LINK_FREETYPE2=never DP_LINK_THEORA=never \
+		DP_LINK_CRYPTO=never DP_LINK_CRYPTO_RIJNDAEL=never DP_LINK_AVW=never \
+		DISABLE_OFFSCREEN_GECKO=1 STRIP=": do not strip" sdl-release
+
+override_dh_auto_install:
+	install -D -m 755 darkplaces-sdl debian/darkplaces-gl2/usr/games/darkplaces-gl2
+	install -D -m 755 debian/nexuiz-gl2.sh debian/darkplaces-gl2/usr/games/nexuiz-gl2
+	install -D -m 644 debian/nexuiz-lean.cfg debian/darkplaces-gl2/usr/share/darkplaces-gl2/nexuiz-lean.cfg
+
+override_dh_auto_test:
+	:
+
+override_dh_strip:
+	dh_strip
+
+override_dh_auto_clean:
+	$(MAKE) clean || true

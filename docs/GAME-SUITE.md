@@ -57,7 +57,7 @@ From `nv30_screen.c`/`nv30_format.c` (Mesa 26.2.4) and docs/RSX.md:
 - **contrib is arch:all only on debian-ports**: nothing arch-specific there is built, so
   `yamagi-quake2` (contrib) doesn't exist for ppc64 although it builds on s390x and ppc64el.
 - **Debian's darkplaces is GL 3.2 core only** (since 0~20180908), so Nexuiz (in Debian) and Xonotic
-  are out unless we build an older or GLES2 darkplaces.
+  are out with Debian's engine; Nexuiz runs on our older build (`darkplaces-gl2`, docs/GAME-PLAN.md).
 - **Sauerbraten and Red Eclipse turn texture compression off on Mesa**: `if(!mesa) usetexcompress = 2`
   in `rendergl.cpp`; only pre-made DDS files go in compressed.
 - **QuakeSpasm 0.96.3 has a BE bug**: wrong colours and dlight wraparound from the packed-pixels path
@@ -83,7 +83,7 @@ tried, **X** can't run on NV47. MB = installed (engine + data + new libraries).
 | ClassiCube (ours) | classicube 1.3.8 (in image) | runs | its default GL backend (which one UNVERIFIED); 60 fps at 1080p | UNVERIFIED | none (HUD fps) | OpenAL, Ogg (Mojang audio); voxel, meshing | **suite** (done) |
 | QuakeSpasm 0.96.3 | quakespasm, 2 + data | PPC supported; packed-pixels BE bug, `-nopackedpixels` | GL 1.x + tiny GLSL (gamma, alias models); A | small; `-heapsize` | `+timedemo demo1`, prints fps, doesn't quit | SDL audio, own mixer; Ogg/Opus/MP3/FLAC music; no S3TC | **suite** |
 | Yamagi Quake II 8.70, `gl1` | not on ppc64 (contrib), build ours | upstream tests BE incl. PPC64 | GL 1.4 fixed function; A (gl3/gles3: X) | small | `+timedemo 1 +nextdemo quit +demomap demo1.dm2` | OpenAL; WAV + Ogg; no S3TC | reserve (needs our build) |
-| darkplaces / Nexuiz 2.5.2 | darkplaces + nexuiz, 771 | builds | **GL 3.2 core only** in Debian; X | heavy | `-benchmark demo` (best of all) | S3TC + DDS cache `r_texture_dds_save` | out (needs an old or GLES2 build) |
+| darkplaces / Nexuiz 2.5.2 | darkplaces + nexuiz, 771 | builds | **GL 3.2 core only** in Debian; X | heavy | `-benchmark demo` (best of all) | S3TC + DDS cache `r_texture_dds_save` | out with Debian's engine; our `darkplaces-gl2` (2018-04 snapshot, GL 1.x/2.0) builds, not run on the PS3 yet: docs/GAME-PLAN.md, "Nexuiz Classic" |
 | Xonotic | not in Debian, ~1 GB data | | darkplaces GL 3.2 | heavy | the-big-benchmark.sh | as above | out |
 | ezquake 3.6.8 | ezquake, 6 | BE fixes upstream | modern GL 4.x: X; classic GL path: C | small | classic timedemo, UNVERIFIED | UNVERIFIED | out (Quake data, QuakeSpasm covers it) |
 | Alien Arena | contrib + non-free data | | GLSL, UNVERIFIED | | | | out |

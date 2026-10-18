@@ -1,0 +1,150 @@
+From: Simon McVittie <smcv@debian.org>
+Date: Thu, 2 Apr 2015 10:28:59 +0100
+Subject: Add DP_LINK_FREETYPE2 option
+
+In Debian we want library dependencies to work in the conventional way,
+since many tools expect that and use it to generate package
+dependencies.
+
+Origin: vendor, Debian
+Forwarded: no
+---
+ ft2.c        | 20 ++++++++++++++++++--
+ makefile     | 14 ++++++++++++++
+ makefile.inc |  4 ++--
+ 3 files changed, 34 insertions(+), 4 deletions(-)
+
+diff --git a/ft2.c b/ft2.c
+index 6ae0979..25d3a7f 100644
+--- a/ft2.c
++++ b/ft2.c
+@@ -4,7 +4,15 @@
+ #include "quakedef.h"
+ 
+ #include "ft2.h"
+-#include "ft2_defs.h"
++
++#ifdef LINK_TO_FREETYPE2
++# include <ft2build.h>
++# include FT_FREETYPE_H
++# define DP_FREETYPE_STATIC
++#else
++# include "ft2_defs.h"
++#endif
++
+ #include "ft2_fontdefs.h"
+ #include "image.h"
+ 
+@@ -140,6 +148,8 @@ static dllhandle_t ft2_dll = NULL;
+ 
+ #else
+ 
++#ifndef LINK_TO_FREETYPE2
++
+ FT_EXPORT( FT_Error )
+ (FT_Init_FreeType)( FT_Library  *alibrary );
+ FT_EXPORT( FT_Error )
+@@ -199,6 +209,8 @@ FT_EXPORT( FT_Error )
+ (FT_Attach_Stream)( FT_Face        face,
+ 		      FT_Open_Args*  parameters );
+ 
++#endif
++
+ #define qFT_Init_FreeType		FT_Init_FreeType
+ #define qFT_Done_FreeType		FT_Done_FreeType
+ //#define qFT_New_Face			FT_New_Face
+@@ -321,7 +333,11 @@ void Font_CloseLibrary (void)
+ 	fontfilecache_FreeAll();
+ 	if (font_mempool)
+ 		Mem_FreePool(&font_mempool);
+-	if (font_ft2lib && qFT_Done_FreeType)
++	if (font_ft2lib
++#ifndef LINK_TO_FREETYPE2
++		&& qFT_Done_FreeType
++#endif
++		)
+ 	{
+ 		qFT_Done_FreeType(font_ft2lib);
+ 		font_ft2lib = NULL;
+diff --git a/makefile b/makefile
+index 7d821ab..e4f1d2c 100644
+--- a/makefile
++++ b/makefile
+@@ -130,6 +130,7 @@ ifeq ($(DP_MAKE_TARGET), linux)
+ 	DP_LINK_THEORA?=dlopen
+ 	DP_LINK_PNG?=dlopen
+ 	DP_LINK_CURL?=dlopen
++	DP_LINK_FREETYPE2?=dlopen
+ endif
+ 
+ # Mac OS X configuration
+@@ -169,6 +170,7 @@ ifeq ($(DP_MAKE_TARGET), macosx)
+ 	DP_LINK_THEORA?=dlopen
+ 	DP_LINK_PNG?=dlopen
+ 	DP_LINK_CURL?=dlopen
++	DP_LINK_FREETYPE2?=dlopen
+ 
+ 	# on OS X, we don't build the CL by default because it uses deprecated
+ 	# and not-implemented-in-64bit Carbon
+@@ -214,6 +216,7 @@ ifeq ($(DP_MAKE_TARGET), sunos)
+ 	DP_LINK_THEORA?=dlopen
+ 	DP_LINK_PNG?=dlopen
+ 	DP_LINK_CURL?=dlopen
++	DP_LINK_FREETYPE2?=dlopen
+ endif
+ 
+ # BSD configuration
+@@ -253,6 +256,7 @@ endif
+ 	DP_LINK_THEORA?=dlopen
+ 	DP_LINK_PNG?=dlopen
+ 	DP_LINK_CURL?=dlopen
++	DP_LINK_FREETYPE2?=dlopen
+ endif
+ 
+ # Win32 configuration
+@@ -316,6 +320,7 @@ ifeq ($(DP_MAKE_TARGET), mingw)
+ 	DP_LINK_THEORA?=dlopen
+ 	DP_LINK_PNG?=dlopen
+ 	DP_LINK_CURL?=dlopen
++	DP_LINK_FREETYPE2?=dlopen
+ endif
+ 
+ # set these to "" if you want to use dynamic loading instead
+@@ -412,6 +417,15 @@ ifeq ($(DP_LINK_CURL), dlopen)
+ 	LIB_CURL=
+ endif
+ 
++ifeq ($(DP_LINK_FREETYPE2), shared)
++	CFLAGS_LIBFREETYPE2=-DLINK_TO_FREETYPE2 `$(PKG_CONFIG) --cflags freetype2`
++	LIB_FREETYPE2=`$(PKG_CONFIG) --libs freetype2`
++endif
++ifeq ($(DP_LINK_FREETYPE2), dlopen)
++	CFLAGS_LIBFREETYPE2=
++	LIB_FREETYPE2=
++endif
++
+ ##### Sound configuration #####
+ 
+ ifndef DP_SOUND_API
+diff --git a/makefile.inc b/makefile.inc
+index c5d6c99..fd420e1 100644
+--- a/makefile.inc
++++ b/makefile.inc
+@@ -171,7 +171,7 @@ OBJ_SDL= builddate.c sys_sdl.o vid_sdl.o thread_sdl.o $(OBJ_MENU) $(OBJ_SND_COMM
+ 
+ 
+ # Compilation
+-CFLAGS_COMMON=$(CFLAGS_MAKEDEP) $(CFLAGS_PRELOAD) $(CFLAGS_FS) $(CFLAGS_WARNINGS) $(CFLAGS_LIBZ) $(CFLAGS_LIBJPEG) $(CFLAGS_LIBVORBIS) $(CFLAGS_LIBTHEORA) $(CFLAGS_LIBPNG) $(CFLAGS_LIBCURL) $(CFLAGS_D3D) $(CFLAGS_NET) $(CFLAGS_SDL) -D_FILE_OFFSET_BITS=64 -D__KERNEL_STRICT_NAMES -I../../../
++CFLAGS_COMMON=$(CFLAGS_MAKEDEP) $(CFLAGS_PRELOAD) $(CFLAGS_FS) $(CFLAGS_WARNINGS) $(CFLAGS_LIBZ) $(CFLAGS_LIBJPEG) $(CFLAGS_LIBVORBIS) $(CFLAGS_LIBTHEORA) $(CFLAGS_LIBPNG) $(CFLAGS_LIBCURL) $(CFLAGS_LIBFREETYPE2) $(CFLAGS_D3D) $(CFLAGS_NET) $(CFLAGS_SDL) -D_FILE_OFFSET_BITS=64 -D__KERNEL_STRICT_NAMES -I../../../
+ CFLAGS_CLIENT=-DCONFIG_MENU -DCONFIG_CD $(CFLAGS_VIDEO_CAPTURE)
+ CFLAGS_SERVER=
+ CFLAGS_DEBUG=-ggdb
+@@ -209,7 +209,7 @@ LDFLAGS_RELEASE=$(OPTIM_RELEASE) -DSVNREVISION=`{ test -d .svn && svnversion; }
+ 
+ OBJ_GLX= builddate.c sys_linux.o vid_glx.o thread_pthread.o keysym2ucs.o $(OBJ_MENU) $(OBJ_SOUND) $(OBJ_CD) $(OBJ_VIDEO_CAPTURE) $(OBJ_COMMON)
+ 
+-LDFLAGS_UNIXCOMMON=-lm $(LIB_ODE) $(LIB_Z) $(LIB_JPEG) $(LIB_CRYPTO) $(LIB_CRYPTO_RIJNDAEL) $(LIB_PNG) $(LIB_CURL)
++LDFLAGS_UNIXCOMMON=-lm $(LIB_ODE) $(LIB_Z) $(LIB_JPEG) $(LIB_CRYPTO) $(LIB_CRYPTO_RIJNDAEL) $(LIB_PNG) $(LIB_CURL) $(LIB_FREETYPE2)
+ LDFLAGS_UNIXCL=-L$(UNIX_X11LIBPATH) -lX11 -lXpm -lXext -lXxf86vm -pthread $(LIB_SOUND) $(LIB_VORBIS) $(LIB_THEORA)
+ LDFLAGS_UNIXCL_PRELOAD=-lz -ljpeg -lpng -logg -ltheora -lvorbis -lvorbisenc -lvorbisfile -lcurl
+ LDFLAGS_UNIXSV_PRELOAD=-lz -ljpeg -lpng -lcurl
