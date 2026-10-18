@@ -292,16 +292,27 @@ stretch with interrupts off would show on both threads and in dmesg's RCU or wat
 
 ### The fix
 
-linux/patches/local/0009-ps3-idle-no-pause-with-irq-pending.patch (in the series, commented out:
-not built, not tested): `ps3_power_save()` calls `prep_irq_for_idle_irqsoff()` first, the helper for
-idle states entered hard-disabled and woken by a pending interrupt. It hard-disables, returns
-without pausing when something is already pending (the replay in `local_irq_enable()` runs it), and
-otherwise pauses with MSR[EE] off, so a decrementer or external interrupt that comes now stays
-pending in the hardware and ends the pause (`lv1_pause`: "MSR[EE] has no effect"). To try it:
-uncomment the line, `make linux-deb`, deploy, and on that kernel run batch 2 again. Fixed, the
-switches stop mattering: `-`, `STALLS=1` and kick give the same stall_play_s (about 7 s), and test 1
-shows no late wakeups. Watch the fan and `uptime` on the first boot: if the pause were skipped every
-time, the idle threads would spin and run hotter (nothing controls the fan under Linux).
+linux/patches/local/0009-ps3-idle-no-pause-with-irq-pending.patch (in the series since
+2026-10-18, a test kernel; built, not yet booted): `ps3_power_save()` calls `prep_irq_for_idle()`
+first, as pseries and the native Cell's `cbe_power_save()` do. It hard-disables and returns without
+pausing when something was masked since `local_irq_disable()` (the replay in `local_irq_enable()`
+runs it), otherwise it marks the thread soft-enabled; then `__hard_irq_enable()` and, unless
+`need_resched()`, `lv1_pause(0)` with MSR[EE] on, as the hcall is normally entered today. From the
+check on, a decrementer or IPI is a normal interrupt (it re-arms DEC) instead of a masked one.
+
+The first draft paused with MSR[EE] off (`prep_irq_for_idle_irqsoff()`, powernv's way). Review
+dropped it: that relies on `lv1_pause()` ending on a decrementer pending while MSR[EE] is off, and on
+the hypervisor leaving that exception pending for the guest (the native Cell's wakeup handler has to
+`set_dec(1)` because the wakeup consumes it). The only documentation is "MSR[EE] has no effect"; if
+either part fails, every idle thread loses its tick. With MSR[EE] on the remaining race is an
+interrupt handled between the hard-enable and the hcall that doesn't set need_resched; the pause
+then ends at the next timer event, at most one 4 ms tick. Re-arming DEC before the pause instead
+wouldn't close the window: a decrementer masked after the re-arm is lost the same way.
+
+To test it: install the kernel, boot it, and run test 1 and batch 2 again. Fixed, the switches stop
+mattering: `-`, `STALLS=1` and kick give the same stall_play_s (about 7 s), and test 1 shows no late
+wakeups. Watch the fan and `uptime` on the first boot: if the pause were skipped every time, the
+idle threads would spin and run hotter (nothing controls the fan under Linux).
 
 Until a fixed kernel is in, a stopgap is the kicker during game mode (ps3-desktop's ps3-game could
 start `ps3-waker -m kick -i 10 -c 1`, 100 wakeups a second on each side). ps3rsx could also retire

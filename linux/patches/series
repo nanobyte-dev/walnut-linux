@@ -48,6 +48,4 @@ local/0005-ps3fb-gpu-sharing-api.patch
 local/0006-gelic-poll-controller-passes-card.patch
 local/0007-ps3-rsx-gart-cma.patch
 local/0008-walnut-boot-logo.patch
-# proposed, not built or tested yet (docs/STALLS.md "The recorder removes stalls"): uncomment
-# after the waker A/B on the PS3 points at lost decrementers
-#local/0009-ps3-idle-no-pause-with-irq-pending.patch
+local/0009-ps3-idle-no-pause-with-irq-pending.patch
