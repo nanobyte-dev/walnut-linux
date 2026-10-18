@@ -320,7 +320,9 @@ Only when content needs them (OpenArena and ClassiCube don't):
 - **DualShock 3:** pairing works (one USB plug); check SDL mappings in play, rumble, LEDs.
 - **Fan:** read the thermal sensors under Linux, read-only first: built, not booted yet
   (docs/THERMAL.md: hwmon ps3_sm in kernel patch local/0040, the bench stops at BENCH_TEMP_MAX).
-  Control needs a SYSCON set request: researched in THERMAL.md part B, the user's decision.
+  Fan policy (user decision 2026-10-18): local/0042, SYSCON automatic at boot and on every exit
+  path, full speed or a fixed floor >= 60% through hwmon pwm1; built, not booted (THERMAL.md test
+  plan: read the policy, full speed and back, a floor only with the user's OK).
 - **Networking:** test Wi-Fi from nm-applet; NetworkManager could own eth0 now that the root
   isn't on NFS.
 - **Distribution:** sign and host the apt repository; the SPU and PPE toolchains could ship

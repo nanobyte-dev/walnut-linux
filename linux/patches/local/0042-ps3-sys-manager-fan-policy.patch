@@ -1,0 +1,1346 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 11:00:00 +0300
+Subject: ps3: sys-manager: fan policy through the System Manager (hwmon pwm1)
+
+SYSCON keeps a fan policy set by a guest in its RAM after the guest is
+gone: a manual duty webMAN set in GameOS stays in force under Linux, and
+nothing in Linux could hand the fan back to SYSCON. Now, with
+CONFIG_PS3_SYS_MANAGER_HWMON, the driver uses the System Manager's
+FAN_POLICY service (25 set, 50 get; GameOS's sys_sm_set_fan_policy and
+sys_sm_get_fan_policy, lv2 syscalls 389 and 409):
+
+- At boot (a work item, 0.5 s after probe) it logs the policy GameOS
+  left (a get), sets SYSCON automatic, and then full speed or a manual
+  floor if asked for (ps3_sys_manager.fan_policy=auto|keep|full|off,
+  ps3_sys_manager.fan_floor=<duty>).
+- hwmon ps3_sm gets pwm1_enable (0 full speed, 1 manual, 2 SYSCON
+  automatic) and pwm1 (the manual duty). A manual duty is fixed, with no
+  control loop, and always clamped to 0x99-0xf4 (60-95%): it must be safe
+  under a game's load, and 0x99 is twice SYSCON's own curve on a CECH-20xx
+  up to about 70 C (psdevwiki Thermal) and the fixed speed the project's
+  rules already accept.
+- SYSCON automatic again on every exit path when anything else was set:
+  .shutdown (power off, reboot, halt, kexec) under the request mutex
+  (bounded wait for it), the final power off and restart routines, and a
+  panic notifier at INT_MAX (on the PS3, ps3_panic() at INT_MIN never
+  returns, so it is the only restore after a panic). The lockless ones use
+  a new ps3_vuart_write_atomic(): trylock on the tx lock, nothing queued
+  before, the whole message written in a bounded spin, no allocation.
+  fan_dirty goes up before full/manual is written and down only after
+  automatic was, so no exit path misses a setting; it starts up, so an
+  exit before the boot's automatic still sends it.
+- Failures fall back to SYSCON: a full/manual set that fails, or that the
+  confirmed get reads back wrong, is followed by automatic; a refused set
+  (REQUEST_ERROR: no fan rights for this lpar) leaves only automatic
+  allowed for the boot; a thermal alert event hands a manual duty back to
+  SYSCON and refuses manual until the zone clears. The temperatures keep
+  working whatever happens to the fan.
+
+Bytes: the set is ps3vuart-tools' set_fan_policy (sguerrini97): header
+with payload size 8, tag 0, then version 1, id 0, policy, duty and zeros,
+24 bytes. No public source shows the get's bytes: it is sent like the
+temperature request (version 1, id 0, two zero bytes, payload size 4), and
+its reply is read as version, id, status, policy, speed, duty only once
+that layout is confirmed (policy 1, 8 or more bytes, right after setting
+automatic); until then reads are logged raw and used for nothing. Replies
+are taken with service id 25/26 (set) or 50/51 (get; the temperature
+reply comes as 14 to a 13) and 0-16 payload bytes;
+the first of each and every REQUEST_ERROR payload are logged. Nothing
+else is sent, and SYSCON's EEPROM (its fan tables) is never written.
+
+Known limit: the port's async read wakes at 24 bytes, so a reply shorter
+than that is read one message late; such replies never confirm the get
+layout.
+
+Forwarded: no (test on the PS3 first; docs/THERMAL.md)
+
+diff --git a/arch/powerpc/platforms/ps3/Kconfig b/arch/powerpc/platforms/ps3/Kconfig
+--- a/arch/powerpc/platforms/ps3/Kconfig
++++ b/arch/powerpc/platforms/ps3/Kconfig
+@@ -88,22 +88,32 @@ config PS3_SYS_MANAGER
+ 	  general, all users will say Y or M.
+ 
+ config PS3_SYS_MANAGER_HWMON
+-	bool "PS3 System Manager temperature sensors (hwmon)"
++	bool "PS3 System Manager temperature sensors and fan policy (hwmon)"
+ 	depends on PS3_SYS_MANAGER
+ 	depends on HWMON=y || HWMON=PS3_SYS_MANAGER
+ 	help
+-	  Read-only hwmon device "ps3_sm" with the temperatures SYSCON
+-	  measures: the Cell BE and the RSX by default, other thermal zones
+-	  with ps3_sys_manager.temp_zones=.  Reading a temp*_input sends the
++	  hwmon device "ps3_sm" with the temperatures SYSCON measures: the
++	  Cell BE and the RSX by default, other thermal zones with
++	  ps3_sys_manager.temp_zones=.  Reading a temp*_input sends the
+ 	  System Manager a temperature request (service 13, the one GameOS's
+ 	  sys_game_get_temperature uses) and waits for the reply; a value is
+-	  cached for a second.  Nothing else is sent: no fan or SYSCON
+-	  setting is touched.  If the System Manager refuses the request or
++	  cached for a second.  If the System Manager refuses the request or
+ 	  doesn't answer, the sensors read as unavailable and no more
+ 	  requests are sent.  temp*_alarm follows the System Manager's
+ 	  thermal alert events.
+ 
+-	  ps3_sys_manager.hwmon=0 on the command line turns it off.
++	  Fan policy (service 25 set, 50 get, as sys_sm_set_fan_policy and
++	  sys_sm_get_fan_policy): the fan is put in SYSCON automatic mode at
++	  boot, whatever GameOS left, and again at shutdown, reboot, kexec
++	  and panic if anything else was set.  pwm1_enable 0 = full speed,
++	  1 = a fixed manual duty (pwm1, never below 0x99 = 60%, no control
++	  loop), 2 = SYSCON automatic.  A refused set turns fan control off
++	  for the boot.  Only SYSCON's runtime policy is touched, never its
++	  EEPROM.  ps3_sys_manager.fan_policy=auto|keep|full|off and
++	  ps3_sys_manager.fan_floor=<duty> choose the boot setting.
++
++	  ps3_sys_manager.hwmon=0 turns the sensors off,
++	  ps3_sys_manager.fan_policy=off the fan requests.
+ 
+ config PS3_VERBOSE_RESULT
+ 	bool "PS3 Verbose LV1 hypercall results" if PS3_ADVANCED
+diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
+--- a/drivers/ps3/ps3-sys-manager.c
++++ b/drivers/ps3/ps3-sys-manager.c
+@@ -17,6 +17,7 @@
+ #include <linux/jiffies.h>
+ #include <linux/moduleparam.h>
+ #include <linux/delay.h>
++#include <linux/panic_notifier.h>
+ 
+ #include <asm/firmware.h>
+ #include <asm/lv1call.h>
+@@ -110,6 +111,8 @@ enum ps3_sys_manager_service_id {
+ 	PS3_SM_SERVICE_ID_SET_ATTR = 8,
+ 	PS3_SM_SERVICE_ID_TEMPERATURE = 13,
+ 	PS3_SM_SERVICE_ID_TEMPERATURE_REPLY = 14,
++	PS3_SM_SERVICE_ID_FAN_POLICY_SET = 25,
++	PS3_SM_SERVICE_ID_FAN_POLICY_GET = 50,
+ };
+ 
+ /**
+@@ -469,12 +472,56 @@ static void ps3_sys_manager_discard_payload(struct ps3_system_bus_device *dev,
+  * only (SYSCON's "tzone" list).  The reply's service id is not
+  * documented: 13 and 14 are accepted, and the one seen is logged once.
+  *
+- * Only this get request is ever sent.  One request is outstanding at a
+- * time, a value is cached for PS3_SM_TEMP_CACHE_MS, and the sensors give up
+- * for the boot after PS3_SM_TEMP_MAX_FAILS failed requests in a row or a
+- * REQUEST_ERROR reply, so a System Manager that refuses the service isn't
+- * asked again.  A zone the reply says is not there (status != 0) is
+- * switched off alone.  No request is sent once the system shuts down.
++ * One request (temperature or fan, below) is outstanding at a time, so a
++ * REQUEST_ERROR belongs to it.  A value is cached for PS3_SM_TEMP_CACHE_MS,
++ * and the sensors give up for the boot after PS3_SM_TEMP_MAX_FAILS failed
++ * requests in a row or a REQUEST_ERROR reply, so a System Manager that
++ * refuses the service isn't asked again.  A zone the reply says is not
++ * there (status != 0) is switched off alone.  No request is sent once the
++ * system shuts down.
++ *
++ * Fan policy (pwm1, pwm1_enable).
++ *
++ * SYSCON runs the fan from its thermal tables (policy 1, "automatic") unless
++ * a guest sets policy 0 (full speed) or 2 (manual, a fixed duty).  The
++ * setting lives in SYSCON's RAM and outlives the guest that made it: a
++ * manual duty webMAN set in GameOS stays in force under Linux.  So this
++ * driver sets SYSCON automatic at boot, and sets it again on every exit
++ * path (device shutdown before power off, reboot, halt and kexec; the final
++ * power off and restart routines; a panic) whenever it set anything else.
++ * Manual is only a fixed duty, never below PS3_SM_FAN_DUTY_MIN, with no
++ * control loop; a thermal alert with a manual duty in force hands the fan
++ * back to SYSCON.
++ *
++ * Set (service 25): the header (payload_size 8, request_tag 0) and
++ *   u8 version (1), u8 id (0), u8 policy, u8 duty, u8 reserved[4],
++ * 24 bytes on the wire: the set_fan_policy command of ps3vuart-tools
++ * (sguerrini97), whose struct is header + 5 bytes padded to 24, with zeros
++ * where the tool sent stack.  GameOS's sys_sm_set_fan_policy(id, policy,
++ * duty) (lv2 syscall 389) takes the same three values; webMAN-MOD uses
++ * (0, 2, duty) with duty 0x33-0xf4 and hands back with (0, 1, 0).  No
++ * reply is documented: up to PS3_SM_FAN_SET_WAIT_MS is spent waiting for a
++ * REQUEST_ERROR or a reply (service 25 or 26), the first is logged.
++ *
++ * Get (service 50): the header (payload_size 4) and u8 version (1), u8 id
++ * (0), u8 reserved[2], laid out like the temperature request.  No public
++ * tool shows these bytes; sys_sm_get_fan_policy (lv2 syscall 409) returns
++ * status, policy, "mode" (the speed, webMAN reads it as the current duty)
++ * and duty.  The reply (service 51 or 50, 0-16 bytes) is taken as
++ *   u8 version (1), u8 id, u8 status, u8 policy, u8 speed, u8 duty
++ * tentatively: every reply is logged raw at boot, and the layout counts as
++ * confirmed only when it reads policy 1 right after setting SYSCON
++ * automatic, with 8 payload bytes or more (a shorter message stays below
++ * the 24-byte rx trigger and is read one message late).  Until then policy
++ * reads only inform the log; nothing is decided from them.  A get that is
++ * refused or unanswered turns off reads only; a full speed or manual set
++ * that is refused (REQUEST_ERROR: no fan rights for this lpar) turns those
++ * off for the boot and hands the fan back to SYSCON; SYSCON automatic is
++ * still sent on the exit paths, since an earlier setting may have taken.
++ * The temperatures keep working.
++ *
++ * Nothing else is ever sent: no other System Manager service, nothing
++ * that writes SYSCON's EEPROM (the fan tables stay as they are).
+  */
+ 
+ enum {
+@@ -484,6 +531,45 @@ enum {
+ 	PS3_SM_TEMP_MAX_FAILS = 3,
+ };
+ 
++/*
++ * Fixed manual duties are kept within PS3_SM_FAN_DUTY_MIN..MAX (of 0xff).
++ * The minimum, 0x99 (60%), is the fixed speed this project already treats
++ * as safe for a supervised Linux session without any control loop, and
++ * twice what SYSCON's own curve on a CECH-20xx reaches up to about 70 C
++ * (0x33-0x4a, 20-29%, psdevwiki Thermal): a fixed duty can't follow a game's
++ * load, so it must be above the curve, not near its idle point.  The
++ * maximum is webMAN-MOD's upper clamp; full speed is policy 0.
++ */
++
++enum {
++	PS3_SM_FAN_FULL = 0,
++	PS3_SM_FAN_AUTO = 1,
++	PS3_SM_FAN_MANUAL = 2,
++	PS3_SM_FAN_DUTY_MIN = 0x99,
++	PS3_SM_FAN_DUTY_MAX = 0xf4,
++	PS3_SM_FAN_SET_WAIT_MS = 1000,
++	PS3_SM_FAN_GET_TIMEOUT_MS = 1000,
++	PS3_SM_FAN_BOOT_DELAY_MS = 500,
++	PS3_SM_FAN_ATOMIC_TRIES = 10,
++	PS3_SM_FAN_SHUTDOWN_TRIES = 300,	/* x 10 ms for hw->lock */
++};
++
++/* What is outstanding (one request at a time, hw->lock). */
++
++enum ps3_sm_req {
++	PS3_SM_REQ_TEMP,
++	PS3_SM_REQ_FAN_SET,
++	PS3_SM_REQ_FAN_GET,
++};
++
++enum ps3_sm_fan_boot {
++	PS3_SM_FAN_BOOT_OFF,
++	PS3_SM_FAN_BOOT_KEEP,
++	PS3_SM_FAN_BOOT_AUTO,
++	PS3_SM_FAN_BOOT_FULL,
++	PS3_SM_FAN_BOOT_FLOOR,
++};
++
+ static bool hwmon_enable = true;
+ module_param_named(hwmon, hwmon_enable, bool, 0444);
+ MODULE_PARM_DESC(hwmon, "Temperature sensors (hwmon ps3_sm); 0 = off");
+@@ -493,6 +579,41 @@ static int temp_zones_count = 2;
+ module_param_array(temp_zones, ushort, &temp_zones_count, 0444);
+ MODULE_PARM_DESC(temp_zones, "SYSCON thermal zones to read (default 0,1: Cell BE, RSX)");
+ 
++static char *fan_policy_param = "auto";
++module_param_named(fan_policy, fan_policy_param, charp, 0444);
++MODULE_PARM_DESC(fan_policy,
++	"Fan at boot: auto (SYSCON automatic, default), keep (as left), full, off (no fan requests at all)");
++
++static unsigned int fan_floor;
++module_param(fan_floor, uint, 0444);
++MODULE_PARM_DESC(fan_floor,
++	"Fixed manual fan duty to set at boot, raised to at least 0x99 (60%), at most 0xf4; 0 = none (default)");
++
++struct ps3_sm_fan_reply {
++	u8 version;
++	u8 id;
++	u8 status;
++	u8 policy;
++	u8 speed;
++	u8 duty;
++};
++
++struct ps3_sm_raw_reply {
++	u8 buf[16];
++	u8 len;
++	u16 sid;
++	u32 tag;
++};
++
++struct ps3_sm_fan_set_msg {
++	struct ps3_sys_manager_header header;
++	u8 version;
++	u8 id;
++	u8 policy;
++	u8 duty;
++	u8 reserved[4];
++};
++
+ struct ps3_sm_temp_reply {
+ 	u8 version;
+ 	u8 tzone;
+@@ -513,8 +634,10 @@ static struct ps3_sm_hwmon {
+ 	bool stopped;			/* power off or restart under way */
+ 	bool dead;			/* refused or never answers: give up */
+ 	bool sid_logged;
++	u8 pending_kind;		/* enum ps3_sm_req */
+ 	u8 pending_zone;
+ 	struct ps3_sm_temp_reply reply;
++	struct ps3_sm_raw_reply fan_reply;
+ 	unsigned int fails;
+ 	unsigned int nzones;
+ 	u8 zone[PS3_SM_TEMP_MAX_ZONES];
+@@ -526,8 +649,31 @@ static struct ps3_sm_hwmon {
+ 	struct device *hwmon_dev;
+ 	u32 temp_config[PS3_SM_TEMP_MAX_ZONES + 1];
+ 	struct hwmon_channel_info temp_info;
+-	const struct hwmon_channel_info *info[2];
++	u32 pwm_config[2];
++	struct hwmon_channel_info pwm_info;
++	const struct hwmon_channel_info *info[3];
+ 	struct hwmon_chip_info chip;
++
++	/* Fan policy; under lock unless noted. */
++	bool fan_on;			/* in use (fan_policy != off), fixed */
++	bool fan_dead;			/* a set was refused: automatic only */
++	bool fan_get_dead;		/* the get refused or unanswered */
++	bool fan_layout_ok;		/* get reply layout confirmed */
++	bool fan_set_logged;
++	bool fan_noreply_logged;
++	bool fan_final;			/* exit under way: only automatic (lockless) */
++	bool fan_dirty;			/* full or manual may be in force (lockless) */
++	int fan_policy;			/* last set by us, -1 none (lockless reads) */
++	u8 fan_duty;			/* manual duty, always clamped */
++	u8 fan_live;			/* the speed the get reported */
++	bool fan_live_valid;
++	unsigned long fan_stamp;
++	unsigned int fan_get_fails;
++	unsigned long fan_alerts;	/* zones in thermal alert (atomic bits) */
++	enum ps3_sm_fan_boot fan_boot;
++	struct delayed_work fan_boot_work;
++	struct work_struct fan_alert_work;
++	struct notifier_block panic_nb;
+ } *ps3_sm_hwmon;
+ 
+ static const char *ps3_sm_zone_name(u8 zone)
+@@ -592,6 +738,7 @@ static int ps3_sm_temp_query(struct ps3_sm_hwmon *hw, int channel, long *val)
+ 	spin_lock_irqsave(&hw->reply_lock, flags);
+ 	hw->pending = true;
+ 	hw->reply_error = false;
++	hw->pending_kind = PS3_SM_REQ_TEMP;
+ 	hw->pending_zone = zone;
+ 	reinit_completion(&hw->done);
+ 	spin_unlock_irqrestore(&hw->reply_lock, flags);
+@@ -681,8 +828,8 @@ static int ps3_sm_temp_handle_reply(struct ps3_system_bus_device *dev,
+ 	memcpy(&reply, buf, sizeof(reply));
+ 
+ 	spin_lock_irqsave(&hw->reply_lock, flags);
+-	if (hw->pending && reply.version == 1 &&
+-		reply.tzone == hw->pending_zone) {
++	if (hw->pending && hw->pending_kind == PS3_SM_REQ_TEMP &&
++		reply.version == 1 && reply.tzone == hw->pending_zone) {
+ 		if (!hw->sid_logged) {
+ 			hw->sid_logged = true;
+ 			dev_info(&dev->core,
+@@ -700,7 +847,9 @@ static int ps3_sm_temp_handle_reply(struct ps3_system_bus_device *dev,
+ 	return 0;
+ }
+ 
+-static void ps3_sm_temp_request_error(void)
++/* A REQUEST_ERROR: it answers the one request outstanding, if any. */
++
++static void ps3_sm_hwmon_request_error(void)
+ {
+ 	struct ps3_sm_hwmon *hw = READ_ONCE(ps3_sm_hwmon);
+ 	unsigned long flags;
+@@ -720,7 +869,7 @@ static void ps3_sm_temp_request_error(void)
+ /*
+  * From the final power off / restart paths (also after a panic, with
+  * interrupts off): no locks.  A request already past the check may still
+- * go out; ps3_sm_temp_shutdown() at device shutdown is what waits for it.
++ * go out; ps3_sm_hwmon_shutdown() at device shutdown is what waits for it.
+  */
+ 
+ static void ps3_sm_temp_stop(void)
+@@ -731,19 +880,503 @@ static void ps3_sm_temp_stop(void)
+ 		WRITE_ONCE(hw->stopped, true);
+ }
+ 
++static const char *ps3_sm_fan_policy_name(int policy)
++{
++	switch (policy) {
++	case PS3_SM_FAN_FULL: return "full speed";
++	case PS3_SM_FAN_AUTO: return "SYSCON automatic";
++	case PS3_SM_FAN_MANUAL: return "manual";
++	default: return "unknown";
++	}
++}
++
++static void ps3_sm_fan_set_init(struct ps3_sm_fan_set_msg *msg, u8 policy,
++	u8 duty)
++{
++	BUILD_BUG_ON(sizeof(*msg) != 24);
++
++	memset(msg, 0, sizeof(*msg));
++	msg->header.version = 1;
++	msg->header.size = 16;
++	msg->header.payload_size = 8;
++	msg->header.service_id = PS3_SM_SERVICE_ID_FAN_POLICY_SET;
++	msg->header.request_tag = 0;
++	msg->version = 1;
++	msg->id = 0;
++	msg->policy = policy;
++	msg->duty = duty;
++}
++
++static u8 ps3_sm_fan_clamp(struct ps3_sm_hwmon *hw, unsigned long duty)
++{
++	u8 d = clamp_val(duty, PS3_SM_FAN_DUTY_MIN, PS3_SM_FAN_DUTY_MAX);
++
++	if (d != duty)
++		dev_info(&hw->dev->core,
++			"fan: duty 0x%02lx raised/lowered to 0x%02x (safe range 0x%02x-0x%02x)\n",
++			duty, d, PS3_SM_FAN_DUTY_MIN, PS3_SM_FAN_DUTY_MAX);
++	return d;
++}
++
++/*
++ * One fan request, hw->lock held.  Returns 1 with the reply in @out, 0 when
++ * none came within @wait_ms, -EACCES for a REQUEST_ERROR, another negative
++ * errno when the write failed.
++ */
++
++static int ps3_sm_fan_request(struct ps3_sm_hwmon *hw, u8 kind,
++	const void *msg, unsigned int len, unsigned int wait_ms,
++	struct ps3_sm_raw_reply *out)
++{
++	unsigned long flags;
++	bool got, error;
++	int result;
++
++	lockdep_assert_held(&hw->lock);
++
++	spin_lock_irqsave(&hw->reply_lock, flags);
++	hw->pending = true;
++	hw->reply_error = false;
++	hw->pending_kind = kind;
++	reinit_completion(&hw->done);
++	spin_unlock_irqrestore(&hw->reply_lock, flags);
++
++	/* One write, so header and payload stay together in the tx queue. */
++	result = ps3_vuart_write(hw->dev, msg, len);
++
++	if (!result)
++		wait_for_completion_timeout(&hw->done,
++			msecs_to_jiffies(wait_ms));
++
++	spin_lock_irqsave(&hw->reply_lock, flags);
++	got = !hw->pending;
++	error = hw->reply_error;
++	hw->pending = false;
++	if (got && !error)
++		*out = hw->fan_reply;
++	spin_unlock_irqrestore(&hw->reply_lock, flags);
++
++	if (got && error)
++		return -EACCES;
++	if (got)
++		return 1;
++	return result;
++}
++
++/*
++ * Set a policy, hw->lock held.  SYSCON automatic may always be sent until
++ * the device shuts down; full speed and manual not once an exit has begun.
++ * fan_dirty goes up before anything but automatic is sent and down only
++ * after automatic was sent, so the lockless exit paths know when they have
++ * to hand the fan back.
++ */
++
++static int ps3_sm_fan_set(struct ps3_sm_hwmon *hw, u8 policy, u8 duty)
++{
++	struct ps3_sm_fan_set_msg msg;
++	struct ps3_sm_raw_reply r;
++	int result;
++
++	lockdep_assert_held(&hw->lock);
++
++	/* Never a duty outside the safe range on the wire. */
++	if (policy > PS3_SM_FAN_MANUAL || (policy == PS3_SM_FAN_MANUAL &&
++		(duty < PS3_SM_FAN_DUTY_MIN || duty > PS3_SM_FAN_DUTY_MAX)))
++		return -EINVAL;
++	if (READ_ONCE(hw->fan_dead) && policy != PS3_SM_FAN_AUTO)
++		return -EIO;
++	if (policy == PS3_SM_FAN_MANUAL && READ_ONCE(hw->fan_alerts))
++		return -EBUSY;
++	if (READ_ONCE(hw->stopped))
++		return -ESHUTDOWN;
++	if (policy != PS3_SM_FAN_MANUAL)
++		duty = 0;
++	if (policy != PS3_SM_FAN_AUTO) {
++		WRITE_ONCE(hw->fan_dirty, true);
++		smp_mb();
++		if (READ_ONCE(hw->fan_final))
++			return -ESHUTDOWN;
++	}
++
++	ps3_sm_fan_set_init(&msg, policy, duty);
++	result = ps3_sm_fan_request(hw, PS3_SM_REQ_FAN_SET, &msg, sizeof(msg),
++		PS3_SM_FAN_SET_WAIT_MS, &r);
++
++	if (result == -EACCES) {
++		dev_warn(&hw->dev->core,
++			"fan: setting %s refused (REQUEST_ERROR): only SYSCON automatic from now on\n",
++			ps3_sm_fan_policy_name(policy));
++		WRITE_ONCE(hw->fan_dead, true);
++		/* Automatic refused too: sending it again on exit won't help. */
++		if (policy == PS3_SM_FAN_AUTO)
++			WRITE_ONCE(hw->fan_dirty, false);
++		return result;
++	}
++
++	if (result < 0) {
++		dev_warn(&hw->dev->core, "fan: %s not sent: %d\n",
++			ps3_sm_fan_policy_name(policy), result);
++		return -EIO;
++	}
++
++	if (result == 1 && !hw->fan_set_logged) {
++		hw->fan_set_logged = true;
++		dev_info(&hw->dev->core,
++			"fan: set reply: service id %u, payload %u, tag %u: %*ph\n",
++			r.sid, r.len, r.tag, r.len, r.buf);
++	} else if (result == 0 && !hw->fan_noreply_logged) {
++		hw->fan_noreply_logged = true;
++		dev_info(&hw->dev->core,
++			"fan: no reply to the set within %u ms (none is documented)\n",
++			PS3_SM_FAN_SET_WAIT_MS);
++	}
++
++	if (policy != READ_ONCE(hw->fan_policy) ||
++		(policy == PS3_SM_FAN_MANUAL && duty != hw->fan_duty)) {
++		if (policy == PS3_SM_FAN_MANUAL)
++			dev_info(&hw->dev->core,
++				"fan: manual, duty 0x%02x (%u%%)\n", duty,
++				duty * 100 / 255);
++		else
++			dev_info(&hw->dev->core, "fan: %s\n",
++				ps3_sm_fan_policy_name(policy));
++	}
++
++	if (policy == PS3_SM_FAN_MANUAL)
++		hw->fan_duty = duty;
++	WRITE_ONCE(hw->fan_policy, policy);
++	hw->fan_live_valid = false;
++	if (policy == PS3_SM_FAN_AUTO)
++		WRITE_ONCE(hw->fan_dirty, false);
++
++	return 0;
++}
++
++/*
++ * Read the policy, hw->lock held.  The payload size (> 0) with @f filled
++ * when the reply looks like the tentative layout (version 1, 6 bytes or
++ * more), -EPROTO when it doesn't (logged raw), another negative errno when
++ * there is none.
++ */
++
++static int ps3_sm_fan_get(struct ps3_sm_hwmon *hw, struct ps3_sm_fan_reply *f,
++	bool log)
++{
++	struct {
++		struct ps3_sys_manager_header header;
++		u8 version;
++		u8 id;
++		u8 reserved[2];
++	} msg;
++	struct ps3_sm_raw_reply r;
++	int result;
++
++	BUILD_BUG_ON(sizeof(msg) != 20);
++	lockdep_assert_held(&hw->lock);
++
++	if (READ_ONCE(hw->fan_dead) || hw->fan_get_dead)
++		return -ENODATA;
++	if (READ_ONCE(hw->stopped))
++		return -ESHUTDOWN;
++
++	memset(&msg, 0, sizeof(msg));
++	msg.header.version = 1;
++	msg.header.size = 16;
++	msg.header.payload_size = 4;
++	msg.header.service_id = PS3_SM_SERVICE_ID_FAN_POLICY_GET;
++	msg.header.request_tag = 0;
++	msg.version = 1;
++	msg.id = 0;
++
++	result = ps3_sm_fan_request(hw, PS3_SM_REQ_FAN_GET, &msg, sizeof(msg),
++		PS3_SM_FAN_GET_TIMEOUT_MS, &r);
++
++	if (result == -EACCES) {
++		dev_warn(&hw->dev->core,
++			"fan: get refused (REQUEST_ERROR): policy reads off for this boot\n");
++		hw->fan_get_dead = true;
++		return -ENODATA;
++	}
++
++	if (result <= 0) {
++		result = result ? -EIO : -ETIMEDOUT;
++		if (++hw->fan_get_fails >= PS3_SM_TEMP_MAX_FAILS) {
++			dev_warn(&hw->dev->core,
++				"fan: %u gets unanswered (last %d): policy reads off for this boot\n",
++				hw->fan_get_fails, result);
++			hw->fan_get_dead = true;
++		} else if (log) {
++			dev_info(&hw->dev->core, "fan: get: no reply (%d)\n",
++				result);
++		}
++		return result;
++	}
++
++	hw->fan_get_fails = 0;
++
++	if (log)
++		dev_info(&hw->dev->core,
++			"fan: get reply: service id %u, payload %u, tag %u: %*ph\n",
++			r.sid, r.len, r.tag, r.len, r.buf);
++	else
++		dev_dbg(&hw->dev->core,
++			"fan: get reply: service id %u, payload %u: %*ph\n",
++			r.sid, r.len, r.len, r.buf);
++
++	if (r.len < sizeof(*f) || r.buf[0] != 1)
++		return -EPROTO;
++
++	memcpy(f, r.buf, sizeof(*f));
++	return r.len;
++}
++
++/*
++ * Set a policy and, once the get layout is confirmed, check it took; any
++ * failure with full speed or manual asked for hands the fan back to SYSCON.
++ */
++
++static int ps3_sm_fan_apply(struct ps3_sm_hwmon *hw, u8 policy, u8 duty)
++{
++	struct ps3_sm_fan_reply f;
++	int result;
++
++	result = ps3_sm_fan_set(hw, policy, duty);
++	if (result) {
++		/* Not sent at all (shutdown, range, alert): nothing to undo. */
++		if (policy != PS3_SM_FAN_AUTO && result != -ESHUTDOWN &&
++			result != -EINVAL && result != -EBUSY &&
++			READ_ONCE(hw->fan_dirty)) {
++			dev_warn(&hw->dev->core,
++				"fan: back to SYSCON automatic\n");
++			ps3_sm_fan_set(hw, PS3_SM_FAN_AUTO, 0);
++		}
++		return result;
++	}
++
++	if (!hw->fan_layout_ok || ps3_sm_fan_get(hw, &f, false) < 0)
++		return 0;
++
++	if (f.policy == policy)
++		return 0;
++
++	dev_warn(&hw->dev->core, "fan: policy reads %u after setting %u%s\n",
++		f.policy, policy, policy != PS3_SM_FAN_AUTO ?
++		": back to SYSCON automatic" : "");
++	if (policy != PS3_SM_FAN_AUTO)
++		ps3_sm_fan_set(hw, PS3_SM_FAN_AUTO, 0);
++	return -EIO;
++}
++
++/*
++ * At boot, from a work item (the replies come through the vuart work, so the
++ * probe doesn't wait for them): log the policy GameOS left, set SYSCON
++ * automatic (confirming the get layout with it), then full speed or the
++ * floor if asked for.
++ */
++
++static void ps3_sm_fan_boot_work(struct work_struct *work)
++{
++	struct ps3_sm_hwmon *hw = container_of(to_delayed_work(work),
++		struct ps3_sm_hwmon, fan_boot_work);
++	struct ps3_sm_fan_reply f;
++	int result;
++
++	mutex_lock(&hw->lock);
++
++	if (READ_ONCE(hw->fan_final))
++		goto out;
++
++	result = ps3_sm_fan_get(hw, &f, true);
++	if (result > 0)
++		dev_info(&hw->dev->core,
++			"fan: at boot (layout unconfirmed): status %u, policy %u (%s), speed 0x%02x, duty 0x%02x\n",
++			f.status, f.policy, ps3_sm_fan_policy_name(f.policy),
++			f.speed, f.duty);
++
++	if (hw->fan_boot == PS3_SM_FAN_BOOT_KEEP)
++		goto out;
++
++	if (ps3_sm_fan_set(hw, PS3_SM_FAN_AUTO, 0))
++		goto out;
++
++	if (ps3_sm_fan_get(hw, &f, true) >= 8 && f.id == 0 &&
++		f.policy == PS3_SM_FAN_AUTO) {
++		hw->fan_layout_ok = true;
++		dev_info(&hw->dev->core,
++			"fan: get layout confirmed (policy 1 after setting SYSCON automatic): speed 0x%02x\n",
++			f.speed);
++	} else {
++		dev_info(&hw->dev->core,
++			"fan: get layout not confirmed: policy reads are not used\n");
++	}
++
++	if (hw->fan_boot == PS3_SM_FAN_BOOT_FULL)
++		ps3_sm_fan_apply(hw, PS3_SM_FAN_FULL, 0);
++	else if (hw->fan_boot == PS3_SM_FAN_BOOT_FLOOR)
++		ps3_sm_fan_apply(hw, PS3_SM_FAN_MANUAL, hw->fan_duty);
++out:
++	mutex_unlock(&hw->lock);
++}
++
++/* A thermal alert with a fixed duty in force: SYSCON takes over again. */
++
++static void ps3_sm_fan_alert_work(struct work_struct *work)
++{
++	struct ps3_sm_hwmon *hw = container_of(work, struct ps3_sm_hwmon,
++		fan_alert_work);
++
++	mutex_lock(&hw->lock);
++	if (READ_ONCE(hw->fan_policy) == PS3_SM_FAN_MANUAL &&
++		!READ_ONCE(hw->fan_final)) {
++		/* Manual stays refused while a zone is in alert. */
++		dev_warn(&hw->dev->core,
++			"fan: thermal alert with a manual duty: back to SYSCON automatic\n");
++		ps3_sm_fan_set(hw, PS3_SM_FAN_AUTO, 0);
++	}
++	mutex_unlock(&hw->lock);
++}
++
++/*
++ * The lockless exit paths: a panic (notifier; on the PS3 ps3_panic(), a
++ * notifier at INT_MIN, never returns, so this is the only restore after a
++ * panic whatever panic_timeout says), the final power off and restart
++ * routines (after device shutdown normally, without it after an emergency
++ * restart).  All run after the other cpus were stopped; nothing may sleep.
++ * From here on only automatic is sent.  What can still fail: a write left
++ * queued in the tx list (tx interrupts masked) makes it give up with a
++ * "not sent" line.  A kdump kernel (crash_kexec before the notifiers) sets
++ * automatic itself when it probes.
++ */
++
++static void ps3_sm_fan_restore_atomic(const char *why)
++{
++	struct ps3_sm_hwmon *hw = READ_ONCE(ps3_sm_hwmon);
++	struct ps3_sm_fan_set_msg msg;
++	int result = -EBUSY;
++	unsigned int i;
++
++	if (!hw || !hw->fan_on)
++		return;
++
++	WRITE_ONCE(hw->fan_final, true);
++	smp_mb();
++
++	if (!READ_ONCE(hw->fan_dirty))
++		return;
++
++	ps3_sm_fan_set_init(&msg, PS3_SM_FAN_AUTO, 0);
++
++	for (i = 0; i < PS3_SM_FAN_ATOMIC_TRIES && result == -EBUSY; i++) {
++		result = ps3_vuart_write_atomic(hw->dev, &msg, sizeof(msg));
++		if (result == -EBUSY)
++			udelay(1000);
++	}
++
++	if (result) {
++		pr_emerg("PS3 fan: SYSCON automatic not sent (%s): %d\n", why,
++			result);
++		return;
++	}
++
++	WRITE_ONCE(hw->fan_dirty, false);
++	WRITE_ONCE(hw->fan_policy, PS3_SM_FAN_AUTO);
++	pr_emerg("PS3 fan: SYSCON automatic (%s)\n", why);
++}
++
++static int ps3_sm_fan_panic(struct notifier_block *nb, unsigned long event,
++	void *data)
++{
++	ps3_sm_fan_restore_atomic("panic");
++	return NOTIFY_DONE;
++}
++
++/* From the vuart work (or the final shutdown poll), header already read. */
++
++static int ps3_sm_fan_handle_reply(struct ps3_system_bus_device *dev,
++	const struct ps3_sys_manager_header *header)
++{
++	struct ps3_sm_hwmon *hw = READ_ONCE(ps3_sm_hwmon);
++	unsigned long flags;
++	bool matched = false;
++	u8 kind, buf[16];
++	int result;
++
++	/* ps3_sys_manager_handle_msg() checked payload_size <= 16. */
++	if (header->payload_size) {
++		result = ps3_vuart_read(dev, buf, header->payload_size);
++		if (result) {
++			ps3_vuart_clear_rx_bytes(dev, header->payload_size);
++			return result;
++		}
++	}
++
++	if (!hw)
++		return 0;
++
++	kind = header->service_id < PS3_SM_SERVICE_ID_FAN_POLICY_GET ?
++		PS3_SM_REQ_FAN_SET : PS3_SM_REQ_FAN_GET;
++
++	spin_lock_irqsave(&hw->reply_lock, flags);
++	if (hw->pending && hw->pending_kind == kind) {
++		memcpy(hw->fan_reply.buf, buf, header->payload_size);
++		hw->fan_reply.len = header->payload_size;
++		hw->fan_reply.sid = header->service_id;
++		hw->fan_reply.tag = header->request_tag;
++		hw->pending = false;
++		complete(&hw->done);
++		matched = true;
++	}
++	spin_unlock_irqrestore(&hw->reply_lock, flags);
++
++	if (!matched)
++		dev_info_ratelimited(&dev->core,
++			"fan: reply no request waits for (late?): service id %u, payload %u, tag %u: %*ph\n",
++			header->service_id, header->payload_size,
++			header->request_tag, (int)header->payload_size, buf);
++
++	return 0;
++}
++
+ /*
+  * At device shutdown (power off, reboot, halt, kexec), in process context:
+- * every request holds hw->lock, so none is in flight once this returns.
++ * every request holds hw->lock, so none is in flight once this returns; the
++ * fan goes back to SYSCON first if this driver set anything else.
+  */
+ 
+-static void ps3_sm_temp_shutdown(void)
++static void ps3_sm_hwmon_shutdown(void)
+ {
+ 	struct ps3_sm_hwmon *hw = READ_ONCE(ps3_sm_hwmon);
++	unsigned int i;
+ 
+ 	if (!hw)
+ 		return;
+ 
+-	mutex_lock(&hw->lock);
++	if (hw->fan_on) {
++		WRITE_ONCE(hw->fan_final, true);
++		smp_mb();
++		cancel_delayed_work_sync(&hw->fan_boot_work);
++		cancel_work_sync(&hw->fan_alert_work);
++	}
++
++	/*
++	 * Bounded: a task that died holding the lock (an oops) must not stop
++	 * the power off.  Then the lockless path does it.
++	 */
++	for (i = 0; !mutex_trylock(&hw->lock); i++) {
++		if (i >= PS3_SM_FAN_SHUTDOWN_TRIES) {
++			dev_warn(&hw->dev->core,
++				"shutdown: request lock still held\n");
++			ps3_sm_fan_restore_atomic("shutdown");
++			WRITE_ONCE(hw->stopped, true);
++			return;
++		}
++		msleep(10);
++	}
++
++	if (hw->fan_on && READ_ONCE(hw->fan_dirty) &&
++		ps3_sm_fan_set(hw, PS3_SM_FAN_AUTO, 0))
++		dev_warn(&hw->dev->core,
++			"fan: SYSCON automatic not set at shutdown\n");
+ 	WRITE_ONCE(hw->stopped, true);
+ 	mutex_unlock(&hw->lock);
+ }
+@@ -756,6 +1389,16 @@ static void ps3_sm_temp_alarm(u32 zone, bool on)
+ 	if (!hw)
+ 		return;
+ 
++	if (hw->fan_on && zone < BITS_PER_LONG) {
++		if (on)
++			set_bit(zone, &hw->fan_alerts);
++		else
++			clear_bit(zone, &hw->fan_alerts);
++	}
++	/* The work checks the policy under the lock (a set may be in flight). */
++	if (on && hw->fan_on && !READ_ONCE(hw->fan_final))
++		schedule_work(&hw->fan_alert_work);
++
+ 	for (i = 0; i < hw->nzones; i++) {
+ 		if (hw->zone[i] != zone)
+ 			continue;
+@@ -770,10 +1413,109 @@ static void ps3_sm_temp_alarm(u32 zone, bool on)
+ 	}
+ }
+ 
++static int ps3_sm_fan_read(struct ps3_sm_hwmon *hw, u32 attr, long *val)
++{
++	struct ps3_sm_fan_reply f;
++	int policy = READ_ONCE(hw->fan_policy);
++
++	if (READ_ONCE(hw->fan_dead) && policy != PS3_SM_FAN_AUTO)
++		return -ENODATA;
++
++	switch (attr) {
++	case hwmon_pwm_enable:
++		if (policy < 0) {
++			/* Never set by us: what the System Manager says. */
++			if (!hw->fan_layout_ok || ps3_sm_fan_get(hw, &f, false))
++				return -ENODATA;
++			policy = f.policy;
++		}
++		switch (policy) {
++		case PS3_SM_FAN_FULL:
++			*val = 0;
++			return 0;
++		case PS3_SM_FAN_MANUAL:
++			*val = 1;
++			return 0;
++		case PS3_SM_FAN_AUTO:
++			*val = 2;
++			return 0;
++		default:
++			return -ENODATA;
++		}
++	case hwmon_pwm_input:
++		if (policy == PS3_SM_FAN_MANUAL) {
++			*val = hw->fan_duty;
++			return 0;
++		}
++		if (policy == PS3_SM_FAN_FULL) {
++			*val = 255;
++			return 0;
++		}
++		/* SYSCON's choice, as the System Manager reports it. */
++		if (!hw->fan_layout_ok)
++			return -ENODATA;
++		if (!hw->fan_live_valid || !time_before(jiffies, hw->fan_stamp +
++			msecs_to_jiffies(PS3_SM_TEMP_CACHE_MS))) {
++			if (ps3_sm_fan_get(hw, &f, false))
++				return -ENODATA;
++			hw->fan_live = f.speed;
++			hw->fan_stamp = jiffies;
++			hw->fan_live_valid = true;
++		}
++		*val = hw->fan_live;
++		return 0;
++	default:
++		return -EOPNOTSUPP;
++	}
++}
++
++static int ps3_sm_fan_write(struct ps3_sm_hwmon *hw, u32 attr, long val)
++{
++	u8 duty;
++	int result;
++
++	/* With fan_dead, ps3_sm_fan_set() refuses all but automatic. */
++	switch (attr) {
++	case hwmon_pwm_enable:
++		switch (val) {
++		case 0:
++			return ps3_sm_fan_apply(hw, PS3_SM_FAN_FULL, 0);
++		case 1:
++			return ps3_sm_fan_apply(hw, PS3_SM_FAN_MANUAL,
++				hw->fan_duty);
++		case 2:
++			return ps3_sm_fan_apply(hw, PS3_SM_FAN_AUTO, 0);
++		default:
++			return -EINVAL;
++		}
++	case hwmon_pwm_input:
++		if (val < 0 || val > 255)
++			return -EINVAL;
++		duty = ps3_sm_fan_clamp(hw, val);
++		if (READ_ONCE(hw->fan_policy) == PS3_SM_FAN_MANUAL) {
++			result = ps3_sm_fan_apply(hw, PS3_SM_FAN_MANUAL, duty);
++			if (result)
++				return result;
++		}
++		/* Otherwise kept for pwm1_enable=1. */
++		hw->fan_duty = duty;
++		return 0;
++	default:
++		return -EOPNOTSUPP;
++	}
++}
++
+ static umode_t ps3_sm_hwmon_is_visible(const void *data,
+ 	enum hwmon_sensor_types type, u32 attr, int channel)
+ {
+-	return type == hwmon_temp ? 0444 : 0;
++	switch (type) {
++	case hwmon_temp:
++		return 0444;
++	case hwmon_pwm:
++		return 0644;
++	default:
++		return 0;
++	}
+ }
+ 
+ static int ps3_sm_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
+@@ -782,6 +1524,13 @@ static int ps3_sm_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
+ 	struct ps3_sm_hwmon *hw = dev_get_drvdata(dev);
+ 	int result;
+ 
++	if (type == hwmon_pwm && hw->fan_on && channel == 0) {
++		mutex_lock(&hw->lock);
++		result = ps3_sm_fan_read(hw, attr, val);
++		mutex_unlock(&hw->lock);
++		return result;
++	}
++
+ 	if (type != hwmon_temp || channel >= hw->nzones)
+ 		return -EOPNOTSUPP;
+ 
+@@ -799,6 +1548,21 @@ static int ps3_sm_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
+ 	}
+ }
+ 
++static int ps3_sm_hwmon_write(struct device *dev, enum hwmon_sensor_types type,
++	u32 attr, int channel, long val)
++{
++	struct ps3_sm_hwmon *hw = dev_get_drvdata(dev);
++	int result;
++
++	if (type != hwmon_pwm || !hw->fan_on || channel != 0)
++		return -EOPNOTSUPP;
++
++	mutex_lock(&hw->lock);
++	result = ps3_sm_fan_write(hw, attr, val);
++	mutex_unlock(&hw->lock);
++	return result;
++}
++
+ static int ps3_sm_hwmon_read_string(struct device *dev,
+ 	enum hwmon_sensor_types type, u32 attr, int channel, const char **str)
+ {
+@@ -816,22 +1580,49 @@ static const struct hwmon_ops ps3_sm_hwmon_ops = {
+ 	.is_visible = ps3_sm_hwmon_is_visible,
+ 	.read = ps3_sm_hwmon_read,
+ 	.read_string = ps3_sm_hwmon_read_string,
++	.write = ps3_sm_hwmon_write,
+ };
+ 
++static enum ps3_sm_fan_boot ps3_sm_fan_boot_mode(struct device *dev)
++{
++	const char *p = fan_policy_param ? fan_policy_param : "auto";
++
++	if (sysfs_streq(p, "off"))
++		return PS3_SM_FAN_BOOT_OFF;
++	if (sysfs_streq(p, "full"))
++		return PS3_SM_FAN_BOOT_FULL;
++	if (!sysfs_streq(p, "auto") && !sysfs_streq(p, "keep"))
++		dev_warn(dev, "fan_policy=%s unknown, using auto\n", p);
++	if (fan_floor)
++		return PS3_SM_FAN_BOOT_FLOOR;
++	if (sysfs_streq(p, "keep"))
++		return PS3_SM_FAN_BOOT_KEEP;
++	return PS3_SM_FAN_BOOT_AUTO;
++}
++
+ static void ps3_sm_hwmon_register(struct ps3_system_bus_device *dev)
+ {
++	static const char * const boot_name[] = {
++		[PS3_SM_FAN_BOOT_OFF] = "off",
++		[PS3_SM_FAN_BOOT_KEEP] = "keep",
++		[PS3_SM_FAN_BOOT_AUTO] = "SYSCON automatic",
++		[PS3_SM_FAN_BOOT_FULL] = "full speed",
++		[PS3_SM_FAN_BOOT_FLOOR] = "manual floor",
++	};
++	enum ps3_sm_fan_boot boot = ps3_sm_fan_boot_mode(&dev->core);
+ 	struct ps3_sm_hwmon *hw;
+ 	struct device *hwmon_dev;
+-	unsigned int i, n = 0;
++	unsigned int i, k = 0, n = 0;
+ 
+-	if (!hwmon_enable)
++	if (!hwmon_enable && boot == PS3_SM_FAN_BOOT_OFF)
+ 		return;
+ 
+ 	hw = devm_kzalloc(&dev->core, sizeof(*hw), GFP_KERNEL);
+ 	if (!hw)
+ 		return;
+ 
+-	for (i = 0; i < temp_zones_count && i < PS3_SM_TEMP_MAX_ZONES; i++) {
++	for (i = 0; hwmon_enable && i < temp_zones_count &&
++		i < PS3_SM_TEMP_MAX_ZONES; i++) {
+ 		if (temp_zones[i] > 0xff)
+ 			continue;
+ 		hw->zone[n] = temp_zones[i];
+@@ -839,7 +1630,7 @@ static void ps3_sm_hwmon_register(struct ps3_system_bus_device *dev)
+ 			HWMON_T_ALARM;
+ 		n++;
+ 	}
+-	if (!n)
++	if (!n && boot == PS3_SM_FAN_BOOT_OFF)
+ 		return;
+ 
+ 	hw->dev = dev;
+@@ -849,7 +1640,29 @@ static void ps3_sm_hwmon_register(struct ps3_system_bus_device *dev)
+ 	init_completion(&hw->done);
+ 	hw->temp_info.type = hwmon_temp;
+ 	hw->temp_info.config = hw->temp_config;
+-	hw->info[0] = &hw->temp_info;
++	if (n)
++		hw->info[k++] = &hw->temp_info;
++
++	hw->fan_on = boot != PS3_SM_FAN_BOOT_OFF;
++	hw->fan_boot = boot;
++	hw->fan_policy = -1;
++	/*
++	 * Until the boot's automatic has gone out, whatever GameOS left is
++	 * in force: an exit before that (or a failed send) sends automatic.
++	 */
++	hw->fan_dirty = hw->fan_on && boot != PS3_SM_FAN_BOOT_KEEP;
++	hw->fan_duty = fan_floor ? ps3_sm_fan_clamp(hw, fan_floor) :
++		PS3_SM_FAN_DUTY_MIN;
++	INIT_DELAYED_WORK(&hw->fan_boot_work, ps3_sm_fan_boot_work);
++	INIT_WORK(&hw->fan_alert_work, ps3_sm_fan_alert_work);
++	hw->panic_nb.notifier_call = ps3_sm_fan_panic;
++	hw->panic_nb.priority = INT_MAX;	/* before those that may not return */
++	hw->pwm_config[0] = HWMON_PWM_INPUT | HWMON_PWM_ENABLE;
++	hw->pwm_info.type = hwmon_pwm;
++	hw->pwm_info.config = hw->pwm_config;
++	if (hw->fan_on)
++		hw->info[k++] = &hw->pwm_info;
++
+ 	hw->chip.ops = &ps3_sm_hwmon_ops;
+ 	hw->chip.info = hw->info;
+ 
+@@ -861,19 +1674,47 @@ static void ps3_sm_hwmon_register(struct ps3_system_bus_device *dev)
+ 	if (IS_ERR(hwmon_dev)) {
+ 		dev_warn(&dev->core, "hwmon registration failed %ld\n",
+ 			PTR_ERR(hwmon_dev));
+-		WRITE_ONCE(ps3_sm_hwmon, NULL);
+-		return;
++		if (!hw->fan_on) {
++			WRITE_ONCE(ps3_sm_hwmon, NULL);
++			return;
++		}
++		/* The boot and exit settings still matter without sysfs. */
++	} else {
++		hw->hwmon_dev = hwmon_dev;
++		if (n)
++			dev_info(&dev->core,
++				"hwmon: %u temperature zones, read on demand\n",
++				n);
+ 	}
+-	hw->hwmon_dev = hwmon_dev;
+ 
+-	dev_info(&dev->core, "hwmon: %u temperature zones, read on demand\n",
+-		n);
++	if (!hw->fan_on)
++		return;
++
++	atomic_notifier_chain_register(&panic_notifier_list, &hw->panic_nb);
++	schedule_delayed_work(&hw->fan_boot_work,
++		msecs_to_jiffies(PS3_SM_FAN_BOOT_DELAY_MS));
++
++	dev_info(&dev->core,
++		"fan: policy control on, at boot %s, manual duty 0x%02x-0x%02x\n",
++		boot_name[boot], PS3_SM_FAN_DUTY_MIN, PS3_SM_FAN_DUTY_MAX);
+ }
+ 
+-/* Before devres frees it: no more replies or events reach it. */
++/*
++ * Before devres frees it (remove isn't reachable: no unbind, no module
++ * exit): the fan back to SYSCON, then no more replies or events reach it.
++ */
+ 
+ static void ps3_sm_hwmon_unregister(void)
+ {
++	struct ps3_sm_hwmon *hw = READ_ONCE(ps3_sm_hwmon);
++
++	if (!hw)
++		return;
++
++	ps3_sm_hwmon_shutdown();
++	if (hw->fan_on)
++		atomic_notifier_chain_unregister(&panic_notifier_list,
++			&hw->panic_nb);
+ 	WRITE_ONCE(ps3_sm_hwmon, NULL);
+ }
+ 
+@@ -885,9 +1726,16 @@ static int ps3_sm_temp_handle_reply(struct ps3_system_bus_device *dev,
+ 	ps3_sys_manager_discard_payload(dev, header->payload_size);
+ 	return -EIO;
+ }
+-static void ps3_sm_temp_request_error(void) {}
++static int ps3_sm_fan_handle_reply(struct ps3_system_bus_device *dev,
++	const struct ps3_sys_manager_header *header)
++{
++	ps3_sys_manager_discard_payload(dev, header->payload_size);
++	return -EIO;
++}
++static void ps3_sm_hwmon_request_error(void) {}
+ static void ps3_sm_temp_stop(void) {}
+-static void ps3_sm_temp_shutdown(void) {}
++static void ps3_sm_fan_restore_atomic(const char *why) {}
++static void ps3_sm_hwmon_shutdown(void) {}
+ static void ps3_sm_temp_alarm(u32 zone, bool on) {}
+ static void ps3_sm_hwmon_register(struct ps3_system_bus_device *dev) {}
+ static void ps3_sm_hwmon_unregister(void) {}
+@@ -1073,6 +1921,21 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
+ 		return ps3_sm_temp_handle_reply(dev, &header);
+ 	}
+ 
++	/*
++	 * Fan policy replies: neither their service id nor their size is
++	 * documented.  The temperature reply comes as 14 to a 13 (seen on
++	 * the PS3), so 25/26 (set) and 50/51 (get), with 0-16 bytes; 26 is
++	 * named REQUEST_ERROR_LOG, a guest's request, never sent to a guest.
++	 */
++	if ((header.service_id == PS3_SM_SERVICE_ID_FAN_POLICY_SET ||
++		header.service_id == PS3_SM_SERVICE_ID_FAN_POLICY_SET + 1 ||
++		header.service_id == PS3_SM_SERVICE_ID_FAN_POLICY_GET ||
++		header.service_id == PS3_SM_SERVICE_ID_FAN_POLICY_GET + 1) &&
++		header.size == 16 && header.payload_size <= 16) {
++		dev_dbg(&dev->core, "%s:%d: FAN_POLICY\n", __func__, __LINE__);
++		return ps3_sm_fan_handle_reply(dev, &header);
++	}
++
+ 	if (header.size != 16 || (header.payload_size != 8
+ 		&& header.payload_size != 16)) {
+ 		dev_err(&dev->core, "%s:%d: bad header: size %u, payload %u, service %u\n",
+@@ -1089,12 +1952,23 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
+ 	case PS3_SM_SERVICE_ID_COMMAND:
+ 		dev_dbg(&dev->core, "%s:%d: COMMAND\n", __func__, __LINE__);
+ 		return ps3_sys_manager_handle_cmd(dev);
+-	case PS3_SM_SERVICE_ID_REQUEST_ERROR:
++	case PS3_SM_SERVICE_ID_REQUEST_ERROR: {
++		u8 buf[16];
++
+ 		dev_dbg(&dev->core, "%s:%d: REQUEST_ERROR\n", __func__,
+ 			__LINE__);
+ 		dump_sm_header(&header);
+-		ps3_sm_temp_request_error();
++		ps3_sm_hwmon_request_error();
++		/* What it says is undocumented: log it for the first tests. */
++		if (!ps3_vuart_read(dev, buf, header.payload_size)) {
++			dev_info_ratelimited(&dev->core,
++				"REQUEST_ERROR: tag %u, payload %*ph\n",
++				header.request_tag, (int)header.payload_size,
++				buf);
++			return -EIO;
++		}
+ 		break;
++	}
+ 	default:
+ 		dev_dbg(&dev->core, "%s:%d: unknown service_id (%u)\n",
+ 			__func__, __LINE__, header.service_id);
+@@ -1216,6 +2090,7 @@ static void ps3_sys_manager_final_power_off(struct ps3_system_bus_device *dev)
+ 
+ 	dev_dbg(&dev->core, "%s:%d\n", __func__, __LINE__);
+ 
++	ps3_sm_fan_restore_atomic("power off");
+ 	ps3_sm_temp_stop();
+ 	ps3_vuart_cancel_async(dev);
+ 
+@@ -1249,6 +2124,7 @@ static void ps3_sys_manager_final_restart(struct ps3_system_bus_device *dev)
+ 		ps3_sys_manager_final_power_off(dev);
+ 	}
+ 
++	ps3_sm_fan_restore_atomic("restart");
+ 	ps3_sm_temp_stop();
+ 	ps3_vuart_cancel_async(dev);
+ 
+@@ -1342,7 +2218,7 @@ static int ps3_sys_manager_remove(struct ps3_system_bus_device *dev)
+ static void ps3_sys_manager_shutdown(struct ps3_system_bus_device *dev)
+ {
+ 	dev_dbg(&dev->core, "%s:%d\n", __func__, __LINE__);
+-	ps3_sm_temp_shutdown();
++	ps3_sm_hwmon_shutdown();
+ }
+ 
+ static struct ps3_vuart_port_driver ps3_sys_manager = {
+diff --git a/drivers/ps3/ps3-vuart.c b/drivers/ps3/ps3-vuart.c
+--- a/drivers/ps3/ps3-vuart.c
++++ b/drivers/ps3/ps3-vuart.c
+@@ -11,6 +11,7 @@
+ #include <linux/module.h>
+ #include <linux/interrupt.h>
+ #include <linux/workqueue.h>
++#include <linux/delay.h>
+ #include <linux/bitops.h>
+ #include <asm/ps3.h>
+ 
+@@ -533,6 +534,58 @@ int ps3_vuart_write(struct ps3_system_bus_device *dev, const void *buf,
+ }
+ EXPORT_SYMBOL_GPL(ps3_vuart_write);
+ 
++/**
++ * ps3_vuart_write_atomic - Write without sleeping or waiting for the tx lock.
++ * @dev: The struct ps3_system_bus_device instance.
++ * @buf: The bytes, one whole message.
++ * @bytes: How many.
++ *
++ * For the panic and final shutdown paths, where another cpu may have been
++ * stopped holding the tx lock and nothing may sleep: writes only when no
++ * earlier write is queued in the tx list.  When the HV takes only part, the
++ * rest is written in a bounded spin (a half message would desync the
++ * receiver).  Returns -EBUSY when the lock is held or a write is queued
++ * (the caller may try again), -EIO when the HV fails or doesn't take the
++ * rest within about 10 ms.
++ */
++
++int ps3_vuart_write_atomic(struct ps3_system_bus_device *dev, const void *buf,
++	unsigned int bytes)
++{
++	struct ps3_vuart_port_priv *priv = to_port_priv(dev);
++	unsigned long flags;
++	unsigned int tries = 0;
++	u64 bytes_written;
++	int result = 0;
++
++	if (!spin_trylock_irqsave(&priv->tx_list.lock, flags))
++		return -EBUSY;
++
++	if (!list_empty(&priv->tx_list.head)) {
++		spin_unlock_irqrestore(&priv->tx_list.lock, flags);
++		return -EBUSY;
++	}
++
++	while (bytes) {
++		bytes_written = 0;
++		result = ps3_vuart_raw_write(dev, buf, bytes, &bytes_written);
++		if (result || bytes_written > bytes)
++			break;
++		bytes -= bytes_written;
++		buf += bytes_written;
++		if (bytes && ++tries > 100) {
++			result = -EIO;
++			break;
++		}
++		if (bytes)
++			udelay(100);
++	}
++	spin_unlock_irqrestore(&priv->tx_list.lock, flags);
++
++	return (result || bytes) ? -EIO : 0;
++}
++EXPORT_SYMBOL_GPL(ps3_vuart_write_atomic);
++
+ /**
+  * ps3_vuart_queue_rx_bytes - Queue waiting bytes into the buffer list.
+  * @dev: The struct ps3_system_bus_device instance.
+diff --git a/drivers/ps3/vuart.h b/drivers/ps3/vuart.h
+--- a/drivers/ps3/vuart.h
++++ b/drivers/ps3/vuart.h
+@@ -63,6 +63,8 @@ static inline struct ps3_system_bus_device *ps3_vuart_work_to_system_bus_dev(
+ 
+ int ps3_vuart_write(struct ps3_system_bus_device *dev, const void *buf,
+ 	unsigned int bytes);
++int ps3_vuart_write_atomic(struct ps3_system_bus_device *dev, const void *buf,
++	unsigned int bytes);
+ int ps3_vuart_read(struct ps3_system_bus_device *dev, void *buf,
+ 	unsigned int bytes);
+ int ps3_vuart_read_async(struct ps3_system_bus_device *dev, unsigned int bytes);

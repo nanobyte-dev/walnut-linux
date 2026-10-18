@@ -325,13 +325,17 @@ changes SYSCON's runtime policy and not its EEPROM (the fan tables stay as they 
 | set (service 25) | header (payload size 8, tag 0) + version 1, id 0, policy, duty, 4 zero bytes = 24 | ps3vuart-tools `set_fan_policy` (struct header + 5 bytes, padded to 24); syscall 389 (id, policy, duty); webMAN `(0, 2, duty)` and `(0, 1, 0)` |
 | get (service 50) | header (payload size 4, tag 0) + version 1, id 0, 2 zero bytes = 20 | **no public source of the bytes**; laid out like the temperature request (version, selector, padding) |
 
-Policy 0 is full speed (duty 0 as in the tools), 1 SYSCON automatic (duty 0), 2 manual with a
-duty. The get reply is taken, tentatively, as version, id, status, policy, speed, duty (syscall
-409 returns status, policy, "mode" which webMAN reads as the current speed, duty; an old
-ps3sm-utils run printed `0x01 0x01 0x48 0x00` for it). Neither reply's service id nor size is
-documented: the driver takes 25 (set) and 50/51 (get; 51 is unassigned) with 0-16 payload
-bytes and logs them raw, and logs every REQUEST_ERROR's payload (its contents are undocumented
-too). A set waits up to 1 s for a REQUEST_ERROR or a reply, a get up to 1 s for its reply.
+Policy 0 is full speed (duty 0 as in the tools), 1 SYSCON automatic (duty 0), 2 manual with a duty.
+The get reply is taken, tentatively, as version, id, status, policy, speed, duty (syscall 409
+returns status, policy, "mode" which webMAN reads as the current speed, duty; an old ps3sm-utils
+run printed `0x01 0x01 0x48 0x00` for it). The measured temperature reply, {version, zone, status,
+0, integer, fraction, 0, 0}, hints that the data may instead start after a reserved byte (policy at
+offset 4): then the boot's confirmation fails, policy reads stay unused, and the raw bytes in the
+log say how to fix the offsets in a follow-up. Neither reply's service id nor size is documented:
+the temperature reply came back as service 14 to a 13 on the PS3 (below), so the driver takes 25/26
+(set) and 51/50 (get) with 0-16 payload bytes and logs them raw, and logs every REQUEST_ERROR's
+payload (its contents are undocumented too). A set waits up to 1 s for a REQUEST_ERROR or a reply,
+a get up to 1 s for its reply.
 
 **At boot** (a work item 0.5 s after probe, so the probe doesn't wait for replies):
 1. get, logged raw (`fan: get reply: ...`) and parsed (`fan: at boot (layout unconfirmed): ...`):
@@ -355,14 +359,14 @@ too). A set waits up to 1 s for a REQUEST_ERROR or a reply, a get up to 1 s for 
 - `fan_dirty` starts up (except with `keep`): an exit before the boot's automatic went out, or
   after it failed to go out, still sends automatic.
 
-The lockless sends use `ps3_vuart_write_atomic()` (new, in ps3-vuart.c): a trylock on the tx
-lock, nothing queued before it, no allocation; a partial write is finished in a bounded spin
-(half a message would desync the System Manager's stream and with it the final shutdown). It
-retries for 10 ms when the lock is held or a write is queued (tx interrupts masked by then) and
-then gives up with a "not sent" line. `.shutdown` waits at most 3 s for the request mutex (a
-task that died holding it) and then uses the lockless send. `fan_dirty` goes up before a full/manual set
-is written and down only after automatic was written, `fan_final` is set before an exit path
-looks at it, and a full/manual set refuses once it is up, so an exit path never misses a setting.
+The lockless sends use `ps3_vuart_write_atomic()` (new, in ps3-vuart.c): a trylock on the tx lock,
+nothing queued before it, no allocation; a partial write is finished in a bounded spin (half a
+message would desync the System Manager's stream and with it the final shutdown). It retries for 10
+ms when the lock is held or a write is queued (tx interrupts masked by then) and then gives up with
+a "not sent" line. `.shutdown` waits at most 3 s for the request mutex (a task that died holding
+it) and then uses the lockless send. `fan_dirty` goes up before a full/manual set is written and
+down only after automatic was written, `fan_final` is set before an exit path looks at it, and a
+full/manual set refuses once it is up, so an exit path never misses a setting.
 
 **Errors fall back to SYSCON.** A full/manual set that fails to go out, or that the confirmed
 get reads back wrong, is followed by automatic. A REQUEST_ERROR to a set (the SM refusing fan
@@ -414,19 +418,20 @@ clamps the duty, falls back to SYSCON on any error and on a thermal alert, and r
 on shutdown and panic even if the thaw never runs. The default should stay empty (SYSCON
 automatic during games too) until a measured game run shows the floor helps.
 
-**Review.** An independent Opus review (races with the message loop, shutdown ordering, panic
-path, unbind, wire bytes, hwmon ABI) confirmed the set's bytes against the tool, that nothing
-else is sent, the clamp on every path, the `.shutdown` ordering and the `fan_dirty`/`fan_final`
-handshake. It found one blocker, fixed: a REQUEST_ERROR used to turn off every send, the exit
-paths' automatic included, so a floor accepted earlier would have stayed after Linux exited.
-Also fixed from it: `fan_dirty` starting up; the set's wait 1 s like the others (a late
-REQUEST_ERROR charged to the next request); finishing partial atomic writes; dropping service 26
-(REQUEST_ERROR_LOG) as a "set reply"; 0-byte replies accepted instead of draining the queue;
-REQUEST_ERROR payloads logged; the alert scheduling regardless of a set in flight and manual
-refused during an alert; a bounded mutex wait at shutdown; the duty range checked at the wire;
-quieter logs. Left as is: the get stays before the boot's automatic, as the task asked (the
-first test boot uses `keep`, so the guessed get is tried alone first); the 24-byte trigger
-(below). Compile-checked with the cross compiler, W=1, option on and off.
+**Review.** An independent Opus review (races with the message loop, shutdown ordering, panic path,
+unbind, wire bytes, hwmon ABI) confirmed the set's bytes against the tool, that nothing else is
+sent, the clamp on every path, the `.shutdown` ordering and the `fan_dirty`/`fan_final` handshake.
+It found one blocker, fixed: a REQUEST_ERROR used to turn off every send, the exit paths' automatic
+included, so a floor accepted earlier would have stayed after Linux exited. Also fixed from it:
+`fan_dirty` starting up; the set's wait 1 s like the others (a late REQUEST_ERROR charged to the
+next request); finishing partial atomic writes; dropping service 26 (REQUEST_ERROR_LOG) as a "set
+reply" (put back after the PS3 showed a 13 answered by a 14: an SM never sends a guest its request
+id 26 otherwise); 0-byte replies accepted instead of draining the queue; REQUEST_ERROR payloads
+logged; the alert scheduling regardless of a set in flight and manual refused during an alert; a
+bounded mutex wait at shutdown; the duty range checked at the wire; quieter logs. Left as is: the
+get stays before the boot's automatic, as the task asked (the first test boot uses `keep`, so the
+guessed get is tried alone first); the 24-byte trigger (below). Compile-checked with the cross
+compiler, W=1, option on and off.
 
 **Known limits.**
 - The vuart's async read wakes the driver at 24 bytes (upstream `PS3_SM_RX_MSG_LEN_MIN`). A reply
@@ -494,7 +499,10 @@ default.
   [Syscon Thermal Configs](https://www.psdevwiki.com/ps3/Syscon_Thermal_Configs) (the EEPROM thermal
   config, policy and ROM/RAM select bytes),
   [Thermal](https://www.psdevwiki.com/ps3/Thermal) (sensors, temperature monitors, IRISMAN
-  defaults), [OtherOS++](https://www.psdevwiki.com/ps3/OtherOS%2B%2B) (features: SM access).
+  defaults, SYSCON's measured fan steps per model: CECH-20xx 0x33-0x4a up to ~70 C),
+  [OtherOS++](https://www.psdevwiki.com/ps3/OtherOS%2B%2B) (features: SM access),
+  [User talk:Masterzorag](https://www.psdevwiki.com/ps3/User_talk:Masterzorag) (an old ps3sm-utils
+  `get_fan_policy 0` printing `0x01 0x01 0x48 0x00`; that tool's source is not online any more).
 - ps3vuart-tools: [sguerrini97/ps3linux-ps3vuart-tools](https://github.com/sguerrini97/ps3linux-ps3vuart-tools)
   (`ps3sm/ps3sm_msg.h`, `ps3sm/cmd/cmd_get_temperature.c`, `cmd_set_fan_policy.c`, `ps3sm/dev.c`;
   commits 74f3fec, 26927cc, 85526f2, 4ffabb3, af8af4c); glevand's original command list on
