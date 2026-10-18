@@ -272,6 +272,10 @@ user's own Mesa cache (`~/.cache/mesa_shader_cache`): warm for any game played b
     PERF_LOAD=1 STALLS=1 /var/tmp/bench/run.sh bench classicube base 1
     python3 /var/tmp/bench/report.py --load --stalls /var/tmp/ps3-bench/<run dir>...
 
+The same five from the internal SSD, same boot, against the USB disk: `ENVS="- GAMEDATA=ssd
+GAMEDATA=ssd+SWAP=ssd"` (docs/GAMEOS-HDD.md "Test drive, Phase A": the game data and the VRAM swap's
+spill on a disk image in dev_hdd0).
+
 The shader cache, cold against warm over the same span (OpenArena gl2min is the clearest case: about
 55 GLSL programs, ~3 s at its first start; Sauerbraten and Luanti use GLSL too). `SHADERCACHE=warm`
 keeps a cache per game in `/var/tmp/ps3-bench/shadercache/warm-<game>`; its first run fills it and

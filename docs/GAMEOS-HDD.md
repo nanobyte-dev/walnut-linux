@@ -538,6 +538,216 @@ A GameOS app (PKG, PSL1GHT) so users never need a PC shell. Flow:
 - **Toolchain:** PSL1GHT has its own PPU GCC, an exception to "one GCC everywhere" that the user
   decides (it builds only the GameOS app).
 
+### Test drive, Phase A (built 2026-10-18, not run on the PS3 yet)
+
+A first, reversible use of the "disk image inside dev_hdd0" route above: a 16 GiB stamped file uploaded
+to dev_hdd0 from the PC over webMAN MOD's FTP, mapped and verified from Linux, then used as an ext4
+disk for game data and as the VRAM swap's spill, with root still on the USB disk. The point (the user,
+2026-10-18): run the benchmarks from the internal SSD and see how much faster loads get and how many
+stutters go. Nothing is written into GameOS's file system: Linux writes only inside the file's own
+blocks, and only after every block was read back with its stamp.
+
+**Tools** (`tools/ssdimg/`):
+- `stamp.py` (PC): streams the image to `/dev_hdd0/linux/ssdtest.img` with FTP `STOR` from a
+  generator (nothing on the PC's disk), prints MB/s, checks the remote size with `SIZE` at the end;
+  `dry-run` and `check` for tests. Refuses to overwrite an existing file without `--force`.
+- `ps3-imgmap` (the PS3, root): `map`, `verify`, `recheck`, `create`, `remove` (its `--help` has
+  the details). Everything up to `create` only reads `/dev/ps3db`; the tool never opens `ps3db` or
+  `ps3da` for writing.
+- `test_ssdimg.py` (`make test`, suite `ssdimg`) and `vm-e2e.sh` (`make test-slow`, suite `ssdimg-vm`).
+
+**Stamp format** (version 1, stamp.py's docstring): one stamp at the start of every 4 KiB block, the
+rest of the block zero: 8 bytes magic `PS3IMGv1`, 16 bytes instance UUID, the block's offset in the
+image as 8 bytes big-endian, a CRC-32 of those 32 bytes as 4 bytes big-endian. The first MiB is the
+image's header area: stamped too for now, never mapped into the Linux disk, so its stamps stay and
+`create` reads them back through the extents at every activation (proof that the list still points at
+our file). Phase B puts the real header there.
+
+**FIBMAP's unit** (from build/src/linux/linux-6.12.111): `ufs_fill_super` ends with
+`sb_set_blocksize(sb, uspi->s_fsize)`, so the super block's block size (FIGETBSZ, statvfs `f_bsize`) is
+the fragment size; FIBMAP calls `ufs_bmap` = `generic_block_bmap(mapping, block, ufs_getfrag_block)`,
+whose argument is a logical fragment number (`fragment >> s_fpbshift` is the block, `fragment &
+s_fpbmask` the fragment in it) and whose result is the block's address from the inode or indirect block
+plus that fragment, plus `s_sbbase` (0 for UFS2): a physical fragment number. So input and output are in
+units of fs_fsize, and a sector of `/dev/ps3db` is fragment x fs_fsize / 512 (UFS starts at sector 0 of
+the region). `map` checks it from three sides before it trusts it: FIGETBSZ = statvfs = the super
+block's fs_fsize (read from 64 KiB of ps3db), each block's first and last fragment are contiguous, and
+the file is whole blocks without holes. FIBMAP's int return limits it to 2^31 fragments: dev_hdd0 has
+1.87 G sectors, fine for any fragment size.
+
+**Tested on the PC** (2026-10-18): unit tests of the format, the stream, extent merging, the unit
+conversion, every refusal (hole, tail fragment, read-write mount, no `ufstype=ufs2`, another file
+system, another device, the unit cross-check, an unstamped file, an edited map, create without verify,
+without a recheck in this boot, with ps3db mounted, a stale map whose header area no longer reads back),
+on a fake FIBMAP layer with a file standing in for the disk (real O_DIRECT reads). Then the real kernel:
+`vm-e2e.sh` makes big-endian UFS2 images with NetBSD's makefs (Debian's source rebuilt with the super
+block at 64 KiB: as packaged it puts UFS2's at 8 KiB, `#if 0 /* XXX makefs is used for small
+filesystems. */` in ffs/mkfs.c, where Linux doesn't look), boots the PC's own kernel (7.2.10, x86_64)
+in a KVM guest and runs map, verify, recheck, create, mkfs.ext4, writes on both mapped devices, then
+compares every sector outside the file's mapped blocks with the original image (identical: UFS
+metadata, the other files, the header area), mounts the UFS again (other files unchanged) and rechecks
+(unchanged). Both geometries passed (block 16384 / fragment 2048 and 32768 / fragment 4096). Not tested:
+our 6.12 ppc64 kernel's ufs (same `ufs_bmap` code path; the PC reads the big-endian image through the
+same fs32/fs64 byte swapping), GameOS's real geometry (map prints it), the PS3's storage path under
+O_DIRECT and device-mapper, webMAN's FTP with a 16 GiB file.
+
+**A kernel fact the tools build on** (seen in the guest): device-mapper claims its disks exclusively,
+and so does a mounted file system, so `dmsetup create` over a mounted `/dev/ps3db` fails with EBUSY.
+`create` therefore wants dev_hdd0 unmounted, and while `/dev/mapper/ps3ssd` exists
+`ps3-gameos-mount` can't mount dev_hdd0 (EBUSY too): `ps3-imgmap remove ps3ssd` first. Phase B's
+initramfs does the same: mount read-only, recheck, unmount, create.
+
+**Safety points.**
+- Nothing writes before `verify` passed; `create` refuses without a recorded pass of that exact list
+  (sha256), without a `recheck` in the same boot, with dev_hdd0 mounted, or when the header area's
+  stamps don't read back through the list. A failed verify or a changed recheck voids the map.
+- `create` runs `blockdev --setro /dev/ps3da` first (the whole disk, VFLASH included, read-only
+  until the next boot) and checks it took.
+- `create` and everything after it only with the user's explicit go; it asks unless `--yes`.
+- Before that go: the XMB Backup Utility (saves at least) to a FAT32 USB drive, section 3 above. The
+  mapping writes only inside the file's blocks, the backup is for a bug in that.
+- In GameOS the file is "do not touch": deleting or rewriting it hands its blocks back to GameOS;
+  `recheck` catches that before any write (a different inode, size or block list), and the header
+  check catches a list that went stale anyway. Rollback: delete the file in GameOS (webMAN's file
+  manager or FTP). Never answer a GameOS "restore the file system" prompt without a recheck after it.
+- The state (`/var/lib/ps3-imgmap/`: the map, the verify and recheck records) is on the USB root in
+  Phase A; Phase B puts the list's hash into the image's header.
+
+#### The GameOS session (the user)
+
+0. Before it (us, Linux, after the running batch, the user not at the console): `sudo apt install
+   dmsetup` (not in our image); ps3-system with the new `ps3-vswap` deployed (`make ps3-system-deb`,
+   `make deploy`) and `echo PS3_VSWAP_DM=1 | sudo tee /etc/default/ps3-vswap` (the VRAM swap's backing
+   becomes the device-mapper device `ps3vswap-back` over the USB swap partition's first GiB at the next
+   boot: what lets the swap arm switch in the same boot; without it everything is as before);
+   `modinfo -k 6.12.111+ps3.433 dm-mod` and `modinfo -k 6.12.111+ps3.433 ufs` (both modules there for
+   the kernel that will boot; `BLK_DEV_DM=m`, `UFS_FS=m`); `make bench-push`.
+1. GameOS: Backup Utility (above). In webMAN MOD's setup page (`http://10.0.0.77/setup.ps3`) the FTP
+   server must not be disabled. 16 GiB plus a margin free on the internal disk (the XMB's System
+   Information, or webMAN's file manager on `/dev_hdd0`).
+2. On the PC:
+
+       python3 tools/ssdimg/stamp.py upload --size 16G
+       # defaults: --path /dev_hdd0/linux/ssdtest.img --host 10.0.0.77 --port 21 (any login)
+
+   It prints the UUID, progress and MB/s, and ends with `remote size 17179869184: complete`. The time
+   depends on webMAN's FTP write speed, which nobody measured here: about 14 min at 20 MB/s. A broken
+   upload leaves a short file: run it again with `--force`.
+3. As always before Linux: webMAN's fan in SYSCON mode (or fixed at 60% or more), the OtherOS flag,
+   Petitboot, the usual USB-root entry.
+
+#### On Linux (us, with the user's go where it says so)
+
+    scp tools/ssdimg/ps3-imgmap tibi@10.0.0.77:/var/tmp/ps3-imgmap       # from the PC
+    cat /sys/block/ps3vswap0/backing          # /dev/mapper/ps3vswap-back (step 0 worked)
+    sudo ps3-gameos-mount
+    ls -l /mnt/gameos/hdd0/linux/ssdtest.img  # 17179869184 bytes
+    sudo python3 /var/tmp/ps3-imgmap map /mnt/gameos/hdd0/linux/ssdtest.img
+        # prints the UFS2 block and fragment size, the extents; map in /var/lib/ps3-imgmap/ssdtest.map.json
+    M=/var/lib/ps3-imgmap/ssdtest.map.json
+    sudo python3 /var/tmp/ps3-imgmap verify $M          # every 4 KiB block; ~3 min at 100 MB/s
+    sudo python3 /var/tmp/ps3-imgmap recheck $M
+    sudo ps3-gameos-mount -u
+
+Only with the user's explicit go:
+
+    sudo python3 /var/tmp/ps3-imgmap create $M ps3ssd --swap-mib 1024
+        # ps3da read-only; /dev/mapper/ps3ssd (15 GiB) and /dev/mapper/ps3ssd-swap (1 GiB)
+    sudo dd if=/dev/mapper/ps3ssd of=/dev/null bs=1M count=1024 iflag=direct    # ~100 MB/s expected
+    sudo mkfs.ext4 -L ps3ssd /dev/mapper/ps3ssd
+    sudo mkdir -p /mnt/ps3ssd && sudo mount -o noatime /dev/mapper/ps3ssd /mnt/ps3ssd
+    sudo mkdir -p /mnt/ps3ssd/games
+    for g in "sauerbraten base" "openarena gl2min" "luanti base" "supertuxkart lean" "classicube base"; do
+        /var/tmp/bench/ssd-arm.sh copy $g; done      # cp -a, then diff -rq against the original
+    dpkg -L luanti-game-minetest | head -3     # under /usr/share/luanti? else add its dir to DATA_DIRS
+
+Every later boot (the map is reused; GameOS may have run in between): `sudo ps3-gameos-mount`,
+`recheck $M`, `sudo ps3-gameos-mount -u`, `create $M ps3ssd --swap-mib 1024 --yes`, mount. At the
+end of a session: `ssd-arm.sh reset` (run.sh does it when it ends), `sudo umount /mnt/ps3ssd`, `sudo
+python3 /var/tmp/ps3-imgmap remove ps3ssd`.
+
+#### The A/B in the bench (same boot)
+
+Two arms, switched between runs by `games/bench/ssd-arm.sh` (run.sh calls it before each run's quiet)
+and recorded by client.sh in bench.txt (`gamedata=`, `gamedata_dirs=`, `swap=`, `swaps=`; report.py:
+`base@gdssd`, `base@gdssd+swssd`):
+- `GAMEDATA=ssd`: the recipe's `DATA_DIRS` (Sauerbraten `/usr/share/games/cube2`, OpenArena
+  `/usr/share/games/openarena`, Luanti `/usr/share/luanti`, SuperTuxKart
+  `/usr/share/games/supertuxkart`, ClassiCube `~/.local/share/classicube/{texpacks,audio}`) are
+  bind-mounted from `/mnt/ps3ssd/games/<dir>` for the run and unmounted for runs without it; the quiet
+  drops the page cache after the bind as before every run. The binary, the libraries, Mesa's shader
+  cache (`~/.cache`), Luanti's world (`/var/tmp`) stay on the USB disk.
+- `SWAP=ssd`: the VRAM swap's spill goes to the SSD. Today the USB swap partition is not a swap of its
+  own: it is the VRAM swap's backing (`ps3-vswap`: `ps3vswap0` at priority 300, zram at 100), written
+  when VRAM is wanted back and read on swap-in, and the backing is set once per boot. So the arm swaps
+  the table under the device-mapper backing `ps3vswap-back` (step 0): VRAM swap off (pages back in),
+  `dmsetup suspend/load/resume` onto `/dev/mapper/ps3ssd-swap`, `mkswap`, on again at its priority.
+  zram and the VRAM swap keep their places; a third, lower-priority SSD swap would only be used once
+  both are full, i.e. it would measure nothing. A switch stops the desktop and empties the swaps first
+  (`ps3-bench.sh quiet`). client.sh refuses a run whose arm isn't in place, and a plain run with binds
+  or the SSD swap left over.
+
+The batch (PS3, as tibi, the SSD mounted and the copies made; `tools/bench-cam.sh` as for every bench
+run; 5 games x 3 arms x 3 rounds, the arms in this order inside each round, 45 runs, about 3-4 hours):
+
+    STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/run.sh bench sauerbraten base 3
+    STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/run.sh bench openarena gl2min 3
+    STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/run.sh bench luanti base 3
+    STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/run.sh bench supertuxkart lean 3
+    STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/run.sh bench classicube base 3
+    ps3-bench.sh desktop
+    python3 /var/tmp/bench/report.py --load --stalls /var/tmp/ps3-bench/<run dir>...
+
+What to compare (docs/PROFILING.md "Start-up profiling", docs/STALLS.md): `load`, `load_disk_s`,
+loadprof's split of the load; `stalls_warm`, `warm_disk_s`; in the window `stall_disk_s`,
+`stall_swap_s`, 1% lows and stalls first (smoothness over fps).
+
+**Expected, from batch 16** (2026-10-18, kernel 433, USB disk, same-boot medians of 3, recorder on;
+`build/tmp/batch16-runs.txt`). The USB disk measured 27.8 MB/s sequential and 20 ms median random 4K
+reads, the internal SSD 100 MB/s and 0.1 ms, so its wait on the same reads is 3.6x shorter when they
+are sequential and up to 200x when they are seeks. The load's disk wait then shrinks by roughly 72% to
+nearly all of it, less what stays on USB (binaries, libraries, shader cache):
+
+| game | load (s) | load_disk_s | warm_disk_s | in the window | load with GAMEDATA=ssd [estimate] |
+|---|---|---|---|---|---|
+| Sauerbraten base | 16.8 | 5.2 | 3.5 | stall_disk_s 0.1 | 11.7-13.1 (-22% to -30%) |
+| OpenArena gl2min | 12.0 | 6.2 | 6.4 | stall_disk_s 6.8, stall_swap_s 20.1 | 5.9-7.5 (-37% to -51%) |
+| Luanti base | 40.8 | 9.8 | 0.7 | stall_disk_s 0.5 | 31.1-33.7 (-17% to -24%) |
+| SuperTuxKart lean | 53.6 | 10.9 | 5.7 | stall_disk_s 0.4 | 42.8-45.8 (-15% to -20%) |
+| ClassiCube base | 14.2 | - | - | no recorder in batch 16 | small: its data is one texture pack and the sounds |
+
+So loads become faster but stay mostly CPU-bound: what isn't disk wait today (5.8 s of OpenArena's
+load, 11.6 s of Sauerbraten's, 31 s of Luanti's, 42.7 s of SuperTuxKart's) stays.
+The warm-up's disk stalls (3.5-6.4 s in three games) should mostly go. `SWAP=ssd` matters where the
+window swaps: OpenArena gl2min's 20.1 s of swap stalls, as far as they are spills read back from the
+USB disk rather than zram or VRAM hits (the recorder's swap class counts both swaps). The batch will
+say how much of each estimate holds.
+
+#### Phase B (not built)
+
+- The header in the image's first MiB: magic, UUID, the list's sha256, room for a boot bundle (the
+  GameOS installer's design above); `ps3-imgmap header-write` then, not in Phase A.
+- An initramfs (our kernels boot without one today: `ps3-no-initramfs`): ufs and dm-mod, mount
+  dev_hdd0 read-only, `recheck`, unmount, `create`, header check, then root from the image.
+- A kboot.conf entry with that initrd, its own label (Petitboot's default is the last label booted).
+- The root file system copied onto the image (as `make usb-root` does), fstab, swap on the image.
+- The kernel guard: `ps3da` and `ps3dc` read-only, writes to `ps3db` only inside the registered
+  extents (a small ps3disk check), so a mistyped mkfs can't reach GameOS's data.
+
+#### Open questions
+
+- GameOS's UFS2 geometry (block and fragment size): `map` prints it; the tool handles 512-4096 byte
+  fragments and up to 8 per block (Linux's own limits).
+- webMAN's FTP: write speed, and whether its `STOR`/`SIZE` handle a 16 GiB file (64-bit sizes).
+- `dmsetup` is not in our image: installed by hand for Phase A; Phase B's initramfs needs it (or a
+  small dm ioctl helper).
+- The table switch under the VRAM swap (`ps3vswap-back`) is tested only as commands on the PC
+  (selftest's dry run, ps3-vswap's stubs): the first `SWAP=ssd` switch on the PS3 is its first real run.
+- Whether GameOS leaves a file's blocks in place for good (no defragmenter is known on the PS3; a
+  GameOS fsck after an unclean power-off might move things): `recheck` at every boot is the answer
+  either way.
+- Order bias: inside a round the arms always run base, then GAMEDATA=ssd, then both.
+
 ### Getting more than 22 GiB (no-go for now)
 
 - **Custom `emer_init`:** **[inference]** For 64 GiB the instruction would be `addis r7,r9,-0x800`
