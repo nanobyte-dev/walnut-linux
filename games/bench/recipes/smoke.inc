@@ -37,3 +37,18 @@ smoke_keys() {
 	done
 	rm -f "$kbd.desc" "$kbd.keys"
 }
+# smoke_xkeys TITLE WAIT KEY...: the same through the X server's XTEST extension (xkeys.py, python3
+# ctypes on libX11 and libXtst, both in the image; no input device, no root, no sudo). KEY is an X
+# keysym name (Return, space, Up, Escape); +N waits N seconds more. The window gets the input focus
+# first and each key is held 0.25 s (a press and release 50 ms apart could land in one frame of a
+# game that compares this frame's keys with the last one's: SuperTux's Controller::pressed).
+# This is for SDL2 games: SuperTux's run of 2026-10-18 got its virtual-keyboard Returns (smoke_keys:
+# the device was created, X added it, both presses were played) and stayed on its title card.
+smoke_xkeys() {
+	local title=$1 wait=$2 i
+	shift 2
+	for i in $(seq 1200); do xwininfo -root -tree 2>/dev/null | grep -qi "\"$title" && break; sleep 0.1; done
+	echo "window \"$title\" at $EPOCHREALTIME (or the 120 s wait ran out)"
+	sleep "$wait"
+	python3 "$here/xkeys.py" "$title" "$@"
+}

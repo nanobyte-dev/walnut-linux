@@ -29,6 +29,12 @@
 #   skinning (nv30 compiles the bone-array vertex shader to if/else trees: 11 fps against 28 in
 #   Sauerbraten), decals, anisotropy, gore, ragdolls, mumble. Every name checked in the 1.6
 #   source (several are already 0 on GL 2.1). Video from the command line: -df1 -dw1920 -dh1080.
+# - The "Welcome to Red Eclipse" profile menu of the first start (run of 2026-10-18: the load went
+#   through and the game sat on it): game.cpp's update shows the `profile` menu over the match for as
+#   long as needname() holds, i.e. player1's name is empty (no other first-run flag exists), and a
+#   player does not spawn meanwhile (game.cpp, "prevent spawning"). The name is the persistent
+#   playername variable (client.cpp, SVARF: setting it from a script sets the player's name), so
+#   autoexec.cfg ends with `playername RE_NAME` (also for variant defaults, after RE_SET).
 # Texture compression: like Sauerbraten the engine turns it off on Mesa (rendergl.cpp:
 # `if(!mesa) usetexcompress = 2`), and usetexcompress is read-only (VAR min 1 > max 0), so no
 # setting turns it on; our cube2 patch 0001 applies to Red Eclipse's tree (variant tc was a no-op
@@ -51,9 +57,10 @@ RE_SET=("vsync 0" "maxfps 0" "menufps 30" "texreduce 3" "maxtexsize 256" "shader
 	"envmapmodels 0" "gpuskel 0" "decals 0" "anisotropy 0" "nogore 2" "deathanim 0" "mumble 0")
 RE_INIT=("soundmono 1" "soundfreq 11025")	# init.cfg: read before the audio device opens
 RE_BOTS=1
+RE_NAME=Bench	# the player name: without one the first-start profile menu blocks the match
 setup() {
 	mkdir -p "$RE_HOME"
-	printf '%s\n' "${RE_SET[@]}" > "$RE_HOME/autoexec.cfg"
+	{ printf '%s\n' "${RE_SET[@]}"; echo "playername $RE_NAME"; } > "$RE_HOME/autoexec.cfg"
 	printf '%s\n' "${RE_INIT[@]}" > "$RE_HOME/init.cfg"
 	printf '%s\n' "sv_botlimit $RE_BOTS" > "$RE_HOME/localinit.cfg"
 }

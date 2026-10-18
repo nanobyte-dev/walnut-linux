@@ -8,11 +8,15 @@
 # The level's title card ("Welcome to Antarctica" and a jumping Tux) waits for a key: LevelIntro::update
 # (src/supertux/levelintro.cpp) leaves only on Jump, Action, Menu-select, Start or Esc, with no
 # timeout, and GameSession::setup shows it for every level with coins, badguys or secrets. The run
-# of 2026-10-18 sat on it for its whole 120 s. So during() types Return into a virtual keyboard
-# (smoke.inc's smoke_keys) ST_KBD_WAIT s after the window appears (the card was up at 28 s from the
-# start then, and still at 40 s), and once more 8 s later in case the first came during the load
-# (Return does nothing in the level itself: Menu-select is read only by menus, the world map and
-# text arrays, none in this level). Not for worldmap and menu, where Return would pick something.
+# of 2026-10-18 sat on it for its whole 120 s, although a virtual keyboard (evemu-device, smoke_keys)
+# had played two Returns 30 s after the window (device created, X added it, Return is MENU_SELECT in
+# keyboard_config.cpp; why SDL2 did not see them is not known: the focus, or the 50 ms press landing
+# in one frame, Controller::pressed compares with the last frame). So during() presses the keys
+# through XTEST (smoke.inc's smoke_xkeys, xkeys.py: focus set on the window, keys held 0.25 s)
+# ST_KBD_WAIT s after the window appears (the card was up at 28 s from the start then, and still at
+# 40 s), then Space (Jump, also leaves the card) and Return again, 8 s apart, in case one came
+# during the load (in the level itself Return does nothing: Menu-select is read only by menus, the
+# world map and text arrays; Space makes Tux jump). Not for worldmap and menu, where it would pick.
 # What it exercises: GL 2.1 fixed function with an FBO, SDL2_image PNG loading (big-endian
 # colour order), OpenAL + Ogg music.
 # Risks: the renderer choice (--renderer opengl20 forces the old GL 2.0 path; `auto` would pick
@@ -28,7 +32,7 @@ st_cmd() { CMD=(/usr/games/supertux2 --renderer "$ST_RENDERER" -f -g 1920x1080 -
 st_cmd "$ST_LEVEL"
 ST_KBD_WAIT=30
 ST_KEYS=1	# the Return keys past the title card (off for worldmap and menu)
-during() { [ "$ST_KEYS" = 1 ] || return 0; smoke_keys SuperTux "$ST_KBD_WAIT" 001c +8 001c; }
+during() { [ "$ST_KEYS" = 1 ] || return 0; smoke_xkeys SuperTux "$ST_KBD_WAIT" Return +8 space +8 Return; }
 variant_worldmap() { ST_KEYS=0; st_cmd "$ST_DATA/levels/world1/worldmap.stwm"; }
 variant_menu() { ST_KEYS=0; st_cmd; }
 # the title card left alone (the run of 2026-10-18)
