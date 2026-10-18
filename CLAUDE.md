@@ -11,7 +11,10 @@ The plan is in docs/PLAN.md, background facts in docs/RESEARCH.md, measured GPU 
   commits is unsaved source, never discarded.
 - Workspace hygiene (/home is nearly full): heavy targets stop when the disk has less than 10% free;
   `make du` shows usage and `make clean-ephemeral` reclaims space. Experiments and agents work in
-  `build/tmp/<name>` and delete their trees once the result is recorded. Caches are bounded (ccache
+  `build/tmp/<name>` and delete their trees once the result is recorded.
+- Overflow space (the user, 2026-10-18): `/mnt/data_linux/Temp/ps3` (about 150 GB free) may hold
+  build output when /home runs short; move ephemeral things there rather than deleting them.
+  `build/aptly` and its backups stay on /home. Caches are bounded (ccache
   max_size, apt cache for the current snapshot only, superseded builder images pruned).
 - backups/ holds the private NOR dump: never commit or upload it.
 
