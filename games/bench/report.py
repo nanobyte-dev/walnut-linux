@@ -84,10 +84,14 @@ def num(v):
 def harness(d, b):
     """what ran alongside the game (ps3-bench.sh's harness= tag in bench.txt: rec<ms>[c<cpus>][nw],
     wk<sleep|kick><ms>[c<cpus>], probe<ms>[c<cpus>], perf, joined by +; then m<presets> for client.sh's
-    malloc= (BENCH_MALLOC, docs/MEMORY.md), which changes the game itself); for runs from before the
+    malloc= (BENCH_MALLOC, docs/MEMORY.md), which changes the game itself, and the Mesa switches of its
+    genv= (BENCH_NV30_*, docs/HOTPATHS.md: NV30_TRANSLATE_LUT=1 -> translate_lut1); for runs from before the
     tag: rec<ms> when there is a stalls.rec, perf when perf ran. The recorder changes the stalls it
     records (docs/STALLS.md "The recorder removes stalls"), so such runs are not the same variant"""
     m = ("m" + b["malloc"].replace(",", "_")) if b.get("malloc") else ""   # client.sh BENCH_MALLOC presets
+    if b.get("genv"):   # client.sh's Mesa driver switches (BENCH_NV30_*): NV30_TRANSLATE_LUT=1 -> translate_lut1
+        g = "_".join(re.sub(r"^NV30_", "", x).replace("=", "").lower() for x in b["genv"].split())
+        m = "+".join(x for x in (m, g) if x)
     if "harness" in b:
         return "+".join(x for x in (b["harness"], m) if x)
     t = []

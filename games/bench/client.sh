@@ -129,6 +129,13 @@ if [ -n "$MALLOC" ]; then
 		done
 	done
 fi
+# Mesa driver switches for this run (docs/HOTPATHS.md): every BENCH_NV30_* in the environment
+# (run.sh's ENVS token NV30_X=1 becomes BENCH_NV30_X=1) goes to the game without the BENCH_ prefix,
+# after the recipe and its variant. bench.txt gets genv=<NAME=VALUE ...>; report.py shows it after the
+# variant (base@translate_lut1).
+GENV=()
+for v in $(compgen -v BENCH_NV30_); do GENV+=("${v#BENCH_}=${!v}"); done
+[ ${#GENV[@]} -gt 0 ] && ENV+=("${GENV[@]}")
 launch=(); [ "$GAMEMODE" = 1 ] && launch=(ps3-game)
 # GAMEMODE=0 means no game mode: not even ps3-game-detect's (it reads the game's environment)
 [ "$GAMEMODE" = 1 ] || ENV+=(PS3_GAME_MODE=off)
@@ -410,6 +417,7 @@ secs measured "$measured"
   [ "$PASSES" = 1 ] && { echo "passes=$np"; echo "measured=$measured"; printf '%s\n' "${PASS[@]}"; }
   [ -n "$STEADY_RE" ] && { echo "steady_fps=$(first "$STEADY_RE")"; echo "steady_maxms=$(first "$STEADY_MAXMS_RE")"; }
   [ -n "$MALLOC" ] && echo "malloc=$MALLOC"
+  [ ${#GENV[@]} -gt 0 ] && echo "genv=${GENV[*]}"
   echo "hud_skip=$HUD_SKIP"; echo "hwm=$(cat "$D/.hwm" 2>/dev/null)"; echo "sound=$(cat "$D/.sound" 2>/dev/null)"
   if [ ${#PERF_FD[@]} -gt 0 ]; then
 	echo "perf_win=${PERF_WIN[*]}"; echo "perf_ack=$PERF_ACKS"

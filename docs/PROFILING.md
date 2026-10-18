@@ -226,6 +226,16 @@ Measured on the host (Zen 2), estimated for the PPE; every run states its own nu
   ps3-mallocstat.so: one sleeping thread, 64 KiB of stack, a few KiB of code; `malloc_info` takes
   each arena's lock in turn for a moment.
 
+## Known problems (the 2026-10-18 batch, docs/HOTPATHS.md)
+
+- `perf.folded` and `perf-leaf.txt` held only the first few samples of every run (`perf script`
+  stopped after `addr2line configuration failed` in `perf-post.err`), so report.py's `perf_*`
+  columns were wrong; `perf-report.txt` and `perf-threads.txt` were complete.
+- perf records no mmap while it is disabled (`-D -1` during the load): libraries dlopened then
+  (libGLX_mesa, libgallium at context creation) are `[unknown]` in the PS3's report.
+- Until both are fixed, read the profiles with `games/bench/hotpaths/` on the PC: it parses
+  `perf.data` itself and fills the missing maps from the MEM=1 smaps (run with `MEM=1` too).
+
 ## Getting the data to the PC
 
     make bench-pull                 # every run directory into build/bench, without perf.data

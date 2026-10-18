@@ -250,6 +250,9 @@ def fake_game(mode):
         out.flush()
         time.sleep(0.6)
         say("aded")
+    for k in sorted(os.environ):
+        if k.startswith("NV30_"):   # the Mesa driver switches the game got (client.sh's genv)
+            say("env %s=%s" % (k, os.environ[k]))
     ft = open(os.path.join(hud, "frametime_(ms)"), "a", buffering=1) if hud else None
     fp = open(os.path.join(hud, "fps"), "a", buffering=1) if hud else None
     last = sec = time.monotonic()
@@ -721,7 +724,8 @@ def client_prof(tmp):
                                                             "GALLIUM_HUD_DUMP_DIR", "LD_PRELOAD")}
     env.update(BENCH_RECIPES=str(rdir), BENCH_BACKUP=str(tmp / "backup"), BENCH_DIR=str(d), BENCH_MEM="1",
                BENCH_MALLOCSTAT=str(so), BENCH_PERF_CTL="%s:%s" % (d / ".perf.ctl", d / ".perf.ack"),
-               BENCH_MALLOC="arena2,trim", BENCH_MALLOCTRIM=str(trim), BENCH_MALLOC_TRIM_S="1")   # 1 s: not inside the fake game's split line (0-0.7 s)
+               BENCH_MALLOC="arena2,trim", BENCH_MALLOCTRIM=str(trim), BENCH_MALLOC_TRIM_S="1",   # 1 s: not inside the fake game's split line (0-0.7 s)
+               BENCH_NV30_TEST_SWITCH="16")   # a Mesa driver switch (docs/HOTPATHS.md): to the game as NV30_TEST_SWITCH
     t0 = time.time()
     p = subprocess.run(["bash", str(HERE / "client.sh"), "fakeprof", "base"], env=env, capture_output=True, text=True)
     check("prof client: exit 0", p.returncode == 0, p.stdout[-800:] + p.stderr[-800:])
@@ -753,9 +757,11 @@ def client_prof(tmp):
     gl = (d / "game.log").read_text(errors="replace") if (d / "game.log").exists() else ""
     check("malloc presets: trim log lines in game.log", len(re.findall(r"^ps3-malloctrim: \d+ ", gl, re.M)) >= 4,
           gl[-300:])
-    check("malloc presets: malloc= in bench.txt, the tag after the variant",
-          b.get("malloc") == "arena2,trim" and report.run(d).get("variant") == "base@marena2_trim",
-          (b.get("malloc"), report.run(d).get("variant")))
+    check("malloc presets and driver switches: malloc= and genv= in bench.txt, the tags after the variant",
+          b.get("malloc") == "arena2,trim" and b.get("genv") == "NV30_TEST_SWITCH=16" and
+          report.run(d).get("variant") == "base@marena2_trim+test_switch16",
+          (b.get("malloc"), b.get("genv"), report.run(d).get("variant")))
+    check("driver switches: the game got NV30_TEST_SWITCH=16", "env NV30_TEST_SWITCH=16" in gl, gl[:300])
     ml = (mem / "mid.malloc").read_text() if (mem / "mid.malloc").exists() else ""
     check("mallocstat: mallinfo2 line and malloc_info XML", ml.startswith("mallinfo2 ") and '<heap nr="0">' in ml, ml[:200])
     r = memprof.summary(d)
