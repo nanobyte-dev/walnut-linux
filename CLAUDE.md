@@ -35,4 +35,9 @@ The plan is in docs/PLAN.md, background facts in docs/RESEARCH.md, measured GPU 
 - Cooling: nothing controls the fan under Linux (webMAN's control loop dies with GameOS). Before
   setting the OtherOS flag, webMAN fan control must be in SYSCON (automatic) mode, or a fixed
   speed of at least 60%. Keep Linux sessions supervised; stop on any "PS3 Thermal Alert".
+- Fan policy from Linux is allowed (the user, 2026-10-18): only through the System Manager's fan-policy
+  service, runtime only. Linux puts the fan in SYSCON automatic mode at boot and on every exit path
+  (shutdown, reboot, panic), so we don't depend on what GameOS/webMAN left set. Manual mode only as a
+  fixed floor at or above a safe duty (no control loop that needs the PPE to react in time). Test new
+  fan code in the safe direction first (full speed, then back to auto). Other SYSCON writes stay forbidden.
 - When unsure whether a step is reversible, stop and ask.
