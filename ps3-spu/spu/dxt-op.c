@@ -1,6 +1,6 @@
 /* dxt.spu: libspeq's DXT1 and DXT5 worker. Links libspeq-spu.a (main, the claim loop) and dxt.c
  * (the encoder); one operation, DXT_OP_ROWS (lib/dxt-job.h): a range of block rows of a tightly
- * packed RGBA8 image from main memory to DXT1 or DXT5 blocks in main memory.
+ * packed RGBA8 or RGB8 image from main memory to DXT1 or DXT5 blocks in main memory.
  *
  * A job is cut into units, double-buffered: the source of unit n+1 is fetched while unit n is
  * encoded, and unit n-1's output is still being put.
@@ -16,8 +16,14 @@
  *   16-aligned, whole quadwords); the encoder writes each row at the local-store offset that
  *   matches its EA's low 4 bits. Nothing past the row is written. Packed rows (stride == a
  *   block row) go out as one run per unit.
+ * - An RGB source (DXT_JOB_SRC_RGB, 3 bytes a pixel): the same units, 3/4 of the bytes. A
+ *   contiguous unit is one range as above; a strip's four pixel rows (3 * width apart, not a
+ *   multiple of 16) each get their own misalignment. Once a unit's source has landed,
+ *   dxt_rgb_expand writes it as RGBA rows (alpha 255) into xbuf, 16-aligned and laid out as an
+ *   RGBA unit would be (strip rows RS apart), and the encoder reads xbuf: its output is the
+ *   bytes an RGBA source with alpha 255 gives, which is what the reference does with an RGB one.
  * - Every DMA is split at 16 KB and where the EA's high word changes.
- * Local store: 2 x 16.1 KB source, 2 x 8 KB output. */
+ * Local store: 2 x 16.1 KB source, 2 x 8 KB output, 16.1 KB for the expanded RGB unit. */
 #include "dxt-job.h"
 #include "dxt.h"
 #include "speq-spu.h"
@@ -35,6 +41,10 @@
 
 static SPEQ_LOCAL uint8_t sbuf[2][SBUF] __attribute__((aligned(128)));
 static SPEQ_LOCAL uint8_t obuf[2][OBUF] __attribute__((aligned(128)));
+/* an RGB unit as RGBA: <= 16 KB contiguous or 4 rows RS apart, + dxt_rgb_expand's 48-byte
+ * overrun and the encoder's 16-byte read past the end */
+#define XBUF	(4 * RS + 64)
+static SPEQ_LOCAL uint8_t xbuf[XBUF] __attribute__((aligned(128)));
 
 struct unit {
 	uint32_t row, rows;	/* block rows */
@@ -48,6 +58,7 @@ struct jobp {
 	uint32_t nch;		/* strips per block row */
 	uint32_t units;
 	uint32_t bpp;		/* output bytes per 4 pixels of a block row: 2 (DXT1), 4 (DXT5) */
+	uint32_t sbpp;		/* source bytes per pixel: 4, or 3 (DXT_JOB_SRC_RGB) */
 	int packed;		/* contiguous and stride == a block row: a unit's rows are one run */
 };
 
@@ -109,19 +120,38 @@ static void unit_at(const struct jobp *p, uint32_t u, struct unit *un)
 	}
 }
 
-/* Starts the unit's source DMA into s; returns the pixels' offset in the first quadword */
-static unsigned fetch(const struct jobp *p, const struct unit *un, uint8_t *s, unsigned tag)
+/* Starts the unit's source DMA into s; off[r]: pixel row r's offset in its first quadword
+ * (contiguous: off[0] for the whole unit; strips of an RGBA source: the same for all four) */
+static void fetch(const struct jobp *p, const struct unit *un, uint8_t *s, unsigned tag,
+		  unsigned off[4])
 {
-	uint64_t ea = p->src + (uint64_t)16 * p->w * un->row + 4 * un->x0;
-	unsigned off = ea & 15, r;
+	uint64_t ea = p->src + (uint64_t)4 * p->sbpp * p->w * un->row + p->sbpp * un->x0;
+	unsigned r;
 
 	if (p->k) {
-		dma(s, ea - off, (off + 16 * p->w * un->rows + 15) & ~15u, tag, 0);
-		return off;
+		off[0] = ea & 15;
+		dma(s, ea - off[0], (off[0] + 4 * p->sbpp * p->w * un->rows + 15) & ~15u, tag, 0);
+		return;
 	}
-	for (r = 0; r < 4; r++, ea += 4 * p->w)
-		dma(s + r * RS, ea - off, (off + 4 * un->cw + 15) & ~15u, tag, 0);
-	return off;
+	for (r = 0; r < 4; r++, ea += p->sbpp * p->w) {
+		off[r] = ea & 15;
+		dma(s + r * RS, ea - off[r], (off[r] + p->sbpp * un->cw + 15) & ~15u, tag, 0);
+	}
+}
+
+/* An RGB unit's source s (as fetched) to RGBA in xbuf, laid out as fetch puts an RGBA unit
+ * with offset 0 */
+static void expand(const struct jobp *p, const struct unit *un, const uint8_t *s,
+		   const unsigned off[4])
+{
+	unsigned r;
+
+	if (p->k) {
+		dxt_rgb_expand(xbuf, s, off[0], 4 * p->w * un->rows);
+		return;
+	}
+	for (r = 0; r < 4; r++)	/* in order: a row's overrun lands in the next, rewritten after */
+		dxt_rgb_expand(xbuf + r * RS, s + r * RS, off[r], un->cw);
 }
 
 static void encode(const struct jobp *p, const uint8_t *s, unsigned off, unsigned cw,
@@ -162,7 +192,7 @@ static int op_rows(const struct speq_job *j)
 {
 	struct jobp p;
 	struct unit cur, next = { 0, 0, 0, 0 };
-	unsigned off, noff = 0;
+	unsigned off[2][4];
 	uint32_t u;
 
 	p.src = j->arg[DXT_ARG_SRC];
@@ -171,11 +201,13 @@ static int op_rows(const struct speq_job *j)
 	p.row0 = j->arg[DXT_ARG_ROW0];
 	p.rows = j->arg[DXT_ARG_ROWS];
 	p.stride = j->arg[DXT_ARG_STRIDE];
-	p.mode = j->arg[DXT_ARG_MODE];
+	p.mode = j->arg[DXT_ARG_MODE] & ~(uint64_t)DXT_JOB_SRC_RGB;
+	p.sbpp = j->arg[DXT_ARG_MODE] & DXT_JOB_SRC_RGB ? 3 : 4;
 	p.bpp = p.mode == DXT_JOB_DXT5 ? 4 : 2;
 	if (!p.w || p.w % 4 || p.w != j->arg[DXT_ARG_WIDTH] || !p.rows ||
 	    p.rows != j->arg[DXT_ARG_ROWS] || (p.dst & 7) || (p.stride & 7) ||
 	    p.stride < p.bpp * p.w || p.stride != j->arg[DXT_ARG_STRIDE] ||
+	    p.mode != (j->arg[DXT_ARG_MODE] & ~(uint64_t)DXT_JOB_SRC_RGB) ||
 	    (p.mode != DXT1_MODE_RGB && p.mode != DXT1_MODE_RGBA && p.mode != DXT_JOB_DXT5) ||
 	    (p.mode == DXT_JOB_DXT5 && ((p.dst | p.stride) & 15)))
 		return -22;
@@ -193,19 +225,23 @@ static int op_rows(const struct speq_job *j)
 
 	/* tags: 0/1 the source buffers, 2/3 the output buffers */
 	unit_at(&p, 0, &cur);
-	off = fetch(&p, &cur, sbuf[0], 0);
+	fetch(&p, &cur, sbuf[0], 0, off[0]);
 	for (u = 0; u < p.units; u++) {
 		unsigned b = u & 1;
 
 		if (u + 1 < p.units) {
 			unit_at(&p, u + 1, &next);
-			noff = fetch(&p, &next, sbuf[b ^ 1], b ^ 1);
+			fetch(&p, &next, sbuf[b ^ 1], b ^ 1, off[b ^ 1]);
 		}
 		/* this unit's source, and the puts of unit u - 2 out of obuf[b] */
 		speq_wait_tags(1u << b | 1u << (2 + b));
-		encode_put(&p, &cur, sbuf[b], off, obuf[b], 2 + b);
+		if (p.sbpp == 3) {
+			expand(&p, &cur, sbuf[b], off[b]);
+			encode_put(&p, &cur, xbuf, 0, obuf[b], 2 + b);
+		} else {
+			encode_put(&p, &cur, sbuf[b], off[b][0], obuf[b], 2 + b);
+		}
 		cur = next;
-		off = noff;
 	}
 	return 0;	/* the runtime waits for the puts before completing the job */
 }

@@ -28,4 +28,11 @@ void dxt1_encode_rows_stride(const uint8_t *src, unsigned src_offset, unsigned w
 void dxt5_encode_rows_stride(const uint8_t *src, unsigned src_offset, unsigned width,
 			     unsigned src_stride, unsigned block_rows, uint8_t *dst);
 
+/* npix pixels of R, G, B bytes (3 a pixel) at src + src_offset (src_offset 0..15, src 16-byte
+ * aligned: the DMA fetched from the boundary below) to RGBA8 with alpha 255 at dst (16-byte
+ * aligned), the layout the encoders above take. Works in groups of 16 pixels: reads up to 80
+ * bytes past the 3 * npix source bytes and writes up to 48 past the 4 * npix output bytes (local
+ * store doesn't fault; the caller leaves room). */
+void dxt_rgb_expand(uint8_t *dst, const uint8_t *src, unsigned src_offset, unsigned npix);
+
 #endif

@@ -107,6 +107,7 @@ struct spq_s3tc_stats {
 	unsigned long jobs;	/* SPU jobs submitted */
 };
 int spq_s3tc_mode(int mode);	/* overrides SPEQ_S3TC (-1: no change); returns the mode */
+int spq_s3tc_rgb(int mode);	/* overrides SPEQ_S3TC_RGB (OFF, PPE, AUTO; -1: no change) */
 void spq_s3tc_stats(struct spq_s3tc_stats *s);
 struct speq *spq_s3tc_queue(void);	/* the queue, once opened */
 /* Tests: when n > 0, the next SPU call gives job n - 1 (or its last) an unmapped dst EA, so

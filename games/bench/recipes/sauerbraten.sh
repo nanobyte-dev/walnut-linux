@@ -176,3 +176,10 @@ variant_notmu() { SB_SET+=("glbatchtmu 0"); }
 variant_nopart() { SB_SET+=("glpartvbo 0"); }
 # all of them off: the drawing of ps3.315 and before
 variant_allbatchoff() { SB_SET+=("gluniformcache 0" "glbatchtmu 0" "glpartvbo 0"); }
+# DXT1 of RGB sources (libspeq 2026-10-18, ps3-spu/doc/dxt-rgb.md): the JPG and other alpha-less
+# textures reach libspeq as 3 bytes a pixel ("speq: s3tc dxt1 ... comps 3" lines), which it used to
+# encode on the PPE (165 ms for a 1024x1024, a hitch mid-game); now the SPEs take them. rgbppe sends
+# them back to the PPE encoder (the old behaviour), rgbspu is the default with the same logging, so
+# the pair differs in the switch alone: stall_cpu_s, load time and the "comps 3 ... spu/ppe" lines.
+variant_rgbspu() { ENV+=(SPEQ_DEBUG=1); }
+variant_rgbppe() { ENV+=(SPEQ_S3TC_RGB=ppe SPEQ_DEBUG=1); }

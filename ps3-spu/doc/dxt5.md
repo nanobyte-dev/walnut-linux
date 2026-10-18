@@ -49,7 +49,7 @@ give the same colour, so the RSX and Mesa agree whichever mode the RSX takes.
   mpyu/mpyhhu; indices packed with byte shuffles and word shifts; one quadword store a block.
   dxt.spu grows from 16.9 to 21.8 KB of code. DXT5 needs a 16-aligned destination and stride on
   the SPEs (whole blocks in quadwords; Mesa's GART BOs are page-aligned, strides 64-aligned);
-  otherwise, or for an RGB source, the PPE.
+  otherwise the PPE (RGB sources: the SPEs too since doc/dxt-rgb.md).
 
 ## 3. Quality against Mesa's encoder (tests/mesa-compare.sh, host)
 

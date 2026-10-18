@@ -33,6 +33,8 @@
  * (absd, 7 compare-selects, lower index on ties), the squared error with mpyu/mpyhhu and a
  * sum across words; the best candidate's indices are packed 3 bits each with byte shuffles
  * and word shifts. A block is one quadword store.
+ * dxt_rgb_expand turns a 3-byte RGB source (Mesa's GL_RGB) into these RGBA rows in local store
+ * first (dxt-op.c), with shuffles, about a cycle per pixel.
  * -DDXT_SCALAR builds a plain C version instead (debugging). On the host (no __SPU__) the
  * intrinsics come from dxt-emu.h, so the SIMD path can be tested against the reference there. */
 #include "dxt.h"
@@ -310,6 +312,19 @@ void dxt5_encode_rows_stride(const uint8_t *src, unsigned src_offset, unsigned w
 			alpha5_scalar(dst, p, stride);
 			color5_scalar(dst + 8, p, stride);
 		}
+}
+
+void dxt_rgb_expand(uint8_t *dst, const uint8_t *src, unsigned src_offset, unsigned npix)
+{
+	const uint8_t *s = src + src_offset;
+	unsigned i;
+
+	for (i = 0; i < npix; i++, s += 3, dst += 4) {
+		dst[0] = s[0];
+		dst[1] = s[1];
+		dst[2] = s[2];
+		dst[3] = 255;
+	}
 }
 
 #else /* SIMD */
@@ -780,6 +795,46 @@ void dxt5_encode_rows_stride(const uint8_t *src, unsigned src_offset, unsigned w
 #pragma GCC unroll 2
 		for (x = 0; x < bw; x++, p += 16, dst += 16)
 			STQ(dst, block5_at(p, stride, pat));
+}
+
+/* RGB to RGBA: 16 pixels (48 source bytes, three quadwords) a step, four output quadwords.
+ * Output quadword k takes the 12 bytes at off + 12k from the aligned base: they lie in the
+ * quadword pair (Q[k - 1], Q[k]) or (Q[k], Q[k + 1]) (k >= 1; k = 0: Q0, Q1), the later pair when
+ * off >= 4k, one select per operand; the shuffle takes R, G, B and makes alpha 0xff (pattern
+ * bytes 0xc0 + n). The pairs and patterns are fixed for the call, and Q3, Q4 of a step are the
+ * next step's Q0, Q1: 3 loads, 4 shuffles, 4 stores (odd pipe) and 6 selects (even) a step. */
+void dxt_rgb_expand(uint8_t *dst, const uint8_t *src, unsigned src_offset, unsigned npix)
+{
+	uintptr_t a = (uintptr_t)src + src_offset;
+	const uint8_t *p = (const uint8_t *)(a & ~(uintptr_t)15);
+	unsigned off = a & 15, r1 = (off + 12) & 15, r2 = (off + 8) & 15, r3 = (off + 4) & 15, n;
+	unsigned m1 = off >= 4 ? ~0u : 0, m2 = off >= 8 ? ~0u : 0, m3 = off >= 12 ? ~0u : 0;
+	/* pixel j's R, G, B from bytes 3j..3j+2 of the window, alpha 0xc0 (0xff); + the window's
+	 * start: no byte carries (11 + 15, 0xc0 + 15) */
+	const vu8 base = VU8(0, 1, 2, 0xc0, 3, 4, 5, 0xc0, 6, 7, 8, 0xc0, 9, 10, 11, 0xc0);
+	vu8 pat0 = (vu8)spu_add((vu16)base, (vu16)VU32(off * 0x01010101u, off * 0x01010101u,
+						       off * 0x01010101u, off * 0x01010101u));
+	vu8 pat1 = (vu8)spu_add((vu16)base, (vu16)VU32(r1 * 0x01010101u, r1 * 0x01010101u,
+						       r1 * 0x01010101u, r1 * 0x01010101u));
+	vu8 pat2 = (vu8)spu_add((vu16)base, (vu16)VU32(r2 * 0x01010101u, r2 * 0x01010101u,
+						       r2 * 0x01010101u, r2 * 0x01010101u));
+	vu8 pat3 = (vu8)spu_add((vu16)base, (vu16)VU32(r3 * 0x01010101u, r3 * 0x01010101u,
+						       r3 * 0x01010101u, r3 * 0x01010101u));
+	vu8 s1 = (vu8)VU32(m1, m1, m1, m1), s2 = (vu8)VU32(m2, m2, m2, m2),
+	    s3 = (vu8)VU32(m3, m3, m3, m3);
+	vu8 q0 = LDQ(p), q1 = LDQ(p + 16), q2, q3, q4;
+
+	for (n = 0; n < npix; n += 16, p += 48, dst += 64) {
+		q2 = LDQ(p + 32);
+		q3 = LDQ(p + 48);
+		q4 = LDQ(p + 64);
+		STQ(dst, spu_shuffle(q0, q1, pat0));
+		STQ(dst + 16, spu_shuffle(spu_sel(q0, q1, s1), spu_sel(q1, q2, s1), pat1));
+		STQ(dst + 32, spu_shuffle(spu_sel(q1, q2, s2), spu_sel(q2, q3, s2), pat2));
+		STQ(dst + 48, spu_shuffle(spu_sel(q2, q3, s3), spu_sel(q3, q4, s3), pat3));
+		q0 = q3;
+		q1 = q4;
+	}
 }
 
 #endif /* SIMD */

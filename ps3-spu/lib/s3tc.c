@@ -5,12 +5,16 @@
  * to Mesa's encoder alone with SPEQ_S3TC_DXT5=off.
  *
  * Paths (SPEQ_S3TC):
- * - auto (default): the SPEs (dxt.spu) for RGBA sources of at least SPEQ_S3TC_MIN pixels
- *   (default 64x64), when the queue opens; the PPE encoder (lib/dxt-ref.c) otherwise.
- * - spu: the SPEs for every image they can take (RGBA source, 8-aligned dst and stride, DXT5
- *   16-aligned), any size; the PPE for the rest. A queue that doesn't open is returned as the
- *   error.
+ * - auto (default): the SPEs (dxt.spu) for images of at least SPEQ_S3TC_MIN pixels (default
+ *   64x64), when the queue opens; the PPE encoder (lib/dxt-ref.c) otherwise.
+ * - spu: the SPEs for every image they can take (8-aligned dst and stride, DXT5 16-aligned), any
+ *   size; the PPE for the rest. A queue that doesn't open is returned as the error.
  * - ppe: the PPE encoder. off: -ENOTSUP (Mesa's encoder).
+ * Sources: RGBA (4 bytes a pixel) and RGB (3: Mesa's GL_RGB uploads to RGB DXT1, Sauerbraten's
+ * and other games' textures without alpha; Mesa converts luminance, BGR and the rest to one of
+ * the two first, rows tightly packed). dxt.spu expands RGB to RGBA in local store (doc/dxt-rgb.md).
+ * SPEQ_S3TC_RGB=ppe sends RGB sources to the PPE encoder whatever SPEQ_S3TC says (the A/B
+ * switch: where RGB sources always went before), off to Mesa's encoder; auto (default) as RGBA.
  * Both encoders give the same bytes. SPEQ_DEBUG=1: one line per call on stderr.
  *
  * The queue opens on the first SPU call, once per process, as a bulk queue (a worker per SPE
@@ -41,7 +45,7 @@
 #define MAX_FAILS	3		/* images failed on the SPEs in a row: the PPE from then on */
 
 static pthread_once_t once = PTHREAD_ONCE_INIT;
-static int mode = SPQ_S3TC_AUTO, debug, dxt5 = 1;
+static int mode = SPQ_S3TC_AUTO, debug, dxt5 = 1, rgb = SPQ_S3TC_AUTO;
 static unsigned long min_px = MIN_PX;
 
 static pthread_mutex_t qlock = PTHREAD_MUTEX_INITIALIZER;
@@ -59,7 +63,7 @@ static struct spq_s3tc_stats stats;
 static void init(void)
 {
 	const char *s = getenv("SPEQ_S3TC"), *d = getenv("SPEQ_DEBUG"), *m = getenv("SPEQ_S3TC_MIN");
-	const char *five = getenv("SPEQ_S3TC_DXT5");
+	const char *five = getenv("SPEQ_S3TC_DXT5"), *r = getenv("SPEQ_S3TC_RGB");
 	unsigned long a, b;
 	char x;
 
@@ -78,6 +82,14 @@ static void init(void)
 		min_px = a * b;
 	else if (m && *m)
 		min_px = strtoul(m, NULL, 0);
+	if (!r || !*r || !strcmp(r, "auto"))
+		rgb = SPQ_S3TC_AUTO;
+	else if (!strcmp(r, "ppe"))
+		rgb = SPQ_S3TC_PPE;
+	else if (!strcmp(r, "off") || !strcmp(r, "0"))
+		rgb = SPQ_S3TC_OFF;
+	else
+		fprintf(stderr, "speq: SPEQ_S3TC_RGB=%s unknown, using auto\n", r);
 	debug = d && *d && strcmp(d, "0");
 	dxt5 = !five || !*five || (strcmp(five, "0") && strcmp(five, "off"));
 	page = sysconf(_SC_PAGESIZE);
@@ -91,6 +103,14 @@ int spq_s3tc_mode(int m)
 	if (m >= SPQ_S3TC_OFF && m <= SPQ_S3TC_AUTO)
 		mode = m;
 	return mode;
+}
+
+int spq_s3tc_rgb(int m)
+{
+	pthread_once(&once, init);
+	if (m == SPQ_S3TC_OFF || m == SPQ_S3TC_PPE || m == SPQ_S3TC_AUTO)
+		rgb = m;
+	return rgb;
 }
 
 void spq_s3tc_stats(struct spq_s3tc_stats *s)
@@ -165,9 +185,10 @@ static void touch(uint8_t *dst, unsigned rows, unsigned rowbytes, unsigned strid
 	(void)sink;
 }
 
-/* The SPU path: 0, or -errno with the image to be redone on the PPE. jmode: DXT_JOB_* */
-static int spu_encode(struct speq *q, const uint8_t *src, unsigned w, unsigned h, uint8_t *dst,
-		      unsigned stride, unsigned jmode, unsigned *njobs)
+/* The SPU path: 0, or -errno with the image to be redone on the PPE. jmode: DXT_JOB_*, comps
+ * 3 or 4 */
+static int spu_encode(struct speq *q, const uint8_t *src, unsigned comps, unsigned w, unsigned h,
+		      uint8_t *dst, unsigned stride, unsigned jmode, unsigned *njobs)
 {
 	struct speq_job jobs[SPEQ_MAX_WORKERS];
 	struct speq_done done __attribute__((aligned(128)));
@@ -191,9 +212,10 @@ static int spu_encode(struct speq *q, const uint8_t *src, unsigned w, unsigned h
 		jobs[i].arg[DXT_ARG_DST] = bad && i == (bad - 1 < n ? bad - 1 : n - 1) ?
 					   BAD_EA : (uintptr_t)dst;
 		jobs[i].arg[DXT_ARG_STRIDE] = stride;
-		jobs[i].arg[DXT_ARG_MODE] = jmode;
+		jobs[i].arg[DXT_ARG_MODE] = jmode | (comps == 3 ? DXT_JOB_SRC_RGB : 0);
 	}
-	touch(dst, rows, jmode == DXT_JOB_DXT5 ? 4 * w : 2 * w, stride, src, (size_t)16 * w * rows);
+	touch(dst, rows, jmode == DXT_JOB_DXT5 ? 4 * w : 2 * w, stride, src,
+	      (size_t)4 * comps * w * rows);
 	memset(&done, 0, sizeof(done));
 	ret = speq_submit(q, jobs, n, &done);
 	if (ret == -EINVAL)
@@ -236,6 +258,8 @@ int speq_s3tc_compress_v1(unsigned fmt, unsigned srccomps, const void *src, unsi
 		ret = -ENOTSUP;	/* partial blocks: Mesa's encoder */
 	else if (mode == SPQ_S3TC_OFF)
 		ret = -ENOTSUP;
+	else if (srccomps == 3 && rgb == SPQ_S3TC_OFF)
+		ret = -ENOTSUP;	/* SPEQ_S3TC_RGB=off */
 	else if (!w || !h)
 		ret = 0;
 	else if (!src || !dst)
@@ -249,8 +273,8 @@ int speq_s3tc_compress_v1(unsigned fmt, unsigned srccomps, const void *src, unsi
 
 	if (mode == SPQ_S3TC_PPE)
 		why = " (SPEQ_S3TC=ppe)";
-	else if (srccomps != 4)
-		why = " (RGB source)";
+	else if (srccomps == 3 && rgb == SPQ_S3TC_PPE)
+		why = " (SPEQ_S3TC_RGB=ppe)";
 	else if (((uintptr_t)dst | dst_stride) & (align - 1))
 		why = is5 ? " (dst not 16-aligned)" : " (dst not 8-aligned)";
 	else if (mode == SPQ_S3TC_AUTO && (unsigned long)w * h < min_px)
@@ -267,7 +291,7 @@ int speq_s3tc_compress_v1(unsigned fmt, unsigned srccomps, const void *src, unsi
 		use_spu = 1;
 
 	if (use_spu) {
-		spu_ret = spu_encode(q, src, w, h, dst, dst_stride, jmode, &njobs);
+		spu_ret = spu_encode(q, src, srccomps, w, h, dst, dst_stride, jmode, &njobs);
 		__atomic_fetch_add(&stats.jobs, njobs, __ATOMIC_RELAXED);
 		if (!spu_ret) {
 			__atomic_store_n(&fails, 0, __ATOMIC_RELAXED);

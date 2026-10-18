@@ -7,6 +7,8 @@
  * whole and one block row per call, the source pointer aligned and not; the blocks must match
  * the reference's byte for byte and the bytes around the output stay untouched. Then a 256-wide
  * image (the stone crop tiled), 64 block rows, is timed with the decrementer per mode.
+ * dxt_rgb_expand (RGB sources) against a plain loop: every source offset 0..15, lengths of 4 to
+ * 1028 pixels, nothing written past its 64-byte groups; then timed on 4096 pixels.
  * The summary goes to the local-store string `result` (SPU printf isn't served by spurun); the
  * exit code is 0 when everything matched. Built for the host (dxt-emu.h or DXT_SCALAR) it also
  * prints the summary and fuzzes single blocks against dxt1_ref_block and dxt5_ref_block. */
@@ -39,6 +41,9 @@ char result[400];
 
 static uint8_t work[64 * 64 * 4 + 64] __attribute__((aligned(128)));
 static uint8_t out[64 * 64 + 64] __attribute__((aligned(128)));
+static uint8_t xsrc[4096 * 3 + 128] __attribute__((aligned(128)));
+static uint8_t xout[4096 * 4 + 128] __attribute__((aligned(128)));
+static unsigned nxbad;
 
 static unsigned nblocks, nbad, nguard;
 static char first[160];
@@ -163,6 +168,36 @@ static void run(const struct test_img *im, unsigned mode, unsigned off)
 		}
 }
 
+/* dxt_rgb_expand at every offset and a range of lengths: RGBA with alpha 255, and the bytes past
+ * its whole 64-byte groups untouched */
+static void test_expand(void)
+{
+	static const unsigned lens[] = { 4, 8, 12, 16, 20, 28, 44, 48, 64, 100, 252, 1024, 1028 };
+	unsigned off, l, i, n, written;
+
+	for (i = 0; i < sizeof(xsrc); i++)
+		xsrc[i] = (uint8_t)(i * 7 + (i >> 5) * 13 + 1);
+	for (off = 0; off < 16; off++)
+		for (l = 0; l < sizeof(lens) / sizeof(lens[0]); l++) {
+			n = lens[l];
+			written = (n + 15) / 16 * 64;
+			memset(xout, 0xee, sizeof(xout));
+			dxt_rgb_expand(xout, xsrc, off, n);
+			for (i = 0; i < n; i++)
+				if (xout[4 * i] != xsrc[off + 3 * i] ||
+				    xout[4 * i + 1] != xsrc[off + 3 * i + 1] ||
+				    xout[4 * i + 2] != xsrc[off + 3 * i + 2] || xout[4 * i + 3] != 255)
+					break;
+			if (i < n)
+				nxbad++;
+			for (i = written; i < sizeof(xout); i++)
+				if (xout[i] != 0xee) {
+					nxbad++;
+					break;
+				}
+		}
+}
+
 static unsigned long long ticks_now(void)
 {
 #ifdef __SPU__
@@ -267,7 +302,7 @@ int main(void)
 {
 	unsigned nimg = sizeof(test_imgs) / sizeof(test_imgs[0]), i, mode, off, x, y;
 	const struct test_img *tim = &test_imgs[TEST_TIMING_IMG];
-	unsigned long long ticks[3];
+	unsigned long long ticks[3], xticks;
 	int sumb_ok = 1;
 	char *p;
 
@@ -295,8 +330,22 @@ int main(void)
 	ticks[0] = time_mode(0);
 	ticks[1] = time_mode(1);
 	ticks[2] = time_mode(2);
+	test_expand();
+	{
+		unsigned long long best = ~0ull, t0, t;
+		unsigned rep;
 
-	p = put(result, nbad || nguard || !sumb_ok ? "FAIL " : "PASS ");
+		for (rep = 0; rep < 3; rep++) {
+			t0 = ticks_now();
+			dxt_rgb_expand(xout, xsrc, 8, 4096);
+			t = (t0 - ticks_now()) & 0xffffffffull;
+			if (t < best)
+				best = t;
+		}
+		xticks = best;
+	}
+
+	p = put(result, nbad || nguard || nxbad || !sumb_ok ? "FAIL " : "PASS ");
 	p = putu(p, nbad);
 	p = put(p, " of ");
 	p = putu(p, nblocks);
@@ -305,6 +354,11 @@ int main(void)
 		p = put(p, ", ");
 		p = putu(p, nguard);
 		p = put(p, " overruns");
+	}
+	if (nxbad) {
+		p = put(p, ", rgb expand ");
+		p = putu(p, nxbad);
+		p = put(p, " bad");
 	}
 	if (!sumb_ok)
 		p = put(p, ", spu_sumb operands swapped");
@@ -321,6 +375,9 @@ int main(void)
 		p = putd1(p, pixels * (DEC_HZ / 100000) / ticks[mode]);
 		p = put(p, " Mpx/s");
 	}
+	p = put(p, "; rgb expand ");
+	p = putd1(p, xticks * CYC_PER_TICK * 10 / (4096 / 16));
+	p = put(p, " cyc/16px");
 	p = put(p, " (dec 79.8 MHz, 40 cyc/tick)");
 	if (first[0]) {
 		p = put(p, "; first: ");
@@ -331,5 +388,5 @@ int main(void)
 	if (fuzz())
 		return 1;
 #endif
-	return nbad || nguard || !sumb_ok ? 1 : 0;
+	return nbad || nguard || nxbad || !sumb_ok ? 1 : 0;
 }

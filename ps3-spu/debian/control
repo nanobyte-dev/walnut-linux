@@ -40,7 +40,8 @@ Description: work queues on the PS3's SPEs, DXT1/DXT5 compression, MIDI synthesi
  them. S3TC DXT1 and DXT5 texture compression, which Mesa loads at run time
  (speq_s3tc_compress_v1): van Waveren's real-time DXT1, and DXT5 on top of it, on the SPEs
  (dxt.spu), and on the PPE for small images or when no SPE is available, with the same
- output (SPEQ_S3TC=auto|spu|ppe|off, SPEQ_S3TC_DXT5=off). fluidsynth's voice rendering,
+ output, from RGBA or RGB sources (SPEQ_S3TC=auto|spu|ppe|off, SPEQ_S3TC_DXT5=off,
+ SPEQ_S3TC_RGB=ppe). fluidsynth's voice rendering,
  which our fluidsynth loads at run time (speq_synth_*_v2): sample interpolation, filters
  and mixing on the SPEs (SPEQ_SYNTH=auto|spu|ppe|off). Vertex skinning of skeletal models,
  which our Sauerbraten loads at run time (speq_skin_*_v1): dual quaternion or matrix

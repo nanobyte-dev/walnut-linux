@@ -92,12 +92,14 @@ unsigned speq_abi_version(void);
  * is transparent. DXT5: its colour block never relies on the 3-colour mode (decoders read
  * DXT5's in 4-colour mode).
  * Returns 0, or -ENOTSUP (DXT3, DXT5 with SPEQ_S3TC_DXT5=off, srccomps not 3/4, w or h not a
- * multiple of 4, SPEQ_S3TC=off), -EINVAL, or with SPEQ_S3TC=spu the error of a queue that can't
- * open (-ENOENT, -EBUSY, ...) or broke (3 images in a row failed); dst is then untouched. A
- * failed SPU job never shows otherwise: the image is redone on the PPE.
- * Env: SPEQ_S3TC=auto|spu|ppe|off (default auto: the SPEs for RGBA images of at least
+ * multiple of 4, SPEQ_S3TC=off, an RGB source with SPEQ_S3TC_RGB=off), -EINVAL, or with
+ * SPEQ_S3TC=spu the error of a queue that can't open (-ENOENT, -EBUSY, ...) or broke (3 images in
+ * a row failed); dst is then untouched. A failed SPU job never shows otherwise: the image is
+ * redone on the PPE.
+ * Env: SPEQ_S3TC=auto|spu|ppe|off (default auto: the SPEs for RGB and RGBA images of at least
  * SPEQ_S3TC_MIN pixels, a count or WxH, default 64x64, when dxt.spu's queue opens; the PPE
- * otherwise), SPEQ_S3TC_DXT5=off (DXT5 back to the caller's encoder), SPEQ_DEBUG=1 (one line per
+ * otherwise), SPEQ_S3TC_DXT5=off (DXT5 back to the caller's encoder), SPEQ_S3TC_RGB=ppe|off
+ * (RGB sources to libspeq's PPE encoder, or back to the caller's), SPEQ_DEBUG=1 (one line per
  * call on stderr). Safe to call from several threads. */
 int speq_s3tc_compress_v1(unsigned fmt, unsigned srccomps, const void *src, unsigned w,
 			  unsigned h, void *dst, unsigned dst_stride);

@@ -161,3 +161,11 @@ variant_alnull() { oal_variant alnull; }
 variant_nosound() { OA_X+=(+set s_initsound 0); oa_cmd; }
 # Mesa ps3.282: a submission every 100 draws (0026), the Armagetron fix, checked here
 variant_kick100() { ENV+=(NV30_PS3_KICK_DRAWS=100); }
+# DXT1 of RGB sources (libspeq 2026-10-18, ps3-spu/doc/dxt-rgb.md): an RGB source (3 bytes a pixel,
+# "speq: s3tc dxt1 ... comps 3" lines) used to be encoded on the PPE (165 ms for a 1024x1024, 43 ms
+# for a 512x512: hitches when a texture loads mid-demo); now the SPEs take it. rgbppe sends RGB back
+# to the PPE encoder (the old behaviour), rgbspu is the default with the same logging, so the pair
+# differs in the switch alone. opengl1 uploads its opaque textures as GL_RGBA data (RGBA DXT1,
+# comps 4), so count the comps 3 lines in game.log first: without them the pair measures nothing.
+variant_rgbspu() { ENV+=(SPEQ_DEBUG=1); }
+variant_rgbppe() { ENV+=(SPEQ_S3TC_RGB=ppe SPEQ_DEBUG=1); }

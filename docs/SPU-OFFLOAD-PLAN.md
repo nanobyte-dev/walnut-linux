@@ -197,5 +197,5 @@ default) uses the SPEs, so installing the two packages is enough. Next: the shar
     `SPEQ_DEBUG=1 gl-dxt`, `spurun <prog.spu> [symbol]`.
   - `games/openarena/step0.sh smoke|tc1-first|tex N|audio N|profile V` (copied to
     `/var/tmp/step0` on the PS3).
-- libspeq environment: `SPEQ_S3TC=auto|spu|ppe|off` (default auto), `SPEQ_S3TC_MIN` (64x64),
+- libspeq environment: `SPEQ_S3TC=auto|spu|ppe|off` (default auto), `SPEQ_S3TC_RGB=ppe|off` (RGB sources only), `SPEQ_S3TC_MIN` (64x64),
   `SPEQ_DEBUG=1`, `SPEQ_SPIN_US` (80), `SPEQ_IDLE_US` (10000), `SPEQ_FREE_MS` (5000).
