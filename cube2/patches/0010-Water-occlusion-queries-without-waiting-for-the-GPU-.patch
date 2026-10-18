@@ -1,0 +1,70 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 12:55:49 +0300
+Subject: Water occlusion queries without waiting for the GPU (oqwaterlag)
+
+queryreflections issues an occlusion query per water surface right after the world geometry,
+and drawreflections, a few passes later in the same frame, waits for its result (with oqwater 2,
+whenever last frame's query found the water hidden). The GPU is behind the CPU there, so the
+frame stops until it catches up: on the PS3 that wait was 10% of the CPU, spinning in the GL's
+query result (drawreflections > checkquery > glGetQueryObjectuiv).
+
+With oqwaterlag 1 (0, the default: as before) this frame's water query counts only if its
+result is in already (GL_QUERY_RESULT_AVAILABLE). Until then the reflection and refraction
+passes keep last frame's verdict: with oqwater 2 they stay skipped while the water stayed
+hidden, so on the first frame it shows again the water has the reflection it had when last
+drawn; with oqwater 1 (no previous query) they are drawn. renderwater draws the water surface
+when the result isn't in, which shows nothing where it is hidden (depth test). The world
+geometry's queries are last frame's already and don't wait.
+
+diff --git a/engine/water.cpp b/engine/water.cpp
+--- a/engine/water.cpp
++++ b/engine/water.cpp
+@@ -327,6 +327,20 @@ GLuint reflectionfb = 0, reflectiondb = 0;
+ GLuint getwaterfalltex() { return waterfallrefraction.refracttex ? waterfallrefraction.refracttex : notexture->id; }
+ 
+ VAR(oqwater, 0, 2, 2);
++// oqwaterlag 1: the water's occlusion query of this frame is used only if its result is in, so
++// the frame doesn't wait for the GPU to catch up with it (on the PS3, 10% of the CPU spun in
++// that wait). Until the result is in, the reflection passes keep last frame's verdict (with
++// oqwater 2: skipped while the water stayed hidden, so the first frame it shows again has last
++// time's reflection) and the water itself is drawn (depth-tested: hidden water shows nothing).
++VAR(oqwaterlag, 0, 0, 1);
++
++static bool waterqueryoccluded(Reflection &ref, bool trustprev)
++{
++    if(!oqwaterlag) return checkquery(ref.query);
++    bool occluded = checkquery(ref.query, true);
++    if(ref.query->fragments >= 0) return occluded;
++    return trustprev && ref.prevquery && ref.prevquery->owner==&ref;
++}
+ VARFP(waterfade, 0, 1, 1, { cleanreflections(); preloadwatershaders(); });
+ 
+ void preloadwatershaders(bool force)
+@@ -424,7 +438,7 @@ void renderwater()
+         {
+             if(!ref.prevquery || ref.prevquery->owner!=&ref || checkquery(ref.prevquery))
+             {
+-                if(checkquery(ref.query)) continue;
++                if(waterqueryoccluded(ref, false)) continue;
+             }
+         }
+ 
+@@ -956,7 +970,7 @@ void drawreflections()
+         { 
+             if(!ref.prevquery || ref.prevquery->owner!=&ref || checkquery(ref.prevquery))
+             {
+-                if(checkquery(ref.query)) continue;
++                if(waterqueryoccluded(ref, true)) continue;
+             }
+         }
+ 
+@@ -1021,7 +1035,7 @@ void drawreflections()
+         {
+             if(!ref.prevquery || ref.prevquery->owner!=&ref || checkquery(ref.prevquery))
+             {
+-                if(checkquery(ref.query)) goto nowaterfall;
++                if(waterqueryoccluded(ref, true)) goto nowaterfall;
+             }
+         }
+ 

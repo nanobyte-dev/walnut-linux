@@ -1,0 +1,204 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 12:54:37 +0300
+Subject: nv30: texture uploads reuse idle, mapped staging buffers
+ (NV30_STAGING_POOL)
+
+Every texture upload had a staging buffer of its own: created, mapped, then unmapped and freed
+once the fence after its copy signalled, a GEM create, an mmap, a munmap and a GEM close per
+glTexSubImage. ClassiCube updates its animated textures every frame: on the PS3 that was 8.6% of
+its CPU (mmap 3.0, munmap 2.4, GEM create 1.6, close 0.7), QuakeSpasm and Yamagi Quake II 2%.
+
+With NV30_STAGING_POOL=N (N up to 32; 0, the default: off) write-only uploads up to 256 KiB take
+a buffer of their power-of-two size class (at least 4 KiB) from a pool of idle buffers that are
+still mapped, and the fence work that freed the buffer gives it back to the pool instead. Only
+buffers whose fence signalled are in the pool, so none is in a batch the GPU still runs and it
+is written without a wait. Uploads that read keep a buffer of their own, since their map waits
+for the GPU's copy into it. The pool holds at most N buffers and 2 MiB of GART (the oldest are
+freed first) and is emptied when the screen goes away, after its contexts.
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
+@@ -83,6 +83,7 @@ struct nv30_transfer {
+    struct nv30_rect tmp;
+    unsigned nblocksx;
+    unsigned nblocksy;
++   unsigned pooled_size; /* NV30_STAGING_POOL: tmp.bo goes back to the pool in this class */
+ };
+ 
+ static inline struct nv30_transfer *
+@@ -305,6 +306,85 @@ nv30_staging_bo_new(struct nv30_context *nv30, unsigned size, struct nouveau_bo
+    return ret;
+ }
+ 
++/*
++ * NV30_STAGING_POOL=N: every texture upload had a staging buffer of its own, created, mapped,
++ * then unmapped and freed once the copy's fence signalled: a GEM create, an mmap, a munmap and
++ * a GEM close per glTexSubImage (ClassiCube's animated textures: 8.6% of its CPU on the PS3,
++ * most of it the mmap and munmap). Write-only uploads up to NV30_STAGING_POOL_MAX_BO now take
++ * a buffer of their power-of-two size class from a pool of idle ones, still mapped, and give it
++ * back when the fence after their copy signals (the fence's work, as the free was). A pooled
++ * buffer is never in a batch the GPU still runs, so it is written without waiting. Reads keep
++ * their own buffer: their map waits for the GPU's copy into it. The pool holds at most N
++ * buffers and NV30_STAGING_POOL_MAX_BYTES of GART, the oldest given back first.
++ */
++#define NV30_STAGING_POOL_MAX_BO    (256 << 10)
++#define NV30_STAGING_POOL_MAX_BYTES (2 << 20)
++
++static inline unsigned
++nv30_staging_pool_size(unsigned size)
++{
++   return MAX2(util_next_power_of_two(size), 4096);
++}
++
++static struct nouveau_bo *
++nv30_staging_pool_get(struct nv30_screen *screen, unsigned size)
++{
++   struct nouveau_bo *bo = NULL;
++   unsigned i;
++
++   simple_mtx_lock(&screen->staging_lock);
++   for (i = screen->staging_count; i-- > 0;) {
++      if (screen->staging_pool[i].size == size) {
++         bo = screen->staging_pool[i].bo;
++         memmove(&screen->staging_pool[i], &screen->staging_pool[i + 1],
++                 (screen->staging_count - i - 1) * sizeof(screen->staging_pool[0]));
++         screen->staging_count--;
++         screen->staging_bytes -= bo->size;
++         break;
++      }
++   }
++   simple_mtx_unlock(&screen->staging_lock);
++   return bo;
++}
++
++struct nv30_staging_return {
++   struct nv30_screen *screen;
++   struct nouveau_bo *bo;
++   unsigned size;
++};
++
++/* fence work: the copy out of the buffer is done (runs with or without the fence lock held) */
++static void
++nv30_staging_pool_put(void *data)
++{
++   struct nv30_staging_return *r = data;
++   struct nv30_screen *screen = r->screen;
++   struct nouveau_bo *bo = r->bo, *evict[ARRAY_SIZE(screen->staging_pool)];
++   unsigned size = r->size, n = 0, i;
++
++   FREE(r);
++   simple_mtx_lock(&screen->staging_lock);
++   if (!screen->staging_closed) {
++      while (screen->staging_count &&
++             (screen->staging_count >= screen->staging_max ||
++              screen->staging_bytes + bo->size > NV30_STAGING_POOL_MAX_BYTES)) {
++         evict[n] = screen->staging_pool[0].bo;
++         screen->staging_bytes -= evict[n++]->size;
++         memmove(&screen->staging_pool[0], &screen->staging_pool[1],
++                 --screen->staging_count * sizeof(screen->staging_pool[0]));
++      }
++      screen->staging_pool[screen->staging_count].bo = bo;
++      screen->staging_pool[screen->staging_count++].size = size;
++      screen->staging_bytes += bo->size;
++      bo = NULL;
++   }
++   simple_mtx_unlock(&screen->staging_lock);
++   for (i = 0; i < n; i++)
++      nouveau_bo_ref(NULL, &evict[i]);
++   if (bo)
++      nouveau_bo_ref(NULL, &bo);
++}
++
+ void *
+ nv30_miptree_transfer_map(struct pipe_context *pipe, struct pipe_resource *pt,
+                           unsigned level, unsigned usage,
+@@ -335,8 +415,15 @@ nv30_miptree_transfer_map(struct pipe_context *pipe, struct pipe_resource *pt,
+    define_rect(pt, level, box->z, box->x, box->y,
+                box->width, box->height, &tx->img);
+ 
+-   ret = nv30_staging_bo_new(nv30, tx->base.layer_stride * tx->base.box.depth,
+-                             &tx->tmp.bo);
++   unsigned size = tx->base.layer_stride * tx->base.box.depth;
++   tx->pooled_size = 0;
++   if (nv30->screen->staging_max && !(usage & PIPE_MAP_READ) &&
++       size <= NV30_STAGING_POOL_MAX_BO) {
++      size = nv30_staging_pool_size(size);
++      tx->pooled_size = size;
++      tx->tmp.bo = nv30_staging_pool_get(nv30->screen, size);
++   }
++   ret = tx->tmp.bo ? 0 : nv30_staging_bo_new(nv30, size, &tx->tmp.bo);
+    if (ret) {
+       pipe_resource_reference(&tx->base.resource, NULL);
+       FREE(tx);
+@@ -421,8 +508,17 @@ nv30_miptree_transfer_unmap(struct pipe_context *pipe,
+ 
+       /* Allow the copies above to finish executing before freeing the source */
+       nv30->staging_inflight += tx->tmp.bo->size;
+-      nouveau_fence_work(nv30->base.fence,
+-                         nouveau_fence_unref_bo, tx->tmp.bo);
++      struct nv30_staging_return *r =
++         tx->pooled_size ? MALLOC_STRUCT(nv30_staging_return) : NULL;
++      if (r) {
++         r->screen = nv30->screen;
++         r->bo = tx->tmp.bo;
++         r->size = tx->pooled_size;
++         nouveau_fence_work(nv30->base.fence, nv30_staging_pool_put, r);
++      } else {
++         nouveau_fence_work(nv30->base.fence,
++                            nouveau_fence_unref_bo, tx->tmp.bo);
++      }
+    } else {
+       nouveau_bo_ref(NULL, &tx->tmp.bo);
+    }
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -409,6 +409,14 @@ nv30_screen_destroy(struct pipe_screen *pscreen)
+ 
+    nouveau_bo_ref(NULL, &screen->notify);
+ 
++   /* NV30_STAGING_POOL: the contexts are gone, their last uploads' buffers returned */
++   simple_mtx_lock(&screen->staging_lock);
++   screen->staging_closed = true;
++   while (screen->staging_count)
++      nouveau_bo_ref(NULL, &screen->staging_pool[--screen->staging_count].bo);
++   simple_mtx_unlock(&screen->staging_lock);
++   simple_mtx_destroy(&screen->staging_lock);
++
+    nouveau_heap_destroy(&screen->query_heap);
+    nouveau_heap_destroy(&screen->vp_exec_heap);
+    nouveau_heap_destroy(&screen->vp_data_heap);
+@@ -543,6 +551,9 @@ nv30_screen_create(struct nouveau_device *dev)
+     * submission that ended the query; unset or negative: spin until it lands, as before.
+     */
+    screen->query_wait_us = MIN2(debug_get_num_option("NV30_QUERY_WAIT", -1), 1000000);
++   simple_mtx_init(&screen->staging_lock, mtx_plain);
++   screen->staging_max = CLAMP(debug_get_num_option("NV30_STAGING_POOL", 0), 0,
++                               (int64_t)ARRAY_SIZE(screen->staging_pool));
+    screen->ps3_kick_draws = ps3 ? debug_get_num_option("NV30_PS3_KICK_DRAWS", 0) : 0;
+    screen->ps3_kick_auto = ps3 && !screen->ps3_kick_draws &&
+                            debug_get_bool_option("NV30_PS3_KICK_AUTO", true);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -43,6 +43,18 @@ struct nv30_screen {
+    unsigned ps3_kick_split;    /* NV30_PS3_KICK_SPLIT: at most about this many parts per frame */
+    int query_wait_us;          /* NV30_QUERY_WAIT: spin this long for a query, then sleep (-1: spin) */
+ 
++   /* NV30_STAGING_POOL=N: up to N idle staging buffers of texture uploads, already mapped,
++    * kept for the next uploads of the same size class (nv30_miptree.c); 0: off */
++   simple_mtx_t staging_lock;
++   struct {
++      struct nouveau_bo *bo;
++      unsigned size;               /* the size class asked for (the kernel may round bo->size) */
++   } staging_pool[32];
++   unsigned staging_count;
++   unsigned staging_max;
++   unsigned staging_bytes;
++   bool staging_closed;
++
+    struct nouveau_bo *notify;
+ 
+    struct nouveau_object *ntfy;

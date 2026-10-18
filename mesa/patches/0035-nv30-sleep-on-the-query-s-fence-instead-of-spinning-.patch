@@ -1,0 +1,153 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 12:52:21 +0300
+Subject: nv30: sleep on the query's fence instead of spinning for its result
+ (NV30_QUERY_WAIT)
+
+A query result the caller waits for (glGetQueryObject GL_QUERY_RESULT) was a busy loop on the
+report word. On the PS3 that was 10% of Sauerbraten's CPU (its water reflections test the
+occlusion query issued earlier in the same frame), and a spinning PPE thread takes issue slots
+from the core's other hardware thread for the whole wait.
+
+With NV30_QUERY_WAIT=US (unset or negative, the default: as before) the end of a query holds
+the context's current fence, which the query's kick then emits after the report. A wait spins
+for at most US microseconds at low SMT priority (or 1,1,1), then sleeps in the kernel on that
+fence (nouveau_fence_wait), and spins on what is left yielding the CPU: the kernel's fence
+follows the FIFO, which may be slightly ahead of the 3D back end writing the report. The result
+is read from the report as before, so it is the same; only how the thread waits changes.
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers/nouveau/nv30/nv30_query.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_query.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_query.c
+@@ -28,6 +28,10 @@
+ #include "nv30/nv30_screen.h"
+ #include "nv30/nv30_context.h"
+ #include "nv30/nv30_winsys.h"
++#include "nouveau_fence.h"
++#include "util/detect_arch.h"
++#include "util/os_time.h"
++#include <sched.h>
+ 
+ struct nv30_query_object {
+    struct list_head list;
+@@ -102,6 +106,7 @@ struct nv30_query {
+    uint32_t report;
+    uint32_t enable;
+    uint64_t result;
++   struct nouveau_fence *fence; /* NV30_QUERY_WAIT: the submission that ends the query */
+ };
+ 
+ static inline struct nv30_query *
+@@ -149,6 +154,10 @@ nv30_query_create(struct pipe_context *pipe, unsigned type, unsigned index)
+ static void
+ nv30_query_destroy(struct pipe_context *pipe, struct pipe_query *pq)
+ {
++   struct nv30_query *q = nv30_query(pq);
++
++   if (q->fence)
++      nouveau_fence_ref(NULL, &q->fence, &nv30_screen(pipe->screen)->base);
+    FREE(pq);
+ }
+ 
+@@ -200,10 +209,54 @@ nv30_query_end(struct pipe_context *pipe, struct pipe_query *pq)
+       BEGIN_NV04(push, SUBC_3D(q->enable), 1);
+       PUSH_DATA (push, 0);
+    }
++   /* NV30_QUERY_WAIT: hold the current fence, so the kick below emits it after the report
++    * and a waiter can sleep on it */
++   if (screen->query_wait_us >= 0)
++      nouveau_fence_ref(nv30->base.fence, &q->fence, &screen->base);
+    PUSH_KICK (push);
+    return true;
+ }
+ 
++/* PPE hardware thread priority: a spinning thread at low priority leaves the issue slots to
++ * the core's other thread (no-ops elsewhere, and where problem state may not change it) */
++static inline void
++nv30_query_spin_low(void)
++{
++#if DETECT_ARCH_PPC
++   __asm__ __volatile__("or 1,1,1" ::: "memory");
++#endif
++}
++
++static inline void
++nv30_query_spin_medium(void)
++{
++#if DETECT_ARCH_PPC
++   __asm__ __volatile__("or 2,2,2" ::: "memory");
++#endif
++}
++
++/*
++ * NV30_QUERY_WAIT: the report is not written yet and the caller waits for it. Spin for at
++ * most query_wait_us at low priority, then sleep in the kernel on the fence of the submission
++ * that ended the query (emitted after the report). The kernel's fence follows the FIFO, which
++ * can be a little ahead of the 3D back end that writes the report, so whatever is left is spun
++ * on afterwards, yielding the CPU.
++ */
++static void
++nv30_query_wait(struct nv30_screen *screen, struct nv30_query *q, volatile uint32_t *ntfy)
++{
++   int64_t end = os_time_get_nano() + (int64_t)screen->query_wait_us * 1000;
++
++   nv30_query_spin_low();
++   while ((ntfy[3] & 0xff000000) && os_time_get_nano() < end) {
++   }
++   nv30_query_spin_medium();
++   if ((ntfy[3] & 0xff000000) && q->fence)
++      nouveau_fence_wait(q->fence, NULL);
++   while (ntfy[3] & 0xff000000)
++      sched_yield();
++}
++
+ static bool
+ nv30_query_result(struct pipe_context *pipe, struct pipe_query *pq,
+                   bool wait, union pipe_query_result *result)
+@@ -214,6 +267,11 @@ nv30_query_result(struct pipe_context *pipe, struct pipe_query *pq,
+    volatile uint32_t *ntfy1 = nv30_ntfy(screen, q->qo[1]);
+ 
+    if (ntfy1) {
++      if (screen->query_wait_us >= 0 && (ntfy1[3] & 0xff000000)) {
++         if (!wait)
++            return false;
++         nv30_query_wait(screen, q, ntfy1);
++      }
+       while (ntfy1[3] & 0xff000000) {
+          if (!wait)
+             return false;
+@@ -233,6 +291,8 @@ nv30_query_result(struct pipe_context *pipe, struct pipe_query *pq,
+ 
+       nv30_query_object_del(screen, &q->qo[0]);
+       nv30_query_object_del(screen, &q->qo[1]);
++      if (q->fence)
++         nouveau_fence_ref(NULL, &q->fence, &screen->base);
+    }
+ 
+    if (q->type == PIPE_QUERY_OCCLUSION_PREDICATE ||
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -538,6 +538,11 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->base.fence.bo_pool_max =
+       CLAMP(debug_get_num_option("NV30_FENCE_BO_POOL", 0), 0,
+             (int64_t)ARRAY_SIZE(screen->base.fence.bo_pool));
++   /* NV30_QUERY_WAIT=US: a query result the caller waits for is spun on for at most US
++    * microseconds (at low SMT priority), then waited for in the kernel on the fence of the
++    * submission that ended the query; unset or negative: spin until it lands, as before.
++    */
++   screen->query_wait_us = MIN2(debug_get_num_option("NV30_QUERY_WAIT", -1), 1000000);
+    screen->ps3_kick_draws = ps3 ? debug_get_num_option("NV30_PS3_KICK_DRAWS", 0) : 0;
+    screen->ps3_kick_auto = ps3 && !screen->ps3_kick_draws &&
+                            debug_get_bool_option("NV30_PS3_KICK_AUTO", true);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -41,6 +41,7 @@ struct nv30_screen {
+    bool ps3_kick_auto;         /* NV30_PS3_KICK_AUTO: submit once the GPU caught up (nv30_vbo.c) */
+    unsigned ps3_kick_min_words; /* NV30_PS3_KICK_MIN_BYTES / 4: least work worth a submission */
+    unsigned ps3_kick_split;    /* NV30_PS3_KICK_SPLIT: at most about this many parts per frame */
++   int query_wait_us;          /* NV30_QUERY_WAIT: spin this long for a query, then sleep (-1: spin) */
+ 
+    struct nouveau_bo *notify;
+ 

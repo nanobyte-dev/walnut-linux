@@ -28,7 +28,9 @@
 # tune; MALLOC_TRIM_S the trim period), docs/MEMORY.md; as ENVS tokens: ENVS="- MALLOC=arena2
 # MALLOC=tune" (report.py: base@marena2, base@mtune). ENVS works in suite runs too. Mesa driver
 # switches as tokens: NV30_X=V goes to the game as NV30_X=V (client.sh genv=, report.py base@x<V>),
-# e.g. ENVS="- NV30_TRANSLATE_LUT=1 NV30_FENCE_BO_POOL=16" (docs/HOTPATHS.md).
+# e.g. ENVS="- NV30_TRANSLATE_LUT=1 NV30_FENCE_BO_POOL=16" (docs/HOTPATHS.md). ps3rsx module
+# parameters as tokens: PS3RSX_NAME=V is written to /sys/module/ps3rsx/parameters/name for that run
+# and put back after it (sudo -n; client.sh kparam=, report.py base@rsx_name<V>).
 # Results: /var/tmp/ps3-bench/<stamp>-<game>-<variant>/; report.py summarises them.
 {
 set -u

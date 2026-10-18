@@ -136,6 +136,31 @@ fi
 GENV=()
 for v in $(compgen -v BENCH_NV30_); do GENV+=("${v#BENCH_}=${!v}"); done
 [ ${#GENV[@]} -gt 0 ] && ENV+=("${GENV[@]}")
+# ps3rsx module parameters for this run (docs/HOTPATHS.md): every BENCH_PS3RSX_<NAME>=V (run.sh's
+# ENVS token PS3RSX_SHADOW_FAST=1) is written to /sys/module/ps3rsx/parameters/<name> (lower case)
+# through sudo -n before the game starts, and the value it had is put back when this script exits,
+# however it ends. bench.txt gets kparam=<name=value ...>; report.py shows it after the variant
+# (base@rsx_shadow_fast1). BENCH_KPARAM_DIR: another directory for them (selftest.py).
+KPARAM=(); KPARAM_OLD=(); KPARAM_DIR=${BENCH_KPARAM_DIR:-/sys/module/ps3rsx/parameters}
+kparam_write() {	# kparam_write FILE VALUE
+	if [ -w "$1" ]; then echo "$2" > "$1"; else echo "$2" | sudo -n tee "$1" > /dev/null 2>&1; fi
+}
+kparam_restore() {
+	local x
+	for x in "${KPARAM_OLD[@]}"; do
+		kparam_write "$KPARAM_DIR/${x%%=*}" "${x#*=}" ||
+			echo "!! ps3rsx parameter ${x%%=*}: could not put ${x#*=} back"
+	done
+	KPARAM_OLD=()
+}
+for v in $(compgen -v BENCH_PS3RSX_); do
+	n=${v#BENCH_PS3RSX_}; n=${n,,}; f=$KPARAM_DIR/$n
+	[ -e "$f" ] || { echo "!! $v: no $f (a ps3rsx without that parameter)"; exit 2; }
+	o=$(cat "$f")
+	kparam_write "$f" "${!v}" || { echo "!! $v: could not write $f (sudo -n)"; exit 2; }
+	KPARAM_OLD+=("$n=$o"); KPARAM+=("$n=${!v}")
+	trap 'restore; kparam_restore' EXIT
+done
 launch=(); [ "$GAMEMODE" = 1 ] && launch=(ps3-game)
 # GAMEMODE=0 means no game mode: not even ps3-game-detect's (it reads the game's environment)
 [ "$GAMEMODE" = 1 ] || ENV+=(PS3_GAME_MODE=off)
@@ -418,6 +443,7 @@ secs measured "$measured"
   [ -n "$STEADY_RE" ] && { echo "steady_fps=$(first "$STEADY_RE")"; echo "steady_maxms=$(first "$STEADY_MAXMS_RE")"; }
   [ -n "$MALLOC" ] && echo "malloc=$MALLOC"
   [ ${#GENV[@]} -gt 0 ] && echo "genv=${GENV[*]}"
+  [ ${#KPARAM[@]} -gt 0 ] && echo "kparam=${KPARAM[*]}"
   echo "hud_skip=$HUD_SKIP"; echo "hwm=$(cat "$D/.hwm" 2>/dev/null)"; echo "sound=$(cat "$D/.sound" 2>/dev/null)"
   if [ ${#PERF_FD[@]} -gt 0 ]; then
 	echo "perf_win=${PERF_WIN[*]}"; echo "perf_ack=$PERF_ACKS"

@@ -815,13 +815,17 @@ def client_prof(tmp):
     os.mkfifo(d / ".perf.ack")
     write(d / ".perf.pid", "%d\n" % os.getpid())
     log = []
+    kpd = tmp / "kparams"
+    kpd.mkdir(exist_ok=True)
+    write(kpd / "test_param", "N\n")
     fds = fake_perf(str(d / ".perf.ctl"), str(d / ".perf.ack"), log)
     env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "GALLIUM_HUD",
                                                             "GALLIUM_HUD_DUMP_DIR", "LD_PRELOAD")}
     env.update(BENCH_RECIPES=str(rdir), BENCH_BACKUP=str(tmp / "backup"), BENCH_DIR=str(d), BENCH_MEM="1",
                BENCH_MALLOCSTAT=str(so), BENCH_PERF_CTL="%s:%s" % (d / ".perf.ctl", d / ".perf.ack"),
                BENCH_MALLOC="arena2,trim", BENCH_MALLOCTRIM=str(trim), BENCH_MALLOC_TRIM_S="1",   # 1 s: not inside the fake game's split line (0-0.7 s)
-               BENCH_NV30_TEST_SWITCH="16")   # a Mesa driver switch (docs/HOTPATHS.md): to the game as NV30_TEST_SWITCH
+               BENCH_NV30_TEST_SWITCH="16",   # a Mesa driver switch (docs/HOTPATHS.md): to the game as NV30_TEST_SWITCH
+               BENCH_PS3RSX_TEST_PARAM="1", BENCH_KPARAM_DIR=str(kpd))   # a ps3rsx parameter, put back after
     t0 = time.time()
     p = subprocess.run(["bash", str(HERE / "client.sh"), "fakeprof", "base"], env=env, capture_output=True, text=True)
     check("prof client: exit 0", p.returncode == 0, p.stdout[-800:] + p.stderr[-800:])
@@ -855,9 +859,13 @@ def client_prof(tmp):
           gl[-300:])
     check("malloc presets and driver switches: malloc= and genv= in bench.txt, the tags after the variant",
           b.get("malloc") == "arena2,trim" and b.get("genv") == "NV30_TEST_SWITCH=16" and
-          report.run(d).get("variant") == "base@marena2_trim+test_switch16",
+          report.run(d).get("variant") == "base@marena2_trim+test_switch16+rsx_test_param1",
           (b.get("malloc"), b.get("genv"), report.run(d).get("variant")))
     check("driver switches: the game got NV30_TEST_SWITCH=16", "env NV30_TEST_SWITCH=16" in gl, gl[:300])
+    check("ps3rsx parameters: kparam= in bench.txt, the tag after the variant, the old value back",
+          b.get("kparam") == "test_param=1" and "rsx_test_param1" in (report.run(d).get("variant") or "") and
+          (kpd / "test_param").read_text() == "N\n",
+          (b.get("kparam"), report.run(d).get("variant"), (kpd / "test_param").read_text()))
     ml = (mem / "mid.malloc").read_text() if (mem / "mid.malloc").exists() else ""
     check("mallocstat: mallinfo2 line and malloc_info XML", ml.startswith("mallinfo2 ") and '<heap nr="0">' in ml, ml[:200])
     r = memprof.summary(d)

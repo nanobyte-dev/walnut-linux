@@ -7,3 +7,4 @@
 0007-Do-not-send-shader-uniforms-whose-value-did-not-chan.patch
 0008-Bind-the-textures-of-a-batch-in-one-go-glbatchtmu.patch
 0009-Upload-only-the-particles-that-exist-glpartvbo.patch
+0010-Water-occlusion-queries-without-waiting-for-the-GPU-.patch

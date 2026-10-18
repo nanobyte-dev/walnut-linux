@@ -183,3 +183,11 @@ variant_allbatchoff() { SB_SET+=("gluniformcache 0" "glbatchtmu 0" "glpartvbo 0"
 # the pair differs in the switch alone: stall_cpu_s, load time and the "comps 3 ... spu/ppe" lines.
 variant_rgbspu() { ENV+=(SPEQ_DEBUG=1); }
 variant_rgbppe() { ENV+=(SPEQ_S3TC_RGB=ppe SPEQ_DEBUG=1); }
+# The water's occlusion query (docs/HOTPATHS.md, target 1): drawreflections waited for this frame's
+# result, the GPU behind (10% of the CPU spun in nv30_query_result). oqlag: our cube2 0010's
+# oqwaterlag 1, this frame's result only if it is in, else last frame's (the first frame water shows
+# again has its last reflection); oqnowait: the stock oqwait 0, every query not in yet counts as
+# visible (the reflection passes then run whenever the result is late). The Mesa side is an ENVS
+# token: NV30_QUERY_WAIT=US sleeps on the fence after US microseconds of spinning (base, pixels the same)
+variant_oqlag() { SB_SET+=("oqwaterlag 1"); }
+variant_oqnowait() { SB_SET+=("oqwait 0"); }

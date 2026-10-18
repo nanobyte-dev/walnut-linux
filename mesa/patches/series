@@ -31,3 +31,5 @@
 0032-s3tc-dxt5-libspeq.patch
 0033-translate-8-bit-vertex-attributes-to-floats-through-.patch
 0034-nouveau-recycle-the-wait-buffers-of-deleted-fences-N.patch
+0035-nv30-sleep-on-the-query-s-fence-instead-of-spinning-.patch
+0036-nv30-texture-uploads-reuse-idle-mapped-staging-buffe.patch

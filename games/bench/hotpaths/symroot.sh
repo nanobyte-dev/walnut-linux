@@ -33,4 +33,7 @@ if [ ! -e "$S/.libc6-dbg" ]; then
 		unpack "$S/libc6-dbg.deb" && rm -f "$S/libc6-dbg.deb" && touch "$S/.libc6-dbg" ||
 		echo "!! no libc6-dbg $LIBC: libc frames keep their DSO name only"
 fi
+# the games' own frames: EXTRA_DEBS="<deb>..." unpacks those too, a game's deb and its -dbgsym of the
+# build the run had (perf-buildids.txt has its build id; the dbgsym's usr/lib/debug/.build-id/ shows it)
+for d in ${EXTRA_DEBS:-}; do unpack "$(cd "$(dirname "$d")" && pwd)/$(basename "$d")"; done
 echo ">> $S: $(du -sh "$S" | cut -f1)"

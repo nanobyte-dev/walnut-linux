@@ -37,3 +37,9 @@ variant_noblocks() { ENV+=(XMOTO_GL_BLOCKS=0 XMOTO_GL_STATS=1); }
 # 0031 (fragment programs from GART after a constant change) off; 0028 (index buffer fenced) off
 variant_fpvram() { ENV+=(NV30_FP_CONST_VRAM=1); }
 variant_idxlate() { ENV+=(NV30_IDXBUF_LATE_REF=1); }
+# our xmoto 0004 (docs/HOTPATHS.md, target 3): the batches written straight into a mapped stream
+# buffer instead of client memory that Mesa copies at every draw (u_upload_data's memcpy, 5.5% of
+# the CPU, the minimap's circles most of it); the same vertices and draws. streamstats counts
+# its buffer renewals too
+variant_stream() { ENV+=(XMOTO_GL_STREAM=1); }
+variant_streamstats() { ENV+=(XMOTO_GL_STREAM=1 XMOTO_GL_STATS=1); }

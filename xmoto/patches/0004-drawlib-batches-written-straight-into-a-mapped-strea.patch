@@ -1,0 +1,205 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 13:00:12 +0300
+Subject: drawlib: batches written straight into a mapped stream buffer
+ (XMOTO_GL_STREAM)
+
+The batched primitives went into a client vertex array, which the GL copies into a buffer of its
+own at every draw. On the PS3 that copy (u_upload_data's memcpy) was 5.5% of the credits
+replay's CPU, 3.9 of it the minimap's circles (933 polygons, ~17000 vertices a frame).
+
+With XMOTO_GL_STREAM=1 (0, the default: as before) the batch is written into a 2 MiB
+GL_STREAM_DRAW buffer instead, mapped with glMapBufferRange (unsynchronized, invalidated range,
+explicit flush) from the first vertex of a batch to its draw, which then sources the buffer at
+the batch's offset: the vertices are written once, where the GPU reads them. Batches follow each
+other in the buffer; when the next one may not fit, the buffer gets new storage (glBufferData
+NULL), so nothing the GPU may still read is written again. Nothing else reaches the GL while the
+buffer is mapped: every other call draws what is pending first. The vertices, their order and
+the draws are the same as from client memory. If the map fails, batching goes back to client
+memory. XMOTO_GL_STATS=1 also counts the buffer's renewals.
+
+diff --git a/src/drawlib/GLBatch.cpp b/src/drawlib/GLBatch.cpp
+--- a/src/drawlib/GLBatch.cpp
++++ b/src/drawlib/GLBatch.cpp
+@@ -28,6 +28,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ #include <string.h>
+ #include <stdio.h>
+ #include <time.h>
++#include <stddef.h>
+ 
+ #ifdef ENABLE_OPENGL
+ 
+@@ -55,7 +56,7 @@ struct Colour {
+ };
+ 
+ /* where the vertex and texcoord pointers point */
+-enum Arrays { ARR_GAME, ARR_BATCH, ARR_STATIC };
++enum Arrays { ARR_GAME, ARR_BATCH, ARR_STATIC, ARR_STREAM };
+ 
+ State want, have;
+ Colour cwant, chave;
+@@ -77,6 +78,18 @@ Vtx *batch;
+ int nBatch;
+ GLenum batchMode;
+ 
++/* XMOTO_GL_STREAM: the batch is written straight into a mapped stream buffer (room for
++   BATCH_MAX vertices from streamFirst on, unsynchronized: nothing the GPU may still read is
++   written again, the buffer gets new storage when the next batch doesn't fit) and drawn from
++   there, instead of being copied by the GL from client memory at its draw */
++bool stream;
++const int STREAM_VTX = (2 << 20) / sizeof(Vtx);
++Vtx *batchHeap;
++GLuint streamBuf;
++int streamFirst;
++bool streamMapped;
++unsigned long sOrphans;
++
+ /* pending static range */
+ bool stPending;
+ GLuint stBuf;
+@@ -194,9 +207,69 @@ void applyColour() {
+   }
+ }
+ 
++/* map room for a batch (BATCH_MAX vertices) at streamFirst; false: stream off from now on */
++bool streamMap() {
++  bindArrayBuffer(streamBuf);
++  if (streamFirst + BATCH_MAX > STREAM_VTX) {
++    glad_glBufferDataARB(
++      GL_ARRAY_BUFFER_ARB, STREAM_VTX * sizeof(Vtx), NULL, GL_STREAM_DRAW_ARB);
++    streamFirst = 0;
++    sOrphans++;
++  }
++  void *p = glad_glMapBufferRange(GL_ARRAY_BUFFER_ARB,
++                                  streamFirst * sizeof(Vtx),
++                                  BATCH_MAX * sizeof(Vtx),
++                                  GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT |
++                                    GL_MAP_INVALIDATE_RANGE_BIT |
++                                    GL_MAP_FLUSH_EXPLICIT_BIT);
++  if (p == NULL) {
++    LogWarning("GL: stream buffer map failed: batches from client memory");
++    stream = false;
++    batch = batchHeap;
++    return false;
++  }
++  batch = (Vtx *)p;
++  streamMapped = true;
++  return true;
++}
++
++void flushStream() {
++  bindArrayBuffer(streamBuf);
++  glad_glFlushMappedBufferRange(GL_ARRAY_BUFFER_ARB, 0, nBatch * sizeof(Vtx));
++  glad_glUnmapBufferARB(GL_ARRAY_BUFFER_ARB);
++  streamMapped = false;
++  batch = batchHeap;
++  if (arrays != ARR_STREAM) {
++    glad_glVertexPointer(2, GL_FLOAT, sizeof(Vtx), (const void *)offsetof(Vtx, x));
++    glad_glTexCoordPointer(2, GL_FLOAT, sizeof(Vtx), (const void *)offsetof(Vtx, u));
++    glad_glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(Vtx), (const void *)offsetof(Vtx, c));
++    arrays = ARR_STREAM;
++  }
++  clientArray(GL_VERTEX_ARRAY, haveV, true);
++  clientArray(GL_TEXTURE_COORD_ARRAY, haveT, true);
++  clientArray(GL_COLOR_ARRAY, haveC, true);
++  glad_glDrawArrays(batchMode, streamFirst, nBatch);
++  streamFirst += nBatch;
++}
++
+ void flushBatch() {
++  if (nBatch == 0 && streamMapped) {
++    bindArrayBuffer(streamBuf);
++    glad_glUnmapBufferARB(GL_ARRAY_BUFFER_ARB);
++    streamMapped = false;
++    batch = batchHeap;
++  }
+   if (nBatch == 0)
+     return;
++  if (streamMapped) {
++    flushStream();
++    chaveKnown = false;
++    sDraws++;
++    sBatchDraws++;
++    sVerts += nBatch;
++    nBatch = 0;
++    return;
++  }
+   if (haveVBO)
+     bindArrayBuffer(0);
+   if (arrays != ARR_BATCH) {
+@@ -259,6 +332,10 @@ void init() {
+   e = getenv("XMOTO_GL_STATS");
+   stats = e && e[0] && e[0] != '0';
+   haveVBO = glad_glBindBufferARB != NULL;
++  e = getenv("XMOTO_GL_STREAM");
++  stream = on && haveVBO && e && e[0] && e[0] != '0' && glad_glMapBufferRange &&
++           glad_glFlushMappedBufferRange && glad_glUnmapBufferARB &&
++           glad_glBufferDataARB && glad_glGenBuffersARB;
+ 
+   /* the GL's initial state */
+   want.tex2d = want.blend = want.alpha = false;
+@@ -278,17 +355,26 @@ void init() {
+   wantBuf = haveBuf = 0;
+   arrays = ARR_GAME;
+   inGameBegin = inPrim = false;
+-  if (batch == NULL)
+-    batch = (Vtx *)malloc(BATCH_MAX * sizeof(Vtx));
++  if (batchHeap == NULL)
++    batchHeap = (Vtx *)malloc(BATCH_MAX * sizeof(Vtx));
++  batch = batchHeap;
+   nBatch = 0;
++  streamMapped = false;
++  if (stream) {
++    /* a new context: the old one's buffer went with it; storage at the first batch */
++    glad_glGenBuffersARB(1, &streamBuf);
++    streamFirst = STREAM_VTX;
++  }
+   stPending = false;
+   dirty = false;
+   sLast = now();
+ 
+   LogInfo("GL: draw batching %s (XMOTO_GL_BATCH), level buffer %s "
+-          "(XMOTO_GL_BLOCKS)",
++          "(XMOTO_GL_BLOCKS), batches written into a stream buffer %s "
++          "(XMOTO_GL_STREAM)",
+           on ? "on" : "off",
+-          blocks ? "on" : "off");
++          blocks ? "on" : "off",
++          stream ? "on" : "off");
+ }
+ 
+ void sync() {
+@@ -627,6 +713,8 @@ void primEnd(GLenum mode, const Vtx *v, int n) {
+   if (nBatch == 0) {
+     applyDrawState();
+     batchMode = target;
++    if (stream && !streamMapped)
++      streamMap();
+   }
+ 
+   /* triangles in the order Mesa splits polygons and quads into (llvmpipe:
+@@ -698,7 +786,8 @@ void frameEnd() {
+              sizeof(line),
+              "GL stats: %.1f fps, per frame: %.1f draws (%.1f batched, %.1f "
+              "static ranges, %.1f game glDrawArrays, %.1f game glBegin), %.0f "
+-             "vertices (%.0f from client memory), %.1f syncs",
++             "vertices (%.0f from client memory), %.1f syncs, %lu stream "
++             "buffer renewals",
+              f / (t - sLast),
+              sDraws / f,
+              sBatchDraws / f,
+@@ -707,11 +796,12 @@ void frameEnd() {
+              sGameBegins / f,
+              sVerts / f,
+              sBatchVerts / f,
+-             sSyncs / f);
++             sSyncs / f,
++             sOrphans);
+     LogInfo("%s", line);
+     fprintf(stderr, "%s\n", line);
+     sFrames = sDraws = sBatchDraws = sStaticDraws = sGameDraws = sGameBegins =
+-      sVerts = sBatchVerts = sSyncs = 0;
++      sVerts = sBatchVerts = sSyncs = sOrphans = 0;
+     sLast = t;
+   }
+ }
