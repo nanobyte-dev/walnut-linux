@@ -12,13 +12,23 @@
 # An entry's command line: this installation's root and extras (/etc/default/ps3-boot) plus the
 # kernel's own arguments, which its package ships as /usr/lib/ps3/boot/<release>.args (kernels
 # without that file get PS3_LEGACY_ARGS).
+#
+# Extra entries (e.g. the SSD root's, docs/GAMEOS-HDD.md "Phase B"): the "label='image args'" lines
+# of every /etc/kboot.d/*.conf, in file name order, come after the kernels' entries as written, so a
+# kernel install or removal keeps them. Left out, as a comment in kboot.conf and a message: a label
+# that is already taken (Petitboot keys its default on the label), a line that isn't an entry, and an
+# entry whose image or initrd= is missing on this disk (paths without "device:" are looked up here).
+# Petitboot ignores the default= line (docs/GAMEOS-HDD.md "Petitboot's behaviour"); it is kept for
+# the record. PS3_BOOT_ROOT: a prefix for every file (host tests only).
 set -e
-DEFAULTS=/etc/default/ps3-boot
+R=${PS3_BOOT_ROOT:-}
+DEFAULTS=$R/etc/default/ps3-boot
+CONF=$R/etc/kboot.conf
 
 # First run on an installation from before ps3-boot: keep what the running kernel booted with
 if [ ! -e "$DEFAULTS" ]; then
-	root=$(tr ' ' '\n' < /proc/cmdline | grep -E '^(root|rootfstype|nfsroot)=|^(ro|rw|rootwait)$' | xargs)
-	extra=$(tr ' ' '\n' < /proc/cmdline | grep -E '^(ip|netconsole)=' | xargs)
+	root=$(tr ' ' '\n' < $R/proc/cmdline | grep -E '^(root|rootfstype|nfsroot)=|^(ro|rw|rootwait)$' | xargs)
+	extra=$(tr ' ' '\n' < $R/proc/cmdline | grep -E '^(ip|netconsole)=' | xargs)
 	cat > "$DEFAULTS" <<EOF
 # Petitboot boot menu settings (ps3-update-kboot writes /etc/kboot.conf from them)
 PS3_ROOT_ARGS="$root"
@@ -29,7 +39,7 @@ fi
 . "$DEFAULTS"
 
 # newest first, in Debian's kernel version order (linux-base), which knows about ~ and +
-releases=$(ls /boot/vmlinux-* 2>/dev/null | sed 's|^/boot/vmlinux-||')
+releases=$(ls $R/boot/vmlinux-* 2>/dev/null | sed "s|^$R/boot/vmlinux-||")
 if command -v linux-version >/dev/null; then
 	releases=$(echo "$releases" | linux-version sort --reverse)
 else
@@ -38,24 +48,59 @@ fi
 kernels=$(echo "$releases" | sed '/^$/d; s|^|/boot/vmlinux-|')
 if [ -z "$kernels" ]; then
 	# no kernel left: no entries pointing at files that are gone
-	echo "# Petitboot boot menu, written by ps3-update-kboot: no kernels installed" > /etc/kboot.conf.new
-	mv /etc/kboot.conf.new /etc/kboot.conf
+	echo "# Petitboot boot menu, written by ps3-update-kboot: no kernels installed" > "$CONF.new"
+	mv "$CONF.new" "$CONF"
 	echo "ps3-update-kboot: no kernels in /boot"
 	exit 0
 fi
-tmp=$(mktemp /etc/kboot.conf.XXXXXX)
+tmp=$(mktemp "$CONF.XXXXXX")
 echo "# Petitboot boot menu, written by ps3-update-kboot: newest kernel first" > "$tmp"
 default=
+labels=" "
 for k in $kernels; do
 	release=${k#/boot/vmlinux-}
-	if [ -e "/usr/lib/ps3/boot/$release.args" ]; then
-		args=$(cat "/usr/lib/ps3/boot/$release.args")
+	if [ -e "$R/usr/lib/ps3/boot/$release.args" ]; then
+		args=$(cat "$R/usr/lib/ps3/boot/$release.args")
 	else
 		args=$PS3_LEGACY_ARGS
 	fi
 	[ -n "$default" ] || default=$release
 	echo "$release='$k $PS3_ROOT_ARGS $PS3_EXTRA_ARGS $args'" >> "$tmp"
+	labels="$labels$release "
 done
+
+# the extra entries from /etc/kboot.d
+extras=0
+skip() {	# skip FILE WHY: a comment in kboot.conf, a message
+	echo "# $1: left out: $2" >> "$tmp"
+	echo "ps3-update-kboot: $1: left out: $2" >&2
+}
+for f in "$R"/etc/kboot.d/*.conf; do
+	[ -f "$f" ] || continue
+	name=${f#"$R"}
+	while IFS= read -r line || [ -n "$line" ]; do
+		case $line in ''|'#'*) continue ;; esac
+		label=${line%%=*}
+		case $label in
+		"$line"|''|*[!A-Za-z0-9_.+-]*) skip "$name" "not a label='image args' entry: $line"; continue ;;
+		default|delay|message|timeout|initrd|root|video) skip "$name" "a global setting, not an entry: $line"; continue ;;
+		esac
+		case $labels in *" $label "*) skip "$name" "label $label is already taken"; continue ;; esac
+		val=${line#*=}
+		val=${val#\'}; val=${val%\'}; val=${val#\"}; val=${val%\"}
+		image=${val%% *}
+		initrd=$(echo " $val " | sed -n 's/.* initrd=\([^ ]*\) .*/\1/p')
+		missing=
+		for p in $image $initrd; do
+			case $p in *:*) ;; *) [ -e "$R$p" ] || missing="$missing $p" ;; esac
+		done
+		if [ -n "$missing" ]; then skip "$name" "$label: missing$missing"; continue; fi
+		echo "$line" >> "$tmp"
+		labels="$labels$label "
+		extras=$((extras + 1))
+	done < "$f"
+done
+
 # PS3_DEFAULT_FLAVOUR (release or debug): the newest kernel of that flavour, if one is installed;
 # PS3_DEFAULT (a release) wins over it
 flavour=${PS3_DEFAULT_FLAVOUR:-}
@@ -74,10 +119,10 @@ if [ -n "$flavour" ]; then
 		default=${k#/boot/vmlinux-}; break
 	done
 fi
-if [ -n "${PS3_DEFAULT:-}" ] && [ -e "/boot/vmlinux-$PS3_DEFAULT" ]; then
+if [ -n "${PS3_DEFAULT:-}" ] && [ -e "$R/boot/vmlinux-$PS3_DEFAULT" ]; then
 	default=$PS3_DEFAULT
 fi
 echo "default=$default" >> "$tmp"
 chmod 644 "$tmp"
-mv "$tmp" /etc/kboot.conf
-echo "ps3-update-kboot: $(echo "$kernels" | wc -l) kernel(s), default $default"
+mv "$tmp" "$CONF"
+echo "ps3-update-kboot: $(echo "$kernels" | wc -l) kernel(s), $extras extra entr$([ $extras = 1 ] && echo y || echo ies) (/etc/kboot.d), default $default"

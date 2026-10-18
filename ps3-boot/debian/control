@@ -13,4 +13,5 @@ Description: Petitboot boot menu for the PS3 from the installed kernels
  ps3-update-kboot writes /etc/kboot.conf, Petitboot's boot menu, with one entry per kernel in
  /boot (the newest first and the default). Kernel packages run it through the hooks in
  /usr/share/kernel/postinst.d and postrm.d. The root and extra arguments come from
- /etc/default/ps3-boot, each kernel's own from /usr/lib/ps3/boot/<release>.args.
+ /etc/default/ps3-boot, each kernel's own from /usr/lib/ps3/boot/<release>.args. Extra entries
+ (e.g. the SSD root's) in /etc/kboot.d/*.conf are appended as written, so kernel installs keep them.
