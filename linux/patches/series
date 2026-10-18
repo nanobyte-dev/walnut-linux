@@ -7,6 +7,7 @@
 # survey and sources in docs/OTHEROS-PATCHES.md.
 # Dropped 2026-10-18 (same file): ps3/0060 (/dev/ps3sysmngr), 0090 (ps3rom vendor commands), 0160 (ps3jupiter),
 # 0170 (gelic eurus repository write), 0316 (jupiter alias). local/0040 no longer needs the misc device.
+# local/0040: SM temperatures as hwmon; 0041: the final shutdown poll waits for the SM's shutdown command (docs/THERMAL.md).
 ps3/0020-ps3stor-send-cmd-timeout.patch
 ps3/0035-ps3flash.patch
 ps3/0040-ps3-partition.patch
@@ -62,3 +63,4 @@ local/0030-spufs-free-fs-context.patch
 local/0031-spufs-coredump-context-leak.patch
 local/0032-spufs-setattr-prepare.patch
 local/0040-ps3-sys-manager-hwmon-temperatures.patch
+local/0041-ps3-sys-manager-fin-wait-for-shutdown-command.patch

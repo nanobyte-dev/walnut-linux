@@ -1,0 +1,245 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 10:56:34 +0300
+Subject: ps3: sys-manager: wait for the shutdown command, not for any message
+
+ps3_sys_manager_fin() sends the shutdown request and then polls the port
+with "while (ps3_sys_manager_handle_msg(dev))", i.e. until a message
+handler returns 0. The command handler returns 0 after acking the
+shutdown command, but so does the event handler for every event. A
+power button press, a reset press or a thermal alert/cleared event
+that arrives between the request and the System Manager's command
+ends the poll: the command is never read or acked, the HV never
+destroys the LPAR, and the console sits at "System Halted, OK to turn
+off power" until it is powered off by hand. Upstream (torvalds
+master, Geoff Levand's ps3-queue-v6.13, linuxppc-dev patchwork,
+2026-10-18) has the same loop and no fix.
+
+Now:
+- ps3_sys_manager_handle_cmd() returns PS3_SM_MSG_SHUTDOWN_ACKED (1)
+  once the response is written (it ignored the write result before;
+  a failed ack is now an error and the wait goes on), and fin() waits
+  for that value only. Events, temperature replies (local/0040), bad
+  headers and errors are handled as before and the poll continues.
+- Without a command 5 s (timebase) after a request, the request is
+  sent again, 3 requests in all, each miss logged; the poll then goes
+  on without new requests, so a late command is still acked (halting
+  instead would only take away that chance). This helps when the
+  request itself got lost; a second request while one is pending can
+  at worst get a REQUEST_ERROR, which is handled.
+- It pauses (lv1_pause(0)) only when no header is queued, instead of
+  after every message, and with interrupts off (a restart from
+  interrupt context) it spins 1 ms instead: the read polls the HV
+  buffer itself.
+- With the final shutdown under way, a power or reset button press is
+  only logged: no kill_cad_pid() to init from the final path, and
+  ps3_sm_force_power_off isn't changed after the next op was sent.
+- The temperature reply handler of local/0040 returned -EAGAIN only to
+  keep the old loop going; it returns 0 now.
+
+Not changed (upstream): the event and command handlers still BUG()
+when the payload isn't queued behind its header (the System Manager
+writes a message in one piece); with interrupts off, a write the HV
+doesn't take at once waits in the tx list for a tx interrupt.
+
+Forwarded: not yet (test on the PS3 first)
+
+diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
+--- a/drivers/ps3/ps3-sys-manager.c
++++ b/drivers/ps3/ps3-sys-manager.c
+@@ -16,10 +16,12 @@
+ #include <linux/completion.h>
+ #include <linux/jiffies.h>
+ #include <linux/moduleparam.h>
++#include <linux/delay.h>
+ 
+ #include <asm/firmware.h>
+ #include <asm/lv1call.h>
+ #include <asm/ps3.h>
++#include <asm/time.h>
+ 
+ #include "vuart.h"
+ 
+@@ -228,6 +230,26 @@ enum ps3_sys_manager_cmd {
+ 
+ static unsigned int ps3_sm_force_power_off;
+ 
++/*
++ * ps3_sm_final - Set by ps3_sys_manager_fin(): the final shutdown is under way.
++ *
++ * Events still arrive while ps3_sys_manager_fin() waits for the shutdown
++ * command; with this set a button press is only logged, since there is
++ * nothing left to signal.
++ */
++
++static bool ps3_sm_final;
++
++/**
++ * enum ps3_sm_msg_result - Positive ps3_sys_manager_handle_msg() results.
++ * @PS3_SM_MSG_SHUTDOWN_ACKED: the system manager's shutdown command was
++ *  received and acknowledged; the lpar is destroyed soon after.
++ */
++
++enum ps3_sm_msg_result {
++	PS3_SM_MSG_SHUTDOWN_ACKED = 1,
++};
++
+ /**
+  * ps3_sys_manager_write - Helper to write a two part message to the vuart.
+  *
+@@ -674,11 +696,8 @@ static int ps3_sm_temp_handle_reply(struct ps3_system_bus_device *dev,
+ 	}
+ 	spin_unlock_irqrestore(&hw->reply_lock, flags);
+ 
+-	/*
+-	 * Non-zero: ps3_sys_manager_fin() polls until a message returns 0,
+-	 * which must be the shutdown command, not this.
+-	 */
+-	return -EAGAIN;
++	/* ps3_sys_manager_fin() waits for PS3_SM_MSG_SHUTDOWN_ACKED only. */
++	return 0;
+ }
+ 
+ static void ps3_sm_temp_request_error(void)
+@@ -908,6 +927,10 @@ static int ps3_sys_manager_handle_event(struct ps3_system_bus_device *dev)
+ 			__func__, __LINE__,
+ 			(event.value == PS3_SM_BUTTON_EVENT_SOFT ? "soft"
+ 			: "hard"));
++		if (READ_ONCE(ps3_sm_final)) {
++			pr_info("PS3 power button: shutdown already under way\n");
++			break;
++		}
+ 		ps3_sm_force_power_off = 1;
+ 		/*
+ 		 * A memory barrier is use here to sync memory since
+@@ -926,6 +949,10 @@ static int ps3_sys_manager_handle_event(struct ps3_system_bus_device *dev)
+ 			__func__, __LINE__,
+ 			(event.value == PS3_SM_BUTTON_EVENT_SOFT ? "soft"
+ 			: "hard"));
++		if (READ_ONCE(ps3_sm_final)) {
++			pr_info("PS3 reset button: shutdown already under way\n");
++			break;
++		}
+ 		ps3_sm_force_power_off = 0;
+ 		/*
+ 		 * A memory barrier is use here to sync memory since
+@@ -962,6 +989,7 @@ static int ps3_sys_manager_handle_event(struct ps3_system_bus_device *dev)
+  * ps3_sys_manager_handle_cmd - Second stage command msg handler.
+  *
+  * The system manager sends this in reply to a 'request' message from the guest.
++ * Returns PS3_SM_MSG_SHUTDOWN_ACKED once the shutdown command is acked.
+  */
+ 
+ static int ps3_sys_manager_handle_cmd(struct ps3_system_bus_device *dev)
+@@ -995,14 +1023,23 @@ static int ps3_sys_manager_handle_cmd(struct ps3_system_bus_device *dev)
+ 		return -EIO;
+ 	}
+ 
+-	ps3_sys_manager_send_response(dev, 0);
+-	return 0;
++	result = ps3_sys_manager_send_response(dev, 0);
++	if (result) {
++		dev_err(&dev->core, "%s:%d: shutdown ack not sent: %d\n",
++			__func__, __LINE__, result);
++		return result;
++	}
++
++	return PS3_SM_MSG_SHUTDOWN_ACKED;
+ }
+ 
+ /**
+  * ps3_sys_manager_handle_msg - First stage msg handler.
+  *
+  * Can be called directly to manually poll vuart and pump message handler.
++ * Returns -EAGAIN when no complete header is queued, another negative
++ * errno for a message that was dropped, 0 for one that was handled and
++ * PS3_SM_MSG_SHUTDOWN_ACKED for the shutdown command, acked.
+  */
+ 
+ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
+@@ -1080,15 +1117,80 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
+ 	return -EIO;
+ }
+ 
++/* How long ps3_sys_manager_fin() waits per request, and how often it asks. */
++
++enum {
++	PS3_SM_FIN_WAIT_SEC = 5,
++	PS3_SM_FIN_REQUESTS = 3,
++};
++
++/**
++ * ps3_sys_manager_fin - Request the shutdown and wait for the command.
++ * @dev: The system manager's vuart port.
++ *
++ * Sends the shutdown request, then polls the port until the system manager's
++ * shutdown command has been received and acked; the HV destroys the lpar soon
++ * after the ack.  Every other message that comes in meanwhile (a power button
++ * press, a thermal alert, a temperature reply, an error) is handled and the
++ * wait goes on: stopping at the first message, as this used to, left the
++ * command unacked and the console halted until a hard power off.
++ *
++ * If no command comes within PS3_SM_FIN_WAIT_SEC (timebase), the request is
++ * sent again, PS3_SM_FIN_REQUESTS times in all; after that the poll goes on
++ * without new requests, so a late command is still acked: only the ack ends
++ * it.  Button presses during the wait are only logged (ps3_sm_final).
++ */
++
+ static void ps3_sys_manager_fin(struct ps3_system_bus_device *dev)
+ {
+-	ps3_sys_manager_send_request_shutdown(dev);
++	unsigned int request = 0;
++	u64 deadline = 0;
++	int result;
++
++	WRITE_ONCE(ps3_sm_final, true);
++
++	while (1) {
++		if (request < PS3_SM_FIN_REQUESTS && get_tb() >= deadline) {
++			if (request)
++				pr_emerg("PS3 system manager: no shutdown command after %u s, request %u of %u\n",
++					PS3_SM_FIN_WAIT_SEC, request + 1,
++					PS3_SM_FIN_REQUESTS);
++
++			request++;
++			result = ps3_sys_manager_send_request_shutdown(dev);
++			if (result)
++				pr_emerg("PS3 shutdown request %u not sent: %d\n",
++					request, result);
++
++			if (request == 1)
++				pr_emerg("System Halted, OK to turn off power\n");
++
++			deadline = get_tb() + PS3_SM_FIN_WAIT_SEC *
++				(u64)tb_ticks_per_sec;
++		} else if (request == PS3_SM_FIN_REQUESTS &&
++			get_tb() >= deadline) {
++			pr_emerg("PS3 system manager: no shutdown command after %u requests, still waiting\n",
++				PS3_SM_FIN_REQUESTS);
++			deadline = U64_MAX;
++		}
+ 
+-	pr_emerg("System Halted, OK to turn off power\n");
++		result = ps3_sys_manager_handle_msg(dev);
+ 
+-	while (ps3_sys_manager_handle_msg(dev)) {
+-		/* pause until next DEC interrupt */
+-		lv1_pause(0);
++		if (result == PS3_SM_MSG_SHUTDOWN_ACKED)
++			break;
++
++		/*
++		 * Nothing queued: pause until the next interrupt, or spin a
++		 * little when interrupts are off (a restart from interrupt
++		 * context): the read polls the HV's buffer itself and needs
++		 * no interrupt.
++		 */
++		if (result == -EAGAIN) {
++			if (irqs_disabled())
++				udelay(1000);
++			else
++				lv1_pause(0);
++		}
+ 	}
+ 
+ 	while (1) {

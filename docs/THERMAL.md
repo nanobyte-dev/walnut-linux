@@ -132,8 +132,9 @@ policy, mode, duty).
 - **Shutdown:** the driver's `.shutdown` (run by device_shutdown before power off, reboot, halt and
   kexec) takes the mutex and stops requests, so none is in flight when the final SET_NEXT_OP and
   REQUEST shutdown go out. The final power-off and restart paths set the stop flag too, without
-  locks (the panic path skips device_shutdown). A temperature reply returns non-zero from
-  `handle_msg`, so `ps3_sys_manager_fin()`'s poll keeps waiting for the shutdown command.
+  locks (the panic path skips device_shutdown). A temperature reply that arrives during
+  `ps3_sys_manager_fin()`'s poll is handled and the poll goes on: since local/0041 it waits for
+  the acked shutdown command only (below).
 - **Alarms** follow the THERMAL_ALERT / THERMAL_CLEARED events the driver has always received
   (zone id = tzone), with no request; the "PS3 Thermal Alert Zone N" log line stays.
 
@@ -156,11 +157,22 @@ final shutdown messages, the undocumented reply size reaching the resync-less er
 sleeping notify calls in the panic path, an unbind use-after-free and one bad zone switching off
 all sensors; all fixed as above. Compile-checked with the cross compiler, W=1, option on and off.
 
-Found on the way, not changed (upstream behaviour, worth its own patch): `handle_event()`
-returns 0 for every event, so a power button or thermal event arriving between the final REQUEST
-shutdown and the SM's COMMAND ends `ps3_sys_manager_fin()`'s poll early; the command is never
-acked and the console stays at "System Halted, OK to turn off power" until a hard power off.
-`final_power_off` doesn't send `set_attr(0)` first (restart does), so events stay enabled there.
+Found on the way (upstream behaviour, fixed in local/0041, 2026-10-18): `handle_event()`
+returns 0 for every event, and `ps3_sys_manager_fin()` polled until any handler returned 0, so a
+power button or thermal event arriving between the final REQUEST shutdown and the SM's COMMAND
+ended the poll early; the command was never acked and the console stayed at "System Halted, OK
+to turn off power" until a hard power off. Upstream (torvalds master, Geoff Levand's
+ps3-queue-v6.13, linuxppc-dev patchwork) has no fix. local/0041: `handle_cmd()` returns
+`PS3_SM_MSG_SHUTDOWN_ACKED` once the ack is written and `fin()` waits for that only, handling
+every other message meanwhile; without a command 5 s (timebase) after a request it sends the
+request again, 3 in all, then keeps polling without new requests, so a late command is still
+acked; it pauses only when nothing is queued (and spins 1 ms with interrupts off); button presses
+during it are only logged (no `kill_cad_pid()`). An Opus review (2026-10-18) found no bug; on its
+advice the first draft's halt after the third request and its `preempt_disable()` (no help with
+PREEMPT_NONE, a sleep-in-atomic risk in `ps3_vuart_write()` on preemptible kernels) were dropped. The temperature reply handler returns 0 again (its -EAGAIN only kept the old
+loop going). Still upstream behaviour: `final_power_off` doesn't send `set_attr(0)` first
+(restart does), so events stay enabled there; the event and command handlers `BUG()` when a
+payload isn't queued behind its header.
 
 ## The bench harness
 
@@ -210,6 +222,19 @@ user not playing. Stop on any "PS3 Thermal Alert".
 5. Power button: a short press must still shut down cleanly (systemd poweroff, then the PS3 off);
    that path got the single-write and stream changes. Then boot again and `sudo reboot` once
    (LPAR reboot path): it must come back to Petitboot/GameOS as before.
+   **local/0041 (final shutdown poll)**, each from a booted test kernel, watching the console
+   (and netconsole, if set up, for the last lines):
+   - `sudo poweroff`: the PS3 must be off (standby, red LED) a few seconds after "System Halted,
+     OK to turn off power"; no "no shutdown command after 5 s" line.
+   - `sudo reboot`: back to Petitboot/GameOS as before, no "no shutdown command" line.
+   - Power button during the shutdown: start `sudo poweroff`, then tap the power button
+     (short presses, about one a second; never hold it) until the PS3 is off. It must still go
+     off on its own; "PS3 power button: shutdown already under way" may show in the last lines.
+     The old kernel (419) can hang at "System Halted" here (the bug), which needs a hard power off;
+     run this one only on the new kernel.
+   - If it ever sits at "System Halted" with the LED green: wait 15 s for the "no shutdown
+     command after 5 s" lines and "after 3 requests, still waiting" (the SM didn't answer), note
+     them, then power off by hand.
 6. A bench run (`ps3-bench.sh run t -- sleep 30`): `temps` in the run directory, `temps max:` in
    the result.
 7. Rollback as for every test kernel: the old kernel stays the default; `ps3_sys_manager.hwmon=0`

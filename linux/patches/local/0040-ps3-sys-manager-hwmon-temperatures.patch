@@ -16,7 +16,8 @@ driver's own vuart port and waits up to a second for the reply, which
 the existing message handler picks up; values are cached for a second
 and one request is outstanding at a time. The bytes are those
 the get_temperature command of ps3vuart-tools (glevand, sguerrini97)
-sends through /dev/ps3sysmngr under OtherOS++: a header with tag 0 and
+sends from userspace under OtherOS++, through glevand's raw System
+Manager device (not in this kernel): a header with tag 0 and
 payload_size 4 (the tool's struct is padded to 20 bytes), payload
 { version 1, tzone, 0, 0 }; the reply payload is { version, tzone,
 status, 0, integer degrees, 1/256 degrees, 0 }. The reply's service
@@ -31,12 +32,12 @@ only. The driver's shutdown hook (device_shutdown, before power off,
 reboot and kexec) takes the request mutex and stops requests, so none
 is in flight when the final messages go out, and the final power-off
 and restart paths stop them too (the panic path skips device
-shutdown). While /dev/ps3sysmngr is open (it reads the port itself)
-the sensors return -EBUSY. A temperature reply returns non-zero from
-the message handler so ps3_sys_manager_fin() keeps waiting for the
-shutdown command. temp*_alarm follows the THERMAL_ALERT/CLEARED
-events the driver already receives, without any request. Unbinding
-the driver through sysfs is off (remove was never supported).
+shutdown). The driver is the port's only reader and writer. A
+temperature reply returns non-zero from the message handler so
+ps3_sys_manager_fin() keeps waiting for the shutdown command.
+temp*_alarm follows the THERMAL_ALERT/CLEARED events the driver
+already receives, without any request. Unbinding the driver through
+sysfs is off (remove was never supported).
 
 Changes to the existing paths, so that a second sender and an
 unexpected reply can't break the message stream:
@@ -159,7 +160,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  
  	dev_dbg(&dev->core, "%s:%d: %xh\n", __func__, __LINE__, attr);
  
-@@ -395,6 +409,471 @@ static int ps3_sys_manager_send_response(struct ps3_system_bus_device *dev,
+@@ -395,6 +409,472 @@ static int ps3_sys_manager_send_response(struct ps3_system_bus_device *dev,
  	return ps3_sys_manager_write(dev, &header, &payload);
  }
  
@@ -193,9 +194,10 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
 + *   u8 version (1), u8 tzone, u8 status (0 = ok), u8 reserved,
 + *   u8 integer, u8 fraction (1/256 degree), u16 reserved.
 + * These are the bytes the get_temperature command of ps3vuart-tools
-+ * (glevand, sguerrini97) sends and reads through /dev/ps3sysmngr under
-+ * OtherOS++ (its request struct is padded to 20 bytes, so the payload is
-+ * 4); GameOS's sys_game_get_temperature (lv2 syscall 383) uses the same
++ * (glevand, sguerrini97) sends and reads from userspace under OtherOS++
++ * through glevand's raw System Manager device, which this kernel doesn't
++ * have (the tool's request struct is padded to 20 bytes, so the payload
++ * is 4); GameOS's sys_game_get_temperature (lv2 syscall 383) uses the same
 + * service.  Thermal zones: 0 Cell BE, 1 RSX; others exist on some boards
 + * only (SYSCON's "tzone" list).  The reply's service id is not
 + * documented: 13 and 14 are accepted, and the one seen is logged once.
@@ -631,7 +633,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  /**
   * ps3_sys_manager_handle_event - Second stage event msg handler.
   *
-@@ -463,10 +942,12 @@ static int ps3_sys_manager_handle_event(struct ps3_system_bus_device *dev)
+@@ -463,10 +943,12 @@ static int ps3_sys_manager_handle_event(struct ps3_system_bus_device *dev)
  		dev_dbg(&dev->core, "%s:%d: THERMAL_ALERT (zone %u)\n",
  			__func__, __LINE__, event.value);
  		pr_info("PS3 Thermal Alert Zone %u\n", event.value);
@@ -644,7 +646,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  		break;
  	default:
  		dev_dbg(&dev->core, "%s:%d: unknown event (%u)\n",
-@@ -527,6 +1008,8 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
+@@ -527,6 +1009,8 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
  {
  	int result;
  	struct ps3_sys_manager_header header;
@@ -653,7 +655,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  
  	result = ps3_vuart_read(dev, &header,
  		sizeof(struct ps3_sys_manager_header));
-@@ -543,10 +1026,22 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
+@@ -543,10 +1027,22 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
  
  	BUILD_BUG_ON(sizeof(header) != 16);
  
@@ -677,7 +679,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  	}
  
  	switch (header.service_id) {
-@@ -560,6 +1055,7 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
+@@ -560,6 +1056,7 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
  		dev_dbg(&dev->core, "%s:%d: REQUEST_ERROR\n", __func__,
  			__LINE__);
  		dump_sm_header(&header);
@@ -685,7 +687,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  		break;
  	default:
  		dev_dbg(&dev->core, "%s:%d: unknown service_id (%u)\n",
-@@ -569,10 +1065,17 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
+@@ -569,10 +1066,17 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
  	goto fail_id;
  
  fail_header:
@@ -704,7 +706,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  	return -EIO;
  }
  
-@@ -610,6 +1113,7 @@ static void ps3_sys_manager_final_power_off(struct ps3_system_bus_device *dev)
+@@ -610,6 +1114,7 @@ static void ps3_sys_manager_final_power_off(struct ps3_system_bus_device *dev)
  
  	dev_dbg(&dev->core, "%s:%d\n", __func__, __LINE__);
  
@@ -712,7 +714,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  	ps3_vuart_cancel_async(dev);
  
  	ps3_sys_manager_send_next_op(dev, PS3_SM_NEXT_OP_SYS_SHUTDOWN,
-@@ -642,6 +1146,7 @@ static void ps3_sys_manager_final_restart(struct ps3_system_bus_device *dev)
+@@ -642,6 +1147,7 @@ static void ps3_sys_manager_final_restart(struct ps3_system_bus_device *dev)
  		ps3_sys_manager_final_power_off(dev);
  	}
  
@@ -720,7 +722,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  	ps3_vuart_cancel_async(dev);
  
  	ps3_sys_manager_send_attr(dev, 0);
-@@ -716,23 +1221,32 @@ static int ps3_sys_manager_probe(struct ps3_system_bus_device *dev)
+@@ -716,23 +1222,32 @@ static int ps3_sys_manager_probe(struct ps3_system_bus_device *dev)
  	result = ps3_vuart_read_async(dev, PS3_SM_RX_MSG_LEN_MIN);
  	BUG_ON(result);
  
