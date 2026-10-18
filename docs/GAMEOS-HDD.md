@@ -480,7 +480,17 @@ cache partition. No custom plugin needed: webMAN MOD runs `/dev_hdd0/autoexec.ba
   the master and deletes the flag. If dev_hdd1's files are missing, the script copies the master back.
 - Petitboot finds `ps3dc:/kboot.conf`; entries name `ps3dc:/linux/vmlinux-...`. The USB disk's
   kboot.conf stays as the fallback, with different labels.
-- Open: whether GameOS ever clears dev_hdd1 (a file left there through a few GameOS sessions and
+- What clears dev_hdd1 (researched 2026-10-18): games get it through the system cache API
+  (`cellSysCacheMount`), which mounts the game's view of `/dev_hdd1` onto its own directory
+  `/dev_hdd1/caches/<TITLEID>_<cache name>/` and clears the previous game's directory when a game with
+  a different cache id mounts (RPCS3's reimplementation, rpcs3/Emu/Cell/Modules/cellSysCache.cpp; an
+  RPCS3 admin: "on a real PS3 that path is mounted as an empty path whenever you boot a game",
+  forums.rpcs3.net thread-200213). Nothing in that model touches files outside `caches/`, so a
+  `/kboot.conf` and `/linux/` at the root should survive [inference: RPCS3 models observed
+  behaviour, not Sony's code]. Not covered: the Recovery Menu's Restore/format and a dev_hdd1 GameOS
+  finds corrupt, which recreate it; the webMAN restore covers both. psdevwiki's Harddrive page only
+  calls dev_hdd1 the "system cache".
+- Open: whether GameOS ever clears dev_hdd1's root in practice (a file left there through a few GameOS sessions and
   games tells), whether Petitboot sees ps3dc (its shell's `/proc/partitions`), and the user's webMAN
   version running autoexec.bat. The kernel guard then allows writes to ps3dc (Linux's own files only)
   and keeps ps3da read-only.
