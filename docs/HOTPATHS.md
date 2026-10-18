@@ -156,7 +156,7 @@ Where the time sits on the game's render thread and the game is CPU-bound, a fra
 shorter; X-Moto (154 fps) and Neverball (80) have headroom already, Sauerbraten (22 fps), Luanti
 (45) and ClassiCube (43) don't.
 
-1. **u_vbuf's SNORM8 vertex conversion** (implemented: 0033, `NV30_TRANSLATE_LUT=1`). nv30 has no
+1. **u_vbuf's SNORM8 vertex conversion** (implemented: 0033, `NV30_TRANSLATE_LUT`, measured and on by default, `=0` turns it off; Sauerbraten 25.9 -> 39.6 fps, +53%, same-boot PS3 A/B, 2026-10-18). nv30 has no
    signed 8-bit vertex type (RSX: S1, F, SF, UB, S32K, CMP, UB256), so u_vbuf turns
    GL_BYTE-normalized normals and tangents into 32-bit floats on every draw, for the whole index
    range, static VBOs included. translate_generic does that with the format's unpack function and
@@ -204,7 +204,7 @@ play. 0028 (index fencing) shows as `nouveau_fence_ref < nv30_state_validate`, 0
 Both in `build/work/mesa`, exported as `mesa/patches/0033-*` and `0034-*`, built into
 `build/debs/mesa` (26.2.4-1+ps3.407), not published, not on the PS3.
 
-**0033 translate: 8-bit vertex attributes to floats through a table (`NV30_TRANSLATE_LUT=1`).**
+**0033 translate: 8-bit vertex attributes to floats through a table (`NV30_TRANSLATE_LUT`, on by default since the PS3 measurement: Sauerbraten +53% steady fps, 25.9 -> 39.6; `NV30_TRANSLATE_LUT=0` is the off switch).**
 In translate_generic, an element whose input is a plain 8-bit array format with identity swizzle
 (R8 to R8G8B8A8; UNORM, SNORM, USCALED, SSCALED) and whose output is R32..._FLOAT with as many
 channels gets a table per channel, 256 entries holding the bits that the format's own unpack
@@ -212,7 +212,7 @@ function returns for each byte value. The per-vertex loop then does one table lo
 per channel, no float conversion, no calls. Bit-identical by construction; checked on the PC by
 building translate_generic with the generated format tables and running all 16 formats through
 `run`, `run_elts`, `run_elts16` and `run_elts8` (index clamping, two buffers, mixed with copied
-attributes) with the switch off and on: identical output, and the table path taken for all 16
+attributes) with the switch off and on (then `=1`, now the default): identical output, and the table path taken for all 16
 formats when on, never when off. llvmpipe can't show it (it fetches SNORM8 itself, no u_vbuf).
 
 **0034 nouveau: recycle the wait buffers of deleted fences (`NV30_FENCE_BO_POOL=N`).** Up to N
@@ -229,11 +229,12 @@ Compiles; only the PS3 can test it.
 Install `build/debs/mesa` (26.2.4-1+ps3.407) the usual way (`make deploy` of the Mesa debs),
 `make bench-push` (client.sh passes the switches; selftest.py covers it). run.sh's `ENVS` tokens
 `NV30_X=V` reach the game as `NV30_X=V` (client.sh writes `genv=` into bench.txt, report.py shows
-`base@translate_lut1`). Same boot, interleaved, desktop stopped, as always:
+`base@translate_lut0`). Same boot, interleaved, desktop stopped, as always:
 
-    # the translate table: Sauerbraten and QuakeSpasm are the games that use SNORM8 attributes
-    ENVS="- NV30_TRANSLATE_LUT=1" /var/tmp/bench/run.sh bench sauerbraten base 3
-    ENVS="- NV30_TRANSLATE_LUT=1" /var/tmp/bench/run.sh bench quakespasm base 3
+    # the translate table (on by default; =0 is its off switch, shown as base@translate_lut0):
+    # Sauerbraten and QuakeSpasm are the games that use SNORM8 attributes
+    ENVS="- NV30_TRANSLATE_LUT=0" /var/tmp/bench/run.sh bench sauerbraten base 3
+    ENVS="- NV30_TRANSLATE_LUT=0" /var/tmp/bench/run.sh bench quakespasm base 3
 
     # the fence buffer pool: every game submits, so a spread of them
     ENVS="- NV30_FENCE_BO_POOL=16" /var/tmp/bench/run.sh bench classicube base 3
@@ -241,7 +242,7 @@ Install `build/debs/mesa` (26.2.4-1+ps3.407) the usual way (`make deploy` of the
     ENVS="- NV30_FENCE_BO_POOL=16" /var/tmp/bench/run.sh suite base 1
 
     # both, with a profile to see the paths go (profiles are for profiles, not fps)
-    PERF=1 MEM=1 ENVS="- NV30_TRANSLATE_LUT=1+NV30_FENCE_BO_POOL=16" /var/tmp/bench/run.sh bench sauerbraten base 1
+    PERF=1 MEM=1 ENVS="- NV30_FENCE_BO_POOL=16" /var/tmp/bench/run.sh bench sauerbraten base 1
 
     python3 /var/tmp/bench/report.py /var/tmp/ps3-bench/<run dirs>...
 

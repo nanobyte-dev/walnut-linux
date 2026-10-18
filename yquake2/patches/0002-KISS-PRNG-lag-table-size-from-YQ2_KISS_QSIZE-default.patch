@@ -1,19 +1,20 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: ps3 <ps3@localhost>
 Date: Sun, 18 Oct 2026 05:07:35 +0300
-Subject: KISS PRNG: lag table size from YQ2_KISS_QSIZE (default 2^21 entries,
- unchanged)
+Subject: KISS PRNG: lag table size from YQ2_KISS_QSIZE (default 4096 entries)
 
-rand.c keeps a static table of 2^21 uint64_t (16 MiB) and randk_seed writes all of it, in the
+rand.c kept a static table of 2^21 uint64_t (16 MiB) and randk_seed wrote all of it, in the
 client and again in game.so: 32 MiB resident of a PS3's ~217 MB (a 2026-10-18 profile: the
 quake2 binary's .bss 18 MB resident, game.so's 16 MB). The table is now allocated at the first
-use; YQ2_KISS_QSIZE=<power of two, 64..2^21> makes it smaller. Unset, the size and the
-sequence are as before.
+use, 4096 entries (32 KiB) by default: measured on the PS3, 70 MB less RAM and the gameplay
+stalls gone (22.6 -> 0.05 s). YQ2_KISS_QSIZE=<power of two, 64..2^21> sets another size;
+2097152 restores the old table and sequence. Client-side randomness (particles) differs from
+the old sequence.
 
 diff --git a/rogue/src/shared/rand.c b/rogue/src/shared/rand.c
 --- a/rogue/src/shared/rand.c
 +++ b/rogue/src/shared/rand.c
-@@ -14,14 +14,52 @@
+@@ -14,14 +14,54 @@
   */
  
  #include <stdint.h>
@@ -21,12 +22,14 @@ diff --git a/rogue/src/shared/rand.c b/rogue/src/shared/rand.c
  
 -#define QSIZE 0x200000
 +/*
-+ * The lag table: 2^21 entries (16 MiB, every page written by randk_seed) in each module that
-+ * links this file (the client and game.so: 32 MiB of a PS3's ~217 MB). YQ2_KISS_QSIZE=<n> (a
-+ * power of two, 64 to 2^21) makes it smaller; the generator's period stays far beyond anything
-+ * a game draws. Unset: the original size.
++ * The lag table: 4096 entries (32 KiB) by default. The original was 2^21 entries (16 MiB, every
++ * page written by randk_seed) in each module that links this file (the client and game.so:
++ * 32 MiB of a PS3's ~217 MB). YQ2_KISS_QSIZE=<n> (a power of two, 64 to 2^21) sets the size;
++ * 2097152 restores the original table and sequence. The period stays far beyond anything a
++ * game draws.
 + */
 +#define QSIZE_MAX 0x200000
++#define QSIZE_DEFAULT 4096
 +#define QSIZE (qmask + 1)
  #define CNG (cng = 6906969069ULL * cng + 13579)
  #define XS (xs ^= (xs << 13), xs ^= (xs >> 17), xs ^= (xs << 43))
@@ -41,7 +44,7 @@ diff --git a/rogue/src/shared/rand.c b/rogue/src/shared/rand.c
 +static void
 +qary_init(void)
 +{
-+	unsigned long n = QSIZE_MAX;
++	unsigned long n = QSIZE_DEFAULT;
 +	const char *s = getenv("YQ2_KISS_QSIZE");
 +
 +	if (s && *s)
@@ -68,7 +71,7 @@ diff --git a/rogue/src/shared/rand.c b/rogue/src/shared/rand.c
  static uint64_t carry;
  static uint64_t xs;
  static uint64_t cng;
-@@ -31,7 +69,12 @@ B64MWC(void)
+@@ -31,7 +71,12 @@ B64MWC(void)
  {
  	uint64_t t, x;
  
@@ -82,7 +85,7 @@ diff --git a/rogue/src/shared/rand.c b/rogue/src/shared/rand.c
  	x = QARY[j];
  	t = (x << 28) + carry;
  	carry = (x >> 36) - (t < x);
-@@ -81,6 +124,11 @@ randk_seed(void)
+@@ -81,6 +126,11 @@ randk_seed(void)
  {
  	uint64_t i;
  
@@ -97,7 +100,7 @@ diff --git a/rogue/src/shared/rand.c b/rogue/src/shared/rand.c
 diff --git a/src/common/shared/rand.c b/src/common/shared/rand.c
 --- a/src/common/shared/rand.c
 +++ b/src/common/shared/rand.c
-@@ -14,14 +14,52 @@
+@@ -14,14 +14,54 @@
   */
  
  #include <stdint.h>
@@ -105,12 +108,14 @@ diff --git a/src/common/shared/rand.c b/src/common/shared/rand.c
  
 -#define QSIZE 0x200000
 +/*
-+ * The lag table: 2^21 entries (16 MiB, every page written by randk_seed) in each module that
-+ * links this file (the client and game.so: 32 MiB of a PS3's ~217 MB). YQ2_KISS_QSIZE=<n> (a
-+ * power of two, 64 to 2^21) makes it smaller; the generator's period stays far beyond anything
-+ * a game draws. Unset: the original size.
++ * The lag table: 4096 entries (32 KiB) by default. The original was 2^21 entries (16 MiB, every
++ * page written by randk_seed) in each module that links this file (the client and game.so:
++ * 32 MiB of a PS3's ~217 MB). YQ2_KISS_QSIZE=<n> (a power of two, 64 to 2^21) sets the size;
++ * 2097152 restores the original table and sequence. The period stays far beyond anything a
++ * game draws.
 + */
 +#define QSIZE_MAX 0x200000
++#define QSIZE_DEFAULT 4096
 +#define QSIZE (qmask + 1)
  #define CNG (cng = 6906969069ULL * cng + 13579)
  #define XS (xs ^= (xs << 13), xs ^= (xs >> 17), xs ^= (xs << 43))
@@ -125,7 +130,7 @@ diff --git a/src/common/shared/rand.c b/src/common/shared/rand.c
 +static void
 +qary_init(void)
 +{
-+	unsigned long n = QSIZE_MAX;
++	unsigned long n = QSIZE_DEFAULT;
 +	const char *s = getenv("YQ2_KISS_QSIZE");
 +
 +	if (s && *s)
@@ -152,7 +157,7 @@ diff --git a/src/common/shared/rand.c b/src/common/shared/rand.c
  static uint64_t carry;
  static uint64_t xs;
  static uint64_t cng;
-@@ -31,7 +69,12 @@ B64MWC(void)
+@@ -31,7 +71,12 @@ B64MWC(void)
  {
  	uint64_t t, x;
  
@@ -166,7 +171,7 @@ diff --git a/src/common/shared/rand.c b/src/common/shared/rand.c
  	x = QARY[j];
  	t = (x << 28) + carry;
  	carry = (x >> 36) - (t < x);
-@@ -81,6 +124,11 @@ randk_seed(void)
+@@ -81,6 +126,11 @@ randk_seed(void)
  {
  	uint64_t i;
  
@@ -181,7 +186,7 @@ diff --git a/src/common/shared/rand.c b/src/common/shared/rand.c
 diff --git a/xatrix/src/shared/rand.c b/xatrix/src/shared/rand.c
 --- a/xatrix/src/shared/rand.c
 +++ b/xatrix/src/shared/rand.c
-@@ -14,14 +14,52 @@
+@@ -14,14 +14,54 @@
   */
  
  #include <stdint.h>
@@ -189,12 +194,14 @@ diff --git a/xatrix/src/shared/rand.c b/xatrix/src/shared/rand.c
  
 -#define QSIZE 0x200000
 +/*
-+ * The lag table: 2^21 entries (16 MiB, every page written by randk_seed) in each module that
-+ * links this file (the client and game.so: 32 MiB of a PS3's ~217 MB). YQ2_KISS_QSIZE=<n> (a
-+ * power of two, 64 to 2^21) makes it smaller; the generator's period stays far beyond anything
-+ * a game draws. Unset: the original size.
++ * The lag table: 4096 entries (32 KiB) by default. The original was 2^21 entries (16 MiB, every
++ * page written by randk_seed) in each module that links this file (the client and game.so:
++ * 32 MiB of a PS3's ~217 MB). YQ2_KISS_QSIZE=<n> (a power of two, 64 to 2^21) sets the size;
++ * 2097152 restores the original table and sequence. The period stays far beyond anything a
++ * game draws.
 + */
 +#define QSIZE_MAX 0x200000
++#define QSIZE_DEFAULT 4096
 +#define QSIZE (qmask + 1)
  #define CNG (cng = 6906969069ULL * cng + 13579)
  #define XS (xs ^= (xs << 13), xs ^= (xs >> 17), xs ^= (xs << 43))
@@ -209,7 +216,7 @@ diff --git a/xatrix/src/shared/rand.c b/xatrix/src/shared/rand.c
 +static void
 +qary_init(void)
 +{
-+	unsigned long n = QSIZE_MAX;
++	unsigned long n = QSIZE_DEFAULT;
 +	const char *s = getenv("YQ2_KISS_QSIZE");
 +
 +	if (s && *s)
@@ -236,7 +243,7 @@ diff --git a/xatrix/src/shared/rand.c b/xatrix/src/shared/rand.c
  static uint64_t carry;
  static uint64_t xs;
  static uint64_t cng;
-@@ -31,7 +69,12 @@ B64MWC(void)
+@@ -31,7 +71,12 @@ B64MWC(void)
  {
  	uint64_t t, x;
  
@@ -250,7 +257,7 @@ diff --git a/xatrix/src/shared/rand.c b/xatrix/src/shared/rand.c
  	x = QARY[j];
  	t = (x << 28) + carry;
  	carry = (x >> 36) - (t < x);
-@@ -81,6 +124,11 @@ randk_seed(void)
+@@ -81,6 +126,11 @@ randk_seed(void)
  {
  	uint64_t i;
  

@@ -161,7 +161,7 @@ it says built).
 
 | # | Game | Cut | Saves (MB) | Effort | Status | Risk |
 |---|---|---|---|---|---|---|
-| 1 | Yamagi Quake II | `YQ2_KISS_QSIZE=4096` (variant `kiss4k`) | **32** | pkg | yquake2 0002 built (+ps3.408) | client-side random effects differ (the demo itself doesn't) |
+| 1 | Yamagi Quake II | default 4096 (`YQ2_KISS_QSIZE=2097152`, variant `kissbig`, restores the old table) | **32** (measured: 70 MB less RAM, gameplay stalls 22.6 -> 0.05 s) | pkg, now the default | yquake2 0002 (default changed, rebuilt) | client-side random effects differ (the demo itself doesn't) |
 | 2 | Luanti | trim the arenas: `LU_TRIM_MB=16` (variants `trim16`, `trim64`) or `MALLOC=trim` | **17-24**, growing with play time (16.4-19.7 in free chunks + 2.5-4.2 top) | pkg / env | luanti 0007 built; ps3-malloctrim in ps3-gpu-tools 0.403 | a trim holds each arena's lock for its walk (log says how long) |
 | 3 | Sauerbraten | `MALLOC=trim` or `MALLOC=mmap` | **17** (17.0-17.4 in free chunks of the main heap) | env | ready | mmap: a syscall and zeroed pages per big alloc |
 | 4 | OpenArena gl1 | `MALLOC=trim` or `MALLOC=mmap` | **12-16** at rest (11.7-12.2 in free chunks + 3.6 top); its 13.9 MB of swapped heap | env | ready | as above |
@@ -207,10 +207,11 @@ All defaults unchanged; nothing deployed or published.
 3. **Luanti 0007** (`LU_TRIM_MB`, luanti/patches): the malloc_trim threshold in MiB, 256 when
    unset; recipe variants `trim16`, `trim64`. The trims stay in Luanti's emerge and mesh threads.
 4. **Yamagi Quake II 0002** (`YQ2_KISS_QSIZE`, yquake2/patches): the PRNG table allocated at first
-   use, sized by the variable (a power of two, 64 to 2^21), the same size and sequence as before when
-   unset (checked on the host: the same million draws); recipe variant `kiss4k` (4096: 32 KiB per
-   module). In the built package the .bss is 7.7 MB in `quake2` (was 23.7) and 81 KiB in
-   `game.so` (was 16 MB); unset, the 16 MiB come from calloc instead, the same Rss as before.
+   use, sized by the variable (a power of two, 64 to 2^21), 4096 entries (32 KiB per module) when unset since
+   the PS3 measurement of 2026-10-18 (70 MB less RAM, gameplay stalls 22.6 -> 0.05 s); `YQ2_KISS_QSIZE=2097152`
+   gives the old size and sequence (checked on the host: the same million draws); recipe variant
+   `kissbig` is that, `base` is the small table. In the built package the .bss is 7.7 MB in `quake2` (was 23.7) and 81 KiB in
+   `game.so` (was 16 MB); with `YQ2_KISS_QSIZE=2097152` the 16 MiB come from calloc instead, the same Rss as before.
 5. **dsda-doom's recipe**: `LOAD_MARK` also matches `Playing demo:`, so its window, perf and the
    snapshots start.
 
@@ -245,7 +246,7 @@ its off state:
     MEM=1 ENVS="- MALLOC=trim MALLOC=mmap MALLOC=tune" /var/tmp/bench/run.sh bench openarena base 1
     # the package switches
     MEM=1 /var/tmp/bench/run.sh bench luanti "base trim16 trim64" 1
-    MEM=1 /var/tmp/bench/run.sh bench yquake2 "base kiss4k" 1
+    MEM=1 /var/tmp/bench/run.sh bench yquake2 "base kissbig" 1
     # dsda-doom's first profile now that its window starts
     PERF=1 MEM=1 /var/tmp/bench/run.sh bench dsda-doom base 1
     python3 /var/tmp/bench/report.py --mem /var/tmp/ps3-bench/<run dirs>
@@ -259,12 +260,12 @@ Then the effect on stalls and fps, three rounds without MEM (report.py's `stall_
     ENVS="- MALLOC=tune" /var/tmp/bench/run.sh bench luanti base 3
     ENVS="- MALLOC=trim" /var/tmp/bench/run.sh bench sauerbraten base 3
     ENVS="- MALLOC=trim" /var/tmp/bench/run.sh bench openarena base 3
-    /var/tmp/bench/run.sh bench yquake2 "base kiss4k" 3
+    /var/tmp/bench/run.sh bench yquake2 "base kissbig" 3
     # the whole suite with the winner, once the above picked one (~5 h for 3 rounds)
     ENVS="- MALLOC=tune" /var/tmp/bench/run.sh suite base 3
 
-What would make each a default: kiss4k in our yquake2 build (the define, or the env set by the
-package's launcher); `LU_TRIM_MB` as a Luanti default in our package; the malloc preset that wins
+What would make each a default: kiss4k is the default now (measured, in our yquake2 build);
+`LU_TRIM_MB` as a Luanti default in our package; the malloc preset that wins
 through `ps3-game` (game mode's launcher sets the environment for every game) or per-game wrappers.
 
 ## Proposed, not implemented
