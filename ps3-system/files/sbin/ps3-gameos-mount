@@ -25,7 +25,16 @@ mount_one() {
 	[ "$got" = "$want" ] || { echo "$dev: is '${got:-unknown}', not $want, left alone" >&2; rc=1; return; }
 	mkdir -p "$dir"
 	if [ "$want" = ufs ]; then modprobe ufs || { echo "$dev: no ufs module in this kernel" >&2; rc=1; return; }; fi
-	mount -t "$want" -o "$opts" "$dev" "$dir" && echo "$dev -> $dir (read-only)" || rc=1
+	if mount -t "$want" -o "$opts" "$dev" "$dir" 2>/dev/null; then :
+	elif case "$opts" in *iocharset=*) true ;; *) false ;; esac; then
+		# no codepage/NLS module for the charset: mount again without it (file names may show as ?)
+		o2=$(echo "$opts" | sed 's/,iocharset=[^,]*//')
+		echo "$dev: mount with iocharset failed, retrying without" >&2
+		mount -t "$want" -o "$o2" "$dev" "$dir" || { rc=1; return; }
+	else
+		mount -t "$want" -o "$opts" "$dev" "$dir" || { rc=1; return; }
+	fi
+	echo "$dev -> $dir (read-only)"
 }
 mount_one /dev/ps3db ufs ro,noatime,nodev,nosuid,noexec,ufstype=ufs2 hdd0
 mount_one /dev/ps3dc vfat ro,noatime,nodev,nosuid,noexec,iocharset=utf8 hdd1
