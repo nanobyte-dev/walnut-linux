@@ -2,8 +2,10 @@
 
 Research and design notes, 2026-10-18. Part A (reading the temperatures) is built: kernel patch
 `linux/patches/local/0040-ps3-sys-manager-hwmon-temperatures.patch`, the bench harness, a raw
-probe. Not booted on the PS3 yet. Part B (fan control) is research only: nothing here sends a
-fan or SYSCON setting, and building it is the user's decision.
+probe. Not booted on the PS3 yet. Part B (fan control) was research; after the user's decision of
+2026-10-18 the fan policy is built too, as `local/0042-ps3-sys-manager-fan-policy.patch` ("The fan
+driver" below): SYSCON automatic at boot and on every exit path, full speed or a fixed floor on
+request, nothing else sent to SYSCON. Not booted either.
 
 ## Where the temperatures come from
 
@@ -86,12 +88,12 @@ says). The driver takes service 13 or 14 with 1-16 payload bytes, matches on tzo
 first reply's service id, size and tag (`dmesg | grep "temperature reply"`), so the first boot
 answers both.
 
-**Fan policy set** (service 25 = 0x19), from ps3vuart-tools' `set_fan_policy`; documented here
-for part B, **not implemented**: payload version 1, id (0), policy (0 full speed, 1 SYSCON
-automatic, 2 manual), duty (0x33-0xFC accepted by the tool for manual), 1 reserved byte, padded
-like the temperature request (24 bytes on the wire, payload size 8). The tool reads no reply.
-Service 50 (0x32) is the get; its reply layout is known only from syscall 409's outputs (st,
-policy, mode, duty).
+**Fan policy set** (service 25 = 0x19), from ps3vuart-tools' `set_fan_policy`, used by local/0042:
+payload version 1, id (0), policy (0 full speed, 1 SYSCON automatic, 2 manual), duty (0x33-0xFC
+accepted by the tool for manual), 1 reserved byte, padded like the temperature request (24 bytes
+on the wire, payload size 8). The tool reads no reply. Service 50 (0x32) is the get; its reply
+layout is known only from syscall 409's outputs (st, policy, mode, duty); what local/0042 sends
+and assumes for it is in "The fan driver".
 
 ## Earlier implementations
 
@@ -124,8 +126,8 @@ policy, mode, duty).
   up to 1 s for the reply; the value is cached 1 s; one request at a time (a mutex). The existing
   async handler dispatches the reply, so the driver shares the port instead of opening a second
   reader.
-- **Only the get request** is ever sent; the driver has no code that builds any other new
-  message.
+- **Only the get request** is sent for the temperatures; local/0042 adds the fan policy's set and
+  get (below) and nothing else.
 - **Gives up rather than insists:** a REQUEST_ERROR while a request is pending, or three failed
   requests in a row (timeouts, write errors), turns the sensors off for the boot (`-ENODATA`, one
   warning in dmesg). A reply with a non-zero status turns off that zone only.
@@ -240,7 +242,7 @@ user not playing. Stop on any "PS3 Thermal Alert".
 7. Rollback as for every test kernel: the old kernel stays the default; `ps3_sys_manager.hwmon=0`
    on the command line turns the sensors off without another build.
 
-## Part B: fan control (research only)
+## Part B: fan control (research; built as local/0042)
 
 **What sets the fan.** SYSCON runs the fan from the thermal config's tables (temperature steps,
 duties, hysteresis). The SM's FAN_POLICY service (25 set, 50 get), wrapped by lv2 syscalls
@@ -286,7 +288,7 @@ Linux.
 (`sys_sm_set_fan_policy(0, 1, 0)`), or SYSCON losing power (mains off). Nothing in Linux needs to
 do anything for it while Linux never sets policy 2.
 
-**A safe design, if the user wants it** (not built):
+**A safe design** (the research's proposal; what was built, simpler, is in "The fan driver"):
 1. Default: do nothing; the fan stays on SYSCON automatic, which is what the safety rules assume.
 2. Only a floor: a userspace or kernel controller may raise the duty above what SYSCON would
    pick, never below SYSCON's own curve: set manual only when the measured temperature is above a
@@ -303,9 +305,182 @@ do anything for it while Linux never sets policy 2.
    first with policy 1 (a no-op on a console already in SYSCON mode), with webMAN in SYSCON mode
    before booting, supervised, the reading of `sys_sm_get_fan_policy` (service 50) checked first.
 
-This needs a SYSCON-facing set request, which the safety rules ("no syscon writes") rule out until
-the user decides. A RAM-only policy change is arguably not a "write" in the flash/EEPROM sense,
-but that is exactly the kind of judgement the rules leave to the user.
+The user decided on 2026-10-18 (CLAUDE.md): the fan policy service from Linux is allowed, runtime
+only, SYSCON automatic at boot and on every exit path, manual only as a fixed floor at or above a
+safe duty with no control loop (so no deadman is needed: nothing depends on Linux reacting in
+time), the safe direction tested first; other SYSCON writes stay forbidden.
+
+## The fan driver (local/0042)
+
+Built after the user's decision of 2026-10-18 (CLAUDE.md: fan policy from Linux allowed, SYSCON
+automatic at boot and on every exit path, manual only as a fixed floor, no control loop, other
+SYSCON writes still forbidden). Same option (`CONFIG_PS3_SYS_MANAGER_HWMON`), same hwmon device
+`ps3_sm`, same one-request-at-a-time machinery as the temperatures. Not booted on the PS3 yet.
+
+**What is sent.** Only two new messages, both the System Manager's FAN_POLICY service, which
+changes SYSCON's runtime policy and not its EEPROM (the fan tables stay as they are):
+
+| | bytes on the wire | source |
+|---|---|---|
+| set (service 25) | header (payload size 8, tag 0) + version 1, id 0, policy, duty, 4 zero bytes = 24 | ps3vuart-tools `set_fan_policy` (struct header + 5 bytes, padded to 24); syscall 389 (id, policy, duty); webMAN `(0, 2, duty)` and `(0, 1, 0)` |
+| get (service 50) | header (payload size 4, tag 0) + version 1, id 0, 2 zero bytes = 20 | **no public source of the bytes**; laid out like the temperature request (version, selector, padding) |
+
+Policy 0 is full speed (duty 0 as in the tools), 1 SYSCON automatic (duty 0), 2 manual with a
+duty. The get reply is taken, tentatively, as version, id, status, policy, speed, duty (syscall
+409 returns status, policy, "mode" which webMAN reads as the current speed, duty; an old
+ps3sm-utils run printed `0x01 0x01 0x48 0x00` for it). Neither reply's service id nor size is
+documented: the driver takes 25 (set) and 50/51 (get; 51 is unassigned) with 0-16 payload
+bytes and logs them raw, and logs every REQUEST_ERROR's payload (its contents are undocumented
+too). A set waits up to 1 s for a REQUEST_ERROR or a reply, a get up to 1 s for its reply.
+
+**At boot** (a work item 0.5 s after probe, so the probe doesn't wait for replies):
+1. get, logged raw (`fan: get reply: ...`) and parsed (`fan: at boot (layout unconfirmed): ...`):
+   this shows what GameOS/webMAN left;
+2. set SYSCON automatic, whatever was left, unless `fan_policy=keep`;
+3. get again: if it reads version 1, id 0, policy 1 with a payload of at least 8 bytes, the reply
+   layout counts as **confirmed** and later gets are used (pwm1 in automatic mode, the check
+   after each set); otherwise policy reads are never used for anything, only logged;
+4. then `fan_policy=full` sets full speed, `fan_floor=` a manual duty.
+
+**Exit paths.** The fan goes back to SYSCON automatic whenever this driver set anything else:
+- `.shutdown` (device_shutdown: power off, reboot, halt, kexec): cancels the boot and alert works,
+  then sends automatic under the request mutex and stops all requests, before the final
+  SET_NEXT_OP and shutdown request;
+- the final power off and restart routines (after device_shutdown normally; without it after an
+  emergency restart such as SysRq-b): a lockless send;
+- a panic notifier (priority INT_MAX), also lockless. On the PS3 `ps3_panic()` is itself a
+  panic notifier (INT_MIN) that never returns, so whatever `panic_timeout` says, this notifier is
+  the only restore after a crash. A kdump kernel (crash_kexec runs before the notifiers) would
+  set automatic itself when it probes; we don't use kdump.
+- `fan_dirty` starts up (except with `keep`): an exit before the boot's automatic went out, or
+  after it failed to go out, still sends automatic.
+
+The lockless sends use `ps3_vuart_write_atomic()` (new, in ps3-vuart.c): a trylock on the tx
+lock, nothing queued before it, no allocation; a partial write is finished in a bounded spin
+(half a message would desync the System Manager's stream and with it the final shutdown). It
+retries for 10 ms when the lock is held or a write is queued (tx interrupts masked by then) and
+then gives up with a "not sent" line. `.shutdown` waits at most 3 s for the request mutex (a
+task that died holding it) and then uses the lockless send. `fan_dirty` goes up before a full/manual set
+is written and down only after automatic was written, `fan_final` is set before an exit path
+looks at it, and a full/manual set refuses once it is up, so an exit path never misses a setting.
+
+**Errors fall back to SYSCON.** A full/manual set that fails to go out, or that the confirmed
+get reads back wrong, is followed by automatic. A REQUEST_ERROR to a set (the SM refusing fan
+rights to this LPAR) leaves only automatic allowed for the rest of the boot (full/manual writes
+return `-EIO`), and automatic is still sent on the exit paths, since an earlier setting may have
+taken; if automatic itself is refused, the exit paths stop sending it. The temperatures keep
+working. A REQUEST_ERROR or three unanswered gets turn off only the reads (the get's bytes are
+the guess; the set's are not). A thermal alert event hands a manual duty back to SYSCON, and
+manual is refused (`-EBUSY`) until every zone has cleared (an event, not a loop: SYSCON sends it
+at its own trip points). Every set checks the duty range again just before it is written.
+
+**The safe minimum duty is 0x99 (60%).** A manual duty is fixed: SYSCON's curve is off while it
+is in force, and nothing follows the load. So it has to be safe for a game at full load, not
+merely above the idle point of the curve. 60% is the fixed speed the project's rules already
+accept for a Linux session (CLAUDE.md, cooling), and twice what SYSCON's own curve on a CECH-20xx
+reaches up to about 70 C (0x33-0x4a, 20-29%; psdevwiki Thermal, measured with IRISMAN). The upper
+clamp, 0xf4 (95%), is webMAN's; full speed is policy 0. Every duty written (module parameter or
+sysfs) is clamped into 0x99-0xf4 and the clamp is logged. SYSCON's "minimum" fan mode (fanconmode
+3, which might be a true floor under the curve) is not reachable through this service and is not
+used.
+
+**Module parameters** (`ps3_sys_manager.` on the kernel command line):
+
+| parameter | values | default |
+|---|---|---|
+| `fan_policy` | `auto` (SYSCON automatic at boot), `keep` (log the get, set nothing at boot), `full`, `off` (no fan requests at all, no pwm1) | `auto` |
+| `fan_floor` | a duty, raised to 0x99, lowered to 0xf4; sets manual at boot (after automatic); ignored with `full` and `off` | 0 (none) |
+| `hwmon` | 0 turns the temperature channels off; pwm1 stays unless `fan_policy=off` | 1 |
+
+**sysfs** (`/sys/class/hwmon/hwmonN/`, the one whose `name` is `ps3_sm`; root writes):
+
+| file | read | write |
+|---|---|---|
+| `pwm1_enable` | 0 full speed, 1 manual, 2 SYSCON automatic (what this driver set; after `keep`, the confirmed get, else `-ENODATA`) | 0, 1 (manual at the stored duty), 2 |
+| `pwm1` | manual: the duty; full: 255; automatic: SYSCON's current speed from the get, only once the layout is confirmed (cached 1 s), else `-ENODATA` | a duty 0-255, clamped to 0x99-0xf4 (logged); sent at once in manual mode, otherwise stored for `pwm1_enable=1` |
+
+A set is logged (`fan: SYSCON automatic`, `fan: full speed`, `fan: manual, duty 0x99 (60%)`) only
+when it changes something, so a script writing the same value doesn't fill the log.
+
+**Game mode hook (not implemented in ps3-desktop yet).** `ps3-game-mode on` runs as root through
+sudo and its watcher's `thaw` runs whenever game mode ends, however it ends. A setting such as
+`GAME_FAN_FLOOR=0xb3` in /etc/default/ps3-game-mode would do, in `on`:
+```
+h=$(grep -l '^ps3_sm$' /sys/class/hwmon/hwmon*/name 2>/dev/null | head -1); h=${h%/name}
+[ -n "$h" ] && [ -w "$h/pwm1" ] && echo "$GAME_FAN_FLOOR" > "$h/pwm1" && echo 1 > "$h/pwm1_enable"
+```
+and in `thaw`: `echo 2 > "$h/pwm1_enable"` (back to SYSCON). Nothing else is needed: the driver
+clamps the duty, falls back to SYSCON on any error and on a thermal alert, and restores SYSCON
+on shutdown and panic even if the thaw never runs. The default should stay empty (SYSCON
+automatic during games too) until a measured game run shows the floor helps.
+
+**Review.** An independent Opus review (races with the message loop, shutdown ordering, panic
+path, unbind, wire bytes, hwmon ABI) confirmed the set's bytes against the tool, that nothing
+else is sent, the clamp on every path, the `.shutdown` ordering and the `fan_dirty`/`fan_final`
+handshake. It found one blocker, fixed: a REQUEST_ERROR used to turn off every send, the exit
+paths' automatic included, so a floor accepted earlier would have stayed after Linux exited.
+Also fixed from it: `fan_dirty` starting up; the set's wait 1 s like the others (a late
+REQUEST_ERROR charged to the next request); finishing partial atomic writes; dropping service 26
+(REQUEST_ERROR_LOG) as a "set reply"; 0-byte replies accepted instead of draining the queue;
+REQUEST_ERROR payloads logged; the alert scheduling regardless of a set in flight and manual
+refused during an alert; a bounded mutex wait at shutdown; the duty range checked at the wire;
+quieter logs. Left as is: the get stays before the boot's automatic, as the task asked (the
+first test boot uses `keep`, so the guessed get is tried alone first); the 24-byte trigger
+(below). Compile-checked with the cross compiler, W=1, option on and off.
+
+**Known limits.**
+- The vuart's async read wakes the driver at 24 bytes (upstream `PS3_SM_RX_MSG_LEN_MIN`). A reply
+  shorter than that (a 4-byte get reply would be 20) sits in the receive list until the next
+  message arrives and is then taken for the request pending at that time, so it reads one
+  request late. The layout is confirmed only with 8 payload bytes or more for that reason; with a
+  short reply the reads stay unused and the log shows the "late" replies raw. A fix would lower
+  the trigger to the header size, which changes how every event is read: a patch of its own.
+- The fan rights: the stock Linux LPAR's ability mask (0x40012) lacks bit 9, which gates both 25
+  and 50. Unless our OtherOS++ grants it, the first set gets a REQUEST_ERROR and the driver leaves
+  the fan alone for the boot.
+- A sysfs write sending manual on one CPU at the very moment another panics can still land after
+  the panic's automatic.
+- Untested on the PS3: the rights, the get's bytes, the reply ids and sizes.
+
+## PS3 test plan for the fan (local/0042)
+
+Supervised, the user at the console and agreeing, webMAN fan in SYSCON mode before setting the
+OtherOS flag (CLAUDE.md), nothing else running, stop on any "PS3 Thermal Alert". The kernel goes
+in next to the known-good one as in the temperature steps (2. above); the old one stays the
+default.
+
+1. **Boot, read the policy.** Boot the test kernel from Petitboot with
+   `ps3_sys_manager.fan_policy=keep` for the very first boot: only the get is sent.
+   `dmesg | grep -e 'fan:' -e REQUEST_ERROR`: expect `fan: policy control on, at boot keep`, one
+   `fan: get reply: service id N, payload M, tag T: ...` line (or "no reply" / "refused"), and
+   `fan: at boot (layout unconfirmed): ... policy 1 (SYSCON automatic)` if the guess is right and
+   webMAN was in SYSCON mode. A late reply shows as `fan: reply no request waits for`. Note the
+   bytes. A "refused" get means no fan rights or a wrong guess: the set still decides.
+2. **Reboot with the default** (no parameter): the boot sets SYSCON automatic (a no-op when webMAN
+   left it there). Expect `fan: SYSCON automatic`, either `fan: set reply ...` or `fan: no reply to
+   the set within 500 ms`, and `fan: get layout confirmed` or `not confirmed`. A
+   `setting SYSCON automatic refused (REQUEST_ERROR)` line means our OtherOS++ gives the Linux LPAR
+   no fan rights: stop here, nothing more to test (the temperatures are unaffected).
+3. **Full speed and back (the safe direction):**
+   `h=$(dirname $(grep -l ps3_sm /sys/class/hwmon/hwmon*/name))`;
+   `echo 0 | sudo tee $h/pwm1_enable`: the fan must audibly go to full speed within a few seconds
+   (also `tools/webcam-audio.sh` from the host, if the user is not at the TV); `cat $h/pwm1_enable`
+   reads 0. Then `echo 2 | sudo tee $h/pwm1_enable`: it must spin down again within SYSCON's ~2 min
+   step-down. dmesg: `fan: full speed`, `fan: SYSCON automatic`, no "back to SYSCON" warnings.
+4. **Full speed across a reboot:** `echo 0 | sudo tee $h/pwm1_enable`, then `sudo reboot`: the
+   console shows the fan going back before the LPAR ends (`fan: SYSCON automatic` in the
+   shutdown messages, netconsole if set up), and in GameOS/webMAN or after the next Linux boot's
+   get it is SYSCON automatic. Same with `sudo poweroff`.
+5. **Floor, only with the user's explicit OK:** `echo 0x99 > $h/pwm1` (stored), `echo 1 >
+   $h/pwm1_enable`: `fan: manual, duty 0x99 (60%)`, the fan steadier and louder than at idle;
+   `cat $h/pwm1` 153. Then `echo 2 > $h/pwm1_enable`. A value below 0x99 must log the clamp and
+   still read 153. Watch the temperatures meanwhile (`ps3-sm-temp.sh`), stop above 75 C.
+6. **Panic path (optional, only with the user's OK):** with full speed set (`pwm1_enable=0`),
+   `echo c | sudo tee /proc/sysrq-trigger` crashes the kernel on purpose: the console must show
+   `PS3 fan: SYSCON automatic (panic)` and the fan must spin down within ~2 min; then a hard
+   power-off (the panic halts). Do this from full speed, never from a floor.
+7. Rollback without a rebuild: `ps3_sys_manager.fan_policy=off` (no fan requests at all).
+
 
 ## Sources
 
@@ -330,3 +505,10 @@ but that is exactly the kind of judgement the rules leave to the user.
 - [IRISMAN](https://github.com/aldostools/IRISMAN): `source/controlfan.c`, `sm_monitor/main.c`
   (speed and temperature tables).
 - Linux: `drivers/ps3/ps3-sys-manager.c`, `drivers/ps3/ps3-vuart.c` (6.12.111 with our series).
+
+### Confirmed on the PS3 (2026-10-18, kernel 6.12.111+ps3.178, OtherOS++ on Evilnat 4.92)
+
+`ps3-sm-temp.sh --raw` through /dev/ps3sysmngr, after a long benchmark session: the SM answers the
+Linux LPAR. Zone 0 (Cell) 65.76 C, zone 1 (RSX) 60.00 C, status 0; reply service id 14, tag 0, payload
+8 bytes (`0100000041c30000`, `010100003c000000`: {ver, zone, status, 0, integer C, fraction/256, 0, 0}).
+The hwmon driver's accepted formats cover this.
