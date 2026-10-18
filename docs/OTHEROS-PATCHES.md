@@ -45,16 +45,16 @@ Config states from the shipped `config-6.12.111+ps3.419`.
 | 0035 ps3flash (NG, NOR) | raw flash access | no | in series | none | FORBIDDEN | built off (`PS3_FLASH*`, `PS3_NOR_FLASH`), keep off |
 | 0040 ps3-partition | PS3 partition table parser | no | in series | none | SAFE | compiled out (`PS3_PARTITION` unset) |
 | 0050 ps3sysmgr-lpar-reboot | reboot asks the SM for an LPAR reboot instead of a system reboot | no | in series | boot path | CAREFUL (SM request, run time) | keep |
-| 0060 ps3sysmgr-char-device | /dev/ps3sysmngr: raw System Manager packets from userspace | no | in series, **built in** | thermal/fan work (see below) | **FORBIDDEN-capable** (any SM service: the kernel itself uses only requests, attributes and the next boot op; glevand's ps3sm-utils drive LEDs and the buzzer through it, and the SM fronts syscon); while open, the kernel stops handling power-button and thermal events | decision 2 |
+| 0060 ps3sysmgr-char-device | /dev/ps3sysmngr: raw System Manager packets from userspace | no | in series, **built in** | thermal/fan work (see below) | **FORBIDDEN-capable** (any SM service: the kernel itself uses only requests, attributes and the next boot op; glevand's ps3sm-utils drive LEDs and the buzzer through it, and the SM fronts syscon); while open, the kernel stops handling power-button and thermal events | **dropped 2026-10-18** (decision 2) |
 | 0070 ps3avmgr-char-device | /dev/ps3avmgr: raw AV manager packets | no | in series, built in | none today | CAREFUL | keep, unused |
-| 0080 ps3dispmgr | /dev/ps3dispmngr: raw dispatcher manager (update manager, storage manager, secure RTC...) | no | in series, `=m`, **autoloaded** by its bus alias | none today | **FORBIDDEN-capable** (update manager = firmware update and EEPROM writes) | decision 3 |
-| 0090 ps3rom-vendor-specific-command | SCSI pass-through of vendor commands to the BD drive | no | in series, built in | none | CAREFUL, FORBIDDEN-capable (BD drive firmware commands) | decision 4 |
+| 0080 ps3dispmgr | /dev/ps3dispmngr: raw dispatcher manager (update manager, storage manager, secure RTC...) | no | in series, `=m`, **autoloaded** by its bus alias | none today | **FORBIDDEN-capable** (update manager = firmware update and EEPROM writes) | **`PS3_DISP_MANAGER` off 2026-10-18** (decision 3; the patch stays in the series, nothing is built from it) |
+| 0090 ps3rom-vendor-specific-command | SCSI pass-through of vendor commands to the BD drive | no | in series, built in | none | CAREFUL, FORBIDDEN-capable (BD drive firmware commands) | **dropped 2026-10-18** (decision 4) |
 | 0100 spu-enum-shared-param | enumerate the shared SPE as well | no | in series | SPU count | SAFE | keep |
 | 0110, 0120, 0130, 0190, 0260 lv1call additions | declarations for repository, storage-region, SPE and debug-console hcalls | no | in series | needed by the others | SAFE (declarations) | keep |
 | 0140 ps3physmem | map all LPAR memory from userspace | no | in series, `=m`, manual load | research | CAREFUL, FORBIDDEN-capable in principle (arbitrary memory writes) | keep, never autoloaded |
 | 0150 ps3strgmngr | storage manager: create/delete storage regions | no | in series | none | FORBIDDEN (persistent region table) | built off, keep off |
-| 0160 ps3jupiter | glevand's direct Wi-Fi driver for the Jupiter chip over the internal USB | no | in series | Wi-Fi without the HV's eurus interface | CAREFUL (needs 0170) | built off (`PS3_JUPITER` unset); decision 5 |
-| 0170 gelic-disable-eurus-ctrl-iface | at gelic probe, clears this LPAR's bit in the HV repository node `ios.net.eurus.lpar` (`lv1_write_repository_node`) | no | in series, **runs every boot** (gelic built in) | only useful with 0160 | **CAREFUL**, and it bypasses our `PS3_REPOSITORY_WRITE=n` choice | **decision 1** |
+| 0160 ps3jupiter | glevand's direct Wi-Fi driver for the Jupiter chip over the internal USB | no | in series | Wi-Fi without the HV's eurus interface | CAREFUL (needs 0170) | **dropped 2026-10-18** with 0170 and the alias patch 0316 (decision 5) |
+| 0170 gelic-disable-eurus-ctrl-iface | at gelic probe, clears this LPAR's bit in the HV repository node `ios.net.eurus.lpar` (`lv1_write_repository_node`) | no | in series, **runs every boot** (gelic built in) | only useful with 0160 | **CAREFUL**, and it bypasses our `PS3_REPOSITORY_WRITE=n` choice | **dropped 2026-10-18** (decision 1) |
 | 0180 gelic-wireless-print-cmd-status | prints eurus command status | no | in series | debugging | SAFE | keep |
 | 0200, 0210 exports | export SPE irq and event-port helpers for 0230/0240 | no | in series | none | SAFE | keep |
 | 0220 ps3encdec | HDD encryption device | no | in series | none | CAREFUL (keys) | built off |
@@ -138,6 +138,12 @@ tests, `make test-*` in ps3-spu, and a game with SPU audio).
 
 ## For the user's decision (CAREFUL and FORBIDDEN-capable items)
 
+Decided 2026-10-18 by the user (kernel 6.12.111+ps3.4xx~dev, compile-tested, not booted):
+1 drop 0170 and with it 0160 (ps3jupiter) and 0316 (its module alias); 2 drop 0060 (no
+`/dev/ps3sysmngr`; local/0040 was reworked to not use its misc device); 3 `PS3_DISP_MANAGER` unset;
+4 drop 0090. The decision notes under each item below say what was done. `ps3-sm-temp.sh` and the
+raw-device parts of docs/THERMAL.md talk to `/dev/ps3sysmngr` and no longer have a device.
+
 1. **0170 writes the hypervisor repository on every boot.** gelic is built in, and at probe it
    clears this LPAR's bit in the system LPAR's `ios.net.eurus.lpar` node (when the LAID is
    0x1070000002000001 and hw config bit 0x40000 is set). It goes around `PS3_REPOSITORY_WRITE=n`,
@@ -147,18 +153,25 @@ tests, `make test-*` in ps3-spu, and a game with SPU audio).
    `dmesg | grep -i eurus` on the PS3: "was disabled" means it wrote, "already disabled" means an
    earlier boot did and it survived at least a reboot. Recommendation: drop 0170 from the series
    (or put the write behind a module parameter that defaults to off).
+   **Decision 2026-10-18: dropped** (series, with 0160 and 0316). Nothing else depended on it;
+   0180 only prints eurus command status in the stock gelic wireless driver.
 2. **/dev/ps3sysmngr (0060) is built in.** Root can send any System Manager packet; the SM fronts
    syscon, and which of its services change persistent state is not documented. Also, while it is open the
    kernel stops handling SM events, *including the thermal alert* our cooling rule depends on.
    The thermal agent reads temperatures in-kernel instead; if nothing uses the raw device, make it
    opt-in (module parameter) or drop 0060.
+   **Decision 2026-10-18: dropped.** local/0040 used 0060's `struct ps3sm` only to return -EBUSY
+   while the device was open; that and the misc device are gone, the hwmon code is otherwise unchanged.
 3. **/dev/ps3dispmngr (0080) loads automatically** (`PS3_DISP_MANAGER=m`, bus alias `ps3:13:0`).
    The dispatcher manager carries the update manager (firmware update, EEPROM writes). Nothing in
    our tree uses it. Recommendation: `PS3_DISP_MANAGER` off, or blacklist the module.
+   **Decision 2026-10-18: `# CONFIG_PS3_DISP_MANAGER is not set`** in linux/config/ps3.config.
 4. **0090 ps3rom vendor commands** pass arbitrary vendor SCSI commands to the BD drive (built in
    with `PS3_ROM=y`). Root only; nothing uses it. Keep or drop; worth knowing.
+   **Decision 2026-10-18: dropped** (grep of the repo found no user; `PS3_ROM` itself stays).
 5. **Internal Wi-Fi via ps3jupiter (0160)**: needs 0170's repository write. Not recommended
    unless Wi-Fi is wanted; the stock gelic wireless path (`GELIC_WIRELESS=y`) is the alternative.
+   **Decision 2026-10-18: 0160 dropped** (with 0170 and 0316).
 6. **T2's ps3fb-in-VRAM (0666)**: up to 8.5 MB of XDR back (the console shadow), but 23 MB more
    VRAM, which is scarce here (vswap), and it conflicts with how ps3rsx shares ps3fb's command
    area. A reworked version that keeps 9 MB of VRAM is possible; it is a design job, not a port.

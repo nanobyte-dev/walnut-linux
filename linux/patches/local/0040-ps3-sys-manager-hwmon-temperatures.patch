@@ -87,20 +87,27 @@ diff --git a/arch/powerpc/platforms/ps3/Kconfig b/arch/powerpc/platforms/ps3/Kco
 diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
 --- a/drivers/ps3/ps3-sys-manager.c
 +++ b/drivers/ps3/ps3-sys-manager.c
-@@ -15,7 +15,11 @@
- #include <linux/uaccess.h>
- #include <linux/fs.h>
- #include <linux/miscdevice.h>
-- 
+@@ -11,6 +11,11 @@
+ #include <linux/workqueue.h>
+ #include <linux/reboot.h>
+ #include <linux/sched/signal.h>
++#include <linux/slab.h>
 +#include <linux/hwmon.h>
 +#include <linux/completion.h>
 +#include <linux/jiffies.h>
 +#include <linux/moduleparam.h>
-+
- #include <asm/atomic.h>
+ 
  #include <asm/firmware.h>
  #include <asm/lv1call.h>
-@@ -113,6 +117,8 @@ enum ps3_sys_manager_service_id {
+@@ -31,7 +36,6 @@
+  * Messages are comprised of a fixed field header followed by a message
+  * specific payload.
+  */
+-
+ /**
+  * struct ps3_sys_manager_header - System manager message header.
+  * @version: Header version, currently 1.
+@@ -102,6 +106,8 @@ enum ps3_sys_manager_service_id {
  	PS3_SM_SERVICE_ID_SET_NEXT_OP = 5,
  	PS3_SM_SERVICE_ID_REQUEST_ERROR = 6,
  	PS3_SM_SERVICE_ID_SET_ATTR = 8,
@@ -109,7 +116,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  };
  
  /**
-@@ -241,6 +247,7 @@ static unsigned int ps3_sm_force_power_off;
+@@ -230,6 +236,7 @@ static unsigned int ps3_sm_force_power_off;
  static int ps3_sys_manager_write(struct ps3_system_bus_device *dev,
  	const struct ps3_sys_manager_header *header, const void *payload)
  {
@@ -117,7 +124,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  	int result;
  
  	BUG_ON(header->version != 1);
-@@ -248,11 +255,13 @@ static int ps3_sys_manager_write(struct ps3_system_bus_device *dev,
+@@ -237,11 +244,13 @@ static int ps3_sys_manager_write(struct ps3_system_bus_device *dev,
  	BUG_ON(header->payload_size != 8 && header->payload_size != 16);
  	BUG_ON(header->service_id > 8);
  
@@ -136,7 +143,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  
  	return result;
  }
-@@ -270,9 +279,14 @@ static int ps3_sys_manager_send_attr(struct ps3_system_bus_device *dev,
+@@ -259,9 +268,14 @@ static int ps3_sys_manager_send_attr(struct ps3_system_bus_device *dev,
  		u8 version;
  		u8 reserved_1[3];
  		u32 attribute;
@@ -152,7 +159,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  
  	dev_dbg(&dev->core, "%s:%d: %xh\n", __func__, __LINE__, attr);
  
-@@ -406,6 +420,483 @@ static int ps3_sys_manager_send_response(struct ps3_system_bus_device *dev,
+@@ -395,6 +409,471 @@ static int ps3_sys_manager_send_response(struct ps3_system_bus_device *dev,
  	return ps3_sys_manager_write(dev, &header, &payload);
  }
  
@@ -293,11 +300,6 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
 +	return ps3_vuart_write(hw->dev, &req, sizeof(req));
 +}
 +
-+static bool ps3_sm_misc_busy(void)
-+{
-+	return ps3sm && atomic_read(&ps3sm->misc_in_use);
-+}
-+
 +static int ps3_sm_temp_query(struct ps3_sm_hwmon *hw, int channel, long *val)
 +{
 +	struct ps3_sm_temp_reply reply;
@@ -314,10 +316,6 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
 +
 +	if (hw->dead || hw->absent[channel])
 +		return -ENODATA;
-+
-+	/* /dev/ps3sysmngr reads the port itself while it is open. */
-+	if (ps3_sm_misc_busy())
-+		return -EBUSY;
 +
 +	if (READ_ONCE(hw->stopped))
 +		return -ESHUTDOWN;
@@ -374,9 +372,6 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
 +			result);
 +		result = -EIO;
 +	} else {
-+		/* The misc device may have taken the reply: not a failure. */
-+		if (ps3_sm_misc_busy())
-+			return -EBUSY;
 +		result = -ETIMEDOUT;
 +	}
 +
@@ -636,7 +631,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  /**
   * ps3_sys_manager_handle_event - Second stage event msg handler.
   *
-@@ -474,10 +965,12 @@ static int ps3_sys_manager_handle_event(struct ps3_system_bus_device *dev)
+@@ -463,10 +942,12 @@ static int ps3_sys_manager_handle_event(struct ps3_system_bus_device *dev)
  		dev_dbg(&dev->core, "%s:%d: THERMAL_ALERT (zone %u)\n",
  			__func__, __LINE__, event.value);
  		pr_info("PS3 Thermal Alert Zone %u\n", event.value);
@@ -649,7 +644,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  		break;
  	default:
  		dev_dbg(&dev->core, "%s:%d: unknown event (%u)\n",
-@@ -538,6 +1031,8 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
+@@ -527,6 +1008,8 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
  {
  	int result;
  	struct ps3_sys_manager_header header;
@@ -658,7 +653,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  
  	result = ps3_vuart_read(dev, &header,
  		sizeof(struct ps3_sys_manager_header));
-@@ -554,10 +1049,22 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
+@@ -543,10 +1026,22 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
  
  	BUILD_BUG_ON(sizeof(header) != 16);
  
@@ -682,7 +677,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  	}
  
  	switch (header.service_id) {
-@@ -571,6 +1078,7 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
+@@ -560,6 +1055,7 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
  		dev_dbg(&dev->core, "%s:%d: REQUEST_ERROR\n", __func__,
  			__LINE__);
  		dump_sm_header(&header);
@@ -690,7 +685,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  		break;
  	default:
  		dev_dbg(&dev->core, "%s:%d: unknown service_id (%u)\n",
-@@ -580,10 +1088,17 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
+@@ -569,10 +1065,17 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
  	goto fail_id;
  
  fail_header:
@@ -709,7 +704,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  	return -EIO;
  }
  
-@@ -621,6 +1136,7 @@ static void ps3_sys_manager_final_power_off(struct ps3_system_bus_device *dev)
+@@ -610,6 +1113,7 @@ static void ps3_sys_manager_final_power_off(struct ps3_system_bus_device *dev)
  
  	dev_dbg(&dev->core, "%s:%d\n", __func__, __LINE__);
  
@@ -717,7 +712,7 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  	ps3_vuart_cancel_async(dev);
  
  	ps3_sys_manager_send_next_op(dev, PS3_SM_NEXT_OP_SYS_SHUTDOWN,
-@@ -653,6 +1169,7 @@ static void ps3_sys_manager_final_restart(struct ps3_system_bus_device *dev)
+@@ -642,6 +1146,7 @@ static void ps3_sys_manager_final_restart(struct ps3_system_bus_device *dev)
  		ps3_sys_manager_final_power_off(dev);
  	}
  
@@ -725,25 +720,25 @@ diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
  	ps3_vuart_cancel_async(dev);
  
  	ps3_sys_manager_send_attr(dev, 0);
-@@ -834,6 +1351,8 @@ static int ps3_sys_manager_probe(struct ps3_system_bus_device *dev)
- 
- skip_misc:
+@@ -716,23 +1221,32 @@ static int ps3_sys_manager_probe(struct ps3_system_bus_device *dev)
+ 	result = ps3_vuart_read_async(dev, PS3_SM_RX_MSG_LEN_MIN);
+ 	BUG_ON(result);
  
 +	ps3_sm_hwmon_register(dev);
 +
- 	result = 0;
++	result = 0;
  	return result;
  }
-@@ -842,6 +1361,8 @@ static int ps3_sys_manager_remove(struct ps3_system_bus_device *dev)
+ 
+ static int ps3_sys_manager_remove(struct ps3_system_bus_device *dev)
  {
  	dev_dbg(&dev->core, "%s:%d\n", __func__, __LINE__);
- 
++
 +	ps3_sm_hwmon_unregister();
 +
- 	if (ps3sm) {
- 		misc_deregister(&ps3sm->misc);
- 		kfree(ps3sm);
-@@ -854,11 +1375,14 @@ static int ps3_sys_manager_remove(struct ps3_system_bus_device *dev)
+ 	return 0;
+ }
+ 
  static void ps3_sys_manager_shutdown(struct ps3_system_bus_device *dev)
  {
  	dev_dbg(&dev->core, "%s:%d\n", __func__, __LINE__);

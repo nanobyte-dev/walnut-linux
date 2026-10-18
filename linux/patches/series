@@ -5,22 +5,20 @@
 # local/ holds our own fixes on top. local/0020-0032 are other people's fixes (authors kept): gelic
 # and ps3 spu from upstream after 6.12, spufs fixes posted to linuxppc-dev but not merged (2026-08);
 # survey and sources in docs/OTHEROS-PATCHES.md.
+# Dropped 2026-10-18 (same file): ps3/0060 (/dev/ps3sysmngr), 0090 (ps3rom vendor commands), 0160 (ps3jupiter),
+# 0170 (gelic eurus repository write), 0316 (jupiter alias). local/0040 no longer needs the misc device.
 ps3/0020-ps3stor-send-cmd-timeout.patch
 ps3/0035-ps3flash.patch
 ps3/0040-ps3-partition.patch
 ps3/0050-ps3sysmgr-lpar-reboot.patch
-ps3/0060-ps3sysmgr-char-device.patch
 ps3/0070-ps3avmgr-char-device.patch
 ps3/0080-ps3dispmgr.patch
-ps3/0090-ps3rom-vendor-specific-command.patch
 ps3/0100-spu-enum-shared-param.patch
 ps3/0110-lv1call-repo-node-lparid-param.patch
 ps3/0120-lv1call-add-hvcalls-114-115.patch
 ps3/0130-lv1call-add-storage-region-hvcalls.patch
 ps3/0140-ps3physmem.patch
 ps3/0150-ps3strgmngr.patch
-ps3/0160-ps3jupiter.patch
-ps3/0170-gelic-disable-eurus-ctrl-iface.patch
 ps3/0180-gelic-wireless-print-cmd-status.patch
 ps3/0190-lv1call-add-undocumented-spe-hvcalls.patch
 ps3/0200-export-spe-irq-setup-destroy.patch
@@ -34,7 +32,6 @@ ps3/0270-udbg-lv1-console.patch
 ps3/0280-ps3_rtc_adj.patch
 ps3/0310-rtc-ps3.patch
 ps3/0314-repositoy.patch
-ps3/0316-jupiter-module-alias.patch
 ps3/0410_mmzone.patch
 ps3/0420_ps3av_add.patch
 ps3/0430_ps3_gelic_wirelss_miss_kfree.patch

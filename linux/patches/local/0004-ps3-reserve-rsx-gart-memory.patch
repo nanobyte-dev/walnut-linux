@@ -6,7 +6,7 @@ Subject: 0004-ps3-reserve-rsx-gart-memory.patch
 diff --git a/arch/powerpc/include/asm/ps3.h b/arch/powerpc/include/asm/ps3.h
 --- a/arch/powerpc/include/asm/ps3.h
 +++ b/arch/powerpc/include/asm/ps3.h
-@@ -451,6 +451,7 @@ struct ps3_prealloc {
+@@ -450,6 +450,7 @@ struct ps3_prealloc {
  };
  
  extern struct ps3_prealloc ps3fb_videomemory;

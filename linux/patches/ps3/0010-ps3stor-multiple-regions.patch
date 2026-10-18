@@ -657,7 +657,7 @@ diff --git a/drivers/ps3/ps3stor_lib.c b/drivers/ps3/ps3stor_lib.c
 diff --git a/drivers/scsi/ps3rom.c b/drivers/scsi/ps3rom.c
 --- a/drivers/scsi/ps3rom.c
 +++ b/drivers/scsi/ps3rom.c
-@@ -61,6 +61,12 @@ enum lv1_atapi_in_out {
+@@ -60,6 +60,12 @@ enum lv1_atapi_in_out {
  	DIR_READ = 1		/* device -> memory */
  };
  
@@ -670,7 +670,7 @@ diff --git a/drivers/scsi/ps3rom.c b/drivers/scsi/ps3rom.c
  
  static int ps3rom_slave_configure(struct scsi_device *scsi_dev)
  {
-@@ -196,12 +202,13 @@ static int ps3rom_read_request(struct ps3_storage_device *dev,
+@@ -161,12 +167,13 @@ static int ps3rom_read_request(struct ps3_storage_device *dev,
  			       u32 sectors)
  {
  	int res;
@@ -685,7 +685,7 @@ diff --git a/drivers/scsi/ps3rom.c b/drivers/scsi/ps3rom.c
  			       sectors, 0, dev->bounce_lpar, &dev->tag);
  	if (res) {
  		dev_err(&dev->sbd.core, "%s:%u: read failed %d\n", __func__,
-@@ -217,6 +224,7 @@ static int ps3rom_write_request(struct ps3_storage_device *dev,
+@@ -182,6 +189,7 @@ static int ps3rom_write_request(struct ps3_storage_device *dev,
  				u32 sectors)
  {
  	int res;
@@ -693,7 +693,7 @@ diff --git a/drivers/scsi/ps3rom.c b/drivers/scsi/ps3rom.c
  
  	dev_dbg(&dev->sbd.core, "%s:%u: write %u sectors starting at %u\n",
  		__func__, __LINE__, sectors, start_sector);
-@@ -224,7 +232,7 @@ static int ps3rom_write_request(struct ps3_storage_device *dev,
+@@ -189,7 +197,7 @@ static int ps3rom_write_request(struct ps3_storage_device *dev,
  	scsi_sg_copy_to_buffer(cmd, dev->bounce_buf, dev->bounce_size);
  
  	res = lv1_storage_write(dev->sbd.dev_id,
@@ -702,7 +702,7 @@ diff --git a/drivers/scsi/ps3rom.c b/drivers/scsi/ps3rom.c
  				sectors, 0, dev->bounce_lpar, &dev->tag);
  	if (res) {
  		dev_err(&dev->sbd.core, "%s:%u: write failed %d\n", __func__,
-@@ -379,6 +387,7 @@ static int ps3rom_probe(struct ps3_system_bus_device *_dev)
+@@ -340,6 +348,7 @@ static int ps3rom_probe(struct ps3_system_bus_device *_dev)
  {
  	struct ps3_storage_device *dev = to_ps3_storage_device(&_dev->core);
  	int error;
@@ -710,7 +710,7 @@ diff --git a/drivers/scsi/ps3rom.c b/drivers/scsi/ps3rom.c
  	struct Scsi_Host *host;
  	struct ps3rom_private *priv;
  
-@@ -394,6 +403,9 @@ static int ps3rom_probe(struct ps3_system_bus_device *_dev)
+@@ -355,6 +364,9 @@ static int ps3rom_probe(struct ps3_system_bus_device *_dev)
  	if (!dev->bounce_buf)
  		return -ENOMEM;
  

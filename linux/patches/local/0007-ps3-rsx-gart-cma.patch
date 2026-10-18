@@ -6,7 +6,7 @@ Subject: 0007-ps3-rsx-gart-cma.patch
 diff --git a/arch/powerpc/include/asm/ps3.h b/arch/powerpc/include/asm/ps3.h
 --- a/arch/powerpc/include/asm/ps3.h
 +++ b/arch/powerpc/include/asm/ps3.h
-@@ -452,6 +452,13 @@ struct ps3_prealloc {
+@@ -451,6 +451,13 @@ struct ps3_prealloc {
  
  extern struct ps3_prealloc ps3fb_videomemory;
  extern struct ps3_prealloc ps3rsx_gart;
