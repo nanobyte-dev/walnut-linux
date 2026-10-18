@@ -614,6 +614,7 @@ secs measured "$measured"
   [ -n "$GD" ] && { echo "gamedata=$GD"; [ -n "$GD_DIRS" ] && echo "gamedata_dirs=$GD_DIRS"; }
   [ -n "$SW" ] && { echo "swap=$SW"; echo "swaps=$(awk 'NR > 1 { printf "%s%s:%s", s, $1, $5; s = " " }' /proc/swaps)"; }
   echo "game_pid=$game_pid"
+  echo "root=$(findmnt -n -o SOURCE / 2>/dev/null || echo -)"	# USB root or the SSD's /dev/mapper/ps3root (Phase B)
   if [ "$PLOAD" = 1 ]; then
 	echo "mono_t0=$MONO_T0"
 	if [ -n "${BENCH_PERF_LOAD_CTL:-}" ]; then
