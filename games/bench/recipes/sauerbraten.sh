@@ -191,3 +191,12 @@ variant_rgbppe() { ENV+=(SPEQ_S3TC_RGB=ppe SPEQ_DEBUG=1); }
 # token: NV30_QUERY_WAIT=US sleeps on the fence after US microseconds of spinning (base, pixels the same)
 variant_oqlag() { SB_SET+=("oqwaterlag 1"); }
 variant_oqnowait() { SB_SET+=("oqwait 0"); }
+# World normals and tangents as GL_SHORT normalized (our cube2 0011, vanormalshort; docs/MEMORY.md):
+# nv30 can't fetch the stock GL_BYTE ones, so u_vbuf converts them at every world draw and nouveau
+# keeps a malloc copy of every world vertex buffer to read them from. shortnormals uploads them as
+# shorts (the RSX fetches those: no conversion, no copies; cave's world buffers 4.40 -> 5.50 MB of
+# VRAM); off by default (on llvmpipe ~170 pixels a frame differ by 1-2 levels). bytenormals is the
+# stock layout spelled out. With NV30_SYSMEM_STATS=300 (an ENVS token, Mesa 0037) the sysmem_*
+# columns show the copies go
+variant_shortnormals() { SB_SET+=("vanormalshort 1"); }
+variant_bytenormals() { SB_SET+=("vanormalshort 0"); }

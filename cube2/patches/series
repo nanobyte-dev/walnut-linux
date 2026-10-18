@@ -8,3 +8,4 @@
 0008-Bind-the-textures-of-a-batch-in-one-go-glbatchtmu.patch
 0009-Upload-only-the-particles-that-exist-glpartvbo.patch
 0010-Water-occlusion-queries-without-waiting-for-the-GPU-.patch
+0011-World-normals-and-tangents-as-16-bit-signed-normaliz.patch

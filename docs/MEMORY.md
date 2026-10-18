@@ -230,6 +230,7 @@ process of another name is left alone.
 | yamagi-quake2, yamagi-quake2-core | 8.70+dfsg-1+ps3.408 | 0002 `YQ2_KISS_QSIZE` |
 | ioquake3 | 1.36+u20260719.58839361+dfsg-1+ps3.462 | 0027-0029, OpenArena opengl2 (section below) |
 | Mesa | 26.2.4-1+ps3.442~dev20261018140130 (build/debs/mesa) | 0037 NV30_SYSMEM_COPY, NV30_INVALIDATE_BUFFER, NV30_SYSMEM_STATS (section "nouveau's system memory copies") |
+| cube2, cube2-server | 0.0.20201229+dfsg-1+ps3.442~dev20261018143125 (build/debs/cube2) | 0011 `vanormalshort` (section "Sauerbraten's world normals as shorts") |
 
 ## On the PS3
 
@@ -483,6 +484,70 @@ per static buffer read). `NV30_SYSMEM_COPY=0` without the invalidation is left o
 helps and shows nothing wrong (players and world drawn, no GL errors in game.log), it can become a
 PS3 default.
 
+### Sauerbraten's world normals as shorts (cube2 0011, `vanormalshort`, 2026-10-18)
+
+The game-side fix from the table above. `engine/world.h`'s `vertex` (32 bytes) sends `norm` and
+`tangent` as GL_BYTE normalized; nv30's vertex formats (nv30_format.c, `nv30_vtxfmt_table`) have
+no signed 8-bit type (U8_UNORM, U8_USCALED, V16_SNORM, V16_SSCALED, V16_FLOAT, V32_FLOAT), so u_vbuf
+converts R8G8B8_SNORM and R8G8B8A8_SNORM at every world draw and reads the VBOs through their
+malloc copies. R16G16B16_SNORM and R16G16B16A16_SNORM are in the table (V16_SNORM), and the same
+VBO already feeds the lightmap coordinates as GL_SHORT (V16_SSCALED), so 16-bit fetch works on the
+RSX's big-endian buffers.
+
+With `vanormalshort 1` the world VBOs are built from `svertex` (40 bytes: position, normal as 3
+shorts + padding, texture and lightmap coordinates, tangent as 4 shorts; s = b*32767/127 rounded,
+-128 taken as -127 as GL does). Everything that reads the layout follows the cvar: `genverts` and
+`addvbo` (octarender.cpp), `changevbuf` (normal and tangent as GL_SHORT for the lightmap pass, the
+stride for every pass), the position-only passes (depth, occlusion, alpha outlines, sky:
+`vavertsize()`), `readva` (`writeobj` converts back: the same .obj in both). The glass and
+waterfall surfaces (material.cpp, through gle with signed byte normals of +-1) send them as shorts
+too, exactly. A change rebuilds the world (`allchanged`). Models are not affected (float normals,
+GL_SHORT tangents already; GPU skinning's bone weights and indices are U8, fetchable); grass keeps
+GL_BYTE in its GART stream buffer.
+
+Measured on the PC (Debian trixie container, the work tree built for amd64, llvmpipe forced to GL
+2.1 / GLSL 1.20 with the extensions nv30 lacks removed, the benchmark demo at 960x540, SDL's clock
+advanced 33 ms per frame so runs repeat, 10 screenshots 3 s apart):
+
+| | vanormalshort 0 | 1 |
+|---|---|---|
+| cave's world vertex buffers (`printvbo 1`) | 4.40 MB (137,532 vertices, 9 VBOs) | 5.50 MB (+1.1 MB of VRAM) |
+| pixels against the unpatched build | the same (frames 2-10; frame 1 differs by 48 pixels between two runs of the unpatched build too) | ~170 of 518,400 differ, by at most 2 of 255 |
+
+s/32767 can't equal b/127 except for 0 and +-1 (127 doesn't divide 32767), so the shading moves by
+up to 1.5e-5 of a unit normal: invisible, but not the same pixels, so **the default stays 0**. The
+RSX's own conversion and fp precision differ from llvmpipe's anyway; if the PS3 shows the world
+right with it and the numbers below hold, it can become the default.
+
+On the PS3 the cost is the +1.1 MB of VRAM (25% more in the world VBOs). The gain: no malloc
+copies of the world VBOs (up to the 4.4 MB of them, those the demo draws), no u_vbuf conversion
+or upload per world draw (CPU), and no readbacks for them. Whether the readbacks also set
+nouveau's keep-copy hint in Sauerbraten (copies of every later buffer) is what `sysmem_hint` shows.
+
+Package: cube2 0.0.20201229+dfsg-1+ps3.442~dev20261018143125 (build/debs/cube2), not deployed, not published.
+Recipe variants: `shortnormals` (`vanormalshort 1`), `bytenormals` (`vanormalshort 0`, the default
+spelled out).
+
+The A/B on the PS3, same boot, desktop stopped, nobody playing on it; Mesa ps3.442 (0037, for the
+stats) and the cube2 deb deployed first (`make deploy` of build/debs/mesa and build/debs/cube2),
+`make bench-push`; `tools/bench-cam.sh` running on the PC for the whole batch, each run's photos
+looked at before its numbers count (the cave tunnel and the bots drawn, lit as in base; a wrong
+layout shows as black or garbled walls):
+
+    tools/bench-cam.sh &      # on the PC
+    S=NV30_SYSMEM_STATS=300
+    # memory: the copies and readbacks per arm
+    MEM=1 ENVS="$S" /var/tmp/bench/run.sh bench sauerbraten "base shortnormals" 3
+    # fps and stalls without MEM
+    STALLS=1 ENVS="$S" /var/tmp/bench/run.sh bench sauerbraten "base shortnormals" 3
+    python3 /var/tmp/bench/report.py --stalls --mem /var/tmp/ps3-bench/<run dirs>
+
+Read `sysmem_read_mb` and `sysmem_mb` (expected: base a few MB, shortnormals ~0 unless other
+buffers are read), `sysmem_readbacks`, `sysmem_hint`, against `mem_malloc_used`, `mem_heap_rss` /
+`_swap`, `stall_play_s` and the steady fps (expected up: no per-draw conversion). Check game.log
+for GL errors. Optional, for the CPU: one `PERF=1` run per arm, `util_format_r8g8b8*_snorm` and
+translate should leave Sauerbraten's profile.
+
 ## Proposed, not implemented
 
 - **OpenArena (ioquake3)**: after a map load (the end of `CL_InitCGame`, next to
@@ -501,12 +566,9 @@ PS3 default.
   vmswap never come out.
 - **Mesa (nouveau)**: the hint's switches are Mesa 0037 (section above). Left: whole-buffer
   copies of buffers u_vbuf reads (needed while it reads them).
-- **Sauerbraten (cube2)**: its world vertex (renderva.cpp: `vertex`, 32 bytes) sends `norm` and
-  `tangent` as GL_BYTE, which nv30 can't fetch, so u_vbuf converts them on every draw (the CPU
-  cost Mesa 0033's table cut) and nouveau keeps a malloc copy of every world VBO. Sent as GL_SHORT
-  normalized (V16_SNORM, fetched natively as ioquake3 0027's colours) in the uploaded copy only,
-  40 bytes a vertex: no u_vbuf, no copies, no conversion, for 25% more VRAM in the world VBOs.
-  Size the copies first (NV30_SYSMEM_STATS, `sysmem_read_mb`).
+- **Sauerbraten (cube2)**: done, cube2 0011 `vanormalshort` (section "Sauerbraten's world
+  normals as shorts" above). Left: grass (`grassvert.bounds`, GL_BYTE in a GART stream buffer: a
+  per-draw conversion but no copy) and the edit-mode prefab preview.
 - **OpenArena opengl2**: r_keepImages for renderergl2 (0025 is opengl1's): every pass and map
   change reloads, decodes and mipmaps every texture; and the shader script parsing (COM_ParseExt
   2.8% of a profile) at every load.

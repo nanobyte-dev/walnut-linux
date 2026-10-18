@@ -1,0 +1,259 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 17:31:15 +0300
+Subject: World normals and tangents as 16-bit signed normalized
+ (vanormalshort)
+
+The world vertex (world.h: vertex, 32 bytes) sends its normal and tangent as signed bytes
+(GL_BYTE, normalized). nv30 has no signed 8-bit vertex fetch, so Mesa's u_vbuf converts them on
+the CPU at every draw of the world, and to read them nouveau keeps a system memory copy of every
+world vertex buffer (VRAM is too slow to read back), one copy the size of each buffer.
+
+With vanormalshort 1 (0, the default: as before) the world vertex buffers are built from svertex
+(40 bytes): the same position, texture and lightmap coordinates, normal and tangent as
+GL_SHORT normalized (s = b*32767/127 rounded, -128 counted as -127 as GL does), which every GL 2
+GPU fetches (nv30: V16_SNORM). The world's vertex pointers (lightmap pass, the depth, occlusion,
+sky and outline passes that only read the position) take the stride and types from the cvar, and
+readva (writeobj) converts back. The glass and waterfall surfaces, drawn through gle with signed
+byte normals of +-1, send them as shorts too (exact). Changing the cvar rebuilds the world
+(allchanged), so the buffers and the pointers always agree.
+
+On cave the world vertex buffers grow from 4.40 to 5.50 MB (137,532 vertices). On llvmpipe at GL
+2.1, 10 frames of the benchmark demo at 960x540: the same pixels with vanormalshort 0 as before
+the change; with 1, about 170 pixels a frame differ by at most 2 of 255 (s/32767 is not exactly
+b/127), so it stays off by default. writeobj gives the same file in both.
+
+diff --git a/engine/engine.h b/engine/engine.h
+--- a/engine/engine.h
++++ b/engine/engine.h
+@@ -269,6 +269,8 @@ extern void allchanged(bool load = false);
+ extern void clearvas(cube *c);
+ extern void destroyva(vtxarray *va, bool reparent = true);
+ extern bool readva(vtxarray *va, ushort *&edata, vertex *&vdata);
++extern int vanormalshort;
++static inline int vavertsize() { return vanormalshort ? sizeof(svertex) : sizeof(vertex); }
+ extern void updatevabb(vtxarray *va, bool force = false);
+ extern void updatevabbs(bool force = false);
+ 
+diff --git a/engine/material.cpp b/engine/material.cpp
+--- a/engine/material.cpp
++++ b/engine/material.cpp
+@@ -84,12 +84,26 @@ static const bvec4 matnormals[6] =
+     bvec4(0, 0, 0x7F)
+ };
+ 
++// the same as 16-bit signed normalized (vanormalshort: nv30 fetches those, not signed bytes)
++static const short matnormalss[6][4] =
++{
++    { -32767, 0, 0, 0 },
++    { 32767, 0, 0, 0 },
++    { 0, -32767, 0, 0 },
++    { 0, 32767, 0, 0 },
++    { 0, 0, -32767, 0 },
++    { 0, 0, 32767, 0 }
++};
++
++static inline void defmatnormal() { if(vanormalshort) gle::defnormal(4, GL_SHORT); else gle::defnormal(4, GL_BYTE); }
++static inline void matnormal(int orient) { if(vanormalshort) gle::attribv<4>(matnormalss[orient]); else gle::attrib(matnormals[orient]); }
++
+ static void renderwaterfall(const materialsurface &m, float offset)
+ {
+     if(gle::attribbuf.empty())
+     {
+         gle::defvertex();
+-        gle::defnormal(4, GL_BYTE);
++        defmatnormal();
+         gle::begin(GL_QUADS);
+     }
+     float x = m.o.x, y = m.o.y, zmin = m.o.z, zmax = zmin;
+@@ -103,7 +117,7 @@ static void renderwaterfall(const materialsurface &m, float offset)
+     #define GENFACEVERT(orient, vert, mx,my,mz, sx,sy,sz) \
+         { \
+             gle::attribf(mx sx, my sy, mz sz); \
+-            gle::attrib(matnormals[orient]); \
++            matnormal(orient); \
+         }
+         GENFACEVERTSXY(x, x, y, y, zmin, zmax, /**/, + csize, /**/, + rsize, + offset, - offset)
+     #undef GENFACEORIENT
+@@ -589,7 +603,7 @@ static void drawglass(const materialsurface &m, float offset)
+     if(gle::attribbuf.empty())
+     {
+         gle::defvertex();
+-        gle::defnormal(4, GL_BYTE);
++        defmatnormal();
+         gle::begin(GL_QUADS);
+     }
+     float x = m.o.x, y = m.o.y, z = m.o.z, csize = m.csize, rsize = m.rsize;
+@@ -600,7 +614,7 @@ static void drawglass(const materialsurface &m, float offset)
+     #define GENFACEVERT(orient, vert, mx,my,mz, sx,sy,sz) \
+         { \
+             gle::attribf(mx sx, my sy, mz sz); \
+-            gle::attrib(matnormals[orient]); \
++            matnormal(orient); \
+         }
+         GENFACEVERTS(x, x, y, y, z, z, /**/, + csize, /**/, + rsize, + offset, - offset)
+     #undef GENFACEORIENT
+diff --git a/engine/octarender.cpp b/engine/octarender.cpp
+--- a/engine/octarender.cpp
++++ b/engine/octarender.cpp
+@@ -11,6 +11,24 @@ hashtable<GLuint, vboinfo> vbos;
+ 
+ VAR(printvbo, 0, 0, 1);
+ VARFN(vbosize, maxvbosize, 0, 1<<14, 1<<16, allchanged());
++// world normals and tangents uploaded as 16-bit signed normalized (svertex, 40 bytes a vertex) instead
++// of signed bytes (vertex, 32): nv30 can't fetch signed bytes, so Mesa converts them on the CPU at every
++// draw and keeps a system memory copy of every world vertex buffer to read them from. Off by default:
++// s/32767 is not exactly b/127, so a few pixels differ by 1-2 levels. The VBOs are rebuilt on a change
++VARFP(vanormalshort, 0, 0, 1, allchanged());
++
++static inline short snorm8to16(uchar u)	// u: the byte as stored in vertex (0x80 is 0)
++{
++    int b = int(u) - 128;
++    if(b < -127) b = -127;	// -128 and -127 are both -1.0
++    return short((b*32767 + (b < 0 ? -63 : 63))/127);
++}
++
++static inline uchar snorm16to8(short s)
++{
++    int b = (int(s)*127 + (s < 0 ? -16383 : 16383))/32767;
++    return uchar(b + 128);
++}
+ 
+ enum
+ {
+@@ -84,7 +102,25 @@ bool readva(vtxarray *va, ushort *&edata, vertex *&vdata)
+     gle::clearebo();
+ 
+     gle::bindvbo(va->vbuf);
+-    glGetBufferSubData_(GL_ARRAY_BUFFER, va->voffset*sizeof(vertex), va->verts*sizeof(vertex), vdata);
++    if(vanormalshort)
++    {
++        svertex *sdata = new svertex[va->verts];
++        glGetBufferSubData_(GL_ARRAY_BUFFER, va->voffset*sizeof(svertex), va->verts*sizeof(svertex), sdata);
++        loopi(va->verts)
++        {
++            const svertex &s = sdata[i];
++            vertex &v = vdata[i];
++            v.pos = s.pos;
++            v.tc = s.tc;
++            v.lm = s.lm;
++            v.norm = bvec4(snorm16to8(s.norm[0]), snorm16to8(s.norm[1]), snorm16to8(s.norm[2]), 0);
++            v.tangent = bvec4(snorm16to8(s.tangent[0]), snorm16to8(s.tangent[1]), snorm16to8(s.tangent[2]), snorm16to8(s.tangent[3]));
++            v.norm.flip();	// signed bytes, as genverts uploads them without vanormalshort
++            v.tangent.flip();
++        }
++        delete[] sdata;
++    }
++    else glGetBufferSubData_(GL_ARRAY_BUFFER, va->voffset*sizeof(vertex), va->verts*sizeof(vertex), vdata);
+     gle::clearvbo();
+     return true;
+ }
+@@ -391,7 +427,16 @@ struct vacollect : verthash
+ 
+     void genverts(void *buf)
+     {
+-        GENVERTS(vertex, buf, { *f = v; f->norm.flip(); f->tangent.flip(); });
++        if(vanormalshort) GENVERTS(svertex, buf,
++        {
++            f->pos = v.pos;
++            loopk(3) f->norm[k] = snorm8to16(v.norm.v[k]);
++            f->norm[3] = 0;
++            f->tc = v.tc;
++            f->lm = v.lm;
++            loopk(4) f->tangent[k] = snorm8to16(v.tangent.v[k]);
++        });
++        else GENVERTS(vertex, buf, { *f = v; f->norm.flip(); f->tangent.flip(); });
+     }
+ 
+     void setupdata(vtxarray *va)
+@@ -411,7 +456,7 @@ struct vacollect : verthash
+                 flushvbo();
+ 
+             va->voffset = vbosize[VBO_VBUF];
+-            uchar *vdata = addvbo(va, VBO_VBUF, va->verts, sizeof(vertex));
++            uchar *vdata = addvbo(va, VBO_VBUF, va->verts, vavertsize());
+             genverts(vdata);
+             va->minvert += va->voffset;
+             va->maxvert += va->voffset;
+diff --git a/engine/renderva.cpp b/engine/renderva.cpp
+--- a/engine/renderva.cpp
++++ b/engine/renderva.cpp
+@@ -641,7 +641,7 @@ void renderoutline()
+             gle::bindvbo(va->vbuf);
+             gle::bindebo(va->ebuf);
+             const vertex *ptr = 0;
+-            gle::vertexpointer(sizeof(vertex), ptr->pos.v);
++            gle::vertexpointer(vavertsize(), ptr->pos.v);
+         }
+ 
+         if(va->texs && va->occluded < OCCLUDE_GEOM)
+@@ -699,7 +699,7 @@ void renderblendbrush(GLuint tex, float x, float y, float w, float h)
+             gle::bindvbo(va->vbuf);
+             gle::bindebo(va->ebuf);
+             const vertex *ptr = 0;
+-            gle::vertexpointer(sizeof(vertex), ptr->pos.v);
++            gle::vertexpointer(vavertsize(), ptr->pos.v);
+         }
+ 
+         drawvatris(va, 3*va->tris, va->edata);
+@@ -744,7 +744,7 @@ void rendershadowmapreceivers()
+             gle::bindvbo(va->vbuf);
+             gle::bindebo(va->ebuf);
+             const vertex *ptr = 0;
+-            gle::vertexpointer(sizeof(vertex), ptr->pos.v);
++            gle::vertexpointer(vavertsize(), ptr->pos.v);
+         }
+ 
+         drawvatris(va, 3*va->tris, va->edata);
+@@ -809,7 +809,7 @@ void renderdepthobstacles(const vec &bbmin, const vec &bbmax, float scale, float
+             gle::bindvbo(va->vbuf);
+             gle::bindebo(va->ebuf);
+             const vertex *ptr = 0;
+-            gle::vertexpointer(sizeof(vertex), ptr->pos.v);
++            gle::vertexpointer(vavertsize(), ptr->pos.v);
+         }
+ 
+         drawvatris(va, 3*va->tris, va->edata);
+@@ -1082,6 +1082,21 @@ static void changevbuf(renderstate &cur, int pass, vtxarray *va)
+     gle::bindebo(va->ebuf);
+     cur.vbuf = va->vbuf;
+ 
++    if(vanormalshort)
++    {
++        svertex *vdata = (svertex *)0;
++        gle::vertexpointer(sizeof(svertex), vdata->pos.v);
++
++        if(pass==RENDERPASS_LIGHTMAP)
++        {
++            gle::normalpointer(sizeof(svertex), vdata->norm, GL_SHORT);
++            gle::texcoord0pointer(sizeof(svertex), vdata->tc.v);
++            gle::texcoord1pointer(sizeof(svertex), vdata->lm.v, GL_SHORT);
++            gle::tangentpointer(sizeof(svertex), vdata->tangent, GL_SHORT);
++        }
++        return;
++    }
++
+     vertex *vdata = (vertex *)0;
+     gle::vertexpointer(sizeof(vertex), vdata->pos.v);
+ 
+@@ -1888,7 +1903,7 @@ void renderskyva(vtxarray *va, bool explicitonly = false)
+         gle::bindvbo(va->vbuf);
+         gle::bindebo(va->skybuf);
+         const vertex *ptr = 0;
+-        gle::vertexpointer(sizeof(vertex), ptr->pos.v);
++        gle::vertexpointer(vavertsize(), ptr->pos.v);
+         if(!prevskyva) gle::enablevertex();
+     }
+ 
+diff --git a/engine/world.h b/engine/world.h
+--- a/engine/world.h
++++ b/engine/world.h
+@@ -56,4 +56,8 @@ enum
+ #define TEX_SCALE 8.0f
+ 
+ struct vertex { vec pos; bvec4 norm; vec2 tc; svec2 lm; bvec4 tangent; };
++// the world vertex as uploaded with vanormalshort 1: normal and tangent as 16-bit signed normalized
++// (norm[3] is padding), which every GL 2 GPU fetches; signed bytes are converted on the CPU by some
++// (nv30), 40 bytes against 32
++struct svertex { vec pos; short norm[4]; vec2 tc; svec2 lm; short tangent[4]; };
+ 
