@@ -284,6 +284,31 @@ first boot.
 Root 18 GiB plus 4 GiB swap leaves room for the suite. If the games outgrow it, the USB disk can
 stay mounted for bulky game data while root and swap live on the SSD.
 
+### Alternative: a Linux disk image inside dev_hdd0 (proposed 2026-10-18, not tried)
+
+No reformat, no region table change. GameOS writes an ordinary file of 50-100 GB on dev_hdd0 (several
+4 GiB files if a tool limits the size); Linux mounts dev_hdd0 read-only, reads the file's block list
+(FIBMAP: our 6.12 UFS driver has `ufs_bmap`, fs/ufs/inode.c), and device-mapper (dm-linear) turns
+exactly those blocks of `/dev/ps3db` into a disk for ext4. Linux writes only inside the file's data
+blocks, never UFS metadata; GameOS sees an unchanged file. The two OSes never run at the same time.
+- **Checks:** the uploaded file carries its own offset and a magic in every 4 KiB block; before the
+  first write Linux reads every block through the mapping and checks each one. A header block (magic,
+  UUID, a hash of the block list) is checked at every boot: if the list changed (file deleted,
+  rewritten, cleared by a GameOS fsck), the disk isn't activated. The file is a whole number of UFS
+  blocks (no tail fragment) and has no holes.
+- **Kernel guard:** `ps3da` and `ps3dc` read-only; writes to `ps3db` allowed only inside the
+  registered extents (a small ps3disk check), so a mistyped mkfs can't reach GameOS's data.
+- **Boot:** Petitboot can't see a device-mapper disk, so the kernel and kboot.conf stay readable to
+  it. Petitboot's 2.6.30 kernel has vfat, ext3, iso9660 and ufs built in (strings of
+  firmware/petitboot/dtbImage.ps3.bin). Options: (1) `/boot` on the USB disk as today, read only at
+  boot, plus a small initramfs that builds the mapping (too many extents for `dm-mod.create=`);
+  (2) `/boot` on dev_hdd1 (vfat, GameOS's cache partition, which GameOS may clear: keep (1) as the
+  fallback); (3) the kernel as a file on dev_hdd0, only if Petitboot mounts UFS2 (`ufstype=ufs2`)
+  and finds kboot.conf there, to check read-only from its shell; kernel updates would then go
+  through GameOS. (1) first.
+- **Risk:** deleting the file in GameOS hands its blocks back to GameOS; the boot check stops Linux
+  from writing there, but the file must be treated as "do not touch". Rollback: delete the file.
+
 ### Getting more than 22 GiB (no-go for now)
 
 - **Custom `emer_init`:** **[inference]** For 64 GiB the instruction would be `addis r7,r9,-0x800`
