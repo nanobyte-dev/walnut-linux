@@ -26,7 +26,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy ps3-reboot bench-push bench-pull \
+.PHONY: repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull \
 	classicube classicube-audio classicube-deploy classicube-bench quake-data
 
 help:
@@ -50,6 +50,9 @@ help:
 	@echo "  make deploy       install our packages on the running PS3 (PKGS=\"ps3-desktop ...\"; KERNELS=1"
 	@echo "                    upgrades kernels too; DRY_RUN=1 simulates)"
 	@echo "  make gpu-deploy | classicube-deploy | spu-deploy"
+	@echo "Tests (no PS3):"
+	@echo "  make test         every quick host test suite, a summary table (tools/run-tests.sh)"
+	@echo "  make test-slow    the same plus the container-based ones (autogm); ONLY=<suite> runs one"
 	@echo "Run:"
 	@echo "  make netboot-deb  boot a kernel from $(BUILD)/debs/linux from Petitboot (FLAVOUR=release|debug,"
 	@echo "                    ROOT=nfs|usb)"
@@ -221,6 +224,10 @@ $(SPU_TESTS_STAMP): $(SPU_GCC) $(wildcard ps3-spu/Makefile ps3-spu/*/*.[ch] ps3-
 	$(DOCKER_RUN) --user $(UID_GID) $(SPU_BUILDER_TAG) make -C ps3-spu ppe spu \
 		CC=powerpc64-linux-gnu-gcc CFLAGS="-O2 -mcpu=cell" SPU_CC=/work/$(SPU_GCC) OUT=/work/$(BUILD)/spu-tests
 	@touch $@
+test:
+	tools/run-tests.sh $(if $(ONLY),--only $(ONLY))
+test-slow:
+	tools/run-tests.sh --slow $(if $(ONLY),--only $(ONLY))
 spu-deploy:
 	$(MAKE) deploy PKGS="ps3-spu ps3-spu-programs"
 

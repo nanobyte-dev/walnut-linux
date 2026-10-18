@@ -122,6 +122,18 @@ a softpipe run (`LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=softpipe`).
     rsx-x.sh 30 glxgears -info  # Xorg (modesetting + glamor) on the RSX, one client
     tools/webcam-grab.sh   # on the PC: photo of the PS3's screen -> build/tmp/screen.jpg
 
+Host tests (no PS3 needed):
+
+    make test                    # quick suites, then a table of suite, pass/FAIL/skip, seconds
+    make test-slow               # plus autogm-check.sh (needs Xvfb+openbox, or docker/podman)
+    make test ONLY=ps3-spu       # one suite: bench-selftest, gprefetch, ps3rsx-shadow, ps3-spu, xmoto-glbatch, autogm
+
+`tools/run-tests.sh` runs them: `games/bench/selftest.py`, `ps3-desktop/tests/gprefetch-check.py`,
+`ps3rsx/test` (x86 fuzz with short seeds; the big-endian run under qemu when the cross gcc, qemu and
+the Mesa sysroot exist), `make -C ps3-spu test`, `xmoto/test/glbatch-test.sh` (needs `make xmoto-work`).
+A suite missing its prerequisites is reported as skip. Logs are in `build/tmp/tests/<suite>.log`;
+the exit status is non-zero when a suite failed.
+
 ## Reproducibility
 
 Debian's kernel and Mesa sources are checked against `DSC_SHA256` in their `package.conf`; Debian packages come from snapshot.debian.org
