@@ -49,3 +49,7 @@ variant_accel() { ENV=(); HUD=1; }
 # the accelerated framebuffer with OpenTTD's cheapest blitter (8-bit palette; the default is
 # 32bpp-anim, which redraws palette animation per pixel in software)
 variant_accel8() { ENV=(); CMD+=(-b 8bpp-optimized); HUD=1; }
+
+# vsync off, as in every other recipe (2026-10-18): Mesa ignores the swap interval the game asks for,
+# so the numbers are uncapped and comparable (ETR's 59 fps looked like a 60 Hz cap)
+ENV+=(vblank_mode=0)

@@ -74,3 +74,7 @@ variant_relocs() { ENV+=(NV30_PS3_RELOCS=1); }
 variant_kick150() { ENV+=(NV30_PS3_KICK_DRAWS=150); }
 variant_kick100() { ENV+=(NV30_PS3_KICK_DRAWS=100); }
 variant_kick50() { ENV+=(NV30_PS3_KICK_DRAWS=50); }
+
+# vsync off, as in every other recipe (2026-10-18): Mesa ignores the swap interval the game asks for,
+# so the numbers are uncapped and comparable (ETR's 59 fps looked like a 60 Hz cap)
+ENV+=(vblank_mode=0)

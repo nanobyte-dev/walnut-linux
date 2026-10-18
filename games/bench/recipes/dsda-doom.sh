@@ -76,3 +76,7 @@ variant_glnoflats() { variant_gl; ENV+=(DSDA_GL_FLATS=0 DSDA_GL_STATS=1); }
 variant_glnohud() { variant_gl; ENV+=(DSDA_GL_HUD=0 DSDA_GL_STATS=1); }
 variant_glnovlight() { variant_gl; ENV+=(DSDA_GL_VLIGHT=0 DSDA_GL_STATS=1); }
 variant_gloff() { variant_gl; ENV+=(DSDA_GL_BATCH=0 DSDA_GL_FLATS=0 DSDA_GL_HUD=0 DSDA_GL_VLIGHT=0); }
+
+# vsync off, as in every other recipe (2026-10-18): Mesa ignores the swap interval the game asks for,
+# so the numbers are uncapped and comparable (ETR's 59 fps looked like a 60 Hz cap)
+ENV+=(vblank_mode=0)

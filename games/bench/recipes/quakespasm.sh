@@ -40,3 +40,7 @@ DURATION=300	# a safety cap: the passes end the run (~15 passes of ~15 s after a
 LOAD_MARK='^Playing demo from'	# engine and GL started (the demo's map loads after it)
 variant_noglsl() { QS_X=(-noglsl); qs_cmd; }
 variant_glslgamma() { QS_X=(+gamma 0.9); qs_cmd; }
+
+# vsync off, as in every other recipe (2026-10-18): Mesa ignores the swap interval the game asks for,
+# so the numbers are uncapped and comparable (ETR's 59 fps looked like a 60 Hz cap)
+ENV+=(vblank_mode=0)

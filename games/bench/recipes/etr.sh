@@ -85,3 +85,7 @@ variant_noparticles() { ENV+=(ETR_GL_PARTICLES=0); }
 variant_nosnow() { ENV+=(ETR_GL_SNOW=0); }
 variant_nohud() { ENV+=(ETR_GL_HUD=0); }
 variant_nobind() { ENV+=(ETR_GL_BIND=0); }
+
+# vsync off, as in every other recipe (2026-10-18): Mesa ignores the swap interval the game asks for,
+# so the numbers are uncapped and comparable (ETR's 59 fps looked like a 60 Hz cap)
+ENV+=(vblank_mode=0)
