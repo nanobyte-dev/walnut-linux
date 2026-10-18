@@ -1,0 +1,160 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 05:05:56 +0300
+Subject: translate: 8-bit vertex attributes to floats through a table on the
+ PS3 (NV30_TRANSLATE_LUT)
+
+nv30 has no signed 8-bit vertex type, so u_vbuf converts SNORM8 normals to 32-bit floats on
+every draw, and translate_generic does it with the format's unpack function and an emit function
+per vertex and attribute. Each byte goes through an integer to float conversion, which on the
+Cell PPE passes through memory (a load-hit-store stall per component): a PS3 profile had
+Sauerbraten at 45% of its CPU in that loop and QuakeSpasm at 6%.
+
+With NV30_TRANSLATE_LUT=1, plain 8-bit array formats with identity swizzle (UNORM, SNORM,
+USCALED, SSCALED, 1 to 4 channels) going to R32..._FLOAT with as many channels are converted
+through a table per channel that holds the bits the format's own unpack function returns for
+each byte value, so the output is bit-identical (checked on the host for all 16 formats, run,
+run_elts, run_elts16 and run_elts8, mixed with copied attributes). Off by default until measured
+on the PS3.
+
+diff --git a/src/gallium/auxiliary/translate/translate_generic.c b/src/gallium/auxiliary/translate/translate_generic.c
+--- a/src/gallium/auxiliary/translate/translate_generic.c
++++ b/src/gallium/auxiliary/translate/translate_generic.c
+@@ -30,6 +30,7 @@
+   *   Keith Whitwell <keithw@vmware.com>
+   */
+ 
++#include "util/u_debug.h"
+ #include "util/u_memory.h"
+ #include "util/format/u_format.h"
+ #include "util/half_float.h"
+@@ -73,6 +74,12 @@ struct translate_generic {
+        */
+       int copy_size;
+ 
++      /* NV30_TRANSLATE_LUT=1: 8-bit channels to 32-bit floats through a table per channel
++       * (lut[c * 256 + byte] holds the float's bits), lut_nr channels; NULL otherwise.
++       */
++      uint32_t *lut;
++      unsigned lut_nr;
++
+    } attrib[TRANSLATE_MAX_ATTRIBS];
+ 
+    unsigned nr_attrib;
+@@ -623,6 +630,17 @@ generic_run_one(struct translate_generic *tg,
+          src = tg->attrib[attr].input_ptr +
+                (ptrdiff_t)tg->attrib[attr].input_stride * index;
+ 
++         if (tg->attrib[attr].lut) {
++            const uint32_t *lut = tg->attrib[attr].lut;
++            unsigned c;
++
++            for (c = 0; c < tg->attrib[attr].lut_nr; c++) {
++               uint32_t v = lut[c * 256 + src[c]];
++               memcpy(dst + 4 * c, &v, 4);
++            }
++            continue;
++         }
++
+          copy_size = tg->attrib[attr].copy_size;
+          if (likely(copy_size >= 0)) {
+             memcpy(dst, src, copy_size);
+@@ -752,11 +770,76 @@ generic_set_buffer(struct translate *translate,
+ static void
+ generic_release(struct translate *translate)
+ {
++   struct translate_generic *tg = translate_generic(translate);
++   unsigned i;
++
++   for (i = 0; i < tg->nr_attrib; i++)
++      FREE(tg->attrib[i].lut);
++
+    /* Refcount?
+     */
+    FREE(translate);
+ }
+ 
++
++/*
++ * PS3 (NV30_TRANSLATE_LUT=1, off by default): 8-bit vertex attributes the driver can't fetch
++ * (nv30 has no signed 8-bit type, so u_vbuf turns SNORM8 normals into 32-bit floats on every
++ * draw) are converted through a table instead of the format's unpack function and an emit
++ * function per vertex. Each byte goes through an integer to float conversion there, which on
++ * the Cell PPE passes through memory (a load-hit-store stall per component): Sauerbraten spent
++ * 45% of its CPU in that loop, QuakeSpasm 6% (docs/HOTPATHS.md).
++ *
++ * The table holds, for every byte value, the bits the format's own unpack function returns for
++ * each channel, so the output is bit-identical to the generic path. Only plain 8-bit array
++ * formats with identity swizzle (UNORM, SNORM, USCALED, SSCALED, 1 to 4 channels) going to
++ * R32..._FLOAT with the same number of channels take it.
++ */
++DEBUG_GET_ONCE_BOOL_OPTION(translate_lut, "NV30_TRANSLATE_LUT", false)
++
++static uint32_t *
++generic_lut_create(enum pipe_format input, enum pipe_format output, unsigned *nr)
++{
++   static const enum pipe_format float_out[4] = {
++      PIPE_FORMAT_R32_FLOAT, PIPE_FORMAT_R32G32_FLOAT,
++      PIPE_FORMAT_R32G32B32_FLOAT, PIPE_FORMAT_R32G32B32A32_FLOAT,
++   };
++   const struct util_format_description *desc = util_format_description(input);
++   const struct util_format_unpack_description *unpack =
++      util_format_unpack_description(input);
++   unsigned n, c, v;
++   uint32_t *lut;
++
++   if (!debug_get_option_translate_lut() || !desc || !unpack || !unpack->unpack_rgba)
++      return NULL;
++   n = desc->nr_channels;
++   if (desc->layout != UTIL_FORMAT_LAYOUT_PLAIN || !desc->is_array ||
++       desc->colorspace != UTIL_FORMAT_COLORSPACE_RGB ||
++       n < 1 || n > 4 || desc->block.bits != 8 * n || output != float_out[n - 1])
++      return NULL;
++   for (c = 0; c < n; c++) {
++      if (desc->channel[c].size != 8 || desc->channel[c].pure_integer ||
++          (desc->channel[c].type != UTIL_FORMAT_TYPE_UNSIGNED &&
++           desc->channel[c].type != UTIL_FORMAT_TYPE_SIGNED) ||
++          desc->swizzle[c] != PIPE_SWIZZLE_X + c)
++         return NULL;
++   }
++
++   lut = MALLOC(n * 256 * sizeof(*lut));
++   if (!lut)
++      return NULL;
++   for (v = 0; v < 256; v++) {
++      const uint8_t px[4] = { v, v, v, v };
++      float f[4];
++
++      unpack->unpack_rgba(f, px, 1);
++      for (c = 0; c < n; c++)
++         memcpy(&lut[c * 256 + v], &f[c], 4);
++   }
++   *nr = n;
++   return lut;
++}
++
+ static bool
+ is_legal_int_format_combo(const struct util_format_description *src,
+                           const struct util_format_description *dst)
+@@ -810,7 +893,8 @@ translate_generic_create(const struct translate_key *key)
+                util_format_description(key->element[i].output_format);
+ 
+          if (!is_legal_int_format_combo(format_desc, out_format_desc)) {
+-            FREE(tg);
++            tg->nr_attrib = i;
++            generic_release(&tg->translate);
+             return NULL;
+          }
+       }
+@@ -839,6 +923,11 @@ translate_generic_create(const struct translate_key *key)
+          tg->attrib[i].emit = get_emit_func(key->element[i].output_format);
+       else
+          tg->attrib[i].emit  = NULL;
++
++      if (tg->attrib[i].type == TRANSLATE_ELEMENT_NORMAL && tg->attrib[i].copy_size < 0)
++         tg->attrib[i].lut = generic_lut_create(key->element[i].input_format,
++                                                key->element[i].output_format,
++                                                &tg->attrib[i].lut_nr);
+    }
+ 
+    tg->nr_attrib = key->nr_elements;

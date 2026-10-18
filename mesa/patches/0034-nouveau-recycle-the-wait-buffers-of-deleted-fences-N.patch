@@ -1,0 +1,149 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 05:06:56 +0300
+Subject: nouveau: recycle the wait buffers of deleted fences
+ (NV30_FENCE_BO_POOL)
+
+Every fence gets a 4 KiB GART buffer, which the fence emit references in its batch so a wait
+can block on it in the kernel (nouveau_bo_wait). nv30 makes a new fence at every submission, so
+each one costs a buffer allocation and a free, two ioctls with a GART placement in ps3rsx: a PS3
+profile had 0.7% of the CPU of 9 games in nouveau_bo_new under nouveau_fence_new and about as
+much again in freeing them.
+
+With NV30_FENCE_BO_POOL=N (N up to 32; 0, the default: off) up to N buffers of deleted fences are
+kept and handed to the next fences. A fence is deleted only once signalled (the fence list holds
+a reference from its emit until then) or if it was never emitted, so no batch the GPU still runs
+references a recycled buffer; the buffer's contents are never used, only the kernel's fences on
+it. The pool is drained before the screen's device goes away.
+
+diff --git a/src/gallium/drivers/nouveau/nouveau_fence.c b/src/gallium/drivers/nouveau/nouveau_fence.c
+--- a/src/gallium/drivers/nouveau/nouveau_fence.c
++++ b/src/gallium/drivers/nouveau/nouveau_fence.c
+@@ -36,14 +36,25 @@ _nouveau_fence_wait(struct nouveau_fence *fence, struct util_debug_callback *deb
+ bool
+ nouveau_fence_new(struct nouveau_context *nv, struct nouveau_fence **fence)
+ {
++   struct nouveau_fence_list *fence_list = &nv->screen->fence;
+    struct nouveau_fence *new_fence = CALLOC_STRUCT(nouveau_fence);
+    if (!new_fence)
+       return false;
+ 
+-   int ret = nouveau_bo_new(nv->screen->device, NOUVEAU_BO_GART, 0x1000, 0x1000, NULL, &new_fence->bo);
+-   if (ret) {
+-      FREE(new_fence);
+-      return false;
++   if (fence_list->bo_pool_max) {
++      simple_mtx_lock(&fence_list->bo_pool_lock);
++      if (fence_list->bo_pool_count)
++         new_fence->bo = fence_list->bo_pool[--fence_list->bo_pool_count];
++      simple_mtx_unlock(&fence_list->bo_pool_lock);
++   }
++
++   if (!new_fence->bo) {
++      int ret = nouveau_bo_new(nv->screen->device, NOUVEAU_BO_GART, 0x1000, 0x1000, NULL,
++                               &new_fence->bo);
++      if (ret) {
++         FREE(new_fence);
++         return false;
++      }
+    }
+ 
+    new_fence->screen = nv->screen;
+@@ -126,10 +137,30 @@ nouveau_fence_del(struct nouveau_fence *fence)
+       nouveau_fence_trigger_work(fence);
+    }
+ 
++   /* Signalled or never emitted: no batch the GPU still runs references the buffer. */
++   if (fence->bo && fence_list->bo_pool_max) {
++      simple_mtx_lock(&fence_list->bo_pool_lock);
++      if (fence_list->bo_pool_count < fence_list->bo_pool_max) {
++         fence_list->bo_pool[fence_list->bo_pool_count++] = fence->bo;
++         fence->bo = NULL;
++      }
++      simple_mtx_unlock(&fence_list->bo_pool_lock);
++   }
++
+    nouveau_bo_ref(NULL, &fence->bo);
+    FREE(fence);
+ }
+ 
++void
++nouveau_fence_bo_pool_drain(struct nouveau_fence_list *fence_list)
++{
++   simple_mtx_lock(&fence_list->bo_pool_lock);
++   while (fence_list->bo_pool_count)
++      nouveau_bo_ref(NULL, &fence_list->bo_pool[--fence_list->bo_pool_count]);
++   fence_list->bo_pool_max = 0;
++   simple_mtx_unlock(&fence_list->bo_pool_lock);
++}
++
+ void
+ nouveau_fence_cleanup(struct nouveau_context *nv)
+ {
+diff --git a/src/gallium/drivers/nouveau/nouveau_fence.h b/src/gallium/drivers/nouveau/nouveau_fence.h
+--- a/src/gallium/drivers/nouveau/nouveau_fence.h
++++ b/src/gallium/drivers/nouveau/nouveau_fence.h
+@@ -40,17 +40,28 @@ struct nouveau_fence_list {
+    simple_mtx_t lock;
+    void (*emit)(struct pipe_context *, uint32_t *sequence, struct nouveau_bo *wait);
+    uint32_t (*update)(struct pipe_screen *);
++
++   /* The wait objects (4 KiB GART buffers) of deleted fences, kept for the next fences instead of
++    * a buffer allocation and free per fence (NV30_FENCE_BO_POOL=N keeps up to N; 0: off). A fence
++    * is deleted only once signalled or if it was never emitted, so a buffer here is idle.
++    */
++   simple_mtx_t bo_pool_lock;
++   struct nouveau_bo *bo_pool[32];
++   unsigned bo_pool_count;
++   unsigned bo_pool_max;
+ };
+ 
+ static inline void
+ nouveau_fence_list_init(struct nouveau_fence_list *fence_list)
+ {
+    simple_mtx_init(&fence_list->lock, mtx_plain);
++   simple_mtx_init(&fence_list->bo_pool_lock, mtx_plain);
+ }
+ 
+ static inline void
+ nouveau_fence_list_destroy(struct nouveau_fence_list *fence_list)
+ {
++   simple_mtx_destroy(&fence_list->bo_pool_lock);
+    simple_mtx_destroy(&fence_list->lock);
+ }
+ 
+@@ -64,6 +75,7 @@ void _nouveau_fence_ref(struct nouveau_fence *, struct nouveau_fence **);
+ /** returns false on error */
+ MUST_CHECK bool nouveau_fence_new(struct nouveau_context *, struct nouveau_fence **);
+ void nouveau_fence_cleanup(struct nouveau_context *);
++void nouveau_fence_bo_pool_drain(struct nouveau_fence_list *);
+ bool nouveau_fence_work(struct nouveau_fence *, void (*)(void *), void *);
+ void nouveau_fence_update(struct nouveau_screen *, bool flushed);
+ /** returns false on error */
+diff --git a/src/gallium/drivers/nouveau/nouveau_screen.c b/src/gallium/drivers/nouveau/nouveau_screen.c
+--- a/src/gallium/drivers/nouveau/nouveau_screen.c
++++ b/src/gallium/drivers/nouveau/nouveau_screen.c
+@@ -495,6 +495,7 @@ nouveau_screen_fini(struct nouveau_screen *screen)
+    if (screen->has_svm)
+       os_munmap(screen->svm_cutout, screen->svm_cutout_size);
+ 
++   nouveau_fence_bo_pool_drain(&screen->fence);
+    nouveau_mm_destroy(screen->mm_GART);
+    nouveau_mm_destroy(screen->mm_VRAM);
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -532,6 +532,12 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->index_upload = debug_get_num_option("NV30_INDEX_UPLOAD", ps3 ? 32 : 0);
+    screen->ctx_state_keep = debug_get_bool_option("NV30_CTX_STATE_KEEP", false);
+    screen->idxbuf_late_ref = debug_get_bool_option("NV30_IDXBUF_LATE_REF", false);
++   /* NV30_FENCE_BO_POOL=N: keep up to N wait buffers of deleted fences for the next fences
++    * instead of a 4 KiB GART buffer allocation and free per submission (nouveau_fence.h); 0: off.
++    */
++   screen->base.fence.bo_pool_max =
++      CLAMP(debug_get_num_option("NV30_FENCE_BO_POOL", 0), 0,
++            (int64_t)ARRAY_SIZE(screen->base.fence.bo_pool));
+    screen->ps3_kick_draws = ps3 ? debug_get_num_option("NV30_PS3_KICK_DRAWS", 0) : 0;
+    screen->ps3_kick_auto = ps3 && !screen->ps3_kick_draws &&
+                            debug_get_bool_option("NV30_PS3_KICK_AUTO", true);

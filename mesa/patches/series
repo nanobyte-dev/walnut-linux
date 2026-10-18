@@ -29,3 +29,5 @@
 0030-nv30-indices-the-CPU-holds-go-to-the-GPU-through-the.patch
 0031-nv30-fragment-program-constant-changes-run-from-a-st.patch
 0032-s3tc-dxt5-libspeq.patch
+0033-translate-8-bit-vertex-attributes-to-floats-through-.patch
+0034-nouveau-recycle-the-wait-buffers-of-deleted-fences-N.patch
