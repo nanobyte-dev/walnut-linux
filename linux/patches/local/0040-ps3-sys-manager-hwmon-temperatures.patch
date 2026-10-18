@@ -1,0 +1,760 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 10:00:00 +0300
+Subject: ps3: System Manager temperature sensors as hwmon
+
+SYSCON measures the Cell BE and RSX temperatures (and, on some boards,
+more thermal zones), and GameOS reads them through the System Manager
+with sys_game_get_temperature (lv2 syscall 383, service id 13). Linux
+had no way to see them.
+
+With CONFIG_PS3_SYS_MANAGER_HWMON the sys-manager driver registers a
+hwmon device "ps3_sm" with temp*_input, temp*_label and temp*_alarm
+for the zones in ps3_sys_manager.temp_zones (default 0,1: Cell BE,
+RSX). Reading temp*_input sends one temperature request on the
+driver's own vuart port and waits up to a second for the reply, which
+the existing message handler picks up; values are cached for a second
+and one request is outstanding at a time. The bytes are those
+the get_temperature command of ps3vuart-tools (glevand, sguerrini97)
+sends through /dev/ps3sysmngr under OtherOS++: a header with tag 0 and
+payload_size 4 (the tool's struct is padded to 20 bytes), payload
+{ version 1, tzone, 0, 0 }; the reply payload is { version, tzone,
+status, 0, integer degrees, 1/256 degrees, 0 }. The reply's service
+id and size are not documented: service 13 or 14 with 1-16 payload
+bytes is taken, and the first one seen is logged.
+
+Nothing but that get request is sent. A REQUEST_ERROR reply, or three
+failed requests in a row, turns the sensors off for the boot, so a
+System Manager that doesn't offer the service to the Linux LPAR isn't
+asked again; a reply with a non-zero status switches off that zone
+only. The driver's shutdown hook (device_shutdown, before power off,
+reboot and kexec) takes the request mutex and stops requests, so none
+is in flight when the final messages go out, and the final power-off
+and restart paths stop them too (the panic path skips device
+shutdown). While /dev/ps3sysmngr is open (it reads the port itself)
+the sensors return -EBUSY. A temperature reply returns non-zero from
+the message handler so ps3_sys_manager_fin() keeps waiting for the
+shutdown command. temp*_alarm follows the THERMAL_ALERT/CLEARED
+events the driver already receives, without any request. Unbinding
+the driver through sysfs is off (remove was never supported).
+
+Changes to the existing paths, so that a second sender and an
+unexpected reply can't break the message stream:
+- ps3_sys_manager_write() sends header and payload in one vuart write,
+  so a temperature request from another thread can't land between
+  them.
+- send_attr's payload is 16 bytes, as its payload_size always said;
+  the write sent 8 bytes of stack after the attribute, now zeros.
+- A header with an unexpected payload size no longer BUG()s: it is
+  logged and the queued bytes are dropped.
+- An unhandled message's payload, and everything queued after a bad
+  header, is read out of the rx list; ps3_vuart_clear_rx_bytes()
+  drains only the hypervisor's buffer and left the payload queued to
+  be parsed as the next header.
+
+ps3_sys_manager.hwmon=0 on the command line turns the sensors off.
+
+Forwarded: not yet (test on the PS3 first)
+
+diff --git a/arch/powerpc/platforms/ps3/Kconfig b/arch/powerpc/platforms/ps3/Kconfig
+--- a/arch/powerpc/platforms/ps3/Kconfig
++++ b/arch/powerpc/platforms/ps3/Kconfig
+@@ -87,6 +87,24 @@ config PS3_SYS_MANAGER
+ 	  This support is required for PS3 system control.  In
+ 	  general, all users will say Y or M.
+ 
++config PS3_SYS_MANAGER_HWMON
++	bool "PS3 System Manager temperature sensors (hwmon)"
++	depends on PS3_SYS_MANAGER
++	depends on HWMON=y || HWMON=PS3_SYS_MANAGER
++	help
++	  Read-only hwmon device "ps3_sm" with the temperatures SYSCON
++	  measures: the Cell BE and the RSX by default, other thermal zones
++	  with ps3_sys_manager.temp_zones=.  Reading a temp*_input sends the
++	  System Manager a temperature request (service 13, the one GameOS's
++	  sys_game_get_temperature uses) and waits for the reply; a value is
++	  cached for a second.  Nothing else is sent: no fan or SYSCON
++	  setting is touched.  If the System Manager refuses the request or
++	  doesn't answer, the sensors read as unavailable and no more
++	  requests are sent.  temp*_alarm follows the System Manager's
++	  thermal alert events.
++
++	  ps3_sys_manager.hwmon=0 on the command line turns it off.
++
+ config PS3_VERBOSE_RESULT
+ 	bool "PS3 Verbose LV1 hypercall results" if PS3_ADVANCED
+ 	depends on PPC_PS3
+diff --git a/drivers/ps3/ps3-sys-manager.c b/drivers/ps3/ps3-sys-manager.c
+--- a/drivers/ps3/ps3-sys-manager.c
++++ b/drivers/ps3/ps3-sys-manager.c
+@@ -15,7 +15,11 @@
+ #include <linux/uaccess.h>
+ #include <linux/fs.h>
+ #include <linux/miscdevice.h>
+- 
++#include <linux/hwmon.h>
++#include <linux/completion.h>
++#include <linux/jiffies.h>
++#include <linux/moduleparam.h>
++
+ #include <asm/atomic.h>
+ #include <asm/firmware.h>
+ #include <asm/lv1call.h>
+@@ -113,6 +117,8 @@ enum ps3_sys_manager_service_id {
+ 	PS3_SM_SERVICE_ID_SET_NEXT_OP = 5,
+ 	PS3_SM_SERVICE_ID_REQUEST_ERROR = 6,
+ 	PS3_SM_SERVICE_ID_SET_ATTR = 8,
++	PS3_SM_SERVICE_ID_TEMPERATURE = 13,
++	PS3_SM_SERVICE_ID_TEMPERATURE_REPLY = 14,
+ };
+ 
+ /**
+@@ -241,6 +247,7 @@ static unsigned int ps3_sm_force_power_off;
+ static int ps3_sys_manager_write(struct ps3_system_bus_device *dev,
+ 	const struct ps3_sys_manager_header *header, const void *payload)
+ {
++	u8 buf[sizeof(struct ps3_sys_manager_header) + 16];
+ 	int result;
+ 
+ 	BUG_ON(header->version != 1);
+@@ -248,11 +255,13 @@ static int ps3_sys_manager_write(struct ps3_system_bus_device *dev,
+ 	BUG_ON(header->payload_size != 8 && header->payload_size != 16);
+ 	BUG_ON(header->service_id > 8);
+ 
+-	result = ps3_vuart_write(dev, header,
+-		sizeof(struct ps3_sys_manager_header));
+-
+-	if (!result)
+-		result = ps3_vuart_write(dev, payload, header->payload_size);
++	/*
++	 * One write, so no other message (a temperature request from another
++	 * thread) can land between the header and its payload.
++	 */
++	memcpy(buf, header, sizeof(*header));
++	memcpy(buf + sizeof(*header), payload, header->payload_size);
++	result = ps3_vuart_write(dev, buf, sizeof(*header) + header->payload_size);
+ 
+ 	return result;
+ }
+@@ -270,9 +279,14 @@ static int ps3_sys_manager_send_attr(struct ps3_system_bus_device *dev,
+ 		u8 version;
+ 		u8 reserved_1[3];
+ 		u32 attribute;
++		/*
++		 * payload_size has always been 16: the write sent 8 bytes of
++		 * stack after the attribute, now zeros.
++		 */
++		u8 reserved_2[8];
+ 	} payload;
+ 
+-	BUILD_BUG_ON(sizeof(payload) != 8);
++	BUILD_BUG_ON(sizeof(payload) != 16);
+ 
+ 	dev_dbg(&dev->core, "%s:%d: %xh\n", __func__, __LINE__, attr);
+ 
+@@ -406,6 +420,483 @@ static int ps3_sys_manager_send_response(struct ps3_system_bus_device *dev,
+ 	return ps3_sys_manager_write(dev, &header, &payload);
+ }
+ 
++/*
++ * ps3_sys_manager_discard_payload - Consume a message payload not handled.
++ *
++ * The payload was usually queued already in the vuart's rx list, which
++ * ps3_vuart_clear_rx_bytes() doesn't drain, so read it out to keep the
++ * next header in step.
++ */
++
++static void ps3_sys_manager_discard_payload(struct ps3_system_bus_device *dev,
++	unsigned int payload_size)
++{
++	u8 buf[16];
++
++	if (payload_size <= sizeof(buf) && !ps3_vuart_read(dev, buf, payload_size))
++		return;
++
++	ps3_vuart_clear_rx_bytes(dev, payload_size);
++}
++
++#if IS_ENABLED(CONFIG_PS3_SYS_MANAGER_HWMON)
++
++/*
++ * Temperature sensors.
++ *
++ * Request: the header (service_id 13, payload_size 4, request_tag 0) and
++ *   u8 version (1), u8 tzone, u8 reserved[2].
++ * Reply: a header with an 8-byte payload
++ *   u8 version (1), u8 tzone, u8 status (0 = ok), u8 reserved,
++ *   u8 integer, u8 fraction (1/256 degree), u16 reserved.
++ * These are the bytes the get_temperature command of ps3vuart-tools
++ * (glevand, sguerrini97) sends and reads through /dev/ps3sysmngr under
++ * OtherOS++ (its request struct is padded to 20 bytes, so the payload is
++ * 4); GameOS's sys_game_get_temperature (lv2 syscall 383) uses the same
++ * service.  Thermal zones: 0 Cell BE, 1 RSX; others exist on some boards
++ * only (SYSCON's "tzone" list).  The reply's service id is not
++ * documented: 13 and 14 are accepted, and the one seen is logged once.
++ *
++ * Only this get request is ever sent.  One request is outstanding at a
++ * time, a value is cached for PS3_SM_TEMP_CACHE_MS, and the sensors give up
++ * for the boot after PS3_SM_TEMP_MAX_FAILS failed requests in a row or a
++ * REQUEST_ERROR reply, so a System Manager that refuses the service isn't
++ * asked again.  A zone the reply says is not there (status != 0) is
++ * switched off alone.  No request is sent once the system shuts down.
++ */
++
++enum {
++	PS3_SM_TEMP_MAX_ZONES = 8,
++	PS3_SM_TEMP_CACHE_MS = 1000,
++	PS3_SM_TEMP_TIMEOUT_MS = 1000,
++	PS3_SM_TEMP_MAX_FAILS = 3,
++};
++
++static bool hwmon_enable = true;
++module_param_named(hwmon, hwmon_enable, bool, 0444);
++MODULE_PARM_DESC(hwmon, "Temperature sensors (hwmon ps3_sm); 0 = off");
++
++static ushort temp_zones[PS3_SM_TEMP_MAX_ZONES] = { 0, 1 };
++static int temp_zones_count = 2;
++module_param_array(temp_zones, ushort, &temp_zones_count, 0444);
++MODULE_PARM_DESC(temp_zones, "SYSCON thermal zones to read (default 0,1: Cell BE, RSX)");
++
++struct ps3_sm_temp_reply {
++	u8 version;
++	u8 tzone;
++	u8 status;
++	u8 reserved_1;
++	u8 integer;
++	u8 fraction;
++	u16 reserved_2;
++};
++
++static struct ps3_sm_hwmon {
++	struct ps3_system_bus_device *dev;
++	struct mutex lock;		/* one request at a time, the cache */
++	spinlock_t reply_lock;		/* the fields below, from the vuart work */
++	struct completion done;
++	bool pending;
++	bool reply_error;
++	bool stopped;			/* power off or restart under way */
++	bool dead;			/* refused or never answers: give up */
++	bool sid_logged;
++	u8 pending_zone;
++	struct ps3_sm_temp_reply reply;
++	unsigned int fails;
++	unsigned int nzones;
++	u8 zone[PS3_SM_TEMP_MAX_ZONES];
++	long value[PS3_SM_TEMP_MAX_ZONES];	/* millidegrees Celsius */
++	unsigned long stamp[PS3_SM_TEMP_MAX_ZONES];
++	bool valid[PS3_SM_TEMP_MAX_ZONES];
++	bool absent[PS3_SM_TEMP_MAX_ZONES];	/* status != 0: not on this board */
++	unsigned long alarm;		/* bit per channel, from thermal events */
++	struct device *hwmon_dev;
++	u32 temp_config[PS3_SM_TEMP_MAX_ZONES + 1];
++	struct hwmon_channel_info temp_info;
++	const struct hwmon_channel_info *info[2];
++	struct hwmon_chip_info chip;
++} *ps3_sm_hwmon;
++
++static const char *ps3_sm_zone_name(u8 zone)
++{
++	switch (zone) {
++	case 0x00: return "Cell BE";
++	case 0x01: return "RSX";
++	case 0x02: return "XDR";
++	case 0x03: return "BE VR";
++	case 0x0a: return "Air intake";
++	case 0x0f: return "GbE";
++	case 0x14: return "Southbridge";
++	case 0x15: return "EE+GS";
++	default: return "SYSCON zone";
++	}
++}
++
++static int ps3_sm_temp_send(struct ps3_sm_hwmon *hw, u8 zone)
++{
++	struct {
++		struct ps3_sys_manager_header header;
++		u8 version;
++		u8 tzone;
++		u8 reserved[2];
++	} req;
++
++	BUILD_BUG_ON(sizeof(req) != 20);
++
++	memset(&req, 0, sizeof(req));
++	req.header.version = 1;
++	req.header.size = 16;
++	req.header.payload_size = 4;
++	req.header.service_id = PS3_SM_SERVICE_ID_TEMPERATURE;
++	req.header.request_tag = 0;
++	req.version = 1;
++	req.tzone = zone;
++
++	/* One write, so header and payload stay together in the tx queue. */
++	return ps3_vuart_write(hw->dev, &req, sizeof(req));
++}
++
++static bool ps3_sm_misc_busy(void)
++{
++	return ps3sm && atomic_read(&ps3sm->misc_in_use);
++}
++
++static int ps3_sm_temp_query(struct ps3_sm_hwmon *hw, int channel, long *val)
++{
++	struct ps3_sm_temp_reply reply;
++	unsigned long flags;
++	bool got, error;
++	int result;
++	u8 zone = hw->zone[channel];
++
++	if (hw->valid[channel] && time_before(jiffies, hw->stamp[channel] +
++		msecs_to_jiffies(PS3_SM_TEMP_CACHE_MS))) {
++		*val = hw->value[channel];
++		return 0;
++	}
++
++	if (hw->dead || hw->absent[channel])
++		return -ENODATA;
++
++	/* /dev/ps3sysmngr reads the port itself while it is open. */
++	if (ps3_sm_misc_busy())
++		return -EBUSY;
++
++	if (READ_ONCE(hw->stopped))
++		return -ESHUTDOWN;
++
++	spin_lock_irqsave(&hw->reply_lock, flags);
++	hw->pending = true;
++	hw->reply_error = false;
++	hw->pending_zone = zone;
++	reinit_completion(&hw->done);
++	spin_unlock_irqrestore(&hw->reply_lock, flags);
++
++	result = ps3_sm_temp_send(hw, zone);
++
++	if (!result)
++		wait_for_completion_timeout(&hw->done,
++			msecs_to_jiffies(PS3_SM_TEMP_TIMEOUT_MS));
++
++	spin_lock_irqsave(&hw->reply_lock, flags);
++	got = !hw->pending;
++	error = hw->reply_error;
++	hw->pending = false;
++	reply = hw->reply;
++	spin_unlock_irqrestore(&hw->reply_lock, flags);
++
++	if (got && !error && reply.status == 0) {
++		hw->fails = 0;
++		hw->value[channel] = reply.integer * 1000L +
++			DIV_ROUND_CLOSEST(reply.fraction * 1000, 256);
++		hw->stamp[channel] = jiffies;
++		hw->valid[channel] = true;
++		*val = hw->value[channel];
++		return 0;
++	}
++
++	if (got && error) {
++		dev_warn(&hw->dev->core,
++			"temperature: request refused (REQUEST_ERROR), sensors off\n");
++		hw->dead = true;
++		return -ENODATA;
++	}
++
++	if (got) {
++		/* The service works; this zone is not on the board. */
++		dev_info(&hw->dev->core,
++			"temperature: zone %u status %u, channel off\n",
++			zone, reply.status);
++		hw->fails = 0;
++		hw->absent[channel] = true;
++		return -ENODATA;
++	}
++
++	if (result) {
++		dev_dbg(&hw->dev->core, "temperature: write failed %d\n",
++			result);
++		result = -EIO;
++	} else {
++		/* The misc device may have taken the reply: not a failure. */
++		if (ps3_sm_misc_busy())
++			return -EBUSY;
++		result = -ETIMEDOUT;
++	}
++
++	if (++hw->fails >= PS3_SM_TEMP_MAX_FAILS) {
++		dev_warn(&hw->dev->core,
++			"temperature: %u failed requests (last %d), sensors off\n",
++			hw->fails, result);
++		hw->dead = true;
++	}
++
++	return result;
++}
++
++/* From the vuart work (or the final shutdown poll), header already read. */
++
++static int ps3_sm_temp_handle_reply(struct ps3_system_bus_device *dev,
++	const struct ps3_sys_manager_header *header)
++{
++	struct ps3_sm_hwmon *hw = READ_ONCE(ps3_sm_hwmon);
++	struct ps3_sm_temp_reply reply;
++	unsigned long flags;
++	u8 buf[16];
++	int result;
++
++	/* ps3_sys_manager_handle_msg() checked 1 <= payload_size <= 16. */
++	result = ps3_vuart_read(dev, buf, header->payload_size);
++	if (result) {
++		ps3_vuart_clear_rx_bytes(dev, header->payload_size);
++		return result;
++	}
++
++	if (!hw || header->payload_size < sizeof(reply)) {
++		dev_dbg(&dev->core, "temperature reply: payload %u bytes\n",
++			header->payload_size);
++		return -EIO;
++	}
++
++	memcpy(&reply, buf, sizeof(reply));
++
++	spin_lock_irqsave(&hw->reply_lock, flags);
++	if (hw->pending && reply.version == 1 &&
++		reply.tzone == hw->pending_zone) {
++		if (!hw->sid_logged) {
++			hw->sid_logged = true;
++			dev_info(&dev->core,
++				"temperature reply: service id %u, payload %u, tag %u\n",
++				header->service_id, header->payload_size,
++				header->request_tag);
++		}
++		hw->reply = reply;
++		hw->pending = false;
++		complete(&hw->done);
++	}
++	spin_unlock_irqrestore(&hw->reply_lock, flags);
++
++	/*
++	 * Non-zero: ps3_sys_manager_fin() polls until a message returns 0,
++	 * which must be the shutdown command, not this.
++	 */
++	return -EAGAIN;
++}
++
++static void ps3_sm_temp_request_error(void)
++{
++	struct ps3_sm_hwmon *hw = READ_ONCE(ps3_sm_hwmon);
++	unsigned long flags;
++
++	if (!hw)
++		return;
++
++	spin_lock_irqsave(&hw->reply_lock, flags);
++	if (hw->pending) {
++		hw->reply_error = true;
++		hw->pending = false;
++		complete(&hw->done);
++	}
++	spin_unlock_irqrestore(&hw->reply_lock, flags);
++}
++
++/*
++ * From the final power off / restart paths (also after a panic, with
++ * interrupts off): no locks.  A request already past the check may still
++ * go out; ps3_sm_temp_shutdown() at device shutdown is what waits for it.
++ */
++
++static void ps3_sm_temp_stop(void)
++{
++	struct ps3_sm_hwmon *hw = READ_ONCE(ps3_sm_hwmon);
++
++	if (hw)
++		WRITE_ONCE(hw->stopped, true);
++}
++
++/*
++ * At device shutdown (power off, reboot, halt, kexec), in process context:
++ * every request holds hw->lock, so none is in flight once this returns.
++ */
++
++static void ps3_sm_temp_shutdown(void)
++{
++	struct ps3_sm_hwmon *hw = READ_ONCE(ps3_sm_hwmon);
++
++	if (!hw)
++		return;
++
++	mutex_lock(&hw->lock);
++	WRITE_ONCE(hw->stopped, true);
++	mutex_unlock(&hw->lock);
++}
++
++static void ps3_sm_temp_alarm(u32 zone, bool on)
++{
++	struct ps3_sm_hwmon *hw = READ_ONCE(ps3_sm_hwmon);
++	unsigned int i;
++
++	if (!hw)
++		return;
++
++	for (i = 0; i < hw->nzones; i++) {
++		if (hw->zone[i] != zone)
++			continue;
++		if (on)
++			set_bit(i, &hw->alarm);
++		else
++			clear_bit(i, &hw->alarm);
++		/* Not from the final shutdown poll: it may sleep. */
++		if (hw->hwmon_dev && !READ_ONCE(hw->stopped))
++			hwmon_notify_event(hw->hwmon_dev, hwmon_temp,
++				hwmon_temp_alarm, i);
++	}
++}
++
++static umode_t ps3_sm_hwmon_is_visible(const void *data,
++	enum hwmon_sensor_types type, u32 attr, int channel)
++{
++	return type == hwmon_temp ? 0444 : 0;
++}
++
++static int ps3_sm_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
++	u32 attr, int channel, long *val)
++{
++	struct ps3_sm_hwmon *hw = dev_get_drvdata(dev);
++	int result;
++
++	if (type != hwmon_temp || channel >= hw->nzones)
++		return -EOPNOTSUPP;
++
++	switch (attr) {
++	case hwmon_temp_input:
++		mutex_lock(&hw->lock);
++		result = ps3_sm_temp_query(hw, channel, val);
++		mutex_unlock(&hw->lock);
++		return result;
++	case hwmon_temp_alarm:
++		*val = test_bit(channel, &hw->alarm);
++		return 0;
++	default:
++		return -EOPNOTSUPP;
++	}
++}
++
++static int ps3_sm_hwmon_read_string(struct device *dev,
++	enum hwmon_sensor_types type, u32 attr, int channel, const char **str)
++{
++	struct ps3_sm_hwmon *hw = dev_get_drvdata(dev);
++
++	if (type != hwmon_temp || attr != hwmon_temp_label ||
++		channel >= hw->nzones)
++		return -EOPNOTSUPP;
++
++	*str = ps3_sm_zone_name(hw->zone[channel]);
++	return 0;
++}
++
++static const struct hwmon_ops ps3_sm_hwmon_ops = {
++	.is_visible = ps3_sm_hwmon_is_visible,
++	.read = ps3_sm_hwmon_read,
++	.read_string = ps3_sm_hwmon_read_string,
++};
++
++static void ps3_sm_hwmon_register(struct ps3_system_bus_device *dev)
++{
++	struct ps3_sm_hwmon *hw;
++	struct device *hwmon_dev;
++	unsigned int i, n = 0;
++
++	if (!hwmon_enable)
++		return;
++
++	hw = devm_kzalloc(&dev->core, sizeof(*hw), GFP_KERNEL);
++	if (!hw)
++		return;
++
++	for (i = 0; i < temp_zones_count && i < PS3_SM_TEMP_MAX_ZONES; i++) {
++		if (temp_zones[i] > 0xff)
++			continue;
++		hw->zone[n] = temp_zones[i];
++		hw->temp_config[n] = HWMON_T_INPUT | HWMON_T_LABEL |
++			HWMON_T_ALARM;
++		n++;
++	}
++	if (!n)
++		return;
++
++	hw->dev = dev;
++	hw->nzones = n;
++	mutex_init(&hw->lock);
++	spin_lock_init(&hw->reply_lock);
++	init_completion(&hw->done);
++	hw->temp_info.type = hwmon_temp;
++	hw->temp_info.config = hw->temp_config;
++	hw->info[0] = &hw->temp_info;
++	hw->chip.ops = &ps3_sm_hwmon_ops;
++	hw->chip.info = hw->info;
++
++	/* Replies and events may come from now on. */
++	smp_store_release(&ps3_sm_hwmon, hw);
++
++	hwmon_dev = devm_hwmon_device_register_with_info(&dev->core, "ps3_sm",
++		hw, &hw->chip, NULL);
++	if (IS_ERR(hwmon_dev)) {
++		dev_warn(&dev->core, "hwmon registration failed %ld\n",
++			PTR_ERR(hwmon_dev));
++		WRITE_ONCE(ps3_sm_hwmon, NULL);
++		return;
++	}
++	hw->hwmon_dev = hwmon_dev;
++
++	dev_info(&dev->core, "hwmon: %u temperature zones, read on demand\n",
++		n);
++}
++
++/* Before devres frees it: no more replies or events reach it. */
++
++static void ps3_sm_hwmon_unregister(void)
++{
++	WRITE_ONCE(ps3_sm_hwmon, NULL);
++}
++
++#else
++
++static int ps3_sm_temp_handle_reply(struct ps3_system_bus_device *dev,
++	const struct ps3_sys_manager_header *header)
++{
++	ps3_sys_manager_discard_payload(dev, header->payload_size);
++	return -EIO;
++}
++static void ps3_sm_temp_request_error(void) {}
++static void ps3_sm_temp_stop(void) {}
++static void ps3_sm_temp_shutdown(void) {}
++static void ps3_sm_temp_alarm(u32 zone, bool on) {}
++static void ps3_sm_hwmon_register(struct ps3_system_bus_device *dev) {}
++static void ps3_sm_hwmon_unregister(void) {}
++
++#endif
++
+ /**
+  * ps3_sys_manager_handle_event - Second stage event msg handler.
+  *
+@@ -474,10 +965,12 @@ static int ps3_sys_manager_handle_event(struct ps3_system_bus_device *dev)
+ 		dev_dbg(&dev->core, "%s:%d: THERMAL_ALERT (zone %u)\n",
+ 			__func__, __LINE__, event.value);
+ 		pr_info("PS3 Thermal Alert Zone %u\n", event.value);
++		ps3_sm_temp_alarm(event.value, true);
+ 		break;
+ 	case PS3_SM_EVENT_THERMAL_CLEARED:
+ 		dev_dbg(&dev->core, "%s:%d: THERMAL_CLEARED (zone %u)\n",
+ 			__func__, __LINE__, event.value);
++		ps3_sm_temp_alarm(event.value, false);
+ 		break;
+ 	default:
+ 		dev_dbg(&dev->core, "%s:%d: unknown event (%u)\n",
+@@ -538,6 +1031,8 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
+ {
+ 	int result;
+ 	struct ps3_sys_manager_header header;
++	unsigned int n;
++	u8 b;
+ 
+ 	result = ps3_vuart_read(dev, &header,
+ 		sizeof(struct ps3_sys_manager_header));
+@@ -554,10 +1049,22 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
+ 
+ 	BUILD_BUG_ON(sizeof(header) != 16);
+ 
++	/* A temperature reply's size is not documented: take 1-16 bytes. */
++	if ((header.service_id == PS3_SM_SERVICE_ID_TEMPERATURE ||
++		header.service_id == PS3_SM_SERVICE_ID_TEMPERATURE_REPLY) &&
++		header.size == 16 && header.payload_size >= 1 &&
++		header.payload_size <= 16) {
++		dev_dbg(&dev->core, "%s:%d: TEMPERATURE\n", __func__, __LINE__);
++		return ps3_sm_temp_handle_reply(dev, &header);
++	}
++
+ 	if (header.size != 16 || (header.payload_size != 8
+ 		&& header.payload_size != 16)) {
++		dev_err(&dev->core, "%s:%d: bad header: size %u, payload %u, service %u\n",
++			__func__, __LINE__, header.size, header.payload_size,
++			header.service_id);
+ 		dump_sm_header(&header);
+-		BUG();
++		goto fail_header;
+ 	}
+ 
+ 	switch (header.service_id) {
+@@ -571,6 +1078,7 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
+ 		dev_dbg(&dev->core, "%s:%d: REQUEST_ERROR\n", __func__,
+ 			__LINE__);
+ 		dump_sm_header(&header);
++		ps3_sm_temp_request_error();
+ 		break;
+ 	default:
+ 		dev_dbg(&dev->core, "%s:%d: unknown service_id (%u)\n",
+@@ -580,10 +1088,17 @@ static int ps3_sys_manager_handle_msg(struct ps3_system_bus_device *dev)
+ 	goto fail_id;
+ 
+ fail_header:
++	/*
++	 * Out of step: drop what is queued, in the rx list too (which
++	 * ps3_vuart_clear_rx_bytes() doesn't drain), so the next message
++	 * starts clean.
++	 */
++	for (n = 0; n < 4096 && !ps3_vuart_read(dev, &b, 1); n++)
++		;
+ 	ps3_vuart_clear_rx_bytes(dev, 0);
+ 	return -EIO;
+ fail_id:
+-	ps3_vuart_clear_rx_bytes(dev, header.payload_size);
++	ps3_sys_manager_discard_payload(dev, header.payload_size);
+ 	return -EIO;
+ }
+ 
+@@ -621,6 +1136,7 @@ static void ps3_sys_manager_final_power_off(struct ps3_system_bus_device *dev)
+ 
+ 	dev_dbg(&dev->core, "%s:%d\n", __func__, __LINE__);
+ 
++	ps3_sm_temp_stop();
+ 	ps3_vuart_cancel_async(dev);
+ 
+ 	ps3_sys_manager_send_next_op(dev, PS3_SM_NEXT_OP_SYS_SHUTDOWN,
+@@ -653,6 +1169,7 @@ static void ps3_sys_manager_final_restart(struct ps3_system_bus_device *dev)
+ 		ps3_sys_manager_final_power_off(dev);
+ 	}
+ 
++	ps3_sm_temp_stop();
+ 	ps3_vuart_cancel_async(dev);
+ 
+ 	ps3_sys_manager_send_attr(dev, 0);
+@@ -834,6 +1351,8 @@ static int ps3_sys_manager_probe(struct ps3_system_bus_device *dev)
+ 
+ skip_misc:
+ 
++	ps3_sm_hwmon_register(dev);
++
+ 	result = 0;
+ 	return result;
+ }
+@@ -842,6 +1361,8 @@ static int ps3_sys_manager_remove(struct ps3_system_bus_device *dev)
+ {
+ 	dev_dbg(&dev->core, "%s:%d\n", __func__, __LINE__);
+ 
++	ps3_sm_hwmon_unregister();
++
+ 	if (ps3sm) {
+ 		misc_deregister(&ps3sm->misc);
+ 		kfree(ps3sm);
+@@ -854,11 +1375,14 @@ static int ps3_sys_manager_remove(struct ps3_system_bus_device *dev)
+ static void ps3_sys_manager_shutdown(struct ps3_system_bus_device *dev)
+ {
+ 	dev_dbg(&dev->core, "%s:%d\n", __func__, __LINE__);
++	ps3_sm_temp_shutdown();
+ }
+ 
+ static struct ps3_vuart_port_driver ps3_sys_manager = {
+ 	.core.match_id = PS3_MATCH_ID_SYSTEM_MANAGER,
+ 	.core.core.name = "ps3_sys_manager",
++	/* Remove isn't supported: no unbind with the hwmon device still up. */
++	.core.core.suppress_bind_attrs = true,
+ 	.probe = ps3_sys_manager_probe,
+ 	.remove = ps3_sys_manager_remove,
+ 	.shutdown = ps3_sys_manager_shutdown,
