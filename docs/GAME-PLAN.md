@@ -15,6 +15,9 @@ driver speedups (Mesa ps3.246, ps3rsx 0.249) gave +2 to +9%.
 submission, took Armagetron back to 61.5. Batching the GL calls in the games themselves did far more:
 our X-Moto runs its replay at 166.5 fps instead of 44.5, Extreme Tux Racer at 59 instead of 52.
 OpenArena opengl2 with our ioquake3 memory patches: 26-32 fps, longest stall 6 s instead of 24.7.
+(2026-10-18: its 16 s "gameplay" freezes were the reload's last frame, miscounted by report.py;
+the rest is memory: Mesa keeps malloc copies of the VBOs because nv30 can't fetch renderergl2's
+16-bit colours. ioquake3 0027-0029, built, A/B in docs/MEMORY.md "OpenArena opengl2".)
 SuperTuxKart now loads (karts render, the track doesn't: out of VRAM). dsda-doom's GL renderer and
 ClassiCube got the same batching late in the day (built, not run on the PS3: dsda-doom's gl
 timedemo ~1960 -> ~390 GL calls and ~205 -> ~44 draws a frame, ClassiCube's path 5127 -> 1524

@@ -228,6 +228,7 @@ process of another name is left alone.
 | ps3-gpu-tools | 0.403 | `/usr/lib/ps3/lib/ps3-malloctrim.so` |
 | luanti, luanti-data | 5.15.2+dfsg-2+ps3.405 | 0007 `LU_TRIM_MB` (unit tests pass in the build) |
 | yamagi-quake2, yamagi-quake2-core | 8.70+dfsg-1+ps3.408 | 0002 `YQ2_KISS_QSIZE` |
+| ioquake3 | 1.36+u20260719.58839361+dfsg-1+ps3.462 | 0027-0029, OpenArena opengl2 (section below) |
 
 ## On the PS3
 
@@ -268,6 +269,123 @@ What would make each a default: kiss4k is the default now (measured, in our yqua
 `LU_TRIM_MB` as a Luanti default in our package; the malloc preset that wins
 through `ps3-game` (game mode's launcher sets the environment for every game) or per-game wrappers.
 
+## OpenArena opengl2 (gl2min): the 16 s freezes and the memory (2026-10-18)
+
+The user: gl2min's profiled run (`PERF=1 MEM=1`, ioquake3 ps3.396, Mesa ps3.408~dev,
+`build/bench/ps3-bench-20261018T080250Z-openarena-gl2min`) had stall_play_s 54.7 s, a 16148 ms
+longest frame, 66.5 MB swapped and 117 MB of VRAM. No stall record (`STALLS=1` was off), so the
+causes below come from the 0.5 s samples, out.log's stamps, the MEM=1 snapshots and perf. The
+second run (`20261018T114707Z`, GAMEPREFETCH=learn, no perf) agrees.
+
+### What the 16 s freeze is: the load's last frame, counted as play
+
+Each demo pass reloads the map. report.py cut the reload at 1 s after `CL_InitCGame:`, but in
+opengl2 the load ends in one long frame with no SwapBuffers in it: the cgame load,
+`cl_preloadLate` (35 models, skins and shaders: 7-12 s in opengl2, the PPE swapping), then
+`RB_ShowImages` (0.1-1.5 s, every texture drawn once) and the first demo frame. The frame starts
+inside the reload segment and ends 4-5 s after the cut, so it counted as play:
+
+| Pass 3 of the profiled run (s from start) | |
+|---|---|
+| 131.5 | RE_Shutdown, R_Init: 55 GLSL programs kept, 0.27 s |
+| 137.1 | world loaded |
+| 143.06 - 159.20 | **the 16148 ms frame** |
+| 154.0 | `cl_preloadLate: 35 models, skins and shaders ... in 10315 msec`, `CL_InitCGame: 19.13 seconds` |
+| 155.06 | report.py's old cut |
+| 156.5 | `1533 msec to draw all images` |
+
+Of the 54.7 s, 38.8 s were such frames (the 16148, 12985 and 9640 ms ones); the other run's
+11459 ms longest is the same thing. Fixed in report.py: a frame that starts inside a reload
+segment is the reload's, and the segment ends with it (passsplit.py already went by the frame's
+start). The profiled run is now stall_play_s **16.0 s**, longest_play 6263 ms; the other 9.7 s,
+2125 ms. Over every OpenArena run in build/bench the opengl1 numbers move by 0-4 s (e.g.
+20261018T001126Z 19.2 -> 15.1 s).
+
+### The play stalls that are left: memory
+
+The remaining stall frames (1.0-6.3 s) are the first seconds after each load, plus single
+0.5-1 s frames when a bot joins. The samples during them show a machine out of memory, not a
+compile: MemAvailable 13-60 MB, swap-ins of 25-260 pages and VRAM swap write-backs of 256-1024
+pages every 0.5 s, swap-out bursts of 1.2-1.7k pages, and the game's VRAM going 70 -> 114 MB
+while GART staging peaks at 48 MB during the loads. The game holds Rss 79-104 MB plus 58-68 MB
+swapped (opengl1: 71 + 20).
+
+Not the causes:
+- **GLSL compiles.** The 55 programs (gl2min) are built once at the first start, 3.0-3.4 s, kept
+  across every renderer restart (0004: 0.02-1.3 s to take them back), none built during play
+  (`glsl*_deferred=0`, no lazy builds). Mesa's disk shader cache is on for nv30: the nouveau
+  screen creates one (`nouveau_disk_cache_create`, it caches the GLSL front end's NIR); the nv30
+  code generation (nvfx) isn't cached but takes milliseconds per program at its first draw.
+  A warm cache only shortens the first start.
+- **FBOs**: none (gl2min sets r_ext_framebuffer_object 0).
+
+Where the memory goes (MEM=1 snapshots, start/mid/end):
+
+| | opengl2 gl2min | opengl1 (MEMORY.md above) |
+|---|---|---|
+| malloc in use (all arenas) | 56 MB (in a load) / **95** / 94 | 21-34 |
+| heap Rss + swap | 51.3 + 43.7 | 22.8 + 13.9 |
+| VRAM (ps3rsx, the game) | 100 / 111 / 66 MB, 117 peak | 36 |
+| VRAM swap | 88 MB of it in VRAM, the rest written back to the USB disk all through play | |
+
+**Why opengl2's malloc holds 60 MB more (from Mesa's source; the A/B below measures it).**
+renderergl2 sends vertex colours as `GL_UNSIGNED_SHORT` normalized (R16G16B16A16_UNORM), a format
+nv30 can't fetch (`nv30_vtxfmt_table`). Every draw from the tess VAO (the world, effects, the HUD;
+everything but MD3 models: r_vaoCache is 0) goes through u_vbuf, which converts the colours to
+floats on the CPU and maps the vertex and index buffers for reading (perf: 0.9% of the samples in
+the conversion itself). A read map of a VRAM buffer makes nouveau keep a malloc'ed copy of the
+whole buffer (`nouveau_buffer_cache`: a GPU copy to GART, a wait, a memcpy). After four flushes in
+a row with such a copy `nouveau_context_update_frame_stats` sets `hint_buf_keep_sysmem_copy`, which
+is never cleared, and from then on every new VRAM buffer gets a malloc'ed copy at its creation:
+the MD3 animation VBOs too, **62.2 MB** for the demo's models (counted on the host, 223 VBOs).
+That is about the 60 MB.
+
+**Where the load CPU goes** (perf, window incl. three reloads): R_MipMapsRGB's `powf` per texel
+channel 7.8% of all samples (picmip and every mip level are made on the CPU at each load and for
+every player a joining bot brings), COM_ParseExt 2.8% (shader scripts), R_RegisterMD3 2.4%,
+libdeflate 2.7%. opengl2 has no r_keepImages (0025 is opengl1's), so every pass reloads every
+texture.
+
+### What was implemented (ioquake3 ps3.462, patches 0027-0029; not deployed, not published)
+
+| Patch | Switch (default) | What | Host check (llvmpipe, GL 2.1, the bench demo, 30 frames) |
+|---|---|---|---|
+| 0027 | `r_vaoSnormColor 1` (latched) | colours as GL_SHORT normalized (v >> 1, 0 -> -1 so a zero alpha still fails an alpha test under either GL rule), which nv30 fetches (V16_SNORM, as the normals): no u_vbuf, no buffer reads, no copies, no hint | 17 pixels differ by 1 level |
+| 0028 | `r_mipMapPowf 0` | the gamma-correct mipmap bytes from 255 thresholds found once by bisection with the same powf, plus a 4096-bin start table: the same bytes without powf | identical; every float in [0,1] equal on x86-64 glibc, every 16th + all within 200000 ulps of each threshold on ppc64 glibc (qemu) |
+| 0029 | `r_md3PackedFrames 0` (opt-in, latched, needs r_normalMapping 0) | animated MD3 frames as MD3's own 16-bit positions + 4 unsigned-byte normals, 12 bytes a vertex instead of 20 (V16_SSCALED, U8_UNORM: both native on nv30); decoded in the 4 vertex-animation programs by `u_PackedFrames` (lightall draws single-frame models with that variant too, and they keep floats): the demo's model VBOs **62.2 -> 37.5 MB** of VRAM | 1734 pixels differ, by at most 2 levels |
+
+Recipe variants (games/bench/recipes/openarena.sh): `gl2min_color16` (0027 off),
+`gl2min_mippowf` (0028 off), `gl2min_md3pack` (0029 on); `gl2min_up` now turns 0027-0028 back too.
+
+Expected on the PS3 (to be measured): gl2min's malloc in use down by up to ~60 MB (no copies), and
+with md3pack another ~25 MB of VRAM free for the VRAM swap; fewer swap stalls after loads and at
+joins; loads ~8% less CPU.
+
+### The A/B on the PS3
+
+Same boot, desktop stopped, nobody playing; webcam on every run (players must show in
+`gl2min_md3pack`: a wrong vertex fetch would lose them, not the world).
+
+    make deploy PKGS="ioquake3"
+    make bench-push
+    # memory and stall causes, every switch against gl2min, 3 rounds (~12 runs, ~75 min)
+    STALLS=1 MEM=1 ENVS="-" /var/tmp/bench/run.sh bench openarena "gl2min gl2min_color16 gl2min_md3pack gl2min_mippowf" 3
+    # the malloc trim on top (the heap's free chunks), if the first shows the heap down
+    STALLS=1 MEM=1 ENVS="- MALLOC=trim" /var/tmp/bench/run.sh bench openarena "gl2min gl2min_md3pack" 3
+    python3 /var/tmp/bench/report.py --stalls --mem /var/tmp/ps3-bench/<run dirs>
+    python3 /var/tmp/bench/passsplit.py -v /var/tmp/ps3-bench/<run dirs>
+
+Read `mem_malloc_used`, `mem_heap_rss`/`mem_heap_swap`, `mem_swap`, `mem_gpu_vram` (and the `vram`
+peak), `stall_play_s`/`longest_play`, `stall_swap_s` and `load=`. gl2min against gl2min_color16 is
+0027 (the copies), gl2min_md3pack against gl2min is 0029; gl2min_mippowf shows 0028 in `load=` and
+the join stalls. MEM=1's snapshots pause the game 0.2-0.6 s three times a run, the recorder
+changes the stalls it records (STALLS.md); both hit every variant alike, but take the final fps
+and stall numbers from 3 more rounds without MEM:
+
+    STALLS=1 /var/tmp/bench/run.sh bench openarena "gl2min gl2min_color16 gl2min_md3pack" 3
+
+If md3pack shows the models right and helps, its default can go to 1.
+
 ## Proposed, not implemented
 
 - **OpenArena (ioquake3)**: after a map load (the end of `CL_InitCGame`, next to
@@ -284,3 +402,10 @@ through `ps3-game` (game mode's launcher sets the environment for every game) or
   `ps3bench: mem start lua=3966 VmHWM: vmhwm=106952 VmRSS: 103840 kB`, so the recipe's `parse()`
   gets `lua` and `vmhwm` and junk keys (`mem_start_VmHWM:=VmHWM:`); vmrss, rssanon, rssfile and
   vmswap never come out.
+- **Mesa (nouveau)**: never set `hint_buf_keep_sysmem_copy` on the PS3 (an env switch), and keep
+  u_vbuf's reads of VRAM buffers from leaving whole-buffer malloc copies behind: every game whose
+  vertex formats nv30 can't fetch pays it (Sauerbraten's SNORM8 normals go through u_vbuf on
+  every draw: part of its 66 MB heap may be such copies). Measure Sauerbraten with MEM=1 first.
+- **OpenArena opengl2**: r_keepImages for renderergl2 (0025 is opengl1's): every pass and map
+  change reloads, decodes and mipmaps every texture; and the shader script parsing (COM_ParseExt
+  2.8% of a profile) at every load.
