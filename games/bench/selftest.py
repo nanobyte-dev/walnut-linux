@@ -234,6 +234,27 @@ def synthetic(tmp):
           {k: v for k, v in r.items() if k.startswith("sysmem")})
     r = report.run(tmp / "ps3-bench-20261018T000300Z-fakeown-base")
     check("sysmem: no columns without the lines", not any(k.startswith("sysmem") for k in r), r)
+    check("forcedxt, shcache: no columns without the lines",
+          not any(k.startswith(("fdxt_", "shc_")) for k in r), r)
+
+    # Mesa's NV30_FORCE_DXT_STATS and NV30_SHADER_CACHE_STATS lines: the last one counts
+    d = tmp / "ps3-bench-20261018T000500Z-fakedxt-base"
+    bench(d, game="fakedxt", variant="base", ended="exit", seconds="100")
+    write(d / "game.log", "start\n"
+          "nv30-forcedxt: 256x256 GL_RGBA GL_RGBA/GL_UNSIGNED_BYTE texture 3 -> dxt1\n"
+          "nv30-forcedxt: tex mode=opaque min=64 tex=10 dxt1=10 dxt5=0 levels=90 kb_raw=10240 kb_dxt=1280 sub=0 sub_kb=0 unforced=0 unforced_kb=0 mipgen=0 mipgen_ms=0 scan_ms=3 skip_nodata=4 skip_small=20 skip_npot=0 skip_border=0 skip_transfer=0 skip_format=2 skip_nearest=0 skip_alpha=7 skip_nos3tc=0\n"
+          "nv30-forcedxt: unforced why=fbo texture=7 levels=1 mode=opaque min=64 tex=12 dxt1=11 dxt5=1 levels=99 kb_raw=12288 kb_dxt=1536 sub=5 sub_kb=20 unforced=1 unforced_kb=1024 mipgen=2 mipgen_ms=40 scan_ms=4 skip_nodata=4 skip_small=21 skip_npot=1 skip_border=0 skip_transfer=0 skip_format=2 skip_nearest=0 skip_alpha=8 skip_nos3tc=0\n"
+          "nv30-forcedxt: 32x32 GL_RGBA GL_RGBA/GL_UNSIGNED_BYTE kept (small)\n"
+          "nv30-shcache: end cache=on tgsi_hit=50 tgsi_miss=4 tgsi_hit_ms=20 tgsi_miss_ms=300 fp_hit=30 fp_miss=2 fp_hit_ms=5 fp_miss_ms=40 vp_hit=31 vp_miss=1 vp_hit_ms=6 vp_miss_ms=30\n")
+    r = report.run(d)
+    check("forcedxt: the last stats line, skips by count",
+          (r.get("fdxt_tex"), r.get("fdxt_dxt5"), r.get("fdxt_raw_mb"), r.get("fdxt_dxt_mb"), r.get("fdxt_unforced"),
+           r.get("fdxt_sub"), r.get("fdxt_mipgen"), r.get("fdxt_mipgen_ms"), r.get("fdxt_scan_ms"), r.get("fdxt_skip"))
+          == (12, 1, 12.0, 1.5, 1, 5, 2, 40, 4, "small21,alpha8,nodata4,format2,npot1"),
+          {k: v for k, v in r.items() if k.startswith("fdxt")})
+    check("shcache: hits, misses, ms summed",
+          (r.get("shc_tgsi_hit"), r.get("shc_fp_miss"), r.get("shc_vp_hit"), r.get("shc_hit_ms"), r.get("shc_miss_ms"))
+          == (50, 2, 31, 31, 370), {k: v for k, v in r.items() if k.startswith("shc")})
 
     # a run from before the steady state: no window, no new keys, old ones as before
     d = tmp / "ps3-bench-20261017T120000Z-fakeold-base"

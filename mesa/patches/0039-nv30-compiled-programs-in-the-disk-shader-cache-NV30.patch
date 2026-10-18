@@ -1,0 +1,614 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 20:40:49 +0300
+Subject: nv30: compiled programs in the disk shader cache (NV30_SHADER_CACHE,
+ off by default)
+
+Mesa's GL layer caches a program's NIR, so a warm start skips the GLSL compile and link, but nv30
+then still ran nir_to_tgsi at every shader creation and the nvfx translation to RSX code at the
+first validate of each program (and again for a vertex program whenever the bound fragment
+program's texcoord mapping or the enabled clip planes change): what the start-up profiles call
+shader.backend, at every start, warm or not. With NV30_SHADER_CACHE=on both results go into the
+screen's disk cache, which nouveau_screen.c already creates keyed by the driver binary's build id
+and the chipset, so any Mesa rebuild or another GPU misses every entry (MESA_SHADER_CACHE_DIR,
+_DISABLE and _MAX_SIZE apply as to the rest of the cache):
+
+- TGSI (nv30_fp_state_create, nv30_vp_state_create): key the serialized NIR the state tracker
+  hands over plus the stage; value the TGSI tokens nir_to_tgsi made of it. A hit frees the NIR
+  as nir_to_tgsi would have.
+- Fragment programs: key the TGSI tokens, the 3D class and NV40_FP_EXPORT32; value the code as
+  translated (the constants are patched in at validate, as before), its constant slots, the
+  texcoord mapping and the control words (FP_CONTROL, coord conventions, RT_ENABLE, texcoords,
+  vp_or, point sprite control).
+- Vertex programs: key the TGSI tokens, the class, the texcoord mapping taken from the fragment
+  program and the enabled clip planes; value the code before relocation, the constants and
+  immediates, the branch and constant relocations and the input/output masks.
+
+Only a program in its initial state uses the cache (a failed translation leaves a partial one
+behind and is translated as before); an entry that doesn't parse is ignored. The words the
+translations OR into are stored as a new program's, so a hit gives what a translation gives.
+NV30_SHADER_CACHE_STATS=1 prints a "nv30-shcache:" line at context destruction and at exit (process
+totals; games often exit without destroying their context): hits, misses and
+the ms each took, for TGSI, fragment and vertex programs; counted with the cache off as well,
+where every creation is a miss and the miss ms is what the cache could save.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/meson.build b/src/gallium/drivers/nouveau/meson.build
+--- a/src/gallium/drivers/nouveau/meson.build
++++ b/src/gallium/drivers/nouveau/meson.build
+@@ -37,6 +37,7 @@ files_libnouveau = files(
+   'nv30/nv30_format.c',
+   'nv30/nv30_format.h',
+   'nv30/nv30_fragprog.c',
++  'nv30/nv30_shader_cache.c',
+   'nv30/nv30_fragtex.c',
+   'nv30/nv30_miptree.c',
+   'nv30/nv30_push.c',
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.c b/src/gallium/drivers/nouveau/nv30/nv30_context.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.c
+@@ -212,6 +212,7 @@ nv30_context_destroy(struct pipe_context *pipe)
+ 
+    if (nv30->screen->sysmem_stats && nv30->frames)
+       nv30_sysmem_stats_print(nv30, "end");
++   nv30_shader_cache_report(nv30->screen, "end");
+ 
+    if (nv30->blitter)
+       util_blitter_destroy(nv30->blitter);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+@@ -244,6 +244,18 @@ nv30_state_validate(struct nv30_context *nv30, uint32_t mask, bool hwtnl);
+ void
+ nv30_state_release(struct nv30_context *nv30);
+ 
++/* nv30_shader_cache.c: NV30_SHADER_CACHE, nv30's programs in the disk shader cache */
++void
++nv30_shader_cache_init(struct nv30_screen *screen);
++void
++nv30_shader_cache_report(struct nv30_screen *screen, const char *event);
++const struct tgsi_token *
++nv30_shader_cache_tgsi(struct pipe_screen *pscreen, struct nir_shader *nir);
++void
++nv30_shader_cache_fp_translate(struct nv30_context *nv30, struct nv30_fragprog *fp);
++bool
++nv30_shader_cache_vp_translate(struct nv30_context *nv30, struct nv30_vertprog *vp);
++
+ #ifdef NV30_3D_VERTEX_BEGIN_END
+ #define NV30_PRIM_GL_CASE(n) \
+    case MESA_PRIM_##n: return NV30_3D_VERTEX_BEGIN_END_##n
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c b/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
+@@ -109,7 +109,7 @@ nv30_fragprog_validate(struct nv30_context *nv30)
+    int i;
+ 
+    if (!fp->translated) {
+-      _nvfx_fragprog_translate(eng3d->oclass, fp);
++      nv30_shader_cache_fp_translate(nv30, fp);   /* _nvfx_fragprog_translate */
+       if (!fp->translated)
+          return;
+ 
+@@ -202,7 +202,7 @@ nv30_fp_state_create(struct pipe_context *pipe,
+       return NULL;
+ 
+    if (cso->type == PIPE_SHADER_IR_NIR) {
+-      fp->pipe.tokens = nir_to_tgsi(cso->ir.nir, pipe->screen);
++      fp->pipe.tokens = nv30_shader_cache_tgsi(pipe->screen, cso->ir.nir);   /* nir_to_tgsi */
+    } else {
+       assert(cso->type == PIPE_SHADER_IR_TGSI);
+       /* we need to keep a local copy of the tokens */
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -572,6 +572,7 @@ nv30_screen_create(struct nouveau_device *dev)
+    default: screen->base.hint_buf_mode = NOUVEAU_HINT_BUF_ALL; break;
+    }
+    screen->sysmem_stats = MAX2(debug_get_num_option("NV30_SYSMEM_STATS", 0), 0);
++   nv30_shader_cache_init(screen);
+    /* NV30_INVALIDATE_BUFFER=1: glBufferData(NULL) of the same size (orphaning) invalidates the
+     * buffer in place, keeping its system memory copy, instead of creating a new one */
+    screen->invalidate_buffer = debug_get_bool_option("NV30_INVALIDATE_BUFFER", false);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -14,6 +14,12 @@
+ 
+ struct nv30_context;
+ 
++/* NV30_SHADER_CACHE_STATS: hits and misses (nv30_shader_cache.c) */
++struct nv30_shcache_count {
++   uint32_t hit, miss;
++   uint64_t hit_us, miss_us;
++};
++
+ struct nv30_screen {
+    struct nouveau_screen base;
+ 
+@@ -46,6 +52,11 @@ struct nv30_screen {
+    unsigned sysmem_stats;      /* NV30_SYSMEM_STATS=N: system memory copies on stderr every N frames */
+    bool sysmem_hint_seen;      /* the stats line for the hint was printed */
+ 
++   /* NV30_SHADER_CACHE=on: TGSI and nvfx code in the disk cache (nv30_shader_cache.c);
++    * NV30_SHADER_CACHE_STATS=1: hits and misses of TGSI, fragment and vertex programs */
++   bool shader_cache;
++   bool shader_cache_stats;
++
+    /* NV30_STAGING_POOL=N: up to N idle staging buffers of texture uploads, already mapped,
+     * kept for the next uploads of the same size class (nv30_miptree.c); 0: off */
+    simple_mtx_t staging_lock;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_shader_cache.c b/src/gallium/drivers/nouveau/nv30/nv30_shader_cache.c
+new file mode 100644
+--- /dev/null
++++ b/src/gallium/drivers/nouveau/nv30/nv30_shader_cache.c
+@@ -0,0 +1,448 @@
++/*
++ * nv30's compiled programs in Mesa's disk shader cache (NV30_SHADER_CACHE=on; off by default).
++ *
++ * The GL layer's cache (st_shader_cache.c) keeps a program's NIR, so a warm start skips the GLSL
++ * compile and link; nv30 then still ran nir_to_tgsi at every shader creation and the nvfx
++ * translation to RSX code at the first validate of each program. Both are cached here, in the
++ * screen's disk cache (nouveau_screen.c: keyed by the driver binary's build id and the chipset,
++ * so a new Mesa build or another GPU misses every entry; MESA_SHADER_CACHE_DIR and _DISABLE
++ * apply as to the rest of the cache):
++ * - TGSI: key the serialized NIR the state tracker hands to create_{vs,fs}_state; value the TGSI
++ *   tokens nir_to_tgsi makes of it.
++ * - Fragment programs: key the TGSI tokens, the class (NV30/NV40) and NV40_FP_EXPORT32; value
++ *   the code as translated (constants not yet patched in: validate does that), its constant
++ *   slots and its control words.
++ * - Vertex programs: key the TGSI tokens, the class, the texcoord mapping of the fragment program
++ *   bound at translation and the enabled clip planes (the translation's variant key); value the
++ *   code before relocation, its constants and immediates, the branch and constant relocations
++ *   and the input/output masks.
++ * An entry that doesn't parse is ignored (compiled as without the cache). NV30_SHADER_CACHE_STATS=1
++ * prints a "nv30-shcache:" line at context destruction: hits, misses and the ms each side took
++ * (counted with the cache off too: then every creation is a miss, and the miss ms is what the
++ * cache could save).
++ */
++
++#include "compiler/nir/nir.h"
++#include "compiler/nir/nir_serialize.h"
++#include "nir/nir_to_tgsi.h"
++#include "tgsi/tgsi_parse.h"
++#include "util/blob.h"
++#include "util/disk_cache.h"
++#include "util/os_misc.h"
++#include "util/os_time.h"
++#include "util/u_atomic.h"
++#include "util/u_debug.h"
++#include "util/u_dynarray.h"
++#include "util/u_memory.h"
++
++#include "nv_object.xml.h"
++#include "nv30/nv30-40_3d.xml.h"
++#include "nv30/nv30_context.h"
++#include "nv30/nv30_screen.h"
++#include "nv30/nv30_state.h"
++#include "nv30/nvfx_shader.h"
++
++#define SHC_VERSION 1
++enum { SHC_TGSI = 0x6e333054, SHC_FP = 0x6e333046, SHC_VP = 0x6e333056 };   /* n30T n30F n30V */
++
++/* process totals (every screen: one per process in practice) */
++static struct nv30_shcache_count counts[3];
++static bool stats;
++
++void
++nv30_shader_cache_init(struct nv30_screen *screen)
++{
++   const char *v = os_get_option("NV30_SHADER_CACHE");
++
++   screen->shader_cache = v && (!strcmp(v, "on") || !strcmp(v, "1") || !strcmp(v, "yes") ||
++                                !strcmp(v, "true"));
++   screen->shader_cache_stats = debug_get_bool_option("NV30_SHADER_CACHE_STATS", false);
++   if (screen->shader_cache_stats)
++      stats = true;
++}
++
++static struct disk_cache *
++cache_of(struct nv30_screen *screen)
++{
++   return screen->shader_cache ? screen->base.disk_shader_cache : NULL;
++}
++
++static void
++count(struct nv30_screen *screen, int what, bool hit, int64_t t0)
++{
++   struct nv30_shcache_count *c = &counts[what];
++
++   if (!screen->shader_cache_stats)
++      return;
++   p_atomic_inc(hit ? &c->hit : &c->miss);
++   p_atomic_add(hit ? &c->hit_us : &c->miss_us, (os_time_get_nano() - t0) / 1000);
++}
++
++static void
++report(const char *event, const char *state)
++{
++   static const char *const name[3] = { "tgsi", "fp", "vp" };
++   char line[512];
++   int n = 0;
++
++   for (int i = 0; i < 3; i++) {
++      const struct nv30_shcache_count *c = &counts[i];
++
++      n += snprintf(line + n, sizeof(line) - n, " %s_hit=%u %s_miss=%u %s_hit_ms=%" PRIu64
++                    " %s_miss_ms=%" PRIu64, name[i], p_atomic_read(&c->hit), name[i],
++                    p_atomic_read(&c->miss), name[i], p_atomic_read(&c->hit_us) / 1000, name[i],
++                    p_atomic_read(&c->miss_us) / 1000);
++   }
++   fprintf(stderr, "nv30-shcache: %s cache=%s%s\n", event, state, line);
++}
++
++void
++nv30_shader_cache_report(struct nv30_screen *screen, const char *event)
++{
++   if (screen->shader_cache_stats)
++      report(event, cache_of(screen) ? "on" : screen->shader_cache ? "unavailable" : "off");
++}
++
++/* at exit (or unload) too: games often exit without destroying their context */
++static void __attribute__((destructor))
++report_exit(void)
++{
++   if (stats)
++      report("exit", "-");
++}
++
++static void
++key_of(struct disk_cache *dc, uint32_t magic, const uint32_t *words, unsigned nwords,
++       const void *data, size_t size, cache_key key)
++{
++   struct blob b;
++
++   blob_init(&b);
++   blob_write_uint32(&b, magic);
++   blob_write_uint32(&b, SHC_VERSION);
++   blob_write_bytes(&b, words, nwords * 4);
++   blob_write_bytes(&b, data, size);
++   disk_cache_compute_key(dc, b.data, b.size, key);
++   blob_finish(&b);
++}
++
++/* ------------------------------------------------------------------------------------------ */
++/* NIR -> TGSI */
++
++const struct tgsi_token *
++nv30_shader_cache_tgsi(struct pipe_screen *pscreen, nir_shader *nir)
++{
++   struct nv30_screen *screen = nv30_screen(pscreen);
++   struct disk_cache *dc = cache_of(screen);
++   int64_t t0 = os_time_get_nano();
++   const struct tgsi_token *tokens;
++   cache_key key;
++   struct blob b;
++   bool keyed = false;
++
++   if (dc) {
++      uint32_t stage = nir->info.stage;
++
++      blob_init(&b);
++      nir_serialize(&b, nir, false);
++      if (!b.out_of_memory) {
++         key_of(dc, SHC_TGSI, &stage, 1, b.data, b.size, key);
++         keyed = true;
++      }
++      blob_finish(&b);
++   }
++   if (keyed) {
++      size_t size = 0;
++      uint32_t *data = disk_cache_get(dc, key, &size);
++
++      if (data && size >= 8 && data[0] == SHC_TGSI && data[1] &&
++          size == 8 + (size_t)data[1] * sizeof(struct tgsi_token)) {
++         struct tgsi_token *t = MALLOC(data[1] * sizeof(struct tgsi_token));
++
++         if (t) {
++            memcpy(t, data + 2, data[1] * sizeof(struct tgsi_token));
++            free(data);
++            ralloc_free(nir);   /* nir_to_tgsi would have */
++            count(screen, 0, true, t0);
++            return t;
++         }
++      }
++      free(data);
++   }
++
++   tokens = nir_to_tgsi(nir, pscreen);
++   if (keyed && tokens) {
++      unsigned n = tgsi_num_tokens(tokens);
++      uint32_t *data = malloc(8 + n * sizeof(struct tgsi_token));
++
++      if (data) {
++         data[0] = SHC_TGSI;
++         data[1] = n;
++         memcpy(data + 2, tokens, n * sizeof(struct tgsi_token));
++         disk_cache_put(dc, key, data, 8 + n * sizeof(struct tgsi_token), NULL);
++         free(data);
++      }
++   }
++   count(screen, 0, false, t0);
++   return tokens;
++}
++
++/* ------------------------------------------------------------------------------------------ */
++/* fragment programs */
++
++struct fp_entry {
++   uint32_t magic, insn_len, nr_consts;
++   uint32_t fp_control, coord_conventions, rt_enable, texcoords, vp_or, point_sprite_control;
++   uint16_t texcoord[10];
++   /* then insn[insn_len], then nr_consts x { offset, index } */
++};
++
++static bool
++fp_from_entry(struct nv30_fragprog *fp, const uint8_t *data, size_t size)
++{
++   struct fp_entry e;
++   size_t need;
++
++   if (size < sizeof(e))
++      return false;
++   memcpy(&e, data, sizeof(e));
++   need = sizeof(e) + (size_t)e.insn_len * 4 + (size_t)e.nr_consts * 8;
++   if (e.magic != SHC_FP || !e.insn_len || need != size)
++      return false;
++   fp->insn = malloc(e.insn_len * 4);
++   fp->consts = e.nr_consts ? malloc(e.nr_consts * sizeof(*fp->consts)) : NULL;
++   if (!fp->insn || (e.nr_consts && !fp->consts)) {
++      FREE(fp->insn);
++      FREE(fp->consts);
++      fp->insn = NULL;
++      fp->consts = NULL;
++      return false;
++   }
++   memcpy(fp->insn, data + sizeof(e), e.insn_len * 4);
++   for (unsigned i = 0; i < e.nr_consts; i++) {
++      uint32_t c[2];
++
++      memcpy(c, data + sizeof(e) + e.insn_len * 4 + i * 8, 8);
++      fp->consts[i].offset = c[0];
++      fp->consts[i].index = c[1];
++   }
++   fp->insn_len = e.insn_len;
++   fp->nr_consts = e.nr_consts;
++   fp->fp_control |= e.fp_control;
++   fp->coord_conventions |= e.coord_conventions;
++   fp->rt_enable |= e.rt_enable;
++   fp->texcoords |= e.texcoords;
++   fp->vp_or = e.vp_or;
++   fp->point_sprite_control = e.point_sprite_control;
++   memcpy(fp->texcoord, e.texcoord, sizeof(fp->texcoord));
++   fp->translated = true;
++   return true;
++}
++
++void
++nv30_shader_cache_fp_translate(struct nv30_context *nv30, struct nv30_fragprog *fp)
++{
++   struct nv30_screen *screen = nv30->screen;
++   struct disk_cache *dc = cache_of(screen);
++   uint16_t oclass = screen->eng3d->oclass;
++   int64_t t0 = os_time_get_nano();
++   uint32_t fixed[4], save[4];
++   cache_key key;
++
++   /* only a program never translated (a failed translation leaves a partial one behind) */
++   if (!dc || fp->insn_len || fp->nr_consts) {
++      _nvfx_fragprog_translate(oclass, fp);
++      count(screen, 1, false, t0);
++      return;
++   }
++   fixed[0] = oclass;
++   fixed[1] = oclass >= NV40_3D_CLASS && debug_get_bool_option("NV40_FP_EXPORT32", true);
++   fixed[2] = 0;
++   fixed[3] = 0;
++   key_of(dc, SHC_FP, fixed, 4, fp->pipe.tokens,
++          tgsi_num_tokens(fp->pipe.tokens) * sizeof(struct tgsi_token), key);
++   {
++      size_t size = 0;
++      void *data = disk_cache_get(dc, key, &size);
++      bool ok = data && fp_from_entry(fp, data, size);
++
++      free(data);
++      if (ok) {
++         count(screen, 1, true, t0);
++         return;
++      }
++   }
++
++   /* the words the translation ORs into, as from a new program, so the entry is its own */
++   save[0] = fp->fp_control;
++   save[1] = fp->coord_conventions;
++   save[2] = fp->rt_enable;
++   save[3] = fp->texcoords;
++   fp->fp_control = fp->coord_conventions = fp->rt_enable = fp->texcoords = 0;
++   _nvfx_fragprog_translate(oclass, fp);
++   if (fp->translated && fp->insn_len) {
++      struct fp_entry e = {
++         .magic = SHC_FP, .insn_len = fp->insn_len, .nr_consts = fp->nr_consts,
++         .fp_control = fp->fp_control, .coord_conventions = fp->coord_conventions,
++         .rt_enable = fp->rt_enable, .texcoords = fp->texcoords, .vp_or = fp->vp_or,
++         .point_sprite_control = fp->point_sprite_control,
++      };
++      struct blob b;
++
++      memcpy(e.texcoord, fp->texcoord, sizeof(e.texcoord));
++      blob_init(&b);
++      blob_write_bytes(&b, &e, sizeof(e));
++      blob_write_bytes(&b, fp->insn, fp->insn_len * 4);
++      for (unsigned i = 0; i < fp->nr_consts; i++) {
++         uint32_t c[2] = { fp->consts[i].offset, fp->consts[i].index };
++
++         blob_write_bytes(&b, c, 8);
++      }
++      if (!b.out_of_memory)
++         disk_cache_put(dc, key, b.data, b.size, NULL);
++      blob_finish(&b);
++   }
++   fp->fp_control |= save[0];
++   fp->coord_conventions |= save[1];
++   fp->rt_enable |= save[2];
++   fp->texcoords |= save[3];
++   count(screen, 1, false, t0);
++}
++
++/* ------------------------------------------------------------------------------------------ */
++/* vertex programs */
++
++struct vp_entry {
++   uint32_t magic, nr_insns, nr_consts, nr_branch, nr_constrel, ir, or;
++   /* then insns (4 words each), consts ({ index, value[4] }: 5 words each), branch relocs and
++    * constant relocs (2 words each) */
++};
++
++static bool
++vp_from_entry(struct nv30_vertprog *vp, const uint8_t *data, size_t size)
++{
++   struct vp_entry e;
++   size_t need, off;
++
++   if (size < sizeof(e))
++      return false;
++   memcpy(&e, data, sizeof(e));
++   need = sizeof(e) + (size_t)e.nr_insns * 16 + (size_t)e.nr_consts * 20 +
++          ((size_t)e.nr_branch + e.nr_constrel) * 8;
++   if (e.magic != SHC_VP || !e.nr_insns || need != size)
++      return false;
++   vp->insns = malloc(e.nr_insns * sizeof(*vp->insns));
++   vp->consts = e.nr_consts ? malloc(e.nr_consts * sizeof(*vp->consts)) : NULL;
++   if (!vp->insns || (e.nr_consts && !vp->consts)) {
++      FREE(vp->insns);
++      FREE(vp->consts);
++      vp->insns = NULL;
++      vp->consts = NULL;
++      return false;
++   }
++   off = sizeof(e);
++   memcpy(vp->insns, data + off, e.nr_insns * 16);
++   off += e.nr_insns * 16;
++   for (unsigned i = 0; i < e.nr_consts; i++, off += 20) {
++      int32_t index;
++
++      memcpy(&index, data + off, 4);
++      vp->consts[i].index = index;
++      memcpy(vp->consts[i].value, data + off + 4, 16);
++   }
++   for (unsigned i = 0; i < e.nr_branch + e.nr_constrel; i++, off += 8) {
++      struct nvfx_relocation r;
++      uint32_t w[2];
++
++      memcpy(w, data + off, 8);
++      r.location = w[0];
++      r.target = w[1];
++      if (i < e.nr_branch)
++         util_dynarray_append(&vp->branch_relocs, r);
++      else
++         util_dynarray_append(&vp->const_relocs, r);
++   }
++   util_dynarray_trim(&vp->branch_relocs);
++   vp->nr_insns = e.nr_insns;
++   vp->nr_consts = e.nr_consts;
++   vp->ir |= e.ir;
++   vp->or |= e.or;
++   return true;
++}
++
++bool
++nv30_shader_cache_vp_translate(struct nv30_context *nv30, struct nv30_vertprog *vp)
++{
++   struct nv30_screen *screen = nv30->screen;
++   struct disk_cache *dc = cache_of(screen);
++   uint16_t oclass = screen->eng3d->oclass;
++   int64_t t0 = os_time_get_nano();
++   uint32_t fixed[2 + 5], save_ir, save_or;
++   cache_key key;
++   bool ok;
++
++   /* only from the state nv30_vertprog_destroy leaves (or a new program) */
++   if (!dc || vp->insns || vp->consts || vp->branch_relocs.size || vp->const_relocs.size) {
++      ok = _nvfx_vertprog_translate(oclass, vp);
++      count(screen, 2, false, t0);
++      return ok;
++   }
++   fixed[0] = oclass;
++   fixed[1] = vp->enabled_ucps;
++   for (unsigned i = 0; i < 5; i++)
++      fixed[2 + i] = vp->texcoord[2 * i] | (uint32_t)vp->texcoord[2 * i + 1] << 16;
++   key_of(dc, SHC_VP, fixed, 7, vp->pipe.tokens,
++          tgsi_num_tokens(vp->pipe.tokens) * sizeof(struct tgsi_token), key);
++   {
++      size_t size = 0;
++      void *data = disk_cache_get(dc, key, &size);
++
++      ok = data && vp_from_entry(vp, data, size);
++      free(data);
++      if (ok) {
++         count(screen, 2, true, t0);
++         return true;
++      }
++   }
++
++   save_ir = vp->ir;
++   save_or = vp->or;
++   vp->ir = vp->or = 0;
++   ok = _nvfx_vertprog_translate(oclass, vp);
++   if (ok && vp->nr_insns) {
++      struct vp_entry e = {
++         .magic = SHC_VP, .nr_insns = vp->nr_insns, .nr_consts = vp->nr_consts,
++         .nr_branch = vp->branch_relocs.size / sizeof(struct nvfx_relocation),
++         .nr_constrel = vp->const_relocs.size / sizeof(struct nvfx_relocation),
++         .ir = vp->ir, .or = vp->or,
++      };
++      struct blob b;
++
++      blob_init(&b);
++      blob_write_bytes(&b, &e, sizeof(e));
++      blob_write_bytes(&b, vp->insns, vp->nr_insns * 16);
++      for (unsigned i = 0; i < vp->nr_consts; i++) {
++         int32_t index = vp->consts[i].index;
++
++         blob_write_bytes(&b, &index, 4);
++         blob_write_bytes(&b, vp->consts[i].value, 16);
++      }
++      util_dynarray_foreach(&vp->branch_relocs, struct nvfx_relocation, r) {
++         uint32_t w[2] = { r->location, r->target };
++
++         blob_write_bytes(&b, w, 8);
++      }
++      util_dynarray_foreach(&vp->const_relocs, struct nvfx_relocation, r) {
++         uint32_t w[2] = { r->location, r->target };
++
++         blob_write_bytes(&b, w, 8);
++      }
++      if (!b.out_of_memory)
++         disk_cache_put(dc, key, b.data, b.size, NULL);
++      blob_finish(&b);
++   }
++   vp->ir |= save_ir;
++   vp->or |= save_or;
++   count(screen, 2, false, t0);
++   return ok;
++}
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c b/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c
+@@ -79,7 +79,7 @@ nv30_vertprog_validate(struct nv30_context *nv30)
+    }
+ 
+    if (!vp->translated) {
+-      vp->translated = _nvfx_vertprog_translate(eng3d->oclass, vp);
++      vp->translated = nv30_shader_cache_vp_translate(nv30, vp);   /* _nvfx_vertprog_translate */
+       if (!vp->translated) {
+          nv30->draw_flags |= NV30_NEW_VERTPROG;
+          return;
+@@ -245,7 +245,7 @@ nv30_vp_state_create(struct pipe_context *pipe,
+       return NULL;
+ 
+    if (cso->type == PIPE_SHADER_IR_NIR) {
+-      vp->pipe.tokens = nir_to_tgsi(cso->ir.nir, pipe->screen);
++      vp->pipe.tokens = nv30_shader_cache_tgsi(pipe->screen, cso->ir.nir);   /* nir_to_tgsi */
+    } else {
+       assert(cso->type == PIPE_SHADER_IR_TGSI);
+       /* we need to keep a local copy of the tokens */

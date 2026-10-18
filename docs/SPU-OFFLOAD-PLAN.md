@@ -92,7 +92,8 @@ default) uses the SPEs, so installing the two packages is enough. Next: the shar
   SPEs against about 175 ms on the PPE) are done. No game in the suite has exercised the RGB path yet
   (Sauerbraten's demo uploads none), and Teeworlds' DXT5 has not shown a `SPEQ` line in a log.
 - Not started: E16/E8b, meshing, the 7th SPE (`spu_base.enum_shared=1`, FLASH-SYSCON.md 6.1),
-  compression at upload for every game (IDEAS #4).
+  compression at upload for every game (IDEAS #4; built 2026-10-18 as Mesa 0038 `NV30_FORCE_DXT`,
+  off by default, PS3 A/B in MEMORY.md "Texture compression at upload").
 
 ## Parked, in the order they would come back
 

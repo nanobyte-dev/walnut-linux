@@ -408,6 +408,53 @@ in the warm-up alone), `lp_mb`, `lp_wmb`, `lp_majflt`, `lp_ld`, `lp_disk`.
   (`mesa_shader_cache_sf`, `_db` only with `MESA_DISK_CACHE_SINGLE_FILE`/`_DATABASE`).
   `SHADERCACHE=` uses `MESA_SHADER_CACHE_DIR`, so no cache is moved aside.
 
+### nv30's shader cache (Mesa 0039, `NV30_SHADER_CACHE`, 2026-10-18)
+
+The cache sketched above, built (`mesa/patches/0039-nv30-compiled-programs-in-the-disk-shader-cache-NV30.patch`,
+`src/gallium/drivers/nouveau/nv30/nv30_shader_cache.c`), off by default. With
+`NV30_SHADER_CACHE=on` both halves of `shader.backend` that nv30 owns go into the screen's disk
+cache (the same `MESA_SHADER_CACHE_DIR` as the NIR, so `SHADERCACHE=cold|warm|off` covers it):
+
+| Entry | Key | Value |
+|---|---|---|
+| TGSI | the serialized NIR handed to `create_fs_state`/`create_vs_state`, the stage | the tokens `nir_to_tgsi` made (a hit frees the NIR, as `nir_to_tgsi` would) |
+| fragment program | the TGSI tokens, the 3D class, `NV40_FP_EXPORT32` | the code as translated (constants unpatched: validate patches them), constant slots, texcoord mapping, FP_CONTROL, coord conventions, RT_ENABLE, texcoords, vp_or, point sprite control |
+| vertex program | the TGSI tokens, the class, the bound fragment program's texcoord mapping, the enabled clip planes (the translation's variant key) | the code before relocation, constants and immediates, branch and constant relocations, input/output masks |
+
+Invalidation: nouveau's cache is created with the driver binary's build id and the chipset name
+(`nouveau_screen.c` `nouveau_disk_cache_create`), and `disk_cache_compute_key` mixes those into
+every key, so a new Mesa build (any patch, any compiler change) misses every old entry; entries
+carry a magic and their sizes and are dropped if they don't parse. Only a program in its initial
+state is looked up (a failed translation leaves a partial one, which is translated as before). Not
+cached: the state tracker's variant work (`st_create_fp_variant`, `st_finalize_nir`) and the
+NIR serialization the TGSI key needs (cheaper than `nir_to_tgsi`'s passes, but not free: the
+`shc_hit_ms` column says how much a hit costs).
+
+`NV30_SHADER_CACHE_STATS=1`: a `nv30-shcache:` line at context destruction and at exit with hits, misses
+and the ms of each for TGSI, fragment and vertex programs (report.py `shc_*`). With the cache off
+every creation counts as a miss, so `shc_miss_ms` of an off run is what the cache could save at
+most. Compile-tested only: nv30 code can't run on the host.
+
+On the PS3, after deploying the Mesa debs (26.2.4-1+ps3.466~dev20261018175510): a new build misses everything, so one
+priming run per game first (it fills the NIR and the nv30 entries of the warm cache), then the
+A/B with the warm NIR cache in both arms:
+
+    T=SHADERCACHE=warm+NV30_SHADER_CACHE_STATS=1
+    PERF_LOAD=1 ENVS="$T+NV30_SHADER_CACHE=on" /var/tmp/bench/run.sh bench openarena gl2min 1   # prime
+    PERF_LOAD=1 STALLS=1 ENVS="$T $T+NV30_SHADER_CACHE=on" /var/tmp/bench/run.sh bench openarena gl2min 2
+    # the other GLSL games the same way, if OpenArena shows a gain
+    PERF_LOAD=1 ENVS="$T+NV30_SHADER_CACHE=on" /var/tmp/bench/run.sh bench sauerbraten base 1   # prime
+    PERF_LOAD=1 STALLS=1 ENVS="$T $T+NV30_SHADER_CACHE=on" /var/tmp/bench/run.sh bench sauerbraten base 2
+    python3 /var/tmp/bench/report.py --load /var/tmp/ps3-bench/<run dirs>
+
+Read `load`, `lp_shbe` (expected down by about the off arm's `shc_miss_ms` less the on arm's
+`shc_hit_ms`), `shc_tgsi_hit`/`_miss` (on: all hits after the prime; misses mean the NIR differs
+between runs, which would be worth a look), `shc_vp_miss` (variants met for the first time),
+`stalls_warm` (programs first used during the warm-up: their translation is a hitch the cache
+removes), and `shadercache_kb` (the nv30 entries' size: an estimated 60-250 KiB for OpenArena
+opengl2's programs). Check game.log for "failed to compile" lines and the webcam for wrong
+rendering; a hit gives the bytes a translation gives, so any difference is a bug.
+
 ### libjpeg-turbo's SIMD on the Cell
 
 Debian's `libjpeg62-turbo 1:3.1.3-4` for ppc64 is built with its AltiVec code: the library has

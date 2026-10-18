@@ -1,0 +1,926 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 20:26:16 +0300
+Subject: mesa: texture compression at upload for every game (NV30_FORCE_DXT,
+ off by default)
+
+Most games upload plain RGB(A)8 textures; on the PS3 those cost 4 bytes a texel of VRAM (RGB is
+stored as X8R8G8B8), and VRAM is also the swap tier. NV30_FORCE_DXT=opaque stores a glTexImage2D
+of GL_TEXTURE_2D level 0 with an internal format GL_RGB, GL_RGB8, 3, GL_RGBA, GL_RGBA8 or 4 from
+8-bit RGB/BGR/RGBA/BGRA data (unsigned byte or the 8888 packed types) as DXT1 when it has no alpha
+(an RGB internal format or source, or every alpha byte 255, scanned eight bytes at a time and
+stopping at the first other value): an eighth of the VRAM and of the upload. NV30_FORCE_DXT=all
+also stores images with alpha as DXT5 (a quarter). The image gets a DXT TexFormat while its
+InternalFormat stays the game's, and Mesa's S3TC texstore compresses it as for any compressed
+upload: through libspeq on the PS3 (0011, 0032; the SPEs take RGB and RGBA sources directly).
+Levels above 0 follow level 0 through _mesa_choose_texture_format's choice from the level below.
+
+Not taken: glTexImage2D(NULL) without a PBO (render targets, textures filled by glTexSubImage),
+smaller than NV30_FORCE_DXT_MIN (64) in width or height, sizes not powers of two (nv30 lays DXT
+out for POT mipmaps; its NPOT layout with DXT is untested), borders, pixel transfer ops, swapped
+bytes, textures whose magnification filter is already GL_NEAREST when uploaded (pixel art and UI
+drawn 1:1 show DXT's blocks most; NV30_FORCE_DXT_NEAREST=1 takes them), cube maps (every face
+would have to decide alike), other targets, formats and types, drivers without native DXT1/DXT5,
+and a level 0 whose texture already has an uncompressed level 1 of the same internal format
+(levels uploaded smallest first, or a chain made with glTexImage2D(NULL) and given data later:
+every level must have one format, or the texture is incomplete).
+
+Afterwards the texture behaves as the game uploaded it:
+- glTexSubImage on whole 4x4 blocks (a partial block only at the right or bottom edge): those
+  blocks are compressed again from the new pixels; any other update, glCopyTexSubImage and a
+  framebuffer attachment first turn every compressed-at-upload level back into the format the
+  game asked for (every level decoded first with st_GetTexSubImage, a GPU blit on nv30, then
+  each specified again from level 0 up, the game's unpack state set aside), once per texture;
+  the error checks then see an uncompressed texture.
+- glGenerateMipmap and GL_GENERATE_MIPMAP take Mesa's path for compressed textures (the base
+  read back decoded, the levels made on the CPU and compressed: libspeq again); timed.
+- glGetTexImage returns the decoded blocks, GL_TEXTURE_INTERNAL_FORMAT reports the game's
+  internal format (texparam.c; not the DXT enum) and GL_TEXTURE_COMPRESSED tells the truth.
+
+NV30_FORCE_DXT_STATS=N prints a "nv30-forcedxt:" line every N compressed textures, at every
+return to uncompressed, at context destruction and at exit (textures, DXT1/DXT5, levels, KiB before and
+after, sub-image updates, returns to uncompressed, mipmap generations and their ms, the alpha
+scan's ms, and the textures kept by reason); NV30_FORCE_DXT_DEBUG=1 a line per decision. The
+decision is plain C in texforcedxt_policy.h, tested on its own on the host. The switches say NV30
+(the PS3's are NV30_*), but this is core Mesa: softpipe takes the same paths (the host check).
+
+Forwarded: no
+
+diff --git a/src/mesa/main/context.c b/src/mesa/main/context.c
+--- a/src/mesa/main/context.c
++++ b/src/mesa/main/context.c
+@@ -123,6 +123,7 @@
+ #include "shaderobj.h"
+ #include "shaderimage.h"
+ #include "state.h"
++#include "texforcedxt.h"
+ #include "util/u_debug.h"
+ #include "util/disk_cache.h"
+ #include "util/log.h"
+@@ -1085,6 +1086,8 @@ fail:
+ void
+ _mesa_free_context_data(struct gl_context *ctx, bool destroy_debug_output)
+ {
++   _mesa_force_dxt_report_end();   /* NV30_FORCE_DXT_STATS */
++
+    if (!_mesa_get_current_context()){
+       /* No current context, but we may need one in order to delete
+        * texture objs, etc.  So temporarily bind the context now.
+diff --git a/src/mesa/main/fbobject.c b/src/mesa/main/fbobject.c
+--- a/src/mesa/main/fbobject.c
++++ b/src/mesa/main/fbobject.c
+@@ -50,6 +50,7 @@
+ #include "renderbuffer.h"
+ #include "state.h"
+ #include "teximage.h"
++#include "texforcedxt.h"
+ #include "texobj.h"
+ #include "api_exec_decl.h"
+ 
+@@ -4134,6 +4135,10 @@ _mesa_framebuffer_texture(struct gl_context *ctx, struct gl_framebuffer *fb,
+                           GLint level, GLsizei samples,
+                           GLuint layer, GLboolean layered, GLsizei numviews)
+ {
++   /* NV30_FORCE_DXT: a texture compressed at upload goes back to uncompressed to be rendered to */
++   if (texObj)
++      _mesa_force_dxt_unforce(ctx, texObj, "fbo");
++
+    FLUSH_VERTICES(ctx, _NEW_BUFFERS, 0);
+ 
+    simple_mtx_lock(&fb->Mutex);
+diff --git a/src/mesa/main/texforcedxt.c b/src/mesa/main/texforcedxt.c
+new file mode 100644
+--- /dev/null
++++ b/src/mesa/main/texforcedxt.c
+@@ -0,0 +1,384 @@
++/*
++ * Texture compression at upload, for games that upload plain RGB(A)8 textures (PS3: VRAM is also
++ * the swap tier, and DXT1 takes an eighth of an X8R8G8B8 texture, DXT5 a quarter).
++ *
++ * NV30_FORCE_DXT=off (default) | opaque | all. A glTexImage2D the policy takes
++ * (texforcedxt_policy.h) gets a DXT TexFormat while its InternalFormat stays what the game asked
++ * for; Mesa's S3TC texstore then compresses it (through libspeq on the PS3: the SPEs, RGB and RGBA
++ * sources directly), as for any compressed upload. Levels above 0 follow level 0 (Mesa's choice
++ * of a level's format from the level below). Afterwards:
++ * - glTexSubImage on whole 4x4 blocks: those blocks compressed again from the new pixels;
++ *   anything else, glCopyTexSubImage and a framebuffer attachment: every compressed-at-upload
++ *   level is decoded (st_GetTexSubImage: a GPU blit on nv30) and specified again uncompressed,
++ *   so the texture is from then on what the game asked for (once per texture);
++ * - glGenerateMipmap: Mesa's path for compressed textures (the base decoded, the levels made on
++ *   the CPU and compressed: libspeq again), counted and timed;
++ * - glGetTexImage returns the decoded blocks; GL_TEXTURE_INTERNAL_FORMAT stays the game's,
++ *   GL_TEXTURE_COMPRESSED tells the truth (the spec allows storing a generic format compressed).
++ * NV30_FORCE_DXT_MIN (64): smallest width and height; NV30_FORCE_DXT_NEAREST=1: also textures
++ * magnified with GL_NEAREST (kept by default: pixel art and UI drawn 1:1 show DXT's blocks most);
++ * NV30_FORCE_DXT_STATS=N: a "nv30-forcedxt:" line on stderr every N compressed textures, at every
++ * return to uncompressed and at context destruction; NV30_FORCE_DXT_DEBUG=1: a line per decision.
++ * The name says NV30 (the PS3's switches are NV30_*), but this is core Mesa: any driver with
++ * native DXT1/DXT5 sampling takes it, softpipe included (the host check).
++ */
++
++#include <inttypes.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include "c11/threads.h"
++#include "util/detect_arch.h"
++#include "util/os_misc.h"
++#include "util/os_time.h"
++#include "util/u_atomic.h"
++
++#include "context.h"
++#include "enums.h"
++#include "errors.h"
++#include "image.h"
++#include "mtypes.h"
++#include "pixel.h"
++#include "teximage.h"
++#include "texforcedxt.h"
++#include "texforcedxt_policy.h"
++#include "state_tracker/st_cb_texture.h"
++#include "state_tracker/st_context.h"
++#include "pipe/p_screen.h"
++
++static struct {
++   enum fdxt_mode mode;
++   unsigned min, stats_every;
++   bool nearest_ok, debug;
++} cfg;
++
++/* process totals (every context; atomics) */
++static struct {
++   uint64_t tex, dxt1, dxt5, levels, kb_raw, kb_dxt;   /* compressed at upload: level 0 + levels */
++   uint64_t sub, sub_kb;                               /* sub-image updates stored compressed */
++   uint64_t unforced, unforced_kb;                     /* textures (levels' KiB) back uncompressed */
++   uint64_t mipgen, mipgen_us, scan_us;
++   uint64_t why[FDXT_WHY_COUNT];
++} tot;
++
++static once_flag cfg_once = ONCE_FLAG_INIT;
++/* set while a texture is specified again uncompressed (no decision then) */
++static __thread bool suspended;
++
++static void
++cfg_load(void)
++{
++   const char *m = os_get_option("NV30_FORCE_DXT");
++   const char *v;
++
++   cfg.mode = FDXT_OFF;
++   if (m && (!strcmp(m, "opaque") || !strcmp(m, "1")))
++      cfg.mode = FDXT_OPAQUE;
++   else if (m && !strcmp(m, "all"))
++      cfg.mode = FDXT_ALL;
++   else if (m && strcmp(m, "off") && strcmp(m, "0"))
++      fprintf(stderr, "nv30-forcedxt: NV30_FORCE_DXT=%s unknown (off, opaque, all): off\n", m);
++   v = os_get_option("NV30_FORCE_DXT_MIN");
++   cfg.min = v ? MAX2(atoi(v), 4) : 64;
++   v = os_get_option("NV30_FORCE_DXT_NEAREST");
++   cfg.nearest_ok = v && atoi(v) > 0;
++   v = os_get_option("NV30_FORCE_DXT_STATS");
++   cfg.stats_every = v ? MAX2(atoi(v), 0) : 0;
++   v = os_get_option("NV30_FORCE_DXT_DEBUG");
++   cfg.debug = v && atoi(v) > 0;
++}
++
++static inline enum fdxt_mode
++mode(void)
++{
++   call_once(&cfg_once, cfg_load);
++   return cfg.mode;
++}
++
++static void
++report(const char *event)
++{
++   char why[384];
++   int n = 0;
++
++   for (int i = FDXT_WHY_LEVEL; i < FDXT_WHY_COUNT && n < (int)sizeof(why) - 32; i++)
++      n += snprintf(why + n, sizeof(why) - n, " skip_%s=%" PRIu64, fdxt_why_name[i],
++                    p_atomic_read(&tot.why[i]));
++   fprintf(stderr, "nv30-forcedxt: %s mode=%s min=%u tex=%" PRIu64 " dxt1=%" PRIu64
++           " dxt5=%" PRIu64 " levels=%" PRIu64 " kb_raw=%" PRIu64 " kb_dxt=%" PRIu64
++           " sub=%" PRIu64 " sub_kb=%" PRIu64 " unforced=%" PRIu64 " unforced_kb=%" PRIu64
++           " mipgen=%" PRIu64 " mipgen_ms=%" PRIu64 " scan_ms=%" PRIu64 "%s\n",
++           event, cfg.mode == FDXT_ALL ? "all" : cfg.mode == FDXT_OPAQUE ? "opaque" : "off",
++           cfg.min, p_atomic_read(&tot.tex), p_atomic_read(&tot.dxt1), p_atomic_read(&tot.dxt5),
++           p_atomic_read(&tot.levels), p_atomic_read(&tot.kb_raw) / 1024,
++           p_atomic_read(&tot.kb_dxt) / 1024, p_atomic_read(&tot.sub),
++           p_atomic_read(&tot.sub_kb) / 1024, p_atomic_read(&tot.unforced),
++           p_atomic_read(&tot.unforced_kb) / 1024, p_atomic_read(&tot.mipgen),
++           p_atomic_read(&tot.mipgen_us) / 1000, p_atomic_read(&tot.scan_us) / 1000, why);
++}
++
++void
++_mesa_force_dxt_report_end(void)
++{
++   if (mode() != FDXT_OFF && cfg.stats_every)
++      report("end");
++}
++
++/* at exit (or unload) too: games often exit without destroying their context */
++static void __attribute__((destructor))
++report_exit(void)
++{
++   if (cfg.mode != FDXT_OFF && cfg.stats_every)
++      report("exit");
++}
++
++static bool
++is_forced_format(mesa_format f)
++{
++   return f == MESA_FORMAT_RGB_DXT1 || f == MESA_FORMAT_RGBA_DXT5;
++}
++
++bool
++_mesa_force_dxt_image(const struct gl_texture_image *img)
++{
++   /* a plain internal format is never stored as DXT otherwise */
++   return img && is_forced_format(img->TexFormat) && fdxt_internal_comps(img->InternalFormat) &&
++          mode() != FDXT_OFF;
++}
++
++static bool
++native_s3tc(struct gl_context *ctx)
++{
++   struct pipe_screen *screen = st_context(ctx)->screen;
++
++   return ctx->Extensions.EXT_texture_compression_s3tc &&
++          screen->is_format_supported(screen, PIPE_FORMAT_DXT1_RGB, PIPE_TEXTURE_2D, 0, 0,
++                                      PIPE_BIND_SAMPLER_VIEW) &&
++          screen->is_format_supported(screen, PIPE_FORMAT_DXT5_RGBA, PIPE_TEXTURE_2D, 0, 0,
++                                      PIPE_BIND_SAMPLER_VIEW);
++}
++
++/* level > 0 of a texture whose levels follow a compressed-at-upload level 0: counted */
++static void
++count_level(int w, int h, enum fdxt_result r)
++{
++   p_atomic_inc(&tot.levels);
++   p_atomic_add(&tot.kb_raw, fdxt_level_bytes(w, h, FDXT_KEEP));
++   p_atomic_add(&tot.kb_dxt, fdxt_level_bytes(w, h, r));
++}
++
++mesa_format
++_mesa_force_dxt_choose(struct gl_context *ctx, struct gl_texture_object *texObj, GLuint dims,
++                       GLenum target, GLint level, GLint internalFormat, GLsizei width,
++                       GLsizei height, GLsizei depth, GLint border, GLenum format, GLenum type,
++                       const GLvoid *pixels, const struct gl_pixelstore_attrib *unpack,
++                       mesa_format texFormat)
++{
++   struct fdxt_request r;
++   enum fdxt_result res;
++   enum fdxt_why why;
++
++   if (mode() == FDXT_OFF || suspended || target != GL_TEXTURE_2D || dims != 2)
++      return texFormat;
++   if (level > 0) {
++      /* the format came from the level below (_mesa_choose_texture_format) */
++      if (is_forced_format(texFormat) && fdxt_internal_comps(internalFormat))
++         count_level(width, height,
++                     texFormat == MESA_FORMAT_RGB_DXT1 ? FDXT_DXT1 : FDXT_DXT5);
++      return texFormat;
++   }
++
++   _mesa_update_pixel(ctx);
++   memset(&r, 0, sizeof(r));
++   r.mode = cfg.mode;
++   r.min = cfg.min;
++   r.nearest_ok = cfg.nearest_ok;
++   r.dims = dims;
++   r.target_2d = true;
++   r.level = level;
++   r.internal_format = internalFormat;
++   r.format = format;
++   r.type = type;
++   r.width = width;
++   r.height = height;
++   r.depth = depth;
++   r.border = border;
++   r.has_data = pixels || unpack->BufferObj;
++   r.transfer_ops = ctx->_ImageTransferState != 0;
++   r.swap_bytes = unpack->SwapBytes;
++   r.mag_nearest = texObj && texObj->Sampler.Attrib.MagFilter == GL_NEAREST;
++   r.s3tc = true;     /* checked below, after the cheap tests */
++
++   res = fdxt_decide(&r, !UTIL_ARCH_LITTLE_ENDIAN, &why);
++   if (res != FDXT_KEEP && !native_s3tc(ctx)) {
++      res = FDXT_KEEP;
++      why = FDXT_WHY_NOS3TC;
++   }
++   /* a level 1 already there uncompressed (levels uploaded smallest first, or a texture made
++    * with glTexImage2D(NULL) and given data later): level 0 stays alike, or the texture would be
++    * incomplete (every level must have one format) */
++   if (res != FDXT_KEEP && texObj) {
++      const struct gl_texture_image *l1 = texObj->Image[0][1];
++
++      if (l1 && l1->Width > 0 && l1->InternalFormat == internalFormat &&
++          !is_forced_format(l1->TexFormat)) {
++         res = FDXT_KEEP;
++         why = FDXT_WHY_LEVEL;
++      }
++   }
++   if (res == FDXT_CHECK_ALPHA) {
++      bool opaque = false;
++
++      if (!unpack->BufferObj) {   /* a PBO's alpha is taken as not opaque (no map for a scan) */
++         int64_t t0 = os_time_get_nano();
++         const uint8_t *src = _mesa_image_address2d(unpack, pixels, width, height, format,
++                                                    type, 0, 0);
++         int stride = _mesa_image_row_stride(unpack, width, format, type);
++
++         opaque = fdxt_alpha_opaque(src, width, height, stride,
++                                    fdxt_src_alpha_byte(format, type, !UTIL_ARCH_LITTLE_ENDIAN));
++         p_atomic_add(&tot.scan_us, (os_time_get_nano() - t0) / 1000);
++      }
++      res = fdxt_alpha_result(cfg.mode, opaque, &why);
++   }
++   if (res == FDXT_KEEP) {
++      if (why >= FDXT_WHY_LEVEL)
++         p_atomic_inc(&tot.why[why]);
++      if (cfg.debug && why >= FDXT_WHY_LEVEL)
++         fprintf(stderr, "nv30-forcedxt: %dx%d %s %s/%s kept (%s)\n", width, height,
++                 _mesa_enum_to_string(internalFormat), _mesa_enum_to_string(format),
++                 _mesa_enum_to_string(type), fdxt_why_name[why]);
++      return texFormat;
++   }
++
++   p_atomic_inc(&tot.tex);
++   p_atomic_inc(res == FDXT_DXT1 ? &tot.dxt1 : &tot.dxt5);
++   count_level(width, height, res);
++   if (cfg.debug)
++      fprintf(stderr, "nv30-forcedxt: %dx%d %s %s/%s texture %u -> %s\n", width, height,
++              _mesa_enum_to_string(internalFormat), _mesa_enum_to_string(format),
++              _mesa_enum_to_string(type), texObj ? texObj->Name : 0,
++              res == FDXT_DXT1 ? "dxt1" : "dxt5");
++   if (cfg.stats_every && !(p_atomic_read(&tot.tex) % cfg.stats_every))
++      report("tex");
++   return res == FDXT_DXT1 ? MESA_FORMAT_RGB_DXT1 : MESA_FORMAT_RGBA_DXT5;
++}
++
++void
++_mesa_force_dxt_unforce(struct gl_context *ctx, struct gl_texture_object *texObj,
++                        const char *why)
++{
++   uint64_t kb = 0;
++   int n = 0;
++
++   if (mode() == FDXT_OFF || !texObj || texObj->Target != GL_TEXTURE_2D || suspended)
++      return;
++   /* Every level is read first: once level 0 is specified again, the texture's resource is a new
++    * one, and the other levels' images still point at the old one in a way st_GetTexSubImage
++    * no longer reads right (it takes an image whose resource isn't the texture's for a level of
++    * its own). Then from level 0 up, so Mesa's choice of a level's format from the level below
++    * gives each the uncompressed format too. */
++   GLubyte *bufs[MAX_TEXTURE_LEVELS] = { 0 };
++   GLint ifmt[MAX_TEXTURE_LEVELS];
++   int wh[MAX_TEXTURE_LEVELS][2];
++
++   for (int level = 0; level < MAX_TEXTURE_LEVELS; level++) {
++      struct gl_texture_image *img = texObj->Image[0][level];
++      struct gl_pixelstore_attrib save;
++
++      if (!_mesa_force_dxt_image(img))
++         continue;
++      wh[level][0] = img->Width;
++      wh[level][1] = img->Height;
++      ifmt[level] = img->InternalFormat;
++      bufs[level] = malloc((size_t)img->Width * img->Height * 4);
++      if (!bufs[level]) {
++         _mesa_error(ctx, GL_OUT_OF_MEMORY, "NV30_FORCE_DXT: decompress");
++         for (int l = 0; l < level; l++)
++            free(bufs[l]);
++         return;
++      }
++      save = ctx->Pack;
++      ctx->Pack = ctx->DefaultPacking;
++      st_GetTexSubImage(ctx, 0, 0, 0, img->Width, img->Height, 1, GL_RGBA, GL_UNSIGNED_BYTE,
++                        bufs[level], img);
++      ctx->Pack = save;
++   }
++   for (int level = 0; level < MAX_TEXTURE_LEVELS; level++) {
++      if (!bufs[level])
++         continue;
++      suspended = true;
++      _mesa_force_dxt_respecify(ctx, texObj, level, ifmt[level], wh[level][0], wh[level][1],
++                                bufs[level]);
++      suspended = false;
++      free(bufs[level]);
++      kb += fdxt_level_bytes(wh[level][0], wh[level][1], FDXT_KEEP);
++      n++;
++   }
++   if (!n)
++      return;
++   p_atomic_inc(&tot.unforced);
++   p_atomic_add(&tot.unforced_kb, kb);
++   if (cfg.debug || cfg.stats_every) {
++      char ev[64];
++
++      snprintf(ev, sizeof(ev), "unforced why=%s texture=%u levels=%d", why, texObj->Name, n);
++      report(ev);
++   }
++}
++
++void
++_mesa_force_dxt_subimage(struct gl_context *ctx, struct gl_texture_object *texObj,
++                         struct gl_texture_image *img, GLint xoffset, GLint yoffset,
++                         GLsizei width, GLsizei height, bool count)
++{
++   if (!_mesa_force_dxt_image(img) || suspended)
++      return;
++   if (!fdxt_sub_aligned(xoffset, yoffset, width, height, img->Width, img->Height)) {
++      _mesa_force_dxt_unforce(ctx, texObj, "subimage");
++      return;
++   }
++   if (count && width > 0 && height > 0) {
++      p_atomic_inc(&tot.sub);
++      p_atomic_add(&tot.sub_kb, (uint64_t)width * height * 4);
++   }
++}
++
++void
++_mesa_force_dxt_copy(struct gl_context *ctx, struct gl_texture_object *texObj, GLenum target,
++                     GLint level)
++{
++   if (mode() == FDXT_OFF || !texObj || target != GL_TEXTURE_2D || level < 0 ||
++       level >= MAX_TEXTURE_LEVELS)
++      return;
++   if (_mesa_force_dxt_image(texObj->Image[0][level]))
++      _mesa_force_dxt_unforce(ctx, texObj, "copy");
++}
++
++int64_t
++_mesa_force_dxt_mipgen_begin(struct gl_texture_object *texObj)
++{
++   if (mode() == FDXT_OFF || texObj->Target != GL_TEXTURE_2D ||
++       texObj->Attrib.BaseLevel >= MAX_TEXTURE_LEVELS ||
++       !_mesa_force_dxt_image(texObj->Image[0][texObj->Attrib.BaseLevel]))
++      return 0;
++   return MAX2(os_time_get_nano(), 1);
++}
++
++void
++_mesa_force_dxt_mipgen_end(struct gl_texture_object *texObj, int64_t t0)
++{
++   if (!t0)
++      return;
++   p_atomic_inc(&tot.mipgen);
++   p_atomic_add(&tot.mipgen_us, (os_time_get_nano() - t0) / 1000);
++   /* the levels made, counted as uploads */
++   for (int level = texObj->Attrib.BaseLevel + 1; level < MAX_TEXTURE_LEVELS; level++) {
++      struct gl_texture_image *img = texObj->Image[0][level];
++
++      if (_mesa_force_dxt_image(img))
++         count_level(img->Width, img->Height,
++                     img->TexFormat == MESA_FORMAT_RGB_DXT1 ? FDXT_DXT1 : FDXT_DXT5);
++   }
++}
+diff --git a/src/mesa/main/texforcedxt.h b/src/mesa/main/texforcedxt.h
+new file mode 100644
+--- /dev/null
++++ b/src/mesa/main/texforcedxt.h
+@@ -0,0 +1,66 @@
++/*
++ * Texture compression at upload (texforcedxt.c): plain RGB(A)8 2D textures stored as DXT1 (or
++ * DXT5) by Mesa's S3TC texstore, which compresses through libspeq on the PS3's SPEs.
++ * NV30_FORCE_DXT=off (default) | opaque | all; the decision is texforcedxt_policy.h.
++ */
++#ifndef TEXFORCEDXT_H
++#define TEXFORCEDXT_H
++
++#include <stdbool.h>
++#include "util/glheader.h"
++#include "formats.h"
++
++struct gl_context;
++struct gl_texture_object;
++struct gl_texture_image;
++struct gl_pixelstore_attrib;
++
++/* glTexImage (teximage.c): the format to store the image in, texFormat or a DXT format */
++mesa_format
++_mesa_force_dxt_choose(struct gl_context *ctx, struct gl_texture_object *texObj, GLuint dims,
++                       GLenum target, GLint level, GLint internalFormat, GLsizei width,
++                       GLsizei height, GLsizei depth, GLint border, GLenum format, GLenum type,
++                       const GLvoid *pixels, const struct gl_pixelstore_attrib *unpack,
++                       mesa_format texFormat);
++
++/* the image's storage is DXT only because of NV30_FORCE_DXT */
++bool
++_mesa_force_dxt_image(const struct gl_texture_image *img);
++
++/* Every compressed-at-upload level of texObj back in the format the game asked for (decoded from
++ * its blocks): before something that needs the texture uncompressed (a framebuffer attachment, a
++ * glCopyTexSubImage, a sub-image update not on block boundaries) */
++void
++_mesa_force_dxt_unforce(struct gl_context *ctx, struct gl_texture_object *texObj,
++                        const char *why);
++
++/* glTexSubImage on a level (before its error checks, and before the store): an update not on
++ * whole blocks makes the texture uncompressed first; count: count an update stored compressed */
++void
++_mesa_force_dxt_subimage(struct gl_context *ctx, struct gl_texture_object *texObj,
++                         struct gl_texture_image *img, GLint xoffset, GLint yoffset,
++                         GLsizei width, GLsizei height, bool count);
++
++/* glCopyTexSubImage into level of texObj at target */
++void
++_mesa_force_dxt_copy(struct gl_context *ctx, struct gl_texture_object *texObj, GLenum target,
++                     GLint level);
++
++/* mipmap generation of a texture with a compressed-at-upload base level (st_gen_mipmap.c):
++ * returns a start time for _mesa_force_dxt_mipgen_end, 0 when not such a texture */
++int64_t
++_mesa_force_dxt_mipgen_begin(struct gl_texture_object *texObj);
++void
++_mesa_force_dxt_mipgen_end(struct gl_texture_object *texObj, int64_t t0);
++
++/* context destruction: the NV30_FORCE_DXT_STATS line */
++void
++_mesa_force_dxt_report_end(void);
++
++/* teximage.c: level of texObj (GL_TEXTURE_2D) specified again from RGBA8 pixels, not compressed */
++void
++_mesa_force_dxt_respecify(struct gl_context *ctx, struct gl_texture_object *texObj, GLint level,
++                          GLint internalFormat, GLsizei width, GLsizei height,
++                          const GLvoid *pixels);
++
++#endif
+diff --git a/src/mesa/main/texforcedxt_policy.h b/src/mesa/main/texforcedxt_policy.h
+new file mode 100644
+--- /dev/null
++++ b/src/mesa/main/texforcedxt_policy.h
+@@ -0,0 +1,209 @@
++/*
++ * Texture compression at upload (NV30_FORCE_DXT, texforcedxt.c): the decision alone, plain C with
++ * no Mesa state, so it can be tested on its own (the PS3 tree's mesa/tests/forcedxt-policy-test.c).
++ *
++ * A glTexImage2D of an 8-bit RGB(A) image with a plain internal format (GL_RGB, GL_RGB8, 3,
++ * GL_RGBA, GL_RGBA8, 4) into GL_TEXTURE_2D level 0 is stored as DXT1 when it has no alpha (an RGB
++ * internal format, an RGB source, or every alpha byte 255) and, in mode "all", as DXT5 when it has.
++ * Levels above 0 aren't decided here: Mesa gives a level the format of the level below when their
++ * internal formats agree (_mesa_choose_texture_format), so a chain follows its level 0.
++ * Never: no data (glTexImage2D(NULL) without a PBO: a render target, or a texture filled by
++ * glTexSubImage), smaller than min x min, sizes not powers of two (nv30 lays DXT out as POT
++ * mipmaps; its NPOT layout is untested with DXT), a border, pixel transfer ops or byte swapping,
++ * GL_NEAREST magnification (pixel art, UI drawn 1:1) unless allowed, other targets (cube maps:
++ * every face would have to decide alike), other formats and types.
++ */
++#ifndef TEXFORCEDXT_POLICY_H
++#define TEXFORCEDXT_POLICY_H
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++#include <string.h>
++#include "util/glheader.h"
++
++enum fdxt_mode { FDXT_OFF = 0, FDXT_OPAQUE, FDXT_ALL };
++
++enum fdxt_result {
++   FDXT_KEEP = 0,       /* store as the game asked */
++   FDXT_DXT1,           /* RGB DXT1 */
++   FDXT_DXT5,           /* RGBA DXT5 */
++   FDXT_CHECK_ALPHA,    /* DXT1 if every alpha byte is 255, else (mode all) DXT5 or KEEP */
++};
++
++/* why an image is kept; FDXT_WHY_COUNT counters in the stats */
++enum fdxt_why {
++   FDXT_WHY_NONE = 0, FDXT_WHY_OFF, FDXT_WHY_TARGET, FDXT_WHY_LEVEL, FDXT_WHY_NODATA,
++   FDXT_WHY_SMALL, FDXT_WHY_NPOT, FDXT_WHY_BORDER, FDXT_WHY_TRANSFER, FDXT_WHY_FORMAT,
++   FDXT_WHY_NEAREST, FDXT_WHY_ALPHA, FDXT_WHY_NOS3TC, FDXT_WHY_COUNT
++};
++
++static const char *const fdxt_why_name[FDXT_WHY_COUNT] = {
++   "none", "off", "target", "level", "nodata", "small", "npot", "border", "transfer", "format",
++   "nearest", "alpha", "nos3tc",
++};
++
++struct fdxt_request {
++   enum fdxt_mode mode;
++   unsigned min;              /* smallest width and height compressed */
++   bool nearest_ok;           /* NV30_FORCE_DXT_NEAREST=1 */
++   bool s3tc;                 /* the driver stores DXT1 and DXT5 natively */
++   unsigned dims;             /* 1, 2, 3 */
++   bool target_2d;            /* GL_TEXTURE_2D */
++   int level;
++   GLenum internal_format, format, type;
++   int width, height, depth, border;
++   bool has_data;             /* pixels or a bound unpack PBO */
++   bool transfer_ops;         /* ctx->_ImageTransferState */
++   bool swap_bytes;           /* unpack SwapBytes */
++   bool mag_nearest;          /* the texture's magnification filter is GL_NEAREST */
++};
++
++static inline bool
++fdxt_pot(int x)
++{
++   return x > 0 && !(x & (x - 1));
++}
++
++/* 3: an RGB(A) internal format of 8 bits a channel or less specified; 4: RGBA; 0: anything else */
++static inline int
++fdxt_internal_comps(GLenum internal_format)
++{
++   switch (internal_format) {
++   case 3: case GL_RGB: case GL_RGB8:
++      return 3;
++   case 4: case GL_RGBA: case GL_RGBA8:
++      return 4;
++   default:
++      return 0;
++   }
++}
++
++/* Where the alpha byte of the source pixels is: 0..3 within each 4-byte pixel, -1 no alpha (an RGB
++ * source, 3 bytes a pixel), -2 a format/type not taken. big_endian: the packed 8888 types. */
++static inline int
++fdxt_src_alpha_byte(GLenum format, GLenum type, bool big_endian)
++{
++   bool rgb = format == GL_RGB || format == GL_BGR;
++   bool rgba = format == GL_RGBA || format == GL_BGRA;
++
++   if (rgb && type == GL_UNSIGNED_BYTE)
++      return -1;
++   if (!rgba)
++      return -2;
++   switch (type) {
++   case GL_UNSIGNED_BYTE:
++      return 3;
++   case GL_UNSIGNED_INT_8_8_8_8_REV:   /* alpha in bits 24-31 */
++      return big_endian ? 0 : 3;
++   case GL_UNSIGNED_INT_8_8_8_8:       /* alpha in bits 0-7 */
++      return big_endian ? 3 : 0;
++   default:
++      return -2;
++   }
++}
++
++static inline enum fdxt_result
++fdxt_decide(const struct fdxt_request *r, bool big_endian, enum fdxt_why *why)
++{
++   int comps, alpha;
++
++#define KEEP(w) do { *why = (w); return FDXT_KEEP; } while (0)
++   *why = FDXT_WHY_NONE;
++   if (r->mode == FDXT_OFF)
++      KEEP(FDXT_WHY_OFF);
++   if (r->dims != 2 || !r->target_2d)
++      KEEP(FDXT_WHY_TARGET);
++   if (r->level != 0)
++      KEEP(FDXT_WHY_LEVEL);
++   comps = fdxt_internal_comps(r->internal_format);
++   alpha = fdxt_src_alpha_byte(r->format, r->type, big_endian);
++   if (!comps || alpha == -2)
++      KEEP(FDXT_WHY_FORMAT);
++   if (!r->has_data)
++      KEEP(FDXT_WHY_NODATA);
++   if (r->border)
++      KEEP(FDXT_WHY_BORDER);
++   if (r->width < (int)r->min || r->height < (int)r->min || r->depth != 1)
++      KEEP(FDXT_WHY_SMALL);
++   if (!fdxt_pot(r->width) || !fdxt_pot(r->height))
++      KEEP(FDXT_WHY_NPOT);
++   if (r->transfer_ops || r->swap_bytes)
++      KEEP(FDXT_WHY_TRANSFER);
++   if (r->mag_nearest && !r->nearest_ok)
++      KEEP(FDXT_WHY_NEAREST);
++   if (!r->s3tc)
++      KEEP(FDXT_WHY_NOS3TC);
++#undef KEEP
++   if (comps == 3 || alpha == -1)
++      return FDXT_DXT1;
++   return FDXT_CHECK_ALPHA;
++}
++
++/* after FDXT_CHECK_ALPHA: opaque is whether every alpha byte is 255 (false when unknown, a PBO) */
++static inline enum fdxt_result
++fdxt_alpha_result(enum fdxt_mode mode, bool opaque, enum fdxt_why *why)
++{
++   if (opaque)
++      return FDXT_DXT1;
++   if (mode == FDXT_ALL)
++      return FDXT_DXT5;
++   *why = FDXT_WHY_ALPHA;
++   return FDXT_KEEP;
++}
++
++/* Whether every alpha byte of a w x h image of 4-byte pixels is 255: rows row_stride bytes apart,
++ * alpha at byte a (0..3) of each pixel. Stops at the first other value. Eight bytes at a time when
++ * the rows allow it (two pixels a load). */
++static inline bool
++fdxt_alpha_opaque(const uint8_t *src, int w, int h, size_t row_stride, int a)
++{
++   for (int y = 0; y < h; y++) {
++      const uint8_t *p = src + (size_t)y * row_stride;
++      int x = 0;
++
++      if (!((uintptr_t)p & 7)) {
++         uint64_t mask;
++         union { uint64_t q; uint8_t b[8]; } m = { 0 };
++
++         m.b[a] = m.b[a + 4] = 0xff;
++         mask = m.q;
++         for (; x + 8 <= w; x += 8) {
++            uint64_t q[4];
++
++            memcpy(q, p + 4 * x, sizeof(q));
++            if ((q[0] & q[1] & q[2] & q[3] & mask) != mask)
++               return false;
++         }
++      }
++      for (; x < w; x++)
++         if (p[4 * x + a] != 0xff)
++            return false;
++   }
++   return true;
++}
++
++/* bytes of a w x h level stored by the RSX: 4 a texel uncompressed (RGB as X8R8G8B8), DXT1 8 and
++ * DXT5 16 a 4x4 block */
++static inline uint64_t
++fdxt_level_bytes(int w, int h, enum fdxt_result fmt)
++{
++   uint64_t blocks = (uint64_t)((w + 3) / 4) * ((h + 3) / 4);
++
++   if (fmt == FDXT_DXT1)
++      return blocks * 8;
++   if (fmt == FDXT_DXT5)
++      return blocks * 16;
++   return (uint64_t)w * h * 4;
++}
++
++/* Whether a sub-image update of a w x h level at x, y covers whole 4x4 blocks (a partial block
++ * only at the right or bottom edge): then its blocks are compressed again from the new pixels;
++ * otherwise the texture goes back to its uncompressed format first */
++static inline bool
++fdxt_sub_aligned(int x, int y, int w, int h, int level_w, int level_h)
++{
++   return !(x & 3) && !(y & 3) && (!(w & 3) || x + w == level_w) && (!(h & 3) || y + h == level_h);
++}
++
++#endif
+diff --git a/src/mesa/main/teximage.c b/src/mesa/main/teximage.c
+--- a/src/mesa/main/teximage.c
++++ b/src/mesa/main/teximage.c
+@@ -48,6 +48,7 @@
+ #include "state.h"
+ #include "texcompress.h"
+ #include "texcompress_cpal.h"
++#include "texforcedxt.h"
+ #include "teximage.h"
+ #include "texobj.h"
+ #include "texstate.h"
+@@ -2307,6 +2308,11 @@ texsubimage_error_check(struct gl_context *ctx, GLuint dimensions,
+       return GL_TRUE;
+    }
+ 
++   /* NV30_FORCE_DXT: an update not on whole blocks of a texture compressed at upload makes it
++    * uncompressed first (the same texImage, specified again) */
++   if (dimensions == 2)
++      _mesa_force_dxt_subimage(ctx, texObj, texImage, xoffset, yoffset, width, height, false);
++
+    if (error_check_subtexture_dimensions(ctx, dimensions,
+                                          texImage, xoffset, yoffset, zoffset,
+                                          width, height, depth, callerName)) {
+@@ -3193,6 +3199,11 @@ teximage(struct gl_context *ctx, GLboolean compressed, GLuint dims,
+ 
+       texFormat = _mesa_choose_texture_format(ctx, texObj, target, level,
+                                               internalFormat, format, type);
++      /* NV30_FORCE_DXT: maybe DXT1/DXT5 instead (texforcedxt.c) */
++      texFormat = _mesa_force_dxt_choose(ctx, texObj, dims, target, level,
++                                         internalFormat, width, height, depth,
++                                         border, format, type, pixels, unpack,
++                                         texFormat);
+    }
+ 
+    assert(texFormat != MESA_FORMAT_NONE);
+@@ -3317,6 +3328,23 @@ teximage_err(struct gl_context *ctx, GLboolean compressed, GLuint dims,
+ }
+ 
+ 
++/* NV30_FORCE_DXT (texforcedxt.c): a compressed-at-upload level of a GL_TEXTURE_2D specified
++ * again, uncompressed, from its decoded RGBA8 texels; the game's unpack state (a PBO among it)
++ * set aside meanwhile */
++void
++_mesa_force_dxt_respecify(struct gl_context *ctx, struct gl_texture_object *texObj, GLint level,
++                          GLint internalFormat, GLsizei width, GLsizei height,
++                          const GLvoid *pixels)
++{
++   struct gl_pixelstore_attrib save = ctx->Unpack;
++
++   ctx->Unpack = ctx->DefaultPacking;
++   teximage(ctx, GL_FALSE, 2, texObj, GL_TEXTURE_2D, level, internalFormat, width, height, 1,
++            0, GL_RGBA, GL_UNSIGNED_BYTE, 0, pixels, true);
++   ctx->Unpack = save;
++}
++
++
+ static void
+ teximage_no_error(struct gl_context *ctx, GLboolean compressed, GLuint dims,
+                   GLenum target, GLint level, GLint internalFormat,
+@@ -3763,6 +3791,10 @@ texture_sub_image(struct gl_context *ctx, GLuint dims,
+ {
+    MESA_TRACE_FUNC();
+ 
++   /* NV30_FORCE_DXT: as in texsubimage_error_check (for the no-error path), and counted */
++   if (dims == 2)
++      _mesa_force_dxt_subimage(ctx, texObj, texImage, xoffset, yoffset, width, height, true);
++
+    FLUSH_VERTICES(ctx, 0, 0);
+ 
+    _mesa_update_pixel(ctx);
+@@ -4427,6 +4459,10 @@ copy_texture_sub_image_err(struct gl_context *ctx, GLuint dims,
+                            GLint x, GLint y, GLsizei width, GLsizei height,
+                            const char *caller)
+ {
++   /* NV30_FORCE_DXT: a texture compressed at upload goes back to uncompressed first */
++   if (dims == 2)
++      _mesa_force_dxt_copy(ctx, texObj, target, level);
++
+    FLUSH_VERTICES(ctx, 0, 0);
+ 
+    _mesa_update_pixel(ctx);
+@@ -4452,6 +4488,9 @@ copy_texture_sub_image_no_error(struct gl_context *ctx, GLuint dims,
+                                 GLint xoffset, GLint yoffset, GLint zoffset,
+                                 GLint x, GLint y, GLsizei width, GLsizei height)
+ {
++   if (dims == 2)
++      _mesa_force_dxt_copy(ctx, texObj, target, level);
++
+    FLUSH_VERTICES(ctx, 0, 0);
+ 
+    _mesa_update_pixel(ctx);
+diff --git a/src/mesa/main/texparam.c b/src/mesa/main/texparam.c
+--- a/src/mesa/main/texparam.c
++++ b/src/mesa/main/texparam.c
+@@ -42,6 +42,7 @@
+ #include "main/texcompress.h"
+ #include "main/texobj.h"
+ #include "main/texparam.h"
++#include "main/texforcedxt.h"
+ #include "main/teximage.h"
+ #include "main/texstate.h"
+ #include "program/prog_instruction.h"
+@@ -1805,7 +1806,8 @@ get_tex_level_parameter_image(struct gl_context *ctx,
+          *params = img->Depth;
+          break;
+       case GL_TEXTURE_INTERNAL_FORMAT:
+-         if (_mesa_is_format_compressed(texFormat)) {
++         /* NV30_FORCE_DXT: a texture compressed at upload reports what the game asked for */
++         if (_mesa_is_format_compressed(texFormat) && !_mesa_force_dxt_image(img)) {
+             /* need to return the actual compressed format */
+             *params = _mesa_compressed_format_to_glenum(ctx, texFormat);
+          }
+diff --git a/src/mesa/meson.build b/src/mesa/meson.build
+--- a/src/mesa/meson.build
++++ b/src/mesa/meson.build
+@@ -210,6 +210,9 @@ files_libmesa = files(
+   'main/texgetimage.c',
+   'main/texgetimage.h',
+   'main/teximage.c',
++  'main/texforcedxt.c',
++  'main/texforcedxt.h',
++  'main/texforcedxt_policy.h',
+   'main/teximage.h',
+   'main/texobj.c',
+   'main/texobj.h',
+diff --git a/src/mesa/state_tracker/st_gen_mipmap.c b/src/mesa/state_tracker/st_gen_mipmap.c
+--- a/src/mesa/state_tracker/st_gen_mipmap.c
++++ b/src/mesa/state_tracker/st_gen_mipmap.c
+@@ -30,6 +30,7 @@
+ 
+ #include "main/mipmap.h"
+ #include "main/teximage.h"
++#include "main/texforcedxt.h"
+ 
+ #include "pipe/p_context.h"
+ #include "pipe/p_defines.h"
+@@ -45,9 +46,25 @@
+ #include "st_cb_bitmap.h"
+ #include "st_cb_texture.h"
+ 
++static void
++generate_mipmap(struct gl_context *ctx, GLenum target,
++                struct gl_texture_object *texObj);
++
++/* NV30_FORCE_DXT (main/texforcedxt.c): mipmaps of a texture compressed at upload are made by
++ * Mesa's path for compressed textures (on the CPU); counted and timed */
+ void
+ st_generate_mipmap(struct gl_context *ctx, GLenum target,
+                    struct gl_texture_object *texObj)
++{
++   int64_t t0 = _mesa_force_dxt_mipgen_begin(texObj);
++
++   generate_mipmap(ctx, target, texObj);
++   _mesa_force_dxt_mipgen_end(texObj, t0);
++}
++
++static void
++generate_mipmap(struct gl_context *ctx, GLenum target,
++                struct gl_texture_object *texObj)
+ {
+    struct st_context *st = st_context(ctx);
+    struct pipe_resource *pt = st_get_texobj_resource(texObj);

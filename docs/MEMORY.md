@@ -243,6 +243,7 @@ ps3-dev, not installed; their A/Bs below are pending.)
 | yamagi-quake2, yamagi-quake2-core | 8.70+dfsg-1+ps3.408 | 0002 `YQ2_KISS_QSIZE` |
 | ioquake3 | 1.36+u20260719.58839361+dfsg-1+ps3.462 | 0027-0029, OpenArena opengl2 (section below) |
 | Mesa | 26.2.4-1+ps3.442~dev20261018140130 (build/debs/mesa) | 0037 NV30_SYSMEM_COPY, NV30_INVALIDATE_BUFFER, NV30_SYSMEM_STATS (section "nouveau's system memory copies") |
+| Mesa | 26.2.4-1+ps3.466~dev20261018175510 (build/debs/mesa, replaces the ps3.442 build there; 0037 included) | 0038 NV30_FORCE_DXT (section "Texture compression at upload"), 0039 NV30_SHADER_CACHE (PROFILING.md "nv30's shader cache"); all off by default |
 | cube2, cube2-server | 0.0.20201229+dfsg-1+ps3.442~dev20261018143125 (build/debs/cube2) | 0011 `vanormalshort` (section "Sauerbraten's world normals as shorts") |
 
 ## On the PS3
@@ -560,6 +561,136 @@ buffers are read), `sysmem_readbacks`, `sysmem_hint`, against `mem_malloc_used`,
 `_swap`, `stall_play_s` and the steady fps (expected up: no per-draw conversion). Check game.log
 for GL errors. Optional, for the CPU: one `PERF=1` run per arm, `util_format_r8g8b8*_snorm` and
 translate should leave Sauerbraten's profile.
+
+## Texture compression at upload (Mesa 0038, `NV30_FORCE_DXT`, 2026-10-18)
+
+PLAN.md 2.4, IDEAS #4. Most games upload plain RGB(A)8 textures, which the RSX stores at 4 bytes
+a texel (RGB as X8R8G8B8). VRAM is also our swap tier (ps3vswap), so every MB of textures not
+kept is memory. DXT1 takes an eighth of that, DXT5 a quarter; libspeq (Mesa 0011/0032) already
+compresses on the SPEs, RGB sources included (1024x1024 in about 1 ms on 4 SPEs).
+
+### What it does
+
+`mesa/patches/0038-mesa-texture-compression-at-upload-for-every-game-NV.patch`, core Mesa
+(`src/mesa/main/texforcedxt.c`, the decision alone in `texforcedxt_policy.h`). A `glTexImage2D`
+that the policy takes gets a DXT TexFormat while its InternalFormat stays the game's; Mesa's S3TC
+texstore then compresses it like any compressed upload, through libspeq. Levels above 0 follow
+level 0 (Mesa picks a level's format from the level below when their internal formats agree).
+
+Taken: `GL_TEXTURE_2D` level 0, internal format `GL_RGB`, `GL_RGB8`, `3`, `GL_RGBA`, `GL_RGBA8`
+or `4`, from `GL_RGB`/`GL_BGR` unsigned bytes or `GL_RGBA`/`GL_BGRA` unsigned bytes or 8888
+packed types, power-of-two sizes of at least 64x64.
+- `opaque`: DXT1 when there is no alpha: an RGB internal format or source, or every alpha byte
+  255. The scan reads eight bytes at a time and stops at the first other value; a PBO source
+  counts as having alpha (no map for a scan).
+- `all`: the same, and DXT5 for images with alpha.
+
+Not taken, and why:
+
+| Case | Reason |
+|---|---|
+| `glTexImage2D(NULL)` without a PBO | render targets and textures filled later by `glTexSubImage` (font caches, lightmap atlases) |
+| smaller than `NV30_FORCE_DXT_MIN` (64) in width or height | small UI pieces; little to win |
+| sizes not powers of two | nv30 lays DXT out for POT mipmaps (`nv30_miptree.c`: compressed textures are neither swizzled nor linear-flagged); its NPOT layout with DXT has never run |
+| magnification already `GL_NEAREST` at upload | pixel art and UI drawn 1:1 show DXT's 4x4 blocks most; `NV30_FORCE_DXT_NEAREST=1` takes them. Games that set filters after the upload (ioquake3) aren't caught by this |
+| cube maps, rectangles, 1D/3D, arrays | every face of a cube would have to decide alike (one format, or the cube is incomplete) |
+| an uncompressed level 1 already there with the same internal format | levels uploaded smallest first, or a chain made with `glTexImage2D(NULL)` given data later: one format for all levels |
+| sRGB, 16-bit, float, luminance/alpha formats, borders, pixel transfer ops, swapped bytes | not 8-bit RGB(A), or the source isn't what the scan reads |
+
+After the upload the texture behaves as the game uploaded it:
+- `glTexSubImage` on whole 4x4 blocks (a partial block only at the right or bottom edge): those
+  blocks are compressed again from the new pixels (libspeq again). This keeps ClassiCube-style
+  animated tiles (16x16 at multiples of 16) compressed.
+- Any other `glTexSubImage`, a `glCopyTexSubImage`, and a framebuffer attachment turn the texture
+  back into the format the game asked for, once: every compressed level is decoded
+  (`st_GetTexSubImage`, a GPU blit on nv30) and specified again uncompressed, the game's unpack
+  state set aside. This was chosen over recompressing the touched blocks in place: that would
+  need the old texels around an unaligned update (a GPU readback per update), and a texture
+  updated off the block grid once is likely updated that way all the time (glyph caches,
+  dynamic lightmaps), so it should simply stay uncompressed.
+- `glGenerateMipmap` and `GL_GENERATE_MIPMAP` take Mesa's path for compressed textures: the base
+  read back decoded (a GPU blit), the levels made on the CPU (box filter) and compressed through
+  libspeq. The GPU can't render into DXT, so this costs PPE time; it is counted and timed
+  (`fdxt_mipgen_ms`). SuperTuxKart and Luanti make their mipmaps this way.
+- `glGetTexImage` returns the decoded blocks; `GL_TEXTURE_INTERNAL_FORMAT` reports the game's
+  internal format, `GL_TEXTURE_COMPRESSED` is true (the spec allows storing a generic format
+  compressed).
+
+Quality: DXT1 is lossy (4 colours per 4x4 block from a 565 pair). Fonts and most UI have alpha,
+so `opaque` leaves them alone; opaque UI backgrounds and menus are taken. `all` also takes alpha
+textures as DXT5 (alpha in 8 steps per block: fine for white text, visible on gradients). Whether
+a game looks right is for the webcam and the user: the switch is per game, in the recipe's
+environment.
+
+### Switches and stats
+
+| Switch | Values | What |
+|---|---|---|
+| `NV30_FORCE_DXT` | `off` (default), `opaque`, `all` | the mode |
+| `NV30_FORCE_DXT_MIN` | 64 | smallest width and height taken |
+| `NV30_FORCE_DXT_NEAREST` | 0 (default), 1 | take textures magnified with `GL_NEAREST` too |
+| `NV30_FORCE_DXT_STATS` | N (0: off) | a `nv30-forcedxt:` line every N compressed textures, at every return to uncompressed, at context destruction and at exit: textures, DXT1/DXT5, levels, KiB before and after (uploads, not what is resident), sub-image updates recompressed, returns to uncompressed, mipmap generations and their ms, the alpha scans' ms, textures kept by reason (`skip_*`) |
+| `NV30_FORCE_DXT_DEBUG` | 0, 1 | a line per decision: size, formats, kept (why) or compressed (dxt1/dxt5) |
+
+report.py: `fdxt_tex`, `fdxt_dxt5`, `fdxt_raw_mb`, `fdxt_dxt_mb`, `fdxt_unforced`, `fdxt_sub`,
+`fdxt_mipgen`, `fdxt_mipgen_ms`, `fdxt_scan_ms`, `fdxt_skip` (reasons by count). libspeq's own
+`SPEQ_DEBUG=1` still prints one line per compressed image (SPU or PPE path).
+
+### Host checks
+
+- `make test` (suite `mesa-forcedxt`, `mesa/tests/forcedxt-policy-test.c`): the decision for
+  every case above, the alpha scan (every position of one non-255 byte, odd widths, misaligned
+  rows), the block-alignment test, the byte counts. 5105 checks.
+- `ps3-gpu-tools/mesa-tests/gl-forcedxt.c` (installed with ps3-gpu-tools as `gl-forcedxt`): the
+  whole path through GL, with images of one RGB565-exact colour per block so DXT stores them
+  without loss and every check is exact: which uploads get compressed per mode, drawn and read
+  back right, mip chains by level, `glGenerateMipmap` and `GL_GENERATE_MIPMAP`, sub-images on and
+  off the block grid, a framebuffer attachment (other levels kept), `glCopyTexSubImage2D`, the
+  queries. Core Mesa does the work, so softpipe takes the same paths as nv30 up to the driver's
+  blits and transfers; run on softpipe in the ppc64 chroot under qemu (big-endian, our debs):
+  128 checks pass in each of `off`, `opaque` and `all` (Mesa ps3.466, 2026-10-18; the script
+  was build/tmp/forcedxt/softpipe-run.sh, ephemeral). The first run found three bugs, all fixed
+  before the build: `GL_TEXTURE_INTERNAL_FORMAT` reported the DXT enum, a return to uncompressed
+  read levels above 0 wrong once level 0 had been specified again (all levels are read first
+  now), and a `glTexImage2D(NULL)` chain given level 0 data made level 0 DXT under uncompressed
+  levels (incomplete texture; now kept).
+  On the PS3 (not run yet): `for m in off opaque all; do NV30_FORCE_DXT=$m gl-forcedxt; done`
+  and the same with `LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=softpipe` as the reference.
+
+### The A/B on the PS3
+
+Deploy the Mesa debs (26.2.4-1+ps3.466~dev20261018175510; `make deploy` of build/debs/mesa, checking first that nobody
+is playing), `make bench-push`; same boot, desktop stopped, webcam on every run (look at the
+textures: blockiness on UI, banding on skies). Every arm carries the stats line so all get the
+fdxt columns; `MEM=1` for `mem_gpu_vram`, the `vram` column is the peak in every run:
+
+    S=NV30_FORCE_DXT_STATS=50
+    # first, one run each with the per-decision lines, to see what is taken and what is kept
+    ENVS="$S+NV30_FORCE_DXT=opaque+NV30_FORCE_DXT_DEBUG=1" /var/tmp/bench/run.sh bench luanti base 1
+    # the five games, off against opaque (2 rounds, interleaved)
+    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque" /var/tmp/bench/run.sh bench openarena gl2min 2
+    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque" /var/tmp/bench/run.sh bench sauerbraten base 2
+    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque" /var/tmp/bench/run.sh bench supertuxkart lean 2
+    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque $S+NV30_FORCE_DXT=opaque+NV30_FORCE_DXT_NEAREST=1" /var/tmp/bench/run.sh bench luanti base 2
+    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque $S+NV30_FORCE_DXT=opaque+NV30_FORCE_DXT_NEAREST=1" /var/tmp/bench/run.sh bench classicube base 2
+    # alpha textures as DXT5 too, where opaque helped
+    MEM=1 STALLS=1 ENVS="$S+NV30_FORCE_DXT=opaque $S+NV30_FORCE_DXT=all" /var/tmp/bench/run.sh bench supertuxkart lean 2
+    # the game's own compression (r_ext_compressed_textures 0) replaced by Mesa's
+    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque" /var/tmp/bench/run.sh bench openarena "gl2min gl2min_tc0" 2
+    python3 /var/tmp/bench/report.py --stalls --mem /var/tmp/ps3-bench/<run dirs>
+
+Read `vram` and `mem_gpu_vram` (the win), `fdxt_raw_mb` against `fdxt_dxt_mb` (what was
+compressed), `fdxt_skip` (what was left and why), `fdxt_unforced` (textures that went back:
+expected a handful at most; many means a game updates its textures off the block grid and this
+mode buys little there), `fdxt_mipgen_ms` and the `load` column (SuperTuxKart and Luanti make
+their mipmaps on the CPU now), `stall_play_s`, `low1` and the fps (smaller textures are less
+bandwidth: expected the same or better), `mem_swap` (VRAM freed for vswap). OpenArena gl2min and
+SuperTuxKart already ask for compression themselves (`r_ext_compressed_textures 1`,
+`enable_texture_compression`), and Sauerbraten's cube2 compresses from 1024 up, so there `opaque`
+takes the rest only (lightmaps, small textures, UI); Luanti and ClassiCube upload everything
+plain and should show the most. A game where `opaque` looks right and saves VRAM gets
+`NV30_FORCE_DXT=opaque` in its launcher environment (a ps3-desktop change, after the user has
+seen it).
 
 ## Proposed, not implemented
 

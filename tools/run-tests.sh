@@ -2,7 +2,8 @@
 # run-tests.sh [--slow] [--only NAME]: every host test suite (no PS3 involved), then a table of
 # suite, result and seconds; exit 1 when any failed. Output of each suite: build/tmp/tests/<suite>.log
 # (shown for failures). A suite whose prerequisites are missing is "skip", not a failure.
-#   default  quick suites: bench-selftest, gprefetch, ps3rsx-shadow, ps3-spu, xmoto-glbatch
+#   default  quick suites: bench-selftest, gprefetch, ps3rsx-shadow, ps3-spu, xmoto-glbatch,
+#            mesa-forcedxt (Mesa 0038's NV30_FORCE_DXT decision, mesa/tests)
 #   --slow   also autogm (ps3-desktop/tests/autogm-check.sh: needs Xvfb+openbox or docker/podman)
 set -u
 cd "$(dirname "$0")/.."
@@ -47,6 +48,14 @@ t_xmoto() {
 	need g++
 	xmoto/test/glbatch-test.sh 100
 }
+t_forcedxt() {
+	[ -e build/work/mesa/src/mesa/main/texforcedxt_policy.h ] || { echo "skip: no build/work/mesa with patch 0038 (make mesa-work)"; exit 77; }
+	need gcc
+	mkdir -p build/tmp/tests
+	gcc -O2 -Wall -Wextra -Werror -I build/work/mesa/include -I build/work/mesa/src \
+		-o build/tmp/tests/forcedxt-policy-test mesa/tests/forcedxt-policy-test.c || exit 1
+	build/tmp/tests/forcedxt-policy-test
+}
 t_autogm() {
 	if ! { command -v Xvfb >/dev/null && command -v openbox >/dev/null; } &&
 	   ! command -v docker >/dev/null && ! command -v podman >/dev/null; then
@@ -59,6 +68,7 @@ run gprefetch python3 ps3-desktop/tests/gprefetch-check.py
 run ps3rsx-shadow bash -c "$(declare -f need t_ps3rsx); t_ps3rsx"
 run ps3-spu make -C ps3-spu test
 run xmoto-glbatch bash -c "$(declare -f need t_xmoto); t_xmoto"
+run mesa-forcedxt bash -c "$(declare -f need t_forcedxt); t_forcedxt"
 [ $slow = 1 ] && run autogm bash -c "$(declare -f t_autogm); t_autogm"
 
 echo; printf '%-18s %-6s %s\n' suite result seconds

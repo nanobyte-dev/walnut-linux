@@ -34,3 +34,5 @@
 0035-nv30-sleep-on-the-query-s-fence-instead-of-spinning-.patch
 0036-nv30-texture-uploads-reuse-idle-mapped-staging-buffe.patch
 0037-nv30-optional-limits-on-nouveau-s-system-memory-copi.patch
+0038-mesa-texture-compression-at-upload-for-every-game-NV.patch
+0039-nv30-compiled-programs-in-the-disk-shader-cache-NV30.patch

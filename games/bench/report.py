@@ -69,6 +69,16 @@ profiles (docs/PROFILING.md; shown only for runs that have them):
   sysmem_* runs with ENVS token NV30_SYSMEM_STATS=N (Mesa 0037): MiB of nouveau's system memory
           copies of GPU buffers (sysmem_mb the peak; _create_mb, _read_mb how they were made),
           sysmem_readbacks, sysmem_hint the frame the screen-wide copy hint was set (0: never)
+  fdxt_*  runs with ENVS token NV30_FORCE_DXT=opaque|all+NV30_FORCE_DXT_STATS=N (Mesa 0038, texture
+          compression at upload): fdxt_tex textures compressed (fdxt_dxt5 of them DXT5), fdxt_raw_mb and
+          fdxt_dxt_mb their levels' MiB uncompressed and as stored (uploads, not what is resident),
+          fdxt_unforced textures turned back to uncompressed, fdxt_sub sub-image updates recompressed,
+          fdxt_mipgen mipmap generations of compressed textures and their CPU ms (fdxt_mipgen_ms),
+          fdxt_scan_ms the alpha scans, fdxt_skip the textures kept by reason (small, npot, alpha, ...)
+  shc_*   runs with NV30_SHADER_CACHE_STATS=1 (Mesa 0039, nv30's programs in the disk cache; with
+          NV30_SHADER_CACHE=on or off): hits and misses of nir_to_tgsi (shc_tgsi_*), the fragment and
+          vertex program translations (shc_fp_*, shc_vp_*), shc_hit_ms and shc_miss_ms the time each
+          side took (all three; with the cache off every creation is a miss)
   lp_*    runs with PERF_LOAD=1 (the start-up span: exec, loading screens, warm-up; loadprof.py,
           docs/PROFILING.md "Start-up profiling"): lp_cpu, lp_main the load's CPU seconds (all the
           game's threads, its main thread), lp_wcpu the warm-up's; seconds of CPU over the whole span
@@ -253,6 +263,46 @@ def run(d):
         import loadprof
         r.update(loadprof.summary(d))
     r.update(sysmem(d))
+    r.update(forcedxt(d))
+    r.update(shcache(d))
+    return r
+
+
+def mesa_lines(d, prefix, need):
+    """the key=value pairs of the last line in game.log starting with prefix and holding need"""
+    log = d / "game.log"
+    if not log.exists():
+        return None
+    last = None
+    for line in log.read_text(errors="replace").splitlines():
+        if line.startswith(prefix) and need in line:
+            last = dict(x.split("=", 1) for x in line.split() if "=" in x)
+    return last
+
+
+def forcedxt(d):
+    """Mesa's NV30_FORCE_DXT_STATS lines in game.log (docs/MEMORY.md "Texture compression at upload"):
+    the last one's counts (they are totals since the game started)"""
+    kv = mesa_lines(d, "nv30-forcedxt: ", "kb_raw=")
+    if kv is None:
+        return {}
+    n = lambda k: int(kv.get(k, 0))
+    skips = sorted(((int(v), k[5:]) for k, v in kv.items() if k.startswith("skip_") and int(v)), reverse=True)
+    return {"fdxt_tex": n("tex"), "fdxt_dxt5": n("dxt5"), "fdxt_raw_mb": round(n("kb_raw") / 1024, 1),
+            "fdxt_dxt_mb": round(n("kb_dxt") / 1024, 1), "fdxt_unforced": n("unforced"), "fdxt_sub": n("sub"),
+            "fdxt_mipgen": n("mipgen"), "fdxt_mipgen_ms": n("mipgen_ms"), "fdxt_scan_ms": n("scan_ms"),
+            "fdxt_skip": ",".join("%s%d" % (k, v) for v, k in skips) or "-"}
+
+
+def shcache(d):
+    """Mesa's NV30_SHADER_CACHE_STATS lines in game.log (docs/PROFILING.md "nv30's shader cache"): the last"""
+    kv = mesa_lines(d, "nv30-shcache: ", "tgsi_hit=")
+    if kv is None:
+        return {}
+    n = lambda k: int(kv.get(k, 0))
+    r = {"shc_" + k: n(k) for k in ("tgsi_hit", "tgsi_miss", "fp_hit", "fp_miss", "vp_hit", "vp_miss")}
+    r["shc_hit_ms"] = sum(n(s + "_hit_ms") for s in ("tgsi", "fp", "vp"))
+    r["shc_miss_ms"] = sum(n(s + "_miss_ms") for s in ("tgsi", "fp", "vp"))
     return r
 
 
@@ -513,6 +563,10 @@ PROF_COLS = (["perf_n", "perf_game", "perf_mesa", "perf_drm", "perf_kgpu", "perf
              + ["mem_grow", "mem_malloc_used", "mem_malloc_free", "mem_arenas", "mem_gpu_vram", "mem_gpu_gart",
                 "mem_smaps_ms", "mem_topswap"]
              + ["sysmem_mb", "sysmem_create_mb", "sysmem_read_mb", "sysmem_readbacks", "sysmem_hint"]
+             + ["fdxt_tex", "fdxt_dxt5", "fdxt_raw_mb", "fdxt_dxt_mb", "fdxt_unforced", "fdxt_sub", "fdxt_mipgen",
+                "fdxt_mipgen_ms", "fdxt_scan_ms", "fdxt_skip"]
+             + ["shc_tgsi_hit", "shc_tgsi_miss", "shc_fp_hit", "shc_fp_miss", "shc_vp_hit", "shc_vp_miss",
+                "shc_hit_ms", "shc_miss_ms"]
              + ["lp_cpu", "lp_main", "lp_wcpu", "lp_link", "lp_glsl", "lp_shbe", "lp_shcache", "lp_wshader", "lp_tex",
                 "lp_mip", "lp_dxt", "lp_decomp", "lp_mb", "lp_wmb", "lp_majflt", "lp_ld", "lp_disk"])
 COLS += PROF_COLS
