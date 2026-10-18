@@ -11,6 +11,8 @@ Architecture: ppc64
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: PS3 RSX probes, driver tests and GL tests
  Raw RSX probes and ps3rsx driver tests (rsx-*, rsxdrm-smoke), offscreen EGL/GL tests compared
- with softpipe (egl-*, gl-*), and the test scripts (rsx-suite.sh, rsx-x.sh, ...), in
+ with softpipe (egl-*, gl-*), the bench's recorders (ps3-stallrec, ps3-waker) and its
+ interference detector (ps3-intfwatch), and the test scripts (rsx-suite.sh, rsx-x.sh,
+ ps3-bench.sh, ...), in
  /usr/lib/ps3/bin with links in /usr/bin; ps3-mallocstat.so (glibc malloc statistics of a
  running game on request, for games/bench MEM=1) in /usr/lib/ps3/lib.

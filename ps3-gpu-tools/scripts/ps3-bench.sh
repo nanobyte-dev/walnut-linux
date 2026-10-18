@@ -42,6 +42,18 @@
 # BENCH_PROBE_MS (default 20) on BENCH_PROBE_CPU (default all), into probe.txt. bench.txt gets
 # harness= (these switches with BENCH_STALLS and BENCH_PERF as one tag; report.py shows it with the
 # variant).
+# Interference (docs/STALLS.md "Interference", on unless BENCH_INTF=0): ps3-intfwatch (ps3-gpu-tools
+# 0.453+) runs as root from just before the command to its end and logs into interference.log what
+# disturbs a run: key presses, controller and mouse buttons, sticks moved beyond their jitter,
+# deliberate mouse motion (a bump is only recorded), VT switches other than the run's X server's own,
+# input or USB devices connected or gone, SSH logins and commands in login sessions, older login
+# processes that worked meanwhile. tools/bench-cam.sh's watcher and the bench's own evemu keyboards
+# are exempt (recorded). bench.txt gets interfered=0|1 and interference=<summary>, the result a loud
+# line; report.py and matrix.py leave interfered runs out.
+# The TV (BENCH_VT, default 8; 0: off): quiet switches to that text console with a "benchmark running,
+# don't touch" screen instead of the last frame of the stopped desktop; the run's X server takes vt1
+# and gives it back at its end; desktop switches to vt1 again. BENCH_WHAT names the run on the screen
+# (run.sh: game and variant; default the label).
 {
 set -u
 LOCK=/dev/shm/ps3-bench.lock
@@ -81,6 +93,37 @@ stop_desktop() {
 }
 
 drop_caches() { sync; echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null; }
+
+# The bench console (BENCH_VT, see the top): a text VT with no getty (logind starts autovt gettys on
+# tty1-6 only) that tells whoever looks at the TV what is going on. Never fails a run.
+BENCH_VT=${BENCH_VT:-8}
+banner() {
+	cat <<'EOF'
+  ########    ##########  ##      ##    ########  ##      ##  ##      ##    ######    ########    ##      ##
+  ##      ##  ##          ####    ##  ##          ##      ##  ####  ####  ##      ##  ##      ##  ##    ##
+  ########    ########    ##  ##  ##  ##          ##########  ##  ##  ##  ##########  ########    ######
+  ##      ##  ##          ##    ####  ##          ##      ##  ##      ##  ##      ##  ##    ##    ##    ##
+  ########    ##########  ##      ##    ########  ##      ##  ##      ##  ##      ##  ##      ##  ##      ##
+
+  ########    ##      ##  ##      ##  ##      ##  ##########  ##      ##    ########
+  ##      ##  ##      ##  ####    ##  ####    ##      ##      ####    ##  ##
+  ########    ##      ##  ##  ##  ##  ##  ##  ##      ##      ##  ##  ##  ##    ####
+  ##    ##    ##      ##  ##    ####  ##    ####      ##      ##    ####  ##      ##
+  ##      ##    ######    ##      ##  ##      ##  ##########  ##      ##    ######
+EOF
+}
+bench_screen() {	# bench_screen LINE...: the screen, then that VT shown (chvt waits for the switch)
+	[ "$BENCH_VT" = 0 ] && return 0
+	{ printf '\033c\033[?25l\n\n\n'; banner; printf '\n\n'; printf '  %s\n\n' "$@"; } |
+		sudo -n timeout 5 tee "/dev/tty$BENCH_VT" >/dev/null 2>&1 &&
+		sudo -n timeout 10 chvt "$BENCH_VT" 2>/dev/null
+	return 0
+}
+screen_run() {	# screen_run [LINE...]: the screen of a run (BENCH_WHAT, the start), with LINEs below
+	bench_screen "PS3 benchmark running: ${BENCH_WHAT:-${label:-a measurement}}, started $(date '+%H:%M')." \
+		"The desktop comes back when it ends. Please don't touch the controller, keyboard or mouse:" \
+		"any input makes the run invalid." "$@"
+}
 
 # Swap off and on again, one device at a time; restored explicitly: ps3vswap0 with a full discard
 # (frees its stale VRAM slots), never by restarting ps3-vswap/ps3-swap (backing set, partition
@@ -159,6 +202,7 @@ quiet() {
 	session_start
 	pause_timers
 	stop_desktop
+	screen_run
 	drop_caches
 	empty_swaps
 	vswap_on	# a BENCH_NOVSWAP run earlier left it off
@@ -273,6 +317,41 @@ start_stallrec() {
 	STALLREC=$!
 }
 
+# The interference detector (BENCH_INTF, the top; docs/STALLS.md "Interference"): root, started
+# before the command (it sees the X server take its VT), stopped by $D/stop like the sampler. The
+# harness is this script ($$: its descendants and process group; its ancestors' new children are not)
+# and whatever carries BENCH_DIR=$D in its environment.
+INTF=
+start_intf() {
+	[ "${BENCH_INTF:-1}" = 0 ] && return 0
+	if ! command -v ps3-intfwatch >/dev/null; then
+		echo '!! no ps3-intfwatch (ps3-gpu-tools 0.453+): interference not watched' >&2
+		return 0
+	fi
+	local o=(-o "$D/interference.log" -s "$D/stop" -P $$ -e "BENCH_DIR=$D" -g "$D/.pid") i
+	[ -n "${XVT:-}" ] && o+=(-x "$XVT")
+	[ "$BENCH_VT" != 0 ] && o+=(-H "$BENCH_VT")
+	sudo ps3-intfwatch "${o[@]}" 2> "$D/intf.err" &
+	INTF=$!
+	for i in $(seq 50); do grep -q ' ready$' "$D/interference.log" 2>/dev/null && break; sleep 0.1; done
+}
+# its summary into bench.txt and the result; prints the loud line
+INTF_SUM=
+intf_result() {
+	local f=$D/interference.log i s
+	INTF_SUM=
+	[ -s "$f" ] || return 0
+	i=$(sed -n 's/^# interfered=//p' "$f" | tail -1)
+	s=$(sed -n 's/^# interference: //p' "$f" | tail -1)
+	[ -n "$i" ] || { i=1; s="the detector didn't finish (no summary in interference.log)"; }
+	if [ -e "$D/bench.txt" ]; then
+		echo "interfered=$i" >> "$D/bench.txt"
+		echo "interference=$s" >> "$D/bench.txt"
+	fi
+	[ "$i" = 1 ] && INTF_SUM=$s
+	return 0
+}
+
 # ps3-waker (BENCH_WAKER=MS, BENCH_PROBE=1): periodic wakeups and nothing else, or how late each
 # CPU's timers fire; root (nice -10 like the recorder, SCHED_FIFO for the probe), stopped by $D/stop
 WAKER= PROBE=
@@ -382,6 +461,10 @@ stop_sampler() {
 		for i in $(seq 30); do kill -0 "$STALLREC" 2>/dev/null || break; sleep 0.1; done
 		kill "$STALLREC" 2>/dev/null; wait "$STALLREC" 2>/dev/null; STALLREC=
 	fi
+	if [ -n "$INTF" ]; then	# it looks at the stop file every 250 ms, then writes its summary
+		for i in $(seq 50); do kill -0 "$INTF" 2>/dev/null || break; sleep 0.1; done
+		sudo kill "$INTF" 2>/dev/null; wait "$INTF" 2>/dev/null; INTF=
+	fi
 	for p in $WAKER $PROBE; do	# they look at the stop file every 100 ms
 		for i in $(seq 30); do kill -0 "$p" 2>/dev/null || break; sleep 0.1; done
 		kill "$p" 2>/dev/null; wait "$p" 2>/dev/null
@@ -403,6 +486,7 @@ run_job() {
 		export GALLIUM_HUD=fps GALLIUM_HUD_VISIBLE=false GALLIUM_HUD_PERIOD=1 GALLIUM_HUD_DUMP_DIR=$D/hud
 	fi
 	snap pre
+	start_intf
 	t0=$EPOCHREALTIME
 	# setsid: not a group leader here, so it execs, and bash's $$ is the new process group
 	setsid bash -c 'echo $$ > "$BENCH_DIR/pgid"; exec timeout "$0" "$@"' "${BENCH_TIMEOUT:-600}" "$@" \
@@ -417,6 +501,7 @@ run_job() {
 	t1=$EPOCHREALTIME
 	stop_sampler
 	snap post
+	intf_result
 	h=$(harness)
 	[ -n "$h" ] && [ -e "$D/bench.txt" ] && echo "harness=$h" >> "$D/bench.txt"
 	tm=$(temp_max)
@@ -443,6 +528,12 @@ run_job() {
 	  [ -s "$D/timers-paused" ] && echo "timers paused: $(tr '\n' ' ' < "$D/timers-paused")"
 	  [ -n "$h" ] && echo "harness: $h"
 	  [ -n "$tm" ] && echo "temps max: $tm (C; limit ${BENCH_TEMP_MAX:-80})"
+	  # the interference detector's verdict (docs/STALLS.md "Interference")
+	  if [ -n "$INTF_SUM" ]; then
+		echo "!! INTERFERENCE: $INTF_SUM. THIS RUN IS INVALID (interference.log)"
+	  elif [ -s "$D/interference.log" ]; then
+		echo "interference: none ($(grep -c '^# device .* watched ' "$D/interference.log") input devices watched; recorded: $(sed -n 's/^# info: //p' "$D/interference.log" | tail -1))"
+	  fi
 	  # the stall recorder's own cost (its trailer)
 	  for f in "$D/stalls.rec" "$D/stallrec-nowrite.rec"; do
 		[ -s "$f" ] && awk '$1 == "#" && $2 == "end" { for (i = 3; i <= NF; i++) { split($i, kv, "="); v[kv[1]] = kv[2] }
@@ -463,6 +554,10 @@ run_job() {
 	} > "$D/result"
 	[ -e "$D/THERMAL" ] && echo "!! THERMAL ALERT: the job was stopped. Let the PS3 cool down." >&2
 	[ -e "$D/TEMPLIMIT" ] && echo "!! $(cat "$D/TEMPLIMIT") Let the PS3 cool down." >&2
+	if [ -n "$INTF_SUM" ]; then
+		echo "!! INTERFERENCE: $INTF_SUM: this run doesn't count" >&2
+		screen_run "The last run was disturbed ($INTF_SUM) and doesn't count."
+	fi
 	mkdir -p $OUT; mv "$D" $OUT/; D=$OUT/${D##*/}
 	if [ -n "$PD" ]; then	# the profile from the disk into the run directory, readable by us
 		sudo chown -R "$(id -u):$(id -g)" "$PD"
@@ -478,7 +573,9 @@ run|x)
 	mode=$1; label=${2:?label}; shift 2; [ "${1:-}" = -- ] && shift
 	[ $# -gt 0 ] || die "no command"
 	quiet
+	XVT=
 	if [ "$mode" = x ]; then
+		XVT=1	# the detector expects this X server's switch to vt1 and back
 		# xinit runs a client only if its path starts with / (else it starts xterm): /bin/bash,
 		# which also reports the client's own CPU time
 		set -- xinit /bin/bash -c 'TIMEFORMAT="client: real %R s, user %U s, sys %S s"; time "$@"' \
@@ -490,6 +587,10 @@ desktop)
 	vswap_on
 	resume_timers
 	rm -f $LOCK
+	if [ "$BENCH_VT" != 0 ]; then	# off the bench console, which is freed
+		sudo -n timeout 10 chvt 1 2>/dev/null
+		sudo -n deallocvt "$BENCH_VT" 2>/dev/null
+	fi
 	sudo systemctl start getty@tty1
 	echo '>> desktop started, bench session over'
 	;;
