@@ -18,6 +18,8 @@
  * restore wrote; the bitmaps are walked a word at a time.
  */
 #include <linux/bitmap.h>
+#include <linux/build_bug.h>
+#include <linux/moduleparam.h>
 #include <linux/seq_file.h>
 #include <linux/slab.h>
 #include <linux/string.h>
@@ -28,6 +30,15 @@
 #define NREG_2D		(0x410 / 4)
 #define VP_SLOTS	512
 #define CONST_SLOTS	468
+
+/*
+ * The fast replay (burst_fast(), restore_fast()): the same shadow and the same restore stream,
+ * in runs instead of words. Off by default; flip it at run time for a same-boot A/B.
+ */
+static bool shadow_fast;
+module_param(shadow_fast, bool, 0644);
+MODULE_PARM_DESC(shadow_fast, "Replay pushes into the state shadow by runs of methods "
+		 "(same result, fewer stores on the PPE)");
 
 enum { OBJ_3D, OBJ_M2MF_IN, OBJ_M2MF_OUT, OBJ_SURF2D, OBJ_SWZ, OBJ_SIFM, NOBJ };
 
@@ -120,6 +131,10 @@ static bool side_effect_3d_slow(u32 m)
 /* What a 3D method write does to the shadow, one byte per method (built at module load) */
 enum { K_STATE, K_NONE, K_VP_PTR, K_VP, K_CST_PTR, K_CST };
 static u8 kind3d[NREG];
+/* For the fast replay: kind << 12 | how many methods from this one on have the same kind */
+static u16 run3d[NREG];
+#define RUN_KIND(t)	((t) >> 12)
+#define RUN_LEN(t)	((t) & 0xfff)
 
 void ps3rsx_shadow_init(void)
 {
@@ -139,6 +154,11 @@ void ps3rsx_shadow_init(void)
 		else if (m >= 0x1f00 && m <= 0x1f7c)
 			k = K_CST;		/* constant words */
 		kind3d[m / 4] = k;
+	}
+	for (m = NREG; m-- > 0; ) {
+		u32 len = m + 1 < NREG && kind3d[m + 1] == kind3d[m] ? RUN_LEN(run3d[m + 1]) + 1 : 1;
+
+		run3d[m] = kind3d[m] << 12 | len;
 	}
 }
 
@@ -235,6 +255,226 @@ void ps3rsx_shadow_write(struct ps3rsx_shadow *sh, u32 subch, u32 m, u32 v)
 		write3d(sh, m, v);
 }
 
+/* --- fast replay ----------------------------------------------------------------------- */
+
+/*
+ * The same as the word-by-word replay below, in runs: a run of state methods is one copy and
+ * one OR per bitmap word, an upload window keeps its pointer in registers and marks each slot
+ * once. On the PPE every store followed by a load of the same doubleword (the bitmap word of
+ * the next __set_bit, sh->vp_ptr of the next word) stalls; the word-by-word path does that per
+ * word.
+ */
+
+static noinline void set_bits2_long(unsigned long *a, unsigned long *b, u32 start, u32 len)
+{
+	bitmap_set(a, start, len);
+	bitmap_set(b, start, len);
+}
+
+/* Mark bits start..start+len-1 (len >= 1) in both bitmaps */
+static __always_inline void set_bits2(unsigned long *a, unsigned long *b, u32 start, u32 len)
+{
+	u32 i = BIT_WORD(start), off = start % BITS_PER_LONG;
+
+	if (likely(off + len <= BITS_PER_LONG)) {
+		unsigned long mask = (~0UL >> (BITS_PER_LONG - len)) << off;
+
+		a[i] |= mask;
+		b[i] |= mask;
+	} else {
+		set_bits2_long(a, b, start, len);
+	}
+}
+
+/*
+ * len words into an upload window (vertex program or constants), as write3d() does them one
+ * at a time: word *word of slot *ptr onwards, only slots below nslots kept; *ptr counts on
+ * past the end (and wraps at 2^32, as the u32 does word by word).
+ */
+static void upload_fast(u32 *mem, unsigned long *set, unsigned long *dirty, u32 nslots,
+			u32 *pptr, u32 *pword, const u32 *v, u32 len)
+{
+	u32 ptr = *pptr, word = *pword;
+
+	while (len) {
+		if (ptr < nslots) {
+			u32 idx = ptr * 4 + word, w = min(len, nslots * 4 - idx), i;
+
+			for (i = 0; i < w; i++)
+				mem[idx + i] = v[i];
+			set_bits2(set, dirty, ptr, (idx + w - 1) / 4 - ptr + 1);
+			idx += w;
+			v += w;
+			len -= w;
+			ptr = idx / 4;
+			word = idx % 4;
+		} else {
+			/* words until the pointer wraps to slot 0 (nothing is kept until then) */
+			u64 skip = ((0x100000000ULL - ptr) << 2) - word;
+
+			if (skip > len) {
+				word += len;
+				ptr += word / 4;
+				word %= 4;
+				len = 0;
+			} else {
+				v += skip;
+				len -= skip;
+				ptr = 0;
+				word = 0;
+			}
+		}
+	}
+	*pptr = ptr;
+	*pword = word;
+}
+
+/* n words (n >= 1) of 3D state methods from r on */
+static __always_inline void state3d_fast(struct ps3rsx_shadow *sh, u32 r, const u32 *v, u32 n)
+{
+	u32 *dst = &sh->reg3d[r];
+	u32 i;
+
+	for (i = 0; i < n; i++)
+		dst[i] = v[i];
+	set_bits2(sh->reg3d_set, sh->reg3d_dirty, r, n);
+}
+
+/*
+ * n words (n >= 1) to the upload windows and their pointers (k of all of them). Out of line:
+ * inline, its addresses and the window code made the compiler save a dozen registers around
+ * every burst's run loop.
+ */
+static noinline void upload3d_fast(struct ps3rsx_shadow *sh, u32 k, const u32 *v, u32 n)
+{
+	switch (k) {
+	case K_VP_PTR:
+		sh->vp_ptr = v[n - 1];
+		sh->vp_word = 0;
+		sh->vp_ptr_set = true;
+		break;
+	case K_VP:
+		upload_fast(sh->vp, sh->vp_set, sh->vp_dirty, VP_SLOTS, &sh->vp_ptr, &sh->vp_word,
+			    v, n);
+		break;
+	case K_CST_PTR:
+		sh->cst_ptr = v[n - 1];
+		sh->cst_word = 0;
+		sh->cst_ptr_set = true;
+		break;
+	case K_CST:
+		upload_fast(sh->cst, sh->cst_set, sh->cst_dirty, CONST_SLOTS, &sh->cst_ptr,
+			    &sh->cst_word, v, n);
+		break;
+	}
+}
+
+/* The first method index from r on (r >= 0x100 / 4) that write2d() leaves alone */
+static __always_inline u32 next_side_effect_2d(int obj, u32 r)
+{
+	if (r <= 0x100 / 4)
+		return 0x100 / 4;
+	if ((obj == OBJ_M2MF_IN || obj == OBJ_M2MF_OUT) && r <= 0x328 / 4)
+		return 0x328 / 4;
+	if (obj == OBJ_SIFM && r <= 0x40c / 4)
+		return 0x40c / 4;
+	return NREG_2D;
+}
+
+/* A burst (mthd >= 0x100) to a copy/2D object */
+static void burst2d_fast(struct ps3rsx_shadow *sh, int obj, u32 mthd, bool noninc,
+			 const u32 *v, u32 n)
+{
+	u32 *row = sh->reg2d[obj], base = obj * NREG_2D, r, end;
+
+	if (mthd >= 0x410)
+		return;
+	if (noninc) {
+		if (!side_effect_2d(obj, mthd)) {
+			row[mthd / 4] = v[n - 1];
+			set_bits2(sh->reg2d_set, sh->reg2d_dirty, base + mthd / 4, 1);
+		}
+		return;
+	}
+	r = mthd / 4;
+	end = min(r + n, (u32)NREG_2D);
+	while (r < end) {
+		u32 stop = min(next_side_effect_2d(obj, r), end), i;
+
+		if (stop > r) {
+			for (i = r; i < stop; i++)
+				row[i] = *v++;
+			set_bits2(sh->reg2d_set, sh->reg2d_dirty, base + r, stop - r);
+		}
+		if (stop < end) {	/* the side effect method: skip its word */
+			v++;
+			stop++;
+		}
+		r = stop;
+	}
+}
+
+static __always_inline void burst_fast(struct ps3rsx_shadow *sh, u32 subch, u32 mthd,
+				       bool noninc, const u32 *v, u32 n)
+{
+	u32 r, end;
+	int obj;
+
+	if (!n)
+		return;
+	if (mthd < 0x100) {
+		u32 skip;
+
+		if (noninc) {			/* rare: the word-by-word way */
+			for (r = 0; r < n; r++)
+				ps3rsx_shadow_write(sh, subch, mthd, v[r]);
+			return;
+		}
+		/* a bind (the rest goes to the new object), host methods (nothing) up to 0x100 */
+		if (mthd == 0)
+			ps3rsx_shadow_write(sh, subch, 0, v[0]);
+		skip = (0x100 - mthd) / 4;
+		if (n <= skip)
+			return;
+		v += skip;
+		n -= skip;
+		mthd = 0x100;
+	}
+	obj = sh->bound_obj[subch] - 1;
+	if (obj < 0)
+		return;
+	if (obj != OBJ_3D) {
+		burst2d_fast(sh, obj, mthd, noninc, v, n);
+		return;
+	}
+	r = mthd / 4;
+	if (noninc) {
+		/* every word to the same method: state keeps the last, the windows take them all */
+		switch (kind3d[r]) {
+		case K_NONE:
+			return;
+		case K_STATE:
+			put3d(sh, r, v[n - 1]);
+			return;
+		default:
+			upload3d_fast(sh, kind3d[r], v, n);
+			return;
+		}
+	}
+	end = min(r + n, (u32)NREG);		/* the validator keeps bursts below 0x2000 */
+	while (r < end) {
+		u16 t = run3d[r];
+		u32 len = min((u32)RUN_LEN(t), end - r);
+
+		if (likely(RUN_KIND(t) == K_STATE))
+			state3d_fast(sh, r, v, len);
+		else if (RUN_KIND(t) != K_NONE)
+			upload3d_fast(sh, RUN_KIND(t), v, len);
+		r += len;
+		v += len;
+	}
+}
+
 /*
  * One burst of n accepted words into the shadow, the same as ps3rsx_shadow_write() word by word
  * (methods at most 0x1ffc: the validator checked them). Non-incrementing bursts to a command
@@ -246,6 +486,10 @@ void ps3rsx_shadow_burst(struct ps3rsx_shadow *sh, u32 subch, u32 mthd, bool non
 	u32 k;
 	int obj;
 
+	if (READ_ONCE(shadow_fast)) {
+		burst_fast(sh, subch, mthd, noninc, v, n);
+		return;
+	}
 	if (!n)
 		return;
 	if (mthd < 0x100) {
@@ -284,6 +528,17 @@ void ps3rsx_shadow_push(struct ps3rsx_shadow *sh, const u32 *w, u32 nwords)
 {
 	u32 i = 0;
 
+	if (READ_ONCE(shadow_fast)) {
+		while (i < nwords) {
+			u32 h = w[i], n = (h >> 18) & 0x7ff;
+
+			if (h)
+				burst_fast(sh, (h >> 13) & 7, h & 0x1ffc, h & 0x40000000,
+					   &w[i + 1], n);
+			i += 1 + n;
+		}
+		return;
+	}
 	while (i < nwords) {
 		u32 h = w[i], n = (h >> 18) & 0x7ff;
 
@@ -331,6 +586,117 @@ static bool slot_eq(const u32 *a, const u32 *b)
 }
 
 /*
+ * The fast restore walks the bitmaps a word at a time inline (the word-by-word one calls
+ * find_next_bit() and test_bit() per bit: hundreds of 3D registers, up to 980 slots) and
+ * compares slots as two doublewords. Bits in ascending order: the same stream.
+ */
+/* Word i of map, limited to bits start..end-1 */
+static __always_inline unsigned long range_word(const unsigned long *map, u32 i, u32 start,
+						u32 end)
+{
+	unsigned long w = map[i];
+
+	if (i == BIT_WORD(start))
+		w &= ~0UL << (start % BITS_PER_LONG);
+	if (i == BIT_WORD(end - 1))
+		w &= ~0UL >> (BITS_PER_LONG - 1 - (end - 1) % BITS_PER_LONG);
+	return w;
+}
+
+/* The 16 bytes of two slots (8-byte aligned: see restore_fast()) */
+static __always_inline bool slot_eq_fast(const u32 *a, const u32 *b)
+{
+	const u64 *x = (const u64 *)a, *y = (const u64 *)b;
+
+	return !((x[0] ^ y[0]) | (x[1] ^ y[1]));
+}
+
+/* Registers start..end-1 set in ch's set and not in hw's, or differing: one write each */
+static __always_inline void restore_regs(struct emitter *e, const unsigned long *ch_set,
+					 const unsigned long *hw_set, const u32 *ch_reg,
+					 const u32 *hw_reg, u32 start, u32 end, u32 base, int s)
+{
+	u32 i;
+
+	for (i = BIT_WORD(start); i <= BIT_WORD(end - 1); i++) {
+		unsigned long w = range_word(ch_set, i, start, end), hs = hw_set[i];
+
+		while (w) {
+			u32 b = __ffs(w), r = i * BITS_PER_LONG + b - base;
+
+			w &= w - 1;
+			if (!((hs >> b) & 1) || ch_reg[r] != hw_reg[r])
+				emit(e, MTH(1, s, r * 4), &ch_reg[r], 1);
+		}
+	}
+}
+
+/* Slots (vertex program or constants) the GPU doesn't hold as ch does: pointer, 4 words */
+static __always_inline void restore_slots(struct emitter *e, const unsigned long *ch_set,
+					  const unsigned long *hw_set, const u32 *ch_mem,
+					  const u32 *hw_mem, u32 nslots, int s, u32 ptr_m,
+					  u32 data_m)
+{
+	u32 i;
+
+	for (i = 0; i <= BIT_WORD(nslots - 1); i++) {
+		unsigned long w = range_word(ch_set, i, 0, nslots), hs = hw_set[i];
+
+		while (w) {
+			u32 b = __ffs(w), slot = i * BITS_PER_LONG + b;
+
+			w &= w - 1;
+			if (((hs >> b) & 1) && slot_eq_fast(&ch_mem[slot * 4], &hw_mem[slot * 4]))
+				continue;
+			emit(e, MTH(1, s, ptr_m), &slot, 1);
+			emit(e, MTH(4, s, data_m), &ch_mem[slot * 4], 4);
+		}
+	}
+}
+
+/* ps3rsx_shadow_restore(), the same stream */
+static int restore_fast(const struct ps3rsx_shadow *ch, const struct ps3rsx_shadow *hw,
+			u32 *buf, u32 max_words)
+{
+	struct emitter e = { .p = buf, .end = buf + max_words };
+	int s, obj, sc3d;
+
+	BUILD_BUG_ON(offsetof(struct ps3rsx_shadow, vp) % 8 ||
+		     offsetof(struct ps3rsx_shadow, cst) % 8);
+	for (s = 0; s < 8; s++)
+		if (ch->bound[s] && ch->bound[s] != hw->bound[s])
+			emit(&e, MTH(1, s, 0), &ch->bound[s], 1);
+
+	for (obj = OBJ_M2MF_IN; obj < NOBJ; obj++) {
+		u32 base = obj * NREG_2D;
+
+		s = subch_of(ch, obj_handle[obj]);
+		if (s >= 0)
+			restore_regs(&e, ch->reg2d_set, hw->reg2d_set, ch->reg2d[obj],
+				     hw->reg2d[obj], base + 0x180 / 4, base + NREG_2D, base, s);
+	}
+
+	sc3d = subch_of(ch, obj_handle[OBJ_3D]);
+	if (sc3d >= 0) {
+		static const u32 one = 1, zero = 0;
+
+		restore_regs(&e, ch->reg3d_set, hw->reg3d_set, ch->reg3d, hw->reg3d, 0x180 / 4,
+			     NREG, 0, sc3d);
+		restore_slots(&e, ch->vp_set, hw->vp_set, ch->vp, hw->vp, VP_SLOTS, sc3d, 0x1e9c,
+			      0x0b80);
+		if (ch->vp_ptr_set)
+			emit(&e, MTH(1, sc3d, 0x1e9c), &ch->vp_ptr, 1);
+		restore_slots(&e, ch->cst_set, hw->cst_set, ch->cst, hw->cst, CONST_SLOTS, sc3d,
+			      0x1efc, 0x1f00);
+		if (ch->cst_ptr_set)
+			emit(&e, MTH(1, sc3d, 0x1efc), &ch->cst_ptr, 1);
+		emit(&e, MTH(1, sc3d, 0x1fd8), &one, 1);	/* texture cache */
+		emit(&e, MTH(1, sc3d, 0x1710), &zero, 1);	/* vertex cache */
+	}
+	return e.overflow ? -ENOSPC : e.p - buf;
+}
+
+/*
  * Write into buf the commands that make the GPU's state (hw) match the channel's (ch).
  * Returns the number of words, or -ENOSPC. Nothing changes until ps3rsx_shadow_take_restored().
  * (3D and 2D state starts at 0x180: below it the classes have only commands, never shadowed.)
@@ -342,6 +708,8 @@ int ps3rsx_shadow_restore(const struct ps3rsx_shadow *ch, const struct ps3rsx_sh
 	int s, obj, sc3d;
 	u32 r, slot;
 
+	if (READ_ONCE(shadow_fast))
+		return restore_fast(ch, hw, buf, max_words);
 	/* object binds first: everything else goes through them */
 	for (s = 0; s < 8; s++)
 		if (ch->bound[s] && ch->bound[s] != hw->bound[s])

@@ -166,7 +166,7 @@ shorter; X-Moto (154 fps) and Neverball (80) have headroom already, Sauerbraten 
    channel removes the conversions and the calls: estimate 35-40% of Sauerbraten's CPU, 4-5% of
    QuakeSpasm's. A later step would cache the converted copy of a static buffer instead of
    converting it again each draw (needs write tracking on the buffer).
-2. **The submission ioctl in ps3rsx** (not done: kernel module). 5.4% on average in all 9 games:
+2. **The submission ioctl in ps3rsx** (second round: ps3rsx `shadow_fast`, below). 5.4% on average in all 9 games:
    `ps3rsx_shadow_burst` parses every pushed word into the channel's state shadow (1.3), the
    restore at channel switches (0.6), `ps3rsx_validate` (0.4), the copy of the push (0.3) and
    the reservation lock (0.3). Candidates: a table-driven method classifier in the burst, skipping
@@ -185,15 +185,17 @@ shorter; X-Moto (154 fps) and Neverball (80) have headroom already, Sauerbraten 
    all 9 games, mostly kernel time (GEM create/close, drm_mm placement). 0027's adaptive kick makes
    more submissions, so more of these. Recycling the buffers of signalled fences: estimate 1-1.5%
    per game (Sauerbraten 2.1, ClassiCube and Neverball 1.6 today).
-5. **Sauerbraten's occlusion query wait** (not done). `nv30_query_result` spins on the report
+5. **Sauerbraten's occlusion query wait** (second round: Mesa 0035 `NV30_QUERY_WAIT`, cube2 0010
+   `oqwaterlag`, below). `nv30_query_result` spins on the report
    word with nothing in the loop: 10.3% of Sauerbraten's CPU. The wait itself is the GPU's, so
    the frame doesn't get shorter, but the spinning thread takes issue slots from the PPE's other
    hardware thread. A short spin, then `HMT_low` (`or 1,1,1`) or a yield, would give them back.
    Estimate 5-10% of Sauerbraten's CPU, uncertain fps effect.
 
 Smaller ones, for later: the staging buffer per texture upload (`nv30_miptree_transfer_map`:
-ClassiCube 5.4, QuakeSpasm 2.2, Yamagi 1.7; a buffer cache like 0034's would cover it, 0007's
-area); client vertex arrays copied per draw (`u_upload_data` memcpy: X-Moto 5.5, ETR 2.3) and the
+ClassiCube 5.4, QuakeSpasm 2.2, Yamagi 1.7; second round: Mesa 0036 `NV30_STAGING_POOL`); client
+vertex arrays copied per draw (`u_upload_data` memcpy: X-Moto 5.5, second round: xmoto 0004
+`XMOTO_GL_STREAM`; ETR 2.3) and the
 min/max scans of client index arrays (`vbo_get_minmax_index_mapped`: OpenArena 1.3, Yamagi 1.0; the
 index side is 0030's); the Gallium HUD costs 1.3% in bench runs only (number formatting), not in
 play. 0028 (index fencing) shows as `nouveau_fence_ref < nv30_state_validate`, 0.3% in 2 games;
@@ -251,6 +253,201 @@ differences on Sauerbraten's and QuakeSpasm's models; there shouldn't be any). F
 pull with `make bench-pull PERFDATA=1` and run the PC tools below: the PS3's perf.folded is still
 the broken one.
 
+## Second round (2026-10-18): the next targets
+
+From the same profiles (Sauerbraten 012658, ClassiCube 004514, X-Moto 013240), with the games'
+own frames now symbolised too (their deb and -dbgsym of the profiled build, `EXTRA_DEBS` of
+symroot.sh) and `stacks.py` for the stacks around a function. Everything is behind a switch
+that is off by default; nothing of it has run on the PS3 yet.
+
+### Sauerbraten's query wait: the water reflections (Mesa 0035, cube2 0010)
+
+All of the 10.3% in `nv30_query_result` comes from one place: `gl_drawframe > drawreflections >
+checkquery > glGetQueryObjectuiv`. `queryreflections` issues an occlusion query per water surface
+right after the world geometry; a few passes later in the same frame `drawreflections` asks for
+its result (with the default `oqwater 2`, whenever last frame's query found the water hidden, the
+usual case on cave) and the GPU, still behind on the frame, hasn't written it. The world's own
+queries (rendergeom) are last frame's and never wait (0.15%). So it is both: the engine waits for
+the GPU in the middle of a frame, and Mesa waits by spinning.
+
+- **Mesa 0035 `NV30_QUERY_WAIT=US`** (unset: spin as before). A query's end holds the context's
+  current fence, which the query's kick emits after the report. A wait spins at most US
+  microseconds at low SMT priority (`or 1,1,1`), then sleeps in the kernel on that fence
+  (`nouveau_fence_wait`, ps3rsx's `GEM_CPU_PREP`, which its fence timer wakes within 250 us),
+  then spins on what is left with `sched_yield` (the kernel's fence follows the FIFO, which may
+  be a little ahead of the 3D back end writing the report). Same result, same pixels; the frame
+  waits as long (or up to ~250 us longer per wait), but the PPE's other thread gets the core
+  meanwhile. Expected: Sauerbraten's CPU down by most of the wait (10% in this profile, more
+  now that 0033 made its CPU side faster); fps unchanged or slightly better if another thread
+  (Xorg, audio, the SPE skinning feeder) was starved. `0` sleeps at once; `50` keeps short
+  waits spinning.
+- **cube2 0010 `oqwaterlag 1`** (0: as before). This frame's water query counts only if its
+  result is in (GL_QUERY_RESULT_AVAILABLE); until then the reflection passes keep last frame's
+  verdict (skipped while the water stayed hidden) and `renderwater` draws the surface (hidden
+  water shows nothing through the depth test). The frame no longer stops for the GPU, so CPU and
+  GPU overlap there. Not pixel-identical in one case: the first frame water shows again after
+  being hidden has the reflection it had when it was last drawn (one frame, then it is current).
+  The stock engine's `oqwait 0` is the other way round (every late query counts as visible, so
+  the reflection passes run whenever the GPU is behind: correct pixels, two extra scene passes):
+  recipe variant `oqnowait`, for comparison. Expected for oqlag: most of the 10% wait gone from
+  the frame, up to that much more fps if the GPU keeps up.
+
+### ClassiCube's texture uploads (Mesa 0036)
+
+`glTexSubImage2D` every frame (the animated water and lava tiles): `nv30_miptree_transfer_map`
+made a new staging buffer for each, `nouveau_bo_new` (GEM create, 1.6%) and `nouveau_bo_map`
+(an mmap, 3.0%: the ppc64 slice search and VMA setup in the kernel), and the fence work after the
+copy freed it (munmap 2.4%, GEM close 0.7%): **8.6% of ClassiCube's CPU** in total.
+
+- **Mesa 0036 `NV30_STAGING_POOL=N`** (N up to 32; 0, the default: off). Write-only uploads up to
+  256 KiB take a buffer of their power-of-two size class (4 KiB at least) from a screen-wide pool
+  of idle buffers that are still mapped; the fence work that freed the buffer gives it back
+  instead. Only buffers whose fence signalled are in the pool (none is in a batch the GPU still
+  runs), so it is written without a wait; uploads that read keep their own buffer (their map
+  waits for the GPU's copy into it). At most N buffers and 2 MiB of GART, oldest freed first,
+  emptied with the screen. The copies are the same, so are the pixels. Expected: ClassiCube
+  -7 to -8% CPU, QuakeSpasm and Yamagi -1.5 to -2%; fps only where CPU-bound (ClassiCube is
+  GPU-bound now, see below).
+
+### X-Moto's client arrays (xmoto 0004)
+
+All of `u_upload_data`'s 5.5% is xmoto's own batches (0001), drawn from a client array that Mesa
+copies at every draw; 3.9 of it is the minimap: `renderMiniMap > drawCircle`, a circle of 8
+segments per sprite entity in the minimap's box (933 a frame in the credits replay, ~17000 batch
+vertices). The copy goes into GART, which ps3rsx maps cacheable (ordinary RAM, IOMMU-coherent).
+
+- **xmoto 0004 `XMOTO_GL_STREAM=1`** (0: as before). The batch is written straight into a 2 MiB
+  GL_STREAM_DRAW buffer, mapped with glMapBufferRange (write, unsynchronized, invalidated range,
+  explicit flush) from a batch's first vertex to its draw, which sources the buffer at the
+  batch's offset: the vertices are written once, where the GPU reads them. When the next batch
+  may not fit, the buffer gets new storage (glBufferData NULL), so nothing the GPU may still
+  read is written again; nothing else reaches the GL while it is mapped (every other call draws
+  what is pending first). Same vertices, order and draws. In nv30 an unsynchronized map of a
+  GART buffer is the buffer's own mapping, no staging. Expected: -4 to -5% CPU (the memcpy and
+  u_upload_alloc; a map and unmap per batch, which in nv30 is no ioctl). The llvmpipe check
+  `xmoto/test/glbatch-test.sh` draws a random scene through the layer for 400 frames (about 950
+  batches and one buffer renewal a frame): the same pixels with and without, no GL errors. X-Moto has
+  fps headroom (154), so this is CPU for the rest of the system.
+
+### ClassiCube's batching measured slower: GPU-bound
+
+Same boot, 2 runs each (063141..064319): base (our 0001+0002, `CC_GL_CHUNKS=2`) 47.3 fps at 83%
+CPU, `gloff` (CC_GL=0, upstream's drawing) 49.4 fps at 161% CPU. Profiled again in the same boot
+(PERF=1, Mesa ps3.408, runs 100447 base and 101011 gloff, batch11): steady 48.4 against 50.3 fps.
+report.py's shares (game 15.7% against 9.5%, Mesa 42.8 against 57.7) read as if the batching moved
+CPU from Mesa into the game, but they are shares of very different totals. In CPU time per frame
+(samples / 499 Hz / frames in the perf window):
+
+| ms of CPU per frame | base (batching) | gloff (upstream) |
+|---|---|---|
+| all of the game process | **8.5** | **17.1** |
+| game (ClassiCube's own code) | 1.33 | 1.62 |
+| Mesa | 3.62 | 9.86 |
+| ps3rsx and drm (kgpu) | 0.72 | 2.26 |
+| kernel | 1.47 | 1.74 |
+| st/mesa per-draw state | 1.61 | 4.06 |
+| submission ioctl | 0.75 | 2.47 |
+| nv30 validation | 0.60 | 2.20 |
+| GL API entry | 0.43 | 1.24 |
+| nv30 draw emit | 0.33 | 1.22 |
+| frame time | 20.7 | 19.9 |
+
+Every class goes down with the batching, the game's own code too (1.33 against 1.62 ms): nothing
+moved into the game, Mesa's part just shrank by 6.2 ms a frame (the submission and ps3rsx by
+another 2.2). With the batching the game process is busy 8.5 ms of a 20.7 ms frame and waits the
+other 12 (its biggest visible wait is the swap's fence, `dri3_swap_buffers > nouveau_fence_wait`,
+as in the 004514 profile); without it, busy 17.1 of 19.9. So base is GPU-bound and the GPU needs
+longer for base's frame than for upstream's (20.7 ms or more against at most 19.9). What costs the
+GPU is chunks2 itself: drawing all faces of a chunk part in one draw also draws the face
+directions upstream skips on the CPU (faces turned away from the camera), 75% more indices on the
+host count (545k against 310k a frame), all transformed by the RSX's vertex units before it culls
+them. The pointer and state savings (0001: 2672 calls a frame instead of 5127, the same draws and
+indices) cost the GPU nothing.
+
+Recommendation: `CC_GL_CHUNKS=1` (the faces upstream draws, neighbouring ranges merged: ~770
+draws instead of 1107, no extra indices) as the default instead of 2, if the PS3 A/B below
+confirms it: expected about gloff's fps or a little more (the GPU work of upstream, which was
+nearly CPU-bound at 17.1 of 19.9 ms) with CPU between base's and gloff's (the per-draw work
+scales with 770 draws against 294 and 1107; the per-call savings of 0001 stay). chunks2 stays for a view where the CPU is the limit. Until then, nothing to turn off:
+the batching is a 4% loss at half the CPU, which the rest of the system gets.
+
+### ps3rsx's submission path (ps3rsx `shadow_fast`)
+
+Under `ps3rsx_ioctl_gem_pushbuf` (ClassiCube 7.9% of its CPU, Sauerbraten 3.9, X-Moto 4.0) the
+biggest leaf is `ps3rsx_shadow_burst` (1.95, 0.85, 0.93), then `ps3rsx_validate`, the restore at
+channel switches (0.26-0.62), the push copy and the reservation locks. An instruction histogram of
+shadow_burst (ClassiCube) put ~40% of it in the copy/2D object path (the row multiply redone per
+word, two read-modify-writes of bitmap words per word) and ~45% in the vertex program and
+constant upload windows (`vp_ptr`/`vp_word` loaded and stored through memory every word, the
+slot's set and dirty bits set again for every word of a slot): load-hit-store stalls on the PPE.
+The restore is already skipped while the same channel keeps the GPU (`last_chan`); it runs at
+every game/Xorg alternation.
+
+- **ps3rsx `shadow_fast`** (module parameter, bool, 0644, default off; ps3rsx 0.250).
+  `burst_fast()` replays a burst by runs of methods of one kind (a table `run3d` built at load):
+  3D state runs as a copy and one mask OR per bitmap word, the upload windows with the pointer
+  and word in registers and each slot's bits set once, copy/2D objects with the row computed once
+  and runs split at their side-effect methods (0x100; 0x328 for M2MF, 0x40c for SIFM) and 0x410.
+  `restore_fast()` emits the same restore stream in the same order, walking the bitmaps a word at
+  a time inline and comparing slots as two u64. The old code stays the default path. It is read
+  at every burst and restore and both leave identical state, so it can be flipped at runtime:
+  `echo 1 | sudo tee /sys/module/ps3rsx/parameters/shadow_fast` (the bench's ENVS token
+  `PS3RSX_SHADOW_FAST=1` does it per run).
+- Equivalence, `ps3rsx/test/` (`make && make run`): shadow.c built in userspace twice (slow and
+  fast path) and fuzzed with Mesa-like pushes (binds of every object, host methods, inc and
+  non-inc bursts, upload pointers in and out of range and near 2^32, runs across every split
+  point, all subchannels), plus whole submits on 3 channels as submit.c runs them (sync, restore
+  with overflow, take_restored, pushes, take, kernel-copy writes, forgotten GPU state): 38M
+  burst/push cases and 3.8M submits on x86, under ASan/UBSan and on big-endian ppc64 (qemu), the
+  shadow structs and the restore buffers identical after every step; 14 of 15 planted bugs were
+  caught (the 15th changes nothing).
+- Expected (ppc64 instructions per payload word, `ps3rsx/test/count.sh`): 2D runs -51%, vertex
+  program uploads -77%, constants -69%, short 3D state runs -35%, one restore -56%; weighted by the
+  histogram ~60% of shadow_burst's instructions, more in cycles (the removed work is the
+  load-hit-store kind). Per game ~0.6-1.5% of the CPU (ClassiCube's shadow_burst 1.95 -> ~0.8,
+  restore ~-0.3). Less than the 2-3% target: validate, the push copy and the reservation locks are
+  untouched. A follow-up for the restore (only what other channels changed since this one ran, a
+  per-channel stale bitmap) needs a wider proof and is not done.
+
+### Packages and the PS3 A/B
+
+Built, not published, not on the PS3 (`~dev`: the trees had other sessions' uncommitted work):
+
+| Package | Version | Where |
+|---|---|---|
+| Mesa (0035, 0036; 0033 on, 0034 off as before) | 26.2.4-1+ps3.416~dev20261018095833 | build/debs/mesa |
+| cube2 (0010) | 0.0.20201229+dfsg-1+ps3.355~dev20261018095655 | build/debs/cube2 |
+| xmoto (0004) | 0.6.3+repack-1+ps3.362~dev20261018101055 | build/debs/xmoto |
+| ps3rsx for 6.12.111+ps3.433.dev20261018083616 (both flavours) | 0.250~dev | build/debs/ps3rsx-ps3, -debug |
+| ps3rsx for 6.12.111+ps3.419 (both flavours) | 0.250~dev | build/tmp/ps3rsx-k419 (not build/debs: deploy.sh publishes everything there to ps3-dev, and this meta package's later stamp would outrank 433's) |
+
+Install the Mesa, game and module debs the usual way, then `make bench-push` (selftest.py covers
+the new tokens).
+
+Same boot, interleaved, desktop stopped, webcam photos checked as always:
+
+    # Sauerbraten: the Mesa sleep (pixels the same), the engine's lag, the stock oqwait 0
+    ENVS="- NV30_QUERY_WAIT=0 NV30_QUERY_WAIT=50" /var/tmp/bench/run.sh bench sauerbraten base 3
+    /var/tmp/bench/run.sh bench sauerbraten "base oqlag oqnowait" 3
+    # ClassiCube: the staging pool, and the batching's chunk mode (GPU-bound)
+    ENVS="- NV30_STAGING_POOL=16" /var/tmp/bench/run.sh bench classicube base 3
+    /var/tmp/bench/run.sh bench classicube "base chunks1 gloff" 3
+    # QuakeSpasm and Yamagi upload textures too
+    ENVS="- NV30_STAGING_POOL=16" /var/tmp/bench/run.sh bench quakespasm base 3
+    # X-Moto: the stream buffer (look for missing or flickering minimap dots and sprites)
+    /var/tmp/bench/run.sh bench xmoto "base stream" 3
+    # ps3rsx: the parameter flips at runtime, so the A/B needs no reload (sudo -n)
+    ENVS="- PS3RSX_SHADOW_FAST=1" /var/tmp/bench/run.sh bench classicube base 3
+    ENVS="- PS3RSX_SHADOW_FAST=1" /var/tmp/bench/run.sh suite base 1
+    # profiles of the new paths (for the CPU shares, not for fps)
+    PERF=1 MEM=1 ENVS="NV30_QUERY_WAIT=0" /var/tmp/bench/run.sh bench sauerbraten base 1
+    PERF=1 MEM=1 ENVS="NV30_STAGING_POOL=16+PS3RSX_SHADOW_FAST=1" /var/tmp/bench/run.sh bench classicube base 1
+
+`ENVS` tokens `PS3RSX_NAME=V` are new (client.sh, report.py, selftest.py): the value goes to
+`/sys/module/ps3rsx/parameters/name` for that run and the old one back after it, bench.txt gets
+`kparam=`, report.py shows `base@rsx_shadow_fast1`. The NV30_* tokens show as `base@query_wait0`,
+`base@staging_pool16`.
+
 ## Reproducing the analysis on the PC
 
     games/bench/hotpaths/symroot.sh                      # build/tmp/hotpaths-sym: debug files, System.map, modules
@@ -258,7 +455,9 @@ the broken one.
         python3 games/bench/hotpaths/analyze.py $d build/tmp/hotpaths/$(basename $d).pkl
     done
     python3 games/bench/hotpaths/categorize.py build/tmp/hotpaths/*.pkl   # the tables above
+    python3 games/bench/hotpaths/stacks.py callers <pkl> '^nv30_query_result$' 8   # who calls it
 
 `symroot.sh` takes the versions as arguments (Mesa, kernel release, ps3rsx; the defaults are this
-batch's); runs need MEM=1 for the Mesa maps (or a record started before Mesa loaded). Delete
+batch's) and `EXTRA_DEBS` (the game's deb and -dbgsym of the profiled build, for its own
+frames); runs need MEM=1 for the Mesa maps (or a record started before Mesa loaded). Delete
 `build/tmp/hotpaths*` afterwards.
