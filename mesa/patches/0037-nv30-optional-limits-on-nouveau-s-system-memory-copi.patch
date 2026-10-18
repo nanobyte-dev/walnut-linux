@@ -1,0 +1,373 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 17:01:21 +0300
+Subject: nv30: optional limits on nouveau's system memory copies of VRAM
+ buffers (NV30_SYSMEM_COPY, NV30_INVALIDATE_BUFFER, NV30_SYSMEM_STATS)
+
+When the CPU maps a VRAM buffer that is idle, nouveau keeps a malloc'ed copy of the whole buffer
+(nouveau_buffer_cache: a GPU copy to GART, a wait for it, a memcpy) and serves every later map
+from it; the copy lives as long as the buffer. u_vbuf does such maps for every draw whose vertex
+formats the RSX can't fetch (16-bit unorm colours, 8-bit signed normals), so those buffers need
+the copy: without it each draw would wait for a GPU readback (CPU reads of VRAM itself run at
+10 MB/s). But after four flushes in a row with such a readback, nouveau_context_update_frame_stats
+sets the screen-wide hint_buf_keep_sysmem_copy, never cleared, and from then on every VRAM buffer
+created gets a copy at its creation, read or not: in OpenArena's opengl2 renderer, whose tess
+buffer is orphaned (a new buffer, nv30 has no buffer invalidation) and read by u_vbuf at every
+flush of the tess, the hint is set in the first frames and the 62 MB of static MD3 vertex
+buffers loaded after it get 62 MB of copies nothing reads.
+
+NV30_SYSMEM_COPY: 1 (the default) as before; 0: the hint is never set, a buffer gets its copy
+when the CPU first reads it (one readback each, at that read); 2: the hint, once set, gives
+copies at creation only to PIPE_USAGE_DYNAMIC (GL_DYNAMIC_DRAW) buffers, the streaming ones it
+is for, and static buffers get theirs when first read.
+
+NV30_INVALIDATE_BUFFER=1 (default off) turns on buffer invalidation as nv50 and nvc0 have it
+(caps invalidate_buffer, pipe->invalidate_resource -> nouveau_buffer_invalidate): orphaning with
+glBufferData(NULL) of the same size keeps the buffer and its copy, with new storage if the GPU
+still uses the old one, instead of a new buffer that needs a new copy (and a readback, without
+the hint) at its first read.
+
+NV30_SYSMEM_STATS=N prints a line every N frames, when the hint gets set and at context
+destruction: the copies (count, KiB) and how they were made (at creation for the hint, at a
+read, at a migration to VRAM) and the readbacks. Copies are counted in the screen (atomics, a
+status bit SYSMEM_COPY that survives reallocation) for all nouveau drivers; the hint mode is 0
+(as before) for nv50 and nvc0.
+
+diff --git a/src/gallium/drivers/nouveau/nouveau_buffer.c b/src/gallium/drivers/nouveau/nouveau_buffer.c
+--- a/src/gallium/drivers/nouveau/nouveau_buffer.c
++++ b/src/gallium/drivers/nouveau/nouveau_buffer.c
+@@ -45,6 +45,33 @@ nouveau_buffer_malloc(struct nv04_resource *buf)
+    return !!buf->data;
+ }
+ 
++/* buf->data was just allocated as the system memory copy of a GPU buffer */
++static inline void
++nouveau_buffer_copy_made(struct nv04_resource *buf, uint32_t *made, uint64_t *made_bytes)
++{
++   struct nouveau_screen *screen = nouveau_screen(buf->base.screen);
++
++   buf->status |= NOUVEAU_BUFFER_STATUS_SYSMEM_COPY;
++   p_atomic_add(&screen->sysmem_copy.bytes, (int64_t)buf->base.width0);
++   p_atomic_inc(&screen->sysmem_copy.count);
++   p_atomic_inc(made);
++   if (made_bytes)
++      p_atomic_add(made_bytes, (uint64_t)buf->base.width0);
++}
++
++/* buf->data is about to be freed */
++static inline void
++nouveau_buffer_copy_freed(struct nv04_resource *buf)
++{
++   struct nouveau_screen *screen = nouveau_screen(buf->base.screen);
++
++   if (!(buf->status & NOUVEAU_BUFFER_STATUS_SYSMEM_COPY))
++      return;
++   buf->status &= ~NOUVEAU_BUFFER_STATUS_SYSMEM_COPY;
++   p_atomic_add(&screen->sysmem_copy.bytes, -(int64_t)buf->base.width0);
++   p_atomic_dec(&screen->sysmem_copy.count);
++}
++
+ static inline bool
+ nouveau_buffer_allocate(struct nouveau_screen *screen,
+                         struct nv04_resource *buf, unsigned domain)
+@@ -132,8 +159,10 @@ nouveau_buffer_destroy(struct pipe_screen *pscreen,
+ 
+    nouveau_buffer_release_gpu_storage(res);
+ 
+-   if (res->data && !(res->status & NOUVEAU_BUFFER_STATUS_USER_MEMORY))
++   if (res->data && !(res->status & NOUVEAU_BUFFER_STATUS_USER_MEMORY)) {
++      nouveau_buffer_copy_freed(res);
+       align_free(res->data);
++   }
+ 
+    nouveau_fence_ref(NULL, &res->fence, nouveau_screen(pscreen));
+    nouveau_fence_ref(NULL, &res->fence_wr, nouveau_screen(pscreen));
+@@ -321,12 +350,23 @@ nouveau_buffer_cache(struct nouveau_context *nv, struct nv04_resource *buf)
+    tx.bo = NULL;
+    tx.map = NULL;
+ 
+-   if (!buf->data)
++   if (!buf->data) {
++      struct nouveau_screen *screen = nouveau_screen(buf->base.screen);
++
+       if (!nouveau_buffer_malloc(buf))
+          return false;
++      if (nv)
++         nouveau_buffer_copy_made(buf, &screen->sysmem_copy.made_read,
++                                  &screen->sysmem_copy.made_read_bytes);
++      else
++         nouveau_buffer_copy_made(buf, &screen->sysmem_copy.made_create,
++                                  &screen->sysmem_copy.made_create_bytes);
++   }
+    if (!(buf->status & NOUVEAU_BUFFER_STATUS_DIRTY))
+       return true;
+    nv->stats.buf_cache_count++;
++   p_atomic_inc(&nv->screen->sysmem_copy.readbacks);
++   p_atomic_add(&nv->screen->sysmem_copy.readback_bytes, (uint64_t)buf->base.width0);
+ 
+    if (!nouveau_transfer_staging(nv, &tx, false))
+       return false;
+@@ -435,6 +475,7 @@ nouveau_buffer_transfer_map(struct pipe_context *pipe,
+              * not the whole area being mapped is being discarded.
+              */
+             if (buf->data) {
++               nouveau_buffer_copy_freed(buf);
+                align_free(buf->data);
+                buf->data = NULL;
+             }
+@@ -720,7 +761,9 @@ nouveau_buffer_create(struct pipe_screen *pscreen,
+    if (ret == false)
+       goto fail;
+ 
+-   if (buffer->domain == NOUVEAU_BO_VRAM && screen->hint_buf_keep_sysmem_copy)
++   if (buffer->domain == NOUVEAU_BO_VRAM && screen->hint_buf_keep_sysmem_copy &&
++       (screen->hint_buf_mode != NOUVEAU_HINT_BUF_DYNAMIC ||
++        buffer->base.usage == PIPE_USAGE_DYNAMIC))
+       nouveau_buffer_cache(NULL, buffer);
+ 
+    NOUVEAU_DRV_STAT(screen, buf_obj_current_count, 1);
+@@ -792,8 +835,11 @@ static inline bool
+ nouveau_buffer_data_fetch(struct nouveau_context *nv, struct nv04_resource *buf,
+                           struct nouveau_bo *bo, unsigned offset, unsigned size)
+ {
+-   if (!nouveau_buffer_malloc(buf))
+-      return false;
++   if (!buf->data) {
++      if (!nouveau_buffer_malloc(buf))
++         return false;
++      nouveau_buffer_copy_made(buf, &nv->screen->sysmem_copy.made_migrate, NULL);
++   }
+    if (BO_MAP(nv->screen, bo, NOUVEAU_BO_RD, nv->client))
+       return false;
+    memcpy(buf->data, (uint8_t *)bo->map + offset, size);
+diff --git a/src/gallium/drivers/nouveau/nouveau_buffer.h b/src/gallium/drivers/nouveau/nouveau_buffer.h
+--- a/src/gallium/drivers/nouveau/nouveau_buffer.h
++++ b/src/gallium/drivers/nouveau/nouveau_buffer.h
+@@ -23,7 +23,11 @@ struct nouveau_bo;
+ #define NOUVEAU_BUFFER_STATUS_USER_PTR    (1 << 6)
+ #define NOUVEAU_BUFFER_STATUS_USER_MEMORY (1 << 7)
+ 
+-#define NOUVEAU_BUFFER_STATUS_REALLOC_MASK NOUVEAU_BUFFER_STATUS_USER_MEMORY
++/* buf->data is a system memory copy of a GPU buffer, counted in screen->sysmem_copy */
++#define NOUVEAU_BUFFER_STATUS_SYSMEM_COPY (1 << 3)
++
++#define NOUVEAU_BUFFER_STATUS_REALLOC_MASK \
++   (NOUVEAU_BUFFER_STATUS_USER_MEMORY | NOUVEAU_BUFFER_STATUS_SYSMEM_COPY)
+ 
+ /* Resources, if mapped into the GPU's address space, are guaranteed to
+  * have constant virtual addresses (nv50+).
+diff --git a/src/gallium/drivers/nouveau/nouveau_context.h b/src/gallium/drivers/nouveau/nouveau_context.h
+--- a/src/gallium/drivers/nouveau/nouveau_context.h
++++ b/src/gallium/drivers/nouveau/nouveau_context.h
+@@ -116,7 +116,8 @@ nouveau_context_update_frame_stats(struct nouveau_context *nv)
+    if (nv->stats.buf_cache_count) {
+       nv->stats.buf_cache_count = 0;
+       nv->stats.buf_cache_frame |= 1;
+-      if ((nv->stats.buf_cache_frame & 0xf) == 0xf)
++      if ((nv->stats.buf_cache_frame & 0xf) == 0xf &&
++          nv->screen->hint_buf_mode != NOUVEAU_HINT_BUF_NEVER)
+          nv->screen->hint_buf_keep_sysmem_copy = true;
+    }
+ }
+diff --git a/src/gallium/drivers/nouveau/nouveau_screen.h b/src/gallium/drivers/nouveau/nouveau_screen.h
+--- a/src/gallium/drivers/nouveau/nouveau_screen.h
++++ b/src/gallium/drivers/nouveau/nouveau_screen.h
+@@ -54,6 +54,25 @@ struct nouveau_screen {
+    int64_t cpu_gpu_time_delta;
+ 
+    bool hint_buf_keep_sysmem_copy;
++   /* What the hint above does (nv30: NV30_SYSMEM_COPY; the other drivers keep 0):
++    * NOUVEAU_HINT_BUF_ALL: once set, every new VRAM buffer gets a system memory copy (upstream);
++    * NOUVEAU_HINT_BUF_NEVER: never set, a buffer gets a copy only when the CPU reads it;
++    * NOUVEAU_HINT_BUF_DYNAMIC: once set, only new PIPE_USAGE_DYNAMIC buffers get one.
++    */
++   uint8_t hint_buf_mode;
++   /* System memory copies of GPU buffers (buf->data of a VRAM or GART buffer), counted
++    * atomically by every context; printed by nv30 with NV30_SYSMEM_STATS. */
++   struct {
++      int64_t bytes;          /* in copies now */
++      int32_t count;
++      uint32_t made_create;   /* made at creation because of the hint */
++      uint64_t made_create_bytes;
++      uint32_t made_read;     /* made when the CPU read (mapped) the buffer */
++      uint64_t made_read_bytes;
++      uint32_t made_migrate;  /* kept when a buffer moved from GART to VRAM */
++      uint32_t readbacks;     /* GPU copies to GART + wait, to bring a copy up to date */
++      uint64_t readback_bytes;
++   } sysmem_copy;
+    bool tegra_sector_layout;
+ 
+    unsigned vram_domain;
+@@ -118,6 +137,11 @@ struct nouveau_pushbuf_priv {
+ 
+ #define NV_VRAM_DOMAIN(screen) ((screen)->vram_domain)
+ 
++/* nouveau_screen.hint_buf_mode */
++#define NOUVEAU_HINT_BUF_ALL     0
++#define NOUVEAU_HINT_BUF_NEVER   1
++#define NOUVEAU_HINT_BUF_DYNAMIC 2
++
+ #ifdef NOUVEAU_ENABLE_DRIVER_STATISTICS
+ # define NOUVEAU_DRV_STAT(s, n, v) do {         \
+       p_atomic_add(&(s)->stats.named.n, (v));   \
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.c b/src/gallium/drivers/nouveau/nv30/nv30_context.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.c
+@@ -23,6 +23,9 @@
+  *
+  */
+ 
++#include <inttypes.h>
++#include <stdio.h>
++
+ #include "draw/draw_context.h"
+ #include "util/u_atomic.h"
+ #include "util/u_upload_mgr.h"
+@@ -76,6 +79,29 @@ nv30_context_kick_notify(struct nouveau_pushbuf *push)
+    return true;
+ }
+ 
++/* NV30_SYSMEM_STATS: one line about the system memory copies of GPU buffers */
++static void
++nv30_sysmem_stats_print(struct nv30_context *nv30, const char *why)
++{
++   struct nouveau_screen *screen = &nv30->screen->base;
++   const char *mode[] = { "all", "never", "dynamic" };
++
++   fprintf(stderr, "nv30-sysmem: %s frame=%u mode=%s hint=%d copies=%d kb=%" PRId64
++           " made_create=%u kb_create=%" PRIu64 " made_read=%u kb_read=%" PRIu64
++           " made_migrate=%u readbacks=%u kb_readback=%" PRIu64 "\n",
++           why, nv30->frames, mode[MIN2(screen->hint_buf_mode, 2)],
++           screen->hint_buf_keep_sysmem_copy,
++           p_atomic_read(&screen->sysmem_copy.count),
++           p_atomic_read(&screen->sysmem_copy.bytes) / 1024,
++           p_atomic_read(&screen->sysmem_copy.made_create),
++           p_atomic_read(&screen->sysmem_copy.made_create_bytes) / 1024,
++           p_atomic_read(&screen->sysmem_copy.made_read),
++           p_atomic_read(&screen->sysmem_copy.made_read_bytes) / 1024,
++           p_atomic_read(&screen->sysmem_copy.made_migrate),
++           p_atomic_read(&screen->sysmem_copy.readbacks),
++           p_atomic_read(&screen->sysmem_copy.readback_bytes) / 1024);
++}
++
+ static void
+ nv30_context_flush(struct pipe_context *pipe, struct pipe_fence_handle **fence,
+                    unsigned flags)
+@@ -97,12 +123,24 @@ nv30_context_flush(struct pipe_context *pipe, struct pipe_fence_handle **fence,
+    if (flags & PIPE_FLUSH_END_OF_FRAME) {
+       nv30->frame_words_last = nv30->frame_words;
+       nv30->frame_words = 0;
++      nv30->frames++;
+    }
+ 
+    /* another context may sample what this one rendered or copied */
+    p_atomic_inc(&nv30->screen->tex_gen);
+ 
+    nouveau_context_update_frame_stats(&nv30->base);
++
++   if (unlikely(nv30->screen->sysmem_stats)) {
++      struct nv30_screen *screen = nv30->screen;
++      bool hint = screen->base.hint_buf_keep_sysmem_copy && !screen->sysmem_hint_seen;
++
++      if (hint)
++         screen->sysmem_hint_seen = true;
++      if (hint || ((flags & PIPE_FLUSH_END_OF_FRAME) &&
++                   nv30->frames % screen->sysmem_stats == 0))
++         nv30_sysmem_stats_print(nv30, hint ? "hint set" : "frame");
++   }
+ }
+ 
+ static int
+@@ -172,6 +210,9 @@ nv30_context_destroy(struct pipe_context *pipe)
+ {
+    struct nv30_context *nv30 = nv30_context(pipe);
+ 
++   if (nv30->screen->sysmem_stats && nv30->frames)
++      nv30_sysmem_stats_print(nv30, "end");
++
+    if (nv30->blitter)
+       util_blitter_destroy(nv30->blitter);
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+@@ -74,6 +74,9 @@ struct nv30_context {
+    unsigned frame_words;
+    unsigned frame_words_last;
+ 
++   /* frames (end-of-frame flushes) of this context, for NV30_SYSMEM_STATS */
++   unsigned frames;
++
+    /* PS3: bytes of texture upload staging (GART) whose copies may still be pending */
+    unsigned staging_inflight;
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_resource.c b/src/gallium/drivers/nouveau/nv30/nv30_resource.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_resource.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_resource.c
+@@ -125,9 +125,19 @@ nv30_texture_subdata(struct pipe_context *pipe, struct pipe_resource *res, unsig
+    }
+ }
+ 
++/* NV30_INVALIDATE_BUFFER (nv30_screen.c) */
++static void
++nv30_invalidate_resource(struct pipe_context *pipe, struct pipe_resource *res)
++{
++   if (res->target == PIPE_BUFFER)
++      nouveau_buffer_invalidate(pipe, res);
++}
++
+ void
+ nv30_resource_init(struct pipe_context *pipe)
+ {
++   if (nv30_screen(pipe->screen)->invalidate_buffer)
++      pipe->invalidate_resource = nv30_invalidate_resource;
+    pipe->buffer_map = nouveau_buffer_transfer_map;
+    pipe->texture_map = nv30_miptree_transfer_map;
+    pipe->transfer_flush_region = nouveau_buffer_transfer_flush_region;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -217,7 +217,7 @@ nv30_init_screen_caps(struct nv30_screen *screen)
+    caps->fs_position_is_sysval = false;
+    caps->fs_face_is_integer_sysval = false;
+    caps->shader_buffer_offset_alignment = 0;
+-   caps->invalidate_buffer = false;
++   caps->invalidate_buffer = screen->invalidate_buffer;
+    caps->generate_mipmap = false;
+    caps->string_marker = false;
+    caps->buffer_sampler_view_rgba_only = false;
+@@ -560,6 +560,21 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->ps3_kick_min_words =
+       MAX2(debug_get_num_option("NV30_PS3_KICK_MIN_BYTES", 16384), 1024) / 4;
+    screen->ps3_kick_split = MAX2(debug_get_num_option("NV30_PS3_KICK_SPLIT", 4), 1);
++   /* NV30_SYSMEM_COPY: when the CPU read VRAM buffers in four flushes in a row (u_vbuf
++    * converting vertex formats the RSX can't fetch), nouveau gives every VRAM buffer created
++    * from then on a system memory copy of its whole contents, for good (hint_buf_keep_sysmem_copy).
++    * 1 (default): so; 0: never, a buffer gets its copy when the CPU first reads it;
++    * 2: only new PIPE_USAGE_DYNAMIC (GL_DYNAMIC_DRAW) buffers get one, the static ones when read.
++    */
++   switch (debug_get_num_option("NV30_SYSMEM_COPY", 1)) {
++   case 0: screen->base.hint_buf_mode = NOUVEAU_HINT_BUF_NEVER; break;
++   case 2: screen->base.hint_buf_mode = NOUVEAU_HINT_BUF_DYNAMIC; break;
++   default: screen->base.hint_buf_mode = NOUVEAU_HINT_BUF_ALL; break;
++   }
++   screen->sysmem_stats = MAX2(debug_get_num_option("NV30_SYSMEM_STATS", 0), 0);
++   /* NV30_INVALIDATE_BUFFER=1: glBufferData(NULL) of the same size (orphaning) invalidates the
++    * buffer in place, keeping its system memory copy, instead of creating a new one */
++   screen->invalidate_buffer = debug_get_bool_option("NV30_INVALIDATE_BUFFER", false);
+    if (!screen->ps3_vbo_fifo)
+       screen->base.vidmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
+    screen->base.sysmem_bindings |= PIPE_BIND_VERTEX_BUFFER;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -42,6 +42,9 @@ struct nv30_screen {
+    unsigned ps3_kick_min_words; /* NV30_PS3_KICK_MIN_BYTES / 4: least work worth a submission */
+    unsigned ps3_kick_split;    /* NV30_PS3_KICK_SPLIT: at most about this many parts per frame */
+    int query_wait_us;          /* NV30_QUERY_WAIT: spin this long for a query, then sleep (-1: spin) */
++   bool invalidate_buffer;     /* NV30_INVALIDATE_BUFFER: orphaning keeps the buffer (invalidate) */
++   unsigned sysmem_stats;      /* NV30_SYSMEM_STATS=N: system memory copies on stderr every N frames */
++   bool sysmem_hint_seen;      /* the stats line for the hint was printed */
+ 
+    /* NV30_STAGING_POOL=N: up to N idle staging buffers of texture uploads, already mapped,
+     * kept for the next uploads of the same size class (nv30_miptree.c); 0: off */

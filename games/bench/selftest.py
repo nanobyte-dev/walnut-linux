@@ -213,6 +213,21 @@ def synthetic(tmp):
     check("own: longest from its line", r.get("longest") == 412, r.get("longest"))
     runs.append(d)
 
+    # Mesa's NV30_SYSMEM_STATS lines in game.log: the peak, the last line's counts, the hint's frame
+    d = tmp / "ps3-bench-20261018T000400Z-fakesys-base"
+    bench(d, game="fakesys", variant="base", ended="exit", seconds="100")
+    write(d / "game.log", "start\n"
+          "nv30-sysmem: hint set frame=3 mode=all hint=1 copies=4 kb=2048 made_create=0 kb_create=0 made_read=4 kb_read=2048 made_migrate=0 readbacks=9 kb_readback=4096\n"
+          "nv30-sysmem: frame frame=600 mode=all hint=1 copies=200 kb=65536 made_create=196 kb_create=63488 made_read=4 kb_read=2048 made_migrate=0 readbacks=9 kb_readback=4096\n"
+          "nv30-sysmem: end frame=900 mode=all hint=1 copies=100 kb=30720 made_create=300 kb_create=92160 made_read=5 kb_read=3072 made_migrate=1 readbacks=12 kb_readback=5120\n")
+    r = report.run(d)
+    check("sysmem: peak 64 MiB, last line's counts, hint at frame 3",
+          (r.get("sysmem_mb"), r.get("sysmem_create_mb"), r.get("sysmem_read_mb"), r.get("sysmem_readbacks"),
+           r.get("sysmem_hint")) == (64.0, 90.0, 3.0, 12, 3),
+          {k: v for k, v in r.items() if k.startswith("sysmem")})
+    r = report.run(tmp / "ps3-bench-20261018T000300Z-fakeown-base")
+    check("sysmem: no columns without the lines", not any(k.startswith("sysmem") for k in r), r)
+
     # a run from before the steady state: no window, no new keys, old ones as before
     d = tmp / "ps3-bench-20261017T120000Z-fakeold-base"
     write(d / "hud" / "fps", "".join("%d\n" % v for v in [10] * 13 + [30] * 77))

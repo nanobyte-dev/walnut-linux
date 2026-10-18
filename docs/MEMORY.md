@@ -229,6 +229,7 @@ process of another name is left alone.
 | luanti, luanti-data | 5.15.2+dfsg-2+ps3.405 | 0007 `LU_TRIM_MB` (unit tests pass in the build) |
 | yamagi-quake2, yamagi-quake2-core | 8.70+dfsg-1+ps3.408 | 0002 `YQ2_KISS_QSIZE` |
 | ioquake3 | 1.36+u20260719.58839361+dfsg-1+ps3.462 | 0027-0029, OpenArena opengl2 (section below) |
+| Mesa | 26.2.4-1+ps3.442~dev20261018140130 (build/debs/mesa) | 0037 NV30_SYSMEM_COPY, NV30_INVALIDATE_BUFFER, NV30_SYSMEM_STATS (section "nouveau's system memory copies") |
 
 ## On the PS3
 
@@ -386,6 +387,102 @@ and stall numbers from 3 more rounds without MEM:
 
 If md3pack shows the models right and helps, its default can go to 1.
 
+## nouveau's system memory copies of VRAM buffers (Mesa 0037, 2026-10-18)
+
+Follow-up to "Why opengl2's malloc holds 60 MB more" above, from the source we build
+(build/work/mesa, src/gallium/drivers/nouveau/nouveau_buffer.c, nouveau_context.h, nv30/).
+Built, not measured: the switches are off by default.
+
+### How the copies work
+
+- **Per buffer.** `nv04_resource.data` is a malloc'ed copy of the whole buffer (`width0`
+  bytes). A map of an idle VRAM buffer that doesn't discard makes one if there is none
+  (`nouveau_buffer_cache`): u_vbuf's `PIPE_MAP_READ` maps of the vertex buffers it converts (and
+  of the index buffer when it unrolls indices), but also a write map of an already written range
+  without an invalidate flag. Every later map of that buffer returns a pointer into it.
+  If the buffer was written by the CPU without a copy (status `DIRTY`), making the copy is a
+  **readback**: an M2MF copy of the whole buffer to a GART staging buffer, `BO_WAIT` on it (a kick
+  and a wait for everything queued before it: a GPU drain), then a memcpy. Once a copy exists the
+  writes go into it first and from there to VRAM (staging + M2MF), so it never goes stale and
+  there are no more readbacks for that buffer.
+- **Freed** only with the buffer (`nouveau_buffer_destroy`), or when the GPU writes the buffer
+  (`GPU_WRITING`: copy_buffer/stream output, not vertex buffers). Invalidation, discard maps and
+  reallocation keep it.
+- **The hint is screen-wide.** `nouveau_context_update_frame_stats` runs at every `pipe->flush`
+  (nv30_context_flush: SwapBuffers, glFlush, fences), shifts a bit history of "this flush had a
+  readback", and after four in a row sets `screen->hint_buf_keep_sysmem_copy`. Nothing clears it.
+  From then on `nouveau_buffer_create` gives every new VRAM buffer an (uninitialised, not dirty)
+  copy at its creation, whatever its usage, read or not. Buffers made before the hint keep none.
+- **What it buys.** CPU reads of VRAM run at 10 MB/s (RSX.md); without a copy each converted draw
+  would need a readback (an M2MF copy plus a GPU drain), so the copy is what makes u_vbuf usable
+  at all for the buffers it reads. The hint covers apps that keep making new buffers that get
+  read: each new buffer would cost one readback and drain at its first read.
+- **Why OpenArena's opengl2 sets it in its first frames.** `RB_UpdateTessVao` orphans the tess
+  buffers with `glBufferData(NULL)` before each tess flush. nv30 has no buffer invalidation
+  (`caps->invalidate_buffer = false`), so Mesa's bufferobj_data makes a new pipe buffer each time
+  (DYNAMIC, VRAM, no copy), BufferSubData writes it (`DIRTY`) and u_vbuf's colour conversion reads
+  it: a readback and a drain at every tess flush, so four flushes in a row within the first
+  frames. Then the MD3 models load (STATIC, VRAM): 223 buffers, 62 MB, each with a copy nothing
+  reads. Sauerbraten: its world VBOs (GL_STATIC_DRAW, normals and tangents GL_BYTE, which nv30
+  can't fetch: renderva.cpp) are read by u_vbuf on every draw, so they need their copies; whether
+  the hint gets set too (copies of its model and sky buffers) is what NV30_SYSMEM_STATS shows.
+
+### The options weighed
+
+| Option | Gain | Cost / risk | Done |
+|---|---|---|---|
+| Never set the hint (`NV30_SYSMEM_COPY=0`) | the copies of buffers never read (OpenArena gl2: ~62 MB) | an app that orphans read buffers pays a readback and drain per new buffer: **OpenArena gl2 with 16-bit colours would drain at every tess flush**, so only together with `NV30_INVALIDATE_BUFFER=1` | yes, off |
+| Hint only for DYNAMIC buffers (`NV30_SYSMEM_COPY=2`) | the same 62 MB (MD3 VBOs are STATIC); the streaming case the hint is for keeps working | static buffers read later get one readback each at their first read (load time or first view) | yes, off |
+| Buffer invalidation (`NV30_INVALIDATE_BUFFER=1`) | orphaning keeps the buffer and its copy: no new pipe buffer, copy, readback or vertex array revalidation per tess flush; the hint's trigger goes away for this pattern | the code is nv50/nvc0's (nouveau_buffer_invalidate; nv30 already reallocates GART buffers in place on discard maps); applies to every orphaning game (Sauerbraten's particles and grass: GART STREAM buffers, now reallocated in place when busy instead of replaced by a new buffer) | yes, off |
+| Free copies after N frames without reads | buffers read once (at load) | a buffer read again later pays a readback and drain; Sauerbraten's world buffers are read every frame they are seen, so its copies would come back each time; per-buffer map counting needed to free safely | no |
+| u_vbuf reads from the CPU-side upload source | no copies at all | the upload data is gone after BufferData; keeping it is the copy | no |
+| Convert at upload time into a fetchable format | no copies, no per-draw conversion | the buffer's vertex format isn't known at upload (VAOs bind it later, one buffer can serve several layouts); needs a translated twin per layout, invalidated on writes, more VRAM | no |
+| **The game sends fetchable formats** | no u_vbuf, no copies, no per-draw CPU conversion | per game | ioquake3 0027 (r_vaoSnormColor, the default); Sauerbraten: proposed below |
+
+The game-side fix is the one that removes everything; the Mesa switches cover the games we
+don't patch and the hint's collateral copies.
+
+### What was implemented (Mesa 0037, built, not deployed, not published)
+
+`mesa/patches/0037-nv30-optional-limits-on-nouveau-s-system-memory-copi.patch`, all off by default:
+
+| Switch | Values | What |
+|---|---|---|
+| `NV30_SYSMEM_COPY` | 1 (default): as upstream; 0: never the hint; 2: the hint, once set, gives copies at creation only to `PIPE_USAGE_DYNAMIC` (GL_DYNAMIC_DRAW) buffers | `nouveau_screen.hint_buf_mode` (0 for nv50/nvc0) |
+| `NV30_INVALIDATE_BUFFER` | 0 (default), 1 | `caps->invalidate_buffer` and `pipe->invalidate_resource` (buffers only) -> `nouveau_buffer_invalidate` |
+| `NV30_SYSMEM_STATS` | N frames (0: off) | a `nv30-sysmem:` line on stderr every N frames, when the hint is set and at context destruction: copies now (count, kb), made at creation / at a read (count, kb), at a GART->VRAM migration, readbacks (count, kb). report.py: `sysmem_mb` (peak), `sysmem_create_mb`, `sysmem_read_mb`, `sysmem_readbacks`, `sysmem_hint` (frame, 0: never) |
+
+The copies are counted for every nouveau driver (screen atomics, a `SYSMEM_COPY` status bit kept
+across reallocation); the counting is the only change with the switches off. Built with
+`make mesa-deb`; nv30 code can't run on the host, so the PS3 run is the first test.
+
+### The A/B on the PS3
+
+Deploy the Mesa debs (26.2.4-1+ps3.442~dev20261018140130: `make deploy` of build/debs/mesa, checking first that nobody is playing),
+`make bench-push`. Same boot, desktop stopped, webcam on every run. The tokens join switches with
+`+`; every arm carries the stats line (one fprintf per 300 frames) so all get the sysmem columns:
+
+    S=NV30_SYSMEM_STATS=300
+    ARMS="$S $S+NV30_SYSMEM_COPY=2 $S+NV30_INVALIDATE_BUFFER=1 $S+NV30_SYSMEM_COPY=0+NV30_INVALIDATE_BUFFER=1"
+    # OpenArena opengl2: gl2min_color16 has the 16-bit colours u_vbuf converts (ioquake3 0027 off);
+    # gl2min (0027 on, if ioquake3 ps3.462 is installed) is the control the switches shouldn't move
+    STALLS=1 MEM=1 ENVS="$ARMS" /var/tmp/bench/run.sh bench openarena "gl2min_color16 gl2min" 2
+    # Sauerbraten: its GL_BYTE normals go through u_vbuf on every draw
+    MEM=1 ENVS="$ARMS" /var/tmp/bench/run.sh bench sauerbraten base 2
+    python3 /var/tmp/bench/report.py --stalls --mem /var/tmp/ps3-bench/<run dirs>
+    # then fps and stalls without MEM (3 rounds), the arms that helped against the plain one
+    STALLS=1 ENVS="$S $S+NV30_SYSMEM_COPY=2+NV30_INVALIDATE_BUFFER=1" /var/tmp/bench/run.sh bench openarena gl2min_color16 3
+    ENVS="$S $S+NV30_SYSMEM_COPY=2+NV30_INVALIDATE_BUFFER=1" /var/tmp/bench/run.sh bench sauerbraten base 3
+
+Read `sysmem_mb` and `sysmem_create_mb` (what the hint cost), `sysmem_readbacks` (the drains the
+switches add), `sysmem_hint`, against `mem_malloc_used`, `mem_heap_rss`/`_swap`, `mem_swap`,
+`stall_play_s`, the fps. Expected: with 2 or 0+invalidate, OpenArena gl2min_color16's
+`sysmem_create_mb` ~0 instead of ~62 and malloc in use down by about that; readbacks a handful (one
+per static buffer read). `NV30_SYSMEM_COPY=0` without the invalidation is left out on purpose
+(a drain at every tess flush in gl2min_color16); if wanted as a worst case, one run. If a switch
+helps and shows nothing wrong (players and world drawn, no GL errors in game.log), it can become a
+PS3 default.
+
 ## Proposed, not implemented
 
 - **OpenArena (ioquake3)**: after a map load (the end of `CL_InitCGame`, next to
@@ -402,10 +499,14 @@ If md3pack shows the models right and helps, its default can go to 1.
   `ps3bench: mem start lua=3966 VmHWM: vmhwm=106952 VmRSS: 103840 kB`, so the recipe's `parse()`
   gets `lua` and `vmhwm` and junk keys (`mem_start_VmHWM:=VmHWM:`); vmrss, rssanon, rssfile and
   vmswap never come out.
-- **Mesa (nouveau)**: never set `hint_buf_keep_sysmem_copy` on the PS3 (an env switch), and keep
-  u_vbuf's reads of VRAM buffers from leaving whole-buffer malloc copies behind: every game whose
-  vertex formats nv30 can't fetch pays it (Sauerbraten's SNORM8 normals go through u_vbuf on
-  every draw: part of its 66 MB heap may be such copies). Measure Sauerbraten with MEM=1 first.
+- **Mesa (nouveau)**: the hint's switches are Mesa 0037 (section above). Left: whole-buffer
+  copies of buffers u_vbuf reads (needed while it reads them).
+- **Sauerbraten (cube2)**: its world vertex (renderva.cpp: `vertex`, 32 bytes) sends `norm` and
+  `tangent` as GL_BYTE, which nv30 can't fetch, so u_vbuf converts them on every draw (the CPU
+  cost Mesa 0033's table cut) and nouveau keeps a malloc copy of every world VBO. Sent as GL_SHORT
+  normalized (V16_SNORM, fetched natively as ioquake3 0027's colours) in the uploaded copy only,
+  40 bytes a vertex: no u_vbuf, no copies, no conversion, for 25% more VRAM in the world VBOs.
+  Size the copies first (NV30_SYSMEM_STATS, `sysmem_read_mb`).
 - **OpenArena opengl2**: r_keepImages for renderergl2 (0025 is opengl1's): every pass and map
   change reloads, decodes and mipmaps every texture; and the shader script parsing (COM_ParseExt
   2.8% of a profile) at every load.

@@ -65,6 +65,9 @@ profiles (docs/PROFILING.md; shown only for runs that have them):
           mem_swap, mem_anon; mem_topswap the 5 mappings with the most swap; mem_grow (end - start,
           Rss + swap); mem_malloc_used/_free and mem_arenas (glibc); mem_gpu_vram/_gart (the
           game's ps3rsx buffers); mem_smaps_ms the longest smaps read (memprof.py)
+  sysmem_* runs with ENVS token NV30_SYSMEM_STATS=N (Mesa 0037): MiB of nouveau's system memory
+          copies of GPU buffers (sysmem_mb the peak; _create_mb, _read_mb how they were made),
+          sysmem_readbacks, sysmem_hint the frame the screen-wide copy hint was set (0: never)
   --perf, --mem print perfprof.py's and memprof.py's tables for every run that has them
 A run with something alongside the game shows it after the variant (base@rec10, base@wksleep10c1,
 base@perf: bench.txt harness=, ps3-bench.sh; older runs: rec<ms> from a stalls.rec, perf from
@@ -233,7 +236,32 @@ def run(d):
     if (d / "mem").is_dir():
         import memprof
         r.update(memprof.summary(d))
+    r.update(sysmem(d))
     return r
+
+
+def sysmem(d):
+    """Mesa's NV30_SYSMEM_STATS lines in game.log (docs/MEMORY.md "nouveau's system memory copies"):
+    sysmem_mb the most MiB in copies of GPU buffers at once, and from the last line sysmem_create_mb,
+    sysmem_read_mb (MiB of copies made at creation for the hint / at a CPU read), sysmem_readbacks
+    (GPU readbacks to bring a copy up to date) and sysmem_hint (the frame the hint was set, 0: never)"""
+    log = d / "game.log"
+    if not log.exists():
+        return {}
+    last, peak, hint = None, 0, 0
+    for line in log.read_text(errors="replace").splitlines():
+        if not line.startswith("nv30-sysmem: "):
+            continue
+        kv = dict(x.split("=", 1) for x in line.split() if "=" in x)
+        last = kv
+        peak = max(peak, int(kv.get("kb", 0)))
+        if line.startswith("nv30-sysmem: hint set") and not hint:
+            hint = int(kv.get("frame", 0)) or 1
+    if last is None:
+        return {}
+    return {"sysmem_mb": round(peak / 1024, 1), "sysmem_create_mb": round(int(last.get("kb_create", 0)) / 1024, 1),
+            "sysmem_read_mb": round(int(last.get("kb_read", 0)) / 1024, 1),
+            "sysmem_readbacks": int(last.get("readbacks", 0)), "sysmem_hint": hint}
 
 
 STALL_MS = 100     # a frame longer than this is a stall
@@ -450,7 +478,8 @@ PROF_COLS = (["perf_n", "perf_game", "perf_mesa", "perf_drm", "perf_kgpu", "perf
              + ["mem_%s_%s" % (c, k) for c in ("game", "mesa", "libs", "heap", "anon", "stack", "gpu", "shm",
                                               "files", "other") for k in ("rss", "swap")]
              + ["mem_grow", "mem_malloc_used", "mem_malloc_free", "mem_arenas", "mem_gpu_vram", "mem_gpu_gart",
-                "mem_smaps_ms", "mem_topswap"])
+                "mem_smaps_ms", "mem_topswap"]
+             + ["sysmem_mb", "sysmem_create_mb", "sysmem_read_mb", "sysmem_readbacks", "sysmem_hint"])
 COLS += PROF_COLS
 RANGED = ("load", "fps", "maxms", "hud_med", "steady", "low1", "smooth", "stall_s", "stall_play_s", "low1_play",
           "stall_warm_s")
