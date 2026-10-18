@@ -68,3 +68,4 @@ local/0040-ps3-sys-manager-hwmon-temperatures.patch
 local/0041-ps3-sys-manager-fin-wait-for-shutdown-command.patch
 local/0042-ps3-sys-manager-fan-policy.patch
 local/0043-ps3fb-release-console-shadow.patch
+local/0044-ps3-os-area-no-flash-writes.patch

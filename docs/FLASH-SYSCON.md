@@ -51,13 +51,79 @@ This is the part that surprised me, and it changes the risk picture:
   the resize and every session's boot flag went to the SSD. The kernel's failed write on
   2026-10-15 ("os_area_queue_work_handler: Could not update FLASH ROM", PLAN.md open questions)
   targets that same OS area (the RTC offset is kept there). Worst case, that write breaks the boot
-  flag or Petitboot, which "Install OtherOS" puts back. It does not touch the NOR.
+  flag or Petitboot, which "Install OtherOS" puts back. It does not touch the NOR. What triggers it
+  and how the kernel stops trying: "The kernel's OS area write" below (local/0044).
 - **[fact]** The SYSCON EEPROM holds what the NOR doesn't: **which ROS bank is active**
   (`os_bank_indicator`, 0x48C24 in the Update Manager view: ros0 if 0xFF, else ros1, NOR only),
   the per-bank revoke flags, **the SPU count** (`restrict_spu`, 0x48C30: 0x06 default, 0x07
   enables the 8th SPE, 0xFF unlimited), product, recovery and QA flags, tokens tied to EID0, the
   error log, the thermal (fan) config and the syscon firmware patch. Sources: psdevwiki SC EEPROM,
   Syscon Thermal Configs; xai_plugin `functions.h`, `cfw_settings.h`.
+
+### The kernel's OS area write (PLAN 2.5, local/0044)
+
+Read from our 6.12 tree (`arch/powerpc/platforms/ps3/os-area.c`, `drivers/rtc/rtc-ps3.c`,
+`drivers/char/ps3flash.c`) and the built `.457` config, 2026-10-18. Nothing was run on the PS3.
+
+- **[fact] What the PS3 RTC is.** lv1's RTC is read only to a guest: Linux calls `lv1_get_rtc` and
+  never anything that sets it. The kernel's wall clock is `lv1 RTC + rtc_diff`, where `rtc_diff` is
+  an offset Linux keeps. Setting the RTC in Linux (`rtc-ps3`'s `set_time`) only computes a new
+  `rtc_diff`; it never reaches lv1 or SYSCON, and GameOS's own clock (its offset lives in GameOS's
+  settings) can't be changed from Linux this way.
+- **[fact] The trigger.** A new `rtc_diff` goes to `ps3_os_area_set_rtc_diff()`, which, when the
+  value changed, queues `os_area_queue_work_handler`: it updates the device-tree property
+  `linux,rtc_diff` and calls `update_flash_db()`. That reads the first 4 KiB of the OS area through
+  the flash ops, sets the Linux-owned database entry (owner 2, key 1: the RTC offset), reformats the
+  database first if it doesn't verify, and writes the 1 KiB database back. Who sets the RTC on our
+  image: the kernel itself. The `.457` config has `CONFIG_RTC_SYSTOHC=y` (rtc0 = rtc-ps3), and
+  `systemd-timesyncd` (image/packages.txt) clears `STA_UNSYNC` once it has NTP time, which turns on
+  the kernel's 11-minute mode: the first RTC write comes within seconds to minutes of the first
+  sync, then every 11 minutes; each one queues a flash write whenever the offset moved by a second.
+  That matches the one netconsole line of 2026-10-15. `hwclock` isn't in the rootfs
+  (util-linux-extra isn't installed); `timedatectl set-time` would be the other way in (timedated
+  writes rtc0). `av_multi_out` and the boot flag are only read; nothing in this kernel writes them.
+- **[fact] Where it would go.** The flash ops come from `ps3flash` (`CONFIG_PS3_FLASH`), the flash
+  storage device lv1 gives the OtherOS LPAR. On a NOR console that device is VFLASH on the internal
+  disk (section above), and the region is the OS area: header (segment 0), params with the boot flag
+  (segment 1), the database (from `db_area_offset`, segment 2 in the stock layout), then the
+  Petitboot image. ps3flash writes through a 256 KiB bounce buffer as read-modify-write, and the
+  kernel write is synchronous, so a 1 KiB database update rewrites the whole first 256 KiB block:
+  header, boot flag and the start of Petitboot. A crash or power cut during that write is the
+  "Petitboot won't start, boot flag stuck" case of row E (section 3). Never the NOR.
+- **[fact] Why it fails today.** `CONFIG_PS3_FLASH`, `PS3_FLASH_NG` and `PS3_NOR_FLASH` are off
+  (linux/config/ps3.config, and the built `.457` config), so nothing registers flash ops,
+  `os_area_flash_read()` returns -ENODEV, `update_flash_db()` gives up before writing, and the
+  handler prints "Could not update FLASH ROM". Nothing was ever written. The patch is defence in
+  depth: it stays safe if a later config or a module turns ps3flash back on.
+- **The fix, local/0044** (`ps3: os-area: never write the OS area unless ps3_os_area.write=1`):
+  `ps3_os_area.write` (bool, default 0, read only at runtime:
+  `/sys/module/ps3_os_area/parameters/write`). With it off, `os_area_flash_write()` returns -EPERM
+  before it takes the flash ops, and the work item still updates `linux,rtc_diff` in the device tree
+  (memory only, what a kexec'd kernel reads) but returns before reading or writing flash, with no
+  warning. Reading is untouched. A late initcall logs once at boot: `ps3_os_area: writes to the OS
+  area in flash disabled, RTC changes last until reboot`. `RTC_SYSTOHC` stays on: with the patch its
+  writes only move the in-memory offset, so `/dev/rtc0` keeps agreeing with the system clock during
+  the boot.
+- **[fact] Where our kernel's `rtc_diff` comes from.** Our kernel is kexec'd by Petitboot, a Linux
+  of its own. The first kernel (Petitboot's) reads the hypervisor's copy of the OS area and then
+  clears its header, so in our kernel `ps3_os_area_save_params()` finds no valid header and
+  `ps3_os_area_init()` takes `linux,rtc_diff` and `linux,av_multi_out` from the device tree Petitboot
+  passes on. Petitboot's order of preference is: the database value, the params segment's value
+  (the kernel calls it "the game os value"), then 946684800 (1970 to 2000). Without a write, every
+  boot starts from that same value.
+- **Consequences of never writing.** Clock corrections made under Linux last until the next reboot;
+  this is how every kernel we've run already behaved, since the write always failed. At boot the
+  clock is `lv1 RTC + the stored offset`, and timesyncd steps it to NTP time once the network is up
+  (gelic comes up early; the NFS root needs it anyway). timesyncd also keeps
+  `/var/lib/systemd/timesync/clock`, so the clock never starts before the last shutdown even if the
+  offset is stale. Without a network the clock could be off by however far the stored offset is from
+  the truth. GameOS isn't affected: it keeps its own offset and never reads Linux's database entry.
+- **PS3 check (next test kernel after `.457`):** `dmesg | grep -e ps3_os_area -e 'FLASH ROM'` shows
+  the "disabled" line and no "Could not update FLASH ROM" 12 minutes after timesyncd synced
+  (`timedatectl show -p NTPSynchronized` is yes); nothing else needs doing on the PS3;
+  `cat /sys/module/ps3_os_area/parameters/write` is N; `xxd /proc/device-tree/linux,rtc_diff`
+  (8 bytes, the offset now in use); `journalctl -b -u systemd-timesyncd | head` shows how far the
+  boot clock was from NTP time.
 
 ## 2. Inventory: what's writable and what writing it would unlock
 
@@ -371,8 +437,11 @@ a bigger OtherOS HDD region (we boot from USB/NFS; resizing again wipes GameOS's
 - Does a Sherwood SW2 still answer on UART after a thermal config with a bad checksum?
 - ~~Can the System Manager set the fan policy from Linux under OtherOS++?~~ Yes: SYSCON automatic and
   full speed from Linux on kernel .433 (2026-10-18, THERMAL.md).
-- What makes the kernel try to write the OS area ("os_area_queue_work_handler: Could not update FLASH
-  ROM", 2026-10-15)? Still not looked at (PLAN.md open questions).
+- ~~What makes the kernel try to write the OS area ("os_area_queue_work_handler: Could not update FLASH
+  ROM", 2026-10-15)?~~ The kernel's 11-minute RTC sync once timesyncd has NTP time; local/0044 turns
+  the write off (section 1, "The kernel's OS area write"). The PS3 check is still to do.
+- What rtc_diff does Petitboot hand our kernel, and does Petitboot's own kernel ever write the OS area?
+  (`xxd /proc/device-tree/linux,rtc_diff`; we don't control the installed Petitboot image.)
 
 ## 8. Sources
 

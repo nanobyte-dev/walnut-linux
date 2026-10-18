@@ -1,0 +1,114 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 20:14:02 +0300
+Subject: ps3: os-area: never write the OS area unless ps3_os_area.write=1
+
+Setting the PS3 RTC (rtc-ps3's set_time) only changes the kernel's
+rtc_diff, the offset added to lv1's read-only RTC; lv1's clock itself is
+never set. ps3_os_area_set_rtc_diff() then queues a work item that puts
+the new value in the device tree and writes the OS area database back to
+flash through ps3flash. With CONFIG_RTC_SYSTOHC and an NTP client
+(systemd-timesyncd clears STA_UNSYNC), the kernel does that within
+minutes of the first sync and again every 11 minutes whenever the offset
+moved by a second.
+
+On a NOR console the flash device is VFLASH on the internal disk, and the
+OS area region holds, in its first 256 KiB flash block, the OS area
+header, the parameters (the GameOS/OtherOS boot flag) and the database,
+followed by the boot loader image. ps3flash writes in 256 KiB bounce
+blocks, so a 1 KiB database update rewrites the header, the boot flag
+and the start of Petitboot as well; a database that fails to verify is
+even reformatted first.
+
+Writes are now off by default. ps3_os_area.write (bool, read only at
+runtime, /sys/module/ps3_os_area/parameters/write) turns them back on
+from the command line. With it off:
+
+- os_area_flash_write() returns -EPERM before taking the flash ops, so no
+  path reaches the flash device;
+- the work item still updates linux,rtc_diff in the device tree (memory
+  only, what a kexec'd kernel reads) and returns without reading or
+  writing flash, and without the "Could not update FLASH ROM" warning;
+- reading is unchanged: rtc_diff and av_multi_out still come from the
+  hypervisor's OS area copy or, after a kexec, from the device tree.
+
+A late initcall logs the state once at boot.
+
+RTC changes therefore last until the next reboot; the next boot starts
+from the offset the OS area (or Petitboot's device tree) holds, and NTP
+corrects it.
+
+Forwarded: no (project policy: Linux does not write the PS3's flash;
+docs/FLASH-SYSCON.md)
+
+diff --git a/arch/powerpc/platforms/ps3/os-area.c b/arch/powerpc/platforms/ps3/os-area.c
+--- a/arch/powerpc/platforms/ps3/os-area.c
++++ b/arch/powerpc/platforms/ps3/os-area.c
+@@ -16,9 +16,27 @@
+ #include <linux/memblock.h>
+ #include <linux/of.h>
+ #include <linux/slab.h>
++#include <linux/moduleparam.h>
++
++#include <asm/firmware.h>
+ 
+ #include "platform.h"
+ 
++#undef MODULE_PARAM_PREFIX
++#define MODULE_PARAM_PREFIX "ps3_os_area."
++
++/*
++ * ps3_os_area.write: let the kernel write the OS area database (the RTC
++ * offset) back to flash.  Off by default: the OS area shares its first
++ * flash block with the OS area header, the boot flag and the start of the
++ * boot loader image, and ps3flash rewrites that whole block for a 1 KiB
++ * database update.  With writes off, RTC changes are kept in memory (and
++ * in the device tree for a kexec) for this boot only.
++ */
++static bool os_area_write;
++module_param_named(write, os_area_write, bool, 0444);
++MODULE_PARM_DESC(write, "Write RTC offset changes to the OS area in flash (default: off)");
++
+ enum {
+ 	OS_AREA_SEGMENT_SIZE = 0X200,
+ };
+@@ -238,6 +256,9 @@ static ssize_t os_area_flash_write(const void *buf, size_t count, loff_t pos)
+ {
+ 	ssize_t res = -ENODEV;
+ 
++	if (!os_area_write)
++		return -EPERM;
++
+ 	mutex_lock(&os_area_flash_mutex);
+ 	if (os_area_flash_ops)
+ 		res = os_area_flash_ops->write(buf, count, pos);
+@@ -681,6 +702,12 @@ static void os_area_queue_work_handler(struct work_struct *work)
+ 		pr_debug("%s:%d of_find_node_by_path failed\n",
+ 			__func__, __LINE__);
+ 
++	if (!os_area_write) {
++		pr_debug("%s: OS area writes disabled, rtc_diff %lld kept in memory\n",
++			 __func__, saved_params.rtc_diff);
++		return;
++	}
++
+ 	error = update_flash_db();
+ 	if (error)
+ 		pr_warn("%s: Could not update FLASH ROM\n", __func__);
+@@ -828,3 +855,16 @@ enum ps3_param_av_multi_out ps3_os_area_get_av_multi_out(void)
+     return saved_params.av_multi_out;
+ }
+ EXPORT_SYMBOL_GPL(ps3_os_area_get_av_multi_out);
++
++static int __init ps3_os_area_write_report(void)
++{
++	if (!firmware_has_feature(FW_FEATURE_PS3_LV1))
++		return 0;
++
++	if (os_area_write)
++		pr_info("ps3_os_area: writes to the OS area in flash enabled (ps3_os_area.write=1)\n");
++	else
++		pr_info("ps3_os_area: writes to the OS area in flash disabled, RTC changes last until reboot\n");
++	return 0;
++}
++late_initcall(ps3_os_area_write_report);
