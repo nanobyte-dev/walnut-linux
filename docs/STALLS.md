@@ -28,6 +28,11 @@ stalls.py prints the cost per sample of each part. Turn the default on once a sa
 (`STALLS=0` against `STALLS=1`) shows no change in fps and stalls. Until then, record stalls in
 runs made for that purpose, not in the runs a decision is based on.
 
+**The first A/B failed the other way** (2026-10-18, below: "The recorder removes stalls"): on the
+PPE the recorder costs 5.6% of a thread and takes OpenArena's gameplay stall time from 21-29 s to
+7 s. It doesn't see the stalls it prevents. report.py now shows recorder runs as their own variant
+(`base@rec10`).
+
 ## What it records
 
 `ps3-stallrec` (ps3-gpu-tools/src/ps3-stallrec.c, in `/usr/lib/ps3/bin`) is one root process,
@@ -161,10 +166,152 @@ synthetic looped demo: OpenArena by load line, Neverball by fixed time, bench.tx
 with none, a missing t0).
 
 Values of 2026-10-17 evening (whole window -> play: stall_s, stalls, low1): OpenArena base T2332 /
-T2337 / T2341 / T2345: 41.4 -> 28.9 s, 34.9 -> 20.7 s (older ioquake3, 80 -> 47 stalls) and 17.9 -> 7.1 s,
-17.6 -> 7.3 s (ioquake3 +ps3.396 era: 58 -> 27 and 52 -> 26 stalls, low1 11 -> 27 and 11 -> 28). Neverball
+T2337 / T2341 / T2345: 41.4 -> 28.9 s, 34.9 -> 20.7 s (no recorder, 80 -> 47 stalls) and 17.9 -> 7.1 s,
+17.6 -> 7.3 s (with the recorder: 58 -> 27 and 52 -> 26 stalls, low1 11 -> 27 and 11 -> 28). All four
+ran the same ioquake3 ps3.379 (their `versions` and game.log agree); the difference is the
+recorder, see the next section. Neverball
 base/gloff: 17.2 -> 14.0, 19.6 -> 17.2, 25.6 -> 18.8, 22.7 -> 17.2 s, so Neverball's stalls are mostly
 mid-replay, not the restart. Sauerbraten (the window already leaves the reload out): unchanged.
+
+## The recorder removes stalls (2026-10-18)
+
+Same boot, OpenArena base, the timedemo looped, the recorder off and on in turn. All four runs had
+the same ioquake3 (ps3.379), Mesa, kernel and packages (`versions`):
+
+| | T2332 off | T2337 on | T2341 off | T2345 on |
+|---|---|---|---|---|
+| stall_play_s | 28.9 | 7.1 | 20.7 | 7.3 |
+| low1_play | 21.1 | 27.2 | 24.6 | 28.5 |
+| stall_s (window) | 41.4 | 17.9 | 34.9 | 17.6 |
+| steady fps | 53.0 | 61.3 | 54.4 | 61.4 |
+| smooth fps (frames under 100 ms) | 63.2 | 62.7 | 63.3 | 62.5 |
+| client CPU per HUD frame | 18.9 ms | 18.5 ms | 18.7 ms | 18.6 ms |
+| wall time per HUD frame | 26.6 ms | 22.5 ms | 25.8 ms | 22.9 ms |
+| frames over 1 s / over 0.5 s in play | 6 / 13 | 0 / 2 | 3 / 11 | 0 / 2 |
+
+What the runs show:
+
+- A frame that doesn't stall costs the same either way (smooth fps, CPU per frame). The off runs
+  lose 3-4 ms a frame off the CPU: the game waits, it isn't slower.
+- The extra stalls of the off runs are long (4382, 4138, 4046, 3231, 3030 ms ...) and fall on
+  random frames of a pass (97, 291, 356, 465, 890, 1200), not on the bot joins (frames 348, 948)
+  or the reloads, which both kinds of run have. Swap was quiet during them (no pswpin/pswpout in
+  ps3-bench.sh's 0.5 s samples, 55 MB available). Every run of 2026-10-17 without the recorder has
+  frames over 2 s after its first 400 frames (OpenArena 1-6 a run, one of them the second pass's
+  reload; Neverball 1-4, Luanti 1-3); the two recorder runs have only that reload.
+- The recorder goes late the same way. It sleeps to an absolute 10 ms deadline at nice -10 and
+  still missed up to 879 ms (13 gaps over 30 ms in each run, 6 and 9 over 90 ms). The longest gaps (T2337: 245, 879,
+  376, 604 ms; T2345: 464, 165, 592 ms) start with the game's main thread asleep in
+  `dma_fence_default_wait` (an ioctl on /dev/dri/card0) and end with a frame of the same length:
+  two waits that end by a timer, the recorder's sleep and ps3rsx's fence poll, stopped and resumed
+  together. ps3rsx signals fences from an hrtimer (exec.c `fence_poll`, every 250 us while someone
+  waits), and an hrtimer fires on the CPU that started it, here the waiter's.
+
+**The mechanism (best explanation, from the kernel source; not yet measured on the PS3).** The idle
+loop calls `ps3_power_save()` (arch/powerpc/platforms/ps3/setup.c) soft-disabled, MSR[EE] still on,
+and it calls `lv1_pause(0)` without `prep_irq_for_idle()`, unlike the other powerpc idle states. A
+decrementer that fires between the idle loop's `local_irq_disable()` and the hcall is masked:
+`masked_interrupt` (exceptions-64s.S) sets DEC to 0x7fffffff, 27 s at the 79.8 MHz timebase, and
+leaves PACA_IRQ_DEC for the replay. The thread then pauses with no decrementer to wake it, and every
+timer of that thread waits for the next external interrupt: the tick, hrtimers (the fence poll,
+nanosleep), timer-wheel timeouts. `ps3_virq_setup()` binds every PS3_BINDING_CPU_ANY interrupt to
+thread 0 (USB, gelic, the RSX's vsync, the SPEs), so thread 0 recovers within milliseconds. Thread 1
+gets nothing but IPIs and sleeps until something is woken onto it. The window is short, but a fence
+wait enters idle 4000 times a second (the 250 us poll), and each entry is a chance for the 250 Hz
+tick to land in it. The periodic tick (HZ_PERIODIC, no NO_HZ, no cpuidle) can't help: it is that
+decrementer.
+
+How the recorder helps: 100 wakeups a second at nice -10, 0.5 ms of work each. While it runs on the
+thread that's awake, other wakeups (and its own, when its timer fires on a busy thread) are placed on
+the stuck thread, which looks idle; that takes an IPI, the thread wakes, replays its decrementer and
+the fence poll runs. The outage shrinks from seconds to about a period. It stays when the recorder's
+own timer is on the stuck thread: the 879 ms gap.
+
+Ruled out or unlikely:
+
+- ps3-bench.sh: `BENCH_STALLS=1` only starts the recorder (sudo, nice -10, no affinity, cgroup or
+  mlock) and waits up to 3 s for it after the run. Quiet, caches, swaps and timers take the same path.
+- The second PPE thread kept busy (SMT sharing, the idle thread's priority): it would change the
+  cost of a frame, and smooth fps and CPU per frame are the same.
+- NO_HZ: not configured; see above for why the periodic tick doesn't cover a lost decrementer.
+- The recorder's reads (/proc/<tid>/stat, wchan, syscall, stack, /proc/vmstat, diskstats, the VRAM
+  swap's stats): none sends an IPI or touches the game's memory. Its /dev/shm writes are 3 KB a
+  second. Both get their own A/B below.
+
+Side finding: /proc/stat says both CPUs are 99% busy in every recorded run, also during the load's
+disk waits and after the game exited. With TICK_CPU_ACCOUNTING the tick that wakes an idle PPE
+thread is replayed inside `arch_local_irq_restore()`'s `irq_enter()`, so `timer_interrupt()`'s own
+`irq_enter()` nests and `account_process_tick()` books the tick as system time. The record's `cpu=`
+busy/idle means nothing on this kernel (no cause uses it; `runq` uses the process's CPU time).
+
+### The A/B on the PS3
+
+ps3-gpu-tools 0.399 has `ps3-waker` and the switches (ps3-bench.sh's header; run.sh takes them
+without the `BENCH_` prefix, and `ENVS` interleaves them within each round). report.py shows each
+run's switches after the variant (`base@wksleep10c1`), from bench.txt's `harness=`.
+
+| Switch | What runs alongside | Expected if the decrementer is lost |
+|---|---|---|
+| `-` | nothing | stall_play_s 20-29 s, frames over 1 s |
+| `STALLS=1` | the recorder | 7 s |
+| `STALLS=1+STALLS_NOWRITE=1` | the recorder without its output | 7 s |
+| `WAKER=10` | a bare 10 ms sleep loop, unpinned, nice -10 | about 7 s (wakeups alone, no reads) |
+| `WAKER=10+WAKER_CPU=0`, `WAKER=10+WAKER_CPU=1` | the same pinned to one thread | as off: a pinned sleeper wakes only its own thread, by the timer that is lost |
+| `WAKER=10+WAKER_MODE=kick` | an IPI to each thread every 10 ms | 7 s or less |
+| `WAKER=10+WAKER_MODE=kick+WAKER_CPU=1` / `...CPU=0` | an IPI to thread 1 / thread 0 only | thread 1: as kick; thread 0: as off |
+| `WAKER=1`, `WAKER=50` | other periods | 1 ms: as 10; 50 ms: between |
+| `PROBE=1` | pinned SCHED_FIFO sleepers timing each thread's timers (20 ms) | stalls as off; probe.txt has thread 1's wakeups late by 0.3-4 s at the long frames |
+
+If the pinned wakers help as much as the unpinned one, the explanation is wrong and the effect is
+the scheduler's (placement, SMT): then profile with `PERF_ALL=1`. `probe.txt`'s `late` lines are
+CLOCK_MONOTONIC seconds; its `# clock` pair puts them on the client's clock as stalls.py does (real
+= mono - mono0 + real0, then minus bench.txt's t0).
+
+Commands (desktop session over, `make deploy PKGS=ps3-gpu-tools` and `make bench-push` done; each
+batch has its own off runs, as the same-boot rule wants):
+
+    # 1. no game: does a pinned FIFO sleeper on an idle thread oversleep? (2 min each)
+    ps3-bench.sh run probe-idle -- sudo ps3-waker -m probe -i 1.37 -t 120
+    ps3-bench.sh run probe-kick -- sh -c 'sudo ps3-waker -m kick -i 10 -t 125 -o /dev/null &
+        sudo ps3-waker -m probe -i 1.37 -t 120'
+    ps3-bench.sh desktop
+    # 2. the mechanism (10 runs, about 45 min)
+    ENVS="- STALLS=1 WAKER=10 WAKER=10+WAKER_MODE=kick PROBE=1" /var/tmp/bench/run.sh bench openarena base 2
+    # 3. which part does it (16 runs, about 70 min)
+    ENVS="- WAKER=10+WAKER_CPU=0 WAKER=10+WAKER_CPU=1 WAKER=10+WAKER_MODE=kick+WAKER_CPU=1 \
+        WAKER=10+WAKER_MODE=kick+WAKER_CPU=0 STALLS=1+STALLS_NOWRITE=1 WAKER=1 WAKER=50" \
+        /var/tmp/bench/run.sh bench openarena base 2
+    # 4. another game with mid-play stalls (Neverball, Luanti)
+    ENVS="- WAKER=10+WAKER_MODE=kick" /var/tmp/bench/run.sh bench neverball base 3
+    ps3-bench.sh desktop
+
+Test 1 expects thread 1 (`cpu 1`) to show wakeups late by 100 ms or more (`ge100`) and thread 0
+only short ones; with the kicker, nothing over about 10 ms on either. A pinned FIFO thread late by
+100 ms on an otherwise idle PS3 has hardly another explanation than its timer not firing (a long
+stretch with interrupts off would show on both threads and in dmesg's RCU or watchdog lines).
+
+### The fix
+
+linux/patches/local/0009-ps3-idle-no-pause-with-irq-pending.patch (in the series, commented out:
+not built, not tested): `ps3_power_save()` calls `prep_irq_for_idle_irqsoff()` first, the helper for
+idle states entered hard-disabled and woken by a pending interrupt. It hard-disables, returns
+without pausing when something is already pending (the replay in `local_irq_enable()` runs it), and
+otherwise pauses with MSR[EE] off, so a decrementer or external interrupt that comes now stays
+pending in the hardware and ends the pause (`lv1_pause`: "MSR[EE] has no effect"). To try it:
+uncomment the line, `make linux-deb`, deploy, and on that kernel run batch 2 again. Fixed, the
+switches stop mattering: `-`, `STALLS=1` and kick give the same stall_play_s (about 7 s), and test 1
+shows no late wakeups. Watch the fan and `uptime` on the first boot: if the pause were skipped every
+time, the idle threads would spin and run hotter (nothing controls the fan under Linux).
+
+Until a fixed kernel is in, a stopgap is the kicker during game mode (ps3-desktop's ps3-game could
+start `ps3-waker -m kick -i 10 -c 1`, 100 wakeups a second on each side). ps3rsx could also retire
+fences from its vsync interrupt (thread 0, 60 Hz) as well as from the poll timer, so that no fence
+depends on one thread's timer; that bounds a fence wait to 17 ms but leaves every other timer of the
+stuck thread waiting. Neither is done; the kernel fix comes first.
+
+The OpenArena analysis above ("what stalls and why") came from recorder runs, so it describes the
+stalls that are left with the recorder running: the reloads and the bot joins are real either way,
+the long waits of the plain runs are not in it.
 
 ## What the kernel and the driver could add
 

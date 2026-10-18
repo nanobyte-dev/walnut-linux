@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 02:30:00 +0300
+Subject: powerpc/ps3: don't pause a thread with an interrupt already pending
+
+ps3_power_save() calls lv1_pause(0) soft-disabled, with MSR[EE] on. A
+decrementer that fires between the idle loop's local_irq_disable() and the
+hcall is masked: masked_interrupt sets DEC to 0x7fffffff (27 s at the
+79.8 MHz timebase) and records PACA_IRQ_DEC for the replay. The thread then
+pauses with no decrementer to wake it, and every timer queued on it (the
+tick, hrtimers, timer-wheel timers) waits for the next external interrupt.
+Thread 0 gets the device interrupts (PS3_BINDING_CPU_ANY binds them all to
+it) and recovers within milliseconds; thread 1 gets only IPIs and can stay
+asleep for seconds. On the PS3 this shows as games freezing for 0.3-4 s
+with the CPU idle: ps3rsx's fence poll is an hrtimer on the waiter's CPU
+(docs/STALLS.md "The recorder removes stalls").
+
+Use prep_irq_for_idle_irqsoff(), the helper for idle states that are
+entered with interrupts hard-disabled and woken by a pending interrupt:
+hard-disable, return without pausing when something is already pending
+(the replay in local_irq_enable() runs it), and otherwise pause with
+MSR[EE] off, so a decrementer or external interrupt that comes now stays
+pending in the hardware and ends the pause.
+
+Forwarded: not yet (test on the PS3 first)
+
+diff --git a/arch/powerpc/platforms/ps3/setup.c b/arch/powerpc/platforms/ps3/setup.c
+--- a/arch/powerpc/platforms/ps3/setup.c
++++ b/arch/powerpc/platforms/ps3/setup.c
+@@ -66,9 +66,25 @@
+ 	 * lv1_pause() puts the PPE thread into inactive state until an
+ 	 * irq on an unmasked plug exists. MSR[EE] has no effect.
+ 	 * flags: 0 = wake on DEC interrupt, 1 = ignore DEC interrupt.
++	 *
++	 * We are called soft-disabled with MSR[EE] still on. A decrementer
++	 * that fires in that window is masked: the masked handler pushes DEC
++	 * out to 0x7fffffff (27 s at the 79.8 MHz timebase) and leaves
++	 * PACA_IRQ_DEC for the replay. Pausing then sleeps through every timer
++	 * of this thread until some other interrupt arrives, and the second
++	 * thread gets nothing but IPIs (every device interrupt is bound to
++	 * thread 0). Hard-disable first and stay awake when something is
++	 * already pending, as the other powerpc idle states do: the replay in
++	 * local_irq_enable() then handles it. With MSR[EE] off, a decrementer
++	 * or external interrupt arriving now stays pending in the hardware and
++	 * still ends the pause.
+ 	 */
++	if (!prep_irq_for_idle_irqsoff())
++		return;
+ 
+ 	lv1_pause(0);
++
++	fini_irq_for_idle_irqsoff();
+ }
+ 
+ static void __noreturn ps3_restart(char *cmd)
