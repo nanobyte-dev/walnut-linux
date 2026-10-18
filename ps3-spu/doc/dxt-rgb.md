@@ -100,8 +100,9 @@ On the PPE side `touch` (the page pre-touch before submit) now reads the source 
 - `make -f spu/dxt-test.mk check`: `dxt_rgb_expand` (SIMD through dxt-emu.h, and the scalar
   copy) against a plain loop at every source offset 0..15 and 13 lengths from 4 to 1028 pixels,
   nothing written past its 64-byte groups; the broken pattern fails it too.
-- `make -C ps3-spu test` passes; the package build runs it big-endian (scalar path) in the ppc64
-  chroot.
+- `make -C ps3-spu test` passes on x86 and big-endian (the ps3-spu deps chroot under qemu-user,
+  `-O2 -mcpu=cell`: the reference on the PPE's byte order, the scalar SPU copy; the package build
+  itself runs with nocheck). ps3-spu 0.394 built from fbf1f95.
 
 ## 5. On the PS3 (to run)
 
