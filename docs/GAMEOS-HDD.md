@@ -143,9 +143,10 @@ manual lists only quick and full format); the Rebug "size" was the same PS3MFW `
 built into their 3.41/3.55 OtherOS++ PUPs, and Rebug REX 4.84.2 just detects an existing region.
 
 **Our tools.** **[fact]** Our Petitboot (`firmware/petitboot/dtbImage.ps3.bin`) is glevand's
-2.6.30.10 build of 2011 (its version string), with the `ps3stormgr` driver and GPT support in the
-kernel. **[unverified]** Whether its initramfs has `ps3stor_region` and `ps3hvc_hvcall`: I couldn't
-unpack it here; the user checks it read-only before anything is wiped (checklist step U3). Our
+2.6.30.10 build of Jun 27 2011 (its version string), with the `ps3stormgr` and `ps3hvc` drivers
+and GPT support in the kernel. **[fact]** Its initramfs has `/usr/sbin/ps3stor_region` and
+`/usr/sbin/ps3hvc_hvcall` (unpacked 2026-10-18, see "Petitboot's behaviour" below); the user still
+confirms them from the shell before anything is wiped (checklist step U3). Our
 kernel carries the storage-manager patch (ps3/0150, `/dev/ps3strgmngr`, different ioctls) but
 builds it off on purpose (OTHEROS-PATCHES.md: persistent region table); it stays off, Petitboot
 is the tool for this one-off.
@@ -272,7 +273,8 @@ first boot.
    set `PS3_ROOT_ARGS="root=PARTUUID=<ps3dd1> rootfstype=ext4 ro"` in `/etc/default/ps3-boot` and
    run `ps3-update-kboot` in the new root.
 4. **config.mk / Makefile:** `ROOT_ARGS_ssd`, `make ssd-root`, `netboot-deb ROOT=ssd`. The USB root
-   stays as the fallback: Petitboot lists the `kboot.conf` of both disks.
+   stays as the fallback: Petitboot lists the `kboot.conf` of both disks. The two need different
+   entry labels: Petitboot's stored default is keyed on the label ("Petitboot's behaviour" below).
 5. **Swap:** fstab's swap entry points at the SSD partition, so `ps3-vswap` backs VRAM swap with it
    instead of the USB partition. The USB swap partition stays unused.
 6. **Measurements:** root location changes need a reboot, so SSD vs USB can't be a same-boot A/B;
@@ -298,16 +300,171 @@ blocks, never UFS metadata; GameOS sees an unchanged file. The two OSes never ru
   blocks (no tail fragment) and has no holes.
 - **Kernel guard:** `ps3da` and `ps3dc` read-only; writes to `ps3db` allowed only inside the
   registered extents (a small ps3disk check), so a mistyped mkfs can't reach GameOS's data.
-- **Boot:** Petitboot can't see a device-mapper disk, so the kernel and kboot.conf stay readable to
-  it. Petitboot's 2.6.30 kernel has vfat, ext3, iso9660 and ufs built in (strings of
-  firmware/petitboot/dtbImage.ps3.bin). Options: (1) `/boot` on the USB disk as today, read only at
-  boot, plus a small initramfs that builds the mapping (too many extents for `dm-mod.create=`);
-  (2) `/boot` on dev_hdd1 (vfat, GameOS's cache partition, which GameOS may clear: keep (1) as the
-  fallback); (3) the kernel as a file on dev_hdd0, only if Petitboot mounts UFS2 (`ufstype=ufs2`)
-  and finds kboot.conf there, to check read-only from its shell; kernel updates would then go
-  through GameOS. (1) first.
+- **Boot:** Petitboot can't see a device-mapper disk (its kernel has no device-mapper at all), so
+  the kernel and kboot.conf stay readable to it. Petitboot's 2.6.30 kernel has ext2, ext3, ext4,
+  vfat, msdos, iso9660, udf, ntfs and ufs built in, plus loop (strings of
+  firmware/petitboot/dtbImage.ps3.bin; earlier versions of this note listed only four). Options:
+  (1) `/boot` on the USB disk as today, read only at boot, plus a small initramfs that builds the
+  mapping (too many extents for `dm-mod.create=`); (2) `/boot` on dev_hdd1 (vfat, GameOS's cache
+  partition, which GameOS may clear: keep (1) as the fallback); (3) the kernel as a file on
+  dev_hdd0. The analysis of the installed image (next subsection) rules out (3) as an automatic
+  boot: Petitboot mounts every device without `ufstype=`, so UFS2 never mounts. (1) it is.
 - **Risk:** deleting the file in GameOS hands its blocks back to GameOS; the boot check stops Linux
   from writing there, but the file must be treated as "do not touch". Rollback: delete the file.
+
+### Petitboot's behaviour (from the installed image)
+
+PC-side analysis, 2026-10-18: the image's initramfs unpacked and read, nothing from it run, nothing
+done on the PS3. Tags as above: **[fact]** has a file, string or source line behind it,
+**[inference]** is my reading and wants a check from Petitboot's shell.
+
+**Which image.** The installed one is `firmware/petitboot/dtbImage.ps3.bin` (the user,
+2026-10-18: Evilnat's instructions expect that version). **[fact]** Kernel "2.6.30.10
+(glevand@7track.fastsh.it) ... Mon Jun 27 15:59:15 UTC 2011"; userland "pb-discover (petitboot)
+-11.06.27-15.34", BusyBox 1.17.3, kexec-tools 2.0.2, util-linux-ng 2.13.0.1 `mount`, e2fsprogs
+1.41.12, uClibc 0.9.32-rc2, all from glevand's OpenWrt tree
+(`/home/glevand/petitboot/openwrt/build_dir/linux-ps3_petitboot`). The initramfs is an LZMA stream
+with OpenWrt's settings (properties byte 0x6d) at offset 0x428000, 15.25 MB of newc cpio. The
+kernel has no embedded config (no `IKCFG_ST`), so kernel options below come from its strings.
+Petitboot's own source is upstream petitboot at 17d63c9 (2009-08-26, the last commit before
+October 2011 in github.com/open-power/petitboot); the binaries' strings match that tree (config
+file lists, ignored keywords, format strings), so the file names below refer to it.
+
+**The other build.** `~/Downloads/Petitboot FULL (NOR).zip` has the Jun 4 2011 build
+(glevand@bastion; the same file as `firmware/petitboot/dtbImage.ps3.bin.archive-org-0f161587`,
+sha256 fdf625a3...). **[fact]** Same size and layout. The kernel differs only in build host, date
+and link order. The initramfs has the same files plus, in the Jun 27 one, three symlinks
+(`/etc/fstab`, `/etc/resolv.conf`, `/etc/TZ` into `/tmp`), a newer debootstrap (`force_md5`,
+updated suite scripts) and a rebuilt libcrypto; pb-discover, pb-cui, kexec and busybox are rebuilds
+of the same sources (stamps 11.05.29 and 11.06.27). Nothing in this subsection differs between them.
+
+**1. Which devices it scans.**
+- **[fact]** `/etc/udev/rules.d/99-petitboot.rules` is `SUBSYSTEM=="block",
+  RUN+="socket:/tmp/petitboot.udev"`, and pb-discover starts with
+  `udevadm trigger --subsystem-match=block` (discover/udev.c). There is no name filter: every block
+  device, whole disks and partitions, gets a mount attempt. That covers `ps3da`-`ps3dc` (and
+  `ps3dd` once a region exists), `sd*`, `sr*`, and the VFLASH regions (`ps3vflash*`).
+- **[fact]** The kernel's ps3disk is a multi-region one: it prints "%s:%u: %lu accessible regions
+  found" and "%s is a %s (%llu MiB total, %lu MiB region)", where mainline 2.6.30 has "...
+  accessible regions found. Only the first one will be used" and "... MiB for OtherOS"
+  (drivers/ps3/ps3stor_lib.c, drivers/block/ps3disk.c at v2.6.30). It also has ps3vflash,
+  ps3nflash, ps3rom, ps3stormgr and ps3hvc. **[inference]** Whether regions 1 and 2 answer is lv1's
+  decision (the OtherOS++ ACL skip): the kernel just reads sector 0 of each. Same lv1 as our 6.12,
+  which sees `ps3db` and `ps3dc`, so Petitboot should list them too (U3 checks).
+
+**2. How it mounts.**
+- **[fact]** `mount_device()` in discover/device-handler.c runs
+  `/bin/mount <DEVNAME> /var/petitboot/mnt/<name> -o ro`: no `-t`, no other option. On failure it
+  removes the directory and forgets the device. `/bin/mount` is util-linux-ng's, typing the device
+  with libblkid (which knows ufs, vfat, ext2/3/4, iso9660, udf, ntfs, swap and a few more).
+- **[fact]** File systems in the kernel: ext2, ext3, ext4, vfat/msdos, iso9660, udf, ntfs (driver
+  2.1.29, R/W), ufs; the loop driver; no device-mapper (no `dm_*` symbols).
+- **UFS2 (`dev_hdd0`).** **[fact]** 2.6.30's fs/ufs/super.c: without `ufstype=` it prints "You
+  didn't specify the type of your ufs filesystem ... default is ufstype=old" and reads the
+  superblock at 8 KiB; UFS2's is at 64 KiB (`SBLOCK_UFS2`), read only with `ufstype=ufs2`, which
+  2.6.30 has (both byte orders). **[inference]** pb-discover's mount of `ps3db` fails with
+  "ufs_read_super: bad magic number", so dev_hdd0 is never in the menu and a kboot.conf on it is
+  never read. Check: `dmesg | grep -i ufs` and `grep petitboot /proc/mounts` in the shell.
+- **UFS write.** **[fact]** The image lacks "ufs was compiled with read-only support", which
+  2.6.30 prints for a read-write mount when `CONFIG_UFS_FS_WRITE` is off, and 2.6.30 forces only
+  ufstype old, hp, nextstep and openstep to read-only (those "supported read-only" strings are
+  there); UFS2 isn't forced. **[inference]** `CONFIG_UFS_FS_WRITE=y`: in Petitboot's shell,
+  `mount -t ufs -o ufstype=ufs2 /dev/ps3db /mnt` without `ro` would mount dev_hdd0 read-write.
+  Always `-o ro,ufstype=ufs2` there.
+- **vfat (`dev_hdd1`).** **[inference]** blkid says vfat, pb-discover mounts it read-only at
+  `/var/petitboot/mnt/ps3dc` and reads a kboot.conf on it. Not verified that 2.6.30's vfat takes
+  GameOS's FAT (our 6.12 mount of hdd1 isn't verified either, see "Not verified yet"). Check:
+  `ls /var/petitboot/mnt/ps3dc`.
+- **ext3/ext4 journals.** **[fact]** A read-only mount still replays a journal that needs recovery:
+  "EXT4-fs: INFO: recovery required on readonly filesystem." / "write access will be enabled
+  during recovery." (the same for EXT3), plus "orphan cleanup on readonly fs". After an unclean
+  Linux shutdown, Petitboot's 2011 ext4 code writes to our USB root before we boot. That is the
+  case today already.
+
+**3. Config files and kboot.conf syntax.**
+- **[fact]** Per mounted device, the kboot parser (discover/kboot-parser.c) reads the first of
+  `/kboot.conf`, `/kboot.cnf`, `/etc/kboot.conf`, `/etc/kboot.cnf` and the upper-case
+  `/KBOOT.CONF`, `/KBOOT.CNF`, `/ETC/KBOOT.CONF`, `/ETC/KBOOT.CNF` that opens. **`/boot/kboot.conf`
+  is not on the list**, so a separate /boot partition needs `/kboot.conf` at its root. The yaboot
+  parser reads `/yaboot.conf`, `/yaboot.cnf`, `/etc/yaboot.conf`, `/etc/yaboot.cnf`,
+  `/suseboot/yaboot.cnf` (and upper case). No grub parser; `native-parser.c` is in the tree but not
+  built (rules.mk: `parsers = event kboot yaboot`).
+- **[fact]** Syntax (discover/parser-conf.c): one `label=image args` per line, `#` comments, the
+  first `=` ends the label, surrounding quotes are stripped. Globals: `initrd=`, `root=`, `video=`
+  (the last is stored and never used). `default`, `delay`, `message` and `timeout` are ignored. In an
+  entry, `initrd=` and `root=` are taken out; the kernel gets `root=<value>` first, then the other
+  words as written.
+- **[fact]** Paths (`resolve_path()` in discover/paths.c): no `:` means relative to the root of the
+  device that holds the kboot.conf. `dev:path` names another device: `ps3dc:/vmlinux` becomes
+  `/var/petitboot/mnt/ps3dc/vmlinux`; `uuid=X:/p` and `label=X:/p` go through
+  `/var/petitboot/mnt/disk/by-uuid/X` and `by-label`, links pb-discover makes from udev's
+  `ID_FS_UUID` and `ID_FS_LABEL`; `scheme://` URLs are fetched (wget for http; the image has no tftp
+  client). It never mounts anything for a path: the other device must be one pb-discover mounted.
+- **[fact]** The udev rule that sets `ID_FS_*` (lib/udev/rules.d/60-persistent-storage.rules) runs
+  `/sbin/blkid -o udev -p`; the image only has e2fsprogs' `/usr/sbin/blkid`, which has neither
+  option. **[inference]** `ID_FS_UUID`/`ID_FS_LABEL` stay empty, so `uuid=` and `label=` references
+  don't resolve; only kernel names (`ps3dc:`, `sda1:`) work, and `sd*` names follow plug order.
+- **Default and timeout.** **[fact]** Neither comes from kboot.conf. pb-cui keeps them in the OS
+  area's database on `/dev/ps3flash` (the `ps3vflashf` link from 70-persistent-ps3flash.rules),
+  owner "petitboot" (ui/common/ps3.c): key 1 the default item, a hash of device name plus entry
+  label (`pb_opt_hash()`), key 2 the video mode, key 4 the timeout (read-only for pb-cui, set with
+  `ps3-bl-option -O`, default forever). The countdown starts only when an entry with the stored
+  hash shows up. Booting any other entry stores its hash as the new default
+  (`ps3_kexec_cb()`). **[inference]** The kboot parser never sets the device name, so in practice
+  the hash is the label alone: the same label on two disks matches on both. **Correction:** the
+  `default=` line `ps3-update-kboot` writes is ignored by this Petitboot; what boots after the
+  countdown is the entry last picked by hand, if its label still exists. PACKAGING.md and PLAN.md
+  still say kboot.conf sets the default (not changed here).
+
+**4. Tools in the shell, and what writes by itself.**
+- **[fact]** BusyBox applets: ash/sh, the usual file and text tools, dd, df, du, find, grep, sed,
+  awk, vi, ps, top, kill, insmod/lsmod/rmmod, ifconfig, route, udhcpc, ping, telnet, telnetd,
+  nslookup, switch_root, pivot_root, reboot, poweroff, halt, dmesg, hexdump, strings. Not in
+  BusyBox but present: util-linux `mount`/`umount` (with `-o loop`), `kexec`, `blkid`, `fdisk`,
+  `parted`, `partprobe`, `e2fsck`, `mke2fs`/`mkfs.ext2/3/4`, `tune2fs`, `resize2fs`, `badblocks`,
+  `dosfsck`, `mkdosfs`, FreeBSD's UFS tools (`mkfs.ufs`, `fsck.ufs`, `tunefs.ufs`, `growfs.ufs`,
+  `fsdb.ufs`, `dumpfs.ufs`, `ffsinfo`, `badsect.ufs`), `debootstrap`, `ps3stor_region`,
+  `ps3hvc_hvcall`, `ps3-flash-util`, `ps3-bl-option`, `ps3-boot-game-os`, `ps3-dump-bootloader`,
+  `ps3-video-mode`, dropbear (ssh, scp), wget, git, vim, nano, screen, tcpdump. Not present:
+  `dmsetup`, `losetup`, LVM, mdadm, a tftp client.
+- **[fact]** Writes it makes without being asked: (1) pb-cui's database write to the OS area when
+  an entry other than the stored default is booted or a value changed, and at exit when the
+  database couldn't be read; it formats the database when it can't read one ("formating db");
+  (2) the ext3/ext4 journal replay above. Nothing else: every mount is `-o ro`, no fsck runs at
+  boot (lib/functions/fsck/e2fsck.sh is OpenWrt glue that nothing in the image calls; there is no
+  fstab init script and no hotplug2), `/etc/rc.local` is empty.
+
+**5. What a kernel booted by it receives.**
+- **[fact]** pb-cui runs `kexec -l --initrd=<initrd> --append=<args> <image>`
+  (ui/common/ui-system.c), so the initrd is passed. `<args>` is `root=<root> <rest>`, plus
+  ` video=ps3fb:mode:<N>` when it has no `video=` (N is the video mode in the database;
+  `ps3_kexec_cb()`). Then it runs `/sbin/shutdown -r now`, which the image doesn't have, so it falls
+  back to `kexec -e`: the init stop scripts never run and the read-only mounts are simply dropped.
+- **[fact]** kexec-tools 2.0.2 builds the new device tree from Petitboot's `/proc/device-tree`
+  (lv1's PS3 tree), with the command line in `/chosen/bootargs` and the initrd in
+  `linux,initrd-start`/`linux,initrd-end`. Petitboot's own dtb (at 0x946000 in the image) has no
+  `bootargs`.
+
+**Where /boot goes, given all that.**
+
+| option | works with this Petitboot | risks |
+|---|---|---|
+| (a) USB disk, as today | **[fact]** yes, it's what boots now | the USB disk stays plugged in; journal replay after a crash writes to it (our disk, harmless) |
+| (b) dev_hdd1 (vfat) | **[inference]** likely: mounted ro, `/kboot.conf` or `/etc/kboot.conf` found, paths relative to it | kernel updates write GameOS's FAT from Linux (against "never written from Linux" unless the owner decides, or copied in from GameOS by hand); GameOS treats it as a cache and may clear it **[unverified]**; 2.6.30 vfat on GameOS's FAT not checked |
+| (c) a file on dev_hdd0 (UFS2) | **[inference]** no automatic boot: the mount without `ufstype=ufs2` fails | only by hand from the shell every boot (`mount -o ro,ufstype=ufs2`, then `kexec`); forgetting `ro` mounts dev_hdd0 read-write; changing Petitboot to do it means rewriting the OS area (flash), out |
+| (d1) a small /boot partition on the USB disk (ext2 or vfat, no journal) | **[inference]** yes, needs `/kboot.conf` at its root and paths relative to that partition | none new; removes the journal-replay write |
+| (d2) `http://` paths in kboot.conf | **[fact]** wget is there | boot depends on tibi-server and the network; no |
+| (d3) ps3dd after the reformat | **[inference]** yes, like the USB disk | the whole reformat route above |
+
+**Recommendation:** (a). Keep kernel, initramfs and kboot.conf on the USB disk; the initramfs
+builds the dm-linear disk on `ps3db` and mounts root from it. (d1) is a small later improvement.
+(b) buys nothing over (a) and makes Linux write a GameOS region; (c) can't boot by itself. Two
+consequences for the image plan: the entry labels should be unique per root (the default is keyed
+on the label), and the initramfs has to carry everything (Petitboot can't help with dm).
+
+Checks for the user at Petitboot's shell, all read-only: `grep ps3d /proc/partitions`,
+`grep petitboot /proc/mounts`, `ls /var/petitboot/mnt/ps3dc`, `dmesg | grep -i -e ufs -e fat`,
+`ps3-bl-option -o` and `-p` (timeout and stored default).
 
 ### Getting more than 22 GiB (no-go for now)
 
@@ -335,7 +492,7 @@ Every Linux session ends with the boot flag back on GameOS, as always.
 | W2 | W | Raw copy (section 3, copy 3) with a hash list | Copy hashes check | 30 min (home/exdata) to 2 h (all 174 GB at USB speed) |
 | U1 | U | xai: Backup activation file, Export Licenses, Backup xRegistry, Dump Flash (second dump), Show ROS Bank | W: `cmp` the new dump with the first, PyPS3checker clean | 15 min |
 | U2 | U | Backup Utility to a FAT32 USB drive; trophies synced if PSN is used | Backup finishes without errors | 2-3 h [estimate] |
-| U3 | U | Petitboot shell, read-only: `which ps3hvc_hvcall ps3stor_region`, `ls -l /dev/ps3hvc /dev/ps3stormgr`, `grep ps3d /proc/partitions` | **Both tools present, or stop** (then W builds them before going on) | 5 min |
+| U3 | U | Petitboot shell, read-only: `which ps3hvc_hvcall ps3stor_region`, `ls -l /dev/ps3hvc /dev/ps3stormgr`, `grep ps3d /proc/partitions` | **Both tools present, or stop** (then W builds them before going on; the installed image has both in `/usr/sbin`) | 5 min |
 | U4 | U | Back to GameOS (flag), put webMAN fan to SYSCON; Recovery Menu (hold power until two beeps), option 5 Restore PS3 System | Point of no return | 10-20 min |
 | U5 | U | First setup: language, user, network; Petitboot test with xai "Set OtherOS Boot Flag"; if it doesn't start, xai "Install OtherOS" and try again | Petitboot comes up | 15 min |
 | U6 | U | Petitboot shell: rerun U3's checks; `grep ps3d /proc/partitions` shows ps3da-ps3dc only, `ps3db` 912264528 blocks (1824529056 sectors) | ps3db shrank by about 22 GiB, else stop | 5 min |
@@ -380,6 +537,8 @@ change is booted before root moves.
   (search snippets only: Evilnat 4.90, Restore leaves 22 GB, region made from Petitboot).
 - Sony manuals: [Backup Utility](https://manuals.playstation.net/document/en/ps3/current/settings/backuputility.html),
   [Format Utility](https://manuals.playstation.net/document/en/ps3/current/settings/formatutility.html).
-- Ours: `firmware/petitboot/dtbImage.ps3.bin` strings, `linux/patches/ps3/0010` and `0150`, the
+- Ours: `firmware/petitboot/dtbImage.ps3.bin` strings and its unpacked initramfs, upstream
+  petitboot at 17d63c9 and Linux v2.6.30 (fs/ufs/super.c, drivers/ps3/ps3stor_lib.c,
+  drivers/block/ps3disk.c), `linux/patches/ps3/0010` and `0150`, the
   `.457` kernel config (`EFI_PARTITION=y`, `MSDOS_PARTITION=y`, `EXT4_FS=y`, `PS3_STRGMNGR` off),
   docs/OTHEROS-PATCHES.md, docs/FLASH-SYSCON.md.
