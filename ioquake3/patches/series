@@ -23,3 +23,6 @@
 0024-renderergl1-r_mergeLightmaps-defaults-to-0-any-atlas.patch
 0025-renderergl1-r_keepImages-the-textures-of-image-files.patch
 0026-client-cl_preloadLate-what-the-cgame-registered-duri.patch
+0027-renderergl2-r_vaoSnormColor-vertex-colours-as-signed.patch
+0028-renderergl2-no-powf-per-texel-channel-in-the-gamma-c.patch
+0029-renderergl2-r_md3PackedFrames-animated-MD3-frames-in.patch

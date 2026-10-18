@@ -1,0 +1,426 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 16:41:24 +0300
+Subject: renderergl2: r_md3PackedFrames, animated MD3 frames in 12 bytes a
+ vertex
+
+With GPU vertex animation every frame of every animated MD3 model sits in its VBO as a float
+position and four shorts of normal, 20 bytes a vertex a frame: 62 MB for the models of the bench
+demo, in the PS3's video memory, which is also its fastest swap.
+
+r_md3PackedFrames 1 (default 0, latched; only with r_normalMapping 0, as tangents would need their
+own packing) stores MD3's own 16-bit positions (1/64 units, exact) with a pad and the normal as
+four unsigned bytes (n * 127 + 128), 12 bytes: the demo's model VBOs 62.2 -> 37.5 MB. Both
+formats are ones nv30 fetches natively (V16_SSCALED, U8_UNORM). The vertex-animation programs get
+USE_PACKED_FRAMES and decode with a new uniform, u_PackedFrames, 1 while a packed VAO is drawn:
+lightall uses its vertex-animation variant for every entity, single-frame models included, whose
+VBOs keep floats. On llvmpipe at GL 2.1, the demo's 30 sampled frames: 1734 pixels differ, by at
+most 2 levels (the 8-bit normals' lighting).
+
+diff --git a/code/renderergl2/glsl/fogpass_vp.glsl b/code/renderergl2/glsl/fogpass_vp.glsl
+--- a/code/renderergl2/glsl/fogpass_vp.glsl
++++ b/code/renderergl2/glsl/fogpass_vp.glsl
+@@ -25,6 +25,9 @@ uniform mat4    u_ModelViewProjectionMatrix;
+ 
+ #if defined(USE_VERTEX_ANIMATION)
+ uniform float   u_VertexLerp;
++  #if defined(USE_PACKED_FRAMES)
++uniform float  u_PackedFrames;
++  #endif
+ #elif defined(USE_BONE_ANIMATION)
+ uniform mat4 u_BoneMatrix[MAX_GLSL_BONES];
+ #endif
+@@ -107,6 +110,12 @@ void main()
+ #if defined(USE_VERTEX_ANIMATION)
+ 	vec3 position = mix(attr_Position, attr_Position2, u_VertexLerp);
+ 	vec3 normal   = mix(attr_Normal,   attr_Normal2,   u_VertexLerp);
++#if defined(USE_PACKED_FRAMES)
++	// a model VAO with packed frames: 1/64 units, normals as n * 127 + 128 (the other entities
++	// drawn with this program, single-frame models, have u_PackedFrames 0)
++	position *= 1.0 - u_PackedFrames * (63.0 / 64.0);
++	normal = mix(normal, normal * (255.0 / 127.0) - 128.0 / 127.0, u_PackedFrames);
++#endif
+ #elif defined(USE_BONE_ANIMATION)
+ 	mat4 vtxMat  = u_BoneMatrix[int(attr_BoneIndexes.x)] * attr_BoneWeights.x;
+ 	     vtxMat += u_BoneMatrix[int(attr_BoneIndexes.y)] * attr_BoneWeights.y;
+diff --git a/code/renderergl2/glsl/generic_vp.glsl b/code/renderergl2/glsl/generic_vp.glsl
+--- a/code/renderergl2/glsl/generic_vp.glsl
++++ b/code/renderergl2/glsl/generic_vp.glsl
+@@ -65,6 +65,9 @@ uniform float  u_PortalRange;
+ 
+ #if defined(USE_VERTEX_ANIMATION)
+ uniform float  u_VertexLerp;
++  #if defined(USE_PACKED_FRAMES)
++uniform float  u_PackedFrames;
++  #endif
+ #elif defined(USE_BONE_ANIMATION)
+ uniform mat4 u_BoneMatrix[MAX_GLSL_BONES];
+ #endif
+@@ -226,6 +229,12 @@ void main()
+ #if defined(USE_VERTEX_ANIMATION)
+ 	vec3 position  = mix(attr_Position, attr_Position2, u_VertexLerp);
+ 	vec3 normal    = mix(attr_Normal,   attr_Normal2,   u_VertexLerp);
++#if defined(USE_PACKED_FRAMES)
++	// a model VAO with packed frames: 1/64 units, normals as n * 127 + 128 (the other entities
++	// drawn with this program, single-frame models, have u_PackedFrames 0)
++	position *= 1.0 - u_PackedFrames * (63.0 / 64.0);
++	normal = mix(normal, normal * (255.0 / 127.0) - 128.0 / 127.0, u_PackedFrames);
++#endif
+ #elif defined(USE_BONE_ANIMATION)
+ 	mat4 vtxMat  = u_BoneMatrix[int(attr_BoneIndexes.x)] * attr_BoneWeights.x;
+ 	     vtxMat += u_BoneMatrix[int(attr_BoneIndexes.y)] * attr_BoneWeights.y;
+diff --git a/code/renderergl2/glsl/lightall_vp.glsl b/code/renderergl2/glsl/lightall_vp.glsl
+--- a/code/renderergl2/glsl/lightall_vp.glsl
++++ b/code/renderergl2/glsl/lightall_vp.glsl
+@@ -57,6 +57,9 @@ uniform mat4   u_ModelMatrix;
+ 
+ #if defined(USE_VERTEX_ANIMATION)
+ uniform float  u_VertexLerp;
++  #if defined(USE_PACKED_FRAMES)
++uniform float  u_PackedFrames;
++  #endif
+ #elif defined(USE_BONE_ANIMATION)
+ uniform mat4 u_BoneMatrix[MAX_GLSL_BONES];
+ #endif
+@@ -168,6 +171,12 @@ void main()
+ #if defined(USE_VERTEX_ANIMATION)
+ 	vec3 position  = mix(attr_Position,    attr_Position2,    u_VertexLerp);
+ 	vec3 normal    = mix(attr_Normal,      attr_Normal2,      u_VertexLerp);
++#if defined(USE_PACKED_FRAMES)
++	// a model VAO with packed frames: 1/64 units, normals as n * 127 + 128 (the other entities
++	// drawn with this program, single-frame models, have u_PackedFrames 0)
++	position *= 1.0 - u_PackedFrames * (63.0 / 64.0);
++	normal = mix(normal, normal * (255.0 / 127.0) - 128.0 / 127.0, u_PackedFrames);
++#endif
+   #if defined(USE_LIGHT) && !defined(USE_FAST_LIGHT)
+ 	vec3 tangent   = mix(attr_Tangent.xyz, attr_Tangent2.xyz, u_VertexLerp);
+   #endif
+diff --git a/code/renderergl2/glsl/shadowfill_vp.glsl b/code/renderergl2/glsl/shadowfill_vp.glsl
+--- a/code/renderergl2/glsl/shadowfill_vp.glsl
++++ b/code/renderergl2/glsl/shadowfill_vp.glsl
+@@ -22,6 +22,9 @@ uniform mat4   u_ModelMatrix;
+ 
+ #if defined(USE_VERTEX_ANIMATION)
+ uniform float   u_VertexLerp;
++  #if defined(USE_PACKED_FRAMES)
++uniform float  u_PackedFrames;
++  #endif
+ #elif defined(USE_BONE_ANIMATION)
+ uniform mat4 u_BoneMatrix[MAX_GLSL_BONES];
+ #endif
+@@ -86,6 +89,12 @@ void main()
+ #if defined(USE_VERTEX_ANIMATION)
+ 	vec3 position  = mix(attr_Position, attr_Position2, u_VertexLerp);
+ 	vec3 normal    = mix(attr_Normal,   attr_Normal2,   u_VertexLerp);
++#if defined(USE_PACKED_FRAMES)
++	// a model VAO with packed frames: 1/64 units, normals as n * 127 + 128 (the other entities
++	// drawn with this program, single-frame models, have u_PackedFrames 0)
++	position *= 1.0 - u_PackedFrames * (63.0 / 64.0);
++	normal = mix(normal, normal * (255.0 / 127.0) - 128.0 / 127.0, u_PackedFrames);
++#endif
+ #elif defined(USE_BONE_ANIMATION)
+ 	mat4 vtxMat  = u_BoneMatrix[int(attr_BoneIndexes.x)] * attr_BoneWeights.x;
+ 	     vtxMat += u_BoneMatrix[int(attr_BoneIndexes.y)] * attr_BoneWeights.y;
+diff --git a/code/renderergl2/tr_glsl.c b/code/renderergl2/tr_glsl.c
+--- a/code/renderergl2/tr_glsl.c
++++ b/code/renderergl2/tr_glsl.c
+@@ -134,6 +134,7 @@ static uniformInfo_t uniformsInfo[] =
+ 
+ 	{ "u_Time",          GLSL_FLOAT },
+ 	{ "u_VertexLerp" ,   GLSL_FLOAT },
++	{ "u_PackedFrames",  GLSL_FLOAT },
+ 	{ "u_NormalScale",   GLSL_VEC4 },
+ 	{ "u_SpecularScale", GLSL_VEC4 },
+ 
+@@ -1179,6 +1180,16 @@ void GLSL_DeleteGPUShader(shaderProgram_t *program)
+ 	}
+ }
+ 
++/*
++The defines of a vertex-animated program: with r_md3PackedFrames the frames hold MD3's own 16-bit
++positions (1/64 units) and normals as unsigned bytes (n * 127 + 128), which USE_PACKED_FRAMES
++turns back into model units and a signed normal.
++*/
++static const char *GLSL_VertexAnimationDefines(void)
++{
++	return glRefConfig.md3PackedFrames ? "#define USE_VERTEX_ANIMATION\n#define USE_PACKED_FRAMES\n" : "#define USE_VERTEX_ANIMATION\n";
++}
++
+ void GLSL_InitGPUShaders(void)
+ {
+ 	int             startTime, endTime;
+@@ -1210,6 +1221,13 @@ void GLSL_InitGPUShaders(void)
+ 		glRefConfig.gpuVertexAnimation = qfalse;
+ 	}
+ 
++	// r_md3PackedFrames: the model VBOs (tr_model.c) and the programs' decode agree, both decided
++	// here for this renderer start; only without tangents (r_normalMapping 0), which would need
++	// their own packing
++	glRefConfig.md3PackedFrames = glRefConfig.gpuVertexAnimation && r_md3PackedFrames->integer && !r_normalMapping->integer;
++	if (glRefConfig.md3PackedFrames)
++		ri.Printf(PRINT_ALL, "Using packed MD3 frames\n");
++
+ 	for (i = 0; i < GENERICDEF_COUNT; i++)
+ 	{	
+ 		if ((i & GENERICDEF_USE_VERTEX_ANIMATION) && (i & GENERICDEF_USE_BONE_ANIMATION))
+@@ -1235,7 +1253,7 @@ void GLSL_InitGPUShaders(void)
+ 			if (!glRefConfig.gpuVertexAnimation)
+ 				continue;
+ 
+-			Q_strcat(extradefines, 1024, "#define USE_VERTEX_ANIMATION\n");
++			Q_strcat(extradefines, 1024, GLSL_VertexAnimationDefines());
+ 			attribs |= ATTR_POSITION2 | ATTR_NORMAL2;
+ 		}
+ 		else if (i & GENERICDEF_USE_BONE_ANIMATION)
+@@ -1300,7 +1318,7 @@ void GLSL_InitGPUShaders(void)
+ 
+ 		if (i & FOGDEF_USE_VERTEX_ANIMATION)
+ 		{
+-			Q_strcat(extradefines, 1024, "#define USE_VERTEX_ANIMATION\n");
++			Q_strcat(extradefines, 1024, GLSL_VertexAnimationDefines());
+ 			attribs |= ATTR_POSITION2 | ATTR_NORMAL2;
+ 		}
+ 		else if (i & FOGDEF_USE_BONE_ANIMATION)
+@@ -1477,7 +1495,7 @@ void GLSL_InitGPUShaders(void)
+ 
+ 			if (glRefConfig.gpuVertexAnimation)
+ 			{
+-				Q_strcat(extradefines, 1024, "#define USE_VERTEX_ANIMATION\n");
++				Q_strcat(extradefines, 1024, GLSL_VertexAnimationDefines());
+ 				attribs |= ATTR_POSITION2 | ATTR_NORMAL2;
+ 
+ 				if (r_normalMapping->integer)
+@@ -1534,7 +1552,7 @@ void GLSL_InitGPUShaders(void)
+ 
+ 		if (i & SHADOWMAPDEF_USE_VERTEX_ANIMATION)
+ 		{
+-			Q_strcat(extradefines, 1024, "#define USE_VERTEX_ANIMATION\n");
++			Q_strcat(extradefines, 1024, GLSL_VertexAnimationDefines());
+ 			attribs |= ATTR_POSITION2 | ATTR_NORMAL2;
+ 		}
+ 
+diff --git a/code/renderergl2/tr_init.c b/code/renderergl2/tr_init.c
+--- a/code/renderergl2/tr_init.c
++++ b/code/renderergl2/tr_init.c
+@@ -115,6 +115,7 @@ cvar_t  *r_glslAllPrograms;
+ cvar_t  *r_glslKeepPrograms;
+ cvar_t  *r_glslLazy;
+ cvar_t  *r_keepModelVerts;
++cvar_t  *r_md3PackedFrames;
+ cvar_t  *r_md3Lods;
+ cvar_t  *r_gpuVertexAnimation;
+ 
+@@ -1311,6 +1312,8 @@ void R_Register( void )
+ 	ri.Cvar_CheckRange( r_md3Lods, 1, MD3_MAX_LODS, qtrue );
+ 	ri.Cvar_SetDescription( r_md3Lods, "MD3 levels of detail loaded, from the most detailed: 1 loads only the full model (less memory, more vertices far away), 3 all (upstream)" );
+ 	r_gpuVertexAnimation = ri.Cvar_Get( "r_gpuVertexAnimation", "1", CVAR_ARCHIVE | CVAR_LATCH );
++	r_md3PackedFrames = ri.Cvar_Get( "r_md3PackedFrames", "0", CVAR_ARCHIVE | CVAR_LATCH );
++	ri.Cvar_SetDescription( r_md3PackedFrames, "1: the frames of animated MD3 models in their VBOs as 16-bit positions and 8-bit normals, 12 bytes a vertex instead of 20 (needs r_normalMapping 0)" );
+ 	ri.Cvar_SetDescription( r_gpuVertexAnimation, "0: animate MD3 models on the CPU, as the opengl1 renderer: no VBOs holding every frame and 18 fewer GLSL programs, more CPU work per frame" );
+ 	ri.Cvar_SetDescription( r_glslKeepShaders, "1: keep the GLSL shader objects attached after linking, as upstream (more memory)" );
+ 
+diff --git a/code/renderergl2/tr_local.h b/code/renderergl2/tr_local.h
+--- a/code/renderergl2/tr_local.h
++++ b/code/renderergl2/tr_local.h
+@@ -144,6 +144,7 @@ typedef struct vao_s
+ 	vaoAttrib_t     attribs[VAO_MAX_ATTRIBS];
+ 
+ 	uint32_t        frameSize;      // bytes to skip per frame when doing vertex animation
++	qboolean        packedFrames;   // r_md3PackedFrames: 16-bit positions, 8-bit normals
+ 
+ 	uint32_t        indexesIBO;
+ 	int             indexesSize;	// amount of memory data allocated for all triangles in bytes
+@@ -683,6 +684,7 @@ typedef enum
+ 
+ 	UNIFORM_TIME,
+ 	UNIFORM_VERTEXLERP,
++	UNIFORM_PACKEDFRAMES,	// r_md3PackedFrames: 1 for a VAO with packed frames, else 0
+ 	UNIFORM_NORMALSCALE,
+ 	UNIFORM_SPECULARSCALE,
+ 
+@@ -1385,6 +1387,7 @@ typedef struct {
+ 	uint32_t    storedGlState;
+ 	float           vertexAttribsInterpolation;
+ 	qboolean        vertexAnimation;
++	qboolean        packedFrames;	// the bound model VAO's frames are packed (r_md3PackedFrames)
+ 	int             boneAnimation; // number of bones
+ 	mat4_t          boneMatrix[IQM_MAX_JOINTS];
+ 	uint32_t        vertexAttribsEnabled;  // global if no VAOs, tess only otherwise
+@@ -1440,6 +1443,7 @@ typedef struct {
+ 
+ 	int maxVertexAttribs;
+ 	qboolean gpuVertexAnimation;
++	qboolean md3PackedFrames;	// r_md3PackedFrames: animated MD3 frames as 16-bit positions and 8-bit normals
+ 
+ 	GLenum vaoCacheGlIndexType; // GL_UNSIGNED_INT or GL_UNSIGNED_SHORT
+ 	size_t vaoCacheGlIndexSize; // must be <= sizeof( vaoCacheGlIndex_t )
+@@ -1786,6 +1790,7 @@ extern  cvar_t  *r_glslAllPrograms;
+ extern  cvar_t  *r_glslKeepPrograms;
+ extern  cvar_t  *r_glslLazy;
+ extern  cvar_t  *r_keepModelVerts;
++extern  cvar_t  *r_md3PackedFrames;
+ extern  cvar_t  *r_md3Lods;
+ extern  cvar_t  *r_gpuVertexAnimation;
+ 
+diff --git a/code/renderergl2/tr_model.c b/code/renderergl2/tr_model.c
+--- a/code/renderergl2/tr_model.c
++++ b/code/renderergl2/tr_model.c
+@@ -738,8 +738,23 @@ static qboolean R_LoadMD3(model_t * mod, int lod, void *buffer, int bufferSize,
+ 			uint8_t *data;
+ 			// only normal mapping reads tangents: without it, a vertex frame is 20 bytes, not 28
+ 			qboolean tangents = !!r_normalMapping->integer;
++			// r_md3PackedFrames: a frame's vertex as MD3's 16-bit position (1/64 units, a pad) and
++			// the normal as 4 unsigned bytes, 12 bytes; the programs decode it (USE_PACKED_FRAMES)
++			qboolean packed = mdvModel->numFrames > 1 && glRefConfig.md3PackedFrames && !tangents;
+ 
+-			if (mdvModel->numFrames > 1)
++			if (packed)
++			{
++				offset_st      = 0;
++				offset_xyz     = surf->numVerts * sizeof(vec2_t);
++				offset_normal  = offset_xyz + sizeof(int16_t) * 4;
++				offset_tangent = offset_normal;
++				stride_st  = sizeof(vec2_t);
++				stride_xyz = sizeof(int16_t) * 4 + sizeof(uint8_t) * 4;
++				stride_normal = stride_tangent = stride_xyz;
++
++				dataSize = offset_xyz + surf->numVerts * mdvModel->numFrames * stride_xyz;
++			}
++			else if (mdvModel->numFrames > 1)
+ 			{
+ 				// vertex animation, store texcoords first, then position/normal/tangents
+ 				offset_st      = 0;
+@@ -771,7 +786,39 @@ static qboolean R_LoadMD3(model_t * mod, int lod, void *buffer, int bufferSize,
+ 			data = ri.Malloc(dataSize);
+ 			dataOfs = 0;
+ 
+-			if (mdvModel->numFrames > 1)
++			if (packed)
++			{
++				st = surf->st;
++				for ( j = 0 ; j < surf->numVerts ; j++, st++ ) {
++					memcpy(data + dataOfs, &st->st, sizeof(vec2_t));
++					dataOfs += sizeof(st->st);
++				}
++
++				v = surf->verts;
++				for ( j = 0; j < surf->numVerts * mdvModel->numFrames ; j++, v++ )
++				{
++					int16_t xyz[4];
++					uint8_t normal[4];
++					int k;
++
++					// the loader made these from MD3's int16 * MD3_XYZ_SCALE: exact back
++					for (k = 0; k < 3; k++)
++						xyz[k] = (int16_t)lrintf(v->xyz[k] * (1.0f / MD3_XYZ_SCALE));
++					xyz[3] = 0;
++					for (k = 0; k < 4; k++)
++					{
++						int n = (int)lrintf(v->normal[k] * (127.0f / 32767.0f)) + 128;
++
++						normal[k] = (uint8_t)(n < 1 ? 1 : n > 255 ? 255 : n);
++					}
++
++					memcpy(data + dataOfs, xyz, sizeof(xyz));
++					dataOfs += sizeof(xyz);
++					memcpy(data + dataOfs, normal, sizeof(normal));
++					dataOfs += sizeof(normal);
++				}
++			}
++			else if (mdvModel->numFrames > 1)
+ 			{
+ 				st = surf->st;
+ 				for ( j = 0 ; j < surf->numVerts ; j++, st++ ) {
+@@ -843,9 +890,9 @@ static qboolean R_LoadMD3(model_t * mod, int lod, void *buffer, int bufferSize,
+ 			vaoSurf->vao->attribs[ATTR_INDEX_NORMAL  ].count = 4;
+ 			vaoSurf->vao->attribs[ATTR_INDEX_TANGENT ].count = 4;
+ 
+-			vaoSurf->vao->attribs[ATTR_INDEX_POSITION].type = GL_FLOAT;
++			vaoSurf->vao->attribs[ATTR_INDEX_POSITION].type = packed ? GL_SHORT : GL_FLOAT;
+ 			vaoSurf->vao->attribs[ATTR_INDEX_TEXCOORD].type = GL_FLOAT;
+-			vaoSurf->vao->attribs[ATTR_INDEX_NORMAL  ].type = GL_SHORT;
++			vaoSurf->vao->attribs[ATTR_INDEX_NORMAL  ].type = packed ? GL_UNSIGNED_BYTE : GL_SHORT;
+ 			vaoSurf->vao->attribs[ATTR_INDEX_TANGENT ].type = GL_SHORT;
+ 
+ 			vaoSurf->vao->attribs[ATTR_INDEX_POSITION].normalized = GL_FALSE;
+@@ -870,6 +917,7 @@ static qboolean R_LoadMD3(model_t * mod, int lod, void *buffer, int bufferSize,
+ 				vaoSurf->vao->attribs[ATTR_INDEX_TANGENT2 ] = vaoSurf->vao->attribs[ATTR_INDEX_TANGENT ];
+ 
+ 				vaoSurf->vao->frameSize = stride_xyz    * surf->numVerts;
++				vaoSurf->vao->packedFrames = packed;
+ 			}
+ 
+ 			Vao_SetVertexPointers(vaoSurf->vao);
+diff --git a/code/renderergl2/tr_shade.c b/code/renderergl2/tr_shade.c
+--- a/code/renderergl2/tr_shade.c
++++ b/code/renderergl2/tr_shade.c
+@@ -525,6 +525,7 @@ static void ProjectDlightTexture( void ) {
+ 		GLSL_SetUniformMat4(sp, UNIFORM_MODELVIEWPROJECTIONMATRIX, glState.modelviewProjection);
+ 
+ 		GLSL_SetUniformFloat(sp, UNIFORM_VERTEXLERP, glState.vertexAttribsInterpolation);
++		GLSL_SetUniformFloat(sp, UNIFORM_PACKEDFRAMES, glState.packedFrames ? 1.0f : 0.0f);
+ 		
+ 		GLSL_SetUniformInt(sp, UNIFORM_DEFORMGEN, deformGen);
+ 		if (deformGen != DGEN_NONE)
+@@ -851,6 +852,7 @@ static void ForwardDlight( void ) {
+ 		GLSL_SetUniformVec3(sp, UNIFORM_LOCALVIEWORIGIN, backEnd.or.viewOrigin);
+ 
+ 		GLSL_SetUniformFloat(sp, UNIFORM_VERTEXLERP, glState.vertexAttribsInterpolation);
++		GLSL_SetUniformFloat(sp, UNIFORM_PACKEDFRAMES, glState.packedFrames ? 1.0f : 0.0f);
+ 
+ 		GLSL_SetUniformInt(sp, UNIFORM_DEFORMGEN, deformGen);
+ 		if (deformGen != DGEN_NONE)
+@@ -1084,6 +1086,7 @@ static void RB_FogPass( void ) {
+ 	GLSL_SetUniformMat4(sp, UNIFORM_MODELVIEWPROJECTIONMATRIX, glState.modelviewProjection);
+ 
+ 	GLSL_SetUniformFloat(sp, UNIFORM_VERTEXLERP, glState.vertexAttribsInterpolation);
++	GLSL_SetUniformFloat(sp, UNIFORM_PACKEDFRAMES, glState.packedFrames ? 1.0f : 0.0f);
+ 
+ 	if (glState.boneAnimation)
+ 	{
+@@ -1259,6 +1262,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
+ 		GLSL_SetUniformVec3(sp, UNIFORM_LOCALVIEWORIGIN, backEnd.or.viewOrigin);
+ 
+ 		GLSL_SetUniformFloat(sp, UNIFORM_VERTEXLERP, glState.vertexAttribsInterpolation);
++		GLSL_SetUniformFloat(sp, UNIFORM_PACKEDFRAMES, glState.packedFrames ? 1.0f : 0.0f);
+ 
+ 		if (glState.boneAnimation)
+ 		{
+@@ -1590,6 +1594,7 @@ static void RB_RenderShadowmap( shaderCommands_t *input )
+ 		GLSL_SetUniformMat4(sp, UNIFORM_MODELMATRIX, backEnd.or.transformMatrix);
+ 
+ 		GLSL_SetUniformFloat(sp, UNIFORM_VERTEXLERP, glState.vertexAttribsInterpolation);
++		GLSL_SetUniformFloat(sp, UNIFORM_PACKEDFRAMES, glState.packedFrames ? 1.0f : 0.0f);
+ 
+ 		if (glState.boneAnimation)
+ 		{
+diff --git a/code/renderergl2/tr_surface.c b/code/renderergl2/tr_surface.c
+--- a/code/renderergl2/tr_surface.c
++++ b/code/renderergl2/tr_surface.c
+@@ -1264,6 +1264,7 @@ void RB_SurfaceVaoMdvMesh(srfVaoMdvMesh_t * surface)
+ 		vaoAttrib_t *vAtb;
+ 
+ 		glState.vertexAnimation = qtrue;
++		glState.packedFrames = surface->vao->packedFrames;
+ 
+ 		if (glRefConfig.vertexArrayObject)
+ 		{
+@@ -1313,6 +1314,7 @@ void RB_SurfaceVaoMdvMesh(srfVaoMdvMesh_t * surface)
+ 
+ 	// So we don't lerp surfaces that shouldn't be lerped
+ 	glState.vertexAnimation = qfalse;
++	glState.packedFrames = qfalse;
+ }
+ 
+ static void RB_SurfaceSkip( void *surf ) {
+diff --git a/code/renderergl2/tr_vbo.c b/code/renderergl2/tr_vbo.c
+--- a/code/renderergl2/tr_vbo.c
++++ b/code/renderergl2/tr_vbo.c
+@@ -373,6 +373,7 @@ void R_BindVao(vao_t * vao)
+ 
+ 		glState.vertexAttribsInterpolation = 0;
+ 		glState.vertexAnimation = qfalse;
++		glState.packedFrames = qfalse;
+ 		backEnd.pc.c_vaoBinds++;
+ 
+ 		if (glRefConfig.vertexArrayObject)

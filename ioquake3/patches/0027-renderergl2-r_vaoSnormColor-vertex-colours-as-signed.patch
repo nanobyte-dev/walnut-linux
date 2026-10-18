@@ -1,0 +1,137 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 16:41:24 +0300
+Subject: renderergl2: r_vaoSnormColor, vertex colours as signed normalized
+ shorts
+
+renderergl2 sends vertex colours as GL_UNSIGNED_SHORT normalized (R16G16B16A16_UNORM), a vertex
+format Mesa nv30 (the PS3's RSX) can't fetch. Every draw from the tess VAO (the world, effects,
+the HUD: everything but MD3 models) then went through u_vbuf: the colours converted to floats on
+the CPU and uploaded again, and the vertex and index buffers mapped for reading. nouveau answers a
+read map of a video memory buffer with a copy of the whole buffer in malloc'ed memory, read back
+from VRAM by a GPU copy and a wait; after four flushes in a row with such a read it sets
+hint_buf_keep_sysmem_copy for good, and from then on every new VRAM buffer gets a malloc'ed copy
+at creation: the MD3 animation VBOs (62 MB for the demo's models) among them. On the PS3
+OpenArena opengl2 held 95 MB of malloc'ed memory (opengl1: 33).
+
+r_vaoSnormColor 1 (default, latched) sends the colours as GL_SHORT normalized, v >> 1, which nv30
+fetches natively (V16_SNORM, already used for the normals). 0 becomes -1, so a zero alpha stays at
+or below zero under both GL rules for signed normalized values and fails an alpha test as before.
+The tess colours are converted at upload (8 bytes a vertex, next to the copy u_vbuf made); the VAO
+cache (r_vaoCache 1) keeps unsigned shorts. On llvmpipe at GL 2.1, the demo's 30 frames sampled:
+17 pixels differ by one level. 0 sends unsigned shorts as before.
+
+diff --git a/code/renderergl2/tr_init.c b/code/renderergl2/tr_init.c
+--- a/code/renderergl2/tr_init.c
++++ b/code/renderergl2/tr_init.c
+@@ -237,6 +237,7 @@ cvar_t	*r_saveFontData;
+ cvar_t	*r_marksOnTriangleMeshes;
+ 
+ cvar_t	*r_vaoCache;
++cvar_t	*r_vaoSnormColor;
+ 
+ cvar_t	*r_aviMotionJpegQuality;
+ cvar_t	*r_screenshotJpegQuality;
+@@ -1468,6 +1469,7 @@ void R_Register( void )
+ 	r_marksOnTriangleMeshes = ri.Cvar_Get("r_marksOnTriangleMeshes", "0", CVAR_ARCHIVE);
+ 
+ 	r_vaoCache = ri.Cvar_Get("r_vaoCache", "0", CVAR_ARCHIVE | CVAR_LATCH);
++	r_vaoSnormColor = ri.Cvar_Get("r_vaoSnormColor", "1", CVAR_ARCHIVE | CVAR_LATCH);
+ 
+ 	r_aviMotionJpegQuality = ri.Cvar_Get("r_aviMotionJpegQuality", "90", CVAR_ARCHIVE);
+ 	r_screenshotJpegQuality = ri.Cvar_Get("r_screenshotJpegQuality", "90", CVAR_ARCHIVE);
+diff --git a/code/renderergl2/tr_local.h b/code/renderergl2/tr_local.h
+--- a/code/renderergl2/tr_local.h
++++ b/code/renderergl2/tr_local.h
+@@ -1864,6 +1864,7 @@ extern	cvar_t	*r_printShaders;
+ extern cvar_t	*r_marksOnTriangleMeshes;
+ 
+ extern cvar_t *r_vaoCache;
++extern cvar_t *r_vaoSnormColor;
+ 
+ //====================================================================
+ 
+@@ -2227,6 +2228,7 @@ VERTEX BUFFER OBJECTS
+ void R_VaoPackTangent(int16_t *out, vec4_t v);
+ void R_VaoPackNormal(int16_t *out, vec3_t v);
+ void R_VaoPackColor(uint16_t *out, vec4_t c);
++void R_VaoColorToSnorm(int16_t *out, const uint16_t *in, int n);
+ void R_VaoUnpackTangent(vec4_t v, int16_t *pack);
+ void R_VaoUnpackNormal(vec3_t v, int16_t *pack);
+ 
+diff --git a/code/renderergl2/tr_vbo.c b/code/renderergl2/tr_vbo.c
+--- a/code/renderergl2/tr_vbo.c
++++ b/code/renderergl2/tr_vbo.c
+@@ -47,6 +47,22 @@ void R_VaoPackColor(uint16_t *out, vec4_t c)
+ 	out[3] = c[3] * 65535.0f + 0.5f;
+ }
+ 
++/*
++r_vaoSnormColor: vertex colours go to the GPU as signed normalized 16-bit values (v / 2: 0..32767)
++instead of unsigned normalized ones. GPUs without a 16-bit unsigned normalized vertex fetch (Mesa
++nv30, the PS3's RSX) have the driver convert R16G16B16A16_UNORM to floats on the CPU at every draw
++(u_vbuf), which also reads the vertex buffer back from video memory and keeps a copy of it in
++system memory. 0 maps to -1, which comes out as 0 or a hair below it under both of GL's signed
++normalized rules (c / 32767 and (2c + 1) / 65535), so a zero alpha still fails an alpha test.
++*/
++void R_VaoColorToSnorm(int16_t *out, const uint16_t *in, int n)
++{
++	int i;
++
++	for (i = 0; i < n; i++)
++		out[i] = in[i] ? (int16_t)(in[i] >> 1) : -1;
++}
++
+ void R_VaoUnpackTangent(vec4_t v, int16_t *pack)
+ {
+ 	v[0] = pack[0] / 32767.0f;
+@@ -227,7 +243,7 @@ vao_t *R_CreateVao2(const char *name, int numVertexes, srfVert_t *verts, int num
+ 	vao->attribs[ATTR_INDEX_TANGENT       ].type = GL_SHORT;
+ 	vao->attribs[ATTR_INDEX_TEXCOORD      ].type = GL_FLOAT;
+ 	vao->attribs[ATTR_INDEX_LIGHTCOORD    ].type = GL_FLOAT;
+-	vao->attribs[ATTR_INDEX_COLOR         ].type = GL_UNSIGNED_SHORT;
++	vao->attribs[ATTR_INDEX_COLOR         ].type = r_vaoSnormColor->integer ? GL_SHORT : GL_UNSIGNED_SHORT;
+ 	vao->attribs[ATTR_INDEX_LIGHTDIRECTION].type = GL_SHORT;
+ 
+ 	vao->attribs[ATTR_INDEX_POSITION      ].normalized = GL_FALSE;
+@@ -289,8 +305,11 @@ vao_t *R_CreateVao2(const char *name, int numVertexes, srfVert_t *verts, int num
+ 		memcpy(data + dataOfs, &verts[i].lightmap, sizeof(verts[i].lightmap));
+ 		dataOfs += sizeof(verts[i].lightmap);
+ 
+-		// colors
+-		memcpy(data + dataOfs, &verts[i].color, sizeof(verts[i].color));
++		// colors (r_vaoSnormColor: signed normalized)
++		if (r_vaoSnormColor->integer)
++			R_VaoColorToSnorm((int16_t *)(data + dataOfs), verts[i].color, 4);
++		else
++			memcpy(data + dataOfs, &verts[i].color, sizeof(verts[i].color));
+ 		dataOfs += sizeof(verts[i].color);
+ 
+ 		// light directions
+@@ -460,7 +479,7 @@ void R_InitVaos(void)
+ 	tess.vao->attribs[ATTR_INDEX_TANGENT       ].type = GL_SHORT;
+ 	tess.vao->attribs[ATTR_INDEX_TEXCOORD      ].type = GL_FLOAT;
+ 	tess.vao->attribs[ATTR_INDEX_LIGHTCOORD    ].type = GL_FLOAT;
+-	tess.vao->attribs[ATTR_INDEX_COLOR         ].type = GL_UNSIGNED_SHORT;
++	tess.vao->attribs[ATTR_INDEX_COLOR         ].type = r_vaoSnormColor->integer ? GL_SHORT : GL_UNSIGNED_SHORT;
+ 	tess.vao->attribs[ATTR_INDEX_LIGHTDIRECTION].type = GL_SHORT;
+ 
+ 	tess.vao->attribs[ATTR_INDEX_POSITION      ].normalized = GL_FALSE;
+@@ -626,7 +645,16 @@ void RB_UpdateTessVao(unsigned int attribBits)
+ 			if (attribUpload & attribBit)
+ 			{
+ 				// note: tess has a VBO where stride == size
+-				qglBufferSubData(GL_ARRAY_BUFFER, vAtb->offset, tess.numVertexes * vAtb->stride, tess.attribPointers[attribIndex]);
++				if (attribIndex == ATTR_INDEX_COLOR && vAtb->type == GL_SHORT)
++				{
++					// r_vaoSnormColor: the colours as signed normalized values
++					static int16_t snormColor[SHADER_MAX_VERTEXES][4];
++
++					R_VaoColorToSnorm(snormColor[0], tess.color[0], tess.numVertexes * 4);
++					qglBufferSubData(GL_ARRAY_BUFFER, vAtb->offset, tess.numVertexes * vAtb->stride, snormColor);
++				}
++				else
++					qglBufferSubData(GL_ARRAY_BUFFER, vAtb->offset, tess.numVertexes * vAtb->stride, tess.attribPointers[attribIndex]);
+ 			}
+ 
+ 			if (attribBits & attribBit)

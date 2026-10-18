@@ -1,0 +1,150 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Sun, 18 Oct 2026 16:41:24 +0300
+Subject: renderergl2: no powf per texel channel in the gamma-correct mipmaps
+
+R_MipMapsRGB (picmip downscaling and every mip level renderergl2 makes on the CPU) turns each
+averaged channel back into a byte with powf(total, 1 / 2.2f): 7.6% of all CPU samples in a PS3
+profile of OpenArena opengl2 (powf 5.8%, the loop 1.8%), at every map load and every player
+model a bot joining brings in during play.
+
+The byte is the number of thresholds at or below total, threshold b being the least float that
+gives b or more. They are found once, by bisection over the float bit patterns with the same
+powf expression, so the bytes are the ones powf gave (powf grows with its argument); a table by
+total * 4096 starts at most 5 thresholds below the answer. Checked: every float in [0, 1] on
+x86-64 glibc, and every 16th one plus all within 200000 ulps of each threshold on ppc64 glibc
+(qemu): no byte differs. The demo's frames on llvmpipe are identical. r_mipMapPowf 1 calls powf
+as before.
+
+diff --git a/code/renderergl2/tr_image.c b/code/renderergl2/tr_image.c
+--- a/code/renderergl2/tr_image.c
++++ b/code/renderergl2/tr_image.c
+@@ -1303,6 +1303,72 @@ void R_LightScaleTexture (byte *in, int inwidth, int inheight, qboolean only_gam
+ }
+ 
+ 
++/*
++r_mipMapPowf 0: the gamma-correct average back to a byte without a powf per channel. The byte
++(byte)(powf(total, 1 / 2.2f) * 255.0f) is the number of thresholds at or below total, where
++threshold b is the smallest float giving b or more; they are found once, by bisection over the
++float bit patterns with this same powf, so the result is the same byte as before (powf grows with
++its argument). A table by total * 4096 gives a start at most a few thresholds below the answer.
++*/
++#define MIP_SRGB_BINS 4096
++static float mipSrgbThreshold[257];	// [b]: the least total giving b or more; [256] above every total
++static byte mipSrgbStart[MIP_SRGB_BINS + 1];	// the byte of total == i / MIP_SRGB_BINS
++
++static int R_MipSrgbPowf(float total)
++{
++	return (byte)(powf(total, 1.0f / 2.2f) * 255.0f);
++}
++
++static void R_MipSrgbInit(void)
++{
++	int b, i;
++
++	mipSrgbThreshold[0] = 0.0f;
++	for (b = 1; b < 256; b++)
++	{
++		// the least bit pattern in [0, 1.0f] with R_MipSrgbPowf >= b (1.0f gives 255)
++		floatint_t lo, hi;
++
++		lo.ui = 0;
++		hi.f = 1.0f;
++		while (lo.ui < hi.ui)
++		{
++			floatint_t mid;
++
++			mid.ui = lo.ui + (hi.ui - lo.ui) / 2;
++			if (R_MipSrgbPowf(mid.f) >= b)
++				hi.ui = mid.ui;
++			else
++				lo.ui = mid.ui + 1;
++		}
++		mipSrgbThreshold[b] = hi.f;
++	}
++	mipSrgbThreshold[256] = 2.0f;
++
++	for (i = 0, b = 0; i <= MIP_SRGB_BINS; i++)
++	{
++		float t = (float)i / MIP_SRGB_BINS;
++
++		while (b < 255 && mipSrgbThreshold[b + 1] <= t)
++			b++;
++		mipSrgbStart[i] = b;
++	}
++}
++
++static ID_INLINE byte R_MipSrgbByte(float total)
++{
++	int b;
++
++	if (r_mipMapPowf->integer || !(total >= 0.0f && total <= 1.0f))
++		return R_MipSrgbPowf(total);
++
++	// total * MIP_SRGB_BINS is exact (a power of two), so the bin's start is at or below total
++	b = mipSrgbStart[(int)(total * MIP_SRGB_BINS)];
++	while (mipSrgbThreshold[b + 1] <= total)
++		b++;
++	return b;
++}
++
+ /*
+ ================
+ R_MipMapsRGB
+@@ -1323,6 +1389,7 @@ static void R_MipMapsRGB( byte *in, int inWidth, int inHeight)
+ 	if (!downmipSrgbLookupSet) {
+ 		for (x = 0; x < 256; x++)
+ 			downmipSrgbLookup[x] = powf(x / 255.0f, 2.2f) * 0.25f;
++		R_MipSrgbInit();
+ 		downmipSrgbLookupSet = 1;
+ 	}
+ 
+@@ -1334,7 +1401,7 @@ static void R_MipMapsRGB( byte *in, int inWidth, int inHeight)
+ 			for (c = 3; c; c--, in++) {
+ 				total  = (downmipSrgbLookup[*(in)] + downmipSrgbLookup[*(in + 4)]) * 2.0f;
+ 
+-				*out++ = (byte)(powf(total, 1.0f / 2.2f) * 255.0f);
++				*out++ = R_MipSrgbByte(total);
+ 			}
+ 			*out++ = (*(in) + *(in + 4)) >> 1; in += 5;
+ 		}
+@@ -1352,7 +1419,7 @@ static void R_MipMapsRGB( byte *in, int inWidth, int inHeight)
+ 				total = downmipSrgbLookup[*(in)]  + downmipSrgbLookup[*(in + 4)]
+ 				      + downmipSrgbLookup[*(in2)] + downmipSrgbLookup[*(in2 + 4)];
+ 
+-				*out++ = (byte)(powf(total, 1.0f / 2.2f) * 255.0f);
++				*out++ = R_MipSrgbByte(total);
+ 			}
+ 
+ 			*out++ = (*(in) + *(in + 4) + *(in2) + *(in2 + 4)) >> 2; in += 5, in2 += 5;
+diff --git a/code/renderergl2/tr_init.c b/code/renderergl2/tr_init.c
+--- a/code/renderergl2/tr_init.c
++++ b/code/renderergl2/tr_init.c
+@@ -238,6 +238,7 @@ cvar_t	*r_marksOnTriangleMeshes;
+ 
+ cvar_t	*r_vaoCache;
+ cvar_t	*r_vaoSnormColor;
++cvar_t	*r_mipMapPowf;
+ 
+ cvar_t	*r_aviMotionJpegQuality;
+ cvar_t	*r_screenshotJpegQuality;
+@@ -1470,6 +1471,7 @@ void R_Register( void )
+ 
+ 	r_vaoCache = ri.Cvar_Get("r_vaoCache", "0", CVAR_ARCHIVE | CVAR_LATCH);
+ 	r_vaoSnormColor = ri.Cvar_Get("r_vaoSnormColor", "1", CVAR_ARCHIVE | CVAR_LATCH);
++	r_mipMapPowf = ri.Cvar_Get("r_mipMapPowf", "0", CVAR_ARCHIVE);
+ 
+ 	r_aviMotionJpegQuality = ri.Cvar_Get("r_aviMotionJpegQuality", "90", CVAR_ARCHIVE);
+ 	r_screenshotJpegQuality = ri.Cvar_Get("r_screenshotJpegQuality", "90", CVAR_ARCHIVE);
+diff --git a/code/renderergl2/tr_local.h b/code/renderergl2/tr_local.h
+--- a/code/renderergl2/tr_local.h
++++ b/code/renderergl2/tr_local.h
+@@ -1865,6 +1865,7 @@ extern cvar_t	*r_marksOnTriangleMeshes;
+ 
+ extern cvar_t *r_vaoCache;
+ extern cvar_t *r_vaoSnormColor;
++extern cvar_t *r_mipMapPowf;
+ 
+ //====================================================================
+ 

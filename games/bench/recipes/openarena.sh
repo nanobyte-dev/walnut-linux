@@ -72,7 +72,7 @@ variant_gl2min() { oa_gl2min; }
 variant_gl2() { OA_R=opengl2; oa_cmd; DURATION=330; }
 # every switch of ours back to upstream (Debian's behaviour, except the VAO cache and the model
 # tangents, which have no switch: for those, compare with Debian's deb)
-variant_gl2min_up() { oa_gl2min +set r_glslKeepShaders 1 +set r_glslMaxBones -1 +set r_glslAllPrograms 1 +set r_glslKeepPrograms 0 +set r_keepModelVerts 1; }
+variant_gl2min_up() { oa_gl2min +set r_glslKeepShaders 1 +set r_glslMaxBones -1 +set r_glslAllPrograms 1 +set r_glslKeepPrograms 0 +set r_keepModelVerts 1 +set r_vaoSnormColor 0 +set r_mipMapPowf 1; }
 # 0001: shader objects kept attached after linking (their source and IR in Mesa)
 variant_gl2min_shaders() { oa_gl2min +set r_glslKeepShaders 1; }
 # 0002: the 27 bone-animation programs (105-matrix arrays, compare trees on nv30)
@@ -96,6 +96,15 @@ variant_gl2min_cpuanim() { oa_gl2min +set r_gpuVertexAnimation 0; }
 variant_gl2min_lean() { oa_gl2min +set r_glslLazy 1 +set r_md3Lods 1; }
 variant_gl2min_picmip2() { oa_gl2min +set r_picmip 2; }
 variant_gl2min_tc0() { OA_TC=0; oa_gl2min; }
+# 0027: vertex colours as unsigned shorts again (R16G16B16A16_UNORM, which nv30 can't fetch: u_vbuf
+# converts them on the CPU at every draw, and nouveau keeps malloc'ed copies of the VRAM buffers it
+# reads, after a few such reads of every new one: docs/MEMORY.md "OpenArena opengl2")
+variant_gl2min_color16() { oa_gl2min +set r_vaoSnormColor 0; }
+# 0028: the gamma-correct mipmaps with a powf per texel channel (the same bytes, more CPU at loads and joins)
+variant_gl2min_mippowf() { oa_gl2min +set r_mipMapPowf 1; }
+# 0029 (opt-in): animated MD3 frames in 12 bytes a vertex instead of 20 (the demo's model VBOs 62 -> 37.5 MB
+# of VRAM; 8-bit normals: on llvmpipe 1734 pixels of 30 frames differ by at most 2 levels)
+variant_gl2min_md3pack() { oa_gl2min +set r_md3PackedFrames 1; }
 # CPU time of the opengl1 renderer and the engine (docs/GAME-PLAN.md: 13.6% zlib, 35% renderer). Our
 # ioquake3 patches 0011-0018 are on in tc1/base; each variant turns one back to upstream, `up` all of
 # them, so that base against the variant is that patch's gain. oa_x appends cvars (autoexec.cfg).
