@@ -35,6 +35,8 @@
 #   thaws: otherwise the thawed programs fault them in one by one from the hard disk.
 # From the join that starts the guard (the game's environment):
 #   PS3_GAME_MODE=pads: step 1 only, a baseline to measure against.
+#   PS3_GAME_KICK=on|off|force: the 10 ms kicker for the lost-decrementer stalls (ps3-game-mode);
+#   default: /etc/default/ps3-game-mode, else on (not while the kernel has the idle fix).
 #   PS3_GAME_PREFETCH=on (default): record, reclaim all, fetch back on leave; off: no record, no
 #   fetch (game mode as it was before the prefetch); keep: the desktop keeps its file pages (only its anonymous memory
 #   goes to swap; the recorded size says what that costs), fetch what got evicted anyway.
@@ -188,7 +190,7 @@ enter() {
 		cg=$(slice_cg $u) && reclaim_anon "$cg"
 	done
 	: > "$S/root"	# before the call: if the guard dies during it, leave still undoes it
-	timeout 90 sudo -n $M on $$ || log "ps3-game-mode on failed"
+	timeout 90 sudo -n $M on $$ ${PS3_GAME_KICK:-} || log "ps3-game-mode on failed"
 }
 
 # leave: what the user sees first. The desktop's files start coming back from the disk
@@ -258,7 +260,7 @@ stale() {	# game mode's state left with no guard (one killed with its whole cgro
 }
 start_guard() {	# MODE
 	env="--setenv=PS3_GAME_MODE=$1"
-	for v in DISPLAY XAUTHORITY XDG_CONFIG_DIRS XDG_DATA_DIRS GDK_GL PS3_GAME_PREFETCH; do
+	for v in DISPLAY XAUTHORITY XDG_CONFIG_DIRS XDG_DATA_DIRS GDK_GL PS3_GAME_PREFETCH PS3_GAME_KICK; do
 		eval "x=\${$v-}"; [ -n "$x" ] && env="$env --setenv=$v=$x"
 	done
 	# shellcheck disable=SC2086 # the values have no spaces

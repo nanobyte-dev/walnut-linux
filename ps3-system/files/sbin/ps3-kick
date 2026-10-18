@@ -1,0 +1,79 @@
+#!/usr/bin/python3
+# ps3-kick [-i MS] [-c CPU] [-p PID]: a cross-CPU wakeup every MS (default 10) to one CPU
+# (default: the last online one, PPE thread 1), until stopped (SIGTERM/SIGINT) or until PID is gone.
+#
+# Stopgap for a kernel bug (docs/STALLS.md "Confirmed on the PS3"): an idle PPE thread can lose its
+# decrementer (ps3_power_save pauses with a decrementer already pending) and sleep with dead timers
+# for up to 1.4 s, until some interrupt arrives; thread 1 gets only IPIs. A process on another
+# CPU that wakes a task pinned there every 10 ms sends that IPI. Same thing as `ps3-waker -m kick
+# -i 10` (ps3-gpu-tools), here in ps3-system so ps3-desktop's game mode needs no other package.
+# Started by ps3-game-mode on (root, nice -10) and stopped with it; the kernel fix (marker:
+# /sys/module/kernel/parameters/ps3_idle_prep = Y) makes it unnecessary.
+#
+# Two processes, no GIL in the way: the child, pinned to the target, blocks reading a pipe; the
+# parent, pinned to another CPU, writes a byte every period. The child ends when the pipe closes.
+import os, signal, sys, time, getopt
+
+try:
+    opts, _ = getopt.getopt(sys.argv[1:], "i:c:p:")
+except getopt.GetoptError as e:
+    sys.exit("ps3-kick: %s\nusage: ps3-kick [-i MS] [-c CPU] [-p PID]" % e)
+o = dict(opts)
+period = float(o.get("-i", 10)) / 1000
+if period < 0.001:
+    sys.exit("ps3-kick: -i: at least 1 ms")
+cpus = sorted(os.sched_getaffinity(0))
+if len(cpus) < 2:
+    sys.exit("ps3-kick: needs two CPUs")
+target = int(o.get("-c", cpus[-1]))
+if target not in cpus:
+    sys.exit("ps3-kick: -c %d: not an online CPU" % target)
+other = next(c for c in cpus if c != target)
+watch = int(o["-p"]) if "-p" in o else 0
+try:
+    os.setpriority(os.PRIO_PROCESS, 0, -10)
+except OSError:
+    pass
+
+r, w = os.pipe()
+child = os.fork()
+if child == 0:
+    os.close(w)
+    os.sched_setaffinity(0, {target})
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    while os.read(r, 4096):
+        pass
+    os._exit(0)
+
+os.close(r)
+os.sched_setaffinity(0, {other})
+stop = []
+for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+    signal.signal(s, lambda *a: stop.append(1))
+print("ps3-kick: waking CPU %d from CPU %d every %g ms%s" % (
+    target, other, period * 1000, " while pid %d runs" % watch if watch else ""), file=sys.stderr, flush=True)
+n, t0 = 0, time.monotonic()
+nxt, chk = t0, t0
+while not stop:
+    nxt += period
+    d = nxt - time.monotonic()
+    if d > 0:
+        time.sleep(d)
+    elif d < -period:
+        nxt = time.monotonic()      # missed periods: don't burst
+    try:
+        os.write(w, b"k")
+    except OSError:
+        break
+    n += 1
+    if watch and nxt - chk >= 1:
+        chk = nxt
+        if not os.path.isdir("/proc/%d" % watch):
+            break
+os.close(w)
+try:
+    os.waitpid(child, 0)
+except OSError:
+    pass
+print("ps3-kick: stopped after %.1f s, %d wakeups" % (time.monotonic() - t0, n), file=sys.stderr, flush=True)

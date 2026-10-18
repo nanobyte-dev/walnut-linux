@@ -1,5 +1,5 @@
 #!/bin/sh
-# ps3-game-mode on <guard pid> | off (root; ps3-game-guard runs it through sudo): game mode's
+# ps3-game-mode on <guard pid> [kick] | off (root; ps3-game-guard runs it through sudo): game mode's
 # system side. Nothing is stopped: network, SSH, sound, Bluetooth (the DualShock 3), logging, time
 # sync and apt keep running.
 #   on   1. a watcher (ps3-game-mode-watch.service) that undoes all of it once the guard's pid is
@@ -13,6 +13,11 @@
 #           their code): the CMA area the GART grows into is then free, not page cache to
 #           migrate first, and the game's loading doesn't wait on reclaim
 #        6. memory compacted (COMPACT=1): the GART and the VRAM swap work in 1 MB chunks
+#        7. a kicker (ps3-kick, unit ps3-game-kick; PS3_GAME_KICK=on|off|force, default on): a
+#           cross-CPU wakeup to PPE thread 1 every 10 ms, a stopgap for the lost-decrementer
+#           stalls of idle threads (docs/STALLS.md). Skipped when the kernel has the fix
+#           (/sys/module/kernel/parameters/ps3_idle_prep = Y; force runs it anyway). The guard
+#           passes the game's PS3_GAME_KICK as a third argument, which beats the file.
 #   off  stops the watcher, which thaws everything (and thaws once more itself)
 # Settings: /etc/default/ps3-game-mode (shell; not shipped, these are the defaults).
 FREEZE_UNITS="udisks2.service polkit.service blueman-mechanism.service"
@@ -20,8 +25,11 @@ RECLAIM_SYSTEM=1
 GAME_SYSCTLS=
 DROP_CACHES=1
 COMPACT=1
+KICK=on
+KICK_MS=10
 [ -r /etc/default/ps3-game-mode ] && . /etc/default/ps3-game-mode
-SELF=/usr/lib/ps3/sbin/ps3-game-mode
+SELF=${PS3_GAME_MODE_SELF:-/usr/lib/ps3/sbin/ps3-game-mode}
+KICK_BIN=${PS3_KICK_BIN:-/usr/lib/ps3/sbin/ps3-kick}
 R=/run/ps3-game-mode
 SYS=/sys/fs/cgroup/system.slice
 
@@ -52,7 +60,28 @@ sysctls_on() {	# GAME_SYSCTLS; the values before are saved first, once (a second
 	mv $R/sysctl.new $R/sysctl
 }
 
+kick_on() {	# kick_on PID [on|off|force]
+	case ${2:-} in on|off|force) KICK=$2 ;; esac
+	case $KICK in
+	off) echo "ps3-game-mode: kicker off (PS3_GAME_KICK=off)" >&2; return 0 ;;
+	force) ;;
+	*) if [ "$(cat /sys/module/kernel/parameters/ps3_idle_prep 2>/dev/null)" = Y ]; then
+		echo "ps3-game-mode: no kicker: the kernel has the idle fix" >&2; return 0
+	   fi ;;
+	esac
+	[ -x "$KICK_BIN" ] || { echo "ps3-game-mode: no $KICK_BIN" >&2; return 0; }
+	systemctl stop ps3-game-kick.service 2>/dev/null
+	systemd-run --unit=ps3-game-kick --collect -q "$KICK_BIN" -i "$KICK_MS" -p "$1" &&
+		echo "ps3-game-mode: kicker started (every $KICK_MS ms)" >&2 ||
+		echo "ps3-game-mode: kicker didn't start" >&2
+	return 0
+}
+
 thaw() {	# only what on froze (a unit someone else froze stays so)
+	if systemctl is-active -q ps3-game-kick.service 2>/dev/null; then
+		systemctl stop ps3-game-kick.service 2>/dev/null
+		echo "ps3-game-mode: kicker stopped" >&2
+	fi
 	for u in $(cat $R/frozen 2>/dev/null); do systemctl thaw "$u" 2>/dev/null; done
 	rm -f $R/frozen
 	if [ -e $R/sysctl ]; then
@@ -62,7 +91,7 @@ thaw() {	# only what on froze (a unit someone else froze stays so)
 }
 
 on() {
-	pid=$1
+	pid=$1 # $2: PS3_GAME_KICK of the game
 	case $pid in ''|*[!0-9]*) echo "ps3-game-mode on: a pid" >&2; exit 2 ;; esac
 	[ -d "/proc/$pid" ] || exit 1
 	if [ -n "${SUDO_UID:-}" ] && [ "$(stat -c %u "/proc/$pid")" != "$SUDO_UID" ]; then
@@ -80,16 +109,17 @@ on() {
 	done
 	[ "$RECLAIM_SYSTEM" = 1 ] && reclaim_anon $SYS
 	sysctls_on
+	kick_on "$pid" "${2:-}"
 	[ "$DROP_CACHES" = 1 ] && echo 1 > /proc/sys/vm/drop_caches
 	[ "$COMPACT" = 1 ] && echo 1 > /proc/sys/vm/compact_memory
 	true
 }
 
 case ${1:-} in
-on) on "${2:-}" ;;
+on) on "${2:-}" "${3:-}" ;;
 off) systemctl stop ps3-game-mode-watch.service 2>/dev/null; thaw ;;
 thaw) thaw ;;
 watch)	case ${2:-} in ''|*[!0-9]*) exit 2 ;; esac
 	while [ -d "/proc/$2" ]; do sleep 2; done ;;
-*) echo "usage: ps3-game-mode on <pid>|off" >&2; exit 2 ;;
+*) echo "usage: ps3-game-mode on <pid> [on|off|force]|off" >&2; exit 2 ;;
 esac
