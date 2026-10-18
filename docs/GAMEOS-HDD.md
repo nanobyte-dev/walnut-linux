@@ -503,6 +503,41 @@ cache partition. No custom plugin needed: webMAN MOD runs `/dev_hdd0/autoexec.ba
   version running autoexec.bat. The kernel guard then allows writes to ps3dc (Linux's own files only)
   and keeps ps3da read-only.
 
+### The GameOS installer (design, the user, 2026-10-18; nothing built)
+
+A GameOS app (PKG, PSL1GHT) so users never need a PC shell. Flow:
+- **Welcome:** install, install a new instance (several Linux installs side by side, each its own
+  image file and boot entries), check installation (prerequisites plus the boot files on dev_hdd1 and
+  the dev_hdd0 backup, with a repair).
+- **Prerequisites:** CFW with OtherOS++ (Petitboot installed), dev_hdd1 present, webMAN MOD (for the
+  autoexec backup), free space; the fan reminder before any reboot into Linux (CLAUDE.md).
+- **1. The image from a USB stick.** FAT32 limits files to 4 GiB, so the root file system ships as
+  chunks (compressed, zstd, to cut the USB 2.0 read time); the installer writes them straight into
+  the target, never as a second copy.
+- **2. Where:** a USB disk, or a file on the internal disk.
+  - *USB disk:* warnings, then the whole disk is erased and partitioned. Open: whether a GameOS app
+    can write a USB disk raw (lv2 storage syscalls); if not, the PC route (write the `.img.xz` with
+    any image writer) stays, and the USB disk boots through Petitboot as today.
+  - *Internal file:* ask the size, offer at most ~90% of dev_hdd0's free space.
+- **3. Install.** The rest of the file must be really written (a hole has no blocks to map). Instead of
+  zeros, each 4 KiB block gets a 16-byte stamp (magic, instance UUID, its offset), same cost, and it's
+  what lets Linux verify the mapping before its first write. Then the boot files go to
+  `/dev_hdd1/linux/<instance>/`, `/dev_hdd1/kboot.conf` gets the instance's entries, and the
+  autoexec lines are added to webMAN's `autoexec.bat`.
+- **4. First boot:** the initramfs checks the image header and the stamps, ext4 grows to the file
+  (`resize2fs`), a swap file is made (behind zram and the VRAM swap).
+- **5. Finish:** "reboot into Linux" = what xai_plugin's OtherOS boot does (boot flag for one boot;
+  reboots land in GameOS again); call xai_plugin's or webMAN's command if one can be triggered from an
+  app, otherwise show the steps.
+- **Copies of the boot files:** the dev_hdd0 mirror (autoexec, automatic) and a boot bundle inside the
+  image's own header area (plain bytes at a known offset, readable by the installer without ext4;
+  Linux keeps it current through the mapping), the source for "check installation"'s repair.
+- **Several instances:** each instance writes only `/dev_hdd1/linux/<instance>/` and its fragment of
+  kboot.conf; `/kboot.conf` is rebuilt from all fragments; labels carry the instance name (Petitboot's
+  default is the last label booted).
+- **Toolchain:** PSL1GHT has its own PPU GCC, an exception to "one GCC everywhere" that the user
+  decides (it builds only the GameOS app).
+
 ### Getting more than 22 GiB (no-go for now)
 
 - **Custom `emer_init`:** **[inference]** For 64 GiB the instruction would be `addis r7,r9,-0x800`
