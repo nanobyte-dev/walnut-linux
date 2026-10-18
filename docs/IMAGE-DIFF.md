@@ -28,6 +28,10 @@ Key: **a** = goes into a package or the image, **b** = dropped at reimage, **c**
 
 ## Before a reimage
 
+2026-10-18 night: both package fixes below are in the fresh release image (ps3-system 0.489 enables
+systemd-networkd and ssh, ps3-boot 0.484 gives `default=` the release kernel); docs/RELEASE-CANDIDATES.md
+"Release 2026-10-18" has the image and its test plan.
+
 | What | Where | Action |
 |---|---|---|
 | systemd-networkd isn't enabled in the image. Live it runs and keeps eth0's DHCP lease; its links come from the old `image/customize.sh` (`systemctl enable systemd-networkd ssh`). ps3-system's postinst calls `deb-systemd-helper enable systemd-networkd.service`, but systemd's own postinst ran `deb-systemd-helper update-state` for the unit first, so the helper sees it as already installed with no links (left disabled by the admin) and creates none. The image boots with only the kernel's `ip=dhcp` address, with no renewal, and `20-ps3-wired.network` goes unused. | `ps3-system/debian/postinst` | **a**: enable with `systemctl enable systemd-networkd.service` (works in a chroot) or ship the `.wants` links; rebuild ps3-system |
