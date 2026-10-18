@@ -31,6 +31,9 @@
      are known from inside it: every one classified as such
  10. ps3-malloctrim.so on a real process (built here) that leaves holes in its main heap and in a
      thread's arena: the trims give them back (VmRSS before and after, from its own log lines)
+ 11. the interference detector (intfcheck.py, docs/STALLS.md "Interference"): ps3-intfwatch's input
+     filter on recorded event streams in both byte orders, its process, session, VT and kernel log
+     rules live on this machine, report.py's intf column and matrix.py's skip, interference-scan.py
 Exit status 0 when every check passes; scratch files in a temporary directory, removed at the end."""
 import os
 import re
@@ -1103,6 +1106,9 @@ if __name__ == "__main__":
         client_prof(tmp)
         memprof_real(tmp)
         malloctrim_real(tmp)
+        import intfcheck
+        print("\ninterference detector (intfcheck.py)")
+        intfcheck.run(tmp, check)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("\n%d check(s) failed: %s" % (len(FAILS), ", ".join(FAILS)) if FAILS else "\nall checks passed")

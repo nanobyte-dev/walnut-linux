@@ -29,6 +29,9 @@ BENCH_RESULTS=<dir> writes the files there instead (the self-test).
 Columns: test, date (of the newest run), runs (count), observations (did the games run, what was wrong, what this row proves), then the game-variants, sorted.
   --obs TEXT   the row's observations (plain sentences: did the games run, picture, sound, the bug found, the fix proven)
   --replace    drop the row's old cells and runs first (default: the new runs join what the row has)
+  --include-interfered  put disturbed runs in too (report.py intf=1: ps3-bench.sh's detector or
+               results/interfered.txt; docs/STALLS.md "Interference"); by default they are skipped and
+               listed, and don't count in `runs`
   --hud GAMES  comma-separated games whose fps and fps_steady cells are the Gallium HUD medians even when
                the run has the game's own fps (Armagetron's benchmark average and its HUD median are
                different numbers; X-Moto's average covers its whole replay since 2026-10-17)
@@ -122,18 +125,26 @@ def save(path, cols, rows):
 def main(argv):
     if len(argv) < 2:
         sys.exit(__doc__)
-    row, note, dirs, replace = argv[0], "", [], False
+    row, note, dirs, replace, keep_intf = argv[0], "", [], False, False
     it = iter(argv[1:])
     for a in it:
         if a in ("--obs", "--note"):
             note = next(it)
         elif a == "--replace":
             replace = True
+        elif a == "--include-interfered":
+            keep_intf = True
         elif a == "--hud":
             HUD_GAMES.update(next(it).split(","))
         else:
             dirs.append(a)
     runs = [fill(run(d), d) for d in dirs]
+    for r in runs:
+        if r.get("intf") == 1:
+            print(">> %s %s (interfered): %s" % ("kept" if keep_intf else "skipped", r["dir"], r.get("intf_why", "?")))
+    if not keep_intf:
+        dirs = [d for d, r in zip(dirs, runs) if r.get("intf") != 1]
+        runs = [r for r in runs if r.get("intf") != 1]
     date = max((Path(d).name.split("-")[2][:8] for d in dirs if Path(d).name.startswith("ps3-bench-")),
                default="")
     RESULTS.mkdir(exist_ok=True)

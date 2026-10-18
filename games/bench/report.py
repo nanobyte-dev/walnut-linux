@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""report.py [--stalls] [--perf] [--mem] <run dir>...: one line per games/bench run (ps3-bench.sh run directories with the
+"""report.py [--stalls] [--perf] [--mem] [--include-interfered] <run dir>...: one line per games/bench run (ps3-bench.sh run directories with the
 bench.txt client.sh writes), then the median per game and variant, then, when a game ran in more
 than one variant, each variant against the first: fps and load as ratios, so a decision reads
 across games. Columns:
@@ -49,6 +49,10 @@ stall causes (runs with a stalls.rec: ps3-bench.sh BENCH_STALLS=1, run.sh STALLS
           load_disk_s the load's seconds waiting on the disk (client start to load_end, all of it,
           not only stall frames), warm_disk_s the warm-up's stall frames' disk seconds
   snd     the sound card state(s) at SOUND_AT seconds; end: how the run ended (exit, end, duration)
+  intf    1: somebody disturbed the run (ps3-bench.sh's detector: bench.txt interfered=1, or the
+          retro-scan's list results/interfered.txt for runs from before it; docs/STALLS.md
+          "Interference"), 0: watched and clean, -: not watched. An interfered run is marked
+          !INTERFERED, left out of the medians (--include-interfered keeps it) and listed at the end
 profiles (docs/PROFILING.md; shown only for runs that have them):
   perf_*  runs with PERF=1 (after perf-post.sh): percent of the game's samples in the window by
           class: perf_game, _mesa, _drm (libdrm, libdrm_nouveau), _kgpu (ps3rsx and the kernel's
@@ -66,10 +70,40 @@ A run with something alongside the game shows it after the variant (base@rec10, 
 base@perf: bench.txt harness=, ps3-bench.sh; older runs: rec<ms> from a stalls.rec, perf from
 perf.targets), and is grouped apart: the stall recorder alone takes OpenArena's gameplay stalls from
 21-29 s to 7 s (docs/STALLS.md "The recorder removes stalls")."""
+import os
 import re
 import statistics
 import sys
 from pathlib import Path
+
+INCLUDE_INTERFERED = False
+
+
+def interfered_list():
+    """results/interfered.txt (BENCH_RESULTS: elsewhere): run directory name, then why; the runs the
+    retro-scan (interference-scan.py) found disturbed before the detector existed"""
+    f = Path(os.environ.get("BENCH_RESULTS") or Path(__file__).resolve().parent / "results") / "interfered.txt"
+    out = {}
+    if f.exists():
+        for line in f.read_text(errors="replace").splitlines():
+            if line.strip() and not line.startswith("#"):
+                name, _, why = line.strip().partition(" ")
+                out[name] = why.strip()
+    return out
+
+
+RETRO = interfered_list()
+
+
+def interference(d, b, r):
+    """r["intf"]: 1 disturbed, 0 watched and clean; absent: not watched; r["intf_why"] the summary"""
+    if b.get("interfered") in ("0", "1"):
+        r["intf"] = int(b["interfered"])
+        if r["intf"]:
+            r["intf_why"] = b.get("interference") or "?"
+    if d.name in RETRO:
+        r["intf"] = 1
+        r["intf_why"] = "results/interfered.txt: " + RETRO[d.name]
 
 
 def kv(path):
@@ -129,6 +163,7 @@ def run(d):
     if h := harness(d, b):     # runs with the recorder, a waker or perf are kept apart
         r["variant"] += "@" + h
         r["harness"] = h
+    interference(d, b, r)
     if (v := num(b.get("underruns"))) is not None:
         r["xrun"] = int(v)
     if b.get("temp_max"):   # ps3-bench.sh: cell:71.5 rsx:66.0 (degrees C)
@@ -400,7 +435,7 @@ def steady(d, b, r):
 COLS = ["load", "fps", "maxms", "hud", "steady", "src", "low1", "stalls", "smooth", "stall_s", "longest", "stalls_play", "stall_play_s", "longest_play", "low1_play", "win_play",
         "reload_s", "win", "passes", "stalls_warm", "stall_warm_s", "longest_warm",
         "ftdrift", "cpu", "rss", "vram", "gart", "avail", "so_load", "so_all",
-        "vsw_peak", "vsw_wb", "xrun", "tmax", "tcell", "trsx", "snd", "end", "stall_disk_s", "stall_swap_s", "stall_reclaim_s",
+        "vsw_peak", "vsw_wb", "xrun", "tmax", "tcell", "trsx", "snd", "end", "intf", "stall_disk_s", "stall_swap_s", "stall_reclaim_s",
         "stall_gpu_s", "stall_cpu_s", "stall_io_s", "stall_wait_s", "stall_other_s", "stall_why",
         "load_disk_s", "warm_disk_s"]
 # the profiles' columns: printed only for the runs that have them
@@ -421,11 +456,17 @@ def show(r):
     return "  ".join("%s=%s" % (c, r.get(c, "-")) for c in COLS if c not in PROF_COLS or c in r)
 
 
+def bad(r):
+    """left out of the medians: disturbed (unless --include-interfered)"""
+    return r.get("intf") == 1 and not INCLUDE_INTERFERED
+
+
 def main(dirs):
-    runs = [run(d) for d in dirs]
-    for r in runs:
-        print("%-24s %s" % ("%s-%s" % (r["game"], r["variant"]), show(r)))
+    allruns = [run(d) for d in dirs]
+    for r in allruns:
+        print("%-24s %s%s" % ("%s-%s" % (r["game"], r["variant"]), "!INTERFERED " if r.get("intf") == 1 else "", show(r)))
     print()
+    runs = [r for r in allruns if not bad(r)]
     med = {}
     keys = list(dict.fromkeys((r["game"], r["variant"]) for r in runs))
     for key in keys:
@@ -442,7 +483,9 @@ def main(dirs):
             if c in shown and len(vals) > 1:
                 shown[c] = "%s [%s..%s]" % (shown[c], min(vals), max(vals))
         shown["hud"] = shown.pop("hud_med", "-")
-        print("%-24s n=%d %s" % ("%s-%s" % key, len(rs), show(shown)))
+        shown.pop("intf", None)
+        left = len([r for r in allruns if (r["game"], r["variant"]) == key and bad(r)])
+        print("%-24s n=%d%s %s" % ("%s-%s" % key, len(rs), " (+%d interfered left out)" % left if left else "", show(shown)))
 
     games = list(dict.fromkeys(g for g, _ in keys))
     if any(len([k for k in keys if k[0] == g]) > 1 for g in games):
@@ -461,13 +504,20 @@ def main(dirs):
                 lr = "%.3f" % (m["load"] / a["load"]) if a.get("load") and m.get("load") else "-"
                 sr = "%.3f" % (m["steady"] / a["steady"]) if a.get("steady") and m.get("steady") else "-"
                 print("  %-14s %s/%s  fps x%s  steady x%s  load x%s" % (g, k[1], vs[0][1], fr, sr, lr))
+    intf = [r for r in allruns if r.get("intf") == 1]
+    if intf:
+        print("\n!! %d interfered run(s)%s (docs/STALLS.md \"Interference\"):" % (
+            len(intf), ", kept in the medians (--include-interfered)" if INCLUDE_INTERFERED else ", not in the medians"))
+        for r in intf:
+            print("!!   %s: %s" % (r["dir"], r.get("intf_why", "?")))
 
 
 if __name__ == "__main__":
     args = sys.argv[1:]
     detail = "--stalls" in args     # stalls.py's tables for every run with a record, after the summary
     pdetail, mdetail = "--perf" in args, "--mem" in args
-    args = [a for a in args if a not in ("--stalls", "--perf", "--mem")]
+    INCLUDE_INTERFERED = "--include-interfered" in args
+    args = [a for a in args if a not in ("--stalls", "--perf", "--mem", "--include-interfered")]
     main(args)
     if detail:
         import stalls

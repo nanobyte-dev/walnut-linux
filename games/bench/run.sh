@@ -35,6 +35,10 @@
 # docs/STALLS.md "Game prefetch"): one learn run first, then ENVS="- GAMEPREFETCH=fetch" (report.py:
 # base@gpffetch); lists in /var/tmp/ps3-bench/gprefetch; GAMEPREFETCH_MB, _RESERVE_MB, _IO its budget,
 # reserve and I/O priority (tokens: GAMEPREFETCH=fetch+GAMEPREFETCH_MB=128, report.py gpffetch_mb128).
+# Interference (docs/STALLS.md "Interference"): ps3-bench.sh's detector flags a run somebody
+# disturbed (input, a VT switch, a device, an SSH login or command); run.sh prints a warning after it,
+# report.py marks it and leaves it out of the medians, matrix.py skips it. RERUN_INTERFERED=1 runs
+# such a run once more right away (both directories stay; the clean one counts).
 # Results: /var/tmp/ps3-bench/<stamp>-<game>-<variant>/; report.py summarises them.
 {
 set -u
@@ -62,7 +66,7 @@ one() {	# one LABEL GAME VARIANT [ENVTOKEN]: one run, its directory appended to 
 		done
 		echo ">> environment for this run: ${ev[*]}"
 	fi
-	env "${ev[@]}" $B x "$1" -- "$here/client.sh" "$2" "$3" 2>&1 | tee "$LOG"
+	env "${ev[@]}" BENCH_WHAT="$2 $3${ev[*]:+ (${ev[*]})}" $B x "$1" -- "$here/client.sh" "$2" "$3" 2>&1 | tee "$LOG"
 	rc=${PIPESTATUS[0]}
 	d=$(sed -n 's/^>> \(\/var\/tmp\/ps3-bench\/[^ ]*\)$/\1/p' "$LOG" | tail -1)
 	rm -f "$LOG"
@@ -72,6 +76,15 @@ one() {	# one LABEL GAME VARIANT [ENVTOKEN]: one run, its directory appended to 
 	[ "$rc" = 0 ] || { echo "!! ps3-bench.sh failed ($rc): stopping"; return 1; }
 	[ -e "$d/THERMAL" ] && { echo "!! thermal alert: stopping"; return 1; }
 	[ -e "$d/TEMPLIMIT" ] && { echo "!! temperature limit (BENCH_TEMP_MAX): stopping"; return 1; }
+	if [ -n "$d" ] && grep -q '^interfered=1' "$d/bench.txt" 2>/dev/null; then
+		echo "!! INTERFERENCE in ${d##*/}: $(sed -n 's/^interference=//p' "$d/bench.txt" | tail -1)"
+		echo "!! this run doesn't count (report.py and matrix.py leave it out)"
+		if [ "${RERUN_INTERFERED:-0}" = 1 ] && [ -z "${RERUN:-}" ]; then
+			echo ">> RERUN_INTERFERED=1: the same run once more"
+			RERUN=1 one "$@"
+			return
+		fi
+	fi
 	return 0
 }
 
