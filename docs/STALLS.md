@@ -120,7 +120,7 @@ same happens in real play at every match with bots. Host trace (llvmpipe, the de
 per pass 5 joins, 15 MD3 models, 15 skins, 35 image lookups and 23 texture uploads during the demo;
 sounds are loaded once per session (OpenAL keeps them across levels).
 
-ioquake3 0025-0026 (+ps3.380 and later, both on by default, host frames identical over three passes):
+ioquake3 0025-0026 (+ps3.396, both on by default, host frames identical over three passes):
 `r_keepImages 1` keeps the textures of image files across a map change and takes them back by name
 when the next level is the same map (host reload 0.46 -> 0.17 s, the joins' uploads gone);
 `cl_preloadLate 1` registers what the cgame registered during the last level's play again at the
