@@ -27,6 +27,11 @@ DURATION=300	# a safety cap: the passes end the run (~10 s a pass and its cold s
 # Yamagi's SDL sound backend instead of OpenAL (OpenAL gave white noise on the PS3: 16-bit samples
 # with their bytes swapped somewhere on the way, big-endian)
 variant_sdlsound() { CMD+=(+set s_openal 0); }
+# the KISS PRNG's lag table (our yquake2 0002, YQ2_KISS_QSIZE): 16 MiB in the client and 16 MiB in
+# game.so by default, all written at start (the MEM=1 profile: 32 MB of the game's 77 MB resident);
+# 4096 entries are 32 KiB each (docs/MEMORY.md). Client-side randomness (particles) differs, the
+# demo doesn't
+variant_kiss4k() { ENV+=(YQ2_KISS_QSIZE=4096); }
 # OpenAL Soft measurements (docs/SPU-AUDIO.md, M0): the shared variants of openal.inc, and no sound
 # at all
 . "$here/recipes/openal.inc"

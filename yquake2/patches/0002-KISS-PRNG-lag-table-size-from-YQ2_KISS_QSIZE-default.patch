@@ -1,0 +1,264 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps3 <ps3@localhost>
+Date: Sun, 18 Oct 2026 05:07:35 +0300
+Subject: KISS PRNG: lag table size from YQ2_KISS_QSIZE (default 2^21 entries,
+ unchanged)
+
+rand.c keeps a static table of 2^21 uint64_t (16 MiB) and randk_seed writes all of it, in the
+client and again in game.so: 32 MiB resident of a PS3's ~217 MB (a 2026-10-18 profile: the
+quake2 binary's .bss 18 MB resident, game.so's 16 MB). The table is now allocated at the first
+use; YQ2_KISS_QSIZE=<power of two, 64..2^21> makes it smaller. Unset, the size and the
+sequence are as before.
+
+diff --git a/rogue/src/shared/rand.c b/rogue/src/shared/rand.c
+--- a/rogue/src/shared/rand.c
++++ b/rogue/src/shared/rand.c
+@@ -14,14 +14,52 @@
+  */
+ 
+ #include <stdint.h>
++#include <stdlib.h>
+ 
+-#define QSIZE 0x200000
++/*
++ * The lag table: 2^21 entries (16 MiB, every page written by randk_seed) in each module that
++ * links this file (the client and game.so: 32 MiB of a PS3's ~217 MB). YQ2_KISS_QSIZE=<n> (a
++ * power of two, 64 to 2^21) makes it smaller; the generator's period stays far beyond anything
++ * a game draws. Unset: the original size.
++ */
++#define QSIZE_MAX 0x200000
++#define QSIZE (qmask + 1)
+ #define CNG (cng = 6906969069ULL * cng + 13579)
+ #define XS (xs ^= (xs << 13), xs ^= (xs >> 17), xs ^= (xs << 43))
+ #define KISS (B64MWC() + CNG + XS)
+ 
+-static uint64_t QARY[QSIZE];
++static uint64_t QARY_small[64];
++static uint64_t *QARY;
++static uint64_t qmask;
+ static int j;
++
++static void
++qary_init(void)
++{
++	unsigned long n = QSIZE_MAX;
++	const char *s = getenv("YQ2_KISS_QSIZE");
++
++	if (s && *s)
++	{
++		unsigned long v = strtoul(s, NULL, 0);
++
++		if (v >= 64 && v <= QSIZE_MAX && !(v & (v - 1)))
++		{
++			n = v;
++		}
++	}
++
++	/* zeroed, as the static table was before randk_seed */
++	QARY = calloc(n, sizeof(*QARY));
++
++	if (!QARY)
++	{
++		QARY = QARY_small;
++		n = 64;
++	}
++
++	qmask = n - 1;
++}
+ static uint64_t carry;
+ static uint64_t xs;
+ static uint64_t cng;
+@@ -31,7 +69,12 @@ B64MWC(void)
+ {
+ 	uint64_t t, x;
+ 
+-	j = (j + 1) & (QSIZE - 1);
++	if (!QARY)
++	{
++		qary_init();
++	}
++
++	j = (j + 1) & qmask;
+ 	x = QARY[j];
+ 	t = (x << 28) + carry;
+ 	carry = (x >> 36) - (t < x);
+@@ -81,6 +124,11 @@ randk_seed(void)
+ {
+ 	uint64_t i;
+ 
++	if (!QARY)
++	{
++		qary_init();
++	}
++
+ 	/* Seed QARY[] with CNG+XS: */
+ 	for (i = 0; i < QSIZE; i++)
+ 	{
+diff --git a/src/common/shared/rand.c b/src/common/shared/rand.c
+--- a/src/common/shared/rand.c
++++ b/src/common/shared/rand.c
+@@ -14,14 +14,52 @@
+  */
+ 
+ #include <stdint.h>
++#include <stdlib.h>
+ 
+-#define QSIZE 0x200000
++/*
++ * The lag table: 2^21 entries (16 MiB, every page written by randk_seed) in each module that
++ * links this file (the client and game.so: 32 MiB of a PS3's ~217 MB). YQ2_KISS_QSIZE=<n> (a
++ * power of two, 64 to 2^21) makes it smaller; the generator's period stays far beyond anything
++ * a game draws. Unset: the original size.
++ */
++#define QSIZE_MAX 0x200000
++#define QSIZE (qmask + 1)
+ #define CNG (cng = 6906969069ULL * cng + 13579)
+ #define XS (xs ^= (xs << 13), xs ^= (xs >> 17), xs ^= (xs << 43))
+ #define KISS (B64MWC() + CNG + XS)
+ 
+-static uint64_t QARY[QSIZE];
++static uint64_t QARY_small[64];
++static uint64_t *QARY;
++static uint64_t qmask;
+ static int j;
++
++static void
++qary_init(void)
++{
++	unsigned long n = QSIZE_MAX;
++	const char *s = getenv("YQ2_KISS_QSIZE");
++
++	if (s && *s)
++	{
++		unsigned long v = strtoul(s, NULL, 0);
++
++		if (v >= 64 && v <= QSIZE_MAX && !(v & (v - 1)))
++		{
++			n = v;
++		}
++	}
++
++	/* zeroed, as the static table was before randk_seed */
++	QARY = calloc(n, sizeof(*QARY));
++
++	if (!QARY)
++	{
++		QARY = QARY_small;
++		n = 64;
++	}
++
++	qmask = n - 1;
++}
+ static uint64_t carry;
+ static uint64_t xs;
+ static uint64_t cng;
+@@ -31,7 +69,12 @@ B64MWC(void)
+ {
+ 	uint64_t t, x;
+ 
+-	j = (j + 1) & (QSIZE - 1);
++	if (!QARY)
++	{
++		qary_init();
++	}
++
++	j = (j + 1) & qmask;
+ 	x = QARY[j];
+ 	t = (x << 28) + carry;
+ 	carry = (x >> 36) - (t < x);
+@@ -81,6 +124,11 @@ randk_seed(void)
+ {
+ 	uint64_t i;
+ 
++	if (!QARY)
++	{
++		qary_init();
++	}
++
+ 	/* Seed QARY[] with CNG+XS: */
+ 	for (i = 0; i < QSIZE; i++)
+ 	{
+diff --git a/xatrix/src/shared/rand.c b/xatrix/src/shared/rand.c
+--- a/xatrix/src/shared/rand.c
++++ b/xatrix/src/shared/rand.c
+@@ -14,14 +14,52 @@
+  */
+ 
+ #include <stdint.h>
++#include <stdlib.h>
+ 
+-#define QSIZE 0x200000
++/*
++ * The lag table: 2^21 entries (16 MiB, every page written by randk_seed) in each module that
++ * links this file (the client and game.so: 32 MiB of a PS3's ~217 MB). YQ2_KISS_QSIZE=<n> (a
++ * power of two, 64 to 2^21) makes it smaller; the generator's period stays far beyond anything
++ * a game draws. Unset: the original size.
++ */
++#define QSIZE_MAX 0x200000
++#define QSIZE (qmask + 1)
+ #define CNG (cng = 6906969069ULL * cng + 13579)
+ #define XS (xs ^= (xs << 13), xs ^= (xs >> 17), xs ^= (xs << 43))
+ #define KISS (B64MWC() + CNG + XS)
+ 
+-static uint64_t QARY[QSIZE];
++static uint64_t QARY_small[64];
++static uint64_t *QARY;
++static uint64_t qmask;
+ static int j;
++
++static void
++qary_init(void)
++{
++	unsigned long n = QSIZE_MAX;
++	const char *s = getenv("YQ2_KISS_QSIZE");
++
++	if (s && *s)
++	{
++		unsigned long v = strtoul(s, NULL, 0);
++
++		if (v >= 64 && v <= QSIZE_MAX && !(v & (v - 1)))
++		{
++			n = v;
++		}
++	}
++
++	/* zeroed, as the static table was before randk_seed */
++	QARY = calloc(n, sizeof(*QARY));
++
++	if (!QARY)
++	{
++		QARY = QARY_small;
++		n = 64;
++	}
++
++	qmask = n - 1;
++}
+ static uint64_t carry;
+ static uint64_t xs;
+ static uint64_t cng;
+@@ -31,7 +69,12 @@ B64MWC(void)
+ {
+ 	uint64_t t, x;
+ 
+-	j = (j + 1) & (QSIZE - 1);
++	if (!QARY)
++	{
++		qary_init();
++	}
++
++	j = (j + 1) & qmask;
+ 	x = QARY[j];
+ 	t = (x << 28) + carry;
+ 	carry = (x >> 36) - (t < x);
+@@ -81,6 +124,11 @@ randk_seed(void)
+ {
+ 	uint64_t i;
+ 
++	if (!QARY)
++	{
++		qary_init();
++	}
++
+ 	/* Seed QARY[] with CNG+XS: */
+ 	for (i = 0; i < QSIZE; i++)
+ 	{
