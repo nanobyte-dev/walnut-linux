@@ -1,5 +1,5 @@
 # ps3_game_prefetch.py: ps3-game-prefetch's code (the program beside it imports it, so its byte code
-# comes from the cache dh_python3 has made at the installation; compiled at every start it would cost
+# comes from the cache postinst makes with py3compile; compiled at every start it would cost
 # the game watcher about 5 MB more memory).
 # ps3-game-prefetch record LIST [--file PATH]... PID... | fetch LIST (ps3-desktop; ps3-game-guard
 # runs it): the desktop's files back into the page cache when game mode ends, in one pass over the
