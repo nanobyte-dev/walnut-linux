@@ -101,11 +101,12 @@ policy, mode, duty).
   commands: get_inter_lpar_param, ring_buzzer, set_attr, ctl_led. **sguerrini97 added
   get_temperature (2018-05) and set_fan_policy (2018-12)** in that mirror; those are the only
   public Linux-side record of the message layout.
-- **We already ship that char device:** `linux/patches/ps3/0060-ps3sysmgr-char-device.patch`
-  (psx-place set). Opening `/dev/ps3sysmngr` cancels the kernel's async read of the port, so the
-  power button and thermal alerts are not handled while it is open; it is root-only and nothing
-  in our image opens it. `ps3-sm-temp.sh --raw` uses it for a check without a new kernel (test
-  steps below).
+- **That char device** was `linux/patches/ps3/0060-ps3sysmgr-char-device.patch` (psx-place set),
+  in our kernels up to 6.12.111+ps3.419. Opening `/dev/ps3sysmngr` cancels the kernel's async read
+  of the port, so the power button and thermal alerts are not handled while it is open. The user
+  dropped it on 2026-10-18 (docs/OTHEROS-PATCHES.md, decision 2: it can send any SM service), and
+  local/0040 no longer refers to it. `ps3-sm-temp.sh --raw` still works on a kernel that has it
+  (419), as an optional check before the new kernel (test steps below).
 - No in-kernel temperature driver: mainline's `ps3-sys-manager.c` handles only events, next-op,
   attributes and the shutdown request, and the psx-place/Gentoo set we carry adds only the char
   device.
@@ -133,8 +134,6 @@ policy, mode, duty).
   REQUEST shutdown go out. The final power-off and restart paths set the stop flag too, without
   locks (the panic path skips device_shutdown). A temperature reply returns non-zero from
   `handle_msg`, so `ps3_sys_manager_fin()`'s poll keeps waiting for the shutdown command.
-- **`/dev/ps3sysmngr` open:** reads return `-EBUSY` and nothing is sent; a reply the char device
-  took isn't counted as a failure.
 - **Alarms** follow the THERMAL_ALERT / THERMAL_CLEARED events the driver has always received
   (zone id = tzone), with no request; the "PS3 Thermal Alert Zone N" log line stays.
 
@@ -183,15 +182,18 @@ Each temperature read is one SM request; at one read per zone per second that is
 messages a second on a port that otherwise carries a few events per boot.
 
 `ps3-sm-temp.sh` prints the temperatures from hwmon; `sudo ps3-sm-temp.sh --raw [ZONE...]` sends
-the same request through `/dev/ps3sysmngr` and prints each reply in full.
+the same request through `/dev/ps3sysmngr` and prints each reply in full (kernels that still have
+the device only: 419 and older).
 
 ## PS3 test steps
 
 Supervised session, fan on SYSCON auto (or >= 60%) in webMAN before setting the OtherOS flag, the
 user not playing. Stop on any "PS3 Thermal Alert".
 
-1. **Before the new kernel, on the running one (419):** `sudo ps3-sm-temp.sh --raw` (ps3-gpu-tools
-   with the script deployed, or the script copied over). Expected: `zone 0x0: 4x.xx C, status 0
+1. **Optional, before the new kernel, on 419 (the last kernel with `/dev/ps3sysmngr`):**
+   `sudo ps3-sm-temp.sh --raw` (ps3-gpu-tools with the script deployed, or the script copied
+   over). It sends only the temperature request, the bytes the driver sends; skip it if the raw
+   device is not to be used at all. Expected: `zone 0x0: 4x.xx C, status 0
    [service 1x, tag 0x0, payload 8 bytes: ...]` for both zones. This shows the SM answers the Linux
    LPAR, the reply's service id and size, and that the values are sane, with no new kernel code.
    A REQUEST_ERROR line means our OtherOS++ doesn't grant the service: the driver would then

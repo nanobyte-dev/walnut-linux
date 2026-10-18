@@ -5,7 +5,8 @@
 #                              without them: one temperature request per zone (default 0 1: Cell
 #                              BE, RSX) through /dev/ps3sysmngr, each reply printed in full (its
 #                              service id, tag, bytes and value). This checks the message format on
-#                              a kernel without the sensors. It sends nothing but the System
+#                              a kernel without the sensors (and with the char device: 6.12.111+
+#                              ps3.419 and older; dropped since). It sends nothing but the System
 #                              Manager's temperature request (service 13). While the device is open
 #                              the kernel doesn't see the System Manager's events (power button,
 #                              thermal alert); the script holds it for at most a second or two, and
