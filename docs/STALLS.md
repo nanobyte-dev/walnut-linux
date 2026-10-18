@@ -483,3 +483,11 @@ budget too large for that game. The webcam check holds as for every run. On the 
 bench: start OpenArena twice from the menu with game mode on and read the user journal (`journalctl
 --user -u ps3-game-mode`). The first start should log `nothing learnt yet`, then `game-learn` after
 `left game mode`. The second should log `game-fetch ... read`.
+
+### The fix on the PS3 (2026-10-18, kernel 6.12.111+ps3.419)
+
+Same boot, probe without a game (`ps3-waker -m probe -i 1.37 -t 120`), runs
+ps3-bench-20261018T120716Z-probe-fixon and ...-probe-fixoff: with `ps3_idle_prep=Y` both threads'
+worst wakeup was 3.6 / 4.0 ms (none 10 ms or later); with the switch at 0 thread 1 was up to 1103 ms
+late (11 wakeups 100 ms or more, 1 over 1 s), thread 0 16.7 ms. The fix removes the lost decrementer
+and does better than the 10 ms kicker (19.4 ms worst).
