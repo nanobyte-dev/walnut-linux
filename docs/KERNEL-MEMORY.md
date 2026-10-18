@@ -329,6 +329,9 @@ CMA, retry backoff, takeover after shutdown) are in the patch.
 
 ### PS3 test plan (needs a dev build, netboot; nothing of this ran yet)
 
+Built into 6.12.111+ps3.457 (with ps3rsx 0.250 modules, 2026-10-18), switch off by default; the install
+and the other checks for that boot are in the session notes (docs/GAMEOS-HDD.md for the disk mount).
+
 Protocol: same boot for A/B (the runtime switch), user not at the PS3, webcam photo for every
 "console visible" step. Values: `grep -E 'MemTotal|MemFree|MemAvailable|CmaFree' /proc/meminfo`
 and `dmesg | grep ps3fb`.
