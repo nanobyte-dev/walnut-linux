@@ -3,3 +3,4 @@
 0004-irr-OpenGL-driver-fewer-GL-calls-per-draw-LU_GL-swit.patch
 0005-SkinnedMesh-skin-again-only-when-the-pose-changed-LU.patch
 0006-Sky-quads-in-one-draw-LU_GL_SKY-equal-materials-set-.patch
+0007-porting-malloc_trim-threshold-from-LU_TRIM_MB-defaul.patch

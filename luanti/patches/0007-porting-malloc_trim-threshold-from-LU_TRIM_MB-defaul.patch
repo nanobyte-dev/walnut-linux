@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps3 <ps3@localhost>
+Date: Sun, 18 Oct 2026 05:03:33 +0300
+Subject: porting: malloc_trim threshold from LU_TRIM_MB (default 256 MiB,
+ unchanged)
+
+Luanti trims glibc's arenas from its emerge and mesh threads once 256 MiB of map blocks, voxel
+manipulators and meshes were freed. On a PS3 (~217 MB of RAM) that never happens: a 2026-10-18
+profile showed 23-28 MB free inside the arenas, 18-22 MB of it in one thread arena, resident
+or swapped out. LU_TRIM_MB=N trims every N MiB freed instead.
+
+diff --git a/src/porting.cpp b/src/porting.cpp
+--- a/src/porting.cpp
++++ b/src/porting.cpp
+@@ -964,7 +964,15 @@ double perf_freq = get_perf_freq();
+ 
+ static std::atomic<size_t> memory_freed;
+ 
+-constexpr size_t MEMORY_TRIM_THRESHOLD = 256 * 1024 * 1024;
++// LU_TRIM_MB (environment): the threshold in MiB, 256 when unset. A PS3 has ~217 MB of RAM in
++// all: 256 MB freed between trims never comes, and the holes swap out instead (docs/MEMORY.md).
++static size_t memoryTrimThreshold()
++{
++	const char *s = getenv("LU_TRIM_MB");
++	long mb = s && *s ? strtol(s, nullptr, 10) : 0;
++	return (size_t)(mb > 0 ? mb : 256) * 1024 * 1024;
++}
++static const size_t MEMORY_TRIM_THRESHOLD = memoryTrimThreshold();
+ 
+ void TrackFreedMemory(size_t amount)
+ {

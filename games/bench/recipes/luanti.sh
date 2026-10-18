@@ -154,6 +154,12 @@ variant_noraycull() { LU_SET+=("enable_raytraced_culling = false"); }
 # MB); with the threshold fixed they are mmapped and returned when freed. Luanti's own
 # malloc_trim() (porting.cpp) waits until 256 MB were freed in all. Environment only, no rebuild.
 variant_malloc() { ENV+=(MALLOC_ARENA_MAX=2 MALLOC_MMAP_THRESHOLD_=65536 MALLOC_TRIM_THRESHOLD_=1048576); }
+# Luanti's own malloc_trim() threshold (our luanti 0007, LU_TRIM_MB; 256 MB freed by default): the
+# MEM=1 profile of 2026-10-18 had 23-28 MB free inside the arenas (18-22 MB in one thread arena),
+# resident or swapped out (docs/MEMORY.md). Trims run in the emerge and mesh threads, not the
+# renderer. The generic alternative for every game is run.sh MALLOC=trim (ps3-malloctrim.so).
+variant_trim16() { ENV+=(LU_TRIM_MB=16); }
+variant_trim64() { ENV+=(LU_TRIM_MB=64); }
 
 # Combinations. lean: no change a player would notice (the view range and mapgen shape stay);
 # leaner: also simple leaves, no minimap, no buffer merging, a mesh delay.
