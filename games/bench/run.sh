@@ -18,6 +18,12 @@
 # perf.folded and the perf_* columns (PERF_SYMS=1: also the symbols for the PC). Profiled runs are
 # for profiles, not for fps. MEM=1: the game's memory by mapping class, glibc's malloc numbers and
 # its GPU buffers at the window's start, middle and end (client.sh, memprof.py; mem_* columns).
+# WAKER=MS (WAKER_MODE sleep|kick, WAKER_CPU=LIST), PROBE=1 (PROBE_MS, PROBE_CPU), STALLS_MS,
+# STALLS_CPU, STALLS_NOWRITE=1: ps3-bench.sh's BENCH_* of the same names (ps3-waker; docs/STALLS.md
+# "The recorder removes stalls"). ENVS="TOKEN...": bench runs every variant once per token in each
+# round, the tokens interleaved; a token is - (nothing) or NAME=VALUE pairs joined by + (NAME
+# without BENCH_ gets it: WAKER=10+WAKER_CPU=1), e.g. ENVS="- STALLS=1 WAKER=10".
+# Report.py shows each run's switches after its variant (base@rec10, bench.txt harness=).
 # Results: /var/tmp/ps3-bench/<stamp>-<game>-<variant>/; report.py summarises them.
 {
 set -u
@@ -29,17 +35,29 @@ LOG=/dev/shm/run.sh.$$
 [ -n "${PERF_HZ:-}" ] && export BENCH_PERF_HZ=$PERF_HZ
 [ -n "${PERF_ALL:-}" ] && export BENCH_PERF_ALL=$PERF_ALL
 [ -n "${MEM:-}" ] && export BENCH_MEM=$MEM
+for v in STALLS_MS STALLS_CPU STALLS_NOWRITE WAKER WAKER_MODE WAKER_CPU PROBE PROBE_MS PROBE_CPU; do
+	[ -n "${!v:-}" ] && export "BENCH_$v=${!v}"
+done
 RUNS=()
 
-one() {	# one LABEL GAME VARIANT: one run, its directory appended to RUNS
-	local rc d
-	$B x "$1" -- "$here/client.sh" "$2" "$3" 2>&1 | tee "$LOG"
+one() {	# one LABEL GAME VARIANT [ENVTOKEN]: one run, its directory appended to RUNS
+	local rc d x n ev=() a=()
+	if [ -n "${4:-}" ] && [ "$4" != - ]; then	# NAME=VALUE+NAME=VALUE: BENCH_NAME for this run
+		IFS=+ read -r -a a <<< "$4"
+		for x in "${a[@]}"; do
+			n=${x%%=*}; [ "$n" != "$x" ] || { echo "!! ENVS: $x is not NAME=VALUE"; return 1; }
+			[[ $n == BENCH_* ]] || n=BENCH_$n
+			ev+=("$n=${x#*=}")
+		done
+		echo ">> environment for this run: ${ev[*]}"
+	fi
+	env "${ev[@]}" $B x "$1" -- "$here/client.sh" "$2" "$3" 2>&1 | tee "$LOG"
 	rc=${PIPESTATUS[0]}
 	d=$(sed -n 's/^>> \(\/var\/tmp\/ps3-bench\/[^ ]*\)$/\1/p' "$LOG" | tail -1)
 	rm -f "$LOG"
 	[ -n "$d" ] && RUNS+=("$d") && versions "$2" "$3" > "$d/versions"
 	# the profile's text, between runs (the next run's quiet drops the caches and swaps again)
-	[ "${BENCH_PERF:-0}" = 1 ] && [ -s "$d/perf.data" ] && "$here/perf-post.sh" "$d"
+	[ -s "$d/perf.data" ] && "$here/perf-post.sh" "$d"
 	[ "$rc" = 0 ] || { echo "!! ps3-bench.sh failed ($rc): stopping"; return 1; }
 	[ -e "$d/THERMAL" ] && { echo "!! thermal alert: stopping"; return 1; }
 	return 0
@@ -72,7 +90,9 @@ smoke)
 bench)
 	g=${2:?game}; vs=${3:-base}; n=${4:-3}
 	for i in $(seq "$n"); do
-		for v in $vs; do one "$g-$v" "$g" "$v" || break 2; done
+		for v in $vs; do
+			for e in ${ENVS:--}; do one "$g-$v" "$g" "$v" "$e" || break 3; done
+		done
 	done
 	report
 	;;

@@ -28,6 +28,15 @@
 # and into the run directory at the end (docs/PROFILING.md; games/bench/perf-post.sh reads it).
 # BENCH_PERF_ALL=1 adds a system-wide perf without call graphs (perf-sys.data). The command sees the
 # run directory as $BENCH_DIR.
+# The A/B switches of docs/STALLS.md "The recorder removes stalls" (ps3-waker: ps3-gpu-tools 0.399+):
+# BENCH_STALLS_CPU=LIST pins the recorder (taskset), BENCH_STALLS_NOWRITE=1 samples without writing
+# (stallrec-nowrite.rec, trailer only). BENCH_WAKER=MS: ps3-waker alongside, BENCH_WAKER_MODE sleep
+# (default: a bare periodic sleep, no reads) or kick (a cross-CPU wakeup to each CPU of
+# BENCH_WAKER_CPU every MS), BENCH_WAKER_CPU=LIST pins the sleeper / picks the kicked CPUs (waker.txt).
+# BENCH_PROBE=1: pinned SCHED_FIFO sleepers time how late each CPU's timers fire, every
+# BENCH_PROBE_MS (default 20) on BENCH_PROBE_CPU (default all), into probe.txt. bench.txt gets
+# harness= (these switches with BENCH_STALLS and BENCH_PERF as one tag; report.py shows it with the
+# variant).
 {
 set -u
 LOCK=/dev/shm/ps3-bench.lock
@@ -207,9 +216,45 @@ start_stallrec() {
 		echo '!! BENCH_STALLS=1 but no ps3-stallrec (ps3-gpu-tools): recording nothing' >&2
 		return 0
 	fi
-	sudo ps3-stallrec -o "$D/stalls.rec" -i "${BENCH_STALLS_MS:-10}" -p "$D/.pid" \
+	local o=$D/stalls.rec w= pin=()
+	# no-write mode: the reads without the record (a file stalls.py doesn't take for one)
+	[ "${BENCH_STALLS_NOWRITE:-0}" = 1 ] && { o=$D/stallrec-nowrite.rec; w=-W; }
+	[ -n "${BENCH_STALLS_CPU:-}" ] && pin=(taskset -c "$BENCH_STALLS_CPU")
+	sudo "${pin[@]}" ps3-stallrec -o "$o" $w -i "${BENCH_STALLS_MS:-10}" -p "$D/.pid" \
 		-f "$D/hud/frametime_(ms)" -s "$D/stop" -x Xorg -x kswapd0 2> "$D/stallrec.err" &
 	STALLREC=$!
+}
+
+# ps3-waker (BENCH_WAKER=MS, BENCH_PROBE=1): periodic wakeups and nothing else, or how late each
+# CPU's timers fire; root (nice -10 like the recorder, SCHED_FIFO for the probe), stopped by $D/stop
+WAKER= PROBE=
+start_waker() {
+	if [ -n "${BENCH_WAKER:-}${BENCH_PROBE:-}" ] && ! command -v ps3-waker >/dev/null; then
+		echo '!! BENCH_WAKER/BENCH_PROBE set but no ps3-waker (ps3-gpu-tools 0.399+): nothing started' >&2
+		return 0
+	fi
+	if [ -n "${BENCH_WAKER:-}" ] && [ "$BENCH_WAKER" != 0 ]; then
+		sudo ps3-waker -m "${BENCH_WAKER_MODE:-sleep}" -i "$BENCH_WAKER" \
+			${BENCH_WAKER_CPU:+-c "$BENCH_WAKER_CPU"} -s "$D/stop" -o "$D/waker.txt" 2> "$D/waker.err" &
+		WAKER=$!
+	fi
+	if [ "${BENCH_PROBE:-0}" = 1 ]; then
+		sudo ps3-waker -m probe -i "${BENCH_PROBE_MS:-20}" ${BENCH_PROBE_CPU:+-c "$BENCH_PROBE_CPU"} \
+			-s "$D/stop" -o "$D/probe.txt" 2> "$D/probe.err" &
+		PROBE=$!
+	fi
+}
+# the switches as one tag (bench.txt harness=, report.py's variant column); empty: none of them
+harness() {
+	local t=() nw=
+	[ "${BENCH_STALLS_NOWRITE:-0}" = 1 ] && nw=nw
+	[ "${BENCH_STALLS:-0}" = 1 ] && t+=("rec${BENCH_STALLS_MS:-10}${BENCH_STALLS_CPU:+c$BENCH_STALLS_CPU}$nw")
+	[ -n "${BENCH_WAKER:-}" ] && [ "$BENCH_WAKER" != 0 ] &&
+		t+=("wk${BENCH_WAKER_MODE:-sleep}${BENCH_WAKER}${BENCH_WAKER_CPU:+c$BENCH_WAKER_CPU}")
+	[ "${BENCH_PROBE:-0}" = 1 ] && t+=("probe${BENCH_PROBE_MS:-20}${BENCH_PROBE_CPU:+c$BENCH_PROBE_CPU}")
+	[ "${BENCH_PERF:-0}" = 1 ] && t+=(perf)
+	local IFS=+
+	echo "${t[*]}" | tr , _
 }
 
 # The profiler (BENCH_PERF=1, docs/PROFILING.md). perf.data is ~20 MB a run: written to the disk
@@ -276,12 +321,17 @@ stop_sampler() {
 		for i in $(seq 30); do kill -0 "$STALLREC" 2>/dev/null || break; sleep 0.1; done
 		kill "$STALLREC" 2>/dev/null; wait "$STALLREC" 2>/dev/null; STALLREC=
 	fi
+	for p in $WAKER $PROBE; do	# they look at the stop file every 100 ms
+		for i in $(seq 30); do kill -0 "$p" 2>/dev/null || break; sleep 0.1; done
+		kill "$p" 2>/dev/null; wait "$p" 2>/dev/null
+	done
+	WAKER= PROBE=
 	rm -f "$D/stop"
 }
 
 # run_job LABEL cmd...: the command in its own process group, output stamped line by line
 run_job() {
-	local label=$1 rc t0 t1; shift
+	local label=$1 rc t0 t1 h; shift
 	D=/dev/shm/ps3-bench-$(date -u +%Y%m%dT%H%M%SZ)-$label
 	mkdir -p "$D"
 	printf '%q ' "$@" > "$D/cmd"; echo >> "$D/cmd"
@@ -300,11 +350,14 @@ run_job() {
 	for i in 1 2 3 4 5 6 7 8 9 10; do [ -s "$D/pgid" ] && break; sleep 0.1; done
 	start_sampler "$(cat "$D/pgid" 2>/dev/null || echo 0)"
 	start_stallrec
+	start_waker
 	start_perf
 	wait $pipe; rc=$?
 	t1=$EPOCHREALTIME
 	stop_sampler
 	snap post
+	h=$(harness)
+	[ -n "$h" ] && [ -e "$D/bench.txt" ] && echo "harness=$h" >> "$D/bench.txt"
 	if [ -s $TIMERS ]; then	# which periodic jobs were kept out of this run
 		[ -e "$D/bench.txt" ] && echo "timers_paused=$(tr '\n' ' ' < $TIMERS)" >> "$D/bench.txt"
 		cp $TIMERS "$D/timers-paused"
@@ -322,11 +375,20 @@ run_job() {
 		awk '{a[NR]=$1} END{if (NR) printf "hud fps: median %d p10 %d min %d (%d s)\n", a[int(NR/2)+1], a[int(NR/10)+1], a[1], NR}'
 	  awk 'NR==1{m=$2} $2<m{m=$2} END{if (NR) printf "min MemAvailable %d kB\n", m}' "$D/samples" 2>/dev/null
 	  [ -s "$D/timers-paused" ] && echo "timers paused: $(tr '\n' ' ' < "$D/timers-paused")"
+	  [ -n "$h" ] && echo "harness: $h"
 	  # the stall recorder's own cost (its trailer)
-	  [ -s "$D/stalls.rec" ] && awk '$1 == "#" && $2 == "end" { for (i = 3; i <= NF; i++) { split($i, kv, "="); v[kv[1]] = kv[2] }
-		s = v["t"] / 1e6; c = (v["self_user_us"] + v["self_sys_us"]) / 1e6
-		printf "stallrec: %d samples, own CPU %.2f s (%.2f%% of a thread), late %d, largest gap %d ms\n",
-			v["samples"], c, s ? 100 * c / s : 0, v["late"], v["maxgap_us"] / 1000 }' "$D/stalls.rec"
+	  for f in "$D/stalls.rec" "$D/stallrec-nowrite.rec"; do
+		[ -s "$f" ] && awk '$1 == "#" && $2 == "end" { for (i = 3; i <= NF; i++) { split($i, kv, "="); v[kv[1]] = kv[2] }
+			s = v["t"] / 1e6; c = (v["self_user_us"] + v["self_sys_us"]) / 1e6
+			printf "stallrec: %d samples, own CPU %.2f s (%.2f%% of a thread), late %d, largest gap %d ms\n",
+				v["samples"], c, s ? 100 * c / s : 0, v["late"], v["maxgap_us"] / 1000 }' "$f"
+	  done
+	  # ps3-waker: what it did and its cost; the probe: each CPU's late timers
+	  [ -s "$D/waker.txt" ] && awk '$1 == "sleep" || $1 == "kick" { l = l (l ? "; " : "") $0 }
+		$1 == "#" && $2 == "end" { for (i = 3; i <= NF; i++) { split($i, kv, "="); v[kv[1]] = kv[2] }
+			c = (v["self_user_us"] + v["self_sys_us"]) / 1e6 }
+		END { printf "waker: %s; own CPU %.2f s (%.2f%% of a thread)\n", l, c, v["t"] ? 100 * c / v["t"] : 0 }' "$D/waker.txt"
+	  [ -s "$D/probe.txt" ] && awk '$1 == "cpu" { print "probe: " $0 }' "$D/probe.txt"
 	  # perf's own CPU over the window (client.sh's perf_cpu=) and its file
 	  [ -e "$D/perf.targets" ] && awk -F= '$1 == "perf_win" { w = $2 } $1 == "perf_cpu" { c = $2 }
 		END { printf "perf: window %s, perf itself %s s of CPU in it\n", w ? w : "never enabled", c ? c : "?" }' "$D/bench.txt"

@@ -26,6 +26,7 @@
      are known from inside it: every one classified as such
 Exit status 0 when every check passes; scratch files in a temporary directory, removed at the end."""
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -434,8 +435,16 @@ def stalls_synthetic(tmp):
     import csv
     f = res2 / "stall_gpu_s.csv"
     rows = list(csv.DictReader(f.open())) if f.exists() else []
-    check("matrix: stall_gpu_s.csv made by a run with a record, cell 0.2",
-          p.returncode == 0 and rows and rows[-1].get("fakestall-base") == "0.2", (p.stderr[-300:], rows))
+    check("matrix: stall_gpu_s.csv made by a run with a record, cell 0.2 (column base@rec<ms>)",
+          p.returncode == 0 and rows and rows[-1].get("fakestall-base@%s" % r.get("harness")) == "0.2",
+          (p.stderr[-300:], rows))
+    # the harness tag: inferred from the record for runs without one, bench.txt's harness= wins
+    check("report: a run with a stalls.rec is variant base@rec<ms>",
+          re.fullmatch(r"base@rec[\d.]+", r["variant"] or "") is not None, r["variant"])
+    with (d / "bench.txt").open("a") as f:
+        f.write("harness=rec10+wkkick10c1\n")
+    r2 = report.run(d)
+    check("report: bench.txt harness= names the variant", r2["variant"] == "base@rec10+wkkick10c1", r2["variant"])
     stalls.show(d)
     print()
 

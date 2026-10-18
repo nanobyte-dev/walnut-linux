@@ -5,7 +5,7 @@
  * frame took more than 100 ms. Run by ps3-bench.sh (BENCH_STALLS=1) as root.
  *
  *   ps3-stallrec [-o OUT] [-i MS] (-p PIDFILE | -P PID) [-T COMM] [-f FRAMEFILE] [-s STOPFILE]
- *                [-x COMM]... [-d DISK]... [-S N] [-k MS] [-K N] [-R] [-n] [-L]
+ *                [-x COMM]... [-d DISK]... [-S N] [-k MS] [-K N] [-R] [-n] [-L] [-W]
  *
  *   -o OUT        the record (default stdout); -i MS the period (default 10, fractions allowed)
  *   -p PIDFILE    the game's pid from this file (client.sh's $BENCH_DIR/.pid), polled until it
@@ -25,6 +25,10 @@
  *   -R            SCHED_FIFO 1 (default: nice -10); -n neither
  *   -L            lock its memory (mlockall: it never page-faults, but pins ~0.8 MB more than it
  *                 uses, libc whole; off by default: a late sample shows in the trailer instead)
+ *   -W            sample everything but write no sample lines (only the header, the W/D/K
+ *                 definitions and stacks, the clock pairs and the trailer): the
+ *                 recorder's reads without its output, for the A/B of docs/STALLS.md "The
+ *                 recorder removes stalls"
  *
  * Cheap on purpose: every /proc and sysfs file stays open and is re-read with pread at offset 0
  * (seq_file regenerates it), the record is sparse text (only what changed), output is flushed
@@ -683,12 +687,12 @@ int main(int argc, char **argv)
 {
 	const char *outp = NULL, *pidfile = NULL, *stopfile = NULL;
 	double period_ms = 10;
-	int slow = 10, stack_ms = 50, max_stacks = 1000, prio = 1, lock = 0, opt;
+	int slow = 10, stack_ms = 50, max_stacks = 1000, prio = 1, lock = 0, nowrite = 0, opt;
 	pid_t fixed = 0;
 	static char buf[BUF];
 	struct utsname un;
 
-	while ((opt = getopt(argc, argv, "o:i:p:P:T:f:s:x:d:S:k:K:RnL")) != -1) {
+	while ((opt = getopt(argc, argv, "o:i:p:P:T:f:s:x:d:S:k:K:RnLW")) != -1) {
 		switch (opt) {
 		case 'o': outp = optarg; break;
 		case 'i': period_ms = atof(optarg); break;
@@ -705,6 +709,7 @@ int main(int argc, char **argv)
 		case 'R': prio = 2; break;
 		case 'n': prio = 0; break;
 		case 'L': lock = 1; break;
+		case 'W': nowrite = 1; break;
 		default:
 			fprintf(stderr, "usage: see the head of ps3-stallrec.c (docs/STALLS.md)\n");
 			return 2;
@@ -731,9 +736,9 @@ int main(int argc, char **argv)
 	t_start = now_ns(CLOCK_MONOTONIC);
 	int64_t real0 = now_ns(CLOCK_REALTIME);
 	uname(&un);
-	fprintf(out, "# stallrec %d interval_us=%ld slow=%d arch=%s kernel=%s locked=%d prio=%s\n",
+	fprintf(out, "# stallrec %d interval_us=%ld slow=%d arch=%s kernel=%s locked=%d prio=%s%s\n",
 		VERSION, (long)(period_ms * 1000), slow, un.machine, un.release, locked,
-		prio == 2 ? "fifo" : prio == 1 ? "nice-10" : "none");
+		prio == 2 ? "fifo" : prio == 1 ? "nice-10" : "none", nowrite ? " nowrite=1" : "");
 	fprintf(out, "# clock mono=%lld.%09lld real=%lld.%09lld\n", (long long)(t_start / 1000000000),
 		(long long)(t_start % 1000000000), (long long)(real0 / 1000000000),
 		(long long)(real0 % 1000000000));
@@ -881,7 +886,8 @@ int main(int argc, char **argv)
 			ap(" fr=%llu", vm_free);
 		}
 		ap("\n");
-		fwrite(line, 1, linelen, out);
+		if (!nowrite)
+			fwrite(line, 1, linelen, out);
 		int64_t p5 = now_ns(CLOCK_MONOTONIC);
 		cost[0] += p1 - p0; cost[1] += p2 - p1; cost[2] += p3 - p2; cost[3] += p4 - p3;
 		cost[is_slow ? 4 : 5] += p5 - p4;

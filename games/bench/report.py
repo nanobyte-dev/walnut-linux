@@ -54,7 +54,11 @@ profiles (docs/PROFILING.md; shown only for runs that have them):
           mem_swap, mem_anon; mem_topswap the 5 mappings with the most swap; mem_grow (end - start,
           Rss + swap); mem_malloc_used/_free and mem_arenas (glibc); mem_gpu_vram/_gart (the
           game's ps3rsx buffers); mem_smaps_ms the longest smaps read (memprof.py)
-  --perf, --mem print perfprof.py's and memprof.py's tables for every run that has them"""
+  --perf, --mem print perfprof.py's and memprof.py's tables for every run that has them
+A run with something alongside the game shows it after the variant (base@rec10, base@wksleep10c1,
+base@perf: bench.txt harness=, ps3-bench.sh; older runs: rec<ms> from a stalls.rec, perf from
+perf.targets), and is grouped apart: the stall recorder alone takes OpenArena's gameplay stalls from
+21-29 s to 7 s (docs/STALLS.md "The recorder removes stalls")."""
 import re
 import statistics
 import sys
@@ -77,12 +81,33 @@ def num(v):
         return None
 
 
+def harness(d, b):
+    """what ran alongside the game (ps3-bench.sh's harness= tag in bench.txt: rec<ms>[c<cpus>][nw],
+    wk<sleep|kick><ms>[c<cpus>], probe<ms>[c<cpus>], perf, joined by +); for runs from before the
+    tag: rec<ms> when there is a stalls.rec, perf when perf ran. The recorder changes the stalls it
+    records (docs/STALLS.md "The recorder removes stalls"), so such runs are not the same variant"""
+    if "harness" in b:
+        return b["harness"]
+    t = []
+    rec = d / "stalls.rec"
+    if rec.exists():
+        with rec.open(errors="replace") as f:
+            m = re.search(r"interval_us=(\d+)", f.readline())
+        t.append("rec%g" % (int(m[1]) / 1000) if m else "rec")
+    if (d / "perf.targets").exists():
+        t.append("perf")
+    return "+".join(t)
+
+
 def run(d):
     d = Path(d)
     b = kv(d / "bench.txt")
     label = re.sub(r"^(ps3-bench-)?\d{8}T\d{6}Z-", "", d.name)
     r = {"game": b.get("game") or label, "variant": b.get("variant") or "-", "dir": d.name,
          "snd": b.get("sound") or "-", "end": b.get("ended") or "-"}
+    if h := harness(d, b):     # runs with the recorder, a waker or perf are kept apart
+        r["variant"] += "@" + h
+        r["harness"] = h
     if (v := num(b.get("underruns"))) is not None:
         r["xrun"] = int(v)
     for k in ("fps", "maxms", "load"):
