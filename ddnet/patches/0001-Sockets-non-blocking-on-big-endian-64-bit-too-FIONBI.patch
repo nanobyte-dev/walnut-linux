@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Mon, 19 Oct 2026 05:33:33 +0300
+Subject: Sockets non-blocking on big-endian 64-bit too (FIONBIO takes an int)
+
+net_set_blocking_impl() (net_set_non_blocking, net_set_blocking) gave ioctl(FIONBIO) a pointer
+to an unsigned long. Linux reads an int there (sock_ioctl: get_user on an int *). On
+little-endian the int is the long's low half and holds the 1; on big-endian 64-bit (ppc64) it is
+the high half, 0, so the UDP sockets of the client and the server stayed blocking. Same bug as
+Teeworlds 0.7.5's (teeworlds/ patch 0001): the client sits in recvfrom() after the server's
+accept and shows the last loading frame.
+
+Windows keeps the unsigned long (ioctlsocket takes a u_long *).
+
+diff --git a/src/base/net.cpp b/src/base/net.cpp
+--- a/src/base/net.cpp
++++ b/src/base/net.cpp
+@@ -688,7 +688,12 @@ int net_socket_type(NETSOCKET sock)
+ 
+ static int net_set_blocking_impl(NETSOCKET sock, bool blocking)
+ {
++#if defined(CONF_FAMILY_WINDOWS)
+ 	unsigned long mode = blocking ? 0 : 1;
++#else
++	// FIONBIO takes an int on Linux: an unsigned long read as an int is its high half (0) on big-endian 64-bit
++	int mode = blocking ? 0 : 1;
++#endif
+ 	const char *mode_str = blocking ? "blocking" : "non-blocking";
+ 	int sockets[] = {sock->ipv4sock, sock->ipv6sock};
+ 	const char *socket_str[] = {"IPv4", "IPv6"};
