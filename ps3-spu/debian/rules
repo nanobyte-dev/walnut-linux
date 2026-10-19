@@ -7,7 +7,7 @@ LIBDIR := usr/lib/$(DEB_HOST_MULTIARCH)
 %:
 	dh $@
 
-# ps3-spu/Makefile: `ppe` (libspeq, speq-dxt, speq-bench, spurun) here in the ppc64 chroot,
+# ps3-spu/Makefile: `ppe` (libspeq, speq-dxt, speq-bench, spurun, spetest) here in the ppc64 chroot,
 # `spu` (the SPU programs and the runtime they link) with spu-elf GCC on PATH (our host
 # toolchain, tools/deb-build.sh INDEP_PATH)
 override_dh_auto_build-arch:
@@ -28,11 +28,13 @@ override_dh_auto_install-arch:
 	install -D -m 755 b/speq-dxt debian/ps3-spu/usr/lib/ps3/bin/speq-dxt
 	install -D -m 755 b/speq-bench debian/ps3-spu/usr/lib/ps3/bin/speq-bench
 	install -D -m 755 b/speq-skin debian/ps3-spu/usr/lib/ps3/bin/speq-skin
+	install -D -m 755 b/spetest debian/ps3-spu/usr/lib/ps3/bin/spetest
 	install -d debian/ps3-spu/usr/bin
 	ln -s ../lib/ps3/bin/spurun debian/ps3-spu/usr/bin/spurun
 	ln -s ../lib/ps3/bin/speq-dxt debian/ps3-spu/usr/bin/speq-dxt
 	ln -s ../lib/ps3/bin/speq-bench debian/ps3-spu/usr/bin/speq-bench
 	ln -s ../lib/ps3/bin/speq-skin debian/ps3-spu/usr/bin/speq-skin
+	ln -s ../lib/ps3/bin/spetest debian/ps3-spu/usr/bin/spetest
 	install -D -m 644 debian/spufs.conf debian/ps3-spu/usr/lib/modules-load.d/spufs.conf
 	install -D -m 644 b/libspeq.so.0 debian/libspeq0/$(LIBDIR)/libspeq.so.0
 	install -D -m 644 lib/speq.h debian/libspeq-dev/usr/include/speq.h
@@ -41,6 +43,8 @@ override_dh_auto_install-arch:
 override_dh_auto_install-indep:
 	install -d debian/ps3-spu-programs/usr/lib/ps3/spu
 	install -m 644 b/*.spu debian/ps3-spu-programs/usr/lib/ps3/spu/
+	install -d debian/ps3-spu-programs/usr/lib/ps3/spetest
+	install -m 644 b/spetest.d/*.spu debian/ps3-spu-programs/usr/lib/ps3/spetest/
 
 # SPU ELF objects: the host strip/dwz tools don't know them
 override_dh_strip-indep override_dh_dwz-indep override_dh_shlibdeps-indep:

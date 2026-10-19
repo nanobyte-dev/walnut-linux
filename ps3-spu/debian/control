@@ -14,8 +14,9 @@ Description: SPU program runner and libspeq tools for the PS3's Cell SPEs
  spurun loads and runs an SPU program through spufs; speq-dxt tests and benchmarks libspeq's
  DXT1 and DXT5 texture encoders; speq-bench measures libspeq's queue (wake and completion latency,
  parking, the 0x2104 syscall path, the decrementer, DMA bandwidth) with bench.spu;
- speq-skin tests and benchmarks libspeq's vertex skinning. The package loads spufs at
- boot and mounts it at /spu.
+ speq-skin tests and benchmarks libspeq's vertex skinning; spetest checks the health of
+ every SPE (local store, registers, execution units, channels, DMA) and prints a report per
+ physical SPE (needs ps3-spu-programs). The package loads spufs at boot and mounts it at /spu.
 
 Package: ps3-spu-programs
 Architecture: all
@@ -28,7 +29,8 @@ Description: SPU programs for the PS3
  dxt.spu, the worker libspeq's DXT1 and DXT5 texture compression runs on the SPEs; and
  deadline.spu, the worker of libspeq's deadline pool, which renders fluidsynth's voices
  (MIDI synthesis) and skins skeletal models' vertices for games (Sauerbraten) on two SPEs
- shared by both, jobs taken by deadline.
+ shared by both, jobs taken by deadline. The spetest-*.spu programs of the spetest health
+ test are in /usr/lib/ps3/spetest.
 
 Package: libspeq0
 Section: libs
