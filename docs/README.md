@@ -53,6 +53,7 @@ layout and the build commands are in the top-level [README.md](../README.md).
 | [games/classicube.md](games/classicube.md) | ClassiCube |
 | [games/doom.md](games/doom.md) | dsda-doom, and Chocolate, Crispy and Woof Doom |
 | [games/openttd.md](games/openttd.md) | OpenTTD and its GL driver |
+| [games/openrct2.md](games/openrct2.md) | OpenRCT2's big-endian port: patches, BE-vs-LE checks, RAM, the PS3 steps |
 | [games/light-games.md](games/light-games.md) | X-Moto, Extreme Tux Racer, Neverball, Armagetron |
 | [games/smoke-tested.md](games/smoke-tested.md) | Games tried once (Teeworlds, SuperTux, Nexuiz, ...) and the new games waiting for a first run |
 
