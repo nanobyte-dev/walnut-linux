@@ -55,6 +55,9 @@ Description: RollerCoaster Tycoon 2 game data for OpenRCT2 (from the owner's CD)
  disc image. Licensed content we may not redistribute: our LAN repository only (ps3-licensed).
  Point OpenRCT2's game_path at /usr/share/games/rct2.
 EOC
+# unshield extracts with the CD's modes (directories 0700): readable by everyone, as the game runs as a user
+find "$W/pkg/usr" -type d -exec chmod 755 {} +
+find "$W/pkg/usr" -type f -exec chmod 644 {} +
 ( cd "$W/pkg" && find usr -type f -exec md5sum {} + > DEBIAN/md5sums )
 D=$W/deb; mkdir -p "$D"
 echo 2.0 > "$D/debian-binary"
