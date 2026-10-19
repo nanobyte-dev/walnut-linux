@@ -131,8 +131,9 @@ music on) is being built. Batching its GL driver is
 
 - **Payoff:** medium. **Effort:** M. **Risk:** low.
 - **Needs:** PS3, the user by ear.
-- **Status:** scheduled: TESTS.md batch openttd-play (smoke, then bench x3, GL against software,
-  once the asset and recipe land).
+- **Status:** the savegame benchmark ran (batch ssdroot3): the 8bpp-optimized blitter takes it from 11 to
+  34-43 fps and is the package default since patch 0003 (not deployed); the music still costs about
+  20% and chops. Left: TESTS.md Next (`blit8` repeats, Mesa 0040), the music (PLAN 2.8).
 - **Source:** PLAN 2.8, 3.1; [archive/PLAN.md, "Per game status"](../archive/PLAN.md#per-game-status).
 
 ### Smoke runs: menu-only games, Nexuiz, the new games
@@ -154,8 +155,8 @@ Rank 33. Games that need someone at the controller, or that are new.
   the heavy ones last.
 - **Needs:** the user for the menu games and Nexuiz; PS3 for the new games (an apt install between
   batches).
-- **Status:** scheduled: TESTS.md batch smoke-new, and "Next" (menu-only games, Nexuiz, with the
-  user).
+- **Status:** the new games' first runs are done (smoke-tested.md "New games: first runs"); re-runs,
+  the menu-only games and Nexuiz are in TESTS.md Next.
 - **Source:** PLAN 1.11, 1.12; [archive/GAME-PLAN.md, "Smoke tests"](../archive/GAME-PLAN.md#smoke-tests-not-benchmarked), ["Nexuiz Classic"](../archive/GAME-PLAN.md#nexuiz-classic-on-darkplaces-gl2-built-2026-10-18-not-run-on-the-ps3).
 
 ### Neverball: a longer replay

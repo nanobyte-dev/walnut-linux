@@ -4,8 +4,8 @@ Games outside the benchmark suite get one launch each to see whether they start 
 numbers kept, no repeats, not part of `run.sh suite` (their recipes set `SUITE=0`). Decided with the
 user on 2026-10-17. Of the first eleven, all eight that start without someone at the controller run
 (Teeworlds, SuperTux, Red Eclipse, Frozen Bubble, Chocolate, Crispy and Woof Doom, Pingus). The three
-menu-only ones and Nexuiz wait for the user; nine more games got recipes on 2026-10-19 and wait for
-their first run. Red Eclipse is in [sauerbraten.md](sauerbraten.md), the Doom ports in
+menu-only ones and Nexuiz wait for the user; nine more games got recipes on 2026-10-19, seven of
+them had a first run that night (below). Red Eclipse is in [sauerbraten.md](sauerbraten.md), the Doom ports in
 [doom.md](doom.md).
 
 ## How a smoke run works
@@ -130,22 +130,30 @@ Debian's engine and `/usr/games/nexuiz-gl2` (Debian's wrapper: `-nexuiz -basedir
   byte order (SDL, 16-bit; the Quake II OpenAL noise was such a bug), the CPU cost of the generic
   skeletal code.
 
-## New games: not run yet
+## New games: first runs
 
-Recipes written 2026-10-19 (commit 6d9fcaf), scheduled as TESTS.md batch "smoke-new" after
-ssdroot2, with an `apt install` between batches and `make bench-push`. All from Debian ports ppc64.
+Recipes from 2026-10-19 (commit 6d9fcaf), first run in batch ssdroot3 (SSD root, kernel .472, 120 s
+runs at 1920x1080, one run each, rows 76 of the matrix; the webcam photo at 60 s and the logs were
+checked, the sound only by the PS3's `sound=` and `underruns=` lines, never by ear). No kernel
+messages (dmesg.log empty) and no interference in any run. All from Debian ports ppc64.
 
-| Game | Package, size | What the recipe does | Risks named in the recipe |
-|---|---|---|---|
-| ScummVM 2026.1.0 | `scummvm` 246 MB installed with `scummvm-data`; the game data debs are arch all | base: Beneath a Steel Sky (`beneath-a-steel-sky`, 66 MB); variants `queen`, `drascula`, `lure`, `gl` (ScummVM's OpenGL manager), `intro`, `nosound`. Escape skips the intro after `SV_KBD_WAIT` s; 22050 Hz output, AdLib/FM music, the "fit" stretch mode | the SurfaceSDL path's colours, the OPL emulator's CPU |
-| Simutrans 124.5 with pak64 | +30 MB installed, 6 MB download | a new game on the default random map at once, `-nosound`; variants `sound`, `hw`, `fps25`, `fps60`, `small`, `scenario` | RAM at 1080p, its software blitter repainting 2 Mpixel on the PPE |
-| Dungeon Crawl Stone Soup 0.34.1 tiles | +47 MB, 22 MB download | a Human Berserker on seed 1, the tiles window at 1920x1080; variants `explore` (auto-explore every 6 s), `sprint`, `menu` | the 4096x4096 atlas upload |
-| Freeciv 3.2.6 | `freeciv-client-gtk3` + `freeciv-server` + `freeciv-data`, +52 MB | a local server starts five novice AIs on a small map with a 3 s turn timeout; the GTK3 client observes; variant `play` (the player starts), `sdl2` | GTK3 cairo drawing at 1080p on the PPE; the fullscreen option's name is unverified |
-| Widelands 1.3.1 | +628 MB installed, 422 MB download | the first tutorial ("Basic Control") at once; variants `menu`, `nosound`, `skip` | RAM, GLSL 1.20 limits, load time |
-| LinCity-NG 2.15.0 (menu only) | +53 MB, on SDL3 | the main menu; the player loads a scenario; variants `gl`, `mute`, `window` | the SDL renderer's texture count at 1080p; mouse only |
-| Flare 1.15 (menu only) | 620 MB of data, 570 MB download | the "Empyrean Campaign" title; the player creates a character; variants `swsurf`, `nosound` | 620 MB on the root file system, the tilesets decoded whole |
-| Warmux 11.04.1 (menu only) | +119 MB, mostly CJK fonts | Play > Local game by mouse; the first run is windowed; variant `debug` | SDL_gfx rotozoom's pixel order on big-endian |
-| Cataclysm: Dark Days Ahead 0.F-3 (menu only) | `cataclysm-dda-sdl` + data, +399 MB | MOTD, New Game, a world, a character (about a minute of keys), then the tiles view; software SDL renderer; variant `accel` | world generation allocates hundreds of MB: an OOM kill is the likely result, and the point of the test |
+| Game | Starts? | Picture at 60 s | Sound | RAM (min free / peak RSS) | What the recipe needed |
+|---|---|---|---|---|---|
+| Simutrans 124.5 + pak64 | yes | the new map under a credits dialog; HUD 25 fps | none (`-nosound`) | 34 / 74 MB | Escape to close the dialog (`during()` now sends it, window title `Simutrans` unverified) |
+| Freeciv 3.2.6 | yes, but the game never started | a white GTK window: the pregame chat | RUNNING, 87 underruns (effects are off; the source is not known) | 15 / 94 MB | the server refused `start` (`minplayers 1` with no human) and `set skill` is not an option (it is `skilllevel`): both fixed; the map is still to be seen |
+| Dungeon Crawl Stone Soup 0.34.1 | yes | still on "Loading maps..." in its small splash window; 67 s of CPU in the 120 s | none | 17 / 91 MB | a 300 s run (the load takes longer than 120 s; how much longer is open), then the fullscreen check; ending with SIGTERM prints Crawl's "crash" report, which is the harness |
+| LinCity-NG 2.15.0 | yes | main menu, fullscreen (`SDL Mode 1918x1053`) | RUNNING, 16 underruns | 34 / 65 MB | menu only: the player loads a scenario |
+| ScummVM 2026.1.0 | yes | Beneath a Steel Sky's intro art; HUD 5 fps median | RUNNING, 20 underruns; the mic hears it (12 dB over the room's floor) | 56 / 85 MB | Escape never went out: `xkeys` found no window named `ScummVM*` 8 s in, so the recipe now waits for the game's title (unverified); `--gfx-mode=normal` was "unrecognized" and is dropped |
+| Flare 1.15 | yes | a language dialog over the title scene, fullscreen; HUD 59 fps (its `max_fps=60`) | RUNNING, 5 underruns | 48 / 72 MB | menu only: the player picks a language and starts |
+| Warmux 11.04.1 | yes | the main menu in a small window | RUNNING, 26 underruns | 29 / 90 MB | fullscreen: the config is `~/.config/wormux/config.xml` (the BACKUP path was wrong); `setup()` now sets `full_screen` to true when the file exists, which it does after this first run |
+| Widelands 1.3.1 | no: exited after 2 s | | | | `--fullscreen=true`: the option takes no value (fixed in e40e282); re-run pending |
+
+Notes. Freeciv's server and client together left 15 MB free: a 1080p GTK3 client plus a server with
+five AIs is about the limit of the console's RAM. Stone Soup's SDL window was a splash, not the
+game, so its 17 MB free and 91 MB peak are the load's, not play's. ScummVM's ALSA sequencer errors
+(`/dev/snd/seq`) are the MIDI port probe, harmless with the AdLib emulator. Cataclysm: DDA was
+dropped from the batch (`cataclysm-dda-data` is not installable on ports). Re-runs and the games
+that need the user are in [TESTS.md](../TESTS.md) Next.
 
 OpenRCT2 has no recipe yet. `tools/rct2-data.sh <RCT2.iso>` builds the licensed `rct2-data` deb it
 needs (arch all, `/usr/share/games/rct2`, about 115 MB without the ride music; `RCT2_MUSIC=1` adds

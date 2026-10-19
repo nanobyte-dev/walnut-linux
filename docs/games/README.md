@@ -32,7 +32,7 @@ gameplay frame. Memory is the lowest MemAvailable during the run and the game's 
 | [Sauerbraten](sauerbraten.md) | yes | 39.1 on the SSD root (rows 71, 75); 38.5 on USB (row 70); 45.1 with `shortnormals` (row 69) | 0.05 s / 25.6 / 103 ms (SSD root); 1.6 s / 24.1 / 459 ms (USB) | 25 / 117 (73-78 with force-DXT `opaque`, row 74) | right, 60-181 underruns a run, mic hears only the room | `shortnormals` default, compression at upload (PLAN 2.4) |
 | [SuperTuxKart](supertuxkart.md) `lean` | yes | 20-22 by the HUD (rows 61, 68, 69, 71, 74) | 0.2-3.6 s / 10.2-12.8 / 108-513 ms | 26 / 97 | track draws; `sound=RUNNING` since the SSD root, OpenAL buffer warnings in half the runs | sound by ear (PLAN 2.1), then `lean` as default (D4) |
 | [OpenArena, opengl2](openarena.md) `gl2min` | yes | 60.4 on the SSD root (row 71), 56 later in that boot (row 74); 55.9 on USB (row 70) | 0.2 s / 25.6 / 199 ms (SSD root) | 15 / 119 (98 with `md3pack`) | right, right (mic hears it) | compression at upload (a no-op here), `md3pack` default |
-| [OpenTTD](openttd.md) | yes (our GL driver) | 21 with GL (row 61); 18 at the title screen (row 73); 8-12 software | 6.3 s / 9.2 / 642 ms | 17 / 26 | right, **choppy** (3893-4172 underruns) | the gameplay benchmark (TESTS "openttd-play"), sound (PLAN 2.8) |
+| [OpenTTD](openttd.md) | yes (our GL driver) | 11 on our 1962 savegame (rows 78-80); 34-43 with the 8bpp-optimized blitter (now the package default); 21 at the title screen (row 61) | 52 s / 5.7 / 311 ms (32bpp-anim); 0.4 s / 13.4 / 210 ms (8bpp) | 17 / 18 (41 free with 8bpp) | right (same picture either blitter), **choppy** (3500-4700 underruns; the music costs about 20% of the fps) | the 8bpp package on the PS3, Mesa 0040 A/B, the music (PLAN 2.8) |
 
 SuperTuxKart's own "Average FPS" line (105-111 for `lean`) is its physics tick rate, 120 Hz times the
 race time over the wall time, not a frame rate; the Gallium HUD's 19-22 frames a second is. fps.csv and
@@ -53,15 +53,24 @@ fps_steady.csv hold the HUD's median for it ([supertuxkart.md](supertuxkart.md#t
 
 Sound was not confirmed by ear in any smoke run (PLAN 2.1).
 
-### New games: recipe ready, not run yet
+### New games: first runs (batch ssdroot3, 2026-10-19)
 
-Recipes from 2026-10-19 (commit 6d9fcaf), scheduled as TESTS.md batch "smoke-new" after ssdroot2,
-with an `apt install` between batches. Hands-off: ScummVM (Beneath a Steel Sky; variants `queen`,
-`drascula`, `lure`), Simutrans with pak64, Dungeon Crawl Stone Soup tiles, Freeciv (an AI game the
-client observes), Widelands (the first tutorial). Menu-only, they need the user: LinCity-NG, Flare,
-Warmux, Cataclysm: Dark Days Ahead. OpenRCT2 has a data package tool so far (`tools/rct2-data.sh`
-makes `rct2-data` from the user's own RCT2 CD, `ps3-licensed` only), no recipe. Details in
-[smoke-tested.md](smoke-tested.md#new-games-not-run-yet).
+Seven of the nine recipes of 6d9fcaf ran once (120 s, 1920x1080, SSD root): all start.
+
+| Game | Result | Next |
+|---|---|---|
+| [Simutrans](smoke-tested.md#new-games-first-runs) | the new map, a credits dialog on top, HUD 25 fps, 34 MB free | dismiss the dialog (recipe fixed), then play |
+| Freeciv | starts, shows the pregame chat window instead of the map, 15 MB free | the server's start script was wrong (fixed), re-run |
+| Dungeon Crawl Stone Soup | still on "Loading maps..." at 60 s | a 300 s run |
+| LinCity-NG | main menu, fullscreen | menu only: needs the user |
+| ScummVM | Beneath a Steel Sky's intro, 56 MB free, sound plays | the intro skip (recipe fixed), then queen, drascula, lure |
+| Flare | title scene, HUD 59 fps, language dialog | menu only: needs the user |
+| Warmux | main menu in a small window | fullscreen in the config (recipe sets it), needs the user |
+| Widelands | exited at start (`--fullscreen` takes no value, fixed) | re-run |
+
+Cataclysm: Dark Days Ahead was dropped (its data package is not installable on ports). OpenRCT2 has a
+data package tool (`tools/rct2-data.sh` makes `rct2-data` from the user's own RCT2 CD, `ps3-licensed`
+only), no recipe. Details in [smoke-tested.md](smoke-tested.md#new-games-first-runs).
 
 ## How to read the numbers
 

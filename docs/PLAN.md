@@ -101,7 +101,7 @@ Built or queued work, mostly PS3 runs. Done when every row has a measured verdic
 | 1.13 | The interference detector's own checks: a key press, an SSH login, a mouse bump, the tty8 screen | open | user | [STALLS.md](STALLS.md) |
 | 1.14 | The whole system on the SSD image (Phase B) | the SSD root ran batches ssdroot1 and ssdroot2 (loads -39 to -61%, Sauerbraten's gameplay stalls 1.6 to 0.05 s); left: USB root against SSD root in alternating boots | PS3, user (reboots) | [GAMEOS-HDD.md](GAMEOS-HDD.md) |
 | 1.15 | The kernel guard (local/0045) on the PS3: a kernel deb with it, then the "On the PS3" checks | built, on in the series since 1abb2a1, not booted | user, PS3 | [GAMEOS-HDD.md](GAMEOS-HDD.md) |
-| 1.16 | Smoke runs of the new games (ScummVM, Simutrans, Crawl, Freeciv, LinCity-NG, Flare, Widelands, Warmux, Cataclysm) and OpenTTD's gameplay benchmark | recipes landed 2026-10-19; scheduled (smoke-new, openttd-play) | PS3 | [TESTS.md](TESTS.md), [games/README.md](games/README.md) |
+| 1.16 | Smoke runs of the new games (ScummVM, Simutrans, Crawl, Freeciv, LinCity-NG, Flare, Widelands, Warmux, Cataclysm) and OpenTTD's gameplay benchmark | first runs done in batch ssdroot3 (seven of nine start; OpenTTD `blit8` 34-43 fps against 11, now the package default); re-runs and the menu-only games are in TESTS.md Next | PS3 | [TESTS.md](TESTS.md), [games/README.md](games/README.md) |
 
 ### Stage 2: smoothness and correctness for the suite
 
