@@ -24,12 +24,12 @@ layout and the build commands are in the top-level [README.md](../README.md).
 | [MESA-METHODS.md](MESA-METHODS.md) | Audit of every method Mesa nv30 sends against what the RSX knows; the validator's allowlist came from it |
 | [RSX-PROGRAMS.md](RSX-PROGRAMS.md) | The FIFO words of the first triangle and textured quad, with their derivations |
 | [STALLS.md](STALLS.md) | Why frames stall: the stall recorder, the lost-decrementer bug and its fix, game prefetch, the interference detector |
-| [PROFILING.md](PROFILING.md) | CPU and memory profiles of the games (`PERF=1`, `MEM=1`, `PERF_LOAD=1`), start-up profiles, shader caches |
+| [PROFILING.md](PROFILING.md) | CPU and memory profiles of the games (`PERF=1`, `MEM=1`, `PERF_LOAD=1`), start-up profiles, shader caches, load-time decoders and linking (zlib-ng, libpng, libjpeg-turbo, ld.so) |
 | [HOTPATHS.md](HOTPATHS.md) | The graphics stack's CPU hot paths ranked across the games, and the Mesa/ps3rsx patches that came from them |
 | [MEMORY.md](MEMORY.md) | The console's RAM budget, where each game's memory goes, the cuts made and measured |
 | [KERNEL-MEMORY.md](KERNEL-MEMORY.md) | What the kernel's RAM is, the release kernel's config cuts, ps3fb's console frame (local/0043) |
 | [SPU.md](SPU.md) | libspeq and what runs on the SPEs: texture compression, fluidsynth, skinning |
-| [SPU-AUDIO.md](SPU-AUDIO.md) | Sound on the SPEs: fluidsynth's voice DSP, why OpenAL Soft's mixer stayed on the PPE |
+| [SPU-AUDIO.md](SPU-AUDIO.md) | Sound on the SPEs: fluidsynth's voice DSP, why OpenAL Soft's mixer stayed on the PPE, and the PPE side made cheaper (OpenAL, Vorbis, fluidsynth's effects) |
 | [SPU-GCC.md](SPU-GCC.md) | Our port of GCC's SPU backend to GCC 16.2 |
 | [THERMAL.md](THERMAL.md) | Temperatures through the System Manager, the fan policy driver, the PS3 checks still to run |
 | [DESKTOP.md](DESKTOP.md) | The Openbox desktop and game mode |
@@ -83,6 +83,7 @@ layout and the build commands are in the top-level [README.md](../README.md).
 | [research/GAME-CANDIDATES.md](research/GAME-CANDIDATES.md) | How the suite's games were picked (2026-10-16) |
 | [research/GAME-REEVAL.md](research/GAME-REEVAL.md) | Games first ruled out for non-GL3 reasons, measured and costed again (2026-10-19): DDNet, OpenTyrian, UQM, Hedgewars, OpenRCT2, 0 A.D., Java/.NET games and the Reddit list |
 | [research/EMULATORS.md](research/EMULATORS.md) | MAME, RetroArch cores and standalone emulators on ppc64 (2026-10-19); parked behind games new on the PS3 |
+| [research/DARLING-PPC.md](research/DARLING-PPC.md) | A PowerPC port of Darling for Mac OS X games (2026-10-19): not worth it, the game-facing frameworks are stubs even on x86 |
 | [research/CLASSIC-MACOS.md](research/CLASSIC-MACOS.md) | SheepShaver's native PowerPC mode and Basilisk II on the PS3 (2026-10-19); waits for the user's ROM and Mac OS CD |
 
 ## Elsewhere in docs/
