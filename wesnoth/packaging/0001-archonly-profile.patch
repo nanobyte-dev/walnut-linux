@@ -21,7 +21,15 @@ diff --git a/debian/control b/debian/control
  Multi-Arch: foreign
  Depends:
   fonts-adf-oldania,
-@@ -84,28 +85,28 @@ Description: fantasy turn-based strategy game (transitional package)
+@@ -64,6 +65,7 @@ Description: data files for Wesnoth (branch 1.18)
+ # TODO: Remove package after Debian trixie
+ Package: wesnoth-core
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Section: oldlibs
+ Depends:
+  wesnoth-1.18 (>= ${binary:Version}),
+@@ -84,28 +86,28 @@ Description: fantasy turn-based strategy game (transitional package)
  Package: wesnoth-1.18
  Architecture: any
  Depends:
@@ -69,7 +77,7 @@ diff --git a/debian/control b/debian/control
  Breaks:
   wesnoth-1.18-core (<< 1:1.16.11-1.~),
  Replaces:
-@@ -123,6 +124,7 @@ Description: fantasy turn-based strategy game (branch 1.18)
+@@ -123,6 +125,7 @@ Description: fantasy turn-based strategy game (branch 1.18)
  
  Package: wesnoth
  Architecture: all
@@ -77,7 +85,7 @@ diff --git a/debian/control b/debian/control
  Depends:
   wesnoth-1.18 (>= ${binary:Version}),
   wesnoth-1.18-data (= ${source:Version}),
-@@ -141,6 +143,7 @@ Description: fantasy turn-based strategy game (metapackage)
+@@ -141,6 +144,7 @@ Description: fantasy turn-based strategy game (metapackage)
  
  Package: wesnoth-1.18-music
  Architecture: all
@@ -85,7 +93,7 @@ diff --git a/debian/control b/debian/control
  Multi-Arch: foreign
  Depends:
   ${misc:Depends},
-@@ -155,6 +158,7 @@ Description: music files for Wesnoth (branch 1.18)
+@@ -155,6 +159,7 @@ Description: music files for Wesnoth (branch 1.18)
  
  Package: wesnoth-music
  Architecture: all
@@ -93,7 +101,7 @@ diff --git a/debian/control b/debian/control
  Multi-Arch: foreign
  Depends:
   wesnoth-1.18-data (= ${source:Version}),
-@@ -188,6 +192,7 @@ Description: multiplayer network server for Wesnoth (branch 1.18)
+@@ -188,6 +193,7 @@ Description: multiplayer network server for Wesnoth (branch 1.18)
  
  Package: wesnoth-1.18-tools
  Architecture: all
@@ -101,7 +109,7 @@ diff --git a/debian/control b/debian/control
  Multi-Arch: foreign
  Depends:
   python3:any,
-@@ -217,6 +222,7 @@ Depends:
+@@ -217,6 +223,7 @@ Depends:
   wesnoth-1.18 (>= ${wesnoth:Min-Version}),
   ${misc:Depends},
  Architecture: all
@@ -109,7 +117,7 @@ diff --git a/debian/control b/debian/control
  Description: "Heir to the Throne" official campaign for Wesnoth (branch 1.18)
   This package contains the "Heir to the Throne" campaign for Wesnoth:
   "Fight to regain the throne of Wesnoth, of which you are the legitimate
-@@ -234,6 +240,7 @@ Depends:
+@@ -234,6 +241,7 @@ Depends:
   wesnoth-1.18 (>= ${wesnoth:Min-Version}),
   ${misc:Depends},
  Architecture: all
@@ -117,7 +125,7 @@ diff --git a/debian/control b/debian/control
  Description: "The South Guard" official campaign for Wesnoth (branch 1.18)
   This package contains the "The South Guard" campaign for Wesnoth:
   "A young Knight, Deoran, is dispatched to take command of the South Guard...
-@@ -252,6 +259,7 @@ Depends:
+@@ -252,6 +260,7 @@ Depends:
   wesnoth-1.18 (>= ${wesnoth:Min-Version}),
   ${misc:Depends},
  Architecture: all
@@ -125,7 +133,7 @@ diff --git a/debian/control b/debian/control
  Description: "The Rise of Wesnoth" official campaign for Wesnoth (branch 1.18)
   This package contains the "The Rise of Wesnoth" campaign for Wesnoth:
   "Lead Prince Haldric through the destruction of the Green Isle and across the
-@@ -270,6 +278,7 @@ Depends:
+@@ -270,6 +279,7 @@ Depends:
   wesnoth-1.18 (>= ${wesnoth:Min-Version}),
   ${misc:Depends},
  Architecture: all
@@ -133,7 +141,7 @@ diff --git a/debian/control b/debian/control
  Description: "A Tale of Two Brothers" official campaign for Wesnoth (branch 1.18)
   This package contains the "A Tale of Two Brothers" campaign for Wesnoth:
   "An evil mage is threatening the small village of Maghre and its inhabitants.
-@@ -288,6 +297,7 @@ Depends:
+@@ -288,6 +298,7 @@ Depends:
   wesnoth-1.18 (>= ${wesnoth:Min-Version}),
   ${misc:Depends},
  Architecture: all
@@ -141,7 +149,7 @@ diff --git a/debian/control b/debian/control
  Description: "The Eastern Invasion" official campaign for Wesnoth (branch 1.18)
   This package contains the "The Eastern Invasion" campaign for Wesnoth:
   "There are rumors of undead attacks on the eastern border of Wesnoth. You, an
-@@ -306,6 +316,7 @@ Depends:
+@@ -306,6 +317,7 @@ Depends:
   wesnoth-1.18 (>= ${wesnoth:Min-Version}),
   ${misc:Depends},
  Architecture: all
@@ -149,7 +157,7 @@ diff --git a/debian/control b/debian/control
  Description: "Under the Burning Suns" official campaign for Wesnoth (branch 1.18)
   This package contains the "Under the Burning Suns" campaign for Wesnoth:
   "In the distant future a small band of elves struggles to survive amidst the
-@@ -324,6 +335,7 @@ Depends:
+@@ -324,6 +336,7 @@ Depends:
   wesnoth-1.18 (>= ${wesnoth:Min-Version}),
   ${misc:Depends},
  Architecture: all
@@ -157,7 +165,7 @@ diff --git a/debian/control b/debian/control
  Description: "Descent Into Darkness" official campaign for Wesnoth (branch 1.18)
   This package contains the "Descent Into Darkness" campaign for Wesnoth:
   "Learn the dark arts of necromancy in order to save your people from an orcish
-@@ -341,6 +353,7 @@ Depends:
+@@ -341,6 +354,7 @@ Depends:
   wesnoth-1.18 (>= ${wesnoth:Min-Version}),
   ${misc:Depends},
  Architecture: all
@@ -165,7 +173,7 @@ diff --git a/debian/control b/debian/control
  Description: "Northern Rebirth" official campaign for Wesnoth (branch 1.18)
   This package contains the "Northern Rebirth" campaign for Wesnoth:
   "For the people of Dwarven Doors the choice was stark: either drudge as
-@@ -361,6 +374,7 @@ Depends:
+@@ -361,6 +375,7 @@ Depends:
   wesnoth-1.18 (>= ${wesnoth:Min-Version}),
   ${misc:Depends},
  Architecture: all
@@ -173,7 +181,7 @@ diff --git a/debian/control b/debian/control
  Description: "The Sceptre of Fire" official campaign for Wesnoth (branch 1.18)
   This package contains the "The Sceptre of Fire" campaign for Wesnoth:
    "The land of Wesnoth's banner bold
-@@ -384,6 +398,7 @@ Depends:
+@@ -384,6 +399,7 @@ Depends:
   wesnoth-1.18 (>= ${wesnoth:Min-Version}),
   ${misc:Depends},
  Architecture: all
@@ -181,7 +189,7 @@ diff --git a/debian/control b/debian/control
  Description: "Son of the Black-Eye" official campaign for Wesnoth (branch 1.18)
   This package contains the "Son of the Black-Eye" campaign for Wesnoth:
   "Your father Karun Black-Eye was the greatest orcish leader that ever lived.
-@@ -405,6 +420,7 @@ Depends:
+@@ -405,6 +421,7 @@ Depends:
   wesnoth-1.18 (>= ${wesnoth:Min-Version}),
   ${misc:Depends},
  Architecture: all
@@ -189,7 +197,7 @@ diff --git a/debian/control b/debian/control
  Description: "Liberty" official campaign for Wesnoth (branch 1.18)
   This package contains the "Liberty" campaign for Wesnoth:
   "As the shadow of civil war lengthens across Wesnoth, a band of hardy
-@@ -424,6 +440,7 @@ Depends:
+@@ -424,6 +441,7 @@ Depends:
   wesnoth-1.18 (>= ${wesnoth:Min-Version}),
   ${misc:Depends},
  Architecture: all
@@ -197,7 +205,7 @@ diff --git a/debian/control b/debian/control
  Description: "The Hammer of Thursagan" official campaign for Wesnoth (branch 1.18)
   This package contains the "The Hammer of Thursagan" campaign for Wesnoth:
   "In the first years of the Northern Alliance, an expedition from Knalga seeks
-@@ -443,6 +460,7 @@ Depends:
+@@ -443,6 +461,7 @@ Depends:
   wesnoth-1.18 (>= ${wesnoth:Min-Version}),
   ${misc:Depends},
  Architecture: all
@@ -205,7 +213,7 @@ diff --git a/debian/control b/debian/control
  Description: "Legend of Wesmere" official campaign for Wesnoth (branch 1.18)
   This package contains the "Legend of Wesmere" campaign for Wesnoth:
   "The tale of Kalenz, the High Lord who rallied his people after the second
-@@ -461,6 +479,7 @@ Depends:
+@@ -461,6 +480,7 @@ Depends:
   wesnoth-1.18 (>= ${wesnoth:Min-Version}),
   ${misc:Depends},
  Architecture: all
@@ -213,7 +221,7 @@ diff --git a/debian/control b/debian/control
  Description: "Delfador's Memoirs" official campaign for Wesnoth (branch 1.18)
   This package contains the "Delfador's Memoirs" campaign for Wesnoth:
   "Wesnoth seems to be slipping inexorably into chaos, as marauding orcs pour
-@@ -480,6 +499,7 @@ Depends:
+@@ -480,6 +500,7 @@ Depends:
   wesnoth-1.18 (>= ${wesnoth:Min-Version}),
   ${misc:Depends},
  Architecture: all
@@ -221,7 +229,7 @@ diff --git a/debian/control b/debian/control
  Description: "Dead Water" official campaign for Wesnoth (branch 1.18)
   This package contains the "Dead Water" campaign for Wesnoth:
   "You are Kai Krellis, son and heir of the last merman king but only a child. A
-@@ -500,6 +520,7 @@ Depends:
+@@ -500,6 +521,7 @@ Depends:
   wesnoth-1.18 (>= ${wesnoth:Min-Version}),
   ${misc:Depends},
  Architecture: all
@@ -229,7 +237,7 @@ diff --git a/debian/control b/debian/control
  Description: "Secrets of the Ancients" official campaign for Wesnoth (branch 1.18)
   This package contains the "Secrets of the Ancients" campaign for Wesnoth:
   "Rediscover the secrets known by the lich lords of the Green Isle. They knew
-@@ -517,6 +538,7 @@ Depends:
+@@ -517,6 +539,7 @@ Depends:
   wesnoth-1.18 (>= ${wesnoth:Min-Version}),
   ${misc:Depends}
  Architecture: all
