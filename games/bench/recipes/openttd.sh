@@ -7,7 +7,9 @@
 #         and a bus hub, ~35 vehicles within 16 tiles) at the normal zoom, the game at normal speed
 #         for the whole run (OpenTTD has no timedemo: a fixed duration; the game thread's work per
 #         frame is the same, the vehicle positions drift with the wall clock). The GL driver
-#         (-v sdl-opengl, our package) with the default 32bpp-anim blitter, fps from the Gallium HUD
+#         (-v sdl-opengl, our package) with the package's default blitter (8bpp-optimized since
+#         patch 0003; the ps3.297 package and Debian's use 32bpp-anim: the batches of 2026-10-19
+#         ran the old default as `base`), fps from the Gallium HUD
 #         (the load ends at the HUD's first frame, 60 s warm-up, 120 s measured, then the game is
 #         stopped). Sound and music on as in play: the SDL sound driver at 44.1 kHz and the FluidSynth
 #         music driver with the first soundfont it finds (TimGM6mb on the image), OpenMSX playing.
@@ -31,9 +33,10 @@
 #   hz22, buf2048, buf4096: the SDL sound driver at 22.05 kHz (the mixer's rate, which the FluidSynth
 #         music renders at too: half the synthesis), and with a 2048 or 4096 frame buffer (46 or 93 ms
 #         at 44.1 kHz; the default is 1024 = 23 ms): sound candidates for underruns
-#   blit8, blit32: base with the 8bpp-optimized or 32bpp-optimized blitter (the GL driver's
-#         default is 32bpp-anim: a 32-bit video buffer plus an 8-bit animation buffer, both mapped
-#         from a pixel buffer object that the CPU blends sprites into): fps candidates
+#   blit8, blit32, blit32anim: base with the 8bpp-optimized, 32bpp-optimized or 32bpp-anim blitter
+#         (32bpp-anim, the stock default and ours before patch 0003, is a 32-bit video buffer plus an
+#         8-bit animation buffer, both mapped from a pixel buffer object that the CPU blends sprites
+#         into): blit32anim is the old default, for comparisons with the batches before 0003
 #   title: until 2026-10-18 base: the title screen's own demo game (trains running, the camera
 #         panning by itself) with the software driver through X11, no HUD (the window starts at the
 #         title game's load + 60 s). The title game is a savegame with its random state
@@ -112,6 +115,7 @@ variant_buf2048() { OT_SND=(-s sdl:samples=2048); ot_cmd; }
 variant_buf4096() { OT_SND=(-s sdl:samples=4096); ot_cmd; }
 variant_blit8() { OT_BLIT=(-b 8bpp-optimized); ot_cmd; }
 variant_blit32() { OT_BLIT=(-b 32bpp-optimized); ot_cmd; }
+variant_blit32anim() { OT_BLIT=(-b 32bpp-anim); ot_cmd; }
 # the title screen's demo game, as base was until 2026-10-18 (software video, no HUD)
 variant_title() { OT_GAME=title; OT_V=sdl; ot_cmd; ENV+=(SDL_FRAMEBUFFER_ACCELERATION=0); HUD=0; LOAD_MARK='Loading savegame version'; }
 # the bench save's simulation without video: 6000 ticks (a quarter of a game year; 7 s on the PC,
@@ -125,8 +129,8 @@ variant_sim() {
 	CMD=(/usr/games/openttd -x -c "$OT_CFG" -g -G 12345 -v null:ticks=20000 -s null -m null)
 	HUD=0; WM=; DURATION=90; WINDOW_STOP=0; LOAD_MARK=
 }
-# the title game with the sdl-opengl driver (its default 32bpp-anim blitter: sprites still drawn on
-# the CPU, palette animation and the screen upload on the GPU); needs our openttd package (openttd/:
+# the title game with the sdl-opengl driver (the package's default blitter: 32bpp-anim before patch
+# 0003, with sprites drawn on the CPU and the palette animation and the screen upload on the GPU); needs our openttd package (openttd/:
 # Debian's refuses nv30, no ARB_texture_rg); compare with title and accel
 # -d driver=2: the GL renderer, the luminance fallback and shader compiler warnings on stderr
 variant_gl() { OT_GAME=title; OT_V=sdl-opengl; ot_cmd; CMD+=(-d driver=2); HUD=1; LOAD_MARK='Loading savegame version'; }

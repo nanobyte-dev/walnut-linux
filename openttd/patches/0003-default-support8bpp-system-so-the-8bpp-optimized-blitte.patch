@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Mon, 19 Oct 2026 10:20:00 +0300
+Subject: Default support8bpp to system so the 8bpp-optimized blitter is used
+
+With support8bpp at its default "no", the blitter that OpenTTD guesses
+at start and settles on after the NewGRFs load is 32bpp-anim, even for
+an 8bpp base set such as OpenGFX. On the PS3 (a 3.2 GHz in-order PPE
+drawing 1920x1080) the 32bpp blit and its animation buffer cost most of
+a frame: our savegame of 1962 ran at 11 fps with 32bpp-anim and 34-43
+fps with 8bpp-optimized through the OpenGL driver, the picture the
+same. "system" makes the guess 8bpp and keeps the NewGRF check: a
+NewGRF that asks for 32bpp, or font anti-aliasing, still switches to a
+32bpp blitter. A config that sets support8bpp or blitter explicitly,
+and the -b option, are unchanged (32bpp-anim stays selectable).
+
+Forwarded: no
+
+diff --git a/src/table/settings/misc_settings.ini b/src/table/settings/misc_settings.ini
+--- a/src/table/settings/misc_settings.ini
++++ b/src/table/settings/misc_settings.ini
+@@ -102,7 +102,7 @@ cat      = SC_BASIC
+ name     = ""support8bpp""
+ type     = SLE_UINT8
+ var      = _support8bpp
+-def      = 0
++def      = 1
+ max      = 2
+ full     = _support8bppmodes
+ cat      = SC_BASIC

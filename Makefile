@@ -437,6 +437,6 @@ DEB_JOBS ?= 16
 # KEEP_TREE=1: make linux-deb keeps the cross build tree (build/chroot/cross-linux)
 KEEP_TREE ?= 0
 # All our packages, the kernel first: ps3rsx builds against its headers
-SRC_PACKAGES := linux mesa plymouth ps3-boot ps3-gpu-tools ps3-spu classicube fluidsynth openal-soft dsda-doom neverball ioquake3 supertuxkart openttd xmoto etr teeworlds ps3-system ps3-desktop ps3-splash sauerbraten-nonfree-data ps3-games-licensed darkplaces-gl2 zlib-ng libvorbis
+SRC_PACKAGES := linux mesa plymouth ps3-boot ps3-gpu-tools ps3-spu classicube fluidsynth openal-soft dsda-doom neverball ioquake3 supertuxkart openttd xmoto etr teeworlds ps3-system ps3-desktop ps3-splash sauerbraten-nonfree-data ps3-games-licensed darkplaces-gl2 zlib-ng libvorbis libpng1.6
 packages: $(SRC_PACKAGES:%=%-deb)
 	$(MAKE) --no-print-directory ps3rsx-modules
