@@ -3,3 +3,4 @@
 0003-big-endian-host-ordered-RCT12-unions-test-hooks.patch
 0004-big-endian-S6-S4-swaps-as-functions-open-park-hook.patch
 0005-linux-rct2-search-path-werror-option.patch
+0006-big-endian-network-serialiser-object-checksum-coords.patch

@@ -1,0 +1,107 @@
+Subject: Big-endian: object entry checksum and coordinate structs in the network serialiser
+
+DataSerialiser wrote RCTObjectEntry's checksum as part of the raw nameWOC
+bytes (host order), and the coordinate structs (TileCoordsXYZD etc.) as
+raw struct copies, padding included: track designs as serialised for
+TrackDesignAction and replays differed from x86's. The checksum now goes
+little-endian; WriteValue writes a coordinate struct's members (little-
+endian) into a zeroed buffer, so the padding is zero on every host.
+Found by comparing RCT2's 169 TD6 designs (import, serialise, TD6 export)
+on both hosts: identical now.
+
+---
+ src/openrct2/core/DataSerialiserTraits.h |  9 ++++--
+ src/openrct2/core/IStream.hpp            | 39 ++++++++++++++++++------
+ 2 files changed, 37 insertions(+), 11 deletions(-)
+
+diff --git a/src/openrct2/core/DataSerialiserTraits.h b/src/openrct2/core/DataSerialiserTraits.h
+index 8d4c8c142..85c38e821 100644
+--- a/src/openrct2/core/DataSerialiserTraits.h
++++ b/src/openrct2/core/DataSerialiserTraits.h
+@@ -807,7 +807,11 @@ namespace OpenRCT2
+                 auto tmp = ByteSwapBE(val.flags);
+                 stream->Write(&tmp, sizeof(tmp));
+             } // network order as raw bytes on every host
+-            stream->WriteArray(val.nameWOC, 12);
++            // nameWOC is the name and the checksum: the checksum goes little-endian, as x86 hosts write it
++            char nameWOC[12];
++            memcpy(nameWOC, val.nameWOC, 8);
++            StoreLE32(nameWOC + 8, val.checksum);
++            stream->WriteArray(nameWOC, 12);
+         }
+         static void decode(IStream* stream, RCTObjectEntry& val)
+         {
+@@ -817,7 +821,8 @@ namespace OpenRCT2
+                 val.flags = ByteSwapBE(tmp);
+             }
+             auto str = stream->ReadArray<char>(12);
+-            memcpy(val.nameWOC, str.get(), 12);
++            memcpy(val.nameWOC, str.get(), 8);
++            val.checksum = LoadLE32(str.get() + 8);
+         }
+         static void log(IStream* stream, const RCTObjectEntry& val)
+         {
+diff --git a/src/openrct2/core/IStream.hpp b/src/openrct2/core/IStream.hpp
+index be585c76d..1741388c7 100644
+--- a/src/openrct2/core/IStream.hpp
++++ b/src/openrct2/core/IStream.hpp
+@@ -164,7 +164,17 @@ namespace OpenRCT2
+         template<typename T>
+         static T LittleEndianToHost(T value)
+         {
+-            if constexpr (!kHostIsBigEndian)
++            if constexpr (RawCoordinates<T>)
++            {
++                // the coordinate structs (Coords/TileCoords XY, XYZ, XYZD) are written raw by the serialisers
++                // (WriteValue writes their members only, with zero padding)
++                value.x = LittleEndianToHost(value.x);
++                value.y = LittleEndianToHost(value.y);
++                if constexpr (requires { value.z; })
++                    value.z = LittleEndianToHost(value.z);
++                return value;
++            }
++            else if constexpr (!kHostIsBigEndian)
+             {
+                 return value;
+             }
+@@ -183,14 +193,6 @@ namespace OpenRCT2
+                 raw = ByteSwapT<sizeof(T)>::SwapBE(raw);
+                 std::memcpy(&value, &raw, sizeof(T));
+             }
+-            else if constexpr (RawCoordinates<T>)
+-            {
+-                // the coordinate structs (Coords/TileCoords XY, XYZ, XYZD) are written raw by the serialisers
+-                value.x = LittleEndianToHost(value.x);
+-                value.y = LittleEndianToHost(value.y);
+-                if constexpr (requires { value.z; })
+-                    value.z = LittleEndianToHost(value.z);
+-            }
+             else if constexpr (sizeof(T) == 1 || requires { T::kByteOrderNeutral; })
+             {
+             }
+@@ -249,6 +251,25 @@ namespace OpenRCT2
+         template<typename T>
+         void WriteValue(const T& valueIn)
+         {
++            if constexpr (RawCoordinates<T>)
++            {
++                // members only, little-endian, padding zero (a struct copy need not carry its padding)
++                uint8_t buf[sizeof(T)]{};
++                const T le = LittleEndianToHost(valueIn);
++                const auto* base = reinterpret_cast<const uint8_t*>(&le);
++                auto put = [&](const auto& member) {
++                    const auto* m = reinterpret_cast<const uint8_t*>(&member);
++                    std::memcpy(buf + (m - base), m, sizeof(member));
++                };
++                put(le.x);
++                put(le.y);
++                if constexpr (requires { le.z; })
++                    put(le.z);
++                if constexpr (requires { le.direction; })
++                    put(le.direction);
++                Write(buf, sizeof(T));
++                return;
++            }
+             const T value = LittleEndianToHost(valueIn);
+             // Selects the best path at compile time
+             if constexpr (sizeof(T) == 1)
