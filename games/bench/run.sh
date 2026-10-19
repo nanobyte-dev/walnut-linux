@@ -44,6 +44,8 @@
 # disk shader cache for the run (client.sh BENCH_SHADERCACHE; the user's own cache is left alone;
 # report.py base@sccold, base@scwarm, base@scprime for the run that filled the warm one), e.g.
 # PERF_LOAD=1 ENVS="SHADERCACHE=cold SHADERCACHE=warm" run.sh bench openarena gl2min 2.
+# BATCH_TOTAL=N (BATCH_NAME=x): the bench screen shows "Test K of N" for each run of a batch; K counts in
+# BATCH_POS_FILE (default /dev/shm/ps3-bench.batchpos), which the batch script removes when it starts.
 # ROTATE=1: bench rotates the ENVS tokens each round (round 2 starts at the second token), against
 # order bias. GAMEDATA=ssd, SWAP=ssd (also as ENVS tokens: ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd"): the SSD
 # test drive's arms (docs/GAMEOS-HDD.md "Test drive, Phase A"), put in place by ssd-arm.sh before each
@@ -72,6 +74,7 @@
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 B=ps3-bench.sh
+BATCH_POS_FILE=${BATCH_POS_FILE:-/dev/shm/ps3-bench.batchpos}	# the batch counter (reset it when a batch starts)
 LOG=/dev/shm/run.sh.$$
 [ -n "${STALLS:-}" ] && export BENCH_STALLS=$STALLS
 [ -n "${PERF:-}" ] && export BENCH_PERF=$PERF
@@ -109,7 +112,12 @@ one() {	# one LABEL GAME VARIANT [ENVTOKEN]: one run, its directory appended to 
 	local gd=${BENCH_GAMEDATA:-usb} sw=${BENCH_SWAP:-usb}
 	for x in "${ev[@]}"; do case $x in BENCH_GAMEDATA=*) gd=${x#*=} ;; BENCH_SWAP=*) sw=${x#*=} ;; esac; done
 	arm "$2" "$3" "$gd" "$sw" || { echo "!! the SSD arm (GAMEDATA=$gd SWAP=$sw) failed: stopping"; return 1; }
-	env "${ev[@]}" BENCH_WHAT="$2 $3${ev[*]:+ (${ev[*]})}" $B x "$1" -- "$here/client.sh" "$2" "$3" 2>&1 | tee "$LOG"
+	local prog=	# "Test N of M" on the bench screen when a batch exports BATCH_TOTAL (and BATCH_NAME)
+	if [ -n "${BATCH_TOTAL:-}" ]; then
+		x=$(( $(cat "$BATCH_POS_FILE" 2>/dev/null || echo 0) + 1 )); echo "$x" > "$BATCH_POS_FILE"
+		prog="Test $x of $BATCH_TOTAL${BATCH_NAME:+ in batch $BATCH_NAME}"
+	fi
+	env "${ev[@]}" BENCH_PROGRESS="$prog" BENCH_WHAT="$2 $3${ev[*]:+ (${ev[*]})}" $B x "$1" -- "$here/client.sh" "$2" "$3" 2>&1 | tee "$LOG"
 	rc=${PIPESTATUS[0]}
 	d=$(sed -n 's/^>> \(\/var\/tmp\/ps3-bench\/[^ ]*\)$/\1/p' "$LOG" | tail -1)
 	rm -f "$LOG"

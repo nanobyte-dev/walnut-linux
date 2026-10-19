@@ -123,8 +123,9 @@ bench_screen() {	# bench_screen LINE...: the screen, then that VT shown (chvt wa
 		sudo -n timeout 10 chvt "$BENCH_VT" 2>/dev/null
 	return 0
 }
-screen_run() {	# screen_run [LINE...]: the screen of a run (BENCH_WHAT, the start), with LINEs below
-	bench_screen "PS3 benchmark running: ${BENCH_WHAT:-${label:-a measurement}}, started $(date '+%H:%M')." \
+screen_run() {	# screen_run [LINE...]: the screen of a run (BENCH_WHAT, the start, run.sh's BENCH_PROGRESS), with LINEs below
+	bench_screen ${BENCH_PROGRESS:+"$BENCH_PROGRESS."} \
+		"PS3 benchmark running: ${BENCH_WHAT:-${label:-a measurement}}, started $(date '+%H:%M')." \
 		"The desktop comes back when it ends. Please don't touch the controller, keyboard or mouse:" \
 		"any input makes the run invalid." "$@"
 }
