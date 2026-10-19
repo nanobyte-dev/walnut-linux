@@ -22,6 +22,7 @@ console would see.
 | ssdroot2 P1b | gameplay profiles (PERF=1 MEM=1, x1) of the games under 60 fps or with stalls | Luanti, Sauerbraten, SuperTuxKart lean, ClassiCube, OpenArena gl2min, OpenTTD gl, dsda-doom gl | 7 | queued |
 | ssdroot2 P2 | Mesa 0038 `NV30_FORCE_DXT=opaque` against off (MEM=1 STALLS=1, x2) | Sauerbraten, SuperTuxKart lean, OpenArena gl2min | 12 | queued |
 | ssdroot2 P2 | ps3rsx `shadow_fast` (`PS3RSX_SHADOW_FAST=1` against `-`, STALLS=1, x2) | ClassiCube, Sauerbraten, X-Moto | 12 | queued |
+| openttd-play | OpenTTD on a real savegame (gameplay benchmark being built: a developed map, fixed camera, sound and music on), smoke then bench x3, GL vs software | OpenTTD | ~8 | after the asset and recipe land |
 | smoke-new | smoke runs of the new games (recipes in progress), webcam mic for sound | Freeciv and the new-games list | ~10 | after the recipes and an apt install between batches |
 
 Sound: tools/bench-audio.sh records 8 s from the webcam microphone after every photo
