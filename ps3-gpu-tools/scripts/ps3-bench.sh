@@ -316,8 +316,15 @@ start_stallrec() {
 	# no-write mode: the reads without the record (a file stalls.py doesn't take for one)
 	[ "${BENCH_STALLS_NOWRITE:-0}" = 1 ] && { o=$D/stallrec-nowrite.rec; w=-W; }
 	[ -n "${BENCH_STALLS_CPU:-}" ] && pin=(taskset -c "$BENCH_STALLS_CPU")
+	# the disks under root and under the VRAM swap's backing (the SSD root: ps3db below
+	# /dev/mapper/ps3root and ps3swap), which the recorder doesn't add by itself (it knows sda)
+	local dk=() x
+	for x in $(lsblk -nlso NAME,TYPE "$(findmnt -no SOURCE /)" "$(cat /sys/block/ps3vswap0/backing 2>/dev/null)" \
+			2>/dev/null | awk '$2 == "disk" { print $1 }' | sort -u); do
+		[ "$x" = sda ] || dk+=(-d "$x")
+	done
 	sudo "${pin[@]}" ps3-stallrec -o "$o" $w -i "${BENCH_STALLS_MS:-10}" -p "$D/.pid" \
-		-f "$D/hud/frametime_(ms)" -s "$D/stop" -x Xorg -x kswapd0 2> "$D/stallrec.err" &
+		-f "$D/hud/frametime_(ms)" -s "$D/stop" -x Xorg -x kswapd0 "${dk[@]}" 2> "$D/stallrec.err" &
 	STALLREC=$!
 }
 
