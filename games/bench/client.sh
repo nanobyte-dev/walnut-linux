@@ -197,11 +197,13 @@ for v in $(compgen -v BENCH_NV30_); do GENV+=("${v#BENCH_}=${!v}"); done
 #                   chorus off, one chorus line instead of three, both on
 #   ZLIB=ng         zlib-ng's compat libz.so.1 in front of zlib1g's (LD_LIBRARY_PATH=$ZLIBNG_DIR, our
 #                   libz-ng-compat; BENCH_ZLIBNG_DIR another directory)
+#   LDPATH=DIR      DIR in front of the game's LD_LIBRARY_PATH: copies of the libraries a package of
+#                   ours replaced (the stock libopenal.so.1, libvorbisfile.so.3, ...) for a same-boot A/B
 #   BINDNOW=1       LD_BIND_NOW=1: every symbol bound at start and dlopen instead of at its first call
 #   JSIMD=none|altivec  libjpeg-turbo's SIMD forced off or on (JSIMD_FORCENONE=1, JSIMD_FORCEALTIVEC=1)
 # A switch the installed library can't honour stops the run (exit 2) rather than measure nothing.
 # bench.txt gets libenv=<NAME=VALUE ...>; report.py shows it after the variant (base@fxoff, base@zng,
-# base@bindnow, base@jsimdnone).
+# base@bindnow, base@jsimdnone, base@ld<dir's name>).
 LIBENV=()
 ZLIBNG_DIR=${BENCH_ZLIBNG_DIR:-/usr/lib/powerpc64-linux-gnu/zlib-ng}
 env_add() {	# env_add NAME VALUE: NAME=VALUE in the game's environment (the recipe's value replaced)
@@ -223,12 +225,21 @@ if [ -n "${BENCH_FLUIDFX:-}" ]; then
 		{ echo "!! BENCH_FLUIDFX: $lib has no FLUIDSYNTH_SETTINGS (libfluidsynth3 with patch 0002)"; exit 2; }
 	env_add FLUIDSYNTH_SETTINGS "$fx"; LIBENV+=("FLUIDFX=$BENCH_FLUIDFX")
 fi
+LDPRE=	# directories in front of the game's LD_LIBRARY_PATH (ZLIB=ng, LDPATH=)
 if [ -n "${BENCH_ZLIB:-}" ]; then
 	[ "$BENCH_ZLIB" = ng ] || { echo "!! BENCH_ZLIB=$BENCH_ZLIB: ng"; exit 2; }
 	[ -e "$ZLIBNG_DIR/libz.so.1" ] || { echo "!! BENCH_ZLIB=ng: no $ZLIBNG_DIR/libz.so.1 (libz-ng-compat)"; exit 2; }
-	l=${LD_LIBRARY_PATH:-}	# the recipe's, else ours: ZLIBNG_DIR goes in front
+	LDPRE=$ZLIBNG_DIR; LIBENV+=("ZLIB=ng")
+fi
+if [ -n "${BENCH_LDPATH:-}" ]; then	# e.g. a copy of the libraries a package replaced, for a same-boot A/B
+	[ -d "$BENCH_LDPATH" ] && [ -n "$(ls "$BENCH_LDPATH"/*.so* 2>/dev/null)" ] ||
+		{ echo "!! BENCH_LDPATH=$BENCH_LDPATH: no libraries there"; exit 2; }
+	LDPRE=$BENCH_LDPATH${LDPRE:+:$LDPRE}; LIBENV+=("LDPATH=$BENCH_LDPATH")
+fi
+if [ -n "$LDPRE" ]; then
+	l=${LD_LIBRARY_PATH:-}	# the recipe's, else ours: LDPRE goes in front
 	for x in "${ENV[@]}"; do [[ $x == LD_LIBRARY_PATH=* ]] && l=${x#LD_LIBRARY_PATH=}; done
-	env_add LD_LIBRARY_PATH "$ZLIBNG_DIR${l:+:$l}"; LIBENV+=("ZLIB=ng")
+	env_add LD_LIBRARY_PATH "$LDPRE${l:+:$l}"
 fi
 if [ -n "${BENCH_BINDNOW:-}" ]; then
 	[ "$BENCH_BINDNOW" = 1 ] || { echo "!! BENCH_BINDNOW=$BENCH_BINDNOW: 1"; exit 2; }

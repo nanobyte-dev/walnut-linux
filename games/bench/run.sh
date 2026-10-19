@@ -55,7 +55,8 @@
 # Library switches as ENVS tokens (client.sh, docs/SPU-AUDIO.md, docs/PROFILING.md "Load-time decoders
 # and linking"): OAL=b16[,lin,...] OpenAL Soft's settings (recipes/openal.inc's names) on any variant,
 # FLUIDFX=off|norev|nocho|cho1|on FluidSynth's reverb and chorus (our libfluidsynth3's
-# FLUIDSYNTH_SETTINGS), ZLIB=ng zlib-ng's libz.so.1 (libz-ng-compat), BINDNOW=1 LD_BIND_NOW,
+# FLUIDSYNTH_SETTINGS), ZLIB=ng zlib-ng's libz.so.1 (libz-ng-compat), LDPATH=DIR copies of replaced
+# libraries in front (a same-boot A/B against a package's previous version), BINDNOW=1 LD_BIND_NOW,
 # JSIMD=none|altivec libjpeg-turbo's SIMD; report.py base@oalb16, @fxoff, @zng, @bindnow, @jsimdnone.
 # Interference (docs/STALLS.md "Interference"): ps3-bench.sh's detector flags a run somebody
 # disturbed (input, a VT switch, a device, an SSH login or command); run.sh prints a warning after it,

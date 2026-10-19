@@ -649,16 +649,80 @@ hitch the cache removes); `shadercache_kb` (the nv30 entries' size). Check game.
 compile" lines and the webcam for wrong rendering: a hit gives the bytes a translation gives, so any
 difference is a bug.
 
-## libjpeg-turbo's SIMD on the Cell
+## Load-time decoders and linking
 
-Debian's `libjpeg62-turbo 1:3.1.3-4` for ppc64 is built with its AltiVec code: the library has 2273
-AltiVec instructions (vperm, vmladduhm, lvx, ...) and no VSX ones, so it runs on the PPE, and it has
-the `JSIMD_FORCEALTIVEC`/`JSIMD_FORCENONE` switches. The choice is made at run time from
-`/proc/cpuinfo`; the PPE's line says "altivec supported", so the SIMD paths should be taken. Its SIMD
-functions are static, so perf names them only with `libjpeg62-turbo-dbgsym` (loadprof.py then counts
-the `*altivec*` share of the jpeg group); without it, an A/B with `JSIMD_FORCENONE=1` in the game's
-environment would show what the SIMD saves. Of the five games, SuperTuxKart decodes the most JPEG at
-start (2.11 s in batch 17, no symbols) and OpenArena some (0.36 s); neither check has run.
+What the start-up profiles' decoder and `link` groups can lose without touching a game, costed on the
+PC (2026-10-19). Nothing here has run on the PS3 yet; the A/Bs are in [TESTS.md](TESTS.md) "Next".
+
+**How it was measured.** The decoders ran under qemu-ppc64 (10.2.2 built with TCG plugins) on a
+ppc64 sid root, at `-cpu power7` (`-cpu 970`, the closest model to the PPE, crashes glibc's malloc
+and libpng under qemu; zlib-ng and libjpeg-turbo choose the same AltiVec paths at power7 as on a
+Cell, checked by attribution). The metric is a qemu plugin of ours, `ppecost` (`tools/ppecost/`, with
+the harnesses and `attrib.py`): guest instructions, load-hit-stores (a load
+from bytes a store wrote within the last 24 instructions: the PPE has no moves between its integer,
+floating-point and vector registers, so every conversion goes through memory and its load waits
+about 40 cycles for the store), multiplies and divides, per guest PC, and a crude PPE estimate
+`insns + 40 x LHS + 8 x mul + 40 x div`. Neither number is PPE time (in-order issue, cache misses
+and the slow multiplier aren't modelled); the ratios are what carries over.
+
+| Workload (SuperTuxKart's and Sauerbraten's own data) | Debian zlib 1.3.2: insns / est | zlib-ng 2.3.3 compat: insns / est | ratio insns, est |
+|---|---|---|---|
+| 355 SuperTuxKart PNGs (60.5 MB in, 354 MB out), whole decode | 11.04 G / 32.6 G | 9.58 G / 27.9 G | 0.87, 0.86 |
+| the same, zlib's part only | 4.75 G / 8.49 G | 2.52 G / 2.63 G | 0.53, 0.31 |
+| 20 Sauerbraten `.ogz` maps (163 MB out), `gzread` | 2.26 G / 2.96 G | 1.53 G / 1.67 G | 0.68, 0.56 |
+| OpenArena `pak0.pk3` (84 MB out), inflate + crc32 | 1.80 G / 2.31 G | 1.34 G / 1.44 G | 0.74, 0.62 |
+
+- **zlib-ng halves zlib's part.** On a Cell it selects `adler32_vmx` and `slide_hash_vmx` (AltiVec;
+  run-time detection from `AT_HWCAP`'s AltiVec bit) and never its POWER8/9 code, which needs
+  `AT_HWCAP2` bits the Cell doesn't report. The AltiVec adler32 is 30% of the PNG gain (3.52 G
+  instructions without it). libdeflate is level with it (1.46 G on the maps, 1.32 G on the pk3), so
+  a per-game libdeflate patch for Sauerbraten's `.ogz` (like ioquake3's for pk3s) buys nothing over
+  zlib-ng. `-fstack-protector-strong` (Debian's hardening, kept) costs 9% of the gzip case.
+- **libpng's filters are the larger half of a PNG now:** 57% of the decode's instructions and 97% of
+  its load-hit-stores once zlib-ng is in, Paeth on 3- and 4-byte pixels alone 47%: it reads back
+  `row[i-bpp]`, a byte it stored a few instructions before. A version that keeps the left pixel in
+  registers gives the same bytes with the same instruction count and 0.12-0.29 load-hit-stores a byte
+  instead of 1.6 (`tools/ppecost/paeth.c`); an AltiVec Paeth, Up, Avg and Sub would cut the
+  instructions too. Debian builds libpng 1.6.58 without its PowerPC vector code, and that should stay
+  so: its run-time check accepts AltiVec or VSX and would then run VSX code on a Cell. A libpng
+  filter patch (a new `libpng1.6` package) would pay more than zlib-ng does for PNG; not built.
+- **libjpeg-turbo uses its AltiVec code on the Cell.** Debian's `libjpeg62-turbo 1:3.1.3-4` has the
+  AltiVec SIMD (no VSX) and picks it at run time from `/proc/cpuinfo`: a line starting `cpu` with
+  the word `altivec`, which the PS3's "Cell Broadband Engine, altivec supported" has
+  (`JSIMD_FORCEALTIVEC`/`JSIMD_FORCENONE` override it). On 49 SuperTuxKart JPEGs the AltiVec path is
+  1.11 G instructions against 2.25 G, the same output; Huffman decoding stays scalar. qemu-user shows
+  the host's `/proc/cpuinfo`, so only the PS3 can confirm the detection: a `JSIMD=none` run should
+  add about 2 s to SuperTuxKart's load.
+- **Linking.** Every game binary and Mesa's libraries are linked `-z now` already, with GNU hash and
+  no DT_RELR: `LD_BIND_NOW=1` has nothing left to move (expected within 20 ms). libgallium has 62187
+  relative relocations and 337 PLT slots. DT_RELR works on ppc64 big-endian ELFv1 with binutils 2.47
+  (`-z pack-relative-relocs`, a test library ran under qemu) and would shrink libgallium's 1.5 MB
+  relocation table to a few KB: less to read at each GL start, tens of ms cold. The rest of the
+  0.37-0.86 s is probably relocating ELFv1's function descriptors and read-only data (about 1 MB of
+  4 KB pages dirtied in every GL process, which is also anonymous memory per game); only ELFv2 or
+  fewer DSOs would remove that. Inferred, not measured.
+
+**What it is worth on the PS3** (the profile's seconds times the ratios above, uncertain by about
+half: the test images split libpng to zlib 1.3 : 1 where SuperTuxKart's load has 4.2 : 3.9 s):
+
+| Game | Change | Expected |
+|---|---|---|
+| SuperTuxKart | zlib-ng | 1.8-2.7 s off the load's 3.9 s of zlib (main thread) |
+| SuperTuxKart | libpng filter patch (not built) | 1.5-3 s off its 4.2 s of png |
+| Sauerbraten | zlib-ng | 0.5-0.7 s off its 1.6 s of `.ogz` inflate |
+| OpenArena | zlib-ng | none: our ioquake3 reads pk3s through libdeflate |
+| every GL game | DT_RELR in Mesa (not built) | tens of ms |
+
+**The package.** `zlib-ng/` (TYPE upstream, the pinned 2.3.3 tarball, `config.mk` `ZLIBNG_*`) builds
+`libz-ng-compat`: only `libz.so.1` (zlib-compat API, symbol versions to `ZLIB_1.2.12`) in
+`/usr/lib/powerpc64-linux-gnu/zlib-ng`, which the linker never searches by itself, built
+`-mcpu=cell -mtune=cell`. A game opts in with `LD_LIBRARY_PATH` (the bench's `ZLIB=ng` token).
+zlib-ng's 70 tests pass in the build (its googletest suite skips the VMX adler32 when POWER8 code is
+compiled in; checked separately: adler32 and crc32 over 8 MB match Debian's zlib, every decode above
+gives identical output). A binary that needs Debian 1.3.2's newer symbol versions (`ZLIB_1.3.1.2`,
+`ZLIB_1.3.2`) would not load with it. Replacing zlib1g system-wide is not proposed: dpkg and apt load
+it, and zlib-ng's compressed output differs byte for byte from zlib's (Fedora ships it as its system
+zlib, so it can be done; per game gets the same load gain without the risk).
 
 ## The SSD load split (batch ssd1)
 

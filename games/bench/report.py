@@ -176,7 +176,8 @@ def harness(d, b):
         m = "+".join(x for x in (m, "oal" + b["oal"].replace(",", "_")) if x)
     for x in (b.get("libenv") or "").split():   # client.sh's library switches: FLUIDFX=off -> fxoff, ZLIB=ng -> zng,
         n, _, v = x.partition("=")              # BINDNOW=1 -> bindnow, JSIMD=none -> jsimdnone
-        t = {"FLUIDFX": "fx" + v, "ZLIB": "z" + v, "BINDNOW": "bindnow", "JSIMD": "jsimd" + v}.get(n, x.lower())
+        t = {"FLUIDFX": "fx" + v, "ZLIB": "z" + v, "BINDNOW": "bindnow", "JSIMD": "jsimd" + v,
+             "LDPATH": "ld" + v.rstrip("/").rsplit("/", 1)[-1]}.get(n, x.lower())   # LDPATH=/x/stock-openal -> ldstock-openal
         m = "+".join(y for y in (m, t) if y)
     if "harness" in b:
         return "+".join(x for x in (b["harness"], m) if x)

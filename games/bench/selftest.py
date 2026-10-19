@@ -533,6 +533,18 @@ def client_libenv(tmp):
     check("libenv: OAL with a setting openal.inc doesn't have: refused", p.returncode == 2 and "no b17" in p.stdout, p.stdout[-300:])
     p, d, b, gl = run(5, BENCH_FLUIDFX="loud")
     check("libenv: FLUIDFX=loud: refused", p.returncode == 2, p.stdout[-300:])
+    stock = tmp / "stock-openal"
+    stock.mkdir()
+    if sysz:
+        os.symlink(sysz, stock / "libz.so.1")   # any real library: the fake game must still start
+    else:
+        (stock / "libz.so.1").write_text("")
+    p, d, b, gl = run(6, BENCH_LDPATH=str(stock), BENCH_ZLIB="ng")
+    check("libenv: LDPATH and ZLIB=ng: LDPATH first, then zlib-ng's dir; tag ldstock-openal",
+          p.returncode == 0 and "env LD_LIBRARY_PATH=%s:%s" % (stock, zdir) in gl and
+          report.run(d).get("variant") == "base@zng+ldstock-openal", (gl[:400], report.run(d).get("variant")))
+    p, d, b, gl = run(7, BENCH_LDPATH=str(tmp / "nowhere"))
+    check("libenv: LDPATH without libraries: refused", p.returncode == 2 and "no libraries" in p.stdout, p.stdout[-300:])
 
 
 def client_ssdarm(tmp):

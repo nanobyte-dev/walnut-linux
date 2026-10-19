@@ -70,9 +70,16 @@ against order bias. What a token can set:
   on the SSD; `ssd-arm.sh` puts each arm in place before the run's quiet and resets to USB at the end.
 - `NV30_X=V`: a Mesa driver switch for the game; `PS3RSX_NAME=V`: a ps3rsx module parameter, written
   for that run and put back (`sudo -n`).
+- Library switches ([SPU-AUDIO.md](../SPU-AUDIO.md), [PROFILING.md, "Load-time decoders and
+  linking"](../PROFILING.md#load-time-decoders-and-linking)): `OAL=b16` or `OAL=b16,lin` OpenAL Soft's
+  settings by `recipes/openal.inc`'s names on any variant of any game; `FLUIDFX=off|norev|nocho|cho1|on`
+  FluidSynth's reverb and chorus whatever the game asks for; `ZLIB=ng` zlib-ng's `libz.so.1` in front
+  (package `libz-ng-compat`); `LDPATH=DIR` a directory in front of the game's `LD_LIBRARY_PATH` (copies of
+  the libraries a package of ours replaced, for a same-boot A/B against the old version); `BINDNOW=1` (`LD_BIND_NOW`); `JSIMD=none|altivec` libjpeg-turbo's SIMD.
+  A switch the installed library can't honour stops the run.
 
 report.py shows each run's switches after its variant (`base@rec10`, `base@wkkick10`,
-`base@translate_lut0`, `base@mtune`, `base@gpffetch`, `base@sccold`, `base@gdssd+swssd`,
+`base@translate_lut0`, `base@mtune`, `base@oalb16`, `base@fxoff`, `base@zng`, `base@gpffetch`, `base@sccold`, `base@gdssd+swssd`,
 `base@rsx_name<V>`), so they never group with plain runs.
 
 **Interference.** `ps3-bench.sh`'s detector (`ps3-intfwatch`) flags a run somebody disturbed: input,

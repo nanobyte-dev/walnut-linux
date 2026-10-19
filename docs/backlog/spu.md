@@ -53,24 +53,27 @@ that costs nothing.
 `speq-bench` and the DXT tests with the default 6-way split against a split that uses the 7th, and
 `ps3-gameos-mount` to see nothing we use breaks.
 
-### OpenAL Soft's free variants
+### Audio libraries on the PPE
 
-Rank 45. OpenAL Soft configured cheaper, no code: `b16` (int16 output, no limiter, no dither),
-`f44` (44.1 kHz device and dmix), `p1024`, and `alnull` to split off libasound's share.
+Rank 45. What stays on the PPE of the games' sound, made cheaper there (built, not run): OpenAL
+Soft's mixer and libvorbis's `ov_read` without integer/float round trips through memory, OpenAL's
+output as 16-bit, fluidsynth's Dattorro reverb without a divide per sample, and switches for the
+choices that change the sound (`OAL=lin`, `OAL=f44`, `FLUIDFX=...`).
 
-**Why.** OpenAL Soft is 3.7-4.7% of a game's samples (OpenArena 4.7% plus libasound 2.8%, ClassiCube
-3.7%), under the 6% bar for an SPU mixer. The variants could take part of that for free: 409 of
-OpenArena's 518 effects would take the copy path at 44.1 kHz instead of the cubic resampler. The
-variants exist in the recipes (`games/bench/recipes/openal.inc`) and never ran for frame rates.
+**Why.** Audio is 11.9% of a game's CPU on average in the SSD-root profiles (5 of 7 games). The
+PPE pays about 40 cycles for every int/float conversion (a load-hit-store); under qemu with a
+counter for them, they were half of OpenAL's mixer, a third of a Vorbis decode, and the reverb's
+divides 40% of OpenTTD's reverb ([SPU-AUDIO.md](../SPU-AUDIO.md#openal-soft-on-the-ppe-conversions-and-output-format)).
 
-- **Payoff:** low (at most part of 3.7-4.7%). **Effort:** S. **Risk:** none for the PPE; `b16`
-  changes the output, so the user listens.
-- **Needs:** PS3, the user by ear. **Status:** never tried.
-- **Source:** PLAN 3.9; [archive/SPU-AUDIO.md, "2. Measurements before any code"](../archive/SPU-AUDIO.md#2-measurements-before-any-code-m0-free).
-
-**To start.** `/var/tmp/bench/run.sh suite "base b16 f44 b16f44 p1024 alnull nosound" 3`; the profile
-split per game with `OAL_PERF=20 /var/tmp/bench/run.sh bench <game> allog 1` and
-`/var/tmp/bench/oal-perf.sh`.
+- **Payoff:** low to medium: OpenArena 3-5% of its CPU, ClassiCube 2-3% plus ALSA's 1.9% float
+  conversion, OpenTTD 1.7-2.3%, SuperTuxKart 0.6-0.9 s of load; all estimates from qemu counts.
+- **Effort:** S (built). **Risk:** low: each patch is bit-identical to the scalar code it replaces;
+  the 16-bit default sounds the same (no limiter, no dither, as the float output had).
+- **Needs:** PS3 (same-boot, the stock libraries through `LDPATH=`), the user for the variants that
+  change the sound.
+- **Status:** built (libopenal1, libvorbis0a/libvorbisfile3, libfluidsynth3 +ps3.549, ps3-system
+  0.549); the A/Bs are in [TESTS.md](../TESTS.md) "Next".
+- **Source:** PLAN 3.9; [SPU-AUDIO.md](../SPU-AUDIO.md).
 
 ### SPU meshing for Luanti and ClassiCube
 

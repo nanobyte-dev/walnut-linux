@@ -1,6 +1,6 @@
 # Sound on the SPEs
 
-Two audio libraries were looked at for the SPEs. fluidsynth (MIDI synthesis, used by dsda-doom and others) now renders its voice DSP on the SPEs: it takes the game's CPU use from 44.5 to 31.8 s a minute and about halves the audio underruns, though the music still chops. OpenAL Soft's mixer was measured at 3.7 to 4.7% of a game's samples, under the 6% bar we set, so no SPU mixer was built. This page has the fluidsynth design and results and the OpenAL measurement; the mixer design that was never built is in [research/OPENAL-SPU-MIXER.md](research/OPENAL-SPU-MIXER.md). The runtime under both is in [SPU.md](SPU.md).
+Two audio libraries were looked at for the SPEs. fluidsynth (MIDI synthesis, used by dsda-doom and others) now renders its voice DSP on the SPEs: it takes the game's CPU use from 44.5 to 31.8 s a minute and about halves the audio underruns, though the music still chops. OpenAL Soft's mixer was measured at 3.7 to 4.7% of a game's samples, under the 6% bar we set, so no SPU mixer was built. What stays on the PPE was then made cheaper there: OpenAL's mixer and libvorbis's `ov_read` without the integer/float round trips through memory the PPE pays about 40 cycles for, OpenAL's output as 16-bit so ALSA no longer converts it, and fluidsynth's reverb without a divide per sample plus a switch for its effects (all built, none run on the PS3 yet). This page has the fluidsynth design and results, the OpenAL measurement and the PPE-side changes; the mixer design that was never built is in [research/OPENAL-SPU-MIXER.md](research/OPENAL-SPU-MIXER.md). The runtime under both is in [SPU.md](SPU.md).
 
 ## OpenAL Soft's cost (M0): no SPU mixer
 
@@ -21,13 +21,110 @@ Why step 0's sound variants (OpenArena, 2026-10-16) told nothing: those game run
 
 ### The mixer path in 1.25.2, as far as the measurement needs it
 
-Debian's `openal-soft` 1:1.25.2-1 is what the PS3 runs; our package `openal-soft/` rebuilds it unpatched as `1:1.25.2-1+ps3.N` so `libopenal1-dbgsym` matches the running code. Its build confirms there is no SIMD mixer on ppc64: CMake finds no `xmmintrin.h` (POWER's SSE translation headers need POWER8) and no NEON, "CPU extensions: Default". The PPE runs the scalar `Mix_C` and `Resample_Cubic_C`, and the default resampler is the 4-tap cubic.
+Debian's `openal-soft` 1:1.25.2-1 is what the PS3 ran for M0; our package `openal-soft/` rebuilt it unpatched as `1:1.25.2-1+ps3.N` so `libopenal1-dbgsym` matched the running code (now it carries the PPE patch below). Its build confirms there is no SIMD mixer on ppc64: CMake finds no `xmmintrin.h` (POWER's SSE translation headers need POWER8) and no NEON, "CPU extensions: Default". The PPE runs the scalar `Mix_C` and `Resample_Cubic_C`, and the default resampler is the 4-tap cubic.
 
 The ALSA backend's thread `alsoft-mixer` renders whole periods (512 frames) into the mmap area: process parameter updates, run `Voice::mix` for every playing voice, apply the stereo ambisonic post-process, write floats. Nothing sets ALSA options, so OpenAL opens `default`, which on the PS3 is `plug` to `softvol` to `dmix:CARD=PS3,FORMAT=S16` at 48 kHz. `plug` converts float to S16 inside libasound on the mixer thread, which is the "ALSA conversion" in the profile. HRTF is not on (the ALSA backend never sets the headphone flag, and nobody sets `stereo-mode=headphones`). The perf split to read is `Voice::mix` inclusive for the mixing, `DeviceBase::renderSamples` self plus `CalcPanningAndFilters` and `ProcessVoiceChanges` for parameter updates (our `-O2` build inlines the rest), and libasound for the conversion. The hook point, per-voice work and the rest of the walk-through are in [research/OPENAL-SPU-MIXER.md](research/OPENAL-SPU-MIXER.md).
 
 What OpenArena gives OpenAL: 518 mono WAV effects (409 at 44100 Hz, 85 at 22050), the rest Ogg (7 stereo 32 kHz music tracks, 14 small voices), every voice resampled to 48 kHz. Vorbis decoding on an SPU would not pay: ioquake3 decodes Ogg itself through libvorbisfile in 4 KB buffers, and the 1.9 s of load and about 7 MB seen in step 0 are WAV effects read from deflated pk3s.
 
 OpenArena also spends 13.6% in zlib during its timedemo (pk3 reads while playing). Our ioquake3 patches 0012 and 0016 (no crc32 of pk3 entries, libdeflate for whole entries) address that; they are built, not run.
+
+## OpenAL Soft on the PPE: conversions and output format
+
+The gameplay profiles on the SSD root ([HOTPATHS.md](HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b))
+put audio at 11.9% of a game's CPU on average; OpenAL Soft is most of it in OpenArena (12.4%) and
+ClassiCube (with ALSA 9.9%, of which ALSA's float conversion 1.9%). What costs the PPE there is less
+the arithmetic than its conversions.
+
+**Why conversions.** The PPE has no moves between its integer, floating-point and vector registers:
+an `int` to `float` (or back) is a store and a load, and the load waits for the store to drain, a
+load-hit-store of about 40 cycles. OpenAL's C mixer (there is no SIMD mixer for ppc64) does that
+for every output sample of every voice twice, the resampler's 16-bit fraction to a float and each
+16-bit source sample to a float, and once per output sample when it writes 16 bits. ALSA's `plug`
+does it once per sample when it converts OpenAL's float output to the S16 the PS3's device takes.
+
+**Measured on the PC** (2026-10-19, qemu-ppc64 with the `ppecost` plugin: guest instructions,
+load-hit-stores and the crude estimate `insns + 40 x LHS`, method in
+[PROFILING.md](PROFILING.md#load-time-decoders-and-linking); a loopback-device harness, 16 looping
+mono 44.1 kHz voices around the listener into 48 kHz stereo in 512-frame periods, OpenAL 1.25.2 built
+`-O2 -mcpu=cell` with and without our patch; and alsa-lib's `plug` in front of an S16 null device):
+
+| Per 5 s of audio | stock: insns / LHS / est | patched: insns / LHS / est |
+|---|---|---|
+| OpenAL's mixer, float output (Resample_Cubic_C, LoadSamples, Mix_C, renderSamples, Voice::mix) | 512 M / 11.5 M / 972 M | 426 M / 0.2 M / 436 M |
+| of it the resampler | 282 M / 5.75 M / 512 M | 282 M / 0 / 282 M |
+| of it loading 16-bit samples | 106 M / 5.62 M / 331 M | 20 M / 0.14 M / 26 M |
+| OpenAL writing 16-bit output instead of float | +7 M / +0.48 M / +26 M | about +2 M est |
+| ALSA's plug converting float to S16 (480000 samples) | 15.8 M / 0.51 M / 36 M | (not needed with 16-bit output) |
+
+- **The patch** (`openal-soft/patches/0002`, with `-mcpu=cell -mtune=cell` from the packaging
+  patch): the resampler's fraction comes from two 256-entry tables (the same float, exactly), 16-bit
+  samples load eight at a time in AltiVec (`vec_ctf(x, 15)` is x/32768 exactly), mono and interleaved
+  stereo buffers, and 16-bit stereo output packs in AltiVec (`vec_cts`, `vec_packs`, the scalar
+  clamp and truncation). The output is bit-identical to the unpatched build (hashes of whole
+  renders: mono and stereo sources, 22.05 and 44.1 kHz, float and 16-bit, spline and linear), and
+  the packaged `libopenal1 1:1.25.2-1+ps3.549` renders the same bytes as the `+ps3.273` the PS3 runs
+  now. The mixer's estimate falls 55%, its instructions 17%.
+- **16-bit output** (`ps3-system`'s `/etc/xdg/alsoft.conf`: `sample-type = int16`,
+  `output-limiter = false`, `dither = false`): ALSA's plug then passes S16 straight through. With
+  the patched OpenAL that removes the conversion (about 76 estimated cycles a sample in plug against
+  a few in OpenAL's AltiVec write); with a stock OpenAL it still saves about a third (OpenAL's own
+  scalar write, about 55). The limiter and dither, which OpenAL turns on for integer output, are off
+  because its float output had neither and plug clamps the same way: the sound is unchanged to
+  within the last bit. Step 0's `sample-type=int16` variant cost more because it had both on.
+  The file comes before `~/.alsoftrc` and `$ALSOFT_CONF`, so either overrides it.
+- **The resampler.** `resampler = linear` takes the two-tap interpolation instead of the 4-tap
+  spline (stock: 440 M instructions against 532 M for the whole harness). It changes the sound
+  (more aliasing on pitched-down effects), so it is a variant (`lin`) for the user's ear, not a
+  default. `f44` (the device and dmix at 44.1 kHz, so 44.1 kHz sounds skip resampling) is the other
+  free variant.
+- **Not changed:** OpenAL's start-up constructors (`_GLOBAL__sub_I_bsinc_tables`, 0.07-0.08 s of
+  every OpenAL game's load) also convert per entry, about 1 M load-hit-stores; small enough to leave.
+
+**Expected on the PS3.** The harness weights the resampler and sample loading more than a game
+does (M0's real split had them at 1.7 of OpenArena's 4.7%), and the estimate's 1 cycle an
+instruction and 40 a load-hit-store are guesses, so the mixer's real saving is more likely 25-45%
+than 55%: about 3-5% of OpenArena's CPU (OpenAL 12.4%), 2-3% of ClassiCube's plus its 1.9% of ALSA
+conversion with 16-bit output, about 1% of SuperTuxKart's. The A/B decides; the commands are in
+[TESTS.md](TESTS.md) "Next".
+
+**Which ALSA path.** The bench runs with the desktop stopped: OpenAL opens `default`, which is
+`plug`, `softvol`, `dmix:CARD=PS3,FORMAT=S16` at 48 kHz (the profile's
+`snd_pcm_lfloat_convert_float_integer` is plug's float conversion). Games also map ALSA's pulse
+plugin (docs/MEMORY.md, "Sound path"); when no PulseAudio server answers it falls back to the same
+device. Each `openal.inc` variant and `OAL=` token logs what OpenAL got (`oal_device=` in
+bench.txt: format, rate, period and buffer), which shows the format in use.
+
+## Vorbis decoding on the PPE
+
+libvorbis decodes the Ogg Vorbis of OpenArena (ioquake3's music and voices), SuperTuxKart (every
+sound effect at load: the 2.2 s "audio" of its start-up profile) and every SDL2_mixer game
+(Sauerbraten's music); all three go through libvorbisfile's `ov_read` to native-endian 16-bit.
+Debian builds it `-O2 -ffast-math` (Debian's `-O2` overrides configure's `-O3`), no AltiVec; libvorbis
+has no SIMD code. Tremor, the fixed-point decoder, is not in Debian, and the PPE's integer multiplier
+is its slow unit, so it was not pursued.
+
+**Measured on the PC** (qemu-ppc64, `ppecost`, 20 s of a SuperTuxKart stereo music track at
+44.1 kHz decoded the way the games do, `ov_read` 4 KB at a time):
+
+| Build | insns | LHS | est | |
+|---|---|---|---|---|
+| Debian's flags (`-O2`) | 334 M | 3.93 M | 505 M | `ov_read_filter` 172 M of it (34%) |
+| `-O3 -mcpu=cell -mtune=cell` | 312 M | 3.86 M | 479 M | -5% |
+| the same plus our patch | 273 M | 0.33 M | 300 M | -41% against Debian's |
+| (float output, `ov_read_float`, Debian's flags) | 290 M | 0.40 M | 319 M | the decode without the conversion |
+
+- **The conversion was a third of the decode.** `ov_read` rounds each sample with `floor()` and
+  converts it to an integer (libvorbis's generic `vorbis_ftoi`, nothing for PowerPC): two
+  load-hit-stores a sample. Our `libvorbis/patches/0002` packs mono and stereo eight samples a step
+  in AltiVec (`floor(x*32768 + 0.5)` with `vec_madd` and `vec_floor`, `vec_cts`, `vec_packs`: the
+  scalar rounding and clamping), through an aligned 512-sample buffer so the caller's buffer needs
+  no alignment. `oggdec` output is byte-identical to the unpatched build with the same flags for a
+  stereo track and 12 mono effects. The packaging patch builds `-O3 -mcpu=cell -mtune=cell`.
+- **Expected on the PS3:** about 40% of the Vorbis decode, so roughly 0.6-0.9 s of SuperTuxKart's
+  2.2 s of load-time audio, and part of Sauerbraten's audio thread (6% of its CPU with the mixer and
+  ALSA); a stereo 44.1 kHz stream drops from about 25 M to 15 M estimated cycles a second. No
+  switch: the output is the same, so the A/B is the package against Debian's in the same boot.
 
 ## fluidsynth on the SPEs
 
@@ -81,9 +178,67 @@ The sources are fps.csv rows "fluidsynth voice DSP on the SPEs (libspeq 0.288; M
 
 **dsda-doom still chops.** 465 underruns a minute on the pool, against 18 with no music. What glitches remain lines up with the game's own frame stalls. The cause is open: the pool's wait, SDL's audio buffer, or something outside the DSP. It is PLAN 2.8, and the decision on dsda-doom's music default (fluidsynth, OPL or off, PLAN D3) waits on it. OpenTTD's music (3893 underruns in its run) shares the SDL_mixer MIDI path. A sound check by the user's ear is scheduled in [TESTS.md](TESTS.md). The earlier sound-settings experiment on the same game (row "dsda-doom sound settings against the underruns", Mesa ps3.225): tuned settings (OPL, 48 kHz, bigger buffer, 60 fps cap) reached 340 underruns and 46 s of CPU in one run, the OPL variant 1312 in its first run; see the CSV for the rest.
 
+## FluidSynth's reverb and chorus
+
+What stays on the PPE of a fluidsynth render once the voice DSP is on the SPEs: control, the
+effects and the output conversion. OpenTTD leaves reverb and chorus at fluidsynth's defaults (on);
+dsda-doom's config turns both off, so nothing here changes dsda-doom.
+
+**Measured on the PC** (2026-10-19, qemu-ppc64 with the `ppecost` plugin, the method in
+[PROFILING.md](PROFILING.md#load-time-decoders-and-linking); a harness rendering the way OpenTTD
+does, `fluid_synth_write_s16` in 512-frame chunks at 44.1 kHz, library defaults, TimGM6mb, 20 s of
+OpenTTD's title song `tttheme2.mid` and of Freedoom's D_RUNNIN, `SPEQ_SYNTH=off`). Share of the
+estimated PPE cycles of the whole render with effects on:
+
+| Change | before 0003 | with 0003 |
+|---|---|---|
+| reverb off | -16.2% | -10.0% |
+| chorus off | -6.2% | -6.8% |
+| both off | -22.5% | -16.8% |
+| chorus lines 3 -> 1 (`synth.chorus.nr`) | -2.3% | -2.5% |
+| reverb engine fdn / free / lex instead of 2.6.1's default Dattorro | -6.7 / -6.0 / -9.3% | +0.1 / +0.8 / -2.6% |
+
+- **The default reverb divided 14 times a sample.** 2.6.1's Dattorro reverb wrapped each of its 14
+  output taps with `index %= size` every sample: 12.35 M divides per 20 s, about 40% of the reverb's
+  estimated cycles. Patch 0003 wraps them with one conditional subtraction (the `%` stays as a
+  fallback): the reverb's estimate falls from 1.03 G to 0.47 G per 20 s, output bit-identical (the
+  host comparison below, and renders before and after).
+- With 0003, of what stays on the PPE the reverb is 6.0% of the render, the chorus 4.8% and the
+  16-bit output 3.4% (a float-to-int load-hit-store per sample); the voice DSP, 78%, is the SPEs'
+  part on the PS3 (its own load-hit-stores sit in `fluid_rvoice_dsp_interpolate`).
+- **On the PS3** (scaled to the gameplay profile, OpenTTD's FluidSynth 10.2% plus libspeq 4.2% of its
+  samples, effects 29-39% of synthesis, split reverb 74% / chorus 26% by the model): 0003 saves 1.7 to
+  2.3% of OpenTTD's samples with the same sound; on top of it reverb off saves 1.4 to 1.9%, chorus off
+  1.1 to 1.5%, both 2.5 to 3.4% (plus the effect send buffers the PPE no longer adds SPU lines into),
+  one chorus line about 0.5%. Those change the sound, so they are the user's call by ear.
+- **Not done, and why.** A float build (`enable-floats`) would be ABI-safe but turns our SPU hook off
+  (`fluid_rvoice_speq.h` needs doubles there). GCC vectorizes nothing in the chorus or the FDN
+  reverb with `-O3 -mcpu=cell`; the Dattorro chain is a serial recurrence. Reverb on the SPEs: its
+  lines are about 33k floats (130 KB), too big to stay resident on a deadline-pool worker shared with
+  synth and skinning; its input is complete only after a round's SPU lines are added on the PPE, so
+  it needs a second round trip or a chained serial job moving about 100 KB in and 48 KB out per
+  1024-sample round. The compute fits (about 50-80 us a round), but at M-L effort for at most 2.5-3.4%
+  of one game, 0003 and the switch below take the cheap part.
+
+**The switch** (patch 0002): `new_fluid_synth()` applies setting overrides before it reads any
+setting, so they win over what the program set: first `/etc/fluidsynth/settings` (lines `name value`
+or `name=value`, `#` comments), then `FLUIDSYNTH_SETTINGS` (`name=value` pairs separated by commas or
+spaces, e.g. `FLUIDSYNTH_SETTINGS=synth.reverb.active=0,synth.chorus.active=0`). Values take the
+setting's type (integers also on/off, yes/no, true/false); unknown names and bad values are warned
+and skipped; what was applied goes to stderr once (`fluidsynth: settings overridden: ...`). OpenTTD,
+dsda-doom and SDL_mixer's fluidsynth backend all set their settings before `new_fluid_synth()` and
+call nothing afterwards that turns the effects back on. The file is not shipped: the default stays
+Debian's until the user has listened; a chosen default would go into ps3-system as that file. The
+bench token `FLUIDFX=off|norev|nocho|cho1|on` sets the variable for one run.
+
+**Tests.** `make -C ps3-spu test-fluidsynth` passes with 0002 and 0003; with reverb and chorus on,
+`SPEQ_SYNTH=off` is identical to unpatched Debian (so 0003 is exact) and the ppe/spu paths sit at 130
+to 133 dB SNR. Neither patch has run on the PS3.
+
 ## History
 
 - 2026-10-16: OpenAL mixer designed (never built). 2026-10-17: M0 measured the mixer under the bar, so the design was parked. The same day fluidsynth's version 1 was built and run (CPU moved, chopping stayed), then version 2 (underruns halved), then the shared deadline pool (libspeq 0.367, 2026-10-17 late).
+- 2026-10-19: the PPE side of the audio libraries costed under qemu with a load-hit-store counter; OpenAL's mixer, libvorbis's ov_read and fluidsynth's reverb patched, OpenAL's 16-bit output made the default, the effects switch added; built, not yet run on the PS3.
 - Version 1 gave fluidsynth its own one-worker deadline queue, with DXT on a bulk queue of 4 and OpenAL's mixer imagined as a second one-worker queue, to keep every process at 6 contexts. The deadline pool replaced that arrangement so that every latency-bound service shares the same 2 SPEs.
 
 Older versions and the dated history: [archive/SPU-AUDIO.md](archive/SPU-AUDIO.md).

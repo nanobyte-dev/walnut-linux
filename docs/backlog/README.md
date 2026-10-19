@@ -71,7 +71,7 @@ release), [hardware.md](hardware.md) (backups, fan, lv1, out of scope).
 | 42 | [Sauerbraten: texreduce](games.md#sauerbraten-texreduce) | ~45-60 MB of VRAM, blurrier textures | S | PS3 | - | - |
 | 43 | [Smaller vertex data](memory.md#smaller-vertex-data) | vertex buffers /2 | M per engine | host, PS3 | 3.9 | #17 |
 | 44 | [Shader IR dropped after linking](memory.md#shader-ir-dropped-after-linking) | unknown, measure first | M | host | 3.9 | #18 |
-| 45 | [OpenAL Soft's free variants](spu.md#openal-softs-free-variants) | part of OpenAL's 3.7-4.7% | S | PS3, user | 3.9 | #22 |
+| 45 | [Audio libraries on the PPE](spu.md#audio-libraries-on-the-ppe) | 2-5% CPU in the OpenAL games, OpenTTD's music, SuperTuxKart's load (est.) | S (built) | PS3, user | 3.9 | #22 |
 | 46 | [CPU hot paths left over](graphics.md#cpu-hot-paths-left-over) | about 1-2% each | S-M | host, PS3 | - | - |
 | 47 | [Bigger reads on the USB disk](smoothness.md#bigger-reads-on-the-usb-disk) | small; USB roots only | S | PS3 | - | - |
 | 48 | [Gaps in the measurement tools](smoothness.md#gaps-in-the-measurement-tools) | numbers to trust | S each | host, PS3 | - | - |
@@ -226,7 +226,7 @@ for upstream (the user, 2026-10-18); setting it up is the user's.
 | IDEAS #19 | [Tiling and Z-cull](graphics.md#tiling-and-z-cull) |
 | IDEAS #20 | [Validator checks for the vertex texture methods](graphics.md#validator-checks-for-the-vertex-texture-methods) |
 | IDEAS #21 | [Vertex texture fetch, derivatives, instancing](graphics.md#vertex-texture-fetch-derivatives-instancing) |
-| IDEAS #22 | [OpenAL Soft's free variants](spu.md#openal-softs-free-variants) |
+| IDEAS #22 | [Audio libraries on the PPE](spu.md#audio-libraries-on-the-ppe) |
 | IDEAS #23 | [Dev loop questions](platform.md#dev-loop-questions), [Remote Start by Wake-on-LAN, idle auto-off](platform.md#remote-start-by-wake-on-lan-idle-auto-off) |
 | IDEAS #24 | parked by CLAUDE.md: [Video decoding on the SPEs](spu.md#video-decoding-on-the-spes) |
 | IDEAS #25 (formats nv30 fetches) | measured in batch 17 (row 69): [MEMORY.md](../MEMORY.md); the defaults: "Measured, waiting for a default decision" above |
