@@ -19,7 +19,7 @@ The driver owns one lv1 GPU context (hardware channel 1) next to ps3fb's. Many s
 
 Why one hardware context: lv1 does no PGRAPH context switching, 3D state is shared between channels (E5), and the context limit is ps3fb's plus two, with an unexplained stall when allocating up to it (E1). One extra context is safe, so that is all we use. See [RSX.md, "Contexts"](RSX.md#contexts).
 
-Every reboot of the PS3 needs the user (they set the OtherOS flag in the XMB, then Petitboot boots the disk). We never reboot it or touch its boot flag ourselves, and kexec is not available. Any graph exception wedges the RSX until a console reboot, which is why the driver validates everything.
+Every reboot of the PS3 needs the user (they set the OtherOS flag in the XMB, then Petitboot boots the disk). We never reboot it or touch its boot flag ourselves, and kexec from our Linux crashed the console, so it is not a way around that. Any graph exception wedges the RSX until a console reboot, which is why the driver validates everything.
 
 ## The kernel side
 
@@ -55,7 +55,7 @@ Releasing: the caller has already waited for its last ref. Then, under `console_
 - With no X at all, the first submit takes the GPU and 2 s of idle gives it back.
 - While an X server is open but switched away, its clients wait for its return.
 
-Kernel patch `local/0043` frees 8 of the console's 9 MB of XDR while ps3rsx owns the GPU; it is built, not yet booted ([KERNEL-MEMORY.md](KERNEL-MEMORY.md)).
+Kernel patch `local/0043` frees 8 of the console's 9 MB of XDR while ps3rsx owns the GPU. It is in the booted default kernel `.472` behind `ps3fb.shadow_release=1`, off by default and not tried yet ([KERNEL-MEMORY.md](KERNEL-MEMORY.md)).
 
 ### The GART
 
