@@ -1,12 +1,15 @@
 # RSX and SPU feasibility: CPU writes to VRAM, SPU DMA, kernel M2MF, NV40 features
 
-Research notes (2026-10-15), answering the open questions that docs/HARDWARE-LEVERAGE.md and
-docs/SPU-OFFLOAD-SURVEY.md left. Nothing here was run on the PS3; each answer says what is read
-from source or documentation and what still needs a probe. (Status 2026-10-17: section 3 is built,
-ps3rsx/src/kcopy.c, with swap-ins ~10x faster, PLAN.md item 1. E8b, E16, E17, the memcpy check,
-egl-deriv, instancing and VTF have not run, and the validator still lets 0x900-0x97c through with
-unchecked data. Ranked in IDEAS.md. Unchanged on 2026-10-18: none of these probes has run.) Confidence: **high** = read in code
-or a primary document, **medium** = inferred from several sources, **low** = plausible, unchecked.
+On 2026-10-15 we worked through the questions that [HARDWARE-LEVERAGE.md](HARDWARE-LEVERAGE.md) and [SPU-OFFLOAD.md](SPU-OFFLOAD.md) left open: why the PPE writes VRAM so slowly, whether SPU DMA can reach VRAM under Linux, how the kernel could use the RSX's copy engine for the VRAM swap, and what it takes to expose instancing, vertex texture fetch and derivatives. Nothing here was run on the PS3: each answer says what was read from source or documentation and what still needs a probe. Section 3 has since been built; most of the rest has not run (see "What became of this"). Confidence labels: **high** = read in code or a primary document, **medium** = inferred from several sources, **low** = plausible, unchecked.
+
+## What became of this
+
+As of 2026-10-19:
+
+- **Section 3 (kernel M2MF copies for the VRAM swap) is built** as `ps3rsx/src/kcopy.c`. A working set that fits the VRAM tier swaps in about 10x faster (passes 0.2-1.2 s against 4.4-17.7 s), the GL suite passes 3 times in a row while ~92k kernel copies interleave with its clients, and there were 0 fallbacks in those runs (source: [archive/PLAN.md](../archive/PLAN.md), work-queue item 1). OpenArena did not improve, since its threads no longer block on swap-ins; what is left there is file I/O on the USB disk. The latency table in section 3 is the research's estimate, kept as it was.
+- **Not run:** E8b (what lv1 keeps of `ioremap_wc`), E16 (SPU DMA into a VRAM buffer), E17 (M2MF small-copy latency), the memcpy `dcbz` trap check, `egl-deriv`, instancing and vertex texture fetch. [RSX.md](../RSX.md) still lists the E8 result (write-combining 69 MB/s against guarded 70 MB/s) with the caveat that E8's loop timed each page's first touch, which E8b would remove.
+- **The validator still lets 0x900-0x97c (the vertex texture methods) through with unchecked data.** A bad vertex texture format or offset can wedge the RSX today. Hardening it comes before any VTF work.
+- Where each open item lives: probes E8b, E16 and E17, derivatives, instancing and VTF in [backlog/graphics.md](../backlog/graphics.md); SPU DMA into VRAM in [backlog/spu.md](../backlog/spu.md); the VRAM-swap thresholds in [backlog/memory.md](../backlog/memory.md).
 
 Sources used throughout:
 - the Cell BE Programming Handbook v1.11 (May 2008), cited as "Handbook §x, p.y"
@@ -167,7 +170,7 @@ Restrictions and prior art:
    (mappable, below 224 MB), then `GEM_INFO` and `mmap` it `MAP_SHARED`. Pre-fill it with
    0x5a through M2MF or PPE stores.
 2. Create an SPU context with `spu_create("/spu/vram", SPU_CREATE_EVENTS_ENABLED, 0755)`. Load
-   the SPU program (spu-gcc, `docs/SPU-GCC.md`) and pass the EA and size in its registers before
+   the SPU program (spu-gcc, [SPU-GCC.md](../SPU-GCC.md)) and pass the EA and size in its registers before
    the first run (the context's `regs` file: crt0 hands r3-r5 to `main`; `spu_run` takes no
    argument), or through the inbound mailbox. libspeq does both of these (ps3-spu/lib).
 3. SPU side:
@@ -195,9 +198,9 @@ error kills the test context. Confirm no other process is using the RSX heavily 
 
 ## 3. Kernel M2MF copies for the VRAM swap (vswap.c)
 
-Today `do_read` copies VRAM to the page with `from_vram` (`vswap.c:96-103, 262-264`), at 10 MB/s,
-i.e. 0.4 ms per 4 KiB. `chunk_evict` reads up to 256 pages the same way **under `vs->lock`**
-(`vswap.c:397-405`), so a write-back blocks all swap I/O for ~100 ms per chunk. Writes
+Before this work `do_read` copied VRAM to the page with `from_vram` (`vswap.c:96-103, 262-264`), at 10 MB/s,
+i.e. 0.4 ms per 4 KiB. `chunk_evict` read up to 256 pages the same way **under `vs->lock`**
+(`vswap.c:397-405`), so a write-back blocked all swap I/O for ~100 ms per chunk. Writes
 (`to_vram`) stay on the PPE (124 MB/s, 33 µs per page; GPU copies wouldn't help them much).
 
 Design: swap-in and write-back use M2MF VRAM→GART into a bounce reserved at init, issued on the
@@ -255,7 +258,7 @@ latency (extrapolated from E-series rates).
   - Reserve **one fixed 1 MiB GART chunk** at `ps3rsx_vswap_init`: a `drm_mm` node in
     `rsx->gart`, `ps3rsx_gart_get`, then `fixed = true` so `reclaim_work` never frees it.
   - That costs 1 MiB of RAM. It replaces the 256 `alloc_page` bounces that
-    `ps3rsx_vswap_shrink` takes under memory pressure today (`vswap.c:467-472`).
+    `ps3rsx_vswap_shrink` takes under memory pressure before kcopy.c (`vswap.c:467-472`).
 
 ### Wedges and timeouts: no data loss
 
@@ -389,9 +392,9 @@ static void reads_finish(struct ps3rsx_vswap *vs, struct vread *rd, int n)
   4 KiB, pitch 4 KiB) into the bounce, then waits on the seqno.
 - The bios are built straight on the bounce pages (`nth_page(chunk->page, s)`): no PPE copy at
   all.
-- `vs->lock` is dropped while the disk writes, as today, and `vs->bounce_owner = EVICT` makes
+- `vs->lock` is dropped while the disk writes, as before, and `vs->bounce_owner = EVICT` makes
   reads use the PPE path until the bios complete.
-- On fallback it does today's PPE copy into `alloc_page` bounces.
+- On fallback it does the old PPE copy into `alloc_page` bounces.
 
 ### Functions to add or change
 
@@ -406,7 +409,7 @@ static void reads_finish(struct ps3rsx_vswap *vs, struct vread *rd, int n)
 
 ### Expected latency
 
-| Case | Today (PPE) | M2MF, GPU idle | M2MF, frame queued |
+| Case | Before (PPE) | M2MF, GPU idle (est.) | M2MF, frame queued (est.) |
 |---|---|---|---|
 | 1 page | 0.4 ms | ~15–30 µs *est.* | + the queued work, up to one frame (16–33 ms) |
 | 32-page request | 12.8 ms | ~0.25 ms *est.* (≈7 µs/page at the measured 600 MB/s + ~20 µs fixed) | same + queue |
@@ -449,7 +452,7 @@ Confidence: high for methods and encodings, medium for semantics (from RPCS3's e
   "vertex" is the index value for indexed draws and the running vertex counter for array draws.
   There is no instance counter and no instance-ID register, which is why
   `vs_instanceid` must stay false.
-- **Mesa today:**
+- **Mesa as read (2026-10-15):**
   - `nv30_screen.c:155-156` (`vs_instanceid = false`,
     `vertex_element_instance_divisor = false; /* xxx = yes? */`) and `start_instance = false`
     (line 179);
@@ -497,14 +500,14 @@ Confidence: high for methods and the Mesa state, medium for format limits.
   - The RSX format codes are presumably `CELL_GCM_TEXTURE_X32_FLOAT` (0x9c) and
     `W32_Z32_Y32_X32_FLOAT` (0x9b) with the LN/NR flags (low confidence on the exact values;
     take them from RPCS3 `gcm_enums.h` when implementing).
-- **Mesa today:**
+- **Mesa as read (2026-10-15):**
   - `nv40_verttex_validate` (`nv40_verttex.c:31-52`) is a stub: the `if (ss && sv)` branch is
     empty, and it reads `fragprog.textures/samplers` instead of `vertprog.*`;
   - the vertex `shader_caps` never set `max_texture_samplers`, so GL sees 0;
   - `nvfx_vertprog.c` has no TEX/TXL translation (`NV40_VP_INST_VEC_OP_TXL` 0x19 is defined in
     `nvfx_shader.h:72` and unused). The VP instruction's texture-unit field still has to be
     taken from RPCS3's `VertexProgramDecompiler.cpp` (around line 637).
-- **Kernel risk, now:** the validator allows 0x900-0x97c with unchecked data
+- **Kernel risk (still open):** the validator allows 0x900-0x97c with unchecked data
   (`validate.c:47`), so a bad vertex texture format or offset could wedge the GPU today. Before
   Mesa uses VTF, the validator should:
   - check FORMAT location bits like other DMA fields;
@@ -547,7 +550,7 @@ Confidence: high.
 ## Recommended experiments
 
 In order of value per effort. All are userspace or test-module runs; none touches flash, boot
-flags or syscon.
+flags or syscon. None of 1-4 and 6-8 has run; item 5 depends on the GPU path, which is built (see "What became of this"). The open ones are tracked in [backlog/graphics.md](../backlog/graphics.md), [backlog/spu.md](../backlog/spu.md) and [backlog/memory.md](../backlog/memory.md).
 
 1. **E8b: cache-inhibited store rate, done right** (test module, `rsx_ctx_probe2.c wc2`).
    - ioremap 4 MiB of `VRAM_SCRATCH` twice (`ioremap`, `ioremap_wc`) and **pre-touch every page
@@ -572,7 +575,7 @@ flags or syscon.
 5. **vswap GPU path** (after 4):
    - swap-in heavy test (`stress-ng --vm` sized over RAM, or the OpenArena game-mode run);
    - compare `gpu_reads`/`gpu_fallbacks`, swap-in latency (`perf trace` on page faults or
-     `/proc/vmstat` pswpin rate) and the write-back time per chunk against today;
+     `/proc/vmstat` pswpin rate) and the write-back time per chunk against the old path;
    - also run with X on a text console (`gpu_owned` false: must fall back cleanly).
 6. **egl-deriv**, then flip `fragment_shader_derivatives` (section 4).
 7. **Instancing step 1** (instance loop) behind an env var, an `egl-instanced` test against
@@ -585,3 +588,6 @@ flags or syscon.
 
 Not recommended: a cacheable PPE mapping of VRAM (E8c). lv1 refusing the HPTE `BUG()`s the
 kernel, and the gain only applies to whole-line writes. Ask before trying it.
+
+
+Older version and the dated status notes: [archive/RSX-SPU-FEASIBILITY.md](../archive/RSX-SPU-FEASIBILITY.md).
