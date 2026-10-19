@@ -1,0 +1,304 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Tue, 20 Oct 2026 01:40:00 +0300
+Subject: ALSA: snd_ps3: restart a DMA chain that stopped, and interrupt stats
+
+snd_ps3 programs and kicks each block of samples from the buffer-empty
+interrupt of the block before it, and the hw pointer moves only there.
+When one of those interrupts does not come, or comes in a state the
+handler does not recover from, playback stops for good: the pointer stays
+where it is, the PCM stays RUNNING, and no xrun is ever raised, because
+dmix (the default device) sets its slave's stop_threshold to the boundary.
+A dmix client then waits on its period timer, which ticks from the same
+missing interrupt: OpenAL Soft logs "Wait timeout... buffer size too low?"
+once a second until the game exits, and the sound is gone.
+
+Seen on the PS3 in about 10% of the game runs that use OpenAL
+(SuperTuxKart, OpenArena, ClassiCube, Luanti). In one capture the PCM's
+status timestamp (the last time the hw pointer moved) was 1.0 s before
+OpenAL's first wait timeout and 4.5 s before the capture, while the state
+was still RUNNING; the dmix client had its buffer full and its own copy of
+the slave pointer equal to the kernel's.
+
+snd_ps3.dma_watchdog_ms (default 200, 0 off; read at stream start;
+/sys/module/snd_ps3/parameters/dma_watchdog_ms): while playing, a timer
+checks that buffer-empty interrupts still arrive. When none came in that
+time, a work item takes the interrupt and the stream lock, stops the DMA
+(forced, as trigger stop does) and starts it again as trigger start does.
+The pointer goes on from where it stopped, so a client only sees the gap.
+While restarts do not bring the interrupts back, the checks slow down to
+16 times the interval. Nothing changes while the interrupts come.
+
+/sys/module/snd_ps3/parameters/dma_stats counts the interrupts by kind
+(buffer empty, buffer empty with an underflow, underflow alone, neither)
+and the restarts, with the DMA kick, interrupt and serial-out registers
+read at the last restart (also in the ratelimited warning), to find out
+what state the chain was left in.
+
+snd_ps3.dma_test_stall: write 1 while playing and the interrupt handler only
+acknowledges until the watchdog's restart (or the end of the stream) sets
+it back to 0, which stops the chain the same way; with dma_watchdog_ms=0 it
+reproduces the wedge on demand.
+
+Forwarded: not yet (test on the PS3 first: docs/TESTS.md, the OpenAL wedge A/B)
+
+diff --git a/sound/ppc/snd_ps3.c b/sound/ppc/snd_ps3.c
+--- a/sound/ppc/snd_ps3.c
++++ b/sound/ppc/snd_ps3.c
+@@ -42,6 +42,35 @@
+ module_param_named(start_delay, snd_ps3_start_delay, uint, 0644);
+ MODULE_PARM_DESC(start_delay, "time to insert silent data in ms");
+ 
++/*
++ * DMA watchdog. Each block of samples is programmed and kicked from the
++ * buffer-empty interrupt of the block before, so when one of those
++ * interrupts does not come (or comes in a state the handler does not
++ * recover from), playback stops for good: the hw pointer stays where it
++ * is, the PCM stays RUNNING, and a dmix client (dmix sets its slave's
++ * stop_threshold to the boundary, so nothing ever xruns) waits on its
++ * period timer forever. While playing, a timer checks every
++ * dma_watchdog_ms that buffer-empty interrupts still arrive; when none came
++ * in that time, a work item stops the DMA (forced, as trigger stop does)
++ * and starts it again as trigger start does. The hw pointer goes on from
++ * where it stopped. 0 turns it off; the value is read at stream start.
++ */
++static unsigned int dma_watchdog_ms = 200;
++module_param(dma_watchdog_ms, uint, 0644);
++MODULE_PARM_DESC(dma_watchdog_ms,
++		 "restart the DMA when no buffer-empty interrupt came for this many ms while playing (0: off; read at stream start)");
++
++/*
++ * For testing the watchdog: while dma_test_stall is set, the interrupt
++ * handler only acknowledges (as when not running), so the chain stops as it
++ * does when an interrupt is lost. Write 1 while playing: the watchdog's
++ * restart, or the end of the stream, sets it back to 0.
++ */
++static unsigned int dma_test_stall;
++module_param(dma_test_stall, uint, 0644);
++MODULE_PARM_DESC(dma_test_stall,
++		 "1: ignore the interrupts until the watchdog restarts the DMA or the stream stops (a test of dma_watchdog_ms)");
++
+ static int index = SNDRV_DEFAULT_IDX1;
+ static char *id = SNDRV_DEFAULT_STR1;
+ 
+@@ -304,7 +333,7 @@
+ 	int underflow_occured = 0;
+ 	struct snd_ps3_card_info *card = dev_id;
+ 
+-	if (!card->running) {
++	if (!card->running || unlikely(READ_ONCE(dma_test_stall))) {
+ 		update_reg(PS3_AUDIO_AX_IS, 0);
+ 		update_reg(PS3_AUDIO_INTR_0, 0);
+ 		return IRQ_HANDLED;
+@@ -321,6 +350,12 @@
+ 			write_reg(PS3_AUDIO_AX_IS, port_intr);
+ 			underflow_occured = 1;
+ 		}
++		/* the chain is alive (the watchdog's progress) */
++		card->wd_progress++;
++		if (underflow_occured)
++			card->n_both++;
++		else
++			card->n_empty++;
+ 		if (card->silent) {
+ 			/* we are still in silent time */
+ 			snd_ps3_program_dma(card,
+@@ -339,6 +374,7 @@
+ 		}
+ 	} else if (port_intr & PS3_AUDIO_AX_IE_ASOBUIE(0)) {
+ 		write_reg(PS3_AUDIO_AX_IS, PS3_AUDIO_AX_IE_ASOBUIE(0));
++		card->n_uonly++;
+ 		/*
+ 		 * serial out underflow, but buffer empty not detected.
+ 		 * in this case, fill fifo with 0 to recover.  After
+@@ -354,12 +390,113 @@
+ 		snd_ps3_program_dma(card,
+ 				    SND_PS3_DMA_FILLTYPE_SILENT_FIRSTFILL);
+ 		snd_ps3_kick_dma(card);
+-	}
++	} else
++		card->n_none++;
+ 	/* clear interrupt cause */
+ 	return IRQ_HANDLED;
+ };
+ 
+ /*
++ * DMA watchdog (dma_watchdog_ms above)
++ */
++static void snd_ps3_wd_arm(struct snd_ps3_card_info *card)
++{
++	/* slower while restarts do not bring the interrupts back */
++	unsigned int ms = card->wd_ms << min(card->wd_fails, 4U);
++
++	mod_timer(&card->wd_timer, jiffies + max(msecs_to_jiffies(ms), 2UL));
++}
++
++/* timer: did a buffer-empty interrupt come since the last check? */
++static void snd_ps3_wd_timer(struct timer_list *t)
++{
++	struct snd_ps3_card_info *card = from_timer(card, t, wd_timer);
++	unsigned long progress = READ_ONCE(card->wd_progress);
++
++	if (!READ_ONCE(card->running))
++		return;
++	if (progress == card->wd_seen)
++		schedule_work(&card->wd_work);
++	else
++		card->wd_fails = 0;
++	card->wd_seen = progress;
++	snd_ps3_wd_arm(card);
++}
++
++/* the start sequence of trigger start, with a bounded wait */
++static void snd_ps3_dma_restart(struct snd_ps3_card_info *card)
++{
++	int retries = 10000;
++
++	update_reg(PS3_AUDIO_AX_IS, 0);
++	snd_ps3_program_dma(card, SND_PS3_DMA_FILLTYPE_SILENT_FIRSTFILL);
++	snd_ps3_kick_dma(card);
++	while ((read_reg(PS3_AUDIO_KICK(7)) & PS3_AUDIO_KICK_STATUS_MASK) &&
++	       --retries)
++		udelay(1);
++	snd_ps3_program_dma(card, SND_PS3_DMA_FILLTYPE_SILENT_RUNNING);
++	snd_ps3_kick_dma(card);
++}
++
++/* work: stop the DMA and start it again, if it is still stuck */
++static void snd_ps3_wd_work(struct work_struct *work)
++{
++	struct snd_ps3_card_info *card =
++		container_of(work, struct snd_ps3_card_info, wd_work);
++	struct snd_pcm_substream *substream = card->substream;
++	unsigned long flags;
++	int dma_ch, restarted = 0;
++	u32 *r = card->wd_regs;
++
++	if (!substream || !READ_ONCE(card->running))
++		return;
++	/* the interrupt handler programs the DMA too: keep it out */
++	disable_irq(card->irq_no);
++	/* and trigger start/stop, which run under the stream lock */
++	snd_pcm_stream_lock_irqsave(substream, flags);
++	if (card->running && READ_ONCE(card->wd_progress) == card->wd_seen) {
++		for (dma_ch = 0; dma_ch < 8; dma_ch++)
++			r[dma_ch] = read_reg(PS3_AUDIO_KICK(dma_ch));
++		r[8] = read_reg(PS3_AUDIO_AX_IS);
++		r[9] = read_reg(PS3_AUDIO_INTR_0);
++		r[10] = read_reg(PS3_AUDIO_AO_3WMCTRL);
++		WRITE_ONCE(dma_test_stall, 0);
++		snd_ps3_wait_for_dma_stop(card);
++		snd_ps3_dma_restart(card);
++		card->n_restarts++;
++		card->wd_fails++;
++		restarted = 1;
++	}
++	snd_pcm_stream_unlock_irqrestore(substream, flags);
++	enable_irq(card->irq_no);
++	if (restarted)
++		pr_warn_ratelimited("snd_ps3: no buffer-empty interrupt for over %u ms, DMA restarted (%lu so far): kick %08x %08x %08x %08x %08x %08x %08x %08x ax_is %08x intr0 %08x 3wmctrl %08x\n",
++				    card->wd_ms, card->n_restarts,
++				    r[0], r[1], r[2], r[3], r[4], r[5], r[6],
++				    r[7], r[8], r[9], r[10]);
++}
++
++/* /sys/module/snd_ps3/parameters/dma_stats */
++static int snd_ps3_dma_stats_get(char *buf, const struct kernel_param *kp)
++{
++	const struct snd_ps3_card_info *c = &the_card;
++	const u32 *r = c->wd_regs;
++
++	return scnprintf(buf, PAGE_SIZE,
++			 "empty=%lu both=%lu uonly=%lu none=%lu restarts=%lu last_kick=%08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x last_ax_is=%08x last_intr0=%08x last_3wmctrl=%08x\n",
++			 c->n_empty, c->n_both, c->n_uonly, c->n_none,
++			 c->n_restarts, r[0], r[1], r[2], r[3], r[4], r[5],
++			 r[6], r[7], r[8], r[9], r[10]);
++}
++
++static const struct kernel_param_ops snd_ps3_dma_stats_ops = {
++	.get = snd_ps3_dma_stats_get,
++};
++module_param_cb(dma_stats, &snd_ps3_dma_stats_ops, NULL, 0444);
++MODULE_PARM_DESC(dma_stats,
++		 "interrupts by kind (buffer empty, empty with underflow, underflow only, neither) and watchdog restarts");
++
++/*
+  * audio mute on/off
+  * mute_on : 0 output enabled
+  *           1 mute
+@@ -633,6 +770,13 @@
+ 		}
+ 		snd_ps3_program_dma(card, SND_PS3_DMA_FILLTYPE_SILENT_RUNNING);
+ 		snd_ps3_kick_dma(card);
++
++		card->wd_ms = min(READ_ONCE(dma_watchdog_ms), 10000U);
++		if (card->wd_ms) {
++			card->wd_seen = card->wd_progress;
++			card->wd_fails = 0;
++			snd_ps3_wd_arm(card);
++		}
+ 		break;
+ 
+ 	case SNDRV_PCM_TRIGGER_STOP:
+@@ -641,6 +785,9 @@
+ 			card->running = 0;
+ 		}
+ 		spin_unlock(&card->dma_lock);
++		/* a pending watchdog work sees running == 0 and does nothing */
++		timer_delete(&card->wd_timer);
++		WRITE_ONCE(dma_test_stall, 0);
+ 		snd_ps3_wait_for_dma_stop(card);
+ 		break;
+ 	default:
+@@ -1048,6 +1195,9 @@
+ {
+ 	pr_info("%s:start id=%d\n", __func__,  dev->match_id);
+ 
++	timer_shutdown_sync(&the_card.wd_timer);
++	cancel_work_sync(&the_card.wd_work);
++
+ 	/*
+ 	 * ctl and preallocate buffer will be freed in
+ 	 * snd_card_free
+@@ -1093,6 +1243,8 @@
+ 
+ 	memset(&the_card, 0, sizeof(the_card));
+ 	spin_lock_init(&the_card.dma_lock);
++	timer_setup(&the_card.wd_timer, snd_ps3_wd_timer, 0);
++	INIT_WORK(&the_card.wd_work, snd_ps3_wd_work);
+ 
+ 	/* register systembus DRIVER, this calls our probe() func */
+ 	ret = ps3_system_bus_driver_register(&snd_ps3_bus_driver_info);
+diff --git a/sound/ppc/snd_ps3.h b/sound/ppc/snd_ps3.h
+--- a/sound/ppc/snd_ps3.h
++++ b/sound/ppc/snd_ps3.h
+@@ -10,6 +10,8 @@
+ #define _SND_PS3_H_
+ 
+ #include <linux/irqreturn.h>
++#include <linux/timer.h>
++#include <linux/workqueue.h>
+ 
+ #define SND_PS3_DRIVER_NAME "snd_ps3"
+ 
+@@ -86,6 +88,20 @@
+ 	/* start delay */
+ 	unsigned int start_delay;
+ 
++	/* DMA watchdog (dma_watchdog_ms): restarts a chain that stopped */
++	struct timer_list wd_timer;
++	struct work_struct wd_work;
++	unsigned long wd_progress; /* buffer-empty interrupts so far */
++	unsigned long wd_seen;     /* wd_progress at the last check */
++	unsigned int wd_ms;        /* dma_watchdog_ms at stream start */
++	unsigned int wd_fails;     /* restarts since the last interrupt */
++	/* interrupt and watchdog counters (dma_stats) */
++	unsigned long n_empty;     /* buffer empty: next block programmed */
++	unsigned long n_both;      /* buffer empty with an underflow */
++	unsigned long n_uonly;     /* underflow without buffer empty */
++	unsigned long n_none;      /* neither bit set */
++	unsigned long n_restarts;  /* chains the watchdog restarted */
++	u32 wd_regs[11];           /* registers at the last restart */
+ };
+ 
+ 

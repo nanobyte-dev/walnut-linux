@@ -1212,6 +1212,11 @@ def client_prof(tmp):
     write(kph / "insert_readback", "1\n")
     write(kph / "stats", "inserts 10 insert_us 20 evictions 0 readbacks 10 readback_us 10 mismatches 0 "
           "invalidates 0 invalidate_us 0 updatepps 0 updatepp_us 0\n")
+    kps = tmp / "kparams-snd"   # snd_ps3's parameters (local/0047)
+    kps.mkdir(exist_ok=True)
+    write(kps / "dma_watchdog_ms", "200\n")
+    write(kps / "dma_stats", "empty=100 both=0 uonly=0 none=0 restarts=2 last_kick=0,0,0,0,0,0,0,0 "
+          "last_ax_is=0 last_intr0=0 last_3wmctrl=0\n")
     fds = fake_perf(str(d / ".perf.ctl"), str(d / ".perf.ack"), log)
     env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "GALLIUM_HUD",
                                                             "GALLIUM_HUD_DUMP_DIR", "LD_PRELOAD")}
@@ -1220,7 +1225,8 @@ def client_prof(tmp):
                BENCH_MALLOC="arena2,trim", BENCH_MALLOCTRIM=str(trim), BENCH_MALLOC_TRIM_S="1",   # 1 s: not inside the fake game's split line (0-0.7 s)
                BENCH_NV30_TEST_SWITCH="16",   # a Mesa driver switch (docs/HOTPATHS.md): to the game as NV30_TEST_SWITCH
                BENCH_PS3RSX_TEST_PARAM="1", BENCH_KPARAM_DIR=str(kpd),   # a ps3rsx parameter, put back after
-               BENCH_PS3HTAB_INSERT_READBACK="0", BENCH_KPARAM_HTAB_DIR=str(kph))   # and a ps3_htab one
+               BENCH_PS3HTAB_INSERT_READBACK="0", BENCH_KPARAM_HTAB_DIR=str(kph),   # and a ps3_htab one
+               BENCH_SNDPS3_DMA_WATCHDOG_MS="0", BENCH_KPARAM_SND_DIR=str(kps))   # and snd_ps3's
     t0 = time.time()
     p = subprocess.run(["bash", str(HERE / "client.sh"), "fakeprof", "base"], env=env, capture_output=True, text=True)
     check("prof client: exit 0", p.returncode == 0, p.stdout[-800:] + p.stderr[-800:])
@@ -1254,13 +1260,17 @@ def client_prof(tmp):
           gl[-300:])
     check("malloc presets and driver switches: malloc= and genv= in bench.txt, the tags after the variant",
           b.get("malloc") == "arena2,trim" and b.get("genv") == "NV30_TEST_SWITCH=16" and
-          report.run(d).get("variant") == "base@marena2_trim+test_switch16+rsx_test_param1_htab_insert_readback0",
+          report.run(d).get("variant") == "base@marena2_trim+test_switch16+rsx_test_param1_htab_insert_readback0_snd_dma_watchdog_ms0",
           (b.get("malloc"), b.get("genv"), report.run(d).get("variant")))
     check("driver switches: the game got NV30_TEST_SWITCH=16", "env NV30_TEST_SWITCH=16" in gl, gl[:300])
     check("ps3rsx parameters: kparam= in bench.txt, the tag after the variant, the old value back",
           (b.get("kparam") or "").split()[:1] == ["test_param=1"] and "rsx_test_param1" in (report.run(d).get("variant") or "") and
           (kpd / "test_param").read_text() == "N\n",
           (b.get("kparam"), report.run(d).get("variant"), (kpd / "test_param").read_text()))
+    check("snd_ps3 parameters: kparam snd_dma_watchdog_ms=0, the old value back; snd_restarts= from dma_stats",
+          "snd_dma_watchdog_ms=0" in (b.get("kparam") or "") and (kps / "dma_watchdog_ms").read_text() == "200\n"
+          and b.get("snd_restarts") == "0" and b.get("snd_wd") == "0" and b.get("snd_stall") == "0",
+          (b.get("kparam"), (kps / "dma_watchdog_ms").read_text(), b.get("snd_restarts"), b.get("snd_wd"), b.get("snd_stall")))
     check("ps3_htab parameters: kparam htab_insert_readback=0, the old value back",
           "htab_insert_readback=0" in (b.get("kparam") or "") and (kph / "insert_readback").read_text() == "1\n",
           (b.get("kparam"), (kph / "insert_readback").read_text()))

@@ -230,6 +230,13 @@ def scan_run(d, ignored_out=None):
             found[("audio", "bench.txt: oal_wedge>0 (OpenAL's mixer wedged: Wait timeout / mmap commit error)")] += int(kv["oal_wedge"])
     except ValueError:
         pass
+    try:
+        if int(kv.get("snd_stall", "0") or 0) > 0:
+            found[("audio", "bench.txt: snd_stall>0 (the sound card's DMA stopped: hw pointer still while RUNNING, seconds)")] += int(kv["snd_stall"])
+        if int(kv.get("snd_restarts", "0") or 0) > 0:
+            found[("audio", "bench.txt: snd_restarts>0 (snd_ps3's watchdog restarted a stopped DMA)")] += int(kv["snd_restarts"])
+    except ValueError:
+        pass
     return found, kv
 
 

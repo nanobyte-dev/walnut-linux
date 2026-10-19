@@ -183,25 +183,26 @@ already compresses from 1024 up).
 - **Status:** never tried.
 - **Source:** [archive/MEMORY.md, "Cuts, ranked"](../archive/MEMORY.md#cuts-ranked) #5.
 
-### OpenAL's stuck mixer and the blind xrun counter
+### OpenAL's stuck mixer: the sound card's DMA stops
 
-Rank 72. In 17 of 165 OpenAL runs the mixer stops for the rest of the run, and bench.txt says nothing.
+Rank 72. In about 10% of OpenAL runs the sound stops for the rest of the run.
 
-**Why.** [LOG-FINDINGS.md, item 1](../games/LOG-FINDINGS.md#1-openals-mixer-stops-and-the-harness-does-not-notice):
-after an EPIPE early in the run OpenAL Soft logs `Wait timeout... buffer size too low?` once a second
-until the end (SuperTuxKart, OpenArena, ClassiCube, Luanti), with `sound=RUNNING` and `underruns=0`,
-because the counter reads ALSA's `snd_pcm_recover` line and OpenAL's backend never prints it. It
-probably explains the silent microphone in SuperTuxKart ([rank 9](#supertuxkarts-missing-sound)), and
-every OpenAL game's CPU number is lower in a wedged run.
+**Why.** [LOG-FINDINGS.md, item 1](../games/LOG-FINDINGS.md#1-the-sound-cards-dma-stops-and-openals-mixer-waits-for-good):
+snd_ps3's interrupt-driven DMA chain stops while the card stays RUNNING (dmix never lets it xrun), so
+OpenAL Soft waits on dmix's period timer for good and logs `Wait timeout... buffer size too low?` once a
+second (SuperTuxKart, OpenArena, ClassiCube, Luanti). It probably explains the silent microphone in
+SuperTuxKart ([rank 9](#supertuxkarts-missing-sound)), and every OpenAL game's CPU number is lower in a
+wedged run.
 
-- **To start.** (1) client.sh counts `Wait timeout` and `mmap commit error` lines into bench.txt
-  (`oal_timeouts=`, `oal_epipe=`); report.py shows them in the xrun column. Host only, S. (2) On the PS3, during a wedge: `/proc/asound/card0/pcm0p/sub0/status`, the dmix
-  process, `ALSOFT_LOGLEVEL=4`; then the same game with `[alsa] mmap=false` and with a larger period,
-  same boot, 4 runs each.
-- **Payoff:** sound in four games; honest numbers. **Effort:** S for the counter, S-M for the cause.
-- **Risk:** low. **Needs:** host, then PS3 (no user for the counter; the user listens at the end).
-- **Status:** never tried.
-- **Source:** logscan.py over 602 runs.
+- **To start.** Kernel patch local/0047 (snd_ps3 DMA watchdog, `snd_ps3.dma_watchdog_ms`), the test
+  module from `make snd-ps3-ko REL=6.12.111+ps3.472`, then the A/B in [TESTS.md](../TESTS.md) "Next".
+  The harness records `snd_stall=`, `oal_wait=`, `oal_xrun=` and `snd_restarts=` in every run.
+- **Payoff:** sound in four games (and any other game when the card stops); honest numbers.
+  **Effort:** done on the PC; the PS3 test is about an hour.
+- **Risk:** low (the watchdog acts only when the interrupts stopped). **Needs:** PS3, the user's OK
+  to install the module (or a reboot into a kernel with the patch).
+- **Status:** built, not run on the PS3.
+- **Source:** logscan.py over 602 runs; the DUMPON captures of 2026-10-19.
 
 ### Sauerbraten data files, and a clean SuperTuxKart config
 

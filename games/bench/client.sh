@@ -38,6 +38,9 @@
 # signal the core is collected as dump/core.crash.zst|xz (systemd-coredump, else the core file). bench.txt
 # gets dump=trigger|crash|trigger+crash|none, dump_at=<s>, dump_core=<raw>:<compressed bytes>,
 # oal_wedge= (always: OpenAL's "Wait timeout" and "mmap commit error" lines). dumpana.sh analyses it.
+# Always too: oal_wait= and oal_xrun= (oal_wedge's two kinds apart), snd_stall=<s>, snd_stall_at=<s> (the sound card's hw pointer stood still while RUNNING:
+# its DMA stopped, the cause of OpenAL's wedge) and, on a kernel with local/0047, snd_restarts= (its
+# DMA watchdog's restarts in the run), snd_wd= (dma_watchdog_ms) and snd_stats= (snd_ps3's counters).
 # Start-up profiling (docs/PROFILING.md "Start-up profiling"): BENCH_PERF_LOAD=1 (run.sh
 # PERF_LOAD=1) covers the span the window leaves out: the game's exec, its loading screens and the
 # warm-up. With ps3-bench.sh's BENCH_PERF_LOAD_CTL the game is started through a gate (a bash that
@@ -281,10 +284,14 @@ fi
 # however it ends. bench.txt gets kparam=<name=value ...>; report.py shows it after the variant
 # (base@rsx_shadow_fast1). BENCH_PS3HTAB_<NAME>=V the same for the kernel's ps3_htab parameters
 # (local/0046: PS3HTAB_INSERT_READBACK=0; kparam htab_insert_readback=0, report.py
-# base@htab_insert_readback0). BENCH_KPARAM_DIR, BENCH_KPARAM_HTAB_DIR: other directories for them
+# base@htab_insert_readback0). BENCH_SNDPS3_<NAME>=V the same for snd_ps3's (local/0047:
+# SNDPS3_DMA_WATCHDOG_MS=0; kparam snd_dma_watchdog_ms=0, report.py base@snd_dma_watchdog_ms0; the
+# card reads it when its stream starts, which is when the game opens it with nothing else playing).
+# BENCH_KPARAM_DIR, BENCH_KPARAM_HTAB_DIR, BENCH_KPARAM_SND_DIR: other directories for them
 # (selftest.py).
 KPARAM=(); KPARAM_OLD=(); KPARAM_DIR=${BENCH_KPARAM_DIR:-/sys/module/ps3rsx/parameters}
 KPARAM_HTAB_DIR=${BENCH_KPARAM_HTAB_DIR:-/sys/module/ps3_htab/parameters}
+KPARAM_SND_DIR=${BENCH_KPARAM_SND_DIR:-/sys/module/snd_ps3/parameters}
 kparam_write() {	# kparam_write FILE VALUE
 	if [ -w "$1" ]; then echo "$2" > "$1"; else echo "$2" | sudo -n tee "$1" > /dev/null 2>&1; fi
 }
@@ -296,9 +303,10 @@ kparam_restore() {
 	done
 	KPARAM_OLD=()
 }
-for v in $(compgen -v BENCH_PS3RSX_) $(compgen -v BENCH_PS3HTAB_); do
+for v in $(compgen -v BENCH_PS3RSX_) $(compgen -v BENCH_PS3HTAB_) $(compgen -v BENCH_SNDPS3_); do
 	case $v in
 	BENCH_PS3HTAB_*) n=${v#BENCH_PS3HTAB_}; n=${n,,}; f=$KPARAM_HTAB_DIR/$n; t=htab_$n ;;
+	BENCH_SNDPS3_*) n=${v#BENCH_SNDPS3_}; n=${n,,}; f=$KPARAM_SND_DIR/$n; t=snd_$n ;;
 	*) n=${v#BENCH_PS3RSX_}; n=${n,,}; f=$KPARAM_DIR/$n; t=$n ;;
 	esac
 	[ -e "$f" ] || { echo "!! $v: no $f (a ps3rsx or kernel without that parameter)"; exit 2; }
@@ -418,6 +426,9 @@ fi
 [ -n "${DISPLAY:-}" ] && xset s off -dpms 2>/dev/null
 
 helpers=()
+# snd_ps3's interrupt counters and DMA watchdog restarts (kernel local/0047; absent on older kernels)
+SND_STATS=$KPARAM_SND_DIR/dma_stats; SND_PRE=
+[ -r "$SND_STATS" ] && read -r SND_PRE < "$SND_STATS"
 # the game in its own process group (job control), so stopping it reaches every process it forks;
 # its output through a fifo, read line by line here
 set -m
@@ -469,6 +480,15 @@ trap 'stop_game; kill "${helpers[@]}" $wm 2>/dev/null
 dump_capture() {
 	local x=$D/dump p=$1 tk f raw z
 	{ printf 'trigger=%s\nat=%s\npid=%s\nreal=%s\n' "$2" "$3" "$p" "$EPOCHREALTIME"; } > "$x/trigger.txt"
+	# the card first, with the clock its tstamp is on (the last time the hw pointer moved; uptime is
+	# the same clock on the PS3, which never suspends), then again with the interrupts 1 s later
+	{ echo "uptime: $(cat /proc/uptime)"; cat /proc/asound/cards
+	  tail -n +1 /proc/asound/card*/pcm*p/sub*/{status,hw_params,sw_params}; } > "$x/alsa.txt" 2>&1
+	{ grep -E 'snd|PS3 Audio|audio' /proc/interrupts; } > "$x/interrupts.txt" 2>&1
+	{ tail -n +1 /sys/module/snd_ps3/parameters/*; } > "$x/snd_ps3.txt" 2>&1
+	sleep 1
+	{ echo "== 1 s later, uptime: $(cat /proc/uptime)"; tail -n +1 /proc/asound/card*/pcm*p/sub*/status; } >> "$x/alsa.txt" 2>&1
+	{ echo "== 1 s later"; grep -E 'snd|PS3 Audio|audio' /proc/interrupts; echo "== all"; cat /proc/interrupts; } >> "$x/interrupts.txt" 2>&1
 	for f in status maps smaps_rollup limits; do cat "/proc/$p/$f" > "$x/proc.$f" 2>&1; done
 	ls "/proc/$p/fd" 2>/dev/null | wc -l > "$x/proc.nfd"
 	for tk in /proc/$p/task/*; do
@@ -476,7 +496,6 @@ dump_capture() {
 		echo "stat: $(cat "$tk/stat" 2>&1)"; echo "wchan: $(cat "$tk/wchan" 2>&1)"; echo "syscall: $(cat "$tk/syscall" 2>&1)"
 		echo "stack:"; $DUMP_SUDO cat "$tk/stack" 2>&1
 	done > "$x/threads.txt"
-	{ cat /proc/asound/cards; tail -n +1 /proc/asound/card*/pcm*p/sub*/{status,hw_params,sw_params}; } > "$x/alsa.txt" 2>&1
 	{ $DUMP_SUDO sh -c 'tail -n +1 /sys/kernel/debug/dri/*/ps3rsx_* /sys/module/ps3rsx/parameters/*'; } > "$x/gpu.txt" 2>&1
 	cat /proc/meminfo > "$x/meminfo"; cat /proc/vmstat > "$x/vmstat"; cat /proc/swaps > "$x/swaps"
 	$DUMP_SUDO dmesg 2>&1 | tail -200 > "$x/dmesg.tail"
@@ -534,11 +553,23 @@ watch_game() {
 	[ "$DUMPON" = 1 ] && readlink "/proc/$p/cwd" > "$D/.cwd" 2>/dev/null
 	# builtins only, no forks every second (the client's CPU time counts them): the tick is a read
 	# timing out on a fifo nobody writes
-	local k v u hwm= tick
+	local k v u hwm= tick snd= st hp lhp= stall=0 first=
 	mkfifo "$D/.tick"; exec {tick}<> "$D/.tick"; rm -f "$D/.tick"
+	for snd in /proc/asound/card*/pcm*p/sub0/status; do break; done
 	while [ -e "/proc/$p/status" ]; do
 		while read -r k v u; do [ "$k" = VmHWM: ] && hwm=$v; done < "/proc/$p/status" 2>/dev/null
 		[ -n "$hwm" ] && printf '%s\n' "$hwm" > "$D/.hwm"
+		# the card's hw pointer standing still while RUNNING: its DMA stopped (LOG-FINDINGS.md 1;
+		# dmix keeps the card running while any client is open, so a second without movement is one)
+		if [ -r "$snd" ]; then
+			st=; hp=
+			while read -r k v u; do case $k in state:) st=$v ;; hw_ptr) hp=$u ;; esac; done < "$snd" 2>/dev/null
+			if [ "$st" = RUNNING ] && [ -n "$hp" ] && [ "$hp" = "$lhp" ]; then
+				stall=$((stall + 1)); [ -n "$first" ] || first=$EPOCHREALTIME
+				printf '%s %s\n' "$stall" "$first" > "$D/.sndstall"
+			fi
+			lhp=$hp
+		fi
 		read -r -t 1 -u "$tick"
 	done
 }
@@ -809,6 +840,21 @@ secs measured "$measured"
   echo "underruns=$(grep -ac 'underrun occurred' "$D/game.log" 2>/dev/null)"
   # OpenAL Soft's wedged mixer: "Wait timeout... buffer size too low?" and ALSA's "mmap commit error"
   echo "oal_wedge=$(grep -acE 'Wait timeout|mmap commit error' "$D/game.log" 2>/dev/null)"
+  # the two apart: Wait timeout is the wedge (the card's DMA stopped: snd_stall below), mmap commit
+  # error / available update failed a client xrun (the mixer thread starved past its 32 ms buffer;
+  # OpenAL recovers, a click)
+  echo "oal_wait=$(grep -ac 'Wait timeout' "$D/game.log" 2>/dev/null)"
+  echo "oal_xrun=$(grep -acE 'mmap commit error|available update failed' "$D/game.log" 2>/dev/null)"
+  # the card's DMA stopped: seconds its hw pointer stood still while RUNNING, and when that began;
+  # snd_ps3's watchdog restarts in this run (kernel local/0047), its setting and counters
+  read -r SST_N SST_AT < "$D/.sndstall" 2>/dev/null || SST_N=0
+  echo "snd_stall=$SST_N"
+  [ -n "${SST_AT:-}" ] && awk -v b="$SST_AT" -v t="$t0" 'BEGIN { printf "snd_stall_at=%.2f\n", b - t }'
+  if [ -n "$SND_PRE" ] && read -r SND_POST < "$SND_STATS"; then
+	r0=${SND_PRE#*restarts=}; r0=${r0%% *}; r1=${SND_POST#*restarts=}; r1=${r1%% *}
+	echo "snd_restarts=$((r1 - r0))"; echo "snd_wd=$(cat "$KPARAM_SND_DIR/dma_watchdog_ms" 2>/dev/null)"
+	echo "snd_stats=$SND_POST"
+  fi
   if [ "$DUMPON" = 1 ]; then
 	echo "dump=${DUMP_WHY:-none}"; [ -n "$DUMP_AT" ] && echo "dump_at=$DUMP_AT"
 	cat "$D/dump/sizes.txt" 2>/dev/null

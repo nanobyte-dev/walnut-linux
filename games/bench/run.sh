@@ -31,7 +31,8 @@
 # e.g. ENVS="- NV30_TRANSLATE_LUT=1 NV30_FENCE_BO_POOL=16" (docs/HOTPATHS.md). ps3rsx module
 # parameters as tokens: PS3RSX_NAME=V is written to /sys/module/ps3rsx/parameters/name for that run
 # and put back after it (sudo -n; client.sh kparam=, report.py base@rsx_name<V>); PS3HTAB_NAME=V the
-# same for the kernel's /sys/module/ps3_htab/parameters/name (local/0046, base@htab_name<V>).
+# same for the kernel's /sys/module/ps3_htab/parameters/name (local/0046, base@htab_name<V>),
+# SNDPS3_NAME=V for snd_ps3's (local/0047: SNDPS3_DMA_WATCHDOG_MS=0, base@snd_dma_watchdog_ms0).
 # GAMEPREFETCH=fetch|learn|on: the game's own files read at its start (client.sh BENCH_GAMEPREFETCH,
 # docs/STALLS.md "Game prefetch"): one learn run first, then ENVS="- GAMEPREFETCH=fetch" (report.py:
 # base@gpffetch); lists in /var/tmp/ps3-bench/gprefetch; GAMEPREFETCH_MB, _RESERVE_MB, _IO its budget,

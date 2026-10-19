@@ -15,6 +15,8 @@
 #   every other write to ps3db fails. Phase A on a kernel with it needs the new tools/ssdimg/ps3-imgmap on the PS3.
 # local/0046: one hcall per hash table insertion instead of two (ps3_htab.insert_readback=0; default 1, the old read-back;
 #   2 compares both) and htab hcall stats in /sys/module/ps3_htab/parameters/stats (docs/HOTPATHS.md "Soft-masked time").
+# local/0047: snd_ps3 restarts a DMA chain whose buffer-empty interrupts stopped (snd_ps3.dma_watchdog_ms=200, 0 off; the
+#   OpenAL "Wait timeout" wedge) and counts interrupts by kind in /sys/module/snd_ps3/parameters/dma_stats (docs/games/LOG-FINDINGS.md 1).
 ps3/0020-ps3stor-send-cmd-timeout.patch
 ps3/0035-ps3flash.patch
 ps3/0040-ps3-partition.patch
@@ -76,3 +78,4 @@ local/0043-ps3fb-release-console-shadow.patch
 local/0044-ps3-os-area-no-flash-writes.patch
 local/0045-ps3disk-write-guard.patch
 local/0046-ps3-htab-one-hcall-per-insert-and-stats.patch
+local/0047-snd-ps3-dma-watchdog.patch

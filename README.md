@@ -72,6 +72,8 @@ package (Debian source packages; docs/PACKAGING.md).
     make linux-deb         # the kernel from Debian's source + linux/patches, cross-built (linux-kbuild
                            #   natively under qemu) -> build/debs/linux; KEEP_TREE=1 keeps the build tree
     make ps3rsx-modules    # the RSX driver for both kernels in build/debs/linux
+    make snd-ps3-ko REL=6.12.111+ps3.472   # snd_ps3.ko with linux/patches' sound patches for that kernel,
+                           #   to try without a new kernel -> build/debs/snd-ps3/<REL> (not a package)
     make deploy            # install with apt on the running PS3: upgrades ours, installs PKGS
                            #   (top-level names; KERNELS=1 upgrades kernels too; DRY_RUN=1 simulates;
                            #   AUTOREMOVE=1 purges what nothing needs any more)

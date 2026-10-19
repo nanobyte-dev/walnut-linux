@@ -95,6 +95,18 @@ plugin (docs/MEMORY.md, "Sound path"); when no PulseAudio server answers it fall
 device. Each `openal.inc` variant and `OAL=` token logs what OpenAL got (`oal_device=` in
 bench.txt: format, rate, period and buffer), which shows the format in use.
 
+**What the card does under dmix.** dmix opens the card (`snd_ps3`) as a 256-frame period, 4096-frame
+buffer, S16_BE stream and keeps it running while any client is open, with the card's
+`stop_threshold` at the boundary: the card never xruns, silence fills what no client wrote.
+OpenAL's own buffer under dmix is 6 periods of 256 frames, 1536 frames (32 ms). snd_ps3 refills the
+card's DMA from its buffer-empty interrupt, one 256-frame block at a time, and its hw pointer moves
+only there. When that chain of interrupts stops, the card stays RUNNING with its pointer still and
+every dmix client waits for good (OpenAL's "Wait timeout", [games/LOG-FINDINGS.md](games/LOG-FINDINGS.md)
+item 1). Kernel patch local/0047 (not on the PS3 yet) adds a watchdog for that:
+`snd_ps3.dma_watchdog_ms` (default 200, 0 off) restarts the DMA when no buffer-empty interrupt
+came for that long while playing, and `/sys/module/snd_ps3/parameters/dma_stats` counts the
+interrupts by kind and the restarts.
+
 ## Vorbis decoding on the PPE
 
 libvorbis decodes the Ogg Vorbis of OpenArena (ioquake3's music and voices), SuperTuxKart (every

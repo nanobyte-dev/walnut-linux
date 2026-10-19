@@ -57,6 +57,21 @@ else
 	echo "!! $run/versions missing: symbols for the base libraries only"
 fi
 
+# what the game had mapped and the sysroot lacks (its executable, libraries of the image that are not
+# ours: libasound, ...), from the PS3 image as built (build/rootfs/debian-ppc64.tar; packages upgraded
+# on the PS3 since may differ)
+img=$root/build/rootfs/debian-ppc64.tar
+if [ -s "$x/proc.maps" ] && [ -s "$img" ]; then
+	awk '$6 ~ /^\/(usr|lib|opt)\// { print $6 }' "$x/proc.maps" | sort -u |
+		while read -r f; do [ -e "$sys$f" ] || echo ".$f"; done > "$work/want.txt"
+	if [ -s "$work/want.txt" ]; then
+		echo ">> $(wc -l < "$work/want.txt") mapped files from the image"
+		tar -xf "$img" -C "$sys" --no-same-owner -T "$work/want.txt" 2>/dev/null || true
+	fi
+fi
+exe=$(awk '$6 ~ /^\// { print $6; exit }' "$x/proc.maps" 2>/dev/null)
+[ -n "$exe" ] && [ -e "$sys$exe" ] || exe=
+
 core=
 for c in "$x"/core.zst "$x"/core.xz "$x"/core.crash.zst "$x"/core.crash.xz; do [ -s "$c" ] && { core=$c; break; }; done
 oal=$(sed -n 's/^oal_wedge=//p' "$run/bench.txt" 2>/dev/null)
@@ -68,6 +83,38 @@ oal=$(sed -n 's/^oal_wedge=//p' "$run/bench.txt" 2>/dev/null)
 	echo "== dump setup (core_pattern, gdb, sudo)"; cat "$x/setup.txt" 2>/dev/null
 	echo "== sysroot: unpacked ${#have[@]}: ${have[*]:-}"
 	echo "== sysroot: not found (no symbols): ${missing[*]:-none}"
+	echo "== executable: ${exe:-not in the sysroot (no shared library symbols)}"
+	# the sound card: when its hw pointer last moved (status tstamp) against the trigger, on the
+	# PS3's monotonic clock (= uptime there): the game's start (threads.txt, field 22 in 1/100 s)
+	# plus the trigger's game time; captures since local/0047's harness change also have the uptime
+	# of the read and a second status 1 s later (LOG-FINDINGS.md 1)
+	echo "== sound card at the trigger"
+	awk -v at="$(sed -n 's/^at=//p' "$x/trigger.txt" 2>/dev/null)" \
+	    -v st="$(awk '/^stat:/ { print $23; exit }' "$x/threads.txt" 2>/dev/null)" '
+		/^uptime:/ { if (!up) up = $2 }
+		/^== 1 s later, uptime:/ { later = 1; up2 = $6 }
+		/^state: / { if (!later && s1 == "") s1 = $2; else if (later) s2 = $2 }
+		/^tstamp *:/ { if (later) t2 = $3; else t1 = $3 }
+		/^hw_ptr *:/ { if (later) h2 = $3; else h1 = $3 }
+		END {
+			if (s1 == "") { print "no playback status (the card was closed)"; exit }
+			trig = (st != "" && at != "") ? st / 100 + at : 0
+			printf "state %s, hw_ptr %s, last moved at %s", s1, h1, t1
+			if (trig) printf "; trigger at ~%.2f (game start %.2f + %s s)", trig, st / 100, at
+			if (up) printf "; read at %.2f", up
+			printf "\n"
+			if (s1 == "RUNNING") {
+				ref = up ? up : 0
+				if (ref && ref - t1 > 0.1) printf "the hw pointer stood still for %.2f s at the read: the DMA stopped (%.2f s before the trigger)\n", ref - t1, trig ? trig - t1 : 0
+				else if (!ref && trig && trig - t1 > 0.1) printf "the hw pointer last moved %.2f s before the trigger: the DMA stopped\n", trig - t1
+				else if (!ref && trig && t1 > trig) printf "the hw pointer still moved %.2f s after the trigger (this capture has no read time)\n", t1 - trig
+				else if (!ref) print "no read time in this capture: compare tstamp with the trigger above"
+				else print "the hw pointer was moving at the read"
+			}
+			if (later) printf "1 s later: state %s, hw_ptr %s (%s)\n", s2, h2, (h2 == h1 ? "did not move" : "moved")
+		}' "$x/alsa.txt" 2>/dev/null
+	[ -s "$x/interrupts.txt" ] && { echo "== snd_ps3 interrupts (then 1 s later)"; sed -n '/== all/q;p' "$x/interrupts.txt"; }
+	[ -s "$x/snd_ps3.txt" ] && { echo "== snd_ps3 parameters"; cat "$x/snd_ps3.txt"; }
 } > "$out"
 if [ -z "$core" ]; then
 	echo "== no core in $x (gdb missing on the PS3, or a crash with no core): see the other files in dump/" >> "$out"
@@ -99,6 +146,6 @@ args=(-batch -nx -ex 'set pagination off' -ex 'set width 0' -ex 'set confirm off
 	-ex "set sysroot $sys" -ex "set debug-file-directory $sys/usr/lib/debug" -ex 'set auto-load safe-path /'
 	-ex 'info sharedlibrary' -ex 'info threads' -ex 'thread apply all bt full')
 [ "${oal:-0}" -gt 0 ] 2>/dev/null && args+=(-ex "source $py")
-{ echo "== gdb on $(basename "$core")"; "$GDB" "${args[@]}" -c "$c" 2>&1; } >> "$out"
+{ echo "== gdb on $(basename "$core")"; "$GDB" "${args[@]}" ${exe:+"$sys$exe"} -c "$c" 2>&1; } >> "$out"
 [ "${KEEP:-0}" = 1 ] || rm -f "$c"
 echo "analysis: $out ($(wc -l < "$out") lines)"

@@ -36,14 +36,18 @@ per game with the debug output on.
 
 ## Catching failures
 
-State (2026-10-19): built and selftested on the PC, not yet run on the PS3. `DUMPON=1` (a run.sh variable or
+State (2026-10-20): ran on the PS3 on 2026-10-19 (the OpenAL captures of item 1); the capture's sound-card
+files (the second ALSA read, interrupts.txt, snd_ps3.txt) are newer and have not run there yet. `DUMPON=1` (a run.sh variable or
 ENVS token; off by default, never in measured runs) makes client.sh catch the first failure line:
 `Wait timeout`, `mmap commit error`, `out of GART`, `out of VRAM` or `no memory to back the GART`
 (`DUMPON_RE` replaces the list; as an ENVS token it can hold no space or `+`; `DUMPON_MAX`, default 1,
 captures per run). The game is stopped (SIGSTOP) for the capture and let go after it. Into the run's `dump/`:
 `trigger.txt` (the line and its second in the run), `proc.{status,maps,smaps_rollup,limits,nfd}`,
-`threads.txt` (every thread's stat, wchan, syscall and kernel stack), `alsa.txt` (cards and every
-playback substream's status, hw_params, sw_params), `gpu.txt` (ps3rsx's debugfs `ps3rsx_mm` and
+`alsa.txt` (read first: /proc/uptime, cards and every playback substream's status, hw_params,
+sw_params, then the status again with the uptime 1 s later; the status tstamp is the last time the hw
+pointer moved, on the uptime's clock), `interrupts.txt` (snd_ps3's line of /proc/interrupts, then 1 s
+later with the whole file), `snd_ps3.txt` (its module parameters: `dma_stats` on a kernel with
+local/0047), `threads.txt` (every thread's stat, wchan, syscall and kernel stack), `gpu.txt` (ps3rsx's debugfs `ps3rsx_mm` and
 `ps3rsx_hw_state`, its module parameters), `meminfo`, `vmstat`, `swaps`, `dmesg.tail` (200 lines),
 `gdb.log` (the backtraces gdb can name on the PS3) and the `gcore` as `core.zst` (xz when there is no
 zstd). bench.txt gets `dump=` (trigger, crash, trigger+crash, none), `dump_at=` (seconds into the run),
@@ -64,41 +68,93 @@ of another handler (apport) is only noted.
 Analysis on the PC: `games/bench/dumpana.sh <run dir copied from the PS3>` builds a sysroot in
 `build/tmp/dumpana/` (base libraries from `build/chroot/sid-ppc64.tar`, then the packages and `-dbgsym` debs
 at the versions in the run's `versions` file, from build/debs, build/aptly/pool, build/apt-cache; libc6
-symbols come from debuginfod.debian.net), runs gdb on the core and writes `dump/analysis.txt`:
-`info sharedlibrary`, `thread apply all bt full`, and for runs with `oal_wedge>0` the threads sitting in
-ALSA/OpenAL. Packages it could not find are listed in the file's header.
+symbols come from debuginfod.debian.net; the game's executable and any other mapped file the sysroot
+lacks, libasound for one, from the PS3 image `build/rootfs/debian-ppc64.tar`), runs gdb on the core with
+the executable (without it gdb loads no shared libraries) and writes `dump/analysis.txt`: the sound
+card at the trigger (when its hw pointer last moved against the trigger and the read: "the DMA
+stopped" or "was moving"), snd_ps3's interrupts and parameters, `info sharedlibrary`, `thread apply
+all bt full`, and for runs with `oal_wedge>0` the threads sitting in ALSA/OpenAL. Packages it could not
+find are listed in the file's header.
 
 The GART crash (item 2): `ps3rsx_gart` and `ps3rsx_cma` are kernel command-line parameters, not runtime
 ones, so a reduced GART needs a reboot into Petitboot by the user; the repro batch runs without it first.
 
 ## Findings, worst first
 
-### 1. OpenAL's mixer stops and the harness does not notice
+### 1. The sound card's DMA stops, and OpenAL's mixer waits for good
 
-Games: SuperTuxKart (6 of 21 runs since 10-18), OpenArena (6 of 75), ClassiCube (3 of 31), Luanti (2 of
-38); every game that plays through OpenAL Soft's ALSA backend. SDL_mixer games never show it.
+State (2026-10-20): cause found from two DUMPON captures; the fix is kernel patch local/0047 (a DMA
+watchdog in snd_ps3), built as a test module for the booted kernel, not on the PS3 yet. The A/B is in
+[TESTS.md](../TESTS.md) "Next".
 
-Evidence: `20261019T011809Z-supertuxkart-lean`, game.log line 85 `[ALSOFT] (EE) mmap commit error: Broken
-pipe` at 11 s, then from line 95 `(EE) Wait timeout... buffer size too low?` once a second, 244 times,
-from 61 s to the end at 304 s. The same shape in all 17 runs: an EPIPE 6-46 s in (the load's stall
-starves the device), later one timeout a second until the run ends (first timeout 60-225 s in). bench.txt
-of every one of these runs says `sound=RUNNING` and `underruns=0`.
+Games: SuperTuxKart (6 of 21 runs from 10-18 to 10-19 morning), OpenArena (6 of 75), ClassiCube (3 of
+31), Luanti (2 of 38): about 10% of the runs of the games that play through OpenAL Soft. 42 runs in
+build/bench have more than 5 `Wait timeout` lines; in 14 of them the first OpenAL error is the timeout
+itself, with no xrun before it.
 
-Cause: the log line is OpenAL's `snd_pcm_wait(1000 ms)` returning with nothing consumed: the ALSA stream
-is not advancing, and OpenAL's mixer thread keeps waiting. Our harness counts xruns from ALSA's
-`snd_pcm_recover` message, which OpenAL's own backend never prints, so these runs read as clean. The
-stream stopped after the first EPIPE; whether OpenAL's recovery leaves it prepared but not restarted, or
-dmix's slave stops, is open. It fits the webcam microphone hearing only the room in 14 of 17 SuperTuxKart
-clips ([supertuxkart.md](supertuxkart.md)).
+What it looks like: game.log gets `[ALSOFT] (EE) Wait timeout... buffer size too low?` once a second
+until the game exits, and the sound is gone. Picture and fps are fine; the mixer thread sleeps, so the
+run even looks cheaper. bench.txt said `sound=RUNNING` and `underruns=0`. Often there are one or a few
+`mmap commit error: Broken pipe` lines earlier: those are a different, harmless thing (below).
 
-Effect: sound is gone for the rest of the session in the affected runs; picture and fps are fine (the
-mixer thread sleeps, so it even saves CPU, which makes OpenAL games look cheaper than they are).
+Cause: snd_ps3's DMA stops while the card stays RUNNING. snd_ps3 programs and kicks each 256-frame
+block from the buffer-empty interrupt of the block before it, and moves its hw pointer only there; when
+one of those interrupts does not come, or comes in a state its handler does not recover from, nothing
+starts the chain again. ALSA never sees an xrun, because dmix sets the card's `stop_threshold` to the
+boundary (alsa.txt's sw_params). dmix's clients wait on the card's period timer, which ticks from the
+same missing interrupt. Evidence, `20261019T213651Z-classicube` (DUMPON, the trigger was the first
+`Wait timeout` at 103.56 s, about 7264.6 s on the PS3's clock, the game having started at 7161.03):
 
-Fix (backlog "OpenAL's stuck mixer", S-M): count `Wait timeout` and `mmap commit error` lines into
-bench.txt (`oal_timeouts=`, `oal_epipe=`) and show them in report.py's xrun column, so a wedged run is
-visible; then on the PS3 read `/proc/asound/card0/pcm0p/sub0/status` and the dmix process during a
-wedge, and try `[alsa] mmap=false` (the write path recovers with `snd_pcm_prepare`) and a bigger
-period against the same game in the same boot.
+- the card's status: `state: RUNNING`, `hw_ptr 4784128`, `tstamp 7263.60`. The kernel moves tstamp
+  only when the hw pointer moves, so the pointer last moved 0.99 s before OpenAL's first timeout (its
+  wait is 1 s) and at least 4 s before the capture read it;
+- no xrun before it in that run;
+- the core (dumpana.sh, with alsa-lib's structures from its source): OpenAL's mixer in `snd_pcm_wait`
+  (alsa.cpp:505) on `default` = plug, softvol, `dmix:CARD=0,FORMAT=S16`. The dmix client is RUNNING,
+  never recovered (`recoveries 0`), its buffer full (appl_ptr - hw_ptr = 1536 = buffer_size, avail 0),
+  and its copy of the card's pointer equals the kernel's. Everything above the card is consistent and
+  waiting for the card.
+
+Why no recovery in user space helps: OpenAL's `snd_pcm_recover`/`prepare`/`start` act on the dmix
+client, and dmix prepares and starts the card only when the card itself is in SETUP or XRUN, which
+never happens here. `mmap=false` (`mixerNoMMapProc`) waits in the same `snd_pcm_wait`. Periods,
+`slowptr` and `avail_min` change nothing while the pointer does not move. Closing and reopening the
+device would restart the card only if no other client holds it. So the fix belongs in snd_ps3. Why the
+interrupt goes missing is not known: the stalls come in heavy moments (loads, swapping), and the
+handler's underflow-only branch reprograms the DMA without forcing channels that are stuck (it waits
+7 ms per channel, gives up and overwrites). The watchdog records the registers when it fires.
+
+The `mmap commit error: Broken pipe` (and `available update failed: Broken pipe`) lines are client
+xruns: OpenAL's mixer thread starved past its 32 ms buffer (6 periods of 256 frames under dmix; no RT
+priority, RTKit is absent). `20261019T212529Z-openarena` was dumped at one: the dmix client's
+`avail_max` was 5120 frames (107 ms without a write), OpenAL recovered it at once (RUNNING again, buffer
+refilled, its trigger time the trigger's second), and the card was still moving 4.5 s later. That run's
+wedge came later and on its own. A larger buffer (`OAL=p1024`: 1024-frame periods, 64 ms) would make
+these rarer, at the cost of latency.
+
+Fix: kernel patch `linux/patches/local/0047-snd-ps3-dma-watchdog.patch`. While playing, a timer checks
+every `snd_ps3.dma_watchdog_ms` (default 200, 0 off, read at stream start;
+`/sys/module/snd_ps3/parameters/dma_watchdog_ms`) that buffer-empty interrupts still arrive. When none
+came, a work item takes the interrupt and the stream lock, stops the DMA (forced, as trigger stop does)
+and starts it again as trigger start does; the hw pointer goes on from where it stopped, so OpenAL only
+sees a gap and never times out (200-400 ms against its 1 s wait). Nothing changes while the interrupts
+come. While restarts do not bring them back, the checks slow down to 16 times the interval.
+`/sys/module/snd_ps3/parameters/dma_stats` counts interrupts by kind (buffer empty, empty with
+underflow, underflow alone, neither) and restarts, with the kick, interrupt and serial-out registers at
+the last restart (also in a ratelimited dmesg warning). `snd_ps3.dma_test_stall=1`, written while
+playing, makes the handler only acknowledge interrupts until the watchdog's restart or the stream's
+end: the same stall on demand, so the watchdog can be tested in seconds instead of waiting for the 10%.
+
+The patch is in the kernel series for the next kernel build. For a test without a new kernel and a
+reboot, `make snd-ps3-ko REL=6.12.111+ps3.472` builds snd_ps3.ko with it for the booted kernel
+(`build/debs/snd-ps3/6.12.111+ps3.472/`, with the kernel's own cross compiler and Module.symvers;
+`tools/snd-ps3-ko.sh` has the install and revert steps). On the host it only compiles (clean with W=1):
+nothing emulates the PS3's audio block, so the proof is the PS3 test.
+
+The harness records it now (client.sh, every run): `snd_stall=` (seconds the card's hw pointer stood
+still while RUNNING, sampled once a second) and `snd_stall_at=`, `oal_wait=` (Wait timeout lines) and
+`oal_xrun=` (commit and avail errors) beside `oal_wedge=` (both), and on a kernel with the patch
+`snd_restarts=`, `snd_wd=`, `snd_stats=`. report.py's `sstall` column shows it, logscan.py counts it.
 
 ### 2. A failed buffer allocation ends in a segfault
 

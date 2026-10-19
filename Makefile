@@ -26,13 +26,13 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: initrd-ssd initrd-busybox repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull \
+.PHONY: initrd-ssd initrd-busybox repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull \
 	classicube classicube-audio classicube-deploy classicube-bench quake-data
 
 help:
 	@echo "Packages (docs/PACKAGING.md):"
 	@echo "  make packages     all our packages -> $(BUILD)/debs/<pkg> (kernel first, ps3rsx last)"
-	@echo "  make <pkg>-deb    one source package (linux, mesa, ps3-desktop, ...); make ps3rsx-modules"
+	@echo "  make <pkg>-deb    one source package (linux, mesa, ps3-desktop, ...); make ps3rsx-modules; make snd-ps3-ko REL=..."
 	@echo "                    the RSX driver for both kernels in $(BUILD)/debs/linux"
 	@echo "  make quake-data   Quake shareware and Quake II demo data debs (game-data-packager; the published"
 	@echo "                    files when the ps3 suite has them) -> $(BUILD)/debs/quake-data"
@@ -440,6 +440,13 @@ ps3rsx-modules:
 		rel=$$(basename $$d | sed 's/^linux-image-//; s/_.*//'); echo ">> ps3rsx for $$rel"; \
 		$(MAKE) --no-print-directory ps3rsx-src ps3rsx-deb KERNEL_RELEASE=$$rel KERNEL_FLAVOUR=$${f#*:}; \
 	done
+# snd_ps3.ko out of tree with linux/patches' sound/ppc patches, for the kernel REL (default: the newest
+# release kernel in build/debs/linux), to try them without a new kernel: build/debs/snd-ps3/<REL>
+snd-ps3-ko: | $(REPO_BUILDER_STAMP)
+	@set -e; rel='$(REL)'; if [ -z "$$rel" ]; then $(KERNEL_DEB_SH); d=$$(kernel_deb release); \
+		rel=$$(basename "$$d" | sed 's/^linux-image-//; s/_.*//'); fi; \
+	docker run --rm -v $(CURDIR):/work -w /work --user $(UID_GID) -e JOBS=$(JOBS) $(REPO_BUILDER_TAG) \
+		tools/snd-ps3-ko.sh "$$rel"
 chroot: | $(REPO_BUILDER_STAMP)
 	@tools/disk-check.sh
 	docker run --rm --privileged -v $(CURDIR):/work -w /work $(DEB_ENV) $(REPO_BUILDER_TAG) tools/deb-chroot.sh
