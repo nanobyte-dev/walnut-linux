@@ -38,6 +38,7 @@ Sound: tools/bench-audio.sh records 8 s of the webcam microphone after every pho
 | PLAN 2.6 repeats: Sauerbraten `oqlag` x3, Luanti `view40` x3, ETR steady-state with stalls, Teeworlds, Armagetron live | as listed | PS3 | PLAN 2.6 (ClassiCube `chunks1` and X-Moto `stream` were repeated in batch 16) |
 | Mesa 0039 `NV30_SHADER_CACHE=on` cold/warm | OpenArena gl2min, Sauerbraten | PS3 | PROFILING.md "nv30's shader cache" (skipped in ssd1: upper bound 0.4 s) |
 | Kernel guard (local/0045, on in the series since 1abb2a1): a kernel deb with it, then GAMEOS-HDD.md "On the PS3" steps 1-5 (write-backs of data already there; Phase A needs the new ps3-imgmap on a guard kernel, and an initramfs rebuilt for that release with guard=required) | none | the user (reboot into the guard kernel), then PS3 | GAMEOS-HDD.md "The kernel guard" |
+| local/0043 console frame release: turn its switch on in a boot with X up, MemAvailable with and without (8 of the console's 9 MB while X runs), the console back after X quits | none (RAM A/B) | PS3, a reboot if the switch is boot-time | KERNEL-MEMORY.md |
 | Sound by ear: everything bench-audio flags, dsda-doom's music, OpenTTD's music, SuperTuxKart (`sound=none`) | | the user | PLAN 2.1, 2.8 |
 | Game mode at the TV, menu-only smoke games (TORCS, Trigger Rally, Chromium B.S.U.), Nexuiz, the interference detector's checks, power paths, 7th SPE, fan floor | | the user | PLAN 1.8-1.13, 4.2, 4.4 |
 | Release image session | | the user | RELEASE-CANDIDATES.md |
@@ -50,7 +51,7 @@ in games/bench/results/.
 | Date | Boot / root | Batch | Verdict | Commit |
 |---|---|---|---|---|
 | 10-19 02:37 | .472, USB root | ssd1: game data and VRAM-swap spill on the SSD file (Phase A), Sauerbraten x3, OpenArena x3 (stopped early) | game data alone leaves the load's USB disk wait at 5-6 s; Sauerbraten no proven gain, OpenArena load -28% | 9e6bc57 |
-| 10-18 23:50 | .472 | batch 17: ioquake3 462 snorm colours, Mesa 0037 sysmem copy + invalidate, cube2 shortnormals, GLSL disk cache, start-up profiles | OpenArena gl2min 57-60 fps with 1-2 s stalls (9-11 before); color16 stalls 12 -> 1.5 s; Sauerbraten +17%; GLSL cache no load gain | 3939a48 |
+| 10-18 23:50 | .433 (Mesa .442~dev) | batch 17: ioquake3 462 snorm colours, Mesa 0037 sysmem copy + invalidate, cube2 shortnormals, GLSL disk cache, start-up profiles | OpenArena gl2min 57-60 fps with 1-2 s stalls (9-11 before); color16 stalls 12 -> 1.5 s; Sauerbraten +17%; GLSL cache no load gain | 3939a48 |
 | 10-18 20:29 | .433 | batch 16: game prefetch, idle fix on/off, ClassiCube chunks1, X-Moto stream, Luanti chunk3 | prefetch no gain (default off); idle fix confirmed; chunks1 +4.7%; stream +1%; chunk3 empties the world | 296f99d |
 | 10-18 16:33 | .433 | Luanti clean re-runs | cliunload worse, lean draws a black void; base stays | 6880c07 |
 | 10-18 15:35 | .419 | idle fix in game, OpenArena | stalls 0.1-0.5 s with, 5.6-8.2 without (SSH-polled; repeated clean in batch 16) | e59c09a |
