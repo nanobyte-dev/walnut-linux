@@ -58,6 +58,11 @@
 # FLUIDSYNTH_SETTINGS), ZLIB=ng zlib-ng's libz.so.1 (libz-ng-compat), LDPATH=DIR copies of replaced
 # libraries in front (a same-boot A/B against a package's previous version), BINDNOW=1 LD_BIND_NOW,
 # JSIMD=none|altivec libjpeg-turbo's SIMD; report.py base@oalb16, @fxoff, @zng, @bindnow, @jsimdnone.
+# DUMPON=1: a failure dump for investigation runs, never for measured ones (client.sh header,
+# docs/games/LOG-FINDINGS.md "Catching failures"): the first "Wait timeout", "mmap commit error", "out of
+# GART", "out of VRAM" or "no memory to back the GART" line (DUMPON_RE another regex, DUMPON_MAX captures,
+# default 1) freezes the game and saves its core (gdb on the PS3), /proc, threads, ALSA and ps3rsx state into
+# the run's dump/; a crash's core too. bench.txt dump=, dump_at=, oal_wedge=; analyse with dumpana.sh DIR.
 # Interference (docs/STALLS.md "Interference"): ps3-bench.sh's detector flags a run somebody
 # disturbed (input, a VT switch, a device, an SSH login or command); run.sh prints a warning after it,
 # report.py marks it and leaves it out of the medians, matrix.py skips it. RERUN_INTERFERED=1 runs
@@ -74,7 +79,7 @@ LOG=/dev/shm/run.sh.$$
 [ -n "${PERF_ALL:-}" ] && export BENCH_PERF_ALL=$PERF_ALL
 [ -n "${PERF_LOAD:-}" ] && export BENCH_PERF_LOAD=$PERF_LOAD
 [ -n "${MEM:-}" ] && export BENCH_MEM=$MEM
-for v in STALLS_MS STALLS_CPU STALLS_NOWRITE WAKER WAKER_MODE WAKER_CPU PROBE PROBE_MS PROBE_CPU MALLOC MALLOC_TRIM_S GAMEPREFETCH GAMEPREFETCH_MB GAMEPREFETCH_RESERVE_MB GAMEPREFETCH_IO SHADERCACHE SHADERCACHE_ROOT LDSTATS PERF_LOAD_WAIT GAMEDATA SWAP; do
+for v in STALLS_MS STALLS_CPU STALLS_NOWRITE WAKER WAKER_MODE WAKER_CPU PROBE PROBE_MS PROBE_CPU MALLOC MALLOC_TRIM_S GAMEPREFETCH GAMEPREFETCH_MB GAMEPREFETCH_RESERVE_MB GAMEPREFETCH_IO SHADERCACHE SHADERCACHE_ROOT LDSTATS PERF_LOAD_WAIT GAMEDATA SWAP DUMPON DUMPON_RE DUMPON_MAX; do
 	[ -n "${!v:-}" ] && export "BENCH_$v=${!v}"
 done
 RUNS=()

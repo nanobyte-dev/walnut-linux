@@ -34,6 +34,43 @@ of temps", a TGSI fallback or the draw module. Mesa prints those only with `NV30
 `MESA_DEBUG`, which no recipe sets, so "no such lines" means "not looked for". Item 9 proposes one run
 per game with the debug output on.
 
+## Catching failures
+
+State (2026-10-19): built and selftested on the PC, not yet run on the PS3. `DUMPON=1` (a run.sh variable or
+ENVS token; off by default, never in measured runs) makes client.sh catch the first failure line:
+`Wait timeout`, `mmap commit error`, `out of GART`, `out of VRAM` or `no memory to back the GART`
+(`DUMPON_RE` replaces the list; as an ENVS token it can hold no space or `+`; `DUMPON_MAX`, default 1,
+captures per run). The game is stopped (SIGSTOP) for the capture and let go after it. Into the run's `dump/`:
+`trigger.txt` (the line and its second in the run), `proc.{status,maps,smaps_rollup,limits,nfd}`,
+`threads.txt` (every thread's stat, wchan, syscall and kernel stack), `alsa.txt` (cards and every
+playback substream's status, hw_params, sw_params), `gpu.txt` (ps3rsx's debugfs `ps3rsx_mm` and
+`ps3rsx_hw_state`, its module parameters), `meminfo`, `vmstat`, `swaps`, `dmesg.tail` (200 lines),
+`gdb.log` (the backtraces gdb can name on the PS3) and the `gcore` as `core.zst` (xz when there is no
+zstd). bench.txt gets `dump=` (trigger, crash, trigger+crash, none), `dump_at=` (seconds into the run),
+`dump_core=` (raw:compressed bytes); report.py shows `dump` and `wedge`. `oal_wedge=` (the Wait timeout
+and mmap commit error lines) is written in every run, and logscan.py counts it as an audio finding.
+
+PS3 prerequisites: `sudo apt install gdb` (without it the capture still writes everything but the core and
+says so in `dump/setup.txt`; also `zstd` or `xz`); passwordless `sudo -n` for the kernel stacks, debugfs,
+dmesg and ptrace of the game (without it those files hold the error and gdb may be refused by Yama).
+Room: a game's core is some hundreds of MB raw, in `/var/tmp/ps3-bench` until copied off.
+
+Crashes: with DUMPON the game runs under `ulimit -c unlimited` and after a death by signal client.sh
+collects the core as `dump/core.crash.zst`: through `coredumpctl dump` when `/proc/sys/kernel/core_pattern`
+is systemd-coredump, else the core file in the pattern's directory or the game's working directory. Which
+one applies is in `dump/setup.txt` (`core_pattern=`); the system's pattern is never changed. A pipe pattern
+of another handler (apport) is only noted.
+
+Analysis on the PC: `games/bench/dumpana.sh <run dir copied from the PS3>` builds a sysroot in
+`build/tmp/dumpana/` (base libraries from `build/chroot/sid-ppc64.tar`, then the packages and `-dbgsym` debs
+at the versions in the run's `versions` file, from build/debs, build/aptly/pool, build/apt-cache; libc6
+symbols come from debuginfod.debian.net), runs gdb on the core and writes `dump/analysis.txt`:
+`info sharedlibrary`, `thread apply all bt full`, and for runs with `oal_wedge>0` the threads sitting in
+ALSA/OpenAL. Packages it could not find are listed in the file's header.
+
+The GART crash (item 2): `ps3rsx_gart` and `ps3rsx_cma` are kernel command-line parameters, not runtime
+ones, so a reduced GART needs a reboot into Petitboot by the user; the repro batch runs without it first.
+
 ## Findings, worst first
 
 ### 1. OpenAL's mixer stops and the harness does not notice

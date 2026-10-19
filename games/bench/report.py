@@ -38,6 +38,9 @@ from before 2026-10-17 have none):
   so      pages swapped out until the load ended / during the whole run
   vsw     VRAM swap: peak pages in VRAM, pages written back to the disk (shrinks)
   xrun    ALSA underruns (the sound buffer ran dry: audible chopping)
+  wedge   lines of OpenAL's wedged mixer ("Wait timeout", "mmap commit error": bench.txt oal_wedge=)
+  dump    DUMPON=1 runs: what caught the failure dump (trigger, crash, trigger+crash, none) @ seconds
+          into the run (bench.txt dump=, dump_at=; games/bench/dumpana.sh analyses it)
   tmax    the hottest temperature over the run per zone, degrees C, Cell/RSX (ps3-bench.sh temp_max=,
           from the kernel's ps3_sm sensors, docs/THERMAL.md); "!" after it: the run was stopped at
           BENCH_TEMP_MAX. tcell, trsx the same as numbers (medians in the per-variant line)
@@ -206,6 +209,10 @@ def run(d):
     interference(d, b, r)
     if (v := num(b.get("underruns"))) is not None:
         r["xrun"] = int(v)
+    if (v := num(b.get("oal_wedge"))) is not None:
+        r["wedge"] = int(v)
+    if b.get("dump"):     # DUMPON=1 runs: trigger|crash|trigger+crash|none, and when (s)
+        r["dump"] = b["dump"] + ("@" + b["dump_at"] if b.get("dump_at") else "")
     if b.get("temp_max"):   # ps3-bench.sh: cell:71.5 rsx:66.0 (degrees C)
         t = dict(x.split(":", 1) for x in b["temp_max"].split() if ":" in x)
         r["tmax"] = "/".join(t.values()) + ("!" if b.get("temp_stop") == "1" else "")
@@ -564,7 +571,7 @@ def steady(d, b, r):
 COLS = ["load", "fps", "maxms", "hud", "steady", "src", "low1", "stalls", "smooth", "stall_s", "longest", "stalls_play", "stall_play_s", "longest_play", "low1_play", "win_play",
         "reload_s", "win", "passes", "stalls_warm", "stall_warm_s", "longest_warm",
         "ftdrift", "cpu", "rss", "vram", "gart", "avail", "so_load", "so_all",
-        "vsw_peak", "vsw_wb", "xrun", "tmax", "tcell", "trsx", "snd", "end", "intf", "stall_disk_s", "stall_swap_s", "stall_reclaim_s",
+        "vsw_peak", "vsw_wb", "xrun", "wedge", "dump", "tmax", "tcell", "trsx", "snd", "end", "intf", "stall_disk_s", "stall_swap_s", "stall_reclaim_s",
         "stall_gpu_s", "stall_cpu_s", "stall_io_s", "stall_wait_s", "stall_other_s", "stall_why",
         "load_disk_s", "warm_disk_s", "warmup_disk_s"]
 # the profiles' columns: printed only for the runs that have them

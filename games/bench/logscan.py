@@ -225,6 +225,11 @@ def scan_run(d, ignored_out=None):
             found[("audio", "bench.txt: underruns>0 (ALSA xruns during the run)")] += int(kv["underruns"])
     except ValueError:
         pass
+    try:
+        if int(kv.get("oal_wedge", "0") or 0) > 0:
+            found[("audio", "bench.txt: oal_wedge>0 (OpenAL's mixer wedged: Wait timeout / mmap commit error)")] += int(kv["oal_wedge"])
+    except ValueError:
+        pass
     return found, kv
 
 

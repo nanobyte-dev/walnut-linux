@@ -42,6 +42,10 @@
      client.sh with BENCH_PERF_LOAD and a fake perf that acknowledges late: the game held at the gate
      until then, perf off at the window's start, the counters, LD_DEBUG's files; BENCH_SHADERCACHE
      cold, warm (prime first) and off
+ 13. the failure dump (client.sh BENCH_DUMPON, docs/games/LOG-FINDINGS.md "Catching failures"): a fake
+     game printing OpenAL's "Wait timeout" line twice, a fake gdb and sudo on PATH: one capture into
+     dump/ (trigger, proc files, threads, a compressed core), dump=trigger, dump_at=, oal_wedge=2,
+     the game let go after it; DUMPON off: no dump dir and no dump= line; a game dying of SIGSEGV
 Exit status 0 when every check passes; scratch files in a temporary directory, removed at the end."""
 import os
 import re
@@ -332,7 +336,8 @@ def fake_game(mode):
     ft = open(os.path.join(hud, "frametime_(ms)"), "a", buffering=1) if hud else None
     fp = open(os.path.join(hud, "fps"), "a", buffering=1) if hud else None
     last = sec = time.monotonic()
-    frames = passn = 0
+    frames = passn = wedges = 0
+    alive = False
     pass_t = time.monotonic()
     while time.monotonic() - t0 < 30:
         time.sleep(0.02)
@@ -348,6 +353,14 @@ def fake_game(mode):
             passn += 1
             say("pass: %d frames 1.5 seconds %d.0 fps, max %d ms" % (75, 10 * passn, 20 + passn))
             pass_t = now
+        if mode in ("wedge", "crash") and wedges < 1 + (mode == "wedge") and now - t0 >= 1 + 0.5 * wedges:
+            wedges += 1
+            say("[ALSOFT] (EE) Wait timeout... buffer size too low?")
+        if mode == "wedge" and 3 <= now - t0 and not alive:
+            alive = True
+            say("alive after the dump")
+        if mode == "crash" and now - t0 >= 2:
+            os.kill(os.getpid(), 11)
         if mode == "own" and 1 <= now - t0 < 1.03:
             say("own: window on")
         if mode == "own" and 1.5 <= now - t0 < 1.53:
@@ -364,6 +377,8 @@ RECIPES = {
 variant_nostop() { WINDOW_STOP=0; DURATION=6; }""",
     "fakepass": """CMD=("$FAKE" --fake-game passes); FPS_RE='^pass: [0-9]+ frames [0-9.]+ seconds ([0-9.]+) fps'
 MAXMS_RE='^pass: .* max ([0-9]+) ms'; PASSES=1; WARMUP=3; MEASURE=4; DURATION=25""",
+    "fakewedge": """CMD=("$FAKE" --fake-game wedge); COMM=python3; DURATION=6; WARMUP=1; MEASURE=2""",
+    "fakecrash": """CMD=("$FAKE" --fake-game crash); COMM=python3; DURATION=8; WARMUP=1; MEASURE=2""",
     "fakeown": """CMD=("$FAKE" --fake-game own); STEADY_RE='^own: steady [0-9]+ frames in [0-9]+ ms: ([0-9.]+) fps'
 STEADY_MAXMS_RE='^own: steady .* longest ([0-9]+) ms'; WARMUP=1; MEASURE=1; DURATION=25
 WIN_ON_RE='^own: window on'; WIN_OFF_RE='^own: window off'""",
@@ -477,6 +492,54 @@ def client_gprefetch(tmp):
     check("gprefetch fetch with BENCH_GAMEPREFETCH_MB=1: the budget 1 MB, tag gpffetch_mb1",
           b.get("gprefetch") == "fetch_mb1" and "budget 1.0 MB" in log and
           report.run(d).get("variant") == "base@gpffetch_mb1", (b.get("gprefetch"), log[-300:]))
+
+
+def client_dump(tmp):
+    """client.sh's failure dump: the watcher on a fake game that prints a trigger line, with a fake gdb
+    (gcore writes a file) and a sudo that refuses"""
+    bindir = tmp / "dumpbin"
+    bindir.mkdir()
+    write(bindir / "sudo", "#!/bin/sh\nexit 1\n")
+    write(bindir / "gdb", '''#!/bin/bash
+while [ $# -gt 0 ]; do case $1 in -ex) case $2 in "gcore "*) head -c 300000 /dev/zero > "${2#gcore }" ;; esac; shift ;; esac; shift; done
+echo "fake gdb backtraces"\n''')
+    for f in ("sudo", "gdb"):
+        (bindir / f).chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "GALLIUM_HUD",
+                                                            "GALLIUM_HUD_DUMP_DIR")}
+    env.update(BENCH_RECIPES=str(tmp / "recipes"), BENCH_BACKUP=str(tmp / "backup"),
+               PATH="%s:%s" % (bindir, os.environ["PATH"]))
+
+    def run(n, game, **kv):
+        d = tmp / ("ps3-bench-20261018T0500%02dZ-%s-base" % (n, game))
+        p = subprocess.run(["bash", str(HERE / "client.sh"), game, "base"], env=dict(env, BENCH_DIR=str(d), **kv),
+                           capture_output=True, text=True)
+        return p, d, report.kv(d / "bench.txt") if (d / "bench.txt").exists() else {}
+    p, d, b = run(0, "fakewedge", BENCH_DUMPON="1")
+    x = d / "dump"
+    names = sorted(f.name for f in x.iterdir()) if x.is_dir() else []
+    gl = (d / "game.log").read_text(errors="replace") if (d / "game.log").exists() else ""
+    check("dump: exit 0, dump=trigger, dump_at about 1 s, oal_wedge=2",
+          p.returncode == 0 and b.get("dump") == "trigger" and 0.8 <= float(b.get("dump_at") or 0) <= 2.5
+          and b.get("oal_wedge") == "2", (p.returncode, b, p.stdout[-500:], p.stderr[-300:]))
+    check("dump: one capture: trigger line, proc files, threads, a compressed core, sizes in bench.txt",
+          all(n in names for n in ("trigger.txt", "proc.status", "proc.maps", "proc.limits", "threads.txt", "alsa.txt",
+                                   "meminfo", "vmstat", "dmesg.tail", "setup.txt"))
+          and any(n in names for n in ("core.zst", "core.xz")) and "core" not in names
+          and (x / "trigger.txt").read_text().count("trigger=") == 1
+          and "Wait timeout" in (x / "trigger.txt").read_text()
+          and re.match(r"300000:\d+", b.get("dump_core", "")), (names, b))
+    check("dump: threads.txt lists the game's tasks; the game ran on after the dump (SIGCONT)",
+          "== tid " in (x / "threads.txt").read_text() and "alive after the dump" in gl, gl[-300:])
+    r = report.run(d)
+    check("dump: report.py shows dump and wedge", str(r.get("dump", "")).startswith("trigger@") and r.get("wedge") == 2, r)
+    p, d, b = run(1, "fakewedge")
+    check("dump: DUMPON off: no dump directory, no dump= line, oal_wedge still counted",
+          p.returncode == 0 and not (d / "dump").exists() and "dump" not in b and b.get("oal_wedge") == "2", (b, p.stdout[-300:]))
+    p, d, b = run(2, "fakecrash", BENCH_DUMPON="1", BENCH_DUMPON_RE="no such line")
+    check("dump: a game dying of SIGSEGV: exit 0, rc=139, dump= crash or none (host core_pattern), setup.txt names it",
+          p.returncode == 0 and b.get("rc") == "139" and b.get("dump") in ("crash", "none")
+          and "core_pattern=" in (d / "dump" / "setup.txt").read_text(), (b, p.stdout[-300:]))
 
 
 def client_libenv(tmp):
@@ -1662,6 +1725,7 @@ if __name__ == "__main__":
         client(tmp)
         client_gprefetch(tmp)
         client_libenv(tmp)
+        client_dump(tmp)
         client_ssdarm(tmp)
         lint()
         stalls_synthetic(tmp)

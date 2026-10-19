@@ -28,6 +28,16 @@
 # path, "" turns it off) at the window's start, middle and end into $D/mem/ (memprof.py); bench.txt
 # gets mem_snaps (label:seconds:ms reading smaps). BENCH_MALLOC: glibc malloc presets (below,
 # docs/MEMORY.md).
+# Failure dump (docs/games/LOG-FINDINGS.md "Catching failures"). BENCH_DUMPON=1 (run.sh DUMPON=1; off by
+# default, never in measured runs): the first game output line matching BENCH_DUMPON_RE (default:
+# Wait timeout, mmap commit error, out of GART, out of VRAM, no memory to back the GART; an ENVS token
+# can't hold spaces or +) stops the game (SIGSTOP), captures it into $D/dump/ (the trigger line, /proc
+# of the game and its threads with kernel stacks, ALSA, ps3rsx debugfs and parameters, meminfo, vmstat,
+# dmesg, a gcore compressed with zstd or xz; needs gdb on the PS3), and lets it go on. At most
+# BENCH_DUMPON_MAX captures (default 1). The game also runs with `ulimit -c unlimited`; after a death by
+# signal the core is collected as dump/core.crash.zst|xz (systemd-coredump, else the core file). bench.txt
+# gets dump=trigger|crash|trigger+crash|none, dump_at=<s>, dump_core=<raw>:<compressed bytes>,
+# oal_wedge= (always: OpenAL's "Wait timeout" and "mmap commit error" lines). dumpana.sh analyses it.
 # Start-up profiling (docs/PROFILING.md "Start-up profiling"): BENCH_PERF_LOAD=1 (run.sh
 # PERF_LOAD=1) covers the span the window leaves out: the game's exec, its loading screens and the
 # warm-up. With ps3-bench.sh's BENCH_PERF_LOAD_CTL the game is started through a gate (a bash that
@@ -152,6 +162,18 @@ if [ "$MEM" = 1 ]; then
 		preload_add "$MALLOCSTAT"
 		ENV+=(PS3_MALLOCSTAT_FIFO="$D/.malloc.fifo" PS3_MALLOCSTAT_DIR="$D/mem" PS3_MALLOCSTAT_COMM="$COMM")
 	fi
+fi
+# Failure dump (header): core dumps on for the game, the trigger list, the sudo test
+DUMPON=${BENCH_DUMPON:-0}; DUMP_N=0; DUMP_JOBS=(); DUMP_WHY=; DUMP_AT=; DUMP_SUDO=
+DUMP_RE=${BENCH_DUMPON_RE:-Wait timeout|mmap commit error|out of GART|out of VRAM|no memory to back the GART}
+DUMP_MAX=${BENCH_DUMPON_MAX:-1}
+if [ "$DUMPON" = 1 ]; then
+	mkdir -p "$D/dump"
+	sudo -n true 2>/dev/null && DUMP_SUDO="sudo -n"
+	{ echo "core_pattern=$(cat /proc/sys/kernel/core_pattern 2>&1)"; echo "trigger_re=$DUMP_RE"
+	  command -v gdb > /dev/null || echo "gdb: missing (apt install gdb): no gcore"
+	  echo "sudo=${DUMP_SUDO:-no}"; } > "$D/dump/setup.txt"
+	ulimit -c unlimited 2>> "$D/dump/setup.txt" || echo "ulimit -c unlimited refused: no crash core" >> "$D/dump/setup.txt"
 fi
 # glibc's malloc tuned for this run (docs/MEMORY.md): BENCH_MALLOC (run.sh MALLOC=, or an ENVS token
 # MALLOC=...) is a comma list of presets, added after the recipe and its variant:
@@ -442,6 +464,65 @@ trap 'stop_game; kill "${helpers[@]}" $wm 2>/dev/null
 	  echo "hwm=$(cat "$D/.hwm" 2>/dev/null)"; echo "sound=$(cat "$D/.sound" 2>/dev/null)"; } > "$D/bench.txt"
 	exit 1' HUP INT TERM
 
+# Failure dump: the game's state at the trigger line, into $D/dump/ (a background job: dump_capture PID
+# LINE SECONDS). The game is stopped first so that what is read is one moment, and let go at the end.
+dump_capture() {
+	local x=$D/dump p=$1 tk f raw z
+	{ printf 'trigger=%s\nat=%s\npid=%s\nreal=%s\n' "$2" "$3" "$p" "$EPOCHREALTIME"; } > "$x/trigger.txt"
+	for f in status maps smaps_rollup limits; do cat "/proc/$p/$f" > "$x/proc.$f" 2>&1; done
+	ls "/proc/$p/fd" 2>/dev/null | wc -l > "$x/proc.nfd"
+	for tk in /proc/$p/task/*; do
+		echo "== tid ${tk##*/} comm $(cat "$tk/comm" 2>&1)"
+		echo "stat: $(cat "$tk/stat" 2>&1)"; echo "wchan: $(cat "$tk/wchan" 2>&1)"; echo "syscall: $(cat "$tk/syscall" 2>&1)"
+		echo "stack:"; $DUMP_SUDO cat "$tk/stack" 2>&1
+	done > "$x/threads.txt"
+	{ cat /proc/asound/cards; tail -n +1 /proc/asound/card*/pcm*p/sub*/{status,hw_params,sw_params}; } > "$x/alsa.txt" 2>&1
+	{ $DUMP_SUDO sh -c 'tail -n +1 /sys/kernel/debug/dri/*/ps3rsx_* /sys/module/ps3rsx/parameters/*'; } > "$x/gpu.txt" 2>&1
+	cat /proc/meminfo > "$x/meminfo"; cat /proc/vmstat > "$x/vmstat"; cat /proc/swaps > "$x/swaps"
+	$DUMP_SUDO dmesg 2>&1 | tail -200 > "$x/dmesg.tail"
+	if command -v gdb > /dev/null; then
+		# the backtraces of what the PS3 itself can name, then the core (gcore writes the file as named)
+		$DUMP_SUDO timeout 300 gdb -batch -nx -p "$p" -ex 'thread apply all bt 40' -ex "gcore $x/core" > "$x/gdb.log" 2>&1
+		[ -n "$DUMP_SUDO" ] && $DUMP_SUDO chown "$(id -u):$(id -g)" "$x/core" 2>/dev/null
+		if [ -s "$x/core" ]; then
+			raw=$(stat -c %s "$x/core")
+			if command -v zstd > /dev/null; then zstd -q -1 -T0 --rm "$x/core" && z=$x/core.zst
+			else xz -1 -T0 "$x/core" && z=$x/core.xz; fi
+			echo "dump_core=$raw:$(stat -c %s "$z" 2>/dev/null || echo -)" > "$x/sizes.txt"
+		else echo "gdb produced no core (see gdb.log)" >> "$x/setup.txt"; fi
+	else echo "no gdb on the PS3: no core (apt install gdb)" >> "$x/setup.txt"; fi
+	kill -CONT "$p" 2>/dev/null
+	echo done > "$x/.complete"
+}
+dump_trigger() {	# dump_trigger LINE SECONDS: the first matching line: capture in the background
+	local p
+	read -r p < "$D/.pid" 2>/dev/null || p=$(pgrep -g "$gp" -x "$COMM" | head -1)
+	DUMP_N=$((DUMP_N + 1)); DUMP_WHY=trigger; DUMP_AT=$2
+	[ -n "$p" ] && [ -d "/proc/$p" ] || { echo "no game pid for the dump" >> "$D/dump/setup.txt"; return; }
+	kill -STOP "$p" 2>/dev/null
+	dump_capture "$p" "$1" "$2" > /dev/null 2>&1 & DUMP_JOBS+=($!)
+}
+dump_crash() {	# after a death by signal: the kernel's core into dump/core.crash.zst (or .xz)
+	local x=$D/dump pat n i f cwd z=
+	read -r pat < /proc/sys/kernel/core_pattern
+	if [[ $pat == *systemd-coredump* ]] && command -v coredumpctl > /dev/null; then
+		for i in 1 2 3 4 5 6 7 8; do	# systemd-coredump finishes after the process is gone
+			$DUMP_SUDO coredumpctl dump "$game_pid" -o "$x/core.crash" > /dev/null 2>&1 && break; sleep 1
+		done
+	elif [[ $pat != '|'* ]]; then	# a file: the pattern's directory, else the game's working directory
+		cwd=$(cat "$D/.cwd" 2>/dev/null); [[ $pat == /* ]] && cwd=${pat%/*}
+		f=$(find "${cwd:-.}" -maxdepth 1 -name 'core*' -newer "$x/setup.txt" 2>/dev/null | head -1)
+		[ -n "$f" ] && mv "$f" "$x/core.crash"
+	fi
+	if [ -s "$x/core.crash" ]; then
+		n=$(stat -c %s "$x/core.crash")
+		if command -v zstd > /dev/null; then zstd -q -1 -T0 --rm "$x/core.crash" && z=$x/core.crash.zst
+		else xz -1 -T0 "$x/core.crash" && z=$x/core.crash.xz; fi
+		echo "dump_core_crash=$n:$(stat -c %s "$z" 2>/dev/null || echo -)" >> "$x/sizes.txt"
+		[ -n "$DUMP_WHY" ] && DUMP_WHY=trigger+crash || DUMP_WHY=crash
+	else echo "no crash core found (core_pattern $pat)" >> "$x/setup.txt"; fi
+}
+
 # peak RSS of the game process (COMM), and the playback state of the sound card at SOUND_AT s
 watch_game() {
 	local p= i
@@ -450,6 +531,7 @@ watch_game() {
 	done
 	[ -n "$p" ] || return
 	echo "$p" > "$D/.pid"
+	[ "$DUMPON" = 1 ] && readlink "/proc/$p/cwd" > "$D/.cwd" 2>/dev/null
 	# builtins only, no forks every second (the client's CPU time counts them): the tick is a read
 	# timing out on a fifo nobody writes
 	local k v u hwm= tick
@@ -624,6 +706,9 @@ while :; do
 	[ $rc -ne 0 ] && [ -z "$l" ] && break	# end of output: the game is gone
 	printf '%s\n' "$l"; printf '%s\n' "$l" >> "$D/game.log"
 	us
+	if [ "$DUMPON" = 1 ] && [ "$DUMP_N" -lt "$DUMP_MAX" ] && [[ $l =~ $DUMP_RE ]]; then
+		secs DUMP_AT $(( US - u0 )); dump_trigger "$l" "$DUMP_AT"
+	fi
 	if [ -z "$load_us" ] && { { [ -n "$LOAD_MARK" ] && [[ $l =~ $LOAD_MARK ]]; } ||
 	                          { [ -n "$LOAD_RE" ] && [[ $l =~ $LOAD_RE ]]; }; }; then loaded; fi
 	if [ -z "$t_load" ] && [ -n "$LOAD_MARK" ] && [[ $l =~ $LOAD_MARK ]]; then t_load=$(age); fi
@@ -649,9 +734,11 @@ read -r game_pid < "$D/.pid" 2>/dev/null || game_pid=
 if [ "$MEM" = 1 ] && [ ${#MEM_DONE[@]} -gt 0 ] && [[ " ${MEM_DONE[*]} " != *" end "* ]]; then
 	mem_snap end > /dev/null 2>&1; MEM_DONE+=(end)
 fi
+[ ${#DUMP_JOBS[@]} -gt 0 ] && wait "${DUMP_JOBS[@]}"	# the capture first (it has timeouts), then the game goes
 stop_game
 while IFS= read -r -t 2 -u 3 l; do l=$part$l; part=; printf '%s\n' "$l"; printf '%s\n' "$l" >> "$D/game.log"; done
 wait "$gp" 2>/dev/null; rc=$?
+[ "$DUMPON" = 1 ] && [ "$rc" -gt 128 ] && [ "$rc" -ne 143 ] && [ "$rc" -ne 137 ] && dump_crash
 exec 3<&-; rm -f "$fifo"
 kill "${helpers[@]}" $wm 2>/dev/null; wait 2>/dev/null
 
@@ -720,8 +807,14 @@ secs measured "$measured"
   fi
   # ALSA's "underrun occurred": the sound buffer ran dry (what a listener hears as chopping)
   echo "underruns=$(grep -ac 'underrun occurred' "$D/game.log" 2>/dev/null)"
+  # OpenAL Soft's wedged mixer: "Wait timeout... buffer size too low?" and ALSA's "mmap commit error"
+  echo "oal_wedge=$(grep -acE 'Wait timeout|mmap commit error' "$D/game.log" 2>/dev/null)"
+  if [ "$DUMPON" = 1 ]; then
+	echo "dump=${DUMP_WHY:-none}"; [ -n "$DUMP_AT" ] && echo "dump_at=$DUMP_AT"
+	cat "$D/dump/sizes.txt" 2>/dev/null
+  fi
   parse; } > "$D/bench.txt"
-rm -f "$D/.hwm" "$D/.pid" "$D/.sound" "$D/.malloc.fifo" "$D/.gate" "$D/.launch.pid"
+rm -f "$D/.cwd" "$D/.hwm" "$D/.pid" "$D/.sound" "$D/.malloc.fifo" "$D/.gate" "$D/.launch.pid"
 sed 's/^/bench: /' "$D/bench.txt"
 exit 0
 }
