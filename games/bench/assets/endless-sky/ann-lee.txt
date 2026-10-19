@@ -1,0 +1,1675 @@
+pilot "Ann " "Lee "
+"original name" "Ann " "Lee "
+date 16 11 3013
+"system entry method" takeoff
+system Rutilicus
+planet "New Boston"
+clearance
+playtime 40.316149
+"flagship index" 0
+"map coloring" -6
+"map zoom" 0
+"reputation with"
+	Aberrant -1000
+	Alpha -1000
+	Author 1
+	Avgi 1
+	"Avgi (Consonance)" 1
+	"Avgi (Dissonance Angry)" 0
+	"Avgi (Dissonance)" 1
+	"Avgi (Twilight Guard)" 1
+	"Avgi (Wandering Fleet)" 0
+	"Bad Trip" -1000
+	Bounty -1000
+	"Bounty (Disguised)" 1
+	"Bounty Hunter" -1000
+	Builder 0
+	Bunrodea 1
+	"Bunrodea (Erabu)" 1
+	"Bunrodea (Guard)" -1
+	"Bunrodea (Megasa)" 1
+	Coalition 1
+	Conlatio 0
+	Deep -1000
+	"Deep Security" 1
+	Derelict 0
+	"Derelict (Boardable)" -1
+	Drak 1
+	"Drak (Hostile)" -1000
+	"Drak (Incipias)" 1
+	"Ember Waste" 1
+	"Escort (Betraying)" 10
+	"Free Worlds" 1
+	Gegno 0
+	"Gegno Scin" 0
+	"Gegno Scin (Combative)" -1
+	"Gegno Scin (Neutral)" 0
+	"Gegno Vi" 0
+	"Gegno Vi (Combative)" -1
+	"Gegno Vi (Duelist A)" 0
+	"Gegno Vi (Duelist B)" 0
+	"Gegno Vi (Neutral)" 0
+	Hai 0
+	"Hai (Unfettered Challenger)" -1000
+	"Hai (Unfettered Civilians)" 10
+	"Hai (Unfettered Wanderer Tribute)" 0
+	"Hai (Unfettered)" -1000
+	"Hai (Wormhole Access)" 0
+	"Hai Merchant" 0
+	"Hai Merchant (Human)" 0
+	"Hai Merchant (Sympathizers)" 0
+	Heliarch 1
+	"Heliarch Test Dummy" -1000
+	Hicemus 0
+	"House Aqrabe" 0
+	"House Chydiyi" 0
+	"House Kaatrij" 0
+	"House Myurej" 0
+	"House Seineq" 0
+	"House Sioeora" 0
+	"Incipias Civilian" 0
+	Independent 10
+	"Independent (Killable)" 10
+	"Indigenous Lifeform" 1
+	"Indigenous Lifeform (Acheron)" 1
+	"Indigenous Lifeform (Astral)" 1
+	"Indigenous Lifeform (Subsidurial)" 1
+	"Indigenous Lifeform (Tree Two)" 1
+	"Indigenous Lifeform (Tree)" 1
+	Ka'het -1
+	"Ka'het (Infighting)" -1
+	Ka'sei 1
+	"Ka'sei (12.2)" 10
+	"Ka'sei (Patir 18)" 1
+	"Kor Efret" 1
+	"Kor Mereti" -1000
+	"Kor Mereti (Hostile)" -1000
+	"Kor Sestor" -1000
+	Korath -10
+	"Korath (Civilian)" 1
+	"Korath Nanobots" -1000
+	Lunarium 1
+	"Lunarium (Hidden)" 1
+	"Magic Asteroid" 10
+	"Magic Asteroid (Disabled)" -0.01
+	"Magic Asteroid (Patir 12.2)" 10
+	Marauder 1
+	Merchant 10
+	"Merchant (Hostile)" -10
+	Militia 0
+	"Navy (Oathkeeper)" 100
+	"Navy Intelligence" 0
+	Neutral 1
+	"New Houses" 0
+	"Old Houses" 0
+	Parrot 1
+	"People's Houses" 0
+	"People's Houses (Hostile)" -10
+	Pirate -10
+	"Pirate (Rival)" -10
+	Predecessor 0
+	Pug 1
+	"Pug (Wanderer)" 1
+	Quarg 1
+	"Quarg (Gegno)" 1
+	"Quarg (Hai)" 1
+	"Quarg (Incipias)" 1
+	"Quarg (Kor Efret)" 1
+	Remnant 1
+	"Remnant (Postverta)" 1
+	"Remnant (Research)" 1
+	Republic 2
+	"Republic (Friendly)" 2
+	Rulei 0
+	"Scar's Legion" 10
+	"Scar's Legion (Killable)" -1000
+	Sheragi 1
+	"Silent Ones" 1
+	Successor 0
+	Syndicate 2
+	"Syndicate (Extremist)" -1000
+	"Syndicate (Hostile)" -1000
+	"Team Blue" -1000
+	"Team Red" -1000
+	"Test Dummy" -1000
+	Uninhabited 0
+	Wanderer 1
+	"Wormhole Alpha" 0
+"tribute received"
+"max escort count" 6
+"max escort crew" 1000
+"admin cap" 25
+
+# What you own:
+ship Sparrow
+	name "Quasar of the Cone"
+	sprite ship/sparrow
+		"frame rate" 2.0000001
+	thumbnail thumbnail/sparrow
+	uuid acf733af-7bac-4d9a-8900-c04433b7e633
+	attributes
+		category Interceptor
+		cost 225000
+		mass 60
+		bunks 3
+		"cargo space" 15
+		drag 0.95
+		"engine capacity" 40
+		"fuel capacity" 300
+		"gun ports" 4
+		"heat dissipation" 0.77
+		hull 300
+		"outfit space" 130
+		"required crew" 1
+		shields 1400
+		"weapon capacity" 25
+	outfits
+		"Beam Laser" 2
+		"Chipmunk Plasma Steering"
+		"Chipmunk Plasma Thruster"
+		"D14-RN Shield Generator"
+		Hyperdrive
+		"LP036a Battery Pack"
+		"nGVF-BB Fuel Cell"
+	crew 1
+	fuel 300
+	shields 1400
+	hull 300
+	position 0 0
+	engine -5 35
+		zoom 1
+		angle 0
+		gimbal 0
+		under
+	engine 5 35
+		zoom 1
+		angle 0
+		gimbal 0
+		under
+	gun -7 -10 "Beam Laser"
+		under
+	gun 7 -10 "Beam Laser"
+		under
+	gun -10.5 -8.5
+		under
+	gun 10.5 -8.5
+		under
+	leak flame 60 80
+	explode "small explosion" 5
+	explode "tiny explosion" 15
+	system Rutilicus
+	planet "New Boston"
+storage
+licenses
+	Pilot's
+account
+	credits 38000
+	score 400
+	history
+	mortgage Mortgage
+		principal 480000
+		interest 0.004
+		term 365
+stock
+	"Beam Laser" -2
+	"Chipmunk Plasma Steering" -1
+	"Chipmunk Plasma Thruster" -1
+	"D14-RN Shield Generator" -1
+	Hyperdrive -1
+	"LP036a Battery Pack" -1
+	"nGVF-BB Fuel Cell" -1
+"fleet depreciation"
+	ship Sparrow
+		1100430 1
+	outfit "Beam Laser"
+		1100430 2
+	outfit "Chipmunk Plasma Steering"
+		1100430 1
+	outfit "Chipmunk Plasma Thruster"
+		1100430 1
+	outfit "D14-RN Shield Generator"
+		1100430 1
+	outfit Hyperdrive
+		1100430 1
+	outfit "LP036a Battery Pack"
+		1100430 1
+	outfit "nGVF-BB Fuel Cell"
+		1100430 1
+"stock depreciation"
+
+# What you've done:
+mission "Spaceport Reminder Setter"
+	name "Spaceport Reminder Setter"
+	uuid 0a2e5e37-dc05-4fd0-b4e2-5af0f591b1f8
+	invisible
+	non-blocking
+	landing
+	failed
+	destination "New Boston"
+	on offer
+		fail
+		"spaceport reminder year" = year
+		"spaceport reminder month" = month
+mission "Archon Personality Compatibility Patch"
+	name "Archon Personality Compatibility Patch"
+	uuid 7781bb85-f464-47dc-aa64-54e8c9cd94e9
+	invisible
+	non-blocking
+	landing
+	failed
+	destination "New Boston"
+	on offer
+		fail "Drak guarding Korath space"
+		fail "Drak guarding Sayaiban"
+		fail "Drak guarding Void Sprites"
+		fail
+"available job" "Cargo [0]"
+	name "Delivery to Earth"
+	uuid e03a1383-550d-4e5f-92e9-93228a9c45a4
+	description "Deliver 21 tons of melons to Earth in the Sol system. Payment is 12,600 credits."
+	cargo melons 21
+	job
+	repeat 0
+	destination Earth
+	on complete
+		dialog
+			"You drop off your cargo of melons and collect your payment of 12,600 credits."
+		payment 12600
+	on visit
+		dialog
+			"You have reached Earth, but not all of the cargo is in the system! Better depart and wait for your escorts to arrive in this star system."
+"available job" "Cargo [1]"
+	name "Delivery to Solace"
+	uuid 92d9fe39-4112-4eed-b201-07f697a7b5a7
+	description "Deliver 19 tons of gold wire to Solace in the Pherkad system. Payment is 22,800 credits."
+	cargo "gold wire" 19
+	job
+	repeat 0
+	to offer
+		( random < 90 )
+	destination Solace
+	on complete
+		dialog
+			"You drop off your cargo of gold wire and collect your payment of 22,800 credits."
+		payment 22800
+	on visit
+		dialog
+			"You have reached Solace, but not all of the cargo is in the system! Better depart and wait for your escorts to arrive in this star system."
+"available job" "Cargo [2]"
+	name "Delivery to Tinker"
+	uuid fea49b14-9c16-4995-9f8d-4744b14e60e9
+	description "Deliver 74 tons of venison to Tinker in the Diphda system. Payment is 66,600 credits."
+	cargo venison 74
+	job
+	repeat 0
+	to offer
+		( random < 80 )
+	destination Tinker
+	on complete
+		dialog
+			"You drop off your cargo of venison and collect your payment of 66,600 credits."
+		payment 66600
+	on visit
+		dialog
+			"You have reached Tinker, but not all of the cargo is in the system! Better depart and wait for your escorts to arrive in this star system."
+"available job" "Cargo [5]"
+	name "Delivery to New Iceland"
+	uuid ec165236-bf13-4f0e-9131-f07e72182636
+	description "Deliver 20 tons of lard to New Iceland in the Kaus Borealis system. Payment is 9,000 credits."
+	cargo lard 20
+	job
+	repeat 0
+	destination "New Iceland"
+	on complete
+		dialog
+			"You drop off your cargo of lard and collect your payment of 9,000 credits."
+		payment 9000
+	on visit
+		dialog
+			"You have reached New Iceland, but not all of the cargo is in the system! Better depart and wait for your escorts to arrive in this star system."
+"available job" "Frontier delivery [0]"
+	name "Frontier delivery to Darkstone"
+	uuid 4b4ccbf0-c07a-446a-8ffa-855cf2d46f7f
+	description "Deliver 42 tons of microscopes to the frontier world of Darkstone in the Han system. Frontier systems have a high rate of piracy, so prepare to defend yourself. Payment is 64,480 credits."
+	cargo microscopes 42
+	job
+	repeat 0
+	to offer
+		( random < 30 )
+	destination Darkstone
+	npc
+		uuid 6d03266d-02c7-4dc0-8acd-755874338ce1
+		government Pirate
+		personality
+			confusion 30
+			harvests
+			nemesis
+			plunders
+		ship Sparrow
+			name "Blackguard Galley"
+			sprite ship/sparrow
+				"frame rate" 2.0000001
+			thumbnail thumbnail/sparrow
+			uuid 2d7020d9-0b50-4909-aeaa-ded01370316c
+			attributes
+				category Interceptor
+				cost 225000
+				mass 60
+				bunks 3
+				"cargo space" 15
+				drag 0.95
+				"engine capacity" 40
+				"fuel capacity" 300
+				"gun ports" 4
+				"heat dissipation" 0.77
+				hull 300
+				"outfit space" 130
+				"required crew" 1
+				shields 1400
+				"weapon capacity" 25
+			outfits
+				"Beam Laser" 2
+				"Chipmunk Plasma Steering"
+				"Chipmunk Plasma Thruster"
+				"D14-RN Shield Generator"
+				Hyperdrive
+				"LP036a Battery Pack"
+				"nGVF-BB Fuel Cell"
+			cargo
+				commodities
+					Medical 5
+			crew 3
+			fuel 300
+			shields 1400
+			hull 300
+			position -771.09971 55.15781
+			engine -5 35
+				zoom 1
+				angle 0
+				gimbal 0
+				under
+			engine 5 35
+				zoom 1
+				angle 0
+				gimbal 0
+				under
+			gun -7 -10 "Beam Laser"
+				under
+			gun 7 -10 "Beam Laser"
+				under
+			gun -10.5 -8.5
+				under
+			gun 10.5 -8.5
+				under
+			leak flame 60 80
+			explode "small explosion" 5
+			explode "tiny explosion" 15
+			system Han
+	npc
+		uuid 01cd62a8-cfc7-4a3f-9e67-11a99e705822
+		government Pirate
+		personality
+			confusion 30
+			harvests
+			nemesis
+			plunders
+			staying
+		ship Fury
+			name "Horrible Galley"
+			plural Furies
+			sprite ship/fury
+				"frame rate" 2.0000001
+			thumbnail thumbnail/fury
+			uuid 7fd6ffa8-3cbf-4354-8e6d-218395e2849f
+			attributes
+				category Interceptor
+				cost 490000
+				mass 105
+				bunks 3
+				"cargo space" 15
+				drag 1.8
+				"engine capacity" 60
+				"fuel capacity" 600
+				"gun ports" 6
+				"heat dissipation" 0.79
+				hull 400
+				"outfit space" 160
+				"required crew" 1
+				shields 2000
+				"weapon capacity" 40
+			outfits
+				"A125 Atomic Steering"
+				"Chipmunk Plasma Thruster"
+				"Cooling Ducts"
+				"D23-QP Shield Generator"
+				"Heavy Laser" 2
+				Hyperdrive
+				"RT-I Radiothermal"
+				Supercapacitor
+			cargo
+				commodities
+					Metal 14
+			crew 3
+			fuel 600
+			shields 2000
+			hull 400
+			position -1547.6295 -697.35721
+			engine -11 35
+				zoom 0.8
+				angle 0
+				gimbal 0
+				under
+			engine 11 35
+				zoom 0.8
+				angle 0
+				gimbal 0
+				under
+			engine -18 37
+				zoom 0.6
+				angle 0
+				gimbal 0
+				under
+			engine 18 37
+				zoom 0.6
+				angle 0
+				gimbal 0
+				under
+			gun -11 -28 "Heavy Laser"
+				under
+			gun 11 -28 "Heavy Laser"
+				under
+			gun -17 -19.5
+				under
+			gun 17 -19.5
+				under
+			gun -5.5 -33
+				under
+			gun 5.5 -33
+				under
+			explode "small explosion" 20
+			explode "tiny explosion" 10
+			system Han
+		ship Berserker
+			name "Bartram the Petty"
+			sprite ship/berserker
+				"frame rate" 2.0000001
+			thumbnail thumbnail/berserker
+			uuid 6cd0c98d-5428-42db-b64a-44bac439af00
+			attributes
+				category Interceptor
+				cost 520000
+				mass 130
+				bunks 2
+				"cargo space" 10
+				drag 2.5
+				"engine capacity" 65
+				"fuel capacity" 400
+				"gun ports" 4
+				"heat dissipation" 0.74
+				hull 500
+				"outfit space" 200
+				"required crew" 1
+				shields 2200
+				"weapon capacity" 35
+			outfits
+				"Chipmunk Plasma Steering"
+				"Chipmunk Plasma Thruster"
+				"D23-QP Shield Generator"
+				"Heavy Rocket" 2
+				"Heavy Rocket Pod"
+				Hyperdrive
+				Ramscoop
+				"Sidewinder Missile" 6
+				"Sidewinder Missile Pod"
+				Supercapacitor
+				"nGVF-CC Fuel Cell"
+			cargo
+				commodities
+					"Heavy Metals" 1
+			crew 1
+			fuel 400
+			shields 2200
+			hull 500
+			position -863.82428 256.40337
+			engine -10 45
+				zoom 1
+				angle 0
+				gimbal 0
+				under
+			engine 10 45
+				zoom 1
+				angle 0
+				gimbal 0
+				under
+			gun -20 12 "Heavy Rocket Pod"
+				under
+			gun 20 12 "Sidewinder Missile Pod"
+				under
+			gun -44 10
+				under
+			gun 44 10
+				under
+			explode "small explosion" 15
+			explode "tiny explosion" 10
+			"final explode" "final explosion small" 1
+			system Han
+	on complete
+		dialog
+			"You drop off your cargo of microscopes and collect your payment of 64,480 credits."
+		payment 64480
+"available job" "Passengers [0]"
+	name "Passenger transport to Harmony"
+	uuid f89da358-45f1-4bf8-9e3e-3b13c9531e1f
+	description "Bring 2 passengers to Harmony in the Girtab system. Payment is 20,000 credits."
+	passengers 2
+	job
+	repeat 0
+	destination Harmony
+	on complete
+		dialog
+			"You wish your passengers the best of luck on Harmony, and collect your payment of 20,000 credits."
+		payment 20000
+	on visit
+		dialog
+			"You have reached Harmony, but not all of the passengers are in the system! Better depart and wait for your escorts to arrive in this star system."
+"available job" "Passengers [1]"
+	name "Passenger transport to Trove"
+	uuid 122c3acf-c11e-4dce-ae00-85fc58972b6d
+	description "Bring a passenger to Trove in the Hamal system. Payment is 13,500 credits."
+	passengers 1
+	job
+	repeat 0
+	to offer
+		( random < 75 )
+	destination Trove
+	on complete
+		dialog
+			"You wish your passenger the best of luck on Trove, and collect your payment of 13,500 credits."
+		payment 13500
+	on visit
+		dialog
+			"You have reached Trove, but not all of the passengers are in the system! Better depart and wait for your escorts to arrive in this star system."
+"available job" "Passengers [5]"
+	name "Passenger transport to New Iceland"
+	uuid 62116949-85dc-4309-8244-adbef41b08b5
+	description "Bring a passenger to New Iceland in the Kaus Borealis system. Payment is 5,000 credits."
+	passengers 1
+	job
+	repeat 0
+	destination "New Iceland"
+	on complete
+		dialog
+			"You say farewell to your passenger on New Iceland, and collect your payment of 5,000 credits."
+		payment 5000
+	on visit
+		dialog
+			"You have reached New Iceland, but not all of the passengers are in the system! Better depart and wait for your escorts to arrive in this star system."
+"available job" "Prisoners [1]"
+	name "Prisoner transport to Moonshake"
+	uuid de356208-dc07-49a1-b89f-42db659047c0
+	description "Transport 3 petty criminals to Moonshake in the Alpheratz system, where they will serve their sentences as factory laborers. They must be held in suitable facilities made for the transfer of criminals. Payment is 44,600 credits."
+	passengers 3
+	job
+	repeat 0
+	to offer
+		( random < 15 )
+	to accept
+		"outfit (installed): Brig"
+	destination Moonshake
+	on complete
+		dialog
+			"The passengers shuffle unhappily out of the ship under the watchful eye of several well-armed guards as they prepare to repay their debts to society as forced laborers in Moonshake's factories. You collect your payment of 44,600 credits."
+		payment 44600
+	on visit
+		dialog
+			"You have reached Moonshake, but not all of the passengers are in the system! Better depart and wait for your escorts to arrive in this star system."
+"available job" "Rush Delivery [0]"
+	name "Rush delivery to New Kansas"
+	uuid e6167819-f2d2-43c8-aa27-fda484699b85
+	description "Deliver 10 tons of indium to New Kansas in the Muhlifain system by Wed, 24 Nov 3013. Payment is 23,500 credits."
+	deadline 24 11 3013
+	cargo indium 10
+	job
+	repeat 0
+	to offer
+		( random < 90 )
+	destination "New Kansas"
+	on complete
+		dialog
+			"You drop off your cargo of indium and collect your payment of 23,500 credits."
+		payment 23500
+	on visit
+		dialog
+			"You have reached New Kansas, but not all of the cargo is in the system! Better depart and wait for your escorts to arrive in this star system."
+"available job" "Rush Delivery [1]"
+	name "Rush delivery to Hippocrates"
+	uuid bcf50ec4-deb2-4e96-b26d-09c60f9eb5bc
+	description "Deliver 55 tons of bolts of tweed to Hippocrates in the Alnair system by Sun, 28 Nov 3013. Payment is 75,750 credits."
+	deadline 28 11 3013
+	cargo "bolts of tweed" 55
+	job
+	repeat 0
+	to offer
+		( random < 80 )
+	destination Hippocrates
+	on complete
+		dialog
+			"You drop off your cargo of bolts of tweed and collect your payment of 75,750 credits."
+		payment 75750
+	on visit
+		dialog
+			"You have reached Hippocrates, but not all of the cargo is in the system! Better depart and wait for your escorts to arrive in this star system."
+"available job" "Rush Delivery [2]"
+	name "Rush delivery to Helheim"
+	uuid 015bfdc1-cd55-4112-be51-aea0e9b89175
+	description "Deliver 54 tons of solar panels to Helheim in the Suhail system by Fri, 10 Dec 3013. Payment is 125,300 credits."
+	deadline 10 12 3013
+	cargo "solar panels" 54
+	job
+	repeat 0
+	to offer
+		( random < 70 )
+	destination Helheim
+	on complete
+		dialog
+			"You drop off your cargo of solar panels and collect your payment of 125,300 credits."
+		payment 125300
+	on visit
+		dialog
+			"You have reached Helheim, but not all of the cargo is in the system! Better depart and wait for your escorts to arrive in this star system."
+"available job" "Rush Delivery [3]"
+	name "Rush delivery to Bluestone"
+	uuid d88637b2-8f3d-4938-b70d-1b72c136fd4b
+	description "Deliver 19 tons of colposcopes to Bluestone in the Bellatrix system by Wed, 8 Dec 3013. Payment is 56,200 credits."
+	deadline 8 12 3013
+	cargo colposcopes 19
+	job
+	repeat 0
+	to offer
+		( random < 60 )
+	destination Bluestone
+	on complete
+		dialog
+			"You drop off your cargo of colposcopes and collect your payment of 56,200 credits."
+		payment 56200
+	on visit
+		dialog
+			"You have reached Bluestone, but not all of the cargo is in the system! Better depart and wait for your escorts to arrive in this star system."
+"available job" "Rush Delivery [4]"
+	name "Rush delivery to New Austria"
+	uuid 95e09332-4874-4b77-b02c-1a570f708058
+	description "Deliver 10 tons of gold wire to New Austria in the Menkent system by Thu, 18 Nov 3013. Payment is 13,000 credits."
+	deadline 18 11 3013
+	cargo "gold wire" 10
+	job
+	repeat 0
+	to offer
+		( random < 90 )
+	destination "New Austria"
+	on complete
+		dialog
+			"You drop off your cargo of gold wire and collect your payment of 13,000 credits."
+		payment 13000
+	on visit
+		dialog
+			"You have reached New Austria, but not all of the cargo is in the system! Better depart and wait for your escorts to arrive in this star system."
+"available job" "Spacediving professionals"
+	name "Spacediving at New India"
+	uuid e2733163-8e05-45bc-9878-24ac09d5f718
+	description "Head to New India in the Albaldah system with 6 professionally equipped skydivers and drop them from the edge of space. They've agreed to pay 120,000 credits when they land."
+	passengers 6
+	job
+	repeat 0
+	to offer
+		( random < 14 )
+	destination "New India"
+	on complete
+		dialog
+			"As you descend through the upper atmosphere, the skydivers jump from your ship, spectacularly diving until they open their parachutes and land safely near the spaceport. You collect your payment of 120,000 credits."
+		payment 120000
+	on visit
+		dialog
+			"You have reached New India, but not all of the passengers are in the system! Better depart and wait for your escorts to arrive in this star system."
+"available job" "Transport farmers to <planet>"
+	name "Transport farmers to Flood"
+	uuid f919435b-3bc1-4a43-88ff-659fd0aefc62
+	description "This family of 3 farmers is hoping to find work on Flood in the Unukalhai system, and they will pay you 33,500 credits to take them there."
+	passengers 3
+	job
+	repeat 0
+	to offer
+		( random < 50 )
+	destination Flood
+	on complete
+		dialog
+			"You wish the farm family the best of luck on Flood, and collect your payment of 33,500 credits."
+		payment 33500
+	on visit
+		dialog
+			"You have reached Flood, but not all of the passengers are in the system! Better depart and wait for your escorts to arrive in this star system."
+"available job" "Transport mill workers to <planet>"
+	name "Transport mill workers to Thrall"
+	uuid 191ffdad-7cc4-4a61-bb6e-1547d8a52bc5
+	description "This family of 2 mill workers is hoping to find work on Thrall in the Pollux system, and they will pay you 23,000 credits to take them there."
+	passengers 2
+	job
+	repeat 0
+	to offer
+		( random < 50 )
+	destination Thrall
+	on complete
+		dialog
+			"You wish the workers the best of luck on Thrall, and collect your payment of 23,000 credits."
+		payment 23000
+	on visit
+		dialog
+			"You have reached Thrall, but not all of the passengers are in the system! Better depart and wait for your escorts to arrive in this star system."
+"available job" "Transport miners to <planet>"
+	name "Transport miners to Placer"
+	uuid ed9d435b-1adc-4a1e-8120-06f2eb3a6507
+	description "This family of 4 miners is hoping to find work on Placer in the Mirach system, and they will pay you 44,000 credits to take them there."
+	passengers 4
+	job
+	repeat 0
+	to offer
+		( random < 50 )
+	destination Placer
+	on complete
+		dialog
+			"You wish the mining family the best of luck on Placer, and collect your payment of 44,000 credits."
+		payment 44000
+	on visit
+		dialog
+			"You have reached Placer, but not all of the passengers are in the system! Better depart and wait for your escorts to arrive in this star system."
+"available job" "Transport workers to <planet>"
+	name "Transport workers to Chiron"
+	uuid 4316c233-d59a-4fda-8450-aa46712c3208
+	description "This family of 2 factory workers is hoping to find work on Chiron in the Alpha Centauri system, and they will pay you 17,000 credits to take them there."
+	passengers 2
+	job
+	repeat 0
+	to offer
+		( random < 80 )
+	destination Chiron
+	on complete
+		dialog
+			"You wish the workers the best of luck on Chiron, and collect your payment of 17,000 credits."
+		payment 17000
+	on visit
+		dialog
+			"You have reached Chiron, but not all of the passengers are in the system! Better depart and wait for your escorts to arrive in this star system."
+"available mission" "Intro [0 Drone]"
+	name "Intro [0 Drone]"
+	uuid cb74dd5c-c018-49c3-b301-73b7fdc39da6
+	invisible
+	non-blocking
+	shipyard
+	to offer
+		( "days since start" == 0 )
+	to accept
+		( "ships: Drone" == "total ships" )
+	destination "New Boston"
+	on offer
+		conversation
+			label 0
+			"You prepare to board your new ship and take it for a test flight, only to find it is an automated drone that lacks a crew compartment entirely! Unless you want to try strapping yourself on the outside of the hull, you'll need to sell off your drone and buy a proper spacefaring vessel."
+				decline
+"available mission" "Intro [0 Fighter]"
+	name "Intro [0 Fighter]"
+	uuid 4fd0d131-39bc-4180-9700-8f46e83e2a4c
+	invisible
+	non-blocking
+	shipyard
+	to offer
+		( "days since start" == 0 )
+	to accept
+		( "ships: Fighter" == "total ships" )
+	destination "New Boston"
+	on offer
+		conversation
+			label 0
+			"As you check over the specs of your brand new <flagship model> one last time, you realize it lacks the hyperdrive necessary for interstellar travel! Unless you're happy to spend the rest of your life flying past the same few planets, you'll need to sell the <flagship model> and buy a proper spacefaring vessel."
+				decline
+"available mission" "Intro [0 Jackal]"
+	name "Intro [0 Jackal]"
+	uuid 7f4042ab-a928-464f-b494-d5abcee63f68
+	invisible
+	non-blocking
+	shipyard
+	to offer
+		( "days since start" == 0 )
+	to accept
+		( "ship model: Mining Drone" >= 3 )
+		( "outfit: Mining Laser" >= 3 )
+		( "outfit: X1200 Ion Steering" >= 3 )
+		( "outfit: X1700 Ion Thruster" >= 3 )
+		( "outfit: Supercapacitor" >= 3 )
+		( "outfit: nGVF-AA Fuel Cell" >= 3 )
+		"start: syndicate"
+		( "Delve Intro [0]: offered" == 0 )
+	destination "New Boston"
+	on offer
+		conversation
+			label 0
+			"For reasons known only to yourself, you have spent your mortgage on three Mining Drones that are completely useless to you. As you bask in the economic genius of your decision, you hear a merchant haggling with a ship reseller."
+			`	"Look, you'd have to be looking real close to tell that she's a pre-loved ship. Plus, she isn't 'outdated,' she's an antique! Ship collectors will be throwing their wallets at you just to get a photo of the ship."`
+			"	The reseller is unamused by the merchant's arguments and takes his leave when it becomes clear neither side is willing to compromise. Exhausted, the merchant slumps onto a nearby bench."
+				goto 1
+			label 1
+			choice
+				"	(Approach the merchant.)"
+					goto 2
+				"	(Ignore the merchant so I can appreciate my Mining Drones more.)"
+					decline
+			label 2
+			`	You take a seat on the bench and ask, "What was that all about?"`
+			`	The merchant turns his head to face you. "That whole kerfuffle? Tried to cheat me out of a fair deal, he did." Seeing your confusion, he elaborates. "I'm a space miner by trade. A few days ago, I got caught in a nasty pirate ambush - lost all my Mining Drones in the blink of an eye. The pirates weren't doing so hot either, though. I got lucky and managed to disable and capture a Jackal, one of those old, Caravan-era interceptors. I thought I'd sell it off and replace my drones, but the shipyards here are running a racket; I can't even buy half a Mining Drone with the credits they're offering." He lets out a sigh.`
+				goto 3
+			label 3
+			choice
+				`	"Actually, I have some spare Mining Drones."`
+					goto 5
+				`	"Thanks for the story, but I have places to be."`
+					goto 4
+			label 4
+			`	"Well, thanks for listening." The merchant bids you farewell as you stand up and leave.`
+				decline
+			label 5
+			`	The merchant's head perks up. "Really? That's fantastic!" He quietly mutters some numbers to himself, then says, "How about two Mining Drones for the Jackal? You think that's a fair deal?"`
+				goto 6
+			label 6
+			choice
+				`	"Sounds good."`
+					goto 10
+				`	"What about just one drone?"`
+					goto 7
+				`	"I can't take that deal."`
+					goto 9
+			label 7
+			`	He shakes his head. "It's got to be two drones, or no drones."`
+				goto 8
+			label 8
+			choice
+				`	"Alright, you'll have your drones."`
+					goto 10
+				`	"No deal."`
+					goto 9
+			label 9
+			`	"Darn. Well, at least you've given me an idea; there's got to be a captain out there willing to hand me a couple of Mining Drones for my Jackal!" The merchant hops up from the bench and jauntily walks away.`
+				decline
+			label 10
+			action
+				give ship "Jackal (Empty)" Exemplar
+					count 1
+				take ship "Mining Drone" ""
+					count 2
+			label 11
+			`	You shake hands with the merchant. "Thanks for the deal, partner." He hands you the license to the Jackal and walks off towards the loading bays to claim his new Mining Drones.`
+				decline
+"available mission" "Spaceport Reminder Resetter"
+	name "Spaceport Reminder Resetter"
+	uuid d6bf8111-9b28-4878-a4b4-3d460d72be8e
+	invisible
+	non-blocking
+	repeat 0
+	to offer
+		( "chosen sides" == 0 )
+		( "Spaceport Reminder: offered" == 0 )
+	destination "New Boston"
+	on offer
+		fail
+		"spaceport reminder year" = year
+		"spaceport reminder month" = month
+"sort type" 0
+conditions
+	"Archon Personality Compatibility Patch: active"
+	"Archon Personality Compatibility Patch: offered"
+	"Intro [0]: declined"
+	"Intro [0]: offered"
+	"Spaceport Reminder Setter: active"
+	"Spaceport Reminder Setter: offered"
+	"human space start"
+	"spaceport reminder month" 11
+	"spaceport reminder year" 3013
+	"species: human"
+	"start: default"
+event "remembrance day"
+	date 19 2 3014
+event "war begins"
+	date 4 7 3014
+event "initial deployment 1"
+	date 24 7 3014
+event "initial deployment 2"
+	date 14 8 3014
+event "initial deployment 3"
+	date 29 8 3014
+event "initial deployment 4"
+	date 17 9 3014
+economy
+	system Food Clothing Metal Plastic Equipment Medical Industrial Electronics "Heavy Metals" "Luxury Goods"
+	"1 Axis" 0 0 0 0 0 0 0 0 0 0
+	"10 Pole" 0 0 0 0 0 0 0 0 0 0
+	"11 Autumn Above" 0 0 0 0 0 0 0 0 0 0
+	"11 Spring Below" 0 0 0 0 0 0 0 0 0 0
+	"12 Autumn Above" 0 0 0 0 0 0 0 0 0 0
+	"14 Pole" 0 0 0 0 0 0 0 0 0 0
+	"14 Summer Above" 0 0 0 0 0 0 0 0 0 0
+	"14 Winter Below" 0 0 0 0 0 0 0 0 0 0
+	"16 Autumn Rising" 0 0 0 0 0 0 0 0 0 0
+	"3 Axis" 0 0 0 0 0 0 0 0 0 0
+	"3 Pole" 0 0 0 0 0 0 0 0 0 0
+	"3 Spring Rising" 0 0 0 0 0 0 0 0 0 0
+	"4 Axis" 0 0 0 0 0 0 0 0 0 0
+	"4 Spring Rising" 0 0 0 0 0 0 0 0 0 0
+	"4 Summer Rising" 0 0 0 0 0 0 0 0 0 0
+	"4 Winter Rising" 0 0 0 0 0 0 0 0 0 0
+	"5 Axis" 0 0 0 0 0 0 0 0 0 0
+	"5 Spring Below" 0 0 0 0 0 0 0 0 0 0
+	"5 Summer Above" 0 0 0 0 0 0 0 0 0 0
+	"5 Winter Above" 0 0 0 0 0 0 0 0 0 0
+	"7 Autumn Rising" 0 0 0 0 0 0 0 0 0 0
+	"8 Winter Below" 0 0 0 0 0 0 0 0 0 0
+	"9 Spring Above" 0 0 0 0 0 0 0 0 0 0
+	Aaura-Kaska 0 0 0 0 0 0 0 0 0 0
+	Ablodab 0 0 0 0 0 0 0 0 0 0
+	Ablub 0 0 0 0 0 0 0 0 0 0
+	Acamar 0 0 0 0 0 0 0 0 0 0
+	Acapella 0 0 0 0 0 0 0 0 0 0
+	Achernar 0 0 0 0 0 0 0 0 0 0
+	Acnanjo 0 0 0 0 0 0 0 0 0 0
+	Acrux 0 0 0 0 0 0 0 0 0 0
+	Actannka 0 0 0 0 0 0 0 0 0 0
+	Adhara 0 0 0 0 0 0 0 0 0 0
+	"Ae Ce L-332" 0 0 0 0 0 0 0 0 0 0
+	"Ae Ce Q-761" 0 0 0 0 0 0 0 0 0 0
+	"Ae Il A-3" 0 0 0 0 0 0 0 0 0 0
+	"Ae Il B-11" 0 0 0 0 0 0 0 0 0 0
+	"Ae Il F-46" 0 0 0 0 0 0 0 0 0 0
+	"Ae Il G-66" 0 0 0 0 0 0 0 0 0 0
+	"Ae Il H-24" 0 0 0 0 0 0 0 0 0 0
+	"Ae Il I-99" 0 0 0 0 0 0 0 0 0 0
+	"Ae Il M-77" 0 0 0 0 0 0 0 0 0 0
+	"Ae Il O-96" 0 0 0 0 0 0 0 0 0 0
+	Aescolanus 0 0 0 0 0 0 0 0 0 0
+	Aierena 0 0 0 0 0 0 0 0 0 0
+	"Aik Kamgatake" 0 0 0 0 0 0 0 0 0 0
+	Aileron 0 0 0 0 0 0 0 0 0 0
+	Aki'il 0 0 0 0 0 0 0 0 0 0
+	Aksek 0 0 0 0 0 0 0 0 0 0
+	"Al Dhanab" 0 0 0 0 0 0 0 0 0 0
+	Albaldah 0 0 0 0 0 0 0 0 0 0
+	Albireo 0 0 0 0 0 0 0 0 0 0
+	Alcyone 0 0 0 0 0 0 0 0 0 0
+	Aldebaran 0 0 0 0 0 0 0 0 0 0
+	Alderamin 0 0 0 0 0 0 0 0 0 0
+	Aldhibain 0 0 0 0 0 0 0 0 0 0
+	Aleit 0 0 0 0 0 0 0 0 0 0
+	Algenib 0 0 0 0 0 0 0 0 0 0
+	Algieba 0 0 0 0 0 0 0 0 0 0
+	Algol 0 0 0 0 0 0 0 0 0 0
+	Algorel 0 0 0 0 0 0 0 0 0 0
+	Alheka 0 0 0 0 0 0 0 0 0 0
+	Alhena 0 0 0 0 0 0 0 0 0 0
+	Alioth 0 0 0 0 0 0 0 0 0 0
+	Alkaid 0 0 0 0 0 0 0 0 0 0
+	Almaaz 0 0 0 0 0 0 0 0 0 0
+	Almach 0 0 0 0 0 0 0 0 0 0
+	Alnair 0 0 0 0 0 0 0 0 0 0
+	Alnasl 0 0 0 0 0 0 0 0 0 0
+	Alnilam 0 0 0 0 0 0 0 0 0 0
+	Alnitak 0 0 0 0 0 0 0 0 0 0
+	Alniyat 0 0 0 0 0 0 0 0 0 0
+	"Alpha Arae" 0 0 0 0 0 0 0 0 0 0
+	"Alpha Centauri" 0 0 0 0 0 0 0 0 0 0
+	"Alpha Hydri" 0 0 0 0 0 0 0 0 0 0
+	Alphard 0 0 0 0 0 0 0 0 0 0
+	Alphecca 0 0 0 0 0 0 0 0 0 0
+	Alpheratz 0 0 0 0 0 0 0 0 0 0
+	Alpherg 0 0 0 0 0 0 0 0 0 0
+	Altair 0 0 0 0 0 0 0 0 0 0
+	Aludra 0 0 0 0 0 0 0 0 0 0
+	Anax 0 0 0 0 0 0 0 0 0 0
+	Anbrim 0 0 0 0 0 0 0 0 0 0
+	"Ancient Hope" 0 0 0 0 0 0 0 0 0 0
+	Ankaa 0 0 0 0 0 0 0 0 0 0
+	Answer 0 0 0 0 0 0 0 0 0 0
+	Antares 0 0 0 0 0 0 0 0 0 0
+	Antevorta 0 0 0 0 0 0 0 0 0 0
+	Anthem 0 0 0 0 0 0 0 0 0 0
+	Ap'arak 0 0 0 0 0 0 0 0 0 0
+	Apeiron 0 0 0 0 0 0 0 0 0 0
+	Ar-40 0 0 0 0 0 0 0 0 0 0
+	Arche 0 0 0 0 0 0 0 0 0 0
+	Arcturus 0 0 0 0 0 0 0 0 0 0
+	Arculus 0 0 0 0 0 0 0 0 0 0
+	Arneb 0 0 0 0 0 0 0 0 0 0
+	As-75 0 0 0 0 0 0 0 0 0 0
+	Ascella 0 0 0 0 0 0 0 0 0 0
+	Asikafarnut 0 0 0 0 0 0 0 0 0 0
+	Asio 0 0 0 0 0 0 0 0 0 0
+	Aspidiske 0 0 0 0 0 0 0 0 0 0
+	Athiri 0 0 0 0 0 0 0 0 0 0
+	Atik 0 0 0 0 0 0 0 0 0 0
+	Atria 0 0 0 0 0 0 0 0 0 0
+	Auhru 0 0 0 0 0 0 0 0 0 0
+	Avasaa-Novaa 0 0 0 0 0 0 0 0 0 0
+	Avior 0 0 0 0 0 0 0 0 0 0
+	"Avo Chigo" 0 0 0 0 0 0 0 0 0 0
+	Axiom 0 0 0 0 0 0 0 0 0 0
+	Aya'k'k 0 0 0 0 0 0 0 0 0 0
+	B-11 0 0 0 0 0 0 0 0 0 0
+	Ballad 0 0 0 0 0 0 0 0 0 0
+	Balnii 0 0 0 0 0 0 0 0 0 0
+	Be-9 0 0 0 0 0 0 0 0 0 0
+	Beginning 0 0 0 0 0 0 0 0 0 0
+	Belenos 0 0 0 0 0 0 0 0 0 0
+	Bellatrix 0 0 0 0 0 0 0 0 0 0
+	Belonging 0 0 0 0 0 0 0 0 0 0
+	Belug 0 0 0 0 0 0 0 0 0 0
+	Belugt 0 0 0 0 0 0 0 0 0 0
+	"Beta Lupi" 0 0 0 0 0 0 0 0 0 0
+	Betelgeuse 0 0 0 0 0 0 0 0 0 0
+	Billow 0 0 0 0 0 0 0 0 0 0
+	Bloptab 0 0 0 0 0 0 0 0 0 0
+	Blubipad 0 0 0 0 0 0 0 0 0 0
+	Blugtad 0 0 0 0 0 0 0 0 0 0
+	Boral 0 0 0 0 0 0 0 0 0 0
+	"Bore Fah" 0 0 0 0 0 0 0 0 0 0
+	"Bosuno Le" 0 0 0 0 0 0 0 0 0 0
+	"Bote Asu" 0 0 0 0 0 0 0 0 0 0
+	Br-80 0 0 0 0 0 0 0 0 0 0
+	"Bright Void" 0 0 0 0 0 0 0 0 0 0
+	"Broken Bowl" 0 0 0 0 0 0 0 0 0 0
+	"Bunri Lemeta" 0 0 0 0 0 0 0 0 0 0
+	C-12 0 0 0 0 0 0 0 0 0 0
+	Ca-40 0 0 0 0 0 0 0 0 0 0
+	Caeculus 0 0 0 0 0 0 0 0 0 0
+	Caesura 0 0 0 0 0 0 0 0 0 0
+	Canopus 0 0 0 0 0 0 0 0 0 0
+	Cantata 0 0 0 0 0 0 0 0 0 0
+	Capella 0 0 0 0 0 0 0 0 0 0
+	Caph 0 0 0 0 0 0 0 0 0 0
+	Cardax 0 0 0 0 0 0 0 0 0 0
+	Cardea 0 0 0 0 0 0 0 0 0 0
+	Castor 0 0 0 0 0 0 0 0 0 0
+	Cebalrai 0 0 0 0 0 0 0 0 0 0
+	Celeborim 0 0 0 0 0 0 0 0 0 0
+	Chanai 0 0 0 0 0 0 0 0 0 0
+	Chikatip 0 0 0 0 0 0 0 0 0 0
+	Chimitarp 0 0 0 0 0 0 0 0 0 0
+	Chirr'ay'akai 0 0 0 0 0 0 0 0 0 0
+	Chorale 0 0 0 0 0 0 0 0 0 0
+	Chornifath 0 0 0 0 0 0 0 0 0 0
+	Chy'chra 0 0 0 0 0 0 0 0 0 0
+	Chyyra-Osolaa 0 0 0 0 0 0 0 0 0 0
+	Cinxia 0 0 0 0 0 0 0 0 0 0
+	Citadelle 0 0 0 0 0 0 0 0 0 0
+	Cl-35 0 0 0 0 0 0 0 0 0 0
+	Clepsydra 0 0 0 0 0 0 0 0 0 0
+	Clip 0 0 0 0 0 0 0 0 0 0
+	Coluber 0 0 0 0 0 0 0 0 0 0
+	Companion 0 0 0 0 0 0 0 0 0 0
+	Concerto 0 0 0 0 0 0 0 0 0 0
+	Convector 0 0 0 0 0 0 0 0 0 0
+	"Cor Caroli" 0 0 0 0 0 0 0 0 0 0
+	Corporeal 0 0 0 0 0 0 0 0 0 0
+	Cotpoxi 0 0 0 0 0 0 0 0 0 0
+	Cshudlye 0 0 0 0 0 0 0 0 0 0
+	"Cura Dic" 0 0 0 0 0 0 0 0 0 0
+	Current 0 0 0 0 0 0 0 0 0 0
+	Currus 0 0 0 0 0 0 0 0 0 0
+	Cusp 0 0 0 0 0 0 0 0 0 0
+	"Da Ent" 0 0 0 0 0 0 0 0 0 0
+	"Da Lest" 0 0 0 0 0 0 0 0 0 0
+	Dabih 0 0 0 0 0 0 0 0 0 0
+	Danoa 0 0 0 0 0 0 0 0 0 0
+	"Dark Hills" 0 0 0 0 0 0 0 0 0 0
+	Debrugt 0 0 0 0 0 0 0 0 0 0
+	Decet 0 0 0 0 0 0 0 0 0 0
+	Delia 0 0 0 0 0 0 0 0 0 0
+	"Delta Capricorni" 0 0 0 0 0 0 0 0 0 0
+	"Delta Sagittarii" 0 0 0 0 0 0 0 0 0 0
+	"Delta Velorum" 0 0 0 0 0 0 0 0 0 0
+	Demilude 0 0 0 0 0 0 0 0 0 0
+	Deneb 0 0 0 0 0 0 0 0 0 0
+	Denebola 0 0 0 0 0 0 0 0 0 0
+	Diespiter 0 0 0 0 0 0 0 0 0 0
+	Diphda 0 0 0 0 0 0 0 0 0 0
+	Dixere 0 0 0 0 0 0 0 0 0 0
+	Dokdobaru 0 0 0 0 0 0 0 0 0 0
+	Dom'us 0 0 0 0 0 0 0 0 0 0
+	Dschubba 0 0 0 0 0 0 0 0 0 0
+	Dubhe 0 0 0 0 0 0 0 0 0 0
+	"Due Yoot" 0 0 0 0 0 0 0 0 0 0
+	Duet 0 0 0 0 0 0 0 0 0 0
+	Durax 0 0 0 0 0 0 0 0 0 0
+	E-4183 0 0 0 0 0 0 0 0 0 0
+	E-9182 0 0 0 0 0 0 0 0 0 0
+	Eber 0 0 0 0 0 0 0 0 0 0
+	Eblumab 0 0 0 0 0 0 0 0 0 0
+	Edusa 0 0 0 0 0 0 0 0 0 0
+	Eebu 0 0 0 0 0 0 0 0 0 0
+	Egeria 0 0 0 0 0 0 0 0 0 0
+	"Ehma Ti" 0 0 0 0 0 0 0 0 0 0
+	Ek'kek'ru 0 0 0 0 0 0 0 0 0 0
+	Ekuarik 0 0 0 0 0 0 0 0 0 0
+	"Elabi Choati" 0 0 0 0 0 0 0 0 0 0
+	Elifennka 0 0 0 0 0 0 0 0 0 0
+	Elnath 0 0 0 0 0 0 0 0 0 0
+	"Elo Chigo" 0 0 0 0 0 0 0 0 0 0
+	Eltanin 0 0 0 0 0 0 0 0 0 0
+	Empeles 0 0 0 0 0 0 0 0 0 0
+	Empyrean 0 0 0 0 0 0 0 0 0 0
+	Eneremprukt 0 0 0 0 0 0 0 0 0 0
+	"Eneva Katta" 0 0 0 0 0 0 0 0 0 0
+	Enif 0 0 0 0 0 0 0 0 0 0
+	Ensemble 0 0 0 0 0 0 0 0 0 0
+	Eogho 0 0 0 0 0 0 0 0 0 0
+	"Epsilon Leonis" 0 0 0 0 0 0 0 0 0 0
+	Equus 0 0 0 0 0 0 0 0 0 0
+	"Era Natta" 0 0 0 0 0 0 0 0 0 0
+	"Erabu Lemeta" 0 0 0 0 0 0 0 0 0 0
+	"Eragaru Le" 0 0 0 0 0 0 0 0 0 0
+	"Erba Yle" 0 0 0 0 0 0 0 0 0 0
+	Es'sprak'ai 0 0 0 0 0 0 0 0 0 0
+	Eshkoshtar 0 0 0 0 0 0 0 0 0 0
+	Esix 0 0 0 0 0 0 0 0 0 0
+	"Eta Carinae" 0 0 0 0 0 0 0 0 0 0
+	Eteron 0 0 0 0 0 0 0 0 0 0
+	Evanescence 0 0 0 0 0 0 0 0 0 0
+	Evrae 0 0 0 0 0 0 0 0 0 0
+	F-19 0 0 0 0 0 0 0 0 0 0
+	"Fah Root" 0 0 0 0 0 0 0 0 0 0
+	"Fah Soom" 0 0 0 0 0 0 0 0 0 0
+	Fala 0 0 0 0 0 0 0 0 0 0
+	"Fallen Leaf" 0 0 0 0 0 0 0 0 0 0
+	"Far Horizon" 0 0 0 0 0 0 0 0 0 0
+	Farbutero 0 0 0 0 0 0 0 0 0 0
+	Farinus 0 0 0 0 0 0 0 0 0 0
+	Faronektu 0 0 0 0 0 0 0 0 0 0
+	Fasitopfar 0 0 0 0 0 0 0 0 0 0
+	Fearis 0 0 0 0 0 0 0 0 0 0
+	"Fell Omen" 0 0 0 0 0 0 0 0 0 0
+	Feraticus 0 0 0 0 0 0 0 0 0 0
+	Fereti 0 0 0 0 0 0 0 0 0 0
+	Feroteri 0 0 0 0 0 0 0 0 0 0
+	Ferukistek 0 0 0 0 0 0 0 0 0 0
+	Fingol 0 0 0 0 0 0 0 0 0 0
+	Firmament 0 0 0 0 0 0 0 0 0 0
+	Flugbu 0 0 0 0 0 0 0 0 0 0
+	Flutter 0 0 0 0 0 0 0 0 0 0
+	Fomalhaut 0 0 0 0 0 0 0 0 0 0
+	Fornarep 0 0 0 0 0 0 0 0 0 0
+	"Four Pillars" 0 0 0 0 0 0 0 0 0 0
+	Frenzy 0 0 0 0 0 0 0 0 0 0
+	Fscher 0 0 0 0 0 0 0 0 0 0
+	Fumalsamakah 0 0 0 0 0 0 0 0 0 0
+	Furmeliki 0 0 0 0 0 0 0 0 0 0
+	G-3191 0 0 0 0 0 0 0 0 0 0
+	G-6183 0 0 0 0 0 0 0 0 0 0
+	G-719 0 0 0 0 0 0 0 0 0 0
+	G-819 0 0 0 0 0 0 0 0 0 0
+	Gacrux 0 0 0 0 0 0 0 0 0 0
+	Gale 0 0 0 0 0 0 0 0 0 0
+	"Gamma Cassiopeiae" 0 0 0 0 0 0 0 0 0 0
+	"Gamma Corvi" 0 0 0 0 0 0 0 0 0 0
+	Gaungu 0 0 0 0 0 0 0 0 0 0
+	Ge-73 0 0 0 0 0 0 0 0 0 0
+	"Genta Bo" 0 0 0 0 0 0 0 0 0 0
+	"Gento Ah" 0 0 0 0 0 0 0 0 0 0
+	Gerenus 0 0 0 0 0 0 0 0 0 0
+	Ghhil 0 0 0 0 0 0 0 0 0 0
+	Ghila 0 0 0 0 0 0 0 0 0 0
+	Gienah 0 0 0 0 0 0 0 0 0 0
+	Giribea 0 0 0 0 0 0 0 0 0 0
+	Girtab 0 0 0 0 0 0 0 0 0 0
+	Glide 0 0 0 0 0 0 0 0 0 0
+	Glubatub 0 0 0 0 0 0 0 0 0 0
+	Gomeisa 0 0 0 0 0 0 0 0 0 0
+	"Good Omen" 0 0 0 0 0 0 0 0 0 0
+	Gorvi 0 0 0 0 0 0 0 0 0 0
+	Gossamer 0 0 0 0 0 0 0 0 0 0
+	Graffias 0 0 0 0 0 0 0 0 0 0
+	Gualetri 0 0 0 0 0 0 0 0 0 0
+	Gupta 0 0 0 0 0 0 0 0 0 0
+	Gust 0 0 0 0 0 0 0 0 0 0
+	H-1 0 0 0 0 0 0 0 0 0 0
+	H-8188 0 0 0 0 0 0 0 0 0 0
+	H-9187 0 0 0 0 0 0 0 0 0 0
+	Hadar 0 0 0 0 0 0 0 0 0 0
+	Hamal 0 0 0 0 0 0 0 0 0 0
+	Han 0 0 0 0 0 0 0 0 0 0
+	Hassaleh 0 0 0 0 0 0 0 0 0 0
+	Hatysa 0 0 0 0 0 0 0 0 0 0
+	He-4 0 0 0 0 0 0 0 0 0 0
+	Headwind 0 0 0 0 0 0 0 0 0 0
+	"Heia Due" 0 0 0 0 0 0 0 0 0 0
+	Hesselpost 0 0 0 0 0 0 0 0 0 0
+	Heutesl 0 0 0 0 0 0 0 0 0 0
+	"Hevru Hai" 0 0 0 0 0 0 0 0 0 0
+	"Hi Yahr" 0 0 0 0 0 0 0 0 0 0
+	Hintar 0 0 0 0 0 0 0 0 0 0
+	Holeb 0 0 0 0 0 0 0 0 0 0
+	Homeward 0 0 0 0 0 0 0 0 0 0
+	Host 0 0 0 0 0 0 0 0 0 0
+	Hui'uc 0 0 0 0 0 0 0 0 0 0
+	Hunter 0 0 0 0 0 0 0 0 0 0
+	Huud 0 0 0 0 0 0 0 0 0 0
+	Ianua 0 0 0 0 0 0 0 0 0 0
+	Iigen 0 0 0 0 0 0 0 0 0 0
+	Iinjma 0 0 0 0 0 0 0 0 0 0
+	Iise 0 0 0 0 0 0 0 0 0 0
+	Ik'kara'ka 0 0 0 0 0 0 0 0 0 0
+	Il'le 0 0 0 0 0 0 0 0 0 0
+	Ildaria 0 0 0 0 0 0 0 0 0 0
+	Iliniza 0 0 0 0 0 0 0 0 0 0
+	Ilirco 0 0 0 0 0 0 0 0 0 0
+	"Imo Dep" 0 0 0 0 0 0 0 0 0 0
+	Insitor 0 0 0 0 0 0 0 0 0 0
+	Interlude 0 0 0 0 0 0 0 0 0 0
+	"Io Lowe" 0 0 0 0 0 0 0 0 0 0
+	"Io Mann" 0 0 0 0 0 0 0 0 0 0
+	Ipsing 0 0 0 0 0 0 0 0 0 0
+	"Is Ce B-139" 0 0 0 0 0 0 0 0 0 0
+	"Is Ce F-422" 0 0 0 0 0 0 0 0 0 0
+	"Is Ce G-460" 0 0 0 0 0 0 0 0 0 0
+	"Is Ce J-591" 0 0 0 0 0 0 0 0 0 0
+	"Is Il T-127" 0 0 0 0 0 0 0 0 0 0
+	"Is Il T-94" 0 0 0 0 0 0 0 0 0 0
+	"Is Il V-263" 0 0 0 0 0 0 0 0 0 0
+	"Is Il X-626" 0 0 0 0 0 0 0 0 0 0
+	"Is Il Z-59" 0 0 0 0 0 0 0 0 0 0
+	"Is Il Z-814" 0 0 0 0 0 0 0 0 0 0
+	Iyech'yek 0 0 0 0 0 0 0 0 0 0
+	Izar 0 0 0 0 0 0 0 0 0 0
+	"Jentu Centi" 0 0 0 0 0 0 0 0 0 0
+	"Jentu Le" 0 0 0 0 0 0 0 0 0 0
+	Jied 0 0 0 0 0 0 0 0 0 0
+	"Jyeg Pvu" 0 0 0 0 0 0 0 0 0 0
+	Jyelio 0 0 0 0 0 0 0 0 0 0
+	K-39 0 0 0 0 0 0 0 0 0 0
+	Ka'ch'chrai 0 0 0 0 0 0 0 0 0 0
+	Ka'pru 0 0 0 0 0 0 0 0 0 0
+	Kaliptari 0 0 0 0 0 0 0 0 0 0
+	Kanguwa 0 0 0 0 0 0 0 0 0 0
+	"Kappa Centauri" 0 0 0 0 0 0 0 0 0 0
+	Karhio 0 0 0 0 0 0 0 0 0 0
+	Kashikt 0 0 0 0 0 0 0 0 0 0
+	Kasi-Vasa-Novaa 0 0 0 0 0 0 0 0 0 0
+	Kasii-Cavaasa 0 0 0 0 0 0 0 0 0 0
+	Kasii-Sola 0 0 0 0 0 0 0 0 0 0
+	Kasikfar 0 0 0 0 0 0 0 0 0 0
+	"Kaus Australis" 0 0 0 0 0 0 0 0 0 0
+	"Kaus Borealis" 0 0 0 0 0 0 0 0 0 0
+	Kella-Uoasa 0 0 0 0 0 0 0 0 0 0
+	Khasola-Ryuit 0 0 0 0 0 0 0 0 0 0
+	Khosa-Kaska 0 0 0 0 0 0 0 0 0 0
+	"Ki War Ek" 0 0 0 0 0 0 0 0 0 0
+	"Kifrana Terberah" 0 0 0 0 0 0 0 0 0 0
+	Kiiraj-Luue 0 0 0 0 0 0 0 0 0 0
+	Kilema 0 0 0 0 0 0 0 0 0 0
+	Kiluit 0 0 0 0 0 0 0 0 0 0
+	Kiro'ku 0 0 0 0 0 0 0 0 0 0
+	Kiru'kichi 0 0 0 0 0 0 0 0 0 0
+	Kneirc 0 0 0 0 0 0 0 0 0 0
+	Kochab 0 0 0 0 0 0 0 0 0 0
+	"Kor Ak'Mari" 0 0 0 0 0 0 0 0 0 0
+	"Kor En'lakfar" 0 0 0 0 0 0 0 0 0 0
+	"Kor Fel'tar" 0 0 0 0 0 0 0 0 0 0
+	"Kor Men" 0 0 0 0 0 0 0 0 0 0
+	"Kor Nor'peli" 0 0 0 0 0 0 0 0 0 0
+	"Kor Tar'bei" 0 0 0 0 0 0 0 0 0 0
+	"Kor Zena'i" 0 0 0 0 0 0 0 0 0 0
+	Kornephoros 0 0 0 0 0 0 0 0 0 0
+	Korsmanath 0 0 0 0 0 0 0 0 0 0
+	Kr-84 0 0 0 0 0 0 0 0 0 0
+	Kraz 0 0 0 0 0 0 0 0 0 0
+	Kugel 0 0 0 0 0 0 0 0 0 0
+	Kursa 0 0 0 0 0 0 0 0 0 0
+	L-118 0 0 0 0 0 0 0 0 0 0
+	L-6181 0 0 0 0 0 0 0 0 0 0
+	"Last Word" 0 0 0 0 0 0 0 0 0 0
+	Lathia 0 0 0 0 0 0 0 0 0 0
+	Lesath 0 0 0 0 0 0 0 0 0 0
+	Levana 0 0 0 0 0 0 0 0 0 0
+	Li-7 0 0 0 0 0 0 0 0 0 0
+	Lift 0 0 0 0 0 0 0 0 0 0
+	Limen 0 0 0 0 0 0 0 0 0 0
+	Lire 0 0 0 0 0 0 0 0 0 0
+	Lloloi 0 0 0 0 0 0 0 0 0 0
+	Lolami 0 0 0 0 0 0 0 0 0 0
+	"Lom Tahr" 0 0 0 0 0 0 0 0 0 0
+	"Lone Cloud" 0 0 0 0 0 0 0 0 0 0
+	Lucina 0 0 0 0 0 0 0 0 0 0
+	Lumine 0 0 0 0 0 0 0 0 0 0
+	Lurata 0 0 0 0 0 0 0 0 0 0
+	Luue-Saqru 0 0 0 0 0 0 0 0 0 0
+	M-1188 0 0 0 0 0 0 0 0 0 0
+	MC-42 0 0 0 0 0 0 0 0 0 0
+	MS-219 0 0 0 0 0 0 0 0 0 0
+	Madrigal 0 0 0 0 0 0 0 0 0 0
+	Maithi 0 0 0 0 0 0 0 0 0 0
+	Makferuti 0 0 0 0 0 0 0 0 0 0
+	Maoni 0 0 0 0 0 0 0 0 0 0
+	Markab 0 0 0 0 0 0 0 0 0 0
+	Markeb 0 0 0 0 0 0 0 0 0 0
+	Maspa-Cavaasa 0 0 0 0 0 0 0 0 0 0
+	Maspa-Mavra 0 0 0 0 0 0 0 0 0 0
+	Maspa-Raaqa 0 0 0 0 0 0 0 0 0 0
+	Matar 0 0 0 0 0 0 0 0 0 0
+	Mavra-Ijsola 0 0 0 0 0 0 0 0 0 0
+	Mebla 0 0 0 0 0 0 0 0 0 0
+	Meblumem 0 0 0 0 0 0 0 0 0 0
+	Mebsuta 0 0 0 0 0 0 0 0 0 0
+	Meftarkata 0 0 0 0 0 0 0 0 0 0
+	"Mego Faro" 0 0 0 0 0 0 0 0 0 0
+	"Mego Inito" 0 0 0 0 0 0 0 0 0 0
+	"Mego Seo" 0 0 0 0 0 0 0 0 0 0
+	"Mei Yohn" 0 0 0 0 0 0 0 0 0 0
+	Mekislepti 0 0 0 0 0 0 0 0 0 0
+	Mellow 0 0 0 0 0 0 0 0 0 0
+	Men 0 0 0 0 0 0 0 0 0 0
+	Menkalinan 0 0 0 0 0 0 0 0 0 0
+	Menkar 0 0 0 0 0 0 0 0 0 0
+	Menkent 0 0 0 0 0 0 0 0 0 0
+	Merak 0 0 0 0 0 0 0 0 0 0
+	Mesuket 0 0 0 0 0 0 0 0 0 0
+	Mg-24 0 0 0 0 0 0 0 0 0 0
+	Miaplacidus 0 0 0 0 0 0 0 0 0 0
+	Miblulub 0 0 0 0 0 0 0 0 0 0
+	Mimosa 0 0 0 0 0 0 0 0 0 0
+	Minkar 0 0 0 0 0 0 0 0 0 0
+	Mintaka 0 0 0 0 0 0 0 0 0 0
+	Mirach 0 0 0 0 0 0 0 0 0 0
+	Mirfak 0 0 0 0 0 0 0 0 0 0
+	Mirzam 0 0 0 0 0 0 0 0 0 0
+	Misam 0 0 0 0 0 0 0 0 0 0
+	Mitera 0 0 0 0 0 0 0 0 0 0
+	Mizar 0 0 0 0 0 0 0 0 0 0
+	Mnashyu 0 0 0 0 0 0 0 0 0 0
+	Mohuwo 0 0 0 0 0 0 0 0 0 0
+	Moktar 0 0 0 0 0 0 0 0 0 0
+	Mora 0 0 0 0 0 0 0 0 0 0
+	Mosaa-Iyra 0 0 0 0 0 0 0 0 0 0
+	Mote 0 0 0 0 0 0 0 0 0 0
+	Msalbit 0 0 0 0 0 0 0 0 0 0
+	Muhlifain 0 0 0 0 0 0 0 0 0 0
+	Muphrid 0 0 0 0 0 0 0 0 0 0
+	Myiara-Nnesa 0 0 0 0 0 0 0 0 0 0
+	Myruet-Kvelq 0 0 0 0 0 0 0 0 0 0
+	N-14 0 0 0 0 0 0 0 0 0 0
+	Na-23 0 0 0 0 0 0 0 0 0 0
+	Naos 0 0 0 0 0 0 0 0 0 0
+	Naper 0 0 0 0 0 0 0 0 0 0
+	Ne-20 0 0 0 0 0 0 0 0 0 0
+	Nenia 0 0 0 0 0 0 0 0 0 0
+	Nihal 0 0 0 0 0 0 0 0 0 0
+	Nnatai 0 0 0 0 0 0 0 0 0 0
+	Nnaug 0 0 0 0 0 0 0 0 0 0
+	Nocte 0 0 0 0 0 0 0 0 0 0
+	Nona 0 0 0 0 0 0 0 0 0 0
+	Nonet 0 0 0 0 0 0 0 0 0 0
+	Nssryos 0 0 0 0 0 0 0 0 0 0
+	Nunki 0 0 0 0 0 0 0 0 0 0
+	O-16 0 0 0 0 0 0 0 0 0 0
+	O-3184 0 0 0 0 0 0 0 0 0 0
+	Oblate 0 0 0 0 0 0 0 0 0 0
+	Octet 0 0 0 0 0 0 0 0 0 0
+	Oihaug 0 0 0 0 0 0 0 0 0 0
+	Ojstaan-Sola 0 0 0 0 0 0 0 0 0 0
+	Ookmya 0 0 0 0 0 0 0 0 0 0
+	Oosuoro 0 0 0 0 0 0 0 0 0 0
+	Opera 0 0 0 0 0 0 0 0 0 0
+	Orbona 0 0 0 0 0 0 0 0 0 0
+	Orvala 0 0 0 0 0 0 0 0 0 0
+	Osolaa-Uuoru 0 0 0 0 0 0 0 0 0 0
+	Ossipago 0 0 0 0 0 0 0 0 0 0
+	Oublaa-Khora 0 0 0 0 0 0 0 0 0 0
+	"Over the Rainbow" 0 0 0 0 0 0 0 0 0 0
+	P-31 0 0 0 0 0 0 0 0 0 0
+	Paeli 0 0 0 0 0 0 0 0 0 0
+	Pantica 0 0 0 0 0 0 0 0 0 0
+	Parca 0 0 0 0 0 0 0 0 0 0
+	"Paru Paru" 0 0 0 0 0 0 0 0 0 0
+	Patir 0 0 0 0 0 0 0 0 0 0
+	Pbelnep 0 0 0 0 0 0 0 0 0 0
+	Peacock 0 0 0 0 0 0 0 0 0 0
+	Peak 0 0 0 0 0 0 0 0 0 0
+	Pearl 0 0 0 0 0 0 0 0 0 0
+	"Pedita Pri" 0 0 0 0 0 0 0 0 0 0
+	"Pedita Sec" 0 0 0 0 0 0 0 0 0 0
+	Pelaa-Muora 0 0 0 0 0 0 0 0 0 0
+	Pelubta 0 0 0 0 0 0 0 0 0 0
+	Peragenor 0 0 0 0 0 0 0 0 0 0
+	Peresedersi 0 0 0 0 0 0 0 0 0 0
+	Perfica 0 0 0 0 0 0 0 0 0 0
+	Persian 0 0 0 0 0 0 0 0 0 0
+	Persitar 0 0 0 0 0 0 0 0 0 0
+	Phact 0 0 0 0 0 0 0 0 0 0
+	Phecda 0 0 0 0 0 0 0 0 0 0
+	Pherkad 0 0 0 0 0 0 0 0 0 0
+	Phurad 0 0 0 0 0 0 0 0 0 0
+	Piadenli 0 0 0 0 0 0 0 0 0 0
+	Pik'ro'iyak 0 0 0 0 0 0 0 0 0 0
+	Pinnacle 0 0 0 0 0 0 0 0 0 0
+	Plort 0 0 0 0 0 0 0 0 0 0
+	Polaris 0 0 0 0 0 0 0 0 0 0
+	Polerius 0 0 0 0 0 0 0 0 0 0
+	Pollux 0 0 0 0 0 0 0 0 0 0
+	Porrima 0 0 0 0 0 0 0 0 0 0
+	"Porta Terra" 0 0 0 0 0 0 0 0 0 0
+	Postlude 0 0 0 0 0 0 0 0 0 0
+	Postverta 0 0 0 0 0 0 0 0 0 0
+	Prakacha'a 0 0 0 0 0 0 0 0 0 0
+	Prelude 0 0 0 0 0 0 0 0 0 0
+	Procyon 0 0 0 0 0 0 0 0 0 0
+	Prosa 0 0 0 0 0 0 0 0 0 0
+	Ptetubo 0 0 0 0 0 0 0 0 0 0
+	Ptobeh 0 0 0 0 0 0 0 0 0 0
+	"Pug Iyik" 0 0 0 0 0 0 0 0 0 0
+	Pukako 0 0 0 0 0 0 0 0 0 0
+	Quartet 0 0 0 0 0 0 0 0 0 0
+	Quaru 0 0 0 0 0 0 0 0 0 0
+	Queri 0 0 0 0 0 0 0 0 0 0
+	Quintessence 0 0 0 0 0 0 0 0 0 0
+	Quintet 0 0 0 0 0 0 0 0 0 0
+	Raaqa-Ryuit 0 0 0 0 0 0 0 0 0 0
+	Rajak 0 0 0 0 0 0 0 0 0 0
+	Rasalhague 0 0 0 0 0 0 0 0 0 0
+	Rastaban 0 0 0 0 0 0 0 0 0 0
+	"Rati Cal" 0 0 0 0 0 0 0 0 0 0
+	"Ravu Kon" 0 0 0 0 0 0 0 0 0 0
+	Regor 0 0 0 0 0 0 0 0 0 0
+	Regulus 0 0 0 0 0 0 0 0 0 0
+	Relifer 0 0 0 0 0 0 0 0 0 0
+	Remembrance 0 0 0 0 0 0 0 0 0 0
+	Rhapsody 0 0 0 0 0 0 0 0 0 0
+	Rigel 0 0 0 0 0 0 0 0 0 0
+	Ritilas 0 0 0 0 0 0 0 0 0 0
+	Rivulet 0 0 0 0 0 0 0 0 0 0
+	Rota 0 0 0 0 0 0 0 0 0 0
+	Rouseu 0 0 0 0 0 0 0 0 0 0
+	Ruchbah 0 0 0 0 0 0 0 0 0 0
+	Rutilicus 0 0 0 0 0 0 0 0 0 0
+	S-32 0 0 0 0 0 0 0 0 0 0
+	Sabik 0 0 0 0 0 0 0 0 0 0
+	Sabriset 0 0 0 0 0 0 0 0 0 0
+	Sadalmelik 0 0 0 0 0 0 0 0 0 0
+	Sadalsuud 0 0 0 0 0 0 0 0 0 0
+	Sadr 0 0 0 0 0 0 0 0 0 0
+	"Sagittarius A*" 0 0 0 0 0 0 0 0 0 0
+	Sail 0 0 0 0 0 0 0 0 0 0
+	Saiph 0 0 0 0 0 0 0 0 0 0
+	Salipastart 0 0 0 0 0 0 0 0 0 0
+	Saquergen 0 0 0 0 0 0 0 0 0 0
+	Sargas 0 0 0 0 0 0 0 0 0 0
+	Sarifa 0 0 0 0 0 0 0 0 0 0
+	Sarin 0 0 0 0 0 0 0 0 0 0
+	Sayaiban 0 0 0 0 0 0 0 0 0 0
+	Scheat 0 0 0 0 0 0 0 0 0 0
+	Schedar 0 0 0 0 0 0 0 0 0 0
+	Scija 0 0 0 0 0 0 0 0 0 0
+	Sedes 0 0 0 0 0 0 0 0 0 0
+	Segesta 0 0 0 0 0 0 0 0 0 0
+	Seginus 0 0 0 0 0 0 0 0 0 0
+	Seketra 0 0 0 0 0 0 0 0 0 0
+	Sepetrosk 0 0 0 0 0 0 0 0 0 0
+	Sepriaptu 0 0 0 0 0 0 0 0 0 0
+	Septet 0 0 0 0 0 0 0 0 0 0
+	"Sera Natta" 0 0 0 0 0 0 0 0 0 0
+	Serenade 0 0 0 0 0 0 0 0 0 0
+	Sevrelect 0 0 0 0 0 0 0 0 0 0
+	Sextet 0 0 0 0 0 0 0 0 0 0
+	Shaula 0 0 0 0 0 0 0 0 0 0
+	Sheratan 0 0 0 0 0 0 0 0 0 0
+	"Shini Bori" 0 0 0 0 0 0 0 0 0 0
+	Si'yak'ku 0 0 0 0 0 0 0 0 0 0
+	Si-28 0 0 0 0 0 0 0 0 0 0
+	Sich'ka'ara 0 0 0 0 0 0 0 0 0 0
+	Silikatakfar 0 0 0 0 0 0 0 0 0 0
+	"Silver Bell" 0 0 0 0 0 0 0 0 0 0
+	"Silver String" 0 0 0 0 0 0 0 0 0 0
+	Similisti 0 0 0 0 0 0 0 0 0 0
+	Sirius 0 0 0 0 0 0 0 0 0 0
+	Skeruto 0 0 0 0 0 0 0 0 0 0
+	Sko'karak 0 0 0 0 0 0 0 0 0 0
+	Soar 0 0 0 0 0 0 0 0 0 0
+	Sobarati 0 0 0 0 0 0 0 0 0 0
+	Sol 0 0 0 0 0 0 0 0 0 0
+	"Sol Arach" 0 0 0 0 0 0 0 0 0 0
+	"Sol Kimek" 0 0 0 0 0 0 0 0 0 0
+	"Sol Saryd" 0 0 0 0 0 0 0 0 0 0
+	Solifar 0 0 0 0 0 0 0 0 0 0
+	Sonata 0 0 0 0 0 0 0 0 0 0
+	Sospi 0 0 0 0 0 0 0 0 0 0
+	Span 0 0 0 0 0 0 0 0 0 0
+	Speloog 0 0 0 0 0 0 0 0 0 0
+	Spica 0 0 0 0 0 0 0 0 0 0
+	Statina 0 0 0 0 0 0 0 0 0 0
+	"Steep Roof" 0 0 0 0 0 0 0 0 0 0
+	Stercutus 0 0 0 0 0 0 0 0 0 0
+	Stiidej-Nnesa 0 0 0 0 0 0 0 0 0 0
+	Stream 0 0 0 0 0 0 0 0 0 0
+	Suhail 0 0 0 0 0 0 0 0 0 0
+	Sumar 0 0 0 0 0 0 0 0 0 0
+	Sumprast 0 0 0 0 0 0 0 0 0 0
+	Supra 0 0 0 0 0 0 0 0 0 0
+	Symphony 0 0 0 0 0 0 0 0 0 0
+	Tailwind 0 0 0 0 0 0 0 0 0 0
+	Tais 0 0 0 0 0 0 0 0 0 0
+	Talita 0 0 0 0 0 0 0 0 0 0
+	"Tania Australis" 0 0 0 0 0 0 0 0 0 0
+	Tap 0 0 0 0 0 0 0 0 0 0
+	Tarazed 0 0 0 0 0 0 0 0 0 0
+	Tebuteb 0 0 0 0 0 0 0 0 0 0
+	Tectum 0 0 0 0 0 0 0 0 0 0
+	Tejat 0 0 0 0 0 0 0 0 0 0
+	Terminus 0 0 0 0 0 0 0 0 0 0
+	"Terra Incognita" 0 0 0 0 0 0 0 0 0 0
+	Thepa 0 0 0 0 0 0 0 0 0 0
+	Thread 0 0 0 0 0 0 0 0 0 0
+	"Thshybo Le" 0 0 0 0 0 0 0 0 0 0
+	Thuban 0 0 0 0 0 0 0 0 0 0
+	Tide 0 0 0 0 0 0 0 0 0 0
+	Torbab 0 0 0 0 0 0 0 0 0 0
+	Torrent 0 0 0 0 0 0 0 0 0 0
+	Tortor 0 0 0 0 0 0 0 0 0 0
+	Trio 0 0 0 0 0 0 0 0 0 0
+	Tscera 0 0 0 0 0 0 0 0 0 0
+	Tumble 0 0 0 0 0 0 0 0 0 0
+	Turais 0 0 0 0 0 0 0 0 0 0
+	Tuur-Kella 0 0 0 0 0 0 0 0 0 0
+	Twirl 0 0 0 0 0 0 0 0 0 0
+	U-5188 0 0 0 0 0 0 0 0 0 0
+	Uelawan 0 0 0 0 0 0 0 0 0 0
+	Uhebe 0 0 0 0 0 0 0 0 0 0
+	"Ula Mon" 0 0 0 0 0 0 0 0 0 0
+	"Ultima Thule" 0 0 0 0 0 0 0 0 0 0
+	Umbral 0 0 0 0 0 0 0 0 0 0
+	Unagi 0 0 0 0 0 0 0 0 0 0
+	Unukalhai 0 0 0 0 0 0 0 0 0 0
+	"Urba Pest" 0 0 0 0 0 0 0 0 0 0
+	Uttna 0 0 0 0 0 0 0 0 0 0
+	Uuoru-Kella 0 0 0 0 0 0 0 0 0 0
+	Uuoru-Sossa 0 0 0 0 0 0 0 0 0 0
+	"Uwa Fahn" 0 0 0 0 0 0 0 0 0 0
+	"Uwo Seija" 0 0 0 0 0 0 0 0 0 0
+	V-2189 0 0 0 0 0 0 0 0 0 0
+	Vade-Staja 0 0 0 0 0 0 0 0 0 0
+	Vaiov 0 0 0 0 0 0 0 0 0 0
+	Valkraa-Uuoru 0 0 0 0 0 0 0 0 0 0
+	Vanguwo 0 0 0 0 0 0 0 0 0 0
+	Vasa-Oorua 0 0 0 0 0 0 0 0 0 0
+	Vaticanus 0 0 0 0 0 0 0 0 0 0
+	Vega 0 0 0 0 0 0 0 0 0 0
+	Vesvii 0 0 0 0 0 0 0 0 0 0
+	Vilacira 0 0 0 0 0 0 0 0 0 0
+	Vindemiatrix 0 0 0 0 0 0 0 0 0 0
+	Vivace 0 0 0 0 0 0 0 0 0 0
+	Volax 0 0 0 0 0 0 0 0 0 0
+	Vorpal 0 0 0 0 0 0 0 0 0 0
+	Vorsuke 0 0 0 0 0 0 0 0 0 0
+	Vulcuja 0 0 0 0 0 0 0 0 0 0
+	W-3197 0 0 0 0 0 0 0 0 0 0
+	"Wah Ki" 0 0 0 0 0 0 0 0 0 0
+	"Wah Oh" 0 0 0 0 0 0 0 0 0 0
+	"Wah Yoot" 0 0 0 0 0 0 0 0 0 0
+	Wake 0 0 0 0 0 0 0 0 0 0
+	Wave 0 0 0 0 0 0 0 0 0 0
+	Waypoint 0 0 0 0 0 0 0 0 0 0
+	Wazn 0 0 0 0 0 0 0 0 0 0
+	Wei 0 0 0 0 0 0 0 0 0 0
+	Wezen 0 0 0 0 0 0 0 0 0 0
+	Whirlwind 0 0 0 0 0 0 0 0 0 0
+	"World's End" 0 0 0 0 0 0 0 0 0 0
+	Wreoul 0 0 0 0 0 0 0 0 0 0
+	"Xutluno Fali" 0 0 0 0 0 0 0 0 0 0
+	"Xutluno Rees" 0 0 0 0 0 0 0 0 0 0
+	"Ya Hai" 0 0 0 0 0 0 0 0 0 0
+	"Yed Prior" 0 0 0 0 0 0 0 0 0 0
+	Yerser 0 0 0 0 0 0 0 0 0 0
+	Yli 0 0 0 0 0 0 0 0 0 0
+	Yllke 0 0 0 0 0 0 0 0 0 0
+	Yranjiu 0 0 0 0 0 0 0 0 0 0
+	Zaurak 0 0 0 0 0 0 0 0 0 0
+	Zeinar 0 0 0 0 0 0 0 0 0 0
+	"Zeta Aquilae" 0 0 0 0 0 0 0 0 0 0
+	"Zeta Centauri" 0 0 0 0 0 0 0 0 0 0
+	Zolpulti 0 0 0 0 0 0 0 0 0 0
+	Zosma 0 0 0 0 0 0 0 0 0 0
+	"Zuba Zub" 0 0 0 0 0 0 0 0 0 0
+	Zubenelgenubi 0 0 0 0 0 0 0 0 0 0
+	Zubenelhakrabi 0 0 0 0 0 0 0 0 0 0
+	Zubeneschamali 0 0 0 0 0 0 0 0 0 0
+
+# What you know:
+visited Rutilicus
+"visited planet" "New Boston"
+logbook
+	16 11 3013
+		"Finally scraped together enough money to buy a pilot's license. The interest on the mortgage for my starship is exorbitant."
+	Factions Pirates
+		"In poorer and more remote star systems, where the Navy seldom patrols, pirate attacks on merchant ships are frequent. Pirates are also known to attack large, unguarded convoys of freighters even in more populated areas. Most pirate fleets come from lawless worlds on the outskirts of human space."
+	Factions Republic
+		"Hundreds of years ago, the independent territories in different parts of human space agreed to join together into a single democratic government, with Earth as its capital. The rise of the Republic ushered in a long period of peace and prosperity in human history."
+		`Representation in the Republic Parliament is based on population. That means that some individual "Paradise Worlds" have more representatives than entire regions of space like the Dirt Belt that are more sparsely settled.`
+	Factions Syndicate
+		"The Syndicate is a megacorporation, the largest employer in human space. People who cannot find steady work elsewhere flock to the Syndicate factory worlds, where they are almost guaranteed to find a job. Although the Syndicate is technically part of the Republic, Syndicate worlds are governed directly by the corporation."
+		"The Syndicate is a central part of the Republic's economy, but they are also well known for selling shoddy products and for doing damage to the environment on the worlds they control. Their treatment of workers is questionable, and their opposition to organized labor is legendary. Some Syndicate factory towns have even been accused of human rights abuses."
+
+# How you began:
+start default
+	system Rutilicus
+	planet "New Boston"
+	date 16 11 3013
+	account
+		credits 480000
+		score 400
+		history
+		mortgage Mortgage
+			principal 480000
+			interest 0.004
+			term 365
+
+# Installed plugins:
+plugins

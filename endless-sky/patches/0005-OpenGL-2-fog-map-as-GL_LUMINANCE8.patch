@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Mon, 19 Oct 2026 18:44:05 +0300
+Subject: OpenGL 2: fog map as GL_LUMINANCE8
+
+The nv30 driver has no ARB_texture_rg, so the R8/GL_RED fog texture failed there.
+The shader reads .r, which a luminance texture also fills.
+
+diff --git a/source/shader/FogShader.cpp b/source/shader/FogShader.cpp
+--- a/source/shader/FogShader.cpp
++++ b/source/shader/FogShader.cpp
+@@ -204,12 +204,19 @@ void FogShader::Draw(const Point &center, double zoom, const PlayerInfo &player)
+ 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+ 
+ 			// Upload the new "image."
+-			glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, columns, rows, 0, GL_RED, GL_UNSIGNED_BYTE, data);
++			// OpenGL 2 has no single-channel red textures (ARB_texture_rg); luminance gives the
++			// same value in .r.
++			if(OpenGL::HasVaoSupport())
++				glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, columns, rows, 0, GL_RED, GL_UNSIGNED_BYTE, data);
++			else
++				glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE8, columns, rows, 0,
++					GL_LUMINANCE, GL_UNSIGNED_BYTE, data);
+ 		}
+ 		else
+ 		{
+ 			glBindTexture(GL_TEXTURE_2D, texture);
+-			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, columns, rows, GL_RED, GL_UNSIGNED_BYTE, data);
++			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, columns, rows,
++				OpenGL::HasVaoSupport() ? GL_RED : GL_LUMINANCE, GL_UNSIGNED_BYTE, data);
+ 		}
+ 	}
+ 	else

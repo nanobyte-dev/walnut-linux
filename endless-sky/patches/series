@@ -1,0 +1,7 @@
+0001-Big-endian-byte-order-correct-alpha-premultiply-coll.patch
+0002-Sounds-WAV-samples-little-endian-to-host-order-kept-.patch
+0003-ES_LOW_MEMORY-build-option-mallopt-in-main-two-loade.patch
+0004-OpenGL-2-sprites-as-a-2D-atlas-instead-of-a-3D-textu.patch
+0005-OpenGL-2-fog-map-as-GL_LUMINANCE8.patch
+0006-OpenGL-2-GLSL-1.20-shaders-in-shaders-gl2-loaded-ins.patch
+0007-Unit-tests-for-the-byte-order-premultiply-masks-WAV-.patch

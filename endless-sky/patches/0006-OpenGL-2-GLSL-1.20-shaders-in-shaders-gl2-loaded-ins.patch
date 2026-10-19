@@ -1,0 +1,1175 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Mon, 19 Oct 2026 18:45:54 +0300
+Subject: OpenGL 2: GLSL 1.20 shaders in shaders-gl2, loaded instead of shaders
+ when there is no OpenGL 3
+
+The 22 shaders, written for the game's OpenGL 2 path (no plugin needed): the same as
+shaders/ minus 'in/out/texture', and sprite, batch and outline read the 2D atlas
+(Sprite::Atlas) instead of a 3D texture. outlineLite is an 8-lookup version of the
+144-lookup outline filter: used when the preference 'Cheap ship outlines' is on or when
+the full one does not build.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -320,6 +320,7 @@ elseif(WIN32)
+ 	install(DIRECTORY data DESTINATION .)
+ 	install(DIRECTORY images DESTINATION .)
+ 	install(DIRECTORY shaders DESTINATION .)
++	install(DIRECTORY shaders-gl2 DESTINATION .)
+ 	install(DIRECTORY sounds DESTINATION .)
+ 	install(FILES credits.txt DESTINATION .)
+ 	install(FILES keys.txt DESTINATION .)
+@@ -375,6 +376,7 @@ elseif(UNIX)
+ 	install(DIRECTORY data DESTINATION share/games/endless-sky)
+ 	install(DIRECTORY images DESTINATION share/games/endless-sky)
+ 	install(DIRECTORY shaders DESTINATION share/games/endless-sky)
++	install(DIRECTORY shaders-gl2 DESTINATION share/games/endless-sky)
+ 	install(DIRECTORY sounds DESTINATION share/games/endless-sky)
+ 	install(FILES credits.txt DESTINATION share/games/endless-sky)
+ 	install(FILES keys.txt DESTINATION share/games/endless-sky)
+diff --git a/shaders-gl2/batch.frag b/shaders-gl2/batch.frag
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/batch.frag
+@@ -0,0 +1,45 @@
++/* batch.frag
++Copyright (c) 2017 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++uniform sampler2D tex;
++uniform float frameCount;
++uniform vec4 atlas;
++
++// The frames of a sprite are in a grid in one 2D texture (columns first), because the GPU
++// takes no big 3D textures: atlas.xy is the size of a frame in texture coordinates, atlas.zw
++// half a texel. Frame f is in column f mod c and row f / c, with c = floor(1 / atlas.x) columns.
++vec2 Cell(vec4 a, float frame) {
++	float columns = floor(1.0 / a.x + 0.0001);
++	float row = floor((frame + 0.5) / columns);
++	return vec2(frame - row * columns, row) * a.xy;
++}
++
++// A point (0 to 1 in the frame) of the frame at that cell, half a texel in from the edge of the
++// frame, as clamp-to-edge does for a texture of one frame.
++vec2 At(vec4 a, vec2 cell, vec2 uv) {
++	return cell + clamp(uv * a.xy, a.zw, a.xy - a.zw);
++}
++
++varying vec3 fragTexCoord;
++varying float fragAlpha;
++void main() {
++	float first = floor(fragTexCoord.z);
++	float second = mod(ceil(fragTexCoord.z), frameCount);
++	float fade = fragTexCoord.z - first;
++	gl_FragColor = mix(
++		texture2D(tex, At(atlas, Cell(atlas, first), fragTexCoord.xy)),
++		texture2D(tex, At(atlas, Cell(atlas, second), fragTexCoord.xy)), fade);
++	gl_FragColor *= vec4(fragAlpha);
++}
+diff --git a/shaders-gl2/batch.vert b/shaders-gl2/batch.vert
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/batch.vert
+@@ -0,0 +1,28 @@
++/* batch.vert
++Copyright (c) 2017 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++uniform vec2 scale;
++
++attribute vec2 vert;
++attribute vec3 texCoord;
++attribute float alpha;
++varying vec3 fragTexCoord;
++varying float fragAlpha;
++
++void main() {
++	gl_Position = vec4(vert * scale, 0, 1);
++	fragTexCoord = texCoord;
++	fragAlpha = alpha;
++}
+diff --git a/shaders-gl2/fill.frag b/shaders-gl2/fill.frag
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/fill.frag
+@@ -0,0 +1,22 @@
++/* fill.frag
++Copyright (c) 2014 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++
++uniform vec4 color;
++
++
++void main() {
++	gl_FragColor = color;
++}
+diff --git a/shaders-gl2/fill.vert b/shaders-gl2/fill.vert
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/fill.vert
+@@ -0,0 +1,24 @@
++/* fill.vert
++Copyright (c) 2014 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++uniform vec2 scale;
++uniform vec2 center;
++uniform vec2 size;
++
++attribute vec2 vert;
++
++void main() {
++	gl_Position = vec4((center + vert * size) * scale, 0, 1);
++}
+diff --git a/shaders-gl2/fog.frag b/shaders-gl2/fog.frag
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/fog.frag
+@@ -0,0 +1,24 @@
++/* fog.frag
++Copyright (c) 2016 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++
++
++uniform sampler2D tex;
++
++varying vec2 fragTexCoord;
++
++void main() {
++	gl_FragColor = vec4(0, 0, 0, texture2D(tex, fragTexCoord).r);
++}
+diff --git a/shaders-gl2/fog.vert b/shaders-gl2/fog.vert
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/fog.vert
+@@ -0,0 +1,25 @@
++/* fog.vert
++Copyright (c) 2016 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++uniform vec2 corner;
++uniform vec2 dimensions;
++
++attribute vec2 vert;
++varying vec2 fragTexCoord;
++
++void main() {
++	gl_Position = vec4(corner + vert * dimensions, 0, 1);
++	fragTexCoord = vert;
++}
+diff --git a/shaders-gl2/font.frag b/shaders-gl2/font.frag
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/font.frag
+@@ -0,0 +1,30 @@
++/* font.frag
++Copyright (c) 2014-2020 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++
++
++// The user must supply a texture and a color (white by default).
++uniform sampler2D tex;
++uniform vec4 color;
++
++// This comes from the vertex shader.
++varying vec2 texCoord;
++
++// Output color.
++
++// Multiply the texture by the user-specified color (including alpha).
++void main() {
++	gl_FragColor = texture2D(tex, texCoord).a * color;
++}
+diff --git a/shaders-gl2/font.vert b/shaders-gl2/font.vert
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/font.vert
+@@ -0,0 +1,39 @@
++/* font.vert
++Copyright (c) 2014-2020 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++// scale maps pixel coordinates to GL coordinates (-1 to 1).
++uniform vec2 scale;
++// The (x, y) coordinates of the top left corner of the glyph.
++uniform vec2 position;
++// The glyph to draw. (ASCII value - 32).
++uniform int glyph;
++// Aspect ratio of rendered glyph (unity by default).
++uniform float aspect;
++// Glyph size (in pixels).
++uniform vec2 glyphSize;
++
++// Inputs from the VBO.
++attribute vec2 vert;
++attribute vec2 corner;
++
++// Output to the fragment shader.
++varying vec2 texCoord;
++
++// Pick the proper glyph out of the texture.
++void main() {
++	texCoord = vec2((float(glyph) + corner.x) / 98.0, corner.y);
++	vec2 pos = vert * glyphSize;
++	gl_Position = vec4((aspect * pos.x + position.x) * scale.x, (pos.y + position.y) * scale.y, 0.0, 1.0);
++}
+diff --git a/shaders-gl2/line.frag b/shaders-gl2/line.frag
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/line.frag
+@@ -0,0 +1,58 @@
++/* line.frag
++Copyright (c) 2014 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++
++
++
++uniform vec2 start;
++uniform vec2 end;
++uniform float width;
++// Explicitly using here to account for buggy gles implementations.
++uniform int cap;
++
++varying vec2 pos;
++varying vec4 color;
++
++// From https://iquilezles.org/articles/distfunctions2d/ - functions to get the distance from a point to a shape.
++
++float sdSegment(vec2 p, vec2 a, vec2 b) {
++	vec2 ab = b - a;
++	vec2 ap = p - a;
++	float h = clamp(dot(ap, ab) / dot(ab, ab), 0.0, 1.0);
++	return length(ap - h * ab);
++}
++
++float sdOrientedBox(vec2 p, vec2 a, vec2 b, float th) {
++	float l = length(b - a);
++	vec2 d = (b - a) / l;
++	vec2 q = (p - (a + b) * 0.5);
++	q = mat2(d.x, -d.y, d.y, d.x) * q;
++	q = abs(q) - vec2(l, th) * 0.5;
++	return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
++}
++
++void main() {
++	float dist;
++	if (cap == 1) {
++		// Rounded caps can shortcut to a segment sdf.
++		// Segment sdf only provides a distance from the line itself so we manually subtract it from the width.
++		dist = width - sdSegment(pos, start, end);
++	} else {
++		// Subtract from 1 here to add some AA.
++		dist = 1. - sdOrientedBox(pos, start, end, width);
++	}
++	float alpha = clamp(dist, 0.0, 1.0);
++	gl_FragColor = color * alpha;
++}
+diff --git a/shaders-gl2/line.vert b/shaders-gl2/line.vert
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/line.vert
+@@ -0,0 +1,54 @@
++/* line.vert
++Copyright (c) 2014 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++
++
++
++uniform vec2 scale;
++uniform vec2 start;
++uniform vec2 end;
++uniform float width;
++// Explicitly using here to account for buggy gles implementations.
++uniform int cap;
++
++uniform vec4 startColor;
++uniform vec4 endColor;
++
++attribute vec2 vert;
++varying vec2 pos;
++varying vec4 color;
++
++void main() {
++	// Construct a rectangle around the line that can accommodate a line of width "width".
++	vec2 unit = normalize(end - start);
++	// The vertex will originate from the start or endpoint of the line, depending on the input vertex data.
++	vec2 origin = vert.y > 0.0 ? start : end;
++	color = vert.y > 0.0 ? startColor : endColor;
++	// Pad the width by 1 so the SDFs have enough space to naturally anti-alias.
++	float widthOffset = width + 1.;
++	// If the cap is rounded, offset along the unit vector by the width, as the cap is circular with radius
++	// "width" from the start/endpoints. This is also padded by 1 to allow for anti-aliasing.
++	float capOffset = (cap == 1) ? widthOffset : 1.;
++	// The vertex position is the originating position plus an offset away from the line.
++	// The offset is a combination of a perpendicular offset of widthOffset and a normal offset of capOffset
++	// that is flipped into a different direction for each vertex, resulting in a rectangle that tightly
++	// covers the bounds of the line.
++	pos = origin + vec2(unit.y, -unit.x) * vert.x * widthOffset - unit * capOffset * vert.y;
++	// Transform the vertex position into es coordinates, so it can easily be consumed by the fragment shader,
++	// which has access to the start/end points of the line in es' coordinate system.
++	gl_Position = vec4(pos / scale, 0, 1);
++	gl_Position.y = -gl_Position.y;
++	gl_Position.xy *= 2.0;
++}
+diff --git a/shaders-gl2/outline.frag b/shaders-gl2/outline.frag
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/outline.frag
+@@ -0,0 +1,83 @@
++/* outline.frag
++Copyright (c) 2014 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++// The outline shader applies a Sobel filter to an image. The alpha channel
++// (i.e. the silhouette of the sprite) is given the most weight, but some
++// weight is also given to the RGB values so that there will be some detail
++// in the interior of the silhouette as well.
++
++// To reduce sampling error and bring out fine details, for every output
++// pixel the Sobel filter is actually applied in a 3x3 neighborhood and
++// averaged together. That neighborhood's scale is .618034 times the scale
++// of the Sobel neighborhood (i.e. the golden ratio) to minimize any
++// aliasing effects between the two.
++
++
++
++
++uniform sampler2D tex;
++uniform float frame;
++uniform float frameCount;
++uniform vec4 atlas;
++uniform vec4 color;
++uniform vec2 off;
++const vec4 weight = vec4(.4, .4, .4, 1.);
++
++// The frames of a sprite are in a grid in one 2D texture (columns first), because the GPU
++// takes no big 3D textures: atlas.xy is the size of a frame in texture coordinates, atlas.zw
++// half a texel. Frame f is in column f mod c and row f / c, with c = floor(1 / atlas.x) columns.
++vec2 Cell(vec4 a, float frame) {
++	float columns = floor(1.0 / a.x + 0.0001);
++	float row = floor((frame + 0.5) / columns);
++	return vec2(frame - row * columns, row) * a.xy;
++}
++
++// A point (0 to 1 in the frame) of the frame at that cell, half a texel in from the edge of the
++// frame, as clamp-to-edge does for a texture of one frame.
++vec2 At(vec4 a, vec2 cell, vec2 uv) {
++	return cell + clamp(uv * a.xy, a.zw, a.xy - a.zw);
++}
++
++varying vec2 fragTexCoord;
++
++float Sobel(vec2 cell) {
++	float sum = 0.0;
++	for(int dy = -1; dy <= 1; ++dy)
++	{
++		for(int dx = -1; dx <= 1; ++dx)
++		{
++			vec2 center = fragTexCoord + .618034 * off * vec2(dx, dy);
++			float nw = dot(texture2D(tex, At(atlas, cell, center + vec2(-off.x, -off.y))), weight);
++			float ne = dot(texture2D(tex, At(atlas, cell, center + vec2(off.x, -off.y))), weight);
++			float sw = dot(texture2D(tex, At(atlas, cell, center + vec2(-off.x, off.y))), weight);
++			float se = dot(texture2D(tex, At(atlas, cell, center + vec2(off.x, off.y))), weight);
++			float h = nw + sw - ne - se + 2.0 * (
++				dot(texture2D(tex, At(atlas, cell, center + vec2(-off.x, 0.0))), weight)
++				- dot(texture2D(tex, At(atlas, cell, center + vec2(off.x, 0.0))), weight));
++			float v = nw + ne - sw - se + 2.0 * (
++				dot(texture2D(tex, At(atlas, cell, center + vec2(0.0, -off.y))), weight)
++				- dot(texture2D(tex, At(atlas, cell, center + vec2(0.0, off.y))), weight));
++			sum += h * h + v * v;
++		}
++	}
++	return sum;
++}
++void main() {
++	float first = floor(frame);
++	float second = mod(ceil(frame), frameCount);
++	float fade = frame - first;
++	float sum = mix(Sobel(Cell(atlas, first)), Sobel(Cell(atlas, second)), fade);
++	gl_FragColor = color * sqrt(sum / 180.0);
++}
+diff --git a/shaders-gl2/outline.vert b/shaders-gl2/outline.vert
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/outline.vert
+@@ -0,0 +1,27 @@
++/* outline.vert
++Copyright (c) 2014 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++uniform vec2 scale;
++uniform vec2 position;
++uniform mat2 transform;
++
++attribute vec2 vert;
++attribute vec2 vertTexCoord;
++varying vec2 fragTexCoord;
++
++void main() {
++	fragTexCoord = vertTexCoord;
++	gl_Position = vec4((transform * vert + position) * scale, 0, 1);
++}
+diff --git a/shaders-gl2/outlineLite.frag b/shaders-gl2/outlineLite.frag
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/outlineLite.frag
+@@ -0,0 +1,60 @@
++/* outline.frag
++Copyright (c) 2014 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++// The cheap version of outline.frag, for GPUs that are slow at texture lookups: one Sobel filter
++// at the pixel (8 lookups) of the nearest frame, instead of 9 filters (72 lookups) of each of two
++// frames. The same shape, a little noisier, and the outline of a turning ship jumps from frame to
++// frame instead of fading. Use it with the preference "Cheap ship outlines".
++
++uniform sampler2D tex;
++uniform float frame;
++uniform float frameCount;
++uniform vec4 atlas;
++uniform vec4 color;
++uniform vec2 off;
++const vec4 weight = vec4(.4, .4, .4, 1.);
++
++// The frames of a sprite are in a grid in one 2D texture (columns first), because the GPU
++// takes no big 3D textures: atlas.xy is the size of a frame in texture coordinates, atlas.zw
++// half a texel. Frame f is in column f mod c and row f / c, with c = floor(1 / atlas.x) columns.
++vec2 Cell(vec4 a, float frame) {
++	float columns = floor(1.0 / a.x + 0.0001);
++	float row = floor((frame + 0.5) / columns);
++	return vec2(frame - row * columns, row) * a.xy;
++}
++
++// A point (0 to 1 in the frame) of the frame at that cell, half a texel in from the edge of the
++// frame, as clamp-to-edge does for a texture of one frame.
++vec2 At(vec4 a, vec2 cell, vec2 uv) {
++	return cell + clamp(uv * a.xy, a.zw, a.xy - a.zw);
++}
++
++varying vec2 fragTexCoord;
++
++void main() {
++	vec2 cell = Cell(atlas, mod(floor(frame + .5), frameCount));
++	float nw = dot(texture2D(tex, At(atlas, cell, fragTexCoord + vec2(-off.x, -off.y))), weight);
++	float ne = dot(texture2D(tex, At(atlas, cell, fragTexCoord + vec2(off.x, -off.y))), weight);
++	float sw = dot(texture2D(tex, At(atlas, cell, fragTexCoord + vec2(-off.x, off.y))), weight);
++	float se = dot(texture2D(tex, At(atlas, cell, fragTexCoord + vec2(off.x, off.y))), weight);
++	float h = nw + sw - ne - se + 2.0 * (
++		dot(texture2D(tex, At(atlas, cell, fragTexCoord + vec2(-off.x, 0.0))), weight)
++		- dot(texture2D(tex, At(atlas, cell, fragTexCoord + vec2(off.x, 0.0))), weight));
++	float v = nw + ne - sw - se + 2.0 * (
++		dot(texture2D(tex, At(atlas, cell, fragTexCoord + vec2(0.0, -off.y))), weight)
++		- dot(texture2D(tex, At(atlas, cell, fragTexCoord + vec2(0.0, off.y))), weight));
++	// The full shader sums 9 of these and divides by 180.
++	gl_FragColor = color * sqrt((h * h + v * v) / 20.0);
++}
+diff --git a/shaders-gl2/outlineLite.vert b/shaders-gl2/outlineLite.vert
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/outlineLite.vert
+@@ -0,0 +1,27 @@
++/* outline.vert
++Copyright (c) 2014 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++uniform vec2 scale;
++uniform vec2 position;
++uniform mat2 transform;
++
++attribute vec2 vert;
++attribute vec2 vertTexCoord;
++varying vec2 fragTexCoord;
++
++void main() {
++	fragTexCoord = vertTexCoord;
++	gl_Position = vec4((transform * vert + position) * scale, 0, 1);
++}
+diff --git a/shaders-gl2/pointer.frag b/shaders-gl2/pointer.frag
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/pointer.frag
+@@ -0,0 +1,30 @@
++/* pointer.frag
++Copyright (c) 2014 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++
++
++uniform vec4 color;
++uniform vec2 size;
++
++varying vec2 coord;
++
++void main() {
++	float height = (coord.x + coord.y) / size.x;
++	float taper = height * height * height;
++	taper *= taper * .5 * size.x;
++	float alpha = clamp(.8 * min(coord.x, coord.y) - taper, 0.0, 1.0);
++	alpha *= clamp(1.8 * (1. - height), 0.0, 1.0);
++	gl_FragColor = color * alpha;
++}
+diff --git a/shaders-gl2/pointer.vert b/shaders-gl2/pointer.vert
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/pointer.vert
+@@ -0,0 +1,32 @@
++/* pointer.vert
++Copyright (c) 2014 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++
++
++uniform vec2 scale;
++uniform vec2 center;
++uniform vec2 angle;
++uniform vec2 size;
++uniform float offset;
++
++attribute vec2 vert;
++varying vec2 coord;
++
++void main() {
++	coord = vert * size.x;
++	vec2 base = center + angle * (offset - size.y * (vert.x + vert.y));
++	vec2 wing = vec2(angle.y, -angle.x) * (size.x * .5 * (vert.x - vert.y));
++	gl_Position = vec4((base + wing) * scale, 0, 1);
++}
+diff --git a/shaders-gl2/renderBuffer.frag b/shaders-gl2/renderBuffer.frag
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/renderBuffer.frag
+@@ -0,0 +1,37 @@
++/* renderBuffer.frag
++Copyright (c) 2023 by thewierdnut
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++
++
++
++uniform sampler2D tex;
++uniform vec4 fade;
++
++varying vec2 tpos;
++varying vec2 vpos;
++
++void main() {
++	float epsilon = .001;
++	float weightTop = clamp((vpos.y + epsilon) / (fade[0] + epsilon), 0.0, 1.0);
++	float weightBottom = clamp(((1.0 - vpos.y) + epsilon) / (fade[1] + epsilon), 0.0, 1.0);
++	float weightLeft = clamp((vpos.x + epsilon) / (fade[2] + epsilon), 0.0, 1.0);
++	float weightRight = clamp(((1.0 - vpos.x) + epsilon) / (fade[3] + epsilon), 0.0, 1.0);
++	float weight = min(min(min(weightTop, weightBottom), weightLeft), weightRight);
++	if(tpos.x > 0.0 && tpos.y > 0.0 &&
++			tpos.x < 1.0 && tpos.y < 1.0)
++		gl_FragColor = texture2D(tex, tpos) * weight;
++	else
++		discard;
++}
+diff --git a/shaders-gl2/renderBuffer.vert b/shaders-gl2/renderBuffer.vert
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/renderBuffer.vert
+@@ -0,0 +1,39 @@
++/* renderBuffer.vert
++Copyright (c) 2023 by thewierdnut
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++
++
++uniform vec2 size;
++uniform vec2 position;
++uniform vec2 scale;
++uniform vec2 srcposition;
++uniform vec2 srcscale;
++
++attribute vec2 vert;
++varying vec2 tpos;
++varying vec2 vpos;
++
++void main()
++{
++	gl_Position = vec4((position + vert * size) * scale, 0, 1);
++	// Convert from vertex to texture coordinates.
++	vpos = vert + vec2(.5, .5);
++	vec2 tsize = size * srcscale;
++	vec2 tsrc = srcposition * srcscale;
++	tpos = vpos * tsize + tsrc;
++
++	// Negative is up.
++	tpos.y = 1.0 - tpos.y;
++}
+diff --git a/shaders-gl2/ring.frag b/shaders-gl2/ring.frag
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/ring.frag
+@@ -0,0 +1,40 @@
++/* ring.frag
++Copyright (c) 2014 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++
++
++uniform vec4 color;
++uniform float radius;
++uniform float width;
++uniform float angle;
++uniform float startAngle;
++uniform float dash;
++const float pi = 3.1415926535897932384626433832795;
++
++varying vec2 coord;
++
++void main() {
++	float arc = mod(atan(coord.x, coord.y) + pi + startAngle, 2.0 * pi);
++	float arcFalloff = 1.0 - min(2.0 * pi - arc, arc - angle) * radius;
++	if(dash != 0.0)
++	{
++		arc = mod(arc, dash);
++		arcFalloff = min(arcFalloff, min(arc, dash - arc) * radius);
++	}
++	float len = length(coord);
++	float lenFalloff = width - abs(len - radius);
++	float alpha = clamp(min(arcFalloff, lenFalloff), 0.0, 1.0);
++	gl_FragColor = color * alpha;
++}
+diff --git a/shaders-gl2/ring.vert b/shaders-gl2/ring.vert
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/ring.vert
+@@ -0,0 +1,29 @@
++/* ring.vert
++Copyright (c) 2014 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++
++
++uniform vec2 scale;
++uniform vec2 position;
++uniform float radius;
++uniform float width;
++
++attribute vec2 vert;
++varying vec2 coord;
++
++void main() {
++	coord = (radius + width) * vert;
++	gl_Position = vec4((coord + position) * scale, 0.0, 1.0);
++}
+diff --git a/shaders-gl2/sprite.frag b/shaders-gl2/sprite.frag
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/sprite.frag
+@@ -0,0 +1,97 @@
++/* sprite.frag
++Copyright (c) 2014 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++uniform sampler2D tex;
++uniform sampler2D swizzleMask;
++uniform int useSwizzleMask;
++uniform float frame;
++uniform float frameCount;
++uniform vec4 atlas;
++uniform vec4 maskAtlas;
++uniform int uniqueSwizzleMaskFrames;
++uniform vec2 blur;
++uniform mat4 swizzleMatrix;
++uniform int useSwizzle;
++uniform float alpha;
++const int range = 5;
++
++// The frames of a sprite are in a grid in one 2D texture (columns first), because the GPU
++// takes no big 3D textures: atlas.xy is the size of a frame in texture coordinates, atlas.zw
++// half a texel. Frame f is in column f mod c and row f / c, with c = floor(1 / atlas.x) columns.
++vec2 Cell(vec4 a, float frame) {
++	float columns = floor(1.0 / a.x + 0.0001);
++	float row = floor((frame + 0.5) / columns);
++	return vec2(frame - row * columns, row) * a.xy;
++}
++
++// A point (0 to 1 in the frame) of the frame at that cell, half a texel in from the edge of the
++// frame, as clamp-to-edge does for a texture of one frame.
++vec2 At(vec4 a, vec2 cell, vec2 uv) {
++	return cell + clamp(uv * a.xy, a.zw, a.xy - a.zw);
++}
++
++varying vec2 fragTexCoord;
++
++void main() {
++	float first = floor(frame);
++	float second = mod(ceil(frame), frameCount);
++	float fade = frame - first;
++	vec2 cellFirst = Cell(atlas, first);
++	vec2 cellSecond = Cell(atlas, second);
++	vec4 color;
++	if(blur.x == 0.0 && blur.y == 0.0)
++	{
++		if(fade != 0.0)
++			color = mix(
++				texture2D(tex, At(atlas, cellFirst, fragTexCoord)),
++				texture2D(tex, At(atlas, cellSecond, fragTexCoord)), fade);
++		else
++			color = texture2D(tex, At(atlas, cellFirst, fragTexCoord));
++	}
++	else
++	{
++		color = vec4(0., 0., 0., 0.);
++		const float divisor = float(range * (range + 2) + 1);
++		for(int i = -range; i <= range; ++i)
++		{
++			float scale = float(range + 1 - abs(i)) / divisor;
++			vec2 coord = fragTexCoord + (blur * float(i)) / float(range);
++			if(fade != 0.0)
++				color += scale * mix(
++					texture2D(tex, At(atlas, cellFirst, coord)),
++					texture2D(tex, At(atlas, cellSecond, coord)), fade);
++			else
++				color += scale * texture2D(tex, At(atlas, cellFirst, coord));
++		}
++	}
++	if(useSwizzle > 0)
++	{
++		vec4 swizzleColor;
++		swizzleColor = color * swizzleMatrix;
++		if(useSwizzleMask > 0)
++		{
++			// One mask frame for the whole sprite, or one for each frame.
++			float maskFrame = 0.0;
++			if(uniqueSwizzleMaskFrames > 0)
++				maskFrame = first;
++			float factor = texture2D(swizzleMask,
++				At(maskAtlas, Cell(maskAtlas, maskFrame), fragTexCoord)).r;
++			color = color * factor + swizzleColor * (1.0 - factor);
++		}
++		else
++			color = swizzleColor;
++	}
++	gl_FragColor = color * alpha;
++}
+diff --git a/shaders-gl2/sprite.vert b/shaders-gl2/sprite.vert
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/sprite.vert
+@@ -0,0 +1,32 @@
++/* sprite.vert
++Copyright (c) 2014 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++
++
++uniform vec2 scale;
++uniform vec2 position;
++uniform mat2 transform;
++uniform vec2 blur;
++uniform float clip;
++
++attribute vec2 vert;
++varying vec2 fragTexCoord;
++
++void main() {
++	vec2 blurOff = 2.0 * vec2(vert.x * abs(blur.x), vert.y * abs(blur.y));
++	gl_Position = vec4((transform * (vert + blurOff) + position) * scale, 0, 1);
++	vec2 texCoord = vert + vec2(.5, .5);
++	fragTexCoord = vec2(texCoord.x, min(clip, texCoord.y)) + blurOff;
++}
+diff --git a/shaders-gl2/starfield.frag b/shaders-gl2/starfield.frag
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/starfield.frag
+@@ -0,0 +1,24 @@
++/* starfield.frag
++Copyright (c) 2014 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++
++
++varying float fragmentAlpha;
++varying vec2 coord;
++
++void main() {
++	float alpha = fragmentAlpha * (1. - abs(coord.x) - abs(coord.y));
++	gl_FragColor = vec4(1, 1, 1, 1) * alpha;
++}
+diff --git a/shaders-gl2/starfield.vert b/shaders-gl2/starfield.vert
+new file mode 100644
+--- /dev/null
++++ b/shaders-gl2/starfield.vert
+@@ -0,0 +1,33 @@
++/* starfield.vert
++Copyright (c) 2014 by Michael Zahniser
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++uniform mat2 rotate;
++uniform vec2 translate;
++uniform vec2 scale;
++uniform float elongation;
++uniform float brightness;
++
++attribute vec2 offset;
++attribute float size;
++attribute float corner;
++varying float fragmentAlpha;
++varying vec2 coord;
++
++void main() {
++	fragmentAlpha = brightness * (4. / (4. + elongation)) * size * .2 + .05;
++	coord = vec2(sin(corner), cos(corner));
++	vec2 elongated = vec2(coord.x * size, coord.y * (size + elongation));
++	gl_Position = vec4((rotate * elongated + translate + offset) * scale, 0, 1);
++}
+diff --git a/source/GameData.cpp b/source/GameData.cpp
+--- a/source/GameData.cpp
++++ b/source/GameData.cpp
+@@ -41,6 +41,7 @@ this program. If not, see <https://www.gnu.org/licenses/>.
+ #include "shader/LineShader.h"
+ #include "image/MaskManager.h"
+ #include "Minable.h"
++#include "Logger.h"
+ #include "Mission.h"
+ #include "audio/Music.h"
+ #include "News.h"
+@@ -49,7 +50,9 @@ this program. If not, see <https://www.gnu.org/licenses/>.
+ #include "Person.h"
+ #include "Phrase.h"
+ #include "Planet.h"
++#include "opengl.h"
+ #include "Plugins.h"
++#include "Preferences.h"
+ #include "shader/PointerShader.h"
+ #include "Politics.h"
+ #include "RenderBuffer.h"
+@@ -71,6 +74,7 @@ this program. If not, see <https://www.gnu.org/licenses/>.
+ #include <filesystem>
+ #include <iostream>
+ #include <queue>
++#include <stdexcept>
+ #include <utility>
+ #include <vector>
+ 
+@@ -222,8 +226,15 @@ void GameData::LoadShaders()
+ 	filesystem::path font18Path = Files::Images() / FONT_18_NAME;
+ 	for(const filesystem::path &source : sources)
+ 	{
+-		filesystem::path base = source / "shaders";
+-		if(Files::Exists(base))
++		// Without OpenGL 3 (no VAOs, no array textures) the GLSL 1.20 versions in shaders-gl2
++		// replace the ones of the same name in shaders.
++		vector<filesystem::path> shaderDirs = {source / "shaders"};
++		if(!OpenGL::HasVaoSupport())
++			shaderDirs.push_back(source / "shaders-gl2");
++		for(const filesystem::path &base : shaderDirs)
++		{
++			if(!Files::Exists(base))
++				continue;
+ 			for(filesystem::path shaderFile : Files::RecursiveList(base))
+ 			{
+ 				filesystem::path shader = shaderFile;
+@@ -242,6 +253,7 @@ void GameData::LoadShaders()
+ 				else if(shader.extension() == ".frag")
+ 					loaded[name].second = shaderFile.string();
+ 			}
++		}
+ 		filesystem::path fontCandidate = source / "images" / FONT_14_NAME;
+ 		if(Files::Exists(fontCandidate))
+ 			font14Path = fontCandidate;
+@@ -252,9 +264,28 @@ void GameData::LoadShaders()
+ 
+ 	// If there is both a fragment and a vertex shader available,
+ 	// it can be turned into a shader object.
++	// The ship outline filter takes 144 texture lookups per pixel. "outlineLite" (OpenGL 2 only) takes 8:
++	// it is used instead when the preference "Cheap ship outlines" is on, and when the full one does not build.
++	auto lite = loaded.find("outlineLite");
++	if(lite != loaded.end() && Preferences::Has("Cheap ship outlines"))
++		loaded["outline"] = lite->second;
+ 	for(const auto &[key, s] : loaded)
+ 		if(!s.first.empty() && !s.second.empty())
+-			objects.shaders.Get(key)->Load(Files::Read(s.first).c_str(), Files::Read(s.second).c_str());
++		{
++			try {
++				objects.shaders.Get(key)->Load(Files::Read(s.first).c_str(), Files::Read(s.second).c_str());
++			}
++			catch(const runtime_error &error)
++			{
++				const auto fallback = loaded.find("outlineLite");
++				if(key != "outline" || fallback == loaded.end() || &s == &fallback->second)
++					throw;
++				Logger::Log("The outline shader does not build (" + string(error.what())
++					+ "), using the cheap one.", Logger::Level::WARNING);
++				objects.shaders.Get(key)->Load(Files::Read(fallback->second.first).c_str(),
++					Files::Read(fallback->second.second).c_str());
++			}
++		}
+ 
+ 	FillShader::Init();
+ 	FogShader::Init();

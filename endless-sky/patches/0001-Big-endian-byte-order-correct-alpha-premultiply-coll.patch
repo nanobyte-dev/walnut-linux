@@ -1,0 +1,107 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Mon, 19 Oct 2026 18:42:15 +0300
+Subject: Big-endian: byte-order-correct alpha (premultiply, collision masks,
+ font kerning)
+
+Pixels are R, G, B, A bytes in memory. Premultiply, Mask::Trace and
+Font::CalculateAdvances read them as little-endian uint32_t with alpha in the top
+byte, which on a big-endian machine is the red channel: every PNG came out
+wrongly premultiplied, masks and glyph advances were wrong. Premultiply works on
+the bytes now and the other two take ImageBuffer::ALPHA_MASK / ALPHA_SHIFT.
+
+diff --git a/source/image/ImageBuffer.cpp b/source/image/ImageBuffer.cpp
+--- a/source/image/ImageBuffer.cpp
++++ b/source/image/ImageBuffer.cpp
+@@ -537,24 +537,20 @@ namespace {
+ 	{
+ 		for(int y = 0; y < buffer.Height(); ++y)
+ 		{
+-			uint32_t *it = buffer.Begin(y, frame);
++			// The pixels are R, G, B, A bytes in memory, whatever the byte order of the machine.
++			uint8_t *it = reinterpret_cast<uint8_t *>(buffer.Begin(y, frame));
+ 
+-			for(uint32_t *end = it + buffer.Width(); it != end; ++it)
++			for(uint8_t *end = it + 4 * buffer.Width(); it != end; it += 4)
+ 			{
+-				uint64_t value = *it;
+-				uint64_t alpha = (value & 0xFF000000) >> 24;
++				unsigned alpha = it[3];
+ 
+-				uint64_t red = (((value & 0xFF0000) * alpha) / 255) & 0xFF0000;
+-				uint64_t green = (((value & 0xFF00) * alpha) / 255) & 0xFF00;
+-				uint64_t blue = (((value & 0xFF) * alpha) / 255) & 0xFF;
++				it[0] = (it[0] * alpha) / 255;
++				it[1] = (it[1] * alpha) / 255;
++				it[2] = (it[2] * alpha) / 255;
+ 
+-				value = red | green | blue;
+ 				if(blend == BlendingMode::HALF_ADDITIVE)
+ 					alpha >>= 2;
+-				if(blend != BlendingMode::ADDITIVE)
+-					value |= (alpha << 24);
+-
+-				*it = static_cast<uint32_t>(value);
++				it[3] = (blend == BlendingMode::ADDITIVE) ? 0 : alpha;
+ 			}
+ 		}
+ 	}
+diff --git a/source/image/ImageBuffer.h b/source/image/ImageBuffer.h
+--- a/source/image/ImageBuffer.h
++++ b/source/image/ImageBuffer.h
+@@ -15,6 +15,7 @@ this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ #pragma once
+ 
++#include <bit>
+ #include <cstdint>
+ #include <set>
+ #include <string>
+@@ -31,6 +32,12 @@ class ImageFileData;
+ // some sort of special format.
+ class ImageBuffer {
+ public:
++	// Pixels are four bytes in memory, in the order R, G, B, A. Read as one uint32_t, the alpha
++	// channel is the top byte on a little-endian machine and the bottom byte on a big-endian one.
++	static constexpr bool IS_LITTLE_ENDIAN = std::endian::native == std::endian::little;
++	static constexpr int ALPHA_SHIFT = IS_LITTLE_ENDIAN ? 24 : 0;
++	static constexpr uint32_t ALPHA_MASK = uint32_t{0xFF} << ALPHA_SHIFT;
++
+ 	// The supported image extensions, in lower case and with a leading period.
+ 	static const std::set<std::string> &ImageExtensions();
+ 	// Image extensions that signify image sequences. This is a subset of ImageExtensions().
+diff --git a/source/image/Mask.cpp b/source/image/Mask.cpp
+--- a/source/image/Mask.cpp
++++ b/source/image/Mask.cpp
+@@ -28,7 +28,7 @@ namespace {
+ 	// Trace out outlines from an image frame.
+ 	void Trace(const ImageBuffer &image, int frame, vector<vector<Point>> &raw, const string &fileName)
+ 	{
+-		const uint32_t on = 0xFF000000;
++		const uint32_t on = ImageBuffer::ALPHA_MASK;
+ 		const int width = image.Width();
+ 		const int height = image.Height();
+ 		const int numPixels = width * height;
+@@ -154,7 +154,7 @@ namespace {
+ 				Point shift = Point(
+ 					step[out0][0] * scale[out0 & 1] + step[out1][0] * scale[out1 & 1],
+ 					step[out0][1] * scale[out0 & 1] + step[out1][1] * scale[out1 & 1]).Unit();
+-				shift *= ((begin[pos] & on) >> 24) * (1. / 255.) - .5;
++				shift *= ((begin[pos] & on) >> ImageBuffer::ALPHA_SHIFT) * (1. / 255.) - .5;
+ 				points.push_back(shift + Point(p[0], p[1]));
+ 
+ 				p[0] += step[next][0];
+diff --git a/source/text/Font.cpp b/source/text/Font.cpp
+--- a/source/text/Font.cpp
++++ b/source/text/Font.cpp
+@@ -276,8 +276,8 @@ void Font::CalculateAdvances(ImageBuffer &image)
+ 	// Get the format and size of the surface.
+ 	int width = image.Width() / GLYPHS;
+ 	height = image.Height();
+-	unsigned mask = 0xFF000000;
+-	unsigned half = 0xC0000000;
++	unsigned mask = ImageBuffer::ALPHA_MASK;
++	unsigned half = 0xC0u << ImageBuffer::ALPHA_SHIFT;
+ 	int pitch = image.Width();
+ 
+ 	// advance[previous * GLYPHS + next] is the x advance for each glyph pair.

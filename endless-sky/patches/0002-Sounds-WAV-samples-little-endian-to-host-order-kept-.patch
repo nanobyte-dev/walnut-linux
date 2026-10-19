@@ -1,0 +1,97 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Mon, 19 Oct 2026 18:42:31 +0300
+Subject: Sounds: WAV samples little-endian to host order, kept mono and
+ expanded to stereo at playback
+
+Sound::Load cast the file's little-endian bytes to int16_t (noise on big-endian)
+and stored every mono sound twice, as stereo. Decode the bytes explicitly, keep
+one channel (243 sounds: 82 MB of RAM become 41 MB) and let WavSupplier duplicate
+the channel when it fills a chunk.
+
+diff --git a/source/audio/Sound.cpp b/source/audio/Sound.cpp
+--- a/source/audio/Sound.cpp
++++ b/source/audio/Sound.cpp
+@@ -55,17 +55,14 @@ bool Sound::Load(const filesystem::path &path, const string &name)
+ 		return false;
+ 	}
+ 
+-	// Read 16-bit mono from the file.
+-	vector<char> data(bytes);
+-	in->read(data.data(), bytes);
+-
+-	// Store 16-bit stereo buffer.
+-	buf.resize(2 * data.size() / sizeof(AudioSupplier::sample_t));
+-	for(size_t i = 0; i < buf.size() / 2; ++i)
+-	{
+-		buf[2 * i] = reinterpret_cast<AudioSupplier::sample_t *>(data.data())[i];
+-		buf[2 * i + 1] = reinterpret_cast<AudioSupplier::sample_t *>(data.data())[i];
+-	}
++	// Read 16-bit mono from the file. The samples are little-endian in the file and are
++	// stored mono, in host order; WavSupplier expands them to stereo while playing.
++	vector<unsigned char> data(bytes);
++	in->read(reinterpret_cast<char *>(data.data()), bytes);
++	buf.resize(data.size() / sizeof(AudioSupplier::sample_t));
++	for(size_t i = 0; i < buf.size(); ++i)
++		buf[i] = static_cast<AudioSupplier::sample_t>(
++			static_cast<uint16_t>(data[2 * i] | (data[2 * i + 1] << 8)));
+ 	return true;
+ }
+ 
+diff --git a/source/audio/Sound.h b/source/audio/Sound.h
+--- a/source/audio/Sound.h
++++ b/source/audio/Sound.h
+@@ -31,6 +31,7 @@ public:
+ 
+ 	const std::string &Name() const;
+ 
++	// The samples, mono, in host byte order.
+ 	const std::vector<AudioSupplier::sample_t> &Buffer() const;
+ 	const std::vector<AudioSupplier::sample_t> &Buffer3x() const;
+ 	bool IsLooping() const;
+diff --git a/source/audio/supplier/WavSupplier.cpp b/source/audio/supplier/WavSupplier.cpp
+--- a/source/audio/supplier/WavSupplier.cpp
++++ b/source/audio/supplier/WavSupplier.cpp
+@@ -38,7 +38,8 @@ size_t WavSupplier::MaxChunks() const
+ 	else if(wasStarted && !currentSample)
+ 		return 0;
+ 	else
+-		return ceil(((is3x ? sound.Buffer3x() : sound.Buffer()).size() - currentSample) / static_cast<float>(OUTPUT_CHUNK));
++		return ceil(((is3x ? sound.Buffer3x() : sound.Buffer()).size() - currentSample)
++			/ static_cast<float>(OUTPUT_CHUNK / 2));
+ }
+ 
+ 
+@@ -57,7 +58,10 @@ vector<AudioSupplier::sample_t> WavSupplier::NextDataChunk()
+ 	if(!currentSample && wasStarted && !isLooping)
+ 		return samples;
+ 
+-	size_t currentSampleCount = 0;
++	// The sound is stored mono; expand it to stereo here, one chunk at a time.
++	// currentSample counts mono samples.
++	const size_t chunkFrames = samples.size() / 2;
++	size_t currentFrameCount = 0;
+ 	do {
+ 		// If restarting the buffer, check 3x status.
+ 		if(!currentSample)
+@@ -66,11 +70,16 @@ vector<AudioSupplier::sample_t> WavSupplier::NextDataChunk()
+ 			wasStarted = true;
+ 		}
+ 		const vector<sample_t> &input = is3x ? sound.Buffer3x() : sound.Buffer();
+-		size_t readChunk = min(input.size() - currentSample, samples.size() - currentSampleCount);
+-		std::copy_n(input.begin() + currentSample, readChunk, samples.begin() + currentSampleCount);
+-		currentSampleCount += readChunk;
++		size_t readChunk = min(input.size() - currentSample, chunkFrames - currentFrameCount);
++		for(size_t i = 0; i < readChunk; ++i)
++		{
++			const sample_t value = input[currentSample + i];
++			samples[2 * (currentFrameCount + i)] = value;
++			samples[2 * (currentFrameCount + i) + 1] = value;
++		}
++		currentFrameCount += readChunk;
+ 		currentSample = (currentSample + readChunk) % input.size();
+-	} while(currentSampleCount < samples.size() && isLooping);
++	} while(currentFrameCount < chunkFrames && isLooping);
+ 	return samples;
+ }
+ 

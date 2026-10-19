@@ -1,0 +1,265 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Mon, 19 Oct 2026 18:46:54 +0300
+Subject: Unit tests for the byte order: premultiply, masks, WAV samples; a
+ dump to compare architectures
+
+SCENARIOs run in the normal test run (they failed on big-endian before the fixes).
+The hidden test 'Dump decoded files' [.dump] writes a hash of every PNG, JPG or WAV named in
+ES_DUMP_LIST, to compare an amd64 and a ppc64 build.
+
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -24,6 +24,7 @@ target_sources(EndlessSkyTests PRIVATE
+ 	unit/src/test_account.cpp
+ 	unit/src/test_angle.cpp
+ 	unit/src/test_bitset.cpp
++	unit/src/test_byteorder.cpp
+ 	unit/src/test_categoryList.cpp
+ 	unit/src/test_conditionAssignments.cpp
+ 	unit/src/test_conditionSet.cpp
+@@ -82,8 +83,8 @@ target_include_directories(EndlessSkyTests PRIVATE unit/include)
+ target_link_libraries(EndlessSkyTests PRIVATE Catch2::Catch2WithMain)
+ target_link_libraries(EndlessSkyTests PRIVATE ExternalLibraries $<TARGET_OBJECTS:EndlessSkyLib>)
+ 
+-target_compile_options(EndlessSkyTests PUBLIC ${SANITIZER_OPTS})
+-target_link_options(EndlessSkyTests PUBLIC ${SANITIZER_OPTS})
++target_compile_options(EndlessSkyTests PUBLIC $<$<CONFIG:Debug>:${SANITIZER_OPTS}>)
++target_link_options(EndlessSkyTests PUBLIC $<$<CONFIG:Debug>:${SANITIZER_OPTS}>)
+ 
+ # CTest support for our unit tests.
+ add_test(NAME unit COMMAND EndlessSkyTests)
+diff --git a/tests/unit/src/test_byteorder.cpp b/tests/unit/src/test_byteorder.cpp
+new file mode 100644
+--- /dev/null
++++ b/tests/unit/src/test_byteorder.cpp
+@@ -0,0 +1,228 @@
++/* test_byteorder.cpp
++Copyright (c) 2026 by the PS3 Linux project
++
++Endless Sky is free software: you can redistribute it and/or modify it under the
++terms of the GNU General Public License as published by the Free Software
++Foundation, either version 3 of the License, or (at your option) any later version.
++
++Endless Sky is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++#include "es-test.hpp"
++
++// Include only the tested classes' headers.
++#include "../../../source/Angle.h"
++#include "../../../source/audio/Sound.h"
++#include "../../../source/audio/supplier/AudioSupplier.h"
++#include "../../../source/image/ImageBuffer.h"
++#include "../../../source/image/ImageFileData.h"
++#include "../../../source/image/Mask.h"
++#include "../../../source/Point.h"
++
++// ... and any system includes needed for the test file.
++#include <cstdint>
++#include <cstdlib>
++#include <filesystem>
++#include <fstream>
++#include <string>
++#include <vector>
++
++namespace { // test namespace
++
++// #region mock data
++
++// A 2 x 1 RGBA PNG: (200, 100, 50, 128) and (255, 0, 0, 255).
++const unsigned char PNG_2X1[] = {
++	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
++	0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0xf4, 0x22, 0x7f,
++	0x8a, 0x00, 0x00, 0x00, 0x11, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x38, 0x91, 0x62, 0xd4,
++	0xf0, 0x9f, 0x81, 0xe1, 0x3f, 0x00, 0x11, 0xac, 0x03, 0xdd, 0xb6, 0xb2, 0xec, 0xdf, 0x00, 0x00,
++	0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
++
++std::filesystem::path TempDir()
++{
++	auto dir = std::filesystem::temp_directory_path() / "es-test-byteorder";
++	std::filesystem::create_directories(dir);
++	return dir;
++}
++
++// The bytes of the first row of a frame as they are in memory: R, G, B, A, R, G, B, A, ...
++std::vector<unsigned> Bytes(const ImageBuffer &buffer)
++{
++	const unsigned char *p = reinterpret_cast<const unsigned char *>(buffer.Pixels());
++	return std::vector<unsigned>(p, p + 4 * buffer.Width());
++}
++
++std::vector<unsigned> ReadPng(const std::string &name)
++{
++	auto path = TempDir() / name;
++	{
++		std::ofstream out(path, std::ios::binary);
++		out.write(reinterpret_cast<const char *>(PNG_2X1), sizeof(PNG_2X1));
++	}
++	ImageBuffer buffer;
++	REQUIRE(buffer.Read(ImageFileData(path), 0) == 1);
++	REQUIRE(buffer.Width() == 2);
++	REQUIRE(buffer.Height() == 1);
++	return Bytes(buffer);
++}
++
++// A 16-bit mono 44100 Hz WAV file, the samples given as little-endian bytes.
++std::filesystem::path WriteWav(const std::string &name, const std::vector<unsigned char> &samples)
++{
++	auto path = TempDir() / name;
++	std::ofstream out(path, std::ios::binary);
++	auto le32 = [&out](uint32_t v) { for(int i = 0; i < 4; ++i) out.put(static_cast<char>((v >> (8 * i)) & 0xFF)); };
++	auto le16 = [&out](uint16_t v) { for(int i = 0; i < 2; ++i) out.put(static_cast<char>((v >> (8 * i)) & 0xFF)); };
++	out.write("RIFF", 4);
++	le32(36 + samples.size());
++	out.write("WAVEfmt ", 8);
++	le32(16);
++	le16(1);
++	le16(1);
++	le32(44100);
++	le32(88200);
++	le16(2);
++	le16(16);
++	out.write("data", 4);
++	le32(samples.size());
++	out.write(reinterpret_cast<const char *>(samples.data()), samples.size());
++	return path;
++}
++
++// #endregion mock data
++
++
++
++// #region unit tests
++
++SCENARIO("A PNG is premultiplied by byte, not by integer", "[ImageBuffer][byteorder]")
++{
++	GIVEN("a PNG with a half-transparent pixel")
++	{
++		THEN("alpha blending leaves the pixels R, G, B, A in memory")
++		{
++			CHECK(ReadPng("t-0.png") == std::vector<unsigned>{100, 50, 25, 128, 255, 0, 0, 255});
++		}
++		THEN("additive blending clears the alpha")
++		{
++			CHECK(ReadPng("t+0.png") == std::vector<unsigned>{100, 50, 25, 0, 255, 0, 0, 0});
++		}
++		THEN("half-additive blending quarters the alpha")
++		{
++			CHECK(ReadPng("t^0.png") == std::vector<unsigned>{100, 50, 25, 32, 255, 0, 0, 63});
++		}
++	}
++}
++
++SCENARIO("Collision masks read the alpha channel", "[Mask][byteorder]")
++{
++	GIVEN("an image with a black, opaque square")
++	{
++		ImageBuffer buffer;
++		buffer.Allocate(8, 8);
++		unsigned char *bytes = reinterpret_cast<unsigned char *>(buffer.Pixels());
++		for(int i = 0; i < 8 * 8 * 4; ++i)
++			bytes[i] = 0;
++		for(int y = 2; y < 6; ++y)
++			for(int x = 2; x < 6; ++x)
++				bytes[4 * (y * 8 + x) + 3] = 255;
++		REQUIRE(*reinterpret_cast<const uint32_t *>(bytes + 4 * (2 * 8 + 2)) == ImageBuffer::ALPHA_MASK);
++
++		Mask mask;
++		mask.Create(buffer, 0, "test");
++		THEN("the mask is the square")
++		{
++			REQUIRE(mask.IsLoaded());
++			CHECK(mask.Contains(Point(0., 0.), Angle(0.)));
++			CHECK_FALSE(mask.Contains(Point(3.5, 0.), Angle(0.)));
++			CHECK(mask.Radius() > 1.);
++			CHECK(mask.Radius() < 4.);
++		}
++	}
++}
++
++SCENARIO("WAV samples are little-endian in the file and mono in memory", "[Sound][byteorder]")
++{
++	GIVEN("a WAV file with four samples")
++	{
++		// 0x0102, -2, 32767, -32768
++		auto path = WriteWav("t.wav", {0x02, 0x01, 0xFE, 0xFF, 0xFF, 0x7F, 0x00, 0x80});
++		Sound sound;
++		REQUIRE(sound.Load(path, "t"));
++		THEN("the buffer holds the four samples in host order")
++		{
++			CHECK(sound.Buffer() == std::vector<AudioSupplier::sample_t>{258, -2, 32767, -32768});
++		}
++		THEN("the supplier duplicates them into stereo")
++		{
++			auto supplier = sound.CreateSupplier();
++			CHECK(supplier->MaxChunks() == 1);
++			auto chunk = supplier->NextDataChunk();
++			REQUIRE(chunk.size() > 8);
++			CHECK(std::vector<AudioSupplier::sample_t>(chunk.begin(), chunk.begin() + 8)
++				== std::vector<AudioSupplier::sample_t>{258, 258, -2, -2, 32767, 32767, -32768, -32768});
++			CHECK(chunk[8] == 0);
++			CHECK(supplier->MaxChunks() == 0);
++		}
++	}
++}
++
++// Not part of the normal run (the dot hides it): ES_DUMP_LIST names a file with one PNG, JPG or WAV
++// path per line, ES_DUMP_OUT the file to write "path width height hash" lines to. The hash is FNV-1a of
++// the image's bytes in memory (R, G, B, A) or of the WAV samples as little-endian bytes: the lines
++// must be the same on every architecture.
++TEST_CASE("Dump decoded files", "[.dump]")
++{
++	const char *listName = std::getenv("ES_DUMP_LIST");
++	const char *outName = std::getenv("ES_DUMP_OUT");
++	REQUIRE(listName);
++	REQUIRE(outName);
++	std::ifstream list(listName);
++	std::ofstream out(outName);
++	auto fnv = [](uint64_t h, unsigned char c) { return (h ^ c) * 1099511628211ull; };
++	std::string line;
++	while(std::getline(list, line))
++	{
++		std::filesystem::path path(line);
++		uint64_t h = 14695981039346656037ull;
++		int width = 0;
++		int height = 0;
++		if(path.extension() == ".wav")
++		{
++			Sound sound;
++			if(sound.Load(path, "dump"))
++				for(AudioSupplier::sample_t s : sound.Buffer())
++				{
++					h = fnv(h, static_cast<unsigned char>(static_cast<uint16_t>(s) & 0xFF));
++					h = fnv(h, static_cast<unsigned char>((static_cast<uint16_t>(s) >> 8) & 0xFF));
++				}
++			width = static_cast<int>(sound.Buffer().size());
++		}
++		else
++		{
++			ImageBuffer buffer;
++			ImageFileData data(path);
++			if(buffer.Read(data, 0))
++			{
++				width = buffer.Width();
++				height = buffer.Height();
++				const unsigned char *p = reinterpret_cast<const unsigned char *>(buffer.Pixels());
++				for(size_t i = 0; i < 4u * width * height; ++i)
++					h = fnv(h, p[i]);
++			}
++		}
++		out << line << ' ' << width << ' ' << height << ' ' << std::hex << h << std::dec << '\n';
++	}
++}
++
++// #endregion unit tests
++
++
++
++} // test namespace

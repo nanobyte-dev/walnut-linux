@@ -1,0 +1,92 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Mon, 19 Oct 2026 18:42:50 +0300
+Subject: ES_LOW_MEMORY build option: mallopt in main(), two loader threads,
+ deferred image loading by default
+
+For machines with a few hundred MB of RAM (the PS3). M_MMAP_THRESHOLD 128 KiB and
+M_ARENA_MAX 2 keep the loader threads' freed image buffers from staying resident
+(1337 MB RSS became 849 MB on a 24-core PC with the first alone); the thread count
+defaults to 2 (--tq-threads still overrides) and 'Defer loading images' starts on
+(the saved preference still wins). Off by default.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -7,6 +7,7 @@ else()
+ 	option(ES_USE_VCPKG "Use vcpkg to get dependencies." ON)
+ endif()
+ cmake_dependent_option(ES_GLES "Build the game with OpenGL ES" OFF UNIX OFF)
++option(ES_LOW_MEMORY "Defaults for a machine with a few hundred MB of RAM: glibc malloc limits, two loader threads, deferred image loading." OFF)
+ cmake_dependent_option(ES_STEAM "Build the game for the Steam Linux runtime" OFF UNIX OFF)
+ cmake_dependent_option(ES_USE_SYSTEM_LIBRARIES "Use system libraries instead of the vcpkg ones." ON "APPLE OR ES_STEAM" OFF)
+ cmake_dependent_option(ES_CREATE_BUNDLE "Create a Bundle instead of an executable. Not suitable for development purposes." OFF APPLE OFF)
+@@ -194,6 +195,10 @@ if(UNIX)
+ 	endif()
+ endif()
+ 
++if(ES_LOW_MEMORY)
++	target_compile_definitions(EndlessSkyLib PUBLIC ES_LOW_MEMORY)
++endif()
++
+ # Link with OpenGL or OpenGL ES.
+ if(ES_GLES)
+ 	find_package(OpenGL REQUIRED OpenGL EGL)
+diff --git a/source/Preferences.cpp b/source/Preferences.cpp
+--- a/source/Preferences.cpp
++++ b/source/Preferences.cpp
+@@ -233,6 +233,10 @@ void Preferences::Load()
+ 	settings["Confirm selling outfits"] = true;
+ 	settings["Confirm selling minables"] = true;
+ 	settings["Sell outfits without outfitter"] = true;
++#ifdef ES_LOW_MEMORY
++	// Keeps the land, planet, star, outfit and thumbnail sprites out of memory until they are needed.
++	settings["Defer loading images"] = true;
++#endif
+ 
+ 	DataFile prefs(Files::Config() / "preferences.txt");
+ 	for(const DataNode &node : prefs)
+diff --git a/source/TaskQueue.cpp b/source/TaskQueue.cpp
+--- a/source/TaskQueue.cpp
++++ b/source/TaskQueue.cpp
+@@ -35,7 +35,12 @@ namespace {
+ 		WorkerThreads(uint64_t threadCount = 0) noexcept
+ 		{
+ 			if(!threadCount)
++#ifdef ES_LOW_MEMORY
++				// Each loader thread holds decoded images; --tq-threads N changes this.
++				threadCount = 2;
++#else
+ 				threadCount = max(4u, thread::hardware_concurrency());
++#endif
+ 			threads.resize(threadCount);
+ 			for(thread &t : threads)
+ 				t = thread(&TaskQueue::ThreadLoop);
+diff --git a/source/main.cpp b/source/main.cpp
+--- a/source/main.cpp
++++ b/source/main.cpp
+@@ -80,6 +80,9 @@ this program. If not, see <https://www.gnu.org/licenses/>.
+ #include <fstream>
+ #include <unistd.h>
+ #endif
++#if defined(ES_LOW_MEMORY) && defined(__GLIBC__)
++#include <malloc.h>
++#endif
+ 
+ using namespace std;
+ 
+@@ -95,6 +98,14 @@ void PrintTestsTable();
+ // Entry point for the EndlessSky executable
+ int main(int argc, char *argv[])
+ {
++#if defined(ES_LOW_MEMORY) && defined(__GLIBC__)
++	// Image decoding allocates and frees hundreds of megabytes in the loader threads. With glibc's
++	// defaults the per-thread arenas keep most of it resident afterwards (700 MB on a 24-core PC).
++	// Big blocks go straight to mmap (and back to the system when freed), and the threads share
++	// two arenas.
++	mallopt(M_MMAP_THRESHOLD, 128 * 1024);
++	mallopt(M_ARENA_MAX, 2);
++#endif
+ #ifdef _WIN32
+ 	WinVersion::Init();
+ 	// Handle command-line arguments

@@ -1,0 +1,415 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Mon, 19 Oct 2026 18:43:48 +0300
+Subject: OpenGL 2: sprites as a 2D atlas instead of a 3D texture
+
+Without array textures the game used GL_TEXTURE_3D, which the PS3's GPU takes only
+up to 512 and which Mesa's texture compression patch does not touch. The frames go
+into one GL_TEXTURE_2D now: a grid, as many columns as fit the width, power-of-two
+size (at most 4096), transparent padding; frames are halved if they do not fit.
+Sprite::Atlas() gives the shaders the cell size and half a texel, the sprite,
+batch and outline shaders take it as the uniform 'atlas' (the sprite shader a second
+one, 'maskAtlas', for the swizzle mask). The array texture path is unchanged.
+
+diff --git a/source/image/Sprite.cpp b/source/image/Sprite.cpp
+--- a/source/image/Sprite.cpp
++++ b/source/image/Sprite.cpp
+@@ -22,10 +22,66 @@ this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ #include <SDL2/SDL.h>
+ 
++#include <algorithm>
++#include <vector>
++
+ using namespace std;
+ 
+ namespace {
+-	void AddBuffer(ImageBuffer &buffer, uint32_t *target, bool noReduction)
++	// The largest texture the atlas may use; nv30 and nv40 stop at 4096.
++	int MaxAtlasSize()
++	{
++		static int size = 0;
++		if(!size)
++		{
++			GLint max = 0;
++			glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max);
++			size = max > 0 ? min<int>(max, 4096) : 2048;
++		}
++		return size;
++	}
++
++	int NextPowerOfTwo(int n)
++	{
++		int result = 1;
++		while(result < n)
++			result <<= 1;
++		return result;
++	}
++
++	// Frames in a grid, columns first, in a texture of power-of-two size (the Mesa patch that
++	// compresses textures on the PS3 only takes those). The shaders compute the number of columns
++	// themselves as floor(width / frame width), so that is what this uses.
++	struct AtlasLayout {
++		int columns = 0;
++		int rows = 0;
++		int width = 0;
++		int height = 0;
++	};
++
++	// Find the layout with the least padded area, or one with no columns if the frames don't fit.
++	AtlasLayout ChooseLayout(int frameWidth, int frameHeight, int frames, int maxSize)
++	{
++		AtlasLayout best;
++		for(int wanted = 1; wanted <= frames; ++wanted)
++		{
++			int width = NextPowerOfTwo(wanted * frameWidth);
++			if(width > maxSize)
++				break;
++			AtlasLayout layout;
++			layout.width = width;
++			layout.columns = width / frameWidth;
++			layout.rows = (frames + layout.columns - 1) / layout.columns;
++			layout.height = NextPowerOfTwo(layout.rows * frameHeight);
++			if(layout.height > maxSize)
++				continue;
++			if(!best.columns || layout.width * layout.height < best.width * best.height)
++				best = layout;
++		}
++		return best;
++	}
++
++	void AddBuffer(ImageBuffer &buffer, uint32_t *target, float *atlas, bool noReduction)
+ 	{
+ 		// Check whether this sprite is large enough to require size reduction.
+ 		Preferences::LargeGraphicsReduction setting = Preferences::GetLargeGraphicsReduction();
+@@ -34,8 +90,33 @@ namespace {
+ 				&& buffer.Width() * buffer.Height() >= 1000000)))
+ 			buffer.ShrinkToHalfSize();
+ 
+-		// Upload the images as a single array texture.
+-		int type = OpenGL::HasTexture2DArraySupport() ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_3D;
++		const bool isArray = OpenGL::HasTexture2DArraySupport();
++		AtlasLayout layout;
++		if(!isArray)
++		{
++			// A sprite a pixel wide or high is gone after the halving above.
++			if(buffer.Width() < 1 || buffer.Height() < 1 || !buffer.Pixels())
++			{
++				buffer.Clear();
++				return;
++			}
++			// Halve the frames until they fit in one texture (the shaders only use texture
++			// coordinates, so the sprite's size is not affected).
++			layout = ChooseLayout(buffer.Width(), buffer.Height(), buffer.Frames(), MaxAtlasSize());
++			while(!layout.columns && buffer.Width() > 1 && buffer.Height() > 1)
++			{
++				buffer.ShrinkToHalfSize();
++				layout = ChooseLayout(buffer.Width(), buffer.Height(), buffer.Frames(), MaxAtlasSize());
++			}
++			if(!layout.columns)
++			{
++				buffer.Clear();
++				return;
++			}
++		}
++
++		// Upload the images as a single array texture, or as a 2D atlas without array textures.
++		const unsigned type = OpenGL::SpriteTextureTarget();
+ 		glGenTextures(1, target);
+ 		glBindTexture(type, *target);
+ 
+@@ -45,13 +126,37 @@ namespace {
+ 		glTexParameteri(type, GL_TEXTURE_MAG_FILTER, filter);
+ 		glTexParameteri(type, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+ 		glTexParameteri(type, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+-		if(type == GL_TEXTURE_3D)
+-			glTexParameteri(type, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+ 
+ 		// Upload the image data.
+-		glTexImage3D(type, 0, GL_RGBA8, // target, mipmap level, internal format,
+-			buffer.Width(), buffer.Height(), buffer.Frames(), // width, height, depth,
+-			0, GL_RGBA, GL_UNSIGNED_BYTE, buffer.Pixels()); // border, input format, data type, data.
++		if(isArray)
++			glTexImage3D(type, 0, GL_RGBA8, // target, mipmap level, internal format,
++				buffer.Width(), buffer.Height(), buffer.Frames(), // width, height, depth,
++				0, GL_RGBA, GL_UNSIGNED_BYTE, buffer.Pixels()); // border, input format, data type, data.
++		else
++		{
++			const int w = buffer.Width();
++			const int h = buffer.Height();
++			if(layout.width == w && layout.height == h)
++				glTexImage2D(type, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer.Pixels());
++			else
++			{
++				// The padding is transparent black.
++				vector<uint32_t> grid(static_cast<size_t>(layout.width) * layout.height, 0);
++				for(int frame = 0; frame < buffer.Frames(); ++frame)
++				{
++					const size_t x = (frame % layout.columns) * w;
++					const size_t y = (frame / layout.columns) * h;
++					for(int row = 0; row < h; ++row)
++						copy_n(buffer.Begin(row, frame), w, grid.begin() + (y + row) * layout.width + x);
++				}
++				glTexImage2D(type, 0, GL_RGBA8, layout.width, layout.height, 0,
++					GL_RGBA, GL_UNSIGNED_BYTE, grid.data());
++			}
++			atlas[0] = static_cast<float>(w) / layout.width;
++			atlas[1] = static_cast<float>(h) / layout.height;
++			atlas[2] = .5f / layout.width;
++			atlas[3] = .5f / layout.height;
++		}
+ 
+ 		// Unbind the texture.
+ 		glBindTexture(type, 0);
+@@ -110,11 +215,11 @@ void Sprite::AddFrames(ImageBuffer &buffer1x, ImageBuffer &buffer2x, bool noRedu
+ 	// Only use the 2x resolution image if it is provided.
+ 	if(buffer2x.Pixels())
+ 	{
+-		AddBuffer(buffer2x, &texture, noReduction);
++		AddBuffer(buffer2x, &texture, atlas, noReduction);
+ 		buffer1x.Clear();
+ 	}
+ 	else
+-		AddBuffer(buffer1x, &texture, noReduction);
++		AddBuffer(buffer1x, &texture, atlas, noReduction);
+ }
+ 
+ 
+@@ -136,11 +241,11 @@ void Sprite::AddSwizzleMaskFrames(ImageBuffer &buffer1x, ImageBuffer &buffer2x,
+ 	// Only use the 2x resolution image if it is provided.
+ 	if(buffer2x.Pixels())
+ 	{
+-		AddBuffer(buffer2x, &swizzleMask, noReduction);
++		AddBuffer(buffer2x, &swizzleMask, swizzleMaskAtlas, noReduction);
+ 		buffer1x.Clear();
+ 	}
+ 	else
+-		AddBuffer(buffer1x, &swizzleMask, noReduction);
++		AddBuffer(buffer1x, &swizzleMask, swizzleMaskAtlas, noReduction);
+ }
+ 
+ 
+@@ -224,3 +329,17 @@ uint32_t Sprite::SwizzleMask() const
+ {
+ 	return swizzleMask;
+ }
++
++
++
++const float *Sprite::Atlas() const
++{
++	return atlas;
++}
++
++
++
++const float *Sprite::SwizzleMaskAtlas() const
++{
++	return swizzleMaskAtlas;
++}
+diff --git a/source/image/Sprite.h b/source/image/Sprite.h
+--- a/source/image/Sprite.h
++++ b/source/image/Sprite.h
+@@ -67,6 +67,12 @@ public:
+ 	// Get the texture index.
+ 	uint32_t Texture() const;
+ 	uint32_t SwizzleMask() const;
++	// Without array textures (OpenGL 2) the frames are laid out in a grid in one 2D texture of
++	// power-of-two size, columns first, as many columns as fit the texture's width. Four floats for
++	// the shaders: the size of one frame in texture coordinates, then half a texel in each direction.
++	// (All zero when the texture is an array texture.)
++	const float *Atlas() const;
++	const float *SwizzleMaskAtlas() const;
+ 
+ 
+ private:
+@@ -74,6 +80,8 @@ private:
+ 
+ 	uint32_t texture{};
+ 	uint32_t swizzleMask{};
++	float atlas[4] = {0.f, 0.f, 0.f, 0.f};
++	float swizzleMaskAtlas[4] = {0.f, 0.f, 0.f, 0.f};
+ 	bool isLoaded = false;
+ 
+ 	float width = 0.f;
+diff --git a/source/opengl.cpp b/source/opengl.cpp
+--- a/source/opengl.cpp
++++ b/source/opengl.cpp
+@@ -80,6 +80,13 @@ bool OpenGL::HasTexture2DArraySupport()
+ 
+ 
+ 
++unsigned OpenGL::SpriteTextureTarget()
++{
++	return hasOpenGL3Support ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D;
++}
++
++
++
+ bool OpenGL::HasClearBufferSupport()
+ {
+ 	return hasOpenGL3Support;
+diff --git a/source/opengl.h b/source/opengl.h
+--- a/source/opengl.h
++++ b/source/opengl.h
+@@ -38,5 +38,7 @@ public:
+ 	static bool HasAdaptiveVSyncSupport();
+ 	static bool HasVaoSupport();
+ 	static bool HasTexture2DArraySupport();
++	// The texture target of sprites: an array texture, or else a 2D atlas with the frames in a grid.
++	static unsigned SpriteTextureTarget();
+ 	static bool HasClearBufferSupport();
+ };
+diff --git a/source/shader/BatchShader.cpp b/source/shader/BatchShader.cpp
+--- a/source/shader/BatchShader.cpp
++++ b/source/shader/BatchShader.cpp
+@@ -27,6 +27,7 @@ namespace {
+ 	// Uniforms:
+ 	GLint scaleI;
+ 	GLint frameCountI;
++	GLint atlasI;
+ 	// Vertex data:
+ 	GLint vertI;
+ 	GLint texCoordI;
+@@ -63,6 +64,7 @@ void BatchShader::Init()
+ 	// Get the indices of the uniforms and attributes.
+ 	scaleI = shader->Uniform("scale");
+ 	frameCountI = shader->Uniform("frameCount");
++	atlasI = OpenGL::HasTexture2DArraySupport() ? -1 : shader->Uniform("atlas");
+ 	vertI = shader->Attrib("vert");
+ 	texCoordI = shader->Attrib("texCoord");
+ 	alphaI = shader->Attrib("alpha");
+@@ -119,7 +121,9 @@ void BatchShader::Add(const Sprite *sprite, const vector<float> &data)
+ 		return;
+ 
+ 	// First, bind the proper texture.
+-	glBindTexture(OpenGL::HasTexture2DArraySupport() ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_3D, sprite->Texture());
++	glBindTexture(OpenGL::SpriteTextureTarget(), sprite->Texture());
++	if(atlasI >= 0)
++		glUniform4fv(atlasI, 1, sprite->Atlas());
+ 	// The shader also needs to know how many frames the texture has.
+ 	glUniform1f(frameCountI, sprite->Frames());
+ 
+diff --git a/source/shader/DrawList.cpp b/source/shader/DrawList.cpp
+--- a/source/shader/DrawList.cpp
++++ b/source/shader/DrawList.cpp
+@@ -21,6 +21,7 @@ this program. If not, see <https://www.gnu.org/licenses/>.
+ #include "../image/Sprite.h"
+ #include "SpriteShader.h"
+ 
++#include <algorithm>
+ #include <cmath>
+ 
+ using namespace std;
+@@ -135,6 +136,8 @@ void DrawList::Push(const Body &body, Point pos, Point blur, double cloak, const
+ 
+ 	item.texture = body.GetSprite()->Texture();
+ 	item.swizzleMask = body.GetSprite()->SwizzleMask();
++	copy_n(body.GetSprite()->Atlas(), 4, item.atlas);
++	copy_n(body.GetSprite()->SwizzleMaskAtlas(), 4, item.maskAtlas);
+ 	item.frame = body.GetFrame(step);
+ 	item.frameCount = body.GetSprite()->Frames();
+ 	item.uniqueSwizzleMaskFrames = body.GetSprite()->SwizzleMaskFrames() > 1;
+diff --git a/source/shader/OutlineShader.cpp b/source/shader/OutlineShader.cpp
+--- a/source/shader/OutlineShader.cpp
++++ b/source/shader/OutlineShader.cpp
+@@ -32,6 +32,7 @@ namespace {
+ 	GLint positionI;
+ 	GLint frameI;
+ 	GLint frameCountI;
++	GLint atlasI;
+ 	GLint colorI;
+ 
+ 	GLint vertI;
+@@ -65,6 +66,7 @@ void OutlineShader::Init()
+ 	positionI = shader->Uniform("position");
+ 	frameI = shader->Uniform("frame");
+ 	frameCountI = shader->Uniform("frameCount");
++	atlasI = OpenGL::HasTexture2DArraySupport() ? -1 : shader->Uniform("atlas");
+ 	colorI = shader->Uniform("color");
+ 	vertI = shader->Attrib("vert");
+ 	vertTexCoordI = shader->Attrib("vertTexCoord");
+@@ -141,7 +143,9 @@ void OutlineShader::Draw(const Sprite *sprite, const Point &pos, const Point &si
+ 
+ 	glUniform4fv(colorI, 1, color.Get());
+ 
+-	glBindTexture(OpenGL::HasTexture2DArraySupport() ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_3D, sprite->Texture());
++	glBindTexture(OpenGL::SpriteTextureTarget(), sprite->Texture());
++	if(atlasI >= 0)
++		glUniform4fv(atlasI, 1, sprite->Atlas());
+ 
+ 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+ 
+diff --git a/source/shader/SpriteShader.cpp b/source/shader/SpriteShader.cpp
+--- a/source/shader/SpriteShader.cpp
++++ b/source/shader/SpriteShader.cpp
+@@ -21,6 +21,8 @@ this program. If not, see <https://www.gnu.org/licenses/>.
+ #include "../image/Sprite.h"
+ #include "../Swizzle.h"
+ 
++#include <algorithm>
++
+ using namespace std;
+ 
+ namespace {
+@@ -39,6 +41,8 @@ namespace {
+ 	GLint alphaI;
+ 	GLint swizzleMatrixI;
+ 	GLint useSwizzleI;
++	GLint atlasI;
++	GLint maskAtlasI;
+ 
+ 	GLint vertI;
+ 
+@@ -72,6 +76,8 @@ void SpriteShader::Init()
+ 	swizzleMaskI = shader->Uniform("swizzleMask");
+ 	useSwizzleMaskI = shader->Uniform("useSwizzleMask");
+ 	useSwizzleI = shader->Uniform("useSwizzle");
++	atlasI = OpenGL::HasTexture2DArraySupport() ? -1 : shader->Uniform("atlas");
++	maskAtlasI = OpenGL::HasTexture2DArraySupport() ? -1 : shader->Uniform("maskAtlas");
+ 	vertI = shader->Attrib("vert");
+ 
+ 	// Generate the vertex data for drawing sprites.
+@@ -125,6 +131,8 @@ SpriteShader::Item SpriteShader::Prepare(const Sprite *sprite, const Point &posi
+ 	Item item;
+ 	item.texture = sprite->Texture();
+ 	item.swizzleMask = sprite->SwizzleMask();
++	copy_n(sprite->Atlas(), 4, item.atlas);
++	copy_n(sprite->SwizzleMaskAtlas(), 4, item.maskAtlas);
+ 	item.frame = frame;
+ 	item.frameCount = sprite->Frames();
+ 	item.uniqueSwizzleMaskFrames = sprite->SwizzleMaskFrames() > 1;
+@@ -180,13 +188,19 @@ void SpriteShader::Add(const Item &item, bool withBlur)
+ 		glUniform1i(useSwizzleI, 0);
+ 
+ 	glUniform1i(texI, 0);
+-	int type = OpenGL::HasTexture2DArraySupport() ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_3D;
++	const unsigned type = OpenGL::SpriteTextureTarget();
+ 	glBindTexture(type, item.texture);
+ 
+ 	glActiveTexture(GL_TEXTURE1);
+ 	glBindTexture(type, item.swizzleMask);
+ 	glActiveTexture(GL_TEXTURE0);
+ 
++	// Where the frames are in the 2D atlas (GL2 only).
++	if(atlasI >= 0)
++		glUniform4fv(atlasI, 1, item.atlas);
++	if(maskAtlasI >= 0)
++		glUniform4fv(maskAtlasI, 1, item.maskAtlas);
++
+ 	glUniform1f(frameI, item.frame);
+ 	glUniform1f(frameCountI, item.frameCount);
+ 	glUniform1i(uniqueSwizzleMaskFramesI, item.uniqueSwizzleMaskFrames);
+diff --git a/source/shader/SpriteShader.h b/source/shader/SpriteShader.h
+--- a/source/shader/SpriteShader.h
++++ b/source/shader/SpriteShader.h
+@@ -35,6 +35,9 @@ public:
+ 	public:
+ 		uint32_t texture = 0;
+ 		uint32_t swizzleMask = 0;
++		// The 2D atlas layout of the two textures (GL2), see Sprite::Atlas().
++		float atlas[4] = {0.f, 0.f, 0.f, 0.f};
++		float maskAtlas[4] = {0.f, 0.f, 0.f, 0.f};
+ 		const Swizzle *swizzle = nullptr;
+ 		float frame = 0.f;
+ 		float frameCount = 1.f;

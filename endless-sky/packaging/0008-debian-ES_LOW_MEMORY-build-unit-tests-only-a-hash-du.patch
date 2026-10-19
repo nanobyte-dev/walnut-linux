@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Mon, 19 Oct 2026 18:47:54 +0300
+Subject: debian: ES_LOW_MEMORY build, unit tests only, a hash dump of decoded
+ images and sounds
+
+diff --git a/debian/rules b/debian/rules
+--- a/debian/rules
++++ b/debian/rules
+@@ -11,6 +11,9 @@ O += -D ES_USE_VCPKG=0
+ # release build includes installation of the endless-sky binary
+ O += -D CMAKE_BUILD_TYPE=Release
+ 
++# PS3 build (ps3rsx, 256 MB of RAM): malloc limits, two loader threads, deferred image loading
++O += -D ES_LOW_MEMORY=ON
++
+ override_dh_auto_configure:
+ 	dh_auto_configure --buildsystem=cmake+ninja -- $O
+ 
+@@ -29,11 +32,18 @@ ifeq (,$(filter terse,$(DEB_BUILD_OPTIONS)))
+ ctest_options += --verbose
+ endif
+ 
++# PS3: only the unit tests (the integration tests need a display and take hours under qemu), then
++# a hash of a sample of the game's images and sounds as this machine decodes them. The same lines
++# on amd64 and ppc64 mean the byte order is handled (the build log keeps them: ES-DUMP).
+ override_dh_auto_test:
+-ifneq ($(shell dpkg-architecture -q DEB_BUILD_ARCH),riscv64)
+ ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+ 	env -C obj-$(shell dpkg-architecture -q DEB_BUILD_GNU_TYPE) \
+ 		$(ctest_env) \
+-		ctest $(ctest_options)
+-endif
++		ctest --output-on-failure --label-regex unit --timeout 9000
++	find images sounds -type f \( -name '*.png' -o -name '*.jpg' -o -name '*.wav' \) \
++		| LC_ALL=C sort | awk 'NR % 25 == 1 || /images\/font\//' > debian/dump-list.txt
++	ES_DUMP_LIST=$(CURDIR)/debian/dump-list.txt ES_DUMP_OUT=$(CURDIR)/debian/dump-out.txt \
++		$(CURDIR)/obj-$(shell dpkg-architecture -q DEB_BUILD_GNU_TYPE)/tests/endless-sky-tests "[.dump]"
++	sed 's/^/ES-DUMP /' debian/dump-out.txt
++	rm -f debian/dump-list.txt debian/dump-out.txt
+ endif
