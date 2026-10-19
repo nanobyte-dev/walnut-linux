@@ -1,0 +1,420 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Mon, 19 Oct 2026 14:08:13 +0300
+Subject: nv30: signed 8-bit vertex attributes normalized in the vertex program
+ (NV30_VTX_SNORM8)
+
+NV3x/NV4x and the RSX have no signed 8-bit vertex type, so u_vbuf converts GL_BYTE normalized
+attributes to floats on the CPU at every draw, over the draw's whole vertex range, static
+buffers included. 0033's lookup table made the conversion cheaper, but in the profile of
+2026-10-19 (Mesa ps3.476) it was still 18.1% of Sauerbraten's CPU (generic_run under
+renderbatches: the world's normals and tangents, R8G8B8_SNORM and R8G8B8A8_SNORM), and the
+CPU reads of the VRAM buffers it does also give every VRAM buffer a system memory copy
+(NV30_SYSMEM_COPY's hint). QuakeSpasm's model normals are the same format.
+
+With NV30_VTX_SNORM8=1 (off by default) nv30 reports R8_SNORM to R8G8B8A8_SNORM as vertex
+formats, so u_vbuf leaves them alone. The GPU fetches them as U8_USCALED (libgcm's UB256:
+each byte as a float 0..255) and four instructions at the start of the vertex program give
+what util_format's unpack gives, MAX2(-1.0f, (float)(c * (1.0f/0x7f))):
+
+   s = SGE(v, 128); t = MAD(s, -256, v); t = MUL(t, 1/127); t = MAX(t, -1)
+
+MUL and MAX on the attribute's components only, so the w a 3-component fetch fills in stays
+1. The program then reads the temp instead of the input (tgsi_src); each instruction reads at
+most one input and one constant, as the hardware requires. The inputs this applies to are a
+key of 3 bits per input (component count) in the vertex elements state, kept to the inputs
+the program declares; a program is translated again when its key changes, as for clip planes
+(binding elements with another key marks the program dirty), and the key is part of 0039's
+shader cache key. Inline vertices (vbo_fifo) carry the bytes as they are (translate copies an
+element whose output format is its input format), constant attributes (stride 0) are emitted
+as their raw bytes, so every path hands the program the same values. A program that indexes its
+inputs can't be redirected and goes to the draw module, which fetches SNORM8 itself.
+
+No conversion on the CPU and no system memory copies for those buffers; the cost is four
+vertex program instructions per such attribute and vertex. The pixels are the same if the
+RSX's multiply rounds as IEEE single precision does (at most one ulp off otherwise).
+
+Checked on the host (PS3 tree, tools/run-tests.sh mesa-vtx-snorm8): the prologue's arithmetic
+against util_format's generated unpack functions for the four formats, every byte in every
+component, bit for bit; and nvfx_vertprog.c's output, with and without the prologue, run on an
+NV40 vertex program interpreter on 3000 vertices for 2 programs and 5 keys (inputs read with
+swizzles, negated, as abs, twice in one instruction): the same outputs bit for bit, four
+instructions more per converted input, the same input mask.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_format.h b/src/gallium/drivers/nouveau/nv30/nv30_format.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_format.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_format.h
+@@ -40,6 +40,19 @@ nv30_format(struct pipe_screen *pscreen, enum pipe_format format)
+    return &nv30_format_table[format];
+ }
+ 
++/* NV30_VTX_SNORM8: the component count of a signed normalized 8-bit format, else 0 */
++static inline unsigned
++nv30_snorm8_components(enum pipe_format format)
++{
++   switch (format) {
++   case PIPE_FORMAT_R8_SNORM:       return 1;
++   case PIPE_FORMAT_R8G8_SNORM:     return 2;
++   case PIPE_FORMAT_R8G8B8_SNORM:   return 3;
++   case PIPE_FORMAT_R8G8B8A8_SNORM: return 4;
++   default:                         return 0;
++   }
++}
++
+ extern const struct nv30_vtxfmt nv30_vtxfmt_table[];
+ static inline const struct nv30_vtxfmt *
+ nv30_vtxfmt(struct pipe_screen *pscreen, enum pipe_format format)
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -330,6 +330,14 @@ nv30_screen_is_format_supported(struct pipe_screen *pscreen,
+        util_format_get_blocksize(format) == 2)
+       return false;
+ 
++   /* NV30_VTX_SNORM8: fetched as unsigned bytes, normalized by the vertex program */
++   if ((bindings & PIPE_BIND_VERTEX_BUFFER) && nv30_screen(pscreen)->vtx_snorm8 &&
++       nv30_snorm8_components(format)) {
++      bindings &= ~PIPE_BIND_VERTEX_BUFFER;
++      if (!bindings)
++         return true;
++   }
++
+    if (bindings & PIPE_BIND_INDEX_BUFFER) {
+       if (format != PIPE_FORMAT_R8_UINT &&
+           format != PIPE_FORMAT_R16_UINT &&
+@@ -570,6 +578,11 @@ nv30_screen_create(struct nouveau_device *dev)
+     * GPU has nothing left to do (nv30_query.c)
+     */
+    screen->query_kick = CLAMP(debug_get_num_option("NV30_QUERY_KICK", 1), 0, 2);
++   /* NV30_VTX_SNORM8=1: GL_BYTE normalized attributes are fetched as unsigned bytes and
++    * normalized by four instructions at the start of the vertex program, instead of u_vbuf
++    * converting them to floats on the CPU at every draw (18% of Sauerbraten's CPU with 0033's
++    * table): nv30_vtx_snorm8.h */
++   screen->vtx_snorm8 = debug_get_bool_option("NV30_VTX_SNORM8", false);
+    simple_mtx_init(&screen->staging_lock, mtx_plain);
+    screen->staging_max = CLAMP(debug_get_num_option("NV30_STAGING_POOL", 0), 0,
+                                (int64_t)ARRAY_SIZE(screen->staging_pool));
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -50,6 +50,7 @@ struct nv30_screen {
+    unsigned ps3_kick_split;    /* NV30_PS3_KICK_SPLIT: at most about this many parts per frame */
+    int query_wait_us;          /* NV30_QUERY_WAIT: spin this long for a query, then sleep (-1: spin) */
+    unsigned query_kick;        /* NV30_QUERY_KICK: 1 submit at every query end, 0 when asked, 2 idle */
++   bool vtx_snorm8;            /* NV30_VTX_SNORM8: SNORM8 attributes normalized by the program */
+    bool invalidate_buffer;     /* NV30_INVALIDATE_BUFFER: orphaning keeps the buffer (invalidate) */
+    unsigned sysmem_stats;      /* NV30_SYSMEM_STATS=N: system memory copies on stderr every N frames */
+    bool sysmem_hint_seen;      /* the stats line for the hint was printed */
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_shader_cache.c b/src/gallium/drivers/nouveau/nv30/nv30_shader_cache.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_shader_cache.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_shader_cache.c
+@@ -377,7 +377,7 @@ nv30_shader_cache_vp_translate(struct nv30_context *nv30, struct nv30_vertprog *
+    struct disk_cache *dc = cache_of(screen);
+    uint16_t oclass = screen->eng3d->oclass;
+    int64_t t0 = os_time_get_nano();
+-   uint32_t fixed[2 + 5], save_ir, save_or;
++   uint32_t fixed[2 + 5 + 2], save_ir, save_or;
+    cache_key key;
+    bool ok;
+ 
+@@ -391,7 +391,9 @@ nv30_shader_cache_vp_translate(struct nv30_context *nv30, struct nv30_vertprog *
+    fixed[1] = vp->enabled_ucps;
+    for (unsigned i = 0; i < 5; i++)
+       fixed[2 + i] = vp->texcoord[2 * i] | (uint32_t)vp->texcoord[2 * i + 1] << 16;
+-   key_of(dc, SHC_VP, fixed, 7, vp->pipe.tokens,
++   fixed[7] = (uint32_t)vp->snorm8;            /* NV30_VTX_SNORM8's prologue */
++   fixed[8] = (uint32_t)(vp->snorm8 >> 32);
++   key_of(dc, SHC_VP, fixed, 9, vp->pipe.tokens,
+           tgsi_num_tokens(vp->pipe.tokens) * sizeof(struct tgsi_token), key);
+    {
+       size_t size = 0;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state.h b/src/gallium/drivers/nouveau/nv30/nv30_state.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_state.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_state.h
+@@ -99,6 +99,7 @@ struct nv30_vertprog {
+    uint32_t ir;
+    uint32_t or;
+    void *nvfx;
++   uint64_t snorm8; /* NV30_VTX_SNORM8: inputs normalized by the program (nv30_vtx_snorm8.h) */
+ };
+ 
+ struct nv30_fragprog_data {
+@@ -138,6 +139,7 @@ struct nv30_vertex_stateobj {
+    struct pipe_vertex_element pipe[PIPE_MAX_ATTRIBS];
+    struct translate *translate;
+    bool need_conversion;
++   uint64_t snorm8; /* NV30_VTX_SNORM8: elements fetched as raw bytes (nv30_vtx_snorm8.h) */
+    uint16_t strides[PIPE_MAX_ATTRIBS];
+    unsigned num_elements;
+    unsigned vtx_size;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+@@ -35,6 +35,7 @@
+ #include "nv30/nv30-40_3d.xml.h"
+ #include "nv30/nv30_context.h"
+ #include "nv30/nv30_format.h"
++#include "nv30/nv30_vtx_snorm8.h"
+ #include "nv30/nv30_winsys.h"
+ 
+ static void
+@@ -50,7 +51,14 @@ nv30_emit_vtxattr(struct nv30_context *nv30, struct pipe_vertex_buffer *vb,
+    data = nouveau_resource_map_offset(&nv30->base, res, vb->buffer_offset +
+                                       ve->src_offset, NOUVEAU_BO_RD);
+ 
+-   util_format_unpack_rgba(ve->src_format, v, data, 1);
++   /* NV30_VTX_SNORM8: the program normalizes this attribute, so it gets the raw bytes as
++    * the fetch would give them */
++   if (nv30_snorm8_key_nc(nv30->vertex->snorm8, attr)) {
++      for (unsigned c = 0; c < nc; c++)
++         v[c] = nv30_snorm8_raw(((const uint8_t *)data)[c]);
++   } else {
++      util_format_unpack_rgba(ve->src_format, v, data, 1);
++   }
+ 
+    switch (nc) {
+    case 4:
+@@ -290,7 +298,17 @@ nv30_vertex_state_create(struct pipe_context *pipe, unsigned num_elements,
+         const unsigned vbi = ve->vertex_buffer_index;
+         enum pipe_format fmt = ve->src_format;
+ 
+-        so->element[i].state = nv30_vtxfmt(pipe->screen, fmt)->hw;
++        /* NV30_VTX_SNORM8: fetched as unsigned bytes (U8_USCALED), normalized by the vertex
++         * program; inline (vbo_fifo) the bytes are copied as they are */
++        const unsigned nc8 = nv30_screen(pipe->screen)->vtx_snorm8 ?
++                             nv30_snorm8_components(fmt) : 0;
++        if (nc8) {
++            so->element[i].state = NV30_3D_VTXFMT_TYPE_U8_USCALED |
++                                   (nc8 << NV30_3D_VTXFMT_SIZE__SHIFT);
++            so->snorm8 = nv30_snorm8_key_set(so->snorm8, i, nc8);
++        } else {
++            so->element[i].state = nv30_vtxfmt(pipe->screen, fmt)->hw;
++        }
+         /* The RSX has no vertex type 0 (B8G8R8A8_UNORM): it raises a graph exception.
+          * Convert such attributes to float like unsupported ones. */
+         if (nv30_screen(pipe->screen)->base.is_ps3 &&
+@@ -335,6 +353,7 @@ nv30_vertex_state_create(struct pipe_context *pipe, unsigned num_elements,
+ 
+         so->pipe[1] = so->pipe[0];
+         so->element[1] = so->element[0];
++        so->snorm8 = nv30_snorm8_key_set(so->snorm8, 1, nv30_snorm8_key_nc(so->snorm8, 0));
+         transkey.element[j] = transkey.element[0];
+         transkey.element[j].output_offset = transkey.output_stride;
+         transkey.output_stride += transkey.output_stride;
+@@ -361,7 +380,11 @@ static void
+ nv30_vertex_state_bind(struct pipe_context *pipe, void *hwcso)
+ {
+    struct nv30_context *nv30 = nv30_context(pipe);
++   struct nv30_vertex_stateobj *so = hwcso;
+ 
++   /* NV30_VTX_SNORM8: the program may have to be translated for these elements */
++   if ((nv30->vertex ? nv30->vertex->snorm8 : 0) != (so ? so->snorm8 : 0))
++      nv30->dirty |= NV30_NEW_VERTPROG;
+    nv30->vertex = hwcso;
+    nv30->dirty |= NV30_NEW_VERTEX;
+ }
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c b/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_vertprog.c
+@@ -34,6 +34,7 @@
+ #include "nv30/nvfx_shader.h"
+ #include "nv30/nv30_state.h"
+ #include "nv30/nv30_winsys.h"
++#include "nv30/nv30_vtx_snorm8.h"
+ 
+ static void
+ nv30_vertprog_destroy(struct nv30_vertprog *vp)
+@@ -72,6 +73,17 @@ nv30_vertprog_validate(struct nv30_context *nv30)
+       }
+    }
+ 
++   /* NV30_VTX_SNORM8: the inputs the bound elements fetch as raw bytes get the prologue */
++   if (nv30->screen->vtx_snorm8) {
++      uint64_t key = nv30->vertex ?
++         nv30_snorm8_key_for_inputs(nv30->vertex->snorm8, vp->info.file_mask[TGSI_FILE_INPUT]) : 0;
++      if (key != vp->snorm8) {
++         if (vp->translated)
++            nv30_vertprog_destroy(vp);
++         vp->snorm8 = key;
++      }
++   }
++
+    if (nv30->rast && nv30->rast->pipe.clip_plane_enable != vp->enabled_ucps) {
+       vp->enabled_ucps = nv30->rast->pipe.clip_plane_enable;
+       if (vp->translated)
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vtx_snorm8.h b/src/gallium/drivers/nouveau/nv30/nv30_vtx_snorm8.h
+new file mode 100644
+--- /dev/null
++++ b/src/gallium/drivers/nouveau/nv30/nv30_vtx_snorm8.h
+@@ -0,0 +1,73 @@
++/*
++ * NV30_VTX_SNORM8: signed normalized 8-bit vertex attributes (GL_BYTE with normalized set:
++ * Sauerbraten's normals and tangents, QuakeSpasm's model normals) fetched by the GPU as plain
++ * unsigned bytes and normalized in the vertex program, instead of u_vbuf converting them to
++ * floats on the CPU at every draw. The RSX (and NV3x/NV4x) has no signed 8-bit vertex type;
++ * U8_USCALED (libgcm's UB256) gives each byte as a float 0..255, and four instructions at the
++ * start of the program turn that into what util_format's unpack gives:
++ *
++ *    s = SGE(v, 128)            1 where the byte is negative as int8
++ *    t = MAD(s, -256, v)        the int8 value, exact
++ *    t = MUL(t, 1/127)          as util_format: (float)(c * (1.0f/0x7f))
++ *    t = MAX(t, -1)             as util_format: MAX2(-1.0f, ...)
++ *
++ * MUL and MAX only on the attribute's components, so a missing w stays the fetch's 1.0.
++ *
++ * Which attributes get the prologue is a key of 3 bits per vertex program input (its
++ * component count, 0: none), from the vertex elements and kept to the inputs the program
++ * declares. A program is translated again when its key changes (as for clip planes).
++ *
++ * No Mesa types here: mesa/tests/vtx-snorm8-test.c in the PS3 tree runs these on the host,
++ * and vtx-snorm8-vpsim.c runs the translated programs on an NV40 vertex program interpreter.
++ */
++#ifndef NV30_VTX_SNORM8_H
++#define NV30_VTX_SNORM8_H
++
++#include <stdint.h>
++
++#define NV30_SNORM8_MAX_ATTRIBS 16
++
++static inline uint64_t
++nv30_snorm8_key_set(uint64_t key, unsigned attr, unsigned nc)
++{
++   return (key & ~(UINT64_C(7) << (3 * attr))) | ((uint64_t)(nc & 7) << (3 * attr));
++}
++
++static inline unsigned
++nv30_snorm8_key_nc(uint64_t key, unsigned attr)
++{
++   return (unsigned)(key >> (3 * attr)) & 7;
++}
++
++/* the key of the inputs a program declares (one bit per input) */
++static inline uint64_t
++nv30_snorm8_key_for_inputs(uint64_t key, uint32_t inputs)
++{
++   uint64_t out = 0;
++
++   for (unsigned i = 0; i < NV30_SNORM8_MAX_ATTRIBS; i++) {
++      if (inputs & (1u << i))
++         out = nv30_snorm8_key_set(out, i, nv30_snorm8_key_nc(key, i));
++   }
++   return out;
++}
++
++/* the value of one fetched component (0..255) after the prologue, in the GPU's float steps */
++static inline float
++nv30_snorm8_vp(float v)
++{
++   const float s = v >= 128.0f ? 1.0f : 0.0f;  /* SGE */
++   float t = s * -256.0f + v;                    /* MAD: exact for these integers */
++   t = t * (1.0f / 127.0f);                      /* MUL */
++   return t > -1.0f ? t : -1.0f;                 /* MAX */
++}
++
++/* a constant attribute (stride 0) is emitted as its raw bytes too, so the prologue applies the
++ * same way: VTX_ATTR_nF with each byte as a float 0..255 */
++static inline float
++nv30_snorm8_raw(uint8_t b)
++{
++   return (float)b;
++}
++
++#endif
+diff --git a/src/gallium/drivers/nouveau/nv30/nvfx_vertprog.c b/src/gallium/drivers/nouveau/nv30/nvfx_vertprog.c
+--- a/src/gallium/drivers/nouveau/nv30/nvfx_vertprog.c
++++ b/src/gallium/drivers/nouveau/nv30/nvfx_vertprog.c
+@@ -31,6 +31,7 @@
+ 
+ #include "nv30/nv30_vertprog.h"
+ #include "nv30/nv40_vertprog.h"
++#include "nv30/nv30_vtx_snorm8.h"
+ 
+ struct nvfx_loop_entry {
+    unsigned brk_target;
+@@ -55,6 +56,10 @@ struct nvfx_vpc {
+    struct nvfx_reg *imm;
+    unsigned nr_imm;
+ 
++   /* NV30_VTX_SNORM8: inputs read from the temps the prologue normalized them into */
++   uint32_t snorm8_inputs;
++   struct nvfx_reg r_input[NV30_SNORM8_MAX_ATTRIBS];
++
+    int hpos_idx;
+    int cvtx_idx;
+ 
+@@ -367,7 +372,11 @@ tgsi_src(struct nvfx_vpc *vpc, const struct tgsi_full_src_register *fsrc) {
+ 
+    switch (fsrc->Register.File) {
+    case TGSI_FILE_INPUT:
+-      src.reg = nvfx_reg(NVFXSR_INPUT, fsrc->Register.Index);
++      if (fsrc->Register.Index < NV30_SNORM8_MAX_ATTRIBS &&
++          (vpc->snorm8_inputs & (1u << fsrc->Register.Index)))
++         src.reg = vpc->r_input[fsrc->Register.Index];
++      else
++         src.reg = nvfx_reg(NVFXSR_INPUT, fsrc->Register.Index);
+       break;
+    case TGSI_FILE_CONSTANT:
+       if(fsrc->Register.Indirect) {
+@@ -950,6 +959,48 @@ nvfx_vertprog_prepare(struct nvfx_vpc *vpc)
+    return true;
+ }
+ 
++/* NV30_VTX_SNORM8: each input of the key arrives as bytes 0..255 (U8_USCALED) and is
++ * normalized into a temp as util_format's SNORM8 unpack does (nv30_vtx_snorm8.h); the
++ * program reads the temp instead of the input. One constant, four instructions an input,
++ * each reading at most one input and one constant as the hardware requires.
++ */
++static bool
++nvfx_vertprog_snorm8_prologue(struct nvfx_vpc *vpc)
++{
++   static const int masks[5] = {
++      0, NVFX_VP_MASK_X, NVFX_VP_MASK_X | NVFX_VP_MASK_Y,
++      NVFX_VP_MASK_X | NVFX_VP_MASK_Y | NVFX_VP_MASK_Z, NVFX_VP_MASK_ALL };
++   struct nv30_vertprog *vp = vpc->vp;
++   struct nvfx_src none = nvfx_src(nvfx_reg(NVFXSR_NONE, 0));
++   struct nvfx_src c;
++   unsigned i;
++
++   /* inputs read by index can't be redirected: the draw module takes the program then */
++   if (vpc->info->indirect_files & (1 << TGSI_FILE_INPUT))
++      return false;
++
++   c = nvfx_src(constant(vpc, -1, 128.0f, -256.0f, 1.0f / 127.0f, -1.0f));
++   for (i = 0; i < NV30_SNORM8_MAX_ATTRIBS; i++) {
++      const unsigned nc = nv30_snorm8_key_nc(vp->snorm8, i);
++      struct nvfx_src in = nvfx_src(nvfx_reg(NVFXSR_INPUT, i));
++      struct nvfx_reg t, s;
++
++      if (!nc || nc > 4)
++         continue;
++      t = temp(vpc);
++      vpc->r_temps_discard = 0;  /* t lives through the program */
++      s = temp(vpc);
++      nvfx_vp_emit(vpc, arith(0, VEC, SGE, s, NVFX_VP_MASK_ALL, in, swz(c, X, X, X, X), none));
++      nvfx_vp_emit(vpc, arith(0, VEC, MAD, t, NVFX_VP_MASK_ALL, nvfx_src(s), swz(c, Y, Y, Y, Y), in));
++      nvfx_vp_emit(vpc, arith(0, VEC, MUL, t, masks[nc], nvfx_src(t), swz(c, Z, Z, Z, Z), none));
++      nvfx_vp_emit(vpc, arith(0, VEC, MAX, t, masks[nc], nvfx_src(t), swz(c, W, W, W, W), none));
++      release_temps(vpc);
++      vpc->r_input[i] = t;
++      vpc->snorm8_inputs |= 1u << i;
++   }
++   return true;
++}
++
+ DEBUG_GET_ONCE_BOOL_OPTION(nvfx_dump_vp, "NVFX_DUMP_VP", false)
+ 
+ bool
+@@ -991,6 +1042,11 @@ _nvfx_vertprog_translate(uint16_t oclass, struct nv30_vertprog *vp)
+ 
+    insns = UTIL_DYNARRAY_INIT;
+ 
++   if (vp->snorm8 && !nvfx_vertprog_snorm8_prologue(vpc)) {
++      tgsi_parse_init(&parse, vp->pipe.tokens);   /* for the cleanup at out */
++      goto out;
++   }
++
+    tgsi_parse_init(&parse, vp->pipe.tokens);
+    while (!tgsi_parse_end_of_tokens(&parse)) {
+       tgsi_parse_token(&parse);

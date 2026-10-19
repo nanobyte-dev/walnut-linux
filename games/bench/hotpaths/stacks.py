@@ -4,7 +4,12 @@ process's samples.
   stacks.py callers PKL REGEX [DEPTH [TOP]]   the DEPTH frames above the outermost frame matching REGEX
   stacks.py callees PKL REGEX [DEPTH [TOP]]   the DEPTH frames below the innermost one
   stacks.py leaves REGEX PKL...               the sampled function (leaf) of the samples through REGEX
-e.g. stacks.py callers sauerbraten.pkl '^nv30_query_result$' 8: who waits for the query results."""
+  stacks.py chain 'A > B;;C' PKL...          per run, % of samples whose stack has a frame matching A
+                                             with one matching B somewhere below it (;; separates
+                                             patterns, one column each)
+e.g. stacks.py callers sauerbraten.pkl '^nv30_query_result$' 8: who waits for the query results;
+stacks.py chain '^nv30_query_end$ > ^nouveau_pushbuf_kick$;;^nouveau_fence_work$ > ^nouveau_fence_kick$' *.pkl:
+the submissions made at a query's end and for deferred frees, per game."""
 import sys, pickle, re, collections
 
 
@@ -46,11 +51,34 @@ def leaves(rx, pkls):
             print('  %5.2f%% %s' % (100.0 * n / tot, k))
 
 
+def chain(pats, pkls):
+    pats = [[re.compile(x) for x in p.split(' > ')] for p in pats.split(';;')]
+    for p in pkls:
+        game, tot = load(p)
+        out = []
+        for parts in pats:
+            n = 0
+            for (th, frames), c in game.items():
+                i = 0
+                for rx in parts:
+                    while i < len(frames) and not rx.search(frames[i][2] or ''):
+                        i += 1
+                    if i >= len(frames):
+                        break
+                    i += 1
+                else:
+                    n += c
+            out.append('%6.2f' % (100.0 * n / tot))
+        print(' '.join(out), p)
+
+
 def main(a):
     if len(a) >= 3 and a[0] in ('callers', 'callees'):
         around(a[0], a[1], re.compile(a[2]), int(a[3]) if len(a) > 3 else 6, int(a[4]) if len(a) > 4 else 20)
     elif len(a) >= 3 and a[0] == 'leaves':
         leaves(re.compile(a[1]), a[2:])
+    elif len(a) >= 3 and a[0] == 'chain':
+        chain(a[1], a[2:])
     else:
         sys.exit(__doc__)
 

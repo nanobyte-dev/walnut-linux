@@ -1,0 +1,76 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Mon, 19 Oct 2026 13:55:02 +0300
+Subject: nouveau: submit for deferred frees only past a set count
+ (NV30_FENCE_WORK_KICK)
+
+nouveau_fence_work() queues a function to run once a fence signals, and submits the fence's
+batch as soon as more than 64 of them wait on it, to bound the memory they hold. Every
+glBufferSubData of a VRAM buffer queues two (the staging buffer and its suballocation, freed
+once the GPU's copy is done), so a game that streams its vertices with glBufferSubData submits
+every 32 updates. On the PS3 each submission is a pushbuf ioctl through ps3rsx (its validator
+and shadow state), a new fence with its 4 KiB wait buffer (GEM create, later GEM close) and the
+buffer list referenced again. OpenArena's opengl2 renderer (ioquake3, gl2min) spent 12.5% of
+its CPU in exactly these submissions in the profile of 2026-10-19 (Mesa ps3.476): 10.1% under
+glBufferSubData, 2.5% under glBufferData's orphaning and u_vbuf's buffer releases.
+
+The threshold is now a field of the fence list (64 by default, so nv50 and nvc0 are as before);
+nv30 takes it from NV30_FENCE_WORK_KICK=N (0: never submit for that reason). With a large N
+the frees wait for the next submission there would be anyway: NV30_PS3_KICK_AUTO's at a draw
+once the GPU caught up, a flush, a full push buffer. They hold their memory up to then, at most
+a frame's worth of staging copies and orphaned buffers.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nouveau_fence.c b/src/gallium/drivers/nouveau/nouveau_fence.c
+--- a/src/gallium/drivers/nouveau/nouveau_fence.c
++++ b/src/gallium/drivers/nouveau/nouveau_fence.c
+@@ -363,7 +363,7 @@ nouveau_fence_work(struct nouveau_fence *fence,
+ 
+    simple_mtx_lock(&screen->fence.lock);
+    list_add(&work->list, &fence->work);
+-   if (++fence->work_count > 64)
++   if (++fence->work_count > screen->fence.work_kick && screen->fence.work_kick)
+       nouveau_fence_kick(fence);
+    simple_mtx_unlock(&screen->fence.lock);
+    return true;
+diff --git a/src/gallium/drivers/nouveau/nouveau_fence.h b/src/gallium/drivers/nouveau/nouveau_fence.h
+--- a/src/gallium/drivers/nouveau/nouveau_fence.h
++++ b/src/gallium/drivers/nouveau/nouveau_fence.h
+@@ -49,6 +49,12 @@ struct nouveau_fence_list {
+    struct nouveau_bo *bo_pool[32];
+    unsigned bo_pool_count;
+    unsigned bo_pool_max;
++
++   /* A fence that is still to be submitted gets submitted once more than work_kick deferred
++    * frees (fence works: staging memory of a buffer upload, a destroyed buffer's storage) wait
++    * on it; 0: never for that reason. 64 by default, as upstream; NV30_FENCE_WORK_KICK on nv30.
++    */
++   unsigned work_kick;
+ };
+ 
+ static inline void
+@@ -56,6 +62,7 @@ nouveau_fence_list_init(struct nouveau_fence_list *fence_list)
+ {
+    simple_mtx_init(&fence_list->lock, mtx_plain);
+    simple_mtx_init(&fence_list->bo_pool_lock, mtx_plain);
++   fence_list->work_kick = 64;
+ }
+ 
+ static inline void
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -554,6 +554,12 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->base.fence.bo_pool_max =
+       CLAMP(debug_get_num_option("NV30_FENCE_BO_POOL", 0), 0,
+             (int64_t)ARRAY_SIZE(screen->base.fence.bo_pool));
++   /* NV30_FENCE_WORK_KICK=N: submit a fence's batch once more than N deferred frees wait on it
++    * (64, the default, as upstream; 0: never for that). Every glBufferSubData of a VRAM buffer
++    * queues two (its staging memory and buffer), so a game streaming vertices that way submitted
++    * every 32 updates: OpenArena's opengl2 renderer, 12% of its CPU in those submissions.
++    */
++   screen->base.fence.work_kick = MAX2(debug_get_num_option("NV30_FENCE_WORK_KICK", 64), 0);
+    /* NV30_QUERY_WAIT=US: a query result the caller waits for is spun on for at most US
+     * microseconds (at low SMT priority), then waited for in the kernel on the fence of the
+     * submission that ended the query; unset or negative: spin until it lands, as before.

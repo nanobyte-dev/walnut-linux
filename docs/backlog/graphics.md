@@ -51,9 +51,10 @@ driver.
 - **Effort:** M per game. **Risk:** low: each change behind a switch, pixels checked on llvmpipe.
 - **Needs:** host, PS3.
 - **Status:** never tried for SuperTuxKart and OpenTTD; Sauerbraten's patches are on but
-  unmeasured. Gameplay profiles that pick the targets ran in batch ssdroot2 P1b (seven games,
-  [HOTPATHS.md](../HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b)): Mesa is 14-63% of
-  six games' CPU, but without symbols, so they need a PC-side symbolisation before any target is picked.
+  unmeasured. The gameplay profiles of batch ssdroot2 P1b, symbolised
+  ([HOTPATHS.md](../HOTPATHS.md#inside-the-graphics-stack)), put SuperTuxKart's client arrays at
+  17.6% of its CPU (vertex copies 10.1, index scans 6.5: Mesa 0044 takes most of the scans; the
+  copies need VBOs in Irrlicht's legacy driver).
 - **Source:** PLAN 3.1; [archive/HOTPATHS.md, "ClassiCube's batching measured slower: GPU-bound"](../archive/HOTPATHS.md#classicubes-batching-measured-slower-gpu-bound).
 
 **To start.** Count GL calls and draws per frame on llvmpipe forced to GL 2.1 (`tools/glcount`),
@@ -140,11 +141,13 @@ Rank 46. The smaller targets of HOTPATHS.md that no patch took.
 
 - **QuakeSpasm's 2D path in immediate mode** (`glBegin`/`glTexCoord2f`/`glVertex2f`, ~10% of its
   CPU). QuakeSpasm already runs at 91 fps, so this is CPU for the rest of the system.
-- **u_vbuf converting static buffers at every draw.** 0033's table made the conversion cheap; a
-  later step would cache the converted copy of a static buffer (needs write tracking). It matters
-  for games we don't patch to send fetchable formats.
-- **Client vertex arrays copied per draw** (`u_upload_data`: ETR 2.3%) and the min/max scans of
-  client index arrays (`vbo_get_minmax_index_mapped`: OpenArena 1.3%, Yamagi 1.0%).
+- **u_vbuf converting static buffers at every draw.** 0033's table made the conversion cheap, and
+  Mesa 0043 `NV30_VTX_SNORM8` (built, waiting for batch hotpaths3) leaves SNORM8, the only format
+  the profiles show converted, to the vertex program. A cache of the converted copy (needs write
+  tracking) would only matter for other formats.
+- **Client vertex arrays copied per draw** (`u_upload_data`: SuperTuxKart 10.1%, ETR 2.3%). The
+  min/max scans of client index arrays (`vbo_get_minmax_index_mapped`: SuperTuxKart 6.5%,
+  OpenArena 1.3%, Yamagi 1.0%) have Mesa 0044 `NV30_MINMAX_VMX` (built, waiting for its A/B).
 - **Mesa 0036's staging pool on QuakeSpasm and Yamagi**: measured on ClassiCube only (same fps, CPU
   -4%, row 64); expected -1.5 to -2% CPU there.
 

@@ -1,14 +1,18 @@
 # CPU hot paths of the graphics stack
 
-Where the CPU of a frame goes in Mesa nv30, its winsys and ps3rsx, ranked across 9 games of the
-suite, from the same-boot profiling batch of 2026-10-18 (`PERF=1 MEM=1`, Mesa ps3.299, kernel
-6.12.111+ps3.178, ps3rsx 0.249). Of the changes it led to, one is a clear win and on by default: Mesa
-0033's lookup table for 8-bit vertex attributes (Sauerbraten +53%). The fence pool (0034), the query
-wait (0035) and the staging pool (0036) measured neutral and stay off; ps3rsx's `shadow_fast` showed
-no gain in its A/B (batch ssdroot2, x2 on three games) and stays off. The newest profiles, taken on
-the SSD root with the Mesa .476 build, are [below](#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b).
-How the profiles are taken is in [PROFILING.md](PROFILING.md); nv30, ps3rsx and
-the other terms are in the [glossary](README.md#glossary).
+Where the CPU of a frame goes in Mesa nv30, its winsys and ps3rsx. Two rankings: 9 games from the
+same-boot profiling batch of 2026-10-18 (`PERF=1 MEM=1`, Mesa ps3.299, kernel 6.12.111+ps3.178,
+ps3rsx 0.249), and 7 games from the SSD-root batch of 2026-10-19 (Mesa ps3.476, kernel .472, ps3rsx
+0.443: after 0033's table, 0036 and the games' batching patches), [below](#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b).
+Of the changes the first one led to, one is a clear win and on by default: Mesa 0033's lookup table
+for 8-bit vertex attributes (Sauerbraten +53%). The fence pool (0034), the query wait (0035) and the
+staging pool (0036) measured neutral and stay off; ps3rsx's `shadow_fast` showed no gain in its A/B
+(batch ssdroot2, x2 on three games) and stays off. The second ranking led to Mesa 0041-0044
+([third round](#third-round-submissions-snorm8-attributes-index-scans)): fewer submissions
+(`NV30_FENCE_WORK_KICK`, `NV30_QUERY_KICK`), SNORM8 attributes normalized in the vertex program
+(`NV30_VTX_SNORM8`) and AltiVec index scans (`NV30_MINMAX_VMX`), built in Mesa
+26.2.4-1+ps3.545~dev, off by default, waiting for their A/B. How the profiles are taken is in
+[PROFILING.md](PROFILING.md); nv30, ps3rsx and the other terms are in the [glossary](README.md#glossary).
 
 ## Method
 
@@ -355,12 +359,11 @@ OpenTTD shows its **main menu** (a title screen redrawing with music, so its pro
 screen's). Profiled runs are for profiles, not for fps: perf's own CPU is 0.06-0.23 s, and OpenArena
 ran 56 profiled against 60 unprofiled.
 
-**No symbols.** perf.data was not pulled, and the PS3-side reports show Mesa's libgallium and most game
-binaries as `[unknown]` (OpenTTD's binary is the exception). The shares below are by DSO class from
-`perf-leaf.txt` and the folded stacks; function-level ranking inside Mesa still rests on the
-symbolised profile of 2026-10-18 above, and a PC-side symbolisation of these seven is the next step.
-Kernel and ps3rsx functions have names. `perf_*` percentages are of the game process's samples (all its
-threads).
+The PS3-side reports show Mesa's libgallium and most game binaries as `[unknown]`, so the table
+below is by DSO class (`perf-leaf.txt` and the folded stacks). The runs' perf.data were pulled later
+and symbolised on the PC ([Inside the graphics stack](#inside-the-graphics-stack)): the class
+shares agree with this table within 0.2 points. `perf_*` percentages are of the game process's samples
+(all its threads).
 
 | Game | HUD fps (profiled) | game | Mesa | ps3rsx | kernel, rest | soft-irq replay | libc, libm | audio libs | other |
 |---|---|---|---|---|---|---|---|---|---|
@@ -405,6 +408,79 @@ What each game's CPU is:
   5.3% ([below](#soft-masked-time-and-the-staging-buffer-per-frame)); FluidSynth 10.2%, libspeq 4.2%
   on the audio thread, `Blitter_40bppAnim::Draw` 8.5%. A game's menu, not a measure of play.
 
+### Inside the graphics stack
+
+The seven runs symbolised on the PC with the method above (Mesa ps3.476's dbgsym debs, kernel .472's
+System.map, ps3rsx 0.443's module, cube2 .466's dbgsym for Sauerbraten's own frames). Hot path = the
+innermost Mesa frame that matches a rule of `categorize.py`; mean of the % of each game's CPU, games
+at 1% or more, per game:
+
+| Hot path | mean | games | Sb | CC | STK | OA | dsda | Lu | OTTD | what is under it |
+|---|---|---|---|---|---|---|---|---|---|---|
+| st/mesa per-draw state | 10.4 | 6 | 13.8 | 18.4 | 14.8 | 7.1 | 11.1 | 7.2 | 0.3 | own code 8.8; diffuse (top: `st_prepare_draw` 0.8, `util_set_vertex_buffers_mask` 0.8, CC 3.6) |
+| GL API entry | 8.5 | 7 | 4.7 | 4.8 | 6.7 | 4.0 | 3.8 | 2.5 | **33.2** | OpenTTD: `_mesa_memcpy_texture`, the CPU copy of its PBO upload (0040's area) |
+| buffer allocation and free | 5.4 | 5 | 3.4 | 6.2 | 1.0 | **8.0** | 1.4 | 1.0 | **17.0** | kernel 3.7: OpenTTD's 8 MB staging buffers (0040), OpenArena's fences for its submissions |
+| submission (`pushbuf_flush`) | 5.2 | 6 | 6.9 | 9.3 | 3.4 | 7.9 | 4.8 | 3.2 | 0.6 | ps3rsx 3.6, kernel 1.3 |
+| vertex/index upload | 3.3 | 4 | 1.2 | 0.2 | **17.6** | 2.2 | 1.2 | 0.4 | 0 | SuperTuxKart's client arrays: memcpy 10.1, the index min/max scan 6.5 |
+| nv30 state validation | 3.0 | 6 | 3.8 | 6.5 | 3.1 | 2.4 | 3.0 | 2.1 | 0 | own code |
+| winsys bookkeeping | 2.9 | 6 | 2.5 | 5.8 | 1.4 | 7.0 | 1.8 | 1.4 | 0.1 | own code |
+| vertex format translation | 2.6 | 1 | **18.3** | 0 | 0 | 0.1 | 0.1 | 0 | 0 | `generic_run`, 0033's table loop |
+| query result wait | 2.5 | 1 | **17.4** | 0 | 0 | 0 | 0 | 0 | 0 | a busy loop |
+| swap and present | 1.2 | 2 | 0.8 | 2.3 | 0.4 | 0.9 | 2.6 | 0.9 | 0.3 | kernel |
+| nv30 draw emit | 1.1 | 2 | 0.8 | 4.1 | 1.2 | 0.5 | 0.6 | 0.6 | 0 | own code |
+| Gallium HUD (bench only) | 0.9 | 2 | 0.5 | 1.6 | 0.3 | 0.7 | 2.0 | 0.8 | 0.2 | number formatting |
+| texture upload, buffer map, fence wait | 1.7 | 4 | 0.5 | 5.9 | 0.1 | 1.9 | 1.5 | 0.4 | 1.4 | |
+
+Top single functions (self time, memcpy counted at its Mesa caller): `generic_run` 2.6 (Sauerbraten
+18.1), `nv30_query_result` 2.5 (Sauerbraten 17.4), memcpy < `u_upload_data` 1.6 (SuperTuxKart 10.1),
+`ps3rsx_shadow_burst` 1.2 (6 games), `nv30_state_validate` 1.0 (6), `vbo_get_minmax_index_mapped` 0.9
+(SuperTuxKart 6.5), `nv30_draw_vbo` 0.9 (ClassiCube 3.6), memcpy < `_mesa_memcpy_texture` 0.9
+(OpenTTD 6.2), `nv30_vbo_validate` 0.7, `util_set_vertex_buffers_mask` 0.7 (ClassiCube 3.1),
+`pushbuf_kref` 0.6, `u_vbuf_draw_vbo` 0.6 (Sauerbraten 1.6). The kernel frames between `vfs_ioctl`
+and ps3rsx's ioctl handlers come out under wrong names (`ps3rsx_probe`, `_drm_lease_revoke`,
+`drm_setclientcap`: the module's symbol table); the handlers and everything below them are right.
+
+**Who submits.** Every submission is a pushbuf ioctl through ps3rsx (validator, state shadow), a
+fence with its 4 KiB wait buffer and the buffer list referenced again. Inclusive % under
+`nouveau_pushbuf_kick` by what asked for it (`stacks.py chain`):
+
+| Game | all | at a draw (0027) | frame end, glFlush | a query's end | deferred frees |
+|---|---|---|---|---|---|
+| Sauerbraten | 9.3 | 2.2 | 1.5 | **5.6** | 0 |
+| ClassiCube | 9.3 | 0.1 | 9.2 | 0 | 0 |
+| SuperTuxKart | 3.8 | 2.9 | 0.9 | 0 | 0 |
+| OpenArena gl2min | 12.4 | 0.1 | 0.8 | 0 | **11.6** |
+| dsda-doom | 5.5 | 0 | 5.4 | 0 | 0 |
+| Luanti | 3.6 | 0.4 | 3.2 | 0 | 0 |
+| OpenTTD, title | 1.1 | 0 | 0.6 | 0 | 0 |
+
+"Deferred frees" is `nouveau_fence_work`, which submits once more than 64 frees wait on the current
+fence. OpenArena's opengl2 renderer streams its vertices with `glBufferSubData`, and every one of
+those queues two (the staging buffer and its suballocation), so it submits every 32 updates: 12.5%
+of its CPU with the fence bookkeeping. Sauerbraten's 5.6% is `nv30_query_end`, which submits at the
+end of every occlusion query. ClassiCube's and dsda-doom's frame-end submission is one per frame,
+the size of the frame: what is left there is ps3rsx's per-word cost (`shadow_fast` measured nothing).
+
+### Sauerbraten's 62.8%
+
+Its Mesa share by hot path: vertex format translation 18.3, the query wait 17.4, per-draw state 13.8,
+submission 6.9, nv30 validation 3.8, buffer allocation 3.4, the rest 13. Two causes make it the
+outlier:
+
+- **u_vbuf still converts the world's normals and tangents at every draw.** All of `generic_run`
+  (18.1%) is under `renderbatches > glDrawRangeElements`: the world's vertex arrays carry GL_BYTE
+  normalized normals (R8G8B8_SNORM) and tangents (R8G8B8A8_SNORM), which nv30 can't fetch, so u_vbuf
+  turns the draw's vertex range into floats, every draw and every pass, from static buffers. 0033's
+  table made that cheaper (44.9% of the CPU at 22 fps on 10-18, 18.1% at 38 fps here), not free. The CPU reads of those VRAM buffers also give every VRAM buffer a system memory copy
+  ([MEMORY.md](MEMORY.md)). cube2 0011 `vanormalshort` sends them as GL_SHORT instead (+17%, off by
+  default); Mesa 0043 removes the conversion for every game.
+- **The frame waits for the GPU.** 14.3 of the 17.4% is `waterqueryoccluded > checkquery`: the
+  water's occlusion query of this frame, asked for a few passes later ([Target
+  5](#target-5-sauerbratens-query-wait-mesa-0035-cube2-0010)); 3.1% is `rendergeom`'s queries of
+  the world. The GPU is behind there, so the driver can only make the wait cheaper for the other
+  hardware thread (0035) or the game stop asking (cube2 0010 `oqwaterlag`). And each of those queries
+  ends with a submission of its own (5.6%, above): Mesa 0042.
+
 ### System, driver and library targets that span several games
 
 Ranked by the mean share of the seven profiles and the number of games where it is at least 4% (the
@@ -412,7 +488,7 @@ user prioritises these over game-level fixes). Mesa's inner split is not availab
 
 | # | Target | Mean share | Games at 4%+ | Per game (%) | Lever |
 |---|---|---|---|---|---|
-| 1 | **Mesa/nv30 in the GL calls** (libgallium: state, draw, translate, upload, the query wait) | 28.6 | 6 of 7 | Sb 62.8, CC 41.2, STK 35.5, OA 23.2, dsda 22.1, Lu 14.6, OTTD 1.1 | symbolise these runs first: the batch of 2026-10-18 ranked per-draw state 13%, submission 5%, validation 3.6% across 9 games; what Sauerbraten's 62.8% is made of after the LUT is open |
+| 1 | **Mesa/nv30 in the GL calls** (libgallium: state, draw, translate, upload, the query wait) | 28.6 | 6 of 7 | Sb 62.8, CC 41.2, STK 35.5, OA 23.2, dsda 22.1, Lu 14.6, OTTD 1.1 | split [above](#inside-the-graphics-stack): per-draw state 10.4 (diffuse), submission 5.2, buffers 5.4; the single big ones are Sauerbraten's conversion and query wait, OpenArena's submissions for deferred frees and SuperTuxKart's client arrays: Mesa 0041-0044 ([third round](#third-round-submissions-snorm8-attributes-index-scans)) |
 | 2 | **Audio mixing and synthesis** (OpenAL Soft's mixer, ALSA's float conversion, FluidSynth, libspeq, Vorbis, SDL_mixer) | 11.9 | 5 of 7 | dsda 30.9, OTTD 16.8, OA 15.0, CC 10.0, Sb 6.0, STK 3.3, Lu 1.3 | built, not run: OpenAL Soft's mixer and libvorbis's `ov_read` without load-hit-stores, OpenAL's output 16-bit so the ALSA plug stops converting (1.9% ClassiCube, 0.8 STK, 0.7 OA), fluidsynth's reverb without per-sample divides ([SPU-AUDIO.md](SPU-AUDIO.md#openal-soft-on-the-ppe-conversions-and-output-format)); the music synth is also where the underruns are (dsda 2793, OpenTTD 4172) |
 | 3 | **libc and libm** (memcpy, malloc and free, mutexes, math) | 9.1 | 7 of 7 | STK 15.1, Lu 13.7, OTTD 9.1, OA 8.9, dsda 7.4, CC 4.8, Sb 4.6 | libc6-dbg symbols to say which (named so far: `pthread_mutex_lock` 0.5-1.2%, `__memcmpeq` 0.4-0.7, `malloc`, `cfree` 0.4-0.9) |
 | 4 | **Soft-masked time** (kernel `__replay_soft_interrupts`, `arch_local_irq_restore`) | 8.7 (3.9 without OpenTTD) | 5 of 7 | OTTD 37.6, Lu 5.7, CC 5.0, OA 4.1, dsda 4.1, Sb 2.5, STK 1.7 | real time, split by where interrupts came back on ([below](#soft-masked-time-and-the-staging-buffer-per-frame)): OpenTTD's is its per-frame staging buffer (Mesa 0040); elsewhere hash faults 0.2-1.6, ALSA's stream lock 0.1-1.3, system call entry and exit 0.3-1.0, wakeups 0.1-1.1 (kernel local/0046 takes one lv1 call off every hash fault) |
@@ -421,10 +497,112 @@ user prioritises these over game-level fixes). Mesa's inner split is not availab
 | 7 | Decompression at play time (libdeflate, zstd) | 0.9 | 1 of 7 | OA 4.8 (3.9 libdeflate), Lu 1.2 | only OpenArena's reloads; the load-time decoders are in [PROFILING.md](PROFILING.md#start-up-profiles-on-the-ssd-root-batch-ssdroot2) |
 
 Items 1-3 touch most of the suite. Item 2 has a hardware lever and a measured symptom (underruns);
-item 1 has the most CPU but needs symbols first; items 4 and 6 are one cause in OpenTTD, built
+item 1 has the most CPU, and its switches are built; items 4 and 6 are one cause in OpenTTD, built
 against and waiting for their A/B.
 Game-level items (Luanti's MeshUpdate thread, STK's skinning, OpenTTD's blitter) are in the per-game
 files.
+
+## Third round: submissions, SNORM8 attributes, index scans
+
+Picked from [Inside the graphics stack](#inside-the-graphics-stack): the biggest single hot paths a
+driver or library change removes whole, in the games where they occur, rather than the per-draw
+state (10.4%, spread over dozens of functions, as in the first round). Four switches, off by
+default, in Mesa 26.2.4-1+ps3.545~dev (patches 0041-0044 on top of ps3.544's 0040; the debs are in
+`build/debs/hotpaths3/mesa`, not deployed, not published):
+
+| Mesa | Switch | Takes away | Share in the profiles | Expected |
+|---|---|---|---|---|
+| 0041 | `NV30_FENCE_WORK_KICK=N` (64, the default, as upstream; 0: never) | the submissions for deferred frees | OpenArena gl2min 12.5% | OpenArena's CPU about -10% with N=1024 or 0; fps up to +10% where its main thread is the limit |
+| 0042 | `NV30_QUERY_KICK=0` or `2` (1, the default: as before) | the submission at the end of every query | Sauerbraten 5.6% | Sauerbraten's CPU -5%; fps 0 to +5%, or worse in mode 0 if the water query's wait gets longer |
+| 0043 | `NV30_VTX_SNORM8=1` | u_vbuf's conversion of GL_BYTE normalized attributes | Sauerbraten 18-19%, QuakeSpasm 4-6% (10-18) | Sauerbraten +15 to 20% fps (cube2 0011's game-side version of the same gave +17%, row 69), no system memory copies of its VRAM buffers; QuakeSpasm's CPU -4% |
+| 0044 | `NV30_MINMAX_VMX=1` | most of the min/max scan of client index arrays | SuperTuxKart 6.5%; OpenArena opengl1 1.3, Yamagi 1.0 (10-18) | SuperTuxKart's CPU about -5%, fps +3 to 5% |
+
+Not picked: the per-draw state; the query wait itself (the GPU is behind there: cube2 0010 is the
+lever); ClassiCube's and dsda-doom's one submission a frame (ps3rsx's per-word cost, which
+`shadow_fast` didn't move); OpenTTD's PBO copy (0040 is its lever, measured +53% in ssdroot4);
+SuperTuxKart's vertex copies (memcpy < `u_upload_data` 10.1%: Irrlicht's legacy driver draws from
+client arrays; the lever is VBOs in the game).
+
+### Fewer submissions (Mesa 0041, 0042)
+
+**0041 nouveau: submit for deferred frees only past a set count (`NV30_FENCE_WORK_KICK=N`).**
+`nouveau_fence_work()` queues a function to run once a fence signals (the staging memory of an
+upload, a destroyed buffer's storage) and submitted the fence's batch as soon as more than 64 waited
+on it, to bound the memory they hold. The threshold is now a field of the fence list (64 by default,
+so nv50 and nvc0 are as before), from `NV30_FENCE_WORK_KICK` on nv30; 0 never submits for it. The
+frees then wait for the next submission there is anyway (0027's at a draw once the GPU caught up and
+enough is queued, a flush, a full push buffer) and hold their memory until then: at most a frame's staging copies and
+orphaned buffers. Same commands in the same order, in fewer submissions.
+
+**0042 nv30: submit a query's batch when its result is wanted, not at its end (`NV30_QUERY_KICK`).**
+1 (the default) submits at the end of every query, as upstream. 0 submits nothing there: a result
+check that finds the report not written submits the batch first, if that hasn't happened
+(`nouveau_fence_flush` on the fence that was current at the query's end), whether the caller waits
+or only polls, so `GL_QUERY_RESULT_AVAILABLE` loops get their answer; nvc0 does the same. 2 is 0
+plus a submission at the end while the GPU has finished everything before (0027's test, one read of
+the fence notifier), so a query never leaves the GPU idle that the old submission would have fed.
+The 124 report slots are recycled by spinning on the oldest: each slot holds the fence of the batch
+that writes it, and in modes 0 and 2 that batch is submitted before the spin. A context that goes
+away waits for its last fence, so no slot outlives its batch. What changes for a frame that waits
+for a result (Sauerbraten's water): the wait starts at the check instead of the query's end when
+nothing submitted the batch in between, which mode 2 makes rare.
+
+No host test for these two: they change when batches go to the GPU, not what is in them; the A/B
+shows it.
+
+### SNORM8 attributes in the vertex program (Mesa 0043)
+
+**0043 nv30: signed 8-bit vertex attributes normalized in the vertex program (`NV30_VTX_SNORM8=1`).**
+nv30 reports R8_SNORM to R8G8B8A8_SNORM as vertex formats, so u_vbuf leaves them alone. The GPU
+fetches them as U8_USCALED (libgcm's UB256: each byte as a float 0..255) and four instructions at
+the start of the vertex program give what util_format's unpack gives,
+`MAX2(-1.0f, (float)(c * (1.0f/0x7f)))`:
+
+    s = SGE(v, 128); t = MAD(s, -256, v); t = MUL(t, 1/127); t = MAX(t, -1)
+
+MUL and MAX on the attribute's components only, so a 3-component fetch keeps its w of 1. The program
+reads that temp instead of the input. Which inputs get it is a key of 3 bits per input in the vertex
+elements state, kept to the inputs the program declares; a program is translated again when its key
+changes (as for clip planes) and the key is part of 0039's cache key. Inline vertices (vbo_fifo)
+carry the bytes as they are and constant attributes are emitted as their raw bytes, so every path
+hands the program the same values; a program that indexes its inputs goes to the draw module, which
+fetches SNORM8 itself. The cost moves to the RSX: four vertex program instructions per such
+attribute and vertex (Sauerbraten's world: eight).
+
+Tests (`tools/run-tests.sh mesa-vtx-snorm8`, from `build/work/mesa`):
+
+- `mesa/tests/vtx-snorm8-test.c`: the prologue's arithmetic in IEEE single precision against
+  util_format's generated unpack functions (taken from `u_format_table.py`'s output) for the four
+  formats, every byte in every component, constant attributes too, and the key: 17,447 checks, bit
+  for bit;
+- `mesa/tests/vtx-snorm8-vpsim.c`: Mesa's own `nvfx_vertprog.c` translates two programs (plain
+  arithmetic; inputs read with swizzles, negated, as abs, twice in one instruction) without the
+  prologue and with it for five keys (1 to 4 components, up to three inputs), and an interpreter of
+  NV40 vertex program code (the vector slot's MOV MUL ADD MAD DP3 DP4 MIN MAX SLT SGE, refusing
+  anything else) runs both on 3000 vertices each, the plain one given the unpacked floats and the
+  other the raw bytes: the same outputs bit for bit (990,030 checks), four instructions more per
+  converted input, the same input mask. A wrong write mask or a missed input redirect fails it.
+
+What the host can't check is the RSX's own rounding of the multiply: if it isn't IEEE's, a component
+can be one ulp off, invisible in lighting. On the PS3 the check is the picture: Sauerbraten's world
+lighting and QuakeSpasm's model shading against the switch off.
+
+### AltiVec index scans (Mesa 0044)
+
+**0044 vbo: index array min/max in AltiVec (`NV30_MINMAX_VMX=1`).** A draw from client vertex arrays
+needs the range of vertices its indices use, so Mesa scans the index array of every such
+glDrawElements; on the PPE the scalar loop is a load, two compares and two branches per index. With
+the switch (PowerPC only, and only where the CPU has AltiVec), arrays of 16- and 32-bit indices of
+64 or more go eight or four at a time: GCC's vector types, which it compiles to `lvx` and
+`vminuh`/`vmaxuh` (`vminuw`/`vmaxuw`) in these functions (`target("altivec")`). The unaligned head
+and the tail stay scalar, and so do arrays under 64 (taking the lanes apart at the end goes through
+memory, a load-hit-store). Restart indices are masked out; an array of nothing but restart indices
+gives ~0u and 0, as the scalar loop does.
+
+`mesa/tests/minmax-vmx-test.c` (`tools/run-tests.sh mesa-minmax-vmx`) checks it against the scalar
+loops (every start alignment, counts 0 to 300, restart off and six restart indices, random, narrow
+and top-of-range values: 2.7 million cases) on the host and as a ppc64 `-mcpu=cell` build from the
+deb builder's cross compiler under qemu-ppc64.
 
 ## Soft-masked time and the staging buffer per frame
 
@@ -604,6 +782,29 @@ measured: `mismatches` must be 0 after `insert_readback=2` sessions, else stop:
     ENVS="- PS3HTAB_INSERT_READBACK=0" /var/tmp/bench/run.sh bench classicube base 3
     python3 /var/tmp/bench/report.py /var/tmp/ps3-bench/<run dirs>...
 
+Batch hotpaths3 (Mesa 0041-0044, the third round above). Install Mesa 26.2.4-1+ps3.545~dev from
+`build/debs/hotpaths3/mesa` (on top of ps3.544; every switch off by default, so the other rows are
+unaffected), then same boot, interleaved, x3. Pictures: Sauerbraten's world lighting and water,
+QuakeSpasm's model shading, SuperTuxKart's track and karts all there; MemAvailable (bench.txt's
+`min_memavailable_kb`) for 0041, which holds staging memory until the next submission:
+
+    ENVS="- NV30_FENCE_WORK_KICK=1024 NV30_FENCE_WORK_KICK=0" /var/tmp/bench/run.sh bench openarena gl2min 3
+    ENVS="- NV30_VTX_SNORM8=1 NV30_QUERY_KICK=2 NV30_VTX_SNORM8=1+NV30_QUERY_KICK=2" /var/tmp/bench/run.sh bench sauerbraten base 3
+    ENVS="- NV30_QUERY_KICK=0" /var/tmp/bench/run.sh bench sauerbraten base 3
+    ENVS="- NV30_MINMAX_VMX=1" /var/tmp/bench/run.sh bench supertuxkart lean 3
+    ENVS="- NV30_VTX_SNORM8=1" /var/tmp/bench/run.sh bench quakespasm base 3
+    # control: nothing to take away in ClassiCube (no SNORM8, no queries, few deferred frees)
+    ENVS="- NV30_FENCE_WORK_KICK=1024+NV30_QUERY_KICK=2+NV30_VTX_SNORM8=1+NV30_MINMAX_VMX=1" /var/tmp/bench/run.sh bench classicube base 2
+    # profiles with the switches (for the CPU shares, not for fps)
+    PERF=1 MEM=1 ENVS="NV30_VTX_SNORM8=1+NV30_QUERY_KICK=2" /var/tmp/bench/run.sh bench sauerbraten base 1
+    PERF=1 MEM=1 ENVS="NV30_FENCE_WORK_KICK=1024" /var/tmp/bench/run.sh bench openarena gl2min 1
+    PERF=1 MEM=1 ENVS="NV30_MINMAX_VMX=1" /var/tmp/bench/run.sh bench supertuxkart lean 1
+
+In the profiles, `generic_run` should be gone from Sauerbraten (and `nouveau_buffer_transfer_map`
+reads of its world buffers), `nv30_query_end > nouveau_pushbuf_kick` near 0,
+`nouveau_fence_work > nouveau_fence_kick` gone from OpenArena, and `vbo_get_minmax_index_mapped`
+down to a fifth or less in SuperTuxKart (`stacks.py chain` reads all four).
+
 ## ClassiCube's batching measured slower: GPU-bound
 
 Same boot, 2 runs each (063141..064319): base (our 0001+0002, `CC_GL_CHUNKS=2`) 47.3 fps at 83% CPU,
@@ -651,10 +852,14 @@ is the limit. The default has not been changed yet (classicube .374 still defaul
     done
     python3 games/bench/hotpaths/categorize.py build/tmp/hotpaths/*.pkl   # the tables above
     python3 games/bench/hotpaths/stacks.py callers <pkl> '^nv30_query_result$' 8   # who calls it
+    python3 games/bench/hotpaths/stacks.py chain '^nv30_query_end$ > ^nouveau_pushbuf_kick$' <pkl>...
 
 Pull the runs with `make bench-pull PERFDATA=1`. `symroot.sh` takes the versions as arguments (Mesa,
-kernel release, ps3rsx; the defaults are this batch's) and `EXTRA_DEBS` (the game's deb and -dbgsym of
-the profiled build, for its own frames). Runs need MEM=1 for the Mesa maps, or a record started before
+kernel release, ps3rsx; the defaults are batch ssdroot2's: 26.2.4-1+ps3.476, 6.12.111+ps3.472,
+0.443+k6.12.111+ps3.472) and `EXTRA_DEBS` (the game's deb and -dbgsym of the profiled build, for its
+own frames; the SSD-root profiles used cube2 .466's); analyze.py takes the kernel release from
+`HOTPATHS_KVER` (default .472) and the symbol root from `HOTPATHS_SYM` (it can live on the overflow
+disk: `HOTPATHS_SYM=/mnt/data_linux/Temp/ps3/hotpaths-sym`, about 100 MB). Runs need MEM=1 for the Mesa maps, or a record started before
 Mesa loaded (every record since ps3-gpu-tools 0.412). Delete `build/tmp/hotpaths*` afterwards. To get
 the PS3's own call-chain handling instead, run its perf under qemu ([PROFILING.md, "Re-processing a
 run on the PC"](PROFILING.md#re-processing-a-run-on-the-pc)).
@@ -662,11 +867,12 @@ run on the PC"](PROFILING.md#re-processing-a-run-on-the-pc)).
 ## Not implemented
 
 From the targets above, still open: caching u_vbuf's converted copy of a static buffer instead of
-converting it each draw (needs write tracking on the buffer); in ps3rsx, the parts of the submission path
+converting it each draw (needs write tracking on the buffer; 0043 makes it unneeded for SNORM8, the
+only format the profiles show converted); in ps3rsx, the parts of the submission path
 `shadow_fast` leaves untouched (validate, the push copy, the reservation locks) and a restore of only
 what other channels changed since this one ran (a per-channel stale bitmap, which needs a wider
-proof); fewer and larger submissions; immediate mode out of QuakeSpasm's 2D path; ETR's client vertex
-arrays; the client index arrays' min/max scans. They are in [backlog/graphics.md](backlog/graphics.md).
+proof); immediate mode out of QuakeSpasm's 2D path; ETR's and SuperTuxKart's client vertex arrays
+(VBOs in the games). They are in [backlog/graphics.md](backlog/graphics.md).
 
 ## History
 
@@ -680,5 +886,7 @@ arrays; the client index arrays' min/max scans. They are in [backlog/graphics.md
 - 2026-10-18 evening, batch 16 (row 68, commit 296f99d): chunks1 and stream repeated.
 - 2026-10-19 (batch ssdroot2, rows 73 and 75): gameplay profiles of seven games on the SSD root
   (unsymbolised Mesa) and the `shadow_fast` A/B (no gain).
+- 2026-10-19 afternoon: those seven profiles symbolised on the PC; the third round, Mesa 0041-0044
+  (ps3.545~dev), built with host tests, waiting for batch hotpaths3.
 
 Older versions and the dated history: [archive/HOTPATHS.md](archive/HOTPATHS.md).

@@ -1,0 +1,201 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Mon, 19 Oct 2026 14:12:23 +0300
+Subject: vbo: index array min/max in AltiVec (NV30_MINMAX_VMX)
+
+A draw from client vertex arrays needs the range of vertices its indices use, so Mesa scans the
+index array of every such glDrawElements (vbo_get_minmax_index_mapped). SuperTuxKart's legacy
+renderer (Irrlicht) draws its meshes from client arrays, and the scan was 6.5% of its CPU in the
+profile of 2026-10-19 (Mesa ps3.476); OpenArena's opengl1 renderer and Yamagi Quake II 1-1.3% in
+the earlier one. On the Cell PPE the scalar loop is a load, two compares and two branches per
+index, in order.
+
+With NV30_MINMAX_VMX=1 (off by default; PowerPC only, and only where the CPU has AltiVec) arrays
+of 16- and 32-bit indices of 64 or more are scanned eight (four) at a time: GCC's vector types,
+which it compiles to lvx, vminuh/vmaxuh (vminuw/vmaxuw) in these functions
+(vbo_minmax_vmx.h, target("altivec")). The unaligned head and the tail stay scalar; below 64
+indices the whole scan does, as taking the lanes apart at the end goes through memory (a
+load-hit-store on the PPE). Primitive restart indices are masked out (0xffff for the minimum, 0
+for the maximum); a 16-bit array has none when the restart index is above 0xffff, and an array
+of nothing but restart indices gives ~0u and 0 as the scalar loop does.
+
+Checked against the scalar loops (PS3 tree, mesa/tests/minmax-vmx-test.c: every start
+alignment, counts 0 to 300, restart off and with six restart indices, random, narrow and
+top-of-range values, 2.7 million cases): on the host with GCC's generic vectors, and built with
+the ppc64 cross compiler for -mcpu=cell and run under qemu-ppc64 (AltiVec).
+
+Forwarded: no
+
+diff --git a/src/mesa/vbo/vbo_minmax_index.c b/src/mesa/vbo/vbo_minmax_index.c
+--- a/src/mesa/vbo/vbo_minmax_index.c
++++ b/src/mesa/vbo/vbo_minmax_index.c
+@@ -35,6 +35,23 @@
+ #include "util/hash_table.h"
+ #include "util/u_memory.h"
+ #include "pipe/p_state.h"
++#include "util/u_debug.h"
++
++#if defined(__powerpc__) || defined(__powerpc64__)
++#include "vbo_minmax_vmx.h"
++
++/* NV30_MINMAX_VMX=1: the scans of 16- and 32-bit index arrays in AltiVec where the CPU has it
++ * (vbo_minmax_vmx.h); off by default */
++static bool
++vbo_minmax_use_vmx(void)
++{
++   static int use = -1;
++
++   if (use < 0)
++      use = debug_get_bool_option("NV30_MINMAX_VMX", false) && util_get_cpu_caps()->has_altivec;
++   return use;
++}
++#endif
+ 
+ struct minmax_cache_key {
+    GLintptr offset;
+@@ -234,6 +251,16 @@ vbo_get_minmax_index_mapped(unsigned count, unsigned index_size,
+                             const void *indices,
+                             unsigned *min_index, unsigned *max_index)
+ {
++#if defined(__powerpc__) || defined(__powerpc64__)
++   if ((index_size == 2 || index_size == 4) && vbo_minmax_use_vmx()) {
++      if (index_size == 2)
++         vbo_minmax_u16_vmx(indices, count, restart, restartIndex, min_index, max_index);
++      else
++         vbo_minmax_u32_vmx(indices, count, restart, restartIndex, min_index, max_index);
++      return;
++   }
++#endif
++
+    switch (index_size) {
+    case 4: {
+       const GLuint *ui_indices = (const GLuint *)indices;
+diff --git a/src/mesa/vbo/vbo_minmax_vmx.h b/src/mesa/vbo/vbo_minmax_vmx.h
+new file mode 100644
+--- /dev/null
++++ b/src/mesa/vbo/vbo_minmax_vmx.h
+@@ -0,0 +1,124 @@
++/*
++ * NV30_MINMAX_VMX: the min/max scan of an index array (vbo_get_minmax_index_mapped) eight
++ * 16-bit or four 32-bit indices at a time, in GCC vector types the compiler maps to AltiVec
++ * (VMX) in these functions; the caller takes them only where the CPU has it. A game drawing
++ * from client index arrays has every glDrawElements scanned: 6.5% of SuperTuxKart's CPU on the
++ * PS3 (Cell PPE, Mesa ps3.476), where the scalar loop is two compares and two branches per index.
++ *
++ * Same results as the scalar loops, also in the corner cases: no index at all gives min ~0u and
++ * max 0, primitive restart leaves the restart index out (a 16-bit array has none when the index
++ * is above 0xffff), and an array of nothing but restart indices gives ~0u and 0 too.
++ *
++ * No Mesa types here: mesa/tests/minmax-vmx-test.c in the PS3 tree checks them against the
++ * scalar loops on the host (GCC's generic vectors there).
++ */
++#ifndef VBO_MINMAX_VMX_H
++#define VBO_MINMAX_VMX_H
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#if defined(__powerpc__) || defined(__powerpc64__)
++#define VBO_VMX_TARGET __attribute__((target("altivec")))
++#else
++#define VBO_VMX_TARGET
++#endif
++
++/* Below this many indices the scalar loop: taking the vector lanes apart at the end goes through
++ * memory, a load-hit-store stall on the PPE, which only pays off over a longer array. */
++#define VBO_MINMAX_VMX_MIN 64
++
++typedef uint16_t vbo_v8u16 __attribute__((vector_size(16), may_alias));
++typedef uint32_t vbo_v4u32 __attribute__((vector_size(16), may_alias));
++
++VBO_VMX_TARGET static void
++vbo_minmax_u16_vmx(const uint16_t *idx, unsigned count, bool restart, unsigned restart_index,
++                   unsigned *min_index, unsigned *max_index)
++{
++   unsigned mn = ~0u, mx = 0, i = 0;
++
++   if (restart && restart_index > 0xffff)
++      restart = false;   /* no 16-bit index equals it */
++
++#define VBO_MINMAX_STEP(x) do {                       \
++      const unsigned v_ = (x);                        \
++      if (!restart || v_ != restart_index) {          \
++         if (v_ > mx) mx = v_;                        \
++         if (v_ < mn) mn = v_;                        \
++      }                                               \
++   } while (0)
++
++   while (i < count && ((uintptr_t)(idx + i) & 15))
++      VBO_MINMAX_STEP(idx[i++]);
++
++   if (count >= VBO_MINMAX_VMX_MIN && count - i >= 8) {
++      const vbo_v8u16 ones = (vbo_v8u16){ 0 } - 1, r = ones & (uint16_t)restart_index;
++      vbo_v8u16 vmn = ones, vmx = { 0 }, seen = { 0 };
++
++      for (; count - i >= 8; i += 8) {
++         const vbo_v8u16 v = *(const vbo_v8u16 *)(idx + i);
++         /* restart indices: 0xffff for the minimum, 0 for the maximum, not seen */
++         const vbo_v8u16 skip = restart ? (vbo_v8u16)(v == r) : (vbo_v8u16){ 0 };
++         const vbo_v8u16 lo = v | skip, hi = v & ~skip;
++         vbo_v8u16 m = (vbo_v8u16)(lo < vmn);
++         vmn = (lo & m) | (vmn & ~m);
++         m = (vbo_v8u16)(hi > vmx);
++         vmx = (hi & m) | (vmx & ~m);
++         seen |= ~skip;
++      }
++      bool any = false;
++      for (unsigned l = 0; l < 8; l++)
++         any |= seen[l] != 0;
++      if (any) {
++         for (unsigned l = 0; l < 8; l++) {
++            if (vmn[l] < mn) mn = vmn[l];
++            if (vmx[l] > mx) mx = vmx[l];
++         }
++      }
++   }
++
++   while (i < count)
++      VBO_MINMAX_STEP(idx[i++]);
++
++   *min_index = mn;
++   *max_index = mx;
++}
++
++VBO_VMX_TARGET static void
++vbo_minmax_u32_vmx(const uint32_t *idx, unsigned count, bool restart, unsigned restart_index,
++                   unsigned *min_index, unsigned *max_index)
++{
++   unsigned mn = ~0u, mx = 0, i = 0;
++
++   while (i < count && ((uintptr_t)(idx + i) & 15))
++      VBO_MINMAX_STEP(idx[i++]);
++
++   if (count >= VBO_MINMAX_VMX_MIN && count - i >= 4) {
++      const vbo_v4u32 ones = (vbo_v4u32){ 0 } - 1, r = ones & restart_index;
++      vbo_v4u32 vmn = ones, vmx = { 0 };
++
++      /* ~0u is the minimum's start anyway, 0 the maximum's: no "seen" needed */
++      for (; count - i >= 4; i += 4) {
++         const vbo_v4u32 v = *(const vbo_v4u32 *)(idx + i);
++         const vbo_v4u32 skip = restart ? (vbo_v4u32)(v == r) : (vbo_v4u32){ 0 };
++         const vbo_v4u32 lo = v | skip, hi = v & ~skip;
++         vbo_v4u32 m = (vbo_v4u32)(lo < vmn);
++         vmn = (lo & m) | (vmn & ~m);
++         m = (vbo_v4u32)(hi > vmx);
++         vmx = (hi & m) | (vmx & ~m);
++      }
++      for (unsigned l = 0; l < 4; l++) {
++         if (vmn[l] < mn) mn = vmn[l];
++         if (vmx[l] > mx) mx = vmx[l];
++      }
++   }
++
++   while (i < count)
++      VBO_MINMAX_STEP(idx[i++]);
++#undef VBO_MINMAX_STEP
++
++   *min_index = mn;
++   *max_index = mx;
++}
++
++#endif

@@ -14,7 +14,7 @@ import perfdata, elfsym
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUILD = os.path.abspath(os.path.join(HERE, '..', '..', '..', 'build'))
 SYM = os.environ.get('HOTPATHS_SYM') or os.path.join(BUILD, 'tmp', 'hotpaths-sym')
-KVER = os.environ.get('HOTPATHS_KVER', '6.12.111+ps3.178')
+KVER = os.environ.get('HOTPATHS_KVER', '6.12.111+ps3.472')  # the kernel release of the runs (symroot.sh's)
 CTX = 0xfffffffffffff001  # >= PERF_CONTEXT_MAX (-4095)
 
 MESA_RE = re.compile(r'libgallium|_dri\.so|dri_gbm\.so|libGLX_mesa|libEGL_mesa|libgbm\.so|libglapi|'

@@ -5,7 +5,12 @@
 #   default  quick suites: bench-selftest, gprefetch, ps3rsx-shadow (and ps3rsx's clear_dcbz zeroing),
 #            ps3-spu, xmoto-glbatch,
 #            mesa-forcedxt (Mesa 0038's NV30_FORCE_DXT decision, mesa/tests), mesa-staging-pool
-#            (Mesa 0040's NV30_STAGING_POOL_MB decisions and a model of the pool, mesa/tests), ssdimg (the SSD test
+#            (Mesa 0040's NV30_STAGING_POOL_MB decisions and a model of the pool, mesa/tests),
+#            mesa-vtx-snorm8 (Mesa 0043's NV30_VTX_SNORM8 vertex program normalization against
+#            util_format's unpack, every byte; the per-input key; the translator's output run on
+#            an NV40 vertex program interpreter with and without it), mesa-minmax-vmx (Mesa 0044's
+#            AltiVec index min/max against the scalar loops, on the host and as ppc64 under qemu),
+#            ssdimg (the SSD test
 #            drive's stamp.py, ps3-imgmap on a fake UFS layer, ps3-vswap's device-mapper backing;
 #            ps3-imgmap-boot's maps and tables against ps3-imgmap's; both tools' write guard
 #            registration against a model of the kernel's side), ps3-boot (ps3-update-kboot's
@@ -78,6 +83,55 @@ t_stagingpool() {
 		-o build/tmp/tests/staging-pool-test mesa/tests/staging-pool-test.c || exit 1
 	build/tmp/tests/staging-pool-test
 }
+t_vtxsnorm8() {
+	local M=build/work/mesa T=build/tmp/tests
+	[ -e $M/src/gallium/drivers/nouveau/nv30/nv30_vtx_snorm8.h ] || { echo "skip: no build/work/mesa with the NV30_VTX_SNORM8 patch (make mesa-work)"; exit 77; }
+	need gcc
+	mkdir -p $T
+	# util_format's SNORM8 structs and unpack functions, as Mesa generates them
+	python3 $M/src/util/format/u_format_table.py $M/src/util/format/u_format.yaml > $T/u_format_table.c || exit 1
+	awk '/^struct util_format_r8(g8(b8)?)?_snorm \{/,/^\};/ { print }
+	     /^util_format_r8(g8(b8(a8)?)?)?_snorm_unpack_rgba_float\(/ { print "static void"; p = 1 }
+	     p { print } p && /^\}/ { p = 0 }' $T/u_format_table.c > $T/snorm8-ref.h
+	[ "$(grep -c '_unpack_rgba_float(' $T/snorm8-ref.h)" = 4 ] || { echo "snorm8-ref.h: unpack functions not found"; exit 1; }
+	gcc -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -I $M/src/gallium/drivers/nouveau -I $T \
+		-DUTIL_ARCH_BIG_ENDIAN=0 -o $T/vtx-snorm8-test mesa/tests/vtx-snorm8-test.c || exit 1
+	$T/vtx-snorm8-test || exit 1
+	# the translator itself (nvfx_vertprog.c) on an NV40 vertex program interpreter
+	local G=$T/mesa-gen N=$M/src/compiler/nir A=$M/src/gallium/auxiliary/tgsi
+	mkdir -p $G/util/format
+	python3 $M/src/util/format/u_format_table.py $M/src/util/format/u_format.yaml --enums > $G/util/format/u_format_gen.h &&
+	python3 $M/src/compiler/builtin_types_h.py $G/builtin_types.h &&
+	python3 $N/nir_opcodes_h.py > $G/nir_opcodes.h && python3 $N/nir_builder_opcodes_h.py > $G/nir_builder_opcodes.h &&
+	python3 $N/nir_intrinsics_h.py --out $G/nir_intrinsics.h &&
+	python3 $N/nir_intrinsics_indices_h.py --out $G/nir_intrinsics_indices.h || exit 1
+	gcc -g -O1 -std=gnu11 -fsanitize=address,undefined -DHAVE_PTHREAD -D_GNU_SOURCE -DHAVE_TIMESPEC_GET \
+		-DHAVE_STRUCT_TIMESPEC -DUTIL_ARCH_BIG_ENDIAN=0 -DUTIL_ARCH_LITTLE_ENDIAN=1 -I$G -I$M/include -I$M/src \
+		-I$M/src/gallium/include -I$M/src/gallium/auxiliary -I$M/src/gallium/drivers/nouveau -I$M/src/util \
+		-I$M/src/mapi -I$M/src/mesa -I$M/src/compiler/nir -I$M/src/compiler -I$M/src/gallium/winsys/nouveau/drm \
+		-I$M/src/nouveau/headers -o $T/vtx-snorm8-vpsim mesa/tests/vtx-snorm8-vpsim.c mesa/tests/vtx-snorm8-stubs.c \
+		$M/src/gallium/drivers/nouveau/nv30/nvfx_vertprog.c $A/tgsi_text.c $A/tgsi_build.c $A/tgsi_info.c \
+		$A/tgsi_util.c $A/tgsi_strings.c $A/tgsi_parse.c $A/tgsi_dump.c $A/tgsi_iterate.c $A/tgsi_scan.c \
+		$M/src/util/ralloc.c $M/src/util/u_dynarray.c -lm || exit 1
+	ASAN_OPTIONS=detect_leaks=0 $T/vtx-snorm8-vpsim
+}
+t_minmaxvmx() {
+	local M=build/work/mesa T=build/tmp/tests
+	[ -e $M/src/mesa/vbo/vbo_minmax_vmx.h ] || { echo "skip: no build/work/mesa with the NV30_MINMAX_VMX patch (make mesa-work)"; exit 77; }
+	need gcc
+	mkdir -p $T
+	gcc -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -I $M/src/mesa/vbo \
+		-o $T/minmax-vmx-test mesa/tests/minmax-vmx-test.c || exit 1
+	$T/minmax-vmx-test || exit 1
+	# AltiVec itself: the deb builder's ppc64 cross compiler, run under qemu-user
+	local img; img=$(docker images --format '{{.Repository}}:{{.Tag}}' ps3-deb-builder 2>/dev/null | head -1)
+	if [ -z "$img" ] || ! command -v qemu-ppc64-static >/dev/null; then
+		echo "ppc64 part skipped: needs docker with a ps3-deb-builder image and qemu-ppc64-static"; return 0
+	fi
+	docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/w" -w /w "$img" powerpc64-linux-gnu-gcc -O2 -mcpu=cell \
+		-Wall -Wextra -Werror -static -I $M/src/mesa/vbo -o $T/minmax-vmx-test-ppc64 mesa/tests/minmax-vmx-test.c || exit 1
+	qemu-ppc64-static $T/minmax-vmx-test-ppc64
+}
 t_autogm() {
 	if ! { command -v Xvfb >/dev/null && command -v openbox >/dev/null; } &&
 	   ! command -v docker >/dev/null && ! command -v podman >/dev/null; then
@@ -92,6 +146,8 @@ run ps3-spu make -C ps3-spu test
 run xmoto-glbatch bash -c "$(declare -f need t_xmoto); t_xmoto"
 run mesa-forcedxt bash -c "$(declare -f need t_forcedxt); t_forcedxt"
 run mesa-staging-pool bash -c "$(declare -f need t_stagingpool); t_stagingpool"
+run mesa-vtx-snorm8 bash -c "$(declare -f need t_vtxsnorm8); t_vtxsnorm8"
+run mesa-minmax-vmx bash -c "$(declare -f need t_minmaxvmx); t_minmaxvmx"
 run ssdimg python3 tools/ssdimg/test_ssdimg.py
 run ps3-boot python3 ps3-boot/tests/test_kboot.py
 run ps3disk-guard linux/tests/ps3disk-guard.sh

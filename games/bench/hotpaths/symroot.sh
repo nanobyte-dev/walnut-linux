@@ -7,9 +7,9 @@ set -eu
 top=$(cd "$(dirname "$0")/../../.." && pwd)
 B=$top/build
 S=${HOTPATHS_SYM:-$B/tmp/hotpaths-sym}
-MV=${1:-26.2.4-1+ps3.299}
-KR=${2:-6.12.111+ps3.178}
-RV=${3:-0.249+k6.12.111+ps3.178}
+MV=${1:-26.2.4-1+ps3.476}
+KR=${2:-6.12.111+ps3.472}
+RV=${3:-0.443+k6.12.111+ps3.472}
 LIBC=${LIBC_VERSION:-2.43-7}
 SNAP=${SNAPSHOT:-http://snapshot.debian.org/archive/debian-ports/20261013T000000Z}
 mkdir -p "$S"

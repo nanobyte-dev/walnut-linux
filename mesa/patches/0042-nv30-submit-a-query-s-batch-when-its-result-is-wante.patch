@@ -1,0 +1,174 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Mon, 19 Oct 2026 13:57:04 +0300
+Subject: nv30: submit a query's batch when its result is wanted, not at its
+ end (NV30_QUERY_KICK)
+
+nv30_query_end() submits the push buffer at the end of every query, so its result comes as soon
+as the GPU gets there. Sauerbraten ends an occlusion query for every visible piece of the world
+(rendergeom) and for every water surface, and in the profile of 2026-10-19 (Mesa ps3.476) those
+submissions were 5.6% of its CPU: each a pushbuf ioctl through ps3rsx, a new fence and its wait
+buffer, the buffer list referenced again. Most of those results are read a frame later, when
+they have long been written.
+
+NV30_QUERY_KICK (1, the default: as before):
+ - 0: the end of a query submits nothing. Its batch goes to the GPU with the next submission
+   there is anyway (NV30_PS3_KICK_AUTO at a draw once the GPU caught up, a flush, a full push
+   buffer). A result check that finds the report not written yet submits the batch first if
+   that has not happened (nouveau_fence_flush on the fence current at the query's end), whether
+   the caller waits or only polls, so a game polling GL_QUERY_RESULT_AVAILABLE gets its answer.
+   nvc0 does the same (it submits at the first result check of a query not yet flushed).
+ - 2: as 0, and the end of a query also submits while the GPU has finished everything submitted
+   before (the NV30_PS3_KICK_AUTO test: one plain read of the fence notifier), so a query never
+   leaves the GPU idle that the eager submission would have fed.
+Query objects are recycled when the 124 report slots run out, by spinning on the oldest report:
+in modes 0 and 2 that report's batch is submitted first (each slot holds the fence of the batch
+that writes it), so the spin can't wait for a report that was never submitted. A context going
+away waits for its last fence (nouveau_fence_cleanup), so no slot outlives its batch.
+
+Same commands in the same order, cut into fewer submissions. The results are the same; a frame
+that waits for a result (Sauerbraten's water reflections, NV30_QUERY_WAIT) waits from the
+check on instead of from the query's end when the batch had not gone out by then.
+
+Forwarded: no
+
+diff --git a/src/gallium/drivers/nouveau/nouveau_fence.c b/src/gallium/drivers/nouveau/nouveau_fence.c
+--- a/src/gallium/drivers/nouveau/nouveau_fence.c
++++ b/src/gallium/drivers/nouveau/nouveau_fence.c
+@@ -415,6 +415,19 @@ nouveau_fence_wait(struct nouveau_fence *fence, struct util_debug_callback *debu
+    return res;
+ }
+ 
++bool
++nouveau_fence_flush(struct nouveau_fence *fence)
++{
++   struct nouveau_fence_list *fence_list = &fence->screen->fence;
++   bool res = true;
++
++   simple_mtx_lock(&fence_list->lock);
++   if (fence->state < NOUVEAU_FENCE_STATE_FLUSHED)
++      res = nouveau_fence_kick(fence);
++   simple_mtx_unlock(&fence_list->lock);
++   return res;
++}
++
+ bool
+ nouveau_fence_next_if_current(struct nouveau_context *nv, struct nouveau_fence *fence)
+ {
+diff --git a/src/gallium/drivers/nouveau/nouveau_fence.h b/src/gallium/drivers/nouveau/nouveau_fence.h
+--- a/src/gallium/drivers/nouveau/nouveau_fence.h
++++ b/src/gallium/drivers/nouveau/nouveau_fence.h
+@@ -88,6 +88,8 @@ void nouveau_fence_update(struct nouveau_screen *, bool flushed);
+ /** returns false on error */
+ MUST_CHECK bool nouveau_fence_next_if_current(struct nouveau_context *, struct nouveau_fence *);
+ bool nouveau_fence_wait(struct nouveau_fence *, struct util_debug_callback *);
++/** submits the fence's batch if that has not happened yet; returns false on error */
++bool nouveau_fence_flush(struct nouveau_fence *);
+ bool nouveau_fence_signalled(struct nouveau_fence *);
+ void nouveau_fence_ref(struct nouveau_fence *, struct nouveau_fence **,
+                        struct nouveau_screen *);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers/nouveau/nv30/nv30_query.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_query.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_query.c
+@@ -36,6 +36,7 @@
+ struct nv30_query_object {
+    struct list_head list;
+    struct nouveau_heap *hw;
++   struct nouveau_fence *fence; /* NV30_QUERY_KICK=0/2: the batch that writes the report */
+ };
+ 
+ /* Offset of the query notifier inside the query DMA object */
+@@ -65,8 +66,13 @@ nv30_query_object_del(struct nv30_screen *screen, struct nv30_query_object **po)
+    struct nv30_query_object *qo = *po; *po = NULL;
+    if (qo) {
+       volatile uint32_t *ntfy = nv30_ntfy(screen, qo);
++      /* NV30_QUERY_KICK=0/2: the report may still sit in a batch not submitted yet */
++      if ((ntfy[3] & 0xff000000) && qo->fence)
++         nouveau_fence_flush(qo->fence);
+       while (ntfy[3] & 0xff000000) {
+       }
++      if (qo->fence)
++         nouveau_fence_ref(NULL, &qo->fence, &screen->base);
+       nouveau_heap_free(&qo->hw);
+       list_del(&qo->list);
+       FREE(qo);
+@@ -174,6 +180,8 @@ nv30_query_begin(struct pipe_context *pipe, struct pipe_query *pq)
+       if (q->qo[0]) {
+          BEGIN_NV04(push, NV30_3D(QUERY_GET), 1);
+          PUSH_DATA (push, (q->report << 24) | (nv30_query_base(nv30->screen) + q->qo[0]->hw->start));
++         if (nv30->screen->query_kick != 1)
++            nouveau_fence_ref(nv30->base.fence, &q->qo[0]->fence, &nv30->screen->base);
+       }
+       break;
+    case PIPE_QUERY_TIMESTAMP:
+@@ -203,6 +211,8 @@ nv30_query_end(struct pipe_context *pipe, struct pipe_query *pq)
+    if (q->qo[1]) {
+       BEGIN_NV04(push, NV30_3D(QUERY_GET), 1);
+       PUSH_DATA (push, (q->report << 24) | (nv30_query_base(screen) + q->qo[1]->hw->start));
++      if (screen->query_kick != 1)
++         nouveau_fence_ref(nv30->base.fence, &q->qo[1]->fence, &screen->base);
+    }
+ 
+    if (q->enable) {
+@@ -210,10 +220,22 @@ nv30_query_end(struct pipe_context *pipe, struct pipe_query *pq)
+       PUSH_DATA (push, 0);
+    }
+    /* NV30_QUERY_WAIT: hold the current fence, so the kick below emits it after the report
+-    * and a waiter can sleep on it */
+-   if (screen->query_wait_us >= 0)
++    * and a waiter can sleep on it; NV30_QUERY_KICK=0/2: so the result check can submit it */
++   if (screen->query_wait_us >= 0 || screen->query_kick != 1)
+       nouveau_fence_ref(nv30->base.fence, &q->fence, &screen->base);
+-   PUSH_KICK (push);
++
++   /* NV30_QUERY_KICK: 1 submits now, as upstream. Sauerbraten ends an occlusion query per
++    * visible piece of the world and per water surface, a submission each (5.6% of its CPU).
++    * 0 leaves the batch to the next submission there is anyway (NV30_PS3_KICK_AUTO, a flush)
++    * and submits it only if a result is asked for before that and not there yet (nvc0 does
++    * so); 2 also submits now when the GPU has finished everything before (then the GPU would
++    * idle: one plain read of the fence notifier).
++    */
++   if (screen->query_kick == 1 ||
++       (screen->query_kick == 2 &&
++        (int32_t)(screen->base.fence.sequence -
++                  screen->base.fence.update(&screen->base.base)) <= 0))
++      PUSH_KICK (push);
+    return true;
+ }
+ 
+@@ -267,6 +289,9 @@ nv30_query_result(struct pipe_context *pipe, struct pipe_query *pq,
+    volatile uint32_t *ntfy1 = nv30_ntfy(screen, q->qo[1]);
+ 
+    if (ntfy1) {
++      /* NV30_QUERY_KICK=0/2: the end of the query may not be submitted yet */
++      if (q->fence && screen->query_kick != 1 && (ntfy1[3] & 0xff000000))
++         nouveau_fence_flush(q->fence);
+       if (screen->query_wait_us >= 0 && (ntfy1[3] & 0xff000000)) {
+          if (!wait)
+             return false;
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -565,6 +565,11 @@ nv30_screen_create(struct nouveau_device *dev)
+     * submission that ended the query; unset or negative: spin until it lands, as before.
+     */
+    screen->query_wait_us = MIN2(debug_get_num_option("NV30_QUERY_WAIT", -1), 1000000);
++   /* NV30_QUERY_KICK: 1 (default) submits at the end of every query, as upstream; 0 only when a
++    * result is asked for and not there yet (nvc0's way); 2 as 0, and also at the end while the
++    * GPU has nothing left to do (nv30_query.c)
++    */
++   screen->query_kick = CLAMP(debug_get_num_option("NV30_QUERY_KICK", 1), 0, 2);
+    simple_mtx_init(&screen->staging_lock, mtx_plain);
+    screen->staging_max = CLAMP(debug_get_num_option("NV30_STAGING_POOL", 0), 0,
+                                (int64_t)ARRAY_SIZE(screen->staging_pool));
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -49,6 +49,7 @@ struct nv30_screen {
+    unsigned ps3_kick_min_words; /* NV30_PS3_KICK_MIN_BYTES / 4: least work worth a submission */
+    unsigned ps3_kick_split;    /* NV30_PS3_KICK_SPLIT: at most about this many parts per frame */
+    int query_wait_us;          /* NV30_QUERY_WAIT: spin this long for a query, then sleep (-1: spin) */
++   unsigned query_kick;        /* NV30_QUERY_KICK: 1 submit at every query end, 0 when asked, 2 idle */
+    bool invalidate_buffer;     /* NV30_INVALIDATE_BUFFER: orphaning keeps the buffer (invalidate) */
+    unsigned sysmem_stats;      /* NV30_SYSMEM_STATS=N: system memory copies on stderr every N frames */
+    bool sysmem_hint_seen;      /* the stats line for the hint was printed */
