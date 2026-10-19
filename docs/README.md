@@ -82,6 +82,7 @@ layout and the build commands are in the top-level [README.md](../README.md).
 | [research/HDD-REGION.md](research/HDD-REGION.md) | A reformatted Linux region on the internal disk: researched, not taken |
 | [research/GAME-CANDIDATES.md](research/GAME-CANDIDATES.md) | How the suite's games were picked (2026-10-16) |
 | [research/GAME-REEVAL.md](research/GAME-REEVAL.md) | Games first ruled out for non-GL3 reasons, measured and costed again (2026-10-19): DDNet, OpenTyrian, UQM, Hedgewars, OpenRCT2, 0 A.D., Java/.NET games and the Reddit list |
+| [research/ENDLESS-SKY.md](research/ENDLESS-SKY.md) | Endless Sky's memory explained and its GL 2.1 route costed (2026-10-19): go, effort M |
 | [research/EMULATORS.md](research/EMULATORS.md) | MAME, RetroArch cores and standalone emulators on ppc64 (2026-10-19); parked behind games new on the PS3 |
 | [research/DARLING-PPC.md](research/DARLING-PPC.md) | A PowerPC port of Darling for Mac OS X games (2026-10-19): not worth it, the game-facing frameworks are stubs even on x86 |
 | [research/CLASSIC-MACOS.md](research/CLASSIC-MACOS.md) | SheepShaver's native PowerPC mode and Basilisk II on the PS3 (2026-10-19); waits for the user's ROM and Mac OS CD |

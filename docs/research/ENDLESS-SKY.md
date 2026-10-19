@@ -1,0 +1,184 @@
+# Endless Sky on the PS3: memory and renderer (research, 2026-10-19)
+
+Go, effort M (1.5-2 weeks), memory borderline. The ~700 MB seen on the PC was glibc fragmentation from 24 loader threads plus sprite textures that belong in VRAM; with the defer-images preference, 2 threads and mono sounds the estimate is ~175 MB of XDR. Renderer: upstream GL2 path + 22 GLSL 1.20 shaders (written, run on llvmpipe at GL 2.1), a 2D DXT5 atlas instead of 3D textures (nv30 3D limit 512), the fog map as LUMINANCE8. Four big-endian bugs (~30 lines). First step: --parse-assets on the PS3 for anon memory and load time.
+
+
+Measured on the PC, Debian sid amd64 endless-sky 0.11.2-1 (same version as ppc64), podman container
+on /mnt/data_linux/Temp/ps3/es (deleted afterwards), Xvfb 1920x1080, llvmpipe, new pilot "Ann Lee",
+bought a Sparrow, departed from New Boston, flew in Rutilicus. heaptrack 1.5 (with endless-sky-dbgsym),
+malloc_stats() through gdb, smaps. Prefs for all runs: "Reduce large graphics" = all (index 2), haze and
+motion blur off, audio through OpenAL Soft's null device (ALSOFT_DRIVERS=null; the earlier census runs
+had no audio device, so the sounds were never loaded: 82 MB missing there). Scripts in scripts/, raw
+numbers in results/. The host has 24 cores, which turned out to matter (below).
+
+## 1. The ~700 MB: what it is
+
+Steady RSS 1300-1350 MB (VmHWM 1550-1640), flight and menu the same within 20 MB: everything is loaded
+at start. Live malloc bytes at flight (heaptrack leak view of a copy of the running trace, 670 MB,
+no audio device; malloc_stats with audio: 758 MB):
+
+| Part | MB | Notes |
+|---|---:|---|
+| llvmpipe texture storage (2744 sprite array textures, AddBuffer Sprite.cpp:52) | 522 | RGBA8; goes to VRAM on the PS3, not XDR |
+| llvmpipe context, LLVM JIT, framebuffers (GameWindow) | 38 | Mesa nv30 is ~10 |
+| sounds, 243 WAV files decoded to 16-bit **stereo** (Sound::Load duplicates mono) | 82 | 45 MB on disk |
+| game data parsed into objects: UniverseObjects 65, GameData 23, Conversation 17 | 106 | 11 MB of text files |
+| rest (Mask 2, misc) | ~10 | collision masks are tiny, not the problem |
+| freed but still resident glibc memory | ~520-600 | the "unexplained 700" |
+| file-backed (libLLVM 62, libgallium 14, binary 4, others) | ~100 | |
+
+So the 700 MB is not data. It is **glibc fragmentation**: the loader threads (TaskQueue defaults to one
+per core, 24 here) decode PNG/JPG into 4-byte-per-pixel ImageBuffers, per-thread arenas grow to
+hundreds of MB at the loading peak (heaptrack peak 1.27 GB: 490 MB of JPG buffers + 292 MB PNG + 92 MB
+libjpeg + textures, 94 big JPGs alive at once), then free() leaves it all resident.
+Proof, same game, same flight, malloc_stats "in use" vs RSS:
+
+| Run | RSS MB | VmHWM MB | malloc in use MB |
+|---|---:|---:|---:|
+| default threads (24), glibc defaults | 1337 | 1547 | 758 |
+| + MALLOC_MMAP_THRESHOLD_=131072 | 849 | 1204 | 764 |
+| + "Defer loading images" | 599 | 717 | 506 |
+| + --tq-threads 1 | 590 | 624 | 505 |
+| PS3-like: --tq-threads 2, glibc defaults, no defer | 946 | 1200 | 761 |
+| --tq-threads 2, defer | 686 | 727 | 504 |
+| --tq-threads 2, defer, MMAP_THRESHOLD_=131072, ARENA_MAX=2 | 584 | 630 | 505 |
+
+The PS3 (2 hardware threads) gets 2 loader threads, so it never sees the 600 MB of waste, but the 185 MB
+that remains at tq-threads 2 is still avoidable with the two malloc settings (or mallopt in main()).
+
+Of the live 760 MB (with audio): textures 477-522, sounds 82, data 106, context 38. Textures are the
+only big one, and they live in VRAM on the PS3.
+
+Texture size by folder (RGBA8, after "reduce large graphics = all" halving, from the image headers,
+results/idents.txt; measured live total with 3D-style arrays 477 MB, 2766 textures):
+star 172, land 144, effect 94, ship 72, planet 39, ui 21, asteroid 17, _menu 16, outfit 15,
+thumbnail 13, scene 12, projectile 10, other 6.
+
+## 2. Cuts that exist already (no code)
+
+- Preference "Defer loading images" (Preferences panel > Performance; preferences.txt line
+  `"Defer loading images"`): land, thumbnail, outfit, scene, star, planet sprites are loaded when
+  needed and culled after 100 in-game days (SpriteLoadManager.cpp). Live -258 MB, resident set of
+  textures drops 477 to ~270 (effect, ship, ui, asteroid, _menu, projectile, map). Upstream already
+  has the lazy loading; I found nothing else to add.
+- "Reduce large graphics" = all (already assumed).
+- `--tq-threads N`, and MALLOC_MMAP_THRESHOLD_=131072 / MALLOC_ARENA_MAX=2 (table above).
+- Not a cut but a trap: ImageBuffer decodes JPG fully even for the dimensions-only read? No: ReadJPG
+  allocates the full buffer (untouched pages) and returns; harmless for RSS.
+
+## 3. Small patches (the avoidable rest)
+
+1. Sound::Load stores mono as stereo: keep mono and expand in WavSupplier::NextDataChunk: 82 to 41 MB.
+2. mallopt(M_MMAP_THRESHOLD, 128 KiB) and M_ARENA_MAX=2 in main() (or env in the launcher).
+3. Optionally cap in-flight image decodes (the load queue runs ahead of the main-thread uploads).
+4. Conversation/Mission/Set data 106 MB: no cheap cut found. A tail of it (conversation text 17 MB,
+   missions) is cold and would sit in swap; I would not touch it.
+
+## 4. PS3 estimate
+
+XDR, after cuts (defer, tq 2, malloc settings, mono sound, Mesa nv30 instead of llvmpipe):
+
+| | MB |
+|---|---:|
+| game data | 106 |
+| sounds (mono) | 41 |
+| Mesa nv30 context, SDL, OpenAL, GL buffers (1.5 MB of VBOs) | ~20 |
+| other heap, thread stacks | ~10 |
+| anon total | ~175 |
+| file-backed code (binary 4, libs shared with the desktop) | ~30, evictable |
+
+About 175 MB anon against the ~160 MB "no stalls" bar and 217 MB MemTotal: borderline, workable with
+the cold data in swap (conversations, unvisited ship/outfit data), not comfortable. Without the sound
+patch ~215 MB, too much.
+
+VRAM: the 3D-texture route cannot take Mesa 0038 (it only compresses glTexImage2D of GL_TEXTURE_2D,
+power-of-two sizes), so sprites stay RGBA8: ~235-270 MB resident with defer, over the 224 MB VRAM and
+it is also the swap tier. That route is out. The 2D-atlas route below takes DXT5: computed from the
+image headers (frames packed into one 2D texture up to 4096, padded to power of two):
+resident set (effect, ship, ui, asteroid, _menu, projectile, map...) 91 MB DXT5 (361 MB RGBA8 padded),
+plus on-demand star/planet/land/thumbnail/outfit while in a system or shop: +10 to 30 MB. So ~100-120 MB
+of VRAM, about the same as Sauerbraten.
+
+Startup: `--parse-assets` (all data, images, sounds, no upload, defer on) takes 5.4 s user on a modern
+x86 core; PPE factor 8-15x gives 45-80 s to the menu. One time, acceptable.
+
+## 5. Renderer work (GL2 path)
+
+State upstream (0.11.2 and master 2026-10-18): GameWindow.cpp:242-247 retries a non-core context and,
+for a GL_VERSION starting with "2", calls OpenGL::DisableOpenGL3(): no VAO, GL_TEXTURE_3D instead of
+GL_TEXTURE_2D_ARRAY (Sprite.cpp:38), EXT FBO. There is no shipped GL2 shader set; the game takes
+`shaders/*.vert|.frag` from plugins (GameData::LoadShaders, plugin shaders override by name) and prefixes
+`#version <driver GLSL version>`.
+
+**I wrote the 22 shaders and ran the game on them: gl2-plugin/ (plugin.txt + shaders/).** Method: sed
+(`in`->attribute/varying, `out`->gl_FragColor, `texture`->texture2D, drop precision/highp/mediump,
+`2.f`->`2.0`) plus hand edits for the three array users (sprite.frag, batch.frag, outline.frag): sampler3D
+and a helper `L(uv, layer) = vec3(uv, (layer+0.5)/frameCount)` for the slice centre; the swizzle mask uses
+`(first+0.5)/frameCount` when uniqueSwizzleMaskFrames > 0, else 0.5. Run with
+`MESA_GL_VERSION_OVERRIDE=2.1 MESA_GLSL_VERSION_OVERRIDE=120` on llvmpipe (test tool only): "Experimental
+OpenGL 2 support has been enabled", all 22 shaders compile as `#version 120` (one fix: no highp), menu,
+new pilot, shipyard (outlines), planet panel, departure, flight with starfield, HUD, radar and asteroids, and
+the starmap with its fog map all render and the game held 60 fps there (screenshots in results/).
+Nothing of the C++ was touched. What this does not prove: nv30's own limits.
+
+What nv30 lacks and what to do:
+1. 3D textures: GL_MAX_3D_TEXTURE_SIZE 512 on nv30. From the headers, ~43 sprites exceed 512 in width or
+   height after halving (star 23 = 159 MB, effect 4, planet 2, ui 1, ...), so a part of the art cannot be
+   a 3D texture; no DXT either (above). **Use a 2D grid atlas instead of a 3D texture**: Sprite.cpp
+   AddBuffer lays the frames out in a cols x rows grid (cols*w and rows*h up to 4096, padded to POT,
+   GL_TEXTURE_2D, DXT via 0038), Sprite stores cols/rows, and the three array shaders compute
+   `uv = (vec2(col, row) + uv) / vec2(cols, rows)` with the coordinate clamped half a texel inside the
+   cell. C++ side: AddBuffer (about 40 lines), SpriteShader/BatchShader/OutlineShader uniforms (one vec2
+   each) and the same for Sprite::Texture users. 0038 needs its POT rule kept (hence the padding) or an
+   NPOT test.
+2. R8 fog map (FogShader.cpp:207-212, GL_R8/GL_RED): no ARB_texture_rg on nv30: GL_LUMINANCE8 + GL_LUMINANCE,
+   the shader reads `.r` already (one line; it worked on llvmpipe because that has RG).
+3. FBO: EXT path present; glClearBuffer is guarded. RenderBuffer.cpp uses glDrawBuffers(1): fine.
+4. Fragment program size: outline.frag does 2 x 9 x 8 = 144 texture fetches in constant loops (shop ship
+   outlines, HUD outline); sprite.frag's blur is 2 x 11 fetches. 4096-instruction limit is fine, but
+   nv30's temporaries and texture-instruction limits are UNVERIFIED for outline.frag. Fallback: the
+   preferences "Ship outlines in shops/HUD" off, or 4 taps instead of 9.
+5. Draw load (GL2 run, apitrace of this exact path, 7866 frames, results/frames.txt): flight ~600 draws and
+   ~4300 GL calls per frame (2300 glUniform, 140 glBindTexture, 250 glUseProgram); shipyard 1400-2200 draws
+   (ship outlines); menu 300-400. Calibration from X-Moto on the PS3 (1960 draws / 18,500 calls = 44.5 fps,
+   about 22 ms per frame): ~1.2 us per call, ~11 us per draw all in, so ~7 ms of GL submission per flight
+   frame. The sim (ships, AI, projectiles at 60 Hz; no Lua) is light C++; not measured on a PPE.
+   ESTIMATE: 40-60 fps in flight at 1080p, 60 likely at 720p; no batching needed to start. A sprite batcher
+   (BatchShader exists) is the known fix if it is short.
+
+## 6. Big-endian (read in source; the Debian ppc64 package is BE)
+
+Text data (DataFile, saves, prefs) is endian-neutral, PNG/JPG go through libpng/libjpeg, mp3 through libmad
+(native-endian samples). **Four real bugs**, all assuming little-endian uint32 pixels or LE samples:
+- image/ImageBuffer.cpp:545 Premultiply (alpha = value & 0xFF000000: on BE that is R; runs on every PNG): all
+  sprites would be wrong. Fix: byte access (p[0..3]) or an endian-dependent shift.
+- image/Mask.cpp:31 `on = 0xFF000000` (alpha test for collision outlines) and :157.
+- text/Font.cpp:279 `mask = 0xFF000000` (kerning from alpha): wrong glyph advances.
+- audio/Sound.cpp:~60 reads WAV samples with reinterpret_cast<int16_t*>: BE plays noise. Needs a byte swap
+  (fold into the mono patch).
+Header parsing in Sound.cpp is byte-wise and fine. S effort (~30 lines), testable on the PC with
+qemu-ppc64-static if wanted; I did not run a BE binary.
+
+## 7. Verdict: GO, effort M (about 1.5-2 weeks), with a memory risk that decides it in step 4
+
+Why go: the feared 700 MB is a 24-core glibc artifact plus textures that belong in VRAM; the game already
+has lazy sprite loading and a GL2 path; the 22 shaders are done and run; the BE bugs are four small
+spots; the draw load is the same class as X-Moto. Why only conditional: ~175 MB of XDR is at the edge of
+the budget, VRAM only works through the 2D atlas + DXT route (new C++), and nv30 shader limits for the
+outline filter are untested.
+
+First steps, in order (each is a stop point):
+1. ppc64 chroot: install Debian's endless-sky 0.11.2 ppc64 and endless-sky-data; run `--parse-assets` with
+   the defer pref, `--tq-threads 2`, the two malloc env settings: record RSS/anon and the load time on
+   the PS3 (user runs it; no SSH from me). Compare with the 175 MB estimate. If anon is over ~220 MB, stop.
+2. Package our build with the BE patches (Premultiply, Mask, Font, Sound LE + mono) and the GL2 plugin
+   as a drop-in; `mallopt` in main().
+3. nv30 smoke: menu and flight with the 3D route first (no code, shows the shaders compile on nv30 and
+   whether outline.frag fits); expect the big star/planet sprites and the fog map to fail there.
+4. Write the 2D-grid atlas in Sprite.cpp + shader uniforms, R8 -> LUMINANCE, then switch on NV30_FORCE_DXT=all
+   (linear filtering is the default pref, so 0038 takes them) and measure VRAM (expect 100-120 MB) and
+   stalls in flight with the usual protocol (warm-up, webcam).
+5. If fps is short: sprite batcher; offer shaders and atlas upstream.
+
+Open items: PPE sim cost; nv30 compile of outline.frag; the atlas border clamp look; sound latency with
+OpenAL Soft on the PS3 (user judges by ear); NV30 NPOT DXT (avoided by padding).
