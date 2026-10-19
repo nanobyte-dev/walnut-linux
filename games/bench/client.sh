@@ -186,25 +186,32 @@ for v in $(compgen -v BENCH_NV30_); do GENV+=("${v#BENCH_}=${!v}"); done
 # ENVS token PS3RSX_SHADOW_FAST=1) is written to /sys/module/ps3rsx/parameters/<name> (lower case)
 # through sudo -n before the game starts, and the value it had is put back when this script exits,
 # however it ends. bench.txt gets kparam=<name=value ...>; report.py shows it after the variant
-# (base@rsx_shadow_fast1). BENCH_KPARAM_DIR: another directory for them (selftest.py).
+# (base@rsx_shadow_fast1). BENCH_PS3HTAB_<NAME>=V the same for the kernel's ps3_htab parameters
+# (local/0046: PS3HTAB_INSERT_READBACK=0; kparam htab_insert_readback=0, report.py
+# base@htab_insert_readback0). BENCH_KPARAM_DIR, BENCH_KPARAM_HTAB_DIR: other directories for them
+# (selftest.py).
 KPARAM=(); KPARAM_OLD=(); KPARAM_DIR=${BENCH_KPARAM_DIR:-/sys/module/ps3rsx/parameters}
+KPARAM_HTAB_DIR=${BENCH_KPARAM_HTAB_DIR:-/sys/module/ps3_htab/parameters}
 kparam_write() {	# kparam_write FILE VALUE
 	if [ -w "$1" ]; then echo "$2" > "$1"; else echo "$2" | sudo -n tee "$1" > /dev/null 2>&1; fi
 }
 kparam_restore() {
 	local x
-	for x in "${KPARAM_OLD[@]}"; do
-		kparam_write "$KPARAM_DIR/${x%%=*}" "${x#*=}" ||
-			echo "!! ps3rsx parameter ${x%%=*}: could not put ${x#*=} back"
+	for x in "${KPARAM_OLD[@]}"; do	# FILE=OLD
+		kparam_write "${x%%=*}" "${x#*=}" ||
+			echo "!! parameter ${x%%=*}: could not put ${x#*=} back"
 	done
 	KPARAM_OLD=()
 }
-for v in $(compgen -v BENCH_PS3RSX_); do
-	n=${v#BENCH_PS3RSX_}; n=${n,,}; f=$KPARAM_DIR/$n
-	[ -e "$f" ] || { echo "!! $v: no $f (a ps3rsx without that parameter)"; exit 2; }
+for v in $(compgen -v BENCH_PS3RSX_) $(compgen -v BENCH_PS3HTAB_); do
+	case $v in
+	BENCH_PS3HTAB_*) n=${v#BENCH_PS3HTAB_}; n=${n,,}; f=$KPARAM_HTAB_DIR/$n; t=htab_$n ;;
+	*) n=${v#BENCH_PS3RSX_}; n=${n,,}; f=$KPARAM_DIR/$n; t=$n ;;
+	esac
+	[ -e "$f" ] || { echo "!! $v: no $f (a ps3rsx or kernel without that parameter)"; exit 2; }
 	o=$(cat "$f")
 	kparam_write "$f" "${!v}" || { echo "!! $v: could not write $f (sudo -n)"; exit 2; }
-	KPARAM_OLD+=("$n=$o"); KPARAM+=("$n=${!v}")
+	KPARAM_OLD+=("$f=$o"); KPARAM+=("$t=${!v}")
 	trap 'restore; kparam_restore' EXIT
 done
 # Mesa's disk shader cache for this run (BENCH_SHADERCACHE, the top)
@@ -413,7 +420,7 @@ perf_ticks() {	# perf_ticks VAR [PIDFILE]: user+sys clock ticks of the perf proc
 irq_snap() {	# irq_snap LABEL: interrupts and the htab hcalls (kernel local/0046) into irq/ (irqoff.py)
 	mkdir -p "$D/irq"
 	fcopy /proc/interrupts "$D/irq/$1.interrupts"
-	[ -r /sys/module/ps3_htab/parameters/stats ] && fcopy /sys/module/ps3_htab/parameters/stats "$D/irq/$1.htab"
+	[ -r "$KPARAM_HTAB_DIR/stats" ] && fcopy "$KPARAM_HTAB_DIR/stats" "$D/irq/$1.htab"
 	printf 'label=%s real=%s\n' "$1" "$EPOCHREALTIME" > "$D/irq/$1.info"
 }
 perf_ctl() {	# perf_ctl enable|disable: every perf, waiting 1 s at most for each one's ack

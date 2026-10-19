@@ -160,7 +160,9 @@ def harness(d, b):
         g = "_".join(re.sub(r"^NV30_", "", x).replace("=", "").lower() for x in b["genv"].split())
         m = "+".join(x for x in (m, g) if x)
     if b.get("kparam"):   # client.sh's ps3rsx module parameters (BENCH_PS3RSX_*): shadow_fast=1 -> rsx_shadow_fast1
-        k = "_".join("rsx_" + x.replace("=", "").lower() for x in b["kparam"].split())
+        # (BENCH_PS3HTAB_*, the kernel's ps3_htab: htab_insert_readback=0 -> htab_insert_readback0)
+        k = "_".join(("" if x.startswith("htab_") else "rsx_") + x.replace("=", "").lower()
+                     for x in b["kparam"].split())
         m = "+".join(x for x in (m, k) if x)
     if b.get("gprefetch"):   # client.sh BENCH_GAMEPREFETCH: the game's files read at its start
         m = "+".join(x for x in (m, "gpf" + b["gprefetch"]) if x)

@@ -1075,6 +1075,11 @@ def client_prof(tmp):
     kpd = tmp / "kparams"
     kpd.mkdir(exist_ok=True)
     write(kpd / "test_param", "N\n")
+    kph = tmp / "kparams-htab"   # the kernel's ps3_htab parameters (local/0046)
+    kph.mkdir(exist_ok=True)
+    write(kph / "insert_readback", "1\n")
+    write(kph / "stats", "inserts 10 insert_us 20 evictions 0 readbacks 10 readback_us 10 mismatches 0 "
+          "invalidates 0 invalidate_us 0 updatepps 0 updatepp_us 0\n")
     fds = fake_perf(str(d / ".perf.ctl"), str(d / ".perf.ack"), log)
     env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "GALLIUM_HUD",
                                                             "GALLIUM_HUD_DUMP_DIR", "LD_PRELOAD")}
@@ -1082,7 +1087,8 @@ def client_prof(tmp):
                BENCH_MALLOCSTAT=str(so), BENCH_PERF_CTL="%s:%s" % (d / ".perf.ctl", d / ".perf.ack"),
                BENCH_MALLOC="arena2,trim", BENCH_MALLOCTRIM=str(trim), BENCH_MALLOC_TRIM_S="1",   # 1 s: not inside the fake game's split line (0-0.7 s)
                BENCH_NV30_TEST_SWITCH="16",   # a Mesa driver switch (docs/HOTPATHS.md): to the game as NV30_TEST_SWITCH
-               BENCH_PS3RSX_TEST_PARAM="1", BENCH_KPARAM_DIR=str(kpd))   # a ps3rsx parameter, put back after
+               BENCH_PS3RSX_TEST_PARAM="1", BENCH_KPARAM_DIR=str(kpd),   # a ps3rsx parameter, put back after
+               BENCH_PS3HTAB_INSERT_READBACK="0", BENCH_KPARAM_HTAB_DIR=str(kph))   # and a ps3_htab one
     t0 = time.time()
     p = subprocess.run(["bash", str(HERE / "client.sh"), "fakeprof", "base"], env=env, capture_output=True, text=True)
     check("prof client: exit 0", p.returncode == 0, p.stdout[-800:] + p.stderr[-800:])
@@ -1116,13 +1122,19 @@ def client_prof(tmp):
           gl[-300:])
     check("malloc presets and driver switches: malloc= and genv= in bench.txt, the tags after the variant",
           b.get("malloc") == "arena2,trim" and b.get("genv") == "NV30_TEST_SWITCH=16" and
-          report.run(d).get("variant") == "base@marena2_trim+test_switch16+rsx_test_param1",
+          report.run(d).get("variant") == "base@marena2_trim+test_switch16+rsx_test_param1_htab_insert_readback0",
           (b.get("malloc"), b.get("genv"), report.run(d).get("variant")))
     check("driver switches: the game got NV30_TEST_SWITCH=16", "env NV30_TEST_SWITCH=16" in gl, gl[:300])
     check("ps3rsx parameters: kparam= in bench.txt, the tag after the variant, the old value back",
-          b.get("kparam") == "test_param=1" and "rsx_test_param1" in (report.run(d).get("variant") or "") and
+          (b.get("kparam") or "").split()[:1] == ["test_param=1"] and "rsx_test_param1" in (report.run(d).get("variant") or "") and
           (kpd / "test_param").read_text() == "N\n",
           (b.get("kparam"), report.run(d).get("variant"), (kpd / "test_param").read_text()))
+    check("ps3_htab parameters: kparam htab_insert_readback=0, the old value back",
+          "htab_insert_readback=0" in (b.get("kparam") or "") and (kph / "insert_readback").read_text() == "1\n",
+          (b.get("kparam"), (kph / "insert_readback").read_text()))
+    check("irq snapshots at perf's on and off: interrupts and the htab stats",
+          all((d / "irq" / ("%s.%s" % (w, x))).exists() for w in ("start", "end") for x in ("info", "interrupts", "htab")),
+          sorted(p.name for p in (d / "irq").glob("*")) if (d / "irq").exists() else "no irq/")
     ml = (mem / "mid.malloc").read_text() if (mem / "mid.malloc").exists() else ""
     check("mallocstat: mallinfo2 line and malloc_info XML", ml.startswith("mallinfo2 ") and '<heap nr="0">' in ml, ml[:200])
     r = memprof.summary(d)
