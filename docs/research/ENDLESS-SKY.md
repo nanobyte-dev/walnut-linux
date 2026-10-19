@@ -2,6 +2,8 @@
 
 Go, effort M (1.5-2 weeks), memory borderline. The ~700 MB seen on the PC was glibc fragmentation from 24 loader threads plus sprite textures that belong in VRAM; with the defer-images preference, 2 threads and mono sounds the estimate is ~175 MB of XDR. Renderer: upstream GL2 path + 22 GLSL 1.20 shaders (written, run on llvmpipe at GL 2.1), a 2D DXT5 atlas instead of 3D textures (nv30 3D limit 512), the fog map as LUMINANCE8. Four big-endian bugs (~30 lines). First step: --parse-assets on the PS3 for anon memory and load time.
 
+State: steps 2-4 are done as the package `endless-sky` (endless-sky/: Debian's 0.11.2-1 plus 7 patches, unit tests and an amd64/ppc64 decode hash comparison pass, GL2 path and atlas checked on the PC at GL 2.1, recipe `endless-sky` in games/bench). Not run on the PS3 yet: step 1 (`--parse-assets`) comes first and decides whether to go on, then the smoke run.
+
 
 Measured on the PC, Debian sid amd64 endless-sky 0.11.2-1 (same version as ppc64), podman container
 on /mnt/data_linux/Temp/ps3/es (deleted afterwards), Xvfb 1920x1080, llvmpipe, new pilot "Ann Lee",
