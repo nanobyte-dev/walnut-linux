@@ -17,6 +17,9 @@
 # the character name already saved (the game loads that save instead: harmless).
 COMM=crawl-tiles
 . "$here/recipes/smoke.inc"
+# "Loading maps..." (the des files, in a small splash window) was still up 60 s into the first run
+# (2026-10-19, 120 s run): give it 300 s; SIGTERM at the end prints a "crash" report, it is the harness
+DURATION=${SMOKE_SECS:-300}
 CR_RC=$HOME/.crawl/ps3-smoke.rc
 BACKUP=("$CR_RC")
 setup() {
@@ -25,7 +28,7 @@ setup() {
 }
 CMD=(/usr/games/crawl-tiles -rc "$CR_RC" -name Smoke -species Hu -background Be -seed 1)
 CR_EXPLORE=0
-during() { [ "$CR_EXPLORE" = 1 ] || return 0; smoke_xkeys Dungeon 15 o +6 o +6 o +6 o +6 o +6 o +6 o +6 o +6 o; }
+during() { [ "$CR_EXPLORE" = 1 ] || return 0; smoke_xkeys Dungeon 120 o +6 o +6 o +6 o +6 o +6 o +6 o +6 o +6 o; }
 variant_explore() { CR_EXPLORE=1; }
 variant_sprint() { CMD+=(-sprint); }
 variant_menu() { CMD=(/usr/games/crawl-tiles -rc "$CR_RC"); }

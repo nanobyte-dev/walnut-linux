@@ -15,6 +15,9 @@
 # Fullscreen: the GTK client has the option gui_gtk3_fullscreen (its client rc,
 # ~/.freeciv/freeciv-client-rc-3.2, BACKUP restores it); the key name is UNVERIFIED -- if the window
 # is windowed in the first run, Alt+Return in the client toggles it (by hand).
+# First run (2026-10-19): the script's `start` was refused ("Not enough human players", minplayers 1)
+# and "set skill" is not an option (skilllevel), so the client sat in the pregame chat window, a white
+# screen; minplayers 0 lets the game start with no human, and the observer joins the running game.
 # Risks: GTK3 cairo drawing at 1080p through XRender on the PPE (the tiles are small, a redraw is
 # partial), the server's RAM (a few tens of MB), "freeciv-server" not installed (Recommends only:
 # install it by name), the observer joining before the game has started.
@@ -27,8 +30,8 @@ BACKUP=("$FC_RC" "$FC_SCRIPT")
 FC_START=1
 setup() {
 	mkdir -p "$HOME/.freeciv"
-	printf '%s\n' "set aifill 5" "set skill novice" "set size 1" "set timeout 3" "set startunits cwxx" \
-		"set autotoggle enabled" "set minplayers 1" "set endturn 50" "set saveturns 0" \
+	printf '%s\n' "set aifill 5" "set skilllevel novice" "set size 1" "set timeout 3" "set startunits cwxx" \
+		"set autotoggle enabled" "set minplayers 0" "set endturn 50" "set saveturns 200" \
 		"$([ "$FC_START" = 1 ] && echo start)" > "$FC_SCRIPT"
 	printf '%s\n' "[client]" "gui_gtk3_fullscreen=TRUE" "gui_gtk3_enable_tabs=FALSE" "sound_enable_effects=FALSE" \
 		"sound_enable_music=FALSE" > "$FC_RC"

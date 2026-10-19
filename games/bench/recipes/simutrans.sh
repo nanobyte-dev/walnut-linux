@@ -17,6 +17,9 @@
 # texture upload colours on big-endian, the PPE's redraw speed.
 COMM=simutrans
 . "$here/recipes/smoke.inc"
+# a new game opens the credits dialog (the first run, 2026-10-19: it covered the map for the whole run):
+# Escape closes the top window
+during() { smoke_xkeys Simutrans 10 Escape; }
 BACKUP=("$HOME/.simutrans/simuconf.tab")
 SIM_SIZE=1920x1080
 sim_cmd() { CMD=(/usr/games/simutrans -objects pak/ -fullscreen -screensize "$SIM_SIZE" -nosound "$@"); }

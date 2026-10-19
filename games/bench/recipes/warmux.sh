@@ -14,6 +14,10 @@
 # would show on the worms); RAM with the big maps.
 COMM=warmux
 . "$here/recipes/smoke.inc"
-BACKUP=("$HOME/.warmux/config.xml")
+# the config is ~/.config/wormux/config.xml (the game still calls itself wormux; it exists after the
+# first run); the first run (2026-10-19) was a small window: switch full_screen on if the file is there
+WM_CFG=$HOME/.config/wormux/config.xml
+BACKUP=("$WM_CFG")
+setup() { [ -f "$WM_CFG" ] && sed -i 's|<full_screen>false<|<full_screen>true<|' "$WM_CFG"; return 0; }
 CMD=(/usr/games/warmux)
 variant_debug() { CMD+=(-d); }

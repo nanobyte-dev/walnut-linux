@@ -22,22 +22,23 @@ COMM=scummvm
 . "$here/recipes/smoke.inc"
 SV_CFG=$HOME/.config/scummvm/scummvm.ini
 BACKUP=("$SV_CFG")
-SV_GFX=normal
+SV_GFX=		# empty: the backend default (--gfx-mode=normal was "unrecognized" in 2026.1.0, 2026-10-19)
 SV_KEYS=1
 SV_KBD_WAIT=8
 SV_ID=sky
+SV_TITLE="Beneath a Steel Sky"	# the first run (2026-10-19): xkeys found no window named "ScummVM*" 8 s in, so the intro ran on; the in-game window is probably titled after the game (not verified)
 SV_DIR=/usr/share/scummvm/beneath-a-steel-sky
 setup() {
 	mkdir -p "${SV_CFG%/*}"
 	printf '%s\n' "[scummvm]" "fullscreen=true" "stretch_mode=fit" "output_rate=22050" "subtitles=true" \
 		"music_driver=adlib" "confirm_exit=false" "gui_return_to_launcher_at_exit=false" > "$SV_CFG"
 }
-sv_cmd() { CMD=(/usr/games/scummvm -f --gfx-mode="$SV_GFX" --stretch-mode=fit -p "$SV_DIR" "$SV_ID"); }
+sv_cmd() { CMD=(/usr/games/scummvm -f ${SV_GFX:+--gfx-mode="$SV_GFX"} --stretch-mode=fit -p "$SV_DIR" "$SV_ID"); }
 sv_cmd
-during() { [ "$SV_KEYS" = 1 ] || return 0; smoke_xkeys ScummVM "$SV_KBD_WAIT" Escape +6 Escape; }
-variant_queen() { SV_ID=queen; SV_DIR=/usr/share/scummvm/flight-of-the-amazon-queen; sv_cmd; }
-variant_drascula() { SV_ID=drascula; SV_DIR=/usr/share/scummvm/drascula; sv_cmd; }
-variant_lure() { SV_ID=lure; SV_DIR=/usr/share/scummvm/lure-of-the-temptress/en; sv_cmd; }
+during() { [ "$SV_KEYS" = 1 ] || return 0; smoke_xkeys "$SV_TITLE" "$SV_KBD_WAIT" Escape +6 Escape; }
+variant_queen() { SV_ID=queen; SV_TITLE="Flight of the Amazon Queen"; SV_DIR=/usr/share/scummvm/flight-of-the-amazon-queen; sv_cmd; }
+variant_drascula() { SV_ID=drascula; SV_TITLE="Drascula"; SV_DIR=/usr/share/scummvm/drascula; sv_cmd; }
+variant_lure() { SV_ID=lure; SV_TITLE="Lure of the Temptress"; SV_DIR=/usr/share/scummvm/lure-of-the-temptress/en; sv_cmd; }
 variant_gl() { SV_GFX=opengl; sv_cmd; }
 variant_intro() { SV_KEYS=0; }
 variant_nosound() { CMD+=(--music-driver=null --no-sfx); }
