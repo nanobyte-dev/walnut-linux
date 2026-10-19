@@ -25,8 +25,8 @@ console would see.
 | openttd-play | OpenTTD on a real savegame (gameplay benchmark being built: a developed map, fixed camera, sound and music on), smoke then bench x3, GL vs software | OpenTTD | ~8 | after the asset and recipe land |
 | smoke-new | smoke runs of the new games (recipes in progress), webcam mic for sound | Freeciv and the new-games list | ~10 | after the recipes and an apt install between batches |
 
-Sound: tools/bench-audio.sh records 8 s from the webcam microphone after every photo
-(build/bench-cam/audio.log) while the room is quiet (until about 09:00 on 2026-10-19).
+Sound: tools/bench-audio.sh (8 s of the webcam microphone after every photo) is off until the user
+says the room is free for it.
 
 ### Next (needs a slot, or the user)
 
