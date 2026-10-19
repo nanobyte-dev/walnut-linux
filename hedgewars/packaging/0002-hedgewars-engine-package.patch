@@ -47,8 +47,9 @@ diff --git a/debian/hedgewars-engine.install b/debian/hedgewars-engine.install
 new file mode 100644
 --- /dev/null
 +++ b/debian/hedgewars-engine.install
-@@ -0,0 +1 @@
+@@ -0,0 +1,2 @@
 +usr/lib/hedgewars/bin/hwengine
++usr/lib/hedgewars/lib
 diff --git a/debian/hedgewars-engine.links b/debian/hedgewars-engine.links
 new file mode 100644
 --- /dev/null
@@ -63,7 +64,7 @@ diff --git a/debian/rules b/debian/rules
  	mv debian/tmp/usr/lib/hedgewars/share/pixmaps/ debian/tmp/usr/share/
  	rm -Rf debian/tmp/usr/lib/hedgewars/share/
 -	dh_install
-+	dh_install -Nhedgewars-engine -Xbin/hwengine
++	dh_install -Nhedgewars-engine -Xbin/hwengine -Xhedgewars/lib/
 +	dh_install -phedgewars-engine
  
  override_dh_auto_configure:
