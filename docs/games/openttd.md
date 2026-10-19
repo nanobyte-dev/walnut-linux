@@ -59,16 +59,17 @@ underruns a minute. Its music shares the SDL_mixer MIDI path with dsda-doom's (P
 
 The profile run of 2026-10-19 (row 73) sat at the main menu (the webcam shows the title screen with the
 menu open), so it is a profile of the title screen's redraw and its music, not of play: the process
-spent 49.5% of its samples in the kernel, 36.7% of the samples in `__replay_soft_interrupts` (time
-perf can't give a path: samples taken while interrupts were soft-masked), 8.3% under
-`ps3_hpte_invalidate` (page-table flushes from unmapping) and 5.1% in `memset` under
-`ps3rsx_gart_clear`, which zeroes the memory of every buffer object ps3rsx creates
-(`OpenGLBackend::ReleaseVideoBuffer` makes a buffer per frame); the game 21.9% (`Blitter_40bppAnim::Draw`
-8.7%); the MIDI music through FluidSynth 11% and libspeq 4.2% on the audio thread, with 4172 underruns
-([HOTPATHS.md](../HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b)).
+spent 49.5% of its samples in the kernel, and over 40% of them on one thing. Each frame's upload of the
+screen from its pixel buffers (`OpenGLBackend::ReleaseVideoBuffer`, 8.3 + 2.1 MB) got new GART staging
+buffers in Mesa's nv30: zeroed by ps3rsx (`memset` 5.3%), faulted in page by page through lv1 (27.1%,
+booked as `__replay_soft_interrupts`) and unmapped page by page (8.4%), with a wait for the GPU before
+each. Mesa 0040 (`NV30_STAGING_POOL_MB=24`) reuses them instead ([HOTPATHS.md](../HOTPATHS.md#soft-masked-time-and-the-staging-buffer-per-frame)).
+The game itself took 21.9% (`Blitter_40bppAnim::Draw` 8.7%); the MIDI music through FluidSynth 11%
+and libspeq 4.2% on the audio thread, with 4172 underruns.
 
 Next: the gameplay benchmark (a developed map, a fixed camera, sound and music on; smoke, then bench
-x3, GL against software), the sound, then the GL driver's batching (PLAN 3.1).
+x3, GL against software), Mesa 0040's A/B on it and on the title screen (TESTS.md batch irqoff), the
+sound, then the GL driver's batching (PLAN 3.1).
 
 History: 2026-10-16 (research) the GL mode was expected to fail at init with no GPU risk.
 2026-10-17: the simulation benchmark and the software title game ran; SDL3's blue cast found; our

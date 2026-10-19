@@ -75,6 +75,7 @@ There is no TTM. Buffer objects are pinned, each with a `dma_resv`, and presumed
 - **GART:** as above.
 - **mmap:** GART cached, the 64 KB reports area noncached (it is the notifier GEM object), VRAM noncached.
 - **Sizes:** `GEM_NEW` sizes round up to 4 KB, and `domain=0` means VRAM or GART. FLINK and PRIME work.
+- **Zeroing:** every new GART buffer is zeroed, so no other process's data reaches userspace. A GART buffer made per frame is costly beyond that: its mmap faults in one hash table entry per 4 KiB page through lv1 and its munmap takes one lv1 call per page, which is why Mesa reuses mapped staging buffers (0036, 0040) instead. `clear_dcbz=1` (module parameter, off by default, writable at run time) zeroes with `clear_page` (dcbz, no read of the line first) instead of memset ([HOTPATHS.md](HOTPATHS.md#soft-masked-time-and-the-staging-buffer-per-frame)).
 
 ### Ioctls (`abi16.c`, `nvif.h`)
 
@@ -174,7 +175,7 @@ What the series does (numbers are the files in `mesa/patches/`; the full list is
 | 0013 | thin (1-pixel) mip levels as linear targets |
 | 0014 | the 3D blit source stays 128-byte aligned |
 | 0015 to 0017, 0019 to 0031 | CPU-cost and submission patches: fewer fence and kref operations, no relocations on the PS3, no redundant cache invalidates, vertex-format, constant-buffer and texture-unit rewrites, submit when the GPU has caught up, fragment programs fetched from GART |
-| 0033 to 0039 | 8-bit vertex attributes to floats, fence-buffer recycling, query sleep instead of spin, staging reuse, limits on nouveau's system-memory copies, compressed upload for every game, the shader disk cache |
+| 0033 to 0040 | 8-bit vertex attributes to floats, fence-buffer recycling, query sleep instead of spin, staging reuse (0036 small uploads, 0040 big ones: `NV30_STAGING_POOL_MB`), limits on nouveau's system-memory copies, compressed upload for every game, the shader disk cache |
 
 Several of these have switches that default off or are neutral when measured; [HOTPATHS.md](HOTPATHS.md) and [games/README.md](games/README.md) say which. The facts behind patches 0004 to 0014 are in [RSX.md, "Mesa, KMS and X"](RSX.md#mesa-kms-and-x-on-the-driver). The list of driver bugs found by games, each with its fix, is in [games/README.md](games/README.md).
 
