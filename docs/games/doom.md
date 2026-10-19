@@ -43,8 +43,15 @@ at 1920x1080), `sw1080`, `gles`, `sdlsw` (SDL's GLES2 or software renderer for t
 | `gl` (batching on) | 55.9 | 0.0 s / 40.3 / 34 ms | 43 / 65 MB | 61 |
 | `gloff` (batching off, same boot) | 54.2 | 0.0 s / 36.4 / 68 ms | 44 / 65 MB | 61 |
 | software, profiled | 40.3 | 0.0 s / 21.8 / 97 ms | 45 / 26 MB | 58 |
+| `gl`, profiled (PERF=1 MEM=1), SSD root | 55.9 | 0.0 s / 39.7 / 42 ms | 43 / 66 MB | 73 |
 
 The batching gave +3% and better lows (CPU 118 against 161 s). Picture right (our fixes).
+The first gameplay profile (row 73, one run, the demo plays): Mesa 22.3% of the samples, the game
+20.5%, the music synthesis about 30% (FluidSynth 15%, libspeq 12%, ALSA 3.4%: `speq_synth_add_v2`
+7.4%) on the audio thread, kernel 12.7%, ps3rsx 3.4%, Xorg 8.7% of the game's; 2793 underruns in the
+run. The music is the largest share of the seven profiles, and it still chops
+([HOTPATHS.md](../HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b)). The microphone
+heard the game at -43.5 dBFS against the room's -50.5 in both clips.
 
 **The music** ([SPU-AUDIO.md, "Results on the PS3"](../SPU-AUDIO.md#results-on-the-ps3)). fluidsynth took 48% of
 dsda-doom's CPU, about 40% of a PPE thread, interpolation alone 31%. On the SPEs:

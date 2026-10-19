@@ -4,8 +4,9 @@ This is where each suite game's memory goes on the PS3, what we found in the gam
 Mesa, and what each memory change measured. The state on 2026-10-19: the Yamagi Quake II table cut
 is the default, and three memory fixes won their same-boot A/B in batch 17 (ioquake3's SNORM
 colours, Mesa 0037's copy limit, Sauerbraten's short normals), though only the first is on by
-default. Texture compression at upload (Mesa 0038) is built and waits for its A/B in TESTS.md's
-ssdroot2 batch. The kernel's own share is in [KERNEL-MEMORY.md](KERNEL-MEMORY.md), and the cuts
+default. Texture compression at upload (Mesa 0038) cut Sauerbraten's VRAM from the 117 MB cap to
+73-78 MB without a resolved fps change and did nothing in SuperTuxKart and OpenArena (batch ssdroot2
+P2, [below](#measured-on-the-ps3-batch-ssdroot2-p2)); it stays off. The kernel's own share is in [KERNEL-MEMORY.md](KERNEL-MEMORY.md), and the cuts
 nobody has tried yet are in [backlog/memory.md](backlog/memory.md).
 
 ## The console's memory budget
@@ -502,8 +503,8 @@ PLAN 2.4. Most games upload plain RGB(A)8 textures, which the RSX stores at 4 by
 X8R8G8B8). VRAM is also our swap tier, so every MB of textures not kept is memory. DXT1 takes an
 eighth of that, DXT5 a quarter, and libspeq (Mesa 0011/0032) already compresses on the SPEs, RGB
 sources included (1024x1024 in about 1 ms on 4 SPEs). Mesa 0038 is in Mesa .466~dev and .476 (on
-the PS3), off by default, and has not run on the PS3 yet: its first A/B is TESTS.md's ssdroot2 P2
-(Sauerbraten, SuperTuxKart lean, OpenArena gl2min).
+the PS3) and off by default; its first A/B (Sauerbraten, SuperTuxKart lean, OpenArena gl2min) is
+[below](#measured-on-the-ps3-batch-ssdroot2-p2).
 
 ### What it does
 
@@ -593,15 +594,15 @@ report.py: `fdxt_tex`, `fdxt_dxt5`, `fdxt_raw_mb`, `fdxt_dxt_mb`, `fdxt_unforced
 
 ### PS3 checks
 
-Not run yet. First the GL test against softpipe as the reference:
+The GL test on the PS3 is not run yet. First the GL test against softpipe as the reference:
 
     for m in off opaque all; do NV30_FORCE_DXT=$m gl-forcedxt; done
     for m in off opaque all; do NV30_FORCE_DXT=$m LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=softpipe gl-forcedxt; done
 
 Then the bench, same boot, desktop stopped, webcam on every run (look for blockiness on UI and
 banding on skies). Every arm carries the stats line so all get the fdxt columns; `MEM=1` gives
-`mem_gpu_vram`, and the `vram` column is the peak in every run. ssdroot2 P2 covers the first three
-games; the rest are in TESTS.md's "Next" list:
+`mem_gpu_vram`, and the `vram` column is the peak in every run. ssdroot2 P2 ran the first three games
+(the `opaque` against off lines); the rest are in TESTS.md's "Next" list:
 
     S=NV30_FORCE_DXT_STATS=50
     # one run with the per-decision lines, to see what is taken and what is kept
@@ -630,6 +631,49 @@ only (lightmaps, small textures, UI); Luanti and ClassiCube upload everything pl
 the most. A game where `opaque` looks right and saves VRAM gets `NV30_FORCE_DXT=opaque` in its
 launcher environment (a ps3-desktop change, after the user has seen it).
 
+### Measured on the PS3 (batch ssdroot2 P2)
+
+2026-10-19 02:35-03:25Z, one boot, kernel .472, root on the SSD image, Mesa .476, `MEM=1 STALLS=1`,
+x2 per arm, the arms interleaved, `NV30_FORCE_DXT_STATS=50` in both (row 74, results commit named in
+TESTS.md). Medians; n=2, so "equal" means inside the spread of the baseline runs of the same boot.
+
+| Game | Arm | Textures forced | Peak VRAM (MB) | ps3rsx buffers, middle (MB) | Steady fps | 1% low | Gameplay stalls | RSS (MB) |
+|---|---|---|---|---|---|---|---|---|
+| Sauerbraten | off | 0 | 119.8 | 351 | 39.9 | 26.0 | 0.5 s | 93.3 |
+| Sauerbraten | `opaque` | 73 (all DXT1) | 73.4-77.6 | 215 | 39.0 | 23.9 | 0.55 s | 89.7 |
+| SuperTuxKart lean | off | 0 | 98.5 | 265 | 20 (HUD) | 10.7 | 2.8 s | 101 |
+| SuperTuxKart lean | `opaque` | 0 | 97.3 | 261 | 21 (HUD) | 11.6 | 1.7 s | 105 |
+| OpenArena gl2min | off | 0 | 120.1 | 343 | 56.3 | 23.0 | 0.0 s | 89 |
+| OpenArena gl2min | `opaque` | 0 | 119.7 | 343 | 55.8 | 23.0 | 0.4 s | 86 |
+
+- **Sauerbraten wins memory.** 73 textures went to DXT1, 88 MB of levels stored in 11 MB; 4 went
+  back to uncompressed (1 MB), 17 stayed for alpha, 26 for size, 39 for format. Peak VRAM left the
+  117 MB cap (119.8 MB in the column) for 73-78 MB, and the census of the game's ps3rsx buffers fell
+  from 351 MB to 215 MB (the census counts buffers the VRAM swap has pushed out as well), RSS by 3.5 MB. Nothing else was
+  compressed: `fdxt_sub` 0, `fdxt_mipgen` 0, so no CPU for mipmaps or sub-image updates; `scan_ms` 0.
+- **The speed did not move beyond noise.** Steady 39.9 and 39.9 (off) against 38.9 and 39.1 (`opaque`);
+  the unprofiled baseline runs of the boot span 39.06-40.3 and all SSD-root base runs 39.1-40.3. The
+  1% low (26.2, 25.7 against 24.8, 22.9) and the stalls (0.4, 0.6 against 0.3, 0.8 s) overlap. Load
+  7.7 against 7.4 s. Less VRAM did not buy fewer stalls here because on the SSD root there were few
+  to remove.
+- **The picture changes slightly.** The webcam frames of the demo differ from the off runs by a mean
+  grey level of 10 (two off runs differ by 1-2 from each other): the walls are softer and a little
+  darker, a DXT1 4-colour palette on rock detail. Not wrong or blocky at this camera's resolution,
+  but lossy, which is why the default stays off and the user judges it at the TV.
+- **SuperTuxKart and OpenArena: no textures forced.** STK's stats line: skip_alpha 182,
+  skip_format 173, skip_small 22, skip_npot 6, tex 0 (the game's own compression, Mesa 0004,
+  already covers its opaque textures, and everything left has alpha or an unsupported format). Its
+  `all` mode (DXT5 for the alpha ones) is the next arm. OpenArena gl2min: skip_format 2238 and
+  nothing else: every upload is in a format the switch does not take (the formats are not recorded; the
+  game's own compressed or sRGB uploads are the likely ones, not confirmed), so `opaque` is a no-op
+  there. Fps, stalls and VRAM differences are noise.
+- OpenArena ran at 56 in both arms against 60-63 in the baseline earlier in the boot; the stats
+  variable or the boot's drift, not separated (a profiled run an hour before also gave 56).
+
+Verdict: Mesa 0038 `opaque` is worth turning on for Sauerbraten if the user accepts the softer
+rock; it frees 40-45 MB of VRAM, which on a USB root or in game mode is what the VRAM swap needs.
+Luanti, ClassiCube and the `all` and `NEAREST` modes are still to run.
+
 ## Packages
 
 Nothing here is in the stable `ps3` suite; the versions are in `ps3-dev` and installed on the PS3
@@ -645,7 +689,7 @@ Nothing here is in the stable `ps3` suite; the versions are in `ps3-dev` and ins
 | cube2, cube2-server | 0.0.20201229+dfsg-1+ps3.466 | 0011 `vanormalshort` (since .442~dev), off by default |
 
 dsda-doom's recipe also changed: `LOAD_MARK` matches `Playing demo:`, so its window, perf and the
-snapshots start. Its first profile is in TESTS.md's ssdroot2 P1b.
+snapshots start. Its first profile is in [HOTPATHS.md](HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b).
 
 The selftest (`python3 games/bench/selftest.py`, all pass) covers this: section 8 runs client.sh
 with `BENCH_MALLOC=arena2,trim` and checks both preloads' threads in the game, the trim lines in
@@ -671,5 +715,7 @@ come out; still so in the runs of 2026-10-18).
   turned OpenArena opengl2's "16 s gameplay freeze" into a load-time frame.
 - 2026-10-18 evening (batch 17, commit 3939a48): ioquake3 0027, Mesa 0037's switches and cube2 0011
   measured; 0027 already the default, the other two still off by default.
+- 2026-10-19 (batch ssdroot2 P2): Mesa 0038 `opaque` measured on three games: Sauerbraten -42 MB of
+  VRAM, no fps change; SuperTuxKart and OpenArena 0 textures forced.
 
 Older versions and the dated history: [archive/MEMORY.md](archive/MEMORY.md).

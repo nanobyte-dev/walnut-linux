@@ -35,10 +35,12 @@ show the most.
   because nv30's NPOT DXT layout has never run.
 - **Needs:** PS3, then the user looks at the pictures before a game gets it in its launcher.
 - **Status:** built (Mesa .466~dev, official .476), default off; host checks pass (5105 policy
-  checks, `gl-forcedxt` 128 checks per mode on softpipe in the ppc64 chroot). Never on the PS3.
-  Scheduled: TESTS.md batch ssdroot2 P2 (Sauerbraten, SuperTuxKart `lean`, OpenArena gl2min,
-  `opaque` against off, `MEM=1 STALLS=1`, x2), then "Next" for Luanti, ClassiCube, OpenArena
-  `gl2min_tc0` and SuperTuxKart `all`.
+  checks, `gl-forcedxt` 128 checks per mode on softpipe in the ppc64 chroot). Measured on the PS3 in
+  batch ssdroot2 P2 (`opaque` against off, x2): Sauerbraten peak VRAM 117 to 73-78 MB with no fps
+  change resolved and a slightly softer picture; SuperTuxKart `lean` and OpenArena gl2min force
+  0 textures ([MEMORY.md](../MEMORY.md#measured-on-the-ps3-batch-ssdroot2-p2)). Left, in TESTS.md
+  "Next": Luanti and ClassiCube (the games that upload everything plain), `NEAREST`, SuperTuxKart
+  `all`, OpenArena `gl2min_tc0`, and why OpenArena's 2238 uploads are all skipped for format.
 - **Source:** PLAN 2.4, [archive/MEMORY.md, "Texture compression at upload"](../archive/MEMORY.md#texture-compression-at-upload-mesa-0038-nv30_force_dxt-2026-10-18).
 
 **To start.** On the PS3 first the GL test against softpipe:

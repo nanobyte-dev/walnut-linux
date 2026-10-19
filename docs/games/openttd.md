@@ -51,16 +51,28 @@ blitter). `vblank_mode=0` in every mode.
 | `gl` | 21 steady | 6.3 s / 9.2 / 642 ms | 17 / 26 MB | 3893 | 61 |
 | software, SDL3's accelerated framebuffer (`accel`, SDL3 ps3.254, HUD median) | 9.5; 12 with the 8bpp blitter (`accel8`) | | 29 / 32 MB; 42 / 32 MB | 1037; 1098 | 35 |
 | software through X11 (`base`, profiled) | no counter | | 18 MB free | 3759 | 58 |
+| `gl`, profiled (PERF=1 MEM=1), SSD root; the title screen, not a game | 18 | 14.7 s (101 frames) / 6.5 / 662 ms | 26 / 26 MB | 4172 | 73 |
 
 Picture right in both (webcam, no survey dialog). Sound is choppy either way: about 1000-1170
 underruns a minute. Its music shares the SDL_mixer MIDI path with dsda-doom's (PLAN 2.8). The
 `base` window has no fps by design.
+
+The profile run of 2026-10-19 (row 73) sat at the main menu (the webcam shows the title screen with the
+menu open), so it is a profile of the title screen's redraw and its music, not of play: the process
+spent 49.5% of its samples in the kernel, 36.7% of the samples in `__replay_soft_interrupts` (time
+perf can't give a path: samples taken while interrupts were soft-masked), 8.3% under
+`ps3_hpte_invalidate` (page-table flushes from unmapping) and 5.1% in `memset` under
+`ps3rsx_gart_clear`, which zeroes the memory of every buffer object ps3rsx creates
+(`OpenGLBackend::ReleaseVideoBuffer` makes a buffer per frame); the game 21.9% (`Blitter_40bppAnim::Draw`
+8.7%); the MIDI music through FluidSynth 11% and libspeq 4.2% on the audio thread, with 4172 underruns
+([HOTPATHS.md](../HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b)).
 
 Next: the gameplay benchmark (a developed map, a fixed camera, sound and music on; smoke, then bench
 x3, GL against software), the sound, then the GL driver's batching (PLAN 3.1).
 
 History: 2026-10-16 (research) the GL mode was expected to fail at init with no GPU risk.
 2026-10-17: the simulation benchmark and the software title game ran; SDL3's blue cast found; our
-OpenGL patches built. 2026-10-18: the GL driver ran on the PS3 (row 61).
+OpenGL patches built. 2026-10-18: the GL driver ran on the PS3 (row 61). 2026-10-19: a profile of
+the title screen on the SSD root (row 73).
 
 Older versions and the dated history: [archive/GAME-PLAN.md](../archive/GAME-PLAN.md).

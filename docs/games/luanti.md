@@ -57,14 +57,25 @@ cliunload, io, malloc) and `leaner`; the batching switches `allbatchoff`, `nodup
 | Configuration | Steady fps | Gameplay stalls / 1% low / longest | Free RAM / VRAM | Row |
 |---|---|---|---|---|
 | base (x2, clean) | 45.5 (45-46) | 1.8 s (1.5, 2.1) / 18.4 / 185 ms (167, 203) | 17 / 62 MB | 67 (kernel .433, kicker) |
-| base | 46 | 2.5 s / 17.5 / 358 ms | 17 / 63 MB | 68 (no kicker) |
+| base, USB root | 46 | 2.5 s / 17.5 / 358 ms | 17 / 63 MB | 68 (no kicker) |
+| base, SSD root (x3) | 46 (44-46) | 3.5 s (2.4-5.8) / 19.1 / 724 ms | 19 / 63 MB | 71 (kernel .472, Mesa .476) |
 | `view40` | 59 | 0.9 s / 29.2 / 362 ms | 19 / 55 MB | 63 (one run, clean) |
 
-Picture right (the user). Sound plays with no underruns; it was not judged by ear yet (PLAN 2.1).
-The load is 43.1 s from exec to the first frame of play: 11.5 s CPU and 16.5 s disk wait on the main
-thread, about 13 s of that major page faults on mapped files (the binary and libraries are the
-candidates). Luanti has the most major faults (1420) and small reads (6540) of the five profiled
-games ([PROFILING.md, "Start-up profiles, batch 17"](../PROFILING.md#start-up-profiles-batch-17)).
+Picture right (the user; the webcam photos at 60 s and 150 s fall in the path's turn over the sea
+and show a plain cyan view, which is the flight, not a missing world). Sound plays with no underruns;
+it was not judged by ear yet (PLAN 2.1), and the webcam mic hears only the room.
+With the root on the SSD the load is 25.0 s (24.5-25.1; 26.1 s from exec to the end of the loading
+screens) against 40.8 s on the USB root: the main thread's disk wait went from 9.8 s to 3.4 s, and
+what is left is the mapgen: the 15 s hold, Emerge-0's 8.6 s of CPU, the main thread 15.4 s of CPU and
+2.8 s waiting for the GPU. The window's stalls did not improve (3.5 s, longest 724 ms, against 2.5 s
+and 358 ms on USB; direct reclaim 1.6 s against 0.4 s, n=3, and the USB runs were an older Mesa and
+kernel): the cost is CPU and reclaim, not the disk. On USB the load had been 43.1 s with 16.5 s of
+disk wait, about 13 s of it major page faults on mapped files, and the most major faults (1420) and
+small reads (6540) of the five profiled games ([PROFILING.md, "Start-up profiles, batch 17"](../PROFILING.md#start-up-profiles-batch-17),
+[the SSD root](../PROFILING.md#start-up-profiles-on-the-ssd-root-batch-ssdroot2)).
+Gameplay CPU: the game 47.2% of the samples (the MeshUpdate thread alone 20.7% of all, Emerge-0
+6.6%), Mesa 14.6%, libc 13.7%, kernel 13.6%, zstd 1.2%; no single driver path stands out
+([HOTPATHS.md](../HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b)).
 
 Memory ([MEMORY.md](../MEMORY.md)): 102 MB Rss plus 47.1 MB swapped (28.5 MB of it heap), malloc
 96.8 MB used and 22.9 MB free across **14 arenas** (glibc gives each thread that mallocs under

@@ -456,11 +456,80 @@ against the pool since:
   not game data ([the SSD load split](#the-ssd-load-split-batch-ssd1)).
 - Mesa's GLSL disk cache: saves CPU, no resolvable wall time ([below](#the-shader-caches)).
 
-The whole system on the SSD (Phase B, [GAMEOS-HDD.md](GAMEOS-HDD.md)) is being measured in the
-ssdroot batches ([TESTS.md](TESTS.md)). The rest of the estimated wins (bigger reads, faster
+The whole system on the SSD (Phase B, [GAMEOS-HDD.md](GAMEOS-HDD.md)) took the loads down by 39-61%
+and the disk wait from 34-41% of a load to 11-26% ([below](#start-up-profiles-on-the-ssd-root-batch-ssdroot2);
+the USB-against-SSD comparison in alternating boots is still to run). The rest of the estimated wins (bigger reads, faster
 inflate/PNG/JPEG, OpenArena's pk3s stored and mipmaps off the CPU, audio decoded later, less dynamic
 linking, game-level items) and the measurements that would turn them into facts are in
 [backlog/smoothness.md](backlog/smoothness.md).
+
+## Start-up profiles on the SSD root (batch ssdroot2)
+
+The same five games as batch 17, one run each, `PERF_LOAD=1 STALLS=1`, cold page cache, kernel
+6.12.111+ps3.472, Mesa 26.2.4-1+ps3.476, ps3-gpu-tools 0.477~dev (the stall recorder samples `ps3db`
+now, so the disk wait of the SSD root is counted), root on the internal SSD image, 2026-10-19
+01:34-02:00Z (results row 72; run directories `ps3-bench-20261019T0134` to `T0156`). The console's
+disk is an upgraded SSD; a stock PS3's HDD would sit between these numbers and batch 17's USB disk.
+The comparison is cross-boot (batch 17: kernel .433, Mesa .442~dev, USB root): indicative.
+
+**Symbols.** These perf runs have no symbols for Mesa or the games' own binaries (the PC-side
+symbolisation comes later), so loadprof.py's groups for GLSL compiles, texture upload, mipmaps and
+the games' file code are inside `mesa` and `game` here. Decoders (zlib, png, jpeg, audio), ld.so and
+the kernel keep their groups, and the totals compare with batch 17.
+
+| Game | Load wall, USB (batch 17) / SSD (s) | Main thread in the load, SSD: CPU / disk (+io) / GPU / reclaim / other waits (s) | Disk in the load, SSD: MB, reads, busy s (USB: MB, busy s) | Main thread in the warm-up, SSD: CPU / disk (s) | Warm-up stall frames, USB / SSD (s) |
+|---|---|---|---|---|---|
+| Sauerbraten | 19.8 / **7.7** | 3.9 / 1.9 (+0.1) / 0.05 / 0.2 / 1.5 | 85.8, 2782, 1.4 (95.7, 14.3) | 67.9 / 0.9 | 21.1 / 6.1 |
+| OpenArena gl2min | 28.1 / **14.2** | 8.7 / 2.1 (+0.3) / 0.2 / 0.4 / 2.5 | 143.9, 4146, 2.2 (133.6, 17.1) | 43.7 / 1.2 | 25.5 / 19.0 |
+| Luanti | 43.1 / **26.1** | 15.4 / 3.0 (+0.2) / 2.8 / 1.7 / 3.0 | 189.0, 7174, 3.4 (181.4, 30.0) | 34.4 / 0.25 | 2.2 / 1.5 |
+| SuperTuxKart lean | 54.3 / **31.5** | 23.8 / 3.2 (+0.3) / 0.04 / 1.2 / 3.0 | 217.3, 6856, 3.2 (238.4, 30.8) | 55.9 / 1.6 | 18.9 / 11.2 |
+| ClassiCube | 13.9 / **7.5** | 3.2 / 1.0 (+0.05) / 1.2 / 0.3 / 1.8 | 64.7, 2089, 1.0 (65.2, 8.9) | 11.7 (35.7 waiting on the GPU) / 0.01 | 0.1 / 0.0 |
+
+Load wall is `load_end`: the exec to the end of the loading screens (the game's own `load=` numbers
+are in the results rows). "Other waits" are futex, poll and sleep, unknown, run queue and swap.
+
+- **The disk share is mostly gone, the loads got 39-61% shorter.** The main thread's disk+io wait
+  went from 4.8-18.6 s to 1.1-3.4 s (34-41% of a USB load, 11-26% of an SSD load: Sauerbraten 26%,
+  OpenArena 17%, ClassiCube 15%, Luanti 12%, SuperTuxKart 11%). The same megabytes (65-217 MB)
+  were read with a tenth of the busy time (1.0-3.4 s against 8.9-30.8 s) at the same request size
+  (26-35 KB), so the SSD's gain is latency per request, about 0.5 ms a read. The warm-ups' disk wait
+  fell the same way and the warm-up stall seconds of the heavy games fell by a third to a half
+  (Sauerbraten 21.1 to 6.1 s, SuperTuxKart 18.9 to 11.2 s).
+- **The loads are not CPU-bound yet.** The main thread is 47-77% on the CPU (Sauerbraten 56%,
+  OpenArena 64%, Luanti 60%, SuperTuxKart 77%, ClassiCube 47%) and its CPU seconds did not change (Sauerbraten 3.9 s
+  against 4.1, OpenArena 8.7 against 9.0, SuperTuxKart 23.8 against 22.5, ClassiCube 3.2 against 2.9).
+  What is left besides CPU: 1-3 s of disk wait (a quarter of Sauerbraten's load), sleeps and unknown
+  waits of 1.5-3.0 s, GPU waits (ClassiCube 1.2 s, Luanti 2.8 s), direct reclaim of 0.2-1.7 s
+  (kswapd 1.0-4.0 s of CPU, allocstalls 69-321). Batch 17's estimate of the CPU-bound loads (15, 21,
+  33, 43 and 11 s) was too high: it took out only the disk and io wait, and the loads shrank by more
+  because the page-fault waits and the reclaim around them depended on the disk too.
+- **What is on top of the CPU now** (seconds in the load, all threads; main thread in brackets):
+  - Sauerbraten: zlib 1.6 (1.6; the `.ogz` map inflate, `inflate` 0.55, `crc32` 0.17, the rest without
+    symbols), kernel soft-interrupt replay 0.7, link 0.4, game 0.35, Mesa 0.34, libc 0.33. 4.9 s in total.
+  - OpenArena: the game 3.9 (the shader scripts, mipmaps, pk3 scans: batch 17's files 1.95, game 1.91
+    and mipmap 1.34), Mesa 0.55, link 0.5, jpeg 0.29, DXT 0.27. 10.4 s in total.
+  - Luanti: the game 12.8 (1.9 on the main thread; Emerge-0 mapgen 8.6, MeshUpdate 2.9, Server 2.6),
+    Mesa 2.2, Lua 1.0, link 0.7, C++ runtime 0.5, zstd 0.4, fonts 0.3. 28.9 s in total on a
+    26 s load; the 15 s hold and the mapgen decide it.
+  - SuperTuxKart: the game 5.35, png 4.2, zlib 3.9, audio 2.2, jpeg 2.1, Mesa 1.3, link 0.9. Decoders
+    are 12.5 s of the main thread's 23.8 s (53%).
+  - ClassiCube: the game 1.8 (1.5 on the main thread), link 0.65, Mesa 0.63, ps3rsx 0.25. 4.9 s.
+- **Linking is now 3-9% of a load** (0.37-0.86 s in every game: Sauerbraten 5%, ClassiCube 9%,
+  OpenArena 4%, Luanti 3%, SuperTuxKart 3%) though ld.so's own start-up is 0.02-0.05 s: the rest is lazy
+  binding and `dlopen` (`_dl_relocate_object`, `sinl` in the libm resolver). Prelinking or `-z now`
+  now helps every short load by as much as batch 17's kernel numbers allowed.
+- **The warm-up is play.** Sauerbraten's main thread is 97% on the CPU for 70 s (Mesa 43 s, the game
+  8.2 s: the demo's frames and the occlusion-query spin), ClassiCube waits 35.7 s on the GPU and
+  runs 11.7 s of CPU, Luanti's main thread is 76% CPU with Emerge-0 at 28.7 s. OpenArena's warm-up is
+  the demo's second pass: the map and players load again, 146 MB read, 1.2 s disk wait now (11.1 s
+  on USB), the game 13.5 s of CPU.
+- **Levers on the SSD root** (twice as fast, main-thread seconds off the wall time): SuperTuxKart
+  the game's load path 2.7, png 2.1, zlib 2.0, audio 1.1, jpeg 1.1; OpenArena the game 2.0; Luanti
+  Mesa 1.1, the game 1.0; Sauerbraten zlib 0.8; ClassiCube the game 0.8, link 0.3. Decoders matter
+  for SuperTuxKart only; Sauerbraten's one item is zlib-ng or stored `.ogz`.
+
+Not comparable with batch 17: the GLSL compile, DXT and mipmap groups (inside `mesa` and `game`
+here); a symbolised re-run of these five would restore them.
 
 ## The shader caches
 

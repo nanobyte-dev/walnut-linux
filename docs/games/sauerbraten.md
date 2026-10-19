@@ -61,15 +61,28 @@ meant to ship: no water reflection or refraction, `shaderdetail 1`, no bump- or 
 
 | Configuration | Steady fps | Gameplay stalls / 1% low / longest | Free RAM / VRAM | Row |
 |---|---|---|---|---|
+| base, SSD root (n=4) | 39.1 | 0.05 s / 25.6 / 103 ms | 25 / 117 MB | 71, 75 |
 | base, USB root | 38.5 | 1.6 s / 24.1 / 459 ms | 20 / 117 MB | 70 (x3) |
-| base, game data on the SSD | 39.3 | 1.0 s / 26.4 / 407 ms | 21 / 117 MB | 70 |
+| base, game data on the SSD (USB root) | 39.3 | 1.0 s / 26.4 / 407 ms | 21 / 117 MB | 70 |
 | base | 38.8 | 1.2 s / 25.0 / 473 ms | 19 / 117 MB | 69 |
 | `shortnormals` | 45.1 | 1.6 s / 30.4 / 512 ms | 20 / 121 MB | 69 |
+| `NV30_FORCE_DXT=opaque`, SSD root (x2; off x2 beside it) | 39.0 (off 40.0) | 0.55 s / 23.9 / 177 ms (off 0.5 s / 26.0 / 185 ms) | 27 / 73-78 MB (off 117) | 74 |
+| `PS3RSX_SHADOW_FAST=1`, SSD root (x2; off x2 beside it) | 39.7 (off 39.15) | 0.15 s / 26.2 / 118 ms (off 0.05 s / 25.7 / 96 ms) | 24 / 117-127 MB | 75 |
 
-Picture right ("surprisingly smooth" between stalls, the user); sound plays with 127-184 ALSA
-underruns a run. The load takes 15.3-16.9 s (batch ssd1); the game data on the SSD gave no clear
-effect, because the binary, libraries and shader cache stayed on the USB disk and the load's disk
-wait stayed at 4.8-5.5 s. Mesa's GLSL disk cache saves no load time here (17.4 s cold, 18.4 warm).
+Picture right ("surprisingly smooth" between stalls, the user); sound plays with 60-181 ALSA
+underruns a run. With the root on the SSD the load takes 7.1 s (6.9-7.2) against 15.4-19.3 s on the
+USB root, its disk wait 1.7-1.9 s against 4.7-5.6 s, and the gameplay stalls fell from 1.6 s to
+0.05 s with the longest frame at 103 ms (459 on USB): the USB stalls were disk faults. Steady fps did
+not move (39.1 against 38.5, inside the 38.4-40.3 spread of all base runs). Moving only the game
+data to the SSD (batch ssd1) gave nothing, because the binary, libraries and shader cache stayed on
+the USB disk. Mesa's GLSL disk cache saves no load time here (17.4 s cold, 18.4 warm, on USB).
+After the load the main thread is 56% on the CPU: 3.9 s of CPU, 1.9 s of disk wait; map inflate
+(zlib) is 1.6 s of the CPU ([PROFILING.md](../PROFILING.md#start-up-profiles-on-the-ssd-root-batch-ssdroot2)).
+Gameplay profile: Mesa 62.8% of the samples, the game 10.5%, ps3rsx 4.8%, audio about 5%
+([HOTPATHS.md](../HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b)).
+
+The webcam microphone hears nothing above the room's hum in any of 20 Sauerbraten clips although
+the sound card runs and the mixer and Vorbis decoder use CPU: judged by ear, not by the mic.
 
 Memory ([MEMORY.md](../MEMORY.md)): 78 MB Rss plus 12.3 MB swapped, malloc 63.4 MB used and
 17.6 MB free in its arenas (glibc's raised mmap threshold keeps 16-17 MB free in the main heap),
@@ -89,6 +102,9 @@ OOM-killed; with it, the VRAM swap is full.
 | cube2 0011 `vanormalshort` | 38.8 to 45.1 (+17%), stalls equal, VRAM +4 MB | 69 | default still 0 (pixels), decision open |
 | Game prefetch (`GAMEPREFETCH=fetch`) | load 18.1-18.6 s against 15.2-18.8 | 68 | no gain, default off |
 | SSD game data, SSD swap spill | 39.3 / 38.5 against 38.5; load -3 to -6%, inside the spread | 70 | no proven gain |
+| SSD root | load 16.9 to 7.1 s, load disk wait 5.5 to 1.9 s, gameplay stalls 1.6 to 0.05 s, steady 38.5 to 39.1 | 71 | the root on the SSD helps loads and stalls, not frame cost |
+| Mesa 0038 `NV30_FORCE_DXT=opaque` | 73 textures to DXT1 (88 MB to 11 MB), peak VRAM 119.8 to 73-78 MB, buffers 351 to 215 MB; steady 39.9 to 39.0, 1% low 26.0 to 23.9 (n=2, inside the spread); the picture is slightly softer | 74 | VRAM win, no fps change resolved; lossy, stays off by default ([MEMORY.md](../MEMORY.md#measured-on-the-ps3-batch-ssdroot2-p2)) |
+| ps3rsx `shadow_fast` | 39.7 against 39.15 (x2), stalls and VRAM equal | 75 | no gain at n=2, stays off |
 
 The query wait came from the water reflections: all of `nv30_query_result`'s 10.3% of the CPU was
 `drawreflections > checkquery > glGetQueryObjectuiv`, the engine waiting for this frame's water
@@ -96,8 +112,7 @@ query mid-frame and Mesa spinning ([HOTPATHS.md, "Sauerbraten's query wait"](../
 In the first stall-recorder runs Sauerbraten's stalls were file faults and disk reads from the USB
 disk (load 16.5 s, 5.3 s of it disk, row 55).
 
-**Built, not measured yet:** cube2 0007-0009 (no PS3 run); Mesa 0038 `NV30_FORCE_DXT=opaque`
-(TESTS.md ssdroot2 P2); Mesa 0037's sysmem stats with `shortnormals` (`sysmem_hint` says whether the
+**Built, not measured yet:** cube2 0007-0009 (no PS3 run); Mesa 0037's sysmem stats with `shortnormals` (`sysmem_hint` says whether the
 readbacks also set nouveau's keep-copy hint); `texreduce 1` (variant `tex1`, an estimated 45-60 MB of
 the 117 MB VRAM).
 
@@ -110,6 +125,7 @@ the 117 MB VRAM).
   wedge but at 11 fps and badly stuttering. Our cube2 +ps3.272 brought 0002-0005.
 - 2026-10-18: the LUT (+53%), the demo with the nonfree data (row 64 on), query wait and oqlag
   (rows 64-65), shortnormals (row 69), the SSD arms (row 70).
+- 2026-10-19: the SSD root (row 71), force-DXT (row 74) and `shadow_fast` (row 75) A/Bs.
 
 ## Red Eclipse
 

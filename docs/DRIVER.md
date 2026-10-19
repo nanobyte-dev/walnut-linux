@@ -212,7 +212,7 @@ Phase 6 needed glamor, which requires GL 2.1, `GL_ARB_texture_border_clamp` and 
 
 - ps3rsx 0.219 (a1f1b91, 8baa747): the video unmute fixes above.
 - ps3rsx 0.249 (9e2a3b9, 8e99b76): the validator fast path, shadow per burst with dirty bitmaps, the texture-offset check.
-- `shadow_fast` (0.250, f8f1608): built and fuzzed, default off, not yet run on the PS3.
+- `shadow_fast` (0.250, f8f1608): built and fuzzed, default off; run on the PS3 in batch ssdroot2 (ClassiCube, Sauerbraten, X-Moto, x2): no gain resolved.
 - The dynamic GART from CMA, the VRAM swap's GPU copies (`kcopy.c`), the vsync interrupt for vblank, and the fence timer that polls fast only while someone waits.
 - Done around the driver and recorded in [PLAN.md](PLAN.md): GPU vertex fetch (ClassiCube 6.5 to 60 fps), Mesa fixes (fog, banded uploads, staging limits), game mode and the VRAM swap.
 

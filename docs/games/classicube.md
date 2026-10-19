@@ -45,9 +45,21 @@ Soft variants, `nosound`, `kick100`, `autooff`, `idxoff` (Mesa switches), `gloff
 | base (`CC_GL_CHUNKS=2`) | 45.9 | 0.1 s / 30.1 / 99 ms | 50 / 60 MB | 68 (kernel .433, no kicker) |
 | `chunks1` | 48.1 | 0.0 s / 29.4 / 61 ms | 53 / 60 MB | 68 |
 | base / `chunks1`, one run each | 48.4 / 50.9 | 0.0 s; 1% low 31.6 / 31.5 | 58 / 54 MB | 64 (kicker) |
+| base, SSD root (x3, then x2 later in the boot) | 48.1, then 46.1 | 0.0 s / 30.7 / 65 ms | 53 / 60 MB | 71, 75 (kernel .472) |
 
-Picture and sound right, no underruns. The load is 13.9 s (4.8 s of it disk wait); in its warm-up the
-main thread waits 35.9 s on the GPU ([PROFILING.md, "Start-up profiles, batch 17"](../PROFILING.md#start-up-profiles-batch-17)).
+Picture right, sound state RUNNING with no underruns (the webcam mic hears the room's hum, not the
+music, in 14 of 18 clips: not judged by ear yet). The load is 7.6 s on the SSD root (7.5-8.2) against
+13.9 s on the USB root, its disk wait 1.3 s against 3.4-4.8; nothing else in the run changed: no
+stalls, longest frame 65 ms. In the warm-up the main thread waits 35.7 s on the GPU
+([PROFILING.md, "Start-up profiles, batch 17"](../PROFILING.md#start-up-profiles-batch-17), [on the SSD root](../PROFILING.md#start-up-profiles-on-the-ssd-root-batch-ssdroot2)).
+The steady fps was 48.0-48.1 in the first five runs of the SSD boot and 46.1 in the five after 02:00Z
+with the same configuration (the USB root measured 45.9-46.0): an unexplained step inside one boot,
+so the SSD root is not credited with the +4%. `PS3RSX_SHADOW_FAST=1` against off: 46.11 and 46.11
+(1% low 29.7 against 30.1), no effect (row 75).
+Gameplay CPU: Mesa 41.2% of the samples, kernel 20.1% (soft-interrupt replay 4.4%), ps3rsx 7.1%
+(`ps3rsx_shadow_burst` and `validate` 3.6%), the game 15.6%, OpenAL and ALSA 9.9% (including the
+float-to-integer conversion in `snd_pcm_lfloat_convert_float_integer`, 1.9%), Xorg 7.6% of the game's
+([HOTPATHS.md](../HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b)).
 Memory: 41 MB Rss, nothing swapped, 6 malloc arenas (one of 1.7 MB).
 
 ## Why the batching measured slower

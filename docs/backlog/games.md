@@ -37,11 +37,14 @@ with `STALLS=1`; the first-person demo's spread needs three rounds or more for s
 
 ### SuperTuxKart's missing sound
 
-Rank 9. Every SuperTuxKart run logged `sound=none`.
+Rank 9. SuperTuxKart's runs logged `sound=none` until 2026-10-18 and `sound=RUNNING` on the SSD root.
 
-**Why.** bench.txt's `sound=` line says the ALSA device never opened, in every run. Either profile
-mode (`--profile-time=60`, how the recipe drives it) runs without sound, or OpenAL fails on
-big-endian. A game without sound isn't playable as shipped, and decision D4 (SuperTuxKart's `lean`
+**Why.** The `sound=` line is read at 15 s (70 s since 2026-10-19), and the game opens its audio device
+late on a slow root, so the old `none` was probably that timing: the ten runs of 2026-10-19 (load
+31 s) all say RUNNING, OpenAL logs its start-up messages, the profile has ALSA and OpenAL threads.
+What is open is whether it sounds right: the webcam mic heard only the room's hum in 14 of 17 clips,
+and OpenAL logs "Wait timeout... buffer size too low?" 83-244 times in half the runs. A game without
+audible sound isn't playable as shipped, and decision D4 (SuperTuxKart's `lean`
 as the package default: 21.4 smooth fps and 2.4 s of stalls against 13 fps and 13.5 s, row 61)
 waits on it. The rest of its state: `lean` holds 95-96 MB of VRAM with "out of VRAM" lines left and
 runs at a 1% low of 11.4 with a 686 ms longest frame (row 68); its warm-up had one 10 s frame
@@ -49,7 +52,8 @@ runs at a 1% low of 11.4 with a 686 ms longest frame (row 68); its warm-up had o
 
 - **Payoff:** medium (correctness). **Effort:** S to check, M if OpenAL fails on big-endian.
 - **Risk:** low. **Needs:** the user by ear (a normal start, not profile mode).
-- **Status:** never checked; scheduled: TESTS.md "Next" (sound by ear, with the user).
+- **Status:** the device state is RUNNING; the sound by ear is still unchecked; scheduled: TESTS.md
+  "Next" (sound by ear, with the user).
 - **Source:** PLAN 2.1, D4; [archive/RELEASE-CANDIDATES.md, "2.4 Games"](../archive/RELEASE-CANDIDATES.md#24-games).
 
 **To start.** Start it from the desktop as a player would and listen; `tools/webcam-audio.sh` from

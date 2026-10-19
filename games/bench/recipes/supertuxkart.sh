@@ -16,10 +16,9 @@
 # Memory per run: during.log has MemAvailable and SwapFree every 5 s, bench.txt their lowest.
 # Steady state: the HUD window, 60 s from the end of the track load (LOAD_MARK, the Track: line
 # printed when the scene is built; the race starts at once, no countdown), then 120 s. Our patch
-# 0005 (ProfileWorld::update) with STK_PROFILE_WARMUP=60 restarts the frame count and the clock
+# 0005 (ProfileWorld::update) with STK_PROFILE_WARMUP=60 restarts the tick count and the clock
 # once the race time passes 60 s and ends the race at 60 + the profile time (180 s: 240 s of race,
-# 180 s measured), so the "Average FPS" line (fps= and STEADY_RE) covers only the time after the
-# warm-up; it isn't comparable with runs before 2026-10-17's steady state. The race is AI-driven
+# 180 s measured); the "Average FPS" line it prints is ticks per second (see FPS_RE below). The race is AI-driven
 # (rand() seeded from the clock, frame-time physics): close between runs, not identical.
 COMM=supertuxkart
 # the game data GAMEDATA=ssd takes from the SSD (supertuxkart-data)
@@ -55,9 +54,11 @@ stk_cmd() {
 		--numkarts=$STK_KARTS --profile-time=$STK_TIME --no-start-screen)
 }
 stk_cmd
-FPS_RE='Average FPS: ([0-9.]+)'
-STEADY_RE='Average FPS: ([0-9.]+)'	# after the warm-up (STK_PROFILE_WARMUP)
+# No FPS_RE: the game's "Average FPS" is its physics tick rate (ProfileWorld::update runs once per
+# 120 Hz tick: 21602 "frames" in every run, 0.92 x real time at 110), not rendered frames; the HUD
+# (19-21 fps) is the frame rate. parse() keeps the tick numbers as stk_ticks, stk_tickrate.
 LOAD_MARK='Track: Overall scene complexity'
+SOUND_AT=70	# the game opens its audio device late on a slow root: a read at 15 s said sound=none until 2026-10-18
 DURATION=420	# a safety cap: the load (~60 s, more when it swaps), 240 s of race, the quit
 during() {
 	while :; do
@@ -66,6 +67,8 @@ during() {
 	done
 }
 parse() {
+	sed -n 's/.*Number of frames: \([0-9]*\) time \([0-9.]*\), Average FPS: \([0-9.]*\).*/stk_ticks=\1\nstk_tick_s=\2\nstk_tickrate=\3/p' \
+		"$D/game.log" 2>/dev/null | tail -3
 	awk '{ for (i = 2; i <= NF; i++) if ($i ~ /^MemAvailable:/) { v = substr($i, 14) + 0; if (!n++ || v < m) m = v } }
 	     END { if (n) print "min_memavailable_kb=" m }' "$D/during.log" 2>/dev/null
 }

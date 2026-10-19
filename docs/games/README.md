@@ -26,18 +26,17 @@ gameplay frame. Memory is the lowest MemAvailable during the run and the game's 
 | [Neverball](light-games.md) | yes | 66.5 (row 54) | 51 frames over 100 ms / 41.3 / 3.9 s (a 20 s replay, looped) | 58 / 34 | right, 118 underruns | a longer replay (PLAN 3.10) |
 | [OpenArena, opengl1](openarena.md) | yes | 70.6 (row 59) | 0.0 s / 34.6 / 56 ms | 26 / 39 | right, right | nothing open |
 | [Extreme Tux Racer](light-games.md) | yes | 59 (row 69; not a vsync cap) | 2.9 s / 27.3 / 483 ms (the window holds the game-over screen and a reload) | 29 / 58 | right, right | GART growth in a soak (PLAN 2.7) |
-| [ClassiCube](classicube.md) | yes | 45.9; 48.1 with `chunks1` (row 68) | 0.1 s / 30.1 / 99 ms | 50 / 60 | right, right | `chunks1` default; GPU-bound (PLAN 3.2) |
+| [ClassiCube](classicube.md) | yes | 46.1-48.1 on the SSD root (rows 71, 75); 45.9 on USB, 48.1 with `chunks1` (row 68) | 0.0 s / 30.7 / 65 ms | 53 / 60 | right, state RUNNING, mic hears the room | `chunks1` default; GPU-bound (PLAN 3.2) |
 | [dsda-doom, GL](doom.md) | yes | 55.9 (row 61) | 0.0 s / 40.3 / 34 ms | 43 / 65 | right, **music chops** (465 underruns a minute with the synth on the SPEs, row 52) | the chopping's cause (PLAN 2.8, D3) |
-| [Luanti](luanti.md) | yes | 45.5 (row 67) | 1.8 s (1.5 and 2.1) / 18.4 / 185 ms | 17 / 62 | right, plays with no underruns (not judged by ear yet) | `view40` as an option (PLAN 2.9) |
-| [Sauerbraten](sauerbraten.md) | yes | 38.5 (row 70); 45.1 with `shortnormals` (row 69) | 1.6 s / 24.1 / 459 ms | 20 / 117 | right, 127-184 underruns a run | `shortnormals` default, compression at upload (PLAN 2.4) |
-| [SuperTuxKart](supertuxkart.md) `lean` | yes | 19-21 by the HUD (rows 61, 68, 69) | 1.3-2.7 s / 11.4-12.1 / 430-690 ms | 22-27 / 95-96 | track draws; **`sound=none` in every run** | sound (PLAN 2.1), then `lean` as default (D4) |
-| [OpenArena, opengl2](openarena.md) `gl2min` | yes | 59.5 (row 69); 55.9-56.1 (row 70) | 0.0-2.4 s / 21.9-24.4 / 96-868 ms | 12-15 / 117 (98 with `md3pack`) | right, right | compression at upload, `md3pack` default |
-| [OpenTTD](openttd.md) | yes (our GL driver) | 21 with GL (row 61); 8-12 software | 6.3 s / 9.2 / 642 ms | 17 / 26 | right, **choppy** (3893 underruns) | the gameplay benchmark (TESTS "openttd-play"), sound (PLAN 2.8) |
+| [Luanti](luanti.md) | yes | 46 on the SSD root (row 71); 45.5 on USB (row 67) | 3.5 s (2.4-5.8) / 19.1 / 724 ms (SSD root) | 19 / 63 | right, plays with no underruns (not judged by ear yet) | `view40` as an option (PLAN 2.9) |
+| [Sauerbraten](sauerbraten.md) | yes | 39.1 on the SSD root (rows 71, 75); 38.5 on USB (row 70); 45.1 with `shortnormals` (row 69) | 0.05 s / 25.6 / 103 ms (SSD root); 1.6 s / 24.1 / 459 ms (USB) | 25 / 117 (73-78 with force-DXT `opaque`, row 74) | right, 60-181 underruns a run, mic hears only the room | `shortnormals` default, compression at upload (PLAN 2.4) |
+| [SuperTuxKart](supertuxkart.md) `lean` | yes | 20-22 by the HUD (rows 61, 68, 69, 71, 74) | 0.2-3.6 s / 10.2-12.8 / 108-513 ms | 26 / 97 | track draws; `sound=RUNNING` since the SSD root, OpenAL buffer warnings in half the runs | sound by ear (PLAN 2.1), then `lean` as default (D4) |
+| [OpenArena, opengl2](openarena.md) `gl2min` | yes | 60.4 on the SSD root (row 71), 56 later in that boot (row 74); 55.9 on USB (row 70) | 0.2 s / 25.6 / 199 ms (SSD root) | 15 / 119 (98 with `md3pack`) | right, right (mic hears it) | compression at upload (a no-op here), `md3pack` default |
+| [OpenTTD](openttd.md) | yes (our GL driver) | 21 with GL (row 61); 18 at the title screen (row 73); 8-12 software | 6.3 s / 9.2 / 642 ms | 17 / 26 | right, **choppy** (3893-4172 underruns) | the gameplay benchmark (TESTS "openttd-play"), sound (PLAN 2.8) |
 
-SuperTuxKart's own "Average FPS" line says 106-111 for `lean` (the cells of fps.csv and
-fps_steady.csv), but the Gallium HUD counts 19-21 frames a second in the same window and the
-smoothness cells come from the HUD; we quote the HUD. Why the two differ is not known
-([supertuxkart.md](supertuxkart.md)).
+SuperTuxKart's own "Average FPS" line (105-111 for `lean`) is its physics tick rate, 120 Hz times the
+race time over the wall time, not a frame rate; the Gallium HUD's 19-22 frames a second is. fps.csv and
+fps_steady.csv hold the HUD's median for it ([supertuxkart.md](supertuxkart.md#the-two-frame-rates)).
 
 ### Smoke-tested (one launch each, `SUITE=0`, no benchmark)
 
@@ -73,7 +72,11 @@ commands):
   every run; a run with a black or wrong picture doesn't count. Step 0's first numbers (rows 1-10)
   were taken with nothing on screen and are void. Since 2026-10-19 04:25 `tools/bench-audio.sh` also
   records 8 s of the webcam microphone after every photo (`build/bench-cam/audio.log`); whether a
-  game sounds right is still the user's call by ear. bench.txt's `sound=` and `underruns=` lines are
+  game sounds right is still the user's call by ear. The room's floor in those clips is rms about
+  -50.5 dBFS, spectral flatness 0.03, a peak at 445 Hz and the bands 11/83/5/0%; a clip with that
+  signature has no game audible above the hum (Sauerbraten's 20 of 20, most of SuperTuxKart's,
+  Luanti's and ClassiCube's), clips of OpenArena, X-Moto and dsda-doom sit 2-7 dB above it with another
+  spectrum. The mic is a floor check, not a judge. bench.txt's `sound=` and `underruns=` lines are
   what the PS3 itself sees.
 - **Desktop stopped, swaps emptied.** `ps3-bench.sh` stops the desktop before each run, so no game
   mode. Players start games from the desktop and get game mode instead, which has not been
@@ -84,7 +87,7 @@ commands):
   100 ms. For a game that loops a demo, the gameplay columns leave out the reload at each pass
   (OpenArena's map reload, Neverball's restart; [STALLS.md, "Gameplay-only columns"](../STALLS.md#gameplay-only-columns)).
 - **Same-boot A/B only.** ClassiCube gave 50.1 fps on one boot and 46.5-46.9 on another with the
-  same Mesa builds. A change is measured against its off switch in the same session, interleaved;
+  same Mesa builds, and 48.1 then 46.1 inside the SSD boot of 2026-10-19 with nothing changed. A change is measured against its off switch in the same session, interleaved;
   numbers from different boots are a regression check, not a comparison.
 - **The kicker.** Rows 56-67 carry `wkkick10` in their column names: a 10 ms cross-CPU kick
   (`WAKER=10`, `WAKER_MODE=kick`, ps3-waker) that works around the lost decrementer of an idle PPE
@@ -96,9 +99,11 @@ commands):
   before it were scanned afterwards and 10 were dropped.
 - **USB root against SSD root.** Rows up to 70 ran with the root on the USB disk (28 MB/s, about
   20 ms a random read). This console's internal disk is an upgraded SSD (a stock PS3 has a 2.5" HDD);
-  the batches of 2026-10-19 onward run with the root on it (`root=/dev/mapper/ps3root` in
-  bench.txt), which helps the disk-bound phases more than a stock console could
-  ([GAMEOS-HDD.md](../GAMEOS-HDD.md)).
+  the batches of 2026-10-19 onward (rows 71-75) run with the root on it (`root=/dev/mapper/ps3root` in
+  bench.txt), which helps the disk-bound phases more than a stock console could: loads 39-61% shorter,
+  Sauerbraten's gameplay stalls 1.6 s to 0.05 s, frame rates unchanged
+  ([GAMEOS-HDD.md](../GAMEOS-HDD.md#result-the-ssd-root-batches-ssdroot1-and-ssdroot2)). The
+  comparison is cross-boot until the alternating boots are run.
 - **Profiled runs** (`PERF=1`, `MEM=1`, `PERF_LOAD=1`) are for profiles, not for fps.
 - Single runs vary: OpenArena gave 23 to 54 fps and QuakeSpasm 66 to 84 in single runs on Mesa
   ps3.262, and Sauerbraten's first-person demo swung 23-38 by itself in rows 64-65. A few fps between

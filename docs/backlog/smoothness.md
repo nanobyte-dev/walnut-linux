@@ -36,8 +36,9 @@ W 5-8 s, OpenArena L 6-8 and W 6-9, Luanti L 9-12, SuperTuxKart L 10-13 and W 3-
   (see [platform.md, "The kernel guard on the PS3"](platform.md#the-kernel-guard-on-the-ps3)). A
   failed check stops in the rescue shell; the USB entry stays as the fallback.
 - **Needs:** the user (reboots), then PS3 runs.
-- **Status:** the SSD root booted on 2026-10-19 (kernel .472); its baseline batch ssdroot1 A runs
-  tonight. The USB/SSD comparison is scheduled: TESTS.md "Next" (needs the user; the USB root
+- **Status:** the SSD root booted on 2026-10-19 (kernel .472) and its baseline ran (batches ssdroot1
+  and ssdroot2: loads 39-61% shorter, Sauerbraten's gameplay stalls 1.6 to 0.05 s;
+  [GAMEOS-HDD.md](../GAMEOS-HDD.md#result-the-ssd-root-batches-ssdroot1-and-ssdroot2)). The USB/SSD comparison is scheduled: TESTS.md "Next" (needs the user; the USB root
   first needs ps3-gpu-tools 0.477~dev for the disk sampling).
 - **Source:** PLAN 1.14; [archive/GAMEOS-HDD.md, "The benchmark: USB root against SSD root"](../archive/GAMEOS-HDD.md#the-benchmark-usb-root-against-ssd-root).
 
@@ -83,8 +84,11 @@ The candidates, estimates from batch 17's pools (none run as an A/B):
 - **Effort:** S per measurement, M per change.
 - **Risk:** low (library swaps and game patches, each behind its own A/B).
 - **Needs:** host for the builds, PS3 for the runs.
-- **Status:** never tried. The start-up profiles on the SSD root are scheduled: TESTS.md batch
-  ssdroot2 P1a (the five games, `PERF_LOAD=1 STALLS=1`, x1).
+- **Status:** never tried. The start-up profiles on the SSD root ran (ssdroot2 P1a): the disk is
+  11-26% of a load now and the CPU items are what is left ([PROFILING.md](../PROFILING.md#start-up-profiles-on-the-ssd-root-batch-ssdroot2)):
+  zlib, PNG, JPEG and audio decoders in SuperTuxKart, the map inflate in Sauerbraten, dynamic linking
+  at 3-9% of every load. They were taken without Mesa symbols; a symbolised re-run restores the shader and
+  mipmap groups.
 - **Source:** PLAN 1.7 (its follow-up); [archive/PROFILING.md, "Ranked wins"](../archive/PROFILING.md#ranked-wins-separating-measured-from-estimated).
 
 **To start.** The measurements PROFILING.md names first: `JSIMD_FORCENONE=1` in SuperTuxKart's

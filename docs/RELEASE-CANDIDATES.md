@@ -63,7 +63,7 @@ A side effect for the PS3 queue: `make deploy` now takes Mesa .476 from `ps3-dev
 | `openttd`, `openttd-data` | 15.1-1+ps3.297 | .297 rows 58, 61 | Smoke |
 | `xmoto`, `xmoto-data` | 0.6.3+repack-1+ps3.441 | .323 batching (row 49); .362~dev with the stream buffer (row 68: 162 fps); .441 is that source committed | Smoke |
 | `classicube` (engine only) | 1.3.8~git20261014.aa47929-1+ps3.374 | .367~dev rows 61-68 (`base` 45.9 fps in row 68); the split upgrade from the bundled stable .152 checked in the chroot only | Smoke; the bench (5 games); on a PS3 with the bundled .152 the upgrade (only matters for installs, not the fresh image) |
-| `supertuxkart`, `supertuxkart-data` | 1.5-2+ps3.361 | .361 rows 61-68 (`lean` 107 fps in row 68); `sound=none` in every run | Bench (`lean`); sound by ear (PLAN 2.1); PLAN D4 (`lean` as the default) is still open |
+| `supertuxkart`, `supertuxkart-data` | 1.5-2+ps3.361 | .361 rows 61-68 (`lean` 19-22 fps by the HUD, rows 68-74; the game's own 107 is its tick rate); `sound=RUNNING` since the SSD root, not heard by ear | Bench (`lean`); sound by ear (PLAN 2.1); PLAN D4 (`lean` as the default) is still open |
 | `teeworlds`, `teeworlds-server`, `teeworlds-data` | 0.7.5-3+ps3.422 | .422 smoke only (row 62, 183 fps) | Smoke, sound by ear |
 
 **Not in the stable list.**

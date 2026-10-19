@@ -43,7 +43,7 @@ release), [hardware.md](hardware.md) (backups, fan, lv1, out of scope).
 | 14 | [Long-session soak](smoothness.md#long-session-soak) | stalls and growth only long play shows | S-M | PS3, user nearby | 2.7 | - |
 | 15 | [Power paths of local/0041](platform.md#power-paths-of-local0041) | a shutdown that can't hang | S | user | 1.8 | - |
 | 16 | [Game-side batching in the remaining games](graphics.md#game-side-batching-in-the-remaining-games) | fps where a game is CPU-bound | M per game | host, PS3 | 3.1 | #6 |
-| 17 | [ps3rsx shadow_fast](graphics.md#ps3rsx-shadow_fast) | 0.6-1.5% CPU in every game | S (built) | PS3 | 1.9 | - |
+| 17 | [ps3rsx shadow_fast](graphics.md#ps3rsx-shadow_fast) | 0.6-1.5% CPU in every game (measured: no gain) | S (built, measured) | PS3 | 1.9 | - |
 | 18 | [Tiling and Z-cull](graphics.md#tiling-and-z-cull) | +10-30% in fill-bound scenes (est.) | M-L | host, PS3 | 3.2 | #19 |
 | 19 | [Luanti: view40 as an option, and its memory](games.md#luanti-view40-as-an-option-and-its-memory) | a 59 fps option, RAM | S-M | PS3, host | 2.9 | #2 |
 | 20 | [OpenArena opengl2: what is left](memory.md#openarena-opengl2-what-is-left) | a few MB, shorter reloads | S-M | host, PS3 | 3.7 | - |

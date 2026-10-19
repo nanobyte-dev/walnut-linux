@@ -91,6 +91,8 @@ patch above (`gl2min_shaders`, `_bones`, `_fboprog`, `_recompile`, `_lazy`, `_mo
 | opengl1 (base, tc1) | 70.6 | 0.0 s / 34.6 / 56 ms | 26 / 39 MB | 59 (ioquake3 396, kicker) |
 | opengl2 `gl2min` | 59.5 | 2.4 s / 21.9 / 868 ms | 15 / 117 MB | 69 (ioquake3 462) |
 | opengl2 `gl2min`, USB / SSD data / SSD data and swap | 55.9 / 56.1 / 56.1 | 0.3 / 0.0 / 0.1 s; longest 111 / 96 / 105 ms | 13 / 12 / 14 MB; 117 MB | 70 (n = 2 / 1 / 3) |
+| opengl2 `gl2min`, SSD root (n=3) | 60.4 (60.3-63.3) | 0.2 s / 25.6 / 199 ms | 15 / 119 MB | 71 |
+| opengl2 `gl2min`, SSD root, later in the same boot, `NV30_FORCE_DXT_STATS=50` in both arms (n=2 + 2) | 56.3 off / 55.8 `opaque` | 0.0 / 0.4 s; longest 89 / 191 ms | 15 / 20 MB; 120 MB | 74 |
 | opengl2 `gl2min_md3pack` | 59.0 | 1.3 s / 23.5 / 943 ms | 17 / 98 MB | 69 |
 
 Picture and sound right in both renderers. opengl2 holds Rss 79-104 MB plus 58-68 MB swapped
@@ -101,8 +103,17 @@ gameplay stalls 0.4 and 0.4 s with `ps3_idle_prep` against 9.0 and 7.9 s without
 The load (batch 17 profiles): opengl2's load takes 28.1 s from exec to the end of the loading screens
 (10.2 s by the game's own `CL_InitCGame`), 10.9 s of it disk wait; the demo's second pass reads the
 map and players again (131 MB, as much as the load) because memory pressure evicted them. With the
-game data on the SSD (batch ssd1) the load fell 28% (10.7 to 7.7 s) and the map-reload stalls 17%
-(n = 1-3, indicative only). [PROFILING.md, "Start-up profiles, batch 17"](../PROFILING.md#start-up-profiles-batch-17);
+game data on the SSD (batch ssd1) the load fell 28% (10.7 to 7.7 s). With the whole root on the SSD
+it takes 6.9 s (6.7-7.1) by the game's number and 14.2 s to the end of the loading screens, the
+load's disk wait 2.5 s against 6.3 s, the window's disk stall seconds 1.1 against 4.4, its reloads
+40.7 s against 55.7 s and the first minute's stalls 20 s against 28.6 s. Gameplay was clean on USB
+already (0.3 s), so there was nothing more to win there (0.2 s). Steady fps was 60.4 in the baseline
+and 56 for the rest of the boot (the force-DXT runs, a profiled run); the USB root gave 55.9, so an
+SSD effect on OpenArena's fps is not established. The gameplay profile is Mesa 23.1%, the game's
+renderer 24.1%, OpenAL 12.4%, kernel 14.2%, libdeflate 3.9%, ps3rsx 5.7%
+([HOTPATHS.md](../HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b)).
+[PROFILING.md, "Start-up profiles, batch 17"](../PROFILING.md#start-up-profiles-batch-17) and
+[the SSD root](../PROFILING.md#start-up-profiles-on-the-ssd-root-batch-ssdroot2);
 [GAMEOS-HDD.md](../GAMEOS-HDD.md).
 
 ## What stalls and why
@@ -130,13 +141,16 @@ lowest stalls, 0.7-0.9 s. On the old colour path, Mesa's `NV30_SYSMEM_COPY=2` wi
 `NV30_INVALIDATE_BUFFER=1` (Mesa 0037) cut the stalls from 9.9 and 12.3 to 1.5 and 1.4 s and swap from
 20-26 to 0.6-1.1 s, steady 53-54 to 59.
 
-**Built, not measured yet:** Mesa 0038 `NV30_FORCE_DXT=opaque` against off on gl2min (and gl2min_tc0
-with Mesa's compression instead of the game's), scheduled as TESTS.md batch ssdroot2 P2
-([MEMORY.md, "Texture compression at upload"](../MEMORY.md#texture-compression-at-upload-mesa-0038-nv30_force_dxt)). Mesa 0039 `NV30_SHADER_CACHE=on` cold
+**Mesa 0038 `NV30_FORCE_DXT=opaque` does nothing on gl2min** (batch ssdroot2 P2, x2 against off): it
+forced 0 textures, every one of 2238 uploads counted as `skip_format` (a format the switch does not
+take; which one is not recorded, sRGB or already compressed uploads being the likely ones), and fps,
+stalls and VRAM were equal
+([MEMORY.md](../MEMORY.md#measured-on-the-ps3-batch-ssdroot2-p2)). `gl2min_tc0`, which leaves the
+compression to Mesa, is not run yet. Mesa 0039 `NV30_SHADER_CACHE=on` cold
 and warm ([PROFILING.md, "nv30's shader cache"](../PROFILING.md#nv30s-shader-cache)); its upper bound is 0.24 s of the
 load. The engine CPU patches 0011-0018 were never A/B'd one by one on the PS3 (`up` against base).
 
-Next: whether `r_md3PackedFrames 1` becomes the default, the force-DXT A/B, and the proposals
+Next: whether `r_md3PackedFrames 1` becomes the default, why the switch skips every format here, and the proposals
 (`com_hunkTrim`, `r_keepImages` for renderergl2, ADPCM sound effects) in
 [backlog/games.md](../backlog/games.md).
 

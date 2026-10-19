@@ -4,8 +4,10 @@ Where the CPU of a frame goes in Mesa nv30, its winsys and ps3rsx, ranked across
 suite, from the same-boot profiling batch of 2026-10-18 (`PERF=1 MEM=1`, Mesa ps3.299, kernel
 6.12.111+ps3.178, ps3rsx 0.249). Of the changes it led to, one is a clear win and on by default: Mesa
 0033's lookup table for 8-bit vertex attributes (Sauerbraten +53%). The fence pool (0034), the query
-wait (0035) and the staging pool (0036) measured neutral and stay off; ps3rsx's `shadow_fast` is built
-and its A/B is queued. How the profiles are taken is in [PROFILING.md](PROFILING.md); nv30, ps3rsx and
+wait (0035) and the staging pool (0036) measured neutral and stay off; ps3rsx's `shadow_fast` showed
+no gain in its A/B (batch ssdroot2, x2 on three games) and stays off. The newest profiles, taken on
+the SSD root with the Mesa .476 build, are [below](#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b).
+How the profiles are taken is in [PROFILING.md](PROFILING.md); nv30, ps3rsx and
 the other terms are in the [glossary](README.md#glossary).
 
 ## Method
@@ -161,7 +163,7 @@ ClassiCube (43) didn't.
 | # | Target | Share | Built | Outcome |
 |---|---|---|---|---|
 | 1 | u_vbuf's SNORM8 vertex conversion | Sauerbraten 44.9%, QuakeSpasm 6.1% | Mesa 0033 `NV30_TRANSLATE_LUT` | Sauerbraten +53%; **on by default** |
-| 2 | The submission ioctl in ps3rsx | 5.4% in all 9 games | ps3rsx `shadow_fast` | built, A/B queued (ssdroot2) |
+| 2 | The submission ioctl in ps3rsx | 5.4% in all 9 games | ps3rsx `shadow_fast` | no gain resolved in the A/B (ClassiCube, Sauerbraten, X-Moto, x2), stays off |
 | 3 | Per-draw state work in st/mesa and nv30 | about 20% together, diffuse | nothing in Mesa; game-side batching | no single patch takes more than ~1% here; the lever is fewer draws in the games |
 | 4 | A buffer allocation and free per fence | 1.3% average | Mesa 0034 `NV30_FENCE_BO_POOL=N` | neutral, off |
 | 5 | Sauerbraten's occlusion query wait | 10.3% of Sauerbraten | Mesa 0035 `NV30_QUERY_WAIT`, cube2 0010 `oqwaterlag` | 0035 no fps gain, off; oqlag promising, repeat queued |
@@ -236,10 +238,22 @@ alternation.
   kind). Per game ~0.6-1.5% of the CPU (ClassiCube's shadow_burst 1.95 -> ~0.8, restore ~-0.3), less
   than the 2-3% target: validate, the push copy and the reservation locks are untouched.
 
-**Not measured yet.** ps3rsx 0.249 ran every bench row from 35 to 68, so `shadow_fast` has never been
-switched on in a game. Its A/B (`PS3RSX_SHADOW_FAST=1` against `-`, `STALLS=1`, x2 on ClassiCube,
-Sauerbraten and X-Moto) is in batch ssdroot2, and the rest of the suite after that
-([TESTS.md](TESTS.md)).
+**Measured (batch ssdroot2, row 75).** ps3rsx 0.443 on kernel .472, `PS3RSX_SHADOW_FAST=1` against off,
+`STALLS=1`, x2 interleaved, the same boot:
+
+| Game | off: steady / 1% low / stalls / client CPU | `shadow_fast`: the same |
+|---|---|---|
+| ClassiCube | 46.11 / 30.1 / 0 / 80.3 s | 46.11 / 29.7 / 0 / 86.3 s |
+| Sauerbraten | 39.15 / 25.7 / 0.05 s / 233.7 s | 39.7 / 26.2 / 0.15 s / 229.4 s |
+| X-Moto | 158.4 / 98.1 / 0 / 303.5 s | 159.0 / 97.5 / 0 / 301.1 s |
+
+No difference beyond the runs' spread (ClassiCube's CPU alone ranged 79.8-86.6 s over the boot with the
+same configuration). The estimate said 0.6-1.5% of the CPU, which fps cannot show at n=2 in games that
+are limited elsewhere (ClassiCube by the GPU, X-Moto at 158 fps, Sauerbraten by Mesa). The switch stays
+off; the profiles of the same night put `ps3rsx_shadow_burst` at 1.2-2.3% of the CPU and
+`ps3rsx_validate` at 0.5-1.4% (ClassiCube 3.6% together), so even all of it removed would be
+under 2%. Running it on the rest of the suite would add no information a profile has not given
+([TESTS.md](TESTS.md), "Next").
 
 ### Target 3: per-draw state work
 
@@ -331,6 +345,85 @@ buffer is the buffer's own mapping, no staging. The llvmpipe check `xmoto/test/g
 a random scene through the layer for 400 frames (about 950 batches and one buffer renewal a frame):
 the same pixels with and without, no GL errors.
 
+## Gameplay profiles on the SSD root (batch ssdroot2 P1b)
+
+Seven games, one run each, `PERF=1 MEM=1` (perf at 499 Hz over the measured window), 2026-10-19
+02:01-02:30Z, kernel .472, Mesa 26.2.4-1+ps3.476, ps3rsx 0.443, root on the internal SSD image
+(results row 73; run directories `ps3-bench-20261019T0201` to `T0230`). Photos at 60 s and 150 s were
+checked: Luanti, Sauerbraten, SuperTuxKart, ClassiCube, OpenArena and dsda-doom show gameplay;
+OpenTTD shows its **main menu** (a title screen redrawing with music, so its profile is the title
+screen's). Profiled runs are for profiles, not for fps: perf's own CPU is 0.06-0.23 s, and OpenArena
+ran 56 profiled against 60 unprofiled.
+
+**No symbols.** perf.data was not pulled, and the PS3-side reports show Mesa's libgallium and most game
+binaries as `[unknown]` (OpenTTD's binary is the exception). The shares below are by DSO class from
+`perf-leaf.txt` and the folded stacks; function-level ranking inside Mesa still rests on the
+symbolised profile of 2026-10-18 above, and a PC-side symbolisation of these seven is the next step.
+Kernel and ps3rsx functions have names. `perf_*` percentages are of the game process's samples (all its
+threads).
+
+| Game | HUD fps (profiled) | game | Mesa | ps3rsx | kernel, rest | soft-irq replay | libc, libm | audio libs | other |
+|---|---|---|---|---|---|---|---|---|---|
+| Sauerbraten | 40 | 10.5 | **62.8** | 4.6 | 6.9 | 2.5 | 4.6 | 6.0 | 2.1 |
+| ClassiCube | 45 | 15.6 | **41.2** | 6.8 | 15.1 | 5.0 | 4.8 | 10.0 | 1.5 |
+| SuperTuxKart lean | 20 | **36.5** | 35.5 | 2.5 | 3.4 | 1.7 | 15.1 | 3.3 | 2.0 |
+| OpenArena gl2min | 44 | 27.6 | 23.2 | 5.6 | 10.1 | 4.1 | 8.9 | 15.0 | 5.5 |
+| dsda-doom GL | 57 | 20.5 | 22.1 | 3.3 | 8.6 | 4.1 | 7.4 | **30.9** | 3.1 |
+| Luanti | 46 | **47.2** | 14.6 | 2.0 | 7.9 | 5.7 | 13.7 | 1.3 | 7.6 |
+| OpenTTD (title screen) | 18 | 21.9 | 1.1 | 0.6 | 11.9 | **37.6** | 9.1 | 16.8 | 1.0 |
+
+"ps3rsx" is its kernel functions (`ps3rsx_shadow_burst`, `validate`, the ioctls, ww_mutex); "kernel,
+rest" is every other kernel sample; "soft-irq replay" is `__replay_soft_interrupts` plus
+`arch_local_irq_restore` (below); "other" is the rest of the libraries, zstd and inflate (OpenArena
+4.8, Luanti 1.2) and what no class takes. Shares are of the game process's samples, so a row sums to
+100.
+
+What each game's CPU is:
+
+- **Sauerbraten** (38 fps): Mesa 62.8% on the main thread, 10.5% the game, 4.6% ps3rsx, the audio
+  thread (Vorbis, mixer, ALSA) about 6%. The LUT removed the vertex unpack; what stays inside Mesa
+  has to be read with symbols.
+- **ClassiCube** (46): Mesa 41.2%, the kernel 20.1% (a quarter of it soft-interrupt replay; 4.5% of
+  all samples under page-table flushes from unmapping, 1.7% in `ps3rsx_gart_clear`), ps3rsx 7.1%, OpenAL
+  and ALSA 9.9% including `snd_pcm_lfloat_convert_float_integer` 1.9% (the ALSA plug converting
+  OpenAL's float output), Xorg 7.6% of the game's.
+- **SuperTuxKart** (20): the game's main thread 36.5% (Irrlicht's driver and Bullet by the symbolised
+  profile of 10-18; `__dynamic_cast` 0.8%), Mesa 35.5%, libc 15.1% (all unsymbolised but `__memcmpeq` 0.7, `cfree` 0.7, `malloc` 0.5), the
+  audio thread 3.3% with the "buffer size too low" warnings.
+- **OpenArena gl2min** (44 profiled): the renderer `renderer_opengl2.so` 24.1%, Mesa 22.6%, the
+  kernel 14.2%, **OpenAL 12.4%** (OpenArena mixes its sounds in OpenAL Soft's mixer on the PPE), libc
+  8.6%, libdeflate 3.9% (the demo's map reloads), ps3rsx 5.7%.
+- **dsda-doom GL** (57): Mesa 22%, the game 20.5%, and the music: FluidSynth 14.2% and libspeq 11.9%
+  (`speq_synth_add_v2` 7.4%, `speq_synth_render_v2` 2.0%) on the audio thread, ALSA 3.4%, together
+  about 31% of the game's CPU, with 2793 underruns.
+- **Luanti** (46): the game 47.2%, spread over threads: MeshUpdate 20.7% of all samples, the main
+  thread 14.1% game code plus 13.3% Mesa, Emerge-0 6.6%; libc 13.7% (9.5% unsymbolised); zstd 1.2%.
+- **OpenTTD, title screen** (18): the kernel 49.5%: `__replay_soft_interrupts` 36.3% (25.8% of it
+  at the return to user mode after an interrupt, 8.3% under `ps3_hpte_invalidate`), `memset` 5.2%
+  under `ps3rsx_gart_clear` < `ps3rsx_bo_new` < `ps3rsx_ioctl_gem_new` (a buffer created and zeroed
+  per frame: `OpenGLBackend::ReleaseVideoBuffer`), FluidSynth 10.2%, libspeq 4.2% on the audio
+  thread, `Blitter_40bppAnim::Draw` 8.5%. A game's menu, not a measure of play.
+
+### System, driver and library targets that span several games
+
+Ranked by the mean share of the seven profiles and the number of games where it is at least 4% (the
+user prioritises these over game-level fixes). Mesa's inner split is not available (see above).
+
+| # | Target | Mean share | Games at 4%+ | Per game (%) | Lever |
+|---|---|---|---|---|---|
+| 1 | **Mesa/nv30 in the GL calls** (libgallium: state, draw, translate, upload, the query wait) | 28.6 | 6 of 7 | Sb 62.8, CC 41.2, STK 35.5, OA 23.2, dsda 22.1, Lu 14.6, OTTD 1.1 | symbolise these runs first: the batch of 2026-10-18 ranked per-draw state 13%, submission 5%, validation 3.6% across 9 games; what Sauerbraten's 62.8% is made of after the LUT is open |
+| 2 | **Audio mixing and synthesis** (OpenAL Soft's mixer, ALSA's float conversion, FluidSynth, libspeq, Vorbis, SDL_mixer) | 11.9 | 5 of 7 | dsda 30.9, OTTD 16.8, OA 15.0, CC 10.0, Sb 6.0, STK 3.3, Lu 1.3 | more of the mixer on the SPEs ([SPU-AUDIO.md](SPU-AUDIO.md)); OpenAL Soft told to output 16-bit so the ALSA plug stops converting (1.9% ClassiCube, 0.8 STK, 0.7 OA); the music synth is also where the underruns are (dsda 2793, OpenTTD 4172) |
+| 3 | **libc and libm** (memcpy, malloc and free, mutexes, math) | 9.1 | 7 of 7 | STK 15.1, Lu 13.7, OTTD 9.1, OA 8.9, dsda 7.4, CC 4.8, Sb 4.6 | libc6-dbg symbols to say which (named so far: `pthread_mutex_lock` 0.5-1.2%, `__memcmpeq` 0.4-0.7, `malloc`, `cfree` 0.4-0.9) |
+| 4 | **Soft-interrupt replay** (kernel `__replay_soft_interrupts`, `arch_local_irq_restore`) | 8.7 (3.9 without OpenTTD) | 5 of 7 | OTTD 37.6, Lu 5.7, CC 5.0, OA 4.1, dsda 4.1, Sb 2.5, STK 1.7 | not a path perf can resolve: samples taken while interrupts are soft-masked land here. How much real time hides behind it is unknown; the PS3 has no PMU, so a kernel-side trace of irq-off sections is the way in |
+| 5 | **ps3rsx submission and validation** (`ps3rsx_shadow_burst`, `_validate`, the push ioctls, ww_mutex) | 3.6 | 3 of 7 | CC 6.8, OA 5.6, Sb 4.6, dsda 3.3, STK 2.5, Lu 2.0 | `shadow_fast` measured no gain, so this is the structural cost of the software channel switch; fewer, larger submits are the game-side lever |
+| 6 | **Buffer creation in ps3rsx and page-table flushes** (`ps3rsx_gart_clear` memset under `bo_new`, `ps3_hpte_invalidate` and `unmap_page_range`) | 4.3 (inclusive) | 2 of 7 | OTTD 5.4 + 11.7, CC 1.7 + 4.5, OA 2.0 + 1.0, Sb 1.1 + 0.1 | a pool of zeroed buffer objects so a buffer made per frame is not cleared and unmapped again; Mesa 0034's fence pool was neutral, this is the kernel side |
+| 7 | Decompression at play time (libdeflate, zstd) | 0.9 | 1 of 7 | OA 4.8 (3.9 libdeflate), Lu 1.2 | only OpenArena's reloads; the load-time decoders are in [PROFILING.md](PROFILING.md#start-up-profiles-on-the-ssd-root-batch-ssdroot2) |
+
+Items 1-3 touch most of the suite. Item 2 has a hardware lever and a measured symptom (underruns);
+item 1 has the most CPU but needs symbols first; item 4 needs a measurement that does not exist yet.
+Game-level items (Luanti's MeshUpdate thread, STK's skinning, OpenTTD's blitter) are in the per-game
+files.
+
 ## Measured on the PS3
 
 Same-boot rows of `games/bench/results/` (row = the row number in fps.csv and its sibling files).
@@ -347,7 +440,7 @@ kicker, so compare within a row only. Steady fps unless noted.
 | 0036 `NV30_STAGING_POOL=8` | ClassiCube `chunks1` 50.9 both ways, CPU 104.4 -> 100.7 s (-4%) | 64 | neutral in fps, stays off |
 | ClassiCube `chunks1` (`CC_GL_CHUNKS=1`) | 50.9 against 48.4 (one run, row 64); 48.1 against 45.9 (x3, row 68: +4.7%), longest frame 60.5 against 98.9 ms | 64, 68 | confirmed; the default is still `CC_GL_CHUNKS=2` (next section) |
 | xmoto 0004 `XMOTO_GL_STREAM` | 163.1 against 160.4, longest gameplay frame 146 against 404 ms (one run, row 64); 162.1 against 160.7 (+1%), longest gameplay frame 380 against 43 ms (row 68) | 64, 68 | small fps gain; the "fewer hitches" of the first run did not repeat; stays off |
-| ps3rsx `shadow_fast` | not run yet | - | queued in batch ssdroot2 |
+| ps3rsx `shadow_fast` | ClassiCube 46.11 / 46.11, Sauerbraten 39.15 / 39.7, X-Moto 158.4 / 159.0 (x2 each, off / on) | 75 | no gain resolved, stays off |
 | cube2 0011 `vanormalshort` | Sauerbraten 38.7 -> 45.4 (+17%), stalls equal, VRAM +4 MB | 69 | see [MEMORY.md](MEMORY.md) |
 
 The single-run Sauerbraten numbers swing a lot on the first-person demo (row 65's two base runs:
@@ -452,5 +545,7 @@ arrays; the client index arrays' min/max scans. They are in [backlog/graphics.md
   ps3.416~dev, ps3rsx 0.250~dev). 14:21 and 14:38 (rows 64-65, commits 31e356a, 0382e3e): the query
   wait's single-run gain not confirmed.
 - 2026-10-18 evening, batch 16 (row 68, commit 296f99d): chunks1 and stream repeated.
+- 2026-10-19 (batch ssdroot2, rows 73 and 75): gameplay profiles of seven games on the SSD root
+  (unsymbolised Mesa) and the `shadow_fast` A/B (no gain).
 
 Older versions and the dated history: [archive/HOTPATHS.md](archive/HOTPATHS.md).

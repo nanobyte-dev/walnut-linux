@@ -51,9 +51,9 @@ driver.
 - **Effort:** M per game. **Risk:** low: each change behind a switch, pixels checked on llvmpipe.
 - **Needs:** host, PS3.
 - **Status:** never tried for SuperTuxKart and OpenTTD; Sauerbraten's patches are on but
-  unmeasured. Gameplay profiles that pick the targets are scheduled: TESTS.md batch ssdroot2 P1b
-  (`PERF=1 MEM=1`, x1: Luanti, Sauerbraten, SuperTuxKart `lean`, ClassiCube, OpenArena gl2min,
-  OpenTTD `gl`, dsda-doom `gl`).
+  unmeasured. Gameplay profiles that pick the targets ran in batch ssdroot2 P1b (seven games,
+  [HOTPATHS.md](../HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b)): Mesa is 14-63% of
+  six games' CPU, but without symbols, so they need a PC-side symbolisation before any target is picked.
 - **Source:** PLAN 3.1; [archive/HOTPATHS.md, "ClassiCube's batching measured slower: GPU-bound"](../archive/HOTPATHS.md#classicubes-batching-measured-slower-gpu-bound).
 
 **To start.** Count GL calls and draws per frame on llvmpipe forced to GL 2.1 (`tools/glcount`),
@@ -76,9 +76,11 @@ instructions, 0.6-1.5% of each game's CPU (ClassiCube's shadow_burst 1.95 -> ~0.
 - **Payoff:** low-medium (CPU for every game). **Effort:** S (built; flips at runtime).
 - **Risk:** low: a shadow mismatch would garble a channel switch (the fuzz says no).
 - **Needs:** PS3.
-- **Status:** built (ps3rsx 0.443 in kernel .472, switch `shadow_fast`, off). Scheduled: TESTS.md
-  batch ssdroot2 P2 (`PS3RSX_SHADOW_FAST=1` against `-`, ClassiCube, Sauerbraten, X-Moto, x2),
-  then "Next" for the rest of the suite (`run.sh suite base 1`).
+- **Status:** built (ps3rsx 0.443 in kernel .472, switch `shadow_fast`, off) and measured in batch
+  ssdroot2 P2 (`PS3RSX_SHADOW_FAST=1` against `-`, ClassiCube, Sauerbraten, X-Moto, x2): no gain in fps,
+  stalls or CPU beyond the spread ([HOTPATHS.md](../HOTPATHS.md#ps3rsxs-submission-path)). The
+  profiles put the shadow work at 1.2-2.3% of the CPU, so little can be won; it stays off and the
+  rest of the suite is not worth a batch.
 - **Source:** PLAN 1.9; [archive/HOTPATHS.md, "ps3rsx's submission path"](../archive/HOTPATHS.md#ps3rsxs-submission-path-ps3rsx-shadow_fast).
 
 Not done after it: a restore of only what other channels changed since this one ran (a per-channel

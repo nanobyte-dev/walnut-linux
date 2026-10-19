@@ -43,6 +43,12 @@ History: Mesa ps3.246 35 to 37 (HUD median, underruns 208 to 126); ps3.262 39 to
 44.5 to 166.5 (row 49, `nobatch` against base). Since the steady state, X-Moto's fps.csv cell is the
 game's average over the whole replay, not the HUD median (`--hud xmoto` keeps the old meaning).
 
+On the SSD root with ps3rsx's `shadow_fast` (row 75, x2 against off, kernel .472): 159.0 against 158.4
+steady, 1% low 97.5 against 98.1, no stalls in either, longest frame 59 against 44 ms, client CPU
+301 against 303 s: no effect. The microphone hears the game's music and engine in all 8 clips
+(-45 to -48 dBFS, the band under 300 Hz 38-47%, against the room's -50.5), with 200-218 ALSA
+underruns a run.
+
 ## Extreme Tux Racer
 
 `extremetuxracer`, `extremetuxracer-data` (`0.8.4-2+ps3.N`, package directory `etr/`), replacing

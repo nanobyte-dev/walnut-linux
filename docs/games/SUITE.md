@@ -125,7 +125,7 @@ harness's 90 s cap and its 12 s HUD skip.
 | ClassiCube | the game with `CC_BENCH` and the ccbench plugin | the plugin quits | the plugin's fps per pass | |
 | Sauerbraten | `/usr/games/cube2` with the demo and a CubeScript frame counter (`-x`) | the script quits | `ps3bench: loop`, `ps3bench: steady` | no gamepad |
 | Luanti | `luanti --go --world ... --config ...` with the ps3bench mod | `ps3bench: path end` | HUD from `ps3bench: path start` | joystick (`enable_joysticks`) unverified |
-| SuperTuxKart | `supertuxkart --fullscreen --screensize=1920x1080 --track=lighthouse --numkarts=4 --profile-time=180 --no-start-screen`, `STK_PROFILE_WARMUP=60` | the game quits | `Average FPS: F` (but see [supertuxkart.md](supertuxkart.md)) | SDL GameController |
+| SuperTuxKart | `supertuxkart --fullscreen --screensize=1920x1080 --track=lighthouse --numkarts=4 --profile-time=180 --no-start-screen`, `STK_PROFILE_WARMUP=60` | the game quits | the HUD (its `Average FPS: F` is the physics tick rate, [supertuxkart.md](supertuxkart.md#the-two-frame-rates)) | SDL GameController |
 | OpenTTD | `/usr/games/openttd -x -c CFG -r 1920x1080 -v sdl\|sdl-opengl -d sl=1`; `sim`: `-g -G 12345 -v null:ticks=20000 -s null -m null` | `WINDOW_STOP`; sim exits | HUD (gl), none (software), wall time (sim) | no gamepad |
 
 The GPU timers of any game's own profiler are garbage on the RSX: nv30's TIMESTAMP and TIME_ELAPSED

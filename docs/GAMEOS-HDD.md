@@ -392,9 +392,11 @@ fallback for everything here.
 
 **State.** Running. The SSD root first booted on 2026-10-19 at about 03:35 from the entry
 `ssd-6.12.111+ps3.472`: root `/dev/mapper/ps3root`, the VRAM swap's backing `/dev/mapper/ps3swap`,
-the boot's recheck 6.3 s, the boot 24.7 s. Tonight's batches run on it (ssdroot1, ssdroot2 in
-[TESTS.md](TESTS.md)). The comparison against the USB root in alternating boots is still to run
-([below](#the-benchmark-usb-root-against-ssd-root)). Kernel `.472` has no guard, so on this boot the
+the boot's recheck 6.3 s, the boot 24.7 s. The benchmark batches ssdroot1 and ssdroot2 ran on it
+([TESTS.md](TESTS.md)): loads 39-61% shorter, the disk's share of a load from about 40% to 11-26%,
+Sauerbraten's gameplay stalls from 1.6 s to 0.05 s
+([result](#result-the-ssd-root-batches-ssdroot1-and-ssdroot2)). The comparison against the USB root in
+alternating boots is still to run ([below](#the-benchmark-usb-root-against-ssd-root)). Kernel `.472` has no guard, so on this boot the
 initramfs logs `kernel has no write guard` and ps3db's writes are not limited to the image's
 blocks; it does set `ps3da` and `ps3dc` read-only for the boot.
 
@@ -648,9 +650,63 @@ The first five are the start-up set of batches 16 and 17 (`load`, `load_disk_s`,
 (`stall_disk_s`, `stall_swap_s`). With the SSD root the VRAM swap spills to the SSD too, so this is
 "GAMEDATA=ssd+SWAP=ssd" plus binaries, libraries and the shader cache on the SSD. bench.txt's
 `root=` tells the boots apart; report.py over each root's run directories gives the medians, and a
-difference counts when both SSD boots agree against both USB boots. Tonight's ssdroot1 A baseline
-(the five games x3 on the SSD root) is compared against batch ssd1's USB arm and batch 17, which
-is a cross-boot comparison of its own.
+difference counts when both SSD boots agree against both USB boots. The ssdroot1 A baseline (the
+five games on the SSD root) was compared against batch ssd1's USB arm and batches 16 and 17, a
+cross-boot comparison of its own, below.
+
+### Result, the SSD root (batches ssdroot1 and ssdroot2)
+
+2026-10-19 00:22-04:20Z, one boot, kernel 6.12.111+ps3.472, root `/dev/mapper/ps3root` on the
+console's internal SSD image (an upgraded SSD; a stock PS3 has a 2.5" HDD and would land between
+these numbers and the USB disk's), Mesa .476, ps3rsx 0.443, ps3-gpu-tools 0.477~dev (its stall
+recorder samples `ps3db`, so the SSD's disk wait is counted), `STALLS=1`. Results rows 71-75, commit
+named in TESTS.md. **Cross-boot and indicative**: the USB numbers are from other boots. For Sauerbraten
+and OpenArena they are batch ssd1's "-" arm (the same kernel, Mesa and ps3rsx, USB root); for Luanti,
+SuperTuxKart and ClassiCube they are batch 16 (kernel .433, Mesa .442~dev, ps3rsx 0.249), so a small
+difference for those three may be the software. A same-boot comparison needs alternating boots
+(above). Medians, [min..max]:
+
+| Game (n SSD / n USB) | Load, the game's own (s) | Load's disk wait (s) | Gameplay stalls (s) | Longest gameplay frame (ms) | 1% low | Steady fps |
+|---|---|---|---|---|---|---|
+| Sauerbraten (4 / 3) | **7.1** [6.9..7.2] / 16.9 [15.4..19.3] | **1.85** [1.7..1.9] / 5.5 [4.7..5.6] | **0.05** [0..0.4] / 1.6 [0.7..2.4] | **103** [80..152] / 459 [388..665] | 25.6 / 24.1 | 39.15 / 38.5 |
+| OpenArena gl2min (3 / 2) | **6.9** [6.7..7.1] / 10.7 [9.8..11.6] | **2.5** [2.2..2.6] / 6.3 [6.2..6.4] | 0.2 [0.1..0.5] / 0.3 | 199 [122..202] / 111 | 25.6 / 23.1 | **60.4** [60.3..63.3] / 55.9 |
+| Luanti (3 / 3) | **25.0** [24.5..25.1] / 40.8 [40.6..42.6] | **3.4** [3.0..3.5] / 9.8 [9.6..10.4] | 3.5 [2.4..5.8] / 2.5 [2.3..3.2] | 724 [724..907] / 358 [272..365] | 19.1 / 17.5 | 46 / 46 |
+| SuperTuxKart lean (3 / 3) | **31.1** [31.0..31.5] / 53.6 [53.2..54.9] | **3.3** [3.1..3.5] / 10.9 [10.4..11.5] | 2.0 [0.2..3.6] / 1.8 [1.2..4.1] | 448 [108..513] / 686 [504..768] | 11.1 / 11.4 | 20 / 20 (HUD) |
+| ClassiCube (5 / 2) | **7.65** [7.45..8.24] / 14.2 [13.9..14.4] | 1.3 [0.9..1.3] / 3.4 (batch 17) | 0 / 0.05 | 65 [58..74] / 99 | 30.7 / 30.05 | 48.1 then 46.1 / 45.9 |
+
+(SSD / USB in each cell. OpenArena's gameplay columns leave out the map reloads; its window as a whole
+had 36.2 s of stalls against 52.0 s, the reloads 40.7 s against 55.7 s. The SSD rows for Sauerbraten
+include two later `-` arms of the `shadow_fast` A/B, same configuration; SuperTuxKart's include the
+two off arms of the force-DXT A/B, and three more runs were excluded as interfered.)
+
+What it shows:
+
+- **The loads halve; the disk wait falls to a third or less.** The game's load is 39-55% shorter and
+  the main thread's disk wait in it 3-4 times lower, from 5-11 s to 1.3-3.4 s. Start to the end of the
+  loading screens (`load_end`): 19.8 to 7.7 s, 28.1 to 14.2, 43.1 to 26.1, 54.3 to 31.5, 13.9 to 7.5.
+- **The expectation that loads become CPU-bound held only in part.** The main thread's CPU seconds in
+  the load are the same as on USB, and it is now 47-77% on the CPU; 1-3.4 s of disk wait remain
+  (a quarter of Sauerbraten's load), plus sleeps, GPU waits and reclaim
+  ([PROFILING.md](PROFILING.md#start-up-profiles-on-the-ssd-root-batch-ssdroot2)). What is left
+  is CPU first: zlib, PNG, JPEG and audio decoders in SuperTuxKart, the map inflate in Sauerbraten,
+  Luanti's mapgen.
+- **Stalls dropped where they were the disk's, not elsewhere.** Sauerbraten's gameplay stalls went
+  from 1.6 s to 0.05 s and its longest frame from 459 to 103 ms (the USB stalls were file faults).
+  The first minute after a load (stall seconds): Sauerbraten 16.0 to 6.3, SuperTuxKart 18.5 to 8.8,
+  OpenArena 28.6 to 20.0; the disk wait in the warm-up 3.5 to 0.85 s (Sauerbraten), 5.8 to 1.3
+  (OpenArena). OpenArena's gameplay was clean on USB already (0.3 s, 0.2 s now; its longest gameplay
+  frame 199 ms against 111, n=3 against 2) and the window
+  stalls that remain are its CPU-bound map reloads (31 s of CPU stall). Luanti's and SuperTuxKart's
+  window stalls did not improve (Luanti 3.5 s against 2.5 s with direct reclaim 1.6 s against 0.4,
+  SuperTuxKart 2.0 against 1.8): their stalls are CPU, reclaim and mesh work, and the USB runs
+  were an older Mesa and kernel.
+- **Frame rates did not move**, except OpenArena (60.4 against 55.9), which fell back to 56 for the rest
+  of the boot (the later runs differ only by the stats variable and perf), and ClassiCube (48.1, then 46.1 from 02:00Z against 45.9
+  on USB), so neither is credited to the SSD. Frame cost is the PPE and the GPU, not the disk.
+- **Swap and VRAM-swap stalls** were small in every arm (0.0-0.3 s, Luanti 0.2 s with one 1.2 s
+  run); the SSD swap spill of batch ssd1 stays untested in the games that swap most.
+- Not run: the same set on the USB root in this boot's software (Mesa .476, ps3-gpu-tools 0.477~dev),
+  which the alternating boots do.
 
 ## Petitboot's behaviour
 

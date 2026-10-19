@@ -65,6 +65,9 @@ with names and numbers, and say when a cause is not known.
   option picks the HUD window median for `fps_steady.csv`).
 - Perf-recording runs (the "allog" OpenAL runs, the step 0 profiles) and the profile round of
   Mesa ps3.223 are slower than plain runs; their cells are not for comparison.
+- SuperTuxKart's own "Average FPS" is its physics tick rate (120 Hz x the race time: 21602 ticks in
+  every run), not a frame rate. Its cells in `fps.csv` and `fps_steady.csv` are the Gallium HUD's
+  median (19-22 fps); rows 61, 68 and 69 had 106-111 in them until the 2026-10-19 results commit.
 - Single runs vary: OpenArena (23 to 54 fps) and QuakeSpasm (66 to 84 fps) both did on Mesa
   ps3.262. A difference of a few fps between rows with one run each is noise.
 
