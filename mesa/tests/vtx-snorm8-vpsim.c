@@ -2,11 +2,13 @@
  * (Mesa's nvfx_vertprog.c, built from build/work/mesa) run on a small interpreter of NV40
  * vertex program code: every program is translated twice, without the prologue and with it for
  * a set of inputs (1 to 4 components), and run on the same vertices, the plain one given
- * util_format's unpacked floats and the other the raw bytes the GPU fetches (U8_USCALED, missing
- * components 0, 0, 1). The outputs must match bit for bit (IEEE single precision; the RSX's own
+ * util_format's unpacked floats and the other the raw bytes the GPU fetches (U8_USCALED x4:
+ * a format of fewer components gets the bytes after it too, random here, which the prologue
+ * must hide). The outputs must match bit for bit (IEEE single precision; the RSX's own
  * rounding is the PS3's part). Two programs: plain arithmetic on the inputs, and inputs read
  * with swizzles, negated, as abs and twice in one instruction. Also checked: four instructions
- * more per converted input, the same input mask (VP_ATTRIB_EN), the program ending where END is.
+ * more per converted input (five below four components), the same input mask (VP_ATTRIB_EN),
+ * the program ending where END is.
  * The interpreter knows the vector slot's MOV MUL ADD MAD DP3 DP4 MIN MAX SLT SGE and refuses
  * anything else. Built and run by tools/run-tests.sh mesa-vtx-snorm8, with the TGSI parser, the
  * generated headers it needs and vtx-snorm8-stubs.c for the few Mesa utilities it calls. */
@@ -174,7 +176,7 @@ int main(void)
 			CHECK(na > 0 && nb > 0, "prog %u key %llx: translation %d %d", p, (unsigned long long)keys[k], na, nb);
 			if (na <= 0 || nb <= 0) continue;
 			unsigned extra = 0;
-			for (unsigned i = 0; i < 16; i++) extra += nv30_snorm8_key_nc(vpb.snorm8, i) ? 4 : 0;
+			for (unsigned i = 0; i < 16; i++) extra += nv30_snorm8_prologue_insns(nv30_snorm8_key_nc(vpb.snorm8, i));
 			CHECK((unsigned)nb == (unsigned)na + extra, "prog %u key %llx: %d instructions, %d + %u expected", p,
 			      (unsigned long long)keys[k], nb, na, extra);
 			CHECK(vpa.ir == vpb.ir, "prog %u: input mask %x vs %x", p, vpa.ir, vpb.ir);
@@ -192,8 +194,8 @@ int main(void)
 					for (int j = 0; j < 4; j++) {
 						float def = j == 3 ? 1.0f : 0.0f;
 						if (nc) {
-							/* B: the fetch's raw bytes; A: util_format's unpack */
-							sb.in[i][j] = (unsigned)j < nc ? (float)by[j] : def;
+							/* B: the fetch's four raw bytes; A: util_format's unpack */
+							sb.in[i][j] = (float)by[j];
 							sa.in[i][j] = (unsigned)j < nc ? fmaxf(-1.0f, (float)((int8_t)by[j] * (1.0f / 0x7f))) : def;
 						} else {
 							sa.in[i][j] = sb.in[i][j] = (float)(rand() % 2001 - 1000) / 100.0f;

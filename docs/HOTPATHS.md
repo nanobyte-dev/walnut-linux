@@ -11,7 +11,9 @@ staging pool (0036) measured neutral and stay off; ps3rsx's `shadow_fast` showed
 ([third round](#third-round-submissions-snorm8-attributes-index-scans)): fewer submissions
 (`NV30_FENCE_WORK_KICK`, `NV30_QUERY_KICK`), SNORM8 attributes normalized in the vertex program
 (`NV30_VTX_SNORM8`) and AltiVec index scans (`NV30_MINMAX_VMX`), built in Mesa
-26.2.4-1+ps3.545~dev, off by default, waiting for their A/B. How the profiles are taken is in
+26.2.4-1+ps3.545~dev, off by default, waiting for their A/B. 0043 as built there wedged the RSX
+on its first run (graph exception 0x106: [below](#snorm8-attributes-in-the-vertex-program-mesa-0043));
+the fixed 0043 is in Mesa 26.2.4-1+ps3.570~dev (`build/debs/hotpaths3b/mesa`), not yet run. How the profiles are taken is in
 [PROFILING.md](PROFILING.md); nv30, ps3rsx and the other terms are in the [glossary](README.md#glossary).
 
 ## Method
@@ -514,7 +516,7 @@ default, in Mesa 26.2.4-1+ps3.545~dev (patches 0041-0044 on top of ps3.544's 004
 |---|---|---|---|---|
 | 0041 | `NV30_FENCE_WORK_KICK=N` (64, the default, as upstream; 0: never) | the submissions for deferred frees | OpenArena gl2min 12.5% | OpenArena's CPU about -10% with N=1024 or 0; fps up to +10% where its main thread is the limit |
 | 0042 | `NV30_QUERY_KICK=0` or `2` (1, the default: as before) | the submission at the end of every query | Sauerbraten 5.6% | Sauerbraten's CPU -5%; fps 0 to +5%, or worse in mode 0 if the water query's wait gets longer |
-| 0043 | `NV30_VTX_SNORM8=1` | u_vbuf's conversion of GL_BYTE normalized attributes | Sauerbraten 18-19%, QuakeSpasm 4-6% (10-18) | Sauerbraten +15 to 20% fps (cube2 0011's game-side version of the same gave +17%, row 69), no system memory copies of its VRAM buffers; QuakeSpasm's CPU -4% |
+| 0043 | `NV30_VTX_SNORM8=1` (only with ps3.570~dev or later: ps3.545's wedges the RSX) | u_vbuf's conversion of GL_BYTE normalized attributes | Sauerbraten 18-19%, QuakeSpasm 4-6% (10-18) | Sauerbraten +15 to 20% fps (cube2 0011's game-side version of the same gave +17%, row 69), no system memory copies of its VRAM buffers; QuakeSpasm's CPU -4% |
 | 0044 | `NV30_MINMAX_VMX=1` | most of the min/max scan of client index arrays | SuperTuxKart 6.5%; OpenArena opengl1 1.3, Yamagi 1.0 (10-18) | SuperTuxKart's CPU about -5%, fps +3 to 5% |
 
 Not picked: the per-draw state; the query wait itself (the GPU is behind there: cube2 0010 is the
@@ -560,28 +562,57 @@ the start of the vertex program give what util_format's unpack gives,
 
     s = SGE(v, 128); t = MAD(s, -256, v); t = MUL(t, 1/127); t = MAX(t, -1)
 
-MUL and MAX on the attribute's components only, so a 3-component fetch keeps its w of 1. The program
-reads that temp instead of the input. Which inputs get it is a key of 3 bits per input in the vertex
+The fetch is always four bytes, U8_USCALED x4: the RSX faults on U8_USCALED with 3 components
+(see Status below), and only x4 is safe ([RSX.md](RSX.md#errors-and-what-wedges-the-gpu)). MUL and
+MAX work on the attribute's components; for R8, R8G8 and R8G8B8 a fifth instruction moves
+(0, 0, 0, 1) into the others, so the bytes after the attribute, which the fetch reads too, never
+reach the program. That needs four bytes of room from the attribute to the end of its vertex
+(`src_offset % stride + 4 <= stride`; Sauerbraten's normal sits at 12 in a 32-byte vertex). A 1 to 3
+byte attribute packed at the very end of its vertex is converted to float by nv30 itself instead,
+with the vertices pushed inline (slow, and no game we run has one). The program reads that temp
+instead of the input. Which inputs get it is a key of 3 bits per input in the vertex
 elements state, kept to the inputs the program declares; a program is translated again when its key
 changes (as for clip planes) and the key is part of 0039's cache key. Inline vertices (vbo_fifo)
 carry the bytes as they are and constant attributes are emitted as their raw bytes, so every path
 hands the program the same values; a program that indexes its inputs goes to the draw module, which
 fetches SNORM8 itself. The cost moves to the RSX: four vertex program instructions per such
-attribute and vertex (Sauerbraten's world: eight).
+attribute and vertex, five below four components (Sauerbraten's world: nine, the normal's five and
+the tangent's four).
+
+**Status (2026-10-19): fixed after a wedge, not yet re-run.** The first build (Mesa ps3.545~dev)
+fetched each attribute with its own component count, so Sauerbraten's R8G8B8_SNORM normals went to
+the RSX as U8_USCALED x3. Its first run with the switch (batch ssdroot6, `NV30_VTX_SNORM8=1`,
+Sauerbraten base) raised graph exception 0x106 2.2 s into the demo. The GPU was dead until the
+console rebooted, and the game spun in `nv30_query_result`. The run before it in the same boot,
+without the switch, finished. The dump stops at the start of a draw right after a vertex format
+redefinition (decoded in `docs/dumps/exception-0x106-ub256-snorm8.txt`). RPCS3 accepts UB256 with
+4 components only, and nouveau's table has U8_USCALED only as R8G8B8A8_USCALED, so the 3-component
+fetch is the cause ([RSX.md](RSX.md#errors-and-what-wedges-the-gpu)). 0041 and 0042 were off
+(defaults) in that run, and 0040 and 0044 were inactive. The fix is the four-byte fetch above, in
+Mesa 26.2.4-1+ps3.570~dev (`build/debs/hotpaths3b/mesa`, not deployed, not published). ps3rsx
+0.545~dev (`build/debs/hotpaths3b/ps3rsx-472`, for the booted kernel .472) refuses UB256 with any
+size but 4 or 0, so a stream like ps3.545's now fails its push instead of wedging the GPU. The
+controlled re-test comes before any A/B (docs/TESTS.md Next, "0043 re-test").
 
 Tests (`tools/run-tests.sh mesa-vtx-snorm8`, from `build/work/mesa`):
 
 - `mesa/tests/vtx-snorm8-test.c`: the prologue's arithmetic in IEEE single precision against
   util_format's generated unpack functions (taken from `u_format_table.py`'s output) for the four
-  formats, every byte in every component, constant attributes too, and the key: 17,447 checks, bit
-  for bit;
+  formats, every byte in every component, whatever bytes follow the attribute (the four-byte
+  fetch), constant attributes too, the key, when a four-byte fetch fits in the vertex, and the
+  prologue's length: 67,370 checks, bit for bit;
 - `mesa/tests/vtx-snorm8-vpsim.c`: Mesa's own `nvfx_vertprog.c` translates two programs (plain
   arithmetic; inputs read with swizzles, negated, as abs, twice in one instruction) without the
   prologue and with it for five keys (1 to 4 components, up to three inputs), and an interpreter of
   NV40 vertex program code (the vector slot's MOV MUL ADD MAD DP3 DP4 MIN MAX SLT SGE, refusing
   anything else) runs both on 3000 vertices each, the plain one given the unpacked floats and the
-  other the raw bytes: the same outputs bit for bit (990,030 checks), four instructions more per
-  converted input, the same input mask. A wrong write mask or a missed input redirect fails it.
+  other the four raw bytes a fetch gives (random past the attribute): the same outputs bit for bit
+  (990,030 checks), four instructions more per converted input (five below four components), the
+  same input mask. A wrong write mask, a missed input redirect or a missing fill of the absent
+  components fails it (checked: without the fifth instruction it fails).
+- `ps3rsx/test/validate-test.c` (in `tools/run-tests.sh ps3rsx-shadow`): the validator's vertex
+  format rule, every type and size in every slot, alone and in bursts: 35,333 checks (the
+  validator before the fix fails 1,935 of them).
 
 What the host can't check is the RSX's own rounding of the multiply: if it isn't IEEE's, a component
 can be one ulp off, invisible in lighting. On the PS3 the check is the picture: Sauerbraten's world
@@ -782,9 +813,11 @@ measured: `mismatches` must be 0 after `insert_readback=2` sessions, else stop:
     ENVS="- PS3HTAB_INSERT_READBACK=0" /var/tmp/bench/run.sh bench classicube base 3
     python3 /var/tmp/bench/report.py /var/tmp/ps3-bench/<run dirs>...
 
-Batch hotpaths3 (Mesa 0041-0044, the third round above). Install Mesa 26.2.4-1+ps3.545~dev from
-`build/debs/hotpaths3/mesa` (on top of ps3.544; every switch off by default, so the other rows are
-unaffected), then same boot, interleaved, x3. Pictures: Sauerbraten's world lighting and water,
+Batch hotpaths3 (Mesa 0041-0044, the third round above). Install Mesa 26.2.4-1+ps3.570~dev from
+`build/debs/hotpaths3b/mesa` (ps3.545 in `build/debs/hotpaths3/mesa` has the 0043 that wedges the
+RSX: never run `NV30_VTX_SNORM8=1` on it) and ps3rsx 0.545~dev for .472 from
+`build/debs/hotpaths3b/ps3rsx-472`, after the 0043 re-test in docs/TESTS.md passed (every switch
+off by default, so the other rows are unaffected), then same boot, interleaved, x3. Pictures: Sauerbraten's world lighting and water,
 QuakeSpasm's model shading, SuperTuxKart's track and karts all there; MemAvailable (bench.txt's
 `min_memavailable_kb`) for 0041, which holds staging memory until the next submission:
 

@@ -8,8 +8,8 @@
  * slots (0x180-0x1bc) only with its known context DMAs, and a per-class method allowlist: the
  * methods Mesa's nv30 driver can emit (docs/MESA-METHODS.md section 4, indexed arrays
  * expanded to all units) plus what our raw tests use, all of which ran on the RSX.
- * Data checks: vertex format type 0, 1-pixel-wide swizzled render targets, texture offsets not
- * 128-byte aligned, SIFM surfaces.
+ * Data checks: vertex format type 0 and UB256 with other than 4 components, 1-pixel-wide
+ * swizzled render targets, texture offsets not 128-byte aligned, SIFM surfaces.
  * Not yet: bounds checks of offsets against BOs at trigger methods.
  */
 #include <linux/kernel.h>
@@ -93,7 +93,7 @@ static unsigned long allowed[VC_N][BITS_TO_LONGS(0x2000 / 4)];
  * The validator's fast path, fast[class][method / 4]: F_OK when check_method() accepts that
  * method on that class whatever the data, and changes nothing (allowed, not a bind or host
  * method, not data-checked: fast_kind()); F_VTXFMT and F_TEXOFS when its only check is the
- * vertex format type or the texture offset alignment. Such words, nearly all of a push, cost a
+ * vertex format (vtxfmt_ok()) or the texture offset alignment. Such words, nearly all of a push, cost a
  * table lookup; a non-incrementing burst to an F_OK method (inline vertex and index data) costs
  * one for all its words. Everything else goes through check_method(), so the fast path accepts
  * nothing it wouldn't.
@@ -101,9 +101,23 @@ static unsigned long allowed[VC_N][BITS_TO_LONGS(0x2000 / 4)];
 enum { F_SLOW, F_OK, F_VTXFMT, F_TEXOFS };
 static u8 fast[VC_N][0x2000 / 4];
 
+/*
+ * A vertex format (0x1740-0x177c) the RSX fetches without a graph exception: not type 0
+ * (B8G8R8A8_UNORM, which it lacks), and type 7 (U8_USCALED, libgcm's UB256) only with 4
+ * components or disabled (size 0). Mesa 0043 sent UB256 with 3 components (Sauerbraten's
+ * normals) and the RSX raised exception 0x106 at the draw; RPCS3 takes UB256 as size 4 only,
+ * and nouveau's own table has it only as R8G8B8A8_USCALED (docs/RSX.md).
+ */
+static __always_inline bool vtxfmt_ok(u32 data)
+{
+	u32 type = data & 0xf, size = (data >> 4) & 0xf;
+
+	return type != 0 && (type != 7 || size == 0 || size == 4);
+}
+
 static __always_inline bool fast_ok(u8 f, u32 data)
 {
-	return f == F_OK || (f == F_VTXFMT && (data & 0xf)) || (f == F_TEXOFS && !(data & 127));
+	return f == F_OK || (f == F_VTXFMT && vtxfmt_ok(data)) || (f == F_TEXOFS && !(data & 127));
 }
 
 static void allow(int c, const struct mrange *r, int n)
@@ -192,7 +206,7 @@ static u8 fast_kind(int c, u32 m)
 	if (m == 0x1808 || m == 0x208)
 		return F_SLOW;			/* BEGIN_END state, RT_FORMAT */
 	if (m >= 0x1740 && m <= 0x177c)
-		return F_VTXFMT;		/* vertex format type 0 */
+		return F_VTXFMT;		/* vertex format: vtxfmt_ok() */
 	if (tex_offset(m))
 		return F_TEXOFS;		/* texture offset alignment */
 	return F_OK;
@@ -229,9 +243,11 @@ static int check_method(struct ps3rsx_vstate *vs, u32 subch, u32 mthd, u32 data,
 	if (vs->bound[subch] == 0x31337000 && mthd == 0x1808)
 		vs->prim_open = data != 0;	/* BEGIN_END: Mesa splits draws across pushes */
 	if (vs->bound[subch] == 0x31337000 && mthd >= 0x1740 && mthd <= 0x177c &&
-	    (data & 0xf) == 0) {
-		/* vertex format type 0 raises a graph exception on the RSX (quirks test) */
-		*why = "vertex format type 0";
+	    !vtxfmt_ok(data)) {
+		/* vertex format type 0 raises a graph exception on the RSX (quirks test), and so
+		 * did UB256 with 3 components (0x106, Mesa 0043): vtxfmt_ok() */
+		*why = (data & 0xf) ? "vertex format UB256 with other than 4 components" :
+				      "vertex format type 0";
 		return -EINVAL;
 	}
 	if (vs->bound[subch] == 0x31337000 && mthd == 0x208 &&

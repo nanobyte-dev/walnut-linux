@@ -69,7 +69,7 @@ Nothing else. (nv30-only 0x08fc RC_ENABLE, 0x17e0, 0x1f80 are unknown to RPCS3 t
 | 0x1d80 | SET_SURFACE_COMPRESSION | not written on NV40 | libgcm writes 3 | - | Mesa skips it; first-run gap vs libgcm |
 | 0x0b00+4u | SET_TEXTURE_CONTROL2 | 0x00002dc4 (context.c:237) | 0x2dc8 (:240s) | fragtex.c:140 | 1-bit difference |
 | 0x0220 | SET_SURFACE_COLOR_TARGET | rt_enable (0x1, 0x11..), `& ~fp->rt_enable` | gcm legal: 0,1,2,0x13,0x17,0x1f | state_validate.c:49-51,349 | Masked value can be non-gcm (e.g. 0x12) |
-| 0x1740+4i | SET_VERTEX_DATA_ARRAY_FORMAT | type 0 = B8G8R8A8_UNORM, 1,2,3,4,5,7 | RPCS3 enum 1..7, 0 treated as ub256 | vbo.c:213, draw.c:362 | Type 0 is the only questionable one |
+| 0x1740+4i | SET_VERTEX_DATA_ARRAY_FORMAT | type 0 = B8G8R8A8_UNORM, 1,2,3,4,5,7 | RPCS3 enum 1..7, 0 treated as ub256 | vbo.c:213, draw.c:362 | Type 0 faults; so does type 7 (UB256) with 3 components (0x106, Mesa 0043 before its fix): only UB256 x4 is safe, as RPCS3 asserts |
 | 0x1800 | GET_REPORT | (report<<24)\|offset, report=1 for timestamp/time elapsed | type 1 = ZPASS_PIXEL_CNT; 2..5 zcull stats; others bad (nv4097.cpp:644) | query.c:158,187 | Wrong semantics for timer queries |
 | 0x1d6c/70 | SET_SEMAPHORE_OFFSET / BACK_END_WRITE_SEMAPHORE_RELEASE | 0, sequence | offset%16==0, value channel-swizzled (nv4097.cpp:820-842) | screen.c:414-417 | Fence readback differs from written value |
 | 0x1da4 | SET_CLIP_ID_TEST_ENABLE | 0 | 0 | state_validate.c:105 | Fine; clip-id DMA is 0 |

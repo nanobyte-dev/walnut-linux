@@ -101,13 +101,15 @@ A graph exception is reported through ps3fb's interrupt (for channel 1 as well).
 | Cause | Trigger |
 |---|---|
 | 0x105 | an M2MF transfer in a fresh context whose notifier DMA was never set; also a 3D texture sampled at an offset that is not 128-byte aligned (+0xaa0, from Mesa's blit reading back a 2x2 mip level for Neverball, 2026-10-17) |
-| 0x106 | rendering to a swizzled surface 1 pixel wide (RT_FORMAT type swizzled, log2 width 0) |
+| 0x106 | rendering to a swizzled surface 1 pixel wide (RT_FORMAT type swizzled, log2 width 0); also a draw from a vertex format of type 7 (U8_USCALED, libgcm's UB256) with 3 components (0x1740+ with `data & 0xff == 0x37`), Mesa 0043 on Sauerbraten, 2026-10-19 |
 | 0x109 | M2MF methods sent to the surface-2D object |
 | (graph exception, no cause noted) | vertex format type 0 (0x1740+ with `data & 0xf == 0`) |
 
 The 0x106 case was found on 2026-10-14 from xeglgears and LXQt crashes: glamor draws into 1-pixel-wide pixmaps (dumps are in `docs/dumps/`). We isolated it with egl-thin: a 1x64 target raises it, while 2x64, 64x1 and 1427x1 (linear) render correctly. Linear surfaces 1 pixel wide are fine. Mesa keeps such render targets linear on the PS3, and the validator rejects the RT_FORMAT. The 0x105 texture offset case is fixed in Mesa (0014) and refused by ps3rsx since version 0.249.
 
-Reading ps3fb's dump takes care. Each pair is `fifo_cache:graph_fifo`, with subchannel `(a>>13)&7` and method `a & 0x1ffc`. But ps3fb prints entries 4i..4i+3 for i = 0, 4, ..., 28 (entries 0-3, 16-19, ..., 112-115 of the 512), not the ones around GET, and its G/P markers compare GET and PUT with i. It should print the 32 entries ending at GET (task #29, not done).
+The UB256 case: Mesa 0043 (`NV30_VTX_SNORM8=1`) fetched Sauerbraten's R8G8B8_SNORM normals as U8_USCALED with 3 components, and the RSX raised 0x106 2.2 s into the demo; the run before it in the same boot, without the switch, finished. The dump is `docs/dumps/exception-0x106-ub256-snorm8.txt`. GET (entry 83) is a BEGIN_END(TRIANGLES) still pending, so the exception came at the start of a draw, not at a method write; among the entries PGRAPH took just before it are the world vertex's texcoord and lightmap formats (VTXFMT(1) = 0x2022, float x2, stride 32; VTXFMT(2) = 0x2025, short x2), then the index buffer. The slots after VTXFMT(2), where a normal and a tangent would be, are not among the printed entries. Why we blame UB256 x3 although the dump doesn't show that word: RPCS3, which emulates what commercial games send, asserts UB256 has 4 components (`ensure(size == 4)` in `get_vertex_type_size_on_host`, while it accepts 1 to 4 for UB, S1, S32K and SF), and nouveau's NV30/NV40 table has U8_USCALED only as R8G8B8A8_USCALED. UB256 with 1 or 2 components was never sent; we treat it as forbidden too. **Only UB256 x4 is safe.** Mesa 0043 now always fetches four bytes ([HOTPATHS.md](HOTPATHS.md#snorm8-attributes-in-the-vertex-program-mesa-0043)). Since ps3rsx 0.545~dev the validator refuses type 7 with a size other than 4 or 0 (disabled), so a stream like that fails its push and leaves the GPU running. The controlled PS3 re-test is in [TESTS.md](TESTS.md) Next.
+
+Reading ps3fb's dump takes care. Each pair is `fifo_cache:graph_fifo`, with subchannel `(a>>13)&7` and method `a & 0x1ffc` (bit 0 of `a`, as in `0xf825` or `0xf819`, is set on some entries; the method is still `a & 0x1ffc`). But ps3fb prints entries 4i..4i+3 for i = 0, 4, ..., 28 (entries 0-3, 16-19, ..., 112-115 of the 512), not the ones around GET, and its G/P markers compare GET and PUT with i. It should print the 32 entries ending at GET (task #29, not done). GET and PUT are indexes into that 512-entry cache. Once PGRAPH stops, PFIFO keeps filling the cache, so PUT ends up just behind GET: in every dump so far, 225 to 495 entries were pending. The entries from PUT to GET-1 are the last ones PGRAPH took, in order, written in the lap before; GET is the next one it would have taken.
 
 **An exception wedges the whole RSX, not one channel.** After one in channel 1, ps3fb's channel 0 stops too, and a freshly allocated context's FIFO does not even fetch. None of these recovered it:
 
@@ -130,7 +132,7 @@ ps3fb's vsync task blits the console into frame 0. ENTER stops it, but a blit al
 
 `ps3-gpu-tools/rsxdrm-smoke` through the nouveau ioctls gives exact M2MF GART-to-VRAM and VRAM-to-GART copies, an exact 3D clear, and an exact raw-command triangle. It also ran 10,000 fenced submits with the back-end semaphore label always landed when the fence signalled, and 20 load/unload cycles.
 
-Two things Mesa does that libgcm does not: it sends the M2MF NOP (0x100 on the M2MF subchannel) and RT_ENABLE 0x12, and the GPU accepts both. **Vertex format type 0 (0x1740+ with `data & 0xf == 0`) raises a graph exception.** The validator rejects it, and Mesa must never emit it on the PS3.
+Two things Mesa does that libgcm does not: it sends the M2MF NOP (0x100 on the M2MF subchannel) and RT_ENABLE 0x12, and the GPU accepts both. **Vertex format type 0 (0x1740+ with `data & 0xf == 0`) raises a graph exception, and so does type 7 (UB256) with 3 components (cause 0x106, [above](#errors-and-what-wedges-the-gpu)).** The validator rejects both, UB256 with any size but 4 or 0, and Mesa must never emit them on the PS3.
 
 ## Mesa, KMS and X on the driver
 

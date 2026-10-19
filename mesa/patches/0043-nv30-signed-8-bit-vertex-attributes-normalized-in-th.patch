@@ -19,9 +19,17 @@ what util_format's unpack gives, MAX2(-1.0f, (float)(c * (1.0f/0x7f))):
 
    s = SGE(v, 128); t = MAD(s, -256, v); t = MUL(t, 1/127); t = MAX(t, -1)
 
-MUL and MAX on the attribute's components only, so the w a 3-component fetch fills in stays
-1. The program then reads the temp instead of the input (tgsi_src); each instruction reads at
-most one input and one constant, as the hardware requires. The inputs this applies to are a
+The fetch is always four bytes (U8_USCALED x4): the RSX raises graph exception 0x106 for
+U8_USCALED with 3 components (Sauerbraten's R8G8B8_SNORM normals wedged the GPU 2 s into its
+demo, 2026-10-19), RPCS3 takes UB256 as size 4 only, and nouveau's own table has U8_USCALED
+only as R8G8B8A8_USCALED. MUL and MAX work on the attribute's components; for a format of
+fewer than four a fifth instruction moves (0, 0, 0, 1) into the others, so the bytes after
+the attribute that the fetch also reads never reach the program. That needs four bytes of
+room in the vertex from the attribute on (src_offset % stride + 4 <= stride); a 1 to 3 byte
+attribute packed at the very end of its vertex is converted to float by nv30 instead, as for
+formats the GPU can't fetch. The program then reads the temp instead of the input
+(tgsi_src); each instruction reads at most one input and one constant, as the hardware
+requires. The inputs this applies to are a
 key of 3 bits per input (component count) in the vertex elements state, kept to the inputs
 the program declares; a program is translated again when its key changes, as for clip planes
 (binding elements with another key marks the program dirty), and the key is part of 0039's
@@ -30,16 +38,18 @@ element whose output format is its input format), constant attributes (stride 0)
 as their raw bytes, so every path hands the program the same values. A program that indexes its
 inputs can't be redirected and goes to the draw module, which fetches SNORM8 itself.
 
-No conversion on the CPU and no system memory copies for those buffers; the cost is four
-vertex program instructions per such attribute and vertex. The pixels are the same if the
-RSX's multiply rounds as IEEE single precision does (at most one ulp off otherwise).
+No conversion on the CPU and no system memory copies for those buffers; the cost is four vertex
+program instructions per such attribute and vertex (five below four components). The pixels are
+the same if the RSX's multiply rounds as IEEE single precision does (at most one ulp off
+otherwise).
 
 Checked on the host (PS3 tree, tools/run-tests.sh mesa-vtx-snorm8): the prologue's arithmetic
 against util_format's generated unpack functions for the four formats, every byte in every
-component, bit for bit; and nvfx_vertprog.c's output, with and without the prologue, run on an
-NV40 vertex program interpreter on 3000 vertices for 2 programs and 5 keys (inputs read with
-swizzles, negated, as abs, twice in one instruction): the same outputs bit for bit, four
-instructions more per converted input, the same input mask.
+component, whatever bytes follow the attribute, bit for bit; and nvfx_vertprog.c's output, with
+and without the prologue, run on an NV40 vertex program interpreter on 3000 vertices for 2
+programs and 5 keys (inputs read with swizzles, negated, as abs, twice in one instruction): the
+same outputs bit for bit, four instructions more per converted input (five below four
+components), the same input mask.
 
 Forwarded: no
 
@@ -176,26 +186,32 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/n
  
     switch (nc) {
     case 4:
-@@ -290,7 +298,17 @@ nv30_vertex_state_create(struct pipe_context *pipe, unsigned num_elements,
+@@ -290,7 +298,23 @@ nv30_vertex_state_create(struct pipe_context *pipe, unsigned num_elements,
          const unsigned vbi = ve->vertex_buffer_index;
          enum pipe_format fmt = ve->src_format;
  
 -        so->element[i].state = nv30_vtxfmt(pipe->screen, fmt)->hw;
 +        /* NV30_VTX_SNORM8: fetched as unsigned bytes (U8_USCALED), normalized by the vertex
-+         * program; inline (vbo_fifo) the bytes are copied as they are */
++         * program; inline (vbo_fifo) the bytes are copied as they are. Always fetched as four
++         * bytes: the RSX raises a graph exception (0x106) for U8_USCALED (libgcm's UB256) with
++         * fewer components, and the prologue sets the components the format lacks. Where the
++         * vertex has no room for the extra bytes (nv30_snorm8_fetch_fits), the attribute is
++         * converted to float like an unsupported format. */
 +        const unsigned nc8 = nv30_screen(pipe->screen)->vtx_snorm8 ?
 +                             nv30_snorm8_components(fmt) : 0;
-+        if (nc8) {
++        if (nc8 && nv30_snorm8_fetch_fits(nc8, ve->src_offset, ve->src_stride)) {
 +            so->element[i].state = NV30_3D_VTXFMT_TYPE_U8_USCALED |
-+                                   (nc8 << NV30_3D_VTXFMT_SIZE__SHIFT);
++                                   (NV30_SNORM8_FETCH_SIZE << NV30_3D_VTXFMT_SIZE__SHIFT);
 +            so->snorm8 = nv30_snorm8_key_set(so->snorm8, i, nc8);
++        } else if (nc8) {
++            so->element[i].state = 0;
 +        } else {
 +            so->element[i].state = nv30_vtxfmt(pipe->screen, fmt)->hw;
 +        }
          /* The RSX has no vertex type 0 (B8G8R8A8_UNORM): it raises a graph exception.
           * Convert such attributes to float like unsupported ones. */
          if (nv30_screen(pipe->screen)->base.is_ps3 &&
-@@ -335,6 +353,7 @@ nv30_vertex_state_create(struct pipe_context *pipe, unsigned num_elements,
+@@ -335,6 +359,7 @@ nv30_vertex_state_create(struct pipe_context *pipe, unsigned num_elements,
  
          so->pipe[1] = so->pipe[0];
          so->element[1] = so->element[0];
@@ -203,7 +219,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/n
          transkey.element[j] = transkey.element[0];
          transkey.element[j].output_offset = transkey.output_stride;
          transkey.output_stride += transkey.output_stride;
-@@ -361,7 +380,11 @@ static void
+@@ -361,7 +386,11 @@ static void
  nv30_vertex_state_bind(struct pipe_context *pipe, void *hwcso)
  {
     struct nv30_context *nv30 = nv30_context(pipe);
@@ -248,7 +264,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vtx_snorm8.h b/src/gallium/dr
 new file mode 100644
 --- /dev/null
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_vtx_snorm8.h
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,105 @@
 +/*
 + * NV30_VTX_SNORM8: signed normalized 8-bit vertex attributes (GL_BYTE with normalized set:
 + * Sauerbraten's normals and tangents, QuakeSpasm's model normals) fetched by the GPU as plain
@@ -262,7 +278,18 @@ new file mode 100644
 + *    t = MUL(t, 1/127)          as util_format: (float)(c * (1.0f/0x7f))
 + *    t = MAX(t, -1)             as util_format: MAX2(-1.0f, ...)
 + *
-+ * MUL and MAX only on the attribute's components, so a missing w stays the fetch's 1.0.
++ * The GPU always fetches four bytes (NV30_SNORM8_FETCH_SIZE): the RSX raises graph exception
++ * 0x106 for U8_USCALED with 1 to 3 components (Sauerbraten's R8G8B8_SNORM normals wedged it,
++ * 2026-10-19; RPCS3 takes UB256 as size 4 only, nouveau's table has it only as
++ * R8G8B8A8_USCALED). For a format with fewer components a fifth instruction sets the ones it
++ * lacks to what a fetch of the format gives:
++ *
++ *    t.<missing> = MOV((0, 0, 0, 1))
++ *
++ * so the bytes past the attribute (the next attribute's, or padding) never reach the program.
++ * Reading them needs room in the vertex (nv30_snorm8_fetch_fits); without it (a tightly packed
++ * 1 to 3 byte attribute at the end of its vertex) nv30 converts the attribute to float itself,
++ * as for formats the GPU can't fetch, and pushes those vertices inline.
 + *
 + * Which attributes get the prologue is a key of 3 bits per vertex program input (its
 + * component count, 0: none), from the vertex elements and kept to the inputs the program
@@ -274,9 +301,30 @@ new file mode 100644
 +#ifndef NV30_VTX_SNORM8_H
 +#define NV30_VTX_SNORM8_H
 +
++#include <stdbool.h>
 +#include <stdint.h>
 +
 +#define NV30_SNORM8_MAX_ATTRIBS 16
++
++/* the component count of every SNORM8 fetch (U8_USCALED x4, libgcm's UB256 size 4) */
++#define NV30_SNORM8_FETCH_SIZE 4
++
++/* Can an attribute of nc bytes at src_offset in vertices of src_stride bytes be fetched as four
++ * bytes without reading past its vertex? A constant attribute (stride 0) is never fetched. */
++static inline bool
++nv30_snorm8_fetch_fits(unsigned nc, unsigned src_offset, unsigned src_stride)
++{
++   if (nc == NV30_SNORM8_FETCH_SIZE || !src_stride)
++      return true;
++   return src_offset % src_stride + NV30_SNORM8_FETCH_SIZE <= src_stride;
++}
++
++/* vertex program instructions the prologue adds for an input of nc components (0: none) */
++static inline unsigned
++nv30_snorm8_prologue_insns(unsigned nc)
++{
++   return !nc ? 0 : nc < NV30_SNORM8_FETCH_SIZE ? 5 : 4;
++}
 +
 +static inline uint64_t
 +nv30_snorm8_key_set(uint64_t key, unsigned attr, unsigned nc)
@@ -357,14 +405,16 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nvfx_vertprog.c b/src/gallium/driv
        break;
     case TGSI_FILE_CONSTANT:
        if(fsrc->Register.Indirect) {
-@@ -950,6 +959,48 @@ nvfx_vertprog_prepare(struct nvfx_vpc *vpc)
+@@ -950,6 +959,58 @@ nvfx_vertprog_prepare(struct nvfx_vpc *vpc)
     return true;
  }
  
-+/* NV30_VTX_SNORM8: each input of the key arrives as bytes 0..255 (U8_USCALED) and is
++/* NV30_VTX_SNORM8: each input of the key arrives as four bytes 0..255 (U8_USCALED x4) and is
 + * normalized into a temp as util_format's SNORM8 unpack does (nv30_vtx_snorm8.h); the
-+ * program reads the temp instead of the input. One constant, four instructions an input,
-+ * each reading at most one input and one constant as the hardware requires.
++ * program reads the temp instead of the input. Four instructions an input, a fifth for a
++ * format of fewer than four components (its missing ones as (0, 0, 0, 1): the fetched bytes
++ * past the attribute belong to something else), each reading at most one input and one
++ * constant as the hardware requires.
 + */
 +static bool
 +nvfx_vertprog_snorm8_prologue(struct nvfx_vpc *vpc)
@@ -374,7 +424,8 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nvfx_vertprog.c b/src/gallium/driv
 +      NVFX_VP_MASK_X | NVFX_VP_MASK_Y | NVFX_VP_MASK_Z, NVFX_VP_MASK_ALL };
 +   struct nv30_vertprog *vp = vpc->vp;
 +   struct nvfx_src none = nvfx_src(nvfx_reg(NVFXSR_NONE, 0));
-+   struct nvfx_src c;
++   struct nvfx_src c, c0001;
++   bool have_c0001 = false;
 +   unsigned i;
 +
 +   /* inputs read by index can't be redirected: the draw module takes the program then */
@@ -396,6 +447,13 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nvfx_vertprog.c b/src/gallium/driv
 +      nvfx_vp_emit(vpc, arith(0, VEC, MAD, t, NVFX_VP_MASK_ALL, nvfx_src(s), swz(c, Y, Y, Y, Y), in));
 +      nvfx_vp_emit(vpc, arith(0, VEC, MUL, t, masks[nc], nvfx_src(t), swz(c, Z, Z, Z, Z), none));
 +      nvfx_vp_emit(vpc, arith(0, VEC, MAX, t, masks[nc], nvfx_src(t), swz(c, W, W, W, W), none));
++      if (nc < NV30_SNORM8_FETCH_SIZE) {
++         if (!have_c0001) {
++            c0001 = nvfx_src(constant(vpc, -1, 0.0f, 0.0f, 0.0f, 1.0f));
++            have_c0001 = true;
++         }
++         nvfx_vp_emit(vpc, arith(0, VEC, MOV, t, NVFX_VP_MASK_ALL & ~masks[nc], c0001, none, none));
++      }
 +      release_temps(vpc);
 +      vpc->r_input[i] = t;
 +      vpc->snorm8_inputs |= 1u << i;
@@ -406,7 +464,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nvfx_vertprog.c b/src/gallium/driv
  DEBUG_GET_ONCE_BOOL_OPTION(nvfx_dump_vp, "NVFX_DUMP_VP", false)
  
  bool
-@@ -991,6 +1042,11 @@ _nvfx_vertprog_translate(uint16_t oclass, struct nv30_vertprog *vp)
+@@ -991,6 +1052,11 @@ _nvfx_vertprog_translate(uint16_t oclass, struct nv30_vertprog *vp)
  
     insns = UTIL_DYNARRAY_INIT;
  

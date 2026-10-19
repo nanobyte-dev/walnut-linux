@@ -1,0 +1,33 @@
+[69748.064555] ps3fb ioc0_01: ps3fb_vsync_interrupt: graphics exception
+[69748.064606] ps3fb ioc0_01: channel id 0x00000001 cause 0x00000106
+[69748.064640] ps3fb ioc0_01: fifo:
+[69748.064664] ps3fb ioc0_01: 	dma get 0x00002200 dma put 0x00003b34
+[69748.064688] ps3fb ioc0_01: 	call 0x0012d8a8 jump 0x001feccc
+[69748.064712] ps3fb ioc0_01: 	get 0x00000053 put 0x00000042 ref 0x5ebd4649
+[69748.064737] ps3fb ioc0_01: 	    [000] 0000f808:00000005 0000f825:200028bc 0000f808:00000000 0000f840:00100000
+[69748.064770] ps3fb ioc0_01: 	    [004] 0000fa68:00010101 0000fa6c:80048000 0000fa70:0000aae4 0000fa74:02062000
+[69748.064805] ps3fb ioc0_01: 	    [008] 0000f825:17004ee7 0000f808:00000000 0000f680:0e28c000 0000f684:0e28c010
+[69748.064846] ps3fb ioc0_01: 	    [00c] 0000fa28:00010303 0000fa2c:80000000 0000fa30:0000a9e4 0000fa34:02022000
+[69748.064878] ps3fb ioc0_01: 	    [010] 0000eb08:00002dc4 0000f680:0e28c000 0000f744:00002022 0000f748:00002025
+[69748.064912] ps3fb ioc0_01: 	    [014] 0000f718:00000000 0000f81c:0e31c000 0000f820:00000010 0000f808:00000005
+[69748.064944] ps3fb ioc0_01: 	    [018] 0000f825:4f005fad 0000f808:00000000 0000f844:00100000 0000fa20:06400000
+[69748.064978] ps3fb ioc0_01: 	    [01c] 0000fa4c:80000000 0000fa50:0000a9e4 0000fa54:02022000 0000fa58:04000400
+[69748.065036] ps3rsx: graph exception; last submit from channel -1, cube2_client (pid 675753)
+
+Decoded (docs/RSX.md "Errors and what wedges the GPU"; Sauerbraten base, NV30_VTX_SNORM8=1, Mesa
+26.2.4-1+ps3.545~dev, kernel .472, 2026-10-19 19:24:36Z, 2.2 s after the demo's first frame).
+Subchannel 7 = 3D. GET = entry 83, PUT = 66: entries 83..511, 0..65 pending (495), 66..82 the last
+ones PGRAPH took.
+  entries 0-3 (pending)    BEGIN_END TRIANGLES; VB_INDEX_BATCH 32 from 0x28bc; BEGIN_END STOP; TEX_SIZE1(0) 0x100000
+  entries 16-19 (pending)  TEX unit 3: WRAP 0x00010101, ENABLE 0x80048000, SWIZZLE 0xaae4, FILTER 0x02062000
+  entries 32-35 (pending)  VB_INDEX_BATCH 24 from 0x4ee7; BEGIN_END STOP; VTXBUF(0) 0x0e28c000; VTXBUF(1) 0x0e28c010
+  entries 48-51 (pending)  TEX unit 1: WRAP, ENABLE, SWIZZLE, FILTER
+  entries 64-65 (pending)  TEX_FILTER_OPTIMIZATION(2) 0x2dc4; VTXBUF(0) 0x0e28c000
+  entries 66-67 (taken)    VTXFMT(1) 0x2022 (float x2, stride 32: texcoord); VTXFMT(2) 0x2025 (short x2: lightmap)
+  entries 80-82 (taken)    0x1718 0; IDXBUF_OFFSET 0x0e31c000; IDXBUF_FORMAT 0x10 (U16)
+  entry 83 (GET)           BEGIN_END TRIANGLES: the draw that did not start
+  entries 96-99 (pending)  VB_INDEX_BATCH 80 from 0x5fad; BEGIN_END STOP; TEX_SIZE1(1); TEX_OFFSET(1) 0x06400000
+  entries 112-115 (pending) TEX unit 2: ENABLE, SWIZZLE, FILTER, NPOT_SIZE 0x04000400
+Entries 68-79 (the remaining vertex formats and the VTXBUFs; for a world shader that reads normals
+and tangents, the normal's U8_USCALED x3 = 0x2037 and the tangent's x4 = 0x2047) are not printed by
+ps3fb, so the dump alone doesn't show the format: see docs/RSX.md for the case against UB256 x3.

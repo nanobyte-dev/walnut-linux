@@ -147,7 +147,7 @@ Host tests (no PS3 needed):
                                  #   last two with make test-slow)
 
 `tools/run-tests.sh` runs them: `games/bench/selftest.py`, `ps3-desktop/tests/gprefetch-check.py`,
-`ps3rsx/test` (x86 fuzz with short seeds; the big-endian run under qemu when the cross gcc, qemu and
+`ps3rsx/test` (x86 fuzz with short seeds and the validator's vertex format checks; the big-endian run under qemu when the cross gcc, qemu and
 the Mesa sysroot exist), `make -C ps3-spu test`, `xmoto/test/glbatch-test.sh` (needs `make xmoto-work`).
 A suite missing its prerequisites is reported as skip. Logs are in `build/tmp/tests/<suite>.log`;
 the exit status is non-zero when a suite failed.
