@@ -6,7 +6,7 @@
 # the edges or arrows, build from the building menu, Esc / F10 opens the menu). Variant menu is the main
 # menu; skip: the same tutorial map with `--autosave=0`.
 # Settings: ~/.widelands/config (restored after the run); the command line sets the video mode:
-# --fullscreen (`--fullscreen` takes no value: 1.3.1 refused `--fullscreen=true` on the PS3, 2026-10-19).
+# --fullscreen alone: 1.3.1 takes no value for it and refuses --xres/--yres beside it (the screen's mode is used).
 # What it exercises: SDL2 + OpenGL 2.1 with GLSL 1.20 shaders (Widelands 1.x always renders through
 # OpenGL; no GL 3 needed -- a GLSL compile error on nv30 would show in the log as "shader"), lots of
 # small sprites in batches, SDL2_image/ttf/mixer, Lua scripting. Savegames are explicit-byte-order.
