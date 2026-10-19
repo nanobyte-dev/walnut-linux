@@ -1,6 +1,6 @@
 # PS3 / RSX tinkering
 
-The plan is in docs/PLAN.md, background facts in docs/RESEARCH.md, measured GPU facts in docs/RSX.md, packaging and the apt repository in docs/PACKAGING.md, layout and usage in README.md. Read them at the start of a session.
+The docs are indexed in docs/README.md. The plan is in docs/PLAN.md, the PS3 test log in docs/TESTS.md, background facts in docs/research/RESEARCH.md, measured GPU facts in docs/RSX.md, packaging and the apt repository in docs/PACKAGING.md, layout and usage in README.md. Read them at the start of a session.
 
 ## Project hygiene
 - Keep the layout in README.md. Sources/config are tracked; anything generated goes under build/.
