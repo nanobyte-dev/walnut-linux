@@ -1,24 +1,44 @@
-# Mesa nv30 (class 0x4097, chipset 0x47) vs RSX: method audit
+# Mesa nv30 against the RSX: method audit
 
-Sources fetched 2026-10-14: Mesa main `src/gallium/drivers/nouveau/nv30/*` (screen, state, state_validate, draw, vbo, push, vertprog, fragprog, fragtex, verttex, clear, query, transfer, context, headers) and RPCS3 master `gcm_enums.h`, `rsx_methods.cpp`, `NV47/HW/nv4097.cpp`. Line numbers below are in those fetched copies. Chipset 0x47: `CURIE_4097_CHIPSET` bit 7 set, so oclass = NV40_3D_CLASS (0x4097); M2MF 0x0039 (NV03_M2MF), surf2d 0x0062 (NV10_SURFACE_2D), swz 0x309e (NV40_SURFACE_SWZ), SIFM 0x3089 (NV40_SIFM). nv30-only (<0x40) branches are skipped throughout.
+This is a desk audit, written on 2026-10-14 before anything of Mesa had run on the PS3. We read every method that Mesa's nv30 driver can send to a chipset 0x47 (NV47, class 0x4097) and compared it with what RPCS3 and libgcm know about the RSX. The tables are the lasting part: which methods Mesa emits and where, which handles need replacing, the init sequence, and the per-class method list. Most of the audit's risks were then settled on the hardware, and the per-class list became the source of the driver's validator allowlist ([DRIVER.md, "The validator"](DRIVER.md#the-validator)).
 
-Method offsets are the byte offsets inside each class (what the FIFO header carries in bits 2..12). RPCS3 keys its registers by `subchannel<<13 | method`, with the libgcm subchannel layout 0=4097, 1=0039, 3=3062, 4=309e, 5=308a, 6=3089; the class base added below is only to look names up.
+The sources were Mesa main `src/gallium/drivers/nouveau/nv30/*` (screen, state, state_validate, draw, vbo, push, vertprog, fragprog, fragtex, verttex, clear, query, transfer, context, headers) and RPCS3 master `gcm_enums.h`, `rsx_methods.cpp` and `NV47/HW/nv4097.cpp`, all fetched on 2026-10-14. Line numbers below are in those copies, not in the Mesa we ship (26.2.4 plus our patch series). For chipset 0x47 the `CURIE_4097_CHIPSET` bit 7 is set, so the oclass is NV40_3D_CLASS (0x4097); the other objects are M2MF 0x0039 (NV03_M2MF), surf2d 0x0062 (NV10_SURFACE_2D), swz 0x309e (NV40_SURFACE_SWZ) and SIFM 0x3089 (NV40_SIFM). The nv30-only branches (chipset below 0x40) are skipped throughout.
 
-## 1. Summary of risks
+Method offsets are byte offsets inside each class (what the FIFO header carries in bits 2 to 12). RPCS3 keys its registers by `subchannel<<13 | method`, with the libgcm subchannel layout 0 = 4097, 1 = 0039, 3 = 3062, 4 = 309e, 5 = 308a, 6 = 3089. The class base added in the tables is only there to look names up.
 
-Good news first: every method Mesa emits for a 0x4097 3D class, M2MF, surf2d, swz and SIFM has an NV4097/NV0039/NV3062/NV309E/NV3089 counterpart in RPCS3's `gcm_enums.h`, with the same offset and the same field layout. Only one method has no RPCS3 name (M2MF NOP at 0x0100, see 2a). Mesa's 4097 offsets are the NV40 ones, which is also what libgcm uses. So the risk is almost entirely in values and handles, not in method numbers.
+## What became of the audit
 
-Ranked risks:
-1. **Object and DMA handles.** All `0xbeefXXXX` handles written to method 0x0000 and the DMA-context slots must be replaced by the PS3/libgcm handles (section 2c). A wrong handle is an invalid-object exception, so these are the first to patch and the last to forget. Also the `NV05_SIFM_SURFACE` write in transfer.c takes an object handle (surf2d or swzsurf), not a DMA handle.
-2. **Init values that differ from libgcm's cellGcmInit defaults** (RPCS3 reset state, rsx_methods.cpp:150-570): 0x1450 (Mesa 0x4, libgcm 0x80003), 0x1d64 (Mesa 0x01d300d4, libgcm 0x02000000), 0x1eac SCULL_CONTROL (Mesa 0xff800006, libgcm 0xff000002), 0x1ef8 TRANSFORM_TIMEOUT (Mesa 0x0020ffff, no libgcm default found). These are the "UNK" writes. They are accepted names, but a value the RSX does not like could wedge it. Replay them one at a time and prefer libgcm's values for the first run.
-3. **Subchannel numbering.** Mesa puts 3D on subch 7, M2MF 2, SF2D 3, SSWZ 4, SIFM 5. libgcm uses 0/1/3/4/6 (RPCS3 layout). Binding is by method 0 so any subchannel should work, but it is untested on this RSX. Cheapest insurance: replay with the libgcm layout.
-4. **Fence.** `FENCE_OFFSET`/`FENCE_VALUE` (0x1d6c/0x1d70) are the RSX semaphore methods. Offset must be 16-byte aligned (Mesa uses 0, fine), DMA 0x1a4 must be 0x66606660, and RPCS3 shows the written value is channel-swizzled: `(v & 0xff00ff00) | ((v & 0xff) << 16) | ((v >> 16) & 0xff)` (nv4097.cpp:840). Mesa compares the readback with its sequence number, so sequences with distinct low and third bytes will not read back equal.
-5. **Queries.** TIMESTAMP and TIME_ELAPSED use GET_REPORT type 1, which on RSX is ZPASS_PIXEL_CNT, not a timer (RPCS3 only returns a timestamp for unknown types). Not a wedge, but wrong data. Report offsets are bytes into the 0x66626660 report area.
-6. **M2MF NOP** `NV04_GRAPH(M2MF, NOP)` = method 0x0100 on the M2MF subchannel, used between OFFSET_IN and OFFSET_OUT in every M2MF copy. Unknown to RPCS3 for 0039. Replace with a 4097 NOP (0x0100 on the 3D subchannel is `NV4097_NO_OPERATION`) or drop it.
-7. **Data-range items** with moderate risk: RT_ENABLE after `& ~fp->rt_enable` (state_validate.c:349) can yield values gcm never uses (gcm: 0, 1, 2, 0x13, 0x17, 0x1f; Mesa clear/transfer paths only write 0x1); texture CONTROL2 filter word 0x2dc4 vs libgcm 0x2dc8; vertex-format type 0 (Mesa B8G8R8A8_UNORM) maps to RPCS3's "ub256" default.
-8. **Not method-related but replay-relevant:** fragment programs and vertex programs go through memory / VP_UPLOAD; fragment program bytes need 16-bit half-word swaps on a LE host (Mesa does this); the PS3 FIFO is big-endian.
+The measured results are in [RSX.md](RSX.md); the raw FIFO words of the first triangle and textured quad are in [RSX-PROGRAMS.md](RSX-PROGRAMS.md).
 
-Items I could not confirm from RPCS3 (it only emulates): hardware tolerance of the out-of-default UNK values in point 2.
+| Audit point | Outcome on the hardware |
+|---|---|
+| Handles need replacing (risk 1, section 2c) | Done as listed. Mesa's patch series writes the PS3 handles at allocation time and ps3rsx accepts only that handle set ([DRIVER.md](DRIVER.md#ioctls-abi16c-nvifh)) |
+| Init values that differ from libgcm (risk 2) | The GPU accepted all of them. `rsx-mesainit` replayed Mesa's whole init stream, including 0x1450 = 4, 0x1eac = 0xff800006, 0x1ef8 and 0x1d64, and a 3D clear worked afterwards (E15) |
+| Subchannel numbering (risk 3) | Mesa's layout (3D 7, M2MF 2, SF2D 3, SSWZ 4, SIFM 5) works as it is (E15). The kernel's own M2MF copies use subchannel 6 |
+| Fence semaphore (risk 4) | Confirmed. The 0x1d70 back-end release stores the value with bytes 0 and 2 swapped, writing a pre-swizzled value stores the intended one (E4), and Mesa's fence emit pre-swizzles. The notifier also writes at reports+0 (E14), so the fence uses another label offset |
+| Timer queries (risk 5) | Not a problem: `GET_REPORT` type 1 writes `{u64 GPU timestamp, u32 value, u32 0}` at reports+0x1400+offset on the hardware, which is what Mesa reads. The RPCS3 reading (type 1 as ZPASS count) only describes the emulator. Timer queries stay on |
+| M2MF NOP at 0x0100 (risk 6) | Accepted by the GPU, along with RT_ENABLE 0x12 (`rsxdrm-smoke quirks`). No patch was needed |
+| Data-range items (risk 7) | Vertex format type 0 (B8G8R8A8_UNORM) does raise a graph exception: the validator rejects it and Mesa never emits it on the PS3. RT_ENABLE 0x12 was accepted; no later failure pointed at the CONTROL2 word |
+| Fragment program halfword swap, big-endian FIFO (risk 8) | Confirmed: fragment programs are stored halfword-swapped (see [RSX-PROGRAMS.md](RSX-PROGRAMS.md)); Mesa's patches do the same for the blit program |
+
+Section 4's list is the table the validator's method allowlist is generated from.
+
+## 1. The audit's ranked risks
+
+Written before any run; the outcomes are in the table above. In order of how likely each was to hurt:
+
+1. **Object and DMA handles.** Every `0xbeefXXXX` handle written to method 0x0000 and to the DMA-context slots has to become the PS3/libgcm handle (section 2c). A wrong handle is an invalid-object exception, so these are the first to patch and the last to forget. The `NV05_SIFM_SURFACE` write in transfer.c takes an object handle (surf2d or swzsurf), not a DMA handle.
+2. **Init values that differ from libgcm's cellGcmInit defaults** (RPCS3 reset state, rsx_methods.cpp:150-570): 0x1450 (Mesa 0x4, libgcm 0x80003), 0x1d64 (Mesa 0x01d300d4, libgcm 0x02000000), 0x1eac SCULL_CONTROL (Mesa 0xff800006, libgcm 0xff000002) and 0x1ef8 TRANSFORM_TIMEOUT (Mesa 0x0020ffff, no libgcm default found). These are the "UNK" writes. They are accepted names, but a value the RSX does not like could wedge it. The advice was to replay them one at a time and prefer libgcm's values for the first run.
+3. **Subchannel numbering.** Mesa puts 3D on subchannel 7, M2MF 2, SF2D 3, SSWZ 4, SIFM 5, while libgcm uses 0/1/3/4/6 (the RPCS3 layout). Binding is by method 0, so any subchannel should work, but it was untested on this RSX. The cheapest insurance was to replay with the libgcm layout.
+4. **Fence.** `FENCE_OFFSET` and `FENCE_VALUE` (0x1d6c, 0x1d70) are the RSX semaphore methods. The offset must be 16-byte aligned (Mesa uses 0), DMA 0x1a4 must be 0x66606660, and RPCS3 shows the written value is channel-swizzled: `(v & 0xff00ff00) | ((v & 0xff) << 16) | ((v >> 16) & 0xff)` (nv4097.cpp:840). Mesa compares the readback with its sequence number, so sequences with distinct low and third bytes would not read back equal.
+5. **Queries.** TIMESTAMP and TIME_ELAPSED use GET_REPORT type 1, which RPCS3 treats as ZPASS_PIXEL_CNT rather than a timer (it returns a timestamp only for unknown types). That would be wrong data, not a wedge. Report offsets are bytes into the 0x66626660 report area.
+6. **M2MF NOP**, `NV04_GRAPH(M2MF, NOP)`, is method 0x0100 on the M2MF subchannel, used between OFFSET_IN and OFFSET_OUT in every M2MF copy. RPCS3 does not know it for 0039. The suggested fix was to use a 4097 NOP (0x0100 on the 3D subchannel is `NV4097_NO_OPERATION`) or drop it.
+7. **Data-range items** with moderate risk: RT_ENABLE after `& ~fp->rt_enable` (state_validate.c:349) can yield values gcm never uses (gcm: 0, 1, 2, 0x13, 0x17, 0x1f; Mesa's clear and transfer paths only write 0x1); the texture CONTROL2 filter word 0x2dc4 against libgcm's 0x2dc8; and vertex-format type 0 (Mesa B8G8R8A8_UNORM), which maps to RPCS3's "ub256" default.
+8. **Not method-related but relevant to replay.** Fragment programs and vertex programs go through memory or VP_UPLOAD. Fragment program bytes need 16-bit halfword swaps on a little-endian host (Mesa does this). The PS3 FIFO is big-endian.
+
+What the audit could not confirm from RPCS3 (it only emulates) was the hardware's tolerance of the out-of-default UNK values in risk 2; E15 settled that.
+
+Every method Mesa emits for a 0x4097 3D class, M2MF, surf2d, swz and SIFM has an NV4097/NV0039/NV3062/NV309E/NV3089 counterpart in RPCS3's `gcm_enums.h`, with the same offset and field layout. Only one method has no RPCS3 name (the M2MF NOP at 0x0100, section 2a). Mesa's 4097 offsets are the NV40 ones, which is also what libgcm uses. So the risk was in values and handles, not in method numbers.
 
 ## 2. Flagged methods
 
@@ -138,7 +158,9 @@ Notes: the 3D engine has no default-state writes beyond this; everything else (R
 
 Suggested first-run test order after B1: try the minimal libgcm-compatible set (steps 1-3, 6-9, 12) before adding 4, 5, 10, 11, whose values differ from libgcm.
 
-## 4. Per-class method list (everything Mesa can emit on 0x4097)
+## 4. Per-class method list
+
+Everything Mesa can emit on 0x4097.
 
 `Used in` tags: init = screen_create, state = state objects and validate, draw = vbo/draw/push, shader = vp/fp upload, tex = texture, clear, xfer = transfer (blit), query. `n` = max words per BEGIN. Indexed arrays (VTXBUF, VTXFMT, VTX_ATTR_xF, TEX_*, VTXTEX_*, stencil face 0/1) are shown at index 0; the RSX has the same strides. Mesa 0x4097-class fixed set; RPCS3 name is the first name covering that offset. Not in the table because they are not methods: fragment program body (memory, referenced by 0x08e4), query objects (memory).
 
@@ -267,3 +289,5 @@ Extra methods outside the generator's table: 0x17cc `SET_ZPASS_PIXEL_COUNT_ENABL
 | 3089 (5) | 0x02fc | NV05_SIFM_COLOR_CONVERSION | 1 | init | NV3089_SET_COLOR_CONVERSION | nv30_screen.c:741 |
 | 3089 (5) | 0x0300 | NV03_SIFM_COLOR_FORMAT | 8 | xfer | NV3089_SET_COLOR_FORMAT | nv30_transfer.c:487 |
 | 3089 (5) | 0x0400 | NV03_SIFM_SIZE | 4 | xfer | NV3089_IMAGE_IN_SIZE | nv30_transfer.c:496 |
+
+Older versions and the dated history: [archive/MESA-METHODS.md](archive/MESA-METHODS.md).

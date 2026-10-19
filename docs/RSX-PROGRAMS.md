@@ -1,8 +1,10 @@
-# E12 / E13: triangle and textured quad on the RSX from raw FIFO words
+# Raw FIFO programs: a triangle and a textured quad (E12, E13)
 
-Status: desk research, not yet run on hardware. Every method and every program
-word below is taken from, or cross-checked against, at least two of the sources
-in section 0. The ranked list of what could still be wrong is in section C.
+This file holds the exact FIFO words, vertex and fragment program images and texture data for two first hardware tests of the RSX 3D engine, with the derivation of every field. It was written on 2026-10-14 as desk research, before either test had run. Every method and program word was taken from, or cross-checked against, at least two of the sources in section 0.
+
+Both tests then ran on the PS3 as `ps3-gpu-tools/rsx-tri`, photographed with the webcam: a smooth-shaded colour triangle (E12) and a 4x4 A8R8G8B8 linear texture on a quad (E13) came out correct, with the right orientation and channel order and no graph exception. [RSX.md, "3D pipeline from raw commands"](RSX.md#3d-pipeline-from-raw-commands-e12-e13-e15) records that result. It also confirms these parts of this file: state and viewport writes, the vertex program upload, the fragment program in VRAM stored halfword-swapped, immediate-mode draws and the vertex-array draws, colour interpolation, and the linear texture format. The notes that did not survive in RSX.md are which of the ranked uncertainties in section C actually bit, and the order the probes ran in: only the final outcome was recorded. Later work gave two more answers. Exporting the colour from R0 (`FP_CONTROL` bit 6, value 0x40) works on the RSX and rounds like an fp32 pipeline, and Mesa now uses it ([DRIVER.md](DRIVER.md#the-mesa-side), patch 0008). And inline vertex data with a single attribute draws nothing, which is why the triangle writes two attributes (colour and position) per vertex.
+
+The audit of every method Mesa sends, which became the driver's method allowlist, is [MESA-METHODS.md](MESA-METHODS.md).
 
 Conventions used throughout:
 
@@ -420,6 +422,8 @@ PPU float stores; rsxtest writes vertices the same way):
 
 ### C.1 Ranking
 
+Written before the first run. Items 1, 2, 3 and 6 are confirmed by the E12/E13 result (both draw paths, the R0 export and the halfword swap all worked); the rest were not singled out afterwards.
+
 1. **Immediate-mode vertices (0x1c00.. inside BEGIN_END).** Medium-high
    confidence. libgcm exposes it (cellGcmSetVertexData4f, PSL
    `rsxDrawVertex4f` writes exactly these methods), RPCS3 implements it with
@@ -495,7 +499,9 @@ Reading the E13 result:
   program (`nv30_fragprog.c`: "TEX_CACHE_CTL magic is not enough"), so resend
   0x8e4 whenever FP memory changes.
 
-## D. Tooling used (outside the repo, reproducible)
+## D. Tooling used
+
+These were scratch trees outside the repo, now gone; the commands reproduce them.
 
 - Sources cloned into `/tmp/e12src/{PSL1GHT,rpcs3,mesa,envytools}` (sparse
   for rpcs3/mesa).
@@ -513,3 +519,5 @@ cgcomp syntax gotchas found on the way: the texture operand must be spelled
 `texture[0]` (not `TEX0`, which silently produces an all-zero instruction), and
 inline `{...}` constants are not parsed; use a `#const c[N] = x y z w` comment
 line as Cg's own output does.
+
+Older versions and the dated history: [archive/RSX-PROGRAMS.md](archive/RSX-PROGRAMS.md).
