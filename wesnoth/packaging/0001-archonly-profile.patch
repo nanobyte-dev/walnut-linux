@@ -1,0 +1,276 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Mon, 19 Oct 2026 04:25:00 +0300
+Subject: debian: build profile pkg.wesnoth.archonly
+
+Builds only the two architecture-dependent packages, wesnoth-1.18 and
+wesnoth-1.18-server, for a port that takes the arch-all packages (data,
+campaigns, music, tools) from the archive: those are excluded with
+Build-Profiles, and the dependencies of the two on them ask for the archive's
+version (wesnoth:Data-Version, ours without +ps3) instead of
+${source:Version}.
+
+diff --git a/debian/control b/debian/control
+--- a/debian/control
++++ b/debian/control
+@@ -41,6 +41,7 @@ Vcs-Browser: https://salsa.debian.org/games-team/wesnoth
+ 
+ Package: wesnoth-1.18-data
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Multi-Arch: foreign
+ Depends:
+  fonts-adf-oldania,
+@@ -84,28 +85,28 @@ Description: fantasy turn-based strategy game (transitional package)
+ Package: wesnoth-1.18
+ Architecture: any
+ Depends:
+- wesnoth-1.18-data (= ${source:Version}),
++ wesnoth-1.18-data (= ${wesnoth:Data-Version}),
+  ${misc:Depends},
+  ${shlibs:Depends},
+ Recommends:
+- wesnoth-1.18-did (= ${source:Version}),
+- wesnoth-1.18-dm (= ${source:Version}),
+- wesnoth-1.18-dw (= ${source:Version}),
+- wesnoth-1.18-ei (= ${source:Version}),
+- wesnoth-1.18-httt (= ${source:Version}),
+- wesnoth-1.18-l (= ${source:Version}),
+- wesnoth-1.18-low (= ${source:Version}),
+- wesnoth-1.18-music (= ${source:Version}),
+- wesnoth-1.18-nr (= ${source:Version}),
+- wesnoth-1.18-sof (= ${source:Version}),
+- wesnoth-1.18-sota (= ${source:Version}),
+- wesnoth-1.18-sotbe (= ${source:Version}),
+- wesnoth-1.18-thot (= ${source:Version}),
+- wesnoth-1.18-trow (= ${source:Version}),
+- wesnoth-1.18-tsg (= ${source:Version}),
+- wesnoth-1.18-ttb (= ${source:Version}),
+- wesnoth-1.18-utbs (= ${source:Version}),
+- wesnoth-1.18-wof (= ${source:Version}),
++ wesnoth-1.18-did (= ${wesnoth:Data-Version}),
++ wesnoth-1.18-dm (= ${wesnoth:Data-Version}),
++ wesnoth-1.18-dw (= ${wesnoth:Data-Version}),
++ wesnoth-1.18-ei (= ${wesnoth:Data-Version}),
++ wesnoth-1.18-httt (= ${wesnoth:Data-Version}),
++ wesnoth-1.18-l (= ${wesnoth:Data-Version}),
++ wesnoth-1.18-low (= ${wesnoth:Data-Version}),
++ wesnoth-1.18-music (= ${wesnoth:Data-Version}),
++ wesnoth-1.18-nr (= ${wesnoth:Data-Version}),
++ wesnoth-1.18-sof (= ${wesnoth:Data-Version}),
++ wesnoth-1.18-sota (= ${wesnoth:Data-Version}),
++ wesnoth-1.18-sotbe (= ${wesnoth:Data-Version}),
++ wesnoth-1.18-thot (= ${wesnoth:Data-Version}),
++ wesnoth-1.18-trow (= ${wesnoth:Data-Version}),
++ wesnoth-1.18-tsg (= ${wesnoth:Data-Version}),
++ wesnoth-1.18-ttb (= ${wesnoth:Data-Version}),
++ wesnoth-1.18-utbs (= ${wesnoth:Data-Version}),
++ wesnoth-1.18-wof (= ${wesnoth:Data-Version}),
+ Breaks:
+  wesnoth-1.18-core (<< 1:1.16.11-1.~),
+ Replaces:
+@@ -123,6 +124,7 @@ Description: fantasy turn-based strategy game (branch 1.18)
+ 
+ Package: wesnoth
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Depends:
+  wesnoth-1.18 (>= ${binary:Version}),
+  wesnoth-1.18-data (= ${source:Version}),
+@@ -141,6 +143,7 @@ Description: fantasy turn-based strategy game (metapackage)
+ 
+ Package: wesnoth-1.18-music
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Multi-Arch: foreign
+ Depends:
+  ${misc:Depends},
+@@ -155,6 +158,7 @@ Description: music files for Wesnoth (branch 1.18)
+ 
+ Package: wesnoth-music
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Multi-Arch: foreign
+ Depends:
+  wesnoth-1.18-data (= ${source:Version}),
+@@ -188,6 +192,7 @@ Description: multiplayer network server for Wesnoth (branch 1.18)
+ 
+ Package: wesnoth-1.18-tools
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Multi-Arch: foreign
+ Depends:
+  python3:any,
+@@ -217,6 +222,7 @@ Depends:
+  wesnoth-1.18 (>= ${wesnoth:Min-Version}),
+  ${misc:Depends},
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Description: "Heir to the Throne" official campaign for Wesnoth (branch 1.18)
+  This package contains the "Heir to the Throne" campaign for Wesnoth:
+  "Fight to regain the throne of Wesnoth, of which you are the legitimate
+@@ -234,6 +240,7 @@ Depends:
+  wesnoth-1.18 (>= ${wesnoth:Min-Version}),
+  ${misc:Depends},
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Description: "The South Guard" official campaign for Wesnoth (branch 1.18)
+  This package contains the "The South Guard" campaign for Wesnoth:
+  "A young Knight, Deoran, is dispatched to take command of the South Guard...
+@@ -252,6 +259,7 @@ Depends:
+  wesnoth-1.18 (>= ${wesnoth:Min-Version}),
+  ${misc:Depends},
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Description: "The Rise of Wesnoth" official campaign for Wesnoth (branch 1.18)
+  This package contains the "The Rise of Wesnoth" campaign for Wesnoth:
+  "Lead Prince Haldric through the destruction of the Green Isle and across the
+@@ -270,6 +278,7 @@ Depends:
+  wesnoth-1.18 (>= ${wesnoth:Min-Version}),
+  ${misc:Depends},
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Description: "A Tale of Two Brothers" official campaign for Wesnoth (branch 1.18)
+  This package contains the "A Tale of Two Brothers" campaign for Wesnoth:
+  "An evil mage is threatening the small village of Maghre and its inhabitants.
+@@ -288,6 +297,7 @@ Depends:
+  wesnoth-1.18 (>= ${wesnoth:Min-Version}),
+  ${misc:Depends},
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Description: "The Eastern Invasion" official campaign for Wesnoth (branch 1.18)
+  This package contains the "The Eastern Invasion" campaign for Wesnoth:
+  "There are rumors of undead attacks on the eastern border of Wesnoth. You, an
+@@ -306,6 +316,7 @@ Depends:
+  wesnoth-1.18 (>= ${wesnoth:Min-Version}),
+  ${misc:Depends},
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Description: "Under the Burning Suns" official campaign for Wesnoth (branch 1.18)
+  This package contains the "Under the Burning Suns" campaign for Wesnoth:
+  "In the distant future a small band of elves struggles to survive amidst the
+@@ -324,6 +335,7 @@ Depends:
+  wesnoth-1.18 (>= ${wesnoth:Min-Version}),
+  ${misc:Depends},
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Description: "Descent Into Darkness" official campaign for Wesnoth (branch 1.18)
+  This package contains the "Descent Into Darkness" campaign for Wesnoth:
+  "Learn the dark arts of necromancy in order to save your people from an orcish
+@@ -341,6 +353,7 @@ Depends:
+  wesnoth-1.18 (>= ${wesnoth:Min-Version}),
+  ${misc:Depends},
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Description: "Northern Rebirth" official campaign for Wesnoth (branch 1.18)
+  This package contains the "Northern Rebirth" campaign for Wesnoth:
+  "For the people of Dwarven Doors the choice was stark: either drudge as
+@@ -361,6 +374,7 @@ Depends:
+  wesnoth-1.18 (>= ${wesnoth:Min-Version}),
+  ${misc:Depends},
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Description: "The Sceptre of Fire" official campaign for Wesnoth (branch 1.18)
+  This package contains the "The Sceptre of Fire" campaign for Wesnoth:
+   "The land of Wesnoth's banner bold
+@@ -384,6 +398,7 @@ Depends:
+  wesnoth-1.18 (>= ${wesnoth:Min-Version}),
+  ${misc:Depends},
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Description: "Son of the Black-Eye" official campaign for Wesnoth (branch 1.18)
+  This package contains the "Son of the Black-Eye" campaign for Wesnoth:
+  "Your father Karun Black-Eye was the greatest orcish leader that ever lived.
+@@ -405,6 +420,7 @@ Depends:
+  wesnoth-1.18 (>= ${wesnoth:Min-Version}),
+  ${misc:Depends},
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Description: "Liberty" official campaign for Wesnoth (branch 1.18)
+  This package contains the "Liberty" campaign for Wesnoth:
+  "As the shadow of civil war lengthens across Wesnoth, a band of hardy
+@@ -424,6 +440,7 @@ Depends:
+  wesnoth-1.18 (>= ${wesnoth:Min-Version}),
+  ${misc:Depends},
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Description: "The Hammer of Thursagan" official campaign for Wesnoth (branch 1.18)
+  This package contains the "The Hammer of Thursagan" campaign for Wesnoth:
+  "In the first years of the Northern Alliance, an expedition from Knalga seeks
+@@ -443,6 +460,7 @@ Depends:
+  wesnoth-1.18 (>= ${wesnoth:Min-Version}),
+  ${misc:Depends},
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Description: "Legend of Wesmere" official campaign for Wesnoth (branch 1.18)
+  This package contains the "Legend of Wesmere" campaign for Wesnoth:
+  "The tale of Kalenz, the High Lord who rallied his people after the second
+@@ -461,6 +479,7 @@ Depends:
+  wesnoth-1.18 (>= ${wesnoth:Min-Version}),
+  ${misc:Depends},
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Description: "Delfador's Memoirs" official campaign for Wesnoth (branch 1.18)
+  This package contains the "Delfador's Memoirs" campaign for Wesnoth:
+  "Wesnoth seems to be slipping inexorably into chaos, as marauding orcs pour
+@@ -480,6 +499,7 @@ Depends:
+  wesnoth-1.18 (>= ${wesnoth:Min-Version}),
+  ${misc:Depends},
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Description: "Dead Water" official campaign for Wesnoth (branch 1.18)
+  This package contains the "Dead Water" campaign for Wesnoth:
+  "You are Kai Krellis, son and heir of the last merman king but only a child. A
+@@ -500,6 +520,7 @@ Depends:
+  wesnoth-1.18 (>= ${wesnoth:Min-Version}),
+  ${misc:Depends},
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Description: "Secrets of the Ancients" official campaign for Wesnoth (branch 1.18)
+  This package contains the "Secrets of the Ancients" campaign for Wesnoth:
+  "Rediscover the secrets known by the lich lords of the Green Isle. They knew
+@@ -517,6 +538,7 @@ Depends:
+  wesnoth-1.18 (>= ${wesnoth:Min-Version}),
+  ${misc:Depends}
+ Architecture: all
++Build-Profiles: <!pkg.wesnoth.archonly>
+ Description: "Winds of Fate" official campaign for Wesnoth (branch 1.18)
+  This package contains the "Winds of Fate" campaign for Wesnoth:
+  "As the once plentiful hunting grounds of Morogor slip below the waves, war
+diff --git a/debian/rules b/debian/rules
+--- a/debian/rules
++++ b/debian/rules
+@@ -151,6 +151,12 @@ execute_after_dh_install-arch:
+ 		ln -s wesnoth-$(BRANCH_VERSION)-data debian/$$i/usr/share/doc/$$i; \
+ 	done
+ 
++# Build profile pkg.wesnoth.archonly (ps3): only wesnoth-1.18 and wesnoth-1.18-server; the
++# architecture-independent packages (data, campaigns, music, tools) stay the archive's build
++# of the same version, DATA_VERSION (ours without its +ps3 suffix).
++DATA_VERSION := $(shell echo '$(DEB_VERSION)' | sed 's/+ps3[^+]*$$//')
++
++ifeq (,$(filter pkg.wesnoth.archonly,$(DEB_BUILD_PROFILES)))
+ execute_after_dh_install-indep:
+ 	# workaround for dh_link (mis)behavior, see BTS#445550
+ 	for i in dejavu/DejaVuSans.ttf dejavu/DejaVuSans-Bold.ttf dejavu/DejaVuSansMono.ttf dejavu/DejaVuSansMono-Bold.ttf dejavu/DejaVuSans-Oblique.ttf droid/DroidSansFallbackFull.ttf lato/Lato-Bold.ttf lato/Lato-Italic.ttf lato/Lato-Medium.ttf lato/Lato-MediumItalic.ttf lato/Lato-Light.ttf lato/Lato-LightItalic.ttf lato/Lato-Regular.ttf lato/Lato-BlackItalic.ttf lato/Lato-Black.ttf lato/Lato-BoldItalic.ttf lato/Lato-Bold.ttf lato/Lato-HairlineItalic.ttf lato/Lato-Hairline.ttf lato/Lato-HeavyItalic.ttf lato/Lato-Heavy.ttf lato/Lato-SemiboldItalic.ttf lato/Lato-Semibold.ttf lato/Lato-ThinItalic.ttf lato/Lato-Thin.ttf adf/OldaniaADFStd-BoldItalic.otf adf/OldaniaADFStd-Bold.otf adf/OldaniaADFStd-Italic.otf adf/OldaniaADFStd-Regular.otf lohit-bengali/Lohit-Bengali.ttf; \
+@@ -181,6 +187,7 @@ execute_after_dh_install-indep:
+ 		install -p -d -m755 debian/$$i/usr/share/doc; \
+ 		ln -s wesnoth-$(BRANCH_VERSION)-data debian/$$i/usr/share/doc/$$i; \
+ 	done
++endif
+ 
+ override_dh_link:
+ 	# see BTS#445550
+@@ -212,4 +219,11 @@ override_dh_gencontrol:
+ 	dh_gencontrol -- \
+ 		-Vwesnoth:Min-Version=$(MIN_VERSION) \
+ 		-Vwesnoth:Max-Version=$(MAX_VERSION) \
+-		-Vwesnoth:Branch-Version=$(BRANCH_VERSION)
++		-Vwesnoth:Branch-Version=$(BRANCH_VERSION) \
++		-Vwesnoth:Data-Version=$(DATA_VERSION)
++
++ifneq (,$(filter pkg.wesnoth.archonly,$(DEB_BUILD_PROFILES)))
++# the data files CMake installs belong to the packages this profile leaves out
++override_dh_missing:
++	dh_missing --list-missing
++endif

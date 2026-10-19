@@ -1,0 +1,358 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Mon, 19 Oct 2026 04:49:54 +0300
+Subject: context: ppc64 sysv elf: keep F14-F31, FPSCR and V20-V31
+ across a switch
+
+jump_fcontext and ontop_fcontext for ppc64 (ELFv1 and ELFv2) saved only the
+non-volatile general registers, CR and (since late 2024) V31. The ABI also has
+F14-F31 non-volatile (and V20-V31 with AltiVec), and FPSCR is a limited-access
+register a call must not change. A double that the compiler keeps in F14 across
+fiber::resume() came back with the other context's value: a test that keeps
+twelve doubles live across resume() in both contexts failed on ppc64 (qemu,
+Debian sid, 1.92.0), as did the same with AltiVec vectors at -maltivec.
+
+The context data grows from 200 to 552 bytes: F14-F31 at 200, FPSCR at 344,
+V20-V31 at 360 (16-byte aligned, as the frame size is 8 mod 16 like before);
+the V31 save at 184 goes into that block, so 184 is the back-chain again.
+make_fcontext reserves 552 + 48 bytes and gives the new context the creator's
+FPSCR. The ppc32 code saves F14-F31 and FPSCR the same way.
+
+diff --git a/libs/context/src/asm/jump_ppc64_sysv_elf_gas.S b/libs/context/src/asm/jump_ppc64_sysv_elf_gas.S
+--- a/libs/context/src/asm/jump_ppc64_sysv_elf_gas.S
++++ b/libs/context/src/asm/jump_ppc64_sysv_elf_gas.S
+@@ -66,6 +66,17 @@
+  *                                                     *
+  *******************************************************/
+ 
++/*******************************************************
++ *  Below the 200 bytes above (offsets from the context *
++ *  pointer, total 552 bytes, a multiple of 16 plus 8   *
++ *  so that offset 360 is 16-byte aligned):             *
++ *  200-343  F14-F31                                    *
++ *  344      FPSCR                                      *
++ *  352      (padding)                                  *
++ *  360-551  V20-V31, 16 bytes each                     *
++ *  The slot at 184 is the back-chain only.             *
++ *******************************************************/
++
+ .file "jump_ppc64_sysv_elf_gas.S"
+ .globl jump_fcontext
+ .hidden jump_fcontext
+@@ -98,7 +109,7 @@ jump_fcontext:
+ # endif
+ #endif
+     # reserve space on stack
+-    subi  %r1, %r1, 200
++    subi  %r1, %r1, 552
+ 
+ #if _CALL_ELF != 2
+     std  %r2,  0(%r1)  # save TOC
+@@ -134,8 +145,51 @@ jump_fcontext:
+     # save LR as PC
+     std   %r0, 176(%r1)
+ 
+-    # Save VS63
+-    li    %r31, 184
++    # save F14-F31 and FPSCR (callee-saved / limited-access in the ABI)
++    stfd  %f14, 200(%r1)
++    stfd  %f15, 208(%r1)
++    stfd  %f16, 216(%r1)
++    stfd  %f17, 224(%r1)
++    stfd  %f18, 232(%r1)
++    stfd  %f19, 240(%r1)
++    stfd  %f20, 248(%r1)
++    stfd  %f21, 256(%r1)
++    stfd  %f22, 264(%r1)
++    stfd  %f23, 272(%r1)
++    stfd  %f24, 280(%r1)
++    stfd  %f25, 288(%r1)
++    stfd  %f26, 296(%r1)
++    stfd  %f27, 304(%r1)
++    stfd  %f28, 312(%r1)
++    stfd  %f29, 320(%r1)
++    stfd  %f30, 328(%r1)
++    stfd  %f31, 336(%r1)
++    mffs  %f0
++    stfd  %f0, 344(%r1)
++    # save V20-V31 (callee-saved with the AltiVec ABI)
++    li    %r31, 360
++    stvx  %v20, %r1, %r31
++    li    %r31, 376
++    stvx  %v21, %r1, %r31
++    li    %r31, 392
++    stvx  %v22, %r1, %r31
++    li    %r31, 408
++    stvx  %v23, %r1, %r31
++    li    %r31, 424
++    stvx  %v24, %r1, %r31
++    li    %r31, 440
++    stvx  %v25, %r1, %r31
++    li    %r31, 456
++    stvx  %v26, %r1, %r31
++    li    %r31, 472
++    stvx  %v27, %r1, %r31
++    li    %r31, 488
++    stvx  %v28, %r1, %r31
++    li    %r31, 504
++    stvx  %v29, %r1, %r31
++    li    %r31, 520
++    stvx  %v30, %r1, %r31
++    li    %r31, 536
+     stvx  %v31, %r1, %r31
+ 
+     # store RSP (pointing to context-data) in R6
+@@ -151,9 +205,52 @@ jump_fcontext:
+     ld  %r2,  0(%r1)  # restore TOC
+ #endif
+ 
+-    # Restore VS63
+-    li    %r31, 184
++    # restore V20-V31
++    li    %r31, 360
++    lvx   %v20, %r1, %r31
++    li    %r31, 376
++    lvx   %v21, %r1, %r31
++    li    %r31, 392
++    lvx   %v22, %r1, %r31
++    li    %r31, 408
++    lvx   %v23, %r1, %r31
++    li    %r31, 424
++    lvx   %v24, %r1, %r31
++    li    %r31, 440
++    lvx   %v25, %r1, %r31
++    li    %r31, 456
++    lvx   %v26, %r1, %r31
++    li    %r31, 472
++    lvx   %v27, %r1, %r31
++    li    %r31, 488
++    lvx   %v28, %r1, %r31
++    li    %r31, 504
++    lvx   %v29, %r1, %r31
++    li    %r31, 520
++    lvx   %v30, %r1, %r31
++    li    %r31, 536
+     lvx   %v31, %r1, %r31
++    # restore FPSCR and F14-F31
++    lfd   %f0, 344(%r1)
++    mtfsf 0xff, %f0
++    lfd   %f14, 200(%r1)
++    lfd   %f15, 208(%r1)
++    lfd   %f16, 216(%r1)
++    lfd   %f17, 224(%r1)
++    lfd   %f18, 232(%r1)
++    lfd   %f19, 240(%r1)
++    lfd   %f20, 248(%r1)
++    lfd   %f21, 256(%r1)
++    lfd   %f22, 264(%r1)
++    lfd   %f23, 272(%r1)
++    lfd   %f24, 280(%r1)
++    lfd   %f25, 288(%r1)
++    lfd   %f26, 296(%r1)
++    lfd   %f27, 304(%r1)
++    lfd   %f28, 312(%r1)
++    lfd   %f29, 320(%r1)
++    lfd   %f30, 328(%r1)
++    lfd   %f31, 336(%r1)
+ 
+     ld  %r14, 8(%r1)  # restore R14
+     ld  %r15, 16(%r1)  # restore R15
+@@ -190,7 +287,7 @@ jump_fcontext:
+     mtctr  %r12
+ 
+     # adjust stack
+-    addi  %r1, %r1, 200
++    addi  %r1, %r1, 552
+ 
+ #if _CALL_ELF == 2
+     # copy transfer_t into transfer_fn arg registers
+diff --git a/libs/context/src/asm/make_ppc64_sysv_elf_gas.S b/libs/context/src/asm/make_ppc64_sysv_elf_gas.S
+--- a/libs/context/src/asm/make_ppc64_sysv_elf_gas.S
++++ b/libs/context/src/asm/make_ppc64_sysv_elf_gas.S
+@@ -66,6 +66,17 @@
+  *                                                     *
+  *******************************************************/
+ 
++/*******************************************************
++ *  Below the 200 bytes above (offsets from the context *
++ *  pointer, total 552 bytes, a multiple of 16 plus 8   *
++ *  so that offset 360 is 16-byte aligned):             *
++ *  200-343  F14-F31                                    *
++ *  344      FPSCR                                      *
++ *  352      (padding)                                  *
++ *  360-551  V20-V31, 16 bytes each                     *
++ *  The slot at 184 is the back-chain only.             *
++ *******************************************************/
++
+ .file "make_ppc64_sysv_elf_gas.S"
+ .globl make_fcontext
+ .hidden make_fcontext
+@@ -105,8 +116,13 @@ make_fcontext:
+     clrrdi  %r3, %r3, 4
+ 
+     # reserve space for context-data on context-stack
+-    # including 64 byte of linkage + parameter area (R1 % 16 == 0)
+-    subi  %r3, %r3, 248
++    # (552 bytes, see jump_ppc64_sysv_elf_gas.S) including 48 byte of
++    # linkage area (R1 % 16 == 0)
++    subi  %r3, %r3, 600
++
++    # copy FPSCR to new context (jump_fcontext restores it)
++    mffs  %f0
++    stfd  %f0, 344(%r3)
+ 
+     # third arg of make_fcontext() == address of context-function
+     # entry point (ELFv2) or descriptor (ELFv1)
+diff --git a/libs/context/src/asm/ontop_ppc64_sysv_elf_gas.S b/libs/context/src/asm/ontop_ppc64_sysv_elf_gas.S
+--- a/libs/context/src/asm/ontop_ppc64_sysv_elf_gas.S
++++ b/libs/context/src/asm/ontop_ppc64_sysv_elf_gas.S
+@@ -66,6 +66,17 @@
+  *                                                     *
+  *******************************************************/
+ 
++/*******************************************************
++ *  Below the 200 bytes above (offsets from the context *
++ *  pointer, total 552 bytes, a multiple of 16 plus 8   *
++ *  so that offset 360 is 16-byte aligned):             *
++ *  200-343  F14-F31                                    *
++ *  344      FPSCR                                      *
++ *  352      (padding)                                  *
++ *  360-551  V20-V31, 16 bytes each                     *
++ *  The slot at 184 is the back-chain only.             *
++ *******************************************************/
++
+ .file "ontop_ppc64_sysv_elf_gas.S"
+ .globl ontop_fcontext
+ .hidden ontop_fcontext
+@@ -98,7 +109,7 @@ ontop_fcontext:
+ # endif
+ #endif
+     # reserve space on stack
+-    subi  %r1, %r1, 200
++    subi  %r1, %r1, 552
+ 
+ #if _CALL_ELF != 2
+     std  %r2,  0(%r1)  # save TOC
+@@ -134,9 +145,52 @@ ontop_fcontext:
+     # save LR as PC
+     std   %r0, 176(%r1)
+ 
+-    # save VS63
+-    li %r31, 184
+-    stvx %v31, %r1, %r31
++    # save F14-F31 and FPSCR (callee-saved / limited-access in the ABI)
++    stfd  %f14, 200(%r1)
++    stfd  %f15, 208(%r1)
++    stfd  %f16, 216(%r1)
++    stfd  %f17, 224(%r1)
++    stfd  %f18, 232(%r1)
++    stfd  %f19, 240(%r1)
++    stfd  %f20, 248(%r1)
++    stfd  %f21, 256(%r1)
++    stfd  %f22, 264(%r1)
++    stfd  %f23, 272(%r1)
++    stfd  %f24, 280(%r1)
++    stfd  %f25, 288(%r1)
++    stfd  %f26, 296(%r1)
++    stfd  %f27, 304(%r1)
++    stfd  %f28, 312(%r1)
++    stfd  %f29, 320(%r1)
++    stfd  %f30, 328(%r1)
++    stfd  %f31, 336(%r1)
++    mffs  %f0
++    stfd  %f0, 344(%r1)
++    # save V20-V31 (callee-saved with the AltiVec ABI)
++    li    %r31, 360
++    stvx  %v20, %r1, %r31
++    li    %r31, 376
++    stvx  %v21, %r1, %r31
++    li    %r31, 392
++    stvx  %v22, %r1, %r31
++    li    %r31, 408
++    stvx  %v23, %r1, %r31
++    li    %r31, 424
++    stvx  %v24, %r1, %r31
++    li    %r31, 440
++    stvx  %v25, %r1, %r31
++    li    %r31, 456
++    stvx  %v26, %r1, %r31
++    li    %r31, 472
++    stvx  %v27, %r1, %r31
++    li    %r31, 488
++    stvx  %v28, %r1, %r31
++    li    %r31, 504
++    stvx  %v29, %r1, %r31
++    li    %r31, 520
++    stvx  %v30, %r1, %r31
++    li    %r31, 536
++    stvx  %v31, %r1, %r31
+ 
+     # store RSP (pointing to context-data) in R7
+     mr  %r7, %r1
+@@ -149,10 +203,53 @@ ontop_fcontext:
+     mr  %r1, %r4
+ #endif
+ 
+-    # restore VS63
+-    li %r31, 184
+-    lvx %v31, %r1, %r31
+-    
++    # restore V20-V31
++    li    %r31, 360
++    lvx   %v20, %r1, %r31
++    li    %r31, 376
++    lvx   %v21, %r1, %r31
++    li    %r31, 392
++    lvx   %v22, %r1, %r31
++    li    %r31, 408
++    lvx   %v23, %r1, %r31
++    li    %r31, 424
++    lvx   %v24, %r1, %r31
++    li    %r31, 440
++    lvx   %v25, %r1, %r31
++    li    %r31, 456
++    lvx   %v26, %r1, %r31
++    li    %r31, 472
++    lvx   %v27, %r1, %r31
++    li    %r31, 488
++    lvx   %v28, %r1, %r31
++    li    %r31, 504
++    lvx   %v29, %r1, %r31
++    li    %r31, 520
++    lvx   %v30, %r1, %r31
++    li    %r31, 536
++    lvx   %v31, %r1, %r31
++    # restore FPSCR and F14-F31
++    lfd   %f0, 344(%r1)
++    mtfsf 0xff, %f0
++    lfd   %f14, 200(%r1)
++    lfd   %f15, 208(%r1)
++    lfd   %f16, 216(%r1)
++    lfd   %f17, 224(%r1)
++    lfd   %f18, 232(%r1)
++    lfd   %f19, 240(%r1)
++    lfd   %f20, 248(%r1)
++    lfd   %f21, 256(%r1)
++    lfd   %f22, 264(%r1)
++    lfd   %f23, 272(%r1)
++    lfd   %f24, 280(%r1)
++    lfd   %f25, 288(%r1)
++    lfd   %f26, 296(%r1)
++    lfd   %f27, 304(%r1)
++    lfd   %f28, 312(%r1)
++    lfd   %f29, 320(%r1)
++    lfd   %f30, 328(%r1)
++    lfd   %f31, 336(%r1)
++
+     ld  %r14, 8(%r1)  # restore R14
+     ld  %r15, 16(%r1)  # restore R15
+     ld  %r16, 24(%r1)  # restore R16
+@@ -212,7 +309,7 @@ return_to_ctx:
+     mtlr  %r0
+ 
+     # adjust stack
+-    addi  %r1, %r1, 200
++    addi  %r1, %r1, 552
+ 
+     # jump to context
+     bctr

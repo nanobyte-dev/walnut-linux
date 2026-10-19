@@ -1,0 +1,715 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Mon, 19 Oct 2026 04:21:57 +0300
+Subject: debian: build profile pkg.boost.contextonly
+
+Builds only Boost.Context, Boost.Coroutine and Boost.Fiber (the libraries
+whose code depends on the Boost.Context implementation) and their -dev
+packages; everything else is excluded with Build-Profiles, and so are the
+build dependencies only the other libraries and the documentation need.
+The -dev packages depend on the archive's headers and other -dev packages
+at the version ours is based on (boost:Base-Version, ours without +ps3),
+and the shlibs ask for our build (>= <base>+ps3~), so a program linked
+against the fcontext library never gets the archive's ucontext one.
+
+diff --git a/debian/control b/debian/control
+--- a/debian/control
++++ b/debian/control
+@@ -7,12 +7,17 @@ Uploaders:
+  Anton Gladky <gladk@debian.org>
+ Build-Depends: dpkg-dev (>= 1.22.5), debhelper-compat (= 12), dctrl-tools, chrpath,
+  cmake (>= 3.14),
+- zlib1g-dev, libbz2-dev, liblzma-dev, libzstd-dev, libicu-dev, mpi-default-dev,
+- bison, flex, docbook-to-man, help2man, xsltproc, doxygen,
+- docbook-xsl, docbook-xml, texlive-latex-base, ghostscript,
++ zlib1g-dev <!pkg.boost.contextonly>, libbz2-dev <!pkg.boost.contextonly>,
++ liblzma-dev <!pkg.boost.contextonly>, libzstd-dev <!pkg.boost.contextonly>,
++ libicu-dev <!pkg.boost.contextonly>, mpi-default-dev <!pkg.boost.contextonly>,
++ bison <!pkg.boost.contextonly>, flex <!pkg.boost.contextonly>,
++ docbook-to-man <!pkg.boost.contextonly>, help2man <!pkg.boost.contextonly>,
++ xsltproc <!pkg.boost.contextonly>, doxygen <!pkg.boost.contextonly>,
++ docbook-xsl <!pkg.boost.contextonly>, docbook-xml <!pkg.boost.contextonly>,
++ texlive-latex-base <!pkg.boost.contextonly>, ghostscript <!pkg.boost.contextonly>,
+  dh-python,
+- python3, python3-all-dev, python3-numpy [!x32]
+-Build-Depends-Indep: graphviz
++ python3, python3-all-dev <!pkg.boost.contextonly>, python3-numpy [!x32] <!pkg.boost.contextonly>
++Build-Depends-Indep: graphviz <!pkg.boost.contextonly>
+ Build-Conflicts: libopenmpi-dev (= 1.3.2-2)
+ Vcs-Browser: https://salsa.debian.org/debian/boost
+ Vcs-Git: https://salsa.debian.org/debian/boost.git
+@@ -20,6 +25,7 @@ Standards-Version: 4.7.4
+ 
+ Package: libboost1.92-dev
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends}, ${shlibs:Depends}, libstdc++-${gxx:major}-dev,
+@@ -80,6 +86,7 @@ Description: Boost C++ Libraries development files
+ 
+ Package: libboost1.92-tools-dev
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: foreign
+ Section: libdevel
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+@@ -105,6 +112,7 @@ Description: Boost C++ Libraries development tools
+ 
+ Package: libboost1.92-all-dev
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Section: libdevel
+ Depends: ${misc:Depends},
+  libboost1.92-dev,
+@@ -158,6 +166,7 @@ Description: Boost C++ Libraries development files (ALL)
+ Package: libboost1.92-doc
+ Homepage: http://www.boost.org/libs/
+ Architecture: all
++Build-Profiles: <!pkg.boost.contextonly>
+ Section: doc
+ Depends: ${misc:Depends}, libjs-mathjax
+ Suggests: libboost1.92-dev (>= ${source:Version})
+@@ -170,6 +179,7 @@ Description: Boost.org libraries documentation placeholder
+ Package: libboost-atomic1.92.0
+ Homepage: http://www.boost.org/libs/atomic/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -194,6 +204,7 @@ Description: atomic data types, operations, and memory ordering constraints
+ Package: libboost-atomic1.92-dev
+ Homepage: http://www.boost.org/libs/atomic/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -221,6 +232,7 @@ Conflicts: libboost-atomic1.83-dev, libboost-atomic1.88-dev, libboost-atomic1.90
+ Package: libboost-chrono1.92.0
+ Homepage: http://www.boost.org/libs/chrono/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -264,6 +276,7 @@ Description: C++ representation of time duration, time point, and clocks
+ Package: libboost-chrono1.92-dev
+ Homepage: http://www.boost.org/libs/chrono/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -311,6 +324,7 @@ Description: C++ representation of time duration, time point, and clocks
+ Package: libboost-container1.92.0
+ Homepage: http://boost.org/libs/container/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -344,6 +358,7 @@ Description: C++ library that implements several well-known containers
+ Package: libboost-container1.92-dev
+ Homepage: http://boost.org/libs/container/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -402,8 +417,8 @@ Architecture: any
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+- libboost1.92-dev (= ${binary:Version}),
+- libboost-thread1.92-dev (= ${binary:Version}),
++ libboost1.92-dev (= ${boost:Base-Version}),
++ libboost-thread1.92-dev (= ${boost:Base-Version}),
+  libboost-context1.92.0 (= ${binary:Version})
+ Description: provides a sort of cooperative multitasking on a single thread
+  This package forms part of the Boost C++ Libraries collection.
+@@ -422,6 +437,7 @@ Conflicts: libboost-context1.83-dev, libboost-context1.88-dev, libboost-context1
+ Package: libboost-contract1.92.0
+ Homepage: http://boost.org/libs/contract/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -437,6 +453,7 @@ Description: Contract library for C++
+ Package: libboost-contract1.92-dev
+ Homepage: http://boost.org/libs/contract/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -488,9 +505,9 @@ Architecture: any
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+- libboost1.92-dev (= ${binary:Version}),
++ libboost1.92-dev (= ${boost:Base-Version}),
+  libboost-context1.92-dev (= ${binary:Version}),
+- libboost-exception1.92-dev (= ${binary:Version}),
++ libboost-exception1.92-dev (= ${boost:Base-Version}),
+  libboost-coroutine1.92.0 (= ${binary:Version})
+ Description: provides a sort of cooperative multitasking on a single thread
+  This package forms part of the Boost C++ Libraries collection.
+@@ -514,6 +531,7 @@ Conflicts: libboost-coroutine1.83-dev, libboost-coroutine1.88-dev, libboost-coro
+ Package: libboost-date-time1.92.0
+ Homepage: http://www.boost.org/libs/date_time/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -526,6 +544,7 @@ Description: set of date-time libraries based on generic programming concepts
+ Package: libboost-date-time1.92-dev
+ Homepage: http://www.boost.org/libs/date_time/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -544,6 +563,7 @@ Description: set of date-time libraries based on generic programming concepts
+ Package: libboost-exception1.92-dev
+ Homepage: http://www.boost.org/libs/exception/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -591,11 +611,11 @@ Architecture: any
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+- libboost1.92-dev (= ${binary:Version}),
+- libboost-exception1.92-dev (= ${binary:Version}),
+- libboost-atomic1.92-dev (= ${binary:Version}),
++ libboost1.92-dev (= ${boost:Base-Version}),
++ libboost-exception1.92-dev (= ${boost:Base-Version}),
++ libboost-atomic1.92-dev (= ${boost:Base-Version}),
+  libboost-context1.92-dev (= ${binary:Version}),
+- libboost-filesystem1.92-dev (= ${binary:Version}),
++ libboost-filesystem1.92-dev (= ${boost:Base-Version}),
+  libboost-fiber1.92.0 (= ${binary:Version})
+ Description: cooperatively-scheduled micro-/userland-threads
+  This package forms part of the Boost C++ Libraries collection.
+@@ -624,6 +644,7 @@ Conflicts: libboost-fiber1.83-dev, libboost-fiber1.88-dev, libboost-fiber1.90-de
+ Package: libboost-filesystem1.92.0
+ Homepage: http://boost.org/libs/filesystem/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -637,6 +658,7 @@ Description: filesystem operations (portable paths, iteration over directories,
+ Package: libboost-filesystem1.92-dev
+ Homepage: http://boost.org/libs/filesystem/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -654,6 +676,7 @@ Description: filesystem operations (portable paths, iteration over directories,
+ Package: libboost-graph1.92.0
+ Homepage: http://www.boost.org/libs/graph/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -670,6 +693,7 @@ Description: generic graph components and algorithms in C++
+ Package: libboost-graph1.92-dev
+ Homepage: http://www.boost.org/libs/graph/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -699,6 +723,7 @@ Description: generic graph components and algorithms in C++
+ Package: libboost-graph-parallel1.92.0
+ Homepage: http://www.boost.org/libs/graph_parallel/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+ Suggests: graphviz
+@@ -715,6 +740,7 @@ Description: generic graph components and algorithms in C++
+ Package: libboost-graph-parallel1.92-dev
+ Homepage: http://www.boost.org/libs/graph_parallel/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Section: libdevel
+ Depends: ${misc:Depends},
+  libboost1.92-dev (= ${binary:Version}),
+@@ -746,6 +772,7 @@ Description: generic graph components and algorithms in C++
+ Package: libboost-iostreams1.92.0
+ Homepage: http://www.boost.org/libs/iostreams/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -759,6 +786,7 @@ Description: Boost.Iostreams Library
+ Package: libboost-iostreams1.92-dev
+ Homepage: http://www.boost.org/libs/iostreams/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -781,6 +809,7 @@ Description: Boost.Iostreams Library development files
+ Package: libboost-locale1.92.0
+ Homepage: http://www.boost.org/libs/locale/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -810,6 +839,7 @@ Description: C++ facilities for localization
+ Package: libboost-locale1.92-dev
+ Homepage: http://www.boost.org/libs/math/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -850,6 +880,7 @@ Description: C++ facilities for localization
+ Package: libboost-log1.92.0
+ Homepage: http://www.boost.org/libs/log/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Description: C++ logging library
+  This package forms part of the Boost C++ Libraries collection.
+@@ -869,6 +900,7 @@ Description: C++ logging library
+ Package: libboost-log1.92-dev
+ Homepage: http://www.boost.org/libs/log/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Section: libdevel
+ Depends: ${misc:Depends},
+  libboost-log1.92.0 (= ${binary:Version}),
+@@ -901,6 +933,7 @@ Conflicts: libboost-log1.83-dev, libboost-log1.88-dev, libboost-log1.90-dev
+ Package: libboost-math1.92.0
+ Homepage: http://www.boost.org/libs/math/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -921,6 +954,7 @@ Description: Boost.Math Library
+ Package: libboost-math1.92-dev
+ Homepage: http://www.boost.org/libs/math/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -946,6 +980,7 @@ Description: Boost.Math Library development files
+ Package: libboost-mpi1.92.0
+ Homepage: http://www.boost.org/doc/html/mpi.html
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+ Description: C++ interface to the Message Passing Interface (MPI)
+@@ -960,6 +995,7 @@ Description: C++ interface to the Message Passing Interface (MPI)
+ Package: libboost-mpi1.92-dev
+ Homepage: http://www.boost.org/doc/html/mpi.html
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Section: libdevel
+ Depends: ${misc:Depends},
+  libboost1.92-dev (= ${binary:Version}),
+@@ -988,6 +1024,7 @@ Description: C++ interface to the Message Passing Interface (MPI)
+ Package: libboost-mpi-python1.92.0
+ Homepage: http://www.boost.org/doc/html/mpi/python.html
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Depends: ${misc:Depends}, ${shlibs:Depends}, ${python3:Depends}, mpi-default-bin
+ Pre-Depends: ${misc:Pre-Depends}
+ Suggests: python3
+@@ -1009,6 +1046,7 @@ Description: C++ interface to the Message Passing Interface (MPI), Python Bindin
+ Package: libboost-mpi-python1.92-dev
+ Homepage: http://www.boost.org/doc/html/mpi/python.html
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Section: libdevel
+ Depends: ${misc:Depends},
+  libboost1.92-dev (= ${binary:Version}),
+@@ -1040,6 +1078,7 @@ Description: C++ interface to the Message Passing Interface (MPI), Python Bindin
+ Package: libboost-nowide1.92.0
+ Homepage: http://www.boost.org/libs/python/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+ Suggests: python3
+@@ -1057,6 +1096,7 @@ Description: Standard library functions with UTF-8 API on Windows
+ Package: libboost-nowide1.92-dev
+ Homepage: http://www.boost.org/libs/python/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Section: libdevel
+ Depends: ${misc:Depends},
+  libboost1.92-dev (= ${binary:Version}),
+@@ -1076,6 +1116,7 @@ Conflicts: libboost-nowide1.83-dev, libboost-nowide1.88-dev, libboost-nowide1.90
+ Package: libboost-numpy1.92.0
+ Homepage: http://www.boost.org/libs/python/
+ Architecture: alpha amd64 arm64 armel armhf hppa hurd-amd64 hurd-i386 i386 loong64 m68k powerpc ppc64 ppc64el riscv64 s390x sh4 sparc64
++Build-Profiles: <!pkg.boost.contextonly>
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+ Suggests: python3
+@@ -1092,6 +1133,7 @@ Description: Boost.Python NumPy extensions
+ Package: libboost-numpy1.92-dev
+ Homepage: http://www.boost.org/libs/python/
+ Architecture: alpha amd64 arm64 armel armhf hppa hurd-amd64 hurd-i386 i386 loong64 m68k powerpc ppc64 ppc64el riscv64 s390x sh4 sparc64
++Build-Profiles: <!pkg.boost.contextonly>
+ Section: libdevel
+ Depends: ${misc:Depends},
+  libboost1.92-dev (= ${binary:Version}),
+@@ -1122,6 +1164,7 @@ Conflicts: libboost-numpy1.83-dev, libboost-numpy1.88-dev, libboost-numpy1.90-de
+ Package: libboost-program-options1.92.0
+ Homepage: http://www.boost.org/libs/program_options/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -1135,6 +1178,7 @@ Description: program options library for C++
+ Package: libboost-program-options1.92-dev
+ Homepage: http://www.boost.org/libs/program_options/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -1152,6 +1196,7 @@ Description: program options library for C++
+ Package: libboost-python1.92.0
+ Homepage: http://www.boost.org/libs/python/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Depends: ${misc:Depends}, ${shlibs:Depends}, ${python3:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+ Suggests: python3
+@@ -1177,6 +1222,7 @@ Description: Boost.Python Library
+ Package: libboost-python1.92-dev
+ Homepage: http://www.boost.org/libs/python/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Section: libdevel
+ Depends: ${misc:Depends},
+  libboost1.92-dev (= ${binary:Version}),
+@@ -1217,6 +1263,7 @@ Description: Boost.Python Library development files
+ Package: libboost-random1.92.0
+ Homepage: http://www.boost.org/libs/random/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -1230,6 +1277,7 @@ Description: Boost Random Number Library
+ Package: libboost-random1.92-dev
+ Homepage: http://www.boost.org/libs/random/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -1246,6 +1294,7 @@ Description: Boost Random Number Library
+ Package: libboost-regex1.92.0
+ Homepage: http://www.boost.org/libs/regex/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -1266,6 +1315,7 @@ Description: regular expression library for C++
+ Package: libboost-regex1.92-dev
+ Homepage: http://www.boost.org/libs/regex/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -1289,6 +1339,7 @@ Description: regular expression library for C++
+ Package: libboost-serialization1.92.0
+ Homepage: http://www.boost.org/libs/serialization/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -1310,6 +1361,7 @@ Description: serialization library for C++
+ Package: libboost-serialization1.92-dev
+ Homepage: http://www.boost.org/libs/serialization/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -1340,6 +1392,7 @@ Description: serialization library for C++
+ Package: libboost-stacktrace1.92.0
+ Homepage: http://boost.org/libs/stacktrace/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -1352,6 +1405,7 @@ Description: library to capture and print stack traces
+ Package: libboost-stacktrace1.92-dev
+ Homepage: http://boost.org/libs/stacktrace/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -1367,6 +1421,7 @@ Conflicts: libboost-stacktrace1.83-dev, libboost-stacktrace1.88-dev, libboost-st
+ Package: libboost-test1.92.0
+ Homepage: http://www.boost.org/libs/test/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -1381,6 +1436,7 @@ Description: components for writing and executing test suites
+ Package: libboost-test1.92-dev
+ Homepage: http://www.boost.org/libs/test/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -1399,6 +1455,7 @@ Description: components for writing and executing test suites
+ Package: libboost-thread1.92.0
+ Homepage: http://www.boost.org/libs/thread/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -1413,6 +1470,7 @@ Description: portable C++ multi-threading
+ Package: libboost-thread1.92-dev
+ Homepage: http://www.boost.org/libs/thread/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -1435,6 +1493,7 @@ Description: portable C++ multi-threading
+ Package: libboost-timer1.92.0
+ Homepage: http://www.boost.org/libs/timer/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -1453,6 +1512,7 @@ Description: C++ wall clock and CPU process timers
+ Package: libboost-timer1.92-dev
+ Homepage: http://www.boost.org/libs/timer/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -1475,6 +1535,7 @@ Description: C++ wall clock and CPU process timers
+ Package: libboost-type-erasure1.92.0
+ Homepage: http://www.boost.org/doc/libs/1_60_0/doc/html/boost_typeerasure.html
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -1489,6 +1550,7 @@ Description: C++ runtime polymorphism based on concepts
+ Package: libboost-type-erasure1.92-dev
+ Homepage: http://www.boost.org/doc/libs/1_60_0/doc/html/boost_typeerasure.html
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -1512,6 +1574,7 @@ Conflicts: libboost-type-erasure1.83-dev, libboost-type-erasure1.88-dev, libboos
+ Package: libboost-wave1.92.0
+ Homepage: http://www.boost.org/libs/wave/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -1526,6 +1589,7 @@ Description: C99/C++ preprocessor library
+ Package: libboost-wave1.92-dev
+ Homepage: http://www.boost.org/libs/wave/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -1552,6 +1616,7 @@ Description: C99/C++ preprocessor library
+ Package: libboost-json1.92.0
+ Homepage: https://www.boost.org/doc/libs/release/libs/json/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -1568,6 +1633,7 @@ Description: C++ containers and algorithms that implement JSON
+ Package: libboost-cobalt1.92-dev
+ Homepage: https://www.boost.org/doc/libs/release/libs/cobalt/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -1590,6 +1656,7 @@ Description: coroutines for C++20 - development files
+ Package: libboost-cobalt1.92.0
+ Homepage: https://www.boost.org/doc/libs/release/libs/cobalt/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -1606,6 +1673,7 @@ Description: coroutines for C++20
+ Package: libboost-json1.92-dev
+ Homepage: https://www.boost.org/doc/libs/release/libs/json/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -1626,6 +1694,7 @@ Description: C++ containers and algorithms that implement JSON
+ Package: libboost-url1.92.0
+ Homepage: https://www.boost.org/doc/libs/release/libs/url/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -1644,6 +1713,7 @@ Description: C++ library that implements "URL"
+ Package: libboost-url1.92-dev
+ Homepage: https://www.boost.org/doc/libs/release/libs/url/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -1665,6 +1735,7 @@ Description: C++ library that implements "URL"
+ Package: libboost-charconv1.92.0
+ Homepage: https://www.boost.org/libs/charconv/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -1685,6 +1756,7 @@ Description: high quality implementation of <charconv> in C++11
+ Package: libboost-charconv1.92-dev
+ Homepage: https://www.boost.org/libs/charconv/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+@@ -1710,6 +1782,7 @@ Conflicts: libboost-charconv1.83-dev, libboost-charconv1.88-dev, libboost-charco
+ Package: libboost-process1.92.0
+ Homepage: https://www.boost.org/libs/process/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Depends: ${misc:Depends}, ${shlibs:Depends}
+ Pre-Depends: ${misc:Pre-Depends}
+@@ -1720,6 +1793,7 @@ Description: library to create processes in a portable way
+ Package: libboost-process1.92-dev
+ Homepage: https://www.boost.org/libs/process/
+ Architecture: any
++Build-Profiles: <!pkg.boost.contextonly>
+ Multi-Arch: same
+ Section: libdevel
+ Depends: ${misc:Depends},
+diff --git a/debian/rules b/debian/rules
+--- a/debian/rules
++++ b/debian/rules
+@@ -25,6 +25,9 @@ pydefault := $(shell py3versions -dv)
+ # Boost.Python is built once per interpreter; the default one comes out of the
+ # main build, the rest get a CMake pass of their own.
+ pyextra := $(filter-out $(pydefault),$(pyversions))
++ifneq (,$(filter pkg.boost.contextonly,$(DEB_BUILD_PROFILES)))
++pyextra :=
++endif
+ pyids := $(subst .,,$(pyversions))
+ 
+ # Boost components with a package of their own: a libboost-<c>$(SOVERSION)
+@@ -39,6 +42,18 @@ ifneq ($(DEB_BUILD_ARCH), x32)
+ components += numpy
+ endif
+ 
++# Build profile pkg.boost.contextonly (ps3): only Boost.Context and the two
++# libraries built on its implementation, Boost.Coroutine and Boost.Fiber; the
++# headers and every other library stay the archive's build of the same
++# version, BASE_VERSION (ours without its +ps3 suffix), which the -dev
++# packages depend on.
++contextonly := $(filter pkg.boost.contextonly,$(DEB_BUILD_PROFILES))
++BASE_VERSION := $(DEB_VERSION)
++ifneq (,$(contextonly))
++components := context coroutine fiber
++BASE_VERSION := $(shell echo '$(DEB_VERSION)' | sed 's/+ps3[^+]*$$//')
++endif
++
+ # Components shipping libraries that are not simply named after the component.
+ # stacktrace_dump is a private helper library the other stacktrace backends
+ # link against, and their CMake configuration files require it.
+@@ -110,8 +125,9 @@ exampledir = debian/libboost$(PKGVERSION)-doc/usr/share/doc/libboost$(PKGVERSION
+ CMAKE_FLAGS = \
+ 	-DBOOST_INSTALL_LAYOUT=system \
+ 	-DBUILD_TESTING=OFF \
+-	-DBOOST_ENABLE_MPI=ON \
+-	-DBOOST_ENABLE_PYTHON=ON \
++	-DBOOST_ENABLE_MPI=$(if $(contextonly),OFF,ON) \
++	-DBOOST_ENABLE_PYTHON=$(if $(contextonly),OFF,ON) \
++	$(if $(contextonly),-DBOOST_INCLUDE_LIBRARIES="context;coroutine;fiber") \
+ 	-DBOOST_MATH_BUILD_WITH_LEGACY_FUNCTIONS=ON \
+ 	-DBOOST_STACKTRACE_ENABLE_FROM_EXCEPTION=OFF \
+ 	$(CMAKE_ARCH_FLAGS)
+@@ -164,6 +180,7 @@ override_dh_auto_install-arch:
+ 	# placeholders such as boost/headers/.gitkeep
+ 	find debian/tmp -type f -empty -delete
+ 	find debian/tmp -type d -empty -delete
++ifeq (,$(contextonly))
+ 	# b2 has no CMake build of its own, and bcp and quickbook are linked
+ 	# against the static libraries, as they were with b2.
+ 	cd tools/build && bison -y -d -o src/engine/jamgram.cpp src/engine/jamgram.y
+@@ -175,6 +192,7 @@ override_dh_auto_install-arch:
+ 			-DCMAKE_PREFIX_PATH=$(CURDIR)/debian/tmp/usr -DBoost_USE_STATIC_LIBS=ON; \
+ 		dh_auto_build --builddirectory=obj-$$t; \
+ 	done
++endif
+ 
+ # Nothing is compiled for the architecture independent packages: the
+ # documentation and the examples are shipped as they come in the tarball.
+@@ -221,7 +239,14 @@ override_dh_install-indep:
+ 	find $(exampledir) -type f -exec chmod 644 {} +
+ 
+ override_dh_makeshlibs:
++ifneq (,$(contextonly))
++	# programs built against these must not get the archive's build
++	set -e ; for c in $(components); do \
++		dh_makeshlibs -plibboost-$${c}$(SOVERSION) -V"libboost-$${c}$(SOVERSION) (>= $(BASE_VERSION)+ps3~)"; \
++	done
++else
+ 	dh_makeshlibs
++endif
+ 	# The libraries built per interpreter also satisfy the -py<version>
+ 	# virtual packages, so their shlibs have to mention those as well.
+ 	$(foreach c,$(filter $(components),$(py_components)), \
+@@ -229,7 +254,7 @@ override_dh_makeshlibs:
+ 			debian/$(call lib_pkg,$(c))/DEBIAN/shlibs;)
+ 
+ override_dh_gencontrol:
+-	dh_gencontrol -- -V'gxx:major=$(shell dpkg-query -f '$${version}' -W g++ | sed 's/.*://;s/\..*//')'
++	dh_gencontrol -- -V'boost:Base-Version=$(BASE_VERSION)' -V'gxx:major=$(shell dpkg-query -f '$${version}' -W g++ | sed 's/.*://;s/\..*//')'
+ 
+ # The debhelper input files below depend on the Boost version and on the set of
+ # Python interpreters, so they are generated rather than kept in the package.

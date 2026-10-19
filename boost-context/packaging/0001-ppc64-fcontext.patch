@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Mon, 19 Oct 2026 04:21:13 +0300
+Subject: debian: Boost.Context's fcontext assembler on ppc64
+ (#1146645)
+
+The ucontext build of libboost_context on ppc64 lacks make_fcontext,
+jump_fcontext and ontop_fcontext, which the headers use unless the consumer
+defines BOOST_USE_UCONTEXT: only CMake users of Boost::context get that
+define, so wesnoth (asio spawn) and anything using pkg-config or a plain
+-lboost_context fail to link. libboost_coroutine has no ucontext backend
+and was shipped with those symbols undefined. Upstream's CMake detects
+ppc64 (big-endian, ELFv1) correctly and builds jump/make/ontop_ppc64_sysv_elf_gas.S,
+the same code ppc64el has always used.
+
+diff --git a/debian/rules b/debian/rules
+--- a/debian/rules
++++ b/debian/rules
+@@ -62,7 +62,12 @@ else
+ CMAKE_ARCH_FLAGS += -DBOOST_MATH_HAS_LONG_DOUBLE=OFF
+ endif
+ 
+-ifneq (,$(filter $(DEB_HOST_ARCH), alpha hppa m68k powerpc ppc64 sh4 sparc64 x32))
++# ppc64 is not in this list: CMake detects it (ppc64, sysv, elf) and builds the
++# ppc64_sysv_elf_gas fcontext assembler, which handles ELFv1, as on ppc64el.
++# With ucontext the headers still default to fcontext unless the consumer
++# defines BOOST_USE_UCONTEXT, and Boost.Coroutine has no ucontext backend at
++# all (#1146645).
++ifneq (,$(filter $(DEB_HOST_ARCH), alpha hppa m68k powerpc sh4 sparc64 x32))
+ CMAKE_ARCH_FLAGS += -DBOOST_CONTEXT_IMPLEMENTATION=ucontext
+ endif
+ 
