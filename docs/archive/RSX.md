@@ -1,0 +1,217 @@
+> Superseded on 2026-10-19 by docs/RSX.md; kept unchanged for its history.
+
+# RSX as seen from Linux (measured 2026-10-14)
+
+What the GPU context that ps3fb allocates can do, measured with `ps3-gpu-tools/src/rsx-probe.c` on the
+CECH-20xx under our 6.12 kernel. Facts here are measured unless marked otherwise.
+
+## Contexts
+
+ps3fb calls `lv1_gpu_memory_allocate` and `lv1_gpu_context_allocate(mem, 0x820)` at boot: memory
+handle 0x5a5a5a5a, context 0x55555555 (hardware channel 0).
+
+- A second `lv1_gpu_memory_allocate` fails with -17 for every argument set tried (also ps3vram's),
+  so ps3fb's handle owns all VRAM.
+- A second context on ps3fb's memory handle works (`ps3rsx/probes/rsx_ctx_probe.c`): handle 0x55555554,
+  hardware channel 1, its own ctrl/driver-info/reports areas. Its FIFO runs, all seven object
+  handles below bind, M2MF copies correctly. So a DRM driver can have its own channel(s) next to
+  ps3fb, sharing VRAM.
+- **Context limit: ps3fb's plus two more** (hw channels 1, 2); the next allocation fails with -2.
+  **Allocating up to the limit and freeing them stalled every FIFO, ps3fb's included, with no
+  graph exception** (E1, 2026-10-14). One extra context allocated and freed was fine earlier.
+  Which step breaks it (third context, the failed fourth, or the frees) is still open. One extra
+  context allocated and freed (`ctxcount:1`) is safe.
+- **3D state is shared between channels (E5):** a clear in context A after context B set its
+  surface went to B's surface. So: one hardware context for the driver, and every submission
+  re-emits the full state it depends on.
+- ps3fb's reset program (copied and CALLed) runs fine in a fresh context and gives it the
+  usual object/DMA setup.
+- A display flip (`lv1_gpu_display_flip`) from the second context works (E6, webcam).
+- Our own context's IRQ outlet delivers vsync (60/s) when its driver-info irq mask is set (E7),
+  so a driver needs no hook in ps3fb for interrupts.
+- IO window (`lv1_gpu_context_iomap`), per context: IO addresses below 0x10000000 (256 MB) map,
+  anything at or above fails with -17. 64 KB maps fail: the IO page size is 1 MB (flags 0x820).
+  A 16 MB map in one call works. Scattered 1 MB maps anywhere in the window, unmap and remap
+  elsewhere, and mapping one chunk at two IO addresses all work (E2). Chunks mapped *after* the
+  context was created, at IO 64 MB and 255 MB, are reachable through 0xfeed0001 (E9).
+- VRAM through 0xfeed0000 reaches at least 253 MB (E10: 0xdf00000 and 0xfd00000 round trips),
+  i.e. 30 MB more than ps3fb's assumed 224 MB. Driver info: version 0x211, GPU 0x34, core 500 MHz, memory 650 MHz.
+
+| mmap (`/dev/ps3gpu_*`) | size | what |
+|---|---|---|
+| vram (minor 0) | 0xe000000 (224 MB) | VRAM, CPU mapping is uncached + guarded |
+| fifo (minor 1) | 0x80000 (512 KB) | start of the XDR window: reset program at 0, ring at 0x1000 (60 KB), rest is free scratch |
+| ctrl (minor 2) | 0x1000 | FIFO control: put 0x40, get 0x44, ref 0x48 |
+| driver (minor 3) | 0x20000 | driver info, display heads, IRQ and graph-exception dump |
+| reports (minor 4) | 0x10000 | labels (semaphores) from 0, report records from 0x1400 |
+
+The XDR window the GPU can reach (IOIF 0 upward) is ps3fb's buffer: 512 KB FIFO area plus 8.5 MB
+("gart_size") of framebuffer, capped by ps3fb at 32 MB. Userspace can only map the first 512 KB
+through minor 1; the rest is reachable through /dev/fb0.
+
+## Objects bound by ps3fb's reset program
+
+Handles are pre-created by the hypervisor (the same ones libgcm uses).
+
+| subch | handle | object |
+|---|---|---|
+| 0 | 0x31337000 | 3D (NV40 class) |
+| 1 | 0x31337303 | M2MF, DMA in XDR / out VRAM by default |
+| 2 | 0x3137c0de | M2MF, in VRAM / out XDR |
+| 3 | 0x313371c3 | context surfaces 2D |
+| 4 | 0x31337a73 | swizzled surface |
+| 5 | 0x31337808 | image from CPU |
+| 6 | 0x3137af00 | scaled image |
+
+DMA contexts: 0xfeed0000 VRAM, 0xfeed0001 XDR (IOIF), 0x66606660 semaphores (3D), 0x66616661
+semaphores (FIFO), 0x66626660 reports, 0x66604200 notifier.
+
+## Synchronisation
+
+- **GET is not completion.** `get == put` only means the FIFO fetched the words; the engine may
+  not have run them. Wait on the ref word or a semaphore instead.
+- **SET_REFERENCE (0x50) works and is a real completion fence:** the value shows up in
+  ctrl+0x48 only once preceding rendering has landed in memory (E11: 8/8 32 MB clears done when
+  ref arrived). This is all a single-channel nouveau fence needs (nv10-style).
+- FIFO CALL into another chunk at an odd offset + RETURN works (E3): the pushbuf model.
+- **Semaphore releases work** and land in the reports area at the given offset: FIFO release
+  (0x64/0x6c), 3D texture-read release (0x1d6c/0x1d74), 3D back-end release (0x1d70, value is
+  written with bytes 0 and 2 swapped, as on nv40; writing a pre-swizzled value stores the
+  intended one, E4).
+- The 0x66604200 notifier writes at reports+0, the same place as the labels (E14): fences must
+  not use label offset 0.
+- **FIFO semaphore acquire (0x68) is unreliable:** sometimes it blocks although the label already
+  holds the value; a CPU write to the label (even the same value) wakes it. Not needed for a single
+  channel; avoid it until we need cross-channel sync.
+- **GET_REPORT (0x1800)** writes a 16-byte record `{u64 GPU timestamp, u32 value, u32 0}` at
+  reports+0x1400+offset.
+
+## Copies and CPU access
+
+| path | rate |
+|---|---|
+| M2MF VRAM→VRAM | ~2.3 GB/s (copy rate) |
+| M2MF XDR→VRAM (8 MB) | ~2.0 GB/s |
+| M2MF VRAM→XDR (256 KB chunks) | ~600 MB/s |
+| CPU write to VRAM, 8-byte stores | 124 MB/s |
+| CPU write to VRAM, glibc memcpy | 19 MB/s |
+| CPU read from VRAM | 10 MB/s |
+
+CPU access to VRAM is unusable for real work: uploads and readbacks must go through XDR buffers
+and the M2MF. A write-combining kernel mapping is no faster than the guarded one (69 vs 70 MB/s, E8).
+(That loop timed each page's first touch too, so the hash faults may hide a difference:
+RSX-SPU-FEASIBILITY.md section 1, probe E8b, not run.)
+
+## Errors
+
+A graph exception (seen: cause 0x109, M2MF methods sent to the surface-2D object; cause 0x105,
+M2MF transfer in a fresh context whose notifier DMA was never set, and also a 3D texture sampled
+at an offset not 128-byte aligned: +0xaa0 by Mesa's blit reading back a 2x2 mip level for
+Neverball, 2026-10-17, fixed in Mesa 0014 and refused by ps3rsx 0.249) is reported through
+ps3fb's interrupt (also for channel 1), which dumps the PFIFO cache and sets word 1023 of the
+FIFO area. The dump is read with care: each pair is fifo_cache:graph_fifo (subchannel =
+(a>>13)&7, method = a & 0x1ffc), but ps3fb prints entries 4i..4i+3 for i = 0, 4, ..., 28 (entries
+0-3, 16-19, ..., 112-115 of the 512), not the ones around GET, and its G/P markers compare GET/PUT
+with i (task #29: print the 32 entries ending at GET).
+
+**Cause 0x106: rendering to a swizzled surface 1 pixel wide** (RT_FORMAT type swizzled, log2
+width 0). Found 2026-10-14 from xeglgears/LXQt crashes (glamor draws into 1-pixel-wide
+pixmaps; dumps in docs/dumps/) and isolated with egl-thin: 1x64 raises it, 2x64, 64x1 and
+1427x1 (linear) render correctly. Mesa 0012 keeps such render targets linear on the PS3, and
+the validator rejects the RT_FORMAT. Linear surfaces 1 pixel wide: see the egl-thin results.
+
+**It wedges the whole RSX, not one channel.** After an exception in channel 1, ps3fb's channel 0
+stops too, and a freshly allocated context's FIFO doesn't even fetch. None of these recover it:
+ps3fb's EXIT (FIFO_SETUP + reset program), context free + reallocate, FIFO_PAUSE + FIFO_RESUME
+(both return 0), and freeing every context *and* the memory handle (unbinding ps3fb, which works
+without crashing) then rebinding: the fresh memory handle and context allocate fine, but the first
+FIFO run still times out. Only a console reboot recovered it (untested: whether an LPAR-only reboot
+through Petitboot is enough).
+
+So the driver must never submit a faulting command stream, or find a real reset.
+
+## 3D pipeline from raw commands (E12, E13, E15)
+
+`ps3-gpu-tools/rsx-tri` (words from docs/RSX-PROGRAMS.md) on the visible frame, photographed with
+the webcam: state/viewport writes, vertex program upload, fragment program in VRAM (stored
+halfword-swapped), immediate-mode and vertex-array draws, colour interpolation, and a 4x4
+A8R8G8B8 linear texture (big-endian `0xAARRGGBB` stores, correct orientation and channel
+order). No exceptions.
+
+`ps3-gpu-tools/rsx-mesainit` replays Mesa nv30_screen_create's init stream with PS3 handles on
+Mesa's subchannel layout (3D=7, M2MF=2, SF2D=3, SSWZ=4, SIFM=5): all accepted, including the
+four values that differ from libgcm (0x1450=4, 0x1eac=0xff800006, 0x1ef8, 0x1d64), and a 3D
+clear works afterwards.
+
+ps3fb's vsync task blits the console into frame 0; ENTER stops it, but a blit in flight can
+still land after a test's clear, so tests wait 200 ms after ENTER.
+
+## Through the ps3rsx driver (Phase 2)
+
+`ps3-gpu-tools/rsxdrm-smoke` via the nouveau ioctls: M2MF GART<->VRAM exact, 3D clear exact, the
+raw-command triangle exact, 10k fenced submits with the back-end semaphore label always landed
+when the fence signalled, 20 load/unload cycles.
+
+What Mesa does that libgcm doesn't: the M2MF NOP (0x100 on the M2MF subchannel) and
+RT_ENABLE 0x12 are accepted. **Vertex format type 0 (0x1740+, data & 0xf == 0) raises a graph
+exception**: the validator rejects it, and Mesa must not emit it on the PS3.
+
+## Mesa, KMS and X on the driver (Phases 3-6)
+
+Found while getting stock Mesa nv30 to run (fixed in our Mesa fork, `mesa/fork/`; the patches that first carried them are in git history):
+
+- **Z16 depth** renders wrong: the PS3 gets only 24-bit depth (0005).
+- The 3D blit **into a GART destination** needs its own path (0003); its fragment program is
+  stored halfword-swapped like every RSX fragment program (0004, big-endian only).
+- **Inline vertex data with a single attribute draws nothing** (no exception, no fragments):
+  position-only draws such as glamor's fills and any constant-colour shader. Two attributes
+  work, so the PS3 pushes the lone attribute twice (0008).
+- Mesa splits long inline draws across pushes, so a primitive can stay open between submits;
+  the driver must not switch channels (restore state) inside BEGIN/END: that raised a graph
+  exception. ps3rsx waits for the primitive to close.
+- The scanout format: the RSX renders and scans out A8R8G8B8 words, i.e. bytes A,R,G,B in
+  memory. A big-endian X server asks gbm for ARGB8888 meaning exactly that, so on big-endian the
+  DRM 8888 fourccs are taken as host-order words (0007).
+
+- nv30 exports the fragment colour from the fp16 register H0. FP_CONTROL bit 6 (libgcm's
+  "32-bit exports") takes it from R0 instead, which works on the RSX and rounds like a fp32
+  pipeline (0009). What's left against softpipe is attribute interpolation: the cutover between
+  rounding down and up wanders over about 0.50-0.57 of an 8-bit step.
+
+KMS: `lv1_gpu_display_flip` from our context shows any VRAM offset, including above 224 MB
+(tested at 0xe100000). The CPU's writes through a VRAM mmap are seen by the GPU as written. No
+vblank interrupt is wired up; a timer at the frame rate paces flip events, and the flip itself
+latches at the display's vsync. kmscube: 60 fps at 1920x1080.
+
+X: modesetting with glamor (GL 2.1 context, GLSL 1.20) works on NV47. An `xwd` of a fill test
+is identical to the same run on softpipe; glxgears runs at 60 fps with direct rendering.
+
+Sharing with ps3fb's consoles (2026-10-14): the display shows whichever offset was flipped last;
+after a handover ps3rsx flips both heads to ps3fb's frame itself (with libgcm's flip status reset
+as a precaution). PGRAPH state after ps3fb has had the GPU is unknown: ps3rsx clears its hardware
+shadow so the next submit restores its channel's whole state.
+
+## What Mesa exposes (2026-10-17, Mesa 26.2.4-1+ps3.186)
+
+`glxinfo -l` on the desktop is kept in docs/glxinfo-nv47.txt (extensions and limits). OpenGL 2.1,
+GLSL 1.20. Absent, and what that costs (docs/GAME-PLAN.md): ARB_texture_rg (dsda-doom's GL mode,
+OpenTTD's GL mode), ARB_shader_texture_lod, EXT/ARB_vertex_array_bgra, ARB_framebuffer_object
+(renderergl2's FBO features), ARB_texture_float. Present: EXT_framebuffer_object, ARB_point_parameters
+and point sprites, NPOT, SGIS_generate_mipmap, EXT_texture3D, ARB_vertex_array_object, S3TC.
+
+Measured with ps3-gpu-tools/mesa-tests (2026-10-17):
+- gl-texfmt: L8, A8, I8, 4444, 1555 sample right. **L8A8 swaps L and A** on every texel: Gallium's
+  L8A8 is a byte array, the RSX reads the 16-bit texel as a big-endian halfword.
+- gl-genmip: GPU mipmap generation is right for square power-of-two textures; for non-square ones
+  the levels 1 pixel wide or high are swizzled render targets ps3rsx's validator refuses, and the
+  whole push is lost with them (level 0's upload included).
+- Both fixed in Mesa 0012 and 0013 (ps3.223): gl-texfmt and gl-genmip pass.
+
+## Submission and fetch (2026-10-17, Mesa ps3.262-ps3.299)
+
+- Without relocations (Mesa 0019) nothing forced a submission mid-frame, so a frame reached the GPU
+  in one piece at SwapBuffers and the GPU idled while the CPU built it: Armagetron 60 -> 50 fps at
+  the same CPU time. Submitting every 100 draws, or (0027) at a draw start once the GPU has passed
+  the last fence and enough is queued, gave the overlap back (61.5).
+- The RSX fetches fragment programs from GART (Mesa 0031, constant changes run from a GART copy):
+  right picture in OpenArena opengl2, no exception.
