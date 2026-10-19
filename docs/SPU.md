@@ -105,14 +105,6 @@ What step 0 established that still holds:
 | Faults | an SPU DMA to an invalid address fails that job with EFAULT in 1 ms, the worker is recreated in 3.4 ms, nothing in the kernel log |
 | Bandwidth (P5) | one SPE gets 12 to 14 GB/s and puts 18 to 22 GB/s to XDR; six together about 20 to 23 GB/s, the memory's limit |
 
-## The SPE health test
-
-`spetest` (package `ps3-spu`, sources in [ps3-spu/spetest](../ps3-spu/spetest/README.md)) checks every SPE with five small programs and prints a pass or fail line per physical SPE: the local store (march C- and address-in-data patterns over about 245 KB), the 128 registers, about 90 operations of the execution units checked against the PPE's own results (integer, shifts, shuffles, single and double precision, a branch kernel, unaligned accesses), the channels (mailboxes, both signal registers, the decrementer's rate against the PPE's clock) and the MFC (every DMA size, alignments, lists, fences, tag status, `getllar`/`putllc` against PPE stores). It gives a baseline for the six SPEs we use, a check of the seventh with `spu_base.enum_shared=1`, and the eighth if we ever get it; `--stress MIN` runs all tests on all SPEs at once for MIN minutes, refuses to start and stops at 80 C by the `ps3_sm` hwmon temperatures, and never runs unless asked.
-
-How it works: one spufs context per test, as many at once as there are SPEs; each SPU program waits for a go word, so the runner can read the context's `phys-id` first and attribute the result to the physical SPE; hung contexts are stopped with a signal after a timeout and destroyed. Rounds repeat until every SPE has run every test. The `exec` results are also voted across SPEs, so one SPE that disagrees with the rest fails even when the PPE's reference agrees.
-
-State: built and tested on the PC only. The runner and the real SPU programs run against an SPU instruction set interpreter (`ps3-spu/spetest/sim`, written for this) with injected faults, also as big-endian ppc64 under qemu; `make test ONLY=spetest`. Not run on a PS3 yet: the first run is in [TESTS.md](TESTS.md), "SPE health baseline". The interpreter has no timing and moves DMA data at once, and its single precision follows the same model as the reference, so ordering faults, reservation behaviour and the model itself are checked only by hardware. If the first run fails one operation on all six SPEs alike, suspect the reference first.
-
 ## Known facts to keep in mind
 
 - An SPU write to a page the process has not touched costs 40 to 87 us per 4 KiB, because the worker thread faults it in. Pre-touch outputs; libspeq's s3tc does.
@@ -132,7 +124,6 @@ Build: `make ps3-spu-deb` (also `mesa-deb`, `ps3-gpu-tools-deb`). The SPU toolch
 Host tests, no PS3 needed:
 
 - `make -C ps3-spu test`: the fake backend (`SPEQ_FAKE=1`, runtime and ops on host threads) with queue-test, pool-test, synth-test, `speq-skin --check`, `speq-dxt`, dlopen-check; the same inside the package build under qemu on ppc64, big-endian. Also `make test ONLY=ps3-spu` from the top.
-- `make -C ps3-spu test-spetest` (also `make test ONLY=spetest`): spetest's runner against an SPU simulator, running its real SPU programs with injected faults ([spetest/README.md](../ps3-spu/spetest/README.md)); needs the SPU compiler.
 - `make -C ps3-spu test-mesa`: our encoder against Mesa's on an OpenArena corpus.
 - `make -C ps3-spu test-fluidsynth`: fluidsynth with the hook against the unpatched one, on a generated General MIDI piece ([SPU-AUDIO.md](SPU-AUDIO.md)).
 
@@ -141,7 +132,7 @@ Deploy: `make deploy PKGS="libspeq0"` (upgrades `ps3-spu` and the programs too).
 On the PS3, as `tibi` over SSH, with the user not at the console:
 
 - `ps3-bench.sh run LABEL -- cmd`, `ps3-bench.sh x LABEL -- client`, and `ps3-bench.sh desktop` at the end; results in `/var/tmp/ps3-bench/`.
-- `spetest [-v] [--rounds N]` for the health of every SPE (idle PS3, no game or benchmark running), `speq-dxt --check --path spu`, `speq-dxt --bench`, `speq-bench [--quick] [--fault]`, `speq-skin --check`, `SPEQ_DEBUG=1 gl-dxt`, `spurun <prog.spu> [symbol]`.
+- `speq-dxt --check --path spu`, `speq-dxt --bench`, `speq-bench [--quick] [--fault]`, `speq-skin --check`, `SPEQ_DEBUG=1 gl-dxt`, `spurun <prog.spu> [symbol]`.
 - Game-level runs: `/var/tmp/bench/run.sh ...` after `make bench-push`, see [games/SUITE.md](games/SUITE.md). dsda-doom's recipe has the `playspu`, `playppe`, `playoff` and `playnomusic` variants for the synth; Sauerbraten's has `spuskin`, `ppeskin` and `offskin`.
 
 Rules that come with SPU measurements: game-level decisions need the suite, not one game; every PS3 measurement is a same-boot comparison against the off-switch; all-SPE load is capped (60 s per run, 30 s gaps) with the user present and webMAN's fan in SYSCON mode.

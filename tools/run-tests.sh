@@ -3,8 +3,7 @@
 # suite, result and seconds; exit 1 when any failed. Output of each suite: build/tmp/tests/<suite>.log
 # (shown for failures). A suite whose prerequisites are missing is "skip", not a failure.
 #   default  quick suites: bench-selftest, gprefetch, ps3rsx-shadow (and ps3rsx's clear_dcbz zeroing),
-#            ps3-spu, spetest (the SPE health test's runner against an SPU simulator, running its real
-#            SPU programs with injected faults, ps3-spu/spetest/README.md), xmoto-glbatch,
+#            ps3-spu, xmoto-glbatch,
 #            mesa-forcedxt (Mesa 0038's NV30_FORCE_DXT decision, mesa/tests), mesa-staging-pool
 #            (Mesa 0040's NV30_STAGING_POOL_MB decisions and a model of the pool, mesa/tests),
 #            mesa-vtx-snorm8 (Mesa 0043's NV30_VTX_SNORM8 vertex program normalization against
@@ -133,12 +132,6 @@ t_minmaxvmx() {
 		-Wall -Wextra -Werror -static -I $M/src/mesa/vbo -o $T/minmax-vmx-test-ppc64 mesa/tests/minmax-vmx-test.c || exit 1
 	qemu-ppc64-static $T/minmax-vmx-test-ppc64
 }
-t_spetest() {
-	G=$PWD/build/spu/install/opt/spu/bin/spu-elf-gcc
-	[ -x "$G" ] || { echo "skip: no SPU compiler (make spu-toolchain)"; exit 77; }
-	need cc
-	make -C ps3-spu test-spetest TEST_OUT="$PWD/build/tmp/spetest-test" SPU_CC="$G" || exit 1
-}
 t_autogm() {
 	if ! { command -v Xvfb >/dev/null && command -v openbox >/dev/null; } &&
 	   ! command -v docker >/dev/null && ! command -v podman >/dev/null; then
@@ -150,7 +143,6 @@ run bench-selftest python3 games/bench/selftest.py
 run gprefetch python3 ps3-desktop/tests/gprefetch-check.py
 run ps3rsx-shadow bash -c "$(declare -f need t_ps3rsx); t_ps3rsx"
 run ps3-spu make -C ps3-spu test
-run spetest bash -c "$(declare -f need t_spetest); t_spetest"
 run xmoto-glbatch bash -c "$(declare -f need t_xmoto); t_xmoto"
 run mesa-forcedxt bash -c "$(declare -f need t_forcedxt); t_forcedxt"
 run mesa-staging-pool bash -c "$(declare -f need t_stagingpool); t_stagingpool"

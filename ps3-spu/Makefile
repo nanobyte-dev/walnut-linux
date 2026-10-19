@@ -41,20 +41,9 @@ SPU_HDR  := $(wildcard spu/*.h)
 # dxt.spu's encoder at -O3, as timed (135 cycles per block)
 DXT_SPU_OPT ?= -O3
 
-.PHONY: ppe spu test test-mesa test-fluidsynth spetest-programs test-spetest
-ppe: $(OUT)/libspeq.so.0 $(OUT)/speq-dxt $(OUT)/spurun $(OUT)/speq-bench $(OUT)/speq-skin $(OUT)/spetest
-spu: $(OUT)/hello.spu $(OUT)/libspeq-spu.a $(OUT)/bench.spu $(OUT)/dxt.spu $(OUT)/deadline.spu spetest-programs
-
-# spetest (spetest/README.md): the SPE health tests. The runner is $(OUT)/spetest, its five SPU
-# programs go to $(OUT)/spetest.d (not $(OUT)/*.spu: those are libspeq's)
-$(OUT)/spetest: $(wildcard spetest/*.c spetest/*.h)
-	$(MAKE) -C spetest ppe OUT=$(abspath $(OUT)) CC="$(CC)" CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)"
-spetest-programs:
-	$(MAKE) -C spetest spu OUT=$(abspath $(OUT)) SPU_CC="$(SPU_CC)" SPU_CFLAGS="$(SPU_CFLAGS)"
-# the runner against the SPU simulator, running the real SPU programs, with injected faults (host cc,
-# needs spu-elf-gcc: not part of `make test`, which the ppc64 package build runs without it)
-test-spetest:
-	$(MAKE) -C spetest test OUT=$(abspath $(TEST_OUT))/spetest SPU_CC="$(SPU_CC)" SPU_CFLAGS="$(SPU_CFLAGS)"
+.PHONY: ppe spu test test-mesa test-fluidsynth
+ppe: $(OUT)/libspeq.so.0 $(OUT)/speq-dxt $(OUT)/spurun $(OUT)/speq-bench $(OUT)/speq-skin
+spu: $(OUT)/hello.spu $(OUT)/libspeq-spu.a $(OUT)/bench.spu $(OUT)/dxt.spu $(OUT)/deadline.spu
 
 # only speq_* exported (lib/libspeq.map), SONAME libspeq.so.0
 $(OUT)/libspeq.so.0: $(SPEQ_SRC) $(SPEQ_HDR) lib/libspeq.map
