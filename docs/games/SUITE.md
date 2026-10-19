@@ -1,0 +1,248 @@
+# The game suite: how it is run
+
+`games/bench/` runs the games on the PS3 the same way every time and turns the runs into comparable
+rows. One command does a first launch (`smoke`), a measured A/B (`bench`) or a round over every
+suite game (`suite`); each game is a recipe file. The results go into the matrices in
+`games/bench/results/`. What the numbers say per game is in [README.md](README.md); the stall
+recorder, the profiles and the memory snapshots have their own docs ([STALLS.md](../STALLS.md),
+[PROFILING.md](../PROFILING.md), [MEMORY.md](../MEMORY.md)).
+
+## What is in games/bench
+
+| Path | What |
+|---|---|
+| `run.sh` | the runner, on the PS3 as tibi over SSH: `smoke`, `bench`, `suite`, `list` |
+| `client.sh` | one game run from a recipe (the X client `ps3-bench.sh x` starts) |
+| `recipes/<game>.sh` | one per game; `recipes/README.md` lists the variables; `smoke.inc` and `openal.inc` are shared pieces |
+| `assets/` | demos, replays, maps and mods: `openarena-bench.dm_71`, `sauerbraten-bench.dmo`, `xmoto-credits.rpl`, `armagetronad-bench.aarec`, `etr-race.evemu`, `classicube-bench.cw`, `.path`, `.so`, `luanti-ps3bench/` |
+| `classicube-bench/` | ClassiCube's timedemo plugin (`ccbench.c`), built by `make classicube-bench` into `assets/classicube-bench.so` |
+| `report.py` | one line per run, then the median per game and variant, then each variant against the first as ratios; `--stalls`, `--perf`, `--mem`, `--load`, `--include-interfered` |
+| `matrix.py` | puts runs into the matrices: one CSV per metric, one row per tested configuration |
+| `results/` | the matrices; `results/README.md` says how to read and add to them; `interfered.txt` lists runs left out |
+| `stalls.py`, `passsplit.py` | why frames stall, from `ps3-stallrec`'s record; the stalls of a looped demo split into reload and play |
+| `perf-post.sh`, `perfprof.py`, `memprof.py`, `loadprof.py` | the CPU profile of the window, the memory snapshots, the start-up profile |
+| `hotpaths/` | perf.data symbolised and ranked on the PC ([HOTPATHS.md](../HOTPATHS.md)) |
+| `interference-scan.py`, `intfcheck.py` | the retro-scan for runs before the interference detector; its selftest part |
+| `selftest.py` | the harness without the PS3: client.sh, report.py and matrix.py with a fake game and made-up runs, and every recipe and variant sourced (`make test ONLY=bench-selftest`) |
+| `gamemode-check.sh` | game mode on the desktop: memory idle, in game mode and after ([DESKTOP.md](../DESKTOP.md#game-mode)) |
+| `ssd-arm.sh` | the SSD arms `GAMEDATA=ssd`, `SWAP=ssd` ([GAMEOS-HDD.md](../GAMEOS-HDD.md)) |
+| `oal-perf.sh` | OpenAL Soft's mixing split from a profiled run ([SPU-AUDIO.md](../SPU-AUDIO.md)) |
+| `xkeys.py` | keys through XTEST, for games that ignore the virtual keyboard |
+
+`make bench-push` copies `games/bench` to `/var/tmp/bench` on the PS3 (unpacked beside the old copy
+and swapped in with a rename, so a run in progress keeps its files). `make bench-pull` fetches the
+run directories from `/var/tmp/ps3-bench` into `build/bench/`; `PERFDATA=1` adds perf.data (about
+20 MB a run), perf-load.data and perf-syms.tar. `games/openarena/` keeps step 0's scripts
+(`step0.sh`, `step0-report.py`, `oa-*.sh`).
+
+## run.sh
+
+    run.sh smoke GAME [VARIANT]        a first launch: VRAM swap off (NOVSWAP=0 keeps it), 360 s at
+                                       most; prints the result and the kernel's and game's errors
+    run.sh bench GAME "VARIANTS" [N]   N rounds (default 3), the variants interleaved in each round
+    run.sh suite "VARIANTS" [N]        the same over every recipe with SUITE=1, games interleaved
+                                       (a game without the variant runs base once per round)
+    run.sh list                        recipes and their variants
+
+Variant `base` is the recipe as written. Every run goes through `ps3-bench.sh x`, which stops the
+desktop, empties the swaps, samples the system, runs the thermal watchdog, and starts a bare X with
+`client.sh` and the recipe. Results land in `/var/tmp/ps3-bench/<stamp>-<game>-<variant>/`. End a
+session with `ps3-bench.sh desktop`.
+
+**`ENVS="TOKEN..."`** runs every variant once per token in each round, the tokens interleaved; a
+token is `-` (nothing) or `NAME=VALUE` pairs joined by `+`. `ROTATE=1` rotates the tokens each round
+against order bias. What a token can set:
+
+- harness switches (the `BENCH_` prefix is added): `STALLS=1` the stall recorder; `PERF=1` a CPU
+  profile of the window (`PERF_HZ`, default 499; `PERF_ALL=1` adds a system-wide record); `MEM=1`
+  memory snapshots at the window's start, middle and end; `PERF_LOAD=1` a profile of the start-up
+  instead, with the disk, VM and game counters and ld.so's statistics (`LDSTATS=0` without);
+  `WAKER=MS` with `WAKER_MODE=sleep|kick` and `WAKER_CPU=LIST`, `PROBE=1` (ps3-waker);
+  `STALLS_MS`, `STALLS_CPU`, `STALLS_NOWRITE=1`. See [STALLS.md](../STALLS.md) and
+  [PROFILING.md](../PROFILING.md); profiled runs are for profiles, not for fps.
+- `MALLOC=arena1|arena2|mmap|trim|tune` glibc malloc presets for the game, `MALLOC_TRIM_S` the trim
+  period ([MEMORY.md](../MEMORY.md)).
+- `GAMEPREFETCH=fetch|learn|on` (`GAMEPREFETCH_MB`, `_RESERVE_MB`, `_IO`): the game's own files read
+  at its start; one `learn` run first ([STALLS.md, "Game prefetch"](../STALLS.md#game-prefetch)). Measured no gain,
+  so off by default.
+- `SHADERCACHE=cold|warm|off`: Mesa's disk shader cache for the run (the user's own cache untouched).
+- `GAMEDATA=ssd`, `SWAP=ssd`: the recipe's `DATA_DIRS` bound from the SSD copy, the VRAM swap's spill
+  on the SSD; `ssd-arm.sh` puts each arm in place before the run's quiet and resets to USB at the end.
+- `NV30_X=V`: a Mesa driver switch for the game; `PS3RSX_NAME=V`: a ps3rsx module parameter, written
+  for that run and put back (`sudo -n`).
+
+report.py shows each run's switches after its variant (`base@rec10`, `base@wkkick10`,
+`base@translate_lut0`, `base@mtune`, `base@gpffetch`, `base@sccold`, `base@gdssd+swssd`,
+`base@rsx_name<V>`), so they never group with plain runs.
+
+**Interference.** `ps3-bench.sh`'s detector (`ps3-intfwatch`) flags a run somebody disturbed: input,
+a VT switch, a device, an SSH login or command. run.sh warns after it, report.py marks it and leaves
+it out of the medians, matrix.py skips it; `RERUN_INTERFERED=1` runs it once more at once (both
+directories stay; the clean one counts).
+
+## Recipes
+
+A recipe is sourced bash, variables and functions only. `client.sh <game> <variant>` sources it and
+calls `variant_<variant>` if it exists. The full list is in `games/bench/recipes/README.md`; the
+ones that shape a run:
+
+- `CMD=(...)`, `ENV=(...)`, `SUITE=1`, `COMM` (the process name for ps3rsx's per-client VRAM and the
+  peak RSS), `BACKUP=(...)` (config files the game rewrites, restored after every run),
+  `DATA_DIRS=(...)`, `setup()`, `during()` (in the background while the game runs), `parse()`
+  (extra `key=value` lines into bench.txt).
+- How the result is read: `FPS_RE`, `MAXMS_RE`, `LOAD_RE` (the last matching line), `LOAD_MARK` (a
+  line whose time is the load time), `STEADY_RE`, `RESULT_FILE`, `HUD=1` (the Gallium HUD's fps per
+  second and every frame's time), `HUD_SKIP`.
+- How it ends: `END_RE` (stop after this line), `DURATION` (a safety cap, default 270 s),
+  `WINDOW_STOP=1` (stop 2 s after the window), `PASSES=1` (the game repeats its demo; see below).
+- `WM` (default `openbox`: SDL fullscreen windows never show without a window manager), `GAMEMODE=1`
+  (start through `ps3-game` as the desktop does; default 0, the game gets `PS3_GAME_MODE=off`),
+  `SOUND_AT` (when the sound card state is read, default 15 s).
+
+**The steady state** (the user, 2026-10-17). Every run leaves out a warm-up (`WARMUP`, 60 s after the
+load ends) and measures at least `MEASURE` (120) s after it. The load ends at the `LOAD_MARK` line,
+the first `LOAD_RE` line, or else the HUD's first frame. A game that repeats its demo (`PASSES=1`)
+prints one line per pass; a pass counts when it starts at least 0.9 x `WARMUP` after the load, and
+the game is stopped once the counted passes cover 0.95 x `MEASURE`. `fps`, `maxms`, `load` are then
+the first pass's, as the run was before. A game can mark its own window with `WIN_ON_RE` and
+`WIN_OFF_RE` (Sauerbraten leaves its demo reload out that way). Each recipe's header says which way
+it works and what isn't identical between runs. bench.txt gets `warmup`, `measure`, `load_end`,
+`hud_t1`, `window`, `passes`, `measured` and `pass<N>` lines for report.py. This replaced the first
+harness's 90 s cap and its 12 s HUD skip.
+
+## Per game: command, end, result
+
+| Game | Command (recipe) | Ends | Result read from | Display, input |
+|---|---|---|---|---|
+| OpenArena | `/usr/games/openarena +set cl_renderer opengl1\|opengl2 +set r_ext_compressed_textures 0\|1 +set r_swapInterval 0 +set com_maxfps 0 +set timedemo 1 +vstr bench_loop`, cvars in autoexec.cfg | passes | `N frames S seconds F fps min/avg/max/`, `CL_InitCGame: N seconds` | `r_mode -2 r_fullscreen 1`; DS3 through SDL GameController (bound in autoexec.cfg) |
+| QuakeSpasm | `quakespasm -nopackedpixels -width 1920 -height 1080 -fullscreen` with our `~/.quakespasm/id1/quake.rc` | passes | `N frames S seconds F fps` | gamepad unverified |
+| Yamagi Quake II | `/usr/lib/yamagi-quake2/quake2 +timedemo 1 +demomap q2demo1.dm2` | passes | `N frames, S seconds: F fps` | |
+| dsda-doom | `dsda-doom -iwad freedoom2.wad -vidmode sw\|gl -width W -height H -fullscreen -timedemo demo1`, `DSDA_BENCH_LOOPS=6` | passes | `Timed N gametics in N realtics = F frames per second` | SDL GameController |
+| X-Moto | `xmoto --nowww -fs -res 1920x1080 --replay credits --timedemo --benchmark`, `XMOTO_BENCH_LOOPS=2` | passes | `Average framerate: F fps` | |
+| Neverball | `neverball --replay gui/demo1.nbr`, `NEVERBALL_BENCH=1 NEVERBALL_BENCH_LOOPS=20` | passes | our bench line per pass | SDL joystick works |
+| Extreme Tux Racer | the recorded race replayed through evemu | `WINDOW_STOP` | HUD | the race is the user's |
+| Armagetron | live AI rounds, the player spectating, keys through a virtual keyboard | `WINDOW_STOP` | HUD | |
+| ClassiCube | the game with `CC_BENCH` and the ccbench plugin | the plugin quits | the plugin's fps per pass | |
+| Sauerbraten | `/usr/games/cube2` with the demo and a CubeScript frame counter (`-x`) | the script quits | `ps3bench: loop`, `ps3bench: steady` | no gamepad |
+| Luanti | `luanti --go --world ... --config ...` with the ps3bench mod | `ps3bench: path end` | HUD from `ps3bench: path start` | joystick (`enable_joysticks`) unverified |
+| SuperTuxKart | `supertuxkart --fullscreen --screensize=1920x1080 --track=lighthouse --numkarts=4 --profile-time=180 --no-start-screen`, `STK_PROFILE_WARMUP=60` | the game quits | `Average FPS: F` (but see [supertuxkart.md](supertuxkart.md)) | SDL GameController |
+| OpenTTD | `/usr/games/openttd -x -c CFG -r 1920x1080 -v sdl\|sdl-opengl -d sl=1`; `sim`: `-g -G 12345 -v null:ticks=20000 -s null -m null` | `WINDOW_STOP`; sim exits | HUD (gl), none (software), wall time (sim) | no gamepad |
+
+The GPU timers of any game's own profiler are garbage on the RSX: nv30's TIMESTAMP and TIME_ELAPSED
+queries return a pixel count.
+
+## A session on the PS3
+
+The console's rules are in [CONSOLE.md](../CONSOLE.md#a-session): webMAN's fan on SYSCON (or at
+least 60%) before the boot flag goes to OtherOS, the user boots through Petitboot, and the flag goes
+back to GameOS at the end. For bench runs:
+
+- Check first that nobody is using the PS3. No deploys and no commands on it during a run (they
+  are interference: disk, swap-ins); `ps3-bench.sh` holds a lock in `/dev/shm` (a reboot clears it).
+- Long batches start under `nohup` or `systemd-run --user`, so a dropped SSH connection doesn't end
+  them. `tools/bench-cam.sh` on the PC photographs the screen 30 s and 60 s into every run over one
+  SSH connection; look at the photos before trusting a run. (The first watcher opened an SSH
+  connection every 5 s and slowed the runs it watched: load average 5 at idle. Those runs of
+  2026-10-17 13:05-14:50 UTC were discarded.)
+- A graph exception ends the session: only a console reboot clears the RSX, and the user goes back
+  through Petitboot. Within a session the riskiest game goes last. After a wedge, don't run
+  `ps3-bench.sh desktop` (it starts X on the wedged RSX). Each game's config backups are on disk
+  (`/var/tmp/ps3-bench/backup/<game>`) and its next run restores them first.
+- Compare load times only with the shader cache in the same state.
+- `perf` on the PS3 needs `--proc-map-timeout=20000`, or it starts sampling before it has read a big
+  process's maps and files most samples as `[unknown]` (77% of OpenArena's once).
+- After the batch: `make bench-pull`, `report.py`, then a row in the matrices.
+
+## The results matrices
+
+`games/bench/results/` holds one CSV per metric with the same rows (oldest first) and the same first
+four columns (`test`, `date`, `runs`, `observations`), then one column per `<game>-<variant>`. A cell
+is the median over the row's runs of that game-variant. `results/README.md` explains every file and
+the caveats (rows 1-10 had nothing on screen; times in observations are UTC, the PS3's local time is
+UTC+3; perf-recording rows are slower). To add a row:
+
+    make bench-pull
+    python3 games/bench/matrix.py "Mesa ps3.290 + ps3rsx 0.249" --obs "what the row shows" \
+        build/bench/ps3-bench-20261018T*-armagetronad-*
+
+`--replace` drops the row's old cells first; `--hud GAME[,GAME]` takes the HUD median as the fps
+cell. Then fix the observations (plain sentences with names and numbers, caveats, the commit or
+version the row proves) and commit `games/bench/results/` only. docs/TESTS.md names the results
+commit of every batch.
+
+## Adding a game
+
+Every game went through the same steps:
+
+1. **Get it**: a Debian main package (`image/deps.txt`, `make deps` with `build/aptly` backed up
+   first), our package (a debsrc directory like `mesa/`: `make <pkg>-work`, `-patches`, `-deb`), or a
+   data deb. Recommends are never installed (the image's apt config and aptly's
+   `-filter-with-deps` both skip them), so every package a game needs goes into its Depends and
+   `image/deps.txt` by name.
+2. **Before the session**: `make deps` (one refresh per group: each is permanent in the `ps3` suite;
+   `make du` first), the packages built, `make deploy`, `make bench-push`, `df /` on the PS3.
+3. **Smoke**: `run.sh smoke <game> [variant]` (VRAM swap off, the first launch of anything that might
+   wedge the GPU). Check the picture, the sound state in bench.txt and the errors run.sh prints. Each
+   recipe's setup writes the game's config first: 1920x1080 fullscreen, first-run dialogs off. Record
+   the first failure only, in one class: GL version or extension refused, shader compile or link,
+   validator reject, graph exception, out of memory, wrong colours (big-endian). Silent failures
+   count: grep stderr for `nouveau`, watch for a sudden slowdown.
+4. **Fix**: a driver bug as a Mesa patch or in ps3rsx (new validator rejects and graph exceptions go
+   into [RSX.md](../RSX.md) with a reproducer in `ps3-gpu-tools/mesa-tests`), a game bug in the game's
+   own debsrc package. Then smoke again.
+5. **Bench**: a recipe and its asset, then `run.sh bench <game> base 3` as the baseline.
+6. **Done** when the picture and sound are right, no kernel errors, the recipe gives numbers, the
+   baseline is in the matrices, and the light games reach about 60 fps at 1920x1080 (the user,
+   2026-10-17: "aim is 60 or close to"). Correct but slow is "runs, needs performance work": a perf
+   profile of the game process says where the time goes before any fix.
+
+Then the game joins `ps3-games` (ps3-desktop's `debian/control`) once it runs with its sound.
+
+## The metapackages
+
+- **`ps3-games`** (in ps3-desktop's control, Architecture all; ps3-desktop recommends it): Depends on
+  openarena, classicube, quakespasm, yamagi-quake2, armagetronad, neverball, xmoto, extremetuxracer,
+  dsda-doom, freedoom, openttd, openttd-opengfx, openttd-opensfx, openttd-openmsx. Free packages only.
+  The heavy games (Sauerbraten, Luanti, SuperTuxKart) deploy by name, e.g.
+  `make deploy PKGS="ps3-games supertuxkart supertuxkart-data"`.
+- **`ps3-games-licensed`** (`ps3-games-licensed/`, native, all, routed to the `ps3-licensed` suite):
+  Depends on ps3-games, classicube-data, quake-shareware, quake2-demo-data, sauerbraten-nonfree-data.
+  For personal and LAN use only; free packages never depend on it.
+
+## Disk and download
+
+Sizes computed on 2026-10-16 against the image of that day (OpenArena and ClassiCube in it),
+before anything ran:
+
+| Set | New packages | Download | Installed |
+|---|---|---|---|
+| The suite without SuperTuxKart | 56 | 298 MB | 649 MB |
+| SuperTuxKart (its data 752 MB, Noto fonts) | +12 | +678 MB | +839 MB |
+| The whole suite | 67 | 976 MB | 1.49 GB |
+| Reserves (ETR, Armagetron, SuperTux, Teeworlds) | 44 | 228 MB | 377 MB |
+
+The biggest items: supertuxkart-data 752 MB, cube2-data 260 MB, neverball data 108 MB (Neverputt
+26 MB more), xmoto-data 62 MB, freedoom 57 MB. The first smoke set was about 1.5 GB to download and
+2 GB installed (TORCS and Red Eclipse's data 1.5 GB of it); Nexuiz Classic about 800 MB.
+
+## Stage 0: how the suite started
+
+On 2026-10-16 the runner replaced `games/openarena/step0.sh`: `run.sh`, `client.sh`, `report.py`
+(from step0-report.py), recipes and assets; config backups on disk, ALSA underrun counting, a 90 s
+cap at the time. The first two recipes were OpenArena (tc0, tc1, gl2min, gl2) and ClassiCube (a
+saved map, 60 s, HUD fps; later the ccbench timedemo). Games ran directly, with `GAMEMODE=1` as a
+variant, because game mode changes memory and timing. It was accepted when both recipes gave
+numbers with the picture on screen; matching step 0 was dropped as a criterion because step 0 ran
+with nothing on screen. Two display bugs had to go first, both found because the screen stayed
+black: SDL's fullscreen window needs a window manager (client.sh starts a bare Openbox, fa723f9), and
+ps3rsx muted the video for every X started after another had quit (a1f1b91). Validation on ps3rsx
+0.219, Mesa 26.2.4-1+ps3.186, libspeq0 0.210:
+
+| Recipe | Runs | Load | fps | HUD median / p10 | Peak RSS | Peak VRAM |
+|---|---|---|---|---|---|---|
+| openarena tc1 | 3 | 10.8 s [10.6-11.9] | 42.2 [40.9-46.4] | 47 / 6-28 | 83 MB | 37-40 MB |
+| classicube (60 s, saved map) | 2 | | | 50.5 / 44 | 51 MB | 61 MB |
+
+Older versions and the dated history: [archive/GAME-SUITE.md](../archive/GAME-SUITE.md) ("Design:
+games/bench/", "Per game"), [archive/GAME-PLAN.md](../archive/GAME-PLAN.md) ("Stage 0", "Every stage
+has the same shape", "Sessions").

@@ -1,7 +1,7 @@
 # Extreme Tux Racer 0.8.4: no demo mode, so a race played once by a person is recorded as keyboard
 # events (evemu-record) and replayed into a virtual keyboard (evemu-device + evemu-play). The same
 # events at the same times from when ETR's window appears: ETR's physics follow the frame time,
-# so at another frame rate Tux's line can drift a little (docs/GAME-PLAN.md). A marker event
+# so at another frame rate Tux's line can drift a little (docs/games/light-games.md). A marker event
 # written into the keyboard when the window appears makes the recording start there.
 #   variant record: you play (menus too, then quit from the menu); the events land in the run
 #                   directory as etr-race.evemu, to copy to assets/etr-race.evemu, cut after the

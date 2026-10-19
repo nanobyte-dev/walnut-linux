@@ -44,8 +44,7 @@ matrix.py with a fake game and made-up runs, and sources every recipe and varian
 
 `smoke.inc` is not a recipe either: the shared header of the smoke recipes (`SUITE=0`, a 120 s
 `DURATION` that `SMOKE_SECS` overrides, a short HUD window, `vblank_mode=0`). A smoke recipe is a
-game tried once to see whether it starts and plays, not measured (docs/GAME-PLAN.md, "Smoke tests
-(not benchmarked)"): `run.sh smoke <game> [variant]`. Current ones: teeworlds, torcs, supertux,
+game tried once to see whether it starts and plays, not measured (docs/games/smoke-tested.md): `run.sh smoke <game> [variant]`. Current ones: teeworlds, torcs, supertux,
 trigger-rally, redeclipse, chromium-bsu, frozen-bubble, chocolate-doom, crispy-doom, woof, pingus,
 scummvm (Beneath a Steel Sky; variants queen, drascula, lure), simutrans, crawl-tiles, freeciv (gtk3, an AI game it observes), lincity-ng,
 flare, widelands, warmux, cataclysm-tiles (written 2026-10-19, not yet run on the PS3).

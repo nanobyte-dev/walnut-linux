@@ -9,7 +9,7 @@
 # Mesa patch 0032, not in a Mesa deb yet: with the current Mesa Mesa's own PPE encoder does it, ~2.6
 # Mpixel/s, so the start can take seconds longer; note which it was, the log has libspeq's lines with
 # SPEQ_DEBUG=1), and the tile maps are uploaded as one 3D texture (the tiles as layers), the case
-# GAME-SUITE.md lists it for. Variant notc is the same without compression.
+# docs/research/GAME-CANDIDATES.md lists it for. Variant notc is the same without compression.
 # Needs our teeworlds and teeworlds-server (0.7.5-3+ps3.N, package teeworlds/): Debian's hang on
 # big-endian 64-bit. Their UDP sockets stay blocking (FIONBIO given an unsigned long, the kernel
 # reads an int: 0 on ppc64), so the client sits in recvfrom() right after the server's accept and

@@ -1,6 +1,6 @@
 #!/bin/bash
 # client.sh <game> [variant]: the X client run.sh hands to `ps3-bench.sh x`: one game run from its
-# recipe (recipes/<game>.sh, docs/GAME-PLAN.md). Sets up the game's files, starts it (through
+# recipe (recipes/<game>.sh, docs/games/SUITE.md). Sets up the game's files, starts it (through
 # ps3-game when the recipe says GAMEMODE=1), passes its output on (ps3-bench.sh stamps it into
 # out.log), stops it at END_RE, after DURATION or when the measured window is complete, then
 # writes $BENCH_DIR/bench.txt (key=value: game, variant, how it ended, fps, longest frame, load

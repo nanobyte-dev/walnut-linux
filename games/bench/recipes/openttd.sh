@@ -28,7 +28,7 @@ setup() {
 }
 OT_V=sdl
 # SDL3's accelerated window framebuffer (a GL texture) shows wrong colours (a strong blue cast) on
-# big-endian; its plain X11 path is right. Until the SDL3 fix (docs/GAME-PLAN.md), base uses X11.
+# big-endian; its plain X11 path is right. Until the SDL3 fix (docs/games/openttd.md), base uses X11.
 ENV=(SDL_FRAMEBUFFER_ACCELERATION=0)
 ot_cmd() { CMD=(/usr/games/openttd -x -c "$OT_CFG" -r 1920x1080 -v $OT_V -d sl=1); }
 ot_cmd

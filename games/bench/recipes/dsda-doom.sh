@@ -1,6 +1,6 @@
 # dsda-doom 0.30.0 + Freedoom 2 (stands in for PrBoom+ GL): timedemo of Freedoom's own DEMO1 lump,
 # fullscreen 1920x1080. Software renderer first (base, safest), GL as a variant: GL mode uploads
-# indexed textures as GL_RG, which nv30 lacks (docs/GAME-PLAN.md), so expect missing textures there.
+# indexed textures as GL_RG, which nv30 lacks (docs/games/doom.md), so expect missing textures there.
 # Steady state: passes. DEMO1 is 2664 gametics (76 s at 35 Hz; the timedemo takes ~54 s at 49 fps).
 # Stock dsda-doom exits at a timedemo's end (dsda_demo_end_quit), so our patch 0006 (g_game.c, the
 # timingdemo branch of G_CheckDemoStatus) repeats it: DSDA_BENCH_LOOPS=N passes, each with its own
@@ -62,7 +62,7 @@ variant_playopl() { variant_play; DD_SET=('snd_midiplayer "opl"'); }
 variant_playcap35() { variant_play; DD_SET=('dsda_fps_limit 35'); }
 variant_play48k() { variant_play; DD_SET=('snd_samplerate 48000'); }
 # fluidsynth's voice DSP on the SPEs (our libfluidsynth3 +ps3.289 with libspeq0 0.288,
-# docs/SPU-AUDIO.md 5): spu always, ppe = libspeq's code on the PPE, off = stock fluidsynth
+# docs/SPU-AUDIO.md "fluidsynth on the SPEs"): spu always, ppe = libspeq's code on the PPE, off = stock fluidsynth
 variant_playspu() { variant_play; ENV+=(SPEQ_SYNTH=spu SPEQ_DEBUG=1); }
 variant_playppe() { variant_play; ENV+=(SPEQ_SYNTH=ppe SPEQ_DEBUG=1); }
 variant_playoff() { variant_play; ENV+=(SPEQ_SYNTH=off); }

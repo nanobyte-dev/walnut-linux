@@ -58,7 +58,7 @@ help:
 	@echo "                    ROOT=nfs|usb)"
 	@echo "  make listen       print PS3 early-debug + netconsole output"
 	@echo "  make ps3-reboot   reboot the running PS3 Linux (lands in GameOS/XMB, not Petitboot)"
-	@echo "  make bench-push   the game suite runner to the PS3 (/var/tmp/bench/run.sh, docs/GAME-PLAN.md)"
+	@echo "  make bench-push   the game suite runner to the PS3 (/var/tmp/bench/run.sh, docs/games/SUITE.md)"
 	@echo "  make bench-pull   its results into $(BUILD)/bench (PERFDATA=1: with perf.data and perf-syms.tar)"
 	@echo "  make initrd-ssd   the SSD root's initramfs (IMGMAP=<copy of the PS3's map.json>) -> $(BUILD)/initrd"
 	@echo "  make classicube-bench  ClassiCube's benchmark plugin -> games/bench/assets/classicube-bench.so"
@@ -317,7 +317,7 @@ PS3_SSH := ssh -i $(HOME)/.ssh/id_ps3 -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/p
 ps3-reboot:
 	-$(PS3_SSH) sudo systemctl reboot
 
-# The game suite runner (games/bench, docs/GAME-PLAN.md) to /var/tmp/bench on the PS3: unpacked
+# The game suite runner (games/bench, docs/games/SUITE.md) to /var/tmp/bench on the PS3: unpacked
 # beside the old copy and swapped in with a rename, so a run in progress keeps reading its files.
 # bench-pull: the PS3's run directories (/var/tmp/ps3-bench) into $(BUILD)/bench; the raw profiles
 # (perf.data ~20 MB a run, perf-load.data, perf-syms.tar) only with PERFDATA=1 (docs/PROFILING.md)

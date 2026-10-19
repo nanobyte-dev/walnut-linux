@@ -4,7 +4,7 @@
 # DURATION is a safety cap. Config ~/.neverball/
 # neverballrc: fullscreen 1920x1080, vsync off, the fps counter on. It generates mipmaps on the GPU
 # (GL_GENERATE_MIPMAP) and uses GL_LUMINANCE_ALPHA textures: both broken on nv30 until the Mesa
-# fixes (docs/GAME-PLAN.md 1.0); variant nomip turns mipmaps off.
+# fixes (docs/games/light-games.md); variant nomip turns mipmaps off.
 # Steady state: passes. The replay is ~20 s; our patch 0002 (st_demo.c bench_end) with
 # NEVERBALL_BENCH_LOOPS=N replays it N times (demo_replay_stop, progress_replay on a copy of
 # curr_demo(), goto_state(&st_demo_play)), one line per pass, and quits after the Nth. 12 passes

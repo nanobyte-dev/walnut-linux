@@ -22,7 +22,7 @@
 # towers and *skin variants use it (the hud gun and the other map only exist there).
 # getfps itself averages only the last 60 frames. Settings go into ~/.cube2/autoexec.cfg (run after config.cfg, so the
 # player's saved fullscreen or vsync can't override them); both files are restored after the run.
-# Our cube2 (ps3.N, docs/GAME-PLAN.md) ships the memory defaults of cube2/patches: CPU skinning
+# Our cube2 (ps3.N, docs/games/sauerbraten.md) ships the memory defaults of cube2/patches: CPU skinning
 # (gpuskel 0: GPU skinning indexes a bone array in the vertex shader, which nv30 compiles to if/else
 # trees, 11 fps against 28; no GPU skinning shaders are built then), sky boxes and cube maps from their
 # 256x256 .dds (skydds 1), lightmaps' CPU copies freed after upload (lmfreedata 1), dynamic light and

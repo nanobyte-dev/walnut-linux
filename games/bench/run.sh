@@ -1,5 +1,5 @@
 #!/bin/bash
-# run.sh: the game suite runner (docs/GAME-PLAN.md), on the PS3 as tibi over SSH. Every run goes
+# run.sh: the game suite runner (docs/games/SUITE.md), on the PS3 as tibi over SSH. Every run goes
 # through `ps3-bench.sh x` (desktop stopped, swaps emptied, samples, thermal watchdog) with
 # client.sh and a recipe (recipes/<game>.sh). Copy this directory with `make bench-push`.
 #   run.sh smoke GAME [VARIANT]        a first launch: VRAM swap off (NOVSWAP=0 keeps it), 360 s

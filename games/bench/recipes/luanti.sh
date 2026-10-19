@@ -13,7 +13,7 @@
 # minetest.conf are untouched). The world is made new for every run, so each run generates the
 # same terrain (mapgen CPU time counts, as for a player exploring); variant saved keeps the last map.
 # The mod also logs the process's memory every 5 s; parse() turns it into mem_* keys (KiB). The
-# other variants (below) change one memory or load-stall lever each; docs/GAME-PLAN.md has the
+# other variants (below) change one memory or load-stall lever each; docs/games/luanti.md has the
 # reasoning, the sizes assumed for each, and the measurements.
 SUITE=1
 COMM=luanti

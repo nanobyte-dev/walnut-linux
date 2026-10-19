@@ -1,4 +1,4 @@
-# Shared by the smoke recipes (docs/GAME-PLAN.md, "Smoke tests (not benchmarked)"): games tried once
+# Shared by the smoke recipes (docs/games/smoke-tested.md): games tried once
 # to see whether they start and play, not measured. A recipe sources this file first. Not a recipe
 # itself (run.sh list only shows recipes/*.sh).
 #   SUITE=0     kept out of `run.sh suite`

@@ -8,7 +8,7 @@
 # or a variant picks the map: torus (43 KB .mpz, the smallest real one; a gladiator-style duel
 # map), singularity (58 KB), disco (9 KB, a test map whose config calls it "editing", may have no spawns); the next
 # sizes up are cyanide, relax, oneiroi, eternal (320-370 KB).
-# Settings (run of 2026-10-18: OOM-killed while loading torus; docs/GAME-PLAN.md, "Red Eclipse"):
+# Settings (run of 2026-10-18: OOM-killed while loading torus; docs/games/sauerbraten.md, "Red Eclipse"):
 # - Sound was the memory. SDL_mixer decodes every sample whole into PCM in the device's format at
 #   registration: the game's ~190 samples at start-up and every `mapsound` of the map's .cfg at the
 #   map load (torus.cfg: 74 ambience files, 24 MB of .ogg). Debian's amd64 build under Xvfb and
