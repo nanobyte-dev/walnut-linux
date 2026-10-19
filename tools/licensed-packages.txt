@@ -13,3 +13,5 @@ classicube-data
 sauerbraten-nonfree-data
 # The metapackage that pulls the licensed data in with ps3-games (ps3-games-licensed/, Section local/games)
 ps3-games-licensed
+# OpenRCT2's game data, unpacked from the user's own RCT2 CD (tools/rct2-data.sh, Section local/games)
+rct2-data
