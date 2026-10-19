@@ -47,4 +47,4 @@ matrix.py with a fake game and made-up runs, and sources every recipe and varian
 game tried once to see whether it starts and plays, not measured (docs/games/smoke-tested.md): `run.sh smoke <game> [variant]`. Current ones: teeworlds, torcs, supertux,
 trigger-rally, redeclipse, chromium-bsu, frozen-bubble, chocolate-doom, crispy-doom, woof, pingus,
 scummvm (Beneath a Steel Sky; variants queen, drascula, lure), simutrans, crawl-tiles, freeciv (gtk3, an AI game it observes), lincity-ng,
-flare, widelands, warmux, cataclysm-tiles, wesnoth (tutorial; variants httt, ai, menu, nosound, window), warzone2100 (AI-vs-AI autogame at 1x; variants lobby, menu, nomusic, nosound), ddnet, opentyrian, uqm, hedgewars.
+flare, widelands, warmux, cataclysm-tiles, wesnoth (tutorial; variants httt, ai, menu, nosound, window), warzone2100 (AI-vs-AI autogame at 1x; variants lobby, menu, nomusic, nosound), ddnet, opentyrian, uqm, hedgewars, openrct2 (Electric Fields at 960x540 x2; variants full, big, title, nosound, lean, sdlsw).
