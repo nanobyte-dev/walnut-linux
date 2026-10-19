@@ -1,0 +1,3 @@
+0001-wzmaplib-include-cstdint-for-gcc-16.patch
+0002-autogame-WZ_AUTOGAME_SPEED-sets-the-game-speed.patch
+0003-terrain-transparent-decal-colour-by-bytes-not-an-endia.patch

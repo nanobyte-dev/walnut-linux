@@ -1,0 +1,77 @@
+Source: warzone2100
+Section: games
+Priority: optional
+Maintainer: PS3 Linux project <ps3@localhost>
+Build-Depends:
+ bison,
+ cmake,
+ debhelper-compat (= 13),
+ flex,
+ gettext,
+ libcurl4-gnutls-dev,
+ libfontconfig-dev,
+ libfreetype-dev,
+ libfribidi-dev,
+ libgl-dev,
+ libharfbuzz-dev,
+ libminiupnpc-dev,
+ libogg-dev,
+ libopenal-dev,
+ libopus-dev,
+ libopusfile-dev,
+ libphysfs-dev,
+ libpng-dev,
+ libpopt-dev,
+ libsdl2-dev,
+ libsodium-dev,
+ libsqlite3-dev,
+ libtheora-dev,
+ libvorbis-dev,
+ libxrandr-dev,
+ ninja-build,
+ pkgconf,
+ unzip,
+ zip,
+Standards-Version: 4.7.0
+Homepage: https://wz2100.net/
+Rules-Requires-Root: no
+
+Package: warzone2100
+Architecture: any
+Depends:
+ warzone2100-data (<= ${source:Version}),
+ warzone2100-data (>= ${source:Upstream-Version}),
+ ${misc:Depends},
+ ${shlibs:Depends},
+Recommends:
+ warzone2100-music (<= ${source:Version}),
+ warzone2100-music (>= ${source:Upstream-Version}),
+Description: 3D real time strategy game
+ In Warzone 2100 you command the forces of "The Project" in a battle to
+ rebuild the world after mankind has almost been destroyed by nuclear
+ missiles.
+ .
+ Release 4.3.5, the last one with an OpenGL 2.1 / OpenGL ES 2.0 renderer
+ (GLSL 1.20 shaders). The PS3 build has the Vulkan backend, Basis Universal
+ texture support and the Discord integration turned off.
+ .
+ The campaign video sequences are not distributed here.
+
+Package: warzone2100-data
+Architecture: all
+Depends:
+ ${misc:Depends},
+Suggests:
+ warzone2100,
+Description: data files for warzone2100
+ This package contains data and translations for the warzone2100 game:
+ the campaign and multiplayer data, several mods and the fonts.
+
+Package: warzone2100-music
+Architecture: all
+Depends:
+ ${misc:Depends},
+Suggests:
+ warzone2100,
+Description: official music for warzone2100
+ The background music for the menu and during the game.

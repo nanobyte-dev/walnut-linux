@@ -1,0 +1,28 @@
+Subject: wzmaplib: include <cstdint> (gcc 16's libstdc++ no longer pulls it in)
+
+map_io.h and map_script.h use uint8_t/uint16_t/uint32_t without declaring them: wzmaplib
+fails to build with "'uint32_t' has not been declared" on gcc 16.
+
+---
+diff --git a/lib/wzmaplib/include/wzmaplib/map_io.h b/lib/wzmaplib/include/wzmaplib/map_io.h
+--- a/lib/wzmaplib/include/wzmaplib/map_io.h
++++ b/lib/wzmaplib/include/wzmaplib/map_io.h
+@@ -21,6 +21,7 @@
+ #pragma once
+ 
+ #include <cstddef>
++#include <cstdint>
+ #include <string>
+ #include <memory>
+ #include <vector>
+diff --git a/lib/wzmaplib/src/map_script.h b/lib/wzmaplib/src/map_script.h
+--- a/lib/wzmaplib/src/map_script.h
++++ b/lib/wzmaplib/src/map_script.h
+@@ -19,6 +19,7 @@
+ 
+ #pragma once
+ 
++#include <cstdint>
+ #include <vector>
+ #include <string>
+ #include <memory>

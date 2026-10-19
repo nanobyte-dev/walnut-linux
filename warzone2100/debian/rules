@@ -1,0 +1,35 @@
+#!/usr/bin/make -f
+# Warzone 2100 4.3.5 for the PS3 (big-endian ppc64): OpenGL 2.1 / GLSL 1.20 renderer only.
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_CPPFLAGS_MAINT_APPEND = -DNDEBUG
+# the Cell PPE (same flags as the other ps3 packages)
+export DEB_CFLAGS_MAINT_APPEND = -mcpu=cell -mtune=cell
+export DEB_CXXFLAGS_MAINT_APPEND = -mcpu=cell -mtune=cell
+
+# CMake 4 refuses the old cmake_minimum_required of upstream's scripts and bundled libraries (the
+# variable also reaches the -P scripts the build runs)
+export CMAKE_POLICY_VERSION_MINIMUM = 3.5
+
+%:
+	dh $@ --buildsystem=cmake+ninja
+
+# Vulkan, Basis Universal (needs the basisu encoder at build time: the terrain pages stay PNG) and
+# Discord are off, the documentation (asciidoc, wkhtmltopdf) is skipped. -Werror is off: gcc 16 warns
+# in code written for gcc 12.
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_INSTALL_PREFIX=/usr \
+		-DWZ_DISTRIBUTOR="PS3 Linux project" \
+		-DWZ_ENABLE_BACKEND_VULKAN=OFF \
+		-DWZ_ENABLE_BASIS_UNIVERSAL=OFF \
+		-DWZ_ENABLE_WARNINGS_AS_ERRORS=OFF \
+		-DENABLE_DISCORD=OFF \
+		-DENABLE_DOCS=OFF
+
+# upstream has no test suite that runs here
+override_dh_auto_test:
+
+override_dh_auto_install:
+	dh_auto_install --destdir=debian/tmp
+	rm -rf debian/tmp/usr/share/doc

@@ -1,0 +1,81 @@
+# Warzone 2100 4.3.5 (our ppc64 build, warzone2100/: warzone2100 4.3.5-1+ps3.N, plus warzone2100-data
+# and warzone2100-music, both arch all; Debian has 4.5/4.7, which need GL 3): smoke test, not
+# benchmarked. 4.3.5 is the last release with an OpenGL 2.1 / GLES 2 renderer (GLSL 1.20 shaders: 19
+# of them, no instancing, UBOs or texture arrays; docs/research/gl3-census/C-rts.md). The game asks
+# SDL for a 3.1 core context first (Mesa's nv30 refuses it, the log says "Failed to create an OpenGL
+# Core context") and then for a 2.1 compatibility one; gfxbackend stays opengl.
+# What base does: an AI-vs-AI skirmish on Sk-HighGround (2 players, the smallest 2-player map: 48x96
+# tiles; SemperFi both, Easy and Medium; base level 2 = bases with defences, no scavengers), straight
+# from the command line, no input needed: `--autogame --skirmish=ps3bench.json`. The local player is
+# an AI too, so nobody is needed at the keyboard; the camera sits on that player's base (the player
+# with the HUD, power bar and minimap) and the other AI is played against it at normal speed. Upstream's
+# --autogame runs the game at 500x speed (for automated tests: 324 s of game time in 13 s of real time
+# on the PC); our patch 0002 reads WZ_AUTOGAME_SPEED, which this recipe sets to 1. The match is
+# deterministic: it ends (the game quits) when player 0 is defeated, at 318002 ms of game time (5.3
+# min), on the PC and in the ppc64 build run headless under qemu alike. A 5.3 min match at 1x is
+# shorter than the default window (load + 60 s warm-up + 120 s): the run just ends with the game.
+# Variant lobby: the same settings but as a human: `--skirmish=ps3bench.json` opens the skirmish
+# lobby with the map and the AI already set; click "Start Hosting Game" (bottom of the options
+# column) and then the READY box of the Player row (top right), and the game starts with you as the
+# player against SemperFi (mouse: edge scrolling, left-drag selects, right click orders; Esc is the
+# menu). Variant menu: the main menu. Variants nomusic, nosound: audio off.
+# Settings: a private config directory, $HOME/.local/share/warzone2100-ps3bench (--configdir; the
+# game's own ~/.local/share/warzone2100-4.3 stays untouched), with config written by setup()
+# (BACKUP restores it; the game rewrites it at exit) and tests/ps3bench.json (the match). The lowest
+# settings that keep the picture right: fullscreen 1920x1080, texturesize 512 (the default 2048
+# costs +66 MB of texture RAM on the PC; 128 and 512 measured the same), shadows off, fog off,
+# vsync off, no anti-aliasing, UPnP off, FPS counter on (bottom right), the music at its default
+# volume (the CPU cost of Opus on the PPE is unknown: variant nomusic). 4.3.5's textures are PNG
+# (the Basis Universal encoder is off in our build): the game compresses RGBA pages to DXT5 itself
+# when it uploads (texturecompression=1, the default; 485 of 1348 textures), the rest is RGBA8 or
+# LUMINANCE. First start only: the game writes its stats.db and caches in the config directory.
+# Risks: RAM. Measured on the PC (amd64 build of the same source, Debian sid, llvmpipe with
+# MESA_GL_VERSION_OVERRIDE=2.1, Xvfb 1920x1080, these settings, 1x speed AI-vs-AI): VmHWM 366-379 MB
+# (97 MB of it libLLVM and Mesa's libraries); heaptrack: peak heap 259 MB = llvmpipe 118 (incl. the
+# textures, ~77 MB live) + its JIT 49 + QuickJS 72 (the AI scripts, rules and the stats as JS
+# objects: the game's biggest own consumer) + 20 other. Human against one AI: 370 MB (the second
+# AI costs only ~5). Without any GL (--headless, 500x autogame, PC): VmHWM 164 MB, which is the game
+# itself with its libraries. PS3 estimate: 180-205 MB (that 164 plus ~15 for Mesa's nv30 userland, or
+# the census formula: RSS - 100 llvmpipe baseline - texture MB - buffers + 10); the textures are VRAM here. Knobs measured (PC RSS):
+# texturesize 2048 +66 MB, texturecompression=0 +72 MB, shadows on +2, fog on +1. Watch dmesg.log,
+# MemAvailable and swap-ins. Other things to look at: the first load (the game reads base.wz, 180
+# MB, and mp.wz through physfs and builds the stats: 10 s on the PC, ~10x that on the PPE?), the
+# JS AIs' CPU (semperfi runs every game tick, 10 per second), the GL call load (171 draws and
+# ~2900 GL calls per frame, 429 glTexParameteri per frame: PPE-bound), nouveau "out of temps" on
+# the terrain or water fragment shaders (grep stderr and the game log), and the update check the game
+# starts at launch (a curl to wz2100.net; it fails quietly without network).
+# Benchmark idea (not wired up): the base command again as a SUITE=1 recipe with the HUD window: a
+# fixed match (deterministic, see above, so the scene is the same each run), WARMUP 30 s after the
+# load, MEASURE 120 s (the match ends at 318 s of game time, so the window must fit before that);
+# fps from the Gallium HUD (the game's own "FPS:" counter, bottom right, is in screenshots). The
+# AI-only cost with no drawing: `--autogame --skirmish=... --headless` (WZ_AUTOGAME_SPEED=1 for
+# real time, 500 for the whole match): 198 s at 500x under qemu on the PC, a PPE timing wanted.
+COMM=warzone2100
+. "$here/recipes/smoke.inc"
+# loading the game: base.wz and mp.wz, the stats, the map; 300 s as for the other slow loaders
+DURATION=${SMOKE_SECS:-300}
+WZ_CFG=$HOME/.local/share/warzone2100-ps3bench
+BACKUP=("$WZ_CFG/config")
+DATA_DIRS=(/usr/share/warzone2100)
+ENV+=(WZ_AUTOGAME_SPEED=1)
+WZ_MUSIC=true
+WZ_SOUND=1
+setup() {
+	mkdir -p "$WZ_CFG/tests"
+	printf '%s\n' "[general]" "width=1920" "height=1080" "fullscreen=1" "fullscreenwidth=1920" "fullscreenheight=1080" \
+		"screen=0" "fullscreenscreen=0" "bpp=32" "vsync=0" "antialiasing=0" "texturesize=512" "texturecompression=1" \
+		"shadows=0" "fog=false" "showfps=1" "upnp=0" "autorating=false" "fmvmode=0" "sound=$WZ_SOUND" \
+		"music_enabled=$WZ_MUSIC" "gfxbackend=opengl" "jsbackend=quickjs" "difficulty=2" "configversion=2" > "$WZ_CFG/config"
+	# the match: bases 2 (bases with defences), no scavengers, SemperFi both sides
+	printf '%s\n' '{' '	"challenge": {' '		"bases": 2,' '		"difficulty": "Easy",' '		"map": "Sk-HighGround",' \
+		'		"maxPlayers": 2,' '		"powerLevel": 1,' '		"scavengers": "false",' '		"version": 2' '	},' \
+		'	"player_0": {' '		"team": 0,' '		"ai": "multiplay/skirmish/semperfi.js"' '	},' '	"player_1": {' \
+		'		"difficulty": "Medium",' '		"team": 1,' '		"ai": "multiplay/skirmish/semperfi.js"' '	}' '}' \
+		> "$WZ_CFG/tests/ps3bench.json"
+}
+WZ=(/usr/bin/warzone2100 --configdir="$WZ_CFG" --fullscreen --resolution=1920x1080)
+CMD=("${WZ[@]}" --autogame --skirmish=ps3bench.json)
+variant_lobby() { CMD=("${WZ[@]}" --skirmish=ps3bench.json); }
+variant_menu() { CMD=("${WZ[@]}"); }
+variant_nomusic() { WZ_MUSIC=false; }
+variant_nosound() { WZ_SOUND=0; WZ_MUSIC=false; CMD+=(--nosound); }

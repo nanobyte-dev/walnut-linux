@@ -24,6 +24,11 @@ ZLIBNG_VERSION      := 2.3.3
 ZLIBNG_SHA256       := f9c65aa9c852eb8255b636fd9f07ce1c406f061ec19a2e7d508b318ca0c907d1
 ZLIBNG_URL          := https://github.com/zlib-ng/zlib-ng/archive/refs/tags/$(ZLIBNG_VERSION).tar.gz
 
+# --- Warzone 2100 (warzone2100/): release 4.3.5, the last with an OpenGL 2.1 / GLES 2 renderer ---
+WARZONE_VERSION     := 4.3.5
+WARZONE_SHA256      := 01d608f6f9638e14d7c857df40ad339c1bfc207a05daafe7157ad8652a3405c3
+WARZONE_URL         := https://github.com/Warzone2100/warzone2100/releases/download/$(WARZONE_VERSION)/warzone2100_src.tar.xz
+
 # --- ClassiCube (classicube/) ------------------------------------------------
 # A pinned commit (SDL3 backend), plus the texture pack it needs (plain HTTP, so checksummed)
 CLASSICUBE_COMMIT   := aa47929825a4647354588818fb0b002b2f808279

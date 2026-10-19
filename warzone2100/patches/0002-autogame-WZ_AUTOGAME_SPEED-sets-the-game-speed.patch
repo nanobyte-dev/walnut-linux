@@ -1,0 +1,30 @@
+Subject: --autogame: WZ_AUTOGAME_SPEED sets the game speed (default stays 500x)
+
+An autogame (every player an AI, started with --autogame --skirmish=<file>) runs at 500x game
+speed so that automated tests finish quickly, which is useless for watching it or measuring the
+frame rate. WZ_AUTOGAME_SPEED=1 plays it at normal speed (whole numbers 1 to 500).
+
+---
+diff --git a/src/levels.cpp b/src/levels.cpp
+--- a/src/levels.cpp
++++ b/src/levels.cpp
+@@ -1277,7 +1277,18 @@ bool levLoadData(char const *name, Sha256 const *hash, char *pSaveName, GAME_TYP
+ 
+ 	if (autogame_enabled() && getHostLaunch() != HostLaunch::LoadReplay)
+ 	{
+-		gameTimeSetMod(Rational(500));
++		// --autogame runs the game at 500x so that automated tests finish quickly. WZ_AUTOGAME_SPEED=<n>
++		// (whole number, 1 = normal speed) lets a person watch it or a benchmark measure it in real time.
++		int autogameSpeed = 500;
++		if (const char *speedEnv = getenv("WZ_AUTOGAME_SPEED"))
++		{
++			int speed = atoi(speedEnv);
++			if (speed >= 1 && speed <= 500)
++			{
++				autogameSpeed = speed;
++			}
++		}
++		gameTimeSetMod(Rational(autogameSpeed));
+ 		if (getHostLaunch() != HostLaunch::Skirmish) // tests will specify the AI manually
+ 		{
+ 			if (selectedPlayer < MAX_PLAYERS && !NetPlay.players[selectedPlayer].isSpectator)

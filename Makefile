@@ -129,6 +129,14 @@ $(ZNG_ORIG):
 	echo "$(ZLIBNG_SHA256)  $@.tmp" | sha256sum -c --quiet
 	mv $@.tmp $@
 
+# --- Warzone 2100 (warzone2100/: upstream's release tarball with a Debian-style debian/) ------
+WZ_ORIG := $(DOWNLOADS)/warzone2100_$(WARZONE_VERSION).orig.tar.xz
+$(WZ_ORIG):
+	@mkdir -p $(DOWNLOADS)
+	curl -fsSL -o $@.tmp $(WARZONE_URL)
+	echo "$(WARZONE_SHA256)  $@.tmp" | sha256sum -c --quiet
+	mv $@.tmp $@
+
 # --- ClassiCube -----------------------------------------------------------------
 CC_TARBALL := $(DOWNLOADS)/ClassiCube-$(CLASSICUBE_COMMIT).tar.gz
 CC_TEXPACK := $(DOWNLOADS)/classicube-texpack-$(CLASSICUBE_TEXPACK_SHA256).zip
@@ -385,11 +393,12 @@ $(foreach b,BUILDER GAMES_BUILDER SPU_BUILDER REPO_BUILDER,\
 
 # --- Debian source packages (deb-src + our patches; docs/PLAN.md, packaging plan) ---------------
 DEB_ENV := -e OWNER=$(UID_GID) -e DEBIAN_SUITE=$(DEBIAN_SUITE) -e DEBIAN_MIRROR=$(DEBIAN_MIRROR) -e HOME=/tmp \
-	-e SB_ORIG=$(SB_ORIG) -e DP_ORIG=$(DP_ORIG) -e ZNG_ORIG=$(ZNG_ORIG) -e CC_TARBALL=$(CC_TARBALL) -e CC_TEXPACK=$(CC_TEXPACK) -e CC_AUDIO=$(CC_AUDIO) -e KERNEL_RELEASE=$(KERNEL_RELEASE) -e KERNEL_FLAVOUR=$(KERNEL_FLAVOUR)
+	-e SB_ORIG=$(SB_ORIG) -e DP_ORIG=$(DP_ORIG) -e ZNG_ORIG=$(ZNG_ORIG) -e WZ_ORIG=$(WZ_ORIG) -e CC_TARBALL=$(CC_TARBALL) -e CC_TEXPACK=$(CC_TEXPACK) -e CC_AUDIO=$(CC_AUDIO) -e KERNEL_RELEASE=$(KERNEL_RELEASE) -e KERNEL_FLAVOUR=$(KERNEL_FLAVOUR)
 # upstream tarballs a package's source is made from
 sauerbraten-nonfree-data-src: $(SB_ORIG)
 darkplaces-gl2-src: $(DP_ORIG)
 zlib-ng-src: $(ZNG_ORIG)
+warzone2100-src: $(WZ_ORIG)
 classicube-src: $(CC_TARBALL) $(CC_TEXPACK) $(CC_AUDIO)/default2.zip
 # KERNEL_RELEASE and KERNEL_FLAVOUR are set only by ps3rsx-modules (below), per kernel.
 # ps3rsx for both kernels built by linux-deb (build/debs/linux), release and debug: modules
@@ -437,6 +446,6 @@ DEB_JOBS ?= 16
 # KEEP_TREE=1: make linux-deb keeps the cross build tree (build/chroot/cross-linux)
 KEEP_TREE ?= 0
 # All our packages, the kernel first: ps3rsx builds against its headers
-SRC_PACKAGES := linux mesa plymouth ps3-boot ps3-gpu-tools ps3-spu classicube fluidsynth openal-soft dsda-doom neverball ioquake3 supertuxkart openttd xmoto etr teeworlds ps3-system ps3-desktop ps3-splash sauerbraten-nonfree-data ps3-games-licensed darkplaces-gl2 zlib-ng libvorbis libpng1.6
+SRC_PACKAGES := linux mesa plymouth ps3-boot ps3-gpu-tools ps3-spu classicube fluidsynth openal-soft dsda-doom neverball ioquake3 supertuxkart openttd xmoto etr teeworlds ps3-system ps3-desktop ps3-splash sauerbraten-nonfree-data ps3-games-licensed darkplaces-gl2 zlib-ng libvorbis warzone2100 libpng1.6
 packages: $(SRC_PACKAGES:%=%-deb)
 	$(MAKE) --no-print-directory ps3rsx-modules

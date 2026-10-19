@@ -1,0 +1,22 @@
+Subject: terrain: the transparent decal colour was an endian-dependent literal
+
+PIELIGHT is a union of four bytes (r, g, b, a) and a UDWORD. 0x00FFFFFF is white with alpha 0 only
+when the UDWORD's low byte is the first one in memory; on big-endian it is red 0, alpha 255, so every
+ground-type layer of the terrain was drawn opaque over the one below (the splat masks in
+src/terrain.cpp's fill of the sectors). Set the bytes instead.
+
+---
+diff --git a/src/terrain.cpp b/src/terrain.cpp
+--- a/src/terrain.cpp
++++ b/src/terrain.cpp
+@@ -848,7 +848,9 @@ bool initTerrain()
+ 							{
+ 								absX = x * sectorSize + i + a;
+ 								absY = y * sectorSize + j + b;
+-								colour[a][b].rgba = 0x00FFFFFF; // transparent
++								// transparent white (a literal 0x00FFFFFF is alpha 255 and red 0 on big-endian)
++								colour[a][b].byte.r = colour[a][b].byte.g = colour[a][b].byte.b = 255;
++								colour[a][b].byte.a = 0;
+ 
+ 								// extend the terrain type for the bottom and left edges of the map
+ 								off_map = false;
