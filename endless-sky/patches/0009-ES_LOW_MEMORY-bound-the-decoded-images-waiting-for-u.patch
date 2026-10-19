@@ -1,0 +1,76 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Tue, 20 Oct 2026 01:21:51 +0300
+Subject: ES_LOW_MEMORY: bound the decoded images waiting for upload, free
+ frames before the atlas upload, NV30_FORCE_DXT=all
+
+The first PS3 run ran out of memory while loading (kernel OOM at 125 s, "out of VRAM" from
+ps3rsx from 30 s on). Two causes:
+- SpriteLoadManager started 100 load chains. The workers decode faster than the main thread
+  uploads, so up to 100 decoded images waited in RAM (+195 MB on the PC). Six chains keep two
+  workers busy.
+- Nothing set NV30_FORCE_DXT, so the power-of-two RGBA8 atlases (about 380 MB) went to VRAM
+  uncompressed and overflowed it. main() now defaults it to "all" (Mesa 0038: DXT5, a quarter;
+  other drivers ignore it). The atlas upload must stay one glTexImage2D with data: the
+  policy skips glTexImage2D(NULL) and keeps the texture uncompressed for sub-image updates.
+- The decoded frames are freed before the grid is handed to the driver.
+
+diff --git a/source/image/Sprite.cpp b/source/image/Sprite.cpp
+--- a/source/image/Sprite.cpp
++++ b/source/image/Sprite.cpp
+@@ -149,6 +149,9 @@ namespace {
+ 					for(int row = 0; row < h; ++row)
+ 						copy_n(buffer.Begin(row, frame), w, grid.begin() + (y + row) * layout.width + x);
+ 				}
++				// The decoded frames are not needed any more: free them before the driver copies
++				// or compresses the grid, so that the two never coexist.
++				buffer.Clear();
+ 				glTexImage2D(type, 0, GL_RGBA8, layout.width, layout.height, 0,
+ 					GL_RGBA, GL_UNSIGNED_BYTE, grid.data());
+ 			}
+diff --git a/source/image/SpriteLoadManager.cpp b/source/image/SpriteLoadManager.cpp
+--- a/source/image/SpriteLoadManager.cpp
++++ b/source/image/SpriteLoadManager.cpp
+@@ -156,7 +156,15 @@ void SpriteLoadManager::Init(TaskQueue &queue, map<string, shared_ptr<ImageSet>>
+ 	// of tasks the main thread can handle in a single frame to limit peak memory usage.
+ 	{
+ 		lock_guard lock(imageQueueMutex);
+-		for(int i = 0; i < TaskQueue::MAX_SYNC_TASKS; ++i)
++#ifdef ES_LOW_MEMORY
++		// Every chain holds a decoded image from the worker thread until the main thread has uploaded
++		// it, and the workers are faster than the main thread: with 100 chains the decoded images
++		// pile up (200 MB on the PC, more than a PS3 has). A few more than the workers keeps them busy.
++		const int chains = 6;
++#else
++		const int chains = TaskQueue::MAX_SYNC_TASKS;
++#endif
++		for(int i = 0; i < chains; ++i)
+ 			LoadSpriteQueued(queue);
+ 	}
+ }
+diff --git a/source/main.cpp b/source/main.cpp
+--- a/source/main.cpp
++++ b/source/main.cpp
+@@ -80,6 +80,9 @@ this program. If not, see <https://www.gnu.org/licenses/>.
+ #include <fstream>
+ #include <unistd.h>
+ #endif
++#ifdef ES_LOW_MEMORY
++#include <cstdlib>
++#endif
+ #if defined(ES_LOW_MEMORY) && defined(__GLIBC__)
+ #include <malloc.h>
+ #endif
+@@ -106,6 +109,12 @@ int main(int argc, char *argv[])
+ 	mallopt(M_MMAP_THRESHOLD, 128 * 1024);
+ 	mallopt(M_ARENA_MAX, 2);
+ #endif
++#ifdef ES_LOW_MEMORY
++	// On the PS3 the sprite atlases (RGBA8, power-of-two) are bigger than its video memory; Mesa's
++	// texture compression at upload (docs/MEMORY.md) stores them as DXT5, a quarter of that. Other
++	// drivers ignore the variable. NV30_FORCE_DXT=off in the environment turns it off.
++	setenv("NV30_FORCE_DXT", "all", 0);
++#endif
+ #ifdef _WIN32
+ 	WinVersion::Init();
+ 	// Handle command-line arguments

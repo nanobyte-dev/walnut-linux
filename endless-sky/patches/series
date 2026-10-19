@@ -5,3 +5,4 @@
 0005-OpenGL-2-fog-map-as-GL_LUMINANCE8.patch
 0006-OpenGL-2-GLSL-1.20-shaders-in-shaders-gl2-loaded-ins.patch
 0007-Unit-tests-for-the-byte-order-premultiply-masks-WAV-.patch
+0009-ES_LOW_MEMORY-bound-the-decoded-images-waiting-for-u.patch

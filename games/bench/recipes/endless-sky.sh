@@ -26,6 +26,10 @@
 # swap-ins and stalls; the first start is the slowest.
 COMM=endless-sky
 . "$here/recipes/smoke.inc"
+# The package (ps3.581 and later) defaults NV30_FORCE_DXT=all in main(); the first PS3 run (ps3.580) did not,
+# stored the atlases as RGBA8 (about 380 MB, VRAM 256 MB: "out of VRAM", then the kernel OOM at 125 s of loading).
+# The stats line goes to game.log: textures taken, KiB before and after.
+ENV+=(NV30_FORCE_DXT_STATS=100)
 ES_DIR=$HOME/.config/endless-sky-ps3bench
 ES_LOAD_WAIT=${ES_LOAD_WAIT:-120}
 ES_KEYS=1
