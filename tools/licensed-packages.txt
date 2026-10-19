@@ -15,3 +15,5 @@ sauerbraten-nonfree-data
 ps3-games-licensed
 # OpenRCT2's game data, unpacked from the user's own RCT2 CD (tools/rct2-data.sh, Section local/games)
 rct2-data
+# Tyrian 2.1's freeware data for OpenTyrian, Epic's limited-use license (tools/tyrian-data.sh, Section local/games)
+tyrian-data

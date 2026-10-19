@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Mon, 19 Oct 2026 07:23:01 +0300
+Subject: Content packages only Suggested (free packages never depend on
+ non-free ones)
+
+uqm-content, uqm-music and uqm-voice are Debian non-free (CC BY-NC-SA content). The engine is GPL and
+goes to the free suites; the content stays in the licensed suite (ps3-licensed), so uqm only
+Suggests it (docs/PACKAGING.md, "Game data").
+
+diff --git a/debian/control b/debian/control
+--- a/debian/control
++++ b/debian/control
+@@ -21,10 +21,8 @@ Vcs-Git: https://salsa.debian.org/games-team/uqm.git
+ Package: uqm
+ Architecture: any
+ Depends: ${shlibs:Depends}, ${misc:Depends},
+- uqm-content (>= 0.8.0),
+ Replaces: uqm-content
+-Recommends: uqm-music (>= 0.8)
+-Suggests: uqm-voice (>= 0.8)
++Suggests: uqm-content (>= 0.8.0), uqm-music (>= 0.8), uqm-voice (>= 0.8)
+ Description: The Ur-Quan Masters - An inter-galactic adventure game
+  You return to Earth with a vessel built from technology discovered from an
+  ancient race called the Precursors only to find it enslaved. Gather allies

@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Mon, 19 Oct 2026 05:37:02 +0300
+Subject: hwengine: mask the FPU exceptions at start (EInvalidOp on ppc64)
+
+Debian's ppc64 build log: the lua engine tests (stuckcake.lua, gravity_get_set.lua) die with
+EInvalidOp before any simulation step. FPC's PowerPC runtime leaves the invalid-operation trap on;
+the game code expects IEEE results. SetExceptionMask from unit Math at the start of the main
+program, for all six exceptions. The physics (hwFloat) is fixed point and unaffected.
+
+diff --git a/hedgewars/hwengine.pas b/hedgewars/hwengine.pas
+--- a/hedgewars/hwengine.pas
++++ b/hedgewars/hwengine.pas
+@@ -33,6 +33,7 @@ uses {$IFDEF IPHONEOS}cmem, {$ENDIF} SDLh, uMisc, uConsole, uGame, uConsts, uLan
+      , uSound, uScript, uTeams, uStats, uIO, uLocale, uChat, uAI, uAIMisc, uAILandMarks, uLandTexture, uCollisions
+      , SysUtils, uTypes, uVariables, uCommands, uUtils, uCaptions, uDebug, uCommandHandlers, uLandPainted
+      , uPhysFSLayer, uCursor, uRandom, ArgParsers, uVisualGearsHandlers, uTextures, uRender
++     {$IFNDEF PAS2C}, Math{$ENDIF}
+      {$IFDEF USE_VIDEO_RECORDING}, uVideoRec {$ENDIF}
+      {$IFDEF USE_TOUCH_INTERFACE}, uTouch {$ENDIF}
+      {$IFDEF ANDROID}, GLUnit{$ENDIF}
+@@ -674,6 +675,12 @@ begin
+ {$IFNDEF PAS2C}
+     // Custom procedure for unhandled exceptions; ExceptProc is used by SysUtils module
+     ExceptProc:= @catchUnhandledException;
++
++    // On ppc64 the FPU traps an invalid operation (a NaN, 0/0, a float out of range for an integer
++    // conversion) and FPC raises EInvalidOp: Debian's buildd lua tests died with it before the first
++    // game step. Mask all FPU exceptions so such operations give IEEE results (NaN, Inf) as they do
++    // on the x86 builds the game is developed on.
++    SetExceptionMask([exInvalidOp, exDenormalized, exZeroDivide, exOverflow, exUnderflow, exPrecision]);
+ {$ENDIF}
+ 
+     preInitEverything();

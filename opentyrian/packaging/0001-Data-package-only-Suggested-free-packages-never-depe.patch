@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Mon, 19 Oct 2026 05:36:32 +0300
+Subject: Data package only Suggested (free packages never depend on licensed
+ ones)
+
+Debian's opentyrian Depends on tyrian-data | game-data-packager. Our tyrian-data (tools/tyrian-data.sh,
+Section local/games: the freeware Tyrian 2.1 under Epic's limited-use license) lives in the
+ps3-licensed suite, and a free package must not Depend or Recommend a licensed one
+(docs/PACKAGING.md, "Game data"). Both become Suggests; the engine tells the user what is missing.
+
+diff --git a/debian/control b/debian/control
+--- a/debian/control
++++ b/debian/control
+@@ -16,9 +16,11 @@ X-Style: black
+ Package: opentyrian
+ Architecture: any
+ Depends:
+- tyrian-data | game-data-packager,
+  ${misc:Depends},
+  ${shlibs:Depends},
++Suggests:
++ tyrian-data,
++ game-data-packager,
+ Description: open-source port of the DOS shoot-em-up Tyrian
+  Tyrian is an arcade-style vertical scrolling shooter. The story is set in
+  20,031 where you play as Trent Hawkins, a skilled fighter-pilot employed to

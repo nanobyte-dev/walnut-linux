@@ -1,0 +1,70 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Mon, 19 Oct 2026 05:37:36 +0300
+Subject: New binary package hedgewars-engine: hwengine without the Qt frontend
+
+The engine runs on its own (hwengine --prefix <Data> file.hwp starts a mission, training or demo),
+and the Qt5 launcher drags in the Qt libraries (the PS3's apt sees only our repository for
+dependencies, and RAM is 217 MB). hwengine moves to hedgewars-engine (also linked as
+/usr/games/hwengine); hedgewars depends on it. Nothing else changes in the build.
+
+diff --git a/debian/control b/debian/control
+--- a/debian/control
++++ b/debian/control
+@@ -50,13 +50,30 @@ Homepage: https://hedgewars.org
+ Vcs-Browser: https://salsa.debian.org/games-team/hedgewars
+ Vcs-Git: https://salsa.debian.org/games-team/hedgewars.git
+ 
+-Package: hedgewars
++Package: hedgewars-engine
+ Architecture: any
+ Depends: hedgewars-data (>= ${source:Upstream-Version}),
+          fonts-dejavu-core,
+          fonts-wqy-zenhei,
+          ${misc:Depends},
+          ${shlibs:Depends}
++Recommends: hedgewars
++Description: Hedgewars game engine without the Qt frontend
++ hwengine, the Pascal game engine of Hedgewars (SDL2, OpenGL 1.x/2.x renderer, Lua scripts):
++ /usr/lib/hedgewars/bin/hwengine can be started directly with a mission, training or
++ demo file, without the Qt launcher and its libraries.
++ .
++ hwengine --prefix /usr/share/games/hedgewars/Data --user-prefix ~/.hedgewars \
++          --fullscreen --width 1920 --height 1080 file.hwp
++
++Package: hedgewars
++Architecture: any
++Depends: hedgewars-engine (= ${binary:Version}),
++         hedgewars-data (>= ${source:Upstream-Version}),
++         fonts-dejavu-core,
++         fonts-wqy-zenhei,
++         ${misc:Depends},
++         ${shlibs:Depends}
+ Description: Funny turn-based artillery game, featuring fighting hedgehogs!
+  Each player controls a team of several hedgehogs. During the
+  course of the game, players take turns with one of their
+diff --git a/debian/hedgewars-engine.install b/debian/hedgewars-engine.install
+new file mode 100644
+--- /dev/null
++++ b/debian/hedgewars-engine.install
+@@ -0,0 +1 @@
++usr/lib/hedgewars/bin/hwengine
+diff --git a/debian/hedgewars-engine.links b/debian/hedgewars-engine.links
+new file mode 100644
+--- /dev/null
++++ b/debian/hedgewars-engine.links
+@@ -0,0 +1 @@
++usr/lib/hedgewars/bin/hwengine usr/games/hwengine
+diff --git a/debian/rules b/debian/rules
+--- a/debian/rules
++++ b/debian/rules
+@@ -26,7 +26,8 @@ override_dh_clean:
+ override_dh_install:
+ 	mv debian/tmp/usr/lib/hedgewars/share/pixmaps/ debian/tmp/usr/share/
+ 	rm -Rf debian/tmp/usr/lib/hedgewars/share/
+-	dh_install
++	dh_install -Nhedgewars-engine -Xbin/hwengine
++	dh_install -phedgewars-engine
+ 
+ override_dh_auto_configure:
+ 	for icon in `find debian/hicolor-icons -type f`; do \
