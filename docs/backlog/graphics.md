@@ -265,6 +265,24 @@ Rank 52. Fixed only once a game needs one; every game that hit them has a workar
 - **Status:** never tried.
 - **Source:** [archive/GAME-PLAN.md, "Driver work"](../archive/GAME-PLAN.md#driver-work-seeded-now-ranked-by-the-smoke-tests).
 
+### A failed buffer allocation must not crash
+
+Rank 75. A full GART or VRAM ended in a segfault in 6 runs.
+
+**Why.** [LOG-FINDINGS.md, item 2](../games/LOG-FINDINGS.md#2-a-failed-buffer-allocation-ends-in-a-segfault):
+after ten `ps3rsx: out of GART for a 4096 KiB BO` Sauerbraten (5 runs) died at address 0 inside libc,
+and SuperTuxKart (1 run) after 270 `out of VRAM` lines and an incomplete FBO. Not seen in the 40+
+runs since, but a player with a bigger map would hit it. Also from the same triage, to watch:
+OpenTTD with `NV30_STAGING_POOL_MB=24` logged `no memory to back the GART (56 of 63 MiB)` once in 13
+runs since ps3.544.
+
+- **To start.** Force it (the `ps3rsx_gart` command-line size down to 16 MiB), take a backtrace with
+  debug symbols, make nv30's buffer and transfer creation return `GL_OUT_OF_MEMORY` or take the CPU
+  path; send the fix upstream with the test. Repeat OpenTTD `blit8` with the 24 MB pool x6 and read
+  dmesg.
+- **Payoff:** no crash at the memory limit. **Effort:** M. **Risk:** low (an error path).
+- **Needs:** host, PS3. **Status:** never tried.
+
 ## Not worth it (reasoned)
 
 - **A cacheable PPE mapping of VRAM** (E8c): if lv1 refuses the HPTE, `ps3_hpte_insert` BUG()s the

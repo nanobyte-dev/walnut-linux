@@ -23,6 +23,7 @@ recorder, the profiles and the memory snapshots have their own docs ([STALLS.md]
 | `perf-post.sh`, `perfprof.py`, `memprof.py`, `loadprof.py` | the CPU profile of the window, the memory snapshots, the start-up profile |
 | `hotpaths/` | perf.data symbolised and ranked on the PC ([HOTPATHS.md](../HOTPATHS.md)) |
 | `interference-scan.py`, `intfcheck.py` | the retro-scan for runs before the interference detector; its selftest part |
+| `logscan.py` | the errors and warnings in the runs' logs, grouped by game and message, with a new-since flag ([LOG-FINDINGS.md](LOG-FINDINGS.md)) |
 | `selftest.py` | the harness without the PS3: client.sh, report.py and matrix.py with a fake game and made-up runs, and every recipe and variant sourced (`make test ONLY=bench-selftest`) |
 | `gamemode-check.sh` | game mode on the desktop: memory idle, in game mode and after ([DESKTOP.md](../DESKTOP.md#game-mode)) |
 | `ssd-arm.sh` | the SSD arms `GAMEDATA=ssd`, `SWAP=ssd` ([GAMEOS-HDD.md](../GAMEOS-HDD.md)) |

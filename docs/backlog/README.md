@@ -98,6 +98,10 @@ release), [hardware.md](hardware.md) (backups, fan, lv1, out of scope).
 | 69 | [End-user docs](platform.md#end-user-docs) | others can set it up | M | host | 5.5 | - |
 | 70 | [Security update policy](platform.md#security-update-policy) | users know what gets fixed | S | host | 5.6 | - |
 | 71 | [Other PS3 models](platform.md#other-ps3-models) | beyond one CECH-20xx | M | host | 5.7 | - |
+| 72 | [OpenAL's stuck mixer and the blind xrun counter](games.md#openals-stuck-mixer-and-the-blind-xrun-counter) | sound back in four games, honest numbers | S counter, S-M cause | host, PS3 | 2.1 | - |
+| 73 | [Sauerbraten data files, and a clean SuperTuxKart config](games.md#sauerbraten-data-files-and-a-clean-supertuxkart-config) | picture closer to the PC's, a clean log | S | host, PS3 | - | - |
+| 74 | [Mesa nv30 messages in the logs](games.md#mesa-nv30-messages-in-the-logs) | fallbacks we cannot see now | S | PS3 | - | - |
+| 75 | [A failed buffer allocation must not crash](graphics.md#a-failed-buffer-allocation-must-not-crash) | no segfault at the GART/VRAM limit | M | host, PS3 | - | - |
 | 72 | [Host tests run automatically](platform.md#host-tests-run-automatically) | tests that run without someone remembering | S-M | host | 5.9 | - |
 
 Parked by CLAUDE.md, not ranked: [video decoding on the SPEs](spu.md#video-decoding-on-the-spes)

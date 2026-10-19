@@ -1677,6 +1677,8 @@ if __name__ == "__main__":
         import intfcheck
         print("\ninterference detector (intfcheck.py)")
         intfcheck.run(tmp, check)
+        import logscan
+        logscan.selftest(tmp, check)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("\n%d check(s) failed: %s" % (len(FAILS), ", ".join(FAILS)) if FAILS else "\nall checks passed")

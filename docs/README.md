@@ -45,6 +45,7 @@ layout and the build commands are in the top-level [README.md](../README.md).
 |---|---|
 | [games/README.md](games/README.md) | Every game at a glance: runs?, fps, smoothness, memory, picture and sound, what's next; how to read the numbers; the driver bugs games found |
 | [games/SUITE.md](games/SUITE.md) | How the benchmark suite runs: `games/bench/`, recipes, the protocol, the result matrices |
+| [games/LOG-FINDINGS.md](games/LOG-FINDINGS.md) | What the game logs say: errors and warnings by game, ranked, with causes and fixes; `games/bench/logscan.py` |
 | [games/openarena.md](games/openarena.md) | OpenArena on our ioquake3, both renderers |
 | [games/quake.md](games/quake.md) | QuakeSpasm and Yamagi Quake II |
 | [games/sauerbraten.md](games/sauerbraten.md) | Sauerbraten (cube2) and Red Eclipse |

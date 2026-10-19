@@ -241,6 +241,11 @@ Read `load`, `lp_shbe`, `shc_tgsi_hit`/`_miss`, `shc_vp_miss`, `stalls_warm`, `s
 
 Rank 48. Small fixes and checks that make the numbers trustworthy.
 
+- **Run logs not read automatically.** `games/bench/logscan.py` exists now; two gaps it found
+  ([LOG-FINDINGS.md](../games/LOG-FINDINGS.md)): `PERF_LOAD` runs print `client.sh: line N:
+  /dev/shm/ps3-bench-<stamp>/.pid: No such file or directory` 4-9 times (16 runs; check the load
+  profile has its pid), and bench.txt should carry the scan's verdict (a crash, a GART failure, an
+  OpenAL wedge) so report.py can mark such a run like `!INTERFERED`.
 - **perf's own cost.** The rule is a same-boot A/B (`PERF=0` against `PERF=1`, three rounds) before
   reading fps off profiled runs at all; it has never run. One profiling batch had OpenArena at
   50.7, 50.5, 52.7 fps profiled against 52.7 and 50.2 without: one game, not interleaved.

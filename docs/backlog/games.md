@@ -183,6 +183,53 @@ already compresses from 1024 up).
 - **Status:** never tried.
 - **Source:** [archive/MEMORY.md, "Cuts, ranked"](../archive/MEMORY.md#cuts-ranked) #5.
 
+### OpenAL's stuck mixer and the blind xrun counter
+
+Rank 72. In 17 of 165 OpenAL runs the mixer stops for the rest of the run, and bench.txt says nothing.
+
+**Why.** [LOG-FINDINGS.md, item 1](../games/LOG-FINDINGS.md#1-openals-mixer-stops-and-the-harness-does-not-notice):
+after an EPIPE early in the run OpenAL Soft logs `Wait timeout... buffer size too low?` once a second
+until the end (SuperTuxKart, OpenArena, ClassiCube, Luanti), with `sound=RUNNING` and `underruns=0`,
+because the counter reads ALSA's `snd_pcm_recover` line and OpenAL's backend never prints it. It
+probably explains the silent microphone in SuperTuxKart ([rank 9](#supertuxkarts-missing-sound)), and
+every OpenAL game's CPU number is lower in a wedged run.
+
+- **To start.** (1) client.sh counts `Wait timeout` and `mmap commit error` lines into bench.txt
+  (`oal_timeouts=`, `oal_epipe=`); report.py shows them in the xrun column. Host only, S. (2) On the PS3, during a wedge: `/proc/asound/card0/pcm0p/sub0/status`, the dmix
+  process, `ALSOFT_LOGLEVEL=4`; then the same game with `[alsa] mmap=false` and with a larger period,
+  same boot, 4 runs each.
+- **Payoff:** sound in four games; honest numbers. **Effort:** S for the counter, S-M for the cause.
+- **Risk:** low. **Needs:** host, then PS3 (no user for the counter; the user listens at the end).
+- **Status:** never tried.
+- **Source:** logscan.py over 602 runs.
+
+### Sauerbraten data files, and a clean SuperTuxKart config
+
+Rank 73. Two small data checks the logs found.
+
+**Why.** [LOG-FINDINGS.md, items 6 and 7](../games/LOG-FINDINGS.md): Sauerbraten logs `could not load
+texture packages/gk/fantasy/skyfantasy/skyfantasy` (73 of 74 runs) and `could not load envmap
+skyboxes/morning` (65 runs); the benchmark map may draw without its sky and reflections. SuperTuxKart
+prints 30 config errors a run because the recipe writes a partial `config.xml`.
+
+- **To start.** List those paths in the installed cube2 data; if they are absent, find which package
+  has them; look at a photo of the Sauerbraten run for the sky. For SuperTuxKart let the game write its
+  default config once and keep that as the recipe's base.
+- **Payoff:** a picture closer to the PC's; a log that shows real errors. **Effort:** S.
+- **Risk:** the picture changes (the user decides). **Needs:** host, PS3 for the photo.
+- **Status:** never tried.
+
+### Mesa nv30 messages in the logs
+
+Rank 74. Nothing in 602 runs reports a shader compile failure or a fallback, because Mesa is silent.
+
+**Why.** [LOG-FINDINGS.md, "The tool"](../games/LOG-FINDINGS.md#the-tool): an "out of temps", TGSI or
+draw-module fallback would cost fps without leaving a line. One run per game with `NV30_DEBUG`
+(or `MESA_DEBUG=1`, `GALLIUM_DEBUG`) into game.log, then `logscan.py -c nouveau,gl`.
+
+- **Payoff:** finds fallbacks we cannot see; upstream material. **Effort:** S. **Risk:** none.
+- **Needs:** PS3. **Status:** never tried.
+
 ## Measured, waiting for a default decision
 
 These ran and won (or lost) since the docs were written; what is left is to change a default, or
