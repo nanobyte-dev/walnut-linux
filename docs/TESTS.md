@@ -72,4 +72,4 @@ in games/bench/results/.
 | 10-17 20:39 | | Mesa ps3.299, X-Moto and ETR batching | X-Moto 44.5 -> 166.5, ETR 52 -> 59 | edab738 |
 | 10-17 16:31 | | ioquake3 ps3.285 (OpenArena opengl2 memory) | 14.8 -> 26-32 fps, longest stall 24.7 -> 6 s | 973b5c9 |
 
-Earlier rounds (2026-10-16/17: stage 0, Mesa ps3.246/262/282) are in GAME-PLAN.md "Measured".
+Earlier rounds (2026-10-16/17: stage 0, Mesa ps3.246/262/282) are in archive/GAME-PLAN.md "Measured" (summary: games/README.md "History").
