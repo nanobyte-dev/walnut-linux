@@ -11,7 +11,8 @@
 # local/0042: fan policy through the SM (hwmon pwm1; SYSCON automatic at boot and on every exit path; docs/THERMAL.md).
 # local/0043: ps3fb frees its console's XDR frame (8 MiB) while ps3rsx owns the GPU; ps3fb.shadow_release=1, default off (docs/KERNEL-MEMORY.md 6).
 # local/0045: ps3disk write guard: ps3da read-only, ps3db writable only inside the ranges sealed in /sys/block/ps3db/write_guard/ (docs/GAMEOS-HDD.md "The kernel guard").
-#   Off (commented out below) until ps3-imgmap-boot registers and seals its dm tables' ranges: with it, every unregistered write to ps3db fails.
+#   On since 2026-10-19: ps3-imgmap-boot create (the SSD root's initramfs) and ps3-imgmap create (Phase A) register and seal their dm tables' ranges;
+#   every other write to ps3db fails. Phase A on a kernel with it needs the new tools/ssdimg/ps3-imgmap on the PS3.
 ps3/0020-ps3stor-send-cmd-timeout.patch
 ps3/0035-ps3flash.patch
 ps3/0040-ps3-partition.patch
@@ -71,4 +72,4 @@ local/0041-ps3-sys-manager-fin-wait-for-shutdown-command.patch
 local/0042-ps3-sys-manager-fan-policy.patch
 local/0043-ps3fb-release-console-shadow.patch
 local/0044-ps3-os-area-no-flash-writes.patch
-#local/0045-ps3disk-write-guard.patch
+local/0045-ps3disk-write-guard.patch

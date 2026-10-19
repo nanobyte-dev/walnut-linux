@@ -8,13 +8,18 @@
 #   4. dev_hdd0 (/dev/ps3db) mounted read-only with ufstype=ufs2, ps3-imgmap-boot recheck of the image
 #      named by ps3ssd.image= against its boot map in /ps3ssd/maps, unmounted again
 #   5. ps3-imgmap-boot create: the header area's stamps read back, /dev/mapper/<root> (root=) and
-#      /dev/mapper/ps3swap (ps3ssd.swap=) as dm-linear over the file's blocks
+#      /dev/mapper/ps3swap (ps3ssd.swap=) as dm-linear over the file's blocks; on a kernel with the
+#      write guard (local/0045) their ranges of ps3db registered and sealed, so nothing else on
+#      dev_hdd0 can be written in this boot (guard=required in /etc/ps3ssd-initrd: build-initrd.sh
+#      found the guard in the release's kernel, and a kernel without it is refused)
 #   6. root mounted (rootfstype=, default ext4; ro or rw as the command line says, rootflags=),
 #      /dev, /proc, /sys, /run moved into it, switch_root to init= (default /sbin/init)
 # The file system check of root is systemd's (systemd-fsck-root on the read-only root, as on the
 # USB disk). Any failure stops here, before anything was written: a message on the console and
-# tty1 and a busybox shell on both. Nothing in this script writes to ps3da, ps3db or ps3dc; the
-# only writes to the internal disk ever are what the real system writes to /dev/mapper/*.
+# tty1 and a busybox shell on both (after a guard failure in step 5 the guard can't be reset in the
+# same boot, so the way on is 'reboot -f' in any case). Nothing in this script writes to ps3da, ps3db
+# or ps3dc; the only writes to the internal disk ever are what the real system writes to
+# /dev/mapper/*.
 # Kernel arguments read: root= rootfstype= rootflags= ro rw init= quiet, ps3ssd.image=<path on
 # dev_hdd0> (required), ps3ssd.swap=<dm name>, ps3ssd.timeout=<s>, ps3ssd.break=1 (a shell before
 # the root is mounted; leave it and boot goes on).
@@ -116,6 +121,8 @@ run() {	# run CMD...: its output into the log; on failure its reason (a refusal'
 }
 
 REL=$(sed -n 's/^release=//p' /etc/ps3ssd-initrd 2>/dev/null)
+GUARD=$(sed -n 's/^guard=//p' /etc/ps3ssd-initrd 2>/dev/null)
+[ "$GUARD" = required ] || GUARD=auto
 log "initramfs $(xargs < /etc/ps3ssd-initrd 2>/dev/null), kernel $(uname -r)"
 STEP="the kernel command line"
 [ "$REL" = "$(uname -r)" ] || fail "this initramfs is for kernel $REL, the running one is $(uname -r)"
@@ -173,10 +180,10 @@ STEP="unmounting dev_hdd0"
 run umount /gameos
 grep -q ' /gameos ' /proc/mounts && fail "dev_hdd0 still mounted"
 
-STEP="creating /dev/mapper/$RNAME and /dev/mapper/$SWAP"
-run $TOOL create "$MAP" --root-name "$RNAME" --swap-name "$SWAP" --run $RUN
+STEP="creating /dev/mapper/$RNAME and /dev/mapper/$SWAP (and sealing ps3db's write guard)"
+run $TOOL create "$MAP" --root-name "$RNAME" --swap-name "$SWAP" --run $RUN --guard $GUARD
 MADE=1
-made=$(grep '^>> /dev/mapper/' $LOG | sed 's/^>> //')
+made=$(grep -e '^>> /dev/mapper/' -e '^>> write guard sealed' -e '^>> kernel has no write guard' $LOG | sed 's/^>> //')
 echo "$made" | while read -r l; do log "$l"; done
 
 if [ $BREAK = 1 ]; then

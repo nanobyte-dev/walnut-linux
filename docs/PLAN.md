@@ -444,7 +444,11 @@ went.
 - **Kernel write guard** (local/0045, docs/GAMEOS-HDD.md "The kernel guard"): `ps3da` read-only for good,
   `ps3db` writable only inside the ranges a boot tool registers and seals once per boot in
   `/sys/block/ps3db/write_guard/`, `ps3dc` writable. Compile-tested and unit-tested on the PC, not
-  booted; commented out in the series until `ps3-imgmap-boot` registers the dm tables' ranges.
+  booted. Since 2026-10-19 in the series: `ps3-imgmap-boot create` (the SSD root's initramfs) and
+  Phase A's `ps3-imgmap create` register their dm tables' ranges and seal (a kernel without the guard:
+  a log line and on); tested on the PC against a model and, in the KVM test, a module running the
+  patch's own guard and sysfs code. Next: its checks on the PS3 (docs/GAMEOS-HDD.md). Phase A on a
+  guard kernel needs the new `ps3-imgmap` copied to the PS3.
 - **Flash and SYSCON research** (docs/FLASH-SYSCON.md): nothing written; ranked recommendation in
   decision 5.
 

@@ -666,7 +666,11 @@ Only with the user's explicit go:
 Every later boot (the map is reused; GameOS may have run in between): `sudo ps3-gameos-mount`,
 `recheck $M`, `sudo ps3-gameos-mount -u`, `create $M ps3ssd --swap-mib 1024 --yes`, mount. At the
 end of a session: `ssd-arm.sh reset` (run.sh does it when it ends), `sudo umount /mnt/ps3ssd`, `sudo
-python3 /var/tmp/ps3-imgmap remove ps3ssd`.
+python3 /var/tmp/ps3-imgmap remove ps3ssd`. On a kernel with the write guard (local/0045, section "The
+kernel guard") create also registers and seals the two devices' ranges of ps3db, once per boot: a
+`remove` and a second `create` in the same boot is refused (sealed earlier in this boot), the way
+back is a reboot. Before create every write to ps3db fails, after it every write outside the image's
+blocks.
 
 #### The A/B in the bench (same boot)
 
@@ -819,6 +823,10 @@ fallback for everything below.
   `/dev/mapper/<name>` made; anything half made is removed again). Any difference refuses, exit 2.
   The device names are fixed in the code (no test seams); FIBMAP, BLKROSET and the dm ioctl numbers
   come from the kernel headers of the target (ppc64's FIBMAP is 0x20000001, checked).
+- The kernel guard's registration (2026-10-19, section "The kernel guard"): after the devices are
+  made, `create` registers the device side of their live tables in `/sys/block/ps3db/write_guard/`,
+  seals and checks the result; a kernel without the guard gets a log line (or a refusal with
+  `--guard required`, which the initramfs passes when it was built for a guard kernel).
 - Why the dm ioctls and not dmsetup: dmsetup is dynamically linked (libdevmapper, libudev,
   libselinux, libpcre2 and the loader into the initramfs) and wants udev cookies or
   `--noudevsync`; the ioctls are about 150 lines, the table goes from the verified extents into the
@@ -1025,20 +1033,26 @@ medians to compare, a difference counting when both SSD boots agree against both
 
 - The header in the image's first MiB (magic, UUID, the list's sha256, room for a boot bundle;
   `ps3-imgmap header-write`), so the boot map can be checked against the image itself and the state
-  needn't live on the USB root.
+  needn't live on the USB root. Designed, not built: section "The image header" (writing it collides
+  with the kernel guard).
 - `/boot` on dev_hdd1 with the webMAN autoexec mirror (sections above), so the USB disk can go.
 - The kernel guard: built (local/0045, next section; ps3da read-only, ps3db only inside the
-  registered ranges, ps3dc writable for the boot files). To do: `ps3-imgmap-boot create` registers
-  and seals its tables' ranges (the steps there), then the patch goes into the series.
+  registered ranges, ps3dc writable for the boot files); since 2026-10-19 both create commands
+  register and seal their tables' ranges and the patch is in the series. To do: its checks on the PS3
+  (the steps there).
 - Kernel updates in one step for both roots (a kernel hook that rebuilds the initramfs and the entry).
 - The GameOS installer (design above).
 
-### The kernel guard (local/0045; built 2026-10-19, not booted, off in the series)
+### The kernel guard (local/0045; built 2026-10-19, in the series, not booted yet)
 
-`linux/patches/local/0045-ps3disk-write-guard.patch`. The entry in `linux/patches/series` is commented
-out: a kernel with it refuses every write to `ps3db` that no boot tool registered, which would make
-Phase A's and Phase B's devices read-only (ext4 gets EIO). It goes in together with the boot tool's
-registration below.
+`linux/patches/local/0045-ps3disk-write-guard.patch`. A kernel with it refuses every write to `ps3db`
+that no boot tool registered: Phase A's and Phase B's devices work only once their tool has
+registered and sealed their ranges, which both tools do since 2026-10-19 (below). In
+`linux/patches/series` since then, so the next kernel build has it; nothing built or installed for
+the PS3 yet. **With a guard kernel on the PS3, Phase A needs the new `ps3-imgmap`** (copy it to
+`/var/tmp/ps3-imgmap` again): an older copy makes ps3ssd and ps3ssd-swap without sealing, every write
+to them fails with EIO (GameOS's data stays untouched, but ext4 on ps3ssd and the SWAP=ssd arm break)
+until a reboot and a create with the new one.
 
 **Policy**, by region index, fixed at build time (no parameter, no command-line switch):
 
@@ -1088,30 +1102,49 @@ rest of the boot. A new probe would forget the seal, so ps3disk has no sysfs bin
 (`suppress_bind_attrs`), and the seal takes a reference on the module (ours is built in,
 `CONFIG_PS3_DISK=y`, but a modular build can't be unloaded once sealed).
 
-**What the boot tool does** (`ps3-imgmap-boot create` in the initramfs; Phase A's `ps3-imgmap create`
-the same way if it runs on a kernel with the guard), in this order:
+**What the boot tools do** (built 2026-10-19: `ps3-imgmap-boot create` in the initramfs, Phase A's
+`ps3-imgmap create` the same steps), in this order:
 
-1. The recheck as now (dev_hdd0 mounted read-only, then unmounted). Only reads.
-2. `write_guard/policy` must read `whitelist` and `sealed` `0`. Missing: the kernel has no guard;
-   refuse (the initramfs is built for one kernel release, so this only happens with a wrong
-   initramfs). `sealed` already `1`: something else sealed in this boot, refuse.
-3. The dm-linear devices (root and swap) loaded, read back and compared, as now. Still no writes.
-4. Register exactly the device side of every target of both tables: for a target `<lstart> <len>
-   linear /dev/ps3db <offset>` the line `<offset> <len>`. Taken from the tables read back from the
-   kernel, so the ranges are what device-mapper really uses. Not the image's header area (its first
-   MiB, never mapped): it stays unwritable, which is what Phase B wants. Lines are written in
-   chunks of at most 4096 bytes that end with a line's newline, each with a single write(2) that
-   must return the whole count; an error or a short count: refuse.
-5. `echo 1 > sealed`.
-6. Check: `nr_ranges` equals the tool's own count after sorting by offset and merging ranges that
-   touch (adjacent extents merge), `nr_sectors` the sum of the target lengths (the map's extents
-   never overlap, `check_extents`). Different: refuse.
-7. Only now mount root (ext4's journal replay writes) and later swapon.
+1. The recheck as before (dev_hdd0 mounted read-only, then unmounted). Only reads.
+2. Before anything is made: `write_guard/policy` must read `whitelist`, `sealed` `0` and `nr_ranges`
+   `0` (ranges someone registered without sealing would be sealed along with ours). Sealed already:
+   refused ("sealed earlier in this boot ... Reboot"), nothing made. No `write_guard/` directory (a
+   kernel without 0045, the user's choice 2026-10-19): the log line `kernel has no write guard (no
+   /sys/block/ps3db/write_guard): ps3db's writes are not limited to the image's blocks` and on as
+   before, so today's kernels keep booting. Except with `--guard required`, which the initramfs
+   passes when `/etc/ps3ssd-initrd` says `guard=required`: `build-initrd.sh` sets that when the
+   release's `System.map` in the kernel deb has the guard (`ps3disk_guard_group` or
+   `ps3disk_set_read_only`; `GUARD=required|auto` overrides). Such an initramfs on a kernel without the
+   guard refuses (the release check already stops a mismatched pair; this is the second lock).
+   Phase A has no required mode (it runs on whatever kernel the USB root booted).
+3. The dm-linear devices (root and swap) made, read back and compared, as before. Still no writes.
+   More than 65536 targets in all: refused before this step.
+4. The device side of every target of both tables as the kernel reads it back (`DM_TABLE_STATUS` in
+   C, `dmsetup table` in Python; Phase A's create now also compares that live table with what it
+   loaded): `<offset> <len>` per target. Not the header area (never mapped). In chunks of whole lines
+   of at most 4096 bytes, each one `write(2)` that must return its whole count; an error or a short
+   count stops it. Then `nr_ranges` must equal the number of lines sent (before the seal it counts
+   what was taken).
+5. `1` written to `sealed` (one `write(2)` of `1\n`).
+6. `sealed` reads `1`, `nr_ranges` equals the tool's own count after sorting by offset and merging
+   ranges that overlap or touch (the kernel's rule), `nr_sectors` their sum (the tool first checks
+   that the targets don't overlap). The log line: `write guard sealed: N ranges registered in W
+   writes, M after merging, S sectors (X MiB) of ps3db writable, nothing else`.
+7. Only now root is mounted (ext4's journal replay writes) and later swapon.
 
-A refusal after step 5 can't be retried in the same boot (the ranges are fixed): the rescue shell's
-`reboot -f`. Boots without the SSD root (the USB root) register nothing, so `ps3db` refuses every
-write; a unit that seals an empty list early in those boots would also stop a later process from
-registering, if we want that.
+Any failure in steps 4-6 removes the devices made in step 3 (and their table records) and refuses:
+`write guard: <what>. ps3db's guard can't be reset in this boot (ranges taken stay, a seal stays):
+reboot`. The initramfs then stops in its rescue shell (nothing was written: ps3db refused every write
+until then); `reboot -f` and the USB entry. Phase A's create says the same. Boots without the SSD root
+(the USB root) register nothing until Phase A's create, so `ps3db` refuses every write before it; a
+unit that seals an empty list early in those boots would also stop a later process from registering,
+if we want that.
+
+`ssd-install-image.sh check` (and so `install` and `boot`) reports the guard on the USB root: none
+(`kernel without the write guard`), or it must be `whitelist`, sealed, with `nr_ranges` and
+`nr_sectors` exactly those of ps3ssd's and ps3ssd-swap's tables merged (`write guard sealed: N
+ranges, S sectors of ps3db writable, exactly ps3ssd and ps3ssd-swap's; R writes refused since boot`);
+unsealed or different: refused (reboot, recheck, create).
 
 **Not covered**: root making raw lv1 storage calls through `/dev/ps3lv1call` (`CONFIG_PS3_LV1CALL=m`,
 loaded by hand for GPU research) goes around the block layer; kernels without the patch (older ones,
@@ -1140,17 +1173,136 @@ warnings with `W=1` (also as a module), and a full `vmlinux` links, with both `p
 `ps3.config` + `ps3-release.config` on `ps3_defconfig` (the host's powerpc64-linux-gnu-gcc 16.2.1). A
 second agent (Opus) reviewed the request path against the 6.12 block layer (merging, the flush
 machine, requeue, partitions, dm, sysfs, BLKROSET); its should-fixes are in. Not tested: the PS3,
-sysfs and the request path in a running kernel.
+ps3disk's request path in a running kernel.
 
-**On the PS3** (with the boot tool's change, in the first SSD boot): `dmesg | grep 'write guard'`
-(one policy line per disk, then `ps3db: write guard sealed: N ranges, S sectors writable`); `cat
-/sys/block/ps3d?/write_guard/policy`; `cat /sys/block/ps3da/ro` (1); `sudo blockdev --setrw
-/dev/ps3da` (EPERM); `echo '0 8' | sudo tee /sys/block/ps3db/write_guard/ranges` (EPERM, sealed);
-ext4 and swap on the dm devices work (`refused` stays 0 through a bench run). A refusal test only with
-data that is already there, so even a broken guard changes nothing: one 4 KiB block of the image's
-header area (unmapped, its stamp known) read with `dd iflag=direct` and written back to the same
-sector of `/dev/ps3db` with `oflag=direct`: expect EIO, `refused` + 1, the log line, and the stamp
-unchanged.
+**The boot tools' side, tested on the PC** (2026-10-19):
+- `make test` suite `ssdimg`: the C tool's test build (`-DPS3_GUARD_FAKE`: `tools/ssdimg/guard-fake.h`
+  replaces the sysfs I/O with a model built on the patch's own `ps3disk_guard.h`, which
+  `linux/tests/guard-header.sh` takes from the patch; the 4096-byte cut, whole-or-nothing writes, the
+  seal's merge, EPERM after it) runs create's guard steps on the boot map's tables (`guard-test`):
+  exactly the device side of both tables, then `1` to `sealed`; a fragmented 16 MiB layout goes in
+  several writes, each at most 4096 bytes of whole lines and filled before the next; refusals for no
+  guard with `--guard required`, sealed already, policy `writable` and `read-only`, pending ranges,
+  a short count, EINVAL on the first and on the second write, the seal failing, `nr_ranges` or
+  `nr_sectors` off, ranges past the disk's end; no guard without `required`: the log line, nothing
+  written. Phase A's `ps3-imgmap create` against a Python model of the same: the same lines as the C
+  tool, the header area in no range, refusals before anything is made (no setro, no dmsetup) and
+  after (both devices removed again, "reboot" in the message).
+- `make test-slow` suite `ssdimg-vm`: `ps3guard_sim` (`tools/ssdimg/guard-sim`, built against the
+  host kernel by vm-e2e.sh) gives the KVM guest disks named ps3da and ps3db over its virtual disks,
+  running the patch's own code unchanged (`extract.sh` takes struct ps3disk_guard, the region policy,
+  BLKROSET's hook and the whole sysfs interface out of the patch; only the per-write check is the
+  same decision on each bio instead of each request). The second Phase B geometry (block 4096 /
+  fragment 512: 15 + 2 targets, 16 ranges after merging) runs behind it: Phase A's create registers
+  and seals, `ssd-install-image.sh check` reports the seal, mkfs, the tar and the fix-ups write
+  through it with nothing refused; the initramfs (built with `guard=required`) registers and seals
+  from the kernel's tables, root mounts and writes with nothing refused, the test root's writes to
+  ps3db sector 0 and to the header area are refused (EIO, counted), `ranges` after the seal and
+  BLKROSET 0 on ps3da refused; without the module the same initramfs stops in the rescue shell (the
+  kernel has no guard), the disk unchanged. Two more guests: Phase A behind the guard (the files and
+  policies, a write refused before the seal, map/verify/recheck, create sealing, ext4 and swap on the
+  devices, writes outside refused and one inside straight to ps3db allowed, `ranges` and `sealed`
+  EPERM, `sealed 0` EINVAL, the C tool's create refused because of the seal, nothing made, the module
+  pinned; every sector outside the image's mapped part unchanged) and sysfs's edges (six malformed
+  writes refused with nothing taken, a 4100-byte write taken as 4096 with a short count, a write cut
+  inside a line EINVAL, the C tool refusing pending ranges, 512 equal ranges sealed into one of 8
+  sectors, the sectors just inside allowed and one past either end refused; the disk byte for byte
+  the original). The first geometry runs without the module: the initramfs and both tools log
+  "kernel has no write guard" and boot as before. And the test build against the real
+  device-mapper: what it registers is exactly `dmsetup table`'s device side, and a short count, a
+  failed seal or wrong sectors remove both devices again.
+
+**On the PS3** (not done yet; after the batch, the user not at the console, nothing published).
+Every write test below writes back data that is already there, so even a broken guard changes
+nothing.
+
+1. PC: the kernel with 0045 (`make linux-deb`, then `make ps3rsx-modules`), the new tools to the PS3
+   (`scp tools/ssdimg/ps3-imgmap tibi@10.0.0.77:/var/tmp/ps3-imgmap`; `ssd-install-image.sh` with the
+   step 3 copy below). First boot of the new kernel without installing it: `make netboot-deb
+   FLAVOUR=release ROOT=usb` (Petitboot, the user), or install it (`make deploy KERNELS=1
+   PKGS="linux-image-ps3 ps3rsx-modules-ps3"`, which publishes to ps3-dev: only with the user's go).
+2. The USB root on the guard kernel, before Phase A's create:
+
+       dmesg | grep 'write guard'          # ps3da read-only, ps3db "writes only inside ...", ps3dc writable
+       grep . /sys/block/ps3d?/write_guard/policy     # read-only, whitelist, writable (ps3dd too)
+       grep . /sys/block/ps3db/write_guard/*          # sealed 0, nr_ranges 0, nr_sectors 0, refused 0
+       cat /sys/block/ps3da/ro; sudo blockdev --setrw /dev/ps3da   # 1; EPERM
+       M=/var/lib/ps3-imgmap/ssdtest.map.json
+       S=$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1]))
+       print(next(p + 40 - l for l, p, n in m["extents"] if l <= 40 < l + n))' $M)   # header block 5
+       sudo dd if=/dev/ps3db of=/tmp/hdr5 bs=512 skip=$S count=8 iflag=direct
+       head -c 8 /tmp/hdr5; echo                       # PS3IMGv1: its stamp
+       sudo dd if=/tmp/hdr5 of=/dev/ps3db bs=512 seek=$S count=8 oflag=direct conv=notrunc
+           # expect "Input/output error"; refused 1; dmesg: "refused WRITE of 8 sectors at $S: no ranges sealed"
+
+3. Phase A as every boot (`ps3-gameos-mount`, `recheck`, `-u`), then `sudo python3
+   /var/tmp/ps3-imgmap create $M ps3ssd --swap-mib 1024 --yes`: it prints `write guard sealed: 513
+   ranges ...` or so (513 extents; the root's and the swap's targets merge where they touch). Then
+   `grep . /sys/block/ps3db/write_guard/*` (sealed 1, nr_sectors 33552384 = 16 GiB minus the 1 MiB
+   header), the same `dd` write-back of header block 5 (EIO, refused + 1, "outside the registered
+   ranges"), `echo '0 8' | sudo tee /sys/block/ps3db/write_guard/ranges` (EPERM), mount ps3ssd and
+   run the bench's SSD arms as usual: `refused` must not move.
+4. The initramfs for the guard kernel from the PS3's real map (step 2 of Phase B's PS3 steps, with
+   `INITRD_RELEASE=<the new release>`): it must print `guard=required`. `ssd-install-image.sh check`
+   then reports the seal; `boot` adds the entry `ssd-<new release>`.
+5. The first SSD boot on it (the user): `cat /run/ps3ssd/init.log` has `write guard sealed: ...`;
+   `grep . /sys/block/ps3db/write_guard/*` sealed 1 and `refused` 0 after the desktop is up and a
+   bench run; the header block 5 write-back once more (EIO). If anything refuses at boot, the rescue
+   shell says why: `reboot -f`, the USB entry (an older kernel is still installed).
+
+### The image header (design, 2026-10-19; not built)
+
+What "Later" asked for: a header in the image's first MiB (magic, UUID, the extent list's sha256,
+room for a boot bundle) and `ps3-imgmap header-write`. Designed here and stopped, because writing it
+collides with the kernel guard, and building it is bigger than the guard work it would ride on.
+
+**Why it is wanted.** The initramfs carries one boot map per image, made on the PC from a copy of
+the PS3's `/var/lib/ps3-imgmap`: the state lives on the USB root and in the initramfs. With a header
+the image describes itself: the boot tool FIBMAPs the file (the recheck does that already), reads
+the header through the read-only UFS mount and compares its extent sha256 with what FIBMAP found. A
+boot map would no longer be needed to find the file's blocks, only to say which image to use.
+
+**Layout** (image bytes [0, 1 MiB), 256 blocks of 4 KiB, never mapped into a dm device):
+- block 0 stays the stamp of offset 0 for good. `recheck` reads it through UFS as the file's identity
+  (magic, UUID) and every tool refuses an image whose block 0 isn't that stamp, so leaving it alone
+  keeps all of today's checks.
+- block 1, the header: `PS3IMGH1`, a format version, the UUID (the stamps'), the file size, the
+  extent list's sha256 (the digest `ps3-imgmap` already keeps: "ps3-imgmap 1", size, uuid, the
+  extents), `swap_sectors`, a generation counter, the time written, the length and sha256 of the
+  bundle, then a sha256 of the block's first part. Big-endian fixed fields, zero padded.
+- blocks 2-255, the bundle (1016 KiB): the boot map text and the kernel arguments the image wants.
+  Not the initramfs (1.27 MB) or a kernel: too small, and Petitboot reads neither from here.
+
+**Compatibility.** The installed initramfs checks that "all 256 stamps read back" and would refuse
+an image with a header. The new rule in `ps3-imgmap-boot` and `ps3-imgmap create`: block 0 must be
+its stamp; block 1 its stamp (no header, today's image) or a valid header of this UUID whose extent
+sha256 is the map's; blocks 2-255 their stamps, or covered by the header's bundle sha256. An image
+without a header (the one on the PS3) passes unchanged, so nothing has to be rewritten. The order
+matters: every initramfs and Phase A copy has to know the new rule before a header is written, or
+the next boot refuses (safely: the rescue shell, USB fallback).
+
+**The conflict with the guard.** The header area is never registered, so on a kernel with 0045 no
+write can reach it: that is the guard's point ("Not the image's header area: it stays unwritable").
+`header-write` would need one of:
+1. a kernel without the guard (today's .472), once, before the first guard kernel. Simple, but only
+   once: later writes (a new generation) need option 2.
+2. a boot spent on it: `ps3-imgmap header-write MAP` registers only the header's blocks (device
+   sectors through the verified, rechecked map), seals, writes them with O_DIRECT, reads them back
+   and verifies; the seal leaves nothing else writable, so the image's devices need the next boot.
+   Safe and simple to reason about, one reboot per write.
+3. registering the header blocks together with the dm targets in every boot: no extra boot, but the
+   header becomes writable whenever the image is in use, which is what the guard was meant to stop.
+Option 2 is the one that keeps the guard's promise. It also changes this tool's own rule ("never
+opens /dev/ps3db for writing"): `header-write` would be the one command that does, for at most 255
+blocks resolved through the map, before any dm device exists, and only after a recheck in the same
+boot.
+
+**What it would take.** The format and its checks in both tools (Python and C), the relaxed header
+rule above with tests for every combination (stamp, header, damaged header, header of another UUID or
+list), `header-write` with the guard sequence of option 2 (the fake guard and the VM simulation
+cover it), a boot path that finds the extents from FIBMAP plus the header without a boot map, and
+the PS3 order (new initramfs and Phase A tool first, then one header-write boot). Not started: the
+benchmark doesn't need it, and the guard should first prove itself on the PS3.
 
 ### Getting more than 22 GiB (no-go for now)
 

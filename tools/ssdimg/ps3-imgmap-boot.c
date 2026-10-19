@@ -15,18 +15,25 @@
  *       statvfs, the device's size, the file's size and inode and its first stamp, then FIBMAPs the
  *       first and last fragment of every block and compares the merged extents with the map's. A
  *       match is recorded in DIR/rechecked for this boot (create needs it). Any difference: refused.
- *   ps3-imgmap-boot create MAP [--root-name ps3root] [--swap-name ps3swap] [--run DIR]
- *       Needs the recheck of this map in this boot and /dev/ps3db not mounted. BLKROSET on /dev/ps3da
+ *   ps3-imgmap-boot create MAP [--root-name ps3root] [--swap-name ps3swap] [--run DIR] [--guard auto|required]
+ *       Needs the recheck of this map in this boot and /dev/ps3db not mounted. Checks the kernel's
+ *       write guard (local/0045, /sys/block/ps3db/write_guard: policy whitelist, not sealed, no
+ *       ranges; none there: a log line and on, unless --guard required). BLKROSET on /dev/ps3da
  *       (and checks it took), reads the header area's stamps back through the extents (O_DIRECT, the
  *       image's first MiB, never mapped), then creates the two dm-linear devices with the
  *       device-mapper ioctls, reads each table back from the kernel and compares it, checks the
- *       sizes, and makes /dev/mapper/<name>. On any failure the devices made so far are removed.
+ *       sizes, and makes /dev/mapper/<name>. With the guard: registers the device side of every
+ *       target read back (never the header area) in whole-line writes of at most 4096 bytes, seals,
+ *       and checks nr_ranges and nr_sectors. On any failure the devices made so far are removed (a
+ *       failure after the first registered range can't be undone in this boot: reboot).
  *
  * Exit status: 0 done, 2 refused (with the reason on stderr), 1 usage or a system error.
  * Never opens /dev/ps3db or /dev/ps3da for writing: reads go through O_RDONLY descriptors, and only
  * what is written to /dev/mapper/<name> afterwards lands inside the image file's own blocks.
  * No test seams: the device names are fixed (the KVM test, tools/ssdimg/vm-e2e.sh, makes /dev/ps3db
- * and /dev/ps3da nodes for its virtual disks instead). FIBMAP, FIGETBSZ, BLKROSET and the dm ioctls
+ * and /dev/ps3da nodes for its virtual disks instead, or loads a module that gives them the guard).
+ * Test builds only: -DPS3_GUARD_FAKE swaps the guard's sysfs I/O for a model of the kernel's side
+ * (guard-fake.h) and adds "guard-test MAP" (test_ssdimg.py). FIBMAP, FIGETBSZ, BLKROSET and the dm ioctls
  * come from the kernel headers, so their numbers are the build target's (powerpc's _IO differs from
  * x86's: FIBMAP is 0x20000001 there). */
 #define _GNU_SOURCE
@@ -820,6 +827,250 @@ static void header_check(const struct map *m)
 	free(buf);
 }
 
+/* --- the kernel's write guard (local/0045; docs/GAMEOS-HDD.md "The kernel guard") ------------ */
+/* With the guard, ps3db refuses every write until root registers the sector ranges Linux may write
+ * and seals them, once per boot. create registers exactly the device side of its dm-linear targets
+ * as the kernel reads them back, so the header area (the image's first MiB, never mapped) and
+ * everything outside the image stay unwritable. */
+#define GUARD_DIR	"/sys/block/ps3db/write_guard"
+#define GUARD_CHUNK	4096		/* sysfs takes at most a page per write(2); the smallest page */
+#define GUARD_MAX	65536		/* PS3DISK_GUARD_MAX_RANGES */
+
+enum { GUARD_AUTO, GUARD_REQUIRED };
+
+#ifdef PS3_GUARD_FAKE
+#include "guard-fake.h"		/* test builds only: a model of the kernel's side */
+#else
+/* 1 the directory is there, 0 it isn't (a kernel without the guard), -errno */
+static int guard_present(void)
+{
+	struct stat st;
+	if (stat(GUARD_DIR, &st) == 0)
+		return S_ISDIR(st.st_mode) ? 1 : -ENOTDIR;
+	return errno == ENOENT ? 0 : -errno;
+}
+
+/* write_guard/NAME without its newline into BUF: 0 or -errno */
+static int guard_read(const char *name, char *buf, size_t cap)
+{
+	char path[256];
+	ssize_t r;
+	int fd, e;
+	snprintf(path, sizeof(path), "%s/%s", GUARD_DIR, name);
+	fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (fd < 0)
+		return -errno;
+	r = read(fd, buf, cap - 1);
+	e = errno;
+	close(fd);
+	if (r < 0)
+		return -e;
+	buf[r] = 0;
+	if (r && buf[r - 1] == '\n')
+		buf[r - 1] = 0;
+	return 0;
+}
+
+static int guard_open(const char *name)
+{
+	char path[256];
+	int fd;
+	snprintf(path, sizeof(path), "%s/%s", GUARD_DIR, name);
+	fd = open(path, O_WRONLY | O_CLOEXEC);
+	return fd < 0 ? -errno : fd;
+}
+
+/* one write(2): the count it returned or -errno */
+static ssize_t guard_write(int fd, const char *buf, size_t len)
+{
+	ssize_t r = write(fd, buf, len);
+	return r < 0 ? -errno : r;
+}
+
+static void guard_close(int fd)
+{
+	close(fd);
+}
+#endif
+
+/* write_guard/NAME as a decimal number; -1 with ERR filled if it can't be read or isn't one */
+static int64_t guard_num(const char *name, char *err, size_t errn)
+{
+	char v[64], *end;
+	int e = guard_read(name, v, sizeof(v));
+	long long x;
+	if (e) {
+		snprintf(err, errn, "%s/%s: %s", GUARD_DIR, name, strerror(-e));
+		return -1;
+	}
+	errno = 0;
+	x = strtoll(v, &end, 10);
+	if (!isdigit((unsigned char)v[0]) || *end || errno) {
+		snprintf(err, errn, "%s/%s: \"%.20s\" is not a number", GUARD_DIR, name, v);
+		return -1;
+	}
+	return x;
+}
+
+/* step 2, before anything is made: 1 the guard is there, unsealed and empty; 0 the kernel has none */
+static int guard_precheck(int mode)
+{
+	char v[64], err[512];
+	int p = guard_present(), e;
+	int64_t n;
+	if (p < 0)
+		refuse("%s: %s", GUARD_DIR, strerror(-p));
+	if (!p) {
+		if (mode == GUARD_REQUIRED)
+			refuse("the kernel has no write guard (no %s), but this initramfs is for a kernel with it: "
+			       "the wrong kernel or initramfs", GUARD_DIR);
+		say("kernel has no write guard (no %s): ps3db's writes are not limited to the image's blocks", GUARD_DIR);
+		return 0;
+	}
+	if ((e = guard_read("policy", v, sizeof(v))))
+		refuse("%s/policy: %s", GUARD_DIR, strerror(-e));
+	if (strcmp(v, "whitelist"))
+		refuse("%s/policy is \"%s\", not whitelist: ps3db is not the region this kernel guards as dev_hdd0",
+		       GUARD_DIR, v);
+	if ((e = guard_read("sealed", v, sizeof(v))))
+		refuse("%s/sealed: %s", GUARD_DIR, strerror(-e));
+	if (strcmp(v, "0")) {
+		if (strcmp(v, "1"))
+			refuse("%s/sealed is \"%s\"", GUARD_DIR, v);
+		refuse("ps3db's write guard was sealed earlier in this boot (%s ranges): its ranges can't change "
+		       "until the next boot, so these devices could never be written. Reboot.",
+		       guard_read("nr_ranges", v, sizeof(v)) ? "?" : v);
+	}
+	if ((n = guard_num("nr_ranges", err, sizeof(err))) < 0)
+		refuse("%s", err);
+	if (n)
+		refuse("%" PRId64 " ranges are already registered (unsealed) in %s by something else in this boot: "
+		       "sealing would make them writable too. Reboot.", n, GUARD_DIR);
+	say("write guard: ps3db whitelist, not sealed, no ranges yet");
+	return 1;
+}
+
+struct range {
+	int64_t start, len;
+};
+
+static int by_start(const void *a, const void *b)
+{
+	const struct range *x = a, *y = b;
+	return x->start < y->start ? -1 : x->start > y->start;
+}
+
+/* the kernel's seal: sorted by start, overlapping or touching ranges joined; returns how many,
+ * *SECTORS what they cover */
+static int merged_count(const struct range *r, int n, int64_t *sectors)
+{
+	struct range *s = malloc(sizeof(*s) * (n ? n : 1));
+	int k = 0;
+	if (!s)
+		die("out of memory");
+	memcpy(s, r, sizeof(*s) * n);
+	qsort(s, n, sizeof(*s), by_start);
+	*sectors = 0;
+	for (int i = 0; i < n; i++) {
+		if (k && s[i].start <= s[k - 1].start + s[k - 1].len) {
+			int64_t end = s[i].start + s[i].len;
+			if (end > s[k - 1].start + s[k - 1].len)
+				s[k - 1].len = end - s[k - 1].start;
+			continue;
+		}
+		s[k++] = s[i];
+	}
+	for (int i = 0; i < k; i++)
+		*sectors += s[i].len;
+	free(s);
+	return k;
+}
+
+/* steps 4-6: R[0..n) into write_guard/ranges, then the seal and its check. 0, or -1 with ERR */
+static int guard_register(const struct range *r, int n, char *err, size_t errn)
+{
+	char buf[GUARD_CHUNK], line[64], v[64];
+	size_t len = 0;
+	int fd, lines = 0, sent = 0, chunks = 0, e;
+	int64_t sum = 0, want_sectors, got;
+	ssize_t w;
+
+	for (int i = 0; i < n; i++)
+		sum += r[i].len;
+	int want_ranges = merged_count(r, n, &want_sectors);
+	if (want_sectors != sum) {
+		snprintf(err, errn, "the targets overlap on ps3db (%" PRId64 " sectors in all, %" PRId64 " distinct)",
+			 sum, want_sectors);
+		return -1;
+	}
+	if ((fd = guard_open("ranges")) < 0) {
+		snprintf(err, errn, "%s/ranges: %s", GUARD_DIR, strerror(-fd));
+		return -1;
+	}
+	/* whole lines, at most GUARD_CHUNK bytes per write(2), each taken whole or the end */
+	for (int i = 0; i <= n; i++) {
+		int k = 0;
+		if (i < n)
+			k = snprintf(line, sizeof(line), "%" PRId64 " %" PRId64 "\n", r[i].start, r[i].len);
+		if (len && (i == n || len + k > sizeof(buf))) {
+			w = guard_write(fd, buf, len);
+			if (w != (ssize_t)len) {
+				guard_close(fd);
+				snprintf(err, errn, "%s/ranges: write %d (%zu bytes, %d ranges) got %s after %d ranges taken",
+					 GUARD_DIR, chunks + 1, len, lines, w < 0 ? strerror(-w) : "a short count", sent);
+				return -1;
+			}
+			chunks++;
+			sent += lines;
+			len = 0;
+			lines = 0;
+		}
+		if (i < n) {
+			memcpy(buf + len, line, k);
+			len += k;
+			lines++;
+		}
+	}
+	guard_close(fd);
+	if ((got = guard_num("nr_ranges", err, errn)) < 0)
+		return -1;
+	if (got != n) {
+		snprintf(err, errn, "%s/nr_ranges is %" PRId64 " after registering %d ranges", GUARD_DIR, got, n);
+		return -1;
+	}
+	/* step 5: the seal; from here on nothing changes until the next boot */
+	if ((fd = guard_open("sealed")) < 0) {
+		snprintf(err, errn, "%s/sealed: %s", GUARD_DIR, strerror(-fd));
+		return -1;
+	}
+	w = guard_write(fd, "1\n", 2);
+	guard_close(fd);
+	if (w != 2) {
+		snprintf(err, errn, "%s/sealed: writing 1 got %s", GUARD_DIR, w < 0 ? strerror(-w) : "a short count");
+		return -1;
+	}
+	/* step 6: the kernel's merged ranges are ours */
+	if ((e = guard_read("sealed", v, sizeof(v))) || strcmp(v, "1")) {
+		snprintf(err, errn, "%s/sealed reads %s after the seal", GUARD_DIR, e ? strerror(-e) : v);
+		return -1;
+	}
+	if ((got = guard_num("nr_ranges", err, errn)) < 0)
+		return -1;
+	if (got != want_ranges) {
+		snprintf(err, errn, "the sealed guard has %" PRId64 " ranges, ours merge into %d", got, want_ranges);
+		return -1;
+	}
+	if ((got = guard_num("nr_sectors", err, errn)) < 0)
+		return -1;
+	if (got != want_sectors) {
+		snprintf(err, errn, "the sealed guard covers %" PRId64 " sectors, our targets %" PRId64, got, want_sectors);
+		return -1;
+	}
+	say("write guard sealed: %d ranges registered in %d writes, %d after merging, %" PRId64 " sectors (%" PRId64
+	    " MiB) of ps3db writable, nothing else", n, chunks, want_ranges, want_sectors, want_sectors / 2048);
+	return 0;
+}
+
 /* --- device-mapper ----------------------------------------------------------------------- */
 #define DM_BUF (1 << 20)
 
@@ -854,10 +1105,10 @@ static void dm_remove(int ctl, const char *name)
 	free(io);
 }
 
-/* creates NAME from T[0..n), resumes it, compares the kernel's table with T; returns its dev_t or
- * 0 with ERR filled */
+/* creates NAME from T[0..n), resumes it, compares the kernel's table with T and puts the kernel's
+ * targets into BACK[0..n); returns its dev_t or 0 with ERR filled */
 static dev_t dm_make(int ctl, const char *name, const struct target *t, int n, const char *devnum,
-		     char *err, size_t errn, int *created)
+		     struct target *back, char *err, size_t errn, int *created)
 {
 	struct dm_ioctl *io = dm_new(name, 0);
 	dev_t dev = 0;
@@ -935,6 +1186,18 @@ static dev_t dm_make(int ctl, const char *name, const struct target *t, int n, c
 				dev = 0;
 				goto out;
 			}
+			/* what the guard registers comes from here: the kernel's own view of the table */
+			const char *off = strchr((char *)(s + 1), ' ');
+			char *e2;
+			errno = 0;
+			back[i].start = s->sector_start;
+			back[i].len = s->length;
+			back[i].dev = off ? strtoll(off + 1, &e2, 10) : -1;
+			if (!off || errno || *e2 || back[i].dev != t[i].dev) {
+				snprintf(err, errn, "%s: target %d: can't read the device offset back", name, i);
+				dev = 0;
+				goto out;
+			}
 			s = (struct dm_target_spec *)(base + s->next);	/* replies: from the data start */
 		}
 	}
@@ -965,7 +1228,7 @@ static int good_name(const char *s)
 	return 1;
 }
 
-static int cmd_create(const char *mappath, const char *rname, const char *sname, const char *run)
+static int cmd_create(const char *mappath, const char *rname, const char *sname, const char *run, int guard_mode)
 {
 	struct map m;
 	char rec[1100], line[256], bid[64], devnum[32], wnum[32], ro[128];
@@ -1001,6 +1264,8 @@ static int cmd_create(const char *mappath, const char *rname, const char *sname,
 		if (access(p, F_OK) == 0)
 			refuse("%s exists", p);
 	}
+	/* the write guard: there, unsealed and empty (or none at all: an older kernel) */
+	int guard = guard_precheck(guard_mode);
 	/* the whole disk read-only (GameOS's regions and VFLASH) until the next boot */
 	{
 		dev_t w = blockdev_rdev(WHOLE);
@@ -1023,6 +1288,8 @@ static int cmd_create(const char *mappath, const char *rname, const char *sname,
 	parts(&m, &rs, &re, &ss, &se);
 	nr = table(&m, rs, re, &rt);
 	ns = table(&m, ss, se, &st);
+	if (guard && nr + ns > GUARD_MAX)
+		refuse("%d targets: more ranges than the write guard takes (%d)", nr + ns, GUARD_MAX);
 
 	if (access(DM_CONTROL, F_OK) < 0)
 		refuse("%s missing: dm-mod not loaded?", DM_CONTROL);
@@ -1036,15 +1303,18 @@ static int cmd_create(const char *mappath, const char *rname, const char *sname,
 		free(io);
 	}
 	mkdir("/dev/mapper", 0755);
-	struct { const char *name; struct target *t; int n; int64_t sectors; } dv[2] = {
-		{ rname, rt, nr, re - rs }, { sname, st, ns, se - ss },
+	struct { const char *name; struct target *t; int n; int64_t sectors; struct target *back; } dv[2] = {
+		{ rname, rt, nr, re - rs, NULL }, { sname, st, ns, se - ss, NULL },
 	};
 	int made[2] = { 0, 0 };
 	char err[512] = "";
 	for (int i = 0; i < 2; i++) {
 		if (!dv[i].n)
 			continue;
-		dev_t d = dm_make(ctl, dv[i].name, dv[i].t, dv[i].n, devnum, err, sizeof(err), &made[i]);
+		dv[i].back = calloc(dv[i].n, sizeof(*dv[i].back));
+		if (!dv[i].back)
+			die("out of memory");
+		dev_t d = dm_make(ctl, dv[i].name, dv[i].t, dv[i].n, devnum, dv[i].back, err, sizeof(err), &made[i]);
 		char node[128];
 		snprintf(node, sizeof(node), "/dev/mapper/%s", dv[i].name);
 		if (d && mknod(node, S_IFBLK | 0660, d) < 0) {
@@ -1068,6 +1338,33 @@ static int cmd_create(const char *mappath, const char *rname, const char *sname,
 		write_table(run, dv[i].name, dv[i].t, dv[i].n);
 		say("/dev/mapper/%s: %" PRId64 " sectors (%" PRId64 " MiB, %d extents), device %u:%u", dv[i].name,
 		    dv[i].sectors, dv[i].sectors / 2048, dv[i].n, major(d), minor(d));
+	}
+	if (guard) {
+		/* steps 4-6: the device side of every target the kernel read back, both devices */
+		struct range *r = malloc(sizeof(*r) * (nr + ns));
+		int k = 0;
+		if (!r)
+			die("out of memory");
+		for (int i = 0; i < 2; i++)
+			for (int j = 0; j < dv[i].n; j++) {
+				r[k].start = dv[i].back[j].dev;
+				r[k].len = dv[i].back[j].len;
+				k++;
+			}
+		if (guard_register(r, k, err, sizeof(err)) < 0) {
+			for (int j = 1; j >= 0; j--)
+				if (made[j]) {
+					char nn[1100];
+					snprintf(nn, sizeof(nn), "/dev/mapper/%s", dv[j].name);
+					unlink(nn);
+					dm_remove(ctl, dv[j].name);
+					snprintf(nn, sizeof(nn), "%s/%s.table", run, dv[j].name);
+					unlink(nn);
+				}
+			refuse("write guard: %s. ps3db's guard can't be reset in this boot (ranges taken stay, a seal "
+			       "stays): reboot", err);
+		}
+		free(r);
 	}
 	close(ctl);
 	return 0;
@@ -1104,16 +1401,54 @@ static int cmd_check(const char *mappath)
 	return 0;
 }
 
+#ifdef PS3_GUARD_FAKE
+/* test builds: create's guard steps on the map's own tables (no devices, no dm) */
+static int cmd_guard_test(const char *mappath, int mode)
+{
+	struct map m;
+	int64_t rs, re, ss, se;
+	struct target *rt, *st;
+	char err[512];
+	load_map(mappath, &m);
+	parts(&m, &rs, &re, &ss, &se);
+	int nr = table(&m, rs, re, &rt), ns = table(&m, ss, se, &st), k = 0;
+	if (!guard_precheck(mode))
+		return 0;
+	if (nr + ns > GUARD_MAX)
+		refuse("%d targets: more ranges than the write guard takes (%d)", nr + ns, GUARD_MAX);
+	struct range *r = malloc(sizeof(*r) * (nr + ns + 1));
+	if (!r)
+		die("out of memory");
+	for (int i = 0; i < nr; i++)
+		r[k++] = (struct range){ rt[i].dev, rt[i].len };
+	for (int i = 0; i < ns; i++)
+		r[k++] = (struct range){ st[i].dev, st[i].len };
+	if (guard_register(r, k, err, sizeof(err)) < 0)
+		refuse("write guard: %s. ps3db's guard can't be reset in this boot (ranges taken stay, a seal "
+		       "stays): reboot", err);
+	return 0;
+}
+#endif
+
 static void __attribute__((noreturn)) usage(void)
 {
 	fprintf(stderr, "usage: %s check MAP | tables MAP root|swap | recheck MAP MOUNTPOINT [--run DIR] |\n"
-		"       %s create MAP [--root-name ps3root] [--swap-name ps3swap] [--run DIR]\n", prog, prog);
+		"       %s create MAP [--root-name ps3root] [--swap-name ps3swap] [--run DIR] [--guard auto|required]\n"
+#ifdef PS3_GUARD_FAKE
+		"       %s guard-test MAP [--guard auto|required]   (test build: the guard steps on the map's tables)\n"
+#endif
+		, prog, prog
+#ifdef PS3_GUARD_FAKE
+		, prog
+#endif
+		);
 	exit(1);
 }
 
 int main(int argc, char **argv)
 {
 	const char *run = RUN_DEFAULT, *rname = "ps3root", *sname = "ps3swap";
+	int guard_mode = GUARD_AUTO;
 	char *pos[4];
 	int np = 0;
 	for (int i = 1; i < argc; i++) {
@@ -1123,6 +1458,15 @@ int main(int argc, char **argv)
 			rname = argv[++i];
 		else if (!strcmp(argv[i], "--swap-name") && i + 1 < argc)
 			sname = argv[++i];
+		else if (!strcmp(argv[i], "--guard") && i + 1 < argc) {
+			i++;
+			if (!strcmp(argv[i], "auto"))
+				guard_mode = GUARD_AUTO;
+			else if (!strcmp(argv[i], "required"))
+				guard_mode = GUARD_REQUIRED;
+			else
+				usage();
+		}
 		else if (argv[i][0] == '-' || np == 4)
 			usage();
 		else
@@ -1137,6 +1481,10 @@ int main(int argc, char **argv)
 	if (!strcmp(pos[0], "recheck") && np == 3)
 		return cmd_recheck(pos[1], pos[2], run);
 	if (!strcmp(pos[0], "create") && np == 2)
-		return cmd_create(pos[1], rname, sname, run);
+		return cmd_create(pos[1], rname, sname, run, guard_mode);
+#ifdef PS3_GUARD_FAKE
+	if (!strcmp(pos[0], "guard-test") && np == 2)
+		return cmd_guard_test(pos[1], guard_mode);
+#endif
 	usage();
 }

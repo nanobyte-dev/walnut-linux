@@ -190,10 +190,21 @@ class Pipeline(unittest.TestCase):
         self.bootid = self.d / "boot_id"
         self.bootid.write_text("boot-1\n")
         self.log = self.d / "cmds.log"
+        self.file = self.d / "mnt" / "ssdtest.img"
+        self.file.write_bytes(b"")
+        st = os.stat(self.file)
+        tables = self.d / "tables"
+        tables.mkdir()
+        # dmsetup create keeps the table (logged too), dmsetup table gives it back as the kernel would,
+        # with the device as MAJ:MIN
         stub = self.d / "stub"
         stub.write_text('#!/bin/sh\necho "$(basename "$0") $*" >> %s\n'
                         '[ "$1" = --setro ] && echo 1 > %s\n'
-                        '[ "$1" = create ] && cat >> %s\nexit 0\n' % (self.log, self.sysb / "ps3da" / "ro", self.log))
+                        '[ "$1" = create ] && tee %s/"$2" >> %s\n'
+                        '[ "$1" = table ] && sed "s| %s | %d:%d |" %s/"$2"\n'
+                        '[ "$1" = remove ] && rm -f %s/"$2"\nexit 0\n' % (
+                            self.log, self.sysb / "ps3da" / "ro", tables, self.log, self.dev,
+                            os.major(st.st_dev), os.minor(st.st_dev), tables, tables))
         stub.chmod(0o755)
         (self.d / "dmsetup").symlink_to(stub)
         (self.d / "blockdev").symlink_to(stub)
@@ -557,6 +568,318 @@ class BootMap(Pipeline):
         rc, out, err = self.boot("create", bm, "--run", self.d / "run")
         self.assertEqual(rc, 2)
         self.assertIn("the boot uses /dev/ps3db", err)
+
+
+class FakeGuard:
+    """the kernel's /sys/block/ps3db/write_guard (local/0045) for ps3-imgmap's guard functions: a write
+    of more than 4096 bytes cut at 4096 (sysfs), each write parsed whole or refused (EINVAL), the seal
+    sorts and merges, EPERM after it. FAULTS as in guard-fake.h: short=K, einval=K, sealfail,
+    nr_ranges+=D, nr_sectors+=D"""
+
+    def __init__(self, policy="whitelist", sealed=False, pending=0, **faults):
+        self.policy, self.sealed, self.faults = policy, sealed, faults
+        self.ranges = [(10 ** 6 + 100 * i, 8) for i in range(pending)]
+        self.writes, self.nwrites = [], 0
+        if sealed:
+            self.seal()
+
+    def seal(self):
+        out = []
+        for a, n in sorted(self.ranges):
+            if out and a <= out[-1][1]:
+                out[-1][1] = max(out[-1][1], a + n)
+            else:
+                out.append([a, a + n])
+        self.ranges = [(a, b - a) for a, b in out]
+        self.sealed = True
+
+    def install(self, m):
+        m.guard_present = lambda: True
+        m.guard_read = self.read
+        m.guard_open = lambda name: {"ranges": 100, "sealed": 101}[name]
+        m.guard_write = self.write
+        m.guard_close = lambda fd: None
+
+    def read(self, name):
+        if name == "policy":
+            return self.policy
+        if name == "sealed":
+            return "1" if self.sealed else "0"
+        if name == "nr_ranges":
+            return str(len(self.ranges) + (self.faults.get("nr_ranges", 0) if self.sealed else 0))
+        if name == "nr_sectors":
+            return str(sum(n for _, n in self.ranges) + self.faults.get("nr_sectors", 0) if self.sealed else 0)
+        raise FileNotFoundError(name)
+
+    def write(self, fd, data):
+        if fd == 101:
+            self.writes.append(("sealed", data))
+            if self.faults.get("sealfail"):
+                raise OSError(5, "Input/output error")
+            if data.strip() != b"1":
+                raise OSError(22, "Invalid argument")
+            if self.sealed:
+                raise OSError(1, "Operation not permitted")
+            self.seal()
+            return len(data)
+        self.nwrites += 1
+        self.writes.append(("ranges", data))
+        if self.sealed:
+            raise OSError(1, "Operation not permitted")
+        if self.faults.get("einval") == self.nwrites:
+            raise OSError(22, "Invalid argument")
+        count = min(len(data), 4096)
+        if self.faults.get("short") == self.nwrites:
+            count = data.index(b"\n") + 1
+        buf = data[:count]
+        if not buf.endswith(b"\n"):
+            raise OSError(22, "Invalid argument")
+        new = []
+        for line in buf.decode().splitlines():
+            if not line.strip():
+                continue
+            a, n = line.split()
+            if not (a.isdigit() and n.isdigit()) or int(n) == 0:
+                raise OSError(22, "Invalid argument")
+            new.append((int(a), int(n)))
+        self.ranges += new
+        return count
+
+
+def table_ranges(path):
+    """[(ps3db sector, sectors)] of a table file ps3-imgmap create wrote"""
+    return [(int(x.split()[4]), int(x.split()[1])) for x in path.read_text().splitlines()]
+
+
+class GuardPhaseA(Pipeline):
+    """ps3-imgmap create on a kernel with the write guard (FakeGuard): what it registers, how, and
+    every refusal"""
+
+    def ready(self, swap="1"):
+        self.assertEqual(self.cli("map", str(self.file))[0], 0)
+        self.assertEqual(self.cli("verify", self.mapfile())[0], 0)
+        self.assertEqual(self.cli("recheck", self.mapfile())[0], 0)
+        self.minfo.write_text("")
+
+    def create(self, g, swap="1"):
+        g.install(self.m)
+        return self.cli("create", self.mapfile(), "ps3ssd", "--yes", "--swap-mib", swap)
+
+    def check_writes(self, g):
+        """every write to ranges: whole lines, at most 4096 bytes, one range per line"""
+        for kind, data in g.writes:
+            if kind == "ranges":
+                self.assertLessEqual(len(data), 4096)
+                self.assertTrue(data.endswith(b"\n"))
+                for line in data.decode().splitlines():
+                    self.assertRegex(line, r"^[0-9]+ [0-9]+$")
+
+    def test_no_guard_goes_on(self):
+        self.ready()
+        rc, out = self.cli("create", self.mapfile(), "ps3ssd", "--yes", "--swap-mib", "1")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("kernel has no write guard", out)
+
+    def test_registers_the_tables_and_seals(self):
+        self.ready()
+        g = FakeGuard()
+        rc, out = self.create(g)
+        self.assertEqual(rc, 0, out)
+        want = table_ranges(self.state / "ps3ssd.table") + table_ranges(self.state / "ps3ssd-swap.table")
+        sent = [(int(a), int(n)) for k, d in g.writes if k == "ranges" for a, n in (x.split() for x in d.decode().splitlines())]
+        self.assertEqual(sent, want)   # exactly the device side of both tables, in order
+        self.assertEqual(g.writes[-1], ("sealed", b"1\n"))
+        self.assertTrue(g.sealed)
+        self.check_writes(g)
+        # the header area (image sectors 0..2047) is in no range
+        mp = json.loads(Path(self.mapfile()).read_text())
+        hdr = {p + i for l, p, n in mp["extents"] for i in range(n) if l + i < 2048}
+        self.assertFalse(any(a <= s < a + n for a, n in g.ranges for s in hdr))
+        self.assertIn("write guard sealed", out)
+        log = self.log.read_text()
+        self.assertIn("dmsetup table ps3ssd-swap", log)
+        self.assertNotIn("remove", log)
+
+    def test_many_ranges_go_in_several_whole_line_writes(self):
+        self.size = 16 << 20
+        self.file.write_bytes(b"".join(stamp.chunks(UID.bytes, self.size)))
+        self.bsize = self.fsize
+        nb = self.size // self.bsize
+        self.ufs = FakeUFS(self.fsize, self.bsize, nb, gaps=set(range(0, nb, 2)))
+        self.m.fibmap = self.ufs.fibmap
+        self.m.ufs_super = lambda p: (self.bsize, self.fsize, "big-endian")
+        self.write_device()
+        self.ready()
+        g = FakeGuard()
+        rc, out = self.create(g)
+        self.assertEqual(rc, 0, out)
+        chunks = [d for k, d in g.writes if k == "ranges"]
+        self.assertGreater(len(chunks), 1)
+        self.check_writes(g)
+        want = table_ranges(self.state / "ps3ssd.table") + table_ranges(self.state / "ps3ssd-swap.table")
+        self.assertEqual(len(want), sum(d.count(b"\n") for d in chunks))
+        self.assertEqual(len(g.ranges), len(want))   # nothing touches: an indirect block between each pair
+
+    def test_refusals_before_anything_is_made(self):
+        self.ready()
+        for g, why in ((FakeGuard(sealed=True), "sealed earlier in this boot"),
+                       (FakeGuard(policy="writable"), "not whitelist"),
+                       (FakeGuard(pending=2), "already registered")):
+            if self.log.exists():
+                self.log.unlink()
+            rc, out = self.create(g)
+            self.assertEqual(rc, 2, out)
+            self.assertIn(why, out)
+            self.assertFalse(self.log.exists(), why)   # no setro, no dmsetup
+            self.assertFalse([w for w in g.writes if w[0] == "ranges" and not g.sealed], why)
+
+    def test_refusals_after_the_devices_remove_them(self):
+        self.ready()
+        for faults, why in (({"short": 1}, "took"), ({"einval": 1}, "Invalid argument"),
+                            ({"sealfail": True}, "sealed: writing 1 failed"), ({"nr_ranges": 1}, "the sealed guard reads"),
+                            ({"nr_sectors": 8}, "the sealed guard reads")):
+            if self.log.exists():
+                self.log.unlink()
+            g = FakeGuard(**faults)
+            rc, out = self.create(g)
+            self.assertEqual(rc, 2, (faults, out))
+            self.assertIn(why, out, faults)
+            self.assertIn("reboot", out, faults)
+            log = self.log.read_text().splitlines()
+            self.assertIn("dmsetup remove ps3ssd-swap", log, faults)
+            self.assertIn("dmsetup remove ps3ssd", log, faults)
+            self.assertEqual(os.listdir(self.d / "tables"), [], faults)
+
+
+def build_boot_tool_fake():
+    """ps3-imgmap-boot.c's test build: the guard's sysfs I/O replaced by guard-fake.h, on the kernel's
+    ps3disk_guard.h from the patch; None without gcc"""
+    if not shutil.which("gcc"):
+        return None
+    out = SCRATCH / "ps3-imgmap-boot-fake"
+    if not out.exists():
+        SCRATCH.mkdir(parents=True, exist_ok=True)
+        inc = SCRATCH / "guard-inc"
+        inc.mkdir(exist_ok=True)
+        with open(inc / "ps3disk_guard.h", "w") as f:
+            subprocess.run([str(ROOT / "linux" / "tests" / "guard-header.sh")], stdout=f, check=True)
+        subprocess.run(["gcc", "-O2", "-Wall", "-Wextra", "-Werror", "-DPS3_GUARD_FAKE", "-I", str(inc), "-I", str(HERE),
+                        "-o", str(out), str(HERE / "ps3-imgmap-boot.c")], check=True)
+    return out
+
+
+class GuardBootTool(BootMap):
+    """ps3-imgmap-boot's guard steps (the test build's guard-test: create's precheck, registration,
+    seal and checks on the boot map's tables) against the model of the kernel's side"""
+
+    def setUp(self):
+        super().setUp()
+        self.fake = build_boot_tool_fake()
+
+    def gtest(self, bm, faults="", *extra):
+        logf = self.d / "guard.log"
+        if logf.exists():
+            logf.unlink()
+        env = dict(os.environ, PS3_GUARD_FAKE=faults, PS3_GUARD_FAKE_LOG=str(logf))
+        r = subprocess.run([str(self.fake), "guard-test", str(bm)] + list(extra), capture_output=True, text=True, env=env)
+        writes = []
+        if logf.exists():
+            data = logf.read_bytes()
+            while data:
+                head, _, data = data.partition(b"\n")
+                kind, *rest = head.decode().split(" ", 1)
+                if kind == "ranges":
+                    n = int(rest[0].split()[0])
+                    writes.append(("ranges", data[:n]))
+                    data = data[n:]
+                else:
+                    writes.append(("sealed", rest[0].encode() + b"\n"))
+        return r.returncode, r.stderr, writes
+
+    def boot_map(self):
+        rc, o, bm = self.export()
+        self.assertEqual(rc, 0, o)
+        return bm
+
+    def test_registers_both_tables_and_seals(self):
+        self.made()
+        bm = self.boot_map()
+        rc, err, writes = self.gtest(bm)
+        self.assertEqual(rc, 0, err)
+        want = table_ranges(self.state / "ps3ssd.table") + table_ranges(self.state / "ps3ssd-swap.table")
+        sent = [(int(a), int(n)) for k, d in writes if k == "ranges" for a, n in (x.split() for x in d.decode().splitlines())]
+        self.assertEqual(sent, want)
+        self.assertEqual(writes[-1], ("sealed", b"1\n"))
+        self.assertIn("write guard sealed", err)
+        # the same ranges as Phase A's ps3-imgmap create registers
+        g = FakeGuard()
+        g.install(self.m)
+        self.m.guard_register(want)
+        self.assertEqual([w for w in g.writes if w[0] == "ranges"], [w for w in writes if w[0] == "ranges"])
+
+    def test_chunks(self):
+        self.size = 16 << 20
+        self.file.write_bytes(b"".join(stamp.chunks(UID.bytes, self.size)))
+        self.bsize = self.fsize
+        nb = self.size // self.bsize
+        self.ufs = FakeUFS(self.fsize, self.bsize, nb, gaps=set(range(0, nb, 2)))
+        self.m.fibmap = self.ufs.fibmap
+        self.m.ufs_super = lambda p: (self.bsize, self.fsize, "big-endian")
+        self.write_device()
+        self.made()
+        bm = self.boot_map()
+        rc, err, writes = self.gtest(bm)
+        self.assertEqual(rc, 0, err)
+        chunks = [d for k, d in writes if k == "ranges"]
+        self.assertGreater(len(chunks), 1)
+        for c in chunks:
+            self.assertLessEqual(len(c), 4096)
+            self.assertTrue(c.endswith(b"\n"))
+        self.assertTrue(all(len(c) + 12 > 4096 for c in chunks[:-1]))   # filled up before the next write
+        # the second write fails: the first one's ranges stay registered, reboot
+        rc, err, writes = self.gtest(bm, "einval=2")
+        self.assertEqual(rc, 2, err)
+        self.assertIn("write 2", err)
+        self.assertIn("Invalid argument", err)
+        self.assertIn("reboot", err)
+
+    def test_without_guard(self):
+        self.made()
+        bm = self.boot_map()
+        rc, err, writes = self.gtest(bm, "absent")
+        self.assertEqual(rc, 0, err)
+        self.assertIn("kernel has no write guard", err)
+        self.assertEqual(writes, [])
+        rc, err, writes = self.gtest(bm, "absent", "--guard", "required")
+        self.assertEqual(rc, 2, err)
+        self.assertIn("for a kernel with it", err)
+
+    def test_refusals(self):
+        self.made()
+        bm = self.boot_map()
+        for faults, why, wrote in (("sealed", "sealed earlier in this boot", False),
+                                   ("policy=writable", "not whitelist", False),
+                                   ("policy=read-only", "not whitelist", False),
+                                   ("pending=3", "already registered", False),
+                                   ("short=1", "a short count", True),
+                                   ("einval=1", "Invalid argument", True),
+                                   ("sealfail", "writing 1 got Input/output error", True),
+                                   ("nr_ranges+=1", "ours merge into", True),
+                                   ("nr_sectors+=8", "our targets", True),
+                                   ("capacity=4096", "Invalid argument", True)):
+            rc, err, writes = self.gtest(bm, faults)
+            self.assertEqual(rc, 2, (faults, err))
+            self.assertIn(why, err, faults)
+            self.assertEqual(bool(writes), wrote, faults)
+            if wrote:
+                self.assertIn("reboot", err, faults)
+
+
+# the guard classes reuse the fixtures of Pipeline and BootMap, not their tests (those run there)
+for _cls in (GuardPhaseA, GuardBootTool):
+    for _name in dir(_cls.__mro__[1]):
+        if _name.startswith("test") and _name not in _cls.__dict__:
+            setattr(_cls, _name, None)
 
 
 class VswapScript(unittest.TestCase):

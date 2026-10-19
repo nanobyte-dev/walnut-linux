@@ -1,0 +1,2 @@
+obj-m := ps3guard_sim.o
+ccflags-y := -I$(src)

@@ -22,7 +22,11 @@
         area's stamps (the image's first MiB, never mapped) still read back through the extents,
         /dev/ps3db not mounted (device-mapper must claim it). Then blockdev --setro /dev/ps3da and
         dm-linear devices over the image after its 1 MiB header area: /dev/mapper/NAME, and with
-        --swap-mib the image's last N MiB as /dev/mapper/NAME-swap.
+        --swap-mib the image's last N MiB as /dev/mapper/NAME-swap, their live tables read back and
+        compared. On a kernel with the write guard (local/0045, /sys/block/ps3db/write_guard) the
+        device side of those tables is registered and sealed, as ps3-imgmap-boot create does: the
+        guard must be unsealed and empty (once per boot), and a failure removes the devices again.
+        Without the guard directory: a line saying so, and on.
   ps3-imgmap remove NAME
         dmsetup remove NAME (and NAME-swap).
   ps3-imgmap export-boot MAP --out FILE [--state DIR] [--swap-mib N]
@@ -90,6 +94,10 @@ DMSETUP = (os.environ.get("PS3_IMGMAP_DMSETUP") or "dmsetup").split()
 BLOCKDEV = (os.environ.get("PS3_IMGMAP_BLOCKDEV") or "blockdev").split()
 SYSBLOCK = os.environ.get("PS3_IMGMAP_SYSBLOCK") or "/sys/class/block"
 BOOT_ID = os.environ.get("PS3_IMGMAP_BOOT_ID_FILE") or "/proc/sys/kernel/random/boot_id"
+# the kernel's write guard (local/0045): /sys/class/block/ps3db/write_guard is /sys/block/ps3db/write_guard
+GUARD = os.path.join(SYSBLOCK, "ps3db", "write_guard")
+GUARD_CHUNK = 4096               # sysfs takes at most a page per write(2); the smallest page
+GUARD_MAX = 65536                # PS3DISK_GUARD_MAX_RANGES
 
 
 class Refuse(Exception):
@@ -506,6 +514,133 @@ def cmd_recheck(a):
     return 0
 
 
+# --- the kernel's write guard (docs/GAMEOS-HDD.md "The kernel guard") -----------------------------
+class GuardError(Exception):
+    pass
+
+
+def guard_present():
+    return os.path.isdir(GUARD)
+
+
+def guard_read(name):
+    with open(os.path.join(GUARD, name)) as f:
+        return f.read().rstrip("\n")
+
+
+def guard_open(name):
+    return os.open(os.path.join(GUARD, name), os.O_WRONLY | os.O_CLOEXEC)
+
+
+def guard_write(fd, data):
+    """one write(2); its count"""
+    return os.write(fd, data)
+
+
+def guard_close(fd):
+    os.close(fd)
+
+
+def guard_precheck():
+    """before anything is made: True when the guard is there, unsealed and empty; False without one"""
+    if not guard_present():
+        if os.path.lexists(GUARD):
+            raise Refuse("%s is not a directory" % GUARD)
+        say("kernel has no write guard (no %s): ps3db's writes are not limited to the image's blocks" % GUARD)
+        return False
+    policy, sealed, n = guard_read("policy"), guard_read("sealed"), guard_read("nr_ranges")
+    if policy != "whitelist":
+        raise Refuse("%s/policy is %r, not whitelist: ps3db is not the region this kernel guards as dev_hdd0"
+                     % (GUARD, policy))
+    if sealed != "0":
+        raise Refuse("ps3db's write guard was sealed earlier in this boot (sealed %s, %s ranges): its ranges "
+                     "can't change until the next boot, so new devices could never be written. Reboot, then "
+                     "recheck and create once" % (sealed, n))
+    if n != "0":
+        raise Refuse("%s ranges are already registered (unsealed) in %s by something else in this boot: "
+                     "sealing would make them writable too. Reboot" % (n, GUARD))
+    say("write guard: ps3db whitelist, not sealed, no ranges yet")
+    return True
+
+
+def merged(ranges):
+    """the kernel's seal: sorted, overlapping or touching ranges joined -> (count, sectors)"""
+    out = []
+    for a, n in sorted(ranges):
+        if out and a <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], a + n)
+        else:
+            out.append([a, a + n])
+    return len(out), sum(b - a for a, b in out)
+
+
+def guard_register(ranges):
+    """[(ps3db sector, sectors)] into write_guard/ranges in whole-line writes of at most 4096 bytes,
+    each taken whole or the end; then the seal, and nr_ranges and nr_sectors checked"""
+    want_n, want_s = merged(ranges)
+    if want_s != sum(n for _, n in ranges):
+        raise GuardError("the targets overlap on ps3db")
+    chunks, cur = [], b""
+    for a, n in ranges:
+        line = b"%d %d\n" % (a, n)
+        if cur and len(cur) + len(line) > GUARD_CHUNK:
+            chunks.append(cur)
+            cur = b""
+        cur += line
+    if cur:
+        chunks.append(cur)
+    taken = 0
+    try:
+        fd = guard_open("ranges")
+    except OSError as e:
+        raise GuardError("%s/ranges: %s" % (GUARD, e.strerror))
+    try:
+        for i, c in enumerate(chunks):
+            try:
+                w = guard_write(fd, c)
+            except OSError as e:
+                raise GuardError("%s/ranges: write %d (%d bytes) failed: %s, after %d ranges taken"
+                                 % (GUARD, i + 1, len(c), e.strerror, taken))
+            if w != len(c):
+                raise GuardError("%s/ranges: write %d took %d of %d bytes, after %d ranges taken"
+                                 % (GUARD, i + 1, w, len(c), taken))
+            taken += c.count(b"\n")
+    finally:
+        guard_close(fd)
+    if guard_read("nr_ranges") != str(len(ranges)):
+        raise GuardError("%s/nr_ranges is %s after registering %d ranges" % (GUARD, guard_read("nr_ranges"), len(ranges)))
+    try:
+        fd = guard_open("sealed")
+        try:
+            w = guard_write(fd, b"1\n")
+        finally:
+            guard_close(fd)
+    except OSError as e:
+        raise GuardError("%s/sealed: writing 1 failed: %s" % (GUARD, e.strerror))
+    if w != 2:
+        raise GuardError("%s/sealed: writing 1 took %d of 2 bytes" % (GUARD, w))
+    got = (guard_read("sealed"), guard_read("nr_ranges"), guard_read("nr_sectors"))
+    if got != ("1", str(want_n), str(want_s)):
+        raise GuardError("the sealed guard reads sealed %s, %s ranges, %s sectors; ours: 1, %d, %d" % (got + (want_n, want_s)))
+    say("write guard sealed: %d ranges registered in %d writes, %d after merging, %d sectors (%d MiB) of ps3db "
+        "writable, nothing else" % (len(ranges), len(chunks), want_n, want_s, want_s // 2048))
+
+
+def live_table(name, want):
+    """NAME's table as the kernel has it (dmsetup table), checked against the lines WANT that
+    create loaded; returns its [(ps3db sector, sectors)]"""
+    out = subprocess.run(DMSETUP + ["table", name], check=True, capture_output=True, text=True).stdout
+    dn = devnum(DEVICE)
+    got = [x.split() for x in out.splitlines() if x.strip()]
+    exp = [x.split() for x in want]
+    for e in exp:
+        e[3] = dn
+    if got != exp:
+        raise Refuse("/dev/mapper/%s: the kernel's table is not the one loaded (%d lines, %d loaded)"
+                     % (name, len(got), len(exp)))
+    return [(int(t[4]), int(t[1])) for t in got]
+
+
 def table(m, start, end):
     """dm-linear lines for image sectors [start, end)"""
     out, t = [], 0
@@ -542,6 +677,7 @@ def cmd_create(a):
     for n in (a.name, a.name + "-swap"):
         if os.path.exists("/dev/mapper/" + n):
             raise Refuse("/dev/mapper/%s exists: ps3-imgmap remove %s" % (n, a.name))
+    guard = guard_precheck()
     total = m["file_size"] // 512
     swap = a.swap_mib * 2048
     if a.swap_mib < 0 or total - HEADER_SECTORS - swap < 2048 * 2:
@@ -560,6 +696,8 @@ def cmd_create(a):
         os.close(fd)
     data = table(m, HEADER_SECTORS, total - swap)
     swp = table(m, total - swap, total) if swap else []
+    if guard and len(data) + len(swp) > GUARD_MAX:
+        raise Refuse("%d targets: more ranges than the write guard takes (%d)" % (len(data) + len(swp), GUARD_MAX))
     say("%s: %d MiB for /dev/mapper/%s (%d extents)%s" % (
         m["file"], (total - HEADER_SECTORS - swap) // 2048, a.name, len(data),
         ", %d MiB for /dev/mapper/%s-swap (%d extents)" % (a.swap_mib, a.name, len(swp)) if swap else ""))
@@ -576,13 +714,27 @@ def cmd_create(a):
             raise Refuse("%s is not read-only after blockdev --setro (%s)" % (WHOLE, ro))
     say("%s read-only" % WHOLE)
     os.makedirs(STATE, exist_ok=True)
-    for n, t in ((a.name, data), (a.name + "-swap", swp)):
-        if not t:
-            continue
-        with open(os.path.join(STATE, n + ".table"), "w") as f:
-            f.write("\n".join(t) + "\n")
-        run(DMSETUP + ["create", n], input="\n".join(t) + "\n", text=True)
-        say("/dev/mapper/%s: %d sectors" % (n, sum(int(x.split()[1]) for x in t)))
+    made, ranges = [], []
+    try:
+        for n, t in ((a.name, data), (a.name + "-swap", swp)):
+            if not t:
+                continue
+            with open(os.path.join(STATE, n + ".table"), "w") as f:
+                f.write("\n".join(t) + "\n")
+            run(DMSETUP + ["create", n], input="\n".join(t) + "\n", text=True)
+            made.append(n)
+            ranges += live_table(n, t)
+            say("/dev/mapper/%s: %d sectors" % (n, sum(int(x.split()[1]) for x in t)))
+        if guard:
+            guard_register(ranges)
+    except (Refuse, GuardError, subprocess.CalledProcessError) as e:
+        for n in reversed(made):
+            subprocess.run(DMSETUP + ["remove", n])
+            say("removed the half-made /dev/mapper/%s" % n)
+        if isinstance(e, GuardError):
+            raise Refuse("write guard: %s. ps3db's guard can't be reset in this boot (ranges taken stay, a seal "
+                         "stays): reboot" % e)
+        raise
     if not os.path.exists(record("created", sha)):
         write_json(record("created", sha), {"map": os.path.abspath(a.map), "name": a.name, "created": now(),
                                             "swap_mib": a.swap_mib, "boot_id": boot_id()})

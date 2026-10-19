@@ -16,6 +16,9 @@
 #                 records next to it: ps3-imgmap export-boot makes the boot map from it
 #   BOOTMAP       instead of IMGMAP: boot maps already made (space separated)
 #   OUT           default build/initrd/initrd-ssd-$RELEASE.img (amd64: ...-amd64.img)
+#   GUARD         required or auto: whether the boot needs ps3db's write guard (local/0045). Default:
+#                 required when the release's System.map in KDEB has the guard, auto otherwise and with
+#                 MODDIR (auto: a kernel without the guard boots with a log line saying so)
 #   INITRD_BUILT  the build's name for /etc/ps3ssd-initrd (make passes git describe)
 # Also writes $OUT.manifest (sha256 of every file and of the kernel package's modules, the sizes), the
 # boot maps into maps/ next to $OUT, and ps3-imgmap-boot.$ARCH next to it: what the PS3 side
@@ -77,6 +80,18 @@ else
 	[ -e "$M/ufs.ko" ] && [ -e "$M/dm-mod.ko" ] || { echo "ufs.ko or dm-mod.ko missing in $KDEB" >&2; exit 1; }
 fi
 
+echo "== the write guard"
+if [ -z "${GUARD:-}" ]; then
+	GUARD=auto
+	if [ -z "${MODDIR:-}" ]; then
+		dpkg-deb --fsys-tarfile "$KDEB" | tar -x -C "$W" "./boot/System.map-$RELEASE"
+		# ps3disk's sysfs group and BLKROSET hook exist only with local/0045
+		grep -Eq ' (ps3disk_guard_group|ps3disk_set_read_only)$' "$W/boot/System.map-$RELEASE" && GUARD=required
+	fi
+fi
+case $GUARD in required|auto) ;; *) echo "GUARD: required or auto" >&2; exit 2 ;; esac
+echo "guard=$GUARD"
+
 echo "== boot maps"
 maps=()
 if [ -n "${IMGMAP:-}" ]; then
@@ -97,7 +112,7 @@ for b in "${maps[@]}"; do
 done
 
 install -m 755 tools/ssdimg/initrd/init "$T/init"
-printf 'release=%s\nbuilt=%s\narch=%s\nmaps=%s\n' "$RELEASE" "${INITRD_BUILT:-unknown}" "$ARCH" "${names# }" \
+printf 'release=%s\nbuilt=%s\narch=%s\nmaps=%s\nguard=%s\n' "$RELEASE" "${INITRD_BUILT:-unknown}" "$ARCH" "${names# }" "$GUARD" \
 	> "$T/etc/ps3ssd-initrd"
 
 echo "== cpio, xz"

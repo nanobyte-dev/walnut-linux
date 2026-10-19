@@ -18,6 +18,17 @@
 # the image's mapped blocks must still be the original's. For the first geometry also three refused
 # boots (no map for the image, a broken header area, the file moved by a rebuilt UFS): each must stop
 # in the rescue shell with its reason, the disk image unchanged.
+# The kernel guard (local/0045, docs/GAMEOS-HDD.md "The kernel guard"): ps3guard_sim
+# (tools/ssdimg/guard-sim, built here against the host kernel) gives the guests disks named ps3da and
+# ps3db over vdb and vda with the patch's own guard code and sysfs interface. The second Phase B
+# geometry runs on them: the install guest (ps3-imgmap create registers and seals, the install's
+# ext4 behind the guard), the initramfs (built with guard=required) registering and sealing what it
+# made, the test root's stray writes refused, a boot refused without the guard; then two guard
+# guests (tools/ssdimg/vm-guest-guard.sh): Phase A's create behind the guard and the C tool refusing
+# a sealed guard, and sysfs's own edges (a write cut at 4 KiB, malformed lines, pending ranges, the
+# seal's merge, writes on both sides of a range). vm-guest-b.sh also runs the guard model build
+# (-DPS3_GUARD_FAKE) against the real device-mapper: a registration failure removes the devices.
+# Without the host kernel's headers (kernel-devel) the guard parts are skipped (said so).
 # Needs docker (the builder image), qemu-system-x86_64, /dev/kvm, busybox from the alpine image,
 # the host kernel's modules. Exit 77 when one is missing. Scratch in build/tmp/ssdimg/vm, removed after.
 set -u
@@ -103,8 +114,25 @@ if [ $PHASEB = 1 ]; then
 		gcc -static -O2 -Wall -Wextra -Werror -o $REL_W/pib-amd64 tools/ssdimg/ps3-imgmap-boot.c &&
 		dpkg-deb --fsys-tarfile $BB_AMD64 | tar -x -O ./usr/bin/busybox > $REL_W/busybox && chmod 755 $REL_W/busybox" ||
 		{ echo "Phase B tools build failed"; exit 1; }
+	mkdir -p "$W/guard-inc"
+	linux/tests/guard-header.sh > "$W/guard-inc/ps3disk_guard.h" || exit 1
+	docker run --rm --network none -u "$(id -u):$(id -g)" -v "$ROOT:/work" -w /work "$IMG_BUILDER" sh -c "
+		gcc -static -O2 -Wall -Wextra -Werror -DPS3_GUARD_FAKE -I $REL_W/guard-inc -I tools/ssdimg \
+			-o $REL_W/pib-amd64-fake tools/ssdimg/ps3-imgmap-boot.c" || { echo "guard model build failed"; exit 1; }
 	mkdir -p "$W/e2e-wrap"
 	cp tools/ssdimg/vm-init-e2e.sh "$W/e2e-wrap/init.e2e" && chmod 755 "$W/e2e-wrap/init.e2e"
+fi
+# the guard simulation for the host kernel (the guests run it)
+GUARDSIM=0
+if [ $PHASEB = 1 ]; then
+	if [ -e "$MODS/build/Makefile" ] && tools/ssdimg/guard-sim/extract.sh "$W/guardsim" &&
+	   make -s -C "$MODS/build" M="$W/guardsim" modules > "$W/guardsim.log" 2>&1 && [ -e "$W/guardsim/ps3guard_sim.ko" ]; then
+		GUARDSIM=1
+		cp "$W/guardsim/ps3guard_sim.ko" "$W/e2e-wrap/"
+	else
+		echo "(the kernel guard's parts skipped: no ps3guard_sim for $KVER, kernel headers in $MODS/build?)"
+		tail -5 "$W/guardsim.log" 2>/dev/null
+	fi
 	python3 -I tools/ssdimg/mkcpio.py "$W/e2e-wrap" "$W/e2e-wrap.cpio" || exit 1
 fi
 
@@ -126,6 +154,18 @@ boot_until() {
 # outside_same MAP A B: every device sector outside the image's mapped part is the same in A and B;
 # prints how many mapped ranges differ
 outside_same() { python3 -I tools/ssdimg/vm-outside.py "$@"; }
+
+refused() {	# refused WHAT IMAGEFILE PATTERN KERNEL-ARGS...
+	local what=$1 img=$2 pat=$3; shift 3
+	cp "$img" "$W/neg.before.img"
+	boot_until "$W/console-neg.log" "reboot -f" 60 -kernel "$KERNEL" -initrd "$W/initrd-test.img" \
+		-append "$(echo "$CMD" | sed "s|ps3ssd.image=[^ ]*|$1|")" -drive file="$img",if=virtio,format=raw,cache=none \
+		-drive file="$W/whole.img",if=virtio,format=raw
+	if grep -q "$pat" "$W/console-neg.log.txt" && grep -q 'the SSD root was NOT started' "$W/console-neg.log.txt" &&
+	   ! grep -q 'E2E BOOT' "$W/console-neg.log.txt" && cmp -s "$img" "$W/neg.before.img"; then
+		echo "   ok - refused: $what ($(grep -m1 'FAILED at' "$W/console-neg.log.txt" | sed 's/.*FAILED at //' | cut -c1-100))"
+	else echo "   FAIL - $what: console tail:"; tail -30 "$W/console-neg.log.txt"; rc=1; fi
+}
 
 rc=0
 first=1
@@ -163,6 +203,8 @@ done
 for geo in 16384:4096 4096:512; do
 	[ $PHASEB = 1 ] || break
 	b=${geo%:*}; f=${geo#*:}
+	SIM=0 GUARD=auto		# the second geometry behind the guard simulation
+	[ "$geo" = 4096:512 ] && [ $GUARDSIM = 1 ] && SIM=1 GUARD=required
 	echo "== Phase B, block $b, fragment $f: ps3-imgmap-boot against ps3-imgmap create"
 	rm -rf "$W/src"; mkdir -p "$W/src/linux" "$W/src/home/00000001"
 	python3 tools/ssdimg/stamp.py dry-run --mib 24 --uuid 0ddba11c-0ffe-4ea5-b0b0-123456789abc \
@@ -188,10 +230,10 @@ for geo in 16384:4096 4096:512; do
 		echo "== FAILED (Phase B guest, $b/$f): console log tail:"; tr -d '\r' < "$W/console-b.log" | tail -40; rc=1; continue
 	fi
 
-	echo "== Phase B, block $b, fragment $f: ssd-install-image.sh check, install, boot"
+	echo "== Phase B, block $b, fragment $f: ssd-install-image.sh check, install, boot$([ $SIM = 1 ] && echo ", behind the guard")"
 	rm -rf "$W/from"
 	docker run --rm --network none -u "$(id -u):$(id -g)" -v "$ROOT:/work" -w /work \
-		-e ARCH=amd64 -e RELEASE="$KVER" -e MODDIR="$REL_W/initrd/mods" -e BUSYBOX_DEB="$BB_AMD64" \
+		-e ARCH=amd64 -e RELEASE="$KVER" -e MODDIR="$REL_W/initrd/mods" -e BUSYBOX_DEB="$BB_AMD64" -e GUARD=$GUARD \
 		-e BOOTMAP="$REL_W/out/ssdtest.map" -e OUT="$REL_W/from/initrd-ssd-$KVER-amd64.img" -e INITRD_BUILT=vm-e2e \
 		-e SOURCE_DATE_EPOCH=0 "$IMG_BUILDER" tools/ssdimg/build-initrd.sh > "$W/build-initrd.log" 2>&1 ||
 		{ cat "$W/build-initrd.log"; echo "initramfs build failed"; rc=1; continue; }
@@ -216,7 +258,7 @@ for geo in 16384:4096 4096:512; do
 	echo y > "$U/var/tmp/ps3-bench/20261019-0100-sauerbraten-base/y"
 	timeout 600 qemu-system-x86_64 -enable-kvm -cpu host -m 1024 -smp 2 -nographic -no-reboot \
 		-kernel "$KERNEL" -initrd "$W/initrd.gz" \
-		-append "console=ttyS0 panic=-1 loglevel=4 e2e_guest=$ROOT/tools/ssdimg/vm-guest-install.sh e2e_root=$ROOT e2e_work=$W e2e_out=1" \
+		-append "console=ttyS0 panic=-1 loglevel=4 e2e_guest=$ROOT/tools/ssdimg/vm-guest-install.sh e2e_root=$ROOT e2e_work=$W e2e_out=1 e2e_guard=$SIM" \
 		-drive file="$W/ufs.img",if=virtio,format=raw,cache=none \
 		-drive file="$W/whole.img",if=virtio,format=raw \
 		-virtfs local,path=/,mount_tag=hostroot,security_model=none,readonly=on \
@@ -232,6 +274,7 @@ for geo in 16384:4096 4096:512; do
 	entry=$(sed -n "s/^ssd-$KVER='\(.*\)'\$/\1/p" "$U/etc/kboot.conf")
 	[ -n "$entry" ] || { echo "   FAIL - no ssd entry in kboot.conf"; rc=1; continue; }
 	CMD="rdinit=/init.e2e $(echo "$entry" | tr ' ' '\n' | sed '1d; /^initrd=/d' | xargs)"
+	[ $SIM = 1 ] && CMD="$CMD e2e_guard=1"	# the wrapper loads ps3guard_sim instead of naming the disks
 	echo "   kernel line: $CMD"
 	cat "$U/boot/initrd-ssd-$KVER.img" "$W/e2e-wrap.cpio" > "$W/initrd-test.img"
 	cp "$W/ufs.img" "$W/ufs.before.img"
@@ -252,20 +295,39 @@ for geo in 16384:4096 4096:512; do
 		echo "   ok - the booted system's writes landed inside the image ($n ranges)"
 	else echo "   FAIL - writes of the booted system: $n"; rc=1; fi
 
+	if [ $SIM = 1 ]; then
+		echo "== Phase B, block $b, fragment $f: the kernel guard"
+		grep -q '^ps3ssd: write guard sealed: ' "$W/console-boot.log.txt" &&
+			echo "   ok - the initramfs registered and sealed ps3db's ranges" || { echo "   FAIL - no seal in the boot"; rc=1; }
+		CMD0=$CMD; CMD=${CMD% e2e_guard=1}
+		refused "guard=required, the kernel has none" "$W/ufs.img" "for a kernel with it" ps3ssd.image=/linux/ssdtest.img
+		CMD=$CMD0
+		for part in 1 2; do
+			cp "$W/orig.img" "$W/ufs.img"
+			rm -f "$W/whole.img"; truncate -s 8m "$W/whole.img"
+			timeout 600 qemu-system-x86_64 -enable-kvm -cpu host -m 1024 -smp 2 -nographic -no-reboot \
+				-kernel "$KERNEL" -initrd "$W/initrd.gz" \
+				-append "console=ttyS0 panic=-1 loglevel=4 e2e_guest=$ROOT/tools/ssdimg/vm-guest-guard.sh e2e_root=$ROOT e2e_work=$W e2e_out=1 e2e_part=$part" \
+				-drive file="$W/ufs.img",if=virtio,format=raw,cache=none \
+				-drive file="$W/whole.img",if=virtio,format=raw \
+				-virtfs local,path=/,mount_tag=hostroot,security_model=none,readonly=on \
+				-virtfs local,path="$W/out",mount_tag=out,security_model=none \
+				> "$W/console-g$part.log" 2>&1
+			tr -d '\r' < "$W/console-g$part.log" | grep -E '^(E2E|ok|FAIL)' | sed 's/^/   /'
+			grep -q "^E2E G$part PASS" <(tr -d '\r' < "$W/console-g$part.log") ||
+				{ echo "== FAILED (guard guest $part): console tail:"; tr -d '\r' < "$W/console-g$part.log" | tail -40; rc=1; }
+			if [ $part = 1 ]; then
+				if n=$(outside_same "$W/out/ssdtest.map.json" "$W/ufs.img" "$W/orig.img") && [ "$n" -gt 0 ]; then
+					echo "   ok - outside the image's mapped blocks the disk is the original ($n mapped ranges written)"
+				else echo "   FAIL - $n"; rc=1; fi
+			elif cmp -s "$W/ufs.img" "$W/orig.img"; then echo "   ok - the disk is the original, byte for byte"
+			else echo "   FAIL - the sysfs guest changed the disk"; rc=1; fi
+		done
+	fi
+
 	[ $first = 1 ] || continue
 	first=0
 	# refused boots: the reason on the console, the rescue shell, the disk image unchanged
-	refused() {	# refused WHAT IMAGEFILE PATTERN KERNEL-ARGS...
-		local what=$1 img=$2 pat=$3; shift 3
-		cp "$img" "$W/neg.before.img"
-		boot_until "$W/console-neg.log" "reboot -f" 60 -kernel "$KERNEL" -initrd "$W/initrd-test.img" \
-			-append "$(echo "$CMD" | sed "s|ps3ssd.image=[^ ]*|$1|")" -drive file="$img",if=virtio,format=raw,cache=none \
-			-drive file="$W/whole.img",if=virtio,format=raw
-		if grep -q "$pat" "$W/console-neg.log.txt" && grep -q 'the SSD root was NOT started' "$W/console-neg.log.txt" &&
-		   ! grep -q 'E2E BOOT' "$W/console-neg.log.txt" && cmp -s "$img" "$W/neg.before.img"; then
-			echo "   ok - refused: $what ($(grep -m1 'FAILED at' "$W/console-neg.log.txt" | sed 's/.*FAILED at //' | cut -c1-100))"
-		else echo "   FAIL - $what: console tail:"; tail -30 "$W/console-neg.log.txt"; rc=1; fi
-	}
 	echo "== Phase B: refused boots"
 	refused "no boot map for the image" "$W/ufs.img" "no boot map for ps3ssd.image=/linux/other.img" ps3ssd.image=/linux/other.img
 	cp "$W/ufs.img" "$W/hdr.img"

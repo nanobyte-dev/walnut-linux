@@ -5,13 +5,16 @@
 #   default  quick suites: bench-selftest, gprefetch, ps3rsx-shadow, ps3-spu, xmoto-glbatch,
 #            mesa-forcedxt (Mesa 0038's NV30_FORCE_DXT decision, mesa/tests), ssdimg (the SSD test
 #            drive's stamp.py, ps3-imgmap on a fake UFS layer, ps3-vswap's device-mapper backing;
-#            ps3-imgmap-boot's maps and tables against ps3-imgmap's), ps3-boot (ps3-update-kboot's
+#            ps3-imgmap-boot's maps and tables against ps3-imgmap's; both tools' write guard
+#            registration against a model of the kernel's side), ps3-boot (ps3-update-kboot's
 #            entries and its /etc/kboot.d extras on a fake root), ps3disk-guard (kernel local/0045's
 #            range checks, linux/tests/ps3disk-guard.sh)
 #   --slow   also autogm (ps3-desktop/tests/autogm-check.sh: needs Xvfb+openbox or docker/podman) and
 #            ssdimg-vm (tools/ssdimg/vm-e2e.sh: ps3-imgmap on a real big-endian UFS2 image in a KVM
 #            guest of the host's kernel, then Phase B: ps3-imgmap-boot's devices, the initramfs
-#            booting root from the image, refused boots; needs docker, qemu-system-x86_64, /dev/kvm)
+#            booting root from the image, refused boots; the second Phase B geometry behind the
+#            kernel guard, simulated by a module built from local/0045 for the host kernel (needs its
+#            headers, else that part is skipped); needs docker, qemu-system-x86_64, /dev/kvm)
 set -u
 cd "$(dirname "$0")/.."
 slow=0; only=""

@@ -4,6 +4,8 @@
 # ps3-imgmap map, verify, recheck, create ps3ssd --swap-mib 2 (the disks under the PS3's names), then
 # check, install (a dry run first, the refusals, a real one, a --reuse one) and boot, which writes the
 # initramfs and /etc/kboot.d/ssd.conf into the fake USB root and runs ps3-update-kboot there.
+# With e2e_guard=1 the disks are ps3guard_sim's (the kernel guard of local/0045): create registers and
+# seals, check reports the seal, and the install's mkfs and copy go through the guard.
 # Prints "E2E I PASS" when everything held.
 set -u
 arg() { sed -n "s/.*$1=\([^ ]*\).*/\1/p" /proc/cmdline; }
@@ -29,18 +31,34 @@ MAP=/tmp/state/ssdtest.map.json
 TAR=$W/testroot.tar
 FROM=$W/from
 
-for p in "vda ps3db" "vdb ps3da"; do
-	set -- $p
-	mknod /dev/$2 b $(tr : ' ' < /sys/class/block/$1/dev) || { echo "E2E I FAIL: mknod $2"; exit 1; }
-done
-mkdir -p /tmp/sysb && ln -s /sys/class/block/vdb /tmp/sysb/ps3da
+GUARD=$(arg e2e_guard)
+if [ "$GUARD" = 1 ]; then
+	insmod $W/guardsim/ps3guard_sim.ko db=/dev/vda da=/dev/vdb || { echo "E2E I FAIL: insmod ps3guard_sim"; exit 1; }
+	mkdir -p /tmp/sysb && ln -s /sys/class/block/ps3da /tmp/sysb/ps3da && ln -s /sys/class/block/ps3db /tmp/sysb/ps3db
+else
+	for p in "vda ps3db" "vdb ps3da"; do
+		set -- $p
+		mknod /dev/$2 b $(tr : ' ' < /sys/class/block/$1/dev) || { echo "E2E I FAIL: mknod $2"; exit 1; }
+	done
+	mkdir -p /tmp/sysb && ln -s /sys/class/block/vdb /tmp/sysb/ps3da
+fi
 mount -t ufs -o ro,ufstype=ufs2 /dev/ps3db /tmp/mnt || { echo "E2E I FAIL: mount"; exit 1; }
 expect 0 "map, verify, recheck" sh -c "$IM map /tmp/mnt/linux/ssdtest.img && $IM verify $MAP && $IM recheck $MAP"
 umount /tmp/mnt
 expect 1 "check refuses before create" $SI check --from $FROM
 expect 0 "ps3-imgmap create ps3ssd --swap-mib 2" $IM create $MAP ps3ssd --yes --swap-mib 2
+if [ "$GUARD" = 1 ]; then
+	grep -q "write guard sealed" /tmp/o && ok "  (it registered and sealed ps3db's ranges)" || bad "no seal"
+else
+	grep -q "kernel has no write guard" /tmp/o && ok "  (it said the kernel has no guard)" || bad "no guard line"
+fi
 expect 0 "ssd-install-image.sh check" $SI check --from $FROM
 grep -q "makes the same two devices" /tmp/o && ok "  (the boot map's tables are create's)" || bad "check output"
+if [ "$GUARD" = 1 ]; then
+	grep -q "write guard sealed: .* exactly ps3ssd and ps3ssd-swap's" /tmp/o && ok "  (and the sealed guard is theirs)" || bad "check: guard"
+else
+	grep -q "kernel without the write guard" /tmp/o && ok "  (and said there is no guard)" || bad "check: no guard line"
+fi
 
 expect 0 "install --dry-run" $SI install --from $FROM --tar $TAR --no-home --dry-run
 [ -z "$(blkid -o value -s TYPE /dev/mapper/ps3ssd)" ] && ok "  (the dry run wrote nothing)" || bad "dry run wrote"
@@ -65,5 +83,9 @@ grep -q "^ssd-$(uname -r)='/boot/vmlinux-$(uname -r) initrd=/boot/initrd-ssd-$(u
 	ok "the ssd entry in kboot.conf" || { bad "kboot.conf"; cat $K; }
 grep -q "^$(uname -r)='/boot/vmlinux-$(uname -r) root=PARTUUID=50533301-02" $K && ok "the USB entry unchanged" || bad "USB entry"
 cmp -s $OUT/usbroot/boot/initrd-ssd-$(uname -r).img $FROM/initrd-ssd-$(uname -r)-amd64.img && ok "the initramfs in /boot" || bad "initrd copy"
+if [ "$GUARD" = 1 ]; then
+	[ "$(cat /sys/block/ps3db/write_guard/refused)" = 0 ] && ok "nothing refused by the guard (mkfs, tar, the fix-ups)" ||
+		bad "the guard refused $(cat /sys/block/ps3db/write_guard/refused) writes"
+fi
 expect 0 "remove" $IM remove ps3ssd
 [ $fails = 0 ] && echo "E2E I PASS" || echo "E2E I FAIL ($fails)"

@@ -8,7 +8,9 @@
 #       devices ps3-imgmap create made from a verified map (state in /var/lib/ps3-imgmap: records,
 #       the tables it wrote, the kernel's live tables); the initramfs's boot map makes exactly those
 #       tables (ps3-imgmap-boot tables) and is the one inside the initramfs (manifest sha256s); the
-#       initramfs's kernel release is installed here with the same ufs and dm-mod modules.
+#       initramfs's kernel release is installed here with the same ufs and dm-mod modules. The
+#       kernel's write guard (local/0045): none (said so), or sealed with exactly ps3ssd and
+#       ps3ssd-swap's ranges (nr_ranges after merging, nr_sectors), else refused.
 #   ssd-install-image.sh install --from FROM --tar TAR|- [--reuse] [--no-home] [--yes] [--dry-run]
 #       check, then the root file system on /dev/mapper/ps3ssd: a new ext4 (label ps3root; asks
 #       before replacing a file system that is there, e.g. Phase A's game copies, label ps3ssd), or
@@ -106,6 +108,27 @@ check() {
 			die "$2's live table is not the one ps3-imgmap create wrote ($STATE/$1.table)"
 	done
 	say "$DEV and $SWAPDEV: the live tables are ps3-imgmap create's (map sha256 ${SHA:0:12}...)"
+	# the kernel's write guard: ps3-imgmap create sealed exactly these tables' ranges of ps3db
+	local G=/sys/block/ps3db/write_guard pol sealed nr ns want
+	if [ ! -e $G ]; then
+		say "kernel without the write guard (no $G): ps3db's writes are not limited to the image's blocks"
+	else
+		pol=$(cat $G/policy) sealed=$(cat $G/sealed) nr=$(cat $G/nr_ranges) ns=$(cat $G/nr_sectors)
+		[ "$pol" = whitelist ] || die "$G/policy is $pol, not whitelist"
+		[ "$sealed" = 1 ] || die "ps3db's write guard is not sealed, so every write to $DEV fails (EIO): an older" \
+			"ps3-imgmap made the devices? Reboot, then recheck and create again"
+		want=$(python3 -c 'import sys
+r = sorted((int(l.split()[4]), int(l.split()[1])) for f in sys.argv[1:] for l in open(f) if l.strip())
+m = []
+for a, n in r:
+    if m and a <= m[-1][1]: m[-1][1] = max(m[-1][1], a + n)
+    else: m.append([a, a + n])
+print(len(m), sum(b - a for a, b in m))' $STATE/ps3ssd.table $STATE/ps3ssd-swap.table)
+		[ "$nr $ns" = "$want" ] || die "the sealed write guard ($nr ranges, $ns sectors) is not ps3ssd and" \
+			"ps3ssd-swap's ranges ($want): reboot, then recheck and create again"
+		say "write guard sealed: $nr ranges, $ns sectors of ps3db writable, exactly ps3ssd and ps3ssd-swap's;" \
+			"$(cat $G/refused) writes refused since boot"
+	fi
 	# the initramfs: its manifest, its map, the same tables, the kernel here
 	local imgs
 	imgs=$(ls "$FROM"/initrd-ssd-*.img 2>/dev/null | grep -- "$SUF\.img\$" | { [ -n "$SUF" ] && cat || grep -v -- '-amd64\.img$'; } || true)

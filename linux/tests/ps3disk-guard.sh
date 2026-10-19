@@ -9,12 +9,7 @@ P=linux/patches/local/0045-ps3disk-write-guard.patch
 O=build/tmp/tests/ps3disk-guard
 command -v gcc >/dev/null || { echo "skip: no gcc"; exit 77; }
 mkdir -p "$O"
-# the new file's hunk: from its +++ line to the next diff, without the hunk header and the '+'
-awk '/^\+\+\+ b\/drivers\/block\/ps3disk_guard\.h$/ {on=1; next}
-     on && /^diff --git / {exit}
-     on && /^@@/ {next}
-     on {print substr($0, 2)}' "$P" > "$O/ps3disk_guard.h"
-[ -s "$O/ps3disk_guard.h" ] || { echo "no drivers/block/ps3disk_guard.h in $P" >&2; exit 1; }
+linux/tests/guard-header.sh "$P" > "$O/ps3disk_guard.h"
 CF=(-std=gnu11 -O2 -Wall -Wextra -Werror -I "$O")
 gcc "${CF[@]}" -o "$O/test" linux/tests/ps3disk-guard-test.c
 "$O/test" "${1:-2000}"

@@ -4,7 +4,10 @@
 # stand-in, given the PS3's names here as /dev/ps3db and /dev/ps3da nodes, so ps3-imgmap and
 # ps3-imgmap-boot run without any test seam for the devices. Checks that the C tool makes exactly the
 # devices ps3-imgmap create makes (the kernel's tables compared) and its refusals; leaves the boot map
-# in /tmp/out for the initramfs. Reads the disk only. Prints "E2E B PASS" when everything held.
+# in /tmp/out for the initramfs. Then the tool's guard model build (-DPS3_GUARD_FAKE, the kernel
+# guard's side modelled in the program) on the real device-mapper: it registers exactly the kernel's
+# tables, and a registration that fails removes the devices again. Reads the disk only. Prints
+# "E2E B PASS" when everything held.
 set -u
 arg() { sed -n "s/.*$1=\([^ ]*\).*/\1/p" /proc/cmdline; }
 ROOT=$(arg e2e_root); W=$(arg e2e_work)
@@ -81,4 +84,20 @@ cmp -s /tmp/run/ps3root.table /tmp/state/ps3ssd.table && ok "its table record is
 expect 2 "create refuses when the devices exist" $B create $BM --run /tmp/run
 
 dmsetup --noudevsync remove ps3swap && dmsetup --noudevsync remove ps3root && ok "removed" || bad "remove"
+
+F=$W/pib-amd64-fake	# the guard model build (vm-e2e.sh)
+expect 0 "guard model: create registers and seals" env PS3_GUARD_FAKE= PS3_GUARD_FAKE_LOG=/tmp/glog $F create $BM --run /tmp/run --guard required
+grep -q "write guard sealed" /tmp/o && ok "  (sealed)" || bad "no seal"
+grep -v -e '^ranges ' -e '^sealed ' /tmp/glog > /tmp/glog.ranges
+dmsetup table ps3root | awk '{print $5, $2}' > /tmp/live.ranges && dmsetup table ps3swap | awk '{print $5, $2}' >> /tmp/live.ranges
+cmp -s /tmp/glog.ranges /tmp/live.ranges && ok "  it registered the device side of the kernel's tables ($(wc -l < /tmp/live.ranges) ranges), nothing else" ||
+	{ bad "registered ranges differ"; head -3 /tmp/glog.ranges /tmp/live.ranges; }
+[ "$(tail -n 1 /tmp/glog)" = "sealed 1" ] && ok "  then the seal" || bad "no seal write"
+dmsetup --noudevsync remove ps3swap && dmsetup --noudevsync remove ps3root || bad "remove"
+for fault in "short=1:a short count" "sealfail:writing 1 got" "nr_sectors+=8:our targets" "sealed:sealed earlier in this boot" "policy=writable:not whitelist"; do
+	expect 2 "guard model: create refused (${fault%%:*})" env PS3_GUARD_FAKE="${fault%%:*}" $F create $BM --run /tmp/run
+	grep -q "${fault#*:}" /tmp/o && ok "  (${fault#*:})" || bad "reason"
+	[ ! -e /dev/mapper/ps3root ] && [ ! -e /dev/mapper/ps3swap ] && ! dmsetup info ps3root >/dev/null 2>&1 &&
+		! dmsetup info ps3swap >/dev/null 2>&1 && ok "  no device left" || bad "devices left"
+done
 [ $fails = 0 ] && echo "E2E B PASS" || echo "E2E B FAIL ($fails)"
