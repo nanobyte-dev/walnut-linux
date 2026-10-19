@@ -137,6 +137,34 @@ $(WZ_ORIG):
 	echo "$(WARZONE_SHA256)  $@.tmp" | sha256sum -c --quiet
 	mv $@.tmp $@
 
+# --- OpenRCT2 (openrct2/: upstream's release tarball and asset zips, a Debian-style debian/) ------
+# the zips keep their upstream names (debian/rules refers to them), one directory per asset version.
+# The orig tarball is upstream's without its own debian/ directory (+ds, as Debian does): ours replaces it
+ORCT2_DL := $(DOWNLOADS)/OpenRCT2-$(OPENRCT2_VERSION).tar.gz
+ORCT2_ORIG := $(DOWNLOADS)/openrct2_$(OPENRCT2_VERSION)+ds.orig.tar.gz
+ORCT2_OBJECTS := $(DOWNLOADS)/openrct2-objects-$(OPENRCT2_OBJECTS_VERSION)/objects.zip
+ORCT2_TITLESEQ := $(DOWNLOADS)/openrct2-titleseq-$(OPENRCT2_TITLESEQ_VERSION)/title-sequences.zip
+ORCT2_OPENSFX := $(DOWNLOADS)/openrct2-opensfx-$(OPENRCT2_OPENSFX_VERSION)/opensound.zip
+ORCT2_OPENMUSIC := $(DOWNLOADS)/openrct2-openmusic-$(OPENRCT2_OPENMUSIC_VERSION)/openmusic.zip
+$(ORCT2_DL): URL = $(OPENRCT2_URL)
+$(ORCT2_DL): SHA = $(OPENRCT2_SHA256)
+$(ORCT2_OBJECTS): URL = $(OPENRCT2_OBJECTS_URL)
+$(ORCT2_OBJECTS): SHA = $(OPENRCT2_OBJECTS_SHA256)
+$(ORCT2_TITLESEQ): URL = $(OPENRCT2_TITLESEQ_URL)
+$(ORCT2_TITLESEQ): SHA = $(OPENRCT2_TITLESEQ_SHA256)
+$(ORCT2_OPENSFX): URL = $(OPENRCT2_OPENSFX_URL)
+$(ORCT2_OPENSFX): SHA = $(OPENRCT2_OPENSFX_SHA256)
+$(ORCT2_OPENMUSIC): URL = $(OPENRCT2_OPENMUSIC_URL)
+$(ORCT2_OPENMUSIC): SHA = $(OPENRCT2_OPENMUSIC_SHA256)
+$(ORCT2_DL) $(ORCT2_OBJECTS) $(ORCT2_TITLESEQ) $(ORCT2_OPENSFX) $(ORCT2_OPENMUSIC):
+	@mkdir -p $(dir $@)
+	curl -fsSL -o $@.tmp $(URL)
+	echo "$(SHA)  $@.tmp" | sha256sum -c --quiet
+	mv $@.tmp $@
+$(ORCT2_ORIG): $(ORCT2_DL)
+	gzip -dc $< | tar --delete --wildcards 'OpenRCT2-$(OPENRCT2_VERSION)/debian' | gzip -n9 > $@.tmp
+	mv $@.tmp $@
+
 # --- ClassiCube -----------------------------------------------------------------
 CC_TARBALL := $(DOWNLOADS)/ClassiCube-$(CLASSICUBE_COMMIT).tar.gz
 CC_TEXPACK := $(DOWNLOADS)/classicube-texpack-$(CLASSICUBE_TEXPACK_SHA256).zip
@@ -393,12 +421,13 @@ $(foreach b,BUILDER GAMES_BUILDER SPU_BUILDER REPO_BUILDER,\
 
 # --- Debian source packages (deb-src + our patches; docs/PLAN.md, packaging plan) ---------------
 DEB_ENV := -e OWNER=$(UID_GID) -e DEBIAN_SUITE=$(DEBIAN_SUITE) -e DEBIAN_MIRROR=$(DEBIAN_MIRROR) -e HOME=/tmp \
-	-e SB_ORIG=$(SB_ORIG) -e DP_ORIG=$(DP_ORIG) -e ZNG_ORIG=$(ZNG_ORIG) -e WZ_ORIG=$(WZ_ORIG) -e CC_TARBALL=$(CC_TARBALL) -e CC_TEXPACK=$(CC_TEXPACK) -e CC_AUDIO=$(CC_AUDIO) -e KERNEL_RELEASE=$(KERNEL_RELEASE) -e KERNEL_FLAVOUR=$(KERNEL_FLAVOUR)
+	-e SB_ORIG=$(SB_ORIG) -e DP_ORIG=$(DP_ORIG) -e ZNG_ORIG=$(ZNG_ORIG) -e WZ_ORIG=$(WZ_ORIG) -e ORCT2_ORIG=$(ORCT2_ORIG) -e ORCT2_OBJECTS=$(ORCT2_OBJECTS) -e ORCT2_TITLESEQ=$(ORCT2_TITLESEQ) -e ORCT2_OPENSFX=$(ORCT2_OPENSFX) -e ORCT2_OPENMUSIC=$(ORCT2_OPENMUSIC) -e CC_TARBALL=$(CC_TARBALL) -e CC_TEXPACK=$(CC_TEXPACK) -e CC_AUDIO=$(CC_AUDIO) -e KERNEL_RELEASE=$(KERNEL_RELEASE) -e KERNEL_FLAVOUR=$(KERNEL_FLAVOUR)
 # upstream tarballs a package's source is made from
 sauerbraten-nonfree-data-src: $(SB_ORIG)
 darkplaces-gl2-src: $(DP_ORIG)
 zlib-ng-src: $(ZNG_ORIG)
 warzone2100-src: $(WZ_ORIG)
+openrct2-src: $(ORCT2_ORIG) $(ORCT2_OBJECTS) $(ORCT2_TITLESEQ) $(ORCT2_OPENSFX) $(ORCT2_OPENMUSIC)
 classicube-src: $(CC_TARBALL) $(CC_TEXPACK) $(CC_AUDIO)/default2.zip
 # KERNEL_RELEASE and KERNEL_FLAVOUR are set only by ps3rsx-modules (below), per kernel.
 # ps3rsx for both kernels built by linux-deb (build/debs/linux), release and debug: modules
@@ -446,6 +475,6 @@ DEB_JOBS ?= 16
 # KEEP_TREE=1: make linux-deb keeps the cross build tree (build/chroot/cross-linux)
 KEEP_TREE ?= 0
 # All our packages, the kernel first: ps3rsx builds against its headers
-SRC_PACKAGES := linux mesa plymouth ps3-boot ps3-gpu-tools ps3-spu classicube fluidsynth openal-soft dsda-doom neverball ioquake3 supertuxkart openttd xmoto etr teeworlds ps3-system ps3-desktop ps3-splash sauerbraten-nonfree-data ps3-games-licensed darkplaces-gl2 zlib-ng libvorbis warzone2100 libpng1.6
+SRC_PACKAGES := linux mesa plymouth ps3-boot ps3-gpu-tools ps3-spu classicube fluidsynth openal-soft dsda-doom neverball ioquake3 supertuxkart openttd xmoto etr teeworlds ps3-system ps3-desktop ps3-splash sauerbraten-nonfree-data ps3-games-licensed darkplaces-gl2 zlib-ng libvorbis warzone2100 libpng1.6 openrct2
 packages: $(SRC_PACKAGES:%=%-deb)
 	$(MAKE) --no-print-directory ps3rsx-modules

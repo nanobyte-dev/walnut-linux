@@ -1,0 +1,57 @@
+Source: openrct2
+Section: games
+Priority: optional
+Maintainer: PS3 Linux project <ps3@localhost>
+Build-Depends:
+ cmake,
+ debhelper-compat (= 13),
+ libflac-dev,
+ libfontconfig-dev,
+ libfreetype-dev,
+ libicu-dev,
+ libogg-dev,
+ libpng-dev,
+ libsdl2-dev,
+ libssl-dev,
+ libvorbis-dev,
+ libzip-dev,
+ libzstd-dev,
+ ninja-build,
+ nlohmann-json3-dev,
+ pkgconf,
+ zlib1g-dev,
+Standards-Version: 4.7.0
+Homepage: https://openrct2.io/
+Rules-Requires-Root: no
+
+Package: openrct2
+Architecture: any
+Depends: openrct2-data (= ${source:Version}), ${misc:Depends}, ${shlibs:Depends}
+Recommends: openrct2-music (= ${source:Version})
+Suggests: rct2-data
+Description: open-source re-implementation of RollerCoaster Tycoon 2 (big-endian build)
+ OpenRCT2 re-implements RollerCoaster Tycoon 2: build and run an amusement park in scenario or sandbox
+ play. It needs the original game's data files (RCT2), from your own copy.
+ .
+ This build is patched for big-endian hosts (the PS3's Cell PPE): every file format is read and
+ written little-endian, as upstream does on x86, so parks, saves and track designs are compatible.
+ It has the software renderer only (the OpenGL one needs GL 3.3), no plugins/scripting, no Discord
+ and no HTTP (server list, version check).
+
+Package: openrct2-data
+Architecture: all
+Multi-Arch: foreign
+Depends: ${misc:Depends}
+Description: data for OpenRCT2 (graphics, objects, title sequences, sound effects)
+ The architecture-independent files of OpenRCT2: its own graphics (g2.dat, fonts, palettes, tracks),
+ languages, scenario patches, the OpenRCT2 objects (objects 1.8.0), the title sequences (0.5.6) and
+ OpenSoundEffects (1.0.6).
+
+Package: openrct2-music
+Architecture: all
+Multi-Arch: foreign
+Depends: ${misc:Depends}
+Enhances: openrct2
+Description: OpenMusic for OpenRCT2 (alternative ride and title music)
+ OpenMusic 1.6.1: freely licensed ride music styles and the OpenRCT2 title theme, as asset packs.
+ Without it, OpenRCT2 uses the original game's music where installed.

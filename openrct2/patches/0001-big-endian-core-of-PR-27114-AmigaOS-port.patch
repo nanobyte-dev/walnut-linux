@@ -1,0 +1,2652 @@
+From: Thomas Luebker <53316655+thomas-luebker@users.noreply.github.com>
+Subject: Big-endian core of PR #27114 (AmigaOS port), applied to v0.5.6
+Origin: https://github.com/OpenRCT2/OpenRCT2/pull/27114 (head a5dbca57c5be, closed unmerged)
+
+The byte-order parts of https://github.com/OpenRCT2/OpenRCT2/pull/27114
+(head a5dbca57c5be, closed unmerged): little-endian IStream scalars and
+self-converting on-disk structs, Orca/park stream integers, S6/S4
+in-place swaps, host-aware ByteSwapBE, checksums over LE words, union
+byte order. Conflicts with v0.5.6 resolved (DataSerialiserTraits MapRange,
+SawyerCoding DetectFileType moved to RCT1File, detectRCT1Version).
+
+---
+ src/openrct2/core/ChecksumStream.cpp        |  27 +-
+ src/openrct2/core/ChecksumStream.h          |   8 +-
+ src/openrct2/core/Crypt.OpenRCT2.cpp        |  20 +-
+ src/openrct2/core/DataSerialiserTraits.h    | 343 ++++++++++---
+ src/openrct2/core/Endianness.h              |   7 +
+ src/openrct2/core/IStream.hpp               |  39 +-
+ src/openrct2/core/OrcaStream.hpp            |  33 +-
+ src/openrct2/drawing/Drawing.Sprite.cpp     |  19 +-
+ src/openrct2/drawing/G1Element.h            |   7 +
+ src/openrct2/entity/EntityRegistry.cpp      |  81 +++-
+ src/openrct2/entity/EntityRegistry.h        |   2 +-
+ src/openrct2/entity/Guest.h                 |  16 +
+ src/openrct2/entity/Peep.h                  |  21 +
+ src/openrct2/interface/Widget.h             |   8 +
+ src/openrct2/localisation/Formatter.h       |   9 +
+ src/openrct2/management/Marketing.h         |   8 +
+ src/openrct2/management/Research.h          |  16 +-
+ src/openrct2/object/Object.h                |   7 +
+ src/openrct2/park/ParkFile.cpp              |  83 +++-
+ src/openrct2/platform/Platform.h            |   4 +-
+ src/openrct2/rct1/S4Importer.cpp            | 428 +++++++++++++++++
+ src/openrct2/rct2/S6Importer.cpp            | 507 +++++++++++++++++++-
+ src/openrct2/ride/Ride.h                    |   7 +
+ src/openrct2/ride/Vehicle.h                 |  12 +
+ src/openrct2/sawyer_coding/SawyerChunk.h    |   6 +
+ src/openrct2/sawyer_coding/SawyerCoding.cpp |  12 +-
+ src/openrct2/scenario/ScenarioObjective.h   |   8 +
+ src/openrct2/scenes/title/TitleSequence.cpp |  10 +-
+ 28 files changed, 1658 insertions(+), 90 deletions(-)
+
+diff --git a/src/openrct2/core/ChecksumStream.cpp b/src/openrct2/core/ChecksumStream.cpp
+index a1d26893b..600c35691 100644
+--- a/src/openrct2/core/ChecksumStream.cpp
++++ b/src/openrct2/core/ChecksumStream.cpp
+@@ -11,12 +11,11 @@
+ 
+ namespace OpenRCT2
+ {
+-#ifndef DISABLE_NETWORK
++#if !defined(DISABLE_NETWORK) || defined(__amigaos__) || defined(OPENRCT2_KEEP_CHECKSUM)
+     ChecksumStream::ChecksumStream(std::array<std::byte, 20>& buf)
+         : _checksum(buf)
+     {
+-        uint64_t* hash = reinterpret_cast<uint64_t*>(_checksum.data());
+-        *hash = kSeed;
++        StoreHash(kSeed);
+     }
+ 
+     void ChecksumStream::Write(const void* buffer, uint64_t length)
+@@ -28,16 +27,30 @@ namespace OpenRCT2
+             uint64_t value{};
+             std::memcpy(&value, reinterpret_cast<const std::byte*>(buffer) + i, maxLen);
+ 
+-            Step(value);
++            Step(IStream::LittleEndianToHost(value)); // words are little-endian by definition
+         }
+     }
+ 
+     void ChecksumStream::Step(uint64_t value)
+     {
+-        uint64_t* hash = reinterpret_cast<uint64_t*>(_checksum.data());
++        uint64_t hash = LoadHash();
++        hash ^= value;
++        hash *= kPrime;
++        StoreHash(hash);
++    }
+ 
+-        *hash ^= value;
+-        *hash *= kPrime;
++    // The 64-bit hash lives little-endian in the first 8 checksum bytes so it prints the same on every host.
++    uint64_t ChecksumStream::LoadHash() const
++    {
++        uint64_t raw;
++        std::memcpy(&raw, _checksum.data(), sizeof(raw));
++        return IStream::LittleEndianToHost(raw);
++    }
++
++    void ChecksumStream::StoreHash(uint64_t hash)
++    {
++        const uint64_t raw = IStream::LittleEndianToHost(hash);
++        std::memcpy(_checksum.data(), &raw, sizeof(raw));
+     }
+ 
+ #endif
+diff --git a/src/openrct2/core/ChecksumStream.h b/src/openrct2/core/ChecksumStream.h
+index 466669285..9fbaecb9b 100644
+--- a/src/openrct2/core/ChecksumStream.h
++++ b/src/openrct2/core/ChecksumStream.h
+@@ -84,7 +84,7 @@ namespace OpenRCT2
+                 uint64_t value{};
+                 std::memcpy(&value, reinterpret_cast<const std::byte*>(buffer) + i, maxLen);
+ 
+-                Step(value);
++                Step(IStream::LittleEndianToHost(value)); // little-endian by definition
+             }
+         }
+ 
+@@ -125,10 +125,14 @@ namespace OpenRCT2
+         {
+             T value;
+             std::memcpy(&value, buffer, sizeof(T));
+-            Step(value);
++            // Fixed-size fast paths must hash the same little-endian-defined value as generic Write(),
++            // or the checksum diverges on a big-endian host for byte-identical input.
++            Step(IStream::LittleEndianToHost(value));
+         }
+ 
+         void Step(uint64_t value);
++        uint64_t LoadHash() const;
++        void StoreHash(uint64_t hash);
+     };
+ 
+ } // namespace OpenRCT2
+diff --git a/src/openrct2/core/Crypt.OpenRCT2.cpp b/src/openrct2/core/Crypt.OpenRCT2.cpp
+index aefcc6615..f87ec3486 100644
+--- a/src/openrct2/core/Crypt.OpenRCT2.cpp
++++ b/src/openrct2/core/Crypt.OpenRCT2.cpp
+@@ -9,6 +9,9 @@
+ 
+ #include "Crypt.h"
+ 
++#include "Endianness.h"
++
++#include <bit>
+ #include <cassert>
+ #include <cstdint>
+ #include <cstring>
+@@ -22,6 +25,16 @@ private:
+     static constexpr uint64_t kPrime = 0x00000100000001B3ULL;
+ 
+     uint64_t _data = kOffset;
++
++    // The hash is defined over the file's little-endian 64-bit words and its
++    // result is stored little-endian; both need a swap on big-endian hosts.
++    static uint64_t ToLittleEndianWord(uint64_t v)
++    {
++        if constexpr (std::endian::native == std::endian::big)
++            return ByteSwapT<8>::SwapBE(v);
++        else
++            return v;
++    }
+     uint8_t _rem[8]{};
+     size_t _remLen{};
+ 
+@@ -31,7 +44,7 @@ private:
+         {
+             uint64_t temp{};
+             std::memcpy(&temp, _rem, _remLen);
+-            _data ^= temp;
++            _data ^= ToLittleEndianWord(temp);
+             _data *= kPrime;
+             _remLen = 0;
+         }
+@@ -65,7 +78,7 @@ public:
+         // Process every block of 8 bytes
+         while (dataLen >= sizeof(uint64_t))
+         {
+-            auto temp = *src++;
++            auto temp = ToLittleEndianWord(*src++);
+             _data ^= temp;
+             _data *= kPrime;
+             dataLen -= sizeof(uint64_t);
+@@ -85,7 +98,8 @@ public:
+         ProcessRemainder();
+ 
+         Result res;
+-        std::memcpy(res.data(), &_data, sizeof(_data));
++        const uint64_t stored = ToLittleEndianWord(_data);
++        std::memcpy(res.data(), &stored, sizeof(stored));
+         return res;
+     }
+ };
+diff --git a/src/openrct2/core/DataSerialiserTraits.h b/src/openrct2/core/DataSerialiserTraits.h
+index 95514441d..203990471 100644
+--- a/src/openrct2/core/DataSerialiserTraits.h
++++ b/src/openrct2/core/DataSerialiserTraits.h
+@@ -45,11 +45,18 @@ namespace OpenRCT2
+ 
+         static void encode(IStream* stream, const T& val)
+         {
+-            stream->WriteValue(ByteSwapBE(static_cast<TUnderlying>(val)));
++            {
++                auto tmp = ByteSwapBE(static_cast<TUnderlying>(val));
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
+         }
+         static void decode(IStream* stream, T& val)
+         {
+-            val = static_cast<T>(ByteSwapBE(stream->ReadValue<TUnderlying>()));
++            {
++                TUnderlying tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                val = static_cast<T>(ByteSwapBE(tmp));
++            }
+         }
+         static void log(IStream* stream, const T& val)
+         {
+@@ -69,11 +76,18 @@ namespace OpenRCT2
+     {
+         static void encode(IStream* stream, const T& val)
+         {
+-            stream->WriteValue(ByteSwapBE(val));
++            {
++                auto tmp = ByteSwapBE(val);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
+         }
+         static void decode(IStream* stream, T& val)
+         {
+-            val = ByteSwapBE(stream->ReadValue<T>());
++            {
++                T tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                val = ByteSwapBE(tmp);
++            }
+         }
+         static void log(IStream* stream, const T& val)
+         {
+@@ -156,7 +170,10 @@ namespace OpenRCT2
+         static void encode(IStream* stream, const std::string& str)
+         {
+             uint16_t len = static_cast<uint16_t>(str.size());
+-            stream->WriteValue(ByteSwapBE(len));
++            {
++                auto tmp = ByteSwapBE(len);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
+             if (len == 0)
+             {
+                 return;
+@@ -165,7 +182,12 @@ namespace OpenRCT2
+         }
+         static void decode(IStream* stream, std::string& res)
+         {
+-            uint16_t len = ByteSwapBE(stream->ReadValue<uint16_t>());
++            uint16_t len;
++            {
++                uint16_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                len = ByteSwapBE(tmp);
++            }
+             if (len == 0)
+             {
+                 res.clear();
+@@ -190,11 +212,18 @@ namespace OpenRCT2
+     {
+         static void encode(IStream* stream, const Network::PlayerId_t& val)
+         {
+-            stream->WriteValue(ByteSwapBE(val.id));
++            {
++                auto tmp = ByteSwapBE(val.id);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
+         }
+         static void decode(IStream* stream, Network::PlayerId_t& val)
+         {
+-            val.id = ByteSwapBE(stream->ReadValue<int32_t>());
++            {
++                int32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                val.id = ByteSwapBE(tmp);
++            }
+         }
+         static void log(IStream* stream, const Network::PlayerId_t& val)
+         {
+@@ -275,7 +304,10 @@ namespace OpenRCT2
+     {
+         static void encode(IStream* stream, const _Ty (&val)[_Size])
+         {
+-            stream->WriteValue(ByteSwapBE(static_cast<uint16_t>(_Size)));
++            {
++                auto tmp = ByteSwapBE(static_cast<uint16_t>(_Size));
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
+ 
+             DataSerializerTraits<_Ty> s;
+             for (auto&& sub : val)
+@@ -285,7 +317,12 @@ namespace OpenRCT2
+         }
+         static void decode(IStream* stream, _Ty (&val)[_Size])
+         {
+-            uint16_t len = ByteSwapBE(stream->ReadValue<uint16_t>());
++            uint16_t len;
++            {
++                uint16_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                len = ByteSwapBE(tmp);
++            }
+ 
+             if (len != _Size)
+                 throw std::runtime_error("Invalid size, can't decode");
+@@ -350,7 +387,10 @@ namespace OpenRCT2
+     {
+         static void encode(IStream* stream, const std::array<_Ty, _Size>& val)
+         {
+-            stream->WriteValue(ByteSwapBE(static_cast<uint16_t>(_Size)));
++            {
++                auto tmp = ByteSwapBE(static_cast<uint16_t>(_Size));
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
+ 
+             DataSerializerTraits<_Ty> s;
+             for (auto&& sub : val)
+@@ -360,7 +400,12 @@ namespace OpenRCT2
+         }
+         static void decode(IStream* stream, std::array<_Ty, _Size>& val)
+         {
+-            uint16_t len = ByteSwapBE(stream->ReadValue<uint16_t>());
++            uint16_t len;
++            {
++                uint16_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                len = ByteSwapBE(tmp);
++            }
+ 
+             if (len != _Size)
+                 throw std::runtime_error("Invalid size, can't decode");
+@@ -389,7 +434,10 @@ namespace OpenRCT2
+     {
+         static void encode(IStream* stream, const std::vector<_Ty>& val)
+         {
+-            stream->WriteValue(ByteSwapBE(static_cast<uint16_t>(val.size())));
++            {
++                auto tmp = ByteSwapBE(static_cast<uint16_t>(val.size()));
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
+ 
+             DataSerializerTraits<_Ty> s;
+             for (auto&& sub : val)
+@@ -399,7 +447,12 @@ namespace OpenRCT2
+         }
+         static void decode(IStream* stream, std::vector<_Ty>& val)
+         {
+-            uint16_t len = ByteSwapBE(stream->ReadValue<uint16_t>());
++            uint16_t len;
++            {
++                uint16_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                len = ByteSwapBE(tmp);
++            }
+ 
+             DataSerializerTraits<_Ty> s;
+             for (auto i = 0; i < len; ++i)
+@@ -427,17 +480,49 @@ namespace OpenRCT2
+     {
+         static void encode(IStream* stream, const MapRange& v)
+         {
+-            stream->WriteValue(ByteSwapBE(v.getX1()));
+-            stream->WriteValue(ByteSwapBE(v.getY1()));
+-            stream->WriteValue(ByteSwapBE(v.getX2()));
+-            stream->WriteValue(ByteSwapBE(v.getY2()));
++            {
++                auto tmp = ByteSwapBE(v.getX1());
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
++            {
++                auto tmp = ByteSwapBE(v.getY1());
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
++            {
++                auto tmp = ByteSwapBE(v.getX2());
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
++            {
++                auto tmp = ByteSwapBE(v.getY2());
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
+         }
+         static void decode(IStream* stream, MapRange& v)
+         {
+-            auto l = ByteSwapBE(stream->ReadValue<int32_t>());
+-            auto t = ByteSwapBE(stream->ReadValue<int32_t>());
+-            auto r = ByteSwapBE(stream->ReadValue<int32_t>());
+-            auto b = ByteSwapBE(stream->ReadValue<int32_t>());
++            int32_t l;
++            {
++                int32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                l = ByteSwapBE(tmp);
++            }
++            int32_t t;
++            {
++                int32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                t = ByteSwapBE(tmp);
++            }
++            int32_t r;
++            {
++                int32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                r = ByteSwapBE(tmp);
++            }
++            int32_t b;
++            {
++                int32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                b = ByteSwapBE(tmp);
++            }
+             v = MapRange(l, t, r, b);
+         }
+         static void log(IStream* stream, const MapRange& v)
+@@ -501,13 +586,29 @@ namespace OpenRCT2
+     {
+         static void encode(IStream* stream, const TileCoordsXY& coords)
+         {
+-            stream->WriteValue(ByteSwapBE(coords.x));
+-            stream->WriteValue(ByteSwapBE(coords.y));
++            {
++                auto tmp = ByteSwapBE(coords.x);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
++            {
++                auto tmp = ByteSwapBE(coords.y);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
+         }
+         static void decode(IStream* stream, TileCoordsXY& coords)
+         {
+-            auto x = ByteSwapBE(stream->ReadValue<int32_t>());
+-            auto y = ByteSwapBE(stream->ReadValue<int32_t>());
++            int32_t x;
++            {
++                int32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                x = ByteSwapBE(tmp);
++            }
++            int32_t y;
++            {
++                int32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                y = ByteSwapBE(tmp);
++            }
+             coords = TileCoordsXY{ x, y };
+         }
+         static void log(IStream* stream, const TileCoordsXY& coords)
+@@ -523,13 +624,29 @@ namespace OpenRCT2
+     {
+         static void encode(IStream* stream, const CoordsXY& coords)
+         {
+-            stream->WriteValue(ByteSwapBE(coords.x));
+-            stream->WriteValue(ByteSwapBE(coords.y));
++            {
++                auto tmp = ByteSwapBE(coords.x);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
++            {
++                auto tmp = ByteSwapBE(coords.y);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
+         }
+         static void decode(IStream* stream, CoordsXY& coords)
+         {
+-            auto x = ByteSwapBE(stream->ReadValue<int32_t>());
+-            auto y = ByteSwapBE(stream->ReadValue<int32_t>());
++            int32_t x;
++            {
++                int32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                x = ByteSwapBE(tmp);
++            }
++            int32_t y;
++            {
++                int32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                y = ByteSwapBE(tmp);
++            }
+             coords = CoordsXY{ x, y };
+         }
+         static void log(IStream* stream, const CoordsXY& coords)
+@@ -545,16 +662,40 @@ namespace OpenRCT2
+     {
+         static void encode(IStream* stream, const CoordsXYZ& coord)
+         {
+-            stream->WriteValue(ByteSwapBE(coord.x));
+-            stream->WriteValue(ByteSwapBE(coord.y));
+-            stream->WriteValue(ByteSwapBE(coord.z));
++            {
++                auto tmp = ByteSwapBE(coord.x);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
++            {
++                auto tmp = ByteSwapBE(coord.y);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
++            {
++                auto tmp = ByteSwapBE(coord.z);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
+         }
+ 
+         static void decode(IStream* stream, CoordsXYZ& coord)
+         {
+-            auto x = ByteSwapBE(stream->ReadValue<int32_t>());
+-            auto y = ByteSwapBE(stream->ReadValue<int32_t>());
+-            auto z = ByteSwapBE(stream->ReadValue<int32_t>());
++            int32_t x;
++            {
++                int32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                x = ByteSwapBE(tmp);
++            }
++            int32_t y;
++            {
++                int32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                y = ByteSwapBE(tmp);
++            }
++            int32_t z;
++            {
++                int32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                z = ByteSwapBE(tmp);
++            }
+             coord = CoordsXYZ{ x, y, z };
+         }
+ 
+@@ -571,18 +712,50 @@ namespace OpenRCT2
+     {
+         static void encode(IStream* stream, const CoordsXYZD& coord)
+         {
+-            stream->WriteValue(ByteSwapBE(coord.x));
+-            stream->WriteValue(ByteSwapBE(coord.y));
+-            stream->WriteValue(ByteSwapBE(coord.z));
+-            stream->WriteValue(ByteSwapBE(coord.direction));
++            {
++                auto tmp = ByteSwapBE(coord.x);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
++            {
++                auto tmp = ByteSwapBE(coord.y);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
++            {
++                auto tmp = ByteSwapBE(coord.z);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
++            {
++                auto tmp = ByteSwapBE(coord.direction);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
+         }
+ 
+         static void decode(IStream* stream, CoordsXYZD& coord)
+         {
+-            auto x = ByteSwapBE(stream->ReadValue<int32_t>());
+-            auto y = ByteSwapBE(stream->ReadValue<int32_t>());
+-            auto z = ByteSwapBE(stream->ReadValue<int32_t>());
+-            auto d = ByteSwapBE(stream->ReadValue<uint8_t>());
++            int32_t x;
++            {
++                int32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                x = ByteSwapBE(tmp);
++            }
++            int32_t y;
++            {
++                int32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                y = ByteSwapBE(tmp);
++            }
++            int32_t z;
++            {
++                int32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                z = ByteSwapBE(tmp);
++            }
++            uint8_t d;
++            {
++                uint8_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                d = ByteSwapBE(tmp);
++            }
+             coord = CoordsXYZD{ x, y, z, d };
+         }
+ 
+@@ -601,11 +774,18 @@ namespace OpenRCT2
+     {
+         static void encode(IStream* stream, const Network::CheatType_t& val)
+         {
+-            stream->WriteValue(ByteSwapBE(val.id));
++            {
++                auto tmp = ByteSwapBE(val.id);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
+         }
+         static void decode(IStream* stream, Network::CheatType_t& val)
+         {
+-            val.id = ByteSwapBE(stream->ReadValue<int32_t>());
++            {
++                int32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                val.id = ByteSwapBE(tmp);
++            }
+         }
+         static void log(IStream* stream, const Network::CheatType_t& val)
+         {
+@@ -619,12 +799,19 @@ namespace OpenRCT2
+     {
+         static void encode(IStream* stream, const RCTObjectEntry& val)
+         {
+-            stream->WriteValue(ByteSwapBE(val.flags));
++            {
++                auto tmp = ByteSwapBE(val.flags);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
+             stream->WriteArray(val.nameWOC, 12);
+         }
+         static void decode(IStream* stream, RCTObjectEntry& val)
+         {
+-            val.flags = ByteSwapBE(stream->ReadValue<uint32_t>());
++            {
++                uint32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                val.flags = ByteSwapBE(tmp);
++            }
+             auto str = stream->ReadArray<char>(12);
+             memcpy(val.nameWOC, str.get(), 12);
+         }
+@@ -918,18 +1105,50 @@ namespace OpenRCT2
+     {
+         static void encode(IStream* stream, const TileCoordsXYZD& coord)
+         {
+-            stream->WriteValue(ByteSwapBE(coord.x));
+-            stream->WriteValue(ByteSwapBE(coord.y));
+-            stream->WriteValue(ByteSwapBE(coord.z));
+-            stream->WriteValue(ByteSwapBE(coord.direction));
++            {
++                auto tmp = ByteSwapBE(coord.x);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
++            {
++                auto tmp = ByteSwapBE(coord.y);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
++            {
++                auto tmp = ByteSwapBE(coord.z);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
++            {
++                auto tmp = ByteSwapBE(coord.direction);
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
+         }
+ 
+         static void decode(IStream* stream, TileCoordsXYZD& coord)
+         {
+-            auto x = ByteSwapBE(stream->ReadValue<int32_t>());
+-            auto y = ByteSwapBE(stream->ReadValue<int32_t>());
+-            auto z = ByteSwapBE(stream->ReadValue<int32_t>());
+-            auto d = ByteSwapBE(stream->ReadValue<Direction>());
++            int32_t x;
++            {
++                int32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                x = ByteSwapBE(tmp);
++            }
++            int32_t y;
++            {
++                int32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                y = ByteSwapBE(tmp);
++            }
++            int32_t z;
++            {
++                int32_t tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                z = ByteSwapBE(tmp);
++            }
++            Direction d;
++            {
++                Direction tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                d = ByteSwapBE(tmp);
++            }
+             coord = TileCoordsXYZD{ x, y, z, d };
+         }
+ 
+@@ -948,12 +1167,20 @@ namespace OpenRCT2
+     {
+         static void encode(IStream* stream, const TIdentifier<T, TNull, TTag>& id)
+         {
+-            stream->WriteValue(ByteSwapBE(id.ToUnderlying()));
++            {
++                auto tmp = ByteSwapBE(id.ToUnderlying());
++                stream->Write(&tmp, sizeof(tmp));
++            } // network order as raw bytes on every host
+         }
+ 
+         static void decode(IStream* stream, TIdentifier<T, TNull, TTag>& id)
+         {
+-            auto temp = ByteSwapBE(stream->ReadValue<T>());
++            T temp;
++            {
++                T tmp;
++                stream->Read(&tmp, sizeof(tmp));
++                temp = ByteSwapBE(tmp);
++            }
+             id = TIdentifier<T, TNull, TTag>::FromUnderlying(temp);
+         }
+ 
+diff --git a/src/openrct2/core/Endianness.h b/src/openrct2/core/Endianness.h
+index 89daa906f..6bb6318a6 100644
+--- a/src/openrct2/core/Endianness.h
++++ b/src/openrct2/core/Endianness.h
+@@ -9,6 +9,7 @@
+ 
+ #pragma once
+ 
++#include <bit>
+ #include <cstdint>
+ #include <cstring>
+ #include <type_traits>
+@@ -67,6 +68,12 @@ static T ByteSwapBE(const T& value)
+ {
+     using ByteSwap = ByteSwapT<sizeof(T)>;
+     using UIntType = ByteSwap::UIntType;
++    // "To big-endian" is the identity on a big-endian host (m68k). Without this the network
++    // and checksum serialisers would emit little-endian bytes there and never agree with x86/ARM.
++    if constexpr (std::endian::native == std::endian::big)
++    {
++        return value;
++    }
+ 
+     if constexpr (std::is_enum_v<T> || std::is_integral_v<T>)
+     {
+diff --git a/src/openrct2/core/IStream.hpp b/src/openrct2/core/IStream.hpp
+index 94d60bb48..b43d15b6f 100644
+--- a/src/openrct2/core/IStream.hpp
++++ b/src/openrct2/core/IStream.hpp
+@@ -9,12 +9,17 @@
+ 
+ #pragma once
+ 
++#include "Endianness.h"
++
++#include <bit>
+ #include <cstdint>
++#include <cstring>
+ #include <istream>
+ #include <memory>
+ #include <stdexcept>
+ #include <string>
+ #include <string_view>
++#include <type_traits>
+ #include <vector>
+ 
+ #ifdef __WARN_SUGGEST_FINAL_METHODS__
+@@ -135,6 +140,36 @@ namespace OpenRCT2
+         /**
+          * Reads the given type from the stream
+          */
++        // On-disk formats are little-endian; scalar reads and writes are swapped on
++        // big-endian hosts (m68k). Structs pass through untouched and must be
++        // converted at the call site.
++        static constexpr bool kHostIsBigEndian = std::endian::native == std::endian::big;
++
++        template<typename T>
++        static T LittleEndianToHost(T value)
++        {
++            if constexpr (!kHostIsBigEndian)
++            {
++                return value;
++            }
++            else if constexpr (requires { value.LittleEndianToHost(); })
++            {
++                value.LittleEndianToHost();
++            }
++            else if constexpr (requires { value.holder; })
++            {
++                value.holder = LittleEndianToHost(value.holder);
++            }
++            else if constexpr ((std::is_arithmetic_v<T> || std::is_enum_v<T>) && sizeof(T) > 1 && sizeof(T) <= 8)
++            {
++                typename ByteSwapT<sizeof(T)>::UIntType raw;
++                std::memcpy(&raw, &value, sizeof(T));
++                raw = ByteSwapT<sizeof(T)>::SwapBE(raw);
++                std::memcpy(&value, &raw, sizeof(T));
++            }
++            return value;
++        }
++
+         template<typename T>
+         void ReadValue(T& value)
+         {
+@@ -163,6 +198,7 @@ namespace OpenRCT2
+             {
+                 Read(&value, sizeof(T));
+             }
++            value = LittleEndianToHost(value);
+         }
+ 
+         /**
+@@ -180,8 +216,9 @@ namespace OpenRCT2
+          * Writes the given type to the stream
+          */
+         template<typename T>
+-        void WriteValue(const T& value)
++        void WriteValue(const T& valueIn)
+         {
++            const T value = LittleEndianToHost(valueIn);
+             // Selects the best path at compile time
+             if constexpr (sizeof(T) == 1)
+             {
+diff --git a/src/openrct2/core/OrcaStream.hpp b/src/openrct2/core/OrcaStream.hpp
+index 385a9b441..16dd6c727 100644
+--- a/src/openrct2/core/OrcaStream.hpp
++++ b/src/openrct2/core/OrcaStream.hpp
+@@ -12,9 +12,11 @@
+ #include "../core/Compression.h"
+ #include "../world/Location.hpp"
+ #include "Crypt.h"
++#include "Endianness.h"
+ #include "FileStream.h"
+ #include "Identifier.hpp"
+ #include "MemoryStream.h"
++#include "String.hpp"
+ 
+ #include <algorithm>
+ #include <array>
+@@ -57,6 +59,18 @@ namespace OpenRCT2
+             uint64_t compressedSize{};
+             std::array<uint8_t, 8> fnv1a{};
+             uint8_t padding[20]{};
++
++            void LittleEndianToHost()
++            {
++                magic = ByteSwapT<4>::SwapBE(magic);
++                targetVersion = ByteSwapT<4>::SwapBE(targetVersion);
++                minVersion = ByteSwapT<4>::SwapBE(minVersion);
++                numChunks = ByteSwapT<4>::SwapBE(numChunks);
++                uncompressedSize = ByteSwapT<8>::SwapBE(uncompressedSize);
++                compression = static_cast<CompressionType>(ByteSwapT<sizeof(CompressionType)>::SwapBE(
++                    static_cast<typename ByteSwapT<sizeof(CompressionType)>::UIntType>(compression)));
++                compressedSize = ByteSwapT<8>::SwapBE(compressedSize);
++            }
+         };
+         static_assert(sizeof(Header) == 64, "Header should be 64 bytes");
+ 
+@@ -65,6 +79,13 @@ namespace OpenRCT2
+             uint32_t id{};
+             uint64_t offset{};
+             uint64_t length{};
++
++            void LittleEndianToHost()
++            {
++                id = ByteSwapT<4>::SwapBE(id);
++                offset = ByteSwapT<8>::SwapBE(offset);
++                length = ByteSwapT<8>::SwapBE(length);
++            }
+         };
+ #pragma pack(pop)
+ 
+@@ -582,12 +603,14 @@ namespace OpenRCT2
+                     {
+                         int64_t raw{};
+                         read(&raw, sizeof(raw));
++                        raw = IStream::LittleEndianToHost(raw);
+                         return static_cast<T>(raw);
+                     }
+                     else
+                     {
+                         uint64_t raw{};
+                         read(&raw, sizeof(raw));
++                        raw = IStream::LittleEndianToHost(raw);
+                         return static_cast<T>(raw);
+                     }
+                 }
+@@ -597,6 +620,7 @@ namespace OpenRCT2
+                     {
+                         int32_t raw{};
+                         read(&raw, sizeof(raw));
++                        raw = IStream::LittleEndianToHost(raw);
+                         if (raw < std::numeric_limits<T>::min() || raw > std::numeric_limits<T>::max())
+                         {
+                             throw std::runtime_error("Value is incompatible with internal type.");
+@@ -607,6 +631,7 @@ namespace OpenRCT2
+                     {
+                         uint32_t raw{};
+                         read(&raw, sizeof(raw));
++                        raw = IStream::LittleEndianToHost(raw);
+                         if (raw > std::numeric_limits<T>::max())
+                         {
+                             throw std::runtime_error("Value is incompatible with internal type.");
+@@ -623,12 +648,12 @@ namespace OpenRCT2
+                 {
+                     if constexpr (std::is_signed<T>())
+                     {
+-                        auto raw = static_cast<int64_t>(value);
++                        auto raw = IStream::LittleEndianToHost(static_cast<int64_t>(value));
+                         write(&raw, sizeof(raw));
+                     }
+                     else
+                     {
+-                        auto raw = static_cast<uint64_t>(value);
++                        auto raw = IStream::LittleEndianToHost(static_cast<uint64_t>(value));
+                         write(&raw, sizeof(raw));
+                     }
+                 }
+@@ -636,12 +661,12 @@ namespace OpenRCT2
+                 {
+                     if constexpr (std::is_signed<T>())
+                     {
+-                        auto raw = static_cast<int32_t>(value);
++                        auto raw = IStream::LittleEndianToHost(static_cast<int32_t>(value));
+                         write(&raw, sizeof(raw));
+                     }
+                     else
+                     {
+-                        auto raw = static_cast<uint32_t>(value);
++                        auto raw = IStream::LittleEndianToHost(static_cast<uint32_t>(value));
+                         write(&raw, sizeof(raw));
+                     }
+                 }
+diff --git a/src/openrct2/drawing/Drawing.Sprite.cpp b/src/openrct2/drawing/Drawing.Sprite.cpp
+index 8c328bda2..cab90ea21 100644
+--- a/src/openrct2/drawing/Drawing.Sprite.cpp
++++ b/src/openrct2/drawing/Drawing.Sprite.cpp
+@@ -15,6 +15,7 @@
+ #include "../PlatformEnvironment.h"
+ #include "../SpriteIds.h"
+ #include "../config/Config.h"
++#include "../core/Endianness.h"
+ #include "../core/FileStream.h"
+ #include "../core/Guard.hpp"
+ #include "../core/MemoryStream.h"
+@@ -27,9 +28,11 @@
+ #include "RenderTarget.h"
+ #include "ScrollingText.h"
+ 
++#include <bit>
+ #include <cassert>
+ #include <memory>
+ #include <stdexcept>
++#include <utility>
+ #include <vector>
+ 
+ using namespace OpenRCT2;
+@@ -345,6 +348,18 @@ static void ReadAndConvertGxDat(IStream* stream, size_t count, bool is_rctc, G1E
+ {
+     auto g1Elements32 = std::make_unique<StoredG1Element[]>(count);
+     stream->Read(g1Elements32.get(), count * sizeof(StoredG1Element));
++    if constexpr (std::endian::native == std::endian::big)
++    {
++        // little-endian on disk: one 32-bit field followed by six 16-bit fields
++        for (size_t i = 0; i < count; i++)
++        {
++            auto* bytes = reinterpret_cast<uint8_t*>(&g1Elements32[i]);
++            std::swap(bytes[0], bytes[3]);
++            std::swap(bytes[1], bytes[2]);
++            for (size_t o = 4; o < sizeof(StoredG1Element); o += 2)
++                std::swap(bytes[o], bytes[o + 1]);
++        }
++    }
+     if (is_rctc)
+     {
+         // Process RCTC's g1.dat file
+@@ -527,12 +542,12 @@ bool GfxLoadG1(const IPlatformEnvironment& env)
+         }
+         return true;
+     }
+-    catch (const std::exception&)
++    catch (const std::exception& e)
+     {
+         _g1.elements.clear();
+         _g1.elements.shrink_to_fit();
+ 
+-        LOG_FATAL("Unable to load g1 graphics");
++        LOG_FATAL("Unable to load g1 graphics: %s", e.what());
+         if (!gOpenRCT2Headless)
+         {
+             auto& uiContext = GetContext()->GetUiContext();
+diff --git a/src/openrct2/drawing/G1Element.h b/src/openrct2/drawing/G1Element.h
+index c8787c789..d3d27ed8f 100644
+--- a/src/openrct2/drawing/G1Element.h
++++ b/src/openrct2/drawing/G1Element.h
+@@ -9,6 +9,7 @@
+ 
+ #pragma once
+ 
++#include "../core/Endianness.h"
+ #include "../core/FlagHolder.hpp"
+ 
+ #include <memory>
+@@ -69,6 +70,12 @@ namespace OpenRCT2
+     {
+         uint32_t numEntries = 0;
+         uint32_t totalSize = 0;
++
++        void LittleEndianToHost()
++        {
++            numEntries = ByteSwapT<4>::SwapBE(numEntries);
++            totalSize = ByteSwapT<4>::SwapBE(totalSize);
++        }
+     };
+     static_assert(sizeof(G1Header) == 8);
+ #pragma pack(pop)
+diff --git a/src/openrct2/entity/EntityRegistry.cpp b/src/openrct2/entity/EntityRegistry.cpp
+index fc9c1bc4c..9ff348b90 100644
+--- a/src/openrct2/entity/EntityRegistry.cpp
++++ b/src/openrct2/entity/EntityRegistry.cpp
+@@ -15,12 +15,14 @@
+ #include "../core/ChecksumStream.h"
+ #include "../core/DataSerialiser.h"
+ #include "../core/Guard.hpp"
++#include "../core/MemoryStream.h"
+ #include "../core/String.hpp"
+ #include "../entity/EntityList.h"
+ #include "../entity/Staff.h"
+ #include "../interface/Viewport.h"
+ #include "../peep/RideUseSystem.h"
+ #include "../profiling/Profiling.h"
++#include "../ride/RideManager.hpp"
+ #include "../ride/Vehicle.h"
+ #include "../world/Map.h"
+ #include "Balloon.h"
+@@ -31,6 +33,8 @@
+ #include "Particle.h"
+ 
+ #include <cassert>
++#include <cstdio>
++#include <cstdlib>
+ #include <iterator>
+ #include <vector>
+ 
+@@ -200,7 +204,8 @@ namespace OpenRCT2
+         }
+     }
+ 
+-#ifndef DISABLE_NETWORK
++#if !defined(DISABLE_NETWORK) || defined(__amigaos__)                                                                          \
++    || defined(OPENRCT2_KEEP_CHECKSUM) // Amiga: keep the checksum for cross-host verification
+     EntitiesChecksum EntityRegistry::getAllEntitiesChecksum()
+     {
+         EntitiesChecksum checksum{};
+@@ -209,6 +214,80 @@ namespace OpenRCT2
+         DataSerialiser ds(true, ms);
+         networkSerialiseEntityTypes<Guest, Staff, Vehicle, Litter>(ds);
+ 
++        // Port bring-up: dump the exact bytes the checksum saw, so two hosts can be diffed.
++        const char* dumpPath = std::getenv("OPENRCT2_ENTITY_DUMP");
++    #ifdef __amigaos__
++        if (dumpPath == nullptr)
++            dumpPath = "PROGDIR:entities.bin";
++    #endif
++        if (dumpPath != nullptr)
++        {
++            MemoryStream buffer;
++            DataSerialiser dumpDs(true, buffer);
++            // Per-entity offset index, so a byte offset in the stream maps to (type, id, field region).
++            std::string idxPath = std::string(dumpPath) + ".idx";
++            auto* idx = std::fopen(idxPath.c_str(), "w");
++            auto logType = [&](const char* name, auto tag) {
++                using T = decltype(tag);
++                for (auto* ent : EntityList<T>())
++                {
++                    if (idx != nullptr)
++                        std::fprintf(
++                            idx, "%s id=%u off=%lu\n", name, ent->id.ToUnderlying(),
++                            static_cast<unsigned long>(buffer.GetLength()));
++                    ent->serialise(dumpDs);
++                }
++            };
++            logType("Guest", Guest{});
++            logType("Staff", Staff{});
++            logType("Vehicle", Vehicle{});
++            logType("Litter", Litter{});
++            if (idx != nullptr)
++            {
++                std::fprintf(idx, "END off=%lu\n", static_cast<unsigned long>(buffer.GetLength()));
++                std::fclose(idx);
++            }
++            if (auto* f = std::fopen(dumpPath, "wb"))
++            {
++                std::fwrite(buffer.GetData(), 1, static_cast<size_t>(buffer.GetLength()), f);
++                std::fclose(f);
++            }
++            // and a text listing of every vehicle's decision-relevant fields, for cross-host diffs
++            std::string txtPath = std::string(dumpPath) + ".txt";
++            if (auto* t = std::fopen(txtPath.c_str(), "w"))
++            {
++                for (auto* v : EntityList<Vehicle>())
++                {
++                    std::fprintf(
++                        t,
++                        "veh id=%u ride=%u sub=%u status=%d substate=%u vt=%u xyz=%d,%d,%d rem=%d vel=%d acc=%d prog=%u ttd=%u "
++                        "tl=%d,%d,%d st=%u lost=%u flags=%08x mass=%u speed=%u pacc=%u tsp=%u brk=%u peeps=%u/%u next=%u "
++                        "prev=%u nextride=%u bbs=%u\n",
++                        v->id.ToUnderlying(), v->ride.ToUnderlying(), v->ride_subtype, static_cast<int>(v->status),
++                        v->sub_state, v->vehicle_type, v->x, v->y, v->z, v->remaining_distance, v->velocity, v->acceleration,
++                        v->track_progress, static_cast<unsigned>(v->GetTrackType()) * 4u + v->GetTrackDirection(),
++                        v->TrackLocation.x, v->TrackLocation.y, v->TrackLocation.z, v->current_station.ToUnderlying(),
++                        v->lost_time_out, v->flags.holder, v->mass, v->speed, v->powered_acceleration,
++                        static_cast<unsigned>(v->TrackSubposition), v->brake_speed, v->num_peeps, v->num_seats,
++                        v->next_vehicle_on_train.ToUnderlying(), v->prev_vehicle_on_ride.ToUnderlying(),
++                        v->next_vehicle_on_ride.ToUnderlying(), v->BlockBrakeSpeed);
++                }
++                for (auto& r : RideManager(getGameState()))
++                {
++                    std::fprintf(
++                        t,
++                        "ride id=%u type=%u status=%d flags=%08x reason=%d reasonPending=%d rel=%u unrel=%u downtime=%u "
++                        "speed=%u bullwheel=%u mode=%d ops=%u lastIssue=%u inspection=%u mechanic=%u\n",
++                        r.id.ToUnderlying(), r.type, static_cast<int>(r.status), static_cast<unsigned>(r.flags.holder),
++                        static_cast<int>(r.breakdownReason), static_cast<int>(r.breakdownReasonPending), r.reliability,
++                        r.unreliabilityFactor, r.downtime, r.speed, r.chairliftBullwheelRotation, static_cast<int>(r.mode),
++                        r.operationOption, r.lastIssueTime, static_cast<unsigned>(r.inspectionInterval),
++                        r.mechanic.ToUnderlying());
++                }
++                std::fclose(t);
++            }
++        }
++
+         return checksum;
+     }
+ #else
+diff --git a/src/openrct2/entity/EntityRegistry.h b/src/openrct2/entity/EntityRegistry.h
+index ae1984533..46757ed9d 100644
+--- a/src/openrct2/entity/EntityRegistry.h
++++ b/src/openrct2/entity/EntityRegistry.h
+@@ -133,7 +133,7 @@ namespace OpenRCT2
+         void resetAllEntities();
+         void resetEntitySpatialIndices();
+ 
+-#ifndef DISABLE_NETWORK
++#if !defined(DISABLE_NETWORK) || defined(__amigaos__) || defined(OPENRCT2_KEEP_CHECKSUM)
+ 
+         template<typename T>
+         void networkSerialseEntityType(DataSerialiser& ds)
+diff --git a/src/openrct2/entity/Guest.h b/src/openrct2/entity/Guest.h
+index b956c4f3a..364ffcef9 100644
+--- a/src/openrct2/entity/Guest.h
++++ b/src/openrct2/entity/Guest.h
+@@ -197,7 +197,15 @@ namespace OpenRCT2
+         union
+         {
+             RideId rideId;
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++            struct
++            {
++                uint8_t shopItemPad;
++                ShopItem shopItem; // low byte of item on every host
++            };
++#else
+             ShopItem shopItem;
++#endif
+             uint16_t item;
+         };
+         uint8_t freshness;     // larger is less fresh
+@@ -337,7 +345,15 @@ namespace OpenRCT2
+         union
+         {
+             RideId voucherRideId;
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++            struct
++            {
++                uint8_t voucherShopItemPad;
++                ShopItemIndex voucherShopItem; // low byte of voucherRideId on every host
++            };
++#else
+             ShopItemIndex voucherShopItem;
++#endif
+         };
+         uint8_t surroundingsThoughtTimeout;
+         uint8_t angriness;
+diff --git a/src/openrct2/entity/Peep.h b/src/openrct2/entity/Peep.h
+index b34678671..29f4ec5ba 100644
+--- a/src/openrct2/entity/Peep.h
++++ b/src/openrct2/entity/Peep.h
+@@ -379,6 +379,26 @@ namespace OpenRCT2
+         uint8_t currentTrain;
+         union
+         {
++            // Serialised through the 16-bit timeToSitdown view; the byte aliases keep their little-endian
++            // positions (first alias = low byte) regardless of host byte order.
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++            struct
++            {
++                uint8_t currentSeat;
++                uint8_t currentCar;
++            };
++            uint16_t timeToSitdown;
++            struct
++            {
++                uint8_t standingFlags;
++                uint8_t timeToStand;
++            };
++            struct
++            {
++                uint8_t timesSlidDownPad;
++                uint8_t timesSlidDown;
++            };
++#else
+             struct
+             {
+                 uint8_t currentCar;
+@@ -391,6 +411,7 @@ namespace OpenRCT2
+                 uint8_t standingFlags;
+             };
+             uint8_t timesSlidDown;
++#endif
+         };
+         // Normally 0, 1 for carrying sliding board on spiral slide ride, 2 for carrying lawn mower
+         uint8_t specialSprite;
+diff --git a/src/openrct2/interface/Widget.h b/src/openrct2/interface/Widget.h
+index 06c3c8553..06300e403 100644
+--- a/src/openrct2/interface/Widget.h
++++ b/src/openrct2/interface/Widget.h
+@@ -91,7 +91,15 @@ namespace OpenRCT2
+         {
+             uint32_t content;
+             ImageId image{};
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++            struct
++            {
++                uint16_t textPad;
++                StringId text; // low 16 bits of content on every host
++            };
++#else
+             StringId text;
++#endif
+             const utf8* string;
+         };
+         StringId tooltip{ kStringIdNone };
+diff --git a/src/openrct2/localisation/Formatter.h b/src/openrct2/localisation/Formatter.h
+index 334c22ff0..479f8f638 100644
+--- a/src/openrct2/localisation/Formatter.h
++++ b/src/openrct2/localisation/Formatter.h
+@@ -119,7 +119,16 @@ namespace OpenRCT2
+             {
+                 convertedValue = reinterpret_cast<uint64_t>(value);
+             }
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++            // The value's low sizeof(TSpecified) bytes live at the END of the big-endian uint64_t; copy those,
++            // not the leading (high, zero) bytes. Without this, every argument smaller than 8 bytes (StringId,
++            // int32, and 4-byte pointers for {STRING}) stores as zero on a big-endian host.
++            std::memcpy(
++                CurrentBuf, reinterpret_cast<const uint8_t*>(&convertedValue) + (sizeof(uint64_t) - sizeof(TSpecified)),
++                sizeof(TSpecified));
++#else
+             std::memcpy(CurrentBuf, &convertedValue, sizeof(TSpecified));
++#endif
+             Increment(sizeof(TSpecified));
+             return *this;
+         }
+diff --git a/src/openrct2/management/Marketing.h b/src/openrct2/management/Marketing.h
+index 2dd48fd05..a44f045ec 100644
+--- a/src/openrct2/management/Marketing.h
++++ b/src/openrct2/management/Marketing.h
+@@ -57,7 +57,15 @@ struct MarketingCampaign
+     union
+     {
+         ::RideId rideId{};
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++        struct
++        {
++            uint8_t shopItemTypePad;
++            ShopItemIndex shopItemType; // low byte of rideId on every host (that is what the park file stores)
++        };
++#else
+         ShopItemIndex shopItemType;
++#endif
+     };
+ };
+ 
+diff --git a/src/openrct2/management/Research.h b/src/openrct2/management/Research.h
+index 4c81ab00c..464a9ae9d 100644
+--- a/src/openrct2/management/Research.h
++++ b/src/openrct2/management/Research.h
+@@ -52,11 +52,18 @@ struct ResearchItem
+     union
+     {
+         uint32_t rawValue;
++        // rawValue = entryIndex | baseRideType << 16 | type << 24 on every host (news items store it).
+         struct
+         {
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++            OpenRCT2::Research::EntryType type; // 0: scenery entry, 1: ride entry
++            uint8_t baseRideType;
++            OpenRCT2::ObjectEntryIndex entryIndex;
++#else
+             OpenRCT2::ObjectEntryIndex entryIndex;
+             uint8_t baseRideType;
+             OpenRCT2::Research::EntryType type; // 0: scenery entry, 1: ride entry
++#endif
+         };
+     };
+     uint8_t flags;
+@@ -80,12 +87,13 @@ struct ResearchItem
+     ResearchItem(
+         OpenRCT2::Research::EntryType _type, OpenRCT2::ObjectEntryIndex _entryIndex, uint8_t _baseRideType,
+         ResearchCategory _category, uint8_t _flags)
+-        : entryIndex(_entryIndex)
+-        , baseRideType(_baseRideType)
+-        , type(_type)
+-        , flags(_flags)
++        : flags(_flags)
+         , category(_category)
+     {
++        // assigned in the body: the byte members' declaration order depends on host byte order
++        entryIndex = _entryIndex;
++        baseRideType = _baseRideType;
++        type = _type;
+     }
+ 
+     bool operator==(const ResearchItem& rhs) const;
+diff --git a/src/openrct2/object/Object.h b/src/openrct2/object/Object.h
+index 856722780..036904403 100644
+--- a/src/openrct2/object/Object.h
++++ b/src/openrct2/object/Object.h
+@@ -9,6 +9,7 @@
+ 
+ #pragma once
+ 
++#include "../core/Endianness.h"
+ #include "../core/JsonFwd.hpp"
+ #include "../core/StringTypes.h"
+ #include "../drawing/ImageIndexType.h"
+@@ -71,6 +72,12 @@ namespace OpenRCT2
+             return std::string_view(name, std::size(name));
+         }
+ 
++        void LittleEndianToHost()
++        {
++            flags = ByteSwapT<4>::SwapBE(flags);
++            checksum = ByteSwapT<4>::SwapBE(checksum);
++        }
++
+         void SetName(std::string_view value);
+ 
+         ObjectType GetType() const
+diff --git a/src/openrct2/park/ParkFile.cpp b/src/openrct2/park/ParkFile.cpp
+index 9add45539..4cad3c568 100644
+--- a/src/openrct2/park/ParkFile.cpp
++++ b/src/openrct2/park/ParkFile.cpp
+@@ -65,6 +65,7 @@
+ #include "Legacy.h"
+ #include "ParkPreview.h"
+ 
++#include <bit>
+ #include <cassert>
+ #include <cstdint>
+ #include <ctime>
+@@ -371,6 +372,9 @@ namespace OpenRCT2
+                                     {
+                                         RCTObjectEntry datEntry;
+                                         cs.read(&datEntry, sizeof(datEntry));
++                                        if constexpr (std::endian::native == std::endian::big)
++                                            datEntry.LittleEndianToHost(); // raw 16-byte DAT entry: flags/checksum are
++                                                                           // little-endian
+                                         ObjectEntryDescriptor desc(datEntry);
+                                         if (version < kFixedObsoleteFootpathsVersion && datEntry.GetType() == ObjectType::paths)
+                                         {
+@@ -545,7 +549,13 @@ namespace OpenRCT2
+                                 else
+                                 {
+                                     cs.write(kDescriptorDat);
+-                                    cs.write(&entry.Entry, sizeof(RCTObjectEntry));
++                                    {
++                                        // stored little-endian on disk on every host
++                                        RCTObjectEntry le = entry.Entry;
++                                        if constexpr (std::endian::native == std::endian::big)
++                                            le.LittleEndianToHost();
++                                        cs.write(&le, sizeof(RCTObjectEntry));
++                                    }
+                                 }
+                             }
+                             else
+@@ -915,7 +925,13 @@ namespace OpenRCT2
+                         if (String::iequals(extension, ".dat"))
+                         {
+                             cs.write(kDescriptorDat);
+-                            cs.write(&ori->ObjectEntry, sizeof(RCTObjectEntry));
++                            {
++                                // stored little-endian on disk on every host
++                                RCTObjectEntry le = ori->ObjectEntry;
++                                if constexpr (std::endian::native == std::endian::big)
++                                    le.LittleEndianToHost();
++                                cs.write(&le, sizeof(RCTObjectEntry));
++                            }
+                         }
+                         else if (String::iequals(extension, ".parkobj"))
+                         {
+@@ -1255,6 +1271,63 @@ namespace OpenRCT2
+             }
+         }
+ 
++#ifdef __amigaos__
++        // Tile elements are stored raw (16 bytes, little-endian) in the tiles chunk.
++        // Offsets from the element definitions; every other field is one byte.
++        static void SwapTileElementBytes(TileElement& el)
++        {
++            auto* b = reinterpret_cast<uint8_t*>(&el);
++            auto sw = [&](size_t o) { std::swap(b[o], b[o + 1]); };
++            switch (el.getType())
++            {
++                case TileElementType::path:
++                    sw(5);           // surfaceIndex
++                    sw(7);           // railingsIndex
++                    if (b[0] & 0x01) // FOOTPATH_ELEMENT_TYPE_FLAG_IS_QUEUE lives in the type byte; only queues carry a 16-bit
++                                     // ride index at 13
++                        sw(13);
++                    break;
++                case TileElementType::track:
++                    sw(5);  // trackType
++                    sw(12); // rideIndex
++                    sw(14); // rideType
++                    // Maze rides store a 16-bit wall bitmap (mazeEntry) in the union at offset 7 instead of the
++                    // sequence/colourScheme bytes. Detect a maze from rideType (=20) regardless of the current byte
++                    // order — {20,0} in either order — since no real ride type is 0x1400.
++                    if ((b[14] == 20 && b[15] == 0) || (b[14] == 0 && b[15] == 20))
++                        sw(7); // mazeEntry
++                    break;
++                case TileElementType::smallScenery:
++                    sw(5); // entryIndex
++                    break;
++                case TileElementType::largeScenery:
++                    sw(5); // entryIndex
++                    sw(7); // bannerIndex
++                    break;
++                case TileElementType::wall:
++                    sw(5);  // entryIndex
++                    sw(10); // bannerIndex
++                    break;
++                case TileElementType::entrance:
++                    sw(8);  // pathType
++                    sw(10); // rideIndex
++                    sw(13); // entryIndex
++                    break;
++                case TileElementType::banner:
++                    sw(5); // index
++                    break;
++                default:
++                    break;
++            }
++        }
++
++        static void FixTileElementsByteOrder(std::vector<TileElement>& elements)
++        {
++            for (auto& el : elements)
++                SwapTileElementBytes(el);
++        }
++#endif
++
+         void ReadWriteTilesChunk(GameState_t& gameState, OrcaStream& os)
+         {
+             auto* pathToSurfaceMap = _pathToSurfaceMap;
+@@ -1271,6 +1344,9 @@ namespace OpenRCT2
+                     {
+                         auto tileElements = GetReorganisedTileElementsWithoutGhosts();
+                         cs.write(static_cast<uint32_t>(tileElements.size()));
++#ifdef __amigaos__
++                        FixTileElementsByteOrder(tileElements);
++#endif
+                         cs.write(tileElements.data(), tileElements.size() * sizeof(TileElement));
+                         return;
+                     }
+@@ -1281,6 +1357,9 @@ namespace OpenRCT2
+                     std::vector<TileElement> tileElements;
+                     tileElements.resize(numElements);
+                     cs.read(tileElements.data(), tileElements.size() * sizeof(TileElement));
++#ifdef __amigaos__
++                    FixTileElementsByteOrder(tileElements);
++#endif
+                     SetTileElements(gameState, std::move(tileElements));
+ 
+                     auto targetVersion = os.getHeader().targetVersion;
+diff --git a/src/openrct2/platform/Platform.h b/src/openrct2/platform/Platform.h
+index baae59e09..7a69cdc0e 100644
+--- a/src/openrct2/platform/Platform.h
++++ b/src/openrct2/platform/Platform.h
+@@ -34,8 +34,10 @@
+     #define MAX_PATH 260
+ #endif
+ 
++#ifndef __amigaos__
+ static_assert(
+     std::endian::native == std::endian::little, "OpenRCT2 is known to be broken on big endian. Proceed with caution!");
++#endif
+ 
+ enum class SpecialFolder
+ {
+@@ -180,7 +182,7 @@ namespace OpenRCT2::Platform
+     SteamPaths GetSteamPaths();
+     bool triggerSteamDownload();
+ #if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__)) || defined(__FreeBSD__) || defined(__NetBSD__)              \
+-    || defined(__HAIKU__)
++    || defined(__HAIKU__) || defined(__amigaos__)
+     std::string GetEnvironmentPath(const char* name);
+     std::string GetHomePath();
+ #endif
+diff --git a/src/openrct2/rct1/S4Importer.cpp b/src/openrct2/rct1/S4Importer.cpp
+index 6d444e59d..f1561975c 100644
+--- a/src/openrct2/rct1/S4Importer.cpp
++++ b/src/openrct2/rct1/S4Importer.cpp
+@@ -77,6 +77,7 @@
+ #include "Tables.h"
+ 
+ #include <cassert>
++#include <cstring>
+ #include <memory>
+ #include <vector>
+ 
+@@ -175,6 +176,9 @@ namespace OpenRCT2::RCT1
+             IStream* stream, bool isScenario, [[maybe_unused]] bool skipObjectCheck, const u8string& path) override
+         {
+             _s4 = *ReadAndDecodeS4(stream, isScenario);
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++            ByteSwapS4IfBigEndian(_s4);
++#endif
+             _s4Path = path;
+             _isScenario = isScenario;
+             _gameVersion = detectRCT1Version(_s4.GameVersion).version;
+@@ -313,6 +317,430 @@ namespace OpenRCT2::RCT1
+             return (oldParkValue * _parkValueConversionFactor) / 10;
+         }
+ 
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++        // ---------------------------------------------------------------------------------------------
++        // The RCT1 S4 blob is a little-endian raw struct decoded straight into memory. On a big-endian host
++        // every multi-byte field must be swapped in place after the decode, before the importer reads it.
++        // This mirrors S6Importer's ByteSwapS6IfBigEndian: RCT12 sprites/tiles/misc records share their
++        // layout with RCT2, the RCT1 Ride and Peep structs have their own. Unions are swapped the way the
++        // importer reads them (see the comments); single-byte fields and char arrays are left alone.
++        // ---------------------------------------------------------------------------------------------
++        template<typename T>
++        static void bs(T& v)
++        {
++            auto* b = reinterpret_cast<uint8_t*>(&v);
++            if constexpr (sizeof(T) == 2)
++                std::swap(b[0], b[1]);
++            else if constexpr (sizeof(T) == 4)
++            {
++                std::swap(b[0], b[3]);
++                std::swap(b[1], b[2]);
++            }
++            else if constexpr (sizeof(T) == 8)
++            {
++                for (int i = 0; i < 4; i++)
++                    std::swap(b[i], b[7 - i]);
++            }
++        }
++        static inline void b16(uint8_t* b, size_t o)
++        {
++            std::swap(b[o], b[o + 1]);
++        }
++        static inline void b32(uint8_t* b, size_t o)
++        {
++            std::swap(b[o], b[o + 3]);
++            std::swap(b[o + 1], b[o + 2]);
++        }
++        static inline void b16n(uint8_t* b, size_t o, size_t n)
++        {
++            for (size_t i = 0; i < n; i++)
++                b16(b, o + i * 2);
++        }
++        // RCT12EntityBase, offsets 0x00-0x1E (shared by every sprite)
++        static void swapEntityBase(uint8_t* b)
++        {
++            for (size_t o : { 0x02, 0x04, 0x06, 0x0A, 0x0C, 0x0E, 0x10, 0x12, 0x16, 0x18, 0x1A, 0x1C })
++                b16(b, o);
++        }
++        // RCT1::Vehicle -- same offsets as the RCT2 vehicle for every field the importer reads.
++        static void swapVehicle(uint8_t* b, const S4& s4)
++        {
++            swapEntityBase(b);
++            b32(b, 0x24); // RemainingDistance
++            b32(b, 0x28); // Velocity
++            b32(b, 0x2C); // Acceleration
++            // 0x36 is int16 TrackTypeAndDirection, except for a boat-hire vehicle travelling on water, where
++            // the importer reads the two bytes as RCT12xy8 BoatLocation and they must not be swapped.
++            bool boat = false;
++            {
++                uint8_t rideIdx = b[0x30];
++                bool blNull = (b[0x36] == 0xFF && b[0x37] == 0xFF);
++                if (!blNull && b[0x50] == 7 /* Vehicle::Status::travellingBoat */ && rideIdx < std::size(s4.Rides)
++                    && s4.Rides[rideIdx].type == RideType::boatHire)
++                    boat = true;
++            }
++            for (size_t o : { 0x34, 0x38, 0x3A, 0x3C, 0x3E, 0x40, 0x42, 0x44, 0x46, 0x48, 0x4C, 0x4E })
++                b16(b, o); // TrackProgress, TrackX/Y/Z, links, Var44, Mass, UpdateFlags, SwingPosition, SwingSpeed
++            if (!boat)
++                b16(b, 0x36);
++            b16n(b, 0x52, 32); // Peep[32]
++            for (size_t o : { 0xB6, 0xB8, 0xC0 })
++                b16(b, o); // SpinSpeed, Sound2Flags, VarC0/TimeWaiting
++            b32(b, 0xC8);  // AnimationState
++            b16(b, 0xD0);  // LostTimeOut
++        }
++        // RCT1::Peep. 0x6B is read as the two bytes CurrentCar/CurrentSeat (not TimeToSitDown) -- untouched.
++        // 0xC8 is uint32 peepFlagsLL on Loopy Landscapes but two uint16s (peepFlagsBaseAA, itemFlagsBase) on
++        // RCT1/AA; 0xFC is uint32 itemFlagsAALL.
++        static void swapPeep(uint8_t* b, bool isLL)
++        {
++            swapEntityBase(b);
++            for (size_t o : { 0x22, 0x24, 0x26, 0x32, 0x34, 0x46 })
++                b16(b, o); // NameStringID, NextX/Y, DestinationX/Y, PaidOnDrink
++            for (size_t o : { 0x74, 0x7A })
++                b16(b, o); // NextInQueue/MechanicTimeSinceCall, TimeInQueue
++            b32(b, 0x9C);  // ID
++            b32(b, 0xA0);  // CashInPocket
++            b32(b, 0xA4);  // CashSpent
++            b32(b, 0xA8);  // ParkEntryTime
++            b16(b, 0xAE);  // PreviousRideTimeOut
++            if (isLL)
++                b32(b, 0xC8);
++            else
++            {
++                b16(b, 0xC8);
++                b16(b, 0xCA);
++            }
++            for (size_t o : { 0xE4, 0xE6, 0xE8, 0xEA })
++                b16(b, o); // PaidToEnter, PaidOnRides, PaidOnFood, PaidOnSouvenirs
++            b32(b, 0xFC);  // itemFlagsAALL
++        }
++        static void swapLitter(uint8_t* b)
++        {
++            swapEntityBase(b);
++            b32(b, 0x24);
++        }
++        static void swapBalloon(uint8_t* b)
++        {
++            swapEntityBase(b);
++            b16(b, 0x24);
++        }
++        static void swapDuck(uint8_t* b)
++        {
++            swapEntityBase(b);
++            b16(b, 0x26);
++            b16(b, 0x30);
++            b16(b, 0x32);
++        }
++        static void swapParticle(uint8_t* b)
++        {
++            swapEntityBase(b);
++            b16(b, 0x26);
++        }
++        static void swapSteam(uint8_t* b)
++        {
++            swapEntityBase(b);
++            b16(b, 0x24);
++            b16(b, 0x26);
++        }
++        static void swapFountain(uint8_t* b)
++        {
++            swapEntityBase(b);
++            b16(b, 0x30);
++            b16(b, 0x32);
++            b16(b, 0x46);
++        }
++        static void swapMoney(uint8_t* b)
++        {
++            swapEntityBase(b);
++            b16(b, 0x24);
++            b32(b, 0x28);
++            b16(b, 0x44);
++            b16(b, 0x46);
++        }
++        static void swapCrashParticle(uint8_t* b)
++        {
++            swapEntityBase(b);
++            b16(b, 0x24);
++            b16(b, 0x26);
++            b16(b, 0x2E);
++            b16(b, 0x30);
++            b16(b, 0x32);
++            b16(b, 0x34);
++            b32(b, 0x38);
++            b32(b, 0x3C);
++            b32(b, 0x40);
++        }
++        static void swapEntitySlot(uint8_t* b, const S4& s4, bool isLL)
++        {
++            switch (static_cast<RCT12EntityIdentifier>(b[0x00]))
++            {
++                case RCT12EntityIdentifier::vehicle:
++                    swapVehicle(b, s4);
++                    break;
++                case RCT12EntityIdentifier::peep:
++                    swapPeep(b, isLL);
++                    break;
++                case RCT12EntityIdentifier::litter:
++                    swapLitter(b);
++                    break;
++                case RCT12EntityIdentifier::misc:
++                    switch (static_cast<RCT12MiscEntityType>(b[0x01]))
++                    {
++                        case RCT12MiscEntityType::steamParticle:
++                            swapSteam(b);
++                            break;
++                        case RCT12MiscEntityType::moneyEffect:
++                            swapMoney(b);
++                            break;
++                        case RCT12MiscEntityType::crashedVehicleParticle:
++                            swapCrashParticle(b);
++                            break;
++                        case RCT12MiscEntityType::crashSplash:
++                        case RCT12MiscEntityType::explosionCloud:
++                        case RCT12MiscEntityType::explosionFlare:
++                            swapParticle(b);
++                            break;
++                        case RCT12MiscEntityType::jumpingFountainWater:
++                        case RCT12MiscEntityType::jumpingFountainSnow:
++                            swapFountain(b);
++                            break;
++                        case RCT12MiscEntityType::balloon:
++                            swapBalloon(b);
++                            break;
++                        case RCT12MiscEntityType::duck:
++                            swapDuck(b);
++                            break;
++                        default:
++                            swapEntityBase(b);
++                            break;
++                    }
++                    break;
++                default:
++                    break; // null slot
++            }
++        }
++        static void swapRideRCT1(Ride& r)
++        {
++            bs(r.flags);
++            bs(r.name);
++            bs(r.nameArgumentRide);
++            bs(r.nameArgumentNumber);
++            for (auto& x : r.lastPeepInQueue)
++                bs(x);
++            for (auto& x : r.vehicles)
++                bs(x);
++            bs(r.unk6);
++            bs(r.maxSpeed);
++            bs(r.averageSpeed);
++            for (auto& x : r.length)
++                bs(x);
++            for (auto& x : r.time)
++                bs(x);
++            bs(r.maxPositiveVerticalG);
++            bs(r.maxNegativeVerticalG);
++            bs(r.maxLateralG);
++            bs(r.previousVerticalG);
++            bs(r.previousLateralG);
++            bs(r.testingFlags);
++            bs(r.turnCountDefault);
++            bs(r.turnCountBanked);
++            bs(r.turnCountSloped);
++            bs(r.shelteredLength);
++            bs(r.unkD0);
++            bs(r.unkD2);
++            for (auto& x : r.numCustomers)
++                bs(x);
++            bs(r.price);
++            bs(r.ratings.excitement);
++            bs(r.ratings.intensity);
++            bs(r.ratings.nausea);
++            bs(r.value);
++            bs(r.chairliftBullwheelRotation);
++            bs(r.totalCustomers);
++            bs(r.totalProfit);
++            bs(r.slidePeep);
++            bs(r.buildDate);
++            bs(r.upkeepCost);
++            bs(r.raceWinner);
++            bs(r.musicPosition);
++            bs(r.mechanic);
++            bs(r.priceSecondary);
++            bs(r.reliability); // read as the uint16
++            bs(r.incomePerHour);
++            bs(r.profit);
++        }
++        // 8-byte RCT12 tile element: only the maze track bitmap and the large-scenery entry index are 16-bit.
++        static void swapTileRCT1(RCT12TileElement& e, const S4& s4)
++        {
++            auto* b = reinterpret_cast<uint8_t*>(&e);
++            auto type = static_cast<RCT12TileElementType>((b[0] & 0b00111100) >> 2);
++            if (type == RCT12TileElementType::track)
++            {
++                uint8_t rideIndex = b[7];
++                if (rideIndex < std::size(s4.Rides) && s4.Rides[rideIndex].type == RideType::hedgeMaze)
++                    std::swap(b[5], b[6]); // MazeEntry (uint16 @5)
++            }
++            else if (type == RCT12TileElementType::largeScenery)
++            {
++                std::swap(b[4], b[5]); // EntryIndex (uint16 @4)
++            }
++        }
++        static void ByteSwapS4IfBigEndian(S4& s4)
++        {
++            // Version first: the peep flag layout depends on it.
++            bs(s4.GameVersion);
++            const bool isLL = detectRCT1Version(s4.GameVersion).version == RCT1Version::loopyLandscapes;
++
++            bs(s4.Month);
++            bs(s4.Day);
++            bs(s4.Ticks);
++            bs(s4.RandomA);
++            bs(s4.RandomB);
++            for (auto& e : s4.TileElements)
++                swapTileRCT1(e, s4);
++            bs(s4.UnkCounter);
++            for (auto& ent : s4.Entities)
++                swapEntitySlot(reinterpret_cast<uint8_t*>(&ent), s4, isLL);
++            bs(s4.NextEntityIndex);
++            bs(s4.FirstVehicleEntityIndex);
++            bs(s4.FirstPeepEntityIndex);
++            bs(s4.FirstDuckEntityIndex);
++            bs(s4.FirstLitterEntityIndex);
++            bs(s4.FirstOversizedRideCarEntityIndex);
++            bs(s4.EntitiesAvailable);
++            bs(s4.NumVehicleEntities);
++            bs(s4.NumPeepEntities);
++            bs(s4.NumDuckEntities);
++            bs(s4.NumLitterEntities);
++            bs(s4.NumOversizedRideCarEntities);
++            bs(s4.ParkNameStringIndex);
++            bs(s4.Unk198830);
++            bs(s4.Cash);
++            bs(s4.Loan);
++            bs(s4.parkFlags);
++            bs(s4.ParkEntranceFee);
++            bs(s4.ParkEntrance.x);
++            bs(s4.ParkEntrance.y);
++            bs(s4.ParkEntrance.z);
++            for (auto& p : s4.PeepSpawn)
++            {
++                bs(p.x);
++                bs(p.y);
++            }
++            bs(s4.Unk198858);
++            for (auto& x : s4.AvailableRides)
++                bs(x);
++            for (auto& x : s4.AvailableVehicles)
++                bs(x);
++            for (auto& x : s4.RideFeature1)
++                bs(x);
++            for (auto& x : s4.RideFeature2)
++                bs(x);
++            bs(s4.GuestsInPark);
++            bs(s4.Unk198C9E);
++            for (auto& row : s4.Expenditure)
++                for (auto& x : row)
++                    bs(x);
++            bs(s4.GuestsInPark2);
++            bs(s4.AvailableBanners);
++            bs(s4.ParkRating);
++            bs(s4.ResearchProgress);
++            bs(s4.ParkSize);
++            bs(s4.GuestGenerationProbability);
++            bs(s4.TotalRideValueForMoney);
++            bs(s4.MaxLoan);
++            bs(s4.GuestInitialCash);
++            bs(s4.Unk199552);
++            bs(s4.ScenarioObjectiveCurrency);
++            bs(s4.ScenarioObjectiveNumGuests);
++            for (auto& x : s4.CashHistory)
++                bs(x);
++            bs(s4.TotalExpenditure);
++            bs(s4.Profit);
++            for (auto& x : s4.WeeklyProfitHistory)
++                bs(x);
++            bs(s4.ParkValue);
++            for (auto& x : s4.ParkValueHistory)
++                bs(x);
++            bs(s4.CompletedCompanyValue);
++            bs(s4.NumAdmissions);
++            bs(s4.AdmissionTotalIncome);
++            bs(s4.CompanyValue);
++            for (auto& a : s4.Awards)
++            {
++                bs(a.Time);
++                bs(a.Type);
++            }
++            bs(s4.LandPrice);
++            bs(s4.ConstructionRightsPrice);
++            bs(s4.Unk199BCC);
++            bs(s4.Unk199BCE);
++            bs(s4.Unk199BD0);
++            bs(s4.ObjectiveCompletionCompanyValue);
++            bs(s4.FinanceChecksum);
++            bs(s4.NumRides);
++            bs(s4.CheatDetectionNegNumRides);
++            bs(s4.CheatDetectionMaxOwnedTiles);
++            bs(s4.CheatDetectionNegMaxOwnedTiles);
++            bs(s4.FinanceChecksum3);
++            bs(s4.ScenarioSlotIndexChecksum);
++            bs(s4.FinanceChecksum2);
++            for (auto& x : s4.CheatDetectionSV6SC4)
++                bs(x);
++            bs(s4.Unk199C84);
++            bs(s4.Unk199C86);
++            bs(s4.MapSizeUnits);
++            bs(s4.MapSizeUnkB);
++            bs(s4.MapSize);
++            bs(s4.MapSizeMaxXY);
++            bs(s4.SamePriceThroughout);
++            bs(s4.Unk199C94);
++            bs(s4.Unk199C9A);
++            for (auto& b : s4.Banners)
++                bs(b.StringID);
++            bs(s4.GameTimeCounter);
++            for (auto& r : s4.Rides)
++                swapRideRCT1(r);
++            bs(s4.UnkGameTimeCounter);
++            bs(s4.ViewX);
++            bs(s4.ViewY);
++            for (auto& m : s4.MapAnimations)
++            {
++                bs(m.x);
++                bs(m.y);
++            }
++            bs(s4.NumMapAnimations);
++            bs(s4.ScrollingTextStep);
++            bs(s4.Unk1CADCA);
++            bs(s4.Unk1CADCE);
++            for (auto& m : s4.RideMeasurements)
++            {
++                bs(m.LastUseTick);
++                bs(m.NumItems);
++                bs(m.CurrentItem);
++            }
++            bs(s4.NextGuestIndex);
++            bs(s4.GameCounter5);
++            bs(s4.WeatherUpdateTimer);
++            for (auto& n : s4.recentMessages)
++            {
++                bs(n.Assoc);
++                bs(n.Ticks);
++                bs(n.MonthYear);
++            }
++            for (auto& n : s4.archivedMessages)
++            {
++                bs(n.Assoc);
++                bs(n.Ticks);
++                bs(n.MonthYear);
++            }
++            bs(s4.ScenarioSlotIndex);
++            bs(s4.ScenarioFlags);
++            bs(s4.ExpansionPackChecksum);
++        }
++#endif
++
+         std::unique_ptr<S4> ReadAndDecodeS4(IStream* stream, bool isScenario)
+         {
+             auto s4 = std::make_unique<S4>();
+diff --git a/src/openrct2/rct2/S6Importer.cpp b/src/openrct2/rct2/S6Importer.cpp
+index 3deaf0ea3..6fc8ab0cd 100644
+--- a/src/openrct2/rct2/S6Importer.cpp
++++ b/src/openrct2/rct2/S6Importer.cpp
+@@ -71,6 +71,358 @@ using namespace OpenRCT2::SawyerCoding;
+ 
+ namespace OpenRCT2::RCT2
+ {
++
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++    // ---------------------------------------------------------------------
++    // SC6/SV6 are little-endian raw structs read by memcpy. On a big-endian
++    // host every multi-byte field must be swapped in place after reading.
++    // Field offsets below are the documented offsets in RCT2.h / RCT12.h.
++    // ---------------------------------------------------------------------
++    namespace S6Swap
++    {
++        static inline void b16(uint8_t* b, size_t o)
++        {
++            std::swap(b[o], b[o + 1]);
++        }
++        static inline void b32(uint8_t* b, size_t o)
++        {
++            std::swap(b[o], b[o + 3]);
++            std::swap(b[o + 1], b[o + 2]);
++        }
++        static inline void b16n(uint8_t* b, size_t o, size_t n)
++        {
++            for (size_t i = 0; i < n; i++)
++                b16(b, o + i * 2);
++        }
++
++        // RCT12EntityBase, offsets 0x00-0x1E (shared by every sprite)
++        static void entityBase(uint8_t* b)
++        {
++            for (size_t o : { 0x02, 0x04, 0x06, 0x0A, 0x0C, 0x0E, 0x10, 0x12, 0x16, 0x18, 0x1A, 0x1C })
++                b16(b, o);
++        }
++        static void vehicle(uint8_t* b, const S6Data& s6)
++        {
++            entityBase(b);
++            b32(b, 0x24); // RemainingDistance
++            b32(b, 0x28); // Velocity
++            b32(b, 0x2C); // Acceleration
++            // Offset 0x36 is a union: int16 TrackTypeAndDirection for track vehicles, but two independent
++            // bytes (RCT12xy8 BoatLocation) for a boat-hire vehicle in the water. The importer reads it as
++            // BoatLocation only when the ride is boatHire and the vehicle is travellingBoat and it is not
++            // null; in that case the two bytes must NOT be swapped.
++            bool boat = false;
++            {
++                uint8_t rideIdx = b[0x30];
++                bool bl_null = (b[0x36] == 0xFF && b[0x37] == 0xFF);
++                if (!bl_null && b[0x50] == 7 /* Status::travellingBoat */ && rideIdx < std::size(s6.Rides)
++                    && s6.Rides[rideIdx].mode == 5 /* RideMode::boatHire */)
++                    boat = true;
++            }
++            for (size_t o : { 0x34, 0x38, 0x3A, 0x3C, 0x3E, 0x40, 0x42, 0x44, 0x46, 0x48, 0x4C, 0x4E })
++                b16(b, o);
++            if (!boat)
++                b16(b, 0x36);  // TrackTypeAndDirection (int16); left as bytes for boats (BoatLocation)
++            b16n(b, 0x52, 32); // Peep[32]
++            for (size_t o : { 0xB6, 0xB8, 0xC0 })
++                b16(b, o);
++            b32(b, 0xC8); // AnimationState
++            b16(b, 0xD0); // LostTimeOut
++        }
++        static void peep(uint8_t* b)
++        {
++            entityBase(b);
++            for (size_t o : { 0x22, 0x24, 0x26, 0x32, 0x34, 0x46 })
++                b16(b, o);
++            b32(b, 0x58); // ItemExtraFlags
++            for (size_t o : { 0x6B, 0x74, 0x7A })
++                b16(b, o);
++            b32(b, 0x9C); // Id
++            b32(b, 0xA0); // CashInPocket
++            b32(b, 0xA4); // CashSpent
++            b32(b, 0xA8); // ParkEntryTime
++            b16(b, 0xAE); // PreviousRideTimeOut
++            b32(b, 0xC8); // PeepFlags
++            for (size_t o : { 0xE4, 0xE6, 0xE8, 0xEA })
++                b16(b, o);
++            b32(b, 0xFC); // ItemStandardFlags
++        }
++        static void litter(uint8_t* b)
++        {
++            entityBase(b);
++            b32(b, 0x24); // CreationTick
++        }
++        static void balloon(uint8_t* b)
++        {
++            entityBase(b);
++            b16(b, 0x24);
++        } // Popped
++        static void duck(uint8_t* b)
++        {
++            entityBase(b);
++            b16(b, 0x26);
++            b16(b, 0x30);
++            b16(b, 0x32);
++        }
++        static void particle(uint8_t* b)
++        {
++            entityBase(b);
++            b16(b, 0x26);
++        } // Frame (steam/crashsplash/misc)
++        static void steam(uint8_t* b)
++        {
++            entityBase(b);
++            b16(b, 0x24);
++            b16(b, 0x26);
++        }
++        static void fountain(uint8_t* b)
++        {
++            entityBase(b);
++            b16(b, 0x30);
++            b16(b, 0x32);
++            b16(b, 0x46);
++        }
++        static void money(uint8_t* b)
++        {
++            entityBase(b);
++            b16(b, 0x24);
++            b32(b, 0x28);
++            b16(b, 0x44);
++            b16(b, 0x46);
++        }
++        static void crashParticle(uint8_t* b)
++        {
++            entityBase(b);
++            b16(b, 0x24);
++            b16(b, 0x26);
++            b16(b, 0x2E);
++            b16(b, 0x30);
++            b16(b, 0x32);
++            b16(b, 0x34);
++            b32(b, 0x38);
++            b32(b, 0x3C);
++            b32(b, 0x40);
++        }
++
++        // Dispatch one 0x100-byte entity slot on its (still little-endian) identifier/type bytes.
++        static void entitySlot(uint8_t* b, const S6Data& s6)
++        {
++            switch (static_cast<RCT12EntityIdentifier>(b[0x00]))
++            {
++                case RCT12EntityIdentifier::vehicle:
++                    vehicle(b, s6);
++                    break;
++                case RCT12EntityIdentifier::peep:
++                    peep(b);
++                    break;
++                case RCT12EntityIdentifier::litter:
++                    litter(b);
++                    break;
++                case RCT12EntityIdentifier::misc:
++                    switch (static_cast<RCT12MiscEntityType>(b[0x01]))
++                    {
++                        case RCT12MiscEntityType::steamParticle:
++                            steam(b);
++                            break;
++                        case RCT12MiscEntityType::moneyEffect:
++                            money(b);
++                            break;
++                        case RCT12MiscEntityType::crashedVehicleParticle:
++                            crashParticle(b);
++                            break;
++                        case RCT12MiscEntityType::crashSplash:
++                        case RCT12MiscEntityType::explosionCloud:
++                        case RCT12MiscEntityType::explosionFlare:
++                            particle(b);
++                            break;
++                        case RCT12MiscEntityType::jumpingFountainWater:
++                        case RCT12MiscEntityType::jumpingFountainSnow:
++                            fountain(b);
++                            break;
++                        case RCT12MiscEntityType::balloon:
++                            balloon(b);
++                            break;
++                        case RCT12MiscEntityType::duck:
++                            duck(b);
++                            break;
++                        default:
++                            entityBase(b);
++                            break;
++                    }
++                    break;
++                default:
++                    break; // null slot
++            }
++        }
++
++        // Size-dispatched scalar swap (works for arithmetic, enums, money/StringId typedefs).
++        template<typename T>
++        static void bs(T& v)
++        {
++            auto* b = reinterpret_cast<uint8_t*>(&v);
++            if constexpr (sizeof(T) == 2)
++                std::swap(b[0], b[1]);
++            else if constexpr (sizeof(T) == 4)
++            {
++                std::swap(b[0], b[3]);
++                std::swap(b[1], b[2]);
++            }
++            else if constexpr (sizeof(T) == 8)
++            {
++                for (int i = 0; i < 4; i++)
++                    std::swap(b[i], b[7 - i]);
++            }
++        }
++
++        static void swapRide(::OpenRCT2::RCT2::Ride& r)
++        {
++            bs(r.name);
++            bs(r.nameArgumentsTypeName);
++            bs(r.nameArgumentsNumber);
++            for (auto& x : r.lastPeepInQueue)
++                bs(x);
++            for (auto& x : r.vehicles)
++                bs(x);
++            bs(r.maxSpeed);
++            bs(r.averageSpeed);
++            for (auto& x : r.length)
++                bs(x);
++            for (auto& x : r.time)
++                bs(x);
++            bs(r.maxPositiveVerticalG);
++            bs(r.maxNegativeVerticalG);
++            bs(r.maxLateralG);
++            bs(r.previousVerticalG);
++            bs(r.previousLateralG);
++            bs(r.testingFlags);
++            bs(r.turnCountDefault);
++            bs(r.turnCountBanked);
++            bs(r.turnCountSloped);
++            bs(r.shelteredLength);
++            bs(r.var11C);
++            bs(r.curNumCustomers);
++            bs(r.numCustomersTimeout);
++            for (auto& x : r.numCustomers)
++                bs(x);
++            bs(r.price);
++            bs(r.ratings.excitement);
++            bs(r.ratings.intensity);
++            bs(r.ratings.nausea);
++            bs(r.value);
++            bs(r.chairliftBullwheelRotation);
++            bs(r.totalCustomers);
++            bs(r.totalProfit);
++            bs(r.slidePeep);
++            bs(r.buildDate);
++            bs(r.upkeepCost);
++            bs(r.raceWinner);
++            bs(r.musicPosition);
++            bs(r.mechanic);
++            bs(r.priceSecondary);
++            bs(r.reliability);
++            bs(r.numPrimaryItemsSold);
++            bs(r.numSecondaryItemsSold);
++            bs(r.incomePerHour);
++            bs(r.profit);
++            bs(r.vehicleChangeTimeout);
++            bs(r.guestsFavourite);
++            bs(r.flags);
++            bs(r.totalAirTime);
++            bs(r.cableLiftX);
++            bs(r.cableLiftY);
++            bs(r.cableLift);
++            for (auto& x : r.queueLength)
++                bs(x);
++        }
++
++        // 8-byte RCT12 tile element. Only two fields are multi-byte: maze track wall bitmap
++        // and large scenery entry index. Maze is detected via the owning ride's type.
++        static void swapTile(RCT12TileElement& e, const S6Data& s6)
++        {
++            auto* b = reinterpret_cast<uint8_t*>(&e);
++            auto type = static_cast<RCT12TileElementType>((b[0] & 0b00111100) >> 2);
++            if (type == RCT12TileElementType::track)
++            {
++                uint8_t rideIndex = b[7];
++                if (rideIndex < std::size(s6.Rides) && s6.Rides[rideIndex].type == RIDE_TYPE_MAZE)
++                    std::swap(b[5], b[6]); // MazeEntry (uint16 @5)
++            }
++            else if (type == RCT12TileElementType::largeScenery)
++            {
++                std::swap(b[4], b[5]); // EntryIndex (uint16 @4)
++            }
++        }
++
++        static void swapResearch(RCT12ResearchItem& ri)
++        {
++            bs(ri.RawValue);
++        }
++        static void swapBanner(RCT12Banner& x)
++        {
++            bs(x.StringID);
++        } // Type is uint8
++        static void swapNews(RCT12NewsItem& x)
++        {
++            bs(x.Assoc);
++            bs(x.Ticks);
++            bs(x.MonthYear);
++        }
++        static void swapAward(RCT12Award& x)
++        {
++            bs(x.Time);
++            bs(x.Type);
++        }
++        static void swapPeepSpawn(RCT12PeepSpawn& x)
++        {
++            bs(x.x);
++            bs(x.y);
++        }
++        static void swapMapAnim(RCT12MapAnimation& x)
++        {
++            bs(x.x);
++            bs(x.y);
++        }
++        static void swapRideMeas(RCT12RideMeasurement& x)
++        {
++            bs(x.LastUseTick);
++            bs(x.NumItems);
++            bs(x.CurrentItem);
++        }
++        static void swapRRC(RideRatingCalculationData& d)
++        {
++            bs(d.ProximityX);
++            bs(d.ProximityY);
++            bs(d.ProximityZ);
++            bs(d.ProximityStartX);
++            bs(d.ProximityStartY);
++            bs(d.ProximityStartZ);
++            bs(d.ProximityTotal);
++            for (auto& x : d.ProximityScores)
++                bs(x);
++            bs(d.NumBrakes);
++            bs(d.NumReversers);
++            bs(d.StationFlags);
++        }
++        static void swapHeader(S6Header& h)
++        {
++            bs(h.NumPackedObjects);
++            bs(h.Version);
++            bs(h.MagicNumber);
++        }
++        static void swapInfo(S6Info& i)
++        {
++            bs(i.ObjectiveArg2);
++            bs(i.ObjectiveArg3);
++            auto* b = reinterpret_cast<uint8_t*>(&i.Entry);
++            std::swap(b[0], b[3]);
++            std::swap(b[1], b[2]); // flags
++            std::swap(b[12], b[15]);
++            std::swap(b[13], b[14]); // checksum
++        }
++
++    } // namespace S6Swap
++#endif
++
+ #define DECRYPT_MONEY(money) (static_cast<money32>(Numerics::rol32((money) ^ 0xF4EC9621, 13)))
+ 
+     /**
+@@ -83,6 +435,146 @@ namespace OpenRCT2::RCT2
+ 
+         u8string _s6Path;
+         S6Data _s6{};
++
++        // On a big-endian host, swap every multi-byte field of the raw SC6/SV6 data in place after reading,
++        // so the rest of the importer (which reads _s6 fields directly) sees correct values.
++        void ByteSwapS6IfBigEndian()
++        {
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++            S6Swap::swapInfo(_s6.Info);
++            for (auto& obj : _s6.Objects)
++            {
++                auto* b = reinterpret_cast<uint8_t*>(&obj);
++                S6Swap::b32(b, 0);  // flags @0
++                S6Swap::b32(b, 12); // checksum @12 (name is char[8] at offset 4)
++            }
++            for (auto& ent : _s6.Entities)
++                S6Swap::entitySlot(reinterpret_cast<uint8_t*>(&ent), _s6);
++
++            // Top-level scalars, sub-struct arrays and the map (generated from the S6Data layout).
++            S6Swap::bs(_s6.ElapsedMonths);
++            S6Swap::bs(_s6.CurrentDay);
++            S6Swap::bs(_s6.ScenarioTicks);
++            S6Swap::bs(_s6.ScenarioSrand0);
++            S6Swap::bs(_s6.ScenarioSrand1);
++            for (auto& _x : _s6.TileElements)
++                S6Swap::swapTile(_x, _s6);
++            S6Swap::bs(_s6.NextFreeTileElementPointerIndex);
++            for (auto& _x : _s6.EntityListsHead)
++                S6Swap::bs(_x);
++            for (auto& _x : _s6.EntityListsCount)
++                S6Swap::bs(_x);
++            S6Swap::bs(_s6.ParkName);
++            S6Swap::bs(_s6.ParkNameArgs);
++            S6Swap::bs(_s6.InitialCash);
++            S6Swap::bs(_s6.CurrentLoan);
++            S6Swap::bs(_s6.ParkFlags);
++            S6Swap::bs(_s6.ParkEntranceFee);
++            S6Swap::bs(_s6.RCT1ParkEntranceX);
++            S6Swap::bs(_s6.RCT1ParkEntranceY);
++            for (auto& _x : _s6.PeepSpawns)
++                S6Swap::swapPeepSpawn(_x);
++            for (auto& _x : _s6.ResearchedRideTypes)
++                S6Swap::bs(_x);
++            for (auto& _x : _s6.ResearchedRideEntries)
++                S6Swap::bs(_x);
++            for (auto& _x : _s6.ResearchedTrackTypesA)
++                S6Swap::bs(_x);
++            for (auto& _x : _s6.ResearchedTrackTypesB)
++                S6Swap::bs(_x);
++            S6Swap::bs(_s6.GuestsInPark);
++            S6Swap::bs(_s6.GuestsHeadingForPark);
++            for (auto& _x : _s6.ExpenditureTable)
++                for (auto& _y : _x)
++                    S6Swap::bs(_y);
++            S6Swap::bs(_s6.LastGuestsInPark);
++            for (auto& _x : _s6.ResearchedSceneryItems)
++                S6Swap::bs(_x);
++            S6Swap::bs(_s6.ParkRating);
++            S6Swap::bs(_s6.LastResearchedItemSubject);
++            S6Swap::bs(_s6.NextResearchItem);
++            S6Swap::bs(_s6.ResearchProgress);
++            S6Swap::bs(_s6.ParkSize);
++            S6Swap::bs(_s6.GuestGenerationProbability);
++            S6Swap::bs(_s6.TotalRideValueForMoney);
++            S6Swap::bs(_s6.MaximumLoan);
++            S6Swap::bs(_s6.GuestInitialCash);
++            S6Swap::bs(_s6.ObjectiveCurrency);
++            S6Swap::bs(_s6.ObjectiveGuests);
++            for (auto& _x : _s6.BalanceHistory)
++                S6Swap::bs(_x);
++            S6Swap::bs(_s6.CurrentExpenditure);
++            S6Swap::bs(_s6.CurrentProfit);
++            S6Swap::bs(_s6.WeeklyProfitAverageDividend);
++            S6Swap::bs(_s6.WeeklyProfitAverageDivisor);
++            for (auto& _x : _s6.WeeklyProfitHistory)
++                S6Swap::bs(_x);
++            S6Swap::bs(_s6.ParkValue);
++            for (auto& _x : _s6.ParkValueHistory)
++                S6Swap::bs(_x);
++            S6Swap::bs(_s6.CompletedCompanyValue);
++            S6Swap::bs(_s6.TotalAdmissions);
++            S6Swap::bs(_s6.IncomeFromAdmissions);
++            S6Swap::bs(_s6.CompanyValue);
++            for (auto& _x : _s6.Awards)
++                S6Swap::swapAward(_x);
++            S6Swap::bs(_s6.LandPrice);
++            S6Swap::bs(_s6.ConstructionRightsPrice);
++            S6Swap::bs(_s6.Word01358774);
++            S6Swap::bs(_s6.CDKey);
++            S6Swap::bs(_s6.GameVersionNumber);
++            S6Swap::bs(_s6.CompletedCompanyValueRecord);
++            S6Swap::bs(_s6.LoanHash);
++            S6Swap::bs(_s6.RideCount);
++            S6Swap::bs(_s6.HistoricalProfit);
++            S6Swap::bs(_s6.Cash);
++            S6Swap::bs(_s6.ParkRatingCasualtyPenalty);
++            S6Swap::bs(_s6.MapSizeUnits);
++            S6Swap::bs(_s6.MapSizeMinus2);
++            S6Swap::bs(_s6.MapSize);
++            S6Swap::bs(_s6.MapMaxXy);
++            S6Swap::bs(_s6.SamePriceThroughout);
++            S6Swap::bs(_s6.SuggestedMaxGuests);
++            S6Swap::bs(_s6.ParkRatingWarningDays);
++            for (auto& _x : _s6.ResearchItems)
++                S6Swap::swapResearch(_x);
++            S6Swap::bs(_s6.MapBaseZ);
++            S6Swap::bs(_s6.SamePriceThroughoutExtended);
++            for (auto& _x : _s6.ParkEntranceX)
++                S6Swap::bs(_x);
++            for (auto& _x : _s6.ParkEntranceY)
++                S6Swap::bs(_x);
++            for (auto& _x : _s6.ParkEntranceZ)
++                S6Swap::bs(_x);
++            for (auto& _x : _s6.Banners)
++                S6Swap::swapBanner(_x);
++            S6Swap::bs(_s6.GameTicks1);
++            for (auto& _x : _s6.Rides)
++                S6Swap::swapRide(_x);
++            S6Swap::bs(_s6.SavedAge);
++            S6Swap::bs(_s6.SavedViewX);
++            S6Swap::bs(_s6.SavedViewY);
++            for (auto& _x : _s6.MapAnimations)
++                S6Swap::swapMapAnim(_x);
++            S6Swap::bs(_s6.NumMapAnimations);
++            S6Swap::swapRRC(_s6.RideRatingsCalcData);
++            for (auto& _x : _s6.RideMeasurements)
++                S6Swap::swapRideMeas(_x);
++            S6Swap::bs(_s6.NextGuestIndex);
++            S6Swap::bs(_s6.GrassAndSceneryTilepos);
++            for (auto& _x : _s6.PatrolAreas)
++                S6Swap::bs(_x);
++            S6Swap::bs(_s6.WeatherUpdateTimer);
++            for (auto& _x : _s6.recentMessages)
++                S6Swap::swapNews(_x);
++            for (auto& _x : _s6.archivedMessages)
++                S6Swap::swapNews(_x);
++            S6Swap::bs(_s6.RCT1ScenarioSlotIndex);
++            S6Swap::bs(_s6.RCT1ScenarioFlags);
++            S6Swap::bs(_s6.WidePathTileLoopX);
++            S6Swap::bs(_s6.WidePathTileLoopY);
++#endif
++        }
+         uint8_t _gameVersion = 0;
+         bool _isSV7 = false;
+         bool _isScenario = false;
+@@ -143,7 +635,9 @@ namespace OpenRCT2::RCT2
+         {
+             auto chunkReader = SawyerChunkReader(stream);
+             chunkReader.ReadChunk(&_s6.Header, sizeof(_s6.Header));
+-
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++            S6Swap::swapHeader(_s6.Header); // NumPackedObjects is used below, before the full swap pass
++#endif
+             LOG_VERBOSE("saved game classic_flag = 0x%02x", _s6.Header.ClassicFlag);
+             if (isScenario)
+             {
+@@ -160,6 +654,16 @@ namespace OpenRCT2::RCT2
+                     RCT2StringToUTF8Self(_s6.Info.Name, sizeof(_s6.Info.Name));
+                     RCT2StringToUTF8Self(_s6.Info.Details, sizeof(_s6.Info.Details));
+                 }
++                // Fast path for the scenario index scan: PopulateIndexEntry only reads the Info chunk, so
++                // stop here instead of loading the whole 5.9 MB park (which is prohibitively slow on 68k
++                // when scanning ~150 scenarios).
++                if (skipObjectCheck)
++                {
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++                    S6Swap::swapInfo(_s6.Info);
++#endif
++                    return ParkLoadResult({});
++                }
+             }
+             else
+             {
+@@ -217,6 +721,7 @@ namespace OpenRCT2::RCT2
+             _isScenario = isScenario;
+             _s6Path = path;
+ 
++            ByteSwapS6IfBigEndian();
+             return ParkLoadResult(GetRequiredObjects());
+         }
+ 
+diff --git a/src/openrct2/ride/Ride.h b/src/openrct2/ride/Ride.h
+index 24aeff6a3..b66a42a1e 100644
+--- a/src/openrct2/ride/Ride.h
++++ b/src/openrct2/ride/Ride.h
+@@ -399,10 +399,17 @@ namespace OpenRCT2
+         Breakdown breakdownReason{};
+         union
+         {
++            // The 16-bit view is what the park file stores and what the breakdown logic compares, so the
++            // byte members must sit where the host places the low and high byte.
+             struct
+             {
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++                uint8_t reliabilityPercentage; // Starts at 100 and decreases from there.
++                uint8_t reliabilitySubvalue;   // 0 - 255, acts like the decimals for reliabilityPercentage
++#else
+                 uint8_t reliabilitySubvalue;   // 0 - 255, acts like the decimals for reliabilityPercentage
+                 uint8_t reliabilityPercentage; // Starts at 100 and decreases from there.
++#endif
+             };
+             uint16_t reliability{};
+         };
+diff --git a/src/openrct2/ride/Vehicle.h b/src/openrct2/ride/Vehicle.h
+index e5a8a8008..b3ab8c8cd 100644
+--- a/src/openrct2/ride/Vehicle.h
++++ b/src/openrct2/ride/Vehicle.h
+@@ -147,10 +147,16 @@ namespace OpenRCT2
+         union
+         {
+             uint16_t track_progress;
++            // Serialised through track_progress; var_34 is its low byte on every host.
+             struct
+             {
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++                uint8_t var_35;
++                int8_t var_34;
++#else
+                 int8_t var_34;
+                 uint8_t var_35;
++#endif
+             };
+         };
+         uint16_t TrackTypeAndDirection;
+@@ -172,10 +178,16 @@ namespace OpenRCT2
+         {
+             int16_t SwingPosition;
+             int16_t current_time;
++            // Serialised through current_time; ferris_wheel_var_0 is its low byte on every host.
+             struct
+             {
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++                int8_t ferris_wheel_var_1;
++                int8_t ferris_wheel_var_0;
++#else
+                 int8_t ferris_wheel_var_0;
+                 int8_t ferris_wheel_var_1;
++#endif
+             };
+             int16_t rider_speed_preference;
+         };
+diff --git a/src/openrct2/sawyer_coding/SawyerChunk.h b/src/openrct2/sawyer_coding/SawyerChunk.h
+index 45fb92f81..d108b96ce 100644
+--- a/src/openrct2/sawyer_coding/SawyerChunk.h
++++ b/src/openrct2/sawyer_coding/SawyerChunk.h
+@@ -9,6 +9,7 @@
+ 
+ #pragma once
+ 
++#include "../core/Endianness.h"
+ #include "../core/MemoryStream.h"
+ 
+ #include <cstdint>
+@@ -30,6 +31,11 @@ namespace OpenRCT2::SawyerCoding
+     {
+         ChunkEncoding encoding;
+         uint32_t length;
++
++        void LittleEndianToHost()
++        {
++            length = ByteSwapT<4>::SwapBE(length);
++        }
+     };
+     static_assert(sizeof(ChunkHeader) == 5);
+ #pragma pack(pop)
+diff --git a/src/openrct2/sawyer_coding/SawyerCoding.cpp b/src/openrct2/sawyer_coding/SawyerCoding.cpp
+index dcfea1ab2..756610c6f 100644
+--- a/src/openrct2/sawyer_coding/SawyerCoding.cpp
++++ b/src/openrct2/sawyer_coding/SawyerCoding.cpp
+@@ -104,8 +104,16 @@ namespace OpenRCT2::SawyerCoding
+         {
+             dst[i + 1] = Numerics::ror8(dst[i + 1], 3);
+ 
+-            uint32_t* code = reinterpret_cast<uint32_t*>(&dst[i]);
+-            *code = Numerics::rol32(*code, 9);
++            // The SC4 obfuscation rotates a 32-bit word that the file stores little-endian. Assemble and
++            // write the word little-endian explicitly so the rotate acts on the same bits on every host;
++            // a reinterpret_cast<uint32_t*> would read big-endian bytes on a 68k and scramble the decode.
++            uint32_t code = static_cast<uint32_t>(dst[i]) | (static_cast<uint32_t>(dst[i + 1]) << 8)
++                | (static_cast<uint32_t>(dst[i + 2]) << 16) | (static_cast<uint32_t>(dst[i + 3]) << 24);
++            code = Numerics::rol32(code, 9);
++            dst[i] = static_cast<uint8_t>(code & 0xFF);
++            dst[i + 1] = static_cast<uint8_t>((code >> 8) & 0xFF);
++            dst[i + 2] = static_cast<uint8_t>((code >> 16) & 0xFF);
++            dst[i + 3] = static_cast<uint8_t>((code >> 24) & 0xFF);
+         }
+ 
+         return decodedLength;
+diff --git a/src/openrct2/scenario/ScenarioObjective.h b/src/openrct2/scenario/ScenarioObjective.h
+index 9b52738bd..f494bfcf1 100644
+--- a/src/openrct2/scenario/ScenarioObjective.h
++++ b/src/openrct2/scenario/ScenarioObjective.h
+@@ -65,7 +65,15 @@ namespace OpenRCT2::Scenario
+         union
+         {
+             money64 Currency;
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++            struct
++            {
++                uint8_t MinimumExcitementPad[sizeof(money64) - sizeof(RideRating_t)];
++                RideRating_t MinimumExcitement; // low 16 bits of Currency on every host (the park file stores Currency)
++            };
++#else
+             RideRating_t MinimumExcitement; // For the "Finish 5 coaster with a minimum excitement rating" objective.
++#endif
+         };
+ 
+         static constexpr uint16_t kLowParkRatingThreshold = 700;
+diff --git a/src/openrct2/scenes/title/TitleSequence.cpp b/src/openrct2/scenes/title/TitleSequence.cpp
+index dccfb65a9..55e698bd9 100644
+--- a/src/openrct2/scenes/title/TitleSequence.cpp
++++ b/src/openrct2/scenes/title/TitleSequence.cpp
+@@ -422,10 +422,18 @@ namespace OpenRCT2::Title
+         while (true)
+         {
+             int32_t c = 0;
+-            if (stream->TryRead(&c, 1) != 1)
++            uint8_t byte = 0;
++            if (stream->TryRead(&byte, 1) != 1)
+             {
+                 c = EOF;
+             }
++            else
++            {
++                // Read into a byte, not directly into a 4-byte int: a 1-byte read lands in the
++                // high byte on a big-endian host, which would make every comparison and stored
++                // character wrong.
++                c = byte;
++            }
+             if (c == '\n' || c == '\r' || c == EOF)
+             {
+                 parts[part][cindex] = 0;

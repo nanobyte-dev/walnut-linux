@@ -1,0 +1,50 @@
+#!/usr/bin/make -f
+# OpenRCT2 0.5.6 for the PS3 (big-endian ppc64): software renderer only.
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_CPPFLAGS_MAINT_APPEND = -DNDEBUG
+# the Cell PPE (same flags as the other ps3 packages)
+export DEB_CFLAGS_MAINT_APPEND = -mcpu=cell -mtune=cell
+export DEB_CXXFLAGS_MAINT_APPEND = -mcpu=cell -mtune=cell
+
+%:
+	dh $@ --buildsystem=cmake+ninja
+
+# The asset zips upstream's CMake downloads at install time come in as component tarballs (objects/,
+# titleseq/, opensfx/, openmusic/: one zip each). Unpacked into data/, where upstream's install() picks
+# them up; OpenMusic is staged on its own for openrct2-music.
+UNZIP = cmake -E chdir $(1) cmake -E tar xf $(CURDIR)/$(2)
+override_dh_auto_configure:
+	rm -rf data/object data/sequence data/assetpack
+	mkdir -p data/object data/sequence
+	$(call UNZIP,data/object,objects/objects.zip)
+	$(call UNZIP,data/sequence,titleseq/title-sequences.zip)
+	$(call UNZIP,data,opensfx/opensound.zip)
+	dh_auto_configure -- \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_INSTALL_BINDIR=/usr/games \
+		-DENABLE_SCRIPTING=OFF \
+		-DDISABLE_OPENGL=ON \
+		-DDISABLE_DISCORD_RPC=ON \
+		-DDISABLE_HTTP=ON \
+		-DDISABLE_VERSION_CHECKER=ON \
+		-DDOWNLOAD_TITLE_SEQUENCES=OFF \
+		-DDOWNLOAD_OBJECTS=OFF \
+		-DDOWNLOAD_OPENSFX=OFF \
+		-DDOWNLOAD_OPENMUSIC=OFF \
+		-DDOWNLOAD_REPLAYS=OFF \
+		-DOPENRCT2_USE_CCACHE=OFF \
+		-DOPENRCT2_WERROR=OFF
+
+# upstream's tests need the RCT2 data (not available at build time); they run under qemu in the
+# project's test setup instead (see the notes of the port)
+override_dh_auto_test:
+
+override_dh_auto_install:
+	dh_auto_install --destdir=debian/tmp
+	rm -rf debian/tmp/usr/lib
+	mkdir -p debian/openrct2-music/usr/share/openrct2
+	$(call UNZIP,debian/openrct2-music/usr/share/openrct2,openmusic/openmusic.zip)
+
+# the game shows changelog.txt and contributors.md from its doc directory: keep them uncompressed
+override_dh_compress:
+	dh_compress -X.txt -X.md

@@ -1,0 +1,195 @@
+Subject: Big-endian: host-ordered byte members of RCT12 research items and track elements; test hooks
+
+- RCT12ResearchItem: RawValue is swapped, so the byte view follows host order
+- RCT12TrackElement: Sequence/Colour declared in host order and bytes 5/6
+  swapped for every track element (no maze lookup)
+- simulate <park> <ticks> [output park]: saves the park uncompressed afterwards
+- OPENRCT2_FIXED_SEED: fixed scenario RNG seed; SOURCE_DATE_EPOCH: authoring
+  timestamps (both to compare two builds)
+
+---
+ .../command_line/SimulateCommands.cpp         | 19 ++++++++++++++++++-
+ src/openrct2/park/ParkFile.cpp                |  9 +++++++--
+ src/openrct2/rct1/S4Importer.cpp              |  6 +++---
+ src/openrct2/rct12/RCT12.h                    | 16 ++++++++++++++++
+ src/openrct2/rct2/S6Importer.cpp              |  6 +++---
+ src/openrct2/scenario/Scenario.cpp            |  5 ++++-
+ 6 files changed, 51 insertions(+), 10 deletions(-)
+
+diff --git a/src/openrct2/command_line/SimulateCommands.cpp b/src/openrct2/command_line/SimulateCommands.cpp
+index b6dfa15ab..52c766ab4 100644
+--- a/src/openrct2/command_line/SimulateCommands.cpp
++++ b/src/openrct2/command_line/SimulateCommands.cpp
+@@ -13,6 +13,9 @@
+ #include "../core/Console.hpp"
+ #include "../entity/EntityRegistry.h"
+ #include "../network/NetworkTypes.h"
++#include "../object/ObjectManager.h"
++#include "../core/Compression.h"
++#include "../park/ParkFile.h"
+ #include "CommandLine.hpp"
+ 
+ #include <memory>
+@@ -31,7 +34,7 @@ namespace OpenRCT2
+ 
+     const CommandLineCommand CommandLine::kSimulateCommands[]{
+         // Main commands
+-        DefineCommand("", "<park file> <ticks>", kNoOptions, HandleSimulate),
++        DefineCommand("", "<park file> <ticks> [output park]", kNoOptions, HandleSimulate),
+         kCommandTableEnd
+     };
+     // clang-format on
+@@ -52,6 +55,13 @@ namespace OpenRCT2
+             return ExitCode::fail;
+         }
+ 
++        // optional: save the park after the ticks (uncompressed, so two builds can be compared chunk by chunk)
++        const utf8* outputPath = nullptr;
++        if (!argEnumerator->TryPopString(&outputPath))
++        {
++            outputPath = nullptr;
++        }
++
+         gOpenRCT2Headless = true;
+ 
+ #ifndef DISABLE_NETWORK
+@@ -72,6 +82,13 @@ namespace OpenRCT2
+                 gameStateUpdateLogic();
+             }
+             Console::WriteLine("Completed: %s", getGameState().entities.getAllEntitiesChecksum().toString().c_str());
++            if (outputPath != nullptr)
++            {
++                auto exporter = std::make_unique<ParkFileExporter>();
++                exporter->ExportObjectsList = context->GetObjectManager().GetPackableObjects();
++                exporter->Export(getGameState(), outputPath, Compression::kNoCompressionLevel);
++                Console::WriteLine("Saved: %s", outputPath);
++            }
+         }
+         else
+         {
+diff --git a/src/openrct2/park/ParkFile.cpp b/src/openrct2/park/ParkFile.cpp
+index c6551c0b3..14cedd55f 100644
+--- a/src/openrct2/park/ParkFile.cpp
++++ b/src/openrct2/park/ParkFile.cpp
+@@ -68,6 +68,7 @@
+ #include <bit>
+ #include <cassert>
+ #include <cstdint>
++#include <cstdlib>
+ #include <ctime>
+ #include <optional>
+ #include <string_view>
+@@ -312,8 +313,12 @@ namespace OpenRCT2
+                     std::vector<std::string> authors;
+                     cs.readWriteVector(authors, [](std::string& s) {});
+                     cs.write(std::string_view());                  // custom notes that can be attached to the save
+-                    cs.write(static_cast<uint64_t>(std::time(0))); // date started
+-                    cs.write(static_cast<uint64_t>(std::time(0))); // date modified
++                    // SOURCE_DATE_EPOCH (reproducible output) overrides the clock
++                    uint64_t now = static_cast<uint64_t>(std::time(0));
++                    if (const char* epoch = std::getenv("SOURCE_DATE_EPOCH"); epoch != nullptr && *epoch != '\0')
++                        now = std::strtoull(epoch, nullptr, 10);
++                    cs.write(now); // date started
++                    cs.write(now); // date modified
+                 });
+             }
+         }
+diff --git a/src/openrct2/rct1/S4Importer.cpp b/src/openrct2/rct1/S4Importer.cpp
+index f1561975c..45e20d67a 100644
+--- a/src/openrct2/rct1/S4Importer.cpp
++++ b/src/openrct2/rct1/S4Importer.cpp
+@@ -577,9 +577,9 @@ namespace OpenRCT2::RCT1
+             auto type = static_cast<RCT12TileElementType>((b[0] & 0b00111100) >> 2);
+             if (type == RCT12TileElementType::track)
+             {
+-                uint8_t rideIndex = b[7];
+-                if (rideIndex < std::size(s4.Rides) && s4.Rides[rideIndex].type == RideType::hedgeMaze)
+-                    std::swap(b[5], b[6]); // MazeEntry (uint16 @5)
++                // MazeEntry (uint16 @5) for mazes, Sequence and Colour otherwise: the byte members are
++                // declared in host order (RCT12.h), so the swap is the same for both
++                std::swap(b[5], b[6]);
+             }
+             else if (type == RCT12TileElementType::largeScenery)
+             {
+diff --git a/src/openrct2/rct12/RCT12.h b/src/openrct2/rct12/RCT12.h
+index 779d6dafb..46ddaf44e 100644
+--- a/src/openrct2/rct12/RCT12.h
++++ b/src/openrct2/rct12/RCT12.h
+@@ -779,8 +779,15 @@ private:
+             // - Bits 7 and 8 are never set
+             // - Bits 5 and 6 are set when a vehicle triggers the on-ride photo and act like a countdown from 3.
+             // - If any of the bits 5-8 are set, the game counts it as a photo being taken.
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++            // Sequence is the low byte of MazeEntry on every host: the importers swap bytes 5/6 of every
++            // track element on big-endian hosts
++            uint8_t Colour;   // 5 here, 6 in the file
++            uint8_t Sequence; // 6 here, 5 in the file
++#else
+             uint8_t Sequence; // 5.
+             uint8_t Colour;   // 6
++#endif
+         };
+         uint16_t MazeEntry; // 5
+     };
+@@ -1190,12 +1197,21 @@ struct RCT12ResearchItem
+     union
+     {
+         uint32_t RawValue;
++        // RawValue = EntryIndex | BaseRideType << 8 | Type << 16 | Flags << 24 on every host (the importers
++        // swap RawValue to host order, and also build items from host-order values)
+         struct
+         {
++#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++            uint8_t Flags;
++            uint8_t Type; // 0: scenery entry, 1: ride entry
++            uint8_t BaseRideType;
++            RCT12ObjectEntryIndex EntryIndex;
++#else
+             RCT12ObjectEntryIndex EntryIndex;
+             uint8_t BaseRideType;
+             uint8_t Type; // 0: scenery entry, 1: ride entry
+             uint8_t Flags;
++#endif
+         };
+     };
+     uint8_t Category;
+diff --git a/src/openrct2/rct2/S6Importer.cpp b/src/openrct2/rct2/S6Importer.cpp
+index 6fc8ab0cd..6ebf4254e 100644
+--- a/src/openrct2/rct2/S6Importer.cpp
++++ b/src/openrct2/rct2/S6Importer.cpp
+@@ -343,9 +343,9 @@ namespace OpenRCT2::RCT2
+             auto type = static_cast<RCT12TileElementType>((b[0] & 0b00111100) >> 2);
+             if (type == RCT12TileElementType::track)
+             {
+-                uint8_t rideIndex = b[7];
+-                if (rideIndex < std::size(s6.Rides) && s6.Rides[rideIndex].type == RIDE_TYPE_MAZE)
+-                    std::swap(b[5], b[6]); // MazeEntry (uint16 @5)
++                // MazeEntry (uint16 @5) for mazes, Sequence and Colour otherwise: the byte members are
++                // declared in host order (RCT12.h), so the swap is the same for both
++                std::swap(b[5], b[6]);
+             }
+             else if (type == RCT12TileElementType::largeScenery)
+             {
+diff --git a/src/openrct2/scenario/Scenario.cpp b/src/openrct2/scenario/Scenario.cpp
+index d79e6074d..689d5d2ab 100644
+--- a/src/openrct2/scenario/Scenario.cpp
++++ b/src/openrct2/scenario/Scenario.cpp
+@@ -50,6 +50,7 @@
+ #include "ScenarioRepository.h"
+ 
+ #include <chrono>
++#include <cstdlib>
+ 
+ using namespace OpenRCT2;
+ using namespace OpenRCT2::Scenario;
+@@ -76,7 +77,9 @@ void ScenarioBegin(GameState_t& gameState)
+ void ScenarioReset(GameState_t& gameState)
+ {
+     // Set the scenario pseudo-random seeds
+-    Random::RCT2::Seed s{ 0x1234567F ^ Platform::GetTicks(), 0x789FABCD ^ Platform::GetTicks() };
++    // OPENRCT2_FIXED_SEED (any value): the same seed every run, so two builds can be compared
++    const uint32_t ticks = std::getenv("OPENRCT2_FIXED_SEED") != nullptr ? 0 : Platform::GetTicks();
++    Random::RCT2::Seed s{ 0x1234567F ^ ticks, 0x789FABCD ^ ticks };
+     gameState.scenarioRand.seed(s);
+ 
+     ResearchResetCurrentItem();
