@@ -1,6 +1,6 @@
 #!/bin/bash
 # oa-profile.sh [cvars...]: X client for ps3-bench.sh: one bot match, perf profile of the game
-# (no -a: system-wide call graphs hung the PS3, docs/PERF.md) into $BENCH_DIR, then quits.
+# (no -a: system-wide call graphs hung the PS3, docs/DESKTOP.md "Early performance fixes") into $BENCH_DIR, then quits.
 # Timeline: 30 s in, 8 s of samples; the match ends at 60 s.
 {
 OA=/usr/games/openarena
