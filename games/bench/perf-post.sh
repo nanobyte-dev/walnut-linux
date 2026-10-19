@@ -9,6 +9,8 @@
 #   perf-leaf.txt      samples by process, DSO and symbol (report.py's perf_* columns)
 #   perf-pkgs.txt      the package of every DSO with samples (dpkg -S): which libraries are the game's
 #   perf-buildids.txt  the build ids of the DSOs with samples (to match symbols on the PC)
+#   perf-irqoff.txt    the soft-masked time (samples booked to __replay_soft_interrupts) by where it
+#                      ended, and the window's interrupts and htab hcalls a second (irqoff.py)
 #   perf-sys-report.txt, perf-sys-leaf.txt   the same from perf-sys.data (PERF_ALL=1), by comm and DSO
 # PERF_SYMS=1 also writes perf-syms.tar (the DSOs with samples and their debug files from
 # /usr/lib/debug, the ps3rsx module, laid out as a root for perf --symfs) and perf-kallsyms (the
@@ -89,6 +91,7 @@ for d in "$@"; do
 	rm -f "$d/.dsos"
 	[ -s "$d/perf-post.err" ] && grep -v -E '^\s*$' "$d/perf-post.err" | head -5 | sed 's/^/   perf: /'
 	[ -s "$d/perf-leaf.txt" ] && python3 "$here/perfprof.py" "$d"
+	[ -s "$d/perf.folded" ] && python3 "$here/irqoff.py" "$d" > "$d/perf-irqoff.txt" 2>> "$d/perf-post.err"
 	[ -s "$d/perf-load-stacks.tsv" ] && python3 "$here/loadprof.py" "$d"
 	awk -v a="$t0" -v b="$EPOCHREALTIME" 'BEGIN { printf "   (post-processing took %.0f s)\n", b - a }'
 done

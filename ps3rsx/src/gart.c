@@ -16,12 +16,14 @@
  * at a time.
  */
 #include <linux/mm.h>
+#include <linux/moduleparam.h>
 #include <linux/sizes.h>
 #include <linux/slab.h>
 #include <asm/cell-regs.h>
 #include <asm/ps3.h>
 
 #include "ps3rsx.h"
+#include "zero.h"
 
 #define CHUNK		SZ_1M
 #define IOPTE_RW	(CBE_IOPTE_PP_W | CBE_IOPTE_PP_R | CBE_IOPTE_M)
@@ -196,13 +198,21 @@ void ps3rsx_gart_read(struct ps3rsx_device *rsx, void *dst, u64 io, size_t len)
 	}
 }
 
-/* Zero len bytes at GART IO address io, across chunks */
+static bool clear_dcbz;
+module_param(clear_dcbz, bool, 0644);
+MODULE_PARM_DESC(clear_dcbz, "Zero new GART buffers with dcbz (clear_page), a cache line at a time "
+		 "without reading it first, instead of memset (zero.h)");
+
+/* Zero len bytes at GART IO address io, across chunks (every new GART buffer: no data of another
+ * process may reach userspace) */
 void ps3rsx_gart_clear(struct ps3rsx_device *rsx, u64 io, size_t len)
 {
+	bool dcbz = READ_ONCE(clear_dcbz);
+
 	while (len) {
 		size_t n = min_t(size_t, len, CHUNK - io % CHUNK);
 
-		memset(ps3rsx_gart_ptr(rsx, io), 0, n);
+		ps3rsx_zero(ps3rsx_gart_ptr(rsx, io), n, dcbz);
 		io += n;
 		len -= n;
 	}

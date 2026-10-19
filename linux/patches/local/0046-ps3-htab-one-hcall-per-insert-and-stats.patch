@@ -1,0 +1,241 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Mon, 19 Oct 2026 08:15:00 +0300
+Subject: powerpc/ps3: one hcall per hash table insertion, and htab hcall stats
+
+ps3_hpte_insert() makes two hcalls for every hash page table entry:
+lv1_insert_htab_entry(), then lv1_read_htab_entries() of the group, only to
+learn whether the entry went into the secondary group. Every first touch of
+a page (user and kernel memory alike) and every refault after an eviction
+pays for both. lv1 inserts into the group it is given (the primary) or into
+that group's secondary, and the inserted index it returns says which, so the
+read-back can go.
+
+On the PS3 these calls run with interrupts soft-disabled (the hash fault
+handler and the htab lock), and a cpu-clock profile books all of that time
+as __replay_soft_interrupts at the point interrupts come back on: OpenTTD's
+OpenGL driver, mapping new 8 MB staging buffers every frame, spent 26% of its
+samples there at the return from the hash faults and 8% at the unlock in
+ps3_hpte_invalidate (munmap).
+
+ps3_htab.insert_readback (boot parameter, or at run time
+/sys/module/ps3_htab/parameters/insert_readback):
+  1  read the group back, the old way (the default)
+  0  the slot from the inserted index alone, one hcall per insertion
+  2  both, compare (mismatches counted and logged, ratelimited), the
+     read-back's answer used
+A caller that passes the secondary group itself (HPTE_V_SECONDARY in vflags;
+no caller does, since ps3_hpte_insert never fails) always gets the read-back.
+
+/sys/module/ps3_htab/parameters/stats counts the htab hcalls by kind with
+the microseconds spent in them, evictions (lv1 replacing a valid entry: the
+table is full there) and read-back mismatches; writing anything zeroes it.
+The counters are plain u64s updated under ps3_htab_lock, which every one of
+these paths already holds; the timing is two timebase reads per hcall.
+
+Forwarded: not yet (test on the PS3 first: insert_readback=2 for a gaming
+session, the mismatch count must stay 0)
+
+diff --git a/arch/powerpc/platforms/ps3/htab.c b/arch/powerpc/platforms/ps3/htab.c
+--- a/arch/powerpc/platforms/ps3/htab.c
++++ b/arch/powerpc/platforms/ps3/htab.c
+@@ -8,10 +8,12 @@
+ 
+ #include <linux/kernel.h>
+ #include <linux/memblock.h>
++#include <linux/moduleparam.h>
+ 
+ #include <asm/machdep.h>
+ #include <asm/udbg.h>
+ #include <asm/lv1call.h>
++#include <asm/time.h>
+ #include <asm/ps3fb.h>
+ 
+ #define PS3_VERBOSE_RESULT
+@@ -31,6 +33,70 @@
+ 
+ static DEFINE_SPINLOCK(ps3_htab_lock);
+ 
++/*
++ * Every hash page table entry the kernel inserts (each first touch of a page, of user and kernel
++ * memory alike) went through two hcalls: lv1_insert_htab_entry(), then lv1_read_htab_entries()
++ * of the group to learn whether the entry landed in the secondary group. lv1 inserts into the
++ * group it is given (the primary) or into that group's secondary, and the inserted index says
++ * which: so the read-back can go. Boot parameter ps3_htab.insert_readback, or at run time
++ * /sys/module/ps3_htab/parameters/insert_readback:
++ *   1  read the group back, the old way (the default)
++ *   0  the slot from the inserted index alone, one hcall per insertion
++ *   2  both, compare them (mismatches counted in the stats, and logged), the read-back's answer
++ * /sys/module/ps3_htab/parameters/stats: hcalls by kind with their time in the hypervisor (so the
++ * share of the htab in a profile's soft-masked time can be measured: everything here runs with
++ * interrupts soft-disabled, which a cpu-clock profile books as __replay_soft_interrupts);
++ * any write zeroes them. All counters are updated under ps3_htab_lock.
++ */
++#undef MODULE_PARAM_PREFIX
++#define MODULE_PARAM_PREFIX "ps3_htab."
++
++static unsigned int insert_readback = 1;
++module_param(insert_readback, uint, 0644);
++MODULE_PARM_DESC(insert_readback, "After an HPTE insertion read the group back (1), "
++		 "trust the inserted index (0), or both and compare (2)");
++
++static struct {
++	u64 inserts, insert_tb, evictions;
++	u64 readbacks, readback_tb, mismatches;
++	u64 invalidates, invalidate_tb;
++	u64 updatepps, updatepp_tb;
++} ps3_htab_stats;
++
++static int stats_get(char *buf, const struct kernel_param *kp)
++{
++	unsigned long flags;
++	typeof(ps3_htab_stats) s;
++	u64 t = tb_ticks_per_usec;
++
++	spin_lock_irqsave(&ps3_htab_lock, flags);
++	s = ps3_htab_stats;
++	spin_unlock_irqrestore(&ps3_htab_lock, flags);
++	return sysfs_emit(buf, "inserts %llu insert_us %llu evictions %llu readbacks %llu "
++			  "readback_us %llu mismatches %llu invalidates %llu invalidate_us %llu "
++			  "updatepps %llu updatepp_us %llu\n",
++			  s.inserts, s.insert_tb / t, s.evictions, s.readbacks, s.readback_tb / t,
++			  s.mismatches, s.invalidates, s.invalidate_tb / t, s.updatepps,
++			  s.updatepp_tb / t);
++}
++
++static int stats_set(const char *val, const struct kernel_param *kp)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&ps3_htab_lock, flags);
++	memset(&ps3_htab_stats, 0, sizeof(ps3_htab_stats));
++	spin_unlock_irqrestore(&ps3_htab_lock, flags);
++	return 0;
++}
++
++static const struct kernel_param_ops stats_ops = {
++	.get = stats_get,
++	.set = stats_set,
++};
++module_param_cb(stats, &stats_ops, NULL, 0644);
++MODULE_PARM_DESC(stats, "hcalls by kind and microseconds in them (write anything to zero)");
++
+ static long ps3_hpte_insert(unsigned long hpte_group, unsigned long vpn,
+ 	unsigned long pa, unsigned long rflags, unsigned long vflags,
+ 	int psize, int apsize, int ssize)
+@@ -41,12 +107,16 @@
+ 	u64 evicted_v, evicted_r;
+ 	u64 hpte_v_array[4], hpte_rs;
+ 	unsigned long flags;
+-	long ret = -1;
++	unsigned int readback = READ_ONCE(insert_readback);
++	long ret = -1, derived;
++	u64 tb;
+ 
+ 	/*
+ 	 * lv1_insert_htab_entry() will search for victim
+ 	 * entry in both primary and secondary pte group
+ 	 */
++	if (vflags & HPTE_V_SECONDARY)
++		readback = 1;	/* hpte_group isn't the primary group: not derivable */
+ 	vflags &= ~HPTE_V_SECONDARY;
+ 
+ 	hpte_v = hpte_encode_v(vpn, psize, apsize, ssize) | vflags | HPTE_V_VALID;
+@@ -55,11 +125,16 @@
+ 	spin_lock_irqsave(&ps3_htab_lock, flags);
+ 
+ 	/* talk hvc to replace entries BOLTED == 0 */
++	tb = get_tb();
+ 	result = lv1_insert_htab_entry(PS3_LPAR_VAS_ID_CURRENT, hpte_group,
+ 				       hpte_v, hpte_r,
+ 				       HPTE_V_BOLTED, 0,
+ 				       &inserted_index,
+ 				       &evicted_v, &evicted_r);
++	ps3_htab_stats.insert_tb += get_tb() - tb;
++	ps3_htab_stats.inserts++;
++	if (evicted_v & HPTE_V_VALID)
++		ps3_htab_stats.evictions++;
+ 
+ 	if (result) {
+ 		/* all entries bolted !*/
+@@ -70,13 +145,28 @@
+ 	}
+ 
+ 	/*
++	 * The slot within its group, and whether that group is the secondary: outside the
++	 * group we asked for, the entry is in the secondary one (lv1 sets HPTE_V_SECONDARY in
++	 * it then, which the read-back looks at).
++	 */
++	derived = (inserted_index & 7) |
++		  ((inserted_index & ~7UL) != hpte_group ? 1 << 3 : 0);
++	if (!readback) {
++		ret = derived;
++		goto out;
++	}
++
++	/*
+ 	 * see if the entry is inserted into secondary pteg
+ 	 */
++	tb = get_tb();
+ 	result = lv1_read_htab_entries(PS3_LPAR_VAS_ID_CURRENT,
+ 				       inserted_index & ~0x3UL,
+ 				       &hpte_v_array[0], &hpte_v_array[1],
+ 				       &hpte_v_array[2], &hpte_v_array[3],
+ 				       &hpte_rs);
++	ps3_htab_stats.readback_tb += get_tb() - tb;
++	ps3_htab_stats.readbacks++;
+ 	BUG_ON(result);
+ 
+ 	if (hpte_v_array[inserted_index % 4] & HPTE_V_SECONDARY)
+@@ -84,6 +174,13 @@
+ 	else
+ 		ret = inserted_index & 7;
+ 
++	if (readback == 2 && ret != derived) {
++		ps3_htab_stats.mismatches++;
++		pr_warn_ratelimited("%s: group %lx, inserted %llx: read back %lx, derived %lx\n",
++				    __func__, hpte_group, inserted_index, ret, derived);
++	}
++out:
++
+ 	spin_unlock_irqrestore(&ps3_htab_lock, flags);
+ 
+ 	return ret;
+@@ -104,11 +201,14 @@
+ 	u64 hpte_v_array[4];
+ 	unsigned long flags;
+ 	long ret;
++	u64 tb;
+ 
+ 	want_v = hpte_encode_avpn(vpn, psize, ssize);
+ 
+ 	spin_lock_irqsave(&ps3_htab_lock, flags);
+ 
++	tb = get_tb();
++	ps3_htab_stats.updatepps++;
+ 	result = lv1_read_htab_entries(PS3_LPAR_VAS_ID_CURRENT, slot & ~0x3UL,
+ 				       &hpte_v_array[0], &hpte_v_array[1],
+ 				       &hpte_v_array[2], &hpte_v_array[3],
+@@ -138,6 +238,7 @@
+ 					      slot, 0, 0);
+ 		ret = -1;
+ 	}
++	ps3_htab_stats.updatepp_tb += get_tb() - tb;
+ 
+ 	spin_unlock_irqrestore(&ps3_htab_lock, flags);
+ 	return ret;
+@@ -154,10 +255,14 @@
+ {
+ 	unsigned long flags;
+ 	int result;
++	u64 tb;
+ 
+ 	spin_lock_irqsave(&ps3_htab_lock, flags);
+ 
++	tb = get_tb();
+ 	result = lv1_write_htab_entry(PS3_LPAR_VAS_ID_CURRENT, slot, 0, 0);
++	ps3_htab_stats.invalidate_tb += get_tb() - tb;
++	ps3_htab_stats.invalidates++;
+ 
+ 	if (result) {
+ 		pr_info("%s: result=%s vpn=%lx slot=%lx psize=%d\n",

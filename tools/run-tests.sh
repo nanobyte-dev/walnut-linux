@@ -2,8 +2,10 @@
 # run-tests.sh [--slow] [--only NAME]: every host test suite (no PS3 involved), then a table of
 # suite, result and seconds; exit 1 when any failed. Output of each suite: build/tmp/tests/<suite>.log
 # (shown for failures). A suite whose prerequisites are missing is "skip", not a failure.
-#   default  quick suites: bench-selftest, gprefetch, ps3rsx-shadow, ps3-spu, xmoto-glbatch,
-#            mesa-forcedxt (Mesa 0038's NV30_FORCE_DXT decision, mesa/tests), ssdimg (the SSD test
+#   default  quick suites: bench-selftest, gprefetch, ps3rsx-shadow (and ps3rsx's clear_dcbz zeroing),
+#            ps3-spu, xmoto-glbatch,
+#            mesa-forcedxt (Mesa 0038's NV30_FORCE_DXT decision, mesa/tests), mesa-staging-pool
+#            (Mesa 0040's NV30_STAGING_POOL_MB decisions and a model of the pool, mesa/tests), ssdimg (the SSD test
 #            drive's stamp.py, ps3-imgmap on a fake UFS layer, ps3-vswap's device-mapper backing;
 #            ps3-imgmap-boot's maps and tables against ps3-imgmap's; both tools' write guard
 #            registration against a model of the kernel's side), ps3-boot (ps3-update-kboot's
@@ -43,14 +45,16 @@ need() { command -v "$1" >/dev/null || { echo "skip: no $1"; exit 77; }; }
 t_ps3rsx() {
 	O=$PWD/build/tmp/ps3rsx-test
 	need gcc
-	make -C ps3rsx/test O="$O" "$O/shadow-equiv" "$O/shadow-equiv-fast" || exit 1
+	make -C ps3rsx/test O="$O" "$O/shadow-equiv" "$O/shadow-equiv-fast" "$O/zero-test" || exit 1
 	"$O/shadow-equiv" 200000 20000 1 || exit 1
 	"$O/shadow-equiv-fast" 1000000 100000 2 || exit 1
+	"$O/zero-test" 20000 1 || exit 1
 	# big-endian run under qemu, when the cross compiler, the sysroot and qemu are there
 	if command -v powerpc64-linux-gnu-gcc >/dev/null && command -v qemu-ppc64-static >/dev/null &&
 	   [ -d build/mesa/sysroot ]; then
-		make -C ps3rsx/test O="$O" "$O/shadow-equiv-ppc64" || exit 1
+		make -C ps3rsx/test O="$O" "$O/shadow-equiv-ppc64" "$O/zero-test-ppc64" || exit 1
 		qemu-ppc64-static "$O/shadow-equiv-ppc64" 100000 10000 3 || exit 1
+		qemu-ppc64-static "$O/zero-test-ppc64" 20000 2 || exit 1
 	else echo "(ppc64 run skipped: no cross gcc, qemu or sysroot)"; fi
 }
 t_xmoto() {
@@ -66,6 +70,14 @@ t_forcedxt() {
 		-o build/tmp/tests/forcedxt-policy-test mesa/tests/forcedxt-policy-test.c || exit 1
 	build/tmp/tests/forcedxt-policy-test
 }
+t_stagingpool() {
+	[ -e build/work/mesa/src/gallium/drivers/nouveau/nv30/nv30_staging_policy.h ] || { echo "skip: no build/work/mesa with patch 0040 (make mesa-work)"; exit 77; }
+	need gcc
+	mkdir -p build/tmp/tests
+	gcc -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -I build/work/mesa/src/gallium/drivers/nouveau \
+		-o build/tmp/tests/staging-pool-test mesa/tests/staging-pool-test.c || exit 1
+	build/tmp/tests/staging-pool-test
+}
 t_autogm() {
 	if ! { command -v Xvfb >/dev/null && command -v openbox >/dev/null; } &&
 	   ! command -v docker >/dev/null && ! command -v podman >/dev/null; then
@@ -79,6 +91,7 @@ run ps3rsx-shadow bash -c "$(declare -f need t_ps3rsx); t_ps3rsx"
 run ps3-spu make -C ps3-spu test
 run xmoto-glbatch bash -c "$(declare -f need t_xmoto); t_xmoto"
 run mesa-forcedxt bash -c "$(declare -f need t_forcedxt); t_forcedxt"
+run mesa-staging-pool bash -c "$(declare -f need t_stagingpool); t_stagingpool"
 run ssdimg python3 tools/ssdimg/test_ssdimg.py
 run ps3-boot python3 ps3-boot/tests/test_kboot.py
 run ps3disk-guard linux/tests/ps3disk-guard.sh

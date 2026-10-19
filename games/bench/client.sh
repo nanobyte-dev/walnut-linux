@@ -20,7 +20,9 @@
 # control fifos as ctl:ack pairs; perf is switched on WARMUP s after the load (0.9 x WARMUP with
 # PASSES=1, where the first counted pass may start that early; with WIN_ON_RE at each ON line) and
 # off at the window's end (MEASURE s later, the last counted pass, each OFF line); bench.txt gets
-# perf_win (on off pairs), perf_cpu (perf's own CPU seconds in them), perf_ack. BENCH_MEM=1 (run.sh
+# perf_win (on off pairs), perf_cpu (perf's own CPU seconds in them), perf_ack; /proc/interrupts and
+# kernel local/0046's htab hcall stats at perf's on and off go to $D/irq/start.* and end.* (with
+# WIN_ON_RE: the last pair), for irqoff.py's rates over the window. BENCH_MEM=1 (run.sh
 # MEM=1): the game's smaps, smaps_rollup and status, ps3rsx's buffer census (debugfs ps3rsx_mm, once
 # a snapshot) and glibc's malloc statistics (ps3-mallocstat.so preloaded: BENCH_MALLOCSTAT is its
 # path, "" turns it off) at the window's start, middle and end into $D/mem/ (memprof.py); bench.txt
@@ -408,6 +410,12 @@ perf_ticks() {	# perf_ticks VAR [PIDFILE]: user+sys clock ticks of the perf proc
 	printf -v "$1" '%d' "$_t"
 }
 [ "$PL_ON" = 1 ] && perf_ticks PL_T0 "$D/.perfload.pid"	# perf's own CPU from here (its attach before)
+irq_snap() {	# irq_snap LABEL: interrupts and the htab hcalls (kernel local/0046) into irq/ (irqoff.py)
+	mkdir -p "$D/irq"
+	fcopy /proc/interrupts "$D/irq/$1.interrupts"
+	[ -r /sys/module/ps3_htab/parameters/stats ] && fcopy /sys/module/ps3_htab/parameters/stats "$D/irq/$1.htab"
+	printf 'label=%s real=%s\n' "$1" "$EPOCHREALTIME" > "$D/irq/$1.info"
+}
 perf_ctl() {	# perf_ctl enable|disable: every perf, waiting 1 s at most for each one's ack
 	local i a t
 	[ ${#PERF_FD[@]} -gt 0 ] || return 0
@@ -418,8 +426,8 @@ perf_ctl() {	# perf_ctl enable|disable: every perf, waiting 1 s at most for each
 		read -r -t 1 -u "${PERF_ACK[$i]}" a && [ "$a" = ack ] || PERF_ACKS=missing
 	done
 	us; secs t $(( US - u0 )); PERF_WIN+=("$t")
-	if [ "$1" = enable ]; then PERF_ON=1; perf_ticks PERF_T0
-	else PERF_ON=0; perf_ticks a; PERF_TICKS=$(( PERF_TICKS + a - PERF_T0 )); fi
+	if [ "$1" = enable ]; then PERF_ON=1; perf_ticks PERF_T0; irq_snap start
+	else PERF_ON=0; perf_ticks a; PERF_TICKS=$(( PERF_TICKS + a - PERF_T0 )); irq_snap end; fi
 }
 mem_snap() {	# mem_snap LABEL: the game's memory now into $D/mem/LABEL.*
 	local p a b t m

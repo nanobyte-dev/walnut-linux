@@ -36,3 +36,4 @@
 0037-nv30-optional-limits-on-nouveau-s-system-memory-copi.patch
 0038-mesa-texture-compression-at-upload-for-every-game-NV.patch
 0039-nv30-compiled-programs-in-the-disk-shader-cache-NV30.patch
+0040-nv30-big-texture-uploads-reuse-staging-buffers-too-N.patch

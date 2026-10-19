@@ -23,6 +23,7 @@
   7. perfprof.py on a made-up perf script output (call chains, and the one-line form of the
      system-wide record): folded stacks, the class shares of report.py's perf_* columns by hand;
      frames perf left [unknown] filled from a MEM=1 smaps and a library built here (its symbols)
+     irqoff.py on made-up stacks and irq/ snapshots: replay samples by where they ended, the rates
   8. client.sh with PERF and MEM: a fake perf on the control fifos (enable/disable at the window's
      ends, acknowledged), ps3-mallocstat.so (built with the host's cc) preloaded into the fake game,
      the snapshots at the window's start, middle and end, memprof.py's columns from them
@@ -835,6 +836,57 @@ def perf_script_text(samples):
     return "\n".join(out) + "\n"
 
 
+def irqoff_synthetic(tmp):
+    """irqoff.py on made-up folded stacks and irq/ snapshots: each replay sample to its site, the
+    shares by hand, the rates over the window"""
+    import io
+    import contextlib
+    import irqoff
+    d = tmp / "ps3-bench-20261019T080000Z-fakeirq-base"
+    (d / "irq").mkdir(parents=True)
+    R = ".arch_local_irq_restore_[k];.__replay_soft_interrupts_[k]"
+    write(d / "perf.folded", "\n".join([
+        "game;[libgallium.so];[libc.so.6];interrupt_return_srr_user_[k];.interrupt_exit_user_prepare_[k];"
+        ".interrupt_exit_user_prepare_main_[k];[unknown];" + R + " 30",
+        "game;[libgallium.so];__munmap;system_call_common_[k];.system_call_exception_[k];.sys_munmap_[k];"
+        ".__vm_munmap_[k];.unmap_vmas_[k];.unmap_page_range_[k];.flush_hash_page_[k];.ps3_hpte_invalidate_[k];"
+        "._raw_spin_unlock_irqrestore_[k];[unknown];" + R + " 10",
+        "kswapd0;.kthread_[k];.kswapd_[k];.shrink_node_[k];.flush_hash_page_[k];.ps3_hpte_invalidate_[k];"
+        "._raw_spin_unlock_irqrestore_[k];[unknown];" + R + " 5",
+        "game;[libasound.so];ioctl;system_call_common_[k];.system_call_exception_[k];.sys_ioctl_[k];"
+        ".snd_pcm_ioctl_[k];.snd_pcm_delay_[k];.snd_pcm_group_unlock_irq_[k];[unknown];" + R + " 4",
+        "game;[libc.so.6];system_call_common_[k];.system_call_exception_[k];[unknown];" + R + " 3",
+        "game;game_main;draw 48",
+        "Xorg;[Xorg] 5",
+    ]) + "\n")
+    write(d / "irq" / "start.info", "label=start real=1000.0\n")
+    write(d / "irq" / "end.info", "label=end real=1100.0\n")
+    write(d / "irq" / "start.interrupts", "  CPU0 CPU1\n 16:  100 0  PS3-IRQ  vsync\nLOC:  1000 2000  Local timer interrupts\n")
+    write(d / "irq" / "end.interrupts", "  CPU0 CPU1\n 16:  6100 0  PS3-IRQ  vsync\nLOC:  26000 52000  Local timer interrupts\n")
+    write(d / "irq" / "start.htab", "inserts 1000 insert_us 2000 evictions 0 readbacks 1000 readback_us 1000 "
+          "mismatches 0 invalidates 0 invalidate_us 0 updatepps 0 updatepp_us 0\n")
+    write(d / "irq" / "end.htab", "inserts 101000 insert_us 202000 evictions 500 readbacks 1000 readback_us 1000 "
+          "mismatches 0 invalidates 50000 invalidate_us 100000 updatepps 0 updatepp_us 0\n")
+    tot, game, by, users, other = irqoff.folded(str(d))
+    check("irqoff: 105 samples, 95 the game's (not Xorg's or kswapd0's)", tot == 105 and game == 95, (tot, game))
+    check("irqoff: hash faults 30, munmap 10, reclaim 5 (kswapd), alsa 4, syscall 3",
+          by[("hash fault (user)", True)] == 30 and by[("hpte inval munmap", True)] == 10 and
+          by[("hpte inval reclaim", False)] == 5 and by[("alsa pcm lock", True)] == 4 and
+          by[("syscall entry/exit", True)] == 3, dict(by))
+    check("irqoff: the faulting user frame is libc's", users.get("[libc.so.6]") == 30, dict(users))
+    dt, irq, hrate = irqoff.window(str(d))
+    rates = dict(irq)
+    check("irqoff: 100 s window, vsync 60/s, timer 750/s", dt == 100 and rates.get("16 vsync") == 60 and
+          rates.get("LOC") == 750, (dt, rates))
+    check("irqoff: htab 1000 inserts/s at 2 us, 500 invalidates/s", hrate["inserts"] == 1000 and
+          hrate["insert_us"] == 2000 and hrate["invalidates"] == 500, hrate)
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        irqoff.run(str(d))
+    check("irqoff: the report prints the shares and the hcall line", "31.58" in out.getvalue() and
+          "inserts 1000 (2.0 us each)" in out.getvalue(), out.getvalue()[-400:])
+
+
 def perf_synthetic(tmp):
     import perfprof
     d = tmp / "ps3-bench-20261018T040000Z-fakeperf-base"
@@ -1533,6 +1585,7 @@ if __name__ == "__main__":
         stalls_synthetic(tmp)
         stallrec_e2e(tmp)
         perf_synthetic(tmp)
+        irqoff_synthetic(tmp)
         perf_fill(tmp)
         client_prof(tmp)
         loadprof_synthetic(tmp)
