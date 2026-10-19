@@ -678,14 +678,10 @@ and the slow multiplier aren't modelled); the ratios are what carries over.
   instructions without it). libdeflate is level with it (1.46 G on the maps, 1.32 G on the pk3), so
   a per-game libdeflate patch for Sauerbraten's `.ogz` (like ioquake3's for pk3s) buys nothing over
   zlib-ng. `-fstack-protector-strong` (Debian's hardening, kept) costs 9% of the gzip case.
-- **libpng's filters are the larger half of a PNG now:** 57% of the decode's instructions and 97% of
-  its load-hit-stores once zlib-ng is in, Paeth on 3- and 4-byte pixels alone 47%: it reads back
-  `row[i-bpp]`, a byte it stored a few instructions before. A version that keeps the left pixel in
-  registers gives the same bytes with the same instruction count and 0.12-0.29 load-hit-stores a byte
-  instead of 1.6 (`tools/ppecost/paeth.c`); an AltiVec Paeth, Up, Avg and Sub would cut the
-  instructions too. Debian builds libpng 1.6.58 without its PowerPC vector code, and that should stay
-  so: its run-time check accepts AltiVec or VSX and would then run VSX code on a Cell. A libpng
-  filter patch (a new `libpng1.6` package) would pay more than zlib-ng does for PNG; not built.
+- **libpng's filters were the larger half of a PNG:** 57% of the decode's instructions and 97% of
+  its load-hit-stores once zlib-ng is in, Paeth on 3- and 4-byte pixels alone 47%: libpng's C reads
+  back `row[i-bpp]`, a byte it stored a few instructions before. Our `libpng1.6` package replaces
+  them (below).
 - **libjpeg-turbo uses its AltiVec code on the Cell.** Debian's `libjpeg62-turbo 1:3.1.3-4` has the
   AltiVec SIMD (no VSX) and picks it at run time from `/proc/cpuinfo`: a line starting `cpu` with
   the word `altivec`, which the PS3's "Cell Broadband Engine, altivec supported" has
@@ -708,10 +704,59 @@ half: the test images split libpng to zlib 1.3 : 1 where SuperTuxKart's load has
 | Game | Change | Expected |
 |---|---|---|
 | SuperTuxKart | zlib-ng | 1.8-2.7 s off the load's 3.9 s of zlib (main thread) |
-| SuperTuxKart | libpng filter patch (not built) | 1.5-3 s off its 4.2 s of png |
+| SuperTuxKart | libpng1.6 unfilters | 2-3.3 s off its 4.2 s of png |
 | Sauerbraten | zlib-ng | 0.5-0.7 s off its 1.6 s of `.ogz` inflate |
 | OpenArena | zlib-ng | none: our ioquake3 reads pk3s through libdeflate |
 | every GL game | DT_RELR in Mesa (not built) | tens of ms |
+
+**libpng1.6.** `libpng1.6/` (Debian's source, 1.6.59-1) is built `-O3 -mcpu=cell -mtune=cell`, with
+Debian's `-DPNG_POWERPC_VSX=off` kept: libpng's own PowerPC option accepts AltiVec or VSX in its
+run-time check and would run VSX code on a Cell. The patch is `powerpc/filter_cell.h`, included by
+`pngrutil.c` through libpng's `PNG_FILTER_OPTIMIZATIONS` hook, and only compiled for big-endian
+ppc64 with AltiVec and without VSX (`-DPNG_NO_CELL_FILTERS` turns it off). It replaces Up for every
+pixel size, and Sub, Avg and Paeth for 3- and 4-byte pixels, which is 8-bit RGB and RGBA. Palette
+and gray images are unfiltered at their stored pixel size (1 or 2 bytes, 16-bit RGB and RGBA 6 or 8)
+by libpng's C, except Up; the 1-byte Paeth already keeps its left pixel in a register. Each byte depends on the byte `bpp` before it, so a 16-byte vector is
+finished one group of `bpp` bytes at a time (Avg and Paeth: the group's left neighbours are the
+previous group, a shift of the vector, or of the previous vector for the first group; Sub is a prefix
+sum). Paeth works in 8 bits: `pa` and `pb` are absolute differences by max/min/subtract, and `pc =
+|a+b-2c|` is `pa+pb` (saturating, which can't change the choice) when `a` and `b` lie on one side of
+`c` and `|pa-pb|` otherwise. The first bytes up to an aligned address, and the last, are scalar. No
+byte is stored and read back except once per row, at the seam between the scalar and vector parts.
+
+| Per byte, one row filter (qemu-user, `pngfilt -b`, 64 rows of 4092 bytes) | generic C: insns, load-hit-stores | ours |
+|---|---|---|
+| Up | 6.66, 0.87 | 0.76, 0.003 |
+| Sub, 3 / 4 byte pixels | 5.66, 1.87 | 0.94, 0.003 / 0.83, 0.004 |
+| Avg, 3 / 4 | 9.17, 1.87 / 9.16, 1.75 | 3.27, 0.005 / 2.41, 0.005 |
+| Paeth, 3 / 4 | 25.07, 1.62 / 25.05, 1.50 | 8.94, 0.002 / 6.46, 0.002 |
+
+| 355 SuperTuxKart PNGs (354 MB out), whole decode with zlib-ng | insns / load-hit-stores / est | ratio est |
+|---|---|---|
+| Debian's libpng 1.6.59 (`-O2`) | 9.48 G / 451 M / 27.5 G | 1 |
+| the same source `-O3 -mcpu=cell` | 9.03 G / 385 M / 24.4 G | 0.89 |
+| `libpng1.6` of ours | 5.59 G / 22 M / 6.5 G | 0.24 |
+
+libpng's own part (everything but zlib-ng and libc) goes from 5.56 G instructions and 436 M
+load-hit-stores to 1.67 G and 7 M; what is left there is the transforms (palette and gray expansion,
+16-bit stripping), the row copies and the pixels filtered with None. The estimate is the plugin's
+crude cycles, in which 40 per load-hit-store carries the stock case; the instruction ratio, 0.59 of
+the decode and 0.30 of libpng's part, is the cautious figure. One thing the model can't see: the
+Avg and Paeth steps are a dependent chain of AltiVec operations (a rough 40 cycles per group for
+Paeth at 4 cycles an operation), 4 or 3 bytes per step; the stock C needs about 100 instructions for
+a 4-byte pixel even with no stalls, so the chain should still win, but only the PS3 will say.
+
+Bit-identical output was checked four ways, all under qemu-ppc64 against the generic C or the stock
+library: `tools/ppecost/pngfilt.c` (the Cell functions against libpng's, every row length up to 300
+and 900 random ones up to 70000 bytes, all 16 alignments of the row and of the previous row, six kinds
+of content, guard bytes around both rows: 238k checks per seed, three seeds, 0 differences; with Avg's
+rounding and Paeth's `pc` broken on purpose, 29652 checks fail); `pngrt.c` (every colour type and depth, plain and Adam7,
+widths 1 to 300, each filter forced on every row and the encoder's own choice, written by libpng and
+read back: 41580 images, 0 mismatches, with the stock library and with ours); `pnghash.c` (the raw
+decoded rows of all 2337 PNGs of Debian's `supertuxkart-data`, the 318 of `cube2-data` and libpng's
+pngsuite and test images, hashed with both libraries: identical); and the package's own build, which
+runs libpng's 37 tests (pngtest, pngstest, pngunknown, pngimage over the whole pngsuite) and
+`pngtest-static`.
 
 **The package.** `zlib-ng/` (TYPE upstream, the pinned 2.3.3 tarball, `config.mk` `ZLIBNG_*`) builds
 `libz-ng-compat`: only `libz.so.1` (zlib-compat API, symbol versions to `ZLIB_1.2.12`) in

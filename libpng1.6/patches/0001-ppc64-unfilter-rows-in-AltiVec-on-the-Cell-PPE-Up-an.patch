@@ -1,0 +1,292 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Mon, 19 Oct 2026 13:04:48 +0300
+Subject: ppc64: unfilter rows in AltiVec on the Cell PPE (Up, and Sub, Avg,
+ Paeth for 3- and 4-byte pixels)
+
+The generic C unfilters read back row[i-bpp], a byte stored a few instructions before: on the
+PPE every such load waits about 40 cycles for the store (97% of a PNG decode's load-hit-stores
+with zlib-ng in). These keep the left pixel in registers and work 16 bytes at a time in AltiVec,
+with the same output (tested against the generic C on synthetic and real images, and by libpng's
+own tests). Only compiled for AltiVec without VSX (-mcpu=cell); the VSX option stays off.
+
+diff --git a/pngrutil.c b/pngrutil.c
+--- a/pngrutil.c
++++ b/pngrutil.c
+@@ -4122,6 +4122,17 @@ png_read_filter_row_paeth_multibyte_pixel(png_row_infop row_info, png_bytep row,
+    }
+ }
+ 
++/* The Cell PPE (PS3): unfilters that keep the left pixel in registers and run in AltiVec. Only
++ * when compiled for AltiVec without VSX (-mcpu=cell); the VSX code of PNG_POWERPC_VSX_OPT is a
++ * different option and stays off there.
++ */
++#if defined(__PPC64__) && defined(__ALTIVEC__) && !defined(__VSX__) && \
++    defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ && \
++    !defined(PNG_FILTER_OPTIMIZATIONS) && !defined(PNG_NO_CELL_FILTERS)
++#  include "powerpc/filter_cell.h"
++#  define PNG_FILTER_OPTIMIZATIONS png_init_filter_functions_cell
++#endif
++
+ static void
+ png_init_filter_functions(png_structrp pp)
+    /* This function is called once for every PNG image (except for PNG images
+diff --git a/powerpc/filter_cell.h b/powerpc/filter_cell.h
+new file mode 100644
+--- /dev/null
++++ b/powerpc/filter_cell.h
+@@ -0,0 +1,254 @@
++/* filter_cell.h - row unfilters for the PS3's Cell PPE (big-endian ppc64, AltiVec, no VSX)
++ *
++ * Included by pngrutil.c (not compiled on its own). The PPE is in order and has no moves between
++ * register files: a byte stored a few instructions ago and loaded again stalls the load for about
++ * 40 cycles, which is what libpng's C unfilters do for every byte (they read row[i-bpp]). These
++ * versions keep the left pixel in registers: Up, Sub, Avg and Paeth for 3- and 4-byte pixels run
++ * 16 bytes at a time in AltiVec, with the same output as the generic C. Needs -maltivec.
++ *
++ * How the left neighbour is carried: a vector holds 16 consecutive bytes of the row, and byte j
++ * depends on byte j-bpp. Avg and Paeth finish one group of bpp bytes per step (the group's left
++ * neighbours are the previous group, brought into place by a shift of the finished vector, or of
++ * the previous vector for the first group), Sub is a prefix sum with strides bpp, 2 bpp, 4 bpp.
++ * The row pointer is only 16-byte aligned by chance, so the first bytes (up to the first aligned
++ * address, but at least the first pixel) and the last bytes are done in scalar code; the groups
++ * need not start on pixel boundaries (only the distance bpp between the bytes matters).
++ */
++#ifndef PNG_FILTER_CELL_H
++#define PNG_FILTER_CELL_H
++
++#include <altivec.h>
++#include <stdint.h>
++
++typedef __vector unsigned char png_cvec;
++
++/* scalar versions of the generic C, for bytes [from, to) of a row (from may be inside the first pixel) */
++static void
++png_cell_sub_range(png_bytep row, unsigned int bpp, size_t from, size_t to)
++{
++   size_t i;
++   for (i = from < bpp ? bpp : from; i < to; i++)
++      row[i] = (png_byte)(row[i] + row[i - bpp]);
++}
++
++static void
++png_cell_avg_range(png_bytep row, png_const_bytep prev, unsigned int bpp,
++    size_t from, size_t to)
++{
++   size_t i;
++   for (i = from; i < to && i < bpp; i++)
++      row[i] = (png_byte)(row[i] + (prev[i] >> 1));
++   for (; i < to; i++)
++      row[i] = (png_byte)(row[i] + ((prev[i] + row[i - bpp]) >> 1));
++}
++
++static void
++png_cell_paeth_range(png_bytep row, png_const_bytep prev, unsigned int bpp,
++    size_t from, size_t to)
++{
++   size_t i;
++   for (i = from; i < to && i < bpp; i++)
++      row[i] = (png_byte)(row[i] + prev[i]);
++   for (; i < to; i++)
++   {
++      int a = row[i - bpp], b = prev[i], c = prev[i - bpp];
++      int p = b - c, pc = a - c;
++      int pa = p < 0 ? -p : p;
++      int pb = pc < 0 ? -pc : pc;
++      pc = (p + pc) < 0 ? -(p + pc) : p + pc;
++      if (pb < pa) { pa = pb; a = b; }
++      if (pc < pa) a = c;
++      row[i] = (png_byte)(row[i] + a);
++   }
++}
++
++/* 16 bytes from any address: aligned loads of the two blocks it touches (never leaves their pages) */
++#define PNG_CELL_LOADU(p, perm) vec_perm(vec_ld(0, (p)), vec_ld(15, (p)), (perm))
++
++/* the bytes [row+i, row+i+16) are aligned for i = the result */
++static size_t
++png_cell_head(png_const_bytep row, unsigned int min)
++{
++   return min + ((16 - ((uintptr_t)(row + min) & 15)) & 15);
++}
++
++static void
++png_read_filter_row_up_cell(png_row_infop row_info, png_bytep row,
++    png_const_bytep prev_row)
++{
++   size_t len = row_info->rowbytes;
++   size_t head = png_cell_head(row, 0), end, i;
++
++   if (len < head + 16)
++   {
++      for (i = 0; i < len; i++)
++         row[i] = (png_byte)(row[i] + prev_row[i]);
++      return;
++   }
++   for (i = 0; i < head; i++)
++      row[i] = (png_byte)(row[i] + prev_row[i]);
++   end = head + ((len - head) & ~(size_t)15);
++   {
++      png_cvec perm = vec_lvsl(0, prev_row + head);
++      for (; i < end; i += 16)
++         vec_st(vec_add(vec_ld(0, row + i), PNG_CELL_LOADU(prev_row + i, perm)), 0, row + i);
++   }
++   for (; i < len; i++)
++      row[i] = (png_byte)(row[i] + prev_row[i]);
++}
++
++/* group masks: byte j selected when j / bpp == g */
++static const png_cvec png_cell_mask3[6] __attribute__((aligned(16))) = {
++   {255,255,255,0,0,0,0,0,0,0,0,0,0,0,0,0}, {0,0,0,255,255,255,0,0,0,0,0,0,0,0,0,0},
++   {0,0,0,0,0,0,255,255,255,0,0,0,0,0,0,0}, {0,0,0,0,0,0,0,0,0,255,255,255,0,0,0,0},
++   {0,0,0,0,0,0,0,0,0,0,0,0,255,255,255,0}, {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255} };
++static const png_cvec png_cell_mask4[4] __attribute__((aligned(16))) = {
++   {255,255,255,255,0,0,0,0,0,0,0,0,0,0,0,0}, {0,0,0,0,255,255,255,255,0,0,0,0,0,0,0,0},
++   {0,0,0,0,0,0,0,0,255,255,255,255,0,0,0,0}, {0,0,0,0,0,0,0,0,0,0,0,0,255,255,255,255} };
++/* the last pixel of the previous vector, to each pixel's place */
++static const png_cvec png_cell_carry3 __attribute__((aligned(16))) =
++   {13,14,15,13,14,15,13,14,15,13,14,15,13,14,15,13};
++static const png_cvec png_cell_carry4 __attribute__((aligned(16))) =
++   {12,13,14,15,12,13,14,15,12,13,14,15,12,13,14,15};
++
++/* |a - b| */
++#define PNG_CELL_ABSDIFF(a, b) vec_sub(vec_max((a), (b)), vec_min((a), (b)))
++
++/* The template for one pixel size; BPP is 3 or 4, NAME(f) the function name */
++#define PNG_CELL_SUB_BODY(BPP, MASKS, CARRY, SHIFTS) \
++{ \
++   size_t len = row_info->rowbytes; \
++   size_t head = png_cell_head(row, BPP), end, i; \
++   const png_cvec zero = vec_splat_u8(0); \
++   png_cvec prev; \
++   if (len < head + 16) { png_cell_sub_range(row, BPP, 0, len); return; } \
++   png_cell_sub_range(row, BPP, 0, head); \
++   end = head + ((len - head) & ~(size_t)15); \
++   prev = vec_ld(0, row + head - 16); /* the 16 bytes before, whole aligned block */ \
++   for (i = head; i < end; i += 16) \
++   { \
++      png_cvec v = vec_ld(0, row + i); \
++      SHIFTS \
++      v = vec_add(v, vec_perm(prev, prev, CARRY)); \
++      vec_st(v, 0, row + i); \
++      prev = v; \
++   } \
++   png_cell_sub_range(row, BPP, end, len); \
++}
++
++#define PNG_CELL_SUB4_SHIFTS \
++      v = vec_add(v, vec_sld(zero, v, 12)); \
++      v = vec_add(v, vec_sld(zero, v, 8));
++#define PNG_CELL_SUB3_SHIFTS \
++      v = vec_add(v, vec_sld(zero, v, 13)); \
++      v = vec_add(v, vec_sld(zero, v, 10)); \
++      v = vec_add(v, vec_sld(zero, v, 4));
++
++static void
++png_read_filter_row_sub3_cell(png_row_infop row_info, png_bytep row,
++    png_const_bytep prev_row)
++PNG_CELL_SUB_BODY(3, png_cell_mask3, png_cell_carry3, PNG_CELL_SUB3_SHIFTS)
++
++static void
++png_read_filter_row_sub4_cell(png_row_infop row_info, png_bytep row,
++    png_const_bytep prev_row)
++PNG_CELL_SUB_BODY(4, png_cell_mask4, png_cell_carry4, PNG_CELL_SUB4_SHIFTS)
++
++/* Avg and Paeth: the common frame; STEP(g) finishes group g of res */
++#define PNG_CELL_FRAME(BPP, NGROUPS, MASKS, RANGE_PRE, SETUP, STEP, RANGE_CALL) \
++{ \
++   size_t len = row_info->rowbytes; \
++   size_t head = png_cell_head(row, BPP), end, i; \
++   int g; \
++   png_cvec prev, perm, permc; \
++   if (len < head + 16) { RANGE_CALL(0, len); return; } \
++   RANGE_CALL(0, head); \
++   end = head + ((len - head) & ~(size_t)15); \
++   prev = vec_ld(0, row + head - 16); \
++   perm = vec_lvsl(0, prev_row + head); \
++   permc = vec_lvsl(0, prev_row + head - BPP); \
++   (void)permc; \
++   for (i = head; i < end; i += 16) \
++   { \
++      png_cvec x = vec_ld(0, row + i); \
++      png_cvec b = PNG_CELL_LOADU(prev_row + i, perm); \
++      png_cvec res = x; \
++      SETUP \
++      _Pragma("GCC unroll 6") \
++      for (g = 0; g < NGROUPS; g++) \
++      { \
++         png_cvec a = vec_sld(prev, res, 16 - BPP); \
++         png_cvec r; \
++         STEP \
++         res = vec_sel(res, vec_add(x, r), MASKS[g]); \
++      } \
++      vec_st(res, 0, row + i); \
++      prev = res; \
++   } \
++   RANGE_CALL(end, len); \
++}
++
++#define PNG_CELL_AVG_STEP \
++         r = vec_sub(vec_avg(a, b), vec_and(vec_xor(a, b), one));
++#define PNG_CELL_AVG_SETUP const png_cvec one = vec_splat_u8(1);
++
++#define PNG_CELL_PAETH_SETUP \
++      png_cvec c = PNG_CELL_LOADU(prev_row + i - BPPX, permc); \
++      png_cvec pa = PNG_CELL_ABSDIFF(b, c); \
++      png_cvec gtb = (png_cvec)vec_cmpgt(b, c); \
++      png_cvec ltb = (png_cvec)vec_cmpgt(c, b);
++#define PNG_CELL_PAETH_STEP \
++         png_cvec pb = PNG_CELL_ABSDIFF(a, c); \
++         png_cvec opp = vec_or(vec_and(gtb, (png_cvec)vec_cmpgt(c, a)), \
++                               vec_and(ltb, (png_cvec)vec_cmpgt(a, c))); \
++         png_cvec pc = vec_sel(vec_adds(pa, pb), PNG_CELL_ABSDIFF(pa, pb), opp); \
++         r = vec_sel(a, b, (png_cvec)vec_cmpgt(pa, pb)); \
++         r = vec_sel(r, c, (png_cvec)vec_cmpgt(vec_min(pa, pb), pc));
++
++#define PNG_CELL_AVG_CALL3(f, t) png_cell_avg_range(row, prev_row, 3, f, t)
++#define PNG_CELL_AVG_CALL4(f, t) png_cell_avg_range(row, prev_row, 4, f, t)
++#define PNG_CELL_PAETH_CALL3(f, t) png_cell_paeth_range(row, prev_row, 3, f, t)
++#define PNG_CELL_PAETH_CALL4(f, t) png_cell_paeth_range(row, prev_row, 4, f, t)
++
++#define BPPX 3
++static void
++png_read_filter_row_avg3_cell(png_row_infop row_info, png_bytep row,
++    png_const_bytep prev_row)
++PNG_CELL_FRAME(3, 6, png_cell_mask3, , PNG_CELL_AVG_SETUP, PNG_CELL_AVG_STEP, PNG_CELL_AVG_CALL3)
++
++static void
++png_read_filter_row_paeth3_cell(png_row_infop row_info, png_bytep row,
++    png_const_bytep prev_row)
++PNG_CELL_FRAME(3, 6, png_cell_mask3, , PNG_CELL_PAETH_SETUP, PNG_CELL_PAETH_STEP, PNG_CELL_PAETH_CALL3)
++#undef BPPX
++#define BPPX 4
++static void
++png_read_filter_row_avg4_cell(png_row_infop row_info, png_bytep row,
++    png_const_bytep prev_row)
++PNG_CELL_FRAME(4, 4, png_cell_mask4, , PNG_CELL_AVG_SETUP, PNG_CELL_AVG_STEP, PNG_CELL_AVG_CALL4)
++
++static void
++png_read_filter_row_paeth4_cell(png_row_infop row_info, png_bytep row,
++    png_const_bytep prev_row)
++PNG_CELL_FRAME(4, 4, png_cell_mask4, , PNG_CELL_PAETH_SETUP, PNG_CELL_PAETH_STEP, PNG_CELL_PAETH_CALL4)
++#undef BPPX
++
++static void
++png_init_filter_functions_cell(png_structrp pp, unsigned int bpp)
++{
++   pp->read_filter[PNG_FILTER_VALUE_UP-1] = png_read_filter_row_up_cell;
++   if (bpp == 3)
++   {
++      pp->read_filter[PNG_FILTER_VALUE_SUB-1] = png_read_filter_row_sub3_cell;
++      pp->read_filter[PNG_FILTER_VALUE_AVG-1] = png_read_filter_row_avg3_cell;
++      pp->read_filter[PNG_FILTER_VALUE_PAETH-1] = png_read_filter_row_paeth3_cell;
++   }
++   else if (bpp == 4)
++   {
++      pp->read_filter[PNG_FILTER_VALUE_SUB-1] = png_read_filter_row_sub4_cell;
++      pp->read_filter[PNG_FILTER_VALUE_AVG-1] = png_read_filter_row_avg4_cell;
++      pp->read_filter[PNG_FILTER_VALUE_PAETH-1] = png_read_filter_row_paeth4_cell;
++   }
++}
++
++#endif /* PNG_FILTER_CELL_H */

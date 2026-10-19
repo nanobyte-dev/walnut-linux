@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Mon, 19 Oct 2026 13:04:55 +0300
+Subject: ppc64: build for the Cell PPE (-O3 -mcpu=cell -mtune=cell)
+
+The PS3's PPE: GCC schedules for its in-order pipeline, AltiVec is there for the unfilters (the
+source patch) and the vectorizer; -O3 as Mesa and libvorbis are built.
+
+diff --git a/debian/rules b/debian/rules
+--- a/debian/rules
++++ b/debian/rules
+@@ -15,6 +15,12 @@ CC?=gcc
+ 
+ include /usr/share/dpkg/architecture.mk
+ 
++# The PS3's PPE (Cell): its in-order scheduling, and AltiVec for our unfilters (pngrutil.c,
++# powerpc/filter_cell.h; not VSX, which the Cell lacks) and for the vectorizer, as Mesa is built
++ifeq ($(DEB_HOST_ARCH),ppc64)
++export DEB_CFLAGS_MAINT_APPEND := $(shell dpkg-buildflags --get CPPFLAGS) -O3 -mcpu=cell -mtune=cell
++endif
++
+ ifneq (,$(filter $(DEB_HOST_ARCH_CPU),powerpc ppc64))
+ # VSX is an extension of AltiVec, which is not part of the baseline.
+ # see https://wiki.debian.org/ArchitectureSpecificsMemo
