@@ -37,7 +37,7 @@ Sound: tools/bench-audio.sh records 8 s from the webcam microphone after every p
 | `shadow_fast` on the rest of the suite (`run.sh suite base 1`) | all | PS3 | HOTPATHS.md "ps3rsx's submission path" |
 | PLAN 2.6 repeats: Sauerbraten `oqlag` x3, Luanti `view40` x3, ETR steady-state with stalls, Teeworlds, Armagetron live | as listed | PS3 | PLAN 2.6 (ClassiCube `chunks1` and X-Moto `stream` were repeated in batch 16) |
 | Mesa 0039 `NV30_SHADER_CACHE=on` cold/warm | OpenArena gl2min, Sauerbraten | PS3 | PROFILING.md "nv30's shader cache" (skipped in ssd1: upper bound 0.4 s) |
-| Kernel guard (local/0045) boot check: the refusal test of GAMEOS-HDD.md "The kernel guard" | none | the user (reboot into a guard kernel) | GAMEOS-HDD.md |
+| Kernel guard (local/0045, on in the series since 1abb2a1): a kernel deb with it, then GAMEOS-HDD.md "On the PS3" steps 1-5 (write-backs of data already there; Phase A needs the new ps3-imgmap on a guard kernel, and an initramfs rebuilt for that release with guard=required) | none | the user (reboot into the guard kernel), then PS3 | GAMEOS-HDD.md "The kernel guard" |
 | Sound by ear: everything bench-audio flags, dsda-doom's music, OpenTTD's music, SuperTuxKart (`sound=none`) | | the user | PLAN 2.1, 2.8 |
 | Game mode at the TV, menu-only smoke games (TORCS, Trigger Rally, Chromium B.S.U.), Nexuiz, the interference detector's checks, power paths, 7th SPE, fan floor | | the user | PLAN 1.8-1.13, 4.2, 4.4 |
 | Release image session | | the user | RELEASE-CANDIDATES.md |
