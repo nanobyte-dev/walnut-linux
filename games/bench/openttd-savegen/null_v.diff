@@ -1,0 +1,94 @@
+--- a/src/video/null_v.cpp	2026-01-24 23:15:58.000000000 +0200
++++ b/src/video/null_v.cpp	2026-10-19 04:39:58.155317812 +0300
+@@ -13,6 +13,70 @@
+ #include "../saveload/saveload.h"
+ #include "../window_func.h"
+ #include "null_v.h"
++#include "../vehicle_base.h"
++#include "../town.h"
++#include "../station_base.h"
++#include "../company_base.h"
++#include "../timer/timer_game_calendar.h"
++#include "../map_func.h"
++#include "../industry.h"
++#include "../viewport_func.h"
++#include "../window_func.h"
++#include "../saveload/saveload.h"
++#include "../fios.h"
++#include "../zoom_func.h"
++#include "../tile_map.h"
++#include "../town_cmd.h"
++#include "../ai/ai.hpp"
++#include "../ai/ai_config.hpp"
++#include "../settings_type.h"
++static void BenchStrip()
++{
++	for (Company *c : Company::Iterate()) {
++		if (!c->is_ai) continue;
++		AI::Stop(c->index);
++		AIConfig::GetConfig(c->index, AIConfig::SSS_FORCE_GAME)->Change(std::nullopt);
++		c->is_ai = false;
++	}
++	_settings_game.difficulty.max_no_competitors = 0;
++}
++static void BenchCamera()
++{
++	const Town *best = nullptr; int bests = -1, bv = 0, bm = 0;
++	for (const Town *t : Town::Iterate()) {
++		int v = 0, m = 0;
++		for (const Vehicle *veh : Vehicle::Iterate()) {
++			if (!veh->IsPrimaryVehicle()) continue;
++			if (veh->type == VEH_SHIP) continue;
++			int dx = abs((int)TileX(veh->tile) - (int)TileX(t->xy)), dy = abs((int)TileY(veh->tile) - (int)TileY(t->xy));
++			if (dx + dy <= 16) { v++; if (veh->cur_speed > 0) m++; }
++		}
++		int score = m * 4 + v + t->cache.population / 2000;
++		if (score > bests) { bests = score; best = t; bv = v; bm = m; }
++	}
++	if (best == nullptr) return;
++	fprintf(stderr, "BENCHCAMERA town=%s tile=%u,%u pop=%u vehicles_within_16=%d moving=%d\n", best->GetCachedName().c_str(), TileX(best->xy), TileY(best->xy), (unsigned)best->cache.population, bv, bm);
++	if (const char *z = getenv("BENCH_ZOOM")) { for (int i = atoi(z); i > 0; i--) DoZoomInOutWindow(ZOOM_OUT, GetMainWindow()); }
++	ScrollMainWindowToTile(best->xy, true);
++	const Window *w = GetMainWindow();
++	if (w != nullptr && w->viewport != nullptr) fprintf(stderr, "BENCHCAMERA viewport scroll=%d,%d zoom=%d size=%dx%d\n", w->viewport->scrollpos_x, w->viewport->scrollpos_y, (int)w->viewport->zoom, w->viewport->width, w->viewport->height);
++}
++static void BenchStats()
++{
++	int n[4] = {0,0,0,0}, run[4] = {0,0,0,0};
++	for (const Vehicle *v : Vehicle::Iterate()) {
++		if (!v->IsPrimaryVehicle()) continue;
++		n[v->type - VEH_TRAIN]++;
++		if (v->cur_speed > 0) run[v->type - VEH_TRAIN]++;
++	}
++	uint64_t pop = 0; int towns = 0;
++	for (const Town *t : Town::Iterate()) { towns++; pop += t->cache.population; }
++	int st = 0; for (const Station *s : Station::Iterate()) { (void)s; st++; }
++	int ind = 0; for (const Industry *i : Industry::Iterate()) { (void)i; ind++; }
++	int comp = 0; for (const Company *c : Company::Iterate()) { (void)c; comp++; }
++	fprintf(stderr, "BENCHSTATS year=%d map=%ux%u towns=%d pop=%llu stations=%d industries=%d companies=%d trains=%d(%d moving) road=%d(%d) ships=%d(%d) air=%d(%d)\n",
++		(int)TimerGameCalendar::year.base(), Map::SizeX(), Map::SizeY(), towns, (unsigned long long)pop, st, ind, comp, n[0], run[0], n[1], run[1], n[2], run[2], n[3], run[3]);
++}
+ 
+ #include "../safeguards.h"
+ 
+@@ -52,10 +116,20 @@
+ 
+ 	for (i = 0; i < this->ticks; i++) {
+ 		::GameLoop();
++		if (getenv("BENCH_YEARSAVE") != nullptr) {
++			static int last_year = -1;
++			int y = (int)TimerGameCalendar::year.base();
++			if (y != last_year) {
++				last_year = y;
++				if (y >= 1958) { std::string n = fmt::format("y{}.sav", y); SaveOrLoad(n, SLO_SAVE, DFT_GAME_FILE, AUTOSAVE_DIR); BenchStats(); }
++			}
++		}
+ 		::InputLoop();
+ 		::UpdateWindows();
+ 	}
+ 
++	BenchStats();
++	if (getenv("BENCH_CAMERA") != nullptr) { BenchStrip(); BenchCamera(); ::UpdateWindows(); }
+ 	/* If requested, make a save just before exit. The normal exit-flow is
+ 	 * not triggered from this driver, so we have to do this manually. */
+ 	if (_settings_client.gui.autosave_on_exit) {
