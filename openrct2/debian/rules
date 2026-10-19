@@ -45,6 +45,10 @@ override_dh_auto_install:
 	mkdir -p debian/openrct2-music/usr/share/openrct2
 	$(call UNZIP,debian/openrct2-music/usr/share/openrct2,openmusic/openmusic.zip)
 
-# the game shows changelog.txt and contributors.md from its doc directory: keep them uncompressed
+# the game shows changelog.txt and contributors.md from its doc directory: keep them as they are
+# (dh_installchangelogs would rename changelog.txt, dh_compress would gzip it)
+override_dh_installchangelogs:
+	dh_installchangelogs -Xchangelog.txt
+
 override_dh_compress:
 	dh_compress -X.txt -X.md
