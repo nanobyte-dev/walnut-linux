@@ -147,7 +147,7 @@ Rank 46. The smaller targets of HOTPATHS.md that no patch took.
   tracking) would only matter for other formats.
 - **Client vertex arrays copied per draw** (`u_upload_data`: SuperTuxKart 10.1%, ETR 2.3%). The
   min/max scans of client index arrays (`vbo_get_minmax_index_mapped`: SuperTuxKart 6.5%,
-  OpenArena 1.3%, Yamagi 1.0%) have Mesa 0044 `NV30_MINMAX_VMX` (built, waiting for its A/B).
+  OpenArena 1.3%, Yamagi 1.0%) have Mesa 0044 `NV30_MINMAX_VMX` (built; SuperTuxKart +5% fps, CPU unchanged, n=3: [HOTPATHS.md](../HOTPATHS.md#measured-0041-0042-0044)).
 - **Mesa 0036's staging pool on QuakeSpasm and Yamagi**: measured on ClassiCube only (same fps, CPU
   -4%, row 64); expected -1.5 to -2% CPU there.
 

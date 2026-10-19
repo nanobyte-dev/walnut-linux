@@ -11,7 +11,8 @@ staging pool (0036) measured neutral and stay off; ps3rsx's `shadow_fast` showed
 ([third round](#third-round-submissions-snorm8-attributes-index-scans)): fewer submissions
 (`NV30_FENCE_WORK_KICK`, `NV30_QUERY_KICK`), SNORM8 attributes normalized in the vertex program
 (`NV30_VTX_SNORM8`) and AltiVec index scans (`NV30_MINMAX_VMX`), built in Mesa
-26.2.4-1+ps3.545~dev, off by default, waiting for their A/B. 0043 as built there wedged the RSX
+26.2.4-1+ps3.545~dev, off by default. 0041, 0042 and 0044 are measured ([below](#measured-0041-0042-0044)): no gain
+bigger than the spread. 0043 as built there wedged the RSX
 on its first run (graph exception 0x106: [below](#snorm8-attributes-in-the-vertex-program-mesa-0043));
 the fixed 0043 is in Mesa 26.2.4-1+ps3.570~dev (`build/debs/hotpaths3b/mesa`), not yet run. How the profiles are taken is in
 [PROFILING.md](PROFILING.md); nv30, ps3rsx and the other terms are in the [glossary](README.md#glossary).
@@ -634,6 +635,36 @@ gives ~0u and 0, as the scalar loop does.
 loops (every start alignment, counts 0 to 300, restart off and six restart indices, random, narrow
 and top-of-range values: 2.7 million cases) on the host and as a ppc64 `-mcpu=cell` build from the
 deb builder's cross compiler under qemu-ppc64.
+
+### Measured: 0041, 0042, 0044
+
+Batches ssdroot6 (0041) and ssdroot7 (0042, 0044), 2026-10-19, kernel .472, SSD root, Mesa
+ps3.545~dev (0043 not used), each switch against the unset default in the same boot, rotated,
+webcam picture right in every run, interfered runs left out. HUD fps is the steady-state median,
+gameplay stalls count frames over 100 ms.
+
+| Switch | Game, n per arm | Steady fps | 1% low | Gameplay stalls | CPU | Verdict |
+|---|---|---|---|---|---|---|
+| 0041 `NV30_FENCE_WORK_KICK=1024` | OpenArena gl2min, 2 (2 more interfered by an SSH session) | 65.4 against 62.3 unset | 29.5 against 28.2 | 0-1 frames, both | 222 against 212 s | +5% fps, no CPU gain: indicative, not proven |
+| 0041 `=0` | OpenArena gl2min, 3 | 63.2 (61.6-63.8) | 28.9 | 0-1 frames | 216 s (196-219) | inside the spread |
+| 0042 `NV30_QUERY_KICK=2` | Sauerbraten base, 3 | 39.8 against 39.4 unset | 27.1 against 26.6 | 1-3 frames (0.1-0.4 s) against 0-1 | 231 against 231 s | neutral |
+| 0042 `=0` | Sauerbraten base, 3 | 39.6 | 27.1 | 1 frame each | 232 s | neutral |
+| 0044 `NV30_MINMAX_VMX=1` | SuperTuxKart lean, 3 | 22, 22, 22 against 21, 19, 21 (rate over frames under 100 ms: 21.9 against 20.7) | 12.3 against 12.0 | 6 (0.8 s) both | 313 against 305 s | +5% fps, no CPU gain: indicative, not proven |
+
+The CPU savings the profiles promised (0041 -10%, 0042 -5%, 0044 -5%) are not there: the whole run's
+CPU seconds stayed level or rose a little with the extra frames, so what the switches remove is
+small next to the run-to-run spread (OpenArena's unset runs alone span 58.1 to 62.4 fps with the
+interfered one, 62.15 to 62.4 without). 0041's and 0044's fps gains are 1 to 3 fps. The arms'
+ranges do not overlap, but SuperTuxKart's HUD median is a whole number of fps and each arm is
+n=2 or 3, so both stay off by default and need a re-run with n of 5 or more before they are
+turned on. 0042 has nothing to offer on Sauerbraten; drop it unless another game shows a gain. No arm changed the load (6.7 s OpenArena, 7.2 s Sauerbraten, 28.2 s
+SuperTuxKart) or showed a picture difference. The OpenAL mixer wedge hit 3 of the 6 SuperTuxKart
+runs of the 0044 A/B (240-266 log lines; unset 266 and 240, vmx 246) with no sign of lower fps.
+Three of the 9 OpenArena runs of the 0041 A/B ended with ioquake3's DOUBLE SIGNAL FAULT at the
+SIGTERM of the window's end, as four earlier runs without 0041 did.
+
+The 0043 run of 2026-10-19 19:24Z (Sauerbraten, `NV30_VTX_SNORM8=1`, graph exception 0x106) is
+analysed above; it has no numbers.
 
 ## Soft-masked time and the staging buffer per frame
 

@@ -652,7 +652,7 @@ difference is a bug.
 ## Load-time decoders and linking
 
 What the start-up profiles' decoder and `link` groups can lose without touching a game, costed on the
-PC (2026-10-19). Nothing here has run on the PS3 yet; the A/Bs are in [TESTS.md](TESTS.md) "Next".
+PC (2026-10-19). The PS3 runs are in [TESTS.md](TESTS.md) "History"; libpng1.6's is [below](#libpng16-on-the-ps3).
 
 **How it was measured.** The decoders ran under qemu-ppc64 (10.2.2 built with TCG plugins) on a
 ppc64 sid root, at `-cpu power7` (`-cpu 970`, the closest model to the PPE, crashes glibc's malloc
@@ -704,7 +704,7 @@ half: the test images split libpng to zlib 1.3 : 1 where SuperTuxKart's load has
 | Game | Change | Expected |
 |---|---|---|
 | SuperTuxKart | zlib-ng | 1.8-2.7 s off the load's 3.9 s of zlib (main thread) |
-| SuperTuxKart | libpng1.6 unfilters | 2-3.3 s off its 4.2 s of png |
+| SuperTuxKart | libpng1.6 unfilters | 2-3.3 s off its 4.2 s of png (measured: 2.4 s, [below](#libpng16-on-the-ps3)) |
 | Sauerbraten | zlib-ng | 0.5-0.7 s off its 1.6 s of `.ogz` inflate |
 | OpenArena | zlib-ng | none: our ioquake3 reads pk3s through libdeflate |
 | every GL game | DT_RELR in Mesa (not built) | tens of ms |
@@ -757,6 +757,32 @@ decoded rows of all 2337 PNGs of Debian's `supertuxkart-data`, the 318 of `cube2
 pngsuite and test images, hashed with both libraries: identical); and the package's own build, which
 runs libpng's 37 tests (pngtest, pngstest, pngunknown, pngimage over the whole pngsuite) and
 `pngtest-static`.
+
+#### libpng1.6 on the PS3
+
+Batch ssdroot6 (2026-10-19 16:51-18:10Z, kernel .472, SSD root, Mesa ps3.545~dev): libpng 1.6.59
++ps3.560 against Debian's copy (`LDPATH=/var/tmp/ps3-bench/stock-png`), zlib-ng on both arms,
+rotated, webcam picture right in every run.
+
+| Run (n per arm) | stock libpng | ours | Change |
+|---|---|---|---|
+| SuperTuxKart lean, load profile `png` group (2) | 4.00, 4.05 s | 1.61, 1.61 s | -2.4 s, -60% |
+| SuperTuxKart lean, load (2) | 30.42, 30.25 s | 26.93, 28.20 s | -2.8 s, -9% |
+| SuperTuxKart lean, main thread's CPU over the load (2) | 23.8, 24.2 s | 21.1, 21.7 s | -2.5 s |
+| SuperTuxKart lean, gameplay: steady fps, 1% low, frames over 100 ms (2) | 20, 11.9, 10 | 19.5, 11.5, 10 | same |
+| Sauerbraten base, load (3) | 7.19 s (6.95-8.21) | 7.25 s (7.15-7.48) | same |
+| Sauerbraten base, steady fps, 1% low (3) | 39.5, 27.1 | 39.5, 26.6 | same |
+| OpenArena gl2min, load (2), the control | 6.80 s | 6.62 s | -0.2 s, noise |
+
+The png group moved by what the model predicted (2-3.3 s), and the load follows it, so the AltiVec
+Paeth's dependent chain is not slower than the C it replaces. Round 1 of the SuperTuxKart pairs was
+interfered (a login at 9 s, mouse moves) and is out of the medians; its png group, 4.17 against
+1.67 s, agrees. The zlib group is 3.2-3.5 s in both arms, so nothing else in the load changed.
+Sauerbraten had no load profile, and its load did not move: libpng is too small a part of its 7 s
+for the timer. Gameplay is untouched, as a decoder that runs only during the load should leave it.
+One stock-arm run (17:16Z) ended with SIGABRT at the exit after a full race; the cause was not
+looked at. So `libpng16-16t64` +ps3.560 is a proven 2.8 s on SuperTuxKart's 30 s load and nothing
+measurable elsewhere.
 
 **The package.** `zlib-ng/` (TYPE upstream, the pinned 2.3.3 tarball, `config.mk` `ZLIBNG_*`) builds
 `libz-ng-compat`: only `libz.so.1` (zlib-compat API, symbol versions to `ZLIB_1.2.12`) in
