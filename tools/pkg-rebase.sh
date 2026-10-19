@@ -37,16 +37,16 @@ rm -rf "$T"; mkdir -p "$T"
 dpkg-source -x "$NEWDSC" "$T/src" >/dev/null
 rm -rf "$T/src/.pc"
 cd "$W"
-git checkout -q --detach "base/$VERSION"
+git checkout -q --detach "base/${VERSION//:/%}"	# an epoch's ":" is "%" in the tag (pkg-work.sh)
 git ls-files -z | xargs -0 rm -f
 find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
 cp -a "/work/$T/src/." .
 git add -A -f
 GIT_AUTHOR_DATE="@0 +0000" GIT_COMMITTER_DATE="@0 +0000" git commit -q -m "Debian $NEWVERSION" \
 	-m "$SOURCE $NEWVERSION as Debian ships it (its own patches applied)."
-git tag -f "base/$NEWVERSION" >/dev/null
+git tag -f "base/${NEWVERSION//:/%}" >/dev/null
 rm -rf "/work/$T"
-if ! git rebase -q --onto "base/$NEWVERSION" "base/$VERSION" work; then
+if ! git rebase -q --onto "base/${NEWVERSION//:/%}" "base/${VERSION//:/%}" work; then
 	echo "!! conflict: resolve it in $W (git status; git rebase --continue), then make $PKG-patches"
 	echo "   and set VERSION=$NEWVERSION, DSC_SHA256=$(sha256sum "/work/$NEWDSC" | cut -d' ' -f1) in $PKG/package.conf"
 	exit 1

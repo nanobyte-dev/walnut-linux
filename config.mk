@@ -18,6 +18,12 @@ DARKPLACES_VERSION  := 0~20180412~beta1
 DARKPLACES_SHA256   := 02cb41e64a467c2570086d3e746e64917c1abe06270e05875640b6ab0567b5ea
 DARKPLACES_URL      := https://snapshot.debian.org/archive/debian/20180612T152409Z/pool/main/d/darkplaces/darkplaces_0~20180412~beta1.orig.tar.xz
 
+# --- zlib-ng in zlib-compat mode (zlib-ng/) ------------------------------------
+# A libz.so.1 in a directory of its own that a game opts into (LD_LIBRARY_PATH); not in Debian
+ZLIBNG_VERSION      := 2.3.3
+ZLIBNG_SHA256       := f9c65aa9c852eb8255b636fd9f07ce1c406f061ec19a2e7d508b318ca0c907d1
+ZLIBNG_URL          := https://github.com/zlib-ng/zlib-ng/archive/refs/tags/$(ZLIBNG_VERSION).tar.gz
+
 # --- ClassiCube (classicube/) ------------------------------------------------
 # A pinned commit (SDL3 backend), plus the texture pack it needs (plain HTTP, so checksummed)
 CLASSICUBE_COMMIT   := aa47929825a4647354588818fb0b002b2f808279

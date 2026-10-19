@@ -184,6 +184,8 @@ variant_f44() { oal_variant f44; }
 variant_b16f44() { oal_variant b16f44; }
 variant_p1024() { oal_variant p1024; }
 variant_alnull() { oal_variant alnull; }
+variant_f32() { oal_variant f32; }
+variant_lin() { oal_variant lin; }
 variant_nosound() { OA_X+=(+set s_initsound 0); oa_cmd; }
 # Mesa ps3.282: a submission every 100 draws (0026), the Armagetron fix, checked here
 variant_kick100() { ENV+=(NV30_PS3_KICK_DRAWS=100); }

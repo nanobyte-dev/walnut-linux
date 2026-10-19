@@ -19,6 +19,7 @@ override_dh_auto_install:
 	install -D -m 644 files/apt/ps3.sources $(P)/etc/apt/sources.list.d/ps3.sources
 	install -D -m 644 files/apt/debian.sources $(P)/etc/apt/sources.list.d/debian.sources
 	install -D -m 644 files/apt/ps3.pref $(P)/etc/apt/preferences.d/ps3
+	install -D -m 644 files/sound/alsoft.conf $(P)/etc/xdg/alsoft.conf
 
 # Our units: enabled; swap and the boot-time oneshots are never stopped or restarted by upgrades
 override_dh_installsystemd:

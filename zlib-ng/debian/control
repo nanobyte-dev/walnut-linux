@@ -1,0 +1,20 @@
+Source: zlib-ng
+Section: libs
+Priority: optional
+Maintainer: PS3 Linux project <ps3@localhost>
+Build-Depends: debhelper-compat (= 13), cmake, libgtest-dev
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+Homepage: https://github.com/zlib-ng/zlib-ng
+
+Package: libz-ng-compat
+Architecture: ppc64
+Multi-Arch: same
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: zlib-ng as a drop-in libz.so.1, opted into per program
+ zlib-ng 2.3 built in zlib-compat mode (the zlib API and ABI, libz.so.1 with zlib's symbol
+ versions) for the PS3's Cell: -mcpu=cell, with zlib-ng's run-time choice of its AltiVec (VMX)
+ adler32 and slide_hash; the POWER8/POWER9 paths need VSX and are never chosen on a Cell. It is
+ installed in /usr/lib/powerpc64-linux-gnu/zlib-ng, which the dynamic linker does not search, so
+ Debian's zlib1g stays the zlib of every program. A game uses this one with
+ LD_LIBRARY_PATH=/usr/lib/powerpc64-linux-gnu/zlib-ng.

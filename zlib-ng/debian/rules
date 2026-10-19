@@ -1,0 +1,31 @@
+#!/usr/bin/make -f
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_CFLAGS_MAINT_APPEND = -mcpu=cell -mtune=cell
+export DEB_CXXFLAGS_MAINT_APPEND = -mcpu=cell -mtune=cell
+DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+# the private directory (not on the linker's search path): LD_LIBRARY_PATH opts a program in
+LIBDIR := lib/$(DEB_HOST_MULTIARCH)/zlib-ng
+
+%:
+	dh $@ --buildsystem=cmake
+
+# zlib-compat API/ABI; zlib-ng's run-time CPU detection (VMX on the Cell, POWER8/9 only with
+# AT_HWCAP2's ISA 2.07/3.00 bits); tests against Debian's googletest (no download;
+# zlib-ng's gtest suite is built only when the static library is too, removed at install)
+override_dh_auto_configure:
+	dh_auto_configure -- -DZLIB_COMPAT=ON -DWITH_GZFILEOP=ON -DWITH_NATIVE_INSTRUCTIONS=OFF \
+		-DWITH_RUNTIME_CPU_DETECTION=ON -DWITH_ALTIVEC=ON -DBUILD_TESTING=ON -DWITH_GTEST=ON \
+		-DCMAKE_INSTALL_LIBDIR=$(LIBDIR) -DCMAKE_INSTALL_INCLUDEDIR=include/zlib-ng
+
+override_dh_auto_test:
+	dh_auto_test --no-parallel -- ARGS+=--output-on-failure
+
+# only the shared library: headers, the static library and zlib.pc would shadow zlib1g-dev's
+override_dh_auto_install:
+	dh_auto_install --destdir=debian/tmp
+	rm -rf debian/tmp/usr/include debian/tmp/usr/$(LIBDIR)/pkgconfig debian/tmp/usr/$(LIBDIR)/cmake \
+		debian/tmp/usr/$(LIBDIR)/*.a debian/tmp/usr/$(LIBDIR)/libz.so
+
+# a private library directory: no shlibs or symbols file for other packages to depend on
+override_dh_makeshlibs:
+	dh_makeshlibs --no-scripts -X$(LIBDIR)

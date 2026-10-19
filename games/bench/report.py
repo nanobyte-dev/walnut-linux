@@ -153,7 +153,8 @@ def harness(d, b):
     genv= (BENCH_NV30_*, docs/HOTPATHS.md: NV30_TRANSLATE_LUT=1 -> translate_lut1); for runs from before the
     tag: rec<ms> when there is a stalls.rec, perf when perf ran; gpf<mode> for client.sh's game prefetch
     (gprefetch=, BENCH_GAMEPREFETCH, docs/STALLS.md "Game prefetch"); gdssd and swssd for the SSD arms
-    (gamedata=, swap=: docs/GAMEOS-HDD.md "Test drive, Phase A"). The recorder changes the stalls it
+    (gamedata=, swap=: docs/GAMEOS-HDD.md "Test drive, Phase A"); oal<settings> for client.sh's OpenAL token
+    (oal=, BENCH_OAL) and fx<mode>, zng, bindnow, jsimd<mode> for its library switches (libenv=). The recorder changes the stalls it
     records (docs/STALLS.md "The recorder removes stalls"), so such runs are not the same variant"""
     m = ("m" + b["malloc"].replace(",", "_")) if b.get("malloc") else ""   # client.sh BENCH_MALLOC presets
     if b.get("genv"):   # client.sh's Mesa driver switches (BENCH_NV30_*): NV30_TRANSLATE_LUT=1 -> translate_lut1
@@ -171,6 +172,12 @@ def harness(d, b):
     for k, t in (("gamedata", "gd"), ("swap", "sw")):   # client.sh's SSD arms (docs/GAMEOS-HDD.md, Phase A)
         if b.get(k) and b[k] != "usb":
             m = "+".join(x for x in (m, t + b[k]) if x)
+    if b.get("oal"):   # client.sh BENCH_OAL: OpenAL Soft's settings (recipes/openal.inc names): b16,lin -> oalb16_lin
+        m = "+".join(x for x in (m, "oal" + b["oal"].replace(",", "_")) if x)
+    for x in (b.get("libenv") or "").split():   # client.sh's library switches: FLUIDFX=off -> fxoff, ZLIB=ng -> zng,
+        n, _, v = x.partition("=")              # BINDNOW=1 -> bindnow, JSIMD=none -> jsimdnone
+        t = {"FLUIDFX": "fx" + v, "ZLIB": "z" + v, "BINDNOW": "bindnow", "JSIMD": "jsimd" + v}.get(n, x.lower())
+        m = "+".join(y for y in (m, t) if y)
     if "harness" in b:
         return "+".join(x for x in (b["harness"], m) if x)
     t = []

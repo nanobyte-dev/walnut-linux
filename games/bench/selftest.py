@@ -326,8 +326,9 @@ def fake_game(mode):
         with open(os.environ["FAKE_T0_FILE"], "w") as f:
             f.write("%.6f\n" % time.time())
     for k in sorted(os.environ):
-        if k.startswith("NV30_") or k.startswith("MESA_SHADER_CACHE") or k.startswith("LD_DEBUG"):
-            say("env %s=%s" % (k, os.environ[k]))   # the switches the game got (client.sh's genv, shadercache)
+        if k.startswith(("NV30_", "MESA_SHADER_CACHE", "LD_DEBUG", "ALSOFT_CONF", "FLUIDSYNTH_", "JSIMD_",
+                         "LD_BIND_NOW", "LD_LIBRARY_PATH")):
+            say("env %s=%s" % (k, os.environ[k]))   # the switches the game got (client.sh's genv, libenv, shadercache)
     ft = open(os.path.join(hud, "frametime_(ms)"), "a", buffering=1) if hud else None
     fp = open(os.path.join(hud, "fps"), "a", buffering=1) if hud else None
     last = sec = time.monotonic()
@@ -476,6 +477,62 @@ def client_gprefetch(tmp):
     check("gprefetch fetch with BENCH_GAMEPREFETCH_MB=1: the budget 1 MB, tag gpffetch_mb1",
           b.get("gprefetch") == "fetch_mb1" and "budget 1.0 MB" in log and
           report.run(d).get("variant") == "base@gpffetch_mb1", (b.get("gprefetch"), log[-300:]))
+
+
+def client_libenv(tmp):
+    """client.sh's library switches (docs/SPU-AUDIO.md, docs/PROFILING.md): the OpenAL token
+    (BENCH_OAL, recipes/openal.inc's settings on any recipe), BENCH_FLUIDFX, BENCH_ZLIB, BENCH_BINDNOW,
+    BENCH_JSIMD: what the game gets, bench.txt's oal= and libenv=, report.py's tags, and the refusals"""
+    lib = tmp / "libfluidsynth.so.3"
+    lib.write_bytes(b"\x7fELF...FLUIDSYNTH_SETTINGS...")   # what client.sh greps for: patch 0002's variable
+    zdir = tmp / "zlib-ng"
+    zdir.mkdir()
+    sysz = next((p for p in ("/lib64/libz.so.1", "/usr/lib64/libz.so.1", "/lib/x86_64-linux-gnu/libz.so.1",
+                             "/usr/lib/x86_64-linux-gnu/libz.so.1") if os.path.exists(p)), None)
+    if sysz:
+        os.symlink(sysz, zdir / "libz.so.1")   # a real libz.so.1, so the fake game still starts
+    else:
+        (zdir / "libz.so.1").write_text("")
+    home = tmp / "home"   # oal_setup refuses a ~/.alsoftrc of the player's: an empty home
+    home.mkdir()
+    env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "GALLIUM_HUD",
+                                                            "GALLIUM_HUD_DUMP_DIR", "LD_LIBRARY_PATH", "XDG_CONFIG_HOME")}
+    env.update(BENCH_RECIPES=str(tmp / "recipes"), BENCH_BACKUP=str(tmp / "backup"), HOME=str(home),
+               BENCH_FLUIDLIB=str(lib), BENCH_ZLIBNG_DIR=str(zdir))
+
+    def run(n, **kv):
+        d = tmp / ("ps3-bench-20261018T0400%02dZ-fakehud-base" % n)
+        p = subprocess.run(["bash", str(HERE / "client.sh"), "fakehud", "base"], env=dict(env, BENCH_DIR=str(d), **kv),
+                           capture_output=True, text=True)
+        gl = (d / "game.log").read_text(errors="replace") if (d / "game.log").exists() else ""
+        return p, d, report.kv(d / "bench.txt") if (d / "bench.txt").exists() else {}, gl
+    p, d, b, gl = run(0, BENCH_OAL="b16,lin", BENCH_FLUIDFX="off", BENCH_ZLIB="ng", BENCH_BINDNOW="1", BENCH_JSIMD="none")
+    check("libenv: exit 0, oal=b16,lin, libenv= lists the four switches",
+          p.returncode == 0 and b.get("oal") == "b16,lin" and
+          b.get("libenv") == "FLUIDFX=off ZLIB=ng BINDNOW=1 JSIMD=none", (p.returncode, b.get("oal"), b.get("libenv"), p.stdout[-400:]))
+    conf = (d / "alsoft.conf").read_text() if (d / "alsoft.conf").exists() else ""
+    check("libenv: OpenAL token on a recipe without openal.inc: the run's alsoft.conf, int16 and linear",
+          conf.startswith("[general]") and "sample-type=int16" in conf and "resampler=linear" in conf and
+          "env ALSOFT_CONF=%s" % (d / "alsoft.conf") in gl, (conf, gl[:400]))
+    check("libenv: the game got FLUIDSYNTH_SETTINGS, LD_LIBRARY_PATH, LD_BIND_NOW, JSIMD_FORCENONE",
+          "env FLUIDSYNTH_SETTINGS=synth.reverb.active=0,synth.chorus.active=0" in gl and
+          "env LD_LIBRARY_PATH=%s" % zdir in gl and "env LD_BIND_NOW=1" in gl and "env JSIMD_FORCENONE=1" in gl, gl[:600])
+    check("libenv: report variant base@oalb16_lin+fxoff+zng+bindnow+jsimdnone",
+          report.run(d).get("variant") == "base@oalb16_lin+fxoff+zng+bindnow+jsimdnone", report.run(d).get("variant"))
+    p, d, b, gl = run(1, BENCH_FLUIDFX="nocho", BENCH_JSIMD="altivec")
+    check("libenv: FLUIDFX=nocho, JSIMD=altivec", p.returncode == 0 and
+          "env FLUIDSYNTH_SETTINGS=synth.chorus.active=0" in gl and "env JSIMD_FORCEALTIVEC=1" in gl and
+          report.run(d).get("variant") == "base@fxnocho+jsimdaltivec", (gl[:400], report.run(d).get("variant")))
+    lib.write_bytes(b"\x7fELF stock")
+    p, d, b, gl = run(2, BENCH_FLUIDFX="off")
+    check("libenv: FLUIDFX with a libfluidsynth without patch 0002: refused",
+          p.returncode == 2 and "no FLUIDSYNTH_SETTINGS" in p.stdout, p.stdout[-300:])
+    p, d, b, gl = run(3, BENCH_ZLIB="ng", BENCH_ZLIBNG_DIR=str(tmp / "nowhere"))
+    check("libenv: ZLIB=ng without libz-ng-compat: refused", p.returncode == 2 and "libz-ng-compat" in p.stdout, p.stdout[-300:])
+    p, d, b, gl = run(4, BENCH_OAL="b17")
+    check("libenv: OAL with a setting openal.inc doesn't have: refused", p.returncode == 2 and "no b17" in p.stdout, p.stdout[-300:])
+    p, d, b, gl = run(5, BENCH_FLUIDFX="loud")
+    check("libenv: FLUIDFX=loud: refused", p.returncode == 2, p.stdout[-300:])
 
 
 def client_ssdarm(tmp):
@@ -1592,6 +1649,7 @@ if __name__ == "__main__":
         matrix(tmp, runs)
         client(tmp)
         client_gprefetch(tmp)
+        client_libenv(tmp)
         client_ssdarm(tmp)
         lint()
         stalls_synthetic(tmp)

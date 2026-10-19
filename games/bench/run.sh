@@ -52,6 +52,11 @@
 # stops the desktop and empties the swaps first (ps3-bench.sh quiet). client.sh checks the arm is
 # there and records gamedata=, swap= (report.py: base@gdssd, base@gdssd+swssd). Everything back to
 # usb when run.sh ends (ssd-arm.sh reset).
+# Library switches as ENVS tokens (client.sh, docs/SPU-AUDIO.md, docs/PROFILING.md "Load-time decoders
+# and linking"): OAL=b16[,lin,...] OpenAL Soft's settings (recipes/openal.inc's names) on any variant,
+# FLUIDFX=off|norev|nocho|cho1|on FluidSynth's reverb and chorus (our libfluidsynth3's
+# FLUIDSYNTH_SETTINGS), ZLIB=ng zlib-ng's libz.so.1 (libz-ng-compat), BINDNOW=1 LD_BIND_NOW,
+# JSIMD=none|altivec libjpeg-turbo's SIMD; report.py base@oalb16, @fxoff, @zng, @bindnow, @jsimdnone.
 # Interference (docs/STALLS.md "Interference"): ps3-bench.sh's detector flags a run somebody
 # disturbed (input, a VT switch, a device, an SSH login or command); run.sh prints a warning after it,
 # report.py marks it and leaves it out of the medians, matrix.py skips it. RERUN_INTERFERED=1 runs

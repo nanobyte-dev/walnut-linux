@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Mon, 19 Oct 2026 09:24:14 +0300
+Subject: ppc64: build for the Cell PPE (-O3 -mcpu=cell -mtune=cell)
+
+The PS3's PPE: GCC schedules for its in-order pipeline, AltiVec is there for ov_read's
+conversion (the source patch) and for the vectorizer; -O3 is what configure asks for and Debian's
+-O2 overrode. Measured under qemu: 7% fewer instructions per decoded second.
+
+diff --git a/debian/rules b/debian/rules
+--- a/debian/rules
++++ b/debian/rules
+@@ -2,6 +2,13 @@
+ 
+ export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+ 
++# The PS3's PPE (Cell): its scheduling, AltiVec for ov_read's conversion (our patch in
++# debian/patches/ps3/) and for GCC's vectorizer at -O3 (configure's own -O3, which Debian's -O2
++# otherwise overrides), as Mesa is built
++ifeq ($(DEB_HOST_ARCH),ppc64)
++export DEB_CFLAGS_MAINT_APPEND = -O3 -mcpu=cell -mtune=cell
++endif
++
+ %:
+ 	dh $@
+ 

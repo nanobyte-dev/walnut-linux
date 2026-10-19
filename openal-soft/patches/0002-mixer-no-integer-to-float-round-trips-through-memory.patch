@@ -1,0 +1,250 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Mon, 19 Oct 2026 09:17:48 +0300
+Subject: mixer: no integer-to-float round trips through memory on the PPE
+
+The PS3's PPE (Cell) has no move between its integer, floating-point and vector registers: a
+conversion stores the value and loads it back, and the load waits for the store to drain
+(load-hit-store, about 40 cycles). The mixer did that once per sample of every voice twice over
+(the resampler's fraction, the 16-bit source sample) and once per output sample (the 16-bit
+output), which a qemu count put at about half of the mixer's estimated PPE cycles.
+
+- Resample_Linear/Cubic: the fraction's float from two 256-entry tables (exact, the same value).
+- LoadSamples<i16>: AltiVec, eight samples at a time (vec_ctf(x, 15) is x/32768 exactly), for
+  mono and interleaved stereo buffers; the rest as before.
+- Write<i16>, stereo: AltiVec vec_cts/vec_packs/vec_merge, SampleConv<i16>'s clamp and truncation.
+
+The tables apply on any 64-bit PowerPC before POWER8; the AltiVec parts need -maltivec (our
+-mcpu=cell). Checked under qemu against the unpatched source with the same flags, 16 voices
+through a loopback device: the mixer's estimated PPE cycles fall 55% (instructions 17%), and
+the output is bit-identical (mono and stereo sources, 22.05 and 44.1 kHz, float and 16-bit
+output, spline and linear resampling).
+
+diff --git a/alc/alu.cpp b/alc/alu.cpp
+--- a/alc/alu.cpp
++++ b/alc/alu.cpp
+@@ -23,6 +23,14 @@
+ 
+ #include "alu.h"
+ 
++#if defined(__ALTIVEC__) && defined(__powerpc64__) && !defined(_ARCH_PWR8)
++#include <altivec.h>
++#include <cstdint>
++#undef vector
++#undef pixel
++#undef bool
++#endif
++
+ #include <algorithm>
+ #include <array>
+ #include <atomic>
+@@ -2375,6 +2383,52 @@ void Write(std::span<FloatBufferLine const> const InBuffer, void *const OutBuffe
+     }
+ }
+ 
++#if defined(__ALTIVEC__) && defined(__powerpc64__) && !defined(_ARCH_PWR8)
++/* 16-bit stereo on the PPE (Cell), what the PS3's ALSA device takes: the generic loop converts each
++ * sample with fctiwz, a store and a load back into an integer register (load-hit-store, about 40
++ * cycles a sample). AltiVec does eight frames in vector registers: vec_cts(x, 15) is x*32768
++ * truncated toward zero and saturated, vec_packs saturates to 16 bits, which is SampleConv<i16>'s
++ * clamp and truncation bit for bit.
++ */
++template<>
++void Write<i16>(std::span<FloatBufferLine const> const InBuffer, void *const OutBuffer,
++    std::size_t const Offset, std::size_t const SamplesToDo, std::size_t const FrameStep)
++{
++    ASSUME(FrameStep > 0);
++    ASSUME(SamplesToDo > 0);
++
++    auto const output = std::span{static_cast<i16*>(OutBuffer), (Offset+SamplesToDo)*FrameStep}
++        .subspan(Offset*FrameStep);
++    if(FrameStep > InBuffer.size())
++        std::ranges::fill(output, SampleConv<i16>(0.0f));
++
++    auto i = 0_uz;
++    if(InBuffer.size() == 2 && FrameStep == 2
++        && ((reinterpret_cast<std::uintptr_t>(output.data())
++            | reinterpret_cast<std::uintptr_t>(InBuffer[0].data())
++            | reinterpret_cast<std::uintptr_t>(InBuffer[1].data()))&15) == 0)
++    {
++        auto const *const left = InBuffer[0].data();
++        auto const *const right = InBuffer[1].data();
++        auto *const out = reinterpret_cast<int16_t*>(output.data());
++        for(;i+8 <= SamplesToDo;i += 8)
++        {
++            auto const l = vec_packs(vec_cts(vec_ld(0, left+i), 15), vec_cts(vec_ld(16, left+i), 15));
++            auto const r = vec_packs(vec_cts(vec_ld(0, right+i), 15), vec_cts(vec_ld(16, right+i), 15));
++            vec_st(vec_mergeh(l, r), 0, out+2*i);
++            vec_st(vec_mergel(l, r), 16, out+2*i);
++        }
++    }
++    auto outbase = output.begin();
++    for(auto const &srcbuf : InBuffer)
++    {
++        auto out = outbase++ + gsl::narrow_cast<std::ptrdiff_t>(i*FrameStep);
++        for(auto k = i;k < SamplesToDo;++k, out += gsl::narrow_cast<std::ptrdiff_t>(FrameStep))
++            *out = SampleConv<i16>(srcbuf[k]);
++    }
++}
++#endif
++
+ template<typename T>
+ void Write(std::span<FloatBufferLine const> const InBuffer, std::span<void*const> const OutBuffers,
+     std::size_t const Offset, std::size_t const SamplesToDo)
+diff --git a/core/mixer/mixer_c.cpp b/core/mixer/mixer_c.cpp
+--- a/core/mixer/mixer_c.cpp
++++ b/core/mixer/mixer_c.cpp
+@@ -1,6 +1,7 @@
+ #include "config.h"
+ 
+ #include <algorithm>
++#include <array>
+ #include <cstddef>
+ #include <limits>
+ #include <ranges>
+@@ -36,6 +37,36 @@ template<typename T>
+ using SamplerT = auto(T const &istate, std::span<float const> vals, std::size_t pos, unsigned frac)
+     noexcept NONBLOCKING -> float;
+ 
++#if defined(__powerpc64__) && !defined(_ARCH_PWR8)
++/* The PPE (Cell) and the PowerPC 970 have no move between integer and floating-point registers:
++ * converting the 16-bit fraction to a float stores it and loads it back, and the load waits for the
++ * store (a load-hit-store, about 40 cycles on the PPE) once per output sample of every voice. Two
++ * small tables give the same float without the round trip: frac/65536 is exactly lo/65536 plus
++ * hi*256/65536, both exact in a float, so the sum is the same value bit for bit.
++ */
++struct FracTables {
++    std::array<float,256> lo{}, hi{};
++    constexpr FracTables() noexcept
++    {
++        for(auto i = 0u;i < 256u;++i)
++        {
++            lo[i] = static_cast<float>(i) * (1.0f/MixerFracOne);
++            hi[i] = static_cast<float>(i<<8) * (1.0f/MixerFracOne);
++        }
++    }
++};
++constexpr auto gFracTables = FracTables{};
++static_assert(MixerFracBits == 16);
++
++[[nodiscard, gnu::always_inline]] constexpr
++auto frac_to_float(unsigned const frac) noexcept -> float
++{ return gFracTables.lo[frac&0xffu] + gFracTables.hi[(frac>>8)&0xffu]; }
++#else
++[[nodiscard]] constexpr
++auto frac_to_float(unsigned const frac) noexcept -> float
++{ return gsl::narrow_cast<float>(frac)*(1.0f/MixerFracOne); }
++#endif
++
+ [[nodiscard]] constexpr
+ auto do_point(std::span<float const> const vals, std::size_t const pos, unsigned) noexcept
+     NONBLOCKING -> float
+@@ -43,14 +74,16 @@ auto do_point(std::span<float const> const vals, std::size_t const pos, unsigned
+ [[nodiscard]] constexpr
+ auto do_lerp(std::span<float const> const vals, std::size_t const pos, unsigned const frac)
+     noexcept NONBLOCKING -> float
+-{ return lerpf(vals[pos+0], vals[pos+1], gsl::narrow_cast<float>(frac)*(1.0f/MixerFracOne)); }
++{ return lerpf(vals[pos+0], vals[pos+1], frac_to_float(frac)); }
+ [[nodiscard]] constexpr
+ auto do_cubic(CubicState const &istate, std::span<float const> const vals, std::size_t const pos,
+     unsigned const frac) noexcept NONBLOCKING -> float
+ {
+     /* Calculate the phase index and factor. */
+     auto const pi = unsigned{frac>>CubicPhaseDiffBits}; ASSUME(pi < CubicPhaseCount);
+-    auto const pf = gsl::narrow_cast<float>(frac&CubicPhaseDiffMask)*float{1.0f/CubicPhaseDiffOne};
++    /* (frac&mask)/CubicPhaseDiffOne, exactly: the masked bits moved up to a 16-bit fraction */
++    auto const pf = frac_to_float((frac&CubicPhaseDiffMask) << CubicPhaseBits);
++    static_assert(CubicPhaseDiffBits + CubicPhaseBits == MixerFracBits);
+ 
+     auto const fil = std::span{istate.filter[pi].mCoeffs};
+     auto const phd = std::span{istate.filter[pi].mDeltas};
+diff --git a/core/voice.cpp b/core/voice.cpp
+--- a/core/voice.cpp
++++ b/core/voice.cpp
+@@ -4,6 +4,14 @@
+ 
+ #include "voice.h"
+ 
++#if defined(__ALTIVEC__) && defined(__powerpc64__) && !defined(_ARCH_PWR8)
++#include <altivec.h>
++#include <cstdint>
++#undef vector
++#undef pixel
++#undef bool
++#endif
++
+ #include <algorithm>
+ #include <array>
+ #include <atomic>
+@@ -275,6 +283,71 @@ void LoadSamples(std::span<float> const dstSamples, std::span<T const> const src
+     });
+ }
+ 
++#if defined(__ALTIVEC__) && defined(__powerpc64__) && !defined(_ARCH_PWR8)
++/* 16-bit samples on the PPE (Cell), the common case of game sounds: the generic loop above converts
++ * each sample with a store and a load back into a float register, and the load waits for the store
++ * (load-hit-store, about 40 cycles), once per sample of every voice. AltiVec converts eight at a
++ * time in vector registers: vec_ctf(x, 15) is x/32768, the same exact value as to_float.
++ */
++namespace altivec {
++
++[[gnu::always_inline]] inline
++auto load_u(int16_t const *const p) noexcept -> __vector signed short
++{
++    return vec_perm(vec_ld(0, p), vec_ld(15, p), vec_lvsl(0, p));
++}
++
++} // namespace altivec
++
++template<>
++void LoadSamples<i16>(std::span<float> const dstSamples, std::span<i16 const> const srcData,
++    std::size_t const srcChan, std::size_t const srcOffset, std::size_t const srcStep,
++    std::size_t const samplesPerBlock [[maybe_unused]]) noexcept
++{
++    static_assert(sizeof(i16) == sizeof(int16_t));
++    Expects(srcChan < srcStep);
++
++    auto const start = srcOffset*srcStep + srcChan;
++    auto const *const src = reinterpret_cast<int16_t const*>(srcData.data()) + start;
++    /* elements readable from src: the vector loads stay inside the buffer */
++    auto const avail = srcData.size() - start;
++    auto *const dst = dstSamples.data();
++    auto const total = dstSamples.size();
++    auto i = 0_uz;
++    auto scalar = [src,dst,srcStep](std::size_t const k) noexcept
++    { dst[k] = static_cast<float>(src[k*srcStep]) * (1.0f/32768.0f); };
++
++    if(srcStep == 1 || srcStep == 2)
++    {
++        while(i < total && (reinterpret_cast<std::uintptr_t>(dst+i)&15) != 0)
++            scalar(i++);
++        if(srcStep == 1)
++        {
++            for(;i+8 <= total && i+8 <= avail;i += 8)
++            {
++                auto const v = altivec::load_u(src+i);
++                vec_st(vec_ctf(vec_unpackh(v), 15), 0, dst+i);
++                vec_st(vec_ctf(vec_unpackl(v), 15), 16, dst+i);
++            }
++        }
++        else
++        {
++            /* every other short: bytes 0-1, 4-5, ... of the two vectors (big-endian) */
++            static const __vector unsigned char even = {0,1, 4,5, 8,9, 12,13, 16,17, 20,21, 24,25,
++                28,29};
++            for(;i+8 <= total && 2*i+16 <= avail;i += 8)
++            {
++                auto const v = vec_perm(altivec::load_u(src+2*i), altivec::load_u(src+2*i+8), even);
++                vec_st(vec_ctf(vec_unpackh(v), 15), 0, dst+i);
++                vec_st(vec_ctf(vec_unpackl(v), 15), 16, dst+i);
++            }
++        }
++    }
++    for(;i < total;++i)
++        scalar(i);
++}
++#endif
++
+ template<>
+ void LoadSamples<IMA4Data>(std::span<float> dstSamples, std::span<IMA4Data const> src,
+     std::size_t const srcChan, std::size_t const srcOffset, std::size_t const srcStep,

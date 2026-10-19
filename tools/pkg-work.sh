@@ -34,7 +34,7 @@ git config core.autocrlf false
 git add -A -f	# whatever the package's .gitignore says (Debian's kernel tree ignores everything)
 GIT_AUTHOR_DATE="@0 +0000" GIT_COMMITTER_DATE="@0 +0000" git commit -q -m "Debian $VERSION" \
 	-m "$SOURCE $VERSION as Debian ships it (its own patches applied)."
-git tag "base/$VERSION"
+git tag "base/${VERSION//:/%}"	# git refuses ":" in a tag: an epoch as "%" (DEP-14)
 
 apply() {	# <patch file> <topic> <series entry>
 	local f=$1 topic=$2 name meta author date
@@ -59,6 +59,7 @@ for p in $(series "/work/$PKG/patches"); do
 	apply "/work/$PKG/patches/$p" "$t" "$p"
 done
 git tag -f exported >/dev/null
-echo ">> $W: base/$VERSION + $(git rev-list --count "base/$VERSION"..HEAD) commits (git log --oneline base/$VERSION..)"
+B="base/${VERSION//:/%}"
+echo ">> $W: $B + $(git rev-list --count "$B"..HEAD) commits (git log --oneline $B..)"
 exit
 }

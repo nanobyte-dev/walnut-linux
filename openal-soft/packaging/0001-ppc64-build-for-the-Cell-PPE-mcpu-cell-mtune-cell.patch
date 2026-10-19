@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Mon, 19 Oct 2026 08:23:57 +0300
+Subject: ppc64: build for the Cell PPE (-mcpu=cell -mtune=cell)
+
+The PS3's PPE: GCC schedules for its in-order pipeline, and AltiVec is available to the
+mixer's Cell paths (the source patches), the way our Mesa is built.
+
+diff --git a/debian/rules b/debian/rules
+--- a/debian/rules
++++ b/debian/rules
+@@ -2,6 +2,14 @@
+ 
+ export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+ 
++# The PS3's PPE (Cell): its scheduling, and AltiVec for the mixer's Cell paths (our patches in
++# debian/patches/ps3/), as Mesa is built
++ifeq ($(DEB_HOST_ARCH),ppc64)
++DEB_CFLAGS_MAINT_APPEND += -mcpu=cell -mtune=cell
++DEB_CXXFLAGS_MAINT_APPEND += -mcpu=cell -mtune=cell
++export DEB_CFLAGS_MAINT_APPEND DEB_CXXFLAGS_MAINT_APPEND
++endif
++
+ DEB_CMAKE_OPTIONS = \
+ 	-DALSOFT_UTILS=ON \
+ 	-DALSOFT_EXAMPLES=OFF \

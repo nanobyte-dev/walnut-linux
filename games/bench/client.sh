@@ -71,6 +71,14 @@ setup() { :; }; parse() { :; }
 if declare -F "variant_$VARIANT" >/dev/null; then "variant_$VARIANT"
 elif [ "$VARIANT" != base ]; then echo "!! $GAME: no variant $VARIANT"; exit 2; fi
 [ ${#CMD[@]} -gt 0 ] || { echo "!! $GAME: no CMD"; exit 2; }
+# OpenAL Soft's settings for this run on top of the variant (run.sh's ENVS token OAL=b16 or OAL=b16,lin
+# becomes BENCH_OAL): recipes/openal.inc's names, written to the run's alsoft.conf (ALSOFT_CONF) like its
+# variants; sourced here for recipes that don't (SuperTuxKart). bench.txt gets oal=; report.py base@oalb16.
+OAL_TOKEN=${BENCH_OAL:-}
+if [ -n "$OAL_TOKEN" ]; then
+	declare -F oal_variant > /dev/null || . "$here/recipes/openal.inc"
+	for v in ${OAL_TOKEN//,/ }; do oal_variant "$v" || { echo "!! BENCH_OAL=$OAL_TOKEN: no $v in openal.inc"; exit 2; }; done
+fi
 
 # the SSD arms (the top): is the system in the arm this run asks for?
 GD=${BENCH_GAMEDATA:-}; SW=${BENCH_SWAP:-}; GD_DIRS=; ARMST=${BENCH_SSDARM_STATE:-/dev/shm}
@@ -182,6 +190,58 @@ fi
 GENV=()
 for v in $(compgen -v BENCH_NV30_); do GENV+=("${v#BENCH_}=${!v}"); done
 [ ${#GENV[@]} -gt 0 ] && ENV+=("${GENV[@]}")
+# Library switches for this run (docs/SPU-AUDIO.md, docs/PROFILING.md "Load-time decoders and
+# linking"), run.sh ENVS tokens that become BENCH_<NAME>, added after the recipe and its variant:
+#   FLUIDFX=off|norev|nocho|cho1|on  FluidSynth's reverb and chorus whatever the game asks for
+#                   (FLUIDSYNTH_SETTINGS, our libfluidsynth3's patch 0002): both off, reverb off,
+#                   chorus off, one chorus line instead of three, both on
+#   ZLIB=ng         zlib-ng's compat libz.so.1 in front of zlib1g's (LD_LIBRARY_PATH=$ZLIBNG_DIR, our
+#                   libz-ng-compat; BENCH_ZLIBNG_DIR another directory)
+#   BINDNOW=1       LD_BIND_NOW=1: every symbol bound at start and dlopen instead of at its first call
+#   JSIMD=none|altivec  libjpeg-turbo's SIMD forced off or on (JSIMD_FORCENONE=1, JSIMD_FORCEALTIVEC=1)
+# A switch the installed library can't honour stops the run (exit 2) rather than measure nothing.
+# bench.txt gets libenv=<NAME=VALUE ...>; report.py shows it after the variant (base@fxoff, base@zng,
+# base@bindnow, base@jsimdnone).
+LIBENV=()
+ZLIBNG_DIR=${BENCH_ZLIBNG_DIR:-/usr/lib/powerpc64-linux-gnu/zlib-ng}
+env_add() {	# env_add NAME VALUE: NAME=VALUE in the game's environment (the recipe's value replaced)
+	local i
+	for i in "${!ENV[@]}"; do [[ ${ENV[$i]} == "$1="* ]] && { ENV[$i]="$1=$2"; return; }; done
+	ENV+=("$1=$2")
+}
+if [ -n "${BENCH_FLUIDFX:-}" ]; then
+	case $BENCH_FLUIDFX in
+	off) fx=synth.reverb.active=0,synth.chorus.active=0 ;;
+	norev) fx=synth.reverb.active=0 ;;
+	nocho) fx=synth.chorus.active=0 ;;
+	cho1) fx=synth.chorus.nr=1 ;;
+	on) fx=synth.reverb.active=1,synth.chorus.active=1 ;;
+	*) echo "!! BENCH_FLUIDFX=$BENCH_FLUIDFX: off, norev, nocho, cho1 or on"; exit 2 ;;
+	esac
+	lib=${BENCH_FLUIDLIB:-/usr/lib/powerpc64-linux-gnu/libfluidsynth.so.3}
+	grep -qa FLUIDSYNTH_SETTINGS "$lib" 2>/dev/null ||
+		{ echo "!! BENCH_FLUIDFX: $lib has no FLUIDSYNTH_SETTINGS (libfluidsynth3 with patch 0002)"; exit 2; }
+	env_add FLUIDSYNTH_SETTINGS "$fx"; LIBENV+=("FLUIDFX=$BENCH_FLUIDFX")
+fi
+if [ -n "${BENCH_ZLIB:-}" ]; then
+	[ "$BENCH_ZLIB" = ng ] || { echo "!! BENCH_ZLIB=$BENCH_ZLIB: ng"; exit 2; }
+	[ -e "$ZLIBNG_DIR/libz.so.1" ] || { echo "!! BENCH_ZLIB=ng: no $ZLIBNG_DIR/libz.so.1 (libz-ng-compat)"; exit 2; }
+	l=${LD_LIBRARY_PATH:-}	# the recipe's, else ours: ZLIBNG_DIR goes in front
+	for x in "${ENV[@]}"; do [[ $x == LD_LIBRARY_PATH=* ]] && l=${x#LD_LIBRARY_PATH=}; done
+	env_add LD_LIBRARY_PATH "$ZLIBNG_DIR${l:+:$l}"; LIBENV+=("ZLIB=ng")
+fi
+if [ -n "${BENCH_BINDNOW:-}" ]; then
+	[ "$BENCH_BINDNOW" = 1 ] || { echo "!! BENCH_BINDNOW=$BENCH_BINDNOW: 1"; exit 2; }
+	env_add LD_BIND_NOW 1; LIBENV+=("BINDNOW=1")
+fi
+if [ -n "${BENCH_JSIMD:-}" ]; then
+	case $BENCH_JSIMD in
+	none) env_add JSIMD_FORCENONE 1 ;;
+	altivec) env_add JSIMD_FORCEALTIVEC 1 ;;
+	*) echo "!! BENCH_JSIMD=$BENCH_JSIMD: none or altivec"; exit 2 ;;
+	esac
+	LIBENV+=("JSIMD=$BENCH_JSIMD")
+fi
 # ps3rsx module parameters for this run (docs/HOTPATHS.md): every BENCH_PS3RSX_<NAME>=V (run.sh's
 # ENVS token PS3RSX_SHADOW_FAST=1) is written to /sys/module/ps3rsx/parameters/<name> (lower case)
 # through sudo -n before the game starts, and the value it had is put back when this script exits,
@@ -623,6 +683,8 @@ secs measured "$measured"
   [ -n "$STEADY_RE" ] && { echo "steady_fps=$(first "$STEADY_RE")"; echo "steady_maxms=$(first "$STEADY_MAXMS_RE")"; }
   [ -n "$MALLOC" ] && echo "malloc=$MALLOC"
   [ ${#GENV[@]} -gt 0 ] && echo "genv=${GENV[*]}"
+  [ -n "$OAL_TOKEN" ] && echo "oal=$OAL_TOKEN"
+  [ ${#LIBENV[@]} -gt 0 ] && echo "libenv=${LIBENV[*]}"
   [ ${#KPARAM[@]} -gt 0 ] && echo "kparam=${KPARAM[*]}"
   [ -n "$GPF" ] && echo "gprefetch=$GPF"
   [ -n "$SC" ] && { echo "shadercache=$SC"; echo "shadercache_kb=${SC_KB:--} $(sc_kb || echo -)"; }

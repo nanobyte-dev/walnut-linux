@@ -15,6 +15,12 @@
 #   p1024   period_size=1024 (dmix's own period): half the mixer wakeups, the same samples
 #   alnull  OpenAL's null backend: it mixes in real time (renderSamples without Write), nothing
 #           reaches ALSA. base - alnull is ALSA's share, alnull - nosound OpenAL's own
+#   f32     sample-type=float32: OpenAL's own default, the off arm of ps3-system's int16 default
+#           (/etc/xdg/alsoft.conf, ps3-system 0.N on: there b16 is what base runs)
+#   lin     resampler=linear: two taps instead of the 4-tap spline (Resample_Cubic_C); changes the
+#           sound (more aliasing on pitched-down effects), so the user listens
+# The same names work as an ENVS token on any variant of any game (client.sh BENCH_OAL, comma-joined:
+# ENVS="- OAL=b16 OAL=b16,lin"), also in games whose recipe doesn't source this file (SuperTuxKart).
 # Every one of them writes its alsoft.conf into the run directory (ALSOFT_CONF: read after every
 # other config file) and OpenAL's log (ALSOFT_LOGLEVEL=3) to alsoft.log there; parse() adds
 # oal_backend= and oal_device= (format, rate, period / buffer frames as OpenAL got them) to
@@ -35,6 +41,8 @@ oal_settings() {	# oal_settings NAME: the settings of variant NAME (above)
 	b16f44) oal_settings b16 && oal_settings f44 ;;
 	p1024) OAL_SET+=(period_size=1024) ;;
 	alnull) OAL_SET+=(drivers=null) ;;
+	f32) OAL_SET+=(sample-type=float32) ;;
+	lin) OAL_SET+=(resampler=linear) ;;
 	*) echo "!! openal.inc: no variant $1"; return 1 ;;
 	esac
 }

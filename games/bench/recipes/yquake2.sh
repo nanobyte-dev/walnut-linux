@@ -43,4 +43,6 @@ variant_f44() { oal_variant f44; }
 variant_b16f44() { oal_variant b16f44; }
 variant_p1024() { oal_variant p1024; }
 variant_alnull() { oal_variant alnull; }
+variant_f32() { oal_variant f32; }
+variant_lin() { oal_variant lin; }
 variant_nosound() { CMD+=(+set s_initsound 0); }

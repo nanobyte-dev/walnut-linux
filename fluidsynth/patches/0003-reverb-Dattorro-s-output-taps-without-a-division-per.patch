@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Mon, 19 Oct 2026 08:18:17 +0300
+Subject: reverb: Dattorro's output taps without a division per tap
+
+The Dattorro plate reverb (the default engine, "dat") reads 14 output taps every sample, and
+each tap's position was wrapped with an integer division (index %= size). The PS3's PPE
+divides in tens of cycles without pipelining, so the wrap cost more than the reverb's
+arithmetic. line_out is always in [0, size) and every tap is shorter than its line, so one
+conditional subtraction gives the same index; the division stays for any other case. The
+output is bit-identical.
+
+Forwarded: no
+
+diff --git a/src/rvoice/fluid_rev_dattorro.cpp b/src/rvoice/fluid_rev_dattorro.cpp
+--- a/src/rvoice/fluid_rev_dattorro.cpp
++++ b/src/rvoice/fluid_rev_dattorro.cpp
+@@ -91,10 +91,20 @@ static float fluid_dattorro_read_tap(const fluid_reverb_delay_line<float> &delay
+     }
+ 
+     int index = delay.line_out + tap;
+-    index %= size;
+-    if(index < 0)
++    /* PS3: line_out is in [0, size) and every tap is shorter than its line, so one subtraction
++     * wraps it; the division stays for anything else. The PPE's integer divide takes tens of
++     * cycles and this ran 14 times a sample. */
++    if(index >= size && index - size < size && tap >= 0)
+     {
+-        index += size;
++        index -= size;
++    }
++    else if(index >= size || index < 0)
++    {
++        index %= size;
++        if(index < 0)
++        {
++            index += size;
++        }
+     }
+     return delay.line[index];
+ }

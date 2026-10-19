@@ -1,0 +1,100 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Mon, 19 Oct 2026 09:39:22 +0300
+Subject: vorbisfile: ov_read's 16-bit packing in AltiVec on the PPE
+
+ov_read's native-endian signed 16-bit loop rounds every sample with floor() and converts it to
+an integer; on the PS3's PPE (Cell) both go through memory (no moves between its float and
+integer registers), two load-hit-stores of about 40 cycles a sample. Counted under qemu: a third
+of a whole Vorbis decode's estimated PPE cycles.
+
+Mono and stereo now pack eight samples a step in vector registers: floor(x*32768 + 0.5)
+(vec_madd, exact since x*32768 is), vec_cts saturating to 32 bits, vec_packs to 16, the scalar
+code's rounding and clamping bit for bit. Blocks of 512 samples go through an aligned buffer and
+are copied out, so neither the caller's buffer nor the PCM has to be aligned; other layouts and
+the tail stay scalar.
+
+Checked against the unpatched build with the same flags: byte-identical oggdec output for a
+stereo music track and 12 mono effects. The decode's estimated PPE cycles fell 37% against that
+build (instructions 12%), 41% with the Cell flags against Debian's build.
+
+diff --git a/lib/vorbisfile.c b/lib/vorbisfile.c
+--- a/lib/vorbisfile.c
++++ b/lib/vorbisfile.c
+@@ -1953,6 +1953,57 @@ static int host_is_big_endian() {
+ 
+             *section) set to the logical bitstream number */
+ 
++#if defined(__ALTIVEC__) && defined(__powerpc64__) && !defined(_ARCH_PWR8)
++#include <altivec.h>
++#undef vector
++#undef pixel
++#undef bool
++/* ov_read's native-endian signed 16-bit packing on the PPE (Cell). The scalar loop below converts
++   each sample with floor() and a float-to-int conversion, which on the PPE go through memory (it
++   has no moves between its float and integer registers): two load-hit-stores a sample, about 40
++   cycles each, a third of a Vorbis decode's cost. Here eight samples a step stay in vector
++   registers: floor(x*32768 + 0.5) (vec_madd is exact: x*32768 is), vec_cts saturating to 32 bits
++   and vec_packs to 16, which is the scalar code's rounding and clamping bit for bit. Blocks are
++   packed into an aligned buffer and copied out, so neither the caller's buffer nor the PCM needs to
++   be aligned. Mono and stereo; returns 0 (nothing done) for other layouts. */
++static int ps3_pack_s16(float **pcm, long channels, long samples, char *buffer){
++  static const __vector float k32768 = {32768.f, 32768.f, 32768.f, 32768.f};
++  static const __vector float khalf = {.5f, .5f, .5f, .5f};
++  __vector signed short tmp[64];  /* 512 samples */
++  long done = 0;
++  if(channels != 1 && channels != 2) return 0;
++  while(done < samples){
++    long n = samples - done, j, k;
++    long per = 512 / channels;      /* frames in tmp */
++    if(n > per) n = per;
++    n &= ~7L;
++    if(n == 0) break;
++    for(j = 0, k = 0; j < n; j += 8){
++      __vector signed int q[4];
++      int c;
++      for(c = 0; c < channels; c++){
++        const float *s = pcm[c] + done + j;
++        __vector unsigned char perm = vec_lvsl(0, s);
++        __vector float a = vec_ld(0, s), b = vec_ld(16, s), d = vec_ld(31, s);
++        __vector float lo = vec_perm(a, b, perm), hi = vec_perm(b, d, perm);
++        q[2*c] = vec_cts(vec_floor(vec_madd(lo, k32768, khalf)), 0);
++        q[2*c+1] = vec_cts(vec_floor(vec_madd(hi, k32768, khalf)), 0);
++      }
++      if(channels == 1)
++        tmp[k++] = vec_packs(q[0], q[1]);
++      else{
++        __vector signed short l = vec_packs(q[0], q[1]), r = vec_packs(q[2], q[3]);
++        tmp[k++] = vec_mergeh(l, r);
++        tmp[k++] = vec_mergel(l, r);
++      }
++    }
++    memcpy(buffer + done * 2 * channels, tmp, n * 2 * channels);
++    done += n;
++  }
++  return (int)done;
++}
++#endif
++
+ long ov_read_filter(OggVorbis_File *vf,char *buffer,int length,
+                     int bigendianp,int word,int sgned,int *bitstream,
+                     void (*filter)(float **pcm,long channels,long samples,void *filter_param),void *filter_param){
+@@ -2021,12 +2072,16 @@ long ov_read_filter(OggVorbis_File *vf,char *buffer,int length,
+ 
+         if(host_endian==bigendianp){
+           if(sgned){
++            long first=0;
++#if defined(__ALTIVEC__) && defined(__powerpc64__) && !defined(_ARCH_PWR8)
++            first=ps3_pack_s16(pcm,channels,samples,buffer);
++#endif
+ 
+             vorbis_fpu_setround(&fpu);
+             for(i=0;i<channels;i++) { /* It's faster in this order */
+               float *src=pcm[i];
+-              short *dest=((short *)buffer)+i;
+-              for(j=0;j<samples;j++) {
++              short *dest=((short *)buffer)+i+first*channels;
++              for(j=first;j<samples;j++) {
+                 val=vorbis_ftoi(src[j]*32768.f);
+                 if(val>32767)val=32767;
+                 else if(val<-32768)val=-32768;
