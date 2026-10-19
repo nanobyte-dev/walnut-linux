@@ -1,5 +1,5 @@
 #!/bin/bash
-# step0.sh <what>: the SPU offload plan's step 0 (docs/SPU-OFFLOAD-SURVEY.md "Measured: step 0"),
+# step0.sh <what>: the SPU offload plan's step 0 (docs/SPU.md "Measured: step 0 and the harness"),
 # every run through ps3-bench.sh (desktop stopped, caches dropped, swap emptied). Copy this
 # directory to the PS3 (bench.dm_71 into ~/.openarena/baseoa/demos/) and run as tibi over SSH.
 #   step0.sh smoke        glxinfo and one timedemo under the bare X: does the setup work?
@@ -9,7 +9,7 @@
 #   step0.sh profile V    one bot match with sound variant V, perf profile of the game
 # Results: /var/tmp/ps3-bench/; ps3-bench.sh desktop at the end of the session.
 # Superseded by games/bench (recipes/openarena.sh): this ran a bare X with no window manager, so
-# nothing reached the screen and its game numbers are invalid (SPU-OFFLOAD-SURVEY.md).
+# nothing reached the screen and its game numbers are invalid (docs/SPU.md).
 {
 set -u
 B=ps3-bench.sh

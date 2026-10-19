@@ -1,4 +1,4 @@
-# OpenAL Soft measurement variants (docs/SPU-AUDIO.md, section 2: M0), shared by the recipes of the
+# OpenAL Soft measurement variants (docs/SPU-AUDIO.md, M0), shared by the recipes of the
 # games that play through OpenAL Soft: openarena, yquake2, classicube, luanti. A recipe sources this
 # file and defines each variant_<name>() as a one-line call, variant_b16() { oal_variant b16; },
 # because run.sh finds a game's variants by grepping its recipe. variant_nosound (no sound at all)
