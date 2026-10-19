@@ -28,7 +28,12 @@
 # volume (the CPU cost of Opus on the PPE is unknown: variant nomusic). 4.3.5's textures are PNG
 # (the Basis Universal encoder is off in our build): the game compresses RGBA pages to DXT5 itself
 # when it uploads (texturecompression=1, the default; 485 of 1348 textures), the rest is RGBA8 or
-# LUMINANCE. First start only: the game writes its stats.db and caches in the config directory.
+# LUMINANCE (on big-endian the game's own DXT encoder, etcpak, made wrong blocks: black terrain and
+# missing models until patch 0004). First start only: the game writes its
+# stats.db and caches in the config directory. Videos: the campaign videos (sequences.wz, the
+# warzone2100-video package) aren't installed; fmvmode is irrelevant to that, the game shows a
+# "Campaign videos are missing" notification at the menu and over the match until it is dismissed
+# with "do not show again", so setup() writes that choice into notifications.json.
 # Risks: RAM. Measured on the PC (amd64 build of the same source, Debian sid, llvmpipe with
 # MESA_GL_VERSION_OVERRIDE=2.1, Xvfb 1920x1080, these settings, 1x speed AI-vs-AI): VmHWM 366-379 MB
 # (97 MB of it libLLVM and Mesa's libraries); heaptrack: peak heap 259 MB = llvmpipe 118 (incl. the
@@ -72,6 +77,9 @@ setup() {
 		'	"player_0": {' '		"team": 0,' '		"ai": "multiplay/skirmish/semperfi.js"' '	},' '	"player_1": {' \
 		'		"difficulty": "Medium",' '		"team": 1,' '		"ai": "multiplay/skirmish/semperfi.js"' '	}' '}' \
 		> "$WZ_CFG/tests/ps3bench.json"
+	# the "Campaign videos are missing" notification, dismissed for good (the game keeps the file)
+	printf '%s\n' '{' '    "notifications": {' '        "campaignVideoNotification": {' '            "skip": true' \
+		'        }' '    }' '}' > "$WZ_CFG/notifications.json"
 }
 WZ=(/usr/bin/warzone2100 --configdir="$WZ_CFG" --fullscreen --resolution=1920x1080)
 CMD=("${WZ[@]}" --autogame --skirmish=ps3bench.json)

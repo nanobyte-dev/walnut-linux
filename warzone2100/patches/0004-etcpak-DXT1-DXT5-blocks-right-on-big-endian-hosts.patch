@@ -1,0 +1,154 @@
+Subject: etcpak: DXT1/DXT5 blocks right on big-endian hosts (the scalar paths)
+
+Warzone compresses its game textures (terrain pages, unit and structure skins) to DXT1/DXT5 itself
+at upload, with the bundled etcpak (texturecompression=1, the default). etcpak's portable scalar
+code reads the pixels as bytes, but a few steps view a pixel as a little-endian uint32 (the
+solid-block test and to565 of it, Dither, the alpha split of CompressDxt5) and every finished block
+is stored as a native uint64 whose low byte has to come first. On big-endian (ppc64, the PS3) every
+block came out wrong: a solid block got colour0 = colour1 = 0 (black) with the colours in the index
+bits, so the terrain drew black and the models came out as garbage or not at all.
+
+Those steps now work on bytes or store the blocks little-endian (no-ops on little-endian: the
+output is byte-identical on x86, and the ppc64 build's output now equals the x86 one for DXT1,
+DXT1 dithered and DXT5). The ETC encoders have the same assumptions and are not fixed: they are
+left out of the real-time compressors on big-endian hosts.
+
+---
+diff --git a/lib/ivis_opengl/3rdparty/etcpak/Dither.cpp b/lib/ivis_opengl/3rdparty/etcpak/Dither.cpp
+index 355686f..0d22953 100644
+--- a/lib/ivis_opengl/3rdparty/etcpak/Dither.cpp
++++ b/lib/ivis_opengl/3rdparty/etcpak/Dither.cpp
+@@ -102,18 +102,12 @@ void Dither( uint8_t* data )
+ 
+     for( int i=0; i<16; i++ )
+     {
+-        uint32_t col;
+-        memcpy( &col, data, 4 );
+-        uint8_t r = col & 0xFF;
+-        uint8_t g = ( col >> 8 ) & 0xFF;
+-        uint8_t b = ( col >> 16 ) & 0xFF;
+-
+-        r = clampu8( r + Bayer31[i] );
+-        g = clampu8( g + Bayer63[i] );
+-        b = clampu8( b + Bayer31[i] );
+-
+-        col = r | ( g << 8 ) | ( b << 16 );
+-        memcpy( data, &col, 4 );
++        // by bytes (R, G, B, A in memory) so that big-endian hosts dither the right channels;
++        // A is cleared as the little-endian uint32 version did
++        data[0] = clampu8( data[0] + Bayer31[i] );
++        data[1] = clampu8( data[1] + Bayer63[i] );
++        data[2] = clampu8( data[2] + Bayer31[i] );
++        data[3] = 0;
+         data += 4;
+     }
+ #endif
+diff --git a/lib/ivis_opengl/3rdparty/etcpak/ProcessDxtc.cpp b/lib/ivis_opengl/3rdparty/etcpak/ProcessDxtc.cpp
+index 508d55f..df47da9 100644
+--- a/lib/ivis_opengl/3rdparty/etcpak/ProcessDxtc.cpp
++++ b/lib/ivis_opengl/3rdparty/etcpak/ProcessDxtc.cpp
+@@ -6,6 +6,26 @@
+ #include <stdint.h>
+ #include <string.h>
+ 
++// Big-endian hosts (PowerPC; the PS3): the scalar paths below read the pixels as bytes R, G, B, A,
++// but a few steps looked at a pixel as a little-endian uint32 (the solid-block test, Dither) or
++// stored a finished block as a native uint64 whose low byte must come first in memory. Those
++// steps now go through bytes or the helpers here, which are no-ops on little-endian.
++#if defined __BYTE_ORDER__ && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++#  define ETCPAK_BIG_ENDIAN 1
++static const uint32_t RgbMask565 = 0xF8FCF800;   // R, G, B bytes of a pixel loaded as uint32
++#else
++static const uint32_t RgbMask565 = 0xF8FCF8;
++#endif
++
++// writes v with its low byte first, the order of the DXT block format
++static inline void StoreBlockLE( void* dst, uint64_t v )
++{
++#ifdef ETCPAK_BIG_ENDIAN
++    v = __builtin_bswap64( v );
++#endif
++    memcpy( dst, &v, 8 );
++}
++
+ #ifdef __ARM_NEON
+ #  include <arm_neon.h>
+ #endif
+@@ -450,18 +470,18 @@ static etcpak_force_inline uint64_t ProcessRGB( const uint8_t* src )
+ #else
+     uint32_t ref;
+     memcpy( &ref, src, 4 );
+-    uint32_t refMask = ref & 0xF8FCF8;
++    uint32_t refMask = ref & RgbMask565;
+     auto stmp = src + 4;
+     for( int i=1; i<16; i++ )
+     {
+         uint32_t px;
+         memcpy( &px, stmp, 4 );
+-        if( ( px & 0xF8FCF8 ) != refMask ) break;
++        if( ( px & RgbMask565 ) != refMask ) break;
+         stmp += 4;
+     }
+     if( stmp == src + 64 )
+     {
+-        return uint64_t( to565( ref ) ) << 16;
++        return uint64_t( to565( src[0], src[1], src[2] ) ) << 16;
+     }
+ 
+     uint8_t min[3] = { src[0], src[1], src[2] };
+@@ -853,7 +873,7 @@ void CompressDxt1( const uint32_t* src, uint64_t* dst, uint32_t blocks, size_t w
+ 
+             const auto c = ProcessRGB( (uint8_t*)buf );
+             uint8_t fix[8];
+-            memcpy( fix, &c, 8 );
++            StoreBlockLE( fix, c );
+             for( int j=4; j<8; j++ ) fix[j] = DxtcIndexTable[fix[j]];
+             memcpy( ptr, fix, sizeof( uint64_t ) );
+             ptr++;
+@@ -886,7 +906,7 @@ void CompressDxt1Dither( const uint32_t* src, uint64_t* dst, uint32_t blocks, si
+ 
+         const auto c = ProcessRGB( (uint8_t*)buf );
+         uint8_t fix[8];
+-        memcpy( fix, &c, 8 );
++        StoreBlockLE( fix, c );
+         for( int j=4; j<8; j++ ) fix[j] = DxtcIndexTable[fix[j]];
+         memcpy( ptr, fix, sizeof( uint64_t ) );
+         ptr++;
+@@ -939,14 +959,16 @@ void CompressDxt5( const uint32_t* src, uint64_t* dst, uint32_t blocks, size_t w
+ 
+         for( int i=0; i<16; i++ )
+         {
+-            alpha[i] = rgba[i] >> 24;
+-            rgba[i] &= 0xFFFFFF;
++            // byte 3 of each pixel is A, whatever the host byte order
++            uint8_t* px = (uint8_t*)( rgba + i );
++            alpha[i] = px[3];
++            px[3] = 0;
+         }
+-        *ptr++ = ProcessAlpha( alpha );
++        StoreBlockLE( ptr++, ProcessAlpha( alpha ) );
+ 
+         const auto c = ProcessRGB( (uint8_t*)rgba );
+         uint8_t fix[8];
+-        memcpy( fix, &c, 8 );
++        StoreBlockLE( fix, c );
+         for( int j=4; j<8; j++ ) fix[j] = DxtcIndexTable[fix[j]];
+         memcpy( ptr, fix, sizeof( uint64_t ) );
+         ptr++;
+diff --git a/lib/ivis_opengl/gfx_api_image_compress_priv.cpp b/lib/ivis_opengl/gfx_api_image_compress_priv.cpp
+index db43960..fcfcb26 100644
+--- a/lib/ivis_opengl/gfx_api_image_compress_priv.cpp
++++ b/lib/ivis_opengl/gfx_api_image_compress_priv.cpp
+@@ -28,9 +28,12 @@
+ static std::vector<gfx_api::pixel_format> builtInRealTimeFormatCompressors =
+ {
+ #if defined(ETCPAK_ENABLED)
++#if !(defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
++		// etcpak's ETC encoders assume a little-endian host; only its DXT paths are fixed for big-endian
+ 		gfx_api::pixel_format::FORMAT_RGB8_ETC1,
+ 		gfx_api::pixel_format::FORMAT_RGB8_ETC2,
+ 		gfx_api::pixel_format::FORMAT_RGBA8_ETC2_EAC,
++#endif
+ 		gfx_api::pixel_format::FORMAT_RGB_BC1_UNORM, // DXT1
+ 		gfx_api::pixel_format::FORMAT_RGBA_BC3_UNORM, // DXT5
+ #endif

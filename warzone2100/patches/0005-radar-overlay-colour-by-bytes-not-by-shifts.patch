@@ -1,0 +1,28 @@
+Subject: radar: the overlay colour back from a UDWORD by bytes, not by shifts
+
+radarOverlayBuffer holds PIELIGHT .rgba values (the union's UDWORD view) and PLfromUDWORD took them
+apart with little-endian shifts, so on big-endian the minimap's unit and structure dots had their
+channels reversed (alpha from red). Put the UDWORD back into the union instead.
+
+---
+diff --git a/src/radar.cpp b/src/radar.cpp
+index a0a6d4d..7aff1bd 100644
+--- a/src/radar.cpp
++++ b/src/radar.cpp
+@@ -153,12 +153,10 @@ PIELIGHT inline mix(PIELIGHT over, PIELIGHT base)
+ 
+ PIELIGHT inline PLfromUDWORD(UDWORD value)
+ {
+-	PIELIGHT retColor = { {
+-		static_cast<UBYTE>((value & 0x000000FF) >> 0),
+-		static_cast<UBYTE>((value & 0x0000FF00) >> 8),
+-		static_cast<UBYTE>((value & 0x00FF0000) >> 16),
+-		static_cast<UBYTE>((value & 0xFF000000) >> 24),
+-	} };
++	// value is a PIELIGHT's .rgba (radarOverlayBuffer stores those): copy the bytes back, which
++	// is right on either byte order (the shifts were only right on little-endian)
++	PIELIGHT retColor;
++	retColor.rgba = value;
+ 	return retColor;
+ }
+ 

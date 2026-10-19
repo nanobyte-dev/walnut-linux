@@ -1,0 +1,27 @@
+Subject: gl: unbind GL_TEXTURE_2D_ARRAY only when texture arrays exist
+
+bind_textures() unbinds both targets for every sampler that gets no texture (the tcmask shader's
+missing normal and specular maps, for one). Without GL 3.0 or EXT_texture_array, as on Mesa's nv30
+(GL 2.1), GL_TEXTURE_2D_ARRAY is GL_INVALID_ENUM: the PS3 smoke run logged 1.47 million of them
+through the KHR_debug callback in 5 minutes, each a Mesa error plus a formatted log message on the
+CPU. The context already knows (has2DTextureArraySupport); skip the call without it.
+
+---
+diff --git a/lib/ivis_opengl/gfx_api_gl.cpp b/lib/ivis_opengl/gfx_api_gl.cpp
+index 11482d8..912f71a 100644
+--- a/lib/ivis_opengl/gfx_api_gl.cpp
++++ b/lib/ivis_opengl/gfx_api_gl.cpp
+@@ -1687,7 +1687,12 @@ void gl_context::bind_textures(const std::vector<gfx_api::texture_input>& textur
+ 		if (textures[i] == nullptr)
+ 		{
+ 			glBindTexture(GL_TEXTURE_2D, 0);
+-			glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
++			if (has2DTextureArraySupport)
++			{
++				// without GL 3.0 / EXT_texture_array (nv30) the target is GL_INVALID_ENUM, raised and
++				// logged through the debug callback for every unused sampler of every draw
++				glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
++			}
+ 			continue;
+ 		}
+ 		const auto type = textures[i]->isArray() ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D;
