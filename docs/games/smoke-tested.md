@@ -163,16 +163,18 @@ it) from the user's own RollerCoaster Tycoon 2 CD. It unpacks the InstallShield 
 
 ## Skipped
 
-- **Hedgewars 1.0.3**: Debian builds no ppc64 binary; 2 of 7 engine Lua tests fail, in two different
-  ways (build log hedgewars 1.0.3-5, ppc64, 2026-09-21): `stuckcake.lua` dies with `EInvalidOp:
-  Invalid floating point operation`, and in `gravity_get_set.lua` the grenade stops at the wrong
-  height when gravity is 200 or 300 (Y -10 and -4, expected 2 and 253), a physics divergence with no
-  exception. So masking FPU exceptions would not be a test-only fix. What differs on ppc64 is the
-  compiler: `debian/rules` builds the engine with Free Pascal 3.2.2 where `fp-compiler` exists, and
-  through `pas2c` (GHC) and clang on armel, armhf, i386, mipsel and ppc64el, where it passes. Trying
-  that on ppc64 means hours of GHC and clang under qemu with no guarantee the C engine is big-endian
-  clean, plus a Qt5 frontend on 217 MB. Not started.
-- **Wesnoth**: 2-4 GB of RAM, and Debian doesn't build it for ppc64 (Boost, #1146645).
+- **Hedgewars 1.0.3**: our ppc64 engine (`hedgewars-engine`, FPU exceptions masked at start, patch
+  0001) runs without the Qt frontend: `games/bench/hwdrive.py` starts it with `--internal --port N` and
+  plays the frontend's IPC for a training mission (recipe `hedgewars.sh`). hwengine takes `--showfps` with
+  no value: a stray argument is read as a demo file name. Checked on the PC with Debian's amd64
+  1.0.3-5 under Xvfb: the engine connects, takes the config and loads the mission. The upstream engine
+  Lua tests still fail 2 of 7 on ppc64 (`stuckcake.lua`: `EInvalidOp`; `gravity_get_set.lua`: wrong
+  grenade height at gravity 200 and 300), so physics may differ from little-endian builds.
+- **Wesnoth 1.18.8**: our ppc64 build (Debian has none, Boost.Context #1146645; recipe `wesnoth.sh`).
+  By default it redirects its own stdout and stderr to `~/.config/wesnoth-1.18/logs/`, which the
+  bench harness reads as the game having ended; the recipe passes `--no-log-to-file`. Variants:
+  `nosound`, `window` (windowed 1920x1080), `menu`, `httt`, `ai`. Expect 2-4 GB of address space and
+  about 130-215 MiB RSS.
 - The research's other exclusions (DDNet's test hang, Warzone 2100's GL 3.0 and big-endian static
   assert, Xonotic, Tesseract) are in [research/GAME-CANDIDATES.md](../research/GAME-CANDIDATES.md).
 

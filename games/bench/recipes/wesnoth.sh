@@ -8,7 +8,7 @@
 # Variant ai is hands-off: a multiplayer game of two AIs on The Freelands (4p map) with the default
 # era, --nodelay (no pauses between AI moves, animations still drawn), 20 turns, --rng-seed 1 so a
 # rerun plays the same opening (the AI is not fully deterministic over a whole game); it ends in a
-# victory/defeat box. Variant menu is the title screen, nosound the tutorial with --nosound.
+# victory/defeat box. Variant menu is the title screen, nosound the tutorial with --nosound, window the tutorial windowed at 1920x1080.
 # Settings: ~/.config/wesnoth-1.18/preferences is written (restored after the run): fullscreen at
 # 1920x1080, no map, water, idle or standing animations, no haloes, vsync off, scroll_to_action off,
 # the frame cap 60 (--max-fps; the default is the display's refresh rate). Key names from 1.18's
@@ -41,9 +41,15 @@ setup() {
 		"animate_water=no" "idle_anim=no" "unit_standing_animations=no" "show_haloes=no" "vsync=no" \
 		"scroll_to_action=no" "sound=yes" "music=yes" > "$WN_PREFS"
 }
-WN=(/usr/games/wesnoth-1.18 --fullscreen --max-fps 60)
+# --no-log-to-file (and WESNOTH_NO_LOG_FILE): without it wesnoth.cpp freopen()s stderr and stdout
+# to ~/.config/wesnoth-1.18/logs/ on every start, which closes the pipe client.sh reads (EOF = "the
+# game is gone": it stopped the game after 1.7 s, rc=143, empty game.log, empty log file; a start
+# from a terminal or a desktop launcher had a tty and kept running). Now the log goes to game.log.
+ENV+=(WESNOTH_NO_LOG_FILE=1)
+WN=(/usr/games/wesnoth-1.18 --no-log-to-file --fullscreen --max-fps 60)
 CMD=("${WN[@]}" -c Tutorial --campaign-difficulty 1 --campaign-skip-story)
 variant_httt() { CMD=("${WN[@]}" -c Heir_To_The_Throne --campaign-difficulty 2 --campaign-skip-story --campaign-scenario 02_Blackwater_Port); }
 variant_ai() { CMD=("${WN[@]}" -m --controller 1:ai --controller 2:ai --nodelay --turns 20 --rng-seed 1 --scenario multiplayer_The_Freelands --exit-at-end); }
 variant_menu() { CMD=("${WN[@]}"); }
 variant_nosound() { CMD+=(--nosound); }
+variant_window() { WN=(/usr/games/wesnoth-1.18 --no-log-to-file --windowed --resolution 1920x1080 --max-fps 60); CMD=("${WN[@]}" -c Tutorial --campaign-difficulty 1 --campaign-skip-story); }

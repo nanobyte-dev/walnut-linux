@@ -13,7 +13,7 @@ COMM=hwengine
 BACKUP=("$HOME/.hedgewars/settings.ini")
 HW_MISSION=Basic_Training_-_Movement
 HW_ARGS=(--fullscreen --fullscreen-width 1920 --fullscreen-height 1080 --width 1920 --height 1080
-	--locale en.txt --showfps 1 --nick smoke)
+	--locale en.txt --showfps --nick smoke)
 hw_cmd() { CMD=(python3 -I "$here/hwdrive.py" "$HW_MISSION" "${HW_ARGS[@]}"); }
 hw_cmd
 setup() { [ -x /usr/lib/hedgewars/bin/hwengine ] || echo "WARNING: no hwengine: apt install hedgewars-engine"; }
@@ -21,4 +21,4 @@ variant_bazooka() { HW_MISSION=Basic_Training_-_Bazooka; hw_cmd; }
 variant_rope() { HW_MISSION=Basic_Training_-_Rope; hw_cmd; }
 variant_lowq() { HW_ARGS+=(--low-quality); hw_cmd; }
 variant_nosound() { HW_ARGS+=(--nosound --nomusic); hw_cmd; }
-variant_window() { HW_ARGS=(--width 1280 --height 720 --locale en.txt --showfps 1 --nick smoke); hw_cmd; }
+variant_window() { HW_ARGS=(--width 1280 --height 720 --locale en.txt --showfps --nick smoke); hw_cmd; }
