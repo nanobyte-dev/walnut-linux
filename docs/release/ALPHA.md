@@ -1,0 +1,206 @@
+# Walnut 0.1-alpha: the release plan
+
+## Context
+
+Everything so far runs on one console and one LAN. The image has the builder's user and SSH key in
+it, plus netconsole IPs, a 1080p-only video mode and licensed game data. The apt repo is unsigned
+and LAN-only, and its `ps3` suite holds old Mojang and Quake data. The installers are developer
+tools, and there are no user docs.
+
+The goal is a first public alpha, **Walnut**, that a stranger can install, with:
+- a PC-side installer;
+- a first-run wizard;
+- signed apt suites and downloads on `walnut.nanobyte.dev`;
+- the GitHub repo with its history;
+- CI;
+- articles.
+
+Decisions (the user, 2026-10-20/21):
+- **Name:** "Walnut" in everything public (distro, repo, site, images, installer, docs); "PS3" only where it names the hardware. The version suffix stays `+ps3.N`.
+- **Hosting:** `walnut.nanobyte.dev` on the OVH box, with apt suites `stable` (gated) and `testing`, plus a password-protected `licensed` suite for the user only.
+- **GitHub:** the full history is kept. Only the AI attribution trailers are filtered out of commit messages.
+- **Install targets:**
+  1. **Internal (the default):** the image file on dev_hdd0, with boot files on dev_hdd1 and a webMAN autoexec restore. The dev_hdd1 path gets tested first.
+  2. **External USB.** No OtherOS++ region reformat.
+- **Installer runs on a PC**, Linux or Windows: a USB write, or a webMAN FTP upload. A GameOS app comes later.
+- **First-run wizard:** Debian-style, it creates the first sudo user.
+- **CI:** GitHub Actions with per-package workflows (testing on push, stable gated) and an image release workflow.
+- **Articles:** start with the early hard problems (booting Linux, the kernel, the GPU).
+
+The plan was reviewed by an agent against the code (2026-10-21); its blockers are folded in below and marked (R).
+
+## Milestones
+
+### M0. Prove the internal boot path, in stages (the user at the console)
+
+Each stage runs from the working USB or SSD root, with the fallback plugged in (R: B5).
+1. **The guard kernel.** Commit `linux/patches/series` and 0048 (the user's OK), then build the release kernel with local/0045, 0047 and 0048. Boot it from the USB root and run GAMEOS-HDD.md "On the PS3" steps 1-5, including the write-back tests, not only "sealed".
+2. **Read-only checks.** At Petitboot's shell (GAMEOS-HDD.md:855-857): `/proc/partitions`, `ls /var/petitboot/mnt/ps3dc`, `ps3-bl-option -o/-p`. Then the `ps3-gameos-mount` check of dev_hdd1 (GAMEOS-HDD.md:92-98).
+3. **dev_hdd1 as a writable boot partition** (R: B6).
+   - `tools/ssdimg/initrd/init:164-169` and `ps3-gameos-mount` allow writes to ps3dc only after `blkid` shows GameOS's vfat, and never to ps3da or ps3db.
+   - A refusal if ps3db isn't UFS2 or ps3dc isn't vfat (R: gap 9).
+4. **Boot from dev_hdd1** with the USB disk still plugged in, then without it.
+5. **Survival.** Several GameOS sessions with games played in between: does dev_hdd1 keep the files, and does the autoexec mirror (`ps3-boot/webman/autoexec.bat:7-11`, which copies dev_hdd1 to dev_hdd0) work, including whether webMAN's `copy` takes a directory (GAMEOS-HDD.md:893)?
+   - The installer also writes a separate **known-good set** on dev_hdd0 that the mirror never overwrites, so a bad kernel can't wipe out the good backup (R: B6).
+6. **Record it** in TESTS.md and GAMEOS-HDD.md. If dev_hdd1 doesn't hold up, the fallback is a small USB stick for `/boot`.
+
+### M1. The internal install, redesigned: stamped upload, install on the console (R: B1, B7, gap 1)
+
+The PC never builds ext4. It only uploads, which reuses `tools/ssdimg/stamp.py`'s streaming FTP upload and works natively on Windows without e2fsprogs.
+1. **What the PC uploads:**
+   - the stamped image file to `/dev_hdd0/linux/walnut.img`;
+   - `rootfs.tar.xz` and the generic boot files to dev_hdd1.
+
+   The stamped header goes last, so a partial upload never validates. Sizes are whole UFS blocks (GAMEOS-HDD.md:119), and smaller sizes are offered for 40-80 GB consoles.
+2. **Generic initramfs, one per walnut-boot version (R: B7).**
+   - The kernel config gets `CONFIG_UFS_FS=y` (still no UFS write) and `CONFIG_BLK_DEV_DM=y`.
+   - `/init` drops its release check; it already handles built-ins.
+   - The kernel hook only copies `vmlinux` and rewrites kboot.conf on dev_hdd1.
+3. **First boot (install mode) in the initramfs:**
+   - FIBMAP the extents, reusing `cmd_recheck` in `ps3-imgmap-boot.c:754-790`;
+   - **a C port of the full stamp verify** (Python `ps3-imgmap` `cmd_verify`, line 430);
+   - save the map and its sha256 to dev_hdd1;
+   - create dm-linear and seal it with the guard;
+   - `mkfs.ext4`, unpack `rootfs.tar.xz` from dev_hdd1, then delete the tarball.
+4. **Later boots:** today's path: the FIBMAP recheck against the saved map, the 256 header stamps (`header_check`, lines 799-835), then the guard. The format stays compatible with this console's current SSD root, so its boot is never broken.
+5. **Fixed Petitboot labels** `walnut` and `walnut-prev` (`ps3-boot/ps3-update-kboot:59-69`), different from the USB install's, so updates don't strand the user on an old entry (R: B7).
+6. **Test:** `tools/ssdimg/vm-e2e.sh`, `test_ssdimg.py` and `guard-sim` first, then on the PS3 with a second image file (M0's guard kernel), with the user's go.
+
+### M2. A Walnut-clean tree and public image
+
+1. **Private config.** The LAN values move from `config.mk:110-120` into a gitignored `config.local.mk`. The `10.0.0.77` defaults go out of `stamp.py` and `bench-cam.sh`.
+2. **`PROFILE=public` in `tools/build-image.sh`:**
+   - **Licensed data:** no `ps3-games-licensed`, no licensed debs in the flat repo, and the `ps3-licensed` probe at `build-image.sh:47-53` switched off (R: B3).
+   - **Packages:** no debug kernel or debug ps3rsx. A public `ps3-games` without the data-less entries: classicube, quakespasm and yamagi-quake2 depend on licensed data (`ps3-desktop/debian/control:40`).
+   - **Accounts:** no `tibi`, no key, no NOPASSWD sudo, root locked (`customize.sh:32`), and the `build-image.sh:34` autologin user removed.
+   - **Kernel arguments:** no netconsole and **no `video=`** (`linux/flavours/release.args`), so the video mode follows Petitboot's, which works on 720p/SD TVs (R: B9).
+   - **DNS** through NetworkManager or systemd-resolved instead of `/proc/net/pnp`. That's a ps3-system change to `00-ps3.conf` (`dns=none`, eth0 unmanaged) (R: B8).
+3. **First-run wizard `walnut-firstboot`:**
+   - a text UI on tty1 before autologin, with a USB keyboard;
+   - it asks for the user and password (sudo, video, render, audio, input), hostname and timezone, and whether to turn on SSH (off by default);
+   - it checks the clock, since 0044 means `rtc_diff` isn't saved and a wrong clock breaks apt's signature checks (R: gap 9);
+   - it sets autologin, then runs `daemon-reload` and restarts getty;
+   - an optional preseed file comes from the installer.
+4. **User-visible names** become Walnut: README, docs, image and installer names, hostname, splash text. **Package renames are deferred** (see "Cuts").
+5. **Licenses.** A top-level `LICENSE`, SPDX headers, and the wallpaper and logo sources. The kernel parts are GPL-2.0-only.
+6. **Public README;** the current one becomes `docs/LAYOUT.md`.
+7. **USB install:** the fixed PARTUUID `50533301-02` becomes a random disk id per install (R: gap 10).
+
+### M3. Licensed separation everywhere (R: B2, B3)
+
+1. **ClassiCube.** Split the source: engine and data. `classicube/package.conf`'s `COMPONENTS` hold Mojang's texpack and audio, which would otherwise ship as deb-src orig components and be downloaded on a CI runner.
+2. **Sources and the leak scan.** Source publishing excludes every licensed source: sauerbraten-nonfree-data, ps3-games-licensed, and the rct2, tyrian and quake data. The leak scan also checks source tarballs.
+3. **New aptly local repos** for `stable` and `testing`, never the tainted `ps3-main` or its `img-*` snapshots.
+
+### M4. walnut.nanobyte.dev: signed suites, sources, downloads
+
+1. **Keys.** The **stable key stays offline** on the PC, off any runner. A CI subkey signs `testing` only. The installer pins the fingerprint, and expiry and rotation are planned. `tools/aptly.conf` turns signing on (today `gpgDisableSign: true`).
+2. **The suites:**
+   - **`stable`:** only **promotes the exact tested binaries** from `testing` (an aptly copy or snapshot, no rebuild), with the user's approval (RELEASE-CANDIDATES.md:5).
+   - **`testing`:** the newest 5 of each package.
+   - **`licensed`:** behind basic auth, set up in the OVH "main-proxy" docker, HTTPS only.
+3. **Debian base and GPL.**
+   - Extend the existing `deps` component (`make deps`) so the image's Debian packages come from our repo at the pinned snapshot, rather than live sid or rate-limited snapshot.debian.org.
+   - Publish `deb-src` for ours and for the mirrored Debian packages (GPL source offer).
+4. **apt config.** `walnut-system` ships signed sources for `stable` (and opt-in `testing`). The `ps3.pref` pins (`o=PS3, n=ps3`) are updated to the new origin. The LAN sources move to a dev-only file.
+
+### M5. The PC installer (`installer/walnut-install`, pure Python 3)
+
+- **Common steps.** Download a release, check SHA256SUMS against the pinned key, and write the optional preseed. `--dry-run` shows every step.
+- **`internal`** (Linux, and Windows natively): the M1 upload. It checks free space, shows an estimated time and needs a wired connection: 16 GiB took 784 s at 20.9 MB/s (GAMEOS-HDD.md:215). Resume works where webMAN supports REST/APPE, and that gets checked. `uninstall` removes everything.
+- **`usb`** (Linux): `tools/usb-root-remote.sh`'s logic, with a USB transport check, a typed disk-model confirmation and a random disk id. The WSL2 USB path is deferred.
+
+### M6. CI on GitHub Actions (R: B4, gap 3)
+
+- **The runner** goes in a dedicated VM or on the OVH box, never this PC. Builds run `docker --privileged`, which makes a job root on the host, and this PC holds `backups/`, `~/.ssh` and the keys.
+- **Only `push` to main and `workflow_dispatch`;** no fork `pull_request` triggers.
+- **One aptly home** with a `concurrency:` group. The local `make publish` stops writing the public suites.
+- **Checkouts use `fetch-depth: 0`,** because `deb-version.sh` counts commits.
+  - Path filters include the shared tooling, since a tooling change bumps every package's N.
+  - ps3rsx-modules follows linux.
+  - ps3-apps and ps3-games build with the `ps3-desktop` source.
+- **Workflows:**
+  - `build-package.yml`, reusable: build, then publish to `testing`;
+  - `promote-stable.yml`: gated, copies tested binaries to `stable`;
+  - `release-image.yml`: gated, uses `make repo-snapshot`, then `REPO_SUITE=img-<stamp>`, `make rootfs PROFILE=public` and `make checksums`, then uploads to `/download/<ver>/` and creates the GitHub release.
+- **Licensed packages are never built in CI.**
+- **Prerequisite:** the first stable publish (D1, the image session) hasn't run yet, so the first `stable` comes from this flow.
+
+### M7. User docs and release artefacts
+
+1. **The release:** `make release VER=0.1-alpha`, reusing `make checksums`. Artefacts: the rootfs `.tar.xz`, stamped-image tooling, kernel, generic initramfs, installer, SHA256SUMS and its signature.
+2. **`docs/INSTALL.md`:**
+   - **Prerequisites:** CFW, a NOR/NAND backup *first*, OtherOS++ through xai_plugin, webMAN, the fan in SYSCON mode or ≥60%, and the **XMB Backup Utility before an internal install** (GAMEOS-HDD.md:184).
+   - **Reaching Petitboot:** every reboot from Linux lands in GameOS (CONSOLE.md:55), and Petitboot's timeout is "forever" by default.
+   - **Installing:** the internal (wired) and USB installs, then the wizard.
+   - **Getting out:** rescue via `init=` edited in Petitboot (root is locked), recovery, back to GameOS, uninstall.
+   - **Limits:** tested on a CECH-20xx only, the fan policy checked on one SYSCON type, no licensed games.
+   - **Legal:** "Linux for the PlayStation 3", no Sony branding; we host no firmware, CFW, keys or PUPs, only links.
+3. **`walnut-bugreport`:** versions, dmesg, the Xorg log, the model, kboot.conf. The issue template asks for it.
+
+### M8. GitHub
+
+- **History:** `git filter-repo` on a fresh clone, matching only `^Co-Authored-By: Claude`, `^Claude-Session:` and `Generated with [Claude Code]`. Most other "Claude" mentions are the file CLAUDE.md and stay (R: gap 7). The filter is deterministic, so the public repo fast-forwards.
+- **Pre-push scan** for `backups/`, `firmware/`, `.bin`/`.img` and licensed paths in history.
+- **For the alpha the public repo is a read-only mirror:** issues are welcome, PRs land as patches into the private repo. Making GitHub the primary repo is a later decision.
+- **The rest:** the Walnut README, the install link, the issue templates, and the v0.1-alpha release from `release-image.yml`.
+
+### M9. Articles and the site
+
+- **The content is a self-contained Hugo section:** `content/walnut/`, a sidebar block in `themes/nanobyte/layouts/partials/sidebar.html`, and menu entries in **all three configs** (`config.toml`, `hugo.toml`, `config-legacy.toml`). That way it fits either a nanobyte.dev section or a separate walnut.nanobyte.dev site (still undecided).
+- **First wave, from the docs and early git history; the user reviews each:**
+  1. Making Linux boot on a modern kernel (OtherOS++ and Petitboot, 6.12 from Debian's source).
+  2. Kernel work (the lost decrementer, the sys-manager hang, the release config, VT/DPMS).
+  3. Getting the GPU going (ps3rsx, Mesa nv30, dynamic GART, VRAM swap).
+  4. Graph exceptions and the validator.
+- **Deploy** through the site CI: test, then approved prod.
+
+## Cuts for the alpha (to ship sooner; the user may veto)
+
+- **Package renames** (`ps3-*` to `walnut-*`): conffiles move between packages, which needs Replaces/Breaks and `dpkg-maintscript-helper`, and the pins and dependencies change. User-visible strings only for now; the renames come after the alpha.
+- **Wi-Fi in the wizard:** never tested (PLAN 4.8); Ethernet only for the alpha.
+- **The WSL2 USB path (usbipd):** Windows users get the internal FTP install natively.
+- **The licensed suite on OVH:** it can stay on the LAN at first.
+
+## Order
+
+1. **First, in parallel:** M0 with the user, M2 and M3, and M9's articles.
+2. **Then M1,** after M0 proves the guard and dev_hdd1.
+3. **M4, then M5:** the USB path once M2 is done, the internal path once M1 is done.
+4. **M6, M7 and M8** last.
+
+Agents: two at a time, three when I'm idle. Opus for M1 (the initramfs install mode and verify in C). Sonnet for the rest.
+
+## Verification
+
+- **M0:**
+  - steps 1-5 of "On the PS3" pass;
+  - a boot from dev_hdd1 works with no USB disk;
+  - the files survive several GameOS sessions, and the known-good set restores;
+  - all recorded in TESTS.md.
+- **M1:**
+  - the VM harness;
+  - on the PS3, a second image file goes through first boot (install mode) and a normal boot. A truncated upload and a moved file are both refused;
+  - the current SSD root still boots.
+- **Public image:**
+  - no `tibi`, keys, netconsole or `video=` args;
+  - nothing from `tools/licensed-packages.txt`, and no licensed source in the published `deb-src`;
+  - it boots on a 720p TV;
+  - DNS works without `ip=dhcp`.
+- **Wizard:** a sudo user gets created, autologin follows it, and the clock is correct.
+- **apt:**
+  - signatures are checked and a wrong key is refused;
+  - `licensed` gives 401 without credentials;
+  - `stable` holds exactly the bytes tested in `testing`.
+- **CI:** a one-package push publishes only that package to `testing`. Promote and release wait for approval, and versions only grow.
+- **A stranger's install:** a fresh USB disk, then a fresh image file, using only the public docs and downloads.
+- **History:** zero exact trailers left, re-runs give identical IDs, and the scan is clean.
+- **Site:** `run-local.sh`, then test.nanobyte.dev, then approved prod.
+
+## Still to decide (asked when its milestone starts)
+
+- **The site:** a nanobyte.dev section or a separate site.
+- **The license** for our own userland code.
+- **The GitHub owner.**
+- **The runner host:** a VM on this PC or the OVH box.
+- **Whether to accept the cuts above.**
