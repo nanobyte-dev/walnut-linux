@@ -171,7 +171,8 @@ the GL 2.1 driver:
   4-channel horizontal downsampling loop wrong, so every mipmap level and every image that
   `texturesize` scales down came out nearly black and transparent. Terrain sampled black, the
   models' alpha test threw them away, the HUD (no mipmaps) was fine. Patch 0007 turns loop
-  vectorization off for that one file when the target has AltiVec but no VSX (ps3.617). See
+  vectorization off for that one file when the target has AltiVec but no VSX (ps3.617, and in
+  every later build). See
   [PACKAGING.md](../PACKAGING.md) for what this means for the other packages.
 
 How it was found (2026-10-20): the amd64 build on llvmpipe, cut down to the PS3's GL 2.1 extension
@@ -184,6 +185,19 @@ run showed level 0 identical and level 1 down from 103538663 to 465002 (byte sum
 level). The game's compiled `stb_image_resize.cpp.o` reproduces it on its own; it takes
 `-mcpu=cell` (or 970, power6 with AltiVec), `-O3` and `-DNDEBUG` together, and `#pragma GCC
 novector` on that one loop fixes it.
+
+The second PS3 smoke run (2026-10-20, ps3.617, stopped at 110 s): the 60 s photo showed the
+loading screen, not a broken 3D view. Warzone's loading screen is the map preview, a tall column
+in the middle of the screen with the start positions marked, and a row of white "stars" streaking
+along the bottom (wrappers.cpp's loading animation). The amd64 build shows the same screen for its
+first few seconds. On the PS3 the map load ran from 43 s to 80 s (`gameLoad` to the replay file in
+game.log), so photos need to be taken after about 90 s. The sound was white noise. The Opus
+decoder (the soundtrack, warzone2100-music) wrote its samples little-endian, but OpenAL's
+AL_FORMAT_*16 expects native order. Patch 0008 copies them as they are (ps3.619). Checked under
+qemu with OpenAL Soft's wave writer at the main menu: zero-crossing rate 0.44 with ps3.617 (noise),
+0.01 with ps3.619 (the menu music). The decode itself was right on big-endian (track19.opus through
+the game's opusfile, built with its flags, matches amd64 within 8 LSB), and the Vorbis effects
+already asked ov_read for big-endian.
 
 A trap for the qemu checks: Mesa's software S3TC decoding is wrong on big-endian (llvmpipe and
 softpipe: green comes back 0, so DXT textures look magenta), although the game's DXT blocks are
