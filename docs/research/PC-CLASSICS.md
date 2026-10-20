@@ -3,7 +3,9 @@
 Popular PC games of 1990-2010 that now have an open-source engine, a decompilation, a reimplementation
 or an official source release, as candidates for the PS3. Researched 2026-10-20 from the projects'
 READMEs, osgameclones.com, PCGamingWiki, the awesome-unofficial-pc-ports list, GamingOnLinux and news
-articles. Nothing here has been built or measured on our console yet.
+articles. Nothing here has been built or measured on our console yet. Every alternative project per game,
+with GitHub stars, last activity and the pick for our port, is in
+[PC-CLASSICS-ALTERNATIVES.md](PC-CLASSICS-ALTERNATIVES.md).
 
 The user's focus: games that never had a console port (marked **no** in the Console column) come first,
 since a PS3 port of those is new on a console. The user's favourites from this era: Jazz Jackrabbit 2,
@@ -59,7 +61,9 @@ Never on a console, ranked by effort:
 | 12 | Descent 3 (1999) | Descent 3 (GPL 2024) | Official source; GL 1.x-era renderer; shipped on PPC Macs originally | M |
 | 13 | Black & White (2001) | openblack | Active reimplementation; bgfx (GL/Vulkan); heavy | L |
 | 14 | Might and Magic 7 (1999) | OpenEnroth | MM7 playable; GL renderer to check | L |
-| 15 | Homeworld (1999) | HomeworldSDL | Official source; fixed-function GL; CPU is the question | M-L |
+| 15 | Homeworld (1999) | Gardens of Kadesh | Official source; fixed-function GL; CPU is the question | M-L |
+| 16 | Elasto Mania (2000; Remastered only reached consoles in 2021) | elma-classic (official source, Dec 2025) | The real game's source from its developers; a favourite | to evaluate |
+| 17 | NFS II SE (1997; had a PS1 version) | NFSIISE | A C++ reimplementation with 773 stars, active 2026; its state and renderer are unchecked | to evaluate |
 
 Had console versions, but strong and cheap on the PS3: re3/reVC (GTA III/VC, Wii and Wii U ports exist,
 librw has GL 2.1), dethrace (Carmageddon, big-endian fixes upstream), DevilutionX (Diablo, Mac OS X Tiger
@@ -71,11 +75,12 @@ PPC build), the Sonic RSDK decompilations, TRX (Tomb Raider 1-3), Vanilla Conque
 |---|---|---|---|---|
 | Jazz Jackrabbit 2 (1998) | no | [Jazz² Resurrection](https://github.com/deathkiller/jazz2-native) | Playable full game, maintained | Candidate: GL 3.3 to 2.1 port of a 2D renderer (M) |
 | Jazz Jackrabbit 1 (1994) | no | OpenJazz | Playable; Wii and 3DS ports (?) | S; free shareware data |
-| Elasto Mania (2000) | Remastered 2021 | none for Elma; the developers released the source of its predecessor, [Action SuperCross](https://github.com/elastomania/across) | X-Moto (we ship it) is the open clone | Check Action SuperCross's platform and license |
+| Elasto Mania (2000) | Remastered 2021 | **[elma-classic](https://github.com/elastomania/elma-classic)**: the developers' official "Elasto Mania Classic Source Code" (Dec 2025; active mirror elmadev/elma-classic); also the predecessor [Action SuperCross](https://github.com/elastomania/across) | The real game's source; platform, renderer and license to check | Candidate: evaluate first (X-Moto, which we ship, is the fallback) |
 | Atomic Bomberman (1997) | no | [atomic-bomberman](https://github.com/elraro/atomic-bomberman) (elraro) | "Playable": every level, AI, network; "nobody has play-tested it thoroughly"; C++20, SDL3, GL 3.3, GPL-3 | Candidate (M); free assets |
 | Hercules (1997), Tarzan (1999) | yes (PS1) | nothing found | | Not possible |
 | Need for Speed II (1997) | yes | [re-nfs2](https://github.com/thiekus/re-nfs2) | Early; hooks the original Windows exe through a winmm.dll wrapper | Watch |
-| NFS II SE / III (1997/98) | yes | [nfs-recompiled](https://github.com/motor-dev/nfs-recompiled) | Static recompilation, "a toy project", mostly AI-generated | Watch |
+| NFS II SE (1997) | yes | **[NFSIISE](https://github.com/zaps166/NFSIISE)** (773 stars, active 2026) | A reimplementation in C++ | Candidate: evaluate (state, renderer, byte order) |
+| NFS III (1998) | yes | [nfs-recompiled](https://github.com/motor-dev/nfs-recompiled) (static recompilation, "a toy project"), [nfs3-re](https://github.com/melroy89/nfs3-re) (decompilation) | Early | Watch |
 | NFS Underground 2 (2004) | yes | [speed-re](https://github.com/troikoss/speed-re) | "Incomplete decompilation"; Linux driving demo still loads the 32-bit retail exe | Watch |
 | NFS Most Wanted (2005) | yes | GameCube matching decompilation (console code, big-endian PPC) | The PC side has only a plugin SDK | Watch: the GC decomp is PPC code already |
 | NFS 1-6 | yes | [OpenNFS](https://github.com/AmrikSadhra/OpenNFS) | Loads tracks, "extremely early" | Watch |
@@ -83,7 +88,7 @@ PPC build), the Sonic RSDK decompilations, TRX (Tomb Raider 1-3), Vanilla Conque
 | UT2004 (2004) | no | no open engine; OldUnreal's official revival is closed source, x86-64 and aarch64 binaries only | | Not possible |
 | Ultima VII (1992) | SNES (cut down) | Exult | Complete, old BE-friendly code (?) | S |
 | Ultima IV, VI, VIII | | ScummVM (Ultima engine), Pentagram | U8 finishable "not everything fully working" | S via ScummVM |
-| Ultima Underworld 1/2 | no | Underworld Adventures (dormant since 2007), UnderworldGodot (pre-alpha) | | XL |
+| Ultima Underworld 1/2 | no | Underworld Adventures (C++/GL, new commits in 2026 after years dormant), UnderworldGodot (pre-alpha) | | XL |
 | The Sims (2000) | different | [Simitone](https://github.com/riperiperi/Simitone) on FreeSO | Upstream Windows-only; Linux fork on .NET 9 + MonoGame | L: no .NET for big-endian ppc64 (Mono route) |
 | The Sims 2 (2004) | different | [OpenTS2](https://github.com/LazyDuchess/OpenTS2) | Unity reimplementation, active (Mar 2026) | XL: Unity has no PPC runtime |
 | SimCity 4 (2003) | no | nothing found | | Not possible |
@@ -94,7 +99,7 @@ PPC build), the Sonic RSDK decompilations, TRX (Tomb Raider 1-3), Vanilla Conque
 
 | Game (year) | Console | Project | State | Renderer | BE prior art | Data | Effort |
 |---|---|---|---|---|---|---|---|
-| GTA III (2001), Vice City (2002) | yes | re3 / reVC | Fully playable | librw: GL 2.1+, GLES 2, D3D9 | **yes**: Wii U and native Wii ports (2026) | own | S-M |
+| GTA III (2001), Vice City (2002) | yes | re3 / reVC; the upstream repos are gone (HTTP 451), the most maintained fork covering III, VC and LCS is [hez-gta-re3](https://github.com/Hezkore/hez-gta-re3) | Fully playable | librw: GL 2.1+, GLES 2, D3D9 | **yes**: Wii U and native Wii ports (2026) | own | S-M |
 | Jedi Knight: Dark Forces II (1997) | no | [OpenJKDF2](https://github.com/shinyquagsire23/OpenJKDF2) | 95.9% reimplemented excluding the rasterizer | GL 3.3, GL 1.1 (32-bit Win), GLES 3; Dreamcast, DSi | no (but scaled down to DC) | own (GOG) | M |
 | Dark Forces (1995), Outlaws (1997) | DF: PS1; Outlaws: no | [TheForceEngine](https://github.com/luciusDXL/TheForceEngine) | v1.0 playable (DF); Outlaws in progress | GL plus software renderer | unknown | own | M |
 | Indiana Jones and the Infernal Machine (1999) | N64 | OpenJones3D | early (?) | ? | unknown | own | XL |
@@ -103,7 +108,7 @@ PPC build), the Sonic RSDK decompilations, TRX (Tomb Raider 1-3), Vanilla Conque
 | Half-Life 2, Portal (2004/07) | yes | [nillerusr/source-engine](https://github.com/nillerusr/source-engine) (from the 2020 leak) | builds and runs on Linux, Android, ARM | ToGL / ToGLES (D3D9 to GL) | no | own | L (RAM, CPU) |
 | Doom 3 (2004) | Xbox | dhewm3 | playable | GL ARB2 paths | ? | own | L (RAM) |
 | RTCW, Wolfenstein: ET, Quake 3, Elite Force | mostly yes; ET no | iortcw, ET: Legacy, ioquake3 | playable | GL 1.x/2.x | **Q3's QVM had a big-endian PPC JIT** | own; **ET is free** | M |
-| Heretic II (1998) | no | Heretic2R (2026) | single player completable | Q2-style GL (?) | unknown | own (v1.06) | M |
+| Heretic II (1998) | no | [Heretic2R](https://github.com/m-x-d/Heretic2R) (2026) | single player completable | Q2-style GL (?) | unknown | own (v1.06) | M |
 | Hexen II (1997) | no | uHexen2 / Hammer of Thyrion | playable | GL 1.x | BE builds (?) | own or demo | S |
 | Serious Sam TFE/TSE (2001/02) | Xbox | [Serious Engine 1](https://github.com/tx00100xt/SeriousSamClassic) (official 2016) | playable | GL 1.x/2.x | unknown | own | L (CPU, crowds) |
 | Duke 3D, Shadow Warrior, Blood, Redneck Rampage | Duke yes; others no | EDuke32, VoidSW, NBlood, Rednukem | playable | Polymost GL plus software | PPC Mac history (?) | Duke shareware, SW freeware | S |
@@ -111,7 +116,7 @@ PPC build), the Sonic RSDK decompilations, TRX (Tomb Raider 1-3), Vanilla Conque
 | Descent 1/2 | PS1 | DXX-Rebirth | playable | GL 1.x/2.x | PPC Mac history (?) | shareware | S |
 | Descent 3 (1999) | no | [Descent3](https://github.com/DescentDevelopers/Descent3) (GPL 2024) | playable; cutscene decoders stripped | GL 1.x era | original shipped on PPC Mac | own (GOG) | M |
 | Forsaken (1998) | yes | ForsakenX | playable (released public domain 2007) | GL (?) | unknown | own | M |
-| Postal (1997) | no | official source (GPL 2016) | playable (?) | SDL2 software | engine was on Mac 68k/PPC (?) | Postal Classic is free | S-M |
+| Postal (1997) | no | [POSTAL-SourceCode](https://github.com/RWS-Studios/POSTAL-SourceCode) (official GPL 2016; Debian packages it) | playable (?) | SDL2 software | engine was on Mac 68k/PPC (?) | Postal Classic is free | S-M |
 | Hitman: Codename 47 (2000) | no | [re47](https://github.com/0danny/re47) | early | D3D | | own | XL |
 | Halo CE (2001) | Xbox | [halo-re](https://github.com/halo-re/halo) | patches the Xbox XBE | | | own | XL |
 
@@ -144,13 +149,13 @@ Nothing found: Wing Commander 3/4, Tachyon, Independence War, Starlancer, MechWa
 
 | Game (year) | Console | Project | State | Renderer | BE prior art | Data | Effort |
 |---|---|---|---|---|---|---|---|
-| Tomb Raider 1-3 (1996-98) | yes | [TRX](https://github.com/LostArtefacts/TRX) | all three fully playable; TR4 early | GL (3.3 core optional) | unknown | own | M |
+| Tomb Raider 1-3 (1996-98) | yes | [OpenLara](https://github.com/XProger/OpenLara) (5.1k stars, the most popular; GL/GLES, many small platforms), [TRX](https://github.com/LostArtefacts/TRX) (1k, the faithful one) | both play TR1-3; TRX's TR4 is early | OpenLara: GL 2/GLES; TRX: GL (3.3 core optional) | unknown | own | M |
 | Sonic CD (2011 PC) | yes | [RSDKv3 decompilation](https://github.com/RSDKModding/RSDKv3-Decompilation) | complete | SDL2 software, optional GL | Switch, 3DS, Vita forks | own (Steam) | S-M |
 | Sonic 1 and 2 (2013) | yes | [RSDKv4 decompilation](https://github.com/Rubberduckycooly/Sonic-1-2-2013-Decompilation) | complete | SDL2 software | same | own | S-M |
 | Captain Claw (1997) | no | [OpenClaw](https://github.com/pjasicek/OpenClaw) | rewrite, SDL2 + Box2D, last push 2022 | SDL2 | unknown | own | M |
 | Abe's Oddysee / Exoddus (1997/98) | yes | [R.E.L.I.V.E.](https://github.com/AliveTeam/alive_reversing) | both being reimplemented | SDL2 | unknown | own | M |
 | Heart of Darkness (1998) | PS1 | hode | playable (?) | SDL | ? | own | S |
-| Cave Story (2004) | later | doukutsu-rs | complete | GL / SDL2 backends | Rust on ppc64 BE is a risk | freeware | M |
+| Cave Story (2004) | later | [NXEngine-evo](https://github.com/nxengine/nxengine-evo) (C++, SDL2, many console ports); doukutsu-rs is more popular but Rust | complete | SDL2 | console ports | freeware | S |
 | VVVVVV (2010) | later | official source | complete | SDL2 | Wii port (?) | free Make and Play data | S |
 | Crimsonland (2003) | later remake | [crimson](https://github.com/banteg/crimson) | full game, rewritten in Python + raylib | raylib | | own | L (Python too slow on the PPE) |
 | Soldat (2002) | no | OpenSoldat | "not in a finished state" | SDL2 GL, Free Pascal | | free | L (Pascal toolchain) |
@@ -173,12 +178,12 @@ Mafia (MafiaUnity archived), NOLF, Blood 2, Postal 2.
 | C&C Generals / Zero Hour (2003) | no | [GeneralsGameCode](https://github.com/TheSuperHackers/GeneralsGameCode) (official GPL 2025) | active; Linux only via Docker | DX8 | no | own | XL (DX8 port, CPU, RAM) |
 | C&C Renegade (2002) | no | official GPL source (2025) | code only | DX8 | no | own | XL |
 | Perimeter (2004) | no | [Perimeter](https://github.com/KD-lab-Open-Source/Perimeter) (official) | playable, some parts experimental | D3D via DXVK (Vulkan) | no | own | L |
-| Homeworld (1999) | no | [HomeworldSDL](https://github.com/HomeworldSDL/HomeworldSDL) (official 2003) | works on Linux, Win, macOS | fixed-function GL | ? | own | M-L |
+| Homeworld (1999) | no | [Gardens of Kadesh](https://gitlab.com/gardens-of-kadesh/gardens-of-kadesh) (the live successor of HomeworldSDL, official 2003 source) | works on Linux, Win, macOS | fixed-function GL | ? | own | M-L |
 | Black & White (2001) | no | [openblack](https://github.com/openblack/openblack) | active reimplementation | bgfx (GL, Vulkan) | no | own (patched 1.2) | L |
 | Dungeon Keeper (1997) | no | [KeeperFX](https://github.com/dkfans/keeperfx) | active; Linux port community alpha | software / SDL | no | own | L (immature Linux port) |
-| Dungeon Keeper 2 (1999) | no | OpenKeeper | incomplete, Java + jMonkeyEngine | GL | no | own | XL |
+| Dungeon Keeper 2 (1999) | no | [OpenKeeper](https://github.com/tonihele/OpenKeeper) | incomplete, Java + jMonkeyEngine | GL | no | own | XL |
 | Magic Carpet 2 (1995) | no | [remc2](https://github.com/turican0/remc2) | "all of MC2 seems to be playable" | SDL2 software | no | own (GOG) | M-L |
-| Syndicate Wars (1996) | PS1 | [swars](https://github.com/swfans/swars) | single player complete | software | no; x86 32-bit only | own | L (x86 asm) |
+| Syndicate Wars (1996) | PS1 | [syndwarsfx](https://github.com/swfans/syndwarsfx) | single player complete | software | no; x86 32-bit only | own | L (x86 asm) |
 | Syndicate (1993) | yes | FreeSynd | playable | SDL | ? | own | S-M |
 | Theme Hospital (1997) | PS1 | CorsixTH | playable | SDL2 | ? | own; free demo | S-M |
 | Settlers 2 (1996) | DS | Return to the Roots | playable | SDL / GL | ? | own | M |
@@ -187,7 +192,7 @@ Mafia (MafiaUnity archived), NOLF, Blood 2, Postal 2.
 | Pharaoh + Cleopatra (1999) | no | [Akhenaten](https://github.com/dalerank/Akhenaten) | in progress: early campaign plays | SDL2 | no | own (patch 1.3) | M |
 | Heroes of Might and Magic II (1996) | no | [fheroes2](https://github.com/ihhub/fheroes2) | complete | SDL2 | no | own; free demo | M |
 | Heroes of Might and Magic III (1999) | no | VCMI | playable | SDL2 | ? | own | M-L (RAM, Boost) |
-| Master of Orion (1993) | no | [1oom](https://github.com/darkstar/1oom) | complete, in Debian | SDL software | ppc64el build only | own | S |
+| Master of Orion (1993) | no | [1oom](https://github.com/1oom-fork/1oom) | complete, in Debian | SDL software | ppc64el build only | own | S |
 | X-COM UFO Defense / TFTD | PS1 | OpenXcom | playable | SDL | ? | own | M |
 | Jagged Alliance 2 (1999) | no | JA2 Stracciatella | playable (C++ and Rust) | SDL2 | ? | own | M-L (Rust on BE) |
 | Civilization I, II | SNES, PS1 | CivOne, Civ2-clone | partial; C#/.NET | | | own | L |
@@ -217,7 +222,7 @@ EA's source release.
 | Daggerfall (1996) | no | Daggerfall Unity | 1.1 | Unity | no | free | not portable (Unity) |
 | Star Control II (1992) | 3DO | The Ur-Quan Masters | complete | SDL | Fedora ppc build (2007) | free | done: we ship it |
 | Albion (1995) | no | UAlbion | "somewhat playable" (2020) | Veldrid, C#/.NET | | own | XL |
-| Betrayal at Krondor (1993) | no | xBaK | alpha, not playable | SDL 1.2 | | own | XL |
+| Betrayal at Krondor (1993) | no | [BaKGL](https://github.com/xavieran/BaKGL) (xBaK's successor) | active (2026) | GL | | own | XL |
 | Dink Smallwood (1997) | no | FreeDink (?) | complete (?) | SDL2 | | freeware | S |
 | Diablo II (2000) | no | OpenDiablo2 | archived 2021-23, Go | | | own | not possible |
 
@@ -233,7 +238,7 @@ EA's source release.
 | Theme Park World (1999) | PS1 | OpenTPW | not playable | | XL |
 | Minesweeper | no | ReversingMinesweeper | reconstructed C | a new clone is less work | S |
 
-Nothing found: SimCity 3000/4, Zoo Tycoon, The Incredible Machine, Lemmings 2/3, SkiFree source,
+Zoo Tycoon has an early reimplementation, [OpenZT](https://github.com/openztcc/OpenZT). Nothing found: SimCity 3000/4, The Incredible Machine, Lemmings 2/3, SkiFree source,
 Moorhuhn, LEGO Loco, Chessmaster.
 
 ## Next steps

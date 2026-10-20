@@ -89,6 +89,7 @@ layout and the build commands are in the top-level [README.md](../README.md).
 | [research/DARLING-PPC.md](research/DARLING-PPC.md) | A PowerPC port of Darling for Mac OS X games (2026-10-19): not worth it, the game-facing frameworks are stubs even on x86 |
 | [research/CLASSIC-MACOS.md](research/CLASSIC-MACOS.md) | SheepShaver's native PowerPC mode and Basilisk II on the PS3 (2026-10-19); waits for the user's ROM and Mac OS CD |
 | [research/PC-CLASSICS.md](research/PC-CLASSICS.md) | Windows PC games of 1990-2010 with open engines, decompilations or source releases (2026-10-20): state, renderer, big-endian prior art, console ports, PS3 effort; the shortlist |
+| [research/PC-CLASSICS-ALTERNATIVES.md](research/PC-CLASSICS-ALTERNATIVES.md) | Every open project per game of PC-CLASSICS.md with GitHub stars, last activity and the pick for our port (2026-10-20) |
 
 ## Elsewhere in docs/
 
