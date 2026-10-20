@@ -70,6 +70,13 @@
 # disturbed (input, a VT switch, a device, an SSH login or command); run.sh prints a warning after it,
 # report.py marks it and leaves it out of the medians, matrix.py skips it. RERUN_INTERFERED=1 runs
 # such a run once more right away (both directories stay; the clean one counts).
+# SHOTS="30 90" (an ENVS token with commas: SHOTS=70,130): screenshots of the screen (xwd, client.sh BENCH_SHOTS) at those
+# seconds after the game state the recipe names (SHOT_FROM: the load's end by default); auto: the
+# recipe's SHOT_POINTS; off: none. Smoke runs take them by default (auto), bench and suite runs only
+# when SHOTS is given (a capture costs frames: report.py keeps runs with a shot in the window apart,
+# base@shot). The captures are written to /var/tmp/ps3-bench/.shots-<run> (the disk, not /dev/shm) and
+# moved into the run's shots/ after it; on the PC `make bench-pull` turns them into PNGs and the sheet
+# against the PC reference (shots.py, tools/bench-ref.sh; docs/games/SUITE.md "Screenshots").
 # Results: /var/tmp/ps3-bench/<stamp>-<game>-<variant>/; report.py summarises them.
 {
 set -u
@@ -83,6 +90,8 @@ LOG=/dev/shm/run.sh.$$
 [ -n "${PERF_ALL:-}" ] && export BENCH_PERF_ALL=$PERF_ALL
 [ -n "${PERF_LOAD:-}" ] && export BENCH_PERF_LOAD=$PERF_LOAD
 [ -n "${MEM:-}" ] && export BENCH_MEM=$MEM
+[ -n "${SHOTS:-}" ] && export BENCH_SHOTS=$SHOTS
+SHOT_ROOT=${BENCH_SHOT_ROOT:-/var/tmp/ps3-bench}
 for v in STALLS_MS STALLS_CPU STALLS_NOWRITE WAKER WAKER_MODE WAKER_CPU PROBE PROBE_MS PROBE_CPU MALLOC MALLOC_TRIM_S GAMEPREFETCH GAMEPREFETCH_MB GAMEPREFETCH_RESERVE_MB GAMEPREFETCH_IO SHADERCACHE SHADERCACHE_ROOT LDSTATS PERF_LOAD_WAIT GAMEDATA SWAP DUMPON DUMPON_RE DUMPON_MAX; do
 	[ -n "${!v:-}" ] && export "BENCH_$v=${!v}"
 done
@@ -123,6 +132,8 @@ one() {	# one LABEL GAME VARIANT [ENVTOKEN]: one run, its directory appended to 
 	d=$(sed -n 's/^>> \(\/var\/tmp\/ps3-bench\/[^ ]*\)$/\1/p' "$LOG" | tail -1)
 	rm -f "$LOG"
 	[ -n "$d" ] && RUNS+=("$d") && versions "$2" "$3" > "$d/versions"
+	# the screenshots from the disk into the run directory (client.sh wrote them beside it)
+	[ -n "$d" ] && [ -d "$SHOT_ROOT/.shots-${d##*/}" ] && mv "$SHOT_ROOT/.shots-${d##*/}" "$d/shots"
 	# the profile's text, between runs (the next run's quiet drops the caches and swaps again)
 	{ [ -s "$d/perf.data" ] || [ -s "$d/perf-load.data" ]; } && "$here/perf-post.sh" "$d"
 	[ "$rc" = 0 ] || { echo "!! ps3-bench.sh failed ($rc): stopping"; return 1; }
@@ -164,7 +175,7 @@ rotated() {
 case ${1:-} in
 smoke)
 	g=${2:?game}; v=${3:-base}
-	BENCH_TIMEOUT=${BENCH_TIMEOUT:-360} BENCH_NOVSWAP=${NOVSWAP:-1} one "smoke-$g-$v" "$g" "$v"
+	BENCH_SHOTS=${BENCH_SHOTS:-auto} BENCH_TIMEOUT=${BENCH_TIMEOUT:-360} BENCH_NOVSWAP=${NOVSWAP:-1} one "smoke-$g-$v" "$g" "$v"
 	d=${RUNS[0]:-}; [ -n "$d" ] || exit 1
 	echo "== $g $v"; cat "$d/bench.txt" 2>/dev/null || echo "(no bench.txt: the client didn't finish)"
 	echo "== kernel, during the run"
@@ -173,7 +184,9 @@ smoke)
 	grep -aiE 'error|fail|unsupported|not supported|missing|shader|link|segmentation|abort|assert|nouveau|out of temps' \
 		"$d/game.log" 2>/dev/null | head -30
 	report --stalls --perf --mem --load
-	echo "Check on the TV: picture and colours. Sound card state at ${SOUND_AT:-15} s is in bench.txt."
+	n=$(ls "$d"/shots/*.xwd 2>/dev/null | wc -l)
+	echo "Picture: $n screenshot(s) in $d/shots (bench.txt shot=); on the PC make bench-pull makes the PS3 | PC sheet."
+	echo "Sound by ear (the TV); the sound card state at ${SOUND_AT:-15} s is in bench.txt."
 	;;
 bench)
 	g=${2:?game}; vs=${3:-base}; n=${4:-3}

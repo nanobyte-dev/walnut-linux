@@ -9,6 +9,7 @@
 # pass's, as the single timedemo had them; steady is the median of the measured passes.
 SUITE=1
 COMM=ioquake3
+REF_PKGS=openarena	# the PC reference (tools/bench-ref.sh): Debian's openarena (the same ioquake3 0.8.8 data)
 # the game data GAMEDATA=ssd takes from the SSD (openarena-data, the pk3s)
 DATA_DIRS=(/usr/share/games/openarena)
 SOUND_AT=25	# after the level load (a cold first run takes ~12 s), during the demo

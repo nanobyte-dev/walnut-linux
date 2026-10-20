@@ -32,9 +32,10 @@ st_cmd() { CMD=(/usr/games/supertux2 --renderer "$ST_RENDERER" -f -g 1920x1080 -
 st_cmd "$ST_LEVEL"
 ST_KBD_WAIT=30
 ST_KEYS=1	# the Return keys past the title card (off for worldmap and menu)
-during() { [ "$ST_KEYS" = 1 ] || return 0; smoke_xkeys SuperTux "$ST_KBD_WAIT" Return +8 space +8 Return; }
+during() { [ "$ST_KEYS" = 1 ] || return 0; smoke_xkeys SuperTux "$ST_KBD_WAIT" Return +8 space +8 Return; shot_mark; }
+SHOT_FROM=mark	# the screenshots after the keys (the load's end in the variants without keys)
 variant_worldmap() { ST_KEYS=0; st_cmd "$ST_DATA/levels/world1/worldmap.stwm"; }
-variant_menu() { ST_KEYS=0; st_cmd; }
+variant_menu() { ST_KEYS=0; st_cmd; SHOT_STATIC=1; }
 # the title card left alone (the run of 2026-10-18)
 variant_card() { ST_KEYS=0; }
 variant_sdl() { ST_RENDERER=sdl; st_cmd "$ST_LEVEL"; }

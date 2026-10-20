@@ -21,6 +21,7 @@
 # 180 s measured); the "Average FPS" line it prints is ticks per second (see FPS_RE below). The race is AI-driven
 # (rand() seeded from the clock, frame-time physics): close between runs, not identical.
 COMM=supertuxkart
+REF_PKGS=supertuxkart	# the PC reference (tools/bench-ref.sh): Debian's supertuxkart
 # the game data GAMEDATA=ssd takes from the SSD (supertuxkart-data)
 DATA_DIRS=(/usr/share/games/supertuxkart)
 STK_CFG=$HOME/.config/supertuxkart/config-0.10/config.xml

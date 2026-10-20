@@ -93,8 +93,14 @@ setup() {
 }
 WZ=(/usr/bin/warzone2100 --configdir="$WZ_CFG" --fullscreen --resolution=1920x1080)
 CMD=("${WZ[@]}" --autogame --skirmish=ps3bench.json)
-variant_lobby() { CMD=("${WZ[@]}" --skirmish=ps3bench.json); }
-variant_menu() { CMD=("${WZ[@]}"); }
+# Screenshots (docs/games/SUITE.md "Screenshots"): the shot points count from the match's start (the
+# replay file opens when the map has loaded: 80 s into a PS3 run, a few seconds on the PC), not from the
+# first frame, which is the loading screen. The PC reference: our amd64 build of 4.3.5 in the local
+# image wz-amd64-view (tools/bench-ref.sh warzone2100).
+SHOT_RE='Started writing replay file'
+REF_IMAGE=wz-amd64-view
+variant_lobby() { CMD=("${WZ[@]}" --skirmish=ps3bench.json); SHOT_RE=; }
+variant_menu() { CMD=("${WZ[@]}"); SHOT_RE=; SHOT_STATIC=1; }
 variant_nomusic() { WZ_MUSIC=false; }
 # Diagnostics for the RSX's dark 3D view (2026-10-20). stripes: the 3D shaders (terrain, decals,
 # models) sample in four modes in vertical stripes 120 px wide, repeating left to right: TEX without

@@ -20,9 +20,10 @@ uqm_cmd() { CMD=(/usr/games/uqm -r 1920x1080 "${UQM_WIN[@]}" "${UQM_GL[@]}" "${U
 UQM_EXTRA=()
 uqm_cmd
 setup() { [ -e /usr/share/games/uqm/content/uqm.addons ] || [ -d /usr/share/games/uqm/content ] || echo "WARNING: no UQM content: apt install uqm-content uqm-music (ps3-licensed suite)"; }
-during() { [ ${#UQM_KEYS[@]} -gt 0 ] || return 0; smoke_xkeys "The Ur-Quan" 8 "${UQM_KEYS[@]}"; }
+during() { [ ${#UQM_KEYS[@]} -gt 0 ] || return 0; smoke_xkeys "The Ur-Quan" 8 "${UQM_KEYS[@]}"; shot_mark; }
+SHOT_FROM=mark	# the screenshots after the keys (the load's end in the variants without keys)
 variant_sdl() { UQM_GL=(--nogl); uqm_cmd; }
 variant_window() { UQM_WIN=(-w); uqm_cmd; }
-variant_menu() { UQM_KEYS=(); }
+variant_menu() { UQM_KEYS=(); SHOT_STATIC=1; }
 variant_melee() { UQM_KEYS=(Down +1 Down +1 Return +4 Return +4 Return +6 Return); }
 variant_nomusic() { UQM_EXTRA=(--musicvol=0); uqm_cmd; }

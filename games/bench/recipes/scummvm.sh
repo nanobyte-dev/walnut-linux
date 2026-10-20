@@ -35,7 +35,8 @@ setup() {
 }
 sv_cmd() { CMD=(/usr/games/scummvm -f ${SV_GFX:+--gfx-mode="$SV_GFX"} --stretch-mode=fit -p "$SV_DIR" "$SV_ID"); }
 sv_cmd
-during() { [ "$SV_KEYS" = 1 ] || return 0; smoke_xkeys "$SV_TITLE" "$SV_KBD_WAIT" Escape +6 Escape; }
+during() { [ "$SV_KEYS" = 1 ] || return 0; smoke_xkeys "$SV_TITLE" "$SV_KBD_WAIT" Escape +6 Escape; shot_mark; }
+SHOT_FROM=mark	# the screenshots after the keys (the load's end in the variants without keys)
 variant_queen() { SV_ID=queen; SV_TITLE="Flight of the Amazon Queen"; SV_DIR=/usr/share/scummvm/flight-of-the-amazon-queen; sv_cmd; }
 variant_drascula() { SV_ID=drascula; SV_TITLE="Drascula"; SV_DIR=/usr/share/scummvm/drascula; sv_cmd; }
 variant_lure() { SV_ID=lure; SV_TITLE="Lure of the Temptress"; SV_DIR=/usr/share/scummvm/lure-of-the-temptress/en; sv_cmd; }

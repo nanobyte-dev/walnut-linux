@@ -17,6 +17,6 @@ COMM=widelands
 BACKUP=("$HOME/.widelands/config")
 WL_MAP=/usr/share/games/widelands/data/campaigns/tutorial01_basic_control.wmf
 CMD=(/usr/games/widelands --fullscreen --scenario="$WL_MAP")
-variant_menu() { CMD=(/usr/games/widelands --fullscreen); }
+variant_menu() { CMD=(/usr/games/widelands --fullscreen); SHOT_STATIC=1; }
 variant_nosound() { CMD+=(--nosound); }
 variant_skip() { CMD+=(--autosave=0); }

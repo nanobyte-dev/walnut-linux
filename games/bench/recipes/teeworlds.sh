@@ -40,7 +40,7 @@ during() {
 	wait $srv
 }
 variant_notc() { TW_ARGS=("${TW_ARGS[@]/gfx_texture_compression 1/gfx_texture_compression 0}"); tw_cmd; }
-variant_menu() { TW_CONNECT=; tw_cmd; }
+variant_menu() { TW_CONNECT=; tw_cmd; SHOT_STATIC=1; }
 variant_window() { TW_ARGS=("${TW_ARGS[@]/gfx_fullscreen 1/gfx_fullscreen 0}"); tw_cmd; }
 # the SPE encoders off (Mesa's own DXT path on the PPE): SPEQ_S3TC=ppe, with libspeq's counters in the log
 variant_s3tcppe() { ENV+=(SPEQ_S3TC=ppe SPEQ_DEBUG=1); }

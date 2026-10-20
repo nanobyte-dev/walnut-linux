@@ -79,4 +79,4 @@ variant_bots3() { RE_BOTS=3; }
 # every setting at the game's own defaults (empty autoexec.cfg and init.cfg, 3 bots): the old OOM
 variant_defaults() { RE_SET=(); RE_INIT=(); RE_BOTS=3; }
 # the main menu only, no game (the engine, shaders, fonts and the game's sounds, without a map)
-variant_menu() { CMD=(/usr/games/redeclipse -g -df1 -dw1920 -dh1080); }
+variant_menu() { CMD=(/usr/games/redeclipse -g -df1 -dw1920 -dh1080); SHOT_STATIC=1; }

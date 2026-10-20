@@ -46,6 +46,12 @@
      game printing OpenAL's "Wait timeout" line twice, a fake gdb and sudo on PATH: one capture into
      dump/ (trigger, proc files, threads, a compressed core), dump=trigger, dump_at=, oal_wedge=2,
      the game let go after it; DUMPON off: no dump dir and no dump= line; a game dying of SIGSEGV
+ 14. the screenshots (client.sh BENCH_SHOTS, docs/games/SUITE.md "Screenshots"), a fake xwd on PATH: the
+     shot points after the load's end, after a recipe's SHOT_RE line, after during()'s shot_mark and
+     the load's end when during() ends without one; a point past the run's end skipped; the capture
+     on the disk (BENCH_SHOT_ROOT) when the run directory is in /dev/shm; off: no shot lines; shots.py's
+     parse and frame counts, report.py's @shot tag and columns; with ImageMagick: convert, the sheet
+     (1608 px wide, BLACK flagged, the result's shotsheet: line), pending and REVIEW.md's verdict
 Exit status 0 when every check passes; scratch files in a temporary directory, removed at the end."""
 import os
 import re
@@ -492,6 +498,134 @@ def client_gprefetch(tmp):
     check("gprefetch fetch with BENCH_GAMEPREFETCH_MB=1: the budget 1 MB, tag gpffetch_mb1",
           b.get("gprefetch") == "fetch_mb1" and "budget 1.0 MB" in log and
           report.run(d).get("variant") == "base@gpffetch_mb1", (b.get("gprefetch"), log[-300:]))
+
+
+SHOT_RECIPES = {
+    "fakeshot": """CMD=("$FAKE" --fake-game hudwin); LOAD_MARK='^loaded'; WARMUP=2; MEASURE=4; WINDOW_STOP=1; DURATION=25
+SHOT_POINTS="1 3 60"
+variant_re() { SHOT_RE='^env NV30_SHOTTEST'; ENV+=(NV30_SHOTTEST=1); }
+variant_mark() { SHOT_FROM=mark; during() { sleep 4; shot_mark; sleep 30; }; }
+variant_nomark() { SHOT_FROM=mark; during() { sleep 1; }; }
+variant_menu() { SHOT_STATIC=1; }""",
+}
+
+
+def client_shots(tmp):
+    """client.sh's screenshots with a fake xwd (0.2 s a capture), shots.py and report.py on the runs"""
+    import shots
+    print("\nscreenshots (client.sh BENCH_SHOTS, shots.py)")
+    rdir, bindir = tmp / "shot-recipes", tmp / "shot-bin"
+    fake = tmp / "fake-game"
+    if not fake.exists():
+        write(fake, "#!/bin/sh\nexec %s %s \"$@\"\n" % (sys.executable, Path(__file__).resolve()))
+        fake.chmod(0o755)
+    for g, text in SHOT_RECIPES.items():
+        write(rdir / f"{g}.sh", text.replace("$FAKE", str(fake)) + "\n")
+    write(bindir / "xwd", "#!/bin/sh\nsleep 0.2\nprintf 'XWD %s\\n' \"$*\"\n")
+    (bindir / "xwd").chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "GALLIUM_HUD",
+                                                            "GALLIUM_HUD_DUMP_DIR", "BENCH_SHOTS")}
+    env.update(BENCH_RECIPES=str(rdir), BENCH_BACKUP=str(tmp / "backup"), PATH="%s:%s" % (bindir, env["PATH"]),
+               BENCH_SHOT_ROOT=str(tmp / "shotroot"))
+    runs = {}
+    shm = Path("/dev/shm/ps3-bench-selftest-%d-fakeshot-base" % os.getpid())
+    for v, shots_env, d in (("base", "auto", shm), ("re", "2", None), ("mark", "1", None), ("nomark", "1", None),
+                            ("menu", "off", None), ("menu", "2", None)):
+        d = d or tmp / ("ps3-bench-20261020T1200%02dZ-fakeshot-%s" % (len(runs), v))
+        e = dict(env, BENCH_DIR=str(d), BENCH_SHOTS=shots_env)
+        p = subprocess.run(["bash", str(HERE / "client.sh"), "fakeshot", v], env=e, capture_output=True, text=True)
+        check("shots %s (BENCH_SHOTS=%s): exit 0" % (v, shots_env), p.returncode == 0, p.stdout[-600:] + p.stderr[-600:])
+        runs[(v, shots_env)] = (d, report.kv(d / "bench.txt"), shots.parse(d))
+    try:
+        d, b, sh = runs[("base", "auto")]
+        sd = tmp / "shotroot" / (".shots-" + shm.name)
+        le = float(b.get("load_end") or 0)
+        check("shots base: the recipe's points (auto), from the load's end", sh["points"] == [1, 3, 60] and sh["ref"] == "load"
+              and abs((sh["ref_t"] or 0) - le) < 0.05, (sh["points"], sh["ref"], sh["ref_t"], le))
+        check("shots base: 1 s and 3 s taken, 60 s skipped (the run ended)", sorted(sh["shots"]) == [1, 3] and sh["skipped"] == [60],
+              (sorted(sh["shots"]), sh["skipped"]))
+        t1, t3 = sh["shots"].get(1, {}).get("t", 0), sh["shots"].get(3, {}).get("t", 0)
+        check("shots base: taken at the load + 1 s and + 3 s", abs(t1 - le - 1) < 0.3 and abs(t3 - le - 3) < 0.3, (t1, t3, le))
+        txt = (d / "bench.txt").read_text() if (d / "bench.txt").exists() else ""
+        check("shots base: the bench.txt line shot=1s:shots/shot-1s.xwd:<ms>, the fake's 200 ms",
+              re.search(r"^shot=1s:shots/shot-1s\.xwd:\d+$", txt, re.M) and 150 <= sh["shots"].get(1, {}).get("ms", 0) <= 600,
+              sh["shots"].get(1))
+        check("shots base: the run directory in /dev/shm: the captures in BENCH_SHOT_ROOT/.shots-<run>, not in RAM",
+              (sd / "shot-1s.xwd").read_text().startswith("XWD -root -silent") and not (shm / "shots").exists(),
+              sorted(os.listdir(sd)) if sd.exists() else None)
+        d, b, sh = runs[("re", "2")]
+        check("shots re: from the SHOT_RE line (the game's env line), one point given", sh["ref"] == "re" and sh["points"] == [2]
+              and 2 in sh["shots"] and (d / "shots" / "shot-2s.xwd").exists(), (sh["ref"], sh["points"], sh["shots"]))
+        cs = shots.costs(d)
+        check("shots re: frames touched by the capture counted from the HUD's frame times (~0.2 s at 20 ms: 8-15)",
+              cs and 5 <= cs[0].get("frames", 0) <= 20 and cs[0].get("before_med") is not None, cs)
+        r = report.run(d)
+        inwin = sh["shots"][2]["t"] >= float(b["window"].split()[0])
+        check("shots re: report.py's shot columns, @shot only when a capture is in the window",
+              r.get("shot_n") == 1 and r.get("shot_ms", 0) >= 150 and r["variant"] == ("re@shot" if inwin else "re"),
+              (r.get("shot_n"), r.get("shot_ms"), r["variant"], inwin))
+        d, b, sh = runs[("mark", "1")]
+        log = (d / "during.log").read_text() if (d / "during.log").exists() else ""
+        check("shots mark: from during()'s shot_mark (4 s after the start), not the load's end",
+              sh["ref"] == "mark" and 3.9 <= (sh["ref_t"] or 0) <= 4.6 and abs(sh["shots"].get(1, {}).get("t", 0) - sh["ref_t"] - 1) < 0.3,
+              (sh["ref"], sh["ref_t"], sh["shots"], log[-200:]))
+        d, b, sh = runs[("nomark", "1")]
+        check("shots nomark: during() ended without shot_mark: the load's end", sh["ref"] == "load-nomark"
+              and abs((sh["ref_t"] or 0) - float(b.get("load_end") or 0)) < 0.05 and 1 in sh["shots"], (sh["ref"], sh["ref_t"], b.get("load_end")))
+        d, b, sh = runs[("menu", "off")]
+        check("shots off: no shot lines, no shots dir", not any(k.startswith("shot") for k in b) and not (d / "shots").exists(),
+              [k for k in b if k.startswith("shot")])
+        d, b, sh = runs[("menu", "2")]
+        check("shots menu: shot_static=1", sh["static"] and b.get("shot_static") == "1", b.get("shot_static"))
+        # an inside-the-window shot in a made-up run: report.py keeps it apart (base@shot)
+        x = tmp / "ps3-bench-20261020T130000Z-fakeshot-base"
+        bench(x, game="fakeshot", variant="base", window="10.00 130.00", shots="90", shot_ref="load:5.00",
+              shot="90s:shots/shot-90s.xwd:640", shot_t="90s:95.10:100:103")
+        write(x / "hud" / "frametime_(ms)", "".join("%s\n" % v for v in [33.0] * 100 + [35.0, 600.0, 40.0] + [33.0] * 20))
+        r = report.run(x)
+        cs = shots.costs(x)
+        check("shots made-up: in the window: base@shot, shot_win=1, the longest frame touched 600 ms, 33 ms before",
+              r["variant"] == "base@shot" and r.get("shot_win") == 1 and r.get("shot_frame") == 600.0
+              and cs and cs[0]["frames"] == 4 and cs[0]["before_med"] == 33.0, (r["variant"], r.get("shot_win"), r.get("shot_frame"), cs))
+        if shutil.which("magick"):
+            shots_magick(tmp, report, shots)
+        else:
+            print("(no ImageMagick here: shots.py convert and sheet not checked)")
+    finally:
+        shutil.rmtree(shm, ignore_errors=True)
+
+
+def shots_magick(tmp, report, shots):
+    """shots.py convert, sheet, pending on a made-up PS3 run (one picture black) and its PC reference"""
+    run, ref = tmp / "pulled" / "ps3-bench-20261020T140000Z-smoke-fakeshot-base", tmp / "bench-ref" / "fakeshot-base"
+    bench(run, game="fakeshot", variant="base", shots="30 90", shot_ref="load:40.00", shot="30s:shots/shot-30s.xwd:410",
+          shot_t="30s:70.20:-:-", shot_skipped="90s")
+    write(run / "result", "rc 0 wall 100 s\n")
+    write(run / "versions", "mesa-libgallium:ppc64\t26.2.4-1+ps3.628\nfakeshot\t1.0-1+ps3.1\nlibspeq0\t1\n6.12.111+ps3.472\n")
+    bench(ref, game="fakeshot", variant="base", shots="30 90", shot_ref="load:4.00", shot="90s:shots/shot-90s.xwd:20",
+          shot_t="90s:94.00:-:-")
+    with open(ref / "bench.txt", "a") as f:
+        f.write("shot=30s:shots/shot-30s.xwd:20\nshot_t=30s:34.00:-:-\n")
+    write(ref / "versions", "mesa-libgallium:amd64\t26.2.4-1\nfakeshot\t1.0-1\n")
+    (run / "shots").mkdir()
+    (ref / "shots").mkdir()
+    subprocess.run(["magick", "-size", "1920x1080", "xc:black", str(run / "shots" / "shot-30s.xwd")], check=True)
+    for p in (30, 90):
+        subprocess.run(["magick", "-size", "1920x1080", "gradient:red-blue", str(ref / "shots" / ("shot-%ds.png" % p))], check=True)
+    made = shots.post(tmp / "pulled", tmp / "bench-ref")
+    sheet = run / "shots-vs-pc.png"
+    w = subprocess.run(["magick", "identify", "-format", "%w", str(sheet)], capture_output=True, text=True).stdout
+    check("shots.py post: the .xwd converted to PNG and removed", (run / "shots" / "shot-30s.png").exists()
+          and not (run / "shots" / "shot-30s.xwd").exists(), sorted(os.listdir(run / "shots")))
+    check("shots.py post: one sheet, 1608 px wide", len(made) == 1 and w == "1608", (made, w))
+    res = (run / "result").read_text()
+    check("shots.py post: the result's shotsheet: line, the reference, PS3 BLACK at 30s",
+          "shotsheet: %s vs %s (PC: " % (sheet, ref) in res and "PS3 BLACK at 30s" in res and res.count("shotsheet:") == 1, res)
+    check("shots.py post again: nothing new (the sheet is newer than its shots)", shots.post(tmp / "pulled", tmp / "bench-ref") == [])
+    check("shots.py pending: the sheet without a REVIEW.md", shots.pending(tmp / "pulled") == [sheet])
+    write(run / "REVIEW.md", "verdict: wrong  the PS3 is black\n")
+    check("shots.py pending: none after REVIEW.md; report.py review=wrong", shots.pending(tmp / "pulled") == []
+          and report.run(run).get("review") == "wrong", report.run(run).get("review"))
 
 
 def client_dump(tmp):
@@ -1736,6 +1870,7 @@ if __name__ == "__main__":
         client_gprefetch(tmp)
         client_libenv(tmp)
         client_dump(tmp)
+        client_shots(tmp)
         client_ssdarm(tmp)
         lint()
         stalls_synthetic(tmp)

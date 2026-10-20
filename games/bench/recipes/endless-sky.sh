@@ -58,8 +58,10 @@ during() {
 	# "Lost 1" dialog stayed up and the Up key went nowhere)
 	smoke_xkeys "Endless Sky" "$ES_LOAD_WAIT" e +6 d +10 Return +15 Return +15 Return +3
 	XKEYS_HOLD=5 smoke_xkeys "Endless Sky" 0 Up
+	shot_mark	# the screenshots count from the flight's start (SHOT_FROM=mark)
 }
-variant_menu() { ES_KEYS=0; }
+SHOT_FROM=mark; SHOT_POINTS="20 50"	# the flight starts about 300 s into a PS3 run (DURATION 360)
+variant_menu() { ES_KEYS=0; SHOT_STATIC=1; }
 variant_fullout() { ES_CHEAP=0; }   # the full outline filter: nv40 runs out of fragment temps ("out of temps!!" x36), the flight showed no HUD
 variant_noblur() { ES_BLUR=0; }
 variant_nodefer() { ES_DEFER=0; }

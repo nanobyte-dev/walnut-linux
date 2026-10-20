@@ -17,7 +17,7 @@ PG_LEVEL=/usr/share/games/pingus/data/levels/tutorial/basher-tutorial-grumbel.pi
 PG_R=opengl
 pg_cmd() { CMD=(/usr/games/pingus -r "$PG_R" -f -R 1920x1080 "$@"); }
 pg_cmd "$PG_LEVEL"
-variant_menu() { pg_cmd; }
+variant_menu() { pg_cmd; SHOT_STATIC=1; }
 variant_sdl() { PG_R=sdl; pg_cmd "$PG_LEVEL"; }
 variant_delta() { PG_R=delta; pg_cmd "$PG_LEVEL"; }
 variant_swcursor() { CMD+=(--software-cursor); }

@@ -28,7 +28,8 @@ setup() {
 }
 CMD=(/usr/games/crawl-tiles -rc "$CR_RC" -name Smoke -species Hu -background Be -seed 1)
 CR_EXPLORE=0
-during() { [ "$CR_EXPLORE" = 1 ] || return 0; smoke_xkeys Dungeon 120 o +6 o +6 o +6 o +6 o +6 o +6 o +6 o +6 o; }
+during() { [ "$CR_EXPLORE" = 1 ] || return 0; smoke_xkeys Dungeon 120 o +6 o +6 o +6 o +6 o +6 o +6 o +6 o +6 o; shot_mark; }
+SHOT_FROM=mark	# the screenshots after the keys (the load's end in the variants without keys)
 variant_explore() { CR_EXPLORE=1; }
 variant_sprint() { CMD+=(-sprint); }
-variant_menu() { CMD=(/usr/games/crawl-tiles -rc "$CR_RC"); }
+variant_menu() { CMD=(/usr/games/crawl-tiles -rc "$CR_RC"); SHOT_STATIC=1; }

@@ -1,0 +1,17 @@
+# The PC reference of a games/bench recipe (tools/bench-ref.sh, docs/games/SUITE.md "Screenshots"): Debian
+# sid from the same snapshot as the PS3's root, a virtual X server (Xvfb) and what client.sh calls (xwd,
+# xprop, xset, pgrep, findmnt, openbox, python3 with libX11/libXtst for xkeys.py), Mesa's llvmpipe, and the
+# game. BASE is plain Debian (BUILDER_BASE) for a game we take from Debian, with its packages in PKGS, or
+# an image that already holds our amd64 build of a game we patch (the recipe's REF_IMAGE).
+ARG BASE
+FROM ${BASE}
+ARG SNAPSHOT
+ARG PKGS=
+
+RUN rm -f /etc/apt/sources.list.d/debian.sources && \
+    echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/${SNAPSHOT} unstable main" > /etc/apt/sources.list && \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        xvfb x11-apps x11-utils x11-xserver-utils openbox procps util-linux coreutils python3 \
+        libx11-6 libxtst6 libgl1 libgl1-mesa-dri libglx-mesa0 ${PKGS} && \
+    rm -rf /var/lib/apt/lists/*

@@ -67,6 +67,21 @@
 # ssd-arm.sh left it ($BENCH_SSDARM_STATE/ps3-ssdarm.swap, usb when absent), and a run without
 # GAMEDATA=ssd refuses binds left over. A mismatch stops the run (exit 2). bench.txt gets gamedata=,
 # gamedata_dirs=, swap= and swaps= (/proc/swaps: name:priority); report.py shows base@gdssd, base@swssd.
+# Screenshots (docs/games/SUITE.md "Screenshots"): BENCH_SHOTS (run.sh SHOTS=, on by default for smoke
+# runs: auto) is a list of shot points in whole seconds (spaces or commas), auto (the recipe's SHOT_POINTS, default "30
+# 90") or off. The points count from a game state, not from the start (the PS3 loads about 10x slower
+# than the PC): SHOT_FROM=load (default) the load's end as the window has it (LOAD_MARK, LOAD_RE, else
+# the HUD's first frame), start the client's start, mark the time a recipe's during() calls shot_mark
+# (after its keys; if during() ends without it, the load's end), SHOT_RE=regex the first game output
+# line matching it. Each capture is `xwd -root` at nice 19 and idle I/O class, a background job, into
+# BENCH_SHOT_DIR (default /var/tmp/ps3-bench/.shots-<run> on the disk while the run directory is in
+# /dev/shm: 8 MB a shot; run.sh moves it to <run>/shots, else <run dir>/shots). bench.txt gets
+# shots=<points>, shot_ref=<from>:<s after t0>, per shot shot=<p>s:shots/<file>:<ms of the capture>
+# and shot_t=<p>s:<s after t0>:<HUD frame times before>:<after> (the frametime file's line counts
+# around the capture: the frames it touched, for shots.py cost), shot_skipped= (points the run never
+# reached), shot_static=1 (the recipe's SHOT_STATIC: a menu or title screen, a close comparison is
+# fair). shots.py turns them into PNGs and the side-by-side sheet against the PC reference
+# (tools/bench-ref.sh). BENCH_REF=1: a PC reference run (tools/bench-ref.sh): no game mode.
 {
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
@@ -79,11 +94,73 @@ CMD=(); ENV=(); BACKUP=(); DATA_DIRS=(); GAMEMODE=0; HUD=1; COMM=; WM=openbox
 # DURATION: a safety cap (load + 60 s warm-up + 120 s measured + margin); recipes set their own
 END_RE=; DURATION=270; HUD_SKIP=12; WARMUP=60; MEASURE=120; PASSES=0; WINDOW_STOP=0; STEADY_RE=
 STEADY_MAXMS_RE=; WIN_ON_RE=; WIN_OFF_RE=; FPS_RE=; MAXMS_RE=; LOAD_RE=; LOAD_MARK=; RESULT_FILE=; SOUND_AT=15
+SHOT_POINTS="30 90"; SHOT_FROM=load; SHOT_RE=; SHOT_STATIC=0
 setup() { :; }; parse() { :; }
 . "${BENCH_RECIPES:-$here/recipes}/$GAME.sh" || exit 2
 if declare -F "variant_$VARIANT" >/dev/null; then "variant_$VARIANT"
 elif [ "$VARIANT" != base ]; then echo "!! $GAME: no variant $VARIANT"; exit 2; fi
 [ ${#CMD[@]} -gt 0 ] || { echo "!! $GAME: no CMD"; exit 2; }
+[ "${BENCH_REF:-0}" = 1 ] && GAMEMODE=0	# the PC reference (tools/bench-ref.sh): no ps3-game there
+# Screenshots (the top): the shot points, the reference they count from, the directory on disk
+SHOTS=${BENCH_SHOTS:-}; SHOT_PTS=(); SHOT_AT=(); SHOT_Q=(); SHOT_JOBS=(); SHOT_REF_US=; SHOT_DIR=; SHOT_ERR=
+SHOTS=${SHOTS//,/ }	# commas for an ENVS token (SHOTS=70,130)
+case $SHOTS in off|0|none) SHOTS= ;; auto) SHOTS=$SHOT_POINTS ;; esac
+for s in $SHOTS; do [[ $s =~ ^[0-9]+$ ]] || { echo "!! BENCH_SHOTS=$BENCH_SHOTS: whole seconds, auto or off"; exit 2; }; done
+[ -n "$SHOT_RE" ] && SHOT_FROM=re
+case $SHOT_FROM in load|start|mark|re) ;; *) echo "!! $GAME: SHOT_FROM=$SHOT_FROM: load, start, mark (or SHOT_RE)"; exit 2 ;; esac
+SHOT_SRC=$SHOT_FROM
+if [ -n "$SHOTS" ] && ! command -v xwd > /dev/null; then
+	echo "!! BENCH_SHOTS: no xwd (x11-apps): no screenshots"; SHOT_ERR="no xwd"; SHOTS=
+fi
+if [ -n "$SHOTS" ]; then
+	if [ -n "${BENCH_SHOT_DIR:-}" ]; then SHOT_DIR=$BENCH_SHOT_DIR
+	elif [[ $D == /dev/shm/* ]]; then SHOT_DIR=${BENCH_SHOT_ROOT:-/var/tmp/ps3-bench}/.shots-${D##*/}	# not RAM
+	else SHOT_DIR=$D/shots; fi
+	mkdir -p "$SHOT_DIR"
+	read -r -a SHOT_PTS <<< "$(printf '%s\n' $SHOTS | sort -n -u | tr '\n' ' ')"
+	SHOT_NICE=(nice -n 19); command -v ionice > /dev/null && SHOT_NICE+=(ionice -c 3)
+fi
+rm -f "$D/.shot-mark"
+shot_mark() { printf '%s\n' "$EPOCHREALTIME" > "$D/.shot-mark"; }	# for during(): SHOT_FROM=mark counts from here
+shot_plan() {	# shot_plan REF_US: the reference happened REF_US after the start: the shot times after it
+	[ ${#SHOT_PTS[@]} -gt 0 ] && [ -z "$SHOT_REF_US" ] || return 0
+	local s
+	SHOT_REF_US=$1; SHOT_AT=(); SHOT_Q=("${SHOT_PTS[@]}")
+	for s in "${SHOT_PTS[@]}"; do SHOT_AT+=($(( $1 + s * 1000000 ))); done
+}
+shot_take() {	# shot_take POINT: one capture now (a background job): $SHOT_DIR/shot-<POINT>s.xwd, .shot-<POINT>.info
+	local p=$1 f=shot-$1s.xwd a b n0=- n1=- rc t
+	[ -n "$hud_file" ] && [ -e "$hud_file" ] && n0=$(wc -l < "$hud_file")
+	us; a=$US
+	"${SHOT_NICE[@]}" xwd -root -silent > "$SHOT_DIR/$f" 2> "$SHOT_DIR/.shot-$p.err"; rc=$?
+	us; b=$US
+	[ -n "$hud_file" ] && [ -e "$hud_file" ] && n1=$(wc -l < "$hud_file")
+	secs t $(( a - u0 ))
+	printf '%s %s %s %d %s %s %s\n' "$p" "$f" "$t" $(( (b - a) / 1000 )) "$n0" "$n1" "$rc" > "$SHOT_DIR/.shot-$p.info"
+}
+shot_lines() {	# the shots' bench.txt lines (also from the trap of a run stopped from outside)
+	local p f t ms n0 n1 rc skipped= r=-
+	[ -n "$SHOT_ERR" ] && echo "shot_err=$SHOT_ERR"
+	[ ${#SHOT_PTS[@]} -gt 0 ] || return 0
+	echo "shots=${SHOT_PTS[*]}"
+	[ -n "$SHOT_REF_US" ] && secs r "$SHOT_REF_US"
+	echo "shot_ref=$SHOT_SRC:$r"
+	[ "$SHOT_STATIC" = 1 ] && echo "shot_static=1"
+	for p in "${SHOT_PTS[@]}"; do
+		if read -r _ f t ms n0 n1 rc < "$SHOT_DIR/.shot-$p.info" 2>/dev/null; then
+			if [ "$rc" = 0 ] && [ -s "$SHOT_DIR/$f" ]; then echo "shot=${p}s:shots/$f:$ms"
+			else
+				echo "shot=${p}s:-:$ms"
+				echo "shot_err=${p}s: xwd rc $rc: $(head -c 200 "$SHOT_DIR/.shot-$p.err" 2>/dev/null | tr '\n' ' ')"
+				rm -f "$SHOT_DIR/$f"
+			fi
+			echo "shot_t=${p}s:$t:$n0:$n1"
+			rm -f "$SHOT_DIR/.shot-$p.info"; [ -s "$SHOT_DIR/.shot-$p.err" ] || rm -f "$SHOT_DIR/.shot-$p.err"
+		else skipped+=" ${p}s"; fi
+	done
+	[ -n "$skipped" ] && echo "shot_skipped=${skipped# }"
+	return 0
+}
 # OpenAL Soft's settings for this run on top of the variant (run.sh's ENVS token OAL=b16 or OAL=b16,lin
 # becomes BENCH_OAL): recipes/openal.inc's names, written to the run's alsoft.conf (ALSOFT_CONF) like its
 # variants; sourced here for recipes that don't (SuperTuxKart). bench.txt gets oal=; report.py base@oalb16.
@@ -472,7 +549,7 @@ stop_game() {
 # stopped from outside (ps3-bench.sh's timeout, the thermal watchdog): still say how it ended
 trap 'stop_game; kill "${helpers[@]}" $wm 2>/dev/null
 	{ echo "game=$GAME"; echo "variant=$VARIANT"; echo "comm=$COMM"; echo "ended=killed"
-	  echo "hwm=$(cat "$D/.hwm" 2>/dev/null)"; echo "sound=$(cat "$D/.sound" 2>/dev/null)"; } > "$D/bench.txt"
+	  echo "hwm=$(cat "$D/.hwm" 2>/dev/null)"; echo "sound=$(cat "$D/.sound" 2>/dev/null)"; shot_lines; } > "$D/bench.txt"
 	exit 1' HUP INT TERM
 
 # Failure dump: the game's state at the trigger line, into $D/dump/ (a background job: dump_capture PID
@@ -576,7 +653,8 @@ watch_game() {
 # (helpers write nothing to stdout: it is ps3-bench.sh's pipe, held open by whoever has it)
 [ -n "$COMM" ] && { watch_game > /dev/null 2>&1 & helpers+=($!); }
 # the recipe's own helper while the game runs (input recording/replay); stopped with the others
-declare -F during >/dev/null && { during > "$D/during.log" 2>&1 & helpers+=($!); }
+DURING_PID=
+declare -F during >/dev/null && { during > "$D/during.log" 2>&1 & DURING_PID=$!; helpers+=($!); }
 (sleep "$SOUND_AT"; cat /proc/asound/card*/pcm*p/sub*/status 2>/dev/null |
 	awk '$1 == "state:" { s = s (s ? "," : "") $2 } END { print s ? s : "none" }' > "$D/.sound") \
 	> /dev/null 2>&1 & helpers+=($!)
@@ -585,6 +663,7 @@ ended=exit; load=; t_load=; l=; part=
 # time without forks (the client's CPU time counts them): us sets US to microseconds since the epoch
 us() { local t=${1:-$EPOCHREALTIME}; US=$(( ${t%.*} * 1000000 + 10#${t#*.} )); }
 us "$t0"; u0=$US
+[ "$SHOT_FROM" = start ] && shot_plan 0
 age() { us; local d=$(( US - u0 )); printf '%d.%02d' $((d / 1000000)) $((d % 1000000 / 10000)); }
 secs() { printf -v "$1" '%d.%02d' $(($2 / 1000000)) $(($2 % 1000000 / 10000)); }	# secs VAR MICROSECONDS
 
@@ -669,6 +748,15 @@ prof_due() {	# runs the profiling events due now (US); PROF_NEXT: the next one's
 		if [ $now -ge "$PERF_END" ]; then perf_ctl disable; PERF_END=
 		elif [ -z "$PROF_NEXT" ] || [ "$PERF_END" -lt "$PROF_NEXT" ]; then PROF_NEXT=$PERF_END; fi
 	fi
+	while [ ${#SHOT_AT[@]} -gt 0 ]; do	# the screenshots due
+		if [ $now -ge "${SHOT_AT[0]}" ]; then
+			shot_take "${SHOT_Q[0]}" > /dev/null 2>&1 & SHOT_JOBS+=($!)
+			SHOT_AT=("${SHOT_AT[@]:1}"); SHOT_Q=("${SHOT_Q[@]:1}")
+		else
+			{ [ -z "$PROF_NEXT" ] || [ "${SHOT_AT[0]}" -lt "$PROF_NEXT" ]; } && PROF_NEXT=${SHOT_AT[0]}
+			break
+		fi
+	done
 	while [ ${#MEM_AT[@]} -gt 0 ]; do
 		if [ $now -ge "${MEM_AT[0]}" ]; then
 			mem_snap "${MEM_LB[0]}" > /dev/null 2>&1 & MEM_JOBS+=($!); MEM_DONE+=("${MEM_LB[0]}")
@@ -685,6 +773,7 @@ prof_due() {	# runs the profiling events due now (US); PROF_NEXT: the next one's
 load_us=; hud_us=; stop_us=; np=0; plast=; measured=0; win0=; win1=; PASS=(); son=; SEGS=()
 loaded() {	# the load ended now (US)
 	load_us=$(( US - u0 ))
+	[ "$SHOT_FROM" = load ] && shot_plan "$load_us"
 	[ "$PLOAD" = 1 ] && io_snap load
 	[ "$WINDOW_STOP" = 1 ] && stop_us=$(( load_us + (WARMUP + MEASURE + 2) * 1000000 ))
 	if [ -z "$WIN_ON_RE" ]; then	# profiling from the window's start (PASSES: 0.9 x WARMUP)
@@ -710,6 +799,13 @@ while :; do
 		hud_us=$(( US - u0 ))
 		[ -z "$load_us$LOAD_MARK$LOAD_RE" ] && loaded
 	fi
+	if [ "$SHOT_FROM" = mark ] && [ -z "$SHOT_REF_US" ] && [ ${#SHOT_PTS[@]} -gt 0 ]; then	# during()'s shot_mark
+		if read -r shot_m < "$D/.shot-mark" 2>/dev/null && [ -n "$shot_m" ]; then
+			us "$shot_m"; shot_plan $(( US - u0 )); us
+		elif [ -z "$DURING_PID" ] || ! kill -0 "$DURING_PID" 2>/dev/null; then	# never came: the load's end
+			SHOT_FROM=load; SHOT_SRC=load-nomark; [ -n "$load_us" ] && shot_plan "$load_us"
+		fi
+	fi
 	prof_due
 	lim=; why=; wt=
 	[ "$DURATION" -gt 0 ] && { lim=$(( DURATION * 1000000 )); why=duration; }
@@ -720,6 +816,9 @@ while :; do
 	fi
 	# until the HUD's first value: a look at its dump file every 0.25 s
 	[ -n "$hud_file" ] && [ -z "$hud_us" ] && { [ -z "$wt" ] || [ $wt -gt 250000 ]; } && wt=250000
+	# until during()'s shot_mark (SHOT_FROM=mark): a look every 0.5 s
+	[ "$SHOT_FROM" = mark ] && [ -z "$SHOT_REF_US" ] && [ ${#SHOT_PTS[@]} -gt 0 ] &&
+		{ [ -z "$wt" ] || [ $wt -gt 500000 ]; } && wt=500000
 	# the next profiling event (perf on/off, a memory snapshot)
 	if [ -n "$PROF_NEXT" ]; then
 		pw=$(( PROF_NEXT - US + u0 )); [ $pw -lt 1000 ] && pw=1000
@@ -743,6 +842,7 @@ while :; do
 	if [ -z "$load_us" ] && { { [ -n "$LOAD_MARK" ] && [[ $l =~ $LOAD_MARK ]]; } ||
 	                          { [ -n "$LOAD_RE" ] && [[ $l =~ $LOAD_RE ]]; }; }; then loaded; fi
 	if [ -z "$t_load" ] && [ -n "$LOAD_MARK" ] && [[ $l =~ $LOAD_MARK ]]; then t_load=$(age); fi
+	if [ "$SHOT_FROM" = re ] && [ -z "$SHOT_REF_US" ] && [[ $l =~ $SHOT_RE ]]; then shot_plan $(( US - u0 )); fi
 	if [ -n "$WIN_ON_RE" ]; then	# the game's own window pieces
 		if [ -z "$son" ] && [[ $l =~ $WIN_ON_RE ]]; then son=$(( US - u0 ))
 			[ ${#SEGS[@]} -eq 0 ] && pload_off	# the start-up span ends at the first piece
@@ -765,6 +865,7 @@ read -r game_pid < "$D/.pid" 2>/dev/null || game_pid=
 if [ "$MEM" = 1 ] && [ ${#MEM_DONE[@]} -gt 0 ] && [[ " ${MEM_DONE[*]} " != *" end "* ]]; then
 	mem_snap end > /dev/null 2>&1; MEM_DONE+=(end)
 fi
+[ ${#SHOT_JOBS[@]} -gt 0 ] && wait "${SHOT_JOBS[@]}"	# a screenshot still being taken: of the game
 [ ${#DUMP_JOBS[@]} -gt 0 ] && wait "${DUMP_JOBS[@]}"	# the capture first (it has timeouts), then the game goes
 stop_game
 while IFS= read -r -t 2 -u 3 l; do l=$part$l; part=; printf '%s\n' "$l"; printf '%s\n' "$l" >> "$D/game.log"; done
@@ -859,8 +960,9 @@ secs measured "$measured"
 	echo "dump=${DUMP_WHY:-none}"; [ -n "$DUMP_AT" ] && echo "dump_at=$DUMP_AT"
 	cat "$D/dump/sizes.txt" 2>/dev/null
   fi
+  shot_lines
   parse; } > "$D/bench.txt"
-rm -f "$D/.cwd" "$D/.hwm" "$D/.pid" "$D/.sound" "$D/.malloc.fifo" "$D/.gate" "$D/.launch.pid"
+rm -f "$D/.shot-mark" "$D/.cwd" "$D/.hwm" "$D/.pid" "$D/.sound" "$D/.malloc.fifo" "$D/.gate" "$D/.launch.pid"
 sed 's/^/bench: /' "$D/bench.txt"
 exit 0
 }

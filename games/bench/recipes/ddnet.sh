@@ -40,5 +40,5 @@ during() {
 variant_gl15() { DD_GFX=("gfx_backend OpenGL" "gfx_gl_major 1" "gfx_gl_minor 5"); dd_cmd; }
 variant_gl11() { DD_GFX=("gfx_backend OpenGL" "gfx_gl_major 1" "gfx_gl_minor 1"); dd_cmd; }
 variant_default() { DD_GFX=(); dd_cmd; }
-variant_menu() { DD_CONNECT=; dd_cmd; }
+variant_menu() { DD_CONNECT=; dd_cmd; SHOT_STATIC=1; }
 variant_window() { DD_ARGS=("${DD_ARGS[@]/gfx_fullscreen 1/gfx_fullscreen 0}"); dd_cmd; }

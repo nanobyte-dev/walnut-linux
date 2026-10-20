@@ -94,6 +94,10 @@ profiles (docs/PROFILING.md; shown only for runs that have them):
           lp_mb, lp_wmb MB read from the disks in the load and the warm-up, lp_majflt the game's major
           faults in the load, lp_ld ld.so's start-up seconds (LD_DEBUG=statistics), lp_disk the main
           thread's seconds waiting for the disk in the load (with STALLS=1)
+screenshots (client.sh BENCH_SHOTS, run.sh SHOTS=; shots.py): shot_n captures taken, shot_ms the slowest
+          capture (ms), shot_win the captures inside the measured window (the run is tagged @shot and kept
+          apart then), shot_frame the longest frame a capture touched (ms; shots.py cost has the frames
+          before), review the verdict in the run's REVIEW.md (shots.py pending lists the sheets without one)
   --perf, --mem, --load print perfprof.py's, memprof.py's and loadprof.py's tables for every run that has them
 A run with something alongside the game shows it after the variant (base@rec10, base@wksleep10c1,
 base@perf: bench.txt harness=, ps3-bench.sh; older runs: rec<ms> from a stalls.rec, perf from
@@ -185,6 +189,10 @@ def harness(d, b):
         t = {"FLUIDFX": "fx" + v, "ZLIB": "z" + v, "BINDNOW": "bindnow", "JSIMD": "jsimd" + v,
              "LDPATH": "ld" + v.rstrip("/").rsplit("/", 1)[-1]}.get(n, x.lower())   # LDPATH=/x/stock-openal -> ldstock-openal
         m = "+".join(y for y in (m, t) if y)
+    if "shots" in b:   # client.sh's screenshots: one in the window costs frames
+        import shots
+        if shots.in_window(shots.parse(d)):
+            m = "+".join(x for x in (m, "shot") if x)
     if "harness" in b:
         return "+".join(x for x in (b["harness"], m) if x)
     t = []
@@ -293,6 +301,8 @@ def run(d):
     if (d / "perf-load-stacks.tsv").exists() or (d / "load-io").is_dir():
         import loadprof
         r.update(loadprof.summary(d))
+    import shots
+    r.update(shots.summary(d))   # the screenshots: shot_n, shot_ms, shot_win, shot_frame; REVIEW.md's verdict
     r.update(sysmem(d))
     r.update(forcedxt(d))
     r.update(shcache(d))
@@ -599,7 +609,8 @@ PROF_COLS = (["perf_n", "perf_game", "perf_mesa", "perf_drm", "perf_kgpu", "perf
              + ["shc_tgsi_hit", "shc_tgsi_miss", "shc_fp_hit", "shc_fp_miss", "shc_vp_hit", "shc_vp_miss",
                 "shc_hit_ms", "shc_miss_ms"]
              + ["lp_cpu", "lp_main", "lp_wcpu", "lp_link", "lp_glsl", "lp_shbe", "lp_shcache", "lp_wshader", "lp_tex",
-                "lp_mip", "lp_dxt", "lp_decomp", "lp_mb", "lp_wmb", "lp_majflt", "lp_ld", "lp_disk"])
+                "lp_mip", "lp_dxt", "lp_decomp", "lp_mb", "lp_wmb", "lp_majflt", "lp_ld", "lp_disk"]
+             + ["shot_n", "shot_ms", "shot_win", "shot_frame", "review"])
 COLS += PROF_COLS
 RANGED = ("load", "fps", "maxms", "hud_med", "steady", "low1", "smooth", "stall_s", "stall_play_s", "low1_play",
           "stall_warm_s")

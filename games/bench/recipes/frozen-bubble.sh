@@ -15,7 +15,7 @@ COMM=frozen-bubble
 . "$here/recipes/smoke.inc"
 BACKUP=("$HOME/.frozenbubble/rc")
 CMD=(/usr/games/frozen-bubble --fullscreen --solo)
-variant_menu() { CMD=(/usr/games/frozen-bubble --fullscreen); }
+variant_menu() { CMD=(/usr/games/frozen-bubble --fullscreen); SHOT_STATIC=1; }
 variant_nosound() { CMD+=(--no-sound); }
 variant_slow() { CMD+=(--slow-machine); }
 variant_window() { CMD=(/usr/games/frozen-bubble --solo); }

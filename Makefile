@@ -26,7 +26,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: initrd-ssd initrd-busybox repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull \
+.PHONY: initrd-ssd initrd-busybox repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref \
 	classicube classicube-audio classicube-deploy classicube-bench quake-data
 
 help:
@@ -59,7 +59,9 @@ help:
 	@echo "  make listen       print PS3 early-debug + netconsole output"
 	@echo "  make ps3-reboot   reboot the running PS3 Linux (lands in GameOS/XMB, not Petitboot)"
 	@echo "  make bench-push   the game suite runner to the PS3 (/var/tmp/bench/run.sh, docs/games/SUITE.md)"
-	@echo "  make bench-pull   its results into $(BUILD)/bench (PERFDATA=1: with perf.data and perf-syms.tar)"
+	@echo "  make bench-pull   its results into $(BUILD)/bench (PERFDATA=1: with perf.data and perf-syms.tar), screenshots as PNGs + PS3 | PC sheets"
+	@echo "  make bench-shots  the PS3 | PC screenshot sheets again, and the ones not reviewed yet"
+	@echo "  make bench-ref GAME=x [VARIANT=y]  the PC reference screenshots of a recipe (build/bench-ref)"
 	@echo "  make initrd-ssd   the SSD root's initramfs (IMGMAP=<copy of the PS3's map.json>) -> $(BUILD)/initrd"
 	@echo "  make classicube-bench  ClassiCube's benchmark plugin -> games/bench/assets/classicube-bench.so"
 	@echo "Other:"
@@ -369,10 +371,23 @@ bench-push:
 	tar -C games -c bench | $(PS3_SSH) 'set -e; rm -rf /var/tmp/bench.new /var/tmp/bench.old; \
 		mkdir /var/tmp/bench.new; tar -C /var/tmp/bench.new --strip-components=1 -x; \
 		[ ! -e /var/tmp/bench ] || mv /var/tmp/bench /var/tmp/bench.old; mv /var/tmp/bench.new /var/tmp/bench'
+# The screenshots (docs/games/SUITE.md "Screenshots"): bench-pull leaves out the .xwd captures it already
+# turned into PNGs, then shots.py post converts the new ones (the .xwd removed) and makes each run's
+# PS3 | PC sheet (<run>/shots-vs-pc.png) against build/bench-ref; bench-shots does that step alone and
+# lists the sheets nobody has reviewed (no REVIEW.md). bench-ref GAME=x [VARIANT=y] [SHOTS="30 90"]:
+# the PC reference of a recipe (tools/bench-ref.sh: an amd64 container, Xvfb, llvmpipe at GL 2.1).
 bench-pull:
 	mkdir -p $(BUILD)/bench
-	$(PS3_SSH) 'tar -C /var/tmp/ps3-bench -c $(if $(PERFDATA),,--exclude=perf.data --exclude=perf-load.data --exclude=perf-sys.data --exclude=perf-syms.tar) .' | tar -C $(BUILD)/bench -x
+	cd $(BUILD)/bench && find . -path '*/shots/*.png' | sed 's/\.png$$/.xwd/' > .pulled-shots
+	$(PS3_SSH) 'tar -C /var/tmp/ps3-bench -X - -c $(if $(PERFDATA),,--exclude=perf.data --exclude=perf-load.data --exclude=perf-sys.data --exclude=perf-syms.tar) .' \
+		< $(BUILD)/bench/.pulled-shots | tar -C $(BUILD)/bench -x
+	-python3 games/bench/shots.py post $(BUILD)/bench
 	@echo ">> $(BUILD)/bench; summaries: games/bench/report.py $(BUILD)/bench/<run dirs>"
+bench-shots:
+	python3 games/bench/shots.py post $(BUILD)/bench
+	@echo ">> sheets not reviewed yet (no REVIEW.md):"; python3 games/bench/shots.py pending $(BUILD)/bench
+bench-ref:
+	tools/bench-ref.sh $(GAME) $(or $(VARIANT),base)
 
 shell: $(BUILDER_STAMP)
 	$(DOCKER_RUN) -it --user $(UID_GID) $(BUILDER_TAG) bash

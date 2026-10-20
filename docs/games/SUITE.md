@@ -29,11 +29,13 @@ recorder, the profiles and the memory snapshots have their own docs ([STALLS.md]
 | `ssd-arm.sh` | the SSD arms `GAMEDATA=ssd`, `SWAP=ssd` ([GAMEOS-HDD.md](../GAMEOS-HDD.md)) |
 | `oal-perf.sh` | OpenAL Soft's mixing split from a profiled run ([SPU-AUDIO.md](../SPU-AUDIO.md)) |
 | `xkeys.py` | keys through XTEST, for games that ignore the virtual keyboard |
+| `shots.py` | the screenshots ([below](#screenshots)): `cost` (what a capture cost in frames), `convert` (xwd to PNG), `sheet` and `post` (the PS3 \| PC sheet), `pending` (sheets nobody reviewed) |
 
 `make bench-push` copies `games/bench` to `/var/tmp/bench` on the PS3 (unpacked beside the old copy
 and swapped in with a rename, so a run in progress keeps its files). `make bench-pull` fetches the
 run directories from `/var/tmp/ps3-bench` into `build/bench/`; `PERFDATA=1` adds perf.data (about
-20 MB a run), perf-load.data and perf-syms.tar. `games/openarena/` keeps step 0's scripts
+20 MB a run), perf-load.data and perf-syms.tar. It also turns the runs' screenshots into PNGs and
+makes their PS3 | PC sheets ([Screenshots](#screenshots)). `games/openarena/` keeps step 0's scripts
 (`step0.sh`, `step0-report.py`, `oa-*.sh`).
 
 ## run.sh
@@ -69,6 +71,8 @@ against order bias. What a token can set:
 - `SHADERCACHE=cold|warm|off`: Mesa's disk shader cache for the run (the user's own cache untouched).
 - `GAMEDATA=ssd`, `SWAP=ssd`: the recipe's `DATA_DIRS` bound from the SSD copy, the VRAM swap's spill
   on the SSD; `ssd-arm.sh` puts each arm in place before the run's quiet and resets to USB at the end.
+- `SHOTS="30 90"`, `SHOTS=auto|off`: screenshots at those seconds after the recipe's game state
+  ([Screenshots](#screenshots)); on (`auto`) for smoke runs, off for bench and suite runs unless given.
 - `NV30_X=V`: a Mesa driver switch for the game; `PS3RSX_NAME=V`: a ps3rsx module parameter, written
   for that run and put back (`sudo -n`).
 - Library switches ([SPU-AUDIO.md](../SPU-AUDIO.md), [PROFILING.md, "Load-time decoders and
@@ -81,7 +85,8 @@ against order bias. What a token can set:
 
 report.py shows each run's switches after its variant (`base@rec10`, `base@wkkick10`,
 `base@translate_lut0`, `base@mtune`, `base@oalb16`, `base@fxoff`, `base@zng`, `base@gpffetch`, `base@sccold`, `base@gdssd+swssd`,
-`base@rsx_name<V>`), so they never group with plain runs.
+`base@rsx_name<V>`, `base@shot` for a run with a screenshot inside its window), so they never group
+with plain runs.
 
 **Interference.** `ps3-bench.sh`'s detector (`ps3-intfwatch`) flags a run somebody disturbed: input,
 a VT switch, a device, an SSH login or command. run.sh warns after it, report.py marks it and leaves
@@ -106,6 +111,8 @@ ones that shape a run:
 - `WM` (default `openbox`: SDL fullscreen windows never show without a window manager), `GAMEMODE=1`
   (start through `ps3-game` as the desktop does; default 0, the game gets `PS3_GAME_MODE=off`),
   `SOUND_AT` (when the sound card state is read, default 15 s).
+- The screenshots: `SHOT_POINTS`, `SHOT_FROM`, `SHOT_RE`, `SHOT_STATIC`, `shot_mark` in `during()`, and
+  the PC reference's `REF_PKGS`, `REF_IMAGE`, `REF_ENV` ([Screenshots](#screenshots)).
 
 **The steady state** (the user, 2026-10-17). Every run leaves out a warm-up (`WARMUP`, 60 s after the
 load ends) and measures at least `MEASURE` (120) s after it. The load ends at the `LOAD_MARK` line,
@@ -148,10 +155,11 @@ back to GameOS at the end. For bench runs:
 - Check first that nobody is using the PS3. No deploys and no commands on it during a run (they
   are interference: disk, swap-ins); `ps3-bench.sh` holds a lock in `/dev/shm` (a reboot clears it).
 - Long batches start under `nohup` or `systemd-run --user`, so a dropped SSH connection doesn't end
-  them. `tools/bench-cam.sh` on the PC photographs the screen 30 s and 60 s into every run over one
-  SSH connection; look at the photos before trusting a run. (The first watcher opened an SSH
-  connection every 5 s and slowed the runs it watched: load average 5 at idle. Those runs of
-  2026-10-17 13:05-14:50 UTC were discarded.)
+  them. The picture check is the screenshots ([below](#screenshots)): look at each run's sheet before
+  trusting it. `tools/bench-cam.sh` on the PC still photographs the TV 30 s and 60 s into every run
+  over one SSH connection, for the TV itself (the HDMI output, a frozen console) and the sound clips
+  (`tools/bench-audio.sh`). (The first watcher opened an SSH connection every 5 s and slowed the runs
+  it watched: load average 5 at idle. Those runs of 2026-10-17 13:05-14:50 UTC were discarded.)
 - A graph exception ends the session: only a console reboot clears the RSX, and the user goes back
   through Petitboot. Within a session the riskiest game goes last. After a wedge, don't run
   `ps3-bench.sh desktop` (it starts X on the wedged RSX). Each game's config backups are on disk
@@ -159,7 +167,69 @@ back to GameOS at the end. For bench runs:
 - Compare load times only with the shader cache in the same state.
 - `perf` on the PS3 needs `--proc-map-timeout=20000`, or it starts sampling before it has read a big
   process's maps and files most samples as `[unknown]` (77% of OpenArena's once).
-- After the batch: `make bench-pull`, `report.py`, then a row in the matrices.
+- After the batch: `make bench-pull` (PNGs and sheets), the sheets reviewed (`make bench-shots` lists
+  the open ones), `report.py`, then a row in the matrices.
+
+## Screenshots
+
+The picture check since 2026-10-20 (the user: "We won't need the camera if this works"). The PS3
+captures its own screen during a run, the PC runs the same recipe and captures its own at the same
+point of the game, and a sheet puts the two side by side. The judge is a person or an agent looking at
+the sheet: missing textures, a dark or flat 3D view, text that isn't drawn, wrong colours. It is not a
+pixel comparison: the two runs are at different moments (the PS3 loads about 10x slower, physics and
+AI aren't deterministic), so only a black or one-colour screen is flagged by itself. Menus and title
+screens (`SHOT_STATIC=1`, the recipes' `menu` variants) are the place where a closer look is fair.
+
+**On the PS3.** client.sh runs `xwd -root` (x11-apps, installed) at nice 19 and the idle I/O class, as
+a background job, at each shot point. `SHOTS` (run.sh, an ENVS token too) is a list of whole seconds,
+`auto` (the recipe's `SHOT_POINTS`, default `30 90`) or `off`; smoke runs take `auto`, bench and suite
+runs none unless `SHOTS` is given. The points count from a game state, not from the start:
+
+- `SHOT_FROM=load` (default): the load's end as the window has it (`LOAD_MARK`, `LOAD_RE`, else the
+  HUD's first frame; for many smoke recipes the first frame is a loading screen, so they name a line);
+- `SHOT_RE=regex`: the first game output line matching it (Warzone 2100: `Started writing replay file`,
+  the match's start);
+- `SHOT_FROM=mark`: when the recipe's `during()` calls `shot_mark`, after its keys (Endless Sky's
+  flight, SuperTux, OpenTyrian, UQM, ScummVM, Crawl, Simutrans); a variant whose `during()` ends without
+  it (no keys) falls back to the load's end (`shot_ref=load-nomark`);
+- `SHOT_FROM=start`: the client's start.
+
+A raw capture is 8.3 MB at 1920x1080. It goes to `/var/tmp/ps3-bench/.shots-<run>` on the disk while
+the run directory is in `/dev/shm` (RAM is scarce), and run.sh moves it into the run's `shots/`
+afterwards. bench.txt gets `shots=`, `shot_ref=<from>:<s after t0>`, per shot
+`shot=<p>s:shots/shot-<p>s.xwd:<ms>` (the capture's wall time) and `shot_t=<p>s:<s after t0>:<n0>:<n1>`
+(the HUD frame-time file's line counts before and after the capture: the frames it touched), and
+`shot_skipped=` for points the run never reached. The capture is client.sh's child with `BENCH_DIR` in
+its environment, so the interference detector counts it as the run's own.
+
+**What a capture costs** is not measured yet (docs/TESTS.md, Next). `xwd -root` makes the X server copy
+the whole front buffer out of VRAM, and that is Xorg's time, not the nice'd xwd's. Until it is known,
+a bench run with `SHOTS` and a capture inside the window is tagged `@shot` (report.py) and kept apart
+from plain runs; report.py's `shot_n`, `shot_ms`, `shot_win`, `shot_frame` columns and
+`python3 shots.py cost <run dir>` (the capture's wall time, the frames it touched, the longest of them
+against the 120 frames before) give the numbers.
+
+**On the PC.** `make bench-ref GAME=warzone2100 [VARIANT=base] [SHOTS="30 90"]` (`tools/bench-ref.sh`)
+runs the recipe through the same client.sh in an amd64 container (`docker/Dockerfile.benchref`, Debian
+sid from the PS3's snapshot) under Xvfb 1920x1080, with llvmpipe forced to the RSX's GL 2.1 and GLSL
+1.20 (`MESA_GL_VERSION_OVERRIDE=2.1`, `MESA_GLSL_VERSION_OVERRIDE=120`; the extension list is
+llvmpipe's own), no sound device, and the same shot points after the same game state. The recipe says
+where the game comes from: `REF_PKGS` (Debian packages, for the games we take from Debian: OpenArena,
+SuperTuxKart) or `REF_IMAGE` (a local image with our amd64 build of a game we patch: Warzone 2100's
+`wz-amd64-view`); `REF_ENV` adds NAME=VALUE for the PC run. Output: `build/bench-ref/<game>-<variant>/`
+(the run directory) and `build/bench-ref/<game>-<variant>-<s>s.png`; an older reference moves to
+`build/bench-ref/old/` first. The container is `shot-ref-<game>-<pid>`, removed at the end.
+
+**The sheet.** `make bench-pull` leaves out captures it already has as PNGs, converts the new `.xwd`
+files to PNG (the `.xwd` is removed once the PNG reads back at the same size) and runs `shots.py post`:
+each run with screenshots gets `<run>/shots-vs-pc.png`, one row per shot point, PS3 left and PC right
+(800x450 each, 1608 px wide), labelled with the game, variant, shot point, capture time and both
+sides' builds (Mesa, the game, the kernel), and a `shotsheet:` line in its `result` (the sheet, the
+reference it compares against, `PS3 BLACK at 30s` when a side is black or one colour). Without a
+reference the PC side says so and names the `bench-ref` command. `make bench-shots` remakes the sheets
+whose shots or reference changed and lists the ones without a `REVIEW.md`: the reviewer writes that
+file next to the sheet, first line `verdict: ok|wrong|unclear [words]`, and report.py shows it as
+`review=`.
 
 ## The results matrices
 

@@ -77,9 +77,15 @@ only) and a recipe; its baseline is in [openrct2.md](openrct2.md#on-the-ps3-batc
 Every number is measured the same way (the measurement protocol; [SUITE.md](SUITE.md) has the
 commands):
 
-- **1920x1080, picture checked.** `tools/bench-cam.sh` photographs the screen 30 s and 60 s into
-  every run; a run with a black or wrong picture doesn't count. Step 0's first numbers (rows 1-10)
-  were taken with nothing on screen and are void. Since 2026-10-19 04:25 `tools/bench-audio.sh` also
+- **1920x1080, picture checked.** A run with a black or wrong picture doesn't count. Since
+  2026-10-20 the check is the PS3's own screenshots: smoke runs take them by default (`xwd` at the
+  recipe's shot points after the load or the recipe's own marker), and `make bench-pull` puts each run's
+  captures next to the PC reference of the same recipe (llvmpipe at GL 2.1) in `<run>/shots-vs-pc.png`,
+  which someone reviews ([SUITE.md, "Screenshots"](SUITE.md#screenshots)). Bench runs take none unless
+  `SHOTS` is given, until the cost of a capture is measured; a run with a capture in its window is
+  `@shot` and not pooled with the others. Before that, and still for the TV and the sound,
+  `tools/bench-cam.sh` photographs the screen 30 s and 60 s into every run. Step 0's first numbers
+  (rows 1-10) were taken with nothing on screen and are void. Since 2026-10-19 04:25 `tools/bench-audio.sh` also
   records 8 s of the webcam microphone after every photo (`build/bench-cam/audio.log`); whether a
   game sounds right is still the user's call by ear. The room's floor in those clips is rms about
   -50.5 dBFS, spectral flatness 0.03, a peak at 445 Hz and the bands 11/83/5/0%; a clip with that

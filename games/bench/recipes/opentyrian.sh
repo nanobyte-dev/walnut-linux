@@ -21,8 +21,9 @@ setup() {
 	printf "section video\n\titem fullscreen 0\n\titem scaler '%s'\n\titem scaling_mode 'Fit 8:5'\n" "$OT_SCALER" > "$HOME/.config/opentyrian/opentyrian.cfg"
 	[ -e /usr/share/games/tyrian/tyrian1.lvl ] || echo "WARNING: no Tyrian data: apt install tyrian-data (ps3-licensed suite)"
 }
-during() { [ ${#OT_KEYS[@]} -gt 0 ] || return 0; smoke_xkeys OpenTyrian 8 "${OT_KEYS[@]}"; }
-variant_menu() { OT_KEYS=(); }
+during() { [ ${#OT_KEYS[@]} -gt 0 ] || return 0; smoke_xkeys OpenTyrian 8 "${OT_KEYS[@]}"; shot_mark; }
+SHOT_FROM=mark	# the screenshots after the keys (the load's end in the variants without keys)
+variant_menu() { OT_KEYS=(); SHOT_STATIC=1; }
 variant_nosound() { CMD=(/usr/games/opentyrian --no-sound); }
 # the cheaper (nearest-neighbour 2x in SDL) and the dearer scaler
 variant_noscaler() { OT_SCALER=None; }

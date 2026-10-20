@@ -50,6 +50,6 @@ WN=(/usr/games/wesnoth-1.18 --no-log-to-file --fullscreen --max-fps 60)
 CMD=("${WN[@]}" -c Tutorial --campaign-difficulty 1 --campaign-skip-story)
 variant_httt() { CMD=("${WN[@]}" -c Heir_To_The_Throne --campaign-difficulty 2 --campaign-skip-story --campaign-scenario 02_Blackwater_Port); }
 variant_ai() { CMD=("${WN[@]}" -m --controller 1:ai --controller 2:ai --nodelay --turns 20 --rng-seed 1 --scenario multiplayer_The_Freelands --exit-at-end); }
-variant_menu() { CMD=("${WN[@]}"); }
+variant_menu() { CMD=("${WN[@]}"); SHOT_STATIC=1; }
 variant_nosound() { CMD+=(--nosound); }
 variant_window() { WN=(/usr/games/wesnoth-1.18 --no-log-to-file --windowed --resolution 1920x1080 --max-fps 60); CMD=("${WN[@]}" -c Tutorial --campaign-difficulty 1 --campaign-skip-story); }
