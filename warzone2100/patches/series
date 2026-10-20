@@ -4,3 +4,4 @@
 0004-etcpak-DXT1-DXT5-blocks-right-on-big-endian-hosts.patch
 0005-radar-overlay-colour-by-bytes-not-by-shifts.patch
 0006-gl-unbind-GL_TEXTURE_2D_ARRAY-only-when-texture-arrays-exist.patch
+0007-stb_image_resize-no-loop-vectorization-on-AltiVec-without-VSX.patch

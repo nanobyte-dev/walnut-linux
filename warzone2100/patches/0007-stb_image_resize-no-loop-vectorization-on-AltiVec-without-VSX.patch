@@ -1,0 +1,29 @@
+Subject: stb_image_resize: no loop vectorization with GCC on AltiVec without VSX
+
+GCC 16.2 at -O3 with -mcpu=cell (also -mcpu=970, -mcpu=power6 -maltivec; not plain -O3, not -O2)
+vectorizes the 4-channel loop of stbir__resample_horizontal_downsample wrongly. Every downscale
+comes out nearly black and transparent: all generated mipmap levels (level 1 of a 1024x1024 RGBA
+page sums to 465002 instead of 103538663) and every image the texturesize option scales down.
+The 3D view's textures sample those levels, and the models' alpha test discards them, so on the
+PS3 the terrain was black and the structures invisible while the HUD (no mipmaps) was right.
+-DNDEBUG is part of the trigger (the asserts in the loop stop the vectorizer). Turn off loop
+vectorization for this file only on such targets; the SLP vectorizer and -O3 otherwise stay.
+
+---
+diff --git a/lib/ivis_opengl/3rdparty/stb_image_resize.cpp b/lib/ivis_opengl/3rdparty/stb_image_resize.cpp
+--- a/lib/ivis_opengl/3rdparty/stb_image_resize.cpp
++++ b/lib/ivis_opengl/3rdparty/stb_image_resize.cpp
+@@ -29,6 +29,13 @@
+ #  pragma GCC diagnostic ignored "-Wfloat-conversion"
+ #endif
+ 
++// GCC 16 with AltiVec and no VSX (-mcpu=cell, also 970 / power6 -maltivec) at -O3 vectorizes the 4-channel
++// horizontal downsampling loop of stbir__resample_horizontal_downsample wrongly: every mipmap level and
++// every downscaled image comes out nearly black and transparent (textures of the 3D view on the PS3)
++#if defined(__GNUC__) && !defined(__clang__) && defined(__ALTIVEC__) && !defined(__VSX__)
++#  pragma GCC optimize("no-tree-loop-vectorize")
++#endif
++
+ #define STB_IMAGE_RESIZE_IMPLEMENTATION
+ #include "stb_image_resize.h"
+ 
