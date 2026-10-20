@@ -98,7 +98,8 @@ CMD=("${WZ[@]}" --autogame --skirmish=ps3bench.json)
 # Screenshots (docs/games/SUITE.md "Screenshots"): the shot points count from the match's start (the
 # replay file opens when the map has loaded: 80 s into a PS3 run, a few seconds on the PC), not from the
 # first frame, which is the loading screen. The PC reference: our amd64 build of 4.3.5 in the local
-# image wz-amd64-view (tools/bench-ref.sh warzone2100).
+# image wz-amd64-view (tools/bench-ref.sh warzone2100; deleted 2026-10-20, the game is done: a docker
+# commit of an amd64 build container with our debs installed brings it back).
 SHOT_RE='Started writing replay file'
 REF_IMAGE=wz-amd64-view
 variant_lobby() { CMD=("${WZ[@]}" --skirmish=ps3bench.json); SHOT_RE=; }

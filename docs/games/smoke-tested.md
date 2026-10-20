@@ -161,6 +161,14 @@ it) from the user's own RollerCoaster Tycoon 2 CD. It unpacks the InstallShield 
 `unshield` and runs nothing from the disc; the package goes to `ps3-licensed` only
 (`tools/licensed-packages.txt`) and the data is never committed.
 
+**Done (2026-10-20): stable `warzone2100` 4.3.5-1+ps3.644, uninstalled from the PS3.** The user
+played it normally next to the PC build: renders like the PC, sound right, the ground textured
+since patch 0010 (texture size 512 by default on the Cell build; the game's 2048 ran the RSX out of
+VRAM on a first start, GL_OUT_OF_MEMORY and no grass). As a game it is a poor fit for a console:
+mouse and keyboard only, a sparse 1999 UI, small at 1080p (Options > Video > Display Scale helps).
+The PC reference image `wz-amd64-view` is deleted (the recipe's `REF_IMAGE`); the reference
+captures stay in `build/bench-ref/warzone2100-base`.
+
 **Warzone 2100 4.3.5** (our `warzone2100/`, the last release with a GL 2.1 renderer; recipe
 `warzone2100.sh`, its header has the settings and the PC's RAM numbers). The first PS3 smoke run
 (ssdroot6, ps3.566) had the HUD and the minimap but a black 3D view. Two causes, neither of them
