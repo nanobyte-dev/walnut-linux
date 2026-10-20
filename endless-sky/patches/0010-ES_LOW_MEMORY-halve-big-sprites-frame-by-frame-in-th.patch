@@ -1,0 +1,346 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Tue, 20 Oct 2026 07:11:22 +0300
+Subject: ES_LOW_MEMORY: halve big sprites frame by frame in the loader thread,
+ limit the decoded pixels waiting for upload to 16 MB
+
+ps3.589 still ran out of memory in the sprite load (the PS3 load takes 100+ s). Decoded sprites are
+full size until the main thread uploads and halves them: the biggest are 90, 64, 54, 54 and
+45 MB (ember tear vortex, milky way, tachytia, astral, jd detainer), and 6 or 100 chains of them
+waiting for a slow main thread peaked at 124 / 287 MB of pending pixels on the PC (with a 20 ms
+upload delay for the PS3's slow main thread).
+- ImageSet::Load applies the "reduce large graphics" setting itself: each frame is decoded alone,
+  its collision mask made from the full frame, and a half-size copy stored (ImageBuffer::
+  AddHalvedFrame). The sprite keeps the full size (FullWidth/FullHeight) and Sprite::AddBuffer
+  does not halve again. Same box filter, so the textures are identical.
+- The loader threads wait (at most 500 ms at a time) while 16 MB of decoded pixels are queued;
+  12 chains keep the main thread supplied. With both: peak pending 24 MB.
+
+diff --git a/source/image/ImageBuffer.cpp b/source/image/ImageBuffer.cpp
+--- a/source/image/ImageBuffer.cpp
++++ b/source/image/ImageBuffer.cpp
+@@ -86,6 +86,7 @@ void ImageBuffer::Clear(int frames)
+ {
+ 	delete [] pixels;
+ 	pixels = nullptr;
++	fullWidth = fullHeight = 0;
+ 	this->frames = frames;
+ }
+ 
+@@ -156,6 +157,54 @@ uint32_t *ImageBuffer::Begin(int y, int frame)
+ 
+ 
+ 
++bool ImageBuffer::IsReduced() const
++{
++	return fullWidth != 0;
++}
++
++
++
++int ImageBuffer::FullWidth() const
++{
++	return fullWidth ? fullWidth : width;
++}
++
++
++
++int ImageBuffer::FullHeight() const
++{
++	return fullWidth ? fullHeight : height;
++}
++
++
++
++void ImageBuffer::AddHalvedFrame(const ImageBuffer &full, int frame)
++{
++	if(!pixels)
++	{
++		Allocate(full.width / 2, full.height / 2);
++		fullWidth = full.width;
++		fullHeight = full.height;
++	}
++	if(!pixels || frame < 0 || frame >= frames || full.width != fullWidth || full.height != fullHeight)
++		return;
++
++	const unsigned char *begin = reinterpret_cast<const unsigned char *>(full.pixels);
++	unsigned char *out = reinterpret_cast<unsigned char *>(Begin(0, frame));
++	for(int y = 0; y < height; ++y)
++	{
++		const unsigned char *aIt = begin + (4 * full.width) * (2 * y);
++		const unsigned char *aEnd = aIt + 4 * 2 * width;
++		const unsigned char *bIt = begin + (4 * full.width) * (2 * y + 1);
++		for( ; aIt != aEnd; aIt += 4, bIt += 4)
++			for(int channel = 0; channel < 4; ++channel, ++aIt, ++bIt, ++out)
++				*out = (static_cast<unsigned>(aIt[0]) + static_cast<unsigned>(bIt[0])
++					+ static_cast<unsigned>(aIt[4]) + static_cast<unsigned>(bIt[4]) + 2) / 4;
++	}
++}
++
++
++
+ void ImageBuffer::ShrinkToHalfSize()
+ {
+ 	ImageBuffer result(frames);
+diff --git a/source/image/ImageBuffer.h b/source/image/ImageBuffer.h
+--- a/source/image/ImageBuffer.h
++++ b/source/image/ImageBuffer.h
+@@ -70,6 +70,14 @@ public:
+ 	uint32_t *Begin(int y, int frame = 0);
+ 
+ 	void ShrinkToHalfSize();
++	// Add one frame of a full-size buffer to this one at half size: this buffer is allocated at half
++	// the size of the first frame given (ES_LOW_MEMORY: a big sprite is never held in memory at full
++	// size, only one of its frames at a time). The frame is a single-frame buffer. After the first
++	// call IsReduced() is true and FullWidth/FullHeight give the size before halving.
++	void AddHalvedFrame(const ImageBuffer &full, int frame);
++	bool IsReduced() const;
++	int FullWidth() const;
++	int FullHeight() const;
+ 
+ 	// Read frames from a file. Return the number of frames read,
+ 	// or 0 if an error is encountered - either the
+@@ -82,6 +90,8 @@ public:
+ private:
+ 	int width;
+ 	int height;
++	int fullWidth = 0;
++	int fullHeight = 0;
+ 	int frames;
+ 	uint32_t *pixels;
+ };
+diff --git a/source/image/ImageSet.cpp b/source/image/ImageSet.cpp
+--- a/source/image/ImageSet.cpp
++++ b/source/image/ImageSet.cpp
+@@ -20,6 +20,7 @@ this program. If not, see <https://www.gnu.org/licenses/>.
+ #include "ImageBuffer.h"
+ #include "ImageFileData.h"
+ #include "../Logger.h"
++#include "../Preferences.h"
+ #include "Mask.h"
+ #include "MaskManager.h"
+ #include "Sprite.h"
+@@ -210,12 +211,61 @@ void ImageSet::Load() noexcept(false)
+ 	buffer[0].Clear(frames);
+ 	UpdateFrameCount();
+ 
++#ifdef ES_LOW_MEMORY
++	// A sprite that the graphics reduction halves is halved here, a frame at a time, in the loader
++	// thread: the full-size sprite (up to 90 MB) is never in memory, and what waits for the main
++	// thread is a quarter of it. The collision masks come from the full-size frame.
++	bool reduce = false;
++	if(!noReduction && !paths[0].empty() && paths[0][0].extension() != ".avif"
++		&& paths[0][0].extension() != ".avifs")
++	{
++		const auto setting = Preferences::GetLargeGraphicsReduction();
++		if(setting == Preferences::LargeGraphicsReduction::ALL)
++			reduce = true;
++		else if(setting == Preferences::LargeGraphicsReduction::LARGEST_ONLY)
++		{
++			ImageBuffer probe(1);
++			if(probe.Read(paths[0][0], 0, true))
++				reduce = probe.Width() * probe.Height() >= 1000000;
++		}
++	}
++	const auto ReadHalved = [&](ImageBuffer &target, const ImageFileData &file, size_t i, bool mask,
++		const string &fileName) -> int
++	{
++		ImageBuffer full(1);
++		const int loaded = full.Read(file, 0);
++		if(!loaded)
++			return 0;
++		if(mask)
++		{
++			masks[i].Create(full, 0, fileName);
++			if(!masks[i].IsLoaded())
++				Logger::Log("Failed to create collision mask for " + fileName, Logger::Level::WARNING);
++		}
++		target.AddHalvedFrame(full, i);
++		return loaded;
++	};
++#else
++	const bool reduce = false;
++#endif
++
+ 	// Load the 1x sprites first, then the 2x sprites, because they are likely
+ 	// to be in separate locations on the disk. Create masks if needed.
+ 	for(size_t i = 0; i < paths[0].size(); ++i)
+ 	{
+-		int loadedFrames = buffer[0].Read(paths[0][i], i);
+ 		const string fileName = "\"" + name + "\" frame #" + to_string(i);
++#ifdef ES_LOW_MEMORY
++		if(reduce)
++		{
++			if(!ReadHalved(buffer[0], paths[0][i], i, makeMasks, fileName))
++			{
++				Logger::Log("Failed to read image data for " + fileName, Logger::Level::WARNING);
++				continue;
++			}
++			continue;
++		}
++#endif
++		int loadedFrames = buffer[0].Read(paths[0][i], i);
+ 		if(!loadedFrames)
+ 		{
+ 			Logger::Log("Failed to read image data for " + fileName, Logger::Level::WARNING);
+@@ -239,7 +289,11 @@ void ImageSet::Load() noexcept(false)
+ 	auto LoadSprites = [&](const vector<filesystem::path> &toLoad, ImageBuffer &buffer, const string &specifier)
+ 	{
+ 		for(size_t i = 0; i < frames && i < toLoad.size(); ++i)
++#ifdef ES_LOW_MEMORY
++			if(reduce ? !ReadHalved(buffer, toLoad[i], i, false, "") : !buffer.Read(toLoad[i], i))
++#else
+ 			if(!buffer.Read(toLoad[i], i))
++#endif
+ 			{
+ 				Logger::Log("Removing " + specifier + " frames for \"" + name + "\" due to read error",
+ 					Logger::Level::WARNING);
+@@ -254,7 +308,7 @@ void ImageSet::Load() noexcept(false)
+ 	LoadSprites(paths[3], buffer[3], "@2x mask");
+ 
+ 	// Warn about a "high-profile" image that will be blurry due to rendering at 50% scale.
+-	bool willBlur = (buffer[0].Width() & 1) || (buffer[0].Height() & 1);
++	bool willBlur = (buffer[0].FullWidth() & 1) || (buffer[0].FullHeight() & 1);
+ 	if(willBlur && (name.starts_with("ship/") || name.starts_with("outfit/") || name.starts_with("thumbnail/")))
+ 		Logger::Log("Image \"" + name + "\" will be blurry since width and/or height are not even ("
+ 			+ to_string(buffer[0].Width()) + "x" + to_string(buffer[0].Height()) + ").", Logger::Level::WARNING);
+@@ -262,6 +316,17 @@ void ImageSet::Load() noexcept(false)
+ 
+ 
+ 
++size_t ImageSet::PixelBytes() const
++{
++	size_t bytes = 0;
++	for(const ImageBuffer &it : buffer)
++		if(it.Pixels())
++			bytes += static_cast<size_t>(it.Width()) * it.Height() * it.Frames() * 4;
++	return bytes;
++}
++
++
++
+ void ImageSet::LoadDimensions(Sprite *sprite) noexcept(false)
+ {
+ 	assert(framePaths[0].empty() && "should call ValidateFrames before calling LoadDimensions");
+diff --git a/source/image/ImageSet.h b/source/image/ImageSet.h
+--- a/source/image/ImageSet.h
++++ b/source/image/ImageSet.h
+@@ -73,6 +73,10 @@ private:
+ 	std::vector<std::filesystem::path> paths[4];
+ 	// Data loaded from the images:
+ 	ImageBuffer buffer[4];
++public:
++	// The bytes of decoded pixels held in the buffers.
++	size_t PixelBytes() const;
++private:
+ 	std::vector<Mask> masks;
+ 	bool noReduction = false;
+ };
+diff --git a/source/image/Sprite.cpp b/source/image/Sprite.cpp
+--- a/source/image/Sprite.cpp
++++ b/source/image/Sprite.cpp
+@@ -85,7 +85,7 @@ namespace {
+ 	{
+ 		// Check whether this sprite is large enough to require size reduction.
+ 		Preferences::LargeGraphicsReduction setting = Preferences::GetLargeGraphicsReduction();
+-		if(!noReduction && (setting == Preferences::LargeGraphicsReduction::ALL
++		if(!noReduction && !buffer.IsReduced() && (setting == Preferences::LargeGraphicsReduction::ALL
+ 				|| (setting == Preferences::LargeGraphicsReduction::LARGEST_ONLY
+ 				&& buffer.Width() * buffer.Height() >= 1000000)))
+ 			buffer.ShrinkToHalfSize();
+@@ -207,8 +207,8 @@ void Sprite::AddFrames(ImageBuffer &buffer1x, ImageBuffer &buffer2x, bool noRedu
+ {
+ 	isLoaded = true;
+ 	// The 1x image determines the dimensions of the sprite's size.
+-	width = buffer1x.Width();
+-	height = buffer1x.Height();
++	width = buffer1x.FullWidth();
++	height = buffer1x.FullHeight();
+ 	frames = buffer1x.Frames();
+ 	// Do nothing else if the buffer is empty.
+ 	// (The buffer can be empty yet still have a width and height if uploading is disabled.)
+diff --git a/source/image/SpriteLoadManager.cpp b/source/image/SpriteLoadManager.cpp
+--- a/source/image/SpriteLoadManager.cpp
++++ b/source/image/SpriteLoadManager.cpp
+@@ -22,6 +22,8 @@ this program. If not, see <https://www.gnu.org/licenses/>.
+ #include "../TaskQueue.h"
+ 
+ #include <atomic>
++#include <chrono>
++#include <condition_variable>
+ #include <map>
+ #include <queue>
+ #include <set>
+@@ -73,6 +75,39 @@ namespace {
+ 		return deferredFolders.contains(pathStart.string());
+ 	}
+ 
++#ifdef ES_LOW_MEMORY
++	// Decoded pixels waiting for the main thread to upload them. The loader threads are faster than
++	// the main thread (on the PS3 much faster), so they wait before decoding the next image while
++	// more than this is queued; the decoded images were piling up to hundreds of MB.
++	constexpr size_t PENDING_LIMIT = 16 << 20;
++	mutex pendingMutex;
++	condition_variable pendingCond;
++	size_t pendingBytes = 0;
++
++	void WaitForRoom()
++	{
++		unique_lock lock(pendingMutex);
++		// Not for ever: a main thread that stops uploading (quitting during the load) must not
++		// leave the workers stuck.
++		pendingCond.wait_for(lock, chrono::milliseconds(500), [] { return pendingBytes < PENDING_LIMIT; });
++	}
++
++	void AddPending(size_t bytes)
++	{
++		lock_guard lock(pendingMutex);
++		pendingBytes += bytes;
++	}
++
++	void RemovePending(size_t bytes)
++	{
++		{
++			lock_guard lock(pendingMutex);
++			pendingBytes -= bytes;
++		}
++		pendingCond.notify_all();
++	}
++#endif
++
+ 	// Loads a sprite and queues it for upload to the GPU.
+ 	void UnloadSprite(TaskQueue &queue, const Sprite *sprite)
+ 	{
+@@ -116,10 +151,19 @@ namespace {
+ 		}
+ 		else
+ 		{
++#ifdef ES_LOW_MEMORY
++			queue.Run([image] { WaitForRoom(); image->Load(); AddPending(image->PixelBytes()); },
++				[image, sprite, &queue]
++				{
++					const size_t bytes = image->PixelBytes();
++					image->Upload(sprite, !preventSpriteUpload);
++					RemovePending(bytes);
++#else
+ 			queue.Run([image] { image->Load(); },
+ 				[image, sprite, &queue]
+ 				{
+ 					image->Upload(sprite, !preventSpriteUpload);
++#endif
+ 					++spritesLoaded;
+ 
+ 					// Start loading the next image in the queue, if any.
+@@ -158,9 +202,9 @@ void SpriteLoadManager::Init(TaskQueue &queue, map<string, shared_ptr<ImageSet>>
+ 		lock_guard lock(imageQueueMutex);
+ #ifdef ES_LOW_MEMORY
+ 		// Every chain holds a decoded image from the worker thread until the main thread has uploaded
+-		// it, and the workers are faster than the main thread: with 100 chains the decoded images
+-		// pile up (200 MB on the PC, more than a PS3 has). A few more than the workers keeps them busy.
+-		const int chains = 6;
++		// it; the bytes waiting are limited by PENDING_LIMIT above, the chains only keep the main thread
++		// supplied (100 of them let 287 MB pile up on the PC with a slow main thread).
++		const int chains = 12;
+ #else
+ 		const int chains = TaskQueue::MAX_SYNC_TASKS;
+ #endif

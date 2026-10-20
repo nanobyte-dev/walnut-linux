@@ -5,8 +5,8 @@
 # little-endian only). Base: fullscreen 1920x1080, a saved pilot (assets/endless-sky/ann-lee.txt: "Ann Lee",
 # a Sparrow, landed on New Boston, Rutilicus; written to the private config directory
 # $HOME/.config/endless-sky-ps3bench, --config) and the keyboard: during() waits for the window, gives the
-# load ES_LOAD_WAIT seconds (the game parses all data and decodes its images before the menu: expect 45 to
-# 80 s on the PPE, the estimate of docs/research/ENDLESS-SKY.md), then presses e (Enter Ship), d (Depart)
+# load ES_LOAD_WAIT seconds (the game parses all data and decodes its images before the menu: the estimate was 45
+# to 80 s on the PPE, measured 150 s or more with ps3.589, so the default is 240), then presses e (Enter Ship), d (Depart)
 # and Return (the first-flight help dialog), and holds Up for 5 s: the Sparrow is in flight in Rutilicus (planet
 # New Boston, asteroids, HUD, radar, starfield). If the load is slower than ES_LOAD_WAIT the keys land on the
 # loading screen and the menu waits: the user may nudge (e, d, Return). Variant menu: no keys.
@@ -31,7 +31,7 @@ COMM=endless-sky
 # The stats line goes to game.log: textures taken, KiB before and after.
 ENV+=(NV30_FORCE_DXT_STATS=100)
 ES_DIR=$HOME/.config/endless-sky-ps3bench
-ES_LOAD_WAIT=${ES_LOAD_WAIT:-120}
+ES_LOAD_WAIT=${ES_LOAD_WAIT:-240}
 ES_KEYS=1
 ES_REDUCE=2
 ES_CHEAP=0
