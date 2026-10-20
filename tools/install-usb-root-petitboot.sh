@@ -48,6 +48,12 @@ echo "Finding the USB root partition (label ps3root)"
 run 30 "set -- \$(for d in /dev/sd?2; do tune2fs -l \$d 2>/dev/null | grep -q 'volume name: *ps3root\$' && echo \$d; done); [ \$# = 1 ] && echo PART=\$1"
 PART=$(tr -d '\r' <"$TRANSCRIPT" | grep -o '^PART=/dev/sd[a-z]2' | tail -1 | cut -d= -f2)
 [ -n "$PART" ] || { echo "!! no single ps3root partition"; exit 1; }
+# Its disk's id (the MBR's bytes 440-443, little-endian): the PARTUUIDs are <id>-01 and <id>-02.
+# Installs since the random ids differ per disk (tools/usb-root-remote.sh), older ones are 50533301.
+run 30 "set -- \$(dd if=${PART%2} bs=1 skip=440 count=4 2>/dev/null | od -An -tx1); [ \$# = 4 ] && echo DISKID=\$4\$3\$2\$1"
+ID=$(tr -d '\r' <"$TRANSCRIPT" | grep -o '^DISKID=[0-9a-f]\{8\}' | tail -1 | cut -d= -f2)
+case "$ID" in ''|00000000) echo "!! no disk id on ${PART%2}"; exit 1 ;; esac
+echo "Disk id 0x$ID: root PARTUUID=$ID-02"
 MNT="$MNT/$(basename "$PART")"
 echo "Remounting $PART read-write ($MNT)"
 run 30 "grep -q '^$PART $MNT ' /proc/mounts && mount -o remount,rw $MNT"
@@ -62,7 +68,10 @@ if [ "${FRESH:-}" != 1 ]; then
 	run 60 "cd $MNT && prev=\$(ls -d .old-*/etc 2>/dev/null | sort | tail -1) && cd \${prev%/etc} && for p in etc/ssh/ssh_host_* var/lib/bluetooth etc/NetworkManager/system-connections; do [ -e \"\$p\" ] && mkdir -p \"$MNT/\$(dirname \$p)\" && cp -a \"\$p\" \"$MNT/\$(dirname \$p)/\"; true; done; cd /"
 fi
 # The disk root's fstab (the image's is for NFS), as tools/usb-root-remote.sh writes it
-run 30 "printf '%s\n' '# Root on the USB disk (tools/install-usb-root-petitboot.sh)' 'PARTUUID=50533301-02  /     ext4   defaults,noatime  0 1' 'PARTUUID=50533301-01  none  swap   sw,pri=200,noauto 0 0' 'tmpfs                 /tmp  tmpfs  defaults,size=64M 0 0' > $MNT/etc/fstab"
+run 30 "printf '%s\n' '# Root on the USB disk (tools/install-usb-root-petitboot.sh)' 'PARTUUID=$ID-02  /     ext4   defaults,noatime  0 1' 'PARTUUID=$ID-01  none  swap   sw,pri=200,noauto 0 0' 'tmpfs                 /tmp  tmpfs  defaults,size=64M 0 0' > $MNT/etc/fstab"
+# The boot menu boots this disk: the image's root PARTUUID (in /etc/default/ps3-boot and the
+# kboot.conf written from it) replaced by this disk's, the other entries left as they are
+run 30 "old=\$(sed -n 's/^PS3_ROOT_ARGS=.*root=PARTUUID=\\([0-9a-fA-F-]*\\).*/\\1/p' $MNT/etc/default/ps3-boot); [ -n \"\$old\" ] && sed -i \"s/root=PARTUUID=\$old /root=PARTUUID=$ID-02 /g\" $MNT/etc/default/ps3-boot $MNT/etc/kboot.conf && grep -q 'root=PARTUUID=$ID-02 ' $MNT/etc/kboot.conf"
 run 120 "sync && mount -o remount,ro $MNT"
 echo "Installed. Boot it: make netboot-deb ROOT=usb (or reboot: Petitboot boots the disk's kboot.conf)"
 exit
