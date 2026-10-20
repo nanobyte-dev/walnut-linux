@@ -65,11 +65,13 @@ BACKUP=("$WZ_CFG/config")
 DATA_DIRS=(/usr/share/warzone2100)
 ENV+=(WZ_AUTOGAME_SPEED=1)
 WZ_MUSIC=true
+WZ_TC=1
+WZ_STRIPES=0
 WZ_SOUND=1
 setup() {
 	mkdir -p "$WZ_CFG/tests"
 	printf '%s\n' "[general]" "width=1920" "height=1080" "fullscreen=1" "fullscreenwidth=1920" "fullscreenheight=1080" \
-		"screen=0" "fullscreenscreen=0" "bpp=32" "vsync=0" "antialiasing=0" "texturesize=512" "texturecompression=1" \
+		"screen=0" "fullscreenscreen=0" "bpp=32" "vsync=0" "antialiasing=0" "texturesize=512" "texturecompression=$WZ_TC" \
 		"shadows=0" "fog=false" "showfps=1" "upnp=0" "autorating=false" "fmvmode=0" "sound=$WZ_SOUND" \
 		"music_enabled=$WZ_MUSIC" "gfxbackend=opengl" "jsbackend=quickjs" "difficulty=2" "configversion=2" > "$WZ_CFG/config"
 	# the match: bases 2 (bases with defences), no scavengers, SemperFi both sides
@@ -78,6 +80,13 @@ setup() {
 		'	"player_0": {' '		"team": 0,' '		"ai": "multiplay/skirmish/semperfi.js"' '	},' '	"player_1": {' \
 		'		"difficulty": "Medium",' '		"team": 1,' '		"ai": "multiplay/skirmish/semperfi.js"' '	}' '}' \
 		> "$WZ_CFG/tests/ps3bench.json"
+	# variant stripes: the diagnostic shader mod (assets/warzone2100-stripes) in the autoload mods; every
+	# other variant removes it again
+	rm -rf "$WZ_CFG/mods/4.3.5/autoload/stripes"
+	if [ "$WZ_STRIPES" = 1 ]; then
+		mkdir -p "$WZ_CFG/mods/4.3.5/autoload"
+		cp -r "$ASSETS/warzone2100-stripes" "$WZ_CFG/mods/4.3.5/autoload/stripes"
+	fi
 	# the "Campaign videos are missing" notification, dismissed for good (the game keeps the file)
 	printf '%s\n' '{' '    "notifications": {' '        "campaignVideoNotification": {' '            "skip": true' \
 		'        }' '    }' '}' > "$WZ_CFG/notifications.json"
@@ -87,4 +96,11 @@ CMD=("${WZ[@]}" --autogame --skirmish=ps3bench.json)
 variant_lobby() { CMD=("${WZ[@]}" --skirmish=ps3bench.json); }
 variant_menu() { CMD=("${WZ[@]}"); }
 variant_nomusic() { WZ_MUSIC=false; }
+# Diagnostics for the RSX's dark 3D view (2026-10-20). stripes: the 3D shaders (terrain, decals,
+# models) sample in four modes in vertical stripes 120 px wide, repeating left to right: TEX without
+# bias, TXB with bias -20 (mip level 0), the game's TXB with its bias 0, no texture (flat grey 0.6).
+# tc0: texturecompression=0 (no DXT). noaniso: anisotropic filtering hidden from the game.
+variant_stripes() { WZ_STRIPES=1; }
+variant_tc0() { WZ_TC=0; }
+variant_noaniso() { ENV+=(MESA_EXTENSION_OVERRIDE="-GL_EXT_texture_filter_anisotropic -GL_ARB_texture_filter_anisotropic"); }
 variant_nosound() { WZ_SOUND=0; WZ_MUSIC=false; CMD+=(--nosound); }
