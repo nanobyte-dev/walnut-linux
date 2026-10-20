@@ -1,0 +1,28 @@
+Subject: texture size 512 by default on the Cell build (the RSX's 256 MB of VRAM)
+
+With the default texture size of 2048, a normal start on the PS3 (no config yet) runs the RSX out of
+VRAM while a map loads: ps3rsx logs "out of VRAM" for 5.3 MB buffers, the game gets GL_OUT_OF_MEMORY
+from glCompressedTexImage2D for its DXT5 terrain pages, and the ground stays untextured (no grass);
+later glTexImage calls fail thousands of times a minute. 512 is what the bench recipe has always
+used, with no such error. Only the starting value changes: the options menu still offers 128-2048,
+and a config that sets textureSize keeps it.
+
+---
+diff --git a/src/texture.cpp b/src/texture.cpp
+--- a/src/texture.cpp
++++ b/src/texture.cpp
+@@ -52,7 +52,14 @@
+ static size_t firstPage; // the last used page before we start adding terrain textures
+ size_t terrainPage; // texture ID of the terrain page
+ static int mipmap_max, mipmap_levels;
++// The PS3's RSX has 256 MB of VRAM, shared with the framebuffers: at 2048 a map's terrain and model
++// pages don't fit (GL_OUT_OF_MEMORY in glCompressedTexImage2D, the ground left untextured), so the Cell
++// build (AltiVec without VSX) starts at 512; the options menu still goes up to 2048
++#if defined(__powerpc64__) && defined(__ALTIVEC__) && !defined(__VSX__)
++static int maxTextureSize = 512; ///< the maximum size texture we will create
++#else
+ static int maxTextureSize = 2048; ///< the maximum size texture we will create
++#endif
+ 
+ void setTextureSize(int texSize)
+ {
