@@ -261,7 +261,11 @@ def run(d):
         if len(f) < 9:
             continue
         t, a, _, _, so, g, v_in, _, wb = f[:9]
-        t, a, so = float(t), int(a), int(so)
+        try:    # a line cut by a full /dev/shm runs into the next one (20261020T005718Z): skip it
+            t, a, so = float(t), int(a), int(so)
+            int(g or 0), int(v_in or 0), int(wb or 0)
+        except ValueError:
+            continue
         avail = a if avail is None else min(avail, a)
         gart = max(gart, int(g or 0))
         vv = max(vv, int(v_in or 0))

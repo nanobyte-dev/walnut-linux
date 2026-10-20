@@ -92,6 +92,19 @@ Games: SuperTuxKart (6 of 21 runs from 10-18 to 10-19 morning), OpenArena (6 of 
 build/bench have more than 5 `Wait timeout` lines; in 14 of them the first OpenAL error is the timeout
 itself, with no xrun before it.
 
+Counts from the repro batches, stock snd_ps3 (`DUMPON=1`; "wedge" = `Wait timeout` lines, "xrun" = only
+`mmap commit error` lines, the card still moving). Batch ssdroot7 (2026-10-19 20:53-21:40Z): SuperTuxKart
+3 of 4, OpenArena 1 of 3, ClassiCube 1 of 3, Sauerbraten 0 of 3. Batch ssdroot8 (2026-10-20 00:39-01:25Z,
+10 runs): SuperTuxKart 2 of 4 (291 lines with the card's pointer 1.0 s stopped before the first
+timeout; 29 lines after a first xrun; one run xrun only, one clean), OpenArena 0 of 3 (an xrun dump
+each, at 21, 20 and 33 s), ClassiCube 1 of 3 (12 lines after an xrun at 2.9 s; one xrun only, one
+clean): 3 of 10, and 5 more dumps were recovered xruns. The same batch's 24 force-DXT runs (no
+DUMPON) wedged in 9: Luanti 2 of 6, ClassiCube 2 of 6, OpenArena 3 of 8, SuperTuxKart 2 of 4, off
+arms included. Over both batches' 34 runs of those games that is 12 wedges, about 35%, against the 10%
+of the earlier runs: the timeouts come as early as 3 s into a run. A DUMPON run on SuperTuxKart can lose
+its bench.txt and the tail of game.log (two of four in ssdroot8: a 164 MB core in /dev/shm on a 256 MB
+console, not checked); report.py now skips the cut lines of such a run's `samples`.
+
 What it looks like: game.log gets `[ALSOFT] (EE) Wait timeout... buffer size too low?` once a second
 until the game exits, and the sound is gone. Picture and fps are fine; the mixer thread sleeps, so the
 run even looks cheaper. bench.txt said `sound=RUNNING` and `underruns=0`. Often there are one or a few

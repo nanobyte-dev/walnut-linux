@@ -155,7 +155,7 @@ game, so its 17 MB free and 91 MB peak are the load's, not play's. ScummVM's ALS
 dropped from the batch (`cataclysm-dda-data` is not installable on ports). Re-runs and the games
 that need the user are in [TESTS.md](../TESTS.md) Next.
 
-OpenRCT2 has no recipe yet. `tools/rct2-data.sh <RCT2.iso>` builds the licensed `rct2-data` deb it
+OpenRCT2 has a recipe (`openrct2.sh`) and a baseline on the PS3 ([openrct2.md](openrct2.md#on-the-ps3-batch-ssdroot8)). `tools/rct2-data.sh <RCT2.iso>` builds the licensed `rct2-data` deb it
 needs (arch all, `/usr/share/games/rct2`, about 115 MB without the ride music; `RCT2_MUSIC=1` adds
 it) from the user's own RollerCoaster Tycoon 2 CD. It unpacks the InstallShield cabinets with
 `unshield` and runs nothing from the disc; the package goes to `ps3-licensed` only
@@ -166,15 +166,33 @@ it) from the user's own RollerCoaster Tycoon 2 CD. It unpacks the InstallShield 
 - **Hedgewars 1.0.3**: our ppc64 engine (`hedgewars-engine`, FPU exceptions masked at start, patch
   0001) runs without the Qt frontend: `games/bench/hwdrive.py` starts it with `--internal --port N` and
   plays the frontend's IPC for a training mission (recipe `hedgewars.sh`). hwengine takes `--showfps` with
-  no value: a stray argument is read as a demo file name. Checked on the PC with Debian's amd64
-  1.0.3-5 under Xvfb: the engine connects, takes the config and loads the mission. The upstream engine
-  Lua tests still fail 2 of 7 on ppc64 (`stuckcake.lua`: `EInvalidOp`; `gravity_get_set.lua`: wrong
-  grenade height at gravity 200 and 300), so physics may differ from little-endian builds.
+  no value: a stray argument is read as a demo file name. Runs on the PS3 with sound (562-650
+  underruns), but the game ends by itself after 54-55 s with rc=0 (two runs, base on 2026-10-19 19:19Z
+  and window at 23:00Z, no input in either). That is the engine's end of game, not our driver: the
+  last lines of game.log are the water Droplet sounds and `Victory.ogg`, hwdrive logs `engine says q`,
+  and `q` is what the engine sends from `gtATFinishGame` (uGearsHandlersMess.pas) after the mission's
+  `EndGame()`. The Movement mission calls that from `victory()`, which runs when its final crate
+  (`crates[2]`, spawned at 2639,1973) is deleted, normally by a hedgehog collecting it. Nobody walks
+  here, so on the PS3 the crate is probably lost to the water. The same mission with Debian's amd64
+  engine under Xvfb, driven by the same hwdrive.py with no input, ran the whole 250 s without
+  ending, so the ppc64 engine's world differs: the upstream engine Lua tests already fail 2 of 7 on
+  ppc64 (`stuckcake.lua`: `EInvalidOp`; `gravity_get_set.lua`: wrong grenade height at gravity 200
+  and 300), so the physics of falling gears is the suspect, not the IPC, the recipe or the map data
+  (the `draw` command reads its points byte by byte). Not fixed: that is an engine bug to find with the
+  Lua tests on ppc64 (a crate-drop test would show it), and it is parked. The smoke is useful for what
+  it shows (engine starts, loads, draws, plays sound for 55 s), not for a 120 s window; hwdrive.py's
+  message now says that `q` is the game's own end. Nothing to change in the recipe or driver: they
+  send no quit and set no time limit.
 - **Wesnoth 1.18.8**: our ppc64 build (Debian has none, Boost.Context #1146645; recipe `wesnoth.sh`).
   By default it redirects its own stdout and stderr to `~/.config/wesnoth-1.18/logs/`, which the
   bench harness reads as the game having ended; the recipe passes `--no-log-to-file`. Variants:
   `nosound`, `window` (windowed 1920x1080), `menu`, `httt`, `ai`. Expect 2-4 GB of address space and
-  about 130-215 MiB RSS.
+  about 130-215 MiB RSS. Variant `ai` (two AIs on The Freelands, `--nodelay`, 20 turns) ran its whole
+  360 s on 2026-10-19 22:54Z with the right picture (units moving, "2 enemy units sighted", 68 fps
+  steady, HUD median 114, 1% low 5.7 fps, 98 frames over 100 ms with a 7.9 s load frame), peak RSS
+  110 MB, lowest MemAvailable 15.3 MiB, CPU 179 s, 83 underruns; the 20 turns did not finish in
+  that time. game.log is full of `cannot open track '*.ogg'`: the Wesnoth music package is not
+  installed, so there is only the effects' sound.
 - The research's other exclusions (DDNet's test hang, Warzone 2100's GL 3.0 and big-endian static
   assert, Xonotic, Tesseract) are in [research/GAME-CANDIDATES.md](../research/GAME-CANDIDATES.md).
 

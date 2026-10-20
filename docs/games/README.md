@@ -70,7 +70,7 @@ Seven of the nine recipes of 6d9fcaf ran once (120 s, 1920x1080, SSD root): all 
 
 Cataclysm: Dark Days Ahead was dropped (its data package is not installable on ports). OpenRCT2 has a
 data package tool (`tools/rct2-data.sh` makes `rct2-data` from the user's own RCT2 CD, `ps3-licensed`
-only), no recipe. Details in [smoke-tested.md](smoke-tested.md#new-games-first-runs).
+only) and a recipe; its baseline is in [openrct2.md](openrct2.md#on-the-ps3-batch-ssdroot8). Details in [smoke-tested.md](smoke-tested.md#new-games-first-runs).
 
 ## How to read the numbers
 

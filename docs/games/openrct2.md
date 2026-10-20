@@ -1,6 +1,6 @@
 # OpenRCT2 on the PS3
 
-OpenRCT2 0.5.6 ported to big-endian ppc64 (milestone 1, 2026-10-19): under qemu-ppc64 the build matches amd64 bit for bit on every check (gtest 275/275, 35 parks after 10000 ticks, 210 screenshots, 169 track designs). Software renderer only; needs the licensed rct2-data package (the user's RCT2 CD, ps3-licensed only). RAM on the PC 230-310 MB; the first PS3 run is the next step.
+OpenRCT2 0.5.6 ported to big-endian ppc64 (milestone 1, 2026-10-19): under qemu-ppc64 the build matches amd64 bit for bit on every check (gtest 275/275, 35 parks after 10000 ticks, 210 screenshots, 169 track designs). Software renderer only; needs the licensed rct2-data package (the user's RCT2 CD, ps3-licensed only). RAM on the PC 230-310 MB. On the PS3 it runs at 21-24 fps in Electric Fields (10 fps in Six Flags) with the console's RAM nearly gone; baseline in [On the PS3](#on-the-ps3-batch-ssdroot8).
 
 
 ## Progress (resume here)
@@ -131,6 +131,43 @@ Memory knobs (biggest first):
 6. g1.dat (17 MB) is read into the heap whole; mmap would make it file-backed and reclaimable.
 7. Object images load for the park's objects only; a smaller park needs less (Electric Fields -40 MB).
 
+## On the PS3 (batch ssdroot8)
+
+First runs, 2026-10-19 22:09-22:52Z, kernel .472, SSD root, Mesa ps3.545~dev, openrct2 0.5.6 ps3.574,
+recipe `openrct2.sh` (Electric Fields at 960x540 x2, 300 s per run, `STALLS=1 MEM=1`), 2 runs of each
+variant, rotated, none interfered. The webcam shows the right picture in all 16 photos: the park, with
+the scenario's objective window still open (the recipe does not confirm it), 22 guests at 60 s and
+36-52 at 150 s in Electric Fields, 2,7xx in Six Flags. The matrix row is "batch ssdroot8 OpenRCT2 first
+baseline".
+
+| Variant | Steady fps (HUD) | 1% low | Frames over 100 ms | CPU | Lowest MemAvailable | Peak RSS |
+|---|---|---|---|---|---|---|
+| `base` (sound, threads, 960x540 x2) | 23.5 (23, 24) | 11.0 | 11 and 16 (13 s) | 399 s | 7.5 and 12.3 MiB | 129-135 MB |
+| `lean` (no sound, 1 thread, 1 arena) | 22 (23, 21) | 10.9 | 16 and 13 (12 s) | 328 s | 14.5 and 15.4 MiB | 130-137 MB |
+| `big` (Six Flags Magic Mountain) | 10 (10, 10) | 3.4 | 287 and 280 (52 s) | 357 s | 9.1 and 9.3 MiB | 135 MB |
+| `sdlsw` (SDL software renderer, no GL) | no number | no number | no number | 289 s | 14.5 and 15.7 MiB | 133-138 MB |
+
+- The HUD fps is the rate of the GL swap; the game's own simulation is capped at 40 ticks a second and
+  runs below that. `sdlsw` has no Mesa in the process, so it has no HUD and no other fps source is
+  wired up (the game's FPS counter is not in the webcam's view). What it shows: 28% less CPU than
+  `base`, and 36 guests at 150 s in its first run against 48 and 52 in `base` (guest arrivals are random,
+  so that is no measure). It needs a frame counter of its own.
+- `lean` buys 70 s of CPU and about 5 MiB of the lowest MemAvailable, not fps. `big` is CPU-bound: the
+  simulation of 2,700 guests makes every frame longer than 100 ms, so its "stalls" are the frame rate.
+- The 7.5-9.2 s longest frame is the park's load, not gameplay. In all six GL runs of `base`, `lean` and
+  `big` it begins 19-26 s after the client's start, 7-12 s after the first HUD frame, and is made of
+  vswap (1.8-3.2 s), reclaim (1.4-2.3 s) and CPU: 2,300-3,600 major faults, 5,000-9,300 swap-ins. A
+  second 1.3-4.0 s frame follows 3-8 s later. After that `base` and `lean` have a few 100-450 ms
+  frames and no more.
+- Memory: the process keeps 100-138 MB in swap (the 70 MB entity table, `kMaxEntities` 65535, is 58 MB
+  resident at the start and 25 MB swapped at the end), RSS peaks at 129-137 MB, VRAM peak 25.7 MiB and
+  GART 19 MiB (`sdlsw`: none and 15 MiB). `MemAvailable` falls to 7.5-16 MiB in every variant, so the
+  console is at its floor with nothing else running; knob 1 above (the entity table to 16384) is the
+  first thing to try for the load stall.
+- ALSA underruns: 289-317 (`base`), 410-416 (`big`), and 238-299 in `lean` and `sdlsw` although `lean`
+  has its sound off (why it still underruns is not known); `oal_wedge` was 0 in all eight. Not judged
+  by ear.
+
 ## Package
 - openrct2/ (TYPE=upstream), version 0.5.6+ds-1+ps3.N; debs: openrct2 (any), openrct2-data, openrct2-music (all)
 - build: build/tmp/openrct2/build-deb.sh openrct2 (chroot and ccache on /mnt/.../openrct2/debbuild); about
@@ -146,12 +183,12 @@ Memory knobs (biggest first):
 - docs keep uncompressed .txt/.md (the game shows changelog.txt); /usr/games/openrct2{,-cli}
 - the game finds RCT2 in /usr/share/games/rct2 (patch 0005) -> rct2-data deb, no config needed
 
-## Next steps for the PS3 (milestone 2, with the user)
-1. install: openrct2 openrct2-data openrct2-music (ps3-dev, once proven) + rct2-data (ps3-licensed)
-2. smoke: games/bench/run.sh smoke openrct2 (base: Electric Fields 960x540 x2), webcam photo; first start
-   indexes objects (time it); then variants lean, big, sdlsw; STALLS=1 MEM=1
-3. watch: MemAvailable, swap-ins, stalls (expect ~230-260 MB process RSS + Mesa: partly in swap); if it
-   thrashes, try kMaxEntities 16384 (knob 1) before anything else
+## Next steps for the PS3 (with the user)
+1. Done: installed, smoked and baselined (see above); the first start's object index is not timed.
+2. Try `kMaxEntities` 16384 (knob 1) against the 8 s load stall and the 7.5 MiB floor, same boot, base
+   against the patched build; needs the oracle re-run first.
+3. A frame counter for `sdlsw` (OpenRCT2's FPS overlay is drawn, not logged), then `sdlsw` against `base`
+   by fps: 28% less CPU is the only number so far.
 4. sound by ear (Ogg/FLAC OpenMusic paths changed by the port; RCT2's WAV/CSS through SDL conversion)
 5. on the PS3 too: a TD6 track design placed from the construction window, a save and reload
 

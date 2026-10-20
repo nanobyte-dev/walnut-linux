@@ -7,6 +7,8 @@
 # '?' (answered '!') and 'C' (config); the config is "TL" (training), the mission team
 # (esetmissteam, eaddmisshh x4), a seed and "escript Missions/Training/<MISSION>.lua"
 # (HWGame::SendTrainingConfig). Ends when the engine exits or sends 'q'/'Q'/'E'. Exit code: the engine's.
+# 'q' means the game ended by itself (the mission's EndGame); on the PS3 the Movement mission does that after
+# about 45 s without any input (the final crate's deletion calls victory(), probably it falls into the water: docs/games/smoke-tested.md), on amd64 it runs on for 250 s.
 # Env: HW_DATA (Data dir, default /usr/share/games/hedgewars/Data), HW_USER (default ~/.hedgewars),
 # HW_FOLDER (Training, or Scenario ...), HW_TEAM (default "Cosmic Avenger"), HW_HOGS (4).
 import os, socket, subprocess, sys, time
@@ -74,7 +76,9 @@ while not done and proc.poll() is None:
             conn.sendall(config())
             print("hwdrive: sent the training config for", mission, flush=True)
         elif t in (b"q", b"Q", b"H"):
-            print("hwdrive: engine says", t.decode(), flush=True)
+            # 'q' is the engine's end of game (uGearsHandlersMess gtATFinishGame: the mission called
+            # EndGame, here victory() of the Movement mission), not a quit request: the driver adds nothing
+            print("hwdrive: engine says", t.decode(), "(the game is over: the mission ended itself)", flush=True)
             done = True
         elif t == b"E":
             print("hwdrive: engine error:", m[1:].decode(errors="replace"), flush=True)

@@ -6,7 +6,9 @@ is the default, and three memory fixes won their same-boot A/B in batch 17 (ioqu
 colours, Mesa 0037's copy limit, Sauerbraten's short normals), though only the first is on by
 default. Texture compression at upload (Mesa 0038) cut Sauerbraten's VRAM from the 117 MB cap to
 73-78 MB without a resolved fps change and did nothing in SuperTuxKart and OpenArena (batch ssdroot2
-P2, [below](#measured-on-the-ps3-batch-ssdroot2-p2)); it stays off. The kernel's own share is in [KERNEL-MEMORY.md](KERNEL-MEMORY.md), and the cuts
+P2, [below](#measured-on-the-ps3-batch-ssdroot2-p2)); batch ssdroot8 ran it on the rest of the suite: `all` took
+SuperTuxKart from 95.5 to 58.1 MiB of VRAM at the same fps, and the other three games had nothing the
+modes take ([below](#measured-on-the-ps3-batch-ssdroot8-the-rest-of-the-suite)). It stays off. The kernel's own share is in [KERNEL-MEMORY.md](KERNEL-MEMORY.md), and the cuts
 nobody has tried yet are in [backlog/memory.md](backlog/memory.md).
 
 ## The console's memory budget
@@ -602,7 +604,8 @@ The GL test on the PS3 is not run yet. First the GL test against softpipe as the
 Then the bench, same boot, desktop stopped, webcam on every run (look for blockiness on UI and
 banding on skies). Every arm carries the stats line so all get the fdxt columns; `MEM=1` gives
 `mem_gpu_vram`, and the `vram` column is the peak in every run. ssdroot2 P2 ran the first three games
-(the `opaque` against off lines); the rest are in TESTS.md's "Next" list:
+(the `opaque` against off lines) and ssdroot8 the rest (all of it is in History in TESTS.md); the
+commands:
 
     S=NV30_FORCE_DXT_STATS=50
     # one run with the per-decision lines, to see what is taken and what is kept
@@ -672,7 +675,62 @@ TESTS.md). Medians; n=2, so "equal" means inside the spread of the baseline runs
 
 Verdict: Mesa 0038 `opaque` is worth turning on for Sauerbraten if the user accepts the softer
 rock; it frees 40-45 MB of VRAM, which on a USB root or in game mode is what the VRAM swap needs.
-Luanti, ClassiCube and the `all` and `NEAREST` modes are still to run.
+The rest of the suite is in the next section.
+
+### Measured on the PS3 (batch ssdroot8, the rest of the suite)
+
+2026-10-19 23:01Z to 2026-10-20 00:39Z, one boot, kernel .472, SSD root, Mesa ps3.545~dev,
+`MEM=1 STALLS=1`, 2 runs per arm rotated (24 runs, none interfered), `NV30_FORCE_DXT_STATS=50` in every
+arm; the matrix row is "batch ssdroot8 Mesa 0038 force-DXT on the rest of the suite". VRAM is the peak
+in MiB as vram.csv has it (the ssdroot2 table above divides KiB by 1000, so its numbers are about
+2.4% higher than the same VRAM here). Medians of 2.
+
+| Game | Arm | Textures forced | Peak VRAM (MiB) | Steady fps | 1% low | Frames over 100 ms (window) | Load (s) |
+|---|---|---|---|---|---|---|---|
+| Luanti | off | 0 | 62.4 | 46.5 (HUD) | 17.4 | 17.5 | 25.5 |
+| Luanti | `opaque` | 0 | 60.9 | 46.0 | 17.2 | 17.5 | 25.2 |
+| Luanti | `opaque` + NEAREST | 0 | 61.9 | 46.0 | 16.4 | 20.5 | 25.1 |
+| ClassiCube | off | 0 | 60.1 | 47.3 | 30.0 | 0 | 7.8 |
+| ClassiCube | `opaque` | 0 | 60.1 | 47.3 | 30.6 | 0 | 7.8 |
+| ClassiCube | `opaque` + NEAREST | 0 | 60.1 | 47.3 | 31.0 | 0 | 8.0 |
+| OpenArena gl2min | off | 0 | 115.3 | 61.8 | 7.1 | 60.5 (map reloads) | 6.5 |
+| OpenArena gl2min | `opaque` | 0 | 117.0 | 62.1 | 7.4 | 61 | 6.8 |
+| OpenArena gl2min_tc0 | off | 0 | 146.8 | 58.6 | 8.1 | 58 | 6.6 |
+| OpenArena gl2min_tc0 | `opaque` | 0 | 148.3 | 58.9 | 7.7 | 60.5 | 6.8 |
+| SuperTuxKart lean | `opaque` | 0 | 95.5 | 20 (HUD) | 11.3 | 12 | 28.1 |
+| SuperTuxKart lean | `all` | 182 (all DXT5) | 58.1 | 20.5 (HUD) | 11.4 | 10.5 | 28.4 |
+
+- **Luanti: nothing forced.** `skip_nodata` 516: every upload is `glTexImage2D(NULL)` followed by
+  sub-images, the case the policy refuses (render targets, atlases). So the "Luanti should show the
+  most" expectation does not hold with this design: taking it would need the sub-image upload to
+  compress, which is the fragile path (off-grid updates). VRAM, fps and stalls are equal inside the
+  spread.
+- **ClassiCube: nothing forced.** 214 textures under 64 px, 10 kept for `GL_NEAREST` magnification in
+  `opaque` and for alpha in `opaque` + NEAREST (the terrain atlas has alpha: it would be `all` with
+  `NV30_FORCE_DXT_NEAREST=1`, a combination not run; DXT5 on a pixel-art atlas is the mode that shows
+  blocks most). VRAM 60.1 MiB in all six runs.
+- **OpenArena: nothing forced either.** gl2min: `skip_format` 2593 (every upload is a format the
+  switch does not take: still not recorded which) and `skip_nodata` 8; gl2min_tc0 (the game's own
+  compression off, about 30 MiB more VRAM): `skip_nodata` 2244. The first `opaque` run's CPU was 216 s
+  against 187 s in the other seven runs, an outlier, not a cost.
+- **SuperTuxKart: `all` is the win.** `opaque` forces nothing (the 182 textures of 64 px and up all
+  carry alpha); `all` sends them as DXT5: 52-53 MB of levels become 13 MB, 5 textures (2.8 MB) go back
+  to uncompressed, and the peak VRAM falls from 95.5 to 58.1 MiB (-37 MiB, -39%). fps (20 against
+  20.5 on the HUD's integer), 1% low, frames over 100 ms (1.8 against 1.4 s), CPU (323 and 311 against
+  307 and 326 s) and load (+0.3 s) did not move; `mipgen_ms` 0 and `scan_ms` 1-3 in the stats. The
+  lowest MemAvailable is 26-32 MiB in both arms: this is VRAM, which the VRAM swap uses, not RAM.
+- **Picture:** the webcam frames of the `all` runs show the same track, sky, kart and road as the
+  `opaque` ones (a different moment of the race each), with no blocks or banding at the camera's
+  resolution. DXT5's loss on fine detail is not judged by a webcam; the user decides.
+- The OpenAL wedge hit 9 of these 24 runs (Wait timeout lines) in every arm, off included: it is not
+  the compression ([LOG-FINDINGS.md](games/LOG-FINDINGS.md) item 1).
+
+Verdict: Mesa 0038 `all` is a real memory cut for SuperTuxKart (-37 MiB of VRAM at equal speed) and
+costs nothing measurable; `opaque` and `NEAREST` take nothing in Luanti, ClassiCube and OpenArena
+because of how those games upload. If SuperTuxKart goes into game mode with VRAM short, its launcher
+gets `NV30_FORCE_DXT=all` after the user has seen the picture at the TV. To save anything in Luanti
+and OpenArena the policy would have to accept `NULL` uploads that sub-images fill, which is a design
+change for another day, not a switch.
 
 ## Packages
 
