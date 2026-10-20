@@ -7,7 +7,8 @@ articles. Nothing here has been built or measured on our console yet.
 
 The user's focus: games that never had a console port (marked **no** in the Console column) come first,
 since a PS3 port of those is new on a console. The user's favourites from this era: Jazz Jackrabbit 2,
-Elasto Mania, Atomic Bomberman, Hercules, Tarzan, NFS 2-6, U1/U2 (Unreal or Ultima, open), The Sims.
+Elasto Mania, Atomic Bomberman, Hercules, Tarzan, NFS 2-6, U1/U2 (Unreal or Ultima, open), The Sims,
+Age of Empires II.
 
 ## How to read this
 
@@ -86,6 +87,7 @@ PPC build), the Sonic RSDK decompilations, TRX (Tomb Raider 1-3), Vanilla Conque
 | The Sims (2000) | different | [Simitone](https://github.com/riperiperi/Simitone) on FreeSO | Upstream Windows-only; Linux fork on .NET 9 + MonoGame | L: no .NET for big-endian ppc64 (Mono route) |
 | The Sims 2 (2004) | different | [OpenTS2](https://github.com/LazyDuchess/OpenTS2) | Unity reimplementation, active (Mar 2026) | XL: Unity has no PPC runtime |
 | SimCity 4 (2003) | no | nothing found | | Not possible |
+| Age of Empires II (1999) | PS2 (2001) | [openage](https://github.com/SFTtech/openage) (C++20, Qt6, Python; GL 3.3) | Gameplay "basically non-functional" while the simulation is rebuilt; v0.5.0 (Oct 2023) was "not much more than a tech demo"; needs an AoE II TC, HD or DE install. freeaoe is inactive (?). No decompilation found | Watch: XL until openage plays again |
 
 ## Action and shooters
 
