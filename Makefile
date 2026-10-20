@@ -3,6 +3,8 @@ include config.mk
 
 JOBS        ?= $(shell nproc)
 UID_GID     := $(shell id -u):$(shell id -g)
+# $(call need,VAR...) in a recipe: stops with a message when a config.local.mk setting is empty
+need = $(foreach v,$1,$(if $($v),,$(error $v is empty: set it in config.local.mk (see config.local.mk.example))))
 
 BUILD       := build
 DOWNLOADS   := $(BUILD)/downloads
@@ -97,17 +99,20 @@ checksums:
 # done by hand; boot it with make netboot-deb. The *-deploy targets install freshly built packages
 # on the running PS3 (see Packages).
 nfs-root: $(ROOTFS_TAR)
+	$(call need,PS3_IP)
 	sudo NFS_ROOT=$(NFS_ROOT) PS3_IP=$(PS3_IP) FRESH=$(FRESH) tools/install-nfs-root.sh $(ROOTFS_TAR)
 
 # The image onto the USB disk from Petitboot (the disk isn't in use there, so this replaces even the
 # root the PS3 normally runs from); the disk must have been set up with make usb-root FORMAT=1
 usb-root-petitboot: $(ROOTFS_TAR)
+	$(call need,PETITBOOT_IP PC_IP)
 	PS3_IP=$(PETITBOOT_IP) PC_IP=$(PC_IP) HTTP_PORT=$(HTTP_PORT) FRESH=$(FRESH) \
 		tools/install-usb-root-petitboot.sh $(ROOTFS_TAR)
 
 # The image onto the USB disk plugged into the PS3 (running Linux, over SSH); FORMAT=1 partitions
 # the disk first (erases it). Boot it with make netboot-deb ROOT=usb.
 usb-root: $(ROOTFS_TAR)
+	$(call need,PS3_IP PS3_USER USB_DISK_ID)
 	PS3_SSH="$(PS3_SSH)" USB_DISK_ID="$(USB_DISK_ID)" FORMAT=$(FORMAT) FRESH=$(FRESH) \
 		tools/install-usb-root.sh $(ROOTFS_TAR)
 
@@ -214,6 +219,7 @@ classicube-deploy:
 # (tools/game-data.sh): non-free, our LAN repository only. A version already in the ps3 suite is
 # downloaded from there, never made again (its output isn't reproducible); REGEN=1 makes it anyway.
 quake-data: | $(GAMES_BUILDER_STAMP)
+	$(call need,REPO_URL)
 	$(DOCKER_RUN) --user $(UID_GID) -e HOME=/tmp -e REPO_URL=$(REPO_URL) -e REGEN=$(REGEN) $(GAMES_BUILDER_TAG) \
 		tools/game-data.sh $(BUILD)/debs/quake-data quake:quake-shareware quake2:quake2-demo-data
 
@@ -316,9 +322,10 @@ DEPLOY_TOP := linux-image-ps3 linux-image-ps3-debug ps3rsx-modules-ps3 ps3rsx-mo
 PKGS ?= $(DEPLOY_TOP)
 AUTOREMOVE ?= 0
 STOP_DESKTOP ?= auto
-PS3_SCP = scp -q -i $(HOME)/.ssh/id_ps3 -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts
+PS3_SCP = scp -q -i $(PS3_SSH_KEY) -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts
 deploy: | $(REPO_BUILDER_STAMP)
-	PS3=tibi@$(PS3_IP) SSH="ssh -i $(HOME)/.ssh/id_ps3 -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts" \
+	$(call need,PS3_IP PS3_USER REPO_HOST REPO_DIR)
+	PS3=$(PS3_USER)@$(PS3_IP) SSH="ssh -i $(PS3_SSH_KEY) -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts" \
 		SCP="$(PS3_SCP)" REPO_BUILDER_TAG=$(REPO_BUILDER_TAG) REPO_HOST=$(REPO_HOST) REPO_DIR=$(REPO_DIR) \
 		AUTOREMOVE=$(AUTOREMOVE) STOP_DESKTOP=$(STOP_DESKTOP) DRY_RUN=$(DRY_RUN) KERNELS=$(KERNELS) tools/deploy.sh $(PKGS)
 
@@ -348,6 +355,7 @@ KERNEL_DEB_SH = kernel_deb() { ls $(BUILD)/debs/linux/linux-image-[0-9]*_*.deb 2
 # make netboot-deb [FLAVOUR=release|debug] [ROOT=nfs|usb]; with the arguments its package ships
 FLAVOUR ?= release
 netboot-deb: | $(REPO_BUILDER_STAMP)
+	$(call need,PETITBOOT_IP PC_IP)
 	@set -e; $(KERNEL_DEB_SH); d=$$(kernel_deb $(FLAVOUR)); \
 	[ -n "$$d" ] || { echo "no linux-image for $(FLAVOUR): make linux-deb"; exit 1; }; \
 	rm -rf $(BUILD)/tmp/netboot && mkdir -p $(BUILD)/tmp/netboot; \
@@ -359,8 +367,9 @@ netboot-deb: | $(REPO_BUILDER_STAMP)
 listen:
 	tools/listen-debug.sh
 
-PS3_SSH := ssh -i $(HOME)/.ssh/id_ps3 -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts tibi@$(PS3_IP)
+PS3_SSH := ssh -i $(PS3_SSH_KEY) -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts $(PS3_USER)@$(PS3_IP)
 ps3-reboot:
+	$(call need,PS3_IP PS3_USER)
 	-$(PS3_SSH) sudo systemctl reboot
 
 # The game suite runner (games/bench, docs/games/SUITE.md) to /var/tmp/bench on the PS3: unpacked
@@ -368,6 +377,7 @@ ps3-reboot:
 # bench-pull: the PS3's run directories (/var/tmp/ps3-bench) into $(BUILD)/bench; the raw profiles
 # (perf.data ~20 MB a run, perf-load.data, perf-syms.tar) only with PERFDATA=1 (docs/PROFILING.md)
 bench-push:
+	$(call need,PS3_IP PS3_USER)
 	tar -C games -c bench | $(PS3_SSH) 'set -e; rm -rf /var/tmp/bench.new /var/tmp/bench.old; \
 		mkdir /var/tmp/bench.new; tar -C /var/tmp/bench.new --strip-components=1 -x; \
 		[ ! -e /var/tmp/bench ] || mv /var/tmp/bench /var/tmp/bench.old; mv /var/tmp/bench.new /var/tmp/bench'
@@ -377,6 +387,7 @@ bench-push:
 # lists the sheets nobody has reviewed (no REVIEW.md). bench-ref GAME=x [VARIANT=y] [SHOTS="30 90"]:
 # the PC reference of a recipe (tools/bench-ref.sh: an amd64 container, Xvfb, llvmpipe at GL 2.1).
 bench-pull:
+	$(call need,PS3_IP PS3_USER)
 	mkdir -p $(BUILD)/bench
 	cd $(BUILD)/bench && find . -path '*/shots/*.png' | sed 's/\.png$$/.xwd/' > .pulled-shots
 	$(PS3_SSH) 'tar -C /var/tmp/ps3-bench -X - -c $(if $(PERFDATA),,--exclude=perf.data --exclude=perf-load.data --exclude=perf-sys.data --exclude=perf-syms.tar) .' \
@@ -404,6 +415,7 @@ clean:
 DEBS ?= $(wildcard $(BUILD)/debs/*/*.deb)
 DIST ?= ps3
 publish: | $(REPO_BUILDER_STAMP)
+	$(call need,REPO_HOST REPO_DIR)
 	@tools/disk-check.sh
 	REPO_BUILDER_TAG=$(REPO_BUILDER_TAG) REPO_HOST=$(REPO_HOST) REPO_DIR=$(REPO_DIR) DIST=$(DIST) \
 		tools/repo-publish.sh $(DEBS)

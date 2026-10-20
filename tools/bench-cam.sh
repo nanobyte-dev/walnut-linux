@@ -10,9 +10,12 @@
 set -u
 cd "$(dirname "$0")/.."
 if [ $# -gt 0 ]; then offsets=("$@"); else offsets=(30 60); fi
+# The PS3's address, user and key: PS3_IP, PS3_USER, PS3_SSH_KEY from the environment or config.local.mk
+{ read -r ps3_ip; read -r ps3_user; read -r ps3_key; } < <(tools/config-get.sh PS3_IP PS3_USER PS3_SSH_KEY)
+[ -n "$ps3_ip" ] && [ -n "$ps3_user" ] || { echo "bench-cam.sh: set PS3_IP and PS3_USER (config.local.mk)" >&2; exit 1; }
 out=build/bench-cam; mkdir -p "$out"; mark=$(mktemp -d); trap 'rm -rf "$mark"' EXIT
-ssh -i "$HOME/.ssh/id_ps3" -o UserKnownHostsFile=build/ps3_known_hosts -o ConnectTimeout=20 \
-	-o ServerAliveInterval=30 tibi@10.0.0.77 '
+ssh -i "$ps3_key" -o UserKnownHostsFile=build/ps3_known_hosts -o ConnectTimeout=20 \
+	-o ServerAliveInterval=30 "$ps3_user@$ps3_ip" '
 	seen=" "; idle=0
 	while :; do
 		for d in /dev/shm/ps3-bench-*; do

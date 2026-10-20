@@ -1,0 +1,22 @@
+# Copy to config.local.mk (not tracked) and fill in your own machines. config.mk includes it before
+# its defaults, which are empty for all of these except where noted.
+# The PS3 running Linux, and the user the PC's tools log in as (make deploy, bench, usb-root)
+PS3_IP              := 192.168.1.50
+PS3_USER            := walnut
+# The SSH key that user accepts (default ~/.ssh/id_ps3); the dev image authorizes SSH_PUBKEY
+#PS3_SSH_KEY        := $(HOME)/.ssh/id_ps3
+#SSH_PUBKEY         := $(PS3_SSH_KEY).pub
+# Petitboot's address, when DHCP gives it another one (default: PS3_IP)
+#PETITBOOT_IP       := 192.168.1.51
+# This PC: netboot's HTTP server, the NFS root's server, netconsole's target
+PC_IP               := 192.168.1.10
+PC_MAC              := 00:00:00:00:00:00
+# The apt repository server (make publish rsyncs to REPO_HOST:REPO_DIR; the PS3 reads REPO_URL)
+REPO_HOST           := user@192.168.1.2
+REPO_DIR            := /srv/walnut-repo
+REPO_URL            := http://192.168.1.2:8070
+# The USB root disk's name in /dev/disk/by-id on the PS3 (make usb-root)
+USB_DISK_ID         := usb-VENDOR_MODEL_SERIAL-0:0
+# The USB root's PARTUUID for netboot-deb ROOT=usb and the image's default boot menu (default
+# 50533301-02, the fixed id of the first installs; a FORMAT=1 install prints the new disk's)
+#USB_ROOT_PARTUUID  := 1a2b3c4d-02

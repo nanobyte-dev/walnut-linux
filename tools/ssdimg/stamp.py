@@ -5,7 +5,7 @@ Runs on the PC. Generates the image as a stream and uploads it to GameOS's dev_h
 FTP server (the PS3 in GameOS, FTP on in webMAN's setup). Nothing goes to the PC's disk: the stream
 comes from a generator, block by block.
 
-  stamp.py upload --size 16G [--path /dev_hdd0/linux/ssdtest.img] [--host 10.0.0.77] [--port 21]
+  stamp.py upload --size 16G [--path /dev_hdd0/linux/ssdtest.img] [--host PS3] [--port 21]
                   [--user U --password P] [--uuid UUID] [--force]
   stamp.py dry-run --mib N [--uuid UUID] [--out FILE|-]     N MiB of the same stream (tests)
   stamp.py check FILE [--uuid UUID]                         check a local stream (tests)
@@ -28,6 +28,7 @@ fragment). After the upload the remote size is checked with SIZE.
 """
 import argparse
 import ftplib
+import os
 import re
 import struct
 import sys
@@ -207,7 +208,8 @@ def main(argv=None):
     u = sub.add_parser("upload", help="stream the image to the PS3 over FTP (GameOS, webMAN MOD)")
     u.add_argument("--size", required=True, help="image size in GiB or MiB, e.g. 16G (whole MiB)")
     u.add_argument("--path", default="/dev_hdd0/linux/ssdtest.img")
-    u.add_argument("--host", default="10.0.0.77")
+    u.add_argument("--host", default=os.environ.get("PS3_IP"), required=not os.environ.get("PS3_IP"),
+                   help="the PS3 in GameOS (default: $PS3_IP)")
     u.add_argument("--port", type=int, default=21)
     u.add_argument("--user", default="anonymous", help="webMAN takes any login")
     u.add_argument("--password", default="ps3")

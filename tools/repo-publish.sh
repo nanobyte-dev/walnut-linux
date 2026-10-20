@@ -1,5 +1,5 @@
 #!/bin/bash
-# repo-publish.sh <deb>...: publishes packages to our apt repository on tibi-server.
+# repo-publish.sh <deb>...: publishes packages to our apt repository (REPO_HOST:REPO_DIR, config.local.mk).
 #   DIST=ps3 (default) stable, kept forever; DIST=dev dev builds (ps3-dev: newest 5 of each, symbols included).
 #   Licensed packages (tools/licensed-packages.txt, Section non-free/* or local/*) go to ps3-licensed
 #   with either DIST: kept forever like the stable suite, its own prefix and pool.

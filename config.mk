@@ -10,7 +10,6 @@ DEBIAN_SUITE        := unstable
 DEBIAN_MIRROR       := http://snapshot.debian.org/archive/debian-ports/$(DEBIAN_SNAPSHOT)
 ROOTFS_PACKAGES     := image/packages.txt
 ROOTFS_CUSTOMIZE    := image/customize.sh
-SSH_PUBKEY          := $(HOME)/.ssh/id_ps3.pub
 
 # --- DarkPlaces for Nexuiz (darkplaces-gl2/) -----------------------------------
 # Debian's buster orig tarball (snapshot.debian.org), the last DarkPlaces with the GL 1.x/2.0 renderpaths
@@ -106,18 +105,33 @@ BUILDER_SNAPSHOT    := $(DEBIAN_SNAPSHOT)
 # Fixed timestamp for rootfs builds (2026-10-13 00:00:00 UTC, matches the snapshot).
 SOURCE_DATE_EPOCH   := 1791849600
 
+# --- This installation's LAN: config.local.mk (not tracked) ---------------------
+# The values that belong to one developer's machines (addresses, the user and key on the PS3, the
+# repository server, the USB disk's serial) live in config.local.mk next to this file, which git
+# ignores; config.local.mk.example lists them. Without it the defaults below are empty, and the
+# targets that need one stop and say which (the image build, the packages and the tests don't).
+-include $(dir $(lastword $(MAKEFILE_LIST)))config.local.mk
+
 # --- Network / netboot --------------------------------------------------------
-PS3_IP              := 10.0.0.77
-# Petitboot's address (it has also been given .51 by DHCP at times).
-PETITBOOT_IP        := 10.0.0.77
-PC_IP               := 10.0.0.45
-PC_MAC              := b4:2e:99:f3:12:1a
-NFS_ROOT            := /srv/ps3root
+# The PS3 running Linux, and the user the PC's tools log in as there (make deploy, bench, usb-root)
+PS3_IP              ?=
+PS3_USER            ?=
+# The SSH key for that user (private key; the image authorizes SSH_PUBKEY in the dev profile)
+PS3_SSH_KEY         ?= $(HOME)/.ssh/id_ps3
+SSH_PUBKEY          ?= $(PS3_SSH_KEY).pub
+# Petitboot's address (it may differ from Linux's: Petitboot asks DHCP itself)
+PETITBOOT_IP        ?= $(PS3_IP)
+# This PC: netboot's HTTP server, the NFS root's server, netconsole's target (its MAC too)
+PC_IP               ?=
+PC_MAC              ?=
+NFS_ROOT            ?= /srv/ps3root
 
 # --- apt repository (tools/repo-server/, published with aptly from build/aptly) -----------------
-REPO_HOST           := tibi@10.0.0.10
-REPO_DIR            := /data/fast/NewServer/Ps3Repo
-REPO_URL            := http://10.0.0.10:8070
+# REPO_HOST: user@host that make publish rsyncs to; REPO_DIR: the repository's directory there;
+# REPO_URL: what the PS3 and the image build fetch from
+REPO_HOST           ?=
+REPO_DIR            ?=
+REPO_URL            ?=
 # The image's packages: empty = this checkout's build outputs; img-<stamp> = that frozen snapshot of
 # the stable suite (make repo-snapshot), for an image anyone can rebuild from the server
 REPO_SUITE          ?=
@@ -135,12 +149,18 @@ HTTP_PORT           := 8000
 # (make usb-root), mounted read-only first for the boot-time fsck.
 ROOT                ?= nfs
 ROOT_ARGS_nfs       := root=/dev/nfs nfsroot=$(PC_IP):$(NFS_ROOT),v3,tcp,rsize=65536,wsize=65536 rw
-ROOT_ARGS_usb       := root=PARTUUID=50533301-02 rootfstype=ext4 ro
-# The USB disk for the root filesystem (its /dev/disk/by-id name on the PS3): a 500 GB Samsung
-# HN-M500MBB in a USB enclosure, given for this (2026-10-15)
-USB_DISK_ID         := usb-SAMSUNG_HN-M500MBB_0000AB1234E8-0:0
+# The USB root's partition (PARTUUID=<disk id>-02). Installs with FORMAT=1 give each disk a random
+# id (tools/usb-root-remote.sh) and write the boot menu from it; this is the one netboot-deb
+# ROOT=usb and the image's default boot menu use. 50533301-02: the fixed id of the first installs.
+USB_ROOT_PARTUUID   ?= 50533301-02
+ROOT_ARGS_usb       := root=PARTUUID=$(USB_ROOT_PARTUUID) rootfstype=ext4 ro
+# The USB disk for the root filesystem (its /dev/disk/by-id name on the PS3, config.local.mk)
+USB_DISK_ID         ?=
 # The kernel's own arguments are shipped in its package (/usr/lib/ps3/boot/<release>.args, from
 # linux/flavours/<flavour>.args), so each kernel in the boot menu gets the ones it understands;
 # make netboot-deb uses them too.
 # This installation's development extras: DHCP for netconsole, netconsole to this PC
-DEBUG_ARGS          := ip=dhcp netconsole=6665@$(PS3_IP)/eth0,6666@$(PC_IP)/$(PC_MAC)
+# (netconsole only with all three addresses in config.local.mk). The public image has none of
+# these (PROFILE=public, tools/build-image.sh).
+NETCONSOLE_ARG      := netconsole=6665@$(PS3_IP)/eth0,6666@$(PC_IP)/$(PC_MAC)
+DEBUG_ARGS          := ip=dhcp $(if $(and $(PS3_IP),$(PC_IP),$(PC_MAC)),$(NETCONSOLE_ARG))

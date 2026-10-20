@@ -1,7 +1,8 @@
 # Repository server
 
-`docker-compose.yml` and `nginx.conf` run on tibi-server in `/data/fast/NewServer/Ps3Repo/`
-(`docker compose up -d`), serving `public/` at `http://10.0.0.10:8070/`:
+`docker-compose.yml` and `nginx.conf` run on the LAN's repository server in `REPO_DIR`
+(`config.local.mk`; `docker compose up -d`), serving `public/` at `REPO_URL`, port 8070 on the
+address in `.env` (`REPO_BIND_IP=<the server's LAN address>`, not tracked):
 
 - `ps3/`: the official repository (distribution `ps3`, components `main` and `deps`, frozen
   `img-<stamp>` snapshots). Add-only: nothing published here is ever removed or changed.
