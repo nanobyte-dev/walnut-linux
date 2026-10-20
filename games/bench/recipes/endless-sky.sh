@@ -7,7 +7,7 @@
 # $HOME/.config/endless-sky-ps3bench, --config) and the keyboard: during() waits for the window, gives the
 # load ES_LOAD_WAIT seconds (the game parses all data and decodes its images before the menu: the estimate was 45
 # to 80 s on the PPE, measured 150 s or more with ps3.589, so the default is 240), then presses e (Enter Ship), d (Depart)
-# and Return (the first-flight help dialog), and holds Up for 5 s: the Sparrow is in flight in Rutilicus (planet
+# and Return three times 15 s apart (the help dialogs after Depart), and holds Up for 5 s: the Sparrow is in flight in Rutilicus (planet
 # New Boston, asteroids, HUD, radar, starfield). If the load is slower than ES_LOAD_WAIT the keys land on the
 # loading screen and the menu waits: the user may nudge (e, d, Return). Variant menu: no keys.
 # Settings (preferences.txt in that directory, written by setup()): vsync off, "Reduce large graphics" all
@@ -52,7 +52,9 @@ es_cmd() { CMD=(/usr/games/endless-sky --config "$ES_DIR" "${ES_ARGS[@]}"); }
 es_cmd
 during() {
 	[ "$ES_KEYS" = 1 ] || return 0
-	smoke_xkeys "Endless Sky" "$ES_LOAD_WAIT" e +6 d +10 Return +3
+	# Return three times: on the PS3 the help dialog after Depart comes later than 10 s (2026-10-20: a
+	# "Lost 1" dialog stayed up and the Up key went nowhere)
+	smoke_xkeys "Endless Sky" "$ES_LOAD_WAIT" e +6 d +10 Return +15 Return +15 Return +3
 	XKEYS_HOLD=5 smoke_xkeys "Endless Sky" 0 Up
 }
 variant_menu() { ES_KEYS=0; }
