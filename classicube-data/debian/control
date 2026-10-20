@@ -1,0 +1,25 @@
+Source: classicube-data
+Section: local/games
+Priority: optional
+Maintainer: PS3 Linux project <ps3@localhost>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+Homepage: https://www.classicube.net/
+
+# Mojang's textures and audio: licensed content we may not redistribute (Section local/*), so
+# tools/aptly-publish.sh puts it in the ps3-licensed suite, never in ps3 or ps3-dev. Until
+# 1.3.8~git20261014.aa47929-1+ps3.366 these files were in the classicube package itself, and
+# until the source split they were built from the classicube source.
+Package: classicube-data
+Architecture: all
+Section: local/games
+Multi-Arch: foreign
+Depends: ${misc:Depends}
+Breaks: classicube (<< 1.3.8~git20261014.aa47929-1+ps3.366~)
+Replaces: classicube (<< 1.3.8~git20261014.aa47929-1+ps3.366~)
+Description: ClassiCube's textures, sounds and music (Mojang's Minecraft Classic assets)
+ The default texture pack (static.classicube.net/default.zip: the Minecraft Classic textures
+ from Mojang's client jars, with ClassiCube's patches), the sounds as 16-bit WAVs and the music,
+ fetched from Mojang's resource server as the game's launcher would. Not redistributable: our
+ LAN repository only.

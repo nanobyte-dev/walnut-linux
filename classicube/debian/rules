@@ -2,8 +2,6 @@
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export DEB_CFLAGS_MAINT_APPEND = -mcpu=cell -mtune=cell
 L := debian/classicube/usr/lib/classicube
-# the textures and audio (Mojang's) in classicube-data, at the same paths as before the split
-D := debian/classicube-data/usr/lib/classicube
 NUMJOBS := $(or $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS))),1)
 
 %:
@@ -17,9 +15,6 @@ override_dh_auto_build:
 
 override_dh_auto_install:
 	install -D -m 755 ClassiCube $(L)/ClassiCube
-	install -D -m 644 texpack/*.zip $(D)/texpacks/classicube.zip
-	install -d $(D)/audio
-	install -m 644 audio/* $(D)/audio/
 	install -m 644 debian/options.txt $(L)/
 	install -D -m 755 debian/classicube.sh debian/classicube/usr/games/classicube
 	install -D -m 644 debian/classicube.desktop debian/classicube/usr/share/applications/classicube.desktop

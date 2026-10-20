@@ -1,0 +1,11 @@
+#!/usr/bin/make -f
+# the textures and audio (Mojang's), at the paths the classicube package's launcher script uses
+D := debian/classicube-data/usr/lib/classicube
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	install -D -m 644 texpack/*.zip $(D)/texpacks/classicube.zip
+	install -d $(D)/audio
+	install -m 644 audio/* $(D)/audio/

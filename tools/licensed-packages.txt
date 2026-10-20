@@ -1,12 +1,14 @@
 # Licensed game content we may not redistribute: these packages go to the ps3-licensed suite only
 # (its own prefix and pool, REPO_URL/ps3-licensed/), never to ps3 or ps3-dev
 # (tools/aptly-publish.sh, docs/PACKAGING.md). A package is licensed when it is listed here or its
-# Section is non-free/* or local/*; the list catches one whose Section doesn't say so.
+# Section is non-free/* or local/*; the list catches one whose Section doesn't say so. A source
+# package is licensed when its name is listed here or any package it builds is licensed; its
+# source then goes to ps3-licensed too, and never into a public deb-src.
 # Quake's shareware data (game-data-packager, Section non-free/games)
 quake-shareware
 # Quake II's demo data (game-data-packager, Section local/games: not redistributable at all)
 quake2-demo-data
-# ClassiCube's textures, sounds and music, Mojang's (classicube/, Section local/games)
+# ClassiCube's textures, sounds and music, Mojang's (classicube-data/, its own source; Section local/games)
 classicube-data
 # Sauerbraten's models and sounds that Debian's cube2-data leaves out, CC BY-NC and the like
 # (sauerbraten-nonfree-data/, Section local/games)
