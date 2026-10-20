@@ -15,6 +15,18 @@ Rebase onto each project's current head before sending.
 | 5 | Mesa translate_generic 8-bit LUT | gitlab.freedesktop.org/mesa/mesa MR | `mesa.md`, `mesa-0001-translate-8bit-lut.patch` | draft, not sent. Generic (all u_vbuf/draw users); upstream form not compiled |
 | 6 | Boost.Context ppc64 fcontext (ELFv2/ELFv1 on big-endian ppc64) | Debian BTS #1146645 (boost1.92) follow-up; GitHub boostorg/context issue + PR | `boost-context.md`, `boost-context/packaging/0001-ppc64-fcontext.patch` | draft, not sent. Wesnoth runs on the PS3 with it (batch ssdroot8) |
 
+## Candidates, not drafted
+
+Upstreaming happens only when it is justified (the user, 2026-10-20): most games don't target big-endian, and
+the gain is mainly fewer patches for us to carry. Noted here, not worked on:
+
+- **Warzone 2100** (we stay on 4.3.5, the last GL 2.1 release): 0001 `<cstdint>` for GCC 16 (a plain build fix),
+  0003 terrain decal colour, 0005 radar colours, 0008 Opus sample order (byte-order neutral rewrites), 0004 the
+  bundled etcpak's DXT blocks on big-endian (also wolfpld/etcpak). Whether master still has the code: not checked.
+- **GCC 16.2 wrong code** (Warzone patch 0007, PACKAGING.md): the loop vectorizer on AltiVec without VSX at `-O3`.
+  Worth a GCC report only with a minimal reproducer and a check of GCC 14/15 (a regression gets triaged);
+  the reproducer would also show which of our other `-O3 -mcpu=cell` builds could be hit.
+
 ## Order I would send in
 
 1. Teeworlds (small, tested, clearly right). Debian bug after the upstream issue exists, so it can link it.
