@@ -117,8 +117,11 @@ T0=$(date +%s)
 in_chroot sh -c "cd /build/reproducible-path && dpkg-source -x ../$(basename "$DSC") $SOURCE-$UPVER >/dev/null"
 if [ ! -e "$DEPS" ]; then
 	in_chroot apt-get update -qq
+	# a failed build-dep stops here: the grep only filters the output, and nothing gets cached
+	rc=0
 	in_chroot sh -c "cd /build/reproducible-path/$SOURCE-$UPVER && eatmydata apt-get build-dep -y -q ${NATIVE_PROFILES:+-P $NATIVE_PROFILES} ./" \
-		| grep -E "^(Need to get|After this|E:)" || true
+		| { grep -E "^(Need to get|After this|E:)" || true; } || rc=$?
+	[ "$rc" = 0 ] || { echo "!! apt-get build-dep failed ($rc): no deps chroot cached" >&2; exit 1; }
 	in_chroot apt-get clean
 	rm -rf "$R/build/reproducible-path/$SOURCE-$UPVER.deps-cache"
 	# cache the chroot with the build dependencies, without the source tree (not with LOCAL_DEPS)
