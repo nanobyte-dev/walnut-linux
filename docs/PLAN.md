@@ -19,6 +19,13 @@ Petitboot, with the RSX driver, the desktop and the games working out of the box
 installer that puts it on the console's internal disk without touching GameOS's data. That is
 Stage 5.
 
+Games that need the original release's data (the user, 2026-10-20): the engine packages go in the
+public repository and are smart about their data. On first run, a game without its assets shows a
+"First time setup" dialog ("This game requires assets from the original game release"; "Insert the CD
+into the optical drive, or provide a source") and copies what it needs from the disc, a disc image, or
+an existing install (a GOG or Steam folder, an old Windows install). Nothing copyrighted is ever
+published; the user's own copy is the source. That is item 5.10.
+
 ## Where we are (2026-10-19)
 
 The whole stack is built and packaged: the kernel (6.12 LTS with our PS3 patches), the ps3rsx
@@ -176,6 +183,7 @@ Everything meant for other users. Nothing here is published without the user's O
 | 5.7 | Other PS3 models (fats, other slims, the QCFW/BadWDSD news for 25xx-40xx); everything is tested on one CECH-20xx | open (research) | [backlog/hardware.md](backlog/hardware.md) |
 | 5.8 | Upstream submissions (D10), rebased; Mesa nv30 patches tested first on the Core 2 + 7600 GT box (stock x86 nouveau, piglit/deqp), that box's only job (the user, 2026-10-18) | drafts, none sent | [upstream/README.md](upstream/README.md) |
 | 5.9 | Host test suites run automatically | `make test` / `make test-slow` exist (tools/run-tests.sh); not in CI | [backlog/platform.md](backlog/platform.md) |
+| 5.10 | First-run game data setup (the goal above): one shared setup tool the engines' launchers call when assets are missing; sources: the PS3's optical drive, an image file (ISO, BIN/CUE), an install folder (GOG, Steam, Windows), a GOG installer; per-game extract recipes (game-data-packager where it knows the game, else ours, e.g. `tools/rct2-data.sh`'s unshield steps for RCT2); the files go to the game's data directory. Replaces the LAN-only data packages for end users | goal set, not designed | [PC-CLASSICS.md](research/PC-CLASSICS.md) (the games that need it), [PACKAGING.md](PACKAGING.md#game-data) |
 
 ## Where the rest went
 

@@ -196,6 +196,10 @@ Walnut Linux's splash is Plymouth with our theme, made to show early from the US
 
 Licensed data is packaged apart from the engines, and free packages never depend on it.
 
+The goal for end users (PLAN 5.10, the user, 2026-10-20): the public engine packages copy the data
+from the user's own copy on first run (a "First time setup" dialog: insert the CD, or point to a disc
+image or an existing install). The `ps3-licensed` data packages below stay for our own machines.
+
 ### The rule: free packages never depend on licensed ones
 
 Every free package (the engines, `ps3-games`, `ps3-desktop`, ...) must be installable and distributable on its own. None of them has a `Depends` or `Recommends` on a licensed package (one in `tools/licensed-packages.txt`, or with a Section `non-free/*` or `local/*`); `Suggests` is fine. The user puts the data in the game directory (each game's docs say where and how to get it).
