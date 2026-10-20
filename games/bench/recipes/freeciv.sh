@@ -7,8 +7,10 @@
 # That shows the client's map, city and report drawing under a live game with no clicks needed. A
 # human game is variant play: server started, game not, the client lands in the pregame list (the
 # player's slot is the one named "smoke"; "Start game" is a button) -- the player has to click it.
-# The server is during() itself (exec: the background process is the server, stopped with during() at
-# the end of the run; its log is fc-server.log in the run directory).
+# The server runs under during() (its log is fc-server.log in the run directory). client.sh's SIGTERM
+# at the end of the run did not stop it when it was exec'd as during() itself (ssdroot14: it outlived
+# the run with 56 MB in swap and every later run refused to start), so during() waits on it and on
+# TERM stops it, with SIGKILL 3 s later.
 # freeciv-sdl2 (freeciv-client-sdl) is not used: its package hard-depends on fonts-noto-cjk and the
 # other CJK fonts (+170 MB installed) and the SDL2 client is the least maintained. Variant sdl2 runs it
 # anyway if installed.
@@ -37,6 +39,11 @@ setup() {
 		"sound_enable_music=FALSE" > "$FC_RC"
 }
 CMD=(/usr/games/freeciv-gtk3.22 -a -s localhost -p "$FC_PORT" -n smoke)
-during() { exec /usr/games/freeciv-server -p "$FC_PORT" -r "$FC_SCRIPT" -q 600 > "${BENCH_DIR:-$D}/fc-server.log" 2>&1; }
+during() {
+	/usr/games/freeciv-server -p "$FC_PORT" -r "$FC_SCRIPT" -q 600 > "${BENCH_DIR:-$D}/fc-server.log" 2>&1 &
+	local s=$!
+	trap 'kill $s 2>/dev/null; sleep 3; kill -9 $s 2>/dev/null; exit 0' TERM
+	wait $s
+}
 variant_play() { FC_START=0; }
 variant_sdl2() { COMM=freeciv-sdl2; CMD[0]=/usr/games/freeciv-sdl2; }
