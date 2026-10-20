@@ -1,0 +1,33 @@
+Subject: gl: GLSL 1.20 texture lookups without a bias argument
+
+The 3D shaders (terrain, decals, models, buttons) sample through a macro that is texture2D(tex, uv,
+bias) on GLSL 1.20; the bias is WZ_MIP_LOAD_BIAS, -0.5 with the default LOD distance setting
+("High", lodDistanceBias -50). Mesa's nv30 compiles a biased lookup to the RSX's TXB, which samples
+wrong whatever the bias: on the PS3 the whole 3D view was dark and flat while the UI (texture2D
+without bias) was right. A shader mod drawing the same lookups as TEX and as TXB in stripes showed
+it (2026-10-20). On the GLSL 1.20 path the macro is now texture2D(tex, uv): a plain lookup on every
+driver, at the cost of the LOD distance setting (the -0.5 sharpening) on that path. Mesa patch 0045
+fixes the driver side too; this keeps the game right with a Mesa without it.
+
+---
+diff --git a/lib/ivis_opengl/gfx_api_gl.cpp b/lib/ivis_opengl/gfx_api_gl.cpp
+--- a/lib/ivis_opengl/gfx_api_gl.cpp
++++ b/lib/ivis_opengl/gfx_api_gl.cpp
+@@ -1148,6 +1148,17 @@
+ 			{
+ 				patchFragmentShaderTextureLodBias(fragmentShaderStr, mipLodBias.value());
+ 			}
++			{
++				// GLSL 1.20 shaders sample through texture2D(tex, uv, bias): drop the bias argument for
++				// a plain lookup (Mesa's nv30 turns the biased one into the RSX's TXB, which samples wrong
++				// whatever the bias: the PS3's 3D view was dark); the LOD distance setting is lost there
++				const std::string biasMacro = "#define texture(tex,uv,bias) texture2D(tex,uv,bias)";
++				size_t pos = fragmentShaderStr.find(biasMacro);
++				if (pos != std::string::npos)
++				{
++					fragmentShaderStr.replace(pos, biasMacro.size(), "#define texture(tex,uv,bias) texture2D(tex,uv)");
++				}
++			}
+ 
+ 			const char* ShaderStrings[2] = { fragment_header, fragmentShaderStr.c_str() };
+ 

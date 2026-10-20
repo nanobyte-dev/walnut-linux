@@ -6,4 +6,4 @@
 0006-gl-unbind-GL_TEXTURE_2D_ARRAY-only-when-texture-arrays-exist.patch
 0007-stb_image_resize-no-loop-vectorization-on-AltiVec-without-VSX.patch
 0008-oggopus-native-endian-samples-for-OpenAL.patch
-0009-gl-GLSL-1.20-texture-lookups-without-a-bias-argument-when-the-bias-is-0.patch
+0009-gl-GLSL-1.20-texture-lookups-without-a-bias-argument.patch
