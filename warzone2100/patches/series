@@ -7,4 +7,4 @@
 0007-stb_image_resize-no-loop-vectorization-on-AltiVec-without-VSX.patch
 0008-oggopus-native-endian-samples-for-OpenAL.patch
 0009-gl-GLSL-1.20-texture-lookups-without-a-bias-argument.patch
-0010-texture-size-512-by-default-on-the-Cell-build.patch
+0010-texture-size-512-by-default.patch
