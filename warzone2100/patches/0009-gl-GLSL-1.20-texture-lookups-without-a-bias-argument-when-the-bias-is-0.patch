@@ -1,0 +1,33 @@
+Subject: gl: GLSL 1.20 texture lookups without a bias argument when the bias is 0
+
+The 3D shaders (terrain, decals, models, buttons) sample through a macro that is texture2D(tex, uv,
+bias) on GLSL 1.20, and the bias is WZ_MIP_LOAD_BIAS, 0 unless the config sets one. Mesa's nv30
+compiles a biased lookup to the RSX's TXB, which samples wrong whatever the bias: on the PS3 the
+whole 3D view was dark and flat while the UI (texture2D without bias) was right. A shader mod
+drawing the same lookups as TEX and as TXB in stripes showed it (2026-10-20). When there is no bias
+to apply, rewrite the macro to texture2D(tex, uv): the same lookup on every driver. Mesa patch 0045
+fixes it on the driver side too; this keeps the game right with a Mesa without it.
+
+---
+diff --git a/lib/ivis_opengl/gfx_api_gl.cpp b/lib/ivis_opengl/gfx_api_gl.cpp
+--- a/lib/ivis_opengl/gfx_api_gl.cpp
++++ b/lib/ivis_opengl/gfx_api_gl.cpp
+@@ -1148,6 +1148,18 @@
+ 			{
+ 				patchFragmentShaderTextureLodBias(fragmentShaderStr, mipLodBias.value());
+ 			}
++			if (!mipLodBias.has_value() || mipLodBias.value() == 0.f)
++			{
++				// GLSL 1.20 shaders sample through texture2D(tex, uv, bias); with no bias to apply,
++				// drop the argument: a plain lookup instead of one with a bias of 0 (Mesa's nv30 turns
++				// the biased one into the RSX's TXB, which samples wrong: the PS3's 3D view was dark)
++				const std::string biasMacro = "#define texture(tex,uv,bias) texture2D(tex,uv,bias)";
++				size_t pos = fragmentShaderStr.find(biasMacro);
++				if (pos != std::string::npos)
++				{
++					fragmentShaderStr.replace(pos, biasMacro.size(), "#define texture(tex,uv,bias) texture2D(tex,uv)");
++				}
++			}
+ 
+ 			const char* ShaderStrings[2] = { fragment_header, fragmentShaderStr.c_str() };
+ 
