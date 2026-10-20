@@ -1,0 +1,41 @@
+Subject: oggopus: native-endian samples for OpenAL, not little-endian bytes
+
+WZOpusDecoder::decode() wrote every sample out low byte first ("convert to little endian"), but
+the buffers go to OpenAL as AL_FORMAT_MONO16 / AL_FORMAT_STEREO16, which take native-endian
+samples, and op_read_stereo() already returns native ones. On big-endian hosts every music
+sample was byte-swapped: the PS3 played the soundtrack (Opus, warzone2100-music) as loud white
+noise. The Vorbis effects were right (ov_read gets bigendianp from __BIG_ENDIAN__). Copy the
+samples as they are; on little-endian hosts the bytes are the same as before.
+
+---
+diff --git a/lib/sound/oggopus.cpp b/lib/sound/oggopus.cpp
+--- a/lib/sound/oggopus.cpp
++++ b/lib/sound/oggopus.cpp
+@@ -19,6 +19,7 @@
+ 
+ #include "lib/framework/frame.h"
+ #include "oggopus.h"
++#include <cstring>
+ #include <physfs.h>
+ #include <limits>
+ #include <algorithm>
+@@ -248,13 +249,12 @@
+ 			break;
+ 		}
+ 		ASSERT(samples_per_chan >= 0, "Unexpected Opus error %i", samples_per_chan);
+-		// convert to little endian
+-		for (int si = 0; si < m_nchannels * samples_per_chan; si++) 
+-		{
+-			buffer[bufferOffset + 0] = (uint8_t)(pcm[si] & 0xFF);
+-			buffer[bufferOffset + 1] = (uint8_t)(pcm[si] >> 8 & 0xFF);
+-			bufferOffset +=2;
+-		}
++		// AL_FORMAT_MONO16 / AL_FORMAT_STEREO16 take native-endian samples, which is what opusfile
++		// returns: copy them as they are (writing them out little-endian byte by byte turned the
++		// music into noise on big-endian hosts)
++		const size_t bytes = static_cast<size_t>(m_nchannels) * static_cast<size_t>(samples_per_chan) * sizeof(opus_int16);
++		memcpy(buffer + bufferOffset, pcm, bytes);
++		bufferOffset += bytes;
+ 	} while ((samples_per_chan != 0 && bufferOffset < std::min(bufferSize, TMP_BUF)));
+ 	return bufferOffset;
+ }
