@@ -73,7 +73,9 @@ setup() {
 	printf '%s\n' "[general]" "width=1920" "height=1080" "fullscreen=1" "fullscreenwidth=1920" "fullscreenheight=1080" \
 		"screen=0" "fullscreenscreen=0" "bpp=32" "vsync=0" "antialiasing=0" "texturesize=512" "texturecompression=$WZ_TC" \
 		"shadows=0" "fog=false" "showfps=1" "upnp=0" "autorating=false" "fmvmode=0" "sound=$WZ_SOUND" \
-		"music_enabled=$WZ_MUSIC" "gfxbackend=opengl" "jsbackend=quickjs" "difficulty=2" "configversion=2" > "$WZ_CFG/config"
+		"music_enabled=$WZ_MUSIC" "gfxbackend=opengl" "jsbackend=quickjs" "difficulty=2" "colourMP=6" "configversion=2" > "$WZ_CFG/config"
+	# colourMP=6: player 0 always pink (the default -1 shuffles the colours at random every run), so the
+	# PS3 | PC screenshot sheets compare like for like; player 1 stays random (the json has no colour)
 	# the match: bases 2 (bases with defences), no scavengers, SemperFi both sides
 	printf '%s\n' '{' '	"challenge": {' '		"bases": 2,' '		"difficulty": "Easy",' '		"map": "Sk-HighGround",' \
 		'		"maxPlayers": 2,' '		"powerLevel": 1,' '		"scavengers": "false",' '		"version": 2' '	},' \
