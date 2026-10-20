@@ -1,0 +1,146 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Tue, 20 Oct 2026 09:33:00 +0300
+Subject: ES_LOW_MEMORY: read a sound's samples when it is first played, not at
+ start
+
+ps3.597 was OOM-killed at about 100 s of the load. At the kill the game's anon memory was
+about 205 MB, nearly all of it in swap, which on the PS3 is zram (compressed RAM; VRAM, the other
+swap tier, is full of textures): about 100 MB of game data (arena), 41 MB of sound samples
+(16-bit PCM, hardly compressible), a few dozen MB of images in flight, and the rest.
+Sound::Load now only checks the WAV header and remembers the path; Buffer() reads the samples
+on the first call (std::call_once, from whichever thread asks first). A session plays a few dozen
+of the 243 sounds. PC: 36 MB less resident after the load.
+
+diff --git a/source/audio/Sound.cpp b/source/audio/Sound.cpp
+--- a/source/audio/Sound.cpp
++++ b/source/audio/Sound.cpp
+@@ -20,6 +20,7 @@ this program. If not, see <https://www.gnu.org/licenses/>.
+ #include "supplier/WavSupplier.h"
+ 
+ #include <cstdint>
++#include <mutex>
+ 
+ using namespace std;
+ 
+@@ -55,19 +56,59 @@ bool Sound::Load(const filesystem::path &path, const string &name)
+ 		return false;
+ 	}
+ 
+-	// Read 16-bit mono from the file. The samples are little-endian in the file and are
+-	// stored mono, in host order; WavSupplier expands them to stereo while playing.
++#ifdef ES_LOW_MEMORY
++	// 243 sounds are 41 MB of samples that a PS3 cannot spare, and a session plays a few dozen of them:
++	// only the header is checked here, the samples are read when the sound is first played.
++	(isFast ? path3x : path1x) = path;
++	return true;
++#else
++	ReadSamples(in, bytes, buf);
++	return true;
++#endif
++}
++
++
++
++// Read 16-bit mono from the file. The samples are little-endian in the file and are
++// stored mono, in host order; WavSupplier expands them to stereo while playing.
++void Sound::ReadSamples(const shared_ptr<iostream> &in, uint32_t bytes, vector<AudioSupplier::sample_t> &buf)
++{
+ 	vector<unsigned char> data(bytes);
+ 	in->read(reinterpret_cast<char *>(data.data()), bytes);
+ 	buf.resize(data.size() / sizeof(AudioSupplier::sample_t));
+ 	for(size_t i = 0; i < buf.size(); ++i)
+ 		buf[i] = static_cast<AudioSupplier::sample_t>(
+ 			static_cast<uint16_t>(data[2 * i] | (data[2 * i + 1] << 8)));
+-	return true;
+ }
+ 
+ 
+ 
++#ifdef ES_LOW_MEMORY
++// Read the samples of a sound whose files were only checked by Load (once, from whichever thread asks first).
++void Sound::Fill() const
++{
++	call_once(filled, [this] {
++		for(const bool fast : {false, true})
++		{
++			const filesystem::path &path = fast ? path3x : path1x;
++			if(path.empty())
++				continue;
++			shared_ptr<iostream> in = Files::Open(path);
++			uint32_t bytes = in ? ReadHeader(in, AudioSupplier::SAMPLE_RATE) : 0;
++			if(!bytes)
++			{
++				Logger::Log("Unable to load sound \"" + name + "\" from path: " + path.string(),
++					Logger::Level::WARNING);
++				continue;
++			}
++			ReadSamples(in, bytes, fast ? buffer3x : buffer);
++		}
++	});
++}
++#endif
++
++
++
+ const string &Sound::Name() const
+ {
+ 	return name;
+@@ -77,6 +118,9 @@ const string &Sound::Name() const
+ 
+ const vector<AudioSupplier::sample_t> &Sound::Buffer() const
+ {
++#ifdef ES_LOW_MEMORY
++	Fill();
++#endif
+ 	return buffer.empty() ? buffer3x : buffer;
+ }
+ 
+@@ -84,6 +128,9 @@ const vector<AudioSupplier::sample_t> &Sound::Buffer() const
+ 
+ const vector<AudioSupplier::sample_t> &Sound::Buffer3x() const
+ {
++#ifdef ES_LOW_MEMORY
++	Fill();
++#endif
+ 	return buffer3x.empty() ? buffer : buffer3x;
+ }
+ 
+diff --git a/source/audio/Sound.h b/source/audio/Sound.h
+--- a/source/audio/Sound.h
++++ b/source/audio/Sound.h
+@@ -17,8 +17,11 @@ this program. If not, see <https://www.gnu.org/licenses/>.
+ 
+ #include "supplier/AudioSupplier.h"
+ 
++#include <cstdint>
+ #include <filesystem>
++#include <iostream>
+ #include <memory>
++#include <mutex>
+ #include <string>
+ 
+ 
+@@ -40,8 +43,21 @@ public:
+ 
+ 
+ private:
+-	std::string name;
++	static void ReadSamples(const std::shared_ptr<std::iostream> &in, uint32_t bytes,
++		std::vector<AudioSupplier::sample_t> &buf);
++#ifdef ES_LOW_MEMORY
++	void Fill() const;
++	std::filesystem::path path1x;
++	std::filesystem::path path3x;
++	mutable std::once_flag filled;
++	// (the buffers are filled by Fill on the first Buffer() call)
++	mutable
++#endif
+ 	std::vector<AudioSupplier::sample_t> buffer;
++#ifdef ES_LOW_MEMORY
++	mutable
++#endif
+ 	std::vector<AudioSupplier::sample_t> buffer3x;
++	std::string name;
+ 	bool isLooped = false;
+ };

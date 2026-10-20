@@ -7,3 +7,4 @@
 0007-Unit-tests-for-the-byte-order-premultiply-masks-WAV-.patch
 0009-ES_LOW_MEMORY-bound-the-decoded-images-waiting-for-u.patch
 0010-ES_LOW_MEMORY-halve-big-sprites-frame-by-frame-in-th.patch
+0011-ES_LOW_MEMORY-read-a-sound-s-samples-when-it-is-firs.patch
