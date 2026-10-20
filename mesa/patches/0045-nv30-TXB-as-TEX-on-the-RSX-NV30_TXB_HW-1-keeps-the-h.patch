@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Tue, 20 Oct 2026 14:09:27 +0300
+Subject: nv30: TXB as TEX on the RSX (NV30_TXB_HW=1 keeps the hardware's TXB)
+
+texture2D(s, uv, bias) becomes TGSI TXB, emitted as the fragment program's TXB (0x31) with the
+bias in .w. On the PS3's RSX that lookup samples wrong whatever the bias: Warzone 2100 4.3.5's 3D
+shaders (terrain, decals, models, all with a bias of 0) came out dark and flat. A shader mod that
+drew the same lookups in stripes showed TEX right, TXB with bias 0 and with bias -20 both wrong
+(2026-10-20, the webcam). The bias is now dropped and the lookup emitted as TEX: exact for bias 0,
+the hardware's own level choice for any other bias. NV30_TXB_HW=1 emits TXB as before, for tests;
+it is part of the disk shader cache's fragment program key.
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_shader_cache.c b/src/gallium/drivers/nouveau/nv30/nv30_shader_cache.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_shader_cache.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_shader_cache.c
+@@ -9,7 +9,7 @@
+  * apply as to the rest of the cache):
+  * - TGSI: key the serialized NIR the state tracker hands to create_{vs,fs}_state; value the TGSI
+  *   tokens nir_to_tgsi makes of it.
+- * - Fragment programs: key the TGSI tokens, the class (NV30/NV40) and NV40_FP_EXPORT32; value
++ * - Fragment programs: key the TGSI tokens, the class (NV30/NV40), NV40_FP_EXPORT32 and NV30_TXB_HW; value
+  *   the code as translated (constants not yet patched in: validate does that), its constant
+  *   slots and its control words.
+  * - Vertex programs: key the TGSI tokens, the class, the texcoord mapping of the fragment program
+@@ -257,7 +257,7 @@ nv30_shader_cache_fp_translate(struct nv30_context *nv30, struct nv30_fragprog *
+    }
+    fixed[0] = oclass;
+    fixed[1] = oclass >= NV40_3D_CLASS && debug_get_bool_option("NV40_FP_EXPORT32", true);
+-   fixed[2] = 0;
++   fixed[2] = debug_get_bool_option("NV30_TXB_HW", false);
+    fixed[3] = 0;
+    key_of(dc, SHC_FP, fixed, 4, fp->pipe.tokens,
+           tgsi_num_tokens(fp->pipe.tokens) * sizeof(struct tgsi_token), key);
+diff --git a/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c b/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c
+--- a/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c
++++ b/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c
+@@ -34,6 +34,7 @@ struct nvfx_fpc {
+    unsigned have_const;
+    unsigned is_nv4x;
+    bool export32;	/* colour from the fp32 registers R0/R2-R4 instead of H0/H4-H8 */
++   bool txb_hw;	/* TXB as the hardware's TXB (broken on the RSX) instead of TEX */
+ 
+    struct util_dynarray imm_data;
+ 
+@@ -751,7 +752,14 @@ nvfx_fragprog_parse_instruction(struct nvfx_fpc *fpc,
+                 nvfx_fp_emit(fpc, insn);
+                 break;
+         case TGSI_OPCODE_TXB:
+-                nvfx_fp_emit(fpc, tex(sat, TXB, unit, dst, mask, src[0], none, none));
++                /* The RSX's TXB samples wrong whatever the bias in .w (-20 or 0): Warzone 2100's
++                 * 3D shaders, all texture2D(s, uv, bias), came out dark and flat while the same
++                 * lookups as TEX were right. Without NV30_TXB_HW=1 the bias is dropped and the
++                 * lookup is a plain TEX: exact for bias 0, the level the hardware picks otherwise. */
++                if (fpc->txb_hw)
++                        nvfx_fp_emit(fpc, tex(sat, TXB, unit, dst, mask, src[0], none, none));
++                else
++                        nvfx_fp_emit(fpc, tex(sat, TEX, unit, dst, mask, src[0], none, none));
+                 break;
+         case TGSI_OPCODE_TXL:
+                 if(fpc->is_nv4x)
+@@ -1090,6 +1098,7 @@ _nvfx_fragprog_translate(uint16_t oclass, struct nv30_fragprog *fp)
+    fpc->export32 = fpc->is_nv4x && debug_get_bool_option("NV40_FP_EXPORT32", true);
+    if (fpc->export32)
+       fp->fp_control |= 0x00000040;
++   fpc->txb_hw = debug_get_bool_option("NV30_TXB_HW", false);
+    fpc->max_temps = fpc->is_nv4x ? 48 : 32;
+    fpc->fp = fp;
+    fpc->num_regs = 2;
