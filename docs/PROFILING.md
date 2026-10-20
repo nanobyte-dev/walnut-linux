@@ -795,7 +795,7 @@ measurable elsewhere.
 **The package.** `zlib-ng/` (TYPE upstream, the pinned 2.3.3 tarball, `config.mk` `ZLIBNG_*`) builds
 `libz-ng-compat`: only `libz.so.1` (zlib-compat API, symbol versions to `ZLIB_1.2.12`) in
 `/usr/lib/powerpc64-linux-gnu/zlib-ng`, which the linker never searches by itself, built
-`-mcpu=cell -mtune=cell`. A game opts in with `LD_LIBRARY_PATH` (the bench's `ZLIB=ng` token).
+`-mcpu=cell -mtune=cell`. Games get it through `LD_LIBRARY_PATH`: `ps3-game` sets it for every game since 2026-10-20 (`PS3_ZLIB=stock` off), and so does the bench (`ZLIB=stock` off).
 zlib-ng's 70 tests pass in the build (its googletest suite skips the VMX adler32 when POWER8 code is
 compiled in; checked separately: adler32 and crc32 over 8 MB match Debian's zlib, every decode above
 gives identical output). A binary that needs Debian 1.3.2's newer symbol versions (`ZLIB_1.3.1.2`,

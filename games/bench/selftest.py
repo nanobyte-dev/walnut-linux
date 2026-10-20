@@ -337,7 +337,7 @@ def fake_game(mode):
             f.write("%.6f\n" % time.time())
     for k in sorted(os.environ):
         if k.startswith(("NV30_", "MESA_SHADER_CACHE", "LD_DEBUG", "ALSOFT_CONF", "FLUIDSYNTH_", "JSIMD_",
-                         "LD_BIND_NOW", "LD_LIBRARY_PATH")):
+                         "LD_BIND_NOW", "LD_LIBRARY_PATH", "PS3_ZLIB")):
             say("env %s=%s" % (k, os.environ[k]))   # the switches the game got (client.sh's genv, libenv, shadercache)
     ft = open(os.path.join(hud, "frametime_(ms)"), "a", buffering=1) if hud else None
     fp = open(os.path.join(hud, "fps"), "a", buffering=1) if hud else None
@@ -742,6 +742,19 @@ def client_libenv(tmp):
           report.run(d).get("variant") == "base@zng+ldstock-openal", (gl[:400], report.run(d).get("variant")))
     p, d, b, gl = run(7, BENCH_LDPATH=str(tmp / "nowhere"))
     check("libenv: LDPATH without libraries: refused", p.returncode == 2 and "no libraries" in p.stdout, p.stdout[-300:])
+    p, d, b, gl = run(8)
+    check("libenv: zlib-ng by default: zlib=ng, its dir in LD_LIBRARY_PATH, no libenv, variant base",
+          p.returncode == 0 and b.get("zlib") == "ng" and "env LD_LIBRARY_PATH=%s" % zdir in gl and
+          not b.get("libenv") and report.run(d).get("variant") == "base", (b.get("zlib"), b.get("libenv"), gl[:400]))
+    p, d, b, gl = run(9, BENCH_ZLIB="stock")
+    check("libenv: ZLIB=stock: zlib=stock, PS3_ZLIB=stock, no zlib-ng dir, tag zstock",
+          p.returncode == 0 and b.get("zlib") == "stock" and "env PS3_ZLIB=stock" in gl and str(zdir) not in gl and
+          report.run(d).get("variant") == "base@zstock", (b.get("zlib"), gl[:400], report.run(d).get("variant")))
+    p, d, b, gl = run(10, BENCH_ZLIBNG_DIR=str(tmp / "nowhere"))
+    check("libenv: no libz-ng-compat and no token: stock, not refused (the PC reference)",
+          p.returncode == 0 and b.get("zlib") == "stock", (p.returncode, b.get("zlib"), p.stdout[-300:]))
+    p, d, b, gl = run(11, BENCH_ZLIB="zstd")
+    check("libenv: ZLIB=zstd: refused", p.returncode == 2, p.stdout[-300:])
 
 
 def client_ssdarm(tmp):

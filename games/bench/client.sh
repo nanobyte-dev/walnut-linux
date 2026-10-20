@@ -297,8 +297,10 @@ for v in $(compgen -v BENCH_NV30_); do GENV+=("${v#BENCH_}=${!v}"); done
 #   FLUIDFX=off|norev|nocho|cho1|on  FluidSynth's reverb and chorus whatever the game asks for
 #                   (FLUIDSYNTH_SETTINGS, our libfluidsynth3's patch 0002): both off, reverb off,
 #                   chorus off, one chorus line instead of three, both on
-#   ZLIB=ng         zlib-ng's compat libz.so.1 in front of zlib1g's (LD_LIBRARY_PATH=$ZLIBNG_DIR, our
-#                   libz-ng-compat; BENCH_ZLIBNG_DIR another directory)
+#   ZLIB=ng|stock   zlib-ng's compat libz.so.1 in front of zlib1g's (LD_LIBRARY_PATH=$ZLIBNG_DIR, our
+#                   libz-ng-compat; BENCH_ZLIBNG_DIR another directory), the default when it is
+#                   installed, as ps3-game does for the menu's games; stock: zlib1g's (PS3_ZLIB=stock
+#                   for ps3-game too). bench.txt gets zlib=ng|stock either way
 #   LDPATH=DIR      DIR in front of the game's LD_LIBRARY_PATH: copies of the libraries a package of
 #                   ours replaced (the stock libopenal.so.1, libvorbisfile.so.3, ...) for a same-boot A/B
 #   BINDNOW=1       LD_BIND_NOW=1: every symbol bound at start and dlopen instead of at its first call
@@ -328,11 +330,15 @@ if [ -n "${BENCH_FLUIDFX:-}" ]; then
 	env_add FLUIDSYNTH_SETTINGS "$fx"; LIBENV+=("FLUIDFX=$BENCH_FLUIDFX")
 fi
 LDPRE=	# directories in front of the game's LD_LIBRARY_PATH (ZLIB=ng, LDPATH=)
-if [ -n "${BENCH_ZLIB:-}" ]; then
-	[ "$BENCH_ZLIB" = ng ] || { echo "!! BENCH_ZLIB=$BENCH_ZLIB: ng"; exit 2; }
-	[ -e "$ZLIBNG_DIR/libz.so.1" ] || { echo "!! BENCH_ZLIB=ng: no $ZLIBNG_DIR/libz.so.1 (libz-ng-compat)"; exit 2; }
-	LDPRE=$ZLIBNG_DIR; LIBENV+=("ZLIB=ng")
-fi
+ZLIB_USED=stock
+case ${BENCH_ZLIB:-} in
+ng)	[ -e "$ZLIBNG_DIR/libz.so.1" ] || { echo "!! BENCH_ZLIB=ng: no $ZLIBNG_DIR/libz.so.1 (libz-ng-compat)"; exit 2; }
+	ZLIB_USED=ng; LIBENV+=("ZLIB=ng") ;;
+stock)	env_add PS3_ZLIB stock; LIBENV+=("ZLIB=stock") ;;
+'')	[ -e "$ZLIBNG_DIR/libz.so.1" ] && ZLIB_USED=ng ;;	# the default, silently stock without it (the PC reference)
+*)	echo "!! BENCH_ZLIB=$BENCH_ZLIB: ng or stock"; exit 2 ;;
+esac
+[ "$ZLIB_USED" = ng ] && LDPRE=$ZLIBNG_DIR
 if [ -n "${BENCH_LDPATH:-}" ]; then	# e.g. a copy of the libraries a package replaced, for a same-boot A/B
 	[ -d "$BENCH_LDPATH" ] && [ -n "$(ls "$BENCH_LDPATH"/*.so* 2>/dev/null)" ] ||
 		{ echo "!! BENCH_LDPATH=$BENCH_LDPATH: no libraries there"; exit 2; }
@@ -915,6 +921,7 @@ secs measured "$measured"
   [ ${#GENV[@]} -gt 0 ] && echo "genv=${GENV[*]}"
   [ -n "$OAL_TOKEN" ] && echo "oal=$OAL_TOKEN"
   [ ${#LIBENV[@]} -gt 0 ] && echo "libenv=${LIBENV[*]}"
+  echo "zlib=$ZLIB_USED"
   [ ${#KPARAM[@]} -gt 0 ] && echo "kparam=${KPARAM[*]}"
   [ -n "$GPF" ] && echo "gprefetch=$GPF"
   [ -n "$SC" ] && { echo "shadercache=$SC"; echo "shadercache_kb=${SC_KB:--} $(sc_kb || echo -)"; }

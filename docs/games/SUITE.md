@@ -78,8 +78,8 @@ against order bias. What a token can set:
 - Library switches ([SPU-AUDIO.md](../SPU-AUDIO.md), [PROFILING.md, "Load-time decoders and
   linking"](../PROFILING.md#load-time-decoders-and-linking)): `OAL=b16` or `OAL=b16,lin` OpenAL Soft's
   settings by `recipes/openal.inc`'s names on any variant of any game; `FLUIDFX=off|norev|nocho|cho1|on`
-  FluidSynth's reverb and chorus whatever the game asks for; `ZLIB=ng` zlib-ng's `libz.so.1` in front
-  (package `libz-ng-compat`); `LDPATH=DIR` a directory in front of the game's `LD_LIBRARY_PATH` (copies of
+  FluidSynth's reverb and chorus whatever the game asks for; zlib-ng's `libz.so.1` in front (package
+  `libz-ng-compat`) by default as in `ps3-game`, `ZLIB=stock` without it (bench.txt `zlib=`); `LDPATH=DIR` a directory in front of the game's `LD_LIBRARY_PATH` (copies of
   the libraries a package of ours replaced, for a same-boot A/B against the old version); `BINDNOW=1` (`LD_BIND_NOW`); `JSIMD=none|altivec` libjpeg-turbo's SIMD.
   A switch the installed library can't honour stops the run.
 
