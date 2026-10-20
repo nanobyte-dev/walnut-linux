@@ -67,6 +67,12 @@ if [ -n "${MODDIR:-}" ]; then
 	for m in ufs dm-mod; do [ -e "$MODDIR/$m.ko" ] && install -m 644 "$MODDIR/$m.ko" "$M/"; done
 else
 	KDEB=${KDEB:-$(ls build/debs/linux/linux-image-"$RELEASE"_*_ppc64.deb)}
+	# a kernel with ufs and dm-mod built in (CONFIG_UFS_FS=y, CONFIG_BLK_DEV_DM=y: the generic initramfs of
+	# docs/release/ALPHA.md M1) needs no modules here; /init then logs "built into the kernel?" for both
+	kcfg=$(dpkg-deb --fsys-tarfile "$KDEB" | tar -xO --wildcards "*/boot/config-$RELEASE")
+	if printf '%s\n' "$kcfg" | grep -qx CONFIG_UFS_FS=y && printf '%s\n' "$kcfg" | grep -qx CONFIG_BLK_DEV_DM=y; then
+		echo "   ufs and dm-mod are built into $RELEASE: no modules"
+	else
 	dpkg-deb --fsys-tarfile "$KDEB" | tar -x -C "$W" --wildcards "*/modules/$RELEASE/kernel/drivers/md/dm-mod.ko" \
 		"*/modules/$RELEASE/kernel/fs/ufs/ufs.ko"
 	for f in $(find "$W" -path "$W/tree" -prune -o -name '*.ko' -print); do
@@ -78,6 +84,7 @@ else
 		$STRIP --strip-debug "$M/$(basename "$f")"
 	done
 	[ -e "$M/ufs.ko" ] && [ -e "$M/dm-mod.ko" ] || { echo "ufs.ko or dm-mod.ko missing in $KDEB" >&2; exit 1; }
+	fi
 fi
 
 echo "== the write guard"

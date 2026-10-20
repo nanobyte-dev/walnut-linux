@@ -1,0 +1,145 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Tue, 20 Oct 2026 11:50:00 +0300
+Subject: ps3disk: fix the probe error unwind and the remove order of the
+ multi-region driver
+
+Two bugs of ps3/0010 (the guard agent's report of 2026-10-18):
+
+1. ps3disk_probe()'s error path ran "for (; devidx >= 0; devidx--)" with an
+   unsigned devidx: the condition is always true, so a failure in the first
+   regions wrapped the index and walked past the end of gendisk[] and
+   tag_set[] (or never ended). A failed device_add_disk() also went to
+   del_gendisk() on a disk that was never added. The unwind now counts the
+   regions that were set up completely (nr_done) and goes down from there;
+   the failed region's disk gets put_disk() only, and its tag set is freed
+   in place.
+
+2. ps3disk_remove() freed each disk and tag set but left the pointers in
+   priv->gendisk[]; the interrupt handler walks that array under priv->lock
+   to run the queues, so an interrupt during the remove (the cache sync
+   below it completes by interrupt) could use a freed gendisk. The pointer
+   is now cleared under the lock before put_disk(). ps3stor_teardown() also
+   freed the DMA region before free_irq(); it now frees the interrupt first,
+   the reverse of ps3stor_setup().
+
+Not booted: compile-tested only (docs/TESTS.md).
+
+Forwarded: no (the multi-region driver is the OtherOS++ patch set's, not upstream)
+
+diff --git a/drivers/block/ps3disk.c b/drivers/block/ps3disk.c
+--- a/drivers/block/ps3disk.c
++++ b/drivers/block/ps3disk.c
+@@ -706,7 +706,7 @@
+ 	struct ps3_storage_device *dev = to_ps3_storage_device(&_dev->core);
+ 	struct ps3disk_private *priv;
+ 	int error;
+-	unsigned int devidx;
++	unsigned int devidx, nr_done;
+ 	struct queue_limits lim;
+ 	struct gendisk *gendisk;
+ 
+@@ -767,7 +767,7 @@
+ 		error = blk_mq_alloc_sq_tag_set(&priv->tag_set[devidx], &ps3disk_mq_ops, 1,
+ 				BLK_MQ_F_SHOULD_MERGE);
+ 		if(error) {
+-			devidx--;
++			nr_done = devidx;
+ 			goto fail_free_tag_set;
+ 		}
+ 		gendisk = blk_mq_alloc_disk(&priv->tag_set[devidx], &lim, dev);
+@@ -776,7 +776,7 @@
+ 				__func__, __LINE__);
+ 			error = PTR_ERR(gendisk);
+ 			blk_mq_free_tag_set(&priv->tag_set[devidx]);
+-			devidx--;
++			nr_done = devidx;
+ 			goto fail_free_tag_set;
+ 		}
+ 		priv->gendisk[devidx] = gendisk;
+@@ -798,8 +798,14 @@
+ 			 get_capacity(gendisk) >> 11);			 	
+ 		error = device_add_disk(&dev->sbd.core, gendisk,
+ 					ps3disk_disk_groups);
+-		if (error)
++		if (error) {
++			/* not added: put_disk() only, del_gendisk() would be wrong */
++			put_disk(gendisk);
++			priv->gendisk[devidx] = NULL;
++			blk_mq_free_tag_set(&priv->tag_set[devidx]);
++			nr_done = devidx;
+ 			goto fail_free_tag_set;
++		}
+ 		dev_info(&dev->sbd.core,
+ 			 "%s (region %u id %u, start %llu, %llu sectors): write guard: %s\n",
+ 			 gendisk->disk_name, devidx, dev->regions[devidx].id,
+@@ -814,12 +820,15 @@
+ 	return 0;
+ 
+ fail_free_tag_set:
+-	for (; devidx >= 0; devidx--)
+-		if (priv->gendisk[devidx]) {
+-			del_gendisk(priv->gendisk[devidx]);
+-			put_disk(priv->gendisk[devidx]);
+-			blk_mq_free_tag_set(&priv->tag_set[devidx]);
+-		}		
++	/* the regions before the failed one are set up; devidx was unsigned, so
++	 * the old "devidx >= 0" never ended */
++	while (nr_done-- > 0)
++		if (priv->gendisk[nr_done]) {
++			del_gendisk(priv->gendisk[nr_done]);
++			put_disk(priv->gendisk[nr_done]);
++			priv->gendisk[nr_done] = NULL;
++			blk_mq_free_tag_set(&priv->tag_set[nr_done]);
++		}
+ 	ps3stor_teardown(dev);
+ fail_free_bounce:
+ 	kfree(dev->bounce_buf);
+@@ -836,12 +845,21 @@
+ 	struct ps3_storage_device *dev = to_ps3_storage_device(&_dev->core);
+ 	struct ps3disk_private *priv = ps3_system_bus_get_drvdata(&dev->sbd);
+ 	int devidx;
+-	for (devidx = 0; devidx < dev->num_regions; devidx++)
+-		if (priv->gendisk[devidx]) {
+-			del_gendisk(priv->gendisk[devidx]);
+-			put_disk(priv->gendisk[devidx]);
+-			blk_mq_free_tag_set(&priv->tag_set[devidx]);
+-		}
++	struct gendisk *gendisk;
++
++	for (devidx = 0; devidx < dev->num_regions; devidx++) {
++		gendisk = priv->gendisk[devidx];
++		if (!gendisk)
++			continue;
++		del_gendisk(gendisk);
++		/* the interrupt handler walks gendisk[] under the lock to run
++		 * the queues: drop the pointer before the disk is freed */
++		spin_lock_irq(&priv->lock);
++		priv->gendisk[devidx] = NULL;
++		spin_unlock_irq(&priv->lock);
++		put_disk(gendisk);
++		blk_mq_free_tag_set(&priv->tag_set[devidx]);
++	}
+ 	dev_notice(&dev->sbd.core, "Synchronizing disk cache\n");
+ 	ps3disk_sync_cache(dev);
+ 	ps3stor_teardown(dev);
+diff --git a/drivers/ps3/ps3stor_lib.c b/drivers/ps3/ps3stor_lib.c
+--- a/drivers/ps3/ps3stor_lib.c
++++ b/drivers/ps3/ps3stor_lib.c
+@@ -227,12 +227,14 @@
+ {
+ 	int error;
+ 
++	/* the reverse of ps3stor_setup(): no interrupt may run once the DMA
++	 * region it belongs to is gone */
++	free_irq(dev->irq, dev);
++
+ 	dma_unmap_single(&dev->sbd.core, dev->bounce_dma, dev->bounce_size,
+ 			 DMA_BIDIRECTIONAL);
+ 	ps3_dma_region_free(&dev->dma_region);
+ 
+-	free_irq(dev->irq, dev);
+-
+ 	error = ps3_sb_event_receive_port_destroy(&dev->sbd, dev->irq);
+ 	if (error)
+ 		dev_err(&dev->sbd.core,
