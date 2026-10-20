@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+Date: Tue, 20 Oct 2026 13:49:31 +0300
+Subject: ES_LOW_MEMORY: cheap ship outlines by default (the full outline
+ filter runs the nv40 fragment program out of temporaries)
+
+On the PS3 (ps3.602) Mesa's nv30 compiler printed 'out of temps!!' 36 times at the first
+outline draw (nvfx_fragprog.c: 48 temporaries on nv4x; outline.frag unrolls 2 x 9 x 8 lookups).
+The flight showed only the player's ship and the messages, no HUD, starfield, planet or asteroids.
+The GL2 plugin already has outlineLite (8 lookups) behind the 'Cheap ship outlines' preference,
+which the game only takes by itself when the full shader does not compile; it is on by default now.
+
+diff --git a/source/Preferences.cpp b/source/Preferences.cpp
+--- a/source/Preferences.cpp
++++ b/source/Preferences.cpp
+@@ -236,6 +236,10 @@ void Preferences::Load()
+ #ifdef ES_LOW_MEMORY
+ 	// Keeps the land, planet, star, outfit and thumbnail sprites out of memory until they are needed.
+ 	settings["Defer loading images"] = true;
++	// The full ship outline filter (144 texture lookups) needs more fragment program temporaries than
++	// the nv40 has (Mesa's nv30 driver: "out of temps", 36 times, and the HUD, the starfield and the
++	// planets did not show in the PS3's flight); outlineLite takes 8 lookups.
++	settings["Cheap ship outlines"] = true;
+ #endif
+ 
+ 	DataFile prefs(Files::Config() / "preferences.txt");
