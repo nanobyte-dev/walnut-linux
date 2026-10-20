@@ -207,8 +207,11 @@ mods) draws the 3D shaders in vertical stripes 120 px wide. The four modes repea
 edge: TEX without bias, TXB with bias -20, TXB with the game's bias 0, no texture (flat grey). On
 the PS3 the TEX stripe was fully right, terrain included (cobbled tiles, the "F1 F2" labels), and
 both TXB stripes were dark and flat. So the RSX's TXB samples wrong whatever the bias. Mesa patch
-0045 emits TXB as TEX; Warzone patch 0009 drops the bias argument when the bias is 0, so the game
-also works with a Mesa that doesn't have 0045. The variants `noaniso` (anisotropic filtering hidden)
+0045 emits TXB as TEX. Warzone patch 0009 drops the bias argument on the GLSL 1.20 path, so the
+game also works with a Mesa that doesn't have 0045. Its first version did that only for a bias of
+0 and changed nothing (ps3.629): the default LOD distance ("High", `lodDistanceBias` -50) makes the
+bias -0.5. Shaders captured under qemu with `MESA_SHADER_CAPTURE_PATH` showed it. ps3.633 drops the
+bias whatever the setting, so the LOD distance option does nothing on GLSL 1.20. The variants `noaniso` (anisotropic filtering hidden)
 and `tc0` (no DXT) ran in the same batch and were not needed for the answer.
 
 A trap for the qemu checks: Mesa's software S3TC decoding is wrong on big-endian (llvmpipe and
