@@ -199,6 +199,18 @@ qemu with OpenAL Soft's wave writer at the main menu: zero-crossing rate 0.44 wi
 the game's opusfile, built with its flags, matches amd64 within 8 LSB), and the Vorbis effects
 already asked ov_read for big-endian.
 
+The third run (ps3.619): the sound was right, and the user heard music and effects. The 3D view was
+dark: terrain black, structures flat and untextured. The UI was fine. Every 3D shader of the game
+samples through texture2D(tex, uv, bias) with a bias of 0, and the UI shaders call texture2D without
+one. The `stripes` variant of the recipe (assets/warzone2100-stripes, a shader mod in the autoload
+mods) draws the 3D shaders in vertical stripes 120 px wide. The four modes repeat from the left
+edge: TEX without bias, TXB with bias -20, TXB with the game's bias 0, no texture (flat grey). On
+the PS3 the TEX stripe was fully right, terrain included (cobbled tiles, the "F1 F2" labels), and
+both TXB stripes were dark and flat. So the RSX's TXB samples wrong whatever the bias. Mesa patch
+0045 emits TXB as TEX; Warzone patch 0009 drops the bias argument when the bias is 0, so the game
+also works with a Mesa that doesn't have 0045. The variants `noaniso` (anisotropic filtering hidden)
+and `tc0` (no DXT) ran in the same batch and were not needed for the answer.
+
 A trap for the qemu checks: Mesa's software S3TC decoding is wrong on big-endian (llvmpipe and
 softpipe: green comes back 0, so DXT textures look magenta), although the game's DXT blocks are
 byte-identical to the amd64 build's. Under qemu use `texturecompression=0`; the RSX decodes DXT in

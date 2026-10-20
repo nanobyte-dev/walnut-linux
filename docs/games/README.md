@@ -155,7 +155,7 @@ SDL3 (window framebuffer colours), LuaJIT (state allocation), SuperTuxKart (.spm
 
 ## Driver bugs the games found
 
-All fixed; no open GPU bug blocks a game.
+All fixed; no open GPU bug blocks a game (the TXB fix is built, its PS3 check pending).
 
 | Bug | Games it blocked | Fix |
 |---|---|---|
@@ -167,6 +167,7 @@ All fixed; no open GPU bug blocks a game.
 | No ARB_texture_rg on nv30 | dsda-doom GL, OpenTTD GL | a GL_LUMINANCE_ALPHA fallback in our dsda-doom, GL_LUMINANCE8 in our openttd |
 | Every X after the first started black: ps3rsx's reflip muted the video for an active CRTC with no framebuffer, and ps3fb's console blank muted it before X owned the GPU | every bench run | a1f1b91, 8baa747 (ps3rsx 0.219) |
 | No window manager under the bench's bare X: SDL fullscreen windows were never shown | all SDL games | client.sh starts Openbox (fa723f9) |
+| The RSX's fragment TXB (texture2D with a bias argument) samples wrong whatever the bias: dark, flat 3D (Warzone's stripes diagnostic: the same lookups as TEX right, as TXB with bias 0 or -20 wrong) | Warzone 2100 (all its 3D shaders); any GLSL or ARB program that passes a bias | Mesa 0045 (TXB emitted as TEX, the bias dropped; `NV30_TXB_HW=1` for tests), and Warzone patch 0009 for Mesa builds without it; not yet on the PS3 |
 
 Silent failures count as failures: a fragment program over nv30's limits keeps the previous one
 bound ("out of temps" on stderr) and a vertex program over them falls back to the CPU, so smoke runs

@@ -178,6 +178,7 @@ What the series does (numbers are the files in `mesa/patches/`; the full list is
 | 0014 | the 3D blit source stays 128-byte aligned |
 | 0015 to 0017, 0019 to 0031 | CPU-cost and submission patches: fewer fence and kref operations, no relocations on the PS3, no redundant cache invalidates, vertex-format, constant-buffer and texture-unit rewrites, submit when the GPU has caught up, fragment programs fetched from GART |
 | 0033 to 0040 | 8-bit vertex attributes to floats, fence-buffer recycling, query sleep instead of spin, staging reuse (0036 small uploads, 0040 big ones: `NV30_STAGING_POOL_MB`), limits on nouveau's system-memory copies, compressed upload for every game, the shader disk cache |
+| 0045 | fragment TXB emitted as TEX, the bias dropped: the RSX's TXB samples wrong whatever the bias (Warzone 2100's dark 3D view, 2026-10-20); `NV30_TXB_HW=1` keeps the hardware TXB for tests |
 
 Several of these have switches that default off or are neutral when measured; [HOTPATHS.md](HOTPATHS.md) and [games/README.md](games/README.md) say which. The facts behind patches 0004 to 0014 are in [RSX.md, "Mesa, KMS and X"](RSX.md#mesa-kms-and-x-on-the-driver). The list of driver bugs found by games, each with its fix, is in [games/README.md](games/README.md).
 
