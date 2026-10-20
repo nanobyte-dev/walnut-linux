@@ -71,8 +71,9 @@ divides 40% of OpenTTD's reverb ([SPU-AUDIO.md](../SPU-AUDIO.md#openal-soft-on-t
   the 16-bit default sounds the same (no limiter, no dither, as the float output had).
 - **Needs:** PS3 (same-boot, the stock libraries through `LDPATH=`), the user for the variants that
   change the sound.
-- **Status:** built (libopenal1, libvorbis0a/libvorbisfile3, libfluidsynth3 +ps3.549, ps3-system
-  0.549); the A/Bs are in [TESTS.md](../TESTS.md) "Next".
+- **Status:** measured (ssdroot5: OpenAL +2% on OpenArena, FluidSynth's reverb +3%, SuperTuxKart's
+  load -0.7 s from libvorbis) and the defaults since 2026-10-20: libopenal1, libvorbis0a/libvorbisfile3
+  and libfluidsynth3 +ps3.549 replace Debian's on the PS3 and in the image. Left: the stable publish.
 - **Source:** PLAN 3.9; [SPU-AUDIO.md](../SPU-AUDIO.md).
 
 ### SPU meshing for Luanti and ClassiCube

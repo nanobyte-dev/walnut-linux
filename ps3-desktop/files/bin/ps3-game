@@ -15,8 +15,15 @@
 # In game mode the game's own files are read back at its start, in disk order, from what it used
 # last time (ps3-game-prefetch game-watch, which the guard runs; its key is the command here):
 # PS3_GAME_PREFETCH_GAME=on|fetch|learn|off (default off: no gain measured), docs/STALLS.md "Game prefetch".
+# The game loads zlib-ng's compat libz.so.1 (libz-ng-compat, when installed) instead of zlib1g's:
+# its inflate and crc32 are faster on the PPE (SuperTuxKart's load -0.9 s, docs/TESTS.md 10-19).
+# Games only, not the system: PS3_ZLIB=stock keeps zlib1g's.
 G=/usr/lib/ps3/desktop/ps3-game-guard
+ZNG=/usr/lib/powerpc64-linux-gnu/zlib-ng
 [ $# -gt 0 ] || { echo "usage: ps3-game <command...>" >&2; exit 2; }
+if [ "${PS3_ZLIB:-ng}" != stock ] && [ -e "$ZNG/libz.so.1" ]; then
+	case :${LD_LIBRARY_PATH:-}: in *:$ZNG:*) ;; *) export LD_LIBRARY_PATH=$ZNG${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH} ;; esac
+fi
 # Started from the menu or the desktop, this script runs in ps3-desktop.slice, which game mode
 # freezes: it moves into a scope of ps3-game.slice first. Without a user manager: the game alone.
 if [ -z "${PS3_GAME_SCOPED:-}" ]; then

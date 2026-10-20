@@ -709,6 +709,14 @@ half: the test images split libpng to zlib 1.3 : 1 where SuperTuxKart's load has
 | OpenArena | zlib-ng | none: our ioquake3 reads pk3s through libdeflate |
 | every GL game | DT_RELR in Mesa (not built) | tens of ms |
 
+**Measured on the PS3, and the defaults since 2026-10-20.** SuperTuxKart's load: libpng1.6 30.3 to
+27.6 s, zlib-ng -0.9 s, our libvorbis -0.7 s; Sauerbraten's and OpenArena's loads didn't move
+(TESTS.md 10-19). Faster libraries become the defaults (the user, 2026-10-20). Our libpng16-16t64,
+libvorbis0a/libvorbisfile3, libopenal1 and libfluidsynth3 replace Debian's as upgrades, on the PS3
+and in the image. zlib-ng stays out of the system's libz.so.1 (dpkg, apt and sshd load it, and its
+deflate output differs from zlib's byte for byte), but every game started through `ps3-game` gets
+it: libz-ng-compat is a Recommends of ps3-desktop, and `PS3_ZLIB=stock` turns it off for a game.
+
 **libpng1.6.** `libpng1.6/` (Debian's source, 1.6.59-1) is built `-O3 -mcpu=cell -mtune=cell`, with
 Debian's `-DPNG_POWERPC_VSX=off` kept: libpng's own PowerPC option accepts AltiVec or VSX in its
 run-time check and would run VSX code on a Cell. The patch is `powerpc/filter_cell.h`, included by

@@ -75,7 +75,7 @@ The candidates, estimates from batch 17's pools (none run as an A/B):
 
 | Win | Estimate | Basis |
 |---|---|---|
-| zlib-ng (built: `libz-ng-compat`, opt-in `ZLIB=ng`) | SuperTuxKart L 1.8-2.7 s, Sauerbraten L 0.5-0.7 s, OpenArena 0 (already libdeflate) | zlib's part 0.31-0.56 of Debian zlib's estimated PPE cycles under qemu ([PROFILING.md](../PROFILING.md#load-time-decoders-and-linking)) |
+| zlib-ng (`libz-ng-compat`, measured ssdroot5: SuperTuxKart load -0.9 s; the default for games through `ps3-game` since 10-20) | SuperTuxKart L 1.8-2.7 s, Sauerbraten L 0.5-0.7 s, OpenArena 0 (already libdeflate) | zlib's part 0.31-0.56 of Debian zlib's estimated PPE cycles under qemu ([PROFILING.md](../PROFILING.md#load-time-decoders-and-linking)) |
 | libpng's filters without load-hit-stores, then in AltiVec (built: our `libpng1.6`; measured ssdroot6: SuperTuxKart load -2.8 s) | SuperTuxKart L 1.5-3 s | the filters are 57% of a PNG decode once zlib-ng is in, Paeth 47%; a register-carried Paeth cut its load-hit-stores from 1.6 to 0.12-0.29 a byte |
 | libjpeg-turbo's AltiVec | already used (source checked; `JSIMD=none` on the PS3 confirms) | AltiVec halves the instructions on SuperTuxKart's JPEGs |
 | Vorbis's 16-bit packing in AltiVec (built: our `libvorbis`) | SuperTuxKart L 0.6-0.9 s, part of Sauerbraten's audio thread | a third of a decode's estimated cycles was `ov_read`'s conversion |
@@ -89,7 +89,8 @@ The candidates, estimates from batch 17's pools (none run as an A/B):
 - **Risk:** low (library swaps and game patches, each behind its own A/B).
 - **Needs:** host for the builds, PS3 for the runs.
 - **Status:** zlib-ng (`libz-ng-compat` 2.3.3-1+ps3.549) and our libvorbis (1.3.7-3+ps3.549) are
-  built with their A/Bs in [TESTS.md](../TESTS.md) "Next"; libjpeg-turbo's AltiVec selection checked
+  measured (ssdroot5: SuperTuxKart's load -0.9 and -0.7 s, Sauerbraten's unchanged) and the defaults
+  since 2026-10-20 (zlib-ng for games through `ps3-game`, `PS3_ZLIB=stock` off); libjpeg-turbo's AltiVec selection checked
   in its source; our `libpng1.6` (+ps3.560) built and measured (SuperTuxKart's png group 4.0 to 1.6 s, load -2.8 s: [PROFILING.md](../PROFILING.md#libpng16-on-the-ps3)); Mesa's DT_RELR not built. The start-up profiles on the SSD root ran (ssdroot2 P1a): the disk is
   11-26% of a load now and the CPU items are what is left ([PROFILING.md](../PROFILING.md#start-up-profiles-on-the-ssd-root-batch-ssdroot2)):
   zlib, PNG, JPEG and audio decoders in SuperTuxKart, the map inflate in Sauerbraten, dynamic linking
