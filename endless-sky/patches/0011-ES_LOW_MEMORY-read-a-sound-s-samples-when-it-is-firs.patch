@@ -121,26 +121,22 @@ diff --git a/source/audio/Sound.h b/source/audio/Sound.h
  #include <string>
  
  
-@@ -40,8 +43,21 @@ public:
+@@ -40,8 +43,16 @@ public:
  
  
  private:
--	std::string name;
 +	static void ReadSamples(const std::shared_ptr<std::iostream> &in, uint32_t bytes,
 +		std::vector<AudioSupplier::sample_t> &buf);
-+#ifdef ES_LOW_MEMORY
++	// ES_LOW_MEMORY: Load only checks the files, Fill reads the samples on the first Buffer() call.
++	// (These members exist in every build: the unit tests are compiled without the definition.)
 +	void Fill() const;
 +	std::filesystem::path path1x;
 +	std::filesystem::path path3x;
 +	mutable std::once_flag filled;
-+	// (the buffers are filled by Fill on the first Buffer() call)
-+	mutable
-+#endif
- 	std::vector<AudioSupplier::sample_t> buffer;
-+#ifdef ES_LOW_MEMORY
-+	mutable
-+#endif
- 	std::vector<AudioSupplier::sample_t> buffer3x;
-+	std::string name;
++	mutable std::vector<AudioSupplier::sample_t> buffer;
++	mutable std::vector<AudioSupplier::sample_t> buffer3x;
+ 	std::string name;
+-	std::vector<AudioSupplier::sample_t> buffer;
+-	std::vector<AudioSupplier::sample_t> buffer3x;
  	bool isLooped = false;
  };
