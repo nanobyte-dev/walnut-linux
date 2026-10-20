@@ -219,6 +219,13 @@ softpipe: green comes back 0, so DXT textures look magenta), although the game's
 byte-identical to the amd64 build's. Under qemu use `texturecompression=0`; the RSX decodes DXT in
 hardware, so this doesn't apply to the console.
 
+A second trap, for the PS3 | PC sheets: the team colours change from run to run. The skirmish
+lobby shuffles them with `rand()` (`resetPlayerConfiguration` in multiint.cpp, seeded with the
+time in main.cpp) unless the config has `colourMP` (default -1, random), and the skirmish json has
+no colour key. The 2026-10-20 webcam photos of the base and stripes runs show player 0 in pink
+(13:29, warzone ps3.629, Mesa ps3.545), blue and orange (13:43 and 13:48, ps3.629, Mesa ps3.628)
+and yellow (14:28, ps3.633, Mesa ps3.628); the PC reference happened to get pink. A yellow base next to a pink one is not an endianness bug.
+
 ## Skipped
 
 - **Hedgewars 1.0.3**: our ppc64 engine (`hedgewars-engine`, FPU exceptions masked at start, patch
