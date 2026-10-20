@@ -161,6 +161,35 @@ it) from the user's own RollerCoaster Tycoon 2 CD. It unpacks the InstallShield 
 `unshield` and runs nothing from the disc; the package goes to `ps3-licensed` only
 (`tools/licensed-packages.txt`) and the data is never committed.
 
+**Warzone 2100 4.3.5** (our `warzone2100/`, the last release with a GL 2.1 renderer; recipe
+`warzone2100.sh`, its header has the settings and the PC's RAM numbers). The first PS3 smoke run
+(ssdroot6, ps3.566) had the HUD and the minimap but a black 3D view. Two causes, neither of them
+the GL 2.1 driver:
+
+- the game's own DXT encoder (etcpak) wrote broken blocks on big-endian: patch 0004 (ps3.586);
+- GCC 16.2 miscompiles stb_image_resize at `-O3 -mcpu=cell`: the AltiVec loop vectorizer gets the
+  4-channel horizontal downsampling loop wrong, so every mipmap level and every image that
+  `texturesize` scales down came out nearly black and transparent. Terrain sampled black, the
+  models' alpha test threw them away, the HUD (no mipmaps) was fine. Patch 0007 turns loop
+  vectorization off for that one file when the target has AltiVec but no VSX (ps3.617). See
+  [PACKAGING.md](../PACKAGING.md) for what this means for the other packages.
+
+How it was found (2026-10-20): the amd64 build on llvmpipe, cut down to the PS3's GL 2.1 extension
+list (`MESA_GL_VERSION_OVERRIDE=2.1`, `MESA_GLSL_VERSION_OVERRIDE=120`, `MESA_EXTENSION_OVERRIDE`
+minus everything nv47 lacks, ARB_texture_rg, ARB_texture_float and EXT_texture_array among them),
+renders the skirmish normally, so it is not a GL 2.1 limit. The ppc64 build under qemu-user with
+llvmpipe and with softpipe was black, as on the PS3. Shader overrides as an autoload mod showed the
+lightmap (fog of war) right and the textures black; logging each texture upload against the amd64
+run showed level 0 identical and level 1 down from 103538663 to 465002 (byte sum of a 512x512
+level). The game's compiled `stb_image_resize.cpp.o` reproduces it on its own; it takes
+`-mcpu=cell` (or 970, power6 with AltiVec), `-O3` and `-DNDEBUG` together, and `#pragma GCC
+novector` on that one loop fixes it.
+
+A trap for the qemu checks: Mesa's software S3TC decoding is wrong on big-endian (llvmpipe and
+softpipe: green comes back 0, so DXT textures look magenta), although the game's DXT blocks are
+byte-identical to the amd64 build's. Under qemu use `texturecompression=0`; the RSX decodes DXT in
+hardware, so this doesn't apply to the console.
+
 ## Skipped
 
 - **Hedgewars 1.0.3**: our ppc64 engine (`hedgewars-engine`, FPU exceptions masked at start, patch

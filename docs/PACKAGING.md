@@ -17,6 +17,7 @@ Decided 2026-10-15, with the packaging plan of 2026-10-16.
 - binutils 2.47 for the SPU, with one gas patch (`spu-toolchain/binutils/`): gas took `nop 127` for the `.nop` directive, which broke branch hints (the `hbrr` regression).
 - newlib 4.6.0 for the SPU, with seven patches (`spu-toolchain/newlib-4.6/`).
 - On the SPEs (2026-10-15) 1629 of 1677 execute tests pass, the same tests one by one as with binutils 2.33.1 and newlib 1.20.
+- A PPE miscompile to know about (2026-10-20): GCC 16.2's loop vectorizer at `-O3` with `-mcpu=cell` (AltiVec without VSX; `-mcpu=970` and `-mcpu=power6 -maltivec` too, `-O2` not) gets stb_image_resize's 4-channel horizontal downsampling loop wrong, and the result is near-black, transparent images. It needs `-DNDEBUG`, because the asserts inside the loop stop the vectorizer. Warzone 2100 is fixed (patch 0007, [games/smoke-tested.md](games/smoke-tested.md)). Any other package that builds stb_image_resize, or other float accumulation loops like it, at `-O3 -mcpu=cell` can hit the same bug (most CMake Release builds use `-O3`). A minimal C reproducer is still missing, so nothing has gone upstream yet.
 
 **Kernel.** 6.12 LTS (supported to December 2028), from Debian's `linux` source (trixie, 6.12.111-1) with our patches. Two flavours, named 2026-10-16:
 

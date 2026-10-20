@@ -29,7 +29,8 @@
 # (the Basis Universal encoder is off in our build): the game compresses RGBA pages to DXT5 itself
 # when it uploads (texturecompression=1, the default; 485 of 1348 textures), the rest is RGBA8 or
 # LUMINANCE (on big-endian the game's own DXT encoder, etcpak, made wrong blocks: black terrain and
-# missing models until patch 0004). First start only: the game writes its
+# missing models until patch 0004; GCC 16 at -O3 -mcpu=cell broke the mipmaps, made by stb_image_resize,
+# until patch 0007: games/smoke-tested.md). First start only: the game writes its
 # stats.db and caches in the config directory. Videos: the campaign videos (sequences.wz, the
 # warzone2100-video package) aren't installed; fmvmode is irrelevant to that, the game shows a
 # "Campaign videos are missing" notification at the menu and over the match until it is dismissed
