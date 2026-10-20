@@ -265,6 +265,17 @@ Rank 52. Fixed only once a game needs one; every game that hit them has a workar
 - **Status:** never tried.
 - **Source:** [archive/GAME-PLAN.md, "Driver work"](../archive/GAME-PLAN.md#driver-work-seeded-now-ranked-by-the-smoke-tests).
 
+### ps3fb's exception dump prints the wrong FIFO entries
+
+Rank 79. A graph exception dump (`ps3fb`, docs/dumps/) prints entries 4i..4i+3 for i = 0, 4, ...,
+28 of the 512-entry cache, not the ones around GET, and its G/P markers compare GET and PUT with i.
+It should print the 32 entries ending at GET. Details and how to read today's dumps: [RSX.md,
+"Errors and what wedges the GPU"](../RSX.md#errors-and-what-wedges-the-gpu) (task #29). Fixing it
+makes the next wedge diagnosable from one dump.
+
+- **Payoff:** diagnosis. **Effort:** S (ps3fb is in the kernel patches; a reboot to test).
+  **Needs:** host, a reboot. **Status:** not done.
+
 ### A failed buffer allocation must not crash
 
 Rank 75. A full GART or VRAM ended in a segfault in 6 runs.

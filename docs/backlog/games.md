@@ -159,6 +159,26 @@ Rank 33. Games that need someone at the controller, or that are new.
   the menu-only games and Nexuiz are in TESTS.md Next.
 - **Source:** PLAN 1.11, 1.12; [archive/GAME-PLAN.md, "Smoke tests"](../archive/GAME-PLAN.md#smoke-tests-not-benchmarked), ["Nexuiz Classic"](../archive/GAME-PLAN.md#nexuiz-classic-on-darkplaces-gl2-built-2026-10-18-not-run-on-the-ps3).
 
+### Games to smoke next, and Wesnoth's music
+
+Rank 76. Novel games that have never been started on the PS3 (the user's order: novel first).
+
+- **GAME-REEVAL's "try now" list** ([research/GAME-REEVAL.md](../research/GAME-REEVAL.md), "Merged
+  ranking"): DevilutionX (shareware `spawn.mpq`), fheroes2 (HoMM2 demo data), UFO:AI (ppc64 binary
+  in main, est. 400-900 MB, a candidate band), ET:Legacy (measure fps first), EDuke32 (Duke3D
+  shareware), VVVVVV (private build only, licence). Also Micropolis (packaging only). With the
+  user's own data: Exult, OpenXcom/OXCE (vanilla first), iortcw.
+- **Xonotic 0.8.6**: the release engine still has the GL 2.0 path (the GLES2 path of engine master
+  is no way out). Package it as `xonotic-gl2` after Nexuiz runs on `darkplaces-gl2`; 1.2 GB of
+  data, RAM is the risk. Steps in [research/gl3-census/README.md](../research/gl3-census/README.md)
+  ("2. Xonotic 0.8.6").
+- **Wesnoth's music package** is not installed on the PS3: game.log is full of `cannot open track
+  '*.ogg'` and there is only the effects' sound ([games/smoke-tested.md](../games/smoke-tested.md),
+  Wesnoth). Install the music deb, then repeat the `ai` smoke run and listen (the user, by ear).
+
+- **Payoff:** more games for the suite. **Effort:** S each. **Needs:** PS3; disk space first (see
+  "The SSD root image is nearly full" in [platform.md](platform.md)). **Status:** not started.
+
 ### Neverball: a longer replay
 
 Rank 40. A replay of about 60 s played by the user.
@@ -247,11 +267,6 @@ decide not to. They are not ranked.
 
 ## Not pursued
 
-- **Hedgewars**: Debian builds no ppc64 binary (two engine Lua tests fail, one a floating-point
-  exception, one a physics divergence). The way that might work, pas2c and clang as on ppc64el,
-  means hours under qemu with no guarantee the C engine is big-endian clean, plus a Qt5 frontend on
-  217 MB of RAM. Not started.
-- **Wesnoth**: 2-4 GB of RAM, and Debian doesn't build it for ppc64 (Boost).
 - **dsda-doom's software renderer**: the GL renderer is the way (38 fps software).
 
 Older versions and the dated history: [archive/GAME-PLAN.md](../archive/GAME-PLAN.md),

@@ -70,6 +70,38 @@ Rank 34. What the SSD image still needs before it can stand without the USB disk
 - **Needs:** host, PS3, the user for the boots. **Status:** designs and a draft, nothing run.
 - **Source:** PLAN 1.14; [archive/GAMEOS-HDD.md, "Later"](../archive/GAMEOS-HDD.md#later-for-a-release-not-needed-for-the-benchmark), ["The image header"](../archive/GAMEOS-HDD.md#the-image-header-design-2026-10-19-not-built), ["/boot on dev_hdd1 kept alive by webMAN"](../archive/GAMEOS-HDD.md#boot-on-dev_hdd1-kept-alive-by-webman-proposed-2026-10-18-not-tried).
 
+### The SSD root image is nearly full
+
+Rank 77. The root is a 15 GiB ext4 in a 16 GiB file and about 83% full (2026-10-20). Many more
+games, or Nexuiz (about 800 MB) and Xonotic (1.2 GB), need room first.
+
+- Growing the file needs a GameOS-side upload of a larger stamped image (the user's step; the
+  16 GiB file is uploaded to `dev_hdd0` and mapped, [GAMEOS-HDD.md](../GAMEOS-HDD.md)), so
+  it is decided before the next batch of games, not during one.
+- **Payoff:** room for the games on the list. **Effort:** M. **Needs:** the user. **Status:** not
+  started.
+
+### ps3disk multi-region (linux/patches/ps3/0010): two bugs
+
+Rank 78. Reported 2026-10-18, not fixed. Both are in `ps3disk_probe` and `ps3disk_remove` of
+[0010-ps3stor-multiple-regions.patch](../../linux/patches/ps3/0010-ps3stor-multiple-regions.patch);
+neither has been hit on the console (the probe succeeds and remove runs at shutdown).
+
+- **The probe error path can loop forever.** `devidx` is `unsigned int`, and `fail_free_tag_set`
+  runs `for (; devidx >= 0; devidx--)`, which is always true; at 0 it wraps and walks
+  `priv->gendisk[]` off its end. It starts when `blk_mq_alloc_sq_tag_set`, `blk_mq_alloc_disk` or
+  `device_add_disk` fails. A signed index (or a count-down loop on `devidx + 1`) fixes it.
+- **Remove can let an interrupt touch freed memory.** `ps3disk_remove` deletes every gendisk and
+  frees its tag set, but leaves the pointers in `priv->gendisk[]` and calls `ps3stor_teardown`
+  (which frees the interrupt) last. `ps3disk_interrupt` still walks `priv->gendisk[]` and calls
+  `blk_mq_run_hw_queues(gdisk->queue)` on each non-NULL entry, so a completion arriving in that
+  window uses a freed queue. `.shutdown` is the same function. Fix: clear each pointer under
+  `priv->lock` as it is released (or tear the interrupt down first).
+- **Payoff:** a kernel that survives a failed probe and a clean remove. **Effort:** S (host build;
+  boot test by the user). **Risk:** low; the disk paths are the guard's too, so test with the guard
+  on. **Status:** the fix is being written as kernel local/0048 for the next kernel build; untested
+  until that kernel boots.
+
 ### A Linux region on the internal SSD
 
 Rank 61. A real OtherOS++ region (`ps3dd`) instead of an image file; plus a watch on the USB disk.

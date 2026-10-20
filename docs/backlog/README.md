@@ -102,6 +102,10 @@ release), [hardware.md](hardware.md) (backups, fan, lv1, out of scope).
 | 73 | [Sauerbraten data files, and a clean SuperTuxKart config](games.md#sauerbraten-data-files-and-a-clean-supertuxkart-config) | picture closer to the PC's, a clean log | S | host, PS3 | - | - |
 | 74 | [Mesa nv30 messages in the logs](games.md#mesa-nv30-messages-in-the-logs) | fallbacks we cannot see now | S | PS3 | - | - |
 | 75 | [A failed buffer allocation must not crash](graphics.md#a-failed-buffer-allocation-must-not-crash) | no segfault at the GART/VRAM limit | M | host, PS3 | - | - |
+| 76 | [Games to smoke next, and Wesnoth's music](games.md#games-to-smoke-next-and-wesnoths-music) | novel games for the suite | S each | PS3 | - | - |
+| 77 | [The SSD root image is nearly full](platform.md#the-ssd-root-image-is-nearly-full) | room for more games | M | user | - | - |
+| 78 | [ps3disk multi-region (linux/patches/ps3/0010): two bugs](platform.md#ps3disk-multi-region-linuxpatchesps30010-two-bugs) | a failed probe and a remove that are safe | S | host, user | - | - |
+| 79 | [ps3fb's exception dump prints the wrong FIFO entries](graphics.md#ps3fbs-exception-dump-prints-the-wrong-fifo-entries) | wedges diagnosable from one dump | S | host, a reboot | - | - |
 | 72 | [Host tests run automatically](platform.md#host-tests-run-automatically) | tests that run without someone remembering | S-M | host | 5.9 | - |
 
 Parked by CLAUDE.md, not ranked: [video decoding on the SPEs](spu.md#video-decoding-on-the-spes)
@@ -160,7 +164,6 @@ Reasoned:
   buffers are read every frame they are seen; a buffer's vertex layout isn't known at upload.
 - **A newer CFW PUP** (no Linux gain, it outdates the NOR dump), **a custom lv1 in CoreOS**, **RSX
   overclocking** (nothing cools it under Linux).
-- **Hedgewars** (pas2c on ppc64: hours under qemu, no guarantee) and **Wesnoth** (2-4 GB of RAM).
 
 ## Postponed by the user's rules
 
