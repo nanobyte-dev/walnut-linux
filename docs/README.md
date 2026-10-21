@@ -5,7 +5,7 @@ top level, research (read or reasoned, not measured on our console) in `research
 in `backlog/`, games in `games/`, and the superseded originals in `archive/`. Start with
 [PLAN.md](PLAN.md) for where things stand, then [games/README.md](games/README.md) for how each
 game plays. The project's rules, safety rules first, are in [CLAUDE.md](../CLAUDE.md); the repo
-layout and the build commands are in the top-level [README.md](../README.md).
+layout and the build commands are in [LAYOUT.md](LAYOUT.md).
 
 ## The plan and the test log
 

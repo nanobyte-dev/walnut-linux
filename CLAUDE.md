@@ -1,9 +1,9 @@
 # PS3 / RSX tinkering
 
-The docs are indexed in docs/README.md. The plan is in docs/PLAN.md, the PS3 test log in docs/TESTS.md, background facts in docs/research/RESEARCH.md, measured GPU facts in docs/RSX.md, packaging and the apt repository in docs/PACKAGING.md, layout and usage in README.md. Read them at the start of a session.
+The docs are indexed in docs/README.md. The plan is in docs/PLAN.md, the PS3 test log in docs/TESTS.md, background facts in docs/research/RESEARCH.md, measured GPU facts in docs/RSX.md, packaging and the apt repository in docs/PACKAGING.md, layout and usage in docs/LAYOUT.md. Read them at the start of a session.
 
 ## Project hygiene
-- Keep the layout in README.md. Sources/config are tracked; anything generated goes under build/.
+- Keep the layout in docs/LAYOUT.md. Sources/config are tracked; anything generated goes under build/.
 - Never delete what we publish: official package versions on the repository server (distribution `ps3` and
   its image snapshots) are kept forever, and so is `build/aptly` (its database, backed up to the server).
   Everything else under build/ is ephemeral (local debs, images, chroots, source and work trees, build/old,
