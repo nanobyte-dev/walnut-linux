@@ -364,5 +364,27 @@ class TestInternalDryRun(unittest.TestCase):
         self.assertIn("select 'walnut'", output)
 
 
+
+
+class TestReviewFixes(unittest.TestCase):
+    def test_root_disk_found_through_lvm(self):
+        """the root is /dev/mapper/vg-root on /dev/sdb2: /dev/sdb is refused even if it looked like USB"""
+        m = walnut_install
+        def runner(cmd):
+            if cmd[:3] == ["lsblk", "-dno", "TYPE"]: return "disk"
+            if cmd[:3] == ["lsblk", "-dno", "TRAN"]: return "usb"
+            if cmd[:3] == ["lsblk", "-no", "MOUNTPOINT"]: return ""
+            if cmd[:3] == ["lsblk", "-nso", "NAME"]: return "vg-root\n`-sdb2\n  `-sdb\n"
+            return "X"
+        mounts = "/dev/mapper/vg-root / ext4 rw 0 0\n"
+        with self.assertRaises(ValueError):
+            m.check_usb_disk("/dev/sdb", cmd_runner=runner, mounts_text=mounts)
+
+    def test_sudo_rerun_uses_an_existing_option(self):
+        src = INSTALLER_PATH.read_text()
+        self.assertIn('"--yes",   # confirmed above', src)   # the re-run's flag is a defined option
+        self.assertIn('add_argument("--yes"', src)
+
+
 if __name__ == "__main__":
     unittest.main()

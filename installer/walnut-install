@@ -274,12 +274,13 @@ def check_usb_disk(disk: str, cmd_runner=None, mounts_text=None) -> dict:
     if root_dev:
         if root_dev == disk or root_dev.startswith(disk) or os.path.basename(root_dev).startswith(disk_base):
             raise ValueError(f"{disk} contains the PC root filesystem; refusing to write")
+        # every disk under the root file system (through LVM, dm-crypt, RAID: lsblk -s walks down)
         try:
-            pkname = cmd_runner(["lsblk", "-no", "PKNAME", root_dev]).strip()
-            if pkname and (pkname == disk_base or f"/dev/{pkname}" == disk):
-                raise ValueError(f"{disk} is the PC root disk (holds {root_dev}); refusing to write")
+            parents = cmd_runner(["lsblk", "-nso", "NAME", root_dev]).split()
         except Exception:
-            pass
+            parents = []
+        if disk_base in [n.strip("`|-\u2502\u251c\u2514\u2500 ") for n in parents]:
+            raise ValueError(f"{disk} is the PC root disk (holds {root_dev}); refusing to write")
 
     # 4. Mounted check (disk itself or any of its partitions)
     if mounts:
@@ -551,7 +552,7 @@ def cmd_usb(args):
             "--release-dir", os.path.abspath(args.release_dir),
             "--disk", args.disk,
             "--swap-gib", str(args.swap_gib),
-            "--confirmed",
+            "--yes",   # confirmed above; the disk checks run again as root
         ]
         os.execvp("sudo", cmd)
 
