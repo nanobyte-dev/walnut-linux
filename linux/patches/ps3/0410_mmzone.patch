@@ -1,7 +1,10 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: PS3 Linux project <ps3@localhost>
+From: psx-place PS3 patch set (author not recorded) <>
 Date: Fri, 16 Oct 2026 01:28:43 +0300
 Subject: 0410_mmzone.patch
+
+Origin: the psx-place PS3 patch set by Sombat Tragoongoson, a fix added after glevand's
+ OtherOS++ set; the original author is not recorded. Taken from https://github.com/damiandudycz/ps3 (files/kernel-patches/psx-place-Sombat-Tragoongoson/6.12).
 
 diff --git a/include/linux/mmzone.h b/include/linux/mmzone.h
 --- a/include/linux/mmzone.h

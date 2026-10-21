@@ -1,7 +1,11 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: PS3 Linux project <ps3@localhost>
+From: glevand <geoffrey.levand@mail.ru>
 Date: Fri, 16 Oct 2026 01:28:43 +0300
 Subject: 0080-ps3dispmgr.patch
+
+Origin: glevand's OtherOS++ patch set, refreshed for 6.12 by Sombat Tragoongoson
+ (psx-place), taken from https://github.com/damiandudycz/ps3 (files/kernel-patches/psx-place-Sombat-Tragoongoson/6.12).
+Co-authored-by: graf_chokolo <grafchokolo@gmail.com>
 
 diff --git a/arch/powerpc/include/asm/ps3.h b/arch/powerpc/include/asm/ps3.h
 --- a/arch/powerpc/include/asm/ps3.h

@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: PS3 Linux project <ps3@localhost>
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Date: Tue, 20 Oct 2026 01:40:00 +0300
 Subject: ALSA: snd_ps3: restart a DMA chain that stopped, and interrupt stats
 

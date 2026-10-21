@@ -1,8 +1,11 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: ps3 <ps3@local>
+From: glevand <geoffrey.levand@mail.ru>
 Date: Tue, 13 Oct 2026 23:52:00 +0300
 Subject: 0010-ps3stor-multiple-regions.patch (hunk 3 dropped: already fixed
  upstream)
+
+Origin: glevand's OtherOS++ patch set, refreshed for 6.12 by Sombat Tragoongoson
+ (psx-place), taken from https://github.com/damiandudycz/ps3 (files/kernel-patches/psx-place-Sombat-Tragoongoson/6.12).
 
 diff --git a/arch/powerpc/include/asm/ps3stor.h b/arch/powerpc/include/asm/ps3stor.h
 --- a/arch/powerpc/include/asm/ps3stor.h
