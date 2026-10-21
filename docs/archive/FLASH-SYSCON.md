@@ -249,7 +249,7 @@ Notes on the classes:
 
 | Backup | State (computed locally 2026-10-18) |
 |---|---|
-| `backups/FLASH-NOR-FW4.92-20261013-232254.bin` | 16,777,216 bytes, SHA-256 `(the NOR dump SHA-256, kept with the dump, not published)`. Software dump by xai_plugin "Dump Flash" on 2026-10-13, **before** the OtherOS install |
+| `backups/FLASH-NOR-FW4.92-20261013-232254.bin` | 16,777,216 bytes, SHA-256 kept with the dump (not published). Software dump by xai_plugin "Dump Flash" on 2026-10-13, **before** the OtherOS install |
 | `….bin.checklog.txt` | PyPS3checker: 155 checks, **0 dangers, 0 warnings**; SKU match CECH-20xx (DYN-001); ros0 4.92 Evilnat Cobra CEX, ros1 4.75 CEX patched, both hashes recognised; per-console nonce and EXTNOR hashes match |
 | `cfw_settings-….log` | xai_plugin log (contains console IDs: private, never paste it anywhere) |
 

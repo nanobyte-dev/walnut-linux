@@ -13,7 +13,7 @@ one in [the ranked list](README.md). Terms: [glossary](../README.md#glossary).
 Rank 11. The read-only dumps xai_plugin makes from the XMB, stored encrypted off the PC.
 
 **Why.** The one NOR dump (`backups/FLASH-NOR-FW4.92-20261013-232254.bin`, 16,777,216 bytes,
-SHA-256 `(the NOR dump SHA-256, kept with the dump, not published)`, PyPS3checker 0 dangers and 0 warnings) is the only way back today, it was
+SHA-256 kept with the dump (not published), PyPS3checker 0 dangers and 0 warnings) is the only way back today, it was
 taken before the OtherOS install, and it sits only on this PC's nearly full /home. The SYSCON EEPROM
 half (bank flag, SPU count, tokens, thermal config, error log) has no backup at all, and neither has
 VFLASH or GameOS's own data. After any PUP install the active CoreOS bank flips, so a dump must be
