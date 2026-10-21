@@ -11,12 +11,14 @@ half-written file:
   site      static files -> site/<id>/, built into the image walnut-site:<id> with the server-side
             Dockerfile and nginx.conf (a bundle can change content, never config), then the
             walnut-repo container is switched to it; back to the old one if it is not healthy
-  download  a release directory -> www/download/<id>/ in one rename; releases never change
+  download  a release directory -> www/download/<id>/ in one rename; releases never change. It must
+            hold SHA256SUMS and SHA256SUMS.asc, a detached signature by the archive key
+            (keys/archive-keyring.gpg), and SHA256SUMS must list every other file with its hash
   apt       an aptly publish tree (pool/, dists/<suite>/) -> www/apt/; licensed: the same -> www/licensed/.
             New pool files first (a pool file that exists must be identical: published files
             never change), then each suite's dists in a new generation directory, switched with
-            one symlink rename. Every file the new indices name must exist first, and with
-            keys/archive-keyring.gpg present, InRelease must be signed by it. by-hash files of
+            one symlink rename. Every file the new indices name must exist first, and each
+            InRelease must be signed by the archive key (keys/archive-keyring.gpg). by-hash files of
             the old generation are carried over, so a client in the middle of an update still
             finds the indices it was told about.
 
@@ -174,10 +176,48 @@ def files_under(top):
 
 # --- download --------------------------------------------------------------------------------
 
+def verify_signature(what, *files, output=None):
+	"""gpgv against the archive keyring only: no keyring, no publish. Status lines, not the exit
+	code alone, decide: one VALIDSIG and no BADSIG/ERRSIG/EXPKEYSIG/REVKEYSIG."""
+	if not os.path.isfile(KEYRING):
+		raise Refused(f"{what}: no archive keyring on the server ({KEYRING}): nothing signed can be checked")
+	home = f"{STATE}/gnupg"
+	os.makedirs(home, 0o700, exist_ok=True)
+	out = ["--output", output] if output else []
+	r = subprocess.run(["gpgv", "--homedir", home, "--status-fd", "1", "--keyring", KEYRING, *out, *files],
+	                   capture_output=True, text=True)
+	status = [l.split()[1] for l in r.stdout.splitlines() if l.startswith("[GNUPG:] ")]
+	bad = {"BADSIG", "ERRSIG", "EXPKEYSIG", "REVKEYSIG", "EXPSIG", "NO_PUBKEY"} & set(status)
+	if r.returncode or bad or status.count("VALIDSIG") != 1:
+		raise Refused(f"{what}: not signed by the archive key ({', '.join(sorted(bad)) or 'gpgv ' + str(r.returncode)})\n"
+		              f"{r.stderr.strip()[-500:]}")
+
+
 def publish_download(bid, staging):
 	target = f"{WWW}/download/{bid}"
 	if os.path.lexists(target):
 		raise Refused(f"download/{bid} exists: a release never changes, upload a new version")
+	sums, sig = f"{staging}/SHA256SUMS", f"{staging}/SHA256SUMS.asc"
+	if not os.path.isfile(sums) or not os.path.isfile(sig):
+		raise Refused("a release needs SHA256SUMS and its signature SHA256SUMS.asc")
+	verify_signature("SHA256SUMS", sig, sums)
+	listed = {}
+	with open(sums, encoding="utf-8") as f:
+		for n, line in enumerate(f, 1):
+			m = re.fullmatch(r"([0-9a-f]{64}) [ *](\S.*)", line.rstrip("\n"))
+			if not m:
+				raise Refused(f"SHA256SUMS line {n} is not '<sha256>  <file>'")
+			name = m.group(2).removeprefix("./")
+			for part in name.split("/"):
+				check_name(part, "file")
+			listed[name] = m.group(1)
+	have = {rel for rel, _ in files_under(staging)} - {"SHA256SUMS", "SHA256SUMS.asc"}
+	if have != set(listed):
+		raise Refused(f"SHA256SUMS and the release differ: unlisted {sorted(have - set(listed))[:5]}, "
+		              f"missing {sorted(set(listed) - have)[:5]}")
+	for name, want in listed.items():
+		if sha256_file(f"{staging}/{name}") != want:
+			raise Refused(f"{name}: does not match SHA256SUMS")
 	os.rename(staging, target)
 	return f"download/{bid}"
 
@@ -209,6 +249,32 @@ def index_files(text, sources):
 	return out
 
 
+def check_release_hashes(suite, sdir, signed):
+	"""Every index file in the suite must be the one the signed Release text names (its SHA256
+	section), so the indices read below, and served, are the signed ones."""
+	with open(signed, encoding="utf-8", errors="replace") as f:
+		text = f.read()
+	m = re.search(r"^SHA256:\n((?: .*\n?)+)", text, re.M)
+	if not m:
+		raise Refused(f"dists/{suite}: the signed Release has no SHA256 section")
+	named = {}
+	for l in m.group(1).splitlines():
+		h, size, name = l.split()
+		named[name] = (h, int(size))
+	for rel, p in files_under(sdir):
+		if rel in ("InRelease", "Release", "Release.gpg") or "/by-hash/" in f"/{rel}":
+			continue
+		if rel not in named:
+			raise Refused(f"dists/{suite}/{rel}: not named in the signed Release")
+		h, size = named[rel]
+		if os.path.getsize(p) != size or sha256_file(p) != h:
+			raise Refused(f"dists/{suite}/{rel}: does not match the signed Release")
+	for rel, p in files_under(sdir):
+		parts = rel.split("/")
+		if "by-hash" in parts and parts[-2] == "SHA256" and sha256_file(p) != parts[-1]:
+			raise Refused(f"dists/{suite}/{rel}: by-hash file does not match its name")
+
+
 def publish_repo(kind, bid, staging):
 	prefix = f"{WWW}/{kind}"
 	top = set(os.listdir(staging))
@@ -221,11 +287,10 @@ def publish_repo(kind, bid, staging):
 		cur = f"{prefix}/dists/{s}"
 		if os.path.exists(cur) and not os.path.islink(cur):
 			raise Refused(f"{kind}/dists/{s} is a real directory, not a generation symlink: move it by hand")
-		if os.path.exists(KEYRING):
-			r = subprocess.run(["gpgv", "--keyring", KEYRING, f"{staging}/dists/{s}/InRelease"],
-			                   capture_output=True, text=True)
-			if r.returncode:
-				raise Refused(f"dists/{s}/InRelease: not signed by the archive key\n{r.stderr.strip()}")
+		signed = f"{staging}/.Release-{s}"
+		verify_signature(f"dists/{s}/InRelease", f"{staging}/dists/{s}/InRelease", output=signed)
+		check_release_hashes(s, f"{staging}/dists/{s}", signed)
+		os.unlink(signed)
 	# published pool files never change; new ones must not clash
 	new_pool = []
 	for rel, p in (files_under(f"{staging}/pool") if "pool" in top else ()):

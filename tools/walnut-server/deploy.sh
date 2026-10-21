@@ -30,6 +30,12 @@ ssh "$host" "umask 022; mkdir -p $DIR/{incoming/{site,download,apt,licensed},www
 	chmod 755 $DIR $DIR/{incoming,incoming/*,www,www/*,site,state,bin,keys,upload-keys}"
 rsync -rt --chmod=D755,F644 docker-compose.yml Dockerfile nginx.conf upload "$host:$DIR/"
 rsync -t --chmod=755 walnut-watch "$host:$DIR/bin/"
+# the archive key's public half: releases and apt suites are published only when signed by it
+if [ -s archive-keyring.gpg ]; then
+	rsync -t --chmod=644 archive-keyring.gpg "$host:$DIR/keys/"
+else
+	echo "-- no archive-keyring.gpg yet: releases and apt suites are refused until there is one"
+fi
 ssh "$host" "rm -f $DIR/www/index.html"	# the first placeholder, now in the site
 
 # the upload container's host key, made once, pinned here
