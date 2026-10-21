@@ -154,6 +154,18 @@ class Kboot(unittest.TestCase):
                  PS3_HDD1_BOOT="sh " + str(HERE.parent / "ps3-hdd1-boot"))
         return subprocess.run(["sh", str(SCRIPT)], env=e, capture_output=True, text=True, timeout=30), h
 
+    def test_dpkg_temporary_files_are_not_kernels(self):
+        """mid-upgrade dpkg leaves vmlinux-<release>.dpkg-tmp: never an entry, on the root or on dev_hdd1"""
+        (self.r / "boot" / ("vmlinux-" + REL + ".dpkg-tmp")).write_bytes(b"\0")
+        (self.r / "boot" / ("vmlinux-" + REL + ".dpkg-new")).write_bytes(b"\0")
+        lines, out = self.run_it()
+        self.assertNotIn("dpkg-", "\n".join(lines))
+        (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i")
+        p, h = self.hdd1()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertNotIn("dpkg-", (h / "kboot.conf").read_text())
+        self.assertEqual([f.name for f in (h / "linux/boot").iterdir() if "dpkg" in f.name], [])
+
     def test_hdd1_refuses_without_image_root(self):
         (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i")
         (self.r / "etc/default/ps3-boot").write_text('PS3_ROOT_ARGS="root=/dev/sda2"\nPS3_BOOT_TARGET=hdd1\n')

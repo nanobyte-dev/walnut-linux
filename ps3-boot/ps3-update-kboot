@@ -39,7 +39,8 @@ fi
 . "$DEFAULTS"
 
 # newest first, in Debian's kernel version order (linux-base), which knows about ~ and +
-releases=$(ls $R/boot/vmlinux-* 2>/dev/null | sed "s|^$R/boot/vmlinux-||")
+# dpkg's temporary names during an upgrade (vmlinux-<release>.dpkg-tmp, .dpkg-new, ...) are not kernels
+releases=$(ls $R/boot/vmlinux-* 2>/dev/null | grep -v '\.dpkg-[a-z]*$' | sed "s|^$R/boot/vmlinux-||")
 if command -v linux-version >/dev/null; then
 	releases=$(echo "$releases" | linux-version sort --reverse)
 else
