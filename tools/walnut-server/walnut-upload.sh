@@ -29,7 +29,7 @@ trap 'ssh -o ControlPath="$tmp/ctl" -O exit "walnut-deploy@$host" 2>/dev/null ||
 [ -s "$tmp/$id.ready" ] || { echo "!! $dir is empty" >&2; exit 1; }
 
 # one connection for both steps
-ssh_cmd="ssh -i $key -p $port -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes"
+ssh_cmd="ssh -4 -i $key -p $port -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes"
 ssh_cmd+=" -o UserKnownHostsFile=$known -o ControlMaster=auto -o ControlPath=$tmp/ctl -o ControlPersist=60"
 up() { rsync -rt --chmod=D755,F644 -e "$ssh_cmd" "$@"; }
 n=$(wc -l < "$tmp/$id.ready")

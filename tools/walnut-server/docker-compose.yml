@@ -32,7 +32,12 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     tmpfs: [/tmp, /run, "/home/walnut-deploy:uid=1000,gid=1000,mode=700"]
-    ports: ["2223:2222"]
+    # IPv4 only: over IPv6 docker-proxy would hide the client's address from sshd and fail2ban
+    ports: ["0.0.0.0:2223:2222"]
+    # sshd's log to the journal, where fail2ban's walnut-upload jail reads it
+    logging:
+      driver: journald
+      options: {tag: walnut-upload}
     volumes:
       - ./incoming:/incoming
       # ssh_host_ed25519_key (made once by deploy.sh) and authorized_keys (from deploy-keys.pub)

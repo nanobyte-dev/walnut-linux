@@ -67,6 +67,14 @@ ssh "$host" "set -e
 	sudo -n systemctl daemon-reload
 	sudo -n systemctl enable --now walnut-watch.path walnut-watch.timer >/dev/null
 	systemctl is-active walnut-watch.path walnut-watch.timer | xargs echo '>> watcher:'"
+# fail2ban's walnut-upload jail (bans in DOCKER-USER, like nginx-scanners)
+rsync -t fail2ban/walnut-upload.filter fail2ban/walnut-upload.jail "$host:$DIR/state/"
+ssh "$host" "set -e
+	cmp -s $DIR/state/walnut-upload.filter /etc/fail2ban/filter.d/walnut-upload.conf || sudo -n install -m 644 $DIR/state/walnut-upload.filter /etc/fail2ban/filter.d/walnut-upload.conf
+	cmp -s $DIR/state/walnut-upload.jail /etc/fail2ban/jail.d/walnut-upload.conf || sudo -n install -m 644 $DIR/state/walnut-upload.jail /etc/fail2ban/jail.d/walnut-upload.conf
+	rm $DIR/state/walnut-upload.filter $DIR/state/walnut-upload.jail
+	sudo -n fail2ban-client reload >/dev/null
+	sudo -n fail2ban-client status walnut-upload | grep -E 'Currently (failed|banned)' | xargs echo '>> fail2ban walnut-upload:'"
 # a site already published: rebuild it with this config (else the first `make walnut-site` starts it)
 ssh "$host" "grep -q WALNUT_SITE_TAG= $DIR/.env 2>/dev/null && $DIR/bin/walnut-watch --rebuild || echo '>> no site yet: make walnut-site'"
 

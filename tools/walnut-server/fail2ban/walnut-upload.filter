@@ -1,0 +1,18 @@
+# fail2ban filter for the walnut-upload container's sshd (its log in the journal, CONTAINER_NAME=walnut-upload).
+# Only walnut-deploy may log in, with a key, so anything before authentication that fails is a probe.
+[INCLUDES]
+before = common.conf
+
+[Definition]
+# the journal backend puts "host walnut-upload[pid]: " before each message; sshd -e ends lines in
+# \r\n and the journal keeps the \r, hence \s*$
+_daemon = walnut-upload
+failregex = ^%(__prefix_line)sInvalid user \S* from <HOST> port \d+
+            ^%(__prefix_line)sUser \S+ from <HOST> not allowed
+            ^%(__prefix_line)s(?:Connection closed|Connection reset|Disconnected|Received disconnect) (?:by|from) (?:(?:invalid|authenticating) user \S* )?<HOST> port \d+(?::\d+:.*)? \[preauth\]\s*$
+            ^%(__prefix_line)sbanner exchange: Connection from <HOST> port \d+
+            ^%(__prefix_line)sUnable to negotiate with <HOST> port \d+
+            ^%(__prefix_line)sTimeout before authentication for (?:connection from )?<HOST>
+            ^%(__prefix_line)sdrop connection #\d+ from \[<HOST>\]:\d+ .*penalty
+            ^%(__prefix_line)sConnection closed by <HOST> port \d+\s*$
+ignoreregex =

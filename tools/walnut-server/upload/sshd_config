@@ -14,3 +14,4 @@ PermitUserRC no
 MaxAuthTries 3
 LoginGraceTime 20
 MaxStartups 4:50:16
+# sshd's own per-source back-off stays at OpenSSH 10's defaults (5 s after a failed login); fail2ban bans

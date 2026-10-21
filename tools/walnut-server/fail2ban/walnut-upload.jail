@@ -1,0 +1,15 @@
+# walnut-upload (port 2223): the upload container's sshd, like nginx-scanners: banned in DOCKER-USER
+# (container traffic bypasses INPUT). Installed by tools/walnut-server/deploy.sh.
+[walnut-upload]
+enabled   = true
+backend   = systemd
+journalmatch = CONTAINER_NAME=walnut-upload
+filter    = walnut-upload
+maxretry  = 5
+findtime  = 1h
+bantime   = 1d
+bantime.increment = true
+bantime.maxtime   = 4w
+banaction = docker-user
+action    = %(banaction)s[name=%(__name__)s]
+ignoreip  = 127.0.0.1/8 ::1 172.16.0.0/12 100.64.0.0/10
