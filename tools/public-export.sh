@@ -4,8 +4,8 @@
 # commit messages without the AI attribution trailers (exact lines only: "Co-Authored-By: Claude...",
 # "Claude-Session: ...", "Generated with [Claude Code]..."), then a scan of the whole history that
 # stops on anything that must never be public (tools/public-strip-blobs.txt lists blobs left out, e.g. a
-# third-party image whose licence forbids redistribution; tools/public-replace.txt, text replaced in every
-# file of every commit, e.g. the console's NOR dump hash). It checks for backups/ or firmware/ paths,
+# third-party image whose licence forbids redistribution; tools/public-replace.local.txt, untracked, text
+# replaced in every file of every commit, e.g. the console's NOR dump hash). It checks for backups/ or firmware/ paths,
 # NOR/NAND dumps and disk images, licensed game data paths, private keys. The rewrite is deterministic: running it again on a
 # longer main gives the same commit IDs for the old commits, so the public repository fast-forwards.
 # Nothing is pushed: the push to github.com/nanobyte-dev is the user's step (printed at the end).
@@ -15,13 +15,17 @@ cd "$(dirname "$0")/.."
 SRC=$PWD
 DIR=${1:-${WALNUT_PUBLIC_DIR:-/mnt/data_linux/Temp/ps3/walnut-public}}
 command -v git-filter-repo >/dev/null || { echo "!! git-filter-repo is missing: pip install --user git-filter-repo" >&2; exit 2; }
+# text to replace in every file of every commit: an untracked local file (it names what it hides, so
+# it can't be published itself), one filter-repo expression per line (regex:...==>...)
+REPL=${WALNUT_PUBLIC_REPLACE:-$SRC/tools/public-replace.local.txt}
+[ -r "$REPL" ] || { echo "!! no $REPL (the private replace list)" >&2; exit 2; }
 rm -rf "$DIR"
 git clone -q --no-local --single-branch --branch main "$SRC" "$DIR"
 cd "$DIR"
 git remote remove origin
 grep -Eo '^[0-9a-f]{40}' "$SRC/tools/public-strip-blobs.txt" > "$DIR/.git/strip-blobs" || true
 git filter-repo --quiet --force --strip-blobs-with-ids "$DIR/.git/strip-blobs" \
-	--replace-text "$SRC/tools/public-replace.txt" --message-callback '
+	--replace-text "$REPL" --message-callback '
 import re
 lines = message.split(b"\n")
 drop = re.compile(rb"^\s*(Co-Authored-By:\s*Claude.*|Claude-Session:.*|.*Generated with \[Claude Code\].*)$", re.I)
@@ -40,8 +44,11 @@ hits=$(printf '%s\n' "$paths" | grep -E '^(backups|firmware)/|\.(bin|img|pup|PUP
 for b in $(cat .git/strip-blobs); do
 	git cat-file -e "$b" 2>/dev/null && { echo "!! stripped blob $b is still in the history"; bad=1; }
 done
-[ -z "$(git log --all -p -S (the NOR dump SHA-256, kept with the dump, not published) --format=%h | head -1)" ] || { echo "!! the NOR dump hash is still in the history"; bad=1; }
-keys=$(git log --all -p -S 'PRIVATE KEY-----' --format=%h | head -5 || true)
+while IFS= read -r e; do	# every replaced pattern must be gone
+	case $e in regex:*) pat=${e#regex:}; pat=${pat%%==>*} ;; *) pat=$(printf '%s' "${e%%==>*}" | sed 's/[][\\.*^$]/\\&/g') ;; esac
+	[ -z "$pat" ] || [ -z "$(git log --all -p -G "$pat" --format=%h | head -1)" ] || { echo "!! a replaced text is still in the history"; bad=1; }
+done < "$REPL"
+keys=$(git log --all -p -G '^[+-]?-----BEGIN [A-Z ]*PRIVATE KEY-----' --format=%h | head -5 || true)
 [ -z "$keys" ] || { echo "!! private key text in commits: $keys"; bad=1; }
 n=$(git rev-list --count main)
 echo ">> $DIR: $n commits, $(git rev-parse --short main), attribution trailers removed"
