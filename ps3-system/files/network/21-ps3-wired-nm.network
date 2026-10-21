@@ -1,0 +1,10 @@
+# The wired port when the root isn't NFS (ps3-system): NetworkManager has it (00-ps3.conf), so
+# systemd-networkd leaves it alone. This sorts before 71-default.network, which systemd's network
+# generator writes from the kernel's ip=dhcp: without this, networkd would take the port with its
+# own DHCP client id and get another lease.
+[Match]
+Name=e*
+KernelCommandLine=!root=/dev/nfs
+
+[Link]
+Unmanaged=yes

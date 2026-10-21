@@ -6,6 +6,7 @@ P := debian/ps3-system
 
 override_dh_auto_install:
 	install -D -m 644 files/network/20-ps3-wired.network $(P)/usr/lib/systemd/network/20-ps3-wired.network
+	install -D -m 644 files/network/21-ps3-wired-nm.network $(P)/usr/lib/systemd/network/21-ps3-wired-nm.network
 	install -D -m 644 files/network/ps3-nfsroot-network.service $(P)/usr/lib/systemd/system/ps3-nfsroot-network.service
 	install -d $(P)/usr/lib/ps3/sbin
 	install -m 755 files/sbin/* $(P)/usr/lib/ps3/sbin/
