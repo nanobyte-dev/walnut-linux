@@ -21,7 +21,7 @@
 #   KDEB          the linux-image deb the modules come from (default: RELEASE's in build/debs/linux)
 #   MODDIR        instead of KDEB: a directory with ufs.ko and dm-mod.ko (the KVM test: the host's,
 #                 with RELEASE its release; for generic too)
-#   BUSYBOX_DEB   busybox-static's deb for ARCH (make downloads it, sha256 in config.mk)
+#   BUSYBOX_DEB   busybox-static's deb for ARCH (make downloads it, sha256 in tools/ssdimg/upstream.mk)
 #   IMGMAP        a copy of the PS3's /var/lib/ps3-imgmap/<name>.map.json, with its verified and created
 #                 records next to it: ps3-imgmap export-boot makes the boot map from it
 #   BOOTMAP       instead of IMGMAP: boot maps already made (space separated)

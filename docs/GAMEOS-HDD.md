@@ -436,7 +436,7 @@ All PC-side, commits fe191f7, df40afd, c9a7304 and 195498a; the guard's registra
 - **The initramfs**: `make initrd-ssd IMGMAP=<copy of the PS3's map.json>`
   (`tools/ssdimg/build-initrd.sh` in the builder; `INITRD_RELEASE` picks the kernel, default the
   newest release kernel in build/debs/linux). It holds `/init` (`tools/ssdimg/initrd/init`),
-  Debian's busybox-static 1.38.0-3 (pinned by sha256 in config.mk; links only for the applets the
+  Debian's busybox-static 1.38.0-3 (pinned by sha256 in tools/ssdimg/upstream.mk; links only for the applets the
   init and a rescue shell use, the destructive ones like mke2fs only as `busybox mke2fs`), the
   static tool, `ufs.ko` and `dm-mod.ko` from the release's linux-image deb (vermagic checked, debug
   info stripped), the boot maps in `/ps3ssd/maps`, and `/etc/ps3ssd-initrd`. A reproducible newc

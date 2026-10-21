@@ -1,7 +1,7 @@
 #!/bin/bash
 # build-initrd-tools.sh ARCH: the generic initramfs's install tools (docs/GAMEOS-HDD.md "The internal
 # install"), static: mke2fs from e2fsprogs (busybox's makes ext2 only) and GNU tar (busybox's tar
-# drops xattrs, so file capabilities would be lost). From the upstream tarballs pinned in config.mk
+# drops xattrs, so file capabilities would be lost). From the upstream tarballs pinned in tools/ssdimg/upstream.mk
 # (make initrd-busybox downloads them; both GPG-checked when pinned, 2026-10-21). In the builder
 # container (build-initrd.sh calls it): ARCH ppc64 (the PS3, powerpc64-linux-gnu-gcc) or amd64 (the
 # KVM test, gcc). Output: build/initrd-tools/ARCH/{mke2fs,tar}, stripped, and .stamp (the sources'

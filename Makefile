@@ -1,5 +1,7 @@
 # PS3 Linux build. Settings are in config.mk; run `make help` for targets.
 include config.mk
+# each package's upstream pins (<pkg>/upstream.mk; config.mk says which)
+include $(sort $(wildcard */upstream.mk)) tools/ssdimg/upstream.mk
 
 JOBS        ?= $(shell nproc)
 UID_GID     := $(shell id -u):$(shell id -g)

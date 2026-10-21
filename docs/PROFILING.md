@@ -792,7 +792,7 @@ One stock-arm run (17:16Z) ended with SIGABRT at the exit after a full race; the
 looked at. So `libpng16-16t64` +ps3.560 is a proven 2.8 s on SuperTuxKart's 30 s load and nothing
 measurable elsewhere.
 
-**The package.** `zlib-ng/` (TYPE upstream, the pinned 2.3.3 tarball, `config.mk` `ZLIBNG_*`) builds
+**The package.** `zlib-ng/` (TYPE upstream, the pinned 2.3.3 tarball, `zlib-ng/upstream.mk`) builds
 `libz-ng-compat`: only `libz.so.1` (zlib-compat API, symbol versions to `ZLIB_1.2.12`) in
 `/usr/lib/powerpc64-linux-gnu/zlib-ng`, which the linker never searches by itself, built
 `-mcpu=cell -mtune=cell`. Games get it through `LD_LIBRARY_PATH`: `ps3-game` sets it for every game since 2026-10-20 (`PS3_ZLIB=stock` off), and so does the bench (`ZLIB=stock` off).
