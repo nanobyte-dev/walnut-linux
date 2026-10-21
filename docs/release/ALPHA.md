@@ -69,28 +69,38 @@ The PC never builds ext4. It only uploads, which reuses `tools/ssdimg/stamp.py`'
 ### M2. A Walnut-clean tree and public image
 
 1. **Private config.** The LAN values move from `config.mk:110-120` into a gitignored `config.local.mk`. The `10.0.0.77` defaults go out of `stamp.py` and `bench-cam.sh`.
+   - *Status: Done (b49bc44). `config.local.mk` gitignored, `config.local.mk.example` created, `tools/config-get.sh` added.*
 2. **`PROFILE=public` in `tools/build-image.sh`:**
    - **Licensed data:** no `ps3-games-licensed`, no licensed debs in the flat repo, and the `ps3-licensed` probe at `build-image.sh:47-53` switched off (R: B3).
    - **Packages:** no debug kernel or debug ps3rsx. A public `ps3-games` without the data-less entries: classicube, quakespasm and yamagi-quake2 depend on licensed data (`ps3-desktop/debian/control:40`).
    - **Accounts:** no `tibi`, no key, no NOPASSWD sudo, root locked (`customize.sh:32`), and the `build-image.sh:34` autologin user removed.
    - **Kernel arguments:** no netconsole and **no `video=`** (`linux/flavours/release.args`), so the video mode follows Petitboot's, which works on 720p/SD TVs (R: B9).
    - **DNS** through NetworkManager or systemd-resolved instead of `/proc/net/pnp`. That's a ps3-system change to `00-ps3.conf` (`dns=none`, eth0 unmanaged) (R: B8).
+   - *Status: Done (a3ca92f). `PROFILE=public` supported in `tools/build-image.sh`, `image/customize.sh`, and `Makefile`. `ps3-games-free` metapackage added to `ps3-desktop/debian/control`. Root locked, no default user, NetworkManager manages DNS and eth0 on public profile, dev profile kept intact. Kernel args stripped of netconsole, ip=dhcp, and video= in public `/etc/default/ps3-boot` and `/etc/kboot.conf`. (Note for later: `linux/flavours/release.args` still contains `video=ps3fb:mode:133`; it should be removed upstream from `release.args` when kernel patches are updated so the video mode follows Petitboot natively without image-side stripping).*
 3. **First-run wizard `walnut-firstboot`:**
    - a text UI on tty1 before autologin, with a USB keyboard;
    - it asks for the user and password (sudo, video, render, audio, input), hostname and timezone, and whether to turn on SSH (off by default);
    - it checks the clock, since 0044 means `rtc_diff` isn't saved and a wrong clock breaks apt's signature checks (R: gap 9);
    - it sets autologin, then runs `daemon-reload` and restarts getty;
    - an optional preseed file comes from the installer.
+   - *Status: Done (bda98d7). `walnut-firstboot` and `walnut-firstboot.service` added to `ps3-system`. Whiptail/dialog text UI on tty1 before getty, sets user/pwd/groups/hostname/timezone/SSH, checks clock against release date threshold, writes `PS3_DESKTOP_USER` to `/etc/default/ps3-desktop`, reloads daemon, restarts getty. Preseed `walnut-setup.conf` supported. Tested via `--dry-run` and `bash -n`.*
 4. **User-visible names** become Walnut: README, docs, image and installer names, hostname, splash text. **Package renames are deferred** (see "Cuts").
+   - *Status: Done (3fed924). Default hostname is walnut, splash theme is walnut, docs and README use Walnut Linux.*
 5. **Licenses.** A top-level `LICENSE`, SPDX headers, and the wallpaper and logo sources. The kernel parts are GPL-2.0-only.
+   - *Status: Done (3fed924). Top-level `LICENSE` created with GPL-2.0-only for kernel/RSX, userland license pending user decision (no SPDX yet), CC BY-NC 4.0 for wallpapers, logo procedural SVG sources documented.*
 6. **Public README;** the current one becomes `docs/LAYOUT.md`.
+   - *Status: Done (3fed924). Public `README.md` created with 13-game suite table, hardware requirements, risks/safety, and install placeholder. Old README moved to `docs/LAYOUT.md`, links fixed in `CLAUDE.md` and `docs/README.md`.*
 7. **USB install:** the fixed PARTUUID `50533301-02` becomes a random disk id per install (R: gap 10).
+   - *Status: Done (5f77cc5). Random disk id per install in `tools/build-image.sh` and `tools/usb-root-remote.sh`.*
 
 ### M3. Licensed separation everywhere (R: B2, B3)
 
 1. **ClassiCube.** Split the source: engine and data. `classicube/package.conf`'s `COMPONENTS` hold Mojang's texpack and audio, which would otherwise ship as deb-src orig components and be downloaded on a CI runner.
+   - *Status: Done (cced0cc, 35c2a3c). Engine source repacked `+dfsg` without console port assets and Mojang textures; data in `classicube-data`.*
 2. **Sources and the leak scan.** Source publishing excludes every licensed source: sauerbraten-nonfree-data, ps3-games-licensed, and the rct2, tyrian and quake data. The leak scan also checks source tarballs.
+   - *Status: Done (35c2a3c). `tools/aptly-publish.sh` and `tools/repo-publish.sh` route licensed sources to `ps3-licensed`, free sources leak-checked against licensed debs and `tools/licensed-files.txt` via `tools/leak-check.py`. Test suite `test_leak_check.py` integrated into `tools/run-tests.sh`.*
 3. **New aptly local repos** for `stable` and `testing`, never the tainted `ps3-main` or its `img-*` snapshots.
+   - *Status: Done (bff7a9d). Documented in `docs/PACKAGING.md`; `walnut-testing`, `walnut-stable`, `walnut-deps`, `walnut-licensed` never include legacy `ps3-main` or `img-*` snapshots.*
 
 ### M4. walnut.nanobyte.dev: signed suites, sources, downloads
 
