@@ -44,6 +44,8 @@ Each stage runs from the working USB or SSD root, with the fallback plugged in (
    - The installer also writes a separate **known-good set** on dev_hdd0 that the mirror never overwrites, so a bad kernel can't wipe out the good backup (R: B6).
 6. **Record it** in TESTS.md and GAMEOS-HDD.md. If dev_hdd1 doesn't hold up, the fallback is a small USB stick for `/boot`.
 
+**M0 status (2026-10-21):** steps 1-4 done on the PS3: the guard kernel (.648) seals exactly the image and refuses everything else; Petitboot mounts dev_hdd1 by itself; this console now boots `walnut` from dev_hdd1 with no USB disk (generic initramfs, saved map), and kernel updates go to dev_hdd1 by themselves (TESTS.md 10-21). Left: dev_hdd1 across several GameOS sessions, the autoexec restore, walnut-prev after a second kernel, the package shipping initrd-walnut.img.
+
 ### M1. The internal install, redesigned: stamped upload, install on the console (R: B1, B7, gap 1)
 
 The PC never builds ext4. It only uploads, which reuses `tools/ssdimg/stamp.py`'s streaming FTP upload and works natively on Windows without e2fsprogs.
