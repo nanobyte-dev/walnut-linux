@@ -28,7 +28,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: initrd-ssd initrd-busybox repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref \
+.PHONY: initrd-ssd initrd-walnut initrd-busybox repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref \
 	classicube classicube-audio classicube-deploy classicube-bench quake-data
 
 help:
@@ -65,6 +65,7 @@ help:
 	@echo "  make bench-shots  the PS3 | PC screenshot sheets again, and the ones not reviewed yet"
 	@echo "  make bench-ref GAME=x [VARIANT=y]  the PC reference screenshots of a recipe (build/bench-ref)"
 	@echo "  make initrd-ssd   the SSD root's initramfs (IMGMAP=<copy of the PS3's map.json>) -> $(BUILD)/initrd"
+	@echo "  make initrd-walnut  the internal install's generic initramfs -> $(BUILD)/initrd/initrd-walnut.img"
 	@echo "  make classicube-bench  ClassiCube's benchmark plugin -> games/bench/assets/classicube-bench.so"
 	@echo "Other:"
 	@echo "  make shell        shell in the builder container"
@@ -315,7 +316,21 @@ $(BB_PPC64):
 $(BB_AMD64):
 	mkdir -p $(@D)
 	curl -fsSL -o $@.tmp $(BUSYBOX_AMD64_URL) && echo "$(BUSYBOX_AMD64_SHA256)  $@.tmp" | sha256sum -c --quiet && mv $@.tmp $@
-initrd-busybox: $(BB_PPC64) $(BB_AMD64)
+E2FS_TB := $(INITRD_DL)/$(E2FSPROGS_TARBALL)
+GTAR_TB := $(INITRD_DL)/$(GNUTAR_TARBALL)
+$(E2FS_TB):
+	mkdir -p $(@D)
+	curl -fsSL -o $@.tmp $(E2FSPROGS_URL) && echo "$(E2FSPROGS_SHA256)  $@.tmp" | sha256sum -c --quiet && mv $@.tmp $@
+$(GTAR_TB):
+	mkdir -p $(@D)
+	curl -fsSL -o $@.tmp $(GNUTAR_URL) && echo "$(GNUTAR_SHA256)  $@.tmp" | sha256sum -c --quiet && mv $@.tmp $@
+initrd-busybox: $(BB_PPC64) $(BB_AMD64) $(E2FS_TB) $(GTAR_TB)
+# The internal install's generic initramfs (docs/GAMEOS-HDD.md "The internal install", docs/release/ALPHA.md
+# M1): no map, no kernel release, for every kernel with ufs and dm built in -> build/initrd/initrd-walnut.img
+initrd-walnut: $(BB_PPC64) $(E2FS_TB) $(GTAR_TB) | $(BUILDER_STAMP)
+	$(DOCKER_RUN) --user $(UID_GID) -e ARCH=ppc64 -e BUSYBOX_DEB=$(BB_PPC64) -e E2FSPROGS_TAR=$(E2FS_TB) \
+		-e GNUTAR_TAR=$(GTAR_TB) -e INITRD_BUILT=$(shell git describe --always --dirty) \
+		$(BUILDER_TAG) tools/ssdimg/build-initrd.sh
 initrd-ssd: $(BB_PPC64) | $(BUILDER_STAMP)
 	@[ -n "$(IMGMAP)$(BOOTMAP)" ] || { echo "make initrd-ssd IMGMAP=<copy of the PS3's map.json, with its records> (docs/GAMEOS-HDD.md Phase B)"; exit 2; }
 	$(DOCKER_RUN) --user $(UID_GID) -e ARCH=ppc64 -e BUSYBOX_DEB=$(BB_PPC64) -e IMGMAP=$(IMGMAP) \
