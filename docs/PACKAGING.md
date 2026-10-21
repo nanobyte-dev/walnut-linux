@@ -35,7 +35,7 @@ Decided 2026-10-15, with the packaging plan of 2026-10-16.
 - `Dockerfile.games`: ClassiCube's sound conversion and game-data-packager;
 - `Dockerfile.spu`: the spu-elf toolchain.
 
-The builder image is pinned by digest (`BUILDER_BASE`) with apt on the same snapshot. Outputs go to `build/`, which is ephemeral except `build/aptly`. SPU toolchain experiments build side by side (`SPU_OUT=build/tmp/spu-<name>`). The tree is organised by output package (README.md).
+The builder image is pinned by digest (`BUILDER_BASE`) with apt on the same snapshot. Every build (images, chroots, the image, the few direct downloads) fetches the snapshot through walnut.nanobyte.dev's cache of it, `SNAPSHOT_URL` in `config.mk` (`walnut-aptcache`, tools/walnut-server/aptcache): snapshot.debian.org throttles bulk downloads with `503 TooManyRequests`, and a pinned snapshot never changes, so each file is fetched from it once. `SNAPSHOT_URL=http://snapshot.debian.org` bypasses the cache. Outputs go to `build/`, which is ephemeral except `build/aptly`. SPU toolchain experiments build side by side (`SPU_OUT=build/tmp/spu-<name>`). The tree is organised by output package (README.md).
 
 ## Kinds of source packages
 
@@ -125,6 +125,15 @@ The public Walnut distribution (ALPHA.md M3.3, M4) uses clean aptly repositories
 **`make deps`** refreshes the `deps` component: Debian packages from the snapshot listed in `image/deps.txt` (ones ours newly depend on, ps3-apps' applications, and Debian's Mesa set for rollback), with their dependencies. The PS3 sees only our repository for these, so an application's libraries that the base layer lacks must be there too. It held 440 packages on 2026-10-16, after ps3-apps.
 
 **Debug symbols** (`*-dbgsym`) go to `ps3-dbgsym` only, never into deploys or images.
+
+### Walnut's suites on GitHub Actions
+
+The public suites at walnut.nanobyte.dev/apt are built and published by GitHub Actions, never by `make publish` (docs/release/ALPHA.md M6):
+
+- every package except the licensed ones has `.github/workflows/pkg-<name>.yml` (from `tools/ci/gen-workflows.py`; run it after adding or removing a package);
+- a push touching what a package's version counts builds it on a GitHub runner (`tools/ci/build-package.sh`) and adds it to `testing`: debug kernel, debug modules, `-dbgsym` and the source package included, the newest 5 source versions kept, signed with the CI key;
+- "Run workflow" with *release* ticked (and the owner's approval) promotes testing's newest build to `stable`: the same files without the debug parts, signed with the archive key's signing subkey;
+- `tools/walnut-repo.py` keeps the suites without a database, from the published and signed state; walnut-watch on the server checks every publish (tools/walnut-server).
 
 ## On the PS3
 

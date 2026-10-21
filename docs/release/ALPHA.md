@@ -154,6 +154,7 @@ Next: the archive key (the user), then the walnut-testing and walnut-stable aptl
 - testing (environment walnut-testing, secret WALNUT_TESTING_KEY): everything, the debug kernel, debug modules and -dbgsym included, plus the source package; the newest 5 source versions kept. Signed with the CI key `C902FADFC765FE6C12156A13F9C4DD0442CBA6F1` (its secret in pass Projects/Walnut/TestingKey), which the server accepts for testing only.
 - stable (environment walnut-stable with the user as required reviewer, secret WALNUT_ARCHIVE_SUBKEY: the archive key's signing subkey only): the same files without the debug parts, re-indexed and signed with the archive key.
 - `tools/walnut-repo.py` keeps the suites without a database: each publish starts from the published, signed state and names it in the signed Release (X-Walnut-Base); walnut-watch refuses a stale one and `tools/ci/publish.sh` makes it again (GitHub's concurrency groups cancel waiting runs, so they can't queue publishes). Tests: `tools/test_walnut_repo.py` (against the real walnut-watch).
+- First runs (2026-10-21) failed on snapshot.debian.org's throttling (503 TooManyRequests) while building the builder images; builds now fetch the snapshot through walnut.nanobyte.dev/debian-snapshot (walnut-aptcache, config.mk SNAPSHOT_URL).
 - Open: build times on 4-core runners (Mesa, the big games under qemu, against the 6-hour limit), cached builder images (GHCR), pruning testing's pool on the server.
 
 ### M7. User docs and release artefacts
