@@ -126,8 +126,19 @@ echo "default=$default" >> "$tmp"
 chmod 644 "$tmp"
 mv "$tmp" "$CONF"
 echo "ps3-update-kboot: $(echo "$kernels" | wc -l) kernel(s), $extras extra entr$([ $extras = 1 ] && echo y || echo ies) (/etc/kboot.d), default $default"
-# the internal install (PS3_BOOT_TARGET=hdd1, set by the initramfs's install): Petitboot reads the menu
-# from GameOS's dev_hdd1, not from this root (docs/GAMEOS-HDD.md "The internal install")
-if [ "${PS3_BOOT_TARGET:-}" = hdd1 ]; then
-	${PS3_HDD1_BOOT:-$R/usr/sbin/ps3-hdd1-boot} "$default" $releases
+# Where Petitboot reads this system's menu: PS3_BOOT_TARGET (/etc/default/ps3-boot) if set, else what
+# booted it. The generic initramfs (the internal install, booted from GameOS's dev_hdd1) logs
+# "initramfs kind=generic" in /run/ps3ssd/init.log: then dev_hdd1 gets the kernels and the menu
+# (ps3-hdd1-boot, docs/GAMEOS-HDD.md "The internal install"). Anything else (a USB root, an image
+# build, the SSD root whose kernel comes from the USB disk) keeps this root's /etc/kboot.conf only.
+target=${PS3_BOOT_TARGET:-}
+if [ -z "$target" ]; then
+	if grep -q 'initramfs kind=generic' "$R/run/ps3ssd/init.log" 2>/dev/null; then target=hdd1; else target=root; fi
 fi
+case $target in
+hdd1)
+	echo "ps3-update-kboot: this system boots from dev_hdd1: its menu there too"
+	${PS3_HDD1_BOOT:-$R/usr/sbin/ps3-hdd1-boot} "$default" $releases ;;
+root) ;;
+*) echo "ps3-update-kboot: unknown PS3_BOOT_TARGET=$target (hdd1 or root), only /etc/kboot.conf written" >&2 ;;
+esac

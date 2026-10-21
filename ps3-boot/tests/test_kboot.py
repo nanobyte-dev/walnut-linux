@@ -98,6 +98,37 @@ class Kboot(unittest.TestCase):
         prev = [x for x in (h / "kboot.conf").read_text().splitlines() if x.startswith("walnut-prev=")]
         self.assertIn("initrd=/linux/boot/initrd-walnut-prev.img", prev[0])
 
+    def test_hdd1_detected_from_the_generic_initramfs(self):
+        """no PS3_BOOT_TARGET: the generic initramfs's log says this system boots from dev_hdd1"""
+        (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i")
+        (self.r / "run/ps3ssd").mkdir(parents=True)
+        (self.r / "run/ps3ssd/init.log").write_text("ps3ssd: initramfs kind=generic release= built=x\n")
+        (self.r / "etc/default/ps3-boot").write_text(
+            'PS3_ROOT_ARGS="root=/dev/mapper/ps3root rootfstype=ext4 ro ps3ssd.image=/linux/walnut.img"\n'
+            'PS3_DEFAULT_FLAVOUR=release\n')
+        h = self.r / "hdd1"
+        h.mkdir()
+        e = dict(os.environ, PS3_BOOT_ROOT=str(self.r), PS3_HDD1_DIR=str(h),
+                 PS3_HDD1_BOOT="sh " + str(HERE.parent / "ps3-hdd1-boot"))
+        p = subprocess.run(["sh", str(SCRIPT)], env=e, capture_output=True, text=True, timeout=30)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("boots from dev_hdd1", p.stdout)
+        self.assertTrue(any(x.startswith("walnut=") for x in (h / "kboot.conf").read_text().splitlines()))
+
+    def test_maps_initramfs_or_usb_stays_on_the_root(self):
+        """the SSD root of the maps kind (kernel from the USB disk) and a USB root: no dev_hdd1 writes"""
+        (self.r / "run/ps3ssd").mkdir(parents=True)
+        (self.r / "run/ps3ssd/init.log").write_text("ps3ssd: initramfs kind=maps release=6.12.111+ps3.648\n")
+        h = self.r / "hdd1"
+        h.mkdir()
+        e = dict(os.environ, PS3_BOOT_ROOT=str(self.r), PS3_HDD1_DIR=str(h),
+                 PS3_HDD1_BOOT="sh " + str(HERE.parent / "ps3-hdd1-boot"))
+        p = subprocess.run(["sh", str(SCRIPT)], env=e, capture_output=True, text=True, timeout=30)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertNotIn("dev_hdd1", p.stdout)
+        self.assertEqual(list(h.iterdir()), [])
+        self.assertTrue((self.r / "etc/kboot.conf").exists())
+
     def test_hdd1_refuses_without_image_root(self):
         (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i")
         (self.r / "etc/default/ps3-boot").write_text('PS3_ROOT_ARGS="root=/dev/sda2"\nPS3_BOOT_TARGET=hdd1\n')
