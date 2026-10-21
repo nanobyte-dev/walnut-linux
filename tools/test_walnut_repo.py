@@ -177,10 +177,13 @@ class Repo(unittest.TestCase):
 
 	def test_tampered_published_index(self):
 		self.assertTrue(self.publish(self.add([make_deb(f"{self.debs}/d_1_ppc64.deb", "d", "1")])).startswith("ok"))
-		p = f"{self.root}/www/apt/dists/testing/main/binary-ppc64/Packages"
-		os.chmod(p, 0o644)
-		with open(p, "a") as f:
-			f.write("\nPackage: evil\nVersion: 1\nFilename: pool/x\nSHA256: 00\n")
+		# the index the tool reads: by hash, as apt does (the plain name and its by-hash copy alike)
+		d = f"{self.root}/www/apt/dists/testing/main/binary-ppc64"
+		real = hashlib.sha256(open(f"{d}/Packages", "rb").read()).hexdigest()
+		for p in (f"{d}/Packages", f"{d}/by-hash/SHA256/{real}"):
+			os.chmod(p, 0o644)
+			with open(p, "a") as f:
+				f.write("\nPackage: evil\nVersion: 1\nFilename: pool/x\nSHA256: 00\n")
 		r = self.repo("add", "--suite", "testing", "--keyring", self.keys["ci"][2], "--sign-key", self.keys["ci"][1],
 		              "--out", f"{self.root}/x", f"{self.debs}/d_1_ppc64.deb", ok=False)
 		self.assertIn("does not match the signed Release", r.stderr)

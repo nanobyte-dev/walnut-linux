@@ -22,7 +22,7 @@ jobs:
       name: walnut-site
       url: https://walnut.nanobyte.dev
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Upload and wait until live
         env:
           WALNUT_DEPLOY_KEY_DATA: ${{ secrets.WALNUT_DEPLOY_KEY }}
