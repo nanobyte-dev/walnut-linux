@@ -1,12 +1,18 @@
 #!/bin/bash
-# build-package.sh PKG OUT: builds one package on a GitHub runner (.github/workflows/walnut-package.yml)
-# into OUT/ (the .debs, debug ones included) and OUT/src/ (the source package). No secrets here:
-# this job runs the build, the keys are only in the publish jobs. Our own build dependencies
-# (package.conf LOCAL_DEPS; ps3rsx: the kernel) come from the testing suite, checked against its
-# signed index. The licensed packages never build in CI (tools/licensed-packages.txt).
+# build-package.sh PKG OUT [testing|stable]: builds one package on a GitHub runner
+# (.github/workflows/walnut-package.yml) into OUT/ (the .debs, debug ones included) and OUT/src/ (the
+# source package). No secrets here: this job runs the build, the keys are only in the publish job.
+# Our own build dependencies (package.conf LOCAL_DEPS; ps3rsx: the kernel) come from the suite the
+# build is for, checked against its signed index. The licensed packages never build in CI
+# (tools/licensed-packages.txt).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-pkg=$1 out=$2
+pkg=$1 out=$2 target=${3:-testing}
+case $target in
+	testing) ring=tools/walnut-server/testing-keyring.gpg ;;
+	stable) ring=tools/walnut-server/archive-keyring.gpg ;;
+	*) echo "!! target: testing or stable" >&2; exit 2 ;;
+esac
 [ -f "$pkg/package.conf" ] || { echo "!! no package $pkg" >&2; exit 2; }
 ! grep -qx "$pkg" tools/licensed-packages.txt || { echo "!! $pkg is licensed: never built in CI" >&2; exit 2; }
 conf() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" "$pkg/package.conf"; }
@@ -23,15 +29,14 @@ if [ "${GITHUB_ACTIONS:-}" = true ]; then	# only on a throwaway runner: this del
 fi
 [ -e /proc/sys/fs/binfmt_misc/qemu-ppc64 ] || { echo "!! no qemu-ppc64 binfmt" >&2; exit 1; }
 
-fetch() {	# fetch DIR SOURCE: the newest testing build of SOURCE into build/debs/DIR
-	tools/walnut-repo.py fetch --suite testing --keyring tools/walnut-server/testing-keyring.gpg \
-		--source "$2" --to "build/debs/$1"
+fetch() {	# fetch DIR SOURCE: the target suite's newest build of SOURCE into build/debs/DIR
+	tools/walnut-repo.py fetch --suite "$target" --keyring "$ring" --source "$2" --to "build/debs/$1"
 }
 deps=$(conf LOCAL_DEPS)
 [ "$pkg" = ps3rsx ] && deps="linux"
 for d in $deps; do
 	s=$(sed -n 's/^SOURCE=//p' "$d/package.conf"); s=${s:-$d}
-	echo "::group::build dependency $d ($s) from testing"
+	echo "::group::build dependency $d ($s) from $target"
 	fetch "$d" "$s"
 	echo "::endgroup::"
 done

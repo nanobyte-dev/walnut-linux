@@ -13,19 +13,20 @@ on:
       - ".github/workflows/pkg-ps3-system.yml"
   workflow_dispatch:
     inputs:
-      release:
-        description: "Release testing's newest ps3-system to stable (no build)"
-        type: boolean
-        default: false
+      target:
+        description: "Build and publish to"
+        type: choice
+        options: [testing, stable]
+        default: testing
 
 concurrency:
-  group: pkg-ps3-system-${{ inputs.release == true && 'release' || 'build' }}
-  cancel-in-progress: ${{ inputs.release != true }}
+  group: pkg-ps3-system-${{ inputs.target || 'testing' }}
+  cancel-in-progress: true
 
 jobs:
   package:
     uses: ./.github/workflows/walnut-package.yml
     with:
       package: ps3-system
-      release: ${{ inputs.release == true }}
+      target: ${{ inputs.target || 'testing' }}
     secrets: inherit

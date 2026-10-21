@@ -130,10 +130,17 @@ The public Walnut distribution (ALPHA.md M3.3, M4) uses clean aptly repositories
 
 The public suites at walnut.nanobyte.dev/apt are built and published by GitHub Actions, never by `make publish` (docs/release/ALPHA.md M6):
 
-- every package except the licensed ones has `.github/workflows/pkg-<name>.yml` (from `tools/ci/gen-workflows.py`; run it after adding or removing a package);
-- a push touching what a package's version counts builds it on a GitHub runner (`tools/ci/build-package.sh`) and adds it to `testing`: debug kernel, debug modules, `-dbgsym` and the source package included, the newest 5 source versions kept, signed with the CI key;
-- "Run workflow" with *release* ticked (and the owner's approval) promotes testing's newest build to `stable`: the same files without the debug parts, signed with the archive key's signing subkey;
-- `tools/walnut-repo.py` keeps the suites without a database, from the published and signed state; walnut-watch on the server checks every publish (tools/walnut-server).
+| Suite | Holds | Signed by | Kept |
+|---|---|---|---|
+| `testing` | every push's build: release and debug kernels, their modules, everything else, sources | the CI key | newest 5 source versions |
+| `testing-debug` | testing's `-dbgsym` | the CI key | newest 5 |
+| `stable` | builds made for stable by hand, without the debug kernel and its modules | the archive key's signing subkey | every version |
+| `stable-debug` | stable's `-dbgsym` | the archive key | newest 3 |
+
+- Every package except the licensed ones has `.github/workflows/pkg-<name>.yml` (from `tools/ci/gen-workflows.py`; run it after adding or removing a package). A push touching what a package's version counts builds it and publishes it to testing. "Run workflow" builds it fresh for the suite picked there, testing or stable; a stable publish waits for the owner's approval after the build.
+- Symbols go to `<suite>-debug` in the same upload, so both switch together. A console gets them with one more line, e.g. `deb https://walnut.nanobyte.dev/apt testing-debug main`.
+- Each suite has its own pool (`pool/<suite>/main/...`): testing and stable are separate builds of one version.
+- `tools/walnut-repo.py` keeps the suites without a database, from the published and signed state; walnut-watch on the server checks every publish (tools/walnut-server) and deletes pool files no index names any more, 14 days after they were first seen unnamed.
 
 ## On the PS3
 

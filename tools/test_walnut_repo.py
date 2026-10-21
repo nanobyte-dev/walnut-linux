@@ -83,10 +83,12 @@ class Repo(unittest.TestCase):
 			self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 		return r
 
-	def add(self, files, suite="testing", keep=2):
+	def add(self, files, suite="testing", keep=2, debug_keep=2, release_only=False):
 		out = f"{self.root}/bundle-{next(UPLOAD_ID)}"
-		self.repo("add", "--suite", suite, "--keyring", self.keys["ci"][2], "--sign-key", self.keys["ci"][1],
-		          "--out", out, "--keep", str(keep), *files)
+		who = "ci" if suite == "testing" else "archive"
+		self.repo("add", "--suite", suite, "--keyring", self.keys[who][2], "--sign-key", self.keys[who][1],
+		          "--out", out, "--keep", str(keep), "--debug-keep", str(debug_keep),
+		          *(["--release-only"] if release_only else []), *files, who=who)
 		return out
 
 	def publish(self, bundle, kind="apt"):
@@ -106,12 +108,14 @@ class Repo(unittest.TestCase):
 	def packages(self, suite):
 		return open(f"{self.root}/www/apt/dists/{suite}/main/binary-ppc64/Packages").read()
 
-	def test_add_publish_prune_promote_fetch(self):
+	def test_testing_symbols_prune_fetch(self):
 		d = self.debs
 		v1 = [make_deb(f"{d}/foo_1.0+ps3.1_ppc64.deb", "foo", "1.0+ps3.1"),
 		      make_deb(f"{d}/foo-dbgsym_1.0+ps3.1_ppc64.deb", "foo-dbgsym", "1.0+ps3.1", source="foo")]
 		self.assertTrue(self.publish(self.add(v1)).startswith("ok"))
-		self.assertIn("Package: foo-dbgsym", self.packages("testing"))
+		self.assertNotIn("dbgsym", self.packages("testing"))	# symbols: testing-debug, same bundle
+		self.assertIn("Package: foo-dbgsym", self.packages("testing-debug"))
+		self.assertIn("Filename: pool/testing-debug/main/f/foo/foo-dbgsym_1.0+ps3.1_ppc64.deb", self.packages("testing-debug"))
 		# two more versions with keep=2: 1.0+ps3.1 goes
 		for n in (2, 10):
 			b = self.add([make_deb(f"{d}/foo_1.0+ps3.{n}_ppc64.deb", "foo", f"1.0+ps3.{n}")])
@@ -120,39 +124,38 @@ class Repo(unittest.TestCase):
 		self.assertNotIn("1.0+ps3.1\n", pk)
 		self.assertIn("1.0+ps3.2", pk)
 		self.assertIn("1.0+ps3.10", pk)	# 10 > 2: versions compare as Debian's
-		# promote: the newest foo, without dbgsym; signed by the archive key
-		v11 = [make_deb(f"{d}/foo_1.0+ps3.11_ppc64.deb", "foo", "1.0+ps3.11"),
-		       make_deb(f"{d}/foo-dbgsym_1.0+ps3.11_ppc64.deb", "foo-dbgsym", "1.0+ps3.11", source="foo")]
-		self.assertTrue(self.publish(self.add(v11)).startswith("ok"))
-		out = f"{self.root}/promote"
-		self.repo("promote", "--from-keyring", self.keys["ci"][2], "--suite", "stable", "--keyring",
-		          self.keys["archive"][2], "--sign-key", self.keys["archive"][1], "--out", out, "--source", "foo",
-		          who="archive")
-		self.assertFalse(os.path.exists(f"{out}/pool"))	# the files are published already
-		self.assertTrue(self.publish(out).startswith("ok"))
-		st = self.packages("stable")
-		self.assertIn("Version: 1.0+ps3.11", st)
-		self.assertNotIn("dbgsym", st)
+		self.assertIn("1.0+ps3.1\n", self.packages("testing-debug"))	# no new symbols: left as it was
 		# fetch: the newest version's debs, checked against the signed index
 		to = f"{self.root}/fetched"
-		self.repo("fetch", "--suite", "stable", "--keyring", self.keys["archive"][2], "--source", "foo", "--to", to)
-		self.assertEqual(os.listdir(to), ["foo_1.0+ps3.11_ppc64.deb"])
-		self.assertEqual(open(f"{to}/foo_1.0+ps3.11_ppc64.deb", "rb").read(), open(v11[0], "rb").read())
+		self.repo("fetch", "--suite", "testing", "--keyring", self.keys["ci"][2], "--source", "foo", "--to", to)
+		self.assertEqual(os.listdir(to), ["foo_1.0+ps3.10_ppc64.deb"])
 
-	def test_promote_skips_debug_only_version(self):
+	def test_stable_build(self):
 		d = self.debs
-		debs = [make_deb(f"{d}/m_0.5+k6.1_ppc64.deb", "ps3rsx-modules-6.1", "0.5+k6.1", source="ps3rsx"),
-		        make_deb(f"{d}/m_0.5+k6.1-debug2_ppc64.deb", "ps3rsx-modules-6.1-debug2", "0.5+k6.1-debug2",
-		                 source="ps3rsx")]
-		self.assertTrue(self.publish(self.add(debs)).startswith("ok"))
-		out = f"{self.root}/promote"
-		self.repo("promote", "--from-keyring", self.keys["ci"][2], "--suite", "stable", "--keyring",
-		          self.keys["archive"][2], "--sign-key", self.keys["archive"][1], "--out", out, "--source", "ps3rsx",
-		          who="archive")
-		self.assertTrue(self.publish(out).startswith("ok"))
-		st = self.packages("stable")
-		self.assertIn("Package: ps3rsx-modules-6.1\n", st)
-		self.assertNotIn("debug", st)
+		# the same version built for testing and, separately, for stable: other bytes, own pools
+		os.makedirs(f"{d}/t")
+		os.makedirs(f"{d}/s")
+		self.assertTrue(self.publish(self.add([make_deb(f"{d}/t/foo_1_ppc64.deb", "foo", "1")])).startswith("ok"))
+		st = [make_deb(f"{d}/s/foo_1_ppc64.deb", "foo", "1"),
+		      make_deb(f"{d}/s/foo-dbgsym_1_ppc64.deb", "foo-dbgsym", "1", source="foo"),
+		      make_deb(f"{d}/s/k_1_ppc64.deb", "linux-image-6.12+ps3.9-debug2026", "1", source="linux"),
+		      make_deb(f"{d}/s/k-dbgsym_1_ppc64.deb", "linux-image-6.12+ps3.9-debug2026-dbgsym", "1", source="linux"),
+		      make_deb(f"{d}/s/m_1_ppc64.deb", "ps3rsx-modules-ps3-debug", "1", source="ps3rsx"),
+		      make_deb(f"{d}/s/r_1_ppc64.deb", "linux-image-6.12+ps3.9", "1", source="linux")]
+		self.assertTrue(self.publish(self.add(st, suite="stable", keep=0, debug_keep=3, release_only=True)).startswith("ok"))
+		stable = self.packages("stable")
+		self.assertIn("Filename: pool/stable/main/f/foo/foo_1_ppc64.deb", stable)
+		self.assertIn("Package: linux-image-6.12+ps3.9\n", stable)
+		self.assertNotIn("debug", stable)
+		sd = self.packages("stable-debug")
+		self.assertIn("Package: foo-dbgsym", sd)
+		self.assertNotIn("linux-image", sd)	# the debug kernel's symbols stay out with it
+		self.assertTrue(os.path.exists(f"{self.root}/www/apt/pool/testing/main/f/foo/foo_1_ppc64.deb"))
+		# the CI key can't publish stable
+		out = f"{self.root}/bad"
+		self.repo("add", "--suite", "stable", "--keyring", self.keys["archive"][2], "--sign-key", self.keys["ci"][1],
+		          "--out", out, f"{d}/s/foo_1_ppc64.deb", who="ci")
+		self.assertIn("not signed by the archive-keyring.gpg key", self.publish(out))
 
 	def test_two_publishers(self):
 		a = self.add([make_deb(f"{self.debs}/a_1_ppc64.deb", "a", "1")])

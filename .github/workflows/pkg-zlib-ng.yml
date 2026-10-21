@@ -13,19 +13,20 @@ on:
       - ".github/workflows/pkg-zlib-ng.yml"
   workflow_dispatch:
     inputs:
-      release:
-        description: "Release testing's newest zlib-ng to stable (no build)"
-        type: boolean
-        default: false
+      target:
+        description: "Build and publish to"
+        type: choice
+        options: [testing, stable]
+        default: testing
 
 concurrency:
-  group: pkg-zlib-ng-${{ inputs.release == true && 'release' || 'build' }}
-  cancel-in-progress: ${{ inputs.release != true }}
+  group: pkg-zlib-ng-${{ inputs.target || 'testing' }}
+  cancel-in-progress: true
 
 jobs:
   package:
     uses: ./.github/workflows/walnut-package.yml
     with:
       package: zlib-ng
-      release: ${{ inputs.release == true }}
+      target: ${{ inputs.target || 'testing' }}
     secrets: inherit

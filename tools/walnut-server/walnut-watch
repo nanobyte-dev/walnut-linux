@@ -24,6 +24,11 @@ half-written file:
             the old generation are carried over, so a client in the middle of an update still
             finds the indices it was told about.
 
+apt's pool is swept after every run: a file that no suite's current index names any more (testing
+keeps 5 versions, stable-debug 3) is deleted PRUNE_DAYS after it was first seen unnamed, so a
+client in the middle of an update still finds it. When any index can't be read, nothing goes.
+stable keeps every version, so its files are always named; the licensed suite is never swept.
+
 Every file is copied (not moved: the uploader may still hold it open) with the source opened
 component by component with O_NOFOLLOW, and hashed while copying, so the bytes published are the
 bytes checked. Symlinks, special files, hidden names and files missing from the manifest refuse the
@@ -34,13 +39,14 @@ their manifest go after ORPHAN_DAYS. Results: state/done/<kind>__<id> and the jo
   walnut-watch --rebuild  rebuild the current site image (after a Dockerfile/nginx.conf change)
 Env: WALNUT_ROOT (default /data/nanobyte/Walnut), WALNUT_NO_DOCKER=1 (tests: no image, no container).
 """
-import fcntl, gzip, hashlib, lzma, os, re, shutil, stat, subprocess, sys, time
+import fcntl, gzip, hashlib, json, lzma, os, re, shutil, stat, subprocess, sys, time
 
 ROOT = os.environ.get("WALNUT_ROOT", "/data/nanobyte/Walnut")
 INC, WWW, STATE, SITES = f"{ROOT}/incoming", f"{ROOT}/www", f"{ROOT}/state", f"{ROOT}/site"
 KEYRING = f"{ROOT}/keys/archive-keyring.gpg"	# releases, stable, licensed: the offline archive key
 TESTING_KEYRING = f"{ROOT}/keys/testing-keyring.gpg"	# testing: the CI key, good for nothing else
-SUITE_KEYRING = {("apt", "testing"): TESTING_KEYRING, ("apt", "stable"): KEYRING, ("licensed", "licensed"): KEYRING}
+SUITE_KEYRING = {("apt", "testing"): TESTING_KEYRING, ("apt", "testing-debug"): TESTING_KEYRING,
+                 ("apt", "stable"): KEYRING, ("apt", "stable-debug"): KEYRING, ("licensed", "licensed"): KEYRING}
 NO_DOCKER = os.environ.get("WALNUT_NO_DOCKER") == "1"
 KINDS = ("site", "download", "apt", "licensed")
 ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
@@ -53,6 +59,7 @@ KEEP_SITES = 3			# site versions (and images) kept for a rollback
 KEEP_GENS = 3			# old dists generations kept per suite
 BYHASH_DAYS = 14		# by-hash files carried over this long
 ORPHAN_DAYS = 2			# an upload without its manifest
+PRUNE_DAYS = float(os.environ.get("WALNUT_PRUNE_DAYS", "14"))	# a pool file no index names any more
 NOF = os.O_NOFOLLOW | os.O_CLOEXEC
 
 
@@ -499,6 +506,62 @@ def process(kind, kind_fd, bid):
 		shutil.rmtree(staging, ignore_errors=True)
 
 
+def referenced(prefix):
+	"""Every pool path the suites' current indices name; None when one can't be read."""
+	refs, dists = set(), f"{prefix}/dists"
+	for suite in sorted(os.listdir(dists)) if os.path.isdir(dists) else []:
+		if suite.startswith("."):
+			continue
+		found = False
+		for d, _, fs in os.walk(f"{dists}/{suite}"):
+			if "by-hash" in d.split(os.sep):
+				continue
+			for name in {f.split(".")[0] for f in fs} & {"Packages", "Sources"}:
+				text = read_index(f"{d}/{name}")
+				if text is None:
+					return None
+				found = True
+				refs.update(index_files(text, name == "Sources"))
+		if not found:	# a suite without its indices: what it names is unknown
+			return None
+	return refs
+
+
+def sweep_pool(kind):
+	pool = f"{WWW}/{kind}/pool"
+	if not os.path.isdir(pool):
+		return
+	refs = referenced(f"{WWW}/{kind}")
+	if not refs:
+		log(f"-- {kind}: no readable indices, the pool is left alone")
+		return
+	state = f"{STATE}/unreferenced-{kind}.json"
+	try:
+		with open(state) as f:
+			seen = json.load(f)
+	except (FileNotFoundError, ValueError):
+		seen = {}
+	now, still, gone = time.time(), {}, []
+	for rel, p in sorted(files_under(pool)):
+		path = f"pool/{rel}"
+		if path in refs:
+			continue
+		since = seen.get(path, now)
+		if now - since >= PRUNE_DAYS * 86400:
+			os.unlink(p)
+			gone.append(path)
+		else:
+			still[path] = since
+	for d, subs, fs in os.walk(pool, topdown=False):
+		if d != pool and not subs and not fs:
+			os.rmdir(d)
+	with open(state + ".new", "w") as f:
+		json.dump(still, f, indent=0, sort_keys=True)
+	os.replace(state + ".new", state)
+	if gone:
+		log(f"-- {kind}: {len(gone)} pool files no index names since {PRUNE_DAYS:g} days deleted")
+
+
 def remove_entry(dfd, name):
 	"""Deletes incoming/<kind>/<name>, never following a symlink out of it."""
 	try:
@@ -570,6 +633,7 @@ def main():
 			sys.exit(__doc__)
 		else:
 			run()
+			sweep_pool("apt")
 
 
 if __name__ == "__main__":

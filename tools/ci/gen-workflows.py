@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """gen-workflows.py: writes .github/workflows/pkg-<name>.yml for every package GitHub builds
-(every directory with a package.conf except the licensed ones). Each runs the package's build and
-testing publish when a push touches what its version counts (tools/deb-version.sh: the directory,
-the shared packaging tools, package.conf VERSION_PATHS) or its own workflow, and the stable
-release by hand. ps3rsx also runs after every linux build: it builds against the new kernel.
+(every directory with a package.conf except the licensed ones). A push touching what the package's
+version counts (tools/deb-version.sh: the directory, the shared packaging tools, package.conf
+VERSION_PATHS) or its own workflow builds it and publishes it to testing; "Run workflow" builds it
+for the suite picked there, testing or stable. ps3rsx also builds after every linux build, against
+the new kernel.
 Stale pkg-*.yml files are removed. Run it after adding or removing a package."""
 import glob, os, re
 
@@ -38,21 +39,22 @@ on:
     paths:
 {''.join(f'      - "{p}"' + chr(10) for p in paths)}{extra}  workflow_dispatch:
     inputs:
-      release:
-        description: "Release testing's newest {pkg} to stable (no build)"
-        type: boolean
-        default: false
+      target:
+        description: "Build and publish to"
+        type: choice
+        options: [testing, stable]
+        default: testing
 
 concurrency:
-  group: pkg-{pkg}-${{{{ inputs.release == true && 'release' || 'build' }}}}
-  cancel-in-progress: ${{{{ inputs.release != true }}}}
+  group: pkg-{pkg}-${{{{ inputs.target || 'testing' }}}}
+  cancel-in-progress: true
 
 jobs:
   package:{cond}
     uses: ./.github/workflows/walnut-package.yml
     with:
       package: {pkg}
-      release: ${{{{ inputs.release == true }}}}
+      target: ${{{{ inputs.target || 'testing' }}}}
     secrets: inherit
 """
 		name = f"pkg-{pkg}.yml"

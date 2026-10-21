@@ -74,8 +74,8 @@ class Watch(unittest.TestCase):
 			f.writelines(f"{h}  {rel}\n" for rel, h in sorted(manifest.items()))
 		return base
 
-	def run_watch(self):
-		env = dict(os.environ, WALNUT_ROOT=self.root, WALNUT_NO_DOCKER="1")
+	def run_watch(self, **extra):
+		env = dict(os.environ, WALNUT_ROOT=self.root, WALNUT_NO_DOCKER="1", **extra)
 		r = subprocess.run([WATCH], env=env, capture_output=True, text=True)
 		self.assertEqual(r.returncode, 0, r.stderr)
 		return r.stdout
@@ -301,6 +301,28 @@ class Watch(unittest.TestCase):
 		self.assertIn("does not match the signed Release", self.result("apt", "1"))
 		self.assertIn("not named in the signed Release", self.result("apt", "2"))
 		self.assertFalse(os.path.exists(f"{self.root}/www/apt/pool/main/e"))
+
+	def test_pool_sweep(self):
+		self.drop("apt", "1", self.apt_bundle({"foo_1_ppc64.deb": b"foo1"}))
+		self.run_watch()
+		old = f"{self.root}/www/apt/pool/main/f/foo/foo_1_ppc64.deb"
+		b = self.apt_bundle({"foo_2_ppc64.deb": b"foo2"})	# the new index names foo 2 only
+		self.drop("apt", "2", b)
+		self.run_watch()
+		self.assertTrue(os.path.exists(old))	# unnamed, but within the grace period
+		self.run_watch(WALNUT_PRUNE_DAYS="0")
+		self.assertFalse(os.path.exists(old))
+		self.assertTrue(os.path.exists(f"{self.root}/www/apt/pool/main/f/foo/foo_2_ppc64.deb"))
+		# a suite whose index can't be read: nothing is deleted, not even what the others don't name
+		self.drop("apt", "3", self.apt_bundle({"bar_1_ppc64.deb": b"bar1"}, suite="stable"))
+		self.drop("apt", "4", self.apt_bundle({"foo_2_ppc64.deb": b"foo2"}))
+		self.run_watch()
+		self.assertTrue(self.result("apt", "3").startswith("ok"), self.result("apt", "3"))
+		for f in ("Packages", "Packages.gz"):
+			os.unlink(os.path.realpath(f"{self.root}/www/apt/dists/testing") + f"/main/binary-ppc64/{f}")
+		self.run_watch(WALNUT_PRUNE_DAYS="0")
+		self.assertTrue(os.path.exists(f"{self.root}/www/apt/pool/main/f/foo/foo_2_ppc64.deb"))
+		self.assertTrue(os.path.exists(f"{self.root}/www/apt/pool/main/b/bar/bar_1_ppc64.deb"))
 
 	def test_apt_index_needs_pool(self):
 		b = self.apt_bundle({"foo_1_ppc64.deb": b"foo1"})

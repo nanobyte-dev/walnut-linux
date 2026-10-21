@@ -3,17 +3,21 @@
 
 CI runners keep no state, so every publish starts from what is published: the suite's InRelease,
 checked against the suite's keyring, and the indices it signs. New packages are added, old
-versions pruned (testing), the indices and Release written and signed, and the result is an
-upload bundle for tools/walnut-server/walnut-upload.sh (kind apt): the new pool files and
-dists/<suite>/. The signed Release names the InRelease it was built on (X-Walnut-Base); the
-server's walnut-watch refuses a bundle whose base is no longer the published one, so two
-publishes at once can't lose each other's packages: the loser builds again on the new state.
+versions pruned, the indices and Release written and signed, and the result is an upload bundle
+for tools/walnut-server/walnut-upload.sh (kind apt): the new pool files and dists/<suite>/. The
+signed Release names the InRelease it was built on (X-Walnut-Base); the server's walnut-watch
+refuses a bundle whose base is no longer the published one, so two publishes at once can't lose
+each other's packages: the loser builds again on the new state.
 
-  add      --suite S --keyring K --sign-key FPR --out DIR [--keep N] FILE.deb|FILE.dsc...
-  promote  --from testing --from-keyring K --suite stable --keyring K2 --sign-key FPR --out DIR
-           --source NAME... (the newest version of each, binaries and source; debug parts left out)
-  fetch    --suite S --keyring K --source NAME --to DIR  (the newest version's debs, checked)
-  base     --suite S --keyring K  (prints the sha256 of the published InRelease, or none)
+Debug symbols (-dbgsym) go to <suite>-debug, in the same bundle, so both switch together. Each
+suite has its own pool (pool/<suite>/main/...): testing and stable are separate builds of the same
+version, and their bytes may differ.
+
+  add    --suite S --keyring K --sign-key FPR --out DIR [--keep N] [--debug-keep N] [--release-only]
+         FILE.deb|FILE.dsc...   (--release-only: without the debug kernel and the modules built for
+         it, which are for testing)
+  fetch  --suite S --keyring K --source NAME --to DIR  (the newest version's debs, checked)
+  base   --suite S --keyring K  (prints the sha256 of the published InRelease, or none)
 
 Signing uses gpg with the key in GNUPGHOME. Pure Python (reads .deb files itself); gpg/gpgv for
 signatures. --url defaults to https://walnut.nanobyte.dev/apt.
@@ -27,8 +31,8 @@ ARCH = "ppc64"
 COMP = "main"
 PKG_INDEX = f"{COMP}/binary-{ARCH}/Packages"
 SRC_INDEX = f"{COMP}/source/Sources"
-# what stays in testing only: debug symbols, the debug kernel and the modules built for it
-DEBUG_RE = re.compile(r"(-dbgsym$|^linux-(image|headers)-.*-debug|^ps3rsx-modules-.*-debug)")
+# debug builds: the debug kernel and the modules built for it (testing only)
+DEBUG_BUILD_RE = re.compile(r"^linux-(image|headers)-.*-debug|^ps3rsx-modules-.*-debug")
 
 
 class Error(Exception):
@@ -145,22 +149,22 @@ def file_sums(path):
 	return size, {k: v.hexdigest() for k, v in h.items()}
 
 
-def pool_dir(source):
-	return f"pool/{COMP}/{source[:4] if source.startswith('lib') else source[0]}/{source}"
+def pool_dir(suite, source):
+	return f"pool/{suite}/{COMP}/{source[:4] if source.startswith('lib') else source[0]}/{source}"
 
 
-def deb_stanza(path):
+def deb_stanza(path, suite):
 	fields = parse_stanzas(deb_control(path))[0]
 	source = fields.get("Source", fields["Package"]).split()[0]
 	size, sums = file_sums(path)
 	fields.pop("Filename", None)
-	fields["Filename"] = f"{pool_dir(source)}/{os.path.basename(path)}"
+	fields["Filename"] = f"{pool_dir(suite, source)}/{os.path.basename(path)}"
 	fields["Size"] = str(size)
 	fields.update(sums)
 	return fields
 
 
-def dsc_stanza(path):
+def dsc_stanza(path, suite):
 	text = open(path, encoding="utf-8").read()
 	m = re.search(r"-----BEGIN PGP SIGNED MESSAGE-----\n(?:.+\n)*\n(.*?)\n-----BEGIN PGP SIGNATURE", text, re.S)
 	fields = parse_stanzas(m.group(1) if m else text)[0]
@@ -172,7 +176,7 @@ def dsc_stanza(path):
 	out["Files"] = out.get("Files", "") + f"\n {sums['MD5sum']} {size} {name}"
 	out["Checksums-Sha256"] = out.get("Checksums-Sha256", "") + f"\n {sums['SHA256']} {size} {name}"
 	out.pop("Checksums-Sha1", None)
-	out["Directory"] = pool_dir(src)
+	out["Directory"] = pool_dir(suite, src)
 	files = [l.split()[2] for l in out["Files"].splitlines() if l.strip()]
 	return out, [os.path.join(os.path.dirname(path), f) for f in files]
 
@@ -311,58 +315,50 @@ def copy_pool(out, rel, src):
 
 # --- commands --------------------------------------------------------------------------------
 
+def add_suite(a, out, suite, debs, dscs, keep):
+	"""Adds debs and dscs to the published suite: its new pool files and dists into out."""
+	cur = Suite(a.url, suite, a.keyring)
+	new_bin = [(deb_stanza(f, suite), f) for f in debs]
+	new_src = [dsc_stanza(f, suite) for f in dscs]
+	bkey = lambda s: (s["Package"], s.get("Architecture", ""), s["Version"])
+	skey = lambda s: (s["Package"], s["Version"])
+	packages, added_bin = merge(cur.packages, [s for s, _ in new_bin], bkey, "deb", print)
+	sources, added_src = merge(cur.sources, [s for s, _ in new_src], skey, "dsc", print)
+	packages = prune(packages, keep, stanza_source, stanza_source_version)
+	sources = prune(sources, keep, lambda s: s["Package"], lambda s: s["Version"])
+	keep_bin = {id(s) for s in added_bin}
+	for s, f in new_bin:
+		if id(s) in keep_bin:
+			copy_pool(out, s["Filename"], f)
+	keep_src = {id(s) for s in added_src}
+	for (s, files) in new_src:
+		if id(s) in keep_src:
+			for f in files:
+				copy_pool(out, f"{s['Directory']}/{os.path.basename(f)}", f)
+	write_suite(out, suite, cur.base, packages, sources, a.sign_key)
+	print(f">> {suite}: +{len(added_bin)} debs, +{len(added_src)} sources on base {cur.base[:12]}; "
+	      f"{len(packages)} debs, {len(sources)} sources in the suite")
+
+
 def cmd_add(a):
-	cur = Suite(a.url, a.suite, a.keyring)
 	debs = [f for f in a.files if f.endswith(".deb")]
 	dscs = [f for f in a.files if f.endswith(".dsc")]
 	bad = [f for f in a.files if f not in debs and f not in dscs]
 	if bad:
 		raise Error(f"not a .deb or .dsc: {bad}")
-	new_bin = [(deb_stanza(f), f) for f in debs]
-	new_src = [dsc_stanza(f) for f in dscs]
-	bkey = lambda s: (s["Package"], s.get("Architecture", ""), s["Version"])
-	skey = lambda s: (s["Package"], s["Version"])
-	packages, added_bin = merge(cur.packages, [s for s, _ in new_bin], bkey, "deb", print)
-	sources, added_src = merge(cur.sources, [s for s, _ in new_src], skey, "dsc", print)
-	packages = prune(packages, a.keep, stanza_source, stanza_source_version)
-	sources = prune(sources, a.keep, lambda s: s["Package"], lambda s: s["Version"])
+	names = {f: parse_stanzas(deb_control(f))[0]["Package"] for f in debs}
+	if a.release_only:
+		left = [f for f in debs if DEBUG_BUILD_RE.search(names[f].removesuffix("-dbgsym"))]
+		for f in left:
+			print(f"-- {os.path.basename(f)}: a debug build, testing only")
+		debs = [f for f in debs if f not in left]
+	symbols = [f for f in debs if names[f].endswith("-dbgsym")]
+	debs = [f for f in debs if f not in symbols]
 	shutil.rmtree(a.out, ignore_errors=True)
 	os.makedirs(a.out)
-	keep_bin = {id(s) for s in added_bin}
-	for s, f in new_bin:
-		if id(s) in keep_bin:
-			copy_pool(a.out, s["Filename"], f)
-	keep_src = {id(s) for s in added_src}
-	for (s, files) in new_src:
-		if id(s) in keep_src:
-			for f in files:
-				copy_pool(a.out, f"{s['Directory']}/{os.path.basename(f)}", f)
-	write_suite(a.out, a.suite, cur.base, packages, sources, a.sign_key)
-	print(f">> {a.suite}: +{len(added_bin)} debs, +{len(added_src)} sources on base {cur.base[:12]}; "
-	      f"{len(packages)} debs, {len(sources)} sources in the suite")
-
-
-def cmd_promote(a):
-	src = Suite(a.url, a.from_suite, a.from_keyring)
-	cur = Suite(a.url, a.suite, a.keyring)
-	pick_bin, pick_src = [], []
-	for name in a.source:
-		# the newest version among the release binaries: ps3rsx's debug-kernel build has a source
-		# version of its own (it carries the kernel release), and it sorts higher
-		bins = [s for s in src.packages if stanza_source(s) == name and not DEBUG_RE.search(s["Package"])]
-		if not bins:
-			raise Error(f"{name}: no release binaries in {a.from_suite}")
-		ver = newest_first({stanza_source_version(s) for s in bins}, lambda v: v)[0]
-		pick_bin += [s for s in bins if stanza_source_version(s) == ver]
-		pick_src += [s for s in src.sources if s["Package"] == name and s["Version"] == ver]
-		print(f"-- {name} {ver}: {sum(1 for s in pick_bin if stanza_source(s) == name)} debs")
-	bkey = lambda s: (s["Package"], s.get("Architecture", ""), s["Version"])
-	packages, added_bin = merge(cur.packages, pick_bin, bkey, "deb", print)
-	sources, added_src = merge(cur.sources, pick_src, lambda s: (s["Package"], s["Version"]), "dsc", print)
-	shutil.rmtree(a.out, ignore_errors=True)
-	os.makedirs(a.out)
-	write_suite(a.out, a.suite, cur.base, packages, sources, a.sign_key)	# pool files are published already
-	print(f">> {a.suite}: +{len(added_bin)} debs, +{len(added_src)} sources promoted from {a.from_suite}")
+	add_suite(a, a.out, a.suite, debs, dscs, a.keep)
+	if symbols:
+		add_suite(a, a.out, f"{a.suite}-debug", symbols, [], a.debug_keep)
 
 
 def cmd_fetch(a):
@@ -396,15 +392,9 @@ def main():
 	s.add_argument("--sign-key", required=True)
 	s.add_argument("--out", required=True)
 	s.add_argument("--keep", type=int, default=0, help="source versions kept per package (0: all)")
+	s.add_argument("--debug-keep", type=int, default=0, help="the same for <suite>-debug")
+	s.add_argument("--release-only", action="store_true", help="leave out the debug kernel and its modules")
 	s.add_argument("files", nargs="+")
-	s = sub.add_parser("promote")
-	s.add_argument("--from", dest="from_suite", default="testing")
-	s.add_argument("--from-keyring", required=True)
-	s.add_argument("--suite", required=True)
-	s.add_argument("--keyring", required=True)
-	s.add_argument("--sign-key", required=True)
-	s.add_argument("--out", required=True)
-	s.add_argument("--source", nargs="+", required=True)
 	s = sub.add_parser("fetch")
 	s.add_argument("--suite", required=True)
 	s.add_argument("--keyring", required=True)
@@ -415,7 +405,7 @@ def main():
 	s.add_argument("--keyring", required=True)
 	a = p.parse_args()
 	try:
-		{"add": cmd_add, "promote": cmd_promote, "fetch": cmd_fetch, "base": cmd_base}[a.cmd](a)
+		{"add": cmd_add, "fetch": cmd_fetch, "base": cmd_base}[a.cmd](a)
 	except Error as e:
 		sys.exit(f"!! {e}")
 
