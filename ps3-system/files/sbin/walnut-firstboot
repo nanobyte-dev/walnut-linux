@@ -28,6 +28,8 @@
 set -euo pipefail
 
 DRY_RUN=${DRY_RUN:-0}
+FORCE=0
+PRESEED_FILE="${PRESEED_FILE:-}"
 DONE_FILE="/var/lib/walnut/firstboot-done"
 DESKTOP_DEFAULTS="/etc/default/ps3-desktop"
 BUILD_DATE_FILE="/etc/walnut/build-date"
@@ -38,8 +40,10 @@ Usage: $0 [OPTIONS]
 Walnut Linux first-run setup wizard.
 
 Options:
-  --dry-run   Simulate setup without modifying system files or creating users
-  -h, --help  Show this help message
+  --dry-run          Simulate setup without modifying system files or creating users
+  --force            Run wizard even if a user exists or firstboot-done is present
+  --preseed <path>   Use preseed configuration file at <path>
+  -h, --help         Show this help message
 EOF
 	exit 0
 }
@@ -47,6 +51,8 @@ EOF
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--dry-run) DRY_RUN=1 ;;
+	--force) FORCE=1 ;;
+	--preseed) PRESEED_FILE="$2"; shift ;;
 	-h|--help) usage ;;
 	*) echo "Unknown option: $1" >&2; exit 2 ;;
 	esac
@@ -54,13 +60,13 @@ while [ $# -gt 0 ]; do
 done
 
 # If already completed, exit cleanly
-if [ -f "$DONE_FILE" ] && [ "$DRY_RUN" = 0 ]; then
+if [ -f "$DONE_FILE" ] && [ "$FORCE" = 0 ]; then
 	exit 0
 fi
 
 # If a non-root regular user already exists (UID 1000..59999), skip wizard
 existing_user=$(getent passwd 2>/dev/null | awk -F: '$3 >= 1000 && $3 < 60000 { print $1; exit }' || true)
-if [ -n "$existing_user" ] && [ "$existing_user" != "nobody" ]; then
+if [ -n "$existing_user" ] && [ "$existing_user" != "nobody" ] && [ "$FORCE" = 0 ]; then
 	if [ "$DRY_RUN" = 0 ]; then
 		mkdir -p "$(dirname "$DONE_FILE")"
 		touch "$DONE_FILE"
