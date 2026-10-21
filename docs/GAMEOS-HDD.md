@@ -894,6 +894,49 @@ there through a few GameOS sessions and games tells), whether Petitboot sees ps3
 directory, and how long the mirror takes. On our side: the kernel guard keeps ps3dc writable for
 this, but the SSD root's `/init` sets ps3dc read-only for each boot, which would have to change.
 
+## The internal install
+
+Walnut's default install (docs/release/ALPHA.md M1): the same image file as Phase B, but nothing is
+made per console. The PC uploads over webMAN's FTP (`tools/ssdimg/stamp.py install`):
+
+1. the stamped image to `/dev_hdd0/linux/walnut.img` (whole MiB, default 16 GiB, swap at its end);
+2. `rootfs.tar.xz` to `dev_hdd1:/linux/install/`, the kernel and the generic initramfs
+   (`make initrd-walnut`) to `dev_hdd1:/linux/boot/`, Petitboot's `walnut` entry in `dev_hdd1:/kboot.conf`
+   (other lines kept);
+3. the known-good copies of those boot files to `/dev_hdd0/linux/walnut-good/` (written only by the PC);
+4. last, the install manifest `dev_hdd1:/linux/install/install.conf` (sizes, the image's UUID, the
+   tarball's sha256, a closing sha256 line). Without it the initramfs never installs, so an
+   interrupted upload can't install half an image.
+
+The generic initramfs (`build-initrd.sh` with no map: kind generic, guard required, for every kernel
+with ufs and dm built in) does the rest on the first boot: `disks` (dev_hdd0 is UFS2, dev_hdd1 is
+FAT, before anything mounts), FIBMAP of the image on the read-only UFS2 mount, the full stamp verify
+(every 4 KiB block, in C), the map and its state saved to `dev_hdd1:/linux/walnut/` (dev_hdd1 is
+writable only for those writes), dm-linear sealed by the guard, mkfs.ext4, the tarball checked and
+unpacked, the install's fstab and `PS3_BOOT_TARGET=hdd1`, the manifest renamed `install.done` and the
+tarball deleted. An interrupted install resumes at the next boot. Later boots are Phase B's: recheck
+against the saved map, the header stamps, the guard. Kernel updates: `ps3-hdd1-boot` (walnut-boot)
+writes `walnut` and `walnut-prev` to dev_hdd1. The webMAN autoexec (`ps3-boot/webman/autoexec.bat`)
+mirrors dev_hdd1's set to `/dev_hdd0/linux/walnut-mirror` and puts it back if GameOS cleared it.
+
+Tested: `tools/ssdimg/vm-e2e.sh` runs the whole first boot, a second boot and two refusals in a KVM
+guest (big-endian UFS2, a FAT dev_hdd1, the guard simulation). Not tested on the PS3 yet.
+
+**On the PS3 (M0, with the user at the console; the SSD/USB root stays the fallback):**
+
+1. Boot the guard kernel (6.12.111+ps3.648 or later) from the USB root; run "On the PS3" steps 1-5
+   of "The kernel guard" below, write-backs included.
+2. At Petitboot's shell, read only: `grep ps3d /proc/partitions`, `ls /var/petitboot/mnt/ps3dc`,
+   `ps3-bl-option -o` and `-p`. Then from Linux `sudo ps3-gameos-mount` and check dev_hdd1 reads.
+3. In GameOS: `stamp.py install --size 4G --image /linux/walnut-test.img` (a second image name: the
+   live SSD root's file is not touched) with the release rootfs, kernel and `make initrd-walnut`.
+4. Boot `walnut` from Petitboot with the USB disk still plugged in: the install's console output,
+   then the system; `cat /run/ps3ssd/init.log`, `/sys/block/ps3db/write_guard/{sealed,nr_sectors}`.
+5. Boot again (recheck path), then without the USB disk.
+6. Several GameOS sessions with games in between: dev_hdd1's files still there? Delete them, boot
+   GameOS once (autoexec restores from walnut-mirror), boot `walnut` again.
+7. A kernel update on the installed system: `walnut` and `walnut-prev` on dev_hdd1, both boot.
+
 ## The kernel guard
 
 `linux/patches/local/0045-ps3disk-write-guard.patch` (07fa26b; in `linux/patches/series` since

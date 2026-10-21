@@ -66,6 +66,8 @@ The PC never builds ext4. It only uploads, which reuses `tools/ssdimg/stamp.py`'
 5. **Fixed Petitboot labels** `walnut` and `walnut-prev` (`ps3-boot/ps3-update-kboot:59-69`), different from the USB install's, so updates don't strand the user on an old entry (R: B7).
 6. **Test:** `tools/ssdimg/vm-e2e.sh`, `test_ssdimg.py` and `guard-sim` first, then on the PS3 with a second image file (M0's guard kernel), with the user's go.
 
+**Status (2026-10-21):** done in code and in the VM: the generic initramfs with install mode, the C verify, `stamp.py install` (manifest last), `ps3-hdd1-boot` (walnut/walnut-prev), the autoexec mirror apart from the known-good set; `tools/ssdimg/vm-e2e.sh` passes end to end (install, second boot, refusals). The PS3 steps are in GAMEOS-HDD.md "The internal install" (with M0).
+
 ### M2. A Walnut-clean tree and public image
 
 1. **Private config.** The LAN values move from `config.mk:110-120` into a gitignored `config.local.mk`. The `10.0.0.77` defaults go out of `stamp.py` and `bench-cam.sh`.
