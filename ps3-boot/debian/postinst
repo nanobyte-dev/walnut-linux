@@ -1,0 +1,9 @@
+#!/bin/sh
+# A new ps3-boot can bring a new generic initramfs or a new menu writer: rewrite the boot menu where
+# this system boots from (ps3-update-kboot: the root's kboot.conf, and dev_hdd1 on an internal install)
+set -e
+if [ "$1" = configure ] && [ -x /usr/sbin/ps3-update-kboot ] && ls /boot/vmlinux-* >/dev/null 2>&1; then
+	/usr/sbin/ps3-update-kboot || echo "ps3-boot: ps3-update-kboot failed: the boot menu is as it was" >&2
+fi
+#DEBHELPER#
+exit 0

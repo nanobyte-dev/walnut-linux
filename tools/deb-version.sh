@@ -5,6 +5,9 @@
 set -euo pipefail
 PKG=$1
 paths=("$PKG/" tools/deb-prepare.sh tools/deb-build.sh tools/deb-chroot.sh docker/Dockerfile.deb)
+# package.conf VERSION_PATHS: more sources the package carries (e.g. ps3-boot's initramfs, tools/ssdimg)
+VERSION_PATHS=$(sed -n 's/^VERSION_PATHS="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$PKG/package.conf" 2>/dev/null)
+for v in $VERSION_PATHS; do paths+=("$v"); done
 last=$(git log -1 --format=%H -- "${paths[@]}")
 n=$(git rev-list --count "$last")
 date=$(git log -1 --format=%cD "$last")

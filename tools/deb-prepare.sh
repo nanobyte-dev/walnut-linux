@@ -23,6 +23,14 @@ if [ "$TYPE" = native ]; then
 	T=$OUT/$SOURCE-$NEWVER
 	mkdir -p "$T"
 	git -C "$PKG" ls-files -z --cached --others --exclude-standard | (cd "$PKG" && xargs -0 cp --parents -t "$PWD/../$T")
+	# package.conf COPY_IN="BUILT:DEST ...": files built elsewhere in this checkout (never in git) into
+	# the source tree, e.g. ps3-boot's generic initramfs (make initrd-walnut); a missing one stops here
+	for c in ${COPY_IN:-}; do
+		src=${c%%:*} dst=${c#*:}
+		[ -f "$src" ] || { echo "!! $PKG: COPY_IN $src is missing (built by its make target first)" >&2; exit 1; }
+		mkdir -p "$T/$(dirname "$dst")"
+		cp "$src" "$T/$dst"
+	done
 	if [ "${KERNEL_PACKAGE:-0}" = 1 ]; then
 		echo "$KERNEL_RELEASE" > "$T/debian/kernel-release"
 		for f in "$T"/debian/*.in; do
