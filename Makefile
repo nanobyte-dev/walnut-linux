@@ -39,7 +39,7 @@ help:
 	@echo "  make quake-data   Quake shareware and Quake II demo data debs (game-data-packager; the published"
 	@echo "                    files when the ps3 suite has them) -> $(BUILD)/debs/quake-data"
 	@echo "Image:"
-	@echo "  make rootfs       the PS3's root filesystem image -> $(ROOTFS_TAR)"
+	@echo "  make rootfs [PROFILE=public|dev]  the PS3's root filesystem image -> $(ROOTFS_TAR)"
 	@echo "                    (package layer + our config and packages: kernels, RSX driver, Mesa, games)"
 	@echo "  make rootfs-base  only its package layer (slow: ~15 min, reruns when packages change)"
 	@echo "  make checksums    sha256 of the image and packages (compare two builds for reproducibility)"
@@ -373,16 +373,17 @@ deploy: | $(REPO_BUILDER_STAMP)
 # The package layer plus our config (image/) and our packages (build/debs/*)
 IMAGE_INPUTS := $(ROOTFS_BASE) $(wildcard image/*) tools/build-image.sh $(SSH_PUBKEY) \
 	$(wildcard $(BUILD)/debs/*/*.deb)
+PROFILE ?= dev
 rootfs: $(ROOTFS_TAR)
 IMAGE_VARS := $(BUILD)/image.vars
 BOOT_ROOT_ARGS := $(ROOT_ARGS_usb) rootwait
-IMAGE_VARS_NOW := $(BOOT_ROOT_ARGS) $(DEBUG_ARGS) $(REPO_SUITE)
+IMAGE_VARS_NOW := $(BOOT_ROOT_ARGS) $(DEBUG_ARGS) $(REPO_SUITE) $(PROFILE)
 $(shell [ "$$(cat $(IMAGE_VARS) 2>/dev/null)" = "$(IMAGE_VARS_NOW)" ] || echo "$(IMAGE_VARS_NOW)" > $(IMAGE_VARS))
 $(ROOTFS_TAR): $(IMAGE_INPUTS) $(IMAGE_VARS) | $(REPO_BUILDER_STAMP)
 	@mkdir -p $(BUILD)/rootfs
-	cp $(SSH_PUBKEY) $(BUILD)/rootfs/authorized_keys
+	[ -f "$(SSH_PUBKEY)" ] && cp $(SSH_PUBKEY) $(BUILD)/rootfs/authorized_keys || touch $(BUILD)/rootfs/authorized_keys
 	$(DOCKER_RUN) --privileged $(ROOTFS_ENV) -e BOOT_ROOT_ARGS="$(BOOT_ROOT_ARGS)" \
-		-e BOOT_EXTRA_ARGS="$(DEBUG_ARGS)" \
+		-e BOOT_EXTRA_ARGS="$(DEBUG_ARGS)" -e PROFILE=$(PROFILE) \
 		-e REPO_SUITE=$(REPO_SUITE) -e REPO_URL=$(REPO_URL) $(REPO_BUILDER_TAG) tools/build-image.sh
 	rm -f $(BUILD)/rootfs/authorized_keys
 

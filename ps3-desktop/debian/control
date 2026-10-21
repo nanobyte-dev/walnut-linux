@@ -45,3 +45,13 @@ Description: the PS3's game suite
  run on the RSX, with its sound, joins this package once it does. Remove this package to remove
  them. Only free packages: the licensed game data (Quake, Quake II, ClassiCube) is in
  ps3-games-licensed.
+
+Package: ps3-games-free
+Architecture: all
+Depends: ${misc:Depends}, openarena, armagetronad, neverball, xmoto, extremetuxracer,
+ dsda-doom, freedoom, openttd, openttd-opengfx, openttd-opensfx, openttd-openmsx
+Suggests: classicube, quakespasm, yamagi-quake2
+Description: the PS3's game suite (free data only)
+ Games from the PS3 game suite that do not require non-redistributable or
+ proprietary game data to run. Games whose data is licensed (ClassiCube,
+ Quake, Quake II) are omitted from this public metapackage variant.
