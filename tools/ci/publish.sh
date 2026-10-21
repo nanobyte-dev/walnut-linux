@@ -50,7 +50,7 @@ for attempt in 1 2 3 4 5 6 7 8; do
 	[ $up = 1 ] || { echo "!! the upload failed 4 times" >&2; exit 1; }
 	for _ in $(seq 40); do
 		sleep 3
-		now=$(tools/walnut-repo.py base --suite "$target" --keyring "$ring")
+		now=$(tools/walnut-repo.py base --suite "$target" --keyring "$ring" 2>/dev/null) || continue
 		[ "$now" = "$want" ] && { echo ">> $target has $pkg ($id)"; exit 0; }
 	done
 	echo "-- attempt $attempt not published (another publish landed first, or refused: journalctl -u walnut-watch)"

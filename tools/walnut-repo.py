@@ -246,8 +246,13 @@ class Suite:
 		for name, target in ((PKG_INDEX, self.packages), (SRC_INDEX, self.sources)):
 			if name not in hashes:
 				continue
-			raw = http_get(f"{self.url}/dists/{suite}/{name}")
-			if raw is None or hashlib.sha256(raw).hexdigest() != hashes[name][0]:
+			# by hash, as apt does: the plain name may already be the next publish's index (the
+			# suite switched between the two reads); a by-hash file never changes and is kept
+			h = hashes[name][0]
+			raw = http_get(f"{self.url}/dists/{suite}/{os.path.dirname(name)}/by-hash/SHA256/{h}")
+			if raw is None:
+				raw = http_get(f"{self.url}/dists/{suite}/{name}")
+			if raw is None or hashlib.sha256(raw).hexdigest() != h:
 				raise Error(f"dists/{suite}/{name} does not match the signed Release")
 			target += parse_stanzas(raw.decode("utf-8"))
 
