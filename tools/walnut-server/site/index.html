@@ -1,25 +1,138 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Walnut Linux</title>
-<style>
-body { font-family: system-ui, sans-serif; max-width: 40em; margin: 4em auto; padding: 0 1em; line-height: 1.5; color: #222; background: #fff; }
-a { color: #8a4b12; }
-code { background: #f3efe9; padding: 0 .3em; }
-@media (prefers-color-scheme: dark) { body { color: #ddd; background: #1b1916; } a { color: #e0a060; } code { background: #2c2823; } }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Walnut Linux</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<h1>Walnut Linux</h1>
-<p>A Debian-based Linux distribution for the PlayStation 3, with 3D acceleration on its RSX GPU.</p>
-<p><strong>0.1-alpha is in preparation and not released yet.</strong> The downloads and the apt
-repository will appear here with the release.</p>
-<ul>
-<li>Source: <a href="https://github.com/nanobyte-dev/walnut-linux">github.com/nanobyte-dev/walnut-linux</a></li>
-<li>Articles: <a href="https://nanobyte.dev/walnut/">nanobyte.dev/walnut</a></li>
-<li><a href="apt/">apt/</a> the package repository, <a href="download/">download/</a> releases</li>
-</ul>
+  <div class="container">
+    <header class="site-header">
+      <img src="walnut-mark.svg" alt="Walnut Linux logo" class="site-logo" width="76" height="76">
+      <div class="header-text">
+        <h1 class="site-title">Walnut Linux</h1>
+        <p class="tagline">A Debian-based Linux distribution for the PlayStation 3, with 3D acceleration on the RSX GPU.</p>
+      </div>
+    </header>
+
+    <main>
+      <section class="status-panel" aria-labelledby="status-heading">
+        <h2 id="status-heading">Status</h2>
+        <p><strong>0.1-alpha is in preparation and not released yet.</strong></p>
+        <p>This alpha has been tested on only one console, a PlayStation 3 Slim (CECH-20xx, NOR flash model). Expect rough edges.</p>
+      </section>
+
+      <section class="section" aria-labelledby="about-heading">
+        <h2 id="about-heading">What It Is</h2>
+        <p>Walnut Linux is a Linux distribution tailored for the Sony PlayStation 3 hardware architecture:</p>
+        <ul>
+          <li><strong>Base system:</strong> Debian (ppc64, big-endian) pinned to a specific snapshot from debian-ports.</li>
+          <li><strong>Kernel:</strong> Linux 6.12 LTS with the OtherOS++ patch set for the PS3 (see <a href="#credits-heading">Credits</a>), upstream fixes, and our own changes such as a swap tier in the GPU's video memory and a write guard for the internal disk.</li>
+          <li><strong>Graphics:</strong> Hardware 3D acceleration on the RSX GPU via our <code>ps3rsx</code> kernel DRM driver and Mesa Gallium nv30 (OpenGL 2.1).</li>
+          <li><strong>Desktop:</strong> A lightweight X11 desktop environment (Openbox, tint2, PCManFM, jgmenu) configured to stay within the console memory budget.</li>
+          <li><strong>Games:</strong> Open-source games tuned for 256 MB of RAM, featuring SPE coprocessor acceleration for audio and texture compression, and automatic game mode.</li>
+        </ul>
+      </section>
+
+      <section class="section" aria-labelledby="games-heading">
+        <h2 id="games-heading">What Runs</h2>
+        <p>All 13 games in the benchmark suite run at 1920x1080 with hardware acceleration and correct picture:</p>
+        <ul>
+          <li><strong>60 fps or higher with little stalling:</strong> QuakeSpasm, Yamagi Quake II, X-Moto, Armagetron, Neverball, and OpenArena (opengl1).</li>
+          <li><strong>56 to 60 fps:</strong> Extreme Tux Racer and OpenArena (opengl2).</li>
+          <li><strong>Other running games in the suite:</strong> ClassiCube, dsda-doom (GL), Luanti, Sauerbraten, SuperTuxKart, and OpenTTD.</li>
+        </ul>
+        <p>Read the <a href="https://github.com/nanobyte-dev/walnut-linux/blob/main/docs/games/README.md">full games list and benchmark notes on GitHub</a>.</p>
+      </section>
+
+      <section class="section" aria-labelledby="prereq-heading">
+        <h2 id="prereq-heading">What You Need</h2>
+        <ul>
+          <li>A PlayStation 3 console that can run custom firmware and OtherOS++ (all Fat models and early Slim models; late Slim CECH-30xx and SuperSlim CECH-40xx cannot run CFW).</li>
+          <li>A verified NOR or NAND flash backup saved safely off the console before modifying partitions or installing OtherOS++.</li>
+          <li>webMAN MOD installed in GameOS for FTP file transfers and thermal fan control.</li>
+          <li>A standard USB keyboard and mouse for setup and navigation.</li>
+          <li>A wired Ethernet connection for the internal disk install.</li>
+        </ul>
+        <p>We host no firmware, keys, or PUP update files.</p>
+        <p>Read the <a href="https://github.com/nanobyte-dev/walnut-linux/blob/main/docs/INSTALL.md">installation guide on GitHub</a> before beginning.</p>
+      </section>
+
+      <section class="section" aria-labelledby="installing-heading">
+        <h2 id="installing-heading">Installing</h2>
+        <p>Installation is managed from a PC using the <code>walnut-install</code> tool in two ways:</p>
+
+        <h3>Internal Disk</h3>
+        <p>The walnut-install tool streams a stamped virtual disk image onto <code>/dev_hdd0/linux/walnut.img</code> over FTP from your PC. It resides alongside GameOS with no reformatting or repartitioning required, leaving your existing games and saves intact. Boot files live on the cache partition <code>dev_hdd1</code>, and Linux disk writes are constrained to the image file by a kernel write guard.</p>
+
+        <h3>External USB Disk</h3>
+        <p>The walnut-install tool writes the installation onto an external USB hard disk or flash drive (8 GB or larger) from your PC. This method leaves the console internal disk completely untouched. You boot the system by selecting the USB entry in the Petitboot bootloader menu.</p>
+
+        <p>See the <a href="https://github.com/nanobyte-dev/walnut-linux/blob/main/docs/INSTALL.md">installation guide</a> for step-by-step instructions.</p>
+      </section>
+
+      <section class="section" aria-labelledby="repo-heading">
+        <h2 id="repo-heading">Package Repository</h2>
+        <p>Walnut Linux packages are served from <a href="https://walnut.nanobyte.dev/apt/">https://walnut.nanobyte.dev/apt/</a> across four suites:</p>
+        <ul>
+          <li><code>stable</code>: Approved release packages.</li>
+          <li><code>testing</code>: Continuous builds from GitHub Actions.</li>
+          <li><code>stable-debug</code>: Debug symbols (-dbgsym) for stable packages.</li>
+          <li><code>testing-debug</code>: Debug symbols (-dbgsym) for testing packages.</li>
+        </ul>
+
+        <h3>Signing Keys</h3>
+        <ul class="key-list">
+          <li>
+            <div class="key-name">Stable key: <a href="walnut-archive.asc">walnut-archive.asc</a></div>
+            <div class="key-fingerprint">Fingerprint: 8FFE 9D3F C1E2 4ADC 4702 50BB 5701 1432 F8A9 8072</div>
+          </li>
+          <li>
+            <div class="key-name">Testing key (CI): <a href="walnut-testing.asc">walnut-testing.asc</a></div>
+            <div class="key-fingerprint">Fingerprint: C902 FADF C765 FE6C 1215 6A13 F9C4 DD04 42CB A6F1</div>
+          </li>
+        </ul>
+
+        <h3>Example Sources Line</h3>
+        <pre><code>deb [signed-by=/usr/share/keyrings/walnut-archive.gpg] https://walnut.nanobyte.dev/apt stable main</code></pre>
+        <p>The system image sets up this configuration automatically. This line is provided for manual inspection.</p>
+      </section>
+
+      <section class="section" aria-labelledby="downloads-heading">
+        <h2 id="downloads-heading">Downloads</h2>
+        <p>Release disk images, kernels, and installers will be available in <a href="download/">/download/</a> with the release.</p>
+      </section>
+
+      <section class="section" aria-labelledby="credits-heading">
+        <h2 id="credits-heading">Credits</h2>
+        <p>Walnut stands on other people's work:</p>
+        <ul>
+          <li><strong>PS3 kernel patches:</strong> glevand's OtherOS++ patches, with graf_chokolo's work, refreshed for current kernels by Sombat Tragoongoson (psx-place) and carried for Gentoo by Damian Dudycz, whose repository we took them from.</li>
+          <li><strong>Mainline PS3 support:</strong> Geoff Levand, and his ps3-linux queue on kernel.org.</li>
+          <li><strong>Kernel fixes:</strong> upstream and linuxppc-dev fixes by their authors, named in each patch.</li>
+          <li><strong>Booting:</strong> OtherOS++ and Petitboot.</li>
+          <li><strong>Graphics:</strong> Mesa's nv30 driver from the nouveau project.</li>
+          <li><strong>Base system:</strong> Debian and its ppc64 port (debian-ports).</li>
+        </ul>
+        <p>Ours: the <code>ps3rsx</code> GPU driver, the kernel changes in <code>linux/patches/local/</code> marked as ours, the packaging, installer and tools. Sources and authors are in the <a href="https://github.com/nanobyte-dev/walnut-linux/blob/main/docs/OTHEROS-PATCHES.md">patch survey</a> and each patch's header.</p>
+      </section>
+
+      <section class="section" aria-labelledby="links-heading">
+        <h2 id="links-heading">Links</h2>
+        <ul>
+          <li>Source code: <a href="https://github.com/nanobyte-dev/walnut-linux">https://github.com/nanobyte-dev/walnut-linux</a></li>
+          <li>Articles: <a href="https://nanobyte.dev/walnut/">https://nanobyte.dev/walnut/</a></li>
+          <li>Bug reports: <a href="https://github.com/nanobyte-dev/walnut-linux/issues">GitHub Issues</a> (run the <code>walnut-bugreport</code> command on the console and attach the generated log)</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>Walnut's own code is licensed under GPL-2.0-or-later; ps3rsx and the kernel patches, ours and others', under GPL-2.0-only.</p>
+      <p>"PlayStation" is a trademark of Sony Interactive Entertainment. This project isn't affiliated with or endorsed by Sony.</p>
+    </footer>
+  </div>
 </body>
 </html>

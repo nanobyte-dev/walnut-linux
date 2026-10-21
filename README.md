@@ -24,7 +24,7 @@ Walnut provides a lightweight desktop environment tailored to the console's 256 
 
 ## What Works
 
-- **Kernel**: Linux 6.12 LTS with PS3-specific platform support, gelic Ethernet, spufs, and custom memory management.
+- **Kernel**: Linux 6.12 LTS with the OtherOS++ patch set for the PS3 (see [Credits](#credits)), upstream fixes, and our own changes (a swap tier in video memory, the internal-disk write guard, fan and thermal handling).
 - **3D Graphics**: Hardware acceleration on the RSX GPU through the `ps3rsx` DRM driver and Mesa Gallium nv30 (OpenGL 2.1).
 - **SPU Coprocessor**: libspeq resident SPE workers handling audio synthesis, DXT1/DXT5 texture compression, and matrix operations.
 - **Desktop**: Fast, lightweight X11 desktop (Openbox, tint2, PCManFM, jgmenu) configured to stay within 256 MB RAM.
@@ -86,6 +86,19 @@ For repository structure, build directions, and developer workflows:
 - [CLAUDE.md](CLAUDE.md): Project guidelines and constraints.
 
 ---
+
+## Credits
+
+Walnut stands on other people's work:
+
+- **PS3 kernel patches** (`linux/patches/ps3/`): glevand's OtherOS++ patches, with graf_chokolo's work, refreshed for current kernels by Sombat Tragoongoson (psx-place) and carried for Gentoo by Damian Dudycz ([damiandudycz/ps3](https://github.com/damiandudycz/ps3)), whose repository we took them from.
+- **Mainline PS3 support**: Geoff Levand, and his [ps3-linux queue](https://git.kernel.org/pub/scm/linux/kernel/git/geoff/ps3-linux.git/) on kernel.org.
+- **Kernel fixes** (`linux/patches/local/0020`-`0032`): upstream and linuxppc-dev fixes by their authors, named in each patch.
+- **Booting**: OtherOS++ and Petitboot.
+- **Graphics**: Mesa's nv30 driver from the nouveau project.
+- **Base system**: Debian and its ppc64 port (debian-ports).
+
+Ours: the `ps3rsx` GPU driver, our kernel changes in `linux/patches/local/`, the packaging, installer and tools. Where each kernel patch came from is in [docs/OTHEROS-PATCHES.md](docs/OTHEROS-PATCHES.md).
 
 ## License
 
