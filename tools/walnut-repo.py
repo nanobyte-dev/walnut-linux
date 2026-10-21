@@ -193,14 +193,22 @@ def stanza_source_version(s):
 
 # --- the published suite ---------------------------------------------------------------------
 
-def http_get(url):
-	try:
-		with urllib.request.urlopen(url, timeout=60) as r:
-			return r.read()
-	except urllib.error.HTTPError as e:
-		if e.code == 404:
-			return None
-		raise
+def http_get(url, tries=6):
+	"""The body, or None for a 404. Server errors and dropped connections are retried (the server's
+	container restarts when the site is updated)."""
+	for n in range(tries):
+		try:
+			with urllib.request.urlopen(url, timeout=60) as r:
+				return r.read()
+		except urllib.error.HTTPError as e:
+			if e.code == 404:
+				return None
+			if e.code < 500 or n == tries - 1:
+				raise
+		except (urllib.error.URLError, TimeoutError, ConnectionError):
+			if n == tries - 1:
+				raise
+		time.sleep(5 * (n + 1))
 
 
 def gpgv_signed_text(data, keyring):
