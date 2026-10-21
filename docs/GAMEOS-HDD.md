@@ -920,7 +920,11 @@ writes `walnut` and `walnut-prev` to dev_hdd1. The webMAN autoexec (`ps3-boot/we
 mirrors dev_hdd1's set to `/dev_hdd0/linux/walnut-mirror` and puts it back if GameOS cleared it.
 
 Tested: `tools/ssdimg/vm-e2e.sh` runs the whole first boot, a second boot and two refusals in a KVM
-guest (big-endian UFS2, a FAT dev_hdd1, the guard simulation). Not tested on the PS3 yet.
+guest (big-endian UFS2, a FAT dev_hdd1, the guard simulation). On the PS3 (2026-10-21, TESTS.md): this
+console boots `walnut` from dev_hdd1 with no USB disk, and kernel upgrades through apt put the new kernel
+in `walnut` and the previous one in `walnut-prev` on dev_hdd1 by themselves (the generic initramfs's
+log tells `ps3-update-kboot` where the system booted from). The first-boot install itself runs in the VM
+only so far.
 
 **On the PS3 (M0, with the user at the console; the SSD/USB root stays the fallback):**
 
