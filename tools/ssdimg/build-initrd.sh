@@ -92,7 +92,8 @@ else
 	# a kernel with ufs and dm-mod built in (CONFIG_UFS_FS=y, CONFIG_BLK_DEV_DM=y: the generic initramfs of
 	# docs/release/ALPHA.md M1) needs no modules here; /init then logs "built into the kernel?" for both
 	kcfg=$(dpkg-deb --fsys-tarfile "$KDEB" | tar -xO --wildcards "*/boot/config-$RELEASE")
-	if printf '%s\n' "$kcfg" | grep -qx CONFIG_UFS_FS=y && printf '%s\n' "$kcfg" | grep -qx CONFIG_BLK_DEV_DM=y; then
+	# here-strings, not pipes: grep -q quits at the match, and pipefail would read printf's SIGPIPE as "no"
+	if grep -qx CONFIG_UFS_FS=y <<< "$kcfg" && grep -qx CONFIG_BLK_DEV_DM=y <<< "$kcfg"; then
 		echo "   ufs and dm-mod are built into $RELEASE: no modules"
 	else
 	dpkg-deb --fsys-tarfile "$KDEB" | tar -x -C "$W" --wildcards "*/modules/$RELEASE/kernel/drivers/md/dm-mod.ko" \
