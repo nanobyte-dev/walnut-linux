@@ -17,7 +17,7 @@
 #     - /mnt/dev_hdd1/walnut-setup.conf (dev_hdd1 mount)
 #     - /dev/ps3dc (mounted temporarily to check for /walnut-setup.conf)
 #   Preseed variables:
-#     WALNUT_USER, WALNUT_PASSWORD, WALNUT_HOSTNAME, WALNUT_TIMEZONE,
+#     WALNUT_USER, WALNUT_PASSWORD_HASH (openssl passwd -6; or WALNUT_PASSWORD), WALNUT_HOSTNAME, WALNUT_TIMEZONE,
 #     WALNUT_SSH (yes/no), WALNUT_DATETIME ("YYYY-MM-DD HH:MM:SS")
 #
 # Once completed (or skipped if a regular user already exists), writes
@@ -181,15 +181,34 @@ fi
 
 WALNUT_USER=""
 WALNUT_PASSWORD=""
+WALNUT_PASSWORD_HASH=""
 WALNUT_HOSTNAME=""
 WALNUT_TIMEZONE=""
 WALNUT_SSH=""
 WALNUT_DATETIME=""
 
+# The preseed is data, never shell code: it can sit on dev_hdd1, which anyone with webMAN's FTP can
+# write, and this runs as root. KEY=value lines, known keys only, optional surrounding quotes.
 if [ -n "$PRESEED_FILE" ]; then
 	echo "walnut-firstboot: reading preseed configuration from $PRESEED_FILE"
-	# shellcheck source=/dev/null
-	. "$PRESEED_FILE"
+	while IFS= read -r line || [ -n "$line" ]; do
+		case $line in ''|'#'*) continue ;; esac
+		key=${line%%=*}
+		val=${line#*=}
+		[ "$key" != "$line" ] || continue
+		case $val in \"*\") val=${val#\"}; val=${val%\"} ;; \'*\') val=${val#\'}; val=${val%\'} ;; esac
+		case $key in
+		WALNUT_USER) WALNUT_USER=$val ;;
+		WALNUT_PASSWORD) WALNUT_PASSWORD=$val ;;
+		WALNUT_PASSWORD_HASH) WALNUT_PASSWORD_HASH=$val ;;
+		WALNUT_HOSTNAME) WALNUT_HOSTNAME=$val ;;
+		WALNUT_TIMEZONE) WALNUT_TIMEZONE=$val ;;
+		WALNUT_SSH) WALNUT_SSH=$val ;;
+		WALNUT_DATETIME) WALNUT_DATETIME=$val ;;
+		*) echo "walnut-firstboot: preseed: unknown key $key ignored" ;;
+		esac
+	done < "$PRESEED_FILE"
+	[ -z "$WALNUT_PASSWORD" ] || echo "walnut-firstboot: warning: the preseed holds a plain-text password; WALNUT_PASSWORD_HASH (openssl passwd -6) is safer"
 fi
 
 # --- 2. Clock verification ---------------------------------------------------
@@ -251,7 +270,7 @@ while [ -z "$WALNUT_USER" ]; do
 done
 
 # --- 5. Password entry -------------------------------------------------------
-while [ -z "$WALNUT_PASSWORD" ]; do
+while [ -z "$WALNUT_PASSWORD$WALNUT_PASSWORD_HASH" ]; do
 	p1=$(passwordbox "User Password" "Enter password for user '$WALNUT_USER':")
 	if [ -z "$p1" ]; then
 		msgbox "Error" "Password cannot be empty. Please enter a password."
@@ -298,6 +317,18 @@ if [ -z "$WALNUT_SSH" ]; then
 fi
 
 # --- 9. Apply Configuration --------------------------------------------------
+# Checked again here whatever their source (prompt or preseed): they end up in sed, /etc/hosts,
+# useradd and paths. A bad value stops the wizard without marking it done: it runs again next boot.
+bad=
+printf '%s' "$WALNUT_USER" | grep -Eqx '[a-z_][a-z0-9_-]{0,31}' || bad="user name '$WALNUT_USER'"
+case $WALNUT_USER in root|daemon|bin|sys|nobody) bad="user name '$WALNUT_USER' (a system account)" ;; esac
+printf '%s' "$WALNUT_HOSTNAME" | grep -Eqx '[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?' || bad="hostname '$WALNUT_HOSTNAME'"
+case $WALNUT_TIMEZONE in ''|*..*|/*) [ -z "$WALNUT_TIMEZONE" ] || bad="timezone '$WALNUT_TIMEZONE'" ;; esac
+[ -n "$WALNUT_PASSWORD$WALNUT_PASSWORD_HASH" ] || bad="no password"
+if [ -n "$bad" ]; then
+	echo "walnut-firstboot: refused: $bad. Nothing was changed; the wizard runs again at the next boot." >&2
+	exit 1
+fi
 echo "walnut-firstboot: applying configuration..."
 echo "  User:     $WALNUT_USER"
 echo "  Hostname: $WALNUT_HOSTNAME"
@@ -320,7 +351,16 @@ fi
 if ! id "$WALNUT_USER" >/dev/null 2>&1; then
 	useradd -m -s /bin/bash -G sudo,video,render,audio,input "$WALNUT_USER"
 fi
-echo "$WALNUT_USER:$WALNUT_PASSWORD" | chpasswd
+if [ -n "$WALNUT_PASSWORD_HASH" ]; then
+	printf '%s:%s\n' "$WALNUT_USER" "$WALNUT_PASSWORD_HASH" | chpasswd -e
+else
+	printf '%s:%s\n' "$WALNUT_USER" "$WALNUT_PASSWORD" | chpasswd
+fi
+WALNUT_PASSWORD= WALNUT_PASSWORD_HASH=
+# the preseed's local copies go (the one on dev_hdd1 is read-only from here: INSTALL.md says to delete it)
+for f in /tmp/walnut-preseed.conf /boot/walnut-setup.conf /etc/walnut/walnut-setup.conf; do
+	[ -f "$f" ] && { shred -u "$f" 2>/dev/null || rm -f "$f"; }
+done
 
 # Hostname
 echo "$WALNUT_HOSTNAME" > /etc/hostname
@@ -368,7 +408,9 @@ touch "$DONE_FILE"
 
 # Reload systemd generator so ps3-autologin.conf is created for the new user, then restart getty
 systemctl daemon-reload >/dev/null 2>&1 || true
-systemctl restart getty@tty1.service >/dev/null 2>&1 || true
+# --no-block: getty is ordered after this unit, so a blocking restart would wait for this script
+# to end while this script waits for it (the console would never come up)
+systemctl --no-block restart getty@tty1.service >/dev/null 2>&1 || true
 
 echo "walnut-firstboot: setup complete."
 exit 0
