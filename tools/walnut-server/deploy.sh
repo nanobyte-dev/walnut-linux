@@ -1,8 +1,9 @@
 #!/bin/bash
 # deploy.sh: puts walnut.nanobyte.dev's server side in place (docs/release/ALPHA.md M4); idempotent.
 # On WALNUT_HOST (config.local.mk), in /data/nanobyte/Walnut:
-#   walnut-repo    nginx with the site built in (walnut-site:<id>), www/ mounted read-only: apt/,
-#                  download/, licensed/ (basic auth: WALNUT_LICENSED_USER/PASS)
+#   walnut-repo    nginx for www/ (read-only): apt/, download/, licensed/ (basic auth:
+#                  WALNUT_LICENSED_USER/PASS), status/; never restarted by a site update
+#   walnut-site    nginx with the site built in (walnut-site:<id>, walnut-watch)
 #   walnut-aptcache  apt-cacher-ng for Debian's snapshot (snapshot.debian.org throttles), served under
 #                  /debian-snapshot/ for the pinned dates only
 #   walnut-ccache  ccache's remote storage (GET/PUT, login WALNUT_CCACHE_AUTH), /ccache/, trimmed daily to 25 GB
@@ -34,10 +35,10 @@ ssh "$host" "umask 022; mkdir -p $DIR/{incoming/{site,download,apt,licensed},www
 # nginx.conf with the snapshot dates the builds use (the only ones the Debian cache passes)
 dates=$(cat ../../config.mk ../../*/upstream.mk ../ssdimg/upstream.mk ../../*/package.conf | grep -oE '[0-9]{8}T[0-9]{6}Z' | sort -u | paste -sd'|')
 [ -n "$dates" ] || { echo "!! no snapshot dates found" >&2; exit 1; }
-sed "s/@SNAPSHOT_DATES@/$dates/" nginx.conf > "$CTL.nginx.conf"
-rsync -rt --chmod=D755,F644 docker-compose.yml Dockerfile upload aptcache ccache "$host:$DIR/"
-rsync -t --chmod=644 "$CTL.nginx.conf" "$host:$DIR/nginx.conf"
-rm -f "$CTL.nginx.conf"
+sed "s/@SNAPSHOT_DATES@/$dates/" repo.conf > "$CTL.repo.conf"
+rsync -rt --chmod=D755,F644 docker-compose.yml Dockerfile site.conf upload aptcache ccache "$host:$DIR/"
+rsync -t --chmod=644 "$CTL.repo.conf" "$host:$DIR/repo.conf"
+rm -f "$CTL.repo.conf"
 ssh "$host" "umask 022; mkdir -p $DIR/aptcache-data
 	[ -e $DIR/aptcache-data/CACHEDIR.TAG ] || printf 'Signature: 8a477f597d28d172789f06886806bc55\n# walnut-aptcache: Debian snapshot cache, refetchable\n' > $DIR/aptcache-data/CACHEDIR.TAG"
 rsync -t --chmod=755 walnut-watch "$host:$DIR/bin/"
@@ -72,7 +73,7 @@ ssh "$host" "umask 022; mkdir -p $DIR/ccache-data
 	[ -e $DIR/ccache-data/CACHEDIR.TAG ] || printf 'Signature: 8a477f597d28d172789f06886806bc55\\n# walnut-ccache: build cache, refillable\\n' > $DIR/ccache-data/CACHEDIR.TAG"
 rsync -t --chmod=755 ccache/trim.sh "$host:$DIR/bin/ccache-trim.sh"
 
-ssh "$host" "cd $DIR && docker compose build -q walnut-upload walnut-aptcache && docker compose up -d walnut-upload walnut-aptcache walnut-ccache"
+ssh "$host" "cd $DIR && docker compose build -q walnut-upload walnut-aptcache && docker compose up -d walnut-repo walnut-upload walnut-aptcache walnut-ccache"
 
 # the watcher's units
 for u in systemd/walnut-watch.{service,path,timer} systemd/walnut-ccache-trim.{service,timer}; do

@@ -9,8 +9,9 @@ timer), treats the bundle as untrusted, and puts it in place so that nobody ever
 half-written file:
 
   site      static files -> site/<id>/, built into the image walnut-site:<id> with the server-side
-            Dockerfile and nginx.conf (a bundle can change content, never config), then the
-            walnut-repo container is switched to it; back to the old one if it is not healthy
+            Dockerfile and site.conf (a bundle can change content, never config), then the
+            walnut-site container is switched to it; back to the old one if it is not healthy.
+            walnut-repo (apt, downloads) is a separate container: a site switch never touches it
   download  a release directory -> www/download/<id>/ in one rename; releases never change. It must
             hold SHA256SUMS and SHA256SUMS.asc, a detached signature by the archive key
             (keys/archive-keyring.gpg), and SHA256SUMS must list every other file with its hash
@@ -32,7 +33,9 @@ stable keeps every version, so its files are always named; the licensed suite is
 Every file is copied (not moved: the uploader may still hold it open) with the source opened
 component by component with O_NOFOLLOW, and hashed while copying, so the bytes published are the
 bytes checked. Symlinks, special files, hidden names and files missing from the manifest refuse the
-bundle. Then the upload is deleted, published or refused; an id is used once. Uploads that never got
+bundle. Then the upload is deleted, published or refused; an id is used once. Each outcome is
+written to www/status/<kind>__<id> (ok, stale or refused, then why), so a publisher knows instead
+of guessing; kept STATUS_DAYS. Uploads that never got
 their manifest go after ORPHAN_DAYS. Results: state/done/<kind>__<id> and the journal.
 
   walnut-watch            process new bundles
@@ -65,6 +68,10 @@ NOF = os.O_NOFOLLOW | os.O_CLOEXEC
 
 class Refused(Exception):
 	pass
+
+
+class Stale(Refused):
+	"""Made from a published state that is no longer the published one: the publisher makes it again."""
 
 
 def log(msg):
@@ -296,7 +303,7 @@ def check_base(kind, suite, signed):
 	cur = f"{WWW}/{kind}/dists/{suite}/InRelease"
 	have = sha256_file(cur) if os.path.isfile(cur) else "none"
 	if m.group(1) != have:
-		raise Refused(f"dists/{suite}: stale base {m.group(1)[:12]}, published is {have[:12]}: publish again")
+		raise Stale(f"dists/{suite}: stale base {m.group(1)[:12]}, published is {have[:12]}: publish again")
 
 
 def publish_repo(kind, bid, staging):
@@ -338,25 +345,36 @@ def publish_repo(kind, bid, staging):
 						raise Refused(f"dists/{s}: index names {ref!r} outside pool/")
 					if not os.path.isfile(f"{staging}/{ref}") and not os.path.isfile(f"{prefix}/{ref}"):
 						raise Refused(f"dists/{s}: {ref} is in an index but not in the pool")
-	for p, dest in new_pool:
+	for p, dest in new_pool:	# new files only: nothing an index names yet
 		os.makedirs(os.path.dirname(dest), 0o755, exist_ok=True)
 		os.rename(p, dest)
 	os.makedirs(f"{prefix}/dists", 0o755, exist_ok=True)
+	# every suite's new generation in place (hidden, unused) before any switch, so a failure here
+	# switches nothing; then the switches, back to back
+	staged = []
+	try:
+		for s in suites:
+			gen = f".{s}-{bid}"
+			gen_path = f"{prefix}/dists/{gen}"
+			if os.path.lexists(gen_path):
+				raise Refused(f"dists generation {gen} exists")
+			os.rename(f"{staging}/dists/{s}", gen_path)
+			staged.append(gen_path)
+			cur = f"{prefix}/dists/{s}"
+			if os.path.islink(cur):
+				carry_by_hash(os.path.realpath(cur), gen_path)
+			tmp = f"{prefix}/dists/.{s}.switch"
+			if os.path.lexists(tmp):
+				os.unlink(tmp)
+			os.symlink(gen, tmp)
+	except BaseException:
+		for g in staged:
+			shutil.rmtree(g, ignore_errors=True)
+		raise
 	for s in suites:
-		gen = f".{s}-{bid}"
-		gen_path = f"{prefix}/dists/{gen}"
-		if os.path.lexists(gen_path):
-			raise Refused(f"dists generation {gen} exists")
-		os.rename(f"{staging}/dists/{s}", gen_path)
-		cur = f"{prefix}/dists/{s}"
-		if os.path.islink(cur):
-			carry_by_hash(os.path.realpath(cur), gen_path)
-		tmp = f"{prefix}/dists/.{s}.switch"
-		if os.path.lexists(tmp):
-			os.unlink(tmp)
-		os.symlink(gen, tmp)
-		os.replace(tmp, cur)	# the switch: one rename
-		prune_generations(prefix, s, gen)
+		os.replace(f"{prefix}/dists/.{s}.switch", f"{prefix}/dists/{s}")	# the switch: one rename
+	for s in suites:
+		prune_generations(prefix, s, f".{s}-{bid}")
 	return f"{kind}: {len(new_pool)} new pool files, suites {', '.join(suites)}"
 
 
@@ -411,7 +429,7 @@ def build_site(tag):
 	shutil.rmtree(ctx, ignore_errors=True)
 	os.makedirs(ctx)
 	try:
-		for f in ("Dockerfile", "nginx.conf"):
+		for f in ("Dockerfile", "site.conf"):
 			shutil.copy(f"{ROOT}/{f}", ctx)
 		shutil.copytree(f"{SITES}/{tag}", f"{ctx}/site", copy_function=os.link)
 		r = docker("build", "--pull", "-q", "-t", f"walnut-site:{tag}", ctx, check=False)
@@ -423,11 +441,11 @@ def build_site(tag):
 
 def switch_site(tag, old):
 	set_site(tag)
-	r = compose("up", "-d", "--force-recreate", "walnut-repo")
+	r = compose("up", "-d", "--force-recreate", "walnut-site")
 	healthy = r.returncode == 0
 	if healthy:
 		for _ in range(30):
-			s = docker("inspect", "-f", "{{.State.Health.Status}}", "walnut-repo", check=False).stdout.strip()
+			s = docker("inspect", "-f", "{{.State.Health.Status}}", "walnut-site", check=False).stdout.strip()
 			if s == "healthy":
 				break
 			time.sleep(2)
@@ -436,7 +454,7 @@ def switch_site(tag, old):
 	if not healthy:
 		if old:
 			set_site(old)
-			compose("up", "-d", "--force-recreate", "walnut-repo")
+			compose("up", "-d", "--force-recreate", "walnut-site")
 		raise Refused(f"walnut-site:{tag} did not come up healthy; back on {old}\n{r.stderr.strip()[-1000:]}")
 
 
@@ -579,6 +597,26 @@ def remove_upload(kind_fd, bid):
 	remove_entry(kind_fd, bid)
 
 
+STATUS_DAYS = 7	# www/status/<kind>__<id> kept this long
+
+
+def write_status(kind, bid, res):
+	"""The upload's outcome where its publisher can read it (walnut.nanobyte.dev/status/), first
+	line ok, stale (made again on the new state) or refused; written whole, by rename."""
+	d = f"{WWW}/status"
+	os.makedirs(d, 0o755, exist_ok=True)
+	with open(f"{d}/.{kind}__{bid}.new", "w") as f:
+		f.write(res)
+	os.replace(f"{d}/.{kind}__{bid}.new", f"{d}/{kind}__{bid}")
+
+
+def prune_status():
+	d, cutoff = f"{WWW}/status", time.time() - STATUS_DAYS * 86400
+	for e in os.scandir(d) if os.path.isdir(d) else []:
+		if e.is_file(follow_symlinks=False) and e.stat().st_mtime < cutoff:
+			os.unlink(e.path)
+
+
 def run():
 	os.makedirs(f"{STATE}/done", 0o755, exist_ok=True)
 	for kind in KINDS:
@@ -600,12 +638,16 @@ def run():
 						msg, mhash = process(kind, kind_fd, bid)
 						res = f"ok {mhash}\n{msg}\n"
 						log(f">> {kind}/{bid}: {msg}")
+					except Stale as e:
+						res = f"stale\n{e}\n"
+						log(f"-- {kind}/{bid} stale: {e}")
 					except (Refused, OSError, UnicodeDecodeError) as e:
 						res = f"refused\n{e}\n"
 						log(f"!! {kind}/{bid} refused: {e}")
 					with open(done + ".new", "w") as f:
 						f.write(res)
 					os.replace(done + ".new", done)
+					write_status(kind, bid, res)
 				remove_upload(kind_fd, bid)
 			cutoff = time.time() - ORPHAN_DAYS * 86400
 			with os.scandir(kind_fd) as it:
@@ -634,6 +676,7 @@ def main():
 		else:
 			run()
 			sweep_pool("apt")
+			prune_status()
 
 
 if __name__ == "__main__":

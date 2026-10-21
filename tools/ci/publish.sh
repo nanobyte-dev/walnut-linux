@@ -9,8 +9,9 @@
 # Debug symbols (-dbgsym) go to <suite>-debug in the same upload (testing-debug: 5 versions,
 # stable-debug: 3). The signing key is the secret WALNUT_SIGN_KEY (its passphrase, if it has one,
 # WALNUT_SIGN_PASSPHRASE), the upload key
-# WALNUT_DEPLOY_KEY_DATA. Each upload carries the state it was made from; when another publish lands
-# first, the server refuses it as stale and this makes it again on the new state.
+# WALNUT_DEPLOY_KEY_DATA. Each upload carries the state it was made from; the server's verdict on it
+# (walnut.nanobyte.dev/status/<id>) says ok, stale (another publish landed first: made again on the
+# new state) or refused (why).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 target=$1 pkg=$2 dir=$3
@@ -35,26 +36,33 @@ install -m 600 /dev/null "$tmp/deploy"
 printf '%s\n' "$WALNUT_DEPLOY_KEY_DATA" > "$tmp/deploy"
 export WALNUT_DEPLOY_KEY=$tmp/deploy
 
+status_url=${WALNUT_STATUS_URL:-https://walnut.nanobyte.dev/status}
 for attempt in 1 2 3 4 5 6 7 8; do
 	b=$tmp/bundle
 	tools/walnut-repo.py add --suite "$target" --keyring "$ring" --sign-key "$fpr" "${opts[@]}" --out "$b" \
 		"$dir"/*.deb $(ls "$dir"/src/*.dsc 2>/dev/null)
-	want=$(sha256sum "$b/dists/$target/InRelease" | cut -d' ' -f1)
 	id=$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA:0:7}-$pkg-$target-$attempt
-	up=0
+	up=
 	for try in 1 2 3 4; do
-		tools/walnut-server/walnut-upload.sh apt "$id-u$try" "$b" && { up=1; break; }
+		tools/walnut-server/walnut-upload.sh apt "$id-u$try" "$b" && { up=$id-u$try; break; }
 		echo "-- upload try $try failed"
 		sleep $((try * 15))
 	done
-	[ $up = 1 ] || { echo "!! the upload failed 4 times" >&2; exit 1; }
-	for _ in $(seq 40); do
+	[ -n "$up" ] || { echo "!! the upload failed 4 times" >&2; exit 1; }
+	# the server's verdict on exactly this upload (walnut-watch writes it to status/): ok, stale
+	# (another publish landed first: made again on the new state) or refused (why, then stop)
+	verdict=
+	for _ in $(seq 100); do
 		sleep 3
-		now=$(tools/walnut-repo.py base --suite "$target" --keyring "$ring" 2>/dev/null) || continue
-		[ "$now" = "$want" ] && { echo ">> $target has $pkg ($id)"; exit 0; }
+		verdict=$(curl -fsS --retry 2 "$status_url/apt__$up" 2>/dev/null) && break
 	done
-	echo "-- attempt $attempt not published (another publish landed first, or refused: journalctl -u walnut-watch)"
-	sleep $((RANDOM % 20 + 5))
+	case "${verdict%%[$' \n']*}" in
+		ok) echo ">> $target has $pkg ($up)"; exit 0 ;;
+		stale) echo "-- attempt $attempt stale: another publish landed first; again on the new state"
+			sleep $((RANDOM % 15 + 5)) ;;
+		refused) printf '!! the server refused %s:\n%s\n' "$up" "$verdict" >&2; exit 1 ;;
+		*) echo "!! no verdict for $up after 5 minutes (journalctl -u walnut-watch on the server)" >&2; exit 1 ;;
+	esac
 done
-echo "!! $pkg: not published to $target after 8 attempts" >&2
+echo "!! $pkg: still stale after 8 attempts" >&2
 exit 1

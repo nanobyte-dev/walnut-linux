@@ -1,25 +1,39 @@
-# walnut.nanobyte.dev (docs/release/ALPHA.md M4): the site and the files behind it, served by one
-# nginx on the main proxy's network. The proxy terminates TLS (the *.nanobyte.dev certificate) and
+# walnut.nanobyte.dev (docs/release/ALPHA.md M4): the repository (walnut-repo) and the site
+# (walnut-site), each its own nginx on the main proxy's network. The proxy terminates TLS (the *.nanobyte.dev certificate) and
 # passes everything on (walnut.nanobyte.dev.conf). The image is walnut-site:<id>, built and switched
 # by walnut-watch, which writes WALNUT_SITE_TAG to .env. walnut-upload takes uploads into incoming/
 # (upload/Dockerfile); walnut-aptcache caches Debian's snapshot for builds (aptcache/Dockerfile). Deployed by tools/walnut-server/deploy.sh.
 name: walnut
 
 services:
+  # the repository's files (repo.conf): apt, downloads, licensed, upload status, the snapshot cache's
+  # front; a plain nginx that site updates never restart
   walnut-repo:
-    image: walnut-site:${WALNUT_SITE_TAG:-none}
+    image: nginx:stable-alpine
     container_name: walnut-repo
     mem_limit: 256m
     restart: unless-stopped
     read_only: true
     tmpfs: [/var/cache/nginx, /var/run, /tmp]
     volumes:
+      - ./repo.conf:/etc/nginx/conf.d/default.conf:ro
       - ./www:/srv/walnut:ro
       # user:hash lines for /licensed/ (not tracked; deploy.sh writes it)
       - ./htpasswd:/etc/nginx/walnut.htpasswd:ro
     networks:
       - mainproxy_net
       - aptcache
+
+  # the welcome page: walnut-site:<id>, built and switched by walnut-watch (WALNUT_SITE_TAG in .env)
+  walnut-site:
+    image: walnut-site:${WALNUT_SITE_TAG:-none}
+    container_name: walnut-site
+    mem_limit: 64m
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/var/cache/nginx, /var/run, /tmp]
+    networks:
+      - mainproxy_net
 
   # Debian's snapshot cache for builds (aptcache/Dockerfile), reached only through walnut-repo
   walnut-aptcache:

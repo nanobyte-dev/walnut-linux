@@ -214,7 +214,7 @@ class Watch(unittest.TestCase):
 		return sha(open(p, "rb").read()) if os.path.exists(p) else "none"
 
 	def apt_bundle(self, debs, suite="testing", who=None, base=None):
-		who = who or ("ci" if suite == "testing" else "good")
+		who = who or ("ci" if suite.startswith("testing") else "good")
 		base = base or self.base("licensed" if suite == "licensed" else "apt", suite)
 		files, paras = {}, []
 		for name, data in debs.items():
@@ -281,6 +281,40 @@ class Watch(unittest.TestCase):
 		self.drop("apt", "3", self.apt_bundle({"bar_1_ppc64.deb": b"bar1"}))	# again, on the new state
 		self.run_watch()
 		self.assertTrue(self.result("apt", "3").startswith("ok"), self.result("apt", "3"))
+
+	def test_status_files(self):
+		first = self.apt_bundle({"foo_1_ppc64.deb": b"foo1"})
+		second = self.apt_bundle({"bar_1_ppc64.deb": b"bar1"})	# same base: stale
+		self.drop("apt", "a", first)
+		self.drop("apt", "b", second)
+		self.drop("download", "c", {"a": b"unsigned"})
+		self.run_watch()
+		st = lambda k, i: open(f"{self.root}/www/status/{k}__{i}").read()
+		self.assertTrue(st("apt", "a").startswith("ok "))
+		self.assertTrue(st("apt", "b").startswith("stale\n"))
+		self.assertTrue(st("download", "c").startswith("refused\n"))
+		self.assertEqual([f for f in os.listdir(f"{self.root}/www/status") if f.startswith(".")], [])
+
+	def test_two_suites_switch_together(self):
+		b = self.apt_bundle({"foo_1_ppc64.deb": b"foo1"})
+		dbg = self.apt_bundle({"foo-dbgsym_1_ppc64.deb": b"dbg1"}, suite="testing-debug")
+		b.update({k: v for k, v in dbg.items() if k.startswith("dists/")})
+		b.update({k: v for k, v in dbg.items() if k.startswith("pool/")})
+		os.makedirs(f"{self.root}/www/apt/dists/.testing-debug-x")	# the second suite can't be staged
+		self.drop("apt", "x", b)
+		self.run_watch()
+		self.assertIn("generation .testing-debug-x exists", self.result("apt", "x"))
+		self.assertFalse(os.path.lexists(f"{self.root}/www/apt/dists/testing"))	# the first didn't switch
+		self.assertFalse(os.path.lexists(f"{self.root}/www/apt/dists/.testing-x"))	# nor stayed staged
+		shutil.rmtree(f"{self.root}/www/apt/dists/.testing-debug-x")
+		b2 = self.apt_bundle({"foo_1_ppc64.deb": b"foo1"})
+		dbg2 = self.apt_bundle({"foo-dbgsym_1_ppc64.deb": b"dbg1"}, suite="testing-debug")
+		b2.update(dbg2)
+		self.drop("apt", "y", b2)
+		self.run_watch()
+		self.assertTrue(self.result("apt", "y").startswith("ok"), self.result("apt", "y"))
+		self.assertTrue(os.path.islink(f"{self.root}/www/apt/dists/testing"))
+		self.assertTrue(os.path.islink(f"{self.root}/www/apt/dists/testing-debug"))
 
 	def test_unknown_suite(self):
 		self.drop("apt", "1", self.apt_bundle({"foo_1_ppc64.deb": b"foo1"}, suite="unstable", who="good"))
