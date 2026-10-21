@@ -24,6 +24,7 @@ import hashlib
 import io
 import lzma
 import os
+import re
 import subprocess
 import sys
 import tarfile
@@ -243,7 +244,7 @@ def cmd_sources(a, names):
             continue
         for fn in files:
             p = os.path.join(os.path.dirname(dsc), fn)
-            if ".tar." not in fn and not fn.endswith(".tar"):
+            if not re.search(r"\.tar(\.(gz|xz|bz2|lzma|zst))?$", fn):	# not the .asc signatures next to them
                 continue
             for path, blob in tar_files(p):
                 rel = strip_top(path)
