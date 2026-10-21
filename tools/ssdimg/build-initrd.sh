@@ -1,24 +1,36 @@
 #!/bin/bash
-# build-initrd.sh: the SSD root's initramfs (docs/GAMEOS-HDD.md "Phase B"), in the builder container
-# (make initrd-ssd; tools/ssdimg/vm-e2e.sh builds an amd64 one for its KVM guest the same way).
+# build-initrd.sh: the SSD root's initramfs (docs/GAMEOS-HDD.md "Phase B" and "The internal install"),
+# in the builder container (make initrd-ssd, make initrd-walnut; tools/ssdimg/vm-e2e.sh builds amd64
+# ones for its KVM guest the same way). Two kinds:
+#   maps     (IMGMAP or BOOTMAP given) this console's boot maps inside, for one kernel release: the
+#            Phase B SSD root, as before
+#   generic  (neither given) no map and no kernel release: the image's state is on dev_hdd1, and the
+#            first boot installs (Walnut's internal install, docs/release/ALPHA.md M1). It needs a
+#            kernel with ufs and dm built in (CONFIG_UFS_FS=y, CONFIG_BLK_DEV_DM=y) and carries
+#            static mke2fs and GNU tar (tools/ssdimg/build-initrd-tools.sh) in /usr/lib/ps3ssd
 # Contents: /init (tools/ssdimg/initrd/init), Debian's busybox-static with links for the applets the
 # init and a rescue shell use (the destructive ones, mke2fs, mkswap, fdisk, ..., only as
-# "busybox <applet>"), /sbin/ps3-imgmap-boot (static), the ufs and dm-mod modules of the kernel
-# release, the boot maps in /ps3ssd/maps, /etc/ps3ssd-initrd (release, build, maps). A reproducible
-# newc cpio (tools/ssdimg/mkcpio.py), xz with CRC32 and a 1 MiB dictionary as the kernel wants.
+# "busybox <applet>"), /sbin/ps3-imgmap-boot (static), for maps the ufs and dm-mod modules of the
+# kernel release (unless built in) and the boot maps in /ps3ssd/maps, /etc/ps3ssd-initrd (kind,
+# release, build, maps, guard). A reproducible newc cpio (tools/ssdimg/mkcpio.py), xz with CRC32 and
+# a 1 MiB dictionary as the kernel wants.
 # Env:
 #   ARCH          ppc64 (the PS3, default) or amd64 (the KVM test)
-#   RELEASE       the kernel release (default: the newest release kernel in build/debs/linux)
+#   RELEASE       the kernel release (maps: default the newest release kernel in build/debs/linux;
+#                 generic: none, unless MODDIR)
 #   KDEB          the linux-image deb the modules come from (default: RELEASE's in build/debs/linux)
-#   MODDIR        instead of KDEB: a directory with ufs.ko and dm-mod.ko (the KVM test: the host's)
+#   MODDIR        instead of KDEB: a directory with ufs.ko and dm-mod.ko (the KVM test: the host's,
+#                 with RELEASE its release; for generic too)
 #   BUSYBOX_DEB   busybox-static's deb for ARCH (make downloads it, sha256 in config.mk)
 #   IMGMAP        a copy of the PS3's /var/lib/ps3-imgmap/<name>.map.json, with its verified and created
 #                 records next to it: ps3-imgmap export-boot makes the boot map from it
 #   BOOTMAP       instead of IMGMAP: boot maps already made (space separated)
-#   OUT           default build/initrd/initrd-ssd-$RELEASE.img (amd64: ...-amd64.img)
+#   OUT           maps: build/initrd/initrd-ssd-$RELEASE.img; generic: build/initrd/initrd-walnut.img
+#                 (amd64: ...-amd64.img)
 #   GUARD         required or auto: whether the boot needs ps3db's write guard (local/0045). Default:
-#                 required when the release's System.map in KDEB has the guard, auto otherwise and with
-#                 MODDIR (auto: a kernel without the guard boots with a log line saying so)
+#                 maps: required when the release's System.map in KDEB has the guard, auto otherwise and
+#                 with MODDIR (auto: a kernel without the guard boots with a log line saying so);
+#                 generic: required (every Walnut kernel has the guard)
 #   INITRD_BUILT  the build's name for /etc/ps3ssd-initrd (make passes git describe)
 # Also writes $OUT.manifest (sha256 of every file and of the kernel package's modules, the sizes), the
 # boot maps into maps/ next to $OUT, and ps3-imgmap-boot.$ARCH next to it: what the PS3 side
@@ -32,18 +44,24 @@ ppc64) CC=powerpc64-linux-gnu-gcc STRIP=powerpc64-linux-gnu-strip ;;
 amd64) CC=gcc STRIP=strip ;;
 *) echo "ARCH: ppc64 or amd64" >&2; exit 2 ;;
 esac
-if [ -z "${RELEASE:-}" ]; then
+[ -n "${IMGMAP:-}${BOOTMAP:-}" ] && KIND=maps || KIND=generic
+if [ -z "${RELEASE:-}" ] && [ $KIND = maps ]; then
 	RELEASE=$(ls build/debs/linux/ | sed -n 's/^linux-image-\(6[^_]*\)_.*_ppc64\.deb$/\1/p' | grep -v -- -debug | sort -V | tail -n 1)
+	[ -n "$RELEASE" ] || { echo "no RELEASE and no release kernel in build/debs/linux" >&2; exit 2; }
 fi
-[ -n "$RELEASE" ] || { echo "no RELEASE and no release kernel in build/debs/linux" >&2; exit 2; }
+RELEASE=${RELEASE:-}
+[ $KIND = maps ] || [ -z "$RELEASE" ] || [ -n "${MODDIR:-}" ] ||
+	{ echo "generic: no RELEASE (it fits every kernel with ufs and dm built in), except with MODDIR" >&2; exit 2; }
 : "${BUSYBOX_DEB:?}"
 [ "$ARCH" = ppc64 ] && SUFFIX= || SUFFIX=-$ARCH
-OUT=${OUT:-build/initrd/initrd-ssd-$RELEASE$SUFFIX.img}
+if [ $KIND = maps ]; then OUT=${OUT:-build/initrd/initrd-ssd-$RELEASE$SUFFIX.img}
+else OUT=${OUT:-build/initrd/initrd-walnut$SUFFIX.img}; fi
 mkdir -p build/tmp "$(dirname "$OUT")"
 W=$(mktemp -d build/tmp/initrd.XXXXXX)
 trap 'rm -rf "$W"' EXIT
 T=$W/tree
-mkdir -p "$T"/{bin,sbin,dev,proc,sys,run,root,gameos,etc,ps3ssd/maps,lib/modules/"$RELEASE"}
+mkdir -p "$T"/{bin,sbin,dev,proc,sys,run,root,gameos,hdd1,etc,ps3ssd/maps}
+[ -z "$RELEASE" ] || mkdir -p "$T/lib/modules/$RELEASE"
 
 echo "== busybox ($(basename "$BUSYBOX_DEB"))"
 dpkg-deb --fsys-tarfile "$BUSYBOX_DEB" | tar -x -C "$W" ./usr/bin/busybox
@@ -51,7 +69,7 @@ install -m 755 "$W/usr/bin/busybox" "$T/bin/busybox"
 for a in sh ash cat chroot cp cut dd df dmesg du echo env false find free grep head hexdump insmod less \
 	ln ls lsblk lsmod md5sum mkdir mknod modinfo more mount mv poweroff printf ps readlink reboot rm \
 	rmmod sed setsid sha256sum sleep sort stat strings switch_root sync tail tee test timeout tr true \
-	umount uname uniq usleep vi wc xargs blockdev cttyhack awk [; do
+	umount uname uniq usleep vi wc xargs blockdev cttyhack awk cmp touch unxz xzcat rmdir [; do
 	ln -s busybox "$T/bin/$a"
 done
 
@@ -61,9 +79,11 @@ $STRIP "$T/sbin/ps3-imgmap-boot"
 cp "$T/sbin/ps3-imgmap-boot" "$(dirname "$OUT")/ps3-imgmap-boot.$ARCH"
 gcc -O2 -Wall -Wextra -Werror -o "$W/pib-host" tools/ssdimg/ps3-imgmap-boot.c	# for the map checks here
 
-echo "== modules for $RELEASE"
+echo "== modules for ${RELEASE:-no kernel in particular}"
 M=$T/lib/modules/$RELEASE
-if [ -n "${MODDIR:-}" ]; then
+if [ $KIND = generic ] && [ -z "${MODDIR:-}" ]; then
+	echo "   generic: none (the kernel has ufs and dm built in)"
+elif [ -n "${MODDIR:-}" ]; then
 	for m in ufs dm-mod; do [ -e "$MODDIR/$m.ko" ] && install -m 644 "$MODDIR/$m.ko" "$M/"; done
 else
 	KDEB=${KDEB:-$(ls build/debs/linux/linux-image-"$RELEASE"_*_ppc64.deb)}
@@ -88,7 +108,9 @@ else
 fi
 
 echo "== the write guard"
-if [ -z "${GUARD:-}" ]; then
+if [ -z "${GUARD:-}" ] && [ $KIND = generic ]; then
+	GUARD=required
+elif [ -z "${GUARD:-}" ]; then
 	GUARD=auto
 	if [ -z "${MODDIR:-}" ]; then
 		dpkg-deb --fsys-tarfile "$KDEB" | tar -x -C "$W" "./boot/System.map-$RELEASE"
@@ -107,7 +129,6 @@ if [ -n "${IMGMAP:-}" ]; then
 	maps+=("$W/$n.map")
 fi
 for b in ${BOOTMAP:-}; do maps+=("$b"); done
-[ ${#maps[@]} -gt 0 ] || { echo "no map: IMGMAP=<map.json> or BOOTMAP=<boot map>" >&2; exit 2; }
 names=
 for b in "${maps[@]}"; do
 	"$W/pib-host" check "$b"
@@ -118,9 +139,16 @@ for b in "${maps[@]}"; do
 	names="$names $n:$(sed -n 's/^image //p' "$b")"
 done
 
+if [ $KIND = generic ]; then
+	echo "== install tools (mke2fs, GNU tar)"
+	tools/ssdimg/build-initrd-tools.sh "$ARCH"
+	mkdir -p "$T/usr/lib/ps3ssd"
+	install -m 755 "build/initrd-tools/$ARCH/mke2fs" "build/initrd-tools/$ARCH/tar" "$T/usr/lib/ps3ssd/"
+fi
+
 install -m 755 tools/ssdimg/initrd/init "$T/init"
-printf 'release=%s\nbuilt=%s\narch=%s\nmaps=%s\nguard=%s\n' "$RELEASE" "${INITRD_BUILT:-unknown}" "$ARCH" "${names# }" "$GUARD" \
-	> "$T/etc/ps3ssd-initrd"
+printf 'kind=%s\nrelease=%s\nbuilt=%s\narch=%s\nmaps=%s\nguard=%s\n' "$KIND" "$RELEASE" "${INITRD_BUILT:-unknown}" "$ARCH" \
+	"${names# }" "$GUARD" > "$T/etc/ps3ssd-initrd"
 
 echo "== cpio, xz"
 python3 -I tools/ssdimg/mkcpio.py "$T" "$W/initrd.cpio" --mtime "${SOURCE_DATE_EPOCH:-0}" --node /dev/console:600:c:5:1
@@ -134,6 +162,6 @@ mv "$OUT.tmp" "$OUT"
 	cat "$W/modsrc" 2>/dev/null || true
 	(cd "$T" && find . -type f | sort | xargs sha256sum)
 } > "$OUT.manifest"
-echo ">> $OUT: $(stat -c %s "$OUT") bytes ($(stat -c %s "$W/initrd.cpio") unpacked), maps:$names"
+echo ">> $OUT: $KIND, $(stat -c %s "$OUT") bytes ($(stat -c %s "$W/initrd.cpio") unpacked), maps:${names:- none}"
 exit 0
 }

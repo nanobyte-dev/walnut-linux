@@ -1,25 +1,52 @@
 #!/bin/sh
-# /init of the SSD root's initramfs (docs/GAMEOS-HDD.md "Phase B"; built by tools/ssdimg/build-initrd.sh).
-# Root lives in a stamped image file on GameOS's dev_hdd0; this script turns that file into the
-# root device and starts the real system from it:
-#   1. proc, sys, devtmpfs, /run; the ufs and dm-mod modules
-#   2. waits for /dev/ps3da and /dev/ps3db (ps3ssd.timeout, default 30 s)
+# /init of the SSD root's initramfs (docs/GAMEOS-HDD.md "Phase B" and "The internal install"; built by
+# tools/ssdimg/build-initrd.sh). Root lives in a stamped image file on GameOS's dev_hdd0; this script
+# turns that file into the root device and starts the real system from it. Two kinds of initramfs
+# (kind= in /etc/ps3ssd-initrd):
+#   maps     the boot maps are inside (/ps3ssd/maps, made on the PC from the console's map; this
+#            console's Phase B SSD root). Exactly as before: a map for ps3ssd.image= or a refusal,
+#            and the kernel release the initramfs was built for.
+#   generic  one initramfs for every console and kernel (Walnut's internal install, the user's
+#            decision 2026-10-21): the image's state lives on dev_hdd1 (/dev/ps3dc, FAT) in
+#            /linux/<name>/ (boot.map, boot.map.sha256, state), <name> the image's file name
+#            without .img. With an install manifest (/linux/install/install.conf, which the PC
+#            uploads last) the first boot installs: the map made here (FIBMAP), every stamp of the
+#            image checked, the map saved to dev_hdd1, the devices made, ext4 made on the root and
+#            the rootfs tarball from /linux/install unpacked into it, the tarball deleted.
+# The steps:
+#   1. proc, sys, devtmpfs, /run; the ufs and dm-mod modules if they are in the initramfs
+#   2. waits for /dev/ps3da and /dev/ps3db (and /dev/ps3dc for generic; ps3ssd.timeout, default 30 s)
 #   3. blockdev --setro on /dev/ps3da (the whole disk) and /dev/ps3dc (dev_hdd1), checked in sysfs
-#   4. dev_hdd0 (/dev/ps3db) mounted read-only with ufstype=ufs2, ps3-imgmap-boot recheck of the image
-#      named by ps3ssd.image= against its boot map in /ps3ssd/maps, unmounted again
-#   5. ps3-imgmap-boot create: the header area's stamps read back, /dev/mapper/<root> (root=) and
+#   4. generic: dev_hdd0 must be UFS2 and dev_hdd1 FAT (ps3-imgmap-boot disks); dev_hdd1 mounted
+#      read-only to read the state, unmounted; what to do decided (below)
+#   5. dev_hdd0 (/dev/ps3db) mounted read-only with ufstype=ufs2: ps3-imgmap-boot recheck of the image
+#      against its boot map, or for an install ps3-imgmap-boot map (the boot map made here); unmounted.
+#      An install then reads every block of the image back (ps3-imgmap-boot verify): only an image
+#      that is still entirely the PC's stamps is ever formatted
+#   6. an install saves the map to dev_hdd1 (the only write there: ps3dc made writable for it and
+#      read-only again right after, and only once step 4 found GameOS's FAT on it)
+#   7. ps3-imgmap-boot create: the header area's stamps read back, /dev/mapper/<root> (root=) and
 #      /dev/mapper/ps3swap (ps3ssd.swap=) as dm-linear over the file's blocks; on a kernel with the
 #      write guard (local/0045) their ranges of ps3db registered and sealed, so nothing else on
-#      dev_hdd0 can be written in this boot (guard=required in /etc/ps3ssd-initrd: build-initrd.sh
-#      found the guard in the release's kernel, and a kernel without it is refused)
-#   6. root mounted (rootfstype=, default ext4; ro or rw as the command line says, rootflags=),
+#      dev_hdd0 can be written in this boot (guard=required: a kernel without the guard is refused)
+#   8. an install: mke2fs on the root, the tarball unpacked (GNU tar: owners, modes, xattrs), fstab and
+#      the boot settings for this install written, then on dev_hdd1 the state "installed", the
+#      manifest renamed install.done, the tarball deleted
+#   9. root mounted (rootfstype=, default ext4; ro or rw as the command line says, rootflags=),
 #      /dev, /proc, /sys, /run moved into it, switch_root to init= (default /sbin/init)
+# What a generic boot does with dev_hdd1's state (an install's id is the image's UUID):
+#   no install.conf, a boot.map            boot (recheck against it)
+#   install.conf, state "installing" of the same image and its map    the install again from step 7
+#                                          (it was interrupted after the map was saved)
+#   install.conf, state "installed" of the same image                 boot, then finish the cleanup
+#   install.conf otherwise                 a new install (an earlier image's map is replaced only once
+#                                          the new image passed verify)
+#   neither                                refused
 # The file system check of root is systemd's (systemd-fsck-root on the read-only root, as on the
-# USB disk). Any failure stops here, before anything was written: a message on the console and
-# tty1 and a busybox shell on both (after a guard failure in step 5 the guard can't be reset in the
-# same boot, so the way on is 'reboot -f' in any case). Nothing in this script writes to ps3da, ps3db
-# or ps3dc; the only writes to the internal disk ever are what the real system writes to
-# /dev/mapper/*.
+# USB disk). Any failure stops here: a message on the console and tty1 and a busybox shell on both
+# (after a guard failure in step 7 the guard can't be reset in the same boot, so the way on is
+# 'reboot -f' in any case). Nothing in this script writes to ps3da or ps3db; it writes ps3dc only in
+# steps 6 and 8 of an install; the rest of the internal disk's writes are what goes to /dev/mapper/*.
 # Kernel arguments read: root= rootfstype= rootflags= ro rw init= quiet, ps3ssd.image=<path on
 # dev_hdd0> (required), ps3ssd.swap=<dm name>, ps3ssd.timeout=<s>, ps3ssd.break=1 (a shell before
 # the root is mounted; leave it and boot goes on).
@@ -30,10 +57,11 @@ RUN=/run/ps3ssd
 LOG=$RUN/init.log
 MAPS=/ps3ssd/maps
 TOOL=/sbin/ps3-imgmap-boot
+LIBX=/usr/lib/ps3ssd		# mke2fs and GNU tar (generic): called by path only
 STEP="starting"
-MADE=0
+MADE=0 HDD1_WROTE=0 HDD1_RW=0
 
-mkdir -p /proc /sys /dev /run /root /gameos
+mkdir -p /proc /sys /dev /run /root /gameos /hdd1
 mount -t proc -o nosuid,nodev,noexec proc /proc
 mount -t sysfs -o nosuid,nodev,noexec sysfs /sys
 grep -q '^[^ ]* /dev ' /proc/mounts || mount -t devtmpfs -o nosuid,mode=0755 devtmpfs /dev
@@ -67,6 +95,11 @@ log() {
 	echo "<6>ps3ssd: $*" > /dev/kmsg 2>/dev/null
 	[ $QUIET = 1 ] || echo "ps3ssd: $*"
 }
+say() {	# always on the console (an install's steps take minutes)
+	echo "ps3ssd: $*" >> $LOG
+	echo "<6>ps3ssd: $*" > /dev/kmsg 2>/dev/null
+	echo "ps3ssd: $*"
+}
 
 shell_on() {	# a login-less busybox shell on /dev/$1 (its controlling tty), again whenever it exits
 	while :; do
@@ -79,12 +112,17 @@ fail() {
 	echo "ps3ssd: FAILED at $STEP: $*" >> $LOG
 	echo "<2>ps3ssd: FAILED at $STEP: $*" > /dev/kmsg 2>/dev/null
 	grep -q ' /gameos ' /proc/mounts && umount /gameos
+	grep -q ' /root ' /proc/mounts && { sync; umount /root; }
+	if grep -q ' /hdd1 ' /proc/mounts; then sync; umount /hdd1; fi
+	[ "$HDD1_RW" = 1 ] && blockdev --setro /dev/ps3dc
 	if [ "$MADE" = 1 ]; then
 		wrote=" GameOS's data was not touched: dev_hdd0 was only read, and since the devices exist only the
- image file's own blocks can have been written (an ext4 journal replay at most)."
+ image file's own blocks can have been written (an ext4 journal replay, or the install)."
 	else
-		wrote=" Nothing was written to the internal disk (dev_hdd0 was only read)."
+		wrote=" Nothing was written to dev_hdd0 (it was only read)."
 	fi
+	[ "$HDD1_WROTE" = 1 ] && wrote="$wrote
+ On dev_hdd1 only this image's /linux/ files were written (the saved map, the install's state)."
 	msg="
 ================================================================================
  ps3ssd: the SSD root was NOT started.
@@ -93,8 +131,8 @@ fail() {
 
 $wrote
  Log: $LOG    Tools: ps3-imgmap-boot, busybox (mount -o ro only!)
- To go back: 'reboot -f' and pick the USB entry in Petitboot, or 'poweroff -f'.
- The boot flag goes back to GameOS at the end of the session, as always.
+ To go back: 'reboot -f' and pick another entry in Petitboot (walnut-prev, or a USB
+ install's), or 'poweroff -f'. The boot flag goes back to GameOS at the end of the session.
 ================================================================================
 "
 	ttys="tty1"
@@ -112,79 +150,327 @@ $wrote
 	shell_on $first
 }
 
+why_since() {	# the reason of a failure: the last "!!" line logged since line $1, else the last line
+	why=$(tail -n +$(($1 + 1)) $LOG | grep '^!!' | tail -n 1)
+	[ -n "$why" ] || why=$(tail -n 1 $LOG)
+	echo "$why"
+}
+
 run() {	# run CMD...: its output into the log; on failure its reason (a refusal's "!!" line) on the console
 	n0=$(wc -l < $LOG)
 	"$@" >> $LOG 2>&1 && return 0
-	why=$(tail -n +$((n0 + 1)) $LOG | grep '^!!' | tail -n 1)
-	[ -n "$why" ] || why=$(tail -n 1 $LOG)
-	fail "$why"
+	fail "$(why_since $n0)"
 }
 
-REL=$(sed -n 's/^release=//p' /etc/ps3ssd-initrd 2>/dev/null)
-GUARD=$(sed -n 's/^guard=//p' /etc/ps3ssd-initrd 2>/dev/null)
+run_shown() {	# run CMD...: as run, its output on the console too (progress of the long steps)
+	n0=$(wc -l < $LOG)
+	{ "$@" 2>&1; echo $? > $RUN/rc; } | tee -a $LOG
+	[ "$(cat $RUN/rc)" = 0 ] && return 0
+	fail "$(why_since $n0)"
+}
+
+sysro() {	# the sysfs ro flag of a block device node, by its numbers (names differ in tests)
+	set -- $(stat -L -c '%t %T' "$1")
+	cat /sys/dev/block/$((0x$1)):$((0x$2))/ro 2>/dev/null
+}
+
+setro() {
+	run blockdev --setro $1
+	[ "$(sysro $1)" = 1 ] || fail "$1 is not read-only after blockdev --setro"
+}
+
+mounted() { grep -q "^[^ ]* $1 " /proc/mounts; }
+
+CONF=/etc/ps3ssd-initrd
+REL=$(sed -n 's/^release=//p' $CONF 2>/dev/null)
+GUARD=$(sed -n 's/^guard=//p' $CONF 2>/dev/null)
+KIND=$(sed -n 's/^kind=//p' $CONF 2>/dev/null)
 [ "$GUARD" = required ] || GUARD=auto
-log "initramfs $(xargs < /etc/ps3ssd-initrd 2>/dev/null), kernel $(uname -r)"
+[ "$KIND" = generic ] || KIND=maps
+log "initramfs $(xargs < $CONF 2>/dev/null), kernel $(uname -r)"
 STEP="the kernel command line"
-[ "$REL" = "$(uname -r)" ] || fail "this initramfs is for kernel $REL, the running one is $(uname -r)"
+# an initramfs with modules (or made for one kernel's maps) belongs to that kernel; the generic one
+# has none and fits every kernel with ufs and dm built in
+[ -z "$REL" ] || [ "$REL" = "$(uname -r)" ] || fail "this initramfs is for kernel $REL, the running one is $(uname -r)"
 [ -n "$IMAGE" ] || fail "no ps3ssd.image=<path of the image on dev_hdd0> on the kernel command line"
 case $ROOT in
 /dev/mapper/*) RNAME=${ROOT#/dev/mapper/} ;;
 *) fail "root=$ROOT: this initramfs makes the root itself, root= must be /dev/mapper/<name> (ps3root)" ;;
 esac
 MAP=
-for m in $MAPS/*.map; do
-	[ -e "$m" ] || continue
-	grep -qxF "image $IMAGE" "$m" && { MAP=$m; break; }
-done
-[ -n "$MAP" ] || fail "no boot map for ps3ssd.image=$IMAGE in $MAPS ($(ls $MAPS 2>/dev/null | xargs))"
-run $TOOL check "$MAP"
+if [ $KIND = maps ]; then
+	for m in $MAPS/*.map; do
+		[ -e "$m" ] || continue
+		grep -qxF "image $IMAGE" "$m" && { MAP=$m; break; }
+	done
+	[ -n "$MAP" ] || fail "no boot map for ps3ssd.image=$IMAGE in $MAPS ($(ls $MAPS 2>/dev/null | xargs))"
+	run $TOOL check "$MAP"
+else
+	NAME=${IMAGE##*/}
+	NAME=${NAME%.img}
+	case $IMAGE in /*) ;; *) NAME= ;; esac
+	case $NAME in
+	''|.*|*[!A-Za-z0-9._+-]*) fail "ps3ssd.image=$IMAGE: an absolute path whose file name is letters, digits, . _ + -" ;;
+	esac
+	SD=/linux/$NAME			# the image's state on dev_hdd1
+	IC=/linux/install/install.conf	# the PC's install manifest on dev_hdd1
+fi
 
 STEP="loading ufs and dm-mod"
 for mod in ufs dm-mod; do
 	name=$(echo $mod | tr - _)
 	[ -d /sys/module/$name ] && continue
 	f=/lib/modules/$REL/$mod.ko
-	if [ -e $f ]; then run insmod $f; else log "no $mod.ko in the initramfs: built into the kernel?"; fi
+	if [ -n "$REL" ] && [ -e $f ]; then run insmod $f; else log "no $mod.ko in the initramfs: built into the kernel?"; fi
 done
 
-STEP="waiting for the internal disk (ps3da, ps3db)"
+STEP="waiting for the internal disk (ps3da, ps3db$([ $KIND = generic ] && echo ", ps3dc"))"
 n=0
-while [ ! -b /dev/ps3da ] || [ ! -b /dev/ps3db ]; do
-	[ $n -ge $((TIMEOUT * 10)) ] && fail "no /dev/ps3da or /dev/ps3db after $TIMEOUT s ($(ls /dev | grep ps3d | xargs))"
+need="/dev/ps3da /dev/ps3db"
+[ $KIND = generic ] && need="$need /dev/ps3dc"
+while :; do
+	missing=
+	for d in $need; do [ -b $d ] || missing="$missing $d"; done
+	[ -z "$missing" ] && break
+	[ $n -ge $((TIMEOUT * 10)) ] && fail "no$missing after $TIMEOUT s ($(ls /dev | grep ps3d | xargs))"
 	usleep 100000
 	n=$((n + 1))
 done
 [ $n -gt 0 ] && log "internal disk after $((n / 10)).$((n % 10)) s"
 
 STEP="making GameOS's regions read-only"
-sysro() {	# the sysfs ro flag of a block device node, by its numbers (names differ in tests)
-	set -- $(stat -L -c '%t %T' "$1")
-	cat /sys/dev/block/$((0x$1)):$((0x$2))/ro 2>/dev/null
-}
 for d in /dev/ps3da /dev/ps3dc; do
-	[ -b $d ] || continue
-	run blockdev --setro $d
-	[ "$(sysro $d)" = 1 ] || fail "$d is not read-only after blockdev --setro"
+	[ -b $d ] && setro $d
 done
 log "ps3da (whole disk) and ps3dc read-only until the next boot"
+
+# --- generic: dev_hdd1's state ----------------------------------------------------------------
+hdd1_ro() {	# dev_hdd1 mounted read-only on /hdd1
+	run mount -t vfat -o ro,noatime,nodev,nosuid,noexec /dev/ps3dc /hdd1
+	grep -q '^[^ ]* /hdd1 vfat ro[, ]' /proc/mounts || fail "/hdd1 is not a read-only vfat mount"
+}
+hdd1_rw() {	# dev_hdd1 writable, for one step: only after 'disks' found GameOS's FAT on it
+	[ "$HDD1_FAT" = 1 ] || fail "dev_hdd1 was not checked (internal error)"
+	mounted /hdd1 && fail "dev_hdd1 still mounted"
+	HDD1_RW=1
+	run blockdev --setrw /dev/ps3dc
+	[ "$(sysro /dev/ps3dc)" = 0 ] || fail "/dev/ps3dc stays read-only"
+	run mount -t vfat -o rw,noatime,nodev,nosuid,noexec /dev/ps3dc /hdd1
+	HDD1_WROTE=1
+}
+hdd1_done() {	# unmounted, read-only again
+	sync
+	run umount /hdd1
+	mounted /hdd1 && fail "dev_hdd1 still mounted"
+	if [ "$HDD1_RW" = 1 ]; then setro /dev/ps3dc; HDD1_RW=0; fi
+}
+put() {	# put FILE DEST: FILE to dev_hdd1's DEST (mounted rw on /hdd1), through DEST.tmp
+	run cp "$1" "/hdd1$2.tmp"
+	sync
+	run mv -f "/hdd1$2.tmp" "/hdd1$2"
+}
+sha_of() { sha256sum < "$1" | cut -d' ' -f1; }
+
+ACTION=boot
+if [ $KIND = generic ]; then
+	STEP="checking GameOS's partitions (dev_hdd0 UFS2, dev_hdd1 FAT)"
+	run $TOOL disks
+	HDD1_FAT=1
+	STEP="reading this image's state on dev_hdd1 ($SD)"
+	H=$RUN/hdd1
+	mkdir -p $H
+	hdd1_ro
+	for f in boot.map boot.map.sha256 state; do
+		[ -f /hdd1$SD/$f ] && run cp /hdd1$SD/$f $H/$f
+	done
+	[ -f /hdd1$IC ] && run cp /hdd1$IC $H/install.conf
+	ST_KIND= ST_UUID= ST_SHA= MAPOK=0
+	if [ -f $H/state ]; then
+		read -r ST_KIND ST_UUID ST_SHA x < $H/state
+		case "$ST_KIND $x" in
+		"installing "|"installed ") ;;
+		*) fail "$SD/state on dev_hdd1 is \"$(head -c 120 $H/state)\", not \"installing|installed <uuid> <sha256>\"" ;;
+		esac
+	fi
+	if [ -f $H/boot.map ]; then
+		[ "$(sha_of $H/boot.map)" = "$(cut -d' ' -f1 $H/boot.map.sha256 2>/dev/null)" ] ||
+			fail "$SD/boot.map on dev_hdd1 doesn't match its boot.map.sha256 (damaged): restore it from dev_hdd0's mirror"
+		run $TOOL check $H/boot.map
+		grep -qxF "image $IMAGE" $H/boot.map || fail "$SD/boot.map on dev_hdd1 is not for $IMAGE"
+		MAP_UUID=$(sed -n 's/^uuid //p' $H/boot.map)
+		MAP_SHA=$(sed -n 's/^extents_sha256 //p' $H/boot.map)
+		[ -z "$ST_KIND" ] || [ "$ST_UUID $ST_SHA" = "$MAP_UUID $MAP_SHA" ] ||
+			fail "$SD/state on dev_hdd1 is for another map than boot.map ($ST_UUID, $MAP_UUID)"
+		MAPOK=1
+	fi
+	if [ -f $H/install.conf ]; then
+		run $TOOL install-conf $H/install.conf
+		$TOOL install-conf $H/install.conf > $H/install.vars 2>/dev/null
+		v() { sed -n "s/^$1=//p" $H/install.vars; }
+		I_IMAGE=$(v image) I_UUID=$(v uuid) I_SIZE=$(v image_size) I_SWAP=$(v swap_mib)
+		I_ROOTFS=$(v rootfs) I_RSIZE=$(v rootfs_size) I_RSHA=$(v rootfs_sha256) I_TSIZE=$(v tar_size)
+		[ "$I_IMAGE" = "$IMAGE" ] || fail "$IC on dev_hdd1 installs $I_IMAGE, the kernel command line boots $IMAGE"
+		if [ $MAPOK = 1 ] && [ "$ST_KIND $ST_UUID" = "installing $I_UUID" ]; then
+			ACTION=resume
+		elif [ $MAPOK = 1 ] && [ "$ST_KIND $ST_UUID" = "installed $I_UUID" ]; then
+			ACTION=finish
+		else
+			ACTION=install
+		fi
+		if [ $ACTION != finish ]; then
+			STEP="checking the rootfs tarball on dev_hdd1 ($I_ROOTFS)"
+			[ -f "/hdd1$I_ROOTFS" ] || fail "$I_ROOTFS is not on dev_hdd1: upload it again (the install manifest goes last)"
+			got=$(stat -c %s "/hdd1$I_ROOTFS")
+			[ "$got" = "$I_RSIZE" ] || fail "$I_ROOTFS has $got bytes, the manifest says $I_RSIZE: the upload is incomplete"
+			say "checking the sha256 of $I_ROOTFS ($((I_RSIZE >> 20)) MiB)..."
+			[ "$(sha_of "/hdd1$I_ROOTFS")" = "$I_RSHA" ] || fail "$I_ROOTFS's sha256 is not the manifest's: damaged, upload it again"
+			ROOTB=$((I_SIZE - 1048576 - I_SWAP * 1048576))
+			[ $((I_TSIZE + I_TSIZE / 16 + 268435456)) -le $ROOTB ] ||
+				fail "the root file system ($((I_TSIZE >> 20)) MiB unpacked, plus ext4's overhead) doesn't fit the image's root ($((ROOTB >> 20)) MiB): a bigger image or a smaller swap"
+		fi
+	elif [ $MAPOK = 1 ]; then
+		[ "$ST_KIND" != installing ] ||
+			fail "the install of $IMAGE was interrupted and its install manifest ($IC) is gone: upload the image and the install again"
+	else
+		fail "no saved map for $IMAGE on dev_hdd1 ($SD/boot.map) and no install pending ($IC): restore dev_hdd1's /linux from dev_hdd0's mirror, or install again"
+	fi
+	hdd1_done
+	log "dev_hdd1: $ACTION$([ -n "$ST_KIND" ] && echo " (state: $ST_KIND $ST_UUID)")"
+	[ $ACTION = install ] || MAP=$H/boot.map
+	[ $ACTION = install ] && say "installing $IMAGE (image $I_UUID): this boot checks the whole image, then formats it and unpacks the system; it takes several minutes"
+	[ $ACTION = resume ] && say "the install of $IMAGE was interrupted: formatting its root and unpacking the system again"
+fi
 
 STEP="mounting dev_hdd0 read-only"
 run mount -t ufs -o ro,ufstype=ufs2 /dev/ps3db /gameos
 grep -q '^[^ ]* /gameos ufs ro[, ]' /proc/mounts || fail "/gameos is not a read-only ufs mount: $(grep ' /gameos ' /proc/mounts)"
 
-STEP="rechecking the image's block list ($IMAGE)"
-[ $QUIET = 1 ] || echo "ps3ssd: rechecking $IMAGE on dev_hdd0 (FIBMAP of every block)..."
-run $TOOL recheck "$MAP" /gameos --run $RUN
+if [ $ACTION = install ]; then
+	STEP="mapping the new image's blocks ($IMAGE)"
+	MAP=$RUN/boot.map
+	run_shown $TOOL map /gameos "$IMAGE" --uuid "$I_UUID" --size "$I_SIZE" --swap-mib "$I_SWAP" --out $MAP --run $RUN
+else
+	STEP="rechecking the image's block list ($IMAGE)"
+	[ $QUIET = 1 ] || echo "ps3ssd: rechecking $IMAGE on dev_hdd0 (FIBMAP of every block)..."
+	run $TOOL recheck "$MAP" /gameos --run $RUN
+fi
 
 STEP="unmounting dev_hdd0"
 run umount /gameos
 grep -q ' /gameos ' /proc/mounts && fail "dev_hdd0 still mounted"
+
+if [ $ACTION = install ]; then
+	STEP="verifying every block of the new image ($IMAGE)"
+	run_shown $TOOL verify $MAP
+	STEP="saving the map to dev_hdd1 ($SD)"
+	MAP_SHA=$(sed -n 's/^extents_sha256 //p' $MAP)
+	sha256sum < $MAP | sed 's/ .*/  boot.map/' > $RUN/boot.map.sha256
+	echo "installing $I_UUID $MAP_SHA" > $RUN/state
+	hdd1_rw
+	run mkdir -p /hdd1$SD
+	# the state last: "installing" with a map that is there and complete
+	rm -f /hdd1$SD/state
+	sync
+	put $MAP $SD/boot.map
+	put $RUN/boot.map.sha256 $SD/boot.map.sha256
+	put $RUN/state $SD/state
+	hdd1_done
+	say "map saved: dev_hdd1:$SD/boot.map (extents sha256 $MAP_SHA)"
+fi
 
 STEP="creating /dev/mapper/$RNAME and /dev/mapper/$SWAP (and sealing ps3db's write guard)"
 run $TOOL create "$MAP" --root-name "$RNAME" --swap-name "$SWAP" --run $RUN --guard $GUARD
 MADE=1
 made=$(grep -e '^>> /dev/mapper/' -e '^>> write guard sealed' -e '^>> kernel has no write guard' $LOG | sed 's/^>> //')
 echo "$made" | while read -r l; do log "$l"; done
+
+# --- an install: the root file system ---------------------------------------------------------
+fixups() {	# this install's settings in the new root (the image is the same for a USB install)
+	R=/root
+	[ -e $R/etc/fstab ] && [ ! -e $R/etc/fstab.image ] && cp -p $R/etc/fstab $R/etc/fstab.image
+	cat > $R/etc/fstab <<EOF
+# The internal install (written by the initramfs's install, docs/GAMEOS-HDD.md): root and swap
+# are the image file $IMAGE on dev_hdd0, made into dm devices by the initramfs at every boot.
+# The image's own fstab (for a USB install) is /etc/fstab.image.
+/dev/mapper/$RNAME  /     $FSTYPE  defaults,noatime  0 1
+/dev/mapper/$SWAP   none  swap  sw,pri=200,noauto 0 0
+tmpfs               /tmp  tmpfs defaults,nosuid,nodev,size=25% 0 0
+EOF
+	mkdir -p $R/etc/default
+	d=$R/etc/default/ps3-boot
+	if [ -e $d ]; then grep -v -e '^PS3_ROOT_ARGS=' -e '^PS3_BOOT_TARGET=' $d > $d.new || true; else : > $d.new; fi
+	{
+		echo "# the internal install (the initramfs's install): Petitboot's menu goes to dev_hdd1"
+		echo "PS3_BOOT_TARGET=hdd1"
+		echo "PS3_ROOT_ARGS=\"root=/dev/mapper/$RNAME rootfstype=$FSTYPE ro ps3ssd.image=$IMAGE\""
+	} >> $d.new
+	mv $d.new $d
+	# udev gets the dm devices the initramfs made without it (docs/GAMEOS-HDD.md "Phase B")
+	mkdir -p $R/etc/systemd/system/sysinit.target.wants
+	cat > $R/etc/systemd/system/ps3ssd-udev.service <<'EOF'
+[Unit]
+Description=Give udev the SSD root's device-mapper devices (made by the initramfs)
+DefaultDependencies=no
+After=systemd-udev-trigger.service
+Before=sysinit.target
+ConditionPathExists=/run/ps3ssd/init.log
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/udevadm trigger --action=change --subsystem-match=block --sysname-match=dm-*
+ExecStart=/usr/bin/udevadm settle --timeout=10
+
+[Install]
+WantedBy=sysinit.target
+EOF
+	ln -sf ../ps3ssd-udev.service $R/etc/systemd/system/sysinit.target.wants/ps3ssd-udev.service
+	# what Petitboot boots now, for ps3-update-kboot's walnut-prev (its hdd1 mode)
+	mkdir -p $R/var/lib/ps3-boot/initrd $R/var/log
+	cp $H/kboot.conf $R/var/lib/ps3-boot/kboot.conf.install 2>/dev/null
+	for f in $H/initrd-*.img; do [ -e "$f" ] && cp "$f" $R/var/lib/ps3-boot/initrd/; done
+	cp $LOG $R/var/log/walnut-install.log
+}
+
+if [ $ACTION = install ] || [ $ACTION = resume ]; then
+	STEP="making the root file system on $ROOT"
+	say "making ext4 on $ROOT..."
+	run $LIBX/mke2fs -t ext4 -q -F -L ps3root -E lazy_itable_init=0,lazy_journal_init=0,nodiscard $ROOT
+	run mount -t ext4 -o rw $ROOT /root
+	STEP="unpacking $I_ROOTFS into the root"
+	free=$(df -k /root | awk 'NR == 2 { print $4 }')
+	[ $((free * 1024)) -gt $((I_TSIZE + I_TSIZE / 32)) ] || fail "$ROOT has $((free >> 10)) MiB free, the system needs $((I_TSIZE >> 20)) MiB"
+	hdd1_ro
+	# the boot files Petitboot uses now, for the new root's record (ps3-update-kboot)
+	cp /hdd1/kboot.conf $H/kboot.conf 2>/dev/null
+	for f in $(sed -n "s/^walnut=.* initrd=\/linux\/boot\/\(initrd-[A-Za-z0-9._+-]*\.img\) .*/\1/p" $H/kboot.conf 2>/dev/null); do
+		cp /hdd1/linux/boot/$f $H/ 2>/dev/null
+	done
+	say "unpacking the system ($((I_TSIZE >> 20)) MiB; several minutes)..."
+	n0=$(wc -l < $LOG)
+	( unxz -c "/hdd1$I_ROOTFS" 2>> $LOG || echo "!! unxz failed: the tarball is damaged" >> $LOG ) |
+		$LIBX/tar -x -p --numeric-owner --xattrs --xattrs-include='*' -f - -C /root >> $LOG 2>&1 ||
+		echo "!! tar failed" >> $LOG
+	tail -n +$((n0 + 1)) $LOG | grep -q '^!!' && fail "$(why_since $n0)"
+	[ -x /root$INIT ] || [ -L /root$INIT ] || fail "the unpacked system has no $INIT"
+	hdd1_done
+	STEP="this install's settings in the new root"
+	fixups
+	sync
+	run umount /root
+	log "installed: $((I_TSIZE >> 20)) MiB unpacked into $ROOT"
+fi
+
+if [ $ACTION = install ] || [ $ACTION = resume ] || [ $ACTION = finish ]; then
+	STEP="finishing the install on dev_hdd1"
+	echo "installed $I_UUID $MAP_SHA" > $RUN/state
+	hdd1_rw
+	put $RUN/state $SD/state
+	run mv -f /hdd1$IC /hdd1${IC%.conf}.done
+	rm -f "/hdd1$I_ROOTFS"
+	[ -e "/hdd1$I_ROOTFS" ] && fail "can't delete $I_ROOTFS on dev_hdd1"
+	hdd1_done
+	say "install done: dev_hdd1's $IC is now install.done, the rootfs tarball deleted"
+fi
 
 if [ $BREAK = 1 ]; then
 	echo "ps3ssd: ps3ssd.break=1: a shell before the root is mounted; 'exit' goes on"

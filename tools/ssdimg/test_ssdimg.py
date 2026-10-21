@@ -570,6 +570,53 @@ class BootMap(Pipeline):
         self.assertIn("the boot uses /dev/ps3db", err)
 
 
+class InstallManifest(unittest.TestCase):
+    """stamp.py install's manifest against ps3-imgmap-boot install-conf (the initramfs's reader)"""
+    def setUp(self):
+        self.tool = build_boot_tool()
+        if self.tool is None:
+            self.skipTest("no gcc")
+        SCRATCH.mkdir(parents=True, exist_ok=True)
+        self.f = SCRATCH / ("%s.conf" % self._testMethodName)
+
+    def conf(self, text):
+        self.f.write_text(text)
+        return subprocess.run([str(self.tool), "install-conf", str(self.f)], capture_output=True, text=True)
+
+    def good(self):
+        return stamp.manifest("/linux/walnut.img", UID, 16 << 30, 1024, "/linux/install/rootfs.tar.xz",
+                              2_000_000_000, "ab" * 32, 6_000_000_000)
+
+    def test_accepted_and_printed(self):
+        p = self.conf(self.good())
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("image=/linux/walnut.img\n", p.stdout)
+        self.assertIn("uuid=%s\n" % UID, p.stdout)
+        self.assertIn("tar_size=6000000000\n", p.stdout)
+
+    def test_tampered_or_truncated_refused(self):
+        m = self.good()
+        self.assertNotEqual(self.conf(m.replace("swap_mib 1024", "swap_mib 1025")).returncode, 0)  # sha256 no longer fits
+        self.assertNotEqual(self.conf(m[:-10]).returncode, 0)                                     # truncated
+        self.assertNotEqual(self.conf(m.rsplit("sha256 ", 1)[0]).returncode, 0)                   # no closing line
+
+    def test_rootfs_outside_install_dir_refused(self):
+        m = stamp.manifest("/linux/walnut.img", UID, 16 << 30, 1024, "/linux/boot/x.tar.xz", 1, "ab" * 32, 1)
+        p = self.conf(m)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("/linux/install/", p.stdout + p.stderr)
+
+    def test_unpacked_size(self):
+        t = SCRATCH / "u.tar.xz"
+        import tarfile
+        with tarfile.open(t, "w:xz") as tf:
+            for name, n in (("a", 1), ("b", 4097)):
+                info = tarfile.TarInfo(name)
+                info.size = n
+                tf.addfile(info, io.BytesIO(b"x" * n))
+        self.assertEqual(stamp.unpacked_size(t), (4096 + 4096) + (4096 + 8192))
+
+
 class FakeGuard:
     """the kernel's /sys/block/ps3db/write_guard (local/0045) for ps3-imgmap's guard functions: a write
     of more than 4096 bytes cut at 4096 (sysfs), each write parsed whole or refused (EINVAL), the seal

@@ -26,9 +26,25 @@
  *       target read back (never the header area) in whole-line writes of at most 4096 bytes, seals,
  *       and checks nr_ranges and nr_sectors. On any failure the devices made so far are removed (a
  *       failure after the first registered range can't be undone in this boot: reboot).
+ *   ps3-imgmap-boot map MOUNTPOINT IMAGE --uuid U --size BYTES --swap-mib N --out MAP [--run DIR]
+ *       The internal install's first boot (docs/GAMEOS-HDD.md "The internal install"): the boot map of
+ *       a freshly uploaded image, made in the console. recheck's mount and geometry checks, then the
+ *       size and UUID the PC's install manifest promised and the image's first MiB (uploaded last)
+ *       all stamps, FIBMAP, and the map text ps3-imgmap export-boot writes, checked as check does. It
+ *       is this boot's FIBMAP, so it stands for this boot's recheck (create's ticket).
+ *   ps3-imgmap-boot verify MAP
+ *       Every 4 KiB block of the image read from /dev/ps3db (O_DIRECT) through the map's extents and
+ *       compared with its stamp (ps3-imgmap verify in C). Any block that isn't: refused. An image that
+ *       holds anything but the PC's stamps (an earlier install's root, say) can't pass.
+ *   ps3-imgmap-boot disks
+ *       /dev/ps3db has a UFS2 super block and /dev/ps3dc a FAT boot sector that fits it, before
+ *       /init mounts either (and before dev_hdd1 is ever written). Reads two sectors.
+ *   ps3-imgmap-boot install-conf FILE
+ *       Checks the PC's install manifest (dev_hdd1:/linux/install/install.conf: its closing sha256
+ *       line, the fields, paths, sizes) and prints it as key=value lines for /init.
  *
  * Exit status: 0 done, 2 refused (with the reason on stderr), 1 usage or a system error.
- * Never opens /dev/ps3db or /dev/ps3da for writing: reads go through O_RDONLY descriptors, and only
+ * Never opens /dev/ps3db, /dev/ps3da or /dev/ps3dc for writing (map writes only its OUT file and the record): reads go through O_RDONLY descriptors, and only
  * what is written to /dev/mapper/<name> afterwards lands inside the image file's own blocks.
  * No test seams: the device names are fixed (the KVM test, tools/ssdimg/vm-e2e.sh, makes /dev/ps3db
  * and /dev/ps3da nodes for its virtual disks instead, or loads a module that gives them the guard).
@@ -60,6 +76,7 @@
 #define DIGEST_VERSION	"ps3-imgmap 1"
 #define DEVICE		"/dev/ps3db"
 #define WHOLE		"/dev/ps3da"
+#define CACHE		"/dev/ps3dc"	/* dev_hdd1: only read here, never written */
 #define MOUNTINFO	"/proc/self/mountinfo"
 #define BOOT_ID		"/proc/sys/kernel/random/boot_id"
 #define DM_CONTROL	"/dev/mapper/control"
@@ -368,10 +385,12 @@ static void extents_digest(const struct map *m, const struct extent *ext, int n,
 	sha256_hex(&h, out);
 }
 
-static void load_map(const char *path, struct map *m)
+/* PATH's text into *BUF; its last line is "sha256 <hex of everything before it>", checked; *END is
+ * where that line starts */
+static void read_signed(const char *path, char **bufp, size_t *endp)
 {
-	char line[512], *buf;
-	size_t len = 0, cap = 1 << 16, pos = 0, end;
+	char *buf;
+	size_t len = 0, cap = 1 << 16, end;
 	ssize_t r;
 	int fd = open(path, O_RDONLY | O_CLOEXEC);
 	if (fd < 0)
@@ -383,7 +402,7 @@ static void load_map(const char *path, struct map *m)
 		len += r;
 		if (len == cap) {
 			if (cap >= (64u << 20))
-				refuse("%s: too big for a map", path);
+				refuse("%s: too big", path);
 			buf = realloc(buf, cap *= 2);
 			if (!buf)
 				die("out of memory");
@@ -392,9 +411,8 @@ static void load_map(const char *path, struct map *m)
 	if (r < 0)
 		refuse("%s: %s", path, strerror(errno));
 	close(fd);
-	/* the last line is "sha256 <hex of everything before it>" */
 	if (len < 72 || buf[len - 1] != '\n')
-		refuse("%s: no closing sha256 line (truncated or not a boot map)", path);
+		refuse("%s: no closing sha256 line (truncated, or not this kind of file)", path);
 	end = len - 1;
 	while (end > 0 && buf[end - 1] != '\n')
 		end--;
@@ -402,7 +420,7 @@ static void load_map(const char *path, struct map *m)
 		char want[65], got[65];
 		struct sha256 h;
 		if (len - end != 72 || strncmp(buf + end, "sha256 ", 7))
-			refuse("%s: no closing sha256 line (truncated or not a boot map)", path);
+			refuse("%s: no closing sha256 line (truncated, or not this kind of file)", path);
 		memcpy(want, buf + end + 7, 64);
 		want[64] = 0;
 		sha256_init(&h);
@@ -411,6 +429,15 @@ static void load_map(const char *path, struct map *m)
 		if (strcmp(want, got))
 			refuse("%s: its sha256 line doesn't match its contents (edited or damaged)", path);
 	}
+	*bufp = buf;
+	*endp = end;
+}
+
+static void load_map(const char *path, struct map *m)
+{
+	char line[512], *buf;
+	size_t pos = 0, end;
+	read_signed(path, &buf, &end);
 	memset(m, 0, sizeof(*m));
 	if (!next_line(buf, end, &pos, line, sizeof(line), path) || strcmp(line, FORMAT))
 		refuse("%s: not a \"%s\" map", path, FORMAT);
@@ -663,91 +690,76 @@ static void record_path(const char *run, char *out, size_t n)
 	snprintf(out, n, "%s/rechecked", run);
 }
 
-/* --- recheck ----------------------------------------------------------------------------- */
-static int cmd_recheck(const char *mappath, const char *mountpoint, const char *run)
+/* --- the image file on the read-only UFS2 mount: recheck and map ------------------------------ */
+/* what the file system says about the image file: geometry, identity, its first MiB, FIBMAP */
+struct scan {
+	char path[1024];
+	int64_t bsize, fsize, device_sectors, size, inode;
+	const char *order;
+	int n;
+	struct extent *ext;
+};
+
+/* MOUNTPOINT/IMAGE opened read-only, its mount checked (ufs, ro, ufstype=ufs2, from /dev/ps3db),
+ * the geometry cross-checked (super block, FIGETBSZ, statvfs); returns the descriptor */
+static int scan_open(const char *mountpoint, const char *image, struct scan *sc)
 {
-	struct map m;
-	char path[1024], devnum[32], bid[64], rec[1100];
+	char devnum[32];
 	struct stat st;
 	struct statvfs vs;
 	struct mnt mnt;
-	int64_t bsize, fsize;
-	const char *order;
 	int bsz;
 
-	load_map(mappath, &m);
-	if (strcmp(m.device, DEVICE))
-		refuse("%s: made for %s, the boot uses %s", mappath, m.device, DEVICE);
-	if (snprintf(path, sizeof(path), "%s%s", mountpoint, m.image) >= (int)sizeof(path))
+	memset(sc, 0, sizeof(*sc));
+	if (snprintf(sc->path, sizeof(sc->path), "%s%s", mountpoint, image) >= (int)sizeof(sc->path))
 		refuse("path too long");
-	int fd = open(path, O_RDONLY | O_CLOEXEC);
+	int fd = open(sc->path, O_RDONLY | O_CLOEXEC);
 	if (fd < 0)
-		refuse("%s: %s", path, strerror(errno));
+		refuse("%s: %s", sc->path, strerror(errno));
 	if (fstat(fd, &st) < 0)
 		die("fstat: %s", strerror(errno));
 	if (!S_ISREG(st.st_mode))
-		refuse("%s is not a regular file", path);
+		refuse("%s is not a regular file", sc->path);
 	devnum_str(st.st_dev, devnum, sizeof(devnum));
 	if (!mounts_of(devnum, &mnt))
-		refuse("%s: its file system (%s) is not in %s", path, devnum, MOUNTINFO);
+		refuse("%s: its file system (%s) is not in %s", sc->path, devnum, MOUNTINFO);
 	if (strcmp(mnt.fstype, "ufs"))
-		refuse("%s is on %s (%s), not GameOS's UFS2", path, mnt.point, mnt.fstype);
+		refuse("%s is on %s (%s), not GameOS's UFS2", sc->path, mnt.point, mnt.fstype);
 	if (!has_opt(mnt.mopts, "ro") || !has_opt(mnt.sopts, "ro"))
-		refuse("%s: %s is not mounted read-only (%s / %s)", path, mnt.point, mnt.mopts, mnt.sopts);
+		refuse("%s: %s is not mounted read-only (%s / %s)", sc->path, mnt.point, mnt.mopts, mnt.sopts);
 	if (!has_opt(mnt.sopts, "ufstype=ufs2") && !has_opt(mnt.mopts, "ufstype=ufs2"))
-		refuse("%s: %s is not mounted with ufstype=ufs2 (%s)", path, mnt.point, mnt.sopts);
+		refuse("%s: %s is not mounted with ufstype=ufs2 (%s)", sc->path, mnt.point, mnt.sopts);
 	if (blockdev_rdev(DEVICE) != st.st_dev)
-		refuse("%s: its device (%s, %s) is not %s", path, mnt.source, devnum, DEVICE);
-
-	const char *why = NULL;
-	char whybuf[256];
-	ufs_super(&bsize, &fsize, &order);
+		refuse("%s: its device (%s, %s) is not %s", sc->path, mnt.source, devnum, DEVICE);
+	ufs_super(&sc->bsize, &sc->fsize, &sc->order);
 	if (ioctl(fd, FIGETBSZ, &bsz) < 0)
 		refuse("FIGETBSZ: %s", strerror(errno));
 	if (fstatvfs(fd, &vs) < 0)
 		die("fstatvfs: %s", strerror(errno));
-	if (bsz != fsize || (int64_t)vs.f_bsize != fsize)
+	if (bsz != sc->fsize || (int64_t)vs.f_bsize != sc->fsize)
 		refuse("FIGETBSZ %d, statvfs %lu, the super block's fs_fsize %" PRId64 ": they should be equal "
-		       "(the unit assumption is wrong: stop)", bsz, (unsigned long)vs.f_bsize, fsize);
-	if (fsize != m.fragment_size || bsize != m.block_size || strcmp(order, m.byte_order)) {
-		snprintf(whybuf, sizeof(whybuf), "UFS geometry %" PRId64 "/%" PRId64 " %s, the map's %" PRId64 "/%" PRId64 " %s",
-			 bsize, fsize, order, m.block_size, m.fragment_size, m.byte_order);
-		why = whybuf;
-	} else if (device_sectors(DEVICE) != m.device_sectors) {
-		snprintf(whybuf, sizeof(whybuf), "%s has %" PRId64 " sectors, the map says %" PRId64,
-			 DEVICE, device_sectors(DEVICE), m.device_sectors);
-		why = whybuf;
-	} else if ((int64_t)st.st_size != m.file_size) {
-		snprintf(whybuf, sizeof(whybuf), "size %" PRId64 ", map %" PRId64, (int64_t)st.st_size, m.file_size);
-		why = whybuf;
-	} else if ((int64_t)st.st_ino != m.inode) {
-		snprintf(whybuf, sizeof(whybuf), "inode %" PRId64 ", map %" PRId64 " (the file was replaced)",
-			 (int64_t)st.st_ino, m.inode);
-		why = whybuf;
-	} else {
-		/* the first block through the file system: still the stamp of offset 0 (the header area
-		 * is never mapped, so nothing of ours writes there) */
-		unsigned char want[BLOCK], got[BLOCK];
-		expected_block(m.uid, 0, want);
-		if (pread(fd, got, BLOCK, 0) != BLOCK || memcmp(got, want, BLOCK))
-			why = "the file's first block is not this image's stamp of offset 0";
-	}
-	if (why)
-		refuse("CHANGED: %s. Not activating the SSD image.", why);
+		       "(the unit assumption is wrong: stop)", bsz, (unsigned long)vs.f_bsize, sc->fsize);
+	sc->device_sectors = device_sectors(DEVICE);
+	sc->size = st.st_size;
+	sc->inode = st.st_ino;
+	return fd;
+}
 
-	/* FIBMAP: the first and last fragment of every block, merged into extents of sectors */
-	int64_t fpb = bsize / fsize, k = fsize / 512, nblocks = m.file_size / bsize;
+/* FIBMAP: the first and last fragment of every block, merged into extents of sectors */
+static void scan_fibmap(int fd, struct scan *sc, const char *what)
+{
+	int64_t fpb = sc->bsize / sc->fsize, k = sc->fsize / 512, nblocks = sc->size / sc->bsize;
 	struct extent *ext = malloc(sizeof(*ext) * MAX_EXTENTS);
 	int n = 0;
-	double t0 = now_s(), last = t0;
+	double last = now_s();
 	if (!ext)
 		die("out of memory");
-	say("recheck: FIBMAP of %" PRId64 " blocks of %s", nblocks, path);
+	say("%s: FIBMAP of %" PRId64 " blocks of %s", what, nblocks, sc->path);
 	for (int64_t b = 0; b < nblocks; b++) {
 		int64_t f0 = b * fpb;
 		int64_t p0 = fibmap(fd, f0);
 		if (p0 == 0)
-			refuse("CHANGED: hole at byte %" PRId64 " (fragment %" PRId64 ")", f0 * fsize, f0);
+			refuse("CHANGED: hole at byte %" PRId64 " (fragment %" PRId64 ")", f0 * sc->fsize, f0);
 		if (fpb > 1) {
 			int64_t p = fibmap(fd, f0 + fpb - 1);
 			if (p != p0 + fpb - 1)
@@ -765,33 +777,402 @@ static int cmd_recheck(const char *mappath, const char *mountpoint, const char *
 		}
 		if (now_s() - last >= 5) {
 			last = now_s();
-			fprintf(stderr, ">> recheck: %" PRId64 " of %" PRId64 " blocks (%.0f%%)\n", b + 1, nblocks,
+			fprintf(stderr, ">> %s: %" PRId64 " of %" PRId64 " blocks (%.0f%%)\n", what, b + 1, nblocks,
 				100.0 * (b + 1) / nblocks);
 		}
 	}
-	close(fd);
-	if (n != m.nextents)
-		refuse("CHANGED: the block list differs (%d extents, the map has %d). Not activating the SSD image.",
-		       n, m.nextents);
-	for (int i = 0; i < n; i++)
-		if (ext[i].l != m.ext[i].l || ext[i].p != m.ext[i].p || ext[i].n != m.ext[i].n)
-			refuse("CHANGED: the block list differs at extent %d (image sector %" PRId64 "). Not activating "
-			       "the SSD image.", i, m.ext[i].l);
-	char d[65];
-	extents_digest(&m, ext, n, d);
-	if (strcmp(d, m.extents_sha256))
-		refuse("CHANGED: the block list's sha256 differs");
-	free(ext);
+	sc->ext = ext;
+	sc->n = n;
+}
 
+/* create's ticket: this map's extents were FIBMAPped in this boot */
+static void record_recheck(const char *run, const char *sha)
+{
+	char bid[64], rec[1100];
 	read_boot_id(bid, sizeof(bid));
 	if (mkdir(run, 0755) < 0 && errno != EEXIST)
 		die("%s: %s", run, strerror(errno));
 	record_path(run, rec, sizeof(rec));
 	FILE *f = fopen(rec, "we");
-	if (!f || fprintf(f, "%s %s\n", m.extents_sha256, bid) < 0 || fclose(f))
+	if (!f || fprintf(f, "%s %s\n", sha, bid) < 0 || fclose(f))
 		die("%s: %s", rec, strerror(errno));
+}
+
+static int cmd_recheck(const char *mappath, const char *mountpoint, const char *run)
+{
+	struct map m;
+	struct scan sc;
+	char whybuf[256];
+	const char *why = NULL;
+	double t0 = now_s();
+
+	load_map(mappath, &m);
+	if (strcmp(m.device, DEVICE))
+		refuse("%s: made for %s, the boot uses %s", mappath, m.device, DEVICE);
+	int fd = scan_open(mountpoint, m.image, &sc);
+	if (sc.fsize != m.fragment_size || sc.bsize != m.block_size || strcmp(sc.order, m.byte_order)) {
+		snprintf(whybuf, sizeof(whybuf), "UFS geometry %" PRId64 "/%" PRId64 " %s, the map's %" PRId64 "/%" PRId64 " %s",
+			 sc.bsize, sc.fsize, sc.order, m.block_size, m.fragment_size, m.byte_order);
+		why = whybuf;
+	} else if (sc.device_sectors != m.device_sectors) {
+		snprintf(whybuf, sizeof(whybuf), "%s has %" PRId64 " sectors, the map says %" PRId64,
+			 DEVICE, sc.device_sectors, m.device_sectors);
+		why = whybuf;
+	} else if (sc.size != m.file_size) {
+		snprintf(whybuf, sizeof(whybuf), "size %" PRId64 ", map %" PRId64, sc.size, m.file_size);
+		why = whybuf;
+	} else if (sc.inode != m.inode) {
+		snprintf(whybuf, sizeof(whybuf), "inode %" PRId64 ", map %" PRId64 " (the file was replaced)", sc.inode, m.inode);
+		why = whybuf;
+	} else {
+		/* the first block through the file system: still the stamp of offset 0 (the header area
+		 * is never mapped, so nothing of ours writes there) */
+		unsigned char want[BLOCK], got[BLOCK];
+		expected_block(m.uid, 0, want);
+		if (pread(fd, got, BLOCK, 0) != BLOCK || memcmp(got, want, BLOCK))
+			why = "the file's first block is not this image's stamp of offset 0";
+	}
+	if (why)
+		refuse("CHANGED: %s. Not activating the SSD image.", why);
+	scan_fibmap(fd, &sc, "recheck");
+	close(fd);
+	if (sc.n != m.nextents)
+		refuse("CHANGED: the block list differs (%d extents, the map has %d). Not activating the SSD image.",
+		       sc.n, m.nextents);
+	for (int i = 0; i < sc.n; i++)
+		if (sc.ext[i].l != m.ext[i].l || sc.ext[i].p != m.ext[i].p || sc.ext[i].n != m.ext[i].n)
+			refuse("CHANGED: the block list differs at extent %d (image sector %" PRId64 "). Not activating "
+			       "the SSD image.", i, m.ext[i].l);
+	char d[65];
+	extents_digest(&m, sc.ext, sc.n, d);
+	if (strcmp(d, m.extents_sha256))
+		refuse("CHANGED: the block list's sha256 differs");
+	free(sc.ext);
+	record_recheck(run, m.extents_sha256);
 	say("recheck: %s: the block list is the map's (%d extents, sha256 %.12s..., %.1f s)",
-	    path, n, m.extents_sha256, now_s() - t0);
+	    sc.path, sc.n, m.extents_sha256, now_s() - t0);
+	return 0;
+}
+
+/* a growing text buffer */
+struct text {
+	char *s;
+	size_t len, cap;
+};
+
+static void __attribute__((format(printf, 2, 3))) text_add(struct text *t, const char *fmt, ...)
+{
+	va_list ap;
+	int k;
+	for (;;) {
+		va_start(ap, fmt);
+		k = vsnprintf(t->s ? t->s + t->len : NULL, t->s ? t->cap - t->len : 0, fmt, ap);
+		va_end(ap);
+		if (k < 0)
+			die("vsnprintf");
+		if (t->s && t->len + k < t->cap)
+			break;
+		t->cap = (t->cap ? t->cap : 4096) * 2 + k;
+		t->s = realloc(t->s, t->cap);
+		if (!t->s)
+			die("out of memory");
+	}
+	t->len += k;
+}
+
+/* map MOUNTPOINT IMAGE --uuid U --size N --swap-mib S --out FILE: the boot map of a freshly uploaded
+ * image (the internal install's first boot, docs/GAMEOS-HDD.md): the same checks as recheck, then the
+ * identity the PC promised (size and UUID; the image's first MiB, uploaded last, all stamps), FIBMAP,
+ * and the boot map ps3-imgmap export-boot would write for it. The map is this boot's FIBMAP, so it
+ * counts as this boot's recheck for create. Nothing is written but OUT and the record in RUN. */
+static int cmd_map(const char *mountpoint, const char *image, const char *uuid, int64_t size, int64_t swap_mib,
+		   const char *out, const char *run)
+{
+	static const unsigned char zero[BLOCK];
+	struct scan sc;
+	struct map m;
+	unsigned char uid[16], want[BLOCK], got[BLOCK];
+	char d[65], hex[65], tmp[1100];
+	struct text t = { 0 };
+
+	if (!good_path(image))
+		refuse("image path \"%s\": absolute, letters, digits, / . _ - + only", image);
+	if (!uuid || parse_uuid(uuid, uid))
+		refuse("--uuid: a lower-case UUID");
+	if (size <= 0 || swap_mib < 0 || !out)
+		refuse("map needs --uuid, --size, --swap-mib and --out");
+	int fd = scan_open(mountpoint, image, &sc);
+	if (sc.size != size)
+		refuse("%s has %" PRId64 " bytes, the install says %" PRId64 ": the upload is incomplete, or this is another "
+		       "file. Not installing.", sc.path, sc.size, size);
+	if (size % BLOCK || size % sc.bsize || size < 2 * HEADER_SECTORS * 512)
+		refuse("%s: %" PRId64 " bytes is not a stamped image of whole %" PRId64 "-byte UFS blocks", sc.path, size, sc.bsize);
+	/* the header area, through the file system: the PC uploads it last, so an interrupted upload
+	 * leaves it unstamped (zeros) and stops here */
+	for (int64_t off = 0; off < HEADER_SECTORS * 512; off += BLOCK) {
+		expected_block(uid, off, want);
+		if (pread(fd, got, BLOCK, off) != BLOCK)
+			refuse("%s: can't read byte %" PRId64 ": %s", sc.path, off, strerror(errno));
+		if (memcmp(got, want, BLOCK))
+			refuse("%s: the header area (its first MiB) isn't image %s's stamps at byte %" PRId64 " (%s): the upload "
+			       "is incomplete (the header goes last), or this is another image, or one in use. Not installing.",
+			       sc.path, uuid, off, !memcmp(got, zero, BLOCK) ? "zeros" :
+			       memcmp(got, MAGIC, 8) ? "no stamp" : "another stamp");
+	}
+	scan_fibmap(fd, &sc, "map");
+	close(fd);
+	memset(&m, 0, sizeof(m));
+	m.file_size = size;
+	snprintf(m.uuid, sizeof(m.uuid), "%s", uuid);
+	extents_digest(&m, sc.ext, sc.n, d);
+	text_add(&t, "%s\nimage %s\ndevice %s\ndevice_sectors %" PRId64 "\ninode %" PRId64 "\nfile_size %" PRId64
+		 "\nfragment_size %" PRId64 "\nblock_size %" PRId64 "\nbyte_order %s\nuuid %s\nextents_sha256 %s\n"
+		 "swap_sectors %" PRId64 "\nextents %d\n", FORMAT, image, DEVICE, sc.device_sectors, sc.inode, size,
+		 sc.fsize, sc.bsize, sc.order, uuid, d, swap_mib * 2048, sc.n);
+	for (int i = 0; i < sc.n; i++)
+		text_add(&t, "%" PRId64 " %" PRId64 " %" PRId64 "\n", sc.ext[i].l, sc.ext[i].p, sc.ext[i].n);
+	{
+		struct sha256 h;
+		sha256_init(&h);
+		sha256_add(&h, t.s, t.len);
+		sha256_hex(&h, hex);
+	}
+	text_add(&t, "sha256 %s\n", hex);
+	snprintf(tmp, sizeof(tmp), "%s.tmp", out);
+	FILE *f = fopen(tmp, "we");
+	if (!f || fwrite(t.s, 1, t.len, f) != t.len || fflush(f) || fsync(fileno(f)) || fclose(f))
+		die("%s: %s", tmp, strerror(errno));
+	if (rename(tmp, out) < 0)
+		die("%s: %s", out, strerror(errno));
+	/* the map read back with every check a boot applies (extents in order, no overlap, past the super
+	 * block, the layout) */
+	load_map(out, &m);
+	record_recheck(run, m.extents_sha256);
+	int64_t rs, re, ss, se;
+	parts(&m, &rs, &re, &ss, &se);
+	say("map: %s: %d extents, root %" PRId64 " MiB, swap %" PRId64 " MiB, sha256 %.12s... -> %s", sc.path, sc.n,
+	    (re - rs) / 2048, (se - ss) / 2048, d, out);
+	free(sc.ext);
+	free(t.s);
+	return 0;
+}
+
+/* what is in the 4 KiB block B that should be image UID's block at OFF */
+static const char *describe(const unsigned char uid[16], uint64_t off, const unsigned char *b, char *buf, size_t n)
+{
+	static const unsigned char zero[BLOCK];
+	unsigned char want[BLOCK];
+	if (!memcmp(b, zero, BLOCK))
+		return "zeros";
+	if (memcmp(b, MAGIC, 8))
+		return "no stamp (other data)";
+	uint32_t crc = crc32_ieee(b, 32);
+	if (get_be(b + 32, 4) != crc)
+		return "a stamp with a bad CRC";
+	if (memcmp(b + 8, uid, 16))
+		return "a stamp of another image";
+	uint64_t o = get_be(b + 24, 8);
+	if (o != off) {
+		snprintf(buf, n, "the stamp of this image's block at %" PRIu64 " (off by %+" PRId64 ")", o, (int64_t)(o - off));
+		return buf;
+	}
+	expected_block(uid, off, want);
+	return memcmp(b, want, BLOCK) ? "the stamp right, the tail not zero" : "right";
+}
+
+/* verify MAP: every 4 KiB block of the image read straight from /dev/ps3db (O_DIRECT) through the
+ * map's extents and compared with its stamp: magic, UUID, offset, CRC, zero tail (Python
+ * ps3-imgmap verify). Only a file that is still entirely the PC's stamps passes, so an install can
+ * never format an image that holds anything else: one written by an earlier install included. */
+#define VCHUNK (4 << 20)
+static int cmd_verify(const char *mappath)
+{
+	static const unsigned char zero[BLOCK];
+	struct map m;
+	unsigned char *buf, want[BLOCK], stamp[STAMP_LEN];
+	int64_t bad = 0, done = 0, nblocks;
+	double t0 = now_s(), last = t0;
+
+	load_map(mappath, &m);
+	if (strcmp(m.device, DEVICE))
+		refuse("%s: made for %s, the boot uses %s", mappath, m.device, DEVICE);
+	if (device_sectors(DEVICE) != m.device_sectors)
+		refuse("%s has %" PRId64 " sectors, the map says %" PRId64, DEVICE, device_sectors(DEVICE), m.device_sectors);
+	nblocks = m.file_size / BLOCK;
+	int fd = open(DEVICE, O_RDONLY | O_DIRECT | O_CLOEXEC);
+	if (fd < 0)
+		refuse("%s: %s", DEVICE, strerror(errno));
+	if (posix_memalign((void **)&buf, BLOCK, VCHUNK))
+		die("out of memory");
+	say("verify: %" PRId64 " blocks of 4 KiB (%" PRId64 " MiB) through %d extents", nblocks, m.file_size >> 20, m.nextents);
+	for (int i = 0; i < m.nextents; i++) {
+		int64_t lo = m.ext[i].l * 512, end = lo + m.ext[i].n * 512, dev = m.ext[i].p * 512;
+		while (lo < end) {
+			int64_t k = end - lo < VCHUNK ? end - lo : VCHUNK;
+			ssize_t r = pread(fd, buf, k, dev);
+			if (r != k)
+				refuse("%s: read of %" PRId64 " bytes at byte %" PRId64 ": %s", DEVICE, k, dev,
+				       r < 0 ? strerror(errno) : "short");
+			/* each 4 KiB image block in [lo, lo + k), whole or the part of it this extent holds */
+			for (int64_t bs = lo - lo % BLOCK; bs < lo + k; bs += BLOCK) {
+				int64_t a = bs > lo ? bs : lo, e = bs + BLOCK < lo + k ? bs + BLOCK : lo + k;
+				const unsigned char *got = buf + (a - lo);
+				int ok;
+				if (a == bs && e == bs + BLOCK) {
+					memcpy(stamp, MAGIC, 8);
+					memcpy(stamp + 8, m.uid, 16);
+					put_be64(stamp + 24, bs);
+					uint32_t crc = crc32_ieee(stamp, 32);
+					stamp[32] = crc >> 24; stamp[33] = crc >> 16; stamp[34] = crc >> 8; stamp[35] = crc;
+					ok = !memcmp(got, stamp, STAMP_LEN) && !memcmp(got + STAMP_LEN, zero, BLOCK - STAMP_LEN);
+				} else {
+					expected_block(m.uid, bs, want);
+					ok = !memcmp(got, want + (a - bs), e - a);
+				}
+				if (!ok) {
+					if (bad < 10) {
+						char why[96];
+						fprintf(stderr, "!! image byte %" PRId64 " (device byte %" PRId64 "): %s\n", bs,
+							dev + (bs - lo), a == bs && e == bs + BLOCK ?
+							describe(m.uid, bs, got, why, sizeof(why)) : "a partial block differs");
+					}
+					bad++;
+				}
+			}
+			lo += k;
+			dev += k;
+			done += k;
+			if (now_s() - last >= 5) {
+				last = now_s();
+				fprintf(stderr, ">> verify: %" PRId64 " of %" PRId64 " MiB (%.0f%%), %.1f MB/s, %" PRId64 " bad\n",
+					done >> 20, m.file_size >> 20, 100.0 * done / m.file_size,
+					done / (last - t0) / 1048576, bad);
+			}
+		}
+	}
+	close(fd);
+	free(buf);
+	if (bad)
+		refuse("verify: %" PRId64 " of %" PRId64 " blocks are not this image's stamps: the file holds something "
+		       "else (an earlier install, or another file). Not installing onto it.", bad, nblocks);
+	say("verify: all %" PRId64 " blocks are image %s's stamps (%.0f s, %.1f MB/s)", nblocks, m.uuid,
+	    now_s() - t0, m.file_size / (now_s() - t0 + 1e-9) / 1048576);
+	return 0;
+}
+
+/* --- GameOS's two partitions, by content (docs/release/ALPHA.md M1, R gap 9) ----------------- */
+static uint32_t le(const unsigned char *p, int n)
+{
+	uint32_t v = 0;
+	for (int i = n - 1; i >= 0; i--)
+		v = v << 8 | p[i];
+	return v;
+}
+
+/* NULL when /dev/ps3dc holds a FAT file system that fits the device (the checks of Linux's
+ * fat_read_bpb plus a FAT type string, as blkid's vfat probe wants one), else why not */
+static const char *fat_check(char *info, size_t n)
+{
+	static char why[160];
+	unsigned char b[512];
+	int fd = open(CACHE, O_RDONLY | O_CLOEXEC);
+	if (fd < 0) {
+		snprintf(why, sizeof(why), "%s: %s", CACHE, strerror(errno));
+		return why;
+	}
+	ssize_t r = pread(fd, b, sizeof(b), 0);
+	close(fd);
+	if (r != (ssize_t)sizeof(b))
+		return "can't read its first sector";
+	uint32_t bps = le(b + 11, 2), spc = b[13], rsvd = le(b + 14, 2), nfats = b[16], media = b[21];
+	uint32_t tot = le(b + 19, 2) ? le(b + 19, 2) : le(b + 32, 4), fatsz16 = le(b + 22, 2);
+	int fat32 = fatsz16 == 0;
+	if (bps < 512 || bps > 4096 || (bps & (bps - 1)))
+		return "no FAT boot sector (bytes per sector)";
+	if (!spc || (spc & (spc - 1)))
+		return "no FAT boot sector (sectors per cluster)";
+	if (!rsvd || !nfats || nfats > 2)
+		return "no FAT boot sector (reserved sectors or FAT count)";
+	if (media != 0xf0 && media < 0xf8)
+		return "no FAT boot sector (media byte)";
+	if (fat32 ? memcmp(b + 82, "FAT32   ", 8) && memcmp(b + 82, "MSWIN", 5) : memcmp(b + 54, "FAT", 3))
+		return "no FAT type string in the boot sector";
+	if (fat32 && !le(b + 36, 4))
+		return "FAT32 with no FAT size";
+	int64_t dev = try_sectors(CACHE) * 512;
+	if (dev <= 0 || (int64_t)tot * bps > dev || (int64_t)tot * bps < dev / 2) {
+		snprintf(why, sizeof(why), "its FAT says %" PRId64 " bytes, the device has %" PRId64, (int64_t)tot * bps, dev);
+		return why;
+	}
+	snprintf(info, n, "%s, %" PRId64 " MiB", fat32 ? "FAT32" : "FAT12/16", (int64_t)tot * bps >> 20);
+	return NULL;
+}
+
+/* disks: dev_hdd0 (/dev/ps3db) is UFS2 and dev_hdd1 (/dev/ps3dc) is FAT, before anything mounts them
+ * or writes dev_hdd1. Reads two sectors, writes nothing. */
+static int cmd_disks(void)
+{
+	int64_t bsize, fsize;
+	const char *order, *why;
+	char info[96];
+	ufs_super(&bsize, &fsize, &order);
+	say("%s: UFS2 %s, block %" PRId64 ", fragment %" PRId64 " (dev_hdd0)", DEVICE, order, bsize, fsize);
+	if ((why = fat_check(info, sizeof(info))))
+		refuse("%s is not GameOS's dev_hdd1 (FAT): %s. Nothing is written to it.", CACHE, why);
+	say("%s: %s (dev_hdd1)", CACHE, info);
+	return 0;
+}
+
+/* --- the install manifest (dev_hdd1:/linux/install/install.conf, written by the PC last) -------- */
+#define INSTALL_FORMAT	"walnut-install 1"
+
+/* install-conf FILE: checks the PC's install manifest (its closing sha256 line, the fields in order,
+ * paths and numbers) and prints it as key=value lines for /init (values: letters, digits, / . _ - +) */
+static int cmd_install_conf(const char *path)
+{
+	char *buf, line[512], image[256], rootfs[256], uuid[40], sha[65];
+	size_t end, pos = 0;
+	int64_t image_size, swap_mib, rootfs_size, tar_size;
+	unsigned char uid[16];
+	read_signed(path, &buf, &end);
+	if (!next_line(buf, end, &pos, line, sizeof(line), path) || strcmp(line, INSTALL_FORMAT))
+		refuse("%s: not a \"%s\" install manifest", path, INSTALL_FORMAT);
+#define STR(key, dst) do { \
+		if (!next_line(buf, end, &pos, line, sizeof(line), path)) refuse("%s: ends before %s", path, key); \
+		const char *v = field(line, key, path); \
+		if (strlen(v) >= sizeof(dst)) refuse("%s: %s too long", path, key); \
+		strcpy(dst, v); } while (0)
+#define NUM(key, dst) do { \
+		if (!next_line(buf, end, &pos, line, sizeof(line), path)) refuse("%s: ends before %s", path, key); \
+		dst = num(field(line, key, path), key, path); } while (0)
+	STR("image", image);
+	STR("uuid", uuid);
+	NUM("image_size", image_size);
+	NUM("swap_mib", swap_mib);
+	STR("rootfs", rootfs);
+	NUM("rootfs_size", rootfs_size);
+	STR("rootfs_sha256", sha);
+	NUM("tar_size", tar_size);
+#undef STR
+#undef NUM
+	if (pos != end)
+		refuse("%s: lines after tar_size", path);
+	if (!good_path(image) || !good_path(rootfs))
+		refuse("%s: paths: absolute, letters, digits, / . _ - + only", path);
+	if (strncmp(rootfs, "/linux/install/", 15))
+		refuse("%s: rootfs %s is not in dev_hdd1's /linux/install/", path, rootfs);
+	if (parse_uuid(uuid, uid))
+		refuse("%s: bad uuid %s", path, uuid);
+	if (!is_hex64(sha))
+		refuse("%s: bad rootfs_sha256", path);
+	if (image_size <= 0 || image_size % (1 << 20) || swap_mib < 0 || rootfs_size <= 0 || tar_size <= 0)
+		refuse("%s: sizes", path);
+	if (image_size / 512 - HEADER_SECTORS - swap_mib * 2048 < 2048 * 2)
+		refuse("%s: swap_mib %" PRId64 " leaves less than 2 MiB for the root", path, swap_mib);
+	printf("image=%s\nuuid=%s\nimage_size=%" PRId64 "\nswap_mib=%" PRId64 "\nrootfs=%s\nrootfs_size=%" PRId64
+	       "\nrootfs_sha256=%s\ntar_size=%" PRId64 "\n", image, uuid, image_size, swap_mib, rootfs, rootfs_size, sha,
+	       tar_size);
+	free(buf);
 	return 0;
 }
 
@@ -1433,11 +1814,13 @@ static int cmd_guard_test(const char *mappath, int mode)
 static void __attribute__((noreturn)) usage(void)
 {
 	fprintf(stderr, "usage: %s check MAP | tables MAP root|swap | recheck MAP MOUNTPOINT [--run DIR] |\n"
-		"       %s create MAP [--root-name ps3root] [--swap-name ps3swap] [--run DIR] [--guard auto|required]\n"
+		"       %s create MAP [--root-name ps3root] [--swap-name ps3swap] [--run DIR] [--guard auto|required] |\n"
+		"       %s map MOUNTPOINT IMAGE --uuid U --size BYTES --swap-mib N --out MAP [--run DIR] |\n"
+		"       %s verify MAP | disks | install-conf FILE\n"
 #ifdef PS3_GUARD_FAKE
 		"       %s guard-test MAP [--guard auto|required]   (test build: the guard steps on the map's tables)\n"
 #endif
-		, prog, prog
+		, prog, prog, prog, prog
 #ifdef PS3_GUARD_FAKE
 		, prog
 #endif
@@ -1445,9 +1828,20 @@ static void __attribute__((noreturn)) usage(void)
 	exit(1);
 }
 
+static int64_t opt_num(const char *s)
+{
+	char *end;
+	errno = 0;
+	long long v = strtoll(s, &end, 10);
+	if (!isdigit((unsigned char)*s) || *end || errno)
+		usage();
+	return v;
+}
+
 int main(int argc, char **argv)
 {
-	const char *run = RUN_DEFAULT, *rname = "ps3root", *sname = "ps3swap";
+	const char *run = RUN_DEFAULT, *rname = "ps3root", *sname = "ps3swap", *uuid = NULL, *out = NULL;
+	int64_t size = -1, swap_mib = -1;
 	int guard_mode = GUARD_AUTO;
 	char *pos[4];
 	int np = 0;
@@ -1458,6 +1852,14 @@ int main(int argc, char **argv)
 			rname = argv[++i];
 		else if (!strcmp(argv[i], "--swap-name") && i + 1 < argc)
 			sname = argv[++i];
+		else if (!strcmp(argv[i], "--uuid") && i + 1 < argc)
+			uuid = argv[++i];
+		else if (!strcmp(argv[i], "--out") && i + 1 < argc)
+			out = argv[++i];
+		else if (!strcmp(argv[i], "--size") && i + 1 < argc)
+			size = opt_num(argv[++i]);
+		else if (!strcmp(argv[i], "--swap-mib") && i + 1 < argc)
+			swap_mib = opt_num(argv[++i]);
 		else if (!strcmp(argv[i], "--guard") && i + 1 < argc) {
 			i++;
 			if (!strcmp(argv[i], "auto"))
@@ -1472,6 +1874,10 @@ int main(int argc, char **argv)
 		else
 			pos[np++] = argv[i];
 	}
+	if (np < 1)
+		usage();
+	if (!strcmp(pos[0], "disks") && np == 1)
+		return cmd_disks();
 	if (np < 2)
 		usage();
 	if (!strcmp(pos[0], "check") && np == 2)
@@ -1482,6 +1888,12 @@ int main(int argc, char **argv)
 		return cmd_recheck(pos[1], pos[2], run);
 	if (!strcmp(pos[0], "create") && np == 2)
 		return cmd_create(pos[1], rname, sname, run, guard_mode);
+	if (!strcmp(pos[0], "map") && np == 3)
+		return cmd_map(pos[1], pos[2], uuid, size, swap_mib, out, run);
+	if (!strcmp(pos[0], "verify") && np == 2)
+		return cmd_verify(pos[1]);
+	if (!strcmp(pos[0], "install-conf") && np == 2)
+		return cmd_install_conf(pos[1]);
 #ifdef PS3_GUARD_FAKE
 	if (!strcmp(pos[0], "guard-test") && np == 2)
 		return cmd_guard_test(pos[1], guard_mode);
