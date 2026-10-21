@@ -31,7 +31,7 @@ trap 'command ssh -o ControlPath="$CTL" -O exit "$host" 2>/dev/null || true' EXI
 ssh "$host" "umask 022; mkdir -p $DIR/{incoming/{site,download,apt,licensed},www/{apt,download,licensed},site,state,bin,keys,upload-keys}
 	chmod 755 $DIR $DIR/{incoming,incoming/*,www,www/*,site,state,bin,keys,upload-keys}"
 # nginx.conf with the snapshot dates the builds use (the only ones the Debian cache passes)
-dates=$(cat ../../config.mk ../../*/upstream.mk ../ssdimg/upstream.mk | grep -oE '[0-9]{8}T[0-9]{6}Z' | sort -u | paste -sd'|')
+dates=$(cat ../../config.mk ../../*/upstream.mk ../ssdimg/upstream.mk ../../*/package.conf | grep -oE '[0-9]{8}T[0-9]{6}Z' | sort -u | paste -sd'|')
 [ -n "$dates" ] || { echo "!! no snapshot dates found" >&2; exit 1; }
 sed "s/@SNAPSHOT_DATES@/$dates/" nginx.conf > "$CTL.nginx.conf"
 rsync -rt --chmod=D755,F644 docker-compose.yml Dockerfile upload aptcache "$host:$DIR/"

@@ -55,6 +55,17 @@ for d in $deps; do
 done
 
 jobs=$(nproc)
+# package.conf CI_FIRST: make targets the build needs that a developer's tree already has (ps3-spu: the
+# spu-elf toolchain); a toolchain the cache restored is used as it is
+for t in $(conf CI_FIRST); do
+	if [ "$t" = spu-toolchain ] && [ -x build/spu/install/opt/spu/bin/spu-elf-gcc ]; then
+		echo "-- spu-toolchain: restored from the cache"
+		continue
+	fi
+	echo "::group::make $t"
+	make "$t"
+	echo "::endgroup::"
+done
 if [ "$pkg" = ps3rsx ]; then
 	make ps3rsx-modules DEB_JOBS="$jobs"
 	dirs=$(ls -d build/debs/ps3rsx-*)
