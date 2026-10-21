@@ -171,9 +171,11 @@ The PC never builds ext4. It only uploads, which reuses `tools/ssdimg/stamp.py`'
 
 ### M10. Updates that don't thrash (found 2026-10-21)
 
-A kernel + Mesa + desktop upgrade on the USB root (32 packages, debug symbols included) stalled the
-PS3 for 40+ minutes with the desktop already stopped: ping answers, sshd can't start a session, no
-OOM in the kernel log. Measure first (PSI, vmstat, dpkg's timeline on a small upgrade), then each fix
+A kernel + Mesa + desktop upgrade on the USB root (32 packages, debug symbols included) hung the
+PS3 for over an hour with the desktop already stopped: ping answers, sshd can't start a session, no
+OOM in the kernel log and no disk activity (the user), so a hang rather than thrashing; dpkg stopped while
+unpacking openttd-dbgsym. The instrumented rerun (netconsole, sysrq-w every 30 s, meminfo every second)
+completed, so the cause is still open; keep that instrumentation for the next occurrence. Measure first (PSI, vmstat, dpkg's timeline on a small upgrade), then each fix
 against the same run:
 1. No `-dbgsym` packages on normal systems (the dev deploy installs them; public images never).
 2. A small dirty-page cap (`vm.dirty_bytes` ~16-32 MB, ps3-system) so writes to a slow disk trickle
