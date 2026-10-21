@@ -73,6 +73,9 @@ if [ '${STOP_DESKTOP:-auto}' = 1 ] || { [ '${STOP_DESKTOP:-auto}' = auto ] && [ 
 		sudo systemctl stop getty@tty1
 		for s in \$(loginctl list-sessions --no-legend | awk '\$4==\"tty1\" || \$5==\"tty1\" {print \$1}'); do sudo loginctl terminate-session \$s; done
 		sleep 3; stopped=1
+		# the TV shows the text console with a notice instead of the last frame X left behind
+		sudo chvt 1 2>/dev/null || true
+		printf '\\033[2J\\033[H\\n\\n\\n    Updating the system.\\n\\n    The desktop comes back by itself when it is done.\\n' | sudo tee /dev/tty1 >/dev/null || true
 	fi
 fi
 upgrade
