@@ -8,7 +8,7 @@ Walnut provides a lightweight desktop environment tailored to the console's 256 
 
 ## Hardware Requirements
 
-- **Console**: Sony PlayStation 3 (Fat or Slim models) running Custom Firmware (CFW, e.g. Evilnat 4.91 / 4.92). SuperSlim and non-CFW models are not supported.
+- **Console**: a PlayStation 3 that can run Custom Firmware (CFW, e.g. Evilnat 4.92) and OtherOS++. This alpha has been tested on one console only, a Slim CECH-20xx; other CFW-capable models (Fat, other Slims) should work but are untested, and reports are welcome. SuperSlims and consoles that can't run CFW can't run it.
 - **Bootloader**: OtherOS++ enabled with Petitboot installed.
 - **Storage**:
   - **USB install**: A USB hard disk or flash drive (8 GB or larger recommended).
