@@ -10,12 +10,12 @@ This repository contains components with different licenses:
 - **RSX kernel driver** (`ps3rsx/`):
   Kernel module code distributed under GPL-2.0-only.
 
-## Userland code
+## Our own code
 
-The license for our own original userland code (tools, helper utilities,
-system configuration scripts, benchmark and test harnesses) is still to be
-decided by the project owner. No single license has been chosen yet, and SPDX
-headers have not been assigned.
+Everything else written for this project (tools, the installer, packaging, system configuration
+scripts, ps3-gpu-tools, the SPU code, benchmark and test harnesses) is distributed under the GNU
+General Public License, version 2 or (at your option) any later version (GPL-2.0-or-later). The
+full text of version 2 is at https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt.
 
 Third-party userland software packages and patches rebased on Debian source
 packages retain their respective upstream licenses (e.g. Mesa, Plymouth,
