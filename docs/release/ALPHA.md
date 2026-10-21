@@ -118,7 +118,13 @@ The PC never builds ext4. It only uploads, which reuses `tools/ssdimg/stamp.py`'
    - Publish `deb-src` for ours and for the mirrored Debian packages (GPL source offer).
 4. **apt config.** `walnut-system` ships signed sources for `stable` (and opt-in `testing`). The `ps3.pref` pins (`o=PS3, n=ps3`) are updated to the new origin. The LAN sources move to a dev-only file.
 
-**M4 status (2026-10-21):** walnut.nanobyte.dev is up: the `walnut-repo` nginx container in /data/nanobyte/Walnut on the OVH box, behind the main proxy (the *.nanobyte.dev certificate), deployed by `make walnut-server` (tools/walnut-server/). It serves www/apt (the public suites), www/download (releases) and www/licensed (basic auth; the login is in the untracked config.local.mk). A placeholder page for now, noindex until the release. The server limits new SSH connections (about 6 per 30 s), so scripts keep one shared connection. Next: the archive key (the user), then the walnut-testing and walnut-stable aptly repos, signed, published and synced to www/apt.
+**M4 status (2026-10-21):** walnut.nanobyte.dev is up on the OVH box (/data/nanobyte/Walnut, behind the main proxy and its *.nanobyte.dev certificate), set up by `make walnut-server` (tools/walnut-server/deploy.sh):
+- `walnut-repo`: nginx with the site built in (`walnut-site:<id>`), serving www/apt, www/download and www/licensed (basic auth; the login is in the untracked config.local.mk). Noindex until the release.
+- `walnut-upload`: the only way in for uploads. sshd + rrsync as an ordinary user on port 2223, keys only (tools/walnut-server/deploy-keys.pub: the PC's and GitHub's), write-only into incoming/, no overwrite, no delete, no shell. Its host key is pinned in tools/walnut-server/known_hosts.
+- `walnut-watch` (systemd path unit + 10 min timer, as the directory's owner): checks each upload against its manifest (uploaded last) and publishes it with no half-written moment: the site as a new image and container (back to the old one if it isn't healthy), a release directory in one rename, apt suites as new pool files then a dists generation switched by one symlink rename (old by-hash files carried over). Published files never change. Tests: `make walnut-server-test`.
+- Publishing: `tools/walnut-server/walnut-upload.sh KIND ID DIR`; the site with `make walnut-site` or the GitHub workflow "Walnut site" (secret WALNUT_DEPLOY_KEY in the environment walnut-site).
+
+Next: the archive key (the user), then the walnut-testing and walnut-stable aptly repos, signed and uploaded as apt bundles; with keys/archive-keyring.gpg on the server the watcher refuses an InRelease not signed by it.
 
 ### M5. The PC installer (`installer/walnut-install`, pure Python 3)
 

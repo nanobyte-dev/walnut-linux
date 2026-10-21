@@ -1,0 +1,490 @@
+#!/usr/bin/python3 -I
+"""walnut-watch: publishes what the upload account drops into incoming/ (docs/release/ALPHA.md M4).
+
+Uploads (GitHub Actions, the dev PC) come in through the walnut-upload container, which can only
+write into incoming/<kind>/ (rrsync); it never touches what is served. A bundle is a directory
+incoming/<kind>/<id>/ plus, uploaded last, its manifest incoming/<kind>/<id>.ready (sha256sum
+lines for every file in it). This runs as the owner of /data/nanobyte/Walnut (systemd path unit and
+timer), treats the bundle as untrusted, and puts it in place so that nobody ever downloads a
+half-written file:
+
+  site      static files -> site/<id>/, built into the image walnut-site:<id> with the server-side
+            Dockerfile and nginx.conf (a bundle can change content, never config), then the
+            walnut-repo container is switched to it; back to the old one if it is not healthy
+  download  a release directory -> www/download/<id>/ in one rename; releases never change
+  apt       an aptly publish tree (pool/, dists/<suite>/) -> www/apt/; licensed: the same -> www/licensed/.
+            New pool files first (a pool file that exists must be identical: published files
+            never change), then each suite's dists in a new generation directory, switched with
+            one symlink rename. Every file the new indices name must exist first, and with
+            keys/archive-keyring.gpg present, InRelease must be signed by it. by-hash files of
+            the old generation are carried over, so a client in the middle of an update still
+            finds the indices it was told about.
+
+Every file is copied (not moved: the uploader may still hold it open) with the source opened
+component by component with O_NOFOLLOW, and hashed while copying, so the bytes published are the
+bytes checked. Symlinks, special files, hidden names and files missing from the manifest refuse the
+bundle. Then the upload is deleted, published or refused; an id is used once. Uploads that never got
+their manifest go after ORPHAN_DAYS. Results: state/done/<kind>__<id> and the journal.
+
+  walnut-watch            process new bundles
+  walnut-watch --rebuild  rebuild the current site image (after a Dockerfile/nginx.conf change)
+Env: WALNUT_ROOT (default /data/nanobyte/Walnut), WALNUT_NO_DOCKER=1 (tests: no image, no container).
+"""
+import fcntl, gzip, hashlib, lzma, os, re, shutil, stat, subprocess, sys, time
+
+ROOT = os.environ.get("WALNUT_ROOT", "/data/nanobyte/Walnut")
+INC, WWW, STATE, SITES = f"{ROOT}/incoming", f"{ROOT}/www", f"{ROOT}/state", f"{ROOT}/site"
+KEYRING = f"{ROOT}/keys/archive-keyring.gpg"
+NO_DOCKER = os.environ.get("WALNUT_NO_DOCKER") == "1"
+KINDS = ("site", "download", "apt", "licensed")
+ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
+NAME_RE = re.compile(r"[A-Za-z0-9_+~-][A-Za-z0-9._+~-]{0,200}\Z")	# one path component, never hidden
+SITE_EXT = {"html", "css", "js", "txt", "xml", "json", "svg", "png", "jpg", "jpeg", "webp", "gif",
+            "ico", "woff", "woff2", "asc", "gpg", "pdf"}
+MAX_BYTES = 8 << 30		# one bundle
+KEEP_FREE = 5 << 30		# left on the disk after it
+KEEP_SITES = 3			# site versions (and images) kept for a rollback
+KEEP_GENS = 3			# old dists generations kept per suite
+BYHASH_DAYS = 14		# by-hash files carried over this long
+ORPHAN_DAYS = 2			# an upload without its manifest
+NOF = os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+class Refused(Exception):
+	pass
+
+
+def log(msg):
+	print(msg, flush=True)
+
+
+def check_name(part, what):
+	if not NAME_RE.match(part):
+		raise Refused(f"bad {what} name {part!r}")
+
+
+def open_dir(path_parts, base_fd):
+	"""Opens base/a/b/c as a directory, every component with O_NOFOLLOW; returns the fd."""
+	fd = os.dup(base_fd)
+	try:
+		for p in path_parts:
+			nfd = os.open(p, os.O_RDONLY | os.O_DIRECTORY | NOF, dir_fd=fd)
+			os.close(fd)
+			fd = nfd
+		return fd
+	except OSError as e:
+		os.close(fd)
+		raise Refused(f"cannot open {'/'.join(path_parts)}: {e.strerror} (a symlink?)")
+
+
+def walk(dfd, prefix=""):
+	"""Every regular file under the directory fd, as (relative path, size). Anything else refuses."""
+	out = []
+	with os.scandir(dfd) as it:
+		entries = sorted(it, key=lambda e: e.name)
+	for e in entries:
+		rel = prefix + e.name
+		check_name(e.name, "file")
+		st = e.stat(follow_symlinks=False)
+		if stat.S_ISDIR(st.st_mode):
+			sub = open_dir([e.name], dfd)
+			try:
+				out += walk(sub, rel + "/")
+			finally:
+				os.close(sub)
+		elif stat.S_ISREG(st.st_mode):
+			out.append((rel, st.st_size))
+		else:
+			raise Refused(f"{rel}: not a regular file or directory")
+	return out
+
+
+def read_manifest(kind_fd, bid):
+	try:
+		fd = os.open(f"{bid}.ready", os.O_RDONLY | NOF, dir_fd=kind_fd)
+	except OSError as e:
+		raise Refused(f"manifest: {e.strerror}")
+	with os.fdopen(fd, "rb") as f:
+		if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+			raise Refused("manifest is not a regular file")
+		raw = f.read(4 << 20)
+	man = {}
+	for n, line in enumerate(raw.decode("utf-8", "strict").splitlines(), 1):
+		m = re.fullmatch(r"([0-9a-f]{64}) [ *](.+)", line)
+		if not m:
+			raise Refused(f"manifest line {n} is not '<sha256>  <path>'")
+		path = m.group(2)
+		parts = path.split("/")
+		if len(parts) > 16:
+			raise Refused(f"{path}: too deep")
+		for p in parts:
+			check_name(p, "file")
+		if path in man:
+			raise Refused(f"{path} twice in the manifest")
+		man[path] = m.group(1)
+	if not man:
+		raise Refused("empty manifest")
+	return man, hashlib.sha256(raw).hexdigest()
+
+
+def copy_bundle(bundle_fd, man, staging):
+	"""Copies every manifest file into staging (a new directory), checking each sha256 on the
+	bytes as they are written."""
+	os.mkdir(staging, 0o755)
+	for rel, want in man.items():
+		parts = rel.split("/")
+		dfd = open_dir(parts[:-1], bundle_fd)
+		try:
+			sfd = os.open(parts[-1], os.O_RDONLY | NOF, dir_fd=dfd)
+		except OSError as e:
+			raise Refused(f"{rel}: {e.strerror}")
+		finally:
+			os.close(dfd)
+		with os.fdopen(sfd, "rb") as src:
+			if not stat.S_ISREG(os.fstat(src.fileno()).st_mode):
+				raise Refused(f"{rel}: not a regular file")
+			dst_path = os.path.join(staging, rel)
+			os.makedirs(os.path.dirname(dst_path), 0o755, exist_ok=True)
+			h = hashlib.sha256()
+			with open(dst_path, "xb") as dst:
+				while chunk := src.read(1 << 20):
+					h.update(chunk)
+					dst.write(chunk)
+			os.chmod(dst_path, 0o644)
+			mt = os.fstat(src.fileno()).st_mtime
+			os.utime(dst_path, (mt, mt))
+		if h.hexdigest() != want:
+			raise Refused(f"{rel}: sha256 does not match the manifest")
+
+
+def sha256_file(path):
+	h = hashlib.sha256()
+	with open(path, "rb") as f:
+		while chunk := f.read(1 << 20):
+			h.update(chunk)
+	return h.hexdigest()
+
+
+def files_under(top):
+	for d, _, fs in os.walk(top):
+		for f in fs:
+			p = os.path.join(d, f)
+			yield os.path.relpath(p, top), p
+
+
+# --- download --------------------------------------------------------------------------------
+
+def publish_download(bid, staging):
+	target = f"{WWW}/download/{bid}"
+	if os.path.lexists(target):
+		raise Refused(f"download/{bid} exists: a release never changes, upload a new version")
+	os.rename(staging, target)
+	return f"download/{bid}"
+
+
+# --- apt / licensed --------------------------------------------------------------------------
+
+def read_index(path):
+	"""Text of a Packages/Sources index from its uncompressed, .gz or .xz copy."""
+	for ext, op in (("", open), (".gz", gzip.open), (".xz", lzma.open)):
+		if os.path.isfile(path + ext):
+			with op(path + ext, "rb") as f:
+				return f.read().decode("utf-8", "replace")
+	return None
+
+
+def index_files(text, sources):
+	"""The pool paths an index names: Filename: in Packages, Directory + Files in Sources."""
+	out = []
+	for para in text.split("\n\n"):
+		if sources:
+			d = re.search(r"^Directory: (\S+)", para, re.M)
+			files = re.search(r"^Files:\n((?: .*\n?)+)", para, re.M)
+			if d and files:
+				out += [f"{d.group(1)}/{l.split()[2]}" for l in files.group(1).splitlines() if l.strip()]
+		else:
+			m = re.search(r"^Filename: (\S+)", para, re.M)
+			if m:
+				out.append(m.group(1))
+	return out
+
+
+def publish_repo(kind, bid, staging):
+	prefix = f"{WWW}/{kind}"
+	top = set(os.listdir(staging))
+	if not top <= {"pool", "dists"} or "dists" not in top:
+		raise Refused(f"an apt bundle holds pool/ and dists/ only (got {sorted(top)})")
+	suites = sorted(os.listdir(f"{staging}/dists"))
+	for s in suites:
+		if not os.path.isdir(f"{staging}/dists/{s}") or not os.path.isfile(f"{staging}/dists/{s}/InRelease"):
+			raise Refused(f"dists/{s}: not a suite with an InRelease")
+		cur = f"{prefix}/dists/{s}"
+		if os.path.exists(cur) and not os.path.islink(cur):
+			raise Refused(f"{kind}/dists/{s} is a real directory, not a generation symlink: move it by hand")
+		if os.path.exists(KEYRING):
+			r = subprocess.run(["gpgv", "--keyring", KEYRING, f"{staging}/dists/{s}/InRelease"],
+			                   capture_output=True, text=True)
+			if r.returncode:
+				raise Refused(f"dists/{s}/InRelease: not signed by the archive key\n{r.stderr.strip()}")
+	# published pool files never change; new ones must not clash
+	new_pool = []
+	for rel, p in (files_under(f"{staging}/pool") if "pool" in top else ()):
+		dest = f"{prefix}/pool/{rel}"
+		if os.path.lexists(dest):
+			if os.path.islink(dest) or not os.path.isfile(dest) or sha256_file(dest) != sha256_file(p):
+				raise Refused(f"pool/{rel} is already published with other contents")
+		else:
+			new_pool.append((p, dest))
+	# every file the new indices name must be there once the pool is in
+	for s in suites:
+		for d, _, fs in os.walk(f"{staging}/dists/{s}"):
+			for name in {f.split(".")[0] for f in fs} & {"Packages", "Sources"}:
+				text = read_index(f"{d}/{name}")
+				for ref in index_files(text or "", name == "Sources"):
+					if not ref.startswith("pool/") or ".." in ref.split("/"):
+						raise Refused(f"dists/{s}: index names {ref!r} outside pool/")
+					if not os.path.isfile(f"{staging}/{ref}") and not os.path.isfile(f"{prefix}/{ref}"):
+						raise Refused(f"dists/{s}: {ref} is in an index but not in the pool")
+	for p, dest in new_pool:
+		os.makedirs(os.path.dirname(dest), 0o755, exist_ok=True)
+		os.rename(p, dest)
+	os.makedirs(f"{prefix}/dists", 0o755, exist_ok=True)
+	for s in suites:
+		gen = f".{s}-{bid}"
+		gen_path = f"{prefix}/dists/{gen}"
+		if os.path.lexists(gen_path):
+			raise Refused(f"dists generation {gen} exists")
+		os.rename(f"{staging}/dists/{s}", gen_path)
+		cur = f"{prefix}/dists/{s}"
+		if os.path.islink(cur):
+			carry_by_hash(os.path.realpath(cur), gen_path)
+		tmp = f"{prefix}/dists/.{s}.switch"
+		if os.path.lexists(tmp):
+			os.unlink(tmp)
+		os.symlink(gen, tmp)
+		os.replace(tmp, cur)	# the switch: one rename
+		prune_generations(prefix, s, gen)
+	return f"{kind}: {len(new_pool)} new pool files, suites {', '.join(suites)}"
+
+
+def carry_by_hash(old, new):
+	cutoff = time.time() - BYHASH_DAYS * 86400
+	for d, _, fs in os.walk(old):
+		if "by-hash" not in d.split(os.sep):
+			continue
+		nd = os.path.join(new, os.path.relpath(d, old))
+		for f in fs:
+			src, dst = os.path.join(d, f), os.path.join(nd, f)
+			if not os.path.lexists(dst) and os.lstat(src).st_mtime >= cutoff:
+				os.makedirs(nd, 0o755, exist_ok=True)
+				os.link(src, dst)
+
+
+def prune_generations(prefix, suite, current):
+	gens = sorted((g for g in os.listdir(f"{prefix}/dists") if g.startswith(f".{suite}-") and g != current),
+	              key=lambda g: os.lstat(f"{prefix}/dists/{g}").st_mtime)
+	for g in gens[:-KEEP_GENS] if len(gens) > KEEP_GENS else []:
+		shutil.rmtree(f"{prefix}/dists/{g}")
+
+
+# --- site ------------------------------------------------------------------------------------
+
+def docker(*args, check=True):
+	return subprocess.run(["docker", *args], capture_output=True, text=True, check=check)
+
+
+def compose(*args):
+	return subprocess.run(["docker", "compose", "--project-directory", ROOT, *args],
+	                      capture_output=True, text=True)
+
+
+def current_site():
+	try:
+		with open(f"{ROOT}/.env") as f:
+			m = re.search(r"^WALNUT_SITE_TAG=(\S+)", f.read(), re.M)
+			return m.group(1) if m else None
+	except FileNotFoundError:
+		return None
+
+
+def set_site(tag):
+	with open(f"{ROOT}/.env.new", "w") as f:
+		f.write(f"WALNUT_SITE_TAG={tag}\n")
+	os.replace(f"{ROOT}/.env.new", f"{ROOT}/.env")
+
+
+def build_site(tag):
+	ctx = f"{STATE}/build-{tag}"
+	shutil.rmtree(ctx, ignore_errors=True)
+	os.makedirs(ctx)
+	try:
+		for f in ("Dockerfile", "nginx.conf"):
+			shutil.copy(f"{ROOT}/{f}", ctx)
+		shutil.copytree(f"{SITES}/{tag}", f"{ctx}/site", copy_function=os.link)
+		r = docker("build", "--pull", "-q", "-t", f"walnut-site:{tag}", ctx, check=False)
+		if r.returncode:
+			raise Refused(f"docker build failed:\n{r.stderr.strip()[-2000:]}")
+	finally:
+		shutil.rmtree(ctx, ignore_errors=True)
+
+
+def switch_site(tag, old):
+	set_site(tag)
+	r = compose("up", "-d", "--force-recreate", "walnut-repo")
+	healthy = r.returncode == 0
+	if healthy:
+		for _ in range(30):
+			s = docker("inspect", "-f", "{{.State.Health.Status}}", "walnut-repo", check=False).stdout.strip()
+			if s == "healthy":
+				break
+			time.sleep(2)
+		else:
+			healthy = False
+	if not healthy:
+		if old:
+			set_site(old)
+			compose("up", "-d", "--force-recreate", "walnut-repo")
+		raise Refused(f"walnut-site:{tag} did not come up healthy; back on {old}\n{r.stderr.strip()[-1000:]}")
+
+
+def publish_site(bid, staging):
+	for rel, _ in files_under(staging):
+		name = rel.rsplit("/", 1)[-1]
+		ext = name.rsplit(".", 1)[1].lower() if "." in name else ""
+		if ext not in SITE_EXT:
+			raise Refused(f"{rel}: not a static site file type")
+	if not os.path.isfile(f"{staging}/index.html"):
+		raise Refused("no index.html")
+	target = f"{SITES}/{bid}"
+	if os.path.lexists(target):
+		raise Refused(f"site/{bid} exists")
+	os.makedirs(SITES, 0o755, exist_ok=True)
+	os.rename(staging, target)
+	old = current_site()
+	if NO_DOCKER:
+		set_site(bid)
+	else:
+		build_site(bid)
+		switch_site(bid, old)
+	prune_sites(bid, old)
+	return f"site {bid} live (was {old})"
+
+
+def prune_sites(cur, old):
+	keep = {cur, old}
+	vers = sorted((v for v in os.listdir(SITES) if not v.startswith(".")),
+	              key=lambda v: os.lstat(f"{SITES}/{v}").st_mtime)
+	for v in vers[:-KEEP_SITES] if len(vers) > KEEP_SITES else []:
+		if v in keep:
+			continue
+		shutil.rmtree(f"{SITES}/{v}")
+		if not NO_DOCKER:
+			docker("image", "rm", f"walnut-site:{v}", check=False)
+
+
+# --- the loop --------------------------------------------------------------------------------
+
+STAGING_DIR = {"site": SITES, "download": f"{WWW}/download", "apt": f"{WWW}/apt", "licensed": f"{WWW}/licensed"}
+PUBLISH = {"site": publish_site, "download": publish_download, "apt": publish_repo, "licensed": publish_repo}
+
+
+def process(kind, kind_fd, bid):
+	man, mhash = read_manifest(kind_fd, bid)
+	bundle_fd = open_dir([bid], kind_fd)
+	staging = f"{STAGING_DIR[kind]}/.incoming-{bid}"
+	try:
+		have = walk(bundle_fd)
+		extra = sorted({p for p, _ in have} - set(man))
+		missing = sorted(set(man) - {p for p, _ in have})
+		if extra or missing:
+			raise Refused(f"bundle and manifest differ: extra {extra[:5]}, missing {missing[:5]}")
+		size = sum(s for _, s in have)
+		os.makedirs(STAGING_DIR[kind], 0o755, exist_ok=True)
+		st = os.statvfs(STAGING_DIR[kind])
+		if size > MAX_BYTES or st.f_bavail * st.f_frsize - size < KEEP_FREE:
+			raise Refused(f"{size >> 20} MiB: too big for one bundle or for the disk")
+		shutil.rmtree(staging, ignore_errors=True)
+		copy_bundle(bundle_fd, man, staging)
+		if kind == "apt" or kind == "licensed":
+			return PUBLISH[kind](kind, bid, staging), mhash
+		return PUBLISH[kind](bid, staging), mhash
+	finally:
+		os.close(bundle_fd)
+		shutil.rmtree(staging, ignore_errors=True)
+
+
+def remove_entry(dfd, name):
+	"""Deletes incoming/<kind>/<name>, never following a symlink out of it."""
+	try:
+		st = os.lstat(name, dir_fd=dfd)
+		if stat.S_ISDIR(st.st_mode):
+			shutil.rmtree(name, dir_fd=dfd)
+		else:
+			os.unlink(name, dir_fd=dfd)
+	except FileNotFoundError:
+		pass
+
+
+def remove_upload(kind_fd, bid):
+	remove_entry(kind_fd, f"{bid}.ready")
+	remove_entry(kind_fd, bid)
+
+
+def run():
+	os.makedirs(f"{STATE}/done", 0o755, exist_ok=True)
+	for kind in KINDS:
+		try:
+			kind_fd = os.open(f"{INC}/{kind}", os.O_RDONLY | os.O_DIRECTORY | NOF)
+		except FileNotFoundError:
+			continue
+		try:
+			with os.scandir(kind_fd) as it:
+				ids = sorted(e.name[:-6] for e in it if e.name.endswith(".ready") and not e.name.startswith("."))
+			for bid in ids:
+				done = f"{STATE}/done/{kind}__{bid}"
+				if not ID_RE.match(bid):
+					log(f"!! {kind}/{bid}: bad id, deleted")
+				elif os.path.exists(done):
+					log(f"!! {kind}/{bid}: this id was used before, the upload is deleted")
+				else:
+					try:
+						msg, mhash = process(kind, kind_fd, bid)
+						res = f"ok {mhash}\n{msg}\n"
+						log(f">> {kind}/{bid}: {msg}")
+					except (Refused, OSError, UnicodeDecodeError) as e:
+						res = f"refused\n{e}\n"
+						log(f"!! {kind}/{bid} refused: {e}")
+					with open(done + ".new", "w") as f:
+						f.write(res)
+					os.replace(done + ".new", done)
+				remove_upload(kind_fd, bid)
+			cutoff = time.time() - ORPHAN_DAYS * 86400
+			with os.scandir(kind_fd) as it:
+				for e in it:
+					if e.stat(follow_symlinks=False).st_ctime < cutoff:
+						log(f"-- {kind}/{e.name}: no manifest after {ORPHAN_DAYS} days, deleted")
+						remove_entry(kind_fd, e.name)
+		finally:
+			os.close(kind_fd)
+
+
+def main():
+	os.makedirs(STATE, 0o755, exist_ok=True)
+	with open(f"{STATE}/lock", "w") as lock:
+		fcntl.flock(lock, fcntl.LOCK_EX)
+		if sys.argv[1:] == ["--rebuild"]:
+			tag = current_site()
+			if not tag:
+				log("no site published yet: nothing to rebuild")
+				return
+			build_site(tag)
+			switch_site(tag, tag)
+			log(f">> walnut-site:{tag} rebuilt")
+		elif sys.argv[1:]:
+			sys.exit(__doc__)
+		else:
+			run()
+
+
+if __name__ == "__main__":
+	main()

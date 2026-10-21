@@ -1,0 +1,36 @@
+# Publishes walnut.nanobyte.dev's site (tools/walnut-server/site/) when started by hand. The upload
+# goes to the walnut-upload container (write-only, no shell); the server's walnut-watch checks it,
+# builds walnut-site:<id> and switches the container, and this job waits until the new version is
+# served. Secret WALNUT_DEPLOY_KEY: the upload key (environment walnut-site; add a required reviewer
+# there to gate it). The server's host key is pinned in tools/walnut-server/known_hosts.
+name: Walnut site
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: walnut-site
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: walnut-site
+      url: https://walnut.nanobyte.dev
+    steps:
+      - uses: actions/checkout@v4
+      - name: Upload and wait until live
+        env:
+          WALNUT_DEPLOY_KEY_DATA: ${{ secrets.WALNUT_DEPLOY_KEY }}
+        run: |
+          key="$RUNNER_TEMP/walnut-deploy"
+          install -m 600 /dev/null "$key"
+          printf '%s\n' "$WALNUT_DEPLOY_KEY_DATA" > "$key"
+          WALNUT_DEPLOY_KEY="$key" tools/walnut-server/publish-site.sh
+      - name: Remove the key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/walnut-deploy"

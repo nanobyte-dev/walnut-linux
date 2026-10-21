@@ -1,0 +1,14 @@
+[Unit]
+Description=Walnut: publish uploaded bundles (walnut.nanobyte.dev)
+After=docker.service
+[Service]
+Type=oneshot
+User=tibi
+Group=tibi
+Environment=DOCKER_CONFIG=/data/nanobyte/Walnut/state/docker
+ExecStart=/data/nanobyte/Walnut/bin/walnut-watch
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/data/nanobyte/Walnut

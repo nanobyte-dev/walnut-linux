@@ -1,0 +1,16 @@
+# walnut-upload's sshd, running as walnut-deploy (so it can only log that user in)
+Port 2222
+HostKey /keys/ssh_host_ed25519_key
+AuthorizedKeysFile /keys/authorized_keys
+PidFile none
+AllowUsers walnut-deploy
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+DisableForwarding yes
+PermitTTY no
+PermitUserRC no
+MaxAuthTries 3
+LoginGraceTime 20
+MaxStartups 4:50:16

@@ -1,14 +1,20 @@
 #!/bin/bash
-# deploy.sh: puts walnut.nanobyte.dev's server side in place (docs/release/ALPHA.md M4). Copies the
-# walnut-repo container's files to /data/nanobyte/Walnut on WALNUT_HOST (config.local.mk), writes the
-# licensed suite's htpasswd from WALNUT_LICENSED_USER/PASS, starts the container, then installs
-# walnut.nanobyte.dev.conf into the main proxy's conf.d and reloads it: the old file is kept as .bak
-# and put back if `nginx -t` fails, so a bad config never reaches the running proxy. Idempotent.
-# The content (www/apt, www/download) is published separately; this never deletes any of it.
+# deploy.sh: puts walnut.nanobyte.dev's server side in place (docs/release/ALPHA.md M4); idempotent.
+# On WALNUT_HOST (config.local.mk), in /data/nanobyte/Walnut:
+#   walnut-repo    nginx with the site built in (walnut-site:<id>), www/ mounted read-only: apt/,
+#                  download/, licensed/ (basic auth: WALNUT_LICENSED_USER/PASS)
+#   walnut-upload  sshd + rrsync as an ordinary user on port 2223: uploads into incoming/ only, with
+#                  the keys in deploy-keys.pub (its host key is made once and pinned in known_hosts)
+#   walnut-watch   (bin/, systemd path unit + timer, as the directory's owner) publishes what lands
+#                  in incoming/: the site as a new image and container, files without a half-written
+#                  moment (walnut-watch's header)
+# and walnut.nanobyte.dev.conf in the main proxy's conf.d (the old file kept as .bak and put back if
+# `nginx -t` fails). The systemd units need sudo. Content is published by uploads, never by this.
 set -euo pipefail
 cd "$(dirname "$0")"
 { read -r host; read -r user; read -r pass; } < <(../config-get.sh WALNUT_HOST WALNUT_LICENSED_USER WALNUT_LICENSED_PASS)
 [ -n "$host" ] && [ -n "$user" ] && [ -n "$pass" ] || { echo "!! set WALNUT_HOST, WALNUT_LICENSED_USER, WALNUT_LICENSED_PASS in config.local.mk" >&2; exit 2; }
+[ -s deploy-keys.pub ] || { echo "!! no deploy-keys.pub (the upload keys' public halves)" >&2; exit 2; }
 DIR=/data/nanobyte/Walnut
 PROXY=/data/nanobyte/MainProxy/Config/conf.d
 CONF=walnut.nanobyte.dev.conf
@@ -19,17 +25,50 @@ ssh() { command ssh "${SSHO[@]}" "$@"; }
 rsync() { command rsync -e "ssh ${SSHO[*]}" "$@"; }
 trap 'command ssh -o ControlPath="$CTL" -O exit "$host" 2>/dev/null || true' EXIT
 
-ssh "$host" "mkdir -p $DIR/www/apt $DIR/www/licensed $DIR/www/download"
-rsync -a docker-compose.yml nginx.conf "$host:$DIR/"
-rsync -a www/index.html "$host:$DIR/www/"
-printf '%s:%s\n' "$user" "$(openssl passwd -apr1 -stdin <<< "$pass")" | ssh "$host" "umask 022; cat > $DIR/htpasswd.new && mv $DIR/htpasswd.new $DIR/htpasswd"
-ssh "$host" "cd $DIR && docker compose up -d --remove-orphans && docker compose ps --format '{{.Name}} {{.Status}}'"
+# the server's umask is 002: modes are set here, sshd (StrictModes) refuses group-writable key dirs
+ssh "$host" "umask 022; mkdir -p $DIR/{incoming/{site,download,apt,licensed},www/{apt,download,licensed},site,state,bin,keys,upload-keys}
+	chmod 755 $DIR $DIR/{incoming,incoming/*,www,www/*,site,state,bin,keys,upload-keys}"
+rsync -rt --chmod=D755,F644 docker-compose.yml Dockerfile nginx.conf upload "$host:$DIR/"
+rsync -t --chmod=755 walnut-watch "$host:$DIR/bin/"
+ssh "$host" "rm -f $DIR/www/index.html"	# the first placeholder, now in the site
 
-rsync -a "$CONF" "$host:$DIR/$CONF"
+# the upload container's host key, made once, pinned here
+ssh "$host" "[ -e $DIR/upload-keys/ssh_host_ed25519_key ] || ssh-keygen -q -t ed25519 -N '' -C walnut-upload -f $DIR/upload-keys/ssh_host_ed25519_key"
+hk=$(ssh "$host" "cut -d' ' -f1,2 $DIR/upload-keys/ssh_host_ed25519_key.pub")
+printf '[walnut.nanobyte.dev]:2223 %s\n' "$hk" > known_hosts.new
+if ! cmp -s known_hosts.new known_hosts; then
+	[ ! -e known_hosts ] || echo "!! the upload host key changed: known_hosts updated, commit it" >&2
+	mv known_hosts.new known_hosts
+else
+	rm known_hosts.new
+fi
+grep -v '^#' deploy-keys.pub | grep . | sed 's|^|restrict,command="rrsync -wo -no-del -no-overwrite /incoming" |' |
+	ssh "$host" "umask 077; cat > $DIR/upload-keys/authorized_keys.new && mv $DIR/upload-keys/authorized_keys.new $DIR/upload-keys/authorized_keys"
+printf '%s:%s\n' "$user" "$(openssl passwd -apr1 -stdin <<< "$pass")" |
+	ssh "$host" "umask 022; cat > $DIR/htpasswd.new && mv $DIR/htpasswd.new $DIR/htpasswd"
+
+ssh "$host" "cd $DIR && docker compose build -q walnut-upload && docker compose up -d walnut-upload"
+
+# the watcher's units
+for u in systemd/walnut-watch.{service,path,timer}; do
+	rsync -t "$u" "$host:$DIR/state/"
+done
+ssh "$host" "set -e
+	for u in walnut-watch.service walnut-watch.path walnut-watch.timer; do
+		cmp -s $DIR/state/\$u /etc/systemd/system/\$u || sudo -n install -m 644 $DIR/state/\$u /etc/systemd/system/\$u
+		rm $DIR/state/\$u
+	done
+	sudo -n systemctl daemon-reload
+	sudo -n systemctl enable --now walnut-watch.path walnut-watch.timer >/dev/null
+	systemctl is-active walnut-watch.path walnut-watch.timer | xargs echo '>> watcher:'"
+# a site already published: rebuild it with this config (else the first `make walnut-site` starts it)
+ssh "$host" "grep -q WALNUT_SITE_TAG= $DIR/.env 2>/dev/null && $DIR/bin/walnut-watch --rebuild || echo '>> no site yet: make walnut-site'"
+
+rsync -t "$CONF" "$host:$DIR/$CONF"
 ssh "$host" "set -e
 	[ ! -e $PROXY/$CONF ] || cp -p $PROXY/$CONF $PROXY/$CONF.bak
 	cp $DIR/$CONF $PROXY/$CONF
-	if docker exec main-proxy nginx -t 2>&1 | tail -2; then
+	if docker exec main-proxy nginx -t 2>&1 | tail -1; then
 		docker exec main-proxy nginx -s reload && echo '>> main-proxy reloaded'
 	else
 		echo '!! nginx -t failed: the old config is back, nothing reloaded' >&2

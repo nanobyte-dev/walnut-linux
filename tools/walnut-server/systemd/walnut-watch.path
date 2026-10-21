@@ -1,0 +1,10 @@
+[Unit]
+Description=Walnut: watch for uploaded bundles
+[Path]
+PathChanged=/data/nanobyte/Walnut/incoming/site
+PathChanged=/data/nanobyte/Walnut/incoming/download
+PathChanged=/data/nanobyte/Walnut/incoming/apt
+PathChanged=/data/nanobyte/Walnut/incoming/licensed
+Unit=walnut-watch.service
+[Install]
+WantedBy=paths.target

@@ -1,0 +1,4 @@
+# Upload keys for walnut.nanobyte.dev's walnut-upload container (deploy.sh makes them rrsync-only).
+# The private halves: ~/.ssh/walnut-deploy on the dev PC, the WALNUT_DEPLOY_KEY secret on GitHub.
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOR5wvTcdbYjWy7ZLZbMJSnHI5fgkQWMhoapcHlwdcz8 walnut-deploy@pc
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFYemFUWn4Ect72krIcdIIErX8TyIeJ6ZEE+YSOhRh9v walnut-deploy@github
