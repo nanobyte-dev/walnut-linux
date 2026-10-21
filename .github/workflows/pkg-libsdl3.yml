@@ -6,11 +6,6 @@ on:
     branches: [main]
     paths:
       - "libsdl3/**"
-      - "tools/deb-prepare.sh"
-      - "tools/deb-build.sh"
-      - "tools/deb-chroot.sh"
-      - "docker/Dockerfile.deb"
-      - ".github/workflows/pkg-libsdl3.yml"
   workflow_dispatch:
     inputs:
       target:

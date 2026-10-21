@@ -6,12 +6,7 @@ on:
     branches: [main]
     paths:
       - "ps3-boot/**"
-      - "tools/deb-prepare.sh"
-      - "tools/deb-build.sh"
-      - "tools/deb-chroot.sh"
-      - "docker/Dockerfile.deb"
       - "tools/ssdimg/**"
-      - ".github/workflows/pkg-ps3-boot.yml"
   workflow_dispatch:
     inputs:
       target:

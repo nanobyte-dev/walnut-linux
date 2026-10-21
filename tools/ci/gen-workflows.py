@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """gen-workflows.py: writes .github/workflows/pkg-<name>.yml for every package GitHub builds
-(every directory with a package.conf except the licensed ones). A push touching what the package's
-version counts (tools/deb-version.sh: the directory, the shared packaging tools, package.conf
-VERSION_PATHS) or its own workflow builds it and publishes it to testing; "Run workflow" builds it
-for the suite picked there, testing or stable. ps3rsx also builds after every linux build, against
-the new kernel.
+(every directory with a package.conf except the licensed ones). A push that changes the package's
+own files (its directory, and the sources package.conf VERSION_PATHS says it carries) builds it and
+publishes it to testing; a change to the shared build tools or a workflow builds nothing by itself
+(the owner, 2026-10-21: no 20 builds for a small change). "Run workflow" builds for the suite picked
+there, testing or stable; stable is never built automatically. ps3rsx also builds for testing after
+every linux build: testing's kernel needs its GPU module.
 Stale pkg-*.yml files are removed. Run it after adding or removing a package."""
 import glob, os, re
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 WF = f"{ROOT}/.github/workflows"
-SHARED = ["tools/deb-prepare.sh", "tools/deb-build.sh", "tools/deb-chroot.sh", "docker/Dockerfile.deb"]
 
 
 def conf(pkg, key):
@@ -24,8 +24,8 @@ def main():
 	pkgs = [p for p in pkgs if p not in licensed]
 	written = set()
 	for pkg in pkgs:
-		paths = [f"{pkg}/**"] + SHARED + [f"{v.rstrip('/')}/**" if os.path.isdir(f"{ROOT}/{v}") else v
-		                                  for v in conf(pkg, "VERSION_PATHS")] + [f".github/workflows/pkg-{pkg}.yml"]
+		paths = [f"{pkg}/**"] + [f"{v.rstrip('/')}/**" if os.path.isdir(f"{ROOT}/{v}") else v
+		                         for v in conf(pkg, "VERSION_PATHS")]
 		extra = ""
 		if pkg == "ps3rsx":
 			extra = ('  workflow_run:\n    workflows: ["pkg: linux"]\n    types: [completed]\n    branches: [main]\n')
