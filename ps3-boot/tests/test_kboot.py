@@ -166,6 +166,21 @@ class Kboot(unittest.TestCase):
         self.assertNotIn("dpkg-", (h / "kboot.conf").read_text())
         self.assertEqual([f.name for f in (h / "linux/boot").iterdir() if "dpkg" in f.name], [])
 
+    def test_hdd1_prev_is_the_previous_release_not_the_debug_twin(self):
+        """a new release with its debug twin: walnut the release, walnut-prev the older release"""
+        (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i")
+        new, newdbg = "6.12.111+ps3.700", "6.12.111+ps3.700-debug202610300000"
+        for k in (new, newdbg):
+            self.kernel(k)
+        self.builtins(new, newdbg)
+        p, h = self.hdd1()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        lines = (h / "kboot.conf").read_text().splitlines()
+        walnut = [x for x in lines if x.startswith("walnut=")][0]
+        prev = [x for x in lines if x.startswith("walnut-prev=")][0]
+        self.assertIn("vmlinux-%s " % new, walnut)
+        self.assertIn("vmlinux-%s " % REL, prev)
+
     def test_hdd1_refuses_without_image_root(self):
         (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i")
         (self.r / "etc/default/ps3-boot").write_text('PS3_ROOT_ARGS="root=/dev/sda2"\nPS3_BOOT_TARGET=hdd1\n')

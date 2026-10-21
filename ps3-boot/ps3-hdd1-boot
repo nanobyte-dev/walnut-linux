@@ -35,8 +35,12 @@ if ! fits "$cur"; then
 	echo "ps3-hdd1-boot: $cur lacks built-in ufs/dm, walnut boots $n"
 	cur=$n
 fi
+# walnut-prev: the newest other kernel of the same flavour (release or debug), so it is the previous
+# version to go back to; another flavour only when there is none
+flavour() { case $1 in *-debug*) echo debug ;; *) echo release ;; esac; }
 prev=
-for r in "$@"; do [ "$r" != "$cur" ] && fits "$r" && { prev=$r; break; }; done
+for r in "$@"; do [ "$r" != "$cur" ] && fits "$r" && [ "$(flavour "$r")" = "$(flavour "$cur")" ] && { prev=$r; break; }; done
+[ -n "$prev" ] || for r in "$@"; do [ "$r" != "$cur" ] && fits "$r" && { prev=$r; break; }; done
 
 if [ -n "${PS3_HDD1_DIR:-}" ]; then
 	M=$PS3_HDD1_DIR
