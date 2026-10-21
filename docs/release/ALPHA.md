@@ -159,6 +159,8 @@ The PC never builds ext4. It only uploads, which reuses `tools/ssdimg/stamp.py`'
 - **For the alpha the public repo is a read-only mirror:** issues are welcome, PRs land as patches into the private repo. Making GitHub the primary repo is a later decision.
 - **The rest:** the Walnut README, the install link, the issue templates, and the v0.1-alpha release from `release-image.yml`.
 
+**M8 status (2026-10-21):** published: github.com/nanobyte-dev/walnut-linux (693 commits; AI trailers removed, the Pixabay wallpaper blob stripped, the NOR dump hash replaced through the untracked tools/public-replace.local.txt, history scan clean). Updates: `make public-push` (deterministic, fast-forwards).
+
 ### M9. Articles and the site
 
 - **The content is a self-contained Hugo section:** `content/walnut/`, a sidebar block in `themes/nanobyte/layouts/partials/sidebar.html`, and menu entries in **all three configs** (`config.toml`, `hugo.toml`, `config-legacy.toml`). That way it fits either a nanobyte.dev section or a separate walnut.nanobyte.dev site (still undecided).

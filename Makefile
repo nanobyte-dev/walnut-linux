@@ -28,7 +28,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: initrd-ssd initrd-walnut initrd-busybox repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref \
+.PHONY: public-push initrd-ssd initrd-walnut initrd-busybox repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref \
 	classicube classicube-audio classicube-deploy classicube-bench quake-data
 
 help:
@@ -448,6 +448,13 @@ clean:
 	@ts=$$(date +%Y%m%d-%H%M%S); mkdir -p $(BUILD)/old/$$ts; \
 	for d in rootfs debs; do if [ -e $(BUILD)/$$d ]; then mv $(BUILD)/$$d $(BUILD)/old/$$ts/; fi; done; \
 	echo "moved outputs to $(BUILD)/old/$$ts"
+
+# The public GitHub copy (docs/release/ALPHA.md M8): re-export (trailers removed, the strip and
+# replace lists applied, the history scan) and push; deterministic, so the public main fast-forwards
+public-push:
+	tools/public-export.sh
+	git -C $${WALNUT_PUBLIC_DIR:-/mnt/data_linux/Temp/ps3/walnut-public} remote add origin git@github.com:nanobyte-dev/walnut-linux.git
+	git -C $${WALNUT_PUBLIC_DIR:-/mnt/data_linux/Temp/ps3/walnut-public} push origin main
 
 # --- Repository and workspace ------------------------------------------------------------
 # Publish packages to the repository server (tools/repo-publish.sh). DEBS: the files to publish
