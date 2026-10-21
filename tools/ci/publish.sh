@@ -41,7 +41,13 @@ for attempt in 1 2 3 4 5 6 7 8; do
 		"$dir"/*.deb $(ls "$dir"/src/*.dsc 2>/dev/null)
 	want=$(sha256sum "$b/dists/$target/InRelease" | cut -d' ' -f1)
 	id=$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA:0:7}-$pkg-$target-$attempt
-	tools/walnut-server/walnut-upload.sh apt "$id" "$b"
+	up=0
+	for try in 1 2 3 4; do
+		tools/walnut-server/walnut-upload.sh apt "$id-u$try" "$b" && { up=1; break; }
+		echo "-- upload try $try failed"
+		sleep $((try * 15))
+	done
+	[ $up = 1 ] || { echo "!! the upload failed 4 times" >&2; exit 1; }
 	for _ in $(seq 40); do
 		sleep 3
 		now=$(tools/walnut-repo.py base --suite "$target" --keyring "$ring")

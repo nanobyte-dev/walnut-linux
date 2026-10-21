@@ -61,7 +61,7 @@ if ! cmp -s known_hosts.new known_hosts; then
 else
 	rm known_hosts.new
 fi
-grep -v '^#' deploy-keys.pub | grep . | sed 's|^|restrict,command="rrsync -wo -no-del -no-overwrite /incoming" |' |
+grep -v '^#' deploy-keys.pub | grep . | sed 's|^|restrict,command="rrsync -wo -no-del -no-overwrite -no-lock /incoming" |' |
 	ssh "$host" "umask 077; cat > $DIR/upload-keys/authorized_keys.new && mv $DIR/upload-keys/authorized_keys.new $DIR/upload-keys/authorized_keys"
 printf '%s:%s\n' "$user" "$(openssl passwd -apr1 -stdin <<< "$pass")" |
 	ssh "$host" "umask 022; cat > $DIR/htpasswd.new && mv $DIR/htpasswd.new $DIR/htpasswd"
