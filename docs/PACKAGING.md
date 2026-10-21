@@ -96,6 +96,18 @@ The server is tibi-server, `http://10.0.0.10:8070/` (`tools/repo-server/`): stat
 
 What was published before the split stays: the `ps3` suite's classicube versions with the Mojang files inside (`0+git.aa47929+ps3.144`, `1.3.8~git20261014.aa47929-1+ps3.152`), its `quake-shareware` and `quake2-demo-data` 89, and the `img-*` snapshots holding them. The user decided that on 2026-10-17: the repository is LAN-only and nothing was distributed. If `ps3` is ever made public, purge those first. The dev suite's copies were removed on 2026-10-17.
 
+### Public Walnut repository (`walnut.nanobyte.dev`) and clean local repos
+
+The public Walnut distribution (ALPHA.md M3.3, M4) uses clean aptly repositories separate from the LAN `ps3-*` ones:
+
+- **Why fresh repositories:** the historical `ps3-main` repository and its `img-*` snapshots contain early builds bundled with licensed game assets (the old `classicube` with Mojang files, and Quake shareware/demo data published before the `ps3-licensed` split). Rather than attempting to purge the tainted LAN pool and its immutable snapshots, Walnut starts from completely fresh aptly local repositories that never reference `ps3-main` or any `img-*` snapshot.
+- **New aptly local repos:**
+  - `walnut-testing` (distribution `testing`, component `main`): daily and CI builds. Keeps the newest 5 versions (`KEEP`), pruned on each publish. Takes free source packages (.dsc) verified by `tools/leak-check.py`.
+  - `walnut-stable` (distribution `stable`, component `main`): public release suite. It is never built directly; it only promotes exact tested packages from `walnut-testing` (via `aptly repo copy` or snapshot) after approval. Releases are kept forever and versions strictly grow.
+  - `walnut-deps` (component `deps`): clean Debian binary and source packages from the pinned snapshot needed by our desktop and applications (GPL source compliance).
+  - `walnut-licensed` (LAN or basic-auth protected `licensed` suite on OVH): non-redistributable game data packages (`ps3-games-licensed`, `classicube-data`, `quake-shareware`, `quake2-demo-data`, `sauerbraten-nonfree-data`, etc.). Completely excluded from `walnut-stable` and `walnut-testing`.
+- **Clean separation guarantee:** neither `walnut-stable` nor `walnut-testing` ever includes `ps3-main`, `ps3-dev`, or any legacy `img-*` snapshot. Source packages published to public suites are checked by `tools/leak-check.py` against both known licensed hashes and `tools/licensed-files.txt`.
+
 **Promotion.** Commit, rebuild (versions `0.N`, `...+ps3.N`, no `~dev`), `make publish`. The builds are reproducible, so apart from the version the contents are what was tested from `ps3-dev`.
 
 **Publishing.** `make publish [DEBS=...] [DIST=dev]` (`tools/repo-publish.sh`, `tools/aptly-publish.sh`) does this in order:
