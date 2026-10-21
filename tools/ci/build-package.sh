@@ -71,9 +71,10 @@ done
 for dsc in build/src/"$pkg"/*.dsc build/src/ps3rsx-*/*.dsc; do
 	[ -f "$dsc" ] || continue
 	cp "$dsc" "$out/src/"
-	# the .dsc's files: next to it, or (Debian's orig tarballs) where deb-fetch.sh put them
+	# the .dsc's files: next to it, or (Debian's orig tarballs) where deb-fetch.sh put them; real files
+	# only: deb-prepare.sh links the orig tarball into build/src by its path inside the container
 	sed -n '/^Files:/,/^[^ ]/p' "$dsc" | awk 'NF==3 {print $3}' | while read -r f; do
-		src=$(find "$(dirname "$dsc")" "build/sources/$pkg" build/downloads -maxdepth 2 -name "$f" -print -quit 2>/dev/null)
+		src=$(find "$(dirname "$dsc")" "build/sources/$pkg" build/downloads -maxdepth 2 -type f -name "$f" -print -quit 2>/dev/null)
 		[ -n "$src" ] || { echo "!! $f (from $(basename "$dsc")) not found" >&2; exit 1; }
 		cp "$src" "$out/src/"
 	done
