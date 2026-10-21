@@ -81,7 +81,7 @@ all:
 builder: $(BUILDER_STAMP)
 $(BUILDER_STAMP): docker/Dockerfile
 	docker build -q -t $(BUILDER_TAG) \
-		--build-arg BASE=$(BUILDER_BASE) --build-arg SNAPSHOT=$(BUILDER_SNAPSHOT) docker
+		--build-arg BASE=$(BUILDER_BASE) --build-arg SNAPSHOT=$(BUILDER_SNAPSHOT) --build-arg SNAPSHOT_URL=$(SNAPSHOT_URL) docker
 	@mkdir -p $(BUILD) && touch $@
 
 # --- Root filesystem ----------------------------------------------------------
@@ -352,7 +352,7 @@ REPO_BUILDER_TAG := ps3-deb-builder:$(shell (cat docker/Dockerfile.deb; echo $(B
 REPO_BUILDER_STAMP := $(BUILD)/.repo-builder-$(subst :,-,$(REPO_BUILDER_TAG))
 $(REPO_BUILDER_STAMP): docker/Dockerfile.deb | $(BUILDER_STAMP)
 	docker build -q -t $(REPO_BUILDER_TAG) -f docker/Dockerfile.deb --build-arg BUILDER=$(BUILDER_TAG) \
-		--build-arg SNAPSHOT=$(DEBIAN_SNAPSHOT) docker
+		--build-arg SNAPSHOT=$(DEBIAN_SNAPSHOT) --build-arg SNAPSHOT_URL=$(SNAPSHOT_URL) docker
 	@touch $@
 
 # Deploy to the running PS3 through the dev suite (tools/deploy.sh): make deploy [PKGS="..."]

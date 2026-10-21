@@ -11,15 +11,17 @@ pkg=$1 out=$2
 ! grep -qx "$pkg" tools/licensed-packages.txt || { echo "!! $pkg is licensed: never built in CI" >&2; exit 2; }
 conf() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" "$pkg/package.conf"; }
 
-echo "::group::runner: disk, qemu"
-# the runner's preinstalled SDKs: ~30 GB we don't use
-sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost
-sudo docker image prune -af >/dev/null || true
-df -h / | tail -1
-# ppc64 (big-endian) binaries through qemu: native builds run in a ppc64 chroot
-sudo apt-get update -qq && sudo apt-get install -y -qq qemu-user-static >/dev/null
+if [ "${GITHUB_ACTIONS:-}" = true ]; then	# only on a throwaway runner: this deletes things
+	echo "::group::runner: disk, qemu"
+	# the runner's preinstalled SDKs and images: ~30 GB we don't use
+	sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+	sudo docker image prune -af >/dev/null || true
+	df -h / | tail -1
+	# ppc64 (big-endian) binaries through qemu: native builds run in a ppc64 chroot
+	sudo apt-get update -qq && sudo apt-get install -y -qq qemu-user-static >/dev/null
+	echo "::endgroup::"
+fi
 [ -e /proc/sys/fs/binfmt_misc/qemu-ppc64 ] || { echo "!! no qemu-ppc64 binfmt" >&2; exit 1; }
-echo "::endgroup::"
 
 fetch() {	# fetch DIR SOURCE: the newest testing build of SOURCE into build/debs/DIR
 	tools/walnut-repo.py fetch --suite testing --keyring tools/walnut-server/testing-keyring.gpg \

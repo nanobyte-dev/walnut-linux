@@ -28,10 +28,11 @@ if [ "$1" = configure ]; then
 		grep -q '^ClassicBondedOnly=false' /etc/bluetooth/input.conf ||
 			printf '[General]\nClassicBondedOnly=false\n' >> /etc/bluetooth/input.conf
 	fi
-	# The image's one-line sources.list (the build snapshot) gives way to debian.sources (live
-	# Debian ports); any other sources.list is left alone
+	# The image's one-line sources.list (the build snapshot, from snapshot.debian.org or the build
+	# cache in front of it) gives way to debian.sources (live Debian ports); any other sources.list
+	# is left alone
 	if [ -e /etc/apt/sources.list ] &&
-	   [ "$(grep -v '^\s*#' /etc/apt/sources.list | grep -v '^\s*$' | grep -cv 'snapshot.debian.org/archive/debian-ports/')" = 0 ]; then
+	   [ "$(grep -v '^\s*#' /etc/apt/sources.list | grep -v '^\s*$' | grep -cvE '(snapshot\.debian\.org|/debian-snapshot)/archive/debian-ports/')" = 0 ]; then
 		mv /etc/apt/sources.list /etc/apt/sources.list.ps3-snapshot
 	fi
 fi

@@ -2,7 +2,7 @@
 # nginx on the main proxy's network. The proxy terminates TLS (the *.nanobyte.dev certificate) and
 # passes everything on (walnut.nanobyte.dev.conf). The image is walnut-site:<id>, built and switched
 # by walnut-watch, which writes WALNUT_SITE_TAG to .env. walnut-upload takes uploads into incoming/
-# (upload/Dockerfile). Deployed by tools/walnut-server/deploy.sh.
+# (upload/Dockerfile); walnut-aptcache caches Debian's snapshot for builds (aptcache/Dockerfile). Deployed by tools/walnut-server/deploy.sh.
 name: walnut
 
 services:
@@ -19,6 +19,23 @@ services:
       - ./htpasswd:/etc/nginx/walnut.htpasswd:ro
     networks:
       - mainproxy_net
+      - aptcache
+
+  # Debian's snapshot cache for builds (aptcache/Dockerfile), reached only through walnut-repo
+  walnut-aptcache:
+    build: ./aptcache
+    image: walnut-aptcache:local
+    container_name: walnut-aptcache
+    user: "1000:1000"
+    mem_limit: 256m
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/run/apt-cacher-ng:uid=1000,gid=1000", "/var/log/apt-cacher-ng:uid=1000,gid=1000", /tmp]
+    volumes:
+      # CACHEDIR.TAG inside: restic (--exclude-caches) leaves it out of the backups
+      - ./aptcache-data:/var/cache/apt-cacher-ng
+    networks:
+      - aptcache
 
   walnut-upload:
     build: ./upload
@@ -49,3 +66,4 @@ networks:
   mainproxy_net:
     external: true
   upload: {}
+  aptcache: {}

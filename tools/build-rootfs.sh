@@ -23,6 +23,7 @@ export SOURCE_DATE_EPOCH
 mmdebstrap --mode=root --format=tar --arch=ppc64 --variant=minbase \
 	--keyring=/usr/share/keyrings/debian-ports-archive-keyring.gpg \
 	--aptopt='Acquire::Check-Valid-Until "false"' \
+	--aptopt='Acquire::Retries "8"' \
 	--aptopt='APT::Install-Recommends "false"' \
 	--include="$PACKAGES" \
 	--skip=essential/unlink \

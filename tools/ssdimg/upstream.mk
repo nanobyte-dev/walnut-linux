@@ -5,10 +5,10 @@
 # amd64 for the KVM test (tools/ssdimg/vm-e2e.sh); the same version and configuration
 BUSYBOX_SNAPSHOT    := 20261013T000000Z
 BUSYBOX_PPC64_DEB   := busybox-static_1.38.0-3_ppc64.deb
-BUSYBOX_PPC64_URL   := http://snapshot.debian.org/archive/debian-ports/$(BUSYBOX_SNAPSHOT)/pool-ppc64/main/b/busybox/$(BUSYBOX_PPC64_DEB)
+BUSYBOX_PPC64_URL   := $(SNAPSHOT_URL)/archive/debian-ports/$(BUSYBOX_SNAPSHOT)/pool-ppc64/main/b/busybox/$(BUSYBOX_PPC64_DEB)
 BUSYBOX_PPC64_SHA256 := cd762eee99372ac2bfa0d0c32cc981a76d35cf3debb6b7c66a3b53b5f7d8cc30
 BUSYBOX_AMD64_DEB   := busybox-static_1.38.0-3+b1_amd64.deb
-BUSYBOX_AMD64_URL   := http://snapshot.debian.org/archive/debian/$(BUSYBOX_SNAPSHOT)/pool/main/b/busybox/$(BUSYBOX_AMD64_DEB)
+BUSYBOX_AMD64_URL   := $(SNAPSHOT_URL)/archive/debian/$(BUSYBOX_SNAPSHOT)/pool/main/b/busybox/$(BUSYBOX_AMD64_DEB)
 BUSYBOX_AMD64_SHA256 := 26801f17e6c88e813be104effc0ea3b43d912bd59ca6295fcd1260528ebb4d41
 # The generic initramfs's install tools (tools/ssdimg/build-initrd-tools.sh): static mke2fs and GNU tar
 # from upstream, both checked against their maintainers' GPG signatures when pinned (2026-10-21)

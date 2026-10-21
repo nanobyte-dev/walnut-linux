@@ -4,9 +4,12 @@
 ARG BASE
 FROM ${BASE}
 ARG SNAPSHOT
+# config.mk SNAPSHOT_URL: walnut.nanobyte.dev's snapshot cache (snapshot.debian.org throttles)
+ARG SNAPSHOT_URL=http://snapshot.debian.org
 
 RUN rm -f /etc/apt/sources.list.d/debian.sources && \
-    echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/${SNAPSHOT} unstable main" > /etc/apt/sources.list && \
+    printf 'Acquire::Retries "8";\n' > /etc/apt/apt.conf.d/80retries && \
+    echo "deb [check-valid-until=no] ${SNAPSHOT_URL}/archive/debian/${SNAPSHOT} unstable main" > /etc/apt/sources.list && \
     apt-get update && \
     apt-get full-upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends \

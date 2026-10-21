@@ -6,10 +6,11 @@
 ARG BUILDER
 FROM ${BUILDER}
 ARG SNAPSHOT
+ARG SNAPSHOT_URL=http://snapshot.debian.org
 
-RUN echo "deb-src [check-valid-until=no] http://snapshot.debian.org/archive/debian/${SNAPSHOT} unstable main" >> /etc/apt/sources.list && \
-    echo "deb-src [check-valid-until=no] http://snapshot.debian.org/archive/debian/${SNAPSHOT} trixie main" >> /etc/apt/sources.list && \
-    echo "deb-src [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/${SNAPSHOT} trixie-security main" >> /etc/apt/sources.list && \
+RUN echo "deb-src [check-valid-until=no] ${SNAPSHOT_URL}/archive/debian/${SNAPSHOT} unstable main" >> /etc/apt/sources.list && \
+    echo "deb-src [check-valid-until=no] ${SNAPSHOT_URL}/archive/debian/${SNAPSHOT} trixie main" >> /etc/apt/sources.list && \
+    echo "deb-src [check-valid-until=no] ${SNAPSHOT_URL}/archive/debian-security/${SNAPSHOT} trixie-security main" >> /etc/apt/sources.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
         apt-utils build-essential dpkg-dev devscripts quilt git fakeroot debhelper dh-exec sudo librsvg2-bin \

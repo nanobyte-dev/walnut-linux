@@ -14,6 +14,7 @@ mkdir -p "$OUT" "$CACHE"
 mmdebstrap --mode=root --format=tar --arch=ppc64 --variant=buildd \
 	--keyring=/usr/share/keyrings/debian-ports-archive-keyring.gpg \
 	--aptopt='Acquire::Check-Valid-Until "false"' \
+	--aptopt='Acquire::Retries "8"' \
 	--aptopt='APT::Install-Recommends "false"' \
 	--include=ccache,eatmydata,debian-ports-archive-keyring \
 	--skip=cleanup/apt/lists --skip=essential/unlink \

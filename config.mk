@@ -7,7 +7,11 @@
 # Packages come from a frozen snapshot of debian-ports, so a rebuild gets the same versions.
 DEBIAN_SNAPSHOT     := 20261013T000000Z
 DEBIAN_SUITE        := unstable
-DEBIAN_MIRROR       := http://snapshot.debian.org/archive/debian-ports/$(DEBIAN_SNAPSHOT)
+# Builds fetch the snapshot through walnut.nanobyte.dev's cache of snapshot.debian.org (walnut-aptcache,
+# tools/walnut-server/aptcache): snapshot.debian.org throttles bulk downloads (503 TooManyRequests), a
+# pinned snapshot never changes. SNAPSHOT_URL=http://snapshot.debian.org goes to the source.
+SNAPSHOT_URL        ?= http://walnut.nanobyte.dev/debian-snapshot
+DEBIAN_MIRROR       := $(SNAPSHOT_URL)/archive/debian-ports/$(DEBIAN_SNAPSHOT)
 ROOTFS_PACKAGES     := image/packages.txt
 ROOTFS_CUSTOMIZE    := image/customize.sh
 

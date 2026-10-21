@@ -3,6 +3,8 @@
 # On WALNUT_HOST (config.local.mk), in /data/nanobyte/Walnut:
 #   walnut-repo    nginx with the site built in (walnut-site:<id>), www/ mounted read-only: apt/,
 #                  download/, licensed/ (basic auth: WALNUT_LICENSED_USER/PASS)
+#   walnut-aptcache  apt-cacher-ng for Debian's snapshot (snapshot.debian.org throttles), served under
+#                  /debian-snapshot/ for the pinned dates only
 #   walnut-upload  sshd + rrsync as an ordinary user on port 2223: uploads into incoming/ only, with
 #                  the keys in deploy-keys.pub (its host key is made once and pinned in known_hosts)
 #   walnut-watch   (bin/, systemd path unit + timer, as the directory's owner) publishes what lands
@@ -28,7 +30,15 @@ trap 'command ssh -o ControlPath="$CTL" -O exit "$host" 2>/dev/null || true' EXI
 # the server's umask is 002: modes are set here, sshd (StrictModes) refuses group-writable key dirs
 ssh "$host" "umask 022; mkdir -p $DIR/{incoming/{site,download,apt,licensed},www/{apt,download,licensed},site,state,bin,keys,upload-keys}
 	chmod 755 $DIR $DIR/{incoming,incoming/*,www,www/*,site,state,bin,keys,upload-keys}"
-rsync -rt --chmod=D755,F644 docker-compose.yml Dockerfile nginx.conf upload "$host:$DIR/"
+# nginx.conf with the snapshot dates the builds use (the only ones the Debian cache passes)
+dates=$(cat ../../config.mk ../../*/upstream.mk ../ssdimg/upstream.mk | grep -oE '[0-9]{8}T[0-9]{6}Z' | sort -u | paste -sd'|')
+[ -n "$dates" ] || { echo "!! no snapshot dates found" >&2; exit 1; }
+sed "s/@SNAPSHOT_DATES@/$dates/" nginx.conf > "$CTL.nginx.conf"
+rsync -rt --chmod=D755,F644 docker-compose.yml Dockerfile upload aptcache "$host:$DIR/"
+rsync -t --chmod=644 "$CTL.nginx.conf" "$host:$DIR/nginx.conf"
+rm -f "$CTL.nginx.conf"
+ssh "$host" "umask 022; mkdir -p $DIR/aptcache-data
+	[ -e $DIR/aptcache-data/CACHEDIR.TAG ] || printf 'Signature: 8a477f597d28d172789f06886806bc55\n# walnut-aptcache: Debian snapshot cache, refetchable\n' > $DIR/aptcache-data/CACHEDIR.TAG"
 rsync -t --chmod=755 walnut-watch "$host:$DIR/bin/"
 # the public keys: archive (releases, stable, licensed) and CI (testing only); a suite whose key is
 # missing is refused
@@ -56,7 +66,7 @@ grep -v '^#' deploy-keys.pub | grep . | sed 's|^|restrict,command="rrsync -wo -n
 printf '%s:%s\n' "$user" "$(openssl passwd -apr1 -stdin <<< "$pass")" |
 	ssh "$host" "umask 022; cat > $DIR/htpasswd.new && mv $DIR/htpasswd.new $DIR/htpasswd"
 
-ssh "$host" "cd $DIR && docker compose build -q walnut-upload && docker compose up -d walnut-upload"
+ssh "$host" "cd $DIR && docker compose build -q walnut-upload walnut-aptcache && docker compose up -d walnut-upload walnut-aptcache"
 
 # the watcher's units
 for u in systemd/walnut-watch.{service,path,timer}; do
