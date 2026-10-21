@@ -4,10 +4,11 @@
 #            testing  everything, debug kernel and debug modules included; the CI key
 #                     (environment walnut-testing, secret WALNUT_TESTING_KEY)
 #            stable   the release build, without the debug kernel and its modules; the archive key's
-#                     signing subkey (environment walnut-stable, secret WALNUT_ARCHIVE_SUBKEY; the
+#                     signing subkey (environment walnut-stable, secrets WALNUT_ARCHIVE_SUBKEY and
+#                     WALNUT_ARCHIVE_PASSPHRASE; the
 #                     owner approves each run, after the build)
 # Upload key: the repository secret WALNUT_DEPLOY_KEY. docs/release/ALPHA.md M6.
-name: Walnut package
+name: "(shared) build one package"
 
 on:
   workflow_call:
@@ -63,5 +64,6 @@ jobs:
       - name: Publish to ${{ inputs.target }}
         env:
           WALNUT_SIGN_KEY: ${{ inputs.target == 'stable' && secrets.WALNUT_ARCHIVE_SUBKEY || secrets.WALNUT_TESTING_KEY }}
+          WALNUT_SIGN_PASSPHRASE: ${{ inputs.target == 'stable' && secrets.WALNUT_ARCHIVE_PASSPHRASE || '' }}
           WALNUT_DEPLOY_KEY_DATA: ${{ secrets.WALNUT_DEPLOY_KEY }}
         run: tools/ci/publish.sh ${{ inputs.target }} ${{ inputs.package }} out

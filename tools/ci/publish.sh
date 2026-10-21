@@ -7,7 +7,8 @@
 #            version kept; signed with the archive key's signing subkey (environment walnut-stable,
 #            the owner approves each run)
 # Debug symbols (-dbgsym) go to <suite>-debug in the same upload (testing-debug: 5 versions,
-# stable-debug: 3). The signing key is the secret WALNUT_SIGN_KEY, the upload key
+# stable-debug: 3). The signing key is the secret WALNUT_SIGN_KEY (its passphrase, if it has one,
+# WALNUT_SIGN_PASSPHRASE), the upload key
 # WALNUT_DEPLOY_KEY_DATA. Each upload carries the state it was made from; when another publish lands
 # first, the server refuses it as stale and this makes it again on the new state.
 set -euo pipefail
@@ -25,6 +26,11 @@ export GNUPGHOME=$tmp/gnupg
 mkdir -m 700 "$GNUPGHOME"
 printf '%s\n' "$WALNUT_SIGN_KEY" | gpg --batch --quiet --import
 fpr=$(gpg --with-colons --list-secret-keys | awk -F: '$1=="fpr" {print $10; exit}')
+if [ -n "${WALNUT_SIGN_PASSPHRASE:-}" ]; then	# the archive key has one
+	install -m 600 /dev/null "$tmp/passphrase"
+	printf '%s' "$WALNUT_SIGN_PASSPHRASE" > "$tmp/passphrase"
+	export WALNUT_SIGN_PASSPHRASE_FILE=$tmp/passphrase
+fi
 install -m 600 /dev/null "$tmp/deploy"
 printf '%s\n' "$WALNUT_DEPLOY_KEY_DATA" > "$tmp/deploy"
 export WALNUT_DEPLOY_KEY=$tmp/deploy

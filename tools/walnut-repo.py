@@ -19,7 +19,8 @@ version, and their bytes may differ.
   fetch  --suite S --keyring K --source NAME --to DIR  (the newest version's debs, checked)
   base   --suite S --keyring K  (prints the sha256 of the published InRelease, or none)
 
-Signing uses gpg with the key in GNUPGHOME. Pure Python (reads .deb files itself); gpg/gpgv for
+Signing uses gpg with the key in GNUPGHOME (its passphrase, if any, in the file
+WALNUT_SIGN_PASSPHRASE_FILE names). Pure Python (reads .deb files itself); gpg/gpgv for
 signatures. --url defaults to https://walnut.nanobyte.dev/apt.
 """
 import argparse, gzip, hashlib, io, lzma, os, re, shutil, subprocess, sys, tarfile, tempfile, time
@@ -288,6 +289,8 @@ def write_suite(out, suite, base, packages, sources, sign_key):
 	           + "".join(f" {h} {size} {name}\n" for name, (h, size) in sorted(files.items())))
 	open(f"{dists}/Release", "w").write(release)
 	gpg = ["gpg", "--batch", "--yes", "--pinentry-mode", "loopback", "--local-user", sign_key]
+	if os.environ.get("WALNUT_SIGN_PASSPHRASE_FILE"):	# a key with a passphrase (the archive key)
+		gpg += ["--passphrase-file", os.environ["WALNUT_SIGN_PASSPHRASE_FILE"]]
 	subprocess.run(gpg + ["--clearsign", "-o", f"{dists}/InRelease", f"{dists}/Release"], check=True)
 	subprocess.run(gpg + ["--armor", "--detach-sign", "-o", f"{dists}/Release.gpg", f"{dists}/Release"], check=True)
 
