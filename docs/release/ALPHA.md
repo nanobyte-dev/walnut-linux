@@ -227,10 +227,13 @@ Agents: two at a time, three when I'm idle. Opus for M1 (the initramfs install m
 - **History:** zero exact trailers left, re-runs give identical IDs, and the scan is clean.
 - **Site:** `run-local.sh`, then test.nanobyte.dev, then approved prod.
 
-## Still to decide (asked when its milestone starts)
+## Decided (the user, 2026-10-21)
 
-- **The site:** a nanobyte.dev section or a separate site.
-- **The license** for our own userland code.
-- **The GitHub owner.**
-- **The runner host:** a VM on this PC or the OVH box.
-- **Whether to accept the cuts above.**
+- **License** of our own code (tools, installer, packaging, scripts, ps3-gpu-tools, SPU code): GPL-2.0-or-later;
+  the kernel patches and ps3rsx stay GPL-2.0-only.
+- **GitHub owner:** the nanobyte-dev organisation.
+- **Site:** a section of nanobyte.dev (`/walnut/`), linked from the channel; walnut.nanobyte.dev serves apt and downloads.
+- **CI:** GitHub-hosted runners (a throwaway VM per job, so privileged docker reaches nothing private; free for a
+  public repo). Limits to handle: 6 h per job on 4 cores (measure Mesa's qemu-native build first; ccache through
+  actions/cache, cross builds for the heavy ones, or local builds as the fallback), ~14 GB free disk (~30 GB after
+  removing the preinstalled toolchains). Only a testing subkey in the secrets; stable promotion signs offline.
