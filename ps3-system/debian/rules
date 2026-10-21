@@ -31,4 +31,5 @@ override_dh_installsystemd:
 	dh_installsystemd --name=ps3gpu-nodes --no-stop-on-upgrade --no-restart-after-upgrade
 	dh_installsystemd --name=ps3-swap --no-start --no-stop-on-upgrade --no-restart-after-upgrade
 	dh_installsystemd --name=ps3-vswap --no-start --no-stop-on-upgrade --no-restart-after-upgrade
+	dh_installsystemd --name=ps3-shutdown-log --no-stop-on-upgrade --no-restart-after-upgrade
 	dh_installsystemd --name=walnut-firstboot --no-start
