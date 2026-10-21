@@ -1,0 +1,712 @@
+#!/usr/bin/env python3
+"""walnut-install: PC installer for Walnut Linux on PlayStation 3.
+
+Supports two installation targets:
+  internal: streams stamped disk image to dev_hdd0 and boot files to dev_hdd1
+            over webMAN MOD FTP for the Phase B internal install.
+  usb:      partitions a whole USB disk with Petitboot-compatible ext4 and swap,
+            unpacks rootfs, and writes fstab/kboot.conf by PARTUUID.
+"""
+
+import argparse
+import contextlib
+import hashlib
+import io
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
+
+def generate_disk_id() -> str:
+    """Generate a random 32-bit DOS disk ID (8 lowercase hex digits).
+
+    Excludes 00000000 and the legacy fixed ID 50533301.
+    """
+    while True:
+        val = os.urandom(4).hex().lower()
+        if val not in ("00000000", "50533301"):
+            return val
+
+
+def generate_sfdisk_script(disk_id: str, swap_gib: int = 4) -> str:
+    """Generate sfdisk partitioning script with DOS label, swap, and root."""
+    return (
+        "label: dos\n"
+        f"label-id: 0x{disk_id}\n"
+        f"size={swap_gib}GiB, type=82\n"
+        "type=83\n"
+    )
+
+
+def get_partition_names(disk: str) -> tuple[str, str]:
+    """Return device paths for partition 1 and partition 2."""
+    disk = disk.rstrip("/")
+    sep = "p" if disk and disk[-1].isdigit() else ""
+    return f"{disk}{sep}1", f"{disk}{sep}2"
+
+
+def generate_mkswap_args(p1: str) -> list[str]:
+    """Return command line arguments for mkswap."""
+    return ["mkswap", "-L", "ps3swap", p1]
+
+
+def generate_mkfs_args(p2: str) -> list[str]:
+    """Return command line arguments for Petitboot-compatible mkfs.ext4."""
+    return [
+        "mkfs.ext4",
+        "-L",
+        "ps3root",
+        "-O",
+        "^metadata_csum,^metadata_csum_seed,^64bit,^orphan_file",
+        p2,
+    ]
+
+
+def write_fstab(target_dir: str, disk_id: str) -> None:
+    """Write /etc/fstab for the USB install with root and swap by PARTUUID."""
+    fstab_content = (
+        "# Root on the USB disk (walnut-install usb). The kernel mounts it read-only for the\n"
+        "# boot-time fsck; systemd remounts it read-write.\n"
+        f"PARTUUID={disk_id}-02  /     ext4   defaults,noatime  0 1\n"
+        "# Before zram (priority 100): idle pages go to the disk, which leaves the RAM to the programs\n"
+        f"PARTUUID={disk_id}-01  none  swap   sw,pri=200,noauto 0 0\n"
+        "tmpfs                 /tmp  tmpfs  defaults,size=64M 0 0\n"
+    )
+    path = os.path.join(target_dir, "etc", "fstab")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(fstab_content)
+
+
+def update_ps3_boot(target_dir: str, disk_id: str) -> None:
+    """Update or create /etc/default/ps3-boot setting PS3_ROOT_ARGS by PARTUUID."""
+    path = os.path.join(target_dir, "etc", "default", "ps3-boot")
+    root_arg_line = f'PS3_ROOT_ARGS="root=PARTUUID={disk_id}-02 rootfstype=ext4 ro rootwait"'
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+        if re.search(r"^PS3_ROOT_ARGS=.*", content, flags=re.MULTILINE):
+            new_content = re.sub(r"^PS3_ROOT_ARGS=.*", root_arg_line, content, flags=re.MULTILINE)
+        else:
+            new_content = content.rstrip("\n") + "\n" + root_arg_line + "\n"
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+    else:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(root_arg_line + "\n")
+
+
+def write_kboot_conf(target_dir: str, release: str, disk_id: str, kernel_args: str) -> None:
+    """Write /etc/kboot.conf with the single walnut-usb entry."""
+    args_part = f" {kernel_args.strip()}" if kernel_args and kernel_args.strip() else ""
+    entry = f"walnut-usb='/boot/vmlinux-{release} root=PARTUUID={disk_id}-02 rootfstype=ext4 ro rootwait{args_part}'\n"
+    path = os.path.join(target_dir, "etc", "kboot.conf")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("# Petitboot boot menu (Walnut USB install)\n")
+        f.write(entry)
+
+
+def verify_release_dir(release_dir: str, need_initrd: bool = True) -> dict:
+    """Verify all checksums in SHA256SUMS and identify required release files."""
+    if not os.path.isdir(release_dir):
+        raise ValueError(f"Release directory not found: {release_dir}")
+
+    sha256sums_path = os.path.join(release_dir, "SHA256SUMS")
+    if not os.path.isfile(sha256sums_path):
+        raise ValueError(f"SHA256SUMS not found in release directory: {release_dir}")
+
+    with open(sha256sums_path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+    verified_files = []
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            continue
+        expected_hash = parts[0]
+        fname = parts[1].lstrip("*").strip()
+        if fname.startswith("./"):
+            fname = fname[2:]
+        fpath = os.path.join(release_dir, fname)
+        if not os.path.isfile(fpath):
+            raise ValueError(f"Missing file listed in SHA256SUMS: {fname}")
+
+        h = hashlib.sha256()
+        with open(fpath, "rb") as bf:
+            while chunk := bf.read(1048576):
+                h.update(chunk)
+        actual_hash = h.hexdigest()
+        if actual_hash.lower() != expected_hash.lower():
+            raise ValueError(f"Checksum mismatch for {fname}: expected {expected_hash}, got {actual_hash}")
+        verified_files.append(fname)
+
+    # 1. rootfs .tar.xz
+    rootfs_candidates = [f for f in os.listdir(release_dir) if f.endswith(".tar.xz")]
+    if "rootfs.tar.xz" in rootfs_candidates:
+        rootfs_path = os.path.join(release_dir, "rootfs.tar.xz")
+    elif len(rootfs_candidates) == 1:
+        rootfs_path = os.path.join(release_dir, rootfs_candidates[0])
+    elif not rootfs_candidates:
+        raise ValueError(f"No rootfs .tar.xz found in {release_dir}")
+    else:
+        raise ValueError(f"Multiple .tar.xz files in {release_dir}: {rootfs_candidates}; cannot identify rootfs")
+
+    # 2. kernel vmlinux-<release>
+    kernel_candidates = [
+        f for f in os.listdir(release_dir)
+        if f.startswith("vmlinux-") and not f.endswith((".args", ".manifest", ".sha256", ".tmp", ".dpkg-tmp", ".dpkg-new"))
+    ]
+    if len(kernel_candidates) == 1:
+        kernel_name = kernel_candidates[0]
+        kernel_path = os.path.join(release_dir, kernel_name)
+        release = kernel_name[len("vmlinux-"):]
+    elif not kernel_candidates:
+        raise ValueError(f"No vmlinux-<release> kernel found in {release_dir}")
+    else:
+        raise ValueError(f"Multiple vmlinux kernels found in {release_dir}: {kernel_candidates}")
+
+    # 3. initrd
+    initrd_path = None
+    if os.path.isfile(os.path.join(release_dir, "initrd-walnut.img")):
+        initrd_path = os.path.join(release_dir, "initrd-walnut.img")
+    else:
+        initrd_candidates = [f for f in os.listdir(release_dir) if f.startswith("initrd") and f.endswith(".img")]
+        if len(initrd_candidates) == 1:
+            initrd_path = os.path.join(release_dir, initrd_candidates[0])
+        elif need_initrd:
+            raise ValueError(f"No initrd-walnut.img found in {release_dir}")
+
+    # 4. args file
+    args_candidates = [f for f in os.listdir(release_dir) if f.endswith(".args")]
+    args_path = None
+    specific_args = [f"{release}.args", f"vmlinux-{release}.args"]
+    for s in specific_args:
+        if os.path.isfile(os.path.join(release_dir, s)):
+            args_path = os.path.join(release_dir, s)
+            break
+    if not args_path:
+        if len(args_candidates) == 1:
+            args_path = os.path.join(release_dir, args_candidates[0])
+        elif not args_candidates:
+            raise ValueError(f"No .args file found for release {release} in {release_dir}")
+        else:
+            raise ValueError(f"Multiple .args files found in {release_dir}: {args_candidates}")
+
+    return {
+        "release_dir": release_dir,
+        "rootfs": rootfs_path,
+        "kernel": kernel_path,
+        "release": release,
+        "initrd": initrd_path,
+        "args_file": args_path,
+        "verified_files": verified_files,
+    }
+
+
+def get_root_device(mounts_content: str = None) -> str:
+    """Return the device path of the root filesystem '/' from mounts."""
+    if mounts_content is None:
+        try:
+            with open("/proc/mounts", "r", encoding="utf-8") as f:
+                mounts_content = f.read()
+        except OSError:
+            mounts_content = ""
+    for line in mounts_content.splitlines():
+        parts = line.strip().split()
+        if len(parts) >= 2 and parts[1] == "/":
+            return parts[0]
+    return ""
+
+
+def check_usb_disk(disk: str, cmd_runner=None, mounts_text=None) -> dict:
+    """Validate that disk is a whole disk on USB transport, unmounted, and not root."""
+    if cmd_runner is None:
+        def default_runner(cmd):
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if res.returncode != 0:
+                raise RuntimeError(f"Command {' '.join(cmd)} failed: {res.stderr.strip()}")
+            return res.stdout
+        cmd_runner = default_runner
+
+    if mounts_text is None:
+        try:
+            with open("/proc/mounts", "r", encoding="utf-8") as f:
+                mounts_text = f.read()
+        except OSError:
+            mounts_text = ""
+
+    # 1. Whole disk check (not a partition)
+    disk_type = cmd_runner(["lsblk", "-dno", "TYPE", disk]).strip().lower()
+    if disk_type != "disk":
+        raise ValueError(f"{disk} is a {disk_type}, not a whole disk")
+
+    # 2. USB transport check
+    tran = cmd_runner(["lsblk", "-dno", "TRAN", disk]).strip().lower()
+    if tran != "usb":
+        raise ValueError(f"{disk} is on transport '{tran}', not 'usb'")
+
+    disk_base = os.path.basename(disk)
+
+    # 3. PC root disk check
+    mountpoints_out = cmd_runner(["lsblk", "-no", "MOUNTPOINT", disk])
+    mounts = [m.strip() for m in mountpoints_out.splitlines() if m.strip()]
+    if "/" in mounts:
+        raise ValueError(f"{disk} contains the PC root filesystem; refusing to write")
+
+    for line in mounts_text.splitlines():
+        parts = line.strip().split()
+        if not parts:
+            continue
+        dev_path, mnt_point = parts[0], parts[1]
+        if (dev_path.startswith(disk) or os.path.basename(dev_path).startswith(disk_base)) and mnt_point == "/":
+            raise ValueError(f"{disk} is the PC root disk (mounted at /); refusing to write")
+
+    root_dev = get_root_device(mounts_text)
+    if root_dev:
+        if root_dev == disk or root_dev.startswith(disk) or os.path.basename(root_dev).startswith(disk_base):
+            raise ValueError(f"{disk} contains the PC root filesystem; refusing to write")
+        try:
+            pkname = cmd_runner(["lsblk", "-no", "PKNAME", root_dev]).strip()
+            if pkname and (pkname == disk_base or f"/dev/{pkname}" == disk):
+                raise ValueError(f"{disk} is the PC root disk (holds {root_dev}); refusing to write")
+        except Exception:
+            pass
+
+    # 4. Mounted check (disk itself or any of its partitions)
+    if mounts:
+        raise ValueError(f"{disk} (or one of its partitions) is currently mounted: {', '.join(mounts)}")
+
+    for line in mounts_text.splitlines():
+        parts = line.strip().split()
+        if not parts:
+            continue
+        dev_path = parts[0]
+        if dev_path.startswith(disk) or os.path.basename(dev_path).startswith(disk_base):
+            raise ValueError(f"{disk} is mounted at {parts[1]} according to /proc/mounts")
+
+    # Query disk model, serial, size
+    model = cmd_runner(["lsblk", "-dno", "MODEL", disk]).strip()
+    serial = cmd_runner(["lsblk", "-dno", "SERIAL", disk]).strip()
+    size = cmd_runner(["lsblk", "-dno", "SIZE", disk]).strip()
+
+    return {
+        "disk": disk,
+        "model": model,
+        "serial": serial,
+        "size": size,
+    }
+
+
+def confirm_usb_disk(disk_info: dict, confirmed: bool = False, dry_run: bool = False) -> bool:
+    """Display disk information and prompt for model confirmation."""
+    disk = disk_info["disk"]
+    model = disk_info.get("model") or "UNKNOWN"
+    serial = disk_info.get("serial") or "UNKNOWN"
+    size = disk_info.get("size") or "UNKNOWN"
+
+    print(f">> Target disk: {disk}")
+    print(f">>   Model:  {model}")
+    print(f">>   Serial: {serial}")
+    print(f">>   Size:   {size}")
+
+    if dry_run:
+        print(f">> [dry-run] Live execution would require typing '{model}' to confirm.")
+        return True
+
+    if confirmed:
+        return True
+
+    print(f"\n!! WARNING: ALL DATA ON {disk} WILL BE PERMANENTLY ERASED !!")
+    prompt = f"Type the disk's model ({model!r}) to confirm: "
+    try:
+        user_input = input(prompt).strip()
+    except EOFError:
+        user_input = ""
+
+    if user_input != model.strip():
+        sys.exit(f"!! Aborted: entered {user_input!r} does not match model {model.strip()!r}.")
+    return True
+
+
+_stamp_module = None
+
+
+def get_stamp_module():
+    """Import and return tools/ssdimg/stamp.py."""
+    global _stamp_module
+    if _stamp_module is not None:
+        return _stamp_module
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.normpath(os.path.join(script_dir, "..", "tools", "ssdimg", "stamp.py")),
+        os.path.normpath(os.path.join(os.getcwd(), "tools", "ssdimg", "stamp.py")),
+        os.path.normpath(os.path.join(script_dir, "stamp.py")),
+    ]
+    for path in candidates:
+        if os.path.isfile(path):
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("stamp", path)
+            if spec and spec.loader:
+                mod = importlib.util.module_from_spec(spec)
+                sys.modules["stamp"] = mod
+                spec.loader.exec_module(mod)
+                _stamp_module = mod
+                return _stamp_module
+    try:
+        import stamp
+        _stamp_module = stamp
+        return _stamp_module
+    except ImportError:
+        raise RuntimeError("Could not find tools/ssdimg/stamp.py")
+
+
+class DryRunFTP:
+    """Mock FTP implementation for dry-run of stamp.py install."""
+    current_target_size = 16 * 1024 * 1024 * 1024
+
+    def __init__(self, *args, **kwargs):
+        self.welcome = "220 webMAN MOD FTP (dry-run)"
+        self.files = {}
+        self.cwd_dir = "/"
+
+    def connect(self, host, port=21, timeout=60):
+        print(f">> [dry-run] FTP connect: {host}:{port}")
+
+    def getwelcome(self):
+        return self.welcome
+
+    def login(self, user="anonymous", passwd="ps3"):
+        print(f">> [dry-run] FTP login: {user}")
+
+    def voidcmd(self, cmd):
+        return "200 Command OK"
+
+    def cwd(self, d):
+        self.cwd_dir = d
+
+    def mkd(self, d):
+        print(f">> [dry-run] FTP mkdir: {d}")
+
+    def size(self, path):
+        if path in self.files:
+            return self.files[path]
+        base = os.path.basename(path)
+        if base in self.files:
+            return self.files[base]
+        import ftplib
+        raise ftplib.error_perm("550 File not found")
+
+    def storbinary(self, cmd, f, blocksize=262144, callback=None):
+        parts = cmd.split(None, 1)
+        name = parts[1] if len(parts) > 1 else "file"
+        if hasattr(f, "done") and hasattr(f, "it"):
+            size = getattr(DryRunFTP, "current_target_size", 16 * 1024 * 1024 * 1024)
+            f.done = size
+            self.files[name] = size
+            full_path = os.path.join(self.cwd_dir, name)
+            self.files[full_path] = size
+            print(f">> [dry-run] FTP {cmd} (streamed stamped image, {size} bytes)")
+        else:
+            data = f.read()
+            self.files[name] = len(data)
+            full_path = os.path.join(self.cwd_dir, name)
+            self.files[full_path] = len(data)
+            print(f">> [dry-run] FTP {cmd} ({len(data)} bytes)")
+
+    def retrbinary(self, cmd, callback):
+        import ftplib
+        raise ftplib.error_perm("550 File not found")
+
+    def delete(self, path):
+        self.files.pop(path, None)
+        self.files.pop(os.path.basename(path), None)
+
+    def rename(self, src, dst):
+        val = self.files.pop(src, self.files.pop(os.path.basename(src), 0))
+        self.files[dst] = val
+        self.files[os.path.basename(dst)] = val
+        print(f">> [dry-run] FTP rename {src} -> {dst}")
+
+    def quit(self):
+        print(">> [dry-run] FTP quit")
+
+
+@contextlib.contextmanager
+def mock_ftp_for_dry_run(stamp_mod, target_size: int):
+    old_ftp = stamp_mod.ftplib.FTP
+    DryRunFTP.current_target_size = target_size
+    stamp_mod.ftplib.FTP = DryRunFTP
+    try:
+        yield
+    finally:
+        stamp_mod.ftplib.FTP = old_ftp
+
+
+def cmd_internal(args):
+    """Execute the internal install subcommand."""
+    host = args.host or os.environ.get("PS3_IP")
+    if not host:
+        sys.exit("!! Error: PS3 host required (provide --host <ip/name> or set $PS3_IP)")
+
+    stamp_mod = get_stamp_module()
+    size_bytes = stamp_mod.parse_size(args.size)
+
+    # 1. Verify release directory
+    print(f">> Checking release directory: {args.release_dir}")
+    files = verify_release_dir(args.release_dir, need_initrd=True)
+    print(f">> Release files verified OK ({len(files['verified_files'])} files checked via SHA256SUMS)")
+
+    # 2. Print clear steps before starting
+    print("\n" + "=" * 70)
+    print("Walnut Internal Install (upload over webMAN FTP)")
+    print("=" * 70)
+    print(f"Target PS3:         {host}:{args.port}")
+    print(f"Image on dev_hdd0:  {args.image} ({args.size}, {args.swap_mib} MiB swap)")
+    print(f"Kernel release:     {files['release']}")
+    print(f"Generic initramfs:  {os.path.basename(files['initrd'])}")
+    print(f"Rootfs tarball:     {os.path.basename(files['rootfs'])}")
+    print("\nSteps before starting:")
+    print(" 1. Ensure the PS3 is running GameOS with webMAN MOD FTP enabled.")
+    print(" 2. Ensure the PS3 is on a wired network connection.")
+    print(f" 3. Ensure at least {args.size} of free space is available on dev_hdd0.")
+    print(" 4. The installer will upload:")
+    print(f"    - dev_hdd0{args.image} (stamped image stream)")
+    print(f"    - dev_hdd1/linux/install/rootfs.tar.xz (system tarball)")
+    print(f"    - dev_hdd1/linux/boot/vmlinux-{files['release']} & initrd-walnut.img")
+    print(f"    - dev_hdd1/kboot.conf (Petitboot 'walnut' entry)")
+    print(f"    - dev_hdd0/linux/walnut-good/ (known-good boot backup)")
+    print(f"    - dev_hdd1/linux/install/install.conf (manifest; uploaded LAST)")
+    print("=" * 70 + "\n")
+
+    stamp_args = argparse.Namespace(
+        size=args.size,
+        rootfs=files["rootfs"],
+        kernel=files["kernel"],
+        release=files["release"],
+        initrd=files["initrd"],
+        args_file=files["args_file"],
+        swap_mib=args.swap_mib,
+        image=args.image,
+        host=host,
+        port=args.port,
+        user=args.user,
+        password=args.password,
+        uuid=args.uuid,
+        chunk=stamp_mod.MIB,
+        force=args.force,
+        skip_image=args.skip_image,
+    )
+
+    if args.dry_run:
+        print(">> [dry-run] Dry-run mode: verifying upload logic without network transfer...")
+        with mock_ftp_for_dry_run(stamp_mod, size_bytes):
+            stamp_mod.install(stamp_args)
+    else:
+        stamp_mod.install(stamp_args)
+
+    # 3. Print what to do after
+    print("\n" + "=" * 70)
+    print("What to do next on your PS3:")
+    print(" 1. In GameOS (or webMAN MOD / XMB CFW tools), set the boot flag to OtherOS.")
+    print(" 2. Reboot the PS3 into Petitboot.")
+    print(" 3. In the Petitboot menu, select 'walnut'.")
+    print(" 4. First boot will verify the stamped image, format dm-linear root & swap,")
+    print("    unpack the Walnut rootfs, and launch the first-boot setup wizard.")
+    print("=" * 70 + "\n")
+
+
+def cmd_usb(args):
+    """Execute the USB install subcommand."""
+    # 1. Verify release directory
+    print(f">> Checking release directory: {args.release_dir}")
+    files = verify_release_dir(args.release_dir, need_initrd=False)
+    print(f">> Release files verified OK ({len(files['verified_files'])} files checked via SHA256SUMS)")
+
+    # 2. Check USB disk
+    print(f">> Validating target disk: {args.disk}")
+    disk_info = check_usb_disk(args.disk)
+
+    # 3. Confirm disk
+    confirm_usb_disk(disk_info, confirmed=args.confirmed, dry_run=args.dry_run)
+
+    # 4. Check root privileges if not dry-run
+    if not args.dry_run and os.geteuid() != 0:
+        print(">> Need root privileges to partition and format the USB disk.")
+        print(">> Re-running with sudo...")
+        cmd = [
+            "sudo",
+            sys.executable,
+            os.path.abspath(sys.argv[0]),
+            "usb",
+            "--release-dir", os.path.abspath(args.release_dir),
+            "--disk", args.disk,
+            "--swap-gib", str(args.swap_gib),
+            "--confirmed",
+        ]
+        os.execvp("sudo", cmd)
+
+    disk = args.disk
+    p1, p2 = get_partition_names(disk)
+    disk_id = generate_disk_id()
+    sfdisk_script = generate_sfdisk_script(disk_id, swap_gib=args.swap_gib)
+    mkfs_args = generate_mkfs_args(p2)
+    mkswap_args = generate_mkswap_args(p1)
+
+    kernel_args = ""
+    if files.get("args_file") and os.path.isfile(files["args_file"]):
+        with open(files["args_file"], "r", encoding="utf-8") as f:
+            kernel_args = " ".join(f.read().split())
+
+    if args.dry_run:
+        print("\n" + "=" * 70)
+        print("Walnut USB Install [dry-run mode]")
+        print("=" * 70)
+        print(f"Generated disk id: 0x{disk_id} (PARTUUIDs: {disk_id}-01, {disk_id}-02)")
+        print(f"\n[dry-run] Partitioning script for sfdisk {disk}:")
+        print(sfdisk_script.rstrip("\n"))
+        print("\n[dry-run] Format commands:")
+        print(f"  {' '.join(mkswap_args)}")
+        print(f"  {' '.join(mkfs_args)}")
+        print(f"\n[dry-run] Mount p2 on temporary directory:")
+        print(f"  mount {p2} <mount_dir>")
+        print(f"\n[dry-run] Unpack rootfs tarball:")
+        print(f"  tar --xattrs --xattrs-include='*' --numeric-owner -xpf {files['rootfs']} -C <mount_dir>")
+        print(f"\n[dry-run] Install kernel:")
+        print(f"  cp {files['kernel']} <mount_dir>/boot/vmlinux-{files['release']}")
+        print(f"\n[dry-run] Write /etc/fstab:")
+        print(f"  PARTUUID={disk_id}-02  /     ext4   defaults,noatime  0 1")
+        print(f"  PARTUUID={disk_id}-01  none  swap   sw,pri=200,noauto 0 0")
+        print(f"  tmpfs                 /tmp  tmpfs  defaults,size=64M 0 0")
+        print(f"\n[dry-run] Update /etc/default/ps3-boot:")
+        print(f'  PS3_ROOT_ARGS="root=PARTUUID={disk_id}-02 rootfstype=ext4 ro rootwait"')
+        print(f"\n[dry-run] Write /etc/kboot.conf:")
+        args_str = f" {kernel_args}" if kernel_args else ""
+        print(f"  walnut-usb='/boot/vmlinux-{files['release']} root=PARTUUID={disk_id}-02 rootfstype=ext4 ro rootwait{args_str}'")
+        print(f"\n[dry-run] Finalize:")
+        print(f"  sync && umount <mount_dir> && sync")
+        print("=" * 70 + "\n")
+        return
+
+    # Real execution
+    print(f">> Partitioning {disk} with sfdisk (disk id 0x{disk_id})...")
+    p = subprocess.run(["sfdisk", "-q", disk], input=sfdisk_script, text=True, capture_output=True)
+    if p.returncode != 0:
+        sys.exit(f"!! sfdisk failed: {p.stderr.strip()}")
+    try:
+        subprocess.run(["udevadm", "settle"], timeout=5)
+    except Exception:
+        time.sleep(1)
+
+    print(f">> Formatting swap partition {p1}...")
+    p = subprocess.run(mkswap_args, capture_output=True, text=True)
+    if p.returncode != 0:
+        sys.exit(f"!! mkswap failed: {p.stderr.strip()}")
+
+    print(f">> Formatting ext4 root partition {p2}...")
+    p = subprocess.run(mkfs_args, capture_output=True, text=True)
+    if p.returncode != 0:
+        sys.exit(f"!! mkfs.ext4 failed: {p.stderr.strip()}")
+    try:
+        subprocess.run(["udevadm", "settle"], timeout=5)
+    except Exception:
+        time.sleep(1)
+
+    mount_dir = tempfile.mkdtemp(prefix="walnut-usb-")
+    try:
+        print(f">> Mounting {p2} to {mount_dir}...")
+        subprocess.run(["mount", p2, mount_dir], check=True)
+
+        print(f">> Unpacking {os.path.basename(files['rootfs'])}...")
+        tar_cmd = ["tar", "--xattrs", "--xattrs-include=*", "--numeric-owner", "-xpf", files["rootfs"], "-C", mount_dir]
+        subprocess.run(tar_cmd, check=True)
+
+        print(">> Writing /etc/fstab...")
+        write_fstab(mount_dir, disk_id)
+
+        print(">> Updating /etc/default/ps3-boot...")
+        update_ps3_boot(mount_dir, disk_id)
+
+        print(f">> Installing kernel vmlinux-{files['release']} to /boot...")
+        boot_dir = os.path.join(mount_dir, "boot")
+        os.makedirs(boot_dir, exist_ok=True)
+        shutil.copy2(files["kernel"], os.path.join(boot_dir, os.path.basename(files["kernel"])))
+
+        print(">> Writing /etc/kboot.conf...")
+        write_kboot_conf(mount_dir, files["release"], disk_id, kernel_args)
+
+        print(">> Syncing and unmounting...")
+        subprocess.run(["sync"], check=True)
+    finally:
+        subprocess.run(["umount", mount_dir], check=False)
+        if os.path.exists(mount_dir):
+            try:
+                os.rmdir(mount_dir)
+            except OSError:
+                pass
+        subprocess.run(["sync"], check=False)
+
+    print("\n" + "=" * 70)
+    print(f"Walnut USB install completed successfully on {disk}!")
+    print("=" * 70)
+    print("What to do next on your PS3:")
+    print(" 1. Plug this USB disk into one of the PS3's USB ports.")
+    print(" 2. Boot the PS3 into Petitboot.")
+    print(" 3. In the Petitboot menu, select 'walnut-usb'.")
+    print(" 4. The PS3 will boot Walnut Linux from the USB drive.")
+    print("=" * 70 + "\n")
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="walnut-install",
+        description="Walnut Linux installer for PlayStation 3 (internal HDD and USB drives)",
+    )
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    # internal subcommand
+    i_parser = sub.add_parser("internal", help="install Walnut onto PS3 internal HDD over webMAN FTP")
+    i_parser.add_argument("--release-dir", required=True, help="directory containing release files")
+    i_parser.add_argument("--size", default="16G", help="stamped image size (e.g. 16G, default: 16G)")
+    i_parser.add_argument("--swap-mib", type=int, default=1024, help="swap size in MiB (default: 1024)")
+    i_parser.add_argument("--host", default=os.environ.get("PS3_IP"), help="PS3 host/IP in GameOS (default: $PS3_IP)")
+    i_parser.add_argument("--port", type=int, default=21, help="FTP port (default: 21)")
+    i_parser.add_argument("--user", default="anonymous", help="FTP user (default: anonymous)")
+    i_parser.add_argument("--password", default="ps3", help="FTP password (default: ps3)")
+    i_parser.add_argument("--image", default="/linux/walnut.img", help="image path on dev_hdd0 (default: /linux/walnut.img)")
+    i_parser.add_argument("--uuid", help="image instance UUID (default: new random UUID)")
+    i_parser.add_argument("--force", action="store_true", help="force overwrite of existing image on dev_hdd0")
+    i_parser.add_argument("--skip-image", action="store_true", help="skip image upload if already uploaded")
+    i_parser.add_argument("--dry-run", action="store_true", help="dry-run mode: verify files and show plan without uploading")
+
+    # usb subcommand
+    u_parser = sub.add_parser("usb", help="install Walnut onto an external USB drive")
+    u_parser.add_argument("--release-dir", required=True, help="directory containing release files")
+    u_parser.add_argument("--disk", required=True, help="target USB block device (e.g. /dev/sdX)")
+    u_parser.add_argument("--swap-gib", type=int, default=4, help="swap partition size in GiB (default: 4)")
+    u_parser.add_argument("--dry-run", action="store_true", help="dry-run mode: check device and show commands without writing")
+    u_parser.add_argument("--confirmed", action="store_true", help=argparse.SUPPRESS)
+    u_parser.add_argument("--yes", dest="confirmed", action="store_true", help="skip interactive model confirmation")
+
+    args = parser.parse_args(argv)
+    try:
+        if args.cmd == "internal":
+            cmd_internal(args)
+        elif args.cmd == "usb":
+            cmd_usb(args)
+    except ValueError as e:
+        sys.exit(f"!! {e}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
