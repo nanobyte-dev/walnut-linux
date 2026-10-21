@@ -1,7 +1,9 @@
-# The wired port (ps3-system). DHCP; the kernel may already have configured it (ip=dhcp, and an
-# NFS root over it): never drop the address, or the root filesystem disappears.
+# The wired port on an NFS root only (ps3-system): otherwise NetworkManager has it (00-ps3.conf). DHCP;
+# the kernel configured it already (ip=dhcp, the root over it): never drop the address, or the root
+# filesystem disappears.
 [Match]
 Name=e*
+KernelCommandLine=root=/dev/nfs
 
 [Network]
 DHCP=yes

@@ -22,6 +22,9 @@ if [ -e "$NFS_ROOT" ]; then
 fi
 mkdir -p "$NFS_ROOT"
 tar -xpf "$TAR" --numeric-owner --xattrs --xattrs-include='*' -C "$NFS_ROOT"
+# an NFS root's DNS comes from the kernel's DHCP (ip=dhcp): NetworkManager leaves the wired port alone
+# on it (ps3-system's ps3-nfsroot-network.service)
+ln -sfn /proc/net/pnp "$NFS_ROOT/etc/resolv.conf"
 
 if [ -n "$OLD" ] && [ "${FRESH:-}" != 1 ]; then
 	for p in "${KEEP[@]}"; do

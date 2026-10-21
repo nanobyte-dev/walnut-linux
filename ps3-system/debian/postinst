@@ -15,6 +15,12 @@ if [ "$1" = configure ]; then
 	if [ -z "${2:-}" ]; then
 		systemctl enable systemd-networkd.service ssh.service walnut-firstboot.service >/dev/null 2>&1 || true
 	fi
+	# DNS from NetworkManager (00-ps3.conf); the kernel's /proc/net/pnp only on an NFS root, whose
+	# wired port NetworkManager leaves alone
+	systemctl enable ps3-nfsroot-network.service >/dev/null 2>&1 || true
+	if [ "$(readlink /etc/resolv.conf 2>/dev/null)" = /proc/net/pnp ] && ! grep -q 'root=/dev/nfs' /proc/cmdline 2>/dev/null; then
+		ln -sf /run/NetworkManager/resolv.conf /etc/resolv.conf
+	fi
 	# DualShock 3: the controller never bonds, so BlueZ's input profile must accept unbonded
 	# devices (bluez has no drop-in directory for input.conf)
 	if [ -e /etc/bluetooth/input.conf ] && ! grep -q '^ClassicBondedOnly=false' /etc/bluetooth/input.conf; then

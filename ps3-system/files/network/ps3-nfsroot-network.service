@@ -1,0 +1,12 @@
+[Unit]
+Description=Keep NetworkManager off the wired port of an NFS root
+DefaultDependencies=no
+Before=NetworkManager.service
+ConditionKernelCommandLine=root=/dev/nfs
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'mkdir -p /run/NetworkManager/conf.d && printf "[keyfile]\\nunmanaged-devices=interface-name:eth0\\n[main]\\ndns=none\\nrc-manager=unmanaged\\n" > /run/NetworkManager/conf.d/90-nfsroot.conf'
+
+[Install]
+WantedBy=NetworkManager.service

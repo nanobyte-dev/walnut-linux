@@ -26,20 +26,7 @@ if [ "$PROFILE" = "public" ]; then
 	# the first user), no authorized_keys, no passwordless sudo
 	chroot "$R" passwd -l root
 	rm -f "$R/etc/sudoers.d/tibi"
-	# DNS via NetworkManager: override ps3-system's dev unmanaged eth0 and dns=none
-	mkdir -p "$R/etc/NetworkManager/conf.d"
-	cat > "$R/etc/NetworkManager/conf.d/10-public.conf" <<'EOF'
-# Public profile: NetworkManager manages wired eth0 and DNS
-[keyfile]
-unmanaged-devices=
-[main]
-dns=default
-rc-manager=symlink
-EOF
-	# Disable systemd-networkd on eth0 so it does not conflict with NetworkManager
-	mkdir -p "$R/etc/systemd/network"
-	ln -sf /dev/null "$R/etc/systemd/network/20-ps3-wired.network"
-	chroot "$R" systemctl disable systemd-networkd.service >/dev/null 2>&1 || true
+	# DNS and the wired port: NetworkManager (ps3-system's 00-ps3.conf)
 	ln -sf /run/NetworkManager/resolv.conf "$R/etc/resolv.conf"
 else
 	# Dev profile: user tibi with key-only SSH login and passwordless sudo (test box on the LAN);
@@ -56,9 +43,9 @@ else
 	# Root login on the local console (tty1) for recovery, no password
 	chroot "$R" passwd -d root
 
-	# DNS from the kernel's DHCP (ip=dhcp writes the nameservers to /proc/net/pnp); NetworkManager is
-	# told to leave it alone (ps3-system)
-	ln -sf /proc/net/pnp "$R/etc/resolv.conf"
+	# DNS from NetworkManager, which runs the wired port too (ps3-system's 00-ps3.conf); an NFS root
+	# boot uses the kernel's /proc/net/pnp (ps3-nfsroot-network.service; install-nfs-root.sh links it)
+	ln -sf /run/NetworkManager/resolv.conf "$R/etc/resolv.conf"
 fi
 
 # A real locale (only C existed: Qt complained, Enlightenment's language list was empty)
