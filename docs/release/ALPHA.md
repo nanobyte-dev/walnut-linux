@@ -118,6 +118,8 @@ The PC never builds ext4. It only uploads, which reuses `tools/ssdimg/stamp.py`'
    - Publish `deb-src` for ours and for the mirrored Debian packages (GPL source offer).
 4. **apt config.** `walnut-system` ships signed sources for `stable` (and opt-in `testing`). The `ps3.pref` pins (`o=PS3, n=ps3`) are updated to the new origin. The LAN sources move to a dev-only file.
 
+**M4 status (2026-10-21):** walnut.nanobyte.dev is up: the `walnut-repo` nginx container in /data/nanobyte/Walnut on the OVH box, behind the main proxy (the *.nanobyte.dev certificate), deployed by `make walnut-server` (tools/walnut-server/). It serves www/apt (the public suites), www/download (releases) and www/licensed (basic auth; the login is in the untracked config.local.mk). A placeholder page for now, noindex until the release. The server limits new SSH connections (about 6 per 30 s), so scripts keep one shared connection. Next: the archive key (the user), then the walnut-testing and walnut-stable aptly repos, signed, published and synced to www/apt.
+
 ### M5. The PC installer (`installer/walnut-install`, pure Python 3)
 
 - **Common steps.** Download a release, check SHA256SUMS against the pinned key, and write the optional preseed. `--dry-run` shows every step.

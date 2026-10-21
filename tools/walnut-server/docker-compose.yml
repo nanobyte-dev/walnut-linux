@@ -1,0 +1,23 @@
+# walnut.nanobyte.dev's files (docs/release/ALPHA.md M4): the apt suites and the release downloads,
+# static files served by their own small nginx on the main proxy's network. The proxy terminates
+# TLS (the *.nanobyte.dev certificate) and passes everything on (walnut.nanobyte.dev.conf).
+# Deployed to /data/nanobyte/Walnut on the server by tools/walnut-server/deploy.sh.
+name: walnut
+
+services:
+  walnut-repo:
+    image: nginx:stable-alpine
+    container_name: walnut-repo
+    mem_limit: 48m
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./www:/usr/share/nginx/walnut:ro
+      # user:hash lines for /licensed/ (not tracked; deploy.sh writes it)
+      - ./htpasswd:/etc/nginx/walnut.htpasswd:ro
+    networks:
+      - mainproxy_net
+
+networks:
+  mainproxy_net:
+    external: true

@@ -30,7 +30,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: public-push initrd-ssd initrd-walnut initrd-busybox repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref \
+.PHONY: walnut-server public-push initrd-ssd initrd-walnut initrd-busybox repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref \
 	classicube classicube-audio classicube-deploy classicube-bench quake-data
 
 help:
@@ -450,6 +450,11 @@ clean:
 	@ts=$$(date +%Y%m%d-%H%M%S); mkdir -p $(BUILD)/old/$$ts; \
 	for d in rootfs debs; do if [ -e $(BUILD)/$$d ]; then mv $(BUILD)/$$d $(BUILD)/old/$$ts/; fi; done; \
 	echo "moved outputs to $(BUILD)/old/$$ts"
+
+# walnut.nanobyte.dev's server side (tools/walnut-server/: the walnut-repo container, the main proxy's
+# site config, the licensed suite's login from config.local.mk); idempotent
+walnut-server:
+	tools/walnut-server/deploy.sh
 
 # The public GitHub copy (docs/release/ALPHA.md M8): re-export (trailers removed, the strip and
 # replace lists applied, the history scan) and push; deterministic, so the public main fast-forwards
