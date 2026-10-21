@@ -58,8 +58,11 @@ done
 for dsc in build/src/"$pkg"/*.dsc build/src/ps3rsx-*/*.dsc; do
 	[ -f "$dsc" ] || continue
 	cp "$dsc" "$out/src/"
+	# the .dsc's files: next to it, or (Debian's orig tarballs) where deb-fetch.sh put them
 	sed -n '/^Files:/,/^[^ ]/p' "$dsc" | awk 'NF==3 {print $3}' | while read -r f; do
-		cp "$(dirname "$dsc")/$f" "$out/src/"
+		src=$(find "$(dirname "$dsc")" "build/sources/$pkg" build/downloads -maxdepth 2 -name "$f" -print -quit 2>/dev/null)
+		[ -n "$src" ] || { echo "!! $f (from $(basename "$dsc")) not found" >&2; exit 1; }
+		cp "$src" "$out/src/"
 	done
 done
 # nothing licensed leaves this job: no licensed binary, no licensed file in the sources
