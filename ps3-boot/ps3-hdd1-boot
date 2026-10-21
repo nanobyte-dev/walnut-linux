@@ -21,13 +21,22 @@ R=${PS3_BOOT_ROOT:-}
 DEV=${PS3_HDD1_DEV:-/dev/ps3dc}
 die() { echo "ps3-hdd1-boot: $*" >&2; exit 1; }
 [ $# -ge 1 ] || die "usage: ps3-hdd1-boot DEFAULT [RELEASE...]"
-cur=$1
-shift
-prev=
-for r in "$@"; do [ "$r" = "$cur" ] || { prev=$r; break; }; done
-[ -e "$R/boot/vmlinux-$cur" ] || die "no /boot/vmlinux-$cur"
 [ -r "$R/etc/default/ps3-boot" ] && . "$R/etc/default/ps3-boot"
 case "${PS3_ROOT_ARGS:-}" in *ps3ssd.image=/*) ;; *) die "PS3_ROOT_ARGS has no ps3ssd.image=: not an internal install" ;; esac
+# the generic initramfs carries no modules: only kernels with ufs and dm built in can boot through it
+fits() { grep -qx CONFIG_UFS_FS=y "$R/boot/config-$1" 2>/dev/null && grep -qx CONFIG_BLK_DEV_DM=y "$R/boot/config-$1"; }
+cur=$1
+shift
+[ -e "$R/boot/vmlinux-$cur" ] || die "no /boot/vmlinux-$cur"
+if ! fits "$cur"; then
+	n=
+	for r in "$@"; do fits "$r" && { n=$r; break; }; done
+	[ -n "$n" ] || die "no installed kernel has ufs and dm built in (the generic initramfs needs them): dev_hdd1 left as it is"
+	echo "ps3-hdd1-boot: $cur lacks built-in ufs/dm, walnut boots $n"
+	cur=$n
+fi
+prev=
+for r in "$@"; do [ "$r" != "$cur" ] && fits "$r" && { prev=$r; break; }; done
 
 if [ -n "${PS3_HDD1_DIR:-}" ]; then
 	M=$PS3_HDD1_DIR

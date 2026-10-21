@@ -52,8 +52,13 @@ class Kboot(unittest.TestCase):
     def entries(self, lines):
         return [x.split("=", 1)[0] for x in lines if x and not x.startswith("#") and not x.startswith("default=")]
 
+    def builtins(self, *rels):
+        for k in rels:
+            (self.r / "boot" / ("config-" + k)).write_text("CONFIG_UFS_FS=y\nCONFIG_BLK_DEV_DM=y\n")
+
     def hdd1(self, extra=""):
         """the internal install: PS3_BOOT_TARGET=hdd1, dev_hdd1 stood in by a directory"""
+        self.builtins(REL, OLD)
         (self.r / "etc/default/ps3-boot").write_text(
             'PS3_ROOT_ARGS="root=/dev/mapper/ps3root rootfstype=ext4 ro ps3ssd.image=/linux/walnut.img"\n'
             'PS3_EXTRA_ARGS=""\nPS3_DEFAULT_FLAVOUR=release\nPS3_BOOT_TARGET=hdd1\n' + extra)
@@ -100,6 +105,7 @@ class Kboot(unittest.TestCase):
 
     def test_hdd1_detected_from_the_generic_initramfs(self):
         """no PS3_BOOT_TARGET: the generic initramfs's log says this system boots from dev_hdd1"""
+        self.builtins(REL, OLD)
         (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i")
         (self.r / "run/ps3ssd").mkdir(parents=True)
         (self.r / "run/ps3ssd/init.log").write_text("ps3ssd: initramfs kind=generic release= built=x\n")
@@ -128,6 +134,25 @@ class Kboot(unittest.TestCase):
         self.assertNotIn("dev_hdd1", p.stdout)
         self.assertEqual(list(h.iterdir()), [])
         self.assertTrue((self.r / "etc/kboot.conf").exists())
+
+    def test_hdd1_only_kernels_with_builtin_ufs_dm(self):
+        """walnut-prev never points at a kernel the generic initramfs can't boot (ufs/dm as modules)"""
+        (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i")
+        p, h = self.hdd1()
+        (self.r / "boot" / ("config-" + OLD)).write_text("CONFIG_UFS_FS=m\nCONFIG_BLK_DEV_DM=m\n")
+        shutil.rmtree(h)
+        p, h = self.hdd1_again()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        lines = (h / "kboot.conf").read_text().splitlines()
+        self.assertTrue(any(x.startswith("walnut=") and REL in x for x in lines), lines)
+        self.assertFalse(any(x.startswith("walnut-prev=") for x in lines), lines)
+
+    def hdd1_again(self):
+        h = self.r / "hdd1"
+        h.mkdir(exist_ok=True)
+        e = dict(os.environ, PS3_BOOT_ROOT=str(self.r), PS3_HDD1_DIR=str(h),
+                 PS3_HDD1_BOOT="sh " + str(HERE.parent / "ps3-hdd1-boot"))
+        return subprocess.run(["sh", str(SCRIPT)], env=e, capture_output=True, text=True, timeout=30), h
 
     def test_hdd1_refuses_without_image_root(self):
         (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i")
