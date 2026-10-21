@@ -84,7 +84,9 @@ M=$T/lib/modules/$RELEASE
 if [ $KIND = generic ] && [ -z "${MODDIR:-}" ]; then
 	echo "   generic: none (the kernel has ufs and dm built in)"
 elif [ -n "${MODDIR:-}" ]; then
-	for m in ufs dm-mod; do [ -e "$MODDIR/$m.ko" ] && install -m 644 "$MODDIR/$m.ko" "$M/"; done
+	# a test kernel's modules (the KVM guest: the host's); fat, vfat and the codepages for dev_hdd1,
+	# which the PS3's kernel has built in
+	for m in ufs dm-mod fat vfat nls_cp437 nls_iso8859-1; do [ -e "$MODDIR/$m.ko" ] && install -m 644 "$MODDIR/$m.ko" "$M/"; done
 else
 	KDEB=${KDEB:-$(ls build/debs/linux/linux-image-"$RELEASE"_*_ppc64.deb)}
 	# a kernel with ufs and dm-mod built in (CONFIG_UFS_FS=y, CONFIG_BLK_DEV_DM=y: the generic initramfs of

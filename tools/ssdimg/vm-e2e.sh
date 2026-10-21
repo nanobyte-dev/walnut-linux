@@ -58,7 +58,8 @@ trap 'rm -rf "$W"' EXIT
 c=$(docker create alpine:3.20) || exit 1
 docker cp "$c:/bin/busybox" "$W/initrd/bin/busybox" >/dev/null && docker cp -L "$c:/lib/ld-musl-x86_64.so.1" "$W/initrd/lib/" >/dev/null
 docker rm "$c" >/dev/null
-for m in fs/netfs/netfs net/9p/9pnet net/9p/9pnet_virtio fs/9p/9p fs/ufs/ufs drivers/md/dm-mod; do
+for m in fs/netfs/netfs net/9p/9pnet net/9p/9pnet_virtio fs/9p/9p fs/ufs/ufs drivers/md/dm-mod fs/fat/fat fs/fat/vfat \
+	fs/nls/nls_cp437 fs/nls/nls_iso8859-1; do
 	f=$(ls "$MODS/kernel/$m.ko"* 2>/dev/null | head -1)
 	[ -n "$f" ] || continue
 	case $f in
@@ -340,4 +341,99 @@ for geo in 16384:4096 4096:512; do
 	refused "the file moved (UFS rebuilt)" "$W/moved.img" "CHANGED" ps3ssd.image=/linux/ssdtest.img
 	rm -f "$W/hdr.img" "$W/moved.img" "$W/neg.before.img" "$W/ufs.before.img"
 done
+
+# The internal install (docs/release/ALPHA.md M1): the generic initramfs (no map, no kernel release,
+# guard required) with a third disk as dev_hdd1 (FAT) holding the PC's upload: the rootfs tarball and
+# the install manifest. The first boot maps and verifies the stamped image, saves the map to dev_hdd1,
+# makes ext4 and unpacks; the second boots as Phase B from the saved map. Refused: dev_hdd1 not FAT,
+# a manifest whose image size isn't the file's. The PS3's geometry, behind the guard.
+if [ $PHASEB = 1 ] && [ $GUARDSIM = 1 ] && command -v mkfs.vfat >/dev/null && command -v mcopy >/dev/null; then
+	echo "== the internal install: generic initramfs, the first boot installs, the second boots"
+	IU=4f5a1b2c-3d4e-4f50-8a6b-7c8d9e0f1a2b
+	rm -rf "$W/src"; mkdir -p "$W/src/linux" "$W/src/home/00000001"
+	python3 tools/ssdimg/stamp.py dry-run --mib 300 --uuid $IU --out "$W/src/linux/walnut.img" 2>/dev/null || exit 1
+	head -c 3000000 /dev/urandom > "$W/src/home/00000001/save.dat"
+	docker run --rm --network none -u "$(id -u):$(id -g)" -v "$W:/w" "$IMG_BUILDER" \
+		/w/makefs -t ffs -B be -s 400m -o version=2,bsize=16384,fsize=4096 /w/ufs.img /w/src > "$W/makefs.log" 2>&1 ||
+		{ cat "$W/makefs.log"; exit 1; }
+	cp "$W/ufs.img" "$W/orig.img"
+	rm -f "$W/whole.img"; truncate -s 8m "$W/whole.img"
+	rm -rf "$W/testroot"; mkdir -p "$W/testroot"/{bin,sbin,dev,proc,sys,run,tmp,etc/default,mnt}
+	cp "$W/busybox" "$W/testroot/bin/"
+	for a in sh cat grep awk blockdev mount umount sync poweroff dd stat tr echo test; do ln -s busybox "$W/testroot/bin/$a"; done
+	install -m 755 tools/ssdimg/vm-testroot-walnut.sh "$W/testroot/sbin/init"
+	echo "tmpfs /tmp tmpfs defaults 0 0" > "$W/testroot/etc/fstab"
+	echo walnut > "$W/testroot/etc/walnut-testroot"
+	tar --owner=0 --group=0 -C "$W/testroot" -cf - . | xz -1 > "$W/rootfs.tar.xz" || exit 1
+	python3 -I -c '
+import sys, hashlib, uuid
+sys.path.insert(0, "tools/ssdimg")
+import stamp
+w, iu, size = sys.argv[1], sys.argv[2], int(sys.argv[3])
+r = w + "/rootfs.tar.xz"
+sys.stdout.write(stamp.manifest("/linux/walnut.img", uuid.UUID(iu), size, 16, "/linux/install/rootfs.tar.xz",
+    len(open(r, "rb").read()), stamp.file_sha(r), stamp.unpacked_size(r)))' "$W" $IU $((300 << 20)) > "$W/install.conf" || exit 1
+	mkhdd1() {	# mkhdd1 FILE MANIFEST: dev_hdd1 as GameOS leaves it plus the PC's upload
+		rm -f "$1"; truncate -s 64m "$1"
+		mkfs.vfat -F 32 -n PS3_HDD1 "$1" > /dev/null || exit 1
+		mmd -i "$1" ::/linux ::/linux/install ::/cache || exit 1
+		mcopy -i "$1" "$W/rootfs.tar.xz" ::/linux/install/rootfs.tar.xz || exit 1
+		mcopy -i "$1" "$2" ::/linux/install/install.conf || exit 1
+	}
+	mkhdd1 "$W/hdd1.img" "$W/install.conf"
+	rm -rf "$W/from"
+	docker run --rm --network none -u "$(id -u):$(id -g)" -v "$ROOT:/work" -w /work \
+		-e ARCH=amd64 -e RELEASE="$KVER" -e MODDIR="$REL_W/initrd/mods" -e BUSYBOX_DEB="$BB_AMD64" -e GUARD=required \
+		-e E2FSPROGS_TAR="$(ls build/downloads/initrd/e2fsprogs-*.tar.xz | tail -n 1)" \
+		-e GNUTAR_TAR="$(ls build/downloads/initrd/tar-*.tar.xz | tail -n 1)" \
+		-e OUT="$REL_W/from/initrd-walnut-amd64.img" -e INITRD_BUILT=vm-e2e -e SOURCE_DATE_EPOCH=0 \
+		"$IMG_BUILDER" tools/ssdimg/build-initrd.sh > "$W/build-initrd.log" 2>&1 ||
+		{ cat "$W/build-initrd.log"; echo "generic initramfs build failed"; exit 1; }
+	grep '^>>' "$W/build-initrd.log" | sed 's/^/   /'
+	cat "$W/from/initrd-walnut-amd64.img" "$W/e2e-wrap.cpio" > "$W/initrd-test.img"
+	WCMD="rdinit=/init.e2e root=/dev/mapper/ps3root rootfstype=ext4 ro ps3ssd.image=/linux/walnut.img console=ttyS0 panic=-1 loglevel=4 e2e_guard=1"
+	wboot() {	# wboot LOG UFS HDD1 PATTERN SECONDS
+		boot_until "$1" "$4" "$5" -kernel "$KERNEL" -initrd "$W/initrd-test.img" -append "$WCMD" \
+			-drive file="$2",if=virtio,format=raw,cache=none -drive file="$W/whole.img",if=virtio,format=raw \
+			-drive file="$3",if=virtio,format=raw
+	}
+	hdd1_has() { mdir -b -i "$W/hdd1.img" "$1" > /dev/null 2>&1; }
+	wboot "$W/console-w1.log" "$W/ufs.img" "$W/hdd1.img" 'E2E BOOT' 300
+	grep -E '^(ps3ssd|ok|FAIL|E2E)' "$W/console-w1.log.txt" | sed 's/^/   /'
+	if grep -q '^E2E BOOT PASS' "$W/console-w1.log.txt"; then echo "   ok - the first boot installed and booted"
+	else echo "== FAILED (install boot): console tail:"; tail -50 "$W/console-w1.log.txt"; rc=1; fi
+	hdd1_has ::/linux/walnut/boot.map && hdd1_has ::/linux/walnut/boot.map.sha256 &&
+		echo "   ok - dev_hdd1: the map saved in /linux/walnut" || { echo "   FAIL - no map on dev_hdd1"; rc=1; }
+	st=$(mtype -i "$W/hdd1.img" ::/linux/walnut/state 2>/dev/null)
+	case $st in "installed $IU "*) echo "   ok - dev_hdd1: state installed" ;; *) echo "   FAIL - state: $st"; rc=1 ;; esac
+	hdd1_has ::/linux/install/install.done && ! hdd1_has ::/linux/install/install.conf &&
+		echo "   ok - dev_hdd1: the manifest renamed install.done" || { echo "   FAIL - manifest not renamed"; rc=1; }
+	hdd1_has ::/linux/install/rootfs.tar.xz && { echo "   FAIL - the rootfs tarball is still there"; rc=1; } ||
+		echo "   ok - dev_hdd1: the rootfs tarball deleted"
+	hdd1_has ::/cache && echo "   ok - dev_hdd1: GameOS's own directory untouched" || { echo "   FAIL - /cache gone"; rc=1; }
+	wboot "$W/console-w2.log" "$W/ufs.img" "$W/hdd1.img" 'E2E BOOT' 120
+	if grep -q '^E2E BOOT PASS' "$W/console-w2.log.txt" && grep -q 'rechecking' "$W/console-w2.log.txt" &&
+	   ! grep -q 'installing' "$W/console-w2.log.txt"; then
+		echo "   ok - the second boot: recheck against the saved map, no install"
+	else echo "== FAILED (second boot): console tail:"; tail -40 "$W/console-w2.log.txt"; rc=1; fi
+	wrefused() {	# wrefused WHAT HDD1 PATTERN: a fresh UFS, the rescue shell, the UFS unchanged
+		cp "$W/orig.img" "$W/neg.img"
+		wboot "$W/console-wn.log" "$W/neg.img" "$2" "reboot -f" 90
+		if grep -q "$3" "$W/console-wn.log.txt" && grep -q 'NOT started' "$W/console-wn.log.txt" &&
+		   ! grep -q 'E2E BOOT' "$W/console-wn.log.txt" && cmp -s "$W/neg.img" "$W/orig.img"; then
+			echo "   ok - refused: $1"
+		else echo "   FAIL - $1: console tail:"; tail -30 "$W/console-wn.log.txt"; rc=1; fi
+	}
+	rm -f "$W/notfat.img"; truncate -s 64m "$W/notfat.img"
+	wrefused "dev_hdd1 is not FAT" "$W/notfat.img" "not GameOS's dev_hdd1"
+	cmp -s "$W/notfat.img" <(head -c $((64 << 20)) /dev/zero) && echo "   ok - the non-FAT dev_hdd1 not written" ||
+		{ echo "   FAIL - the non-FAT dev_hdd1 was written"; rc=1; }
+	sed "s/^image_size .*/image_size $((400 << 20))/" "$W/install.conf" | head -n -1 > "$W/bad.body"
+	{ cat "$W/bad.body"; echo "sha256 $(sha256sum < "$W/bad.body" | cut -d' ' -f1)"; } > "$W/bad.conf"
+	mkhdd1 "$W/hdd1-bad.img" "$W/bad.conf"
+	wrefused "the manifest's image size isn't the file's" "$W/hdd1-bad.img" "the install says"
+	rm -f "$W/neg.img" "$W/notfat.img" "$W/hdd1-bad.img" "$W/bad.body" "$W/bad.conf"
+else
+	echo "(the internal install's test skipped: needs Phase B, ps3guard_sim, mkfs.vfat and mtools)"
+fi
 exit $rc

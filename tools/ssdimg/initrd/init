@@ -217,7 +217,8 @@ else
 fi
 
 STEP="loading ufs and dm-mod"
-for mod in ufs dm-mod; do
+# fat, vfat and the codepages: only test kernels need them (the PS3's has dev_hdd1's FAT built in)
+for mod in ufs dm-mod fat vfat nls_cp437 nls_iso8859-1; do
 	name=$(echo $mod | tr - _)
 	[ -d /sys/module/$name ] && continue
 	f=/lib/modules/$REL/$mod.ko
