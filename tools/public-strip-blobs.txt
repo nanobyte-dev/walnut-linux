@@ -1,0 +1,4 @@
+# Blobs left out of the public history (tools/public-export.sh), one id per line with a comment.
+# The first walnut-leaves.jpg (fb3bdde, 2026-10-16): a Pixabay image whose licence restricts standalone
+# redistribution, replaced by the author's own photo in 5f9a86d.
+402db25d9f2b307c26e9499473e1b49092d10137
