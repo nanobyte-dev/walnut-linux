@@ -1,3 +1,4 @@
 ps3-update-kboot usr/sbin
+ps3-hdd1-boot usr/sbin
 kernel-hooks/zz-ps3-boot usr/share/kernel/postinst.d
 kernel-hooks/zz-ps3-boot usr/share/kernel/postrm.d

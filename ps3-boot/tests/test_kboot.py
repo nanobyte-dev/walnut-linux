@@ -52,6 +52,64 @@ class Kboot(unittest.TestCase):
     def entries(self, lines):
         return [x.split("=", 1)[0] for x in lines if x and not x.startswith("#") and not x.startswith("default=")]
 
+    def hdd1(self, extra=""):
+        """the internal install: PS3_BOOT_TARGET=hdd1, dev_hdd1 stood in by a directory"""
+        (self.r / "etc/default/ps3-boot").write_text(
+            'PS3_ROOT_ARGS="root=/dev/mapper/ps3root rootfstype=ext4 ro ps3ssd.image=/linux/walnut.img"\n'
+            'PS3_EXTRA_ARGS=""\nPS3_DEFAULT_FLAVOUR=release\nPS3_BOOT_TARGET=hdd1\n' + extra)
+        h = self.r / "hdd1"
+        h.mkdir(exist_ok=True)
+        e = dict(os.environ, PS3_BOOT_ROOT=str(self.r), PS3_HDD1_DIR=str(h),
+                 PS3_HDD1_BOOT="sh " + str(HERE.parent / "ps3-hdd1-boot"))
+        p = subprocess.run(["sh", str(SCRIPT)], env=e, capture_output=True, text=True, timeout=30)
+        return p, h
+
+    def test_hdd1_walnut_entries(self):
+        (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"initrd-1")
+        h = self.r / "hdd1"
+        h.mkdir()
+        (h / "kboot.conf").write_text("other='/x/vmlinux root=/dev/sda2'\nwalnut='stale'\n")
+        (h / "linux/boot").mkdir(parents=True)
+        (h / "linux/boot/vmlinux-6.12.111+ps3.400").write_bytes(b"old")
+        p, h = self.hdd1()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        lines = (h / "kboot.conf").read_text().splitlines()
+        walnut = [x for x in lines if x.startswith("walnut=")]
+        prev = [x for x in lines if x.startswith("walnut-prev=")]
+        self.assertEqual(len(walnut), 1, lines)
+        self.assertIn("/linux/boot/vmlinux-%s initrd=/linux/boot/initrd-walnut.img root=/dev/mapper/ps3root" % REL, walnut[0])
+        self.assertIn("ps3ssd.image=/linux/walnut.img", walnut[0])
+        self.assertIn(RARGS, walnut[0])
+        self.assertEqual(len(prev), 1, lines)
+        self.assertIn("other='/x/vmlinux root=/dev/sda2'", lines)          # another install's entry kept
+        self.assertTrue((h / "linux/boot" / ("vmlinux-" + REL)).exists())
+        self.assertFalse((h / "linux/boot/vmlinux-6.12.111+ps3.400").exists())   # ours, not current: removed
+        self.assertEqual((h / "linux/boot/initrd-walnut.img").read_bytes(), b"initrd-1")
+
+    def test_hdd1_new_initrd_keeps_prev(self):
+        (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"initrd-1")
+        p, h = self.hdd1()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"initrd-2")
+        p, h = self.hdd1()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual((h / "linux/boot/initrd-walnut.img").read_bytes(), b"initrd-2")
+        self.assertEqual((h / "linux/boot/initrd-walnut-prev.img").read_bytes(), b"initrd-1")
+        prev = [x for x in (h / "kboot.conf").read_text().splitlines() if x.startswith("walnut-prev=")]
+        self.assertIn("initrd=/linux/boot/initrd-walnut-prev.img", prev[0])
+
+    def test_hdd1_refuses_without_image_root(self):
+        (self.r / "usr/lib/ps3/boot/initrd-walnut.img").write_bytes(b"i")
+        (self.r / "etc/default/ps3-boot").write_text('PS3_ROOT_ARGS="root=/dev/sda2"\nPS3_BOOT_TARGET=hdd1\n')
+        h = self.r / "hdd1"
+        h.mkdir()
+        e = dict(os.environ, PS3_BOOT_ROOT=str(self.r), PS3_HDD1_DIR=str(h),
+                 PS3_HDD1_BOOT="sh " + str(HERE.parent / "ps3-hdd1-boot"))
+        p = subprocess.run(["sh", str(SCRIPT)], env=e, capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("not an internal install", p.stderr)
+        self.assertFalse((h / "kboot.conf").exists())
+
     def test_kernels_only(self):
         lines, out = self.run_it()
         self.assertEqual(self.entries(lines), [DBG, REL, OLD])   # Debian's order: newest first

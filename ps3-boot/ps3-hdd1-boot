@@ -1,0 +1,83 @@
+#!/bin/sh
+# ps3-hdd1-boot DEFAULT [RELEASE...]: the internal install's boot files on GameOS's dev_hdd1 (FAT,
+# /dev/ps3dc), the only internal partition Petitboot reads (docs/GAMEOS-HDD.md "The internal install").
+# Run by ps3-update-kboot when /etc/default/ps3-boot says PS3_BOOT_TARGET=hdd1 (the initramfs's install
+# sets it), with the default release first and every installed release, newest first.
+#
+# On dev_hdd1: /linux/boot/vmlinux-<release> for DEFAULT and the newest other release, and kboot.conf's
+# two fixed entries, walnut (DEFAULT) and walnut-prev (the other one; Petitboot keys its default on the
+# label, so a kernel update can't strand it on a label that is gone). The generic initramfs comes from
+# /usr/lib/ps3/boot/initrd-walnut.img when the package ships one; the one it replaces stays as
+# initrd-walnut-prev.img for walnut-prev. Other kboot.conf lines (another install's) are kept, older
+# vmlinux-* files of ours removed. Nothing else on dev_hdd1 is touched, and ps3da/ps3db never.
+#
+# dev_hdd1 is written only after blkid finds a vfat file system on it; it is mounted rw for these
+# copies only and made read-only again (the initramfs leaves it read-only). Every file goes through
+# a .tmp copy and a rename, kboot.conf last, so an interrupted run leaves the old menu working.
+# PS3_BOOT_ROOT: a prefix for /boot and /usr (host tests); PS3_HDD1_DIR: a directory standing in for
+# the mounted dev_hdd1 (host tests: no blkid, mount or blockdev).
+set -e
+R=${PS3_BOOT_ROOT:-}
+DEV=${PS3_HDD1_DEV:-/dev/ps3dc}
+die() { echo "ps3-hdd1-boot: $*" >&2; exit 1; }
+[ $# -ge 1 ] || die "usage: ps3-hdd1-boot DEFAULT [RELEASE...]"
+cur=$1
+shift
+prev=
+for r in "$@"; do [ "$r" = "$cur" ] || { prev=$r; break; }; done
+[ -e "$R/boot/vmlinux-$cur" ] || die "no /boot/vmlinux-$cur"
+[ -r "$R/etc/default/ps3-boot" ] && . "$R/etc/default/ps3-boot"
+case "${PS3_ROOT_ARGS:-}" in *ps3ssd.image=/*) ;; *) die "PS3_ROOT_ARGS has no ps3ssd.image=: not an internal install" ;; esac
+
+if [ -n "${PS3_HDD1_DIR:-}" ]; then
+	M=$PS3_HDD1_DIR
+else
+	[ -b "$DEV" ] || die "no $DEV (dev_hdd1)"
+	t=$(blkid -o value -s TYPE "$DEV" 2>/dev/null || true)
+	[ "$t" = vfat ] || die "$DEV is \"$t\", not GameOS's FAT dev_hdd1: nothing written"
+	grep -q "^$DEV " /proc/mounts && die "$DEV is mounted: unmount it first"
+	M=$(mktemp -d /run/ps3-hdd1.XXXXXX)
+	ro=$(blockdev --getro "$DEV")
+	trap 'umount "$M" 2>/dev/null; rmdir "$M"; [ "$ro" = 1 ] && blockdev --setro "$DEV"' EXIT
+	blockdev --setrw "$DEV"
+	mount -t vfat -o rw,noatime,nodev,nosuid,noexec "$DEV" "$M"
+fi
+
+put() {	# put SRC DEST: through DEST.tmp, then a rename
+	cp "$1" "$M$2.tmp"
+	sync
+	mv -f "$M$2.tmp" "$M$2"
+}
+args_of() {
+	if [ -e "$R/usr/lib/ps3/boot/$1.args" ]; then cat "$R/usr/lib/ps3/boot/$1.args"; else echo "${PS3_LEGACY_ARGS:-}"; fi
+}
+mkdir -p "$M/linux/boot"
+for r in $cur $prev; do
+	cmp -s "$R/boot/vmlinux-$r" "$M/linux/boot/vmlinux-$r" 2>/dev/null || put "$R/boot/vmlinux-$r" "/linux/boot/vmlinux-$r"
+done
+I=/linux/boot/initrd-walnut.img
+P=/linux/boot/initrd-walnut-prev.img
+new=$R/usr/lib/ps3/boot/initrd-walnut.img
+if [ -e "$new" ] && ! cmp -s "$new" "$M$I" 2>/dev/null; then
+	[ -e "$M$I" ] && put "$M$I" "$P"
+	put "$new" "$I"
+fi
+[ -e "$M$I" ] || die "no initramfs: $I on dev_hdd1 and no $new"
+pinit=$I
+[ -e "$M$P" ] && pinit=$P
+
+{
+	echo "# Petitboot's menu on dev_hdd1: the internal install's entries, written by ps3-hdd1-boot"
+	echo "walnut='/linux/boot/vmlinux-$cur initrd=$I $PS3_ROOT_ARGS ${PS3_EXTRA_ARGS:-} $(args_of "$cur")'"
+	[ -n "$prev" ] && echo "walnut-prev='/linux/boot/vmlinux-$prev initrd=$pinit $PS3_ROOT_ARGS ${PS3_EXTRA_ARGS:-} $(args_of "$prev")'"
+	[ -e "$M/kboot.conf" ] && grep -v -e '^walnut=' -e '^walnut-prev=' \
+		-e '^# Petitboot.s menu on dev_hdd1: the internal install' "$M/kboot.conf" || true
+} > "$M/kboot.conf.new"
+sync
+mv -f "$M/kboot.conf.new" "$M/kboot.conf"
+for f in "$M"/linux/boot/vmlinux-*; do
+	[ -e "$f" ] || continue
+	case ${f##*/vmlinux-} in "$cur"|"$prev") ;; *) rm -f "$f" ;; esac
+done
+sync
+echo "ps3-hdd1-boot: dev_hdd1: walnut $cur${prev:+, walnut-prev $prev}"
