@@ -11,6 +11,7 @@ override_dh_auto_install:
 	install -d $(P)/usr/sbin
 	ln -s ../lib/ps3/sbin/ps3-gameos-mount $(P)/usr/sbin/ps3-gameos-mount
 	ln -s ../lib/ps3/sbin/walnut-firstboot $(P)/usr/sbin/walnut-firstboot
+	ln -s ../lib/ps3/sbin/walnut-bugreport $(P)/usr/sbin/walnut-bugreport
 	install -D -m 644 debian/ps3vram.conf $(P)/usr/lib/modprobe.d/ps3vram.conf
 	install -D -m 644 debian/60-ps3-memory.conf $(P)/usr/lib/sysctl.d/60-ps3-memory.conf
 	install -D -m 644 debian/00-ps3.conf $(P)/usr/lib/NetworkManager/conf.d/00-ps3.conf
