@@ -18,7 +18,9 @@ half-written file:
             New pool files first (a pool file that exists must be identical: published files
             never change), then each suite's dists in a new generation directory, switched with
             one symlink rename. Every file the new indices name must exist first, and each
-            InRelease must be signed by the archive key (keys/archive-keyring.gpg). by-hash files of
+            InRelease must be signed by its suite's key (testing: keys/testing-keyring.gpg, the CI
+            key; stable and licensed: keys/archive-keyring.gpg) and be made from the published
+            state (X-Walnut-Base in the signed Release; stale: refused). by-hash files of
             the old generation are carried over, so a client in the middle of an update still
             finds the indices it was told about.
 
@@ -36,7 +38,9 @@ import fcntl, gzip, hashlib, lzma, os, re, shutil, stat, subprocess, sys, time
 
 ROOT = os.environ.get("WALNUT_ROOT", "/data/nanobyte/Walnut")
 INC, WWW, STATE, SITES = f"{ROOT}/incoming", f"{ROOT}/www", f"{ROOT}/state", f"{ROOT}/site"
-KEYRING = f"{ROOT}/keys/archive-keyring.gpg"
+KEYRING = f"{ROOT}/keys/archive-keyring.gpg"	# releases, stable, licensed: the offline archive key
+TESTING_KEYRING = f"{ROOT}/keys/testing-keyring.gpg"	# testing: the CI key, good for nothing else
+SUITE_KEYRING = {("apt", "testing"): TESTING_KEYRING, ("apt", "stable"): KEYRING, ("licensed", "licensed"): KEYRING}
 NO_DOCKER = os.environ.get("WALNUT_NO_DOCKER") == "1"
 KINDS = ("site", "download", "apt", "licensed")
 ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
@@ -176,20 +180,20 @@ def files_under(top):
 
 # --- download --------------------------------------------------------------------------------
 
-def verify_signature(what, *files, output=None):
+def verify_signature(what, *files, output=None, keyring=KEYRING):
 	"""gpgv against the archive keyring only: no keyring, no publish. Status lines, not the exit
 	code alone, decide: one VALIDSIG and no BADSIG/ERRSIG/EXPKEYSIG/REVKEYSIG."""
-	if not os.path.isfile(KEYRING):
-		raise Refused(f"{what}: no archive keyring on the server ({KEYRING}): nothing signed can be checked")
+	if not os.path.isfile(keyring):
+		raise Refused(f"{what}: no keyring on the server ({keyring}): nothing signed can be checked")
 	home = f"{STATE}/gnupg"
 	os.makedirs(home, 0o700, exist_ok=True)
 	out = ["--output", output] if output else []
-	r = subprocess.run(["gpgv", "--homedir", home, "--status-fd", "1", "--keyring", KEYRING, *out, *files],
+	r = subprocess.run(["gpgv", "--homedir", home, "--status-fd", "1", "--keyring", keyring, *out, *files],
 	                   capture_output=True, text=True)
 	status = [l.split()[1] for l in r.stdout.splitlines() if l.startswith("[GNUPG:] ")]
 	bad = {"BADSIG", "ERRSIG", "EXPKEYSIG", "REVKEYSIG", "EXPSIG", "NO_PUBKEY"} & set(status)
 	if r.returncode or bad or status.count("VALIDSIG") != 1:
-		raise Refused(f"{what}: not signed by the archive key ({', '.join(sorted(bad)) or 'gpgv ' + str(r.returncode)})\n"
+		raise Refused(f"{what}: not signed by the {os.path.basename(keyring)} key ({', '.join(sorted(bad)) or 'gpgv ' + str(r.returncode)})\n"
 		              f"{r.stderr.strip()[-500:]}")
 
 
@@ -275,6 +279,19 @@ def check_release_hashes(suite, sdir, signed):
 			raise Refused(f"dists/{suite}/{rel}: by-hash file does not match its name")
 
 
+def check_base(kind, suite, signed):
+	"""The signed Release names the InRelease it was made from (tools/walnut-repo.py); anything
+	published since makes it stale: the publisher builds again on the new state."""
+	with open(signed, encoding="utf-8", errors="replace") as f:
+		m = re.search(r"^X-Walnut-Base: (\S+)", f.read(), re.M)
+	if not m:
+		raise Refused(f"dists/{suite}: the signed Release has no X-Walnut-Base")
+	cur = f"{WWW}/{kind}/dists/{suite}/InRelease"
+	have = sha256_file(cur) if os.path.isfile(cur) else "none"
+	if m.group(1) != have:
+		raise Refused(f"dists/{suite}: stale base {m.group(1)[:12]}, published is {have[:12]}: publish again")
+
+
 def publish_repo(kind, bid, staging):
 	prefix = f"{WWW}/{kind}"
 	top = set(os.listdir(staging))
@@ -287,9 +304,13 @@ def publish_repo(kind, bid, staging):
 		cur = f"{prefix}/dists/{s}"
 		if os.path.exists(cur) and not os.path.islink(cur):
 			raise Refused(f"{kind}/dists/{s} is a real directory, not a generation symlink: move it by hand")
+		keyring = SUITE_KEYRING.get((kind, s))
+		if not keyring:
+			raise Refused(f"{kind}/dists/{s}: not a suite of ours")
 		signed = f"{staging}/.Release-{s}"
-		verify_signature(f"dists/{s}/InRelease", f"{staging}/dists/{s}/InRelease", output=signed)
+		verify_signature(f"dists/{s}/InRelease", f"{staging}/dists/{s}/InRelease", output=signed, keyring=keyring)
 		check_release_hashes(s, f"{staging}/dists/{s}", signed)
+		check_base(kind, s, signed)
 		os.unlink(signed)
 	# published pool files never change; new ones must not clash
 	new_pool = []

@@ -14,16 +14,17 @@ def sha(b):
 
 def setUpModule():
 	GPG["tmp"] = tempfile.TemporaryDirectory()
-	for who in ("good", "other"):
+	for who in ("good", "other", "ci"):
 		home = f"{GPG['tmp'].name}/{who}"
 		os.makedirs(home, 0o700)
 		subprocess.run(["gpg", "--homedir", home, "--batch", "--passphrase", "", "--quick-gen-key",
 		                f"Walnut test {who} <{who}@test.invalid>", "ed25519", "sign", "never"],
 		               check=True, capture_output=True)
 		GPG[who] = home
-	GPG["keyring"] = f"{GPG['tmp'].name}/archive-keyring.gpg"
-	with open(GPG["keyring"], "wb") as f:
-		f.write(subprocess.run(["gpg", "--homedir", GPG["good"], "--export"], check=True, capture_output=True).stdout)
+	for who, name in (("good", "keyring"), ("ci", "testing_keyring")):
+		GPG[name] = f"{GPG['tmp'].name}/{name}.gpg"
+		with open(GPG[name], "wb") as f:
+			f.write(subprocess.run(["gpg", "--homedir", GPG[who], "--export"], check=True, capture_output=True).stdout)
 
 
 def tearDownModule():
@@ -52,6 +53,7 @@ class Watch(unittest.TestCase):
 		os.makedirs(f"{self.root}/www")
 		os.makedirs(f"{self.root}/keys")
 		shutil.copy(GPG["keyring"], f"{self.root}/keys/archive-keyring.gpg")
+		shutil.copy(GPG["testing_keyring"], f"{self.root}/keys/testing-keyring.gpg")
 		os.makedirs(f"{self.root}/outside")
 		with open(f"{self.root}/outside/secret", "w") as f:
 			f.write("private\n")
@@ -166,7 +168,7 @@ class Watch(unittest.TestCase):
 	def test_release_wrong_key(self):
 		self.drop("download", "w", release({"a": b"1"}, who="other"))
 		self.run_watch()
-		self.assertIn("not signed by the archive key", self.result("download", "w"))
+		self.assertIn("not signed by the archive-keyring.gpg key", self.result("download", "w"))
 		self.assertFalse(os.path.exists(f"{self.root}/www/download/w"))
 
 	def test_release_signature_of_other_sums(self):
@@ -175,7 +177,7 @@ class Watch(unittest.TestCase):
 		r["b"] = b"2"
 		self.drop("download", "c", r)
 		self.run_watch()
-		self.assertIn("not signed by the archive key", self.result("download", "c"))
+		self.assertIn("not signed by the archive-keyring.gpg key", self.result("download", "c"))
 
 	def test_release_unlisted_and_mismatch(self):
 		r = release({"a": b"1"})
@@ -191,8 +193,8 @@ class Watch(unittest.TestCase):
 		self.drop("download", "k", release({"a": b"1"}))
 		self.drop("apt", "k", self.apt_bundle({"foo_1_ppc64.deb": b"foo1"}))
 		self.run_watch()
-		self.assertIn("no archive keyring", self.result("download", "k"))
-		self.assertIn("no archive keyring", self.result("apt", "k"))
+		self.assertIn("no keyring", self.result("download", "k"))
+		self.assertTrue(self.result("apt", "k").startswith("ok"))	# testing has its own key
 
 	def test_no_manifest_waits(self):
 		base = f"{self.root}/incoming/download/w"
@@ -207,7 +209,13 @@ class Watch(unittest.TestCase):
 
 	# --- apt ---
 
-	def apt_bundle(self, debs, suite="testing", who="good"):
+	def base(self, kind, suite):
+		p = f"{self.root}/www/{kind}/dists/{suite}/InRelease"
+		return sha(open(p, "rb").read()) if os.path.exists(p) else "none"
+
+	def apt_bundle(self, debs, suite="testing", who=None, base=None):
+		who = who or ("ci" if suite == "testing" else "good")
+		base = base or self.base("licensed" if suite == "licensed" else "apt", suite)
 		files, paras = {}, []
 		for name, data in debs.items():
 			rel = f"pool/main/{name[0]}/{name.split('_')[0]}/{name}"
@@ -219,7 +227,7 @@ class Watch(unittest.TestCase):
 		for rel, d in idx.items():
 			files[f"dists/{suite}/{rel}"] = d
 		files[f"dists/{suite}/main/binary-ppc64/by-hash/SHA256/{sha(text)}"] = text
-		rel_text = f"Origin: Walnut\nSuite: {suite}\nSHA256:\n" + "".join(
+		rel_text = f"Origin: Walnut\nSuite: {suite}\nX-Walnut-Base: {base}\nSHA256:\n" + "".join(
 			f" {sha(d)} {len(d)} {rel}\n" for rel, d in idx.items())
 		files[f"dists/{suite}/InRelease"] = sign(rel_text.encode(), who, clear=True)
 		return files
@@ -253,9 +261,31 @@ class Watch(unittest.TestCase):
 
 	def test_apt_wrong_key(self):
 		self.drop("apt", "1", self.apt_bundle({"foo_1_ppc64.deb": b"foo1"}, who="other"))
+		self.drop("apt", "2", self.apt_bundle({"foo_1_ppc64.deb": b"foo1"}, who="good"))	# archive key: not for testing
+		self.drop("apt", "3", self.apt_bundle({"foo_1_ppc64.deb": b"foo1"}, suite="stable", who="ci"))	# CI key: not for stable
 		self.run_watch()
-		self.assertIn("not signed by the archive key", self.result("apt", "1"))
+		self.assertIn("not signed by the testing-keyring.gpg key", self.result("apt", "1"))
+		self.assertIn("not signed by the testing-keyring.gpg key", self.result("apt", "2"))
+		self.assertIn("not signed by the archive-keyring.gpg key", self.result("apt", "3"))
 		self.assertFalse(os.path.lexists(f"{self.root}/www/apt/dists/testing"))
+		self.assertFalse(os.path.lexists(f"{self.root}/www/apt/dists/stable"))
+
+	def test_apt_stale_base(self):
+		first = self.apt_bundle({"foo_1_ppc64.deb": b"foo1"})
+		second = self.apt_bundle({"bar_1_ppc64.deb": b"bar1"})	# made from the same (empty) state
+		self.drop("apt", "1", first)
+		self.drop("apt", "2", second)
+		self.run_watch()
+		self.assertTrue(self.result("apt", "1").startswith("ok"))
+		self.assertIn("stale base", self.result("apt", "2"))
+		self.drop("apt", "3", self.apt_bundle({"bar_1_ppc64.deb": b"bar1"}))	# again, on the new state
+		self.run_watch()
+		self.assertTrue(self.result("apt", "3").startswith("ok"), self.result("apt", "3"))
+
+	def test_unknown_suite(self):
+		self.drop("apt", "1", self.apt_bundle({"foo_1_ppc64.deb": b"foo1"}, suite="unstable", who="good"))
+		self.run_watch()
+		self.assertIn("not a suite of ours", self.result("apt", "1"))
 
 	def test_apt_index_swapped(self):
 		# a signed suite whose Packages is replaced by one naming another deb
