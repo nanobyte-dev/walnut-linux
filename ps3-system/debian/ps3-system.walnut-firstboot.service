@@ -1,9 +1,10 @@
 [Unit]
 Description=Walnut First-Run Setup Wizard
 ConditionPathExists=!/var/lib/walnut/firstboot-done
+# getty waits for the wizard (Before=). No Conflicts= with getty: its stop job is queued even when the
+# condition above skips the wizard, and then tty1 (the desktop's autologin) never starts.
 Before=getty@tty1.service
 After=plymouth-quit.service
-Conflicts=getty@tty1.service
 
 [Service]
 Type=oneshot
