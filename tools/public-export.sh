@@ -4,8 +4,9 @@
 # commit messages without the AI attribution trailers (exact lines only: "Co-Authored-By: Claude...",
 # "Claude-Session: ...", "Generated with [Claude Code]..."), then a scan of the whole history that
 # stops on anything that must never be public (tools/public-strip-blobs.txt lists blobs left out, e.g. a
-# third-party image whose licence forbids redistribution): backups/ or firmware/ paths, NOR/NAND dumps and disk
-# images, licensed game data paths, private keys. The rewrite is deterministic: running it again on a
+# third-party image whose licence forbids redistribution; tools/public-replace.txt, text replaced in every
+# file of every commit, e.g. the console's NOR dump hash). It checks for backups/ or firmware/ paths,
+# NOR/NAND dumps and disk images, licensed game data paths, private keys. The rewrite is deterministic: running it again on a
 # longer main gives the same commit IDs for the old commits, so the public repository fast-forwards.
 # Nothing is pushed: the push to github.com/nanobyte-dev is the user's step (printed at the end).
 # Needs git-filter-repo (pip install --user git-filter-repo).
@@ -19,7 +20,8 @@ git clone -q --no-local --single-branch --branch main "$SRC" "$DIR"
 cd "$DIR"
 git remote remove origin
 grep -Eo '^[0-9a-f]{40}' "$SRC/tools/public-strip-blobs.txt" > "$DIR/.git/strip-blobs" || true
-git filter-repo --quiet --force --strip-blobs-with-ids "$DIR/.git/strip-blobs" --message-callback '
+git filter-repo --quiet --force --strip-blobs-with-ids "$DIR/.git/strip-blobs" \
+	--replace-text "$SRC/tools/public-replace.txt" --message-callback '
 import re
 lines = message.split(b"\n")
 drop = re.compile(rb"^\s*(Co-Authored-By:\s*Claude.*|Claude-Session:.*|.*Generated with \[Claude Code\].*)$", re.I)
@@ -38,10 +40,11 @@ hits=$(printf '%s\n' "$paths" | grep -E '^(backups|firmware)/|\.(bin|img|pup|PUP
 for b in $(cat .git/strip-blobs); do
 	git cat-file -e "$b" 2>/dev/null && { echo "!! stripped blob $b is still in the history"; bad=1; }
 done
+[ -z "$(git log --all -p -S (the NOR dump SHA-256, kept with the dump, not published) --format=%h | head -1)" ] || { echo "!! the NOR dump hash is still in the history"; bad=1; }
 keys=$(git log --all -p -S 'PRIVATE KEY-----' --format=%h | head -5 || true)
 [ -z "$keys" ] || { echo "!! private key text in commits: $keys"; bad=1; }
 n=$(git rev-list --count main)
 echo ">> $DIR: $n commits, $(git rev-parse --short main), attribution trailers removed"
 if [ $bad = 1 ]; then echo "!! not ready to publish (see above)"; exit 1; fi
 echo ">> history scan clean. To publish (the user's step):"
-echo "   git -C $DIR remote add origin git@github.com:nanobyte-dev/walnut.git && git -C $DIR push -u origin main"
+echo "   git -C $DIR remote add origin git@github.com:nanobyte-dev/walnut-linux.git && git -C $DIR push -u origin main"

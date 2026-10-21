@@ -1,5 +1,8 @@
 # Walnut Linux
 
+> **Status: 0.1-alpha in preparation, not released yet.** The install guide is written; the downloads and
+> the package repository at walnut.nanobyte.dev come with the release.
+
 **Walnut Linux** is a modern Debian-based Linux distribution (ppc64 big-endian) for the Sony PlayStation 3, featuring native 3D graphics acceleration on the RSX GPU via our `ps3rsx` kernel driver and Mesa nv30.
 
 Walnut provides a lightweight desktop environment tailored to the console's 256 MB memory limit, automatic game mode, Synergistic Processing Element (SPE) coprocessor acceleration for audio and graphics tasks, and a full suite of playable 3D games and applications.
