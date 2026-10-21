@@ -1,0 +1,11 @@
+[Unit]
+Description=Walnut: keep the ccache store under its size cap
+[Service]
+Type=oneshot
+User=tibi
+Group=tibi
+ExecStart=/data/nanobyte/Walnut/bin/ccache-trim.sh /data/nanobyte/Walnut/ccache-data 25
+NoNewPrivileges=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/data/nanobyte/Walnut/ccache-data

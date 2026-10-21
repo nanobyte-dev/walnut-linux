@@ -1,5 +1,8 @@
 # PS3 Linux build. Settings are in config.mk; run `make help` for targets.
 include config.mk
+# the shared ccache's login (config.local.mk, or the CI secret) reaches tools/ccache-remote.sh through
+# the environment, never on a command line make prints
+export WALNUT_CCACHE_AUTH
 # each package's upstream pins (<pkg>/upstream.mk; config.mk says which)
 include $(sort $(wildcard */upstream.mk)) tools/ssdimg/upstream.mk
 
@@ -510,7 +513,7 @@ $(foreach b,BUILDER GAMES_BUILDER SPU_BUILDER REPO_BUILDER,\
 	$(if $(wildcard $($(b)_STAMP)),$(shell docker image inspect $($(b)_TAG) >/dev/null 2>&1 || rm -f $($(b)_STAMP))))
 
 # --- Debian source packages (deb-src + our patches; docs/PLAN.md, packaging plan) ---------------
-DEB_ENV := -e OWNER=$(UID_GID) -e DEBIAN_SUITE=$(DEBIAN_SUITE) -e DEBIAN_MIRROR=$(DEBIAN_MIRROR) -e HOME=/tmp \
+DEB_ENV := -e OWNER=$(UID_GID) -e DEBIAN_SUITE=$(DEBIAN_SUITE) -e DEBIAN_MIRROR=$(DEBIAN_MIRROR) -e HOME=/tmp -e CCACHE_REMOTE_STORAGE \
 	-e SB_ORIG=$(SB_ORIG) -e DP_ORIG=$(DP_ORIG) -e ZNG_ORIG=$(ZNG_ORIG) -e WZ_ORIG=$(WZ_ORIG) -e ORCT2_ORIG=$(ORCT2_ORIG) -e ORCT2_OBJECTS=$(ORCT2_OBJECTS) -e ORCT2_TITLESEQ=$(ORCT2_TITLESEQ) -e ORCT2_OPENSFX=$(ORCT2_OPENSFX) -e ORCT2_OPENMUSIC=$(ORCT2_OPENMUSIC) -e CC_ORIG=$(CC_ORIG) -e CCD_ORIG=$(CCD_ORIG) -e KERNEL_RELEASE=$(KERNEL_RELEASE) -e KERNEL_FLAVOUR=$(KERNEL_FLAVOUR)
 # upstream tarballs a package's source is made from
 sauerbraten-nonfree-data-src: $(SB_ORIG)
@@ -554,7 +557,7 @@ $(BUILD)/chroot/sid-ppc64.tar:
 ps3-boot-src: initrd-walnut
 %-deb: %-src | $(BUILD)/chroot/sid-ppc64.tar
 	@tools/disk-check.sh
-	docker run --rm --privileged -v $(CURDIR):/work -w /work $(DEB_ENV) -e JOBS=$(DEB_JOBS) -e KEEP_TREE=$(KEEP_TREE) \
+	tools/ccache-remote.sh docker run --rm --privileged -v $(CURDIR):/work -w /work $(DEB_ENV) -e JOBS=$(DEB_JOBS) -e KEEP_TREE=$(KEEP_TREE) \
 		$(REPO_BUILDER_TAG) tools/deb-build.sh $*
 DEB_JOBS ?= 16
 # Changing a Debian-source package's patches (docs/PACKAGING.md): make <pkg>-work makes a git tree

@@ -1,0 +1,9 @@
+[Unit]
+Description=Walnut: trim the ccache store (daily)
+[Timer]
+OnCalendar=*-*-* 05:30:00
+RandomizedDelaySec=30min
+Persistent=true
+Unit=walnut-ccache-trim.service
+[Install]
+WantedBy=timers.target

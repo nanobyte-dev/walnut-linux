@@ -37,6 +37,24 @@ services:
     networks:
       - aptcache
 
+  # ccache's remote storage for builds (ccache/nginx.conf), behind the main proxy at /ccache/
+  walnut-ccache:
+    image: nginx:stable-alpine
+    container_name: walnut-ccache
+    user: "1000:1000"
+    mem_limit: 128m
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:uid=1000,gid=1000"]
+    command: ["nginx", "-g", "daemon off;", "-c", "/etc/nginx/ccache.conf"]
+    volumes:
+      - ./ccache/nginx.conf:/etc/nginx/ccache.conf:ro
+      - ./ccache.htpasswd:/etc/nginx/ccache.htpasswd:ro
+      # CACHEDIR.TAG inside: restic (--exclude-caches) leaves it out of the backups
+      - ./ccache-data:/srv/ccache
+    networks:
+      - mainproxy_net
+
   walnut-upload:
     build: ./upload
     image: walnut-upload:local

@@ -2,7 +2,9 @@
 # deb-build.sh <pkg>: builds our source package (build/src/<pkg>/*.dsc, from deb-prepare.sh) natively
 # in a fresh ppc64 chroot under qemu-user (inside the deb builder, privileged, as root).
 # The chroot with the package's build dependencies installed is cached per debian/control
-# (build/chroot/<pkg>-deps-<hash>.tar); ccache persists in build/ccache (5 GB max).
+# (build/chroot/<pkg>-deps-<hash>.tar); ccache persists in build/ccache (5 GB max), and with
+# CCACHE_REMOTE_STORAGE set (tools/ccache-remote.sh) also in the shared store at walnut.nanobyte.dev,
+# compilers identified by content so CI and the dev PC share it.
 # Output: build/debs/<pkg>/ (replaced), plus the build log.
 # Env: OWNER JOBS DEB_BUILD_EXTRA (e.g. noautodbgsym) KEEP_TREE (BUILD=cross-linux: keep the build tree)
 # package.conf: NATIVE_PROFILES (build profiles for the chroot build), CROSS_PROFILES (cross-linux)
@@ -41,6 +43,7 @@ if [ "${BUILD:-native}" = cross-linux ]; then
 	(cd "$W" && dpkg-source -x "../../../$DSC" src >/dev/null && cd src && \
 		DEB_BUILD_OPTIONS="${NOCHECK:+$NOCHECK }parallel=${JOBS:-16}" DEBIAN_KERNEL_USE_CCACHE=1 \
 		CCACHE_DIR="$CC_DIR" CCACHE_BASEDIR="$PWD" CCACHE_NOHASHDIR=1 CCACHE_MAXSIZE=5G \
+		CCACHE_REMOTE_STORAGE="${CCACHE_REMOTE_STORAGE:-}" CCACHE_COMPILERCHECK=content \
 		dpkg-buildpackage -a ppc64 -b -d -uc -us ${CROSS_PROFILES:+-P$CROSS_PROFILES} > ../build.log 2>&1) \
 		|| { tail -40 "$W/build.log"; exit 1; }
 	echo ">> cross-built in $(( $(date +%s) - T0 )) s"
@@ -142,6 +145,7 @@ echo ">> build dependencies ready in $((T1 - T0)) s"
 
 in_chroot sh -c "ccache -M 5G >/dev/null; cd /build/reproducible-path/$SOURCE-$UPVER && \
 	CCACHE_DIR=/build/ccache CCACHE_BASEDIR=/build/reproducible-path CCACHE_NOHASHDIR=1 \
+	CCACHE_REMOTE_STORAGE='${CCACHE_REMOTE_STORAGE:-}' CCACHE_COMPILERCHECK=content \
 	DEB_BUILD_OPTIONS='${NOCHECK:+$NOCHECK }parallel=${JOBS:-16} ${DEB_BUILD_EXTRA:-}' \
 	eatmydata dpkg-buildpackage $ARCHBUILD -uc -us ${NATIVE_PROFILES:+-P$NATIVE_PROFILES}" > "build/chroot/$PKG-build.log" 2>&1 \
 	|| { tail -40 "build/chroot/$PKG-build.log"; exit 1; }

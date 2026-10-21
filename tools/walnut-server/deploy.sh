@@ -5,6 +5,7 @@
 #                  download/, licensed/ (basic auth: WALNUT_LICENSED_USER/PASS)
 #   walnut-aptcache  apt-cacher-ng for Debian's snapshot (snapshot.debian.org throttles), served under
 #                  /debian-snapshot/ for the pinned dates only
+#   walnut-ccache  ccache's remote storage (GET/PUT, login WALNUT_CCACHE_AUTH), /ccache/, trimmed daily to 25 GB
 #   walnut-upload  sshd + rrsync as an ordinary user on port 2223: uploads into incoming/ only, with
 #                  the keys in deploy-keys.pub (its host key is made once and pinned in known_hosts)
 #   walnut-watch   (bin/, systemd path unit + timer, as the directory's owner) publishes what lands
@@ -14,8 +15,8 @@
 # `nginx -t` fails). The systemd units need sudo. Content is published by uploads, never by this.
 set -euo pipefail
 cd "$(dirname "$0")"
-{ read -r host; read -r user; read -r pass; } < <(../config-get.sh WALNUT_HOST WALNUT_LICENSED_USER WALNUT_LICENSED_PASS)
-[ -n "$host" ] && [ -n "$user" ] && [ -n "$pass" ] || { echo "!! set WALNUT_HOST, WALNUT_LICENSED_USER, WALNUT_LICENSED_PASS in config.local.mk" >&2; exit 2; }
+{ read -r host; read -r user; read -r pass; read -r ccache_auth; } < <(../config-get.sh WALNUT_HOST WALNUT_LICENSED_USER WALNUT_LICENSED_PASS WALNUT_CCACHE_AUTH)
+[ -n "$host" ] && [ -n "$user" ] && [ -n "$pass" ] && [ -n "$ccache_auth" ] || { echo "!! set WALNUT_HOST, WALNUT_LICENSED_USER, WALNUT_LICENSED_PASS, WALNUT_CCACHE_AUTH (user:password) in config.local.mk" >&2; exit 2; }
 [ -s deploy-keys.pub ] || { echo "!! no deploy-keys.pub (the upload keys' public halves)" >&2; exit 2; }
 DIR=/data/nanobyte/Walnut
 PROXY=/data/nanobyte/MainProxy/Config/conf.d
@@ -34,7 +35,7 @@ ssh "$host" "umask 022; mkdir -p $DIR/{incoming/{site,download,apt,licensed},www
 dates=$(cat ../../config.mk ../../*/upstream.mk ../ssdimg/upstream.mk ../../*/package.conf | grep -oE '[0-9]{8}T[0-9]{6}Z' | sort -u | paste -sd'|')
 [ -n "$dates" ] || { echo "!! no snapshot dates found" >&2; exit 1; }
 sed "s/@SNAPSHOT_DATES@/$dates/" nginx.conf > "$CTL.nginx.conf"
-rsync -rt --chmod=D755,F644 docker-compose.yml Dockerfile upload aptcache "$host:$DIR/"
+rsync -rt --chmod=D755,F644 docker-compose.yml Dockerfile upload aptcache ccache "$host:$DIR/"
 rsync -t --chmod=644 "$CTL.nginx.conf" "$host:$DIR/nginx.conf"
 rm -f "$CTL.nginx.conf"
 ssh "$host" "umask 022; mkdir -p $DIR/aptcache-data
@@ -65,21 +66,26 @@ grep -v '^#' deploy-keys.pub | grep . | sed 's|^|restrict,command="rrsync -wo -n
 	ssh "$host" "umask 077; cat > $DIR/upload-keys/authorized_keys.new && mv $DIR/upload-keys/authorized_keys.new $DIR/upload-keys/authorized_keys"
 printf '%s:%s\n' "$user" "$(openssl passwd -apr1 -stdin <<< "$pass")" |
 	ssh "$host" "umask 022; cat > $DIR/htpasswd.new && mv $DIR/htpasswd.new $DIR/htpasswd"
+printf '%s:%s\n' "${ccache_auth%%:*}" "$(openssl passwd -apr1 -stdin <<< "${ccache_auth#*:}")" |
+	ssh "$host" "umask 022; cat > $DIR/ccache.htpasswd.new && mv $DIR/ccache.htpasswd.new $DIR/ccache.htpasswd"
+ssh "$host" "umask 022; mkdir -p $DIR/ccache-data
+	[ -e $DIR/ccache-data/CACHEDIR.TAG ] || printf 'Signature: 8a477f597d28d172789f06886806bc55\\n# walnut-ccache: build cache, refillable\\n' > $DIR/ccache-data/CACHEDIR.TAG"
+rsync -t --chmod=755 ccache/trim.sh "$host:$DIR/bin/ccache-trim.sh"
 
-ssh "$host" "cd $DIR && docker compose build -q walnut-upload walnut-aptcache && docker compose up -d walnut-upload walnut-aptcache"
+ssh "$host" "cd $DIR && docker compose build -q walnut-upload walnut-aptcache && docker compose up -d walnut-upload walnut-aptcache walnut-ccache"
 
 # the watcher's units
-for u in systemd/walnut-watch.{service,path,timer}; do
+for u in systemd/walnut-watch.{service,path,timer} systemd/walnut-ccache-trim.{service,timer}; do
 	rsync -t "$u" "$host:$DIR/state/"
 done
 ssh "$host" "set -e
-	for u in walnut-watch.service walnut-watch.path walnut-watch.timer; do
+	for u in walnut-watch.service walnut-watch.path walnut-watch.timer walnut-ccache-trim.service walnut-ccache-trim.timer; do
 		cmp -s $DIR/state/\$u /etc/systemd/system/\$u || sudo -n install -m 644 $DIR/state/\$u /etc/systemd/system/\$u
 		rm $DIR/state/\$u
 	done
 	sudo -n systemctl daemon-reload
-	sudo -n systemctl enable --now walnut-watch.path walnut-watch.timer >/dev/null
-	systemctl is-active walnut-watch.path walnut-watch.timer | xargs echo '>> watcher:'"
+	sudo -n systemctl enable --now walnut-watch.path walnut-watch.timer walnut-ccache-trim.timer >/dev/null
+	systemctl is-active walnut-watch.path walnut-watch.timer walnut-ccache-trim.timer | xargs echo '>> watcher, trim:'"
 # fail2ban's walnut-upload jail (bans in DOCKER-USER, like nginx-scanners)
 rsync -t fail2ban/walnut-upload.filter fail2ban/walnut-upload.jail "$host:$DIR/state/"
 ssh "$host" "set -e
