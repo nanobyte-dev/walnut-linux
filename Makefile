@@ -175,13 +175,17 @@ $(ORCT2_ORIG): $(ORCT2_DL)
 # --- ClassiCube -----------------------------------------------------------------
 CC_TARBALL := $(DOWNLOADS)/ClassiCube-$(CLASSICUBE_COMMIT).tar.gz
 CC_TEXPACK := $(DOWNLOADS)/classicube-texpack-$(CLASSICUBE_TEXPACK_SHA256).zip
-# the engine's source package takes the tarball without upstream's copies of Mojang's textures and
-# Minecraft's sounds (misc/cc_textures.zip, misc/cc_audio.zip: classicube/package.conf)
+# the engine's source package takes the tarball without the console ports' assets: upstream's
+# copies of Mojang's textures and Minecraft's sounds (plain, zipped, embedded in a C header), a
+# 3DS banner sound of unknown origin and Sony's PS4 SDK modules (classicube/package.conf; the
+# Linux build uses none of them; tools/leak-check.py finds the Mojang ones)
+CC_DFSG_EXCLUDE := misc/cc_textures.zip misc/cc_audio.zip misc/ps1/classicube.zip misc/ps1/classicubezip.h \
+	misc/ps1/sounds misc/n64/files/default.zip misc/3ds/audio.wav misc/3ds/banner.bin misc/ps4/right.sprx \
+	misc/ps4/sce_module
 CC_ORIG := $(BUILD)/classicube/classicube-$(CLASSICUBE_COMMIT)+dfsg.tar.gz
-$(CC_ORIG): $(CC_TARBALL)
+$(CC_ORIG): $(CC_TARBALL) Makefile
 	@mkdir -p $(dir $@)
-	gzip -dc $< | tar --delete 'ClassiCube-$(CLASSICUBE_COMMIT)/misc/cc_textures.zip' \
-		'ClassiCube-$(CLASSICUBE_COMMIT)/misc/cc_audio.zip' | gzip -n9 > $@.tmp
+	gzip -dc $< | tar --delete $(addprefix ClassiCube-$(CLASSICUBE_COMMIT)/,$(CC_DFSG_EXCLUDE)) | gzip -n9 > $@.tmp
 	mv $@.tmp $@
 $(CC_TARBALL):
 	@mkdir -p $(DOWNLOADS)

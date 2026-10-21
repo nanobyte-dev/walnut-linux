@@ -1,5 +1,7 @@
 #!/bin/bash
-# repo-publish.sh <deb>...: publishes packages to our apt repository (REPO_HOST:REPO_DIR, config.local.mk).
+# repo-publish.sh <deb|dsc>...: publishes packages to our apt repository (REPO_HOST:REPO_DIR, config.local.mk).
+#   Source packages (.dsc, with the files it lists next to it) go with the binaries: free ones to the
+#   suite's repository after tools/leak-check.py, licensed ones to ps3-licensed (tools/aptly-publish.sh).
 #   DIST=ps3 (default) stable, kept forever; DIST=dev dev builds (ps3-dev: newest 5 of each, symbols included).
 #   Licensed packages (tools/licensed-packages.txt, Section non-free/* or local/*) go to ps3-licensed
 #   with either DIST: kept forever like the stable suite, its own prefix and pool.
@@ -18,6 +20,14 @@ DIST=${DIST:-ps3}
 STAGE=build/tmp/publish-stage
 rm -rf "$STAGE"; mkdir -p "$STAGE"
 for f in "$@"; do
+	case "$f" in
+	*.dsc)	# a source package: the .dsc and the files it lists, side by side in src/<source>/
+		s=$STAGE/src/$(basename "$f" .dsc); mkdir -p "$s"; cp "$f" "$s/"
+		sed -n '/^Files:/,/^[^ ]/s/^ [0-9a-f]\{32\} [0-9]* //p' "$f" | while read -r part; do
+			cp "$(dirname "$f")/$part" "$s/"
+		done
+		continue ;;
+	esac
 	case "$(basename "$f")" in
 	linux-libc-dev_*|linux-bpf-dev_*|linux-doc*|linux-source*) echo ">> not published: $f"; continue ;;
 	esac

@@ -9,6 +9,13 @@
 # tools/licensed-packages.txt) go to the ps3-licensed suite (its own prefix and pool) whatever
 # DIST is, never to ps3 or ps3-dev. ps3-licensed is kept like the stable suite: versions must grow,
 # nothing is removed, no ~dev builds (a dev publish leaves a licensed ~dev build out, with a note).
+# Source packages (<stage>/src/<name>/*.dsc, from repo-publish.sh) are routed the same way: a source
+# is licensed when its name is in the list or any package it builds is licensed
+# (tools/leak-check.py classify). A free source goes in only after tools/leak-check.py sources found
+# none of its files among the files of the licensed packages we have (this stage, build/debs, the
+# ps3-licensed pool) and none of tools/licensed-files.txt's paths; one leak stops the whole publish.
+# A publication serves sources only if it was created with the source architecture (new ones are;
+# the existing LAN ones were not: a note says so).
 set -euo pipefail
 # One block, parsed whole before it runs: editing this file during a run can't make bash
 # execute a shifted fragment.
@@ -16,7 +23,8 @@ set -euo pipefail
 STAGE=$1
 DIST=${DIST:-ps3}
 A="aptly -config=/work/tools/aptly.conf"
-ARCHS=ppc64,all
+ARCHS=ppc64,all,source
+LEAK=/work/tools/leak-check.py
 LICENSED_LIST=/work/tools/licensed-packages.txt
 
 ensure_repo() {	# name distribution component
@@ -100,11 +108,39 @@ for d in "$STAGE"/*.deb; do
 	mv "$d" "$LSTAGE/"
 done
 
+# Source packages: licensed ones join the licensed stage, free ones are checked for licensed files
+SSTAGE=$STAGE/src
+LSSTAGE=$LSTAGE/src
+mkdir -p "$SSTAGE" "$LSSTAGE"
+free_dscs=()
+for dsc in "$SSTAGE"/*/*.dsc; do
+	[ -e "$dsc" ] || continue
+	dir=$(dirname "$dsc")
+	if [ "$(python3 "$LEAK" classify "$dsc" | cut -d' ' -f1)" = licensed ]; then
+		case $(basename "$dsc") in
+		*~dev*) echo ">> licensed dev source left out (ps3-licensed takes no ~dev builds): ${dsc##*/}"; rm -rf "$dir"; continue ;;
+		esac
+		mv "$dir" "$LSSTAGE/"
+	else
+		free_dscs+=("$dsc")
+	fi
+done
+if [ ${#free_dscs[@]} -gt 0 ]; then
+	licensed_debs=("$LSTAGE")
+	[ -d /work/build/aptly/public/ps3-licensed/pool ] && licensed_debs+=(/work/build/aptly/public/ps3-licensed/pool)
+	[ -d /work/build/debs ] && licensed_debs+=(/work/build/debs)
+	if ! python3 "$LEAK" sources $(printf -- '--licensed %s ' "${licensed_debs[@]}") "${free_dscs[@]}"; then
+		echo "!! licensed content in a free source package: nothing published" >&2
+		exit 1
+	fi
+fi
+
 # Dev builds (~dev versions, from a tree with uncommitted changes) never go to the stable suite
 if [ "$DIST" = ps3 ]; then
-	devs=$(for d in "$STAGE"/*.deb "$LSTAGE"/*.deb; do
+	devs=$(for d in "$STAGE"/*.deb "$LSTAGE"/*.deb "$SSTAGE"/*/*.dsc "$LSSTAGE"/*/*.dsc; do
 		[ -e "$d" ] || continue
-		case $(dpkg-deb -f "$d" Version) in *~dev*) echo "   ${d##*/}" ;; esac
+		case ${d##*/} in *~dev*) echo "   ${d##*/}"; continue ;; esac
+		case $d in *.deb) case $(dpkg-deb -f "$d" Version) in *~dev*) echo "   ${d##*/}" ;; esac ;; esac
 	done)
 	if [ -n "$devs" ]; then
 		echo "!! dev builds can't be published to the stable suite (commit, rebuild, then publish):" >&2
@@ -126,11 +162,27 @@ fi
 if ls "$STAGE"/*.ddeb >/dev/null 2>&1; then
 	$A repo add -force-replace -remove-files ps3-dbgsym "$STAGE"/*.ddeb
 fi
+# free sources into the suite's repository, licensed ones into ps3-licensed (aptly takes the .dsc
+# with the files it lists from the same directory)
+SRC_ADDED=
+if ls "$SSTAGE"/*/*.dsc >/dev/null 2>&1; then
+	if [ "$DIST" = dev ]; then
+		$A repo add -force-replace -remove-files "$REPO" "$SSTAGE"
+	else
+		$A repo add -remove-files "$REPO" "$SSTAGE"
+	fi
+	SRC_ADDED="$SRC_ADDED $PREFIX/$DISTRIB"
+fi
 LICENSED_NEW=0
 if ls "$LSTAGE"/*.deb >/dev/null 2>&1; then
 	# never -force-replace: a different file under a published version fails here
 	$A repo add -remove-files ps3-licensed "$LSTAGE"/*.deb
 	LICENSED_NEW=1
+fi
+if ls "$LSSTAGE"/*/*.dsc >/dev/null 2>&1; then
+	$A repo add -remove-files ps3-licensed "$LSSTAGE"
+	LICENSED_NEW=1
+	SRC_ADDED="$SRC_ADDED ps3-licensed/ps3-licensed"
 fi
 # The dev suite never holds licensed packages (older dev publishes put some there)
 if [ "$DIST" = dev ]; then
@@ -171,6 +223,12 @@ fi
 if has_packages ps3-licensed && { [ "$LICENSED_NEW" = 1 ] || ! published ps3-licensed ps3-licensed; }; then
 	pub ps3-licensed ps3-licensed ps3-licensed
 fi
+# sources are only served by a publication made with the source architecture
+for pd in $SRC_ADDED; do
+	$A publish show "${pd#*/}" "${pd%%/*}" 2>/dev/null | grep -q '^Architectures:.*source' ||
+		echo ">> note: sources added to ${pd%%/*}'s repository, but $pd was published without the source architecture: not served (docs/PACKAGING.md)"
+done
+rm -rf "$SSTAGE" "$LSSTAGE"
 rmdir "$LSTAGE" 2>/dev/null || true
 echo ">> published $DIST"
 exit

@@ -15,7 +15,8 @@
 #            drive's stamp.py, ps3-imgmap on a fake UFS layer, ps3-vswap's device-mapper backing;
 #            ps3-imgmap-boot's maps and tables against ps3-imgmap's; both tools' write guard
 #            registration against a model of the kernel's side), ps3-boot (ps3-update-kboot's
-#            entries and its /etc/kboot.d extras on a fake root), ps3disk-guard (kernel local/0045's
+#            entries and its /etc/kboot.d extras on a fake root), leak-check (tools/leak-check.py on
+#            synthetic packages and sources), ps3disk-guard (kernel local/0045's
 #            range checks, linux/tests/ps3disk-guard.sh)
 #   --slow   also autogm (ps3-desktop/tests/autogm-check.sh: needs Xvfb+openbox or docker/podman) and
 #            ssdimg-vm (tools/ssdimg/vm-e2e.sh: ps3-imgmap on a real big-endian UFS2 image in a KVM
@@ -152,6 +153,7 @@ run mesa-vtx-snorm8 bash -c "$(declare -f need t_vtxsnorm8); t_vtxsnorm8"
 run mesa-minmax-vmx bash -c "$(declare -f need t_minmaxvmx); t_minmaxvmx"
 run ssdimg python3 tools/ssdimg/test_ssdimg.py
 run ps3-boot python3 ps3-boot/tests/test_kboot.py
+run leak-check python3 tools/test_leak_check.py
 run ps3disk-guard linux/tests/ps3disk-guard.sh
 [ $slow = 1 ] && run autogm bash -c "$(declare -f t_autogm); t_autogm"
 [ $slow = 1 ] && run ssdimg-vm tools/ssdimg/vm-e2e.sh
