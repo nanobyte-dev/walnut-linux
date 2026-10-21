@@ -169,6 +169,22 @@ The PC never builds ext4. It only uploads, which reuses `tools/ssdimg/stamp.py`'
   4. Graph exceptions and the validator.
 - **Deploy** through the site CI: test, then approved prod.
 
+### M10. Updates that don't thrash (found 2026-10-21)
+
+A kernel + Mesa + desktop upgrade on the USB root (32 packages, debug symbols included) stalled the
+PS3 for 40+ minutes with the desktop already stopped: ping answers, sshd can't start a session, no
+OOM in the kernel log. Measure first (PSI, vmstat, dpkg's timeline on a small upgrade), then each fix
+against the same run:
+1. No `-dbgsym` packages on normal systems (the dev deploy installs them; public images never).
+2. A small dirty-page cap (`vm.dirty_bytes` ~16-32 MB, ps3-system) so writes to a slow disk trickle
+   instead of stalling everything.
+3. A lighter apt: fewer sources (our repo and a trimmed Debian subset), no translations or deb-src.
+4. man-db's auto-update off.
+5. `walnut-update`: download first, then install; stop the desktop with a message on the text
+   console ("Updating the system: the desktop comes back when it's done", the user 2026-10-21; the
+   dev deploy gets the same message); dpkg `force-unsafe-io`; kernel and Mesa one at a time; the
+   desktop back after.
+
 ## Cuts for the alpha (to ship sooner; the user may veto)
 
 - **Package renames** (`ps3-*` to `walnut-*`): conffiles move between packages, which needs Replaces/Breaks and `dpkg-maintscript-helper`, and the pins and dependencies change. User-visible strings only for now; the renames come after the alpha.
