@@ -1,0 +1,368 @@
+#!/bin/bash
+# walnut-firstboot: first-run setup wizard for Walnut Linux on the PS3.
+#
+# Runs on tty1 before getty/autologin on a fresh install when no regular user
+# (UID >= 1000) exists yet. Configures:
+#   - User account & password (added to groups sudo,video,render,audio,input)
+#   - Hostname (default: walnut)
+#   - Timezone (default: UTC)
+#   - SSH server enable/disable (default: off)
+#   - Clock check (warns and offers to set if before image build date)
+#
+# Supports an optional preseed file walnut-setup.conf:
+#   Candidate locations:
+#     - /boot/walnut-setup.conf (boot partition)
+#     - /etc/walnut/walnut-setup.conf
+#     - /var/petitboot/mnt/ps3dc/walnut-setup.conf (dev_hdd1 Petitboot mount)
+#     - /mnt/dev_hdd1/walnut-setup.conf (dev_hdd1 mount)
+#     - /dev/ps3dc (mounted temporarily to check for /walnut-setup.conf)
+#   Preseed variables:
+#     WALNUT_USER, WALNUT_PASSWORD, WALNUT_HOSTNAME, WALNUT_TIMEZONE,
+#     WALNUT_SSH (yes/no), WALNUT_DATETIME ("YYYY-MM-DD HH:MM:SS")
+#
+# Once completed (or skipped if a regular user already exists), writes
+# /var/lib/walnut/firstboot-done, updates /etc/default/ps3-desktop with
+# PS3_DESKTOP_USER, runs systemctl daemon-reload and restarts getty on tty1.
+#
+# Test mode: --dry-run or DRY_RUN=1 skips all system modifications.
+set -euo pipefail
+
+DRY_RUN=${DRY_RUN:-0}
+DONE_FILE="/var/lib/walnut/firstboot-done"
+DESKTOP_DEFAULTS="/etc/default/ps3-desktop"
+BUILD_DATE_FILE="/etc/walnut/build-date"
+
+usage() {
+	cat <<EOF
+Usage: $0 [OPTIONS]
+Walnut Linux first-run setup wizard.
+
+Options:
+  --dry-run   Simulate setup without modifying system files or creating users
+  -h, --help  Show this help message
+EOF
+	exit 0
+}
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+	--dry-run) DRY_RUN=1 ;;
+	-h|--help) usage ;;
+	*) echo "Unknown option: $1" >&2; exit 2 ;;
+	esac
+	shift
+done
+
+# If already completed, exit cleanly
+if [ -f "$DONE_FILE" ] && [ "$DRY_RUN" = 0 ]; then
+	exit 0
+fi
+
+# If a non-root regular user already exists (UID 1000..59999), skip wizard
+existing_user=$(getent passwd 2>/dev/null | awk -F: '$3 >= 1000 && $3 < 60000 { print $1; exit }' || true)
+if [ -n "$existing_user" ] && [ "$existing_user" != "nobody" ]; then
+	if [ "$DRY_RUN" = 0 ]; then
+		mkdir -p "$(dirname "$DONE_FILE")"
+		touch "$DONE_FILE"
+	fi
+	exit 0
+fi
+
+# Ensure terminal is in text mode if running under Plymouth
+if [ "$DRY_RUN" = 0 ] && command -v plymouth >/dev/null 2>&1 && plymouth --ping 2>/dev/null; then
+	plymouth quit 2>/dev/null || true
+fi
+
+export TERM="${TERM:-linux}"
+
+# Choose UI backend: whiptail > dialog > plain text fallback
+if [ -t 0 ] && [ "${TERM:-dumb}" != "dumb" ] && command -v whiptail >/dev/null 2>&1; then
+	UI="whiptail"
+elif [ -t 0 ] && [ "${TERM:-dumb}" != "dumb" ] && command -v dialog >/dev/null 2>&1; then
+	UI="dialog"
+else
+	UI="text"
+fi
+
+msgbox() {
+	local title="$1" text="$2"
+	case "$UI" in
+	whiptail) whiptail --title "$title" --msgbox "$text" 12 70 ;;
+	dialog)   dialog --title "$title" --msgbox "$text" 12 70 ;;
+	text)     printf '\n=== %s ===\n%s\n\nPress Enter to continue...' "$title" "$text"; read -r _ ;;
+	esac
+}
+
+yesno() {
+	local title="$1" text="$2" default="${3:-yes}"
+	case "$UI" in
+	whiptail)
+		if [ "$default" = "no" ]; then
+			whiptail --title "$title" --defaultno --yesno "$text" 12 70
+		else
+			whiptail --title "$title" --yesno "$text" 12 70
+		fi ;;
+	dialog)
+		if [ "$default" = "no" ]; then
+			dialog --title "$title" --defaultno --yesno "$text" 12 70
+		else
+			dialog --title "$title" --yesno "$text" 12 70
+		fi ;;
+	text)
+		while true; do
+			printf '%s (yes/no) [%s]: ' "$text" "$default"
+			read -r ans
+			ans="${ans:-$default}"
+			case "$ans" in
+			[Yy]|[Yy][Ee][Ss]) return 0 ;;
+			[Nn]|[Nn][Oo]) return 1 ;;
+			esac
+		done ;;
+	esac
+}
+
+inputbox() {
+	local title="$1" text="$2" default="${3:-}"
+	case "$UI" in
+	whiptail) whiptail --title "$title" --inputbox "$text" 10 70 "$default" 3>&1 1>&2 2>&3 ;;
+	dialog)   dialog --title "$title" --inputbox "$text" 10 70 "$default" 3>&1 1>&2 2>&3 ;;
+	text)
+		printf '%s [%s]: ' "$text" "$default" >&2
+		read -r val
+		echo "${val:-$default}" ;;
+	esac
+}
+
+passwordbox() {
+	local title="$1" text="$2"
+	case "$UI" in
+	whiptail) whiptail --title "$title" --passwordbox "$text" 10 70 3>&1 1>&2 2>&3 ;;
+	dialog)   dialog --title "$title" --insecure --passwordbox "$text" 10 70 3>&1 1>&2 2>&3 ;;
+	text)
+		printf '%s: ' "$text" >&2
+		stty -echo 2>/dev/null || true
+		read -r val
+		stty echo 2>/dev/null || true
+		echo "" >&2
+		echo "$val" ;;
+	esac
+}
+
+# --- 1. Check for preseed file ------------------------------------------------
+PRESEED_FILE="${PRESEED_FILE:-}"
+if [ -z "$PRESEED_FILE" ]; then
+	for cand in /boot/walnut-setup.conf /etc/walnut/walnut-setup.conf \
+	            /var/petitboot/mnt/ps3dc/walnut-setup.conf /mnt/dev_hdd1/walnut-setup.conf; do
+		if [ -f "$cand" ]; then
+			PRESEED_FILE="$cand"
+			break
+		fi
+	done
+fi
+
+# If not found yet and /dev/ps3dc is available, probe it read-only
+if [ -z "$PRESEED_FILE" ] && [ -b /dev/ps3dc ]; then
+	tmp_probe="$(mktemp -d /tmp/ps3dc-probe.XXXXXX)"
+	if mount -o ro /dev/ps3dc "$tmp_probe" 2>/dev/null; then
+		if [ -f "$tmp_probe/walnut-setup.conf" ]; then
+			cp "$tmp_probe/walnut-setup.conf" /tmp/walnut-preseed.conf
+			PRESEED_FILE="/tmp/walnut-preseed.conf"
+		fi
+		umount "$tmp_probe" 2>/dev/null || true
+	fi
+	rm -rf "$tmp_probe"
+fi
+
+WALNUT_USER=""
+WALNUT_PASSWORD=""
+WALNUT_HOSTNAME=""
+WALNUT_TIMEZONE=""
+WALNUT_SSH=""
+WALNUT_DATETIME=""
+
+if [ -n "$PRESEED_FILE" ]; then
+	echo "walnut-firstboot: reading preseed configuration from $PRESEED_FILE"
+	# shellcheck source=/dev/null
+	. "$PRESEED_FILE"
+fi
+
+# --- 2. Clock verification ---------------------------------------------------
+# Minimum baseline: 2026-10-01 00:00:00 UTC (1790812800) or build date
+MIN_BUILD_EPOCH=1790812800
+if [ -f "$BUILD_DATE_FILE" ]; then
+	MIN_BUILD_EPOCH=$(cat "$BUILD_DATE_FILE" 2>/dev/null || echo "$MIN_BUILD_EPOCH")
+fi
+
+CURRENT_EPOCH=$(date +%s)
+if [ "$CURRENT_EPOCH" -lt "$MIN_BUILD_EPOCH" ]; then
+	BUILD_DATE_STR=$(date -u -d "@$MIN_BUILD_EPOCH" "+%Y-%m-%d %H:%M UTC" 2>/dev/null || echo "2026-10-01")
+	CURR_DATE_STR=$(date "+%Y-%m-%d %H:%M:%S")
+
+	if [ -n "$WALNUT_DATETIME" ]; then
+		echo "walnut-firstboot: setting date/time from preseed: $WALNUT_DATETIME"
+		if [ "$DRY_RUN" = 0 ]; then
+			date -s "$WALNUT_DATETIME" >/dev/null 2>&1 || true
+		fi
+	elif [ -n "$PRESEED_FILE" ]; then
+		echo "walnut-firstboot: warning: clock ($CURR_DATE_STR) is before build date ($BUILD_DATE_STR)"
+	else
+		CLOCK_WARN="The system clock is currently set to:\n  $CURR_DATE_STR\n\nThis is earlier than the image release date:\n  $BUILD_DATE_STR\n\nA wrong clock will cause apt repository signature checks and HTTPS downloads to fail.\n\nWould you like to set the correct date and time now?"
+		if yesno "Clock Verification" "$CLOCK_WARN" "yes"; then
+			SET_DATE=$(inputbox "Set System Date & Time" "Enter the current date and time (YYYY-MM-DD HH:MM:SS):" "2026-10-21 12:00:00")
+			if [ -n "$SET_DATE" ]; then
+				if [ "$DRY_RUN" = 0 ]; then
+					if ! date -s "$SET_DATE" >/dev/null 2>&1; then
+						msgbox "Clock Error" "Failed to set date/time to: $SET_DATE"
+					fi
+				else
+					echo "[DRY-RUN] Would set date: date -s \"$SET_DATE\""
+				fi
+			fi
+		fi
+	fi
+fi
+
+# --- 3. Welcome --------------------------------------------------------------
+if [ -z "$PRESEED_FILE" ]; then
+	msgbox "Walnut Linux Setup" \
+"Welcome to Walnut Linux for PlayStation 3!
+
+No regular user account exists yet. This wizard will guide you through creating your initial account, setting your hostname, timezone, and SSH access."
+fi
+
+# --- 4. User account creation ------------------------------------------------
+while [ -z "$WALNUT_USER" ]; do
+	ans=$(inputbox "Create User Account" "Enter the username for your primary account:\n(Lowercase letters, numbers, hyphens; starts with letter)" "")
+	if echo "$ans" | grep -qE '^[a-z][a-z0-9_-]{1,31}$'; then
+		case "$ans" in
+		root|daemon|bin|sys|sync|games|man|lp|mail|news|uucp|proxy|nobody)
+			msgbox "Invalid Username" "Username '$ans' is a reserved system name. Please choose another." ;;
+		*) WALNUT_USER="$ans" ;;
+		esac
+	else
+		msgbox "Invalid Username" "Username must be 2-32 characters long, begin with a letter, and contain only lowercase letters, digits, and hyphens."
+	fi
+done
+
+# --- 5. Password entry -------------------------------------------------------
+while [ -z "$WALNUT_PASSWORD" ]; do
+	p1=$(passwordbox "User Password" "Enter password for user '$WALNUT_USER':")
+	if [ -z "$p1" ]; then
+		msgbox "Error" "Password cannot be empty. Please enter a password."
+		continue
+	fi
+	p2=$(passwordbox "Confirm Password" "Re-enter password to confirm:")
+	if [ "$p1" != "$p2" ]; then
+		msgbox "Password Mismatch" "Passwords did not match. Please try again."
+		continue
+	fi
+	WALNUT_PASSWORD="$p1"
+done
+
+# --- 6. Hostname -------------------------------------------------------------
+if [ -z "$WALNUT_HOSTNAME" ]; then
+	while true; do
+		ans=$(inputbox "System Hostname" "Enter system hostname:" "walnut")
+		if echo "$ans" | grep -qE '^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$'; then
+			WALNUT_HOSTNAME="$ans"
+			break
+		else
+			msgbox "Invalid Hostname" "Hostname must be 1-63 alphanumeric characters or hyphens, starting with an alphanumeric character."
+		fi
+	done
+fi
+
+# --- 7. Timezone -------------------------------------------------------------
+if [ -z "$WALNUT_TIMEZONE" ]; then
+	current_tz="UTC"
+	if [ -f /etc/timezone ]; then
+		current_tz=$(cat /etc/timezone)
+	fi
+	ans=$(inputbox "System Timezone" "Enter your timezone (e.g. UTC, Europe/London, America/New_York):" "$current_tz")
+	WALNUT_TIMEZONE="${ans:-UTC}"
+fi
+
+# --- 8. SSH Server -----------------------------------------------------------
+if [ -z "$WALNUT_SSH" ]; then
+	if yesno "SSH Remote Access" "Would you like to enable the SSH server for remote network logins?\n(Default is OFF for security)" "no"; then
+		WALNUT_SSH="yes"
+	else
+		WALNUT_SSH="no"
+	fi
+fi
+
+# --- 9. Apply Configuration --------------------------------------------------
+echo "walnut-firstboot: applying configuration..."
+echo "  User:     $WALNUT_USER"
+echo "  Hostname: $WALNUT_HOSTNAME"
+echo "  Timezone: $WALNUT_TIMEZONE"
+echo "  SSH:      $WALNUT_SSH"
+
+if [ "$DRY_RUN" = 1 ]; then
+	echo "[DRY-RUN] useradd -m -s /bin/bash -G sudo,video,render,audio,input $WALNUT_USER"
+	echo "[DRY-RUN] set user password"
+	echo "[DRY-RUN] hostname: $WALNUT_HOSTNAME"
+	echo "[DRY-RUN] timezone: $WALNUT_TIMEZONE"
+	echo "[DRY-RUN] ssh enable: $WALNUT_SSH"
+	echo "[DRY-RUN] update $DESKTOP_DEFAULTS with PS3_DESKTOP_USER=$WALNUT_USER"
+	echo "[DRY-RUN] touch $DONE_FILE"
+	echo "walnut-firstboot: dry-run completed successfully."
+	exit 0
+fi
+
+# Create user with standard media and GPU groups
+if ! id "$WALNUT_USER" >/dev/null 2>&1; then
+	useradd -m -s /bin/bash -G sudo,video,render,audio,input "$WALNUT_USER"
+fi
+echo "$WALNUT_USER:$WALNUT_PASSWORD" | chpasswd
+
+# Hostname
+echo "$WALNUT_HOSTNAME" > /etc/hostname
+if grep -q '127\.0\.1\.1' /etc/hosts; then
+	sed -i -E "s/^127\.0\.1\.1\s+.*/127.0.1.1\t$WALNUT_HOSTNAME/" /etc/hosts
+else
+	printf '127.0.1.1\t%s\n' "$WALNUT_HOSTNAME" >> /etc/hosts
+fi
+hostnamectl set-hostname "$WALNUT_HOSTNAME" 2>/dev/null || hostname "$WALNUT_HOSTNAME" 2>/dev/null || true
+
+# Timezone
+if [ -f "/usr/share/zoneinfo/$WALNUT_TIMEZONE" ]; then
+	ln -sf "/usr/share/zoneinfo/$WALNUT_TIMEZONE" /etc/localtime
+	echo "$WALNUT_TIMEZONE" > /etc/timezone
+	timedatectl set-timezone "$WALNUT_TIMEZONE" 2>/dev/null || true
+fi
+
+# SSH
+if [ "$WALNUT_SSH" = "yes" ]; then
+	systemctl enable ssh.service >/dev/null 2>&1 || true
+	systemctl start ssh.service >/dev/null 2>&1 || true
+else
+	systemctl stop ssh.service >/dev/null 2>&1 || true
+	systemctl disable ssh.service >/dev/null 2>&1 || true
+fi
+
+# Autologin: write desktop user to /etc/default/ps3-desktop
+mkdir -p "$(dirname "$DESKTOP_DEFAULTS")"
+if [ -f "$DESKTOP_DEFAULTS" ]; then
+	if grep -q '^PS3_DESKTOP_USER=' "$DESKTOP_DEFAULTS"; then
+		sed -i "s/^PS3_DESKTOP_USER=.*/PS3_DESKTOP_USER=$WALNUT_USER/" "$DESKTOP_DEFAULTS"
+	else
+		printf 'PS3_DESKTOP_USER=%s\n' "$WALNUT_USER" >> "$DESKTOP_DEFAULTS"
+	fi
+else
+	cat > "$DESKTOP_DEFAULTS" <<EOF
+# The user that gets the desktop on tty1 (ps3-desktop; empty: a normal login prompt)
+PS3_DESKTOP_USER=$WALNUT_USER
+EOF
+fi
+
+# Mark first-run completed
+mkdir -p "$(dirname "$DONE_FILE")"
+touch "$DONE_FILE"
+
+# Reload systemd generator so ps3-autologin.conf is created for the new user, then restart getty
+systemctl daemon-reload >/dev/null 2>&1 || true
+systemctl restart getty@tty1.service >/dev/null 2>&1 || true
+
+echo "walnut-firstboot: setup complete."
+exit 0

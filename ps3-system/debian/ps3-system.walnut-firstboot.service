@@ -1,0 +1,21 @@
+[Unit]
+Description=Walnut First-Run Setup Wizard
+ConditionPathExists=!/var/lib/walnut/firstboot-done
+Before=getty@tty1.service
+After=plymouth-quit.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/ps3/sbin/walnut-firstboot
+StandardInput=tty-force
+StandardOutput=tty
+StandardError=journal+console
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+
+[Install]
+WantedBy=multi-user.target

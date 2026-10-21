@@ -13,7 +13,7 @@ if [ "$1" = configure ]; then
 	# already (networkd as disabled), so its enable does nothing: a fresh image came up without
 	# networkd (docs/IMAGE-DIFF.md). systemctl works offline in the image's chroot too.
 	if [ -z "${2:-}" ]; then
-		systemctl enable systemd-networkd.service ssh.service >/dev/null 2>&1 || true
+		systemctl enable systemd-networkd.service ssh.service walnut-firstboot.service >/dev/null 2>&1 || true
 	fi
 	# DualShock 3: the controller never bonds, so BlueZ's input profile must accept unbonded
 	# devices (bluez has no drop-in directory for input.conf)
