@@ -43,7 +43,8 @@ jobs:
             echo "!! $VERSION is published already: a new build is a new version"; exit 1
           fi
       - name: The package layer (Debian's packages, from the build snapshot)
-        uses: actions/cache@v6
+        id: base
+        uses: actions/cache/restore@v6
         with:
           path: build/rootfs/base.tar
           key: rootfs-base-${{ hashFiles('image/packages.txt', 'tools/build-rootfs.sh', 'config.mk', 'docker/Dockerfile') }}
@@ -51,6 +52,12 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: tools/ci/build-release.sh "$VERSION" out stable
+      - name: Keep the package layer, even when a later step failed (it is written whole, by rename)
+        if: always() && steps.base.outputs.cache-hit != 'true' && hashFiles('build/rootfs/base.tar') != ''
+        uses: actions/cache/save@v6
+        with:
+          path: build/rootfs/base.tar
+          key: ${{ steps.base.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@v7
         with:
           name: release

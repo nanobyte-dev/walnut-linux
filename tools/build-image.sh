@@ -58,9 +58,12 @@ if [ -n "${WALNUT_SUITE:-}" ]; then
 	# a suite on walnut.nanobyte.dev (the release image: stable), checked against its key
 	# (WALNUT_KEYRING); the exact versions go in the release's manifest
 	echo ">> our packages from $WALNUT_APT, suite $WALNUT_SUITE"
-	mkdir -p "$R/tmp/ps3-repo"
-	cp "$WALNUT_KEYRING" "$R/tmp/ps3-repo/keyring.gpg"
-	echo "deb [signed-by=/tmp/ps3-repo/keyring.gpg] $WALNUT_APT $WALNUT_SUITE main" > "$R/etc/apt/sources.list.d/zz-image.list"
+	# the keyring where ps3-system puts it: once its walnut.sources is in, apt refuses the same
+	# source with another Signed-By
+	mkdir -p "$R/tmp/ps3-repo" "$R/usr/share/keyrings"
+	ring=/usr/share/keyrings/walnut-$(basename "$WALNUT_KEYRING")
+	cp "$WALNUT_KEYRING" "$R$ring"
+	echo "deb [signed-by=$ring] $WALNUT_APT $WALNUT_SUITE main" > "$R/etc/apt/sources.list.d/zz-image.list"
 	printf 'Package: *\nPin: release o=Walnut, n=%s\nPin-Priority: 1001\n' "$WALNUT_SUITE" > "$R/etc/apt/preferences.d/zz-image"
 elif [ -n "${REPO_SUITE:-}" ]; then
 	# a frozen snapshot of our stable suite on the server (make repo-snapshot)
