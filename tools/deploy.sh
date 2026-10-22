@@ -10,8 +10,8 @@
 #   3. the named top-level packages are installed (--no-remove: a step that would remove anything
 #      fails; "name-" entries remove exactly those packages, e.g. one replaced by a renamed one);
 #   4. step 2 again (what it held back until step 3 brought in a new dependency).
-# Each step is simulated first. The deploy uses its own copy of our sources and pins (ps3-system's
-# current ones), so it works before the PS3 has them. AUTOREMOVE=1 then purges what nothing
+# Each step is simulated first. The deploy uses its own copy of the LAN sources and pins
+# (tools/repo-server/apt), so it works before the PS3 has them. AUTOREMOVE=1 then purges what nothing
 # needs any more (simulated first). ps3-migrate-home runs once for the deploying user. Kernel and
 # Mesa installs stop the desktop first (STOP_DESKTOP=auto|1|0).
 # DRY_RUN=1: publish, then only the simulations on the PS3. KERNELS=1: upgrade kernels too (step 2).
@@ -30,16 +30,16 @@ debs=$(find build/debs -mindepth 2 -maxdepth 2 -name '*.deb' | sort)
 DIST=dev tools/repo-publish.sh $debs
 
 $SSH "$PS3" 'rm -rf /var/tmp/ps3-deploy && mkdir -p /var/tmp/ps3-deploy/ours'
-$SCP ps3-system/files/apt/ps3.sources ps3-system/files/apt/ps3.pref "$PS3:/var/tmp/ps3-deploy/"
+$SCP tools/repo-server/apt/ps3-lan.sources tools/repo-server/apt/ps3-lan.pref "$PS3:/var/tmp/ps3-deploy/"
 $SSH "$PS3" "set -e; cd /var/tmp/ps3-deploy
-cp ps3.sources ours/
+cp ps3-lan.sources ours/
 # Only our repository's lists, never Debian's: with Debian's ~60000 packages apt's solves (five of
 # them here) exhausted the PS3's 256 MB and stalled it (2026-10-16). Debian packages ours depend on
 # come from our deps component. apt's caches stay in memory (the system's are for Debian's lists).
 U='-o Dir::Etc::SourceList=/dev/null -o Dir::Etc::SourceParts=/var/tmp/ps3-deploy/ours -o APT::Get::List-Cleanup=0'
 O='-o Dir::Etc::SourceList=/dev/null -o Dir::Etc::SourceParts=/var/tmp/ps3-deploy/ours \
 -o Dir::Cache::pkgcache= -o Dir::Cache::srcpkgcache= \
--o Dir::Etc::Preferences=/var/tmp/ps3-deploy/ps3.pref -o Dir::Etc::PreferencesParts=/dev/null \
+-o Dir::Etc::Preferences=/var/tmp/ps3-deploy/ps3-lan.pref -o Dir::Etc::PreferencesParts=/dev/null \
 -o Dpkg::Use-Pty=0 -o APT::Get::Assume-Yes=true -o Dpkg::Options::=--force-confdef \
 -o Dpkg::Options::=--force-confold -t ps3-dev'
 sudo DEBIAN_FRONTEND=noninteractive dpkg --configure -a	# an install interrupted earlier

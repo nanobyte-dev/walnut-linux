@@ -1,0 +1,16 @@
+# Walnut's packages (walnut.nanobyte.dev): kernel, Mesa, RSX driver, tools, games.
+# stable: the releases. testing: every build, debug kernel included, signed by the CI key;
+# never chosen on its own (/etc/apt/preferences.d/walnut): set Enabled: yes below, then
+# apt install -t testing <pkg>. Debug symbols: the same lines with stable-debug or testing-debug.
+Types: deb
+URIs: https://walnut.nanobyte.dev/apt
+Suites: stable
+Components: main
+Signed-By: /usr/share/keyrings/walnut-archive-keyring.gpg
+
+Types: deb
+URIs: https://walnut.nanobyte.dev/apt
+Suites: testing
+Components: main
+Signed-By: /usr/share/keyrings/walnut-testing-keyring.gpg
+Enabled: no

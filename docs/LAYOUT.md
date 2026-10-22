@@ -127,8 +127,9 @@ our own packages, in a minute or two. Everything we build is a .deb in `build/de
 
 The image installs them with apt, and `make deploy` installs the same packages on the running
 PS3. So whatever is tried live is what the next image gets. On the PS3, apt sees Debian (live
-debian-ports) and our repository: `apt install`/`apt upgrade` work as on Debian, while the pins in
-`image/apt/ps3.pref` keep our packages on top and Debian's kernels and Mesa out.
+debian-ports) and Walnut's signed `stable` suite: `apt install`/`apt upgrade` work as on Debian, while
+ps3-system's pins (`ps3-system/files/apt/walnut.pref`) keep our packages on top and Debian's kernels
+and Mesa out.
 `make nfs-root` carries over the PS3's own state from the previous root: SSH host keys, Bluetooth
 pairings, saved Wi-Fi connections (`FRESH=1` starts clean).
 

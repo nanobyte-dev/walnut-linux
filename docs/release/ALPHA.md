@@ -117,6 +117,7 @@ The PC never builds ext4. It only uploads, which reuses `tools/ssdimg/stamp.py`'
    - Extend the existing `deps` component (`make deps`) so the image's Debian packages come from our repo at the pinned snapshot, rather than live sid or rate-limited snapshot.debian.org.
    - Publish `deb-src` for ours and for the mirrored Debian packages (GPL source offer).
 4. **apt config.** `walnut-system` ships signed sources for `stable` (and opt-in `testing`). The `ps3.pref` pins (`o=PS3, n=ps3`) are updated to the new origin. The LAN sources move to a dev-only file.
+   - *Status: Done (2026-10-23). ps3-system ships `walnut.sources` (stable on, testing `Enabled: no`), both keyrings and `preferences.d/walnut` (o=Walnut); the LAN sources are `tools/repo-server/apt/ps3-lan.*`, dev image and `make deploy` only.*
 
 **M4 status (2026-10-21):** walnut.nanobyte.dev is up on the OVH box (/data/nanobyte/Walnut, behind the main proxy and its *.nanobyte.dev certificate), set up by `make walnut-server` (tools/walnut-server/deploy.sh):
 - `walnut-repo`: nginx with the site built in (`walnut-site:<id>`), serving www/apt, www/download and www/licensed (basic auth; the login is in the untracked config.local.mk). Noindex until the release.
@@ -168,6 +169,8 @@ Next: the archive key (the user), then the walnut-testing and walnut-stable aptl
    - **Limits:** tested on a CECH-20xx only, the fan policy checked on one SYSCON type, no licensed games.
    - **Legal:** "Linux for the PlayStation 3", no Sony branding; we host no firmware, CFW, keys or PUPs, only links.
 3. **`walnut-bugreport`:** versions, dmesg, the Xorg log, the model, kboot.conf. The issue template asks for it.
+
+**M7 status (2026-10-23):** the release is `.github/workflows/release-image.yml` ("Walnut release", by hand, a version input): `tools/ci/build-release.sh` builds the public image with our packages from the signed stable suite (`make rootfs PROFILE=public WALNUT_SUITE=stable`), takes the kernel and its arguments out of it, adds initrd-walnut.img, the installer tarball and a MANIFEST of every package, and refuses an image with a licensed package, dev-profile files or a rootfs tarball too big for dev_hdd1; `tools/ci/publish-release.sh` signs SHA256SUMS with the archive subkey and publishes to walnut.nanobyte.dev/download/<version>/, then the GitHub release gets the same files. `publish: off` builds only, for a look at the artifact.
 
 ### M8. GitHub
 

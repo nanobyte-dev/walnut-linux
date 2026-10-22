@@ -1,0 +1,88 @@
+# A Walnut release (docs/release/ALPHA.md M7), by hand only:
+#   build    the public image from the stable suite, its kernel, the internal install's initramfs and
+#            the installer (tools/ci/build-release.sh); no secrets
+#   publish  SHA256SUMS signed by the archive key's signing subkey, the release published to
+#            walnut.nanobyte.dev/download/<version>/ (tools/ci/publish-release.sh; environment
+#            walnut-stable: the owner approves), then the GitHub release v<version> with the same files
+# A published version never changes: a new build is a new version.
+name: "Walnut release"
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version, e.g. 0.1-alpha (published once, never replaced)"
+        type: string
+        required: true
+      publish:
+        description: "Publish (off: build only, the files stay in the run's artifact for a look)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.version }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # versions count commits (tools/deb-version.sh)
+      - name: Not published yet
+        if: inputs.publish
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          [[ $VERSION =~ ^[0-9][A-Za-z0-9.~+-]*$ ]] || { echo "!! bad version $VERSION"; exit 1; }
+          if curl -fsSI "https://walnut.nanobyte.dev/download/$VERSION/SHA256SUMS" >/dev/null; then
+            echo "!! $VERSION is published already: a new build is a new version"; exit 1
+          fi
+      - name: The package layer (Debian's packages, from the build snapshot)
+        uses: actions/cache@v6
+        with:
+          path: build/rootfs/base.tar
+          key: rootfs-base-${{ hashFiles('image/packages.txt', 'tools/build-rootfs.sh', 'config.mk', 'docker/Dockerfile') }}
+      - name: Build
+        env:
+          VERSION: ${{ inputs.version }}
+        run: tools/ci/build-release.sh "$VERSION" out stable
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release
+          path: out/
+          retention-days: 7
+          compression-level: 0
+
+  publish:
+    needs: build
+    if: inputs.publish
+    runs-on: ubuntu-24.04
+    environment: walnut-stable
+    permissions:
+      contents: write  # the GitHub release
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: release
+          path: out
+      - name: Publish to walnut.nanobyte.dev
+        env:
+          VERSION: ${{ inputs.version }}
+          WALNUT_SIGN_KEY: ${{ secrets.WALNUT_ARCHIVE_SUBKEY }}
+          WALNUT_SIGN_PASSPHRASE: ${{ secrets.WALNUT_ARCHIVE_PASSPHRASE }}
+          WALNUT_DEPLOY_KEY_DATA: ${{ secrets.WALNUT_DEPLOY_KEY }}
+        run: tools/ci/publish-release.sh "$VERSION" out
+      - name: The GitHub release
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tools/ci/release-notes.sh "$VERSION" out > notes.md
+          gh release create "v$VERSION" --target "$GITHUB_SHA" --prerelease \
+            --title "Walnut $VERSION" --notes-file notes.md out/*

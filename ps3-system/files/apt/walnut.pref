@@ -1,0 +1,18 @@
+# Walnut's releases win over Debian's packages (500), whatever the versions; below 1000, so a
+# newer testing build installed by hand is never downgraded: the next release (a higher version)
+# takes over from it. Going back to an older version is explicit: apt install pkg=<ver>
+Package: *
+Pin: release o=Walnut, n=stable
+Pin-Priority: 990
+
+# testing only when asked for (apt install -t testing ...), like Debian's experimental
+Package: *
+Pin: release o=Walnut, n=testing
+Pin-Priority: 1
+
+# Debian's kernels and Mesa are never installed: the PS3 runs ours (Debian's linux-libc-dev,
+# linux-base, perf etc. stay installable). A Debian package needing a newer Mesa than ours is
+# kept back by apt upgrade, nothing is removed.
+Package: linux-image-* linux-headers-* linux-kbuild-* linux-support-* src:mesa
+Pin: release o=Debian Ports
+Pin-Priority: -1

@@ -69,6 +69,30 @@ Petitboot is the bootloader menu that OtherOS++ loads.
 
 ## 4. Installation
 
+### Getting the release
+
+Each release is at `https://walnut.nanobyte.dev/download/VERSION/` and on the
+[GitHub releases page](https://github.com/nanobyte-dev/walnut-linux/releases), the same files in both
+places. Put all of them in one directory (`DIR`), check the signature and the checksums, and unpack the
+installer:
+
+```bash
+cd DIR
+curl -fsSL https://walnut.nanobyte.dev/walnut-archive.asc | gpg --import
+gpg --verify SHA256SUMS.asc SHA256SUMS   # "Good signature" from 8FFE 9D3F C1E2 4ADC 4702  50BB 5701 1432 F8A9 8072
+sha256sum -c SHA256SUMS
+tar -xzf walnut-installer-VERSION.tar.gz
+```
+
+| File | What it is |
+|---|---|
+| `walnut-VERSION-ppc64.tar.xz` | the root filesystem |
+| `vmlinux-RELEASE`, `RELEASE.args` | the kernel and its boot arguments |
+| `initrd-walnut.img` | the internal install's initramfs (it formats the image and unpacks the system on the first boot) |
+| `walnut-installer-VERSION.tar.gz` | the PC installer (Python 3, nothing to install) |
+| `MANIFEST` | every package in the image, with its version |
+| `SHA256SUMS`, `SHA256SUMS.asc` | the checksums and their signature |
+
 Choose either **Install A** (Internal HDD, default) or **Install B** (External USB Drive).
 
 ### Install A: Internal HDD (Default & Recommended)
@@ -80,12 +104,12 @@ Walnut runs from a single stamped disk image file (`/dev_hdd0/linux/walnut.img`)
 2. **Ensure webMAN FTP Server is Active**
    - Confirm webMAN MOD is loaded and FTP is enabled on your PS3. Note your console's local network IP address (e.g. displayed in webMAN setup or XMB Network Settings).
 3. **Run the PC Installer**
-   - On your PC (Linux or Windows), download and unpack the Walnut release files into a directory (`DIR`).
+   - On your PC (Linux, or WSL2 on Windows), get the release files into one directory (`DIR`) and check them: see [Getting the release](#getting-the-release) below.
    - Run the PC installer:
      ```bash
-     walnut-install internal --release-dir DIR [--size 16G] [--host PS3-IP]
+     DIR/walnut-installer-VERSION/installer/walnut-install internal --release-dir DIR [--size 16G] [--host PS3-IP]
      ```
-     - `--release-dir DIR`: Directory containing the release files (`walnut.img`, `rootfs.tar.xz`, kernel, initramfs, manifest).
+     - `--release-dir DIR`: the directory with the release files (the rootfs tarball, kernel, initramfs, `SHA256SUMS`). The installer checks every file against `SHA256SUMS` and makes the stamped image itself.
      - `--size 16G`: Total image size (default is 16 GiB: 15 GiB root filesystem + 1 GiB swap). Smaller sizes can be used on 40–80 GB internal drives.
      - `--host PS3-IP`: The IP address of your PS3 on your local network.
    - The installer streams the stamped disk image directly to `/dev_hdd0/linux/walnut.img`, uploads boot files and the rootfs tarball to `dev_hdd1:/linux/`, and configures `dev_hdd1:/kboot.conf`.
@@ -111,7 +135,7 @@ If you prefer to keep your internal console drive untouched, you can install Wal
    - Identify the drive device node on your Linux PC (e.g. `/dev/sdX`).
 2. **Run the PC Installer**
    ```bash
-   walnut-install usb --release-dir DIR --disk /dev/sdX
+   DIR/walnut-installer-VERSION/installer/walnut-install usb --release-dir DIR --disk /dev/sdX
    ```
    > [!CAUTION]
    > This command will partition and format `/dev/sdX`, completely erasing all data on that USB drive. Verify the drive device name carefully before confirming.

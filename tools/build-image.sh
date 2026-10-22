@@ -1,10 +1,10 @@
 #!/bin/bash
 # Builds the PS3 root filesystem image: the package layer (build/rootfs/base.tar, from
 # build-rootfs.sh) plus our configuration (image/customize.sh) and our own packages from
-# build/debs/* (kernels, RSX driver, Mesa, games, SPU tools: make packages) or REPO_SUITE. Takes a
+# build/debs/* (kernels, RSX driver, Mesa, games, SPU tools: make packages), REPO_SUITE or WALNUT_SUITE. Takes a
 # minute or two, so a config change doesn't reinstall the Debian packages. Runs as root in the
 # builder container. Inputs (env): ROOTFS_CUSTOMIZE SOURCE_DATE_EPOCH BOOT_ROOT_ARGS
-# BOOT_EXTRA_ARGS REPO_SUITE REPO_URL OWNER
+# BOOT_EXTRA_ARGS REPO_SUITE REPO_URL WALNUT_SUITE WALNUT_APT WALNUT_KEYRING OWNER
 # Output: build/rootfs/debian-ppc64.tar, byte-for-byte the same from the same inputs
 set -euo pipefail
 {
@@ -54,7 +54,15 @@ rm -f "$R/etc/resolv.conf" && cp /etc/resolv.conf "$R/etc/resolv.conf"
 # with REPO_SUITE, a frozen snapshot of the stable suite on the server; pinned above Debian's, with
 # the base's snapshot source for anything new. Our Mesa replaces Debian's as an upgrade (auto marks kept); then whatever only
 # Debian's Mesa needed (LLVM, z3, sensors) is autoremoved.
-if [ -n "${REPO_SUITE:-}" ]; then
+if [ -n "${WALNUT_SUITE:-}" ]; then
+	# a suite on walnut.nanobyte.dev (the release image: stable), checked against its key
+	# (WALNUT_KEYRING); the exact versions go in the release's manifest
+	echo ">> our packages from $WALNUT_APT, suite $WALNUT_SUITE"
+	mkdir -p "$R/tmp/ps3-repo"
+	cp "$WALNUT_KEYRING" "$R/tmp/ps3-repo/keyring.gpg"
+	echo "deb [signed-by=/tmp/ps3-repo/keyring.gpg] $WALNUT_APT $WALNUT_SUITE main" > "$R/etc/apt/sources.list.d/zz-image.list"
+	printf 'Package: *\nPin: release o=Walnut, n=%s\nPin-Priority: 1001\n' "$WALNUT_SUITE" > "$R/etc/apt/preferences.d/zz-image"
+elif [ -n "${REPO_SUITE:-}" ]; then
 	# a frozen snapshot of our stable suite on the server (make repo-snapshot)
 	echo ">> our packages from $REPO_URL/ps3, suite $REPO_SUITE"
 	mkdir -p "$R/tmp/ps3-repo"

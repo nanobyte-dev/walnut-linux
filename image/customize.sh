@@ -43,6 +43,11 @@ else
 	# Root login on the local console (tty1) for recovery, no password
 	chroot "$R" passwd -d root
 
+	# The LAN repository next to Walnut's (ps3-system's walnut.sources): ps3, ps3-dev (make deploy)
+	# and ps3-licensed
+	install -m 644 tools/repo-server/apt/ps3-lan.sources "$R/etc/apt/sources.list.d/ps3-lan.sources"
+	install -m 644 tools/repo-server/apt/ps3-lan.pref "$R/etc/apt/preferences.d/ps3-lan"
+
 	# DNS from NetworkManager, which runs the wired port too (ps3-system's 00-ps3.conf); an NFS root
 	# boot uses the kernel's /proc/net/pnp (ps3-nfsroot-network.service; install-nfs-root.sh links it)
 	ln -sf /run/NetworkManager/resolv.conf "$R/etc/resolv.conf"

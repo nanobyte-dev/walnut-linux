@@ -1,4 +1,5 @@
-# Our packages (tools/repo-server/ on tibi-server): kernel, Mesa, RSX driver, tools, games.
+# The LAN repository (tools/repo-server/ on tibi-server), for the dev console only: make deploy uses these,
+# the dev image installs them (image/customize.sh). Public systems get walnut.sources (ps3-system).
 # ps3: stable releases. ps3-dev: dev builds with their debug symbols (the newest 5 of each),
 # never chosen by apt on its own (/etc/apt/preferences.d/ps3): apt install -t ps3-dev <pkg>
 # ps3-licensed: licensed game content we may not redistribute (classicube-data, Quake's shareware

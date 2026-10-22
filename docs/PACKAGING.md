@@ -146,12 +146,12 @@ The public suites at walnut.nanobyte.dev/apt are built and published by GitHub A
 
 `ps3-system` ships the apt configuration (`ps3-system/files/apt/`).
 
-- **Sources.** Debian ports, live (`deb.debian.org/debian-ports`, unstable and unreleased): anything we don't build installs and upgrades from Debian. Our repository, `Trusted: yes` on the LAN: `ps3`, `ps3-dev` and `ps3-licensed`.
-- **Pins** (`/etc/apt/preferences.d/ps3`):
-  - the stable suite at 990, so our releases win over Debian's (500) whatever the versions, but an installed newer dev build is never downgraded (990 is below 1000): the next release, a higher version, takes over from it;
-  - `ps3-licensed` at 990 as well (it has no dev builds, so a dev build of an engine takes its data from there);
-  - the dev suite at 1: never chosen on its own, only with `apt install -t ps3-dev <pkg>` (what `make deploy` does);
+- **Sources.** Debian ports, live (`deb.debian.org/debian-ports`, unstable and unreleased): anything we don't build installs and upgrades from Debian. Walnut's `stable` from `https://walnut.nanobyte.dev/apt`, checked against the archive key (`/usr/share/keyrings/walnut-archive-keyring.gpg`); `testing` is in the same file (`/etc/apt/sources.list.d/walnut.sources`) with `Enabled: no`, checked against the CI key. The keyrings in `ps3-system/files/apt/` are copies of `tools/walnut-server/*-keyring.gpg`: a key change goes into both.
+- **Pins** (`/etc/apt/preferences.d/walnut`):
+  - `stable` at 990, so our releases win over Debian's (500) whatever the versions, but an installed newer testing build is never downgraded (990 is below 1000): the next release, a higher version, takes over from it;
+  - `testing` at 1: never chosen on its own, only with `apt install -t testing <pkg>`;
   - Debian's `linux-image-*`, `linux-headers-*`, `linux-kbuild-*`, `linux-support-*` and `src:mesa` at -1, so they are never candidates.
+- **The dev console** also has the LAN repository (`ps3`, `ps3-dev`, `ps3-licensed`, `Trusted: yes`): `tools/repo-server/apt/ps3-lan.{sources,pref}`, put in by the dev image (`image/customize.sh`) and used by `make deploy`. Consoles installed before the walnut.sources change (2026-10-23) keep the old `ps3.sources` and `preferences.d/ps3` (dpkg leaves a dropped conffile in place).
 - **`apt upgrade` is safe.** A Debian package that needs a newer Mesa than ours is kept back, and nothing is removed. Verified in the ppc64 chroot against live debian-ports (2026-10-16).
 - Going back to an older version is explicit (`apt install pkg=<version>`).
 - The same version in `deps` and in Debian counts as one, so the -1 also blocks `deps`' copy of Debian's Mesa. A rollback to Debian's Mesa means dropping the pin by hand.

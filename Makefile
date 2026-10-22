@@ -376,20 +376,26 @@ deploy: | $(REPO_BUILDER_STAMP)
 
 # --- Image --------------------------------------------------------------------
 # The package layer plus our config (image/) and our packages (build/debs/*)
-IMAGE_INPUTS := $(ROOTFS_BASE) $(wildcard image/*) tools/build-image.sh $(SSH_PUBKEY) \
+IMAGE_INPUTS := $(ROOTFS_BASE) $(wildcard image/* tools/repo-server/apt/*) tools/build-image.sh $(wildcard $(SSH_PUBKEY)) \
 	$(wildcard $(BUILD)/debs/*/*.deb)
 PROFILE ?= dev
 rootfs: $(ROOTFS_TAR)
 IMAGE_VARS := $(BUILD)/image.vars
 BOOT_ROOT_ARGS := $(ROOT_ARGS_usb) rootwait
-IMAGE_VARS_NOW := $(BOOT_ROOT_ARGS) $(DEBUG_ARGS) $(REPO_SUITE) $(PROFILE)
+# WALNUT_SUITE=stable|testing: our packages from that suite on walnut.nanobyte.dev, checked against
+# its key (the release image, .github/workflows/release-image.yml); else REPO_SUITE or build/debs
+WALNUT_SUITE ?=
+WALNUT_APT ?= https://walnut.nanobyte.dev/apt
+WALNUT_KEYRING = tools/walnut-server/$(if $(filter testing,$(WALNUT_SUITE)),testing,archive)-keyring.gpg
+IMAGE_VARS_NOW := $(BOOT_ROOT_ARGS) $(DEBUG_ARGS) $(REPO_SUITE) $(PROFILE) $(WALNUT_SUITE) $(WALNUT_APT)
 $(shell [ "$$(cat $(IMAGE_VARS) 2>/dev/null)" = "$(IMAGE_VARS_NOW)" ] || echo "$(IMAGE_VARS_NOW)" > $(IMAGE_VARS))
 $(ROOTFS_TAR): $(IMAGE_INPUTS) $(IMAGE_VARS) | $(REPO_BUILDER_STAMP)
 	@mkdir -p $(BUILD)/rootfs
 	[ -f "$(SSH_PUBKEY)" ] && cp $(SSH_PUBKEY) $(BUILD)/rootfs/authorized_keys || touch $(BUILD)/rootfs/authorized_keys
 	$(DOCKER_RUN) --privileged $(ROOTFS_ENV) -e BOOT_ROOT_ARGS="$(BOOT_ROOT_ARGS)" \
 		-e BOOT_EXTRA_ARGS="$(DEBUG_ARGS)" -e PROFILE=$(PROFILE) \
-		-e REPO_SUITE=$(REPO_SUITE) -e REPO_URL=$(REPO_URL) $(REPO_BUILDER_TAG) tools/build-image.sh
+		-e REPO_SUITE=$(REPO_SUITE) -e REPO_URL=$(REPO_URL) -e WALNUT_SUITE=$(WALNUT_SUITE) \
+		-e WALNUT_APT=$(WALNUT_APT) -e WALNUT_KEYRING=$(WALNUT_KEYRING) $(REPO_BUILDER_TAG) tools/build-image.sh
 	rm -f $(BUILD)/rootfs/authorized_keys
 
 # --- Run ----------------------------------------------------------------------
