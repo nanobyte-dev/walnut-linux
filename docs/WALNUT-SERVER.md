@@ -14,12 +14,24 @@ walnut.nanobyte.dev runs on the OVH box in `/data/nanobyte/Walnut`, behind the m
 
 `walnut-watch` (host, systemd path unit + timer) publishes uploads; `walnut-ccache-trim` (daily timer) trims the ccache store.
 
+## Release images
+
+`.github/workflows/release-image.yml` ("Walnut release", by hand) builds the public image from one suite:
+
+| Channel | Id | Signed by | Lands in | Kept |
+|---|---|---|---|---|
+| stable | `A.B.C`: A.B from the top-level `VERSION` file (by hand), C one past the newest published `A.B.*`, back to 0 when A.B changes (`tools/ci/release-id.sh`) | the archive key (environment walnut-stable) | `/download/A.B.C/`, the GitHub release `vA.B.C` | forever; `/download/latest` is the highest A.B.C |
+| testing | `nightly-<yyyymmdd>-<hhmm>-<commit>`; the image's apt follows testing | the CI key (environment walnut-testing) | `/download/nightly/<id>/` | the newest 3; `/download/nightly/latest` |
+
+walnut-watch checks the key by id (a nightly signed by the archive key, or a stable one by the CI key, is refused) and never replaces a published id.
+
 ## Concurrency: what can run at once, and why nothing breaks
 
 The rule everywhere: content appears whole or not at all (a rename), and anything decided on a state carries that state, so a decision made on an old state is refused, never applied.
 
 | Case | Why it's safe |
 |---|---|
+| Two release runs of one channel | The workflow's concurrency group runs them one after the other, so the next A.B.C is counted from what's published; an id that exists is refused. |
 | Uploads in parallel | Every upload has its own id (time, commit, package, target, attempt), rrsync never overwrites or deletes, the manifest goes last. |
 | A manifest before its files (bug, abort) | walnut-watch copies every file with O_NOFOLLOW and hashes the copy against the manifest: a missing or partial file refuses the upload. An upload without its manifest is never touched, and goes after 2 days. |
 | walnut-watch twice (path unit, timer, `--rebuild`) | One flock (`state/lock`): one instance at a time, the pool sweep inside the same lock. |

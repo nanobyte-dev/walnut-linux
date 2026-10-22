@@ -1,18 +1,23 @@
 #!/bin/bash
-# build-release.sh VERSION OUT [SUITE]: a Walnut release (docs/release/ALPHA.md M7) into OUT/, built
-# on a GitHub runner (.github/workflows/release-image.yml) or the dev PC. The image is the public
-# profile with our packages from SUITE (stable) on walnut.nanobyte.dev, checked against its key.
-#   walnut-VERSION-ppc64.tar.xz   the root filesystem (the installer's rootfs tarball)
+# build-release.sh ID OUT stable|testing: a Walnut release image (docs/release/ALPHA.md M7) into OUT/,
+# built on a GitHub runner (.github/workflows/release-image.yml) or the dev PC. The image is the
+# public profile with our packages from that suite on walnut.nanobyte.dev, checked against its key.
+# ID (tools/ci/release-id.sh): A.B.C for stable, nightly-<date>-<time>-<commit> for testing.
+#   walnut-ID-ppc64.tar.xz        the root filesystem (the installer's rootfs tarball)
 #   vmlinux-<release>             its release kernel, and <release>.args, the kernel's own arguments
 #   initrd-walnut.img             the internal install's generic initramfs
-#   walnut-installer-VERSION.tar.gz  installer/ and the stamp tool it uses (runs from the unpacked tree)
+#   walnut-installer-ID.tar.gz    installer/ and the stamp tool it uses (runs from the unpacked tree)
 #   MANIFEST                      every package in the image with its version
 #   SHA256SUMS                    of all of the above; the publish job signs it (SHA256SUMS.asc)
 # No secrets here.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-ver=$1 out=$2 suite=${3:-stable}
-[[ $ver =~ ^[0-9][A-Za-z0-9.~+-]*$ ]] || { echo "!! bad version $ver" >&2; exit 2; }
+ver=$1 out=$2 suite=$3
+case $suite in
+	stable) [[ $ver =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ;;
+	testing) [[ $ver =~ ^nightly-[0-9]{8}-[0-9]{4}-[0-9a-f]{7}$ ]] ;;
+	*) false ;;
+esac || { echo "!! usage: $0 A.B.C OUT stable | $0 nightly-<date>-<time>-<commit> OUT testing" >&2; exit 2; }
 tools/ci/runner-prep.sh
 
 echo "::group::make rootfs (public, $suite)"

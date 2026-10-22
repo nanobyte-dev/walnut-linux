@@ -1,19 +1,23 @@
-# A Walnut release (docs/release/ALPHA.md M7), by hand only:
-#   build    the public image from the stable suite, its kernel, the internal install's initramfs and
+# A Walnut release image (docs/release/ALPHA.md M7), by hand only, from one of the two suites:
+#   stable   version A.B.C: A.B from the file VERSION, C counted up (tools/ci/release-id.sh); signed
+#            by the archive key's signing subkey (environment walnut-stable: the owner approves),
+#            published to walnut.nanobyte.dev/download/A.B.C/ and as the GitHub release vA.B.C
+#   testing  a nightly, nightly-<date>-<time>-<commit>: the image follows testing; signed by the CI
+#            key (environment walnut-testing), published to download/nightly/<id>/ (the newest 3
+#            are kept), not on GitHub
+#   build    the public image from that suite, its kernel, the internal install's initramfs and
 #            the installer (tools/ci/build-release.sh); no secrets
-#   publish  SHA256SUMS signed by the archive key's signing subkey, the release published to
-#            walnut.nanobyte.dev/download/<version>/ (tools/ci/publish-release.sh; environment
-#            walnut-stable: the owner approves), then the GitHub release v<version> with the same files
-# A published version never changes: a new build is a new version.
+# A published release never changes: a new build is a new id.
 name: "Walnut release"
 
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "Version, e.g. 0.1-alpha (published once, never replaced)"
-        type: string
-        required: true
+      channel:
+        description: "stable (the next A.B.C) or testing (a nightly)"
+        type: choice
+        options: [stable, testing]
+        default: testing
       publish:
         description: "Publish (off: build only, the files stay in the run's artifact for a look)"
         type: boolean
@@ -23,25 +27,26 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ inputs.version }}
+  group: release-${{ inputs.channel }}  # one at a time: the next A.B.C is counted from what's published
 
 jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    outputs:
+      id: ${{ steps.id.outputs.id }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # versions count commits (tools/deb-version.sh)
-      - name: Not published yet
-        if: inputs.publish
+      - name: Release id
+        id: id
         env:
-          VERSION: ${{ inputs.version }}
+          CHANNEL: ${{ inputs.channel }}
         run: |
-          [[ $VERSION =~ ^[0-9][A-Za-z0-9.~+-]*$ ]] || { echo "!! bad version $VERSION"; exit 1; }
-          if curl -fsSI "https://walnut.nanobyte.dev/download/$VERSION/SHA256SUMS" >/dev/null; then
-            echo "!! $VERSION is published already: a new build is a new version"; exit 1
-          fi
+          id=$(tools/ci/release-id.sh "$CHANNEL")
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "### Walnut $id ($CHANNEL)" >> "$GITHUB_STEP_SUMMARY"
       - name: The package layer (Debian's packages, from the build snapshot)
         id: base
         uses: actions/cache/restore@v6
@@ -50,8 +55,9 @@ jobs:
           key: rootfs-base-${{ hashFiles('image/packages.txt', 'tools/build-rootfs.sh', 'config.mk', 'docker/Dockerfile') }}
       - name: Build
         env:
-          VERSION: ${{ inputs.version }}
-        run: tools/ci/build-release.sh "$VERSION" out stable
+          ID: ${{ steps.id.outputs.id }}
+          CHANNEL: ${{ inputs.channel }}
+        run: tools/ci/build-release.sh "$ID" out "$CHANNEL"
       - name: Keep the package layer, even when a later step failed (it is written whole, by rename)
         if: always() && steps.base.outputs.cache-hit != 'true' && hashFiles('build/rootfs/base.tar') != ''
         uses: actions/cache/save@v6
@@ -60,7 +66,7 @@ jobs:
           key: ${{ steps.base.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@v7
         with:
-          name: release
+          name: release-${{ steps.id.outputs.id }}
           path: out/
           retention-days: 7
           compression-level: 0
@@ -69,27 +75,29 @@ jobs:
     needs: build
     if: inputs.publish
     runs-on: ubuntu-24.04
-    environment: walnut-stable
+    environment: walnut-${{ inputs.channel }}
     permissions:
       contents: write  # the GitHub release
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
-          name: release
+          name: release-${{ needs.build.outputs.id }}
           path: out
       - name: Publish to walnut.nanobyte.dev
         env:
-          VERSION: ${{ inputs.version }}
-          WALNUT_SIGN_KEY: ${{ secrets.WALNUT_ARCHIVE_SUBKEY }}
-          WALNUT_SIGN_PASSPHRASE: ${{ secrets.WALNUT_ARCHIVE_PASSPHRASE }}
+          ID: ${{ needs.build.outputs.id }}
+          WALNUT_SIGN_KEY: ${{ inputs.channel == 'stable' && secrets.WALNUT_ARCHIVE_SUBKEY || secrets.WALNUT_TESTING_KEY }}
+          WALNUT_SIGN_PASSPHRASE: ${{ inputs.channel == 'stable' && secrets.WALNUT_ARCHIVE_PASSPHRASE || '' }}
           WALNUT_DEPLOY_KEY_DATA: ${{ secrets.WALNUT_DEPLOY_KEY }}
-        run: tools/ci/publish-release.sh "$VERSION" out
+        run: tools/ci/publish-release.sh "$ID" out
       - name: The GitHub release
+        if: inputs.channel == 'stable'
         env:
-          VERSION: ${{ inputs.version }}
+          ID: ${{ needs.build.outputs.id }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          tools/ci/release-notes.sh "$VERSION" out > notes.md
-          gh release create "v$VERSION" --target "$GITHUB_SHA" --prerelease \
-            --title "Walnut $VERSION" --notes-file notes.md out/*
+          tools/ci/release-notes.sh "$ID" out > notes.md
+          pre=; [[ $ID == 0.* ]] && pre=--prerelease  # 0.x: alpha
+          gh release create "v$ID" --target "$GITHUB_SHA" $pre \
+            --title "Walnut $ID" --notes-file notes.md out/*

@@ -1,6 +1,6 @@
 #!/bin/bash
-# release-notes.sh VERSION DIR: the GitHub release's text for a release in DIR (build-release.sh's
-# output, signed), on stdout
+# release-notes.sh VERSION DIR: the GitHub release's text for a stable release in DIR
+# (build-release.sh's output, signed), on stdout
 set -euo pipefail
 ver=$1 dir=$2
 url=https://walnut.nanobyte.dev/download/$ver

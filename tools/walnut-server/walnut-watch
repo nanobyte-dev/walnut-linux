@@ -14,7 +14,10 @@ half-written file:
             walnut-repo (apt, downloads) is a separate container: a site switch never touches it
   download  a release directory -> www/download/<id>/ in one rename; releases never change. It must
             hold SHA256SUMS and SHA256SUMS.asc, a detached signature by the archive key
-            (keys/archive-keyring.gpg), and SHA256SUMS must list every other file with its hash
+            (keys/archive-keyring.gpg), and SHA256SUMS must list every other file with its hash.
+            download/latest points at the highest A.B.C version. A nightly (id nightly-<date>-<time>-
+            <commit>, the image built from testing) is signed by the CI key instead and goes to
+            download/nightly/<id>/, with download/nightly/latest; the newest NIGHTLY_KEEP are kept
   apt       an aptly publish tree (pool/, dists/<suite>/) -> www/apt/; licensed: the same -> www/licensed/.
             New pool files first (a pool file that exists must be identical: published files
             never change), then each suite's dists in a new generation directory, switched with
@@ -56,6 +59,9 @@ ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 NAME_RE = re.compile(r"[A-Za-z0-9_+~-][A-Za-z0-9._+~-]{0,200}\Z")	# one path component, never hidden
 SITE_EXT = {"html", "css", "js", "txt", "xml", "json", "svg", "png", "jpg", "jpeg", "webp", "gif",
             "ico", "woff", "woff2", "asc", "gpg", "pdf"}
+NIGHTLY_RE = re.compile(r"nightly-[0-9]{8}-[0-9]{4}-[0-9a-f]{7}\Z")
+NIGHTLY_KEEP = 3
+VERSION_RE = re.compile(r"([0-9]+)\.([0-9]+)\.([0-9]+)\Z")	# a stable release, for download/latest
 MAX_BYTES = 8 << 30		# one bundle
 KEEP_FREE = 5 << 30		# left on the disk after it
 KEEP_SITES = 3			# site versions (and images) kept for a rollback
@@ -211,14 +217,29 @@ def verify_signature(what, *files, output=None, keyring=KEYRING):
 		              f"{r.stderr.strip()[-500:]}")
 
 
+def point_latest(top, bid):
+	"""top/latest -> bid, switched by one rename"""
+	tmp = f"{top}/.latest-{bid}"
+	if os.path.lexists(tmp):
+		os.unlink(tmp)
+	os.symlink(bid, tmp)
+	os.rename(tmp, f"{top}/latest")
+
+
 def publish_download(bid, staging):
-	target = f"{WWW}/download/{bid}"
+	nightly = bid.startswith("nightly")
+	if nightly and not NIGHTLY_RE.match(bid):
+		raise Refused(f"{bid}: a nightly is nightly-<yyyymmdd>-<hhmm>-<7 hex digits of the commit>")
+	if bid == "latest" or bid == "nightly":
+		raise Refused(f"{bid}: not a release id")
+	top = f"{WWW}/download/nightly" if nightly else f"{WWW}/download"
+	target = f"{top}/{bid}"
 	if os.path.lexists(target):
-		raise Refused(f"download/{bid} exists: a release never changes, upload a new version")
+		raise Refused(f"{os.path.relpath(target, WWW)} exists: a release never changes, upload a new version")
 	sums, sig = f"{staging}/SHA256SUMS", f"{staging}/SHA256SUMS.asc"
 	if not os.path.isfile(sums) or not os.path.isfile(sig):
 		raise Refused("a release needs SHA256SUMS and its signature SHA256SUMS.asc")
-	verify_signature("SHA256SUMS", sig, sums)
+	verify_signature("SHA256SUMS", sig, sums, keyring=TESTING_KEYRING if nightly else KEYRING)
 	listed = {}
 	with open(sums, encoding="utf-8") as f:
 		for n, line in enumerate(f, 1):
@@ -236,7 +257,20 @@ def publish_download(bid, staging):
 	for name, want in listed.items():
 		if sha256_file(f"{staging}/{name}") != want:
 			raise Refused(f"{name}: does not match SHA256SUMS")
+	os.makedirs(top, 0o755, exist_ok=True)
 	os.rename(staging, target)
+	if nightly:
+		point_latest(top, bid)	# ids sort by time: this is the newest
+		old = sorted(n for n in os.listdir(top) if NIGHTLY_RE.match(n))[:-NIGHTLY_KEEP]
+		for n in old:
+			shutil.rmtree(f"{top}/{n}")
+		return f"download/nightly/{bid}" + (f" (removed {', '.join(old)})" if old else "")
+	m = VERSION_RE.match(bid)
+	if m:
+		cur = os.readlink(f"{top}/latest") if os.path.islink(f"{top}/latest") else ""
+		c = VERSION_RE.match(cur)
+		if not c or tuple(map(int, m.groups())) > tuple(map(int, c.groups())):
+			point_latest(top, bid)
 	return f"download/{bid}"
 
 

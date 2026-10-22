@@ -119,6 +119,15 @@ chroot "$R" dpkg-query -W -f='${Package} ${Version}\n' mesa-libgallium libgbm1 |
 if chroot "$R" dpkg-query -W -f='${Package}\n' 'libllvm*' 'libz3-*' 2>/dev/null | grep -q .; then
 	echo "!! LLVM or z3 still installed"; exit 1
 fi
+# An image from testing (a nightly) follows testing: its source on, at stable's priority (the
+# higher version wins, and testing's builds are the newer ones)
+if [ "${WALNUT_SUITE:-}" = testing ]; then
+	sed -i '/Suites: testing/,/^$/s/^Enabled: no$/Enabled: yes/' "$R/etc/apt/sources.list.d/walnut.sources"
+	grep -A3 'Suites: testing' "$R/etc/apt/sources.list.d/walnut.sources" | grep -qx 'Enabled: yes' ||
+		{ echo "!! testing not enabled in walnut.sources"; exit 1; }
+	printf '%s\n' '# a nightly image: testing as the default (ps3-system walnut.pref has it at 1 otherwise)' \
+		'Package: *' 'Pin: release o=Walnut, n=testing' 'Pin-Priority: 990' > "$R/etc/apt/preferences.d/walnut-nightly"
+fi
 # Public profile: strip video= from kernel boot arguments and update kboot.conf
 if [ "$PROFILE" = "public" ]; then
 	for argf in "$R"/usr/lib/ps3/boot/*.args; do

@@ -71,9 +71,12 @@ Petitboot is the bootloader menu that OtherOS++ loads.
 
 ### Getting the release
 
-Each release is at `https://walnut.nanobyte.dev/download/VERSION/` and on the
+Stable releases are numbered A.B.C. Each is at `https://walnut.nanobyte.dev/download/VERSION/`
+(the newest: `download/latest/`) and on the
 [GitHub releases page](https://github.com/nanobyte-dev/walnut-linux/releases), the same files in both
-places. Put all of them in one directory (`DIR`), check the signature and the checksums, and unpack the
+places. Nightlies, built from the testing suite and updating from it, are at
+`https://walnut.nanobyte.dev/download/nightly/` (the newest three; `nightly/latest/`); they are signed
+by the CI key (`walnut-testing.asc` on the site) instead of the archive key. Put all of them in one directory (`DIR`), check the signature and the checksums, and unpack the
 installer:
 
 ```bash

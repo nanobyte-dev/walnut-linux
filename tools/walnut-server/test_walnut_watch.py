@@ -154,6 +154,35 @@ class Watch(unittest.TestCase):
 		self.assertTrue(self.result("download", "h").startswith("refused"))
 		self.assertTrue(self.result("download", "p").startswith("refused"))
 
+	def test_latest_stable(self):
+		for v in ("0.1.0", "0.1.2", "0.1.1", "0.1-alpha"):
+			self.drop("download", v, release({"a": v.encode()}))
+			self.run_watch()
+			self.assertTrue(self.result("download", v).startswith("ok"), self.result("download", v))
+		self.assertEqual(self.www("download/latest/a"), b"0.1.2")	# the highest A.B.C, not the newest
+
+	def test_nightly(self):
+		ids = [f"nightly-2026102{d}-1200-abcdef{d}" for d in range(5)]
+		for n in ids:
+			self.drop("download", n, release({"a": n.encode()}, who="ci"))
+			self.run_watch()
+			self.assertTrue(self.result("download", n).startswith("ok"), self.result("download", n))
+		self.assertEqual(sorted(os.listdir(f"{self.root}/www/download/nightly")), ["latest", *ids[-3:]])
+		self.assertEqual(self.www("download/nightly/latest/a"), ids[-1].encode())
+		self.assertFalse(os.path.lexists(f"{self.root}/www/download/latest"))
+
+	def test_nightly_keys_and_names(self):
+		self.drop("download", "nightly-20261023-1200-abcdef0", release({"a": b"1"}))	# the archive key
+		self.drop("download", "0.2.0", release({"a": b"1"}, who="ci"))	# a stable signed by CI
+		self.drop("download", "nightly-x", release({"a": b"1"}, who="ci"))
+		self.drop("download", "latest", release({"a": b"1"}))
+		self.run_watch()
+		self.assertIn("not signed by the testing-keyring.gpg key", self.result("download", "nightly-20261023-1200-abcdef0"))
+		self.assertIn("not signed by the archive-keyring.gpg key", self.result("download", "0.2.0"))
+		self.assertIn("a nightly is", self.result("download", "nightly-x"))
+		self.assertIn("not a release id", self.result("download", "latest"))
+		self.assertFalse(os.path.lexists(f"{self.root}/www/download/nightly"))
+
 	# --- release signatures ---
 
 	def test_release_unsigned(self):
