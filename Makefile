@@ -528,12 +528,14 @@ classicube-data-src: $(CCD_ORIG)
 # ps3rsx-modules-<release>, metas ps3rsx-modules-ps3 and ps3rsx-modules-ps3-debug (named like the
 # kernel's: KERNEL_FLAVOUR is the Debian flavour), in build/debs/ps3rsx-<Debian flavour>
 ps3rsx-modules:
-	@set -e; $(KERNEL_DEB_SH); for f in release:ps3 debug:ps3-debug; do \
+	@set -e; $(KERNEL_DEB_SH); count=0; for f in release:ps3 debug:ps3-debug; do \
 		d=$$(kernel_deb $${f%%:*}); \
-		[ -n "$$d" ] || { echo "no linux-image for $${f%%:*}: make linux-deb"; exit 1; }; \
+		[ -n "$$d" ] || continue; \
+		count=$$((count + 1)); \
 		rel=$$(basename $$d | sed 's/^linux-image-//; s/_.*//'); echo ">> ps3rsx for $$rel"; \
 		$(MAKE) --no-print-directory ps3rsx-src ps3rsx-deb KERNEL_RELEASE=$$rel KERNEL_FLAVOUR=$${f#*:}; \
-	done
+	done; \
+	[ $$count -gt 0 ] || { echo "no linux-image in $(BUILD)/debs/linux: make linux-deb" >&2; exit 1; }
 # snd_ps3.ko out of tree with linux/patches' sound/ppc patches, for the kernel REL (default: the newest
 # release kernel in build/debs/linux), to try them without a new kernel: build/debs/snd-ps3/<REL>
 snd-ps3-ko: | $(REPO_BUILDER_STAMP)
