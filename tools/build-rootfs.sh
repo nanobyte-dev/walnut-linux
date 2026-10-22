@@ -36,6 +36,6 @@ chown -R "$OWNER" "$CACHE"
 # The previous layer is kept as one backup (ephemeral otherwise: CLAUDE.md)
 [ ! -e "$OUT/base.tar" ] || mv "$OUT/base.tar" "$OUT/base.prev.tar"
 mv "$OUT/base.tar.tmp" "$OUT/base.tar"
-chown "$OWNER" "$OUT/base.tar"
+chown "$OWNER" "$OUT" "$OUT/base.tar"	# the directory too: on a fresh tree this made it, as root
 exit
 }

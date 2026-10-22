@@ -154,9 +154,6 @@ tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --clamp-mtime --numeric-owner --on
 # The previous image is kept as one backup (images are ephemeral: CLAUDE.md)
 [ ! -e "$OUT/debian-ppc64.tar" ] || mv "$OUT/debian-ppc64.tar" "$OUT/debian-ppc64.prev.tar"
 mv "$OUT/debian-ppc64.tar.tmp" "$OUT/debian-ppc64.tar"
-chown "$OWNER" "$OUT/debian-ppc64.tar"
-if [ "$PROFILE" = "public" ]; then
-	ln -sf debian-ppc64.tar "$OUT/walnut-0.1-alpha-ppc64.tar"
-fi
+chown "$OWNER" "$OUT" "$OUT/debian-ppc64.tar"
 exit
 }
