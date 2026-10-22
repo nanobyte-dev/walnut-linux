@@ -149,25 +149,34 @@ def verify_release_dir(release_dir: str, need_initrd: bool = True) -> dict:
             raise ValueError(f"Checksum mismatch for {fname}: expected {expected_hash}, got {actual_hash}")
         verified_files.append(fname)
 
+    # The release archive is laid out like the two disks (stamp.py prepare): the system in
+    # dev_hdd1/linux/install/, the boot files in dev_hdd1/linux/boot/. A flat directory works too.
+    archive_install = os.path.join(release_dir, "dev_hdd1", "linux", "install")
+    rootfs_dir = archive_install if os.path.isdir(archive_install) else release_dir
+
     # 1. rootfs .tar.xz
-    rootfs_candidates = [f for f in os.listdir(release_dir) if f.endswith(".tar.xz")]
+    rootfs_candidates = [f for f in os.listdir(rootfs_dir) if f.endswith(".tar.xz")]
     if "rootfs.tar.xz" in rootfs_candidates:
-        rootfs_path = os.path.join(release_dir, "rootfs.tar.xz")
+        rootfs_path = os.path.join(rootfs_dir, "rootfs.tar.xz")
     elif len(rootfs_candidates) == 1:
-        rootfs_path = os.path.join(release_dir, rootfs_candidates[0])
+        rootfs_path = os.path.join(rootfs_dir, rootfs_candidates[0])
     elif not rootfs_candidates:
         raise ValueError(f"No rootfs .tar.xz found in {release_dir}")
     else:
         raise ValueError(f"Multiple .tar.xz files in {release_dir}: {rootfs_candidates}; cannot identify rootfs")
 
+    boot_dir = os.path.join(release_dir, "dev_hdd1", "linux", "boot")
+    if not os.path.isdir(boot_dir):
+        boot_dir = release_dir
+
     # 2. kernel vmlinux-<release>
     kernel_candidates = [
-        f for f in os.listdir(release_dir)
+        f for f in os.listdir(boot_dir)
         if f.startswith("vmlinux-") and not f.endswith((".args", ".manifest", ".sha256", ".tmp", ".dpkg-tmp", ".dpkg-new"))
     ]
     if len(kernel_candidates) == 1:
         kernel_name = kernel_candidates[0]
-        kernel_path = os.path.join(release_dir, kernel_name)
+        kernel_path = os.path.join(boot_dir, kernel_name)
         release = kernel_name[len("vmlinux-"):]
     elif not kernel_candidates:
         raise ValueError(f"No vmlinux-<release> kernel found in {release_dir}")
@@ -176,26 +185,26 @@ def verify_release_dir(release_dir: str, need_initrd: bool = True) -> dict:
 
     # 3. initrd
     initrd_path = None
-    if os.path.isfile(os.path.join(release_dir, "initrd-walnut.img")):
-        initrd_path = os.path.join(release_dir, "initrd-walnut.img")
+    if os.path.isfile(os.path.join(boot_dir, "initrd-walnut.img")):
+        initrd_path = os.path.join(boot_dir, "initrd-walnut.img")
     else:
-        initrd_candidates = [f for f in os.listdir(release_dir) if f.startswith("initrd") and f.endswith(".img")]
+        initrd_candidates = [f for f in os.listdir(boot_dir) if f.startswith("initrd") and f.endswith(".img")]
         if len(initrd_candidates) == 1:
-            initrd_path = os.path.join(release_dir, initrd_candidates[0])
+            initrd_path = os.path.join(boot_dir, initrd_candidates[0])
         elif need_initrd:
             raise ValueError(f"No initrd-walnut.img found in {release_dir}")
 
     # 4. args file
-    args_candidates = [f for f in os.listdir(release_dir) if f.endswith(".args")]
+    args_candidates = [f for f in os.listdir(boot_dir) if f.endswith(".args")]
     args_path = None
     specific_args = [f"{release}.args", f"vmlinux-{release}.args"]
     for s in specific_args:
-        if os.path.isfile(os.path.join(release_dir, s)):
-            args_path = os.path.join(release_dir, s)
+        if os.path.isfile(os.path.join(boot_dir, s)):
+            args_path = os.path.join(boot_dir, s)
             break
     if not args_path:
         if len(args_candidates) == 1:
-            args_path = os.path.join(release_dir, args_candidates[0])
+            args_path = os.path.join(boot_dir, args_candidates[0])
         elif not args_candidates:
             raise ValueError(f"No .args file found for release {release} in {release_dir}")
         else:
@@ -349,6 +358,7 @@ def get_stamp_module():
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
+        os.path.normpath(os.path.join(script_dir, "lib", "stamp.py")),  # the release archive
         os.path.normpath(os.path.join(script_dir, "..", "tools", "ssdimg", "stamp.py")),
         os.path.normpath(os.path.join(os.getcwd(), "tools", "ssdimg", "stamp.py")),
         os.path.normpath(os.path.join(script_dir, "stamp.py")),
@@ -667,6 +677,12 @@ def cmd_usb(args):
     print("=" * 70 + "\n")
 
 
+def default_release_dir():
+    """The unpacked release archive: walnut-install sits in it, next to SHA256SUMS."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    return here if os.path.isfile(os.path.join(here, "SHA256SUMS")) else None
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="walnut-install",
@@ -676,7 +692,8 @@ def main(argv=None):
 
     # internal subcommand
     i_parser = sub.add_parser("internal", help="install Walnut onto PS3 internal HDD over webMAN FTP")
-    i_parser.add_argument("--release-dir", required=True, help="directory containing release files")
+    i_parser.add_argument("--release-dir", default=default_release_dir(), required=default_release_dir() is None,
+                          help="the unpacked release (default: this script's directory, in a release archive)")
     i_parser.add_argument("--size", default="16G", help="stamped image size (e.g. 16G, default: 16G)")
     i_parser.add_argument("--swap-mib", type=int, default=1024, help="swap size in MiB (default: 1024)")
     i_parser.add_argument("--host", default=os.environ.get("PS3_IP"), help="PS3 host/IP in GameOS (default: $PS3_IP)")
@@ -691,7 +708,8 @@ def main(argv=None):
 
     # usb subcommand
     u_parser = sub.add_parser("usb", help="install Walnut onto an external USB drive")
-    u_parser.add_argument("--release-dir", required=True, help="directory containing release files")
+    u_parser.add_argument("--release-dir", default=default_release_dir(), required=default_release_dir() is None,
+                          help="the unpacked release (default: this script's directory, in a release archive)")
     u_parser.add_argument("--disk", required=True, help="target USB block device (e.g. /dev/sdX)")
     u_parser.add_argument("--swap-gib", type=int, default=4, help="swap partition size in GiB (default: 4)")
     u_parser.add_argument("--dry-run", action="store_true", help="dry-run mode: check device and show commands without writing")

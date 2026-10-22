@@ -90,6 +90,33 @@ class TestChecksumVerification(unittest.TestCase):
         self.assertEqual(info["args_file"], self.fixtures["args_file"])
         self.assertEqual(len(info["verified_files"]), 4)
 
+    def test_archive_layout(self):
+        """the release archive, laid out like the two disks (stamp.py prepare); sums with paths"""
+        rel = "6.12.111+ps3.726"
+        d = os.path.join(self.tmp.name, "walnut-0.1.0")
+        boot, inst = os.path.join(d, "dev_hdd1/linux/boot"), os.path.join(d, "dev_hdd1/linux/install")
+        os.makedirs(boot)
+        os.makedirs(inst)
+        os.makedirs(os.path.join(d, "dev_hdd0/linux"))
+        make_tar_xz(os.path.join(inst, "rootfs.tar.xz"), {"etc/hostname": b"walnut\n"})
+        files = {f"dev_hdd1/linux/boot/vmlinux-{rel}": b"k", "dev_hdd1/linux/boot/initrd-walnut.img": b"i",
+                 f"dev_hdd1/linux/boot/{rel}.args": b"quiet\n", "dev_hdd1/kboot.conf": b"walnut='...'\n",
+                 "dev_hdd1/linux/install/install.conf": b"walnut-install 1\n", "dev_hdd0/linux/walnut.img.xz": b"xz"}
+        for name, data in files.items():
+            with open(os.path.join(d, name), "wb") as f:
+                f.write(data)
+        with open(os.path.join(d, "SHA256SUMS"), "w") as f:
+            for name in ["dev_hdd1/linux/install/rootfs.tar.xz", *files]:
+                with open(os.path.join(d, name), "rb") as b:
+                    f.write(f"{hashlib.sha256(b.read()).hexdigest()}  {name}\n")
+        info = walnut_install.verify_release_dir(d)
+        self.assertEqual(info["release"], rel)
+        self.assertEqual(info["kernel"], os.path.join(boot, f"vmlinux-{rel}"))
+        self.assertEqual(info["initrd"], os.path.join(boot, "initrd-walnut.img"))
+        self.assertEqual(info["args_file"], os.path.join(boot, f"{rel}.args"))
+        self.assertEqual(info["rootfs"], os.path.join(inst, "rootfs.tar.xz"))
+        self.assertEqual(len(info["verified_files"]), 7)
+
     def test_checksum_tampered(self):
         # Tamper with kernel file
         with open(self.fixtures["kernel"], "ab") as f:

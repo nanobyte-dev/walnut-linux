@@ -1,0 +1,68 @@
+Walnut @ID@: Linux for the PlayStation 3
+https://walnut.nanobyte.dev
+Full guide: https://github.com/nanobyte-dev/walnut-linux/blob/main/docs/INSTALL.md
+
+Before anything: you need custom firmware with OtherOS++ (Petitboot) and webMAN MOD, a backup of
+your flash, and webMAN's fan setting on SYSCON (automatic) or a fixed speed of 60% or more before you
+boot OtherOS. The guide explains each.
+
+
+WHAT'S IN HERE
+
+  walnut-install, lib/stamp.py      the installer (Python 3, nothing else to install)
+  dev_hdd0/                         what goes on the PS3's internal disk (GameOS's dev_hdd0)
+    linux/walnut.img.xz               the 16 GiB disk image Walnut runs from, compressed
+    linux/walnut-good/                a spare copy of the boot files (a recovery copy)
+  dev_hdd1/                         what goes on the PS3's small cache partition (dev_hdd1)
+    kboot.conf                        Petitboot's menu entry "walnut"
+    linux/boot/                       the kernel (vmlinux-@RELEASE@), its arguments, the initramfs
+    linux/install/rootfs.tar.xz       the system
+    linux/install/install.conf        the install manifest: it goes on LAST
+  MANIFEST                          every package in the system, with its version
+  SHA256SUMS                        checksums of all of the above
+
+
+INSTALL ON THE INTERNAL DISK WITH THE INSTALLER (Linux, macOS or Windows with Python 3)
+
+  The PS3 in GameOS, webMAN's FTP server on, the PC on a wired connection:
+
+    python3 walnut-install internal --host <the PS3's IP>      (smaller disk: --size 12G)
+
+  It does every step below, with checks, and makes the image on the fly (no 16 GiB on your PC).
+
+
+INSTALL ON THE INTERNAL DISK BY HAND (any FTP client, e.g. FileZilla; binary mode)
+
+  1. Check the files: sha256sum -c SHA256SUMS (on Windows: certutil -hashfile <file> SHA256, and
+     compare with SHA256SUMS).
+  2. Unpack dev_hdd0/linux/walnut.img.xz (xz -dk, or 7-Zip on Windows). The result, walnut.img, must
+     be exactly 17179869184 bytes. The PS3 needs that much free space on its internal disk, plus a
+     margin.
+  3. Connect to the PS3's FTP server (webMAN MOD, port 21, any login).
+  4. Upload walnut.img to /dev_hdd0/linux/walnut.img (make the linux folder if it isn't there). Over
+     a wired connection this takes about 15 minutes.
+  5. Upload the folder dev_hdd0/linux/walnut-good to /dev_hdd0/linux/walnut-good.
+  6. Upload the folder dev_hdd1/linux/boot to /dev_hdd1/linux/boot, and
+     dev_hdd1/linux/install/rootfs.tar.xz to /dev_hdd1/linux/install/rootfs.tar.xz.
+  7. Petitboot's menu: if /dev_hdd1/kboot.conf doesn't exist, upload dev_hdd1/kboot.conf there. If
+     it does, download it, add the walnut='...' line from ours (replacing an old walnut= line, if any),
+     and upload it back.
+  8. Last, upload dev_hdd1/linux/install/install.conf to /dev_hdd1/linux/install/install.conf. The
+     first boot installs only when it finds this file, so an upload that stopped halfway never
+     installs anything.
+  9. Boot OtherOS (fan setting first, see above) and pick "walnut" in Petitboot. The first boot
+     checks every block of the image, formats it and unpacks the system (several minutes), then asks
+     for your user name and password.
+
+  The image works only as uploaded: don't edit, resize or move walnut.img. To use another size, use
+  the installer (--size).
+
+
+INSTALL ON A USB DISK (a Linux PC; the disk is erased)
+
+    python3 walnut-install usb --disk /dev/sdX
+
+  Then plug it into the PS3, boot OtherOS and pick "walnut-usb" in Petitboot.
+
+
+Updates come with apt from walnut.nanobyte.dev (@SUITE@).

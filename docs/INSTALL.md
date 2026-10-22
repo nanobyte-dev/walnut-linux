@@ -80,21 +80,24 @@ by the CI key (`walnut-testing.asc` on the site) instead of the archive key. Put
 installer:
 
 ```bash
-cd DIR
 curl -fsSL https://walnut.nanobyte.dev/walnut-archive.asc | gpg --import
 gpg --verify SHA256SUMS.asc SHA256SUMS   # "Good signature" from 8FFE 9D3F C1E2 4ADC 4702  50BB 5701 1432 F8A9 8072
 sha256sum -c SHA256SUMS
-tar -xzf walnut-installer-VERSION.tar.gz
+tar -xf walnut-VERSION.tar      # the folder walnut-VERSION is the DIR below
 ```
 
-| File | What it is |
-|---|---|
-| `walnut-VERSION-ppc64.tar.xz` | the root filesystem |
-| `vmlinux-RELEASE`, `RELEASE.args` | the kernel and its boot arguments |
-| `initrd-walnut.img` | the internal install's initramfs (it formats the image and unpacks the system on the first boot) |
-| `walnut-installer-VERSION.tar.gz` | the PC installer (Python 3, nothing to install) |
-| `MANIFEST` | every package in the image, with its version |
-| `SHA256SUMS`, `SHA256SUMS.asc` | the checksums and their signature |
+The archive holds the installer (`walnut-install`), `README.TXT` with the install by hand (any FTP
+client, e.g. FileZilla on Windows), `MANIFEST` (every package with its version) and what goes on the
+PS3, laid out like its two disks:
+
+| In the archive | Goes to | What it is |
+|---|---|---|
+| `dev_hdd0/linux/walnut.img.xz` | `/dev_hdd0/linux/walnut.img`, unpacked | the 16 GiB image Walnut runs from (stamped blocks; the first boot checks every one) |
+| `dev_hdd0/linux/walnut-good/` | `/dev_hdd0/linux/walnut-good/` | a recovery copy of the boot files |
+| `dev_hdd1/kboot.conf` | `/dev_hdd1/kboot.conf` | Petitboot's `walnut` entry |
+| `dev_hdd1/linux/boot/` | `/dev_hdd1/linux/boot/` | the kernel, its arguments, the initramfs |
+| `dev_hdd1/linux/install/rootfs.tar.xz` | the same path | the system |
+| `dev_hdd1/linux/install/install.conf` | the same path, **last** | the install manifest |
 
 Choose either **Install A** (Internal HDD, default) or **Install B** (External USB Drive).
 
@@ -110,9 +113,9 @@ Walnut runs from a single stamped disk image file (`/dev_hdd0/linux/walnut.img`)
    - On your PC (Linux, or WSL2 on Windows), get the release files into one directory (`DIR`) and check them: see [Getting the release](#getting-the-release) below.
    - Run the PC installer:
      ```bash
-     DIR/walnut-installer-VERSION/installer/walnut-install internal --release-dir DIR [--size 16G] [--host PS3-IP]
+     DIR/walnut-install internal [--size 16G] [--host PS3-IP]
      ```
-     - `--release-dir DIR`: the directory with the release files (the rootfs tarball, kernel, initramfs, `SHA256SUMS`). The installer checks every file against `SHA256SUMS` and makes the stamped image itself.
+     - The installer uses the files next to it (`--release-dir` for others), checks every one against `SHA256SUMS`, and makes the stamped image on the fly, so it needs no 16 GiB on the PC. Without it, follow `README.TXT` in the archive.
      - `--size 16G`: Total image size (default is 16 GiB: 15 GiB root filesystem + 1 GiB swap). Smaller sizes can be used on 40–80 GB internal drives.
      - `--host PS3-IP`: The IP address of your PS3 on your local network.
    - The installer streams the stamped disk image directly to `/dev_hdd0/linux/walnut.img`, uploads boot files and the rootfs tarball to `dev_hdd1:/linux/`, and configures `dev_hdd1:/kboot.conf`.
@@ -138,7 +141,7 @@ If you prefer to keep your internal console drive untouched, you can install Wal
    - Identify the drive device node on your Linux PC (e.g. `/dev/sdX`).
 2. **Run the PC Installer**
    ```bash
-   DIR/walnut-installer-VERSION/installer/walnut-install usb --release-dir DIR --disk /dev/sdX
+   DIR/walnut-install usb --disk /dev/sdX
    ```
    > [!CAUTION]
    > This command will partition and format `/dev/sdX`, completely erasing all data on that USB drive. Verify the drive device name carefully before confirming.

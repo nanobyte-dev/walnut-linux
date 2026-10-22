@@ -9,6 +9,11 @@ comes from a generator, block by block.
                   [--user U --password P] [--uuid UUID] [--force]
   stamp.py dry-run --mib N [--uuid UUID] [--out FILE|-]     N MiB of the same stream (tests)
   stamp.py check FILE [--uuid UUID]                         check a local stream (tests)
+  stamp.py prepare --rootfs ROOTFS.tar.xz --kernel VMLINUX --release REL --initrd INITRD --out DIR
+                  [--args-file ARGS] [--size 16G] [--swap-mib 1024] [--image /linux/walnut.img] [--uuid UUID]
+        what install uploads, as files laid out like the two disks (the release archive)
+  stamp.py kboot --release REL [--args-file ARGS] [--image /linux/walnut.img]
+        the kboot.conf install writes to dev_hdd1 (without the other entries it keeps), on stdout
   stamp.py install --size 16G --rootfs ROOTFS.tar.xz --kernel VMLINUX --release REL --initrd INITRD
                   [--args-file ARGS] [--swap-mib 1024] [--image /linux/walnut.img] [--host ...] [--force]
         the internal install (docs/GAMEOS-HDD.md "The internal install"): the stamped image to
@@ -40,7 +45,9 @@ import io
 import tarfile
 import os
 import re
+import shutil
 import struct
+import subprocess
 import sys
 import time
 import uuid as uuidlib
@@ -282,6 +289,70 @@ def ftp_get(ftp, remote):
     return buf.getvalue()
 
 
+def kboot_entry(release, args_file, image):
+    """Petitboot's 'walnut' line for dev_hdd1:/kboot.conf (the boot files in BOOT_DIR there)"""
+    args = open(args_file).read().split() if args_file else []
+    return ("walnut='%s/vmlinux-%s initrd=%s/%s root=/dev/mapper/ps3root rootfstype=ext4 ro ps3ssd.image=%s %s'"
+            % (BOOT_DIR, release, BOOT_DIR, INITRD_NAME, image, " ".join(args))).replace(" '", "'")
+
+
+def kboot(a):
+    """the release's kboot.conf, for setting up by hand what install does (tools/ci/build-release.sh)"""
+    if not GOOD_PATH.match(a.image) or "/../" in a.image or not a.image.endswith(".img"):
+        sys.exit("!! --image %s: an absolute path on dev_hdd0 ending in .img" % a.image)
+    if not re.match(r"^[A-Za-z0-9._+-]+$", a.release):
+        sys.exit("!! --release %s: letters, digits, . _ + -" % a.release)
+    sys.stdout.write("# Petitboot's menu on dev_hdd1 (the internal install: the boot files in dev_hdd1:%s,\n"
+                     "# the image at dev_hdd0:%s)\n%s\n" % (BOOT_DIR, a.image, kboot_entry(a.release, a.args_file, a.image)))
+
+
+def prepare(a):
+    """what install uploads, as files laid out like the two disks (the release archive, for an
+    install by hand: docs/INSTALL.md): OUT/dev_hdd0/linux/<image>.xz (the stamped image, xz; it
+    unpacks to SIZE bytes), OUT/dev_hdd0/linux/walnut-good/ (the known-good boot files),
+    OUT/dev_hdd1/kboot.conf, OUT/dev_hdd1/linux/boot/ and OUT/dev_hdd1/linux/install/ (the system
+    and install.conf, which goes last)"""
+    size = parse_size(a.size)
+    uid = get_uuid(a.uuid)
+    image = a.image
+    if not GOOD_PATH.match(image) or "/../" in image or not image.endswith(".img"):
+        sys.exit("!! --image %s: an absolute path on dev_hdd0 ending in .img" % image)
+    if not re.match(r"^[A-Za-z0-9._+-]+$", a.release):
+        sys.exit("!! --release %s: letters, digits, . _ + -" % a.release)
+    hdd0, hdd1 = os.path.join(a.out, "dev_hdd0"), os.path.join(a.out, "dev_hdd1")
+    good = os.path.join(a.out, GOOD_DIR.lstrip("/"))
+    boot, inst = hdd1 + BOOT_DIR, hdd1 + INSTALL_DIR
+    for d in (os.path.dirname(hdd0 + image), good, boot, inst):
+        os.makedirs(d, exist_ok=True)
+    rootfs = INSTALL_DIR + "/rootfs.tar.xz"
+    shutil.copyfile(a.rootfs, hdd1 + rootfs)
+    rsize = os.path.getsize(a.rootfs)
+    tsize = unpacked_size(a.rootfs)
+    root_bytes = size - HEADER_AREA - a.swap_mib * MIB
+    if tsize + tsize // 16 + (256 << 20) > root_bytes:
+        sys.exit("!! the system needs %s unpacked, the image's root has %s" % (human(tsize), human(root_bytes)))
+    kboot = ("# Petitboot's menu on dev_hdd1 (the internal install). Already have a kboot.conf there?\n"
+             "# Add the walnut line to it instead.\n%s\n" % kboot_entry(a.release, a.args_file, image)).encode()
+    for d in (boot, good):
+        shutil.copyfile(a.kernel, "%s/vmlinux-%s" % (d, a.release))
+        shutil.copyfile(a.initrd, "%s/%s" % (d, INITRD_NAME))
+    if a.args_file:
+        shutil.copyfile(a.args_file, "%s/%s.args" % (boot, a.release))
+    for f in (hdd1 + "/kboot.conf", good + "/kboot.conf"):
+        with open(f, "wb") as o:
+            o.write(kboot)
+    with open(hdd0 + image + ".xz", "wb") as o:
+        xz = subprocess.Popen(["xz", "-T0", "-6", "-c"], stdin=subprocess.PIPE, stdout=o)
+        for c in chunks(uid.bytes, size, 16 * MIB):
+            xz.stdin.write(c)
+        xz.stdin.close()
+        if xz.wait():
+            sys.exit("!! xz failed")
+    with open(inst + "/install.conf", "w") as o:
+        o.write(manifest(image, uid, size, a.swap_mib, rootfs, rsize, file_sha(a.rootfs), tsize))
+    print(">> %s: image %s (%s, uuid %s), system %s" % (a.out, image, human(size), uid, human(rsize)))
+
+
 def install(a):
     size = parse_size(a.size)
     uid = get_uuid(a.uuid)
@@ -300,9 +371,7 @@ def install(a):
     if tsize + tsize // 16 + (256 << 20) > root_bytes:
         sys.exit("!! the system needs %s unpacked (plus ext4's overhead), the image's root has %s: a bigger "
                  "--size or a smaller --swap-mib" % (human(tsize), human(root_bytes)))
-    args = open(a.args_file).read().split() if a.args_file else []
-    entry = ("walnut='%s/vmlinux-%s initrd=%s/%s root=/dev/mapper/ps3root rootfstype=ext4 ro ps3ssd.image=%s %s'"
-             % (BOOT_DIR, a.release, BOOT_DIR, INITRD_NAME, image, " ".join(args))).replace(" '", "'")
+    entry = kboot_entry(a.release, a.args_file, image)
     if not a.skip_image:
         upload(argparse.Namespace(size=a.size, path="/dev_hdd0" + image, host=a.host, port=a.port, user=a.user,
                                   password=a.password, uuid=str(uid), chunk=a.chunk, force=a.force))
@@ -367,6 +436,21 @@ def main(argv=None):
     i.add_argument("--chunk", type=int, default=MIB, help=argparse.SUPPRESS)
     i.add_argument("--force", action="store_true", help="replace an existing image")
     i.add_argument("--skip-image", action="store_true", help="the image is uploaded already (pass its --uuid)")
+    r = sub.add_parser("prepare", help="what install uploads, as files laid out like the two disks")
+    r.add_argument("--size", default="16G")
+    r.add_argument("--rootfs", required=True)
+    r.add_argument("--kernel", required=True)
+    r.add_argument("--release", required=True)
+    r.add_argument("--initrd", required=True)
+    r.add_argument("--args-file")
+    r.add_argument("--swap-mib", type=int, default=1024)
+    r.add_argument("--image", default="/linux/walnut.img")
+    r.add_argument("--uuid")
+    r.add_argument("--out", required=True)
+    k = sub.add_parser("kboot", help="print the internal install's kboot.conf for dev_hdd1")
+    k.add_argument("--release", required=True)
+    k.add_argument("--args-file")
+    k.add_argument("--image", default="/linux/walnut.img")
     c = sub.add_parser("check", help="check a local stream file")
     c.add_argument("file")
     c.add_argument("--uuid")
@@ -380,6 +464,10 @@ def main(argv=None):
             install(a)
         elif a.cmd == "dry-run":
             dry_run(a)
+        elif a.cmd == "kboot":
+            kboot(a)
+        elif a.cmd == "prepare":
+            prepare(a)
         else:
             return check(a)
     except ValueError as e:

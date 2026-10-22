@@ -6,7 +6,7 @@ ver=$1 dir=$2
 url=https://walnut.nanobyte.dev/download/$ver
 repo=https://github.com/nanobyte-dev/walnut-linux/blob/main
 v() { awk -v p="$1" '$1==p {print $2}' "$dir/MANIFEST"; }
-kernel=$(cd "$dir" && ls vmlinux-* | sed 's/^vmlinux-//')
+kernel=$(tar -tf "$dir/walnut-$ver.tar" | sed -n 's|^walnut-[^/]*/dev_hdd1/linux/boot/vmlinux-||p')
 size() { du -h --apparent-size "$dir/$1" | cut -f1; }
 cat <<EOF
 Linux for the PlayStation 3: Debian (ppc64) with a 6.12 kernel, the RSX driven by nouveau's nv30
@@ -18,23 +18,21 @@ OtherOS++ (Petitboot) and webMAN MOD, and a backup of your flash.
 
 ### Files
 
-The same files are at $url/ (the installer and the docs link there).
+The same files are at $url/.
 
 | File | What it is |
 |---|---|
-| \`walnut-$ver-ppc64.tar.xz\` ($(size "walnut-$ver-ppc64.tar.xz")) | the root filesystem |
-| \`vmlinux-$kernel\`, \`$kernel.args\` | the kernel and its arguments |
-| \`initrd-walnut.img\` | the internal install's initramfs |
-| \`walnut-installer-$ver.tar.gz\` | the PC installer (Linux, or WSL2 on Windows) |
-| \`MANIFEST\` | every package in the image, with its version |
+| \`walnut-$ver.tar\` ($(size "walnut-$ver.tar")) | everything: the installer, the system, the boot files and Petitboot's entry laid out like the PS3's two disks, and README.TXT for installing by hand (any FTP client) |
+| \`MANIFEST\` | every package in the system, with its version |
 | \`SHA256SUMS\`, \`SHA256SUMS.asc\` | checksums, signed by the archive key |
 
-Check them before installing:
+Check them, then unpack:
 
 \`\`\`
 curl -fsSL https://walnut.nanobyte.dev/walnut-archive.asc | gpg --import
 gpg --verify SHA256SUMS.asc SHA256SUMS    # Walnut archive key 8FFE 9D3F C1E2 4ADC 4702  50BB 5701 1432 F8A9 8072
 sha256sum -c SHA256SUMS
+tar -xf walnut-$ver.tar && cd walnut-$ver && less README.TXT
 \`\`\`
 
 ### Inside

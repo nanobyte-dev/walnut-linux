@@ -10,6 +10,7 @@ import importlib.machinery
 import importlib.util
 import io
 import json
+import lzma
 import os
 import shutil
 import subprocess
@@ -605,6 +606,44 @@ class InstallManifest(unittest.TestCase):
         p = self.conf(m)
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("/linux/install/", p.stdout + p.stderr)
+
+    def test_prepare(self):
+        """stamp.py prepare (the release archive): its install.conf passes the initramfs's reader, its
+        image unpacks to stamped blocks of that uuid, the boot files are where kboot.conf says"""
+        import tarfile
+        d = SCRATCH / "prepare"
+        shutil.rmtree(d, ignore_errors=True)
+        (d / "in").mkdir(parents=True)
+        with tarfile.open(d / "in/rootfs.tar.xz", "w:xz") as tf:
+            info = tarfile.TarInfo("etc/hostname")
+            info.size = 7
+            tf.addfile(info, io.BytesIO(b"walnut\n"))
+        for n in ("vmlinux", "initrd"):
+            (d / "in" / n).write_bytes(n.encode())
+        (d / "in/r.args").write_text("quiet\n")
+        r = subprocess.run([sys.executable, str(HERE / "stamp.py"), "prepare", "--size", "260M", "--swap-mib", "0",
+                            "--rootfs", str(d / "in/rootfs.tar.xz"), "--kernel", str(d / "in/vmlinux"),
+                            "--initrd", str(d / "in/initrd"), "--release", "6.12.1+ps3.1", "--args-file",
+                            str(d / "in/r.args"), "--uuid", str(UID), "--out", str(d / "out")],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        p = subprocess.run([str(self.tool), "install-conf", str(d / "out/dev_hdd1/linux/install/install.conf")],
+                           capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("uuid=%s\n" % UID, p.stdout)
+        img = d / "walnut.img"
+        with lzma.open(d / "out/dev_hdd0/linux/walnut.img.xz") as src, open(img, "wb") as dst:
+            shutil.copyfileobj(src, dst, 16 * stamp.MIB)
+        self.assertEqual(img.stat().st_size, 260 * stamp.MIB)
+        c = subprocess.run([sys.executable, str(HERE / "stamp.py"), "check", str(img), "--uuid", str(UID)],
+                           capture_output=True, text=True)
+        self.assertEqual(c.returncode, 0, c.stdout)
+        kboot = (d / "out/dev_hdd1/kboot.conf").read_text()
+        self.assertIn("walnut='/linux/boot/vmlinux-6.12.1+ps3.1 initrd=/linux/boot/initrd-walnut.img ", kboot)
+        for f in ("dev_hdd1/linux/boot/vmlinux-6.12.1+ps3.1", "dev_hdd1/linux/boot/initrd-walnut.img",
+                  "dev_hdd0/linux/walnut-good/vmlinux-6.12.1+ps3.1", "dev_hdd0/linux/walnut-good/kboot.conf"):
+            self.assertTrue((d / "out" / f).is_file(), f)
+        shutil.rmtree(d)
 
     def test_unpacked_size(self):
         t = SCRATCH / "u.tar.xz"
