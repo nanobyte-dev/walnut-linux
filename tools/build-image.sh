@@ -120,13 +120,15 @@ if chroot "$R" dpkg-query -W -f='${Package}\n' 'libllvm*' 'libz3-*' 2>/dev/null 
 	echo "!! LLVM or z3 still installed"; exit 1
 fi
 # An image from testing (a nightly) follows testing: its source on, at stable's priority (the
-# higher version wins, and testing's builds are the newer ones)
+# higher version wins, and testing's builds are the newer ones). Its pin file sorts before
+# ps3-system's walnut: for the same release apt takes the first pin that matches (walnut-nightly,
+# after it, left testing at 1 on the first nightly)
 if [ "${WALNUT_SUITE:-}" = testing ]; then
 	sed -i '/Suites: testing/,/^$/s/^Enabled: no$/Enabled: yes/' "$R/etc/apt/sources.list.d/walnut.sources"
 	grep -A3 'Suites: testing' "$R/etc/apt/sources.list.d/walnut.sources" | grep -qx 'Enabled: yes' ||
 		{ echo "!! testing not enabled in walnut.sources"; exit 1; }
 	printf '%s\n' '# a nightly image: testing as the default (ps3-system walnut.pref has it at 1 otherwise)' \
-		'Package: *' 'Pin: release o=Walnut, n=testing' 'Pin-Priority: 990' > "$R/etc/apt/preferences.d/walnut-nightly"
+		'Package: *' 'Pin: release o=Walnut, n=testing' 'Pin-Priority: 990' > "$R/etc/apt/preferences.d/00-walnut-nightly"
 fi
 # Public profile: strip video= from kernel boot arguments and update kboot.conf
 if [ "$PROFILE" = "public" ]; then

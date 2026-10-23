@@ -15,6 +15,8 @@
 #include <drm/nouveau_drm.h>
 #include <asm/ps3.h>
 
+#include <asm/ps3av.h>
+
 #include "ps3rsx.h"
 
 static int ps3rsx_open(struct drm_device *dev, struct drm_file *file)
@@ -94,6 +96,26 @@ static const struct drm_driver ps3rsx_driver = {
 	.patchlevel = 1,
 };
 
+/*
+ * The frame the display scans is the video mode's native size (1920x1080 for 1080p). In ps3fb's
+ * underscan modes (Petitboot's default, video=ps3fb:mode:5) its xres x yres is only the console's
+ * picture inset in that frame (1688x964), and X's frame of that size never showed (2026-10-23,
+ * the first public install): X gets the whole frame, as in the full-screen modes (mode:133).
+ */
+static void native_frame(struct ps3rsx_device *rsx)
+{
+	int mode = ps3av_get_mode();
+	u32 w, h;
+
+	if (mode <= 0 || ps3av_video_mode2res(mode, &w, &h) || w * 4 != rsx->info.line_length)
+		return;
+	if (w != rsx->info.xres || h != rsx->info.yres)
+		drm_info(&rsx->drm, "console %ux%u inset (underscan): the display gets the whole %ux%u frame\n",
+			 rsx->info.xres, rsx->info.yres, w, h);
+	rsx->info.xres = w;
+	rsx->info.yres = h;
+}
+
 static int ps3rsx_probe(struct platform_device *pdev)
 {
 	struct ps3rsx_device *rsx;
@@ -105,6 +127,7 @@ static int ps3rsx_probe(struct platform_device *pdev)
 	ret = ps3fb_gpu_get_info(&rsx->info);
 	if (ret)
 		return dev_err_probe(&pdev->dev, ret, "ps3fb GPU info\n");
+	native_frame(rsx);
 	rsx->vram_size = rsx->info.memory_size - rsx->info.reserved;
 	platform_set_drvdata(pdev, rsx);
 

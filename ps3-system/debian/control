@@ -11,8 +11,10 @@ Architecture: all
 Depends: ${misc:Depends}, systemd, systemd-sysv, openssh-server, udev, util-linux, kmod, python3, whiptail
 Recommends: bluez, network-manager
 Description: PS3 system configuration (Linux on the PlayStation 3)
- Wired networking (systemd-networkd), SSH host keys on first boot and key-only SSH logins, the
- /dev/ps3gpu_* nodes, swap (zram, and the disk swap behind spare VRAM from ps3rsx), a larger
- free-memory reserve, NetworkManager kept off the wired port, DualShock 3 pairing over USB, and
- the apt sources (Debian ports plus the PS3 repository, with pins that keep the PS3 kernel and
- Mesa), ps3-gameos-mount (GameOS's disk, read-only, on demand), walnut-bugreport, and OpenAL Soft's output as 16-bit (/etc/xdg/alsoft.conf). Replaces the files the image used to write (archived in /var/backups on upgrade).
+ Wired networking (systemd-networkd), SSH host keys on first boot and SSH logins (password or
+ key, never root), the /dev/ps3gpu_* nodes, swap (zram, and the disk swap behind spare VRAM from
+ ps3rsx), a larger free-memory reserve, NetworkManager kept off the wired port, DualShock 3
+ pairing over USB, and the apt sources (Debian ports plus Walnut's signed suites, with pins that
+ keep the PS3 kernel and Mesa), ps3-gameos-mount (GameOS's disk, read-only, on demand),
+ walnut-bugreport, and OpenAL Soft's output as 16-bit (/etc/xdg/alsoft.conf). Replaces the files the
+ image used to write (archived in /var/backups on upgrade).

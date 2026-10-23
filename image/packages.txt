@@ -7,11 +7,15 @@ dbus
 # services in ps3-desktop.slice, and systemctl --user freeze works)
 dbus-user-session
 openssh-server
+openssh-client
 sudo
 iproute2
 iputils-ping
 netbase
 ca-certificates
+curl
+# the machine resolves its own name whatever /etc/hosts says (hostnamectl leaves it behind)
+libnss-myhostname
 procps
 less
 # console tools: chvt (switch VTs from a shell), loadkeys, setfont
