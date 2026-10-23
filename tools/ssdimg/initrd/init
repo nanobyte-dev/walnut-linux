@@ -41,6 +41,7 @@
 #   install.conf, state "installed" of the same image                 boot, then finish the cleanup
 #   install.conf otherwise                 a new install (an earlier image's map is replaced only once
 #                                          the new image passed verify)
+#   install.conf for another image         as if there were none: it waits for that image's entry
 #   neither                                refused
 # The file system check of root is systemd's (systemd-fsck-root on the read-only root, as on the
 # USB disk). Any failure stops here: a message on the console and tty1 and a busybox shell on both
@@ -336,13 +337,22 @@ if [ $KIND = generic ]; then
 			fail "$SD/state on dev_hdd1 is for another map than boot.map ($ST_UUID, $MAP_UUID)"
 		MAPOK=1
 	fi
+	PENDING=0
 	if [ -f $H/install.conf ]; then
 		run $TOOL install-conf $H/install.conf
 		$TOOL install-conf $H/install.conf > $H/install.vars 2>/dev/null
 		v() { sed -n "s/^$1=//p" $H/install.vars; }
 		I_IMAGE=$(v image) I_UUID=$(v uuid) I_SIZE=$(v image_size) I_SWAP=$(v swap_mib)
 		I_ROOTFS=$(v rootfs) I_RSIZE=$(v rootfs_size) I_RSHA=$(v rootfs_sha256) I_TSIZE=$(v tar_size)
-		[ "$I_IMAGE" = "$IMAGE" ] || fail "$IC on dev_hdd1 installs $I_IMAGE, the kernel command line boots $IMAGE"
+		# an install of another image (another system on this console) waits for its own entry's
+		# boot; this one boots as it is
+		if [ "$I_IMAGE" = "$IMAGE" ]; then
+			PENDING=1
+		else
+			say "dev_hdd1 holds an install for $I_IMAGE: left for that entry's boot; this boot is $IMAGE's"
+		fi
+	fi
+	if [ $PENDING = 1 ]; then
 		if [ $MAPOK = 1 ] && [ "$ST_KIND $ST_UUID" = "installing $I_UUID" ]; then
 			ACTION=resume
 		elif [ $MAPOK = 1 ] && [ "$ST_KIND $ST_UUID" = "installed $I_UUID" ]; then
