@@ -1,7 +1,7 @@
 Source: classicube
 Section: games
 Priority: optional
-Maintainer: PS3 Linux project <ps3@localhost>
+Maintainer: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Build-Depends: debhelper-compat (= 13), libsdl3-dev, libgl-dev
 Standards-Version: 4.7.2
 Rules-Requires-Root: no

@@ -1,7 +1,7 @@
 Source: darkplaces-gl2
 Section: games
 Priority: optional
-Maintainer: PS3 Linux project <ps3@localhost>
+Maintainer: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Build-Depends: debhelper-compat (= 13), libjpeg-dev, libogg-dev, libpng-dev, libsdl2-dev,
  libvorbis-dev, pkg-config, zlib1g-dev
 Standards-Version: 4.7.2

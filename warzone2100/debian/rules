@@ -20,7 +20,7 @@ override_dh_auto_configure:
 	dh_auto_configure -- \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DCMAKE_INSTALL_PREFIX=/usr \
-		-DWZ_DISTRIBUTOR="PS3 Linux project" \
+		-DWZ_DISTRIBUTOR="Walnut" \
 		-DWZ_ENABLE_BACKEND_VULKAN=OFF \
 		-DWZ_ENABLE_BASIS_UNIVERSAL=OFF \
 		-DWZ_ENABLE_WARNINGS_AS_ERRORS=OFF \

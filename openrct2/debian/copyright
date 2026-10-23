@@ -11,14 +11,14 @@ License:   GPL-3
 
 Files:     debian/*
 Copyright: 2021-2026 Mathias Gibbens (Debian's packaging, which this follows)
-           2026 PS3 Linux project
+           2026 Tiberiu Chibici
 License:   GPL-3
 
 Files:     src/openrct2/core/IStream.hpp src/openrct2/core/OrcaStream.hpp src/openrct2/rct1/S4Importer.cpp
            src/openrct2/rct2/S6Importer.cpp src/openrct2/park/ParkFile.cpp
 Copyright: 2014-2026 OpenRCT2 developers
            2026 Thomas Luebker (the big-endian work of the closed OpenRCT2 PR #27114, in debian/patches)
-           2026 PS3 Linux project (the rest of debian/patches)
+           2026 Tiberiu Chibici (the rest of debian/patches)
 License:   GPL-3
 
 Files:     objects/*

@@ -1,7 +1,7 @@
 Source: openrct2
 Section: games
 Priority: optional
-Maintainer: PS3 Linux project <ps3@localhost>
+Maintainer: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Build-Depends:
  cmake,
  debhelper-compat (= 13),

@@ -1,7 +1,7 @@
 Source: ps3-desktop
 Section: x11
 Priority: optional
-Maintainer: PS3 Linux project <ps3@localhost>
+Maintainer: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Build-Depends: debhelper-compat (= 13), sudo, python3:any
 Standards-Version: 4.7.2
 Rules-Requires-Root: no

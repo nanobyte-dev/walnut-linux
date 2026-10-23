@@ -36,9 +36,9 @@ else:
     author = (fields.pop("Author", None) or fields.pop("From", None) or [""])[0]
     for k, v in fields.items():
         extra.append(f"{k}: {' '.join(x for x in v if x)}")
-author = author or "PS3 Linux project"
+author = author or "Tiberiu Chibici <chibicitiberiu@gmail.com>"   # a patch of ours with no author header
 if "<" not in author:
-    author += " <ps3@localhost>"
+    author += " <>"   # someone else's name without an address: never ours next to it
 print(author)
 print(date)
 print(subject or name)

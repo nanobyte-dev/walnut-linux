@@ -1,7 +1,7 @@
 Source: warzone2100
 Section: games
 Priority: optional
-Maintainer: PS3 Linux project <ps3@localhost>
+Maintainer: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Build-Depends:
  bison,
  cmake,

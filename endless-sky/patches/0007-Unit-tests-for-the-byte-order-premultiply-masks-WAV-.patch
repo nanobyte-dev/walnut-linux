@@ -36,7 +36,7 @@ new file mode 100644
 +++ b/tests/unit/src/test_byteorder.cpp
 @@ -0,0 +1,228 @@
 +/* test_byteorder.cpp
-+Copyright (c) 2026 by the PS3 Linux project
++Copyright (c) 2026 Tiberiu Chibici
 +
 +Endless Sky is free software: you can redistribute it and/or modify it under the
 +terms of the GNU General Public License as published by the Free Software

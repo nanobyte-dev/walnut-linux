@@ -95,6 +95,7 @@ button.copy:hover { background: var(--accent); }
 .shots img { width: 100%; height: auto; border-radius: 6px; border: 1px solid var(--border); display: block; background: var(--code); }
 figcaption { color: var(--muted); font-size: 0.85rem; margin-top: 0.2rem; }
 .patches { padding-left: 1.4rem; }
+.patches-pkg { margin: 0.8rem 0 0.2rem; }
 details summary { cursor: pointer; color: var(--accent-light); }
 .table-wrap { overflow-x: auto; }
 table.history { font-size: 0.9rem; }

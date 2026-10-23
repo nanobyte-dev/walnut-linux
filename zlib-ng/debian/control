@@ -1,7 +1,7 @@
 Source: zlib-ng
 Section: libs
 Priority: optional
-Maintainer: PS3 Linux project <ps3@localhost>
+Maintainer: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Build-Depends: debhelper-compat (= 13), cmake, libgtest-dev
 Standards-Version: 4.7.2
 Rules-Requires-Root: no

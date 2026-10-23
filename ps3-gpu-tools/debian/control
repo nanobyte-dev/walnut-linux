@@ -1,7 +1,7 @@
 Source: ps3-gpu-tools
 Section: devel
 Priority: optional
-Maintainer: PS3 Linux project <ps3@localhost>
+Maintainer: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Build-Depends: debhelper-compat (= 13), libegl-dev, libgles-dev, libopengl-dev, libgl-dev, libasound2-dev
 Standards-Version: 4.7.2
 Rules-Requires-Root: no
