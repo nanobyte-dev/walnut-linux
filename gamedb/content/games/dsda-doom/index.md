@@ -11,7 +11,6 @@ patched_by = ["dsda-doom"]
 recipes = ["dsda-doom:gl"]
 needs_data = false
 controller = "keyboard"
-medal_note = "Rated on the OpenGL renderer with the free Freedoom 2 data; the music is the weak spot."
 known_issues = [
   "The MIDI music chops: about 465 sound underruns a minute with the synthesizer running on the SPEs.",
 ]

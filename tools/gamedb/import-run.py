@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""import-run.py RUN... --game ID [--launcher NAME] [--ref DIR] [--content DIR] [--dry-run]: turn games/bench run
+"""import-run.py RUN... --game ID [--launcher NAME] [--shots POINTS] [--content DIR] [--dry-run]: turn games/bench run
 directories into a game's tests in the Walnut Games catalog (docs/GAMEDB.md).
 
 Design
@@ -19,7 +19,7 @@ Design
   the match starts), else bench.txt's load_end; the load time is the same moment.
 - Output: <content>/<id>/tests/<date>-<kind>/result.toml, written by a small hand-rolled TOML writer
   (stdlib has a reader only) under a "generated, do not edit" header, and the screenshots next to it:
-  ps3-<point>.jpg and pc-<point>.jpg at 800x450, JPEG quality 82 (ImageMagick `magick`), which the
+  ps3-<point>.jpg at 800x450 (only the PS3's pictures are published: the PC reference is for reviewing), JPEG quality 82 (ImageMagick `magick`), which the
   repository keeps in Git LFS (.gitattributes). index.md is never touched. The game must exist.
 - kind: "session" (bench.txt kind=session, the recorder of phase P3), "demo" (a harness run with a
   measured window: stands in for a session until the game has one), "capture" (shots only: grades
@@ -166,6 +166,44 @@ def jpeg(src, dst):
         raise Refused("magick %s: %s" % (src.name, p.stderr.strip()[-200:]))
 
 
+SHOTS_MAX = 4      # pictures published per test
+SHOT_SAME = 6.0    # mean difference (0-255) of two 32x18 greyscale versions under which they're one picture
+SHOT_DARK = 12     # mean brightness under which a frame is a black (or fading) screen
+
+
+def tiny(path):
+    """a picture as 32x18 greyscale bytes, for telling pictures apart"""
+    p = subprocess.run(["magick", str(path), "-resize", "32x18!", "-colorspace", "Gray", "-depth", "8", "gray:-"],
+                       capture_output=True)
+    if p.returncode or len(p.stdout) != 32 * 18:
+        raise Refused("magick %s: can't read it" % Path(path).name)
+    return p.stdout
+
+
+def pick_shots(items, keep=None, n=SHOTS_MAX, look=tiny):
+    """the pictures to publish of [(point, path)], in time order: the points in keep when given (a
+    reviewer's choice), else up to n that differ: black frames and near-duplicates dropped (the same
+    menu or intro screen caught several times), then the most varied first, each next one the most
+    unlike those already taken"""
+    if keep:
+        return [(p, f) for p, f in items if p in keep]
+    vec = {p: look(f) for p, f in items}
+    diff = lambda a, b: sum(abs(x - y) for x, y in zip(vec[a], vec[b])) / len(vec[a])
+    lit = [(p, f) for p, f in items if sum(vec[p]) / len(vec[p]) >= SHOT_DARK]
+    distinct = []
+    for p, f in lit:
+        if all(diff(p, q) >= SHOT_SAME for q, _ in distinct):
+            distinct.append((p, f))
+    if len(distinct) <= n:
+        return distinct
+    spread = lambda p: statistics.pstdev(vec[p])
+    chosen = [max(distinct, key=lambda x: spread(x[0]))]
+    while len(chosen) < n:
+        rest = [x for x in distinct if x not in chosen]
+        chosen.append(max(rest, key=lambda x: min(diff(x[0], q) for q, _ in chosen)))
+    return sorted(chosen)
+
+
 def toml_value(v):
     if isinstance(v, bool):
         return "true" if v else "false"
@@ -191,7 +229,7 @@ def toml_dump(top, tables):
     return "\n".join(lines) + "\n"
 
 
-def import_run(run, game, content, ref_root, dry=False, launcher=None):
+def import_run(run, game, content, dry=False, launcher=None, keep=None):
     d = Path(run)
     b = report.kv(d / "bench.txt")
     if not b:
@@ -232,9 +270,7 @@ def import_run(run, game, content, ref_root, dry=False, launcher=None):
     end, crashed = ended(d, b)
     play = n.pop("play_seconds")
     ps3 = [(p, shots.image(d, s)) for p, s in sorted(sh["shots"].items()) if shots.image(d, s)]
-    rd = shots.ref_dir(sh, ref_root) if ref_root else None
-    rsh = shots.parse(rd) if rd else None
-    pcs = [(p, shots.image(rd, s)) for p, s in sorted(rsh["shots"].items()) if shots.image(rd, s)] if rsh else []
+    ps3 = pick_shots(ps3, keep)
     if verdict in ("ok", "wrong") and ps3:
         n["shot_points"] = len(ps3)
         n["shot_differing"] = 0 if verdict == "ok" else len(ps3)
@@ -249,16 +285,16 @@ def import_run(run, game, content, ref_root, dry=False, launcher=None):
     tables = {"numbers": n, "scores": {k: round(v, 1) for k, v in scores.items() if v is not None},
               "versions": versions(d),
               "picture": {"verdict": verdict, "note": note or None},
-              "shots": {"ps3": ["ps3-%ds.jpg" % p for p, _ in ps3], "pc": ["pc-%ds.jpg" % p for p, _ in pcs]}}
+              "shots": {"ps3": ["ps3-%ds.jpg" % p for p, _ in ps3]}}
     print("%s -> %s  (%s, %.0f s of play, %s)" % (d.name, tdir.relative_to(REPO) if tdir.is_relative_to(REPO)
                                                     else tdir.name, kind, play, end))
     if dry:
         return
     tdir.mkdir(parents=True, exist_ok=True)
+    for old_shot in list(tdir.glob("ps3-*.jpg")) + list(tdir.glob("pc-*.jpg")):   # an import again: its pick
+        old_shot.unlink()
     for p, src in ps3:
         jpeg(src, tdir / ("ps3-%ds.jpg" % p))
-    for p, src in pcs:
-        jpeg(src, tdir / ("pc-%ds.jpg" % p))
     (tdir / "result.toml").write_text(toml_dump(top, tables))
 
 
@@ -266,15 +302,17 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("runs", nargs="+")
     ap.add_argument("--game", required=True, help="the game's id (its folder under the content directory)")
-    ap.add_argument("--ref", default=str(REPO / "build" / "bench-ref"), help="PC references (tools/bench-ref.sh)")
     ap.add_argument("--content", default=str(REPO / "gamedb" / "content" / "games"))
     ap.add_argument("--launcher", help="the menu launcher's Name the run started (for runs that recorded none)")
+    ap.add_argument("--shots", help="the screenshot points to publish, e.g. 60,240 (default: up to %d that differ)"
+                    % SHOTS_MAX)
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     bad = 0
     for run in a.runs:
         try:
-            import_run(run, a.game, a.content, a.ref if Path(a.ref).is_dir() else None, a.dry_run, a.launcher)
+            import_run(run, a.game, a.content, a.dry_run, a.launcher,
+                       [int(x) for x in a.shots.split(",")] if a.shots else None)
         except Refused as e:
             print("!! %s" % e, file=sys.stderr)
             bad += 1

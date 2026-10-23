@@ -18,6 +18,5 @@ known_issues = [
 ]
 +++
 
-Warzone 2100 4.3.5 runs on the PS3 with the right picture and sound, thanks to a set of
-big-endian and AltiVec fixes (patches below). As a console game it is a poor fit: it needs a mouse
-and keyboard. The test is an AI against AI skirmish on a small map.
+Warzone 2100 4.3.5 runs on the PS3 with the right picture and sound, thanks to a set of big-endian and
+AltiVec fixes (patches below). As a console game it is a poor fit: it needs a mouse and keyboard.

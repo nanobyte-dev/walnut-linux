@@ -275,7 +275,7 @@ class Importer(unittest.TestCase):
         (self.run_dir / "bench.txt").write_text("".join("%s=%s\n" % kv for kv in b.items()))
 
     def do(self):
-        self.ir.import_run(self.run_dir, "ex", self.content, None)
+        self.ir.import_run(self.run_dir, "ex", self.content)
         out = list((self.content / "ex" / "tests").iterdir())
         self.assertEqual(len(out), 1)
         return tomllib.loads((out[0] / "result.toml").read_text()), out[0]
@@ -308,20 +308,20 @@ class Importer(unittest.TestCase):
     def test_refusals(self):
         self.write_bench(interfered="1", interference="ssh during the run")
         with self.assertRaises(self.ir.Refused):
-            self.ir.import_run(self.run_dir, "ex", self.content, None)
+            self.ir.import_run(self.run_dir, "ex", self.content)
         self.write_bench(temp_stop="1")
         with self.assertRaises(self.ir.Refused):
-            self.ir.import_run(self.run_dir, "ex", self.content, None)
+            self.ir.import_run(self.run_dir, "ex", self.content)
         self.write_bench()
         with self.assertRaises(self.ir.Refused):      # a game that is not in the catalog
-            self.ir.import_run(self.run_dir, "nope", self.content, None)
+            self.ir.import_run(self.run_dir, "nope", self.content)
 
     def test_capture_run_needs_a_review(self):
         self.write_bench(window="", shots="30", shot="30s:shots/shot-30s.png:100", shot_t="30s:30.0:1:2")
         (self.run_dir / "shots").mkdir()
         (self.run_dir / "shots" / "shot-30s.png").write_bytes(b"png")
         with self.assertRaises(self.ir.Refused):
-            self.ir.import_run(self.run_dir, "ex", self.content, None)
+            self.ir.import_run(self.run_dir, "ex", self.content)
 
     def test_launcher(self):
         self.assertNotIn("launcher", self.do()[0])           # none recorded, none given: no key
@@ -329,21 +329,45 @@ class Importer(unittest.TestCase):
         self.assertEqual(self.do()[0]["launcher"], "OpenArena (GL 2.0)")
 
     def test_launcher_option_for_old_runs(self):
-        self.ir.import_run(self.run_dir, "ex", self.content, None, False, "OpenArena (GL 1.2)")
+        self.ir.import_run(self.run_dir, "ex", self.content, False, "OpenArena (GL 1.2)")
         out = next((self.content / "ex" / "tests").iterdir())
         self.assertEqual(tomllib.loads((out / "result.toml").read_text())["launcher"], "OpenArena (GL 1.2)")
 
     def test_launcher_option_must_match_the_recorded_one(self):
         self.write_bench(launcher="OpenArena (GL 2.0)")
-        self.ir.import_run(self.run_dir, "ex", self.content, None, False, "OpenArena (GL 2.0)")   # same: fine
+        self.ir.import_run(self.run_dir, "ex", self.content, False, "OpenArena (GL 2.0)")   # same: fine
         with self.assertRaises(self.ir.Refused):
-            self.ir.import_run(self.run_dir, "ex", self.content, None, False, "OpenArena (GL 1.2)")
+            self.ir.import_run(self.run_dir, "ex", self.content, False, "OpenArena (GL 1.2)")
+
+    def test_pick_shots(self):
+        flat = lambda v: bytes([v]) * (32 * 18)
+        half = lambda a, b: bytes([a]) * (32 * 9) + bytes([b]) * (32 * 9)
+        pics = {60: half(200, 40), 120: flat(5), 180: flat(120), 240: flat(121), 300: flat(122),
+                360: half(40, 200), 420: flat(240)}
+        items = sorted((p, "shot-%ds.png" % p) for p in pics)
+        look = lambda f: pics[int(f[5:-5])]
+        got = self.ir.pick_shots(items, look=look)
+        # the black frame and the near-duplicates (180/240/300 are one screen) go; four left, in time order
+        self.assertEqual([p for p, _ in got], [60, 180, 360, 420])
+        self.assertEqual([p for p, _ in self.ir.pick_shots(items, n=2, look=look)], [60, 360])
+        self.assertEqual([p for p, _ in self.ir.pick_shots(items, keep=[240, 420], look=look)], [240, 420])
 
     def test_toml_writer_roundtrip(self):
         text = self.ir.toml_dump({"a": 1, "b": "x\"y", "c": True, "n": None},
                                  {"t": {"f": 1.5, "l": ["p", "q"], "bad key": 2, "z": None}})
         self.assertEqual(tomllib.loads(text), {"a": 1, "b": "x\"y", "c": True, "t": {"f": 1.5, "l": ["p", "q"], "bad key": 2}})
         self.assertTrue(text.startswith("# generated"))
+
+
+def fixture_game(d):
+    """OpenArena's catalog entry in d with one benchmark test (testdata/demo-result.toml, a 2026-10-20
+    run): the test folder, for the tests that need a rated game"""
+    g = Path(d) / "openarena"
+    shutil.copytree(REPO / "gamedb" / "content" / "games" / "openarena", g, ignore=shutil.ignore_patterns("tests"))
+    t = g / "tests" / "2026-10-20-demo"
+    t.mkdir(parents=True)
+    shutil.copy(Path(__file__).parent / "testdata" / "demo-result.toml", t / "result.toml")
+    return g, t
 
 
 class Catalog(unittest.TestCase):
@@ -379,10 +403,7 @@ class Catalog(unittest.TestCase):
     def test_rating_is_the_newest_graded_version(self):
         # a capture run on a newer version doesn't move the rating off the version that was played
         with tempfile.TemporaryDirectory() as d:
-            src = REPO / "gamedb" / "content" / "games" / "openarena"
-            g = Path(d) / "openarena"
-            shutil.copytree(src, g)
-            old = next((g / "tests").iterdir())
+            g, old = fixture_game(d)
             new = g / "tests" / "2026-11-01-capture"
             shutil.copytree(old, new)
             txt = (new / "result.toml").read_text().replace('kind = "demo"', 'kind = "capture"')
@@ -412,9 +433,7 @@ class Catalog(unittest.TestCase):
 
     def test_best_launcher_rates_the_game(self):
         with tempfile.TemporaryDirectory() as d:
-            g = Path(d) / "openarena"
-            shutil.copytree(REPO / "gamedb" / "content" / "games" / "openarena", g)
-            old = next((g / "tests").iterdir())
+            g, old = fixture_game(d)
             txt = re.sub(r'(?m)^launcher = .*\n', "", (old / "result.toml").read_text())
             (old / "result.toml").write_text(txt.replace('kind = "demo"', 'kind = "demo"\nlauncher = "OpenArena (GL 2.0)"'))
             fast = g / "tests" / "2026-10-21-demo"
@@ -435,16 +454,12 @@ class Catalog(unittest.TestCase):
         cat = catalog.build(REPO / "gamedb" / "content" / "games", REPO)
         self.assertEqual(cat["schema"], 1)
         ids = [g["id"] for g in cat["games"]]
-        self.assertTrue({"openarena", "supertuxkart", "warzone2100"} <= set(ids))
+        self.assertTrue({"openarena", "supertuxkart", "warzone2100", "xmoto"} <= set(ids))
         for g in cat["games"]:
             json.dumps(g)
             if g["id"] not in ("openarena", "supertuxkart", "warzone2100"):
                 continue
-            self.assertNotEqual(g["rating"]["medal"], "Untested")
             self.assertTrue(g["patched"])
-            self.assertEqual(g["rating"]["tested"]["walnut"], "pre-0.1")   # runs from before 0.1.0
-            self.assertEqual(len(g["launchers"]), 1)
-            self.assertEqual(len(g["launchers"][0]["history"]), 1)
             self.assertEqual(g["debs"], [])        # no --deb-index: no links
 
 

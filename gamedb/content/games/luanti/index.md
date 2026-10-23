@@ -11,10 +11,6 @@ patched_by = ["luanti"]
 recipes = ["luanti:base"]
 needs_data = false
 controller = "keyboard"
-medal_note = "Rated on a fixed flight over terrain from a fixed seed in Minetest Game."
-known_issues = [
-  "Memory is tight: 13 to 21 MB of RAM stay free during play.",
-]
 +++
 
 Luanti 5.15.2 runs on Walnut's own build, since Debian ships none for this CPU, with LuaJIT and the

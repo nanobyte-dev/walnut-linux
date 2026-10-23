@@ -31,7 +31,7 @@ shot_differing = 0
 [scores]
 frame = 70.3
 smooth = 38.1
-sound = 72.3
+sound = 98.3
 picture = 100.0
 load = 99.3
 
@@ -47,4 +47,3 @@ note = "ok: textures, lava, HUD and SPECTATOR text as on the PC (the PC has 30/9
 
 [shots]
 ps3 = ["ps3-40s.jpg"]
-pc = ["pc-30s.jpg", "pc-90s.jpg"]

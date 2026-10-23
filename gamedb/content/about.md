@@ -19,7 +19,8 @@ and writes down anything odd; those notes become the game's known issues.
 
 **A side-by-side picture check.** A script drives the game to a few fixed moments (a menu, a map, a
 camera position) on the PS3 and on a PC, and the two are put next to each other and looked at:
-missing textures, wrong colours, text that isn't drawn.
+missing textures, wrong colours, text that isn't drawn. The screenshots on these pages are all
+from the PS3.
 
 Every session adds to a game's play time, so its rating firms up as more people play it.
 

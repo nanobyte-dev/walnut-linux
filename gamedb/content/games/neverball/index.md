@@ -11,12 +11,8 @@ patched_by = ["neverball"]
 recipes = ["neverball:base"]
 needs_data = false
 controller = "keyboard"
-known_issues = [
-  "The sound underruns about 40 times a minute in the benchmark replay.",
-]
 +++
 
 Neverball (Debian's 2018 snapshot of 1.6, with Neverputt) runs with the right picture at about 66
 frames a second. Walnut's patches cut the replay from 2,154 GL calls a frame to 844 on a PC's software
-renderer. The test plays the game's own demo replay over and over; each restart reloads the level, and
-that reload is the longest frame of the run (3.9 s).
+renderer.

@@ -94,9 +94,8 @@ td.bar span { display: block; height: 0.6rem; border-radius: 3px; background: li
 .install code { flex: 1 1 18rem; padding: 0.7rem 0.9rem; overflow-x: auto; white-space: nowrap; border: 1px solid var(--border); }
 button.copy { background: var(--accent-deep); color: #fff; border: 0; border-radius: 6px; padding: 0 1.1rem; font: inherit; cursor: pointer; }
 button.copy:hover { background: var(--accent); }
-.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-.compare figure { margin: 0 0 1rem; }
-.compare img { width: 100%; height: auto; border-radius: 6px; border: 1px solid var(--border); display: block; background: var(--code); }
+.shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: 1rem; }
+.shots img { width: 100%; height: auto; border-radius: 6px; border: 1px solid var(--border); display: block; background: var(--code); }
 figcaption { color: var(--muted); font-size: 0.85rem; margin-top: 0.2rem; }
 .patches { padding-left: 1.4rem; }
 details summary { cursor: pointer; color: var(--accent-light); }
@@ -109,7 +108,6 @@ table.history th.num, table.history td.num { width: auto; padding-left: 0.4rem; 
 .small { font-size: 0.8rem; }
 .tested { margin: 0.6rem 0 0.2rem; }
 @media (max-width: 640px) {
-  .compare { grid-template-columns: 1fr; }
   h1 { font-size: 1.6rem; }
   table.tests { font-size: 0.85rem; }
 }

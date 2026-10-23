@@ -11,7 +11,6 @@ patched_by = ["ioquake3"]
 recipes = ["openarena:gl2min", "openarena:base"]
 needs_data = false
 controller = "keyboard"
-medal_note = "Only the GL 2.0 launcher has been tested so far; GL 1.2, the default, is the faster one."
 known_issues = [
   "The opengl2 renderer holds about 15 MB of free memory at its tightest.",
 ]

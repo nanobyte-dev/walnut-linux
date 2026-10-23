@@ -79,23 +79,16 @@
   </section>
   {{ end }}
 
-  {{ range $g.tests }}
-    {{ if or .ps3 .pc }}
+  {{ $shot_tests := where $g.tests "ps3" "!=" nil }}
+  {{ if $shot_tests }}
   <section>
-    <h2>PS3 and PC, side by side <span class="muted">({{ .date }}, {{ .kind }})</span></h2>
-    <p>{{ with .note }}{{ . }}{{ else }}{{ with .verdict }}Reviewed: {{ . }}.{{ end }}{{ end }}</p>
-    <div class="compare">
-      <div><h3>PS3</h3>
-        {{ range .ps3 }}{{ $f := . }}{{ with $page.Resources.Get $f }}<figure><a href="{{ .RelPermalink }}"><img src="{{ .RelPermalink }}" width="800" height="450" alt="PS3 screenshot" loading="lazy"></a>
-          <figcaption>{{ replaceRE `^.*/ps3-(.*)s\.jpg$` "$1 s" $f }}</figcaption></figure>{{ end }}{{ end }}
-      </div>
-      <div><h3>PC</h3>
-        {{ range .pc }}{{ $f := . }}{{ with $page.Resources.Get $f }}<figure><a href="{{ .RelPermalink }}"><img src="{{ .RelPermalink }}" width="800" height="450" alt="PC screenshot" loading="lazy"></a>
-          <figcaption>{{ replaceRE `^.*/pc-(.*)s\.jpg$` "$1 s" $f }}</figcaption></figure>{{ end }}{{ end }}
-      </div>
+    <h2>Screenshots</h2>
+    <p class="muted">As rendered on the PS3.</p>
+    <div class="shots">
+    {{ range $shot_tests }}{{ range .ps3 }}{{ with $page.Resources.Get . }}<a href="{{ .RelPermalink }}"><img src="{{ .RelPermalink }}" width="800" height="450" alt="{{ $g.title }} on the PS3" loading="lazy"></a>
+    {{ end }}{{ end }}{{ end }}
     </div>
   </section>
-    {{ end }}
   {{ end }}
 
   {{ with $g.known_issues }}

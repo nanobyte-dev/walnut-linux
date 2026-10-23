@@ -245,8 +245,7 @@ def build_game(gdir, repo, debs):
             "play_seconds": t.get("play_seconds", 0), "end": t.get("end"), "crashed": t.get("crashed", False),
             "verdict": t.get("picture", {}).get("verdict"), "note": t.get("picture", {}).get("note"),
             "numbers": t.get("numbers", {}), "versions": t.get("versions", {}),
-            "ps3": ["tests/%s/%s" % (t["id"], f) for f in t.get("shots", {}).get("ps3", [])],
-            "pc": ["tests/%s/%s" % (t["id"], f) for f in t.get("shots", {}).get("pc", [])]})
+            "ps3": ["tests/%s/%s" % (t["id"], f) for f in t.get("shots", {}).get("ps3", [])]})
     g = {k: fm[k] for k in ("id", "title", "summary", "categories", "tags", "license", "homepage", "packages",
                             "desktop", "needs_data", "controller") if k in fm}
     g.update({k: fm.get(k, v) for k, v in (("recipes", []), ("fps_cap", None), ("data_guide", None),

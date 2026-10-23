@@ -11,11 +11,6 @@ patched_by = ["cube2"]
 recipes = ["sauerbraten:base"]
 needs_data = false
 controller = "keyboard"
-medal_note = "Rated with the maps of Debian's cube2-data package, a recorded round on the cave map."
-known_issues = [
-  "About 40 sound underruns a minute in the benchmark.",
-  "Uses up to 117 MB of video memory and leaves about 20 MB of RAM free at its tightest.",
-]
 +++
 
 Sauerbraten (the Cube 2 engine, package `cube2`) plays a recorded round with two bots at about 39

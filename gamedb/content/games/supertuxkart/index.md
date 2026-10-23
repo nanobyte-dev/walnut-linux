@@ -11,7 +11,6 @@ patched_by = ["supertuxkart"]
 recipes = ["supertuxkart:lean"]
 needs_data = false
 controller = "unknown"
-medal_note = "Rated with the lean graphics settings; the game's defaults run at about 13 fps."
 known_issues = [
   "About 20 frames a second even at the lean settings: the PS3's PowerPC core and its memory limit what the game can draw.",
   "OpenAL logs buffer warnings in about half the runs; the sound has not been judged by ear yet.",

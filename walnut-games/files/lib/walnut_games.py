@@ -276,14 +276,11 @@ def parse_helper_line(line):
 
 
 def screenshots(game):
-    """[(label, relative path)]: every test's PS3 pictures, then its PC ones"""
+    """[(label, relative path)]: every test's pictures, as rendered on the PS3"""
     out = []
     for t in game.get("tests", []):
-        for src, files in (("PS3", t.get("ps3", [])), ("PC", t.get("pc", []))):
-            for f in files:
-                stem = os.path.splitext(os.path.basename(f))[0].split("-", 1)[-1]
-                out.append(("%s  %s  (%s)" % (src, stem, t.get("date", "")), f))
-    out.sort(key=lambda x: x[0][:3] != "PS3")
+        for f in t.get("ps3", []):
+            out.append(("Tested %s%s" % (t.get("date", ""), ", " + t["launcher"] if t.get("launcher") else ""), f))
     return out
 
 

@@ -407,8 +407,8 @@ class AppFunctions(unittest.TestCase):
     def test_screenshots_and_colours(self):
         g = {"tests": [{"date": "2026-10-20", "ps3": ["tests/t/ps3-40s.jpg"], "pc": ["tests/t/pc-30s.jpg"]}]}
         s = app.screenshots(g)
-        self.assertEqual([r for _, r in s], ["tests/t/ps3-40s.jpg", "tests/t/pc-30s.jpg"])
-        self.assertTrue(s[0][0].startswith("PS3") and s[1][0].startswith("PC"))
+        self.assertEqual([r for _, r in s], ["tests/t/ps3-40s.jpg"])   # the PS3's pictures only
+        self.assertEqual(s[0][0], "Tested 2026-10-20")
         self.assertEqual(app.pill_text_color(app.MEDAL_COLORS["Gold"]), "#14304d")
         self.assertEqual(app.pill_text_color(app.MEDAL_COLORS["Scrap"]), "#f4f4f4")
         for m in app.MEDAL_ORDER:

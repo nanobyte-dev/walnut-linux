@@ -30,7 +30,8 @@ Two tests, for different questions:
 2. **A scripted capture run, for the picture.** A recipe drives the game to fixed points (a menu, a
    map, a camera position), the PS3 captures them, and the same recipe captures them on a PC. The
    two sit side by side on one sheet and someone looks at it: missing textures, wrong colours,
-   undrawn text. Not a pixel diff.
+   undrawn text. Not a pixel diff. The PC pictures are for that review only; the website and the
+   app show the PS3's pictures alone (the point is how a game looks on the PS3).
 
 Every session adds its play time to the game's totals, so the numbers sharpen as people play.
 
@@ -194,11 +195,14 @@ A game is one folder, `gamedb/content/games/<id>/`: `index.md` with the catalog 
 front matter (title, summary, categories, tags, the packages to install, optionally the .desktop entries,
 `fps_cap` if it has one, whether it needs the user's own data, the controller) and notes as its
 body, a `thumb.png`, and one folder per test (`tests/<date>-<kind>/`) with its generated
-`result.toml` and the screenshots it lists (`ps3-<point>.jpg`, `pc-<point>.jpg`, 800x450 JPEG, kept
-in Git LFS). `tools/gamedb/import-run.py RUN... --game ID` writes a test folder from harness run
+`result.toml` and the screenshots it lists (`ps3-<point>.jpg`, 800x450 JPEG, kept in Git LFS). A
+session takes a screenshot every minute; the importer publishes up to four that differ (black
+frames and near-duplicates, like a menu caught three times, dropped by comparing small greyscale
+versions; then the most varied), and `--shots 60,240` picks them by hand instead. `tools/gamedb/import-run.py RUN... --game ID` writes a test folder from harness run
 directories and never touches `index.md`; `tools/gamedb/check.py` validates the catalog;
-`tools/gamedb/build.sh OUT` builds the site. A test is a `session` (a played session), a `demo` (a
-harness run with a measured window; it stands in for a session until the game has one and the page
-says so) or a `capture` (the picture only). Games that need the user's own data (OpenRCT2, Quake)
+`tools/gamedb/build.sh OUT` builds the site. A test is a `session` (a played session) or a `capture` (the
+picture only). Ratings come from played sessions alone: the benchmark runs of the suite (the
+desktop stopped, vsync off) don't describe what a player gets and aren't imported; the code still
+reads a `demo` test (a harness run with a measured window) if one is ever imported on purpose. Games that need the user's own data (OpenRCT2, Quake)
 are listed and shown, with a guide to setting up the data; the data itself is never offered (their
 screenshots are fine, their thumbnail is a placeholder).
