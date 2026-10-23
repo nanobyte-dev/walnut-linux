@@ -918,10 +918,9 @@ class App:
         for label, argv, cwd in cmds:
             m.add_command(label=label, command=lambda a=argv, c=cwd: self.launch(g, a, c))
         b = self.b_play
-        try:
-            m.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
-        finally:
-            m.grab_release()
+        # no grab_release after it: on X11 tk_popup returns at once, and the menu's grab is what
+        # closes it on a click outside
+        m.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
 
     def launch(self, g, argv, cwd):
         """start the game (through ps3-game: game mode); its output goes to a log under
