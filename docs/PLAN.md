@@ -26,6 +26,17 @@ into the optical drive, or provide a source") and copies what it needs from the 
 an existing install (a GOG or Steam folder, an old Windows install). Nothing copyrighted is ever
 published; the user's own copy is the source. That is item 5.10.
 
+## Next up (the user, 2026-10-23)
+
+Walnut 0.1.0, the first public alpha, is out ([release/ALPHA.md](release/ALPHA.md)). In this order:
+
+1. A round of cleanups (disk space on the PC).
+2. An Atomic Bomberman clone on the PS3, packaged.
+3. Then what the release interrupted:
+   - a curated launcher / store / discovery tool in the distro;
+   - new games;
+   - the side-by-side comparison with the PC (PS3 screenshots next to PC captures, judged by eye).
+
 ## Where we are (2026-10-19)
 
 The whole stack is built and packaged: the kernel (6.12 LTS with our PS3 patches), the ps3rsx
