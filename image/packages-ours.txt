@@ -11,6 +11,8 @@ ps3rsx-modules-ps3-debug
 ps3-boot
 ps3-system
 ps3-desktop
+# Walnut Games: the games database's launcher and store (docs/GAMEDB.md), part of the base system
+walnut-games
 ps3-splash
 ps3-gpu-tools
 ps3-spu

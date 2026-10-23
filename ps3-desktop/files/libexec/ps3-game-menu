@@ -26,6 +26,7 @@ FNR == 1 { flush(); fname = FILENAME; sub(/.*\//, "", fname) }
 	l = $0
 	if (l ~ /^Categories=/ && l ~ /[=;]Game(;|$)/) game = 1
 	if (l ~ /^(Terminal|DBusActivatable)=true/) skip = 1
+	if (l ~ /^X-Walnut-GameMode=false/) skip = 1	# a game-related app that is no game (Walnut Games)
 	if (l ~ /^Exec=/) {
 		if (l ~ /ps3-game/) skip = 1
 		else { l = "Exec=ps3-game " substr(l, 6); n_exec++ }

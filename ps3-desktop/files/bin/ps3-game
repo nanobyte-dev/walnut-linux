@@ -26,6 +26,10 @@ if [ "${PS3_ZLIB:-ng}" != stock ] && [ -e "$ZNG/libz.so.1" ]; then
 fi
 # Started from the menu or the desktop, this script runs in ps3-desktop.slice, which game mode
 # freezes: it moves into a scope of ps3-game.slice first. Without a user manager: the game alone.
+# Debian puts most games in /usr/games, which isn't on the PATH of everything that starts one (the
+# user manager's has /usr/bin only: a game started from the Walnut Games app or a desktop icon was
+# "not found")
+case ":$PATH:" in *:/usr/games:*) ;; *) export PATH="$PATH:/usr/local/games:/usr/games" ;; esac
 if [ -z "${PS3_GAME_SCOPED:-}" ]; then
 	export PS3_GAME_SCOPED=1
 	if ! systemctl --user show-environment >/dev/null 2>&1; then

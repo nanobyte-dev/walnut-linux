@@ -13,7 +13,7 @@ Depends: ${misc:Depends}, ps3-system (>= 0.367~), dbus-user-session, alsa-utils,
  xserver-xorg-input-libinput, openbox, tint2, jgmenu, pcmanfm, desktop-base, greybird-gtk-theme,
  papirus-icon-theme, dunst, lxpolkit, lxterminal, network-manager-applet, pnmixer, gvfs, udev,
  systemd, procps, util-linux, python3, libxres1
-Recommends: blueman, ps3-games, libz-ng-compat
+Recommends: blueman, ps3-games, libz-ng-compat, walnut-games
 Description: PS3 desktop (Openbox on the RSX, game mode)
  Automatic login on tty1 (/etc/default/ps3-desktop: PS3_DESKTOP_USER) into an Openbox desktop on
  the RSX (Xorg modesetting with glamor): tint2 panel, PCManFM desktop, network, volume and

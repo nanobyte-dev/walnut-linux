@@ -65,6 +65,13 @@ c=${XDG_CONFIG_HOME:-$HOME/.config}/pcmanfm/default/desktop-items-0.conf
 # silently at boot as well)
 [ "${PS3_STARTUP_CHIME:-on}" = off ] || [ ! -r /usr/share/sounds/walnut/startup.wav ] ||
 	d aplay -q /usr/share/sounds/walnut/startup.wav
+# tint2 copies its config into ~/.config at the first start, so a launcher we add later (Walnut
+# Games) never reaches it: added once to a copy that still has our menu launcher and lacks it
+t=${XDG_CONFIG_HOME:-$HOME/.config}/tint2/tint2rc
+if [ -f "$t" ] && grep -q '^launcher_item_app = jgmenu.desktop$' "$t" && ! grep -q 'walnut-games.desktop' "$t"; then
+	sed -i 's/^launcher_item_app = jgmenu.desktop$/&\nlauncher_item_app = walnut-games.desktop/' "$t"
+fi
+unset t
 d pcmanfm --desktop; d tint2; d nm-applet; d pnmixer; d lxpolkit; d dunst
 # Game mode by itself for any fullscreen 3D program, however it was started (ps3-game-detect;
 # it watches X and ends with it)
