@@ -14,6 +14,7 @@ iputils-ping
 netbase
 ca-certificates
 curl
+ethtool
 # the machine resolves its own name whatever /etc/hosts says (hostnamectl leaves it behind)
 libnss-myhostname
 procps

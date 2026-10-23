@@ -141,6 +141,7 @@ a softpipe run (`LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=softpipe`).
     rsx-suite.sh all            # regression: smoke, Mesa ladder, concurrent processes
     rsx-x.sh 30 glxgears -info  # Xorg (modesetting + glamor) on the RSX, one client
     tools/webcam-grab.sh   # on the PC: photo of the PS3's screen -> build/tmp/screen.jpg
+    tools/walnut-diag.sh   # on the PS3 (from a USB stick, as root): network/sound state and link tests into a folder beside it
 
 Host tests (no PS3 needed):
 
