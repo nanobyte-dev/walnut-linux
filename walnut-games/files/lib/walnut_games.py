@@ -26,6 +26,7 @@ import shlex
 import subprocess
 import sys
 import threading
+import time
 import urllib.request
 import webbrowser
 
@@ -52,8 +53,9 @@ MEDAL_ORDER = ["Platinum", "Gold", "Silver", "Bronze", "Tin", "Rust", "Scrap", "
 MEDAL_COLORS = {"Platinum": "#e5e4e2", "Gold": "#d4af37", "Silver": "#c0c0c0", "Bronze": "#cd7f32",
                 "Tin": "#9a9ea3", "Rust": "#8a4b32", "Scrap": "#5f5a55", "Untested": "#6f7a86"}
 DETAILS_W = 372     # the details pane's content width
+QUICK_EXIT_S = 20   # a game that quits sooner than this gets a note in the status line
 ASPECT_TOP = 22     # the caption line above the aspect rows
-ASPECT_ROW = 36     # one aspect: the score line and the measured line under it
+ASPECT_GAP = 8      # space between two aspects' blocks
 ASPECT_ORDER = ["frame", "smooth", "sound", "picture", "stability", "display", "load"]
 
 
@@ -361,10 +363,13 @@ class App:
         # pinned at the bottom
         btns = ttk.Frame(d, style="Panel.TFrame")
         btns.pack(side="bottom", fill="x", pady=(8, 0))
-        self.progress = ttk.Progressbar(d, maximum=100, mode="determinate")
-        self.progress.pack(side="bottom", fill="x")
-        self.d_status = ttk.Label(d, text="", style="Muted.TLabel", background=PANEL, wraplength=370)
-        self.d_status.pack(side="bottom", anchor="w", pady=(8, 2))
+        # the activity strip above the buttons (status, progress): only shown while something happens
+        self.activity = ttk.Frame(d, style="Panel.TFrame")
+        self.d_status = ttk.Label(self.activity, text="", style="Muted.TLabel", background=PANEL, wraplength=370,
+                                  justify="left")
+        self.d_status.pack(side="top", anchor="w", pady=(8, 2))
+        self.progress = ttk.Progressbar(self.activity, maximum=100, mode="determinate")
+        self._activity_after = None
         self.b_install = ttk.Button(btns, text="Install", style="Accent.TButton", command=lambda: self.run_helper("install"))
         self.b_remove = ttk.Button(btns, text="Remove", command=lambda: self.run_helper("remove"))
         self.b_play = ttk.Button(btns, text="Play", style="Accent.TButton", command=self.play)
@@ -373,6 +378,7 @@ class App:
         # the scrolling area: a canvas holding one frame, its scroll region kept to the frame's size
         area = ttk.Frame(d, style="Panel.TFrame")
         area.pack(side="top", fill="both", expand=True)
+        self.d_area = area
         self.d_scroll = tk.Canvas(area, bg=PANEL, highlightthickness=0, width=DETAILS_W)
         dsb = ttk.Scrollbar(area, orient="vertical", command=self.d_scroll.yview)
         self.d_scroll.configure(yscrollcommand=dsb.set)
@@ -396,7 +402,7 @@ class App:
         self.d_sum.pack(anchor="w", pady=(2, 8))
         self.d_medal = tk.Canvas(inner, width=DETAILS_W, height=44, bg=PANEL, highlightthickness=0)
         self.d_medal.pack(anchor="w")
-        self.d_aspects = tk.Canvas(inner, width=DETAILS_W, height=ASPECT_TOP + 7 * ASPECT_ROW + 4, bg=PANEL,
+        self.d_aspects = tk.Canvas(inner, width=DETAILS_W, height=ASPECT_TOP + 7 * 40, bg=PANEL,
                                    highlightthickness=0)
         self.d_aspects.pack(anchor="w", pady=(6, 0))
         self.d_stats = ttk.Label(inner, text="", style="Muted.TLabel", background=PANEL, wraplength=DETAILS_W - 8,
@@ -620,28 +626,35 @@ class App:
         t.configure(height=max(1, (lines[0] if isinstance(lines, tuple) else lines or 1)))
 
     def draw_aspects(self, r):
-        """one row per aspect: its name, a bar and the score out of 100, and under them what was
-        measured (a bare "2" next to "Frame rate" read as 2 fps)"""
+        """one block per aspect: its name, a bar and the score out of 100, and under them what was
+        measured (a bare "2" next to "Frame rate" read as 2 fps). Each block is as tall as its text
+        (the measured line wraps on a narrow pane), and the canvas as tall as all of them."""
         c = self.d_aspects
+        c.delete("all")
+        w = getattr(self, "d_width", DETAILS_W)
         c.create_text(0, 8, text="Scores out of 100, with what was measured", fill=MUTED, anchor="w",
                       font=self.f["small"])
-        for n, k in enumerate(ASPECT_ORDER):
+        y = ASPECT_TOP
+        for k in ASPECT_ORDER:
             a = r["aspects"].get(k)
             if not a:
                 continue
-            y = ASPECT_TOP + n * ASPECT_ROW
             c.create_text(0, y + 9, text=a["name"], fill=TEXT, anchor="w", font=self.f["small"])
             c.create_rectangle(110, y + 4, 270, y + 14, fill=ENTRY, outline=BORDER)
+            bottom = y + 18
             sc = a["score"]
             if sc is None:
                 c.create_text(278, y + 9, text="not measured", fill=MUTED, anchor="w", font=self.f["small"])
-                continue
-            if sc:
-                c.create_rectangle(110, y + 4, 110 + 1.6 * sc, y + 14, fill=ACCENT, outline="")
-            c.create_text(278, y + 9, text="%d/100" % round(sc), fill=TEXT, anchor="w", font=self.f["bold"])
-            if a.get("detail"):
-                c.create_text(110, y + 24, text=a["detail"], fill=MUTED, anchor="w", font=self.f["small"],
-                              width=max(200, getattr(self, "d_width", DETAILS_W) - 112))
+            else:
+                if sc:
+                    c.create_rectangle(110, y + 4, 110 + 1.6 * sc, y + 14, fill=ACCENT, outline="")
+                c.create_text(278, y + 9, text="%d/100" % round(sc), fill=TEXT, anchor="w", font=self.f["bold"])
+                if a.get("detail"):
+                    t = c.create_text(110, y + 18, text=a["detail"], fill=MUTED, anchor="nw", font=self.f["small"],
+                                      width=max(160, w - 112))
+                    bottom = c.bbox(t)[3]
+            y = bottom + ASPECT_GAP
+        c.configure(height=y + 2, width=w)
 
     # -- screenshots
     def step_shot(self, d):
@@ -722,6 +735,30 @@ class App:
         self.b_remove.configure(state="normal" if g and idle and inst else "disabled")
         self.b_play.configure(state="normal" if g and idle and inst and play_command(g, self.runtime_dir) else "disabled")
 
+    def show_activity(self, text, progress=None, hide_after=None):
+        """the status line (and the progress bar when progress is a number) above the buttons;
+        hide_after: seconds until it goes away by itself"""
+        if self._activity_after:
+            self.root.after_cancel(self._activity_after)
+            self._activity_after = None
+        self.d_status.configure(text=text)
+        if progress is None:
+            self.progress.pack_forget()
+        else:
+            self.progress.configure(value=progress)
+            if not self.progress.winfo_ismapped():
+                self.progress.pack(side="top", fill="x")
+        if not self.activity.winfo_ismapped():
+            self.activity.pack(side="bottom", fill="x", before=self.d_area)
+        if hide_after:
+            self._activity_after = self.root.after(int(hide_after * 1000), self.hide_activity)
+
+    def hide_activity(self):
+        if self._activity_after:
+            self.root.after_cancel(self._activity_after)
+            self._activity_after = None
+        self.activity.pack_forget()
+
     def run_helper(self, op):
         g = self.g
         if not g or self.busy:
@@ -729,8 +766,7 @@ class App:
         if op == "remove" and not messagebox.askyesno("Remove", "Remove %s?" % g["title"], parent=self.root):
             return
         self.busy = (g["id"], op)
-        self.progress.configure(value=0)
-        self.d_status.configure(text="Starting...")
+        self.show_activity(("Installing %s..." if op == "install" else "Removing %s...") % g["title"], progress=0)
         self.update_buttons()
         cmd = ["sudo", "-n", self.helper, op, g["id"]]
 
@@ -767,22 +803,31 @@ class App:
                 ev = self.events.get_nowait()
                 if ev[0] == "helper":
                     if ev[1] == "progress":
-                        self.progress.configure(value=ev[2])
-                        self.d_status.configure(text=ev[3])
+                        self.show_activity(ev[3], progress=ev[2])
                     elif ev[1] == "error":
-                        self.d_status.configure(text=ev[2])
+                        self.show_activity(ev[2], progress=self.progress["value"])
                 elif ev[0] == "done":
                     _, gid, op, rc, tail = ev
                     self.busy = None
                     self.refresh_installed()
-                    self.progress.configure(value=100 if rc == 0 else 0)
                     ok = "installed" if op == "install" else "removed"
-                    self.d_status.configure(text=self.by_id[gid]["title"] + (" " + ok + "." if rc == 0 else
-                                            ": " + op + " failed" + (" (refused)" if rc == 2 else "") + "."))
+                    # a success fades after a few seconds; a failure stays until the next action
+                    self.show_activity(self.by_id[gid]["title"] + (" " + ok + "." if rc == 0 else
+                                       ": " + op + " failed" + (" (refused)" if rc == 2 else "") + "."),
+                                       hide_after=6 if rc == 0 else None)
                     if rc != 0:
                         messagebox.showerror("Walnut Games", "%s of %s failed:\n\n%s" % (
                             op, self.by_id[gid]["title"], "\n".join(tail) or "no details"), parent=self.root)
                     self.apply_filters_keep()
+                elif ev[0] == "played":
+                    _, gid, rc, secs, log = ev
+                    title = self.by_id[gid]["title"] if gid in self.by_id else gid
+                    if secs < QUICK_EXIT_S:
+                        # it quit almost at once: say so, with where its output went
+                        self.show_activity("%s closed after %d s%s. Its output: %s" % (
+                            title, secs, "" if rc == 0 else " (exit code %d)" % rc, log))
+                    else:
+                        self.hide_activity()
                 elif ev[0] == "shot":
                     if self.g and self.g["id"] == ev[1] and ev[3]:
                         shots = screenshots(self.g)
@@ -804,16 +849,35 @@ class App:
             self.update_buttons()
 
     def play(self):
+        """start the game (through ps3-game: game mode); its output goes to a log under
+        ~/.cache/walnut-games; the status says "Starting" until the game has had time to come up,
+        and a game that quits within QUICK_EXIT_S says so, with the log's path"""
         g = self.g
         cmd = play_command(g, self.runtime_dir) if g else None
         if not cmd or self.busy:
             return
+        logdir = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "walnut-games")
+        log = os.path.join(logdir, g["id"] + ".log")
         try:
-            subprocess.Popen(cmd[0], cwd=cmd[1], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, start_new_session=True)
-            self.d_status.configure(text="Starting %s..." % g["title"])
+            os.makedirs(logdir, exist_ok=True)
+            out = open(log, "w")
+            env = dict(os.environ)
+            if "/usr/games" not in env.get("PATH", "").split(":"):
+                # the user manager's PATH has no /usr/games, where Debian puts most games
+                env["PATH"] = env.get("PATH", "/usr/bin:/bin") + ":/usr/local/games:/usr/games"
+            p = subprocess.Popen(cmd[0], cwd=cmd[1], stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                                 start_new_session=True, env=env)
+            out.close()
         except OSError as e:
-            self.d_status.configure(text="Can't start %s: %s" % (g["title"], e))
+            self.show_activity("Can't start %s: %s" % (g["title"], e))
+            return
+        self.show_activity("Starting %s..." % g["title"], hide_after=QUICK_EXIT_S)
+        t0 = time.monotonic()
+
+        def wait():
+            rc = p.wait()
+            self.events.put(("played", g["id"], rc, int(time.monotonic() - t0), log))
+        threading.Thread(target=wait, daemon=True).start()
 
     def open_web(self):
         webbrowser.open(WEB + ("games/%s/" % self.g["id"] if getattr(self, "g", None) else ""))

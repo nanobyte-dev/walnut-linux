@@ -3,6 +3,8 @@ Type=Application
 Name=Walnut Games
 Comment=Browse, install and play the games that run on Walnut
 Exec=walnut-games
-Icon=applications-games
+Icon=walnut-games
 Terminal=false
-Categories=Game;
+Categories=Game;PackageManager;
+# the store itself is no game: ps3-game-menu leaves it out of game mode
+X-Walnut-GameMode=false

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Walnut Games: the walnut mark (tools/walnut-server/site/walnut-mark.svg) on a Walnut-blue tile,
+       a small gamepad in the corner; readable down to the panel's 24 px -->
+  <defs>
+    <mask id="cut" maskUnits="userSpaceOnUse" x="-200" y="-200" width="400" height="400">
+      <ellipse cx="0" cy="0" rx="82" ry="94" fill="white"/>
+      <g stroke="black" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="6">
+        <path d="M3 -100 C -8 -56, 12 -18, -2 20 C -10 50, 6 76, -2 100" stroke-width="11"/>
+        <path d="M-30 -74 C -40 -66, -50 -62, -56 -50 C -60 -42, -66 -40, -68 -30"/>
+        <path d="M-72 -6 C -66 6, -72 16, -66 28 C -62 36, -66 44, -60 52"/>
+        <path d="M30 -78 C 40 -72, 48 -64, 56 -54 C 62 -46, 66 -40, 68 -30"/>
+        <path d="M72 -2 C 66 10, 72 20, 66 32 C 62 40, 66 48, 58 58"/>
+        <path d="M-40 -34 C -44 -24, -38 -16, -42 -6"/>
+        <path d="M38 -30 C 42 -20, 36 -12, 40 -2"/>
+      </g>
+    </mask>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="#14304d" stroke="#1d3e61" stroke-width="3"/>
+  <g transform="translate(56 58) scale(0.48)">
+    <ellipse cx="0" cy="0" rx="82" ry="94" fill="#d49a5c" mask="url(#cut)" transform="rotate(40)"/>
+  </g>
+  <!-- the gamepad -->
+  <g transform="translate(86 92)">
+    <path d="M-24 -10 C -32 -10, -36 -2, -36 8 C -36 18, -30 22, -24 20 L -16 13 L 16 13 L 24 20 C 30 22, 36 18, 36 8 C 36 -2, 32 -10, 24 -10 Z"
+          fill="#ececec" stroke="#0e2238" stroke-width="3" stroke-linejoin="round"/>
+    <rect x="-24" y="-1" width="13" height="4" rx="1.5" fill="#14304d"/>
+    <rect x="-19.5" y="-5.5" width="4" height="13" rx="1.5" fill="#14304d"/>
+    <circle cx="15" cy="-1" r="3" fill="#b5763a"/>
+    <circle cx="22" cy="5" r="3" fill="#b5763a"/>
+  </g>
+</svg>
