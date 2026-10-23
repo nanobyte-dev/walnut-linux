@@ -161,26 +161,73 @@ def desktop_entry(path):
     return keys if "Exec" in keys else None
 
 
-def play_command(game, runtime_dir=None, apps=APPS):
-    """(argv, cwd) to start the game, or None. The runtime copy (ps3-game-menu's, Exec through
-    ps3-game) first, else ps3-game plus the installed entry's Exec."""
-    runtime = os.path.join(runtime_dir, "applications") if runtime_dir else None
-    for name in game.get("desktop", []):
-        if runtime:
-            e = desktop_entry(os.path.join(runtime, name))
+def package_files(packages, runner=None):
+    """the paths the installed packages ship (dpkg -L, their manifest); [] when dpkg can't say"""
+    if not packages:
+        return []
+    cmd = ["dpkg-query", "-L"] + sorted(packages)
+    try:
+        out = (runner or (lambda c: subprocess.run(c, capture_output=True, text=True).stdout))(cmd)
+    except OSError:
+        return []
+    return [l.strip() for l in out.splitlines() if l.strip().startswith("/")]
+
+
+BIN_DIRS = ("/usr/games", "/usr/bin", "/usr/local/games")
+
+
+def entry_program(argv):
+    """the program an Exec runs: past ps3-game, env and its VAR=value words"""
+    i = 0
+    while i < len(argv) and (os.path.basename(argv[i]) in ("ps3-game", "env") or
+                             (i and "=" in argv[i] and not argv[i].startswith("-"))):
+        i += 1
+    return os.path.basename(argv[i]) if i < len(argv) else None
+
+
+def play_commands(game, runtime_dir=None, apps=APPS, files=None):
+    """[(label, argv, cwd)]: every way to start the game, found from its packages' manifest (files:
+    a callable giving the paths they ship): the menu entries they ship (a diverted one isn't there
+    and drops out), then any shown menu entry that runs one of their programs (Walnut's own entries
+    for a game, like OpenArena's two renderers). The catalog's optional `desktop` list comes first
+    (an order, or an entry the manifest can't lead to). Each entry's runtime copy (ps3-game-menu's,
+    Exec through ps3-game) wins over the installed one, which gets ps3-game put in front. The label
+    is the entry's Name."""
+    dirs = ([os.path.join(runtime_dir, "applications")] if runtime_dir else []) + [apps]
+    shipped = files() if files else []
+    progs = {os.path.basename(f) for f in shipped if os.path.dirname(f) in BIN_DIRS}
+    names = list(game.get("desktop", []))
+    names += sorted(os.path.basename(f) for f in shipped
+                    if os.path.dirname(f) == apps and f.endswith(".desktop") and os.path.basename(f) not in names)
+    out, seen = [], set()
+
+    def add(name, e):
+        argv = parse_exec(e["Exec"])
+        if not argv or name in seen:
+            return
+        if os.path.basename(argv[0]) != "ps3-game":
+            argv = ["ps3-game"] + argv
+        out.append((e.get("Name") or name[:-len(".desktop")], argv, e.get("Path") or None))
+        seen.add(name)
+
+    for name in names:
+        for d in dirs:
+            e = desktop_entry(os.path.join(d, name))
             if e:
-                argv = parse_exec(e["Exec"])
-                if argv:
-                    return argv, e.get("Path") or None
-    for name in game.get("desktop", []):
-        e = desktop_entry(os.path.join(apps, name))
-        if e:
-            argv = parse_exec(e["Exec"])
-            if argv:
-                if os.path.basename(argv[0]) != "ps3-game":
-                    argv = ["ps3-game"] + argv
-                return argv, e.get("Path") or None
-    return None
+                add(name, e)
+                break
+    if progs:
+        for d in dirs:
+            try:
+                found = sorted(n for n in os.listdir(d) if n.endswith(".desktop"))
+            except OSError:
+                continue
+            for name in found:
+                e = None if name in seen else desktop_entry(os.path.join(d, name))
+                if e and e.get("NoDisplay") != "true" and e.get("Hidden") != "true" and \
+                        entry_program(parse_exec(e["Exec"])) in progs:
+                    add(name, e)
+    return out
 
 
 def parse_helper_line(line):
@@ -235,6 +282,7 @@ class App:
         self.shown, self.selected = [], None
         self.thumbs, self.cards = {}, {}
         self.busy = None                       # (id, "install"|"remove") while the helper runs
+        self._manifests = {}                   # (game id, installed packages) -> dpkg -L
         self.events = queue.Queue()
         self.shot_i, self.shot_img = 0, None
         self.hover = None
@@ -727,13 +775,22 @@ class App:
     def refresh_installed(self):
         self.have = dpkg_installed({p for g in self.games for p in g["packages"]})
 
+    def manifest(self, g):
+        """the game's packages' files (dpkg -L), cached until the installed set changes"""
+        key = (g["id"], tuple(sorted(p for p in g["packages"] if p in self.have)))
+        if key not in self._manifests:
+            self._manifests[key] = package_files(g["packages"])
+        return self._manifests[key]
+
     def update_buttons(self):
         g = getattr(self, "g", None)
         inst = bool(g) and is_installed(g, self.have)
         idle = self.busy is None
         self.b_install.configure(state="normal" if g and idle and not inst else "disabled")
         self.b_remove.configure(state="normal" if g and idle and inst else "disabled")
-        self.b_play.configure(state="normal" if g and idle and inst and play_command(g, self.runtime_dir) else "disabled")
+        self.play_cmds = play_commands(g, self.runtime_dir, files=lambda: self.manifest(g)) if g and inst else []
+        self.b_play.configure(state="normal" if idle and self.play_cmds else "disabled",
+                              text="Play \u25be" if len(self.play_cmds) > 1 else "Play")
 
     def show_activity(self, text, progress=None, hide_after=None):
         """the status line (and the progress bar when progress is a number) above the buttons;
@@ -849,13 +906,27 @@ class App:
             self.update_buttons()
 
     def play(self):
+        """start the game; with several launchers (two renderers), a menu of them under the button"""
+        g, cmds = self.g, getattr(self, "play_cmds", [])
+        if not g or not cmds or self.busy:
+            return
+        if len(cmds) == 1:
+            self.launch(g, cmds[0][1], cmds[0][2])
+            return
+        m = tk.Menu(self.root, tearoff=0, bg=PANEL, fg=TEXT, activebackground=ACCENT, activeforeground=PANEL,
+                    bd=1, relief="solid", font=self.f["base"])
+        for label, argv, cwd in cmds:
+            m.add_command(label=label, command=lambda a=argv, c=cwd: self.launch(g, a, c))
+        b = self.b_play
+        try:
+            m.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
+        finally:
+            m.grab_release()
+
+    def launch(self, g, argv, cwd):
         """start the game (through ps3-game: game mode); its output goes to a log under
         ~/.cache/walnut-games; the status says "Starting" until the game has had time to come up,
         and a game that quits within QUICK_EXIT_S says so, with the log's path"""
-        g = self.g
-        cmd = play_command(g, self.runtime_dir) if g else None
-        if not cmd or self.busy:
-            return
         logdir = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "walnut-games")
         log = os.path.join(logdir, g["id"] + ".log")
         try:
@@ -865,7 +936,7 @@ class App:
             if "/usr/games" not in env.get("PATH", "").split(":"):
                 # the user manager's PATH has no /usr/games, where Debian puts most games
                 env["PATH"] = env.get("PATH", "/usr/bin:/bin") + ":/usr/local/games:/usr/games"
-            p = subprocess.Popen(cmd[0], cwd=cmd[1], stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+            p = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
                                  start_new_session=True, env=env)
             out.close()
         except OSError as e:

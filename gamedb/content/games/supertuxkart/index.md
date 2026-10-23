@@ -8,7 +8,6 @@ license = "GPL-3.0-or-later"
 homepage = "https://supertuxkart.net/"
 packages = ["supertuxkart", "supertuxkart-data"]
 patched_by = ["supertuxkart"]
-desktop = ["supertuxkart.desktop"]
 recipes = ["supertuxkart:lean"]
 needs_data = false
 controller = "unknown"

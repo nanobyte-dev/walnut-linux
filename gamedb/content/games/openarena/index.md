@@ -8,7 +8,6 @@ license = "GPL-2.0-or-later"
 homepage = "http://openarena.ws/"
 packages = ["openarena"]
 patched_by = ["ioquake3"]
-desktop = ["openarena.desktop"]
 recipes = ["openarena:gl2min", "openarena:base"]
 needs_data = false
 controller = "keyboard"

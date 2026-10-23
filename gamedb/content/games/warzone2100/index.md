@@ -8,7 +8,6 @@ license = "GPL-2.0-or-later"
 homepage = "https://wz2100.net/"
 packages = ["warzone2100", "warzone2100-data", "warzone2100-music"]
 patched_by = ["warzone2100"]
-desktop = ["warzone2100.desktop"]
 recipes = ["warzone2100:base"]
 needs_data = false
 controller = "keyboard"

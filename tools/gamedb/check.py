@@ -35,7 +35,7 @@ URL_RE = re.compile(r"https?://[^\s]+\Z")
 FIELDS = {
     "id": (str, True), "title": (str, True), "summary": (str, True), "categories": (list, True),
     "tags": (list, True), "license": (str, True), "homepage": (str, True), "packages": (list, True),
-    "desktop": (list, True), "recipes": (list, False), "needs_data": (bool, True), "data_guide": (str, False),
+    "desktop": (list, False), "recipes": (list, False), "needs_data": (bool, True), "data_guide": (str, False),
     "controller": (str, True), "fps_cap": ((int, float), False), "medal_note": (str, False),
     "known_issues": (list, False), "patched_by": (list, False),
 }
@@ -98,7 +98,7 @@ def check_game(gdir, bad, repo):
     for p in fm.get("patched_by", []):
         if not (repo / p / "package.conf").exists():
             errs.append("patched_by %r: no %s/package.conf in the repository" % (p, p))
-    for d in fm["desktop"]:
+    for d in fm.get("desktop", []):
         if not isinstance(d, str) or not re.fullmatch(r"[A-Za-z0-9._-]+\.desktop", d):
             errs.append("desktop entry %r" % (d,))
     if fm["controller"] not in CONTROLLERS:

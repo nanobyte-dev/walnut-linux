@@ -138,9 +138,15 @@ buttons Install, Remove, Play and "Open on the web". The window follows the Waln
   arrive with package updates; the website is the always-current view. A screenshot missing from the
   package is fetched once from the website and cached in `~/.cache/walnut-games`; offline the app works
   with what is packaged.
-- **Installed** comes from `dpkg-query`. **Play** starts the game's runtime menu entry
-  (`$XDG_RUNTIME_DIR/ps3-game-menu/applications/<desktop>`, whose Exec goes through `ps3-game`), else
-  `ps3-game` plus the entry's Exec from `/usr/share/applications` (field codes cut out, no shell). Play is
+- **Installed** comes from `dpkg-query`. **Play** finds the game's launchers in its packages'
+  manifest (`dpkg -L`): the menu entries they ship (a diverted one isn't there and drops out), and any
+  shown menu entry that runs one of their programs (Walnut's own entries, like OpenArena's GL 1.2 and
+  GL 2.0). The catalog's `desktop` list is optional: it orders the launchers or adds one the manifest
+  can't lead to. Each launcher starts through its runtime menu copy
+  (`$XDG_RUNTIME_DIR/ps3-game-menu/applications/`, Exec through `ps3-game`), else `ps3-game` plus the
+  entry's Exec (field codes cut out, no shell). With more than one launcher, Play opens a menu of them
+  by their names. Its output goes to `~/.cache/walnut-games/<id>.log`; a game that quits within 20 s
+  says so in the status line. Play is
   off while an install or removal runs: game mode would freeze the helper with dpkg's lock held. After
   either, the app runs `ps3-game-menu "$XDG_RUNTIME_DIR/ps3-game-menu"` so the new entry exists.
 - **The helper**, `/usr/lib/ps3/sbin/walnut-games-helper install|remove|status ID`, runs as root through
@@ -162,7 +168,7 @@ buttons Install, Remove, Play and "Open on the web". The window follows the Waln
 ## Adding a game
 
 A game is one folder, `gamedb/content/games/<id>/`: `index.md` with the catalog entry in its
-front matter (title, summary, categories, tags, the packages to install, the .desktop entry,
+front matter (title, summary, categories, tags, the packages to install, optionally the .desktop entries,
 `fps_cap` if it has one, whether it needs the user's own data, the controller) and notes as its
 body, a `thumb.png`, and one folder per test (`tests/<date>-<kind>/`) with its generated
 `result.toml` and the screenshots it lists (`ps3-<point>.jpg`, `pc-<point>.jpg`, 800x450 JPEG, kept

@@ -297,17 +297,59 @@ class AppFunctions(unittest.TestCase):
             rt, apps = Path(d) / "run", Path(d) / "apps"
             self.entry(rt / "applications", "alpha.desktop", "ps3-game alpha --fs %U", "Path=/tmp")
             self.entry(apps, "alpha.desktop", "alpha %U")
-            self.assertEqual(app.play_command(GAMES["alpha"], str(rt), str(apps)), (["ps3-game", "alpha", "--fs"], "/tmp"))
+            self.assertEqual(app.play_commands(GAMES["alpha"], str(rt), str(apps)),
+                             [("X", ["ps3-game", "alpha", "--fs"], "/tmp")])
 
     def test_play_falls_back_to_ps3_game(self):
         with tempfile.TemporaryDirectory() as d:
             apps = Path(d) / "apps"
             self.entry(apps, "alpha.desktop", "/usr/games/alpha -f %f")
             self.entry(apps, "beta.desktop", "ps3-game beta")
-            self.assertEqual(app.play_command(GAMES["alpha"], str(Path(d) / "none"), str(apps)),
-                             (["ps3-game", "/usr/games/alpha", "-f"], None))
-            self.assertEqual(app.play_command(GAMES["beta"], None, str(apps)), (["ps3-game", "beta"], None))
-            self.assertIsNone(app.play_command({"desktop": ["missing.desktop"]}, None, str(apps)))
+            self.assertEqual(app.play_commands(GAMES["alpha"], str(Path(d) / "none"), str(apps)),
+                             [("X", ["ps3-game", "/usr/games/alpha", "-f"], None)])
+            self.assertEqual(app.play_commands(GAMES["beta"], None, str(apps)), [("X", ["ps3-game", "beta"], None)])
+            self.assertEqual(app.play_commands({"desktop": ["missing.desktop"]}, None, str(apps)), [])
+
+    def test_play_every_launcher_in_order(self):
+        # two renderers: both offered, in the catalog's order, labelled with their Names
+        with tempfile.TemporaryDirectory() as d:
+            apps = Path(d) / "apps"
+            (apps).mkdir()
+            (apps / "g-gl2.desktop").write_text("[Desktop Entry]\nName=G (GL 2)\nExec=ps3-game g +r 2\n")
+            (apps / "g-gl1.desktop").write_text("[Desktop Entry]\nName=G (GL 1)\nExec=ps3-game g +r 1\n")
+            got = app.play_commands({"desktop": ["g-gl1.desktop", "g-gl2.desktop"]}, None, str(apps))
+            self.assertEqual([c[0] for c in got], ["G (GL 1)", "G (GL 2)"])
+
+    def test_play_from_the_manifest(self):
+        # no catalog entry: the package's own entry (the diverted one is missing), and the shown
+        # entries that run its program (OpenArena's two renderers in ps3-desktop)
+        with tempfile.TemporaryDirectory() as d:
+            rt, apps = Path(d) / "run", Path(d) / "apps"
+            apps.mkdir()
+            (apps / "oa-b.desktop").write_text("[Desktop Entry]\nName=B\nExec=ps3-game openarena +b\n")
+            (apps / "oa-a.desktop").write_text("[Desktop Entry]\nName=A\nExec=env X=1 openarena +a\n")
+            (apps / "oa-hidden.desktop").write_text("[Desktop Entry]\nName=H\nExec=openarena\nNoDisplay=true\n")
+            (apps / "other.desktop").write_text("[Desktop Entry]\nName=O\nExec=ps3-game other\n")
+            (apps / "zz-tool.desktop").write_text("[Desktop Entry]\nName=T\nExec=oa-tool\n")
+            self.entry(rt / "applications", "oa-a.desktop", "ps3-game env X=1 openarena +a")
+            shipped = ["/usr/games/openarena", "/usr/share/applications/openarena.desktop",
+                       "/usr/share/applications/zz-tool.desktop", "/usr/share/doc/openarena"]
+            g = {"packages": ["openarena"]}
+            got = app.play_commands(g, str(rt), str(apps), files=lambda: [
+                f.replace("/usr/share/applications", str(apps)) for f in shipped])
+            self.assertEqual([c[0] for c in got], ["T", "X", "B"])
+            self.assertEqual(got[1][1], ["ps3-game", "env", "X=1", "openarena", "+a"])
+            self.assertEqual(app.play_commands(g, str(rt), str(apps)), [])
+
+    def test_entry_program(self):
+        self.assertEqual(app.entry_program(["ps3-game", "env", "A=1", "B=2", "/usr/games/oa", "+set", "x=1"]), "oa")
+        self.assertEqual(app.entry_program(["oa", "--opt=1"]), "oa")
+        self.assertIsNone(app.entry_program(["ps3-game"]))
+
+    def test_package_files(self):
+        out = "/.\n/usr\n/usr/games/openarena\npackage diverts others to: /x\n"
+        self.assertEqual(app.package_files(["openarena"], lambda c: out), ["/.", "/usr", "/usr/games/openarena"])
+        self.assertEqual(app.package_files([]), [])
 
     def test_dpkg_installed(self):
         out = "alpha\tii \nbeta\trc \ngamma\thi \n"
