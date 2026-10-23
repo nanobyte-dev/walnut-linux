@@ -31,16 +31,18 @@ override_dh_auto_install:
 	install -D -m 644 files/apt/walnut-testing-keyring.gpg $(P)/usr/share/keyrings/walnut-testing-keyring.gpg
 	install -D -m 644 files/sound/alsoft.conf $(P)/etc/xdg/alsoft.conf
 	# Walnut's name for the system (hostnamectl, lsb_release, neofetch), Debian-based (ID_LIKE);
-	# base-files' os-release and login banners are diverted (preinst), /etc/debian_version stays
+	# base-files' os-release and login banners are diverted (preinst), /etc/debian_version stays.
+	# The banners go to /usr/share/walnut and postinst copies them into /etc: shipped in /etc they
+	# would be conffiles at a path base-files' conffiles hold too, and dpkg stopped to ask about it
 	printf '%s\n' 'PRETTY_NAME="Walnut $(VER)$(STAGE)"' 'NAME="Walnut"' 'VERSION_ID="$(VER)"' \
 		'VERSION="$(VER)$(STAGE)"' 'ID=walnut' 'ID_LIKE=debian' 'HOME_URL="https://walnut.nanobyte.dev/"' \
 		'SUPPORT_URL="https://github.com/nanobyte-dev/walnut-linux/blob/main/docs/INSTALL.md"' \
 		'BUG_REPORT_URL="https://github.com/nanobyte-dev/walnut-linux/issues"' > debian/os-release
 	install -D -m 644 debian/os-release $(P)/usr/lib/os-release
 	printf 'Walnut $(VER)$(STAGE) \\n \\l\n\n' > debian/issue
-	install -D -m 644 debian/issue $(P)/etc/issue
+	install -D -m 644 debian/issue $(P)/usr/share/walnut/issue
 	printf 'Walnut $(VER)$(STAGE)\n' > debian/issue.net
-	install -D -m 644 debian/issue.net $(P)/etc/issue.net
+	install -D -m 644 debian/issue.net $(P)/usr/share/walnut/issue.net
 
 # Our units: enabled; swap and the boot-time oneshots are never stopped or restarted by upgrades
 override_dh_installsystemd:

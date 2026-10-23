@@ -3,6 +3,8 @@
 set -e
 case "$1" in
 remove|abort-install|disappear)
+	# our banners are postinst's copies, no package's files: gone first, so Debian's can move back
+	rm -f /etc/issue /etc/issue.net
 	for f in /usr/lib/os-release /etc/issue /etc/issue.net; do
 		dpkg-divert --package ps3-system --remove --rename --divert "$f.debian" "$f" >/dev/null
 	done

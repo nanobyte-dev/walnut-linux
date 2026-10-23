@@ -35,6 +35,11 @@ if [ "$1" = configure ]; then
 	   [ "$(grep -v '^\s*#' /etc/apt/sources.list | grep -v '^\s*$' | grep -cvE '(snapshot\.debian\.org|/debian-snapshot)/archive/debian-ports/')" = 0 ]; then
 		mv /etc/apt/sources.list /etc/apt/sources.list.ps3-snapshot
 	fi
+	# Walnut's login banners (debian/rules; base-files' are diverted to *.debian, preinst). Copied,
+	# not shipped in /etc: no conffile at a path base-files' conffiles hold too
+	for f in issue issue.net; do
+		cp /usr/share/walnut/$f /etc/$f.walnut-new && mv -f /etc/$f.walnut-new /etc/$f
+	done
 fi
 #DEBHELPER#
 exit 0
