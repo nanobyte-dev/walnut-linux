@@ -1,4 +1,5 @@
-# Publishes walnut.nanobyte.dev's site (tools/walnut-server/site/) when started by hand. The upload
+# Publishes walnut.nanobyte.dev's site (tools/walnut-server/site/, with the Walnut Games database built
+# into /gamedb/ by tools/gamedb/build.sh) on every push that changes them, or when started by hand. The upload
 # goes to the walnut-upload container (write-only, no shell); the server's walnut-watch checks it,
 # builds walnut-site:<id> and switches the container, and this job waits until the new version is
 # served. Secret WALNUT_DEPLOY_KEY: the upload key (environment walnut-site; add a required reviewer
@@ -6,6 +7,14 @@
 name: Walnut site
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "gamedb/**"
+      - "tools/gamedb/**"
+      - "tools/walnut-server/site/**"
+      - "tools/walnut-server/publish-site.sh"
+      - ".github/workflows/walnut-site.yml"
   workflow_dispatch:
 
 concurrency:
