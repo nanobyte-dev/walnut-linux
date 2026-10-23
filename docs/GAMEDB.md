@@ -205,4 +205,4 @@ picture only). Ratings come from played sessions alone: the benchmark runs of th
 desktop stopped, vsync off) don't describe what a player gets and aren't imported; the code still
 reads a `demo` test (a harness run with a measured window) if one is ever imported on purpose. Games that need the user's own data (OpenRCT2, Quake)
 are listed and shown, with a guide to setting up the data; the data itself is never offered (their
-screenshots are fine, their thumbnail is a placeholder).
+screenshots, thumbnail included, are published like any game's).
