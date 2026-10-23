@@ -40,7 +40,7 @@ else
 	cat > "$R/etc/default/ps3-boot" <<EOF
 # Petitboot boot menu settings (ps3-update-kboot writes /etc/kboot.conf from them)
 PS3_ROOT_ARGS="$BOOT_ROOT_ARGS"
-PS3_EXTRA_ARGS="$BOOT_EXTRA_ARGS"
+PS3_EXTRA_ARGS="video=ps3fb:mode:133 $BOOT_EXTRA_ARGS"
 # the release kernel boots by default; the debug one is in the menu next to it
 PS3_DEFAULT_FLAVOUR=release
 EOF
@@ -138,7 +138,9 @@ if [ "${WALNUT_SUITE:-}" = testing ]; then
 	printf '%s\n' '# a nightly image: testing as the default (ps3-system walnut.pref has it at 1 otherwise)' \
 		'Package: *' 'Pin: release o=Walnut, n=testing' 'Pin-Priority: 990' > "$R/etc/apt/preferences.d/00-walnut-nightly"
 fi
-# Public profile: strip video= from kernel boot arguments and update kboot.conf
+# Public profile: no video= (the mode follows Petitboot's, which works on any TV). Kernel packages
+# carry none from +ps3.747 on (linux/flavours/*.args; the dev profile sets its 1080p in
+# PS3_EXTRA_ARGS above); older ones still in a suite had the dev console's mode:133, stripped here
 if [ "$PROFILE" = "public" ]; then
 	for argf in "$R"/usr/lib/ps3/boot/*.args; do
 		[ -e "$argf" ] || continue
