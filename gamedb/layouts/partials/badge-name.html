@@ -1,0 +1,3 @@
+{{- $n := dict "patched" "patched by Walnut" "needs-data" "needs your own data" "no-sound" "no sound" "low-memory" "low memory"
+    "controller-full" "controller: full" "controller-partial" "controller: partial" "controller-keyboard" "keyboard and mouse" -}}
+{{- index $n . | default . -}}

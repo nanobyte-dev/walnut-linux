@@ -1,0 +1,37 @@
+{{/* the filter bar and the card grid of every game: the full list without JavaScript */}}
+{{ $games := hugo.Data.catalog.games }}
+<div class="filters" id="filters" hidden>
+  <input type="search" id="f-search" placeholder="Search games" aria-label="Search games">
+  <select id="f-category" aria-label="Category"><option value="">All categories</option>
+    {{ $cats := slice }}{{ range $games }}{{ range .categories }}{{ $cats = $cats | append . }}{{ end }}{{ end }}
+    {{ range sort (uniq $cats) }}<option value="{{ . }}">{{ . }}</option>{{ end }}
+  </select>
+  <select id="f-medal" aria-label="Medal"><option value="">All medals</option>
+    {{ range slice "Platinum" "Gold" "Silver" "Bronze" "Tin" "Rust" "Scrap" "Untested" }}<option value="{{ lower . }}">{{ . }}</option>{{ end }}
+  </select>
+  <select id="f-tag" aria-label="Tag"><option value="">All tags</option>
+    {{ $tags := slice }}{{ range $games }}{{ range .tags }}{{ $tags = $tags | append . }}{{ end }}{{ end }}
+    {{ range sort (uniq $tags) }}<option value="{{ . }}">{{ . }}</option>{{ end }}
+  </select>
+  <label class="check"><input type="checkbox" id="f-patched"> Patched by Walnut</label>
+  <span id="f-count" class="muted" aria-live="polite"></span>
+</div>
+<ul class="cards" id="cards">
+{{ range sort $games "title" }}
+  {{ $page := site.GetPage (printf "/games/%s" .id) }}
+  <li class="card" data-id="{{ .id }}" data-category="{{ delimit .categories " " }}" data-medal="{{ lower .rating.medal }}"
+      data-tags="{{ delimit .tags "|" }}" data-patched="{{ .patched }}" data-needs-data="{{ .needs_data }}"
+      data-search="{{ lower (printf "%s %s %s %s" .title .summary (delimit .tags " ") (delimit .categories " ")) }}">
+    <a href="{{ $page.RelPermalink }}">
+      {{ with $page.Resources.Get "thumb.png" }}<img src="{{ .RelPermalink }}" width="256" height="144" alt="" loading="lazy">{{ end }}
+      <div class="card-body">
+        <h2>{{ .title }}</h2>
+        <p class="meta">{{ partial "medal.html" .rating }}</p>
+        <p class="cat">{{ delimit .categories ", " }}{{ if .patched }} · <span class="tag-walnut">patched by Walnut</span>{{ end }}</p>
+        <p class="summary">{{ .summary }}</p>
+      </div>
+    </a>
+  </li>
+{{ end }}
+</ul>
+<p id="f-empty" class="muted" hidden>No game matches.</p>

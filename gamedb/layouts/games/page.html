@@ -1,0 +1,119 @@
+{{ define "main" }}
+{{ $page := . }}
+{{ $g := index (where hugo.Data.catalog.games "id" .Params.id) 0 }}
+{{ $r := $g.rating }}
+<p class="crumbs"><a href="{{ site.Home.RelPermalink }}">All games</a></p>
+<article class="game">
+  <header class="game-head">
+    {{ with .Resources.Get "thumb.png" }}<img class="thumb" src="{{ .RelPermalink }}" width="256" height="144" alt="">{{ end }}
+    <div>
+      <h1>{{ $g.title }}</h1>
+      <p class="meta">{{ partial "medal.html" $r }}
+        {{ if eq $r.medal "Untested" }}<span class="muted">nobody has played it on Walnut yet</span>
+        {{ else }}<span class="muted">{{ printf "%.1f" $r.hours }} h played, {{ $r.crashes }} crash{{ if ne $r.crashes 1 }}es{{ end }}</span>{{ end }}
+      </p>
+      <p>{{ $g.summary }}</p>
+      <p class="badges">
+        {{ range $g.badges }}<span class="badge badge-{{ . }}">{{ partial "badge-name.html" . }}</span>{{ end }}
+        <span class="badge">{{ delimit $g.categories ", " }}</span>
+        {{ range $g.tags }}<span class="badge badge-tag" data-tag="{{ . }}">{{ . }}</span>{{ end }}
+      </p>
+    </div>
+  </header>
+
+  {{ if ne $r.medal "Untested" }}
+  <section>
+    <h2>Rating</h2>
+    {{ if eq $r.medal "Scrap" }}{{ with $r.reason }}<p class="note">Scrap: {{ . }}.</p>{{ end }}
+    {{ else if $r.capped }}<p class="note">The mean alone would be higher; the medal is capped by the weakest aspect ({{ $r.reason }}).</p>{{ end }}
+    {{ with $g.medal_note }}<p class="note">{{ . }}</p>{{ end }}
+    <table class="aspects">
+      <thead><tr><th>Aspect</th><th>Score</th><th></th><th>Measured</th></tr></thead>
+      <tbody>
+      {{ range slice "frame" "smooth" "sound" "picture" "stability" "display" "load" }}
+        {{ $a := index $r.aspects . }}
+        <tr>
+          <td>{{ $a.name }} <span class="muted">({{ $a.weight }})</span></td>
+          {{ if eq $a.score nil }}<td>-</td><td></td><td class="muted">not measured</td>
+          {{ else }}<td class="num">{{ $a.score }}</td>
+          <td class="bar"><span style="width: {{ $a.score }}%"></span></td>
+          <td>{{ $a.detail }}</td>{{ end }}
+        </tr>
+      {{ end }}
+      </tbody>
+    </table>
+    {{ if $r.unmeasured }}<p class="muted">Not measured: {{ delimit $r.unmeasured ", " }}. Their weight goes to the other aspects.</p>{{ end }}
+    <p class="muted">Rated from {{ if eq $r.graded_by "session" }}played sessions{{ else }}benchmark runs (no played session yet; the desktop was stopped and vsync off){{ end }}.
+    {{ if $r.provisional }}Stability is provisional until the game has an hour of play.{{ end }}</p>
+  </section>
+  {{ end }}
+
+  <section>
+    <h2>Install</h2>
+    <div class="install">
+      <code id="install-cmd">sudo apt install {{ delimit $g.packages " " }}</code>
+      <button type="button" class="copy" data-copy-from="install-cmd">Copy</button>
+    </div>
+    {{ if $g.needs_data }}
+    <p class="note">This game needs your own game data, which Walnut does not offer.
+      {{ with $g.data_guide }}<a href="{{ . }}">How to set it up</a>.{{ end }}</p>
+    {{ end }}
+    <p class="muted">Walnut Games, the desktop app, installs it with one button.</p>
+  </section>
+
+  {{ if $g.patched }}
+  <section>
+    <h2>Patched by Walnut</h2>
+    <p>These changes are on top of the upstream or Debian source; the work of porting to the PS3 (big endian, the RSX's GPU driver, 256 MB of memory).</p>
+    <details><summary>{{ len $g.patches }} patches</summary>
+      <ol class="patches">{{ range $g.patches }}<li>{{ .subject }} <span class="muted">({{ .source }})</span></li>{{ end }}</ol>
+    </details>
+    {{ with $g.debs }}
+    <p>Download for a manual install (ppc64, stable):</p>
+    <ul>{{ range . }}<li><a href="{{ .url }}">{{ .package }}</a></li>{{ end }}</ul>
+    {{ end }}
+  </section>
+  {{ end }}
+
+  {{ range $g.tests }}
+    {{ if or .ps3 .pc }}
+  <section>
+    <h2>PS3 and PC, side by side <span class="muted">({{ .date }}, {{ .kind }})</span></h2>
+    <p>{{ with .note }}{{ . }}{{ else }}{{ with .verdict }}Reviewed: {{ . }}.{{ end }}{{ end }}</p>
+    <div class="compare">
+      <div><h3>PS3</h3>
+        {{ range .ps3 }}{{ $f := . }}{{ with $page.Resources.Get $f }}<figure><a href="{{ .RelPermalink }}"><img src="{{ .RelPermalink }}" width="800" height="450" alt="PS3 screenshot" loading="lazy"></a>
+          <figcaption>{{ replaceRE `^.*/ps3-(.*)s\.jpg$` "$1 s" $f }}</figcaption></figure>{{ end }}{{ end }}
+      </div>
+      <div><h3>PC</h3>
+        {{ range .pc }}{{ $f := . }}{{ with $page.Resources.Get $f }}<figure><a href="{{ .RelPermalink }}"><img src="{{ .RelPermalink }}" width="800" height="450" alt="PC screenshot" loading="lazy"></a>
+          <figcaption>{{ replaceRE `^.*/pc-(.*)s\.jpg$` "$1 s" $f }}</figcaption></figure>{{ end }}{{ end }}
+      </div>
+    </div>
+  </section>
+    {{ end }}
+  {{ end }}
+
+  {{ with $g.known_issues }}
+  <section>
+    <h2>Known issues</h2>
+    <ul>{{ range . }}<li>{{ . }}</li>{{ end }}</ul>
+  </section>
+  {{ end }}
+
+  {{ with .Content }}<section class="notes"><h2>Notes</h2>{{ . }}</section>{{ end }}
+
+  <section>
+    <h2>Tests</h2>
+    <table class="tests">
+      <thead><tr><th>Date</th><th>Kind</th><th>Play</th><th>Ended</th><th>Picture</th><th>Builds</th></tr></thead>
+      <tbody>{{ range $g.tests }}
+        <tr><td>{{ .date }}</td><td>{{ .kind }}</td><td>{{ div .play_seconds 60 | printf "%.0f" }} min</td><td>{{ .end }}</td>
+        <td>{{ with .verdict }}{{ . }}{{ else }}-{{ end }}</td>
+        <td class="muted">{{ range $k, $v := .versions }}{{ $k }} {{ $v }}; {{ end }}</td></tr>
+      {{ end }}</tbody>
+    </table>
+    <p class="muted">The game's home page: <a href="{{ $g.homepage }}">{{ $g.homepage }}</a>. License: {{ $g.license }}.</p>
+  </section>
+</article>
+{{ end }}

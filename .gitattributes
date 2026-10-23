@@ -1,0 +1,5 @@
+# Walnut Games screenshots (JPEG and PNG under a game's tests/) live in Git LFS; thumb.png stays a normal file: the
+# site and the app read it, and at 256x144 it is small.
+gamedb/content/**/*.jpg filter=lfs diff=lfs merge=lfs -text
+gamedb/content/**/*.jpeg filter=lfs diff=lfs merge=lfs -text
+gamedb/content/**/tests/**/*.png filter=lfs diff=lfs merge=lfs -text

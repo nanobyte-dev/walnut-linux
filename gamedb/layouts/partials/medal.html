@@ -1,0 +1,3 @@
+{{/* a medal badge: the rating dict of the catalog entry */}}
+{{ $r := . }}
+<span class="medal medal-{{ lower $r.medal }}">{{ $r.medal }}{{ with $r.score }}<span class="medal-score"> · {{ . }}</span>{{ end }}</span>

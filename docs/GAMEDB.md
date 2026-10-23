@@ -8,8 +8,10 @@ game on a PC, and rated. It is two things over one catalog:
   screenshots (PS3 next to PC), the test results, and the `sudo apt install` line;
 - **the desktop app** on Walnut (`walnut-games`): the same cards, with Install, Remove and Play.
 
-Status (2026-10-23): designed with the user, being built. The steps are in
-[PLAN.md](PLAN.md) ("Walnut Games"); this page describes how it works.
+Status (2026-10-23): designed with the user; the catalog, the scoring code and the site build exist
+(`gamedb/`, `tools/gamedb/`) with three games (OpenArena, SuperTuxKart, Warzone 2100); the session
+recorder and the app are next. The steps are in [PLAN.md](PLAN.md) ("Walnut Games"); this page
+describes how it works.
 
 ## How a game is tested
 
@@ -81,7 +83,10 @@ scores 75 and 2 s scores 55; for sound, one fault a minute scores 75, six score 
 - **Scores are medians over sessions**, so one bad or lucky run doesn't flip a medal.
 - **Stability needs hours.** The page shows the play time and crashes behind it ("0 crashes in
   1.7 h"); under an hour the stability score is marked provisional, and a full score needs three
-  crash-free hours (0 crashes in 3 h bounds the rate under one an hour, the rule of three).
+  crash-free hours (0 crashes in 3 h bounds the rate under one an hour, the rule of three). The
+  score of a crash-free game starts at 90 (Platinum level, so a short test never caps the medal) and
+  rises to 100 over its first three hours; with crashes it is read
+  off the rate: 1 in 3 hours scores 75, 1 an hour 55, 4 an hour 35, 12 an hour 0.
 - **Badges, outside the medal:** controller support (full, partial, keyboard), needs your own game
   data, no sound, low memory (under 10 MB free at some point in play), patched by Walnut.
 - **Every page shows the medal, the overall score ("Gold · 82"), each aspect's score and the
@@ -122,6 +127,12 @@ rate); one scale for now, revisited after the first strategy sessions.
 A game is one folder, `gamedb/content/games/<id>/`: `index.md` with the catalog entry in its
 front matter (title, summary, categories, tags, the packages to install, the .desktop entry,
 `fps_cap` if it has one, whether it needs the user's own data, the controller) and notes as its
-body, a `thumb.png`, and one folder per test with its generated `result.toml`. Screenshots live on
-walnut.nanobyte.dev, not in the repository. Games that need the user's own data (OpenRCT2, Quake)
-are listed and shown, with a guide to setting up the data; the data itself is never offered.
+body, a `thumb.png`, and one folder per test (`tests/<date>-<kind>/`) with its generated
+`result.toml` and the screenshots it lists (`ps3-<point>.jpg`, `pc-<point>.jpg`, 800x450 JPEG, kept
+in Git LFS). `tools/gamedb/import-run.py RUN... --game ID` writes a test folder from harness run
+directories and never touches `index.md`; `tools/gamedb/check.py` validates the catalog;
+`tools/gamedb/build.sh OUT` builds the site. A test is a `session` (a played session), a `demo` (a
+harness run with a measured window; it stands in for a session until the game has one and the page
+says so) or a `capture` (the picture only). Games that need the user's own data (OpenRCT2, Quake)
+are listed and shown, with a guide to setting up the data; the data itself is never offered (their
+screenshots are fine, their thumbnail is a placeholder).

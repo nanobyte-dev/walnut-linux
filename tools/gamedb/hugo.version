@@ -1,0 +1,6 @@
+# The Hugo release tools/gamedb/build.sh builds the Walnut Games site with (extended, linux-amd64),
+# locally and in CI. build.sh checks the tarball's sha256 against this and against the checksums file of
+# the GitHub release. To move to another release: change both lines from that release's
+# hugo_<version>_checksums.txt, build, look at the site.
+HUGO_VERSION=0.166.0
+HUGO_SHA256=0e39b901e3f919f1daae05c8ff64f0c14c8a348ef46886d63f8e6d1bb2653885
