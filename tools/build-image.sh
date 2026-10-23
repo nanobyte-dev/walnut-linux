@@ -52,7 +52,8 @@ rm -f "$R/etc/resolv.conf" && cp /etc/resolv.conf "$R/etc/resolv.conf"
 
 # Our packages, installed by apt from a local flat repository of our debs (build/debs/*) or,
 # with REPO_SUITE, a frozen snapshot of the stable suite on the server; pinned above Debian's, with
-# the base's snapshot source for anything new. Our Mesa replaces Debian's as an upgrade (auto marks kept); then whatever only
+# the base's snapshot source for anything new. The pin file sorts first: apt takes the first pin
+# that matches a release, and ps3-system's own (walnut) come in with it. Our Mesa replaces Debian's as an upgrade (auto marks kept); then whatever only
 # Debian's Mesa needed (LLVM, z3, sensors) is autoremoved.
 if [ -n "${WALNUT_SUITE:-}" ]; then
 	# a suite on walnut.nanobyte.dev (the release image: stable), checked against its key
@@ -61,10 +62,17 @@ if [ -n "${WALNUT_SUITE:-}" ]; then
 	# the keyring where ps3-system puts it: once its walnut.sources is in, apt refuses the same
 	# source with another Signed-By
 	mkdir -p "$R/tmp/ps3-repo" "$R/usr/share/keyrings"
-	ring=/usr/share/keyrings/walnut-$(basename "$WALNUT_KEYRING")
-	cp "$WALNUT_KEYRING" "$R$ring"
-	echo "deb [signed-by=$ring] $WALNUT_APT $WALNUT_SUITE main" > "$R/etc/apt/sources.list.d/zz-image.list"
-	printf 'Package: *\nPin: release o=Walnut, n=%s\nPin-Priority: 1001\n' "$WALNUT_SUITE" > "$R/etc/apt/preferences.d/zz-image"
+	# A nightly (testing) takes stable too, at the same pin: the higher version wins (stable is built
+	# fresh by hand and can be ahead of a package's last testing build)
+	suites=$WALNUT_SUITE; [ "$WALNUT_SUITE" = testing ] && suites="testing stable"
+	: > "$R/etc/apt/sources.list.d/zz-image.list"; : > "$R/etc/apt/preferences.d/00-image"
+	for s in $suites; do
+		k=$(dirname "$WALNUT_KEYRING")/$([ $s = testing ] && echo testing || echo archive)-keyring.gpg
+		ring=/usr/share/keyrings/walnut-$(basename "$k")
+		cp "$k" "$R$ring"
+		echo "deb [signed-by=$ring] $WALNUT_APT $s main" >> "$R/etc/apt/sources.list.d/zz-image.list"
+		printf 'Package: *\nPin: release o=Walnut, n=%s\nPin-Priority: 1001\n\n' $s >> "$R/etc/apt/preferences.d/00-image"
+	done
 elif [ -n "${REPO_SUITE:-}" ]; then
 	# a frozen snapshot of our stable suite on the server (make repo-snapshot)
 	echo ">> our packages from $REPO_URL/ps3, suite $REPO_SUITE"
@@ -79,7 +87,7 @@ elif [ -n "${REPO_SUITE:-}" ]; then
 			echo "deb [trusted=yes] $REPO_URL/ps3-licensed $REPO_SUITE main" >> "$R/etc/apt/sources.list.d/zz-image.list"
 		fi
 	fi
-	printf 'Package: *\nPin: release n=%s\nPin-Priority: 1001\n' "$REPO_SUITE" > "$R/etc/apt/preferences.d/zz-image"
+	printf 'Package: *\nPin: release n=%s\nPin-Priority: 1001\n' "$REPO_SUITE" > "$R/etc/apt/preferences.d/00-image"
 else
 	# this checkout's build outputs, as a flat repository
 	mkdir -p "$R/tmp/ps3-repo"
@@ -98,7 +106,7 @@ else
 	fi
 	(cd "$R/tmp/ps3-repo" && apt-ftparchive packages . > Packages)
 	echo 'deb [trusted=yes] file:/tmp/ps3-repo ./' > "$R/etc/apt/sources.list.d/zz-image.list"
-	printf 'Package: *\nPin: origin ""\nPin-Priority: 1001\n' > "$R/etc/apt/preferences.d/zz-image"
+	printf 'Package: *\nPin: origin ""\nPin-Priority: 1001\n' > "$R/etc/apt/preferences.d/00-image"
 fi
 # man-db: no database rebuild on every package install (slow and RAM-hungry on the PS3; its daily
 # timer still updates it), and none in the image (index.db isn't reproducible)
@@ -140,7 +148,7 @@ if [ "$PROFILE" = "public" ]; then
 fi
 # The PS3's own apt configuration (Debian live plus ours, pinned) is ps3-system's; the build's
 # temporary sources go (ps3-system set the snapshot sources.list aside)
-rm -r "$R/tmp/ps3-repo" "$R/etc/apt/sources.list.d/zz-image.list" "$R/etc/apt/preferences.d/zz-image"
+rm -r "$R/tmp/ps3-repo" "$R/etc/apt/sources.list.d/zz-image.list" "$R/etc/apt/preferences.d/00-image"
 rm -f "$R/etc/apt/sources.list" "$R/etc/apt/sources.list.ps3-snapshot"
 chroot "$R" apt-get clean
 rm -rf "$R"/var/lib/apt/lists/* && mkdir -p "$R/var/lib/apt/lists/partial"
