@@ -43,7 +43,7 @@ weighted mean of the scores.
 |---|---|---|---|---|
 | Frame rate | 25 | median and 1% low over the session's play | median 20 fps, 1% low 10 | median 55, 1% low 45, or the game holds its own cap |
 | Smoothness | 20 | stutter time per minute and the longest frame | 5 s a minute, or a freeze over 5 s | 0.1 s a minute, nothing over 250 ms |
-| Sound | 15 | sound faults per minute of play (ALSA underruns, OpenAL's xruns and waits); a wedged sound device; heard or not | silent, or wedged | no faults, sound and music heard |
+| Sound | 15 | half: the right sounds playing (the player's form: effects and music heard); half: sound faults per minute of play (ALSA underruns, OpenAL's xruns and waits); a wedged sound device | nothing heard, or wedged | effects and music heard, no faults |
 | Picture | 15 | the capture points that differ from the PC | wrong, can't be played | the same as the PC |
 | Stability | 15 | crashes per hour of play over all sessions, and clean quits | crashes in most sessions | no crashes, quits clean |
 | Display | 5 | on the TV: full screen, aspect, scaling, legibility | cropped or off-screen | full screen at the right aspect, cleanly scaled |
@@ -62,7 +62,12 @@ weighted mean of the scores.
   the page says so.
 
 Between the 0 and 100 points each score rises in steps: for smoothness, 0.5 s of stutter a minute
-scores 75 and 2 s scores 55; for sound, one fault a minute scores 75, six score 55, twenty score 35.
+scores 75 and 2 s scores 55; sound is two halves: 50 for the right sounds (effects and music both heard, or the game has no
+music; 25 with one missing or the effects only partly; nothing heard makes the whole score 0, and
+a benchmark run with no form counts the sound as present), and 50 for cleanliness, which falls
+gently with the faults a minute: 40 at ten, 32 at thirty, 22 at sixty, 0 at 240. A fault count
+says nothing about whether it was heard (a short underrun in a quiet moment isn't), so it only ever
+costs the second half.
 
 ## The medals
 
@@ -127,17 +132,18 @@ the stall time (frames over 100 ms), load is unmeasured there, stability assumed
 | ClassiCube | 68 (47 fps) | 100 | 100 | 92 | 68 | Gold (capped) |
 | Extreme Tux Racer | 75 | 62 | 100 | 85 | 62 | Gold |
 | Luanti | 50 (1% low 19) | 58 | 100 | 78 | 50 | Silver (capped) |
-| dsda-doom | 93 | 100 | 0 (465 underruns a minute) | 82 | 0 | Bronze (capped) |
-| Sauerbraten | 50 | 100 | ~18 | 74 | 18 | Bronze (capped) |
-| Neverball | 95 | 30 (a 3.9 s reload) | ~9 | 70 | 9 | Bronze (capped) |
-| OpenTTD, 8bpp | 31 | 94 | 0 (choppy music) | 65 | 0 | Bronze (capped) |
-| SuperTuxKart `lean` | 4 (21 fps) | 69 | ~67 | 63 | 4 | Bronze (capped) |
-| OpenTTD, 32bpp | 0 (11 fps) | 0 (52 s of stalls) | 0 | 37 | 0 | Scrap (too slow) |
+| dsda-doom | 93 | 100 | 50 (465 underruns a minute) | 90 | 50 | Silver (capped) |
+| Sauerbraten | 50 | 100 | 79 | 83 | 50 | Silver (capped) |
+| Neverball | 95 | 30 (a 3.9 s reload) | 75 | 80 | 30 | Bronze (capped) |
+| OpenTTD, 8bpp | 31 | 94 | 50 (choppy music) | 73 | 31 | Bronze (capped) |
+| SuperTuxKart `lean` | 4 (21 fps) | 69 | 97 | 68 | 4 | Bronze (capped) |
+| OpenTTD, 32bpp | 0 (11 fps) | 0 (52 s of stalls) | 50 | 45 | 0 | Scrap (too slow) |
 
-Every Bronze has a real problem behind it (four have known-bad sound, SuperTuxKart runs at 21 fps),
-and the 32bpp OpenTTD that can't be played is Scrap, not Bronze. Open: whether strategy and
-turn-based games need their own frame-rate scale (OpenTTD plays fine at 38 fps and scores 31 on frame
-rate); one scale for now, revisited after the first strategy sessions.
+Every medal below Gold has a real problem behind it: slow frame rates (Luanti, Sauerbraten,
+SuperTuxKart), Neverball's 3.9 s level reload, dsda-doom's chopping sound, and the 32bpp OpenTTD that
+can't be played is Scrap. Sound is half presence, half cleanliness, so bad sound costs a medal step
+but no longer sinks a game on its own. Open: whether strategy and turn-based games need their own
+frame-rate scale (OpenTTD plays fine at 38 fps and scores 31 on frame rate); one scale for now, revisited after the first strategy sessions.
 
 ## The desktop app
 

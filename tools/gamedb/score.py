@@ -40,7 +40,9 @@ MEDIAN_FPS = [(20, 0), (55, 100)]
 LOW1_FPS = [(10, 0), (45, 100)]
 STUTTER_S_PER_MIN = [(0.1, 100), (0.5, 75), (2, 55), (5, 0)]
 LONGEST_FRAME_MS = [(250, 100), (1000, 75), (3000, 55), (5000, 0)]
-SOUND_FAULTS_PER_MIN = [(0, 100), (1, 75), (6, 55), (20, 35), (60, 0)]
+# sound: half for playing the right sounds (the player's form), half for how clean they are
+SOUND_PRESENT = 50
+SOUND_CLEAN_PER_MIN = [(0, 50), (10, 40), (30, 32), (60, 22), (120, 10), (240, 0)]
 CRASHES_PER_HOUR = [(0, 100), (1 / 3, 75), (1, 55), (4, 35), (12, 0)]
 LOAD_SECONDS = [(15, 100), (30, 75), (60, 55), (120, 0)]
 
@@ -78,13 +80,24 @@ def smooth_score(stutter_s_per_min, longest_ms):
     return min(interp(stutter_s_per_min, STUTTER_S_PER_MIN), interp(longest_ms, LONGEST_FRAME_MS))
 
 
-def sound_score(faults_per_min, wedged=False, heard=None):
-    """faults per minute of play; a wedged sound device, or sound the player didn't hear, is 0"""
-    if wedged or heard is False:
+def sound_score(faults_per_min, wedged=False, effects=None, music=None):
+    """half for the right sounds playing, half for how clean they are.
+    effects: the player's answer about the sound effects ("yes", "partly", "no"), music ("yes", "no",
+    "none": the game has none); None without a form (a benchmark run: the sound device ran, counted as
+    present). Effects and music both heard: 50; one missing (or effects only partly): 25; nothing heard
+    or a wedged sound device: the whole score is 0. Clean: 50 at no faults (ALSA underruns, OpenAL
+    xruns and waits) a minute, falling gently to 0 at 240 a minute; 50 when they weren't counted."""
+    if wedged:
         return 0.0
-    if faults_per_min is None:
+    if faults_per_min is None and effects is None and music is None:
         return None
-    return interp(faults_per_min, SOUND_FAULTS_PER_MIN)
+    fx_ok = effects in (None, "yes")
+    music_ok = music in (None, "yes", "none")
+    if effects == "no" and music in ("no", "none"):
+        return 0.0
+    present = SOUND_PRESENT if fx_ok and music_ok else SOUND_PRESENT / 2
+    clean = 50.0 if faults_per_min is None else interp(faults_per_min, SOUND_CLEAN_PER_MIN)
+    return present + clean
 
 
 def picture_score(points, differing):
@@ -114,7 +127,8 @@ def test_scores(n, fps_cap=None):
     return {
         "frame": frame_score(n.get("median_fps"), n.get("low1_fps"), fps_cap),
         "smooth": smooth_score(n.get("stutter_s_per_min"), n.get("longest_ms")),
-        "sound": sound_score(n.get("sound_faults_per_min"), bool(n.get("snd_stall")), n.get("sound_heard")),
+        "sound": sound_score(n.get("sound_faults_per_min"), bool(n.get("snd_stall")), n.get("sound_effects"),
+                             n.get("music")),
         "picture": picture_score(n.get("shot_points"), n.get("shot_differing")),
         "display": n.get("display_score"),
         "load": load_score(n.get("load_s")),

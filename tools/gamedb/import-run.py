@@ -118,6 +118,14 @@ def numbers(d, b, r):
         n["sound_faults_per_min"] = round(faults / (play / 60), 2)
     n["sound_faults"] = faults
     n["snd_stall"] = int(report.num(b.get("snd_stall")) or 0)
+    # the player's answers (session.sh's form): what they heard counts for half the sound score
+    form = d / "session.toml"
+    if form.exists():
+        f = tomllib.loads(form.read_text(errors="replace"))
+        if f.get("sound") in ("yes", "partly", "no"):
+            n["sound_effects"] = f["sound"]
+        if f.get("music") in ("yes", "no", "none"):
+            n["music"] = f["music"]
     if load_end is not None:
         n["load_s"] = round(load_end, 1)
     if r.get("avail") is not None:

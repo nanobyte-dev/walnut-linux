@@ -11,6 +11,7 @@ patched_by = ["xmoto"]
 recipes = ["xmoto:base"]
 needs_data = false
 controller = "keyboard"
+known_issues = ["Controllers need setting up by hand: \"Enable joysticks\" is off by default, pads are not given to players 1 to 4 by themselves, and a pad and the keyboard don't work together, so switching between them means changing the options again. Play with the keyboard."]
 +++
 
 X-Moto 0.6.3 runs at 1920x1080 with the right picture and sound. Walnut's package batches the game's

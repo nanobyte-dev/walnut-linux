@@ -38,7 +38,7 @@ class Curves(unittest.TestCase):
         self.assertAlmostEqual(score.smooth_score(0, 1000), 75)
         self.assertAlmostEqual(score.smooth_score(0, 3000), 55)
         self.assertEqual(score.smooth_score(0, 5000), 0)
-        for faults, want in ((0, 100), (1, 75), (6, 55), (20, 35), (60, 0), (500, 0)):
+        for faults, want in ((0, 100), (10, 90), (30, 82), (60, 72), (120, 60), (240, 50), (500, 50)):
             self.assertAlmostEqual(score.sound_score(faults), want)
         for secs, want in ((10, 100), (15, 100), (30, 75), (60, 55), (120, 0), (300, 0)):
             self.assertAlmostEqual(score.load_score(secs), want)
@@ -48,9 +48,18 @@ class Curves(unittest.TestCase):
 
     def test_silent_or_wedged_sound_is_zero(self):
         self.assertEqual(score.sound_score(0, wedged=True), 0)
-        self.assertEqual(score.sound_score(0, heard=False), 0)
-        self.assertEqual(score.sound_score(0, heard=True), 100)
+        self.assertEqual(score.sound_score(0, effects="no", music="no"), 0)
+        self.assertEqual(score.sound_score(0, effects="no", music="none"), 0)
         self.assertIsNone(score.sound_score(None))
+
+    def test_sound_half_presence_half_clean(self):
+        self.assertEqual(score.sound_score(0, effects="yes", music="yes"), 100)
+        self.assertEqual(score.sound_score(0, effects="yes", music="none"), 100)   # no music by design
+        self.assertEqual(score.sound_score(0, effects="yes", music="no"), 75)
+        self.assertEqual(score.sound_score(0, effects="no", music="yes"), 75)
+        self.assertEqual(score.sound_score(0, effects="partly", music="yes"), 75)
+        self.assertAlmostEqual(score.sound_score(30, effects="yes", music="yes"), 82)
+        self.assertEqual(score.sound_score(None, effects="yes", music="yes"), 100)  # not counted: clean
 
     def test_fps_cap(self):
         self.assertLess(score.frame_score(35, 30), 100)           # Doom at 35 Hz, no cap known
