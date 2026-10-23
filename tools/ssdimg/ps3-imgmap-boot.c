@@ -91,9 +91,33 @@
 
 static const char *prog = "ps3-imgmap-boot";
 
+/* The long steps' progress: one line on the console, rewritten in place (\r) every few seconds;
+ * the next other message ends it first (progress_end) */
+static int progress_open;
+
+static void progress(const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	fprintf(stderr, "\r>> ");
+	vfprintf(stderr, fmt, ap);
+	fprintf(stderr, "   ");
+	va_end(ap);
+	fflush(stderr);
+	progress_open = 1;
+}
+
+static void progress_end(void)
+{
+	if (progress_open)
+		fprintf(stderr, "\n");
+	progress_open = 0;
+}
+
 static void say(const char *fmt, ...)
 {
 	va_list ap;
+	progress_end();
 	va_start(ap, fmt);
 	fprintf(stderr, ">> ");
 	vfprintf(stderr, fmt, ap);
@@ -104,6 +128,7 @@ static void say(const char *fmt, ...)
 static void __attribute__((noreturn)) refuse(const char *fmt, ...)
 {
 	va_list ap;
+	progress_end();
 	va_start(ap, fmt);
 	fprintf(stderr, "!! %s refused: ", prog);
 	vfprintf(stderr, fmt, ap);
@@ -115,6 +140,7 @@ static void __attribute__((noreturn)) refuse(const char *fmt, ...)
 static void __attribute__((noreturn)) die(const char *fmt, ...)
 {
 	va_list ap;
+	progress_end();
 	va_start(ap, fmt);
 	fprintf(stderr, "!! %s: ", prog);
 	vfprintf(stderr, fmt, ap);
@@ -777,8 +803,8 @@ static void scan_fibmap(int fd, struct scan *sc, const char *what)
 		}
 		if (now_s() - last >= 5) {
 			last = now_s();
-			fprintf(stderr, ">> %s: %" PRId64 " of %" PRId64 " blocks (%.0f%%)\n", what, b + 1, nblocks,
-				100.0 * (b + 1) / nblocks);
+			progress("%s: %" PRId64 " of %" PRId64 " blocks (%.0f%%)", what, b + 1, nblocks,
+				 100.0 * (b + 1) / nblocks);
 		}
 	}
 	sc->ext = ext;
@@ -1032,6 +1058,7 @@ static int cmd_verify(const char *mappath)
 				if (!ok) {
 					if (bad < 10) {
 						char why[96];
+						progress_end();
 						fprintf(stderr, "!! image byte %" PRId64 " (device byte %" PRId64 "): %s\n", bs,
 							dev + (bs - lo), a == bs && e == bs + BLOCK ?
 							describe(m.uid, bs, got, why, sizeof(why)) : "a partial block differs");
@@ -1044,9 +1071,9 @@ static int cmd_verify(const char *mappath)
 			done += k;
 			if (now_s() - last >= 5) {
 				last = now_s();
-				fprintf(stderr, ">> verify: %" PRId64 " of %" PRId64 " MiB (%.0f%%), %.1f MB/s, %" PRId64 " bad\n",
-					done >> 20, m.file_size >> 20, 100.0 * done / m.file_size,
-					done / (last - t0) / 1048576, bad);
+				progress("verify: %" PRId64 " of %" PRId64 " MiB (%.0f%%), %.1f MB/s, %" PRId64 " bad",
+					 done >> 20, m.file_size >> 20, 100.0 * done / m.file_size,
+					 done / (last - t0) / 1048576, bad);
 			}
 		}
 	}

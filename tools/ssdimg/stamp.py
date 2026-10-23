@@ -182,7 +182,8 @@ def upload(a):
     if got != size:
         sys.exit("!! remote size %s, expected %d: the upload is incomplete" % (got, size))
     print(">> remote size %d: complete. uuid %s" % (got, uid))
-    print(">> next, on Linux: ps3-imgmap map /mnt/gameos/hdd0%s" % path[len("/dev_hdd0"):])
+    if getattr(a, "hint", True):  # the test drive's next step; install goes on by itself
+        print(">> next, on Linux: ps3-imgmap map /mnt/gameos/hdd0%s" % path[len("/dev_hdd0"):])
 
 
 def dry_run(a):
@@ -374,7 +375,7 @@ def install(a):
     entry = kboot_entry(a.release, a.args_file, image)
     if not a.skip_image:
         upload(argparse.Namespace(size=a.size, path="/dev_hdd0" + image, host=a.host, port=a.port, user=a.user,
-                                  password=a.password, uuid=str(uid), chunk=a.chunk, force=a.force))
+                                  password=a.password, uuid=str(uid), chunk=a.chunk, force=a.force, hint=False))
     ftp = ftplib.FTP()
     ftp.connect(a.host, a.port, timeout=60)
     ftp.login(a.user, a.password)

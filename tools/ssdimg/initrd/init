@@ -101,6 +101,37 @@ say() {	# always on the console (an install's steps take minutes)
 	echo "ps3ssd: $*"
 }
 
+# The install's screen: the screen cleared, a Walnut banner (walnut blue, white text: coloured
+# spaces and ASCII only, any console font) with the step, then that step's own messages below it.
+# Normal boots stay quiet. banner N TOTAL TEXT | banner done TEXT | banner failed TEXT
+STEPN=0 STEPS=0
+banner() {
+	cols=$(busybox stty size 2>/dev/null </dev/console | cut -d' ' -f2)
+	[ "${cols:-0}" -ge 64 ] 2>/dev/null || cols=80
+	pad=$(( (cols - 64) / 2 ))
+	case $1 in
+	done) bg=42 line2="Installed" text=$2 bar= ;;
+	failed) bg=41 line2="The install stopped" text=$2 bar= ;;
+	*)	bg=44 line2="Installing: step $1 of $2" text=$3
+		w=24 n=$(( $1 * 24 / $2 ))
+		bar="[$(printf '%*s' $n '' | tr ' ' '=')$(printf '%*s' $((w - n)) '')]" ;;
+	esac
+	row() { printf '%*s\033[%s;97;1m  %-60.60s  \033[0m\n' $pad '' $bg "$1"; }
+	printf '\033[2J\033[H\n'
+	row ""
+	row "W A L N U T   L I N U X"
+	row ""
+	row "$line2  $bar"
+	row "$text"
+	row ""
+	printf '\n'
+}
+step() {	# step TEXT: the next step of the install, on the banner
+	STEPN=$((STEPN + 1))
+	banner $STEPN $STEPS "$1"
+	echo "ps3ssd: $1" >> $LOG
+}
+
 shell_on() {	# a login-less busybox shell on /dev/$1 (its controlling tty), again whenever it exits
 	while :; do
 		setsid -c sh -i <>/dev/$1 >&0 2>&1
@@ -123,6 +154,7 @@ fail() {
 	fi
 	[ "$HDD1_WROTE" = 1 ] && wrote="$wrote
  On dev_hdd1 only this image's /linux/ files were written (the saved map, the install's state)."
+	[ $STEPS -gt 0 ] && banner failed "At step $STEPN of $STEPS. GameOS is untouched; the details are below."
 	msg="
 ================================================================================
  ps3ssd: the SSD root was NOT started.
@@ -318,7 +350,10 @@ if [ $KIND = generic ]; then
 		else
 			ACTION=install
 		fi
+		[ $ACTION = install ] && STEPS=5
+		[ $ACTION = resume ] && STEPS=3
 		if [ $ACTION != finish ]; then
+			step "Checking the system's archive on dev_hdd1"
 			STEP="checking the rootfs tarball on dev_hdd1 ($I_ROOTFS)"
 			[ -f "/hdd1$I_ROOTFS" ] || fail "$I_ROOTFS is not on dev_hdd1: upload it again (the install manifest goes last)"
 			got=$(stat -c %s "/hdd1$I_ROOTFS")
@@ -347,6 +382,7 @@ run mount -t ufs -o ro,ufstype=ufs2 /dev/ps3db /gameos
 grep -q '^[^ ]* /gameos ufs ro[, ]' /proc/mounts || fail "/gameos is not a read-only ufs mount: $(grep ' /gameos ' /proc/mounts)"
 
 if [ $ACTION = install ]; then
+	step "Finding where ${IMAGE##*/} lies on the internal disk"
 	STEP="mapping the new image's blocks ($IMAGE)"
 	MAP=$RUN/boot.map
 	run_shown $TOOL map /gameos "$IMAGE" --uuid "$I_UUID" --size "$I_SIZE" --swap-mib "$I_SWAP" --out $MAP --run $RUN
@@ -361,6 +397,7 @@ run umount /gameos
 grep -q ' /gameos ' /proc/mounts && fail "dev_hdd0 still mounted"
 
 if [ $ACTION = install ]; then
+	step "Checking every block of the image (a few minutes)"
 	STEP="verifying every block of the new image ($IMAGE)"
 	run_shown $TOOL verify $MAP
 	STEP="saving the map to dev_hdd1 ($SD)"
@@ -433,6 +470,7 @@ EOF
 }
 
 if [ $ACTION = install ] || [ $ACTION = resume ]; then
+	step "Formatting the image"
 	STEP="making the root file system on $ROOT"
 	say "making ext4 on $ROOT..."
 	run $LIBX/mke2fs -t ext4 -q -F -L ps3root -E lazy_itable_init=0,lazy_journal_init=0,nodiscard $ROOT
@@ -446,6 +484,7 @@ if [ $ACTION = install ] || [ $ACTION = resume ]; then
 	for f in $(sed -n "s/^walnut=.* initrd=\/linux\/boot\/\(initrd-[A-Za-z0-9._+-]*\.img\) .*/\1/p" $H/kboot.conf 2>/dev/null); do
 		cp /hdd1/linux/boot/$f $H/ 2>/dev/null
 	done
+	step "Unpacking the system, $((I_TSIZE >> 20)) MiB (several minutes)"
 	say "unpacking the system ($((I_TSIZE >> 20)) MiB; several minutes)..."
 	n0=$(wc -l < $LOG)
 	( unxz -c "/hdd1$I_ROOTFS" 2>> $LOG || echo "!! unxz failed: the tarball is damaged" >> $LOG ) |
@@ -470,6 +509,7 @@ if [ $ACTION = install ] || [ $ACTION = resume ] || [ $ACTION = finish ]; then
 	rm -f "/hdd1$I_ROOTFS"
 	[ -e "/hdd1$I_ROOTFS" ] && fail "can't delete $I_ROOTFS on dev_hdd1"
 	hdd1_done
+	[ $STEPS -gt 0 ] && banner done "Starting Walnut: the setup asks for your user name next."
 	say "install done: dev_hdd1's $IC is now install.done, the rootfs tarball deleted"
 fi
 

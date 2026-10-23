@@ -38,6 +38,7 @@ layout and the build commands are in [LAYOUT.md](LAYOUT.md).
 | [PACKAGING.md](PACKAGING.md) | The base system and toolchain, how our software becomes Debian packages, the apt repository, deploys |
 | [WALNUT-SERVER.md](WALNUT-SERVER.md) | walnut.nanobyte.dev's containers, and why concurrent uploads, publishes and ccache writes can't break anything |
 | [release/ALPHA.md](release/ALPHA.md) | Walnut 0.1-alpha, the first public release: plan, milestones M0-M9, the review's blockers, cuts, verification |
+| [release/TESTING-0.1.md](release/TESTING-0.1.md) | Testing the nightlies before 0.1.0: feedback from the PS3 and what was done about each |
 | [RELEASE-CANDIDATES.md](RELEASE-CANDIDATES.md) | The 2026-10-18 release: what goes from ps3-dev to stable, its test plan, the publish command |
 | [IMAGE-DIFF.md](IMAGE-DIFF.md) | A fresh image compared with the live PS3 (2026-10-16): what a reimage would lose |
 
