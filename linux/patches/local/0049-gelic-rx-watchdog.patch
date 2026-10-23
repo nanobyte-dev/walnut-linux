@@ -1,0 +1,194 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Fri, 23 Oct 2026 17:30:00 +0300
+Subject: net: ps3_gelic_net: re-probe the device when the wired port receives nothing
+
+A CECH-20xx came up with the wired port's receive dead: link up at
+1000/full, the hypervisor reporting the port up, every packet sent (TX
+counted, one interrupt per packet), and not one frame received (rx_packets
+0 from boot, no RX interrupt), so DHCP and even a static address got
+nothing back. No error from the driver or the hypervisor. ip link
+down/up, forced 10/100 Mbit, all-multicast and Wake-on-LAN off did not
+bring it back. Unbinding and binding the device again (the full remove
+and probe: the hypervisor device closed and opened, the chains and the
+DMA region made again, autonegotiation set) did, though not the first
+time it was tried; the same kernel had received fine on earlier boots.
+
+So, some seconds after eth0 is opened, a delayed work looks at it: link
+up, at least 3 packets sent and none received means the receive is dead,
+and the device is re-probed (device_reprobe() from a work item of its own,
+since the re-probe frees the card). Each re-probe without a frame received
+doubles the wait (20, 40, 80, 160, 320 s), up to 5; any received frame
+resets the count. Any network delivers broadcasts within seconds, so a
+working port never gets there.
+
+ps3_gelic.rx_watchdog=0 turns it off; ps3_gelic.rx_watchdog_test=N (also
+writable in /sys/module/ps3_gelic/parameters) treats the next N checks as
+faults, to test the recovery on a working port.
+
+Forwarded: no
+---
+diff --git a/drivers/net/ethernet/toshiba/ps3_gelic_net.h b/drivers/net/ethernet/toshiba/ps3_gelic_net.h
+--- a/drivers/net/ethernet/toshiba/ps3_gelic_net.h
++++ b/drivers/net/ethernet/toshiba/ps3_gelic_net.h
+@@ -269,6 +269,7 @@
+ 	struct napi_struct napi;
+ 	struct net_device *netdev[GELIC_PORT_MAX];
+ 	struct timer_list rx_oom_timer;
++	struct delayed_work rx_watchdog;
+ 	/*
+ 	 * hypervisor requires irq_status should be
+ 	 * 8 bytes aligned, but u64 member is
+diff --git a/drivers/net/ethernet/toshiba/ps3_gelic_net.c b/drivers/net/ethernet/toshiba/ps3_gelic_net.c
+--- a/drivers/net/ethernet/toshiba/ps3_gelic_net.c
++++ b/drivers/net/ethernet/toshiba/ps3_gelic_net.c
+@@ -19,6 +19,7 @@
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+ #include <linux/slab.h>
++#include <linux/workqueue.h>
+ 
+ #include <linux/etherdevice.h>
+ #include <linux/ethtool.h>
+@@ -44,6 +45,21 @@
+ MODULE_DESCRIPTION("Gelic Network driver");
+ MODULE_LICENSE("GPL");
+ 
++/*
++ * Receive watchdog. A PS3 has been seen to come up with the wired port's receive dead: link up at
++ * 1000/full, every packet sent, not one frame received, until the device was re-probed (unbound
++ * and bound again, which also renegotiates the link). A re-probe did not always help on the first
++ * try. So: some seconds after eth0 is opened, if it has link, has sent packets and has received
++ * none, the device is re-probed from a work item, with longer waits between tries, up to
++ * GELIC_RX_WATCHDOG_TRIES; any received frame resets the count.
++ */
++static bool rx_watchdog = true;
++module_param(rx_watchdog, bool, 0644);
++MODULE_PARM_DESC(rx_watchdog, "Re-probe the device when the link is up and packets go out but none come in (default: on)");
++static unsigned int rx_watchdog_test;
++module_param(rx_watchdog_test, uint, 0644);
++MODULE_PARM_DESC(rx_watchdog_test, "Treat the next N watchdog checks as receive faults (to test the recovery)");
++
+ 
+ /* set irq_mask */
+ int gelic_card_set_irq_mask(struct gelic_card *card, u64 mask)
+@@ -676,6 +692,7 @@
+ 	netif_carrier_off(netdev);
+ 
+ 	card = netdev_card(netdev);
++	cancel_delayed_work_sync(&card->rx_watchdog);
+ 	gelic_card_down(card);
+ 
+ 	pr_debug("%s: done\n", __func__);
+@@ -1201,6 +1218,84 @@
+ }
+ #endif /* CONFIG_NET_POLL_CONTROLLER */
+ 
++#define GELIC_RX_WATCHDOG_DELAY		(20 * HZ)
++#define GELIC_RX_WATCHDOG_TRIES		5
++#define GELIC_RX_WATCHDOG_MIN_TX	3
++
++/* re-probes so far without a frame received; survives the re-probe (one gelic per console) */
++static unsigned int gelic_rx_recoveries;
++
++struct gelic_reprobe {
++	struct work_struct work;
++	struct device *dev;
++};
++
++static void gelic_reprobe_work(struct work_struct *work)
++{
++	struct gelic_reprobe *r = container_of(work, struct gelic_reprobe, work);
++	int ret;
++
++	ret = device_reprobe(r->dev);
++	if (ret)
++		dev_err(r->dev, "receive watchdog: re-probe failed: %d\n", ret);
++	put_device(r->dev);
++	kfree(r);
++}
++
++/* 20 s after the first open, twice as long after each re-probe without a frame received */
++static unsigned long gelic_rx_watchdog_delay(void)
++{
++	return GELIC_RX_WATCHDOG_DELAY << min(gelic_rx_recoveries, 4U);
++}
++
++static void gelic_rx_watchdog_fn(struct work_struct *work)
++{
++	struct gelic_card *card = container_of(to_delayed_work(work), struct gelic_card,
++					       rx_watchdog);
++	struct net_device *netdev = card->netdev[GELIC_PORT_ETHERNET_0];
++	unsigned long rx = netdev->stats.rx_packets, tx = netdev->stats.tx_packets;
++	struct gelic_reprobe *r;
++	bool fault;
++
++	if (!netif_running(netdev))
++		return;
++	fault = netif_carrier_ok(netdev) && !rx && tx >= GELIC_RX_WATCHDOG_MIN_TX;
++	if (rx_watchdog_test) {
++		rx_watchdog_test--;
++		netdev_info(netdev, "receive watchdog: a fault simulated (rx_watchdog_test)\n");
++		fault = true;
++	}
++	if (!fault) {
++		if (rx) {
++			if (gelic_rx_recoveries)
++				netdev_info(netdev, "receive watchdog: frames come in again after %u re-probe(s)\n",
++					    gelic_rx_recoveries);
++			gelic_rx_recoveries = 0;
++			return;
++		}
++		/* no link yet, or too little sent to tell: look again later */
++		schedule_delayed_work(&card->rx_watchdog, GELIC_RX_WATCHDOG_DELAY);
++		return;
++	}
++
++	gelic_card_get_ether_port_status(card, 0);
++	if (gelic_rx_recoveries >= GELIC_RX_WATCHDOG_TRIES) {
++		netdev_err(netdev, "receive watchdog: %lu packets sent, none received, port status 0x%llx; gave up after %u re-probes (unbind and bind sb_06 by hand, or reboot)\n",
++			   tx, card->ether_port_status, gelic_rx_recoveries);
++		return;
++	}
++	gelic_rx_recoveries++;
++	netdev_warn(netdev, "receive watchdog: link up, %lu packets sent, none received (port status 0x%llx): re-probing the device, try %u of %u\n",
++		    tx, card->ether_port_status, gelic_rx_recoveries, GELIC_RX_WATCHDOG_TRIES);
++	r = kzalloc(sizeof(*r), GFP_KERNEL);
++	if (!r)
++		return;
++	/* not the card's own work: the re-probe frees the card */
++	r->dev = get_device(&card->dev->core);
++	INIT_WORK(&r->work, gelic_reprobe_work);
++	schedule_work(&r->work);
++}
++
+ /**
+  * gelic_net_open - called upon ifconfig up
+  * @netdev: interface device structure
+@@ -1220,6 +1315,8 @@
+ 
+ 	netif_start_queue(netdev);
+ 	gelic_card_get_ether_port_status(card, 1);
++	if (rx_watchdog)
++		schedule_delayed_work(&card->rx_watchdog, gelic_rx_watchdog_delay());
+ 
+ 	dev_dbg(ctodev(card), " <- %s\n", __func__);
+ 	return 0;
+@@ -1604,6 +1701,7 @@
+ 	atomic_set(&card->users, 0);
+ 
+ 	timer_setup(&card->rx_oom_timer, gelic_rx_oom_timer, 0);
++	INIT_DELAYED_WORK(&card->rx_watchdog, gelic_rx_watchdog_fn);
+ 
+ 	return card;
+ }
+@@ -1844,6 +1942,9 @@
+ 	struct net_device *netdev0;
+ 	pr_debug("%s: called\n", __func__);
+ 
++	/* no re-probe queued behind a remove (an unbind by hand, a shutdown) */
++	cancel_delayed_work_sync(&card->rx_watchdog);
++
+ 	/* set auto-negotiation */
+ 	gelic_card_set_link_mode(card, GELIC_LV1_ETHER_AUTO_NEG);
+ 
