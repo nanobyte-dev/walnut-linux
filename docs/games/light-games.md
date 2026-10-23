@@ -16,6 +16,14 @@ open items (repeats, a longer Neverball replay, ETR's GART growth) are in
 | 0002 | the level's blocks and edges drawn from one buffer | `XMOTO_GL_BLOCKS` |
 | 0003 | `XMOTO_BENCH_LOOPS=N` plays the benchmark replay N times | |
 | 0004 | batches written straight into a mapped 2 MiB GL_STREAM_DRAW buffer instead of client memory Mesa copies per draw (`u_upload_data` was 5.5% of the CPU, 3.9 of it the minimap's circles) | `XMOTO_GL_STREAM=1` (off by default); `XMOTO_GL_STATS` |
+| 0005 | game controllers: a fixed scheme next to the keyboard (below) | |
+
+Controllers (0005): controller N (the N-th SDL game controller) plays player N, no binding needed, at
+the same time as the keys. Right trigger or R1 accelerate, left trigger or L1 brake, d-pad or left
+stick lean, Cross turns around, Triangle restarts the level, Square restarts from the checkpoint,
+Start pauses. The table is `padBindings` in `Input.cpp`; Options > Controls > Controller lists it.
+Pads plugged in later take the first free player; controller events are always on, whatever
+"Enable joysticks" says. Menus take the d-pad, left stick, Cross and Circle (X-Moto's own).
 
 0001-0002 took a frame from 18,500 GL calls and 1,960 draws to 165 and 40 (host count), picture
 identical. `xmoto/test/glbatch-test.sh` checks the GL layer on the PC's llvmpipe: 400 frames of a
