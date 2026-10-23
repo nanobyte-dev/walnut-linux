@@ -1,0 +1,18 @@
+# The PC side of a played session (tools/play-pc.sh, docs/games/SUITE.md "Played sessions"): the game
+# from Debian sid at the PS3's snapshot (the same versions), on the desktop's X server, Mesa's llvmpipe
+# at the RSX's GL 2.1 (the same rendering path as on the PS3), sound through the desktop's
+# PulseAudio/PipeWire socket. BASE is plain Debian (BUILDER_BASE), or an image that already holds our
+# amd64 build of a game we patch (a recipe's REF_IMAGE).
+ARG BASE
+FROM ${BASE}
+ARG SNAPSHOT
+ARG PKGS=
+
+RUN rm -f /etc/apt/sources.list.d/debian.sources && \
+    echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/${SNAPSHOT} unstable main" > /etc/apt/sources.list && \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        python3 libgl1 libgl1-mesa-dri libglx-mesa0 libegl1 libpulse0 libasound2-plugins fonts-dejavu-core \
+        ${PKGS} && \
+    rm -rf /var/lib/apt/lists/* && \
+    printf 'pcm.!default pulse\nctl.!default pulse\n' > /etc/asound.conf

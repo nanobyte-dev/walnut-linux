@@ -183,6 +183,13 @@ desktop, empty the swaps and switch vsync off; a session does none of that.
 /var/tmp/bench/session.sh GAME [LAUNCHER] [VARIANT]   # or: /var/tmp/bench/run.sh session GAME ...
 ```
 
+**Play it on the PC alongside.** `tools/play-pc.sh GAME [LAUNCHER]` starts the same game and launcher on
+the PC, from Debian at the PS3's snapshot (the game's Walnut Games `packages`), in a container on the
+desktop's X server with Mesa's llvmpipe held to GL 2.1 (the RSX's rendering path) and sound through
+the desktop's PulseAudio/PipeWire. The player plays both side by side: the PC is the reference for the
+picture and behaviour, only the PS3 is measured. The game's PC home stays in `build/pc-play/GAME`.
+`PLAY_PC_LIST=1` lists the launchers.
+
 **Pick the launcher.** A game can have several menu entries (OpenArena: `openarena-gl1.desktop`
 "OpenArena (GL 1.2)" and `openarena-gl2.desktop` "OpenArena (GL 2.0)"). `LAUNCHER` is an entry's file
 name or its Name; the session starts exactly that entry's `Exec` (field codes cut out, no shell), so
