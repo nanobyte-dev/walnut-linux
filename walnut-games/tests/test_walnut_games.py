@@ -351,6 +351,20 @@ class AppFunctions(unittest.TestCase):
         self.assertEqual(app.package_files(["openarena"], lambda c: out), ["/.", "/usr", "/usr/games/openarena"])
         self.assertEqual(app.package_files([]), [])
 
+    def test_launchers_best_first(self):
+        gold = {"name": "G (GL 1)", "rating": {"medal": "Gold", "score": 84, "graded_by": "session"}}
+        silver = {"name": "G (GL 2)", "rating": {"medal": "Silver", "score": 71, "graded_by": "demo"}}
+        self.assertEqual(app.launcher_label(gold), "G (GL 1) \u00b7 Gold 84")
+        self.assertEqual(app.launcher_label({"name": None, "rating": {"medal": "Untested", "graded_by": None}}),
+                         "Default launcher \u00b7 not played yet")
+        cmds = [("G (GL 2)", ["ps3-game", "g", "2"], None), ("G (safe)", ["ps3-game", "g", "s"], None),
+                ("G (GL 1)", ["ps3-game", "g", "1"], "/tmp")]
+        self.assertEqual(app.order_launchers(cmds, [gold, silver]),
+                         [("G (GL 1) \u00b7 Gold 84", ["ps3-game", "g", "1"], "/tmp"),
+                          ("G (GL 2) \u00b7 Silver 71", ["ps3-game", "g", "2"], None),
+                          ("G (safe)", ["ps3-game", "g", "s"], None)])
+        self.assertEqual(app.order_launchers(cmds[:1], None), cmds[:1])
+
     def test_tested_text(self):
         t = {"walnut": "0.1", "package": "xmoto", "version": "0.6.3+repack-1", "date": "2026-10-24"}
         self.assertEqual(app.tested_text({"tested": t}), "Tested on Walnut 0.1 with xmoto 0.6.3+repack-1 (2026-10-24)")

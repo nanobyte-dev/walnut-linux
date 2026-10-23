@@ -1,0 +1,17 @@
+{{/* one launcher's history: (dict "rows" <its history> "aspects" <a rating's aspects, for the names>),
+     a row per version rated from that version's tests alone, newest first */}}
+{{ $aspects := .aspects }}
+<div class="table-wrap">
+<table class="history">
+  <thead><tr><th>Version</th><th>Tested</th><th>Medal</th>
+    {{ range slice "frame" "smooth" "sound" "picture" "stability" "display" "load" }}<th class="num">{{ (index $aspects .).name }}</th>{{ end }}
+    <th class="num">Play</th></tr></thead>
+  <tbody>{{ range .rows }}{{ $h := . }}
+    <tr><td>{{ partial "walnut.html" .walnut }}{{ with .version }}<br><span class="muted">{{ $h.package }} {{ . }}</span>{{ end }}</td>
+    <td class="nowrap">{{ .last }}{{ if ne .first .last }}<br><span class="muted">from {{ .first }}</span>{{ end }}</td>
+    <td>{{ if and .graded_by (ne .graded_by "capture") }}{{ partial "medal.html" . }}{{ else }}<span class="muted">picture only</span>{{ end }}</td>
+    {{ range slice "frame" "smooth" "sound" "picture" "stability" "display" "load" }}<td class="num">{{ with index $h.aspects . }}{{ . }}{{ else }}<span class="muted">-</span>{{ end }}</td>{{ end }}
+    <td class="num">{{ printf "%.1f" .hours }} h<br><span class="muted">{{ .tests }} test{{ if ne (int .tests) 1 }}s{{ end }}</span></td></tr>
+  {{ end }}</tbody>
+</table>
+</div>

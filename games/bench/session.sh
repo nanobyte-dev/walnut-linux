@@ -1,7 +1,16 @@
 #!/bin/bash
-# session.sh GAME [VARIANT]: a played session, the graded test (docs/GAMEDB.md "How a game is
+# session.sh GAME [LAUNCHER] [VARIANT]: a played session, the graded test (docs/GAMEDB.md "How a game is
 # tested", docs/games/SUITE.md "Played sessions"). On the PS3, from a terminal of the desktop:
-#   /var/tmp/bench/session.sh GAME [VARIANT]      (or run.sh session GAME [VARIANT])
+#   /var/tmp/bench/session.sh GAME [LAUNCHER] [VARIANT]   (or run.sh session GAME ...)
+# LAUNCHER is a menu entry of the game, by file name (openarena-gl2.desktop) or Name ("OpenArena
+# (GL 2.0)"): the game is started with that entry's Exec, and each launcher is rated on its own.
+# The launchers are the menu entries the game's packages ship and any shown entry running one of
+# their programs (launcher.py, as the Walnut Games app finds them). Without LAUNCHER: the game's
+# only launcher, else the first (shipped entries by file name); the list is printed. An unknown
+# LAUNCHER prints the choices and exits 2. A game without a menu entry runs the recipe's command.
+# If the second argument names a recipe variant (variant_NAME in the recipe, or base) it is the
+# VARIANT, not a launcher; a recipe variant on top of a launcher is the third argument. The recipe
+# still gives the assets, PLAY_MARK, HUD and recording settings; its ENV applies.
 # The game starts through ps3-game exactly as the desktop menu starts it (game mode, the VRAM swap
 # on, vsync as shipped), in the live desktop: nothing is stopped, no swap emptied. It is recorded
 # like any run (the Gallium HUD's frame times, the samplers, sound counters, dmesg, temperatures;
@@ -13,17 +22,26 @@
 #   SESSION_SHOT_EVERY=SECONDS   screenshots interval (default 60), SESSION_SHOT_MAX=N the most (40;
 #                                8 MB each on the disk until make bench-pull)
 #   SESSION_FORM=0               no form (ask later: python3 -I session-form.py RUN_DIR GAME VARIANT)
-#   SESSION_DRY=1                print what would run
+#   SESSION_DRY=1                print what would run (the launcher and its command included)
+#   SESSION_LAUNCHER_ARGS=...    extra launcher.py options (--apps, --runtime-dir, --dpkg: tests)
 #   SESSION_SCOPE=0              don't move into ps3-game.slice (no user service manager, tests)
 #   PS3_BENCH=CMD                the harness (default ps3-bench.sh; needs ps3-gpu-tools with `session`)
 # No commands on the PS3 during a session (SSH logins and benchmarks are interference for what is
 # measured); collect afterwards with make bench-pull.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
-g=${1:-}; v=${2:-base}
+g=${1:-}; v=base; want=
 [ -n "$g" ] || { sed -n '2,/^set -u/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 2; }
 R=${BENCH_RECIPES:-$here/recipes}
 [ -e "$R/$g.sh" ] || { echo "session: no recipe $g (run.sh list)" >&2; exit 2; }
+# the second argument: a recipe variant (backward compatible) or a launcher; the third a variant
+if [ -n "${2:-}" ]; then
+	if [ "$2" = base ] || ( CMD=(); ASSETS=; . "$R/$g.sh" > /dev/null 2>&1; declare -F "variant_$2" > /dev/null ); then
+		v=$2
+	else
+		want=$2; v=${3:-base}
+	fi
+fi
 B=${PS3_BENCH:-ps3-bench.sh}
 OUT=${BENCH_OUT:-/var/tmp/ps3-bench}
 
@@ -35,8 +53,43 @@ shots=
 for ((i = 1; i <= max; i++)); do shots+="$((i * every)) "; done
 [ "$max" = 0 ] && shots=off
 
+pkgs() {	# the game's packages: the owners of the recipe's binary (its CMD, and the session command)
+	local p
+	[ -n "${SESSION_PACKAGES:-}" ] && { echo "$SESSION_PACKAGES" | tr -s ' ' '\n'; return; }
+	p=$( (CMD=(); ENV=(); ASSETS=; . "$R/$g.sh"; declare -F "variant_$v" > /dev/null && "variant_$v"
+		declare -F session > /dev/null && session
+		readlink -f "$(command -v "${CMD[0]}")") 2> /dev/null)
+	dpkg -S "$p" 2> /dev/null | cut -d: -f1 | tr , ' ' | tr -s ' ' '\n' | sort -u
+}
+# the launcher: its Exec becomes the game's command (BENCH_CMD_FILE, NUL-separated, read by client.sh)
+cmdfile=; lname=; lfile=
+q=; [ -n "${PS3_SESSION_SCOPED:-}" ] && q=1	# the scoped copy repeats the choice quietly
+{
+	cmdfile=$(mktemp); trap 'rm -f "$cmdfile"' EXIT
+	# shellcheck disable=SC2086
+	out=$("$here/launcher.py" ${want:+--choose "$want"} --argv-out "$cmdfile" ${SESSION_LAUNCHER_ARGS:-} $(pkgs) ); lrc=$?
+	if [ "$lrc" = 2 ]; then
+		echo "session: $g has no launcher '$want'; the choices (file name, Name):" >&2
+		"$here/launcher.py" ${SESSION_LAUNCHER_ARGS:-} $(pkgs) | sed '1d; s/^/  /' >&2
+		exit 2
+	elif [ "$lrc" != 0 ]; then
+		rm -f "$cmdfile"; cmdfile=
+		[ -z "$want" ] || { echo "session: $g has no menu launchers (asked for '$want')" >&2; exit 2; }
+		[ -n "$q" ] || echo "session: $g: no menu launcher found, the recipe's command runs"
+	else
+		lfile=$(sed -n '1s/\t.*//p' <<< "$out"); lname=$(sed -n '1s/^[^\t]*\t//p' <<< "$out")
+		if [ -z "$q" ]; then
+			echo "session: launcher: $lname ($lfile)"
+			if [ "$(sed -n '$=' <<< "$out")" -gt 2 ]; then
+				echo "session: this game has several launchers (pick one: session.sh $g LAUNCHER):"
+				sed '1d; s/^\([^\t]*\)\t\(.*\)$/  \2  [\1]/' <<< "$out"
+			fi
+		fi
+	fi
+}
 if [ "${SESSION_DRY:-0}" = 1 ]; then
-	echo "would run: BENCH_SESSION=1 BENCH_SHOTS='${shots% }' $B session session-$g-$v -- $here/client.sh $g $v"
+	[ -n "$cmdfile" ] && echo "command: $(xargs -0 printf '%q ' < "$cmdfile")"
+	echo "would run: BENCH_SESSION=1 ${cmdfile:+BENCH_CMD_FILE=<command> BENCH_LAUNCHER='$lname' BENCH_LAUNCHER_FILE=$lfile }BENCH_SHOTS='${shots% }' $B session session-$g-$v -- $here/client.sh $g $v"
 	echo "then: python3 -I $here/session-form.py <run dir> $g $v"
 	exit 0
 fi
@@ -44,6 +97,7 @@ fi
 # game mode freezes the desktop's slice, the terminal with it: continue in ps3-game.slice
 if [ -z "${PS3_SESSION_SCOPED:-}" ] && [ "${SESSION_SCOPE:-1}" = 1 ]; then
 	export PS3_SESSION_SCOPED=1
+	[ -n "$cmdfile" ] && rm -f "$cmdfile"
 	if systemctl --user show-environment > /dev/null 2>&1; then
 		exec systemd-run --user --scope --slice=ps3-game.slice --unit="ps3-session-$$" -q "$0" "$@"
 	fi
@@ -76,6 +130,7 @@ versions() {	# the game's package and the graphics stack, as run.sh's
 }
 
 tmp=$(mktemp)
+[ -n "$cmdfile" ] && export BENCH_CMD_FILE=$cmdfile BENCH_LAUNCHER=$lname BENCH_LAUNCHER_FILE=$lfile
 env BENCH_SESSION=1 BENCH_SHOTS="${shots% }" BENCH_WHAT="session $g $v" \
 	"$B" session "session-$g-$v" -- "$here/client.sh" "$g" "$v" 2>&1 | tee "$tmp"
 rc=${PIPESTATUS[0]}

@@ -24,6 +24,9 @@ Two tests, for different questions:
    how the game ended, and a screenshot about once a minute. When the game exits, a short form asks
    whether sound and music were heard, how the controls worked, and has a free-text box for notes
    on the gameplay; the notes are read with the numbers and become the game's known issues.
+   A game with several launchers (OpenArena has "GL 1.2" and "GL 2.0") is played once per launcher:
+   a session starts the chosen menu entry's command, records its Name, and each launcher is rated
+   on its own. A session without a launcher counts for the game's default one.
 2. **A scripted capture run, for the picture.** A recipe drives the game to fixed points (a menu, a
    map, a camera position), the PS3 captures them, and the same recipe captures them on a PC. The
    two sit side by side on one sheet and someone looks at it: missing textures, wrong colours,
@@ -88,6 +91,13 @@ scores 75 and 2 s scores 55; for sound, one fault a minute scores 75, six score 
   version add their picture. The app and the page say which version that was ("Tested on Walnut 0.1
   with xmoto 0.6.3+repack-1"). The website's History table rates every version from its own
   tests alone, newest first, so a game can be compared between versions.
+- **Launchers.** A game with several menu entries (OpenArena's GL 1.2 and GL 2.0 renderers) is rated
+  once per launcher: each test records the entry it started (result.toml's `launcher`, the entry's
+  Name; `import-run.py --launcher NAME` for runs from before it was recorded). The game's medal is its
+  best launcher's, named with it ("Gold, with OpenArena (GL 1.2)"); the page and the app show every
+  launcher's rating, and the app's Play menu lists the best first. A test without a launcher belongs to
+  the game's only named one; with several, to "the default launcher". If a launcher other than the
+  default rates best, the default is the thing to fix.
 - **Stability needs hours.** The page shows the play time and crashes behind it ("0 crashes in
   1.7 h"); under an hour the stability score is marked provisional, and a full score needs three
   crash-free hours (0 crashes in 3 h bounds the rate under one an hour, the rule of three). The

@@ -10,7 +10,8 @@
       <h1>{{ $g.title }}</h1>
       <p class="meta">{{ partial "medal.html" $r }}
         {{ if eq $r.medal "Untested" }}<span class="muted">nobody has played it on Walnut yet</span>
-        {{ else }}<span class="muted">{{ printf "%.1f" $r.hours }} h played, {{ $r.crashes }} crash{{ if ne (int $r.crashes) 1 }}es{{ end }}</span>{{ end }}
+        {{ else }}{{ if and $r.launcher (gt (len $g.launchers) 1) }}<span>with {{ $r.launcher }}</span>{{ end }}
+        <span class="muted">{{ printf "%.1f" $r.hours }} h played, {{ $r.crashes }} crash{{ if ne (int $r.crashes) 1 }}es{{ end }}</span>{{ end }}
       </p>
       <p>{{ $g.summary }}</p>
       <p class="badges">
@@ -24,28 +25,30 @@
   {{ if ne $r.medal "Untested" }}
   <section>
     <h2>Rating</h2>
-    {{ if eq $r.medal "Scrap" }}{{ with $r.reason }}<p class="note">Scrap: {{ . }}.</p>{{ end }}
-    {{ else if $r.capped }}<p class="note">The mean alone would be higher; the medal is capped by the weakest aspect ({{ $r.reason }}).</p>{{ end }}
     {{ with $g.medal_note }}<p class="note">{{ . }}</p>{{ end }}
-    <table class="aspects">
-      <thead><tr><th>Aspect</th><th>Score (of 100)</th><th></th><th>What was measured</th></tr></thead>
-      <tbody>
-      {{ range slice "frame" "smooth" "sound" "picture" "stability" "display" "load" }}
-        {{ $a := index $r.aspects . }}
-        <tr>
-          <td>{{ $a.name }} <span class="muted">({{ $a.weight }})</span></td>
-          {{ if eq $a.score nil }}<td>-</td><td></td><td class="muted">not measured</td>
-          {{ else }}<td class="num">{{ $a.score }}<span class="muted">/100</span></td>
-          <td class="bar"><span style="width: {{ $a.score }}%"></span></td>
-          <td>{{ $a.detail }}</td>{{ end }}
-        </tr>
-      {{ end }}
-      </tbody>
+    {{ if gt (len $g.launchers) 1 }}
+    <p>The game has {{ len $g.launchers }} launchers in the menu, each rated on its own; its medal is the best one's.</p>
+    <table class="launchers">
+      <thead><tr><th>Launcher</th><th>Medal</th><th>Tested on</th></tr></thead>
+      <tbody>{{ range $g.launchers }}
+        <tr><td>{{ with .name }}{{ . }}{{ else }}the default launcher{{ end }}</td>
+        <td>{{ if and .rating.graded_by (ne .rating.graded_by "capture") }}{{ partial "medal.html" .rating }}{{ else }}<span class="muted">not played yet</span>{{ end }}</td>
+        <td>{{ with .rating.tested }}{{ $t := . }}{{ partial "walnut.html" .walnut }}{{ with .version }}, {{ $t.package }} {{ . }}{{ end }}{{ else }}-{{ end }}</td></tr>
+      {{ end }}</tbody>
     </table>
-    {{ if $r.unmeasured }}<p class="muted">Not measured: {{ delimit $r.unmeasured ", " }}. Their weight goes to the other aspects.</p>{{ end }}
-    {{ with $r.tested }}<p class="tested">Tested on <strong>{{ partial "walnut.html" .walnut }}</strong>{{ with .version }} with {{ $r.tested.package }} <strong>{{ . }}</strong>{{ end }}, last on {{ .date }}.</p>{{ end }}
-    <p class="muted">Rated from {{ if eq $r.graded_by "session" }}played sessions{{ else }}benchmark runs (no played session yet; the desktop was stopped and vsync off){{ end }}.
-    {{ if $r.provisional }}Stability is provisional until the game has an hour of play.{{ end }}</p>
+    {{ range $i, $l := $g.launchers }}
+      {{ if eq $i 0 }}
+    <h3>{{ with $l.name }}{{ . }}{{ else }}The default launcher{{ end }} <span class="muted">(the best)</span></h3>
+    {{ partial "rating.html" $l.rating }}
+      {{ else }}
+    <details class="launcher"><summary>{{ with $l.name }}{{ . }}{{ else }}The default launcher{{ end }}: {{ $l.rating.medal }}{{ with $l.rating.score }} · {{ . }}{{ end }}</summary>
+    {{ partial "rating.html" $l.rating }}
+    </details>
+      {{ end }}
+    {{ end }}
+    {{ else }}
+    {{ partial "rating.html" $r }}
+    {{ end }}
   </section>
   {{ end }}
 
@@ -104,34 +107,24 @@
 
   {{ with .Content }}<section class="notes"><h2>Notes</h2>{{ . }}</section>{{ end }}
 
-  {{ with $g.history }}
   <section>
     <h2>History</h2>
     <p class="muted">The rating on each version it was tested on, newest first: each row is rated from that version's tests alone.</p>
-    <div class="table-wrap">
-    <table class="history">
-      <thead><tr><th>Version</th><th>Tested</th><th>Medal</th>
-        {{ range slice "frame" "smooth" "sound" "picture" "stability" "display" "load" }}<th class="num" title="{{ (index $r.aspects .).name }}">{{ (index $r.aspects .).name }}</th>{{ end }}
-        <th class="num">Play</th></tr></thead>
-      <tbody>{{ range . }}{{ $h := . }}
-        <tr><td>{{ partial "walnut.html" .walnut }}{{ with .version }}<br><span class="muted">{{ $h.package }} {{ . }}</span>{{ end }}</td>
-        <td class="nowrap">{{ .last }}{{ if ne .first .last }}<br><span class="muted">from {{ .first }}</span>{{ end }}</td>
-        <td>{{ if and .graded_by (ne .graded_by "capture") }}{{ partial "medal.html" . }}{{ else }}<span class="muted">picture only</span>{{ end }}</td>
-        {{ range slice "frame" "smooth" "sound" "picture" "stability" "display" "load" }}<td class="num">{{ with index $h.aspects . }}{{ . }}{{ else }}<span class="muted">-</span>{{ end }}</td>{{ end }}
-        <td class="num">{{ printf "%.1f" .hours }} h<br><span class="muted">{{ .tests }} test{{ if ne (int .tests) 1 }}s{{ end }}</span></td></tr>
-      {{ end }}</tbody>
-    </table>
-    </div>
+    {{ $many := gt (len $g.launchers) 1 }}
+    {{ range $g.launchers }}
+      {{ if $many }}<h3>{{ with .name }}{{ . }}{{ else }}The default launcher{{ end }}</h3>{{ end }}
+      {{ partial "history.html" (dict "rows" .history "aspects" $r.aspects) }}
+    {{ end }}
   </section>
-  {{ end }}
 
   <section>
     <h2>Test runs</h2>
     <div class="table-wrap">
     <table class="tests">
-      <thead><tr><th>Date</th><th>Version</th><th>Kind</th><th>Play</th><th>Ended</th><th>Picture</th><th>Builds</th></tr></thead>
+      <thead><tr><th>Date</th><th>Version</th><th>Launcher</th><th>Kind</th><th>Play</th><th>Ended</th><th>Picture</th><th>Builds</th></tr></thead>
       <tbody>{{ range $g.tests }}{{ $t := . }}
         <tr><td class="nowrap">{{ .date }}</td><td>{{ partial "walnut.html" .walnut }}{{ with .version }}<br><span class="muted">{{ $t.package }} {{ . }}</span>{{ end }}</td>
+        <td>{{ with .launcher }}{{ . }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td>{{ .kind }}</td><td class="nowrap">{{ div .play_seconds 60 | printf "%.0f" }} min</td><td>{{ .end }}</td>
         <td>{{ with .verdict }}{{ . }}{{ else }}-{{ end }}</td>
         <td class="muted small">{{ range $k, $v := .versions }}{{ if and (ne $k "walnut") (ne $k $t.package) }}{{ $k }} {{ $v }}; {{ end }}{{ end }}</td></tr>

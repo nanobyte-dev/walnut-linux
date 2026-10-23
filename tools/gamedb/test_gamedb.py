@@ -314,6 +314,22 @@ class Importer(unittest.TestCase):
         with self.assertRaises(self.ir.Refused):
             self.ir.import_run(self.run_dir, "ex", self.content, None)
 
+    def test_launcher(self):
+        self.assertNotIn("launcher", self.do()[0])           # none recorded, none given: no key
+        self.write_bench(launcher="OpenArena (GL 2.0)", launcher_file="openarena-gl2.desktop")
+        self.assertEqual(self.do()[0]["launcher"], "OpenArena (GL 2.0)")
+
+    def test_launcher_option_for_old_runs(self):
+        self.ir.import_run(self.run_dir, "ex", self.content, None, False, "OpenArena (GL 1.2)")
+        out = next((self.content / "ex" / "tests").iterdir())
+        self.assertEqual(tomllib.loads((out / "result.toml").read_text())["launcher"], "OpenArena (GL 1.2)")
+
+    def test_launcher_option_must_match_the_recorded_one(self):
+        self.write_bench(launcher="OpenArena (GL 2.0)")
+        self.ir.import_run(self.run_dir, "ex", self.content, None, False, "OpenArena (GL 2.0)")   # same: fine
+        with self.assertRaises(self.ir.Refused):
+            self.ir.import_run(self.run_dir, "ex", self.content, None, False, "OpenArena (GL 1.2)")
+
     def test_toml_writer_roundtrip(self):
         text = self.ir.toml_dump({"a": 1, "b": "x\"y", "c": True, "n": None},
                                  {"t": {"f": 1.5, "l": ["p", "q"], "bad key": 2, "z": None}})
@@ -365,9 +381,46 @@ class Catalog(unittest.TestCase):
             (new / "result.toml").write_text(txt)
             out = catalog.build_game(g, REPO, {})
             self.assertEqual(out["rating"]["tested"]["walnut"], "pre-0.1")
-            self.assertEqual([r["walnut"] for r in out["history"]], ["0.2", "pre-0.1"])
-            self.assertEqual(out["history"][0]["graded_by"], "capture")   # the newer version: picture only
+            hist = out["launchers"][0]["history"]
+            self.assertEqual([r["walnut"] for r in hist], ["0.2", "pre-0.1"])
+            self.assertEqual(hist[0]["graded_by"], "capture")   # the newer version: picture only
             self.assertEqual(out["tests"][0]["walnut"], "0.2")      # runs newest first
+
+    def test_launcher_groups(self):
+        def t(i, kind="session", launcher=None):
+            d = {"id": i, "kind": kind, "date": "2026-10-24"}
+            if launcher:
+                d["launcher"] = launcher
+            return d
+        # one named launcher: unnamed tests are its
+        g = catalog.launcher_groups([t("a", "demo"), t("b", launcher="X")])
+        self.assertEqual([(n, [x["id"] for x in ts]) for n, ts in g], [("X", ["a", "b"])])
+        # two: unnamed graded tests form the default (None); an unnamed capture counts for all
+        g = catalog.launcher_groups([t("a", "demo"), t("b", launcher="GL1"), t("c", launcher="GL2"), t("p", "capture")])
+        self.assertEqual([(n, [x["id"] for x in ts]) for n, ts in g],
+                         [(None, ["a", "p"]), ("GL1", ["b", "p"]), ("GL2", ["c", "p"])])
+        self.assertEqual(catalog.launcher_groups([]), [(None, [])])
+
+    def test_best_launcher_rates_the_game(self):
+        with tempfile.TemporaryDirectory() as d:
+            g = Path(d) / "openarena"
+            shutil.copytree(REPO / "gamedb" / "content" / "games" / "openarena", g)
+            old = next((g / "tests").iterdir())
+            txt = re.sub(r'(?m)^launcher = .*\n', "", (old / "result.toml").read_text())
+            (old / "result.toml").write_text(txt.replace('kind = "demo"', 'kind = "demo"\nlauncher = "OpenArena (GL 2.0)"'))
+            fast = g / "tests" / "2026-10-21-demo"
+            fast.mkdir()
+            txt = txt.replace('date = "2026-10-20"', 'date = "2026-10-21"').replace('kind = "demo"', 'kind = "demo"\nlauncher = "OpenArena (GL 1.2)"')
+            txt = re.sub(r"median_fps = [0-9.]+", "median_fps = 70.0", txt)
+            txt = re.sub(r"low1_fps = [0-9.]+", "low1_fps = 50.0", txt)
+            txt = re.sub(r"stutter_s_per_min = [0-9.]+", "stutter_s_per_min = 0.05", txt)
+            (fast / "result.toml").write_text(txt)
+            out = catalog.build_game(g, REPO, {})
+            self.assertEqual([l["name"] for l in out["launchers"]], ["OpenArena (GL 1.2)", "OpenArena (GL 2.0)"])
+            self.assertEqual(out["rating"]["launcher"], "OpenArena (GL 1.2)")
+            self.assertEqual(out["rating"]["score"], out["launchers"][0]["rating"]["score"])
+            self.assertGreater(out["rating"]["score"], out["launchers"][1]["rating"]["score"])
+            self.assertEqual({t["launcher"] for t in out["tests"]}, {"OpenArena (GL 1.2)", "OpenArena (GL 2.0)"})
 
     def test_repository_catalog(self):
         cat = catalog.build(REPO / "gamedb" / "content" / "games", REPO)
@@ -381,7 +434,8 @@ class Catalog(unittest.TestCase):
             self.assertNotEqual(g["rating"]["medal"], "Untested")
             self.assertTrue(g["patched"])
             self.assertEqual(g["rating"]["tested"]["walnut"], "pre-0.1")   # runs from before 0.1.0
-            self.assertEqual(len(g["history"]), 1)
+            self.assertEqual(len(g["launchers"]), 1)
+            self.assertEqual(len(g["launchers"][0]["history"]), 1)
             self.assertEqual(g["debs"], [])        # no --deb-index: no links
 
 

@@ -120,3 +120,9 @@ table.history th.num, table.history td.num { width: auto; padding-left: 0.4rem; 
 .prose p, .prose li { line-height: 1.6; }
 .prose table { margin: 0.8rem 0 1.2rem; }
 .prose td .medal { white-space: nowrap; }
+
+/* games with several launchers */
+table.launchers { margin-bottom: 1rem; }
+details.launcher { margin: 0.8rem 0; }
+details.launcher > summary { font-weight: 600; margin-bottom: 0.4rem; }
+.table-wrap + h3 { margin-top: 1.4rem; }

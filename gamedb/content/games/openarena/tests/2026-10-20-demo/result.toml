@@ -5,6 +5,7 @@ date = "2026-10-20"
 run = "ps3-bench-20261020T143404Z-openarena-gl2min"
 game = "openarena"
 variant = "gl2min"
+launcher = "OpenArena (GL 2.0)"
 play_seconds = 180.0
 end = "window"
 crashed = false

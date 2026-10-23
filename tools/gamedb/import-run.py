@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""import-run.py RUN... --game ID [--ref DIR] [--content DIR] [--dry-run]: turn games/bench run
+"""import-run.py RUN... --game ID [--launcher NAME] [--ref DIR] [--content DIR] [--dry-run]: turn games/bench run
 directories into a game's tests in the Walnut Games catalog (docs/GAMEDB.md).
 
 Design
@@ -24,6 +24,10 @@ Design
 - kind: "session" (bench.txt kind=session, the recorder of phase P3), "demo" (a harness run with a
   measured window: stands in for a session until the game has one), "capture" (shots only: grades
   the picture, nothing else).
+- launcher: result.toml gets `launcher = "<Name>"` (the game's menu entry the session started, each
+  launcher is rated on its own) from bench.txt's launcher=, or from --launcher NAME for runs that
+  recorded none; a different --launcher than the recorded one is refused. Neither: no key (the
+  catalog takes the game's default launcher).
 - Refused: runs with interfered=1 (or TEMPLIMIT / thermal stop), capture runs without REVIEW.md.
 - No absolute path, host name or user name is written: the run is named by its directory name only.
 Importing the same run again rewrites its test directory; another run of the same day and kind gets
@@ -179,7 +183,7 @@ def toml_dump(top, tables):
     return "\n".join(lines) + "\n"
 
 
-def import_run(run, game, content, ref_root, dry=False):
+def import_run(run, game, content, ref_root, dry=False, launcher=None):
     d = Path(run)
     b = report.kv(d / "bench.txt")
     if not b:
@@ -193,6 +197,10 @@ def import_run(run, game, content, ref_root, dry=False):
         why.append("stopped by the temperature limit")
     if why:
         raise Refused("%s: refused, %s" % (d.name, "; ".join(why)))
+    recorded = (b.get("launcher") or "").strip() or None
+    if launcher and recorded and launcher != recorded:
+        raise Refused("%s: recorded the launcher %r, not %r (--launcher)" % (d.name, recorded, launcher))
+    launcher = recorded or (launcher or "").strip() or None
     sh = shots.parse(d)
     has_shots = any(shots.image(d, s) for s in sh["shots"].values())
     verdict = (shots.review(d) or "").rstrip(":;,.") or None   # shots.review keeps a colon: "ok:"
@@ -224,7 +232,7 @@ def import_run(run, game, content, ref_root, dry=False):
         n["shot_differing"] = 0 if verdict == "ok" else len(ps3)
     scores = score.test_scores(n, fm.get("fps_cap"))
     top = {"schema": 1, "kind": kind, "date": date, "run": d.name, "game": game, "variant": b.get("variant"),
-           "play_seconds": play, "end": end, "crashed": crashed, "started": True, "reached_play": play > 0,
+           "launcher": launcher, "play_seconds": play, "end": end, "crashed": crashed, "started": True, "reached_play": play > 0,
            "render": "1920x1080"}
     note = ""
     if (d / "REVIEW.md").exists():
@@ -252,12 +260,13 @@ def main():
     ap.add_argument("--game", required=True, help="the game's id (its folder under the content directory)")
     ap.add_argument("--ref", default=str(REPO / "build" / "bench-ref"), help="PC references (tools/bench-ref.sh)")
     ap.add_argument("--content", default=str(REPO / "gamedb" / "content" / "games"))
+    ap.add_argument("--launcher", help="the menu launcher's Name the run started (for runs that recorded none)")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     bad = 0
     for run in a.runs:
         try:
-            import_run(run, a.game, a.content, a.ref if Path(a.ref).is_dir() else None, a.dry_run)
+            import_run(run, a.game, a.content, a.ref if Path(a.ref).is_dir() else None, a.dry_run, a.launcher)
         except Refused as e:
             print("!! %s" % e, file=sys.stderr)
             bad += 1

@@ -180,8 +180,23 @@ desktop, empty the swaps and switch vsync off; a session does none of that.
 **Start one** on the PS3, from a terminal of the desktop (over SSH works too: one command, then hands off):
 
 ```
-/var/tmp/bench/session.sh GAME [VARIANT]       # or: /var/tmp/bench/run.sh session GAME [VARIANT]
+/var/tmp/bench/session.sh GAME [LAUNCHER] [VARIANT]   # or: /var/tmp/bench/run.sh session GAME ...
 ```
+
+**Pick the launcher.** A game can have several menu entries (OpenArena: `openarena-gl1.desktop`
+"OpenArena (GL 1.2)" and `openarena-gl2.desktop` "OpenArena (GL 2.0)"). `LAUNCHER` is an entry's file
+name or its Name; the session starts exactly that entry's `Exec` (field codes cut out, no shell), so
+the game gets the arguments the menu gives it. The recipe still supplies the assets, `PLAY_MARK`,
+the HUD and the recording. The launchers are found as the Walnut Games app finds them
+(`launcher.py`): the menu entries the game's packages ship (`dpkg -L`) and any shown entry that runs
+one of their programs. Without `LAUNCHER` the session takes the game's only launcher, or the first of
+several (shipped entries by file name) and prints the list; an unknown `LAUNCHER` prints the choices
+and exits 2. A game with no menu entry runs the recipe's command. A second argument that names a
+recipe variant (`base`, `kick100`) is still taken as the `VARIANT`; with a launcher the variant is the
+third argument. `SESSION_DRY=1` shows the launcher and its command without starting anything.
+`bench.txt` records `launcher=` (the Name) and `launcher_file=`; `import-run.py` writes the Name as
+`launcher` in `result.toml` (`--launcher NAME` for a run that recorded none). Each launcher is rated
+on its own: play every launcher of a game.
 
 `make bench-push` puts the scripts there; the harness needs a `ps3-gpu-tools` with
 `ps3-bench.sh session`. `run.sh list` names the games. A recipe needs a playable command: openarena

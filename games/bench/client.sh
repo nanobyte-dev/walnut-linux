@@ -91,7 +91,10 @@
 # ended= quit (exit code 0), error (another code), crash (signal or a segfault in dmesg.log), oom,
 # closed (SIGTERM/SIGKILL: Ctrl+Alt+Esc), killed (the harness stopped it), ended_why=, play_from=
 # mark|load|start, play_start=, play_seconds=, window= (the play, for the HUD metrics), vsync=shipped,
-# gamemode=1. PLAY_MARK (a recipe's regex on the game's output) is the first gameplay frame; else
+# gamemode=1. BENCH_CMD_FILE (session.sh, a menu launcher): the file holds the game's command, NUL-separated
+# (it replaces the recipe's CMD, without ps3-game: the session adds it); BENCH_LAUNCHER and
+# BENCH_LAUNCHER_FILE (the entry's Name and file name) go to bench.txt as launcher= and launcher_file=.
+# PLAY_MARK (a recipe's regex on the game's output) is the first gameplay frame; else
 # the load mark (LOAD_MARK, LOAD_RE); else play_from=start and play_seconds is the whole run.
 {
 set -u
@@ -117,6 +120,11 @@ SESSION=${BENCH_SESSION:-0}; UP0=
 if [ "$SESSION" = 1 ]; then
 	unset -f during; parse() { :; }
 	if declare -F session > /dev/null; then session; fi	# the recipe's playable command
+	# the command of a menu launcher (session.sh): NUL-separated argv, ps3-game left out (launch= adds it)
+	if [ -n "${BENCH_CMD_FILE:-}" ]; then
+		mapfile -d '' -t CMD < "$BENCH_CMD_FILE"
+		[ ${#CMD[@]} -gt 0 ] || { echo "!! BENCH_CMD_FILE $BENCH_CMD_FILE: no command"; exit 2; }
+	fi
 	_new=(); for _x in "${ENV[@]}"; do [ "$_x" = vblank_mode=0 ] || _new+=("$_x"); done
 	ENV=("${_new[@]}")	# vsync as shipped
 	GAMEMODE=1; WM=; DURATION=0; END_RE=; PASSES=0; WINDOW_STOP=0; WIN_ON_RE=; WIN_OFF_RE=
@@ -578,6 +586,7 @@ stop_game() {
 trap 'stop_game; kill "${helpers[@]}" $wm 2>/dev/null
 	{ echo "game=$GAME"; echo "variant=$VARIANT"; echo "comm=$COMM"; echo "ended=killed"
 	  [ "$SESSION" = 1 ] && echo "kind=session"
+	  [ "$SESSION" = 1 ] && [ -n "${BENCH_LAUNCHER:-}" ] && { echo "launcher=$BENCH_LAUNCHER"; echo "launcher_file=${BENCH_LAUNCHER_FILE:-}"; }
 	  echo "hwm=$(cat "$D/.hwm" 2>/dev/null)"; echo "sound=$(cat "$D/.sound" 2>/dev/null)"; shot_lines; } > "$D/bench.txt"
 	exit 1' HUP INT TERM
 
@@ -982,7 +991,7 @@ secs measured "$measured"
   [ -n "$SW" ] && { echo "swap=$SW"; echo "swaps=$(awk 'NR > 1 { printf "%s%s:%s", s, $1, $5; s = " " }' /proc/swaps)"; }
   echo "game_pid=$game_pid"
   if [ "$SESSION" = 1 ]; then
-	echo "kind=session"; echo "ended_why=$ended_why"
+	echo "kind=session"; [ -n "${BENCH_LAUNCHER:-}" ] && { echo "launcher=$BENCH_LAUNCHER"; echo "launcher_file=${BENCH_LAUNCHER_FILE:-}"; }; echo "ended_why=$ended_why"
 	echo "play_from=$play_from"; echo "play_start=$play_start"; echo "play_seconds=$play_seconds"
 	echo "vsync=shipped"; echo "gamemode=1"
   fi

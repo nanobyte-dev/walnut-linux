@@ -150,17 +150,34 @@ def history(groups, fps_cap):
     return out
 
 
-def build_game(gdir, repo, debs):
-    fm, all_tests = read_game(gdir)
-    groups = version_groups(all_tests, fm["packages"])
-    # the rating is the newest version's that has a graded test (a session or a benchmark run);
-    # capture runs of any version add their picture
+def launcher_groups(tests):
+    """the tests by launcher (the menu entry's Name the test started; result.toml's launcher), in
+    first-seen order. A test that names none belongs to the game's only named launcher, or with
+    several to an unnamed one (None: the default). A capture run without a launcher shows the
+    game's picture: it counts for every launcher."""
+    named = list(dict.fromkeys(t["launcher"] for t in tests if t.get("launcher")))
+    groups = {}
+    for t in tests:
+        if t.get("launcher") or t.get("kind") in GRADED:
+            name = t.get("launcher") or (named[0] if len(named) == 1 else None)
+            groups.setdefault(name, []).append(t)
+    shared = [t for t in tests if not t.get("launcher") and t.get("kind") not in GRADED]
+    if not groups:
+        return [(named[0] if len(named) == 1 else None, list(tests))]
+    return [(name, ts + shared) for name, ts in groups.items()]
+
+
+def rate_launcher(tests, fm):
+    """one launcher's rating, from the newest version with a graded test (capture runs of any version
+    add their picture), and its history (every version rated from its own tests)"""
+    fps_cap = fm.get("fps_cap")
+    groups = version_groups(tests, fm["packages"])
     current = next((k for k, ts in groups if any(t.get("kind") in GRADED for t in ts)), None)
-    tests = [t for k, ts in groups for t in ts if k == current or t.get("kind") not in GRADED]
-    tests.sort(key=lambda t: (t["date"], t["id"]))
-    r = score.combine(tests, fm.get("fps_cap"))
-    det = details(r, fm.get("fps_cap"))
-    pic = [(t["numbers"]["shot_points"], t["numbers"]["shot_differing"]) for t in tests
+    cur = [t for k, ts in groups for t in ts if k == current or t.get("kind") not in GRADED]
+    cur.sort(key=lambda t: (t["date"], t["id"]))
+    r = score.combine(cur, fps_cap)
+    det = details(r, fps_cap)
+    pic = [(t["numbers"]["shot_points"], t["numbers"]["shot_differing"]) for t in cur
            if "shot_points" in t.get("numbers", {})]
     if pic:
         det["picture"] = "%d of %d capture points differ from the PC" % (sum(p[1] for p in pic), sum(p[0] for p in pic))
@@ -168,7 +185,38 @@ def build_game(gdir, repo, debs):
     for k, name in score.ASPECT_NAMES.items():
         aspects[k] = {"name": name, "weight": score.WEIGHTS[k], "score": rnd(r["aspects"].get(k)),
                       "detail": det.get(k)}
-    graded = [t for t in tests if t.get("kind") in ("session", "demo")]
+    graded = [t for t in cur if t.get("kind") in GRADED]
+    avail = [t["numbers"]["min_avail_kb"] for t in graded if "min_avail_kb" in t.get("numbers", {})]
+    rating = {"medal": r["medal"], "score": rnd(r["score"]), "capped": r["capped"], "reason": r["reason"],
+              "weakest": r["weakest"], "aspects": aspects,
+              "unmeasured": [a["name"] for a in aspects.values() if a["score"] is None],
+              "hours": round(r["hours"], 2), "crashes": r["crashes"], "provisional": r["provisional"],
+              "graded_by": r["graded_by"],
+              "silent": aspects["sound"]["score"] == 0 and r["aspects"].get("sound") is not None,
+              "low_memory": bool(avail) and min(avail) < LOW_MEMORY_KB,
+              "tested": None if current is None else {
+                  "walnut": current[0], "package": current[1], "version": current[2],
+                  "date": max(t["date"] for k, ts in groups if k == current for t in ts)}}
+    return rating, history(groups, fps_cap)
+
+
+def rank(rating):
+    """a rating's place, best first: a medal from tests beats none, then the medal, then the score"""
+    graded = rating["graded_by"] not in (None, "capture")
+    return (graded, score.MEDALS.index(rating["medal"]) if rating["medal"] in score.MEDALS else -1,
+            rating["score"] or 0)
+
+
+def build_game(gdir, repo, debs):
+    fm, all_tests = read_game(gdir)
+    # one rating per launcher (a game with two renderers has two menu entries); the game's medal is
+    # its best launcher's, named with it
+    launchers = []
+    for name, ts in launcher_groups(all_tests):
+        rating, hist = rate_launcher(ts, fm)
+        launchers.append({"name": name, "rating": rating, "history": hist})
+    launchers.sort(key=lambda l: rank(l["rating"]), reverse=True)
+    best = launchers[0]
     patches, patched_dirs = [], []
     for src in fm.get("patched_by", []):
         subjects = patch_subjects(src, repo)
@@ -184,16 +232,15 @@ def build_game(gdir, repo, debs):
         badges.append("needs-data")
     if fm["controller"] != "unknown":
         badges.append("controller-" + fm["controller"])
-    if aspects["sound"]["score"] == 0 and r["aspects"].get("sound") is not None:
+    if best["rating"]["silent"]:
         badges.append("no-sound")
-    avail = [t["numbers"]["min_avail_kb"] for t in graded if "min_avail_kb" in t.get("numbers", {})]
-    if avail and min(avail) < LOW_MEMORY_KB:
+    if best["rating"]["low_memory"]:
         badges.append("low-memory")
     out_tests = []
     for t in sorted(all_tests, key=lambda t: (t["date"], t["id"]), reverse=True):
         walnut, pkg, ver = tested_version(t, fm["packages"])
         out_tests.append({
-            "walnut": walnut, "package": pkg, "version": ver,
+            "walnut": walnut, "package": pkg, "version": ver, "launcher": t.get("launcher"),
             "id": t["id"], "kind": t["kind"], "date": t["date"], "variant": t.get("variant"),
             "play_seconds": t.get("play_seconds", 0), "end": t.get("end"), "crashed": t.get("crashed", False),
             "verdict": t.get("picture", {}).get("verdict"), "note": t.get("picture", {}).get("note"),
@@ -205,15 +252,7 @@ def build_game(gdir, repo, debs):
     g.update({k: fm.get(k, v) for k, v in (("recipes", []), ("fps_cap", None), ("data_guide", None),
                                            ("medal_note", None), ("known_issues", []))})
     g.update(thumb="games/%s/thumb.png" % fm["id"], patched=bool(patches), patches=patches, debs=links, badges=badges,
-             rating={"medal": r["medal"], "score": rnd(r["score"]), "capped": r["capped"], "reason": r["reason"],
-                     "weakest": r["weakest"], "aspects": aspects,
-                     "unmeasured": [a["name"] for a in aspects.values() if a["score"] is None],
-                     "hours": round(r["hours"], 2), "crashes": r["crashes"], "provisional": r["provisional"],
-                     "graded_by": r["graded_by"],
-                     "tested": None if current is None else {
-                         "walnut": current[0], "package": current[1], "version": current[2],
-                         "date": max(t["date"] for k, ts in groups if k == current for t in ts)}},
-             history=history(groups, fm.get("fps_cap")), tests=out_tests)
+             rating=dict(best["rating"], launcher=best["name"]), launchers=launchers, tests=out_tests)
     return g
 
 

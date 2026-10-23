@@ -77,6 +77,10 @@ perfectly but is silent is Bronze, with a "no sound" badge. And some failures ma
 whatever its average: it doesn't start, crashes in most sessions, runs under 15 frames a second, or
 stutters for more than 10 seconds a minute. The page then says which.
 
+**Games with more than one launcher.** Some games have two entries in the menu, like OpenArena
+with its GL 1.2 and GL 2.0 renderers. Each is played and rated on its own, and the game's medal is
+the best one's, with its name ("Gold, with OpenArena (GL 1.2)"). The page lists them all.
+
 **Badges** sit next to the medal and don't change it: how well a controller works, whether the game
 needs your own game files (we never ship those), no sound, low memory, and **patched by Walnut**
 for games we changed to run better on the PS3; their pages list those changes, with the packages

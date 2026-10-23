@@ -126,6 +126,26 @@ def filter_games(games, have, text="", category="All", medal="All", installed_on
     return out
 
 
+def launcher_label(launcher):
+    """a launcher of the catalog ({name, rating}) as the app names it: "OpenArena (GL 1.2) · Gold 90" """
+    r = launcher["rating"]
+    name = launcher.get("name") or "Default launcher"
+    if r.get("graded_by") in (None, "capture"):
+        return name + " \u00b7 not played yet"
+    return "%s \u00b7 %s%s" % (name, r["medal"], " %d" % r["score"] if r.get("score") is not None else "")
+
+
+def order_launchers(cmds, launchers):
+    """Play's launchers (play_commands) best rated first, in the catalog's order (best first), the
+    ones it hasn't rated after them as found; with each one's medal in its label when rated"""
+    rated = {l["name"]: (i, l) for i, l in enumerate(launchers or []) if l.get("name")}
+    out = []
+    for n, (label, argv, cwd) in enumerate(cmds):
+        hit = rated.get(label)
+        out.append((hit[0] if hit else len(rated) + n, launcher_label(hit[1]) if hit else label, argv, cwd))
+    return [(label, argv, cwd) for _, label, argv, cwd in sorted(out, key=lambda x: x[0])]
+
+
 def tested_text(rating):
     """which version the rating was measured on: "Tested on Walnut 0.1 with openarena 0.8.8 (2026-10-20)";
     "" for an untested game (or a catalog from before the versions were recorded)"""
@@ -459,6 +479,9 @@ class App:
         self.d_sum = ttk.Label(inner, text="", style="Muted.TLabel", background=PANEL, wraplength=DETAILS_W - 8,
                                justify="left")
         self.d_sum.pack(anchor="w", pady=(2, 8))
+        # a game with several launchers (two renderers): which one's rating is shown
+        self.d_launch = ttk.Frame(inner, style="Panel.TFrame")
+        self.launch_var = tk.IntVar(value=0)
         self.d_medal = tk.Canvas(inner, width=DETAILS_W, height=44, bg=PANEL, highlightthickness=0)
         self.d_medal.pack(anchor="w")
         self.d_aspects = tk.Canvas(inner, width=DETAILS_W, height=ASPECT_TOP + 7 * 40, bg=PANEL,
@@ -602,35 +625,36 @@ class App:
             self.d_shot.image = None
             notes.configure(state="disabled")
             self.d_shots.pack_forget()
+            self.d_launch.pack_forget()
             self._fit_notes()
             self.update_buttons()
             return
-        r = g["rating"]
         self.d_title.configure(text=g["title"])
         self.d_sum.configure(text=g.get("summary", ""))
-        m = r["medal"]
-        fill = MEDAL_COLORS.get(m, MEDAL_COLORS["Untested"])
-        d.create_polygon(rounded_points(2, 4, 118, 38, 16), smooth=True, fill=fill, outline="")
-        d.create_text(60, 21, text=m, fill=pill_text_color(fill), font=self.f["big"])
-        if r.get("score") is not None:
-            d.create_text(134, 21, text=str(r["score"]), fill=TEXT, font=self.f["title"], anchor="w")
-            d.create_text(178, 24, text="of 100" + ("  (cap: " + r["reason"] + ")" if r.get("capped") else ""),
-                          fill=MUTED, font=self.f["small"], anchor="w")
-        self.draw_aspects(r)
+        for w in self.d_launch.winfo_children():
+            w.destroy()
+        launchers = g.get("launchers") or []
+        self.launch_var.set(0)
+        if len(launchers) > 1:
+            ttk.Label(self.d_launch, text="Launchers, best first:", style="Muted.TLabel",
+                      background=PANEL).pack(anchor="w")
+            row = ttk.Frame(self.d_launch, style="Panel.TFrame")
+            row.pack(anchor="w", fill="x")
+            for i, l in enumerate(launchers):
+                tk.Radiobutton(row, text=launcher_label(l), variable=self.launch_var, value=i, indicatoron=0,
+                               command=self.show_rating, bg=ENTRY, fg=TEXT, selectcolor=ACCENT_DEEP,
+                               activebackground=BORDER, activeforeground=TEXT, bd=0, highlightthickness=0,
+                               padx=8, pady=3, font=self.f["small"]).pack(anchor="w", pady=(2, 0))
+            if not self.d_launch.winfo_ismapped():
+                self.d_launch.pack(anchor="w", fill="x", pady=(0, 6), before=self.d_medal)
+        else:
+            self.d_launch.pack_forget()
         if not self.d_shots.winfo_ismapped():
             if self.d_notes.winfo_ismapped():
                 self.d_shots.pack(fill="x", before=self.d_notes)
             else:
                 self.d_shots.pack(fill="x")
-        stats = []
-        if r.get("hours"):
-            stats.append("%.1f h played, %d crash%s%s" % (r["hours"], r["crashes"], "" if r["crashes"] == 1 else "es",
-                                                         " (provisional)" if r.get("provisional") else ""))
-        stats.append("Controller: " + g.get("controller", "unknown"))
-        if g.get("needs_data"):
-            stats.append("Needs your own game data")
-        tested = tested_text(r)
-        self.d_stats.configure(text=(tested + "\n" if tested else "") + "  |  ".join(stats))
+        self.show_rating()
         self.show_shot()
         if g.get("medal_note"):
             notes.insert("end", g["medal_note"] + "\n", "warn")
@@ -684,6 +708,35 @@ class App:
         t.update_idletasks()
         lines = t.count("1.0", "end", "displaylines")
         t.configure(height=max(1, (lines[0] if isinstance(lines, tuple) else lines or 1)))
+
+    def show_rating(self):
+        """the medal, the scores and what they were measured on: the selected launcher's (the best by
+        default; a game with one launcher has only that)"""
+        g = self.g
+        if g is None:
+            return
+        launchers = g.get("launchers") or []
+        r = launchers[self.launch_var.get()]["rating"] if len(launchers) > 1 else g["rating"]
+        d = self.d_medal
+        d.delete("all")
+        m = r["medal"]
+        fill = MEDAL_COLORS.get(m, MEDAL_COLORS["Untested"])
+        d.create_polygon(rounded_points(2, 4, 118, 38, 16), smooth=True, fill=fill, outline="")
+        d.create_text(60, 21, text=m, fill=pill_text_color(fill), font=self.f["big"])
+        if r.get("score") is not None:
+            d.create_text(134, 21, text=str(r["score"]), fill=TEXT, font=self.f["title"], anchor="w")
+            d.create_text(178, 24, text="of 100" + ("  (cap: " + r["reason"] + ")" if r.get("capped") else ""),
+                          fill=MUTED, font=self.f["small"], anchor="w")
+        self.draw_aspects(r)
+        stats = []
+        if r.get("hours"):
+            stats.append("%.1f h played, %d crash%s%s" % (r["hours"], r["crashes"], "" if r["crashes"] == 1 else "es",
+                                                         " (provisional)" if r.get("provisional") else ""))
+        stats.append("Controller: " + g.get("controller", "unknown"))
+        if g.get("needs_data"):
+            stats.append("Needs your own game data")
+        tested = tested_text(r)
+        self.d_stats.configure(text=(tested + "\n" if tested else "") + "  |  ".join(stats))
 
     def draw_aspects(self, r):
         """one block per aspect: its name, a bar and the score out of 100, and under them what was
@@ -800,7 +853,8 @@ class App:
         idle = self.busy is None
         self.b_install.configure(state="normal" if g and idle and not inst else "disabled")
         self.b_remove.configure(state="normal" if g and idle and inst else "disabled")
-        self.play_cmds = play_commands(g, self.runtime_dir, files=lambda: self.manifest(g)) if g and inst else []
+        self.play_cmds = order_launchers(play_commands(g, self.runtime_dir, files=lambda: self.manifest(g)),
+                                         g.get("launchers")) if g and inst else []
         self.b_play.configure(state="normal" if idle and self.play_cmds else "disabled",
                               text="Play \u25be" if len(self.play_cmds) > 1 else "Play")
 
