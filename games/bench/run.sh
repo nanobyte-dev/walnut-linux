@@ -9,6 +9,8 @@
 #   run.sh suite "VARIANTS" [N]        the same over every recipe with SUITE=1, games interleaved
 #                                      (a game without a variant runs base once per round)
 #   run.sh list                        recipes and their variants
+#   run.sh session GAME [VARIANT]      a played session (session.sh): the live desktop, game mode, vsync
+#                                      as shipped, no time limit; the player quits, a form follows
 # Variant `base` is the recipe as written. End the session with `ps3-bench.sh desktop`.
 # STALLS=1: the stall recorder runs alongside (ps3-bench.sh BENCH_STALLS=1, docs/STALLS.md); smoke
 # then prints stalls.py's tables, else `python3 stalls.py <run dir>...` does.
@@ -212,6 +214,7 @@ suite)
 	done
 	report
 	;;
+session) shift; exec "$here/session.sh" "$@" ;;
 list)
 	for r in "$here"/recipes/*.sh; do
 		g=$(basename "$r" .sh)

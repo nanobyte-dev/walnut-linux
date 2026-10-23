@@ -82,6 +82,17 @@
 # reached), shot_static=1 (the recipe's SHOT_STATIC: a menu or title screen, a close comparison is
 # fair). shots.py turns them into PNGs and the side-by-side sheet against the PC reference
 # (tools/bench-ref.sh). BENCH_REF=1: a PC reference run (tools/bench-ref.sh): no game mode.
+# A played session (BENCH_SESSION=1, started by session.sh through `ps3-bench.sh session`, docs/games/
+# SUITE.md "Played sessions"): the game as the desktop menu starts it, in the live desktop. Through
+# ps3-game (BENCH_PS3GAME another command), vsync as shipped (the recipe's vblank_mode=0 dropped), no
+# window manager of ours, no time limit, no END_RE, no passes or windows; the recipe's during() and
+# parse() are dropped and its optional session() function changes CMD/ENV to a playable command (a
+# smoke recipe's autoplay arguments out). The player quits the game; bench.txt gets kind=session,
+# ended= quit (exit code 0), error (another code), crash (signal or a segfault in dmesg.log), oom,
+# closed (SIGTERM/SIGKILL: Ctrl+Alt+Esc), killed (the harness stopped it), ended_why=, play_from=
+# mark|load|start, play_start=, play_seconds=, window= (the play, for the HUD metrics), vsync=shipped,
+# gamemode=1. PLAY_MARK (a recipe's regex on the game's output) is the first gameplay frame; else
+# the load mark (LOAD_MARK, LOAD_RE); else play_from=start and play_seconds is the whole run.
 {
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
@@ -90,7 +101,7 @@ D=${BENCH_DIR:-/dev/shm/bench-client-$$}; mkdir -p "$D"
 ASSETS=$here/assets
 
 # recipe interface (README in recipes/): the recipe sets these, a variant_<name> function changes them
-CMD=(); ENV=(); BACKUP=(); DATA_DIRS=(); GAMEMODE=0; HUD=1; COMM=; WM=openbox
+CMD=(); ENV=(); BACKUP=(); DATA_DIRS=(); GAMEMODE=0; HUD=1; COMM=; WM=openbox; PLAY_MARK=
 # DURATION: a safety cap (load + 60 s warm-up + 120 s measured + margin); recipes set their own
 END_RE=; DURATION=270; HUD_SKIP=12; WARMUP=60; MEASURE=120; PASSES=0; WINDOW_STOP=0; STEADY_RE=
 STEADY_MAXMS_RE=; WIN_ON_RE=; WIN_OFF_RE=; FPS_RE=; MAXMS_RE=; LOAD_RE=; LOAD_MARK=; RESULT_FILE=; SOUND_AT=15
@@ -101,6 +112,17 @@ if declare -F "variant_$VARIANT" >/dev/null; then "variant_$VARIANT"
 elif [ "$VARIANT" != base ]; then echo "!! $GAME: no variant $VARIANT"; exit 2; fi
 [ ${#CMD[@]} -gt 0 ] || { echo "!! $GAME: no CMD"; exit 2; }
 [ "${BENCH_REF:-0}" = 1 ] && GAMEMODE=0	# the PC reference (tools/bench-ref.sh): no ps3-game there
+# A played session (the top): what a desktop launch does, nothing of the bench's scripting
+SESSION=${BENCH_SESSION:-0}; UP0=
+if [ "$SESSION" = 1 ]; then
+	unset -f during; parse() { :; }
+	if declare -F session > /dev/null; then session; fi	# the recipe's playable command
+	_new=(); for _x in "${ENV[@]}"; do [ "$_x" = vblank_mode=0 ] || _new+=("$_x"); done
+	ENV=("${_new[@]}")	# vsync as shipped
+	GAMEMODE=1; WM=; DURATION=0; END_RE=; PASSES=0; WINDOW_STOP=0; WIN_ON_RE=; WIN_OFF_RE=
+	STEADY_RE=; STEADY_MAXMS_RE=; SHOT_FROM=start; SHOT_RE=
+	read -r UP0 _ < /proc/uptime	# dmesg.log's clock (a crash line since the start)
+fi
 # Screenshots (the top): the shot points, the reference they count from, the directory on disk
 SHOTS=${BENCH_SHOTS:-}; SHOT_PTS=(); SHOT_AT=(); SHOT_Q=(); SHOT_JOBS=(); SHOT_REF_US=; SHOT_DIR=; SHOT_ERR=
 SHOTS=${SHOTS//,/ }	# commas for an ENVS token (SHOTS=70,130)
@@ -460,7 +482,7 @@ pload_off() {	# the start-up span is over: perf off, the counters
 	read -r a < "$D/.pid" 2>/dev/null && readlink "/proc/$a/exe" > "$D/perf-load.exe" 2>/dev/null
 	return 0
 }
-launch=(); [ "$GAMEMODE" = 1 ] && launch=(ps3-game)
+launch=(); [ "$GAMEMODE" = 1 ] && launch=("${BENCH_PS3GAME:-ps3-game}")
 # GAMEMODE=0 means no game mode: not even ps3-game-detect's (it reads the game's environment)
 [ "$GAMEMODE" = 1 ] || ENV+=(PS3_GAME_MODE=off)
 # The game's own files read at its start (docs/STALLS.md "Game prefetch"): BENCH_GAMEPREFETCH (run.sh
@@ -491,7 +513,7 @@ if [ -n "$GPF" ]; then
 	done
 	if [ "$GAMEMODE" = 1 ]; then ENV+=(PS3_GAME_PREFETCH_GAME="${GPF%%_*}" PS3_GAME_PREFETCH_DIR="$GPF_DIR")
 	else launch=("$GPF_BIN" game-run --mode "${GPF%%_*}" --dir "$GPF_DIR" --key "${CMD[0]}" --); fi
-elif [ "$GAMEMODE" = 1 ]; then
+elif [ "$GAMEMODE" = 1 ] && [ "$SESSION" != 1 ]; then
 	ENV+=(PS3_GAME_PREFETCH_GAME=off)
 fi
 
@@ -506,7 +528,7 @@ if [ -n "$WM" ] && [ -n "${DISPLAY:-}" ]; then
 fi
 # no screen saver or DPMS blanking: a run longer than X's 10 idle minutes (a soak) would go
 # black, and a run with nothing on screen doesn't count
-[ -n "${DISPLAY:-}" ] && xset s off -dpms 2>/dev/null
+[ -n "${DISPLAY:-}" ] && [ "$SESSION" != 1 ] && xset s off -dpms 2>/dev/null
 
 helpers=()
 # snd_ps3's interrupt counters and DMA watchdog restarts (kernel local/0047; absent on older kernels)
@@ -555,6 +577,7 @@ stop_game() {
 # stopped from outside (ps3-bench.sh's timeout, the thermal watchdog): still say how it ended
 trap 'stop_game; kill "${helpers[@]}" $wm 2>/dev/null
 	{ echo "game=$GAME"; echo "variant=$VARIANT"; echo "comm=$COMM"; echo "ended=killed"
+	  [ "$SESSION" = 1 ] && echo "kind=session"
 	  echo "hwm=$(cat "$D/.hwm" 2>/dev/null)"; echo "sound=$(cat "$D/.sound" 2>/dev/null)"; shot_lines; } > "$D/bench.txt"
 	exit 1' HUP INT TERM
 
@@ -776,7 +799,7 @@ prof_due() {	# runs the profiling events due now (US); PROF_NEXT: the next one's
 # the steady-state window, in microseconds from the start: load_us when the load ended (LOAD_MARK,
 # the first LOAD_RE line, else the HUD's first frame), hud_us when the HUD's dump got its first
 # value, stop_us when WINDOW_STOP ends the run; passes (PASSES=1) in PASS, measured their counted time
-load_us=; hud_us=; stop_us=; np=0; plast=; measured=0; win0=; win1=; PASS=(); son=; SEGS=()
+load_us=; hud_us=; stop_us=; play_us=; LOADMARK=0; np=0; plast=; measured=0; win0=; win1=; PASS=(); son=; SEGS=()
 loaded() {	# the load ended now (US)
 	load_us=$(( US - u0 ))
 	[ "$SHOT_FROM" = load ] && shot_plan "$load_us"
@@ -846,7 +869,8 @@ while :; do
 		secs DUMP_AT $(( US - u0 )); dump_trigger "$l" "$DUMP_AT"
 	fi
 	if [ -z "$load_us" ] && { { [ -n "$LOAD_MARK" ] && [[ $l =~ $LOAD_MARK ]]; } ||
-	                          { [ -n "$LOAD_RE" ] && [[ $l =~ $LOAD_RE ]]; }; }; then loaded; fi
+	                          { [ -n "$LOAD_RE" ] && [[ $l =~ $LOAD_RE ]]; }; }; then LOADMARK=1; loaded; fi
+	if [ -n "$PLAY_MARK" ] && [ -z "$play_us" ] && [[ $l =~ $PLAY_MARK ]]; then play_us=$(( US - u0 )); fi
 	if [ -z "$t_load" ] && [ -n "$LOAD_MARK" ] && [[ $l =~ $LOAD_MARK ]]; then t_load=$(age); fi
 	if [ "$SHOT_FROM" = re ] && [ -z "$SHOT_REF_US" ] && [[ $l =~ $SHOT_RE ]]; then shot_plan $(( US - u0 )); fi
 	if [ -n "$WIN_ON_RE" ]; then	# the game's own window pieces
@@ -879,6 +903,23 @@ wait "$gp" 2>/dev/null; rc=$?
 [ "$DUMPON" = 1 ] && [ "$rc" -gt 128 ] && [ "$rc" -ne 143 ] && [ "$rc" -ne 137 ] && dump_crash
 exec 3<&-; rm -f "$fifo"
 kill "${helpers[@]}" $wm 2>/dev/null; wait 2>/dev/null
+# A played session: how it ended. rc is the game's exit code (ps3-game passes it on); a crash shows
+# in dmesg.log (the sampler's dmesg -W, since UP0) as a segfault of the game or an oom kill.
+ended_why=
+if [ "$SESSION" = 1 ]; then
+	dm=$(awk -v up="$UP0" -v c="$COMM" -v p="${game_pid:-0}" '
+		match($0, /^\[ *[0-9.]+\]/) { t = substr($0, 2, RLENGTH - 2) + 0 }
+		t + 1 >= up && /segfault|unhandled signal|trap invalid|oom-kill|Out of memory|Killed process/ &&
+			((c != "" && index($0, c)) || p > 0 && (index($0, "[" p "]") || index($0, " " p " ") || index($0, "(" p ")"))) { print }
+		' "$D/dmesg.log" 2>/dev/null | head -3)
+	if [ "$ended" != exit ]; then ended_why="the harness stopped the game ($ended)"; ended=killed
+	elif [[ $dm =~ oom-kill|Out\ of\ memory|Killed\ process ]]; then ended=oom; ended_why="out of memory: ${dm%%$'\n'*}"
+	elif [ -n "$dm" ]; then ended=crash; ended_why="${dm%%$'\n'*}"
+	elif [ "$rc" = 0 ]; then ended=quit; ended_why="exit code 0"
+	elif [ "$rc" = 143 ] || [ "$rc" = 137 ]; then ended=closed; ended_why="SIGTERM/SIGKILL (Ctrl+Alt+Esc or kill)"
+	elif [ "$rc" -gt 128 ]; then ended=crash; ended_why="signal $((rc - 128)) ($(kill -l $((rc - 128)) 2>/dev/null))"
+	else ended=error; ended_why="exit code $rc"; fi
+fi
 
 last() {	# last <regex>: the first capture group of the regex's last match in game.log
 	local re=$1 v= l
@@ -905,6 +946,18 @@ elif [ "$PASSES" != 1 ] && [ -n "$load_us" ]; then
 	a=$(( load_us + WARMUP * 1000000 )); b=$(( a + MEASURE * 1000000 )); [ $b -gt $run_us ] && b=$run_us
 	[ $b -gt $a ] && { secs w0 "$a"; secs w1 "$b"; window="$w0 $w1"; }
 fi
+# A played session: the play is everything from the first gameplay frame (PLAY_MARK), else the load
+# mark, to the end; without either the whole run (play_from=start, an upper bound); window= is that span
+play_from=; play_start=; play_seconds=
+if [ "$SESSION" = 1 ]; then
+	if [ -n "$play_us" ]; then play_from=mark; ps_us=$play_us
+	elif [ "$LOADMARK" = 1 ] && [ -n "$load_us" ]; then play_from=load; ps_us=$load_us
+	else play_from=start; ps_us=0; fi
+	[ "$ps_us" -gt "$run_us" ] && ps_us=$run_us
+	secs play_start "$ps_us"; secs play_seconds $(( run_us - ps_us ))
+	w_us=$ps_us; [ "$play_from" = start ] && [ -n "$hud_us" ] && w_us=$hud_us
+	secs w0 "$w_us"; window="$w0 $t_run"
+fi
 [ -n "$load_us" ] && secs load_end "$load_us"; [ -n "$hud_us" ] && secs hud_t1 "$hud_us"
 secs measured "$measured"
 [ -n "$RESULT_FILE" ] && for f in $RESULT_FILE; do [ -e "$f" ] && cp -p "$f" "$D/"; done
@@ -928,6 +981,11 @@ secs measured "$measured"
   [ -n "$GD" ] && { echo "gamedata=$GD"; [ -n "$GD_DIRS" ] && echo "gamedata_dirs=$GD_DIRS"; }
   [ -n "$SW" ] && { echo "swap=$SW"; echo "swaps=$(awk 'NR > 1 { printf "%s%s:%s", s, $1, $5; s = " " }' /proc/swaps)"; }
   echo "game_pid=$game_pid"
+  if [ "$SESSION" = 1 ]; then
+	echo "kind=session"; echo "ended_why=$ended_why"
+	echo "play_from=$play_from"; echo "play_start=$play_start"; echo "play_seconds=$play_seconds"
+	echo "vsync=shipped"; echo "gamemode=1"
+  fi
   echo "root=$(findmnt -n -o SOURCE / 2>/dev/null || echo -)"	# USB root or the SSD's /dev/mapper/ps3root (Phase B)
   if [ "$PLOAD" = 1 ]; then
 	echo "mono_t0=$MONO_T0"

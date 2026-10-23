@@ -101,6 +101,7 @@ CMD=("${WZ[@]}" --autogame --skirmish=ps3bench.json)
 # image wz-amd64-view (tools/bench-ref.sh warzone2100; deleted 2026-10-20, the game is done: a docker
 # commit of an amd64 build container with our debs installed brings it back).
 SHOT_RE='Started writing replay file'
+PLAY_MARK=$SHOT_RE	# the match has started (a played session; no session() command yet)
 REF_IMAGE=wz-amd64-view
 variant_lobby() { CMD=("${WZ[@]}" --skirmish=ps3bench.json); SHOT_RE=; }
 variant_menu() { CMD=("${WZ[@]}"); SHOT_RE=; SHOT_STATIC=1; }

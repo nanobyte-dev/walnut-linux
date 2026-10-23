@@ -22,6 +22,8 @@ if it exists (`base` needs none).
 | `WIN_ON_RE`, `WIN_OFF_RE` | the game marks its own window, maybe in pieces: each ON line opens a piece, the next OFF line closes it (a piece still open at the end closes there); replaces load + `WARMUP` for the HUD metrics (e.g. a demo's reload between loops left out) |
 | `FPS_RE`, `MAXMS_RE`, `LOAD_RE` | the first capture group of the last matching output line |
 | `LOAD_MARK` | an output line whose time (seconds from start) is the load time |
+| `PLAY_MARK` | played sessions only (`session.sh`): a regex on the game's output line that marks the first gameplay frame (a map loaded, a race started); bench.txt `play_from=mark`, `play_start`, `play_seconds`, and the HUD window starts there. Without it the session falls back to `LOAD_MARK`/`LOAD_RE` (`play_from=load`), else the whole run counts (`play_from=start`, an upper bound). Smoke and bench runs ignore it. Set on openarena, supertuxkart, sauerbraten, warzone2100 |
+| `session()` | played sessions only: changes `CMD`/`ENV` into the command a player starts (the timedemo, autoplay and benchmark arguments out). A session already drops `vblank_mode=0`, `during()`, `parse()`, `END_RE`, `DURATION` and the passes/windows. Without `session()` the recipe's `CMD` runs as it is: right for the menu variants (`warzone2100 menu`), wrong for a timedemo. Written for openarena and xmoto |
 | `HUD_SKIP` | HUD seconds left out as loading when there is no load time (default 12) |
 | `RESULT_FILE` | files the game writes, copied into the run directory |
 | `during()` | runs in the background while the game runs (its output in during.log), stopped at the end |

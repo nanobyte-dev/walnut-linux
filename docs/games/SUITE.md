@@ -11,7 +11,8 @@ recorder, the profiles and the memory snapshots have their own docs ([STALLS.md]
 
 | Path | What |
 |---|---|
-| `run.sh` | the runner, on the PS3 as tibi over SSH: `smoke`, `bench`, `suite`, `list` |
+| `run.sh` | the runner, on the PS3 as tibi over SSH: `smoke`, `bench`, `suite`, `list`, `session` |
+| `session.sh`, `session-form.py` | a played session ([below](#played-sessions)) and its end-of-session form |
 | `client.sh` | one game run from a recipe (the X client `ps3-bench.sh x` starts) |
 | `recipes/<game>.sh` | one per game; `recipes/README.md` lists the variables; `smoke.inc` and `openal.inc` are shared pieces |
 | `assets/` | demos, replays, maps and mods: `openarena-bench.dm_71`, `sauerbraten-bench.dmo`, `xmoto-credits.rpl`, `armagetronad-bench.aarec`, `etr-race.evemu`, `classicube-bench.cw`, `.path`, `.so`, `luanti-ps3bench/` |
@@ -169,6 +170,64 @@ back to GameOS at the end. For bench runs:
   process's maps and files most samples as `[unknown]` (77% of OpenArena's once).
 - After the batch: `make bench-pull` (PNGs and sheets), the sheets reviewed (`make bench-shots` lists
   the open ones), `report.py`, then a row in the matrices.
+
+## Played sessions
+
+The graded test of [GAMEDB.md](../GAMEDB.md#how-a-game-is-tested): a person plays the game for
+about ten minutes, started the way the desktop menu starts it. Smoke and bench runs stop the
+desktop, empty the swaps and switch vsync off; a session does none of that.
+
+**Start one** on the PS3, from a terminal of the desktop (over SSH works too: one command, then hands off):
+
+```
+/var/tmp/bench/session.sh GAME [VARIANT]       # or: /var/tmp/bench/run.sh session GAME [VARIANT]
+```
+
+`make bench-push` puts the scripts there; the harness needs a `ps3-gpu-tools` with
+`ps3-bench.sh session`. `run.sh list` names the games. A recipe needs a playable command: openarena
+and xmoto have a `session()` function for it, and the `menu` variants (`warzone2100 menu`) start at
+the game's own menu; a timedemo or autoplay recipe without one would run its bench command
+([recipes/README.md](recipes/README.md): `session()`). The script moves into `ps3-game.slice`
+(game mode freezes the terminal) and logs to `~/.cache/ps3-session/`. Nothing else is needed from
+the terminal: play, then quit the game from its menu. There is no time limit. Don't use the PS3
+for anything else meanwhile, and no SSH: a login is interference for what is measured.
+
+**What runs.** The game goes through `ps3-game` (game mode, the VRAM swap on, vsync as shipped, the
+desktop's window manager), recorded by `ps3-bench.sh session` with `client.sh` (`BENCH_SESSION=1`):
+
+| Recorded | Where |
+|---|---|
+| Gallium HUD frame times and fps (GL games) | `hud/`; `window=` is the play, for report.py |
+| memory, swap and VRAM samples every 0.5 s; temperatures; dmesg; the pre/post snapshots | `samples`, `temps`, `dmesg.log`, `snap-*.txt` |
+| sound: `underruns`, `oal_wedge`, `oal_wait`, `oal_xrun`, `snd_stall`, `snd_restarts`, `sound` (the card at 15 s) | `bench.txt` |
+| a screenshot about every minute (xwd at nice 19; `SESSION_SHOT_EVERY`, at most `SESSION_SHOT_MAX`=40, 8 MB each) | `shots/`, `shot=` |
+| peak RSS, game output, package versions | `hwm`, `game.log`, `versions` |
+| how it ended | `ended`, `ended_why`, `rc` |
+| the player's answers | `session.toml` |
+
+The thermal watchdog and the 80 C limit still stop the game; the interference detector and the
+bench screen are off (the player's input is the point).
+
+`bench.txt` has the usual fields plus `kind=session`, `play_from` (`mark`, `load` or `start`),
+`play_start`, `play_seconds`, `vsync=shipped`, `gamemode=1`. The play starts at the recipe's
+`PLAY_MARK` (the first gameplay frame), else at its load mark; without either `play_from=start` and
+`play_seconds` is the whole run, an upper bound. `ended` is `quit` (exit code 0), `error` (another
+code), `crash` (a signal, or a segfault of the game in `dmesg.log`), `oom` (the kernel killed it),
+`closed` (SIGTERM or SIGKILL, Ctrl+Alt+Esc), `killed` (the harness stopped it: thermal alert,
+temperature limit).
+
+**The form.** When the game exits and the desktop is back, a Tk dialog (Walnut colours, large type
+for the TV) asks: sound heard (yes, partly, no), music heard (yes, no, no music in this game),
+controls (full controller, partial, keyboard and mouse only) and a free-text box, "Notes about the
+gameplay". Save writes `session.toml` (`sound`, `music`, `controls` = `full`, `partial` or
+`keyboard-mouse`, `notes`, `saved`, `form`); Skip or closing the window writes nothing. The notes are
+read with the numbers when the session is imported: a glitch in one level, a sound problem or awkward
+controls become known issues. Needs `python3-tk` on the PS3 (without it, or without a display, the
+form asks on the terminal). `SESSION_FORM=0` leaves it out; `python3 -I session-form.py RUN_DIR GAME
+VARIANT` asks later.
+
+**Collect** with `make bench-pull` (the screenshots become PNGs); the run directory is
+`/var/tmp/ps3-bench/<stamp>-session-GAME-VARIANT/`, and `tools/gamedb/import-run.py` reads it.
 
 ## Screenshots
 

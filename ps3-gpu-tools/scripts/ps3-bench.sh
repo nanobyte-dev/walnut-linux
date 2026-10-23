@@ -4,6 +4,11 @@
 #   ps3-bench.sh run LABEL -- cmd...       quiet, then cmd with memory/VRAM samples every 0.5 s
 #   ps3-bench.sh x LABEL -- cmd...         the same, cmd as the only client of a bare X on vt1
 #   ps3-bench.sh snap LABEL                one full snapshot into the current run directory
+#   ps3-bench.sh session LABEL -- cmd...   a played session (games/bench/session.sh): cmd in the live
+#                                          desktop, recorded like x; no quiet, no bare X server, no bench
+#                                          lock, no screen, no interference detector (the player's input
+#                                          is the point), no time limit (BENCH_TIMEOUT=0); the thermal
+#                                          watchdog and the temperature limit stay
 #   ps3-bench.sh desktop                   end of the session: desktop back, game config restored
 # Results: /var/tmp/ps3-bench/<UTC stamp>-<label>/ (out.log with $EPOCHREALTIME stamps, samples,
 # snapshots); written to /dev/shm while the command runs, so the USB disk stays out of it.
@@ -635,6 +640,13 @@ run|x)
 		set -- xinit /bin/bash -c 'TIMEFORMAT="client: real %R s, user %U s, sys %S s"; time "$@"' \
 			client "$@" -- :0 vt1 -nolisten tcp
 	fi
+	run_job "$label" "$@"
+	;;
+session)
+	label=${2:?label}; shift 2; [ "${1:-}" = -- ] && shift
+	[ $# -gt 0 ] || die "no command"
+	BENCH_VT=0 BENCH_INTF=0 XVT=	# nothing to tell the TV, nothing to detect
+	BENCH_TIMEOUT=${BENCH_TIMEOUT:-0}	# timeout 0: no limit, the player ends it
 	run_job "$label" "$@"
 	;;
 desktop)

@@ -59,6 +59,7 @@ stk_cmd
 # 120 Hz tick: 21602 "frames" in every run, 0.92 x real time at 110), not rendered frames; the HUD
 # (19-21 fps) is the frame rate. parse() keeps the tick numbers as stk_ticks, stk_tickrate.
 LOAD_MARK='Track: Overall scene complexity'
+PLAY_MARK=$LOAD_MARK	# the track is built, the race starts (a played session; no session() command yet)
 SOUND_AT=70	# the game opens its audio device late on a slow root: a read at 15 s said sound=none until 2026-10-18
 DURATION=420	# a safety cap: the load (~60 s, more when it swaps), 240 s of race, the quit
 during() {

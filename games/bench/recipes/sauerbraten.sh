@@ -77,6 +77,7 @@ sb_cmd
 STEADY_RE='^ps3bench: steady [0-9]+ frames in [0-9]+ ms: ([0-9.]+) fps'
 STEADY_MAXMS_RE='^ps3bench: steady .* longest ([0-9]+) ms'
 LOAD_MARK='^read map '
+PLAY_MARK=$LOAD_MARK	# the map is read (a played session; no session() command yet)
 # a safety net: loading (27-34 s at best, over 100 s while the memory swaps), then ~200 s (demo: two
 # playbacks and a reload; spawn: 180 s); quits by itself. The first version's 170 s cut the run
 # before the measurement printed.
