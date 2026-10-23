@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Date: Mon, 19 Oct 2026 09:39:22 +0300
 Subject: vorbisfile: ov_read's 16-bit packing in AltiVec on the PPE
 

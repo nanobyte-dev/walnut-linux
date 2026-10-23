@@ -42,7 +42,7 @@ Architecture: all
 Section: local/games
 Priority: optional
 Installed-Size: $SZ
-Maintainer: PS3 Linux project <ps3@localhost>
+Maintainer: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Description: Tyrian 2.1 game data for OpenTyrian (freeware release, not redistributable)
  The data files of the freeware Tyrian 2.1 (Epic MegaGames, 2004; levels, graphics, music and
  sound), from the zip on camanis.net. The license is Epic's limited-use agreement, so this package

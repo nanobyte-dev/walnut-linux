@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: PS3 Linux project <ps3@localhost>
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Date: Mon, 19 Oct 2026 08:07:37 +0300
 Subject: nv30: big texture uploads reuse staging buffers too
  (NV30_STAGING_POOL_MB)

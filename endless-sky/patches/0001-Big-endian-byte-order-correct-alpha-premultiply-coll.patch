@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Date: Mon, 19 Oct 2026 18:42:15 +0300
 Subject: Big-endian: byte-order-correct alpha (premultiply, collision masks,
  font kerning)

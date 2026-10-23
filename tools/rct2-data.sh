@@ -49,7 +49,7 @@ Architecture: all
 Section: local/games
 Priority: optional
 Installed-Size: $SZ
-Maintainer: PS3 Linux project <ps3@localhost>
+Maintainer: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Description: RollerCoaster Tycoon 2 game data for OpenRCT2 (from the owner's CD)
  Data, ObjData, Scenarios, Tracks and Landscapes of the original game, unpacked from the user's own
  disc image. Licensed content we may not redistribute: our LAN repository only (ps3-licensed).

@@ -13,7 +13,7 @@ PKG=$1
 . "$PKG/package.conf"
 [ "$TYPE" = debsrc ] || { echo "!! $PKG is not a Debian source package (TYPE=$TYPE)"; exit 1; }
 W=build/work/$PKG
-export GIT_COMMITTER_NAME="PS3 Linux project" GIT_COMMITTER_EMAIL=ps3@localhost
+export GIT_COMMITTER_NAME="Tiberiu Chibici" GIT_COMMITTER_EMAIL=chibicitiberiu@gmail.com
 if [ -d "$W/.git" ]; then
 	if [ "$(git -C "$W" rev-parse HEAD)" != "$(git -C "$W" rev-parse -q --verify exported 2>/dev/null)" ] ||
 	   [ -n "$(git -C "$W" status --porcelain)" ]; then
@@ -29,7 +29,7 @@ dpkg-source -x "build/sources/$PKG/${SOURCE}_${VERSION#*:}.dsc" "$W" >/dev/null
 cd "$W"
 rm -rf .pc
 git init -q -b work
-git config user.name "PS3 Linux project"; git config user.email ps3@localhost
+git config user.name "Tiberiu Chibici"; git config user.email chibicitiberiu@gmail.com
 git config core.autocrlf false
 git add -A -f	# whatever the package's .gitignore says (Debian's kernel tree ignores everything)
 GIT_AUTHOR_DATE="@0 +0000" GIT_COMMITTER_DATE="@0 +0000" git commit -q -m "Debian $VERSION" \

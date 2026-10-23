@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Date: Sat, 17 Oct 2026 16:03:36 +0300
 Subject: OpenGL driver: texture compression for opaque power-of-two textures
 

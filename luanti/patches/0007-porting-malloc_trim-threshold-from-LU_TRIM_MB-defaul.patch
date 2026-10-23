@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: ps3 <ps3@localhost>
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Date: Sun, 18 Oct 2026 05:03:33 +0300
 Subject: porting: malloc_trim threshold from LU_TRIM_MB (default 256 MiB,
  unchanged)

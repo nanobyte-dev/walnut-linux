@@ -41,7 +41,7 @@ if [ "$TYPE" = native ]; then
 			rm "$f"
 		done
 	fi
-	(cd "$T" && DEBEMAIL="ps3@localhost" DEBFULLNAME="PS3 Linux project" \
+	(cd "$T" && DEBEMAIL="chibicitiberiu@gmail.com" DEBFULLNAME="Tiberiu Chibici" \
 		dch --create --package "$SOURCE" -v "$NEWVER" --distribution ps3 --force-distribution \
 		"Built from the ps3 project, ${HASH:-local}." 2>/dev/null)
 	python3 - "$T/debian/changelog" "$DATE" <<'PY2'
@@ -86,7 +86,7 @@ if [ "$TYPE" = upstream ]; then
 			patch -d "$T" -p1 -s --no-backup-if-mismatch < "$PKG/patches/$p"
 		done < "$PKG/patches/series"
 	fi
-	(cd "$T" && DEBEMAIL="ps3@localhost" DEBFULLNAME="PS3 Linux project" \
+	(cd "$T" && DEBEMAIL="chibicitiberiu@gmail.com" DEBFULLNAME="Tiberiu Chibici" \
 		dch --create --package "$SOURCE" -v "$NEWVER" --distribution ps3 --force-distribution \
 		"Built from the ps3 project, ${HASH:-local}." 2>/dev/null)
 	python3 - "$T/debian/changelog" "$DATE" <<'PY2'
@@ -129,7 +129,7 @@ fi
 # Package-specific: Mesa generates debian/control from control.in
 if [ "$SOURCE" = mesa ]; then make -s -C "$T" -f debian/rules regen_control; fi
 
-(cd "$T" && DEBEMAIL="ps3@localhost" DEBFULLNAME="PS3 Linux project" \
+(cd "$T" && DEBEMAIL="chibicitiberiu@gmail.com" DEBFULLNAME="Tiberiu Chibici" \
 	dch -v "$NEWVER" --distribution ps3 --force-distribution --no-auto-nmu --force-bad-version \
 	"PS3 build: patches from the ps3 project, ${HASH:-local}." 2>/dev/null)
 # the entry's date: the commit's, so the same checkout gives the same SOURCE_DATE_EPOCH

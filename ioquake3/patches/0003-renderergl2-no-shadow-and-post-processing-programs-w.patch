@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: PS3 Linux project <ps3@localhost>
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Date: Sat, 17 Oct 2026 14:14:47 +0300
 Subject: renderergl2: no shadow and post-processing programs without
  framebuffer objects

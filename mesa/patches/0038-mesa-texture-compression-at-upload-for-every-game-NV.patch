@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: PS3 Linux project <ps3@localhost>
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Date: Sun, 18 Oct 2026 20:26:16 +0300
 Subject: mesa: texture compression at upload for every game (NV30_FORCE_DXT,
  off by default)

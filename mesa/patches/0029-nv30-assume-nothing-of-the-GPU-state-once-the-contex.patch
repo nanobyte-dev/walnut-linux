@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: PS3 Linux project <ps3@localhost>
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Date: Sat, 17 Oct 2026 15:46:03 +0300
 Subject: nv30: assume nothing of the GPU state once the context that drew last
  is gone (NV30_CTX_STATE_KEEP)

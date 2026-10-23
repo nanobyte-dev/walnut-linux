@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: ps3 <ps3@localhost>
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Date: Sat, 17 Oct 2026 22:36:26 +0300
 Subject: Sky quads in one draw (LU_GL_SKY), equal materials set once in
  renderMap (LU_GL_MATREUSE)

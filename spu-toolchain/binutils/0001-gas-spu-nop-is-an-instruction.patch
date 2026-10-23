@@ -1,4 +1,4 @@
-From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Subject: [PATCH] gas/spu: treat "nop" as the SPU instruction, not the .nop directive
 
 The SPU assembler looks pseudo-ops up without a leading dot first

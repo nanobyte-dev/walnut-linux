@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Tiberiu Chibici <chibicitiberiu@zoho.eu>
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Date: Mon, 19 Oct 2026 09:24:14 +0300
 Subject: ppc64: build for the Cell PPE (-O3 -mcpu=cell -mtune=cell)
 
