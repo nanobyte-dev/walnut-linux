@@ -13,7 +13,7 @@ up; the numbers behind it are always on the page.
 **A played session.** Someone plays the game for about ten minutes, the way you would: started from
 the Walnut desktop, with the settings Walnut ships, on a 1080p TV. Players hit menus, saves, level
 changes and odd inputs that a scripted test never reaches. While they play, a recorder notes every
-frame's time, the sound faults, the memory, how the game ended, and a screenshot about once a
+frame's time, every sound dropout, the memory, how the game ended, and a screenshot about once a
 minute. At the end the player says whether they heard the sound and music, how the controls worked,
 and writes down anything odd; those notes become the game's known issues.
 
@@ -32,7 +32,7 @@ Each part of the experience gets a score from 0 to 100. The same scale applies t
 |---|---|---|---|
 | Frame rate | 25 | under 20 frames a second (1% low under 10) | 55 or more (1% low 45 or more), or the game holds its own cap |
 | Smoothness | 20 | 5 s of stutter a minute, or a freeze over 5 s | barely any stutter (0.1 s a minute), no frame over a quarter second |
-| Sound | 15 | nothing heard, or the sound stops working | effects and music heard, no glitches counted |
+| Sound | 15 | nothing heard, or the sound stops working | effects and music heard, no dropouts you could hear |
 | Picture | 15 | wrong, can't be played | the same as on a PC |
 | Stability | 15 | crashes in most sessions | no crashes, quits cleanly |
 | Display | 5 | cropped or off-screen | full screen, right shape, cleanly scaled |
@@ -45,8 +45,11 @@ Between those ends the scores rise in steps. A few things worth knowing:
 - **A game capped by design** (a classic shooter locked at 35 frames a second, a game that runs at
   30) gets full marks for holding its cap.
 - **Sound is two halves.** Half is whether the right sounds play: the player says whether they
-  heard the effects and the music. The other half is how clean they are, from the sound faults
-  the recorder counts; that half falls gently, since many faults are too short to hear.
+  heard the effects and the music. The other half is how clean they are. The recorder measures
+  every moment the sound output runs dry: how long it lasted and how loud the sound was around it.
+  Only the ones you could hear count: a gap of 20 ms or more with sound before or after it. A few
+  milliseconds, or a gap in silence, go unnoticed and cost nothing. Older tests, recorded before
+  this measurement, use the raw count of faults on a gentler scale.
 - **A stutter** is a frame that takes far longer than the others (over 50 ms, and three times the
   usual frame). The score adds up the time those frames lost each minute.
 - **Stability needs hours.** A game that never crashed starts at 90, and reaches 100 after three

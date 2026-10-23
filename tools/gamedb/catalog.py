@@ -110,7 +110,9 @@ def details(r, fps_cap):
                                                            ", capped by design at %g" % fps_cap if fps_cap else "")
     if n.get("stutter_s_per_min") is not None:
         d["smooth"] = "%.1f s of stutter a minute, longest frame %.0f ms" % (n["stutter_s_per_min"], n["longest_ms"])
-    if n.get("sound_faults_per_min") is not None:
+    if n.get("sound_dropouts_per_min") is not None:     # measured by ps3-xrunlog: what could be heard
+        d["sound"] = "%.1f audible sound dropouts a minute" % n["sound_dropouts_per_min"]
+    elif n.get("sound_faults_per_min") is not None:
         d["sound"] = "%.1f sound faults a minute" % n["sound_faults_per_min"]
     d["stability"] = "%d crash%s in %.1f h of play%s" % (r["crashes"], "" if r["crashes"] == 1 else "es", r["hours"],
                                                          " (provisional: under 1 h)" if r["provisional"] else "")

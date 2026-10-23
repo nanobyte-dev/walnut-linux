@@ -20,8 +20,9 @@ Two tests, for different questions:
 1. **A played session, about 10 minutes, the graded test.** Someone plays the game normally,
    started from the desktop menu like any user would: game mode, the settings Walnut ships, vsync,
    the 1080p TV. Players hit menus, saves, level changes and odd inputs that a scripted run never
-   reaches. A session recorder records the frame times, the sound faults, memory, the kernel log,
-   how the game ended, and a screenshot about once a minute. When the game exits, a short form asks
+   reaches. A session recorder records the frame times, every sound dropout (how long the output
+   went dry, how loud it was around it), memory, the kernel log, how the game ended, and a
+   screenshot about once a minute. When the game exits, a short form asks
    whether sound and music were heard, how the controls worked, and has a free-text box for notes
    on the gameplay; the notes are read with the numbers and become the game's known issues.
    A game with several launchers (OpenArena has "GL 1.2" and "GL 2.0") is played once per launcher:
@@ -44,7 +45,7 @@ weighted mean of the scores.
 |---|---|---|---|---|
 | Frame rate | 25 | median and 1% low over the session's play | median 20 fps, 1% low 10 | median 55, 1% low 45, or the game holds its own cap |
 | Smoothness | 20 | stutter time per minute and the longest frame | 5 s a minute, or a freeze over 5 s | 0.1 s a minute, nothing over 250 ms |
-| Sound | 15 | half: the right sounds playing (the player's form: effects and music heard); half: sound faults per minute of play (ALSA underruns, OpenAL's xruns and waits); a wedged sound device | nothing heard, or wedged | effects and music heard, no faults |
+| Sound | 15 | half: the right sounds playing (the player's form: effects and music heard); half: audible sound dropouts per minute of play (measured: the output went dry for 20 ms or more with sound on a side), or for runs without that measurement the sound faults per minute (ALSA underruns, OpenAL's xruns and waits); a wedged sound device | nothing heard, or wedged | effects and music heard, no dropouts |
 | Picture | 15 | the capture points that differ from the PC | wrong, can't be played | the same as the PC |
 | Stability | 15 | crashes per hour of play over all sessions, and clean quits | crashes in most sessions | no crashes, quits clean |
 | Display | 5 | on the TV: full screen, aspect, scaling, legibility | cropped or off-screen | full screen at the right aspect, cleanly scaled |
@@ -65,10 +66,20 @@ weighted mean of the scores.
 Between the 0 and 100 points each score rises in steps: for smoothness, 0.5 s of stutter a minute
 scores 75 and 2 s scores 55; sound is two halves: 50 for the right sounds (effects and music both heard, or the game has no
 music; 25 with one missing or the effects only partly; nothing heard makes the whole score 0, and
-a benchmark run with no form counts the sound as present), and 50 for cleanliness, which falls
-gently with the faults a minute: 40 at ten, 32 at thirty, 22 at sixty, 0 at 240. A fault count
-says nothing about whether it was heard (a short underrun in a quiet moment isn't), so it only ever
-costs the second half.
+a benchmark run with no form counts the sound as present), and 50 for cleanliness.
+
+Cleanliness comes from the audible dropouts a minute: 45 at one, 35 at four, 22 at ten, 10 at
+twenty, 0 at forty. A count of underruns says nothing about what was heard: in an X-Moto session the
+player heard clean sound and music while 92 underruns were counted in six minutes. So the recorder
+measures each one (`ps3-xrunlog`, an ALSA plugin in front of the game's sound device for the run,
+[games/SUITE.md](games/SUITE.md#sound-dropouts)): how long the output stayed dry, and how loud the
+20 ms before and after were. A dropout is audible when the gap is 20 ms or more and either side is
+at -50 dBFS or louder; a gap of a few ms isn't heard, and neither is one in silence. OpenAL's
+"Wait timeout" lines (a second without sound each) count as audible too. Every counted dropout is a
+click or a chop someone hears, so this curve falls much faster than the old one for raw counts.
+Runs from before the measurement (and any where it couldn't run) keep the raw counts, on a gentler
+curve because most of those faults were never heard: 40 at ten a minute, 32 at thirty, 22 at sixty,
+0 at 240.
 
 ## The medals
 
@@ -120,7 +131,8 @@ costs the second half.
 Before any game was rated, the scale was tried on the 13 games of the benchmark suite with their
 known numbers ([games/README.md](games/README.md)). Those runs had the desktop stopped and vsync off,
 so they calibrate the formula; real medals come from played sessions. Stutter was approximated from
-the stall time (frames over 100 ms), load is unmeasured there, stability assumed clean.
+the stall time (frames over 100 ms), load is unmeasured there, stability assumed clean. Those runs
+predate the dropout measurement, so their sound is scored from the raw fault counts.
 
 | Game | Frame rate | Smoothness | Sound | Mean | Weakest | Medal |
 |---|---|---|---|---|---|---|

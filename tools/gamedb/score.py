@@ -43,6 +43,10 @@ LONGEST_FRAME_MS = [(250, 100), (1000, 75), (3000, 55), (5000, 0)]
 # sound: half for playing the right sounds (the player's form), half for how clean they are
 SOUND_PRESENT = 50
 SOUND_CLEAN_PER_MIN = [(0, 50), (10, 40), (30, 32), (60, 22), (120, 10), (240, 0)]
+# the same half from audible dropouts a minute (ps3-xrunlog: gaps of 20 ms or more with sound on a side,
+# games/bench/xruns.py), where a run measured them: every one is a click or chop someone hears, so it
+# falls much faster than the raw counts' curve, most of whose faults were never heard
+SOUND_DROPOUTS_PER_MIN = [(0, 50), (1, 45), (4, 35), (10, 22), (20, 10), (40, 0)]
 CRASHES_PER_HOUR = [(0, 100), (1 / 3, 75), (1, 55), (4, 35), (12, 0)]
 LOAD_SECONDS = [(15, 100), (30, 75), (60, 55), (120, 0)]
 
@@ -80,23 +84,28 @@ def smooth_score(stutter_s_per_min, longest_ms):
     return min(interp(stutter_s_per_min, STUTTER_S_PER_MIN), interp(longest_ms, LONGEST_FRAME_MS))
 
 
-def sound_score(faults_per_min, wedged=False, effects=None, music=None):
+def sound_score(faults_per_min, wedged=False, effects=None, music=None, dropouts_per_min=None):
     """half for the right sounds playing, half for how clean they are.
     effects: the player's answer about the sound effects ("yes", "partly", "no"), music ("yes", "no",
     "none": the game has none); None without a form (a benchmark run: the sound device ran, counted as
     present). Effects and music both heard: 50; one missing (or effects only partly): 25; nothing heard
-    or a wedged sound device: the whole score is 0. Clean: 50 at no faults (ALSA underruns, OpenAL
-    xruns and waits) a minute, falling gently to 0 at 240 a minute; 50 when they weren't counted."""
+    or a wedged sound device: the whole score is 0. Clean: from the audible dropouts a minute when the
+    run measured them (dropouts_per_min: 50 at none, 45 at one, 35 at four, 22 at ten, 10 at twenty, 0
+    at forty), else from the fault counts (ALSA underruns, OpenAL xruns and waits) a minute, falling
+    gently to 0 at 240 a minute; 50 when neither was counted."""
     if wedged:
         return 0.0
-    if faults_per_min is None and effects is None and music is None:
+    if faults_per_min is None and dropouts_per_min is None and effects is None and music is None:
         return None
     fx_ok = effects in (None, "yes")
     music_ok = music in (None, "yes", "none")
     if effects == "no" and music in ("no", "none"):
         return 0.0
     present = SOUND_PRESENT if fx_ok and music_ok else SOUND_PRESENT / 2
-    clean = 50.0 if faults_per_min is None else interp(faults_per_min, SOUND_CLEAN_PER_MIN)
+    if dropouts_per_min is not None:
+        clean = interp(dropouts_per_min, SOUND_DROPOUTS_PER_MIN)
+    else:
+        clean = 50.0 if faults_per_min is None else interp(faults_per_min, SOUND_CLEAN_PER_MIN)
     return present + clean
 
 
@@ -128,7 +137,7 @@ def test_scores(n, fps_cap=None):
         "frame": frame_score(n.get("median_fps"), n.get("low1_fps"), fps_cap),
         "smooth": smooth_score(n.get("stutter_s_per_min"), n.get("longest_ms")),
         "sound": sound_score(n.get("sound_faults_per_min"), bool(n.get("snd_stall")), n.get("sound_effects"),
-                             n.get("music")),
+                             n.get("music"), n.get("sound_dropouts_per_min")),
         "picture": picture_score(n.get("shot_points"), n.get("shot_differing")),
         "display": n.get("display_score"),
         "load": load_score(n.get("load_s")),
@@ -208,7 +217,8 @@ def combine(tests, fps_cap=None):
     scores["picture"] = med(test_scores(t.get("numbers", {}))["picture"] for t in tests)
     scores["stability"], provisional = stability_score(crashes, hours)
     nums = {}
-    for key in ("median_fps", "low1_fps", "stutter_s_per_min", "longest_ms", "sound_faults_per_min", "load_s"):
+    for key in ("median_fps", "low1_fps", "stutter_s_per_min", "longest_ms", "sound_faults_per_min",
+                "sound_dropouts_per_min", "load_s"):
         nums[key] = med(t.get("numbers", {}).get(key) for t in graded)
     if not graded and scores["picture"] is None:
         return {"aspects": scores, "numbers": nums, "hours": hours, "crashes": crashes, "sessions": len(sessions),

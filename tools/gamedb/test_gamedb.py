@@ -61,6 +61,16 @@ class Curves(unittest.TestCase):
         self.assertAlmostEqual(score.sound_score(30, effects="yes", music="yes"), 82)
         self.assertEqual(score.sound_score(None, effects="yes", music="yes"), 100)  # not counted: clean
 
+    def test_sound_audible_dropouts(self):
+        # measured dropouts (ps3-xrunlog) replace the fault counts' curve, and fall faster
+        for per_min, want in ((0, 100), (1, 95), (4, 85), (10, 72), (20, 60), (40, 50), (100, 50)):
+            self.assertAlmostEqual(score.sound_score(None, dropouts_per_min=per_min), want)
+        self.assertEqual(score.sound_score(90, dropouts_per_min=0, effects="yes", music="yes"), 100)  # counted, unheard
+        self.assertAlmostEqual(score.sound_score(0, dropouts_per_min=10, effects="partly", music="yes"), 47)
+        self.assertEqual(score.sound_score(0, wedged=True, dropouts_per_min=0), 0)
+        self.assertAlmostEqual(score.test_scores({"sound_faults_per_min": 60, "sound_dropouts_per_min": 0.5})["sound"],
+                               97.5)
+
     def test_fps_cap(self):
         self.assertLess(score.frame_score(35, 30), 100)           # Doom at 35 Hz, no cap known
         self.assertEqual(score.frame_score(35, 30, fps_cap=35), 100)
@@ -295,6 +305,19 @@ class Importer(unittest.TestCase):
         self.assertFalse(r["crashed"])
         self.assertEqual(r["versions"]["kernel"], "6.12.0+ps3.1")
         self.assertNotIn(self.tmp.name, json.dumps(r))      # no absolute paths
+        self.assertNotIn("sound_dropouts", n)               # no ps3-xrunlog in this run: the counts score
+
+    def test_sound_dropouts(self):
+        # 92 underruns counted, one of them audible (xruns.py), and one OpenAL wait: 2 dropouts in 100 s
+        self.write_bench(xrunlog="on", xruns_logged="92", xruns_audible="1", xrun_gap_ms_total="310.25", oal_wait="1")
+        r, _ = self.do()
+        n = r["numbers"]
+        self.assertEqual((n["sound_dropouts"], n["xruns"], n["xrun_gap_ms"]), (2, 92, 310.2))
+        self.assertAlmostEqual(n["sound_dropouts_per_min"], 1.2)
+        self.assertEqual(n["sound_faults"], 4)                 # still recorded, no longer scored
+        self.assertAlmostEqual(r["scores"]["sound"], 50 + 45 - 10 / 3 * 0.2, places=1)   # 1.2 a minute: past (1, 45)
+        self.write_bench(xrunlog="unused", xruns_audible="")   # the plugin never saw the game's sound
+        self.assertNotIn("sound_dropouts", self.do()[0]["numbers"])
 
     def test_crash_states(self):
         self.write_bench(ended="exit", rc="139")

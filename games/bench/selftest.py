@@ -52,6 +52,11 @@
      on the disk (BENCH_SHOT_ROOT) when the run directory is in /dev/shm; off: no shot lines; shots.py's
      parse and frame counts, report.py's @shot tag and columns; with ImageMagick: convert, the sheet
      (1608 px wide, BLACK flagged, the result's shotsheet: line), pending and REVIEW.md's verdict
+ 15. sound dropouts (docs/games/SUITE.md "Sound dropouts"): xruns.py's audible rule and summary on
+     made-up lines; ps3-xrunlog.so built against the host's alsa-lib in front of a pretend card
+     (ps3-gpu-tools/tests/xrun-pacer.c: plays nothing, underruns in real time), ps3-xrun-test's made
+     dropouts logged with their gaps and loudness (writei as SDL, mmap as OpenAL), a conf.d-style
+     default wrapped by the hook; client.sh's xrunlog=, xruns_* and xruns.tsv, off and missing
 Exit status 0 when every check passes; scratch files in a temporary directory, removed at the end."""
 import os
 import re
@@ -1868,6 +1873,107 @@ def lint():
           "kept short on purpose):\n  " + ", ".join(short))
 
 
+# --- 15. sound dropouts: ps3-xrunlog.so, xruns.py and client.sh's XRUNLOG ----------------------------
+def xruns_synthetic(tmp):
+    """xruns.py's rule and summary on made-up log lines"""
+    import xruns
+    line = lambda n, gap, b, a, real=1000.5: ("xrun\tpid=7\tcomm=game\tn=%d\tdry_real=%s\tdry=5.0\tdetect=5.1\tresume=5.2\t"
+                                              "gap_ms=%s\tbefore_db=%s\tafter_db=%s\tvia=prepare\tresumed=1\n"
+                                              % (n, real, gap, b, a))
+    text = ("open\tpid=7\tcomm=game\trate=48000\n" + line(1, 19.9, -10, -10) + line(2, 20.0, -49.9, "-inf")
+            + line(3, 30, -60, -51) + line(4, 25, "nan", "nan") + line(5, 500, "-inf", "-inf")
+            + "xrun\tpid=7\tgap_ms=oops\n" + "garbage line\n" + line(6, 40, "-inf", -20, real=1003.25))
+    lines, tsv = xruns.summary(text, 1000.0)
+    b = dict(x.split("=", 1) for x in lines)
+    check("xruns: 6 logged, 3 audible (gap >= 20 ms and a side at -50 dBFS or louder; unknown loudness: the gap)",
+          b.get("xruns_logged") == "6" and b.get("xruns_audible") == "3" and b.get("xrunlog") == "on", b)
+    check("xruns: gap total, max, the audible ones' sum, the rule",
+          b.get("xrun_gap_ms_total") == "634.9" and b.get("xrun_gap_ms_max") == "500.0"
+          and b.get("xrun_audible_ms") == "85.0" and b.get("xrun_rule") == "gap>=20ms,loud>=-50dBFS", b)
+    rows = [r.split("\t") for r in tsv.splitlines()[1:]]
+    check("xruns: one TSV row each, at_s after t0, audible flags",
+          len(rows) == 6 and rows[0][0] == "0.500" and rows[5][0] == "3.250"
+          and [r[4] for r in rows] == ["0", "1", "0", "1", "0", "1"] and rows[1][3] == "-inf", rows)
+    check("xruns: no lines at all: unused", xruns.summary("", 0.0) == (["xrunlog=unused"], ""))
+
+
+def xrunlog_e2e(tmp):
+    """ps3-xrunlog.so (the ALSA plugin and its configuration hook), built with the host's cc against the
+    host's alsa-lib, in front of xrun-pacer.so (a pretend card that plays nothing and underruns in real
+    time): ps3-xrun-test's made dropouts logged with their gaps and loudness, as SDL writes (writei) and
+    as OpenAL does (mmap); a conf.d-style pcm.!default wrapped too; then client.sh with a recipe running
+    ps3-xrun-test: bench.txt's xrunlog= and xruns_*, xruns.tsv, BENCH_XRUNLOG=0 and a missing plugin"""
+    cc = shutil.which("cc") or shutil.which("gcc")
+    tools = HERE.parent.parent / "ps3-gpu-tools"
+    if not cc or not Path("/usr/include/alsa/pcm_external.h").exists():
+        print("skip  xrunlog: needs a C compiler and alsa-lib's headers (alsa-lib-devel, libasound2-dev)")
+        return
+    x = tmp / "xrunlog"
+    x.mkdir()
+    builds = [([cc, "-O2", "-Wall", "-Wextra", "-fPIC", "-shared", "-o", str(x / "ps3-xrunlog.so"),
+                str(tools / "alsa" / "ps3-xrunlog.c"), "-lasound", "-lm"]),
+              ([cc, "-O2", "-Wall", "-Wextra", "-fPIC", "-shared", "-o", str(x / "xrun-pacer.so"),
+                str(tools / "tests" / "xrun-pacer.c"), "-lasound"]),
+              ([cc, "-O2", "-Wall", "-Wextra", "-o", str(x / "ps3-xrun-test"), str(tools / "src" / "ps3-xrun-test.c"),
+                "-lm"])]
+    out = [subprocess.run(c, capture_output=True, text=True) for c in builds]
+    check("xrunlog: plugin, pacer and ps3-xrun-test build without warnings",
+          all(p.returncode == 0 and not p.stderr.strip() for p in out), "".join(p.stderr for p in out)[-600:])
+    if any(p.returncode for p in out):
+        return
+    # the test's own alsa.conf: no system files (the PC's default would be its PipeWire: nothing may play)
+    write(x / "confd.conf", "pcm.!default { type xrunpacer }\n")
+    write(x / "base.conf", '@hooks [ { func load files [ "%s" "%s" ] errors false } ]\n'
+          'pcm_type.xrunpacer { lib "%s" }\npcm.default { type null }\n'
+          % (x / "confd.conf", x / "no-asoundrc", x / "xrun-pacer.so"))
+    write(x / "ps3-xrunlog.conf", (tools / "alsa" / "ps3-xrunlog.conf").read_text()
+          .replace("/usr/lib/ps3/lib/ps3-xrunlog.so", str(x / "ps3-xrunlog.so")))
+    env = dict(os.environ, ALSA_CONFIG_PATH="%s:%s" % (x / "base.conf", x / "ps3-xrunlog.conf"))
+    for mode in ([], ["-m"]):
+        log = x / ("direct%s.log" % "".join(mode))
+        p = subprocess.run([str(x / "ps3-xrun-test")] + mode, env=dict(env, PS3_XRUNLOG=str(log)),
+                           capture_output=True, text=True, timeout=60)
+        check("xrunlog: ps3-xrun-test %s: 4 dropouts (10, 40, 150 ms, 60 ms in silence) logged as made"
+              % ("-m (mmap, as OpenAL)" if mode else "(writei, as SDL)"),
+              p.returncode == 0 and "ok: 4 dropouts" in p.stdout, (p.stdout + p.stderr)[-900:])
+        if not mode:
+            check("xrunlog: SDL's recover printed alsa-lib's underrun line each time (what underruns= counts)",
+                  p.stderr.count("underrun occurred") == 4, p.stderr[-300:])
+            check("xrunlog: an open line with the stream's parameters, a close line with the count",
+                  re.search(r"^open\tpid=\d+\tcomm=ps3-xrun-test\trate=48000\tchannels=2\tformat=S16_LE", log.read_text(), re.M)
+                  and re.search(r"^close\t.*\txruns=4$", log.read_text(), re.M), log.read_text()[-400:])
+    p = subprocess.run([str(x / "ps3-xrun-test"), "-g", "40"], capture_output=True, text=True, timeout=60,
+                       env=dict(os.environ, ALSA_CONFIG_PATH=str(x / "base.conf"), PS3_XRUNLOG=str(x / "none.log")))
+    check("xrunlog: without ps3-xrunlog.conf the same device logs nothing", p.returncode == 1
+          and not (x / "none.log").exists(), p.stdout[-300:])
+    # client.sh: a recipe running ps3-xrun-test (it takes client.sh's ALSA_CONFIG_PATH and PS3_XRUNLOG)
+    write(tmp / "recipes" / "fakexrun.sh", 'CMD=("%s" -g 40,s60); COMM=ps3-xrun-test; HUD=0; DURATION=30\n'
+          % (x / "ps3-xrun-test"))
+    cenv = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "ALSA_CONFIG_PATH")}
+    cenv.update(BENCH_RECIPES=str(tmp / "recipes"), BENCH_BACKUP=str(tmp / "backup"),
+                BENCH_XRUNLOG_CONF=str(x / "ps3-xrunlog.conf"), BENCH_XRUNLOG_BASE=str(x / "base.conf"))
+
+    def run(n, **kv):
+        d = tmp / ("ps3-bench-20261024T0900%02dZ-fakexrun-base" % n)
+        p = subprocess.run(["bash", str(HERE / "client.sh"), "fakexrun", "base"], env=dict(cenv, BENCH_DIR=str(d), **kv),
+                           capture_output=True, text=True, timeout=90)
+        return p, d, report.kv(d / "bench.txt") if (d / "bench.txt").exists() else {}
+    p, d, b = run(0)
+    rows = [r.split("\t") for r in (d / "xruns.tsv").read_text().splitlines()[1:]] if (d / "xruns.tsv").exists() else []
+    check("xrunlog: client.sh: xrunlog=on, 2 logged, 1 audible (the 40 ms in the tone, not the 60 ms in silence)",
+          p.returncode == 0 and b.get("xrunlog") == "on" and b.get("xruns_logged") == "2"
+          and b.get("xruns_audible") == "1" and 95 <= float(b.get("xrun_gap_ms_total") or 0) <= 110,
+          (b, p.stdout[-400:], p.stderr[-300:]))
+    check("xrunlog: client.sh: xruns.tsv rows placed after t0 within the run, the raw log kept",
+          len(rows) == 2 and all(0 < float(r[0]) < float(b.get("seconds") or 0) for r in rows)
+          and [r[4] for r in rows] == ["1", "0"] and (d / "xruns.log").exists(), rows)
+    p, d, b = run(1, BENCH_XRUNLOG="0")
+    check("xrunlog: BENCH_XRUNLOG=0: xrunlog=off, no log, no xruns_ lines",
+          b.get("xrunlog") == "off" and not (d / "xruns.log").exists() and "xruns_logged" not in b, b)
+    p, d, b = run(2, BENCH_XRUNLOG_CONF=str(x / "missing.conf"))
+    check("xrunlog: no plugin installed: xrunlog=missing", b.get("xrunlog") == "missing" and "xruns_logged" not in b, b)
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 2 and sys.argv[1] == "--fake-game":
         fake_game(sys.argv[2])
@@ -1896,6 +2002,8 @@ if __name__ == "__main__":
         client_load(tmp)
         memprof_real(tmp)
         malloctrim_real(tmp)
+        xruns_synthetic(tmp)
+        xrunlog_e2e(tmp)
         import intfcheck
         print("\ninterference detector (intfcheck.py)")
         intfcheck.run(tmp, check)

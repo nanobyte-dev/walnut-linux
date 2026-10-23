@@ -222,6 +222,7 @@ desktop's window manager), recorded by `ps3-bench.sh session` with `client.sh` (
 | Gallium HUD frame times and fps (GL games) | `hud/`; `window=` is the play, for report.py |
 | memory, swap and VRAM samples every 0.5 s; temperatures; dmesg; the pre/post snapshots | `samples`, `temps`, `dmesg.log`, `snap-*.txt` |
 | sound: `underruns`, `oal_wedge`, `oal_wait`, `oal_xrun`, `snd_stall`, `snd_restarts`, `sound` (the card at 15 s) | `bench.txt` |
+| sound dropouts, measured ([below](#sound-dropouts)): `xrunlog`, `xruns_logged`, `xruns_audible`, `xrun_gap_ms_total`, ... | `bench.txt`, `xruns.tsv`, `xruns.log` |
 | a screenshot about every minute (xwd at nice 19; `SESSION_SHOT_EVERY`, at most `SESSION_SHOT_MAX`=40, 8 MB each) | `shots/`, `shot=` |
 | peak RSS, game output, package versions | `hwm`, `game.log`, `versions` |
 | how it ended | `ended`, `ended_why`, `rc` |
@@ -250,6 +251,57 @@ VARIANT` asks later.
 
 **Collect** with `make bench-pull` (the screenshots become PNGs); the run directory is
 `/var/tmp/ps3-bench/<stamp>-session-GAME-VARIANT/`, and `tools/gamedb/import-run.py` reads it.
+
+## Sound dropouts
+
+Every harness run (benchmarks and played sessions) measures the moments the game's sound output
+ran dry. Counting ALSA's "underrun occurred" lines told nothing about what was heard: an X-Moto
+session counted 92 in six minutes while the player heard clean sound and music. What decides it is
+how long the output stayed dry (a couple of ms is inaudible, tens of ms is a click or a chop) and
+whether sound was playing around it.
+
+**How sound flows on Walnut.** No sound server: PulseAudio was removed for memory, and PipeWire
+isn't running (SDL tries its PipeWire backend first, hence the `pw.conf ... client.conf` lines in
+`game.log`, then falls back to ALSA). Games reach ALSA through SDL or OpenAL Soft, both of which load
+`libasound.so.2` with `dlopen` and fetch every function with `dlsym` on that handle, so an
+`LD_PRELOAD` of `snd_pcm_*` never sees their calls (and interposing `dlsym` itself breaks the
+`RTLD_NEXT`/`RTLD_DEFAULT` lookups of every other library, which glibc resolves by the caller). They open
+`default`, which alsa-lib's `PS3.conf` makes `plug` -> `softvol` -> `dmix:CARD=PS3,FORMAT=S16` at
+48 kHz -> `snd_ps3`. dmix keeps the card running with its stop threshold at the boundary, so the
+card itself never underruns: the underruns are the game's own dmix client running dry, which is
+why the kernel's `xrun_debug` can't see them.
+
+**The measurement.** `ps3-xrunlog.so` (ps3-gpu-tools, `/usr/lib/ps3/lib`) is an ALSA filter plugin
+(extplug) put in front of `default` for the game only. `client.sh` gives the game
+`ALSA_CONFIG_PATH=/usr/share/alsa/alsa.conf:/usr/lib/ps3/lib/ps3-xrunlog.conf` and
+`PS3_XRUNLOG=$D/xruns.log`; the conf's hook runs after alsa.conf's own loader (conf.d, asound.conf,
+the user's `~/.asoundrc`), renames whatever `pcm.default` they made to `pcm.ps3xrun_orig` and puts the
+plugin in front of it. No file of the user's is written or read differently. The plugin copies the
+samples through unchanged with no buffer of its own, so the game's buffer, periods and timing stay
+the slave's; per chunk it reads the queued frames (`snd_pcm_delay`) to know when the written sound
+runs out, and keeps the loudness of the last 20 ms written. A dropout starts when the stream is
+prepared again after frames were written (SDL's recover, OpenAL's silent one, or a restart of the
+stream, which sounds the same), or when a chunk arrives after the queue already ran out without an
+xrun. It ends when the restarted stream runs. `xruns.log` gets a line each: the dry moment
+(`CLOCK_MONOTONIC` and `CLOCK_REALTIME`), `gap_ms`, `before_db` and `after_db` (RMS of the 20 ms written
+before and after, dB relative to full scale; `-inf` digital silence, `nan` unknown), `via`, `resumed`.
+The cost is one copy and one delay query per chunk.
+
+**Audible.** `xruns.py` (run by `client.sh` at the end) applies the rule: a gap of 20 ms or more
+with either side at -50 dBFS or louder (when neither side's loudness is known, the gap alone). It
+writes `bench.txt`'s `xrunlog=on` (or `unused`: the game never played through `default`),
+`xruns_logged`, `xruns_audible`, `xrun_gap_ms_total`, `xrun_gap_ms_max`, `xrun_audible_ms`, `xrun_rule`,
+and `xruns.tsv`, one row per dropout (`at_s` after the run's `t0`, gap, loudness, audible). `xrunlog=off`:
+`XRUNLOG=0` (an ENVS token, `BENCH_XRUNLOG=0`); `missing`: the plugin isn't installed. The old counts
+(`underruns`, `oal_xrun`) stay for comparison. `import-run.py` scores the sound's cleanliness from
+`xruns_audible` plus OpenAL's waits a minute when `xrunlog=on` ([GAMEDB.md](../GAMEDB.md)).
+
+**Check it on the PS3.** `ps3-xrun-test` (ps3-gpu-tools) plays a quiet tone (-40 dBFS) through
+`default` with the harness's setup and stops writing on purpose: after the queue runs out plus 10,
+40 and 150 ms, and 60 ms with silence on both sides. It prints what the log says next to what it made
+and exits 0 when every gap came out within max(6 ms, 20%) with the right loudness. `-m` writes as
+OpenAL does (mmap, silent recover), the default as SDL does. On the PC, `selftest.py` runs it
+against a pretend card (`ps3-gpu-tools/tests/xrun-pacer.c`) that plays nothing.
 
 ## Screenshots
 

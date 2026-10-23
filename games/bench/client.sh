@@ -40,7 +40,9 @@
 # oal_wedge= (always: OpenAL's "Wait timeout" and "mmap commit error" lines). dumpana.sh analyses it.
 # Always too: oal_wait= and oal_xrun= (oal_wedge's two kinds apart), snd_stall=<s>, snd_stall_at=<s> (the sound card's hw pointer stood still while RUNNING:
 # its DMA stopped, the cause of OpenAL's wedge) and, on a kernel with local/0047, snd_restarts= (its
-# DMA watchdog's restarts in the run), snd_wd= (dma_watchdog_ms) and snd_stats= (snd_ps3's counters).
+# DMA watchdog's restarts in the run), snd_wd= (dma_watchdog_ms) and snd_stats= (snd_ps3's counters);
+# and the sound dropouts ps3-xrunlog measured: xrunlog=, xruns_logged=, xruns_audible= (the Sound
+# dropouts block below).
 # Start-up profiling (docs/PROFILING.md "Start-up profiling"): BENCH_PERF_LOAD=1 (run.sh
 # PERF_LOAD=1) covers the span the window leaves out: the game's exec, its loading screens and the
 # warm-up. With ps3-bench.sh's BENCH_PERF_LOAD_CTL the game is started through a gate (a bash that
@@ -393,6 +395,27 @@ if [ -n "${BENCH_JSIMD:-}" ]; then
 	*) echo "!! BENCH_JSIMD=$BENCH_JSIMD: none or altivec"; exit 2 ;;
 	esac
 	LIBENV+=("JSIMD=$BENCH_JSIMD")
+fi
+# Sound dropouts (docs/games/SUITE.md "Sound dropouts"), on unless BENCH_XRUNLOG=0 (run.sh's ENVS token
+# XRUNLOG=0): ps3-gpu-tools' ps3-xrunlog.so, an ALSA plugin, in front of the game's default sound device
+# for this run only. The game's ALSA_CONFIG_PATH is alsa.conf (or the recipe's or the caller's list) and
+# then ps3-xrunlog.conf, whose hook wraps pcm.default as /etc/alsa/conf.d, asound.conf and the user's
+# ~/.asoundrc made it: no file of theirs is read differently or written. PS3_XRUNLOG=$D/xruns.log gets a
+# line per dropout (when the output ran dry, the gap, the loudness on either side); xruns.py turns it
+# into bench.txt's xrunlog=on|unused, xruns_logged=, xruns_audible=, xrun_gap_ms_total=,
+# xrun_gap_ms_max=, xrun_audible_ms=, xrun_rule= and $D/xruns.tsv. xrunlog=missing: the plugin isn't
+# installed; off: turned off. BENCH_XRUNLOG_CONF, BENCH_XRUNLOG_BASE: another conf and base (selftest.py).
+XRUNLOG=off
+XRUNLOG_CONF=${BENCH_XRUNLOG_CONF:-/usr/lib/ps3/lib/ps3-xrunlog.conf}
+if [ "${BENCH_XRUNLOG:-1}" != 0 ]; then
+	XRUNLOG=missing
+	xbase=${BENCH_XRUNLOG_BASE:-${ALSA_CONFIG_PATH:-/usr/share/alsa/alsa.conf}}
+	for x in "${ENV[@]}"; do [[ $x == ALSA_CONFIG_PATH=* ]] && xbase=${x#ALSA_CONFIG_PATH=}; done
+	xlib=$(sed -n 's/^[[:space:]]*lib "\(.*\)"[[:space:]]*$/\1/p' "$XRUNLOG_CONF" 2>/dev/null | head -1)
+	if [ -n "$xlib" ] && [ -e "$xlib" ] && [ -e "${xbase%%:*}" ]; then
+		env_add ALSA_CONFIG_PATH "$xbase:$XRUNLOG_CONF"; env_add PS3_XRUNLOG "$D/xruns.log"
+		rm -f "$D/xruns.log" "$D/xruns.tsv"; XRUNLOG=on
+	fi
 fi
 # ps3rsx module parameters for this run (docs/HOTPATHS.md): every BENCH_PS3RSX_<NAME>=V (run.sh's
 # ENVS token PS3RSX_SHADOW_FAST=1) is written to /sys/module/ps3rsx/parameters/<name> (lower case)
@@ -1032,6 +1055,12 @@ secs measured "$measured"
 	r0=${SND_PRE#*restarts=}; r0=${r0%% *}; r1=${SND_POST#*restarts=}; r1=${r1%% *}
 	echo "snd_restarts=$((r1 - r0))"; echo "snd_wd=$(cat "$KPARAM_SND_DIR/dma_watchdog_ms" 2>/dev/null)"
 	echo "snd_stats=$SND_POST"
+  fi
+  # the dropouts ps3-xrunlog measured (the Sound dropouts block above): which ones could be heard
+  if [ "$XRUNLOG" = on ]; then
+	python3 -I "$here/xruns.py" "$D/xruns.log" "$t0" "$D/xruns.tsv" 2>/dev/null || echo "xrunlog=error"
+  else
+	echo "xrunlog=$XRUNLOG"
   fi
   if [ "$DUMPON" = 1 ]; then
 	echo "dump=${DUMP_WHY:-none}"; [ -n "$DUMP_AT" ] && echo "dump_at=$DUMP_AT"

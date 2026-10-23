@@ -7,11 +7,17 @@ LIBOUT  ?= $(OUT)/lib
 TOOLS   := $(patsubst src/%.c,$(OUT)/%,$(wildcard src/*.c))
 # preloaded libraries (preload/*.c -> <name>.so, installed in /usr/lib/ps3/lib)
 LIBS    := $(patsubst preload/%.c,$(LIBOUT)/%.so,$(wildcard preload/*.c))
+# ALSA plugins (alsa/*.c -> <name>.so against libasound, installed in /usr/lib/ps3/lib with their
+# alsa/*.conf; ps3-xrunlog: games/bench's sound dropouts)
+ALSALIBS := $(patsubst alsa/%.c,$(LIBOUT)/%.so,$(wildcard alsa/*.c))
 
-all: $(TOOLS) $(LIBS)
+all: $(TOOLS) $(LIBS) $(ALSALIBS)
 $(OUT)/%: src/%.c
 	@mkdir -p $(OUT)
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $<
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< -lm
 $(LIBOUT)/%.so: preload/%.c
 	@mkdir -p $(LIBOUT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -fPIC -shared $(LDFLAGS) -o $@ $< -lpthread
+$(LIBOUT)/%.so: alsa/%.c
+	@mkdir -p $(LIBOUT)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -fPIC -shared $(LDFLAGS) -o $@ $< -lasound -lm

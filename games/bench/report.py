@@ -37,7 +37,9 @@ from before 2026-10-17 have none):
   avail   lowest MemAvailable (KiB)
   so      pages swapped out until the load ended / during the whole run
   vsw     VRAM swap: peak pages in VRAM, pages written back to the disk (shrinks)
-  xrun    ALSA underruns (the sound buffer ran dry: audible chopping)
+  xrun    ALSA underruns (the sound buffer ran dry; counted, not necessarily heard)
+  xaud    the dropouts ps3-xrunlog measured as audible: 20 ms or more dry with sound on a side
+          (bench.txt xruns_audible=, docs/games/SUITE.md "Sound dropouts")
   wedge   lines of OpenAL's wedged mixer ("Wait timeout", "mmap commit error": bench.txt oal_wedge=)
   sstall  seconds the sound card's hw pointer stood still while RUNNING (its DMA stopped: bench.txt
           snd_stall=, LOG-FINDINGS.md 1), "rN" after it: snd_ps3's watchdog restarted it N times
@@ -220,6 +222,8 @@ def run(d):
     interference(d, b, r)
     if (v := num(b.get("underruns"))) is not None:
         r["xrun"] = int(v)
+    if b.get("xrunlog") == "on" and (v := num(b.get("xruns_audible"))) is not None:
+        r["xaud"] = int(v)
     if (v := num(b.get("oal_wedge"))) is not None:
         r["wedge"] = int(v)
     if (v := num(b.get("snd_stall"))) is not None:
@@ -591,7 +595,7 @@ def steady(d, b, r):
 COLS = ["load", "fps", "maxms", "hud", "steady", "src", "low1", "stalls", "smooth", "stall_s", "longest", "stalls_play", "stall_play_s", "longest_play", "low1_play", "win_play",
         "reload_s", "win", "passes", "stalls_warm", "stall_warm_s", "longest_warm",
         "ftdrift", "cpu", "rss", "vram", "gart", "avail", "so_load", "so_all",
-        "vsw_peak", "vsw_wb", "xrun", "wedge", "sstall", "dump", "tmax", "tcell", "trsx", "snd", "end", "intf", "stall_disk_s", "stall_swap_s", "stall_reclaim_s",
+        "vsw_peak", "vsw_wb", "xrun", "xaud", "wedge", "sstall", "dump", "tmax", "tcell", "trsx", "snd", "end", "intf", "stall_disk_s", "stall_swap_s", "stall_reclaim_s",
         "stall_gpu_s", "stall_cpu_s", "stall_io_s", "stall_wait_s", "stall_other_s", "stall_why",
         "load_disk_s", "warm_disk_s", "warmup_disk_s"]
 # the profiles' columns: printed only for the runs that have them
