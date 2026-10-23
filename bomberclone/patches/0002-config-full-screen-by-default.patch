@@ -1,0 +1,22 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Fri, 23 Oct 2026 21:09:21 +0300
+Subject: config: full screen by default
+
+On a console on a TV the game belongs full screen; it used to start in a
+640x480 window on the desktop. The saved config and the Options menu still
+change it.
+
+Forwarded: not-needed
+
+diff --git a/src/configuration.c b/src/configuration.c
+--- a/src/configuration.c
++++ b/src/configuration.c
+@@ -103,6 +103,7 @@ config_init (int argc, char **argv)
+     gfx.res.x = 640;
+     gfx.res.y = 480;
+     gfx.bpp = 16;
++    gfx.fullscreen = 1;
+     gfx.players = NULL;
+     bman.password[0] = 0;
+     bman.passwordenabled = 0;

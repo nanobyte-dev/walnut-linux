@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Fri, 23 Oct 2026 21:09:20 +0300
+Subject: main: close the audio and SDL before exiting
+
+main() returned after gfx_shutdown() without snd_shutdown() or SDL_Quit(),
+so SDL_mixer's audio thread was still running while exit() ran the
+libraries' destructors. With SDL 1.2 provided by sdl12-compat (over SDL2 and
+SDL3, as in Debian now) the thread then called into torn-down state and the
+game segfaulted on every quit, from the menu or on SIGTERM.
+
+Forwarded: no
+
+diff --git a/src/main.c b/src/main.c
+--- a/src/main.c
++++ b/src/main.c
+@@ -77,7 +77,11 @@ main (int argc, char **argv)
+ 		}
+ 	}
+ 
++    /* close the audio before exit: the mixer's thread kept running into exit()'s destructors
++     * and crashed there (sdl12-compat over SDL2/SDL3) */
++    snd_shutdown ();
+     gfx_shutdown ();
++    SDL_Quit ();
+ 
+     return 0;
+ };

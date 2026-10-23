@@ -46,9 +46,13 @@ m=$(systemctl --user show-environment 2>/dev/null | sed -n 's/^PS3_GAME_MODE=//p
 e=$(sed -n 's/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}PS3_GAME_MODE=["'"'"']\{0,1\}\([^"'"'"' ]*\).*/\2/p' /etc/environment 2>/dev/null | tail -1)
 [ -n "$m" ] && [ "${PS3_GAME_MODE:-}" = "$e" ] && export PS3_GAME_MODE="$m"
 unset m e
-# The user bus and the services it starts need to know the display
-systemctl --user import-environment DISPLAY XAUTHORITY XDG_CONFIG_DIRS XDG_DATA_DIRS
-dbus-update-activation-environment --systemd DISPLAY XAUTHORITY XDG_CONFIG_DIRS XDG_DATA_DIRS 2>/dev/null
+# The user bus and the services it starts need to know the display, and the login's PATH: the user
+# manager's own has no /usr/games, where Debian puts most games (a game started from PCManFM, or
+# anything the manager starts, was "not found")
+case ":$PATH:" in *:/usr/games:*) ;; *) PATH="$PATH:/usr/local/games:/usr/games" ;; esac
+export PATH
+systemctl --user import-environment DISPLAY XAUTHORITY XDG_CONFIG_DIRS XDG_DATA_DIRS PATH
+dbus-update-activation-environment --systemd DISPLAY XAUTHORITY XDG_CONFIG_DIRS XDG_DATA_DIRS PATH 2>/dev/null
 d() { systemd-run --user --scope --slice=ps3-desktop.slice -q "$@" & }
 # PCManFM 1.4 reads its desktop settings (the wallpaper) only from ~/.config, never from
 # XDG_CONFIG_DIRS (an strace, 2026-10-23): a home without them gets ours, else PCManFM writes its
