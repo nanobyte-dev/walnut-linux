@@ -35,3 +35,13 @@ It replaced the console's `walnut`/`walnut-prev` entries (ssdtest.img's); their 
 | 20 | The nightly's testing pin (990) didn't take: apt-cache policy showed testing at 1. preferences.d/walnut (ps3-system, testing 1) sorts before walnut-nightly, and apt takes the first matching pin | build-image.sh names it 00-walnut-nightly; renamed on the PS3: testing at 990 |
 | 21 | A pending install.conf for another image (#4) | That boot goes on as if there were none, with a note; the install waits for its own entry |
 
+
+## Nightly nightly-20261023-0203-00f0ba9 (internal install on the dev console, 2026-10-23)
+
+Installed over yesterday's (943 s, 17.4 MB/s; boot files backed up to `build/hdd1-backup/20261023-135815/`).
+Smoother: the banner, the wizard and the desktop in Petitboot's default mode:5.
+
+| # | Seen | Done |
+|---|---|---|
+| 22 | After the desktop appears, "Wired connection 1" doesn't connect by itself and fails when started by hand (no ARP answer from the console; yesterday's nightly, same kernel, was reachable) | Open: needs `nmcli dev`, `journalctl -b -u NetworkManager` and `ip link` from the console |
+| 23 | The volume icon shows an X (no card hooked); setting the volume makes it vanish (#18's crash) | The crash is fixed in pnmixer 0.7.2-3+ps3.738 (testing; this image has Debian's). Open: why no card at login |
