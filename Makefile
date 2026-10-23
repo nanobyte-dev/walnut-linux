@@ -479,9 +479,15 @@ walnut-server-test:
 
 # The public GitHub copy (docs/release/ALPHA.md M8): re-export (trailers removed, the strip and
 # replace lists applied, the history scan) and push; deterministic, so the public main fast-forwards
+# The export clone has the Git LFS pointers only (Walnut Games' screenshots): the objects are copied
+# from this repository's LFS store and pushed with the branch (filter-repo leaves pointer files alone).
 public-push:
 	tools/public-export.sh
 	git -C $${WALNUT_PUBLIC_DIR:-/mnt/data_linux/Temp/ps3/walnut-public} remote add origin git@github.com:nanobyte-dev/walnut-linux.git
+	git lfs fetch --all origin >/dev/null 2>&1 || true
+	[ ! -d .git/lfs/objects ] || { mkdir -p $${WALNUT_PUBLIC_DIR:-/mnt/data_linux/Temp/ps3/walnut-public}/.git/lfs && \
+		rsync -a .git/lfs/objects $${WALNUT_PUBLIC_DIR:-/mnt/data_linux/Temp/ps3/walnut-public}/.git/lfs/ && \
+		git -C $${WALNUT_PUBLIC_DIR:-/mnt/data_linux/Temp/ps3/walnut-public} lfs push --all origin; }
 	git -C $${WALNUT_PUBLIC_DIR:-/mnt/data_linux/Temp/ps3/walnut-public} push origin main
 
 # --- Repository and workspace ------------------------------------------------------------
