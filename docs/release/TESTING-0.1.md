@@ -24,4 +24,11 @@ It replaced the console's `walnut`/`walnut-prev` entries (ssdtest.img's); their 
 | 9 | Those prompts showed `\n` literally and ended in `::` | The text fallback prints the messages with `%b` and one colon |
 | 10 | The wizard fell back to plain text: whiptail was only a Recommends of ps3-system, and the image installs no Recommends | ps3-system Depends on whiptail: the wizard's dialog boxes |
 | 11 | Each prompt appeared only after it was answered, so "Passwords did not match": the answers went to the question before the one on screen. The prompts have no newline, and journald holds a line until it ends | Same fix as 8: the prompts go to the tty directly |
+| 12 | After the wizard: autologin worked and X ran (glamor on the RSX), but the TV kept showing the text console; Ctrl+Alt+F1 didn't bring X | Cause: the video mode. Petitboot passes `video=ps3fb:mode:5` (1080p with underscan: a 1688x964 picture inside the 1920x1080 frame); the dev setup always forced `mode:133` (1080p full screen) and the public image dropped `video=`. Booted with `mode:133` (ps3-update-kboot, PS3_EXTRA_ARGS): the desktop shows. Fix in ps3rsx: open |
+| 13 | SSH turned on in the wizard is useless: the server takes keys only and a fresh user has none | Open: the wizard asks for a key (or a URL), or passwords on the LAN |
+| 14 | No curl or wget in the image | Open |
+| 15 | Renaming the machine with hostnamectl leaves /etc/hosts behind: sudo warns "unable to resolve host" | Open: libnss-myhostname in the image (resolves the own name whatever /etc/hosts says) |
+| 16 | No wallpaper, a black desktop: PCManFM 1.4 reads its desktop settings only from ~/.config (strace), never from /etc/xdg/ps3, and writes its black default there on the first start; the dev console only had the wallpaper from its old home | ps3-session puts ours into ~/.config when there is none (ps3-desktop); checked live: the wallpaper shows |
+| 17 | The release kernel has no kexec (/sys/kernel/kexec_loaded is missing): kexec-tools in the image can't do anything | Note (a mode test went through Petitboot instead) |
+| 18 | Sound broken (the user) | ALSA plays (speaker-test, the PS3 card, PCM 100%): what fails is being found out |
 
