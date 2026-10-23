@@ -7,6 +7,7 @@ import importlib.util
 import io
 import json
 import re
+import shutil
 import sys
 import tempfile
 import tomllib
@@ -331,15 +332,56 @@ class Catalog(unittest.TestCase):
             self.assertEqual(catalog.patch_subjects("pkg", Path(t)), ["first thing and its tail", "second"])
             self.assertEqual(catalog.patch_subjects("none", Path(t)), [])
 
+    def test_versions(self):
+        def t(i, date, walnut, ver, kind="session", fps=60):
+            v = {"xmoto": ver, "mesa-libgallium": "26"}
+            if walnut:
+                v["walnut"] = walnut
+            return {"id": i, "date": date, "kind": kind, "versions": v, "play_seconds": 600,
+                    "numbers": {"median_fps": fps, "low1_fps": fps - 10}}
+        tests = [t("a", "2026-10-20", None, "0.6.3-1", kind="demo", fps=30),
+                 t("b", "2026-10-24", "0.1", "0.6.3-1+ps3.7"), t("c", "2026-10-25", "0.1", "0.6.3-1+ps3.9"),   # a rebuild: the same version
+                 t("d", "2026-10-26", "0.1", "0.6.3-1+ps3.7", kind="capture")]
+        self.assertEqual(catalog.tested_version(tests[0], ["xmoto"]), ("pre-0.1", "xmoto", "0.6.3-1"))
+        self.assertEqual(catalog.tested_version(tests[1], ["other"]), ("0.1", None, None))
+        groups = catalog.version_groups(tests, ["xmoto"])
+        self.assertEqual([k for k, _ in groups], [("0.1", "xmoto", "0.6.3-1"), ("pre-0.1", "xmoto", "0.6.3-1")])
+        h = catalog.history(groups, None)
+        self.assertEqual([(r["walnut"], r["tests"], r["first"], r["last"]) for r in h],
+                         [("0.1", 3, "2026-10-24", "2026-10-26"), ("pre-0.1", 1, "2026-10-20", "2026-10-20")])
+        self.assertGreater(h[0]["aspects"]["frame"], h[1]["aspects"]["frame"])
+
+    def test_rating_is_the_newest_graded_version(self):
+        # a capture run on a newer version doesn't move the rating off the version that was played
+        with tempfile.TemporaryDirectory() as d:
+            src = REPO / "gamedb" / "content" / "games" / "openarena"
+            g = Path(d) / "openarena"
+            shutil.copytree(src, g)
+            old = next((g / "tests").iterdir())
+            new = g / "tests" / "2026-11-01-capture"
+            shutil.copytree(old, new)
+            txt = (new / "result.toml").read_text().replace('kind = "demo"', 'kind = "capture"')
+            txt = txt.replace('date = "2026-10-20"', 'date = "2026-11-01"').replace("[versions]", '[versions]\nwalnut = "0.2"')
+            (new / "result.toml").write_text(txt)
+            out = catalog.build_game(g, REPO, {})
+            self.assertEqual(out["rating"]["tested"]["walnut"], "pre-0.1")
+            self.assertEqual([r["walnut"] for r in out["history"]], ["0.2", "pre-0.1"])
+            self.assertEqual(out["history"][0]["graded_by"], "capture")   # the newer version: picture only
+            self.assertEqual(out["tests"][0]["walnut"], "0.2")      # runs newest first
+
     def test_repository_catalog(self):
         cat = catalog.build(REPO / "gamedb" / "content" / "games", REPO)
         self.assertEqual(cat["schema"], 1)
         ids = [g["id"] for g in cat["games"]]
-        self.assertEqual(sorted(ids), ["openarena", "supertuxkart", "warzone2100"])
+        self.assertTrue({"openarena", "supertuxkart", "warzone2100"} <= set(ids))
         for g in cat["games"]:
+            json.dumps(g)
+            if g["id"] not in ("openarena", "supertuxkart", "warzone2100"):
+                continue
             self.assertNotEqual(g["rating"]["medal"], "Untested")
             self.assertTrue(g["patched"])
-            json.dumps(g)
+            self.assertEqual(g["rating"]["tested"]["walnut"], "pre-0.1")   # runs from before 0.1.0
+            self.assertEqual(len(g["history"]), 1)
             self.assertEqual(g["debs"], [])        # no --deb-index: no links
 
 

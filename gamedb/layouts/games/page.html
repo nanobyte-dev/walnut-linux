@@ -10,7 +10,7 @@
       <h1>{{ $g.title }}</h1>
       <p class="meta">{{ partial "medal.html" $r }}
         {{ if eq $r.medal "Untested" }}<span class="muted">nobody has played it on Walnut yet</span>
-        {{ else }}<span class="muted">{{ printf "%.1f" $r.hours }} h played, {{ $r.crashes }} crash{{ if ne $r.crashes 1 }}es{{ end }}</span>{{ end }}
+        {{ else }}<span class="muted">{{ printf "%.1f" $r.hours }} h played, {{ $r.crashes }} crash{{ if ne (int $r.crashes) 1 }}es{{ end }}</span>{{ end }}
       </p>
       <p>{{ $g.summary }}</p>
       <p class="badges">
@@ -43,6 +43,7 @@
       </tbody>
     </table>
     {{ if $r.unmeasured }}<p class="muted">Not measured: {{ delimit $r.unmeasured ", " }}. Their weight goes to the other aspects.</p>{{ end }}
+    {{ with $r.tested }}<p class="tested">Tested on <strong>{{ partial "walnut.html" .walnut }}</strong>{{ with .version }} with {{ $r.tested.package }} <strong>{{ . }}</strong>{{ end }}, last on {{ .date }}.</p>{{ end }}
     <p class="muted">Rated from {{ if eq $r.graded_by "session" }}played sessions{{ else }}benchmark runs (no played session yet; the desktop was stopped and vsync off){{ end }}.
     {{ if $r.provisional }}Stability is provisional until the game has an hour of play.{{ end }}</p>
   </section>
@@ -103,16 +104,40 @@
 
   {{ with .Content }}<section class="notes"><h2>Notes</h2>{{ . }}</section>{{ end }}
 
+  {{ with $g.history }}
   <section>
-    <h2>Tests</h2>
-    <table class="tests">
-      <thead><tr><th>Date</th><th>Kind</th><th>Play</th><th>Ended</th><th>Picture</th><th>Builds</th></tr></thead>
-      <tbody>{{ range $g.tests }}
-        <tr><td>{{ .date }}</td><td>{{ .kind }}</td><td>{{ div .play_seconds 60 | printf "%.0f" }} min</td><td>{{ .end }}</td>
-        <td>{{ with .verdict }}{{ . }}{{ else }}-{{ end }}</td>
-        <td class="muted">{{ range $k, $v := .versions }}{{ $k }} {{ $v }}; {{ end }}</td></tr>
+    <h2>History</h2>
+    <p class="muted">The rating on each version it was tested on, newest first: each row is rated from that version's tests alone.</p>
+    <div class="table-wrap">
+    <table class="history">
+      <thead><tr><th>Version</th><th>Tested</th><th>Medal</th>
+        {{ range slice "frame" "smooth" "sound" "picture" "stability" "display" "load" }}<th class="num" title="{{ (index $r.aspects .).name }}">{{ (index $r.aspects .).name }}</th>{{ end }}
+        <th class="num">Play</th></tr></thead>
+      <tbody>{{ range . }}{{ $h := . }}
+        <tr><td>{{ partial "walnut.html" .walnut }}{{ with .version }}<br><span class="muted">{{ $h.package }} {{ . }}</span>{{ end }}</td>
+        <td class="nowrap">{{ .last }}{{ if ne .first .last }}<br><span class="muted">from {{ .first }}</span>{{ end }}</td>
+        <td>{{ if and .graded_by (ne .graded_by "capture") }}{{ partial "medal.html" . }}{{ else }}<span class="muted">picture only</span>{{ end }}</td>
+        {{ range slice "frame" "smooth" "sound" "picture" "stability" "display" "load" }}<td class="num">{{ with index $h.aspects . }}{{ . }}{{ else }}<span class="muted">-</span>{{ end }}</td>{{ end }}
+        <td class="num">{{ printf "%.1f" .hours }} h<br><span class="muted">{{ .tests }} test{{ if ne (int .tests) 1 }}s{{ end }}</span></td></tr>
       {{ end }}</tbody>
     </table>
+    </div>
+  </section>
+  {{ end }}
+
+  <section>
+    <h2>Test runs</h2>
+    <div class="table-wrap">
+    <table class="tests">
+      <thead><tr><th>Date</th><th>Version</th><th>Kind</th><th>Play</th><th>Ended</th><th>Picture</th><th>Builds</th></tr></thead>
+      <tbody>{{ range $g.tests }}{{ $t := . }}
+        <tr><td class="nowrap">{{ .date }}</td><td>{{ partial "walnut.html" .walnut }}{{ with .version }}<br><span class="muted">{{ $t.package }} {{ . }}</span>{{ end }}</td>
+        <td>{{ .kind }}</td><td class="nowrap">{{ div .play_seconds 60 | printf "%.0f" }} min</td><td>{{ .end }}</td>
+        <td>{{ with .verdict }}{{ . }}{{ else }}-{{ end }}</td>
+        <td class="muted small">{{ range $k, $v := .versions }}{{ if and (ne $k "walnut") (ne $k $t.package) }}{{ $k }} {{ $v }}; {{ end }}{{ end }}</td></tr>
+      {{ end }}</tbody>
+    </table>
+    </div>
     <p class="muted">The game's home page: <a href="{{ $g.homepage }}">{{ $g.homepage }}</a>. License: {{ $g.license }}.</p>
   </section>
 </article>

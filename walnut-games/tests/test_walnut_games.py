@@ -351,6 +351,14 @@ class AppFunctions(unittest.TestCase):
         self.assertEqual(app.package_files(["openarena"], lambda c: out), ["/.", "/usr", "/usr/games/openarena"])
         self.assertEqual(app.package_files([]), [])
 
+    def test_tested_text(self):
+        t = {"walnut": "0.1", "package": "xmoto", "version": "0.6.3+repack-1", "date": "2026-10-24"}
+        self.assertEqual(app.tested_text({"tested": t}), "Tested on Walnut 0.1 with xmoto 0.6.3+repack-1 (2026-10-24)")
+        self.assertEqual(app.tested_text({"tested": dict(t, walnut="pre-0.1", version=None)}),
+                         "Tested on a build before Walnut 0.1 (2026-10-24)")
+        self.assertEqual(app.tested_text({"tested": None}), "")
+        self.assertEqual(app.tested_text({}), "")
+
     def test_dpkg_installed(self):
         out = "alpha\tii \nbeta\trc \ngamma\thi \n"
         self.assertEqual(app.dpkg_installed({"alpha", "beta", "gamma", "delta"}, lambda c: out), {"alpha", "gamma"})

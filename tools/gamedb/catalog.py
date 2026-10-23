@@ -114,8 +114,50 @@ def details(r, fps_cap):
     return d
 
 
+PRE_RELEASE = "pre-0.1"   # runs from before the harness recorded the release (all before 0.1.0)
+GRADED = ("session", "demo")
+
+
+def tested_version(t, packages):
+    """(walnut release, game package, its version) a test ran on: the release from the run's
+    os-release, the game's version from its first package the run recorded"""
+    v = t.get("versions", {})
+    pkg = next((p for p in packages if p in v), None)
+    # without our build number (+ps3.N): it changes with every rebuild, not with the game
+    ver = re.sub(r"\+ps3\.\d+$", "", v[pkg]) if pkg else None
+    return v.get("walnut") or PRE_RELEASE, pkg, ver
+
+
+def version_groups(tests, packages):
+    """the tests grouped by the version they ran on, newest first (by their latest date)"""
+    groups = {}
+    for t in tests:
+        groups.setdefault(tested_version(t, packages), []).append(t)
+    return sorted(groups.items(), key=lambda kv: max((t["date"], t["id"]) for t in kv[1]), reverse=True)
+
+
+def history(groups, fps_cap):
+    """one row per version: its own rating (from that version's tests alone), for the website's
+    comparison between versions"""
+    out = []
+    for (walnut, pkg, ver), ts in groups:
+        r = score.combine(ts, fps_cap)
+        out.append({"walnut": walnut, "package": pkg, "version": ver,
+                    "first": min(t["date"] for t in ts), "last": max(t["date"] for t in ts), "tests": len(ts),
+                    "hours": round(r["hours"], 2), "crashes": r["crashes"], "medal": r["medal"],
+                    "score": rnd(r["score"]), "graded_by": r["graded_by"],
+                    "aspects": {k: rnd(r["aspects"].get(k)) for k in score.ASPECT_NAMES}})
+    return out
+
+
 def build_game(gdir, repo, debs):
-    fm, tests = read_game(gdir)
+    fm, all_tests = read_game(gdir)
+    groups = version_groups(all_tests, fm["packages"])
+    # the rating is the newest version's that has a graded test (a session or a benchmark run);
+    # capture runs of any version add their picture
+    current = next((k for k, ts in groups if any(t.get("kind") in GRADED for t in ts)), None)
+    tests = [t for k, ts in groups for t in ts if k == current or t.get("kind") not in GRADED]
+    tests.sort(key=lambda t: (t["date"], t["id"]))
     r = score.combine(tests, fm.get("fps_cap"))
     det = details(r, fm.get("fps_cap"))
     pic = [(t["numbers"]["shot_points"], t["numbers"]["shot_differing"]) for t in tests
@@ -148,8 +190,10 @@ def build_game(gdir, repo, debs):
     if avail and min(avail) < LOW_MEMORY_KB:
         badges.append("low-memory")
     out_tests = []
-    for t in tests:
+    for t in sorted(all_tests, key=lambda t: (t["date"], t["id"]), reverse=True):
+        walnut, pkg, ver = tested_version(t, fm["packages"])
         out_tests.append({
+            "walnut": walnut, "package": pkg, "version": ver,
             "id": t["id"], "kind": t["kind"], "date": t["date"], "variant": t.get("variant"),
             "play_seconds": t.get("play_seconds", 0), "end": t.get("end"), "crashed": t.get("crashed", False),
             "verdict": t.get("picture", {}).get("verdict"), "note": t.get("picture", {}).get("note"),
@@ -165,8 +209,11 @@ def build_game(gdir, repo, debs):
                      "weakest": r["weakest"], "aspects": aspects,
                      "unmeasured": [a["name"] for a in aspects.values() if a["score"] is None],
                      "hours": round(r["hours"], 2), "crashes": r["crashes"], "provisional": r["provisional"],
-                     "graded_by": r["graded_by"]},
-             tests=out_tests)
+                     "graded_by": r["graded_by"],
+                     "tested": None if current is None else {
+                         "walnut": current[0], "package": current[1], "version": current[2],
+                         "date": max(t["date"] for k, ts in groups if k == current for t in ts)}},
+             history=history(groups, fm.get("fps_cap")), tests=out_tests)
     return g
 
 

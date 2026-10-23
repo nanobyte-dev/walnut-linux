@@ -126,6 +126,17 @@ def filter_games(games, have, text="", category="All", medal="All", installed_on
     return out
 
 
+def tested_text(rating):
+    """which version the rating was measured on: "Tested on Walnut 0.1 with openarena 0.8.8 (2026-10-20)";
+    "" for an untested game (or a catalog from before the versions were recorded)"""
+    t = rating.get("tested")
+    if not t:
+        return ""
+    w = "a build before Walnut 0.1" if t["walnut"] == "pre-0.1" else "Walnut " + t["walnut"]
+    game = " with %s %s" % (t["package"], t["version"]) if t.get("version") else ""
+    return "Tested on %s%s (%s)" % (w, game, t["date"])
+
+
 def parse_exec(line):
     """the argv of a .desktop Exec= value: field codes (%f %U ...) cut out, %% kept as %, shlex rules"""
     args = []
@@ -618,7 +629,8 @@ class App:
         stats.append("Controller: " + g.get("controller", "unknown"))
         if g.get("needs_data"):
             stats.append("Needs your own game data")
-        self.d_stats.configure(text="  |  ".join(stats))
+        tested = tested_text(r)
+        self.d_stats.configure(text=(tested + "\n" if tested else "") + "  |  ".join(stats))
         self.show_shot()
         if g.get("medal_note"):
             notes.insert("end", g["medal_note"] + "\n", "warn")

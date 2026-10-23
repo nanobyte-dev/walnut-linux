@@ -101,6 +101,13 @@ figcaption { color: var(--muted); font-size: 0.85rem; margin-top: 0.2rem; }
 .patches { padding-left: 1.4rem; }
 details summary { cursor: pointer; color: var(--accent-light); }
 .notes p { max-width: 70ch; }
+.table-wrap { overflow-x: auto; }
+table.history { font-size: 0.9rem; }
+table.history th.num { text-align: right; }
+table.history th.num, table.history td.num { width: auto; padding-left: 0.4rem; padding-right: 0.4rem; }
+.nowrap { white-space: nowrap; }
+.small { font-size: 0.8rem; }
+.tested { margin: 0.6rem 0 0.2rem; }
 @media (max-width: 640px) {
   .compare { grid-template-columns: 1fr; }
   h1 { font-size: 1.6rem; }

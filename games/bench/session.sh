@@ -71,6 +71,8 @@ versions() {	# the game's package and the graphics stack, as run.sh's
 		readlink -f "$(command -v "${CMD[0]}")") 2> /dev/null)
 	dpkg-query -W $(dpkg -S "$p" 2> /dev/null | cut -d: -f1 | tr , ' ') mesa-libgallium ps3rsx-modules-ps3 libspeq0 libfluidsynth3 libopenal1 libsdl3-0 ps3-gpu-tools ps3-desktop 2> /dev/null
 	uname -r
+	# the Walnut release (os-release's VERSION_ID): the version a test is filed under in the games database
+	printf 'walnut\t%s\n' "$(. /etc/os-release 2>/dev/null; echo "${VERSION_ID:-}")"
 }
 
 tmp=$(mktemp)

@@ -159,6 +159,8 @@ versions() {	# versions GAME VARIANT: the game's package and the graphics stack 
 		readlink -f "$(command -v "${CMD[0]}")") 2>/dev/null)
 	dpkg-query -W $(dpkg -S "$p" 2>/dev/null | cut -d: -f1 | tr , ' ') mesa-libgallium ps3rsx-modules-ps3 libspeq0 libfluidsynth3 libopenal1 libsdl3-0 ps3-gpu-tools 2>/dev/null
 	uname -r
+	# the Walnut release (os-release's VERSION_ID): the version a test is filed under in the games database
+	printf 'walnut\t%s\n' "$(. /etc/os-release 2>/dev/null; echo "${VERSION_ID:-}")"
 }
 variants() { grep -o '^variant_[a-z0-9_]*' "$here/recipes/$1.sh" | sed 's/^variant_//' | tr '\n' ' '; }
 report() { [ ${#RUNS[@]} -gt 0 ] && python3 "$here/report.py" "$@" "${RUNS[@]}"; }

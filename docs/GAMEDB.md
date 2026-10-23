@@ -81,6 +81,13 @@ scores 75 and 2 s scores 55; for sound, one fault a minute scores 75, six score 
   silent is Bronze, with a "no sound" badge.
 - **Scrap shows its reason**: won't start, crashes, or too slow.
 - **Scores are medians over sessions**, so one bad or lucky run doesn't flip a medal.
+- **Versions.** Every test records the Walnut release it ran on (os-release's `VERSION_ID`; runs from
+  before 0.1.0 count as "pre-0.1") and the game's package version (filed without our `+ps3.N` build
+  number, which changes with every rebuild). The rating comes from the newest
+  version (Walnut release and game version) that has a session or a benchmark run; capture runs of any
+  version add their picture. The app and the page say which version that was ("Tested on Walnut 0.1
+  with xmoto 0.6.3+repack-1"). The website's History table rates every version from its own
+  tests alone, newest first, so a game can be compared between versions.
 - **Stability needs hours.** The page shows the play time and crashes behind it ("0 crashes in
   1.7 h"); under an hour the stability score is marked provisional, and a full score needs three
   crash-free hours (0 crashes in 3 h bounds the rate under one an hour, the rule of three). The
