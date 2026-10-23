@@ -25,7 +25,7 @@ echo "::group::make rootfs (public, $suite)"
 # a package layer restored from the CI cache (keyed on its inputs) is taken as it is, whatever its mtime
 keep=()
 [ ! -f build/rootfs/base.tar ] || keep=(-o build/rootfs/base.tar)
-make "${keep[@]}" rootfs PROFILE=public WALNUT_SUITE="$suite"
+make "${keep[@]}" rootfs PROFILE=public WALNUT_SUITE="$suite" WALNUT_RELEASE="$ver"
 echo "::endgroup::"
 echo "::group::make initrd-walnut"
 make initrd-walnut

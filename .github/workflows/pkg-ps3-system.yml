@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - "ps3-system/**"
+      - "VERSION"
   workflow_dispatch:
     inputs:
       target:

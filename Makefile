@@ -386,8 +386,11 @@ BOOT_ROOT_ARGS := $(ROOT_ARGS_usb) rootwait
 # its key (the release image, .github/workflows/release-image.yml); else REPO_SUITE or build/debs
 WALNUT_SUITE ?=
 WALNUT_APT ?= https://walnut.nanobyte.dev/apt
+# the release this image becomes (tools/ci/release-id.sh: VERSION's A.B and the next C, or a nightly's
+# id): /etc/walnut-image's BUILD_ID; empty for images that aren't releases
+WALNUT_RELEASE ?=
 WALNUT_KEYRING = tools/walnut-server/$(if $(filter testing,$(WALNUT_SUITE)),testing,archive)-keyring.gpg
-IMAGE_VARS_NOW := $(BOOT_ROOT_ARGS) $(DEBUG_ARGS) $(REPO_SUITE) $(PROFILE) $(WALNUT_SUITE) $(WALNUT_APT)
+IMAGE_VARS_NOW := $(BOOT_ROOT_ARGS) $(DEBUG_ARGS) $(REPO_SUITE) $(PROFILE) $(WALNUT_SUITE) $(WALNUT_APT) $(WALNUT_RELEASE)
 $(shell [ "$$(cat $(IMAGE_VARS) 2>/dev/null)" = "$(IMAGE_VARS_NOW)" ] || echo "$(IMAGE_VARS_NOW)" > $(IMAGE_VARS))
 $(ROOTFS_TAR): $(IMAGE_INPUTS) $(IMAGE_VARS) | $(REPO_BUILDER_STAMP)
 	@mkdir -p $(BUILD)/rootfs
@@ -395,7 +398,8 @@ $(ROOTFS_TAR): $(IMAGE_INPUTS) $(IMAGE_VARS) | $(REPO_BUILDER_STAMP)
 	$(DOCKER_RUN) --privileged $(ROOTFS_ENV) -e BOOT_ROOT_ARGS="$(BOOT_ROOT_ARGS)" \
 		-e BOOT_EXTRA_ARGS="$(DEBUG_ARGS)" -e PROFILE=$(PROFILE) \
 		-e REPO_SUITE=$(REPO_SUITE) -e REPO_URL=$(REPO_URL) -e WALNUT_SUITE=$(WALNUT_SUITE) \
-		-e WALNUT_APT=$(WALNUT_APT) -e WALNUT_KEYRING=$(WALNUT_KEYRING) $(REPO_BUILDER_TAG) tools/build-image.sh
+		-e WALNUT_APT=$(WALNUT_APT) -e WALNUT_KEYRING=$(WALNUT_KEYRING) -e WALNUT_RELEASE=$(WALNUT_RELEASE) \
+		$(REPO_BUILDER_TAG) tools/build-image.sh
 	rm -f $(BUILD)/rootfs/authorized_keys
 
 # --- Run ----------------------------------------------------------------------

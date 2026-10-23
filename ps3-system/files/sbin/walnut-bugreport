@@ -43,6 +43,8 @@ if [ -f "${ROOT}/etc/os-release" ]; then
 else
 	echo "Not found" >> "$TMP"
 fi
+# the release it was installed from (the image build's)
+[ -f "${ROOT}/etc/walnut-image" ] && grep -v '^#' "${ROOT}/etc/walnut-image" >> "$TMP" 2>&1
 
 # 4. Installed Walnut / PS3 packages (dpkg-query)
 section "Packages (dpkg-query)"

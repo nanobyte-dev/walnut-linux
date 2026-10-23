@@ -138,6 +138,12 @@ if [ "${WALNUT_SUITE:-}" = testing ]; then
 	printf '%s\n' '# a nightly image: testing as the default (ps3-system walnut.pref has it at 1 otherwise)' \
 		'Package: *' 'Pin: release o=Walnut, n=testing' 'Pin-Priority: 990' > "$R/etc/apt/preferences.d/00-walnut-nightly"
 fi
+# The release this image becomes (WALNUT_RELEASE, from tools/ci/release-id.sh: VERSION's A.B and the
+# next C, or a nightly's id), for bug reports; a file of its own, which updates never change
+if [ -n "${WALNUT_RELEASE:-}" ]; then
+	printf '%s\n' '# the Walnut release this system was installed from (written by the image build)' \
+		"BUILD_ID=$WALNUT_RELEASE" "SUITE=${WALNUT_SUITE:-}" > "$R/etc/walnut-image"
+fi
 # Public profile: no video= (the mode follows Petitboot's, which works on any TV). Kernel packages
 # carry none from +ps3.747 on (linux/flavours/*.args; the dev profile sets its 1080p in
 # PS3_EXTRA_ARGS above); older ones still in a suite had the dev console's mode:133, stripped here

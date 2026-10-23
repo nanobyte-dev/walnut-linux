@@ -41,5 +41,10 @@ migrate() {
 if [ "$1" = install ] && [ -z "${2:-}" ]; then
 	migrate
 fi
+# os-release and the login banners are Walnut's (debian/rules): base-files' copies move aside as
+# <file>.debian (diversions; postrm puts them back when ps3-system is removed)
+for f in /usr/lib/os-release /etc/issue /etc/issue.net; do
+	dpkg-divert --package ps3-system --add --rename --divert "$f.debian" "$f" >/dev/null
+done
 #DEBHELPER#
 exit 0
