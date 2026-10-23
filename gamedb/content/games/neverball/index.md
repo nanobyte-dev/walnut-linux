@@ -1,0 +1,22 @@
++++
+id = "neverball"
+title = "Neverball"
+summary = "Tilt the floor to roll a ball through 3D levels, collecting coins before the time runs out."
+categories = ["arcade", "puzzle"]
+tags = ["3d", "physics", "ball", "levels"]
+license = "GPL-2.0-or-later"
+homepage = "https://neverball.org/"
+packages = ["neverball", "neverball-common", "neverball-data"]
+patched_by = ["neverball"]
+recipes = ["neverball:base"]
+needs_data = false
+controller = "keyboard"
+known_issues = [
+  "The sound underruns about 40 times a minute in the benchmark replay.",
+]
++++
+
+Neverball (Debian's 2018 snapshot of 1.6, with Neverputt) runs with the right picture at about 66
+frames a second. Walnut's patches cut the replay from 2,154 GL calls a frame to 844 on a PC's software
+renderer. The test plays the game's own demo replay over and over; each restart reloads the level, and
+that reload is the longest frame of the run (3.9 s).
