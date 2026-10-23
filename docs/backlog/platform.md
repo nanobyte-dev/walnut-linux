@@ -182,14 +182,22 @@ usable from the sofa is untested.
 - **Effort:** M. **Needs:** the user. **Status:** never tried.
 - **Source:** PLAN 4.7.
 
-### Wi-Fi from nm-applet, NetworkManager on eth0
+### Internal Wi-Fi
 
-Rank 54. The desktop's network applet has never been tried on the console. eth0 is configured by
-systemd-networkd today (`20-ps3-wired.network`, NetworkManager never on eth0); now that the root
-isn't on NFS, NetworkManager could own it instead.
+Rank 54. NetworkManager owns eth0 now (ps3-system), and the applet works for the wired port. The
+internal Wi-Fi doesn't show up at all: no wlan0, NetworkManager says the Wi-Fi hardware is missing.
+Under OtherOS++ the hypervisor keeps the Wi-Fi chip (Jupiter/Eurus, USB 054c:036f, which is also the
+Bluetooth) for GameOS: it answers NO_ENTRY for the wireless VLAN (tools/lv1net.py), so gelic's
+wireless never starts. glevand's route around it is ps3/0160 (ps3jupiter, a direct driver for the
+chip) with 0170, which clears this LPAR's bit in the hypervisor repository at every boot; both were
+dropped on 2026-10-18 ([OTHEROS-PATCHES.md](../OTHEROS-PATCHES.md) decision 1). Bluetooth on the same
+chip works. Until then: a USB Wi-Fi dongle (the image carries no firmware packages, so most need one).
 
-- **Effort:** S. **Needs:** the user. **Status:** never tried.
-- **Source:** PLAN 4.8.
+- **Effort:** M. **Needs:** the user (the call on the repository write). **Status:** backlog (the user,
+  2026-10-23: reconsider later).
+- **First step:** prove 0170's repository write is gone after a power cycle (read the node back with
+  lv1_read_repository_node before and after), the reversibility question that dropped it.
+- **Source:** PLAN 4.8; docs/release/TESTING-0.1.md 25.
 
 ### Display variety
 

@@ -159,7 +159,7 @@ The console itself, its safety margin, and the parts of the system a desktop use
 | 4.5 | GameOS auto-mount at boot, or keep it on demand (D9) | user decision | [GAMEOS-HDD.md](GAMEOS-HDD.md) |
 | 4.6 | Validator checks for the vertex texture methods 0x900-0x97c (a client can wedge the RSX there today; required before vertex texture fetch) | host, PS3 | [backlog/graphics.md](backlog/graphics.md) |
 | 4.7 | The DualShock 3 in play: SDL mappings, rumble, LEDs, a couch session with only the controller | user | [backlog/platform.md](backlog/platform.md) |
-| 4.8 | Wi-Fi from nm-applet; NetworkManager owning eth0 | user | [backlog/platform.md](backlog/platform.md) |
+| 4.8 | Internal Wi-Fi (the hypervisor keeps the chip under OtherOS++) | user | [backlog/platform.md](backlog/platform.md) |
 | 4.9 | Power: the power button and shutdown on the default kernel (after 1.8), Remote Start by Wake-on-LAN, an idle auto-off | user | [backlog/platform.md](backlog/platform.md) |
 | 4.10 | Display variety: 720p (D2), overscan on TVs, 50 Hz modes | user, a TV | [backlog/platform.md](backlog/platform.md) |
 | 4.11 | The hardware cursor (its init froze the PS3 once) and tearing | user | [backlog/platform.md](backlog/platform.md) |
