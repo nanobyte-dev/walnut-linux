@@ -1,0 +1,12 @@
+#!/usr/bin/python3 -I
+# walnut-games (walnut-games package): the Walnut Games desktop app; the code is in
+# /usr/lib/walnut-games/walnut_games.py, imported here so its byte code (made at installation)
+# is used instead of compiling it at every start.
+import os
+import sys
+
+sys.dont_write_bytecode = True   # nothing written beside the program
+sys.path.insert(0, os.environ.get("WALNUT_GAMES_LIB") or "/usr/lib/walnut-games")
+import walnut_games  # noqa: E402
+
+sys.exit(walnut_games.main(sys.argv))

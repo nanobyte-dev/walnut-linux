@@ -1,0 +1,294 @@
+#!/usr/bin/python3 -I
+"""walnut-games-helper install|remove|status ID (walnut-games package): the one root program the
+Walnut Games app runs, through sudo (/etc/sudoers.d/walnut-games: group sudo, no password, this path
+only).
+
+Design
+- The caller names a game by its catalog id, nothing else. The id must match ^[a-z0-9][a-z0-9-]{0,63}$
+  and be in the packaged, root-owned /usr/share/walnut-games/catalog.json; the packages come from
+  that file and each name must match ^[a-z0-9][a-z0-9+.-]*[a-z0-9]$. No package name, option or path
+  comes from argv or the environment (python3 -I; every command gets a fixed PATH and environment).
+  Packages that carry licensed game data (names with licensed / nonfree, the Quake demo data) are
+  refused whatever the catalog says: the catalog never lists them, this is the second lock.
+- install: apt-get update when the package lists are older than a day, then apt-get install with
+  --no-remove (an install never takes a package away), the configuration files kept
+  (--force-confold), noninteractive, waiting up to 60 s for another apt's lock. apt's status
+  descriptor is read on a pipe of our own (sudo closes every descriptor above 2) and relayed.
+- remove: apt-get -s remove first. It may remove the game's own packages and the game metapackages
+  (ps3-games, ps3-games-free, which depend on every game); anything else in the simulation refuses
+  the removal, before a single package is touched. When a metapackage is in the removal, the other
+  installed packages it depends on are marked manual first, so removing one game never leaves the
+  rest of the suite waiting for an autoremove. This program never runs autoremove.
+- SIGHUP and SIGPIPE are ignored: closing the app must not stop dpkg halfway. apt and dpkg get
+  SIGPIPE back at its default (subprocess restore_signals); SIGHUP stays ignored for them.
+- Output, one item per line, flushed: "progress N text", "log text", "error text". When stdout is
+  gone the program keeps working and says nothing.
+- Exit codes: 0 done, 2 refused (a message says why, nothing was changed), 1 apt failed.
+- stdlib only. The functions take the catalog path and a command runner so that
+  walnut-games/tests/test_walnut_games.py runs them on a PC with a fake apt-get.
+"""
+import json
+import os
+import re
+import selectors
+import signal
+import subprocess
+import sys
+import time
+
+CATALOG = "/usr/share/walnut-games/catalog.json"
+LISTS = "/var/lib/apt/lists"
+APT_GET, APT_MARK, DPKG_QUERY = "/usr/bin/apt-get", "/usr/bin/apt-mark", "/usr/bin/dpkg-query"
+ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
+PKG_RE = re.compile(r"[a-z0-9][a-z0-9+.-]*[a-z0-9]\Z")
+# metapackages that depend on the whole suite: their removal along with a game is allowed (and
+# prepared: their dependencies are marked manual first)
+METAS = ("ps3-games", "ps3-games-free")
+LICENSED_RE = re.compile(r"(^|-)(licensed|nonfree)(-|$)|^quake2?-(shareware|demo)")
+ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C", "LANGUAGE": "C", "DEBIAN_FRONTEND": "noninteractive",
+       "APT_LISTCHANGES_FRONTEND": "none", "NEEDRESTART_MODE": "a", "HOME": "/root"}
+APT_OPTS = ["-y", "-o", "Dpkg::Options::=--force-confold", "-o", "DPkg::Lock::Timeout=60",
+            "-o", "APT::Get::Assume-Yes=true"]
+STALE_SECONDS = 24 * 3600
+
+
+class Refused(Exception):
+    """a request the helper will not carry out (exit code 2)"""
+
+
+class AptFailed(Exception):
+    """apt-get or apt-mark failed (exit code 1)"""
+
+
+def say(kind, text=""):
+    try:
+        sys.stdout.write((kind + " " + text).rstrip() + "\n")
+        sys.stdout.flush()
+    except (OSError, ValueError):   # the app is gone: carry on, dpkg must finish
+        pass
+
+
+# ---- the catalog and the names ----------------------------------------------------------------
+
+def load_catalog(path=CATALOG, check_owner=True):
+    """{id: entry}; with check_owner the file must be root's and not writable by anyone else"""
+    st = os.stat(path)
+    if check_owner and (st.st_uid != 0 or st.st_mode & 0o022):
+        raise Refused("%s is not owned by root or is writable by others" % path)
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    return {g["id"]: g for g in data["games"] if isinstance(g.get("id"), str)}
+
+
+def game_packages(game_id, games):
+    """the validated package names of a game; Refused for a bad id, an unknown game, a bad name"""
+    if not isinstance(game_id, str) or not ID_RE.match(game_id):
+        raise Refused("not a game id: %r" % (game_id[:80] if isinstance(game_id, str) else type(game_id).__name__))
+    entry = games.get(game_id)
+    if entry is None:
+        raise Refused("unknown game: %s" % game_id)
+    pkgs = entry.get("packages")
+    if not isinstance(pkgs, list) or not pkgs:
+        raise Refused("%s lists no packages" % game_id)
+    for p in pkgs:
+        if not isinstance(p, str) or not PKG_RE.match(p):
+            raise Refused("%s: bad package name %r" % (game_id, p))
+        if LICENSED_RE.search(p):
+            raise Refused("%s: %s carries licensed data and is not installed from here" % (game_id, p))
+    return list(dict.fromkeys(pkgs))
+
+
+# ---- running commands -------------------------------------------------------------------------
+
+def run(cmd):
+    """(returncode, stdout) of cmd with the fixed environment, stdin closed, stderr merged in"""
+    p = subprocess.run(cmd, env=ENV, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                       text=True, errors="replace")
+    return p.returncode, p.stdout
+
+
+def installed(pkgs, runner=run):
+    """the subset of pkgs that dpkg has installed (status ii, or an unpacked/half-configured state)"""
+    rc, out = runner([DPKG_QUERY, "-W", "-f", "${Package}\t${db:Status-Abbrev}\n"] + list(pkgs))
+    have = set()
+    for line in out.splitlines():
+        name, _, st = line.partition("\t")
+        # the status letter: i installed, H/U/F/W/t part-way (still there); n, c are not installed
+        if name in pkgs and st[1:2] and st[1:2] in "iHUFWt":
+            have.add(name)
+    return have
+
+
+def lists_age(lists=LISTS):
+    """seconds since the newest package list was fetched; None when there are none"""
+    try:
+        times = [os.stat(os.path.join(lists, n)).st_mtime for n in os.listdir(lists) if n.endswith("Packages")
+                 or n.endswith("Packages.xz") or n.endswith("_Release")]
+    except OSError:
+        return None
+    return time.time() - max(times) if times else None
+
+
+def apt_stream(args, status_to_progress=True):
+    """run apt-get ARGS with its status on our own pipe, relaying 'progress' and 'log' lines; the
+    return code. A line of apt's output that is an error stays in the returned tail."""
+    r, w = os.pipe()
+    cmd = [APT_GET] + APT_OPTS + ["-o", "APT::Status-Fd=%d" % w] + args
+    p = subprocess.Popen(cmd, env=ENV, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         pass_fds=(w,), text=False)
+    os.close(w)
+    sel = selectors.DefaultSelector()
+    sel.register(r, selectors.EVENT_READ, "status")
+    sel.register(p.stdout, selectors.EVENT_READ, "out")
+    bufs = {"status": b"", "out": b""}
+    tail = []
+    while sel.get_map():
+        for key, _ in sel.select():
+            fd = key.fileobj
+            chunk = os.read(fd if isinstance(fd, int) else fd.fileno(), 4096)
+            if not chunk:
+                sel.unregister(fd)
+                continue
+            kind = key.data
+            bufs[kind] += chunk
+            while b"\n" in bufs[kind]:
+                line, bufs[kind] = bufs[kind].split(b"\n", 1)
+                text = line.decode("utf-8", "replace").rstrip()
+                if kind == "status":
+                    msg = status_line(text)
+                    if msg:
+                        say(*msg)
+                elif text:
+                    say("log", text)
+                    tail.append(text)
+                    del tail[:-30]
+    os.close(r)
+    p.stdout.close()
+    return p.wait(), tail
+
+
+def status_line(line):
+    """apt's APT::Status-Fd line as ("progress", "N text"), or None. Downloads fill the first
+    40 percent of the bar, unpacking and configuring the rest."""
+    parts = line.split(":", 3)
+    if len(parts) < 4:
+        return None
+    kind, _, pct, text = parts
+    try:
+        pct = float(pct)
+    except ValueError:
+        return None
+    pct = max(0.0, min(100.0, pct))
+    if kind == "dlstatus":
+        return ("progress", "%d %s" % (pct * 0.4, text.strip() or "downloading"))
+    if kind == "pmstatus":
+        return ("progress", "%d %s" % (40 + pct * 0.6, text.strip() or "installing"))
+    if kind in ("pmerror", "pmconffile"):
+        return ("log", "%s %s" % (kind, text.strip()))
+    return None
+
+
+# ---- install and remove -----------------------------------------------------------------------
+
+def do_install(game_id, games, stream=apt_stream, age=lists_age):
+    pkgs = game_packages(game_id, games)
+    a = age()
+    if a is None or a > STALE_SECONDS:
+        say("progress", "0 updating the package lists")
+        rc, tail = stream(["update"])
+        if rc != 0:
+            # an old index may still hold the package; say so and try
+            say("log", "apt-get update failed (%d): installing from the lists as they are" % rc)
+    say("progress", "0 installing " + " ".join(pkgs))
+    rc, tail = stream(["install", "--no-remove"] + pkgs)
+    if rc != 0:
+        say("error", "apt-get install failed (%d)%s" % (rc, ": " + tail[-1] if tail else ""))
+        raise AptFailed()
+    say("progress", "100 installed")
+
+
+def removal_set(sim_output):
+    """the package names apt-get -s lists as 'Remv'"""
+    return [m.group(1) for line in sim_output.splitlines() if (m := re.match(r"Remv (\S+)", line))]
+
+
+def depends_of(pkg, runner=run):
+    """the package names in pkg's Depends (every alternative), versions dropped"""
+    rc, out = runner([DPKG_QUERY, "-W", "-f", "${Depends}", pkg])
+    names = []
+    for part in out.split(","):
+        for alt in part.split("|"):
+            m = re.match(r"\s*([a-z0-9][a-z0-9+.-]*)", alt)
+            if m and PKG_RE.match(m.group(1)):
+                names.append(m.group(1))
+    return list(dict.fromkeys(names))
+
+
+def do_remove(game_id, games, runner=run, stream=apt_stream):
+    pkgs = game_packages(game_id, games)
+    have = [p for p in pkgs if p in installed(pkgs, runner)]
+    if not have:
+        say("progress", "100 not installed")
+        return
+    rc, sim = runner([APT_GET, "-s", "-o", "Debug::NoLocking=1", "remove"] + have)
+    if rc != 0:
+        say("error", "apt-get -s remove failed: " + (sim.strip().splitlines() or ["?"])[-1])
+        raise AptFailed()
+    gone = removal_set(sim)
+    extra = [p for p in gone if p not in pkgs and p not in METAS]
+    if extra:
+        raise Refused("removing %s would also remove %s: nothing was changed"
+                      % (game_id, ", ".join(extra[:8]) + (" ..." if len(extra) > 8 else "")))
+    metas = [p for p in gone if p in METAS]
+    if metas:
+        keep = []
+        for m in metas:
+            keep += [d for d in depends_of(m, runner) if d not in pkgs]
+        keep = [d for d in dict.fromkeys(keep) if d in installed(keep, runner)]
+        if keep:
+            say("progress", "5 keeping the rest of the games suite")
+            rc, out = runner([APT_MARK, "manual"] + keep)
+            if rc != 0:
+                say("error", "apt-mark manual failed: " + (out.strip().splitlines() or ["?"])[-1])
+                raise AptFailed()
+    say("progress", "10 removing " + " ".join(have))
+    rc, tail = stream(["remove"] + have)
+    if rc != 0:
+        say("error", "apt-get remove failed (%d)%s" % (rc, ": " + tail[-1] if tail else ""))
+        raise AptFailed()
+    say("progress", "100 removed")
+
+
+def do_status(game_id, games, runner=run):
+    pkgs = game_packages(game_id, games)
+    have = installed(pkgs, runner)
+    say("status", "installed" if len(have) == len(pkgs) else "partial" if have else "not-installed")
+
+
+# ---- main -------------------------------------------------------------------------------------
+
+def main(argv, catalog=CATALOG, check_owner=True, need_root=True):
+    if len(argv) != 3 or argv[1] not in ("install", "remove", "status"):
+        print("usage: walnut-games-helper install|remove|status ID", file=sys.stderr)
+        return 2
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    signal.signal(signal.SIGPIPE, signal.SIG_IGN)
+    try:
+        if need_root and os.geteuid() != 0:
+            raise Refused("must run as root (through sudo)")
+        games = load_catalog(catalog, check_owner)
+        {"install": do_install, "remove": do_remove, "status": do_status}[argv[1]](argv[2], games)
+    except Refused as e:
+        say("error", str(e))
+        print("walnut-games-helper: " + str(e), file=sys.stderr)
+        return 2
+    except AptFailed:
+        return 1
+    except (OSError, ValueError, KeyError) as e:   # a missing or broken catalog, apt-get not found
+        say("error", "%s: %s" % (type(e).__name__, e))
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

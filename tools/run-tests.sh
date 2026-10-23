@@ -17,7 +17,8 @@
 #            registration against a model of the kernel's side), ps3-boot (ps3-update-kboot's
 #            entries and its /etc/kboot.d extras on a fake root), leak-check (tools/leak-check.py on
 #            synthetic packages and sources), gamedb (Walnut Games' scoring against the calibration
-#            table in docs/GAMEDB.md, check.py, import-run.py, catalog.py), ps3disk-guard (kernel local/0045's
+#            table in docs/GAMEDB.md, check.py, import-run.py, catalog.py), walnut-games (the app and its root
+#            helper: validation, remove-cascade refusal, Exec parsing, a window smoke test), ps3disk-guard (kernel local/0045's
 #            range checks, linux/tests/ps3disk-guard.sh)
 #   --slow   also autogm (ps3-desktop/tests/autogm-check.sh: needs Xvfb+openbox or docker/podman) and
 #            ssdimg-vm (tools/ssdimg/vm-e2e.sh: ps3-imgmap on a real big-endian UFS2 image in a KVM
@@ -156,6 +157,7 @@ run ssdimg python3 tools/ssdimg/test_ssdimg.py
 run ps3-boot python3 ps3-boot/tests/test_kboot.py
 run leak-check python3 tools/test_leak_check.py
 run gamedb python3 -I tools/gamedb/test_gamedb.py
+run walnut-games python3 -I walnut-games/tests/test_walnut_games.py
 run ps3disk-guard linux/tests/ps3disk-guard.sh
 [ $slow = 1 ] && run autogm bash -c "$(declare -f t_autogm); t_autogm"
 [ $slow = 1 ] && run ssdimg-vm tools/ssdimg/vm-e2e.sh

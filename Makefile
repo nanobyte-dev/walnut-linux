@@ -33,7 +33,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: walnut-server walnut-site walnut-server-test public-push initrd-ssd initrd-walnut initrd-busybox repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref \
+.PHONY: gamedb-catalog walnut-server walnut-site walnut-server-test public-push initrd-ssd initrd-walnut initrd-busybox repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref \
 	classicube classicube-audio classicube-deploy classicube-bench quake-data
 
 help:
@@ -573,6 +573,11 @@ $(BUILD)/chroot/sid-ppc64.tar:
 		tools/deb-prepare.sh $* "$$(echo "$$v" | sed -n 1p)" "$$(echo "$$v" | sed -n 2p)" "$$(echo "$$v" | sed -n 3p)"
 # ps3-boot ships the generic initramfs (package.conf COPY_IN): built first
 ps3-boot-src: initrd-walnut
+# walnut-games ships the games catalog (package.conf COPY_IN): packed first, on the host (python3 only;
+# the screenshots are Git LFS files: a checkout without them stops the pack)
+gamedb-catalog:
+	python3 -I tools/gamedb/pack-catalog.py
+walnut-games-src: gamedb-catalog
 %-deb: %-src | $(BUILD)/chroot/sid-ppc64.tar
 	@tools/disk-check.sh
 	tools/ccache-remote.sh docker run --rm --privileged -v $(CURDIR):/work -w /work $(DEB_ENV) -e JOBS=$(DEB_JOBS) -e KEEP_TREE=$(KEEP_TREE) \
@@ -596,6 +601,6 @@ DEB_JOBS ?= 16
 # KEEP_TREE=1: make linux-deb keeps the cross build tree (build/chroot/cross-linux)
 KEEP_TREE ?= 0
 # All our packages, the kernel first: ps3rsx builds against its headers
-SRC_PACKAGES := linux mesa plymouth pnmixer bomberclone ps3-boot ps3-gpu-tools ps3-spu classicube classicube-data fluidsynth openal-soft dsda-doom neverball ioquake3 supertuxkart openttd xmoto etr teeworlds ps3-system ps3-desktop ps3-splash sauerbraten-nonfree-data ps3-games-licensed darkplaces-gl2 zlib-ng libvorbis warzone2100 libpng1.6 openrct2 endless-sky
+SRC_PACKAGES := linux mesa plymouth pnmixer bomberclone ps3-boot ps3-gpu-tools ps3-spu classicube classicube-data fluidsynth openal-soft dsda-doom neverball ioquake3 supertuxkart openttd xmoto etr teeworlds ps3-system ps3-desktop ps3-splash sauerbraten-nonfree-data ps3-games-licensed darkplaces-gl2 zlib-ng libvorbis warzone2100 libpng1.6 openrct2 endless-sky walnut-games
 packages: $(SRC_PACKAGES:%=%-deb)
 	$(MAKE) --no-print-directory ps3rsx-modules

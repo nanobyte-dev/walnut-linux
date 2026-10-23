@@ -10,7 +10,7 @@ game on a PC, and rated. It is two things over one catalog:
 
 Status (2026-10-23): designed with the user; the catalog, the scoring code and the site build exist
 (`gamedb/`, `tools/gamedb/`) with three games (OpenArena, SuperTuxKart, Warzone 2100); the session
-recorder and the app are next. The steps are in [PLAN.md](PLAN.md) ("Walnut Games"); this page
+recorder exists, and the app (P4) is written (`walnut-games/`, below). The steps are in [PLAN.md](PLAN.md) ("Walnut Games"); this page
 describes how it works.
 
 ## How a game is tested
@@ -121,6 +121,43 @@ Every Bronze has a real problem behind it (four have known-bad sound, SuperTuxKa
 and the 32bpp OpenTTD that can't be played is Scrap, not Bronze. Open: whether strategy and
 turn-based games need their own frame-rate scale (OpenTTD plays fine at 38 fps and scores 31 on frame
 rate); one scale for now, revisited after the first strategy sessions.
+
+## The desktop app
+
+`walnut-games` (package `walnut-games`, Tk, mouse and keyboard) shows the catalog as cards: a
+thumbnail, the medal with its score, the name and categories, "Installed" and "Patched" marks. The top bar
+has search, category, medal and sort, "installed only" and "patched by Walnut". A click opens the
+details: medal and overall score, the aspect scores as bars, hours played and crashes, one screenshot at a
+time (PS3 first, then the PC's, with prev/next), known issues, the measurements, the patch list, and the
+buttons Install, Remove, Play and "Open on the web". The window follows the Walnut palette
+(`walnut_games.py` has the colours).
+
+- **The catalog is the packaged one**, `/usr/share/walnut-games/` (made by `make gamedb-catalog`:
+  `catalog.json`, thumbnails and the screenshots the catalog lists, from the Git LFS files; a checkout
+  without the LFS objects fails the pack, and CI checks out with `lfs: true` for this package). New games
+  arrive with package updates; the website is the always-current view. A screenshot missing from the
+  package is fetched once from the website and cached in `~/.cache/walnut-games`; offline the app works
+  with what is packaged.
+- **Installed** comes from `dpkg-query`. **Play** starts the game's runtime menu entry
+  (`$XDG_RUNTIME_DIR/ps3-game-menu/applications/<desktop>`, whose Exec goes through `ps3-game`), else
+  `ps3-game` plus the entry's Exec from `/usr/share/applications` (field codes cut out, no shell). Play is
+  off while an install or removal runs: game mode would freeze the helper with dpkg's lock held. After
+  either, the app runs `ps3-game-menu "$XDG_RUNTIME_DIR/ps3-game-menu"` so the new entry exists.
+- **The helper**, `/usr/lib/ps3/sbin/walnut-games-helper install|remove|status ID`, runs as root through
+  `sudo -n` (`/etc/sudoers.d/walnut-games`: group sudo, no password, that one path). Its guarantees:
+  the argument is a game id (`^[a-z0-9][a-z0-9-]{0,63}$`) found in the root-owned packaged catalog, which is
+  the only source of package names (each checked against the Debian name rule; licensed or nonfree data
+  packages refused); `python3 -I`, fixed PATH and environment, no shell; install runs `apt-get install
+  --no-remove` (after `apt-get update` when the lists are over a day old) with the configuration files
+  kept, noninteractive; remove simulates first and refuses, before touching anything, if the simulation
+  removes anything but the game's own packages and the `ps3-games` / `ps3-games-free` metapackages, and in
+  the metapackage case first marks the other installed packages it depends on as manually installed;
+  it never runs autoremove; SIGHUP and SIGPIPE are ignored, so closing the app never stops dpkg halfway.
+  Output is `progress N text`, `log`, `error` lines; exit 0 done, 2 refused, 1 apt failed.
+- Tests: `walnut-games/tests/test_walnut_games.py` (make test ONLY=walnut-games): the helper's validation,
+  catalog mapping, cascade refusal (with a fake `apt-get -s`), install arguments and status relay (a fake
+  apt-get writes to the status descriptor), Exec parsing, filters, and a window smoke test on a private
+  Xvfb/Xvnc (skipped when neither exists).
 
 ## Adding a game
 

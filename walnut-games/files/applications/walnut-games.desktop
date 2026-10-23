@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Walnut Games
+Comment=Browse, install and play the games that run on Walnut
+Exec=walnut-games
+Icon=applications-games
+Terminal=false
+Categories=Game;

@@ -1,0 +1,19 @@
+Source: walnut-games
+Section: games
+Priority: optional
+Maintainer: PS3 Linux project <ps3@localhost>
+Build-Depends: debhelper-compat (= 13), sudo, python3:any
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: walnut-games
+Architecture: all
+Depends: ${misc:Depends}, python3, python3-tk, python3-pil.imagetk, ps3-desktop, sudo, apt, dpkg
+Description: Walnut Games, the games database and launcher
+ A window with a card for every game in the Walnut Games catalog: its medal and scores from the
+ tests on the PS3, screenshots next to the PC's, known issues and the patches Walnut made. Install,
+ Remove and Play (through ps3-game, so game mode applies). The catalog is the one packaged with this
+ version, so the app works offline; https://walnut.nanobyte.dev/gamedb/ is always current.
+ Installing and removing go through walnut-games-helper (sudoers: group sudo, no password), which
+ only knows the catalog's games, never removes anything but the game's own packages, and never
+ runs autoremove.

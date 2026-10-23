@@ -1,0 +1,2 @@
+# walnut-games: install and remove a catalog game from the app, with one root helper that takes game ids
+%sudo ALL=(root) NOPASSWD: /usr/lib/ps3/sbin/walnut-games-helper

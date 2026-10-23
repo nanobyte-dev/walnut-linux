@@ -32,6 +32,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # versions count commits (tools/deb-version.sh)
+          lfs: ${{ inputs.package == 'walnut-games' }}  # its catalog packs the Git LFS screenshots (tools/gamedb/pack-catalog.py)
       - name: The ppc64 base chroot
         uses: actions/cache@v6
         with:

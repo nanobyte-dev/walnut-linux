@@ -45,6 +45,7 @@ package (Debian source packages; docs/PACKAGING.md).
 | `classicube/` | ClassiCube: `package.conf` (pinned upstream tarball plus texpack/audio components), `patches/` (fewer GL calls per frame: vertex pointers once per buffer, a chunk part in one draw; `CC_GL*` switches), `debian/` (launcher, defaults; packages `classicube`, the engine, and `classicube-data`, Mojang's textures and audio, for `ps3-licensed`), `sounds.sh` (sounds/music from Mojang by SHA-1) |
 | `ps3-system/` | System configuration package: networking, SSH, swap (`ps3-vswap`: `PS3_VSWAP_DM=1` in `/etc/default/ps3-vswap` makes the VRAM swap's backing a device-mapper device, for the SSD swap arm), ps3gpu nodes, DS3 pairing, apt sources and pins, `ps3-gameos-mount`, OpenAL Soft's 16-bit output (`files/sound/alsoft.conf` as `/etc/xdg/alsoft.conf`) (`files/`, `debian/`) |
 | `ps3-desktop/` | Desktop package: autologin, `ps3-session`, game mode (`ps3-game`, `files/libexec/ps3-game-detect` (automatic, for fullscreen 3D programs), `ps3-game-guard` its user side, `ps3-game-prefetch` (the desktop's files back on leaving, a game's own files read at its start; code in `ps3_game_prefetch.py`), `files/sbin/ps3-game-mode` its root side, `ps3-game-menu`; host tests in `tests/`: `menu-check.sh`, `autogm-check.sh`, `gprefetch-check.py`), Openbox/tint2/GTK/PCManFM defaults and default applications in `/etc/xdg/ps3`, X config; also `ps3-apps` (the everyday applications) |
+| `walnut-games/` | The Walnut Games desktop app (native package): `files/bin/walnut-games` (launcher) and `files/lib/walnut_games.py` (Tk window: card grid, filters, details, Install/Remove/Play), `files/sbin/walnut-games-helper` (the root helper behind `debian/sudoers`), the packaged catalog unpacked to `/usr/share/walnut-games/` from `build/gamedb/catalog.tar` (`make gamedb-catalog`, `tools/gamedb/pack-catalog.py`); `tests/test_walnut_games.py` (suite `walnut-games`) |
 | `ps3-games-licensed/` | Metapackage (native, all) that pulls the licensed game data in with `ps3-games`: `classicube-data`, `quake-shareware`, `quake2-demo-data`; routed to the `ps3-licensed` suite, free packages never depend on it |
 | `image/` | The root filesystem image: `packages.txt` (slow Debian layer), `packages-ours.txt` (ours, installed with apt), `deps.txt` (Debian packages in our repository), `customize.sh` (per-installation settings: hostname, user, key, locale) |
 | `spu-toolchain/` | The spu-elf cross toolchain's patches: GCC 16.2 port (`gcc/`), binutils 2.47 fix, newlib 4.6 fixes, test scripts |
@@ -152,7 +153,7 @@ Host tests (no PS3 needed):
     make test-slow               # plus autogm-check.sh (needs Xvfb+openbox, or docker/podman) and the
                                  #   SSD test drive in a KVM guest (tools/ssdimg/vm-e2e.sh: docker, qemu, /dev/kvm)
     make test ONLY=ps3-spu       # one suite: bench-selftest, gprefetch, ps3rsx-shadow, ps3-spu, xmoto-glbatch,
-                                 #   mesa-forcedxt, ssdimg, ps3-boot, ps3disk-guard, autogm, ssdimg-vm (the
+                                 #   mesa-forcedxt, ssdimg, ps3-boot, gamedb, walnut-games, ps3disk-guard, autogm, ssdimg-vm (the
                                  #   last two with make test-slow)
 
 `tools/run-tests.sh` runs them: `games/bench/selftest.py`, `ps3-desktop/tests/gprefetch-check.py`,

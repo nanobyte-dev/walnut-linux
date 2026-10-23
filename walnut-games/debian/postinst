@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+if [ "$1" = configure ]; then
+	# The sudoers drop-in must parse, or it would break sudo for everyone
+	if ! visudo -cf /etc/sudoers.d/walnut-games >/dev/null; then
+		echo "walnut-games: /etc/sudoers.d/walnut-games does not parse: removed" >&2
+		rm -f /etc/sudoers.d/walnut-games
+	fi
+	# walnut_games.py's byte code, so the launcher imports it instead of compiling it at every start
+	if command -v py3compile >/dev/null 2>&1; then
+		py3compile -p walnut-games /usr/lib/walnut-games
+	else
+		python3 -m compileall -q /usr/lib/walnut-games >/dev/null 2>&1 || true
+	fi
+fi
+#DEBHELPER#
+exit 0

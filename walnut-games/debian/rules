@@ -1,0 +1,20 @@
+#!/usr/bin/make -f
+P := debian/walnut-games
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	visudo -cf debian/sudoers
+
+override_dh_auto_install:
+	install -D -m 755 files/bin/walnut-games $(P)/usr/bin/walnut-games
+	install -D -m 644 files/lib/walnut_games.py $(P)/usr/lib/walnut-games/walnut_games.py
+	install -D -m 755 files/sbin/walnut-games-helper $(P)/usr/lib/ps3/sbin/walnut-games-helper
+	install -D -m 440 debian/sudoers $(P)/etc/sudoers.d/walnut-games
+	install -D -m 644 files/applications/walnut-games.desktop $(P)/usr/share/applications/walnut-games.desktop
+	# the catalog (make gamedb-catalog): root-owned, the helper trusts it
+	install -d $(P)/usr/share/walnut-games
+	tar -xf catalog/catalog.tar -C $(P)/usr/share/walnut-games --no-same-owner --no-same-permissions
+	# the module's byte code is made at installation (postinst) and again with every python3
+	install -D -m 755 debian/python3.rtupdate $(P)/usr/share/python3/runtime.d/walnut-games.rtupdate
