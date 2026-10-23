@@ -1,6 +1,8 @@
 #!/bin/bash
 # publish-site.sh: uploads tools/walnut-server/site/ as walnut.nanobyte.dev's next site version and
-# waits until it is live (its version.txt served). The id is <UTC time>-<commit>. Used by the GitHub
+# waits until it is live (its version.txt served), with the games database built into /gamedb/
+# (tools/gamedb/build.sh: the upload replaces the whole site, so it rides along). The id is
+# <UTC time>-<commit>. Used by the GitHub
 # workflow (.github/workflows/walnut-site.yml) and `make walnut-site`; the upload key and host come
 # from walnut-upload.sh's environment.
 set -euo pipefail
@@ -9,6 +11,7 @@ id=$(date -u +%Y%m%d-%H%M%S)-$(git -C "$here" rev-parse --short=7 HEAD)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 cp -r "$here/site/." "$tmp/"
+"$here/../gamedb/build.sh" "$tmp/gamedb"
 echo "$id" > "$tmp/version.txt"
 "$here/walnut-upload.sh" site "$id" "$tmp"
 url=${WALNUT_SITE_URL:-https://walnut.nanobyte.dev}
