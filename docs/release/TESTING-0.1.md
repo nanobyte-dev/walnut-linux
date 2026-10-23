@@ -23,5 +23,5 @@ It replaced the console's `walnut`/`walnut-prev` entries (ssdtest.img's); their 
 | 8 | The wizard's prompts came out as kernel log lines (`[ 620.15] walnut-firstboot[1344]: Enter the username...`), late: "Press Enter" seemed to do nothing, the next Enter was taken as an empty user name. Its stderr was journal+console, and the text fallback prompts on stderr | The service's stderr is tty1 (ps3-system) |
 | 9 | Those prompts showed `\n` literally and ended in `::` | The text fallback prints the messages with `%b` and one colon |
 | 10 | The wizard fell back to plain text: whiptail was only a Recommends of ps3-system, and the image installs no Recommends | ps3-system Depends on whiptail: the wizard's dialog boxes |
-| 11 | "Passwords did not match" once: a typo or a bug, not known yet | Watch on the next run |
+| 11 | Each prompt appeared only after it was answered, so "Passwords did not match": the answers went to the question before the one on screen. The prompts have no newline, and journald holds a line until it ends | Same fix as 8: the prompts go to the tty directly |
 
