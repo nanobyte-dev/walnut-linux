@@ -12,7 +12,9 @@ RemainAfterExit=yes
 ExecStart=/usr/lib/ps3/sbin/walnut-firstboot
 StandardInput=tty-force
 StandardOutput=tty
-StandardError=journal+console
+# the tty too: whiptail draws on stderr (its answer comes out on stdout), and the text fallback
+# prompts there (journal+console printed the prompts as kernel log lines, late)
+StandardError=tty
 TTYPath=/dev/tty1
 TTYReset=yes
 TTYVHangup=yes

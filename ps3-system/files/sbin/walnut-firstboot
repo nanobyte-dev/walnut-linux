@@ -95,7 +95,7 @@ msgbox() {
 	case "$UI" in
 	whiptail) whiptail --title "$title" --msgbox "$text" 12 70 ;;
 	dialog)   dialog --title "$title" --msgbox "$text" 12 70 ;;
-	text)     printf '\n=== %s ===\n%s\n\nPress Enter to continue...' "$title" "$text"; read -r _ ;;
+	text)     printf '\n=== %s ===\n%b\n\nPress Enter to continue...' "$title" "$text" >&2; read -r _ ;;
 	esac
 }
 
@@ -116,7 +116,7 @@ yesno() {
 		fi ;;
 	text)
 		while true; do
-			printf '%s (yes/no) [%s]: ' "$text" "$default"
+			printf '%b (yes/no) [%s]: ' "${text%:}" "$default" >&2
 			read -r ans
 			ans="${ans:-$default}"
 			case "$ans" in
@@ -133,7 +133,7 @@ inputbox() {
 	whiptail) whiptail --title "$title" --inputbox "$text" 10 70 "$default" 3>&1 1>&2 2>&3 ;;
 	dialog)   dialog --title "$title" --inputbox "$text" 10 70 "$default" 3>&1 1>&2 2>&3 ;;
 	text)
-		printf '%s [%s]: ' "$text" "$default" >&2
+		if [ -n "$default" ]; then printf '%b [%s]: ' "${text%:}" "$default" >&2; else printf '%b: ' "${text%:}" >&2; fi
 		read -r val
 		echo "${val:-$default}" ;;
 	esac
@@ -145,7 +145,7 @@ passwordbox() {
 	whiptail) whiptail --title "$title" --passwordbox "$text" 10 70 3>&1 1>&2 2>&3 ;;
 	dialog)   dialog --title "$title" --insecure --passwordbox "$text" 10 70 3>&1 1>&2 2>&3 ;;
 	text)
-		printf '%s: ' "$text" >&2
+		printf '%b: ' "${text%:}" >&2
 		stty -echo 2>/dev/null || true
 		read -r val
 		stty echo 2>/dev/null || true

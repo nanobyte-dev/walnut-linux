@@ -19,3 +19,9 @@ It replaced the console's `walnut`/`walnut-prev` entries (ssdtest.img's); their 
 | 4 | A pending install.conf for one image blocks booting any other (`installs X, the kernel command line boots Y`) | Open |
 | 5 | Two systems on one console both write the `walnut`/`walnut-prev` entries on kernel updates | Open |
 | 6 | testing is older than stable (.708/.712 against .721): stable was built fresh, testing only rebuilds on pushes | Open (a full testing rebuild would level them) |
+| 7 | The first boot installed: the image checked, formatted, the system unpacked, the setup wizard up (webcam, build/bench-cam/firstboot-035621.jpg) | Works |
+| 8 | The wizard's prompts came out as kernel log lines (`[ 620.15] walnut-firstboot[1344]: Enter the username...`), late: "Press Enter" seemed to do nothing, the next Enter was taken as an empty user name. Its stderr was journal+console, and the text fallback prompts on stderr | The service's stderr is tty1 (ps3-system) |
+| 9 | Those prompts showed `\n` literally and ended in `::` | The text fallback prints the messages with `%b` and one colon |
+| 10 | The wizard fell back to plain text: whiptail was only a Recommends of ps3-system, and the image installs no Recommends | ps3-system Depends on whiptail: the wizard's dialog boxes |
+| 11 | "Passwords did not match" once: a typo or a bug, not known yet | Watch on the next run |
+
