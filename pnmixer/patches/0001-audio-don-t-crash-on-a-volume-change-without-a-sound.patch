@@ -1,0 +1,54 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PS3 Linux project <ps3@localhost>
+Date: Fri, 23 Oct 2026 14:00:05 +0300
+Subject: audio: don't crash on a volume change without a sound card
+
+When no card could be hooked (audio->soundcard NULL), audio_set_volume, audio_lower_volume
+and audio_raise_volume still read the current volume straight from the card: a slider move,
+a scroll on the tray icon or a hotkey crashed pnmixer (SIGSEGV, a read at 0 in
+alsa_card_get_volume). They read it through audio_get_volume now, which gives 0 without a
+card, and _audio_set_volume already discards the change.
+
+Forwarded: no
+
+diff --git a/src/audio.c b/src/audio.c
+--- a/src/audio.c
++++ b/src/audio.c
+@@ -499,10 +499,9 @@ _audio_set_volume(Audio *audio, AudioUser user, gdouble cur_volume,
+ void
+ audio_set_volume(Audio *audio, AudioUser user, gdouble new_volume, gint dir)
+ {
+-	AlsaCard *soundcard = audio->soundcard;
+ 	gdouble cur_volume;
+ 
+-	cur_volume = alsa_card_get_volume(soundcard);
++	cur_volume = audio_get_volume(audio);
+ 	_audio_set_volume(audio, user, cur_volume, new_volume, dir);
+ }
+ 
+@@ -515,11 +514,10 @@ audio_set_volume(Audio *audio, AudioUser user, gdouble new_volume, gint dir)
+ void
+ audio_lower_volume(Audio *audio, AudioUser user)
+ {
+-	AlsaCard *soundcard = audio->soundcard;
+ 	gdouble scroll_step = audio->scroll_step;
+ 	gdouble cur_volume, new_volume;
+ 
+-	cur_volume = alsa_card_get_volume(soundcard);
++	cur_volume = audio_get_volume(audio);
+ 	new_volume = cur_volume - scroll_step;
+ 	if (new_volume < 0)
+ 		new_volume = 0;
+@@ -535,11 +533,10 @@ audio_lower_volume(Audio *audio, AudioUser user)
+ void
+ audio_raise_volume(Audio *audio, AudioUser user)
+ {
+-	AlsaCard *soundcard = audio->soundcard;
+ 	gdouble scroll_step = audio->scroll_step;
+ 	gdouble cur_volume, new_volume;
+ 
+-	cur_volume = alsa_card_get_volume(soundcard);
++	cur_volume = audio_get_volume(audio);
+ 	new_volume = cur_volume + scroll_step;
+ 	if (new_volume > 100)
+ 		new_volume = 100;

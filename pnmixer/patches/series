@@ -1,0 +1,2 @@
+# Our patches on Debian's pnmixer (ps3-desktop's volume applet)
+0001-audio-don-t-crash-on-a-volume-change-without-a-sound.patch
