@@ -96,7 +96,6 @@ button.copy:hover { background: var(--accent); }
 figcaption { color: var(--muted); font-size: 0.85rem; margin-top: 0.2rem; }
 .patches { padding-left: 1.4rem; }
 details summary { cursor: pointer; color: var(--accent-light); }
-.notes p { max-width: 70ch; }
 .table-wrap { overflow-x: auto; }
 table.history { font-size: 0.9rem; }
 table.history th.num { text-align: right; }
@@ -111,7 +110,6 @@ table.history th.num, table.history td.num { width: auto; padding-left: 0.4rem; 
 
 /* the About page */
 .site-header nav a { margin-left: 1.2rem; }
-.prose { max-width: 75ch; }
 .prose p, .prose li { line-height: 1.6; }
 .prose table { margin: 0.8rem 0 1.2rem; }
 .prose td .medal { white-space: nowrap; }
