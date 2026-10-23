@@ -86,6 +86,10 @@ class Kboot(unittest.TestCase):
         self.assertIn("ps3ssd.image=/linux/walnut.img", walnut[0])
         self.assertIn(RARGS, walnut[0])
         self.assertEqual(len(prev), 1, lines)
+        # PS3_EXTRA_ARGS is empty here: no double space, which Petitboot passed on as "(null)"
+        for x in walnut + prev + [y for y in (self.r / "etc/kboot.conf").read_text().splitlines() if "='" in y]:
+            self.assertNotIn("  ", x)
+            self.assertFalse(x.endswith(" '"), x)
         self.assertIn("other='/x/vmlinux root=/dev/sda2'", lines)          # another install's entry kept
         self.assertTrue((h / "linux/boot" / ("vmlinux-" + REL)).exists())
         self.assertFalse((h / "linux/boot/vmlinux-6.12.111+ps3.400").exists())   # ours, not current: removed

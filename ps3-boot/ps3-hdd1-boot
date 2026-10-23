@@ -79,10 +79,12 @@ fi
 pinit=$I
 [ -e "$M$P" ] && pinit=$P
 
+# one space between the arguments: Petitboot passes an empty one on as "(null)"
+squeeze() { printf '%s' "$*" | tr -s ' ' | sed 's/^ //; s/ $//'; }
 {
 	echo "# Petitboot's menu on dev_hdd1: the internal install's entries, written by ps3-hdd1-boot"
-	echo "walnut='/linux/boot/vmlinux-$cur initrd=$I $PS3_ROOT_ARGS ${PS3_EXTRA_ARGS:-} $(args_of "$cur")'"
-	[ -n "$prev" ] && echo "walnut-prev='/linux/boot/vmlinux-$prev initrd=$pinit $PS3_ROOT_ARGS ${PS3_EXTRA_ARGS:-} $(args_of "$prev")'"
+	echo "walnut='$(squeeze "/linux/boot/vmlinux-$cur initrd=$I $PS3_ROOT_ARGS ${PS3_EXTRA_ARGS:-} $(args_of "$cur")")'"
+	[ -n "$prev" ] && echo "walnut-prev='$(squeeze "/linux/boot/vmlinux-$prev initrd=$pinit $PS3_ROOT_ARGS ${PS3_EXTRA_ARGS:-} $(args_of "$prev")")'"
 	[ -e "$M/kboot.conf" ] && grep -v -e '^walnut=' -e '^walnut-prev=' \
 		-e '^# Petitboot.s menu on dev_hdd1: the internal install' "$M/kboot.conf" || true
 } > "$M/kboot.conf.new"
