@@ -87,7 +87,7 @@ main.wrap { padding-bottom: 3rem; }
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
 th { color: var(--muted); font-weight: 600; font-size: 0.85rem; }
-td.num { text-align: right; font-variant-numeric: tabular-nums; width: 3.5rem; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; width: 5.5rem; white-space: nowrap; }
 td.bar { width: 22%; min-width: 80px; }
 td.bar span { display: block; height: 0.6rem; border-radius: 3px; background: linear-gradient(90deg, var(--accent-deep), var(--accent-light)); }
 .install { display: flex; gap: 0.6rem; align-items: stretch; flex-wrap: wrap; }

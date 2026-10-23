@@ -28,14 +28,14 @@
     {{ else if $r.capped }}<p class="note">The mean alone would be higher; the medal is capped by the weakest aspect ({{ $r.reason }}).</p>{{ end }}
     {{ with $g.medal_note }}<p class="note">{{ . }}</p>{{ end }}
     <table class="aspects">
-      <thead><tr><th>Aspect</th><th>Score</th><th></th><th>Measured</th></tr></thead>
+      <thead><tr><th>Aspect</th><th>Score (of 100)</th><th></th><th>What was measured</th></tr></thead>
       <tbody>
       {{ range slice "frame" "smooth" "sound" "picture" "stability" "display" "load" }}
         {{ $a := index $r.aspects . }}
         <tr>
           <td>{{ $a.name }} <span class="muted">({{ $a.weight }})</span></td>
           {{ if eq $a.score nil }}<td>-</td><td></td><td class="muted">not measured</td>
-          {{ else }}<td class="num">{{ $a.score }}</td>
+          {{ else }}<td class="num">{{ $a.score }}<span class="muted">/100</span></td>
           <td class="bar"><span style="width: {{ $a.score }}%"></span></td>
           <td>{{ $a.detail }}</td>{{ end }}
         </tr>

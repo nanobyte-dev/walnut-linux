@@ -51,6 +51,9 @@ CARD_HOVER = "#12304f"
 MEDAL_ORDER = ["Platinum", "Gold", "Silver", "Bronze", "Tin", "Rust", "Scrap", "Untested"]
 MEDAL_COLORS = {"Platinum": "#e5e4e2", "Gold": "#d4af37", "Silver": "#c0c0c0", "Bronze": "#cd7f32",
                 "Tin": "#9a9ea3", "Rust": "#8a4b32", "Scrap": "#5f5a55", "Untested": "#6f7a86"}
+DETAILS_W = 372     # the details pane's content width
+ASPECT_TOP = 22     # the caption line above the aspect rows
+ASPECT_ROW = 36     # one aspect: the score line and the measured line under it
 ASPECT_ORDER = ["frame", "smooth", "sound", "picture", "stability", "display", "load"]
 
 
@@ -327,13 +330,14 @@ class App:
         self.count.pack(side="right")
         self.v_text.trace_add("write", lambda *a: self.apply_filters())
         # body: the cards, then the details
-        body = ttk.Frame(r)
+        # a draggable divider between the cards and the details (the user widens the details pane)
+        body = tk.PanedWindow(r, orient="horizontal", bg=BORDER, sashwidth=6, sashrelief="flat",
+                              borderwidth=0, showhandle=False, opaqueresize=True)
         body.pack(fill="both", expand=True)
-        self.details = ttk.Frame(body, style="Panel.TFrame", padding=14, width=400)
-        self.details.pack(side="right", fill="y")
-        self.details.pack_propagate(False)
         left = ttk.Frame(body)
-        left.pack(side="left", fill="both", expand=True)
+        self.details = ttk.Frame(body, style="Panel.TFrame", padding=14)
+        body.add(left, minsize=320, stretch="always")
+        body.add(self.details, minsize=360, width=420, stretch="never")
         self.canvas = tk.Canvas(left, bg=BG, highlightthickness=0, takefocus=1)
         sb = ttk.Scrollbar(left, orient="vertical", command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=sb.set)
@@ -350,31 +354,11 @@ class App:
         self._build_details()
 
     def _build_details(self):
+        """the details pane: the actions (status, progress, Install/Remove/Play) pinned at the
+        bottom, everything else in a scrolling area above them, so any amount of content fits"""
         d = self.details
-        head = ttk.Frame(d, style="Panel.TFrame")
-        head.pack(fill="x")
-        ttk.Button(head, text="Open on the web", style="Link.TButton", command=self.open_web).pack(side="right", anchor="n")
-        self.d_title = ttk.Label(head, text="", style="Title.TLabel", background=PANEL, wraplength=240)
-        self.d_title.pack(side="left", anchor="w")
-        self.d_sum = ttk.Label(d, text="", style="Muted.TLabel", background=PANEL, wraplength=370, justify="left")
-        self.d_sum.pack(anchor="w", pady=(2, 8))
-        self.d_medal = tk.Canvas(d, width=372, height=44, bg=PANEL, highlightthickness=0)
-        self.d_medal.pack(anchor="w")
-        self.d_aspects = tk.Canvas(d, width=372, height=7 * 22 + 6, bg=PANEL, highlightthickness=0)
-        self.d_aspects.pack(anchor="w", pady=(6, 0))
-        self.d_stats = ttk.Label(d, text="", style="Muted.TLabel", background=PANEL, wraplength=370, justify="left")
-        self.d_stats.pack(anchor="w", pady=(4, 8))
-        nav = ttk.Frame(d, style="Panel.TFrame")
-        nav.pack(fill="x")
-        ttk.Button(nav, text="<", width=3, command=lambda: self.step_shot(-1)).pack(side="left")
-        self.d_cap = ttk.Label(nav, text="", style="Muted.TLabel", background=PANEL, anchor="center")
-        self.d_cap.pack(side="left", fill="x", expand=True)
-        ttk.Button(nav, text=">", width=3, command=lambda: self.step_shot(1)).pack(side="right")
-        box = tk.Frame(d, width=SHOT_W + 4, height=SHOT_W * 9 // 16 + 6, bg=ENTRY)
-        box.pack(pady=(4, 8))
-        box.pack_propagate(False)
-        self.d_shot = tk.Label(box, bg=ENTRY, fg=MUTED, text="", font=self.f["small"], wraplength=330)
-        self.d_shot.pack(fill="both", expand=True)
+        self.g = None
+        # pinned at the bottom
         btns = ttk.Frame(d, style="Panel.TFrame")
         btns.pack(side="bottom", fill="x", pady=(8, 0))
         self.progress = ttk.Progressbar(d, maximum=100, mode="determinate")
@@ -386,15 +370,57 @@ class App:
         self.b_play = ttk.Button(btns, text="Play", style="Accent.TButton", command=self.play)
         for b in (self.b_install, self.b_remove, self.b_play):
             b.pack(side="left", padx=(0, 8))
-        tf = ttk.Frame(d, style="Panel.TFrame")
-        tf.pack(fill="both", expand=True)
-        self.d_notes = tk.Text(tf, wrap="word", height=6, bg=ENTRY, fg=TEXT, relief="flat", font=self.f["small"],
-                               padx=8, pady=6, highlightthickness=1, highlightbackground=BORDER, state="disabled",
-                               insertbackground=TEXT, selectbackground=ACCENT, spacing3=3)
-        nsb = ttk.Scrollbar(tf, orient="vertical", command=self.d_notes.yview)
-        self.d_notes.configure(yscrollcommand=nsb.set)
-        nsb.pack(side="right", fill="y")
-        self.d_notes.pack(side="left", fill="both", expand=True)
+        # the scrolling area: a canvas holding one frame, its scroll region kept to the frame's size
+        area = ttk.Frame(d, style="Panel.TFrame")
+        area.pack(side="top", fill="both", expand=True)
+        self.d_scroll = tk.Canvas(area, bg=PANEL, highlightthickness=0, width=DETAILS_W)
+        dsb = ttk.Scrollbar(area, orient="vertical", command=self.d_scroll.yview)
+        self.d_scroll.configure(yscrollcommand=dsb.set)
+        dsb.pack(side="right", fill="y")
+        self.d_scroll.pack(side="left", fill="both", expand=True)
+        inner = ttk.Frame(self.d_scroll, style="Panel.TFrame")
+        self.d_win = self.d_scroll.create_window(0, 0, window=inner, anchor="nw", width=DETAILS_W)
+        inner.bind("<Configure>", lambda e: self.d_scroll.configure(scrollregion=self.d_scroll.bbox("all")))
+        self.d_scroll.bind("<Configure>", lambda e: self._details_width(e.width))
+        self.d_width = DETAILS_W
+        # the wheel scrolls this pane while the pointer is over it (the cards keep their own)
+        area.bind("<Enter>", lambda e: self._details_wheel(True))
+        area.bind("<Leave>", lambda e: self._details_wheel(False))
+        head = ttk.Frame(inner, style="Panel.TFrame")
+        head.pack(fill="x")
+        ttk.Button(head, text="Open on the web", style="Link.TButton", command=self.open_web).pack(side="right", anchor="n")
+        self.d_title = ttk.Label(head, text="", style="Title.TLabel", background=PANEL, wraplength=230)
+        self.d_title.pack(side="left", anchor="w")
+        self.d_sum = ttk.Label(inner, text="", style="Muted.TLabel", background=PANEL, wraplength=DETAILS_W - 8,
+                               justify="left")
+        self.d_sum.pack(anchor="w", pady=(2, 8))
+        self.d_medal = tk.Canvas(inner, width=DETAILS_W, height=44, bg=PANEL, highlightthickness=0)
+        self.d_medal.pack(anchor="w")
+        self.d_aspects = tk.Canvas(inner, width=DETAILS_W, height=ASPECT_TOP + 7 * ASPECT_ROW + 4, bg=PANEL,
+                                   highlightthickness=0)
+        self.d_aspects.pack(anchor="w", pady=(6, 0))
+        self.d_stats = ttk.Label(inner, text="", style="Muted.TLabel", background=PANEL, wraplength=DETAILS_W - 8,
+                                 justify="left")
+        self.d_stats.pack(anchor="w", pady=(4, 8))
+        self.d_shots = ttk.Frame(inner, style="Panel.TFrame")
+        self.d_shots.pack(fill="x")
+        nav = ttk.Frame(self.d_shots, style="Panel.TFrame")
+        nav.pack(fill="x")
+        ttk.Button(nav, text="<", width=3, command=lambda: self.step_shot(-1)).pack(side="left")
+        self.d_cap = ttk.Label(nav, text="", style="Muted.TLabel", background=PANEL, anchor="center")
+        self.d_cap.pack(side="left", fill="x", expand=True)
+        ttk.Button(nav, text=">", width=3, command=lambda: self.step_shot(1)).pack(side="right")
+        box = tk.Frame(self.d_shots, width=SHOT_W + 4, height=SHOT_W * 9 // 16 + 6, bg=ENTRY)
+        box.pack(pady=(4, 8))
+        box.pack_propagate(False)
+        self.d_shot = tk.Label(box, bg=ENTRY, fg=MUTED, text="", font=self.f["small"], wraplength=330)
+        self.d_shot.pack(fill="both", expand=True)
+        # the notes grow to their text (no second scrollbar inside the scrolling pane)
+        self.d_notes = tk.Text(inner, wrap="word", height=1, width=1, bg=ENTRY, fg=TEXT, relief="flat",
+                               font=self.f["small"], padx=8, pady=6, highlightthickness=1,
+                               highlightbackground=BORDER, state="disabled", insertbackground=TEXT,
+                               selectbackground=ACCENT, spacing3=3, cursor="arrow")
+        self.d_notes.pack(fill="x", pady=(0, 6))
         self.d_notes.tag_configure("h", foreground=MUTED, font=self.f["bold"], spacing1=6)
         self.d_notes.tag_configure("warn", foreground=ACCENT_LIGHT)
         self.show(None)
@@ -510,6 +536,8 @@ class App:
             self.d_shot.configure(image="", text="")
             self.d_shot.image = None
             notes.configure(state="disabled")
+            self.d_shots.pack_forget()
+            self._fit_notes()
             self.update_buttons()
             return
         r = g["rating"]
@@ -524,6 +552,11 @@ class App:
             d.create_text(178, 24, text="of 100" + ("  (cap: " + r["reason"] + ")" if r.get("capped") else ""),
                           fill=MUTED, font=self.f["small"], anchor="w")
         self.draw_aspects(r)
+        if not self.d_shots.winfo_ismapped():
+            if self.d_notes.winfo_ismapped():
+                self.d_shots.pack(fill="x", before=self.d_notes)
+            else:
+                self.d_shots.pack(fill="x")
         stats = []
         if r.get("hours"):
             stats.append("%.1f h played, %d crash%s%s" % (r["hours"], r["crashes"], "" if r["crashes"] == 1 else "es",
@@ -539,34 +572,76 @@ class App:
             notes.insert("end", "Known issues\n", "h")
             for k in g["known_issues"]:
                 notes.insert("end", "- " + k + "\n")
-        det = [(a["name"], a["detail"]) for k in ASPECT_ORDER if (a := r["aspects"].get(k)) and a.get("detail")]
-        if det:
-            notes.insert("end", "Measurements\n", "h")
-            for n, t in det:
-                notes.insert("end", "%s: %s\n" % (n, t))
         if g.get("patches"):
             notes.insert("end", "Patched by Walnut (%d)\n" % len(g["patches"]), "h")
             for p in g["patches"]:
                 notes.insert("end", "- " + p["subject"] + "\n")
         notes.configure(state="disabled")
+        self._fit_notes()
+        self.d_scroll.yview_moveto(0)
         self.update_buttons()
 
+    def _details_width(self, w):
+        """the pane was dragged or the window resized: the content follows its width"""
+        w = max(DETAILS_W, w)
+        if w == self.d_width:
+            return
+        self.d_width = w
+        self.d_scroll.itemconfigure(self.d_win, width=w)
+        self.d_sum.configure(wraplength=w - 8)
+        self.d_stats.configure(wraplength=w - 8)
+        self.d_title.configure(wraplength=max(200, w - 150))
+        self.d_medal.configure(width=w)
+        self.d_aspects.configure(width=w)
+        if self.g is not None:
+            self.d_aspects.delete("all")
+            self.draw_aspects(self.g["rating"])
+            self._fit_notes()
+
+    def _details_wheel(self, on):
+        if on:
+            self.root.bind_all("<Button-4>", lambda e: self.d_scroll.yview_scroll(-2, "units"))
+            self.root.bind_all("<Button-5>", lambda e: self.d_scroll.yview_scroll(2, "units"))
+            self.root.bind_all("<MouseWheel>", lambda e: self.d_scroll.yview_scroll(-2 if e.delta > 0 else 2, "units"))
+        else:
+            for ev in ("<Button-4>", "<Button-5>", "<MouseWheel>"):
+                self.root.unbind_all(ev)
+
+    def _fit_notes(self):
+        """the notes box as tall as its wrapped text (hidden when empty)"""
+        t = self.d_notes
+        if not t.get("1.0", "end-1c").strip():
+            t.pack_forget()
+            return
+        if not t.winfo_ismapped():
+            t.pack(fill="x", pady=(0, 6))
+        t.update_idletasks()
+        lines = t.count("1.0", "end", "displaylines")
+        t.configure(height=max(1, (lines[0] if isinstance(lines, tuple) else lines or 1)))
+
     def draw_aspects(self, r):
+        """one row per aspect: its name, a bar and the score out of 100, and under them what was
+        measured (a bare "2" next to "Frame rate" read as 2 fps)"""
         c = self.d_aspects
+        c.create_text(0, 8, text="Scores out of 100, with what was measured", fill=MUTED, anchor="w",
+                      font=self.f["small"])
         for n, k in enumerate(ASPECT_ORDER):
             a = r["aspects"].get(k)
             if not a:
                 continue
-            y = 4 + n * 22
+            y = ASPECT_TOP + n * ASPECT_ROW
             c.create_text(0, y + 9, text=a["name"], fill=TEXT, anchor="w", font=self.f["small"])
             c.create_rectangle(110, y + 4, 270, y + 14, fill=ENTRY, outline=BORDER)
             sc = a["score"]
             if sc is None:
                 c.create_text(278, y + 9, text="not measured", fill=MUTED, anchor="w", font=self.f["small"])
-            else:
-                if sc:
-                    c.create_rectangle(110, y + 4, 110 + 1.6 * sc, y + 14, fill=ACCENT, outline="")
-                c.create_text(278, y + 9, text=str(sc), fill=TEXT, anchor="w", font=self.f["bold"])
+                continue
+            if sc:
+                c.create_rectangle(110, y + 4, 110 + 1.6 * sc, y + 14, fill=ACCENT, outline="")
+            c.create_text(278, y + 9, text="%d/100" % round(sc), fill=TEXT, anchor="w", font=self.f["bold"])
+            if a.get("detail"):
+                c.create_text(110, y + 24, text=a["detail"], fill=MUTED, anchor="w", font=self.f["small"],
+                              width=max(200, getattr(self, "d_width", DETAILS_W) - 112))
 
     # -- screenshots
     def step_shot(self, d):
