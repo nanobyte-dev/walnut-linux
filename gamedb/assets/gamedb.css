@@ -53,7 +53,6 @@ main.wrap { padding-bottom: 3rem; }
 .medal-score { font-weight: 500; }
 
 /* the card grid */
-.intro p { max-width: 70ch; }
 .filters { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; margin: 1.2rem 0; padding: 0.8rem;
   background: var(--panel); border: 1px solid var(--border); border-radius: 10px; }
 .filters[hidden], .card[hidden], #f-empty[hidden] { display: none; }
