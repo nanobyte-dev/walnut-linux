@@ -378,7 +378,7 @@ class Catalog(unittest.TestCase):
             (p / "series").write_text("0001-a.patch\n0002-b.patch\n")
             (p / "0001-a.patch").write_text("From: x\nSubject: [PATCH 1/2] first thing\n and its tail\nDate: y\n\n---\n")
             (p / "0002-b.patch").write_text("Subject: second\n")
-            self.assertEqual(catalog.patch_subjects("pkg", Path(t)), ["first thing and its tail", "second"])
+            self.assertEqual([s for _, s in catalog.patch_subjects("pkg", Path(t))], ["first thing and its tail", "second"])
             self.assertEqual(catalog.patch_subjects("none", Path(t)), [])
 
     def test_versions(self):

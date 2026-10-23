@@ -7,10 +7,10 @@ Design
   (never stored: change the scoring and every medal follows), a test summary per test, the badges
   and the "patched by Walnut" facts. The result:
     {"schema": 1, "generated": "<UTC>", "games": [{"id", "title", ..., "rating": {...}, "tests": [...],
-      "patched": bool, "patches": [subjects], "debs": [{"package", "url"}], "badges": [...]}]}
+      "patched": bool, "patches": [{source, subject, file, url}], "debs": [{"package", "url"}], "badges": [...]}]}
   Scores are rounded to whole numbers here, the only place that rounds.
 - Patched by Walnut: a game whose patched_by names a directory of ours (<dir>/package.conf with
-  <dir>/patches/series). The patches are listed by the Subject: line of each patch file, in series
+  <dir>/patches/series). The patches are listed by the Subject: line of each patch file (linked to the file on the public repository's main branch), in series
   order. With --deb-index URL (the apt repository root, e.g. https://walnut.nanobyte.dev/apt) the
   stable suite's dists/stable/main/binary-ppc64/Packages.xz is read and each of the game's packages
   found there gets a direct .deb link (Filename: -> URL/<Filename>). Without the option, or without a
@@ -50,8 +50,13 @@ def read_game(gdir):
     return fm, tests
 
 
+# where the patch files are read on the web: the public repository's main branch
+PATCH_URL = "https://github.com/nanobyte-dev/walnut-linux/blob/main/%s/patches/%s"
+
+
 def patch_subjects(srcdir, repo):
-    """the Subject: lines of <srcdir>/patches/series' patches, in order (wrapped lines joined, "[PATCH n/m]" cut)"""
+    """[(file name, Subject: line)] of <srcdir>/patches/series' patches, in order (wrapped lines joined,
+    "[PATCH n/m]" cut)"""
     pdir = repo / srcdir / "patches"
     series = pdir / "series"
     if not series.exists():
@@ -71,7 +76,7 @@ def patch_subjects(srcdir, repo):
                         break
                 break
         subj = re.sub(r"^\[PATCH[^\]]*\]\s*", "", subj or name)
-        out.append(subj)
+        out.append((name, subj))
     return out
 
 
@@ -222,7 +227,7 @@ def build_game(gdir, repo, debs):
         subjects = patch_subjects(src, repo)
         if subjects:
             patched_dirs.append(src)
-            patches += [{"source": src, "subject": s} for s in subjects]
+            patches += [{"source": src, "subject": s, "file": f, "url": PATCH_URL % (src, f)} for f, s in subjects]
     links = [{"package": p, "url": debs[p]}
              for p in dict.fromkeys(fm["packages"] + patched_dirs) if p in debs]
     badges = []

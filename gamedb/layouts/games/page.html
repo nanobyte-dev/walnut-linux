@@ -70,7 +70,7 @@
     <h2>Walnut's changes</h2>
     <p>These changes are on top of the upstream or Debian source; the work of porting to the PS3 (big endian, the RSX's GPU driver, 256 MB of memory).</p>
     <details><summary>{{ len $g.patches }} patches</summary>
-      <ol class="patches">{{ range $g.patches }}<li>{{ .subject }} <span class="muted">({{ .source }})</span></li>{{ end }}</ol>
+      <ol class="patches">{{ range $g.patches }}<li><a href="{{ .url }}">{{ .subject }}</a> <span class="muted">({{ .source }})</span></li>{{ end }}</ol>
     </details>
     {{ with $g.debs }}
     <p>Download for a manual install (ppc64, stable):</p>
