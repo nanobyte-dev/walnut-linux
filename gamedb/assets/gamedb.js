@@ -11,7 +11,7 @@
   if (bar && cards.length) {
     bar.hidden = false;
     var search = control("f-search"), category = control("f-category"), medal = control("f-medal"),
-        tag = control("f-tag"), patched = control("f-patched"), count = control("f-count"),
+        tag = control("f-tag"), count = control("f-count"),
         empty = control("f-empty");
 
     // the filter state lives in the URL hash (#q=...&category=...), so a filtered list can be linked
@@ -21,7 +21,6 @@
       category.value = p.get("category") || "";
       medal.value = p.get("medal") || "";
       tag.value = p.get("tag") || "";
-      patched.checked = p.get("patched") === "1";
     }
 
     function writeHash() {
@@ -30,7 +29,6 @@
       if (category.value) p.set("category", category.value);
       if (medal.value) p.set("medal", medal.value);
       if (tag.value) p.set("tag", tag.value);
-      if (patched.checked) p.set("patched", "1");
       var h = p.toString();
       history.replaceState(null, "", h ? "#" + h : location.pathname + location.search);
     }
@@ -43,7 +41,6 @@
         var ok = (!category.value || d.category.split(" ").indexOf(category.value) >= 0) &&
                  (!medal.value || d.medal === medal.value) &&
                  (!tag.value || d.tags.split("|").indexOf(tag.value) >= 0) &&
-                 (!patched.checked || d.patched === "true") &&
                  words.every(function (w) { return d.search.indexOf(w) >= 0; });
         c.hidden = !ok;
         if (ok) shown++;
@@ -53,7 +50,7 @@
       writeHash();
     }
 
-    [search, category, medal, tag, patched].forEach(function (el) {
+    [search, category, medal, tag].forEach(function (el) {
       el.addEventListener(el === search ? "input" : "change", apply);
     });
     window.addEventListener("hashchange", function () { readHash(); apply(); });

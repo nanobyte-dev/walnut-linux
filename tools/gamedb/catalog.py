@@ -226,8 +226,6 @@ def build_game(gdir, repo, debs):
     links = [{"package": p, "url": debs[p]}
              for p in dict.fromkeys(fm["packages"] + patched_dirs) if p in debs]
     badges = []
-    if patches:
-        badges.append("patched")
     if fm["needs_data"]:
         badges.append("needs-data")
     if fm["controller"] != "unknown":

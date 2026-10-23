@@ -13,21 +13,20 @@
     {{ $tags := slice }}{{ range $games }}{{ range .tags }}{{ $tags = $tags | append . }}{{ end }}{{ end }}
     {{ range sort (uniq $tags) }}<option value="{{ . }}">{{ . }}</option>{{ end }}
   </select>
-  <label class="check"><input type="checkbox" id="f-patched"> Patched by Walnut</label>
   <span id="f-count" class="muted" aria-live="polite"></span>
 </div>
 <ul class="cards" id="cards">
 {{ range sort $games "title" }}
   {{ $page := site.GetPage (printf "/games/%s" .id) }}
   <li class="card" data-id="{{ .id }}" data-category="{{ delimit .categories " " }}" data-medal="{{ lower .rating.medal }}"
-      data-tags="{{ delimit .tags "|" }}" data-patched="{{ .patched }}" data-needs-data="{{ .needs_data }}"
+      data-tags="{{ delimit .tags "|" }}" data-needs-data="{{ .needs_data }}"
       data-search="{{ lower (printf "%s %s %s %s" .title .summary (delimit .tags " ") (delimit .categories " ")) }}">
     <a href="{{ $page.RelPermalink }}">
       {{ with $page.Resources.Get "thumb.png" }}<img src="{{ .RelPermalink }}" width="256" height="144" alt="" loading="lazy">{{ end }}
       <div class="card-body">
         <h2>{{ .title }}</h2>
         <p class="meta">{{ partial "medal.html" .rating }}</p>
-        <p class="cat">{{ delimit .categories ", " }}{{ if .patched }} · <span class="tag-walnut">patched by Walnut</span>{{ end }}</p>
+        <p class="cat">{{ delimit .categories ", " }}</p>
         <p class="summary">{{ .summary }}</p>
       </div>
     </a>

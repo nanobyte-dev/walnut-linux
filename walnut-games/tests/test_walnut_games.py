@@ -394,7 +394,6 @@ class AppFunctions(unittest.TestCase):
         self.assertEqual(names(category="racing"), ["Zed"])
         self.assertEqual(names(medal="Untested"), ["Abe"])
         self.assertEqual(names(installed_only=True), ["Mid"])
-        self.assertEqual(names(patched_only=True), ["Zed"])
 
     def test_helper_lines(self):
         self.assertEqual(app.parse_helper_line("progress 42 installing x\n"), ("progress", 42, "installing x"))

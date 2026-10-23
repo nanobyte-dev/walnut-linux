@@ -73,7 +73,6 @@ main.wrap { padding-bottom: 3rem; }
 .card .meta, .card .cat { margin: 0.2rem 0; }
 .card .cat { color: var(--muted); font-size: 0.85rem; }
 .card .summary { margin: 0.5rem 0 0; font-size: 0.9rem; }
-.tag-walnut { color: var(--accent-light); }
 
 /* a game's page */
 .game-head { display: flex; gap: 1.5rem; align-items: flex-start; flex-wrap: wrap; margin-top: 0.8rem; }
@@ -81,7 +80,6 @@ main.wrap { padding-bottom: 3rem; }
 .meta { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; margin: 0.4rem 0; }
 .badges { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .badge { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 0.05em 0.55em; font-size: 0.8rem; color: var(--muted); }
-.badge-patched { color: var(--accent-light); border-color: var(--accent-deep); }
 .badge-no-sound, .badge-low-memory, .badge-needs-data { color: #f0b9a0; }
 .note { background: var(--panel); border-left: 3px solid var(--accent-deep); padding: 0.5rem 0.9rem; border-radius: 0 6px 6px 0; }
 table { border-collapse: collapse; width: 100%; }

@@ -2,7 +2,7 @@
 
 Design
 - A plain Tk window for mouse and keyboard: a top bar (search, category, medal, sort, "installed
-  only", "patched by Walnut"), the games as cards on a tk.Canvas, and a details pane on the right.
+  only"), the games as cards on a tk.Canvas, and a details pane on the right.
   Stdlib and tkinter; PIL only to show the JPEG screenshots (Tk itself reads PNG, the thumbnails).
 - The catalog is the one packaged in /usr/share/walnut-games/ (catalog.json, games/<id>/thumb.png
   and the screenshots): the same list the root helper installs from, so the app works offline. A
@@ -101,7 +101,7 @@ def is_installed(game, have):
     return all(p in have for p in game["packages"])
 
 
-def filter_games(games, have, text="", category="All", medal="All", installed_only=False, patched_only=False,
+def filter_games(games, have, text="", category="All", medal="All", installed_only=False,
                  sort="Best first"):
     words = text.lower().split()
     out = []
@@ -115,8 +115,6 @@ def filter_games(games, have, text="", category="All", medal="All", installed_on
         if medal != "All" and medal_of(g) != medal:
             continue
         if installed_only and not is_installed(g, have):
-            continue
-        if patched_only and not g.get("patched"):
             continue
         out.append(g)
     if sort == "Name":
@@ -389,7 +387,7 @@ class App:
         bar.pack(fill="x")
         self.v_text, self.v_cat, self.v_medal = tk.StringVar(), tk.StringVar(value="All"), tk.StringVar(value="All")
         self.v_sort = tk.StringVar(value="Best first")
-        self.v_inst, self.v_patch = tk.BooleanVar(), tk.BooleanVar()
+        self.v_inst = tk.BooleanVar()
         ttk.Label(bar, text="Walnut Games", font=self.f["big"], style="Panel.TLabel").pack(side="left", padx=(0, 16))
         self.search = ttk.Entry(bar, textvariable=self.v_text, width=26)
         self.search.pack(side="left", padx=(0, 10))
@@ -401,7 +399,7 @@ class App:
             cb = ttk.Combobox(bar, textvariable=var, values=vals, state="readonly", width=wd)
             cb.pack(side="left", padx=4)
             cb.bind("<<ComboboxSelected>>", lambda e: self.apply_filters())
-        for var, text in ((self.v_inst, "Installed only"), (self.v_patch, "Patched by Walnut")):
+        for var, text in ((self.v_inst, "Installed only"),):
             ttk.Checkbutton(bar, text=text, variable=var, command=self.apply_filters, style="TCheckbutton").pack(
                 side="left", padx=8)
         self.count = ttk.Label(bar, text="", style="Muted.TLabel", background=PANEL)
@@ -513,7 +511,7 @@ class App:
     # -- cards
     def apply_filters(self, *a):
         self.shown = filter_games(self.games, self.have, self.v_text.get(), self.v_cat.get(), self.v_medal.get(),
-                                  self.v_inst.get(), self.v_patch.get(), self.v_sort.get())
+                                  self.v_inst.get(), self.v_sort.get())
         self.count.configure(text="%d of %d games" % (len(self.shown), len(self.games)))
         self.layout(reset=True)
 
@@ -564,8 +562,6 @@ class App:
         flags = []
         if is_installed(g, self.have):
             flags.append("Installed")
-        if g.get("patched"):
-            flags.append("Patched")
         if flags:
             c.create_text(x + CARD_W - 10, py + 11, text="  ".join(flags), fill=ACCENT_LIGHT, anchor="e",
                           font=self.f["small"], tags=(tag,))
@@ -660,7 +656,7 @@ class App:
             for k in g["known_issues"]:
                 notes.insert("end", "- " + k + "\n")
         if g.get("patches"):
-            notes.insert("end", "Patched by Walnut (%d)\n" % len(g["patches"]), "h")
+            notes.insert("end", "Walnut's changes (%d)\n" % len(g["patches"]), "h")
             for p in g["patches"]:
                 notes.insert("end", "- " + p["subject"] + "\n")
         notes.configure(state="disabled")

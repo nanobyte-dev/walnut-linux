@@ -4,7 +4,7 @@ A list of the games that run on Walnut, each played and measured on the PS3, com
 game on a PC, and rated. It is two things over one catalog:
 
 - **the website**, https://walnut.nanobyte.dev/gamedb/: a card for every game with its medal,
-  filters (category, medal, tags, "patched by Walnut") and search; each game's page has the
+  filters (category, medal, tags) and search; each game's page has the
   screenshots (PS3 next to PC), the test results, and the `sudo apt install` line;
 - **the desktop app** on Walnut (`walnut-games`): the same cards, with Install, Remove and Play.
 
@@ -111,7 +111,7 @@ costs the second half.
   rises to 100 over its first three hours; with crashes it is read
   off the rate: 1 in 3 hours scores 75, 1 an hour 55, 4 an hour 35, 12 an hour 0.
 - **Badges, outside the medal:** controller support (full, partial, keyboard), needs your own game
-  data, no sound, low memory (under 10 MB free at some point in play), patched by Walnut.
+  data, no sound, low memory (under 10 MB free at some point in play).
 - **Every page shows the medal, the overall score ("Gold · 82"), each aspect's score and the
   numbers behind it.**
 
@@ -149,8 +149,8 @@ frame-rate scale (OpenTTD plays fine at 38 fps and scores 31 on frame rate); one
 ## The desktop app
 
 `walnut-games` (package `walnut-games`, Tk, mouse and keyboard) shows the catalog as cards: a
-thumbnail, the medal with its score, the name and categories, "Installed" and "Patched" marks. The top bar
-has search, category, medal and sort, "installed only" and "patched by Walnut". A click opens the
+thumbnail, the medal with its score, the name and categories, an "Installed" mark. The top bar
+has search, category, medal and sort, and "installed only". A click opens the
 details: medal and overall score, the aspect scores as bars, hours played and crashes, one screenshot at a
 time (PS3 first, then the PC's, with prev/next), known issues, the measurements, the patch list, and the
 buttons Install, Remove, Play and "Open on the web". The window follows the Walnut palette

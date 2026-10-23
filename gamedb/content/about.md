@@ -86,9 +86,8 @@ with its GL 1.2 and GL 2.0 renderers. Each is played and rated on its own, and t
 the best one's, with its name ("Gold, with OpenArena (GL 1.2)"). The page lists them all.
 
 **Badges** sit next to the medal and don't change it: how well a controller works, whether the game
-needs your own game files (we never ship those), no sound, low memory, and **patched by Walnut**
-for games we changed to run better on the PS3; their pages list those changes, with the packages
-to download.
+needs your own game files (we never ship those), no sound and low memory. A game we changed to run
+better on the PS3 lists those changes on its page, with the packages to download.
 
 ## Where the numbers come from
 
