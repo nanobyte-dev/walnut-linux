@@ -32,10 +32,17 @@ Walnut 0.1.0, the first public alpha, is out ([release/ALPHA.md](release/ALPHA.m
 
 1. A round of cleanups (disk space on the PC).
 2. An Atomic Bomberman clone on the PS3, packaged.
-3. Then what the release interrupted:
-   - a curated launcher / store / discovery tool in the distro;
-   - new games;
-   - the side-by-side comparison with the PC (PS3 screenshots next to PC captures, judged by eye).
+3. Then what the release interrupted, now one stage: **Walnut Games** ([GAMEDB.md](GAMEDB.md)), a
+   games database at walnut.nanobyte.dev/gamedb/ and a launcher app on Walnut, every game played,
+   measured and compared with the PC, rated with medals. Steps:
+   - P0 the rating, calibrated on the 13 benchmarked games (done, the user's OK);
+   - P1 the catalog (one folder per game), the scoring and import tools, the Hugo site (3 games);
+   - P2 the server: screenshots as their own upload kind, /gamedb/ published;
+   - P3 the session recorder (the ~10-minute played session, its end-of-session form);
+   - P4 the desktop app (Tk) and its install helper;
+   - P5 the games one by one to about 50, new games first.
+
+The rest of this file predates the 0.1.0 release and gets a refresh alongside P2.
 
 ## Where we are (2026-10-19)
 

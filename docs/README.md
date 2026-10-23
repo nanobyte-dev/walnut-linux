@@ -36,6 +36,7 @@ layout and the build commands are in [LAYOUT.md](LAYOUT.md).
 | [GAMEOS-HDD.md](GAMEOS-HDD.md) | GameOS's disk read-only from Linux, the SSD disk image (Phase A and B), the kernel write guard (local/0045) |
 | [OTHEROS-PATCHES.md](OTHEROS-PATCHES.md) | Survey of PS3 kernel patches outside our tree: what we carry, what we ported, the user's decisions |
 | [PACKAGING.md](PACKAGING.md) | The base system and toolchain, how our software becomes Debian packages, the apt repository, deploys |
+| [GAMEDB.md](GAMEDB.md) | Walnut Games: the games database (walnut.nanobyte.dev/gamedb/) and the launcher app, how games are tested, scored and given medals |
 | [WALNUT-SERVER.md](WALNUT-SERVER.md) | walnut.nanobyte.dev's containers, and why concurrent uploads, publishes and ccache writes can't break anything |
 | [release/ALPHA.md](release/ALPHA.md) | Walnut 0.1-alpha, the first public release: plan, milestones M0-M9, the review's blockers, cuts, verification |
 | [release/TESTING-0.1.md](release/TESTING-0.1.md) | Testing the nightlies before 0.1.0: feedback from the PS3 and what was done about each |
