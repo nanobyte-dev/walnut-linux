@@ -2,13 +2,13 @@ Source: ps3-desktop
 Section: x11
 Priority: optional
 Maintainer: PS3 Linux project <ps3@localhost>
-Build-Depends: debhelper-compat (= 13), sudo
+Build-Depends: debhelper-compat (= 13), sudo, python3:any
 Standards-Version: 4.7.2
 Rules-Requires-Root: no
 
 Package: ps3-desktop
 Architecture: all
-Depends: ${misc:Depends}, ps3-system (>= 0.367~), dbus-user-session, sudo, xserver-xorg-core, xserver-xorg-legacy,
+Depends: ${misc:Depends}, ps3-system (>= 0.367~), dbus-user-session, alsa-utils, sudo, xserver-xorg-core, xserver-xorg-legacy,
  xinit, xauth, x11-xserver-utils, x11-utils, xinput, xserver-xorg-input-joystick,
  xserver-xorg-input-libinput, openbox, tint2, jgmenu, pcmanfm, desktop-base, greybird-gtk-theme,
  papirus-icon-theme, dunst, lxpolkit, lxterminal, network-manager-applet, pnmixer, gvfs, udev,

@@ -6,6 +6,7 @@ P := debian/ps3-desktop
 
 override_dh_auto_build:
 	visudo -cf debian/sudoers
+	python3 -I files/sounds/make-startup-chime.py debian/startup.wav
 
 override_dh_auto_install:
 	install -d $(P)/usr/bin $(P)/usr/lib/ps3/sbin
@@ -36,6 +37,7 @@ override_dh_auto_install:
 		gvfs-gphoto2-volume-monitor gvfs-afc-volume-monitor gvfs-goa-volume-monitor; do \
 		install -D -m 644 debian/gvfs-slice.conf $(P)/usr/lib/systemd/user/$$u.service.d/50-ps3-desktop.conf; \
 	done
+	install -D -m 644 debian/startup.wav $(P)/usr/share/sounds/walnut/startup.wav
 	install -d $(P)/usr/share/applications
 	install -m 644 files/applications/* $(P)/usr/share/applications/
 	install -D -m 644 files/autoexec.cfg $(P)/usr/lib/openarena/baseoa/autoexec.cfg
