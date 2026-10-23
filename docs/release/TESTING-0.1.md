@@ -4,6 +4,8 @@ The first stable release waits for a round of testing on the PS3 with nightlies 
 2026-10-23). Feedback goes here as it comes in: what was seen, and what was done about it. When the
 list is clear, the stable run makes 0.1.0 (docs/WALNUT-SERVER.md "Release images").
 
+**0.1.0 was released on 2026-10-23** (the user's go; docs/release/ALPHA.md M7). Still open from this list: #5 (two systems on one console), traffic over a USB Ethernet dongle with a cable in (#24), a real gelic receive fault caught by the watchdog (#22), internal Wi-Fi (#25, backlog).
+
 ## Nightly nightly-20261022-2331-36f424d (internal install on the dev console, 2026-10-23)
 
 Installed with the archive's `walnut-install internal --host 10.0.0.77`: 16 GiB image in 836 s
