@@ -120,6 +120,9 @@ SESSION=${BENCH_SESSION:-0}; UP0=
 if [ "$SESSION" = 1 ]; then
 	unset -f during; parse() { :; }
 	if declare -F session > /dev/null; then session; fi	# the recipe's playable command
+	# the player's own game, as they left it: no config restored after the session (their settings
+	# stay), no recipe setup (it prepares benchmark files)
+	BACKUP=(); setup() { :; }
 	# the command of a menu launcher (session.sh): NUL-separated argv, ps3-game left out (launch= adds it)
 	if [ -n "${BENCH_CMD_FILE:-}" ]; then
 		mapfile -d '' -t CMD < "$BENCH_CMD_FILE"
