@@ -67,9 +67,9 @@ scores 75 and 2 s scores 55; for sound, one fault a minute scores 75, six score 
 | **Gold** | plays well | 75 or more |
 | **Silver** | good, with compromises | 55 or more |
 | **Bronze** | works, with clear problems | 35 or more |
-| **Copper** | playable, but rough | 25 to 35 |
-| **Iron** | barely playable | 15 to 25 |
-| **Rust** | doesn't work: won't start, doesn't reach play, crashes in most sessions, or too slow (a median under 15 fps, or over 10 s of stutter a minute) | under 15, or any of those |
+| **Tin** | playable, but rough | 25 to 35 |
+| **Rust** | barely playable | 15 to 25 |
+| **Scrap** | doesn't work: won't start, doesn't reach play, crashes in most sessions, or too slow (a median under 15 fps, or over 10 s of stutter a minute) | under 15, or any of those |
 | **Untested** | nobody has played it on Walnut yet | |
 
 - **Leeway, with a weakest link.** The mean gives leeway: a game perfect everywhere at 50 fps loses
@@ -77,7 +77,7 @@ scores 75 and 2 s scores 55; for sound, one fault a minute scores 75, six score 
   counted on the Platinum-to-Bronze scale (an aspect under 35 counts as below Bronze). One near-miss
   doesn't cost a medal; one real failure isn't averaged away. A game that plays perfectly but is
   silent is Bronze, with a "no sound" badge.
-- **Rust shows its reason**: won't start, crashes, or too slow.
+- **Scrap shows its reason**: won't start, crashes, or too slow.
 - **Scores are medians over sessions**, so one bad or lucky run doesn't flip a medal.
 - **Stability needs hours.** The page shows the play time and crashes behind it ("0 crashes in
   1.7 h"); under an hour the stability score is marked provisional, and a full score needs three
@@ -110,10 +110,10 @@ the stall time (frames over 100 ms), load is unmeasured there, stability assumed
 | Neverball | 95 | 30 (a 3.9 s reload) | ~9 | 70 | 9 | Bronze (capped) |
 | OpenTTD, 8bpp | 31 | 94 | 0 (choppy music) | 65 | 0 | Bronze (capped) |
 | SuperTuxKart `lean` | 4 (21 fps) | 69 | ~67 | 63 | 4 | Bronze (capped) |
-| OpenTTD, 32bpp | 0 (11 fps) | 0 (52 s of stalls) | 0 | 37 | 0 | Rust (too slow) |
+| OpenTTD, 32bpp | 0 (11 fps) | 0 (52 s of stalls) | 0 | 37 | 0 | Scrap (too slow) |
 
 Every Bronze has a real problem behind it (four have known-bad sound, SuperTuxKart runs at 21 fps),
-and the 32bpp OpenTTD that can't be played is Rust, not Bronze. Open: whether strategy and
+and the 32bpp OpenTTD that can't be played is Scrap, not Bronze. Open: whether strategy and
 turn-based games need their own frame-rate scale (OpenTTD plays fine at 38 fps and scores 31 on frame
 rate); one scale for now, revisited after the first strategy sessions.
 
