@@ -1,0 +1,16 @@
+[Unit]
+Description=The PS3 sound card's volume control (alsa-lib's softvol "PCM"), before the saved volume is restored
+# snd_ps3 has no volume control; alsa-lib's PS3.conf puts a softvol in front of the card, which
+# creates its "PCM Playback Volume" control the first time the device is opened. Until then a fresh
+# boot has no volume to show or restore: the tray's volume applet found no card (TESTING-0.1 #23).
+# A millisecond of silence through front (softvol straight on the card, not dmix) creates it.
+ConditionPathExists=/proc/asound/PS3
+Before=alsa-restore.service alsa-state.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=-/usr/bin/aplay -q -M -D front:CARD=PS3 -t raw -f S16_BE -r 48000 -c 2 -s 48 /dev/zero
+
+[Install]
+WantedBy=sound.target
