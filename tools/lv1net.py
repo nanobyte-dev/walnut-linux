@@ -3,12 +3,15 @@
 /dev/ps3lv1call (the ps3lv1call module): the port status, the MAC address, the internal VLAN IDs
 (with the hypervisor's result codes, which gelic only logs at debug level) and the firmware version.
 Only lv1_net_control's GET commands (1 MAC, 2 port status, 4 VLAN ID, 6 channel) and
-lv1_get_version_info are called. Run as root: python3 -I lv1net.py"""
+lv1_get_version_info are called. Run as root: python3 -I lv1net.py
+"wol-arm" / "wol-disarm" instead make gelic's own two SET_WOL calls (magic packet on/off, the match
+filter added/deleted) at the hypervisor only; unlike ethtool, the system manager's power-off wake flag
+is never touched."""
 import os, struct, subprocess, sys
 
 DEV = "/dev/ps3lv1call"
 NET_CONTROL, VERSION_INFO = 194, 127
-GET_MAC, GET_PORT, GET_VLAN, GET_CHANNEL = 1, 2, 4, 6
+GET_MAC, GET_PORT, GET_VLAN, GET_CHANNEL, SET_WOL = 1, 2, 4, 6, 5
 VLAN = {"tx ethernet": 0x02, "tx wireless": 0x03, "rx ethernet": 0x12, "rx wireless": 0x13}
 RESULT = {0: "SUCCESS", -2: "RESOURCE_SHORTAGE", -3: "NO_PRIVILEGE", -4: "DENIED_BY_POLICY",
 	-5: "ACCESS_VIOLATION", -6: "NO_ENTRY", -7: "DUPLICATE_ENTRY", -8: "TYPE_MISMATCH", -9: "BUSY",
@@ -17,7 +20,9 @@ RESULT = {0: "SUCCESS", -2: "RESOURCE_SHORTAGE", -3: "NO_PRIVILEGE", -4: "DENIED
 	-18: "BAD_OPTION", -19: "IMPLEMENTATION_LIMITATION", -20: "NOT_IMPLEMENTED", -21: "INVALID_CLASS_ID",
 	-22: "CONSTRAINT_NOT_SATISFIED", -23: "ALIGNMENT_ERROR", -24: "HARDWARE_ERROR",
 	-25: "INVALID_DATA_FORMAT", -26: "INVALID_OPERATION", -32768: "INTERNAL_ERROR"}
-ALLOWED = {(NET_CONTROL, c) for c in (GET_MAC, GET_PORT, GET_VLAN, GET_CHANNEL)} | {(VERSION_INFO, None)}
+ALLOWED = {(NET_CONTROL, c) for c in (GET_MAC, GET_PORT, GET_VLAN, GET_CHANNEL, SET_WOL)} | {(VERSION_INFO, None)}
+# SET_WOL arguments, gelic_net_set_wol's: (magic packet 1, 0, on 1/off 0), (add 6/delete 7 match, 0, all 1)
+WOL = {"wol-arm": ((1, 0, 1), (6, 0, 1)), "wol-disarm": ((1, 0, 0), (7, 0, 1))}
 
 
 def call(num, *args, nout=2):
@@ -64,6 +69,11 @@ def main():
 		sys.exit("no net device with eth0's MAC %s on bus 0-7, dev 0-7" % mac)
 	bus, dev = found
 	print("gelic: bus %d dev %d (MAC %s matches eth0)" % (bus, dev, mac))
+	if len(sys.argv) > 1:
+		for a in WOL[sys.argv[1]]:
+			err, _ = call(NET_CONTROL, bus, dev, SET_WOL, *a)
+			print("%s: SET_WOL %s: %s" % (sys.argv[1], a, name(err)))
+		return
 	err, outs = call(NET_CONTROL, bus, dev, GET_PORT, 0x02, 0, 0)
 	print("port status: %s" % (port_status(outs[0]) if err == 0 else name(err)))
 	for label, ix in VLAN.items():
