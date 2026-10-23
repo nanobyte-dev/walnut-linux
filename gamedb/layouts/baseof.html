@@ -13,7 +13,7 @@
 <header class="site-header">
   <div class="wrap">
     <a class="brand" href="{{ site.Home.RelPermalink }}">Walnut Games</a>
-    <nav><a href="https://walnut.nanobyte.dev/">Walnut</a></nav>
+    <nav><a href="{{ "about/" | relURL }}">About the ratings</a> <a href="https://walnut.nanobyte.dev/">Walnut</a></nav>
   </div>
 </header>
 <main class="wrap">
@@ -21,7 +21,7 @@
 </main>
 <footer class="wrap site-footer">
   <p>Every game is played and measured on a PS3 running Walnut; the ratings are described in
-  <a href="https://github.com/nanobyte-dev/walnut-linux/blob/main/docs/GAMEDB.md">the rating rules</a>.
+  <a href="{{ "about/" | relURL }}">About the ratings</a>.
   Catalog built {{ hugo.Data.catalog.generated }}.</p>
 </footer>
 {{ $js := resources.Get "gamedb.js" | minify | fingerprint }}

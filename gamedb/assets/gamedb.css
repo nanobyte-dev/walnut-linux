@@ -106,3 +106,10 @@ details summary { cursor: pointer; color: var(--accent-light); }
   h1 { font-size: 1.6rem; }
   table.tests { font-size: 0.85rem; }
 }
+
+/* the About page */
+.site-header nav a { margin-left: 1.2rem; }
+.prose { max-width: 75ch; }
+.prose p, .prose li { line-height: 1.6; }
+.prose table { margin: 0.8rem 0 1.2rem; }
+.prose td .medal { white-space: nowrap; }
