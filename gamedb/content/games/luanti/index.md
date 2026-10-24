@@ -11,6 +11,10 @@ patched_by = ["luanti"]
 recipes = ["luanti:base"]
 needs_data = false
 controller = "keyboard"
+known_issues = [
+  "Starts in a window instead of fullscreen.",
+  "The options menu is broken.",
+]
 +++
 
 Luanti 5.15.2 runs on Walnut's own build, since Debian ships none for this CPU, with LuaJIT and the
