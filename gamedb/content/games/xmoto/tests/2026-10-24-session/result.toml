@@ -15,15 +15,15 @@ render = "1920x1080"
 
 [numbers]
 median_fps = 60.3
-low1_fps = 43.8
-stutter_s_per_min = 0.35
-longest_ms = 1358.0
-frames = 93439
+low1_fps = 43.9
+stutter_s_per_min = 0.27
+longest_ms = 320.7
+frames = 91784
 sound_faults_per_min = 12.22
 sound_faults = 320
-sound_dropouts = 11
+sound_dropouts = 8
 sound_dropouts_at_shots = 14
-sound_dropouts_per_min = 0.42
+sound_dropouts_per_min = 0.31
 xruns = 320
 xrun_gap_ms = 2233.1
 snd_stall = 0
@@ -36,9 +36,9 @@ shot_points = 4
 shot_differing = 0
 
 [scores]
-frame = 98.3
-smooth = 71.4
-sound = 97.9
+frame = 98.4
+smooth = 89.4
+sound = 98.5
 picture = 100.0
 load = 99.3
 

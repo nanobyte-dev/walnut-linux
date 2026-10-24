@@ -57,7 +57,8 @@ Between those ends the scores rise in steps. A few things worth knowing:
   shows the hours behind it ("0 crashes in 1.7 h").
 - **What can't be measured is left out.** If a game gives us no frame times or no clear moment when
   play starts, that score is left out and its weight goes to the others; the page says so.
-- **A rating comes from one session, the newest.** Older sessions stay on the page but don't count.
+- **Sessions measured the same way are combined**, the middle value of each score, so one lucky or
+  unlucky run doesn't decide a medal. The first 30 seconds of play are a warm-up and aren't measured.
 - **The rating is for the newest version.** Each test notes the Walnut release and the game's
   version it ran on. The medal comes from the newest of them, and a game's History table shows how
   it rated on every version before, so you can see a game get better (or worse) between releases.

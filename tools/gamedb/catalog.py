@@ -143,15 +143,23 @@ def version_groups(tests, packages):
     return sorted(groups.items(), key=lambda kv: max((t["date"], t["id"]) for t in kv[1]), reverse=True)
 
 
+def method(t):
+    """how a test was measured, for which tests can be merged: sound dropouts measured by the logger,
+    or only counted (before it existed)"""
+    return "dropouts" if "sound_dropouts" in t.get("numbers", {}) else "counts"
+
+
 def rated_tests(ts):
-    """what a rating is made from: the newest graded test (a session, or a benchmark run) alone, sessions
-    aren't merged (the user, 2026-10-25); capture runs add their picture"""
+    """what a rating is made from (ts: one version's tests): the graded tests (sessions, benchmark runs)
+    measured the way the newest one was, merged (medians); sessions measured differently aren't (the
+    user, 2026-10-25); capture runs add their picture"""
     graded = sorted((t for t in ts if t.get("kind") in GRADED), key=lambda t: (t["date"], t["id"]))
-    return graded[-1:] + [t for t in ts if t.get("kind") not in GRADED]
+    same = [t for t in graded if method(t) == method(graded[-1])] if graded else []
+    return same + [t for t in ts if t.get("kind") not in GRADED]
 
 
 def history(groups, fps_cap):
-    """one row per version: its own rating (from that version's newest session), for the website's
+    """one row per version: its own rating (from that version's sessions measured like its newest), for the website's
     comparison between versions"""
     out = []
     for (walnut, pkg, ver), ts in groups:
@@ -182,8 +190,8 @@ def launcher_groups(tests):
 
 
 def rate_launcher(tests, fm):
-    """one launcher's rating, from the newest session of the newest version that has one (capture runs
-    of any version add their picture), and its history (every version rated from its newest session)"""
+    """one launcher's rating, from the newest version's sessions measured like its newest one (capture
+    runs of any version add their picture), and its history (every version rated the same way)"""
     fps_cap = fm.get("fps_cap")
     groups = version_groups(tests, fm["packages"])
     current = next((k for k, ts in groups if any(t.get("kind") in GRADED for t in ts)), None)

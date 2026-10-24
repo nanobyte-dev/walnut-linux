@@ -297,8 +297,9 @@ class Importer(unittest.TestCase):
         self.assertEqual(r["date"], "2026-10-01")
         self.assertAlmostEqual(n["median_fps"], 50.0)
         self.assertEqual(n["longest_ms"], 400.0)
-        # five frames of 400 ms lose 0.38 s each: 1.9 s in 92 s of frames (4500 x 20 ms + 5 x 400 ms)
-        self.assertAlmostEqual(n["stutter_s_per_min"], 1.9 / (92 / 60), places=1)
+        # five frames of 400 ms lose 0.38 s each: 1.9 s in the frames after the warm-up (the frames run from
+        # the load's end at 10 s to 102 s; WARMUP_S after the load is 40 s: 62 s measured)
+        self.assertAlmostEqual(n["stutter_s_per_min"], 1.9 / (62 / 60), places=1)
         self.assertEqual(n["sound_faults"], 3)
         self.assertAlmostEqual(n["sound_faults_per_min"], 3 / (100 / 60), places=2)
         self.assertEqual(r["play_seconds"], 100.0)
@@ -308,14 +309,14 @@ class Importer(unittest.TestCase):
         self.assertNotIn("sound_dropouts", n)               # no ps3-xrunlog in this run: the counts score
 
     def test_sound_dropouts(self):
-        # 92 underruns counted, one of them audible (xruns.py), and one OpenAL wait: 2 dropouts in 100 s
+        # 92 underruns counted, one of them audible (xruns.py), and one OpenAL wait: 2 dropouts
         self.write_bench(xrunlog="on", xruns_logged="92", xruns_audible="1", xrun_gap_ms_total="310.25", oal_wait="1")
         r, _ = self.do()
         n = r["numbers"]
         self.assertEqual((n["sound_dropouts"], n["xruns"], n["xrun_gap_ms"]), (2, 92, 310.2))
-        self.assertAlmostEqual(n["sound_dropouts_per_min"], 1.2)
+        self.assertAlmostEqual(n["sound_dropouts_per_min"], 1.71)   # 2 in the 70 s of play after the warm-up
         self.assertEqual(n["sound_faults"], 4)                 # still recorded, no longer scored
-        self.assertAlmostEqual(r["scores"]["sound"], 50 + 45 - 10 / 3 * 0.2, places=1)   # 1.2 a minute: past (1, 45)
+        self.assertAlmostEqual(r["scores"]["sound"], 50 + 45 - 10 / 3 * 0.71, places=1)   # 1.71 a minute: past (1, 45)
         self.write_bench(xrunlog="unused", xruns_audible="")   # the plugin never saw the game's sound
         self.assertNotIn("sound_dropouts", self.do()[0]["numbers"])
 
@@ -453,10 +454,14 @@ class Catalog(unittest.TestCase):
             self.assertEqual(hist[0]["graded_by"], "capture")   # the newer version: picture only
             self.assertEqual(out["tests"][0]["walnut"], "0.2")      # runs newest first
 
-    def test_newest_session_alone(self):
-        ts = [{"id": "a", "date": "2026-10-23", "kind": "session"}, {"id": "c", "date": "2026-10-24", "kind": "session"},
-              {"id": "b", "date": "2026-10-23", "kind": "session"}, {"id": "p", "date": "2026-10-20", "kind": "capture"}]
-        self.assertEqual([t["id"] for t in catalog.rated_tests(ts)], ["c", "p"])
+    def test_sessions_merged_only_when_measured_alike(self):
+        logged = {"sound_dropouts": 3}
+        ts = [{"id": "a", "date": "2026-10-23", "kind": "session"}, {"id": "c", "date": "2026-10-24", "kind": "session", "numbers": logged},
+              {"id": "b", "date": "2026-10-23", "kind": "session"}, {"id": "d", "date": "2026-10-25", "kind": "session", "numbers": logged},
+              {"id": "p", "date": "2026-10-20", "kind": "capture"}]
+        # the newest (d) was measured with the dropout logger: merged with c, not with a and b
+        self.assertEqual([t["id"] for t in catalog.rated_tests(ts)], ["c", "d", "p"])
+        self.assertEqual([t["id"] for t in catalog.rated_tests(ts[:3])], ["c"])
         self.assertEqual(catalog.rated_tests([]), [])
 
     def test_launcher_groups(self):

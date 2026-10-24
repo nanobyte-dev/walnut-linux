@@ -15,10 +15,10 @@ render = "1920x1080"
 
 [numbers]
 median_fps = 60.2
-low1_fps = 40.1
-stutter_s_per_min = 1.31
-longest_ms = 1625.0
-frames = 21400
+low1_fps = 41.6
+stutter_s_per_min = 0.89
+longest_ms = 995.2
+frames = 19813
 sound_faults_per_min = 14.99
 sound_faults = 92
 snd_stall = 0
@@ -31,8 +31,8 @@ shot_points = 3
 shot_differing = 0
 
 [scores]
-frame = 93.0
-smooth = 64.2
+frame = 95.1
+smooth = 69.8
 sound = 88.0
 picture = 100.0
 load = 100.0

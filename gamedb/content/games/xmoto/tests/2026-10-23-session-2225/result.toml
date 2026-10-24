@@ -14,11 +14,11 @@ reached_play = true
 render = "1920x1080"
 
 [numbers]
-median_fps = 60.0
-low1_fps = 32.6
-stutter_s_per_min = 2.4
-longest_ms = 899.9
-frames = 4599
+median_fps = 59.9
+low1_fps = 34.4
+stutter_s_per_min = 1.28
+longest_ms = 732.7
+frames = 2947
 sound_faults_per_min = 52.18
 sound_faults = 72
 snd_stall = 0
@@ -27,8 +27,8 @@ min_avail_kb = 69172
 rss_mib = 62.0
 
 [scores]
-frame = 82.3
-smooth = 47.7
+frame = 84.9
+smooth = 64.6
 sound = 74.6
 load = 98.2
 

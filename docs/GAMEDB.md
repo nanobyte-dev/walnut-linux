@@ -100,8 +100,11 @@ curve because most of those faults were never heard: 40 at ten a minute, 32 at t
   doesn't cost a medal; one real failure isn't averaged away. A game that plays perfectly but is
   silent is Bronze, with a "no sound" badge.
 - **Scrap shows its reason**: won't start, crashes, or too slow.
-- **A rating is one session: the newest.** Sessions aren't merged; an older one stays on the page
-  as a test run but doesn't count. A new session (a new version, a better test) replaces the rating.
+- **Sessions measured alike are merged** (medians), those of the newest version measured the way its
+  newest session was: a session from before the sound dropout logger isn't merged with one after it
+  (catalog.py `method`); it stays on the page as a test run.
+- **The first 30 s of play are a warm-up** (the first level starting, caches filling): frame times,
+  stutter and sound dropouts are measured from 30 s after the load (import-run.py `WARMUP_S`).
 - **The recorder's own dropouts don't count.** Taking a screenshot reads 8 MB of video memory and
   starves the sound for a moment; the audible dropouts from half a second before a capture to two
   seconds after it are left out (result.toml keeps their number as `sound_dropouts_at_shots`).
