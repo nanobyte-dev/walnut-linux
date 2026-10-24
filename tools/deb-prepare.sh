@@ -66,13 +66,31 @@ if [ "$TYPE" = upstream ]; then
 	case "$ORIG" in *.tar.gz) ext=gz ;; *.tar.xz) ext=xz ;; *) echo "!! $ORIG: not .tar.gz/.tar.xz"; exit 1 ;; esac
 	cp "$ORIG" "$OUT/${SOURCE}_$UPVER.orig.tar.$ext"
 	tar -xf "$ORIG" -C "$T" --strip-components=1
+	# a component tarball the repository already has for this upstream version is reused as published:
+	# published files never change (the server refuses another file of the same name), and packing again
+	# would differ from it (openrct2's orig-opensfx, 2026-10-24); a new one is packed reproducibly
+	# (sorted, no owners, a fixed time) so two fresh builds of it are the same file
+	pool=${SOURCE:0:1}; case $SOURCE in lib?*) pool=${SOURCE:0:4} ;; esac
+	published() {	# published FILE: the repository's copy of FILE into $OUT, if it has one
+		local s
+		for s in ${WALNUT_POOLS:-testing stable}; do
+			curl -fsS --max-time 120 -o "$OUT/$1.part" "${WALNUT_APT:-https://walnut.nanobyte.dev/apt}/pool/$s/main/$pool/$SOURCE/$1" 2>/dev/null &&
+				mv "$OUT/$1.part" "$OUT/$1" && return 0
+		done
+		rm -f "$OUT/$1.part"; return 1
+	}
 	for c in $COMPONENTS; do
 		name=${c%%:*} path=${c#*:}
 		stage=$OUT/.component/$name
 		rm -rf "$OUT/.component"; mkdir -p "$stage"
 		if [ -d "$path" ]; then cp -a "$path"/. "$stage/"; else cp "$path" "$stage/"; fi
-		tar --sort=name --mtime="@$MTIME" --owner=0 --group=0 --numeric-owner -C "$OUT/.component" -cf - "$name" \
-			| gzip -n9 > "$OUT/${SOURCE}_$UPVER.orig-$name.tar.gz"
+		comp=${SOURCE}_$UPVER.orig-$name.tar.gz
+		if [ "${REUSE_PUBLISHED:-1}" = 1 ] && published "$comp"; then
+			echo ">> $comp: the repository's published copy"
+		else
+			tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -C "$OUT/.component" -cf - "$name" \
+				| gzip -n9 > "$OUT/$comp"
+		fi
 		cp -a "$stage" "$T/$name"
 		rm -rf "$OUT/.component"
 	done
