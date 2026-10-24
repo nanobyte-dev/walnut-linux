@@ -35,7 +35,7 @@ logged`).
 | 2 | Armagetron Advanced | Armagetron Advanced | ready | first start: a language menu and a player setup wait for a key |
 | 3 | Extreme Tux Racer | Extreme Tux Racer | ready | |
 | 4 | Neverball | Neverball | ready | the level reloads were 8 s of stutter a minute in the benchmark: does play feel smooth? |
-| 5 | Luanti | Luanti | ready | Minetest Game; map generation stalls expected |
+| 5 | Luanti | Luanti | ready | played 2026-10-24: Scrap (25 s of stutter a minute, frames up to 4.3 s). To fix (a package patch, then the known issues go): it starts in a window, the options menu is broken; the stutter (map generation and meshing) is the real problem |
 | 6 | Sauerbraten | Cube2:Demo (Debian's cube2 entry, with the cube2-data maps) | ready | |
 | 7 | OpenArena | OpenArena (GL 1.2), then OpenArena (GL 2.0) | ready | two launchers, one session each |
 | 8 | DSDA-Doom | DSDA-Doom (OpenGL), then DSDA-Doom (software) | ready | Freedoom 2; its music was the weak spot |
