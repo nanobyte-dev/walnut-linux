@@ -100,7 +100,8 @@ curve because most of those faults were never heard: 40 at ten a minute, 32 at t
   doesn't cost a medal; one real failure isn't averaged away. A game that plays perfectly but is
   silent is Bronze, with a "no sound" badge.
 - **Scrap shows its reason**: won't start, crashes, or too slow.
-- **Scores are medians over sessions**, so one bad or lucky run doesn't flip a medal.
+- **A rating is one session: the newest.** Sessions aren't merged; an older one stays on the page
+  as a test run but doesn't count. A new session (a new version, a better test) replaces the rating.
 - **The recorder's own dropouts don't count.** Taking a screenshot reads 8 MB of video memory and
   starves the sound for a moment; the audible dropouts from half a second before a capture to two
   seconds after it are left out (result.toml keeps their number as `sound_dropouts_at_shots`).

@@ -143,12 +143,19 @@ def version_groups(tests, packages):
     return sorted(groups.items(), key=lambda kv: max((t["date"], t["id"]) for t in kv[1]), reverse=True)
 
 
+def rated_tests(ts):
+    """what a rating is made from: the newest graded test (a session, or a benchmark run) alone, sessions
+    aren't merged (the user, 2026-10-25); capture runs add their picture"""
+    graded = sorted((t for t in ts if t.get("kind") in GRADED), key=lambda t: (t["date"], t["id"]))
+    return graded[-1:] + [t for t in ts if t.get("kind") not in GRADED]
+
+
 def history(groups, fps_cap):
-    """one row per version: its own rating (from that version's tests alone), for the website's
+    """one row per version: its own rating (from that version's newest session), for the website's
     comparison between versions"""
     out = []
     for (walnut, pkg, ver), ts in groups:
-        r = score.combine(ts, fps_cap)
+        r = score.combine(rated_tests(ts), fps_cap)
         out.append({"walnut": walnut, "package": pkg, "version": ver,
                     "first": min(t["date"] for t in ts), "last": max(t["date"] for t in ts), "tests": len(ts),
                     "hours": round(r["hours"], 2), "crashes": r["crashes"], "medal": r["medal"],
@@ -175,12 +182,12 @@ def launcher_groups(tests):
 
 
 def rate_launcher(tests, fm):
-    """one launcher's rating, from the newest version with a graded test (capture runs of any version
-    add their picture), and its history (every version rated from its own tests)"""
+    """one launcher's rating, from the newest session of the newest version that has one (capture runs
+    of any version add their picture), and its history (every version rated from its newest session)"""
     fps_cap = fm.get("fps_cap")
     groups = version_groups(tests, fm["packages"])
     current = next((k for k, ts in groups if any(t.get("kind") in GRADED for t in ts)), None)
-    cur = [t for k, ts in groups for t in ts if k == current or t.get("kind") not in GRADED]
+    cur = rated_tests([t for k, ts in groups for t in ts if k == current or t.get("kind") not in GRADED])
     cur.sort(key=lambda t: (t["date"], t["id"]))
     r = score.combine(cur, fps_cap)
     det = details(r, fps_cap)

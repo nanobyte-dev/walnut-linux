@@ -453,6 +453,12 @@ class Catalog(unittest.TestCase):
             self.assertEqual(hist[0]["graded_by"], "capture")   # the newer version: picture only
             self.assertEqual(out["tests"][0]["walnut"], "0.2")      # runs newest first
 
+    def test_newest_session_alone(self):
+        ts = [{"id": "a", "date": "2026-10-23", "kind": "session"}, {"id": "c", "date": "2026-10-24", "kind": "session"},
+              {"id": "b", "date": "2026-10-23", "kind": "session"}, {"id": "p", "date": "2026-10-20", "kind": "capture"}]
+        self.assertEqual([t["id"] for t in catalog.rated_tests(ts)], ["c", "p"])
+        self.assertEqual(catalog.rated_tests([]), [])
+
     def test_launcher_groups(self):
         def t(i, kind="session", launcher=None):
             d = {"id": i, "kind": kind, "date": "2026-10-24"}
