@@ -1,0 +1,73 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 25 Oct 2026 02:10:31 +0300
+Subject: Game controllers: Start opens the race menu (Escape), Select pauses
+
+In a race Start does what Escape does on the keyboard, so a whole game is
+navigable with the pad; pause moves to Select (joydev 8). Menus keep Start as
+Enter and Circle as back. The Help screen's controller column follows.
+
+diff --git a/src/help.cpp b/src/help.cpp
+--- a/src/help.cpp
++++ b/src/help.cpp
+@@ -37,7 +37,7 @@ TLabel* footnote;
+ 
+ // The fixed game controller scheme (State::Pad, Racing::Pad), shown next to the keys.
+ // DualShock 3 names; English only (not in the translation files).
+-#define PAD_LINES 11
++#define PAD_LINES 12
+ static TLabel* padHeadline;
+ static TLabel* padTexts[PAD_LINES];
+ static const char* const padLines[PAD_LINES] = {
+@@ -47,7 +47,8 @@ static const char* const padLines[PAD_LINES] = {
+ 	"Cross - jump (hold to charge)",
+ 	"Square - trick",
+ 	"Triangle - change view",
+-	"Start - pause",
++	"Select - pause",
++	"Start - race menu",
+ 	"In the menus:",
+ 	"D-pad or left stick - move",
+ 	"Cross or Start - select",
+diff --git a/src/racing.cpp b/src/racing.cpp
+--- a/src/racing.cpp
++++ b/src/racing.cpp
+@@ -197,9 +197,13 @@ void CRacing::Pad(int button, bool pressed) {
+ 				set_view_mode(g_game.player->ctrl, param.view_mode);
+ 			}
+ 			break;
+-		case PAD_START:
++		case PAD_SELECT:
+ 			if (pressed) State::manager.RequestEnterState(Paused);
+ 			break;
++		case PAD_START:
++			// the race's menu, as Escape on the keyboard (ends the race)
++			if (pressed) Keyb(sf::Keyboard::Key::Escape, false, 0, 0);
++			break;
+ 	}
+ }
+ 
+diff --git a/src/states.cpp b/src/states.cpp
+--- a/src/states.cpp
++++ b/src/states.cpp
+@@ -82,7 +82,7 @@ static void PadButtonEvent(unsigned int id, unsigned int number, bool down) {
+ 	static const signed char map[] = {
+ 		State::PAD_CROSS, State::PAD_CIRCLE, State::PAD_TRIANGLE, State::PAD_SQUARE,
+ 		State::PAD_L1, State::PAD_R1, State::PAD_L2, State::PAD_R2,
+-		-1, State::PAD_START, -1, -1, -1,
++		State::PAD_SELECT, State::PAD_START, -1, -1, -1,
+ 		State::PAD_UP, State::PAD_DOWN, State::PAD_LEFT, State::PAD_RIGHT
+ 	};
+ 	if (number < sizeof(map) && map[number] >= 0) PadSet(id, map[number], down);
+diff --git a/src/states.h b/src/states.h
+--- a/src/states.h
++++ b/src/states.h
+@@ -58,7 +58,7 @@ public:
+ 	enum PadButton {
+ 		PAD_UP, PAD_DOWN, PAD_LEFT, PAD_RIGHT,
+ 		PAD_CROSS, PAD_CIRCLE, PAD_SQUARE, PAD_TRIANGLE,
+-		PAD_L1, PAD_R1, PAD_L2, PAD_R2, PAD_START,
++		PAD_L1, PAD_R1, PAD_L2, PAD_R2, PAD_START, PAD_SELECT,
+ 		PAD_COUNT
+ 	};
+ 	static bool padHeld(int button);
