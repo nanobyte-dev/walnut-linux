@@ -13,6 +13,37 @@ console would see.
 
 ## Scheduled
 
+### Played sessions: the Walnut Games round (the user plays both sides)
+
+One game at a time: the PS3 is measured, the PC copy beside it is the picture and behaviour to
+compare with ([GAMEDB.md](GAMEDB.md), SUITE.md "Played sessions"). `tools/play-test.sh start GAME
+[LAUNCHER]` starts both (the PS3 session first: it counts the load), after the user's "go"; nothing
+runs on the PS3 until the user says done; `tools/play-test.sh collect GAME` pulls and lists the
+sessions, then the shots are looked at (REVIEW.md) and `import-run.py` files them. The game's settings
+are the player's: never touched. A first start that only sets the game up (profile, video options)
+is a session too, but isn't imported (first runs don't count for load).
+
+Before the first game, once the PS3 is up in Walnut: `sudo apt-get update && sudo apt install
+ps3-gpu-tools xmoto xmoto-data walnut-games` (the sound dropout logger, X-Moto's controller scheme,
+the app's PS3-only screenshots), `make bench-push`, `tools/play-test.sh check`, then `ps3-xrun-test`
+and `ps3-xrun-test -m` (a quiet tone on the TV for about 3 s each; both should end `ok: 4 dropouts
+logged`).
+
+| # | Game | Launcher (PS3 and PC) | PC side | Notes |
+|---|---|---|---|---|
+| 1 | X-Moto, again | X-Moto | ready | the DualShock 3: paired before and after the start (player 1 either way), keyboard at the same time, Triangle/Square/Start; `xruns_audible` against the 92 underruns that sounded clean |
+| 2 | Armagetron Advanced | Armagetron Advanced | ready | first start: a language menu and a player setup wait for a key |
+| 3 | Extreme Tux Racer | Extreme Tux Racer | ready | |
+| 4 | Neverball | Neverball | ready | the level reloads were 8 s of stutter a minute in the benchmark: does play feel smooth? |
+| 5 | Luanti | Luanti | ready | Minetest Game; map generation stalls expected |
+| 6 | Sauerbraten | Cube2:Demo (Debian's cube2 entry, with the cube2-data maps) | ready | |
+| 7 | OpenArena | OpenArena (GL 1.2), then OpenArena (GL 2.0) | ready | two launchers, one session each |
+| 8 | DSDA-Doom | DSDA-Doom (OpenGL), then DSDA-Doom (software) | ready | Freedoom 2; its music was the weak spot |
+| 9 | OpenTTD | OpenTTD (OpenGL), then OpenTTD (software) | ready | the music chopped in the benchmarks |
+| 10 | Warzone 2100 | Warzone 2100 | none (PC=0) | our 4.3.5 build has no PC image any more (wz-amd64-view deleted); Debian's 4.6 needs GL 3 |
+| 11 | SuperTuxKart | SuperTuxKart | ready | a "driver too old" dialog on a fresh config (the user decides whether our package turns it off) |
+| 12 | QuakeSpasm, Yamagi Quake II | QuakeSpasm (GLSL) / (GL 1.x); Yamagi Quake II | needs the data | the user's own game data on both sides |
+
 ### Next batches (SSD root, kernel .472, ps3-gpu-tools 0.477~dev)
 
 | Batch | What | Games | Runs | Status |

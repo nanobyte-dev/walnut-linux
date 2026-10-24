@@ -190,6 +190,13 @@ the desktop's PulseAudio/PipeWire. The player plays both side by side: the PC is
 picture and behaviour, only the PS3 is measured. The game's PC home stays in `build/pc-play/GAME`.
 `PLAY_PC_LIST=1` lists the launchers.
 
+**Both sides from one command.** `tools/play-test.sh start GAME [LAUNCHER]` starts the PS3 session
+(first: it counts the load) and the PC copy; `PC=0` for the PS3 only. `play-test.sh stop GAME` ends a
+false start (the run stays on the PS3, unimported), `play-test.sh check` says whether the PS3 is idle
+with the harness and the dropout logger in place, and `play-test.sh collect GAME` pulls the runs and
+lists the game's sessions (end, play time, launcher, sound dropouts, the form's answers, imported or
+new).
+
 **Pick the launcher.** A game can have several menu entries (OpenArena: `openarena-gl1.desktop`
 "OpenArena (GL 1.2)" and `openarena-gl2.desktop` "OpenArena (GL 2.0)"). `LAUNCHER` is an entry's file
 name or its Name; the session starts exactly that entry's `Exec` (field codes cut out, no shell), so
