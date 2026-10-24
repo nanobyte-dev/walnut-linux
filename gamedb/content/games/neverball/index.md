@@ -10,7 +10,7 @@ packages = ["neverball", "neverball-common", "neverball-data"]
 patched_by = ["neverball"]
 recipes = ["neverball:base"]
 needs_data = false
-controller = "keyboard"
+controller = "full"
 +++
 
 Neverball (Debian's 2018 snapshot of 1.6, with Neverputt) runs with the right picture at about 66
