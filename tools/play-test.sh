@@ -45,7 +45,7 @@ start)
 	fi ;;
 stop)
 	[ -n "$G" ] || { echo "usage: play-test.sh stop GAME" >&2; exit 2; }
-	T=120 ps3 "c=\$(sed -n 's/^COMM=//p' /var/tmp/bench/recipes/$G.sh | head -1); c=\${c:0:15}; [ -n \"\$c\" ] && pkill -TERM -x \"\$c\"
+	T=120 ps3 "c=\$(sed -n 's/^COMM=//p' /var/tmp/bench/recipes/$G.sh | head -1); c=\${c%%[[:space:]]*}; c=\${c:0:15}; [ -n \"\$c\" ] && pkill -TERM -x \"\$c\"
 		for i in \$(seq 30); do sleep 1
 			f=\$(pgrep -a -x python3 | grep session-form.py | cut -d' ' -f1); [ -n \"\$f\" ] && kill \$f
 			systemctl --user is-active -q walnut-session-$G || break; done
