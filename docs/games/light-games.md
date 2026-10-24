@@ -69,6 +69,18 @@ one draw per texture (`ETR_GL_TREES`, `ETR_GL_TREES_GROUP`), snow spray, falling
 one draw (`ETR_GL_SNOW`, `ETR_GL_PARTICLES`). A frame went from 19,400 GL calls and 697 draws to 850
 and 72.
 
+**Game controller** (patch 0007, untested on the PS3 until the user tries it): SFML 3 reads
+`/dev/input/js*`, so a button is the joydev index. DualShock 3 (hid-sony): 0 Cross, 1 Circle,
+2 Triangle, 3 Square, 4 L1, 5 R1, 6 L2, 7 R2, 9 Start, 13-16 d-pad up/down/left/right; axes X/Y are the
+left stick; L2/R2 are buttons, not axes. `State::Manager` turns controller events into `State::Pad`;
+the default is the menu (d-pad and left stick are the arrow keys, Cross and Start Enter, Circle
+Escape), so every screen the keyboard reaches works with the pad. In a race: left stick (analog) or
+d-pad steer, R2/R1 paddle, L2/L1 brake, Cross jump (hold to charge), Square trick, Triangle change
+view, Start pause. The keys keep working and nothing is written to the options file. ETR has one
+player, so any pad plays it; hot-plug is SFML's own events. The scheme is on the Help screen (main
+menu, "Keyboard functions") in a second column. The old code took any axis but X for paddle/brake
+and buttons 0-3 for the race; both are gone.
+
 **Recipe** `games/bench/recipes/etr.sh`: ETR has no demo mode, so the user's race was recorded as
 keyboard events (`evemu-record`, variant `record`) and is replayed into a virtual keyboard
 (`evemu-device`, `evemu-play`) from when ETR's window appears (a marker event starts the recording

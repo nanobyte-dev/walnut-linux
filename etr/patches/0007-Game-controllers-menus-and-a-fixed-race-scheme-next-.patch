@@ -1,0 +1,331 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 25 Oct 2026 00:57:51 +0300
+Subject: Game controllers: menus and a fixed race scheme next to the keyboard
+
+SFML 3 on Linux reads /dev/input/js*, so a joystick button is the joydev
+index. DualShock 3 (hid-sony): 0 Cross, 1 Circle, 2 Triangle, 3 Square,
+4 L1, 5 R1, 6 L2, 7 R2, 9 Start, 13-16 d-pad up/down/left/right; axes X, Y
+are the left stick. L2/R2 are buttons there. A pad with no buttons (the
+motion sensors) is ignored, and so is every axis but X/Y/PovX/PovY (the old
+code took any other axis for "paddle/brake").
+
+State::Manager turns controller events into State::Pad(button, pressed).
+The default Pad is the menu: d-pad and left stick are the arrow keys, Cross
+and Start Enter, Circle Escape, so every screen with a keyboard path works
+with the pad alone. The race overrides Pad:
+
+  left stick (analog) or d-pad    steer
+  R2 or R1                        paddle
+  L2 or L1                        brake
+  Cross                           jump, hold to charge
+  Square                          trick (with steer / paddle / brake)
+  Triangle                        change view
+  Start                           pause
+
+The pad has its own flags next to the keys, so neither cancels the other.
+Nothing is written to the options file. Hot-plug is SFML's own events.
+The Help screen (keyboard functions) lists the scheme in a second column.
+
+diff --git a/src/help.cpp b/src/help.cpp
+--- a/src/help.cpp
++++ b/src/help.cpp
+@@ -35,6 +35,25 @@ TLabel* headline;
+ TLabel* texts[TEXT_LINES];
+ TLabel* footnote;
+ 
++// The fixed game controller scheme (State::Pad, Racing::Pad), shown next to the keys.
++// DualShock 3 names; English only (not in the translation files).
++#define PAD_LINES 11
++static TLabel* padHeadline;
++static TLabel* padTexts[PAD_LINES];
++static const char* const padLines[PAD_LINES] = {
++	"Left stick or D-pad - steer",
++	"R2 or R1 - accelerate",
++	"L2 or L1 - brake",
++	"Cross - jump (hold to charge)",
++	"Square - trick",
++	"Triangle - change view",
++	"Start - pause",
++	"In the menus:",
++	"D-pad or left stick - move",
++	"Cross or Start - select",
++	"Circle - back"
++};
++
+ void CHelp::Keyb(sf::Keyboard::Key key, bool release, int x, int y) {
+ 	if (release) return;
+ 	State::manager.RequestEnterState(*State::manager.PreviousState());
+@@ -65,6 +84,13 @@ void CHelp::Enter() {
+ 	for (int i = 0; i < TEXT_LINES; i++)
+ 		texts[i] = AddLabel(Trans.Text(44 + i), xleft1, ytop + offs*i, colWhite);
+ 
++	int xleft2 = Winsys.resolution.width * 55 / 100;
++	FT.AutoSizeN(4);
++	padHeadline = AddLabel("Game controller", xleft2, AutoYPosN(5), colWhite);
++	FT.AutoSizeN(3);
++	for (int i = 0; i < PAD_LINES; i++)
++		padTexts[i] = AddLabel(padLines[i], xleft2, ytop + offs*i, colWhite);
++
+ 	footnote = AddLabel(Trans.Text(65), CENTER, AutoYPosN(90), colWhite);
+ }
+ 
+diff --git a/src/racing.cpp b/src/racing.cpp
+--- a/src/racing.cpp
++++ b/src/racing.cpp
+@@ -57,6 +57,10 @@ static bool key_braking;
+ static bool stick_braking;
+ static double charge_start_time;
+ static bool trick_modifier;
++// game controller (State::Pad): the fixed scheme, next to the keys
++static bool pad_left;
++static bool pad_right;
++static bool pad_trick;
+ 
+ static bool sky = true;
+ static bool fog = true;
+@@ -154,30 +158,47 @@ void CRacing::Keyb(sf::Keyboard::Key key, bool release, int x, int y) {
+ 	}
+ }
+ 
++// Controller: left stick X steers (analog; State::Manager passes the X axis of a
++// controller only), the buttons come through Pad().
+ void CRacing::Jaxis(int axis, float value) {
+-	if (axis == 0) { 	// left and right
++	if (axis == 0) {
+ 		stick_turn = ((value < -0.2) || (value > 0.2));
+ 		if (stick_turn) stick_turnfact = value;
+ 		else stick_turnfact = 0.0;
+-	} else if (axis == 1) {	// paddling and braking
+-		stick_paddling = (value < -0.3);
+-		stick_braking = (value > 0.3);
+ 	}
+ }
+ 
+-void CRacing::Jbutt(int button, bool pressed) {
++void CRacing::Pad(int button, bool pressed) {
+ 	switch (button) {
+-		case 0:
+-			key_paddling = pressed;
++		case PAD_LEFT:
++			pad_left = pressed;
+ 			break;
+-		case 1:
+-			trick_modifier = pressed;
++		case PAD_RIGHT:
++			pad_right = pressed;
+ 			break;
+-		case 2:
+-			key_braking = pressed;
++		case PAD_R2:
++		case PAD_R1:
++			// two buttons for one action: held while either is down
++			stick_paddling = pressed ? true : (padHeld(PAD_R1) || padHeld(PAD_R2));
+ 			break;
+-		case 3:
+-			key_charging = pressed;
++		case PAD_L2:
++		case PAD_L1:
++			stick_braking = pressed ? true : (padHeld(PAD_L1) || padHeld(PAD_L2));
++			break;
++		case PAD_CROSS:
++			stick_charging = pressed;
++			break;
++		case PAD_SQUARE:
++			pad_trick = pressed;
++			break;
++		case PAD_TRIANGLE:
++			if (pressed) {
++				param.view_mode = static_cast<TViewMode>((param.view_mode + 1) % NUM_VIEW_MODES);
++				set_view_mode(g_game.player->ctrl, param.view_mode);
++			}
++			break;
++		case PAD_START:
++			if (pressed) State::manager.RequestEnterState(Paused);
+ 			break;
+ 	}
+ }
+@@ -233,6 +254,10 @@ void CRacing::Enter() {
+ 	stick_paddling = false;
+ 	stick_braking = false;
+ 	stick_turn = false;
++	stick_charging = false;
++	pad_left = false;
++	pad_right = false;
++	pad_trick = false;
+ 
+ 	lastsound = -1;
+ 	newsound = -1;
+@@ -285,8 +310,8 @@ static void CalcSteeringControls(CControl *ctrl, float time_step) {
+ 		ctrl->turn_fact = stick_turnfact;
+ 		ctrl->turn_animation += ctrl->turn_fact * 2 * time_step;
+ 		ctrl->turn_animation = clamp(-1.0, ctrl->turn_animation, 1.0);
+-	} else if (left_turn ^ right_turn) {
+-		if (left_turn) ctrl->turn_fact = -1.0;
++	} else if ((left_turn || pad_left) ^ (right_turn || pad_right)) {
++		if (left_turn || pad_left) ctrl->turn_fact = -1.0;
+ 		else ctrl->turn_fact = 1.0;
+ 		ctrl->turn_animation += ctrl->turn_fact * 2 * time_step;
+ 		ctrl->turn_animation = clamp(-1.0, ctrl->turn_animation, 1.0);
+@@ -341,10 +366,10 @@ static void CalcFinishControls(CControl *ctrl, float timestep, bool airborne) {
+ // ----------------------- trick --------------------------------------
+ 
+ static void CalcTrickControls(CControl *ctrl, float time_step, bool airborne) {
+-	if (airborne && trick_modifier) {
+-		if (left_turn) ctrl->roll_left = true;
+-		if (right_turn) ctrl->roll_right = true;
+-		if (key_paddling) ctrl->front_flip = true;
++	if (airborne && (trick_modifier || pad_trick)) {
++		if (left_turn || pad_left || (stick_turn && stick_turnfact < 0)) ctrl->roll_left = true;
++		if (right_turn || pad_right || (stick_turn && stick_turnfact > 0)) ctrl->roll_right = true;
++		if (key_paddling || stick_paddling) ctrl->front_flip = true;
+ 		if (ctrl->is_braking) ctrl->back_flip = true;
+ 	}
+ 
+diff --git a/src/racing.h b/src/racing.h
+--- a/src/racing.h
++++ b/src/racing.h
+@@ -26,7 +26,7 @@ class CRacing : public State {
+ 	void Loop(float time_step);
+ 	void Keyb(sf::Keyboard::Key key, bool release, int x, int y);
+ 	void Jaxis(int axis, float value);
+-	void Jbutt(int button, bool pressed);
++	void Pad(int button, bool pressed);
+ 	void Exit();
+ public:
+ };
+diff --git a/src/states.cpp b/src/states.cpp
+--- a/src/states.cpp
++++ b/src/states.cpp
+@@ -53,6 +53,87 @@ void State::Manager::EnterNextState() {
+ 	current->Enter();
+ }
+ 
++// ---------------------------------------------------------------------
++// Game controllers. SFML 3 on Linux reads /dev/input/js*, so a button number is the
++// joydev index. For the DualShock 3 (hid-sony; the codes in order, which is how joydev
++// numbers them):
++//   0 Cross  1 Circle  2 Triangle  3 Square  4 L1  5 R1  6 L2  7 R2  8 Select  9 Start
++//   10 PS  11 L3  12 R3  13 d-pad up  14 down  15 left  16 right
++// axes: X, Y = left stick (-100..100, Y down is positive); Z, R = right stick; PovX/PovY
++// = a hat, if a pad has one instead of the d-pad buttons. L2/R2 are buttons here (hid-sony
++// has no trigger axes). A pad with no buttons (the DS3's motion sensors) is no controller.
++// Controller N is not tied to a player: ETR has one player, any pad plays it.
++static bool padHeldNow[sf::Joystick::Count][State::PAD_COUNT];
++
++bool State::padHeld(int button) {
++	for (unsigned int i = 0; i < sf::Joystick::Count; i++)
++		if (padHeldNow[i][button]) return true;
++	return false;
++}
++
++static void PadSet(unsigned int id, int button, bool down) {
++	if (id >= sf::Joystick::Count || sf::Joystick::getButtonCount(id) == 0) return;
++	if (padHeldNow[id][button] == down) return;
++	padHeldNow[id][button] = down;
++	if (State::manager.CurrentState()) State::manager.CurrentState()->Pad(button, down);
++}
++
++static void PadButtonEvent(unsigned int id, unsigned int number, bool down) {
++	static const signed char map[] = {
++		State::PAD_CROSS, State::PAD_CIRCLE, State::PAD_TRIANGLE, State::PAD_SQUARE,
++		State::PAD_L1, State::PAD_R1, State::PAD_L2, State::PAD_R2,
++		-1, State::PAD_START, -1, -1, -1,
++		State::PAD_UP, State::PAD_DOWN, State::PAD_LEFT, State::PAD_RIGHT
++	};
++	if (number < sizeof(map) && map[number] >= 0) PadSet(id, map[number], down);
++}
++
++static void PadAxis(const sf::Event::JoystickMoved& m) {
++	unsigned int id = m.joystickId;
++	if (id >= sf::Joystick::Count || sf::Joystick::getButtonCount(id) == 0) return;
++	float v = m.position;
++	switch (m.axis) {
++		case sf::Joystick::Axis::X:
++			PadSet(id, State::PAD_LEFT, v < -50 || (padHeldNow[id][State::PAD_LEFT] && v < -30));
++			PadSet(id, State::PAD_RIGHT, v > 50 || (padHeldNow[id][State::PAD_RIGHT] && v > 30));
++			if (State::manager.CurrentState()) State::manager.CurrentState()->Jaxis(0, v / 100.f);
++			break;
++		case sf::Joystick::Axis::Y:
++			PadSet(id, State::PAD_UP, v < -50 || (padHeldNow[id][State::PAD_UP] && v < -30));
++			PadSet(id, State::PAD_DOWN, v > 50 || (padHeldNow[id][State::PAD_DOWN] && v > 30));
++			break;
++		case sf::Joystick::Axis::PovX:
++			PadSet(id, State::PAD_LEFT, v < -50);
++			PadSet(id, State::PAD_RIGHT, v > 50);
++			break;
++		case sf::Joystick::Axis::PovY:	// SFML: up is positive on the hat
++			PadSet(id, State::PAD_UP, v > 50);
++			PadSet(id, State::PAD_DOWN, v < -50);
++			break;
++		default:
++			break;
++	}
++}
++
++// In a menu a press is the key the screen already understands: d-pad and left stick are
++// the arrow keys, Cross and Start Enter, Circle Escape.
++void State::Pad(int button, bool pressed) {
++	if (!pressed) return;
++	sf::Keyboard::Key key;
++	switch (button) {
++		case PAD_UP: key = sf::Keyboard::Key::Up; break;
++		case PAD_DOWN: key = sf::Keyboard::Key::Down; break;
++		case PAD_LEFT: key = sf::Keyboard::Key::Left; break;
++		case PAD_RIGHT: key = sf::Keyboard::Key::Right; break;
++		case PAD_CROSS:
++		case PAD_START: key = sf::Keyboard::Key::Enter; break;
++		case PAD_CIRCLE: key = sf::Keyboard::Key::Escape; break;
++		default: return;
++	}
++	Keyb(key, false, sf::Mouse::getPosition().x, sf::Mouse::getPosition().y);
++	Keyb(key, true, sf::Mouse::getPosition().x, sf::Mouse::getPosition().y);
++}
++
+ void State::Manager::PollEvent() {
+ 	while (const auto event = Winsys.PollEvent()) {
+ 		if (!next) {
+@@ -72,12 +153,11 @@ void State::Manager::PollEvent() {
+ 				cursor_pos.y = mouseMoved->position.y;
+ 				current->Motion(mouseMoved->position.x - old.x, mouseMoved->position.y - old.y);
+ 			} else if (const auto *joystickMoved = event->getIf<sf::Event::JoystickMoved>()) {
+-				float val = joystickMoved->position / 100.f;
+-				current->Jaxis(joystickMoved->axis == sf::Joystick::Axis::X ? 0 : 1, val);
++				PadAxis(*joystickMoved);
+ 			} else if (const auto *joystickPressed = event->getIf<sf::Event::JoystickButtonPressed>()) {
+-				current->Jbutt(joystickPressed->button, true);
++				PadButtonEvent(joystickPressed->joystickId, joystickPressed->button, true);
+ 			} else if (const auto *joystickReleased = event->getIf<sf::Event::JoystickButtonReleased>()) {
+-				current->Jbutt(joystickReleased->button, false);
++				PadButtonEvent(joystickReleased->joystickId, joystickReleased->button, false);
+ 			} else if (const auto *resized = event->getIf<sf::Event::Resized>()) {
+ 				if (Winsys.resolution.width != resized->size.x || Winsys.resolution.height != resized->size.y) {
+ 					Winsys.resolution.width = resized->size.x;
+diff --git a/src/states.h b/src/states.h
+--- a/src/states.h
++++ b/src/states.h
+@@ -55,13 +55,23 @@ public:
+ 	};
+ 	static Manager manager;
+ 
++	enum PadButton {
++		PAD_UP, PAD_DOWN, PAD_LEFT, PAD_RIGHT,
++		PAD_CROSS, PAD_CIRCLE, PAD_SQUARE, PAD_TRIANGLE,
++		PAD_L1, PAD_R1, PAD_L2, PAD_R2, PAD_START,
++		PAD_COUNT
++	};
++	static bool padHeld(int button);
++
+ 	virtual void Enter() {}
+ 	virtual void Loop(float time_step) {}
+ 	virtual void Keyb(sf::Keyboard::Key key, bool release, int x, int y) {}
+ 	virtual void Mouse(int button, int state, int x, int y) {}
+ 	virtual void Motion(int x, int y) {}
+ 	virtual void Jaxis(int axis, float value) {}
+-	virtual void Jbutt(int button, bool pressed) {}
++	// Game controller buttons (PadButton), the same for any pad. The default turns a
++	// press into the key a menu expects; the race overrides it.
++	virtual void Pad(int button, bool pressed);
+ 	virtual void TextEntered(char text) {}
+ 	virtual void Exit() {}
+ };

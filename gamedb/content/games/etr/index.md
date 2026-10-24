@@ -10,7 +10,7 @@ packages = ["extremetuxracer", "extremetuxracer-data"]
 patched_by = ["etr"]
 recipes = ["etr:base"]
 needs_data = false
-controller = "keyboard"
+controller = "full"
 +++
 
 Extreme Tux Racer 0.8.4 runs with the right picture and sound at about 59 frames a second. Walnut's
