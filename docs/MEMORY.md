@@ -3,8 +3,8 @@
 This is where each suite game's memory goes on the PS3, what we found in the games' code and in
 Mesa, and what each memory change measured. The state on 2026-10-19: the Yamagi Quake II table cut
 is the default, and three memory fixes won their same-boot A/B in batch 17 (ioquake3's SNORM
-colours, Mesa 0037's copy limit, Sauerbraten's short normals), though only the first is on by
-default. Texture compression at upload (Mesa 0038) cut Sauerbraten's VRAM from the 117 MB cap to
+colours, Mesa 0037's copy limit, BananaBread's short normals), though only the first is on by
+default. Texture compression at upload (Mesa 0038) cut BananaBread's VRAM from the 117 MB cap to
 73-78 MB without a resolved fps change and did nothing in SuperTuxKart and OpenArena (batch ssdroot2
 P2, [below](#measured-on-the-ps3-batch-ssdroot2-p2)); batch ssdroot8 ran it on the rest of the suite: `all` took
 SuperTuxKart from 95.5 to 58.1 MiB of VRAM at the same fps, and the other three games had nothing the
@@ -72,7 +72,7 @@ engines' hunks among them, mostly never touched).
 |---|---|---|---|---|---|---|---|
 | Luanti | 102 + 47.1 | 4.0 / 2.2 / 5.9 | 74.5 (28.5) | 14.0 (11.0) | 96.8 / **22.9**, **14** | 23.6 | 61 / 12.7 |
 | OpenArena (gl1) | 71 + 19.7 | 0.7 / 1.8 / 5.7 | 22.8 (13.9) | 39.4 (2.0) | 33.5 / 3.8 (start, end: 21 / **16**), 4 | 176.8 (hunk 128 + zone 48) | 36 / 6.7 |
-| Sauerbraten | 78 + 12.3 | 2.2 / 2.7 / 5.3 | 66.1 (9.6) | 0.7 (0.6) | 63.4 / **17.6**, 3 | 4.8 | **117** / 9.6 |
+| BananaBread | 78 + 12.3 | 2.2 / 2.7 / 5.3 | 66.1 (9.6) | 0.7 (0.6) | 63.4 / **17.6**, 3 | 4.8 | **117** / 9.6 |
 | Yamagi Quake II | 77 + 3.4 | 1.7 / 4.8 / 8.5 | 19.3 (1.5) | **42.1** (0.9) | 18.6 / 2.8, 4 | 0 | 48 / 6.9 |
 | QuakeSpasm | 58 + 0.1 | 0.8 / 7.1 / 9.0 | 13.6 | 27.1 | 12.9 / 1.3, 3 | 256.3 (its heap) | 47 / 8.3 |
 | X-Moto | 49 + 0 | 2.6 / 7.5 / 18.2 | 19.0 | 0.7 | 19.7 / 0.3, 3 | 0.4 | 37 / 6.7 |
@@ -93,12 +93,12 @@ files are under 1.3 MB everywhere.
 |---|---|---|---|---|---|---|
 | Luanti | 47.1 | 28.5 | 11.0 | 3.6 | 2.7 | 1.2 |
 | OpenArena | 19.7 | 13.9 | 2.0 | 2.6 | 0 | 1.1 |
-| Sauerbraten | 12.3 | 9.6 | 0.6 | 1.0 | 0.3 | 0.8 |
+| BananaBread | 12.3 | 9.6 | 0.6 | 1.0 | 0.3 | 0.8 |
 | Yamagi Quake II | 3.4 | 1.5 | 0.9 | 1.0 | 0 | 0 |
 | Armagetron | 1.8 | 0 | 0 | 1.7 | 0 | 0 |
 
 The rest swap nothing. Heap dominates, and in the three big games it is about the size of malloc's
-free memory. Sauerbraten's arena is 80.7 MB with 17.4 free, and its heap is 66.1 resident + 9.6
+free memory. BananaBread's arena is 80.7 MB with 17.4 free, and its heap is 66.1 resident + 9.6
 swapped = 75.7, so at least 12 MB of the free chunks are resident or swapped. OpenArena swapped
 13.9 MB of heap while 15.9 MB sat free at the window's start. The kernel swaps out what nobody
 touches, and nobody touches free chunks: that is garbage written to swap. Library swap is their
@@ -118,7 +118,7 @@ no game leaks RAM in this window. Inside malloc it moves:
   12.8 -> 16.8 MB with 161 -> 163 handles: two new ~4 MB GART buffers, one a minute. A candidate is
   the track marks in the snow (a growing list, drawn through our batching patch's stream buffers).
   Only a longer run tells a cap from a leak.
-- File-backed Rss falls in most games (Sauerbraten 17.1 -> 9.3, Neverball 23.5 -> 15.6, ETR 20.3
+- File-backed Rss falls in most games (BananaBread (Debian's cube2) 17.1 -> 9.3, Neverball 23.5 -> 15.6, ETR 20.3
   -> 14.1): code and data pages dropped from the page cache and read back when needed.
 
 ### Malloc arenas
@@ -138,7 +138,7 @@ between the renderer, server, emerge and mesh threads.
   its own front plus the game's two; the census counts shared buffers once per client (Armagetron's
   mid snapshot: Xorg drops from 25.4 to 9.5 MB once the game's buffers are gone). That is 24 MB of
   VRAM per game for the window, at minimum.
-- The VRAM a game takes comes out of the VRAM swap. "VRAM cpu" was 99% used in Sauerbraten (218 of
+- The VRAM a game takes comes out of the VRAM swap. "VRAM cpu" was 99% used in BananaBread (218 of
   220 MB), and Luanti's VRAM swap had 88 MB in VRAM and 54 MB on the disk at the middle snapshot.
 - GART (system RAM, taken from CMA on demand): 6.7-12.8 MB per game (push buffers, Mesa's upload
   and stream buffers), plus Xorg's 6.7. "GART backed by memory" is 17-27 MB system-wide.
@@ -178,7 +178,7 @@ between the renderer, server, emerge and mesh threads.
 - **glibc's dynamic mmap threshold**: after the first free of a block mmapped above 128 KiB, glibc
   raises the threshold to that size (up to 32 MiB) and the trim threshold to twice it (up to 64
   MiB). From then on texture and map scratch buffers of a few MB come from the heap and leave holes,
-  and up to 64 MB of free top is never given back. That is why OpenArena and Sauerbraten keep 16-17
+  and up to 64 MB of free top is never given back. That is why OpenArena and BananaBread keep 16-17
   MB free in their main heap.
 
 ## Cuts, ranked
@@ -192,9 +192,9 @@ rebuilt. Results are rows of `games/bench/results/fps.csv` ([glossary](README.md
 |---|---|---|---|---|---|---|
 | 1 | Yamagi Quake II | PRNG table of 4096 entries (`YQ2_KISS_QSIZE`) | **32** | pkg | measured, row 57: RSS 125 -> 56 MB, swap used 80 -> 9 MB, gameplay stalls 22.6 -> 0.05 s, steady 65.7 -> 68.7; **the default** since yquake2 .415 | client-side random effects differ (the demo itself doesn't) |
 | 2 | Luanti | trim the arenas: `LU_TRIM_MB=16` or `64` (variants `trim16`, `trim64`), or `MALLOC=trim` | 17-24, growing with play time (16.4-19.7 in free chunks + 2.5-4.2 top) | pkg / env | `trim16` row 57: no gain and more stalls (3.35 -> 8.6 s), rejected. `trim64` and `MALLOC=trim` not run | a trim holds each arena's lock for its walk |
-| 3 | Sauerbraten | `MALLOC=trim` or `MALLOC=mmap` | 17 (17.0-17.4 in free chunks of the main heap) | env | row 61: noise (below); not shipped | mmap: a syscall and zeroed pages per big alloc |
+| 3 | BananaBread | `MALLOC=trim` or `MALLOC=mmap` | 17 (17.0-17.4 in free chunks of the main heap) | env | row 61: noise (below); not shipped | mmap: a syscall and zeroed pages per big alloc |
 | 4 | OpenArena gl1 | `MALLOC=trim` or `MALLOC=mmap` | 12-16 at rest (11.7-12.2 in free chunks + 3.6 top), its 13.9 MB of swapped heap | env | row 61: noise (below); not shipped | as above |
-| 5 | Sauerbraten | `texreduce 1` (variant `tex1`) | VRAM ~45-60 of its 117 (textures are ~87 MB of it; DDS and JPG at a quarter) | env | not run | blurrier textures |
+| 5 | BananaBread | `texreduce 1` (variant `tex1`) | VRAM ~45-60 of its 117 (textures are ~87 MB of it; DDS and JPG at a quarter) | env | not run | blurrier textures |
 | 6 | Luanti | `MALLOC=arena2` (or the recipe's `malloc` variant) | part of arena #4's 18-22 MB holes, overlaps #2 | env | not run | lock contention between 4 busy threads |
 | 7 | Luanti | settings variants (view range, client/server unload, active2, chunk3, lean) | estimates in [games/README.md](games/README.md); heap here is 103 MB of map blocks and meshes | env | row 67: base stays. `cliunload` has more stalls (3.8 and 5.2 s against 1.5 and 2.1 s), `lean` draws a black void; `chunk3` empties the world (batch 16); `view40` is to be repeated (PLAN 2.6) | per variant |
 | 8 | Armagetron, Neverball, Yamagi, ETR, ClassiCube, QuakeSpasm | `MALLOC=trim` | 4.2 / 2.3 / 2.7 / 0.8-1.9 / 1.0 / 1.3 (mostly top chunks) | env | not run | small |
@@ -237,14 +237,14 @@ Measured in batch 8 (row 61, Mesa ps3.408, two rounds each against `-`):
 
 | | steady fps | gameplay stalls (s) | lowest MemAvailable (MB) |
 |---|---|---|---|
-| Sauerbraten base / `MALLOC=trim` / `MALLOC=mmap` | 39.2 / 38.2 / 39.9 | 2.1 / 2.0 / 2.1 | 23.2 / 21.5 / 19.9 |
+| BananaBread base / `MALLOC=trim` / `MALLOC=mmap` | 39.2 / 38.2 / 39.9 | 2.1 / 2.0 / 2.1 | 23.2 / 21.5 / 19.9 |
 | OpenArena base / trim / mmap | 67.8 / 70.9 / 70.8 | 0.0 / 0.1 / 0.0 | 36.4 / 26.4 / 30.9 |
 
 The rounds disagreed with each other, so the row reads as noise. The trim lines of those four
 `trim` runs (`build/bench/ps3-bench-20261018T0{71150,72508,73839,75416}Z-*`) show what a trim does
-on the PPE: the first big walk, about 30 s in, gave back 23.0-23.7 MB of Rss in Sauerbraten in
+on the PPE: the first big walk, about 30 s in, gave back 23.0-23.7 MB of Rss in BananaBread in
 26.9-44.0 ms and 12.4-13.4 MB in OpenArena in 14.0-15.5 ms; every later trim took 0.1-3 ms and
-freed little (42.9-45.5 MB of Rss over a Sauerbraten run, 13.1-38.1 MB over an OpenArena run).
+freed little (42.9-45.5 MB of Rss over a BananaBread run, 13.1-38.1 MB over an OpenArena run).
 Swap never shrank: a trim returns resident free pages, and pages already swapped stay swapped until
 touched. On the host (Zen 2) the first trim of 80 MB of holes took 10-15 ms, so the PPE is about 3x
 slower.
@@ -401,7 +401,7 @@ nouveau_context.h, nv30/). Mesa 0037 adds switches that limit the copies; it is 
   (DYNAMIC, VRAM, no copy), BufferSubData writes it (`DIRTY`) and u_vbuf's colour conversion reads
   it: a readback and a drain at every tess flush. Then the MD3 models load (STATIC, VRAM): 223
   buffers, 62 MB, each with a copy nothing reads.
-- **Sauerbraten** sends its world normals and tangents as GL_BYTE, which nv30 can't fetch
+- **BananaBread** sends its world normals and tangents as GL_BYTE, which nv30 can't fetch
   (renderva.cpp), so u_vbuf reads its world VBOs on every draw and they need their copies. Batch 17
   showed the hint is never set there.
 
@@ -411,7 +411,7 @@ nouveau_context.h, nv30/). Mesa 0037 adds switches that limit the copies; it is 
 |---|---|---|---|
 | Never set the hint (`NV30_SYSMEM_COPY=0`) | the copies of buffers never read (OpenArena gl2: ~62 MB) | an app that orphans read buffers pays a readback and drain per new buffer: OpenArena gl2 with 16-bit colours would drain at every tess flush, so only together with `NV30_INVALIDATE_BUFFER=1` | yes, off |
 | Hint only for DYNAMIC buffers (`NV30_SYSMEM_COPY=2`) | the same 62 MB (MD3 VBOs are STATIC); the streaming case the hint is for keeps working | static buffers read later get one readback each at their first read | yes, off; measured |
-| Buffer invalidation (`NV30_INVALIDATE_BUFFER=1`) | orphaning keeps the buffer and its copy: no new pipe buffer, copy, readback or vertex array revalidation per tess flush; the hint's trigger goes away for this pattern | the code is nv50/nvc0's (`nouveau_buffer_invalidate`; nv30 already reallocates GART buffers in place on discard maps); applies to every orphaning game (Sauerbraten's particles and grass: GART STREAM buffers, now reallocated in place when busy instead of replaced) | yes, off; measured |
+| Buffer invalidation (`NV30_INVALIDATE_BUFFER=1`) | orphaning keeps the buffer and its copy: no new pipe buffer, copy, readback or vertex array revalidation per tess flush; the hint's trigger goes away for this pattern | the code is nv50/nvc0's (`nouveau_buffer_invalidate`; nv30 already reallocates GART buffers in place on discard maps); applies to every orphaning game (BananaBread's particles and grass: GART STREAM buffers, now reallocated in place when busy instead of replaced) | yes, off; measured |
 | The game sends fetchable formats | no u_vbuf, no copies, no per-draw CPU conversion | per game | ioquake3 0027 (default), cube2 0011 (opt-in) |
 
 Three more options were weighed and not built (free copies after N frames without reads, u_vbuf
@@ -443,14 +443,14 @@ Row 69, `gl2min_color16` (the 16-bit colours, 0027 off) with `NV30_SYSMEM_STATS=
 
 The switches remove the 61 MB of copies and the churn, and the stalls follow. `NV30_SYSMEM_COPY=0`
 without the invalidation was left out on purpose (a drain at every tess flush). With 0027 on (the
-default) OpenArena doesn't need them, and Sauerbraten never sets the hint, so the switches matter
+default) OpenArena doesn't need them, and BananaBread never sets the hint, so the switches matter
 for games we don't patch that send formats nv30 can't fetch. They are still off by default; making
 them the PS3 default needs a run over the rest of the suite (players and world drawn, no GL errors
 in game.log).
 
-## Sauerbraten's world normals as shorts (cube2 0011, `vanormalshort`)
+## BananaBread's world normals as shorts (cube2 0011, `vanormalshort`)
 
-The game-side fix for Sauerbraten. `engine/world.h`'s `vertex` (32 bytes) sends `norm` and
+The game-side fix for BananaBread. `engine/world.h`'s `vertex` (32 bytes) sends `norm` and
 `tangent` as GL_BYTE normalized. nv30's vertex formats (nv30_format.c, `nv30_vtxfmt_table`) have
 no signed 8-bit type (U8_UNORM, U8_USCALED, V16_SNORM, V16_SSCALED, V16_FLOAT, V32_FLOAT), so u_vbuf
 converted R8G8B8_SNORM and R8G8B8A8_SNORM at every world draw and read the VBOs through their
@@ -505,7 +505,7 @@ PLAN 2.4. Most games upload plain RGB(A)8 textures, which the RSX stores at 4 by
 X8R8G8B8). VRAM is also our swap tier, so every MB of textures not kept is memory. DXT1 takes an
 eighth of that, DXT5 a quarter, and libspeq (Mesa 0011/0032) already compresses on the SPEs, RGB
 sources included (1024x1024 in about 1 ms on 4 SPEs). Mesa 0038 is in Mesa .466~dev and .476 (on
-the PS3) and off by default; its first A/B (Sauerbraten, SuperTuxKart lean, OpenArena gl2min) is
+the PS3) and off by default; its first A/B (BananaBread, SuperTuxKart lean, OpenArena gl2min) is
 [below](#measured-on-the-ps3-batch-ssdroot2-p2).
 
 ### What it does
@@ -642,14 +642,14 @@ TESTS.md). Medians; n=2, so "equal" means inside the spread of the baseline runs
 
 | Game | Arm | Textures forced | Peak VRAM (MB) | ps3rsx buffers, middle (MB) | Steady fps | 1% low | Gameplay stalls | RSS (MB) |
 |---|---|---|---|---|---|---|---|---|
-| Sauerbraten | off | 0 | 119.8 | 351 | 39.9 | 26.0 | 0.5 s | 93.3 |
-| Sauerbraten | `opaque` | 73 (all DXT1) | 73.4-77.6 | 215 | 39.0 | 23.9 | 0.55 s | 89.7 |
+| BananaBread | off | 0 | 119.8 | 351 | 39.9 | 26.0 | 0.5 s | 93.3 |
+| BananaBread | `opaque` | 73 (all DXT1) | 73.4-77.6 | 215 | 39.0 | 23.9 | 0.55 s | 89.7 |
 | SuperTuxKart lean | off | 0 | 98.5 | 265 | 20 (HUD) | 10.7 | 2.8 s | 101 |
 | SuperTuxKart lean | `opaque` | 0 | 97.3 | 261 | 21 (HUD) | 11.6 | 1.7 s | 105 |
 | OpenArena gl2min | off | 0 | 120.1 | 343 | 56.3 | 23.0 | 0.0 s | 89 |
 | OpenArena gl2min | `opaque` | 0 | 119.7 | 343 | 55.8 | 23.0 | 0.4 s | 86 |
 
-- **Sauerbraten wins memory.** 73 textures went to DXT1, 88 MB of levels stored in 11 MB; 4 went
+- **BananaBread wins memory.** 73 textures went to DXT1, 88 MB of levels stored in 11 MB; 4 went
   back to uncompressed (1 MB), 17 stayed for alpha, 26 for size, 39 for format. Peak VRAM left the
   117 MB cap (119.8 MB in the column) for 73-78 MB, and the census of the game's ps3rsx buffers fell
   from 351 MB to 215 MB (the census counts buffers the VRAM swap has pushed out as well), RSS by 3.5 MB. Nothing else was
@@ -673,7 +673,7 @@ TESTS.md). Medians; n=2, so "equal" means inside the spread of the baseline runs
 - OpenArena ran at 56 in both arms against 60-63 in the baseline earlier in the boot; the stats
   variable or the boot's drift, not separated (a profiled run an hour before also gave 56).
 
-Verdict: Mesa 0038 `opaque` is worth turning on for Sauerbraten if the user accepts the softer
+Verdict: Mesa 0038 `opaque` is worth turning on for BananaBread if the user accepts the softer
 rock; it frees 40-45 MB of VRAM, which on a USB root or in game mode is what the VRAM swap needs.
 The rest of the suite is in the next section.
 
@@ -759,7 +759,7 @@ process of another name is left alone.
 
 Moved to [backlog/memory.md](backlog/memory.md): OpenArena's hunk trim after a map load, ps3rsx's
 census listing the largest buffers, an ETR soak, the nv30-only Mesa build, sound without the pulse
-plugin, renderergl2's `r_keepImages`, Sauerbraten's grass normals, and a fix for the Luanti bench
+plugin, renderergl2's `r_keepImages`, BananaBread's grass normals, and a fix for the Luanti bench
 mod, whose memory lines are parsed wrongly (its `vmrss`, `rssanon`, `rssfile` and `vmswap` never
 come out; still so in the runs of 2026-10-18).
 
@@ -767,13 +767,13 @@ come out; still so in the runs of 2026-10-18).
 
 - 2026-10-18 06:47 (row 57): Yamagi's small table measured (-70 MB, stalls 22.6 -> 0.05 s), later
   made the default; Luanti `trim16` rejected for its extra stalls.
-- 2026-10-18 morning (row 61): the malloc presets on Sauerbraten and OpenArena read as noise, so no
+- 2026-10-18 morning (row 61): the malloc presets on BananaBread and OpenArena read as noise, so no
   preset became a default.
 - 2026-10-18: report.py stopped counting a reload's last frame as play (commit 3634dcc), which
   turned OpenArena opengl2's "16 s gameplay freeze" into a load-time frame.
 - 2026-10-18 evening (batch 17, commit 3939a48): ioquake3 0027, Mesa 0037's switches and cube2 0011
   measured; 0027 already the default, the other two still off by default.
-- 2026-10-19 (batch ssdroot2 P2): Mesa 0038 `opaque` measured on three games: Sauerbraten -42 MB of
+- 2026-10-19 (batch ssdroot2 P2): Mesa 0038 `opaque` measured on three games: BananaBread -42 MB of
   VRAM, no fps change; SuperTuxKart and OpenArena 0 textures forced.
 
 Older versions and the dated history: [archive/MEMORY.md](archive/MEMORY.md).

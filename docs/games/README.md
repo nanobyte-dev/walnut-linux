@@ -4,7 +4,7 @@ These are the games we run on the RSX and how well each plays today, at 1920x108
 and our `ps3rsx` driver ([glossary](../README.md#glossary)). All 13 games of the benchmark suite run
 with the right picture. Six reach 60 fps or more with little stalling (QuakeSpasm, Yamagi Quake II,
 X-Moto, Armagetron, Neverball, OpenArena opengl1), Extreme Tux Racer and OpenArena opengl2 sit at
-56-60, and the rest (ClassiCube, dsda-doom, Luanti, Sauerbraten, SuperTuxKart, OpenTTD) are held
+56-60, and the rest (ClassiCube, dsda-doom, Luanti, BananaBread, SuperTuxKart, OpenTTD) are held
 back by the PPE or by memory. The per-game files below hold the packages, patches and history; the suite
 runner is in [SUITE.md](SUITE.md), what is still to do in [backlog/games.md](../backlog/games.md).
 
@@ -29,7 +29,7 @@ gameplay frame. Memory is the lowest MemAvailable during the run and the game's 
 | [ClassiCube](classicube.md) | yes | 46.1-48.1 on the SSD root (rows 71, 75); 45.9 on USB, 48.1 with `chunks1` (row 68) | 0.0 s / 30.7 / 65 ms | 53 / 60 | right, state RUNNING, mic hears the room | `chunks1` default; GPU-bound (PLAN 3.2) |
 | [dsda-doom, GL](doom.md) | yes | 55.9 (row 61) | 0.0 s / 40.3 / 34 ms | 43 / 65 | right, **music chops** (465 underruns a minute with the synth on the SPEs, row 52) | the chopping's cause (PLAN 2.8, D3) |
 | [Luanti](luanti.md) | yes | 46 on the SSD root (row 71); 45.5 on USB (row 67) | 3.5 s (2.4-5.8) / 19.1 / 724 ms (SSD root) | 19 / 63 | right, plays with no underruns (not judged by ear yet) | `view40` as an option (PLAN 2.9) |
-| [Sauerbraten](sauerbraten.md) | yes | 39.1 on the SSD root (rows 71, 75); 38.5 on USB (row 70); 45.1 with `shortnormals` (row 69) | 0.05 s / 25.6 / 103 ms (SSD root); 1.6 s / 24.1 / 459 ms (USB) | 25 / 117 (73-78 with force-DXT `opaque`, row 74) | right, 60-181 underruns a run, mic hears only the room | `shortnormals` default, compression at upload (PLAN 2.4) |
+| [BananaBread](sauerbraten.md) | yes | 39.1 on the SSD root (rows 71, 75); 38.5 on USB (row 70); 45.1 with `shortnormals` (row 69) | 0.05 s / 25.6 / 103 ms (SSD root); 1.6 s / 24.1 / 459 ms (USB) | 25 / 117 (73-78 with force-DXT `opaque`, row 74) | right, 60-181 underruns a run, mic hears only the room | `shortnormals` default, compression at upload (PLAN 2.4) |
 | [SuperTuxKart](supertuxkart.md) `lean` | yes | 20-22 by the HUD (rows 61, 68, 69, 71, 74) | 0.2-3.6 s / 10.2-12.8 / 108-513 ms | 26 / 97 | track draws; `sound=RUNNING` since the SSD root, OpenAL buffer warnings in half the runs | sound by ear (PLAN 2.1), then `lean` as default (D4) |
 | [OpenArena, opengl2](openarena.md) `gl2min` | yes | 60.4 on the SSD root (row 71), 56 later in that boot (row 74); 55.9 on USB (row 70) | 0.2 s / 25.6 / 199 ms (SSD root) | 15 / 119 (98 with `md3pack`) | right, right (mic hears it) | compression at upload (a no-op here), `md3pack` default |
 | [OpenTTD](openttd.md) | yes (our GL driver) | 11 on our 1962 savegame (rows 78-80); 34-43 with the 8bpp-optimized blitter (now the package default); 21 at the title screen (row 61) | 52 s / 5.7 / 311 ms (32bpp-anim); 0.4 s / 13.4 / 210 ms (8bpp) | 17 / 18 (41 free with 8bpp) | right (same picture either blitter), **choppy** (3500-4700 underruns; the music costs about 20% of the fps) | the 8bpp package on the PS3, Mesa 0040 A/B, the music (PLAN 2.8) |
@@ -89,7 +89,7 @@ commands):
   records 8 s of the webcam microphone after every photo (`build/bench-cam/audio.log`); whether a
   game sounds right is still the user's call by ear. The room's floor in those clips is rms about
   -50.5 dBFS, spectral flatness 0.03, a peak at 445 Hz and the bands 11/83/5/0%; a clip with that
-  signature has no game audible above the hum (Sauerbraten's 20 of 20, most of SuperTuxKart's,
+  signature has no game audible above the hum (BananaBread's 20 of 20, most of SuperTuxKart's,
   Luanti's and ClassiCube's), clips of OpenArena, X-Moto and dsda-doom sit 2-7 dB above it with another
   spectrum. The mic is a floor check, not a judge. bench.txt's `sound=` and `underruns=` lines are
   what the PS3 itself sees.
@@ -116,12 +116,12 @@ commands):
   20 ms a random read). This console's internal disk is an upgraded SSD (a stock PS3 has a 2.5" HDD);
   the batches of 2026-10-19 onward (rows 71-75) run with the root on it (`root=/dev/mapper/ps3root` in
   bench.txt), which helps the disk-bound phases more than a stock console could: loads 39-61% shorter,
-  Sauerbraten's gameplay stalls 1.6 s to 0.05 s, frame rates unchanged
+  BananaBread's gameplay stalls 1.6 s to 0.05 s, frame rates unchanged
   ([GAMEOS-HDD.md](../GAMEOS-HDD.md#result-the-ssd-root-batches-ssdroot1-and-ssdroot2)). The
   comparison is cross-boot until the alternating boots are run.
 - **Profiled runs** (`PERF=1`, `MEM=1`, `PERF_LOAD=1`) are for profiles, not for fps.
 - Single runs vary: OpenArena gave 23 to 54 fps and QuakeSpasm 66 to 84 in single runs on Mesa
-  ps3.262, and Sauerbraten's first-person demo swung 23-38 by itself in rows 64-65. A few fps between
+  ps3.262, and BananaBread's first-person demo swung 23-38 by itself in rows 64-65. A few fps between
   single runs is noise.
 
 ## What holds for every game
@@ -138,11 +138,11 @@ of hitches a run. So a profile comes first ([HOTPATHS.md](../HOTPATHS.md)).
 read back is a stall. The fixes that removed the most stalls were in the games' own memory use:
 OpenArena's texture keep and preload (gameplay stalls 9-10 s to 0), Yamagi's PRNG table (70 MB less
 RAM, stalls 22.6 s to 0.05 s), OpenArena opengl2's vertex colours (stalls 9-11 s to 1-2 s),
-Sauerbraten no longer OOM-killed. Where each game's memory goes is in [MEMORY.md](../MEMORY.md).
+BananaBread (Debian's cube2) no longer OOM-killed. Where each game's memory goes is in [MEMORY.md](../MEMORY.md).
 
 **Vertex formats nv30 can't fetch cost twice.** u_vbuf converts them on the CPU at every draw, and
 nouveau then keeps a malloc copy of every buffer it read. Sending formats nv30 fetches natively fixed
-OpenArena opengl2 (ioquake3 0027) and gave Sauerbraten +17% (cube2 0011, `vanormalshort`).
+OpenArena opengl2 (ioquake3 0027) and gave BananaBread +17% (cube2 0011, `vanormalshort`).
 
 **The CPU goes to the driver stack.** Every game is PPE-bound, and in the first profiles (Mesa
 ps3.223) Mesa took 28-56% of a game's CPU and ps3rsx 6-16%, against 4-11% for the game itself.
@@ -185,7 +185,7 @@ ARB_framebuffer_object) are in [backlog/graphics.md](../backlog/graphics.md).
 
 - [openarena.md](openarena.md): OpenArena on our ioquake3, both renderers.
 - [quake.md](quake.md): QuakeSpasm and Yamagi Quake II.
-- [sauerbraten.md](sauerbraten.md): Sauerbraten (our cube2) and Red Eclipse, the same engine family.
+- [sauerbraten.md](sauerbraten.md): BananaBread (our cube2) and Red Eclipse, the same engine family.
 - [luanti.md](luanti.md): Luanti with LuaJIT and Minetest Game.
 - [supertuxkart.md](supertuxkart.md): SuperTuxKart's legacy renderer.
 - [classicube.md](classicube.md): ClassiCube and its timedemo plugin.

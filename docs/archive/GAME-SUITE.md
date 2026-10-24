@@ -60,7 +60,7 @@ From `nv30_screen.c`/`nv30_format.c` (Mesa 26.2.4) and docs/RSX.md:
   `yamagi-quake2` (contrib) doesn't exist for ppc64 although it builds on s390x and ppc64el.
 - **Debian's darkplaces is GL 3.2 core only** (since 0~20180908), so Nexuiz (in Debian) and Xonotic
   are out with Debian's engine; Nexuiz runs on our older build (`darkplaces-gl2`, docs/GAME-PLAN.md).
-- **Sauerbraten and Red Eclipse turn texture compression off on Mesa**: `if(!mesa) usetexcompress = 2`
+- **BananaBread (Debian's cube2) and Red Eclipse turn texture compression off on Mesa**: `if(!mesa) usetexcompress = 2`
   in `rendergl.cpp`; only pre-made DDS files go in compressed.
 - **QuakeSpasm 0.96.3 has a BE bug**: wrong colours and dlight wraparound from the packed-pixels path
   (quakespasm issue #114, a G5 on Debian ppc64); `-nopackedpixels` avoids it, upstream master
@@ -97,9 +97,9 @@ tried, **X** can't run on NV47. MB = installed (engine + data + new libraries).
 | Neverball 1.6 (+Neverputt) | neverball(+neverputt), 112 (138) | builds, tests disabled | GL fixed function, VBO, point params required; GLSL/FBO optional; A | small | `--replay demo1.nbr` (shipped); fps on screen only, stops at a menu | SDL audio + Ogg; no S3TC | **suite** (patch or HUD) |
 | Extreme Tux Racer 0.8.4 | extremetuxracer, 48 | builds | GL 1.2 fixed function (SFML 3.1); A | small | none | SFML audio (WAV/Ogg) | reserve (no benchmark) |
 | Armagetron 0.2.9.3 | armagetronad, 27 | builds | GL 1.x, SDL 1.2; A | small | `--playback` of debug recordings, UNVERIFIED | SDL_mixer | reserve (soak test) |
-| Sauerbraten (cube2 2020) | cube2 + cube2-data 1.3, 266 | builds, no tests | GL 2.0 + GLSL 1.20 + FBO (EXT ok) required; float/VTF optional; C | UNVERIFIED; `maxtexsize`, `texreduce` | scripted: `-x` CubeScript `getfps` + `quit` | SDL_mixer, Ogg/WAV; S3TC off on Mesa (DDS only); GPU step up | **suite** |
+| BananaBread (cube2 2020) | cube2 + cube2-data 1.3, 266 | builds, no tests | GL 2.0 + GLSL 1.20 + FBO (EXT ok) required; float/VTF optional; C | UNVERIFIED; `maxtexsize`, `texreduce` | scripted: `-x` CubeScript `getfps` + `quit` | SDL_mixer, Ogg/WAV; S3TC off on Mesa (DDS only); GPU step up | **suite** |
 | Tesseract | not in Debian | | requires 4 vertex texture units, float G-buffer; X | | | | out |
-| Red Eclipse 1.6 | redeclipse, 945 | builds | same engine as Sauerbraten; C | heavy maps | scripted like cube2 | as cube2; no gamepad | reserve (Sauerbraten covers it, 936 MB data) |
+| Red Eclipse 1.6 | redeclipse, 945 | builds | same engine as BananaBread; C | heavy maps | scripted like cube2 | as cube2; no gamepad | reserve (BananaBread covers it, 936 MB data) |
 | SuperTuxKart 1.5 (legacy GL 2.1) | supertuxkart, 839 | builds; old #714519 wrong colours on powerpc (0.8 era) | GLSL path needs 3.1, legacy fixed-function fallback; C | **>= 1 GB (FAQ)** | `--benchmark`: replay, CSV report, exits | OpenAL + Ogg; `enable_texture_compression` (likely no effect on legacy, UNVERIFIED) | **suite** (stretch: RAM) |
 | Trigger Rally 0.6.6 | trigger-rally, 122 | builds | GL 2.0 compat, fixed function, cube maps; A | small | none (no CLI, no fps counter) | OpenAL + ALUT | reserve |
 | Scorched3D 44 | scorched3d, 125 | builds | fixed function, optional GLSL/FBO/shadows; A | UNVERIFIED | none (`-startclient` AI game, UNVERIFIED) | OpenAL + Ogg, wxWidgets | no |
@@ -132,7 +132,7 @@ Ten games, eleven entries (OpenArena counts twice: its two renderers are differe
 | 2 | OpenArena `opengl2` | the only GLSL-heavy shooter with an S3TC switch and a timedemo | GLSL compile RAM, shaders vs NV47 limits |
 | 3 | ClassiCube | ours, measured | voxel, OpenAL + Vorbis |
 | 4 | QuakeSpasm | smallest footprint, GL 1.x, timedemo | shooter, SDL audio + own mixer |
-| 5 | Sauerbraten | a step up in GPU load: GLSL 1.20 everywhere, FBO water | shooter, SDL_mixer, DDS textures |
+| 5 | BananaBread | a step up in GPU load: GLSL 1.20 everywhere, FBO water | shooter, SDL_mixer, DDS textures |
 | 6 | SuperTuxKart (legacy) | the racer with a real benchmark; the RAM stress test | racer, OpenAL, 750 MB of data |
 | 7 | Luanti + minetest game | CPU-heavy Lua and meshing, the other voxel engine | voxel, CPU, OpenAL |
 | 8 | Neverball | light GL with VBOs, shipped replays | SDL audio + Ogg |
@@ -142,7 +142,7 @@ Ten games, eleven entries (OpenArena counts twice: its two renderers are differe
 
 Sound stacks: OpenAL Soft (1-3, 6, 7), SDL audio with the game's own mixer (4, 8, 10), SDL_mixer
 (5, 9, 11). SFML audio is only in Extreme Tux Racer (reserve). Compressed textures: OpenArena (both
-renderers, the switch we already use), SuperTuxKart (setting, effect UNVERIFIED), Sauerbraten (needs
+renderers, the switch we already use), SuperTuxKart (setting, effect UNVERIFIED), BananaBread (needs
 a one-line patch, below). For a DXT5 case without patching, Teeworlds and TORCS are the reserves.
 
 Reserves, in order: Yamagi Quake II gl1 (OpenAL shooter, timedemo; needs our build like ClassiCube),
@@ -217,7 +217,7 @@ Not from Debian:
    It doesn't quit after a timedemo: the runner kills it on that line. Load time isn't printed: use
    the out.log stamp of the first demo line. No S3TC. Optional: `-noglslgamma` (a full-screen GLSL
    pass at 1080p) and `-noglsl` as the GL 1.x-only variant. Gamepad UNVERIFIED.
-5. **Sauerbraten.** `/usr/games/cube2 -w1920 -h1080 -t1 -l<map> -x"sleep 30000 [echo (getfps 1);
+5. **BananaBread.** `/usr/games/cube2 -w1920 -h1080 -t1 -l<map> -x"sleep 30000 [echo (getfps 1);
    quit]"`. No demo playback in the client, so a fixed spawn in a fixed map for a fixed time; the exact
    `getfps` output and which map ships in cube2-data 1.3 are UNVERIFIED (pick in the first session).
    Texture compression: `texcompress` (default: textures of 1024+ pixels) only works when
@@ -301,7 +301,7 @@ Protocol, per game:
 | 11 | SuperTux | A | `--renderer opengl20`: fixed function plus FBO |
 | 12 | OpenTTD | B | `-v sdl` first; then `sdl-opengl`: R8 and 1D palette textures, PBO, BGRA + `UNSIGNED_INT_8_8_8_8_REV` on BE, a VAO extension check (it may refuse to start) |
 | 13 | Luanti | C | GLSL 1.20 on every draw, FBO for effects; our build's unit tests first |
-| 14 | Sauerbraten | C | GLSL 1.20 bump/parallax shaders against the 224-constant limit, EXT_fbo water reflection and refraction, depth-stencil |
+| 14 | BananaBread | C | GLSL 1.20 bump/parallax shaders against the 224-constant limit, EXT_fbo water reflection and refraction, depth-stencil |
 | 15 | SuperTuxKart | C | legacy fixed function, many textures: RAM and VRAM first, then GL |
 | 16 | OpenArena `opengl2` | B | ~100+ GLSL programs (`lightall_fp`), RAM during the compile burst; *min* first, then *default* |
 
@@ -324,7 +324,7 @@ Not implemented. The pieces:
     neverballrc), restored after every run;
   - `FPS_RE`, `LOAD_RE` (or `LOAD_MARK`: a line whose stamp ends loading), `MAXMS_RE`, and
     `RESULT_FILE` for games that write a file (SuperTuxKart's CSV);
-  - `END_RE`: a line after which the client kills the game (QuakeSpasm, X-Moto, Sauerbraten);
+  - `END_RE`: a line after which the client kills the game (QuakeSpasm, X-Moto, BananaBread);
     `DURATION`: fixed-time runs for games without an end (OpenTTD rendering, ClassiCube, Neverball);
   - `COMM`: the process name for ps3rsx's per-client VRAM (`ioquake3`, `cube2_client`, ...);
   - `HUD=1` when the game prints no fps (the Gallium HUD dump becomes the fps source).

@@ -679,7 +679,7 @@ blocks.
 Two arms, switched between runs by `games/bench/ssd-arm.sh` (run.sh calls it before each run's quiet)
 and recorded by client.sh in bench.txt (`gamedata=`, `gamedata_dirs=`, `swap=`, `swaps=`; report.py:
 `base@gdssd`, `base@gdssd+swssd`):
-- `GAMEDATA=ssd`: the recipe's `DATA_DIRS` (Sauerbraten `/usr/share/games/cube2`, OpenArena
+- `GAMEDATA=ssd`: the recipe's `DATA_DIRS` (BananaBread `/usr/share/games/cube2`, OpenArena
   `/usr/share/games/openarena`, Luanti `/usr/share/luanti`, SuperTuxKart
   `/usr/share/games/supertuxkart`, ClassiCube `~/.local/share/classicube/{texpacks,audio}`) are
   bind-mounted from `/mnt/ps3ssd/games/<dir>` for the run and unmounted for runs without it; the quiet
@@ -718,24 +718,24 @@ nearly all of it, less what stays on USB (binaries, libraries, shader cache):
 
 | game | load (s) | load_disk_s | warm_disk_s | in the window | load with GAMEDATA=ssd [estimate] |
 |---|---|---|---|---|---|
-| Sauerbraten base | 16.8 | 5.2 | 3.5 | stall_disk_s 0.1 | 11.7-13.1 (-22% to -30%) |
+| BananaBread base | 16.8 | 5.2 | 3.5 | stall_disk_s 0.1 | 11.7-13.1 (-22% to -30%) |
 | OpenArena gl2min | 12.0 | 6.2 | 6.4 | stall_disk_s 6.8, stall_swap_s 20.1 | 5.9-7.5 (-37% to -51%) |
 | Luanti base | 40.8 | 9.8 | 0.7 | stall_disk_s 0.5 | 31.1-33.7 (-17% to -24%) |
 | SuperTuxKart lean | 53.6 | 10.9 | 5.7 | stall_disk_s 0.4 | 42.8-45.8 (-15% to -20%) |
 | ClassiCube base | 14.2 | - | - | no recorder in batch 16 | small: its data is one texture pack and the sounds |
 
 So loads become faster but stay mostly CPU-bound: what isn't disk wait today (5.8 s of OpenArena's
-load, 11.6 s of Sauerbraten's, 31 s of Luanti's, 42.7 s of SuperTuxKart's) stays.
+load, 11.6 s of BananaBread's, 31 s of Luanti's, 42.7 s of SuperTuxKart's) stays.
 The warm-up's disk stalls (3.5-6.4 s in three games) should mostly go. `SWAP=ssd` matters where the
 window swaps: OpenArena gl2min's 20.1 s of swap stalls, as far as they are spills read back from the
 USB disk rather than zram or VRAM hits (the recorder's swap class counts both swaps). The batch will
 say how much of each estimate holds.
 
 **Result, batch ssd1** (2026-10-18 22:10-23:25Z, kernel 6.12.111+ps3.472, USB root, same boot, `STALLS=1 ROTATE=1`,
-arms rotated each round; row "batch ssd1" in games/bench/results; only Sauerbraten (9 runs) and part of
+arms rotated each round; row "batch ssd1" in games/bench/results; only BananaBread (9 runs) and part of
 OpenArena ran, the other three games are still to do). Medians with [min..max]:
 
-| Sauerbraten base, n=3 | USB | GAMEDATA=ssd | ssd + SWAP=ssd |
+| BananaBread base, n=3 | USB | GAMEDATA=ssd | ssd + SWAP=ssd |
 |---|---|---|---|
 | load (s) | 16.9 [15.4..19.3] | 15.9 [15.4..16.7] | 16.4 [15.3..17.5] |
 | load_disk_s (sda wait in the load) | 5.5 [4.7..5.6] | 4.9 [4.8..5.5] | 5.4 [5.0..5.4] |
@@ -759,12 +759,12 @@ OpenArena ran, the other three games are still to do). Medians with [min..max]:
 
 What it shows:
 - The SSD did not turn the loads CPU-bound. The recorder's disk class counts the USB disk (sda) only, and
-  that wait did not move: Sauerbraten 5.5 -> 4.9-5.4 s, OpenArena 6.3 -> 6.4-6.5 s. The game data was
-  only a part of the load's reads from sda (Sauerbraten 93 -> 76 MB, OpenArena 144 -> 93 MB in one run
+  that wait did not move: BananaBread (Debian's cube2) 5.5 -> 4.9-5.4 s, OpenArena 6.3 -> 6.4-6.5 s. The game data was
+  only a part of the load's reads from sda (BananaBread 93 -> 76 MB, OpenArena 144 -> 93 MB in one run
   each); the rest is the binary, libraries, Mesa, the shader cache and Xorg, which the arm leaves on
   USB, and those reads cost the same 5-6 s. The estimate above (-22% to -51%) assumed the load's disk
   wait was data; it is mostly not. The next arm to try is the whole system on the SSD (Phase B).
-- Sauerbraten: load -6% (SSD) and -3% (SSD + swap) in the medians, but the spread is the first round: with
+- BananaBread: load -6% (SSD) and -3% (SSD + swap) in the medians, but the spread is the first round: with
   the arm order rotated, round 1 had USB first and cold (19.3 s) and round 3 reads 15.4 / 15.4 / 15.3 s
   for USB / SSD / SSD + swap. Stalls: SSD 1.0 s against 1.6 s and 1% low 26.4 against 24.1 look better but
   sit inside the USB runs' own spread (0.7-2.4 s, 23.1-25.9); SSD + swap equals USB. No effect on the
@@ -775,7 +775,7 @@ What it shows:
   in every arm (stalls 0-3, 1% low 23-25), so there is nothing for the SSD to fix there. n=2/1/3:
   indicative only. SSD + swap against SSD alone cannot be told apart (swap stall seconds 0.0-0.6 in all arms;
   the spill is rarely read back in these two games).
-- Memory and sound: swap-outs the same in all arms; ALSA underruns in Sauerbraten
+- Memory and sound: swap-outs the same in all arms; ALSA underruns in BananaBread
   (81-187 per run) are the known pattern, not arm-related (SSD 113-165, USB 153-187, SSD + swap 81-168).
 - Excluded: `ps3-bench-20261018T230542Z-openarena-gl2min` (SSD arm, a key press at 195 s: interfered,
   its window 94 s), and a last OpenArena run at about 23:26Z (killed midway, its arm reset under it;

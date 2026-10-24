@@ -3,7 +3,7 @@
 # What in our stack could run on the SPEs
 
 2026-10-15. (Status 2026-10-17: the runtime is libspeq; its first consumers are the DXT1 encoder
-behind Mesa (shipped), fluidsynth's voice DSP and Sauerbraten's skinning; OpenAL Soft's mixer
+behind Mesa (shipped), fluidsynth's voice DSP and BananaBread's skinning; OpenAL Soft's mixer
 measured at 3.7-4.7% of a game, under the bar. SPU-OFFLOAD-PLAN.md has the current state.) Survey of prior art and our own profiles (OpenArena: docs/PLAN.md item 2). "Unverified"
 marks claims nobody has measured here yet.
 

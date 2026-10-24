@@ -1,6 +1,6 @@
 # The SPEs: libspeq and what runs on them
 
-The PS3's Cell chip has six SPEs (synergistic processing elements, the small vector cores, also called SPUs) that Linux can use. We run three things on them today, all through one userspace library, libspeq: the DXT1/DXT5 texture encoder behind Mesa, fluidsynth's voice DSP, and an optional skinning path for Sauerbraten. The texture encoder and the synth are in use and measured; skinning is selectable and gives no gain. This page covers the runtime, those users with their switches, the measurements, and how to run the tests. Sound is in [SPU-AUDIO.md](SPU-AUDIO.md), the survey of what else could move is in [research/SPU-OFFLOAD.md](research/SPU-OFFLOAD.md), unbuilt work is in [backlog/spu.md](backlog/spu.md).
+The PS3's Cell chip has six SPEs (synergistic processing elements, the small vector cores, also called SPUs) that Linux can use. We run three things on them today, all through one userspace library, libspeq: the DXT1/DXT5 texture encoder behind Mesa, fluidsynth's voice DSP, and an optional skinning path for BananaBread. The texture encoder and the synth are in use and measured; skinning is selectable and gives no gain. This page covers the runtime, those users with their switches, the measurements, and how to run the tests. Sound is in [SPU-AUDIO.md](SPU-AUDIO.md), the survey of what else could move is in [research/SPU-OFFLOAD.md](research/SPU-OFFLOAD.md), unbuilt work is in [backlog/spu.md](backlog/spu.md).
 
 Terms (SPE/SPU, PPE, XDR, VRAM, libspeq, DXT1/DXT5) are in the [glossary](README.md#glossary).
 
@@ -15,7 +15,7 @@ How the pieces work:
 - **Completion.** The SPU DMA-writes a done word. `speq_wait` spins 80 us, then sleeps on a futex through newlib's stop code 0x2104 (the whitelisted syscalls futex, write, nanosleep and getpid run on the worker's thread inside `spu_run`). Stops 0x2100 and 0x2101 (C99 and POSIX stdio) need a PPE server that nothing provides yet.
 - **Parking.** A worker with no work parks after `SPEQ_IDLE_US` (10 ms by default; the deadline pool uses 200 ms) and frees its context after `SPEQ_FREE_MS` (5 s; a minute in the pool). The decrementer ticks at the 79.8 MHz timebase, so this runs on time.
 - **SPU programs are files** in `/usr/lib/ps3/spu` (package `ps3-spu-programs`), not embedded in the library. `ps3-spu` is built twice: the SPU half with our spu-elf toolchain on the PC, the PPE half in the ppc64 chroot. An ABI word (`.speq_abi` section, `SPEQ_ABI_VERSION`, now 2) keeps the halves in step. The toolchain is described in [SPU-GCC.md](SPU-GCC.md).
-- **Mesa holds no policy.** Its hook (`mesa/patches/0011-s3tc-libspeq.patch`, extended by `0032-s3tc-dxt5-libspeq.patch`) is about 30 lines that `dlopen` `libspeq.so.0` and call `speq_s3tc_compress_v1`. Sizes, the PPE/SPU choice and the debug switches live in libspeq, so tuning never needs a Mesa rebuild (12 to 25 minutes). Mesa has no package dependency on libspeq. Fluidsynth and Sauerbraten load it the same way.
+- **Mesa holds no policy.** Its hook (`mesa/patches/0011-s3tc-libspeq.patch`, extended by `0032-s3tc-dxt5-libspeq.patch`) is about 30 lines that `dlopen` `libspeq.so.0` and call `speq_s3tc_compress_v1`. Sizes, the PPE/SPU choice and the debug switches live in libspeq, so tuning never needs a Mesa rebuild (12 to 25 minutes). Mesa has no package dependency on libspeq. Fluidsynth and BananaBread load it the same way.
 
 ### Queues: four bulk SPEs and a shared deadline pool
 
@@ -36,7 +36,7 @@ All switches are environment variables read by libspeq. `SPEQ_DEBUG=1` prints a 
 | `SPEQ_S3TC_RGB` | `ppe`, `off` | applies to RGB (3-byte) sources only; `ppe` sends them to the PPE encoder |
 | `SPEQ_S3TC_MIN` | 64 (64x64 pixels) | smallest image sent to the SPEs; smaller mip levels stay on the PPE |
 | `SPEQ_SYNTH` | `auto` (default), `spu`, `ppe`, `off` | fluidsynth's voice DSP. `auto` takes rounds with at least 4 voices (`SPEQ_SYNTH_MIN`); `ppe` runs libspeq's DSP on the calling thread (to tell hook bugs from SPU bugs); `off` is stock fluidsynth |
-| `SPEQ_SKIN` | `auto` (default), `spu`, `ppe`, `off` | Sauerbraten's skinning, if the engine's hook is used; `auto` declines batches under `SPEQ_SKIN_MIN` (256) vertices |
+| `SPEQ_SKIN` | `auto` (default), `spu`, `ppe`, `off` | BananaBread's skinning, if the engine's hook is used; `auto` declines batches under `SPEQ_SKIN_MIN` (256) vertices |
 | `SPEQ_POOL_SPES` | 2 | workers in the deadline pool |
 | `SPEQ_SYNTH_SPES`, `SPEQ_SKIN_SPES` | 0 = all | most pool workers one synth round or one mesh is split across; they open nothing |
 | `SPEQ_SPIN_US`, `SPEQ_IDLE_US`, `SPEQ_FREE_MS` | 80, 10000, 5000 | queue tuning |
@@ -53,7 +53,7 @@ What it does:
 - **Entry point.** On nv30, `glTexImage` reaches `tx_compress_dxtN()` through `_mesa_texstore_*dxt*` in `src/mesa/main/texcompress_s3tc.c`, never `util_format_dxt*_pack`. The destination is a fresh, page-aligned GART buffer, a PFNMAP mapping the SPEs can write. Mesa writes DXT blocks little-endian byte by byte, and alpha at or below 127 is transparent (punch-through).
 - **DXT1** (SPU `dxt.spu`): byte-identical to the reference on 37856 test blocks, 135 cycles per block, **379 Mpixel/s per SPE** (RGBA 335), 1173 Mpixel/s on six SPEs, against 6.5 Mpixel/s for libspeq's own PPE encoder and 2.6 for Mesa's. Through `glTexImage` a 1024x1024 RGBA image runs at 352 Mpixel/s: the encoder is not the limit, dispatch and the output page faults are. The PPE encoder is also better than Mesa's on OpenArena's textures (mean RMSE 4.23 against 4.29, better on 37 of 50).
 - **DXT5** (Mesa 0032, libspeq 0.367): generic compressed RGBA requests (`GL_COMPRESSED_RGBA`, `RGBA_DXT5`) go to libspeq too. Details and the alpha block in [ps3-spu/doc/dxt5.md](../ps3-spu/doc/dxt5.md).
-- **RGB sources** (libspeq 0.394): a 3-byte source used to fall to the PPE encoder at 165 ms for a 1024x1024 (43 ms for 512x512). The SPEs now take them: **1.0 ms per 1024x1024 on 4 SPEs against about 175 ms on the PPE**. Details in [ps3-spu/doc/dxt-rgb.md](../ps3-spu/doc/dxt-rgb.md). No game in the suite has exercised this path: Sauerbraten's demo uploads no RGB DXT1 (rgbspu and rgbppe came out identical at 39 fps, fps.csv row for "ioquake3 ps3.396 ... libspeq 0.394"), and Teeworlds' DXT5 has not shown a `SPEQ` line in a log yet.
+- **RGB sources** (libspeq 0.394): a 3-byte source used to fall to the PPE encoder at 165 ms for a 1024x1024 (43 ms for 512x512). The SPEs now take them: **1.0 ms per 1024x1024 on 4 SPEs against about 175 ms on the PPE**. Details in [ps3-spu/doc/dxt-rgb.md](../ps3-spu/doc/dxt-rgb.md). No game in the suite has exercised this path: BananaBread's demo uploads no RGB DXT1 (rgbspu and rgbppe came out identical at 39 fps, fps.csv row for "ioquake3 ps3.396 ... libspeq 0.394"), and Teeworlds' DXT5 has not shown a `SPEQ` line in a log yet.
 
 What shipped: OpenArena runs with `r_ext_compressed_textures 1` (set in ps3-desktop's `autoexec.cfg`). It compresses only opaque textures, as RGBA DXT1. With the SPU encoder (libspeq 0.210, `SPEQ_S3TC=auto`, 5 runs each, interleaved): level load **13.84 s uncompressed against 13.63 s compressed** (the fewer bytes to upload pay for the encoding), game VRAM 51.7 to 37.5 MB (**14 MB less**), fps 49.1 to 52.7, longest frame unchanged within the noise. One level load made 1476 compression calls with `SPEQ_DEBUG=1`: 254 on the SPEs (every texture from 64x64 up, no failures), the rest small mip levels on the PPE (under 64x64, tens of us each) or, for 1x1 and 2x2, Mesa's own encoder. The queue opens once per game (67 ms). These OpenArena numbers come from step 0's harness, which had a display problem (see "Measured: step 0 and the harness" below); the VRAM figures do not depend on the display, and the load-time comparison has not been repeated through the suite.
 
@@ -65,11 +65,11 @@ The per-voice DSP of fluidsynth 2.6.1 (sample interpolation, the resonant filter
 
 Result on the PS3 (dsda-doom `play`, 60 s): CPU 44.5 to 31.8 s a minute (no music at all: about 29 s), ALSA underruns about halved, and the user, listening, called it "night and day". The music still chops: 465 underruns a minute on the pool against 1095 on the PPE, against 18 with no music. Design, host tests, and the open question are in [SPU-AUDIO.md](SPU-AUDIO.md).
 
-### Sauerbraten's skinning
+### BananaBread's skinning
 
-Sauerbraten skins its skeletal models on the PPE (GPU skinning on nv30 turns the bone lookups into if/else trees: 11 fps against 28). libspeq has a skinning op (`speq_skin_*_v1`, `SPEQ_SKIN_ABI` 1, dual-quaternion palettes, one SPU pass per mesh, run on the pool) and cube2 patch `0006-CPU-skinning-through-libspeq-on-the-PS3-s-SPEs.patch` hooks it in. The modes are `SPEQ_SKIN=auto|spu|ppe|off`; the engine's own loop remains the default in the package.
+BananaBread skins its skeletal models on the PPE (GPU skinning on nv30 turns the bone lookups into if/else trees: 11 fps against 28). libspeq has a skinning op (`speq_skin_*_v1`, `SPEQ_SKIN_ABI` 1, dual-quaternion palettes, one SPU pass per mesh, run on the pool) and cube2 patch `0006-CPU-skinning-through-libspeq-on-the-PS3-s-SPEs.patch` hooks it in. The modes are `SPEQ_SKIN=auto|spu|ppe|off`; the engine's own loop remains the default in the package.
 
-Measured (Sauerbraten spawn and gun, one run each, same boot 2026-10-18; fps.csv row "Luanti ps3.364 batching, Neverball ps3.370 batching, Sauerbraten libspeq 0.381 skinning (spawn)"):
+Measured (BananaBread (Debian's cube2) spawn and gun, one run each, same boot 2026-10-18; fps.csv row "Luanti ps3.364 batching, Neverball ps3.370 batching, BananaBread libspeq 0.381 skinning (spawn)"):
 
 | Mode | steady fps | stalls |
 |---|---|---|
@@ -133,7 +133,7 @@ On the PS3, as `tibi` over SSH, with the user not at the console:
 
 - `ps3-bench.sh run LABEL -- cmd`, `ps3-bench.sh x LABEL -- client`, and `ps3-bench.sh desktop` at the end; results in `/var/tmp/ps3-bench/`.
 - `speq-dxt --check --path spu`, `speq-dxt --bench`, `speq-bench [--quick] [--fault]`, `speq-skin --check`, `SPEQ_DEBUG=1 gl-dxt`, `spurun <prog.spu> [symbol]`.
-- Game-level runs: `/var/tmp/bench/run.sh ...` after `make bench-push`, see [games/SUITE.md](games/SUITE.md). dsda-doom's recipe has the `playspu`, `playppe`, `playoff` and `playnomusic` variants for the synth; Sauerbraten's has `spuskin`, `ppeskin` and `offskin`.
+- Game-level runs: `/var/tmp/bench/run.sh ...` after `make bench-push`, see [games/SUITE.md](games/SUITE.md). dsda-doom's recipe has the `playspu`, `playppe`, `playoff` and `playnomusic` variants for the synth; BananaBread's has `spuskin`, `ppeskin` and `offskin`.
 
 Rules that come with SPU measurements: game-level decisions need the suite, not one game; every PS3 measurement is a same-boot comparison against the off-switch; all-SPE load is capped (60 s per run, 30 s gaps) with the user present and webMAN's fan in SYSCON mode.
 

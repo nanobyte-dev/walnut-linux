@@ -23,7 +23,7 @@ Two problems turned up before any ranking could be made:
   `-D -1` during the game's load and enables it at the window; libraries the game dlopens in that
   time (libGLX_mesa and libgallium come in at context creation) get no MMAP2 record, so their
   samples are `[unknown]` in the PS3's own report. In OpenArena 011212 that was 25.7% of the
-  game's samples; Luanti, Sauerbraten, X-Moto and Armagetron lost libgallium the same way.
+  game's samples; Luanti, BananaBread, X-Moto and Armagetron lost libgallium the same way.
 
 Both are fixed on the PS3 side since (docs/PROFILING.md, "The 2026-10-18 batch"): perf script
 `--no-inline` (it died of SIGPIPE on the missing addr2line command), the load's mmaps tracked by
@@ -76,7 +76,7 @@ Webcam photos (60 s and 150 s into each run) checked for every run:
 | dsda-doom 005026 | gameplay | **no**: perf recorded no samples (`perf_win` empty) |
 | classicube, etr, luanti, neverball, quakespasm, sauerbraten, xmoto, yquake2 | gameplay (QuakeSpasm dark but in the level) | yes |
 
-So 9 games: OpenArena, ClassiCube, ETR, Luanti, Neverball, QuakeSpasm, Sauerbraten, X-Moto, Yamagi
+So 9 games: OpenArena, ClassiCube, ETR, Luanti, Neverball, QuakeSpasm, BananaBread, X-Moto, Yamagi
 Quake II. perf's overhead on fps is within the noise here: OpenArena 50.7, 50.5, 52.7 fps profiled
 against 52.7 and 50.2 without (and 52.9, 54.2 with the stall recorder).
 
@@ -94,7 +94,7 @@ against 52.7 and 50.2 without (and 52.9, 54.2 with the stall recorder).
 | Luanti | 45 | 1.00 | 44.7 | 14.8 | 0.0 | 2.5 | 13.6 | 6.2 | 7.8 | 10.4 | 21.0 | 3.0 |
 | Neverball | 80.5 | 0.40 | 10.1 | 40.9 | 0.1 | 8.6 | 13.1 | 2.8 | 10.1 | 14.3 | 60.8 | 12.2 |
 | QuakeSpasm | 74.4 | 0.51 | 24.3 | 42.9 | 0.1 | 5.5 | 14.0 | 0.8 | 6.3 | 6.2 | 60.5 | 9.5 |
-| Sauerbraten | 22.1 | 1.10 | 7.3 | 72.0 | 0.1 | 3.6 | 6.2 | 0.8 | 2.6 | 7.5 | 80.3 | 1.6 |
+| BananaBread | 22.1 | 1.10 | 7.3 | 72.0 | 0.1 | 3.6 | 6.2 | 0.8 | 2.6 | 7.5 | 80.3 | 1.6 |
 | X-Moto | 154 | 0.91 | 39.9 | 22.0 | 0.1 | 3.6 | 9.1 | 6.4 | 7.6 | 11.2 | 39.0 | 11.0 |
 | Yamagi Quake II | 55.3 | 0.69 | 30.5 | 24.6 | 0.1 | 3.8 | 11.4 | 2.7 | 5.5 | 21.4 | 38.1 | 6.0 |
 
@@ -131,10 +131,10 @@ Top single functions (self time; memcpy counted at its Mesa caller), mean % and 
 
 | Function | mean | games | notes |
 |---|---|---|---|
-| util_format_r8g8b8a8_snorm_unpack_rgba_float | 2.5 | 2 | Sauerbraten 18.2, QuakeSpasm 4.5 |
-| util_format_r8g8b8_snorm_unpack_rgba_float | 1.8 | 1 | Sauerbraten 16.4 |
+| util_format_r8g8b8a8_snorm_unpack_rgba_float | 2.5 | 2 | BananaBread 18.2, QuakeSpasm 4.5 |
+| util_format_r8g8b8_snorm_unpack_rgba_float | 1.8 | 1 | BananaBread 16.4 |
 | ps3rsx_shadow_burst (kernel) | 1.3 | 9 | the software context switch's per-word parse of every push |
-| nv30_query_result | 1.1 | 1 | Sauerbraten 10.3 |
+| nv30_query_result | 1.1 | 1 | BananaBread 10.3 |
 | nv30_state_validate | 1.1 | 9 | ClassiCube 3.0 |
 | memcpy < u_upload_data | 1.1 | 4 | X-Moto 5.3, ETR 1.9: client vertex arrays |
 | nv30_draw_vbo | 1.0 | 6 | ClassiCube 3.9 |
@@ -155,17 +155,17 @@ flush it does; `pushbuf_flush` 6.4% (9 games); `nv30_draw_vbo` 6.9%; `st_prepare
 
 Estimated savings are % of each game's CPU, from the profile shares and what the change removes.
 Where the time sits on the game's render thread and the game is CPU-bound, a frame gets that much
-shorter; X-Moto (154 fps) and Neverball (80) have headroom already, Sauerbraten (22 fps), Luanti
+shorter; X-Moto (154 fps) and Neverball (80) have headroom already, BananaBread (22 fps), Luanti
 (45) and ClassiCube (43) don't.
 
-1. **u_vbuf's SNORM8 vertex conversion** (implemented: 0033, `NV30_TRANSLATE_LUT`, measured and on by default, `=0` turns it off; Sauerbraten 25.9 -> 39.6 fps, +53%, same-boot PS3 A/B, 2026-10-18). nv30 has no
+1. **u_vbuf's SNORM8 vertex conversion** (implemented: 0033, `NV30_TRANSLATE_LUT`, measured and on by default, `=0` turns it off; BananaBread (Debian's cube2) 25.9 -> 39.6 fps, +53%, same-boot PS3 A/B, 2026-10-18). nv30 has no
    signed 8-bit vertex type (RSX: S1, F, SF, UB, S32K, CMP, UB256), so u_vbuf turns
    GL_BYTE-normalized normals and tangents into 32-bit floats on every draw, for the whole index
    range, static VBOs included. translate_generic does that with the format's unpack function and
    an emit function per vertex and attribute, and every byte passes an integer-to-float
    conversion, which the PPE does through memory (store, load into an FPR, a load-hit-store stall
-   of tens of cycles per component). Sauerbraten: 44.9% of its CPU, QuakeSpasm 6.1%. A table per
-   channel removes the conversions and the calls: estimate 35-40% of Sauerbraten's CPU, 4-5% of
+   of tens of cycles per component). BananaBread: 44.9% of its CPU, QuakeSpasm 6.1%. A table per
+   channel removes the conversions and the calls: estimate 35-40% of BananaBread's CPU, 4-5% of
    QuakeSpasm's. A later step would cache the converted copy of a static buffer instead of
    converting it again each draw (needs write tracking on the buffer).
 2. **The submission ioctl in ps3rsx** (second round: ps3rsx `shadow_fast`, below). 5.4% on average in all 9 games:
@@ -186,13 +186,13 @@ shorter; X-Moto (154 fps) and Neverball (80) have headroom already, Sauerbraten 
    submission: `nouveau_fence_new` 0.7% and the frees under `_nouveau_fence_ref` 0.6% on average,
    all 9 games, mostly kernel time (GEM create/close, drm_mm placement). 0027's adaptive kick makes
    more submissions, so more of these. Recycling the buffers of signalled fences: estimate 1-1.5%
-   per game (Sauerbraten 2.1, ClassiCube and Neverball 1.6 today).
-5. **Sauerbraten's occlusion query wait** (second round: Mesa 0035 `NV30_QUERY_WAIT`, cube2 0010
+   per game (BananaBread 2.1, ClassiCube and Neverball 1.6 today).
+5. **BananaBread's occlusion query wait** (second round: Mesa 0035 `NV30_QUERY_WAIT`, cube2 0010
    `oqwaterlag`, below). `nv30_query_result` spins on the report
-   word with nothing in the loop: 10.3% of Sauerbraten's CPU. The wait itself is the GPU's, so
+   word with nothing in the loop: 10.3% of BananaBread's CPU. The wait itself is the GPU's, so
    the frame doesn't get shorter, but the spinning thread takes issue slots from the PPE's other
    hardware thread. A short spin, then `HMT_low` (`or 1,1,1`) or a yield, would give them back.
-   Estimate 5-10% of Sauerbraten's CPU, uncertain fps effect.
+   Estimate 5-10% of BananaBread's CPU, uncertain fps effect.
 
 Smaller ones, for later: the staging buffer per texture upload (`nv30_miptree_transfer_map`:
 ClassiCube 5.4, QuakeSpasm 2.2, Yamagi 1.7; second round: Mesa 0036 `NV30_STAGING_POOL`); client
@@ -209,7 +209,7 @@ Both in `build/work/mesa`, exported as `mesa/patches/0033-*` and `0034-*`, built
 `build/debs/mesa` (26.2.4-1+ps3.407), not published, not on the PS3. (Installed on the PS3 since and
 measured, "Measured on the PS3" below.)
 
-**0033 translate: 8-bit vertex attributes to floats through a table (`NV30_TRANSLATE_LUT`, on by default since the PS3 measurement: Sauerbraten +53% steady fps, 25.9 -> 39.6; `NV30_TRANSLATE_LUT=0` is the off switch).**
+**0033 translate: 8-bit vertex attributes to floats through a table (`NV30_TRANSLATE_LUT`, on by default since the PS3 measurement: BananaBread +53% steady fps, 25.9 -> 39.6; `NV30_TRANSLATE_LUT=0` is the off switch).**
 In translate_generic, an element whose input is a plain 8-bit array format with identity swizzle
 (R8 to R8G8B8A8; UNORM, SNORM, USCALED, SSCALED) and whose output is R32..._FLOAT with as many
 channels gets a table per channel, 256 entries holding the bits that the format's own unpack
@@ -237,7 +237,7 @@ Install `build/debs/mesa` (26.2.4-1+ps3.407) the usual way (`make deploy` of the
 `base@translate_lut0`). Same boot, interleaved, desktop stopped, as always:
 
     # the translate table (on by default; =0 is its off switch, shown as base@translate_lut0):
-    # Sauerbraten and QuakeSpasm are the games that use SNORM8 attributes
+    # BananaBread and QuakeSpasm are the games that use SNORM8 attributes
     ENVS="- NV30_TRANSLATE_LUT=0" /var/tmp/bench/run.sh bench sauerbraten base 3
     ENVS="- NV30_TRANSLATE_LUT=0" /var/tmp/bench/run.sh bench quakespasm base 3
 
@@ -252,18 +252,18 @@ Install `build/debs/mesa` (26.2.4-1+ps3.407) the usual way (`make deploy` of the
     python3 /var/tmp/bench/report.py /var/tmp/ps3-bench/<run dirs>...
 
 Look at the webcam photos of every run (wrong pixels from 0033 would show as lighting or shading
-differences on Sauerbraten's and QuakeSpasm's models; there shouldn't be any). For the profiles,
+differences on BananaBread's and QuakeSpasm's models; there shouldn't be any). For the profiles,
 pull with `make bench-pull PERFDATA=1` and run the PC tools below: the PS3's perf.folded is still
 the broken one.
 
 ## Second round (2026-10-18): the next targets
 
-From the same profiles (Sauerbraten 012658, ClassiCube 004514, X-Moto 013240), with the games'
+From the same profiles (BananaBread 012658, ClassiCube 004514, X-Moto 013240), with the games'
 own frames now symbolised too (their deb and -dbgsym of the profiled build, `EXTRA_DEBS` of
 symroot.sh) and `stacks.py` for the stacks around a function. Everything is behind a switch
 that is off by default; nothing of it has run on the PS3 yet.
 
-### Sauerbraten's query wait: the water reflections (Mesa 0035, cube2 0010)
+### BananaBread's query wait: the water reflections (Mesa 0035, cube2 0010)
 
 All of the 10.3% in `nv30_query_result` comes from one place: `gl_drawframe > drawreflections >
 checkquery > glGetQueryObjectuiv`. `queryreflections` issues an occlusion query per water surface
@@ -280,7 +280,7 @@ the GPU in the middle of a frame, and Mesa waits by spinning.
   then spins on what is left with `sched_yield` (the kernel's fence follows the FIFO, which may
   be a little ahead of the 3D back end writing the report). Same result, same pixels; the frame
   waits as long (or up to ~250 us longer per wait), but the PPE's other thread gets the core
-  meanwhile. Expected: Sauerbraten's CPU down by most of the wait (10% in this profile, more
+  meanwhile. Expected: BananaBread's CPU down by most of the wait (10% in this profile, more
   now that 0033 made its CPU side faster); fps unchanged or slightly better if another thread
   (Xorg, audio, the SPE skinning feeder) was starved. `0` sleeps at once; `50` keeps short
   waits spinning.
@@ -376,7 +376,7 @@ the batching is a 4% loss at half the CPU, which the rest of the system gets.
 
 ### ps3rsx's submission path (ps3rsx `shadow_fast`)
 
-Under `ps3rsx_ioctl_gem_pushbuf` (ClassiCube 7.9% of its CPU, Sauerbraten 3.9, X-Moto 4.0) the
+Under `ps3rsx_ioctl_gem_pushbuf` (ClassiCube 7.9% of its CPU, BananaBread 3.9, X-Moto 4.0) the
 biggest leaf is `ps3rsx_shadow_burst` (1.95, 0.85, 0.93), then `ps3rsx_validate`, the restore at
 channel switches (0.26-0.62), the push copy and the reservation locks. An instruction histogram of
 shadow_burst (ClassiCube) put ~40% of it in the copy/2D object path (the row multiply redone per
@@ -429,7 +429,7 @@ the new tokens).
 
 Same boot, interleaved, desktop stopped, webcam photos checked as always:
 
-    # Sauerbraten: the Mesa sleep (pixels the same), the engine's lag, the stock oqwait 0
+    # BananaBread: the Mesa sleep (pixels the same), the engine's lag, the stock oqwait 0
     ENVS="- NV30_QUERY_WAIT=0 NV30_QUERY_WAIT=50" /var/tmp/bench/run.sh bench sauerbraten base 3
     /var/tmp/bench/run.sh bench sauerbraten "base oqlag oqnowait" 3
     # ClassiCube: the staging pool, and the batching's chunk mode (GPU-bound)
@@ -458,9 +458,9 @@ where it says so:
 
 | Change | Result | Row | Verdict |
 |---|---|---|---|
-| 0033 `NV30_TRANSLATE_LUT` | Sauerbraten 25.9 -> 39.6 steady, low1 18.3 -> 26.9 (x2) on the spectator demo of that night; QuakeSpasm 91.0/90.8 against 90.9/91.0, CPU about -3% | 57, 58 | on by default; not re-measured on the first-person demo used since row 64 |
+| 0033 `NV30_TRANSLATE_LUT` | BananaBread 25.9 -> 39.6 steady, low1 18.3 -> 26.9 (x2) on the spectator demo of that night; QuakeSpasm 91.0/90.8 against 90.9/91.0, CPU about -3% | 57, 58 | on by default; not re-measured on the first-person demo used since row 64 |
 | 0034 `NV30_FENCE_BO_POOL=16` | ClassiCube 48.4 both ways | 58 | neutral, stays off |
-| 0035 `NV30_QUERY_WAIT=200` | Sauerbraten 45.6 against 25.0 in one run, then 23.0/33.4 against 26.0/37.9 in the interleaved repeat; CPU lower with it | 64, 65 | no fps gain, stays off; the first-person demo's run-to-run spread needs more rounds for small A/Bs |
+| 0035 `NV30_QUERY_WAIT=200` | BananaBread 45.6 against 25.0 in one run, then 23.0/33.4 against 26.0/37.9 in the interleaved repeat; CPU lower with it | 64, 65 | no fps gain, stays off; the first-person demo's run-to-run spread needs more rounds for small A/Bs |
 | cube2 0010 `oqwaterlag` | 39.4 steady / 43.5 smooth against base 25.0 / 30.3, one run | 64 | promising, repeat needed |
 | 0036 `NV30_STAGING_POOL` | ClassiCube same fps, CPU -4% | 64 | neutral in fps |
 | ClassiCube `chunks1` | 50.9 against 48.4 (base, `CC_GL_CHUNKS=2`), +5%, one run | 64 | the recommendation above holds so far; repeat x3 before changing the default |

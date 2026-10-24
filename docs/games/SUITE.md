@@ -121,7 +121,7 @@ the first `LOAD_RE` line, or else the HUD's first frame. A game that repeats its
 prints one line per pass; a pass counts when it starts at least 0.9 x `WARMUP` after the load, and
 the game is stopped once the counted passes cover 0.95 x `MEASURE`. `fps`, `maxms`, `load` are then
 the first pass's, as the run was before. A game can mark its own window with `WIN_ON_RE` and
-`WIN_OFF_RE` (Sauerbraten leaves its demo reload out that way). Each recipe's header says which way
+`WIN_OFF_RE` (BananaBread (Debian's cube2) leaves its demo reload out that way). Each recipe's header says which way
 it works and what isn't identical between runs. bench.txt gets `warmup`, `measure`, `load_end`,
 `hud_t1`, `window`, `passes`, `measured` and `pass<N>` lines for report.py. This replaced the first
 harness's 90 s cap and its 12 s HUD skip.
@@ -139,7 +139,7 @@ harness's 90 s cap and its 12 s HUD skip.
 | Extreme Tux Racer | the recorded race replayed through evemu | `WINDOW_STOP` | HUD | the race is the user's |
 | Armagetron | live AI rounds, the player spectating, keys through a virtual keyboard | `WINDOW_STOP` | HUD | |
 | ClassiCube | the game with `CC_BENCH` and the ccbench plugin | the plugin quits | the plugin's fps per pass | |
-| Sauerbraten | `/usr/games/cube2` with the demo and a CubeScript frame counter (`-x`) | the script quits | `ps3bench: loop`, `ps3bench: steady` | no gamepad |
+| BananaBread (the recipe is still called `sauerbraten`) | `/usr/games/cube2` with the demo and a CubeScript frame counter (`-x`) | the script quits | `ps3bench: loop`, `ps3bench: steady` | no gamepad |
 | Luanti | `luanti --go --world ... --config ...` with the ps3bench mod | `ps3bench: path end` | HUD from `ps3bench: path start` | joystick (`enable_joysticks`) unverified |
 | SuperTuxKart | `supertuxkart --fullscreen --screensize=1920x1080 --track=lighthouse --numkarts=4 --profile-time=180 --no-start-screen`, `STK_PROFILE_WARMUP=60` | the game quits | the HUD (its `Average FPS: F` is the physics tick rate, [supertuxkart.md](supertuxkart.md#the-two-frame-rates)) | SDL GameController |
 | OpenTTD | `/usr/games/openttd -x -c CFG -r 1920x1080 -v sdl\|sdl-opengl -d sl=1`; `sim`: `-g -G 12345 -v null:ticks=20000 -s null -m null` | `WINDOW_STOP`; sim exits | HUD (gl), none (software), wall time (sim) | no gamepad |
@@ -421,7 +421,7 @@ Then the game joins `ps3-games` (ps3-desktop's `debian/control`) once it runs wi
 - **`ps3-games`** (in ps3-desktop's control, Architecture all; ps3-desktop recommends it): Depends on
   openarena, classicube, quakespasm, yamagi-quake2, armagetronad, neverball, xmoto, extremetuxracer,
   dsda-doom, freedoom, openttd, openttd-opengfx, openttd-opensfx, openttd-openmsx. Free packages only.
-  The heavy games (Sauerbraten, Luanti, SuperTuxKart) deploy by name, e.g.
+  The heavy games (BananaBread, Luanti, SuperTuxKart) deploy by name, e.g.
   `make deploy PKGS="ps3-games supertuxkart supertuxkart-data"`.
 - **`ps3-games-licensed`** (`ps3-games-licensed/`, native, all, routed to the `ps3-licensed` suite):
   Depends on ps3-games, classicube-data, quake-shareware, quake2-demo-data, sauerbraten-nonfree-data.

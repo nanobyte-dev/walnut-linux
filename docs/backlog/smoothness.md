@@ -17,13 +17,13 @@ Rank 2. The whole system on the SSD image (Phase B), measured against the USB ro
 boots.
 
 **Why.** The disk is the largest single item in every load: disk and I/O wait are 34-41% of the
-load's wall time in Sauerbraten, OpenArena gl2min, Luanti and SuperTuxKart, 35% in ClassiCube,
+load's wall time in BananaBread, OpenArena gl2min, Luanti and SuperTuxKart, 35% in ClassiCube,
 40-51% with the page faults (batch 17, [archive/PROFILING.md, "Where the time goes"](../archive/PROFILING.md#where-the-time-goes-measured)).
 The USB disk reads 27.8 MB/s and 20 ms a random read; the internal SSD 100 MB/s and 0.1 ms. Phase
 A (only the game data on the SSD, batch ssd1, row 70) left the load's USB wait at 4.8-5.5 s in
-Sauerbraten, because only 16-50 MB of the 76-144 MB a load reads are game data; the binary,
+BananaBread, because only 16-50 MB of the 76-144 MB a load reads are game data; the binary,
 libraries, Mesa and the shader cache stayed on USB. OpenArena's load still fell 28% (10.7 to
-7.7 s, n=1-3). Phase B moves all of it. PROFILING.md's estimate per game: Sauerbraten L 4-6 s and
+7.7 s, n=1-3). Phase B moves all of it. PROFILING.md's estimate per game: BananaBread (Debian's cube2) L 4-6 s and
 W 5-8 s, OpenArena L 6-8 and W 6-9, Luanti L 9-12, SuperTuxKart L 10-13 and W 3-4, ClassiCube L
 2.6-3.5 (L = off the load, W = off the warm-up).
 
@@ -37,7 +37,7 @@ W 5-8 s, OpenArena L 6-8 and W 6-9, Luanti L 9-12, SuperTuxKart L 10-13 and W 3-
   failed check stops in the rescue shell; the USB entry stays as the fallback.
 - **Needs:** the user (reboots), then PS3 runs.
 - **Status:** the SSD root booted on 2026-10-19 (kernel .472) and its baseline ran (batches ssdroot1
-  and ssdroot2: loads 39-61% shorter, Sauerbraten's gameplay stalls 1.6 to 0.05 s;
+  and ssdroot2: loads 39-61% shorter, BananaBread's gameplay stalls 1.6 to 0.05 s;
   [GAMEOS-HDD.md](../GAMEOS-HDD.md#result-the-ssd-root-batches-ssdroot1-and-ssdroot2)). The USB/SSD comparison is scheduled: TESTS.md "Next" (needs the user; the USB root
   first needs ps3-gpu-tools 0.477~dev for the disk sampling).
 - **Source:** PLAN 1.14; [archive/GAMEOS-HDD.md, "The benchmark: USB root against SSD root"](../archive/GAMEOS-HDD.md#the-benchmark-usb-root-against-ssd-root).
@@ -65,23 +65,23 @@ Rank 13. The CPU side of loads and of the first minute, once the disk is fast.
 
 **Why.** Batch 17's start-up profiles (one run per game, kernel .433, Mesa .466) put every CPU
 item at 1-3 s per game except SuperTuxKart (5-8 s). The warm-up's stall frames are large: 21.1 s in
-53 frames in Sauerbraten, 25.5 s in 30 in OpenArena, 18.9 s in 24 in SuperTuxKart (one frame of
+53 frames in BananaBread, 25.5 s in 30 in OpenArena, 18.9 s in 24 in SuperTuxKart (one frame of
 10 s). Decoders on the load's main thread: SuperTuxKart's png, zlib, jpeg and audio 12.4 of 24.7 s
-(50%), Sauerbraten's zlib and audio 1.6 of 5.3 s, OpenArena's inflate, jpeg, TGA and audio 2.6 of
+(50%), BananaBread's zlib and audio 1.6 of 5.3 s, OpenArena's inflate, jpeg, TGA and audio 2.6 of
 10.4 s. With the disk fixed, PROFILING.md expects the loads to become CPU-bound at roughly 15 s
-(Sauerbraten), 21 (OpenArena), 33 (Luanti, a mapgen wait), 43 (SuperTuxKart), 11 (ClassiCube).
+(BananaBread), 21 (OpenArena), 33 (Luanti, a mapgen wait), 43 (SuperTuxKart), 11 (ClassiCube).
 
 The candidates, estimates from batch 17's pools (none run as an A/B):
 
 | Win | Estimate | Basis |
 |---|---|---|
-| zlib-ng (`libz-ng-compat`, measured ssdroot5: SuperTuxKart load -0.9 s; the default for games through `ps3-game` since 10-20) | SuperTuxKart L 1.8-2.7 s, Sauerbraten L 0.5-0.7 s, OpenArena 0 (already libdeflate) | zlib's part 0.31-0.56 of Debian zlib's estimated PPE cycles under qemu ([PROFILING.md](../PROFILING.md#load-time-decoders-and-linking)) |
+| zlib-ng (`libz-ng-compat`, measured ssdroot5: SuperTuxKart load -0.9 s; the default for games through `ps3-game` since 10-20) | SuperTuxKart L 1.8-2.7 s, BananaBread L 0.5-0.7 s, OpenArena 0 (already libdeflate) | zlib's part 0.31-0.56 of Debian zlib's estimated PPE cycles under qemu ([PROFILING.md](../PROFILING.md#load-time-decoders-and-linking)) |
 | libpng's filters without load-hit-stores, then in AltiVec (built: our `libpng1.6`; measured ssdroot6: SuperTuxKart load -2.8 s) | SuperTuxKart L 1.5-3 s | the filters are 57% of a PNG decode once zlib-ng is in, Paeth 47%; a register-carried Paeth cut its load-hit-stores from 1.6 to 0.12-0.29 a byte |
 | libjpeg-turbo's AltiVec | already used (source checked; `JSIMD=none` on the PS3 confirms) | AltiVec halves the instructions on SuperTuxKart's JPEGs |
-| Vorbis's 16-bit packing in AltiVec (built: our `libvorbis`) | SuperTuxKart L 0.6-0.9 s, part of Sauerbraten's audio thread | a third of a decode's estimated cycles was `ov_read`'s conversion |
+| Vorbis's 16-bit packing in AltiVec (built: our `libvorbis`) | SuperTuxKart L 0.6-0.9 s, part of BananaBread's audio thread | a third of a decode's estimated cycles was `ov_read`'s conversion |
 | DT_RELR for Mesa's libraries (not built) | tens of ms per GL start | libgallium's 1.5 MB of relocations to a few KB; `-z now` is there already, so `BINDNOW=1` should change nothing |
 | OpenArena's pk3s repacked stored (no inflate) and its mipmaps off the CPU | L 1.0 + 1.3 s, W 1.8 + 2.0 s | inflate 0.96 s (load) and 1.82 s (warm-up); `R_MipMapsRGB` 1.34 and 2.0 s; more bytes to read, so only after the SSD root |
-| Audio decoded on first use or off the main thread | Sauerbraten W ~1.9 s, SuperTuxKart L 2.2 s | `ov_read_filter` and imdct on the main thread |
+| Audio decoded on first use or off the main thread | BananaBread W ~1.9 s, SuperTuxKart L 2.2 s | `ov_read_filter` and imdct on the main thread |
 | Game-level work: Luanti's mapgen and lighting threads, SuperTuxKart's skinned meshes (`skinJoint` 1.3 s), OpenArena's `COM_ParseExt` (1.3 s, the .shader scripts) | OpenArena L ~1 s, SuperTuxKart L 1-2 s | per game |
 
 - **Payoff:** medium: shorter loads and fewer warm-up stalls, a few seconds per game.
@@ -89,11 +89,11 @@ The candidates, estimates from batch 17's pools (none run as an A/B):
 - **Risk:** low (library swaps and game patches, each behind its own A/B).
 - **Needs:** host for the builds, PS3 for the runs.
 - **Status:** zlib-ng (`libz-ng-compat` 2.3.3-1+ps3.549) and our libvorbis (1.3.7-3+ps3.549) are
-  measured (ssdroot5: SuperTuxKart's load -0.9 and -0.7 s, Sauerbraten's unchanged) and the defaults
+  measured (ssdroot5: SuperTuxKart's load -0.9 and -0.7 s, BananaBread's unchanged) and the defaults
   since 2026-10-20 (zlib-ng for games through `ps3-game`, `PS3_ZLIB=stock` off); libjpeg-turbo's AltiVec selection checked
   in its source; our `libpng1.6` (+ps3.560) built and measured (SuperTuxKart's png group 4.0 to 1.6 s, load -2.8 s: [PROFILING.md](../PROFILING.md#libpng16-on-the-ps3)); Mesa's DT_RELR not built. The start-up profiles on the SSD root ran (ssdroot2 P1a): the disk is
   11-26% of a load now and the CPU items are what is left ([PROFILING.md](../PROFILING.md#start-up-profiles-on-the-ssd-root-batch-ssdroot2)):
-  zlib, PNG, JPEG and audio decoders in SuperTuxKart, the map inflate in Sauerbraten, dynamic linking
+  zlib, PNG, JPEG and audio decoders in SuperTuxKart, the map inflate in BananaBread, dynamic linking
   at 3-9% of every load. They were taken without Mesa symbols; a symbolised re-run restores the shader and
   mipmap groups.
 - **Source:** PLAN 1.7 (its follow-up); [archive/PROFILING.md, "Ranked wins"](../archive/PROFILING.md#ranked-wins-separating-measured-from-estimated).
@@ -218,7 +218,7 @@ Rank 35. nv30's own translations (`nir_to_tgsi` and the nvfx code) in the disk s
 
 **Why.** Built (Mesa 0039, `NV30_SHADER_CACHE=on`, default off; compile-tested only). Batch 17
 bounds what it can save: the `shader.backend` seconds over load and warm-up, all threads, are 0.28
-(OpenArena), 0.39 (Sauerbraten), 0.11 (Luanti), 0.11 (SuperTuxKart), 0.02 s (ClassiCube), below the
+(OpenArena), 0.39 (BananaBread), 0.11 (Luanti), 0.11 (SuperTuxKart), 0.02 s (ClassiCube), below the
 run-to-run noise. Mesa's GLSL disk cache, which is on, saved 1.2 and 0.8 s of main-thread CPU and
 no wall time. Cheap to run; it also tests that a hit gives the same code (any picture difference is
 a bug).
@@ -255,7 +255,7 @@ Rank 48. Small fixes and checks that make the numbers trustworthy.
   `STALLS=0` against `STALLS=1` A/B on a kernel with the fix has never run; until it does the
   recorder stays off by default ([STALLS.md](../STALLS.md#the-recorder-removes-stalls)).
 - **Luanti's warm-up CPU.** The recorder counts 35.6 s of main-thread CPU, perf 16.6 s for the same
-  thread (the load phase agrees: 11.5 against 8.8; Sauerbraten's warm-up agrees exactly). Not
+  thread (the load phase agrees: 11.5 against 8.8; BananaBread's warm-up agrees exactly). Not
   resolved; Luanti's warm-up CPU split should not be quoted until it is.
 - **Which mappings Luanti faults.** About 13 of its 17 s of load disk wait are major faults, and the
   recorder has no file for a fault. Its fd for page faults would name them (the binary and libraries

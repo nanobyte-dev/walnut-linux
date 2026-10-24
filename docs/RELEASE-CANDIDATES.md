@@ -121,13 +121,13 @@ If any deb in `build/debs` changed after the image, put the kept copy back first
 
 | Game, variant | Row 68 |
 |---|---|
-| Sauerbraten `base` | 38.8 / 24.1 / 1.4 / 514 |
+| BananaBread `base` | 38.8 / 24.1 / 1.4 / 514 |
 | OpenArena `gl2min` | 51.8 / 14.8 / 11.0 / 2038 |
 | Luanti `base` | 46 / 17.5 / 2.5 / 358 |
 | SuperTuxKart `lean` | 107.3 / 11.4 / 1.8 / 686 |
 | ClassiCube `base` | 45.9 / 30.1 / 0.1 / 99 |
 
-These are across boots, so they are a regression check, not an A/B (memory "Same-boot baselines"). Flag anything more than about 10% worse in steady fps or 1% low, or any new multi-second stall, and re-check it in the same boot against its switch. Row 68 ran with Mesa .442~dev and ioquake3 .396-.462; the image has Mesa .476 (0037-0039 off by default) and ioquake3 .462. Newer rows exist: batch 17 (OpenArena `gl2min` 57-60 fps with 1-2 s stalls, Sauerbraten +17%, results commit 3939a48) and the SSD-root batches of 2026-10-19 (docs/TESTS.md).
+These are across boots, so they are a regression check, not an A/B (memory "Same-boot baselines"). Flag anything more than about 10% worse in steady fps or 1% low, or any new multi-second stall, and re-check it in the same boot against its switch. Row 68 ran with Mesa .442~dev and ioquake3 .396-.462; the image has Mesa .476 (0037-0039 off by default) and ioquake3 .462. Newer rows exist: batch 17 (OpenArena `gl2min` 57-60 fps with 1-2 s stalls, BananaBread +17%, results commit 3939a48) and the SSD-root batches of 2026-10-19 (docs/TESTS.md).
 
 ## The stable publish (not run)
 

@@ -9,7 +9,7 @@ Items are in rank order; the rank is the one in [the ranked list](README.md). Te
 Effort: S = a day or less, M = days, L = weeks. "PS3" means a run with nobody at the console,
 "user" the user at the console or TV.
 
-Where the heavy games stand (batch 16-17 and ssd1, fps.csv rows 68-70): Sauerbraten 117 MB of VRAM
+Where the heavy games stand (batch 16-17 and ssd1, fps.csv rows 68-70): BananaBread (Debian's cube2) 117 MB of VRAM
 and 16-24 MB of RAM free at the lowest; OpenArena gl2min 117 MB (97.7 with packed MD3 frames) and
 9-20 MB free; SuperTuxKart `lean` 95-96 MB and 22-27 MB free; Luanti 60-66 MB and 12.6-18 MB free.
 
@@ -24,7 +24,7 @@ or DXT5 (with alpha), compressed by libspeq on the SPEs.
 eighth of that, DXT5 a quarter. The heavy games are VRAM-bound (above), and every MB of textures is
 a MB the VRAM swap moves to the disk. libspeq compresses RGB sources on 4 SPEs in 1.0 ms per
 1024x1024 against about 175 ms on the PPE (row 59), so the load cost is gone. OpenArena gl2min and
-SuperTuxKart already ask for compression themselves and Sauerbraten's cube2 compresses from 1024
+SuperTuxKart already ask for compression themselves and BananaBread's cube2 compresses from 1024
 up, so `opaque` takes only the rest there; Luanti and ClassiCube upload everything plain and should
 show the most.
 
@@ -36,7 +36,7 @@ show the most.
 - **Needs:** PS3, then the user looks at the pictures before a game gets it in its launcher.
 - **Status:** built (Mesa .466~dev, official .476), default off; host checks pass (5105 policy
   checks, `gl-forcedxt` 128 checks per mode on softpipe in the ppc64 chroot). Measured on the PS3 in
-  batch ssdroot2 P2 (`opaque` against off, x2): Sauerbraten peak VRAM 117 to 73-78 MB with no fps
+  batch ssdroot2 P2 (`opaque` against off, x2): BananaBread peak VRAM 117 to 73-78 MB with no fps
   change resolved and a slightly softer picture; SuperTuxKart `lean` and OpenArena gl2min force
   0 textures ([MEMORY.md](../MEMORY.md#measured-on-the-ps3-batch-ssdroot2-p2)). Left, in TESTS.md
   "Next": Luanti and ClassiCube (the games that upload everything plain), `NEAREST`, SuperTuxKart
@@ -54,7 +54,7 @@ the A/B with the stats line in every arm:
 
 Read `vram` and `mem_gpu_vram`, `fdxt_raw_mb` against `fdxt_dxt_mb`, `fdxt_skip`,
 `fdxt_unforced`, `fdxt_mipgen_ms`, `load`, `stall_play_s`, `low1`, `mem_swap`. Add `SPEQ_DEBUG=1`
-in one run: no game has exercised libspeq's RGB path yet (Sauerbraten's demo uploads none), and
+in one run: no game has exercised libspeq's RGB path yet (BananaBread's demo uploads none), and
 Teeworlds' DXT5 has never shown a `SPEQ` line.
 
 ### VRAM budget in game mode
@@ -200,7 +200,7 @@ Rank 43. Half floats or 16-bit vertex attributes, which nv30 fetches natively.
 
 **Why.** Vertex buffers halve. Part of this is done where it removed per-draw conversions: ioquake3
 0027 (SNORM colours, the default) and 0029 (packed MD3 frames, 62.2 -> 37.5 MB of VRAM on the
-host, -20 MB in batch 17) and cube2 0011 (world normals as shorts). Left in Sauerbraten: the grass
+host, -20 MB in batch 17) and cube2 0011 (world normals as shorts). Left in BananaBread: the grass
 (`grassvert.bounds`, GL_BYTE in a GART stream buffer: a per-draw conversion but no copy) and the
 edit-mode prefab preview; elsewhere, float vertex data in any engine.
 
@@ -250,7 +250,7 @@ is the 720p console above.
 - The lv1 `gpu-4kb-iopage` patch (4 KB IO pages for the GART: a few MB at most) is
   [hardware.md, "Read-only probes of lv1 and the firmware state"](hardware.md#read-only-probes-of-lv1-and-the-firmware-state).
 - Luanti's memory is [games.md, "Luanti: view40 as an option, and its memory"](games.md#luanti-view40-as-an-option-and-its-memory),
-  Sauerbraten's `texreduce` is [games.md, "Sauerbraten: texreduce"](games.md#sauerbraten-texreduce).
+  BananaBread's `texreduce` is [games.md, "BananaBread: texreduce"](games.md#sauerbraten-texreduce).
 - 64 KB IO pages for finer GART allocations are [graphics.md, "Driver limits not pushed yet"](graphics.md#driver-limits-not-pushed-yet).
 
 Older versions and the dated history: [archive/MEMORY.md](../archive/MEMORY.md),

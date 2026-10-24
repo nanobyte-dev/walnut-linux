@@ -160,7 +160,7 @@ stall_play_s went 54.7 -> 16.0 s; opengl1 runs change by 0-4 s, docs/MEMORY.md).
 | Neverball | the replay restarts at every pass | pass start + 1 s | measured: the load frames (0.15-2 s) end 0.4 s after the pass line; runs before t0 was recorded still work, it is a fixed time |
 | dsda-doom | level load after each timed pass | pass start + 1 s | a guess, no PS3 run with frame times yet; check the stalls' seconds into each pass (`passsplit.py -v`) |
 | X-Moto | a new replay state per pass | pass start + 2 s | a guess, same |
-| Sauerbraten | demoend plays the demo again | none: WIN_ON_RE/WIN_OFF_RE pieces already leave the reload out | the play numbers equal the old ones |
+| BananaBread | demoend plays the demo again | none: WIN_ON_RE/WIN_OFF_RE pieces already leave the reload out | the play numbers equal the old ones |
 | SuperTuxKart, the rest | one race or session | none | play = old |
 
 A run whose game needs the load line but has no `t0` (OpenArena before 2026-10-17 23:00) has no
@@ -177,7 +177,7 @@ T2337 / T2341 / T2345: 41.4 -> 28.9 s, 34.9 -> 20.7 s (no recorder, 80 -> 47 sta
 ran the same ioquake3 ps3.379 (their `versions` and game.log agree); the difference is the
 recorder, see the next section. Neverball
 base/gloff: 17.2 -> 14.0, 19.6 -> 17.2, 25.6 -> 18.8, 22.7 -> 17.2 s, so Neverball's stalls are mostly
-mid-replay, not the restart. Sauerbraten (the window already leaves the reload out): unchanged.
+mid-replay, not the restart. BananaBread (the window already leaves the reload out): unchanged.
 
 ## The recorder removes stalls (2026-10-18)
 
@@ -367,7 +367,7 @@ explanation holds for the idle thread; the game batch (ENVS) measures what it co
 
 The PS3's root file system is a 2.5" hard disk on USB 2.0, 10-20 ms a random read. A game starting
 cold faults its program and libraries in page by page and reads its packs, maps and textures in
-small pieces, and each of those is such a read. The recorder put Sauerbraten's hitches and about a
+small pieces, and each of those is such a read. The recorder put BananaBread's hitches and about a
 third of its 16.5 s load on the disk. ps3-desktop's `ps3-game-prefetch` (code in
 `files/libexec/ps3_game_prefetch.py`, its header has the details) learns what a game used and, at
 its next start, reads that back in one pass in disk order while the game loads.
@@ -453,7 +453,7 @@ report.py gained the first minute, which the window leaves out: `stalls_warm`, `
 columns. Under a host load of 10-15, autogm-check failed one timing check in 3 of 6 runs, a
 different one each time, and the last 3 passed. The unchanged HEAD version passed the one run made
 at that load. Nothing has run on the PS3 yet. (2026-10-18 afternoon: ps3-desktop 0.446 installed and
-step 0's learn runs made for Sauerbraten, OpenArena gl2min and Luanti; SuperTuxKart's was interrupted
+step 0's learn runs made for BananaBread, OpenArena gl2min and Luanti; SuperTuxKart's was interrupted
 by the reboot session. The lists are in `/var/tmp/ps3-bench/gprefetch` on the PS3. Step 1, the
 measured A/B, has not run.)
 
@@ -475,7 +475,7 @@ and `make bench-push` done.
     STALLS=1 ENVS="- GAMEPREFETCH=fetch" /var/tmp/bench/run.sh bench openarena gl2min 3
     STALLS=1 ENVS="- GAMEPREFETCH=fetch" /var/tmp/bench/run.sh bench luanti base 3
     STALLS=1 ENVS="- GAMEPREFETCH=fetch" /var/tmp/bench/run.sh bench supertuxkart lean 3
-    # 2. if 1 helps: the budget and the I/O priority (Sauerbraten, the most disk-bound)
+    # 2. if 1 helps: the budget and the I/O priority (BananaBread, the most disk-bound)
     STALLS=1 ENVS="GAMEPREFETCH=fetch GAMEPREFETCH=fetch+GAMEPREFETCH_MB=128 GAMEPREFETCH=fetch+GAMEPREFETCH_IO=idle" \
         /var/tmp/bench/run.sh bench sauerbraten base 3
     ps3-bench.sh desktop
@@ -663,7 +663,7 @@ Needs ps3-gpu-tools with `ps3-intfwatch` (0.453 or later: `make ps3-gpu-tools-de
 
 ### Game prefetch measured (2026-10-18, batch 16)
 
-Same boot, kernel 433, 3 rounds base vs `GAMEPREFETCH=fetch` (learnt lists): no gain. Sauerbraten's load
+Same boot, kernel 433, 3 rounds base vs `GAMEPREFETCH=fetch` (learnt lists): no gain. BananaBread's load
 18.1-18.6 s with prefetch against 15.2-18.8 s without, load disk wait unchanged (4.5-5.5 s); OpenArena
 gl2min about 0.5 s faster to load, stalls within noise; Luanti worse (load +1 to +4 s, two runs with
 3 s hitches in play); SuperTuxKart unchanged. On the USB HDD the prefetch's sorted reads compete with the

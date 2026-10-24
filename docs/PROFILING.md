@@ -290,7 +290,7 @@ cache is keyed by the driver's build id: a new Mesa build makes every entry miss
   dlopened libraries included (no `perf.track` step needed).
 - **To the window's start.** `disable` where the measured window begins: load + WARMUP, 0.9 x WARMUP
   for games that repeat a demo (`PASSES=1`), the first `WIN_ON_RE` line for games that mark their own
-  window (Sauerbraten). bench.txt: `perf_load_win` (on, off: seconds from t0), `perf_load_ack`,
+  window (BananaBread). bench.txt: `perf_load_win` (on, off: seconds from t0), `perf_load_ack`,
   `perf_load_cpu` (perf's own CPU over the span), `mono_t0` (`/proc/uptime` read next to t0: perf's
   clock, CLOCK_MONOTONIC, equals CLOCK_BOOTTIME on a PS3 that never suspends; 10 ms resolution),
   `game_pid`.
@@ -362,20 +362,20 @@ both phases), `lp_wshader` (the three shader groups in the warm-up alone), `lp_m
 
 Five games, one run each, `PERF_LOAD=1 STALLS=1`, cold page cache, prefetch off, kernel
 6.12.111+ps3.433, Mesa 26.2.4-1+ps3.442~dev (the runs' `versions`), USB root, 2026-10-18 evening
-(results row 69, commit 3939a48). Three shader-cache runs each of OpenArena gl2min and Sauerbraten
+(results row 69, commit 3939a48). Three shader-cache runs each of OpenArena gl2min and BananaBread
 came with them (prime, cold, warm). Run list: `build/tmp/batch17-runs.txt` lines 2-12; raw tables in
 `build/tmp/b17/` (both ephemeral). Everything below was read from those run directories with
 loadprof.py and stalls.py.
 
 **One run per game and arm.** The load's wall time moves by 1.5-2.8 s between identical runs
-(OpenArena 28.1, 30.9, 28.8, 28.4 s; Sauerbraten 19.8, 18.4, 17.4, 18.3 s), nearly all of it disk
+(OpenArena 28.1, 30.9, 28.8, 28.4 s; BananaBread (Debian's cube2) 19.8, 18.4, 17.4, 18.3 s), nearly all of it disk
 wait. Differences under about 2 s of wall time are not resolved here; CPU seconds from perf are
 steadier.
 
 Two "load" numbers exist and differ. bench.txt `load=` (report.py's `load` column) is the game's own
 number (OpenArena: the map load, 10.2 s). This section uses `load_end`: the wall time from the game's
 exec to the end of the loading screens (28.1 s for the same run). The warm-up runs from `load_end`
-until the window starts (60 s of play for most; Sauerbraten's window opens on its own mark, so its
+until the window starts (60 s of play for most; BananaBread's window opens on its own mark, so its
 "warm-up" is the whole 85 s up to the demo). Disk wait is the main thread's stalls.rec `disk` + `io`
 seconds; `fault` is the major faults that did not coincide with disk reads and is mostly the same wait
 (readahead locks), so the true disk share is somewhat above the disk column.
@@ -384,14 +384,14 @@ seconds; `fault` is the major faults that did not coincide with disk reads and i
 
 | Game | Load wall (s) | Main thread in the load: CPU / disk+io wait / fault / sleep (s) | Disk in the load: MB, reads, busy s | Warm-up wall (s) | Main thread in the warm-up: CPU / disk+io wait (s) | Disk in the warm-up: MB, busy s | Stall frames in the warm-up (s, n) |
 |---|---|---|---|---|---|---|---|
-| Sauerbraten base | 19.8 | 4.1 / 8.2 / 2.1 / 2.5 | 95.7, 2520, 14.3 | 85.6 | 67.1 / 9.6 | 111, 18.0 | 21.1, 53 |
+| BananaBread base | 19.8 | 4.1 / 8.2 / 2.1 / 2.5 | 95.7, 2520, 14.3 | 85.6 | 67.1 / 9.6 | 111, 18.0 | 21.1, 53 |
 | OpenArena gl2min | 28.1 | 9.0 / 10.9 / 2.0 / 3.2 | 133.6, 3405, 17.1 | 54.3 | 33.2 / 11.1 | 131, 17.2 | 25.5, 30 |
 | Luanti base | 43.1 | 11.5 / 16.5 / 4.3 / 3.8 (+3.4 on the GPU) | 181.4, 6540, 30.0 | 45.3 | 35.6 (recorder) / 0.6 | 19, 7.3 | 2.2, 8 |
 | SuperTuxKart lean | 54.3 | 22.5 / 18.6 / 3.5 / 3.8 | 238.4, 6313, 30.8 | 60.2 | 49.4 / 5.7 | 67, 12.7 | 18.9, 24 (one frame of 10 s) |
 | ClassiCube base | 13.9 | 2.9 / 4.8 / 1.0 / 2.4 (+1.1 GPU) | 65.2, 1682, 8.9 | 54.4 | 11.0 / 0.04 (35.9 s waiting on the GPU) | 3, 1.3 | 0.1, 1 |
 
-Sauerbraten's disk+io in the warm-up is 4.0 + 5.6 s, OpenArena's 4.0 + 7.1 s, STK's 5.5 + 0.2 s. The
-rest of each load is `unknown` (1.0-3.3 s), `runq` (0.5-1.8 s) and, in Sauerbraten, direct reclaim
+BananaBread's disk+io in the warm-up is 4.0 + 5.6 s, OpenArena's 4.0 + 7.1 s, STK's 5.5 + 0.2 s. The
+rest of each load is `unknown` (1.0-3.3 s), `runq` (0.5-1.8 s) and, in BananaBread, direct reclaim
 (0.8 s).
 
 - **The disk is the largest single item in every load.** Disk+io wait is 34-41% of the wall time in
@@ -406,13 +406,13 @@ rest of each load is `unknown` (1.0-3.3 s), `runq` (0.5-1.8 s) and, in Sauerbrat
 - **Files that cost named wait** (syscall reads and opens only, the recorder's fd): OpenArena pak0.pk3
   1.2 s, cgameppc64.so 0.85 s, pak4-textures 0.47, pak6-patch088 0.32 in the load; in its warm-up
   pak2-players-mature 2.1 s, pak6-patch088 1.3, pak2-players 1.2, pak0 1.1 (the demo's second pass
-  loads the map and the players again: 131 MB read, as much as the load). Sauerbraten: cave.ogz
+  loads the map and the players again: 131 MB read, as much as the load). BananaBread: cave.ogz
   0.46 s in the load, md5anim/md5.cfg model files at about 1 s each in the warm-up. STK:
   tracks/abyss, a music file, thunder.ogg at 0.4 s each. ClassiCube: its audio zip, 0.18 s. Each is
   small; the wait is spread over hundreds of files and the page faults.
 - **Memory pressure repeats the reads**: refaults 16.8k (OpenArena load) and 31.3k (STK load),
   swap-ins 138-605 in the load and 511-958 in the warm-up, kswapd 2.3-4.2 s of CPU in every load but
-  ClassiCube's (1.2 s), allocstalls 72-141. OpenArena's and Sauerbraten's warm-ups read as much as
+  ClassiCube's (1.2 s), allocstalls 72-141. OpenArena's and BananaBread's warm-ups read as much as
   their loads did (131 and 111 MB) because the pages were evicted again.
 - **ld.so**: start-up linking takes 0.03-0.15 s (SB 0.103, OA 0.030, Luanti 0.129, STK 0.152, CB
   0.113) for 2.8k-20k relocations; with lazy binding and dlopen the `link` group is 0.29-0.62 s of the
@@ -427,19 +427,19 @@ Seconds, from the load's perf, all threads (main thread where noted):
 
 | Game | Load: biggest groups | What is in them | Warm-up: biggest groups |
 |---|---|---|---|
-| Sauerbraten | zlib 1.54, shader.glsl 1.11, k.other 0.80, link 0.46, game 0.30, libc 0.28, audio 0.27, shader.cache 0.21, shader.backend 0.20 | map .ogz inflate (libz without symbols 0.65, `inflate` 0.57, crc32 0.17), GLSL compile of its shaders (front end, lexer, NIR) | mesa 42.3 (`nv30_query_result` 13.1 and `generic_run` 12.8: occlusion-query spin and the draw module's software vertex path, i.e. play, not start-up), game 7.7, kgpu 5.3, audio 5.2 (Vorbis, 1.9 on the main thread), shader.glsl 0.77 on first use |
+| BananaBread | zlib 1.54, shader.glsl 1.11, k.other 0.80, link 0.46, game 0.30, libc 0.28, audio 0.27, shader.cache 0.21, shader.backend 0.20 | map .ogz inflate (libz without symbols 0.65, `inflate` 0.57, crc32 0.17), GLSL compile of its shaders (front end, lexer, NIR) | mesa 42.3 (`nv30_query_result` 13.1 and `generic_run` 12.8: occlusion-query spin and the draw module's software vertex path, i.e. play, not start-up), game 7.7, kgpu 5.3, audio 5.2 (Vorbis, 1.9 on the main thread), shader.glsl 0.77 on first use |
 | OpenArena | files 1.95, game 1.91, shader.glsl 1.37, mipmap 1.34, k.other 1.0, jpeg 0.36, libc 0.35, link 0.34, dxt 0.27, shader.backend 0.24 | libdeflate inflate of the pk3 members 0.96 + `fread` 0.35; `COM_ParseExt` 1.31 (the .shader scripts); `R_MipMapsRGB` 1.34 (the engine's own CPU mipmaps); GLSL compile of ~55 programs | game 9.2 (`R_RegisterMD3` 1.8, `COM_ParseExt` 1.6), other 6.4 (resampler, mixer), mesa 5.4, buffers 4.3, kgpu 4.0, mipmap 2.05, files 2.04 (inflate 1.8) |
 | Luanti | game 11.0 (main thread 1.25; mapgen on Emerge-0 8.4), k.other 3.8, libc 2.2, other 1.9, mesa 1.65, lua 1.07, link 0.57, cxx 0.53, shader.glsl 0.43, fonts 0.31, zstd 0.22 | mapgen (`spreadLight` 1.8, `valueMap3D` 1.6, biome noise), LuaJIT bytecode, FreeType hinting (`TT_RunIns`) | game 40.1 (Emerge-0 28, MeshUpdate 8.9, Server 6.8), libc 6.5, k.other 6.6, mesa 4.7, zstd 1.3 |
 | SuperTuxKart | game 5.15, png 4.11, zlib 4.03, k.other 2.2, audio 2.16, jpeg 2.11, dxt 1.68, libc 1.26, link 0.59, k.read 0.63 | `CSkinnedMesh` joints and finalize; libpng (no symbols: 3.90) and libz (2.86 + inflate 0.70 + adler32 0.25); Vorbis (`ov_read_filter`, imdct); libjpeg-turbo (2.04, no symbols, so AltiVec use unconfirmed); Mesa `convert_ubyte` 1.22 (upload conversion, filed as dxt) | game 19.5 (Irrlicht driver, Bullet BVH walk), mesa 13.3, buffers 9.4 (`memcpy` 5.2, `vbo_get_minmax_index_mapped` 3.0), kgpu 1.9 |
 | ClassiCube | game 1.66, mesa 0.54, k.other 0.48, link 0.29, libc 0.19, kgpu 0.19, zlib 0.15 (its own `Inflate_Process`), init 0.12 | `Builder_MakeChunk`; OpenAL's init constructors (`_GLOBAL__sub_I_bsinc_tables` 0.08, also 0.07-0.08 s in OA, Luanti, STK) | mesa 8.75, game 3.5, kgpu 2.6, k.other 2.6 |
 
 Decoders as a share of the load's main-thread CPU: STK png+zlib+jpeg+audio 12.4 s of 24.7 s (50%),
-Sauerbraten zlib+audio 1.6 of 5.3 s, OpenArena inflate+jpeg+TGA+audio 2.6 of 10.4 s, Luanti and
+BananaBread zlib+audio 1.6 of 5.3 s, OpenArena inflate+jpeg+TGA+audio 2.6 of 10.4 s, Luanti and
 ClassiCube almost none. OpenArena already uses libdeflate for the pk3s. Luanti's main thread is not
 its load: the mapgen thread burns 8.4 s while the main thread sleeps or waits on the GPU 3.4 s.
 
 An unresolved discrepancy: for Luanti's warm-up the stall recorder counts 35.6 s of main-thread CPU,
-perf 16.6 s for the same thread. The load phase agrees closely (11.5 against 8.8), the Sauerbraten
+perf 16.6 s for the same thread. The load phase agrees closely (11.5 against 8.8), the BananaBread
 warm-up exactly (67.1 against 67.9). Don't quote Luanti's warm-up CPU split.
 
 ### What the profiles point at
@@ -479,7 +479,7 @@ the kernel keep their groups, and the totals compare with batch 17.
 
 | Game | Load wall, USB (batch 17) / SSD (s) | Main thread in the load, SSD: CPU / disk (+io) / GPU / reclaim / other waits (s) | Disk in the load, SSD: MB, reads, busy s (USB: MB, busy s) | Main thread in the warm-up, SSD: CPU / disk (s) | Warm-up stall frames, USB / SSD (s) |
 |---|---|---|---|---|---|
-| Sauerbraten | 19.8 / **7.7** | 3.9 / 1.9 (+0.1) / 0.05 / 0.2 / 1.5 | 85.8, 2782, 1.4 (95.7, 14.3) | 67.9 / 0.9 | 21.1 / 6.1 |
+| BananaBread | 19.8 / **7.7** | 3.9 / 1.9 (+0.1) / 0.05 / 0.2 / 1.5 | 85.8, 2782, 1.4 (95.7, 14.3) | 67.9 / 0.9 | 21.1 / 6.1 |
 | OpenArena gl2min | 28.1 / **14.2** | 8.7 / 2.1 (+0.3) / 0.2 / 0.4 / 2.5 | 143.9, 4146, 2.2 (133.6, 17.1) | 43.7 / 1.2 | 25.5 / 19.0 |
 | Luanti | 43.1 / **26.1** | 15.4 / 3.0 (+0.2) / 2.8 / 1.7 / 3.0 | 189.0, 7174, 3.4 (181.4, 30.0) | 34.4 / 0.25 | 2.2 / 1.5 |
 | SuperTuxKart lean | 54.3 / **31.5** | 23.8 / 3.2 (+0.3) / 0.04 / 1.2 / 3.0 | 217.3, 6856, 3.2 (238.4, 30.8) | 55.9 / 1.6 | 18.9 / 11.2 |
@@ -489,22 +489,22 @@ Load wall is `load_end`: the exec to the end of the loading screens (the game's 
 are in the results rows). "Other waits" are futex, poll and sleep, unknown, run queue and swap.
 
 - **The disk share is mostly gone, the loads got 39-61% shorter.** The main thread's disk+io wait
-  went from 4.8-18.6 s to 1.1-3.4 s (34-41% of a USB load, 11-26% of an SSD load: Sauerbraten 26%,
+  went from 4.8-18.6 s to 1.1-3.4 s (34-41% of a USB load, 11-26% of an SSD load: BananaBread 26%,
   OpenArena 17%, ClassiCube 15%, Luanti 12%, SuperTuxKart 11%). The same megabytes (65-217 MB)
   were read with a tenth of the busy time (1.0-3.4 s against 8.9-30.8 s) at the same request size
   (26-35 KB), so the SSD's gain is latency per request, about 0.5 ms a read. The warm-ups' disk wait
   fell the same way and the warm-up stall seconds of the heavy games fell by a third to a half
-  (Sauerbraten 21.1 to 6.1 s, SuperTuxKart 18.9 to 11.2 s).
-- **The loads are not CPU-bound yet.** The main thread is 47-77% on the CPU (Sauerbraten 56%,
-  OpenArena 64%, Luanti 60%, SuperTuxKart 77%, ClassiCube 47%) and its CPU seconds did not change (Sauerbraten 3.9 s
+  (BananaBread 21.1 to 6.1 s, SuperTuxKart 18.9 to 11.2 s).
+- **The loads are not CPU-bound yet.** The main thread is 47-77% on the CPU (BananaBread 56%,
+  OpenArena 64%, Luanti 60%, SuperTuxKart 77%, ClassiCube 47%) and its CPU seconds did not change (BananaBread 3.9 s
   against 4.1, OpenArena 8.7 against 9.0, SuperTuxKart 23.8 against 22.5, ClassiCube 3.2 against 2.9).
-  What is left besides CPU: 1-3 s of disk wait (a quarter of Sauerbraten's load), sleeps and unknown
+  What is left besides CPU: 1-3 s of disk wait (a quarter of BananaBread's load), sleeps and unknown
   waits of 1.5-3.0 s, GPU waits (ClassiCube 1.2 s, Luanti 2.8 s), direct reclaim of 0.2-1.7 s
   (kswapd 1.0-4.0 s of CPU, allocstalls 69-321). Batch 17's estimate of the CPU-bound loads (15, 21,
   33, 43 and 11 s) was too high: it took out only the disk and io wait, and the loads shrank by more
   because the page-fault waits and the reclaim around them depended on the disk too.
 - **What is on top of the CPU now** (seconds in the load, all threads; main thread in brackets):
-  - Sauerbraten: zlib 1.6 (1.6; the `.ogz` map inflate, `inflate` 0.55, `crc32` 0.17, the rest without
+  - BananaBread: zlib 1.6 (1.6; the `.ogz` map inflate, `inflate` 0.55, `crc32` 0.17, the rest without
     symbols), kernel soft-interrupt replay 0.7, link 0.4, game 0.35, Mesa 0.34, libc 0.33. 4.9 s in total.
   - OpenArena: the game 3.9 (the shader scripts, mipmaps, pk3 scans: batch 17's files 1.95, game 1.91
     and mipmap 1.34), Mesa 0.55, link 0.5, jpeg 0.29, DXT 0.27. 10.4 s in total.
@@ -514,19 +514,19 @@ are in the results rows). "Other waits" are futex, poll and sleep, unknown, run 
   - SuperTuxKart: the game 5.35, png 4.2, zlib 3.9, audio 2.2, jpeg 2.1, Mesa 1.3, link 0.9. Decoders
     are 12.5 s of the main thread's 23.8 s (53%).
   - ClassiCube: the game 1.8 (1.5 on the main thread), link 0.65, Mesa 0.63, ps3rsx 0.25. 4.9 s.
-- **Linking is now 3-9% of a load** (0.37-0.86 s in every game: Sauerbraten 5%, ClassiCube 9%,
+- **Linking is now 3-9% of a load** (0.37-0.86 s in every game: BananaBread 5%, ClassiCube 9%,
   OpenArena 4%, Luanti 3%, SuperTuxKart 3%) though ld.so's own start-up is 0.02-0.05 s: the rest is lazy
   binding and `dlopen` (`_dl_relocate_object`, `sinl` in the libm resolver). Prelinking or `-z now`
   now helps every short load by as much as batch 17's kernel numbers allowed.
-- **The warm-up is play.** Sauerbraten's main thread is 97% on the CPU for 70 s (Mesa 43 s, the game
+- **The warm-up is play.** BananaBread's main thread is 97% on the CPU for 70 s (Mesa 43 s, the game
   8.2 s: the demo's frames and the occlusion-query spin), ClassiCube waits 35.7 s on the GPU and
   runs 11.7 s of CPU, Luanti's main thread is 76% CPU with Emerge-0 at 28.7 s. OpenArena's warm-up is
   the demo's second pass: the map and players load again, 146 MB read, 1.2 s disk wait now (11.1 s
   on USB), the game 13.5 s of CPU.
 - **Levers on the SSD root** (twice as fast, main-thread seconds off the wall time): SuperTuxKart
   the game's load path 2.7, png 2.1, zlib 2.0, audio 1.1, jpeg 1.1; OpenArena the game 2.0; Luanti
-  Mesa 1.1, the game 1.0; Sauerbraten zlib 0.8; ClassiCube the game 0.8, link 0.3. Decoders matter
-  for SuperTuxKart only; Sauerbraten's one item is zlib-ng or stored `.ogz`.
+  Mesa 1.1, the game 1.0; BananaBread zlib 0.8; ClassiCube the game 0.8, link 0.3. Decoders matter
+  for SuperTuxKart only; BananaBread's one item is zlib-ng or stored `.ogz`.
 
 Not comparable with batch 17: the GLSL compile, DXT and mipmap groups (inside `mesa` and `game`
 here); a symbolised re-run of these five would restore them.
@@ -559,28 +559,28 @@ From the source, Mesa 26.2.4 with our patches:
 ### Mesa's cache measured: CPU saved, no load time
 
 Batch 17, `SHADERCACHE=prime|cold|warm`, only the NIR cache (Mesa .442~dev has no 0039). Cache size
-after one run: 2488 KiB (OpenArena, 55 programs), 2972 KiB (Sauerbraten).
+after one run: 2488 KiB (OpenArena, 55 programs), 2972 KiB (BananaBread).
 
 | | load_end (s) | game's own load/GLSL phase (s) | lp_main (s) | lp_glsl | lp_shbe | lp_shcache | warm-up shader groups (s) | disk wait (s) | stall frames in the warm-up (s) |
 |---|---|---|---|---|---|---|---|---|---|
 | OpenArena prime | 30.95 | glsl1 2.15 | 10.62 | 1.40 | 0.27 | 0.18 | 0.06 | 11.5 | 29.3 |
 | OpenArena cold | 28.76 | glsl1 2.11 | 10.52 | 1.44 | 0.28 | 0.18 | 0.06 | 10.9 | 26.8 |
 | OpenArena warm | 28.36 | glsl1 1.41 | 9.28 | 0.18 | 0.29 | 0.10 | 0.06 | 11.4 | 29.2 |
-| Sauerbraten prime | 18.40 | - | 5.04 | 1.79 | 0.39 | 0.40 | 1.11 | 7.2 | 19.7 |
-| Sauerbraten cold | 17.37 | - | 5.06 | 1.86 | 0.49 | 0.43 | 1.23 | 6.6 | 19.0 |
-| Sauerbraten warm | 18.32 | - | 4.26 | 0.42 | 0.39 | 0.22 | 0.39 | 7.5 | 15.0 |
+| BananaBread prime | 18.40 | - | 5.04 | 1.79 | 0.39 | 0.40 | 1.11 | 7.2 | 19.7 |
+| BananaBread cold | 17.37 | - | 5.06 | 1.86 | 0.49 | 0.43 | 1.23 | 6.6 | 19.0 |
+| BananaBread warm | 18.32 | - | 4.26 | 0.42 | 0.39 | 0.22 | 0.39 | 7.5 | 15.0 |
 
 `lp_glsl`, `lp_shbe` and `lp_shcache` are all threads over load plus warm-up; `lp_main` is the load's
 main thread. The game's own load (`load=`) was 10.3 s cold against 10.6 s warm for OpenArena and
-17.4 against 18.4 s for Sauerbraten (row 69).
+17.4 against 18.4 s for BananaBread (row 69).
 
 - **What the cache does**: `lp_glsl` falls 1.44 -> 0.18 s (OpenArena) and 1.86 -> 0.42 s
-  (Sauerbraten), the load's main-thread CPU 10.52 -> 9.28 s and 5.06 -> 4.26 s. The cache's own cost
+  (BananaBread), the load's main-thread CPU 10.52 -> 9.28 s and 5.06 -> 4.26 s. The cache's own cost
   falls too (0.18 -> 0.10, 0.43 -> 0.22: a hit reads and inflates one blob instead of writing and
-  compressing). Sauerbraten also compiles shaders on first use in its warm-up: 1.23 -> 0.39 s there.
+  compressing). BananaBread also compiles shaders on first use in its warm-up: 1.23 -> 0.39 s there.
 - **Why the load did not get faster.** The CPU saved (1.2 and 0.8 s on the main thread) is smaller
   than the spread of the disk wait between identical runs (about 2.5 s): OpenArena's warm load is
-  0.4 s shorter than cold, Sauerbraten's 1.0 s longer with 0.9 s more disk wait (6.6 -> 7.5). And
+  0.4 s shorter than cold, BananaBread's 1.0 s longer with 0.9 s more disk wait (6.6 -> 7.5). And
   `lp_shbe` does not move (0.28 -> 0.29, 0.49 -> 0.39): variants, `nir_to_tgsi` and nvfx run at every
   start. A third cause, inferred and not measured: OpenArena's own timer for the shader loop reads
   1.41 s warm against 0.57 s of CPU in glsl+backend+cache over the whole span; the missing ~0.8 s fits
@@ -588,10 +588,10 @@ main thread. The game's own load (`load=`) was 10.3 s cold against 10.6 s warm f
   (test: the recorder's states in that phase, or a warm run with the cache directory in the page
   cache).
 - **Not a stall fix in the window.** OpenArena's warm-up stalls are 25-29 s in all three arms, and its
-  shader groups in the warm-up are 0.06 s everywhere (it compiles everything at load). Sauerbraten's
+  shader groups in the warm-up are 0.06 s everywhere (it compiles everything at load). BananaBread's
   warm-up stalls go 19.0 -> 15.0 s warm (56 -> 51 stalls, longest 2.1 -> 1.7 s): a hint that the
   first-use compiles mattered, from one run each against a prime arm at 19.7.
-- Shader time in the load: Sauerbraten 1.11 s on the main thread plus 0.77 s in the warm-up,
+- Shader time in the load: BananaBread 1.11 s on the main thread plus 0.77 s in the warm-up,
   OpenArena 1.37 s, Luanti 0.43, STK 0.03, ClassiCube 0.02 s. The cache is no lever for the last
   three.
 
@@ -628,7 +628,7 @@ cache off every creation counts as a miss, so an off run's `shc_miss_ms` is the 
 save. Compile-tested only: nv30 code can't run on the host.
 
 **Its upper bound, measured.** The cache can save at most the `shader.backend` seconds. Batch 17, load
-plus warm-up, all threads: OpenArena 0.28, Sauerbraten 0.39, Luanti 0.11, STK 0.11, ClassiCube 0.02 s
+plus warm-up, all threads: OpenArena 0.28, BananaBread 0.39, Luanti 0.11, STK 0.11, ClassiCube 0.02 s
 (main-thread load share 0.24, 0.20, 0.08, 0.04, 0.02). That is before the cost of a hit and below the
 run noise, so the A/B was skipped in batch ssd1. It is still queued because it is cheap
 ([TESTS.md](TESTS.md), "Next"):
@@ -665,18 +665,18 @@ about 40 cycles for the store), multiplies and divides, per guest PC, and a crud
 `insns + 40 x LHS + 8 x mul + 40 x div`. Neither number is PPE time (in-order issue, cache misses
 and the slow multiplier aren't modelled); the ratios are what carries over.
 
-| Workload (SuperTuxKart's and Sauerbraten's own data) | Debian zlib 1.3.2: insns / est | zlib-ng 2.3.3 compat: insns / est | ratio insns, est |
+| Workload (SuperTuxKart's and BananaBread's own data) | Debian zlib 1.3.2: insns / est | zlib-ng 2.3.3 compat: insns / est | ratio insns, est |
 |---|---|---|---|
 | 355 SuperTuxKart PNGs (60.5 MB in, 354 MB out), whole decode | 11.04 G / 32.6 G | 9.58 G / 27.9 G | 0.87, 0.86 |
 | the same, zlib's part only | 4.75 G / 8.49 G | 2.52 G / 2.63 G | 0.53, 0.31 |
-| 20 Sauerbraten `.ogz` maps (163 MB out), `gzread` | 2.26 G / 2.96 G | 1.53 G / 1.67 G | 0.68, 0.56 |
+| 20 BananaBread `.ogz` maps (163 MB out), `gzread` | 2.26 G / 2.96 G | 1.53 G / 1.67 G | 0.68, 0.56 |
 | OpenArena `pak0.pk3` (84 MB out), inflate + crc32 | 1.80 G / 2.31 G | 1.34 G / 1.44 G | 0.74, 0.62 |
 
 - **zlib-ng halves zlib's part.** On a Cell it selects `adler32_vmx` and `slide_hash_vmx` (AltiVec;
   run-time detection from `AT_HWCAP`'s AltiVec bit) and never its POWER8/9 code, which needs
   `AT_HWCAP2` bits the Cell doesn't report. The AltiVec adler32 is 30% of the PNG gain (3.52 G
   instructions without it). libdeflate is level with it (1.46 G on the maps, 1.32 G on the pk3), so
-  a per-game libdeflate patch for Sauerbraten's `.ogz` (like ioquake3's for pk3s) buys nothing over
+  a per-game libdeflate patch for BananaBread's `.ogz` (like ioquake3's for pk3s) buys nothing over
   zlib-ng. `-fstack-protector-strong` (Debian's hardening, kept) costs 9% of the gzip case.
 - **libpng's filters were the larger half of a PNG:** 57% of the decode's instructions and 97% of
   its load-hit-stores once zlib-ng is in, Paeth on 3- and 4-byte pixels alone 47%: libpng's C reads
@@ -705,12 +705,12 @@ half: the test images split libpng to zlib 1.3 : 1 where SuperTuxKart's load has
 |---|---|---|
 | SuperTuxKart | zlib-ng | 1.8-2.7 s off the load's 3.9 s of zlib (main thread) |
 | SuperTuxKart | libpng1.6 unfilters | 2-3.3 s off its 4.2 s of png (measured: 2.4 s, [below](#libpng16-on-the-ps3)) |
-| Sauerbraten | zlib-ng | 0.5-0.7 s off its 1.6 s of `.ogz` inflate |
+| BananaBread | zlib-ng | 0.5-0.7 s off its 1.6 s of `.ogz` inflate |
 | OpenArena | zlib-ng | none: our ioquake3 reads pk3s through libdeflate |
 | every GL game | DT_RELR in Mesa (not built) | tens of ms |
 
 **Measured on the PS3, and the defaults since 2026-10-20.** SuperTuxKart's load: libpng1.6 30.3 to
-27.6 s, zlib-ng -0.9 s, our libvorbis -0.7 s; Sauerbraten's and OpenArena's loads didn't move
+27.6 s, zlib-ng -0.9 s, our libvorbis -0.7 s; BananaBread's and OpenArena's loads didn't move
 (TESTS.md 10-19). Faster libraries become the defaults (the user, 2026-10-20). Our libpng16-16t64,
 libvorbis0a/libvorbisfile3, libopenal1 and libfluidsynth3 replace Debian's as upgrades, on the PS3
 and in the image. zlib-ng stays out of the system's libz.so.1 (dpkg, apt and sshd load it, and its
@@ -778,15 +778,15 @@ rotated, webcam picture right in every run.
 | SuperTuxKart lean, load (2) | 30.42, 30.25 s | 26.93, 28.20 s | -2.8 s, -9% |
 | SuperTuxKart lean, main thread's CPU over the load (2) | 23.8, 24.2 s | 21.1, 21.7 s | -2.5 s |
 | SuperTuxKart lean, gameplay: steady fps, 1% low, frames over 100 ms (2) | 20, 11.9, 10 | 19.5, 11.5, 10 | same |
-| Sauerbraten base, load (3) | 7.19 s (6.95-8.21) | 7.25 s (7.15-7.48) | same |
-| Sauerbraten base, steady fps, 1% low (3) | 39.5, 27.1 | 39.5, 26.6 | same |
+| BananaBread base, load (3) | 7.19 s (6.95-8.21) | 7.25 s (7.15-7.48) | same |
+| BananaBread base, steady fps, 1% low (3) | 39.5, 27.1 | 39.5, 26.6 | same |
 | OpenArena gl2min, load (2), the control | 6.80 s | 6.62 s | -0.2 s, noise |
 
 The png group moved by what the model predicted (2-3.3 s), and the load follows it, so the AltiVec
 Paeth's dependent chain is not slower than the C it replaces. Round 1 of the SuperTuxKart pairs was
 interfered (a login at 9 s, mouse moves) and is out of the medians; its png group, 4.17 against
 1.67 s, agrees. The zlib group is 3.2-3.5 s in both arms, so nothing else in the load changed.
-Sauerbraten had no load profile, and its load did not move: libpng is too small a part of its 7 s
+BananaBread had no load profile, and its load did not move: libpng is too small a part of its 7 s
 for the timer. Gameplay is untouched, as a decoder that runs only during the load should leave it.
 One stock-arm run (17:16Z) ended with SIGABRT at the exit after a full race; the cause was not
 looked at. So `libpng16-16t64` +ps3.560 is a proven 2.8 s on SuperTuxKart's 30 s load and nothing
@@ -807,10 +807,10 @@ zlib, so it can be done; per game gets the same load gain without the risk).
 
 Batch ssd1 (2026-10-18 22:10-23:25Z, kernel .472, USB root, results row 70, commit 9e6bc57) put the
 game data (and in a third arm the VRAM swap's spill) on a disk image on the internal SSD. The load's
-disk wait (the recorder's sda class) stayed at 4.8-5.5 s in Sauerbraten and 6.2-6.7 s in OpenArena:
+disk wait (the recorder's sda class) stayed at 4.8-5.5 s in BananaBread and 6.2-6.7 s in OpenArena:
 only 16-50 MB of the load's 76-144 MB of sda reads are game data, and the rest (binary, libraries,
 Mesa, the shader cache, Xorg) stays on USB. The load's CPU, fault and io shares did not change either.
-OpenArena's own load was shorter by about 3 s (-28%) and its `load_end` by about 3.6 s; Sauerbraten
+OpenArena's own load was shorter by about 3 s (-28%) and its `load_end` by about 3.6 s; BananaBread
 showed no proven gain. Tables and verdicts: [GAMEOS-HDD.md](GAMEOS-HDD.md), "Result, batch ssd1".
 
 ## Overhead
@@ -909,7 +909,7 @@ it. All are fixed for new runs.
   `perf-threads.txt` were complete). Debian's perf 7.2 for ppc64 has neither libbfd nor LLVM, so to
   name inlined functions perf script runs the binutils `addr2line` command, which the image doesn't
   have: it wrote to the dead command and died of SIGPIPE (exit 141), and `perf-post.err` had
-  `addr2line configuration failed` (not always: the ClassiCube, ETR, Neverball and Sauerbraten runs
+  `addr2line configuration failed` (not always: the ClassiCube, ETR, Neverball and BananaBread runs
   died without the message). perf report with `-g none` never asks for inlines. Fix: `--no-inline`,
   plus the sample-count check after the collapse.
 - **`[unknown]` libraries.** perf recorded no mmap while disabled, so libGLX_mesa and libgallium were
@@ -931,6 +931,6 @@ it. All are fixed for new runs.
 - The batch's perf.data re-processed with the fixed perf-post.sh and the PS3's perf under qemu-user
   matches the PC reader's numbers: every sample collapsed (OpenArena 57510), the class shares equal to
   the tenth (OpenArena game 23.2, mesa 27.3, drm 0.0, kgpu 4.7, kernel 10.8, libc 6.9, other 27.0;
-  Sauerbraten 7.3, 72.0, 0.1, 3.6, 6.2, 3.4, 7.5), the same leaf symbols with the same counts.
+  BananaBread 7.3, 72.0, 0.1, 3.6, 6.2, 3.4, 7.5), the same leaf symbols with the same counts.
 
 Older versions and the dated history: [archive/PROFILING.md](archive/PROFILING.md).

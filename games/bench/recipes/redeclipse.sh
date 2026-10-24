@@ -1,6 +1,6 @@
 # Red Eclipse 1.6.0 (Debian ports ppc64: redeclipse, redeclipse-common, redeclipse-data 842 MB
 # download, 959 MB installed): smoke test, not benchmarked. The same engine family as Sauerbraten
-# (Cube 2), so the same memory trouble is expected: Sauerbraten ran out of memory on this PS3 until
+# (Cube 2), so the same memory trouble is expected: BananaBread ran out of memory on this PS3 until
 # our cube2 got its memory patches, and Red Eclipse has none of them. The smallest map and the lowest
 # settings, then. Starts a deathmatch with bots on a map at once (`-x'dm <map>'`: setup.cfg's
 # alias for `mode <deathmatch>; map <map>`, run by the engine's own loopback server; the player
@@ -27,7 +27,7 @@
 #   swap), shaderdetail 1, no water reflection, refraction or env map, no caustics, glare, grass,
 #   shadow maps, depth effects, motion blur, dynamic lights, bump- or env-mapped models, GPU
 #   skinning (nv30 compiles the bone-array vertex shader to if/else trees: 11 fps against 28 in
-#   Sauerbraten), decals, anisotropy, gore, ragdolls, mumble. Every name checked in the 1.6
+#   BananaBread), decals, anisotropy, gore, ragdolls, mumble. Every name checked in the 1.6
 #   source (several are already 0 on GL 2.1). Video from the command line: -df1 -dw1920 -dh1080.
 # - The "Welcome to Red Eclipse" profile menu of the first start (run of 2026-10-18: the load went
 #   through and the game sat on it): game.cpp's update shows the `profile` menu over the match for as
@@ -35,7 +35,7 @@
 #   player does not spawn meanwhile (game.cpp, "prevent spawning"). The name is the persistent
 #   playername variable (client.cpp, SVARF: setting it from a script sets the player's name), so
 #   autoexec.cfg ends with `playername RE_NAME` (also for variant defaults, after RE_SET).
-# Texture compression: like Sauerbraten the engine turns it off on Mesa (rendergl.cpp:
+# Texture compression: like BananaBread the engine turns it off on Mesa (rendergl.cpp:
 # `if(!mesa) usetexcompress = 2`), and usetexcompress is read-only (VAR min 1 > max 0), so no
 # setting turns it on; our cube2 patch 0001 applies to Red Eclipse's tree (variant tc was a no-op
 # and is gone). Engine patches that would cut more, none built: samples loaded when first played
@@ -43,7 +43,7 @@
 # 0002/0003 (fewer shader variants), 0005 (lightmap CPU copies freed), the sky cube map shrunk to
 # envmapsize as its six sides are decoded (texture.cpp cubemaploadwildcard).
 # Risks: out of memory still (watch dmesg.log and during.log's MemAvailable; the run keeps the
-# VRAM swap off, NOVSWAP=0 turns it on again, as for Sauerbraten), GLSL 1.20 shaders against the
+# VRAM swap off, NOVSWAP=0 turns it on again, as for BananaBread), GLSL 1.20 shaders against the
 # 224 fragment constants (shader compile or link errors in game.log), a long first load (the local
 # server has the client send it the map, then waits ~10 s before the match starts).
 COMM=redeclipse

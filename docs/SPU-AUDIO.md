@@ -4,7 +4,7 @@ Two audio libraries were looked at for the SPEs. fluidsynth (MIDI synthesis, use
 
 ## OpenAL Soft's cost (M0): no SPU mixer
 
-OpenAL Soft plays the sound of OpenArena (ioquake3 dlopens `libopenal.so.1`), Yamagi Quake II (`s_openal 1`, its default), ClassiCube, Luanti and SuperTuxKart. It does not play QuakeSpasm (SDL2's audio), Sauerbraten (SDL2_mixer) or Extreme Tux Racer (SFML, whose audio module is miniaudio).
+OpenAL Soft plays the sound of OpenArena (ioquake3 dlopens `libopenal.so.1`), Yamagi Quake II (`s_openal 1`, its default), ClassiCube, Luanti and SuperTuxKart. It does not play QuakeSpasm (SDL2's audio), BananaBread (SDL2_mixer) or Extreme Tux Racer (SFML, whose audio module is miniaudio).
 
 **M0, the profile split** (2026-10-17, Mesa ps3.262, our `libopenal1` with its `-dbgsym`, perf on the game's process only): libopenal's own share was
 
@@ -111,7 +111,7 @@ interrupts by kind and the restarts.
 
 libvorbis decodes the Ogg Vorbis of OpenArena (ioquake3's music and voices), SuperTuxKart (every
 sound effect at load: the 2.2 s "audio" of its start-up profile) and every SDL2_mixer game
-(Sauerbraten's music); all three go through libvorbisfile's `ov_read` to native-endian 16-bit.
+(BananaBread's music); all three go through libvorbisfile's `ov_read` to native-endian 16-bit.
 Debian builds it `-O2 -ffast-math` (Debian's `-O2` overrides configure's `-O3`), no AltiVec; libvorbis
 has no SIMD code. Tremor, the fixed-point decoder, is not in Debian, and the PPE's integer multiplier
 is its slow unit, so it was not pursued.
@@ -134,7 +134,7 @@ is its slow unit, so it was not pursued.
   no alignment. `oggdec` output is byte-identical to the unpatched build with the same flags for a
   stereo track and 12 mono effects. The packaging patch builds `-O3 -mcpu=cell -mtune=cell`.
 - **Expected on the PS3:** about 40% of the Vorbis decode, so roughly 0.6-0.9 s of SuperTuxKart's
-  2.2 s of load-time audio, and part of Sauerbraten's audio thread (6% of its CPU with the mixer and
+  2.2 s of load-time audio, and part of BananaBread's audio thread (6% of its CPU with the mixer and
   ALSA); a stereo 44.1 kHz stream drops from about 25 M to 15 M estimated cycles a second. No
   switch: the output is the same, so the A/B is the package against Debian's in the same boot.
 

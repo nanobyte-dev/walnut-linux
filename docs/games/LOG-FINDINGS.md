@@ -94,7 +94,7 @@ itself, with no xrun before it.
 
 Counts from the repro batches, stock snd_ps3 (`DUMPON=1`; "wedge" = `Wait timeout` lines, "xrun" = only
 `mmap commit error` lines, the card still moving). Batch ssdroot7 (2026-10-19 20:53-21:40Z): SuperTuxKart
-3 of 4, OpenArena 1 of 3, ClassiCube 1 of 3, Sauerbraten 0 of 3. Batch ssdroot8 (2026-10-20 00:39-01:25Z,
+3 of 4, OpenArena 1 of 3, ClassiCube 1 of 3, BananaBread 0 of 3. Batch ssdroot8 (2026-10-20 00:39-01:25Z,
 10 runs): SuperTuxKart 2 of 4 (291 lines with the card's pointer 1.0 s stopped before the first
 timeout; 29 lines after a first xrun; one run xrun only, one clean), OpenArena 0 of 3 (an xrun dump
 each, at 21, 20 and 33 s), ClassiCube 1 of 3 (12 lines after an xrun at 2.9 s; one xrun only, one
@@ -171,7 +171,7 @@ still while RUNNING, sampled once a second) and `snd_stall_at=`, `oal_wait=` (Wa
 
 ### 2. A failed buffer allocation ends in a segfault
 
-Games: Sauerbraten (5 runs on 10-18, 07:29 to 11:42 UTC), SuperTuxKart (1 run, 10-17 12:53). Not seen
+Games: BananaBread (5 runs on 10-18, 07:29 to 11:42 UTC), SuperTuxKart (1 run, 10-17 12:53). Not seen
 since.
 
 Evidence: `20261018T072934Z-sauerbraten-base` dmesg.log lines 1-11: 193 suppressed plus ten `ps3rsx: out of
@@ -183,14 +183,14 @@ Cannot render to texture`, then `segfault ... in supertuxkart`, `rc=139`.
 Cause: the kernel refuses the allocation (GART or VRAM full), libdrm returns an error, and the code
 above it uses a NULL result: a write of 0 bytes at address 0 inside libc's memcpy/memset, called from a
 driver library (the link register is in the game's mapped libraries, not libc). The next 4 MiB buffers
-Sauerbraten asks for are its vertex and texture streams. All five Sauerbraten crashes are in one four-hour stretch; none of the 40 Sauerbraten runs after it
+BananaBread (Debian's cube2) asks for are its vertex and texture streams. All five BananaBread crashes are in one four-hour stretch; none of the 40 BananaBread runs after it
 crashed or logged a GART failure (what changed in between is not recorded in the logs).
 
 Effect: the game dies mid-run. A player who fills GART or VRAM hits this, so it is a correctness bug even
 though the benchmark no longer triggers it.
 
 Fix (backlog "A failed buffer allocation must not crash", M): find the caller with a debug-symbol
-backtrace (a core from `ulimit -c`, or gdb, on a forced failure: `ps3rsx_gart` on the kernel command line sets the GART size; lower it and run Sauerbraten), make nv30's buffer and transfer creation return
+backtrace (a core from `ulimit -c`, or gdb, on a forced failure: `ps3rsx_gart` on the kernel command line sets the GART size; lower it and run BananaBread), make nv30's buffer and transfer creation return
 GL_OUT_OF_MEMORY or fall back to a smaller/CPU path, and send it upstream with the test.
 
 ### 3. GART nearly full in OpenTTD since ps3.544 (new)
@@ -215,7 +215,7 @@ Next); if it repeats, cap the pool at 16 MB or have the pool release on a failed
 ### 4. Audio underruns in every SDL and direct-ALSA game
 
 Games and counts per 2-minute window, runs since 10-19: dsda-doom 2793, OpenTTD 0-4020 (mean 3600 with
-music on, 13 runs since ps3.544), DDNet 1765, X-Moto 200-218, Sauerbraten 60-181 (14 runs, mean 137),
+music on, 13 runs since ps3.544), DDNet 1765, X-Moto 200-218, BananaBread 60-181 (14 runs, mean 137),
 Freeciv 87, OpenTyrian 71, Warmux 26, ScummVM 20, LinCity-NG 16, UQM 10, Flare 5. Earlier days: Neverball
 780 over 13 runs, Armagetron 1223 over 29, Chocolate Doom 2701, Crispy Doom 1016, Red Eclipse 1280.
 
@@ -224,7 +224,7 @@ bench.txt `underruns=N`.
 
 Cause: the SDL/ALSA callback thread misses its deadline because the PPE is busy or stalled; known and
 measured for dsda-doom and OpenTTD ([SPU-AUDIO.md](../SPU-AUDIO.md), [doom.md](doom.md),
-[openttd.md](openttd.md)). Sauerbraten's 60-181 a run is a small number for a game the microphone found silent; the log has no sound error for it since 10-17 (the
+[openttd.md](openttd.md)). BananaBread's 60-181 a run is a small number for a game the microphone found silent; the log has no sound error for it since 10-17 (the
 nine early runs that said `failed to load sample` were missing data files, fixed).
 
 Effect: audible chopping, strongest in dsda-doom and OpenTTD music. Nothing new since ps3.544.
@@ -268,12 +268,12 @@ cosmetic.
 Fix: none for the first. Write a full default config once (let STK write it, keep it) so its log is
 clean and the next error in it shows (S, host).
 
-### 7. Sauerbraten and OpenArena: missing content
+### 7. BananaBread and OpenArena: missing content
 
-Sauerbraten, 65-74 of 74 runs: `could not read "data/blendbrush.cfg"`, `"data/heightmap.cfg"` (editor
+BananaBread, 65-74 of 74 runs: `could not read "data/blendbrush.cfg"`, `"data/heightmap.cfg"` (editor
 files), `could not load texture packages/gk/fantasy/skyfantasy/skyfantasy` (73 runs) and `could not load
 envmap skyboxes/morning` (65 runs, 910 lines). If the benchmark map uses them, its sky and reflections use a fallback and the picture differs from a PC's (check on a photo). Check the
-package for the files (backlog "Sauerbraten data files", S, host). The `could not load model` and `failed to load sample` (8) lines appear only in nine runs of 10-17 and are gone since.
+package for the files (backlog "BananaBread data files", S, host). The `could not load model` and `failed to load sample` (8) lines appear only in nine runs of 10-17 and are gone since.
 
 OpenArena, 143 of 147 runs: six `Failed to load sound ...wav` / `Using default sound` pairs
 (vulcan impacts, nailgun, yousuck, cl_ammoregen). Probably upstream data gaps (not compared with a PC run yet); the engine plays a default sound. Also `Couldn't read q3history`, a first-run file.
@@ -281,7 +281,7 @@ OpenArena, 143 of 147 runs: six `Failed to load sound ...wav` / `Using default s
 ### 8. Input lag messages from libinput, and a few harness things
 
 - `(EE) event1 - Logitech USB Receiver Mouse: client bug: event processing lagging behind by Nms, your
-  system is too slow` and `scheduled expiry is in the past`: 12 runs from 10-17 to 10-18 (Sauerbraten,
+  system is too slow` and `scheduled expiry is in the past`: 12 runs from 10-17 to 10-18 (BananaBread,
   OpenArena, Luanti, ClassiCube). Xorg's input thread starved during stalls; the mouse pointer would hang.
   Not seen on 10-19. Nothing to fix beyond the stalls themselves.
 - 16 runs (all with the `perfload` harness, 10-18 17:42 to 10-19 01:56) print `client.sh: line N:
@@ -310,7 +310,7 @@ compile failures and the draw-module fallbacks, the log into game.log, then `log
 |---|---|---|
 | GPU wedge: `nouveau: kernel rejected pushbuf`, 89 lines and 35 000 dump lines, `ps3rsx: graph exception`, `ps3fb_vsync_interrupt: graphics exception` | Neverball smoke, 10-16 21:54 | no recurrence in the 12 Neverball runs since |
 | validator `rejected push: swizzled render target 1 pixel wide` | gl-genmip probe, 10-16 | one probe run; not repeated |
-| oom-killer | Sauerbraten 10-17 08:17, Red Eclipse 10-18 06:00 | not repeated in the Sauerbraten runs after it; Red Eclipse still needs its patches ([backlog games.md](../backlog/games.md#red-eclipse-engine-patches)) |
+| oom-killer | BananaBread 10-17 08:17, Red Eclipse 10-18 06:00 | not repeated in the BananaBread runs after it; Red Eclipse still needs its patches ([backlog games.md](../backlog/games.md#red-eclipse-engine-patches)) |
 | `Sys_LoadLibrary failed: libcurl.so.4` | Yamagi Quake II, 6 runs | optional download library, harmless |
 | `QUAKE ERROR: You must have the registered version to use modified games` | Quakespasm, 10-16 (a launch-option error, one run) | one run; not repeated |
 | `Unable to load driver 'sdl-opengl': Single element texture formats not supported` | OpenTTD 10-16 | worked around (item 11) |
@@ -330,7 +330,7 @@ compile failures and the draw-module fallbacks, the log into game.log, then `log
 - Luanti: `Maximum lag peaked`, `active block modifiers took Nms`, `Field "image" on TileDef is
   deprecated` (minetest_game's own).
 - speq (libspeq) statistics lines print "errors" in their text; only non-zero counts are kept by the tool.
-  Sauerbraten 10-17 and 10-18: 7 runs with `speq: s3tc dxt1/dxt5 ... Operation not supported` (the SPE
+  BananaBread 10-17 and 10-18: 7 runs with `speq: s3tc dxt1/dxt5 ... Operation not supported` (the SPE
   compressor refused those job sizes; the CPU path took over) and one `N batches in a row failed on the
   SPEs, the game skins for N ms` (10-18 05:13); none since.
 

@@ -285,10 +285,10 @@ user, or for copying the files by hand, are in `/usr/share/doc/classicube/README
 
 ### Sauerbraten's models and sounds (`sauerbraten-nonfree-data`)
 
-Debian's `cube2-data` 1.3-1 is not a DFSG-cleaned Sauerbraten: it is the BananaBread content
+Debian's `cube2-data` 1.3-1 is not a DFSG-cleaned BananaBread: it is the BananaBread content
 (gitlab.com/cube2-data/cube2-data, 295 MB, 989 files under `packages/`, installed in
 `/usr/share/games/cube2`, which its `/usr/games/cube2` passes to the engine as `-k`). The engine
-(cube2 0.0.20201229, Sauerbraten's `fpsgame`) loads models and sounds by names compiled in
+(cube2 0.0.20201229, BananaBread's `fpsgame`) loads models and sounds by names compiled in
 (`entities.cpp`, `render.cpp`, `weapon.cpp`, `monster.cpp`) or from `data/sounds.cfg`, and BananaBread
 lacks most of them, hence "could not load model" for the pickups, hud guns, gibs and so on and
 "failed to load sample". The match is the SourceForge release `2020_12_29`
@@ -303,8 +303,8 @@ projectiles gibs debris barreldebris base skull flags armor` and the five player
 snoutx10k ogro2 inky captaincannon`, with their `armor/` and `hudguns/`), `ogro` and `monster`, plus
 every sound cube2-data lacks. Files cube2-data has are not repeated (a few differ in the release,
 e.g. `models/debris/md2.cfg`, `models/armor/armor.txt`: cube2-data's win), so the package installs
-next to cube2-data without a conflict. Not packaged: the other 7,868 files (mapmodels, the Sauerbraten maps'
-textures and so on); add them to `files.txt` if Sauerbraten's own maps are ever wanted.
+next to cube2-data without a conflict. Not packaged: the other 7,868 files (mapmodels, the BananaBread maps'
+textures and so on); add them to `files.txt` if BananaBread's own maps are ever wanted.
 
 Why they are left out of Debian: the licenses are not DFSG-free. By directory, from the license
 and readme files kept in the package: `ammo boost health flags gibs debris barreldebris` (makkE)

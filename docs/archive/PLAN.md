@@ -46,7 +46,7 @@ decides smoothness:
   (stalls 22.6 -> 0.05 s). Luanti's `cliunload` looked like 6.5 -> 0.8 s, but that base run was
   interfered with; the clean re-runs (row 67) show it **worse** (3.8 and 5.2 s, 2 s reload hitches)
   against base's 1.5 and 2.1 s, so base stays.
-- **Mesa's translate LUT** (patch 0033, now the default) gave Sauerbraten +53% (25.9 -> 39.6 fps) on
+- **Mesa's translate LUT** (patch 0033, now the default) gave BananaBread (Debian's cube2) +53% (25.9 -> 39.6 fps) on
   the earlier spectator demo (row 57). The first-person demo used since row 64 is heavier and swings
   a lot from run to run (base 23-38 steady); the LUT was not A/B'd again on it (item 2.6).
 - **Tools to see why**: the stall recorder (`STALLS=1`), the perf and memory profiles (`PERF=1`,
@@ -56,7 +56,7 @@ decides smoothness:
 **Games.** Of the 13 suite games, six meet 60 fps with no gameplay stalls worth the name (QuakeSpasm,
 Yamagi Quake II, X-Moto, Armagetron, Neverball, OpenArena opengl1) and Extreme Tux Racer is at 59.
 ClassiCube (48), dsda-doom (56) and Luanti (45-46) are CPU-bound or still stall a little. The heavy ones are
-limited by memory and are smooth only after more work (Sauerbraten, SuperTuxKart, OpenArena opengl2),
+limited by memory and are smooth only after more work (BananaBread, SuperTuxKart, OpenArena opengl2),
 and OpenTTD is far under. Of the 11 smoke-tested new games, all 8 that start without someone at the
 controller run (Teeworlds, SuperTux, Red Eclipse, Frozen Bubble, Chocolate, Crispy and Woof Doom,
 Pingus); the 3 menu-only ones (TORCS, Trigger Rally, Chromium B.S.U.) are installed and wait for the
@@ -95,7 +95,7 @@ row), desktop stopped (no game mode). "Stalls" is gameplay stall time in the win
 | ClassiCube | 48.4, 50.9 with chunks1 (row 64) | stalls 0.0 s, 1% low 31.6 | 57 MB free | right, right | chunks1 x3 (2.6); GPU-bound, so tiling/Z-cull (3.2) |
 | dsda-doom (GL) | 55.9 (row 61) | stalls 0.0 s, 1% low 40.3 | 43 MB free | right, **music chops** (465 underruns a minute on the SPE pool against 1095) | the chopping's cause (2.8) |
 | Luanti | 45-46 base (row 67, clean) | stalls 1.5/2.1 s, longest 167/203 ms | 13-21 MB free (row 63) | right, right | base stays; `lean`'s black void and `view40` (2.9) |
-| Sauerbraten | 39.6 on the old spectator demo (row 57); 23-38 on the first-person demo (rows 64, 65) | stalls 2.8 s, 1% low 13.9 | 117-120 MB VRAM, 19 MB free | right, 130 underruns | memory: Mesa 0037 + cube2 0011 A/B (1.4); Mesa 0035 query wait measured no gain |
+| BananaBread | 39.6 on the old spectator demo (row 57); 23-38 on the first-person demo (rows 64, 65) | stalls 2.8 s, 1% low 13.9 | 117-120 MB VRAM, 19 MB free | right, 130 underruns | memory: Mesa 0037 + cube2 0011 A/B (1.4); Mesa 0035 query wait measured no gain |
 | SuperTuxKart | lean 21.4 smooth (row 61) | stalls 2.4 s (13.5 default) | 96 MB VRAM, "out of VRAM" lines remain | track draws; **`sound=none` in every run** | sound first (2.1), then the `lean` default (D4) |
 | OpenArena (opengl2) | 53.4 profiled (row 61) | stalls 16.0 s, longest 6.3 s (54.7 s and 16 s before report.py stopped counting the reload's last frame as play) | 115 MB VRAM, 9.7 MB free | right, right | memory: ioquake3 0027-0029 + Mesa 0037 A/B (1.3) |
 | OpenTTD | 21 with the GL driver (software 8-12) | stalls 6.3 s, 3893 underruns | 17 MB free | right, **choppy** | sound (2.8), then fps (3.1) |
@@ -147,8 +147,8 @@ verdict in its source doc.
 | 1.1 | Clean repeat of the idle fix on/off on `.433`: probe test 1, then OpenArena `ps3_idle_prep` 1 vs 0 x2, no SSH poll during the runs | row 66 (0.1-0.5 s against 5.6-8.2 s of stalls) had an SSH poll through all four runs; the default kernel decision (D13) rests on it | S | PS3 | STALLS.md "The fix on the PS3" |
 | 1.2 | Make the fixed kernel the default (D13; `PS3_DEFAULT` in /etc/default/ps3-boot), then retire the stopgap kicker: `ps3-kick` out of game mode and `WAKER=10` out of the bench's default `ENVS` | the kicker wakes thread 1 100 times a second and every bench row since 56 carries it; the fix makes it dead weight | S | host, then PS3 | STALLS.md, DESKTOP-PLAN.md |
 | 1.3 | OpenArena opengl2 memory A/B: ioquake3 0027 (SNORM colours), 0029 (packed MD3 frames), Mesa 0037 (`NV30_SYSMEM_COPY`, `NV30_INVALIDATE_BUFFER`, stats) | ~62 MB of malloc copies of its model VBOs, 62 -> 37.5 MB of VRAM with packed frames; 16.0 s of gameplay stalls today | S | PS3 | MEMORY.md "OpenArena opengl2", "nouveau's system memory copies" |
-| 1.4 | Sauerbraten world normals A/B: cube2 0011 `vanormalshort` with Mesa 0037's stats | u_vbuf converts its GL_BYTE normals at every world draw and nouveau keeps a malloc copy of every world VBO; 19 MB free | S | PS3 | MEMORY.md "Sauerbraten's world normals as shorts" |
-| 1.5 | Game prefetch A/B (24 runs; SuperTuxKart's learn run again, it was interrupted) | the disk is about a third of Sauerbraten's 16.5 s load and most of its hitches; USB 2 reads cost 10-20 ms each | S | PS3 | STALLS.md "Game prefetch" |
+| 1.4 | BananaBread world normals A/B: cube2 0011 `vanormalshort` with Mesa 0037's stats | u_vbuf converts its GL_BYTE normals at every world draw and nouveau keeps a malloc copy of every world VBO; 19 MB free | S | PS3 | MEMORY.md "BananaBread's world normals as shorts" |
+| 1.5 | Game prefetch A/B (24 runs; SuperTuxKart's learn run again, it was interrupted) | the disk is about a third of BananaBread's 16.5 s load and most of its hitches; USB 2 reads cost 10-20 ms each | S | PS3 | STALLS.md "Game prefetch" |
 | 1.6 | Read-only internal disk speed test: `ps3db` against the USB disk, sequential and random 4K latency, O_DIRECT reads only | the USB 2 bridge does one command at a time and sits behind most load and swap stalls; the answer decides 4.12 | S | PS3 | PLAN open questions, IDEAS #27 |
 | 1.7 | Load and warm-up profiles of 5 games (`PERF_LOAD=1 STALLS=1`, cold cache, prefetch off), plus Mesa's shader disk cache cold against warm. nv30's own programs in the cache (nir_to_tgsi and the nvfx translation): Mesa 0039 `NV30_SHADER_CACHE=on`, built 2026-10-18, its A/B in PROFILING.md "nv30's shader cache" | the 60 s warm-up and the loads are where players wait longest and where no profile looked yet; then the system and library-level startup wins | M | host (harness), PS3 | IDEAS #27, build/tmp/RESUME.md. Batch 17 profiles read: the disk is 34-41% of every load, CPU items 1-3 s per game (STK 5-8), the GLSL cache saves CPU but no resolvable wall time: PROFILING.md "Start-up profiles, batch 17" |
 | 1.8 | Finish the `.433` boot session: local/0041's power paths (`poweroff`, power button taps during shutdown, reboot) | the shutdown poll fix is booted but its only reason to exist was never exercised; upstream draft 3 waits on it | S | user | THERMAL.md "PS3 test steps", upstream/linux-ps3-sys-manager.md |
@@ -168,9 +168,9 @@ The suite as a player sees it: sound, game mode, VRAM, and results that hold up 
 | 2.1 | Sound check across all games with `tools/webcam-audio.sh`: SuperTuxKart (`sound=none` in every run: profile mode, or OpenAL failing), Luanti and Teeworlds by ear, the smoke games; fix what is silent | a game without sound isn't playable as shipped, and D4 waits on it | S to check, M to fix | PS3, user by ear | IDEAS #26, RELEASE-CANDIDATES.md 2.4 |
 | 2.2 | A benchmark round through game mode (started from the desktop, as players do), reconciled with the desktop-stopped baselines, same boot (a deliberate exception to the desktop-stopped protocol) | the gap above: no number was ever taken the way the games are played; the result says whether game mode gives the RAM back that the baselines assume | M | PS3 | this file "A gap in how we measure", DESKTOP-PLAN.md |
 | 2.3 | VRAM measurement for OpenArena opengl2 and SuperTuxKart (`ps3rsx_vswap_shrink` calls, GART fallbacks), then a VRAM reserve that game mode shrinks or caps | a game short of VRAM makes the swap write its chunks to the USB disk first; 115 and 96 MB of VRAM in those two | S-M | PS3, then host | IDEAS #5, GAME-PLAN.md "Next phase" |
-| 2.4 | Texture compression at upload for every game: opaque RGB(A)8 stored as DXT1 by libspeq on the SPEs, opt-in, never for render targets. **Built 2026-10-18: Mesa 0038 `NV30_FORCE_DXT=off\|opaque\|all` (default off), checked on softpipe; the PS3 A/B over five games is in MEMORY.md "Texture compression at upload"** | texture VRAM /4-8; Sauerbraten 117-120 MB, SuperTuxKart 96, OpenArena opengl2 115 are VRAM-bound; RGB DXT costs 1.0 ms per 1024x1024 on 4 SPEs | M | host, PS3 | IDEAS #4, SPU-OFFLOAD-PLAN.md |
+| 2.4 | Texture compression at upload for every game: opaque RGB(A)8 stored as DXT1 by libspeq on the SPEs, opt-in, never for render targets. **Built 2026-10-18: Mesa 0038 `NV30_FORCE_DXT=off\|opaque\|all` (default off), checked on softpipe; the PS3 A/B over five games is in MEMORY.md "Texture compression at upload"** | texture VRAM /4-8; BananaBread 117-120 MB, SuperTuxKart 96, OpenArena opengl2 115 are VRAM-bound; RGB DXT costs 1.0 ms per 1024x1024 on 4 SPEs | M | host, PS3 | IDEAS #4, SPU-OFFLOAD-PLAN.md |
 | 2.5 | Find and disable the OS-area write (`os_area_queue_work_handler: Could not update FLASH ROM`, 2026-10-15). **Found and built 2026-10-18:** the kernel's 11-minute RTC sync (`RTC_SYSTOHC`) once timesyncd has NTP time sets a new RTC offset, which the kernel writes to the OS area's first 256 KiB flash block (header, boot flag, database, start of Petitboot; VFLASH on the internal disk, never the NOR). local/0044 turns OS area writes off (`ps3_os_area.write`, default 0), reads unchanged; dev build 458~dev, for the next test kernel after `.457`. Left: the PS3 check (dmesg line, no warning 12 min after a sync) | safety: the write failed because flash writes are compiled out, but the kernel should not try at all | S | PS3 (passive check on the next kernel) | PLAN open questions, FLASH-SYSCON.md 1 "The kernel's OS area write" |
-| 2.6 | Repeats of single-run results: ClassiCube `chunks1` x3, X-Moto stream buffer, Sauerbraten `oqwaterlag`, Luanti `view40`, a Sauerbraten first-person baseline with the LUT re-A/B'd, Armagetron live, Teeworlds, Extreme Tux Racer's steady-state row with stalls | each one decides a default or a table row on one run; the first-person demo swings 23-38 fps by itself | M | PS3 | HOTPATHS.md "Measured on the PS3", GAME-PLAN.md |
+| 2.6 | Repeats of single-run results: ClassiCube `chunks1` x3, X-Moto stream buffer, BananaBread `oqwaterlag`, Luanti `view40`, a BananaBread first-person baseline with the LUT re-A/B'd, Armagetron live, Teeworlds, Extreme Tux Racer's steady-state row with stalls | each one decides a default or a table row on one run; the first-person demo swings 23-38 fps by itself | M | PS3 | HOTPATHS.md "Measured on the PS3", GAME-PLAN.md |
 | 2.7 | Long-session soak: 30+ minutes of a heavy game, supervised (temperatures through hwmon, ETR's GART growth of +4 MB a minute, Luanti's arena growth) | the bench window is 3 minutes; players play for an hour, and nothing cools the console but SYSCON | S-M | PS3, user nearby | MEMORY.md "Proposed", THERMAL.md |
 | 2.8 | dsda-doom's chopping music: the cause (the pool wait, SDL's audio buffer, or outside the DSP); OpenTTD's music (3893 underruns) shares the SDL_mixer MIDI path | 465 underruns a minute on the SPE pool; D3 waits on it | S-M | PS3, user by ear | IDEAS #8, SPU-AUDIO.md 5(e) |
 | 2.9 | Luanti: which part of `lean` (srvunload, active2, chunk3) empties the world; `view40` (59 fps, closer fog) as a menu option | `lean` reaches 56-57 fps but draws a black void; `view40` is the one variant worth offering | S | PS3 | STALLS.md "Interference", MEMORY.md cuts #7 |
@@ -181,10 +181,10 @@ With the stalls gone, the frame rate of the CPU- and GPU-bound games.
 
 | # | Item | Why, value | Effort | Needs | Source |
 |---|---|---|---|---|---|
-| 3.1 | The remaining game-side batching: Sauerbraten (cube2 0007-0009 exist), SuperTuxKart's legacy renderer, OpenTTD's GL driver; `perf` first (`--proc-map-timeout=20000`) | 3.7x in X-Moto, +13% in ETR, but neutral where the game is GPU-bound | M per game | host, PS3 | IDEAS #6, HOTPATHS.md |
+| 3.1 | The remaining game-side batching: BananaBread (cube2 0007-0009 exist), SuperTuxKart's legacy renderer, OpenTTD's GL driver; `perf` first (`--proc-map-timeout=20000`) | 3.7x in X-Moto, +13% in ETR, but neutral where the game is GPU-bound | M per game | host, PS3 | IDEAS #6, HOTPATHS.md |
 | 3.2 | Tiling and Z-cull (lv1 attributes 0x300/0x301) | ClassiCube is GPU-bound now (8.5 ms of CPU a frame against 17.1 upstream, yet slower), so the old "PPE-bound, defer" no longer holds; +10-30% in fill-bound scenes (est.) | M-L | host, PS3 | IDEAS #19, HARDWARE-LEVERAGE.md 2, HOTPATHS.md "ClassiCube's batching measured slower" |
 | 3.3 | RSX/SPU probes: E8b (what lv1 keeps of `ioremap_wc`), E16 (SPU DMA into a VRAM buffer), E17 (M2MF small-copy latency for vswap), spufs dispatch latency | E16 unlocks SPU decompression and meshing straight into VRAM; none of these has run | S each | PS3 | RSX-SPU-FEASIBILITY.md "Recommended experiments", IDEAS #12 |
-| 3.4 | Indirect constant addressing (ARL) in nv30 vertex programs | GPU skinning becomes usable (Sauerbraten 11 fps on the GPU against 28 on the CPU), smaller shader trees in OpenArena opengl2 | M-L | host, PS3 | IDEAS #11 |
+| 3.4 | Indirect constant addressing (ARL) in nv30 vertex programs | GPU skinning becomes usable (BananaBread 11 fps on the GPU against 28 on the CPU), smaller shader trees in OpenArena opengl2 | M-L | host, PS3 | IDEAS #11 |
 | 3.5 | Mesa built with nv30 only (no nv50/nvc0) | ~0.3-0.5 MB private per game (est.), a smaller package | S-M | host | MEMORY.md cuts #10 |
 | 3.6 | Sound straight to ALSA, without the pulse plugin and server | 0.5-3 MB per game plus the server; underruns to measure | M | PS3 | MEMORY.md cuts #11 |
 | 3.7 | OpenArena: madvise the hunk's unused high-water after a map load (`com_hunkTrim`); `r_keepImages` for renderergl2 | 2.7 MB in opengl1; opengl2 reloads, decodes and mipmaps every texture at every pass and map change | S-M | host, PS3 | MEMORY.md "Proposed, not implemented" |
@@ -368,21 +368,21 @@ went.
   (+3%, 1% low 36.4 -> 40.3), Neverball (CPU -19%), Luanti (stalls 9.1 -> 6.25 s), ClassiCube (-4%
   steady, better lows; chunks1 +5%), OpenArena opengl1 (neutral; the lightmap atlas is off by default
   because any atlas page adds about 10 s of hitches). Mesa 0015-0035 (switches per patch). ps3rsx 0.249
-  and `shadow_fast` (built, default off). Mesa `NV30_TRANSLATE_LUT` default: Sauerbraten +53%.
+  and `shadow_fast` (built, default off). Mesa `NV30_TRANSLATE_LUT` default: BananaBread +53%.
 - **Memory patches in the games:** OpenArena opengl2 14.8 -> 26-32 fps and longest stall 24.7 -> 6 s
-  (ioquake3 0001-0010); OpenArena preload as above; Yamagi -70 MB; Sauerbraten no longer OOM-killed;
+  (ioquake3 0001-0010); OpenArena preload as above; Yamagi -70 MB; BananaBread no longer OOM-killed;
   Red Eclipse loads without OOM with lean sound. Luanti: none of its memory variants is a win on clean
   runs (trim16 rejected, row 57; cliunload worse and lean empty, row 67). docs/MEMORY.md has the per-game
-  accounting (Luanti 102 + 47 MB swapped, OpenArena 71 + 20, Sauerbraten 78 + 12) and the ranked cuts.
+  accounting (Luanti 102 + 47 MB swapped, OpenArena 71 + 20, BananaBread 78 + 12) and the ranked cuts.
 - **Vertex formats nv30 can't fetch** (2026-10-18 evening, docs/MEMORY.md): u_vbuf converts them per
   draw and nouveau keeps a malloc copy of every VRAM buffer it reads, then of every new buffer once a
   screen-wide hint is set (OpenArena opengl2: ~62 MB of copies of its model VBOs). Built, A/B pending:
   ioquake3 0027 (colours as SNORM shorts), 0029 (packed MD3 frames, 62 -> 37.5 MB of VRAM), Mesa 0037
-  (switches on the copies and the hint), cube2 0011 (Sauerbraten's world normals as shorts).
+  (switches on the copies and the hint), cube2 0011 (BananaBread's world normals as shorts).
 - **Bugs fixed in games:** big-endian bugs in dsda-doom, Yamagi (OpenAL noise), SDL3, LuaJIT, SuperTuxKart
   (.spm meshes), Teeworlds (`FIONBIO` takes an int: the client hung in `recvfrom`), Luanti (Ogg Vorbis byte
   order); OpenTTD's GL driver runs (21 fps); the SuperTuxKart track draws.
-- **In progress:** the heavy games' memory (Sauerbraten, SuperTuxKart, OpenArena opengl2); ClassiCube's
+- **In progress:** the heavy games' memory (BananaBread, SuperTuxKart, OpenArena opengl2); ClassiCube's
   cost (the -4%; `chunks1` +5% in one run, row 64, to repeat) and the GPU-bound finding in
   docs/HOTPATHS.md; the dsda-doom chopping; SuperTuxKart's missing sound.
 - **Measured neutral, kept off or as they were:** Mesa 0034 fence pool (row 58), 0035 query wait (row
@@ -404,7 +404,7 @@ went.
   with every bench run and shows a BENCHMARK RUNNING screen on tty8; a retro-scan threw out 10 runs
   (games/bench/results/interfered.txt). report.py counts a reload's last frame as the reload's.
 - **In progress:** the prefetch A/B (docs/STALLS.md "The A/B on the PS3", 24 runs; the learn runs of
-  Sauerbraten, OpenArena gl2min and Luanti are done, SuperTuxKart's was interrupted); the clean
+  BananaBread, OpenArena gl2min and Luanti are done, SuperTuxKart's was interrupted); the clean
   repeat of the idle fix on/off on .433.
 - **Next:** drop the stopgap kicker once the fixed kernel is the default; the detector's own checks
   (STALLS.md "Checking it on the PS3": a key press, an SSH login, a mouse bump).
@@ -425,7 +425,7 @@ went.
 #### SPUs
 - **Done:** libspeq (queue, DXT1/DXT5, RGB sources: 1024x1024 RGB DXT in 1.0 ms on 4 SPEs against about
   175 ms on the PPE), the shared 2-SPE deadline pool, fluidsynth's voice DSP on the SPEs (CPU 44.5 ->
-  31.8 s a minute, underruns about halved, the user by ear: "night and day"), skinning for Sauerbraten
+  31.8 s a minute, underruns about halved, the user by ear: "night and day"), skinning for BananaBread
   (selectable, no gain on the demo). OpenAL Soft's mixer stays on the PPE (3.7-4.7%).
 - **Next:** probe E16 (SPU DMA into VRAM), DXT for every game, the 7th SPE.
 
@@ -468,15 +468,15 @@ went.
 status table): every game of the suite has run on the PS3 at 1920x1080 with the picture checked on
 the webcam, after six big-endian bugs in games and libraries and five driver bugs. Light games aim
 at ~60 fps; QuakeSpasm, Yamagi Quake II, Neverball, Armagetron and now X-Moto reach it. The heavy
-ones (Luanti, Sauerbraten, OpenArena opengl2, SuperTuxKart) are limited by memory. Three levers, in
+ones (Luanti, BananaBread, OpenArena opengl2, SuperTuxKart) are limited by memory. Three levers, in
 this order (GAME-PLAN.md "Next phase"):
 
 1. **Memory**, in the games and through game mode (CLAUDE.md "Memory trims": nothing desktop users
    expect is disabled for good; it gets out of the way while a game runs). Our ioquake3 0001-0010
    took OpenArena opengl2 from 14.8 to 26-32 fps and its longest stall from 24.7 to 6 s; game mode
    now unloads the PCManFM desktop and wallpaper, pushes the services' heaps to swap, drops the page
-   cache and compacts (built, not measured on the PS3 yet); Sauerbraten, Luanti and SuperTuxKart have
-   memory patches or variants waiting for a run (2026-10-18: run since, see the summary: Sauerbraten no
+   cache and compacts (built, not measured on the PS3 yet); BananaBread, Luanti and SuperTuxKart have
+   memory patches or variants waiting for a run (2026-10-18: run since, see the summary: BananaBread no
    longer OOMs, Luanti cliunload, SuperTuxKart lean).
 2. **Stored data for compute** where the SPEs and the RSX have headroom: compressed textures
    (DXT1 on the SPEs, done for OpenArena; every game next), mip chains on the GPU, compressed
@@ -488,7 +488,7 @@ this order (GAME-PLAN.md "Next phase"):
    52 to 59. dsda-doom's GL renderer and ClassiCube are next. SPU offload (docs/SPU-OFFLOAD-PLAN.md):
    fluidsynth's voice DSP moved to the SPEs (dsda-doom's CPU 49 -> 32 s a minute, but the music still
    chops; a second version is built); OpenAL Soft's mixer is 3.7-4.7% of a game, under the 6% bar,
-   so no SPU mixer; skinning on the SPEs is built for Sauerbraten.
+   so no SPU mixer; skinning on the SPEs is built for BananaBread.
 
 Where things are: GAME-PLAN.md (per game, the measured rounds, what is built and waiting),
 SPU-OFFLOAD-PLAN.md (SPU work), games/bench/results/ (every measured configuration, one row each),
@@ -754,7 +754,7 @@ Only when content needs them (OpenArena and ClassiCube don't):
   packaged" to "needs the most driver work"; research in docs/GAME-SUITE.md: stage 0 is the
   runner (`games/bench/`, `make bench-push`) and the `ps3-games` metapackage; then dsda-doom,
   X-Moto, Neverball, Extreme Tux Racer, Armagetron; QuakeSpasm, Yamagi Quake II; OpenTTD,
-  Sauerbraten, Luanti; SuperTuxKart (legacy GL), OpenArena opengl2. Driver bugs are ranked by how
+  BananaBread, Luanti; SuperTuxKart (legacy GL), OpenArena opengl2. Driver bugs are ranked by how
   many games they block. GL 3-only games stay out of reach. The image rebuild (fresh debs,
   docs/IMAGE-DIFF.md) waits until this plan is through (user, 2026-10-17).
 

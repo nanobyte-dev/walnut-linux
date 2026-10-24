@@ -114,7 +114,7 @@ Built or queued work, mostly PS3 runs. Done when every row has a measured verdic
 | 1.1 | Clean repeat of the idle fix on/off | **done** (batch 16): confirmed, no SSH poll | PS3 | [STALLS.md](STALLS.md) |
 | 1.2 | The fixed kernel as the default, then retire the stopgap kicker | `.472` is the release default; the bench's default `ENVS` is `-` (no kicker); game mode's `ps3-kick` skips itself when `ps3_idle_prep` is on. Left: drop `ps3-kick` once no kernel without the fix is in use (D13) | host, PS3 | [DESKTOP.md](DESKTOP.md), [STALLS.md](STALLS.md) |
 | 1.3 | OpenArena opengl2 memory A/B (ioquake3 0027-0029, Mesa 0037) | **done** (batch 17): gl2min 57-60 fps, stalls 1-2 s (9-11 s before); Mesa 0037 cut color16's stalls 12 to 1.5 s | PS3 | [MEMORY.md](MEMORY.md), [games/openarena.md](games/openarena.md) |
-| 1.4 | Sauerbraten world normals as shorts (cube2 0011) | **done** (batch 17): +17% | PS3 | [MEMORY.md](MEMORY.md), [games/sauerbraten.md](games/sauerbraten.md) |
+| 1.4 | BananaBread world normals as shorts (cube2 0011) | **done** (batch 17): +17% | PS3 | [MEMORY.md](MEMORY.md), [games/sauerbraten.md](games/sauerbraten.md) |
 | 1.5 | Game prefetch A/B | **done** (batch 16): no gain, Luanti loads slower, default off | PS3 | [STALLS.md](STALLS.md) |
 | 1.6 | Internal disk speed test, read-only | **done**: SSD 100 MB/s, 0.1 ms random 4K; USB 27.8 MB/s, 20 ms | PS3 | [GAMEOS-HDD.md](GAMEOS-HDD.md) |
 | 1.7 | Load and warm-up profiles of 5 games, shader caches cold/warm | batch 17 read: the disk is 34-41% of every load, CPU items 1-3 s per game (SuperTuxKart 5-8), the GLSL cache saves CPU but no wall time. The SSD root (ssdroot2 P1a): loads -39 to -61%, the disk 11-26% of a load, decoders and linking are what is left. Left: Mesa 0039 `NV30_SHADER_CACHE` cold/warm, a symbolised re-run | PS3 | [PROFILING.md](PROFILING.md) |
@@ -124,7 +124,7 @@ Built or queued work, mostly PS3 runs. Done when every row has a measured verdic
 | 1.11 | Menu-only smoke games: TORCS, Trigger Rally, Chromium B.S.U. (installed) | open | user | [games/smoke-tested.md](games/smoke-tested.md) |
 | 1.12 | Nexuiz Classic smoke on `darkplaces-gl2` | open, needs D12 | user | [games/smoke-tested.md](games/smoke-tested.md) |
 | 1.13 | The interference detector's own checks: a key press, an SSH login, a mouse bump, the tty8 screen | open | user | [STALLS.md](STALLS.md) |
-| 1.14 | The whole system on the SSD image (Phase B) | the SSD root ran batches ssdroot1 and ssdroot2 (loads -39 to -61%, Sauerbraten's gameplay stalls 1.6 to 0.05 s); left: USB root against SSD root in alternating boots | PS3, user (reboots) | [GAMEOS-HDD.md](GAMEOS-HDD.md) |
+| 1.14 | The whole system on the SSD image (Phase B) | the SSD root ran batches ssdroot1 and ssdroot2 (loads -39 to -61%, BananaBread's gameplay stalls 1.6 to 0.05 s); left: USB root against SSD root in alternating boots | PS3, user (reboots) | [GAMEOS-HDD.md](GAMEOS-HDD.md) |
 | 1.15 | The kernel guard (local/0045) on the PS3: a kernel deb with it, then the "On the PS3" checks | built, on in the series since 1abb2a1, not booted | user, PS3 | [GAMEOS-HDD.md](GAMEOS-HDD.md) |
 | 1.16 | Smoke runs of the new games (ScummVM, Simutrans, Crawl, Freeciv, LinCity-NG, Flare, Widelands, Warmux, Cataclysm) and OpenTTD's gameplay benchmark | first runs done in batch ssdroot3 (seven of nine start; OpenTTD `blit8` 34-43 fps against 11, now the package default); re-runs and the menu-only games are in TESTS.md Next | PS3 | [TESTS.md](TESTS.md), [games/README.md](games/README.md) |
 
@@ -137,9 +137,9 @@ The suite as a player sees it: sound, game mode, VRAM, and results that hold up 
 | 2.1 | Sound check across all games; fix what is silent (SuperTuxKart's `sound=none` was a read before the game opened its device; RUNNING since the SSD root, still not heard by ear) | open; D4 waits on it | PS3, user by ear | [games/README.md](games/README.md) |
 | 2.2 | A benchmark round through game mode, reconciled with the desktop-stopped baselines, same boot | open; no number was ever taken the way games are played | PS3 | [DESKTOP.md](DESKTOP.md) |
 | 2.3 | VRAM measurement for OpenArena opengl2 and SuperTuxKart, then a VRAM reserve game mode shrinks | open | PS3, then host | [backlog/memory.md](backlog/memory.md) |
-| 2.4 | Texture compression at upload for every game (Mesa 0038, `NV30_FORCE_DXT`) | built, default off; ssdroot2 P2: Sauerbraten -42 MB VRAM with no fps change resolved, SuperTuxKart and OpenArena gl2min force nothing; Luanti, ClassiCube, `all` and `NEAREST` left | PS3 | [MEMORY.md](MEMORY.md) |
+| 2.4 | Texture compression at upload for every game (Mesa 0038, `NV30_FORCE_DXT`) | built, default off; ssdroot2 P2: BananaBread -42 MB VRAM with no fps change resolved, SuperTuxKart and OpenArena gl2min force nothing; Luanti, ClassiCube, `all` and `NEAREST` left | PS3 | [MEMORY.md](MEMORY.md) |
 | 2.5 | The kernel's OS-area flash write | done: local/0044 (`ps3_os_area.write`, default 0); the passive check passed on 2026-10-20 (no write attempt in a 13 h boot after the NTP sync) | PS3 | [CONSOLE.md](CONSOLE.md) |
-| 2.6 | Repeats of single-run results | ClassiCube `chunks1` (+4.7%) and X-Moto's stream buffer (+1%) repeated in batch 16. Left: Sauerbraten `oqlag`, Luanti `view40`, Extreme Tux Racer steady state with stalls, Teeworlds, Armagetron live | PS3 | [backlog/games.md](backlog/games.md) |
+| 2.6 | Repeats of single-run results | ClassiCube `chunks1` (+4.7%) and X-Moto's stream buffer (+1%) repeated in batch 16. Left: BananaBread `oqlag`, Luanti `view40`, Extreme Tux Racer steady state with stalls, Teeworlds, Armagetron live | PS3 | [backlog/games.md](backlog/games.md) |
 | 2.7 | A 30-minute soak of a heavy game, supervised (temperatures, Extreme Tux Racer's GART growth of 4 MB a minute, Luanti's arena growth) | open | PS3, user nearby | [backlog/games.md](backlog/games.md) |
 | 2.8 | dsda-doom's chopping music (465 underruns a minute on the SPE pool, 1095 on the PPE); OpenTTD's music shares the path | open; D3 waits on it | PS3, user by ear | [SPU-AUDIO.md](SPU-AUDIO.md) |
 | 2.9 | Luanti: which part of `lean` empties the world; `view40` as a menu option | `chunk3` empties the world (batch 16); `view40` open | PS3 | [games/luanti.md](games/luanti.md) |
@@ -151,7 +151,7 @@ the backlog.
 
 | # | Item | Effort | Where |
 |---|---|---|---|
-| 3.1 | The remaining game-side batching: Sauerbraten (cube2 0007-0009 exist), SuperTuxKart's legacy renderer, OpenTTD's GL driver; perf first | M per game | [backlog/graphics.md](backlog/graphics.md) |
+| 3.1 | The remaining game-side batching: BananaBread (cube2 0007-0009 exist), SuperTuxKart's legacy renderer, OpenTTD's GL driver; perf first | M per game | [backlog/graphics.md](backlog/graphics.md) |
 | 3.2 | Tiling and Z-cull (lv1 attributes 0x300/0x301): ClassiCube is GPU-bound now | M-L | [backlog/graphics.md](backlog/graphics.md) |
 | 3.3 | RSX/SPU probes E8b, E16, E17 and the spufs dispatch latency | S each | [backlog/graphics.md](backlog/graphics.md) |
 | 3.4 | Indirect constant addressing (ARL) in nv30 vertex programs, for GPU skinning | M-L | [backlog/graphics.md](backlog/graphics.md) |

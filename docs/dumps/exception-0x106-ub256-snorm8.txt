@@ -14,7 +14,7 @@
 [69748.064978] ps3fb ioc0_01: 	    [01c] 0000fa4c:80000000 0000fa50:0000a9e4 0000fa54:02022000 0000fa58:04000400
 [69748.065036] ps3rsx: graph exception; last submit from channel -1, cube2_client (pid 675753)
 
-Decoded (docs/RSX.md "Errors and what wedges the GPU"; Sauerbraten base, NV30_VTX_SNORM8=1, Mesa
+Decoded (docs/RSX.md "Errors and what wedges the GPU"; BananaBread base, NV30_VTX_SNORM8=1, Mesa
 26.2.4-1+ps3.545~dev, kernel .472, 2026-10-19 19:24:36Z, 2.2 s after the demo's first frame).
 Subchannel 7 = 3D. GET = entry 83, PUT = 66: entries 83..511, 0..65 pending (495), 66..82 the last
 ones PGRAPH took.

@@ -1,7 +1,7 @@
 # Backlog: the SPEs
 
 SPU work not done yet. What runs on the SPEs today (libspeq's DXT1/DXT5 encoders, fluidsynth's voice
-DSP on the shared 2-SPE deadline pool, Sauerbraten's optional skinning) is in [SPU.md](../SPU.md)
+DSP on the shared 2-SPE deadline pool, BananaBread's optional skinning) is in [SPU.md](../SPU.md)
 and [SPU-AUDIO.md](../SPU-AUDIO.md). What is left: the cause of dsda-doom's chopping music, a 7th
 SPE, meshing, and the work that waits on probe E16. Items are in rank order; the rank is the one in
 [the ranked list](README.md). Terms: [glossary](../README.md#glossary).
@@ -134,7 +134,7 @@ Source: [archive/SPU-OFFLOAD.md, "Ranked candidates"](../archive/SPU-OFFLOAD.md#
   a game's samples in the configuration we ship. The design (one libspeq job per mixer update,
   `speq_mix_v1` on the shared deadline pool) is in
   [research/OPENAL-SPU-MIXER.md](../research/OPENAL-SPU-MIXER.md).
-- **Sauerbraten's skinning on the SPEs** (measured): libspeq's PPE path 28.1 fps with no stalls, the
+- **BananaBread's skinning on the SPEs** (measured): libspeq's PPE path 28.1 fps with no stalls, the
   SPU path 23.6 with 21 stalls (4.3 s). cube2 keeps CPU skinning; `SPEQ_SKIN` selects.
 - **Vorbis or zlib on the SPEs**: OpenArena's effects are WAV and its music is already decoded per
   4 KB buffer; inflate is serial and branchy (libdeflate on the PPE instead).

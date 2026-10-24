@@ -34,7 +34,7 @@ release), [hardware.md](hardware.md) (backups, fan, lv1, out of scope).
 | 5 | [Console frame release (local/0043) on the PS3](memory.md#console-frame-release-local0043-on-the-ps3) | +8 MB of RAM during every game | S (built) | PS3, user | 1.9 | #14 |
 | 6 | [Game mode at the TV](platform.md#game-mode-at-the-tv) | the path every player takes, checked | S | user | 1.10 | #3 |
 | 7 | [A benchmark round through game mode](smoothness.md#a-benchmark-round-through-game-mode) | whether players get the measured smoothness | M | PS3 | 2.2 | - |
-| 8 | [The single-run results, repeated](games.md#the-single-run-results-repeated) | defaults on solid ground (Sauerbraten `oqlag` 39.4 against 25.0 in one run) | M | PS3 | 2.6 | - |
+| 8 | [The single-run results, repeated](games.md#the-single-run-results-repeated) | defaults on solid ground (BananaBread `oqlag` 39.4 against 25.0 in one run) | M | PS3 | 2.6 | - |
 | 9 | [SuperTuxKart's missing sound](games.md#supertuxkarts-missing-sound) | a playable game; unblocks D4 | S-M | user | 2.1 | #26 |
 | 10 | [dsda-doom's chopping music](spu.md#dsda-dooms-chopping-music) | two games' music; unblocks D3 | S-M | PS3, user | 2.8 | #8 |
 | 11 | [XMB-side backups](hardware.md#xmb-side-backups) | a way back: the EEPROM half has no backup | S | user | 4.1 | - |
@@ -68,7 +68,7 @@ release), [hardware.md](hardware.md) (backups, fan, lv1, out of scope).
 | 39 | [Mesa built with nv30 only](memory.md#mesa-built-with-nv30-only) | 0.3-0.5 MB per game (est.) | S-M | host | 3.5 | - |
 | 40 | [Neverball: a longer replay](games.md#neverball-a-longer-replay) | a row to trust | S | user, PS3 | 3.10 | - |
 | 41 | [Read-only probes of lv1 and the firmware state](hardware.md#read-only-probes-of-lv1-and-the-firmware-state) | the yes/no on lv1 patches at run time; a few MB | S | user's OK (D8), PS3 | 4.3 | #15 |
-| 42 | [Sauerbraten: texreduce](games.md#sauerbraten-texreduce) | ~45-60 MB of VRAM, blurrier textures | S | PS3 | - | - |
+| 42 | [BananaBread: texreduce](games.md#sauerbraten-texreduce) | ~45-60 MB of VRAM, blurrier textures | S | PS3 | - | - |
 | 43 | [Smaller vertex data](memory.md#smaller-vertex-data) | vertex buffers /2 | M per engine | host, PS3 | 3.9 | #17 |
 | 44 | [Shader IR dropped after linking](memory.md#shader-ir-dropped-after-linking) | unknown, measure first | M | host | 3.9 | #18 |
 | 45 | [Audio libraries on the PPE](spu.md#audio-libraries-on-the-ppe) | measured in ssdroot5: OpenAL +2% on OpenArena, FluidSynth reverb +3% (effects off +18%), SuperTuxKart load -0.7 s (vorbis); the installed defaults since 10-20; left: the stable publish | S (built, measured) | PS3, user | 3.9 | #22 |
@@ -99,7 +99,7 @@ release), [hardware.md](hardware.md) (backups, fan, lv1, out of scope).
 | 70 | [Security update policy](platform.md#security-update-policy) | users know what gets fixed | S | host | 5.6 | - |
 | 71 | [Other PS3 models](platform.md#other-ps3-models) | beyond one CECH-20xx | M | host | 5.7 | - |
 | 72 | [OpenAL's stuck mixer: the sound card's DMA stops](games.md#openals-stuck-mixer-the-sound-cards-dma-stops) | sound back in four games, honest numbers | done on the PC (kernel local/0047); PS3 test ~1 h | PS3 | 2.1 | - |
-| 73 | [Sauerbraten data files, and a clean SuperTuxKart config](games.md#sauerbraten-data-files-and-a-clean-supertuxkart-config) | picture closer to the PC's, a clean log | S | host, PS3 | - | - |
+| 73 | [BananaBread data files, and a clean SuperTuxKart config](games.md#sauerbraten-data-files-and-a-clean-supertuxkart-config) | picture closer to the PC's, a clean log | S | host, PS3 | - | - |
 | 74 | [Mesa nv30 messages in the logs](games.md#mesa-nv30-messages-in-the-logs) | fallbacks we cannot see now | S | PS3 | - | - |
 | 75 | [A failed buffer allocation must not crash](graphics.md#a-failed-buffer-allocation-must-not-crash) | no segfault at the GART/VRAM limit | M | host, PS3 | - | - |
 | 76 | [Games to smoke next, and Wesnoth's music](games.md#games-to-smoke-next-and-wesnoths-music) | novel games for the suite | S each | PS3 | - | - |
@@ -129,12 +129,12 @@ Measured:
   CPU lower; off. **0034's fence pool**: neutral (row 58). **0036's staging pool**: same fps, CPU -4%
   (row 64); off.
 - **`vm.watermark_boost_factor=0`** on Luanti: no clear gain (row 62).
-- **The malloc presets** (`MALLOC=trim`, `mmap`) on Sauerbraten and OpenArena: the rounds disagreed,
+- **The malloc presets** (`MALLOC=trim`, `mmap`) on BananaBread (Debian's cube2) and OpenArena: the rounds disagreed,
   read as noise (row 61). **Luanti `trim16`**: more stalls, 3.35 -> 8.6 s (row 57).
 - **Luanti `cliunload`**: worse, 3.8 and 5.2 s of stalls with 2 s reload hitches against base's 1.5
   and 2.1 s (row 67). **Luanti `lean`**: a black void; `chunk3` is the cause, and `srvunload` and
   `active2` render but stall more (6.3 and 6.7 s against ~2.5, row 68).
-- **Sauerbraten's skinning on the SPEs**: 23.6 fps with 21 stalls (4.3 s) against libspeq's PPE path
+- **BananaBread's skinning on the SPEs**: 23.6 fps with 21 stalls (4.3 s) against libspeq's PPE path
   at 28.1 with none; CPU skinning stays the default.
 - **OpenArena's lightmap atlas**: any atlas page adds about 10 s of hitches (rows 51, 53); off by
   default. **OpenArena opengl1 batching**: neutral.
@@ -160,7 +160,7 @@ Reasoned:
   takes 23 MB more VRAM and conflicts with how ps3rsx shares ps3fb's command area; local/0043 frees
   the frame instead.
 - **ps3rsx retiring fences from the vsync interrupt**: not needed with the fixed kernel.
-- **Freeing nouveau's buffer copies after N frames, or converting at upload**: Sauerbraten's world
+- **Freeing nouveau's buffer copies after N frames, or converting at upload**: BananaBread's world
   buffers are read every frame they are seen; a buffer's vertex layout isn't known at upload.
 - **A newer CFW PUP** (no Linux gain, it outdates the NOR dump), **a custom lv1 in CoreOS**, **RSX
   overclocking** (nothing cools it under Linux).

@@ -7,7 +7,7 @@
 The baseline is done: every game on the list has run on the PS3 except SuperTuxKart (a big-endian
 fix in progress). Most are playable but not great. Four reach ~60 fps (QuakeSpasm, Neverball,
 Armagetron, close: Yamagi), most others sit at 35-50 and are CPU-bound in the driver stack, and
-four (Luanti, Sauerbraten, OpenArena opengl2, likely SuperTuxKart) render smoothly between stalls
+four (Luanti, BananaBread, OpenArena opengl2, likely SuperTuxKart) render smoothly between stalls
 of seconds because memory runs out. Getting here took six big-endian bugs in games and libraries
 and five nv30/ps3rsx driver bugs, all fixed; no open GPU bug blocks a game. The first round of
 driver speedups (Mesa ps3.246, ps3rsx 0.249) gave +2 to +9%.
@@ -32,7 +32,7 @@ games/bench/results/. What changed since: Luanti's clean re-runs (row 67, interf
 kernel .433) keep base as the default (1.5 and 2.1 s of gameplay stalls, 45-46 fps): `cliunload` is
 worse (3.8 and 5.2 s, 2 s hitches when unloaded blocks come back) and `lean` (56-57 fps) shows a
 black void on the webcam at 150 s in both runs; the earlier "cliunload 6.5 -> 0.8 s" and "lean renders
-less terrain" came from runs someone played in (docs/STALLS.md "Interference"). Sauerbraten's +53%
+less terrain" came from runs someone played in (docs/STALLS.md "Interference"). BananaBread's +53%
 with `NV30_TRANSLATE_LUT` was measured on the earlier spectator demo; the first-person demo since row
 64 is heavier (base 23-38 steady, wide spread) and Mesa 0035's query wait gave no gain there (row 65).
 SuperTuxKart draws its track (row 61) but every run logged `sound=none`: open. OpenArena opengl2's
@@ -57,7 +57,7 @@ Every number is 1920x1080, measured through games/bench with the picture checked
 | dsda-doom (software) | yes | right (our fix) | choppy | as GL | 38, the timedemo now finishes (ps3.262) | under | the GL renderer is the way |
 | OpenTTD | yes (software video) | right | choppy (~1000-1170 underruns a minute, either path) | title-screen demo game; simulation 20000 ticks in 13.4 s | 8 (SDL3 ps3.254 accel, HUD median; ps3.242 was ~2), 12 with the 8bpp blitter | far under | its own software drawing: our OpenGL driver patches (GL 2.1 without ARB_texture_rg) built, recipe variant `gl`, to run |
 | Luanti | yes (first run 2026-10-17) | right (the user) | no underruns | our ps3bench mod flies a fixed path | 67 HUD median in flight, p10 23, stalls to 0 while chunks load | median meets it, stalls don't | memory (177 MB swapped out, 32 MB free): 20 recipe variants built (view range, block unloading, mesh delay, heap, lean), to run; package defaults once measured. (2026-10-18 evening: measured clean, base stays; `cliunload` worse, `lean` renders nothing, `trim16` rejected) |
-| Sauerbraten | yes, CPU skinning (2026-10-17) | right; "surprisingly smooth" between stalls (the user) | 236 underruns | CubeScript counts frames on map cave (not reached yet: loading takes over 60 s) | 15 HUD median incl. loading; steady 25.9 -> 39.6 fps (+53%) with `NV30_TRANSLATE_LUT` on the spectator demo, now the Mesa default (`=0` turns it off; same-boot PS3 A/B, 2026-10-18; the first-person demo since is heavier, 23-38) | under (memory) | OOM-killed without the VRAM swap (smoke's default); with it, 138 MB VRAM and the swap full: memory settings. GPU skinning runs (no wedge, 2026-10-17) but at 11 fps by its own counter and stutters badly: CPU skinning (`gpuskel 0`, 28) is the default in our cube2 (+ps3.272, with memory patches and the SPU skinning hook; to run). The hud gun: `-l` spawns with the pistol, which the data has no model for (variant `gun`) |
+| BananaBread | yes, CPU skinning (2026-10-17) | right; "surprisingly smooth" between stalls (the user) | 236 underruns | CubeScript counts frames on map cave (not reached yet: loading takes over 60 s) | 15 HUD median incl. loading; steady 25.9 -> 39.6 fps (+53%) with `NV30_TRANSLATE_LUT` on the spectator demo, now the Mesa default (`=0` turns it off; same-boot PS3 A/B, 2026-10-18; the first-person demo since is heavier, 23-38) | under (memory) | OOM-killed without the VRAM swap (smoke's default); with it, 138 MB VRAM and the swap full: memory settings. GPU skinning runs (no wedge, 2026-10-17) but at 11 fps by its own counter and stutters badly: CPU skinning (`gpuskel 0`, 28) is the default in our cube2 (+ps3.272, with memory patches and the SPU skinning hook; to run). The hud gun: `-l` spawns with the pistol, which the data has no model for (variant `gun`) |
 | SuperTuxKart | yes with our +ps3.264 (2026-10-17): karts render, **no track** | track missing | | profile mode: AI drives `--profile-time=60` on lighthouse, prints Average FPS | | under (memory) | VRAM exhausted (210 failed buffer allocations), minimap FBO incomplete, SIGSEGV at exit: fixes 0003-0004 (no crash, power-of-two minimap, opaque textures as DXT1) and memory variants (`lean`) built, to run |
 | OpenArena (opengl2) | yes, gl2min (2026-10-17) | right (webcam) | right | timedemo bench (97 GLSL programs compiled twice: ~22-30 s each) | our ioquake3 +ps3.285: gl2min 26.1-31.8, longest frame 6 s (14.8 and a 24.7 s stall with the patches off), cpuanim 30.5 at 41 MB VRAM; gl2 (Debian's settings) 15.9 (10.7 on Debian's build) | under (memory) | 112-138 MB VRAM, 12-14 MB MemAvailable at the lowest: memory |
 
@@ -90,7 +90,7 @@ Three levers, in this order. Each change gets a recipe variant, so its gain is m
    - OpenArena opengl2: ~100-115 GLSL programs kept with their source and compiled IR all session
      (delete shaders after linking, an ioquake3 patch; compile only the variants the maps use);
      160 MB of VRAM.
-   - Sauerbraten: 140 MB of VRAM; `texreduce`/`maxtexsize`; the shader models it never draws.
+   - BananaBread (Debian's cube2): 140 MB of VRAM; `texreduce`/`maxtexsize`; the shader models it never draws.
      Ship `gpuskel 0` (task #32).
    - Luanti: view range, mesh threads, map cache (our build, so its defaults can change).
    - SuperTuxKart: its texture and geometry settings, once it loads.
@@ -120,7 +120,7 @@ Three levers, in this order. Each change gets a recipe variant, so its gain is m
    v1 measured, v2 built.)
 
 Open from the stage: SuperTuxKart's big-endian mesh loader (agent; done 2026-10-17: it loads),
-Sauerbraten's missing hud gun (explained: the pistol has no model), a longer Neverball replay (the user plays ~60 s), Yamagi's 0.249 number rechecked, ps3fb's dump
+BananaBread's missing hud gun (explained: the pistol has no model), a longer Neverball replay (the user plays ~60 s), Yamagi's 0.249 number rechecked, ps3fb's dump
 (task #29), deb-build.sh's hidden build-dep failure (task #31).
 
 ### Decisions for the user
@@ -140,7 +140,7 @@ optimisation. The research behind each game (packages, big-endian status, GL nee
 in GAME-SUITE.md; this file is the order of work and its results.
 
 The games: the user's list (OpenArena, QuakeSpasm, Yamagi Quake II, Extreme Tux Racer, Neverball,
-Armagetron, Sauerbraten; stretch: SuperTuxKart, Luanti, PrBoom+ GL) and the research's picks
+Armagetron, BananaBread; stretch: SuperTuxKart, Luanti, PrBoom+ GL) and the research's picks
 (ClassiCube, OpenTTD, X-Moto). PrBoom+ GL is covered by dsda-doom, its successor with the same GL
 renderer, packaged for ppc64. Teeworlds and TORCS stay reserves: they test DXT5, which waits for
 the SPU plan. (2026-10-18: DXT5 is done, libspeq 0.367 with Mesa 0032; Teeworlds runs, TORCS waits
@@ -265,7 +265,7 @@ The first run of each with the VRAM swap off; the GL-risky one last in its sessi
 | # | Game | Get | Expect | Bench |
 |---|---|---|---|---|
 | 8 | OpenTTD | Debian, 71 MB (97/97 tests pass on ppc64) | `-v sdl` runs (software). **`-v sdl-opengl` refuses to start** (no GPU risk: it fails at init): it needs GL 3.0 or ARB_texture_rg (absent), and its VAO check wants ARB *and* APPLE vertex array objects below GL 3.0 (an upstream bug; Mesa has no APPLE one). Its sprite shaders use `texture2DLod` in the fragment stage, which needs ARB_shader_texture_lod (nv30: off, no TXL). Fix: a debsrc patch (`\|\|`, R8 fallback, no LOD in the shader), or ARB_texture_rg in nv30 | simulation `-v null:ticks=N` (CPU only, exits after N ticks; a recipe `MODE=run`, no X), rendering for a fixed time with HUD fps |
-| 9 | Sauerbraten | Debian cube2 and data (20 maps: cave, colos, ...), 266 MB; then a debsrc cube2 with a one-line patch to its `usetexcompress` check (`engine/rendergl.cpp:536`, compression off on Mesa) | GL 2.0, GLSL 1.20 and an FBO required (EXT is fine; blit and packed depth-stencil exposed). GPU skinning: dynamic indexing into bone arrays becomes if/else trees on nv30 (no indirect constant addressing), big vertex programs that may exceed 512 instructions and fall back to the CPU silently; `gpuskel 0` is its switch | fixed spawn on a fixed map, `-x"... echo (getfps) ... quit"` |
+| 9 | BananaBread | Debian cube2 and data (20 maps: cave, colos, ...), 266 MB; then a debsrc cube2 with a one-line patch to its `usetexcompress` check (`engine/rendergl.cpp:536`, compression off on Mesa) | GL 2.0, GLSL 1.20 and an FBO required (EXT is fine; blit and packed depth-stencil exposed). GPU skinning: dynamic indexing into bone arrays becomes if/else trees on nv30 (no indirect constant addressing), big vertex programs that may exceed 512 instructions and fall back to the CPU silently; `gpuskel 0` is its switch | fixed spawn on a fixed map, `-x"... echo (getfps) ... quit"` |
 | 10 | Luanti | our debsrc build: ppc64 added to Architecture, LuaJIT kept (`libluajit-5.1-dev` exists for ppc64; Debian strips the bundled Lua, so building without LuaJIT means restoring `lib/lua` and `-DREQUIRE_LUAJIT=FALSE`); a `CHECK=1` package.conf switch so deb-build.sh drops `nocheck` and its `--run-unittests` run (under qemu: a failure may be qemu's). `luanti-data` from our build too (luanti depends on its exact version); `luanti-game-minetest` from Debian | EXT or ARB FBOs both work; bloom and MSAA off by themselves; mipmap generation (1.0) if mipmapping is on | a server mod can't count rendered frames: our `ps3bench` mod flies the fixed path and shuts down, fps from the Gallium HUD |
 
 OpenTTD (2026-10-17, Debian 15.1): the simulation benchmark (a fixed-seed new game, 20000 ticks,
@@ -290,7 +290,7 @@ Each is fixed only once a stage needs it.
 - **Mipmap generation into 1-pixel levels** (Neverball, SuperTuxKart, Luanti): render those levels
   linear or on the CPU (1.0 proves it first).
 - **16-bit texel byte order** (L8A8, R8G8): 1.0 settles it.
-- **Indirect constant addressing for nv30 vertex programs** (OpenArena opengl2, Sauerbraten): turns
+- **Indirect constant addressing for nv30 vertex programs** (OpenArena opengl2, BananaBread): turns
   if/else trees back into indexed loads; compile RAM and the 512-instruction limit.
 - **ARB_shader_texture_lod** (OpenTTD's shaders): NV40 fragment TXL; only if no game patch is simpler.
 - **ARB_framebuffer_object on nv30** (renderergl2's FBO features, Neverball's effects): the risk is
@@ -390,7 +390,7 @@ Each is fixed only once a stage needs it.
   most of the memory: MD3 frames kept at 28 B/vertex on the hunk and again in VBOs, all three LODs,
   a 21 MB VAO cache never drawn from; plus 27 bone and 15-33 FBO-only programs that can't be used.
   Estimate 161 -> ~115 MB VRAM and ~60 MB less RSS; gl2min_* variants isolate each patch.
-- Sauerbraten: our cube2 +ps3.272, patches 0002-0005 (CPU skinning default, only drawable shader
+- BananaBread: our cube2 +ps3.272, patches 0002-0005 (CPU skinning default, only drawable shader
   variants, the sky from its 256 px .dds instead of six 2048 px PNGs decoded twice: the likely
   load-time OOM; lightmap CPU copies freed). The missing hud gun: `-l` spawns with the pistol,
   which the BananaBread data has no model for (variant `gun`).
@@ -399,7 +399,7 @@ Each is fixed only once a stage needs it.
 - Later the same day, also waiting: ioquake3 0011-0018 (OpenArena opengl1's CPU: shader lookups,
   pk3 reads through libdeflate without crc32, AltiVec, sounds loaded when played; a recipe
   variant per patch); OpenTTD 15.1-1 with its OpenGL driver on GL 2.1 (checked on llvmpipe forced
-  to GL 2.1; variant `gl`); cube2 0006, Sauerbraten's skinning through libspeq on the SPEs
+  to GL 2.1; variant `gl`); cube2 0006, BananaBread's skinning through libspeq on the SPEs
   (variants spuskin, ppeskin, offskin; ps3-spu/doc/skin.md); fluidsynth's second SPU version
   (SPU-AUDIO.md 5(e)); game mode's memory work (DESKTOP-PLAN.md "Game mode": the PCManFM desktop
   and wallpaper unloaded, services' heaps to swap, page cache dropped, every menu game through
@@ -491,7 +491,7 @@ On the PS3, before the session (the desktop may be up; about 1.5 GB download, 2 
 | TORCS 1.3.7 | `torcs`, `torcs-data`: 326 MB | menu only (`-r` is the console mode): Race > Quick Race > New Race, arrow keys. Variants notc, window, single | texture compression ARB (setup() enables it in graph.xml, key names unverified; the Graphic options screen has it), fullscreen through GLUT game mode and XRandR, 4 robots on the PPE, RAM | installed on the PS3, needs the user at the controller (2026-10-18) |
 | SuperTux 0.6.3 | `supertux`, `supertux-data`: 160 MB | level "Welcome to Antarctica" at once, `--renderer opengl20`, fps shown; Return typed past the title card (virtual keyboard), then Tux stands still until played. Variants worldmap, menu, sdl, nomusic, card | FBO use on nv30, SDL2_image colours, RAM | **runs**: in the level via XTEST keys (xkeys.py), 63-66 fps (2026-10-18) |
 | Trigger Rally 0.6.6 | `trigger-rally`, `-data`: 116 MB | menu only (no command line): Single Race, arrow keys. Cheap graphics written into its config. Variant full | big stage textures (RAM), terrain draws on the PPE, GLEW | installed on the PS3, needs the user at the controller (2026-10-18) |
-| Red Eclipse 1.6.0 | `redeclipse`, `redeclipse-data`: 842 MB (959 MB installed) | `dm torus` at once (smallest map, 1 bot, sound at 11 kHz mono, lowest settings; RE_MAP or variants singularity, disco, cyanide). Variants tex512, fullsound, bots0, bots3, defaults, menu | **out of memory**: Sauerbraten OOM-killed here until our cube2 memory patches, and RE has none (watch dmesg.log and MemAvailable); GLSL 1.20 shader limits; compression is off on Mesa by default | **runs**: in the match on torus (spectator), lean sound/textures + player name, no OOM, 86 fps HUD peak (2026-10-18) |
+| Red Eclipse 1.6.0 | `redeclipse`, `redeclipse-data`: 842 MB (959 MB installed) | `dm torus` at once (smallest map, 1 bot, sound at 11 kHz mono, lowest settings; RE_MAP or variants singularity, disco, cyanide). Variants tex512, fullsound, bots0, bots3, defaults, menu | **out of memory**: BananaBread OOM-killed here until our cube2 memory patches, and RE has none (watch dmesg.log and MemAvailable); GLSL 1.20 shader limits; compression is off on Mesa by default | **runs**: in the match on torus (spectator), lean sound/textures + player name, no OOM, 86 fps HUD peak (2026-10-18) |
 | Chromium B.S.U. | `chromium-bsu`, `-data`: 1 MB | menu only: Enter on Start Game, arrows or mouse, Space fires. Variants full, min, noblend, nosound | immediate-mode sprites, GLC text, OpenAL/ALUT | installed on the PS3, needs the user at the controller (2026-10-18) |
 | Frozen Bubble 2.212 | `frozen-bubble`, `-data`: 21 MB | straight into level 1 (`--solo`), Left/Right/Up. Variants menu, nosound, slow, window | the game is 640x480 on SDL 1.2: sdl12-compat's fullscreen scaling and colours; Perl start-up | **runs**: level 1, right picture, 45 fps (2026-10-18) |
 | Chocolate Doom 3.1.1 | `chocolate-doom` + `freedoom` (in the image): 1 MB | Freedoom 2 MAP01 at once. Variants demo (DEMO1, exits), attract (title and demo loop), nomusic, sdlsw, gles | SDL2 renderer path and the big-endian window texture (dsda's frame was green-tinted before our SDL3 patch), OPL music CPU, underruns | **runs**: MAP01, right colours, 35 fps (vanilla cap) (2026-10-18) |

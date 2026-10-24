@@ -1,6 +1,6 @@
 # What in our stack could run on the SPEs
 
-This is the survey we did on 2026-10-15 of what could move from the PPE to the six SPEs, with prior art, the runtime it would need and the hardware facts that decide feasibility. What became of it: the runtime is libspeq, and its first users are the DXT1/DXT5 encoder behind Mesa (shipped), fluidsynth's voice DSP and Sauerbraten's skinning; OpenAL Soft's mixer was measured at 3.7 to 4.7% of a game and not built. All of that is in [../SPU.md](../SPU.md) and [../SPU-AUDIO.md](../SPU-AUDIO.md). What is still open is in [../backlog/spu.md](../backlog/spu.md). "Unverified" marks claims nobody has measured here.
+This is the survey we did on 2026-10-15 of what could move from the PPE to the six SPEs, with prior art, the runtime it would need and the hardware facts that decide feasibility. What became of it: the runtime is libspeq, and its first users are the DXT1/DXT5 encoder behind Mesa (shipped), fluidsynth's voice DSP and BananaBread's skinning; OpenAL Soft's mixer was measured at 3.7 to 4.7% of a game and not built. All of that is in [../SPU.md](../SPU.md) and [../SPU-AUDIO.md](../SPU-AUDIO.md). What is still open is in [../backlog/spu.md](../backlog/spu.md). "Unverified" marks claims nobody has measured here.
 
 ## Bottom line
 

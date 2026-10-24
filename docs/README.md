@@ -52,7 +52,7 @@ layout and the build commands are in [LAYOUT.md](LAYOUT.md).
 | [games/LOG-FINDINGS.md](games/LOG-FINDINGS.md) | What the game logs say: errors and warnings by game, ranked, with causes and fixes; `games/bench/logscan.py` |
 | [games/openarena.md](games/openarena.md) | OpenArena on our ioquake3, both renderers |
 | [games/quake.md](games/quake.md) | QuakeSpasm and Yamagi Quake II |
-| [games/sauerbraten.md](games/sauerbraten.md) | Sauerbraten (cube2) and Red Eclipse |
+| [games/sauerbraten.md](games/sauerbraten.md) | BananaBread (cube2) and Red Eclipse |
 | [games/luanti.md](games/luanti.md) | Luanti and our LuaJIT |
 | [games/supertuxkart.md](games/supertuxkart.md) | SuperTuxKart |
 | [games/classicube.md](games/classicube.md) | ClassiCube |

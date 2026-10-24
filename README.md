@@ -26,7 +26,7 @@ Walnut provides a lightweight desktop environment tailored to the console's 256 
 
 - **Kernel**: Linux 6.12 LTS with the OtherOS++ patch set for the PS3 (see [Credits](#credits)), upstream fixes, and our own changes (a swap tier in video memory, the internal-disk write guard, fan and thermal handling).
 - **3D Graphics**: Hardware acceleration on the RSX GPU through the `ps3rsx` DRM driver and Mesa Gallium nv30 (OpenGL 2.1).
-- **SPEs**: libspeq, resident workers on the Cell's SPEs: Mesa's DXT1/DXT5 texture compression (every GL game), fluidsynth's voice DSP (MIDI music), and an optional skinning path for Sauerbraten. Programs load it at run time, so they also run without it, on the PPE ([docs/SPU.md](docs/SPU.md)).
+- **SPEs**: libspeq, resident workers on the Cell's SPEs: Mesa's DXT1/DXT5 texture compression (every GL game), fluidsynth's voice DSP (MIDI music), and an optional skinning path for BananaBread. Programs load it at run time, so they also run without it, on the PPE ([docs/SPU.md](docs/SPU.md)).
 - **Desktop**: Fast, lightweight X11 desktop (Openbox, tint2, PCManFM, jgmenu) configured to stay within 256 MB RAM.
 - **Game Mode**: Automatic detection of fullscreen 3D applications; unloads desktop components and frees memory during gameplay, restoring them automatically on exit.
 - **Sound**: ALSA, and OpenAL Soft on the PPE with AltiVec; MIDI music through fluidsynth, whose voice DSP runs on the SPEs ([docs/SPU-AUDIO.md](docs/SPU-AUDIO.md)).
@@ -47,7 +47,7 @@ All 13 games of the benchmark suite run at 1920x1080 with full hardware accelera
 | [ClassiCube](docs/games/classicube.md) | yes | 46.1-48.1 on SSD (rows 71, 75); 45.9 on USB | 0.0 s / 30.7 / 65 ms | 53 / 60 | right, right |
 | [dsda-doom (GL)](docs/games/doom.md) | yes | 55.9 (row 61) | 0.0 s / 40.3 / 34 ms | 43 / 65 | right, music choppy |
 | [Luanti](docs/games/luanti.md) | yes | 46 on SSD (row 71); 45.5 on USB (row 67) | 3.5 s / 19.1 / 724 ms | 19 / 63 | right, right |
-| [Sauerbraten](docs/games/sauerbraten.md) | yes | 39.1 on SSD; 45.1 with shortnormals (row 69) | 0.05 s / 25.6 / 103 ms | 25 / 117 | right, mic floor clean |
+| [BananaBread](docs/games/sauerbraten.md) | yes | 39.1 on SSD; 45.1 with shortnormals (row 69) | 0.05 s / 25.6 / 103 ms | 25 / 117 | right, mic floor clean |
 | [SuperTuxKart (`lean`)](docs/games/supertuxkart.md) | yes | 20-22 by Gallium HUD (row 61) | 0.2-3.6 s / 10.2-12.8 / 108-513 ms | 26 / 97 | track draws, sound running |
 | [OpenArena (opengl2 `gl2min`)](docs/games/openarena.md) | yes | 60.4 on SSD (row 71); 55.9 on USB (row 70) | 0.2 s / 25.6 / 199 ms | 15 / 119 | right, right |
 | [OpenTTD](docs/games/openttd.md) | yes | 34-43 with 8bpp blitter (now default) | 0.4 s / 13.4 / 210 ms | 17 / 18 | right, choppy music |

@@ -48,7 +48,7 @@ play: gl2min's "16 s gameplay freeze" was that frame, and its `stall_play_s` wen
 | Neverball | the replay restarts at every pass | pass start + 1 s | measured: the load frames (0.15-2 s) end 0.4 s after the pass line; a fixed time, so runs from before `t0` work |
 | dsda-doom | level load after each timed pass | pass start + 1 s | a guess; check the stalls' seconds into each pass with `passsplit.py -v` |
 | X-Moto | a new replay state per pass | pass start + 2 s | a guess, same |
-| Sauerbraten | demoend plays the demo again | none: its `WIN_ON_RE`/`WIN_OFF_RE` window already leaves the reload out | play equals the old numbers |
+| BananaBread | demoend plays the demo again | none: its `WIN_ON_RE`/`WIN_OFF_RE` window already leaves the reload out | play equals the old numbers |
 | SuperTuxKart and the rest | one race or session | none | play equals the old numbers |
 
 A run whose game needs the load line but has no `t0` (OpenArena before 2026-10-17 23:00) gets `-` in
@@ -419,7 +419,7 @@ batch 17) are in [games/README.md](games/README.md).
 `ps3-game-prefetch` (ps3-desktop; code in `files/libexec/ps3_game_prefetch.py`, its header has the
 details) learns which files a game used and, at its next start, reads them back in one pass in disk
 order while the game loads. It was built because the root disk then was a 2.5" hard disk on USB 2.0,
-10-20 ms a random read, and the recorder put Sauerbraten's hitches and about a third of its 16.5 s
+10-20 ms a random read, and the recorder put BananaBread's hitches and about a third of its 16.5 s
 load on that disk (row 55). **Measured in batch 16: no gain, Luanti worse. `PS3_GAME_PREFETCH_GAME`
 defaults to off** (ps3-desktop 0.474). The code stays, for a faster disk.
 
@@ -512,12 +512,12 @@ Batch 16 (2026-10-18 evening, kernel .433, USB root, results row 68, commit 296f
 
 | Game | load, base / fetch | stall_play_s, base / fetch | longest_play, base / fetch | steady fps, base / fetch |
 |---|---|---|---|---|
-| Sauerbraten base | 15.2-18.8 / 18.1-18.6 s | 1.4 / 1.0 s | 514 / 518 ms | 38.8 / 38.8 |
+| BananaBread base | 15.2-18.8 / 18.1-18.6 s | 1.4 / 1.0 s | 514 / 518 ms | 38.8 / 38.8 |
 | OpenArena gl2min | about 0.5 s faster with fetch | 11.0 / 10.4 s | 2038 / 1782 ms | 51.8 / 53.1 |
 | Luanti base | +1 to +4 s with fetch | 2.5 / 5.5 s | 358 / 3089 ms | 46 / 46 |
 | SuperTuxKart lean | unchanged | 1.8 / 2.7 s | 686 / 682 ms | 107.3 / 106.7 |
 
-Sauerbraten's load disk wait stayed at 4.5-5.5 s, and two Luanti prefetch runs had 3 s hitches in
+BananaBread's load disk wait stayed at 4.5-5.5 s, and two Luanti prefetch runs had 3 s hitches in
 play. On the USB hard disk the prefetch's sorted reads compete with the game's own reads. The
 budget and I/O-priority step (step 2 of the plan) was not run, since step 1 showed no gain. The
 desktop-side check (OpenArena started twice from the menu, `journalctl --user -u ps3-game-mode`
@@ -591,7 +591,7 @@ end (`--include-interfered` keeps them in). matrix.py skips them and lists what 
 `games/bench/results/interfered.txt`, which report.py and matrix.py read the same way.
 
 It has caught real disturbances since it went live with batch 15: 3 runs with SSH logins in batch 16,
-a key press in batch 17 (Sauerbraten shortnormals, round 3) and a key press 195 s into an OpenArena
+a key press in batch 17 (BananaBread (Debian's cube2) shortnormals, round 3) and a key press 195 s into an OpenArena
 run of batch ssd1 (230542Z). All were left out of their rows.
 
 ### The bench console
@@ -679,7 +679,7 @@ kernel.
 - 2026-10-17 evening: first recorder runs; the gameplay-only columns added after OpenArena's reloads
   turned out to be most of its stall time.
 - 2026-10-18 ~02:40-03:20 (row 55, commit b9a4187): recorder off/on alternation shows it removes
-  stalls; OpenArena's remaining stalls are CPU, Sauerbraten's disk.
+  stalls; OpenArena's remaining stalls are CPU, BananaBread's disk.
 - 2026-10-18 ~04:00 (row 56, commit fce0c5b): probe and wakers; the lost decrementer confirmed on the
   idle thread; the 10 ms kicker halves OpenArena's gameplay stalls and becomes the stopgap.
 - 2026-10-18 15:13 (row 66, commit e59c09a): `local/0009` on .419, on/off in game (SSH-polled).

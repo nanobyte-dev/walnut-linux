@@ -24,7 +24,7 @@ from before 2026-10-17 have none):
           line plus 1 s (OpenArena: CL_InitCGame, needs t0 and out.log) or a fixed time after the
           pass's start (Neverball, dsda-doom, X-Moto); RELOADS below holds each game's, and a recipe's
           parse() may print reload_re / reload_after / reload_fixed to bench.txt to set its own.
-          Games without a reload in the window (Sauerbraten's WIN_ON/OFF pieces already leave it
+          Games without a reload in the window (BananaBread's WIN_ON/OFF pieces already leave it
           out, SuperTuxKart's one race) get the plain numbers; src hud only
   *_warm  the first minute: stalls_warm, stall_warm_s, longest_warm over the WARMUP seconds after the
           load (bench.txt load_end, warmup), which the window leaves out; HUD frame times only

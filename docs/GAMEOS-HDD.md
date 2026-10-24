@@ -292,7 +292,7 @@ Two arms, switched between runs by `games/bench/ssd-arm.sh` (run.sh calls it bef
 quiet) and recorded by client.sh in bench.txt (`gamedata=`, `gamedata_dirs=`, `swap=`, `swaps=`;
 report.py tags `base@gdssd`, `base@gdssd+swssd`):
 
-- `GAMEDATA=ssd`: the recipe's `DATA_DIRS` (Sauerbraten `/usr/share/games/cube2`, OpenArena
+- `GAMEDATA=ssd`: the recipe's `DATA_DIRS` (BananaBread `/usr/share/games/cube2`, OpenArena
   `/usr/share/games/openarena`, Luanti `/usr/share/luanti`, SuperTuxKart
   `/usr/share/games/supertuxkart`, ClassiCube `~/.local/share/classicube/{texpacks,audio}`) are
   bind-mounted from `/mnt/ps3ssd/games/<dir>` for the run and unmounted for runs without it. The
@@ -327,11 +327,11 @@ What to compare ([PROFILING.md](PROFILING.md), "Start-up profiling"; [STALLS.md]
 ### Result, batch ssd1
 
 2026-10-18 22:10-23:25Z, kernel 6.12.111+ps3.472, USB root, same boot, `STALLS=1 ROTATE=1`, results
-commit 9e6bc57 (row "batch ssd1" in games/bench/results). Only Sauerbraten (9 runs) and part of
+commit 9e6bc57 (row "batch ssd1" in games/bench/results). Only BananaBread (9 runs) and part of
 OpenArena ran before the batch was stopped for Phase B; Luanti, SuperTuxKart and ClassiCube never
 got their SSD arms. Medians with [min..max]:
 
-| Sauerbraten base, n=3 | USB | GAMEDATA=ssd | ssd + SWAP=ssd |
+| BananaBread base, n=3 | USB | GAMEDATA=ssd | ssd + SWAP=ssd |
 |---|---|---|---|
 | load (s) | 16.9 [15.4..19.3] | 15.9 [15.4..16.7] | 16.4 [15.3..17.5] |
 | load_disk_s (sda wait in the load) | 5.5 [4.7..5.6] | 4.9 [4.8..5.5] | 5.4 [5.0..5.4] |
@@ -356,12 +356,12 @@ got their SSD arms. Medians with [min..max]:
 What it shows:
 
 - Moving the game data alone did not make the loads CPU-bound. The recorder's disk class counted
-  only the USB disk (sda) then, and that wait did not move: Sauerbraten 5.5 -> 4.9-5.4 s,
+  only the USB disk (sda) then, and that wait did not move: BananaBread (Debian's cube2) 5.5 -> 4.9-5.4 s,
   OpenArena 6.3 -> 6.4-6.5 s. The game data was only part of the load's reads from sda
-  (Sauerbraten 93 -> 76 MB, OpenArena 144 -> 93 MB, one run each). The rest is the binary,
+  (BananaBread 93 -> 76 MB, OpenArena 144 -> 93 MB, one run each). The rest is the binary,
   libraries, Mesa, the shader cache and Xorg, which the arm leaves on USB, and those reads cost the
   same 5-6 s. Hence Phase B: the whole system on the SSD.
-- Sauerbraten: load -6% (SSD) and -3% (SSD + swap) in the medians, but the spread is the first
+- BananaBread: load -6% (SSD) and -3% (SSD + swap) in the medians, but the spread is the first
   round. With the arms rotated, round 1 had USB first and cold (19.3 s), and round 3 reads
   15.4 / 15.4 / 15.3 s for USB / SSD / SSD + swap. The SSD arm's stalls (1.0 s against 1.6 s) and
   1% low (26.4 against 24.1) look better but sit inside the USB runs' own spread (0.7-2.4 s,
@@ -374,7 +374,7 @@ What it shows:
   indicative only.
 - SSD + swap can't be told apart from SSD alone: swap stall seconds were 0.0-0.6 in all arms, the
   spill is rarely read back in these two games. Swap-outs were the same in all arms.
-- ALSA underruns in Sauerbraten (81-187 per run) are the known pattern, not arm-related (SSD
+- ALSA underruns in BananaBread (81-187 per run) are the known pattern, not arm-related (SSD
   113-165, USB 153-187, SSD + swap 81-168).
 - Excluded: `ps3-bench-20261018T230542Z-openarena-gl2min` (SSD arm, a key press at 195 s:
   interfered, its window 94 s), and a last OpenArena run at about 23:26Z (killed midway, its arm
@@ -394,7 +394,7 @@ fallback for everything here.
 `ssd-6.12.111+ps3.472`: root `/dev/mapper/ps3root`, the VRAM swap's backing `/dev/mapper/ps3swap`,
 the boot's recheck 6.3 s, the boot 24.7 s. The benchmark batches ssdroot1 and ssdroot2 ran on it
 ([TESTS.md](TESTS.md)): loads 39-61% shorter, the disk's share of a load from about 40% to 11-26%,
-Sauerbraten's gameplay stalls from 1.6 s to 0.05 s
+BananaBread's gameplay stalls from 1.6 s to 0.05 s
 ([result](#result-the-ssd-root-batches-ssdroot1-and-ssdroot2)). The comparison against the USB root in
 alternating boots is still to run ([below](#the-benchmark-usb-root-against-ssd-root)). Kernel `.472` has no guard, so on this boot the
 initramfs logs `kernel has no write guard` and ps3db's writes are not limited to the image's
@@ -660,7 +660,7 @@ cross-boot comparison of its own, below.
 console's internal SSD image (an upgraded SSD; a stock PS3 has a 2.5" HDD and would land between
 these numbers and the USB disk's), Mesa .476, ps3rsx 0.443, ps3-gpu-tools 0.477~dev (its stall
 recorder samples `ps3db`, so the SSD's disk wait is counted), `STALLS=1`. Results rows 71-75, commit
-named in TESTS.md. **Cross-boot and indicative**: the USB numbers are from other boots. For Sauerbraten
+named in TESTS.md. **Cross-boot and indicative**: the USB numbers are from other boots. For BananaBread
 and OpenArena they are batch ssd1's "-" arm (the same kernel, Mesa and ps3rsx, USB root); for Luanti,
 SuperTuxKart and ClassiCube they are batch 16 (kernel .433, Mesa .442~dev, ps3rsx 0.249), so a small
 difference for those three may be the software. A same-boot comparison needs alternating boots
@@ -668,14 +668,14 @@ difference for those three may be the software. A same-boot comparison needs alt
 
 | Game (n SSD / n USB) | Load, the game's own (s) | Load's disk wait (s) | Gameplay stalls (s) | Longest gameplay frame (ms) | 1% low | Steady fps |
 |---|---|---|---|---|---|---|
-| Sauerbraten (4 / 3) | **7.1** [6.9..7.2] / 16.9 [15.4..19.3] | **1.85** [1.7..1.9] / 5.5 [4.7..5.6] | **0.05** [0..0.4] / 1.6 [0.7..2.4] | **103** [80..152] / 459 [388..665] | 25.6 / 24.1 | 39.15 / 38.5 |
+| BananaBread (4 / 3) | **7.1** [6.9..7.2] / 16.9 [15.4..19.3] | **1.85** [1.7..1.9] / 5.5 [4.7..5.6] | **0.05** [0..0.4] / 1.6 [0.7..2.4] | **103** [80..152] / 459 [388..665] | 25.6 / 24.1 | 39.15 / 38.5 |
 | OpenArena gl2min (3 / 2) | **6.9** [6.7..7.1] / 10.7 [9.8..11.6] | **2.5** [2.2..2.6] / 6.3 [6.2..6.4] | 0.2 [0.1..0.5] / 0.3 | 199 [122..202] / 111 | 25.6 / 23.1 | **60.4** [60.3..63.3] / 55.9 |
 | Luanti (3 / 3) | **25.0** [24.5..25.1] / 40.8 [40.6..42.6] | **3.4** [3.0..3.5] / 9.8 [9.6..10.4] | 3.5 [2.4..5.8] / 2.5 [2.3..3.2] | 724 [724..907] / 358 [272..365] | 19.1 / 17.5 | 46 / 46 |
 | SuperTuxKart lean (3 / 3) | **31.1** [31.0..31.5] / 53.6 [53.2..54.9] | **3.3** [3.1..3.5] / 10.9 [10.4..11.5] | 2.0 [0.2..3.6] / 1.8 [1.2..4.1] | 448 [108..513] / 686 [504..768] | 11.1 / 11.4 | 20 / 20 (HUD) |
 | ClassiCube (5 / 2) | **7.65** [7.45..8.24] / 14.2 [13.9..14.4] | 1.3 [0.9..1.3] / 3.4 (batch 17) | 0 / 0.05 | 65 [58..74] / 99 | 30.7 / 30.05 | 48.1 then 46.1 / 45.9 |
 
 (SSD / USB in each cell. OpenArena's gameplay columns leave out the map reloads; its window as a whole
-had 36.2 s of stalls against 52.0 s, the reloads 40.7 s against 55.7 s. The SSD rows for Sauerbraten
+had 36.2 s of stalls against 52.0 s, the reloads 40.7 s against 55.7 s. The SSD rows for BananaBread
 include two later `-` arms of the `shadow_fast` A/B, same configuration; SuperTuxKart's include the
 two off arms of the force-DXT A/B, and three more runs were excluded as interfered.)
 
@@ -686,14 +686,14 @@ What it shows:
   loading screens (`load_end`): 19.8 to 7.7 s, 28.1 to 14.2, 43.1 to 26.1, 54.3 to 31.5, 13.9 to 7.5.
 - **The expectation that loads become CPU-bound held only in part.** The main thread's CPU seconds in
   the load are the same as on USB, and it is now 47-77% on the CPU; 1-3.4 s of disk wait remain
-  (a quarter of Sauerbraten's load), plus sleeps, GPU waits and reclaim
+  (a quarter of BananaBread's load), plus sleeps, GPU waits and reclaim
   ([PROFILING.md](PROFILING.md#start-up-profiles-on-the-ssd-root-batch-ssdroot2)). What is left
-  is CPU first: zlib, PNG, JPEG and audio decoders in SuperTuxKart, the map inflate in Sauerbraten,
+  is CPU first: zlib, PNG, JPEG and audio decoders in SuperTuxKart, the map inflate in BananaBread,
   Luanti's mapgen.
-- **Stalls dropped where they were the disk's, not elsewhere.** Sauerbraten's gameplay stalls went
+- **Stalls dropped where they were the disk's, not elsewhere.** BananaBread's gameplay stalls went
   from 1.6 s to 0.05 s and its longest frame from 459 to 103 ms (the USB stalls were file faults).
-  The first minute after a load (stall seconds): Sauerbraten 16.0 to 6.3, SuperTuxKart 18.5 to 8.8,
-  OpenArena 28.6 to 20.0; the disk wait in the warm-up 3.5 to 0.85 s (Sauerbraten), 5.8 to 1.3
+  The first minute after a load (stall seconds): BananaBread 16.0 to 6.3, SuperTuxKart 18.5 to 8.8,
+  OpenArena 28.6 to 20.0; the disk wait in the warm-up 3.5 to 0.85 s (BananaBread), 5.8 to 1.3
   (OpenArena). OpenArena's gameplay was clean on USB already (0.3 s, 0.2 s now; its longest gameplay
   frame 199 ms against 111, n=3 against 2) and the window
   stalls that remain are its CPU-bound map reloads (31 s of CPU stall). Luanti's and SuperTuxKart's

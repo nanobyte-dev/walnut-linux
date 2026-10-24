@@ -1,8 +1,8 @@
 # glcount: GL calls per frame and their callers (host-side, LD_PRELOAD)
 
-Used by the game-side batching work (X-Moto, Extreme Tux Racer, dsda-doom, ClassiCube, Sauerbraten,
+Used by the game-side batching work (X-Moto, Extreme Tux Racer, dsda-doom, ClassiCube, BananaBread,
 2026-10-17) to count a game's GL calls and draws per frame and attribute them to source lines,
-before and after a change. This copy comes from the Sauerbraten work and is a starting point, not
+before and after a change. This copy comes from the BananaBread (Debian's cube2) work and is a starting point, not
 a finished tool: adapt the paths for the next game.
 
 - `gen.py`: from `cnt/names.txt` (one gl* function name per line) writes `cnt/stubs.S`, one

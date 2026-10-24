@@ -122,7 +122,7 @@ it is also the swap tier. That route is out. The 2D-atlas route below takes DXT5
 image headers (frames packed into one 2D texture up to 4096, padded to power of two):
 resident set (effect, ship, ui, asteroid, _menu, projectile, map...) 91 MB DXT5 (361 MB RGBA8 padded),
 plus on-demand star/planet/land/thumbnail/outfit while in a system or shop: +10 to 30 MB. So ~100-120 MB
-of VRAM, about the same as Sauerbraten.
+of VRAM, about the same as BananaBread (Debian's cube2).
 
 Startup: `--parse-assets` (all data, images, sounds, no upload, defer on) takes 5.4 s user on a modern
 x86 core; PPE factor 8-15x gives 45-80 s to the menu. One time, acceptable.

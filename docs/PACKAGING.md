@@ -260,7 +260,7 @@ Without the data the engine still works. `/usr/games/classicube` runs it from `~
 
 ### Sauerbraten's models and sounds (`sauerbraten-nonfree-data`)
 
-Debian's `cube2-data` 1.3-1 is not a DFSG-cleaned Sauerbraten. It is the BananaBread content (gitlab.com/cube2-data/cube2-data, 295 MB, 989 files under `packages/`), installed in `/usr/share/games/cube2`, which its `/usr/games/cube2` passes to the engine as `-k`. The engine (cube2 0.0.20201229, Sauerbraten's `fpsgame`) loads models and sounds by names compiled in (`entities.cpp`, `render.cpp`, `weapon.cpp`, `monster.cpp`) or from `data/sounds.cfg`. BananaBread lacks most of them, hence "could not load model" for the pickups, hud guns, gibs and so on, and "failed to load sample".
+Debian's `cube2-data` 1.3-1 is not a DFSG-cleaned Sauerbraten. It is the BananaBread content (gitlab.com/cube2-data/cube2-data, 295 MB, 989 files under `packages/`), installed in `/usr/share/games/cube2`, which its `/usr/games/cube2` passes to the engine as `-k`. The engine (cube2 0.0.20201229, Sauerbraten's `fpsgame`, which BananaBread forked) loads models and sounds by names compiled in (`entities.cpp`, `render.cpp`, `weapon.cpp`, `monster.cpp`) or from `data/sounds.cfg`. cube2-data lacks most of them, hence "could not load model" for the pickups, hud guns, gibs and so on, and "failed to load sample".
 
 The match is the SourceForge release `2020_12_29` (`sauerbraten_2020_12_29_linux.tar.bz2`, 985,823,440 bytes, MD5 `b50d018f...` as SourceForge lists it, SHA256 `cdba7c4a...`, both in `config.mk`; kept in `build/downloads/game-data`).
 

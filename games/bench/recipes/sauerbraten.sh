@@ -1,4 +1,4 @@
-# Sauerbraten (our cube2 build: textures compressed at upload on Mesa too) with cube2-data 1.3's
+# BananaBread (Debian's cube2, so this recipe is still called sauerbraten; our build: textures compressed at upload on Mesa too) with cube2-data 1.3's
 # maps (the BananaBread content).
 # base: the user's recorded demo (assets/sauerbraten-bench.dmo, 2026-10-17: an FFA round on cave with
 # two bots, 93 s of game time, recorded by the local server with `recorddemo 1` and a map reload,

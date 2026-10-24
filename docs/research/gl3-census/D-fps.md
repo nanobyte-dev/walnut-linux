@@ -82,7 +82,7 @@ Read in source (src/engine/rendergl.cpp): fatal if GL < 2.0 (398), GLSL < 1.20 (
 Memory and CPU: a Tesseract-class G-buffer at 1080p is 4 x RGBA8 + depth ~ 40 MB of VRAM before any texture; not measured. Big-endian: cube2/Tesseract code is byte-order aware and 1.6 already runs on ppc64 in Debian; 2.0's extras (new network/IRC/http, avif/webp, discord, steam libs in the repo's `bin/`) are UNVERIFIED. Data: free (CC mixed), Debian's redeclipse-data covers 1.6 only.
 
 ### 7. Novelty
-Same family as Sauerbraten/Red Eclipse 1.6 which we run: nothing new for the user; no PS3 GameOS port known.
+Same engine family as Sauerbraten; we run BananaBread (Debian's cube2) and Red Eclipse 1.6: nothing new for the user; no PS3 GameOS port known.
 
 ### Sources
 redeclipse/base master (src/engine/rendergl.cpp, main.cpp, shader.cpp, config/glsl/*.cfg, src/engine/version.h 2.0.9).

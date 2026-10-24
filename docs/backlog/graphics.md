@@ -35,22 +35,22 @@ against the owning buffer, like the fragment textures.
 
 ### Game-side batching in the remaining games
 
-Rank 16. Fewer, larger GL calls in Sauerbraten, SuperTuxKart's legacy renderer and OpenTTD's GL
+Rank 16. Fewer, larger GL calls in BananaBread, SuperTuxKart's legacy renderer and OpenTTD's GL
 driver.
 
 **Why.** Batching in the games beat driver work by far: X-Moto 44.5 -> 166.5 fps (18,500 -> 165 GL
 calls a frame), Extreme Tux Racer 52 -> 59. Where the game is GPU-bound or lightly loaded the gain
 is small: dsda-doom +3%, OpenArena opengl1 neutral, ClassiCube -4% steady with better lows until
-`CC_GL_CHUNKS=1` (+4.7%, batch 16). Sauerbraten's cube2 0007-0009 (`gluniformcache`, `glbatchtmu`,
+`CC_GL_CHUNKS=1` (+4.7%, batch 16). BananaBread's cube2 0007-0009 (`gluniformcache`, `glbatchtmu`,
 `glpartvbo`, all 1 by default since 33148f2) have never been A/B'd on the PS3: the recipe's
-`allbatchoff` variant exists and has no row. Sauerbraten spent 72% of its CPU in Mesa in the HOTPATHS
+`allbatchoff` variant exists and has no row. BananaBread (Debian's cube2) spent 72% of its CPU in Mesa in the HOTPATHS
 profile (44.9 points of it the vertex conversion that 0033 and cube2 0011 have cut since), SuperTuxKart `lean` runs at a 1% low of 11.4 (row 68), OpenTTD reaches 21 fps with its GL
 driver.
 
 - **Payoff:** medium: large where a game is CPU-bound in the driver stack, nothing where it isn't.
 - **Effort:** M per game. **Risk:** low: each change behind a switch, pixels checked on llvmpipe.
 - **Needs:** host, PS3.
-- **Status:** never tried for SuperTuxKart and OpenTTD; Sauerbraten's patches are on but
+- **Status:** never tried for SuperTuxKart and OpenTTD; BananaBread's patches are on but
   unmeasured. The gameplay profiles of batch ssdroot2 P1b, symbolised
   ([HOTPATHS.md](../HOTPATHS.md#inside-the-graphics-stack)), put SuperTuxKart's client arrays at
   17.6% of its CPU (vertex copies 10.1, index scans 6.5: Mesa 0044 takes most of the scans; the
@@ -59,7 +59,7 @@ driver.
 
 **To start.** Count GL calls and draws per frame on llvmpipe forced to GL 2.1 (`tools/glcount`),
 then `perf` the PS3 run with `--proc-map-timeout=20000` (without it most samples land in
-`[unknown]`). Each change gets a switch and a recipe variant. For Sauerbraten:
+`[unknown]`). Each change gets a switch and a recipe variant. For BananaBread:
 `/var/tmp/bench/run.sh bench sauerbraten "base allbatchoff" 3`.
 
 ### ps3rsx shadow_fast
@@ -78,7 +78,7 @@ instructions, 0.6-1.5% of each game's CPU (ClassiCube's shadow_burst 1.95 -> ~0.
 - **Risk:** low: a shadow mismatch would garble a channel switch (the fuzz says no).
 - **Needs:** PS3.
 - **Status:** built (ps3rsx 0.443 in kernel .472, switch `shadow_fast`, off) and measured in batch
-  ssdroot2 P2 (`PS3RSX_SHADOW_FAST=1` against `-`, ClassiCube, Sauerbraten, X-Moto, x2): no gain in fps,
+  ssdroot2 P2 (`PS3RSX_SHADOW_FAST=1` against `-`, ClassiCube, BananaBread, X-Moto, x2): no gain in fps,
   stalls or CPU beyond the spread ([HOTPATHS.md](../HOTPATHS.md#ps3rsxs-submission-path)). The
   profiles put the shadow work at 1.2-2.3% of the CPU, so little can be won; it stays off and the
   rest of the suite is not worth a batch.
@@ -92,7 +92,7 @@ the reservation locks), which `shadow_fast` leaves untouched.
 
 Rank 22. Indexed constant loads in nv30 vertex programs (ARL, already encoded by nvfx).
 
-**Why.** GPU skinning runs but is unusable: Sauerbraten at 11 fps by its own counter with GPU
+**Why.** GPU skinning runs but is unusable: BananaBread at 11 fps by its own counter with GPU
 skinning against 28 on the CPU, which is why cube2 skins on the CPU by default. Without indirect
 addressing, programs compile to if/else trees, which also inflate OpenArena opengl2's shaders and
 its compile RAM.
@@ -281,7 +281,7 @@ makes the next wedge diagnosable from one dump.
 Rank 75. A full GART or VRAM ended in a segfault in 6 runs.
 
 **Why.** [LOG-FINDINGS.md, item 2](../games/LOG-FINDINGS.md#2-a-failed-buffer-allocation-ends-in-a-segfault):
-after ten `ps3rsx: out of GART for a 4096 KiB BO` Sauerbraten (5 runs) died at address 0 inside libc,
+after ten `ps3rsx: out of GART for a 4096 KiB BO` BananaBread (5 runs) died at address 0 inside libc,
 and SuperTuxKart (1 run) after 270 `out of VRAM` lines and an incomplete FBO. Not seen in the 40+
 runs since, but a player with a bigger map would hit it. Also from the same triage, to watch:
 OpenTTD with `NV30_STAGING_POOL_MB=24` logged `no memory to back the GART (56 of 63 MiB)` once in 13

@@ -46,7 +46,7 @@ Description:
     ones), comparing against the old code. The table path was taken for all 16 formats.
 
     Performance (PlayStation 3, Cell PPE, nv30 driver, Mesa 26.2.4, same boot, interleaved runs,
-    desktop stopped, webcam checked for a correct picture): Sauerbraten demo steady 25.9 -> 39.6 fps
+    desktop stopped, webcam checked for a correct picture): BananaBread demo steady 25.9 -> 39.6 fps
     (+53%), 1% low 18.3 -> 26.9; a profile before the change had 45% of the process CPU time in this
     loop. QuakeSpasm (6% in the loop) did not change in fps (91.0 vs 90.9), CPU time about -3%.
     No change expected on out-of-order x86 beyond a small gain.

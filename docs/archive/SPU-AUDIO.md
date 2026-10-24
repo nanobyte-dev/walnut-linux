@@ -187,7 +187,7 @@ frame rates (b16, f44, alnull) were not run.
 **Which games.** OpenAL Soft plays the sound of OpenArena (ioquake3 dlopens libopenal.so.1),
 Yamagi Quake II (`s_openal 1`, its default), ClassiCube and Luanti in the suite, and
 SuperTuxKart (a recipe outside the suite). Not the others of the plan's list: QuakeSpasm 0.96.3
-plays through SDL2's audio (Debian's package links no libopenal), Sauerbraten through
+plays through SDL2's audio (Debian's package links no libopenal), BananaBread through
 SDL2_mixer, and Extreme Tux Racer through SFML 3.1, whose audio module is miniaudio. ClassiCube's
 bench flight probably plays nothing (music starts after 2 to 7 minutes, the flight digs no
 blocks), so its numbers are the cost of an open, idle OpenAL device.

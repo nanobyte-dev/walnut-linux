@@ -64,7 +64,7 @@ From `nv30_screen.c` and `nv30_format.c` (Mesa 26.2.4) and [RSX.md](../RSX.md):
   ppc64el.
 - **Debian's darkplaces is GL 3.2 core only** (since 0~20180908), so Nexuiz and Xonotic are out with
   Debian's engine.
-- **Sauerbraten and Red Eclipse turn texture compression off on Mesa**: `if(!mesa) usetexcompress = 2`
+- **BananaBread (Debian's cube2) and Red Eclipse turn texture compression off on Mesa**: `if(!mesa) usetexcompress = 2`
   in `rendergl.cpp`; only pre-made DDS files go in compressed.
 - **QuakeSpasm 0.96.3 has a big-endian bug**: wrong colours and dlight wraparound from the
   packed-pixels path (quakespasm issue #114, a G5 on Debian ppc64); `-nopackedpixels` avoids it,
@@ -101,9 +101,9 @@ tried, **X** can't run on NV47. MB = installed (engine + data + new libraries).
 | Neverball 1.6 (+Neverputt) | neverball (+neverputt), 112 (138) | builds, tests disabled | GL fixed function; VBO and point parameters required with no fallback; GLSL/FBO optional; A | small | `--replay demo1.nbr` (shipped); fps on screen only, stops at a menu | SDL audio + Ogg; no S3TC | **suite** (patch or HUD) |
 | Extreme Tux Racer 0.8.4 | extremetuxracer, 48 | builds; SFML 3.1 has its big-endian Ogg fix | GL 1.2 fixed function, lighting, texgen; `sf::RenderTexture` needs EXT_fbo; A | small | none | SFML audio (WAV/Ogg) | reserve (no benchmark) |
 | Armagetron 0.2.9.3 | armagetronad, 27 | builds; risk: GL_RGBA or GL_BGRA picked from the SDL surface's red mask | GL 1.x, SDL 1.2; A | small | `--playback` of recordings, UNVERIFIED | SDL_mixer | reserve (soak test) |
-| Sauerbraten (cube2 2020) | cube2 + cube2-data 1.3, 266 | builds, no tests | GL 2.0 + GLSL 1.20 + FBO (EXT is fine) required; float/VTF optional; GPU skinning's bone-array indexing becomes if/else trees on nv30; C | UNVERIFIED; `maxtexsize`, `texreduce` | scripted: `-x` CubeScript `getfps` + `quit` | SDL_mixer, Ogg/WAV; S3TC off on Mesa (DDS only); a step up in GPU load | **suite** |
+| BananaBread (cube2 2020) | cube2 + cube2-data 1.3, 266 | builds, no tests | GL 2.0 + GLSL 1.20 + FBO (EXT is fine) required; float/VTF optional; GPU skinning's bone-array indexing becomes if/else trees on nv30; C | UNVERIFIED; `maxtexsize`, `texreduce` | scripted: `-x` CubeScript `getfps` + `quit` | SDL_mixer, Ogg/WAV; S3TC off on Mesa (DDS only); a step up in GPU load | **suite** |
 | Tesseract | not in Debian | | requires 4 vertex texture units, a float G-buffer; X | | | | out |
-| Red Eclipse 1.6 | redeclipse, 945 | builds | the same engine as Sauerbraten; C | heavy maps | scripted like cube2 | as cube2; no gamepad | reserve (Sauerbraten covers it, 936 MB of data) |
+| Red Eclipse 1.6 | redeclipse, 945 | builds | the same engine as BananaBread; C | heavy maps | scripted like cube2 | as cube2; no gamepad | reserve (BananaBread covers it, 936 MB of data) |
 | SuperTuxKart 1.5 (legacy GL 2.1) | supertuxkart, 839 | builds; old #714519, wrong colours on powerpc (0.8 era) | GLSL path needs 3.1, legacy fixed-function fallback; C | **at least 1 GB (FAQ)** | `--benchmark`: replay, CSV report, exits | OpenAL + Ogg; `enable_texture_compression` (effect on legacy UNVERIFIED) | **suite** (stretch: RAM) |
 | Trigger Rally 0.6.6 | trigger-rally, 122 | builds | GL 2.0 compat, fixed function, cube maps; A | small | none (no command line, no fps counter) | OpenAL + ALUT | reserve |
 | Scorched3D 44 | scorched3d, 125 | builds | fixed function, optional GLSL/FBO/shadows; A | UNVERIFIED | none (`-startclient` AI game, UNVERIFIED) | OpenAL + Ogg, wxWidgets | no |
@@ -137,7 +137,7 @@ Ten games, eleven entries (OpenArena counts twice: its two renderers are differe
 | 2 | OpenArena `opengl2` | the only GLSL-heavy shooter with an S3TC switch and a timedemo | GLSL compile RAM, shaders against NV47's limits |
 | 3 | ClassiCube | ours, measured | voxel, OpenAL + Vorbis |
 | 4 | QuakeSpasm | the smallest footprint, GL 1.x, a timedemo | shooter, SDL audio + own mixer |
-| 5 | Sauerbraten | a step up in GPU load: GLSL 1.20 everywhere, FBO water | shooter, SDL_mixer, DDS textures |
+| 5 | BananaBread | a step up in GPU load: GLSL 1.20 everywhere, FBO water | shooter, SDL_mixer, DDS textures |
 | 6 | SuperTuxKart (legacy) | the racer with a real benchmark; the RAM stress test | racer, OpenAL, 750 MB of data |
 | 7 | Luanti + Minetest Game | CPU-heavy Lua and meshing, the other voxel engine | voxel, CPU, OpenAL |
 | 8 | Neverball | light GL with VBOs, shipped replays | SDL audio + Ogg |
@@ -148,7 +148,7 @@ Ten games, eleven entries (OpenArena counts twice: its two renderers are differe
 PrBoom+ GL (on the user's list) is covered by dsda-doom, its successor with the same GL renderer,
 packaged for ppc64. Sound stacks: OpenAL Soft (1-3, 6, 7), SDL audio with the game's own mixer (4, 8,
 10), SDL_mixer (5, 9, 11); SFML audio only in Extreme Tux Racer. Compressed textures: OpenArena (both
-renderers), SuperTuxKart (a setting, effect unverified), Sauerbraten (with a one-line patch). For a
+renderers), SuperTuxKart (a setting, effect unverified), BananaBread (with a one-line patch). For a
 DXT5 case without patching, Teeworlds and TORCS were the reserves.
 
 Reserves, in order: Yamagi Quake II gl1 (an OpenAL shooter with a timedemo; needs our build), Extreme
@@ -177,7 +177,7 @@ What the survey expected for each pick, before the runs (the commands that run n
 - **ClassiCube**: no timedemo; a fixed spawn and the HUD, a flight-path plugin later.
 - **QuakeSpasm**: `-noglslgamma` (a full-screen GLSL pass at 1080p) and `-noglsl` as variants; load
   time from the out.log stamp of the first demo line.
-- **Sauerbraten**: no demo playback in the client was assumed, so a fixed spawn for a fixed time;
+- **BananaBread**: no demo playback in the client was assumed, so a fixed spawn for a fixed time;
   `texcompress` (textures of 1024 and up) only works when `usetexcompress` is set, which the engine
   skips on any `GL_VERSION` containing "Mesa": a one-line patch (`engine/rendergl.cpp:536`).
 - **SuperTuxKart**: `--benchmark` with `force_legacy_device` replays `benchmark_black_forest.replay`
@@ -222,7 +222,7 @@ exception ends the session, the order went from safest to riskiest:
 | 11 | SuperTux | A | `--renderer opengl20`: fixed function plus FBO |
 | 12 | OpenTTD | B | `-v sdl` first; then `sdl-opengl`: R8 and 1D palette textures, PBO, BGRA + `UNSIGNED_INT_8_8_8_8_REV` on big-endian, the VAO check |
 | 13 | Luanti | C | GLSL 1.20 on every draw, FBO for effects; our build's unit tests first |
-| 14 | Sauerbraten | C | GLSL 1.20 bump/parallax shaders against the 224-constant limit, EXT_fbo water, depth-stencil |
+| 14 | BananaBread | C | GLSL 1.20 bump/parallax shaders against the 224-constant limit, EXT_fbo water, depth-stencil |
 | 15 | SuperTuxKart | C | legacy fixed function, many textures: RAM and VRAM first |
 | 16 | OpenArena `opengl2` | B | about 100+ GLSL programs, RAM during the compile burst |
 

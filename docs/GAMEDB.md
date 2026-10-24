@@ -153,13 +153,13 @@ predate the dropout measurement, so their sound is scored from the raw fault cou
 | Extreme Tux Racer | 75 | 62 | 100 | 85 | 62 | Gold |
 | Luanti | 50 (1% low 19) | 58 | 100 | 78 | 50 | Silver (capped) |
 | dsda-doom | 93 | 100 | 50 (465 underruns a minute) | 90 | 50 | Silver (capped) |
-| Sauerbraten | 50 | 100 | 79 | 83 | 50 | Silver (capped) |
+| BananaBread | 50 | 100 | 79 | 83 | 50 | Silver (capped) |
 | Neverball | 95 | 30 (a 3.9 s reload) | 75 | 80 | 30 | Bronze (capped) |
 | OpenTTD, 8bpp | 31 | 94 | 50 (choppy music) | 73 | 31 | Bronze (capped) |
 | SuperTuxKart `lean` | 4 (21 fps) | 69 | 97 | 68 | 4 | Bronze (capped) |
 | OpenTTD, 32bpp | 0 (11 fps) | 0 (52 s of stalls) | 50 | 45 | 0 | Scrap (too slow) |
 
-Every medal below Gold has a real problem behind it: slow frame rates (Luanti, Sauerbraten,
+Every medal below Gold has a real problem behind it: slow frame rates (Luanti, BananaBread,
 SuperTuxKart), Neverball's 3.9 s level reload, dsda-doom's chopping sound, and the 32bpp OpenTTD that
 can't be played is Scrap. Sound is half presence, half cleanliness, so bad sound costs a medal step
 but no longer sinks a game on its own. Open: whether strategy and turn-based games need their own

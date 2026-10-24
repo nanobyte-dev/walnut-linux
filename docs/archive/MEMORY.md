@@ -43,7 +43,7 @@ threshold (the engines' hunks among them, mostly never touched).
 |---|---|---|---|---|---|---|---|
 | Luanti | 102 + 47.1 | 4.0 / 2.2 / 5.9 | 74.5 (28.5) | 14.0 (11.0) | 96.8 / **22.9**, **14** | 23.6 | 61 / 12.7 |
 | OpenArena (gl1) | 71 + 19.7 | 0.7 / 1.8 / 5.7 | 22.8 (13.9) | 39.4 (2.0) | 33.5 / 3.8 (start, end: 21 / **16**), 4 | 176.8 (hunk 128 + zone 48) | 36 / 6.7 |
-| Sauerbraten | 78 + 12.3 | 2.2 / 2.7 / 5.3 | 66.1 (9.6) | 0.7 (0.6) | 63.4 / **17.6**, 3 | 4.8 | **117** / 9.6 |
+| BananaBread | 78 + 12.3 | 2.2 / 2.7 / 5.3 | 66.1 (9.6) | 0.7 (0.6) | 63.4 / **17.6**, 3 | 4.8 | **117** / 9.6 |
 | Yamagi Quake II | 77 + 3.4 | 1.7 / 4.8 / 8.5 | 19.3 (1.5) | **42.1** (0.9) | 18.6 / 2.8, 4 | 0 | 48 / 6.9 |
 | QuakeSpasm | 58 + 0.1 | 0.8 / 7.1 / 9.0 | 13.6 | 27.1 | 12.9 / 1.3, 3 | 256.3 (its heap) | 47 / 8.3 |
 | X-Moto | 49 + 0 | 2.6 / 7.5 / 18.2 | 19.0 | 0.7 | 19.7 / 0.3, 3 | 0.4 | 37 / 6.7 |
@@ -62,12 +62,12 @@ are under 1.3 MB everywhere.
 |---|---|---|---|---|---|---|
 | Luanti | 47.1 | 28.5 | 11.0 | 3.6 | 2.7 | 1.2 |
 | OpenArena | 19.7 | 13.9 | 2.0 | 2.6 | 0 | 1.1 |
-| Sauerbraten | 12.3 | 9.6 | 0.6 | 1.0 | 0.3 | 0.8 |
+| BananaBread | 12.3 | 9.6 | 0.6 | 1.0 | 0.3 | 0.8 |
 | Yamagi Quake II | 3.4 | 1.5 | 0.9 | 1.0 | 0 | 0 |
 | Armagetron | 1.8 | 0 | 0 | 1.7 | 0 | 0 |
 
 The rest swap nothing. Heap dominates, and in the three big ones it is about the size of malloc's
-free memory: Sauerbraten's arena is 80.7 MB with 17.4 free, its heap 66.1 resident + 9.6 swapped =
+free memory: BananaBread's arena is 80.7 MB with 17.4 free, its heap 66.1 resident + 9.6 swapped =
 75.7, so at least 12 MB of the free chunks are resident or swapped; OpenArena swapped 13.9 MB of
 heap while 15.9 MB sat free at the window's start. The kernel swaps out what nobody touches, and
 nobody touches free chunks: garbage written to swap. Library swap is their relocated data and
@@ -87,7 +87,7 @@ so no game leaks RAM in this window. Inside malloc it moves:
   12.8 -> 16.8 MB with 161 -> 163 handles: two new ~4 MB GART buffers, one a minute. Candidate: the
   track marks in the snow (a growing list, drawn through our batching patch's stream buffers).
   A longer run (a soak) tells a cap from a leak.
-- File-backed Rss falls in most games (Sauerbraten 17.1 -> 9.3, Neverball 23.5 -> 15.6, ETR 20.3
+- File-backed Rss falls in most games (BananaBread (Debian's cube2) 17.1 -> 9.3, Neverball 23.5 -> 15.6, ETR 20.3
   -> 14.1): code and data pages dropped from the page cache, read back from the disk when needed.
 
 ### Malloc arenas
@@ -107,7 +107,7 @@ emerge and mesh threads.
   back buffers are imported by Xorg too, so its 3 x 8100 KiB are its own front plus the game's two:
   the census counts shared buffers once per client (Armagetron's mid snapshot: Xorg drops from 25.4
   to 9.5 MB once the game's buffers are gone). 24 MB of VRAM per game for the window, at minimum.
-- VRAM the games take comes out of the VRAM swap: "VRAM cpu" was 99% used in Sauerbraten
+- VRAM the games take comes out of the VRAM swap: "VRAM cpu" was 99% used in BananaBread
   (218/220 MB), and Luanti's VRAM swap had 88 MB in VRAM and 54 MB on the disk at the middle
   snapshot. A MB of textures is a MB of swap moved to the disk.
 - GART (system RAM, taken from CMA on demand): 6.7-12.8 MB per game (pushbuffers, Mesa's upload and
@@ -151,7 +151,7 @@ emerge and mesh threads.
 - glibc's dynamic mmap threshold: after the first free of a block mmapped above 128 KiB, glibc
   raises the threshold to that size (up to 32 MiB) and the trim threshold to twice it (up to 64
   MiB). From then on texture and map scratch buffers of a few MB come from the heap and leave
-  holes, and up to 64 MB of free top is never given back. That is why OpenArena and Sauerbraten
+  holes, and up to 64 MB of free top is never given back. That is why OpenArena and BananaBread
   keep 16-17 MB free in their main heap.
 
 ## Cuts, ranked
@@ -165,9 +165,9 @@ it says built).
 |---|---|---|---|---|---|---|
 | 1 | Yamagi Quake II | default 4096 (`YQ2_KISS_QSIZE=2097152`, variant `kissbig`, restores the old table) | **32** (measured: 70 MB less RAM, gameplay stalls 22.6 -> 0.05 s) | pkg, now the default | yquake2 0002 (default changed, rebuilt) | client-side random effects differ (the demo itself doesn't) |
 | 2 | Luanti | trim the arenas: `LU_TRIM_MB=16` (variants `trim16`, `trim64`) or `MALLOC=trim` | **17-24**, growing with play time (16.4-19.7 in free chunks + 2.5-4.2 top) | pkg / env | luanti 0007 built; ps3-malloctrim in ps3-gpu-tools 0.403 | a trim holds each arena's lock for its walk (log says how long) |
-| 3 | Sauerbraten | `MALLOC=trim` or `MALLOC=mmap` | **17** (17.0-17.4 in free chunks of the main heap) | env | ready | mmap: a syscall and zeroed pages per big alloc |
+| 3 | BananaBread | `MALLOC=trim` or `MALLOC=mmap` | **17** (17.0-17.4 in free chunks of the main heap) | env | ready | mmap: a syscall and zeroed pages per big alloc |
 | 4 | OpenArena gl1 | `MALLOC=trim` or `MALLOC=mmap` | **12-16** at rest (11.7-12.2 in free chunks + 3.6 top); its 13.9 MB of swapped heap | env | ready | as above |
-| 5 | Sauerbraten | `texreduce 1` (variant `tex1`, exists) | VRAM ~45-60 of its 117 (textures are ~87 MB of it; DDS and JPG at a quarter) | env | ready since 2026-10-17 | blurrier textures |
+| 5 | BananaBread | `texreduce 1` (variant `tex1`, exists) | VRAM ~45-60 of its 117 (textures are ~87 MB of it; DDS and JPG at a quarter) | env | ready since 2026-10-17 | blurrier textures |
 | 6 | Luanti | `MALLOC=arena2` (or the recipe's `malloc` variant) | part of #4 arena's 18-22 MB holes, overlaps #2 | env | ready | malloc lock contention between 4 busy threads |
 | 7 | Luanti | settings variants (view range, client/server unload, active2, chunk3, lean) | GAME-PLAN.md's estimates; heap here is 103 MB of map blocks and meshes | env | ready since 2026-10-17 | per variant |
 | 8 | Armagetron, Neverball, Yamagi, ETR, ClassiCube, QuakeSpasm | `MALLOC=trim` | 4.2 / 2.3 / 2.7 / 0.8-1.9 / 1.0 / 1.3 (mostly top chunks) | env | ready | small |
@@ -181,7 +181,7 @@ OpenArena's 176 MB hunk mapping (untouched pages).
 
 **Measured since (2026-10-18, same-boot rows of games/bench/results/, row = fps.csv row):** #1 is the
 default (row 57: RSS 125 -> 56 MB, stalls 22.6 -> 0.05 s). #2 as `trim16`: no gain and more stalls
-(3.35 -> 8.6 s, row 57), rejected. #3, #4 (`MALLOC=trim`, `mmap` on Sauerbraten and OpenArena, x2 in
+(3.35 -> 8.6 s, row 57), rejected. #3, #4 (`MALLOC=trim`, `mmap` on BananaBread and OpenArena, x2 in
 batch 8): the rounds disagreed with each other, read as noise (row 61); not shipped, and the MB they
 free were not read out of those runs' `ps3-malloctrim:` lines here. #7: the clean Luanti re-runs (row
 67, interference detector on) keep base; `cliunload` has more stalls (3.8 and 5.2 s against 1.5 and
@@ -246,7 +246,7 @@ ps3-dev, not installed; their A/Bs below are pending.)
 | ioquake3 | 1.36+u20260719.58839361+dfsg-1+ps3.462 | 0027-0029, OpenArena opengl2 (section below) |
 | Mesa | 26.2.4-1+ps3.442~dev20261018140130 (build/debs/mesa) | 0037 NV30_SYSMEM_COPY, NV30_INVALIDATE_BUFFER, NV30_SYSMEM_STATS (section "nouveau's system memory copies") |
 | Mesa | 26.2.4-1+ps3.466~dev20261018175510 (build/debs/mesa, replaces the ps3.442 build there; 0037 included) | 0038 NV30_FORCE_DXT (section "Texture compression at upload"), 0039 NV30_SHADER_CACHE (PROFILING.md "nv30's shader cache"); all off by default |
-| cube2, cube2-server | 0.0.20201229+dfsg-1+ps3.442~dev20261018143125 (build/debs/cube2) | 0011 `vanormalshort` (section "Sauerbraten's world normals as shorts") |
+| cube2, cube2-server | 0.0.20201229+dfsg-1+ps3.442~dev20261018143125 (build/debs/cube2) | 0011 `vanormalshort` (section "BananaBread's world normals as shorts") |
 
 ## On the PS3
 
@@ -271,7 +271,7 @@ its off state:
     python3 /var/tmp/bench/report.py --mem /var/tmp/ps3-bench/<run dirs>
 
 Look at `mem_swap`, `mem_heap_rss`/`mem_heap_swap`, `mem_malloc_free`, `min_memavailable_kb`
-(Luanti, Sauerbraten) and the `ps3-malloctrim:` lines (ms per trim, rss before and after).
+(Luanti, BananaBread) and the `ps3-malloctrim:` lines (ms per trim, rss before and after).
 
 Then the effect on stalls and fps, three rounds without MEM (report.py's `stall_play_s`,
 `longest_play`, `low1_play`, median fps), webcam on every run:
@@ -440,7 +440,7 @@ Built, not measured: the switches are off by default.
   (DYNAMIC, VRAM, no copy), BufferSubData writes it (`DIRTY`) and u_vbuf's colour conversion reads
   it: a readback and a drain at every tess flush, so four flushes in a row within the first
   frames. Then the MD3 models load (STATIC, VRAM): 223 buffers, 62 MB, each with a copy nothing
-  reads. Sauerbraten: its world VBOs (GL_STATIC_DRAW, normals and tangents GL_BYTE, which nv30
+  reads. BananaBread: its world VBOs (GL_STATIC_DRAW, normals and tangents GL_BYTE, which nv30
   can't fetch: renderva.cpp) are read by u_vbuf on every draw, so they need their copies; whether
   the hint gets set too (copies of its model and sky buffers) is what NV30_SYSMEM_STATS shows.
 
@@ -450,11 +450,11 @@ Built, not measured: the switches are off by default.
 |---|---|---|---|
 | Never set the hint (`NV30_SYSMEM_COPY=0`) | the copies of buffers never read (OpenArena gl2: ~62 MB) | an app that orphans read buffers pays a readback and drain per new buffer: **OpenArena gl2 with 16-bit colours would drain at every tess flush**, so only together with `NV30_INVALIDATE_BUFFER=1` | yes, off |
 | Hint only for DYNAMIC buffers (`NV30_SYSMEM_COPY=2`) | the same 62 MB (MD3 VBOs are STATIC); the streaming case the hint is for keeps working | static buffers read later get one readback each at their first read (load time or first view) | yes, off |
-| Buffer invalidation (`NV30_INVALIDATE_BUFFER=1`) | orphaning keeps the buffer and its copy: no new pipe buffer, copy, readback or vertex array revalidation per tess flush; the hint's trigger goes away for this pattern | the code is nv50/nvc0's (nouveau_buffer_invalidate; nv30 already reallocates GART buffers in place on discard maps); applies to every orphaning game (Sauerbraten's particles and grass: GART STREAM buffers, now reallocated in place when busy instead of replaced by a new buffer) | yes, off |
-| Free copies after N frames without reads | buffers read once (at load) | a buffer read again later pays a readback and drain; Sauerbraten's world buffers are read every frame they are seen, so its copies would come back each time; per-buffer map counting needed to free safely | no |
+| Buffer invalidation (`NV30_INVALIDATE_BUFFER=1`) | orphaning keeps the buffer and its copy: no new pipe buffer, copy, readback or vertex array revalidation per tess flush; the hint's trigger goes away for this pattern | the code is nv50/nvc0's (nouveau_buffer_invalidate; nv30 already reallocates GART buffers in place on discard maps); applies to every orphaning game (BananaBread's particles and grass: GART STREAM buffers, now reallocated in place when busy instead of replaced by a new buffer) | yes, off |
+| Free copies after N frames without reads | buffers read once (at load) | a buffer read again later pays a readback and drain; BananaBread's world buffers are read every frame they are seen, so its copies would come back each time; per-buffer map counting needed to free safely | no |
 | u_vbuf reads from the CPU-side upload source | no copies at all | the upload data is gone after BufferData; keeping it is the copy | no |
 | Convert at upload time into a fetchable format | no copies, no per-draw conversion | the buffer's vertex format isn't known at upload (VAOs bind it later, one buffer can serve several layouts); needs a translated twin per layout, invalidated on writes, more VRAM | no |
-| **The game sends fetchable formats** | no u_vbuf, no copies, no per-draw CPU conversion | per game | ioquake3 0027 (r_vaoSnormColor, the default); Sauerbraten: proposed below |
+| **The game sends fetchable formats** | no u_vbuf, no copies, no per-draw CPU conversion | per game | ioquake3 0027 (r_vaoSnormColor, the default); BananaBread: proposed below |
 
 The game-side fix is the one that removes everything; the Mesa switches cover the games we
 don't patch and the hint's collateral copies.
@@ -484,7 +484,7 @@ Deploy the Mesa debs (26.2.4-1+ps3.442~dev20261018140130: `make deploy` of build
     # OpenArena opengl2: gl2min_color16 has the 16-bit colours u_vbuf converts (ioquake3 0027 off);
     # gl2min (0027 on, if ioquake3 ps3.462 is installed) is the control the switches shouldn't move
     STALLS=1 MEM=1 ENVS="$ARMS" /var/tmp/bench/run.sh bench openarena "gl2min_color16 gl2min" 2
-    # Sauerbraten: its GL_BYTE normals go through u_vbuf on every draw
+    # BananaBread: its GL_BYTE normals go through u_vbuf on every draw
     MEM=1 ENVS="$ARMS" /var/tmp/bench/run.sh bench sauerbraten base 2
     python3 /var/tmp/bench/report.py --stalls --mem /var/tmp/ps3-bench/<run dirs>
     # then fps and stalls without MEM (3 rounds), the arms that helped against the plain one
@@ -500,7 +500,7 @@ per static buffer read). `NV30_SYSMEM_COPY=0` without the invalidation is left o
 helps and shows nothing wrong (players and world drawn, no GL errors in game.log), it can become a
 PS3 default.
 
-### Sauerbraten's world normals as shorts (cube2 0011, `vanormalshort`, 2026-10-18)
+### BananaBread's world normals as shorts (cube2 0011, `vanormalshort`, 2026-10-18)
 
 The game-side fix from the table above. `engine/world.h`'s `vertex` (32 bytes) sends `norm` and
 `tangent` as GL_BYTE normalized; nv30's vertex formats (nv30_format.c, `nv30_vtxfmt_table`) have
@@ -538,7 +538,7 @@ right with it and the numbers below hold, it can become the default.
 On the PS3 the cost is the +1.1 MB of VRAM (25% more in the world VBOs). The gain: no malloc
 copies of the world VBOs (up to the 4.4 MB of them, those the demo draws), no u_vbuf conversion
 or upload per world draw (CPU), and no readbacks for them. Whether the readbacks also set
-nouveau's keep-copy hint in Sauerbraten (copies of every later buffer) is what `sysmem_hint` shows.
+nouveau's keep-copy hint in BananaBread (copies of every later buffer) is what `sysmem_hint` shows.
 
 Package: cube2 0.0.20201229+dfsg-1+ps3.442~dev20261018143125 (build/debs/cube2), not deployed, not published.
 Recipe variants: `shortnormals` (`vanormalshort 1`), `bytenormals` (`vanormalshort 0`, the default
@@ -562,7 +562,7 @@ Read `sysmem_read_mb` and `sysmem_mb` (expected: base a few MB, shortnormals ~0 
 buffers are read), `sysmem_readbacks`, `sysmem_hint`, against `mem_malloc_used`, `mem_heap_rss` /
 `_swap`, `stall_play_s` and the steady fps (expected up: no per-draw conversion). Check game.log
 for GL errors. Optional, for the CPU: one `PERF=1` run per arm, `util_format_r8g8b8*_snorm` and
-translate should leave Sauerbraten's profile.
+translate should leave BananaBread's profile.
 
 ## Texture compression at upload (Mesa 0038, `NV30_FORCE_DXT`, 2026-10-18)
 
@@ -688,7 +688,7 @@ mode buys little there), `fdxt_mipgen_ms` and the `load` column (SuperTuxKart an
 their mipmaps on the CPU now), `stall_play_s`, `low1` and the fps (smaller textures are less
 bandwidth: expected the same or better), `mem_swap` (VRAM freed for vswap). OpenArena gl2min and
 SuperTuxKart already ask for compression themselves (`r_ext_compressed_textures 1`,
-`enable_texture_compression`), and Sauerbraten's cube2 compresses from 1024 up, so there `opaque`
+`enable_texture_compression`), and BananaBread's cube2 compresses from 1024 up, so there `opaque`
 takes the rest only (lightmaps, small textures, UI); Luanti and ClassiCube upload everything
 plain and should show the most. A game where `opaque` looks right and saves VRAM gets
 `NV30_FORCE_DXT=opaque` in its launcher environment (a ps3-desktop change, after the user has
@@ -712,7 +712,7 @@ seen it).
   vmswap never come out.
 - **Mesa (nouveau)**: the hint's switches are Mesa 0037 (section above). Left: whole-buffer
   copies of buffers u_vbuf reads (needed while it reads them).
-- **Sauerbraten (cube2)**: done, cube2 0011 `vanormalshort` (section "Sauerbraten's world
+- **BananaBread (cube2)**: done, cube2 0011 `vanormalshort` (section "BananaBread's world
   normals as shorts" above). Left: grass (`grassvert.bounds`, GL_BYTE in a GART stream buffer: a
   per-draw conversion but no copy) and the edit-mode prefab preview.
 - **OpenArena opengl2**: r_keepImages for renderergl2 (0025 is opengl1's): every pass and map

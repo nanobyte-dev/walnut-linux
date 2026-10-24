@@ -48,7 +48,7 @@ parts: measured, read in source, estimate, UNVERIFIED.
   | Game | PC VmHWM (1080p, llvmpipe) | textures / buffers in the trace | formula | PS3 measured (Rss + swap, docs/MEMORY.md) |
   |---|---:|---:|---:|---:|
   | Neverball (Debian 1.6, demo1 replay) | 152 | 5.3 / 0.3 | ~56 | 30 |
-  | Sauerbraten (Debian cube2, map cave) | 529 | 249 / 13 | ~177 | 90 (our build, with its memory patches) |
+  | BananaBread (Debian cube2, map cave) | 529 | 249 / 13 | ~177 | 90 (our build, with its memory patches) |
 
   So every "PS3 estimate" below that comes from PC RSS is an upper bound, perhaps 1.5-2x too high
   for small heaps (two points only; a shader-heavy game pays more LLVM JIT memory on the PC). They

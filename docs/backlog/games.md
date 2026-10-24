@@ -14,14 +14,14 @@ Rank 8. PLAN 2.6's repeats: each one decides a default or a table row on one run
 
 | Repeat | The single run | Row |
 |---|---|---|
-| Sauerbraten `oqlag` (cube2 0010 `oqwaterlag 1`: this frame's water query counts only once its result is in) x3 | 39.4 steady / 43.5 smooth against base 25.0 / 30.3 | 64 |
+| BananaBread `oqlag` (cube2 0010 `oqwaterlag 1`: this frame's water query counts only once its result is in) x3 | 39.4 steady / 43.5 smooth against base 25.0 / 30.3 | 64 |
 | Luanti `view40` x3 | 59 fps, closer fog, 0.9 s of stalls | 63 |
 | Extreme Tux Racer's steady-state row with stalls | batch 17 has one uncapped run: 59 fps, 2.9 s of gameplay stalls, longest frame 483 ms, 1% low 27.3 | 69 |
 | Teeworlds, a second run | 183 fps on dm1, smoke only | 62 |
 | Armagetron live AI rounds | 83 fps, one 127 ms frame in 2 min | 60 |
-| A Sauerbraten first-person baseline with the translate LUT re-A/B'd | the LUT's +53% (25.9 -> 39.6) was on the earlier spectator demo; the first-person demo swings 23-38 fps by itself | 57, 64-65 |
+| A BananaBread first-person baseline with the translate LUT re-A/B'd | the LUT's +53% (25.9 -> 39.6) was on the earlier spectator demo; the first-person demo swings 23-38 fps by itself | 57, 64-65 |
 
-`oqlag` matters most: the water query wait was 10.3% of Sauerbraten's CPU, and Mesa's own fix for
+`oqlag` matters most: the water query wait was 10.3% of BananaBread's CPU, and Mesa's own fix for
 it (0035 `NV30_QUERY_WAIT`) gave no fps in its repeat (row 65), so the engine-side change is the one
 left. ClassiCube `chunks1` and X-Moto's stream buffer were repeated in batch 16.
 
@@ -31,7 +31,7 @@ left. ClassiCube `chunks1` and X-Moto's stream buffer were repeated in batch 16.
 - **Needs:** PS3. **Status:** scheduled: TESTS.md "Next" (PLAN 2.6 repeats).
 - **Source:** PLAN 2.6; [archive/HOTPATHS.md, "Measured on the PS3"](../archive/HOTPATHS.md#measured-on-the-ps3-2026-10-18-dated-note).
 
-**To start.** `/var/tmp/bench/run.sh bench sauerbraten "base oqlag oqnowait" 3` (`oqnowait` is the
+**To start.** (BananaBread's recipe is still called `sauerbraten`.) `/var/tmp/bench/run.sh bench sauerbraten "base oqlag oqnowait" 3` (`oqnowait` is the
 stock engine's `oqwait 0`, for comparison), `/var/tmp/bench/run.sh bench luanti "base view40" 3`,
 with `STALLS=1`; the first-person demo's spread needs three rounds or more for small differences.
 
@@ -189,11 +189,11 @@ Rank 40. A replay of about 60 s played by the user.
 - **Effort:** S. **Needs:** the user (records the replay), then PS3. **Status:** never tried.
 - **Source:** PLAN 3.10.
 
-### Sauerbraten: texreduce
+### BananaBread: texreduce
 
 Rank 42. The game's own `texreduce 1` (recipe variant `tex1`).
 
-**Why.** Sauerbraten holds 117 MB of VRAM (rows 68-70), about 87 MB of it textures; DDS and JPG at a
+**Why.** BananaBread (Debian's cube2) holds 117 MB of VRAM (rows 68-70), about 87 MB of it textures; DDS and JPG at a
 quarter would take ~45-60 MB off, at the cost of blurrier textures. The variant exists since
 2026-10-17 and has no row. It is the fallback if texture compression at upload
 ([memory.md](memory.md#texture-compression-at-upload-for-every-game)) takes little here (cube2
@@ -224,17 +224,17 @@ wedged run.
 - **Status:** built, not run on the PS3.
 - **Source:** logscan.py over 602 runs; the DUMPON captures of 2026-10-19.
 
-### Sauerbraten data files, and a clean SuperTuxKart config
+### BananaBread data files, and a clean SuperTuxKart config
 
 Rank 73. Two small data checks the logs found.
 
-**Why.** [LOG-FINDINGS.md, items 6 and 7](../games/LOG-FINDINGS.md): Sauerbraten logs `could not load
+**Why.** [LOG-FINDINGS.md, items 6 and 7](../games/LOG-FINDINGS.md): BananaBread logs `could not load
 texture packages/gk/fantasy/skyfantasy/skyfantasy` (73 of 74 runs) and `could not load envmap
 skyboxes/morning` (65 runs); the benchmark map may draw without its sky and reflections. SuperTuxKart
 prints 30 config errors a run because the recipe writes a partial `config.xml`.
 
 - **To start.** List those paths in the installed cube2 data; if they are absent, find which package
-  has them; look at a photo of the Sauerbraten run for the sky. For SuperTuxKart let the game write its
+  has them; look at a photo of the BananaBread run for the sky. For SuperTuxKart let the game write its
   default config once and keep that as the recipe's base.
 - **Payoff:** a picture closer to the PC's; a log that shows real errors. **Effort:** S.
 - **Risk:** the picture changes (the user decides). **Needs:** host, PS3 for the photo.

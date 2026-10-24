@@ -29,9 +29,9 @@ wins are the data-parallel work next to it. The user chose fluidsynth and OpenAL
 | # | Work | Measured cost on the PPE | Games |
 |---|---|---|---|
 | 1 | MIDI synthesis, fluidsynth (3b below) | ~40% of a PPE thread in dsda-doom; the cause of its chopping (1280 underruns a minute against 18 without music) | dsda-doom, OpenTTD's music, SDL_mixer MIDI |
-| 2 | OpenAL Soft's mixer (3 below, SPU-AUDIO.md) | ~10% of OpenArena's frame rate in step 0; ppc64 has no SIMD mixer | OpenArena, QuakeSpasm, Yamagi, Sauerbraten, ETR, SuperTuxKart, Luanti |
+| 2 | OpenAL Soft's mixer (3 below, SPU-AUDIO.md) | ~10% of OpenArena's frame rate in step 0; ppc64 has no SIMD mixer | OpenArena, QuakeSpasm, Yamagi, BananaBread, ETR, SuperTuxKart, Luanti |
 | 3 | OpenTTD's blitter and palette animation | 27% of its CPU (profile 2026-10-17: PaletteAnimate 14%, Draw 13%) | OpenTTD |
-| 4 | CPU skinning | Sauerbraten's default on the PS3 (GPU skinning 11 fps against 28) | Sauerbraten, SuperTuxKart's legacy path |
+| 4 | CPU skinning | BananaBread's default on the PS3 (GPU skinning 11 fps against 28) | BananaBread, SuperTuxKart's legacy path |
 | 5 | Chunk meshing, terrain generation (6 below) | Luanti's loading stalls; ClassiCube's chunk builds | Luanti, ClassiCube |
 | 6 | DXT5 in libspeq (2 below) | memory more than CPU: textures stay compressed | every game asking for compressed RGBA |
 
@@ -66,7 +66,7 @@ dsda-doom's before; earlier profiles with a large `[unknown]` share were hit by 
   turn. Why the chopping stays is not established (the wait, or something outside the DSP).
   **Second version built** (single precision in vectors, a round of up to 16 blocks per round trip,
   both deadline SPEs; SPU-AUDIO.md 5(e)), not run yet.
-- **Skinning** (item 4 of the table): libspeq's `speq_skin_*_v1` and Sauerbraten's hook (cube2
+- **Skinning** (item 4 of the table): libspeq's `speq_skin_*_v1` and BananaBread's hook (cube2
   0006) built and tested on the host, big-endian included (ps3-spu/doc/skin.md); not run on the
   PS3. Expected gain on map cave ~1% (the hud gun only, ~3200 vertices); a map with bots would
   show more.
@@ -87,12 +87,12 @@ default) uses the SPEs, so installing the two packages is enough. Next: the shar
   465 underruns a minute on the pool against 1095 on the PPE, 4530 rounds on the SPEs, 0 timeouts
   (results row "libspeq 0.367 (shared deadline pool)"). The music still chops audibly; why is open
   (IDEAS #8).
-- Skinning measured (Sauerbraten, row "Luanti ps3.364 batching ... Sauerbraten libspeq 0.381"): libspeq's
+- Skinning measured (BananaBread, row "Luanti ps3.364 batching ... BananaBread libspeq 0.381"): libspeq's
   PPE path 28.1 fps with no stalls, the SPU path 23.6 with 21 stalls (4.3 s), the engine's own 23.0.
   The SPU path adds hitches; cube2 keeps CPU skinning by default, `SPEQ_SKIN` selects.
 - DXT5 (libspeq, Mesa 0032) and RGB sources on the SPEs (libspeq 0.394: 1024x1024 RGB in 1.0 ms on 4
   SPEs against about 175 ms on the PPE) are done. No game in the suite has exercised the RGB path yet
-  (Sauerbraten's demo uploads none), and Teeworlds' DXT5 has not shown a `SPEQ` line in a log.
+  (BananaBread's demo uploads none), and Teeworlds' DXT5 has not shown a `SPEQ` line in a log.
 - Not started: E16/E8b, meshing, the 7th SPE (`spu_base.enum_shared=1`, FLASH-SYSCON.md 6.1),
   compression at upload for every game (IDEAS #4; built 2026-10-18 as Mesa 0038 `NV30_FORCE_DXT`,
   off by default, PS3 A/B in MEMORY.md "Texture compression at upload").
@@ -102,7 +102,7 @@ default) uses the SPEs, so installing the two packages is enough. Next: the shar
 1. **Re-check across the game suite** (GAME-SUITE.md). Step 0's game numbers and D's OpenArena
    load times are invalid (nothing reached the screen, SPU-OFFLOAD-SURVEY.md "Measured: step 0"):
    measure them again through games/bench first. Then the compressed-texture default and the
-   SPU encoder in every game that compresses (OpenArena, Sauerbraten after its one-line patch,
+   SPU encoder in every game that compresses (OpenArena, BananaBread after its one-line patch,
    games asking for generic compressed formats); `SPEQ_DEBUG` shows which path each took.
 2. **DXT5 in libspeq** (SPU and PPE): Mesa turns generic compressed RGBA into DXT5; today those
    fall back to Mesa's slow encoder (Teeworlds, TORCS per GAME-SUITE.md). Same structure as DXT1

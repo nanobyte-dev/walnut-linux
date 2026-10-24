@@ -23,7 +23,7 @@ recipe's header says how (the demo repeated in one session, the game's own windo
 window). Runs before that have no such cells, and the files began with the rows of `fps.csv` with
 those cells empty. `fps.csv` keeps its meaning where it can: for a repeated demo its cell is the
 first pass, the run as it was before. Where the run itself changed length (SuperTuxKart's profile
-185 s instead of 60, Sauerbraten's and Luanti's longer runs, X-Moto's replay now finishing and
+185 s instead of 60, BananaBread's and Luanti's longer runs, X-Moto's replay now finishing and
 printing its average over the whole replay), compare `fps.csv` across that date with care, and use
 `--hud xmoto` to keep X-Moto's `fps.csv` cells HUD medians as before.
 
