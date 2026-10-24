@@ -1,0 +1,24 @@
+Source: sauerbraten
+Section: games
+Priority: optional
+Maintainer: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+Homepage: http://sauerbraten.org/
+
+Package: sauerbraten
+Architecture: all
+Depends: ${misc:Depends}, cube2 (>= 0.0.20201229+dfsg-1+ps3)
+Suggests: sauerbraten-data
+Description: Cube 2: Sauerbraten, the 2020 Edition, launcher and menu entry
+ Sauerbraten is a fast first person shooter with bots, a good deal of single player and
+ multiplayer modes, and an in-game map editor. Its engine is Cube 2, which Debian's cube2
+ package builds from the same source as the 2020_12_29 release (Walnut's build of it has
+ the patches for the PS3's GPU and memory). This package adds /usr/games/sauerbraten, which
+ runs it fullscreen at the desktop's resolution on Sauerbraten's own data and keeps its
+ settings in ~/.sauerbraten, and the menu entry.
+ .
+ The game data (maps, textures, models, sounds, music) is sauerbraten-data, whose licences
+ are mixed and partly non-commercial: it is in Walnut's licensed suite, not in the public one.
+ Debian's cube2-data is BananaBread's content, not this game.

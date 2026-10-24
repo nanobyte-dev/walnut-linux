@@ -1,0 +1,20 @@
+#!/usr/bin/make -f
+P := debian/sauerbraten-data
+
+%:
+	dh $@
+
+# The release's data/ and packages/ where the launcher (sauerbraten) points the engine's -k.
+override_dh_auto_install:
+	install -d $(P)/usr/share/games/sauerbraten $(P)/usr/share/doc/sauerbraten-data
+	cp -a data packages $(P)/usr/share/games/sauerbraten/
+	cp -a docs README.html $(P)/usr/share/doc/sauerbraten-data/
+	find $(P) -type d -exec chmod 755 {} +
+	find $(P) -type f -exec chmod 644 {} +
+
+# nothing to strip or compress, and the files are already compressed
+override_dh_strip_nondeterminism override_dh_compress:
+
+# the data is compressed already: gzip is fast and as small as anything
+override_dh_builddeb:
+	dh_builddeb -- -Zgzip -z3

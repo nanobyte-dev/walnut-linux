@@ -19,3 +19,6 @@ ps3-games-licensed
 rct2-data
 # Tyrian 2.1's freeware data for OpenTyrian, Epic's limited-use license (tools/tyrian-data.sh, Section local/games)
 tyrian-data
+
+# Sauerbraten's full game data (sauerbraten-data/, Section local/games)
+sauerbraten-data

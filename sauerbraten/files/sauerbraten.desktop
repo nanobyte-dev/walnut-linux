@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Name=Sauerbraten
+GenericName=First person shooter
+Comment=Cube 2: Sauerbraten, the fast-paced first person shooter with in-game map editing
+Exec=sauerbraten
+Icon=sauerbraten
+Terminal=false
+Type=Application
+Categories=Game;ActionGame;
+Keywords=action;shooter;3D;fps;first-person;fast-paced;cube2;editor;maps;

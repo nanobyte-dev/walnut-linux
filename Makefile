@@ -223,6 +223,11 @@ $(SAUER_RELEASE):
 $(SB_ORIG): $(SAUER_RELEASE) sauerbraten-nonfree-data/files.txt tools/sauerbraten-data.sh
 	mkdir -p $(dir $@)
 	tools/sauerbraten-data.sh $(SAUER_RELEASE) sauerbraten-nonfree-data/files.txt $@ sauerbraten-nonfree-data-0.0.20201229
+# sauerbraten-data (licensed): the release's data/ and packages/ whole, for the real Sauerbraten (own dir, /usr/share/games/sauerbraten)
+SBD_ORIG := $(BUILD)/sauerbraten-data/sauerbraten-data-0.0.20201229.tar.gz
+$(SBD_ORIG): $(SAUER_RELEASE) tools/sauerbraten-full-data.sh
+	mkdir -p $(dir $@)
+	tools/sauerbraten-full-data.sh $(SAUER_RELEASE) $@ sauerbraten-data-0.0.20201229
 
 # Sounds and music, fetched and converted as the game's launcher would (classicube/sounds.sh)
 CC_AUDIO := $(BUILD)/classicube/audio
@@ -530,9 +535,10 @@ $(foreach b,BUILDER GAMES_BUILDER SPU_BUILDER REPO_BUILDER,\
 
 # --- Debian source packages (deb-src + our patches; docs/PLAN.md, packaging plan) ---------------
 DEB_ENV := -e OWNER=$(UID_GID) -e DEBIAN_SUITE=$(DEBIAN_SUITE) -e DEBIAN_MIRROR=$(DEBIAN_MIRROR) -e HOME=/tmp -e CCACHE_REMOTE_STORAGE \
-	-e SB_ORIG=$(SB_ORIG) -e DP_ORIG=$(DP_ORIG) -e ZNG_ORIG=$(ZNG_ORIG) -e WZ_ORIG=$(WZ_ORIG) -e ORCT2_ORIG=$(ORCT2_ORIG) -e ORCT2_OBJECTS=$(ORCT2_OBJECTS) -e ORCT2_TITLESEQ=$(ORCT2_TITLESEQ) -e ORCT2_OPENSFX=$(ORCT2_OPENSFX) -e ORCT2_OPENMUSIC=$(ORCT2_OPENMUSIC) -e CC_ORIG=$(CC_ORIG) -e CCD_ORIG=$(CCD_ORIG) -e KERNEL_RELEASE=$(KERNEL_RELEASE) -e KERNEL_FLAVOUR=$(KERNEL_FLAVOUR)
+	-e SB_ORIG=$(SB_ORIG) -e SBD_ORIG=$(SBD_ORIG) -e DP_ORIG=$(DP_ORIG) -e ZNG_ORIG=$(ZNG_ORIG) -e WZ_ORIG=$(WZ_ORIG) -e ORCT2_ORIG=$(ORCT2_ORIG) -e ORCT2_OBJECTS=$(ORCT2_OBJECTS) -e ORCT2_TITLESEQ=$(ORCT2_TITLESEQ) -e ORCT2_OPENSFX=$(ORCT2_OPENSFX) -e ORCT2_OPENMUSIC=$(ORCT2_OPENMUSIC) -e CC_ORIG=$(CC_ORIG) -e CCD_ORIG=$(CCD_ORIG) -e KERNEL_RELEASE=$(KERNEL_RELEASE) -e KERNEL_FLAVOUR=$(KERNEL_FLAVOUR)
 # upstream tarballs a package's source is made from
 sauerbraten-nonfree-data-src: $(SB_ORIG)
+sauerbraten-data-src: $(SBD_ORIG)
 darkplaces-gl2-src: $(DP_ORIG)
 zlib-ng-src: $(ZNG_ORIG)
 warzone2100-src: $(WZ_ORIG)
@@ -601,6 +607,6 @@ DEB_JOBS ?= 16
 # KEEP_TREE=1: make linux-deb keeps the cross build tree (build/chroot/cross-linux)
 KEEP_TREE ?= 0
 # All our packages, the kernel first: ps3rsx builds against its headers
-SRC_PACKAGES := linux mesa plymouth pnmixer bomberclone ps3-boot ps3-gpu-tools ps3-spu classicube classicube-data fluidsynth openal-soft dsda-doom neverball ioquake3 supertuxkart openttd xmoto etr teeworlds ps3-system ps3-desktop ps3-splash sauerbraten-nonfree-data ps3-games-licensed darkplaces-gl2 zlib-ng libvorbis warzone2100 libpng1.6 openrct2 endless-sky walnut-games
+SRC_PACKAGES := linux mesa plymouth pnmixer bomberclone ps3-boot ps3-gpu-tools ps3-spu classicube classicube-data fluidsynth openal-soft dsda-doom neverball ioquake3 supertuxkart openttd xmoto etr teeworlds ps3-system ps3-desktop ps3-splash sauerbraten sauerbraten-nonfree-data sauerbraten-data ps3-games-licensed darkplaces-gl2 zlib-ng libvorbis warzone2100 libpng1.6 openrct2 endless-sky walnut-games
 packages: $(SRC_PACKAGES:%=%-deb)
 	$(MAKE) --no-print-directory ps3rsx-modules

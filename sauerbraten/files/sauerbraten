@@ -1,0 +1,14 @@
+#!/bin/sh
+# Sauerbraten (Cube 2: Sauerbraten, the 2020 Edition): our cube2 engine on the game's own data.
+# Fullscreen at the desktop's resolution (the engine's own default sizes it; Debian's build starts
+# windowed). The settings live in ~/.sauerbraten, apart from BananaBread's (~/.cube2); nothing in
+# there is touched. SAUERBRATEN_WINDOWED=1 starts in a window.
+DATA=/usr/share/games/sauerbraten
+if [ ! -d "$DATA/packages" ] || [ ! -d "$DATA/data" ]; then
+	echo "sauerbraten: the game data is missing: install the sauerbraten-data package" >&2
+	echo "(Walnut's licensed suite), or put the release's data/ and packages/ in $DATA" >&2
+	exit 1
+fi
+if [ "${SAUERBRATEN_WINDOWED:-0}" = 1 ]; then full=0; else full=1; fi
+cd /usr/lib/cube2 || exit 1
+exec ./cube2_client -q"$HOME/.sauerbraten" -k"$DATA" -t"$full" "$@"
