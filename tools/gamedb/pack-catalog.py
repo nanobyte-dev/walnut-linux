@@ -60,7 +60,7 @@ def pack(content, out, repo=REPO):
         gdir = Path(content) / g["id"]
         names = [g["thumb"].split("/", 2)[2]]
         for t in g["tests"]:
-            names += t["ps3"] + t["pc"]
+            names += t["ps3"]   # only the PS3's pictures are published
         for n in dict.fromkeys(names):
             data = (gdir / n).read_bytes()
             if data.startswith(LFS_MAGIC):
