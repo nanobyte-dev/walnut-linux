@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 25 Oct 2026 00:52:45 +0300
+Subject: Screen: a fresh configuration starts fullscreen at the desktop's
+ resolution
+
+The default mode (currentScreensetting) is already "desktop resolution,
+fullscreen", read from the desktop at run time, so a 720p TV gets 720p and a
+1080p one 1080p. But the first fallback when a start fails or is cut short
+before the display came up is lastSuccess, which began as a 640x480 window.
+On a fresh configuration (no saved mode yet) that window was what the game
+then saved as its mode, and it stayed so until the player changed it.
+
+lastSuccess now starts as the same default. Nothing is written to the user's
+configuration: only the compiled-in defaults change, and a saved mode (the
+ARMAGETRON_* and FULLSCREEN settings) is read over them as before.
+
+diff --git a/src/render/rScreen.cpp b/src/render/rScreen.cpp
+--- a/src/render/rScreen.cpp
++++ b/src/render/rScreen.cpp
+@@ -85,7 +85,15 @@ static tSettingItem<REAL> at_ca("CUSTOM_SCREEN_ASPECT" , aspect[ArmageTron_Custo
+ 
+ #define MAXEMERGENCY 6
+ 
++// The last working mode, the first fallback when a start fails or is cut short
++// before the display came up. It starts as the default below (fullscreen at the
++// desktop's resolution), not as a 640x480 window: a fresh configuration whose
++// first attempt fails would otherwise save that window as its mode for good.
++#ifdef DEBUG
+ rScreenSettings lastSuccess(ArmageTron_640_480, false);
++#else
++rScreenSettings lastSuccess(sr_DesktopScreensizeSupported() ? ArmageTron_Desktop : ArmageTron_800_600, true);
++#endif
+ 
+ /*
+ std::ostream & operator << ( std::ostream & s, rScreenSize const & size )

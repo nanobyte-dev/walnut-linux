@@ -1,0 +1,562 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 25 Oct 2026 00:52:45 +0300
+Subject: Game controllers: a fixed built-in scheme next to the keyboard
+
+Controller N (the N-th one connected, N = 1..4) plays local player N, with no
+binding by hand, and the keyboard keeps working at the same time. The pads
+are not in the keymap, so nothing is written to the user's configuration.
+
+The buttons come from SDL2's game controller API, which names them by their
+place on the pad (a DualShock 3 is "PS3 Controller", whatever its raw button
+numbers; SDL 1.2's joystick API only has the raw numbers). The game is an SDL
+1.2 program running on sdl12-compat, whose SDL2 library is already loaded, so
+the few SDL2 functions needed are looked up with dlopen/dlsym at the first
+use. Without SDL2 the controllers are just not there. Hot-plug: every second
+the connected controllers are rescanned; a new one takes the first free
+player, an unplugged one lets go of what it held and the others keep their
+player.
+
+  D-pad left/right, L1/R1   turn left / right (one turn per press)
+  R2 or Cross               brake (held)
+  right stick left/right    glance left / right
+  Triangle                  switch camera
+  Select                    score table (held)
+  Start                     the game menu
+
+In a menu the D-pad moves and changes, Cross selects, Circle and Start go
+back. The controllers' state is turned into key events at the input queue
+(su_GetSDLInput), so the order with the keyboard's events and the recording
+stay as they were: in a menu the keys are the arrow keys, Return and Escape,
+in the game keysyms beyond the keyboard's, which su_HandleEvent hands to the
+player's actions (uGamepad.cpp has the table). Triggers and the stick are
+digital above a dead zone.
+
+Settings > Miscellaneous > Game Controllers shows the scheme as a read-only
+menu.
+
+diff --git a/language/english_base.txt b/language/english_base.txt
+--- a/language/english_base.txt
++++ b/language/english_base.txt
+@@ -1622,6 +1622,10 @@ misc_menu_help			Diverse items that had no place elsewhere, i.e. global keys.
+ 
+ misc_global_key_text		Global Keyboard Configuration
+ misc_global_key_help		Some keyboard settings independent of the current player.
++misc_gamepad_text		Game Controllers
++misc_gamepad_help		Shows what the game controllers do. The scheme is fixed: controller 1 plays player 1, controller 2 player 2, and so on, next to the keyboard.
++gamepad_menu_text		Game Controllers
++gamepad_menu_help		The built-in game controller scheme; it cannot be changed here.
+ 
+ misc_menuwrap_text		Menu Wrap:
+ misc_menuwrap_help		What happens if you are at the top of the menu and press up?
+diff --git a/src/Makefile.am b/src/Makefile.am
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -113,7 +113,7 @@ libtron_a_SOURCES=tron/gAIBase.cpp tron/gAIBase.h tron/gAICharacter.cpp tron/gAI
+ 	tron/gFriends.h tron/gFriends.cpp\
+ 	tron/gServerFavorites.h tron/gServerFavorites.cpp
+ 
+-libui_a_SOURCES=ui/uInput.cpp ui/uInput.h ui/uInputQueue.cpp ui/uInputQueue.h ui/uMenu.cpp ui/uMenu.h
++libui_a_SOURCES=ui/uGamepad.cpp ui/uGamepad.h ui/uInput.cpp ui/uInput.h ui/uInputQueue.cpp ui/uInputQueue.h ui/uMenu.cpp ui/uMenu.h
+ endif
+ 
+ # library include dependency structure. Watch out, don't create circular include dependencies.
+diff --git a/src/tron/gGame.cpp b/src/tron/gGame.cpp
+--- a/src/tron/gGame.cpp
++++ b/src/tron/gGame.cpp
+@@ -47,6 +47,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ #include "rViewport.h"
+ #include "rModel.h"
+ #include "uInput.h"
++#include "uGamepad.h"
+ #include "ePlayer.h"
+ #include "gArena.h"
+ #include "gSpawn.h"
+@@ -2677,6 +2678,11 @@ void MainMenu(bool ingame){
+      "$misc_global_key_help",
+      &su_InputConfigGlobal);
+ 
++    uMenuItemFunction gamepad_scheme
++    (&misc,"$misc_gamepad_text",
++     "$misc_gamepad_help",
++     &su_GamepadMenu);
++
+     uMenuItemToggle wrap
+     (&misc,"$misc_menuwrap_text",
+      "$misc_menuwrap_help",
+diff --git a/src/ui/uGamepad.cpp b/src/ui/uGamepad.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/ui/uGamepad.cpp
+@@ -0,0 +1,380 @@
++/*
++
++Game controllers: a fixed, built-in scheme next to the keyboard (uGamepad.h).
++
++This program is free software; you can redistribute it and/or modify it
++under the terms of the GNU General Public License as published by the Free
++Software Foundation; either version 2 of the License, or (at your option)
++any later version.
++
++*/
++
++#include "uGamepad.h"
++#include "uInput.h"
++#include "uMenu.h"
++#include "rScreen.h"
++#include "rConsole.h"
++#include "tConsole.h"
++#include "tString.h"
++#include <string.h>
++
++#ifndef DEDICATED
++#include <dlfcn.h>
++#endif
++
++// The inputs, in the order of the keysyms made for them. A controller's own
++// raw state is read in Scan().
++enum
++{
++    PAD_UP, PAD_DOWN, PAD_LEFT, PAD_RIGHT, // d-pad
++    PAD_CROSS, PAD_CIRCLE, PAD_TRIANGLE,   // SDL: A, B, Y
++    PAD_SELECT, PAD_START,                 // SDL: back, start
++    PAD_L1, PAD_R1, PAD_R2,                // R2 is an analog axis
++    PAD_GLANCE_LEFT, PAD_GLANCE_RIGHT      // right stick, left and right
++};
++
++// What an input does in the game: the action by its internal name (global
++// ones act on the game, the others on the local player of the controller).
++struct PadGameKey
++{
++    const char *action;
++    bool global;
++};
++
++static const PadGameKey gameKeys[uPAD_INPUTS] = {
++    { 0, false },                      // up
++    { 0, false },                      // down
++    { "CYCLE_TURN_LEFT", false },      // d-pad left
++    { "CYCLE_TURN_RIGHT", false },     // d-pad right
++    { "CYCLE_BRAKE", false },          // Cross
++    { 0, false },                      // Circle
++    { "SWITCH_VIEW", false },          // Triangle
++    { "SCORE", true },                 // Select
++    { "INGAME_MENU", true },           // Start
++    { "CYCLE_TURN_LEFT", false },      // L1
++    { "CYCLE_TURN_RIGHT", false },     // R1
++    { "CYCLE_BRAKE", false },          // R2
++    { "GLANCE_LEFT", false },          // right stick left
++    { "GLANCE_RIGHT", false },         // right stick right
++};
++
++bool su_GamepadSym(int sym)
++{
++    return sym >= SDLK_NEWLAST && sym < SDLK_NEWLAST + uMAX_PLAYERS * uPAD_INPUTS;
++}
++
++bool su_GamepadAct(int sym, REAL x)
++{
++#ifndef DEDICATED
++    if (!su_GamepadSym(sym))
++        return false;
++    int slot = (sym - SDLK_NEWLAST) / uPAD_INPUTS;
++    const PadGameKey &key = gameKeys[(sym - SDLK_NEWLAST) % uPAD_INPUTS];
++    if (!key.action)
++        return false;
++
++    uAction *act = uAction::Find(key.action);
++    if (!act)
++        return false;
++    if (key.global)
++        return uActionGlobalFunc::GlobalAct(act, x);
++
++    uPlayerPrototype *player = uPlayerPrototype::PlayerConfig(slot);
++    return player && player->Act(act, x);
++#else
++    return false;
++#endif
++}
++
++#ifndef DEDICATED
++
++// What an input does in a menu: a keysym, 0 for nothing
++static const int menuKeys[uPAD_INPUTS] = {
++    SDLK_UP, SDLK_DOWN, SDLK_LEFT, SDLK_RIGHT,
++    SDLK_RETURN, SDLK_ESCAPE, 0,
++    0, SDLK_ESCAPE,
++    0, 0, 0,
++    0, 0
++};
++
++// SDL2's numbers (SDL_gamecontroller.h), stable
++enum
++{
++    SDL2_BUTTON_A = 0, SDL2_BUTTON_B = 1, SDL2_BUTTON_Y = 3,
++    SDL2_BUTTON_BACK = 4, SDL2_BUTTON_START = 6,
++    SDL2_BUTTON_LEFTSHOULDER = 9, SDL2_BUTTON_RIGHTSHOULDER = 10,
++    SDL2_BUTTON_DPAD_UP = 11, SDL2_BUTTON_DPAD_DOWN = 12,
++    SDL2_BUTTON_DPAD_LEFT = 13, SDL2_BUTTON_DPAD_RIGHT = 14,
++    SDL2_AXIS_RIGHTX = 2, SDL2_AXIS_TRIGGERRIGHT = 5,
++    SDL2_INIT_GAMECONTROLLER = 0x2000
++};
++
++static struct
++{
++    int (*InitSubSystem)(Uint32);
++    void (*Update)(void);
++    int (*NumJoysticks)(void);
++    int (*IsGameController)(int);
++    void *(*Open)(int);
++    void (*Close)(void *);
++    int (*GetAttached)(void *);
++    Sint16 (*GetAxis)(void *, int);
++    Uint8 (*GetButton)(void *, int);
++    void *(*GetJoystick)(void *);
++    Sint32 (*JoystickInstanceID)(void *);
++    Sint32 (*DeviceInstanceID)(int);
++    const char *(*Name)(void *);
++} sdl2;
++
++static bool loadSDL2()
++{
++    void *lib = dlopen("libSDL2-2.0.so.0", RTLD_LAZY);
++    if (!lib)
++        return false;
++#define PAD_SYM(member, name) \
++    *(void **)&sdl2.member = dlsym(lib, name); \
++    if (!sdl2.member) return false
++    PAD_SYM(InitSubSystem, "SDL_InitSubSystem");
++    PAD_SYM(Update, "SDL_GameControllerUpdate");
++    PAD_SYM(NumJoysticks, "SDL_NumJoysticks");
++    PAD_SYM(IsGameController, "SDL_IsGameController");
++    PAD_SYM(Open, "SDL_GameControllerOpen");
++    PAD_SYM(Close, "SDL_GameControllerClose");
++    PAD_SYM(GetAttached, "SDL_GameControllerGetAttached");
++    PAD_SYM(GetAxis, "SDL_GameControllerGetAxis");
++    PAD_SYM(GetButton, "SDL_GameControllerGetButton");
++    PAD_SYM(GetJoystick, "SDL_GameControllerGetJoystick");
++    PAD_SYM(JoystickInstanceID, "SDL_JoystickInstanceID");
++    PAD_SYM(DeviceInstanceID, "SDL_JoystickGetDeviceInstanceID");
++    PAD_SYM(Name, "SDL_GameControllerName");
++#undef PAD_SYM
++    return sdl2.InitSubSystem(SDL2_INIT_GAMECONTROLLER) == 0;
++}
++
++static void *pads[uMAX_PLAYERS];                  // slot = player - 1
++static bool down[uMAX_PLAYERS][uPAD_INPUTS];      // as of the last scan
++static char how[uMAX_PLAYERS][uPAD_INPUTS];       // what the press did: 1 game, 2 menu, 0 nothing
++
++// the events made, in order
++#define PAD_QUEUE 64
++static SDL_Event queue[PAD_QUEUE];
++static int queueIn = 0, queueOut = 0;
++
++static void push(int type, int sym)
++{
++    int next = (queueIn + 1) % PAD_QUEUE;
++    if (next == queueOut)
++        return;
++    SDL_Event &e = queue[queueIn];
++    memset(&e, 0, sizeof(e));
++    e.type = type;
++    e.key.state = type == SDL_KEYDOWN ? SDL_PRESSED : SDL_RELEASED;
++    e.key.keysym.sym = (SDLKey)sym;
++    // the input queue drops key events without a character for the keys from
++    // Escape to z, as bogus
++    if (sym == SDLK_ESCAPE || sym == SDLK_RETURN)
++        e.key.keysym.unicode = sym;
++    queueIn = next;
++}
++
++static void change(int slot, int input, bool pressed)
++{
++    if (pressed)
++    {
++        how[slot][input] = 0;
++        if (uMenu::MenuActive())
++        {
++            if (menuKeys[input])
++            {
++                how[slot][input] = 2;
++                push(SDL_KEYDOWN, menuKeys[input]);
++            }
++        }
++        else if (gameKeys[input].action)
++        {
++            how[slot][input] = 1;
++            push(SDL_KEYDOWN, SDLK_NEWLAST + slot * uPAD_INPUTS + input);
++        }
++    }
++    else
++    {
++        int sym = SDLK_NEWLAST + slot * uPAD_INPUTS + input;
++        if (how[slot][input] == 2)
++            push(SDL_KEYUP, menuKeys[input]);
++        else if (how[slot][input] == 1)
++        {
++            // a menu may have opened since: nothing there takes the key, act at once
++            if (uMenu::MenuActive())
++                su_GamepadAct(sym, -1);
++            else
++                push(SDL_KEYUP, sym);
++        }
++        how[slot][input] = 0;
++    }
++}
++
++static void readPad(void *pad, bool now[uPAD_INPUTS], const bool before[uPAD_INPUTS])
++{
++    memset(now, 0, uPAD_INPUTS * sizeof(bool));
++    if (!pad)
++        return;
++    now[PAD_UP] = sdl2.GetButton(pad, SDL2_BUTTON_DPAD_UP);
++    now[PAD_DOWN] = sdl2.GetButton(pad, SDL2_BUTTON_DPAD_DOWN);
++    now[PAD_LEFT] = sdl2.GetButton(pad, SDL2_BUTTON_DPAD_LEFT);
++    now[PAD_RIGHT] = sdl2.GetButton(pad, SDL2_BUTTON_DPAD_RIGHT);
++    now[PAD_CROSS] = sdl2.GetButton(pad, SDL2_BUTTON_A);
++    now[PAD_CIRCLE] = sdl2.GetButton(pad, SDL2_BUTTON_B);
++    now[PAD_TRIANGLE] = sdl2.GetButton(pad, SDL2_BUTTON_Y);
++    now[PAD_SELECT] = sdl2.GetButton(pad, SDL2_BUTTON_BACK);
++    now[PAD_START] = sdl2.GetButton(pad, SDL2_BUTTON_START);
++    now[PAD_L1] = sdl2.GetButton(pad, SDL2_BUTTON_LEFTSHOULDER);
++    now[PAD_R1] = sdl2.GetButton(pad, SDL2_BUTTON_RIGHTSHOULDER);
++
++    // analog inputs with a dead zone: on above 16000 of 32767, off below 8000
++    int trigger = sdl2.GetAxis(pad, SDL2_AXIS_TRIGGERRIGHT);
++    now[PAD_R2] = trigger > (before[PAD_R2] ? 8000 : 16000);
++    int stick = sdl2.GetAxis(pad, SDL2_AXIS_RIGHTX);
++    now[PAD_GLANCE_LEFT] = stick < (before[PAD_GLANCE_LEFT] ? -8000 : -16000);
++    now[PAD_GLANCE_RIGHT] = stick > (before[PAD_GLANCE_RIGHT] ? 8000 : 16000);
++}
++
++// open the controllers that are connected and not open yet, each in the first free slot
++static void plug()
++{
++    for (int i = 0; i < uMAX_PLAYERS; i++)
++        if (pads[i] && !sdl2.GetAttached(pads[i]))
++        {
++            // unplugged: let go of what it held; the other controllers keep their player
++            bool none[uPAD_INPUTS];
++            readPad(NULL, none, down[i]);
++            for (int b = 0; b < uPAD_INPUTS; b++)
++                if (down[i][b])
++                    change(i, b, false);
++            memcpy(down[i], none, sizeof(none));
++            sdl2.Close(pads[i]);
++            pads[i] = NULL;
++            con << "Game controller " << (i + 1) << " unplugged\n";
++        }
++
++    int devices = sdl2.NumJoysticks();
++    for (int d = 0; d < devices; d++)
++    {
++        if (!sdl2.IsGameController(d))
++            continue;
++        Sint32 id = sdl2.DeviceInstanceID(d);
++        bool open = false;
++        for (int i = 0; i < uMAX_PLAYERS; i++)
++            if (pads[i] && sdl2.JoystickInstanceID(sdl2.GetJoystick(pads[i])) == id)
++                open = true;
++        if (open)
++            continue;
++
++        int slot = 0;
++        while (slot < uMAX_PLAYERS && pads[slot])
++            slot++;
++        if (slot == uMAX_PLAYERS)
++            break;
++        pads[slot] = sdl2.Open(d);
++        if (pads[slot])
++            con << "Game controller " << (slot + 1) << " (" << sdl2.Name(pads[slot])
++                << ") plays player " << (slot + 1) << "\n";
++    }
++}
++
++static void scan()
++{
++    static int state = 0; // 0 not tried, 1 running, -1 not available
++    static Uint32 nextScan = 0, nextPlug = 0;
++
++    if (state < 0 || !sr_screen)
++        return;
++    if (state == 0)
++        state = loadSDL2() ? 1 : -1;
++    if (state < 0)
++        return;
++
++    Uint32 now = SDL_GetTicks();
++    if ((Sint32)(now - nextScan) < 0)
++        return;
++    nextScan = now + 4;
++
++    sdl2.Update();
++    if ((Sint32)(now - nextPlug) >= 0)
++    {
++        nextPlug = now + 1000;
++        plug();
++    }
++
++    for (int i = 0; i < uMAX_PLAYERS; i++)
++    {
++        if (!pads[i])
++            continue;
++        bool state[uPAD_INPUTS];
++        readPad(pads[i], state, down[i]);
++        for (int b = 0; b < uPAD_INPUTS; b++)
++            if (state[b] != down[i][b])
++            {
++                down[i][b] = state[b];
++                change(i, b, state[b]);
++            }
++    }
++}
++
++bool su_GamepadEvent(SDL_Event &e)
++{
++    if (queueIn == queueOut)
++        scan();
++    if (queueIn == queueOut)
++        return false;
++    e = queue[queueOut];
++    queueOut = (queueOut + 1) % PAD_QUEUE;
++    return true;
++}
++
++// ***************************
++//    the scheme as a menu
++// ***************************
++
++class uMenuItemPadRow: public uMenuItem
++{
++    const char *button_;
++    const char *action_;
++public:
++    uMenuItemPadRow(uMenu *M, const char *button, const char *action)
++            :uMenuItem(M, tOutput("$gamepad_menu_help")), button_(button), action_(action) {}
++
++    virtual void Render(REAL x, REAL y, REAL alpha = 1, bool selected = 0)
++    {
++        DisplayText(REAL(x - .02), y, button_, selected, alpha, 1);
++        DisplayText(REAL(x + .02), y, action_, selected, alpha, -1);
++    }
++};
++
++void su_GamepadMenu()
++{
++    uMenu menu("$gamepad_menu_text");
++    static const char *rows[][2] = {
++        { "D-pad left / right, L1 / R1", "Turn left / right" },
++        { "R2, Cross", "Brake (held)" },
++        { "Right stick left / right", "Glance left / right" },
++        { "Triangle", "Switch camera" },
++        { "Select", "Score table (held)" },
++        { "Start", "Menu" },
++        { "In menus: D-pad, Cross, Circle, Start", "Move, select, back, back" },
++    };
++    const int count = sizeof(rows) / sizeof(rows[0]);
++    uMenuItemPadRow *items[count];
++    for (int i = 0; i < count; i++)
++        items[i] = new uMenuItemPadRow(&menu, rows[i][0], rows[i][1]);
++    menu.ReverseItems();
++    menu.Enter();
++    for (int i = count - 1; i >= 0; i--)
++        delete items[i];
++}
++
++#else
++
++bool su_GamepadEvent(SDL_Event &) { return false; }
++void su_GamepadMenu() {}
++
++#endif
+diff --git a/src/ui/uGamepad.h b/src/ui/uGamepad.h
+new file mode 100644
+--- /dev/null
++++ b/src/ui/uGamepad.h
+@@ -0,0 +1,44 @@
++/*
++
++Game controllers: a fixed, built-in scheme next to the keyboard.
++
++Controller N (the N-th one connected, N = 1..4) plays local player N. Nothing
++is bound by hand and nothing is written to the configuration. The buttons are
++read through SDL2's game controller API (a DualShock 3 is "PS3 Controller"
++there, whatever its raw button numbers), because SDL 1.2's joystick API only
++knows the raw numbers. SDL 1.2 here is sdl12-compat on top of SDL2: its
++library is already loaded, so the few SDL2 functions needed are looked up at
++run time. Without them the controllers are just not there.
++
++This program is free software; you can redistribute it and/or modify it
++under the terms of the GNU General Public License as published by the Free
++Software Foundation; either version 2 of the License, or (at your option)
++any later version.
++
++*/
++
++#ifndef ArmageTron_GAMEPAD_H
++#define ArmageTron_GAMEPAD_H
++
++#include "rSDL.h"
++#include "defs.h"
++
++//! the controller buttons that do something; see the table in uGamepad.cpp
++#define uPAD_INPUTS 14
++
++//! Fills e with the next input made from the controllers' state (a key event),
++//! false if there is none. In a menu the d-pad, Cross, Circle and Start are the
++//! menu keys; in the game they are keys of a range beyond the keyboard's that
++//! su_GamepadAct knows.
++bool su_GamepadEvent(SDL_Event &e);
++
++//! true for a keysym su_GamepadEvent made for the game
++bool su_GamepadSym(int sym);
++
++//! does what the game key sym does; x > 0 pressed, x < 0 released
++bool su_GamepadAct(int sym, REAL x);
++
++//! the scheme as a read-only menu
++void su_GamepadMenu();
++
++#endif
+diff --git a/src/ui/uInput.cpp b/src/ui/uInput.cpp
+--- a/src/ui/uInput.cpp
++++ b/src/ui/uInput.cpp
+@@ -32,6 +32,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ #include "tConfiguration.h"
+ #include "rConsole.h"
+ #include "uMenu.h"
++#include "uGamepad.h"
+ #include "tSysTime.h"
+ 
+ bool su_mouseGrab = false;
+@@ -664,6 +665,9 @@ bool su_HandleEvent(SDL_Event &e, bool delayed ){
+     default:
+         break;
+     }
++    if (su_GamepadSym(sym))
++        return su_GamepadAct(sym, pm);
++
+     if (sym>=0 && keymap[sym]){
+         REAL realpm=pm;
+         if (keymap[sym]->act->type==uAction::uINPUT_ANALOG)
+diff --git a/src/ui/uInputQueue.cpp b/src/ui/uInputQueue.cpp
+--- a/src/ui/uInputQueue.cpp
++++ b/src/ui/uInputQueue.cpp
+@@ -37,6 +37,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ #include  "tRecorder.h"
+ 
+ #include  "uMenu.h"
++#include  "uGamepad.h"
+ 
+ static su_TimerCallback *timer=NULL;
+ 
+@@ -282,7 +283,8 @@ bool su_GetSDLInput(SDL_Event &tEvent,REAL &time){
+             time=Time();
+             ret=
+ #ifndef DEDICATED
+-                SDL_PollEvent(&tEvent);
++                // the game controllers' input first, then the rest
++                su_GamepadEvent(tEvent) || SDL_PollEvent(&tEvent);
+ #else
+                 false;
+ #endif

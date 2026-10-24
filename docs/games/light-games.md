@@ -142,8 +142,26 @@ Mesa ps3.246 78.2, ps3.262 75.9 (74, 78: noise). No wedge since ps3rsx 0.249 (ro
 
 ## Armagetron
 
-Debian's `armagetronad` 0.2.9.3, unpatched: its textures are RGBA8 and the big-endian risk (GL_RGBA or
-GL_BGRA picked from the SDL surface's red mask) didn't bite. Picture and sound right.
+Debian's `armagetronad` 0.2.9.3 with two patches of ours (`armagetronad/`): its textures are RGBA8 and the
+big-endian risk (GL_RGBA or GL_BGRA picked from the SDL surface's red mask) didn't bite. Picture and sound right.
+
+- **0001, fullscreen by default.** The compiled-in default was already fullscreen at the desktop's
+  resolution (read at run time, so a 720p TV gets 720p). The 640x480 window came from `lastSuccess`, the
+  first fallback when a start fails or is cut short before the display is up: it began as a 640x480
+  window, and a fresh configuration saved that. It now starts as the default. Only defaults change: a
+  saved mode in the player's `user.cfg` is read over them as before, and the file is never edited. The
+  cause on the PS3 is read from the code, not yet seen running: if a first start still opens a window,
+  the first attempt at the desktop mode is failing and the game's log says why.
+- **0002, game controllers.** A fixed scheme next to the keyboard, nothing bound by hand and nothing
+  written to the configuration: controller N plays local player N (up to 4). D-pad left/right or L1/R1
+  turn (one turn per press), R2 or Cross brake (held), right stick left/right glance, Triangle switches
+  the camera, Select shows the score table (held), Start opens the game menu. In menus the D-pad moves
+  and changes, Cross selects, Circle and Start go back. The buttons are read through SDL2's game
+  controller API (a DualShock 3 is "PS3 Controller" there, so no raw button numbers are relied on): the
+  game is SDL 1.2 on sdl12-compat, whose SDL2 is already loaded, and `uGamepad.cpp` looks the dozen
+  functions up with dlopen. The pads become key events at the input queue, so recordings and the
+  keyboard are unaffected. Hot-plug: rescanned every second, a new pad takes the first free player.
+  Settings > Miscellaneous > Game Controllers shows the scheme (read-only). Not yet tried on the PS3.
 
 **Recipe** `games/bench/recipes/armagetronad.sh`: a local game of 4 AI players with the player
 spectating, round after round (`SPECTATOR_MODE_1` and the `SP_*` settings), fps from the HUD window
