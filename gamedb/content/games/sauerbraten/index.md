@@ -13,6 +13,9 @@ recipes = ["sauerbraten-edition:base"]
 needs_data = true
 data_guide = "http://sauerbraten.org/"
 controller = "keyboard"
+known_issues = [
+  "Crashes after a few minutes on big maps: the GPU runs out of video memory ('out of VRAM' for frame-sized buffers) and the driver then crashes instead of coping.",
+]
 +++
 
 Sauerbraten is the original game of the Cube 2 engine: the 2020 Edition release with its maps, models, sounds and
