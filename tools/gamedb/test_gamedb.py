@@ -375,6 +375,20 @@ class Importer(unittest.TestCase):
         self.assertEqual([p for p, _ in self.ir.pick_shots(items, n=2, look=look)], [60, 360])
         self.assertEqual([p for p, _ in self.ir.pick_shots(items, keep=[240, 420], look=look)], [240, 420])
 
+    def test_dropouts_at_screenshots_are_the_recorders(self):
+        with tempfile.TemporaryDirectory() as t:
+            d = Path(t)
+            (d / "bench.txt").write_text("shot_t=60s:60.30:1:2\nshot_t=120s:120.05:3:4\n")
+            (d / "xruns.tsv").write_text("at_s\tgap_ms\tbefore_db\tafter_db\taudible\n"
+                                         "28.4\t82.6\t-22\t-23\t1\n"      # the game's (a level load)
+                                         "60.1\t40.0\t-20\t-20\t1\n"      # 0.2 s before a capture
+                                         "61.9\t30.0\t-20\t-20\t1\n"      # 1.6 s after it
+                                         "62.8\t30.0\t-20\t-20\t1\n"      # 2.5 s after: the game's
+                                         "120.5\t5.0\t-20\t-20\t0\n")     # not audible: not counted
+            self.assertEqual(self.ir.recorder_dropouts(d, 4), (2, 2))
+            (d / "bench.txt").write_text("")
+            self.assertEqual(self.ir.recorder_dropouts(d, 4), (4, 0))     # no screenshots: as counted
+
     def test_toml_writer_roundtrip(self):
         text = self.ir.toml_dump({"a": 1, "b": "x\"y", "c": True, "n": None},
                                  {"t": {"f": 1.5, "l": ["p", "q"], "bad key": 2, "z": None}})

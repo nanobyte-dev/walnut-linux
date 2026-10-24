@@ -94,6 +94,47 @@ def frames(d, b):
     return keep, sum(keep) / 1000
 
 
+SHOT_WINDOW = (-0.5, 2.0)   # seconds around a screenshot whose dropouts are the recorder's, not the game's
+
+
+def shot_times(d):
+    """when the run's screenshots were taken, seconds after its start (bench.txt shot_t= lines)"""
+    out = []
+    f = d / "bench.txt"
+    for line in (f.read_text(errors="replace").splitlines() if f.exists() else []):
+        if line.startswith("shot_t="):
+            parts = line[7:].split(":")
+            if len(parts) > 1 and report.num(parts[1]) is not None:
+                out.append(report.num(parts[1]))
+    return out
+
+
+def recorder_dropouts(d, audible):
+    """(audible dropouts the game caused, those at a screenshot): capturing the screen reads 8 MB of
+    video memory and starves the sound for a moment (X-Moto, 2026-10-24: 14 of 25 audible dropouts
+    within a second or two of a capture), so dropouts in SHOT_WINDOW of one are the recorder's.
+    Without xruns.tsv or screenshots, the harness's count as it is."""
+    tsv, shots = d / "xruns.tsv", shot_times(d)
+    if not tsv.exists() or not shots:
+        return audible, 0
+    lines = tsv.read_text(errors="replace").splitlines()
+    head = lines[0].split("\t") if lines else []
+    if "at_s" not in head or "audible" not in head:
+        return audible, 0
+    at, aud = head.index("at_s"), head.index("audible")
+    kept = by_shots = 0
+    for line in lines[1:]:
+        c = line.split("\t")
+        if len(c) <= max(at, aud) or c[aud] != "1":
+            continue
+        t = report.num(c[at])
+        if t is not None and any(s + SHOT_WINDOW[0] <= t <= s + SHOT_WINDOW[1] for s in shots):
+            by_shots += 1
+        else:
+            kept += 1
+    return kept, by_shots
+
+
 def numbers(d, b, r):
     """the measured numbers of the run (result.toml [numbers]), None for what can't be told"""
     n = {}
@@ -121,8 +162,11 @@ def numbers(d, b, r):
     # the dropouts ps3-xrunlog measured (games/bench/xruns.py): the audible ones, plus OpenAL's waits
     # (each a second without sound), replace the fault counts in the score where the run has them
     if b.get("xrunlog") == "on" and report.num(b.get("xruns_audible")) is not None:
-        dropouts = int(report.num(b["xruns_audible"])) + int(report.num(b.get("oal_wait")) or 0)
+        audible, by_shots = recorder_dropouts(d, int(report.num(b["xruns_audible"])))
+        dropouts = audible + int(report.num(b.get("oal_wait")) or 0)
         n["sound_dropouts"] = dropouts
+        if by_shots:
+            n["sound_dropouts_at_shots"] = by_shots
         if play >= 30:
             n["sound_dropouts_per_min"] = round(dropouts / (play / 60), 2)
         n["xruns"] = int(report.num(b.get("xruns_logged")) or 0)

@@ -21,8 +21,9 @@ longest_ms = 1358.0
 frames = 93439
 sound_faults_per_min = 12.22
 sound_faults = 320
-sound_dropouts = 25
-sound_dropouts_per_min = 0.95
+sound_dropouts = 11
+sound_dropouts_at_shots = 14
+sound_dropouts_per_min = 0.42
 xruns = 320
 xrun_gap_ms = 2233.1
 snd_stall = 0
@@ -37,7 +38,7 @@ shot_differing = 0
 [scores]
 frame = 98.3
 smooth = 71.4
-sound = 95.2
+sound = 97.9
 picture = 100.0
 load = 99.3
 

@@ -101,6 +101,9 @@ curve because most of those faults were never heard: 40 at ten a minute, 32 at t
   silent is Bronze, with a "no sound" badge.
 - **Scrap shows its reason**: won't start, crashes, or too slow.
 - **Scores are medians over sessions**, so one bad or lucky run doesn't flip a medal.
+- **The recorder's own dropouts don't count.** Taking a screenshot reads 8 MB of video memory and
+  starves the sound for a moment; the audible dropouts from half a second before a capture to two
+  seconds after it are left out (result.toml keeps their number as `sound_dropouts_at_shots`).
 - **Versions.** Every test records the Walnut release it ran on (os-release's `VERSION_ID`; runs from
   before 0.1.0 count as "pre-0.1") and the game's package version (filed without our `+ps3.N` build
   number, which changes with every rebuild). The rating comes from the newest
