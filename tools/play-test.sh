@@ -20,6 +20,18 @@ IP=$(conf PS3_IP); USER_=$(conf PS3_USER); KEY=$(conf PS3_SSH_KEY); KEY=${KEY//\
 ps3() { timeout "${T:-60}" ssh -i "$KEY" -o UserKnownHostsFile="$PWD/build/ps3_known_hosts" -o BatchMode=yes \
 	-o ConnectTimeout=10 "$USER_@$IP" "$@"; }
 cmd=${1:-}; G=${2:-}; L=${3:-}
+# GAME is a Walnut Games entry (its recipe: the first of its recipes) or a recipe (its entry: the one
+# that lists it): BananaBread's entry runs the recipe that is still called sauerbraten
+E=$G; R=$G
+if [ -n "$G" ]; then
+	if [ -e "gamedb/content/games/$G/index.md" ]; then
+		r=$(sed -n 's/^recipes = \["\([a-z0-9-]*\).*/\1/p' "gamedb/content/games/$G/index.md")
+		[ -n "$r" ] && [ -e "games/bench/recipes/$r.sh" ] && R=$r
+	else
+		e=$(grep -l "^recipes = .*\"$G[:\"]" gamedb/content/games/*/index.md 2>/dev/null | head -1)
+		[ -n "$e" ] && E=$(basename "$(dirname "$e")")
+	fi
+fi
 
 case $cmd in
 check)
@@ -31,35 +43,35 @@ check)
 		df -h /var/tmp | awk "NR == 2 { print \"disk: \" \$4 \" free\" }"' ;;
 start)
 	[ -n "$G" ] || { echo "usage: play-test.sh start GAME [LAUNCHER]" >&2; exit 2; }
-	[ -e "games/bench/recipes/$G.sh" ] || { echo "!! no recipe games/bench/recipes/$G.sh" >&2; exit 2; }
+	[ -e "games/bench/recipes/$R.sh" ] || { echo "!! no recipe games/bench/recipes/$R.sh" >&2; exit 2; }
 	# the PS3 first: the load time counts from here
-	ps3 "systemctl --user is-active -q walnut-session-$G && { echo '!! a $G session is still open (its form?)'; exit 1; }
+	ps3 "systemctl --user is-active -q walnut-session-$R && { echo '!! a $R session is still open (its form?)'; exit 1; }
 		systemctl --user is-active -q ps3-game-mode.service && { echo '!! a game is running'; exit 1; }
-		systemctl --user reset-failed walnut-session-$G 2>/dev/null
-		systemd-run --user --unit=walnut-session-$G -q -E DISPLAY=:0 -E XAUTHORITY=\$HOME/.Xauthority \
-			/var/tmp/bench/session.sh $G $(printf %q "$L") && echo '>> PS3: $G started (session.sh)'"
+		systemctl --user reset-failed walnut-session-$R 2>/dev/null
+		systemd-run --user --unit=walnut-session-$R -q -E DISPLAY=:0 -E XAUTHORITY=\$HOME/.Xauthority \
+			/var/tmp/bench/session.sh $R $(printf %q "$L") && echo '>> PS3: $R started (session.sh)'"
 	if [ "${PC:-1}" = 1 ]; then
 		mkdir -p build/pc-play
-		setsid nohup tools/play-pc.sh "$G" ${L:+"$L"} > "build/pc-play/$G.log" 2>&1 < /dev/null &
-		echo ">> PC: $G starting (build/pc-play/$G.log)"
+		setsid nohup tools/play-pc.sh "$E" ${L:+"$L"} > "build/pc-play/$E.log" 2>&1 < /dev/null &
+		echo ">> PC: $G starting (build/pc-play/$E.log)"
 	fi ;;
 stop)
 	[ -n "$G" ] || { echo "usage: play-test.sh stop GAME" >&2; exit 2; }
-	T=120 ps3 "c=\$(sed -n 's/^COMM=//p' /var/tmp/bench/recipes/$G.sh | head -1); c=\${c%%[[:space:]]*}; c=\${c:0:15}; [ -n \"\$c\" ] && pkill -TERM -x \"\$c\"
+	T=120 ps3 "c=\$(sed -n 's/^COMM=//p' /var/tmp/bench/recipes/$R.sh | head -1); c=\${c%%[[:space:]]*}; c=\${c:0:15}; [ -n \"\$c\" ] && pkill -TERM -x \"\$c\"
 		for i in \$(seq 30); do sleep 1
 			f=\$(pgrep -a -x python3 | grep session-form.py | cut -d' ' -f1); [ -n \"\$f\" ] && kill \$f
-			systemctl --user is-active -q walnut-session-$G || break; done
-		systemctl --user is-active -q walnut-session-$G && echo '!! still running' || echo '>> PS3: $G session ended'"
-	docker rm -f "play-pc-$G" > /dev/null 2>&1 && echo ">> PC: $G closed" || true ;;
+			systemctl --user is-active -q walnut-session-$R || break; done
+		systemctl --user is-active -q walnut-session-$R && echo '!! still running' || echo '>> PS3: $R session ended'"
+	docker rm -f "play-pc-$E" > /dev/null 2>&1 && echo ">> PC: $E closed" || true ;;
 collect)
 	[ -n "$G" ] || { echo "usage: play-test.sh collect GAME" >&2; exit 2; }
 	make -s bench-pull > /dev/null 2>&1 || echo "!! the pull failed (is the PS3 up?): the runs already here"
-	python3 -I - "$G" <<'PY'
+	python3 -I - "$R" "$E" <<'PY'
 import glob, os, sys, tomllib
-g = sys.argv[1]
+g, entry = sys.argv[1], sys.argv[2]
 kv = lambda f: dict(l.split("=", 1) for l in open(f, errors="replace").read().splitlines() if "=" in l)
 done = set()
-for r in glob.glob("gamedb/content/games/%s/tests/*/result.toml" % g):
+for r in glob.glob("gamedb/content/games/%s/tests/*/result.toml" % entry):
     done.add(tomllib.loads(open(r).read()).get("run"))
 runs = sorted(glob.glob("build/bench/ps3-bench-*-session-%s-*" % g))
 if not runs:
@@ -75,7 +87,7 @@ for d in runs:
         "sound=%s music=%s controls=%s" % (form.get("sound"), form.get("music"), form.get("controls")) if form else "none",
         ("  notes: " + " ".join(form.get("notes", "").split())[:100]) if form.get("notes") else ""))
 PY
-	echo ">> import: look at the shots, write REVIEW.md, then python3 -I tools/gamedb/import-run.py build/bench/<run> --game $G" ;;
+	echo ">> import: look at the shots, write REVIEW.md, then python3 -I tools/gamedb/import-run.py build/bench/<run> --game $E" ;;
 *)
 	sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 2 ;;
 esac

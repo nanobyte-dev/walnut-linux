@@ -36,7 +36,7 @@ logged`).
 | 3 | Extreme Tux Racer | Extreme Tux Racer | ready | |
 | 4 | Neverball | Neverball | ready | the level reloads were 8 s of stutter a minute in the benchmark: does play feel smooth? |
 | 5 | Luanti | Luanti | ready | played 2026-10-24: Scrap (25 s of stutter a minute, frames up to 4.3 s). To fix (a package patch, then the known issues go): it starts in a window, the options menu is broken; the stutter (map generation and meshing) is the real problem |
-| 6 | Sauerbraten | Cube2:Demo (Debian's cube2 entry, with the cube2-data maps) | ready | |
+| 6 | BananaBread (was listed as Sauerbraten) | Cube2:Demo (`play-test.sh start bananabread`: its recipe is still called sauerbraten) | ready | played 2026-10-24: Scrap (20 fps, 22 s of stutter a minute, 64 s to load). Debian's cube2 is BananaBread, not Sauerbraten; the real Sauerbraten (its own 2020 engine and data) is being packaged, then tested |
 | 7 | OpenArena | OpenArena (GL 1.2), then OpenArena (GL 2.0) | ready | two launchers, one session each |
 | 8 | DSDA-Doom | DSDA-Doom (OpenGL), then DSDA-Doom (software) | ready | Freedoom 2; its music was the weak spot |
 | 9 | OpenTTD | OpenTTD (OpenGL), then OpenTTD (software) | ready | the music chopped in the benchmarks |

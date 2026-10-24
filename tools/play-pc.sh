@@ -17,6 +17,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 G=${1:?usage: play-pc.sh GAME [LAUNCHER]}; L=${2:-}
 idx=gamedb/content/games/$G/index.md
+if [ ! -e "$idx" ]; then	# a recipe's name: the entry that lists it (BananaBread's recipe is called sauerbraten)
+	e=$(grep -l "^recipes = .*\"$G[:\"]" gamedb/content/games/*/index.md 2>/dev/null | head -1)
+	[ -n "$e" ] && { idx=$e; G=$(basename "$(dirname "$e")"); }
+fi
 [ -e "$idx" ] || { echo "!! no $idx (a Walnut Games entry)" >&2; exit 2; }
 PKGS=$(python3 -I -c 'import sys, tomllib; t = open(sys.argv[1]).read().split("+++")[1]; print(" ".join(tomllib.loads(t)["packages"]))' "$idx")
 REF_IMAGE=

@@ -1,5 +1,11 @@
 # Sauerbraten and Red Eclipse
 
+What this page measured is **BananaBread**: Debian's `cube2` is the BananaBread fork of the Cube 2
+engine with BananaBread's maps (`cube2-data`), not Sauerbraten itself (its Walnut Games entry is
+`bananabread`; the bench recipe kept the name `sauerbraten`). The real Sauerbraten is a separate
+package.
+
+
 Sauerbraten (the Cube 2 engine, our `cube2` build) plays the user's recorded demo at 38.5 steady fps
 with 1.6 s of gameplay stalls (row 70), and at 45.1 with its world normals sent as shorts (row 69,
 +17%, not the default yet). It is the suite's heaviest GLSL game: 117 MB of VRAM and about 20 MB of
