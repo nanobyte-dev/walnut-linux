@@ -3,7 +3,7 @@
 What this page measured is **BananaBread**: Debian's `cube2` is the BananaBread fork of the Cube 2
 engine with BananaBread's maps (`cube2-data`), not Sauerbraten itself (its Walnut Games entry is
 `bananabread`; the bench recipe kept the name `sauerbraten`). The real Sauerbraten is a separate
-package.
+entry, [below](#sauerbraten-the-real-game-2020-edition).
 
 
 Sauerbraten (the Cube 2 engine, our `cube2` build) plays the user's recorded demo at 38.5 steady fps
@@ -170,3 +170,38 @@ Next for Red Eclipse: cube2's memory patches carried over, samples loaded when f
 3.8; [backlog/games.md](../backlog/games.md)).
 
 Older versions and the dated history: [archive/GAME-PLAN.md](../archive/GAME-PLAN.md).
+
+## Sauerbraten, the real game (2020 Edition)
+
+Added 2026-10-25, not yet run on the PS3. Debian's `cube2` is not a BananaBread fork of the engine: its source is
+Sauerbraten's own `src/` (svn at the 2020-12-29 release, minus the bundled enet and the IDE files; the release
+archive's `src/` differs from it in two files, `sound.cpp` and `stream.cpp`, where Debian's has later upstream
+fixes). Only Debian's *data*, `cube2-data`, is BananaBread's. So the engine for the real game is the `cube2` build
+we already have, with every patch above, and no second engine package was made: building the release's source again
+would give the same program without the patches. What was missing was the launcher and the data.
+
+| Package | Suite | What |
+|---|---|---|
+| `sauerbraten` | public (testing, stable; CI builds it, `0.N`) | `/usr/games/sauerbraten`, the menu entry (Name `Sauerbraten`), an icon. Depends on `cube2`, Suggests `sauerbraten-data` |
+| `sauerbraten-data` | `ps3-licensed` only, built locally (`0.0.20201229-1+ps3.N`, about 980 MB) | the release's `data/` and `packages/` whole, in `/usr/share/games/sauerbraten`, its docs in `/usr/share/doc/sauerbraten-data`. Depends on `sauerbraten`, so installing the data installs the game |
+
+- The launcher runs `cube2_client -q$HOME/.sauerbraten -k/usr/share/games/sauerbraten -t1`: fullscreen at the desktop's
+  resolution (the engine sizes its window from the desktop when `scr_w`/`scr_h` are unset; Debian's build defaults to a
+  window, hence `-t1`), settings apart from BananaBread's `~/.cube2`, no user file written. `SAUERBRATEN_WINDOWED=1`
+  starts in a window. The game's own `config.cfg` can still switch it later, as in the stock game.
+- `sauerbraten-data` is a second package beside `sauerbraten-nonfree-data` (kept as it is: it completes `cube2-data` in
+  `/usr/share/games/cube2` for the BananaBread entry, 912 files). Reusing it was not possible, since the real game needs
+  the maps, textures and music too, in its own directory so neither game sees the other's files. The orig tarball is made
+  from the same pinned release archive (`make sauerbraten-data-src`, `tools/sauerbraten-full-data.sh`), never committed.
+  Mixed, partly non-commercial licences: `tools/licensed-packages.txt`, no CI workflow. Not in `ps3-games-licensed`'s
+  Depends (980 MB); install by name.
+- Endianness: nothing to fix. The engine already runs big-endian on the PS3 (the BananaBread maps read through
+  `lilswap`), and the release's maps and models use the same formats.
+- Patches in effect (all of `cube2/patches`, since it is the same engine): 0001 `texcompress`, 0002 `gpuskel 0` and no
+  GPU skinning shaders, 0003-0005, 0006 libspeq skinning, 0007-0009 fewer GL calls, 0010 `oqwaterlag`. 0011
+  `vanormalshort` is built in and off by default. Nothing is left unported. Not tried: whether the real maps (bigger
+  than BananaBread's 20) need the lean settings, `texreduce` or a lower `maxtexsize` for 256 MB.
+- Recipe `games/bench/recipes/sauerbraten-edition.sh` (variants `complex`, `metl3`, `lean`, `gpuskel`; `session()` is the
+  launcher alone; `PLAY_MARK` is the `read map` line); entry `gamedb/content/games/sauerbraten/`. Its PC reference
+  (`tools/play-pc.sh`) installs the entry's packages from Debian, which has no `sauerbraten`: `PC=0 play-test.sh start
+  sauerbraten` until the PC image gets our two debs.
