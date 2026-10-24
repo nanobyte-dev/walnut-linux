@@ -8,6 +8,9 @@ on:
       - "walnut-games/**"
       - "gamedb/content/**"
       - "tools/gamedb/catalog.py"
+      - "tools/gamedb/pack-catalog.py"
+      - "tools/gamedb/score.py"
+      - "tools/gamedb/check.py"
   workflow_dispatch:
     inputs:
       target:
