@@ -23,6 +23,10 @@ the gain is mainly fewer patches for us to carry. Noted here, not worked on:
 - **Warzone 2100** (we stay on 4.3.5, the last GL 2.1 release): 0001 `<cstdint>` for GCC 16 (a plain build fix),
   0003 terrain decal colour, 0005 radar colours, 0008 Opus sample order (byte-order neutral rewrites), 0004 the
   bundled etcpak's DXT blocks on big-endian (also wolfpld/etcpak). Whether master still has the code: not checked.
+- **sdl2-compat: SDL_CloseAudioDevice() with the device lock held deadlocks** (`sdl2-compat/patches/0001`): not
+  big-endian, it hangs on amd64 too (stock Debian 2.32.74 on SDL3 3.4.18, dummy and ALSA drivers, through SDL2's
+  API or SDL 1.2's via sdl12-compat; Armagetron Advanced hangs on quit). Not reported upstream (no issue found on
+  2026-10-25; #499/#503 fixed the same lock order for pausing). A good candidate: a 20-line test program shows it.
 - **GCC 16.2 wrong code** (Warzone patch 0007, PACKAGING.md): the loop vectorizer on AltiVec without VSX at `-O3`.
   Worth a GCC report only with a minimal reproducer and a check of GCC 14/15 (a regression gets triaged);
   the reproducer would also show which of our other `-O3 -mcpu=cell` builds could be hit.

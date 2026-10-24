@@ -1,0 +1,101 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 25 Oct 2026 01:02:29 +0300
+Subject: audio: don't deadlock when the app closes the device while holding
+ its lock
+
+SDL_LockAudioDevice() locks the device's SDL3 audio stream. SDL3's audio
+thread takes the physical device's lock and then, to pull data, the
+stream's lock; SDL_CloseAudioDevice() goes to SDL3_CloseAudioDevice(),
+which wants the device lock. An app that closes the device while it holds
+the device lock therefore deadlocks as soon as the audio thread is waiting
+for the stream lock: the app thread holds the stream lock and waits for the
+device lock, the audio thread holds the device lock and waits for the
+stream lock.
+
+SDL 1.2 apps through sdl12-compat do exactly this: SDL 1.2 allowed it,
+because a paused 1.2 device thread never took the lock, but sdl12-compat's
+SDL_PauseAudio() only sets a flag and SDL_LockAudio() is the SDL2 lock.
+Armagetron Advanced 0.2.9 hangs forever when the player quits: its
+se_SoundExit() holds SDL_LockAudio() across Mix_FadeOutMusic(),
+SDL_Delay(100) and Mix_CloseAudio(). A test program that does
+SDL_LockAudioDevice(); SDL_CloseAudioDevice() hangs every time, with the
+dummy and the ALSA driver, through SDL2's API or SDL 1.2's.
+
+Remember which thread holds the device lock. When that thread closes the
+device, take the callback away from the stream first (so the app's callback
+never runs again, as with SDL2, which paused the device under the lock
+before closing it), then release its locks and close. The app's later
+SDL_UnlockAudioDevice() calls find no open device and do nothing. A close
+from any other thread is unchanged.
+
+Forwarded: no
+
+diff --git a/src/sdl2_compat.c b/src/sdl2_compat.c
+--- a/src/sdl2_compat.c
++++ b/src/sdl2_compat.c
+@@ -7986,6 +7986,7 @@ static SDL_AudioDeviceID OpenAudioDeviceLocked(const char *devicename, int iscap
+     }
+ 
+     SDL3_SetAtomicInt(&stream2->device_lock_count, 0);
++    stream2->device_lock_owner = 0;
+     stream2->device_pause_latch = 0;
+     stream2->device3 = device3;
+ 
+@@ -8410,7 +8411,9 @@ SDL_LockAudioDevice(SDL_AudioDeviceID dev)
+     SDL2_AudioStream *stream2 = GetOpenAudioDevice(dev);
+     if (stream2) {
+         SDL3_LockAudioStream(stream2->stream3);
+-        SDL3_AddAtomicInt(&stream2->device_lock_count, 1);
++        if (SDL3_AddAtomicInt(&stream2->device_lock_count, 1) == 0) {
++            stream2->device_lock_owner = SDL3_GetCurrentThreadID();
++        }
+     }
+ }
+ 
+@@ -8426,6 +8429,7 @@ SDL_UnlockAudioDevice(SDL_AudioDeviceID dev)
+             // prevent deadlocks in complicated threaded scenarios, like https://github.com/libsdl-org/sdl2-compat/issues/499#issuecomment-3024917721
+             const int need_pause_or_resume = stream2->device_pause_latch;
+             stream2->device_pause_latch = 0;
++            stream2->device_lock_owner = 0;
+             SDL3_UnlockAudioStream(stream2->stream3);
+             if (need_pause_or_resume) {
+                 SDL_PauseAudioDevice(dev, (need_pause_or_resume < 0) ? 1 : 0);
+@@ -8441,6 +8445,26 @@ SDL_CloseAudioDevice(SDL_AudioDeviceID dev)
+ {
+     SDL2_AudioStream *stream2 = GetOpenAudioDevice(dev);
+     if (stream2) {
++        /* SDL2 apps may close the device while holding its lock (SDL 1.2 apps through sdl12-compat
++           do, e.g. Armagetron Advanced's sound shutdown). SDL3's audio thread holds the device lock
++           while it waits for the stream lock, and SDL3_CloseAudioDevice() wants the device lock:
++           a deadlock. So the closing thread lets go of its locks first, after taking the callback
++           away, so the app's callback never runs again (as in SDL2). The app's later
++           SDL_UnlockAudioDevice() calls find no open device and do nothing. */
++        int locks = SDL3_GetAtomicInt(&stream2->device_lock_count);
++        if (locks > 0 && stream2->device_lock_owner == SDL3_GetCurrentThreadID()) {
++            if (stream2->iscapture) {
++                SDL3_SetAudioStreamPutCallback(stream2->stream3, NULL, NULL);
++            } else {
++                SDL3_SetAudioStreamGetCallback(stream2->stream3, NULL, NULL);
++            }
++            SDL3_SetAtomicInt(&stream2->device_lock_count, 0);
++            stream2->device_lock_owner = 0;
++            stream2->device_pause_latch = 0;
++            while (locks-- > 0) {
++                SDL3_UnlockAudioStream(stream2->stream3);
++            }
++        }
+         SDL3_CloseAudioDevice(stream2->device3);
+         SDL_FreeAudioStream(stream2);
+         AudioOpenDevices[dev - 1] = NULL;  /* this doesn't hold a lock in SDL2, either; the lock only prevents two racing opens from getting the same id. We can NULL it whenever, though. */
+diff --git a/src/sdl2_compat.h b/src/sdl2_compat.h
+--- a/src/sdl2_compat.h
++++ b/src/sdl2_compat.h
+@@ -1254,6 +1254,7 @@ typedef struct SDL2_AudioStream
+     SDL2_bool iscapture;
+     SDL_AudioDeviceID device3;
+     SDL_AtomicInt device_lock_count;
++    SDL3_ThreadID device_lock_owner;  /* the thread holding device_lock_count's locks, 0 when it is zero */
+     int device_pause_latch;
+ } SDL2_AudioStream;
+ 
