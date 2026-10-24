@@ -37,9 +37,13 @@ fi
 
 home=build/pc-play/$G
 mkdir -p "$home"
+# the image's users plus ours: a game that looks its home up (getpwuid) crashes on a uid it can't find
+# (Extreme Tux Racer: a segfault at the start)
+docker run --rm --entrypoint cat "$TAG" /etc/passwd > "build/pc-play/.passwd-$G" 2>/dev/null || :
+echo "player:x:$(id -u):$(id -g)::/home/player:/bin/bash" >> "build/pc-play/.passwd-$G"
 pulse=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pulse/native
 args=(--rm --init --name "play-pc-$G" --user "$(id -u):$(id -g)" --ipc=host --security-opt label=disable
-	-e HOME=/home/player -v "$PWD/$home:/home/player" -e PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/games:/usr/games
+	-e HOME=/home/player -v "$PWD/$home:/home/player" -v "$PWD/build/pc-play/.passwd-$G:/etc/passwd:ro" -e PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/games:/usr/games
 	-e DISPLAY="${DISPLAY:-:0}" -v /tmp/.X11-unix:/tmp/.X11-unix:ro
 	-e LIBGL_ALWAYS_SOFTWARE=1 -e GALLIUM_DRIVER=llvmpipe -e MESA_GL_VERSION_OVERRIDE=2.1 -e MESA_GLSL_VERSION_OVERRIDE=120
 	-v "$PWD/games/bench/launcher.py:/walnut/launcher.py:ro" -v "$PWD/ps3-desktop/files/applications:/walnut/menu/applications:ro")
