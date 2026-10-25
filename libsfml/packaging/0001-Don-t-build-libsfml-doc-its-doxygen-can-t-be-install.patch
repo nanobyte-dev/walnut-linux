@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Mon, 26 Oct 2026 01:30:00 +0300
+Subject: Don't build libsfml-doc (its doxygen can't be installed in the ppc64 snapshot)
+
+doxygen depends on libfmt10, which the debian-ports snapshot does not have, so the build
+dependencies were unsatisfiable. libsfml-doc is Architecture: all and Debian's own copy of it
+stays; the libraries are built unchanged.
+
+diff --git a/debian/control b/debian/control
+--- a/debian/control	2026-08-05 15:48:10.000000000 +0300
++++ b/debian/control	2026-10-26 01:10:28.773821475 +0200
+@@ -26,7 +26,6 @@
+  libxi-dev,
+  libxrandr-dev,
+  pkgconf,
+-Build-Depends-Indep: doxygen
+ Standards-Version: 4.7.4
+ Homepage: https://www.sfml-dev.org/
+ Vcs-Git: https://salsa.debian.org/games-team/libsfml.git
+@@ -136,16 +135,3 @@
+  Network facilities and supports GNU/Linux, MS Windows and Mac OS X.
+  .
+  The Window library provides basic utilities for creating and managing Windows.
+-
+-Package: libsfml-doc
+-Section: doc
+-Architecture: all
+-Multi-Arch: foreign
+-Depends: fonts-noto-core, fonts-tuffy, ${misc:Depends}
+-Description: Simple and Fast Multimedia Library - Documentation
+- SFML is a modern multimedia library offering a wide range of subsystems
+- useful to produce a multimedia app. It offers OpenGL integration for
+- Hardware accelerated Graphics, Windowing and Input support, Audio and
+- Network facilities and supports GNU/Linux, MS Windows and Mac OS X.
+- .
+- This package includes the library reference and examples for SFML.
