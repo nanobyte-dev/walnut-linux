@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Mon, 26 Oct 2026 01:00:00 +0300
+Subject: Audio: playback period of 1024 frames (SFML_AUDIO_PERIOD_FRAMES)
+
+SFML 3.1 opens its miniaudio playback device with periodSizeInFrames = 64 and leaves the
+period count at miniaudio's 3: a device buffer of 192 frames, 4 ms. On the PS3 (ALSA through
+dmix, no realtime scheduling for the game's audio thread) the PPE misses a 4 ms deadline
+whenever the game does anything heavy, and every miss is an xrun: Extreme Tux Racer logged 608
+in a 2 minute played session (7.5 dropouts a minute).
+
+The period is now 1024 frames, 3 periods, about 64 ms of buffer at 48 kHz (23 ms at the
+period), 24 KB of f32 stereo. SFML_AUDIO_PERIOD_FRAMES (32 to 16384) overrides it; 64 gives
+upstream's value back. The device buffer is the latency of every sound effect and of the music,
+so the period stays well under a frame-rate-critical 100 ms.
+
+diff --git a/src/SFML/Audio/AudioDevice.cpp b/src/SFML/Audio/AudioDevice.cpp
+--- a/src/SFML/Audio/AudioDevice.cpp
++++ b/src/SFML/Audio/AudioDevice.cpp
+@@ -36,6 +36,7 @@
+ #include <unordered_map>
+ 
+ #include <cassert>
++#include <cstdlib>
+ 
+ 
+ namespace sf::priv
+@@ -718,7 +719,15 @@
+     // If this does cause issues we would have to expose setting this value
+     // through the public API so the developer can set it to an appropriate
+     // value depending on the audio data they intend to play
+-    playbackDeviceConfig.periodSizeInFrames = 64;
++    playbackDeviceConfig.periodSizeInFrames = 1024;
++
++    // Walnut: SFML_AUDIO_PERIOD_FRAMES overrides the period (32 to 16384 frames; 64 is upstream's)
++    if (const char* env = std::getenv("SFML_AUDIO_PERIOD_FRAMES"))
++    {
++        const long frames = std::strtol(env, nullptr, 10);
++        if (frames >= 32 && frames <= 16384)
++            playbackDeviceConfig.periodSizeInFrames = static_cast<std::uint32_t>(frames);
++    }
+ 
+     if (const auto result = ma_device_init(&*m_context, &playbackDeviceConfig, &*m_playbackDevice); result != MA_SUCCESS)
+     {

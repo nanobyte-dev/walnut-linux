@@ -98,6 +98,14 @@ longest 483 ms, 29 MB free, 58 MB of VRAM, no underruns. Run uncapped it is stil
 vsync cap. The batching: 52 to 59, CPU 83.6 to 53 s (row 49, `gloff` against base, same boot).
 Picture and sound right.
 
+**Sound buffer**: ETR plays through SFML 3.1 (miniaudio), which opens the ALSA device with a 64 frame
+period and 3 periods, a 4 ms buffer; ETR cannot change it (SFML does not expose it). The played
+session (2026-10-24) logged 608 xruns, 7.5 audible-dropout marks a minute, which the player did not
+hear. `libsfml` (package directory `libsfml/`, `3.1.0+dfsg-4+ps3.N`) now opens it with a 1024 frame
+period: about 64 ms of buffer at 48 kHz, 24 KB, a sound effect or the music starting at most 23 ms
+late in the mix. `SFML_AUDIO_PERIOD_FRAMES=<32..16384>` overrides it (64 is upstream's). Not yet
+tried on the PS3: the next played session should show the xrun count.
+
 ETR's memory grows: over a 117 s window its heap went 17.5 to 19.9 MB and its GART 8.8 to 12.8 to
 16.8 MB (161 to 163 handles), two new buffers of about 4 MB, one a minute. The candidate is the track
 marks in the snow, a growing list drawn through our stream buffers; a soak tells a cap from a leak

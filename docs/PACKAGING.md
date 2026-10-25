@@ -53,7 +53,7 @@ A `debsrc` package from outside Debian's main sets `COMPONENT`. `yquake2` uses `
 
 **Where it builds.** `BUILD` in `package.conf` says:
 
-- `native`: in a ppc64 chroot under qemu-user. `make chroot` makes `build/chroot/sid-ppc64.tar`; build dependencies are cached per `debian/control` as `build/chroot/<pkg>-deps-<hash>.tar`; ccache is in `build/ccache`. Mesa takes about 25 minutes cold, 12 warm.
+- `native`: in a ppc64 chroot under qemu-user. `make chroot` makes `build/chroot/sid-ppc64.tar`; build dependencies are cached per `debian/control` as `build/chroot/<pkg>-deps-<hash>.tar`; ccache is in `build/ccache`. Before each build the chroot's ccache links (`/usr/lib/ccache/gcc`, `cc`, ...) are refreshed with `update-ccache-symlinks` and listed in the log; `cc` is the compiler a plain Makefile's `$(CC)` defaults to, and without its link such a package compiles cold on every run. Mesa takes about 25 minutes cold, 12 warm.
 - `indep`: architecture-independent packages, in the amd64 deb builder.
 - `split`: `-A` in the deb builder (with `INDEP_PATH`, e.g. our spu-elf toolchain), `-B` in the chroot.
 - `cross`: cross-built in the deb builder (`ps3rsx` against our kernel tree).
