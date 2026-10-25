@@ -14,7 +14,7 @@ needs_data = true
 data_guide = "http://sauerbraten.org/"
 controller = "keyboard"
 known_issues = [
-  "Crashes after a few minutes on big maps: the GPU runs out of video memory ('out of VRAM' for frame-sized buffers) and the driver then crashes instead of coping.",
+  "Crashed after 3.5 minutes of an online match: a bug in Mesa's occlusion queries (one freed while still in use), fixed in Mesa ps3.819 with patch 0046, not yet played again. Video memory is full on the big maps; new installs compress more textures (texcompress 512).",
 ]
 +++
 

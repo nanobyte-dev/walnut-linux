@@ -173,7 +173,7 @@ Older versions and the dated history: [archive/GAME-PLAN.md](../archive/GAME-PLA
 
 ## Sauerbraten, the real game (2020 Edition)
 
-Added 2026-10-25, not yet run on the PS3. Debian's `cube2` is not a BananaBread fork of the engine: its source is
+Added 2026-10-25; one played session so far ([below](#the-first-session-2026-10-24)). Debian's `cube2` is not a BananaBread fork of the engine: its source is
 Sauerbraten's own `src/` (svn at the 2020-12-29 release, minus the bundled enet and the IDE files; the release
 archive's `src/` differs from it in two files, `sound.cpp` and `stream.cpp`, where Debian's has later upstream
 fixes). Only Debian's *data*, `cube2-data`, is BananaBread's. So the engine for the real game is the `cube2` build
@@ -185,10 +185,14 @@ would give the same program without the patches. What was missing was the launch
 | `sauerbraten` | public (testing, stable; CI builds it, `0.N`) | `/usr/games/sauerbraten`, the menu entry (Name `Sauerbraten`), an icon. Depends on `cube2`, Suggests `sauerbraten-data` |
 | `sauerbraten-data` | `ps3-licensed` only, built locally (`0.0.20201229-1+ps3.N`, about 980 MB) | the release's `data/` and `packages/` whole, in `/usr/share/games/sauerbraten`, its docs in `/usr/share/doc/sauerbraten-data`. Depends on `sauerbraten`, so installing the data installs the game |
 
-- The launcher runs `cube2_client -q$HOME/.sauerbraten -k/usr/share/games/sauerbraten -t1`: fullscreen at the desktop's
-  resolution (the engine sizes its window from the desktop when `scr_w`/`scr_h` are unset; Debian's build defaults to a
-  window, hence `-t1`), settings apart from BananaBread's `~/.cube2`, no user file written. `SAUERBRATEN_WINDOWED=1`
-  starts in a window. The game's own `config.cfg` can still switch it later, as in the stock game.
+- The launcher runs `cube2_client -q$HOME/.sauerbraten -k/usr/share/sauerbraten/walnut -k/usr/share/games/sauerbraten -t1`:
+  fullscreen at the desktop's resolution (the engine sizes its window from the desktop when `scr_w`/`scr_h` are unset;
+  Debian's build defaults to a window, hence `-t1`), settings apart from BananaBread's `~/.cube2`, no user file written.
+  `SAUERBRATEN_WINDOWED=1` starts in a window. The game's own `config.cfg` can still switch it later, as in the stock game.
+- Walnut's defaults: the first package directory holds only `data/defaults.cfg` (`sauerbraten/files/walnut/`), which the
+  engine runs only while `~/.sauerbraten/config.cfg` does not exist. It runs the release's own defaults.cfg, then sets
+  `texcompress 512`; the game saves that into config.cfg at the first quit, and the player's settings rule from then
+  on (`/texcompress 1024` restores the engine's value). A player with a config.cfg already gets nothing from it.
 - `sauerbraten-data` is a second package beside `sauerbraten-nonfree-data` (kept as it is: it completes `cube2-data` in
   `/usr/share/games/cube2` for the BananaBread entry, 912 files). Reusing it was not possible, since the real game needs
   the maps, textures and music too, in its own directory so neither game sees the other's files. The orig tarball is made
@@ -199,9 +203,40 @@ would give the same program without the patches. What was missing was the launch
   `lilswap`), and the release's maps and models use the same formats.
 - Patches in effect (all of `cube2/patches`, since it is the same engine): 0001 `texcompress`, 0002 `gpuskel 0` and no
   GPU skinning shaders, 0003-0005, 0006 libspeq skinning, 0007-0009 fewer GL calls, 0010 `oqwaterlag`. 0011
-  `vanormalshort` is built in and off by default. Nothing is left unported. Not tried: whether the real maps (bigger
-  than BananaBread's 20) need the lean settings, `texreduce` or a lower `maxtexsize` for 256 MB.
+  `vanormalshort` is built in and off by default. Nothing is left unported. The real maps fill the VRAM at the engine's
+  texture settings (the first session, below), hence Walnut's `texcompress 512` default.
 - Recipe `games/bench/recipes/sauerbraten-edition.sh` (variants `complex`, `metl3`, `lean`, `gpuskel`; `session()` is the
   launcher alone; `PLAY_MARK` is the `read map` line); entry `gamedb/content/games/sauerbraten/`. Its PC reference
   (`tools/play-pc.sh`) installs the entry's packages from Debian, which has no `sauerbraten`: `PC=0 play-test.sh start
   sauerbraten` until the PC image gets our two debs.
+
+### The first session (2026-10-24)
+
+An online insta-CTF match on eternal_valley, then berlin_wall (`build/bench/ps3-bench-20261024T233328Z-session-sauerbraten-edition-base`):
+54 fps median, 14.7 s of stutter a minute, a segfault after 202 s of play. What the logs say:
+
+- **The crash was Mesa's occlusion queries, not the VRAM.** `nip` resolves (stable-debug's `mesa-libgallium-dbgsym`
+  ps3.721) to `nouveau_heap_free` (nouveau_heap.c:106, `r->in_use = 0`), called from `nv30_query_object_del`
+  (nv30_query.c:76). The heap node it wrote was `nouveau_mm_free_work`'s function descriptor in libgallium's read-only
+  `.opd`: the query object had been freed and its memory reused for a fence work. nv30 has 124 report slots; the engine
+  ends up to 2048 occlusion queries a frame and reads them a frame later, so slots were taken back from queries that
+  still pointed at them (upstream's code). Mesa 0046 fixes it ([DRIVER.md](../DRIVER.md#the-mesa-side)); the
+  same bug gave queries each other's results, which shows as geometry popping (the user's "a bit glitchy").
+- **The `out of VRAM for a 8100 KiB BO` bursts** (1920x1080x4, 135 failures each) came at 61.9, 121.7 and 181.5 s, each
+  1.5 s into one of the bench's `xwd` screenshots (60, 120, 180 s; 2.7-3.0 s each, X busy): window-sized buffers asked
+  for while X was stalled (most likely DRI3 back buffers: both cube2's and Xorg's VRAM swing by 8100 KiB together in the
+  samples), with no VRAM left. They are not the crash's cause (the last burst was 54 s before it).
+- **VRAM was full.** cube2_client held 180 MB of VRAM on eternal_valley and 210 MB after the map change (probably the previous
+  map's textures still loaded), Xorg 27-35 MB: the whole 250 MB. The VRAM swap gave all 96 of its chunks back as
+  designed (`pages in VRAM` 15421 before, 0 during), so its pages went to the disk; MemAvailable 22-45 MB. The 30 MB of
+  GPU-only VRAM (224-254 MB) held 132 KiB: on the PS3 every nv30 texture asks for CPU-visible VRAM (see below).
+- **Textures are most of it.** Of the release's 2155 world texture files named by default_map_settings.cfg, the 512-pixel
+  ones are 772 files and 76% of the bytes (RGBA8 with mip levels on the RSX); `texcompress 1024` leaves them plain, 512
+  stores them in an eighth (DXT1) or a quarter (DXT5). For BananaBread, Mesa's equivalent (`NV30_FORCE_DXT=opaque`, row
+  74) took VRAM from 117 to 73-78 MB at equal fps and load time, with softer rock textures. Hence the new default
+  (unmeasured on the real game: the next session's VRAM column and the user's look at the textures decide whether it
+  stays).
+- Not done: render targets and depth buffers in the GPU-only 30 MB. nv30 on the PS3 maps every miptree CPU-visible
+  because `nv30_transfer_rect_cpu` may map it; a depth buffer or render target that is never read back by the CPU could
+  go there (8 MB each at 1080p), but whether every transfer path avoids the CPU map is unproven.
+

@@ -42,3 +42,4 @@
 0043-nv30-signed-8-bit-vertex-attributes-normalized-in-th.patch
 0044-vbo-index-array-min-max-in-AltiVec-NV30_MINMAX_VMX.patch
 0045-nv30-TXB-as-TEX-on-the-RSX-NV30_TXB_HW-1-keeps-the-h.patch
+0046-nv30-a-query-whose-report-slot-is-taken-back-keeps-i.patch

@@ -3,6 +3,8 @@
 # Fullscreen at the desktop's resolution (the engine's own default sizes it; Debian's build starts
 # windowed). The settings live in ~/.sauerbraten, apart from BananaBread's (~/.cube2); nothing in
 # there is touched. SAUERBRATEN_WINDOWED=1 starts in a window.
+# /usr/share/sauerbraten/walnut comes ahead of the data: its data/defaults.cfg (run only while
+# ~/.sauerbraten/config.cfg does not exist) is the game's own plus lower-VRAM settings.
 DATA=/usr/share/games/sauerbraten
 if [ ! -d "$DATA/packages" ] || [ ! -d "$DATA/data" ]; then
 	echo "sauerbraten: the game data is missing: install the sauerbraten-data package" >&2
@@ -11,4 +13,4 @@ if [ ! -d "$DATA/packages" ] || [ ! -d "$DATA/data" ]; then
 fi
 if [ "${SAUERBRATEN_WINDOWED:-0}" = 1 ]; then full=0; else full=1; fi
 cd /usr/lib/cube2 || exit 1
-exec ./cube2_client -q"$HOME/.sauerbraten" -k"$DATA" -t"$full" "$@"
+exec ./cube2_client -q"$HOME/.sauerbraten" -k/usr/share/sauerbraten/walnut -k"$DATA" -t"$full" "$@"

@@ -43,6 +43,7 @@ logged`).
 | 10 | Warzone 2100 | Warzone 2100 | none (PC=0) | our 4.3.5 build has no PC image any more (wz-amd64-view deleted); Debian's 4.6 needs GL 3 |
 | 11 | SuperTuxKart | SuperTuxKart | ready | a "driver too old" dialog on a fresh config (the user decides whether our package turns it off) |
 | 12 | QuakeSpasm, Yamagi Quake II | QuakeSpasm (GLSL) / (GL 1.x); Yamagi Quake II | needs the data | the user's own game data on both sides |
+| 13 | Sauerbraten (the real game), again | Sauerbraten | none (PC=0) | after Mesa ps3.819 (0046, the query use-after-free behind the 2026-10-24 crash) and sauerbraten 0.819 (`texcompress 512` for a new `~/.sauerbraten`: applies only if `config.cfg` is not there yet, the player decides whether to move it away): an online match of 10 minutes or more over a map change; no segfault, the `vram` column and the dmesg's `out of VRAM` against 180-210 MB, stutter against 14.7 s a minute, and the user's look at the world textures (DXT1 at 512) |
 
 ### Next batches (SSD root, kernel .472, ps3-gpu-tools 0.477~dev)
 

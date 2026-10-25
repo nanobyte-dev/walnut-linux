@@ -1,0 +1,250 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 25 Oct 2026 02:56:30 +0300
+Subject: nv30: a query whose report slot is taken back keeps its result
+
+The query notifier has room for 124 reports (nv30_screen.c: a heap of 4096 - 128 bytes, 32 a
+report). When it is full, nv30_query_object_new() frees the oldest report object, waiting for the
+GPU to write it first. Its query still pointed at the object, though, so that query's next
+result check (or its next begin, end or render condition) used freed memory: usually the object
+malloc had just handed to a newer query, whose slot it then read as its own result and freed a
+second time. Sauerbraten ends up to 2048 occlusion queries a frame and reads their results a frame
+later, so this ran all the time: occlusion results from other queries (geometry popping in and
+out), and in a 2026-10-24 online match a segfault after 3.5 minutes, nouveau_heap_free() called
+from nv30_query_object_del() with a "heap node" pointer that was the function descriptor of
+nouveau_mm_free_work (the freed object had become a nouveau_fence_work).
+
+Each report object now knows its query (owner). Taking one back first reads the query's result
+into the query (the slot had to be waited for anyway), and a TIME_ELAPSED query that has not
+ended keeps its start time. A query begun again, ended again (TIMESTAMP) or destroyed before its
+result was read lets its objects go: freed if their report is in, else disowned and left in the
+list as before. A render condition on a query whose report is gone draws. Upstream nv30 has the
+same code. Host test: mesa/tests/query-steal-test.c (the old code fails it under
+AddressSanitizer at the first result read).
+
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_query.c b/src/gallium/drivers/nouveau/nv30/nv30_query.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_query.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_query.c
+@@ -37,6 +37,17 @@ struct nv30_query_object {
+    struct list_head list;
+    struct nouveau_heap *hw;
+    struct nouveau_fence *fence; /* NV30_QUERY_KICK=0/2: the batch that writes the report */
++   struct nv30_query *owner;    /* the query whose qo[0] or qo[1] this is, or NULL */
++};
++
++struct nv30_query {
++   struct nv30_query_object *qo[2];
++   unsigned type;
++   uint32_t report;
++   uint32_t enable;
++   uint64_t result;
++   uint64_t start; /* TIME_ELAPSED: the start time, once qo[0] was taken back */
++   struct nouveau_fence *fence; /* NV30_QUERY_WAIT: the submission that ends the query */
+ };
+ 
+ /* Offset of the query notifier inside the query DMA object */
+@@ -60,17 +71,23 @@ nv30_ntfy(struct nv30_screen *screen, struct nv30_query_object *qo)
+    return ntfy;
+ }
+ 
++static void
++nv30_query_object_wait(struct nv30_query_object *qo, volatile uint32_t *ntfy)
++{
++   /* NV30_QUERY_KICK=0/2: the report may still sit in a batch not submitted yet */
++   if ((ntfy[3] & 0xff000000) && qo->fence)
++      nouveau_fence_flush(qo->fence);
++   while (ntfy[3] & 0xff000000) {
++   }
++}
++
+ static void
+ nv30_query_object_del(struct nv30_screen *screen, struct nv30_query_object **po)
+ {
+    struct nv30_query_object *qo = *po; *po = NULL;
+    if (qo) {
+       volatile uint32_t *ntfy = nv30_ntfy(screen, qo);
+-      /* NV30_QUERY_KICK=0/2: the report may still sit in a batch not submitted yet */
+-      if ((ntfy[3] & 0xff000000) && qo->fence)
+-         nouveau_fence_flush(qo->fence);
+-      while (ntfy[3] & 0xff000000) {
+-      }
++      nv30_query_object_wait(qo, ntfy);
+       if (qo->fence)
+          nouveau_fence_ref(NULL, &qo->fence, &screen->base);
+       nouveau_heap_free(&qo->hw);
+@@ -79,8 +96,53 @@ nv30_query_object_del(struct nv30_screen *screen, struct nv30_query_object **po)
+    }
+ }
+ 
++/* A query object the query no longer needs: freed if its report is in, else disowned (left in
++ * the list until nv30_query_object_take() frees it, as before) */
++static void
++nv30_query_object_release(struct nv30_screen *screen, struct nv30_query_object **po)
++{
++   struct nv30_query_object *qo = *po;
++
++   if (qo) {
++      volatile uint32_t *ntfy = nv30_ntfy(screen, qo);
++      if (!(ntfy[3] & 0xff000000)) {
++         nv30_query_object_del(screen, po);
++      } else {
++         qo->owner = NULL;
++         *po = NULL;
++      }
++   }
++}
++
++static bool nv30_query_read(struct nv30_screen *, struct nv30_query *, bool);
++
++/* Out of hardware slots: the oldest query object is freed, waiting for its report. It used to
++ * be freed while its query still pointed at it: that query's next result check read freed
++ * memory (most often the object malloc had given the next query: a wrong result) and freed it
++ * a second time. Its query now gets the result first, read once the slot has been waited for.
++ */
++static void
++nv30_query_object_take(struct nv30_screen *screen, struct nv30_query_object *qo)
++{
++   struct nv30_query *q = qo->owner;
++
++   if (q && q->qo[1]) {
++      nv30_query_read(screen, q, true);   /* frees qo[0] and qo[1] */
++      return;
++   }
++   if (q) {
++      /* qo[0] of a TIME_ELAPSED query not ended yet: its start time is kept */
++      volatile uint32_t *ntfy = nv30_ntfy(screen, qo);
++      assert(q->qo[0] == qo);
++      nv30_query_object_wait(qo, ntfy);
++      q->start = *(uint64_t *)&ntfy[0];
++      q->qo[0] = NULL;
++   }
++   nv30_query_object_del(screen, &qo);
++}
++
+ static struct nv30_query_object *
+-nv30_query_object_new(struct nv30_screen *screen)
++nv30_query_object_new(struct nv30_screen *screen, struct nv30_query *owner)
+ {
+    struct nv30_query_object *oq, *qo = CALLOC_STRUCT(nv30_query_object);
+    volatile uint32_t *ntfy;
+@@ -92,10 +154,15 @@ nv30_query_object_new(struct nv30_screen *screen)
+     * spin waiting for one to become free
+     */
+    while (nouveau_heap_alloc(screen->query_heap, 32, NULL, &qo->hw)) {
++      if (list_is_empty(&screen->queries)) {
++         FREE(qo);
++         return NULL;
++      }
+       oq = list_first_entry(&screen->queries, struct nv30_query_object, list);
+-      nv30_query_object_del(screen, &oq);
++      nv30_query_object_take(screen, oq);
+    }
+ 
++   qo->owner = owner;
+    list_addtail(&qo->list, &screen->queries);
+ 
+    ntfy = nv30_ntfy(screen, qo);
+@@ -106,15 +173,6 @@ nv30_query_object_new(struct nv30_screen *screen)
+    return qo;
+ }
+ 
+-struct nv30_query {
+-   struct nv30_query_object *qo[2];
+-   unsigned type;
+-   uint32_t report;
+-   uint32_t enable;
+-   uint64_t result;
+-   struct nouveau_fence *fence; /* NV30_QUERY_WAIT: the submission that ends the query */
+-};
+-
+ static inline struct nv30_query *
+ nv30_query(struct pipe_query *pipe)
+ {
+@@ -162,6 +220,8 @@ nv30_query_destroy(struct pipe_context *pipe, struct pipe_query *pq)
+ {
+    struct nv30_query *q = nv30_query(pq);
+ 
++   nv30_query_object_release(nv30_screen(pipe->screen), &q->qo[0]);
++   nv30_query_object_release(nv30_screen(pipe->screen), &q->qo[1]);
+    if (q->fence)
+       nouveau_fence_ref(NULL, &q->fence, &nv30_screen(pipe->screen)->base);
+    FREE(pq);
+@@ -174,9 +234,13 @@ nv30_query_begin(struct pipe_context *pipe, struct pipe_query *pq)
+    struct nv30_query *q = nv30_query(pq);
+    struct nouveau_pushbuf *push = nv30->base.pushbuf;
+ 
++   /* a query begun again before its result was read */
++   nv30_query_object_release(nv30->screen, &q->qo[0]);
++   nv30_query_object_release(nv30->screen, &q->qo[1]);
++
+    switch (q->type) {
+    case PIPE_QUERY_TIME_ELAPSED:
+-      q->qo[0] = nv30_query_object_new(nv30->screen);
++      q->qo[0] = nv30_query_object_new(nv30->screen, q);
+       if (q->qo[0]) {
+          BEGIN_NV04(push, NV30_3D(QUERY_GET), 1);
+          PUSH_DATA (push, (q->report << 24) | (nv30_query_base(nv30->screen) + q->qo[0]->hw->start));
+@@ -207,7 +271,8 @@ nv30_query_end(struct pipe_context *pipe, struct pipe_query *pq)
+    struct nv30_query *q = nv30_query(pq);
+    struct nouveau_pushbuf *push = nv30->base.pushbuf;
+ 
+-   q->qo[1] = nv30_query_object_new(screen);
++   nv30_query_object_release(screen, &q->qo[1]);   /* TIMESTAMP: ended again, never begun */
++   q->qo[1] = nv30_query_object_new(screen, q);
+    if (q->qo[1]) {
+       BEGIN_NV04(push, NV30_3D(QUERY_GET), 1);
+       PUSH_DATA (push, (q->report << 24) | (nv30_query_base(screen) + q->qo[1]->hw->start));
+@@ -279,12 +344,10 @@ nv30_query_wait(struct nv30_screen *screen, struct nv30_query *q, volatile uint3
+       sched_yield();
+ }
+ 
++/* The result into q->result once the end report is in (false: not yet, and !wait) */
+ static bool
+-nv30_query_result(struct pipe_context *pipe, struct pipe_query *pq,
+-                  bool wait, union pipe_query_result *result)
++nv30_query_read(struct nv30_screen *screen, struct nv30_query *q, bool wait)
+ {
+-   struct nv30_screen *screen = nv30_screen(pipe->screen);
+-   struct nv30_query *q = nv30_query(pq);
+    volatile uint32_t *ntfy0 = nv30_ntfy(screen, q->qo[0]);
+    volatile uint32_t *ntfy1 = nv30_ntfy(screen, q->qo[1]);
+ 
+@@ -307,7 +370,7 @@ nv30_query_result(struct pipe_context *pipe, struct pipe_query *pq,
+          q->result = *(uint64_t *)&ntfy1[0];
+          break;
+       case PIPE_QUERY_TIME_ELAPSED:
+-         q->result = *(uint64_t *)&ntfy1[0] - *(uint64_t *)&ntfy0[0];
++         q->result = *(uint64_t *)&ntfy1[0] - (ntfy0 ? *(uint64_t *)&ntfy0[0] : q->start);
+          break;
+       default:
+          q->result = ntfy1[2];
+@@ -319,6 +382,17 @@ nv30_query_result(struct pipe_context *pipe, struct pipe_query *pq,
+       if (q->fence)
+          nouveau_fence_ref(NULL, &q->fence, &screen->base);
+    }
++   return true;
++}
++
++static bool
++nv30_query_result(struct pipe_context *pipe, struct pipe_query *pq,
++                  bool wait, union pipe_query_result *result)
++{
++   struct nv30_query *q = nv30_query(pq);
++
++   if (!nv30_query_read(nv30_screen(pipe->screen), q, wait))
++      return false;
+ 
+    if (q->type == PIPE_QUERY_OCCLUSION_PREDICATE ||
+        q->type == PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE)
+@@ -354,7 +428,10 @@ nv40_query_render_condition(struct pipe_context *pipe,
+    }
+ 
+    BEGIN_NV04(push, SUBC_3D(0x1e98), 1);
+-   PUSH_DATA (push, 0x02000000 | (nv30_query_base(nv30->screen) + q->qo[1]->hw->start));
++   if (!q->qo[1])   /* the report was taken back (or never made): draw */
++      PUSH_DATA (push, 0x01000000);
++   else
++      PUSH_DATA (push, 0x02000000 | (nv30_query_base(nv30->screen) + q->qo[1]->hw->start));
+ }
+ 
+ static void
