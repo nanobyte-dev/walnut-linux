@@ -32,7 +32,7 @@ logged`).
 | # | Game | Launcher (PS3 and PC) | PC side | Notes |
 |---|---|---|---|---|
 | 1 | X-Moto, again | X-Moto | ready | the DualShock 3: paired before and after the start (player 1 either way), keyboard at the same time, Triangle/Square/Start; `xruns_audible` against the 92 underruns that sounded clean |
-| 2 | Armagetron Advanced | Armagetron Advanced | ready | first start: a language menu and a player setup wait for a key |
+| 2 | Armagetron Advanced | Armagetron Advanced | ready | played 2026-10-25 with our package (fullscreen default, pad scheme) and the sdl2-compat close fix: Platinum 95, quit cleanly. The player noticed the walls forgiving (rubber, wall acceleration) in the first run and instant in the second; same defaults (CYCLE_RUBBER 1.0, CYCLE_ACCEL 10), same fps (102/104), our patches touch neither: probably the game setup between runs |
 | 3 | Extreme Tux Racer | Extreme Tux Racer | ready | |
 | 4 | Neverball | Neverball | ready | the level reloads were 8 s of stutter a minute in the benchmark: does play feel smooth? |
 | 5 | Luanti | Luanti | ready | played 2026-10-24: Scrap (25 s of stutter a minute, frames up to 4.3 s). To fix (a package patch, then the known issues go): it starts in a window, the options menu is broken; the stutter (map generation and meshing) is the real problem |

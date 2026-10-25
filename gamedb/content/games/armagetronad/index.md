@@ -10,7 +10,7 @@ packages = ["armagetronad", "armagetronad-common"]
 recipes = ["armagetronad:base"]
 patched_by = ["armagetronad"]
 needs_data = false
-controller = "keyboard"
+controller = "full"
 +++
 
 Armagetron Advanced 0.2.9.3 is Debian's package with our patches (fullscreen at the desktop's resolution by default, a fixed game-controller scheme), and runs with the right picture and sound.
