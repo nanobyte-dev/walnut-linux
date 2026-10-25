@@ -1,0 +1,113 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 25 Oct 2026 13:27:48 +0200
+Subject: Console defaults for a fresh configuration: the lean graphics,
+ fullscreen at the desktop's resolution
+
+A fresh configuration (no config.xml, or one without a key) now starts as
+the benchmarks' lean settings, which are the playable ones on the PS3:
+HD textures off (textures capped at 512, max_texture_size), important
+particles only, drivers not animated, no minimap. Texture compression
+stays on (the game's default), the old-driver popup is off (its warning is
+meaningless on the PS3), and the game starts fullscreen at the desktop's
+resolution (real_width and real_height 0 mean the desktop, resolved in
+IrrDriver::initDevice) instead of a 1024x768 window.
+
+A configuration file that has a key keeps its value.
+
+diff --git a/src/config/user_config.hpp b/src/config/user_config.hpp
+--- a/src/config/user_config.hpp
++++ b/src/config/user_config.hpp
+@@ -613,11 +613,13 @@ namespace UserConfigParams
+         PARAM_DEFAULT( GroupUserConfigParam("Video", "Video Settings") );
+ 
+     PARAM_PREFIX IntUserConfigParam         m_real_width
+-            PARAM_DEFAULT(  IntUserConfigParam(1024, "real_width", &m_video_group,
+-                                            "Screen/window real width in pixels before high dpi is applied") );
++            PARAM_DEFAULT(  IntUserConfigParam(0, "real_width", &m_video_group,
++                                            "Screen/window real width in pixels before high dpi is applied "
++                                            "(0: the desktop's width, in fullscreen)") );
+     PARAM_PREFIX IntUserConfigParam         m_real_height
+-            PARAM_DEFAULT(  IntUserConfigParam(768, "real_height", &m_video_group,
+-                                           "Screen/window real height in pixels before high dpi is applied") );
++            PARAM_DEFAULT(  IntUserConfigParam(0, "real_height", &m_video_group,
++                                           "Screen/window real height in pixels before high dpi is applied "
++                                           "(0: the desktop's height, in fullscreen)") );
+     PARAM_PREFIX IntUserConfigParam         m_width
+             PARAM_DEFAULT(  IntUserConfigParam(1024, "width", &m_video_group,
+                                             "Screen/window width in pixels, this value should not be edited") );
+@@ -625,7 +627,7 @@ namespace UserConfigParams
+             PARAM_DEFAULT(  IntUserConfigParam(768, "height", &m_video_group,
+                                            "Screen/window height in pixels, this value should not be edited") );
+     PARAM_PREFIX BoolUserConfigParam        m_fullscreen
+-            PARAM_DEFAULT(  BoolUserConfigParam(false, "fullscreen",
++            PARAM_DEFAULT(  BoolUserConfigParam(true, "fullscreen",
+                                                 &m_video_group) );
+     PARAM_PREFIX IntUserConfigParam         m_prev_real_width
+             PARAM_DEFAULT(  IntUserConfigParam(1024, "prev_real_width",
+@@ -675,7 +677,7 @@ namespace UserConfigParams
+      *  to e.g. disable h.d. textures on hd3000 as default, but still allow the
+      *  user to enable it. */
+     PARAM_PREFIX IntUserConfigParam        m_high_definition_textures
+-        PARAM_DEFAULT(IntUserConfigParam(1, "enable_high_definition_textures",
++        PARAM_DEFAULT(IntUserConfigParam(0, "enable_high_definition_textures",
+         &m_video_group, "Enable high definition textures. Bit flag: "
+                         "bit 0 = enabled/disabled; bit 1 = set by user/set as default"));
+     PARAM_PREFIX BoolUserConfigParam        m_glow
+@@ -694,7 +696,7 @@ namespace UserConfigParams
+         PARAM_DEFAULT(BoolUserConfigParam(false, "enable_dof",
+         &m_video_group, "Enable Depth of Field"));
+     PARAM_PREFIX BoolUserConfigParam        m_old_driver_popup
+-        PARAM_DEFAULT(BoolUserConfigParam(true, "old_driver_popup",
++        PARAM_DEFAULT(BoolUserConfigParam(false, "old_driver_popup",
+         &m_video_group, "Determines if popup message about too old drivers should be displayed."));
+     PARAM_PREFIX FloatUserConfigParam       m_scale_rtts_factor
+         PARAM_DEFAULT(FloatUserConfigParam(1.0f, "scale_rtts_factor",
+@@ -956,7 +958,7 @@ namespace UserConfigParams
+                                                 "Graphics Quality Settings") );
+ 
+     PARAM_PREFIX IntUserConfigParam        m_particles_effects
+-            PARAM_DEFAULT(  IntUserConfigParam(2, "particles-effecs",
++            PARAM_DEFAULT(  IntUserConfigParam(1, "particles-effecs",
+                             &m_graphics_quality, "Particles effects: 0 disabled, 1 only important, 2 enabled") );
+ 
+     // This saves the actual user preference.
+@@ -970,7 +972,7 @@ namespace UserConfigParams
+         &m_graphics_quality, "Easter Bunny Ears: 0 use current date, 1 always on, 2 always off"));
+ 
+     PARAM_PREFIX BoolUserConfigParam       m_animated_characters
+-            PARAM_DEFAULT(  BoolUserConfigParam(true,
++            PARAM_DEFAULT(  BoolUserConfigParam(false,
+                             "animated-characters", &m_graphics_quality,
+                 "Whether to display animated characters") );
+ 
+@@ -1275,7 +1277,7 @@ namespace UserConfigParams
+                                             "Minimap Setup Settings") );
+ 
+     PARAM_PREFIX IntUserConfigParam        m_minimap_display
+-        PARAM_DEFAULT(IntUserConfigParam(0, "display",
++        PARAM_DEFAULT(IntUserConfigParam(2, "display",
+                      &m_minimap_setup_group, "display: 0 bottom-left, 1 middle-right, 2 hidden, 3 center"));
+ 
+     PARAM_PREFIX FloatUserConfigParam      m_minimap_size
+diff --git a/src/graphics/irr_driver.cpp b/src/graphics/irr_driver.cpp
+--- a/src/graphics/irr_driver.cpp
++++ b/src/graphics/irr_driver.cpp
+@@ -457,6 +457,17 @@ void IrrDriver::initDevice()
+             UserConfigParams::m_real_height = (int)ssize.Height;
+         }
+ 
++        // A fresh configuration (no size saved): fullscreen at the desktop's
++        // resolution
++        if (UserConfigParams::m_fullscreen &&
++            (UserConfigParams::m_real_width < 1 ||
++            UserConfigParams::m_real_height < 1) &&
++            ssize.Width >= 1 && ssize.Height >= 1)
++        {
++            UserConfigParams::m_real_width = (int)ssize.Width;
++            UserConfigParams::m_real_height = (int)ssize.Height;
++        }
++
+         if (UserConfigParams::m_fullscreen)
+         {
+             if (modes->getVideoModeCount() > 0)

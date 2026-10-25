@@ -1,0 +1,419 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 25 Oct 2026 13:27:48 +0200
+Subject: Game controllers: Walnut's standard scheme, second bindings, hot-plug
+ scan
+
+A pad's default bindings (GamepadConfig::initSDLMapping, used when a pad
+has no saved configuration) are now one fixed scheme in the SDL game
+controller names, for a DualShock 3 and any pad with the usual buttons:
+
+  R2 / R1            accelerate         L2 / L1        brake / reverse
+  left stick, d-pad  steer              Cross (A)      skid
+  Square (X)         fire the item      Circle (B)     nitro
+  Triangle (Y)       look back          Select (Back)  rescue
+  Start              pause
+
+  menus: left stick or d-pad move, Cross (or Start) select, Circle back.
+
+An action can now have a second binding (DeviceConfig::setAltBinding,
+saved in input.xml as a second <action ... alt="true"> and listed as
+"R2 / R1" in Options > Input): the trigger and the shoulder button, the
+stick and the d-pad. Setting a binding by hand clears the second one.
+The keyboard keeps working at the same time (its own device).
+
+Hot-plug: SDL's added event could be lost or the open could fail at that
+moment, and a pad plugged in later was not found. InputManager::update
+now also looks every 2 s for a pad SDL lists that is not open, and the
+added event ignores one already open.
+
+A pad that already has a saved configuration in input.xml keeps it.
+
+diff --git a/src/input/device_config.cpp b/src/input/device_config.cpp
+--- a/src/input/device_config.cpp
++++ b/src/input/device_config.cpp
+@@ -70,6 +70,13 @@ DeviceConfig::DeviceConfig()
+     m_enabled = true;
+     m_plugged = 0;
+     m_config_name= L"";
++    for (int n = 0; n < PA_COUNT; n++)
++    {
++        m_bindings[n].set(Input::IT_NONE, 0, Input::AD_NEUTRAL,
++                          Input::AR_HALF);
++        m_alt_bindings[n].set(Input::IT_NONE, 0, Input::AD_NEUTRAL,
++                              Input::AR_HALF);
++    }
+ }   // DeviceConfig
+ 
+ // ------------------------------------------------------------------------
+@@ -182,8 +189,22 @@ void DeviceConfig::setBinding ( const PlayerAction      action,
+                                 Input::AxisRange        range)
+ {
+     m_bindings[action].set(type, id, direction, range);
++    // A binding set by hand replaces the whole default (both inputs)
++    m_alt_bindings[action].set(Input::IT_NONE, 0, Input::AD_NEUTRAL,
++                               Input::AR_HALF);
+ }   // setBinding
+ 
++//------------------------------------------------------------------------------
++/** Sets the second binding of an action; call it after setBinding(). */
++void DeviceConfig::setAltBinding(const PlayerAction     action,
++                                 const Input::InputType type,
++                                 const int              id,
++                                 Input::AxisDirection   direction,
++                                 Input::AxisRange       range)
++{
++    m_alt_bindings[action].set(type, id, direction, range);
++}   // setAltBinding
++
+ //------------------------------------------------------------------------------
+ /** Searches for a game actions associated with the given input event.
+  * \note               Don't call this directly unless you are KeyboardDevice or
+@@ -236,16 +257,20 @@ bool DeviceConfig::doGetAction(Input::InputType    type,
+ 
+     for (n = firstActionToCheck; ((n <= lastActionToCheck) && (!success)); n++)
+     {
+-        if ((m_bindings[n].getType() == type) && (m_bindings[n].getId() == id))
++      // the binding, then the second one of the action (if any)
++      for (int which = 0; which < 2 && !success; which++)
++      {
++        const Binding& bind = which == 0 ? m_bindings[n] : m_alt_bindings[n];
++        if ((bind.getType() == type) && (bind.getId() == id))
+         {
+ 
+             if (type == Input::IT_STICKMOTION)
+             {
+-                if(m_bindings[n].getRange() == Input::AR_HALF)
++                if(bind.getRange() == Input::AR_HALF)
+                 {
+-                    if ( ((m_bindings[n].getDirection() == Input::AD_POSITIVE)
++                    if ( ((bind.getDirection() == Input::AD_POSITIVE)
+                            && (*value > 0))                                      ||
+-                         ((m_bindings[n].getDirection() == Input::AD_NEGATIVE)
++                         ((bind.getDirection() == Input::AD_NEGATIVE)
+                            && (*value < 0))                                        )
+                     {
+                         success = true;
+@@ -254,14 +279,14 @@ bool DeviceConfig::doGetAction(Input::InputType    type,
+                 }
+                 else
+                 {
+-                    if ( ((m_bindings[n].getDirection() == Input::AD_POSITIVE)
++                    if ( ((bind.getDirection() == Input::AD_POSITIVE)
+                            && (*value != -Input::MAX_VALUE))                     ||
+-                         ((m_bindings[n].getDirection() == Input::AD_NEGATIVE)
++                         ((bind.getDirection() == Input::AD_NEGATIVE)
+                            && (*value != Input::MAX_VALUE))                        )
+                     {
+                         success = true;
+                         *action = (PlayerAction)n;
+-                        if(m_bindings[n].getDirection() == Input::AD_NEGATIVE)
++                        if(bind.getDirection() == Input::AD_NEGATIVE)
+                             *value = -*value;
+                         *value = (*value + Input::MAX_VALUE) / 2;
+                     }
+@@ -273,6 +298,7 @@ bool DeviceConfig::doGetAction(Input::InputType    type,
+                *action = (PlayerAction)n;
+             }
+         }
++      }
+     } // end for n
+ 
+     return success;
+@@ -300,6 +326,17 @@ void DeviceConfig::save (std::ofstream& stream)
+         m_bindings[n].save(stream);
+         stream   << "/>\n";
+     }
++    // the second binding of an action, if it has one
++    for(int n = 0; n < PA_COUNT; n++)
++    {
++        if (m_alt_bindings[n].getType() == Input::IT_NONE)
++            continue;
++        stream << "    "
++               << "<action "
++               << "name=\""      << KartActionStrings[n] << "\" alt=\"true\" ";
++        m_alt_bindings[n].save(stream);
++        stream   << "/>\n";
++    }
+ }   // save
+ 
+ //------------------------------------------------------------------------------
+@@ -341,7 +378,10 @@ bool DeviceConfig::load(const XMLNode *config)
+             continue;
+         }
+ 
+-        if(!m_bindings[binding_id].load(action))
++        bool alt = false;
++        action->get("alt", &alt);
++        if(!(alt ? m_alt_bindings[binding_id]
++                 : m_bindings[binding_id]).load(action))
+         {
+             Log::error("Device manager",
+                        "Ignoring an ill-formed keyboard action in input config.");
+diff --git a/src/input/device_config.hpp b/src/input/device_config.hpp
+--- a/src/input/device_config.hpp
++++ b/src/input/device_config.hpp
+@@ -59,6 +59,11 @@ protected:
+ 
+     Binding  m_bindings[PA_COUNT];
+ 
++    /** A second binding for an action (a gamepad's default scheme has two
++     *  inputs for some actions, e.g. a trigger and a shoulder button for
++     *  accelerate). IT_NONE when the action has only m_bindings. */
++    Binding  m_alt_bindings[PA_COUNT];
++
+     DeviceConfig();
+ 
+     bool doGetAction(Input::InputType    type,
+@@ -90,6 +95,11 @@ public:
+                     const int              id,
+                     Input::AxisDirection   direction = Input::AD_NEUTRAL,
+                     Input::AxisRange       range     = Input::AR_HALF);
++    void setAltBinding(const PlayerAction     action,
++                       const Input::InputType type,
++                       const int              id,
++                       Input::AxisDirection   direction = Input::AD_NEUTRAL,
++                       Input::AxisRange       range     = Input::AR_HALF);
+     bool getMenuAction(Input::InputType       type,
+                        const int              id,
+                        int*                   value,
+@@ -158,6 +168,10 @@ public:
+     /** Returns the binding of a given index. */
+     const Binding& getBinding(int i) const {return m_bindings[i];}
+ 
++    // ------------------------------------------------------------------------
++    /** Returns the second binding of a given index (IT_NONE if none). */
++    const Binding& getAltBinding(int i) const {return m_alt_bindings[i];}
++
+     // ------------------------------------------------------------------------
+     /** At this time only relevant for gamepads, keyboards are always enabled */
+     bool isEnabled() const { return m_enabled; }
+diff --git a/src/input/gamepad_config.cpp b/src/input/gamepad_config.cpp
+--- a/src/input/gamepad_config.cpp
++++ b/src/input/gamepad_config.cpp
+@@ -199,7 +199,9 @@ core::stringw GamepadConfig::getBindingAsString(const PlayerAction action) const
+         { SDL_CONTROLLER_AXIS_TRIGGERRIGHT_UP, _("Right trigger") }
+     }};
+ 
+-    const Binding &b = getBinding(action);
++    // the text for one binding (the button's SDL name, else the raw input)
++    auto describe = [&](const Binding &b) -> core::stringw
++    {
+     int id = b.getId();
+     Input::AxisDirection ad = b.getDirection();
+     Input::InputType it = b.getType();
+@@ -225,6 +227,13 @@ core::stringw GamepadConfig::getBindingAsString(const PlayerAction action) const
+             return name;
+         }
+     }
++    return b.getAsString();
++    };
++    core::stringw text = describe(getBinding(action));
++    const Binding &alt = getAltBinding(action);
++    if (alt.getType() != Input::IT_NONE)
++        text += core::stringw(" / ") + describe(alt);
++    return text;
+ #endif
+     return DeviceConfig::getBindingAsString(action);
+ }   // getBindingAsString
+@@ -490,6 +499,75 @@ void GamepadConfig::initSDLMapping()
+     }
+     if (!has_direction)
+         return;
++
++#ifndef __SWITCH__
++    // Walnut's standard scheme, for a pad with all the usual buttons. Each
++    // action takes the first of its inputs that this pad has as its binding
++    // and the second as its second binding (DeviceConfig::setAltBinding), so
++    // the left stick and the d-pad both steer and move in the menus, and a
++    // trigger and a shoulder button both accelerate (or brake). Names are the
++    // SDL game controller ones (on a DualShock 3: A = Cross, B = Circle,
++    // X = Square, Y = Triangle, Back = Select).
++    if (actions_map.find(SDL_CONTROLLER_BUTTON_A) != actions_map.end() &&
++        actions_map.find(SDL_CONTROLLER_BUTTON_B) != actions_map.end() &&
++        actions_map.find(SDL_CONTROLLER_BUTTON_X) != actions_map.end() &&
++        actions_map.find(SDL_CONTROLLER_BUTTON_Y) != actions_map.end() &&
++        actions_map.find(SDL_CONTROLLER_BUTTON_BACK) != actions_map.end() &&
++        actions_map.find(SDL_CONTROLLER_BUTTON_START) != actions_map.end() &&
++        actions_map.find(SDL_CONTROLLER_BUTTON_LEFTSHOULDER) != actions_map.end() &&
++        actions_map.find(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) != actions_map.end())
++    {
++        auto bind = [&](PlayerAction action, std::initializer_list<int> inputs)
++        {
++            bool first = true;
++            for (int input : inputs)
++            {
++                auto it = actions_map.find(input);
++                if (it == actions_map.end())
++                    continue;
++                int id = std::get<0>(it->second);
++                Input::AxisDirection ad = std::get<1>(it->second);
++                Input::InputType type = ad == Input::AD_NEUTRAL ?
++                    Input::IT_STICKBUTTON : Input::IT_STICKMOTION;
++                if (first)
++                    setBinding(action, type, id, ad);
++                else
++                {
++                    setAltBinding(action, type, id, ad);
++                    break;
++                }
++                first = false;
++            }
++        };
++        bind(PA_STEER_LEFT, { SDL_CONTROLLER_AXIS_LEFTX_LEFT,
++                              SDL_CONTROLLER_BUTTON_DPAD_LEFT });
++        bind(PA_STEER_RIGHT, { SDL_CONTROLLER_AXIS_LEFTX_RIGHT,
++                               SDL_CONTROLLER_BUTTON_DPAD_RIGHT });
++        bind(PA_ACCEL, { SDL_CONTROLLER_AXIS_TRIGGERRIGHT_UP,
++                         SDL_CONTROLLER_BUTTON_RIGHTSHOULDER });
++        bind(PA_BRAKE, { SDL_CONTROLLER_AXIS_TRIGGERLEFT_UP,
++                         SDL_CONTROLLER_BUTTON_LEFTSHOULDER });
++        bind(PA_DRIFT, { SDL_CONTROLLER_BUTTON_A });
++        bind(PA_FIRE, { SDL_CONTROLLER_BUTTON_X });
++        bind(PA_NITRO, { SDL_CONTROLLER_BUTTON_B });
++        bind(PA_LOOK_BACK, { SDL_CONTROLLER_BUTTON_Y });
++        bind(PA_RESCUE, { SDL_CONTROLLER_BUTTON_BACK });
++        bind(PA_PAUSE_RACE, { SDL_CONTROLLER_BUTTON_START });
++        bind(PA_MENU_UP, { SDL_CONTROLLER_AXIS_LEFTY_UP,
++                           SDL_CONTROLLER_BUTTON_DPAD_UP });
++        bind(PA_MENU_DOWN, { SDL_CONTROLLER_AXIS_LEFTY_DOWN,
++                             SDL_CONTROLLER_BUTTON_DPAD_DOWN });
++        bind(PA_MENU_LEFT, { SDL_CONTROLLER_AXIS_LEFTX_LEFT,
++                             SDL_CONTROLLER_BUTTON_DPAD_LEFT });
++        bind(PA_MENU_RIGHT, { SDL_CONTROLLER_AXIS_LEFTX_RIGHT,
++                              SDL_CONTROLLER_BUTTON_DPAD_RIGHT });
++        bind(PA_MENU_SELECT, { SDL_CONTROLLER_BUTTON_A,
++                               SDL_CONTROLLER_BUTTON_START });
++        bind(PA_MENU_CANCEL, { SDL_CONTROLLER_BUTTON_B });
++        return;
++    }
++#endif
++
+     if (use_axes_direction)
+     {
+         setBindingFromTuple(PA_STEER_LEFT, actions_map.at(SDL_CONTROLLER_AXIS_LEFTX_LEFT));
+diff --git a/src/input/gamepad_device.cpp b/src/input/gamepad_device.cpp
+--- a/src/input/gamepad_device.cpp
++++ b/src/input/gamepad_device.cpp
+@@ -108,15 +108,20 @@ void GamePadDevice::resetAxisDirection(const int axis,
+ 
+     for(int n=PA_BEFORE_FIRST+1; n<PA_COUNT; n++)
+     {
+-        const Binding& bind = m_configuration->getBinding(n);
+-        if(bind.getType() == Input::IT_STICKMOTION &&
+-           bind.getId() == axis &&
+-           bind.getDirection()== direction &&
+-           pk->getController() != NULL)
++        for (int which = 0; which < 2; which++)
+         {
+-            ((LocalPlayerController*)(pk->getController()))
++            const Binding& bind = which == 0
++                                ? m_configuration->getBinding(n)
++                                : m_configuration->getAltBinding(n);
++            if(bind.getType() == Input::IT_STICKMOTION &&
++               bind.getId() == axis &&
++               bind.getDirection()== direction &&
++               pk->getController() != NULL)
++            {
++                ((LocalPlayerController*)(pk->getController()))
+                                                   ->action((PlayerAction)n, 0);
+-            return;
++                return;
++            }
+         }
+     }
+ 
+diff --git a/src/input/input_manager.cpp b/src/input/input_manager.cpp
+--- a/src/input/input_manager.cpp
++++ b/src/input/input_manager.cpp
+@@ -103,6 +103,9 @@ using GUIEngine::EVENT_BLOCK;
+  */
+ InputManager::InputManager() : m_mode(BOOTSTRAP),
+                                m_mouse_val_x(-1), m_mouse_val_y(-1)
++#ifndef SERVER_ONLY
++                             , m_joystick_scan_timer(0.0f)
++#endif
+ {
+     Log::debug("InputManager", "Initialising InputManager!");
+     m_device_manager = new DeviceManager();
+@@ -179,6 +182,12 @@ void InputManager::handleJoystick(SDL_Event& event)
+         {
+         case SDL_JOYDEVICEADDED:
+         {
++            // Already opened by the scan in update()
++            SDL_JoystickID added =
++                SDL_JoystickGetDeviceInstanceID(event.jdevice.which);
++            if (added >= 0 && m_sdl_controller.find(added) !=
++                m_sdl_controller.end())
++                break;
+             std::unique_ptr<SDLController> c(
+                 new SDLController(event.jdevice.which));
+             SDL_JoystickID id = c->getInstanceID();
+@@ -187,9 +196,12 @@ void InputManager::handleJoystick(SDL_Event& event)
+         }
+         case SDL_JOYDEVICEREMOVED:
+         {
+-            m_gamepads_timer.erase(
+-                m_sdl_controller.at(event.jdevice.which)->getInstanceID());
+-            m_sdl_controller.erase(event.jdevice.which);
++            auto removed = m_sdl_controller.find(event.jdevice.which);
++            m_failed_joysticks.erase(event.jdevice.which);
++            if (removed == m_sdl_controller.end())
++                break;
++            m_gamepads_timer.erase(removed->second->getInstanceID());
++            m_sdl_controller.erase(removed);
+             break;
+         }
+         case SDL_JOYAXISMOTION:
+@@ -261,6 +273,34 @@ void InputManager::update(float dt)
+ #ifndef SERVER_ONLY
+     for (auto& controller : m_sdl_controller)
+         controller.second->checkPowerLevel();
++
++    // Hot-plug: SDL's "added" event can be lost, or the pad can fail to open
++    // at that moment (its device node not yet readable). Look every 2 s for a
++    // pad SDL lists that we have not opened.
++    m_joystick_scan_timer -= dt;
++    if (m_joystick_scan_timer <= 0.0f)
++    {
++        m_joystick_scan_timer = 2.0f;
++        for (int i = 0; i < SDL_NumJoysticks(); i++)
++        {
++            SDL_JoystickID id = SDL_JoystickGetDeviceInstanceID(i);
++            if (id < 0 || m_sdl_controller.find(id) != m_sdl_controller.end())
++                continue;
++            try
++            {
++                std::unique_ptr<SDLController> c(new SDLController(i));
++                id = c->getInstanceID();
++                m_sdl_controller[id] = std::move(c);
++                m_failed_joysticks.erase(id);
++            }
++            catch (std::exception& e)
++            {
++                if (m_failed_joysticks.insert(id).second)
++                    Log::error("SDLController", "Cannot open pad %d: %s",
++                               i, e.what());
++            }
++        }
++    }
+ #endif
+ }
+ 
+diff --git a/src/input/input_manager.hpp b/src/input/input_manager.hpp
+--- a/src/input/input_manager.hpp
++++ b/src/input/input_manager.hpp
+@@ -80,6 +80,13 @@ private:
+ 
+ #ifndef SERVER_ONLY
+     std::map<int, std::unique_ptr<SDLController> > m_sdl_controller;
++
++    /** Seconds until the next look for a pad SDL lists but we have not
++     *  opened (a pad plugged in while the game runs whose "added" event was
++     *  lost or whose open failed). */
++    float m_joystick_scan_timer;
++    /** Instance ids of the pads that failed to open (logged once). */
++    std::set<int> m_failed_joysticks;
+ #endif
+ 
+ public:

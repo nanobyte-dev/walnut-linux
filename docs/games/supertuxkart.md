@@ -26,6 +26,35 @@ deploys by name (`make deploy PKGS="ps3-games supertuxkart supertuxkart-data"`) 
 | 0003 | legacy renderer: no crash when render-to-texture fails, a power-of-two (512x512) minimap render target |
 | 0004 | texture compression reaches the legacy renderer: opaque power-of-two textures as DXT1, compressed by Mesa at upload |
 | 0005 | `STK_PROFILE_WARMUP=S`: profile mode restarts its frame count and clock once the race passes S seconds and ends the race at S + the profile time |
+| 0006 | defaults of a fresh configuration (a key already in `config.xml` keeps its value): the `lean` graphics (HD textures off, important particles only, drivers not animated, no minimap), texture compression on (the game's default), old-driver popup off, fullscreen at the desktop's resolution (`real_width`/`real_height` 0 = the desktop, resolved in `IrrDriver::initDevice`) |
+| 0007 | game controllers like a console game: a fixed scheme as the default bindings of any pad with the usual buttons, a second binding per action, a hot-plug scan |
+
+## Controls
+
+The bindings of a pad come from its SDL game controller mapping (`GamepadConfig::initSDLMapping`),
+once, when STK first sees that pad; 0007 rewrites that table to the scheme below. A pad that already
+has an entry in `~/.config/supertuxkart/config-0.10/input.xml` keeps it (delete the entry, or the
+file, to get the new scheme). The keyboard is its own device and works at the same time.
+
+| Pad (DualShock 3) | Race | Menus |
+|---|---|---|
+| R2 or R1 | accelerate | |
+| L2 or L1 | brake / reverse | |
+| left stick or d-pad | steer | move |
+| Cross | skid | select |
+| Square | fire the item | |
+| Circle | nitro | back |
+| Triangle | look back | |
+| Select | rescue | |
+| Start | pause | select |
+
+STK allows one binding per action, so 0007 adds a second one (`DeviceConfig::setAltBinding`; saved
+in `input.xml` as a second `<action ... alt="true">`, listed as "Right trigger / Right shoulder" in
+Options > Input; setting a binding by hand clears the second). A pad with fewer buttons gets the
+game's older default. STK's own multiplayer screen assigns devices as before, one pad per player.
+Hot-plug: `InputManager::update` looks every 2 s for a pad SDL lists that isn't open (the "added"
+event could be lost, or the open could fail at that moment), and the added event skips one already
+open. Not yet tried on the PS3.
 
 ## The recipe
 

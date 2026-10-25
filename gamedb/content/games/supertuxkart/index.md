@@ -13,7 +13,6 @@ needs_data = false
 controller = "partial"
 known_issues = [
   "The textures are corrupted on the PS3 (the geometry is right): being investigated.",
-  "Starts in a window; the controller is only found if it is on before the game starts, its default scheme is nonstandard, and the d-pad doesn't work in the menus (only the left stick).",
   "About 20 frames a second even at the lean settings: the PS3's PowerPC core and its memory limit what the game can draw.",
   "OpenAL logs buffer warnings in about half the runs; the sound has not been judged by ear yet.",
 ]
