@@ -143,6 +143,13 @@ fi
 T1=$(date +%s)
 echo ">> build dependencies ready in $((T1 - T0)) s"
 
+# ccache's masquerade links (/usr/lib/ccache/gcc, cc, ...) are made when ccache is installed and by a
+# trigger on /usr/lib/gcc, so a compiler that came with the build dependencies, or `cc` (the name a
+# plain Makefile's $(CC) defaults to: yquake2, darkplaces, ...), can be missing and the build then
+# compiles cold. Refresh them (and list them in the log) before every build.
+in_chroot update-ccache-symlinks
+echo ">> ccache links: $(in_chroot ls /usr/lib/ccache | tr '\n' ' ')"
+
 in_chroot sh -c "ccache -M 5G >/dev/null; cd /build/reproducible-path/$SOURCE-$UPVER && \
 	CCACHE_DIR=/build/ccache CCACHE_BASEDIR=/build/reproducible-path CCACHE_NOHASHDIR=1 \
 	CCACHE_REMOTE_STORAGE='${CCACHE_REMOTE_STORAGE:-}' CCACHE_COMPILERCHECK=content \
