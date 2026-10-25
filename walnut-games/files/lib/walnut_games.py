@@ -5,9 +5,22 @@ Design
   only"), the games as cards on a tk.Canvas, and a details pane on the right.
   Stdlib and tkinter; PIL only to show the JPEG screenshots (Tk itself reads PNG, the thumbnails).
 - The catalog is the one packaged in /usr/share/walnut-games/ (catalog.json, games/<id>/thumb.png
-  and the screenshots): the same list the root helper installs from, so the app works offline. A
-  screenshot missing from the package is fetched from https://walnut.nanobyte.dev/gamedb/ once and
-  cached under ~/.cache/walnut-games. WALNUT_GAMES_DATA points the app at another catalog directory.
+  and the screenshots): the same list the root helper installs from, so the app works offline.
+  WALNUT_GAMES_DATA points the app at another catalog directory.
+- Fresh ratings: the window opens at once with the packaged catalog, or the last web copy cached in
+  ~/.cache/walnut-games/catalog.json when that one is newer (choose_catalog), and a background thread
+  fetches https://walnut.nanobyte.dev/gamedb/catalog.json (8 s timeout). A download is used only if
+  validate_catalog accepts it (a bad one is dropped, what is shown stays) and it is newer (is_newer:
+  the catalog's content_date, its newest test date, then its revision, a hash of the content); it is
+  cached and the cards and details are redrawn in place (filters, search, selection, scroll and the
+  screenshot shown are kept). Offline or failing: a line on stderr, nothing else. The Refresh button
+  does the same fetch and also re-reads the installed state (dpkg-query) and the launchers; it is off
+  while a refresh or an install runs. Thumbnails and screenshots missing from the package are fetched
+  from the website once and cached (the card shows a placeholder meanwhile). WALNUT_GAMES_OFFLINE=1
+  turns the network off.
+- Install maps ids to packages in the root helper from the packaged, root-owned catalog only, so a
+  game that exists only in the web catalog shows Install off, with the reason, until the next package
+  update. Play and Remove work for any installed game.
 - Installed state comes from dpkg-query (no root). Install and Remove run
   `sudo -n /usr/lib/ps3/sbin/walnut-games-helper install|remove ID` (it takes game ids only), its
   "progress N text" lines drive the progress bar, and afterwards the menu entries are made again
@@ -21,6 +34,7 @@ Design
 """
 import json
 import os
+import re
 import queue
 import shlex
 import subprocess
@@ -61,9 +75,103 @@ ASPECT_ORDER = ["frame", "smooth", "sound", "picture", "stability", "display", "
 
 # ---- pure functions ---------------------------------------------------------------------------
 
-def load_catalog(data=None):
+def load_catalog_obj(data=None):
     with open(os.path.join(data or DATA, "catalog.json"), encoding="utf-8") as f:
-        return json.load(f)["games"]
+        return json.load(f)
+
+
+def load_catalog(data=None):
+    return load_catalog_obj(data)["games"]
+
+
+ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+SHOT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$")
+MAX_CATALOG = 16 << 20
+
+
+def validate_catalog(obj):
+    """a downloaded catalog as a dict, or ValueError: it must have the games list and the fields the
+    app reads (id, title, packages, a rating with a medal; the lists and dicts it iterates over must
+    be of the right type), and the ids and picture paths must be safe to use in a URL and a cache path"""
+    def need(ok, what):
+        if not ok:
+            raise ValueError(what)
+
+    need(isinstance(obj, dict) and isinstance(obj.get("games"), list) and obj["games"], "no games list")
+    seen = set()
+    for g in obj["games"]:
+        need(isinstance(g, dict), "a game is not an object")
+        gid = g.get("id")
+        need(isinstance(gid, str) and ID_RE.match(gid) and gid not in seen, "bad or repeated id %r" % (gid,))
+        seen.add(gid)
+        need(isinstance(g.get("title"), str) and g["title"], "%s: no title" % gid)
+        need(isinstance(g.get("packages"), list) and g["packages"] and
+             all(isinstance(p, str) and p for p in g["packages"]), "%s: bad packages" % gid)
+        need(isinstance(g.get("rating"), dict) and isinstance(g["rating"].get("medal"), str),
+             "%s: no rating" % gid)
+        need(isinstance(g["rating"].get("aspects", {}), dict), "%s: bad aspects" % gid)
+        for k in ("summary", "controller", "medal_note"):
+            need(g.get(k) is None or isinstance(g[k], str), "%s: bad %s" % (gid, k))
+        for k in ("categories", "tags", "known_issues"):
+            need(all(isinstance(x, str) for x in g.get(k) or []) and isinstance(g.get(k) or [], list),
+                 "%s: bad %s" % (gid, k))
+        for k in ("patches", "launchers", "tests"):
+            need(isinstance(g.get(k) or [], list) and all(isinstance(x, dict) for x in g.get(k) or []),
+                 "%s: bad %s" % (gid, k))
+        need(all(isinstance(p.get("subject"), str) for p in g.get("patches") or []), "%s: bad patches" % gid)
+        for l in g.get("launchers") or []:
+            need(isinstance(l.get("rating"), dict) and isinstance(l["rating"].get("medal"), str),
+                 "%s: bad launcher" % gid)
+        for t in g.get("tests") or []:
+            shots = t.get("ps3") or []
+            need(isinstance(shots, list) and all(isinstance(f, str) and SHOT_RE.match(f) and ".." not in f.split("/")
+                                                 for f in shots), "%s: bad picture path" % gid)
+    return obj
+
+
+def content_stamp(cat):
+    """(content date, revision) of a catalog: tools/gamedb/catalog.py's content_date (the newest test
+    date) and revision (a hash of the games); a catalog from before those fields gets the newest
+    test date and no revision"""
+    date = cat.get("content_date")
+    if not isinstance(date, str):
+        date = max((str(t.get("date") or "") for g in cat.get("games", []) for t in g.get("tests") or []),
+                   default="")
+    rev = cat.get("revision")
+    return date, rev if isinstance(rev, str) else ""
+
+
+def is_newer(new, cur):
+    """is catalog `new` newer than `cur`? By the newest test date; on the same date a different
+    revision counts as newer (the website is the current one), the same revision does not"""
+    (dn, rn), (dc, rc) = content_stamp(new), content_stamp(cur)
+    if dn != dc:
+        return dn > dc
+    return bool(rn) and rn != rc
+
+
+def choose_catalog(packaged, cached):
+    """the catalog to start with: the cached web copy if it is valid and newer than the packaged one"""
+    if cached is not None:
+        try:
+            if is_newer(validate_catalog(cached), packaged):
+                return cached
+        except ValueError:
+            pass
+    return packaged
+
+
+def cache_dir():
+    return os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "walnut-games")
+
+
+def read_cached_catalog(path=None):
+    """the cached web catalog, or None (missing, unreadable or invalid)"""
+    try:
+        with open(path or os.path.join(cache_dir(), "catalog.json"), encoding="utf-8") as f:
+            return validate_catalog(json.load(f))
+    except (OSError, ValueError):
+        return None
 
 
 def medal_of(game):
@@ -297,13 +405,19 @@ SHOT_W = 360
 
 
 class App:
-    def __init__(self, root, data=None, runtime_dir=None, helper=HELPER):
+    def __init__(self, root, data=None, runtime_dir=None, helper=HELPER, online=None):
         self.root, self.data = root, data or DATA
         self.runtime_dir = runtime_dir if runtime_dir is not None else \
             (os.path.join(os.environ["XDG_RUNTIME_DIR"], "ps3-game-menu") if os.environ.get("XDG_RUNTIME_DIR") else None)
         self.helper = helper
-        self.games = load_catalog(self.data)
+        self.online = (not os.environ.get("WALNUT_GAMES_OFFLINE")) if online is None else online
+        packaged = load_catalog_obj(self.data)
+        self.pkg_ids = {g["id"] for g in packaged["games"]}   # what the root helper can install
+        self.cat = choose_catalog(packaged, read_cached_catalog() if self.online else None)
+        self.games = self.cat["games"]
         self.by_id = {g["id"]: g for g in self.games}
+        self.refreshing = False
+        self._fetching = set()
         self.have = set()
         self.shown, self.selected = [], None
         self.thumbs, self.cards = {}, {}
@@ -318,6 +432,8 @@ class App:
         self.refresh_installed()
         self.apply_filters()
         self.root.after(100, self._poll)
+        if self.online:
+            self.fetch_catalog(manual=False)
 
     # -- look
     def _style(self):
@@ -398,12 +514,16 @@ class App:
             ttk.Label(bar, text=name, style="Muted.TLabel", background=PANEL).pack(side="left", padx=(8, 2))
             cb = ttk.Combobox(bar, textvariable=var, values=vals, state="readonly", width=wd)
             cb.pack(side="left", padx=4)
+            if name == "Category":
+                self.cat_box = cb
             cb.bind("<<ComboboxSelected>>", lambda e: self.apply_filters())
         for var, text in ((self.v_inst, "Installed only"),):
             ttk.Checkbutton(bar, text=text, variable=var, command=self.apply_filters, style="TCheckbutton").pack(
                 side="left", padx=8)
         self.count = ttk.Label(bar, text="", style="Muted.TLabel", background=PANEL)
         self.count.pack(side="right")
+        self.b_refresh = ttk.Button(bar, text="Refresh", command=self.refresh)
+        self.b_refresh.pack(side="right", padx=(0, 12))
         self.v_text.trace_add("write", lambda *a: self.apply_filters())
         # body: the cards, then the details
         # a draggable divider between the cards and the details (the user widens the details pane)
@@ -442,6 +562,7 @@ class App:
         self.d_status = ttk.Label(self.activity, text="", style="Muted.TLabel", background=PANEL, wraplength=370,
                                   justify="left")
         self.d_status.pack(side="top", anchor="w", pady=(8, 2))
+        self.d_reason = ttk.Label(d, text="", style="Muted.TLabel", background=PANEL, wraplength=370, justify="left")
         self.progress = ttk.Progressbar(self.activity, maximum=100, mode="determinate")
         self._activity_after = None
         self.b_install = ttk.Button(btns, text="Install", style="Accent.TButton", command=lambda: self.run_helper("install"))
@@ -449,6 +570,7 @@ class App:
         self.b_play = ttk.Button(btns, text="Play", style="Accent.TButton", command=self.play)
         for b in (self.b_install, self.b_remove, self.b_play):
             b.pack(side="left", padx=(0, 8))
+        self.btns = btns
         # the scrolling area: a canvas holding one frame, its scroll region kept to the frame's size
         area = ttk.Frame(d, style="Panel.TFrame")
         area.pack(side="top", fill="both", expand=True)
@@ -516,12 +638,26 @@ class App:
         self.layout(reset=True)
 
     def _thumb(self, g):
-        if g["id"] not in self.thumbs:
+        """the card's picture: the packaged one, else the cached web one (fetched once); None is the placeholder"""
+        gid = g["id"]
+        if gid not in self.thumbs:
+            path = os.path.join(self.data, "games", gid, "thumb.png")
+            if not os.path.exists(path):
+                path = self.cache_path(gid, "thumb.png")
+                if not os.path.exists(path):
+                    if self.online and ("thumb", gid) not in self._fetching:
+                        self.fetch(gid, "thumb.png", path, "thumb")
+                    return None
             try:
-                self.thumbs[g["id"]] = tk.PhotoImage(file=os.path.join(self.data, "games", g["id"], "thumb.png"))
+                self.thumbs[gid] = tk.PhotoImage(file=path)
             except tk.TclError:
-                self.thumbs[g["id"]] = None
-        return self.thumbs[g["id"]]
+                self.thumbs[gid] = None
+                if path.startswith(cache_dir()):
+                    try:
+                        os.remove(path)     # a broken download: fetched again next time
+                    except OSError:
+                        pass
+        return self.thumbs[gid]
 
     def layout(self, reset=False):
         c = self.canvas
@@ -787,10 +923,14 @@ class App:
         self.set_shot(path)
 
     def cache_path(self, gid, rel):
-        base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
-        return os.path.join(base, "walnut-games", gid, rel)
+        return os.path.join(cache_dir(), gid, rel)
 
-    def fetch(self, gid, rel, path):
+    def fetch(self, gid, rel, path, kind="shot"):
+        if not self.online:
+            self.events.put((kind, gid, rel, None))
+            return
+        self._fetching.add((kind, gid))
+
         def work():
             try:
                 req = urllib.request.Request(WEB + "games/%s/%s" % (gid, rel), headers={"User-Agent": "walnut-games"})
@@ -800,9 +940,10 @@ class App:
                 with open(path + ".part", "wb") as o:
                     o.write(data)
                 os.replace(path + ".part", path)
-                self.events.put(("shot", gid, rel, path))
-            except (OSError, ValueError):
-                self.events.put(("shot", gid, rel, None))
+                self.events.put((kind, gid, rel, path))
+            except Exception as e:
+                print("walnut-games: can't fetch %s/%s: %s" % (gid, rel, e), file=sys.stderr)
+                self.events.put((kind, gid, rel, None))
         threading.Thread(target=work, daemon=True).start()
 
     def set_shot(self, path):
@@ -830,8 +971,104 @@ class App:
         self.d_shot.configure(image=img, text="")
 
     # -- buttons and the helper
-    def refresh_installed(self):
-        self.have = dpkg_installed({p for g in self.games for p in g["packages"]})
+    def fetch_catalog(self, manual):
+        """download the web catalog in a thread; the result comes back as a "catalog" event"""
+        def work():
+            try:
+                req = urllib.request.Request(WEB + "catalog.json", headers={"User-Agent": "walnut-games"})
+                with urllib.request.urlopen(req, timeout=8) as f:
+                    raw = f.read(MAX_CATALOG + 1)
+                if len(raw) > MAX_CATALOG:
+                    raise ValueError("catalog too large")
+                cat = validate_catalog(json.loads(raw.decode("utf-8")))
+                self.events.put(("catalog", cat, raw, manual, None))
+            except Exception as e:
+                print("walnut-games: catalog refresh failed: %s" % e, file=sys.stderr)
+                self.events.put(("catalog", None, None, manual, e))
+        threading.Thread(target=work, daemon=True).start()
+
+    def refresh(self):
+        """the Refresh button: the web catalog, the installed state and the launchers, redrawn in place"""
+        if self.refreshing or self.busy or not self.online:
+            return
+        self.refreshing = True
+        self.show_activity("Refreshing...")
+        self.update_buttons()
+        self.fetch_catalog(manual=True)
+
+    def on_catalog(self, cat, raw, manual, err):
+        """a fetch finished (on the Tk thread): cache and show a newer catalog, re-read what is installed"""
+        self.refreshing = False
+        changed = False
+        if cat is not None and is_newer(cat, self.cat):
+            try:
+                os.makedirs(cache_dir(), exist_ok=True)
+                path = os.path.join(cache_dir(), "catalog.json")
+                with open(path + ".part", "wb") as o:
+                    o.write(raw)
+                os.replace(path + ".part", path)
+            except OSError as e:
+                print("walnut-games: can't cache the catalog: %s" % e, file=sys.stderr)
+            changed = True
+        self._manifests.clear()
+        if changed or manual:
+            self.refresh_installed(cat["games"] if changed else None)
+        if changed:
+            self.apply_catalog(cat)
+        elif manual:
+            self.apply_filters_inplace()
+        if manual:
+            if err is not None:
+                self.show_activity("Can't reach the website, showing what is saved.", hide_after=6)
+            elif changed:
+                self.show_activity("Catalog updated: %d games." % len(self.games), hide_after=6)
+            else:
+                self.show_activity("Up to date.", hide_after=4)
+        self.update_buttons()
+
+    def apply_catalog(self, cat):
+        """show another catalog without losing the filters, search, selection or scroll"""
+        old = self.by_id.get(self.selected)
+        shot_i, launch_i = self.shot_i, self.launch_var.get()
+        dy = self.d_scroll.yview()[0]
+        self.cat, self.games = cat, cat["games"]
+        self.by_id = {g["id"]: g for g in self.games}
+        self.thumbs.clear()
+        cats = ["All"] + sorted({c for g in self.games for c in g.get("categories", [])})
+        self.cat_box.configure(values=cats)
+        if self.v_cat.get() not in cats:
+            self.v_cat.set("All")
+        self.apply_filters_inplace()
+        new = self.by_id.get(self.selected)
+        if self.selected and new is None:
+            self.selected = None
+            self.show(None)
+        elif new is not None and new != old:
+            self.show(new)
+            self.shot_i = shot_i % max(1, len(screenshots(new)))
+            if len(new.get("launchers") or []) > 1:
+                self.launch_var.set(launch_i if launch_i < len(new["launchers"]) else 0)
+                self.show_rating()
+            self.show_shot()
+            self.d_scroll.update_idletasks()
+            self.d_scroll.yview_moveto(dy)
+        else:
+            if new is not None:
+                self.g = new
+            self.update_buttons()
+
+    def apply_filters_inplace(self):
+        """apply_filters, keeping the cards' scroll position"""
+        region = self.canvas.cget("scrollregion").split()
+        old_h = float(region[3]) if len(region) == 4 else 0.0
+        top = self.canvas.yview()[0] * old_h
+        self.apply_filters()
+        region = self.canvas.cget("scrollregion").split()
+        new_h = float(region[3]) if len(region) == 4 else 0.0
+        self.canvas.yview_moveto(min(top / new_h, 1.0) if new_h else 0)
+
+    def refresh_installed(self, games=None):
+        self.have = dpkg_installed({p for g in (games or self.games) for p in g["packages"]})
 
     def manifest(self, g):
         """the game's packages' files (dpkg -L), cached until the installed set changes"""
@@ -844,7 +1081,15 @@ class App:
         g = getattr(self, "g", None)
         inst = bool(g) and is_installed(g, self.have)
         idle = self.busy is None
-        self.b_install.configure(state="normal" if g and idle and not inst else "disabled")
+        can = bool(g) and g["id"] in self.pkg_ids
+        self.b_install.configure(state="normal" if can and idle and not inst else "disabled")
+        reason = "Install it after the next Walnut Games update." if g and not can and not inst else ""
+        self.d_reason.configure(text=reason)
+        if reason:
+            self.d_reason.pack(side="bottom", fill="x", after=self.btns)
+        else:
+            self.d_reason.pack_forget()
+        self.b_refresh.configure(state="normal" if idle and not self.refreshing else "disabled")
         self.b_remove.configure(state="normal" if g and idle and inst else "disabled")
         self.play_cmds = order_launchers(play_commands(g, self.runtime_dir, files=lambda: self.manifest(g)),
                                          g.get("launchers")) if g and inst else []
@@ -927,13 +1172,14 @@ class App:
                     self.busy = None
                     self.refresh_installed()
                     ok = "installed" if op == "install" else "removed"
+                    title = self.by_id.get(gid, {"title": gid})["title"]
                     # a success fades after a few seconds; a failure stays until the next action
-                    self.show_activity(self.by_id[gid]["title"] + (" " + ok + "." if rc == 0 else
+                    self.show_activity(title + (" " + ok + "." if rc == 0 else
                                        ": " + op + " failed" + (" (refused)" if rc == 2 else "") + "."),
                                        hide_after=6 if rc == 0 else None)
                     if rc != 0:
                         messagebox.showerror("Walnut Games", "%s of %s failed:\n\n%s" % (
-                            op, self.by_id[gid]["title"], "\n".join(tail) or "no details"), parent=self.root)
+                            op, title, "\n".join(tail) or "no details"), parent=self.root)
                     self.apply_filters_keep()
                 elif ev[0] == "played":
                     _, gid, rc, secs, log = ev
@@ -944,6 +1190,13 @@ class App:
                             title, secs, "" if rc == 0 else " (exit code %d)" % rc, log))
                     else:
                         self.hide_activity()
+                elif ev[0] == "catalog":
+                    self.on_catalog(*ev[1:])
+                elif ev[0] == "thumb":
+                    self._fetching.discard(("thumb", ev[1]))
+                    if ev[3]:
+                        self.thumbs.pop(ev[1], None)
+                        self.layout()
                 elif ev[0] == "shot":
                     if self.g and self.g["id"] == ev[1] and ev[3]:
                         shots = screenshots(self.g)

@@ -6,7 +6,7 @@ Design
 - Per game: the front matter, the rating computed by score.combine() from its tests' result.toml
   (never stored: change the scoring and every medal follows), a test summary per test, the badges
   and the "patched by Walnut" facts. The result:
-    {"schema": 1, "generated": "<UTC>", "games": [{"id", "title", ..., "rating": {...}, "tests": [...],
+    {"schema": 1, "generated": "<UTC>", "content_date", "revision", "games": [{"id", "title", ..., "rating": {...}, "tests": [...],
       "patched": bool, "patches": [{source, subject, file, url}], "debs": [{"package", "url"}], "badges": [...]}]}
   Scores are rounded to whole numbers here, the only place that rounds.
 - Patched by Walnut: a game whose patched_by names a directory of ours (<dir>/package.conf with
@@ -20,6 +20,7 @@ Design
 """
 import argparse
 import datetime
+import hashlib
 import json
 import lzma
 import os
@@ -286,7 +287,15 @@ def build(content, repo=REPO, deb_url=None):
     epoch = os.environ.get("SOURCE_DATE_EPOCH")
     when = datetime.datetime.fromtimestamp(int(epoch), datetime.timezone.utc) if epoch \
         else datetime.datetime.now(datetime.timezone.utc)
-    return {"schema": SCHEMA, "generated": when.strftime("%Y-%m-%dT%H:%M:%SZ"), "games": games}
+    # content_date and revision depend on the content only (generated is the build's clock): the desktop app
+    # decides which of two catalogs is newer by them. The revision leaves out the .deb links, which
+    # only the website's build has.
+    dates = [t["date"] for g in games for t in g["tests"] if t.get("date")]
+    body = json.dumps([{k: v for k, v in g.items() if k != "debs"} for g in games], sort_keys=True,
+                      ensure_ascii=False)
+    return {"schema": SCHEMA, "generated": when.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "content_date": max(dates, default=""), "revision": hashlib.sha256(body.encode()).hexdigest()[:16],
+            "games": games}
 
 
 def main():

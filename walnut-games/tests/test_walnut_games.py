@@ -447,13 +447,82 @@ def x_server():
     return None
 
 
+def good_game(gid="alpha", **kw):
+    g = {"id": gid, "title": gid.title(), "packages": [gid], "rating": {"medal": "Gold", "score": 80, "aspects": {}},
+         "categories": ["racing"], "tests": [{"date": "2026-10-20", "ps3": ["tests/a/ps3-1.jpg"]}]}
+    g.update(kw)
+    return g
+
+
+class Freshness(unittest.TestCase):
+    def cat(self, date=None, rev=None, **kw):
+        c = {"games": [good_game(**kw)]}
+        if date:
+            c["content_date"] = date
+        if rev:
+            c["revision"] = rev
+        return c
+
+    def test_validate_accepts_a_good_catalog(self):
+        c = self.cat("2026-10-25", "abc")
+        self.assertIs(app.validate_catalog(c), c)
+        app.validate_catalog({"games": [good_game(launchers=[{"name": "x", "rating": {"medal": "Tin"}}],
+                                                  patches=[{"subject": "s"}], known_issues=["k"])]})
+
+    def test_validate_rejects_bad_ones(self):
+        bad = [None, [], {}, {"games": []}, {"games": "x"}, {"games": [1]},
+               {"games": [good_game(id="../x")]}, {"games": [good_game(id="A")]},
+               {"games": [good_game(), good_game()]},
+               {"games": [good_game(title="")]}, {"games": [good_game(packages=[])]},
+               {"games": [good_game(packages="alpha")]}, {"games": [good_game(rating={})]},
+               {"games": [good_game(rating={"medal": "Gold", "aspects": []})]},
+               {"games": [good_game(categories="racing")]}, {"games": [good_game(categories=[1])]},
+               {"games": [good_game(patches=[{}])]}, {"games": [good_game(launchers=[{"name": "x"}])]},
+               {"games": [good_game(tests=[{"ps3": ["../../etc/passwd"]}])]},
+               {"games": [good_game(tests=[{"ps3": ["/etc/passwd"]}])]},
+               {"games": [good_game(tests=[{"ps3": "x.jpg"}])]}]
+        for b in bad:
+            with self.assertRaises(ValueError, msg=repr(b)[:80]):
+                app.validate_catalog(b)
+
+    def test_newer_by_date_then_revision(self):
+        old, new = self.cat("2026-10-20", "a"), self.cat("2026-10-21", "b")
+        self.assertTrue(app.is_newer(new, old))
+        self.assertFalse(app.is_newer(old, new))
+        self.assertFalse(app.is_newer(old, self.cat("2026-10-20", "a")))      # the same
+        self.assertTrue(app.is_newer(self.cat("2026-10-20", "b"), old))       # same day, other content
+        self.assertFalse(app.is_newer(self.cat("2026-10-20"), old))           # no revision to tell by
+
+    def test_stamp_of_a_catalog_without_the_fields(self):
+        self.assertEqual(app.content_stamp(self.cat()), ("2026-10-20", ""))
+        self.assertEqual(app.content_stamp({"games": []}), ("", ""))
+        self.assertTrue(app.is_newer(self.cat("2026-10-21", "x"), self.cat()))
+
+    def test_choose_catalog(self):
+        pkg, web = self.cat("2026-10-20", "a"), self.cat("2026-10-22", "b")
+        self.assertIs(app.choose_catalog(pkg, web), web)
+        self.assertIs(app.choose_catalog(web, pkg), web)
+        self.assertIs(app.choose_catalog(pkg, None), pkg)
+        self.assertIs(app.choose_catalog(pkg, {"games": []}), pkg)     # invalid: ignored
+        self.assertIs(app.choose_catalog(pkg, {"games": [{"id": "x"}], "content_date": "2030"}), pkg)
+
+    def test_cached_catalog_roundtrip(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d, "catalog.json")
+            self.assertIsNone(app.read_cached_catalog(str(p)))
+            p.write_text("{not json")
+            self.assertIsNone(app.read_cached_catalog(str(p)))
+            p.write_text(json.dumps(self.cat("2026-10-25", "z")))
+            self.assertEqual(app.read_cached_catalog(str(p))["revision"], "z")
+
+
 SMOKE = """
-import sys, os
+import sys, os, json
 sys.path.insert(0, sys.argv[1])
 import tkinter as tk
 import walnut_games as w
 root = tk.Tk()
-app = w.App(root, data=sys.argv[2], runtime_dir=None)
+app = w.App(root, data=sys.argv[2], runtime_dir=None, online=False)
 root.update()
 assert len(app.shown) == 2, app.shown
 app.select("alpha"); root.update()
@@ -465,7 +534,26 @@ app.v_text.set("zzz"); root.update()
 assert app.shown == []
 app.v_text.set(""); app.v_medal.set("Gold"); app.apply_filters(); root.update()
 assert [g["id"] for g in app.shown] == ["alpha"]
+import copy
+app.v_medal.set("All"); app.apply_filters(); app.select("alpha"); app.shot_i = 0; root.update()
+new = copy.deepcopy(app.cat)
+new["content_date"] = "2099-01-01"
+new["games"][0]["title"] = "Alpha 2"
+new["games"].append(dict(copy.deepcopy(new["games"][1]), id="gamma", title="Gamma"))
+app.v_text.set("a"); app.refreshing = True
+app.on_catalog(new, json.dumps(new).encode(), True, None)
+root.update()
+assert app.v_text.get() == "a" and app.selected == "alpha" and app.g["title"] == "Alpha 2"
+assert "gamma" in app.by_id and not app.refreshing
+assert str(app.b_install["state"]) == "normal"             # alpha is in the package
+app.select("gamma"); root.update()
+assert str(app.b_install["state"]) == "disabled" and "next Walnut Games update" in app.d_reason["text"]
+app.on_catalog(None, None, True, OSError("down")); root.update()
+assert "gamma" in app.by_id and app.selected == "gamma"     # a failed fetch changes nothing
+app.v_text.set("")
 app.busy = ("alpha", "install"); app.update_buttons()
+assert str(app.b_refresh["state"]) == "disabled"
+app.select("alpha"); app.update_buttons()
 assert str(app.b_play["state"]) == "disabled" and str(app.b_install["state"]) == "disabled"
 root.destroy()
 print("smoke ok")

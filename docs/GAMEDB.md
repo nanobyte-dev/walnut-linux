@@ -184,10 +184,24 @@ buttons Install, Remove, Play and "Open on the web". The window follows the Waln
 
 - **The catalog is the packaged one**, `/usr/share/walnut-games/` (made by `make gamedb-catalog`:
   `catalog.json`, thumbnails and the screenshots the catalog lists, from the Git LFS files; a checkout
-  without the LFS objects fails the pack, and CI checks out with `lfs: true` for this package). New games
-  arrive with package updates; the website is the always-current view. A screenshot missing from the
-  package is fetched once from the website and cached in `~/.cache/walnut-games`; offline the app works
-  with what is packaged.
+  without the LFS objects fails the pack, and CI checks out with `lfs: true` for this package). It is
+  what the root helper installs from and what the app shows offline.
+- **Fresh ratings from the website.** On start the app shows the packaged catalog, or the cached web
+  copy (`~/.cache/walnut-games/catalog.json`) when that is newer, and fetches
+  `https://walnut.nanobyte.dev/gamedb/catalog.json` in a thread (8 s timeout). A download must validate
+  (the games list and the fields the app reads, safe ids and picture paths) and be newer; then it is
+  cached and the cards and details are redrawn in place, keeping filters, search, selection and
+  scroll. Newer means a later `content_date` (the newest test date in the catalog), and on the same date a
+  different `revision` (a hash of the games without the .deb links; both are written by `catalog.py`
+  from the content, not the clock; `generated` is the build's clock and is not compared). Offline or
+  broken: a line on stderr and nothing else. The **Refresh** button repeats the fetch and re-reads
+  `dpkg-query` and the launchers; it is off while a refresh or an install runs.
+  `WALNUT_GAMES_OFFLINE=1` disables the network.
+- **Web-only games.** Thumbnails and screenshots missing from the package are fetched once from the
+  website (`games/<id>/thumb.png`, the tests' picture paths) and cached in `~/.cache/walnut-games`; a
+  missing thumbnail shows the placeholder. Install stays on the packaged catalog (the helper maps ids
+  to packages from it): a game only on the website shows Install off with "Install it after the next
+  Walnut Games update". Play and Remove work for installed games.
 - **Installed** comes from `dpkg-query`. **Play** finds the game's launchers in its packages'
   manifest (`dpkg -L`): the menu entries they ship (a diverted one isn't there and drops out), and any
   shown menu entry that runs one of their programs (Walnut's own entries, like OpenArena's GL 1.2 and

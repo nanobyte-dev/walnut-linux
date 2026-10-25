@@ -524,6 +524,10 @@ class Catalog(unittest.TestCase):
     def test_repository_catalog(self):
         cat = catalog.build(REPO / "gamedb" / "content" / "games", REPO)
         self.assertEqual(cat["schema"], 1)
+        self.assertEqual(cat["content_date"], max(t["date"] for g in cat["games"] for t in g["tests"]))
+        self.assertEqual(len(cat["revision"]), 16)
+        again = catalog.build(REPO / "gamedb" / "content" / "games", REPO)
+        self.assertEqual(again["revision"], cat["revision"])     # content only, not the clock
         ids = [g["id"] for g in cat["games"]]
         self.assertTrue({"openarena", "supertuxkart", "warzone2100", "xmoto"} <= set(ids))
         for g in cat["games"]:
