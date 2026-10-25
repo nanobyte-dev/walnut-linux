@@ -464,6 +464,13 @@ class Catalog(unittest.TestCase):
         self.assertEqual([t["id"] for t in catalog.rated_tests(ts[:3])], ["c"])
         self.assertEqual(catalog.rated_tests([]), [])
 
+    def test_measured_frame_rate_ranks_first(self):
+        def r(medal, sc, frame):
+            return {"graded_by": "session", "medal": medal, "score": sc, "aspects": {"frame": {"score": frame}}}
+        # a software renderer's Gold 90 without a frame rate doesn't beat a measured Gold 83
+        self.assertGreater(catalog.rank(r("Gold", 83, 74)), catalog.rank(r("Gold", 90, None)))
+        self.assertGreater(catalog.rank(r("Gold", 90, 80)), catalog.rank(r("Gold", 83, 74)))
+
     def test_launcher_groups(self):
         def t(i, kind="session", launcher=None):
             d = {"id": i, "kind": kind, "date": "2026-10-24"}

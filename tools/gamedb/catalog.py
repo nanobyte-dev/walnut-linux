@@ -223,9 +223,13 @@ def rate_launcher(tests, fm):
 
 
 def rank(rating):
-    """a rating's place, best first: a medal from tests beats none, then the medal, then the score"""
+    """a rating's place, best first: a medal from tests beats none; a rating with its frame rate
+    measured beats one without (a software renderer gives the frame timer nothing, and its score
+    from sound, picture and stability alone would outrank the launchers that were measured); then
+    the medal, then the score"""
     graded = rating["graded_by"] not in (None, "capture")
-    return (graded, score.MEDALS.index(rating["medal"]) if rating["medal"] in score.MEDALS else -1,
+    framed = rating["aspects"]["frame"]["score"] is not None
+    return (graded, framed, score.MEDALS.index(rating["medal"]) if rating["medal"] in score.MEDALS else -1,
             rating["score"] or 0)
 
 
