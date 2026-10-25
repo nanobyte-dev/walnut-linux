@@ -41,6 +41,10 @@ Walnut 0.1.0, the first public alpha, is out ([release/ALPHA.md](release/ALPHA.m
    - P3 the session recorder (the ~10-minute played session, its end-of-session form);
    - P4 the desktop app (Tk) and its install helper;
    - P5 the games one by one to about 50, new games first.
+   - P6, later (the user, 2026-10-26: "keep planned"): tests submitted by other Walnut users. Their
+     sessions would be recorded by the same harness and form, sent to us and reviewed before they
+     count. That needs a real database and a way to trust or weigh submissions (one player's odd
+     setup must not move a medal), so it waits until P5's catalog is settled.
 
 The rest of this file predates the 0.1.0 release and gets a refresh alongside P2.
 
