@@ -1,16 +1,21 @@
-{{/* one launcher's history: (dict "rows" <its history> "aspects" <a rating's aspects, for the names>),
-     a row per version rated from that version's tests alone, newest first */}}
-{{ $aspects := .aspects }}
+{{/* one launcher's history: (dict "rows" <its history> "aspects" <a rating's aspects, unused>), a row per
+     version rated from that version's tests alone (of its newest data version), newest first, with the
+     rules each row was rated under; the columns are rules 2's aspects when a row has them */}}
+{{ $v2 := false }}{{ range .rows }}{{ if ge (int (.rules_data | default 1)) 2 }}{{ $v2 = true }}{{ end }}{{ end }}
+{{ $keys := slice "frame" "smooth" "sound" "picture" "stability" "display" "load" }}
+{{ if $v2 }}{{ $keys = slice "frame" "smooth" "sound" "picture" "stability" "controls" "display" "features" "load" }}{{ end }}
+{{ $names := dict "frame" "Frame rate" "smooth" "Smoothness" "sound" "Sound" "picture" "Picture" "stability" "Stability" "controls" "Controls" "display" "Display" "features" "Features" "load" "Load" }}
 <div class="table-wrap">
 <table class="history">
-  <thead><tr><th>Version</th><th>Tested</th><th>Medal</th>
-    {{ range slice "frame" "smooth" "sound" "picture" "stability" "display" "load" }}<th class="num">{{ (index $aspects .).name }}</th>{{ end }}
+  <thead><tr><th>Version</th><th>Tested</th><th>Medal</th><th>Rules</th>
+    {{ range $keys }}<th class="num">{{ index $names . }}</th>{{ end }}
     <th class="num">Play</th></tr></thead>
   <tbody>{{ range .rows }}{{ $h := . }}
     <tr><td>{{ partial "walnut.html" .walnut }}{{ with .version }}<br><span class="muted">{{ $h.package }} {{ . }}</span>{{ end }}</td>
     <td class="nowrap">{{ .last }}{{ if ne .first .last }}<br><span class="muted">from {{ .first }}</span>{{ end }}</td>
     <td>{{ if and .graded_by (ne .graded_by "capture") }}{{ partial "medal.html" . }}{{ else }}<span class="muted">picture only</span>{{ end }}</td>
-    {{ range slice "frame" "smooth" "sound" "picture" "stability" "display" "load" }}<td class="num">{{ with index $h.aspects . }}{{ . }}{{ else }}<span class="muted">-</span>{{ end }}</td>{{ end }}
+    <td class="nowrap">{{ with .rules }}<a href="{{ site.Home.RelPermalink }}about/#{{ $h.rules_anchor }}">{{ . }}</a>{{ else }}1.0{{ end }}</td>
+    {{ range $keys }}<td class="num">{{ with index $h.aspects . }}{{ . }}{{ else }}<span class="muted">-</span>{{ end }}</td>{{ end }}
     <td class="num">{{ printf "%.1f" .hours }} h<br><span class="muted">{{ .tests }} test{{ if ne (int .tests) 1 }}s{{ end }}</span></td></tr>
   {{ end }}</tbody>
 </table>

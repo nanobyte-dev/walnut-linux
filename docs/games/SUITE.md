@@ -13,6 +13,7 @@ recorder, the profiles and the memory snapshots have their own docs ([STALLS.md]
 |---|---|
 | `run.sh` | the runner, on the PS3 as tibi over SSH: `smoke`, `bench`, `suite`, `list`, `session` |
 | `session.sh`, `session-form.py` | a played session ([below](#played-sessions)) and its end-of-session form |
+| `inputlog.py`, `confwatch.py`, `geom.py` | a session's recorders: the input devices, the settings files, the window and the pointer |
 | `client.sh` | one game run from a recipe (the X client `ps3-bench.sh x` starts) |
 | `recipes/<game>.sh` | one per game; `recipes/README.md` lists the variables; `smoke.inc` and `openal.inc` are shared pieces |
 | `assets/` | demos, replays, maps and mods: `openarena-bench.dm_71`, `sauerbraten-bench.dmo`, `xmoto-credits.rpl`, `armagetronad-bench.aarec`, `etr-race.evemu`, `classicube-bench.cw`, `.path`, `.so`, `luanti-ps3bench/` |
@@ -231,7 +232,10 @@ desktop's window manager), recorded by `ps3-bench.sh session` with `client.sh` (
 | sound: `underruns`, `oal_wedge`, `oal_wait`, `oal_xrun`, `snd_stall`, `snd_restarts`, `sound` (the card at 15 s) | `bench.txt` |
 | sound dropouts, measured ([below](#sound-dropouts)): `xrunlog`, `xruns_logged`, `xruns_audible`, `xrun_gap_ms_total`, ... | `bench.txt`, `xruns.tsv`, `xruns.log` |
 | a screenshot about every minute (xwd at nice 19; `SESSION_SHOT_EVERY`, at most `SESSION_SHOT_MAX`=40, 8 MB each) | `shots/`, `shot=` |
-| the game's window and the screen at each screenshot (`geom.py`: xwininfo and xprop from x11-utils, by the game's pid and its children; Display, [GAMEDB.md](../GAMEDB.md#how-a-game-is-rated)); a recipe may log `render_res=WxH` in bench.txt (recorded, never scored) | `shots/geometry.tsv` (`at_s x y w h fullscreen screen_w screen_h by`) |
+| the game's window and the screen at each screenshot (`geom.py`: xwininfo and xprop from x11-utils, by the game's pid and its children; Display, [GAMEDB.md](../GAMEDB.md#how-a-game-is-rated)), and the X pointer: visible over the window or not (XFixes' cursor image through ctypes, libXfixes comes with Mesa; its theme name); a recipe may log `render_res=WxH` in bench.txt (the stretch check) | `shots/geometry.tsv` (`at_s x y w h fullscreen screen_w screen_h by cursor cursor_name`) |
+| the input devices (`inputlog.py`, started by client.sh at nice 19, as root through `sudo -n` where it can, else the pads only): each device present or added with its class (pad, keyboard, mouse, motion, other), which ones the game or its children opened (`/proc/<pid>/fd` every 2 s, `jsN` counted as its `eventN`), key presses and axis moves per class per 10 s. Read-only, never grabs, never a key code. `BENCH_INPUTLOG=0` leaves it out | `input.tsv`, `input.err` |
+| the game's settings files before and after (`confwatch.py`, from session.sh: the directories under `~`, `~/.config`, `~/.local/share` named like the recipe or a package; hashes of the files and of each line, read O_NOATIME, never written, copied or restored): changed files, the video keys of new lines in files that existed, whether last session's settings were read back (their access time) | `config.tsv`; bench.txt `config_files`, `config_changed`, `config_new`, `config_video_keys`, `settings_reread`; our state in `~/.cache/ps3-session/confwatch/` |
+| the desktop's return after the quit (session.sh watches `ps3-desktop.slice`'s `cgroup.freeze` once a second, builtins only): seconds from the game's end to the thaw; 0 when game mode never froze it | bench.txt `desktop_back_s`, or `desktop_stuck=1` |
 | peak RSS, game output, package versions | `hwm`, `game.log`, `versions` |
 | how it ended | `ended`, `ended_why`, `rc` |
 | the player's answers | `session.toml` |
@@ -248,17 +252,57 @@ code), `crash` (a signal, or a segfault of the game in `dmesg.log`), `oom` (the 
 temperature limit).
 
 **The form.** When the game exits and the desktop is back, a Tk dialog (Walnut colours, large type
-for the TV) asks: sound heard (yes, partly, no), music heard (yes, no, no music in this game),
-controls (full controller, partial, keyboard and mouse only) and a free-text box, "Notes about the
-gameplay". Save writes `session.toml` (`sound`, `music`, `controls` = `full`, `partial` or
-`keyboard-mouse`, `notes`, `saved`, `form`); Skip or closing the window writes nothing. The notes are
-read with the numbers when the session is imported: a glitch in one level, a sound problem or awkward
-controls become known issues. Needs `python3-tk` on the PS3 (without it, or without a display, the
-form asks on the terminal). `SESSION_FORM=0` leaves it out; `python3 -I session-form.py RUN_DIR GAME
-VARIANT` asks later.
+for the TV, one screen) asks only what the recorder can't measure, one tap each, under a minute:
+sound effects heard (yes, partly, no) and music heard (yes, no, no music in this game), both without
+a default; then, with defaults, visual glitches (didn't notice any, minor, broken), played with (the
+pad, keyboard/mouse, both), the menus with the pad (worked, didn't, didn't try), menus and modes you
+opened (worked, something didn't), saving and loading (worked, didn't, didn't try); and a notes box.
+Save writes `session.toml` (`form_version = 2`, `sound`, `music`, `glitches`, `played_with`,
+`pad_menus`, `menus_modes`, `saves_load`, the derived `controls`, `notes`, `saved`, `form`); Skip or
+closing the window writes nothing. `form_version = 2` files the session under rules 2.0; a
+`session.toml` of the first form (sound, music, controls, notes) imports under 1.0 as before. The
+notes are read with the numbers when the session is imported: what didn't work, a glitch in one
+level, a sound problem become known issues and the reviewer's `broken:` lines. Needs `python3-tk`
+on the PS3 (without it, or without a display, the form asks on the terminal, Enter taking the
+default). `SESSION_FORM=0` leaves it out; `python3 -I session-form.py RUN_DIR GAME VARIANT` asks later.
+
+**The review** (REVIEW.md in the run directory, before the import): the first line `verdict:
+ok|wrong|unclear [words]` as for capture runs, then for rules 2.0 one item a line:
+
+| Line | Meaning |
+|---|---|
+| `defect: <category> <pc\|ps3>: <what>` | a picture defect: `garbage`, `missing`, `colours`, `flicker`, `lighting`, `softer`; `pc` when the PC reference shows it too, `ps3` when only the PS3 does. `verdict: wrong` needs at least one |
+| `text_px: N` | the smallest menu or HUD text, in pixels at 1080p, read off a screenshot |
+| `pointer: visible\|hidden` | corrects the measured pointer (a game hiding it with XFixesHideCursor reads as visible) |
+| `stretched: yes\|no` | the shape against the PC's, where the game doesn't report its render size |
+| `check: <item> yes\|no\|na` | a checklist item the reviewer could tell (`online`, `pad_players`, ...) |
+| `broken: <item> <pc\|ps3>: <what>` | a Controls or Features item that failed (from the notes), with where it comes from |
+
+The items are `pad_setup`, `pad_menus`, `pad_hotplug`, `pad_players`, `keyboard`, `no_keyboard`,
+`menus_modes`, `settings_stick`, `saves_load`, `online` ([GAMEDB.md](../GAMEDB.md#how-a-game-is-rated)).
+import-run.py refuses an item it can't read.
 
 **Collect** with `make bench-pull` (the screenshots become PNGs); the run directory is
 `/var/tmp/ps3-bench/<stamp>-session-GAME-VARIANT/`, and `tools/gamedb/import-run.py` reads it.
+
+### Scripted runs (planned)
+
+What one player can't test in a session, run on the PS3 without the player (never during a played
+session), as tests of their own (`kind = "script"`, their checklist answers in result.toml `[checks]`,
+which score.py already merges with a launcher's other answers):
+
+- **A virtual DualShock.** `uinput` is a module in our kernel (`CONFIG_INPUT_UINPUT=m`); python3 can
+  drive `/dev/uinput` with `fcntl.ioctl` and `struct` alone (no python3-evdev in the image), as root:
+  a device with the DualShock 3's name, ids and buttons, so SDL's mapping database treats it as one.
+  Checks: create it after the game started and see the game open it (`pad_hotplug`); create a second
+  and third, press Start on each and compare screenshots before and after (`pad_players`, judged by
+  the reviewer); on the main menu press the d-pad down and confirm, and see the screenshot change
+  (`pad_menus`).
+- **Soaks.** A recipe's demo or attract loop left running for hours with nobody playing: crash-free
+  hours for Stability.
+
+Not built yet (PLAN.md, P5b): a runner (`script.sh GAME`) on top of client.sh, the uinput helper,
+and per-recipe menu keys.
 
 ## Sound dropouts
 

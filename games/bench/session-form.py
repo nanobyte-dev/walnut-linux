@@ -1,20 +1,27 @@
 #!/usr/bin/env python3
 """session-form.py RUN_DIR [GAME VARIANT]: the end-of-session form of a played session
-(session.sh, docs/games/SUITE.md "Played sessions"). Asks whether the sound and the music were
-heard, how the controls worked and for free-text notes about the gameplay, and writes
-RUN_DIR/session.toml. A Tk dialog in the Walnut palette with large type for the TV (python3-tk);
-without a display or tkinter it asks on the terminal (/dev/tty, else stdin).
+(session.sh, docs/games/SUITE.md "Played sessions"). It asks only what the recorder can't measure, the
+things the player saw anyway in normal play: one tap each, most with a default, then the notes, under a
+minute. A Tk dialog in the Walnut palette with large type for the TV (python3-tk); without a display or
+tkinter it asks on the terminal (/dev/tty, else stdin).
 
-  session.toml   sound = "yes" | "no" | "partly"
-                 music = "yes" | "no" | "none"          (none: the game has no music)
-                 controls = "full" | "partial" | "keyboard-mouse"
-                 notes = "..."                          (one string, \\n for line breaks)
-                 saved = "2026-10-23T18:04:11Z", game, variant, form = "tk" | "terminal"
+  session.toml   sound = "yes" | "partly" | "no"                  (no default)
+                 music = "yes" | "no" | "none"                    (none: the game has no music; no default)
+                 glitches = "none" | "minor" | "broken"           (default none: didn't notice any)
+                 played_with = "pad" | "keyboard" | "both"        (default pad)
+                 pad_menus = "yes" | "no" | "na"                  (the menus with the pad; default yes)
+                 menus_modes = "yes" | "no"                       (the menus and modes opened worked; default yes)
+                 saves_load = "yes" | "no" | "na"                 (default na: didn't try)
+                 controls = "full" | "partial" | "keyboard-mouse" (derived, for the old badge and old readers)
+                 notes = "..."                                    (one string, \\n for line breaks)
+                 form_version = 2, saved = "2026-10-26T18:04:11Z", game, variant, form = "tk" | "terminal"
 
-Closing the window without Save writes nothing (the run directory has no session.toml; run this
-script again on it). Exit status: 0 saved, 1 not saved, 2 usage.
-Test mode: WALNUT_FORM_AUTO="sound=yes,music=none,controls=full,notes=text" fills the form and
-presses Save without showing a window (or, with --terminal, without asking).
+form_version 2 makes the importer file the session under rules 2.x (tools/gamedb/import-run.py); the
+first form (sound, music, controls, notes) had none. Closing the window without Save writes nothing (the
+run directory has no session.toml; run this script again on it). Exit status: 0 saved, 1 not saved, 2 usage.
+Test mode: WALNUT_FORM_AUTO="sound=yes,music=none,glitches=minor,notes=text" (key=value pairs, notes last;
+unset keys keep their defaults) fills the form and presses Save without showing a window (or, with
+--terminal, without asking).
 """
 import datetime
 import os
@@ -23,16 +30,32 @@ import sys
 
 BG, PANEL, ACCENT, TEXT = "#14304d", "#0e2238", "#d49a5c", "#ececec"
 MUTED = "#9fb3c8"
+FORM_VERSION = 2
 
+# (key, question, [(value, label)], default or None: must be answered)
 QUESTIONS = [
-    ("sound", "Did you hear the sound?",
-     [("yes", "Yes"), ("partly", "Partly"), ("no", "No")]),
+    ("sound", "Did you hear the sound effects?",
+     [("yes", "Yes"), ("partly", "Partly"), ("no", "No")], None),
     ("music", "Did you hear the music?",
-     [("yes", "Yes"), ("no", "No"), ("none", "No music in this game")]),
-    ("controls", "How did the controls work?",
-     [("full", "Full controller"), ("partial", "Partial"),
-      ("keyboard-mouse", "Keyboard and mouse only")]),
+     [("yes", "Yes"), ("no", "No"), ("none", "No music in this game")], None),
+    ("glitches", "Visual glitches?",
+     [("none", "Didn't notice any"), ("minor", "Minor"), ("broken", "Broken")], "none"),
+    ("played_with", "You played with",
+     [("pad", "The pad"), ("keyboard", "Keyboard/mouse"), ("both", "Both")], "pad"),
+    ("pad_menus", "The menus with the pad",
+     [("yes", "Worked"), ("no", "Didn't"), ("na", "Didn't try")], "yes"),
+    ("menus_modes", "Menus and modes you opened",
+     [("yes", "Worked"), ("no", "Something didn't")], "yes"),
+    ("saves_load", "Saving and loading",
+     [("yes", "Worked"), ("no", "Didn't"), ("na", "Didn't try")], "na"),
 ]
+
+
+def derived_controls(a):
+    """the first form's controls answer from the new ones (the old controller badge)"""
+    if a.get("played_with") == "keyboard":
+        return "keyboard-mouse"
+    return "full" if a.get("pad_menus") == "yes" else "partial"
 
 
 def toml_str(s):
@@ -56,9 +79,10 @@ def toml_str(s):
 
 def save(run_dir, answers, notes, game, variant, form):
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    lines = ["# the end-of-session form (games/bench/session-form.py)"]
-    for key, _, _ in QUESTIONS:
+    lines = ["# the end-of-session form (games/bench/session-form.py)", "form_version = %d" % FORM_VERSION]
+    for key, _, _, _ in QUESTIONS:
         lines.append("%s = %s" % (key, toml_str(answers[key])))
+    lines.append("controls = %s" % toml_str(derived_controls(answers)))
     lines.append("notes = %s" % toml_str(notes.strip()))
     lines.append("saved = %s" % toml_str(now))
     lines.append("form = %s" % toml_str(form))
@@ -95,16 +119,22 @@ def play_line(run_dir):
 
 
 def auto_answers():
-    """WALNUT_FORM_AUTO for tests: key=value pairs separated by commas (notes last)."""
+    """WALNUT_FORM_AUTO for tests: key=value pairs separated by commas (notes last); the defaults for the rest"""
     spec = os.environ.get("WALNUT_FORM_AUTO")
     if not spec:
         return None
-    d = {}
-    m = re.match(r"sound=([^,]*),music=([^,]*),controls=([^,]*)(?:,notes=(.*))?$", spec, re.S)
-    if not m:
-        sys.exit("WALNUT_FORM_AUTO: sound=..,music=..,controls=..,notes=..")
-    d["sound"], d["music"], d["controls"] = m.group(1), m.group(2), m.group(3)
-    d["notes"] = (m.group(4) or "").replace("\\n", "\n")
+    notes = ""
+    m = re.search(r"(?:^|,)notes=(.*)$", spec, re.S)
+    if m:
+        notes, spec = m.group(1), spec[:m.start()]
+    d = {k: dflt for k, _, _, dflt in QUESTIONS}
+    for part in filter(None, spec.split(",")):
+        k, eq, v = part.partition("=")
+        if not eq:
+            sys.exit("WALNUT_FORM_AUTO: key=value pairs, notes last")
+        if k in d:
+            d[k] = v
+    d["notes"] = notes.replace("\\n", "\n")
     return d
 
 
@@ -120,43 +150,43 @@ def form_tk(run_dir, game, variant):
         root.withdraw()
     else:
         sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-        w, h = min(1500, sw - 80), min(1000, sh - 80)
+        w, h = min(1500, sw - 80), min(980, sh - 80)
         root.geometry("%dx%d+%d+%d" % (w, h, (sw - w) // 2, (sh - h) // 2))
-        # large type on the TV; scaled down on a small screen (the PC)
+    # large type on the TV; scaled down on a small screen (the PC)
     scale = 1.0 if root.winfo_screenheight() >= 1000 else 0.7
     fam = "DejaVu Sans"
     f_title = tkfont.Font(family=fam, size=int(26 * scale), weight="bold")
-    f_big = tkfont.Font(family=fam, size=int(20 * scale))
-    f_btn = tkfont.Font(family=fam, size=int(18 * scale), weight="bold")
+    f_big = tkfont.Font(family=fam, size=int(19 * scale))
+    f_btn = tkfont.Font(family=fam, size=int(16 * scale), weight="bold")
     f_small = tkfont.Font(family=fam, size=int(14 * scale))
 
     result = {"saved": False}
-    vars_ = {key: tk.StringVar(value="") for key, _, _ in QUESTIONS}
+    vars_ = {key: tk.StringVar(value=dflt or "") for key, _, _, dflt in QUESTIONS}
 
     head = tk.Frame(root, bg=BG)
-    head.pack(fill="x", padx=40, pady=(24, 8))
+    head.pack(fill="x", padx=40, pady=(20, 6))
     tk.Label(head, text="How was the session?", bg=BG, fg=ACCENT, font=f_title).pack(anchor="w")
     sub = " ".join(x for x in [game, variant if variant and variant != "base" else "",
                                ("(" + play_line(run_dir) + ")") if play_line(run_dir) else ""] if x)
-    if sub:
-        tk.Label(head, text=sub, bg=BG, fg=MUTED, font=f_small).pack(anchor="w")
+    tk.Label(head, text=(sub + "  " if sub else "") + "The rest is measured: just what you noticed.",
+             bg=BG, fg=MUTED, font=f_small).pack(anchor="w")
 
     body = tk.Frame(root, bg=PANEL)
-    body.pack(fill="both", expand=True, padx=40, pady=8)
+    body.pack(fill="both", expand=True, padx=40, pady=6)
+    body.columnconfigure(1, weight=1)
     buttons = {}
-    for key, question, options in QUESTIONS:
-        row = tk.Frame(body, bg=PANEL)
-        row.pack(fill="x", padx=24, pady=(14, 2))
-        tk.Label(row, text=question, bg=PANEL, fg=TEXT, font=f_big).pack(anchor="w")
-        line = tk.Frame(row, bg=PANEL)
-        line.pack(fill="x", pady=(6, 0))
+    for i, (key, question, options, _) in enumerate(QUESTIONS):
+        tk.Label(body, text=question, bg=PANEL, fg=TEXT, font=f_big, anchor="w").grid(
+            row=i, column=0, sticky="w", padx=(24, 18), pady=(12 if i == 0 else 6, 0))
+        line = tk.Frame(body, bg=PANEL)
+        line.grid(row=i, column=1, sticky="w", pady=(12 if i == 0 else 6, 0))
         for value, label in options:
             b = tk.Radiobutton(
                 line, text=label, value=value, variable=vars_[key], indicatoron=0,
                 bg=BG, fg=TEXT, selectcolor=ACCENT, activebackground=ACCENT,
-                activeforeground=BG, font=f_btn, relief="flat", bd=0, padx=22, pady=10,
+                activeforeground=BG, font=f_btn, relief="flat", bd=0, padx=18, pady=7,
                 highlightthickness=0, command=lambda: err.set(""))
-            b.pack(side="left", padx=(0, 12))
+            b.pack(side="left", padx=(0, 10))
             buttons[(key, value)] = b
 
         # the selected button turns accent coloured with dark text
@@ -165,18 +195,21 @@ def form_tk(run_dir, game, variant):
                 on = vars_[k].get() == value
                 buttons[(k, value)].configure(fg=BG if on else TEXT)
         vars_[key].trace_add("write", paint)
+        paint()
 
-    tk.Label(body, text="Notes about the gameplay", bg=PANEL, fg=TEXT, font=f_big).pack(
-        anchor="w", padx=24, pady=(18, 2))
-    tk.Label(body, text="Glitches, a level that dragged, odd sound, awkward controls, anything the "
-             "numbers will not show.", bg=PANEL, fg=MUTED, font=f_small).pack(anchor="w", padx=24)
-    notes = tk.Text(body, height=7, wrap="word", bg=BG, fg=TEXT, insertbackground=ACCENT,
-                    font=f_big, relief="flat", bd=0, padx=12, pady=10, highlightthickness=2,
+    n = len(QUESTIONS)
+    tk.Label(body, text="Notes", bg=PANEL, fg=TEXT, font=f_big).grid(row=n, column=0, sticky="nw", padx=(24, 18),
+                                                                     pady=(16, 0))
+    tk.Label(body, text="What didn't work, a glitch and where, odd sound, anything the numbers won't show.",
+             bg=PANEL, fg=MUTED, font=f_small).grid(row=n, column=1, sticky="w", pady=(16, 0))
+    notes = tk.Text(body, height=4, wrap="word", bg=BG, fg=TEXT, insertbackground=ACCENT,
+                    font=f_big, relief="flat", bd=0, padx=12, pady=8, highlightthickness=2,
                     highlightbackground=BG, highlightcolor=ACCENT)
-    notes.pack(fill="both", expand=True, padx=24, pady=(6, 18))
+    notes.grid(row=n + 1, column=0, columnspan=2, sticky="nsew", padx=24, pady=(6, 16))
+    body.rowconfigure(n + 1, weight=1)
 
     foot = tk.Frame(root, bg=BG)
-    foot.pack(fill="x", padx=40, pady=(4, 24))
+    foot.pack(fill="x", padx=40, pady=(4, 20))
     err = tk.StringVar(value="")
     tk.Label(foot, textvariable=err, bg=BG, fg=ACCENT, font=f_small).pack(side="left")
 
@@ -184,7 +217,7 @@ def form_tk(run_dir, game, variant):
         answers = {k: v.get() for k, v in vars_.items()}
         if auto:
             answers = {k: auto[k] for k in answers}
-        missing = [q for k, q, _ in QUESTIONS if not answers[k]]
+        missing = [q for k, q, _, _ in QUESTIONS if not answers[k]]
         if missing:
             err.set("Please answer: " + "; ".join(missing))
             return
@@ -233,27 +266,28 @@ def form_terminal(run_dir, game, variant):
     answers = {}
     try:
         if auto:
-            answers = {k: auto[k] for k, _, _ in QUESTIONS}
+            answers = {k: auto[k] for k, _, _, _ in QUESTIONS}
             notes = auto["notes"]
         else:
-            out.write("\nHow was the session? %s %s\n" % (game or "", play_line(run_dir)))
-            for key, question, options in QUESTIONS:
+            out.write("\nHow was the session? %s %s (Enter takes the [default])\n" % (game or "", play_line(run_dir)))
+            for key, question, options, dflt in QUESTIONS:
                 while True:
-                    menu = "  ".join("%d) %s" % (i + 1, lab) for i, (_, lab) in enumerate(options))
+                    menu = "  ".join(("[%d) %s]" if v == dflt else "%d) %s") % (i + 1, lab)
+                                     for i, (v, lab) in enumerate(options))
                     a = ask("%s\n  %s\n  > " % (question, menu)).strip().lower()
-                    pick = None
+                    pick = dflt if not a else None
                     if a.isdigit() and 1 <= int(a) <= len(options):
                         pick = options[int(a) - 1][0]
-                    else:
+                    elif a:
                         for value, lab in options:
-                            if a and (a == value or lab.lower().startswith(a)):
+                            if a == value or lab.lower().startswith(a):
                                 pick = value
                                 break
                     if pick:
                         answers[key] = pick
                         break
                     out.write("  one of the numbers above\n")
-            out.write("Notes about the gameplay (an empty line ends them):\n")
+            out.write("Notes (an empty line ends them):\n")
             lines = []
             while True:
                 s = ask("  ")

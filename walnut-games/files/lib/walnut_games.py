@@ -110,6 +110,8 @@ def validate_catalog(obj):
         need(isinstance(g.get("rating"), dict) and isinstance(g["rating"].get("medal"), str),
              "%s: no rating" % gid)
         need(isinstance(g["rating"].get("aspects", {}), dict), "%s: bad aspects" % gid)
+        need(all(isinstance(k, str) for k in g["rating"].get("order") or []) and
+             isinstance(g["rating"].get("order") or [], list), "%s: bad aspect order" % gid)
         for k in ("summary", "controller", "medal_note"):
             need(g.get(k) is None or isinstance(g[k], str), "%s: bad %s" % (gid, k))
         for k in ("categories", "tags", "known_issues"):
@@ -229,6 +231,31 @@ def filter_games(games, have, text="", category="All", medal="All", installed_on
         out.sort(key=lambda g: g["title"].lower())
     else:
         out.sort(key=lambda g: (score_of(g) is None, -(score_of(g) or 0), g["title"].lower()))
+    return out
+
+
+def basis_text(rating):
+    """what a rating rests on and the rules it was rated under: "1 session, 9 min of play; rules 2.0 (2026-10-26)";
+    "" for an older catalog"""
+    b, parts = rating.get("basis") or {}, []
+    if b.get("tests") and rating.get("graded_by") in ("session", "demo"):
+        kind = "session" if rating["graded_by"] == "session" else "run"
+        parts.append("%d %s%s, %d min of play" % (b["tests"], kind, "" if b["tests"] == 1 else "s", b.get("minutes", 0)))
+    if rating.get("rules_label"):
+        parts.append("rated under " + rating["rules_label"])
+    return "; ".join(parts)
+
+
+def problem_lines(rating):
+    """rules 2's defects and failed checks, each with where it comes from ("also on the PC", "PS3/Walnut only")"""
+    out = []
+    for d in rating.get("defects") or []:
+        out.append("Picture: %s%s, -%d%s" % (d.get("name", ""), " (%s)" % d["what"] if d.get("what") else "",
+                                             d.get("points", 0), " [%s]" % d["origin"] if d.get("origin") else ""))
+    for key, word in (("controls_failed", "Controls: not "), ("features_failed", "Broken: ")):
+        for f in rating.get(key) or []:
+            out.append("%s%s%s%s" % (word, f.get("name", ""), " (%s)" % f["what"] if f.get("what") else "",
+                                     " [%s]" % f["origin"] if f.get("origin") else ""))
     return out
 
 
@@ -861,11 +888,12 @@ class App:
         if r.get("hours"):
             stats.append("%.1f h played, %d crash%s%s" % (r["hours"], r["crashes"], "" if r["crashes"] == 1 else "es",
                                                          " (provisional)" if r.get("provisional") else ""))
-        stats.append("Controller: " + g.get("controller", "unknown"))
+        stats.append("Controller: " + (r.get("controller") or g.get("controller") or "unknown"))
         if g.get("needs_data"):
             stats.append("Needs your own game data")
         tested = tested_text(r)
-        self.d_stats.configure(text=(tested + "\n" if tested else "") + "  |  ".join(stats))
+        lines = [x for x in (tested, basis_text(r)) if x] + problem_lines(r)
+        self.d_stats.configure(text="".join(x + "\n" for x in lines) + "  |  ".join(stats))
 
     def draw_aspects(self, r):
         """one block per aspect: its name, a bar and the score out of 100, and under them what was
@@ -877,7 +905,7 @@ class App:
         c.create_text(0, 8, text="Scores out of 100, with what was measured", fill=MUTED, anchor="w",
                       font=self.f["small"])
         y = ASPECT_TOP
-        for k in ASPECT_ORDER:
+        for k in r.get("order") or ASPECT_ORDER:
             a = r["aspects"].get(k)
             if not a:
                 continue
@@ -886,7 +914,8 @@ class App:
             bottom = y + 18
             sc = a["score"]
             if sc is None:
-                c.create_text(278, y + 9, text="not measured", fill=MUTED, anchor="w", font=self.f["small"])
+                c.create_text(278, y + 9, text="not tested" if k in ("controls", "features") else "not measured",
+                              fill=MUTED, anchor="w", font=self.f["small"])
             else:
                 if sc:
                     c.create_rectangle(110, y + 4, 110 + 1.6 * sc, y + 14, fill=ACCENT, outline="")

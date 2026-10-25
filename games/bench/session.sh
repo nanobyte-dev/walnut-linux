@@ -16,7 +16,9 @@
 # like any run (the Gallium HUD's frame times, the samplers, sound counters, dmesg, temperatures;
 # client.sh with BENCH_SESSION=1 under `ps3-bench.sh session`) with a screenshot about every
 # minute. There is no time limit: the session ends when the player quits the game. Then the form
-# (session-form.py) asks about sound, music, controls and notes, and writes session.toml.
+# (session-form.py) asks the few things only the player knows, and writes session.toml. Around the
+# game: confwatch.py (its settings files, read-only: hashes before and after), the desktop's thaw
+# (desktop_back_s, a clean quit), and client.sh's inputlog.py (the input devices, counts only).
 # The terminal is frozen by game mode while the game runs: this script moves itself into
 # ps3-game.slice first (as ps3-game does), and logs to ~/.cache/ps3-session/ instead of the terminal.
 #   SESSION_SHOT_EVERY=SECONDS   screenshots interval (default 60), SESSION_SHOT_MAX=N the most (40;
@@ -129,6 +131,27 @@ versions() {	# the game's package and the graphics stack, as run.sh's
 	printf 'walnut\t%s\n' "$(. /etc/os-release 2>/dev/null; echo "${VERSION_ID:-}")"
 }
 
+# the game's settings files before it starts (confwatch.py: hashes only, read-only, O_NOATIME): did the
+# player change the video settings, and does the game read its settings back next time
+cw=$HOME/.cache/ps3-session/confwatch; mkdir -p "$cw"; cwb=$(mktemp "$cw/before.XXXXXX")
+# shellcheck disable=SC2046
+python3 -I "$here/confwatch.py" before "$cwb" "$cw/$g.json" "$g" $(pkgs) 2> /dev/null || cwb=
+# the desktop's thaw after the game (game mode freezes ps3-desktop.slice while it runs): when it came back,
+# for Stability's clean quit (bench.txt desktop_back_s, from the game's end at t0 + seconds); a second's
+# resolution, builtins only (no fork a second: the tick is a read timing out on a fifo nobody writes)
+cg=$(systemctl --user show -p ControlGroup --value ps3-desktop.slice 2> /dev/null)
+fz=/sys/fs/cgroup$cg/cgroup.freeze
+thawf=$(mktemp)
+watch_pid=
+if [ -n "$cg" ] && [ -e "$fz" ]; then
+	( mkfifo "$thawf.tick"; exec {tk}<> "$thawf.tick"; rm -f "$thawf.tick"
+	  was=0; while :; do f=0; read -r f < "$fz" 2> /dev/null || f=0
+		[ "$f" = 1 ] && [ "$was" = 0 ] && echo "frozen" >> "$thawf"
+		[ "$f" = 0 ] && [ "$was" = 1 ] && echo "thaw $EPOCHREALTIME" >> "$thawf"
+		was=$f; read -r -t 1 -u "$tk"; done ) > /dev/null 2>&1 &
+	watch_pid=$!
+fi
+
 tmp=$(mktemp)
 [ -n "$cmdfile" ] && export BENCH_CMD_FILE=$cmdfile BENCH_LAUNCHER=$lname BENCH_LAUNCHER_FILE=$lfile
 env BENCH_SESSION=1 BENCH_SHOTS="${shots% }" BENCH_WHAT="session $g $v" \
@@ -145,10 +168,20 @@ echo "== $g $v: $(grep -E '^(ended|ended_why|rc|seconds|play_from|play_seconds|u
 [ -e "$d/TEMPLIMIT" ] && echo "!! $(cat "$d/TEMPLIMIT")"
 
 # the desktop comes back about a second after the last game goes: the form needs it (a window)
-cg=$(systemctl --user show -p ControlGroup --value ps3-desktop.slice 2> /dev/null)
-fz=/sys/fs/cgroup$cg/cgroup.freeze
 for _ in $(seq 40); do [ "$(cat "$fz" 2> /dev/null || echo 0)" = 0 ] && break; sleep 0.5; done
 sleep 1
+if [ -n "$watch_pid" ]; then
+	kill "$watch_pid" 2> /dev/null; wait "$watch_pid" 2> /dev/null
+	end=$(awk -F= '$1 == "t0" { t = $2 } $1 == "seconds" { s = $2 } END { if (t != "" && s != "") printf "%.3f", t + s }' "$d/bench.txt")
+	if [ "$(cat "$fz" 2> /dev/null || echo 0)" = 1 ]; then echo "desktop_stuck=1" >> "$d/bench.txt"
+	elif ! grep -q frozen "$thawf"; then echo "desktop_back_s=0" >> "$d/bench.txt"	# never frozen: there all along
+	elif [ -n "$end" ] && grep -q '^thaw ' "$thawf"; then
+		awk -v e="$end" '$1 == "thaw" { t = $2 } END { b = t - e; printf "desktop_back_s=%.1f\n", b > 0 ? b : 0 }' "$thawf" >> "$d/bench.txt"
+	fi
+fi
+rm -f "$thawf"
+[ -n "$cwb" ] && python3 -I "$here/confwatch.py" after "$cwb" "$cw/$g.json" "$d" >> "$d/bench.txt" 2> /dev/null
+[ -n "$cwb" ] && rm -f "$cwb"
 if [ "${SESSION_FORM:-1}" = 1 ]; then
 	python3 -I "$here/session-form.py" "$d" "$g" "$v" || echo "session: no session.toml (python3 -I $here/session-form.py $d $g $v)"
 fi

@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""inputlog.py T0 PID [--every S]: the input devices during a played session, for the Controls checks
+(docs/GAMEDB.md "Rules versions", docs/games/SUITE.md "Played sessions"). Started by client.sh in a
+session (BENCH_SESSION=1) next to the game, at nice 19, as root when `sudo -n` works (keyboards and mice
+are root's; the user can read the pads through logind's uaccess); exits by itself when PID (the game's
+process group leader) is gone. Read-only: it never grabs a device, so the game gets every event as before.
+It counts, never records which key: no key codes, no text.
+
+Output on stdout, TSV, the time in seconds after T0 (client.sh's $EPOCHREALTIME at the game's start):
+  # inputlog readable=pad,keyboard unreadable=mouse
+  t_s  what     dev      class     n
+  0.4  present  event3   pad       Sony PLAYSTATION(R)3 Controller      (n: the device's name)
+  95.1 added    event7   pad       ...                                  (turned on after the start)
+  2.0  opened   event3   pad       -                                    (the game, or a child of it, opened it)
+  10   press    -        pad       14                                   (key/button presses in the 10 s from t_s)
+  10   move     -        pad       230                                  (axis and relative events in those 10 s)
+  .    removed  event7   pad       -
+Classes from the device's capabilities (/sys/class/input/eventN/device): pad (BTN_GAMEPAD or BTN_JOYSTICK),
+motion (an accelerometer: the DualShock's motion sensors, never read), mouse (REL_X, REL_Y, BTN_LEFT),
+keyboard (KEY_Q, KEY_A, KEY_Z), other. /dev/input/jsN (the joydev interface older SDL opens) counts as its
+eventN sibling. The game's open devices are read from /proc/<pid>/fd of PID and its descendants every 2 s.
+Every 0.25 s the readable devices are drained (non-blocking reads: an overflowing buffer drops events,
+the counts are approximate)."""
+import io
+import os
+import struct
+import sys
+import time
+
+EV = struct.Struct("@llHHi")     # struct input_event on a 64-bit kernel: timeval, type, code, value
+EV_KEY, EV_REL, EV_ABS = 1, 2, 3
+BTN_JOYSTICK, BTN_GAMEPAD, BTN_LEFT = 0x120, 0x130, 0x110
+KEY_Q, KEY_A, KEY_Z = 16, 30, 44
+INPUT_PROP_ACCELEROMETER = 6
+TICK, SCAN, FDS, BUCKET = 0.25, 1.0, 2.0, 10
+LONG_BITS = struct.calcsize("l") * 8
+READ = ("pad", "keyboard", "mouse")
+
+
+def bits(path):
+    """a sysfs capability bitmap (hex longs, most significant first) as an int; 0 when unreadable"""
+    try:
+        with open(path) as f:
+            words = f.read().split()
+    except OSError:
+        return 0
+    n = 0
+    for w in words:
+        n = (n << LONG_BITS) | int(w, 16)
+    return n
+
+
+def classify(sysdev):
+    """the class of an input device from its sysfs directory (…/eventN/device)"""
+    if bits(os.path.join(sysdev, "properties")) >> INPUT_PROP_ACCELEROMETER & 1:
+        return "motion"
+    key = bits(os.path.join(sysdev, "capabilities", "key"))
+    rel = bits(os.path.join(sysdev, "capabilities", "rel"))
+    if key >> BTN_GAMEPAD & 1 or key >> BTN_JOYSTICK & 1:
+        return "pad"
+    if rel & 3 == 3 and key >> BTN_LEFT & 1:
+        return "mouse"
+    if all(key >> k & 1 for k in (KEY_Q, KEY_A, KEY_Z)):
+        return "keyboard"
+    return "other"
+
+
+def device_name(sysdev):
+    try:
+        with open(os.path.join(sysdev, "name")) as f:
+            return " ".join(f.read().split())[:60] or "-"
+    except OSError:
+        return "-"
+
+
+def event_of(path, sysroot="/sys/class/input"):
+    """/dev/input/eventN or /dev/input/jsN -> "eventN" (a js device by its sibling under the same input device)"""
+    name = os.path.basename(path)
+    if name.startswith("event"):
+        return name
+    if not name.startswith("js"):
+        return None
+    try:
+        parent = os.path.realpath(os.path.join(sysroot, name, "device"))
+        for e in os.listdir(parent):
+            if e.startswith("event"):
+                return e
+    except OSError:
+        pass
+    return None
+
+
+def family(pid, proc="/proc"):
+    kids = {}
+    for p in os.listdir(proc):
+        if p.isdigit():
+            try:
+                with open(os.path.join(proc, p, "stat")) as f:
+                    ppid = int(f.read().rsplit(")", 1)[1].split()[1])
+            except (OSError, ValueError, IndexError):
+                continue
+            kids.setdefault(ppid, []).append(int(p))
+    out, todo = set(), [pid]
+    while todo:
+        p = todo.pop()
+        if p not in out:
+            out.add(p)
+            todo += kids.get(p, [])
+    return out
+
+
+def opened_devices(pids, proc="/proc"):
+    """the eventN names the processes have open"""
+    out = set()
+    for p in pids:
+        d = os.path.join(proc, str(p), "fd")
+        try:
+            fds = os.listdir(d)
+        except OSError:
+            continue
+        for fd in fds:
+            try:
+                target = os.readlink(os.path.join(d, fd))
+            except OSError:
+                continue
+            if target.startswith("/dev/input/"):
+                e = event_of(target)
+                if e:
+                    out.add(e)
+    return out
+
+
+def count(data, counts):
+    """add the events in data (whole input_events) to counts {"press", "move"}"""
+    for _, _, typ, code, value in EV.iter_unpack(data[:len(data) - len(data) % EV.size]):
+        if typ == EV_KEY and value == 1:
+            counts["press"] += 1
+        elif typ in (EV_ABS, EV_REL):
+            counts["move"] += 1
+
+
+class Log:
+    def __init__(self, t0, out=sys.stdout, dev="/dev/input", sysroot="/sys/class/input"):
+        self.t0, self.out, self.dev, self.sysroot = t0, out, dev, sysroot
+        self.devs = {}        # eventN -> {"class", "fd"}
+        self.opened = set()
+        self.unreadable = set()
+        self.bucket = None
+        self.counts = {}
+        self.first = True
+
+    def now(self):
+        return time.time() - self.t0
+
+    def row(self, *cols):
+        self.out.write("\t".join(str(c) for c in cols) + "\n")
+        self.out.flush()
+
+    def scan(self):
+        try:
+            names = {n for n in os.listdir(self.dev) if n.startswith("event")}
+        except OSError:
+            names = set()
+        t = "%.1f" % self.now()
+        for n in sorted(names - set(self.devs)):
+            sysdev = os.path.join(self.sysroot, n, "device")
+            cls = classify(sysdev)
+            fd = None
+            if cls in READ:
+                try:
+                    fd = os.open(os.path.join(self.dev, n), os.O_RDONLY | os.O_NONBLOCK)
+                except OSError:
+                    self.unreadable.add(cls)
+            self.devs[n] = {"class": cls, "fd": fd}
+            self.row(t, "present" if self.first else "added", n, cls, device_name(sysdev))
+        for n in sorted(set(self.devs) - names):
+            d = self.devs.pop(n)
+            if d["fd"] is not None:
+                os.close(d["fd"])
+            self.row(t, "removed", n, d["class"], "-")
+        self.first = False
+
+    def drain(self):
+        b = int(self.now() // BUCKET) * BUCKET
+        if self.bucket is not None and b != self.bucket:
+            self.flush()
+        self.bucket = b
+        for n, d in self.devs.items():
+            if d["fd"] is None:
+                continue
+            c = self.counts.setdefault(d["class"], {"press": 0, "move": 0})
+            while True:
+                try:
+                    data = os.read(d["fd"], EV.size * 512)
+                except BlockingIOError:
+                    break
+                except OSError:      # unplugged: the next scan removes it
+                    break
+                if not data:
+                    break
+                count(data, c)
+
+    def flush(self):
+        for cls, c in sorted(self.counts.items()):
+            for k in ("press", "move"):
+                if c[k]:
+                    self.row(self.bucket, k, "-", cls, c[k])
+        self.counts = {}
+
+    def game_fds(self, pids):
+        t = "%.1f" % self.now()
+        for n in sorted(opened_devices(pids) - self.opened):
+            self.opened.add(n)
+            self.row(t, "opened", n, self.devs.get(n, {}).get("class", "?"), "-")
+
+
+def main(argv):
+    if len(argv) < 3 or not argv[2].isdigit():
+        print(__doc__.split("\n\n")[0], file=sys.stderr)
+        return 2
+    t0, pid = float(argv[1]), int(argv[2])
+    first = io.StringIO()
+    log = Log(t0, first)
+    log.scan()      # the devices there at the start, under the header
+    readable = sorted({d["class"] for d in log.devs.values() if d["fd"] is not None})
+    log.out = sys.stdout
+    log.row("# inputlog readable=%s unreadable=%s" % (",".join(readable) or "-", ",".join(sorted(log.unreadable)) or "-"))
+    log.row("t_s", "what", "dev", "class", "n")
+    sys.stdout.write(first.getvalue())
+    last_scan = last_fds = last_family = 0.0
+    pids = {pid}
+    deadline = time.time() + 12 * 3600
+    while os.path.exists("/proc/%d" % pid) and time.time() < deadline:
+        now = time.time()
+        if now - last_scan >= SCAN:
+            log.scan()
+            last_scan = now
+        if now - last_family >= 10:
+            pids = family(pid)
+            last_family = now
+        if now - last_fds >= FDS:
+            log.game_fds(pids)
+            last_fds = now
+        log.drain()
+        time.sleep(TICK)
+    log.drain()
+    log.flush()
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        os.nice(19)
+    except OSError:
+        pass
+    sys.exit(main(sys.argv))

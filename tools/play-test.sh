@@ -84,7 +84,9 @@ for d in runs:
     print("%s  %s  %4.1f min  %-6s launcher=%s  dropouts=%s/%s  form=%s%s" % (
         os.path.basename(d)[10:26], "imported" if os.path.basename(d) in done else "new     ", play / 60,
         b.get("ended", "?"), b.get("launcher", "-"), b.get("xruns_audible", "-"), b.get("xruns_logged", b.get("underruns", "-")),
-        "sound=%s music=%s controls=%s" % (form.get("sound"), form.get("music"), form.get("controls")) if form else "none",
+        ("sound=%s music=%s controls=%s" % (form.get("sound"), form.get("music"), form.get("controls")) +
+         (" glitches=%s played_with=%s menus=%s saves=%s rules=2" % (form.get("glitches"), form.get("played_with"),
+          form.get("menus_modes"), form.get("saves_load")) if form.get("form_version", 1) >= 2 else "")) if form else "none",
         ("  notes: " + " ".join(form.get("notes", "").split())[:100]) if form.get("notes") else ""))
 PY
 	echo ">> import: look at the shots, write REVIEW.md, then python3 -I tools/gamedb/import-run.py build/bench/<run> --game $E" ;;

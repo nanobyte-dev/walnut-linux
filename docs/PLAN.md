@@ -40,7 +40,12 @@ Walnut 0.1.0, the first public alpha, is out ([release/ALPHA.md](release/ALPHA.m
    - P2 the server: screenshots as their own upload kind, /gamedb/ published;
    - P3 the session recorder (the ~10-minute played session, its end-of-session form);
    - P4 the desktop app (Tk) and its install helper;
-   - P5 the games one by one to about 50, new games first.
+   - P5 the games one by one to about 50, new games first. Rules 2.0 (2026-10-26, [GAMEDB.md](GAMEDB.md#rules-versions))
+     rate the sessions from here on: the recorder measures the input, the settings files, the pointer
+     and the quit; the form asks seven one-tap questions.
+   - P5b, planned: scripted runs for what one player can't test ([games/SUITE.md](games/SUITE.md#scripted-runs-planned)):
+     a virtual DualShock through uinput (a pad plugged in mid-game, a second and third pad joining,
+     menus by d-pad, judged from screenshots), and unattended soaks for crash-free hours.
    - P6, later (the user, 2026-10-26: "keep planned"): tests submitted by other Walnut users. Their
      sessions would be recorded by the same harness and form, sent to us and reviewed before they
      count. That needs a real database and a way to trust or weigh submissions (one player's odd

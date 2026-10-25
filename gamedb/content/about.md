@@ -3,42 +3,85 @@ title = "About the ratings"
 summary = "How Walnut Games tests a game on the PS3 and turns the measurements into a medal."
 +++
 
+**A rating says how well a game plays on a PS3 under Walnut, not how good the game is.** Game
+design never scores: a punishing difficulty, short levels, a game's own frame cap or simulation
+speed, controls laid out for a PC keyboard, or whether it's fun. Anything broken that you'd run into
+playing it on Walnut does score, wherever it comes from, and the page says where: each problem is
+marked "also on the PC" (the game's own, it happens on a PC too) or "PS3/Walnut only" (ours).
+
 Every game here was installed on a PlayStation 3 running Walnut and played. What you see on a
 game's page is what we measured, not an impression: the frame rate, the stutters, the sound, the
-picture next to the same game on a PC, crashes, and how long it takes to load. The medal sums that
-up; the numbers behind it are always on the page.
+picture next to the same game on a PC, crashes, how it handles a controller, and how long it takes to
+load. The medal sums that up; the numbers behind it are always on the page, with what the rating
+rests on ("1 session, 9 min of play").
 
 ## How a game is tested
 
-**A played session.** Someone plays the game for about ten minutes, the way you would: started from
-the Walnut desktop, with the settings Walnut ships, on a 1080p TV. Players hit menus, saves, level
-changes and odd inputs that a scripted test never reaches. While they play, a recorder notes every
-frame's time, every sound dropout, the memory, how the game ended, and a screenshot about once a
-minute. At the end the player says whether they heard the sound and music, how the controls worked,
-and writes down anything odd; those notes become the game's known issues.
+**A played session.** One person plays the game for about ten minutes, the way you would: started
+from the Walnut desktop, with the settings Walnut ships, on a 1080p TV. While they play, a recorder
+notes every frame's time, every sound dropout, the memory, how the game ended and how quickly the
+desktop came back, a screenshot about once a minute with where the game's window and the mouse
+pointer were, which controllers the game picked up and whether the pad or the keyboard was used
+(counts only, never what was typed), and whether the game's settings files changed (checked, never
+touched). At the end the player answers a few one-tap questions about what only they could tell:
+whether they heard the sound and music, glitches they saw, whether the menus worked with the pad,
+whether saving worked, and writes down anything odd; those notes become the game's known issues.
 
-**A side-by-side picture check.** A script drives the game to a few fixed moments (a menu, a map, a
-camera position) on the PS3 and on a PC, and the two are put next to each other and looked at:
-missing textures, wrong colours, text that isn't drawn. The screenshots on these pages are all
-from the PS3.
+**A side-by-side picture check.** The screenshots are put next to the same game on a PC and looked
+at: missing textures, wrong colours, text that isn't drawn, text too small to read on a TV. Each
+problem is noted with whether the PC shows it too. The screenshots on these pages are all from the
+PS3.
 
-Every session adds to a game's play time, so its rating firms up as more people play it.
+**What one player can't test isn't held against a game.** A second or third controller, online play,
+a mode nobody reached: those are "not tested", and their weight goes to what was. Scripted runs on
+the PS3 without anyone playing (a virtual controller plugged in mid-game, extra players joining,
+hours of unattended play) are planned to fill some of that in.
 
-## The seven scores
+## The scores
 
 Each part of the experience gets a score from 0 to 100. The same scale applies to every game.
 
 | What | Weight | 0 means | 100 means |
 |---|---|---|---|
-| Frame rate | 25 | under 20 frames a second (1% low under 10) | 55 or more (1% low 45 or more), or the game holds its own cap |
-| Smoothness | 20 | 5 s of stutter a minute, or a freeze over 5 s | barely any stutter (0.1 s a minute), no frame over a quarter second |
-| Sound | 15 | nothing heard, or the sound stops working | effects and music heard, no dropouts you could hear |
-| Picture | 15 | wrong, can't be played | the same as on a PC |
-| Stability | 15 | crashes in most sessions | no crashes, quits cleanly |
-| Display | 5 | cropped or off-screen | full screen, right shape, cleanly scaled |
-| Load | 5 | two minutes to start | 15 seconds (to the game's first screen; your time in its menus doesn't count) |
+| Frame rate | 22 | under 20 frames a second (1% low under 10) | 55 or more (1% low 45 or more), or the game holds its own cap |
+| Smoothness | 18 | 5 s of stutter a minute, or a freeze over 5 s | barely any stutter (0.1 s a minute), no frame over a quarter second |
+| Sound | 12 | nothing heard, or the sound stops working | effects and music heard, no dropouts you could hear |
+| Picture | 12 | garbled, or several kinds of fault | the same as on a PC |
+| Stability | 12 | crashes in most sessions | no crashes, quits cleanly back to the desktop |
+| Controls | 10 | nothing works with the controller | everything tested works with the controller |
+| Display | 6 | cropped or off-screen | full screen, right shape, readable, right out of the box |
+| Features | 5 | everything tested is broken | menus, modes, saves and settings work |
+| Load | 3 | two minutes to start | 15 seconds (to the game's first screen; your time in its menus doesn't count) |
 
-Between those ends the scores rise in steps. A few things worth knowing:
+**Picture** starts at 100 and loses a fixed amount for each kind of fault, counted once however
+often it shows:
+
+| Fault | Points |
+|---|---|
+| garbage textures or geometry | 60 |
+| something missing: the HUD, models, shadows, an effect | 25 |
+| wrong colours or blending | 25 |
+| flicker, z-fighting, one-frame glitches | 15 |
+| lighting or shading differs from the PC | 10 |
+| softer or less detailed because of Walnut's own lighter settings (the page says which) | 5 |
+
+**Display** starts from how the game's window covers the screen (full screen 100, a smaller window
+30 or 10, cropped 0) and loses:
+
+| Problem | Points |
+|---|---|
+| stretched to the wrong shape | 30 |
+| not right out of the box: the video settings had to be changed | 20 |
+| text smaller than 18 pixels on a 1080p TV | 15 |
+| the desktop's mouse pointer sits over the game | 10 |
+
+**Controls** and **Features** are checklists: the pad works without setup, the menus work with it,
+a pad turned on later is found, extra pads join as players, the keyboard works too, nothing needs the
+keyboard; every menu and mode works, settings stick, saves load, online play works. The score is the
+share of the tested items that pass. A game whose controller doesn't work without setup scores 30 at
+most on Controls.
+
+A few more things worth knowing:
 
 - **Resolution doesn't count against a game.** A pixel-art game drawing a small picture that is
   scaled up to the TV is fine, and black bars around the right shape cost nothing.
@@ -47,27 +90,41 @@ Between those ends the scores rise in steps. A few things worth knowing:
 - **Sound is two halves.** Half is whether the right sounds play: the player says whether they
   heard the effects and the music. The other half is how clean they are. The recorder measures
   every moment the sound output runs dry: how long it lasted and how loud the sound was around it.
-  Only the ones you could hear count: a gap of 20 ms or more with sound before or after it. A few
-  milliseconds, or a gap in silence, go unnoticed and cost nothing. Older tests, recorded before
-  this measurement, use the raw count of faults on a gentler scale.
+  Only the ones you could hear count: a gap of 20 ms or more with sound before or after it.
 - **A stutter** is a frame that takes far longer than the others (over 50 ms, and three times the
   usual frame). The score adds up the time those frames lost each minute.
+- **A clean quit** means the game exits normally and the desktop is back within 10 seconds. Having to
+  force a game closed, or a desktop that doesn't come back, counts like a crash.
 - **Stability needs hours.** A game that never crashed starts at 90, and reaches 100 after three
   hours of play without a crash. With crashes, the score follows how often they happen. The page
   shows the hours behind it ("0 crashes in 1.7 h").
 - **No medal without the frame rate and smoothness.** If those couldn't be measured (a software
   renderer, for one), the game is shown as played but not rated.
-- **What can't be measured is left out.** If a game gives us no frame times or no clear moment when
-  play starts, that score is left out and its weight goes to the others; the page says so.
 - **Sessions measured the same way are combined**, the middle value of each score, so one lucky or
   unlucky run doesn't decide a medal. The first 30 seconds of play are a warm-up and aren't measured.
 - **The rating is for the newest version.** Each test notes the Walnut release and the game's
   version it ran on. The medal comes from the newest of them, and a game's History table shows how
   it rated on every version before, so you can see a game get better (or worse) between releases.
 
+## The rules {#rules}
+
+The rules change as we learn, and a rating names the rules that made it. A change of weights or
+thresholds re-scores every test at once. A new kind of check needs data older tests don't have, so
+those tests keep the rules they were measured under until the game is played again.
+
+### Rules 2.0, 2026-10-26 {#rules-2}
+
+The current rules: everything on this page.
+
+### Rules 1.0, 2026-10-24 {#rules-1}
+
+Older ratings use the 2026-10-24 rules: seven scores (frame rate 25, smoothness 20, sound 15, picture
+15, stability 15, display 5, load 5), no Controls or Features, the picture judged right or wrong as a
+whole, and the display from the window's size alone.
+
 ## The medals
 
-The medal comes from the weighted average of the seven scores.
+The medal comes from the weighted average of the scores.
 
 | Medal | What it means | Average |
 |---|---|---|
@@ -91,7 +148,7 @@ stutters for more than 10 seconds a minute. The page then says which.
 with its GL 1.2 and GL 2.0 renderers. Each is played and rated on its own, and the game's medal is
 the best one's, with its name ("Gold, with OpenArena (GL 1.2)"). The page lists them all.
 
-**Badges** sit next to the medal and don't change it: how well a controller works, whether the game
+**Badges** sit next to the medal and don't change it: how well a controller works (from the Controls checklist), whether the game
 needs your own game files (we never ship those), no sound and low memory. A game we changed to run
 better on the PS3 lists those changes on its page, with the packages to download.
 

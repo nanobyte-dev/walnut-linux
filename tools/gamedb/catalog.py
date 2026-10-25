@@ -115,8 +115,9 @@ def details(r, fps_cap):
         d["sound"] = "%.1f audible sound dropouts a minute" % n["sound_dropouts_per_min"]
     elif n.get("sound_faults_per_min") is not None:
         d["sound"] = "%.1f sound faults a minute" % n["sound_faults_per_min"]
-    d["stability"] = "%d crash%s in %.1f h of play%s" % (r["crashes"], "" if r["crashes"] == 1 else "es", r["hours"],
-                                                         " (provisional: under 1 h)" if r["provisional"] else "")
+    hangs = "" if r.get("rules") != 2 else ", %d unclean quit%s" % (r["hangs"], "" if r["hangs"] == 1 else "s")
+    d["stability"] = "%d crash%s%s in %.1f h of play%s" % (r["crashes"], "" if r["crashes"] == 1 else "es", hangs,
+                                                           r["hours"], " (provisional: under 1 h)" if r["provisional"] else "")
     if n.get("display_detail"):
         d["display"] = n["display_detail"]
     if n.get("load_s") is not None:
@@ -161,17 +162,38 @@ def rated_tests(ts):
     return same + [t for t in ts if t.get("kind") not in GRADED]
 
 
+def newest_data(tests):
+    """the data version a set of tests is rated under: the newest among its graded tests (sessions, benchmark
+    runs), else among all of them; 1 for none. Tests of other data versions don't count for it (a rating never
+    mixes rules)"""
+    graded = [score.data_version(t) for t in tests if t.get("kind") in GRADED]
+    return max(graded or [score.data_version(t) for t in tests] or [1])
+
+
+def rules_info(data):
+    return {"rules": "%d.%d" % (data, score.FORMULA[data]), "rules_data": data,
+            "rules_label": score.rules_label(data), "rules_anchor": score.RULES[data]["anchor"]}
+
+
 def history(groups, fps_cap):
-    """one row per version: its own rating (from that version's sessions measured like its newest), for the website's
-    comparison between versions"""
+    """one row per version and data version: its own rating (from that version's sessions of that data version,
+    measured like its newest), for the website's comparison between versions and rules"""
     out = []
-    for (walnut, pkg, ver), ts in groups:
-        r = score.combine(rated_tests(ts), fps_cap)
-        out.append({"walnut": walnut, "package": pkg, "version": ver,
-                    "first": min(t["date"] for t in ts), "last": max(t["date"] for t in ts), "tests": len(ts),
-                    "hours": round(r["hours"], 2), "crashes": r["crashes"], "medal": r["medal"],
-                    "score": rnd(r["score"]), "graded_by": r["graded_by"],
-                    "aspects": {k: rnd(r["aspects"].get(k)) for k in score.ASPECT_NAMES}})
+    # a version tested under two rules (rules 1 sessions, then a rules 2 one) has a row for each, newest first
+    rows = [(k, d, [t for t in ts if score.data_version(t) == d])
+            for k, ts in groups for d in sorted({score.data_version(t) for t in ts}, reverse=True)]
+    for (walnut, pkg, ver), data, ts in rows:
+        if not any(t.get("kind") in GRADED for t in ts) and any(
+                x[0] == (walnut, pkg, ver) and x[1] != data and any(t.get("kind") in GRADED for t in x[2]) for x in rows):
+            continue    # a capture under other rules than the version's sessions: no row of its own
+        r = score.combine(rated_tests(ts), fps_cap, data)
+        row = {"walnut": walnut, "package": pkg, "version": ver,
+               "first": min(t["date"] for t in ts), "last": max(t["date"] for t in ts), "tests": len(ts),
+               "hours": round(r["hours"], 2), "crashes": r["crashes"], "medal": r["medal"],
+               "score": rnd(r["score"]), "graded_by": r["graded_by"],
+               "aspects": {k: rnd(r["aspects"].get(k)) for k in score.ASPECTS[data]}}
+        row.update(rules_info(data))
+        out.append(row)
     return out
 
 
@@ -196,20 +218,24 @@ def rate_launcher(tests, fm):
     """one launcher's rating, from the newest version's sessions measured like its newest one (capture
     runs of any version add their picture), and its history (every version rated the same way)"""
     fps_cap = fm.get("fps_cap")
+    hist = history(version_groups(tests, fm["packages"]), fps_cap)
+    data = newest_data(tests)
+    tests = [t for t in tests if score.data_version(t) == data]
     groups = version_groups(tests, fm["packages"])
     current = next((k for k, ts in groups if any(t.get("kind") in GRADED for t in ts)), None)
     cur = rated_tests([t for k, ts in groups for t in ts if k == current or t.get("kind") not in GRADED])
     cur.sort(key=lambda t: (t["date"], t["id"]))
-    r = score.combine(cur, fps_cap)
+    r = score.combine(cur, fps_cap, data)
     det = details(r, fps_cap)
+    det.update(r.get("details") or {})
     pic = [(t["numbers"]["shot_points"], t["numbers"]["shot_differing"]) for t in cur
            if "shot_points" in t.get("numbers", {})]
-    if pic:
+    if pic and data == 1:
         det["picture"] = "%d of %d capture points differ from the PC" % (sum(p[1] for p in pic), sum(p[0] for p in pic))
     aspects = {}
-    for k, name in score.ASPECT_NAMES.items():
-        aspects[k] = {"name": name, "weight": score.WEIGHTS[k], "score": rnd(r["aspects"].get(k)),
-                      "detail": det.get(k)}
+    for k in score.ASPECTS[data]:
+        aspects[k] = {"name": score.ALL_ASPECT_NAMES[k], "weight": score.WEIGHTS_OF[data][k],
+                      "score": rnd(r["aspects"].get(k)), "detail": det.get(k)}
     graded = [t for t in cur if t.get("kind") in GRADED]
     avail = [t["numbers"]["min_avail_kb"] for t in graded if "min_avail_kb" in t.get("numbers", {})]
     rating = {"medal": r["medal"], "score": rnd(r["score"]), "capped": r["capped"], "reason": r["reason"],
@@ -222,7 +248,16 @@ def rate_launcher(tests, fm):
               "tested": None if current is None else {
                   "walnut": current[0], "package": current[1], "version": current[2],
                   "date": max(t["date"] for k, ts in groups if k == current for t in ts)}}
-    return rating, history(groups, fps_cap)
+    rating.update(rules_info(data))
+    rating["order"] = list(score.ASPECTS[data])
+    # what the rating rests on, for the page and the app: "1 session, 9 min of play"
+    rating["basis"] = {"tests": len(graded), "kind": r["graded_by"],
+                       "minutes": int(round(sum(t.get("play_seconds") or 0 for t in graded) / 60))}
+    if data >= 2:
+        rating.update(hangs=r["hangs"], defects=r["defects"], controls_failed=r["controls_failed"],
+                      features_failed=r["features_failed"], controller=r["controller"], checks=r["checks"],
+                      display_deductions=[{"what": w, "points": p} for w, p in r["display_deductions"]])
+    return rating, hist
 
 
 def rank(rating):
@@ -257,8 +292,10 @@ def build_game(gdir, repo, debs):
     badges = []
     if fm["needs_data"]:
         badges.append("needs-data")
-    if fm["controller"] != "unknown":
-        badges.append("controller-" + fm["controller"])
+    # the controller badge: the best launcher's Controls checks under rules 2, else the front matter's
+    controller = best["rating"].get("controller") or fm["controller"]
+    if controller != "unknown":
+        badges.append("controller-" + controller)
     if best["rating"]["silent"]:
         badges.append("no-sound")
     if best["rating"]["low_memory"]:
@@ -271,6 +308,7 @@ def build_game(gdir, repo, debs):
             "id": t["id"], "kind": t["kind"], "date": t["date"], "variant": t.get("variant"),
             "play_seconds": t.get("play_seconds", 0), "end": t.get("end"), "crashed": t.get("crashed", False),
             "verdict": t.get("picture", {}).get("verdict"), "note": t.get("picture", {}).get("note"),
+            "rules": "%d.%d" % (score.data_version(t), score.FORMULA[score.data_version(t)]),
             "numbers": t.get("numbers", {}), "versions": t.get("versions", {}),
             "ps3": ["tests/%s/%s" % (t["id"], f) for f in t.get("shots", {}).get("ps3", [])]})
     g = {k: fm[k] for k in ("id", "title", "summary", "categories", "tags", "license", "homepage", "packages",

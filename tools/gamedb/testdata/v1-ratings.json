@@ -1,0 +1,1710 @@
+{
+ "armagetronad": {
+  "badges": [
+   "controller-full"
+  ],
+  "launchers": [
+   {
+    "history": [
+     {
+      "aspects": {
+       "display": null,
+       "frame": 100,
+       "load": 100,
+       "picture": 100,
+       "smooth": 84,
+       "sound": 97,
+       "stability": 90
+      },
+      "crashes": 0,
+      "first": "2026-10-25",
+      "graded_by": "session",
+      "hours": 0.14,
+      "last": "2026-10-25",
+      "medal": "Platinum",
+      "package": "armagetronad",
+      "score": 95,
+      "tests": 1,
+      "version": "0.2.9.3.0-1",
+      "walnut": "0.1"
+     }
+    ],
+    "name": "Armagetron Advanced",
+    "rating": {
+     "aspects": {
+      "display": {
+       "detail": null,
+       "name": "Display",
+       "score": null,
+       "weight": 5
+      },
+      "frame": {
+       "detail": "median 104 fps, 1% low 47",
+       "name": "Frame rate",
+       "score": 100,
+       "weight": 25
+      },
+      "load": {
+       "detail": "15 s from launch to the game's first screen",
+       "name": "Load",
+       "score": 100,
+       "weight": 5
+      },
+      "picture": {
+       "detail": "0 of 4 capture points differ from the PC",
+       "name": "Picture",
+       "score": 100,
+       "weight": 15
+      },
+      "smooth": {
+       "detail": "0.3 s of stutter a minute, longest frame 719 ms",
+       "name": "Smoothness",
+       "score": 84,
+       "weight": 20
+      },
+      "sound": {
+       "detail": "0.6 audible sound dropouts a minute",
+       "name": "Sound",
+       "score": 97,
+       "weight": 15
+      },
+      "stability": {
+       "detail": "0 crashes in 0.1 h of play (provisional: under 1 h)",
+       "name": "Stability",
+       "score": 90,
+       "weight": 15
+      }
+     },
+     "capped": false,
+     "crashes": 0,
+     "graded_by": "session",
+     "hours": 0.14,
+     "low_memory": false,
+     "medal": "Platinum",
+     "provisional": true,
+     "reason": null,
+     "score": 95,
+     "silent": false,
+     "tested": {
+      "date": "2026-10-25",
+      "package": "armagetronad",
+      "version": "0.2.9.3.0-1",
+      "walnut": "0.1"
+     },
+     "unmeasured": [
+      "Display"
+     ],
+     "weakest": "smooth"
+    }
+   }
+  ],
+  "tests": [
+   "2026-10-25-session"
+  ]
+ },
+ "bananabread": {
+  "badges": [
+   "controller-keyboard"
+  ],
+  "launchers": [
+   {
+    "history": [
+     {
+      "aspects": {
+       "display": null,
+       "frame": 0,
+       "load": 100,
+       "picture": 100,
+       "smooth": 0,
+       "sound": 96,
+       "stability": 90
+      },
+      "crashes": 0,
+      "first": "2026-10-24",
+      "graded_by": "session",
+      "hours": 0.06,
+      "last": "2026-10-24",
+      "medal": "Scrap",
+      "package": "cube2-data",
+      "score": 51,
+      "tests": 1,
+      "version": "1.3-1",
+      "walnut": "0.1"
+     }
+    ],
+    "name": "Cube2:Demo",
+    "rating": {
+     "aspects": {
+      "display": {
+       "detail": null,
+       "name": "Display",
+       "score": null,
+       "weight": 5
+      },
+      "frame": {
+       "detail": "median 20 fps, 1% low 3",
+       "name": "Frame rate",
+       "score": 0,
+       "weight": 25
+      },
+      "load": {
+       "detail": "13 s from launch to the game's first screen",
+       "name": "Load",
+       "score": 100,
+       "weight": 5
+      },
+      "picture": {
+       "detail": "0 of 3 capture points differ from the PC",
+       "name": "Picture",
+       "score": 100,
+       "weight": 15
+      },
+      "smooth": {
+       "detail": "22.0 s of stutter a minute, longest frame 1662 ms",
+       "name": "Smoothness",
+       "score": 0,
+       "weight": 20
+      },
+      "sound": {
+       "detail": "0.7 audible sound dropouts a minute",
+       "name": "Sound",
+       "score": 96,
+       "weight": 15
+      },
+      "stability": {
+       "detail": "0 crashes in 0.1 h of play (provisional: under 1 h)",
+       "name": "Stability",
+       "score": 90,
+       "weight": 15
+      }
+     },
+     "capped": false,
+     "crashes": 0,
+     "graded_by": "session",
+     "hours": 0.06,
+     "low_memory": false,
+     "medal": "Scrap",
+     "provisional": true,
+     "reason": "too slow",
+     "score": 51,
+     "silent": false,
+     "tested": {
+      "date": "2026-10-24",
+      "package": "cube2-data",
+      "version": "1.3-1",
+      "walnut": "0.1"
+     },
+     "unmeasured": [
+      "Display"
+     ],
+     "weakest": "smooth"
+    }
+   }
+  ],
+  "tests": [
+   "2026-10-24-session"
+  ]
+ },
+ "dsda-doom": {
+  "badges": [
+   "controller-keyboard"
+  ],
+  "launchers": [
+   {
+    "history": [
+     {
+      "aspects": {
+       "display": null,
+       "frame": 89,
+       "load": 100,
+       "picture": 100,
+       "smooth": 89,
+       "sound": 77,
+       "stability": 91
+      },
+      "crashes": 0,
+      "first": "2026-10-25",
+      "graded_by": "session",
+      "hours": 0.15,
+      "last": "2026-10-25",
+      "medal": "Gold",
+      "package": "dsda-doom",
+      "score": 90,
+      "tests": 1,
+      "version": "0.30.0+dfsg-1",
+      "walnut": "0.1"
+     }
+    ],
+    "name": "DSDA-Doom (OpenGL)",
+    "rating": {
+     "aspects": {
+      "display": {
+       "detail": null,
+       "name": "Display",
+       "score": null,
+       "weight": 5
+      },
+      "frame": {
+       "detail": "median 58 fps, 1% low 37",
+       "name": "Frame rate",
+       "score": 89,
+       "weight": 25
+      },
+      "load": {
+       "detail": "14 s from launch to the game's first screen",
+       "name": "Load",
+       "score": 100,
+       "weight": 5
+      },
+      "picture": {
+       "detail": "0 of 4 capture points differ from the PC",
+       "name": "Picture",
+       "score": 100,
+       "weight": 15
+      },
+      "smooth": {
+       "detail": "0.3 s of stutter a minute, longest frame 333 ms",
+       "name": "Smoothness",
+       "score": 89,
+       "weight": 20
+      },
+      "sound": {
+       "detail": "7.5 audible sound dropouts a minute",
+       "name": "Sound",
+       "score": 77,
+       "weight": 15
+      },
+      "stability": {
+       "detail": "0 crashes in 0.2 h of play (provisional: under 1 h)",
+       "name": "Stability",
+       "score": 91,
+       "weight": 15
+      }
+     },
+     "capped": false,
+     "crashes": 0,
+     "graded_by": "session",
+     "hours": 0.15,
+     "low_memory": false,
+     "medal": "Gold",
+     "provisional": true,
+     "reason": null,
+     "score": 90,
+     "silent": false,
+     "tested": {
+      "date": "2026-10-25",
+      "package": "dsda-doom",
+      "version": "0.30.0+dfsg-1",
+      "walnut": "0.1"
+     },
+     "unmeasured": [
+      "Display"
+     ],
+     "weakest": "sound"
+    }
+   },
+   {
+    "history": [
+     {
+      "aspects": {
+       "display": null,
+       "frame": 45,
+       "load": 100,
+       "picture": 100,
+       "smooth": 73,
+       "sound": 52,
+       "stability": 90
+      },
+      "crashes": 0,
+      "first": "2026-10-25",
+      "graded_by": "session",
+      "hours": 0.12,
+      "last": "2026-10-25",
+      "medal": "Silver",
+      "package": "dsda-doom",
+      "score": 71,
+      "tests": 1,
+      "version": "0.30.0+dfsg-1",
+      "walnut": "0.1"
+     }
+    ],
+    "name": "DSDA-Doom (software)",
+    "rating": {
+     "aspects": {
+      "display": {
+       "detail": null,
+       "name": "Display",
+       "score": null,
+       "weight": 5
+      },
+      "frame": {
+       "detail": "median 44 fps, 1% low 17",
+       "name": "Frame rate",
+       "score": 45,
+       "weight": 25
+      },
+      "load": {
+       "detail": "14 s from launch to the game's first screen",
+       "name": "Load",
+       "score": 100,
+       "weight": 5
+      },
+      "picture": {
+       "detail": "0 of 4 capture points differ from the PC",
+       "name": "Picture",
+       "score": 100,
+       "weight": 15
+      },
+      "smooth": {
+       "detail": "0.7 s of stutter a minute, longest frame 348 ms",
+       "name": "Smoothness",
+       "score": 73,
+       "weight": 20
+      },
+      "sound": {
+       "detail": "35.9 audible sound dropouts a minute",
+       "name": "Sound",
+       "score": 52,
+       "weight": 15
+      },
+      "stability": {
+       "detail": "0 crashes in 0.1 h of play (provisional: under 1 h)",
+       "name": "Stability",
+       "score": 90,
+       "weight": 15
+      }
+     },
+     "capped": false,
+     "crashes": 0,
+     "graded_by": "session",
+     "hours": 0.12,
+     "low_memory": false,
+     "medal": "Silver",
+     "provisional": true,
+     "reason": null,
+     "score": 71,
+     "silent": false,
+     "tested": {
+      "date": "2026-10-25",
+      "package": "dsda-doom",
+      "version": "0.30.0+dfsg-1",
+      "walnut": "0.1"
+     },
+     "unmeasured": [
+      "Display"
+     ],
+     "weakest": "frame"
+    }
+   }
+  ],
+  "tests": [
+   "2026-10-25-session",
+   "2026-10-25-session-0121"
+  ]
+ },
+ "etr": {
+  "badges": [
+   "controller-full"
+  ],
+  "launchers": [
+   {
+    "history": [
+     {
+      "aspects": {
+       "display": null,
+       "frame": 70,
+       "load": 96,
+       "picture": 100,
+       "smooth": 68,
+       "sound": 77,
+       "stability": 91
+      },
+      "crashes": 0,
+      "first": "2026-10-24",
+      "graded_by": "session",
+      "hours": 0.2,
+      "last": "2026-10-24",
+      "medal": "Gold",
+      "package": "extremetuxracer",
+      "score": 80,
+      "tests": 1,
+      "version": "0.8.4-2",
+      "walnut": "0.1"
+     }
+    ],
+    "name": "Extreme Tux Racer",
+    "rating": {
+     "aspects": {
+      "display": {
+       "detail": null,
+       "name": "Display",
+       "score": null,
+       "weight": 5
+      },
+      "frame": {
+       "detail": "median 58 fps, 1% low 24",
+       "name": "Frame rate",
+       "score": 70,
+       "weight": 25
+      },
+      "load": {
+       "detail": "17 s from launch to the game's first screen",
+       "name": "Load",
+       "score": 96,
+       "weight": 5
+      },
+      "picture": {
+       "detail": "0 of 4 capture points differ from the PC",
+       "name": "Picture",
+       "score": 100,
+       "weight": 15
+      },
+      "smooth": {
+       "detail": "1.0 s of stutter a minute, longest frame 1646 ms",
+       "name": "Smoothness",
+       "score": 68,
+       "weight": 20
+      },
+      "sound": {
+       "detail": "7.5 audible sound dropouts a minute",
+       "name": "Sound",
+       "score": 77,
+       "weight": 15
+      },
+      "stability": {
+       "detail": "0 crashes in 0.2 h of play (provisional: under 1 h)",
+       "name": "Stability",
+       "score": 91,
+       "weight": 15
+      }
+     },
+     "capped": false,
+     "crashes": 0,
+     "graded_by": "session",
+     "hours": 0.2,
+     "low_memory": false,
+     "medal": "Gold",
+     "provisional": true,
+     "reason": null,
+     "score": 80,
+     "silent": false,
+     "tested": {
+      "date": "2026-10-24",
+      "package": "extremetuxracer",
+      "version": "0.8.4-2",
+      "walnut": "0.1"
+     },
+     "unmeasured": [
+      "Display"
+     ],
+     "weakest": "smooth"
+    }
+   }
+  ],
+  "tests": [
+   "2026-10-24-session"
+  ]
+ },
+ "luanti": {
+  "badges": [
+   "controller-keyboard"
+  ],
+  "launchers": [
+   {
+    "history": [
+     {
+      "aspects": {
+       "display": null,
+       "frame": 22,
+       "load": 98,
+       "picture": 100,
+       "smooth": 0,
+       "sound": 96,
+       "stability": 90
+      },
+      "crashes": 0,
+      "first": "2026-10-24",
+      "graded_by": "session",
+      "hours": 0.13,
+      "last": "2026-10-24",
+      "medal": "Scrap",
+      "package": "luanti",
+      "score": 56,
+      "tests": 1,
+      "version": "5.15.2+dfsg-2",
+      "walnut": "0.1"
+     }
+    ],
+    "name": "Luanti",
+    "rating": {
+     "aspects": {
+      "display": {
+       "detail": null,
+       "name": "Display",
+       "score": null,
+       "weight": 5
+      },
+      "frame": {
+       "detail": "median 35 fps, 1% low 2",
+       "name": "Frame rate",
+       "score": 22,
+       "weight": 25
+      },
+      "load": {
+       "detail": "16 s from launch to the game's first screen",
+       "name": "Load",
+       "score": 98,
+       "weight": 5
+      },
+      "picture": {
+       "detail": "0 of 4 capture points differ from the PC",
+       "name": "Picture",
+       "score": 100,
+       "weight": 15
+      },
+      "smooth": {
+       "detail": "24.9 s of stutter a minute, longest frame 4338 ms",
+       "name": "Smoothness",
+       "score": 0,
+       "weight": 20
+      },
+      "sound": {
+       "detail": "0.7 audible sound dropouts a minute",
+       "name": "Sound",
+       "score": 96,
+       "weight": 15
+      },
+      "stability": {
+       "detail": "0 crashes in 0.1 h of play (provisional: under 1 h)",
+       "name": "Stability",
+       "score": 90,
+       "weight": 15
+      }
+     },
+     "capped": false,
+     "crashes": 0,
+     "graded_by": "session",
+     "hours": 0.13,
+     "low_memory": false,
+     "medal": "Scrap",
+     "provisional": true,
+     "reason": "too slow",
+     "score": 56,
+     "silent": false,
+     "tested": {
+      "date": "2026-10-24",
+      "package": "luanti",
+      "version": "5.15.2+dfsg-2",
+      "walnut": "0.1"
+     },
+     "unmeasured": [
+      "Display"
+     ],
+     "weakest": "smooth"
+    }
+   }
+  ],
+  "tests": [
+   "2026-10-24-session"
+  ]
+ },
+ "neverball": {
+  "badges": [
+   "controller-full"
+  ],
+  "launchers": [
+   {
+    "history": [
+     {
+      "aspects": {
+       "display": null,
+       "frame": 88,
+       "load": 100,
+       "picture": 100,
+       "smooth": 64,
+       "sound": 97,
+       "stability": 90
+      },
+      "crashes": 0,
+      "first": "2026-10-24",
+      "graded_by": "session",
+      "hours": 0.07,
+      "last": "2026-10-24",
+      "medal": "Gold",
+      "package": "neverball",
+      "score": 87,
+      "tests": 1,
+      "version": "1.6.0+git20180603-3",
+      "walnut": "0.1"
+     }
+    ],
+    "name": "Neverball",
+    "rating": {
+     "aspects": {
+      "display": {
+       "detail": null,
+       "name": "Display",
+       "score": null,
+       "weight": 5
+      },
+      "frame": {
+       "detail": "median 60 fps, 1% low 37",
+       "name": "Frame rate",
+       "score": 88,
+       "weight": 25
+      },
+      "load": {
+       "detail": "14 s from launch to the game's first screen",
+       "name": "Load",
+       "score": 100,
+       "weight": 5
+      },
+      "picture": {
+       "detail": "0 of 4 capture points differ from the PC",
+       "name": "Picture",
+       "score": 100,
+       "weight": 15
+      },
+      "smooth": {
+       "detail": "1.4 s of stutter a minute, longest frame 593 ms",
+       "name": "Smoothness",
+       "score": 64,
+       "weight": 20
+      },
+      "sound": {
+       "detail": "0.5 audible sound dropouts a minute",
+       "name": "Sound",
+       "score": 97,
+       "weight": 15
+      },
+      "stability": {
+       "detail": "0 crashes in 0.1 h of play (provisional: under 1 h)",
+       "name": "Stability",
+       "score": 90,
+       "weight": 15
+      }
+     },
+     "capped": false,
+     "crashes": 0,
+     "graded_by": "session",
+     "hours": 0.07,
+     "low_memory": false,
+     "medal": "Gold",
+     "provisional": true,
+     "reason": null,
+     "score": 87,
+     "silent": false,
+     "tested": {
+      "date": "2026-10-24",
+      "package": "neverball",
+      "version": "1.6.0+git20180603-3",
+      "walnut": "0.1"
+     },
+     "unmeasured": [
+      "Display"
+     ],
+     "weakest": "smooth"
+    }
+   }
+  ],
+  "tests": [
+   "2026-10-24-session"
+  ]
+ },
+ "openarena": {
+  "badges": [
+   "controller-keyboard"
+  ],
+  "launchers": [
+   {
+    "history": [
+     {
+      "aspects": {
+       "display": null,
+       "frame": 64,
+       "load": 98,
+       "picture": 100,
+       "smooth": 67,
+       "sound": 100,
+       "stability": 91
+      },
+      "crashes": 0,
+      "first": "2026-10-25",
+      "graded_by": "session",
+      "hours": 0.16,
+      "last": "2026-10-25",
+      "medal": "Gold",
+      "package": "openarena",
+      "score": 82,
+      "tests": 1,
+      "version": "0.8.8+dfsg-13",
+      "walnut": "0.1"
+     }
+    ],
+    "name": "OpenArena (GL 2.0)",
+    "rating": {
+     "aspects": {
+      "display": {
+       "detail": null,
+       "name": "Display",
+       "score": null,
+       "weight": 5
+      },
+      "frame": {
+       "detail": "median 54 fps, 1% low 21",
+       "name": "Frame rate",
+       "score": 64,
+       "weight": 25
+      },
+      "load": {
+       "detail": "16 s from launch to the game's first screen",
+       "name": "Load",
+       "score": 98,
+       "weight": 5
+      },
+      "picture": {
+       "detail": "0 of 4 capture points differ from the PC",
+       "name": "Picture",
+       "score": 100,
+       "weight": 15
+      },
+      "smooth": {
+       "detail": "0.9 s of stutter a minute, longest frame 1826 ms",
+       "name": "Smoothness",
+       "score": 67,
+       "weight": 20
+      },
+      "sound": {
+       "detail": "0.0 audible sound dropouts a minute",
+       "name": "Sound",
+       "score": 100,
+       "weight": 15
+      },
+      "stability": {
+       "detail": "0 crashes in 0.2 h of play (provisional: under 1 h)",
+       "name": "Stability",
+       "score": 91,
+       "weight": 15
+      }
+     },
+     "capped": false,
+     "crashes": 0,
+     "graded_by": "session",
+     "hours": 0.16,
+     "low_memory": false,
+     "medal": "Gold",
+     "provisional": true,
+     "reason": null,
+     "score": 82,
+     "silent": false,
+     "tested": {
+      "date": "2026-10-25",
+      "package": "openarena",
+      "version": "0.8.8+dfsg-13",
+      "walnut": "0.1"
+     },
+     "unmeasured": [
+      "Display"
+     ],
+     "weakest": "frame"
+    }
+   },
+   {
+    "history": [
+     {
+      "aspects": {
+       "display": null,
+       "frame": 42,
+       "load": 100,
+       "picture": 100,
+       "smooth": 68,
+       "sound": 100,
+       "stability": 91
+      },
+      "crashes": 0,
+      "first": "2026-10-25",
+      "graded_by": "session",
+      "hours": 0.2,
+      "last": "2026-10-25",
+      "medal": "Silver",
+      "package": "openarena",
+      "score": 76,
+      "tests": 1,
+      "version": "0.8.8+dfsg-13",
+      "walnut": "0.1"
+     }
+    ],
+    "name": "OpenArena (GL 1.2)",
+    "rating": {
+     "aspects": {
+      "display": {
+       "detail": null,
+       "name": "Display",
+       "score": null,
+       "weight": 5
+      },
+      "frame": {
+       "detail": "median 43 fps, 1% low 17",
+       "name": "Frame rate",
+       "score": 42,
+       "weight": 25
+      },
+      "load": {
+       "detail": "14 s from launch to the game's first screen",
+       "name": "Load",
+       "score": 100,
+       "weight": 5
+      },
+      "picture": {
+       "detail": "0 of 4 capture points differ from the PC",
+       "name": "Picture",
+       "score": 100,
+       "weight": 15
+      },
+      "smooth": {
+       "detail": "1.1 s of stutter a minute, longest frame 1666 ms",
+       "name": "Smoothness",
+       "score": 68,
+       "weight": 20
+      },
+      "sound": {
+       "detail": "0.1 audible sound dropouts a minute",
+       "name": "Sound",
+       "score": 100,
+       "weight": 15
+      },
+      "stability": {
+       "detail": "0 crashes in 0.2 h of play (provisional: under 1 h)",
+       "name": "Stability",
+       "score": 91,
+       "weight": 15
+      }
+     },
+     "capped": true,
+     "crashes": 0,
+     "graded_by": "session",
+     "hours": 0.2,
+     "low_memory": false,
+     "medal": "Silver",
+     "provisional": true,
+     "reason": "frame rate",
+     "score": 76,
+     "silent": false,
+     "tested": {
+      "date": "2026-10-25",
+      "package": "openarena",
+      "version": "0.8.8+dfsg-13",
+      "walnut": "0.1"
+     },
+     "unmeasured": [
+      "Display"
+     ],
+     "weakest": "frame"
+    }
+   }
+  ],
+  "tests": [
+   "2026-10-25-session",
+   "2026-10-25-session-0050"
+  ]
+ },
+ "openttd": {
+  "badges": [
+   "controller-keyboard"
+  ],
+  "launchers": [
+   {
+    "history": [
+     {
+      "aspects": {
+       "display": null,
+       "frame": 74,
+       "load": 96,
+       "picture": 100,
+       "smooth": 64,
+       "sound": 97,
+       "stability": 90
+      },
+      "crashes": 0,
+      "first": "2026-10-25",
+      "graded_by": "session",
+      "hours": 0.11,
+      "last": "2026-10-25",
+      "medal": "Gold",
+      "package": "openttd",
+      "score": 83,
+      "tests": 1,
+      "version": "15.1-1",
+      "walnut": "0.1"
+     }
+    ],
+    "name": "OpenTTD (OpenGL)",
+    "rating": {
+     "aspects": {
+      "display": {
+       "detail": null,
+       "name": "Display",
+       "score": null,
+       "weight": 5
+      },
+      "frame": {
+       "detail": "median 60 fps, 1% low 27",
+       "name": "Frame rate",
+       "score": 74,
+       "weight": 25
+      },
+      "load": {
+       "detail": "18 s from launch to the game's first screen",
+       "name": "Load",
+       "score": 96,
+       "weight": 5
+      },
+      "picture": {
+       "detail": "0 of 4 capture points differ from the PC",
+       "name": "Picture",
+       "score": 100,
+       "weight": 15
+      },
+      "smooth": {
+       "detail": "1.4 s of stutter a minute, longest frame 521 ms",
+       "name": "Smoothness",
+       "score": 64,
+       "weight": 20
+      },
+      "sound": {
+       "detail": "0.7 audible sound dropouts a minute",
+       "name": "Sound",
+       "score": 97,
+       "weight": 15
+      },
+      "stability": {
+       "detail": "0 crashes in 0.1 h of play (provisional: under 1 h)",
+       "name": "Stability",
+       "score": 90,
+       "weight": 15
+      }
+     },
+     "capped": false,
+     "crashes": 0,
+     "graded_by": "session",
+     "hours": 0.11,
+     "low_memory": false,
+     "medal": "Gold",
+     "provisional": true,
+     "reason": null,
+     "score": 83,
+     "silent": false,
+     "tested": {
+      "date": "2026-10-25",
+      "package": "openttd",
+      "version": "15.1-1",
+      "walnut": "0.1"
+     },
+     "unmeasured": [
+      "Display"
+     ],
+     "weakest": "smooth"
+    }
+   },
+   {
+    "history": [
+     {
+      "aspects": {
+       "display": null,
+       "frame": null,
+       "load": null,
+       "picture": 100,
+       "smooth": null,
+       "sound": 79,
+       "stability": 90
+      },
+      "crashes": 0,
+      "first": "2026-10-25",
+      "graded_by": "session",
+      "hours": 0.05,
+      "last": "2026-10-25",
+      "medal": "Untested",
+      "package": "openttd",
+      "score": null,
+      "tests": 1,
+      "version": "15.1-1",
+      "walnut": "0.1"
+     }
+    ],
+    "name": "OpenTTD (software)",
+    "rating": {
+     "aspects": {
+      "display": {
+       "detail": null,
+       "name": "Display",
+       "score": null,
+       "weight": 5
+      },
+      "frame": {
+       "detail": null,
+       "name": "Frame rate",
+       "score": null,
+       "weight": 25
+      },
+      "load": {
+       "detail": null,
+       "name": "Load",
+       "score": null,
+       "weight": 5
+      },
+      "picture": {
+       "detail": "0 of 2 capture points differ from the PC",
+       "name": "Picture",
+       "score": 100,
+       "weight": 15
+      },
+      "smooth": {
+       "detail": null,
+       "name": "Smoothness",
+       "score": null,
+       "weight": 20
+      },
+      "sound": {
+       "detail": "6.6 audible sound dropouts a minute",
+       "name": "Sound",
+       "score": 79,
+       "weight": 15
+      },
+      "stability": {
+       "detail": "0 crashes in 0.0 h of play (provisional: under 1 h)",
+       "name": "Stability",
+       "score": 90,
+       "weight": 15
+      }
+     },
+     "capped": false,
+     "crashes": 0,
+     "graded_by": "session",
+     "hours": 0.05,
+     "low_memory": false,
+     "medal": "Untested",
+     "provisional": true,
+     "reason": "frame rate and smoothness not measured",
+     "score": null,
+     "silent": false,
+     "tested": {
+      "date": "2026-10-25",
+      "package": "openttd",
+      "version": "15.1-1",
+      "walnut": "0.1"
+     },
+     "unmeasured": [
+      "Frame rate",
+      "Smoothness",
+      "Display",
+      "Load"
+     ],
+     "weakest": null
+    }
+   }
+  ],
+  "tests": [
+   "2026-10-25-session",
+   "2026-10-25-session-0207"
+  ]
+ },
+ "quakespasm": {
+  "badges": [
+   "needs-data",
+   "controller-keyboard"
+  ],
+  "launchers": [
+   {
+    "history": [],
+    "name": null,
+    "rating": {
+     "aspects": {
+      "display": {
+       "detail": null,
+       "name": "Display",
+       "score": null,
+       "weight": 5
+      },
+      "frame": {
+       "detail": null,
+       "name": "Frame rate",
+       "score": null,
+       "weight": 25
+      },
+      "load": {
+       "detail": null,
+       "name": "Load",
+       "score": null,
+       "weight": 5
+      },
+      "picture": {
+       "detail": null,
+       "name": "Picture",
+       "score": null,
+       "weight": 15
+      },
+      "smooth": {
+       "detail": null,
+       "name": "Smoothness",
+       "score": null,
+       "weight": 20
+      },
+      "sound": {
+       "detail": null,
+       "name": "Sound",
+       "score": null,
+       "weight": 15
+      },
+      "stability": {
+       "detail": "0 crashes in 0.0 h of play (provisional: under 1 h)",
+       "name": "Stability",
+       "score": null,
+       "weight": 15
+      }
+     },
+     "capped": false,
+     "crashes": 0,
+     "graded_by": null,
+     "hours": 0.0,
+     "low_memory": false,
+     "medal": "Untested",
+     "provisional": true,
+     "reason": null,
+     "score": null,
+     "silent": false,
+     "tested": null,
+     "unmeasured": [
+      "Frame rate",
+      "Smoothness",
+      "Sound",
+      "Picture",
+      "Stability",
+      "Display",
+      "Load"
+     ],
+     "weakest": null
+    }
+   }
+  ],
+  "tests": []
+ },
+ "sauerbraten": {
+  "badges": [
+   "needs-data",
+   "controller-keyboard"
+  ],
+  "launchers": [
+   {
+    "history": [
+     {
+      "aspects": {
+       "display": null,
+       "frame": 26,
+       "load": 100,
+       "picture": 100,
+       "smooth": 0,
+       "sound": 86,
+       "stability": 55
+      },
+      "crashes": 1,
+      "first": "2026-10-25",
+      "graded_by": "session",
+      "hours": 0.1,
+      "last": "2026-10-25",
+      "medal": "Scrap",
+      "package": "sauerbraten",
+      "score": 50,
+      "tests": 1,
+      "version": "0.819",
+      "walnut": "0.1"
+     },
+     {
+      "aspects": {
+       "display": null,
+       "frame": 48,
+       "load": 100,
+       "picture": 100,
+       "smooth": 0,
+       "sound": 80,
+       "stability": 55
+      },
+      "crashes": 1,
+      "first": "2026-10-24",
+      "graded_by": "session",
+      "hours": 0.06,
+      "last": "2026-10-24",
+      "medal": "Scrap",
+      "package": "sauerbraten",
+      "score": 55,
+      "tests": 1,
+      "version": "0.811",
+      "walnut": "0.1"
+     }
+    ],
+    "name": "Sauerbraten",
+    "rating": {
+     "aspects": {
+      "display": {
+       "detail": null,
+       "name": "Display",
+       "score": null,
+       "weight": 5
+      },
+      "frame": {
+       "detail": "median 38 fps, 1% low 4",
+       "name": "Frame rate",
+       "score": 26,
+       "weight": 25
+      },
+      "load": {
+       "detail": "14 s from launch to the game's first screen",
+       "name": "Load",
+       "score": 100,
+       "weight": 5
+      },
+      "picture": {
+       "detail": "0 of 4 capture points differ from the PC",
+       "name": "Picture",
+       "score": 100,
+       "weight": 15
+      },
+      "smooth": {
+       "detail": "13.9 s of stutter a minute, longest frame 3015 ms",
+       "name": "Smoothness",
+       "score": 0,
+       "weight": 20
+      },
+      "sound": {
+       "detail": "3.7 audible sound dropouts a minute",
+       "name": "Sound",
+       "score": 86,
+       "weight": 15
+      },
+      "stability": {
+       "detail": "1 crash in 0.1 h of play (provisional: under 1 h)",
+       "name": "Stability",
+       "score": 55,
+       "weight": 15
+      }
+     },
+     "capped": false,
+     "crashes": 1,
+     "graded_by": "session",
+     "hours": 0.1,
+     "low_memory": false,
+     "medal": "Scrap",
+     "provisional": true,
+     "reason": "crashes",
+     "score": 50,
+     "silent": false,
+     "tested": {
+      "date": "2026-10-25",
+      "package": "sauerbraten",
+      "version": "0.819",
+      "walnut": "0.1"
+     },
+     "unmeasured": [
+      "Display"
+     ],
+     "weakest": "smooth"
+    }
+   }
+  ],
+  "tests": [
+   "2026-10-24-session",
+   "2026-10-25-session"
+  ]
+ },
+ "supertuxkart": {
+  "badges": [
+   "controller-partial"
+  ],
+  "launchers": [
+   {
+    "history": [
+     {
+      "aspects": {
+       "display": null,
+       "frame": 0,
+       "load": 97,
+       "picture": 0,
+       "smooth": 0,
+       "sound": 73,
+       "stability": 90
+      },
+      "crashes": 0,
+      "first": "2026-10-25",
+      "graded_by": "session",
+      "hours": 0.04,
+      "last": "2026-10-25",
+      "medal": "Scrap",
+      "package": "supertuxkart",
+      "score": 31,
+      "tests": 1,
+      "version": "1.5-2",
+      "walnut": "0.1"
+     }
+    ],
+    "name": "SuperTuxKart",
+    "rating": {
+     "aspects": {
+      "display": {
+       "detail": null,
+       "name": "Display",
+       "score": null,
+       "weight": 5
+      },
+      "frame": {
+       "detail": "median 7 fps, 1% low 2",
+       "name": "Frame rate",
+       "score": 0,
+       "weight": 25
+      },
+      "load": {
+       "detail": "17 s from launch to the game's first screen",
+       "name": "Load",
+       "score": 97,
+       "weight": 5
+      },
+      "picture": {
+       "detail": "3 of 3 capture points differ from the PC",
+       "name": "Picture",
+       "score": 0,
+       "weight": 15
+      },
+      "smooth": {
+       "detail": "22.7 s of stutter a minute, longest frame 25542 ms",
+       "name": "Smoothness",
+       "score": 0,
+       "weight": 20
+      },
+      "sound": {
+       "detail": "9.5 audible sound dropouts a minute",
+       "name": "Sound",
+       "score": 73,
+       "weight": 15
+      },
+      "stability": {
+       "detail": "0 crashes in 0.0 h of play (provisional: under 1 h)",
+       "name": "Stability",
+       "score": 90,
+       "weight": 15
+      }
+     },
+     "capped": false,
+     "crashes": 0,
+     "graded_by": "session",
+     "hours": 0.04,
+     "low_memory": false,
+     "medal": "Scrap",
+     "provisional": true,
+     "reason": "too slow",
+     "score": 31,
+     "silent": false,
+     "tested": {
+      "date": "2026-10-25",
+      "package": "supertuxkart",
+      "version": "1.5-2",
+      "walnut": "0.1"
+     },
+     "unmeasured": [
+      "Display"
+     ],
+     "weakest": "frame"
+    }
+   }
+  ],
+  "tests": [
+   "2026-10-25-session"
+  ]
+ },
+ "warzone2100": {
+  "badges": [
+   "controller-keyboard",
+   "low-memory"
+  ],
+  "launchers": [
+   {
+    "history": [
+     {
+      "aspects": {
+       "display": null,
+       "frame": 35,
+       "load": 94,
+       "picture": 100,
+       "smooth": 0,
+       "sound": 99,
+       "stability": 90
+      },
+      "crashes": 0,
+      "first": "2026-10-25",
+      "graded_by": "session",
+      "hours": 0.14,
+      "last": "2026-10-25",
+      "medal": "Bronze",
+      "package": "warzone2100",
+      "score": 60,
+      "tests": 1,
+      "version": "4.3.5-1",
+      "walnut": "0.1"
+     }
+    ],
+    "name": "Warzone 2100",
+    "rating": {
+     "aspects": {
+      "display": {
+       "detail": null,
+       "name": "Display",
+       "score": null,
+       "weight": 5
+      },
+      "frame": {
+       "detail": "median 38 fps, 1% low 17",
+       "name": "Frame rate",
+       "score": 35,
+       "weight": 25
+      },
+      "load": {
+       "detail": "18 s from launch to the game's first screen",
+       "name": "Load",
+       "score": 94,
+       "weight": 5
+      },
+      "picture": {
+       "detail": "0 of 4 capture points differ from the PC",
+       "name": "Picture",
+       "score": 100,
+       "weight": 15
+      },
+      "smooth": {
+       "detail": "5.4 s of stutter a minute, longest frame 27861 ms",
+       "name": "Smoothness",
+       "score": 0,
+       "weight": 20
+      },
+      "sound": {
+       "detail": "0.1 audible sound dropouts a minute",
+       "name": "Sound",
+       "score": 99,
+       "weight": 15
+      },
+      "stability": {
+       "detail": "0 crashes in 0.1 h of play (provisional: under 1 h)",
+       "name": "Stability",
+       "score": 90,
+       "weight": 15
+      }
+     },
+     "capped": true,
+     "crashes": 0,
+     "graded_by": "session",
+     "hours": 0.14,
+     "low_memory": true,
+     "medal": "Bronze",
+     "provisional": true,
+     "reason": "smoothness",
+     "score": 60,
+     "silent": false,
+     "tested": {
+      "date": "2026-10-25",
+      "package": "warzone2100",
+      "version": "4.3.5-1",
+      "walnut": "0.1"
+     },
+     "unmeasured": [
+      "Display"
+     ],
+     "weakest": "smooth"
+    }
+   }
+  ],
+  "tests": [
+   "2026-10-25-session"
+  ]
+ },
+ "xmoto": {
+  "badges": [
+   "controller-full"
+  ],
+  "launchers": [
+   {
+    "history": [
+     {
+      "aspects": {
+       "display": null,
+       "frame": 98,
+       "load": 99,
+       "picture": 100,
+       "smooth": 89,
+       "sound": 98,
+       "stability": 91
+      },
+      "crashes": 0,
+      "first": "2026-10-23",
+      "graded_by": "session",
+      "hours": 0.44,
+      "last": "2026-10-24",
+      "medal": "Platinum",
+      "package": "xmoto",
+      "score": 96,
+      "tests": 3,
+      "version": "0.6.3+repack-1",
+      "walnut": "0.1"
+     }
+    ],
+    "name": "X-Moto",
+    "rating": {
+     "aspects": {
+      "display": {
+       "detail": null,
+       "name": "Display",
+       "score": null,
+       "weight": 5
+      },
+      "frame": {
+       "detail": "median 60 fps, 1% low 44",
+       "name": "Frame rate",
+       "score": 98,
+       "weight": 25
+      },
+      "load": {
+       "detail": "15 s from launch to the game's first screen",
+       "name": "Load",
+       "score": 99,
+       "weight": 5
+      },
+      "picture": {
+       "detail": "0 of 4 capture points differ from the PC",
+       "name": "Picture",
+       "score": 100,
+       "weight": 15
+      },
+      "smooth": {
+       "detail": "0.3 s of stutter a minute, longest frame 321 ms",
+       "name": "Smoothness",
+       "score": 89,
+       "weight": 20
+      },
+      "sound": {
+       "detail": "0.3 audible sound dropouts a minute",
+       "name": "Sound",
+       "score": 98,
+       "weight": 15
+      },
+      "stability": {
+       "detail": "0 crashes in 0.4 h of play (provisional: under 1 h)",
+       "name": "Stability",
+       "score": 91,
+       "weight": 15
+      }
+     },
+     "capped": false,
+     "crashes": 0,
+     "graded_by": "session",
+     "hours": 0.44,
+     "low_memory": false,
+     "medal": "Platinum",
+     "provisional": true,
+     "reason": null,
+     "score": 96,
+     "silent": false,
+     "tested": {
+      "date": "2026-10-24",
+      "package": "xmoto",
+      "version": "0.6.3+repack-1",
+      "walnut": "0.1"
+     },
+     "unmeasured": [
+      "Display"
+     ],
+     "weakest": "smooth"
+    }
+   }
+  ],
+  "tests": [
+   "2026-10-23-session",
+   "2026-10-23-session-2225",
+   "2026-10-24-session"
+  ]
+ },
+ "yquake2": {
+  "badges": [
+   "needs-data",
+   "controller-keyboard"
+  ],
+  "launchers": [
+   {
+    "history": [],
+    "name": null,
+    "rating": {
+     "aspects": {
+      "display": {
+       "detail": null,
+       "name": "Display",
+       "score": null,
+       "weight": 5
+      },
+      "frame": {
+       "detail": null,
+       "name": "Frame rate",
+       "score": null,
+       "weight": 25
+      },
+      "load": {
+       "detail": null,
+       "name": "Load",
+       "score": null,
+       "weight": 5
+      },
+      "picture": {
+       "detail": null,
+       "name": "Picture",
+       "score": null,
+       "weight": 15
+      },
+      "smooth": {
+       "detail": null,
+       "name": "Smoothness",
+       "score": null,
+       "weight": 20
+      },
+      "sound": {
+       "detail": null,
+       "name": "Sound",
+       "score": null,
+       "weight": 15
+      },
+      "stability": {
+       "detail": "0 crashes in 0.0 h of play (provisional: under 1 h)",
+       "name": "Stability",
+       "score": null,
+       "weight": 15
+      }
+     },
+     "capped": false,
+     "crashes": 0,
+     "graded_by": null,
+     "hours": 0.0,
+     "low_memory": false,
+     "medal": "Untested",
+     "provisional": true,
+     "reason": null,
+     "score": null,
+     "silent": false,
+     "tested": null,
+     "unmeasured": [
+      "Frame rate",
+      "Smoothness",
+      "Sound",
+      "Picture",
+      "Stability",
+      "Display",
+      "Load"
+     ],
+     "weakest": null
+    }
+   }
+  ],
+  "tests": []
+ }
+}

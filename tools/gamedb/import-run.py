@@ -29,6 +29,23 @@ Design
   launcher is rated on its own) from bench.txt's launcher=, or from --launcher NAME for runs that
   recorded none; a different --launcher than the recorded one is refused. Neither: no key (the
   catalog takes the game's default launcher).
+- rules (docs/GAMEDB.md "Rules versions"): result.toml gets `rules = "<data>.<formula>"`, the data version
+  the run measured with the formula revision of the day. A session whose form is the second one
+  (session.toml form_version = 2) is data version 2; older runs stay 1 (they lack the new data points);
+  --rules 2.0 sets it by hand (a capture or a scripted run reviewed the new way). The catalog scores
+  every test from its raw numbers and answers with the current formula of its data version, so a
+  version-2 test keeps no [scores] table; version 1 keeps its as it always had.
+- Data version 2 adds, all raw: the window samples (numbers.geometry, scored at catalog time) with the
+  X pointer over the window (pointer_samples, pointer_visible: geom.py), black bars on the screenshots
+  (bars, bars_content), the desktop back after the quit (desktop_back_s, desktop_stuck: session.sh), the
+  input devices (pads_present, pad_opened, pad_events_play, pads_hotplugged, pads_hotplug_opened,
+  kb_presses, kb_readable: inputlog.py's input.tsv), the settings files (config_changed,
+  config_video_keys, settings_reread: confwatch.py), the form's answers ([form]) and the reviewer's
+  REVIEW.md items ([review]): `defect: <category> <pc|ps3>: <what>` (categories garbage, missing,
+  colours, flicker, lighting, softer; pc: also on the PC reference, ps3: PS3/Walnut only),
+  `text_px: N`, `pointer: visible|hidden`, `stretched: yes|no`, `check: <item> yes|no|na`,
+  `broken: <item> <pc|ps3>: <what>`. A defect without a known category or origin is refused, and so is
+  `verdict: wrong` without a defect line.
 - Refused: runs with interfered=1 (or TEMPLIMIT / thermal stop), capture runs without REVIEW.md.
 - No absolute path, host name or user name is written: the run is named by its directory name only.
 Importing the same run again rewrites its test directory; another run of the same day and kind gets
@@ -241,10 +258,199 @@ def display_numbers(d, b, n):
         n["render_res"] = b["render_res"]
 
 
+def geometry_raw(d):
+    """(samples as "x y w h fullscreen sw sh" or "-", pointer samples, pointer visible) of shots/geometry.tsv:
+    the raw rows result.toml keeps (data version 2), and the X pointer over the window (geom.py's cursor column:
+    1 visible over the window, 0 not, "-" unknown)"""
+    f = d / "shots" / "geometry.tsv"
+    if not f.exists():
+        return [], 0, 0
+    lines = f.read_text(errors="replace").splitlines()
+    if not lines or lines[0].split("\t")[:1] != ["at_s"]:
+        return [], 0, 0
+    head = lines[0].split("\t")
+    ci = head.index("cursor") if "cursor" in head else None
+    out, known, visible = [], 0, 0
+    for row, line in zip(geometry(d), lines[1:]):
+        out.append(" ".join(map(str, row)) if row else "-")
+        c = line.split("\t")
+        if row and ci is not None and len(c) > ci and c[ci] in ("0", "1"):
+            known += 1
+            visible += c[ci] == "1"
+    return out, known, visible
+
+
+BAR_DARK = 20       # a column or row whose brightest pixel (0-255, on a 192x108 grey copy) is under this is black
+BAR_MIN = 0.02      # bars count from this share of the width (height) on each side
+
+
+def gray(path, w=192, h=108):
+    p = subprocess.run(["magick", str(path), "-resize", "%dx%d!" % (w, h), "-colorspace", "Gray", "-depth", "8",
+                        "gray:-"], capture_output=True)
+    return p.stdout if not p.returncode and len(p.stdout) == w * h else None
+
+
+def bars_of(px, w=192, h=108):
+    """("pillarbox" | "letterbox" | None, content w/h share) of one picture's grey bytes: black columns (rows) on
+    both sides, about as wide each, a lit picture between"""
+    col = lambda x: max(px[y * w + x] for y in range(h))
+    row = lambda y: max(px[y * w:(y + 1) * w])
+    def run(n, f):
+        k = 0
+        while k < n and f(k) < BAR_DARK:
+            k += 1
+        return k
+    if sum(px) / len(px) < 12:
+        return None, None       # a black frame
+    left, right = run(w, col), run(w, lambda x: col(w - 1 - x))
+    if left >= BAR_MIN * w and right >= BAR_MIN * w and abs(left - right) <= 0.03 * w and left + right < w:
+        return "pillarbox", ((w - left - right) / w, 1.0)
+    top, bottom = run(h, row), run(h, lambda y: row(h - 1 - y))
+    if top >= BAR_MIN * h and bottom >= BAR_MIN * h and abs(top - bottom) <= 0.03 * h and top + bottom < h:
+        return "letterbox", (1.0, (h - top - bottom) / h)
+    return None, None
+
+
+def bars(pictures, screen, look=gray):
+    """{bars, bars_content, bars_shots, lit_shots} over a session's screenshots: bars when at least half the
+    lit pictures have the same kind; the content's size on the screen (the median picture's)"""
+    seen = []
+    for p in pictures:
+        px = look(p)
+        if px is None or sum(px) / len(px) < 12:
+            continue
+        seen.append(bars_of(px))
+    if not seen:
+        return {}
+    kinds = [k for k, _ in seen if k]
+    out = {"lit_shots": len(seen), "bars_shots": len(kinds)}
+    if kinds and 2 * len(kinds) >= len(seen):
+        kind = max(set(kinds), key=kinds.count)
+        shares = sorted(c for k, c in seen if k == kind)
+        fw, fh = shares[(len(shares) - 1) // 2]
+        out.update(bars=kind, bars_content="%dx%d" % (round(screen[0] * fw), round(screen[1] * fh)))
+    return out
+
+
+def input_numbers(d, play_from):
+    """the Controls measurements of inputlog.py's input.tsv (what the game opened, pad and keyboard use):
+    {} without the file"""
+    f = d / "input.tsv"
+    if not f.exists():
+        return {}
+    lines = f.read_text(errors="replace").splitlines()
+    m = re.match(r"# inputlog readable=(\S*) unreadable=(\S*)", lines[0] if lines else "")
+    readable = set(m[1].split(",")) if m else set()
+    n = {"input_log": True, "kb_readable": "keyboard" in readable}
+    pads, hot, opened, pad_ev, kb = set(), set(), set(), 0, 0
+    for line in lines[1:]:
+        c = line.split("\t")
+        if len(c) < 5 or c[0].startswith("#") or c[0] == "t_s":
+            continue
+        t = report.num(c[0])
+        what, dev, cls = c[1], c[2], c[3]
+        if cls == "pad" and what in ("present", "added"):
+            pads.add(dev)
+            if what == "added" and t is not None and t > 5:
+                hot.add(dev)
+        elif what == "opened":
+            opened.add(dev)
+        elif what in ("press", "move") and t is not None:
+            k = int(report.num(c[4]) or 0)
+            if cls == "pad" and t + 10 > (play_from or 0):
+                pad_ev += k
+            elif cls == "keyboard" and what == "press":
+                kb += k
+    n.update(pads_present=len(pads), pad_opened=bool(pads & opened), pad_events_play=pad_ev, kb_presses=kb,
+             pads_hotplugged=len(hot), pads_hotplug_opened=len(hot & opened))
+    return n
+
+
+REVIEW_RE = re.compile(r"^\s*[-*]?\s*(defect|text_px|pointer|stretched|check|broken):\s*(.*?)\s*$", re.I)
+
+
+def review_items(d):
+    """the data-version-2 items of REVIEW.md ({defects, text_px, pointer, stretched, checks, broken}), or
+    Refused for one that can't be read"""
+    f = d / "REVIEW.md"
+    out = {}
+    if not f.exists():
+        return out
+    for line in f.read_text(errors="replace").splitlines():
+        m = REVIEW_RE.match(line)
+        if not m:
+            continue
+        k, v = m[1].lower(), m[2]
+        if k == "defect":
+            head, _, what = v.partition(":")
+            words = head.split()
+            if len(words) != 2 or not score.defect_category(words[0]) or words[1].lower() not in score.ORIGINS:
+                raise Refused("REVIEW.md: %r: want `defect: <%s> <pc|ps3>: <what>`" % (line.strip(), "|".join(score.DEFECTS)))
+            out.setdefault("defects", []).append("%s %s: %s" % (score.defect_category(words[0]), words[1].lower(), what.strip()))
+        elif k == "text_px":
+            if not v.isdigit():
+                raise Refused("REVIEW.md: %r: text_px is a whole number of pixels at 1080p" % line.strip())
+            out["text_px"] = int(v)
+        elif k in ("pointer", "stretched"):
+            ok = ("visible", "hidden") if k == "pointer" else ("yes", "no")
+            if v.lower() not in ok:
+                raise Refused("REVIEW.md: %r: %s is %s" % (line.strip(), k, " or ".join(ok)))
+            out[k] = v.lower()
+        elif k == "check":
+            item, _, ans = v.partition(" ")
+            if item not in score.CHECK_NAMES or ans.strip() not in ("yes", "no", "na"):
+                raise Refused("REVIEW.md: %r: want `check: <%s> yes|no|na`" % (line.strip(), "|".join(score.CHECK_NAMES)))
+            out.setdefault("checks", []).append("%s %s" % (item, ans.strip()))
+        elif k == "broken":
+            head, _, what = v.partition(":")
+            words = head.split()
+            if len(words) != 2 or words[0] not in score.CHECK_NAMES or words[1].lower() not in score.ORIGINS:
+                raise Refused("REVIEW.md: %r: want `broken: <item> <pc|ps3>: <what>`" % line.strip())
+            out.setdefault("broken", []).append("%s %s: %s" % (words[0], words[1].lower(), what.strip()))
+    return out
+
+
+FORM_KEYS = {"glitches": ("none", "minor", "broken"), "played_with": ("pad", "keyboard", "both"),
+             "pad_menus": ("yes", "no", "na"), "menus_modes": ("yes", "no"), "saves_load": ("yes", "no", "na")}
+
+
+def form_v2(d):
+    """(form_version, {the second form's answers}) of session.toml; (0, {}) without one"""
+    f = d / "session.toml"
+    if not f.exists():
+        return 0, {}
+    t = tomllib.loads(f.read_text(errors="replace"))
+    return int(t.get("form_version", 1)), {k: t[k] for k, ok in FORM_KEYS.items() if t.get(k) in ok}
+
+
+def v2_numbers(d, b, n, sh):
+    """the raw data points of data version 2, added to n"""
+    rows, known, visible = geometry_raw(d)
+    if rows:
+        n["geometry"] = rows
+    if known:
+        n["pointer_samples"], n["pointer_visible"] = known, visible
+    screen = next((tuple(int(x) for x in r.split()[5:7]) for r in rows if r != "-"), (1920, 1080))
+    pics = [shots.image(d, s) for _, s in sorted(sh["shots"].items()) if shots.image(d, s)]
+    n.update(bars(pics, screen))
+    if report.num(b.get("desktop_back_s")) is not None:
+        n["desktop_back_s"] = report.num(b["desktop_back_s"])
+    if b.get("desktop_stuck") == "1":
+        n["desktop_stuck"] = True
+    n.update(input_numbers(d, play_start(d, b)))
+    for k in ("config_changed", "config_new"):
+        if report.num(b.get(k)) is not None:
+            n[k] = int(report.num(b[k]))
+    if b.get("config_video_keys"):
+        n["config_video_keys"] = [k for k in b["config_video_keys"].split(",") if k]
+    if b.get("settings_reread") in ("yes", "no"):
+        n["settings_reread"] = b["settings_reread"]
+
+
 def ended(d, b):
     """(end state, crashed): the harness's own stops aren't crashes"""
     end, rc = b.get("ended") or "?", report.num(b.get("rc"))
-    crashed = end == "exit" and rc is not None and rc > 128
+    crashed = (end == "exit" and rc is not None and rc > 128) or end in ("crash", "oom")
     dm = d / "dmesg.log"
     if dm.exists() and CRASH_RE.search(dm.read_text(errors="replace")):
         crashed = True
@@ -335,7 +541,7 @@ def toml_dump(top, tables):
     return "\n".join(lines) + "\n"
 
 
-def import_run(run, game, content, dry=False, launcher=None, keep=None):
+def import_run(run, game, content, dry=False, launcher=None, keep=None, rules=None):
     d = Path(run)
     b = report.kv(d / "bench.txt")
     if not b:
@@ -373,6 +579,16 @@ def import_run(run, game, content, dry=False, launcher=None, keep=None):
     if old.exists() and tomllib.loads(old.read_text()).get("run") != d.name:
         tdir = gdir / "tests" / ("%s-%s-%s" % (date, kind, clock))
     n = numbers(d, b, r)
+    fv, form = form_v2(d)
+    data = int(str(rules).split(".")[0]) if rules else (2 if fv >= 2 else 1)
+    if data not in score.FORMULA:
+        raise Refused("--rules %s: the data versions are %s" % (rules, ", ".join(map(str, score.FORMULA))))
+    review = review_items(d) if data >= 2 else {}
+    if data >= 2:
+        if verdict == "wrong" and not review.get("defects"):
+            raise Refused("%s: verdict: wrong needs a `defect: <category> <pc|ps3>: <what>` line (rules 2)" % d.name)
+        v2_numbers(d, b, n, sh)
+        n.pop("display_score", None), n.pop("display_detail", None)   # scored at catalog time from geometry
     end, crashed = ended(d, b)
     play = n.pop("play_seconds")
     ps3 = [(p, shots.image(d, s)) for p, s in sorted(sh["shots"].items()) if shots.image(d, s)]
@@ -381,7 +597,8 @@ def import_run(run, game, content, dry=False, launcher=None, keep=None):
         n["shot_points"] = len(ps3)
         n["shot_differing"] = 0 if verdict == "ok" else len(ps3)
     scores = score.test_scores(n, fm.get("fps_cap"))
-    top = {"schema": 1, "kind": kind, "date": date, "run": d.name, "game": game, "variant": b.get("variant"),
+    top = {"schema": 1, "rules": "%d.%d" % (data, score.FORMULA[data]), "kind": kind, "date": date, "run": d.name,
+           "game": game, "variant": b.get("variant"),
            "launcher": launcher, "play_seconds": play, "end": end, "crashed": crashed, "started": True, "reached_play": play > 0,
            "render": "1920x1080"}
     note = ""
@@ -392,6 +609,9 @@ def import_run(run, game, content, dry=False, launcher=None, keep=None):
               "versions": versions(d),
               "picture": {"verdict": verdict, "note": note or None},
               "shots": {"ps3": ["ps3-%ds.jpg" % p for p, _ in ps3]}}
+    if data >= 2:   # raw numbers and answers only: the catalog scores them with the current formula
+        del tables["scores"]
+        tables["form"], tables["review"] = form, review
     print("%s -> %s  (%s, %.0f s of play, %s)" % (d.name, tdir.relative_to(REPO) if tdir.is_relative_to(REPO)
                                                     else tdir.name, kind, play, end))
     if dry:
@@ -412,13 +632,15 @@ def main():
     ap.add_argument("--launcher", help="the menu launcher's Name the run started (for runs that recorded none)")
     ap.add_argument("--shots", help="the screenshot points to publish, e.g. 60,240 (default: up to %d that differ)"
                     % SHOTS_MAX)
+    ap.add_argument("--rules", help="the data version to file the run under, e.g. 2.0 (default: 2 for a session "
+                    "with the second form, else 1)")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     bad = 0
     for run in a.runs:
         try:
             import_run(run, a.game, a.content, a.dry_run, a.launcher,
-                       [int(x) for x in a.shots.split(",")] if a.shots else None)
+                       [int(x) for x in a.shots.split(",")] if a.shots else None, a.rules)
         except Refused as e:
             print("!! %s" % e, file=sys.stderr)
             bad += 1

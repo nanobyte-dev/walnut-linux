@@ -725,6 +725,14 @@ watch_game() {
 # the recipe's own helper while the game runs (input recording/replay); stopped with the others
 DURING_PID=
 declare -F during >/dev/null && { during > "$D/during.log" 2>&1 & DURING_PID=$!; helpers+=($!); }
+# a played session: the input devices' activity and which ones the game opened, for the Controls checks
+# (inputlog.py: read-only, never grabs, counts presses and moves, never which key), as root where sudo -n
+# allows (keyboards and mice are root's), else what the user can read (the pads). It ends by itself when
+# the game's process group leader is gone (the final wait below collects it). BENCH_INPUTLOG=0: none
+if [ "$SESSION" = 1 ] && [ "${BENCH_INPUTLOG:-1}" = 1 ] && command -v python3 > /dev/null; then
+	isudo=(); sudo -n true 2>/dev/null && isudo=(sudo -n)
+	"${isudo[@]}" nice -n 19 python3 -I "$here/inputlog.py" "$t0" "$gp" > "$D/input.tsv" 2> "$D/input.err" &
+fi
 (sleep "$SOUND_AT"; cat /proc/asound/card*/pcm*p/sub*/status 2>/dev/null |
 	awk '$1 == "state:" { s = s (s ? "," : "") $2 } END { print s ? s : "none" }' > "$D/.sound") \
 	> /dev/null 2>&1 & helpers+=($!)

@@ -24,6 +24,16 @@ three hours of play (0 crashes in 3 h bounds the rate under one an hour, the rul
 that hasn't crashed isn't marked down for a short test: 90 is Platinum level, so it never caps the
 medal; only the last 10 points need the hours. Under one hour of play the score is marked
 provisional.
+
+Rules versions (docs/GAMEDB.md "Rules versions"). Every test records the rules it was imported under
+(result.toml `rules`, absent = 1). Rules 1 (the 2026-10-24 rules) are the functions above as they were:
+combine(tests) and test_scores(numbers). Rules 2 (the 2026-10-26 rules) reweigh the aspects, add
+Controls and Features (the session form's checklists), score the picture by fixed deductions per
+defect category (the reviewer's REVIEW.md `defect:` lines and the form's glitches answer), take
+deductions off Display (stretched, a desktop pointer, small text, settings changed before play), count
+a hang on quit like a crash in Stability, and hold back Platinum until 30 min of play: combine(tests,
+rules=2) and test_scores_v2(test). A rating never mixes the two: catalog.py picks a launcher's newest
+rules and rates it from those tests alone.
 """
 import statistics
 import sys
@@ -33,6 +43,34 @@ THRESHOLDS = {"Platinum": 90, "Gold": 75, "Silver": 55, "Bronze": 35, "Tin": 25,
 WEIGHTS = {"frame": 25, "smooth": 20, "sound": 15, "picture": 15, "stability": 15, "display": 5, "load": 5}
 ASPECT_NAMES = {"frame": "Frame rate", "smooth": "Smoothness", "sound": "Sound", "picture": "Picture",
                 "stability": "Stability", "display": "Display", "load": "Load"}
+
+# Rules versions, "<data>.<formula>" (docs/GAMEDB.md "Rules versions"). The data version is what a test
+# measured (result.toml `rules = "2.0"`, absent: 1.0); the formula revision is the current weights and
+# thresholds for that data version, applied at catalog time to every test of it (a test stores its raw
+# numbers and answers, never only scores). A new criterion that needs new data is a new data version;
+# a changed weight or threshold, or a dropped aspect, is a new formula revision (bump FORMULA[data]).
+FORMULA = {1: 0, 2: 0}
+RULES = {1: {"date": "2026-10-24", "anchor": "rules-1"},
+         2: {"date": "2026-10-26", "anchor": "rules-2"}}
+CURRENT_DATA = 2
+
+
+def data_version(t):
+    """a test's data version: the integer part of its rules (1 without the field)"""
+    try:
+        return int(str(t.get("rules", "1")).split(".")[0])
+    except ValueError:
+        return 1
+
+
+def rules_label(data):
+    """"rules 2.0 (2026-10-26)": the data version with its current formula revision"""
+    return "rules %d.%d (%s)" % (data, FORMULA[data], RULES[data]["date"])
+WEIGHTS_V2 = {"frame": 22, "smooth": 18, "sound": 12, "picture": 12, "stability": 12, "controls": 10, "display": 6,
+              "features": 5, "load": 3}
+ALL_ASPECT_NAMES = dict(ASPECT_NAMES, controls="Controls", features="Features")
+ASPECTS = {1: list(WEIGHTS), 2: list(WEIGHTS_V2)}
+WEIGHTS_OF = {1: WEIGHTS, 2: WEIGHTS_V2}
 
 # (measured value, score) anchors; the value axis rises (a lower score at the larger value, or the
 # other way round for frame rate)
@@ -175,12 +213,12 @@ def test_scores(n, fps_cap=None):
     }
 
 
-def weighted_mean(scores):
+def weighted_mean(scores, weights=WEIGHTS):
     """the weights-renormalised mean of the measured aspects, or None when none is"""
-    got = {k: v for k, v in scores.items() if v is not None and k in WEIGHTS}
+    got = {k: v for k, v in scores.items() if v is not None and k in weights}
     if not got:
         return None
-    return sum(WEIGHTS[k] * v for k, v in got.items()) / sum(WEIGHTS[k] for k in got)
+    return sum(weights[k] * v for k, v in got.items()) / sum(weights[k] for k in got)
 
 
 def medal_of(score):
@@ -195,12 +233,13 @@ def level(score):
     return max(MEDALS.index(medal_of(score)), MEDALS.index("Tin"))
 
 
-def rate(scores, floor_reason=None):
-    """{score, medal, weakest, capped, reason} from the aspect scores. floor_reason: a Scrap floor"""
-    mean = weighted_mean(scores)
+def rate(scores, floor_reason=None, weights=WEIGHTS):
+    """{score, medal, weakest, capped, reason} from the aspect scores. floor_reason: a Scrap floor.
+    weights: the rules' (WEIGHTS for rules 1, WEIGHTS_V2)"""
+    mean = weighted_mean(scores, weights)
     if mean is None:
         return {"score": None, "medal": "Untested", "weakest": None, "capped": False, "reason": None}
-    got = {k: v for k, v in scores.items() if v is not None and k in WEIGHTS}
+    got = {k: v for k, v in scores.items() if v is not None and k in weights}
     weakest = min(got, key=lambda k: got[k])
     if floor_reason:
         return {"score": mean, "medal": "Scrap", "weakest": weakest, "capped": False, "reason": floor_reason}
@@ -208,7 +247,7 @@ def rate(scores, floor_reason=None):
     cap = MEDALS[min(level(got[weakest]) + 1, len(MEDALS) - 1)]
     capped = MEDALS.index(medal) > MEDALS.index(cap)
     return {"score": mean, "medal": cap if capped else medal, "weakest": weakest, "capped": capped,
-            "reason": ASPECT_NAMES[weakest].lower() if capped else None}
+            "reason": ALL_ASPECT_NAMES[weakest].lower() if capped else None}
 
 
 def scrap_floor(median_fps=None, stutter=None, started=True, reached_play=True, crashed_sessions=0, sessions=0):
@@ -229,14 +268,17 @@ def med(values):
     return statistics.median(values) if values else None
 
 
-def combine(tests, fps_cap=None):
+def combine(tests, fps_cap=None, rules=1):
     """one game's rating from its tests (a list of dicts as import-run.py writes them: kind, numbers,
     play_seconds, crashed, started, reached_play).
 
     Played sessions grade the game; until it has one, benchmark ("demo") runs stand in. Capture runs
     add their picture only. Scores are medians over those tests; stability counts every test's play
     time and crashes. Returns {aspects, numbers, hours, crashes, sessions, provisional, graded_by,
-    + rate()'s keys}; medal "Untested" without any test."""
+    + rate()'s keys}; medal "Untested" without any test. rules: the tests' data version (all of them the
+    same: catalog.py never mixes them); 2 is combine_v2's."""
+    if rules == 2:
+        return combine_v2(tests, fps_cap)
     sessions = [t for t in tests if t.get("kind") == "session"]
     demos = [t for t in tests if t.get("kind") == "demo"]
     graded = sessions or demos
@@ -273,6 +315,326 @@ def combine(tests, fps_cap=None):
                  "reason": " and ".join(missing) + " not measured"}
     return {"aspects": scores, "numbers": nums, "hours": hours, "crashes": crashes, "sessions": len(sessions),
             "provisional": provisional, "graded_by": "session" if sessions else "demo", **rated}
+
+
+# ---- data version 2 (rules 2.x) ---------------------------------------------------------------------
+# One player, one ~10 min session per game: what the player can't reasonably test is "not tested" and
+# never costs anything (its weight goes to the rest). The rating is about how the game plays on the PS3
+# under Walnut, never about the game's design: a defect counts wherever it comes from, and is labelled
+# "also on the PC" or "PS3/Walnut only".
+
+# Picture: fixed deductions per defect category, each category counted once per launcher, from 100
+DEFECTS = {"garbage": 60, "missing": 25, "colours": 25, "flicker": 15, "lighting": 10, "softer": 5}
+DEFECT_NAMES = {"garbage": "garbage textures or geometry",
+                "missing": "a missing element (HUD, models, shadows, an effect)",
+                "colours": "wrong colours or blending", "flicker": "flicker, z-fighting or one-frame glitches",
+                "lighting": "lighting or shading differs",
+                "softer": "softer or less detailed, from Walnut's own defaults"}
+DEFECT_ALIASES = {"colors": "colours", "colour": "colours", "color": "colours", "blending": "colours",
+                  "garbled": "garbage", "zfight": "flicker", "shading": "lighting", "soft": "softer"}
+ORIGINS = {"pc": "also on the PC", "ps3": "PS3/Walnut only"}
+# the player's "Visual glitches" answer: a deduction unless a reviewer's defect already takes as much
+GLITCHES = {"none": 0, "minor": 10, "broken": 25}
+# Display: the geometry's scale, then these deductions (floor 0)
+STRETCHED, POINTER, SMALL_TEXT, NOT_OUT_OF_BOX = 30, 10, 15, 20
+SMALL_TEXT_PX = 18          # the smallest menu/HUD text height at 1080p under which text is too small
+ASPECT_TOLERANCE = 0.03     # render aspect against the window's (or the bars' content)
+# Stability: a quit is clean when the desktop is back within this many seconds
+QUIT_BACK_S = 10
+# Controls and Features: checklists, each item yes / no / na (not tested: never counts)
+CONTROLS = [("pad_setup", "the pad works without setup"), ("pad_menus", "the menus work with the pad"),
+            ("pad_hotplug", "a pad turned on later is found"),
+            ("pad_players", "each extra pad joins as the next player"),
+            ("keyboard", "the keyboard works too"), ("no_keyboard", "nothing needs the keyboard")]
+FEATURES = [("menus_modes", "every menu and mode opened works"), ("settings_stick", "settings stick across restarts"),
+            ("saves_load", "saves load"), ("online", "online play works")]
+CHECK_NAMES = dict(CONTROLS + FEATURES)
+NO_PAD_CAP = 30             # the pad doesn't work without setup: Controls at most this
+KEYBOARD_STRAY = 2          # key presses while playing with the pad that are a stray touch, not a need
+
+
+def defect_category(word):
+    w = (word or "").strip().lower()
+    w = DEFECT_ALIASES.get(w, w)
+    return w if w in DEFECTS else None
+
+
+def picture_v2(defects, glitches=None):
+    """(score, [{category, name, points, origin, what}]) from 100: defects = [(category, origin, what)] of the
+    launcher's reviews (each category deducted once; its descriptions joined), glitches = the player's worst
+    answer ("none", "minor", "broken"), deducted unless a review's category takes at least as much.
+    (None, []) when neither a review nor an answer exists (defects None)"""
+    if defects is None and glitches is None:
+        return None, []
+    out = {}
+    for cat, origin, what in defects or []:
+        e = out.setdefault(cat, {"category": cat, "name": DEFECT_NAMES[cat], "points": DEFECTS[cat],
+                                 "origins": [], "what": []})
+        if origin and origin not in e["origins"]:
+            e["origins"].append(origin)
+        if what and what not in e["what"]:
+            e["what"].append(what)
+    lost = sum(e["points"] for e in out.values())
+    g = GLITCHES.get(glitches or "none", 0)
+    found = []
+    for e in out.values():
+        found.append({"category": e["category"], "name": e["name"], "points": e["points"],
+                      "origin": " and ".join(ORIGINS[o] for o in e["origins"]) or None, "what": "; ".join(e["what"])})
+    if g and not any(e["points"] >= g for e in out.values()):
+        lost += g
+        found.append({"category": "player", "name": "the player saw %s glitches" % glitches, "points": g,
+                      "origin": None, "what": ""})
+    return max(0.0, 100.0 - lost), found
+
+
+def geometry_rows(n):
+    """a test's raw geometry samples (numbers.geometry: "x y w h fullscreen sw sh" or "-") as display_sample rows"""
+    rows = []
+    for s in n.get("geometry") or []:
+        try:
+            v = [int(x) for x in s.split()]
+        except ValueError:
+            v = []
+        rows.append(tuple(v) if len(v) == 7 and v[2] > 0 and v[3] > 0 and v[5] > 0 and v[6] > 0 else None)
+    return rows
+
+
+def window_changed(rows):
+    """True when the game's window changed size or fullscreen state between two samples (the player
+    switched modes: not as shipped)"""
+    seen = [(r[2], r[3], r[4]) for r in rows if r]
+    return any(a != b for a, b in zip(seen, seen[1:]))
+
+
+def stretched_of(n, review):
+    """True / False / None (not known): the reviewer's word, else measured: the game's render size
+    (render_res) against its window, or against the black bars' content when the shots have bars"""
+    if review.get("stretched") in ("yes", "no"):
+        return review["stretched"] == "yes"
+    rr, rows = n.get("render_res"), [r for r in geometry_rows(n) if r]
+    if not rr or not rows:
+        return None
+    rw, rh = (int(x) for x in rr.split("x"))
+    w, h = rows[(len(rows) - 1) // 2][2:4]
+    ra = rw / rh
+    if abs(ra - w / h) / ra <= ASPECT_TOLERANCE:
+        return False
+    if n.get("bars_content"):
+        bw, bh = (int(x) for x in n["bars_content"].split("x"))
+        return abs(ra - bw / bh) / ra > ASPECT_TOLERANCE
+    return True
+
+
+def pointer_of(n, review):
+    """True / False / None: the reviewer's word, else measured: an X pointer visible over the game's window
+    in half the screenshots or more (geom.py, XFixes)"""
+    if review.get("pointer") in ("visible", "hidden"):
+        return review["pointer"] == "visible"
+    if not n.get("pointer_samples"):
+        return None
+    return 2 * n.get("pointer_visible", 0) >= n["pointer_samples"]
+
+
+def display_v2(tests):
+    """(score, words, [(words, points)]) of a launcher's graded tests: the median sample of all their geometry
+    (display_score's scale) minus: stretched, a desktop pointer, text under SMALL_TEXT_PX, not as shipped (the
+    window changed during play, or the game's config file got new video lines)"""
+    rows = [r for t in tests for r in geometry_rows(t.get("numbers", {}))]
+    base, words = display_score(rows)
+    if base is None:
+        return None, None, []
+    ded = []
+    ns = [(t.get("numbers", {}), t.get("review", {})) for t in tests]
+    if any(stretched_of(n, rv) for n, rv in ns):
+        ded.append(("stretched to the wrong shape", STRETCHED))
+    if any(pointer_of(n, rv) for n, rv in ns):
+        ded.append(("a desktop mouse pointer over the game", POINTER))
+    px = [rv["text_px"] for _, rv in ns if isinstance(rv.get("text_px"), (int, float))]
+    if px and min(px) < SMALL_TEXT_PX:
+        ded.append(("text %d px high at 1080p" % min(px), SMALL_TEXT))
+    keys = sorted({k for n, _ in ns for k in n.get("config_video_keys") or []})
+    if any(window_changed(geometry_rows(n)) for n, _ in ns) or keys:
+        ded.append(("not as shipped: %s" % ("video settings changed (%s)" % ", ".join(keys[:4]) if keys
+                                            else "the window changed during play"), NOT_OUT_OF_BOX))
+    return max(0.0, base - sum(p for _, p in ded)), words, ded
+
+
+def end_failure(t):
+    """"crash", "hang" or None: a crash (a signal, a segfault, out of memory), or an unclean quit (the player
+    had to kill it, an error exit, or the desktop not back within QUIT_BACK_S of the game's end), which
+    counts like a crash in Stability. The harness's own stops (thermal) are neither"""
+    n = t.get("numbers", {})
+    if t.get("crashed") or t.get("end") in ("crash", "oom"):
+        return "crash"
+    if t.get("end") in ("closed", "error") or n.get("desktop_stuck") or (n.get("desktop_back_s") or 0) > QUIT_BACK_S:
+        return "hang"
+    return None
+
+
+def measured_checks(t):
+    """the checklist answers the recorder's numbers give (games/bench/inputlog.py, confwatch.py), plus what the
+    player's answers imply: {item: "yes" | "no"}; what can't be told is left out (not tested)"""
+    n, f = t.get("numbers", {}), t.get("form", {})
+    out = {}
+    played = f.get("played_with")          # "pad", "keyboard", "both"
+    pad_used = (n.get("pad_events_play") or 0) > 0
+    if n.get("pads_present") and pad_used:
+        out["pad_setup"] = "yes" if n.get("pad_opened") and played != "keyboard" else "no"
+    elif n.get("pads_present") and n.get("input_log") and played in ("pad", "both") and not n.get("pad_opened"):
+        out["pad_setup"] = "no"            # the player tried the pad; the game never opened it
+    if n.get("pads_hotplugged"):
+        out["pad_hotplug"] = "yes" if n.get("pads_hotplug_opened") else "no"
+    if pad_used and n.get("kb_readable"):
+        out["no_keyboard"] = "no" if (n.get("kb_presses") or 0) > KEYBOARD_STRAY else "yes"
+    if played in ("keyboard", "both"):
+        out["keyboard"] = "yes"
+    if n.get("settings_reread") in ("yes", "no"):
+        out["settings_stick"] = n["settings_reread"]
+    for k in ("pad_menus", "menus_modes", "saves_load"):
+        if f.get(k) in ("yes", "no") and not (k == "pad_menus" and played == "keyboard"):   # its default, untried
+            out[k] = f[k]
+    return out
+
+
+def checks_of(tests):
+    """{item: (answer, origin, what)} over a launcher's tests, oldest first, the newest answer winning: the
+    measured and asked answers, then the reviewer's (REVIEW.md `check:` and `broken:` lines, and scripted runs'
+    checks), which win over both"""
+    out = {}
+    for t in sorted(tests, key=lambda t: (t.get("date", ""), t.get("id", ""))):
+        for k, v in measured_checks(t).items():
+            out[k] = (v, None, "")
+        for k, v in (t.get("checks") or {}).items():   # a scripted run's (kind "script") answers
+            if v in ("yes", "no", "na") and k in CHECK_NAMES:
+                out[k] = (v, None, "")
+        rv = t.get("review", {})
+        for line in rv.get("checks") or []:
+            k, _, v = line.partition(" ")
+            if k in CHECK_NAMES and v.strip() in ("yes", "no", "na"):
+                out[k] = (v.strip(), None, "")
+        for line in rv.get("broken") or []:
+            head, _, what = line.partition(":")
+            k, _, origin = head.strip().partition(" ")
+            if k in CHECK_NAMES:
+                out[k] = ("no", origin.strip() or None, what.strip())
+    return out
+
+
+def checklist(checks, items, cap_if_no=None, cap=None):
+    """(score, [failed {item, name, origin, what}], passed, applicable): the share of the tested items that
+    pass, x 100; None when none was tested. cap_if_no: an item whose "no" caps the score at cap"""
+    tested = [(k, checks[k]) for k, _ in items if k in checks and checks[k][0] in ("yes", "no")]
+    if not tested:
+        return None, [], 0, 0
+    passed = sum(1 for _, (v, _, _) in tested if v == "yes")
+    s = 100.0 * passed / len(tested)
+    if cap_if_no and checks.get(cap_if_no, ("na",))[0] == "no":
+        s = min(s, cap)
+    failed = [{"item": k, "name": CHECK_NAMES[k], "origin": ORIGINS.get(o) if o else None, "what": w}
+              for k, (v, o, w) in tested if v == "no"]
+    return s, failed, passed, len(tested)
+
+
+def controller_badge(checks):
+    """the old controller badge from the Controls checks: full, partial or keyboard; None when the pad wasn't
+    tested"""
+    a = {k: v[0] for k, v in checks.items()}
+    if a.get("pad_setup") == "no":
+        return "keyboard" if a.get("pad_menus") != "yes" else "partial"
+    if a.get("pad_setup") == "yes":
+        return "full" if a.get("pad_menus") != "no" and a.get("no_keyboard") != "no" else "partial"
+    return None
+
+
+def test_scores_v2(t, fps_cap=None):
+    """the per-test aspect scores of a data-version-2 test that don't need its launcher's other tests (frame,
+    smooth, sound, load); the rest are the launcher's (combine_v2)"""
+    n = t.get("numbers", {})
+    return {"frame": frame_score(n.get("median_fps"), n.get("low1_fps"), fps_cap),
+            "smooth": smooth_score(n.get("stutter_s_per_min"), n.get("longest_ms")),
+            "sound": sound_score(n.get("sound_faults_per_min"), bool(n.get("snd_stall")), n.get("sound_effects"),
+                                 n.get("music"), n.get("sound_dropouts_per_min")),
+            "load": load_score(n.get("load_s"))}
+
+
+def combine_v2(tests, fps_cap=None):
+    """combine() under rules 2: a launcher's tests of data version 2. The aspects as in combine() where they
+    didn't change (medians of frame, smooth, sound, load over the graded tests); Picture, Display, Controls
+    and Features from all the launcher's tests together; Stability counts crashes and unclean quits over the
+    play of every test (scripted runs and soaks add crash-free hours with nobody playing). Adds
+    {rules, hangs, defects, display_deductions, controls_failed, features_failed, checks, controller,
+    play_seconds, details}."""
+    sessions = [t for t in tests if t.get("kind") == "session"]
+    demos = [t for t in tests if t.get("kind") == "demo"]
+    graded = sessions or demos
+    played = [t for t in tests if t.get("play_seconds")]
+    hours = sum(t["play_seconds"] for t in played) / 3600
+    fails = [end_failure(t) for t in played]
+    crashes, hangs = fails.count("crash"), fails.count("hang")
+    per = [test_scores_v2(t, fps_cap) for t in graded]
+    scores = {k: med(p[k] for p in per) for k in ("frame", "smooth", "sound", "load")}
+    reviewed = [t for t in tests if t.get("picture", {}).get("verdict") in ("ok", "wrong") or t.get("review")]
+    defects = [d for t in reviewed for d in parse_defects(t.get("review", {}).get("defects") or [])] if reviewed else None
+    answers = [t.get("form", {}).get("glitches") for t in tests if t.get("form", {}).get("glitches") in GLITCHES]
+    worst = max(answers, key=lambda a: GLITCHES[a]) if answers else None
+    scores["picture"], found = picture_v2(defects, worst)
+    scores["display"], display_words, display_ded = display_v2(graded)
+    checks = checks_of(tests)
+    scores["controls"], c_failed, c_pass, c_n = checklist(checks, CONTROLS, "pad_setup", NO_PAD_CAP)
+    scores["features"], f_failed, f_pass, f_n = checklist(checks, FEATURES)
+    scores["stability"], provisional = stability_score(crashes + hangs, hours)
+    nums = {}
+    for key in ("median_fps", "low1_fps", "stutter_s_per_min", "longest_ms", "sound_faults_per_min",
+                "sound_dropouts_per_min", "load_s"):
+        nums[key] = med(t.get("numbers", {}).get(key) for t in graded)
+    nums["display_detail"] = display_words
+    det = {}
+    if scores["picture"] is not None:
+        det["picture"] = "; ".join("%s -%d%s" % (d["name"], d["points"], " (%s)" % d["origin"] if d["origin"] else "")
+                                   for d in found) or "nothing wrong found"
+    if display_words:
+        det["display"] = "; ".join([display_words] + ["%s -%d" % d for d in display_ded])
+    if c_n:
+        det["controls"] = "%d of %d tested checks pass%s" % (c_pass, c_n, "; not: " + "; ".join(
+            f["name"] for f in c_failed) if c_failed else "")
+    if f_n:
+        det["features"] = "%d of %d tested checks pass%s" % (f_pass, f_n, "; broken: " + "; ".join(
+            f["name"] for f in f_failed) if f_failed else "")
+    play_s = sum(t.get("play_seconds") or 0 for t in graded)
+    extra = {"rules": 2, "hangs": hangs, "defects": found, "display_deductions": display_ded,
+             "controls_failed": c_failed, "features_failed": f_failed, "controller": controller_badge(checks),
+             "checks": {k: v[0] for k, v in checks.items()}, "play_seconds": play_s, "details": det}
+    base = {"aspects": scores, "numbers": nums, "hours": hours, "crashes": crashes, "sessions": len(sessions), **extra}
+    if not graded and scores["picture"] is None:
+        return dict(base, provisional=True, graded_by=None, **rate({}, None, WEIGHTS_V2))
+    if not graded:
+        base["aspects"] = {k: (v if k == "picture" else None) for k, v in scores.items()}
+        return dict(base, provisional=True, graded_by="capture", **rate({}, None, WEIGHTS_V2))
+    floor = scrap_floor(
+        nums["median_fps"], nums["stutter_s_per_min"],
+        started=all(t.get("started", True) for t in graded),
+        reached_play=any(t.get("reached_play", True) for t in graded),
+        crashed_sessions=crashes, sessions=len(played))
+    rated = rate(scores, floor, WEIGHTS_V2)
+    missing = [ALL_ASPECT_NAMES[k].lower() for k in REQUIRED if scores.get(k) is None]
+    if missing and not floor:
+        rated = {"score": None, "medal": "Untested", "weakest": None, "capped": False,
+                 "reason": " and ".join(missing) + " not measured"}
+    return dict(base, provisional=provisional, graded_by="session" if sessions else "demo", **rated)
+
+
+def parse_defects(lines):
+    """[(category, origin, what)] of REVIEW.md's defect lines as result.toml keeps them ("<category> <pc|ps3>:
+    <what>"); unknown categories are left out (import-run.py refuses them)"""
+    out = []
+    for line in lines:
+        head, _, what = line.partition(":")
+        words = head.split()
+        cat = defect_category(words[0]) if words else None
+        if cat:
+            origin = words[1].lower() if len(words) > 1 and words[1].lower() in ORIGINS else None
+            out.append((cat, origin, what.strip()))
+    return out
 
 
 # The calibration: the 13 games of docs/games/README.md with their known numbers, as docs/GAMEDB.md

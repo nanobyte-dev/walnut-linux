@@ -13,7 +13,8 @@ Design
       catalog). Offline: only that file is read, Sections aren't checked
     * a game that needs the user's own data has a data_guide URL and offers no data package
     * thumb.png is a PNG; every test has a parsable result.toml of schema 1 whose listed screenshots
-      exist, and no stray file sits in a test folder
+      exist, and no stray file sits in a test folder; its rules, when given, are "<data>.<formula>" of a
+      data version score.py knows, and a data-version-2 test's defects name known categories
     * patched_by names directories of ours with a package.conf (and patches/series)
 - Prints every problem with the game it belongs to, exits 1 if there is any.
 """
@@ -24,6 +25,8 @@ import tomllib
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import score   # noqa: E402
 CATEGORIES = ["action", "adventure", "arcade", "board-card", "platformer", "puzzle", "racing", "rpg",
               "sandbox", "shooter", "simulation", "sports", "strategy"]
 CONTROLLERS = ["full", "partial", "keyboard", "unknown"]
@@ -122,8 +125,17 @@ def check_game(gdir, bad, repo):
         except tomllib.TOMLDecodeError as e:
             errs.append("tests/%s/result.toml: %s" % (t.name, e))
             continue
-        if r.get("schema") != 1 or r.get("kind") not in ("session", "demo", "capture") or r.get("game") != fm["id"]:
+        if r.get("schema") != 1 or r.get("kind") not in ("session", "demo", "capture", "script") or r.get("game") != fm["id"]:
             errs.append("tests/%s/result.toml: schema 1, a kind and this game's id are required" % t.name)
+        rules = str(r.get("rules", "1.0"))
+        if not re.fullmatch(r"\d+\.\d+", rules) or score.data_version(r) not in score.FORMULA:
+            errs.append("tests/%s/result.toml: rules %r: \"<data>.<formula>\" of data version %s" % (
+                t.name, rules, " or ".join(map(str, score.FORMULA))))
+        elif score.data_version(r) >= 2:
+            bad_defects = [x for x in r.get("review", {}).get("defects", [])
+                           if len(score.parse_defects([x])) != 1 or not score.parse_defects([x])[0][1]]
+            if bad_defects:
+                errs.append("tests/%s/result.toml: defects %r: \"<category> <pc|ps3>: <what>\"" % (t.name, bad_defects))
         listed = set(r.get("shots", {}).get("ps3", [])) | set(r.get("shots", {}).get("pc", []))
         for f in sorted(listed):
             if not (t / f).exists():

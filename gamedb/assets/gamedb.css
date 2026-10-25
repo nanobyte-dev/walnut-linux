@@ -80,6 +80,8 @@ main.wrap { padding-bottom: 3rem; }
 .badges { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .badge { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 0.05em 0.55em; font-size: 0.8rem; color: var(--muted); }
 .badge-no-sound, .badge-low-memory, .badge-needs-data { color: #f0b9a0; }
+.problems { margin: 0.6rem 0; padding-left: 1.2rem; }
+.origin { font-size: 0.8rem; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 0 0.4em; }
 .note { background: var(--panel); border-left: 3px solid var(--accent-deep); padding: 0.5rem 0.9rem; border-radius: 0 6px 6px 0; }
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; }

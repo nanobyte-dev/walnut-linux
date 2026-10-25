@@ -560,6 +560,19 @@ print("smoke ok")
 """
 
 
+class RatingText(unittest.TestCase):
+    def test_basis_and_problems(self):
+        r = {"graded_by": "session", "basis": {"tests": 2, "kind": "session", "minutes": 19},
+             "rules_label": "rules 2.0 (2026-10-26)",
+             "defects": [{"name": "wrong colours or blending", "points": 25, "what": "the sky", "origin": "also on the PC"}],
+             "features_failed": [{"name": "saves load", "what": "", "origin": "PS3/Walnut only"}]}
+        self.assertEqual(app.basis_text(r), "2 sessions, 19 min of play; rated under rules 2.0 (2026-10-26)")
+        self.assertEqual(app.problem_lines(r), ["Picture: wrong colours or blending (the sky), -25 [also on the PC]",
+                                                "Broken: saves load [PS3/Walnut only]"])
+        self.assertEqual(app.basis_text({"medal": "Gold"}), "")     # an older catalog
+        self.assertEqual(app.problem_lines({}), [])
+
+
 class Window(unittest.TestCase):
     def test_window_builds_on_a_private_x_server(self):
         if app.tk is None:
@@ -573,9 +586,14 @@ class Window(unittest.TestCase):
                 games = [dict(GAMES["alpha"], summary="s", categories=["racing"], tags=[], patched=True, patches=[],
                               needs_data=False, controller="keyboard", known_issues=["slow"], tests=[],
                               rating={"medal": "Gold", "score": 85, "capped": False, "reason": None, "hours": 1.5,
-                                      "crashes": 0, "provisional": False,
+                                      "crashes": 0, "provisional": False, "graded_by": "session",
+                                      "order": ["frame", "sound", "controls"], "rules_label": "rules 2.0 (2026-10-26)",
+                                      "basis": {"tests": 1, "kind": "session", "minutes": 9}, "controller": "full",
+                                      "defects": [{"name": "a missing element", "points": 25, "what": "the HUD",
+                                                   "origin": "PS3/Walnut only"}],
                                       "aspects": {"frame": {"name": "Frame rate", "score": 90, "detail": "median 60 fps"},
-                                                  "sound": {"name": "Sound", "score": None, "detail": None}}}),
+                                                  "sound": {"name": "Sound", "score": None, "detail": None},
+                                                  "controls": {"name": "Controls", "score": None, "detail": None}}}),
                          dict(GAMES["beta"], summary="s", categories=["puzzle"], tags=[], patched=False, patches=[],
                               needs_data=False, controller="unknown", tests=[],
                               rating={"medal": "Untested", "score": None, "aspects": {}})]
