@@ -105,6 +105,10 @@ curve because most of those faults were never heard: 40 at ten a minute, 32 at t
   (catalog.py `method`); it stays on the page as a test run.
 - **The first 30 s of play are a warm-up** (the first level starting, caches filling): frame times,
   stutter and sound dropouts are measured from 30 s after the load (import-run.py `WARMUP_S`).
+- **No medal without frame rate and smoothness.** They are the core of a rating; a session where
+  the frame timer saw nothing (a software renderer doesn't go through OpenGL, which the timer hooks)
+  gets its numbers but no medal ("played, but not rated: frame rate and smoothness not measured"),
+  unless it crashed, which makes it Scrap either way (score.py `REQUIRED`).
 - **The recorder's own dropouts don't count.** Taking a screenshot reads 8 MB of video memory and
   starves the sound for a moment; the audible dropouts from half a second before a capture to two
   seconds after it are left out (result.toml keeps their number as `sound_dropouts_at_shots`).

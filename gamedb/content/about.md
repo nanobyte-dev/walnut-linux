@@ -55,6 +55,8 @@ Between those ends the scores rise in steps. A few things worth knowing:
 - **Stability needs hours.** A game that never crashed starts at 90, and reaches 100 after three
   hours of play without a crash. With crashes, the score follows how often they happen. The page
   shows the hours behind it ("0 crashes in 1.7 h").
+- **No medal without the frame rate and smoothness.** If those couldn't be measured (a software
+  renderer, for one), the game is shown as played but not rated.
 - **What can't be measured is left out.** If a game gives us no frame times or no clear moment when
   play starts, that score is left out and its weight goes to the others; the page says so.
 - **Sessions measured the same way are combined**, the middle value of each score, so one lucky or

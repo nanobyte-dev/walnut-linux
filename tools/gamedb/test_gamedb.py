@@ -464,6 +464,15 @@ class Catalog(unittest.TestCase):
         self.assertEqual([t["id"] for t in catalog.rated_tests(ts[:3])], ["c"])
         self.assertEqual(catalog.rated_tests([]), [])
 
+    def test_no_medal_without_frame_rate_and_smoothness(self):
+        sess = {"kind": "session", "play_seconds": 600, "date": "2026-10-25", "id": "s",
+                "numbers": {"sound_dropouts_per_min": 0.5, "sound_effects": "yes", "music": "yes"}}
+        r = score.combine([sess])
+        self.assertEqual(r["medal"], "Untested")
+        self.assertEqual(r["reason"], "frame rate and smoothness not measured")
+        crashed = dict(sess, crashed=True)
+        self.assertEqual(score.combine([crashed])["medal"], "Scrap")     # a crash still floors it
+
     def test_measured_frame_rate_ranks_first(self):
         def r(medal, sc, frame):
             return {"graded_by": "session", "medal": medal, "score": sc, "aspects": {"frame": {"score": frame}}}

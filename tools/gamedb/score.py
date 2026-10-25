@@ -50,6 +50,10 @@ SOUND_DROPOUTS_PER_MIN = [(0, 50), (1, 45), (4, 35), (10, 22), (20, 10), (40, 0)
 CRASHES_PER_HOUR = [(0, 100), (1 / 3, 75), (1, 55), (4, 35), (12, 0)]
 LOAD_SECONDS = [(15, 100), (30, 75), (60, 55), (120, 0)]
 
+# what a rating needs measured: without these a game gets no medal, only its numbers (a software
+# renderer gives the frame timer nothing)
+REQUIRED = ("frame", "smooth")
+
 # the Scrap floors (docs/GAMEDB.md "The medals")
 TOO_SLOW_FPS = 15
 TOO_SLOW_STUTTER = 10      # seconds of stutter a minute
@@ -232,8 +236,14 @@ def combine(tests, fps_cap=None):
         started=all(t.get("started", True) for t in graded),
         reached_play=any(t.get("reached_play", True) for t in graded),
         crashed_sessions=sum(1 for t in played if t.get("crashed")), sessions=len(played))
+    rated = rate(scores, floor)
+    missing = [ASPECT_NAMES[k].lower() for k in REQUIRED if scores.get(k) is None]
+    if missing and not floor:
+        # no medal from what's left: sound, picture and stability alone say nothing about how it plays
+        rated = {"score": None, "medal": "Untested", "weakest": None, "capped": False,
+                 "reason": " and ".join(missing) + " not measured"}
     return {"aspects": scores, "numbers": nums, "hours": hours, "crashes": crashes, "sessions": len(sessions),
-            "provisional": provisional, "graded_by": "session" if sessions else "demo", **rate(scores, floor)}
+            "provisional": provisional, "graded_by": "session" if sessions else "demo", **rated}
 
 
 # The calibration: the 13 games of docs/games/README.md with their known numbers, as docs/GAMEDB.md

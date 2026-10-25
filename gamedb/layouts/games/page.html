@@ -9,7 +9,7 @@
     <div>
       <h1>{{ $g.title }}</h1>
       <p class="meta">{{ partial "medal.html" $r }}
-        {{ if eq $r.medal "Untested" }}<span class="muted">nobody has played it on Walnut yet</span>
+        {{ if eq $r.medal "Untested" }}<span class="muted">{{ with $r.reason }}played, but not rated: {{ . }}{{ else }}nobody has played it on Walnut yet{{ end }}</span>
         {{ else }}{{ if and $r.launcher (gt (len $g.launchers) 1) }}<span>with {{ $r.launcher }}</span>{{ end }}
         <span class="muted">{{ printf "%.1f" $r.hours }} h played, {{ $r.crashes }} crash{{ if ne (int $r.crashes) 1 }}es{{ end }}</span>{{ end }}
       </p>
