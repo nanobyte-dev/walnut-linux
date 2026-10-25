@@ -183,6 +183,7 @@ def numbers(d, b, r):
             n["sound_dropouts_per_min"] = round(dropouts / ((play - WARMUP_S) / 60), 2)
         n["xruns"] = int(report.num(b.get("xruns_logged")) or 0)
         n["xrun_gap_ms"] = round(report.num(b.get("xrun_gap_ms_total")) or 0.0, 1)
+    display_numbers(d, b, n)
     n["snd_stall"] = int(report.num(b.get("snd_stall")) or 0)
     # the player's answers (session.sh's form): what they heard counts for half the sound score
     form = d / "session.toml"
@@ -205,6 +206,39 @@ def numbers(d, b, r):
     if r.get("rss") is not None:
         n["rss_mib"] = r["rss"]
     return n
+
+
+def geometry(d):
+    """the session's window samples (shots/geometry.tsv: at_s x y w h fullscreen screen_w screen_h, "-" where
+    no window was found): [(x, y, w, h, fullscreen, sw, sh) or None], [] without the file"""
+    f = d / "shots" / "geometry.tsv"
+    if not f.exists():
+        return []
+    lines = f.read_text(errors="replace").splitlines()
+    if not lines or lines[0].split("\t")[:1] != ["at_s"]:
+        return []
+    rows = []
+    for line in lines[1:]:
+        c = line.split("\t")
+        if len(c) < 8:
+            continue
+        v = [report.num(x) for x in c[1:8]]
+        if None not in v and v[2] > 0 and v[3] > 0 and v[5] > 0 and v[6] > 0:
+            rows.append(tuple(int(x) for x in v))
+        else:
+            rows.append(None)   # "-": the shot found no game window
+    return rows
+
+
+def display_numbers(d, b, n):
+    """Display: the score from the window samples (score.display_score); the game's own render resolution
+    (bench.txt render_res=WxH, where a recipe logs it) is recorded, never scored"""
+    score_, detail = score.display_score(geometry(d))
+    if score_ is not None:
+        n["display_score"], n["display_detail"] = score_, detail
+        n["display_samples"] = sum(1 for r in geometry(d) if r)
+    if re.fullmatch(r"\d+x\d+", b.get("render_res") or ""):
+        n["render_res"] = b["render_res"]
 
 
 def ended(d, b):

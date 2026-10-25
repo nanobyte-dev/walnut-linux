@@ -231,6 +231,7 @@ desktop's window manager), recorded by `ps3-bench.sh session` with `client.sh` (
 | sound: `underruns`, `oal_wedge`, `oal_wait`, `oal_xrun`, `snd_stall`, `snd_restarts`, `sound` (the card at 15 s) | `bench.txt` |
 | sound dropouts, measured ([below](#sound-dropouts)): `xrunlog`, `xruns_logged`, `xruns_audible`, `xrun_gap_ms_total`, ... | `bench.txt`, `xruns.tsv`, `xruns.log` |
 | a screenshot about every minute (xwd at nice 19; `SESSION_SHOT_EVERY`, at most `SESSION_SHOT_MAX`=40, 8 MB each) | `shots/`, `shot=` |
+| the game's window and the screen at each screenshot (`geom.py`: xwininfo and xprop from x11-utils, by the game's pid and its children; Display, [GAMEDB.md](../GAMEDB.md#how-a-game-is-rated)); a recipe may log `render_res=WxH` in bench.txt (recorded, never scored) | `shots/geometry.tsv` (`at_s x y w h fullscreen screen_w screen_h by`) |
 | peak RSS, game output, package versions | `hwm`, `game.log`, `versions` |
 | how it ended | `ended`, `ended_why`, `rc` |
 | the player's answers | `session.toml` |

@@ -134,6 +134,33 @@ def load_score(seconds):
     return None if seconds is None else interp(seconds, LOAD_SECONDS)
 
 
+COVERS = 0.95   # a window showing this much of the screen (and cropped by none) counts as filling it
+CROP_MAX = 0.02  # the share of a window outside the screen above which the picture is cropped
+
+
+def display_sample(x, y, w, h, fullscreen, sw, sh):
+    """(score, detail) of one geometry sample (games/bench/geom.py): the game's window at x, y, w x h on a
+    screen of sw x sh. Fullscreen or a window covering the screen is 100 (bars inside the picture can't be
+    told from geometry, and cost nothing); cropped or partly off-screen 0; a smaller window 30 from half the
+    screen's area up, 10 below."""
+    vis_w = max(0, min(x + w, sw) - max(x, 0))
+    vis_h = max(0, min(y + h, sh) - max(y, 0))
+    cropped = 1 - vis_w * vis_h / (w * h) > CROP_MAX
+    if cropped:
+        return 0.0, "a %dx%d window partly off the %dx%d screen" % (w, h, sw, sh)
+    if fullscreen and vis_w >= sw and vis_h >= sh or vis_w * vis_h >= COVERS * sw * sh:
+        return 100.0, "fullscreen %dx%d" % (w, h)
+    return (30.0 if w * h >= 0.5 * sw * sh else 10.0), "a %dx%d window on %dx%d" % (w, h, sw, sh)
+
+
+def display_score(rows):
+    """(score, detail) of a session's geometry samples, rows = [(x, y, w, h, fullscreen, sw, sh) or None for a
+    sample that found no window]: the median sample's score (the lower middle when even), so the score is one
+    a sample really had and the detail describes it. (None, None) without any sample with a window."""
+    got = sorted((display_sample(*r) for r in rows if r), key=lambda sd: sd[0])
+    return got[(len(got) - 1) // 2] if got else (None, None)
+
+
 def test_scores(n, fps_cap=None):
     """the aspect scores {aspect: score or None} of one test's numbers n (result.toml's [numbers]).
     Stability isn't per test: combine() scores it over all the tests."""
@@ -224,6 +251,8 @@ def combine(tests, fps_cap=None):
     for key in ("median_fps", "low1_fps", "stutter_s_per_min", "longest_ms", "sound_faults_per_min",
                 "sound_dropouts_per_min", "load_s"):
         nums[key] = med(t.get("numbers", {}).get(key) for t in graded)
+    nums["display_detail"] = next((t["numbers"]["display_detail"] for t in reversed(graded)
+                                   if t.get("numbers", {}).get("display_detail")), None)   # the newest test's words
     if not graded and scores["picture"] is None:
         return {"aspects": scores, "numbers": nums, "hours": hours, "crashes": crashes, "sessions": len(sessions),
                 "provisional": True, "graded_by": None, **rate({})}

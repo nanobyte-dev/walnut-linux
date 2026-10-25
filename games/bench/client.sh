@@ -82,7 +82,8 @@
 # and shot_t=<p>s:<s after t0>:<HUD frame times before>:<after> (the frametime file's line counts
 # around the capture: the frames it touched, for shots.py cost), shot_skipped= (points the run never
 # reached), shot_static=1 (the recipe's SHOT_STATIC: a menu or title screen, a close comparison is
-# fair). shots.py turns them into PNGs and the side-by-side sheet against the PC reference
+# fair). Each shot also adds a row to BENCH_SHOT_DIR/geometry.tsv: the game's window and the screen
+# (geom.py, x11-utils; for the Display score). shots.py turns them into PNGs and the side-by-side sheet against the PC reference
 # (tools/bench-ref.sh). BENCH_REF=1: a PC reference run (tools/bench-ref.sh): no game mode.
 # A played session (BENCH_SESSION=1, started by session.sh through `ps3-bench.sh session`, docs/games/
 # SUITE.md "Played sessions"): the game as the desktop menu starts it, in the live desktop. Through
@@ -171,6 +172,11 @@ shot_take() {	# shot_take POINT: one capture now (a background job): $SHOT_DIR/s
 	us; b=$US
 	[ -n "$hud_file" ] && [ -e "$hud_file" ] && n1=$(wc -l < "$hud_file")
 	secs t $(( a - u0 ))
+	# where the game's window is (after the capture, so its time isn't in the capture's): one row of
+	# $SHOT_DIR/geometry.tsv (geom.py; docs/GAMEDB.md "Display"); no pid or no xwininfo: no row
+	if [ "$rc" = 0 ] && command -v xwininfo > /dev/null && command -v python3 > /dev/null && read -r gp < "$D/.pid" 2>/dev/null; then
+		"${SHOT_NICE[@]}" python3 -I "$here/geom.py" "$gp" "$t" "$SHOT_DIR/geometry.tsv" > /dev/null 2>&1
+	fi
 	printf '%s %s %s %d %s %s %s\n' "$p" "$f" "$t" $(( (b - a) / 1000 )) "$n0" "$n1" "$rc" > "$SHOT_DIR/.shot-$p.info"
 }
 shot_lines() {	# the shots' bench.txt lines (also from the trap of a run stopped from outside)

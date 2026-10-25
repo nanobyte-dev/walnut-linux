@@ -48,13 +48,21 @@ weighted mean of the scores.
 | Sound | 15 | half: the right sounds playing (the player's form: effects and music heard); half: audible sound dropouts per minute of play (measured: the output went dry for 20 ms or more with sound on a side), or for runs without that measurement the sound faults per minute (ALSA underruns, OpenAL's xruns and waits); a wedged sound device | nothing heard, or wedged | effects and music heard, no dropouts |
 | Picture | 15 | the capture points that differ from the PC | wrong, can't be played | the same as the PC |
 | Stability | 15 | crashes per hour of play over all sessions, and clean quits | crashes in most sessions | no crashes, quits clean |
-| Display | 5 | on the TV: full screen, aspect, scaling, legibility | cropped or off-screen | full screen at the right aspect, cleanly scaled |
+| Display | 5 | the game's window against the screen, at each session screenshot (window geometry, not the picture) | cropped or off-screen | fills the screen |
 | Load | 5 | launch to the game's first frame (hud_t1 in a played session; the time the player spends in its menus never counts), not the first launch | 120 s | 15 s |
 
 - **Resolution.** Games are tested on a 1080p TV as Walnut ships them. The game's own resolution
   isn't graded: a pixel-art game drawing 320x240 and scaled up to the TV is fine, and black bars
-  around the right aspect cost nothing. Only stretching, a small window, unreadable text or a
-  cropped picture lower Display.
+  around the right aspect cost nothing, and the game's render resolution (`render_res`, where a
+  recipe logs it) is recorded but never scored.
+- **Display** is read from the window geometry the session records at each screenshot
+  (`shots/geometry.tsv`): a window covering the screen (fullscreen, or 95% of it visible) scores 100,
+  because bars inside the picture can't be told from geometry and cost nothing; a smaller window 30
+  from half the screen's area up, 10 below; a window with more than 2% outside the screen 0. The
+  session scores the median sample (the lower middle when even), and the page shows that sample's
+  words ("fullscreen 1920x1080", "a 640x480 window on 1920x1080"). Stretching and unreadable text
+  aren't measured. Sessions from before the geometry (and shots where no window was found) leave
+  Display unmeasured.
 - **Frame rate caps.** A game capped by design (vanilla Doom's 35 Hz, a game locked at 30) gets the
   full score for holding its cap.
 - **Stutter time.** A stutter is a frame longer than 50 ms and three times the median frame; the

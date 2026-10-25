@@ -6,6 +6,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import re
 import shutil
 import sys
@@ -94,6 +95,82 @@ class Curves(unittest.TestCase):
         self.assertAlmostEqual(score.weighted_mean({"frame": 100, "smooth": 0}), 100 * 25 / 45)
         self.assertIsNone(score.weighted_mean({"frame": None}))
         self.assertEqual(score.rate({})["medal"], "Untested")
+
+
+class Display(unittest.TestCase):
+    def test_samples(self):
+        d = score.display_sample
+        self.assertEqual(d(0, 0, 1920, 1080, 1, 1920, 1080), (100.0, "fullscreen 1920x1080"))
+        self.assertEqual(d(0, 0, 1280, 720, 1, 1280, 720)[0], 100.0)                   # a smaller screen, filled
+        self.assertEqual(d(0, 24, 1920, 1056, 0, 1920, 1080)[0], 100.0)             # under a title bar: covers it
+        self.assertEqual(d(0, 0, 1920, 1080, 0, 1920, 1080)[0], 100.0)               # undecorated, no state
+        self.assertEqual(d(0, 0, 1024, 768, 0, 1920, 1080)[0], 10.0)                  # 38 % of the screen: under half
+        self.assertEqual(d(0, 0, 1440, 900, 0, 1920, 1080), (30.0, "a 1440x900 window on 1920x1080"))
+        self.assertEqual(d(0, 0, 640, 480, 0, 1920, 1080)[0], 10.0)
+        self.assertEqual(d(900, 500, 1200, 700, 0, 1920, 1080)[0], 0.0)              # ends at 2100 x 1200
+        self.assertEqual(d(0, 0, 2560, 1440, 0, 1920, 1080)[0], 0.0)                 # cropped by the screen
+        self.assertEqual(d(-1, 0, 1920, 1080, 1, 1920, 1080)[0], 100.0)              # a pixel off: not cropped
+
+    def test_median(self):
+        full, small = (0, 0, 1920, 1080, 1, 1920, 1080), (0, 0, 640, 480, 0, 1920, 1080)
+        self.assertEqual(score.display_score([]), (None, None))
+        self.assertEqual(score.display_score([None, None]), (None, None))
+        self.assertEqual(score.display_score([full, full, small]), (100.0, "fullscreen 1920x1080"))
+        self.assertEqual(score.display_score([full, small, small, None])[0], 10.0)
+        self.assertEqual(score.display_score([full, small])[0], 10.0)     # the lower middle when even
+
+    def test_in_the_rating(self):
+        t = {"kind": "session", "numbers": {"display_score": 10.0, "display_detail": "a 640x480 window on 1920x1080"}}
+        self.assertEqual(score.combine([t])["aspects"]["display"], 10.0)
+        self.assertEqual(score.combine([t])["numbers"]["display_detail"], "a 640x480 window on 1920x1080")
+
+
+class Geom(unittest.TestCase):
+    """games/bench/geom.py's window choice, with xwininfo/xprop faked"""
+    TREE = """
+xwininfo: Window id: 0x1a3 (the root window) (has no name)
+
+  Root window id: 0x1a3 (the root window) (has no name)
+  Parent window id: 0x0 (none)
+     5 children:
+     0x400001 "panel": ("panel" "Panel")  1920x32+0+0  +0+0
+     0x600001 "Game": ("game" "Game")  1920x1080+0+0  +0+0
+        1 child:
+        0x600002 (has no name): ()  1920x1080+0+0  +0+0
+     0x700001 "other": ("o" "O")  800x600+10+10  +10+10
+     0x800001 "tiny": ("t" "T")  10x10+0+0  +0+0
+"""
+    PROPS = {"0x400001": "_NET_WM_PID(CARDINAL) = 50\n_NET_WM_WINDOW_TYPE(ATOM) = _NET_WM_WINDOW_TYPE_DOCK",
+             "0x600001": "_NET_WM_PID(CARDINAL) = 301\n_NET_WM_STATE(ATOM) = _NET_WM_STATE_FULLSCREEN",
+             "0x600002": "", "0x700001": "_NET_WM_PID(CARDINAL) = 99"}
+
+    def pick(self, props, unmapped=()):
+        geom = load_geom()
+        def fake(*cmd):
+            if cmd[0] == "xprop":
+                return props.get(cmd[2], "")
+            return "IsUnMapped" if cmd[2] in unmapped else "Map State: IsViewable"
+        geom.run = fake
+        return geom.pick(self.TREE, {300, 301}, (1920, 1080))
+
+    def test_by_pid(self):
+        self.assertEqual(self.pick(self.PROPS), (0, 0, 1920, 1080, 1, "pid"))     # the pid's child; panel, other pid skipped
+
+    def test_no_pid_falls_back_to_the_largest(self):
+        props = {"0x600001": "", "0x700001": "_NET_WM_PID(CARDINAL) = 99", "0x400001": "_NET_WM_PID(CARDINAL) = 50"}
+        self.assertEqual(self.pick(props), (0, 0, 1920, 1080, 1, "size"))          # no pid, covers the screen
+        self.assertIsNone(self.pick(props, unmapped=("0x600001", "0x600002")))
+
+    def test_family(self):
+        geom = load_geom()
+        self.assertIn(os.getpid(), geom.family(os.getppid()))
+
+
+def load_geom():
+    spec = importlib.util.spec_from_file_location("geom", REPO / "games" / "bench" / "geom.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 class Medals(unittest.TestCase):
@@ -326,6 +403,28 @@ class Importer(unittest.TestCase):
         self.assertAlmostEqual(r["scores"]["sound"], 50 + 45 - 10 / 3 * 0.71, places=1)   # 1.71 a minute: past (1, 45)
         self.write_bench(xrunlog="unused", xruns_audible="")   # the plugin never saw the game's sound
         self.assertNotIn("sound_dropouts", self.do()[0]["numbers"])
+
+    def write_geometry(self, *rows):
+        (self.run_dir / "shots").mkdir(exist_ok=True)
+        (self.run_dir / "shots" / "geometry.tsv").write_text(
+            "at_s\tx\ty\tw\th\tfullscreen\tscreen_w\tscreen_h\n" + "".join("\t".join(map(str, r)) + "\n" for r in rows))
+
+    def test_display_from_geometry(self):
+        n = self.do()[0]["numbers"]
+        self.assertNotIn("display_score", n)       # an old run: no geometry, not measured
+        self.write_geometry((60, 0, 0, 1920, 1080, 1, 1920, 1080), (120, 0, 0, 1920, 1080, 1, 1920, 1080),
+                            (180, "-", "-", "-", "-", "-", 1920, 1080), (240, 0, 0, 640, 480, 0, 1920, 1080))
+        self.write_bench(render_res="320x240")
+        r, _ = self.do()
+        n = r["numbers"]
+        self.assertEqual((n["display_score"], n["display_detail"], n["display_samples"]), (100.0, "fullscreen 1920x1080", 3))
+        self.assertEqual(r["scores"]["display"], 100.0)
+        self.assertEqual(n["render_res"], "320x240")    # recorded, never scored
+        self.write_geometry((60, 0, 0, 640, 480, 0, 1920, 1080))
+        n = self.do()[0]["numbers"]
+        self.assertEqual((n["display_score"], n["display_detail"]), (10.0, "a 640x480 window on 1920x1080"))
+        self.write_geometry((60, 0, 0, 0, 0, "x", 1920, 1080))     # garbage: no sample
+        self.assertNotIn("display_score", self.do()[0]["numbers"])
 
     def test_crash_states(self):
         self.write_bench(ended="exit", rc="139")
