@@ -43,3 +43,5 @@
 0044-vbo-index-array-min-max-in-AltiVec-NV30_MINMAX_VMX.patch
 0045-nv30-TXB-as-TEX-on-the-RSX-NV30_TXB_HW-1-keeps-the-h.patch
 0046-nv30-a-query-whose-report-slot-is-taken-back-keeps-i.patch
+0047-u_upload-st-nv30-an-upload-buffer-that-cannot-be-had.patch
+0048-nouveau-a-buffer-allocation-that-fails-fails-the-cal.patch

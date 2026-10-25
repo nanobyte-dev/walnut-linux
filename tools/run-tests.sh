@@ -12,7 +12,8 @@
 #            an NV40 vertex program interpreter with and without it), mesa-minmax-vmx (Mesa 0044's
 #            AltiVec index min/max against the scalar loops, on the host and as ppc64 under qemu),
 #            mesa-query-steal (Mesa 0046: nv30's queries when the report slots run out, against a
-#            fake GPU, under AddressSanitizer),
+#            fake GPU, under AddressSanitizer; with it Mesa 0047/0048's alloc-fail-test: u_upload_mgr and
+#            nouveau_mm when buffers cannot be had),
 #            ssdimg (the SSD test
 #            drive's stamp.py, ps3-imgmap on a fake UFS layer, ps3-vswap's device-mapper backing;
 #            ps3-imgmap-boot's maps and tables against ps3-imgmap's; both tools' write guard
@@ -156,7 +157,16 @@ t_querysteal() {
 		-I$M/src/gallium/include -I$M/src/gallium/auxiliary -I$M/src/gallium/drivers/nouveau -I$M/src/util \
 		-I$M/src/mapi -I$M/src/mesa -I$M/src/compiler/nir -I$M/src/compiler -I$M/src/gallium/winsys/nouveau/drm \
 		-I$M/src/nouveau/headers -o $T/query-steal-test mesa/tests/query-steal-test.c || exit 1
-	$T/query-steal-test
+	$T/query-steal-test || exit 1
+	if grep -q 'reallocate_or_keep' $M/src/gallium/drivers/nouveau/nouveau_buffer.c; then
+		gcc -g -O1 -std=gnu11 -Wall -Werror -fsanitize=address,undefined -DHAVE_PTHREAD -D_GNU_SOURCE \
+			-DHAVE_TIMESPEC_GET -DHAVE_STRUCT_TIMESPEC -DUTIL_ARCH_BIG_ENDIAN=0 -DUTIL_ARCH_LITTLE_ENDIAN=1 -I$G \
+			-I$M/include -I$M/src -I$M/src/gallium/include -I$M/src/gallium/auxiliary \
+			-I$M/src/gallium/drivers/nouveau -I$M/src/util -I$M/src/mapi -I$M/src/mesa -I$M/src/compiler/nir \
+			-I$M/src/compiler -I$M/src/gallium/winsys/nouveau/drm -I$M/src/nouveau/headers \
+			-o $T/alloc-fail-test mesa/tests/alloc-fail-test.c || exit 1
+		$T/alloc-fail-test
+	else echo "(alloc-fail part skipped: build/work/mesa without patch 0048)"; fi
 }
 t_autogm() {
 	if ! { command -v Xvfb >/dev/null && command -v openbox >/dev/null; } &&

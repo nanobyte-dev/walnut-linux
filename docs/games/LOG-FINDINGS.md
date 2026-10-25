@@ -171,8 +171,9 @@ still while RUNNING, sampled once a second) and `snd_stall_at=`, `oal_wait=` (Wa
 
 ### 2. A failed buffer allocation ends in a segfault
 
-Games: BananaBread (5 runs on 10-18, 07:29 to 11:42 UTC), SuperTuxKart (1 run, 10-17 12:53). Not seen
-since.
+Games: BananaBread (5 runs on 10-18, 07:29 to 11:42 UTC), SuperTuxKart (1 run, 10-17 12:53), real Sauerbraten
+(`20261025T013202Z-session-sauerbraten-edition`, the one run with the call site resolved). Fixed in Mesa 0047 and
+0048, not yet confirmed on the PS3.
 
 Evidence: `20261018T072934Z-sauerbraten-base` dmesg.log lines 1-11: 193 suppressed plus ten `ps3rsx: out of
 GART for a 4096 KiB BO`, then `cube2_client[408321]: segfault (11) at 0 nip 3fff93a4e704 ... in
@@ -189,9 +190,14 @@ crashed or logged a GART failure (what changed in between is not recorded in the
 Effect: the game dies mid-run. A player who fills GART or VRAM hits this, so it is a correctness bug even
 though the benchmark no longer triggers it.
 
-Fix (backlog "A failed buffer allocation must not crash", M): find the caller with a debug-symbol
-backtrace (a core from `ulimit -c`, or gdb, on a forced failure: `ps3rsx_gart` on the kernel command line sets the GART size; lower it and run BananaBread), make nv30's buffer and transfer creation return
-GL_OUT_OF_MEMORY or fall back to a smaller/CPU path, and send it upstream with the test.
+Found (2026-10-25, real Sauerbraten): the NULL write is the memcpy in Mesa's `st_setup_current()`
+(st_atom_array.cpp:343), which copies the current vertex attributes into a `u_upload_alloc()` result it never
+checks; the uploader's next 1 MiB buffer needs a 4 MiB nouveau_mm GART slab, hence "out of GART for a 4096 KiB BO"
+just before. Mesa 0047 stops the write (and fixes `u_upload_alloc()`'s leak of the previous buffer at each failure),
+0048 makes nouveau fail its other allocation paths cleanly and fall back from a slab to a buffer of the request's size
+([DRIVER.md](../DRIVER.md#the-mesa-side), [sauerbraten.md](sauerbraten.md#the-second-session-2026-10-25)). BananaBread's
+crashes had the same signature (SuperTuxKart's segfault was in its own code after VRAM failures); their call sites
+were not resolved.
 
 ### 3. GART nearly full in OpenTTD since ps3.544 (new)
 

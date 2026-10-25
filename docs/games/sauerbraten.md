@@ -240,3 +240,28 @@ An online insta-CTF match on eternal_valley, then berlin_wall (`build/bench/ps3-
   because `nv30_transfer_rect_cpu` may map it; a depth buffer or render target that is never read back by the CPU could
   go there (8 MB each at 1080p), but whether every transfer path avoids the CPU map is unproven.
 
+### The second session (2026-10-25)
+
+Bots, about 6 minutes, Mesa ps3.819 (0046 in) and sauerbraten 0.819, whose `texcompress 512` did not apply: the
+player's `~/.sauerbraten/config.cfg` already existed (and stays the player's). No query crash; a different one at 400 s
+(`build/bench/ps3-bench-20261025T013202Z-session-sauerbraten-edition-base`):
+
+- **The crash: a write through NULL after GART ran out.** dmesg: three `out of GART for a 4096 KiB BO` lines, then
+  `segfault at 0` in libc (a doubleword store of a memcpy). The lr is in libgallium: its distance from libc's base in
+  the crash (-0x4105ec4) put on the library layout of a fresh cube2_client on the PS3 lands at libgallium offset
+  0x60a13c, which ps3.819's symbols resolve to the memcpy in `st_setup_current()` (st_atom_array.cpp:343), inlined
+  into `st_update_array_templ`. That copies the current (zero-stride) vertex attributes into the stream uploader
+  without checking that `u_upload_alloc()` got anything. The uploader's next 1 MiB buffer is a chunk of a 4 MiB
+  nouveau_mm GART slab, which no longer fit: cube2_client held 186-194 MB of VRAM and 46-51 MB of the 63 MB GART (its
+  buffers that found no VRAM went to GART), Xorg 7 MB. Mesa 0047 and 0048 handle it (DRIVER.md); the same signature
+  (`out of GART for a 4096 KiB BO`, then a NULL write in libc) is BananaBread's crash in LOG-FINDINGS item 2.
+- **The `out of VRAM for a 8100 KiB BO` bursts are the screenshots again**: at 301.5 and 361.6 s into the run, 1.4-1.5 s
+  after the `xwd` shots at 300.08 and 360.09 s (the earlier shots found room). Each burst is 135 failures (10 printed,
+  125 suppressed), and 135 = 1080 / 8: the X server's GetImage answers in bands of 8 lines of 7680 bytes (64 KiB), and
+  each band asks for a screen-sized buffer (most likely the readback copy of the GL frontend in Xorg's glamor), which
+  fails and falls back. They come from Xorg, only while the bench takes a screenshot of a full VRAM, and are not the
+  game's.
+- VRAM is as full as on 10-24, since the player's config keeps `texcompress 1024`. A launcher-environment alternative
+  that works with any config is Mesa's `NV30_FORCE_DXT=opaque` (compression at upload, BananaBread -40% VRAM, softer
+  textures): not set, the user's call after seeing it.
+

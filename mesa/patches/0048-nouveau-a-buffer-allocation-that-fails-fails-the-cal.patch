@@ -1,0 +1,183 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Sun, 25 Oct 2026 03:51:09 +0200
+Subject: nouveau: a buffer allocation that fails fails the call, and needs
+ less contiguous memory
+
+On the PS3 the RSX's VRAM fills up in big games (real Sauerbraten: 186-194 MB of the 250), its
+buffers then go to GART (46-51 MB of the 63), and GART allocations start to fail. nouveau ignored
+most of those failures and went on with a NULL buffer object:
+
+- nouveau_mm_allocate(): when no new slab can be had, a buffer of the request's own size is
+  tried (as for requests past the largest bucket). Slabs for 1 and 2 MiB chunks are 4 MiB, so
+  the stream uploader's 1 MiB buffer failed with 1-3 MiB of GART still free ("out of GART for
+  a 4096 KiB BO").
+- nouveau_buffer_transfer_map(), VRAM buffers: a staging area that cannot be had (or a read
+  into it that fails) fails the map instead of returning NULL with the transfer leaked, copying
+  from a NULL buffer object, or handing out buf->data whose writes would never reach the GPU.
+- Discards (the GART map path, nouveau_buffer_invalidate()): the new storage is allocated
+  before the old one is let go; without it the buffer keeps its storage and the map syncs.
+  Before, the buffer was left with no storage, and the map went on to map a NULL object.
+- nouveau_buffer_migrate() between VRAM and GART: if neither has room the buffer keeps its
+  storage and the call fails, instead of copying into a NULL object.
+
+diff --git a/src/gallium/drivers/nouveau/nouveau_buffer.c b/src/gallium/drivers/nouveau/nouveau_buffer.c
+--- a/src/gallium/drivers/nouveau/nouveau_buffer.c
++++ b/src/gallium/drivers/nouveau/nouveau_buffer.c
+@@ -146,6 +146,44 @@ nouveau_buffer_reallocate(struct nouveau_screen *screen,
+    return nouveau_buffer_allocate(screen, buf, domain);
+ }
+ 
++/* nouveau_buffer_reallocate() for a discard: the new storage is found first, so that when there
++ * is none (out of GART) the buffer keeps its old storage and the caller syncs instead */
++static bool
++nouveau_buffer_reallocate_or_keep(struct nouveau_screen *screen,
++                                  struct nv04_resource *buf, unsigned domain)
++{
++   struct nouveau_bo *bo = buf->bo;
++   struct nouveau_mm_allocation *mm = buf->mm;
++   const uint32_t offset = buf->offset;
++   const uint64_t address = buf->address;
++   const uint8_t old_domain = buf->domain;
++
++   buf->bo = NULL;
++   buf->mm = NULL;
++   if (!nouveau_buffer_allocate(screen, buf, domain)) {
++      buf->bo = bo;
++      buf->mm = mm;
++      buf->offset = offset;
++      buf->address = address;
++      buf->domain = old_domain;
++      return false;
++   }
++
++   /* nouveau_buffer_release_gpu_storage() for the old storage */
++   nouveau_fence_work(buf->fence, nouveau_fence_unref_bo, bo);
++   if (mm)
++      release_allocation(&mm, buf->fence);
++   if (old_domain == NOUVEAU_BO_VRAM)
++      NOUVEAU_DRV_STAT_RES(buf, buf_obj_current_bytes_vid, -(uint64_t)buf->base.width0);
++   if (old_domain == NOUVEAU_BO_GART)
++      NOUVEAU_DRV_STAT_RES(buf, buf_obj_current_bytes_sys, -(uint64_t)buf->base.width0);
++
++   nouveau_fence_ref(NULL, &buf->fence, screen);
++   nouveau_fence_ref(NULL, &buf->fence_wr, screen);
++   buf->status &= NOUVEAU_BUFFER_STATUS_REALLOC_MASK;
++   return true;
++}
++
+ void
+ nouveau_buffer_destroy(struct pipe_screen *pscreen,
+                        struct pipe_resource *presource)
+@@ -467,7 +505,8 @@ nouveau_buffer_transfer_map(struct pipe_context *pipe,
+           * back into VRAM on unmap. */
+          if (usage & PIPE_MAP_DISCARD_WHOLE_RESOURCE)
+             buf->status &= NOUVEAU_BUFFER_STATUS_REALLOC_MASK;
+-         nouveau_transfer_staging(nv, tx, true);
++         if (!nouveau_transfer_staging(nv, tx, true))
++            goto fail;   /* out of GART for the staging area */
+       } else {
+          if (buf->status & NOUVEAU_BUFFER_STATUS_GPU_WRITING) {
+             /* The GPU is currently writing to this buffer. Copy its current
+@@ -479,18 +518,23 @@ nouveau_buffer_transfer_map(struct pipe_context *pipe,
+                align_free(buf->data);
+                buf->data = NULL;
+             }
+-            nouveau_transfer_staging(nv, tx, false);
+-            nouveau_transfer_read(nv, tx);
++            if (!nouveau_transfer_staging(nv, tx, false) ||
++                !nouveau_transfer_read(nv, tx))
++               goto fail;
+          } else {
+             /* The buffer is currently idle. Create a staging area for writes,
+              * and make sure that the cached data is up-to-date. */
+-            if (usage & PIPE_MAP_WRITE)
+-               nouveau_transfer_staging(nv, tx, true);
++            /* without a staging area the writes would only reach buf->data */
++            if ((usage & PIPE_MAP_WRITE) && !nouveau_transfer_staging(nv, tx, true))
++               goto fail;
+             if (!buf->data)
+                nouveau_buffer_cache(nv, buf);
+          }
+       }
+-      return buf->data ? (buf->data + box->x) : tx->map;
++      map = buf->data ? (buf->data + box->x) : tx->map;
++      if (!map)
++         goto fail;
++      return map;
+    } else
+    if (unlikely(buf->domain == 0)) {
+       return buf->data + box->x;
+@@ -500,9 +544,9 @@ nouveau_buffer_transfer_map(struct pipe_context *pipe,
+ 
+    if (nouveau_buffer_should_discard(buf, usage)) {
+       int ref = buf->base.reference.count - 1;
+-      nouveau_buffer_reallocate(nv->screen, buf, buf->domain);
+-      if (ref > 0) /* any references inside context possible ? */
+-         nv->invalidate_resource_storage(nv, &buf->base, ref);
++      /* out of GART: no discard, the old storage is waited for below */
++      if (nouveau_buffer_reallocate_or_keep(nv->screen, buf, buf->domain) && ref > 0)
++         nv->invalidate_resource_storage(nv, &buf->base, ref); /* any references inside context possible ? */
+    }
+ 
+    /* Note that nouveau_bo_map ends up doing a nouveau_bo_wait with the
+@@ -558,6 +602,11 @@ nouveau_buffer_transfer_map(struct pipe_context *pipe,
+    if (!map)
+       FREE(tx);
+    return map;
++
++fail:
++   nouveau_buffer_transfer_del(nv, tx);
++   FREE(tx);
++   return NULL;
+ }
+ 
+ 
+@@ -886,7 +935,15 @@ nouveau_buffer_migrate(struct nouveau_context *nv,
+       bo = buf->bo;
+       buf->bo = NULL;
+       buf->mm = NULL;
+-      nouveau_buffer_allocate(screen, buf, new_domain);
++      if (!nouveau_buffer_allocate(screen, buf, new_domain)) {
++         /* no memory in either domain: keep the old storage */
++         buf->bo = bo;
++         buf->mm = mm;
++         buf->offset = offset;
++         buf->domain = old_domain;
++         buf->address = bo->offset + offset;
++         return false;
++      }
+ 
+       nv->copy_data(nv, buf->bo, buf->offset, new_domain,
+                     bo, offset, old_domain, buf->base.width0);
+@@ -967,9 +1024,9 @@ nouveau_buffer_invalidate(struct pipe_context *pipe,
+    if (buf->mm && !nouveau_buffer_busy(buf, PIPE_MAP_WRITE)) {
+       util_range_set_empty(&buf->valid_buffer_range);
+    } else {
+-      nouveau_buffer_reallocate(nv->screen, buf, buf->domain);
+-      if (ref > 0) /* any references inside context possible ? */
+-         nv->invalidate_resource_storage(nv, &buf->base, ref);
++      /* out of memory: the old storage stays (an invalidate is only a hint) */
++      if (nouveau_buffer_reallocate_or_keep(nv->screen, buf, buf->domain) && ref > 0)
++         nv->invalidate_resource_storage(nv, &buf->base, ref); /* any references inside context possible ? */
+    }
+ }
+ 
+diff --git a/src/gallium/drivers/nouveau/nouveau_mm.c b/src/gallium/drivers/nouveau/nouveau_mm.c
+--- a/src/gallium/drivers/nouveau/nouveau_mm.c
++++ b/src/gallium/drivers/nouveau/nouveau_mm.c
+@@ -196,9 +196,13 @@ nouveau_mm_allocate(struct nouveau_mman *cache,
+    } else {
+       if (list_is_empty(&bucket->free) &&
+           mm_slab_new(cache, bucket, MAX2(mm_get_order(size), MM_MIN_ORDER))) {
+-         /* out of memory: no slab to take a chunk from (the caller sees *bo unset) */
++         /* No new slab: a slab is up to 4 MiB (chunks of 1 and 2 MiB), the request may be
++          * much smaller, so try a buffer of its own size, as for sizes past the buckets. If
++          * that fails too, the caller sees *bo unset. */
+          simple_mtx_unlock(&bucket->lock);
+          FREE(alloc);
++         nouveau_bo_new(cache->dev, cache->domain, 0, size, &cache->config, bo);
++         *offset = 0;
+          return NULL;
+       }
+       slab = list_entry(bucket->free.next, struct mm_slab, head);
