@@ -29,7 +29,7 @@ xrun_gap_ms = 5512.1
 snd_stall = 0
 sound_effects = "yes"
 music = "yes"
-load_s = 64.5
+load_s = 13.4
 min_avail_kb = 17116
 rss_mib = 82.8
 shot_points = 3
@@ -40,7 +40,7 @@ frame = 0.3
 smooth = 0.0
 sound = 96.5
 picture = 100.0
-load = 50.9
+load = 100.0
 
 [versions]
 cube2-data = "1.3-1"

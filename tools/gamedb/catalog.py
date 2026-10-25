@@ -117,7 +117,7 @@ def details(r, fps_cap):
     d["stability"] = "%d crash%s in %.1f h of play%s" % (r["crashes"], "" if r["crashes"] == 1 else "es", r["hours"],
                                                          " (provisional: under 1 h)" if r["provisional"] else "")
     if n.get("load_s") is not None:
-        d["load"] = "%.0f s from launch to play" % n["load_s"]
+        d["load"] = "%.0f s from launch to the game's first screen" % n["load_s"]
     return d
 
 

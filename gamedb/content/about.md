@@ -36,7 +36,7 @@ Each part of the experience gets a score from 0 to 100. The same scale applies t
 | Picture | 15 | wrong, can't be played | the same as on a PC |
 | Stability | 15 | crashes in most sessions | no crashes, quits cleanly |
 | Display | 5 | cropped or off-screen | full screen, right shape, cleanly scaled |
-| Load | 5 | two minutes to get playing | 15 seconds |
+| Load | 5 | two minutes to start | 15 seconds (to the game's first screen; your time in its menus doesn't count) |
 
 Between those ends the scores rise in steps. A few things worth knowing:
 

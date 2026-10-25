@@ -308,6 +308,13 @@ class Importer(unittest.TestCase):
         self.assertNotIn(self.tmp.name, json.dumps(r))      # no absolute paths
         self.assertNotIn("sound_dropouts", n)               # no ps3-xrunlog in this run: the counts score
 
+    def test_session_play_mark_starts_the_play(self):
+        # a session that logged its play mark at 40 s: frames from 40 + 30 s; the load is the start-up (10 s)
+        self.write_bench(play_from="mark", play_start="40", load_end="40", hud_t1="12")
+        n = self.do()[0]["numbers"]
+        self.assertEqual(n["load_s"], 12.0)       # the first frame, not the mark after the menus
+        self.assertEqual(self.ir.play_start(self.run_dir, self.ir.report.kv(self.run_dir / "bench.txt")), 40.0)
+
     def test_sound_dropouts(self):
         # 92 underruns counted, one of them audible (xruns.py), and one OpenAL wait: 2 dropouts
         self.write_bench(xrunlog="on", xruns_logged="92", xruns_audible="1", xrun_gap_ms_total="310.25", oal_wait="1")

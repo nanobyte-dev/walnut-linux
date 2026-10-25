@@ -69,7 +69,11 @@ def front_matter(index):
 def play_start(d, b):
     """seconds from the client's start to the first gameplay frame: the recipe's own mark where it has
     one (SHOT_RE / shot_mark: the line the game prints when the match starts, shot_ref=re|mark:<s>),
-    else the end of the load (bench.txt load_end). None when neither is known"""
+    else the end of the load (bench.txt load_end). A played session's own mark (bench.txt play_from=mark,
+    play_start=: the recipe's PLAY_MARK, the match starting after the menus) comes first: without it the
+    menus and the setup screens counted as play (Warzone, 2026-10-25). None when nothing is known"""
+    if b.get("play_from") == "mark" and report.num(b.get("play_start")) is not None:
+        return report.num(b.get("play_start"))
     sh = shots.parse(d)
     if sh["ref"] in ("re", "mark") and sh["ref_t"] is not None:
         return sh["ref_t"]
@@ -188,8 +192,14 @@ def numbers(d, b, r):
             n["sound_effects"] = f["sound"]
         if f.get("music") in ("yes", "no", "none"):
             n["music"] = f["music"]
-    if load_end is not None:
-        n["load_s"] = round(load_end, 1)
+    # the load is the start-up (launch to the game's first screen: bench.txt load_end), never the time
+    # the player spends in the menus before a match (a played session's play mark comes after those)
+    # (in a played session load_end is the play mark; hud_t1, the game's first frame, is its start-up)
+    startup = report.num(b.get("hud_t1")) if b.get("play_from") == "mark" else report.num(b.get("load_end"))
+    if startup is None and b.get("play_from") != "mark":
+        startup = load_end
+    if startup is not None:
+        n["load_s"] = round(startup, 1)
     if r.get("avail") is not None:
         n["min_avail_kb"] = int(r["avail"])
     if r.get("rss") is not None:

@@ -49,7 +49,7 @@ weighted mean of the scores.
 | Picture | 15 | the capture points that differ from the PC | wrong, can't be played | the same as the PC |
 | Stability | 15 | crashes per hour of play over all sessions, and clean quits | crashes in most sessions | no crashes, quits clean |
 | Display | 5 | on the TV: full screen, aspect, scaling, legibility | cropped or off-screen | full screen at the right aspect, cleanly scaled |
-| Load | 5 | launch to the first gameplay frame, not the first launch | 120 s | 15 s |
+| Load | 5 | launch to the game's first frame (hud_t1 in a played session; the time the player spends in its menus never counts), not the first launch | 120 s | 15 s |
 
 - **Resolution.** Games are tested on a 1080p TV as Walnut ships them. The game's own resolution
   isn't graded: a pixel-art game drawing 320x240 and scaled up to the TV is fine, and black bars
@@ -105,6 +105,9 @@ curve because most of those faults were never heard: 40 at ten a minute, 32 at t
   (catalog.py `method`); it stays on the page as a test run.
 - **The first 30 s of play are a warm-up** (the first level starting, caches filling): frame times,
   stutter and sound dropouts are measured from 30 s after the load (import-run.py `WARMUP_S`).
+- **Play starts at the match.** In a played session the frames, stutter and dropouts are measured
+  from the recipe's play mark (the line a game logs when the match or level starts: PLAY_MARK) plus
+  the warm-up, so menus, setup screens and the player's time there never count as play.
 - **No medal without frame rate and smoothness.** They are the core of a rating; a session where
   the frame timer saw nothing (a software renderer doesn't go through OpenGL, which the timer hooks)
   gets its numbers but no medal ("played, but not rated: frame rate and smoothness not measured"),

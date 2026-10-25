@@ -29,7 +29,7 @@ xrun_gap_ms = 154.6
 snd_stall = 0
 sound_effects = "yes"
 music = "yes"
-load_s = 36.5
+load_s = 16.5
 min_avail_kb = 27772
 rss_mib = 91.5
 shot_points = 4
@@ -40,7 +40,7 @@ frame = 64.1
 smooth = 66.7
 sound = 100.0
 picture = 100.0
-load = 70.7
+load = 97.5
 
 [versions]
 mesa-libgallium = "26.2.4-1+ps3.721"
