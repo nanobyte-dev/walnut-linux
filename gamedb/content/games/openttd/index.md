@@ -12,6 +12,7 @@ recipes = ["openttd:base"]
 needs_data = false
 controller = "keyboard"
 known_issues = [
+  "With the OpenGL driver, water pulses to white or very bright (its palette animation); the software driver doesn't.",
   "With the 32bpp-anim blitter the same game runs at 11 frames a second; NewGRFs that ask for 32bpp bring it back.",
 ]
 +++
