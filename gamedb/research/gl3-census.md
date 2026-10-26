@@ -5,10 +5,20 @@ working on our RSX (Mesa nv30: GL 2.1, GLSL 1.20, GLES 2.0) with everything else
 memory, CPU, big-endian ppc64, data. Less bling is fine; not working is not. Games new on the PS3
 come first. Vulkan-only engines are out.
 
-The per-game detail is in `parts/` next to this file (A to F, one section per game in a fixed
-template, with file:line citations), the driver-level analysis in `G-driver.md`, and the
-brief the agents worked from in `BRIEF.md`. This file is the cross-game view. Labels as in the
-parts: measured, read in source, estimate, UNVERIFIED.
+The per-game detail is in the six parts next to this file, one section per game in a fixed
+template, with file:line citations: [A, space](gl3-census-a-space.md), [B, 2D and Java](gl3-census-b-2d.md),
+[C, RTS](gl3-census-c-rts.md), [D, FPS](gl3-census-d-fps.md),
+[E, id Tech, Doom, FreeSpace](gl3-census-e-idtech-doom-fs2.md) and [F, engines and runtimes](gl3-census-f-engines.md);
+the driver-level analysis is [G-driver.md](../../docs/research/gl3-census/G-driver.md) (it stays in
+docs/research: it is about the driver, not a game). The brief the agents worked from was not kept.
+This file is the cross-game view. Labels as in the parts: measured, read in source, estimate, UNVERIFIED.
+
+Where this lives now (2026-10-26): every game the census looked at has a bundle in gamedb/games/
+(a draft when it is only a candidate) whose technical.md cites this survey; the longest per-game
+sections of the parts moved into their game's investigations/, with a link left in the part. The
+per-game rows of the tables below are kept by hand for now; they become generated blocks
+(tools/gamedb/blocks.py) in a later step. The census's rule that GL 3-only and Vulkan-only engines
+are out was replaced on 2026-10-20 by the user's: no graphics API is a veto, a GL 2 port is a cost.
 
 ## The short answer
 
@@ -21,7 +31,7 @@ parts: measured, read in source, estimate, UNVERIFIED.
    out above our ~160 MB comfortable budget even after the corrections below; the GL work is S-M
    for the best candidates, the memory work is the open-ended part.
 3. **The driver-level "GL 3.3 subset" is not worth building now.** It is technically sound
-   (G-driver.md: 7-9 weeks for an honest profile), but only Taisei, and Hypersomnia (blocked by
+   ([G-driver.md](../../docs/research/gl3-census/G-driver.md): 7-9 weeks for an honest profile), but only Taisei, and Hypersomnia (blocked by
    other things), fall inside it. Its break-even is three novel games. Keep its cheap, upstreamable
    items on the backlog.
 4. **Top 3 to start: Warzone 2100 4.3.5, Xonotic 0.8.6, Endless Sky's GL2 path.** First steps at the
@@ -128,7 +138,7 @@ MRT 4 are present already and blocked nobody.
 
 ## The driver-level option: verdict
 
-(Detail, sources and the 34-row feature table in `G-driver.md`.)
+(Detail, sources and the 34-row feature table in [G-driver.md](../../docs/research/gl3-census/G-driver.md).)
 
 - **What exists.** Mesa creates a GL 3.3 core context on nv30 when `MESA_GL_VERSION_OVERRIDE=3.3` and
   `MESA_GLSL_VERSION_OVERRIDE=330` are set; GLSL 330 parses, ints are lowered to floats. But nothing

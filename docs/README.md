@@ -86,13 +86,22 @@ layout and the build commands are in [LAYOUT.md](LAYOUT.md).
 | [research/OPENAL-SPU-MIXER.md](research/OPENAL-SPU-MIXER.md) | The design of an SPU mixer for OpenAL Soft, never built |
 | [research/FLASH-SYSCON.md](research/FLASH-SYSCON.md) | What writing flash, the SYSCON or lv1 would unlock, the risks, how we'd recover; nothing tried |
 | [research/HDD-REGION.md](research/HDD-REGION.md) | A reformatted Linux region on the internal disk: researched, not taken |
-| [research/GAME-CANDIDATES.md](research/GAME-CANDIDATES.md) | How the suite's games were picked (2026-10-16) |
-| [research/GAME-REEVAL.md](research/GAME-REEVAL.md) | Games first ruled out for non-GL3 reasons, measured and costed again (2026-10-19): DDNet, OpenTyrian, UQM, Hedgewars, OpenRCT2, 0 A.D., Java/.NET games and the Reddit list |
-| [research/ENDLESS-SKY.md](research/ENDLESS-SKY.md) | Endless Sky's memory explained and its GL 2.1 route costed (2026-10-19): go, effort M |
 | [research/EMULATORS.md](research/EMULATORS.md) | MAME, RetroArch cores and standalone emulators on ppc64 (2026-10-19); parked behind games new on the PS3 |
 | [research/DARLING-PPC.md](research/DARLING-PPC.md) | A PowerPC port of Darling for Mac OS X games (2026-10-19): not worth it, the game-facing frameworks are stubs even on x86 |
 | [research/CLASSIC-MACOS.md](research/CLASSIC-MACOS.md) | SheepShaver's native PowerPC mode and Basilisk II on the PS3 (2026-10-19); waits for the user's ROM and Mac OS CD |
-| [research/PC-CLASSICS.md](research/PC-CLASSICS.md) | Windows PC games of 1990-2010 with open engines, decompilations or source releases (2026-10-20): state, renderer, big-endian prior art, console ports, PS3 effort; the shortlist; every alternative project per game with its popularity |
+| [research/gl3-census/G-driver.md](research/gl3-census/G-driver.md) | Part G of the GL 3 census: a driver-level GL 3.x subset in Mesa nv30, its feature table and the verdict (2026-10-19): not now |
+
+The surveys of game candidates are GameDB's, in gamedb/research/; each game they name has a bundle
+(a draft when it is only a candidate) whose technical.md cites them:
+
+| Survey | What it is for |
+|---|---|
+| [game-candidates.md](../gamedb/research/game-candidates.md) | How the suite's games were picked (2026-10-16) |
+| [game-reeval.md](../gamedb/research/game-reeval.md) | Games first ruled out for non-GL3 reasons, measured and costed again (2026-10-19): DDNet, OpenTyrian, UQM, Hedgewars, OpenRCT2, 0 A.D., Java/.NET games and the Reddit list |
+| [gl3-census.md](../gamedb/research/gl3-census.md) | Open-source games that need GL 3+, and what it takes to run each on the RSX (2026-10-19), with parts A-F per game |
+| [pc-classics.md](../gamedb/research/pc-classics.md) | Windows PC games of 1990-2010 with open engines, decompilations or source releases (2026-10-20): state, renderer, big-endian prior art, console ports, PS3 effort; the shortlist; every alternative project per game with its popularity |
+
+Endless Sky's memory and renderer study (2026-10-19) is the game's investigation: [gamedb/games/endless-sky/investigations/](../gamedb/games/endless-sky/investigations/2026-10-19-memory-and-renderer.md).
 
 ## Elsewhere in docs/
 
@@ -109,7 +118,7 @@ file is in `archive/` under its old name, and its first line names its successor
 | Old name | Now |
 |---|---|
 | `GAME-PLAN.md` | [games/README.md](games/README.md) and the per-game files |
-| `GAME-SUITE.md` | [games/SUITE.md](games/SUITE.md), [research/GAME-CANDIDATES.md](research/GAME-CANDIDATES.md) |
+| `GAME-SUITE.md` | [games/SUITE.md](games/SUITE.md), [gamedb/research/game-candidates.md](../gamedb/research/game-candidates.md) |
 | `IDEAS.md` | [backlog/README.md](backlog/README.md) (its "#N" numbers are mapped there) |
 | `DRIVER-PLAN.md` | [DRIVER.md](DRIVER.md) |
 | `DESKTOP-PLAN.md`, `PERF.md` | [DESKTOP.md](DESKTOP.md) |

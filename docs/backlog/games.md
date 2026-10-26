@@ -163,14 +163,14 @@ Rank 33. Games that need someone at the controller, or that are new.
 
 Rank 76. Novel games that have never been started on the PS3 (the user's order: novel first).
 
-- **GAME-REEVAL's "try now" list** ([research/GAME-REEVAL.md](../research/GAME-REEVAL.md), "Merged
+- **GAME-REEVAL's "try now" list** ([gamedb/research/game-reeval.md](../../gamedb/research/game-reeval.md), "Merged
   ranking"): DevilutionX (shareware `spawn.mpq`), fheroes2 (HoMM2 demo data), UFO:AI (ppc64 binary
   in main, est. 400-900 MB, a candidate band), ET:Legacy (measure fps first), EDuke32 (Duke3D
   shareware), VVVVVV (private build only, licence). Also Micropolis (packaging only). With the
   user's own data: Exult, OpenXcom/OXCE (vanilla first), iortcw.
 - **Xonotic 0.8.6**: the release engine still has the GL 2.0 path (the GLES2 path of engine master
   is no way out). Package it as `xonotic-gl2` after Nexuiz runs on `darkplaces-gl2`; 1.2 GB of
-  data, RAM is the risk. Steps in [research/gl3-census/README.md](../research/gl3-census/README.md)
+  data, RAM is the risk. Steps in [gamedb/research/gl3-census.md](../../gamedb/research/gl3-census.md)
   ("2. Xonotic 0.8.6").
 - **Wesnoth's music package** is not installed on the PS3: game.log is full of `cannot open track
   '*.ogg'` and there is only the effects' sound ([games/smoke-tested.md](../games/smoke-tested.md),

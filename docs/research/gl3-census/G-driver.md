@@ -3,6 +3,9 @@
 Question: would one piece of work in our Mesa nv30 (a per-game "GL 3.x subset" version override,
 NIR lowering passes, and the NV40/RSX hardware features Mesa leaves off) unlock several GL 3+
 games at once, compared with porting each game's renderer to GL 2.1?
+It is part G of the GL 3 census, whose cross-game view and parts A-F are in
+[gamedb/research/gl3-census.md](../../../gamedb/research/gl3-census.md) (the games' survey moved to
+GameDB; this part stays here because it is about the driver).
 
 Sources read: Mesa 26.2.4 as we ship it (build/src/mesa/mesa-26.2.4, patches 0001-0039 applied,
 `.pc/applied-patches`); RPCS3 master `rpcs3/Emu/RSX` (sparse shallow clone, 2026-10-19, in

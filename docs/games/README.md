@@ -196,7 +196,7 @@ ARB_framebuffer_object) are in [backlog/graphics.md](../backlog/graphics.md).
   Nexuiz Classic, the new games, and the games we skipped.
 - [SUITE.md](SUITE.md): the runner, recipes, assets, reports and how a game joins the suite.
 - [LOG-FINDINGS.md](LOG-FINDINGS.md): the errors and warnings in the run logs, by game and by cause, and the tool that finds them (`bench/logscan.py`).
-- [research/GAME-CANDIDATES.md](../research/GAME-CANDIDATES.md): the 2026-10-16 survey that picked
+- [gamedb/research/game-candidates.md](../../gamedb/research/game-candidates.md): the 2026-10-16 survey that picked
   the suite.
 
 ## History

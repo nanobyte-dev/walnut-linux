@@ -266,7 +266,7 @@ and yellow (14:28, ps3.633, Mesa ps3.628); the PC reference happened to get pink
   that time. game.log is full of `cannot open track '*.ogg'`: the Wesnoth music package is not
   installed, so there is only the effects' sound.
 - The research's other exclusions (DDNet's test hang, Warzone 2100's GL 3.0 and big-endian static
-  assert, Xonotic, Tesseract) are in [research/GAME-CANDIDATES.md](../research/GAME-CANDIDATES.md).
+  assert, Xonotic, Tesseract) are in [gamedb/research/game-candidates.md](../../gamedb/research/game-candidates.md).
 
 Older versions and the dated history: [archive/GAME-PLAN.md](../archive/GAME-PLAN.md) ("Smoke tests",
 "Smoke fixes", "Nexuiz Classic").

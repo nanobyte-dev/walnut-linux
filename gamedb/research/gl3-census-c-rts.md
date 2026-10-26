@@ -38,7 +38,7 @@ SCORES: popularity=4 novelty=5 playability_256MB=2 effort=S (4.3.5) | L (4.7 ren
 
 ### 5. ppc64 big-endian
 - Debian ports has `warzone2100 4.5.5deb-1+b1` in unstable-main-ppc64 (installed size 20 MB) and the sid source 4.7.0-3 is `Architecture: any all`, so it is not arch-excluded. I did not read the buildd logs for 4.7.0 on ppc64.
-- 4.7.x: the bundled GameNetworkingSockets carries a big-endian static assert (per docs/research/GAME-CANDIDATES.md; submodule not cloned here so I could not read the line). It is gated by CMake option `ENABLE_GNS_NETWORK_BACKEND` (3rdparty/CMakeLists.txt:305, default ON): configure with it OFF and the assert is gone (skirmish does not need it; the TCP backend remains). 4.3.5 has no GNS at all.
+- 4.7.x: the bundled GameNetworkingSockets carries a big-endian static assert (per gamedb/research/game-candidates.md; submodule not cloned here so I could not read the line). It is gated by CMake option `ENABLE_GNS_NETWORK_BACKEND` (3rdparty/CMakeLists.txt:305, default ON): configure with it OFF and the assert is gone (skirmish does not need it; the TCP backend remains). 4.3.5 has no GNS at all.
 - Data formats: binary game files are read with `PHYSFS_readULE16/32` (`lib/framework/physfs_ext.h:181`, 135 call sites in lib and src in 4.3.5), which is endian-explicit; PIE models are text; maps use the same readers and `lib/wzmaplib` has an SDL_endian shim. Ogg/Vorbis and sequence code have BYTE_ORDER checks. So BE should be clean; the open risk is texture/basis code (basis_universal in 3rdparty is endian-aware but I did not test it) and any raw struct dumps in savegames (savegames are not needed for a first run).
 
 ### 6. Data and licence

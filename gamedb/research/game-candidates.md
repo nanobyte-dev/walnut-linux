@@ -5,8 +5,10 @@ ran on the PS3. Step 0 had rested on OpenArena alone, which misled us about VRAM
 SPU offload and memory decisions needed 5-10 titles. Every pick has run since, and so have most
 reserves: Yamagi Quake II, Extreme Tux Racer and Armagetron joined the suite, Teeworlds, SuperTux
 and Red Eclipse were smoke-tested, TORCS waits for the user, and Nexuiz runs on our own older
-DarkPlaces build. Current results are in [games/README.md](../games/README.md); where this survey
+DarkPlaces build. Current results are in [games/README.md](../../docs/games/README.md); where this survey
 and the measurements differ, the measurements win.
+
+**Where this lives now (2026-10-26).** This survey moved from docs/research to gamedb/research. Every game it names has a bundle in gamedb/games/ (a draft when it is only a candidate, `status` and `status_note` saying where it stands) whose technical.md cites this file by section.  The per-game tables and blocks here are kept by hand for now; they become generated blocks (tools/gamedb/blocks.py) in a later step, and until then a game's current state is its bundle's, not this file's.
 
 Sources: the debian-ports snapshot we pin (`20261013T000000Z`, ppc64 and all, contrib too), live
 debian-ports, buildd.debian.org logs, the Debian BTS, upstream trackers and the games' source at the
@@ -17,7 +19,7 @@ are written in below and marked "(review)".
 
 ## The yardstick: what Mesa nv30 on NV47 offers
 
-From `nv30_screen.c` and `nv30_format.c` (Mesa 26.2.4) and [RSX.md](../RSX.md):
+From `nv30_screen.c` and `nv30_format.c` (Mesa 26.2.4) and [RSX.md](../../docs/RSX.md):
 
 - GL 2.1 compatibility, GLSL 1.20, GLES 2.0. No GL 3.x context of any profile: engines that ask for
   3.2 core with no fallback fail at startup.
@@ -32,7 +34,7 @@ From `nv30_screen.c` and `nv30_format.c` (Mesa 26.2.4) and [RSX.md](../RSX.md):
 - **No ARB_texture_rg** (review): engines that upload R8 or RG textures fail.
 - No texture arrays, instancing, geometry shaders, integer textures, OES_standard_derivatives.
   3D textures sample fine (review; rendering into them is refused). TIMESTAMP and TIME_ELAPSED
-  queries return a pixel count, not time ([MESA-METHODS.md](../MESA-METHODS.md)): any game's GPU
+  queries return a pixel count, not time ([MESA-METHODS.md](../../docs/MESA-METHODS.md)): any game's GPU
   timings are garbage here.
 - Known RSX traps: a graph exception wedges the whole RSX until a console reboot; vertex format type 0
   and swizzled 1-pixel-wide render targets fault (the validator refuses them, and Mesa patch 0007
@@ -51,7 +53,7 @@ From `nv30_screen.c` and `nv30_format.c` (Mesa 26.2.4) and [RSX.md](../RSX.md):
   - hedgewars 1.0.3: builds, then 2 of 7 engine Lua tests fail (`EInvalidOp` in `stuckcake.lua`, wrong
     positions in `gravity_get_set.lua`). Looked like FPC floating point on PPC, not byte order
     (UNVERIFIED then; later reading of the build log: two different failures, see
-    [games/smoke-tested.md](../games/smoke-tested.md#skipped)).
+    [games/smoke-tested.md](../../docs/games/smoke-tested.md#skipped)).
   - ddnet 20.1.1: the test run hangs in `Net.Ipv4AndIpv6Work` and the buildd kills it.
   - warzone2100 4.7.0: **a real big-endian bug**, a static assert in the bundled GameNetworkingSockets
     (`minbase_endian.h:26`, `LittleWord()` on a uint64). Moot anyway: it needs GL 3.0.
@@ -160,7 +162,7 @@ The suite that ran has 13 games: these ten plus Yamagi Quake II, Extreme Tux Rac
 ## Per-game notes from the research
 
 What the survey expected for each pick, before the runs (the commands that run now are in
-[games/SUITE.md](../games/SUITE.md)):
+[games/SUITE.md](../../docs/games/SUITE.md)):
 
 - **OpenArena `opengl2`**: renderergl2 (read at upstream main) needs GL 2.0 and `#version 120`
   shaders, 30 source files, about 66 KB, the biggest `lightall_fp` 13.8 KB; about 100-115 programs
@@ -245,4 +247,4 @@ Out of scope: anything with tier X (darkplaces from Debian, Tesseract, Warzone 2
 - Mesa 26.2.4: `src/gallium/drivers/nouveau/nv30/nv30_screen.c`, `nv30_format.c`,
   `src/mesa/state_tracker/st_extensions.c`, `st_format.c`.
 
-Older versions and the dated history: [archive/GAME-SUITE.md](../archive/GAME-SUITE.md).
+Older versions and the dated history: [archive/GAME-SUITE.md](../../docs/archive/GAME-SUITE.md).

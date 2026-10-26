@@ -7,6 +7,8 @@ articles. Nothing here has been built or measured on our console yet. Every alte
 with GitHub stars, last activity and the pick for our port, is in
 [Alternatives and popularity](#alternatives-and-popularity).
 
+**Where this lives now (2026-10-26).** This survey moved from docs/research to gamedb/research. Every game it names has a bundle in gamedb/games/ (a draft when it is only a candidate, `status` and `status_note` saying where it stands) whose technical.md cites this file by section. Its rules (no graphics API is a veto, takedowns don't matter, the user's own data is fine) are the ones the drafts' statuses follow. The per-game tables and blocks here are kept by hand for now; they become generated blocks (tools/gamedb/blocks.py) in a later step, and until then a game's current state is its bundle's, not this file's.
+
 The user's focus: games that never had a console port (marked **no** in the Console column) come first,
 since a PS3 port of those is new on a console. The user's favourites from this era: Jazz Jackrabbit 2,
 Elasto Mania, Atomic Bomberman, Hercules, Tarzan, NFS 2-6, U1/U2 (Unreal or Ultima, open), The Sims,
@@ -21,7 +23,7 @@ The rules (the user, 2026-10-20):
   swap helps. The PS3 has about 217 MB usable.
 - **Takedowns don't matter.** re3/reVC are candidates like any other.
 - **Original game data is fine.** It never goes into git or the public apt suite. The goal
-  ([PLAN](../PLAN.md) 5.10): the engine package is public and copies the assets from the user's CD, disc
+  ([PLAN](../../docs/PLAN.md) 5.10): the engine package is public and copies the assets from the user's CD, disc
   image or existing install on first run, through a "First time setup" dialog. Free data (shareware,
   freeware, demo, own assets) is marked, since those packages can be complete out of the box.
 
@@ -563,7 +565,7 @@ Evaluation and porting are with the main session from 2026-10-20 (the user).
    Vanilla Conquer and Duke 3D shareware need nothing bought).
 2. The user's answers: U1/U2 (Unreal or Ultima), and which games they own (CD, GOG, Steam).
 3. Effort estimates for the GL 3.3 renderers (Jazz² Resurrection, Atomic Bomberman) the way
-   [gl3-census/](gl3-census/) did for the earlier list.
+   [the GL3 census](gl3-census.md) did for the earlier list.
 
 ## Sources
 
