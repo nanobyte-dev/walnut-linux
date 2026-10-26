@@ -20,6 +20,9 @@ The docs are indexed in docs/README.md. The plan is in docs/PLAN.md, the PS3 tes
   `build/aptly` and its backups stay on /home. Caches are bounded (ccache
   max_size, apt cache for the current snapshot only, superseded builder images pruned).
 - backups/ holds the private NOR dump: never commit or upload it.
+- Package versions (the user, 2026-10-26): a patched or repackaged package is `<original version>+ps3.N`
+  (Debian's full version, or upstream's with -1), never an epoch, a bumped revision or our own upstream
+  number; `0.N` only for our own code under a name nobody else uses (docs/PACKAGING.md "Versions").
 
 ## Priorities
 - Target is the PS3 directly: get existing nouveau/Mesa nv30 running on the RSX with the least new code. The Core 2 + 7600 GT box is for upstreaming driver fixes (the user, 2026-10-18): our nv30 Mesa patches tested on a stock x86 nouveau system the way upstream wants them (piglit/deqp, little-endian); not for game testing or benchmarks, which stay on the PS3.
