@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""check.py [--content DIR]: validate the Walnut Games catalog (website/gamedb/content/games) before it is
+"""check.py [--content DIR]: validate the Walnut Games catalog (gamedb/games) before it is
 built or published (tools/gamedb/build.sh runs it first).
 
 Design
-- One folder per game: <id>/index.md (TOML front matter between +++ lines), thumb.png, and
-  tests/<name>/result.toml (+ the screenshots it lists). The checks:
+- One folder per game (gamedb/README.md): <id>/index.md (TOML front matter between +++ lines), thumb.png,
+  and rating/sessions/<name>/result.toml (+ the screenshots it lists), one folder per played session or
+  run. The checks:
     * id: ^[a-z0-9][a-z0-9-]{0,63}$ and equal to the folder name; unique
     * required fields present and of the right type, no unknown field (a typo would silently vanish)
     * categories from the fixed list below, 1 to 3 of them
@@ -15,7 +16,7 @@ Design
       getting and setting up the data: sentences, with `code` in backticks that must pair up) and
       offers no data package
     * thumb.png is a PNG; every test has a parsable result.toml of schema 1 whose listed screenshots
-      exist, and no stray file sits in a test folder; its rules, when given, are "<data>.<formula>" of a
+      exist, and no stray file sits in a session folder or the game's folder; its rules, when given, are "<data>.<formula>" of a
       data version score.py knows, and a data-version-2 test's defects name known categories
     * patched_by names source packages of ours (tools/pkg-dir.sh, and patches/series)
     * drafts (draft = true: a candidate, or a game tried and not published) need only id, title and
@@ -57,6 +58,9 @@ FIELDS = {
 DRAFT_REQUIRED = {"id", "title", "status"}
 STATUSES = ["candidate", "tried", "blocked", "dropped", "impossible", "tested"]
 TEST_FILES = {"result.toml"}
+# where a game's sessions (each one's result.toml and screenshots) live, relative to its folder
+SESSIONS = "rating/sessions"
+CONTENT = REPO / "gamedb" / "games"
 
 
 def licensed(repo):
@@ -153,37 +157,41 @@ def check_game(gdir, bad, repo):
             errs.append("no thumb.png")
     elif thumb.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
         errs.append("thumb.png is not a PNG")
-    tests = gdir / "tests"
+    tests = gdir / SESSIONS
     for t in sorted(tests.iterdir()) if tests.is_dir() else []:
         if not (t / "result.toml").exists():
-            errs.append("tests/%s: no result.toml" % t.name)
+            errs.append(SESSIONS + "/%s: no result.toml" % t.name)
             continue
         try:
             r = tomllib.loads((t / "result.toml").read_text())
         except tomllib.TOMLDecodeError as e:
-            errs.append("tests/%s/result.toml: %s" % (t.name, e))
+            errs.append(SESSIONS + "/%s/result.toml: %s" % (t.name, e))
             continue
         if r.get("schema") != 1 or r.get("kind") not in ("session", "demo", "capture", "script") or r.get("game") != fm["id"]:
-            errs.append("tests/%s/result.toml: schema 1, a kind and this game's id are required" % t.name)
+            errs.append(SESSIONS + "/%s/result.toml: schema 1, a kind and this game's id are required" % t.name)
         rules = str(r.get("rules", "1.0"))
         if not re.fullmatch(r"\d+\.\d+", rules) or score.data_version(r) not in score.FORMULA:
-            errs.append("tests/%s/result.toml: rules %r: \"<data>.<formula>\" of data version %s" % (
+            errs.append(SESSIONS + "/%s/result.toml: rules %r: \"<data>.<formula>\" of data version %s" % (
                 t.name, rules, " or ".join(map(str, score.FORMULA))))
         elif score.data_version(r) >= 2:
             bad_defects = [x for x in r.get("review", {}).get("defects", [])
                            if len(score.parse_defects([x])) != 1 or not score.parse_defects([x])[0][1]]
             if bad_defects:
-                errs.append("tests/%s/result.toml: defects %r: \"<category> <pc|ps3>: <what>\"" % (t.name, bad_defects))
+                errs.append(SESSIONS + "/%s/result.toml: defects %r: \"<category> <pc|ps3>: <what>\"" % (t.name, bad_defects))
         listed = set(r.get("shots", {}).get("ps3", [])) | set(r.get("shots", {}).get("pc", []))
         for f in sorted(listed):
             if not (t / f).exists():
-                errs.append("tests/%s: screenshot %s is listed but missing" % (t.name, f))
+                errs.append(SESSIONS + "/%s: screenshot %s is listed but missing" % (t.name, f))
         for f in sorted(x.name for x in t.iterdir()):
             if f not in listed and f not in TEST_FILES:
-                errs.append("tests/%s: unexpected file %s" % (t.name, f))
+                errs.append(SESSIONS + "/%s: unexpected file %s" % (t.name, f))
     for f in sorted(x.name for x in gdir.iterdir()):
-        if f not in ("index.md", "thumb.png", "tests"):
-            errs.append("unexpected file %s (a game folder holds index.md, thumb.png and tests/)" % f)
+        if f not in ("index.md", "thumb.png", "rating"):
+            errs.append("unexpected file %s (a game folder holds index.md, thumb.png and rating/)" % f)
+    rating = gdir / "rating"
+    for f in sorted(x.name for x in rating.iterdir()) if rating.is_dir() else []:
+        if f != "sessions":
+            errs.append("unexpected file rating/%s (rating/ holds sessions/)" % f)
     return errs
 
 
@@ -208,7 +216,7 @@ def check(content, repo=REPO):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--content", default=str(REPO / "website" / "gamedb" / "content" / "games"))
+    ap.add_argument("--content", default=str(CONTENT))
     a = ap.parse_args()
     problems = check(a.content)
     for g, errs in problems.items():

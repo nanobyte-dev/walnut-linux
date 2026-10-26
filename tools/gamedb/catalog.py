@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""catalog.py [--out FILE] [--deb-index URL]: build catalog.json from website/gamedb/content/games, the one
+"""catalog.py [--out FILE] [--deb-index URL] [--diff OLD]: build catalog.json from gamedb/games, the one
 file the website's templates (Hugo reads it as data) and the desktop app (later, packaged) use.
 
 Design
-- Per game: the front matter, the rating computed by score.combine() from its tests' result.toml
+- Per game: the front matter, the rating computed by score.combine() from its sessions' result.toml (rating/sessions/<run>/)
   (never stored: change the scoring and every medal follows), a test summary per test, the badges
   and the "patched by Walnut" facts. The result:
     {"schema": 1, "generated": "<UTC>", "content_date", "revision", "games": [{"id", "title", ..., "rating": {...}, "tests": [...],
@@ -16,6 +16,9 @@ Design
   found there gets a direct .deb link (Filename: -> URL/<Filename>). Without the option, or without a
   network, the links are simply left out; nothing else changes.
 - SOURCE_DATE_EPOCH, when set, fixes "generated" so a build can be repeated byte for byte.
+- --diff OLD: build the catalog (nothing is written) and print every difference to the catalog.json OLD,
+  one line per JSON path (games and tests matched by their id; "generated" left out); exit 1 if any.
+  A change to the content or the scoring shows as exactly the fields it moved.
 - stdlib only; the rating arithmetic is score.py.
 """
 import argparse
@@ -43,7 +46,7 @@ LOW_MEMORY_KB = 10 * 1024
 def read_game(gdir):
     fm = check.front_matter(gdir / "index.md")
     tests = []
-    tdir = gdir / "tests"
+    tdir = gdir / check.SESSIONS
     for t in sorted(tdir.iterdir()) if tdir.is_dir() else []:
         r = tomllib.loads((t / "result.toml").read_text())
         r["id"] = t.name
@@ -329,7 +332,7 @@ def build_game(gdir, repo, debs):
             "verdict": t.get("picture", {}).get("verdict"), "note": t.get("picture", {}).get("note"),
             "rules": "%d.%d" % (score.data_version(t), score.FORMULA[score.data_version(t)]),
             "numbers": t.get("numbers", {}), "versions": t.get("versions", {}),
-            "ps3": ["tests/%s/%s" % (t["id"], f) for f in t.get("shots", {}).get("ps3", [])]})
+            "ps3": ["%s/%s/%s" % (check.SESSIONS, t["id"], f) for f in t.get("shots", {}).get("ps3", [])]})
     g = {k: fm[k] for k in ("id", "title", "summary", "categories", "tags", "license", "homepage", "packages",
                             "desktop", "needs_data", "controller") if k in fm}
     g.update({k: fm.get(k, v) for k, v in (("recipes", []), ("fps_cap", None), ("data_guide", None), ("data_steps", []),
@@ -358,13 +361,52 @@ def build(content, repo=REPO, deb_url=None):
             "games": games}
 
 
+def diff(old, new, path=""):
+    """["<json path>: <old> -> <new>"] between two catalogs (lists of dicts with an id are matched by it)"""
+    def short(v):
+        t = json.dumps(v, ensure_ascii=False, sort_keys=True)
+        return t if len(t) <= 120 else t[:117] + "..."
+
+    def keyed(v):
+        return isinstance(v, list) and all(isinstance(x, dict) and "id" in x for x in v) \
+            and len({x["id"] for x in v}) == len(v)
+
+    if isinstance(old, dict) and isinstance(new, dict):
+        items = [(k, "%s.%s" % (path, k) if path else k) for k in sorted(set(old) | set(new))
+                 if path or k != "generated"]
+    elif keyed(old) and keyed(new) and (old or new):
+        o, n = {x["id"]: x for x in old}, {x["id"]: x for x in new}
+        out = []
+        if [x["id"] for x in old if x["id"] in n] != [x["id"] for x in new if x["id"] in o]:
+            out.append("%s: order %s -> %s" % (path, [x["id"] for x in old], [x["id"] for x in new]))
+        old, new = o, n
+        items = [(k, "%s[%s]" % (path, k)) for k in list(o) + [k for k in n if k not in o]]
+        return out + [l for k, p in items for l in diff_one(old, new, k, p, short)]
+    else:
+        return [] if old == new else ["%s: %s -> %s" % (path, short(old), short(new))]
+    return [l for k, p in items for l in diff_one(old, new, k, p, short)]
+
+
+def diff_one(old, new, k, p, short):
+    if k not in old:
+        return ["%s: (none) -> %s" % (p, short(new[k]))]
+    if k not in new:
+        return ["%s: %s -> (none)" % (p, short(old[k]))]
+    return diff(old[k], new[k], p)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--content", default=str(REPO / "website" / "gamedb" / "content" / "games"))
+    ap.add_argument("--content", default=str(check.CONTENT))
     ap.add_argument("--out", default=str(REPO / "website" / "gamedb" / "data" / "catalog.json"))
     ap.add_argument("--deb-index", metavar="URL", help="apt repository root, e.g. https://walnut.nanobyte.dev/apt")
+    ap.add_argument("--diff", metavar="OLD", help="print the differences to the catalog.json OLD instead of writing")
     a = ap.parse_args()
     cat = build(a.content, REPO, a.deb_index)
+    if a.diff:
+        lines = diff(json.loads(Path(a.diff).read_text()), cat)
+        print("\n".join(lines) if lines else "catalog.py --diff: no difference")
+        return 1 if lines else 0
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     Path(a.out).write_text(json.dumps(cat, indent=1, ensure_ascii=False) + "\n")
     for g in cat["games"]:

@@ -20,3 +20,18 @@ priority = 0.5
 
 [params]
 description = "Games that run on Walnut, the open Linux for the PS3: each one played and measured on the console, compared with a PC, and rated."
+
+# The content: the site's own pages (content/), and the games from the database itself, gamedb/games/<id>/
+# (gamedb/README.md), as content/games/<id>/. content/games/_index.md (the section page and its cascade)
+# stays here and merges with the mounted bundles. From a bundle only what the pages show comes in (an
+# allowlist, so the database's other files never become pages or resources): index.md, thumb.png and
+# the sessions' screenshots (the catalog lists the ones a page shows; publishResources = false in the
+# cascade publishes only those).
+[[module.mounts]]
+source = "content"
+target = "content"
+
+[[module.mounts]]
+source = "../../gamedb/games"
+target = "content/games"
+includeFiles = ["/*/index.md", "/*/thumb.png", "/*/rating/sessions/*/*.jpg"]

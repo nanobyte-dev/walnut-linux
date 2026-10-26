@@ -2,7 +2,7 @@
 # play-pc.sh GAME [LAUNCHER]: the PC side of a played session, for playing a game here while it is
 # played on the PS3 (docs/games/SUITE.md "Played sessions"): the picture and behaviour to compare with.
 # Nothing is measured here; the PS3 session is the test.
-# The game's packages are its Walnut Games entry's (website/gamedb/content/games/GAME/index.md `packages`),
+# The game's packages are its Walnut Games entry's (gamedb/games/GAME/index.md `packages`),
 # from Debian sid at the PS3's snapshot, in a container (build-containers/Dockerfile.playpc, built once per
 # package list: ps3-play-pc:<hash>; a recipe's REF_IMAGE is the base for a game we patch). It shows on
 # this desktop's X server (XWayland) with Mesa's llvmpipe held to the RSX's GL 2.1 / GLSL 1.20, and
@@ -16,9 +16,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 G=${1:?usage: play-pc.sh GAME [LAUNCHER]}; L=${2:-}
-idx=website/gamedb/content/games/$G/index.md
+idx=gamedb/games/$G/index.md
 if [ ! -e "$idx" ]; then	# a recipe's name: the entry that lists it (BananaBread's recipe is called sauerbraten)
-	e=$(grep -l "^recipes = .*\"$G[:\"]" website/gamedb/content/games/*/index.md 2>/dev/null | head -1)
+	e=$(grep -l "^recipes = .*\"$G[:\"]" gamedb/games/*/index.md 2>/dev/null | head -1)
 	[ -n "$e" ] && { idx=$e; G=$(basename "$(dirname "$e")"); }
 fi
 [ -e "$idx" ] || { echo "!! no $idx (a Walnut Games entry)" >&2; exit 2; }

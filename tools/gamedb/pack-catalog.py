@@ -5,8 +5,9 @@ Design
 - `make gamedb-catalog` runs this; packages/walnut/apps/walnut-games/package.conf COPY_IN takes the tarball into the
   package, whose rules unpack it to /usr/share/walnut-games/ (docs/GAMEDB.md "The desktop app").
 - Contents: catalog.json (catalog.py's, without the .deb links: the app installs from the apt
-  repository), and for every game games/<id>/thumb.png plus the screenshots its tests list
-  (games/<id>/tests/<test>/<file>.jpg). The rest of a game's folder (index.md, result.toml) stays out.
+  repository), and for every game games/<id>/thumb.png plus the screenshots its sessions list
+  (games/<id>/rating/sessions/<run>/<file>.jpg, the paths as in gamedb/games/<id>/ and on the site). The
+  rest of a game's folder (index.md, result.toml) stays out.
 - The catalog is checked first (check.py): a catalog that does not validate is not packed. Drafts
   (index.md draft = true) are left out, as catalog.py leaves them out, pictures included.
 - Screenshots are Git LFS files. A checkout without the LFS objects holds 130-byte pointer files;
@@ -37,7 +38,7 @@ def mtime():
     e = os.environ.get("SOURCE_DATE_EPOCH")
     if e:
         return int(e)
-    r = subprocess.run(["git", "-C", str(REPO), "log", "-1", "--format=%ct", "--", "website/gamedb/content"],
+    r = subprocess.run(["git", "-C", str(REPO), "log", "-1", "--format=%ct", "--", "gamedb/games"],
                        capture_output=True, text=True)
     return int(r.stdout.strip() or 0)
 
@@ -82,7 +83,7 @@ def pack(content, out, repo=REPO):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--content", default=str(REPO / "website" / "gamedb" / "content" / "games"))
+    ap.add_argument("--content", default=str(check.CONTENT))
     ap.add_argument("--out", default=str(REPO / "build" / "gamedb" / "catalog.tar"))
     a = ap.parse_args()
     n, f = pack(a.content, a.out)

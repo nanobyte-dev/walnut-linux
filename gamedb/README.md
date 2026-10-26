@@ -15,10 +15,11 @@ Outside this folder a game may appear only as:
 - **frozen history** (docs/archive/, git, changelogs);
 - **test fixtures** that use a game as sample data.
 
-**Status (2026-10-26): the schema is written, the content hasn't moved in yet.** The catalog still
-lives in `website/gamedb/content/games/`, the packages in `packages/`, the benchmark recipes in
-`bench/`. The tools below already look here (marked *read now*); the rest is marked *planned*, with
-the migration step that brings it.
+**Status (2026-10-26): step 1a is done, the catalog lives here.** Each game's `index.md`, `thumb.png`
+and played sessions (`rating/sessions/<run>/`) are in `games/<id>/`; the site mounts them
+(website/gamedb/hugo.toml) and the app's catalog is packed from them. The packages are still in
+`packages/`, the benchmark recipes in `bench/`. The tools below already look here (marked *read now*);
+the rest is marked *planned*, with the migration step that brings it.
 
 ## Layout
 
@@ -54,7 +55,8 @@ gamedb/
 ### games/<id>/index.md
 
 TOML front matter between `+++` lines, then the notes as markdown. Keys (today's set, from
-`tools/gamedb/check.py`; the catalog moves here from `website/gamedb/content/games/` in step 1a):
+`tools/gamedb/check.py`, which also allows only `index.md`, `thumb.png` and `rating/sessions/` in a
+game's folder until the later steps add their files):
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -77,7 +79,9 @@ up to fill it; whatever a draft does have is checked like a published game's. Ev
 gets a draft bundle (step 7).
 
 Read by: `check.py` (*read now*, drafts included), `catalog.py` and `pack-catalog.py` (drafts left
-out), Hugo, `import-run.py`, `review.py`, `tools/play-pc.sh`.
+out), Hugo (website/gamedb/hugo.toml mounts `games/` as `content/games/` with an allowlist: `*/index.md`,
+`*/thumb.png`, `*/rating/sessions/*/*.jpg`; nothing else of a bundle becomes a page or a resource),
+`import-run.py`, `tools/play-pc.sh`, `tools/play-test.sh`.
 
 ### games/<id>/build.toml (and engines/<e>/build.toml)
 
@@ -94,9 +98,9 @@ How the game is built, installed and integrated. *Planned* (step 2), except `[[l
 | `[[licensed]]` `leak_files` | paths of its content in upstream tarballs, leak globs (*read now*) |
 | `[[licensed]]` `builder` | how the data package is made (*planned*) |
 
-Versions: `walnut-games`, `ps3-games` and `ps3-games-licensed` will carry `VERSION_PATHS` over
-exactly the gamedb files they consume (index.md, thumb.png, build.toml, rating/ for the app;
-build.toml and desktop/ for ps3-games), never technical.md, investigations, todo.toml, benchmark/ or
+Versions: `walnut-games` (*now*), `ps3-games` and `ps3-games-licensed` (*planned*) carry `VERSION_PATHS` over
+exactly the gamedb files they consume (index.md, thumb.png, build.toml, rating/test.toml,
+rating/sessions/*/* and packages/*/patches/** for the app; build.toml and desktop/ for ps3-games), never a session's raw/, technical.md, investigations, todo.toml, benchmark/ or
 research. `tools/deb-version.sh` reads a pattern there as GitHub's path filters do: `*` within one
 path component, `**` across them.
 
@@ -132,8 +136,11 @@ Ratings come only from played sessions; benchmarks never rate (docs/GAMEDB.md).
 
 - `test.toml`, *planned* (step 4): the played test as data the app reads, never executes: `process`,
   `home`, `play_mark`, `load_mark`, `command`.
-- `sessions/<run>/`: `result.toml` (written by `import-run.py`; today's `tests/<date>-<kind>/` move
-  here in step 1a), and *planned* (step 6) `form.toml`, `review.md`, `shots/` (every screenshot, JPEG;
+- `sessions/<run>/`: `result.toml` (written by `import-run.py`; the run names are `<date>-<kind>`, with
+  `-<hhmm>` for a second one that day) and the screenshots it lists (`ps3-<point>.jpg`, Git LFS); the
+  catalog, the site and the app name a screenshot by its path in the bundle,
+  `rating/sessions/<run>/<file>.jpg`, which is also its URL under `games/<id>/` on the site. *Planned*
+  (step 6) `form.toml`, `review.md`, `shots/` (every screenshot, JPEG;
   `pc/` for the PC reference) and `raw/` (the harness's files, scrubbed; private: the public copy strips
   `gamedb/**/raw/**`).
 
@@ -197,4 +204,5 @@ docs/research/.
 `make test` runs `tools/licensed.py check`, `github-ci/gen-workflows.py --check`,
 `tools/gamedb/blocks.py --check` and `tools/doclinks.py` (report only, for now). During the
 migration, `tools/gamedb/baseline-check.py check` compares a phase's result with the baseline saved
-before it started (build/tmp/gamedb-baseline/).
+before it started (build/tmp/gamedb-baseline/), and `tools/gamedb/catalog.py --diff OLD` lists every
+field of the catalog that changed against an older catalog.json (games and tests matched by id).

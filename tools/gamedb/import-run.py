@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """import-run.py RUN... --game ID [--launcher NAME] [--shots POINTS] [--content DIR] [--dry-run]: turn bench run
-directories into a game's tests in the Walnut Games catalog (docs/GAMEDB.md).
+directories into a game's sessions in the Walnut Games catalog (docs/GAMEDB.md).
 
 Design
 - Input: a run directory of the harness (bench/run.sh, make bench-pull: bench.txt, versions,
@@ -18,7 +18,7 @@ Design
               "window"/"duration" are the harness's own stops, not crashes
   The play start is the recipe's own mark where it has one (Warzone: the line the game prints when
   the match starts), else bench.txt's load_end; the load time is the same moment.
-- Output: <content>/<id>/tests/<date>-<kind>/result.toml, written by a small hand-rolled TOML writer
+- Output: <content>/<id>/rating/sessions/<date>-<kind>/result.toml, written by a small hand-rolled TOML writer
   (stdlib has a reader only) under a "generated, do not edit" header, and the screenshots next to it:
   ps3-<point>.jpg at 800x450 (only the PS3's pictures are published: the PC reference is for reviewing), JPEG quality 82 (ImageMagick `magick`), which the
   repository keeps in Git LFS (.gitattributes). index.md is never touched. The game must exist.
@@ -63,6 +63,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 sys.path[:0] = [str(REPO / "bench"), str(HERE)]   # python3 -I keeps the script's directory out
+import check    # noqa: E402  (the catalog's layout: SESSIONS, CONTENT)
 import report   # noqa: E402  (bench/report.py)
 import score    # noqa: E402
 import shots    # noqa: E402
@@ -782,10 +783,10 @@ def import_run(run, game, content, dry=False, launcher=None, keep=None, rules=No
     if not (gdir / "index.md").exists():
         raise Refused("%s: no %s/index.md (write the catalog entry first)" % (game, gdir))
     fm = front_matter(gdir / "index.md")
-    tdir = gdir / "tests" / ("%s-%s" % (date, kind))
+    tdir = gdir / check.SESSIONS / ("%s-%s" % (date, kind))
     old = tdir / "result.toml"
     if old.exists() and tomllib.loads(old.read_text()).get("run") != d.name:
-        tdir = gdir / "tests" / ("%s-%s-%s" % (date, kind, clock))
+        tdir = gdir / check.SESSIONS / ("%s-%s-%s" % (date, kind, clock))
     n = numbers(d, b, r)
     fv, form = form_v2(d)
     data = int(str(rules).split(".")[0]) if rules else (2 if fv >= 2 else 1)
@@ -836,7 +837,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("runs", nargs="+")
     ap.add_argument("--game", required=True, help="the game's id (its folder under the content directory)")
-    ap.add_argument("--content", default=str(REPO / "website" / "gamedb" / "content" / "games"))
+    ap.add_argument("--content", default=str(check.CONTENT))
     ap.add_argument("--launcher", help="the menu launcher's Name the run started (for runs that recorded none)")
     ap.add_argument("--shots", help="the screenshot points to publish, e.g. 60,240 (default: up to %d that differ)"
                     % SHOTS_MAX)

@@ -408,9 +408,9 @@ class AppFunctions(unittest.TestCase):
         self.assertIsNone(app.parse_helper_line("\n"))
 
     def test_screenshots_and_colours(self):
-        g = {"tests": [{"date": "2026-10-20", "ps3": ["tests/t/ps3-40s.jpg"], "pc": ["tests/t/pc-30s.jpg"]}]}
+        g = {"tests": [{"date": "2026-10-20", "ps3": ["rating/sessions/t/ps3-40s.jpg"], "pc": ["rating/sessions/t/pc-30s.jpg"]}]}
         s = app.screenshots(g)
-        self.assertEqual([r for _, r in s], ["tests/t/ps3-40s.jpg"])   # the PS3's pictures only
+        self.assertEqual([r for _, r in s], ["rating/sessions/t/ps3-40s.jpg"])   # the PS3's pictures only
         self.assertEqual(s[0][0], "Tested 2026-10-20")
         self.assertEqual(app.pill_text_color(app.MEDAL_COLORS["Gold"]), "#14304d")
         self.assertEqual(app.pill_text_color(app.MEDAL_COLORS["Scrap"]), "#f4f4f4")
@@ -453,7 +453,7 @@ def x_server():
 
 def good_game(gid="alpha", **kw):
     g = {"id": gid, "title": gid.title(), "packages": [gid], "rating": {"medal": "Gold", "score": 80, "aspects": {}},
-         "categories": ["racing"], "tests": [{"date": "2026-10-20", "ps3": ["tests/a/ps3-1.jpg"]}]}
+         "categories": ["racing"], "tests": [{"date": "2026-10-20", "ps3": ["rating/sessions/a/ps3-1.jpg"]}]}
     g.update(kw)
     return g
 

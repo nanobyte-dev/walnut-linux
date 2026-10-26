@@ -2,8 +2,9 @@
 # build.sh [--preview] OUT: build the Walnut Games site into the directory OUT (docs/GAMEDB.md).
 #
 # Steps, each of which stops the build on failure:
-#   1. check.py: the catalog (website/gamedb/content/games) is valid, no licensed package in it
-#   2. catalog.py: website/gamedb/data/catalog.json (the ratings, from the tests' result.toml); with
+#   1. check.py: the catalog (gamedb/games, mounted into the site as content/games by hugo.toml) is
+#      valid, no licensed package in it
+#   2. catalog.py: website/gamedb/data/catalog.json (the ratings, from the sessions' result.toml); with
 #      GAMEDB_DEB_INDEX=https://walnut.nanobyte.dev/apt the pages also link the .deb files of the patched
 #      games (without it, or offline, no links)
 #   3. Hugo: the pinned release of tools/gamedb/hugo.version, downloaded to build/tools/hugo-<version>/

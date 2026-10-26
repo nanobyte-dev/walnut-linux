@@ -206,7 +206,7 @@ would give the same program without the patches. What was missing was the launch
   `vanormalshort` is built in and off by default. Nothing is left unported. The real maps fill the VRAM at the engine's
   texture settings (the first session, below), hence Walnut's `texcompress 512` default.
 - Recipe `bench/recipes/sauerbraten-edition.sh` (variants `complex`, `metl3`, `lean`, `gpuskel`; `session()` is the
-  launcher alone; `PLAY_MARK` is the `read map` line); entry `website/gamedb/content/games/sauerbraten/`. Its PC reference
+  launcher alone; `PLAY_MARK` is the `read map` line); entry `gamedb/games/sauerbraten/`. Its PC reference
   (`tools/play-pc.sh`) installs the entry's packages from Debian, which has no `sauerbraten`: `PC=0 play-test.sh start
   sauerbraten` until the PC image gets our two debs.
 

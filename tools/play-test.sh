@@ -24,11 +24,11 @@ cmd=${1:-}; G=${2:-}; L=${3:-}
 # that lists it): BananaBread's entry runs the recipe that is still called sauerbraten
 E=$G; R=$G
 if [ -n "$G" ]; then
-	if [ -e "website/gamedb/content/games/$G/index.md" ]; then
-		r=$(sed -n 's/^recipes = \["\([a-z0-9-]*\).*/\1/p' "website/gamedb/content/games/$G/index.md")
+	if [ -e "gamedb/games/$G/index.md" ]; then
+		r=$(sed -n 's/^recipes = \["\([a-z0-9-]*\).*/\1/p' "gamedb/games/$G/index.md")
 		[ -n "$r" ] && [ -e "bench/recipes/$r.sh" ] && R=$r
 	else
-		e=$(grep -l "^recipes = .*\"$G[:\"]" website/gamedb/content/games/*/index.md 2>/dev/null | head -1)
+		e=$(grep -l "^recipes = .*\"$G[:\"]" gamedb/games/*/index.md 2>/dev/null | head -1)
 		[ -n "$e" ] && E=$(basename "$(dirname "$e")")
 	fi
 fi
@@ -71,7 +71,7 @@ import glob, os, sys, tomllib
 g, entry = sys.argv[1], sys.argv[2]
 kv = lambda f: dict(l.split("=", 1) for l in open(f, errors="replace").read().splitlines() if "=" in l)
 done = set()
-for r in glob.glob("website/gamedb/content/games/%s/tests/*/result.toml" % entry):
+for r in glob.glob("gamedb/games/%s/rating/sessions/*/result.toml" % entry):
     done.add(tomllib.loads(open(r).read()).get("run"))
 runs = sorted(glob.glob("build/bench/ps3-bench-*-session-%s-*" % g))
 if not runs:

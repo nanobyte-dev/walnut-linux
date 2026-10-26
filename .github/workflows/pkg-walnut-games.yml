@@ -6,7 +6,13 @@ on:
     branches: [main]
     paths:
       - "packages/walnut/apps/walnut-games/**"
-      - "website/gamedb/content/**"
+      - "gamedb/games/*/index.md"
+      - "gamedb/games/*/thumb.png"
+      - "gamedb/games/*/build.toml"
+      - "gamedb/games/*/rating/test.toml"
+      - "gamedb/games/*/rating/sessions/*/*"
+      - "gamedb/games/*/packages/*/patches/**"
+      - "gamedb/engines/*/packages/*/patches/**"
       - "tools/gamedb/catalog.py"
       - "tools/gamedb/pack-catalog.py"
       - "tools/gamedb/score.py"

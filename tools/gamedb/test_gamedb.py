@@ -360,13 +360,21 @@ class Check(unittest.TestCase):
 
     def test_test_folder_files(self):
         g = write_game(self.content)
-        t = g / "tests" / "2026-01-01-demo"
+        t = g / check.SESSIONS / "2026-01-01-demo"
         t.mkdir(parents=True)
         (t / "result.toml").write_text('schema = 1\nkind = "demo"\ngame = "ex"\n[shots]\nps3 = ["ps3-1s.jpg"]\n')
         self.assertIn("missing", " ".join(self.problems()["ex"]))
         (t / "ps3-1s.jpg").write_bytes(b"x")
         (t / "stray.dat").write_bytes(b"x")
         self.assertIn("unexpected file stray.dat", " ".join(self.problems()["ex"]))
+        (t / "stray.dat").unlink()
+        self.assertNotIn("ex", self.problems())
+        # the sessions live in rating/sessions/ only: the old tests/ folder, or anything else in rating/, is a stray
+        (g / "tests").mkdir()
+        (g / "rating" / "notes.txt").write_text("x")
+        errs = " ".join(self.problems()["ex"])
+        self.assertIn("unexpected file tests", errs)
+        self.assertIn("unexpected file rating/notes.txt", errs)
 
     def test_draft_needs_only_id_title_status(self):
         g = Path(self.content) / "cand"
@@ -412,7 +420,7 @@ class Check(unittest.TestCase):
             self.assertFalse([n for n in t.getnames() if "cand" in n])
 
     def test_repository_catalog_is_valid(self):
-        self.assertEqual(check.check(REPO / "website" / "gamedb" / "content" / "games"), {})
+        self.assertEqual(check.check(check.CONTENT), {})
 
 
 class Importer(unittest.TestCase):
@@ -442,7 +450,7 @@ class Importer(unittest.TestCase):
 
     def do(self):
         self.ir.import_run(self.run_dir, "ex", self.content)
-        out = list((self.content / "ex" / "tests").iterdir())
+        out = list((self.content / "ex" / check.SESSIONS).iterdir())
         self.assertEqual(len(out), 1)
         return tomllib.loads((out[0] / "result.toml").read_text()), out[0]
 
@@ -574,7 +582,7 @@ class Importer(unittest.TestCase):
 
     def test_launcher_option_for_old_runs(self):
         self.ir.import_run(self.run_dir, "ex", self.content, False, "OpenArena (GL 1.2)")
-        out = next((self.content / "ex" / "tests").iterdir())
+        out = next((self.content / "ex" / check.SESSIONS).iterdir())
         self.assertEqual(tomllib.loads((out / "result.toml").read_text())["launcher"], "OpenArena (GL 1.2)")
 
     def test_launcher_option_must_match_the_recorded_one(self):
@@ -621,8 +629,8 @@ def fixture_game(d):
     """OpenArena's catalog entry in d with one benchmark test (testdata/demo-result.toml, a 2026-10-20
     run): the test folder, for the tests that need a rated game"""
     g = Path(d) / "openarena"
-    shutil.copytree(REPO / "website" / "gamedb" / "content" / "games" / "openarena", g, ignore=shutil.ignore_patterns("tests"))
-    t = g / "tests" / "2026-10-20-demo"
+    shutil.copytree(check.CONTENT / "openarena", g, ignore=shutil.ignore_patterns("rating"))
+    t = g / check.SESSIONS / "2026-10-20-demo"
     t.mkdir(parents=True)
     shutil.copy(Path(__file__).parent / "testdata" / "demo-result.toml", t / "result.toml")
     return g, t
@@ -663,7 +671,7 @@ class Catalog(unittest.TestCase):
         # a capture run on a newer version doesn't move the rating off the version that was played
         with tempfile.TemporaryDirectory() as d:
             g, old = fixture_game(d)
-            new = g / "tests" / "2026-11-01-capture"
+            new = g / check.SESSIONS / "2026-11-01-capture"
             shutil.copytree(old, new)
             txt = (new / "result.toml").read_text().replace('kind = "demo"', 'kind = "capture"')
             txt = txt.replace('date = "2026-10-20"', 'date = "2026-11-01"').replace("[versions]", '[versions]\nwalnut = "0.2"')
@@ -721,7 +729,7 @@ class Catalog(unittest.TestCase):
             g, old = fixture_game(d)
             txt = re.sub(r'(?m)^launcher = .*\n', "", (old / "result.toml").read_text())
             (old / "result.toml").write_text(txt.replace('kind = "demo"', 'kind = "demo"\nlauncher = "OpenArena (GL 2.0)"'))
-            fast = g / "tests" / "2026-10-21-demo"
+            fast = g / check.SESSIONS / "2026-10-21-demo"
             fast.mkdir()
             txt = txt.replace('date = "2026-10-20"', 'date = "2026-10-21"').replace('kind = "demo"', 'kind = "demo"\nlauncher = "OpenArena (GL 1.2)"')
             txt = re.sub(r"median_fps = [0-9.]+", "median_fps = 70.0", txt)
@@ -736,12 +744,23 @@ class Catalog(unittest.TestCase):
             self.assertEqual({t["launcher"] for t in out["tests"]}, {"OpenArena (GL 1.2)", "OpenArena (GL 2.0)"})
 
     def test_repository_catalog(self):
-        cat = catalog.build(REPO / "website" / "gamedb" / "content" / "games", REPO)
+        cat = catalog.build(check.CONTENT, REPO)
         self.assertEqual(cat["schema"], 1)
         self.assertEqual(cat["content_date"], max(t["date"] for g in cat["games"] for t in g["tests"]))
         self.assertEqual(len(cat["revision"]), 16)
-        again = catalog.build(REPO / "website" / "gamedb" / "content" / "games", REPO)
+        again = catalog.build(check.CONTENT, REPO)
         self.assertEqual(again["revision"], cat["revision"])     # content only, not the clock
+        self.assertEqual(catalog.diff(cat, again), [])          # "generated" is left out
+        moved = json.loads(json.dumps(again))
+        moved["games"][0]["title"] = "Other"
+        moved["games"].append({"id": "zz-new"})
+        self.assertEqual(catalog.diff(cat, moved), ['games[%s].title: %s -> "Other"' % (
+            cat["games"][0]["id"], json.dumps(cat["games"][0]["title"])), 'games[zz-new]: (none) -> {"id": "zz-new"}'])
+        for g in cat["games"]:                                   # shots: paths inside the game's folder
+            for t in g["tests"]:
+                for rel in t["ps3"]:
+                    self.assertTrue(rel.startswith(check.SESSIONS + "/" + t["id"] + "/"), rel)
+                    self.assertTrue((check.CONTENT / g["id"] / rel).is_file(), rel)
         ids = [g["id"] for g in cat["games"]]
         self.assertTrue({"openarena", "supertuxkart", "warzone2100", "xmoto"} <= set(ids))
         for g in cat["games"]:
@@ -770,7 +789,7 @@ class RulesV1Unchanged(unittest.TestCase):
 
     def test_snapshot(self):
         snap = json.loads((HERE / "testdata" / "v1-ratings.json").read_text())
-        cat = {g["id"]: g for g in catalog.build(REPO / "website" / "gamedb" / "content" / "games", REPO)["games"]}
+        cat = {g["id"]: g for g in catalog.build(check.CONTENT, REPO)["games"]}
         same = 0
         for gid, want in snap.items():
             g = cat.get(gid)
@@ -1007,7 +1026,7 @@ class RulesSelection(unittest.TestCase):
     def test_v2_badge_from_checks(self):
         with tempfile.TemporaryDirectory() as d:
             g, old = fixture_game(d)
-            new = g / "tests" / "2026-10-27-session"
+            new = g / check.SESSIONS / "2026-10-27-session"
             new.mkdir()
             t = v2_session()
             (new / "result.toml").write_text(load_import_run().toml_dump(
@@ -1116,7 +1135,7 @@ class ImporterV2(Importer):
     def test_rules_option(self):
         (self.run_dir / "REVIEW.md").write_text(REVIEW_OK)
         self.ir.import_run(self.run_dir, "ex", self.content, rules="2.0")
-        out = next((self.content / "ex" / "tests").iterdir())
+        out = next((self.content / "ex" / check.SESSIONS).iterdir())
         self.assertEqual(tomllib.loads((out / "result.toml").read_text())["rules"], "2.0")
         with self.assertRaises(self.ir.Refused):
             self.ir.import_run(self.run_dir, "ex", self.content, rules="9.0")
