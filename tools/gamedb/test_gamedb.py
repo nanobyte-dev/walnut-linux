@@ -387,6 +387,7 @@ def write_game(content, gid="ex", **over):
     elif (g / "build.toml").exists():
         (g / "build.toml").unlink()
     (g / "thumb.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 20)
+    (g / "technical.md").write_text("# Ex: technical notes\n")
     return g
 
 
@@ -470,6 +471,13 @@ class Check(unittest.TestCase):
         text = " ".join(self.problems()["ex"])
         self.assertIn("unknown field", text)
         self.assertIn("thumb.png", text)
+
+    def test_published_game_needs_technical_md(self):
+        g = write_game(self.content)
+        (g / "technical.md").unlink()
+        self.assertIn("no technical.md", " ".join(self.problems()["ex"]))
+        (g / "index.md").write_text('+++\nid = "ex"\ntitle = "Ex"\ndraft = true\nstatus = "candidate"\n+++\n')
+        self.assertEqual(self.problems(), {})
 
     def test_build_toml_keys(self):
         write_game(self.content, colour='"red"', build='size = 3\n')
@@ -1323,26 +1331,28 @@ class RulesV2(unittest.TestCase):
         want = sum(score.WEIGHTS_V2[k] * v for k, v in r["aspects"].items() if v is not None) / \
             sum(score.WEIGHTS_V2[k] for k, v in r["aspects"].items() if v is not None)
         self.assertAlmostEqual(r["score"], want)
-        # a 400 fps game with garbage textures is Scrap, with the mean beside it and the reason
+        # a 400 fps game with garbage textures is Rust (rules 2.1), with the mean beside it and the reason
         fast = v2_session(numbers={"median_fps": 400.0, "low1_fps": 300.0},
                           review={"defects": ["garbage ps3: the terrain"]})
         r = score.combine([fast], rules=2)
-        self.assertEqual(r["medal"], "Scrap")
+        self.assertEqual(r["medal"], "Rust")
         self.assertGreater(r["score"], 80)
         self.assertEqual(r["reason"], "picture broken (garbage textures or geometry)")
         for over, word in ((dict(form={"glitches": "broken"}), "picture"), (dict(numbers={"sound_effects": "no"}), "sound"),
                            (dict(numbers={"snd_stall": 1}), "sound"), (dict(numbers={"median_fps": 18.0, "low1_fps": 12.0}), "frame rate"),
+                           (dict(numbers={"median_fps": 6.0, "low1_fps": 4.0}), "frame rate"),
                            (dict(numbers={"longest_ms": 6000.0}), "smoothness"),
-                           (dict(numbers={"stutter_s_per_min": 5.0}), "smoothness")):
+                           (dict(numbers={"stutter_s_per_min": 5.0}), "smoothness"),
+                           (dict(numbers={"stutter_s_per_min": 12.0}), "smoothness")):
             r = score.combine([v2_session(**over)], rules=2)
-            self.assertEqual(r["medal"], "Scrap", over)
+            self.assertEqual(r["medal"], "Rust", over)
             self.assertTrue(r["reason"].startswith(word + " broken"), (over, r["reason"]))
-        # one crash in two short sessions: under an hour between crashes (one in one session is the old floor)
+        # one crash in two short sessions, late in its session: under an hour between crashes, Rust
         r = score.combine([v2_session("a", end="crash"), v2_session("b")], rules=2)
-        self.assertEqual((r["medal"], r["reason"]), ("Scrap", "stability broken (1 crash in 0.3 h)"))
-        self.assertEqual(score.combine([v2_session(end="crash")], rules=2)["reason"], "crashes")
+        self.assertEqual((r["medal"], r["reason"]), ("Rust", "stability broken (1 crash in 0.3 h)"))
+        self.assertEqual(score.combine([v2_session(end="crash")], rules=2)["reason"], "crashes in 1 of 1 sessions")
         # not broken: no music alone, a game capped at 18 fps holding its cap
-        self.assertNotEqual(score.combine([v2_session(numbers={"music": "no"})], rules=2)["medal"], "Scrap")
+        self.assertNotEqual(score.combine([v2_session(numbers={"music": "no"})], rules=2)["medal"], "Rust")
         capped = v2_session(numbers={"median_fps": 18.0, "low1_fps": 17.0})
         self.assertEqual(score.combine([capped], fps_cap=18, rules=2)["broken"], [])
         # no frame times: no medal, as in rules 1
@@ -1350,6 +1360,82 @@ class RulesV2(unittest.TestCase):
         self.assertEqual(score.combine([t], rules=2)["medal"], "Untested")
         # rules 1 keeps its weakest link
         self.assertEqual(score.rate({"frame": 100, "smooth": 100, "sound": 0})["medal"], "Bronze")
+
+
+class RulesV21Medals(unittest.TestCase):
+    """rules 2.1 (2026-10-26): Platinum to Bronze from the mean, no Tin; Rust playable with a core part broken
+    or a mean under 35; Scrap unplayable (won't start, consistent crashes, under 5 fps)"""
+
+    def test_scale(self):
+        self.assertEqual(score.FORMULA[2], 1)
+        self.assertEqual(score.rules_label(2), "rules 2.1 (2026-10-26)")
+        self.assertNotIn("Tin", score.MEDALS_V2)
+        self.assertIn("Tin", score.MEDALS)                         # rules 1's scale keeps it
+        for mean, medal in ((100, "Platinum"), (90, "Platinum"), (89.9, "Gold"), (75, "Gold"), (74.9, "Silver"),
+                            (55, "Silver"), (35, "Bronze"), (34.9, "Rust"), (25, "Rust"), (10, "Rust"), (0, "Rust")):
+            self.assertEqual(score.medal_of_v2(mean), medal)
+
+    def test_mean_medals_unchanged(self):
+        # nothing broken: the mean's medal, Bronze to Platinum as before
+        self.assertEqual(score.combine([v2_session()], rules=2)["medal"], "Platinum")
+        for fps, low, stutter, longest, medal in ((30.0, 20.0, 0.5, 1000.0, "Gold"), (25.0, 12.0, 2.0, 2900.0, "Silver")):
+            r = score.combine([v2_session(numbers={"median_fps": fps, "low1_fps": low, "stutter_s_per_min": stutter,
+                                                   "longest_ms": longest})], rules=2)
+            self.assertEqual((r["medal"], r["broken"]), (score.medal_of_v2(r["score"]), []), fps)
+            self.assertEqual(r["medal"], medal, (fps, r["score"]))
+        t = v2_session(numbers={"median_fps": 25.0, "low1_fps": 15.0, "sound_effects": "partly", "music": "no",
+                                "sound_dropouts_per_min": 20.0, "longest_ms": 2900.0, "stutter_s_per_min": 1.9,
+                                "geometry": ["0 0 800 600 0 1920 1080"] * 3},
+                       review={"defects": ["missing ps3: x", "colours ps3: y"]}, form={"pad_play": "setup", "pad_menus": "didnt"})
+        r = score.combine([t], rules=2)
+        self.assertEqual((r["medal"], r["broken"]), ("Bronze", []), r["score"])
+
+    def test_low_mean_is_rust(self):
+        r = score.rate({"frame": 30, "smooth": 30, "sound": 30}, None, score.WEIGHTS_V2, False, score.medal_of_v2)
+        self.assertEqual((r["medal"], r["reason"]), ("Rust", None))
+        # a mean of 30 with nothing broken, from a whole session
+        t = v2_session(numbers={"median_fps": 22.0, "low1_fps": 11.0, "stutter_s_per_min": 4.0, "longest_ms": 4500.0,
+                                "sound_effects": "partly", "music": "no", "sound_dropouts_per_min": 30.0,
+                                "load_s": 100.0, "geometry": ["0 0 800 600 0 1920 1080"] * 3},
+                       review={"defects": ["missing ps3: x", "colours ps3: y", "flicker ps3: z"]},
+                       form={"pad_play": "setup", "pad_menus": "didnt", "menus_modes": "no"})
+        r = score.combine([t], rules=2)
+        self.assertEqual(r["broken"], [])
+        self.assertLess(r["score"], 35)
+        self.assertEqual(r["medal"], "Rust")
+
+    def test_unplayable_is_scrap(self):
+        r = score.combine([v2_session(numbers={"median_fps": 4.0, "low1_fps": 2.0})], rules=2)
+        self.assertEqual((r["medal"], r["reason"]), ("Scrap", "too slow (4.0 fps)"))
+        r = score.combine([v2_session(started=False)], rules=2)
+        self.assertEqual((r["medal"], r["reason"]), ("Scrap", "won't start"))
+        # a crash at startup, before play, in any session
+        r = score.combine([v2_session("a", end="crash", play_seconds=0.0, reached_play=False),
+                           v2_session("b"), v2_session("c")], rules=2)
+        self.assertEqual((r["medal"], r["reason"]), ("Scrap", "crashes before play"))
+        # crashes in most sessions
+        r = score.combine([v2_session("a", end="crash"), v2_session("b", end="crash"), v2_session("c")], rules=2)
+        self.assertEqual((r["medal"], r["reason"]), ("Scrap", "crashes in 2 of 3 sessions"))
+        # crashes at 30 s of play in 2 of 2 sessions (Mr.Boom's)
+        r = score.combine([v2_session("a", end="crash", play_seconds=30.0),
+                           v2_session("b", end="crash", play_seconds=30.0)], rules=2)
+        self.assertEqual((r["medal"], r["reason"]), ("Scrap", "crashes within 5 minutes of play in 2 of 2 sessions"))
+        # an early crash in half the sessions is consistent too
+        r = score.combine([v2_session("a", end="crash", play_seconds=120.0), v2_session("b")], rules=2)
+        self.assertEqual(r["medal"], "Scrap")
+
+    def test_occasional_crash_is_rust(self):
+        # one crash at 12 min of play in 1 of 2 sessions: Rust, the crash on its page
+        r = score.combine([v2_session("a", end="crash", play_seconds=720.0), v2_session("b", play_seconds=720.0)], rules=2)
+        self.assertEqual((r["medal"], r["crashes"]), ("Rust", 1))
+        self.assertEqual(r["reason"], "stability broken (1 crash in 0.4 h)")
+        self.assertGreater(r["score"], 75)
+        # one crash in three long sessions (over an hour between crashes): not broken, only Stability is lower
+        r = score.combine([v2_session("a", end="crash", play_seconds=1800.0), v2_session("b", play_seconds=1800.0),
+                           v2_session("c", play_seconds=1800.0)], rules=2)
+        self.assertEqual((r["broken"], r["crashes"]), ([], 1))
+        self.assertLess(r["aspects"]["stability"], 90)
+        self.assertEqual(r["medal"], score.medal_of_v2(r["score"]))
 
 
 def v1_session(i="v1", date="2026-10-25", fps=40.0):
@@ -1367,17 +1453,17 @@ class RulesSelection(unittest.TestCase):
         self.assertEqual(rating["aspects"]["frame"]["score"], round(score.frame_score(40, 30)))
         v2 = dict(v2_session(), versions={"xmoto": "1.0", "walnut": "0.1"})
         rating, hist = catalog.rate_launcher([v1, v2], fm)
-        self.assertEqual((rating["rules"], rating["rules_data"]), ("2.0", 2))
+        self.assertEqual((rating["rules"], rating["rules_data"]), ("2.1", 2))
         self.assertEqual(rating["aspects"]["frame"]["score"], 100)     # the v1 session isn't merged in
         self.assertEqual(rating["basis"], {"tests": 1, "kind": "session", "minutes": 9})
         self.assertEqual(rating["hours"], 0.15)                       # its play alone
         self.assertEqual(list(rating["aspects"]), score.ASPECTS[2])
         # one version tested under both rules: a row for each, the newest rules first
-        self.assertEqual([(h["rules"], h["tests"]) for h in hist], [("2.0", 1), ("1.0", 1)])
+        self.assertEqual([(h["rules"], h["tests"]) for h in hist], [("2.1", 1), ("1.0", 1)])
         # a newer Walnut release under rules 2, the old one under rules 1: History shows both
         v2b = dict(v2, versions={"xmoto": "1.0", "walnut": "0.2"}, date="2026-11-01")
         _, hist = catalog.rate_launcher([v1, v2b], fm)
-        self.assertEqual([(h["walnut"], h["rules"]) for h in hist], [("0.2", "2.0"), ("0.1", "1.0")])
+        self.assertEqual([(h["walnut"], h["rules"]) for h in hist], [("0.2", "2.1"), ("0.1", "1.0")])
         # a version-2 capture doesn't move a version-1 launcher off rules 1 (graded tests decide)
         cap = {"id": "c", "date": "2026-10-28", "kind": "capture", "rules": "2.0", "picture": {"verdict": "ok"},
                "review": {}, "versions": {"walnut": "0.1"}}
@@ -1397,8 +1483,8 @@ class RulesSelection(unittest.TestCase):
             self.assertEqual([e for e in check.check_game(g, set(), REPO) if "2026-10-27" in e], [])
             out = catalog.build_game(g, REPO, {})
             gl12 = next(l for l in out["launchers"] if l["name"] == "OpenArena (GL 1.2)")
-            self.assertEqual(gl12["rating"]["rules"], "2.0")
-            self.assertEqual(next(x for x in out["tests"] if x["id"] == "2026-10-27-session")["rules"], "2.0")
+            self.assertEqual(gl12["rating"]["rules"], "2.1")
+            self.assertEqual(next(x for x in out["tests"] if x["id"] == "2026-10-27-session")["rules"], "2.1")
             if out["rating"]["launcher"] == "OpenArena (GL 1.2)":
                 self.assertIn("controller-full", out["badges"])
 
@@ -1445,7 +1531,7 @@ class ImporterV2(Importer):
             .replace("broken: none", "broken: menus_modes pc: the editor doesn't open"))
         r, _ = self.do()
         n, f, rv = r["numbers"], r["form"], r["review"]
-        self.assertEqual(r["rules"], "2.0")
+        self.assertEqual(r["rules"], "2.0")       # the data version only: the formula is the catalog's
         self.assertNotIn("scores", r)                        # scored at catalog time
         self.assertEqual(n["sound_effects"], "yes")
         self.assertEqual(f, {"glitches": "minor", "pad_menus": "worked", "pad_play": "seamless", "keyboard_mouse": "na",

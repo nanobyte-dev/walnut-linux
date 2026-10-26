@@ -637,18 +637,28 @@ class WebLinks(unittest.TestCase):
 class RatingText(unittest.TestCase):
     def test_basis_and_problems(self):
         r = {"graded_by": "session", "basis": {"tests": 2, "kind": "session", "minutes": 19},
-             "rules_label": "rules 2.0 (2026-10-26)",
+             "rules_label": "rules 2.1 (2026-10-26)",
              "defects": [{"name": "wrong colours or blending", "points": 25, "what": "the sky", "origin": "also on the PC"}],
              "features_failed": [{"name": "saves load", "what": "", "origin": "PS3/Walnut only"}]}
-        self.assertEqual(app.basis_text(r), "2 sessions, 19 min of play; rated under rules 2.0 (2026-10-26)")
+        self.assertEqual(app.basis_text(r), "2 sessions, 19 min of play; rated under rules 2.1 (2026-10-26)")
         self.assertEqual(app.problem_lines(r), ["Picture: wrong colours or blending (the sky), -25 [also on the PC]",
                                                 "Broken: saves load [PS3/Walnut only]"])
         self.assertEqual(app.basis_text({"medal": "Gold"}), "")     # an older catalog
         self.assertEqual(app.problem_lines({}), [])
         self.assertEqual(app.step_parts("Run `ls -l` now."), [("Run ", False), ("ls -l", True), (" now.", False)])
         self.assertEqual(app.step_parts("Plain."), [("Plain.", False)])
-        self.assertEqual(app.problem_lines({"broken": ["picture broken (garbage textures or geometry)"]}),
-                         ["Scrap: picture broken (garbage textures or geometry)"])
+        # rules 2.1: broken but playable is Rust; Scrap names why it can't be played
+        self.assertEqual(app.problem_lines({"medal": "Rust", "broken": ["picture broken (garbage textures or geometry)"]}),
+                         ["Rust: picture broken (garbage textures or geometry)"])
+        self.assertEqual(app.problem_lines({"medal": "Scrap", "reason": "crashes in 2 of 2 sessions",
+                                            "broken": ["stability broken (2 crashes in 0.0 h)"]}),
+                         ["Scrap: crashes in 2 of 2 sessions", "Broken: stability broken (2 crashes in 0.0 h)"])
+
+    def test_medal_choices(self):
+        # Tin is rules 1's only: in the filter only when a game has it
+        games = [{"rating": {"medal": "Gold"}}, {"rating": {"medal": "Rust"}}]
+        self.assertEqual(app.medal_choices(games), ["Platinum", "Gold", "Silver", "Bronze", "Rust", "Scrap", "Untested"])
+        self.assertIn("Tin", app.medal_choices(games + [{"rating": {"medal": "Tin"}}]))
 
 
 class Window(unittest.TestCase):

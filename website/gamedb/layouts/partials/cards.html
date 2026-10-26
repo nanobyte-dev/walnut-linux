@@ -7,7 +7,9 @@
     {{ range sort (uniq $cats) }}<option value="{{ . }}">{{ . }}</option>{{ end }}
   </select>
   <select id="f-medal" aria-label="Medal"><option value="">All medals</option>
-    {{ range slice "Platinum" "Gold" "Silver" "Bronze" "Tin" "Rust" "Scrap" "Untested" }}<option value="{{ lower . }}">{{ . }}</option>{{ end }}
+    {{/* Tin is rules 1's only (rules 2.1 has none): listed only when a game has it */}}
+    {{ $medals := slice }}{{ range $games }}{{ $medals = $medals | append .rating.medal }}{{ end }}
+    {{ range slice "Platinum" "Gold" "Silver" "Bronze" "Tin" "Rust" "Scrap" "Untested" }}{{ if or (ne . "Tin") (in $medals "Tin") }}<option value="{{ lower . }}">{{ . }}</option>{{ end }}{{ end }}
   </select>
   <select id="f-tag" aria-label="Tag"><option value="">All tags</option>
     {{ $tags := slice }}{{ range $games }}{{ range .tags }}{{ $tags = $tags | append . }}{{ end }}{{ end }}

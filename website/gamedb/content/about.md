@@ -115,40 +115,49 @@ The rules change as we learn, and a rating names the rules that made it. A chang
 thresholds re-scores every test at once. A new kind of check needs data older tests don't have, so
 those tests keep the rules they were measured under until the game is played again.
 
-### Rules 2.0, 2026-10-26 {#rules-2}
+### Rules 2.1, 2026-10-26 {#rules-2}
 
-The current rules: everything on this page.
+The current rules: everything on this page. Rules 2.1 changed what the medals mean and nothing else:
+the scores are the same as in 2.0, and every test was re-scored. A game with something core broken
+used to be Scrap; now it is Rust, because you can still play it. Scrap is kept for games you can't
+play at all, and Tin is gone.
 
 ### Rules 1.0, 2026-10-24 {#rules-1}
 
 Older ratings use the 2026-10-24 rules: seven scores (frame rate 25, smoothness 20, sound 15, picture
 15, stability 15, display 5, load 5), no Controls or Features, the picture judged right or wrong as a
 whole, the display from the window's size alone, the tester's own settings, and a weakest-link cap
-(a medal at most one level above the weakest score) in place of the broken rule.
+(a medal at most one level above the weakest score) in place of the broken rule. Their medals go one
+step further down: {{< medal "Tin" >}} (playable, but rough) for an average of 25 to 35, Rust (barely
+playable) for 15 to 25, and Scrap under 15, or for a game that doesn't start, crashes in most
+sessions, or runs under 15 frames a second.
 
 ## The medals
 
-The medal comes from the weighted average of the scores.
+The top four medals come from the weighted average of the scores.
 
-| Medal | What it means | Average |
+| Medal | What it means | When |
 |---|---|---|
-| {{< medal "Platinum" >}} | Plays like on a PC | 90 or more |
-| {{< medal "Gold" >}} | Plays well | 75 or more |
-| {{< medal "Silver" >}} | Good, with compromises | 55 or more |
-| {{< medal "Bronze" >}} | Works, with clear problems | 35 or more |
-| {{< medal "Tin" >}} | Playable, but rough | 25 or more |
-| {{< medal "Rust" >}} | Barely playable | 15 or more |
-| {{< medal "Scrap" >}} | Doesn't work: won't start, crashes, far too slow, or something core is broken | under 15, or broken |
+| {{< medal "Platinum" >}} | Awesome | an average of 90 or more |
+| {{< medal "Gold" >}} | Playable, but not quite ideal | 75 or more |
+| {{< medal "Silver" >}} | Playable, with some rough edges, but not bad | 55 or more |
+| {{< medal "Bronze" >}} | At the limit of playable | 35 or more |
+| {{< medal "Rust" >}} | You can play it, but part of it is broken: no sound or bad sound, a very low frame rate, broken textures, big stutters, the odd crash | something core is broken, or an average under 35 |
+| {{< medal "Scrap" >}} | You can't play it | it won't start, it keeps crashing, or it runs under 5 frames a second |
 | {{< medal "Untested" >}} | Nobody has played it on Walnut yet | |
 
 **An average, unless something is broken.** The average gives leeway: a game that is perfect except
 for running at 50 frames a second loses a few points, not a medal, and a weak spot costs only its
-share. But a game where a core part is broken is Scrap however fast it runs, with its average shown
-next to it ("Scrap · 82") and what's broken: garbled textures or geometry, no sound effects, under 20
+share. But a game where a core part is broken is Rust however fast it runs, with its average shown
+next to it ("Rust · 82") and what's broken: garbled textures or geometry, no sound effects, under 20
 frames a second, freezes over 5 seconds or 5 seconds of stutter a minute, or a crash within an hour
-of play. A game that doesn't start, crashes in most sessions, runs under 15 frames a second or
-stutters for more than 10 seconds a minute is Scrap too. Controls, features, display and load never
-make a game Scrap: they only count in the average.
+of play. Controls, features, display and load never make a game Rust or Scrap: they only count in
+the average.
+
+**Scrap means you can't play it.** A game is Scrap when it doesn't start, crashes at startup or
+before you get to play, crashes in more than half of its sessions, crashes within the first 5
+minutes of play in half of its sessions or more, or runs under 5 frames a second. A crash now and
+then, say once 12 minutes into one of two sessions, is Rust, and the crash is on the game's page.
 
 **Games with more than one launcher.** Some games have two entries in the menu, like OpenArena
 with its GL 1.2 and GL 2.0 renderers. Each is played and rated on its own, and the game's medal is

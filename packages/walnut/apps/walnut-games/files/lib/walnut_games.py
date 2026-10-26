@@ -64,6 +64,7 @@ TEXT, MUTED, ENTRY = "#ececec", "#c9a87c", "#091726"
 CARD_HOVER = "#12304f"
 
 MEDAL_ORDER = ["Platinum", "Gold", "Silver", "Bronze", "Tin", "Rust", "Scrap", "Untested"]
+OLD_MEDALS = {"Tin"}    # rules 1's scale only (rules 2.1 has none): in the filter only when a game has it
 MEDAL_COLORS = {"Platinum": "#e5e4e2", "Gold": "#d4af37", "Silver": "#c0c0c0", "Bronze": "#cd7f32",
                 "Tin": "#9a9ea3", "Rust": "#8a4b32", "Scrap": "#5f5a55", "Untested": "#6f7a86"}
 DETAILS_W = 372     # the details pane's content width
@@ -259,10 +260,19 @@ def step_parts(step):
     return [(t, i % 2 == 1) for i, t in enumerate(step.split("`")) if t]
 
 
+def medal_choices(games):
+    """the medal filter's entries: MEDAL_ORDER, without a medal of an old rules scale (Tin) no game has"""
+    have = {medal_of(g) for g in games}
+    return [m for m in MEDAL_ORDER if m not in OLD_MEDALS or m in have]
+
+
 def problem_lines(rating):
-    """rules 2's broken core subsystems (they make the game Scrap whatever its mean), then its defects and failed
-    checks, each with where it comes from ("also on the PC", "PS3/Walnut only")"""
-    out = ["Scrap: " + "; ".join(rating["broken"])] if rating.get("broken") else []
+    """why a game is Scrap (rules 2.1: it can't be played), rules 2's broken core subsystems (they make a playable
+    game Rust whatever its mean), then its defects and failed checks, each with where it comes from ("also on the
+    PC", "PS3/Walnut only")"""
+    out = ["Scrap: " + rating["reason"]] if rating.get("medal") == "Scrap" and rating.get("reason") else []
+    if rating.get("broken"):
+        out.append(("Rust: " if rating.get("medal") == "Rust" else "Broken: ") + "; ".join(rating["broken"]))
     for d in rating.get("defects") or []:
         out.append("Picture: %s%s, -%d%s" % (d.get("name", ""), " (%s)" % d["what"] if d.get("what") else "",
                                              d.get("points", 0), " [%s]" % d["origin"] if d.get("origin") else ""))
@@ -553,7 +563,7 @@ class App:
         self.search.pack(side="left", padx=(0, 10))
         cats = sorted({c for g in self.games for c in g.get("categories", [])})
         for var, vals, wd, name in ((self.v_cat, ["All"] + cats, 12, "Category"),
-                                    (self.v_medal, ["All"] + MEDAL_ORDER, 10, "Medal"),
+                                    (self.v_medal, ["All"] + medal_choices(self.games), 10, "Medal"),
                                     (self.v_sort, ["Best first", "Name"], 10, "Sort")):
             ttk.Label(bar, text=name, style="Muted.TLabel", background=PANEL).pack(side="left", padx=(8, 2))
             cb = ttk.Combobox(bar, textvariable=var, values=vals, state="readonly", width=wd)

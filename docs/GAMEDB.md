@@ -67,7 +67,7 @@ only sessions count: scripted runs and unattended soaks add no hours.
 ## How a game is rated
 
 Each aspect gets a score from 0 to 100, on the same scale for every game; the medal comes from the
-weighted mean of the scores. The current rules, 2.0 (2026-10-26):
+weighted mean of the scores. The current rules, 2.1 (2026-10-26):
 
 | Aspect | Weight | Measured | 0 | 100 |
 |---|---|---|---|---|
@@ -82,10 +82,11 @@ weighted mean of the scores. The current rules, 2.0 (2026-10-26):
 | Load | 3 | the initial load plus the level load (below) | 120 s | 15 s |
 
 **The medal is the weighted mean's**, with no weakest link: a weak aspect costs points, not a medal
-level. The one exception: **a broken core subsystem makes the game Scrap**, whatever its mean, and
-the page names it next to the mean ("Scrap · 82: picture broken (garbage textures or geometry)"). We
-can't call a game with corrupted textures or no sound good because it runs at 400 fps. Broken is an
-explicit flag, not a score threshold (a garbage-texture deduction still leaves Picture at 40):
+level. The one exception: **a broken core subsystem makes the game Rust**, whatever its mean, and
+the page names it next to the mean ("Rust · 82: picture broken (garbage textures or geometry)"). We
+can't call a game with corrupted textures or no sound good because it runs at 400 fps, but it is still
+playable, so it isn't Scrap ([The medals](#the-medals)). Broken is an explicit flag, not a score
+threshold (a garbage-texture deduction still leaves Picture at 40):
 
 | Core aspect | Broken when |
 |---|---|
@@ -93,11 +94,13 @@ explicit flag, not a score threshold (a garbage-texture deduction still leaves P
 | Sound | the player heard no sound effects, or the sound device wedged (missing music alone isn't) |
 | Frame rate | the median is under 20 fps (the score's 0 point), unless the game's own cap is lower and held |
 | Smoothness | a freeze over 5 s in play, or 5 s of stutter a minute |
-| Stability | under an hour of play between crashes (and, as always, crashes in most sessions) |
+| Stability | under an hour of play between crashes (occasional crashes; consistent ones are Scrap) |
 
-Controls, Features, Display and Load never make a game Scrap: they only weigh in the mean. The other
-Scrap floors stay: won't start, doesn't reach play, crashes in most sessions, too slow (a median under
-15 fps or 10 s of stutter a minute).
+Controls, Features, Display and Load never make a game Rust or Scrap: they only weigh in the mean.
+Scrap is for a game that can't be played at all (score.py `scrap_floor_v2`): it won't start, a
+session crashes at startup or before play, no session reaches play, it crashes in more than half
+of its sessions, half its sessions or more crash within the first 5 minutes of play
+(`EARLY_CRASH_S`), or the median is under 5 fps (`UNPLAYABLE_FPS`).
 
 **Picture**, from 100, each category deducted once per launcher however often it shows, floor 0.
 The reviewer's answers (`<category>: no`, or `<category>: pc|ps3: where`):
@@ -228,7 +231,7 @@ to play).
 
 ## Rules versions
 
-A rating says which rules made it ("rules 2.0 (2026-10-26)"), as `<data>.<formula>`:
+A rating says which rules made it ("rules 2.1 (2026-10-26)"), as `<data>.<formula>`:
 
 - **The data version** says which data points a test has. A test keeps the data version it was
   measured under (result.toml `rules = "2.0"`; a test without the field is 1.0) until it is re-tested.
@@ -249,7 +252,15 @@ from those tests alone: versions never merge. History has a row per Walnut and g
 data version, and the test list names each test's rules. The website's about page explains the
 current rules and links each rating's rules to its section.
 
-**Rules 2.0 (2026-10-26)**, current: the tables above. A session is data version 2 when its form is the
+**Rules 2.1 (2026-10-26)**, current: the tables above. A formula revision of data version 2 (`FORMULA[2] = 1`):
+the medals were redefined (the user, 2026-10-26), with the weights and curves unchanged. Platinum,
+Gold, Silver and Bronze come from the mean as before; Tin is gone; Rust is a playable game with a
+core subsystem broken (or a mean under 35); Scrap only a game that can't be played (consistent
+crashes, under 5 fps). Every data-version-2 test was re-scored; no medal moved (Mr.Boom stays Scrap:
+it crashed within 30 s of play in both its sessions).
+
+**Rules 2.0 (2026-10-26)**: the same data and scores; a broken core subsystem made the game Scrap,
+the scale was rules 1's (Tin included), and the Scrap floors were rules 1's. A session is data version 2 when its form is the
 second one (session.toml `form_version = 2`, `import-run.py --rules 2.0` for a run reviewed the new way).
 Its data points beyond 1.0: the game on shipped defaults (the settings set aside), the raw window
 samples with the pointer, black bars, the desktop's return after the quit, the input log with press
@@ -274,22 +285,37 @@ has the broken-subsystem rule instead.
 
 ## The medals
 
-| Medal | Meaning | Weighted mean |
+Rules 2.1 (the user's meanings, 2026-10-26; score.py `MEDALS_V2`):
+
+| Medal | Meaning | When |
 |---|---|---|
-| **Platinum** | plays like on a PC | 90 or more |
-| **Gold** | plays well | 75 or more |
-| **Silver** | good, with compromises | 55 or more |
-| **Bronze** | works, with clear problems | 35 or more |
-| **Tin** | playable, but rough | 25 to 35 |
-| **Rust** | barely playable | 15 to 25 |
-| **Scrap** | doesn't work: won't start, doesn't reach play, crashes in most sessions, too slow (a median under 15 fps, or over 10 s of stutter a minute), or a core subsystem broken (rules 2.0) | under 15, or any of those |
+| **Platinum** | awesome | a mean of 90 or more |
+| **Gold** | playable, but below ideal | 75 or more |
+| **Silver** | playable, with some rough edges, but not that bad | 55 or more |
+| **Bronze** | at the limit of playable | 35 or more |
+| **Rust** | playable, but some part is broken: no or bad sound, a very low frame rate, broken textures, big stutters, occasional crashes | a core subsystem broken (`broken_v2`, any mean), or a mean under 35 |
+| **Scrap** | completely unplayable | won't start, crashes at startup or before play, no session reaches play, crashes in more than half the sessions or within 5 minutes of play in half of them or more, a median under 5 fps |
 | **Untested** | nobody has played it on Walnut yet | |
 
-- **The mean, and broken means Scrap** (rules 2.0). The mean gives leeway: a game perfect everywhere
+Rules 1.0 keep their own scale (score.py `MEDALS`, `medal_of`): Platinum to Bronze as above, **Tin**
+(playable, but rough) 25 to 35, **Rust** (barely playable) 15 to 25, **Scrap** under 15 or a floor
+(won't start, doesn't reach play, crashes in most sessions, a median under 15 fps or over 10 s of
+stutter a minute). No rating is Tin today; the site's and the app's medal filters list Tin only when a
+game has it.
+
+- **The mean, and broken means Rust** (rules 2.1). The mean gives leeway: a game perfect everywhere
   at 50 fps loses a few points, not a medal, and one weak aspect costs only its weight. A broken core
-  subsystem isn't averaged away: the game is Scrap, with the mean shown beside it and what's broken
+  subsystem isn't averaged away: the game is Rust, with the mean shown beside it and what's broken
   ([How a game is rated](#how-a-game-is-rated)). Rules 1.0 had a weakest-link cap instead.
-- **Scrap shows its reason**: won't start, crashes, too slow, or what's broken.
+- **Occasional crashes are Rust, consistent ones Scrap** (rules 2.1). A crash late in one of two
+  sessions (12 min into play) is Rust, the crash on the page ("stability broken (1 crash in 0.4 h)");
+  one crash with over an hour of play between crashes only lowers Stability. Scrap needs the crash
+  to be consistent: at startup or before play in any session, in more than half the sessions, or
+  within the first 5 minutes of play in half of them or more (Mr.Boom: 30 s into both sessions). A
+  single session that crashed is 1 of 1, more than half: Scrap until another session shows it was
+  occasional.
+- **Rust and Scrap show their reason**: won't start, crashes (how many, how early), too slow, or what's
+  broken.
 - **Sessions measured alike are merged** (medians), those of the newest version measured the way its
   newest session was: a session from before the sound dropout logger isn't merged with one after it
   (catalog.py `method`), nor one of another rules data version; it stays on the page as a test run.
@@ -312,7 +338,8 @@ has the broken-subsystem rule instead.
 - **No medal without frame rate and smoothness.** They are the core of a rating; a session where
   the frame timer saw nothing (a software renderer doesn't go through OpenGL, which the timer hooks)
   gets its numbers but no medal ("played, but not rated: frame rate and smoothness not measured"),
-  unless it crashed, which makes it Scrap either way (score.py `REQUIRED`).
+  unless a Scrap floor applies (a crash before play, consistent crashes), which makes it Scrap either way
+  (score.py `REQUIRED`).
 - **The recorder's own dropouts don't count.** Taking a screenshot reads 8 MB of video memory and
   starves the sound for a moment; the audible dropouts from half a second before a capture to two
   seconds after it are left out (result.toml keeps their number as `sound_dropouts_at_shots`).

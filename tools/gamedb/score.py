@@ -32,8 +32,10 @@ Controls and Features (checklists from the form, the input log and the review), 
 fixed deductions per defect category (the reviewer's answers and the form's glitches answer), take
 deductions off Display (stretched, a desktop pointer, small text: the reviewer's), count a hang on
 quit like a crash in Stability, add the level load to Load, and replace the weakest link by one rule: a
-broken core subsystem makes the game Scrap (broken_v2): combine(tests, rules=2) and
-test_scores_v2(test). A rating never mixes the two: catalog.py picks a launcher's newest data version
+broken core subsystem caps the medal (broken_v2): combine(tests, rules=2) and test_scores_v2(test).
+Formula 2.1 (2026-10-26) redefines the medals of data version 2 (MEDALS_V2): Platinum to Bronze from the mean,
+no Tin; Rust for a playable game with a core subsystem broken (or a mean under Bronze's); Scrap only for a
+game that can't be played (scrap_floor_v2: won't start, crashes consistently, under 5 fps). A rating never mixes the two: catalog.py picks a launcher's newest data version
 and rates it from those tests alone.
 """
 import functools
@@ -54,7 +56,7 @@ ASPECT_NAMES = {"frame": "Frame rate", "smooth": "Smoothness", "sound": "Sound",
 # thresholds for that data version, applied at catalog time to every test of it (a test stores its raw
 # numbers and answers, never only scores). A new criterion that needs new data is a new data version;
 # a changed weight or threshold, or a dropped aspect, is a new formula revision (bump FORMULA[data]).
-FORMULA = {1: 0, 2: 0}
+FORMULA = {1: 0, 2: 1}
 RULES = {1: {"date": "2026-10-24", "anchor": "rules-1"},
          2: {"date": "2026-10-26", "anchor": "rules-2"}}
 CURRENT_DATA = 2
@@ -92,9 +94,16 @@ def rules_label(data):
 WEIGHTS_V2 = {"frame": 22, "smooth": 18, "sound": 12, "picture": 12, "stability": 12, "controls": 10, "display": 6,
               "features": 5, "load": 3}
 ALL_ASPECT_NAMES = dict(ASPECT_NAMES, controls="Controls", features="Features")
-# rules 2: no weakest link; a broken core subsystem (broken_v2) makes the game Scrap whatever its mean
-# (the page shows the mean next to it: "Scrap · 82, picture broken"); Controls, Features, Display and
+# rules 2: no weakest link; a broken core subsystem (broken_v2) makes the game Rust whatever its mean
+# (rules 2.1; the page shows the mean next to it: "Rust · 82, picture broken"); Controls, Features, Display and
 # Load only weigh in the mean
+# rules 2.1's medals (the user, 2026-10-26): Platinum awesome, Gold playable but below ideal, Silver playable
+# with some rough edges, Bronze at the limit of playable; Rust playable but a core part broken (no or bad
+# sound, a very low frame rate, broken textures, big stutters, occasional crashes) or a mean under 35; Scrap
+# completely unplayable (scrap_floor_v2). No Tin: rules 1's scale (MEDALS) keeps it
+MEDALS_V2 = ["Scrap", "Rust", "Bronze", "Silver", "Gold", "Platinum"]
+UNPLAYABLE_FPS = 5          # rules 2.1: a median under this is Scrap ("too slow to play")
+EARLY_CRASH_S = 300         # rules 2.1: a crash within this much play is an early one (the first few minutes)
 ASPECTS = {1: list(WEIGHTS), 2: list(WEIGHTS_V2)}
 WEIGHTS_OF = {1: WEIGHTS, 2: WEIGHTS_V2}
 
@@ -254,15 +263,24 @@ def medal_of(score):
     return "Scrap"
 
 
+def medal_of_v2(score):
+    """rules 2.1's medal of a weighted mean: Platinum to Bronze as rules 1, below Bronze Rust (no Tin)"""
+    for m in ("Platinum", "Gold", "Silver", "Bronze"):
+        if score >= THRESHOLDS[m]:
+            return m
+    return "Rust"
+
+
 def level(score):
     """an aspect's level on the Platinum..Bronze scale as an index into MEDALS; below Bronze is Tin's"""
     return max(MEDALS.index(medal_of(score)), MEDALS.index("Tin"))
 
 
-def rate(scores, floor_reason=None, weights=WEIGHTS, weakest_link=True):
+def rate(scores, floor_reason=None, weights=WEIGHTS, weakest_link=True, medal_fn=medal_of):
     """{score, medal, weakest, capped, reason} from the aspect scores. floor_reason: a Scrap floor.
     weights: the rules' (WEIGHTS for rules 1, WEIGHTS_V2). weakest_link: rules 1's cap, the medal at most one
-    level above the weakest aspect (rules 2 has none: its cap is broken_cap())"""
+    level above the weakest aspect (rules 2 has none: a broken subsystem makes it Rust, combine_v2).
+    medal_fn: the mean's medal (medal_of_v2 for rules 2.1)"""
     mean = weighted_mean(scores, weights)
     if mean is None:
         return {"score": None, "medal": "Untested", "weakest": None, "capped": False, "reason": None}
@@ -270,7 +288,7 @@ def rate(scores, floor_reason=None, weights=WEIGHTS, weakest_link=True):
     weakest = min(got, key=lambda k: got[k])
     if floor_reason:
         return {"score": mean, "medal": "Scrap", "weakest": weakest, "capped": False, "reason": floor_reason}
-    medal = medal_of(mean)
+    medal = medal_fn(mean)
     if not weakest_link:
         return {"score": mean, "medal": medal, "weakest": weakest, "capped": False, "reason": None}
     cap = MEDALS[min(level(got[weakest]) + 1, len(MEDALS) - 1)]
@@ -289,6 +307,29 @@ def scrap_floor(median_fps=None, stutter=None, started=True, reached_play=True, 
         return "crashes"
     if (median_fps is not None and median_fps < TOO_SLOW_FPS) or (stutter is not None and stutter > TOO_SLOW_STUTTER):
         return "too slow"
+    return None
+
+
+def scrap_floor_v2(tests, median_fps=None):
+    """rules 2.1: the reason a launcher's played sessions can't be played at all (Scrap), or None. Consistent
+    crashes only: one at startup or before play in any session, crashes in more than half the sessions with
+    play, or crashes within EARLY_CRASH_S of play in half of them or more; occasional crashes are broken_v2's
+    (Rust). Too slow: a median under UNPLAYABLE_FPS"""
+    if not all(t.get("started", True) for t in tests):
+        return "won't start"
+    if any(end_failure(t) == "crash" and not (t.get("reached_play", True) and t.get("play_seconds")) for t in tests):
+        return "crashes before play"
+    if not any(t.get("reached_play", True) for t in tests):
+        return "doesn't reach play"
+    played = [t for t in tests if t.get("play_seconds")]
+    crashed = [t for t in played if end_failure(t) == "crash"]
+    early = [t for t in crashed if t["play_seconds"] < EARLY_CRASH_S]
+    if early and len(early) * 2 >= len(played):
+        return "crashes within %d minutes of play in %d of %d sessions" % (EARLY_CRASH_S // 60, len(early), len(played))
+    if len(crashed) * 2 > len(played):
+        return "crashes in %d of %d sessions" % (len(crashed), len(played))
+    if median_fps is not None and median_fps < UNPLAYABLE_FPS:
+        return "too slow (%.1f fps)" % median_fps
     return None
 
 
@@ -580,7 +621,8 @@ def combine_v2(tests, fps_cap=None, designed_for="pad"):
     didn't change (medians of frame, smooth, sound, load over the graded tests); Picture, Display, Controls
     and Features from the launcher's sessions together (only sessions, kind "session", count at all); Stability counts crashes and unclean quits over the
     play of the sessions (scripted runs and soaks never count: nobody is playing). No weakest link:
-    the mean's medal, Scrap when a core subsystem is broken (broken_v2). designed_for: "keyboard-mouse" scores Controls on the keyboard and mouse
+    the mean's medal (rules 2.1's scale, MEDALS_V2), Rust when a core subsystem is broken (broken_v2), Scrap when
+    it can't be played (scrap_floor_v2). designed_for: "keyboard-mouse" scores Controls on the keyboard and mouse
     alone (the gamepad only makes the badge). Adds {rules, hangs, defects, display_deductions,
     controls_failed, features_failed, checks, controller, play_seconds, details, broken}."""
     tests = [t for t in tests if t.get("kind") == "session"]   # rules 2: only real played sessions count
@@ -635,17 +677,15 @@ def combine_v2(tests, fps_cap=None, designed_for="pad"):
              "designed_for": designed_for}
     base = {"aspects": scores, "numbers": nums, "hours": hours, "crashes": crashes, "sessions": len(sessions), **extra}
     if not graded and scores["picture"] is None:
-        return dict(base, provisional=True, graded_by=None, **rate({}, None, WEIGHTS_V2, False))
+        return dict(base, provisional=True, graded_by=None, **rate({}, None, WEIGHTS_V2, False, medal_of_v2))
     if not graded:
         base["aspects"] = {k: (v if k == "picture" else None) for k, v in scores.items()}
-        return dict(base, provisional=True, graded_by="capture", **rate({}, None, WEIGHTS_V2, False))
-    floor = scrap_floor(
-        nums["median_fps"], nums["stutter_s_per_min"],
-        started=all(t.get("started", True) for t in graded),
-        reached_play=any(t.get("reached_play", True) for t in graded),
-        crashed_sessions=crashes, sessions=len(played))
+        return dict(base, provisional=True, graded_by="capture", **rate({}, None, WEIGHTS_V2, False, medal_of_v2))
+    floor = scrap_floor_v2(graded, nums["median_fps"])
     broken = broken_v2(graded, nums, found, worst, crashes, hours, fps_cap)
-    rated = rate(scores, floor or ("; ".join(broken) if broken else None), WEIGHTS_V2, False)
+    rated = rate(scores, floor, WEIGHTS_V2, False, medal_of_v2)
+    if not floor and broken and rated["score"] is not None:   # playable, a core part broken: Rust, the mean beside it
+        rated = dict(rated, medal="Rust", reason="; ".join(broken))
     missing = [ALL_ASPECT_NAMES[k].lower() for k in REQUIRED if scores.get(k) is None]
     if missing and not floor:
         rated = {"score": None, "medal": "Untested", "weakest": None, "capped": False,

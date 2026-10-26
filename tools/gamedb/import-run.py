@@ -813,7 +813,9 @@ def derive(d, game, content, launcher=None, keep=None, rules=None):
         n["shot_points"] = len(ps3)
         n["shot_differing"] = 0 if verdict == "ok" else len(ps3)
     scores = score.test_scores(n, fm.get("fps_cap"))
-    top = {"schema": 1, "rules": "%d.%d" % (data, score.FORMULA[data]), "kind": kind, "date": date, "run": d.name,
+    # the record keeps its data version only ("2.0"): the formula revision is applied at catalog time (a
+    # formula change re-scores every test of the data version without a re-import, docs/GAMEDB.md "Rules versions")
+    top = {"schema": 1, "rules": "%d.0" % data, "kind": kind, "date": date, "run": d.name,
            "game": game, "variant": b.get("variant"),
            "launcher": launcher, "play_seconds": play, "end": end, "crashed": crashed, "started": True, "reached_play": play > 0,
            "render": "1920x1080"}

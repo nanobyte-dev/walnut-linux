@@ -5,6 +5,7 @@
 {{ $r := . }}
 {{ $order := $r.order | default (slice "frame" "smooth" "sound" "picture" "stability" "display" "load") }}
 {{ if eq $r.medal "Scrap" }}{{ with $r.reason }}<p class="note">Scrap: {{ . }}.</p>{{ end }}
+{{ else if and (eq $r.medal "Rust") $r.reason }}<p class="note">Rust, playable but broken: {{ $r.reason }}.</p>
 {{ else if $r.capped }}<p class="note">The mean alone would be higher; the medal is capped by the weakest aspect ({{ $r.reason }}).</p>{{ end }}
 <table class="aspects">
   <thead><tr><th>Aspect</th><th>Score (of 100)</th><th></th><th>What was measured</th></tr></thead>
