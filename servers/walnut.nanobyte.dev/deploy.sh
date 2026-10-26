@@ -86,6 +86,7 @@ ssh "$host" "set -e
 		rm $DIR/state/\$u
 	done
 	sudo -n systemctl daemon-reload
+	sudo -n systemctl reset-failed walnut-watch.path walnut-watch.service || true
 	sudo -n systemctl enable --now walnut-watch.path walnut-watch.timer walnut-ccache-trim.timer >/dev/null
 	systemctl is-active walnut-watch.path walnut-watch.timer walnut-ccache-trim.timer | xargs echo '>> watcher, trim:'"
 # fail2ban's walnut-upload jail (bans in DOCKER-USER, like nginx-scanners)

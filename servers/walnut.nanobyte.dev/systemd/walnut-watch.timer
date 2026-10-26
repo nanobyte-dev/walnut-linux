@@ -1,8 +1,8 @@
 [Unit]
-Description=Walnut: publish uploaded bundles (fallback to the path unit, 10m)
+Description=Walnut: publish uploaded bundles (fallback to the path unit, 2m)
 [Timer]
 OnBootSec=5min
-OnUnitActiveSec=10min
+OnUnitActiveSec=2min
 Unit=walnut-watch.service
 [Install]
 WantedBy=timers.target

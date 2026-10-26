@@ -1,6 +1,7 @@
 [Unit]
 Description=Walnut: publish uploaded bundles (walnut.nanobyte.dev)
 After=docker.service
+StartLimitIntervalSec=0
 [Service]
 Type=oneshot
 User=tibi

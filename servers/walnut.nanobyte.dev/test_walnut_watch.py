@@ -417,6 +417,15 @@ class Watch(unittest.TestCase):
 		with open(f"{self.root}/.env") as f:
 			self.assertEqual(f.read(), "WALNUT_SITE_TAG=s1\n")
 
+	# --- systemd units ---
+
+	def test_units_never_hit_the_start_limit(self):
+		"""47 uploads at once made the path unit fail on the default start limit (2026-10-26)."""
+		here = os.path.dirname(os.path.abspath(__file__))
+		for u in ("walnut-watch.path", "walnut-watch.service"):
+			with open(f"{here}/systemd/{u}") as f:
+				self.assertIn("StartLimitIntervalSec=0", f.read(), u)
+
 
 if __name__ == "__main__":
 	unittest.main()

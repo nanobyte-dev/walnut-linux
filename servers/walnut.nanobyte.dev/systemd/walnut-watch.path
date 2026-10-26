@@ -1,5 +1,8 @@
 [Unit]
 Description=Walnut: watch for uploaded bundles
+# many files landing at once start the service more often than the default limit (5 in 10 s) allows; past it
+# systemd marks the path unit failed and nothing but the timer ran again (2026-10-26: 6 h of 10-minute verdicts)
+StartLimitIntervalSec=0
 [Path]
 PathChanged=/data/nanobyte/Walnut/incoming/site
 PathChanged=/data/nanobyte/Walnut/incoming/download
