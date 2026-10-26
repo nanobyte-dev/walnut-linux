@@ -4,7 +4,7 @@ packages = ["quakespasm"]
 suite = "licensed"
 needs_data = true
 data = ["quake-shareware"]
-divert = ["/usr/share/applications/quakespasm.desktop"]
+divert = ["/usr/share/applications/net.sourceforge.quakespasm.Quakespasm.desktop"]	# Debian 0.96.3 names its entry so (quakespasm.desktop before)
 recipes = ["quakespasm:base"]
 
 [[licensed]]

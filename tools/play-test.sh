@@ -58,6 +58,8 @@ stop)
 		[ -n \"\$c\" ] || { c=\$(sed -n 's/^COMM=//p' /var/tmp/bench/games/$R/recipe.sh | head -1); c=\${c%%[[:space:]]*}; }
 		c=\${c:0:15}; [ -n \"\$c\" ] && pkill -TERM -x \"\$c\"
 		for i in \$(seq 30); do sleep 1
+			# a game can hang in its own SIGTERM handler (ioquake3, 2026-10-27: on a futex, SIGTERM blocked)
+			[ \$i = 10 ] && [ -n \"\$c\" ] && pkill -KILL -x \"\$c\"
 			f=\$(pgrep -a -x python3 | grep session-form.py | cut -d' ' -f1); [ -n \"\$f\" ] && kill \$f
 			systemctl --user is-active -q walnut-session-$R || break; done
 		systemctl --user is-active -q walnut-session-$R && echo '!! still running' || echo '>> PS3: $R session ended'"
