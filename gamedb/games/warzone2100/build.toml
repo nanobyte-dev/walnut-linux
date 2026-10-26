@@ -1,0 +1,5 @@
+# How Warzone 2100 is built, installed and integrated (gamedb/README.md "build.toml").
+packages = ["warzone2100", "warzone2100-data", "warzone2100-music"]
+suite = "none"
+needs_data = false
+recipes = ["warzone2100:base"]

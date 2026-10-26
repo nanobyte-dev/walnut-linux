@@ -6,10 +6,6 @@ categories = ["racing"]
 tags = ["kart", "3d", "multiplayer", "family"]
 license = "GPL-3.0-or-later"
 homepage = "https://supertuxkart.net/"
-packages = ["supertuxkart", "supertuxkart-data"]
-patched_by = ["supertuxkart"]
-recipes = ["supertuxkart:lean"]
-needs_data = false
 controller = "partial"
 known_issues = [
   "About 24 frames a second in races at the lean settings: light tracks play well, heavy ones (Ravenbridge Mansion) are slow.",

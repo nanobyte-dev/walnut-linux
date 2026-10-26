@@ -1,0 +1,7 @@
+# How OpenRCT2 is built, installed and integrated (gamedb/README.md "build.toml").
+# RollerCoaster Tycoon 2's data, from the player's own CD (make licensed-data PKG=rct2-data INPUT=<image>)
+data = ["rct2-data"]
+
+[[licensed]]
+name = "rct2-data"
+builder = "script"

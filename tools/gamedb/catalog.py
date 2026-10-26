@@ -3,14 +3,14 @@
 file the website's templates (Hugo reads it as data) and the desktop app (later, packaged) use.
 
 Design
-- Per game: the front matter, the rating computed by score.combine() from its sessions' result.toml (rating/sessions/<run>/)
+- Per game: the front matter (index.md, and build.toml's packages, needs_data, desktop and recipes), the rating computed by score.combine() from its sessions' result.toml (rating/sessions/<run>/)
   (never stored: change the scoring and every medal follows), a test summary per test, the badges
   and the "patched by Walnut" facts. The result:
     {"schema": 1, "generated": "<UTC>", "content_date", "revision", "games": [{"id", "title", ..., "rating": {...}, "tests": [...],
       "patched": bool, "patches": [{source, subject, file, url}], "debs": [{"package", "url"}], "badges": [...]}]}
   Scores are rounded to whole numbers here, the only place that rounds.
-- Patched by Walnut: a game whose patched_by names a source package of ours (tools/pkg-dir.sh: a package.conf with
-  <dir>/patches/series). The patches are listed by the Subject: line of each patch file (linked to the file on the public repository's main branch), in series
+- Patched by Walnut: a game whose bundle's packages/ or engine's packages/ (check.patched_by) holds a source
+  package of ours with <dir>/patches/series. The patches are listed by the Subject: line of each patch file (linked to the file on the public repository's main branch), in series
   order. With --deb-index URL (the apt repository root, e.g. https://walnut.nanobyte.dev/apt) the
   stable suite's dists/stable/main/binary-ppc64/Packages.xz is read and each of the game's packages
   found there gets a direct .deb link (Filename: -> URL/<Filename>). Without the option, or without a
@@ -44,7 +44,8 @@ LOW_MEMORY_KB = 10 * 1024
 
 
 def read_game(gdir):
-    fm = check.front_matter(gdir / "index.md")
+    # index.md, with build.toml's packages, needs_data, desktop, recipes and the derived patched_by
+    fm = check.game_facts(gdir)
     tests = []
     tdir = gdir / check.SESSIONS
     for t in sorted(tdir.iterdir()) if tdir.is_dir() else []:

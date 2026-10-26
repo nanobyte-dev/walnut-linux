@@ -1,0 +1,5 @@
+# How Mr.Boom is built, installed and integrated (gamedb/README.md "build.toml").
+packages = ["mrboom"]
+suite = "none"
+needs_data = false
+recipes = ["mrboom:base"]

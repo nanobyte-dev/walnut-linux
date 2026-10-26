@@ -1,0 +1,5 @@
+# How Neverball is built, installed and integrated (gamedb/README.md "build.toml").
+packages = ["neverball", "neverball-common", "neverball-data"]
+suite = "free"
+needs_data = false
+recipes = ["neverball:base"]

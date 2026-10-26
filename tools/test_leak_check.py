@@ -92,7 +92,7 @@ class LeakCheck(unittest.TestCase):
         self.assertIn("LEAK: licensed package game-data", out)
 
     def test_listed_name_without_section(self):
-        # classicube-data is in tools/licensed-packages.txt: licensed whatever its Section says
+        # classicube-data is a licensed name (its licensed/ directory, its build.toml): licensed whatever its Section says
         make_deb(os.path.join(self.d, "cd.deb"), "classicube-data", "games", {"./x": b"y"})
         self.assertEqual(run("debs", os.path.join(self.d, "cd.deb"))[0], 1)
 

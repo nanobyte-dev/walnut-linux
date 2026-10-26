@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -281,16 +282,28 @@ class RulesTwoSessionsOnly(unittest.TestCase):
         self.assertEqual(score.combine([sess, crashed], rules=2)["crashes"], 0)
 
 
+BUILD_KEYS = ("packages", "engine", "suite", "needs_data", "data", "desktop", "divert", "image_base", "recipes")
+
+
 def write_game(content, gid="ex", **over):
+    """a game folder: index.md, and build.toml with the keys of BUILD_KEYS (over: TOML values; build=None
+    leaves build.toml out, build="text" appends text to it)"""
     fm = {"id": gid, "title": "Example", "summary": "An example.", "categories": '["puzzle"]', "tags": '["a"]',
           "license": '"GPL-2.0-or-later"', "homepage": '"https://example.org/"', "packages": '["example"]',
-          "desktop": '["example.desktop"]', "needs_data": "false", "controller": '"keyboard"'}
-    fm = {k: (v if k in ("categories", "tags", "license", "homepage", "packages", "desktop", "needs_data",
-                         "controller") else '"%s"' % v) for k, v in fm.items()}
+          "desktop": '["example.desktop"]', "needs_data": "false", "controller": '"keyboard"', "suite": '"none"'}
+    fm = {k: (v if k in ("categories", "tags", "license", "homepage", "controller") + BUILD_KEYS else '"%s"' % v)
+          for k, v in fm.items()}
+    extra = over.pop("build", "")
     fm.update(over)
+    bt = {k: v for k, v in fm.items() if k in BUILD_KEYS}
+    fm = {k: v for k, v in fm.items() if k not in BUILD_KEYS}
     g = Path(content) / gid
     g.mkdir(parents=True, exist_ok=True)
     (g / "index.md").write_text("+++\n" + "\n".join("%s = %s" % kv for kv in fm.items()) + "\n+++\nbody\n")
+    if extra is not None:
+        (g / "build.toml").write_text("".join("%s = %s\n" % kv for kv in bt.items()) + extra)
+    elif (g / "build.toml").exists():
+        (g / "build.toml").unlink()
     (g / "thumb.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 20)
     return g
 
@@ -301,7 +314,11 @@ class Check(unittest.TestCase):
         self.content = Path(self.tmp.name) / "games"
         self.repo = Path(self.tmp.name) / "repo"
         (self.repo / "tools").mkdir(parents=True)
-        (self.repo / "tools" / "licensed-packages.txt").write_text("# comment\nquake-shareware\nrct2-data  # x\n")
+        (self.repo / "tools" / "licensed-files.txt").write_text("# comment\n*.prx\n")
+        (self.repo / "gamedb" / "games" / "q").mkdir(parents=True)
+        (self.repo / "gamedb" / "games" / "q" / "build.toml").write_text(
+            '[[licensed]]\nname = "quake-shareware"\nbuilder = "game-data-packager:quake"\n'
+            '[[licensed]]\nname = "rct2-data"  # x\nbuilder = "script"\n')
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -357,6 +374,88 @@ class Check(unittest.TestCase):
         text = " ".join(self.problems()["ex"])
         self.assertIn("unknown field", text)
         self.assertIn("thumb.png", text)
+
+    def test_build_toml_keys(self):
+        write_game(self.content, colour='"red"', build='size = 3\n')
+        text = " ".join(self.problems()["ex"])
+        self.assertIn("build.toml: unknown key 'size'", text)
+        self.assertIn("unknown field 'colour'", text)
+        write_game(self.content, build=None)                    # a published game needs one
+        self.assertIn("no build.toml", " ".join(self.problems()["ex"]))
+        write_game(self.content, draft="true", status='"candidate"', build=None)   # a draft doesn't
+        self.assertEqual(self.problems(), {})
+        write_game(self.content, suite='"some"')
+        self.assertIn("suite 'some'", " ".join(self.problems()["ex"]))
+        write_game(self.content, needs_data='"no"')
+        self.assertIn("'needs_data' should be bool", " ".join(self.problems()["ex"]))
+        write_game(self.content, suite='"licensed"')            # licensed: its data is
+        self.assertIn("no data package is licensed", " ".join(self.problems()["ex"]))
+        write_game(self.content, suite='"licensed"', data='["quake-shareware"]')
+        self.assertEqual(self.problems(), {})
+        write_game(self.content, divert='["usr/share/x.desktop"]', image_base="true")
+        self.assertIn("divert", " ".join(self.problems()["ex"]))
+
+    def test_build_toml_licensed(self):
+        lic = '[[licensed]]\nname = "ex-data"\nbuilder = "source"\n'
+        write_game(self.content, build=lic)
+        self.assertEqual(self.problems(), {})       # no licensed directory anywhere: the public copy
+        g = self.content / "ex" / "licensed" / "ex-data"
+        g.mkdir(parents=True)
+        (g / "package.conf").write_text("")
+        other = self.content / "ex" / "licensed" / "ex-music"
+        other.mkdir()
+        text = " ".join(self.problems()["ex"])
+        self.assertIn("licensed/ex-music is not declared", text)
+        other.rmdir()
+        self.assertEqual(self.problems(), {})
+        (g / "package.conf").unlink()                # a source builder is a package
+        self.assertIn("needs licensed/ex-data/package.conf", " ".join(self.problems()["ex"]))
+        write_game(self.content, build=lic.replace('"source"', '"script"'))
+        self.assertIn("needs licensed/ex-data/ex-data.sh", " ".join(self.problems()["ex"]))
+        (g / "ex-data.sh").write_text("")
+        self.assertEqual(self.problems(), {})
+        write_game(self.content, build=lic.replace('"source"', '"cd"') + 'size = 1\n')
+        text = " ".join(self.problems()["ex"])
+        self.assertIn("builder 'cd'", text)
+        self.assertIn("unknown key 'size'", text)   # inside [[licensed]]
+        write_game(self.content, build=lic.replace('"source"', '"game-data-packager:ex"'))
+        self.assertIn("game-data-packager makes it", " ".join(self.problems()["ex"]))
+        write_game(self.content, build=lic.replace('"source"', '"script"') + 'leak_files = ["/abs"]\n')
+        self.assertIn("leak_files", " ".join(self.problems()["ex"]))
+
+    def test_build_toml_engine_and_packages(self):
+        e = self.content.parent / "engines" / "eng"
+        e.mkdir(parents=True)
+        self.content.mkdir()
+        (e / "engine.md").write_text('+++\nid = "eng"\ntitle = "Eng"\ngames = ["ex"]\n+++\n')
+        self.assertIn("doesn't say engine", " ".join(self.problems()["engines/eng"]))
+        write_game(self.content, engine='"eng"')
+        self.assertEqual(self.problems(), {})
+        write_game(self.content, engine='"other"')
+        self.assertIn("no gamedb/engines/other", " ".join(self.problems()["ex"]))
+        (e / "build.toml").write_text('packages = ["eng"]\nsuite = "free"\n')
+        write_game(self.content, engine='"eng"')
+        self.assertIn("an engine's", " ".join(self.problems()["engines/eng"]))
+        (e / "build.toml").write_text('packages = ["eng"]\n')
+        self.assertEqual(self.problems(), {})
+        # with an apt index, every package is in it or built by a debian/control of ours
+        self.assertEqual(check.check(self.content, self.repo, apt={"example", "eng"}), {})
+        self.assertIn("neither in the apt index", " ".join(check.check(self.content, self.repo, apt={"eng"})["ex"]))
+
+    def test_game_facts_and_patched_by(self):
+        e = self.content.parent / "engines" / "eng"
+        (e / "packages" / "eng").mkdir(parents=True)
+        (e / "packages" / "eng" / "package.conf").write_text("")
+        (e / "engine.md").write_text('+++\nid = "eng"\ntitle = "Eng"\ngames = ["ex"]\n+++\n')
+        g = write_game(self.content, engine='"eng"', recipes='["ex:base"]')
+        (g / "packages" / "ex").mkdir(parents=True)
+        (g / "packages" / "ex" / "package.conf").write_text("")
+        (g / "packages" / "notapkg").mkdir()
+        fm = check.game_facts(g)
+        self.assertEqual(fm["patched_by"], ["ex", "eng"])
+        self.assertEqual((fm["packages"], fm["needs_data"], fm["desktop"], fm["recipes"]),
+                         (["example"], False, ["example.desktop"], ["ex:base"]))
+        self.assertNotIn("suite", fm)
 
     def test_test_folder_files(self):
         g = write_game(self.content)
@@ -421,6 +520,38 @@ class Check(unittest.TestCase):
 
     def test_repository_catalog_is_valid(self):
         self.assertEqual(check.check(check.CONTENT), {})
+
+
+class BuildInfo(unittest.TestCase):
+    """tools/gamedb/build-info.py over a small gamedb tree"""
+    def run_info(self, root, *args):
+        p = subprocess.run([sys.executable, "-I", str(HERE / "build-info.py"), "--root", str(root)] + list(args),
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        return p.returncode, p.stdout.split()
+
+    def test_answers(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t) / "gamedb"
+            for gid, text in (("q", 'packages = ["quakespasm"]\nsuite = "licensed"\ndata = ["quake-shareware"]\n'
+                                    '[[licensed]]\nname = "quake-shareware"\nbuilder = "game-data-packager:quake"\n'),
+                              ("r", 'data = ["rct2-data"]\n[[licensed]]\nname = "rct2-data"\nbuilder = "script"\n'),
+                              ("f", 'packages = ["free", "free-data"]\nsuite = "free"\n')):
+                (root / "games" / gid).mkdir(parents=True)
+                (root / "games" / gid / "build.toml").write_text(text)
+            self.assertEqual(self.run_info(root, "game-data"), (0, ["quake:quake-shareware"]))
+            self.assertEqual(self.run_info(root, "scripts"), (0, ["rct2-data"]))
+            self.assertEqual(self.run_info(root, "needs-licensed"), (0, ["quakespasm"]))
+            self.assertEqual(self.run_info(root, "data", "q"), (0, ["quake-shareware"]))
+            self.assertEqual(self.run_info(root, "packages", "f"), (0, ["free", "free-data"]))
+            self.assertEqual(self.run_info(root, "packages", "none")[0], 2)
+            self.assertEqual(self.run_info(root, "script", "rct2-data")[0], 2)    # no licensed/ here
+            (root / "games" / "r" / "licensed" / "rct2-data").mkdir(parents=True)
+            (root / "games" / "r" / "licensed" / "rct2-data" / "rct2-data.sh").write_text("")
+            self.assertEqual(self.run_info(root, "script", "rct2-data"),
+                             (0, ["gamedb/games/r/licensed/rct2-data/rct2-data.sh"]))
+            self.assertEqual(self.run_info(root, "script", "quake-shareware")[0], 2)
+            (root / "games" / "f" / "build.toml").write_text("packages = [\n")
+            self.assertEqual(self.run_info(root, "game-data")[0], 2)            # fails closed
 
 
 class Importer(unittest.TestCase):

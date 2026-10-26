@@ -1,0 +1,16 @@
+# Paths left out of upstream's ClassiCube tarball for our +dfsg orig tarball (orig.mk: tar --delete, a
+# directory with everything in it), relative to its top directory: the console ports' assets. Upstream's
+# copies of Mojang's textures and Minecraft's sounds (plain, zipped, embedded in a C header), a 3DS
+# banner sound of unknown origin and Sony's PS4 SDK modules. The Linux build uses none of them.
+# tools/licensed.py reads every entry as a leak glob (E and E/*): tools/leak-check.py refuses a free
+# source whose tarballs carry one.
+misc/cc_textures.zip
+misc/cc_audio.zip
+misc/ps1/classicube.zip
+misc/ps1/classicubezip.h
+misc/ps1/sounds
+misc/n64/files/default.zip
+misc/3ds/audio.wav
+misc/3ds/banner.bin
+misc/ps4/right.sprx
+misc/ps4/sce_module

@@ -6,10 +6,6 @@ categories = ["shooter"]
 tags = ["fps", "classic", "3d", "single player"]
 license = "GPL-2.0-or-later"
 homepage = "https://www.yamagi.org/quake2/"
-packages = ["yamagi-quake2", "yamagi-quake2-core"]
-patched_by = ["yquake2"]
-recipes = ["yquake2:kiss4k"]
-needs_data = true
 data_guide = "https://github.com/yquake2/yquake2#readme"
 data_steps = [
   "Turn on Debian's contrib section once, where the tool that packs game data lives: `printf 'Types: deb\\nURIs: http://deb.debian.org/debian-ports\\nSuites: unstable unreleased\\nComponents: contrib\\n' | sudo tee /etc/apt/sources.list.d/debian-contrib.sources`.",

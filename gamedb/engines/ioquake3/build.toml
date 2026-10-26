@@ -1,0 +1,2 @@
+# How the ioquake3 engine is built and installed (gamedb/README.md "build.toml").
+packages = ["ioquake3"]

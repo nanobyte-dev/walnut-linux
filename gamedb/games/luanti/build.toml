@@ -1,0 +1,5 @@
+# How Luanti is built, installed and integrated (gamedb/README.md "build.toml").
+packages = ["luanti", "luanti-data", "luanti-game-minetest"]
+suite = "none"
+needs_data = false
+recipes = ["luanti:base"]

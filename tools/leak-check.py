@@ -12,7 +12,7 @@
                                                  matching a leak glob (tools/licensed.py globs)
 
 What is licensed is tools/licensed.py's answer (its names, the Section rule, its leak globs; it reads
-tools/licensed-packages.txt, tools/licensed-files.txt and the licensed directories): a binary package
+gamedb's build.toml [[licensed]], tools/licensed-files.txt, the dfsg-exclude.txt files and the licensed directories): a binary package
 is licensed when its Section is non-free/* or local/* or its name is a licensed name; a source
 package when its name is one or any package in its Package-List is licensed. Exit status: 0 clean,
 1 a leak (each one printed), 2 usage or a licensed declaration that can't be read (fails closed).

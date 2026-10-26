@@ -1,0 +1,5 @@
+# How SuperTuxKart is built, installed and integrated (gamedb/README.md "build.toml").
+packages = ["supertuxkart", "supertuxkart-data"]
+suite = "none"
+needs_data = false
+recipes = ["supertuxkart:lean"]

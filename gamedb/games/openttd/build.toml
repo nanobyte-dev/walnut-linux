@@ -1,0 +1,6 @@
+# How OpenTTD is built, installed and integrated (gamedb/README.md "build.toml").
+packages = ["openttd", "openttd-opengfx", "openttd-opensfx", "openttd-openmsx"]
+suite = "free"
+needs_data = false
+divert = ["/usr/share/applications/openttd.desktop"]
+recipes = ["openttd:base"]

@@ -6,10 +6,6 @@ categories = ["racing", "sports"]
 tags = ["3d", "penguin", "downhill", "courses"]
 license = "GPL-2.0-or-later"
 homepage = "https://sourceforge.net/projects/extremetuxracer/"
-packages = ["extremetuxracer", "extremetuxracer-data"]
-patched_by = ["etr"]
-recipes = ["etr:base"]
-needs_data = false
 controller = "full"
 +++
 

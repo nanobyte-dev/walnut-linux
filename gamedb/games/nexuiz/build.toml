@@ -1,0 +1,2 @@
+# How Nexuiz Classic is built, installed and integrated (gamedb/README.md "build.toml").
+engine = "darkplaces"

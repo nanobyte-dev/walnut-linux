@@ -6,9 +6,6 @@ categories = ["shooter"]
 tags = ["fps", "classic", "3d", "single player", "mods"]
 license = "GPL-2.0-or-later"
 homepage = "https://quakespasm.sourceforge.net/"
-packages = ["quakespasm"]
-recipes = ["quakespasm:base"]
-needs_data = true
 data_guide = "https://quakespasm.sourceforge.net/"
 data_steps = [
   "Turn on Debian's contrib section once, where the tool that packs game data lives: `printf 'Types: deb\\nURIs: http://deb.debian.org/debian-ports\\nSuites: unstable unreleased\\nComponents: contrib\\n' | sudo tee /etc/apt/sources.list.d/debian-contrib.sources`.",

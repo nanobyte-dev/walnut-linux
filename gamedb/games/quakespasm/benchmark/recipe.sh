@@ -1,4 +1,4 @@
-# QuakeSpasm 0.96.3 (Debian) with the Quake shareware data (quake-shareware from make quake-data:
+# QuakeSpasm 0.96.3 (Debian) with the Quake shareware data (quake-shareware from make game-data:
 # /usr/share/games/quake/id1/pak0.pak): timedemo of the shareware's demo1, fullscreen 1920x1080.
 # -nopackedpixels: 0.96.3's packed-pixels lightmaps have wrong colours on big-endian (quakespasm
 # issue #114; nv30 has no 10-bit format anyway). It doesn't quit after a timedemo: stopped at the

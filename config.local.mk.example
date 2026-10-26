@@ -11,7 +11,7 @@ PS3_USER            := walnut
 # This PC: netboot's HTTP server, the NFS root's server, netconsole's target
 PC_IP               := 192.168.1.10
 PC_MAC              := 00:00:00:00:00:00
-# The login of walnut.nanobyte.dev's password-protected licensed suite (make publish, make quake-data;
+# The login of walnut.nanobyte.dev's password-protected licensed suite (make publish, make game-data;
 # else apt-repo/licensed-auth.sh reads pass Projects/Walnut/LicensedRepo)
 #WALNUT_LICENSED_USER := walnut
 #WALNUT_LICENSED_PASS := <password>

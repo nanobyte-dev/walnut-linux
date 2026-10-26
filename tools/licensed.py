@@ -17,16 +17,19 @@ tools/gamedb/check.py.
 Names, the union of:
   - every directory under packages/licensed/ and gamedb/<games|engines>/<id>/licensed/ (a licensed
     package or data builder lives there and nowhere else)
-  - [[licensed]] name = "..." in gamedb/<games|engines>/<id>/build.toml (planned: Phase 2)
-  - tools/licensed-packages.txt, the seed list (names with no directory of ours: game-data-packager's
-    quake-shareware, the CD/zip-made rct2-data and tyrian-data)
+  - [[licensed]] name = "..." in gamedb/<games|engines>/<id>/build.toml: every game's licensed data,
+    also the names with no directory of ours (game-data-packager's quake-shareware) and, in the public
+    copy (no licensed directory), all of them
+  - GENERIC: the names that are no game's, licensed in every checkout (the metapackage
+    ps3-games-licensed, whose directory packages/licensed/ the public copy doesn't have)
 A binary package is also licensed when its Section is non-free/* or local/*.
-Leak globs, the union of: tools/licensed-files.txt; [[licensed]] leak_files in build.toml; every
-dfsg-exclude.txt of a package of ours (an entry E as E and E/*). Shell patterns (fnmatch: * crosses /),
-matched against a tarball path with and without its top directory.
+Leak globs, the union of: tools/licensed-files.txt (the generic ones: Sony's SDK modules); [[licensed]]
+leak_files in build.toml; every dfsg-exclude.txt of a package of ours (an entry E as E and E/*). Shell
+patterns (fnmatch: * crosses /), matched against a tarball path with and without its top directory.
 
-check: every licensed directory is declared (seed or build.toml); no package directory outside a
-licensed location carries a licensed name; every debian/control of ours gives its binaries a Section
+check: every gamedb licensed/<pkg>/ directory is declared in its own bundle's build.toml [[licensed]]
+(packages/licensed/<pkg>/ is licensed by where it is); no package directory outside a licensed
+location carries a licensed name; every debian/control of ours gives its binaries a Section
 local/* or non-free/* exactly when the source is licensed (and a free source builds no licensed name);
 all or none: a checkout has every licensed directory git tracks or (the public copy) none tracked and
 none present.
@@ -45,8 +48,9 @@ import tomllib
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-SEED = "tools/licensed-packages.txt"
 FILES = "tools/licensed-files.txt"
+# licensed names that are no game's (gamedb holds the games'): in every checkout, the public copy too
+GENERIC = ("ps3-games-licensed",)
 # where licensed package directories live (relative glob patterns, one directory level each)
 LICENSED_DIR_GLOBS = ("packages/licensed/*", "gamedb/games/*/licensed/*", "gamedb/engines/*/licensed/*")
 BUILD_TOML_GLOBS = ("gamedb/games/*/build.toml", "gamedb/engines/*/build.toml")
@@ -132,7 +136,7 @@ def build_tomls(tree):
 
 
 def declared(tree):
-    """{name: where it is declared} from build.toml [[licensed]] and the seed list"""
+    """{name: the build.toml that declares it} from build.toml [[licensed]], and GENERIC"""
     out = {}
     for f, t in build_tomls(tree):
         lic = t.get("licensed", [])
@@ -143,8 +147,8 @@ def declared(tree):
             if not isinstance(n, str) or not NAME_RE.match(n):
                 raise Error("%s: [[licensed]] %d: name %r is not a package name" % (f, i + 1, n))
             out.setdefault(n, f)
-    for n in read_list(tree, SEED, "name"):
-        out.setdefault(n, SEED)
+    for n in GENERIC:
+        out.setdefault(n, "tools/licensed.py GENERIC")
     return out
 
 
@@ -234,8 +238,11 @@ def check(repo=REPO, since=None):
     lic_dirs = licensed_dirs(tree)
     for d in lic_dirs:
         n = d.rsplit("/", 1)[1]
-        if n not in decl:
-            probs.append("%s: a licensed directory whose name isn't declared (%s or a build.toml [[licensed]])" % (d, SEED))
+        if d.startswith("gamedb/"):
+            own = "/".join(d.split("/")[:3]) + "/build.toml"
+            if decl.get(n) != own and not any(n == e.get("name") for f, t in build_tomls(tree) if f == own
+                                               for e in t.get("licensed", []) if isinstance(e, dict)):
+                probs.append("%s: a licensed directory its bundle doesn't declare (%s [[licensed]] name = %r)" % (d, own, n))
     # every package directory of ours
     p = subprocess.run([str(Path(repo) / "tools" / "pkg-dir.sh"), "--all"], stdout=subprocess.PIPE,
                        stderr=subprocess.PIPE, text=True)

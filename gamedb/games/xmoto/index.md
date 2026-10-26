@@ -6,10 +6,6 @@ categories = ["platformer", "racing"]
 tags = ["2d", "physics", "bike", "levels"]
 license = "GPL-2.0-or-later"
 homepage = "https://xmoto.tuxfamily.org/"
-packages = ["xmoto", "xmoto-data"]
-patched_by = ["xmoto"]
-recipes = ["xmoto:base"]
-needs_data = false
 controller = "full"
 +++
 

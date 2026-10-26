@@ -6,11 +6,6 @@ categories = ["shooter"]
 tags = ["fps", "multiplayer", "bots", "3d", "map editor"]
 license = "Zlib"
 homepage = "http://sauerbraten.org/"
-packages = ["sauerbraten", "cube2"]
-desktop = ["sauerbraten.desktop"]
-patched_by = ["cube2"]
-recipes = ["sauerbraten:base"]
-needs_data = true
 data_guide = "http://sauerbraten.org/"
 data_steps = [
   "Install the game with the Install button, or `sudo apt install sauerbraten`.",

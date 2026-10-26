@@ -1,0 +1,14 @@
+# How QuakeSpasm is built, installed and integrated (gamedb/README.md "build.toml").
+packages = ["quakespasm"]
+# in ps3-games, not in the public ps3-games-free: its data is licensed
+suite = "licensed"
+needs_data = true
+data = ["quake-shareware"]
+divert = ["/usr/share/applications/quakespasm.desktop"]
+recipes = ["quakespasm:base"]
+
+[[licensed]]
+# Quake's shareware data (game-data-packager: Section non-free/games; make game-data)
+name = "quake-shareware"
+builder = "game-data-packager:quake"
+leak_files = ["*id1/pak[0-9].pak"]

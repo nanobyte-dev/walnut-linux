@@ -46,15 +46,17 @@ def git(root, *args):
 
 class Tree(unittest.TestCase):
     """a fake repository with this checkout's tools/ scripts copied in"""
-    SEED = "# seed\nquake-shareware\nrct2-data  # from the CD\n"
+    # the games' licensed data without a directory of ours (gamedb build.toml [[licensed]])
+    DECL = ('[[licensed]]\nname = "quake-shareware"\nbuilder = "game-data-packager:quake"\n'
+            '[[licensed]]\nname = "rct2-data"  # from the CD\nbuilder = "script"\n')
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name) / "repo"
-        for f in ("pkg-dir.sh", "licensed.py", "deb-version.sh", "image-packages.sh"):
+        for f in ("pkg-dir.sh", "licensed.py", "deb-version.sh", "image-packages.sh", "gamedb/build-info.py"):
             write(self.root, "tools/" + f)
             shutil.copy(HERE / f, self.root / "tools" / f)
-        write(self.root, "tools/licensed-packages.txt", self.SEED)
+        write(self.root, "gamedb/games/q/build.toml", self.DECL)
         write(self.root, "tools/licensed-files.txt", "# globs\nmisc/cc_audio.zip\n*id1/pak[0-9].pak\n")
 
     def tearDown(self):
@@ -137,7 +139,7 @@ class Licensed(Tree):
               '[[licensed]]\nname = "g-music"\n')
         write(self.root, "gamedb/games/g/packages/g/dfsg-exclude.txt", "misc/sounds\nmisc/x.wav\n")
         self.assertEqual(licensed.names(self.root),
-                         {"quake-shareware", "rct2-data", "game-data", "g-data", "g-music"})
+                         {"quake-shareware", "rct2-data", "game-data", "g-data", "g-music", "ps3-games-licensed"})
         self.assertEqual(licensed.globs(self.root), ["misc/cc_audio.zip", "*id1/pak[0-9].pak", "data/*.pk3",
                                                      "misc/sounds", "misc/sounds/*", "misc/x.wav", "misc/x.wav/*"])
         self.assertEqual(licensed.glob_hit("top-1/misc/sounds/a.ogg", licensed.globs(self.root)), "misc/sounds/*")
@@ -158,22 +160,29 @@ class Licensed(Tree):
         self.assertEqual(r.returncode, 2)
         write(self.root, "gamedb/games/g/build.toml", '[[licensed]]\nname = "Bad Name"\n')
         self.assertEqual(self.run_tool(sys.executable, "-I", "tools/licensed.py", "names").returncode, 2)
-        os.unlink(self.root / "gamedb/games/g/build.toml")
-        (self.root / "tools/licensed-packages.txt").unlink()
+        write(self.root, "gamedb/games/g/build.toml", 'licensed = "g-data"\n')
         self.assertEqual(self.run_tool(sys.executable, "-I", "tools/licensed.py", "names").returncode, 2)
+        os.unlink(self.root / "gamedb/games/g/build.toml")
+        self.assertEqual(self.run_tool(sys.executable, "-I", "tools/licensed.py", "names").returncode, 0)
+        (self.root / "tools/licensed-files.txt").unlink()
+        self.assertEqual(self.run_tool(sys.executable, "-I", "tools/licensed.py", "globs").returncode, 2)
 
     def test_check(self):
         git(self.root, "init", "-q")
         self.pkg("packages/licensed/game-data", control=self.CONTROL_LIC)
         self.pkg("packages/patched/games/engine", control=self.CONTROL_FREE)
-        write(self.root, "tools/licensed-packages.txt", self.SEED + "game-data\n")
+        write(self.root, "gamedb/games/g/build.toml", '[[licensed]]\nname = "g-music"\n')
         git(self.root, "add", "-A")
         git(self.root, "commit", "-qm", "one")
+        # packages/licensed/game-data is licensed by where it is: no declaration
         self.assertEqual(self.check(), [])
-        # undeclared licensed directory
+        # a gamedb licensed directory its own bundle doesn't declare (another bundle's declaration doesn't count)
         self.pkg("gamedb/games/g/licensed/g-data")
-        self.assertIn("isn't declared", " ".join(self.check()))
-        write(self.root, "gamedb/games/g/build.toml", '[[licensed]]\nname = "g-data"\n')
+        self.assertIn("doesn't declare", " ".join(self.check()))
+        write(self.root, "gamedb/games/q/build.toml", self.DECL + '[[licensed]]\nname = "g-data"\n')
+        self.assertIn("doesn't declare", " ".join(self.check()))
+        write(self.root, "gamedb/games/q/build.toml", self.DECL)
+        write(self.root, "gamedb/games/g/build.toml", '[[licensed]]\nname = "g-data"\n[[licensed]]\nname = "g-music"\n')
         self.assertEqual(self.check(), [])
         # Section and location rules
         write(self.root, "packages/patched/games/engine/debian/control", self.CONTROL_FREE.replace("Section: games", "Section: local/games"))
@@ -190,18 +199,21 @@ class Licensed(Tree):
         self.assertIn("partial checkout", " ".join(self.check()))
         git(self.root, "add", "-A")
         git(self.root, "commit", "-qm", "two")
-        # the set only grows: game-data was licensed at HEAD~1 and is still (seed); drop it from the seed
+        # the set only grows: game-data was licensed at HEAD~1 (its directory) and is still (the directory is
+        # gone, but g's build.toml declares it now); g-music's declaration dropped is a shrink
+        write(self.root, "gamedb/games/g/build.toml", '[[licensed]]\nname = "g-data"\n[[licensed]]\nname = "g-music"\n'
+              '[[licensed]]\nname = "game-data"\n')
         self.assertEqual(self.check("HEAD~1"), [])
-        write(self.root, "tools/licensed-packages.txt", self.SEED)
-        self.assertIn("game-data", " ".join(self.check("HEAD~1")))
+        write(self.root, "gamedb/games/g/build.toml", '[[licensed]]\nname = "g-data"\n[[licensed]]\nname = "game-data"\n')
+        self.assertIn("g-music", " ".join(self.check("HEAD~1")))
 
     def test_public_checkout(self):
         git(self.root, "init", "-q")
         git(self.root, "add", "-A")
         git(self.root, "commit", "-qm", "one")
         self.assertEqual(self.check(), [])
+        self.assertIn("ps3-games-licensed", licensed.names(self.root))   # GENERIC: also in the public copy
         self.pkg("packages/licensed/game-data", control=self.CONTROL_LIC)
-        write(self.root, "tools/licensed-packages.txt", self.SEED + "game-data\n")
         self.assertIn("public checkout", " ".join(self.check()))
 
 
@@ -230,12 +242,16 @@ class DebVersion(Tree):
 class ImagePackages(Tree):
     def test_public_profile(self):
         write(self.root, "system/image/packages-ours.txt",
-              "# ours\nlinux-image-ps3\nlinux-image-ps3-debug\nps3-games\nrct2-data\nclassicube\nps3-desktop\n")
+              "# ours\nlinux-image-ps3\nlinux-image-ps3-debug\nps3-games\nps3-games-licensed\nrct2-data\nclassicube\n"
+              "ps3-desktop\n")
+        # classicube: a game whose data is licensed (suite = "licensed"), so not in the public image
+        write(self.root, "gamedb/games/cc/build.toml", 'packages = ["classicube"]\nsuite = "licensed"\n')
         dev = self.run_tool("tools/image-packages.sh", "dev").stdout.split()
-        self.assertEqual(dev, ["linux-image-ps3", "linux-image-ps3-debug", "ps3-games", "rct2-data", "classicube", "ps3-desktop"])
+        self.assertEqual(dev, ["linux-image-ps3", "linux-image-ps3-debug", "ps3-games", "ps3-games-licensed", "rct2-data",
+                               "classicube", "ps3-desktop"])
         self.assertEqual(self.run_tool("tools/image-packages.sh", "public").stdout.split(),
                          ["linux-image-ps3", "ps3-games-free", "ps3-desktop"])
-        (self.root / "tools/licensed-packages.txt").unlink()
+        write(self.root, "gamedb/games/cc/build.toml", 'packages = ["classicube"\n')   # fails closed
         self.assertNotEqual(self.run_tool("tools/image-packages.sh", "public").returncode, 0)
 
 
@@ -284,7 +300,8 @@ class Blocks(Tree):
         self.assertEqual(blocks.main(["--check", "--repo", str(self.root)]), 1)
         self.assertEqual(blocks.main(["--write", "--repo", str(self.root)]), 0)
         self.assertEqual((self.root / "docs/A.md").read_text(),
-                         "a\n<!-- gamedb:licensed-names -->\n- `quake-shareware`\n- `rct2-data`\n<!-- /gamedb:licensed-names -->\nb\n")
+                         "a\n<!-- gamedb:licensed-names -->\n- `ps3-games-licensed`\n- `quake-shareware`\n- `rct2-data`\n"
+                         "<!-- /gamedb:licensed-names -->\nb\n")
         self.assertEqual(blocks.main(["--check", "--repo", str(self.root)]), 0)
         write(self.root, "docs/B.md", "<!-- gamedb:no-such -->\n<!-- /gamedb:no-such -->\n<!-- gamedb:licensed-names -->\n")
         self.assertEqual(blocks.main(["--check", "--repo", str(self.root)]), 1)

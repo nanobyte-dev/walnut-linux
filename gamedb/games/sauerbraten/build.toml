@@ -1,0 +1,12 @@
+# How Sauerbraten is built, installed and integrated (gamedb/README.md "build.toml").
+packages = ["sauerbraten", "cube2"]
+engine = "cube2"
+suite = "none"
+needs_data = true
+data = ["sauerbraten-data"]
+desktop = ["sauerbraten.desktop"]
+recipes = ["sauerbraten:base"]
+
+[[licensed]]
+name = "sauerbraten-data"
+builder = "source"

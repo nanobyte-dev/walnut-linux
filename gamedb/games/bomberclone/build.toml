@@ -1,0 +1,5 @@
+# How BomberClone is built, installed and integrated (gamedb/README.md "build.toml").
+packages = ["bomberclone", "bomberclone-data"]
+suite = "none"
+needs_data = false
+recipes = ["bomberclone:base"]

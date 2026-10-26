@@ -47,8 +47,9 @@ bad=0
 left=$(git log --all --format=%B | grep -ciE '^\s*(co-authored-by:\s*claude|claude-session:)|generated with \[claude code\]' || true)
 [ "$left" = 0 ] || { echo "!! $left attribution lines left in commit messages"; bad=1; }
 paths=$(git log --all --name-only --format= | sort -u)
-# game data under a directory named for a licensed package (or quake-data, game-data-packager's output directory)
-lic_re=$(printf '%s\n' $licensed quake-data | sed 's/[.+]/\\&/g' | paste -sd'|')
+# game data under a directory named for a licensed package (or game-data, game-data-packager's output directory;
+# quake-data before 2026-10-26)
+lic_re=$(printf '%s\n' $licensed game-data quake-data | sed 's/[.+]/\\&/g' | paste -sd'|')
 hits=$(printf '%s\n' "$paths" | grep -E "^(backups|firmware)/|\\.(bin|img|pup|PUP|nor|nand)\$|(^|/)($lic_re)/.*\\.(pk3|ogz|cfg|dat|zip|ogg|wav|png|jpg)\$" || true)
 [ -z "$hits" ] || { echo "!! private or licensed paths in the history:"; printf '   %s\n' $hits | head -40; bad=1; }
 lic=$({ printf '%s\n' "$paths" | grep -E '^(packages/licensed|gamedb/[^/]+/[^/]+/licensed)/'

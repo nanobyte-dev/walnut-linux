@@ -1,0 +1,5 @@
+# How Extreme Tux Racer is built, installed and integrated (gamedb/README.md "build.toml").
+packages = ["extremetuxracer", "extremetuxracer-data"]
+suite = "free"
+needs_data = false
+recipes = ["etr:base"]

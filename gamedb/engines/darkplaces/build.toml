@@ -1,0 +1,2 @@
+# How the DarkPlaces engine is built and installed (gamedb/README.md "build.toml").
+packages = ["darkplaces-gl2"]

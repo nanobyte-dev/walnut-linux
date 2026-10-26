@@ -6,10 +6,6 @@ categories = ["arcade", "puzzle"]
 tags = ["3d", "physics", "ball", "levels"]
 license = "GPL-2.0-or-later"
 homepage = "https://neverball.org/"
-packages = ["neverball", "neverball-common", "neverball-data"]
-patched_by = ["neverball"]
-recipes = ["neverball:base"]
-needs_data = false
 controller = "full"
 +++
 

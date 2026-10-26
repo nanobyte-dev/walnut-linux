@@ -19,7 +19,7 @@ on:
       - "tools/gamedb/check.py"
       - "tools/pkg-dir.sh"
       - "tools/licensed.py"
-      - "tools/licensed-packages.txt"
+      - "gamedb/engines/*/build.toml"
   workflow_dispatch:
     inputs:
       target:

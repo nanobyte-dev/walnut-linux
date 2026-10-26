@@ -43,7 +43,7 @@ if [ ${#files[@]} = 0 ]; then
 		[ -n "$lic" ] || continue
 		for s in build/src/"$(basename "$d")"/*.dsc; do [ -e "$s" ] && files+=("$s"); done
 	done
-	[ ${#files[@]} -gt 0 ] || { echo "!! no licensed package in build/debs (make <pkg>-deb, make quake-data)" >&2; exit 1; }
+	[ ${#files[@]} -gt 0 ] || { echo "!! no licensed package in build/debs (make <pkg>-deb, make game-data, make licensed-data)" >&2; exit 1; }
 fi
 bad=
 for f in "${files[@]}"; do

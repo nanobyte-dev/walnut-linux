@@ -1,5 +1,5 @@
 # Yamagi Quake II 8.70 (our build of Debian's yquake2, gamedb/games/yquake2/packages/yquake2/) with the Quake II demo data
-# (quake2-demo-data from make quake-data: /usr/share/games/quake2-demo/baseq2/pak0.pak): timedemo of
+# (quake2-demo-data from make game-data: /usr/share/games/quake2-demo/baseq2/pak0.pak): timedemo of
 # the demo pak's only demo, q2demo1.dm2, on the gl1 renderer (GL 1.4 fixed function; gl3 needs GL 3),
 # fullscreen 1920x1080, vsync off (a timedemo isn't otherwise capped). It returns to the console
 # after the demo: stopped at the result line. The engine is run directly (Debian's quake2 wrapper

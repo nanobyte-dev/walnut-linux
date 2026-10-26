@@ -1,0 +1,13 @@
+# How Yamagi Quake II is built, installed and integrated (gamedb/README.md "build.toml").
+packages = ["yamagi-quake2", "yamagi-quake2-core"]
+# in ps3-games, not in the public ps3-games-free: its data is licensed
+suite = "licensed"
+needs_data = true
+data = ["quake2-demo-data"]
+recipes = ["yquake2:kiss4k"]
+
+[[licensed]]
+# Quake II's demo data (game-data-packager: Section local/games, not redistributable at all; make game-data)
+name = "quake2-demo-data"
+builder = "game-data-packager:quake2"
+leak_files = ["*baseq2/pak[0-9].pak"]

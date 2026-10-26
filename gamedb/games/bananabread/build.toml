@@ -1,0 +1,12 @@
+# How BananaBread is built, installed and integrated (gamedb/README.md "build.toml").
+packages = ["cube2", "cube2-data"]
+engine = "cube2"
+suite = "none"
+needs_data = false
+# the models and sounds Debian's cube2-data leaves out (the licensed suite: ps3-games-licensed pulls it)
+data = ["sauerbraten-nonfree-data"]
+recipes = ["bananabread:base"]
+
+[[licensed]]
+name = "sauerbraten-nonfree-data"
+builder = "source"

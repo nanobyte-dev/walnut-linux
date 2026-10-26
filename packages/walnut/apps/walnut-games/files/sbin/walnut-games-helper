@@ -8,8 +8,11 @@ Design
   and be in the packaged, root-owned /usr/share/walnut-games/catalog.json; the packages come from
   that file and each name must match ^[a-z0-9][a-z0-9+.-]*[a-z0-9]$. No package name, option or path
   comes from argv or the environment (python3 -I; every command gets a fixed PATH and environment).
-  Packages that carry licensed game data (names with licensed / nonfree, the Quake demo data) are
-  refused whatever the catalog says: the catalog never lists them, this is the second lock.
+  Packages that carry licensed game data are refused whatever the catalog says: the catalog never
+  lists them. The first lock is checked before every install: the candidate's apt Section must not
+  be local/* or non-free/* (the licensed suite; game-data-packager marks non-redistributable data
+  local/), and a Section that cannot be read refuses too. The second lock is the name: licensed or
+  nonfree as a word of the package name.
 - install: apt-get update when the package lists are older than a day, then apt-get install with
   --no-remove (an install never takes a package away), the configuration files kept
   (--force-confold), noninteractive, waiting up to 60 s for another apt's lock. apt's status
@@ -39,12 +42,14 @@ import time
 CATALOG = "/usr/share/walnut-games/catalog.json"
 LISTS = "/var/lib/apt/lists"
 APT_GET, APT_MARK, DPKG_QUERY = "/usr/bin/apt-get", "/usr/bin/apt-mark", "/usr/bin/dpkg-query"
+APT_CACHE = "/usr/bin/apt-cache"
 ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 PKG_RE = re.compile(r"[a-z0-9][a-z0-9+.-]*[a-z0-9]\Z")
 # metapackages that depend on the whole suite: their removal along with a game is allowed (and
 # prepared: their dependencies are marked manual first)
 METAS = ("ps3-games", "ps3-games-free")
-LICENSED_RE = re.compile(r"(^|-)(licensed|nonfree)(-|$)|^quake2?-(shareware|demo)")
+LICENSED_RE = re.compile(r"(^|-)(licensed|nonfree)(-|$)")
+LICENSED_SECTIONS = ("local/", "non-free/")
 ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C", "LANGUAGE": "C", "DEBIAN_FRONTEND": "noninteractive",
        "APT_LISTCHANGES_FRONTEND": "none", "NEEDRESTART_MODE": "a", "HOME": "/root"}
 APT_OPTS = ["-y", "-o", "Dpkg::Options::=--force-confold", "-o", "DPkg::Lock::Timeout=60",
@@ -190,7 +195,32 @@ def status_line(line):
 
 # ---- install and remove -----------------------------------------------------------------------
 
-def do_install(game_id, games, stream=apt_stream, age=lists_age):
+def check_sections(pkgs, runner=run):
+    """the first lock: Refused when a package's candidate Section is local/* or non-free/*, or when
+    a Section cannot be read (fail closed)"""
+    rc, out = runner([APT_CACHE, "show", "--no-all-versions"] + list(pkgs))
+    if rc != 0:
+        raise Refused("cannot read the package sections (apt-cache failed, %d): nothing was changed" % rc)
+    sections = {}
+    for stanza in re.split(r"\n\s*\n", out):
+        fields = {}
+        for line in stanza.splitlines():
+            k, sep, v = line.partition(":")
+            if sep and not line[:1].isspace():
+                fields.setdefault(k, v.strip())
+        if "Package" in fields:
+            sections.setdefault(fields["Package"], []).append(fields.get("Section", ""))
+    for p in pkgs:
+        secs = sections.get(p)
+        if not secs or not all(secs):
+            raise Refused("cannot read the section of %s: nothing was changed" % p)
+        for sec in secs:
+            if sec.startswith(LICENSED_SECTIONS):
+                raise Refused("%s is in section %s: it carries licensed data and is not installed from here"
+                              % (p, sec))
+
+
+def do_install(game_id, games, stream=apt_stream, age=lists_age, runner=run):
     pkgs = game_packages(game_id, games)
     a = age()
     if a is None or a > STALE_SECONDS:
@@ -199,6 +229,7 @@ def do_install(game_id, games, stream=apt_stream, age=lists_age):
         if rc != 0:
             # an old index may still hold the package; say so and try
             say("log", "apt-get update failed (%d): installing from the lists as they are" % rc)
+    check_sections(pkgs, runner)
     say("progress", "0 installing " + " ".join(pkgs))
     rc, tail = stream(["install", "--no-remove"] + pkgs)
     if rc != 0:

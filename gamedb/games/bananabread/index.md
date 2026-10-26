@@ -6,10 +6,6 @@ categories = ["shooter"]
 tags = ["fps", "multiplayer", "bots", "3d", "map editor"]
 license = "Zlib"
 homepage = "https://github.com/kripken/BananaBread"
-packages = ["cube2", "cube2-data"]
-patched_by = ["cube2"]
-recipes = ["bananabread:base"]
-needs_data = false
 controller = "keyboard"
 designed_for = "keyboard-mouse"
 +++

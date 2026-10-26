@@ -89,10 +89,12 @@ class Names(unittest.TestCase):
             helper.game_packages("alpha", {"alpha": {}})
 
     def test_licensed_data_is_refused(self):
-        for bad in ("sauerbraten-nonfree-data", "ps3-games-licensed", "quake-shareware", "quake2-demo-data"):
+        for bad in ("sauerbraten-nonfree-data", "ps3-games-licensed"):
             with self.assertRaises(helper.Refused, msg=bad):
                 helper.game_packages("alpha", {"alpha": {"packages": ["alpha", bad]}})
-        helper.game_packages("alpha", {"alpha": {"packages": ["quakespasm", "sauerbraten-data"]}})
+        # game names are not in the generic code: the apt Section check is the lock for these
+        for ok in ("quake-shareware", "quake2-demo-data", "quakespasm", "sauerbraten-data"):
+            self.assertEqual(helper.game_packages("alpha", {"alpha": {"packages": [ok]}}), [ok])
 
     def test_catalog_file_owner_and_mode(self):
         with tempfile.TemporaryDirectory() as d:
@@ -142,24 +144,71 @@ class Names(unittest.TestCase):
             self.assertEqual(subprocess.run(["visudo", "-cf", str(PKG / "debian/sudoers")]).returncode, 0)
 
 
+def fake_apt_cache(sections, rc=0):
+    """a runner answering apt-cache show: sections is {package: Section or None (no Section line)};
+    a package missing from it gets no stanza"""
+    def runner(cmd):
+        assert cmd[0] == helper.APT_CACHE and cmd[1:3] == ["show", "--no-all-versions"], cmd
+        out = ""
+        for p in cmd[3:]:
+            if p in sections:
+                out += "Package: %s\nVersion: 1.0\n%s\nDescription: x\n\n" % (
+                    p, "Section: " + sections[p] if sections[p] else "Priority: optional")
+        return rc, out
+    return runner
+
+
+FREE = fake_apt_cache({"alpha": "games", "alpha-data": "games", "beta": "games"})
+
+
 class Install(unittest.TestCase):
     def test_install_arguments_and_stale_lists(self):
         calls = []
         stream = lambda args: (calls.append(args), (0, []))[1]   # noqa: E731
-        _, out = run_say(helper.do_install, "alpha", GAMES, stream, lambda: 3 * 86400)
+        _, out = run_say(helper.do_install, "alpha", GAMES, stream, lambda: 3 * 86400, FREE)
         self.assertEqual(calls, [["update"], ["install", "--no-remove", "alpha", "alpha-data"]])
         self.assertEqual(out[-1], "progress 100 installed")
         calls.clear()
-        run_say(helper.do_install, "alpha", GAMES, stream, lambda: 600)
+        run_say(helper.do_install, "alpha", GAMES, stream, lambda: 600, FREE)
         self.assertEqual(calls, [["install", "--no-remove", "alpha", "alpha-data"]])
         calls.clear()
-        run_say(helper.do_install, "alpha", GAMES, stream, lambda: None)   # no lists at all: update
+        run_say(helper.do_install, "alpha", GAMES, stream, lambda: None, FREE)   # no lists at all: update
         self.assertEqual(calls[0], ["update"])
 
     def test_failed_install(self):
-        r, out = run_say(helper.do_install, "beta", GAMES, lambda a: (100, ["E: broken"]), lambda: 1)
+        r, out = run_say(helper.do_install, "beta", GAMES, lambda a: (100, ["E: broken"]), lambda: 1, FREE)
         self.assertIsInstance(r, helper.AptFailed)
         self.assertTrue(any(l.startswith("error ") for l in out))
+
+    def _install_with(self, runner):
+        calls = []
+        stream = lambda args: (calls.append(args), (0, []))[1]   # noqa: E731
+        r, _ = run_say(helper.do_install, "alpha", GAMES, stream, lambda: 600, runner)
+        return r, calls
+
+    def test_section_games_installs(self):
+        r, calls = self._install_with(fake_apt_cache({"alpha": "games", "alpha-data": "games/data"}))
+        self.assertNotIsInstance(r, Exception)
+        self.assertEqual(calls, [["install", "--no-remove", "alpha", "alpha-data"]])
+
+    def test_section_local_or_nonfree_is_refused(self):
+        for sec in ("local/games", "non-free/games"):
+            r, calls = self._install_with(fake_apt_cache({"alpha": "games", "alpha-data": sec}))
+            self.assertIsInstance(r, helper.Refused, msg=sec)
+            self.assertEqual(calls, [], msg=sec)
+
+    def test_section_one_licensed_of_several(self):
+        r, calls = self._install_with(fake_apt_cache({"alpha": "local/games", "alpha-data": "games"}))
+        self.assertIsInstance(r, helper.Refused)
+        self.assertEqual(calls, [])
+
+    def test_section_unreadable_fails_closed(self):
+        for runner in (fake_apt_cache({"alpha": "games", "alpha-data": "games"}, rc=100),   # apt-cache failed
+                       fake_apt_cache({"alpha": "games"}),                                    # no stanza
+                       fake_apt_cache({"alpha": "games", "alpha-data": None})):               # no Section
+            r, calls = self._install_with(runner)
+            self.assertIsInstance(r, helper.Refused)
+            self.assertEqual(calls, [])
 
     def test_install_options(self):
         o = helper.APT_OPTS

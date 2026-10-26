@@ -1,7 +1,7 @@
 #!/bin/bash
 # game-data.sh <out dir> <game>:<package>...: game data debs made by game-data-packager (in the games
 # builder, build-containers/Dockerfile.games), e.g. quake:quake-shareware. Their data is non-free: the
-# password-protected licensed suite on walnut.nanobyte.dev only (tools/licensed-packages.txt), never
+# password-protected licensed suite on walnut.nanobyte.dev only (gamedb build.toml [[licensed]]; make game-data), never
 # anywhere public.
 # game-data-packager's output isn't reproducible (file dates are the build time), and the licensed
 # suite never takes a different file under a published version (docs/PACKAGING.md). So a package

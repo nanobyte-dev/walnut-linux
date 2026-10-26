@@ -6,10 +6,6 @@ categories = ["arcade", "action"]
 tags = ["tron", "multiplayer", "bots", "3d"]
 license = "GPL-2.0-or-later"
 homepage = "https://www.armagetronad.org/"
-packages = ["armagetronad", "armagetronad-common"]
-recipes = ["armagetronad:base"]
-patched_by = ["armagetronad"]
-needs_data = false
 controller = "full"
 +++
 

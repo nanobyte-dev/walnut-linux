@@ -1,0 +1,9 @@
+# How ClassiCube is built, installed and integrated (gamedb/README.md "build.toml").
+packages = ["classicube"]
+# in ps3-games, not in the public ps3-games-free or image: its textures and sounds are licensed
+suite = "licensed"
+data = ["classicube-data"]
+
+[[licensed]]
+name = "classicube-data"
+builder = "source"

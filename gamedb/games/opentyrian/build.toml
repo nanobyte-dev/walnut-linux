@@ -1,0 +1,7 @@
+# How OpenTyrian is built, installed and integrated (gamedb/README.md "build.toml").
+# Tyrian 2.1's freeware data (make licensed-data PKG=tyrian-data INPUT=tyrian21.zip)
+data = ["tyrian-data"]
+
+[[licensed]]
+name = "tyrian-data"
+builder = "script"

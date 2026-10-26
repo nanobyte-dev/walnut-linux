@@ -1,0 +1,6 @@
+# How dsda-doom is built, installed and integrated (gamedb/README.md "build.toml").
+packages = ["dsda-doom", "freedoom"]
+suite = "free"
+needs_data = false
+divert = ["/usr/share/applications/dsda-doom.desktop"]
+recipes = ["dsda-doom:gl"]
