@@ -32,12 +32,12 @@ Design
       build.toml, rating/, packages/, licensed/, upstream.md, upstream/, benchmark/: BENCH_FILES,
       desktop/: DESKTOP_FILES, its launchers and migrate-home.txt as tools/gamedb/pack-integration.py reads them); its rules, when given, are "<data>.<formula>" of a
       data version score.py knows, and a data-version-2 test's defects name known categories
-    * rating/ holds sessions/ and the played test, rating/test.toml: bench/playdef.py's schema (closed keys,
+    * rating/ holds sessions/ and the played test, rating/test.toml: bench/harness/playdef.py's schema (closed keys,
       process a process name, home relative paths inside ~ that no other game shares, the marks compile,
       command an absolute program, env NAME=value); benchmark/analysis.toml and engines/<e>/analysis.toml
-      follow bench/gamedata.py's (closed keys: [legacy], [reload], [[log_ignore]], [[log_strip]],
+      follow bench/harness/gamedata.py's (closed keys: [legacy], [reload], [[log_ignore]], [[log_strip]],
       [interference]; an engine's only the log rules; every regex compiles); benchmark/results/<batch>.toml and
-      gamedb/benchmarks/{batches,metrics}.toml: records_errors() (bench/benchrecords.py; gamedb/benchmarks/README.md)
+      gamedb/benchmarks/{batches,metrics}.toml: records_errors() (bench/analysis/benchrecords.py; gamedb/benchmarks/README.md)
     * todo.toml (a game's or an engine's backlog: [[item]] tables): todo_errors() (closed keys TODO_KEYS, kind
       one of TODO_KINDS, added a date, order an int of 1 or more, order/launcher/pc on session items only)
     * drafts (draft = true: a candidate, or a game tried and not published) need only id, title and
@@ -173,8 +173,10 @@ def apt_index(src):
 
 
 def bench_module(name):
-    """a module of the harness (bench/: playdef.py's and gamedata.py's schemas)"""
-    spec = importlib.util.spec_from_file_location(name, REPO / "bench" / (name + ".py"))
+    """a module of the bench tree (bench/harness/: playdef.py's and gamedata.py's schemas; bench/analysis/:
+    benchrecords.py's records)"""
+    f = next(f for f in (REPO / "bench" / d / (name + ".py") for d in ("harness", "analysis")) if f.exists())
+    spec = importlib.util.spec_from_file_location(name, f)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -604,7 +606,7 @@ def benchmark_errors(gdir, build):
 
 
 def records_errors(root, games=None):
-    """the benchmark records under a gamedb root (bench/benchrecords.py check_records): benchmarks/batches.toml
+    """the benchmark records under a gamedb root (bench/analysis/benchrecords.py check_records): benchmarks/batches.toml
     and metrics.toml (closed keys, unique names, run batches in order), every games/<id>/benchmark/results/
     <batch>.toml (closed keys, its batch exists, metric names known, numbers; label, order, note and source
     only in a summary's entries, a source for values the entry has)"""

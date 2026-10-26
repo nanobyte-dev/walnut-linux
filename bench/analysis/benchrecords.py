@@ -21,7 +21,7 @@ import re
 import tomllib
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
+REPO = Path(__file__).resolve().parents[2]   # this is bench/analysis/
 FIXED = ["test", "date", "runs", "observations"]
 BATCH_KEYS = {"name": str, "order": int, "kind": str, "title": str, "date": datetime.date, "runs": int,
               "stack": dict, "purpose": str, "observations": str, "source": str}
@@ -38,7 +38,7 @@ ENTRY_KEYS = {"label": str, "order": int, "note": str, "source": dict}
 def root():
     if os.environ.get("BENCH_RESULTS"):
         raise SystemExit("BENCH_RESULTS is gone: BENCH_GAMEDB=<dir> names a gamedb root (benchmarks/, games/)")
-    return Path(os.environ.get("BENCH_GAMEDB") or HERE.parent / "gamedb")
+    return Path(os.environ.get("BENCH_GAMEDB") or REPO / "gamedb")
 
 
 def interfered_file(r=None):
@@ -98,7 +98,7 @@ def dump_result(res, head):
 
 
 BATCHES_HEAD = ("# gamedb/benchmarks/batches.toml: every benchmark batch once, in the order they were run\n"
-                "# (gamedb/benchmarks/README.md). Written by bench/matrix.py; the observations are edited by hand.\n")
+                "# (gamedb/benchmarks/README.md). Written by bench/analysis/matrix.py; the observations are edited by hand.\n")
 RESULT_HEAD = "# %s's numbers in batch %s (gamedb/benchmarks/README.md)\n"
 
 
@@ -117,7 +117,7 @@ def save_batches(batches, r=None):
 def load_metrics(r=None):
     f = Path(r or root()) / "benchmarks" / "metrics.toml"
     if not f.exists():
-        f = HERE.parent / "gamedb" / "benchmarks" / "metrics.toml"   # a scratch root has no metrics of its own
+        f = REPO / "gamedb" / "benchmarks" / "metrics.toml"   # a scratch root has no metrics of its own
     return tomllib.loads(f.read_text()).get("metric", [])
 
 

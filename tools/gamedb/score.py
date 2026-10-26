@@ -118,7 +118,7 @@ LONGEST_FRAME_MS = [(250, 100), (1000, 75), (3000, 55), (5000, 0)]
 SOUND_PRESENT = 50
 SOUND_CLEAN_PER_MIN = [(0, 50), (10, 40), (30, 32), (60, 22), (120, 10), (240, 0)]
 # the same half from audible dropouts a minute (ps3-xrunlog: gaps of 20 ms or more with sound on a side,
-# bench/xruns.py), where a run measured them: every one is a click or chop someone hears, so it
+# bench/harness/xruns.py), where a run measured them: every one is a click or chop someone hears, so it
 # falls much faster than the raw counts' curve, most of whose faults were never heard
 SOUND_DROPOUTS_PER_MIN = [(0, 50), (1, 45), (4, 35), (10, 22), (20, 10), (40, 0)]
 CRASHES_PER_HOUR = [(0, 100), (1 / 3, 75), (1, 55), (4, 35), (12, 0)]
@@ -213,7 +213,7 @@ CROP_MAX = 0.02  # the share of a window outside the screen above which the pict
 
 
 def display_sample(x, y, w, h, fullscreen, sw, sh):
-    """(score, detail) of one geometry sample (bench/geom.py): the game's window at x, y, w x h on a
+    """(score, detail) of one geometry sample (bench/harness/geom.py): the game's window at x, y, w x h on a
     screen of sw x sh. Fullscreen or a window covering the screen is 100 (bars inside the picture can't be
     told from geometry, and cost nothing); cropped or partly off-screen 0; a smaller window 30 from half the
     screen's area up, 10 below."""
@@ -524,7 +524,7 @@ def end_failure(t):
 
 def measured_checks(t):
     """a test's checklist answers {item: "yes" | "partly" | "no"} from the player's form and the recorder's
-    numbers (bench/inputlog.py); what can't be told is left out (not tested). The form wins; the input
+    numbers (bench/harness/inputlog.py); what can't be told is left out (not tested). The form wins; the input
     log fills in what the player didn't answer"""
     n, f = t.get("numbers", {}), t.get("form", {})
     out = {}
@@ -761,7 +761,7 @@ def _calibration(gamedb):
     import importlib.util
     from pathlib import Path
     repo = Path(__file__).resolve().parent.parent.parent
-    spec = importlib.util.spec_from_file_location("benchrecords", repo / "bench" / "benchrecords.py")
+    spec = importlib.util.spec_from_file_location("benchrecords", repo / "bench" / "analysis" / "benchrecords.py")
     br = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(br)
     out = []

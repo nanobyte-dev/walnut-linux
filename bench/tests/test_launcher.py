@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """test_launcher.py: launcher.py (a game's menu launchers) and session.sh's choice of one, with
-temporary .desktop files and a fake dpkg (python3 -I bench/test_launcher.py)."""
+temporary .desktop files and a fake dpkg (python3 -I bench/tests/test_launcher.py)."""
 import os
 import subprocess
 import sys
@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
+HARNESS = Path(__file__).resolve().parent.parent / "harness"   # this is bench/tests/
+sys.path.insert(0, str(HARNESS))
 import launcher   # noqa: E402
 
 
@@ -90,7 +90,7 @@ class Cli(unittest.TestCase):
         self.tmp.cleanup()
 
     def run_launcher(self, *a):
-        return subprocess.run([sys.executable, "-I", str(HERE / "launcher.py")] + self.args.split() + list(a),
+        return subprocess.run([sys.executable, "-I", str(HARNESS / "launcher.py")] + self.args.split() + list(a),
                               capture_output=True, text=True)
 
     def test_default_and_argv_file(self):
@@ -106,14 +106,14 @@ class Cli(unittest.TestCase):
         self.assertIn("Game B", p.stderr)
 
     def test_none_exits_3(self):
-        self.assertEqual(subprocess.run([sys.executable, "-I", str(HERE / "launcher.py"), "--apps", str(self.apps),
+        self.assertEqual(subprocess.run([sys.executable, "-I", str(HARNESS / "launcher.py"), "--apps", str(self.apps),
                                          "--dpkg", "true"], capture_output=True).returncode, 3)
 
     def session(self, *a, **env):
         e = dict(os.environ, SESSION_DRY="1", BENCH_RECIPES=str(Path(self.tmp.name) / "recipes"),
                  SESSION_PACKAGES="game", SESSION_LAUNCHER_ARGS=self.args)
         e.update(env)
-        return subprocess.run(["bash", str(HERE / "session.sh"), "game"] + list(a), capture_output=True, text=True, env=e)
+        return subprocess.run(["bash", str(HARNESS / "session.sh"), "game"] + list(a), capture_output=True, text=True, env=e)
 
     def test_session_dry(self):
         p = self.session()

@@ -248,14 +248,14 @@ for geo in 16384:4096 4096:512; do
 	tar --owner=0 --group=0 -C "$W/testroot" -cf "$W/testroot.tar" . || exit 1
 	# the USB root's side: kernel, arguments, boot settings, the machine's state, home, the bench
 	U=$W/out/usbroot
-	mkdir -p "$U"/{boot,usr/lib/ps3/boot,etc/default,etc/ssh,home/tibi/.config,var/tmp/bench,var/tmp/ps3-bench/shadercache,var/tmp/ps3-bench/20261019-0100-sauerbraten-base}
+	mkdir -p "$U"/{boot,usr/lib/ps3/boot,etc/default,etc/ssh,home/tibi/.config,var/tmp/bench/harness,var/tmp/ps3-bench/shadercache,var/tmp/ps3-bench/20261019-0100-sauerbraten-base}
 	echo k > "$U/boot/vmlinux-$KVER"
 	echo "console=ttyS0 panic=-1 loglevel=4" > "$U/usr/lib/ps3/boot/$KVER.args"
 	printf 'PS3_ROOT_ARGS="root=PARTUUID=50533301-02 rootfstype=ext4 ro rootwait"\nPS3_EXTRA_ARGS=""\nPS3_DEFAULT_FLAVOUR=release\n' \
 		> "$U/etc/default/ps3-boot"
 	echo ps3-e2e > "$U/etc/hostname"; printf '127.0.0.1 localhost\n' > "$U/etc/hosts"
 	echo key > "$U/etc/ssh/ssh_host_e2e_key"; echo e2e > "$U/home/tibi/.config/e2e"
-	echo run > "$U/var/tmp/bench/run.sh"; echo x > "$U/var/tmp/ps3-bench/shadercache/x"
+	echo run > "$U/var/tmp/bench/harness/run.sh"; echo x > "$U/var/tmp/ps3-bench/shadercache/x"
 	echo y > "$U/var/tmp/ps3-bench/20261019-0100-sauerbraten-base/y"
 	timeout 600 qemu-system-x86_64 -enable-kvm -cpu host -m 1024 -smp 2 -nographic -no-reboot \
 		-kernel "$KERNEL" -initrd "$W/initrd.gz" \

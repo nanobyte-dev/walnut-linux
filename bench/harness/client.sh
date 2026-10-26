@@ -103,7 +103,7 @@
 # the load mark (LOAD_MARK, the recipe's LOAD_RE); else play_from=start and play_seconds is the whole run.
 {
 set -u
-here=$(cd "$(dirname "$0")" && pwd)
+here=$(cd "$(dirname "$0")" && pwd); BENCH=${here%/*}
 GAME=${1:?game}; VARIANT=${2:-base}
 D=${BENCH_DIR:-/dev/shm/bench-client-$$}; mkdir -p "$D"
 . "$here/games.sh"	# the game's benchmark directory: GAME_DIR, ASSETS, BENCH_LIB

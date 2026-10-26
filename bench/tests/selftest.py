@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""selftest.py: the steady-state benchmark harness checked without the PS3 (python3 bench/selftest.py).
+"""selftest.py: the steady-state benchmark harness checked without the PS3 (python3 bench/tests/selftest.py).
   1. report.py on made-up run directories (HUD frame times, per-second fps only, repeated passes,
      a game's own window, a run from before the steady state): the window's median, 1% low,
      stalls and longest frame come out as computed by hand
@@ -75,7 +75,10 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
+BENCH = HERE.parent             # the bench tree: this is bench/tests/
+REPO = BENCH.parent
+HARNESS, LIB, ANALYSIS = BENCH / "harness", BENCH / "lib", BENCH / "analysis"
+sys.path[:0] = [str(ANALYSIS), str(HARNESS), str(HERE)]
 import report  # noqa: E402
 
 FAILS = []
@@ -298,16 +301,16 @@ def matrix(tmp, runs):
     res = tmp / "results"
     db = tmp / "gamedb"   # a scratch gamedb root: the real batches (no results), the new one after them
     (db / "benchmarks").mkdir(parents=True)
-    if (HERE.parent / "gamedb" / "benchmarks" / "batches.toml").exists():
-        shutil.copy(HERE.parent / "gamedb" / "benchmarks" / "batches.toml", db / "benchmarks" / "batches.toml")
+    if (REPO / "gamedb" / "benchmarks" / "batches.toml").exists():
+        shutil.copy(REPO / "gamedb" / "benchmarks" / "batches.toml", db / "benchmarks" / "batches.toml")
     env = dict(os.environ, BENCH_GAMEDB=str(db))
-    p = subprocess.run([sys.executable, str(HERE / "matrix.py"), "selftest row", "--obs", "made up",
+    p = subprocess.run([sys.executable, str(ANALYSIS / "matrix.py"), "selftest row", "--obs", "made up",
                         *map(str, runs)], env=env, capture_output=True, text=True)
     check("matrix.py ran", p.returncode == 0, p.stderr[-500:])
     check("matrix: the records written (batches.toml, results/<batch>.toml)",
           "selftest row" in (db / "benchmarks" / "batches.toml").read_text()
           and list(db.glob("games/fake/benchmark/results/*.toml")), sorted(str(x) for x in db.rglob("*.toml")))
-    p = subprocess.run([sys.executable, str(HERE / "matrix.py"), "--csv", str(res)], env=env, capture_output=True, text=True)
+    p = subprocess.run([sys.executable, str(ANALYSIS / "matrix.py"), "--csv", str(res)], env=env, capture_output=True, text=True)
     check("matrix.py --csv ran", p.returncode == 0, p.stderr[-500:])
     import csv
     rows = {}
@@ -423,7 +426,7 @@ def client(tmp):
         d = tmp / ("ps3-bench-20261018T0100%02dZ-%s-%s" % (len(runs), g, v))
         env["BENCH_DIR"] = str(d)
         t = time.monotonic()
-        p = subprocess.run(["bash", str(HERE / "client.sh"), g, v], env=env, capture_output=True, text=True)
+        p = subprocess.run(["bash", str(HARNESS / "client.sh"), g, v], env=env, capture_output=True, text=True)
         runs[(g, v)] = (d, report.kv(d / "bench.txt"), time.monotonic() - t)
         check("client %s %s: exit 0" % (g, v), p.returncode == 0, p.stdout[-800:] + p.stderr[-800:])
 
@@ -438,14 +441,14 @@ def client(tmp):
     genv = {k: v for k, v in env.items() if k != "BENCH_RECIPES"}
     d = tmp / "ps3-bench-20261018T010099Z-fakelayout-base"
     genv.update(BENCH_GAMES=str(tmp / "games"), BENCH_DIR=str(d))
-    p = subprocess.run(["bash", str(HERE / "client.sh"), "fake-old-name", "base"], env=genv, capture_output=True, text=True)
+    p = subprocess.run(["bash", str(HARNESS / "client.sh"), "fake-old-name", "base"], env=genv, capture_output=True, text=True)
     b = report.kv(d / "bench.txt")
     check("gamedb layout: an old recipe name runs its game, bench.txt game= and recipe= the id",
           p.returncode == 0 and b.get("game") == "fakelayout" and b.get("recipe") == "fakelayout",
           (p.returncode, b.get("game"), b.get("recipe"), p.stdout[-400:]))
     check("gamedb layout: the recipe sees GAME_DIR, ASSETS, BENCH_LIB, its asset and its lib/",
-          b.get("seen") == "%s|%s|%s|asset|lib" % (gb, gb / "assets", HERE), b.get("seen"))
-    p = subprocess.run(["bash", str(HERE / "client.sh"), "no-such-game", "base"], env=genv, capture_output=True, text=True)
+          b.get("seen") == "%s|%s|%s|asset|lib" % (gb, gb / "assets", LIB), b.get("seen"))
+    p = subprocess.run(["bash", str(HARNESS / "client.sh"), "no-such-game", "base"], env=genv, capture_output=True, text=True)
     check("gamedb layout: an unknown name: exit 2", p.returncode == 2, p.stdout[-300:])
 
     d, b, wall = runs[("fakehud", "base")]
@@ -494,7 +497,7 @@ def client_gprefetch(tmp):
     """client.sh's BENCH_GAMEPREFETCH (docs/STALLS.md "Game prefetch") with ps3-desktop's
     ps3-game-prefetch from this tree: a learn run leaves a list, a fetch run reads it, the tags and
     the warm-up columns in report.py"""
-    gp = HERE.parent / "packages" / "walnut" / "system" / "ps3-desktop" / "files" / "libexec" / "ps3-game-prefetch"
+    gp = REPO / "packages" / "walnut" / "system" / "ps3-desktop" / "files" / "libexec" / "ps3-game-prefetch"
     env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "GALLIUM_HUD",
                                                             "GALLIUM_HUD_DUMP_DIR")}
     lists = tmp / "gprefetch"
@@ -506,7 +509,7 @@ def client_gprefetch(tmp):
         env.update(BENCH_DIR=str(d), BENCH_GAMEPREFETCH=mode.split("+")[0])
         if mode.endswith("+mb"):
             env["BENCH_GAMEPREFETCH_MB"] = "1"
-        p = subprocess.run(["bash", str(HERE / "client.sh"), "fakehud", "base"], env=env, capture_output=True, text=True)
+        p = subprocess.run(["bash", str(HARNESS / "client.sh"), "fakehud", "base"], env=env, capture_output=True, text=True)
         out[mode] = (d, p)
     d, p = out["learn"]
     b = report.kv(d / "bench.txt")
@@ -571,7 +574,7 @@ def client_shots(tmp):
                             ("menu", "off", None), ("menu", "2", None)):
         d = d or tmp / ("ps3-bench-20261020T1200%02dZ-fakeshot-%s" % (len(runs), v))
         e = dict(env, BENCH_DIR=str(d), BENCH_SHOTS=shots_env)
-        p = subprocess.run(["bash", str(HERE / "client.sh"), "fakeshot", v], env=e, capture_output=True, text=True)
+        p = subprocess.run(["bash", str(HARNESS / "client.sh"), "fakeshot", v], env=e, capture_output=True, text=True)
         check("shots %s (BENCH_SHOTS=%s): exit 0" % (v, shots_env), p.returncode == 0, p.stdout[-600:] + p.stderr[-600:])
         runs[(v, shots_env)] = (d, report.kv(d / "bench.txt"), shots.parse(d))
     try:
@@ -684,7 +687,7 @@ echo "fake gdb backtraces"\n''')
 
     def run(n, game, **kv):
         d = tmp / ("ps3-bench-20261018T0500%02dZ-%s-base" % (n, game))
-        p = subprocess.run(["bash", str(HERE / "client.sh"), game, "base"], env=dict(env, BENCH_DIR=str(d), **kv),
+        p = subprocess.run(["bash", str(HARNESS / "client.sh"), game, "base"], env=dict(env, BENCH_DIR=str(d), **kv),
                            capture_output=True, text=True)
         return p, d, report.kv(d / "bench.txt") if (d / "bench.txt").exists() else {}
     p, d, b = run(0, "fakewedge", BENCH_DUMPON="1")
@@ -737,7 +740,7 @@ def client_libenv(tmp):
 
     def run(n, **kv):
         d = tmp / ("ps3-bench-20261018T0400%02dZ-fakehud-base" % n)
-        p = subprocess.run(["bash", str(HERE / "client.sh"), "fakehud", "base"], env=dict(env, BENCH_DIR=str(d), **kv),
+        p = subprocess.run(["bash", str(HARNESS / "client.sh"), "fakehud", "base"], env=dict(env, BENCH_DIR=str(d), **kv),
                            capture_output=True, text=True)
         gl = (d / "game.log").read_text(errors="replace") if (d / "game.log").exists() else ""
         return p, d, report.kv(d / "bench.txt") if (d / "bench.txt").exists() else {}, gl
@@ -814,7 +817,7 @@ def client_ssdarm(tmp):
     def run(n, game="fakedata", **kv):
         d = tmp / ("ps3-bench-20261018T0300%02dZ-%s-base" % (n, game))
         e = dict(env, BENCH_DIR=str(d), **kv)
-        p = subprocess.run(["bash", str(HERE / "client.sh"), game, "base"], env=e, capture_output=True, text=True)
+        p = subprocess.run(["bash", str(HARNESS / "client.sh"), game, "base"], env=e, capture_output=True, text=True)
         return p, d
     (tmp / "BOUND").write_text("")
     p, d = run(0, BENCH_GAMEDATA="ssd")
@@ -855,7 +858,7 @@ def client_ssdarm(tmp):
     e = dict(env, SSDARM_DRY="1", BENCH_SSDARM_STATE=str(st))
 
     def sa(*a):
-        p = subprocess.run(["bash", str(HERE / "ssd-arm.sh")] + list(a), env=e, capture_output=True, text=True)
+        p = subprocess.run(["bash", str(HARNESS / "ssd-arm.sh")] + list(a), env=e, capture_output=True, text=True)
         return p.returncode, [x[6:] for x in p.stderr.splitlines() if x.startswith("root: ")], p.stdout
     rc, cmds, out = sa("set", "fakedata", "base", "ssd", "ssd")
     want = ["mount --bind -- /mnt/ps3ssd/games/srv/a /srv/a", "mount --bind -- /mnt/ps3ssd/games/srv/b c /srv/b c",
@@ -966,9 +969,9 @@ def stalls_synthetic(tmp):
           {k: v for k, v in r.items() if k.startswith("stall_")})
     res2 = tmp / "results-stalls"
     env = dict(os.environ, BENCH_GAMEDB=str(tmp / "gamedb-stalls"))
-    p = subprocess.run([sys.executable, str(HERE / "matrix.py"), "stall row", str(d)], env=env, capture_output=True, text=True)
+    p = subprocess.run([sys.executable, str(ANALYSIS / "matrix.py"), "stall row", str(d)], env=env, capture_output=True, text=True)
     if p.returncode == 0:
-        p = subprocess.run([sys.executable, str(HERE / "matrix.py"), "--csv", str(res2)], env=env, capture_output=True, text=True)
+        p = subprocess.run([sys.executable, str(ANALYSIS / "matrix.py"), "--csv", str(res2)], env=env, capture_output=True, text=True)
     import csv
     f = res2 / "stall_gpu_s.csv"
     rows = list(csv.DictReader(f.open())) if f.exists() else []
@@ -1049,7 +1052,7 @@ def block_dev(path):
 
 def stallrec_e2e(tmp):
     import stalls
-    src = HERE.parent / "packages" / "walnut" / "tools" / "ps3-gpu-tools" / "src" / "ps3-stallrec.c"
+    src = REPO / "packages" / "walnut" / "tools" / "ps3-gpu-tools" / "src" / "ps3-stallrec.c"
     exe = tmp / "ps3-stallrec"
     cc = shutil.which("cc") or shutil.which("gcc")
     if not cc or not src.exists():
@@ -1269,7 +1272,7 @@ def perf_fill(tmp):
     if p.returncode:
         check("perf fill: the library builds", False, p.stderr[-400:])
         return
-    sys.path.insert(0, str(HERE / "hotpaths"))
+    sys.path.insert(0, str(ANALYSIS / "hotpaths"))
     import elfsym
     el = elfsym.Elf(str(lib))
     sym = {n: v for n, _, v, _ in el.symbols()}
@@ -1367,13 +1370,13 @@ def client_prof(tmp):
     import memprof
     cc = shutil.which("cc") or shutil.which("gcc")
     so = tmp / "ps3-mallocstat.so"
-    src = HERE.parent / "packages" / "walnut" / "tools" / "ps3-gpu-tools" / "preload" / "ps3-mallocstat.c"
+    src = REPO / "packages" / "walnut" / "tools" / "ps3-gpu-tools" / "preload" / "ps3-mallocstat.c"
     p = subprocess.run([cc, "-O2", "-Wall", "-Wextra", "-fPIC", "-shared", "-o", str(so), str(src), "-lpthread"],
                        capture_output=True, text=True) if cc else None
     check("mallocstat: builds without warnings", p is not None and p.returncode == 0 and not p.stderr.strip(),
           p and p.stderr[-600:])
     trim = tmp / "ps3-malloctrim.so"
-    src = HERE.parent / "packages" / "walnut" / "tools" / "ps3-gpu-tools" / "preload" / "ps3-malloctrim.c"
+    src = REPO / "packages" / "walnut" / "tools" / "ps3-gpu-tools" / "preload" / "ps3-malloctrim.c"
     p = subprocess.run([cc, "-O2", "-Wall", "-Wextra", "-fPIC", "-shared", "-o", str(trim), str(src), "-lpthread"],
                        capture_output=True, text=True) if cc else None
     check("malloctrim: builds without warnings", p is not None and p.returncode == 0 and not p.stderr.strip(),
@@ -1414,7 +1417,7 @@ def client_prof(tmp):
                BENCH_PS3HTAB_INSERT_READBACK="0", BENCH_KPARAM_HTAB_DIR=str(kph),   # and a ps3_htab one
                BENCH_SNDPS3_DMA_WATCHDOG_MS="0", BENCH_KPARAM_SND_DIR=str(kps))   # and snd_ps3's
     t0 = time.time()
-    p = subprocess.run(["bash", str(HERE / "client.sh"), "fakeprof", "base"], env=env, capture_output=True, text=True)
+    p = subprocess.run(["bash", str(HARNESS / "client.sh"), "fakeprof", "base"], env=env, capture_output=True, text=True)
     check("prof client: exit 0", p.returncode == 0, p.stdout[-800:] + p.stderr[-800:])
     os.close(fds[0])
     b = report.kv(d / "bench.txt")
@@ -1573,7 +1576,7 @@ def malloctrim_real(tmp):
     write(src, FRAG_C)
     p = subprocess.run([cc, "-O2", "-o", str(exe), str(src), "-lpthread"], capture_output=True, text=True)
     q = subprocess.run([cc, "-O2", "-fPIC", "-shared", "-o", str(so),
-                        str(HERE.parent / "packages" / "walnut" / "tools" / "ps3-gpu-tools" / "preload" / "ps3-malloctrim.c"), "-lpthread"],
+                        str(REPO / "packages" / "walnut" / "tools" / "ps3-gpu-tools" / "preload" / "ps3-malloctrim.c"), "-lpthread"],
                        capture_output=True, text=True)
     if p.returncode or q.returncode:
         check("malloctrim: test program and library build", False, (p.stderr + q.stderr)[-400:])
@@ -1593,8 +1596,8 @@ def malloctrim_real(tmp):
 
 # --- 4. every recipe and variant ---------------------------------------------------------------
 LINT = r'''
-here=$1; D=/nonexistent; g=$2
-. "$here/games.sh"; bench_use "$g"; R=$(bench_recipe "$g")	# GAME_DIR, ASSETS, BENCH_LIB as client.sh has them
+BENCH=$1; D=/nonexistent; g=$2
+. "$BENCH/harness/games.sh"; bench_use "$g"; R=$(bench_recipe "$g")	# GAME_DIR, ASSETS, BENCH_LIB as client.sh has them
 for v in base $(grep -o '^variant_[a-z0-9_]*' "$R" | sed 's/^variant_//'); do
 	(
 	CMD=(); ENV=(); BACKUP=(); GAMEMODE=0; HUD=1; COMM=; WM=openbox
@@ -1808,7 +1811,7 @@ def loadprof_synthetic(tmp):
     check("report: the shader cache and the start-up profile in the variant (base@rec10+perfload+sccold)",
           r.get("variant") == "base@rec10+perfload+sccold", r.get("variant"))
     check("report: warmup_disk_s 0", r.get("warmup_disk_s") == 0.0, r.get("warmup_disk_s"))
-    p = subprocess.run([sys.executable, str(HERE / "report.py"), "--load", str(d)], capture_output=True, text=True)
+    p = subprocess.run([sys.executable, str(ANALYSIS / "report.py"), "--load", str(d)], capture_output=True, text=True)
     check("report --load: loadprof's tables printed", p.returncode == 0 and "levers over the start-up span" in p.stdout
           and "shader.glsl" in p.stdout, p.stdout[-600:] + p.stderr[-600:])
     print(p.stdout[p.stdout.find("== "):])
@@ -1838,7 +1841,7 @@ def client_load(tmp):
     env = dict(env0, BENCH_DIR=str(d), BENCH_PERF_LOAD="1", FAKE_T0_FILE=str(d / "fake.t0"), BENCH_SHADERCACHE="cold",
                BENCH_PERF_LOAD_CTL="%s:%s" % (d / ".perfload.ctl", d / ".perfload.ack"))
     t0 = time.time()
-    p = subprocess.run(["bash", str(HERE / "client.sh"), "fakeload", "base"], env=env, capture_output=True, text=True)
+    p = subprocess.run(["bash", str(HARNESS / "client.sh"), "fakeload", "base"], env=env, capture_output=True, text=True)
     check("load client: exit 0", p.returncode == 0, p.stdout[-800:] + p.stderr[-800:])
     os.close(fds[0])
     b = report.kv(d / "bench.txt")
@@ -1878,7 +1881,7 @@ def client_load(tmp):
     for i, mode in enumerate(("warm", "warm", "off")):
         d2 = tmp / ("ps3-bench-20261018T07010%dZ-fakeload-base" % i)
         env = dict(env0, BENCH_DIR=str(d2), BENCH_SHADERCACHE=mode)
-        p = subprocess.run(["bash", str(HERE / "client.sh"), "fakeload", "base"], env=env, capture_output=True, text=True)
+        p = subprocess.run(["bash", str(HARNESS / "client.sh"), "fakeload", "base"], env=env, capture_output=True, text=True)
         b2 = report.kv(d2 / "bench.txt")
         g2 = (d2 / "game.log").read_text(errors="replace") if (d2 / "game.log").exists() else ""
         tags.append((b2.get("shadercache"), report.run(d2).get("variant"), "MESA_SHADER_CACHE_DISABLE=true" in g2))
@@ -1894,7 +1897,7 @@ def lint():
     short = []
     import games
     for g, d in games.dirs().items():   # every game's benchmark/recipe.sh (games.py)
-        p = subprocess.run(["bash", "-c", LINT, "lint", str(HERE), g], capture_output=True, text=True)
+        p = subprocess.run(["bash", "-c", LINT, "lint", str(BENCH), g], capture_output=True, text=True)
         for line in p.stdout.splitlines():
             f = line.split()
             if f[2] == "ERROR":
@@ -1905,9 +1908,9 @@ def lint():
                 short.append("%s-%s (%d s)" % (f[0], f[1], dur))
         check("recipe %s: every variant sources and sets CMD" % g, "ERROR" not in p.stdout and p.returncode == 0,
               p.stderr[-300:])
-    sh = subprocess.run(["bash", "-c", 'here=$1; . "$here/games.sh"; bench_ids | tr "\\n" " "; echo; '
+    sh = subprocess.run(["bash", "-c", 'BENCH=$1; . "$BENCH/harness/games.sh"; bench_ids | tr "\\n" " "; echo; '
                          'bench_id sauerbraten-edition; bench_id sauerbraten; bench_id no-such-game || echo none',
-                         "games", str(HERE)], capture_output=True, text=True).stdout.splitlines()
+                         "games", str(BENCH)], capture_output=True, text=True).stdout.splitlines()
     check("games.sh and games.py: the same games", sh[:1] == [" ".join(games.dirs()) + " "], sh[:1])
     check("games.sh: an old recipe name that is no id resolves through [legacy] (sauerbraten-edition), an id "
           "is itself, an unknown name fails", sh[1:] == ["sauerbraten", "sauerbraten", "none"], sh[1:])
@@ -1931,12 +1934,12 @@ def lint():
         if not f.exists():
             check("recipe %s: a played test, rating/test.toml" % g, False, str(f))
             continue
-        p = subprocess.run(["python3", "-I", str(HERE / "playdef.py"), str(f)], capture_output=True, text=True)
+        p = subprocess.run(["python3", "-I", str(HARNESS / "playdef.py"), str(f)], capture_output=True, text=True)
         sh = subprocess.run(["bash", "-c", 'eval "$1"; for r in "$TEST_PLAY_MARK" "$TEST_LOAD_MARK"; do '
                              '[ -z "$r" ] && continue; [[ x =~ $r ]]; [ $? = 2 ] && echo "bad: $r"; done; '
-                             'here=$2; . "$here/games.sh"; bench_use "$3"; CMD=(); ENV=(); COMM=; setup() { :; }; '
+                             'BENCH=$2; . "$BENCH/harness/games.sh"; bench_use "$3"; CMD=(); ENV=(); COMM=; setup() { :; }; '
                              '. "$(bench_recipe "$3")" > /dev/null 2>&1; [ "$COMM" = "$TEST_PROCESS" ] || echo "process $TEST_PROCESS, COMM $COMM"',
-                             "x", p.stdout, str(HERE), g], capture_output=True, text=True)
+                             "x", p.stdout, str(BENCH), g], capture_output=True, text=True)
         check("test %s: playdef reads it, the marks are bash regexes, process is the recipe's COMM" % g,
               p.returncode == 0 and sh.stdout == "", (p.stderr[-200:], sh.stdout[-200:]))
 
@@ -1979,7 +1982,7 @@ def gamedata_synthetic(tmp):
     env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "GALLIUM_HUD", "GALLIUM_HUD_DUMP_DIR")}
     env.update(BENCH_RECIPES=str(sd / "r"), BENCH_BACKUP=str(sd / "b"), BENCH_DIR=str(sd / "run"), BENCH_SESSION="1",
                BENCH_PS3GAME="env", BENCH_INPUTLOG="0")
-    p = subprocess.run(["bash", str(HERE / "client.sh"), "fs", "base"], env=env, capture_output=True, text=True, timeout=60)
+    p = subprocess.run(["bash", str(HARNESS / "client.sh"), "fs", "base"], env=env, capture_output=True, text=True, timeout=60)
     b = report.kv(sd / "run" / "bench.txt")
     log = (sd / "run" / "game.log").read_text() if (sd / "run" / "game.log").exists() else ""
     check("client.sh session: the test's process, play mark, command and env (the recipe's ENV left out), no HUD",
@@ -2061,7 +2064,7 @@ def xrunlog_e2e(tmp):
     as OpenAL does (mmap); a conf.d-style pcm.!default wrapped too; then client.sh with a recipe running
     ps3-xrun-test: bench.txt's xrunlog= and xruns_*, xruns.tsv, BENCH_XRUNLOG=0 and a missing plugin"""
     cc = shutil.which("cc") or shutil.which("gcc")
-    tools = HERE.parent / "packages" / "walnut" / "tools" / "ps3-gpu-tools"
+    tools = REPO / "packages" / "walnut" / "tools" / "ps3-gpu-tools"
     if not cc or not Path("/usr/include/alsa/pcm_external.h").exists():
         print("skip  xrunlog: needs a C compiler and alsa-lib's headers (alsa-lib-devel, libasound2-dev)")
         return
@@ -2112,7 +2115,7 @@ def xrunlog_e2e(tmp):
 
     def run(n, **kv):
         d = tmp / ("ps3-bench-20261024T0900%02dZ-fakexrun-base" % n)
-        p = subprocess.run(["bash", str(HERE / "client.sh"), "fakexrun", "base"], env=dict(cenv, BENCH_DIR=str(d), **kv),
+        p = subprocess.run(["bash", str(HARNESS / "client.sh"), "fakexrun", "base"], env=dict(cenv, BENCH_DIR=str(d), **kv),
                            capture_output=True, text=True, timeout=90)
         return p, d, report.kv(d / "bench.txt") if (d / "bench.txt").exists() else {}
     p, d, b = run(0)

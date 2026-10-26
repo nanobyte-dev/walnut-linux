@@ -11,7 +11,7 @@
 # the threads sitting in ALSA/OpenAL. Writes RUN_DIR/dump/analysis.txt. KEEP=1 keeps the unpacked core.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
-root=$(cd "$here/.." && pwd)
+root=$(cd "$here/../.." && pwd)	# this is bench/analysis/
 run=${1:?usage: dumpana.sh RUN_DIR}
 run=${run%/}
 x=$run/dump

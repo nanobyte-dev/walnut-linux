@@ -42,7 +42,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 
 SHOT_SIZE, SHOT_QUALITY = "800x450", "82"
-# the run's files a re-derivation reads (import-run.py, bench/report.py, bench/shots.py), and the ones a
+# the run's files a re-derivation reads (import-run.py, bench/analysis/report.py, bench/analysis/shots.py), and the ones a
 # reader of the evidence wants beside them (the command, temperatures, memory snapshots, the X log)
 RAW_FILES = ("bench.txt", "cmd", "versions", "result", "samples", "temps", "out.log", "game.log", "dmesg.log",
              "input.tsv", "input.err", "xruns.tsv", "xruns.log", "snap-pre.txt", "snap-post.txt", "Xorg.0.log",
@@ -169,8 +169,8 @@ def ref_root():
 
 
 def _shots_module():
-    if str(REPO / "bench") not in sys.path:
-        sys.path.insert(0, str(REPO / "bench"))
+    if str(REPO / "bench" / "analysis") not in sys.path:
+        sys.path[:0] = [str(REPO / "bench" / "analysis"), str(REPO / "bench" / "harness")]
     import shots
     return shots
 

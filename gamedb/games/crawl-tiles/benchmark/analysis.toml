@@ -1,4 +1,4 @@
-# Dungeon Crawl Stone Soup's benchmark: data for the analysis tools (bench/gamedata.py; gamedb/README.md "games/<id>/benchmark/").
+# Dungeon Crawl Stone Soup's benchmark: data for the analysis tools (bench/harness/gamedata.py; gamedb/README.md "games/<id>/benchmark/").
 
 [[log_ignore]]
 re = 'Crash caused by signal #15|submit a bug report|We crashed'

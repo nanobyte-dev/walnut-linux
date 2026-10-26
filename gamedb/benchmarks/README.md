@@ -11,10 +11,10 @@ test are kept, with the failure in the observations and odd or no numbers. Bench
 |---|---|
 | `batches.toml` | every batch once, in the order they were run |
 | `metrics.toml` | every metric once: name, unit, which way is better, whether it has a CSV matrix, the tool that computes it |
-| `interfered.txt` | runs found disturbed after the fact (`bench/interference-scan.py --write`, docs/STALLS.md "Interference"): the run directory, then the evidence; `bench/report.py` and `bench/matrix.py` leave them out. A list of runs, not of batches: a batch keeps its clean runs |
+| `interfered.txt` | runs found disturbed after the fact (`bench/analysis/interference-scan.py --write`, docs/STALLS.md "Interference"): the run directory, then the evidence; `bench/analysis/report.py` and `bench/analysis/matrix.py` leave them out. A list of runs, not of batches: a batch keeps its clean runs |
 | `gamedb/games/<id>/benchmark/results/<batch>.toml` | one game's numbers in one batch |
 
-`bench/benchrecords.py` reads and writes all of them (stdlib only); `tools/gamedb/check.py` validates them
+`bench/analysis/benchrecords.py` reads and writes all of them (stdlib only); `tools/gamedb/check.py` validates them
 (closed key sets, unique names, run batches in order, every result's batch exists, metric names known);
 `gamedb:batch/<name>` links resolve against the batch names (`tools/doclinks.py`).
 
@@ -33,7 +33,7 @@ test are kept, with the failure in the observations and odd or no numbers. Bench
 | `stack` | inline table | the platform versions the title names, when it does: `kernel`, `mesa`, `ps3rsx`, `libspeq`, `ps3-gpu-tools`, `sdl3` (strings) |
 | `observations` | string | the point of the batch: did the games run, was the picture right, was the sound right, what bug was found, which fix (commit, package version) it proves, and caveats (perf recording during the run, nothing on screen, a single run, an outlier). Plain sentences with names and numbers; say when a cause is not known |
 | `purpose` | string | why the batch was run (a summary's: what it gathers) |
-| `source` | string | required: where it came from (`bench/results row N`: the CSV matrices it was imported from, 2026-10-26; `bench/matrix.py`) |
+| `source` | string | required: where it came from (`bench/results row N`: the CSV matrices it was imported from, 2026-10-26; `bench/analysis/matrix.py`) |
 
 ## games/<id>/benchmark/results/<batch>.toml
 
@@ -70,7 +70,7 @@ calibration table and README.md's suite table are generated from it (`tools/game
 
 `[[metric]]`: `name`, `unit`, `better` (`higher` or `lower`), `matrix` (`always`: a CSV matrix of its
 own; `when-set`: one once a batch has the number; `none`: no matrix, a summary's number), `tool` (what
-computes it: bench/report.py's key, then matrix.py's median), `what`. In short:
+computes it: bench/analysis/report.py's key, then matrix.py's median), `what`. In short:
 
 | Metric | Value | Better |
 |---|---|---|
@@ -127,7 +127,7 @@ printing its average over the whole replay), compare `fps` across that date with
 2. Pick the runs of one configuration and run, from the repository root:
 
    ```
-   python3 bench/matrix.py "Mesa ps3.290 + ps3rsx 0.249" --name 2026-10-27-mesa-290 \
+   python3 bench/analysis/matrix.py "Mesa ps3.290 + ps3rsx 0.249" --name 2026-10-27-mesa-290 \
        --obs "what the batch shows" build/bench/ps3-bench-20261027T*-armagetronad-*
    ```
 
@@ -145,7 +145,7 @@ printing its average over the whole replay), compare `fps` across that date with
 
 ## The CSV matrices
 
-`make bench-matrix` (`bench/matrix.py --csv DIR`, `benchrecords.to_csv`) makes one CSV per metric with a
+`make bench-matrix` (`bench/analysis/matrix.py --csv DIR`, `benchrecords.to_csv`) makes one CSV per metric with a
 matrix: one row per run batch in order, columns `test` (the title), `date` (YYYYMMDD), `runs`,
 `observations`, then `<game>-<variant>` sorted by name (`openarena-tc1`, `dsda-doom-playspu`, ...), only
 the columns with a value; a cell is the record's value. They are build output, not kept: until

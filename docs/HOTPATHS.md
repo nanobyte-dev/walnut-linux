@@ -39,7 +39,7 @@ On this batch's perf.data the fixed perf-post.sh now gives this tool's class sha
 
 ### Symbolised again on the PC
 
-`bench/hotpaths/` reads `perf.data` directly (big-endian PERFILE2, call chains, MMAP2 records
+`bench/analysis/hotpaths/` reads `perf.data` directly (big-endian PERFILE2, call chains, MMAP2 records
 with build ids) and symbolises it on the PC:
 
 - the game's maps are perf's MMAP2 records, with the holes filled from the run's `mem/mid.smaps`
@@ -690,7 +690,7 @@ that fires then is noted and taken later, in `arch_local_irq_restore` -> `__repl
 when interrupts come back on. perf books the sample there. The replay itself costs little: the
 samples are the time of the masked section before it, and the call chain above
 `arch_local_irq_restore` says which section that was. So the path was in the profiles all along, one
-frame up. `bench/irqoff.py` (perf-post.sh writes its table to `perf-irqoff.txt`) sorts the
+frame up. `bench/analysis/irqoff.py` (perf-post.sh writes its table to `perf-irqoff.txt`) sorts the
 samples by that place:
 
 | Game (P1b) | soft-masked | hash faults (user) | HPTE unmap (munmap) | ALSA stream lock | syscall entry/exit | wakeups | context switch | rest |
@@ -806,42 +806,42 @@ selftest.py covers the tokens. Same boot, interleaved, desktop stopped, webcam p
 pixels from 0033 would show as lighting or shading differences on [BananaBread](../gamedb/games/bananabread/)'s and [QuakeSpasm](../gamedb/games/quakespasm/)'s
 models; look for missing or flickering minimap dots and sprites with [X-Moto](../gamedb/games/xmoto/)'s stream):
 
-    ENVS="- NV30_TRANSLATE_LUT=0" /var/tmp/bench/run.sh bench bananabread base 3
-    ENVS="- NV30_FENCE_BO_POOL=16" /var/tmp/bench/run.sh bench classicube base 3
-    ENVS="- NV30_QUERY_WAIT=0 NV30_QUERY_WAIT=50" /var/tmp/bench/run.sh bench bananabread base 3
-    /var/tmp/bench/run.sh bench bananabread "base oqlag oqnowait" 3
-    ENVS="- NV30_STAGING_POOL=16" /var/tmp/bench/run.sh bench classicube base 3
-    /var/tmp/bench/run.sh bench classicube "base chunks1 gloff" 3
-    /var/tmp/bench/run.sh bench xmoto "base stream" 3
-    ENVS="- PS3RSX_SHADOW_FAST=1" /var/tmp/bench/run.sh bench classicube base 3
-    ENVS="- PS3RSX_SHADOW_FAST=1" /var/tmp/bench/run.sh suite base 1
+    ENVS="- NV30_TRANSLATE_LUT=0" /var/tmp/bench/harness/run.sh bench bananabread base 3
+    ENVS="- NV30_FENCE_BO_POOL=16" /var/tmp/bench/harness/run.sh bench classicube base 3
+    ENVS="- NV30_QUERY_WAIT=0 NV30_QUERY_WAIT=50" /var/tmp/bench/harness/run.sh bench bananabread base 3
+    /var/tmp/bench/harness/run.sh bench bananabread "base oqlag oqnowait" 3
+    ENVS="- NV30_STAGING_POOL=16" /var/tmp/bench/harness/run.sh bench classicube base 3
+    /var/tmp/bench/harness/run.sh bench classicube "base chunks1 gloff" 3
+    /var/tmp/bench/harness/run.sh bench xmoto "base stream" 3
+    ENVS="- PS3RSX_SHADOW_FAST=1" /var/tmp/bench/harness/run.sh bench classicube base 3
+    ENVS="- PS3RSX_SHADOW_FAST=1" /var/tmp/bench/harness/run.sh suite base 1
     # profiles of the new paths (for the CPU shares, not for fps)
-    PERF=1 MEM=1 ENVS="NV30_QUERY_WAIT=0" /var/tmp/bench/run.sh bench bananabread base 1
-    PERF=1 MEM=1 ENVS="NV30_STAGING_POOL=16+PS3RSX_SHADOW_FAST=1" /var/tmp/bench/run.sh bench classicube base 1
+    PERF=1 MEM=1 ENVS="NV30_QUERY_WAIT=0" /var/tmp/bench/harness/run.sh bench bananabread base 1
+    PERF=1 MEM=1 ENVS="NV30_STAGING_POOL=16+PS3RSX_SHADOW_FAST=1" /var/tmp/bench/harness/run.sh bench classicube base 1
 
 Batch irqoff (soft-masked time, the section above). Part A runs on the booted kernel .472 with Mesa
 ps3.544 and `ps3rsx-modules-6.12.111+ps3.472` 0.544 installed. Check `perf-irqoff.txt` of the
 profiled runs (the hash fault and unmap rows should be near 0 with 0040) and game.log's
 `nv30: big staging pool: N hits, M misses` line:
 
-    ENVS="- NV30_STAGING_POOL_MB=24" /var/tmp/bench/run.sh bench openttd "base gl" 3
-    ENVS="- PS3RSX_CLEAR_DCBZ=1 NV30_STAGING_POOL=16+PS3RSX_CLEAR_DCBZ=1" /var/tmp/bench/run.sh bench classicube base 3
-    ENVS="- PS3RSX_CLEAR_DCBZ=1 NV30_STAGING_POOL=16+NV30_FENCE_BO_POOL=16" /var/tmp/bench/run.sh bench openarena gl2min 3
-    PERF=1 MEM=1 ENVS="- NV30_STAGING_POOL_MB=24+NV30_STAGING_POOL_STATS=1" /var/tmp/bench/run.sh bench openttd gl 1
-    PERF=1 ENVS="- PS3RSX_CLEAR_DCBZ=1" /var/tmp/bench/run.sh bench openttd gl 1
+    ENVS="- NV30_STAGING_POOL_MB=24" /var/tmp/bench/harness/run.sh bench openttd "base gl" 3
+    ENVS="- PS3RSX_CLEAR_DCBZ=1 NV30_STAGING_POOL=16+PS3RSX_CLEAR_DCBZ=1" /var/tmp/bench/harness/run.sh bench classicube base 3
+    ENVS="- PS3RSX_CLEAR_DCBZ=1 NV30_STAGING_POOL=16+NV30_FENCE_BO_POOL=16" /var/tmp/bench/harness/run.sh bench openarena gl2min 3
+    PERF=1 MEM=1 ENVS="- NV30_STAGING_POOL_MB=24+NV30_STAGING_POOL_STATS=1" /var/tmp/bench/harness/run.sh bench openttd gl 1
+    PERF=1 ENVS="- PS3RSX_CLEAR_DCBZ=1" /var/tmp/bench/harness/run.sh bench openttd gl 1
 
 Part B needs kernel 6.12.111+ps3.544 (local/0046) booted, with `ps3rsx-modules` 0.544 built for it.
 That kernel also carries local/0045 (the ps3disk write guard), so the boot follows
 [GAMEOS-HDD.md](GAMEOS-HDD.md) "The kernel guard" first. The derived slot is checked before it is
 measured: `mismatches` must be 0 after `insert_readback=2` sessions, else stop:
 
-    PERF=1 ENVS="PS3HTAB_INSERT_READBACK=2" /var/tmp/bench/run.sh bench openttd "gl base" 1
-    PERF=1 ENVS="PS3HTAB_INSERT_READBACK=2" /var/tmp/bench/run.sh bench luanti base 1
+    PERF=1 ENVS="PS3HTAB_INSERT_READBACK=2" /var/tmp/bench/harness/run.sh bench openttd "gl base" 1
+    PERF=1 ENVS="PS3HTAB_INSERT_READBACK=2" /var/tmp/bench/harness/run.sh bench luanti base 1
     cat /sys/module/ps3_htab/parameters/stats      # mismatches 0; perf-irqoff.txt has the rates
-    ENVS="- PS3HTAB_INSERT_READBACK=0" /var/tmp/bench/run.sh bench openttd gl 3
-    ENVS="- PS3HTAB_INSERT_READBACK=0" /var/tmp/bench/run.sh bench luanti base 3
-    ENVS="- PS3HTAB_INSERT_READBACK=0" /var/tmp/bench/run.sh bench classicube base 3
-    python3 /var/tmp/bench/report.py /var/tmp/ps3-bench/<run dirs>...
+    ENVS="- PS3HTAB_INSERT_READBACK=0" /var/tmp/bench/harness/run.sh bench openttd gl 3
+    ENVS="- PS3HTAB_INSERT_READBACK=0" /var/tmp/bench/harness/run.sh bench luanti base 3
+    ENVS="- PS3HTAB_INSERT_READBACK=0" /var/tmp/bench/harness/run.sh bench classicube base 3
+    python3 /var/tmp/bench/analysis/report.py /var/tmp/ps3-bench/<run dirs>...
 
 Batch hotpaths3 (Mesa 0041-0044, the third round above). Install Mesa 26.2.4-1+ps3.570~dev from
 `build/debs/hotpaths3b/mesa` (ps3.545 in `build/debs/hotpaths3/mesa` has the 0043 that wedges the
@@ -851,17 +851,17 @@ off by default, so the other rows are unaffected), then same boot, interleaved, 
 QuakeSpasm's model shading, [SuperTuxKart](../gamedb/games/supertuxkart/)'s track and karts all there; MemAvailable (bench.txt's
 `min_memavailable_kb`) for 0041, which holds staging memory until the next submission:
 
-    ENVS="- NV30_FENCE_WORK_KICK=1024 NV30_FENCE_WORK_KICK=0" /var/tmp/bench/run.sh bench openarena gl2min 3
-    ENVS="- NV30_VTX_SNORM8=1 NV30_QUERY_KICK=2 NV30_VTX_SNORM8=1+NV30_QUERY_KICK=2" /var/tmp/bench/run.sh bench bananabread base 3
-    ENVS="- NV30_QUERY_KICK=0" /var/tmp/bench/run.sh bench bananabread base 3
-    ENVS="- NV30_MINMAX_VMX=1" /var/tmp/bench/run.sh bench supertuxkart lean 3
-    ENVS="- NV30_VTX_SNORM8=1" /var/tmp/bench/run.sh bench quakespasm base 3
+    ENVS="- NV30_FENCE_WORK_KICK=1024 NV30_FENCE_WORK_KICK=0" /var/tmp/bench/harness/run.sh bench openarena gl2min 3
+    ENVS="- NV30_VTX_SNORM8=1 NV30_QUERY_KICK=2 NV30_VTX_SNORM8=1+NV30_QUERY_KICK=2" /var/tmp/bench/harness/run.sh bench bananabread base 3
+    ENVS="- NV30_QUERY_KICK=0" /var/tmp/bench/harness/run.sh bench bananabread base 3
+    ENVS="- NV30_MINMAX_VMX=1" /var/tmp/bench/harness/run.sh bench supertuxkart lean 3
+    ENVS="- NV30_VTX_SNORM8=1" /var/tmp/bench/harness/run.sh bench quakespasm base 3
     # control: nothing to take away in [ClassiCube](../gamedb/games/classicube/) (no SNORM8, no queries, few deferred frees)
-    ENVS="- NV30_FENCE_WORK_KICK=1024+NV30_QUERY_KICK=2+NV30_VTX_SNORM8=1+NV30_MINMAX_VMX=1" /var/tmp/bench/run.sh bench classicube base 2
+    ENVS="- NV30_FENCE_WORK_KICK=1024+NV30_QUERY_KICK=2+NV30_VTX_SNORM8=1+NV30_MINMAX_VMX=1" /var/tmp/bench/harness/run.sh bench classicube base 2
     # profiles with the switches (for the CPU shares, not for fps)
-    PERF=1 MEM=1 ENVS="NV30_VTX_SNORM8=1+NV30_QUERY_KICK=2" /var/tmp/bench/run.sh bench bananabread base 1
-    PERF=1 MEM=1 ENVS="NV30_FENCE_WORK_KICK=1024" /var/tmp/bench/run.sh bench openarena gl2min 1
-    PERF=1 MEM=1 ENVS="NV30_MINMAX_VMX=1" /var/tmp/bench/run.sh bench supertuxkart lean 1
+    PERF=1 MEM=1 ENVS="NV30_VTX_SNORM8=1+NV30_QUERY_KICK=2" /var/tmp/bench/harness/run.sh bench bananabread base 1
+    PERF=1 MEM=1 ENVS="NV30_FENCE_WORK_KICK=1024" /var/tmp/bench/harness/run.sh bench openarena gl2min 1
+    PERF=1 MEM=1 ENVS="NV30_MINMAX_VMX=1" /var/tmp/bench/harness/run.sh bench supertuxkart lean 1
 
 In the profiles, `generic_run` should be gone from BananaBread (and `nouveau_buffer_transfer_map`
 reads of its world buffers), `nv30_query_end > nouveau_pushbuf_kick` near 0,
@@ -879,13 +879,13 @@ the mode that keeps the savings without the extra indices are
 
 ## Reproducing the analysis on the PC
 
-    bench/hotpaths/symroot.sh                      # build/tmp/hotpaths-sym: debug files, System.map, modules
+    bench/analysis/hotpaths/symroot.sh                      # build/tmp/hotpaths-sym: debug files, System.map, modules
     for d in build/bench/<run dirs>; do
-        python3 bench/hotpaths/analyze.py $d build/tmp/hotpaths/$(basename $d).pkl
+        python3 bench/analysis/hotpaths/analyze.py $d build/tmp/hotpaths/$(basename $d).pkl
     done
-    python3 bench/hotpaths/categorize.py build/tmp/hotpaths/*.pkl   # the tables above
-    python3 bench/hotpaths/stacks.py callers <pkl> '^nv30_query_result$' 8   # who calls it
-    python3 bench/hotpaths/stacks.py chain '^nv30_query_end$ > ^nouveau_pushbuf_kick$' <pkl>...
+    python3 bench/analysis/hotpaths/categorize.py build/tmp/hotpaths/*.pkl   # the tables above
+    python3 bench/analysis/hotpaths/stacks.py callers <pkl> '^nv30_query_result$' 8   # who calls it
+    python3 bench/analysis/hotpaths/stacks.py chain '^nv30_query_end$ > ^nouveau_pushbuf_kick$' <pkl>...
 
 Pull the runs with `make bench-pull PERFDATA=1`. `symroot.sh` takes the versions as arguments (Mesa,
 kernel release, ps3rsx; the defaults are batch ssdroot2's: 26.2.4-1+ps3.476, 6.12.111+ps3.472,

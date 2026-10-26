@@ -1,5 +1,5 @@
 # Mr.Boom: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
-# harness reads it through bench/playdef.py.
+# harness reads it through bench/harness/playdef.py.
 process = 'mrboom'
 # its settings and data, set aside for a session on fresh defaults; where it may keep its settings (none existed on the PS3 before the first session)
 home = ['.mrboom', '.config/mrboom', '.local/share/mrboom']

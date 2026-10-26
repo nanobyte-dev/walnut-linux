@@ -15,8 +15,8 @@ Outside this folder a game may appear only as:
 - **frozen history** (docs/archive/, git, changelogs);
 - **test fixtures** that use a game as sample data.
 
-**Status (2026-10-26): every migration step through 8 is done; step 9, the split of `bench/` into
-harness, lib, analysis and tests, is the one left.** Each game's `index.md`, `thumb.png` and played
+**Status (2026-10-26): every migration step is done, the last one (9) the split of `bench/` into
+harness, lib, analysis and tests, which holds no game files.** Each game's `index.md`, `thumb.png` and played
 sessions (`rating/sessions/<run>/`, with their evidence: step 6) are in `games/<id>/`; the site mounts them
 (website/gamedb/hugo.toml) and the app's catalog is packed from them. Every game package is in its
 bundle's `packages/`, the three engines (cube2, ioquake3, darkplaces-gl2) in `engines/<e>/`, the licensed
@@ -224,12 +224,12 @@ catalog.json is a cache of the ratings computed from these at build time.
 #### rating/test.toml
 
 The played test as data: the session harness and the app read it, nothing in it is run. TOML, a closed
-key set (`bench/playdef.py` KEYS; `tools/gamedb/check.py` runs its `validate()`, an unknown key is an error):
+key set (`bench/harness/playdef.py` KEYS; `tools/gamedb/check.py` runs its `validate()`, an unknown key is an error):
 
 | Key | Type | Meaning |
 |---|---|---|
 | `process` | string | required: the game's process name (`pgrep -x`: peak RSS, the per-client VRAM; `tools/play-test.sh stop` ends it) |
-| `home` | list | required: the game's settings and data directories under ~, relative, globs allowed, never one every game shares (`.config`, `.local/share`, ...): a session sets them aside and runs the game on fresh defaults (`bench/freshhome.py`) |
+| `home` | list | required: the game's settings and data directories under ~, relative, globs allowed, never one every game shares (`.config`, `.local/share`, ...): a session sets them aside and runs the game on fresh defaults (`bench/harness/freshhome.py`) |
 | `play_mark` | string | a regex on the game's output: the first gameplay frame (a map loaded, a race started): bench.txt `play_from=mark`, `play_start`, `play_marks`, and the HUD window starts there; `import-run.py` reads it for runs recorded before `play_marks=` |
 | `load_mark` | string | a regex on the game's output: the load's end (`play_from=load` when there is no play mark) |
 | `command` | list | the command a player starts, the program as an absolute path: the session runs it when the game has no menu launcher (a launcher's Exec wins); without it the recipe's `CMD` |
@@ -237,10 +237,10 @@ key set (`bench/playdef.py` KEYS; `tools/gamedb/check.py` runs its `validate()`,
 | `sound_at` | integer | seconds from the start when the sound card's state is read (default 15) |
 | `hud` | bool | the Gallium HUD's frame times (default true) |
 
-Every game with a benchmark recipe has one, and its recipe has no session part (`bench/selftest.py`: the
-file is valid, the marks are bash regexes too, `process` is the recipe's `COMM`). `bench/session.sh` and
-`bench/client.sh` read it through `playdef.py` (shlex-quoted `TEST_*` assignments; `bench_playdef` in
-bench/games.sh), `make bench-push` puts it on the PS3 as `/var/tmp/bench/games/<id>/rating/test.toml`.
+Every game with a benchmark recipe has one, and its recipe has no session part (`bench/tests/selftest.py`: the
+file is valid, the marks are bash regexes too, `process` is the recipe's `COMM`). `bench/harness/session.sh` and
+`bench/harness/client.sh` read it through `playdef.py` (shlex-quoted `TEST_*` assignments; `bench_playdef` in
+bench/harness/games.sh), `make bench-push` puts it on the PS3 as `/var/tmp/bench/games/<id>/rating/test.toml`.
 A session takes no recipe variant (the menu launchers took their place); the recipe's base still gives
 the recording settings (`LOAD_RE` and the like). A game without a test.toml runs its recipe as it is,
 on fresh defaults from the top directories of its `BACKUP` files.
@@ -252,32 +252,32 @@ harness in `bench/`:
 
 | File | What |
 |---|---|
-| `recipe.sh` | the recipe: code, sourced by `bench/client.sh` (below) |
+| `recipe.sh` | the recipe: code, sourced by `bench/harness/client.sh` (below) |
 | `analysis.toml` | data for the Python analysis tools (below) |
 | `lib/` | the game's own helpers (Hedgewars' `hwdrive.py`), reached as `"$GAME_DIR/lib/..."` |
 | `assets/` | the files a recipe puts in place (demos, replays, saves, maps, mods), reached as `"$ASSETS/..."`; small normal files, not Git LFS |
 | `assets-src/` | how built assets are made: an `assets.mk` the top-level Makefile includes (ClassiCube's plugin, `make classicube-bench`; `make bench-assets` makes all), or the scripts that made them (OpenTTD's saves) |
 | `legacy/` | superseded tools kept for the record (OpenArena's step 0) |
-| `results/<batch>.toml` | *now* (step 5): the game's numbers in one batch ([benchmarks/README.md](benchmarks/README.md)); `bench/matrix.py` writes them |
+| `results/<batch>.toml` | *now* (step 5): the game's numbers in one batch ([benchmarks/README.md](benchmarks/README.md)); `bench/analysis/matrix.py` writes them |
 | `runs/<run>/raw/` | *planned* (step 6) |
 
-Where the harness finds them: `bench/games.sh` (shell) and `bench/games.py` (Python) resolve a name to
+Where the harness finds them: `bench/harness/games.sh` (shell) and `bench/harness/games.py` (Python) resolve a name to
 the game's benchmark directory, here in the repository and in `/var/tmp/bench/games/<id>/` on the PS3
 (`make bench-push` copies `recipe.sh`, `analysis.toml`, `lib/` and `assets/` of every bundle there).
 A game is named by its id; `bench.txt` gets `game=` and `recipe=` (both the id). A run from before
 the move (no `recipe=`) names the old recipe file, so its `game=` and its directory name are read
 through the `[legacy] recipe_names` first (game=sauerbraten in such a run is BananaBread); `run.sh`
-also takes an old name that is no id (`sauerbraten-edition`). Read by `bench/client.sh`, `run.sh`
+also takes an old name that is no id (`sauerbraten-edition`). Read by `bench/harness/client.sh`, `run.sh`
 (`list`, variants, `suite`), `session.sh`, `ssd-arm.sh`, `matrix.py` (run labels), `selftest.py` (every
-recipe and variant sourced), the analysis tools through `bench/gamedata.py` (`analysis.toml`),
+recipe and variant sourced), the analysis tools through `bench/harness/gamedata.py` (`analysis.toml`),
 `tools/play-test.sh`, `tools/play-pc.sh` (`REF_IMAGE`), `tools/bench-ref.sh` (the container sees `bench/`
 and the game's benchmark directory) and `tools/gamedb/check.py` (`benchmark/` holds only these files; a
 recipe.sh; `analysis.toml` in gamedata.py's schema).
 
 #### benchmark/analysis.toml
 
-The data the analysis tools need about the game (*read now*, step 4): `bench/report.py`, `logscan.py`,
-`matrix.py` and `interference-scan.py` read it through `bench/gamedata.py` and hold no game of their own.
+The data the analysis tools need about the game (*read now*, step 4): `bench/analysis/report.py`, `logscan.py`,
+`matrix.py` and `interference-scan.py` read it through `bench/harness/gamedata.py` and hold no game of their own.
 TOML, a closed key set (`gamedata.validate_analysis`, run by check.py); every regex compiles:
 
 | Table | Keys | Read by |
@@ -297,13 +297,12 @@ own. ioquake3's: the SIGTERM line Quake 3 engines print when the harness stops t
 One bash file per game, sourced by `client.sh` (variables and functions only, nothing runs at source
 time). `client.sh <game> <variant>` sources it, then calls `variant_<variant>` if it exists (`base`
 needs none). Before it is sourced, `GAME_DIR` is the game's benchmark directory, `ASSETS` its
-`assets/` and `BENCH_LIB` the directory of the generic pieces the recipes share (`bench/` for now,
-a `lib/` of its own in step 9): `"$BENCH_LIB/smoke.inc"` (the header of the smoke recipes: `SUITE=0`, a 120 s
+`assets/` and `BENCH_LIB` the directory of the generic pieces the recipes share (`bench/lib/`): `"$BENCH_LIB/smoke.inc"` (the header of the smoke recipes: `SUITE=0`, a 120 s
 `DURATION` that `SMOKE_SECS` overrides, a short HUD window, `vblank_mode=0`, and `smoke_keys` /
 `smoke_xkeys` for keys into the game; a smoke recipe is a game tried once to see whether it starts and
 plays, docs/games/SUITE.md "Smoke runs"), `"$BENCH_LIB/openal.inc"` (the OpenAL Soft variants `allog`,
 `b16`, `f44`, `b16f44`, `p1024`, `alnull` the OpenAL games' recipes share, docs/SPU-AUDIO.md M0, with
-an optional perf profile, `OAL_PERF=N`, that `bench/oal-perf.sh` splits by symbol),
+an optional perf profile, `OAL_PERF=N`, that `bench/analysis/oal-perf.sh` splits by symbol),
 `"$BENCH_LIB/keyboard.evemu"` (a keyboard's description for an evemu virtual keyboard: ETR's
 recording without its events) and `"$BENCH_LIB/xkeys.py"` (keys through XTEST).
 
@@ -348,7 +347,7 @@ Each recipe's header says how its warm-up and window work (passes, the game's ow
 HUD window, and what is not identical between runs). `bench.txt` gets `warmup`, `measure`,
 `load_end` and `hud_t1` (seconds from the start: the load's end, the HUD's first value), `window`
 (start and end of the measured window), `passes`, `measured` and `pass<N>` lines (`start end fps
-maxms counted`) for report.py. `python3 bench/selftest.py` checks client.sh, report.py and
+maxms counted`) for report.py. `python3 bench/tests/selftest.py` checks client.sh, report.py and
 matrix.py with a fake game and made-up runs, and sources every recipe and variant.
 
 ### games/<id>/technical.md, investigations/
@@ -433,8 +432,8 @@ with their patches, the published games on it; its investigations at `engines/<e
 metric's name, unit, direction, whether it has a CSV matrix, and the tool that computes it.
 `games/<id>/benchmark/results/<batch>.toml`: the game's numbers in that batch, `[variant."<variant>"]`
 tables of metric = value. `interfered.txt`: the runs found disturbed after the fact, which report.py and
-matrix.py leave out. Written by `bench/matrix.py` (a batch's runs, from build/bench), read by
-`bench/benchrecords.py` for matrix.py, `make bench-matrix` (the CSV matrices into build/bench-matrix/),
+matrix.py leave out. Written by `bench/analysis/matrix.py` (a batch's runs, from build/bench), read by
+`bench/analysis/benchrecords.py` for matrix.py, `make bench-matrix` (the CSV matrices into build/bench-matrix/),
 `tools/gamedb/check.py` (validates: closed keys, every result's batch exists, metric names known),
 `tools/gamedb/score.py` (the summary batch `suite-summary-2026-10`: the rules-1 calibration) and
 `tools/gamedb/blocks.py` (docs/GAMEDB.md's calibration table, README.md's suite table).
@@ -464,7 +463,7 @@ and platform research (EMULATORS, CLASSIC-MACOS, DARLING-PPC) stay in docs/resea
 | licensed names and leak globs | `tools/licensed.py` |
 | CI workflows | `github-ci/gen-workflows.py` (`--check` in make test) |
 | doc blocks (`licensed-names`, `calibration`: docs/GAMEDB.md, `suite-table`: README.md) | `tools/gamedb/blocks.py --write`, `--check` |
-| the CSV matrices of the benchmark results | `make bench-matrix` (`bench/matrix.py --csv`) into build/bench-matrix/ |
+| the CSV matrices of the benchmark results | `make bench-matrix` (`bench/analysis/matrix.py --csv`) into build/bench-matrix/ |
 | the PS3's bench tree (`/var/tmp/bench/games/<id>/`) | `make bench-push` |
 | a session's record (`result.toml`) from its evidence | `tools/gamedb/import-run.py`, `tools/gamedb/reimport.py` (`--check` in make test) |
 | the gallery's list for `git lfs pull -I` in CI | `tools/gamedb/gallery.py --lfs-include` |

@@ -60,10 +60,10 @@ Numbers: gamedb:batch/2026-10-18-mesa-407-lut (Mesa ps3.407 NV30_TRANSLATE_LUT, 
 
 Still to run (same boot, a profiled round for the MB and three plain rounds for stalls and fps):
 
-    MEM=1 ENVS="- MALLOC=trim MALLOC=mmap MALLOC=arena2 MALLOC=tune" /var/tmp/bench/run.sh bench luanti base 1
-    MEM=1 /var/tmp/bench/run.sh bench luanti "base trim64" 1
-    ENVS="- MALLOC=tune" /var/tmp/bench/run.sh bench luanti base 3
-    python3 /var/tmp/bench/report.py --mem /var/tmp/ps3-bench/<run dirs>
+    MEM=1 ENVS="- MALLOC=trim MALLOC=mmap MALLOC=arena2 MALLOC=tune" /var/tmp/bench/harness/run.sh bench luanti base 1
+    MEM=1 /var/tmp/bench/harness/run.sh bench luanti "base trim64" 1
+    ENVS="- MALLOC=tune" /var/tmp/bench/harness/run.sh bench luanti base 3
+    python3 /var/tmp/bench/analysis/report.py --mem /var/tmp/ps3-bench/<run dirs>
 
 Read `mem_swap`, `mem_heap_rss`/`mem_heap_swap`, `mem_malloc_free`, `min_memavailable_kb` and the
 `ps3-malloctrim:` lines. The Luanti bench mod's own memory lines are parsed wrongly (its `vmrss`,

@@ -90,7 +90,7 @@ def toml_str(s):
 
 def save(run_dir, answers, notes, game, variant, form):
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    lines = ["# the end-of-session form (bench/session-form.py)", "form_version = %d" % FORM_VERSION]
+    lines = ["# the end-of-session form (bench/harness/session-form.py)", "form_version = %d" % FORM_VERSION]
     for key, _, _, _ in QUESTIONS:
         lines.append("%s = %s" % (key, toml_str(answers[key])))
     if derived_controls(answers):

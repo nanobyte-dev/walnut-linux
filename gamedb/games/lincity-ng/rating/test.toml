@@ -1,5 +1,5 @@
 # LinCity-NG: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
-# harness reads it through bench/playdef.py.
+# harness reads it through bench/harness/playdef.py.
 process = 'lincity-ng'
 # its settings and data, set aside for a session on fresh defaults; checked against its XDG/legacy paths; the derived default (from the benchmark's files) would have been all of ~/.config: the config is a file there
 home = ['.config/lincity-ng.conf', '.lincity-ng', '.local/share/lincity-ng']

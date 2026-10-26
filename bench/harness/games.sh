@@ -1,27 +1,28 @@
 # games.sh: where a game's benchmark is (gamedb/README.md "games/<id>/benchmark/"). Sourced by the
 # harness (client.sh, run.sh, session.sh, ssd-arm.sh) and by tools/bench-ref.sh, tools/play-test.sh,
-# tools/play-pc.sh, with $here set to the bench directory. bench/games.py is the same for Python.
+# tools/play-pc.sh, with $BENCH set to the bench tree (bench/ in the repository, /var/tmp/bench on the
+# PS3: harness/, lib/, analysis/, and games/ on the PS3). bench/harness/games.py is the same for Python.
 # A game's benchmark is a directory: recipe.sh (code, sourced by client.sh), maybe analysis.toml
-# (data for the analysis tools, bench/gamedata.py), lib/ (its helpers), assets/ (its files).
+# (data for the analysis tools, bench/harness/gamedata.py), lib/ (its helpers), assets/ (its files).
 #   the repository:  gamedb/games/<id>/benchmark/
 #   the PS3's tree:  /var/tmp/bench/games/<id>/ (make bench-push copies each benchmark there)
 # Its played test is data beside it, rating/test.toml (gamedb/games/<id>/rating/, on the PS3
 # /var/tmp/bench/games/<id>/rating/): bench_playdef reads it through playdef.py (session.sh, client.sh).
 # A recipe sees GAME_DIR (that directory), ASSETS ($GAME_DIR/assets) and BENCH_LIB (the generic
-# helpers: smoke.inc, openal.inc, xkeys.py, keyboard.evemu; bench/ for now, bench/lib/ later).
+# helpers: smoke.inc, openal.inc, xkeys.py, keyboard.evemu: bench/lib/).
 # Names: a game is named by its gamedb id. A recipe renamed by the move into gamedb (step 1c,
 # 2026-10-26: sauerbraten.sh became bananabread's, sauerbraten-edition.sh sauerbraten's) keeps its
 # old name in its analysis.toml ([legacy] recipe_names): bench_id takes an old name that is no id
 # (sauerbraten-edition -> sauerbraten); runs from before the move are read through those names first
-# (bench/games.py: bench.txt without recipe=).
+# (bench/harness/games.py: bench.txt without recipe=).
 # Overrides: BENCH_GAMES, a root of <id>/recipe.sh or <id>/benchmark/recipe.sh; BENCH_RECIPES (tests),
 # a directory of <name>.sh files, GAME_DIR then <that directory>/<name>.
-BENCH_LIB=${BENCH_LIB:-$here}
+BENCH_LIB=${BENCH_LIB:-$BENCH/lib}
 
 bench_root() {	# the root of the game directories
 	if [ -n "${BENCH_GAMES:-}" ]; then echo "$BENCH_GAMES"
-	elif [ -d "$here/games" ]; then echo "$here/games"
-	else echo "$(cd "$here/.." && pwd)/gamedb/games"; fi
+	elif [ -d "$BENCH/games" ]; then echo "$BENCH/games"
+	else echo "$(cd "$BENCH/.." && pwd)/gamedb/games"; fi
 }
 
 bench_ids() {	# every game with a recipe, one id a line, sorted
@@ -77,6 +78,6 @@ bench_playdef() {	# bench_playdef ID: TEST_* from the game's test.toml (playdef.
 	TEST_FILE=; TEST_PROCESS=; TEST_HOME=(); TEST_PLAY_MARK=; TEST_LOAD_MARK=; TEST_COMMAND=(); TEST_ENV=()
 	TEST_SOUND_AT=; TEST_HUD=1
 	f=$(bench_test "$1"); [ -e "$f" ] || return 0
-	out=$(python3 -I "$here/playdef.py" "$f") || return 2
+	out=$(python3 -I "$BENCH/harness/playdef.py" "$f") || return 2
 	eval "$out"
 }

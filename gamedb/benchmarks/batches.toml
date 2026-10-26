@@ -1,5 +1,5 @@
 # gamedb/benchmarks/batches.toml: every benchmark batch once, in the order they were run
-# (gamedb/benchmarks/README.md). Written by bench/matrix.py; the observations are edited by hand.
+# (gamedb/benchmarks/README.md). Written by bench/analysis/matrix.py; the observations are edited by hand.
 
 [[batch]]
 name = "2026-10-16-step0-vswap-off"

@@ -1,16 +1,16 @@
 # gamedb/benchmarks/metrics.toml: every number a benchmark result holds (gamedb/benchmarks/README.md).
 # name: the key in games/<id>/benchmark/results/<batch>.toml and the CSV matrix's file name; unit; better
 # (higher or lower); matrix: always (a CSV matrix of its own), when-set (a CSV matrix once a batch has the
-# number), none (no matrix: a summary's number); tool: what computes it (bench/report.py's run key, then
-# bench/matrix.py's median over a batch's runs of one game-variant, rounded to 0.1); what: the meaning.
-# bench/matrix.py's METRICS has a getter for every metric with a matrix (check.py: the two agree).
+# number), none (no matrix: a summary's number); tool: what computes it (bench/analysis/report.py's run key, then
+# bench/analysis/matrix.py's median over a batch's runs of one game-variant, rounded to 0.1); what: the meaning.
+# bench/analysis/matrix.py's METRICS has a getter for every metric with a matrix (check.py: the two agree).
 
 [[metric]]
 name = "fps"
 unit = "frames a second"
 better = "higher"
 matrix = "always"
-tool = "bench/report.py fps (the game's own counter), else hud_med (the Gallium HUD median after the load); matrix.py --hud GAME: hud_med"
+tool = "bench/analysis/report.py fps (the game's own counter), else hud_med (the Gallium HUD median after the load); matrix.py --hud GAME: hud_med"
 what = "the game's own frame rate (timedemo, replay or fixed-frame counter), else the Gallium HUD median after loading; for a repeated demo the first pass"
 
 [[metric]]
@@ -18,7 +18,7 @@ name = "cpu"
 unit = "seconds"
 better = "lower"
 matrix = "always"
-tool = "bench/report.py cpu (the client's user+sys)"
+tool = "bench/analysis/report.py cpu (the client's user+sys)"
 what = "the client's user+sys seconds for the whole run"
 
 [[metric]]
@@ -26,7 +26,7 @@ name = "underruns"
 unit = "underruns"
 better = "lower"
 matrix = "always"
-tool = "bench/report.py xrun (bench.txt underruns=); matrix.py counts game.log's \"underrun occurred\" lines for runs before 2026-10-17 03:50"
+tool = "bench/analysis/report.py xrun (bench.txt underruns=); matrix.py counts game.log's \"underrun occurred\" lines for runs before 2026-10-17 03:50"
 what = "ALSA underruns in the run (audible chopping)"
 
 [[metric]]
@@ -34,7 +34,7 @@ name = "ram_free"
 unit = "MiB"
 better = "higher"
 matrix = "always"
-tool = "bench/report.py avail (KiB) / 1024"
+tool = "bench/analysis/report.py avail (KiB) / 1024"
 what = "lowest MemAvailable during the run"
 
 [[metric]]
@@ -42,7 +42,7 @@ name = "vram"
 unit = "MiB"
 better = "lower"
 matrix = "always"
-tool = "bench/report.py vram (KiB, ps3rsx per-client) / 1024"
+tool = "bench/analysis/report.py vram (KiB, ps3rsx per-client) / 1024"
 what = "the game's peak VRAM, all its buffers"
 
 [[metric]]
@@ -50,7 +50,7 @@ name = "fps_steady"
 unit = "frames a second"
 better = "higher"
 matrix = "always"
-tool = "bench/report.py steady; matrix.py --hud GAME: hud_win"
+tool = "bench/analysis/report.py steady; matrix.py --hud GAME: hud_win"
 what = "the steady-state frame rate: the median of the game's own fps over its counted passes, the game's own result over its window, else the median of the HUD's per-second fps in the window"
 
 [[metric]]
@@ -58,7 +58,7 @@ name = "low1"
 unit = "frames a second"
 better = "higher"
 matrix = "always"
-tool = "bench/report.py low1"
+tool = "bench/analysis/report.py low1"
 what = "the 1% low in the window: 1000 / the 99th percentile frame time (HUD frame times; with per-second data only, the slowest 1% of seconds)"
 
 [[metric]]
@@ -66,7 +66,7 @@ name = "stalls"
 unit = "frames"
 better = "lower"
 matrix = "always"
-tool = "bench/report.py stalls"
+tool = "bench/analysis/report.py stalls"
 what = "frames over 100 ms in the window (per-second data only: seconds under 10 fps)"
 
 [[metric]]
@@ -74,7 +74,7 @@ name = "longest_ms"
 unit = "ms"
 better = "lower"
 matrix = "always"
-tool = "bench/report.py longest"
+tool = "bench/analysis/report.py longest"
 what = "the longest frame in the window (HUD frame times, else the game's own per-pass longest)"
 
 [[metric]]
@@ -82,7 +82,7 @@ name = "stall_disk_s"
 unit = "seconds"
 better = "lower"
 matrix = "when-set"
-tool = "bench/report.py stall_disk_s (bench/stalls.py; runs recorded with STALLS=1)"
+tool = "bench/analysis/report.py stall_disk_s (bench/analysis/stalls.py; runs recorded with STALLS=1)"
 what = "seconds of the window's stalls spent waiting on the disk (docs/STALLS.md says how a cause is decided)"
 
 [[metric]]
@@ -90,7 +90,7 @@ name = "stall_swap_s"
 unit = "seconds"
 better = "lower"
 matrix = "when-set"
-tool = "bench/report.py stall_swap_s (bench/stalls.py; runs recorded with STALLS=1)"
+tool = "bench/analysis/report.py stall_swap_s (bench/analysis/stalls.py; runs recorded with STALLS=1)"
 what = "seconds of the window's stalls spent on swap (zram and VRAM swap)"
 
 [[metric]]
@@ -98,7 +98,7 @@ name = "stall_reclaim_s"
 unit = "seconds"
 better = "lower"
 matrix = "when-set"
-tool = "bench/report.py stall_reclaim_s (bench/stalls.py; runs recorded with STALLS=1)"
+tool = "bench/analysis/report.py stall_reclaim_s (bench/analysis/stalls.py; runs recorded with STALLS=1)"
 what = "seconds of the window's stalls spent in direct reclaim, compaction and GART growth"
 
 [[metric]]
@@ -106,7 +106,7 @@ name = "stall_gpu_s"
 unit = "seconds"
 better = "lower"
 matrix = "when-set"
-tool = "bench/report.py stall_gpu_s (bench/stalls.py; runs recorded with STALLS=1)"
+tool = "bench/analysis/report.py stall_gpu_s (bench/analysis/stalls.py; runs recorded with STALLS=1)"
 what = "seconds of the window's stalls spent waiting on the GPU"
 
 [[metric]]
@@ -114,7 +114,7 @@ name = "stall_cpu_s"
 unit = "seconds"
 better = "lower"
 matrix = "when-set"
-tool = "bench/report.py stall_cpu_s (bench/stalls.py; runs recorded with STALLS=1)"
+tool = "bench/analysis/report.py stall_cpu_s (bench/analysis/stalls.py; runs recorded with STALLS=1)"
 what = "seconds of the window's stalls spent running, or runnable without a CPU"
 
 [[metric]]
@@ -122,7 +122,7 @@ name = "stalls_play"
 unit = "frames"
 better = "lower"
 matrix = "when-set"
-tool = "bench/report.py stalls_play (the game's [reload] in benchmark/analysis.toml)"
+tool = "bench/analysis/report.py stalls_play (the game's [reload] in benchmark/analysis.toml)"
 what = "stalls over the gameplay only: the window less the reload of a game that loops its demo; a game without a reload has the plain number"
 
 [[metric]]
@@ -130,7 +130,7 @@ name = "stall_play_s"
 unit = "seconds"
 better = "lower"
 matrix = "when-set"
-tool = "bench/report.py stall_play_s"
+tool = "bench/analysis/report.py stall_play_s"
 what = "the seconds the gameplay (the window less the reloads) spent in frames over 100 ms"
 
 [[metric]]
@@ -138,7 +138,7 @@ name = "low1_play"
 unit = "frames a second"
 better = "higher"
 matrix = "when-set"
-tool = "bench/report.py low1_play"
+tool = "bench/analysis/report.py low1_play"
 what = "the 1% low over the gameplay only"
 
 [[metric]]
@@ -146,7 +146,7 @@ name = "longest_play_ms"
 unit = "ms"
 better = "lower"
 matrix = "when-set"
-tool = "bench/report.py longest_play"
+tool = "bench/analysis/report.py longest_play"
 what = "the longest frame of the gameplay only"
 
 [[metric]]

@@ -1,4 +1,4 @@
-# dsda-doom's benchmark: data for the analysis tools (bench/gamedata.py; gamedb/README.md "games/<id>/benchmark/").
+# dsda-doom's benchmark: data for the analysis tools (bench/harness/gamedata.py; gamedb/README.md "games/<id>/benchmark/").
 
 [reload]
 # G_DoLoadLevel after each timed pass (report.py's *_play numbers leave the second after it out; no data

@@ -1,4 +1,4 @@
-# Luanti's benchmark: data for the analysis tools (bench/gamedata.py; gamedb/README.md "games/<id>/benchmark/").
+# Luanti's benchmark: data for the analysis tools (bench/harness/gamedata.py; gamedb/README.md "games/<id>/benchmark/").
 
 [[log_ignore]]
 # logscan.py: the harness mod's ticks (lib/, the flight) and the server's ACTION lines are no findings

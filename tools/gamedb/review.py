@@ -22,7 +22,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
-sys.path[:0] = [str(REPO / "bench"), str(HERE)]
+sys.path[:0] = [str(REPO / "bench" / "analysis"), str(REPO / "bench" / "harness"), str(HERE)]
 import score   # noqa: E402
 import shots   # noqa: E402
 

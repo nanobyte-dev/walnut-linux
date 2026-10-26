@@ -32,8 +32,8 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
+BENCH = Path(__file__).resolve().parent.parent   # the bench tree: this is bench/analysis/
+sys.path[:0] = [str(BENCH / "analysis"), str(BENCH / "harness")]
 import perfprof  # noqa: E402
 import report  # noqa: E402
 

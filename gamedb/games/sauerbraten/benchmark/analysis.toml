@@ -1,7 +1,7 @@
-# Sauerbraten's benchmark: data for the analysis tools (bench/gamedata.py; gamedb/README.md "games/<id>/benchmark/").
+# Sauerbraten's benchmark: data for the analysis tools (bench/harness/gamedata.py; gamedb/README.md "games/<id>/benchmark/").
 
 [legacy]
 # the recipe's file name before the recipes moved into gamedb (2026-10-26): runs from before then
 # (bench.txt without recipe=, or a run directory named after it) are read as this game's
-# (bench/games.py, bench/games.sh) and grouped with its new runs (report.py, logscan.py)
+# (bench/harness/games.py, bench/harness/games.sh) and grouped with its new runs (report.py, logscan.py)
 recipe_names = ["sauerbraten-edition"]

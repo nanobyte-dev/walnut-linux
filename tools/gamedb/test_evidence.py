@@ -16,7 +16,7 @@ import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path[:0] = [str(HERE.parent.parent / "bench"), str(HERE)]
+sys.path[:0] = [str(HERE.parent.parent / "bench" / d) for d in ("analysis", "harness")] + [str(HERE)]
 import check     # noqa: E402
 import evidence  # noqa: E402
 

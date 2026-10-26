@@ -11,7 +11,7 @@ PPE, decrementer, steady fps and 1% low are in the [glossary](README.md#glossary
 
 ## Counting stalls: report.py
 
-`bench/report.py` reads the HUD's frame times of a run's measured window (60 s of warm-up
+`bench/analysis/report.py` reads the HUD's frame times of a run's measured window (60 s of warm-up
 left out, then at least 120 s measured) and gives:
 
 | Column | What |
@@ -36,7 +36,7 @@ whole-window columns stay as they were, for history. matrix.py writes `stalls_pl
 the number. Only HUD frame times give these (not the per-second form).
 
 A reload segment is found per pass (the `pass<N>` stamps in bench.txt) from the `[reload]` table of the
-game's `benchmark/analysis.toml` (gamedb/README.md; `bench/gamedata.py`). A frame that ends inside the segment belongs to the reload, and so does a frame
+game's `benchmark/analysis.toml` (gamedb/README.md; `bench/harness/gamedata.py`). A frame that ends inside the segment belongs to the reload, and so does a frame
 that starts inside it; the segment then ends with that frame. That second rule matters for
 OpenArena's opengl2 renderer, whose load ends in one 8-16 s frame (the cgame load, `cl_preloadLate`
 and `RB_ShowImages`) that outlasts "CL_InitCGame:" + 1 s by 4-5 s. Before the rule it counted as
@@ -88,11 +88,11 @@ every stall frame a cause: disk, swap, reclaim, GPU, CPU and so on.
 
 On the PS3, with `ps3-gpu-tools` installed and `make bench-push` done:
 
-    STALLS=1 /var/tmp/bench/run.sh smoke openarena          # prints the stall tables at the end
-    STALLS=1 /var/tmp/bench/run.sh bench openarena "base tc1" 3
-    python3 /var/tmp/bench/stalls.py /var/tmp/ps3-bench/<run dir>...   # the tables for any run
-    python3 /var/tmp/bench/report.py [--stalls] <run dir>...          # stall_*_s columns
-    python3 /var/tmp/bench/passsplit.py [-v] <run dir>...  # looped demos: the reloads' stalls apart (*_play columns)
+    STALLS=1 /var/tmp/bench/harness/run.sh smoke openarena          # prints the stall tables at the end
+    STALLS=1 /var/tmp/bench/harness/run.sh bench openarena "base tc1" 3
+    python3 /var/tmp/bench/analysis/stalls.py /var/tmp/ps3-bench/<run dir>...   # the tables for any run
+    python3 /var/tmp/bench/analysis/report.py [--stalls] <run dir>...          # stall_*_s columns
+    python3 /var/tmp/bench/analysis/passsplit.py [-v] <run dir>...  # looped demos: the reloads' stalls apart (*_play columns)
 
 `STALLS=1` sets `BENCH_STALLS=1` for `ps3-bench.sh`. `BENCH_STALLS_MS` changes the period (default
 10 ms; 20 halves the cost), `BENCH_STALLS_CPU=LIST` pins the recorder (taskset) and
@@ -189,7 +189,7 @@ a decision rests on are made for that purpose.
 
 ### Validation
 
-`python3 bench/selftest.py`, sections 5 and 6:
+`python3 bench/tests/selftest.py`, sections 5 and 6:
 
 - A hand-made `stalls.rec` with one 200 ms stall of each cause the PC can't produce (a fence wait,
   zram and VRAM swap-ins, direct reclaim, GART growth, runnable without CPU, disk and read waits, a
@@ -309,7 +309,7 @@ batch has its own off runs):
         sudo ps3-waker -m probe -i 1.37 -t 120'
     ps3-bench.sh desktop
     # 2. the mechanism in a game (10 runs, about 45 min)
-    ENVS="- STALLS=1 WAKER=10 WAKER=10+WAKER_MODE=kick PROBE=1" /var/tmp/bench/run.sh bench openarena base 2
+    ENVS="- STALLS=1 WAKER=10 WAKER=10+WAKER_MODE=kick PROBE=1" /var/tmp/bench/harness/run.sh bench openarena base 2
 
 A pinned FIFO thread late by 100 ms or more on an otherwise idle PS3 has hardly another explanation
 than its timer not firing (a long stretch with interrupts off would show on both threads and in
@@ -467,7 +467,7 @@ dropped, fetch, pages back, exec keeping the pid, exit statuses). `packages/waln
 (53 checks, 6 for the prefetch): a detected game's list learnt after leave, read by the next detected
 start and by a ps3-game start through a second watcher, and `PS3_GAME_PREFETCH_GAME=off`. Under a
 host load of 10-15, autogm-check failed one timing check in 3 of 6 runs, a different one each time;
-the last 3 passed. `bench/selftest.py` covers client.sh with learn, then fetch, then a budget,
+the last 3 passed. `bench/tests/selftest.py` covers client.sh with learn, then fetch, then a budget,
 plus the warm-up columns.
 
 ### The prefetch A/B
@@ -478,12 +478,12 @@ cold, base and prefetch runs interleaved, all with the recorder (`STALLS=1`) for
 
     # 0. one learn run per game, cold, not measured
     for g in "bananabread base" "openarena gl2min" "luanti base" "supertuxkart lean"; do
-        ENVS="GAMEPREFETCH=learn" /var/tmp/bench/run.sh bench $g 1; done
+        ENVS="GAMEPREFETCH=learn" /var/tmp/bench/harness/run.sh bench $g 1; done
     /usr/lib/ps3/desktop/ps3-game-prefetch game-list --dir /var/tmp/ps3-bench/gprefetch
     # 1. base against prefetch, 3 rounds each
-    STALLS=1 ENVS="- GAMEPREFETCH=fetch" /var/tmp/bench/run.sh bench bananabread base 3
+    STALLS=1 ENVS="- GAMEPREFETCH=fetch" /var/tmp/bench/harness/run.sh bench bananabread base 3
     #    ... the same for "openarena gl2min", "luanti base", "supertuxkart lean"
-    python3 /var/tmp/bench/report.py --stalls /var/tmp/ps3-bench/<the runs>
+    python3 /var/tmp/bench/analysis/report.py --stalls /var/tmp/ps3-bench/<the runs>
 
 Batch 16 (gamedb:batch/2026-10-18-batch16: 2026-10-18 evening, kernel .433, USB root, commit 296f99d), medians of 3:
 
@@ -585,7 +585,7 @@ so. `desktop` switches to vt1 and frees tty8. The detector expects both of the X
 
 ### The retro-scan of 2026-10-17/18
 
-`bench/interference-scan.py` looks at what saved run directories still show: Xorg.0.log (VT
+`bench/analysis/interference-scan.py` looks at what saved run directories still show: Xorg.0.log (VT
 switches, input devices added or removed mid-run, the evemu keyboards left out), dmesg.log (USB
 connects, non-virtual input devices, Bluetooth HID lines), and game.log for [Luanti](../gamedb/games/luanti/), which logs every
 player action ("singleplayer digs/activates ..."). The benchmark's flight never digs or clicks, so

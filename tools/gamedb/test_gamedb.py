@@ -137,7 +137,7 @@ class Display(unittest.TestCase):
 
 
 class Geom(unittest.TestCase):
-    """bench/geom.py's window choice, with xwininfo/xprop faked"""
+    """bench/harness/geom.py's window choice, with xwininfo/xprop faked"""
     TREE = """
 xwininfo: Window id: 0x1a3 (the root window) (has no name)
 
@@ -178,7 +178,7 @@ xwininfo: Window id: 0x1a3 (the root window) (has no name)
 
 
 def load_geom():
-    spec = importlib.util.spec_from_file_location("geom", REPO / "bench" / "geom.py")
+    spec = importlib.util.spec_from_file_location("geom", REPO / "bench" / "harness" / "geom.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -251,7 +251,7 @@ class Records(unittest.TestCase):
     make, bench-import.py's column split, the README's generated suite table"""
 
     def setUp(self):
-        self.br = load_tool("benchrecords", REPO / "bench" / "benchrecords.py")
+        self.br = load_tool("benchrecords", REPO / "bench" / "analysis" / "benchrecords.py")
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp)
         (self.tmp / "benchmarks").mkdir()
@@ -1624,7 +1624,8 @@ class ImporterV2(Importer):
 
 
 def load_bench(name):
-    spec = importlib.util.spec_from_file_location(name.replace("-", "_"), REPO / "bench" / (name + ".py"))
+    f = next(f for f in (REPO / "bench" / d / (name + ".py") for d in ("harness", "analysis")) if f.exists())
+    spec = importlib.util.spec_from_file_location(name.replace("-", "_"), f)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -1810,7 +1811,7 @@ class Recorders(unittest.TestCase):
                                                     "saves_load=no,notes=a\\nb")
             env.pop("DISPLAY", None)
             import subprocess
-            p = subprocess.run([sys.executable, "-I", str(REPO / "bench" / "session-form.py"), t, "g", "base"],
+            p = subprocess.run([sys.executable, "-I", str(REPO / "bench" / "harness" / "session-form.py"), t, "g", "base"],
                                env=env, capture_output=True, text=True)
             self.assertEqual(p.returncode, 0, p.stderr)
             f = tomllib.loads((Path(t) / "session.toml").read_text())

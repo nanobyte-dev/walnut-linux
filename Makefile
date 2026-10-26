@@ -83,7 +83,7 @@ help:
 	@echo "                    ROOT=nfs|usb)"
 	@echo "  make listen       print PS3 early-debug + netconsole output"
 	@echo "  make ps3-reboot   reboot the running PS3 Linux (lands in GameOS/XMB, not Petitboot)"
-	@echo "  make bench-push   the game suite runner to the PS3 (/var/tmp/bench/run.sh, docs/games/SUITE.md)"
+	@echo "  make bench-push   the game suite runner to the PS3 (/var/tmp/bench/harness/run.sh, docs/games/SUITE.md)"
 	@echo "  make bench-pull   its results into $(BUILD)/bench (PERFDATA=1: with perf.data and perf-syms.tar), screenshots as PNGs + PS3 | PC sheets"
 	@echo "  make bench-shots  the PS3 | PC screenshot sheets again, and the ones not reviewed yet"
 	@echo "  make bench-ref GAME=x [VARIANT=y]  the PC reference screenshots of a recipe (build/bench-ref)"
@@ -376,9 +376,10 @@ ps3-reboot:
 # beside the old copy and swapped in with a rename, so a run in progress keeps reading its files.
 # bench-pull: the PS3's run directories (/var/tmp/ps3-bench) into $(BUILD)/bench; the raw profiles
 # (perf.data ~20 MB a run, perf-load.data, perf-syms.tar) only with PERFDATA=1 (docs/PROFILING.md)
-# The tree: bench/ (__pycache__ left out) and every game's benchmark (gamedb/games/<id>/benchmark/: recipe.sh,
-# analysis.toml, lib/, assets/; not assets-src/, legacy/, results/, runs/) as games/<id>/ (bench/games.sh), its
-# played test (gamedb/games/<id>/rating/test.toml) as games/<id>/rating/test.toml (playdef.py, play-test.sh stop).
+# The tree: bench/ as it is (harness/, lib/, analysis/, tests/; __pycache__ left out) and every game's benchmark
+# (gamedb/games/<id>/benchmark/: recipe.sh, analysis.toml, lib/, assets/; not assets-src/, legacy/, results/, runs/)
+# as games/<id>/ (bench/harness/games.sh), its played test (gamedb/games/<id>/rating/test.toml) as
+# games/<id>/rating/test.toml (playdef.py, play-test.sh stop).
 BENCH_GAME_FILES = $(wildcard $(foreach f,recipe.sh analysis.toml lib assets,gamedb/games/*/benchmark/$(f)) \
 	gamedb/games/*/rating/test.toml)
 BENCH_TAR = tar -c --exclude=__pycache__ --transform='s,^gamedb/games/\([^/]*\)/benchmark,bench/games/\1,' \
@@ -399,17 +400,17 @@ bench-pull:
 	cd $(BUILD)/bench && find . -path '*/shots/*.png' | sed 's/\.png$$/.xwd/' > .pulled-shots
 	$(PS3_SSH) 'tar -C /var/tmp/ps3-bench -X - -c $(if $(PERFDATA),,--exclude=perf.data --exclude=perf-load.data --exclude=perf-sys.data --exclude=perf-syms.tar) .' \
 		< $(BUILD)/bench/.pulled-shots | tar -C $(BUILD)/bench -x
-	-python3 bench/shots.py post $(BUILD)/bench
-	@echo ">> $(BUILD)/bench; summaries: bench/report.py $(BUILD)/bench/<run dirs>"
+	-python3 bench/analysis/shots.py post $(BUILD)/bench
+	@echo ">> $(BUILD)/bench; summaries: bench/analysis/report.py $(BUILD)/bench/<run dirs>"
 bench-shots:
-	python3 bench/shots.py post $(BUILD)/bench
-	@echo ">> sheets not reviewed yet (no REVIEW.md):"; python3 bench/shots.py pending $(BUILD)/bench
+	python3 bench/analysis/shots.py post $(BUILD)/bench
+	@echo ">> sheets not reviewed yet (no REVIEW.md):"; python3 bench/analysis/shots.py pending $(BUILD)/bench
 bench-ref:
 	tools/bench-ref.sh $(GAME) $(or $(VARIANT),base)
 # The CSV matrices (one per metric, one row per batch, a column per game-variant) made from gamedb's
-# benchmark records (gamedb/benchmarks/README.md; bench/matrix.py writes the records, --csv the files)
+# benchmark records (gamedb/benchmarks/README.md; bench/analysis/matrix.py writes the records, --csv the files)
 bench-matrix:
-	python3 bench/matrix.py --csv $(BUILD)/bench-matrix
+	python3 bench/analysis/matrix.py --csv $(BUILD)/bench-matrix
 
 shell: $(BUILDER_STAMP)
 	$(DOCKER_RUN) -it --user $(UID_GID) $(BUILDER_TAG) bash

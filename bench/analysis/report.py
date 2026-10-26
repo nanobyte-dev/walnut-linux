@@ -23,7 +23,7 @@ from before 2026-10-17 have none):
           seconds left out, reload_n the segments). A segment is a pass's start to the load-done
           line plus 1 s (re + after: gamedb:openarena, needs t0 and out.log) or a fixed time after the
           pass's start (fixed: gamedb:neverball, gamedb:dsda-doom, gamedb:xmoto); each game's rule is
-          the [reload] of its benchmark/analysis.toml (bench/gamedata.py), and a recipe's parse() may
+          the [reload] of its benchmark/analysis.toml (bench/harness/gamedata.py), and a recipe's parse() may
           print reload_re / reload_after / reload_fixed to bench.txt to set its own. Games without a
           reload in the window (gamedb:bananabread's WIN_ON/OFF pieces already leave it out,
           gamedb:supertuxkart's one race) get the plain numbers; src hud only
@@ -45,7 +45,7 @@ from before 2026-10-17 have none):
   sstall  seconds the sound card's hw pointer stood still while RUNNING (its DMA stopped: bench.txt
           snd_stall=, LOG-FINDINGS.md 1), "rN" after it: snd_ps3's watchdog restarted it N times
   dump    DUMPON=1 runs: what caught the failure dump (trigger, crash, trigger+crash, none) @ seconds
-          into the run (bench.txt dump=, dump_at=; bench/dumpana.sh analyses it)
+          into the run (bench.txt dump=, dump_at=; bench/analysis/dumpana.sh analyses it)
   tmax    the hottest temperature over the run per zone, degrees C, Cell/RSX (ps3-bench.sh temp_max=,
           from the kernel's ps3_sm sensors, docs/THERMAL.md); "!" after it: the run was stopped at
           BENCH_TEMP_MAX. tcell, trsx the same as numbers (medians in the per-variant line)
@@ -106,7 +106,7 @@ A run with something alongside the game shows it after the variant (base@rec10, 
 base@perf: bench.txt harness=, ps3-bench.sh; older runs: rec<ms> from a stalls.rec, perf from
 perf.targets), and is grouped apart: the stall recorder alone takes gamedb:openarena's gameplay stalls
 from 21-29 s to 7 s (docs/STALLS.md "The recorder removes stalls").
-Runs are grouped by their game's id (bench/gamedata.py run_id): a run from before the recipes moved into
+Runs are grouped by their game's id (bench/harness/gamedata.py run_id): a run from before the recipes moved into
 gamedb names the old recipe in game=, which [legacy] recipe_names reads (game=sauerbraten then was
 gamedb:bananabread); a run without a bench.txt by its label."""
 import os
@@ -115,7 +115,8 @@ import statistics
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+BENCH = Path(__file__).resolve().parent.parent   # the bench tree: this is bench/analysis/
+sys.path[:0] = [str(BENCH / "analysis"), str(BENCH / "harness")]
 import gamedata  # noqa: E402  (each game's analysis rules: gamedb/games/<id>/benchmark/analysis.toml)
 
 INCLUDE_INTERFERED = False
@@ -124,7 +125,7 @@ INCLUDE_INTERFERED = False
 def interfered_list():
     """gamedb/benchmarks/interfered.txt (BENCH_GAMEDB=<dir>: <dir>/benchmarks/interfered.txt): run directory
     name, then why; the runs the retro-scan (interference-scan.py) found disturbed before the detector existed"""
-    f = Path(os.environ.get("BENCH_GAMEDB") or Path(__file__).resolve().parent.parent / "gamedb") / "benchmarks" / "interfered.txt"
+    f = Path(os.environ.get("BENCH_GAMEDB") or BENCH.parent / "gamedb") / "benchmarks" / "interfered.txt"
     out = {}
     if f.exists():
         for line in f.read_text(errors="replace").splitlines():
@@ -407,7 +408,7 @@ def window(b):
 
 
 # where a looped demo reloads (docs/STALLS.md): each game's [reload] (benchmark/analysis.toml,
-# bench/gamedata.py), "re" the output line that says the load is done (the pass's reload ends "after" s
+# bench/harness/gamedata.py), "re" the output line that says the load is done (the pass's reload ends "after" s
 # later, default 1), "fixed" else a time after the pass's start, in which the frames ending are the
 # reload's (the long load frame ends just after the pass line). None: nothing to leave out. bench.txt's
 # reload_re / reload_after / reload_fixed win.

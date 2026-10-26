@@ -1,7 +1,7 @@
 #!/bin/bash
 # session.sh GAME [LAUNCHER]: a played session, the graded test (docs/GAMEDB.md "How a game is
 # tested", docs/games/SUITE.md "Played sessions"). On the PS3, from a terminal of the desktop:
-#   /var/tmp/bench/session.sh GAME [LAUNCHER]   (or run.sh session GAME ...)
+#   /var/tmp/bench/harness/session.sh GAME [LAUNCHER]   (or run.sh session GAME ...)
 # LAUNCHER is a menu entry of the game, by file name (openarena-gl2.desktop) or Name ("OpenArena
 # (GL 2.0)"): the game is started with that entry's Exec, and each launcher is rated on its own.
 # The launchers are the menu entries the game's packages ship and any shown entry running one of
@@ -35,7 +35,7 @@
 # No commands on the PS3 during a session (SSH logins and benchmarks are interference for what is
 # measured); collect afterwards with make bench-pull.
 set -u
-here=$(cd "$(dirname "$0")" && pwd)
+here=$(cd "$(dirname "$0")" && pwd); BENCH=${here%/*}
 g=${1:-}; v=base; want=${2:-}
 [ -n "$g" ] || { sed -n '2,/^set -u/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 2; }
 [ $# -le 2 ] || { echo "session: GAME [LAUNCHER] (no recipe variants: a launcher is the way a game starts)" >&2; exit 2; }

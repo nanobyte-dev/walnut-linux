@@ -32,7 +32,7 @@ grep -q '^/dev/mapper/ps3swap  *none  *swap  *sw,pri=200,noauto' /etc/fstab && o
 grep -q 'PARTUUID=50533301-01' /etc/fstab && no "fstab has the USB swap" || ok "fstab: no USB swap"
 [ "$(cat /etc/hostname)" = ps3-e2e ] && ok "hostname copied" || no "hostname"
 [ -e /etc/ssh/ssh_host_e2e_key ] && ok "SSH host key copied" || no "host key"
-[ -e /var/tmp/bench/run.sh ] && [ -e /var/tmp/ps3-bench/shadercache/x ] && ok "bench tree and state copied" || no "bench"
+[ -e /var/tmp/bench/harness/run.sh ] && [ -e /var/tmp/ps3-bench/shadercache/x ] && ok "bench tree and state copied" || no "bench"
 [ -e /var/tmp/ps3-bench/20261019-0100-sauerbraten-base ] && no "a bench run directory was copied" || ok "no run directories"
 [ -e /var/lib/ps3-imgmap ] && ok "ps3-imgmap state copied" || no "state"
 [ -e /etc/systemd/system/ps3ssd-udev.service ] && [ -L /etc/systemd/system/sysinit.target.wants/ps3ssd-udev.service ] &&

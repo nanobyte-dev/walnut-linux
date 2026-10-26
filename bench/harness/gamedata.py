@@ -10,7 +10,7 @@ belongs to one game, or to the games of one engine, is that game's data.
   games/<id>/rating/test.toml         the played test (process, home, play_mark, load_mark, command,
                                       env, sound_at, hud)
 
-Where: bench/games.py's root (gamedb/games in the repository, games/ in the PS3's bench tree, or
+Where: bench/harness/games.py's root (gamedb/games in the repository, games/ in the PS3's bench tree, or
 BENCH_GAMES); the engines beside it (gamedb/engines; the PS3's tree has none). A run's game: bench.txt
 recipe= (runs since the recipes moved into gamedb), else game= read through the old recipe names
 (games.run_game), else the run directory's label (old names first, then [legacy] run_labels).

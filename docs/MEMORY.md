@@ -454,18 +454,18 @@ commands:
 
     S=NV30_FORCE_DXT_STATS=50
     # one run with the per-decision lines, to see what is taken and what is kept
-    ENVS="$S+NV30_FORCE_DXT=opaque+NV30_FORCE_DXT_DEBUG=1" /var/tmp/bench/run.sh bench luanti base 1
+    ENVS="$S+NV30_FORCE_DXT=opaque+NV30_FORCE_DXT_DEBUG=1" /var/tmp/bench/harness/run.sh bench luanti base 1
     # off against opaque (2 rounds, interleaved)
-    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque" /var/tmp/bench/run.sh bench openarena gl2min 2
-    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque" /var/tmp/bench/run.sh bench bananabread base 2
-    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque" /var/tmp/bench/run.sh bench supertuxkart lean 2
-    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque $S+NV30_FORCE_DXT=opaque+NV30_FORCE_DXT_NEAREST=1" /var/tmp/bench/run.sh bench luanti base 2
-    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque $S+NV30_FORCE_DXT=opaque+NV30_FORCE_DXT_NEAREST=1" /var/tmp/bench/run.sh bench classicube base 2
+    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque" /var/tmp/bench/harness/run.sh bench openarena gl2min 2
+    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque" /var/tmp/bench/harness/run.sh bench bananabread base 2
+    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque" /var/tmp/bench/harness/run.sh bench supertuxkart lean 2
+    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque $S+NV30_FORCE_DXT=opaque+NV30_FORCE_DXT_NEAREST=1" /var/tmp/bench/harness/run.sh bench luanti base 2
+    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque $S+NV30_FORCE_DXT=opaque+NV30_FORCE_DXT_NEAREST=1" /var/tmp/bench/harness/run.sh bench classicube base 2
     # alpha textures as DXT5 too, where opaque helped
-    MEM=1 STALLS=1 ENVS="$S+NV30_FORCE_DXT=opaque $S+NV30_FORCE_DXT=all" /var/tmp/bench/run.sh bench supertuxkart lean 2
+    MEM=1 STALLS=1 ENVS="$S+NV30_FORCE_DXT=opaque $S+NV30_FORCE_DXT=all" /var/tmp/bench/harness/run.sh bench supertuxkart lean 2
     # the game's own compression (r_ext_compressed_textures 0) replaced by Mesa's
-    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque" /var/tmp/bench/run.sh bench openarena "gl2min gl2min_tc0" 2
-    python3 /var/tmp/bench/report.py --stalls --mem /var/tmp/ps3-bench/<run dirs>
+    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque" /var/tmp/bench/harness/run.sh bench openarena "gl2min gl2min_tc0" 2
+    python3 /var/tmp/bench/analysis/report.py --stalls --mem /var/tmp/ps3-bench/<run dirs>
 
 Read `vram` and `mem_gpu_vram` (the win), `fdxt_raw_mb` against `fdxt_dxt_mb` (what was
 compressed), `fdxt_skip` (what was left and why), `fdxt_unforced` (textures that went back:
@@ -589,7 +589,7 @@ The driver and tool side; nothing here is in the stable `ps3` suite; the version
 The game packages' memory changes (luanti 0007, yamagi-quake2 0002, [ioquake3](../gamedb/engines/ioquake3/) 0027-0029, cube2 0011) are
 in their investigations, linked above, with the versions that carry them.
 
-The selftest (`python3 bench/selftest.py`, all pass) covers this: section 8 runs client.sh
+The selftest (`python3 bench/tests/selftest.py`, all pass) covers this: section 8 runs client.sh
 with `BENCH_MALLOC=arena2,trim` and checks both preloads' threads in the game, the trim lines in
 game.log, `malloc=` and the variant tag; section 10 runs ps3-malloctrim.so on a C program that
 leaves 88 MB of holes in its main heap and a thread arena (over 60 MB given back) and checks that a

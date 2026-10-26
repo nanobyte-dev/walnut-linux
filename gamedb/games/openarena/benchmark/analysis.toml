@@ -1,4 +1,4 @@
-# OpenArena's benchmark: data for the analysis tools (bench/gamedata.py; gamedb/README.md "games/<id>/benchmark/").
+# OpenArena's benchmark: data for the analysis tools (bench/harness/gamedata.py; gamedb/README.md "games/<id>/benchmark/").
 # Its engine's rules (gamedb/engines/ioquake3/analysis.toml) come with it.
 
 [reload]

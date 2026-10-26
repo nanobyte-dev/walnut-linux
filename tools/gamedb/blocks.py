@@ -85,7 +85,7 @@ def gen_suite_table(repo, args):
         raise ValueError("suite-table takes no arguments")
     repo = Path(repo)
     score = _load("score", repo / "tools" / "gamedb" / "score.py")
-    br = _load("benchrecords", repo / "bench" / "benchrecords.py")
+    br = _load("benchrecords", repo / "bench" / "analysis" / "benchrecords.py")
     catalog = _load("catalog", repo / "tools" / "gamedb" / "catalog.py")
     games = {g["id"]: g for g in catalog.build(repo / "gamedb" / "games", repo)["games"]}
     out = ["| Game | Medal (played) | Steady fps | Stalls / 1% low / longest | Free RAM / VRAM (MB) | Picture, sound |",

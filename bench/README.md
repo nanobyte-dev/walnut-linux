@@ -1,3 +1,3 @@
-# bench/: the game benchmark harness that runs on the PS3 (`make bench-push`): run.sh, client.sh (the recipes are in each game's gamedb/games/<id>/benchmark/: games.sh finds them), the analysis scripts (matrix.py writes the results into gamedb: gamedb/benchmarks/README.md), and the played-session tools.
-Results come back with `make bench-pull`; `python3 bench/selftest.py` checks the harness without the PS3.
-Touch it to change how runs are measured; a game's recipe goes in its bundle (docs/games/SUITE.md).
+# bench/: the game benchmark harness (docs/games/SUITE.md), with no game files in it: each game's recipe is in its bundle's gamedb/games/<id>/benchmark/ (harness/games.sh finds it).
+`harness/` runs games and records sessions and benchmarks on the PS3 (run.sh, client.sh, session.sh, `make bench-push`); `lib/` holds the pieces the recipes share (`$BENCH_LIB`); `analysis/` reads the runs (report.py, the stall and profile readers; matrix.py writes the results into gamedb: gamedb/benchmarks/README.md); `tests/` checks it without the PS3.
+Results come back with `make bench-pull`; `python3 bench/tests/selftest.py` checks the harness (`make test`). Touch it to change how runs are measured; a game's recipe goes in its bundle.

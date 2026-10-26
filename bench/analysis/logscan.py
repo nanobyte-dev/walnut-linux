@@ -5,7 +5,7 @@ Scans game.log, out.log, dmesg.log, Xorg.0.log and wm.log of each run directory 
 in build/bench) plus the facts bench.txt carries (rc, ended, sound, underruns), normalises the
 messages (timestamps, numbers, addresses and the run's own paths stripped), and prints per game
 (its id: bench.txt recipe=, or game= read through the old recipe names, else the run's label;
-bench/gamedata.py run_id) every distinct message with its severity class, the number of runs it appears in,
+bench/harness/gamedata.py run_id) every distinct message with its severity class, the number of runs it appears in,
 its total count, the first and last run, and a trend flag against --since:
 
   NEW      only in runs from --since on, and the game has runs from before (a regression candidate)
@@ -33,7 +33,7 @@ graph exceptions), nouveau (nv30/Mesa), gl (shader compile/link, fallbacks, miss
 The game.log lines also appear in out.log (with a time prefix); a message found in both is counted
 once, from game.log. A game's own rules (lines to ignore, text to strip before comparing) are its data:
 [[log_ignore]] and [[log_strip]] of its benchmark/analysis.toml and of its engine's analysis.toml
-(bench/gamedata.py), applied to that game's runs only, after the generic IGNORE list below.
+(bench/harness/gamedata.py), applied to that game's runs only, after the generic IGNORE list below.
 """
 import argparse
 import collections
@@ -43,10 +43,10 @@ import re
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
+BENCH = Path(__file__).resolve().parent.parent   # the bench tree: this is bench/analysis/
+sys.path[:0] = [str(BENCH / "analysis"), str(BENCH / "harness")]
 import gamedata  # noqa: E402  (each game's log rules: gamedb/games/<id>/benchmark/analysis.toml)
-BENCH = HERE.parent / "build" / "bench"
+RUNS = BENCH.parent / "build" / "bench"
 SINCE_DEFAULT = "20261019T09"     # runs from here on have Mesa ps3.544
 
 CLASSES = ["crash", "oom", "rsx", "nouveau", "gl", "audio", "sdl", "script", "x", "missing", "game"]
@@ -336,7 +336,7 @@ def print_by_message(res, verbose):
 
 
 def find_dirs(args):
-    roots = [Path(a) for a in args] or [BENCH]
+    roots = [Path(a) for a in args] or [RUNS]
     dirs = []
     for r in roots:
         if (r / "bench.txt").is_file() or any((r / f).is_file() for f in FILES):

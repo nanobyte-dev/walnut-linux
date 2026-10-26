@@ -44,7 +44,7 @@ results file says column = "<that name>", so the CSV matrices keep their columns
 BENCH_GAMEDB=<dir> reads and writes the records of another gamedb root (the self-tests' scratch copy).
 Run directories of the first day have no bench.txt (gamedb:openarena's old harness, or a run cut short):
 the game and variant come from the label, through the games' [legacy] run_labels (benchmark/analysis.toml,
-bench/gamedata.py: oa-tc1) or a game's id or old recipe name and the variant after it
+bench/harness/gamedata.py: oa-tc1) or a game's id or old recipe name and the variant after it
 (smoke-<id>-base), the fps from a timedemo's result line, ALSA underruns from the game.log lines. Test runs
 (gl-*, t-*, xtest*, speq-*, ...) count in `runs` but make no value."""
 import datetime
@@ -53,7 +53,8 @@ import statistics
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+BENCH = Path(__file__).resolve().parent.parent   # the bench tree: this is bench/analysis/
+sys.path[:0] = [str(BENCH / "analysis"), str(BENCH / "harness")]
 from report import run  # noqa: E402
 import games  # noqa: E402
 import gamedata  # noqa: E402
@@ -169,7 +170,7 @@ def main(argv):
         if name in taken or not br.NAME_RE.match(name):
             sys.exit("matrix.py: %r is no new batch name (^[a-z0-9][a-z0-9.-]*$, not used yet)" % name)
         b = {"name": name, "order": max((x.get("order", 0) for x in batches), default=0) + 1, "kind": "run",
-             "title": row, "runs": 0, "source": "bench/matrix.py"}
+             "title": row, "runs": 0, "source": "bench/analysis/matrix.py"}
         batches.insert(next((i for i, x in enumerate(batches) if x.get("kind") != "run"), len(batches)), b)
     if replace:
         for k in ("date", "runs", "observations"):

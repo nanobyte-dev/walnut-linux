@@ -46,13 +46,13 @@ W 5-8 s, OpenArena L 6-8 and W 6-9, Luanti L 9-12, SuperTuxKart L 10-13 and W 3-
 boot, the measurement protocol, `tools/bench-cam.sh` on the PC, the same package versions on both
 roots, nothing deployed between the boots:
 
-    STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench bananabread base 3
-    STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench openarena gl2min 3
-    STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench luanti base 3
-    STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench supertuxkart lean 3
-    STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench classicube base 3
-    STALLS=1 /var/tmp/bench/run.sh bench openarena gl2min 3
-    STALLS=1 /var/tmp/bench/run.sh bench bananabread base 3
+    STALLS=1 PERF_LOAD=1 /var/tmp/bench/harness/run.sh bench bananabread base 3
+    STALLS=1 PERF_LOAD=1 /var/tmp/bench/harness/run.sh bench openarena gl2min 3
+    STALLS=1 PERF_LOAD=1 /var/tmp/bench/harness/run.sh bench luanti base 3
+    STALLS=1 PERF_LOAD=1 /var/tmp/bench/harness/run.sh bench supertuxkart lean 3
+    STALLS=1 PERF_LOAD=1 /var/tmp/bench/harness/run.sh bench classicube base 3
+    STALLS=1 /var/tmp/bench/harness/run.sh bench openarena gl2min 3
+    STALLS=1 /var/tmp/bench/harness/run.sh bench bananabread base 3
     ps3-bench.sh desktop
 
 bench.txt's `root=` tells the boots apart. This is a cross-boot comparison (the exception to the
@@ -139,7 +139,7 @@ player sees the same, and whether game mode gives back the RAM the baselines ass
 **To start.** The harness has no game-mode arm yet: `client.sh` runs games under a bare X with the
 desktop stopped. A round would start each recipe's game through `ps3-game` (or let
 `ps3-game-detect` catch it) on the running desktop, interleaved with the plain arm, and add game
-mode's own journal lines (`journalctl --user -u ps3-game-mode`) and `bench/gamemode-check.sh`'s
+mode's own journal lines (`journalctl --user -u ps3-game-mode`) and `bench/harness/gamemode-check.sh`'s
 memory numbers to the run directory.
 
 ### Long-session soak
@@ -232,8 +232,8 @@ a bug).
 **To start.** One priming run, then the A/B with the warm NIR cache in both arms:
 
     T=SHADERCACHE=warm+NV30_SHADER_CACHE_STATS=1
-    PERF_LOAD=1 ENVS="$T+NV30_SHADER_CACHE=on" /var/tmp/bench/run.sh bench openarena gl2min 1   # prime
-    PERF_LOAD=1 STALLS=1 ENVS="$T $T+NV30_SHADER_CACHE=on" /var/tmp/bench/run.sh bench openarena gl2min 2
+    PERF_LOAD=1 ENVS="$T+NV30_SHADER_CACHE=on" /var/tmp/bench/harness/run.sh bench openarena gl2min 1   # prime
+    PERF_LOAD=1 STALLS=1 ENVS="$T $T+NV30_SHADER_CACHE=on" /var/tmp/bench/harness/run.sh bench openarena gl2min 2
 
 Read `load`, `lp_shbe`, `shc_tgsi_hit`/`_miss`, `shc_vp_miss`, `stalls_warm`, `shadercache_kb`.
 
@@ -241,7 +241,7 @@ Read `load`, `lp_shbe`, `shc_tgsi_hit`/`_miss`, `shc_vp_miss`, `stalls_warm`, `s
 
 Rank 48. Small fixes and checks that make the numbers trustworthy.
 
-- **Run logs not read automatically.** `bench/logscan.py` exists now; two gaps it found
+- **Run logs not read automatically.** `bench/analysis/logscan.py` exists now; two gaps it found
   ([LOG-FINDINGS.md](../games/LOG-FINDINGS.md)): `PERF_LOAD` runs print `client.sh: line N:
   /dev/shm/ps3-bench-<stamp>/.pid: No such file or directory` 4-9 times (16 runs; check the load
   profile has its pid), and bench.txt should carry the scan's verdict (a crash, a GART failure, an

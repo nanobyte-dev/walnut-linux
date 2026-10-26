@@ -23,7 +23,7 @@
 # BENCH_RECIPES; SSDARM_DRY=1 prints the root commands to stderr instead of running them (selftest.py).
 {
 set -u
-here=$(cd "$(dirname "$0")" && pwd)
+here=$(cd "$(dirname "$0")" && pwd); BENCH=${here%/*}
 . "$here/games.sh"
 SSD=${BENCH_SSD:-/mnt/ps3ssd/games}
 SSD_DEV=${BENCH_SSD_DEV:-/dev/mapper/ps3ssd}

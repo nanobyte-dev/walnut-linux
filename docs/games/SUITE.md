@@ -10,15 +10,36 @@ recorder, the profiles and the memory snapshots have their own docs ([STALLS.md]
 
 ## What is in bench
 
-| Path | What |
+Four folders: `harness/` runs the games and records the runs and sessions (on the PS3), `lib/` is what
+the recipes share (`$BENCH_LIB`), `analysis/` reads the runs (on the PC, some of it on the PS3 too:
+run.sh's summary, perf-post.sh's profiles), `tests/` checks all of it without the PS3. `dumpana.sh` (in
+`analysis/`) is in [LOG-FINDINGS.md](LOG-FINDINGS.md).
+
+| Path (in `bench/`) | What |
 |---|---|
-| `run.sh` | the runner, on the PS3 as tibi over SSH: `smoke`, `bench`, `suite`, `list`, `session` |
-| `session.sh`, `session-form.py` | a played session ([below](#played-sessions)) and its end-of-session form |
-| `freshhome.py`, `inputlog.py`, `geom.py` | around a session: the game on fresh defaults (the player's directories set aside and back), the input devices, the window and the pointer |
-| `client.sh` | one game run from a recipe (the X client `ps3-bench.sh x` starts) |
-| `games.sh`, `games.py` | where a game's recipe is: `gamedb/games/<id>/benchmark/` here, `games/<id>/` in the PS3's copy; old recipe names (below) |
-| `playdef.py`, `gamedata.py` | a game's data: its played test (`rating/test.toml`) as shell assignments for session.sh and client.sh; its analysis rules (`benchmark/analysis.toml`) for report.py, logscan.py, matrix.py and interference-scan.py |
-| `smoke.inc`, `openal.inc`, `keyboard.evemu` | pieces the recipes share (`$BENCH_LIB`): the smoke recipes' header, OpenAL Soft's variants, a keyboard's description for the virtual keyboard |
+| `harness/run.sh` | the runner, on the PS3 as tibi over SSH: `smoke`, `bench`, `suite`, `list`, `session` |
+| `harness/session.sh`, `session-form.py` | a played session ([below](#played-sessions)) and its end-of-session form |
+| `harness/freshhome.py`, `inputlog.py`, `geom.py` | around a session: the game on fresh defaults (the player's directories set aside and back), the input devices, the window and the pointer |
+| `harness/client.sh` | one game run from a recipe (the X client `ps3-bench.sh x` starts) |
+| `harness/games.sh`, `games.py` | where a game's recipe is: `gamedb/games/<id>/benchmark/` here, `games/<id>/` in the PS3's copy; old recipe names (below) |
+| `harness/playdef.py`, `gamedata.py` | a game's data: its played test (`rating/test.toml`) as shell assignments for session.sh and client.sh; its analysis rules (`benchmark/analysis.toml`) for report.py, logscan.py, matrix.py and interference-scan.py |
+| `harness/xruns.py`, `launcher.py` | the audible dropouts of a run's sound (`ps3-xrunlog`'s log); a game's menu launchers, for session.sh |
+| `harness/perf-post.sh`; `analysis/perfprof.py`, `memprof.py`, `loadprof.py` | the CPU profile of the window, the memory snapshots, the start-up profile |
+| `harness/ssd-arm.sh` | the SSD arms `GAMEDATA=ssd`, `SWAP=ssd` ([GAMEOS-HDD.md](../GAMEOS-HDD.md)) |
+| `harness/gamemode-check.sh` | game mode on the desktop: memory idle, in game mode and after ([DESKTOP.md](../DESKTOP.md#game-mode)) |
+| `lib/smoke.inc`, `openal.inc`, `keyboard.evemu` | pieces the recipes share (`$BENCH_LIB`): the smoke recipes' header, OpenAL Soft's variants, a keyboard's description for the virtual keyboard |
+| `lib/xkeys.py` | keys through XTEST, for games that ignore the virtual keyboard |
+| `analysis/report.py` | one line per run, then the median per game and variant, then each variant against the first as ratios; `--stalls`, `--perf`, `--mem`, `--load`, `--include-interfered` |
+| `analysis/matrix.py` | puts runs into the benchmark records: a batch per tested configuration in gamedb/benchmarks/batches.toml, each game's numbers in its `benchmark/results/<batch>.toml`; `--csv DIR` (`make bench-matrix`) the CSV matrices, one per metric |
+| `analysis/benchrecords.py` | reads and writes those records (gamedb/benchmarks/README.md; gamedb/benchmarks/interfered.txt lists runs left out) |
+| `analysis/stalls.py`, `passsplit.py` | why frames stall, from `ps3-stallrec`'s record; the stalls of a looped demo split into reload and play |
+| `analysis/shots.py` | the screenshots ([below](#screenshots)): `cost` (what a capture cost in frames), `convert` (xwd to PNG), `sheet` and `post` (the PS3 \| PC sheet), `pending` (sheets nobody reviewed) |
+| `analysis/logscan.py` | the errors and warnings in the runs' logs, grouped by game and message, with a new-since flag ([LOG-FINDINGS.md](LOG-FINDINGS.md)) |
+| `analysis/interference-scan.py`, `tests/intfcheck.py` | the retro-scan for runs before the interference detector; its selftest part |
+| `analysis/oal-perf.sh` | OpenAL Soft's mixing split from a profiled run ([SPU-AUDIO.md](../SPU-AUDIO.md)) |
+| `analysis/hotpaths/` | perf.data symbolised and ranked on the PC ([HOTPATHS.md](../HOTPATHS.md)) |
+| `tests/selftest.py` | the harness without the PS3: client.sh, report.py and matrix.py with a fake game and made-up runs, and every recipe and variant sourced (`make test ONLY=bench-selftest`) |
+| `tests/test_launcher.py` | launcher.py and session.sh's choice of a menu launcher, with made-up menu entries and a fake dpkg (`make test ONLY=bench-launcher`) |
 
 A game's own part is in its bundle, `gamedb/games/<id>/benchmark/` ([gamedb/README.md](../../gamedb/README.md#gamesbenchmark)):
 `recipe.sh` (the variables are listed there), `assets/` (demos, replays, saves, maps and mods, e.g.
@@ -31,22 +52,9 @@ scripts). A game is named by its gamedb id. Two recipes were renamed when they m
 `sauerbraten-edition` is now `sauerbraten`. Runs from before then keep their old names in bench.txt
 and their directory names; the tools read those through each bundle's `analysis.toml` (`[legacy]
 recipe_names`), and `run.sh` still takes `sauerbraten-edition`.
-| `report.py` | one line per run, then the median per game and variant, then each variant against the first as ratios; `--stalls`, `--perf`, `--mem`, `--load`, `--include-interfered` |
-| `matrix.py` | puts runs into the benchmark records: a batch per tested configuration in gamedb/benchmarks/batches.toml, each game's numbers in its `benchmark/results/<batch>.toml`; `--csv DIR` (`make bench-matrix`) the CSV matrices, one per metric |
-| `benchrecords.py` | reads and writes those records (gamedb/benchmarks/README.md; gamedb/benchmarks/interfered.txt lists runs left out) |
-| `stalls.py`, `passsplit.py` | why frames stall, from `ps3-stallrec`'s record; the stalls of a looped demo split into reload and play |
-| `perf-post.sh`, `perfprof.py`, `memprof.py`, `loadprof.py` | the CPU profile of the window, the memory snapshots, the start-up profile |
-| `hotpaths/` | perf.data symbolised and ranked on the PC ([HOTPATHS.md](../HOTPATHS.md)) |
-| `interference-scan.py`, `intfcheck.py` | the retro-scan for runs before the interference detector; its selftest part |
-| `logscan.py` | the errors and warnings in the runs' logs, grouped by game and message, with a new-since flag ([LOG-FINDINGS.md](LOG-FINDINGS.md)) |
-| `selftest.py` | the harness without the PS3: client.sh, report.py and matrix.py with a fake game and made-up runs, and every recipe and variant sourced (`make test ONLY=bench-selftest`) |
-| `gamemode-check.sh` | game mode on the desktop: memory idle, in game mode and after ([DESKTOP.md](../DESKTOP.md#game-mode)) |
-| `ssd-arm.sh` | the SSD arms `GAMEDATA=ssd`, `SWAP=ssd` ([GAMEOS-HDD.md](../GAMEOS-HDD.md)) |
-| `oal-perf.sh` | OpenAL Soft's mixing split from a profiled run ([SPU-AUDIO.md](../SPU-AUDIO.md)) |
-| `xkeys.py` | keys through XTEST, for games that ignore the virtual keyboard |
-| `shots.py` | the screenshots ([below](#screenshots)): `cost` (what a capture cost in frames), `convert` (xwd to PNG), `sheet` and `post` (the PS3 \| PC sheet), `pending` (sheets nobody reviewed) |
 
-`make bench-push` copies `bench` to `/var/tmp/bench` on the PS3, every game's benchmark (`recipe.sh`,
+`make bench-push` copies `bench` to `/var/tmp/bench` on the PS3 (the same folders: `harness/`, `lib/`,
+`analysis/`, `tests/`), every game's benchmark (`recipe.sh`,
 `analysis.toml`, `lib/`, `assets/`) into `/var/tmp/bench/games/<id>/` (unpacked beside the old copy
 and swapped in with a rename, so a run in progress keeps its files). `make bench-pull` fetches the
 run directories from `/var/tmp/ps3-bench` into `build/bench/`; `PERFDATA=1` adds perf.data (about
@@ -175,14 +183,14 @@ repeats, not part of `run.sh suite` (decided with the user on 2026-10-17). A smo
 run at 360 s; `BENCH_TIMEOUT=N` raises that), a short HUD window for the report only (10 s after the load,
 then 90 s), and `vblank_mode=0`. setup() writes the game's config (restored after the run) and starts it in
 the closest thing to play its command line allows. `smoke_keys` types keys into a virtual keyboard (evemu)
-once the game's window is up, `smoke_xkeys` through XTEST (`bench/xkeys.py`) where SDL ignored the virtual
+once the game's window is up, `smoke_xkeys` through XTEST (`bench/lib/xkeys.py`) where SDL ignored the virtual
 keyboard. `run.sh smoke` runs with the VRAM swap off unless `NOVSWAP=0`, and prints the result, the picture
 check and the game's and kernel's errors.
 
 Before a smoke session: the games installed on the PS3 (`df -h /` first; Debian ports games with `sudo apt
 install`, the Doom ports with `--no-install-recommends`; packages of ours with `make deploy PKGS="..."` from
 the PC, which serves the local builds and installs them with `-t walnut-deploy`, then `dpkg -l` shows the
-`+ps3` version), then `make bench-push`. Run as tibi on the PS3 from `/var/tmp/bench`, in the safe order:
+`+ps3` version), then `make bench-push`. Run as tibi on the PS3 from `/var/tmp/bench/harness`, in the safe order:
 software renderers first, the heaviest last, since a graph exception ends the session. Menu games need time
 at the controller: `SMOKE_SECS=300 BENCH_TIMEOUT=420 ./run.sh smoke GAME`. End the session with
 `ps3-bench.sh desktop`. What each game's smoke showed is in its technical notes (the draft bundles with
@@ -221,7 +229,7 @@ desktop, empty the swaps and switch vsync off; a session does none of that.
 **Start one** on the PS3, from a terminal of the desktop (over SSH works too: one command, then hands off):
 
 ```
-/var/tmp/bench/session.sh GAME [LAUNCHER]   # or: /var/tmp/bench/run.sh session GAME ...
+/var/tmp/bench/harness/session.sh GAME [LAUNCHER]   # or: /var/tmp/bench/harness/run.sh session GAME ...
 ```
 
 **Play it on the PC alongside.** `tools/play-pc.sh GAME [LAUNCHER]` starts the same game and launcher on
@@ -461,7 +469,7 @@ its environment, so the interference detector counts it as the run's own.
 the whole front buffer out of VRAM, and that is Xorg's time, not the nice'd xwd's. Until it is known,
 a bench run with `SHOTS` and a capture inside the window is tagged `@shot` (report.py) and kept apart
 from plain runs; report.py's `shot_n`, `shot_ms`, `shot_win`, `shot_frame` columns and
-`python3 shots.py cost <run dir>` (the capture's wall time, the frames it touched, the longest of them
+`python3 bench/analysis/shots.py cost <run dir>` (the capture's wall time, the frames it touched, the longest of them
 against the 120 frames before) give the numbers.
 
 **On the PC.** `make bench-ref GAME=warzone2100 [VARIANT=base] [SHOTS="30 90"]` (`tools/bench-ref.sh`)
@@ -496,7 +504,7 @@ date, runs, stack, observations), each game's numbers in `gamedb/games/<id>/benc
 perf-recording batches are slower). To add a batch:
 
     make bench-pull
-    python3 bench/matrix.py "Mesa ps3.290 + ps3rsx 0.249" --name 2026-10-27-mesa-290 \
+    python3 bench/analysis/matrix.py "Mesa ps3.290 + ps3rsx 0.249" --name 2026-10-27-mesa-290 \
         --obs "what the batch shows" build/bench/ps3-bench-20261027T*-armagetronad-*
 
 `--replace` drops the batch's old values first; `--hud GAME[,GAME]` takes the HUD median as the fps

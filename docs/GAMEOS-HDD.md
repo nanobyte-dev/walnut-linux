@@ -143,7 +143,7 @@ In `tools/ssdimg/`:
   the tool never opens `ps3db` or `ps3da` for writing.
 - `test_ssdimg.py` (`make test`, suite `ssdimg`) and `vm-e2e.sh` (`make test-slow`, suite
   `ssdimg-vm`).
-- `bench/ssd-arm.sh`: the bench's SSD arms ([below](#the-ab-in-the-bench)).
+- `bench/harness/ssd-arm.sh`: the bench's SSD arms ([below](#the-ab-in-the-bench)).
 
 **Stamp format** (version 1, stamp.py's docstring): one stamp at the start of every 4 KiB block,
 the rest of the block zero. 8 bytes magic `PS3IMGv1`, 16 bytes instance UUID, the block's offset in
@@ -268,7 +268,7 @@ Only with the user's explicit go:
     sudo mkdir -p /mnt/ps3ssd && sudo mount -o noatime /dev/mapper/ps3ssd /mnt/ps3ssd
     sudo mkdir -p /mnt/ps3ssd/games
     for g in "bananabread base" "openarena gl2min" "luanti base" "supertuxkart lean" "classicube base"; do
-        /var/tmp/bench/ssd-arm.sh copy $g; done      # cp -a, then diff -rq against the original
+        /var/tmp/bench/harness/ssd-arm.sh copy $g; done      # cp -a, then diff -rq against the original
     dpkg -L luanti-game-minetest | head -3     # under /usr/share/luanti? else add its dir to DATA_DIRS
 
 Every later boot of the USB root (the map is reused; GameOS may have run in between):
@@ -288,7 +288,7 @@ Mounting it from the USB root is how the install and its fix-ups work; Phase A's
 
 ### The A/B in the bench
 
-Two arms, switched between runs by `bench/ssd-arm.sh` (run.sh calls it before each run's
+Two arms, switched between runs by `bench/harness/ssd-arm.sh` (run.sh calls it before each run's
 quiet) and recorded by client.sh in bench.txt (`gamedata=`, `gamedata_dirs=`, `swap=`, `swaps=`;
 report.py tags `base@gdssd`, `base@gdssd+swssd`):
 
@@ -311,13 +311,13 @@ client.sh refuses a run whose arm isn't in place, and a plain run with binds or 
 over. The batch as planned (5 games x 3 arms x 3 rounds, about 3-4 hours, `tools/bench-cam.sh` as
 for every run):
 
-    STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/run.sh bench bananabread base 3
-    STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/run.sh bench openarena gl2min 3
-    STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/run.sh bench luanti base 3
-    STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/run.sh bench supertuxkart lean 3
-    STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/run.sh bench classicube base 3
+    STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/harness/run.sh bench bananabread base 3
+    STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/harness/run.sh bench openarena gl2min 3
+    STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/harness/run.sh bench luanti base 3
+    STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/harness/run.sh bench supertuxkart lean 3
+    STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/harness/run.sh bench classicube base 3
     ps3-bench.sh desktop
-    python3 /var/tmp/bench/report.py --load --stalls /var/tmp/ps3-bench/<run dir>...
+    python3 /var/tmp/bench/analysis/report.py --load --stalls /var/tmp/ps3-bench/<run dir>...
 
 What to compare ([PROFILING.md](PROFILING.md), "Start-up profiling"; [STALLS.md](STALLS.md)):
 `load`, `load_disk_s`, loadprof's split of the load; `stalls_warm`, `warm_disk_s`; in the window
@@ -537,7 +537,7 @@ this boot ([Phase A's "every later boot" steps](#on-linux-us-with-the-users-go-w
 
 1. On the PS3, Phase A's arms off and the game copies unmounted:
 
-       /var/tmp/bench/ssd-arm.sh reset
+       /var/tmp/bench/harness/ssd-arm.sh reset
        sudo umount /mnt/ps3ssd
 
 2. On the PC, the map and its records, then the initramfs for them (this replaces any build/initrd
@@ -636,13 +636,13 @@ the same order in every boot, `tools/bench-cam.sh` as always, the measurement pr
 stopped, swap emptied, nothing deployed between the boots), the same package versions on both
 roots (step 9) and the same shader cache and bench state (copied by the install). In each boot:
 
-    STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench bananabread base 3
-    STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench openarena gl2min 3
-    STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench luanti base 3
-    STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench supertuxkart lean 3
-    STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench classicube base 3
-    STALLS=1 /var/tmp/bench/run.sh bench openarena gl2min 3       # gameplay, without the load profile
-    STALLS=1 /var/tmp/bench/run.sh bench bananabread base 3
+    STALLS=1 PERF_LOAD=1 /var/tmp/bench/harness/run.sh bench bananabread base 3
+    STALLS=1 PERF_LOAD=1 /var/tmp/bench/harness/run.sh bench openarena gl2min 3
+    STALLS=1 PERF_LOAD=1 /var/tmp/bench/harness/run.sh bench luanti base 3
+    STALLS=1 PERF_LOAD=1 /var/tmp/bench/harness/run.sh bench supertuxkart lean 3
+    STALLS=1 PERF_LOAD=1 /var/tmp/bench/harness/run.sh bench classicube base 3
+    STALLS=1 /var/tmp/bench/harness/run.sh bench openarena gl2min 3       # gameplay, without the load profile
+    STALLS=1 /var/tmp/bench/harness/run.sh bench bananabread base 3
     ps3-bench.sh desktop
 
 The first five are the start-up set of batches 16 and 17 (`load`, `load_disk_s`, loadprof's split,

@@ -35,8 +35,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-REPO = HERE.parent
+REPO = Path(__file__).resolve().parents[2]   # this is bench/analysis/
 TILE_W, TILE_H, GAP = 800, 450, 8
 SKIP_PKGS = {"libspeq0", "libfluidsynth3", "libopenal1", "libsdl3-0", "ps3-gpu-tools"}
 
@@ -447,7 +446,7 @@ def main(argv):
             print(line or "%s: no shots" % d)
     elif cmd == "post":
         made = post(args[0] if args else REPO / "build" / "bench", ref)
-        print(">> %d new sheet(s); not reviewed yet: bench/shots.py pending %s" % (len(made), args[0] if args else "build/bench"))
+        print(">> %d new sheet(s); not reviewed yet: bench/analysis/shots.py pending %s" % (len(made), args[0] if args else "build/bench"))
     elif cmd == "pending":
         pending(args[0] if args else REPO / "build" / "bench")
     else:

@@ -150,7 +150,7 @@ variant_allbatchoff() { oa_x +set r_glStateCache 0 +set r_lockArrays 1 +set r_sk
 # every 200 frames (bot_minplayers, and qagame's loaddefered makes the cgame load each at once): 3
 # models, 3 skins, 3-6 textures each, 4 stalls of 130-400 ms a pass on the PS3; and every pass
 # reloads the map: 3 load-screen stalls of 340/700/380 ms (402 image files read, decoded, DXT on
-# the PPE), 10 of the run's 17.6 s of stalls (bench/passsplit.py tells the two apart). Both
+# the PPE), 10 of the run's 17.6 s of stalls (bench/analysis/passsplit.py tells the two apart). Both
 # switches are on in base (llvmpipe: picture identical over three passes; the second pass on loads
 # nothing during the demo, the reload 0.46 -> 0.17 s). The first pass still loads them (unmeasured).
 # 0025: r_keepImages 0, every texture freed and its file loaded again at each map load

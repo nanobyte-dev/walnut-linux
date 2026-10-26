@@ -14,7 +14,7 @@
 #                                      as shipped, no time limit; the player quits, a form follows
 # Variant `base` is the recipe as written. End the session with `ps3-bench.sh desktop`.
 # STALLS=1: the stall recorder runs alongside (ps3-bench.sh BENCH_STALLS=1, docs/STALLS.md); smoke
-# then prints stalls.py's tables, else `python3 stalls.py <run dir>...` does.
+# then prints stalls.py's tables, else `python3 /var/tmp/bench/analysis/stalls.py <run dir>...` does.
 # PERF=1: perf profiles the measured window (ps3-bench.sh BENCH_PERF=1, docs/PROFILING.md;
 # PERF_HZ samples a second, default 499; PERF_ALL=1 adds a system-wide record without call graphs);
 # after each run, outside the timed part, perf-post.sh turns perf.data into perf-report.txt,
@@ -83,7 +83,7 @@
 # Results: /var/tmp/ps3-bench/<stamp>-<game>-<variant>/; report.py summarises them.
 {
 set -u
-here=$(cd "$(dirname "$0")" && pwd)
+here=$(cd "$(dirname "$0")" && pwd); BENCH=${here%/*}	# bench/harness, bench (lib/, analysis/ beside it)
 . "$here/games.sh"
 B=ps3-bench.sh
 BATCH_POS_FILE=${BATCH_POS_FILE:-/dev/shm/ps3-bench.batchpos}	# the batch counter (reset it when a batch starts)
@@ -166,7 +166,7 @@ versions() {	# versions GAME VARIANT: the game's package and the graphics stack 
 }
 game() { bench_id "$1" || { echo "!! no recipe $1 (run.sh list)" >&2; return 1; }; }	# a name -> its id
 variants() { grep -o '^variant_[a-z0-9_]*' "$(bench_recipe "$1")" | sed 's/^variant_//' | tr '\n' ' '; }
-report() { [ ${#RUNS[@]} -gt 0 ] && python3 "$here/report.py" "$@" "${RUNS[@]}"; }
+report() { [ ${#RUNS[@]} -gt 0 ] && python3 "$BENCH/analysis/report.py" "$@" "${RUNS[@]}"; }
 
 # rotated ROUND TOKEN...: the tokens, started at a different one each round when ROTATE=1 (round 1 as
 # given, round 2 from the second, ...), so no arm always runs first in its round; off by default

@@ -1,7 +1,7 @@
 #!/bin/bash
 # play-test.sh: a played test, both sides from one command (docs/games/SUITE.md "Played sessions").
 #   play-test.sh check                    the PS3 is up and idle; the harness pushed and the logger in place
-#   play-test.sh start GAME [LAUNCHER]    the recorded session on the PS3 (bench/session.sh, which
+#   play-test.sh start GAME [LAUNCHER]    the recorded session on the PS3 (bench/harness/session.sh, which
 #                                         counts the load from here) and the same game and launcher on this
 #                                         PC (tools/play-pc.sh, detached; its log in build/pc-play/GAME.log)
 #       PC=0 play-test.sh start ...       the PS3 only (the PC copy is still open, or a game with no PC side)
@@ -21,9 +21,9 @@ ps3() { timeout "${T:-60}" ssh -i "$KEY" -o UserKnownHostsFile="$PWD/build/ps3_k
 	-o ConnectTimeout=10 "$USER_@$IP" "$@"; }
 cmd=${1:-}; G=${2:-}; L=${3:-}
 # GAME is a Walnut Games entry, whose recipe is its own (gamedb/games/GAME/benchmark/recipe.sh,
-# bench/games.sh), or an old recipe name (sauerbraten-edition: Sauerbraten's)
+# bench/harness/games.sh), or an old recipe name (sauerbraten-edition: Sauerbraten's)
 E=$G; R=$G
-here=$PWD/bench; . bench/games.sh
+BENCH=$PWD/bench; . bench/harness/games.sh
 if [ -n "$G" ] && r=$(bench_id "$G"); then
 	R=$r; [ -e "gamedb/games/$G/index.md" ] || E=$r
 fi
@@ -33,7 +33,7 @@ check)
 	ps3 'printf "up: %s, kernel %s\n" "$(uptime -p)" "$(uname -r)"
 		systemctl --user is-active -q ps3-game-mode.service && echo "!! game mode is on: a game is running"
 		for u in $(systemctl --user list-units --plain --no-legend "walnut-session-*" | cut -d" " -f1); do echo "!! $u is running"; done
-		[ -x /var/tmp/bench/session.sh ] && echo "harness: /var/tmp/bench" || echo "!! no harness (make bench-push)"
+		[ -x /var/tmp/bench/harness/session.sh ] && echo "harness: /var/tmp/bench" || echo "!! no harness (make bench-push)"
 		[ -r /usr/lib/ps3/lib/ps3-xrunlog.conf ] && echo "sound dropout logger: installed" || echo "!! no sound dropout logger (ps3-gpu-tools)"
 		df -h /var/tmp | awk "NR == 2 { print \"disk: \" \$4 \" free\" }"' ;;
 start)
@@ -44,7 +44,7 @@ start)
 		systemctl --user is-active -q ps3-game-mode.service && { echo '!! a game is running'; exit 1; }
 		systemctl --user reset-failed walnut-session-$R 2>/dev/null
 		systemd-run --user --unit=walnut-session-$R -q -E DISPLAY=:0 -E XAUTHORITY=\$HOME/.Xauthority \
-			/var/tmp/bench/session.sh $R $(printf %q "$L") && echo '>> PS3: $R started (session.sh)'"
+			/var/tmp/bench/harness/session.sh $R $(printf %q "$L") && echo '>> PS3: $R started (session.sh)'"
 	if [ "${PC:-1}" = 1 ]; then
 		mkdir -p build/pc-play
 		setsid nohup tools/play-pc.sh "$E" ${L:+"$L"} > "build/pc-play/$E.log" 2>&1 < /dev/null &
@@ -54,7 +54,7 @@ stop)
 	[ -n "$G" ] || { echo "usage: play-test.sh stop GAME" >&2; exit 2; }
 	# the game's process: its played test's (rating/test.toml through playdef.py; bench-push carries it),
 	# else the recipe's COMM (a harness pushed before the test.toml files)
-	T=120 ps3 "c=; eval \"\$(python3 -I /var/tmp/bench/playdef.py /var/tmp/bench/games/$R/rating/test.toml 2>/dev/null)\"; c=\${TEST_PROCESS:-}
+	T=120 ps3 "c=; eval \"\$(python3 -I /var/tmp/bench/harness/playdef.py /var/tmp/bench/games/$R/rating/test.toml 2>/dev/null)\"; c=\${TEST_PROCESS:-}
 		[ -n \"\$c\" ] || { c=\$(sed -n 's/^COMM=//p' /var/tmp/bench/games/$R/recipe.sh | head -1); c=\${c%%[[:space:]]*}; }
 		c=\${c:0:15}; [ -n \"\$c\" ] && pkill -TERM -x \"\$c\"
 		for i in \$(seq 30); do sleep 1
@@ -67,8 +67,8 @@ collect)
 	make -s bench-pull > /dev/null 2>&1 || echo "!! the pull failed (is the PS3 up?): the runs already here"
 	python3 -I - "$R" "$E" <<'PY'
 import glob, os, sys, tomllib
-sys.path.insert(0, "bench")
-import games    # bench/games.py: a run's game (runs from before the move name the old recipe)
+sys.path.insert(0, "bench/harness")
+import games    # bench/harness/games.py: a run's game (runs from before the move name the old recipe)
 g, entry = sys.argv[1], sys.argv[2]
 kv = lambda f: dict(l.split("=", 1) for l in open(f, errors="replace").read().splitlines() if "=" in l)
 done = set()

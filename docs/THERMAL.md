@@ -83,7 +83,7 @@ Still upstream behaviour: `final_power_off` does not send `set_attr(0)` first (r
 - The sampler reads every `temp*_input` and `temp*_alarm` once a second into `$D/temps` (`# Cell BE,RSX`, then `time mC mC`, with `-` when unreadable). The memory samples file is unchanged, since `report.py` and `step0-report.py` parse its fixed columns.
 - It stops the command (TERM, then KILL after 5 s, like the thermal alert watchdog) when a zone reaches `BENCH_TEMP_MAX` or raises its alarm. `BENCH_TEMP_MAX` is in degrees C and defaults to **80**: below SYSCON's own shutdown at about 85-90 C and webMAN's 83 C warning, above what a supervised run with the fan on SYSCON or at 60% or more should reach. `$D/TEMPLIMIT` says why it stopped.
 - `bench.txt` gets `temp_max=cell:71.5 rsx:66.0` and `temp_stop=1`, and `result` gets a "temps max" line.
-- `bench/run.sh` stops the whole batch on a TEMPLIMIT, as it does on a thermal alert.
+- `bench/harness/run.sh` stops the whole batch on a TEMPLIMIT, as it does on a thermal alert.
 - `report.py` has columns `tmax` (`71.5/66.0`, `!` when stopped), `tcell` and `trsx` (numbers, with medians in the per-variant line). `selftest.py` checks them, and that runs without sensors get none.
 
 Each temperature read is one SM request. At one read per zone per second that is two small messages a second on a port that otherwise carries a few events per boot.

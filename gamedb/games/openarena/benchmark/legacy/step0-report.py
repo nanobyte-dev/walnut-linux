@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Superseded by bench/report.py; reads only run directories from before 2026-10-17, when
+"""Superseded by bench/analysis/report.py; reads only run directories from before 2026-10-17, when
 ps3-bench.sh still grepped OpenArena's lines into `result`.
 
 step0-report.py <run dir>...: one line per ps3-bench.sh run (copied from the PS3's

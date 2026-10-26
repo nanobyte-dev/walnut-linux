@@ -123,7 +123,7 @@ On the PS3, as `tibi` over SSH, with the user not at the console:
 
 - `ps3-bench.sh run LABEL -- cmd`, `ps3-bench.sh x LABEL -- client`, and `ps3-bench.sh desktop` at the end; results in `/var/tmp/ps3-bench/`.
 - `speq-dxt --check --path spu`, `speq-dxt --bench`, `speq-bench [--quick] [--fault]`, `speq-skin --check`, `SPEQ_DEBUG=1 gl-dxt`, `spurun <prog.spu> [symbol]`.
-- Game-level runs: `/var/tmp/bench/run.sh ...` after `make bench-push`, see [games/SUITE.md](games/SUITE.md). [dsda-doom](../gamedb/games/dsda-doom/)'s recipe has the `playspu`, `playppe`, `playoff` and `playnomusic` variants for the synth; [BananaBread](../gamedb/games/bananabread/)'s has `spuskin`, `ppeskin` and `offskin`.
+- Game-level runs: `/var/tmp/bench/harness/run.sh ...` after `make bench-push`, see [games/SUITE.md](games/SUITE.md). [dsda-doom](../gamedb/games/dsda-doom/)'s recipe has the `playspu`, `playppe`, `playoff` and `playnomusic` variants for the synth; [BananaBread](../gamedb/games/bananabread/)'s has `spuskin`, `ppeskin` and `offskin`.
 
 Rules that come with SPU measurements: game-level decisions need the suite, not one game; every PS3 measurement is a same-boot comparison against the off-switch; all-SPE load is capped (60 s per run, 30 s gaps) with the user present and webMAN's fan in SYSCON mode.
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 # gamemode-check.sh: what game mode (ps3-desktop's ps3-game) frees, and whether everything it
 # freezes or unloads comes back. On the PS3, as the desktop user with the desktop up (over SSH is
-# fine; uses sudo): make bench-push, then /var/tmp/bench/gamemode-check.sh [options]
+# fine; uses sudo): make bench-push, then /var/tmp/bench/harness/gamemode-check.sh [options]
 #   -t SECONDS  how long the dummy game runs once game mode is on (default 20)
 #   -a MB       the dummy game allocates and touches MB of memory (default 0: it only sleeps)
 #   -m MODE     PS3_GAME_MODE for the run: on (default), pads (baseline: nothing frozen)

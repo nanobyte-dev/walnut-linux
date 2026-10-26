@@ -1,5 +1,5 @@
-# runs found disturbed after the fact (bench/interference-scan.py --write, docs/STALLS.md
-# "Interference"): run directory, then the evidence. bench/report.py and bench/matrix.py leave them out.
+# runs found disturbed after the fact (bench/analysis/interference-scan.py --write, docs/STALLS.md
+# "Interference"): run directory, then the evidence. bench/analysis/report.py and bench/analysis/matrix.py leave them out.
 ps3-bench-20261017T181626Z-supertuxkart-nohd Xorg.0.log: VT switch away at 127 s after the X start
 ps3-bench-20261017T224350Z-luanti-allbatchoff game.log: Luanti logged 3 player action(s) (mouse buttons in the game) from 61 s: warm-up: 3 digs
 ps3-bench-20261018T081125Z-luanti-base game.log: Luanti logged 1 player action(s) (mouse buttons in the game) from 105 s: window: 1 activates

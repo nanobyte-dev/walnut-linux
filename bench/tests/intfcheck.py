@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """intfcheck.py: the interference detector checked on the host (selftest.py runs it; alone:
-python3 bench/intfcheck.py). docs/STALLS.md "Interference".
+python3 bench/tests/intfcheck.py). docs/STALLS.md "Interference".
   1. ps3-intfwatch builds with the host's cc without warnings
   2. its input filter on recorded event streams (-r), each in both byte orders: the 64-bit struct
      input_event is 24 bytes on ppc64 (big-endian) and x86-64 (little-endian), same layout; both
@@ -29,7 +29,8 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-SRC = HERE.parent / "packages" / "walnut" / "tools" / "ps3-gpu-tools" / "src" / "ps3-intfwatch.c"
+ANALYSIS = HERE.parent / "analysis"   # this is bench/tests/
+SRC = HERE.parent.parent / "packages" / "walnut" / "tools" / "ps3-gpu-tools" / "src" / "ps3-intfwatch.c"
 FAILS = []
 
 
@@ -295,7 +296,7 @@ def report_checks(tmp):
     c = run_dir(tmp, "ps3-bench-20261018T000003Z-fakei-base", common % 20)
     e = run_dir(tmp, "ps3-bench-20261018T000004Z-fakei-base", common % 60)
     env = dict(os.environ, BENCH_GAMEDB=str(res))
-    p = subprocess.run([sys.executable, str(HERE / "report.py"), *map(str, (a, b, c, e))], capture_output=True, text=True, env=env)
+    p = subprocess.run([sys.executable, str(ANALYSIS / "report.py"), *map(str, (a, b, c, e))], capture_output=True, text=True, env=env)
     lines = p.stdout.splitlines()
     check("report: intf column (1 for the detector's and the retro list's, 0 clean, - unwatched)",
           [line.split("intf=")[1].split()[0] for line in lines[:4] if "intf=" in line] == ["0", "1", "1", "-"], lines[:4])
@@ -303,19 +304,19 @@ def report_checks(tmp):
     med = next((line for line in lines if " n=" in line), "")
     check("report: the median leaves the interfered out (50, 60 -> 55)", "n=2 (+2 interfered left out)" in med and "fps=55" in med, med)
     check("report: the interfered listed at the end", "3 key presses" in p.stdout and "retro-scan said so" in p.stdout, p.stdout[-400:])
-    p = subprocess.run([sys.executable, str(HERE / "report.py"), "--include-interfered", *map(str, (a, b, c, e))],
+    p = subprocess.run([sys.executable, str(ANALYSIS / "report.py"), "--include-interfered", *map(str, (a, b, c, e))],
                        capture_output=True, text=True, env=env)
     med = next((line for line in p.stdout.splitlines() if " n=" in line), "")
     check("report --include-interfered: all four in the median (35)", "n=4" in med and "fps=35" in med, med)
-    p = subprocess.run([sys.executable, str(HERE / "matrix.py"), "intf row", *map(str, (a, b, c, e))],
+    p = subprocess.run([sys.executable, str(ANALYSIS / "matrix.py"), "intf row", *map(str, (a, b, c, e))],
                        capture_output=True, text=True, env=env)
-    subprocess.run([sys.executable, str(HERE / "matrix.py"), "--csv", str(res)], capture_output=True, env=env)
+    subprocess.run([sys.executable, str(ANALYSIS / "matrix.py"), "--csv", str(res)], capture_output=True, env=env)
     fps = (res / "fps.csv").read_text() if (res / "fps.csv").exists() else ""
     check("matrix: interfered runs skipped and listed", p.returncode == 0 and p.stdout.count("skipped") == 2 and
           "intf row" in fps and ",2,," in fps and "55" in fps, (p.stdout, p.stderr[-300:], fps))
-    p = subprocess.run([sys.executable, str(HERE / "matrix.py"), "intf row2", "--include-interfered", *map(str, (a, b, c, e))],
+    p = subprocess.run([sys.executable, str(ANALYSIS / "matrix.py"), "intf row2", "--include-interfered", *map(str, (a, b, c, e))],
                        capture_output=True, text=True, env=env)
-    subprocess.run([sys.executable, str(HERE / "matrix.py"), "--csv", str(res)], capture_output=True, env=env)
+    subprocess.run([sys.executable, str(ANALYSIS / "matrix.py"), "--csv", str(res)], capture_output=True, env=env)
     fps = (res / "fps.csv").read_text()
     check("matrix --include-interfered: kept", p.stdout.count("kept") == 2 and "intf row2" in fps and "35" in fps, (p.stdout, fps))
 
@@ -344,7 +345,7 @@ def scan_checks(tmp):
                  {"game.log": "2026-10-18 06:00:41: ACTION[Server]: ps3bench: path start\n"
                               "2026-10-18 06:01:00: ACTION[Server]: singleplayer digs default:stone at (0,1,2)\n"
                               "2026-10-18 06:02:30: ACTION[Server]: singleplayer activates \n"})
-    p = subprocess.run([sys.executable, str(HERE / "interference-scan.py"), *map(str, (d1, d2, d3, d4))],
+    p = subprocess.run([sys.executable, str(ANALYSIS / "interference-scan.py"), *map(str, (d1, d2, d3, d4))],
                        capture_output=True, text=True, env=dict(os.environ, BENCH_GAMEDB=str(base)))
     o = p.stdout
     check("scan: VT switch found", "STRONG %s" % d1.name in o and "VT switch away at 100 s" in o, o)
@@ -352,7 +353,7 @@ def scan_checks(tmp):
     check("scan: USB connect found", "STRONG %s" % d3.name in o, o)
     check("scan: Luanti's actions placed (warm-up dig, window activate)",
           "warm-up: 1 digs; window: 1 activates" in o, o)
-    p = subprocess.run([sys.executable, str(HERE / "interference-scan.py"), "--write", *map(str, (d1, d2, d3, d4))],
+    p = subprocess.run([sys.executable, str(ANALYSIS / "interference-scan.py"), "--write", *map(str, (d1, d2, d3, d4))],
                        capture_output=True, text=True, env=dict(os.environ, BENCH_GAMEDB=str(base)))
     lst = (base / "benchmarks" / "interfered.txt").read_text() if (base / "benchmarks" / "interfered.txt").exists() else ""
     check("scan --write: three runs listed", len([x for x in lst.splitlines() if x and not x.startswith("#")]) == 3, lst)

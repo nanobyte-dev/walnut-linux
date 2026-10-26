@@ -14,7 +14,7 @@ Evidence, per file (each run directory has what ps3-bench.sh and client.sh saved
   dmesg.log         the kernel's lines during the run: a USB device connected or disconnected, an
                     input device registered that isn't virtual, Bluetooth HID lines
   game.log          a game that logs what the player does (its [interference] in benchmark/analysis.toml,
-                    bench/gamedata.py: action_re, time_format, anchor_re; gamedb:luanti's "singleplayer
+                    bench/harness/gamedata.py: action_re, time_format, anchor_re; gamedb:luanti's "singleplayer
                     digs/places/activates/punches", which its benchmark's flight never does, so each
                     line is a mouse button pressed in the game); placed against the run's load, warm-up
                     and window
@@ -27,8 +27,8 @@ import re
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
+BENCH = Path(__file__).resolve().parent.parent   # the bench tree: this is bench/analysis/
+sys.path[:0] = [str(BENCH / "analysis"), str(BENCH / "harness")]
 import gamedata  # noqa: E402  (a game's own log of the player: gamedb/games/<id>/benchmark/analysis.toml)
 XLINE = re.compile(r"^\[\s*([\d.]+)\] (.*)$")
 
@@ -195,10 +195,10 @@ def main(argv):
           "game-side trace, SSH logins and commands during a run (the journal is not saved per run), the "
           "game window losing the focus.")
     if write and strong:
-        f = Path(os.environ.get("BENCH_GAMEDB") or HERE.parent / "gamedb") / "benchmarks" / "interfered.txt"
+        f = Path(os.environ.get("BENCH_GAMEDB") or BENCH.parent / "gamedb") / "benchmarks" / "interfered.txt"
         f.parent.mkdir(parents=True, exist_ok=True)
         old = f.read_text().splitlines() if f.exists() else [
-            "# runs found disturbed after the fact (bench/interference-scan.py --write, docs/STALLS.md",
+            "# runs found disturbed after the fact (bench/analysis/interference-scan.py --write, docs/STALLS.md",
             "# \"Interference\"): run directory, then the evidence. report.py and matrix.py leave them out."]
         names = {l.split(" ", 1)[0] for l in old if l and not l.startswith("#")}
         new = old + ["%s %s" % (n, why) for n, why in strong if n not in names]

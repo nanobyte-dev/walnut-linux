@@ -1,5 +1,5 @@
 # DarkPlaces' analysis rules: every game on the engine (its build.toml engine = "darkplaces") shares them,
-# before its own benchmark/analysis.toml (bench/gamedata.py; gamedb/README.md "engines/<e>/").
+# before its own benchmark/analysis.toml (bench/harness/gamedata.py; gamedb/README.md "engines/<e>/").
 
 [[log_strip]]
 # removed from each log line before messages are compared (logscan.py); DarkPlaces keeps Quake 3's ^0-^9

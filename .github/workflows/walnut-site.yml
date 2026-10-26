@@ -26,7 +26,7 @@ on:
       - "!gamedb/*/*/todo.toml"
       - "!gamedb/**/raw/**"
       - "tools/gamedb/**"
-      - "bench/benchrecords.py"
+      - "bench/analysis/benchrecords.py"
       - "website/site/**"
       - "servers/walnut.nanobyte.dev/publish-site.sh"
       - ".github/workflows/walnut-site.yml"

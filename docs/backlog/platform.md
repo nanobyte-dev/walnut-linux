@@ -133,7 +133,7 @@ so far: the menu path (`ps3-game`), the wallpaper and services getting out of th
 return after [OpenArena](../../gamedb/games/openarena/) (about 30 s, which led to the desktop prefetch). Installed (ps3-desktop
 0.474), never tried at the TV: the escape keys (Ctrl+Alt+Esc; the PS button held 3 s; Alt+Tab and
 Win+D thawing the desktop), the automatic start (`ps3-game-detect`: a terminal game, F11), [Luanti](../../gamedb/games/luanti/)
-from the menu with sound, the desktop prefetch's return time, `bench/gamemode-check.sh`'s
+from the menu with sound, the desktop prefetch's return time, `bench/harness/gamemode-check.sh`'s
 numbers, and the `ps3-game-kick` unit (it skips itself on a kernel with `ps3_idle_prep` on).
 
 - **Payoff:** high: the players' path. **Effort:** S.

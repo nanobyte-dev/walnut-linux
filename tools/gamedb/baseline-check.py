@@ -268,21 +268,21 @@ def run_dirs():
 
 
 def p_report(tmp):
-    return "bench/report.py --stalls --perf --mem --load build/bench/ps3-bench-* (sorted)", \
-        sh([sys.executable, "bench/report.py", "--stalls", "--perf", "--mem", "--load"] + run_dirs(), check=False)
+    return "bench/analysis/report.py --stalls --perf --mem --load build/bench/ps3-bench-* (sorted)", \
+        sh([sys.executable, "bench/analysis/report.py", "--stalls", "--perf", "--mem", "--load"] + run_dirs(), check=False)
 
 
 def p_logscan(tmp):
-    return "bench/logscan.py -v --show-ignored", sh([sys.executable, "bench/logscan.py", "-v", "--show-ignored"], check=False)
+    return "bench/analysis/logscan.py -v --show-ignored", sh([sys.executable, "bench/analysis/logscan.py", "-v", "--show-ignored"], check=False)
 
 
 def p_logscan_json(tmp):
-    return "bench/logscan.py --json --by-message", sh([sys.executable, "bench/logscan.py", "--json", "--by-message"], check=False)
+    return "bench/analysis/logscan.py --json --by-message", sh([sys.executable, "bench/analysis/logscan.py", "--json", "--by-message"], check=False)
 
 
 def p_interference(tmp):
-    return "bench/interference-scan.py -v build/bench/ps3-bench-* (no --write)", \
-        sh([sys.executable, "bench/interference-scan.py", "-v"] + run_dirs(), check=False)
+    return "bench/analysis/interference-scan.py -v build/bench/ps3-bench-* (no --write)", \
+        sh([sys.executable, "bench/analysis/interference-scan.py", "-v"] + run_dirs(), check=False)
 
 
 def p_matrix(tmp):
@@ -298,13 +298,13 @@ def p_matrix(tmp):
     log = []
     env = {"BENCH_GAMEDB": str(db)}
     for d in run_dirs():
-        log.append(sh([sys.executable, "bench/matrix.py", Path(d).name, d], env=env, check=False)
+        log.append(sh([sys.executable, "bench/analysis/matrix.py", Path(d).name, d], env=env, check=False)
                    .replace(str(db), "$BENCH_RESULTS"))
-    sh([sys.executable, "bench/matrix.py", "--csv", str(res)], env=env, check=False)
+    sh([sys.executable, "bench/analysis/matrix.py", "--csv", str(res)], env=env, check=False)
     text = "".join(log)
     for f in sorted(res.glob("*.csv")):
         text += "== %s\n%s" % (f.name, f.read_text())
-    return "BENCH_RESULTS=SCRATCH bench/matrix.py <run name> <run dir>, every run in turn; the CSVs", text
+    return "BENCH_RESULTS=SCRATCH bench/analysis/matrix.py <run name> <run dir>, every run in turn; the CSVs", text
 
 
 def p_export(tmp):

@@ -18,11 +18,11 @@ page tables. Fps and stall decisions come from runs without these switches, same
 On the PS3 (`make bench-push` done; ps3-gpu-tools 0.391 or later for `PERF=1`'s perf control and
 `MEM=1`'s malloc statistics, 0.412 or later for the load's mmaps, 0.469 or later for `PERF_LOAD=1`):
 
-    PERF=1 /var/tmp/bench/run.sh smoke openarena              # prints the tables at the end
-    PERF=1 MEM=1 /var/tmp/bench/run.sh bench openarena base 1   # both in one run
-    MEM=1 /var/tmp/bench/run.sh suite base 1                  # memory of every suite game
-    PERF=1 /var/tmp/bench/run.sh suite base 1                 # a profile of every suite game
-    python3 /var/tmp/bench/report.py --perf --mem /var/tmp/ps3-bench/<run dir>...
+    PERF=1 /var/tmp/bench/harness/run.sh smoke openarena              # prints the tables at the end
+    PERF=1 MEM=1 /var/tmp/bench/harness/run.sh bench openarena base 1   # both in one run
+    MEM=1 /var/tmp/bench/harness/run.sh suite base 1                  # memory of every suite game
+    PERF=1 /var/tmp/bench/harness/run.sh suite base 1                 # a profile of every suite game
+    python3 /var/tmp/bench/analysis/report.py --perf --mem /var/tmp/ps3-bench/<run dir>...
 
 | Variable | Default | What |
 |---|---|---|
@@ -35,7 +35,7 @@ On the PS3 (`make bench-push` done; ps3-gpu-tools 0.391 or later for `PERF=1`'s 
 
 After every `PERF=1` run, run.sh calls `perf-post.sh` on it, outside the timed part (the next run's
 quiet drops the caches and empties the swaps again). By hand, for a run made earlier:
-`/var/tmp/bench/perf-post.sh /var/tmp/ps3-bench/<run dir>`.
+`/var/tmp/bench/harness/perf-post.sh /var/tmp/ps3-bench/<run dir>`.
 
 ### Packages on the PS3
 
@@ -246,12 +246,12 @@ the files ahead and hide the disk; client.sh then also turns game mode's own pre
 `SHADERCACHE` the game uses the user's own Mesa cache (`~/.cache/mesa_shader_cache`), warm for any
 game played before.
 
-    PERF_LOAD=1 STALLS=1 /var/tmp/bench/run.sh bench bananabread base 1
-    PERF_LOAD=1 STALLS=1 /var/tmp/bench/run.sh bench openarena gl2min 1
-    PERF_LOAD=1 STALLS=1 /var/tmp/bench/run.sh bench luanti base 1
-    PERF_LOAD=1 STALLS=1 /var/tmp/bench/run.sh bench supertuxkart lean 1
-    PERF_LOAD=1 STALLS=1 /var/tmp/bench/run.sh bench classicube base 1
-    python3 /var/tmp/bench/report.py --load --stalls /var/tmp/ps3-bench/<run dir>...
+    PERF_LOAD=1 STALLS=1 /var/tmp/bench/harness/run.sh bench bananabread base 1
+    PERF_LOAD=1 STALLS=1 /var/tmp/bench/harness/run.sh bench openarena gl2min 1
+    PERF_LOAD=1 STALLS=1 /var/tmp/bench/harness/run.sh bench luanti base 1
+    PERF_LOAD=1 STALLS=1 /var/tmp/bench/harness/run.sh bench supertuxkart lean 1
+    PERF_LOAD=1 STALLS=1 /var/tmp/bench/harness/run.sh bench classicube base 1
+    python3 /var/tmp/bench/analysis/report.py --load --stalls /var/tmp/ps3-bench/<run dir>...
 
 The same five with the game data on the internal SSD, same boot, against the USB disk:
 `ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd"` ([GAMEOS-HDD.md](GAMEOS-HDD.md) "Test drive, Phase A").
@@ -260,8 +260,8 @@ Mesa's shader cache, cold against warm over the same span. `SHADERCACHE=warm` ke
 in `/var/tmp/ps3-bench/shadercache/warm-<game>`; its first run fills it and is tagged `scprime`, so
 prime once, then alternate in the same session:
 
-    PERF_LOAD=1 STALLS=1 ENVS="SHADERCACHE=warm" /var/tmp/bench/run.sh bench openarena gl2min 1   # scprime
-    PERF_LOAD=1 STALLS=1 ENVS="SHADERCACHE=cold SHADERCACHE=warm" /var/tmp/bench/run.sh bench openarena gl2min 1
+    PERF_LOAD=1 STALLS=1 ENVS="SHADERCACHE=warm" /var/tmp/bench/harness/run.sh bench openarena gl2min 1   # scprime
+    PERF_LOAD=1 STALLS=1 ENVS="SHADERCACHE=cold SHADERCACHE=warm" /var/tmp/bench/harness/run.sh bench openarena gl2min 1
     # the same for "bananabread base" and "luanti base"
 
 Compare `lp_glsl`, `lp_shbe`, `lp_shcache`, `lp_wshader` and the `load` column of the `sccold` and
@@ -318,7 +318,7 @@ and packages into `perf-buildids.txt`/`perf-pkgs.txt`, and prints loadprof.py's 
 
 ### loadprof.py
 
-`python3 loadprof.py <run dir>...` or `report.py --load`. Per phase (load, warm-up): the wall time,
+`python3 bench/analysis/loadprof.py <run dir>...` or `report.py --load`. Per phase (load, warm-up): the wall time,
 the main thread's and all threads' CPU, Xorg's and kswapd0's, the main thread's disk wait (stalls.rec:
 disk, io and swap-in seconds), MB read from the disks and the disk's busy seconds, major faults,
 swap-ins; then the CPU by group with each group's top functions, by the leaf's DSO class, the busiest
@@ -627,11 +627,11 @@ run noise, so the A/B was skipped in batch ssd1. It is still queued because it i
 ([TESTS.md](TESTS.md), "Next"):
 
     T=SHADERCACHE=warm+NV30_SHADER_CACHE_STATS=1
-    PERF_LOAD=1 ENVS="$T+NV30_SHADER_CACHE=on" /var/tmp/bench/run.sh bench openarena gl2min 1   # prime
-    PERF_LOAD=1 STALLS=1 ENVS="$T $T+NV30_SHADER_CACHE=on" /var/tmp/bench/run.sh bench openarena gl2min 2
-    PERF_LOAD=1 ENVS="$T+NV30_SHADER_CACHE=on" /var/tmp/bench/run.sh bench bananabread base 1   # prime
-    PERF_LOAD=1 STALLS=1 ENVS="$T $T+NV30_SHADER_CACHE=on" /var/tmp/bench/run.sh bench bananabread base 2
-    python3 /var/tmp/bench/report.py --load /var/tmp/ps3-bench/<run dirs>
+    PERF_LOAD=1 ENVS="$T+NV30_SHADER_CACHE=on" /var/tmp/bench/harness/run.sh bench openarena gl2min 1   # prime
+    PERF_LOAD=1 STALLS=1 ENVS="$T $T+NV30_SHADER_CACHE=on" /var/tmp/bench/harness/run.sh bench openarena gl2min 2
+    PERF_LOAD=1 ENVS="$T+NV30_SHADER_CACHE=on" /var/tmp/bench/harness/run.sh bench bananabread base 1   # prime
+    PERF_LOAD=1 STALLS=1 ENVS="$T $T+NV30_SHADER_CACHE=on" /var/tmp/bench/harness/run.sh bench bananabread base 2
+    python3 /var/tmp/bench/analysis/report.py --load /var/tmp/ps3-bench/<run dirs>
 
 A new build misses everything, hence the priming run per game (it fills the NIR and the nv30 entries of
 the warm cache); both arms then have the warm NIR cache. Read `load`; `lp_shbe` (expected down by
@@ -831,8 +831,8 @@ Measured on the host (Zen 2), estimated for the PPE; every run states its own nu
 
     make bench-pull                 # every run directory into build/bench, without perf.data
     make bench-pull PERFDATA=1      # with perf.data, perf-load.data, perf-sys.data and perf-syms.tar
-    bench/report.py --perf --mem build/bench/<run dir>...
-    bench/perfprof.py build/bench/<run dir>
+    bench/analysis/report.py --perf --mem build/bench/<run dir>...
+    bench/analysis/perfprof.py build/bench/<run dir>
     flamegraph.pl build/bench/<run dir>/perf.folded > flame.svg   # or speedscope, inferno
 
 The text files and `perf.folded` are symbolised on the PS3 and are all most analysis needs. For
@@ -844,31 +844,31 @@ and pull with `PERFDATA=1`, then:
 
 perf on x86 reads ppc64's big-endian perf.data (it swaps), but the powerpc call-chain check above does
 not run there. For that, use the PS3's own perf under qemu (next section). The cross-game ranking in
-[HOTPATHS.md](HOTPATHS.md) used a third way, `bench/hotpaths/`, which reads perf.data directly.
+[HOTPATHS.md](HOTPATHS.md) used a third way, `bench/analysis/hotpaths/`, which reads perf.data directly.
 
 ### Re-processing a run on the PC
 
-`bench/hotpaths/perfq.sh` runs the PS3's own perf (Debian's 7.2.9 for ppc64) under qemu-user
+`bench/analysis/hotpaths/perfq.sh` runs the PS3's own perf (Debian's 7.2.9 for ppc64) under qemu-user
 from a root (`PERFQ_ROOT`, default `build/tmp/hotpaths-sym`), which gives the PS3's call-chain
 handling on the PC:
 
     R=build/tmp/hotpaths-sym; mkdir -p $R
     tar -xf build/rootfs/base.tar -C $R ./usr/bin/perf ./usr/lib/powerpc64-linux-gnu ./usr/lib64 ./lib ./lib64 ./bin
-    bench/hotpaths/symroot.sh     # Mesa and its dbgsym, the kernel's System.map, ps3rsx, libc6-dbg
+    bench/analysis/hotpaths/symroot.sh     # Mesa and its dbgsym, the kernel's System.map, ps3rsx, libc6-dbg
     # the game's own binaries and dbgsym of the run's versions: unpack their debs into $R too
-    PERFPOST_PERF=bench/hotpaths/perfq.sh PERFPROF_ROOT=$R bench/perf-post.sh <copy of the run dir>
+    PERFPOST_PERF=bench/analysis/hotpaths/perfq.sh PERFPROF_ROOT=$R bench/harness/perf-post.sh <copy of the run dir>
 
 Module symbols are not in System.map, so `[drm]` frames stay unnamed there (still kgpu). The host has
 no dpkg database of the PS3, so `perf-pkgs.txt` comes out empty: write the game's libraries into it by
-hand (`path<TAB>package`) and run `bench/perfprof.py <dir>` again. Delete the root afterwards.
+hand (`path<TAB>package`) and run `bench/analysis/perfprof.py <dir>` again. Delete the root afterwards.
 
 To redo a run's text files on the PS3 itself instead: `make bench-push`, then
-`/var/tmp/bench/perf-post.sh /var/tmp/ps3-bench/<run dir>` with the debug symbols of the run's
+`/var/tmp/bench/harness/perf-post.sh /var/tmp/ps3-bench/<run dir>` with the debug symbols of the run's
 versions installed.
 
 ## Validation
 
-`python3 bench/selftest.py`, sections 7-9:
+`python3 bench/tests/selftest.py`, sections 7-9:
 
 - perfprof.py on a made-up `perf script` output (call chains: a game, its renderer library,
   libgallium, libdrm_nouveau, ps3rsx and drm in the kernel, a page fault, memcpy, OpenAL, an audio

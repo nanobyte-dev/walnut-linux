@@ -29,7 +29,7 @@
 # PERFPOST_PERF: the perf command (default sudo -n nice -n 19 perf; for tests, e.g. qemu with a root).
 {
 set -u
-here=$(cd "$(dirname "$0")" && pwd)
+BENCH=$(cd "$(dirname "$0")/.." && pwd)	# the bench tree (this is bench/harness/; analysis/ beside it)
 P=(sudo -n nice -n 19 perf); [ "$(id -u)" = 0 ] && P=(nice -n 19 perf)
 if [ -n "${PERFPOST_PERF:-}" ]; then read -r -a P <<< "$PERFPOST_PERF"
 else command -v perf > /dev/null || { echo "!! no perf (linux-perf)"; exit 1; }; fi
@@ -51,7 +51,7 @@ for d in "$@"; do
 		> "$d/$pre-threads.txt" 2>> "$d/perf-post.err"
 	mode=; [ "$pre" = perf-load ] && mode=--load
 	"${P[@]}" script --no-inline -f -i "$f" -F comm,pid,tid,time,period,ip,sym,dso 2>> "$d/perf-post.err" |
-		python3 "$here/perfprof.py" collapse $mode "$d"
+		python3 "$BENCH/analysis/perfprof.py" collapse $mode "$d"
 	rc=${PIPESTATUS[0]}
 	# every sample collapsed? (perf report's count: perf-threads.txt's Samples column)
 	nrep=$(awk '$1 ~ /%$/ && $2 ~ /^[0-9]+$/ { s += $2 } END { print s + 0 }' "$d/$pre-threads.txt")
@@ -66,7 +66,7 @@ for d in "$@"; do
 		"${P[@]}" report -f -i "$d/perf-sys.data" --stdio --no-children --sort comm,dso -g none \
 			--percentage absolute > "$d/perf-sys-report.txt" 2>> "$d/perf-post.err"
 		"${P[@]}" script --no-inline -f -i "$d/perf-sys.data" -F comm,pid,tid,time,period,ip,sym,dso 2>> "$d/perf-post.err" |
-			python3 "$here/perfprof.py" collapse --sys "$d"
+			python3 "$BENCH/analysis/perfprof.py" collapse --sys "$d"
 	fi
 	for x in perf perf-load; do
 		[ -s "$d/$x.data" ] && "${P[@]}" buildid-list -f -i "$d/$x.data" --with-hits 2>> "$d/perf-post.err"
@@ -90,9 +90,9 @@ for d in "$@"; do
 	fi
 	rm -f "$d/.dsos"
 	[ -s "$d/perf-post.err" ] && grep -v -E '^\s*$' "$d/perf-post.err" | head -5 | sed 's/^/   perf: /'
-	[ -s "$d/perf-leaf.txt" ] && python3 "$here/perfprof.py" "$d"
-	[ -s "$d/perf.folded" ] && python3 "$here/irqoff.py" "$d" > "$d/perf-irqoff.txt" 2>> "$d/perf-post.err"
-	[ -s "$d/perf-load-stacks.tsv" ] && python3 "$here/loadprof.py" "$d"
+	[ -s "$d/perf-leaf.txt" ] && python3 "$BENCH/analysis/perfprof.py" "$d"
+	[ -s "$d/perf.folded" ] && python3 "$BENCH/analysis/irqoff.py" "$d" > "$d/perf-irqoff.txt" 2>> "$d/perf-post.err"
+	[ -s "$d/perf-load-stacks.tsv" ] && python3 "$BENCH/analysis/loadprof.py" "$d"
 	awk -v a="$t0" -v b="$EPOCHREALTIME" 'BEGIN { printf "   (post-processing took %.0f s)\n", b - a }'
 done
 exit

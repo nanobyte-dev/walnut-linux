@@ -7,7 +7,7 @@
 # package list: ps3-play-pc:<hash>; a recipe's REF_IMAGE is the base for a game we patch). It shows on
 # this desktop's X server (XWayland) with Mesa's llvmpipe held to the RSX's GL 2.1 / GLSL 1.20, and
 # plays sound through the desktop's PulseAudio/PipeWire socket. LAUNCHER is chosen as on the PS3
-# (bench/launcher.py: a menu entry's file name or Name; ps3-desktop's own entries count, like
+# (bench/harness/launcher.py: a menu entry's file name or Name; ps3-desktop's own entries count, like
 # OpenArena's GL 1.2 and GL 2.0); without it, the first.
 # The game's home (settings, saves) stays in build/pc-play/GAME between runs.
 #   PLAY_PC_DRY=1   print the image and the docker command only
@@ -16,7 +16,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 G=${1:?usage: play-pc.sh GAME [LAUNCHER]}; L=${2:-}
-here=$PWD/bench; . bench/games.sh	# a game's recipe (gamedb/games/<id>/benchmark/recipe.sh)
+BENCH=$PWD/bench; . bench/harness/games.sh	# a game's recipe (gamedb/games/<id>/benchmark/recipe.sh)
 idx=gamedb/games/$G/index.md
 if [ ! -e "$idx" ] && g=$(bench_id "$G"); then	# an old recipe name (sauerbraten-edition): its game's id
 	G=$g; idx=gamedb/games/$G/index.md
@@ -25,7 +25,7 @@ fi
 PKGS=$(python3 -I tools/gamedb/build-info.py packages "$G")
 [ -n "$PKGS" ] || { echo "!! gamedb/games/$G/build.toml lists no packages" >&2; exit 2; }
 REF_IMAGE=
-[ "$(bench_id "$G")" = "$G" ] && REF_IMAGE=$(bash -c 'here=$1; . "$here/games.sh"; bench_use "$2"; CMD=(); ENV=(); REF_IMAGE=
+[ "$(bench_id "$G")" = "$G" ] && REF_IMAGE=$(bash -c 'BENCH=$1; . "$BENCH/harness/games.sh"; bench_use "$2"; CMD=(); ENV=(); REF_IMAGE=
 	setup() { :; }; parse() { :; }; . "$(bench_recipe "$2")" > /dev/null 2>&1; echo "$REF_IMAGE"' _ "$PWD/bench" "$G")
 SNAPSHOT=$(sed -n 's/^DEBIAN_SNAPSHOT *:= *//p' config.mk)
 BASE=${REF_IMAGE:-$(sed -n 's/^BUILDER_BASE *:= *//p' config.mk)}
@@ -51,7 +51,7 @@ args=(--rm --init --name "play-pc-$G" --user "$(id -u):$(id -g)" --ipc=host --se
 	-e HOME=/home/player -v "$PWD/$home:/home/player" -v "$PWD/build/pc-play/.passwd-$G:/etc/passwd:ro" -e PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/games:/usr/games
 	-e DISPLAY="${DISPLAY:-:0}" -v /tmp/.X11-unix:/tmp/.X11-unix:ro
 	-e LIBGL_ALWAYS_SOFTWARE=1 -e GALLIUM_DRIVER=llvmpipe -e MESA_GL_VERSION_OVERRIDE=2.1 -e MESA_GLSL_VERSION_OVERRIDE=120
-	-v "$PWD/bench/launcher.py:/walnut/launcher.py:ro" -v "$PWD/packages/walnut/system/ps3-desktop/files/applications:/walnut/menu/applications:ro")
+	-v "$PWD/bench/harness/launcher.py:/walnut/launcher.py:ro" -v "$PWD/packages/walnut/system/ps3-desktop/files/applications:/walnut/menu/applications:ro")
 [ -n "${XAUTHORITY:-}" ] && [ -r "$XAUTHORITY" ] && args+=(-e XAUTHORITY=/walnut/xauth -v "$XAUTHORITY:/walnut/xauth:ro")
 [ -S "$pulse" ] && args+=(-e PULSE_SERVER=unix:/walnut/pulse -v "$pulse:/walnut/pulse")
 # licensed game data the PS3 has from the licensed suite (the game's build.toml `data` packages, and

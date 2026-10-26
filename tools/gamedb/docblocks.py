@@ -15,7 +15,7 @@ tools/gamedb/blocks.py's GENERATORS. Each is a function (repo, args) -> markdown
       its patches. docs/LAYOUT.md.
 
   reload-rules [root=PATH]
-      the [reload] table of every game's benchmark/analysis.toml (bench/gamedata.py reload(), report.py's
+      the [reload] table of every game's benchmark/analysis.toml (bench/harness/gamedata.py reload(), report.py's
       gameplay-only columns): where a looped demo's reload segment ends. docs/STALLS.md.
 
 root is the path from the doc to gamedb/ for the links (default ../gamedb, right for docs/*.md).
@@ -76,7 +76,7 @@ def gen_batch_table(repo, args):
     (batch,), o = _opts(args, {"games", "variants", "metrics", "root"}, 1)
     root = o.get("root", "../gamedb").rstrip("/")
     repo = Path(repo)
-    br = _load("benchrecords", repo / "bench" / "benchrecords.py")
+    br = _load("benchrecords", repo / "bench" / "analysis" / "benchrecords.py")
     info = {b["name"]: b for b in br.load_batches(repo / "gamedb")}
     if batch not in info:
         raise ValueError("no batch %s in gamedb/benchmarks/batches.toml" % batch)

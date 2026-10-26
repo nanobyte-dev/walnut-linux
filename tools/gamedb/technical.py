@@ -42,7 +42,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 sys.path.insert(0, str(HERE))
-sys.path.insert(0, str(REPO / "bench"))
+sys.path.insert(0, str(REPO / "bench" / "analysis"))
 import check          # noqa: E402
 import benchrecords   # noqa: E402
 

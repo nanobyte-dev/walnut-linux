@@ -26,7 +26,7 @@ CPU copy of its PBO upload) and buffer allocation and free 17.0%.
 
 ## Evidence
 
-`bench/irqoff.py` splits the soft-masked samples by where interrupts came back on: hash faults on
+`bench/analysis/irqoff.py` splits the soft-masked samples by where interrupts came back on: hash faults on
 return to user mode 27.1 points (26.7 of them under one libc memcpy, against 0.1 under the blitter,
 which runs 8.7% of the time), `ps3_hpte_invalidate`'s unlock at munmap 8.4, the rest 2.1. The zeroing
 (`memset` under `ps3rsx_gart_clear` < `ps3rsx_bo_new`) was another 5.3%. FluidSynth 10.2% and libspeq

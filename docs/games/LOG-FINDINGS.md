@@ -1,6 +1,6 @@
 # What the game logs say
 
-`bench/logscan.py` reads the logs of every run in `build/bench/` (602 runs of 35 games when this
+`bench/analysis/logscan.py` reads the logs of every run in `build/bench/` (602 runs of 35 games when this
 was written, 16 October to 19 October 10:41 UTC) and groups the errors and warnings by game and message.
 This page is the triage of what it found, worst first. Each finding names the games, one run that shows
 it, what causes it, whether the player would notice, and the fix. The fixes worth doing are in
@@ -12,13 +12,13 @@ given. "Since ps3.544" means runs from 2026-10-19 09:47 UTC on (Mesa 26.2.4-1+ps
 
 ## The tool
 
-    bench/logscan.py                      every run, per game
-    bench/logscan.py --new                only messages that appear after --since and not before
-    bench/logscan.py -g sauerbraten -c audio,rsx -v
-    bench/logscan.py --by-message         one block per message, across games
-    bench/logscan.py --min-class gl       only gl and worse
-    bench/logscan.py --show-ignored       what the ignore list swallowed
-    bench/logscan.py RUNDIR...            some runs (or a directory of runs)
+    bench/analysis/logscan.py                      every run, per game
+    bench/analysis/logscan.py --new                only messages that appear after --since and not before
+    bench/analysis/logscan.py -g sauerbraten -c audio,rsx -v
+    bench/analysis/logscan.py --by-message         one block per message, across games
+    bench/analysis/logscan.py --min-class gl       only gl and worse
+    bench/analysis/logscan.py --show-ignored       what the ignore list swallowed
+    bench/analysis/logscan.py RUNDIR...            some runs (or a directory of runs)
 
 It scans game.log, out.log, dmesg.log, Xorg.0.log and wm.log plus the facts in bench.txt (rc, ended,
 sound, underruns). Messages are normalised (timestamps, numbers, addresses, the run's own path), a
@@ -65,7 +65,7 @@ is systemd-coredump, else the core file in the pattern's directory or the game's
 one applies is in `dump/setup.txt` (`core_pattern=`); the system's pattern is never changed. A pipe pattern
 of another handler (apport) is only noted.
 
-Analysis on the PC: `bench/dumpana.sh <run dir copied from the PS3>` builds a sysroot in
+Analysis on the PC: `bench/analysis/dumpana.sh <run dir copied from the PS3>` builds a sysroot in
 `build/tmp/dumpana/` (base libraries from `build/chroot/sid-ppc64.tar`, then the packages and `-dbgsym` debs
 at the versions in the run's `versions` file, from build/debs, build/aptly/pool, build/apt-cache; libc6
 symbols come from debuginfod.debian.net; the game's executable and any other mapped file the sysroot

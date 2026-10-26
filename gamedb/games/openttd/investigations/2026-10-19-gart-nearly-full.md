@@ -11,7 +11,7 @@ batches = ["2026-10-19-ssdroot4-staging-pool"]
 
 **Symptom.** One of 13 OpenTTD runs since Mesa ps3.544 (`20261019T102932Z-openttd-base`, with
 `NV30_STAGING_POOL_MB=24`) logged five `ps3rsx: no memory to back the GART (56 of 63 MiB in use)` within a
-second, at 37683 s of uptime; `bench/logscan.py` flagged it as NEW. The run still finished
+second, at 37683 s of uptime; `bench/analysis/logscan.py` flagged it as NEW. The run still finished
 (`ended=window`), nothing showed in the picture, and the other twelve runs are clean.
 
 **Cause.** OpenTTD uploads an 8 MB staging buffer per frame; the 24 MB pool (Mesa 0040) and the rest of

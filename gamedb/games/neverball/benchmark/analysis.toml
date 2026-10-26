@@ -1,4 +1,4 @@
-# Neverball's benchmark: data for the analysis tools (bench/gamedata.py; gamedb/README.md "games/<id>/benchmark/").
+# Neverball's benchmark: data for the analysis tools (bench/harness/gamedata.py; gamedb/README.md "games/<id>/benchmark/").
 
 [reload]
 # the replay restarts at every pass: frames of 0.15-2 s end 0.4 s after the pass line (report.py's *_play

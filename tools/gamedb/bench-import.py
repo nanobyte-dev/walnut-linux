@@ -36,7 +36,7 @@ import tomllib
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(REPO / "bench"))
+sys.path.insert(0, str(REPO / "bench" / "analysis"))
 import benchrecords as br  # noqa: E402
 
 FIXED = br.FIXED

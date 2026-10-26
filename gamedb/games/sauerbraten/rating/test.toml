@@ -1,5 +1,5 @@
 # Sauerbraten: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
-# harness reads it through bench/playdef.py.
+# harness reads it through bench/harness/playdef.py.
 process = 'cube2_client'
 # its settings and data, set aside for a session on fresh defaults; checked against gamedb/games/sauerbraten/packages/sauerbraten/files/sauerbraten: -q"$HOME/.sauerbraten"
 home = ['.sauerbraten']

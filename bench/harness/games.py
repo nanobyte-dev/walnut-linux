@@ -1,4 +1,4 @@
-"""games.py: where a game's benchmark is, for the Python tools (bench/games.sh is the same for the shell;
+"""games.py: where a game's benchmark is, for the Python tools (bench/harness/games.sh is the same for the shell;
 gamedb/README.md "games/<id>/benchmark/").
 
 A game's benchmark is a directory holding recipe.sh: gamedb/games/<id>/benchmark/ in the repository,
@@ -20,16 +20,16 @@ try:
 except ImportError:  # Python < 3.11: only [legacy] recipe_names is read, by a pattern
     tomllib = None
 
-HERE = Path(__file__).resolve().parent
+BENCH = Path(__file__).resolve().parent.parent   # the bench tree: this is bench/harness/
 
 
 def root():
     """the directory of the game directories"""
     if os.environ.get("BENCH_GAMES"):
         return Path(os.environ["BENCH_GAMES"])
-    if (HERE / "games").is_dir():
-        return HERE / "games"
-    return HERE.parent / "gamedb" / "games"
+    if (BENCH / "games").is_dir():
+        return BENCH / "games"
+    return BENCH.parent / "gamedb" / "games"
 
 
 def dirs():

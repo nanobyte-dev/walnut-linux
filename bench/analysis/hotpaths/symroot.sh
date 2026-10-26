@@ -4,7 +4,7 @@
 # build/debs and build/aptly (the versions the profiled runs' "versions" files name) and Debian's
 # libc6-dbg from the snapshot the sysroot was made from. Ephemeral: delete it after the analysis.
 set -eu
-top=$(cd "$(dirname "$0")/../.." && pwd)
+top=$(cd "$(dirname "$0")/../../.." && pwd)	# this is bench/analysis/hotpaths/
 B=$top/build
 S=${HOTPATHS_SYM:-$B/tmp/hotpaths-sym}
 MV=${1:-26.2.4-1+ps3.476}

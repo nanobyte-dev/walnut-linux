@@ -48,7 +48,7 @@ layout and the build commands are in [LAYOUT.md](LAYOUT.md).
 |---|---|
 | [games/README.md](games/README.md) | Every suite game at a glance (generated from the summary batch); how to read the numbers; what holds for every game; the driver and library bugs the games found (generated from their investigations) |
 | [games/SUITE.md](games/SUITE.md) | How the benchmark suite runs: `bench/`, recipes, the protocol, the results |
-| [games/LOG-FINDINGS.md](games/LOG-FINDINGS.md) | What the game logs say: the errors and warnings that hold across games, ranked, with causes and fixes; `bench/logscan.py` |
+| [games/LOG-FINDINGS.md](games/LOG-FINDINGS.md) | What the game logs say: the errors and warnings that hold across games, ranked, with causes and fixes; `bench/analysis/logscan.py` |
 | [gamedb/README.md](../gamedb/README.md) | GameDB, the games database: everything about one game lives in its bundle; the schema of every file there, the tools that read it, what is generated from it, and how a game appears outside it (a generated block, a `gamedb:` reference or link, frozen history) |
 | [gamedb/games/](../gamedb/games/) | Each game's own notes, in its GameDB bundle: `technical.md` (packages and patches, settings, how it performs, known problems, what was tried; [the site's technical pages](https://walnut.nanobyte.dev/gamedb/technical/) for the published games), `investigations/` (the dated stories: bugs found and fixed, measurement campaigns), `todo.toml` (its open work: sessions, benchmarks, packaging, fixes) |
 | [gamedb/engines/](../gamedb/engines/) | The shared engines ([Cube 2](../gamedb/engines/cube2/), [ioquake3](../gamedb/engines/ioquake3/), [DarkPlaces](../gamedb/engines/darkplaces/)): the same, for an engine several games run on |
