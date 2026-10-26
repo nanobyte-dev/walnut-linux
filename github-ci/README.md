@@ -1,3 +1,3 @@
-# github-ci/: what GitHub Actions runs: building one package, publishing it to testing or stable, the release image, and gen-workflows.py, which writes .github/workflows/pkg-<name>.yml.
+# github-ci/: what GitHub Actions runs: building one package (`build-package.sh`), testing's one publisher (`batch-publish.py`: every build testing lacks, from the package runs' artifacts, in one upload), `publish.sh` (the upload to testing or stable and the server's verdict), the release image, and `gen-workflows.py`, which writes `.github/workflows/pkg-<name>.yml` and `walnut-publish.yml`.
 Run `python3 github-ci/gen-workflows.py` after adding, moving or removing a package; licensed packages never get a workflow.
-Touch it when CI's build or publish steps change (docs/release/ALPHA.md M6).
+Touch it when CI's build or publish steps change (docs/PACKAGING.md "Walnut's suites on GitHub Actions", docs/release/ALPHA.md M6). Tests: `test_batch_publish.py` (in `make test`).

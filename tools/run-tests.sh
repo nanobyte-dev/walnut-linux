@@ -24,7 +24,9 @@
 #            entries and its /etc/kboot.d extras on a fake root), leak-check (tools/leak-check.py on
 #            synthetic packages and sources), walnut-repo (apt-repo/walnut-repo.py against the real
 #            walnut-watch: testing, stable and the password-protected licensed suite), walnut-watch
-#            (the server's publisher on good and hostile uploads), gamedb (Walnut Games' scoring against the calibration
+#            (the server's publisher on good and hostile uploads), batch-publish (github-ci/batch-publish.py,
+#            testing's one publisher: its plan, and whole runs through publish.sh against a fake
+#            GitHub API and the real walnut-watch), gamedb (Walnut Games' scoring against the calibration
 #            table in docs/GAMEDB.md, check.py, import-run.py, catalog.py), walnut-games (the app and its root
 #            helper: validation, remove-cascade refusal, Exec parsing, a window smoke test), ps3disk-guard (kernel local/0045's
 #            range checks, packages/patched/kernel/linux/tests/ps3disk-guard.sh)
@@ -229,6 +231,7 @@ run ps3-boot python3 packages/walnut/system/ps3-boot/tests/test_kboot.py
 run leak-check python3 tools/test_leak_check.py
 run walnut-repo python3 apt-repo/test_walnut_repo.py
 run walnut-watch python3 servers/walnut.nanobyte.dev/test_walnut_watch.py
+run batch-publish python3 -I github-ci/test_batch_publish.py
 run gamedb python3 -I tools/gamedb/test_gamedb.py
 run walnut-games python3 -I packages/walnut/apps/walnut-games/tests/test_walnut_games.py
 run ps3disk-guard packages/patched/kernel/linux/tests/ps3disk-guard.sh
