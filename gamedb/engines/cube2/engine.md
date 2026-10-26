@@ -5,4 +5,4 @@ homepage = "http://cubeengine.com"
 license = "Zlib"
 games = ["bananabread", "sauerbraten"]
 +++
-Debian's `cube2` source with our patches: [its package](packages/cube2/).
+Debian's `cube2` source with our patches: [its package](./packages/cube2/).
