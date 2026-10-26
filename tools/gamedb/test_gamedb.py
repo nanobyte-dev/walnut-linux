@@ -684,8 +684,8 @@ def v2_session(i="s", date="2026-10-27", **over):
                      "geometry": ["0 0 1920 1080 1 1920 1080"] * 3, "pointer_samples": 3, "pointer_visible": 0,
                      "desktop_back_s": 2.0, "input_log": True, "kb_readable": True, "pads_present": 1,
                      "pad_opened": True, "pad_events_play": 900, "kb_presses": 0},
-         "form": {"glitches": "none", "played_with": "pad", "pad_menus": "yes", "menus_modes": "yes",
-                  "saves_load": "na"},
+         "form": {"glitches": "none", "pad_menus": "worked", "pad_play": "seamless", "keyboard_mouse": "na",
+                  "menus_modes": "yes", "saves_load": "na"},
          "review": {}, "picture": {"verdict": "ok"}}
     for k, v in over.items():
         if k in ("numbers", "form", "review"):
@@ -728,67 +728,76 @@ class RulesV2(unittest.TestCase):
         self.assertEqual(score.display_v2([t])[:2], (100.0, "fullscreen 1920x1080"))
         t = v2_session(numbers={"pointer_visible": 2})                   # 2 of 3 shots: visible
         self.assertEqual(score.display_v2([t])[0], 90)
-        t = v2_session(numbers={"pointer_visible": 3}, review={"pointer": "hidden"})   # the reviewer corrects it
+        t = v2_session(numbers={"pointer_visible": 3}, review={"pointer": "hidden"})   # the reviewer overrides it
         self.assertEqual(score.display_v2([t])[0], 100)
-        t = v2_session(review={"text_px": 14})
-        self.assertEqual(score.display_v2([t])[0], 85)
+        self.assertEqual(score.display_v2([v2_session(review={"text_px": 14})])[0], 85)
         self.assertEqual(score.display_v2([v2_session(review={"text_px": 18})])[0], 100)
-        t = v2_session(numbers={"config_video_keys": ["r_mode"]})
-        self.assertEqual(score.display_v2([t])[0], 80)
-        t = v2_session(numbers={"geometry": ["0 0 1280 720 0 1920 1080", "0 0 1920 1080 1 1920 1080"]})
-        self.assertEqual(score.display_v2([t])[0], 0)          # the lower middle (a small window: 10), changed: -20, floor 0
-        # stretched: measured from the render size against the window, bars say it kept its shape
-        t = v2_session(numbers={"render_res": "640x480"})
-        self.assertEqual(score.display_v2([t])[0], 70)
+        self.assertEqual(score.display_v2([v2_session(review={"stretched": "yes"})])[0], 70)
+        # measured hints never score: bars, a render size
         t = v2_session(numbers={"render_res": "640x480", "bars": "pillarbox", "bars_content": "1440x1080"})
         self.assertEqual(score.display_v2([t])[0], 100)
-        t = v2_session(numbers={"render_res": "1920x1080"}, review={"stretched": "yes"})
-        self.assertEqual(score.display_v2([t])[0], 70)
+        t = v2_session(numbers={"geometry": ["0 0 1280 720 0 1920 1080", "0 0 1920 1080 1 1920 1080"]})
+        self.assertEqual(score.display_v2([t])[0], 10)          # the lower middle: a small window (as shipped)
         self.assertEqual(score.display_v2([v2_session(numbers={"geometry": []})])[0], None)
 
-    def test_checks_measured(self):
+    def test_checks_from_the_form_and_the_log(self):
         c = score.measured_checks(v2_session())
-        self.assertEqual(c, {"pad_setup": "yes", "no_keyboard": "yes", "pad_menus": "yes", "menus_modes": "yes"})
-        # the pad was used, the game never opened it: it needs setup
-        self.assertEqual(score.measured_checks(v2_session(numbers={"pad_opened": False}))["pad_setup"], "no")
-        # played with the pad, many keys pressed: something needs the keyboard; a stray key or two doesn't
+        self.assertEqual(c, {"pad_setup": "yes", "pad_play": "yes", "pad_menus": "yes", "no_keyboard": "yes",
+                             "menus_modes": "yes"})
+        c = score.measured_checks(v2_session(form={"pad_play": "setup", "pad_menus": "partly"}))
+        self.assertEqual((c["pad_play"], c["pad_setup"], c["pad_menus"]), ("yes", "no", "partly"))
+        c = score.measured_checks(v2_session(form={"pad_play": "didnt"}))
+        self.assertEqual((c["pad_play"], c["pad_setup"]), ("no", "no"))
+        self.assertNotIn("no_keyboard", c)                      # not playing with the pad: not a question
+        # the form untried: the log tells whether the game opened the pad the player used
+        c = score.measured_checks(v2_session(form={"pad_play": "na"}, numbers={"pad_opened": False}))
+        self.assertEqual(c["pad_setup"], "no")
+        # many keys pressed while playing with the pad: something needs the keyboard; a stray key or two doesn't
         self.assertEqual(score.measured_checks(v2_session(numbers={"kb_presses": 9}))["no_keyboard"], "no")
         self.assertEqual(score.measured_checks(v2_session(numbers={"kb_presses": 2}))["no_keyboard"], "yes")
-        # keyboard not readable (no sudo): not tested
-        self.assertNotIn("no_keyboard", score.measured_checks(v2_session(numbers={"kb_readable": False})))
-        # no pad connected: the pad items aren't tested
+        # the keyboard unreadable (no input group yet): not tested, never "no"
+        self.assertNotIn("no_keyboard", score.measured_checks(v2_session(numbers={"kb_readable": False, "kb_presses": 50})))
+        # nothing tried: nothing tested
         c = score.measured_checks(v2_session(numbers={"pads_present": 0, "pad_events_play": 0},
-                                             form={"played_with": "keyboard", "pad_menus": "na"}))
-        self.assertEqual(c, {"keyboard": "yes", "menus_modes": "yes"})
-        c = score.measured_checks(v2_session(form={"played_with": "keyboard"}))   # pad_menus' default, untried
-        self.assertNotIn("pad_menus", c)
-        # a pad turned on mid-session
+                                             form={"pad_play": "na", "pad_menus": "na"}))
+        self.assertEqual(c, {"menus_modes": "yes"})
+        self.assertEqual(score.measured_checks(v2_session(form={"keyboard_mouse": "some"}))["keyboard_mouse"], "no")
         self.assertEqual(score.measured_checks(v2_session(numbers={"pads_hotplugged": 1, "pads_hotplug_opened": 1}))
                          ["pad_hotplug"], "yes")
-        self.assertEqual(score.measured_checks(v2_session(numbers={"pads_hotplugged": 1}))["pad_hotplug"], "no")
-        self.assertEqual(score.measured_checks(v2_session(numbers={"settings_reread": "yes"}))["settings_stick"], "yes")
 
     def test_checklists_untested_never_count(self):
         checks = score.checks_of([v2_session()])
         s, failed, passed, n = score.checklist(checks, score.CONTROLS, "pad_setup", score.NO_PAD_CAP)
-        self.assertEqual((s, failed, passed, n), (100.0, [], 3, 3))     # extra pads, hotplug: not tested
+        self.assertEqual((s, failed, n), (100.0, [], 4))         # hotplug, extra pads, keyboard: not tested
         self.assertEqual(score.checklist({}, score.FEATURES)[0], None)
-        bad = score.checks_of([v2_session(numbers={"pad_opened": False})])
-        s, failed, _, _ = score.checklist(bad, score.CONTROLS, "pad_setup", score.NO_PAD_CAP)
-        self.assertEqual(s, 30)                                     # 2 of 3 would be 67: capped
+        setup = score.checks_of([v2_session(form={"pad_play": "setup"})])
+        s, failed, _, _ = score.checklist(setup, score.CONTROLS, "pad_setup", score.NO_PAD_CAP)
+        self.assertEqual(s, 30)                                     # 3 of 4 would be 75: capped
         self.assertEqual(failed[0]["item"], "pad_setup")
+        partly = score.checks_of([v2_session(form={"pad_menus": "partly"})])
+        self.assertEqual(score.checklist(partly, score.CONTROLS)[0], 87.5)    # partly counts half
         # the reviewer's lines win and carry where the problem comes from; newest answer wins
         t = v2_session(form={"saves_load": "yes"}, review={"broken": ["saves_load pc: the save menu crashes"],
                                                             "checks": ["online no"]})
         s, failed, passed, n = score.checklist(score.checks_of([t]), score.FEATURES)
         self.assertEqual((passed, n), (1, 3))
-        self.assertEqual(failed[0], {"item": "saves_load", "name": "saves load", "origin": "also on the PC",
-                                     "what": "the save menu crashes"})
+        self.assertEqual(failed[0], {"item": "saves_load", "name": "saves load", "answer": "no",
+                                     "origin": "also on the PC", "what": "the save menu crashes"})
         old, new = v2_session("a", "2026-10-27", form={"saves_load": "no"}), v2_session("b", "2026-10-28", form={"saves_load": "yes"})
         self.assertEqual(score.checks_of([new, old])["saves_load"][0], "yes")
         self.assertEqual(score.controller_badge(score.checks_of([v2_session()])), "full")
-        self.assertEqual(score.controller_badge(bad), "partial")
+        self.assertEqual(score.controller_badge(setup), "partial")
+        self.assertEqual(score.controller_badge(score.checks_of([v2_session(form={"pad_play": "didnt"})])), "keyboard")
         self.assertIsNone(score.controller_badge({}))
+
+    def test_designed_for_keyboard_and_mouse(self):
+        # an RTS whose pad doesn't work: Controls scores the keyboard and mouse, the pad makes the badge
+        t = v2_session(form={"pad_play": "didnt", "pad_menus": "didnt", "keyboard_mouse": "worked"})
+        r = score.combine([t], rules=2, designed_for="keyboard-mouse")
+        self.assertEqual((r["aspects"]["controls"], r["controller"]), (100, "keyboard"))
+        self.assertLess(score.combine([t], rules=2)["aspects"]["controls"], 30)    # the same as a pad game
+        t = v2_session(form={"pad_play": "didnt", "keyboard_mouse": "na"})
+        self.assertIsNone(score.combine([t], rules=2, designed_for="keyboard-mouse")["aspects"]["controls"])
 
     def test_stability_counts_unclean_quits(self):
         self.assertIsNone(score.end_failure(v2_session()))
@@ -800,28 +809,52 @@ class RulesV2(unittest.TestCase):
         r = score.combine([v2_session(end="closed")], rules=2)
         self.assertEqual((r["crashes"], r["hangs"]), (0, 1))
         self.assertAlmostEqual(r["aspects"]["stability"], 55)     # one in (at least) an hour
-        self.assertNotEqual(r["medal"], "Scrap")                  # a hang isn't the crash floor
+        self.assertNotEqual(r["medal"], "Scrap")                  # a hang isn't broken
 
-    def test_combine_v2(self):
+    def test_load_adds_the_level_load(self):
+        r = score.combine([v2_session(numbers={"load_s": 15.0, "load_level_s": 15.0})], rules=2)
+        self.assertEqual(r["aspects"]["load"], 75)                # 30 s in all
+        self.assertIn("+ 15 s from the last input", r["details"]["load"])
+        self.assertIn("not measured", score.combine([v2_session()], rules=2)["details"]["load"])
+
+    def test_no_weakest_link_only_broken(self):
         r = score.combine([v2_session()], rules=2)
-        self.assertEqual(r["rules"], 2)
-        self.assertEqual(r["medal"], "Platinum")                  # 9 min is enough: the label says how little
-        self.assertEqual(r["aspects"]["controls"], 100)
-        self.assertEqual(r["aspects"]["features"], 100)
-        self.assertEqual(r["aspects"]["picture"], 100)
-        self.assertEqual(r["controller"], "full")
-        # a broken picture and a pad that needs setup: weights are rules 2's
-        t = v2_session(review={"defects": ["garbage ps3: the terrain"]}, numbers={"pad_opened": False})
+        self.assertEqual((r["rules"], r["medal"], r["broken"]), (2, "Platinum", []))  # 9 min is enough: the label says so
+        # one weak but not broken aspect keeps the mean's medal (rules 1 would cap it)
+        t = v2_session(review={"defects": ["missing ps3: the HUD", "colours ps3: the sky"]}, form={"pad_play": "setup"})
         r = score.combine([t], rules=2)
-        self.assertEqual((r["aspects"]["picture"], r["aspects"]["controls"]), (40, 30))
-        self.assertEqual(r["defects"][0]["origin"], "PS3/Walnut only")
+        self.assertEqual(r["aspects"]["picture"], 50)
+        self.assertEqual((r["medal"], r["capped"]), (score.medal_of(r["score"]), False))
         want = sum(score.WEIGHTS_V2[k] * v for k, v in r["aspects"].items() if v is not None) / \
             sum(score.WEIGHTS_V2[k] for k, v in r["aspects"].items() if v is not None)
         self.assertAlmostEqual(r["score"], want)
-        self.assertEqual(r["medal"], "Bronze")                    # capped one above the weakest (30: below Bronze)
+        # a 400 fps game with garbage textures is Scrap, with the mean beside it and the reason
+        fast = v2_session(numbers={"median_fps": 400.0, "low1_fps": 300.0},
+                          review={"defects": ["garbage ps3: the terrain"]})
+        r = score.combine([fast], rules=2)
+        self.assertEqual(r["medal"], "Scrap")
+        self.assertGreater(r["score"], 80)
+        self.assertEqual(r["reason"], "picture broken (garbage textures or geometry)")
+        for over, word in ((dict(form={"glitches": "broken"}), "picture"), (dict(numbers={"sound_effects": "no"}), "sound"),
+                           (dict(numbers={"snd_stall": 1}), "sound"), (dict(numbers={"median_fps": 18.0, "low1_fps": 12.0}), "frame rate"),
+                           (dict(numbers={"longest_ms": 6000.0}), "smoothness"),
+                           (dict(numbers={"stutter_s_per_min": 5.0}), "smoothness")):
+            r = score.combine([v2_session(**over)], rules=2)
+            self.assertEqual(r["medal"], "Scrap", over)
+            self.assertTrue(r["reason"].startswith(word + " broken"), (over, r["reason"]))
+        # one crash in two short sessions: under an hour between crashes (one in one session is the old floor)
+        r = score.combine([v2_session("a", end="crash"), v2_session("b")], rules=2)
+        self.assertEqual((r["medal"], r["reason"]), ("Scrap", "stability broken (1 crash in 0.3 h)"))
+        self.assertEqual(score.combine([v2_session(end="crash")], rules=2)["reason"], "crashes")
+        # not broken: no music alone, a game capped at 18 fps holding its cap
+        self.assertNotEqual(score.combine([v2_session(numbers={"music": "no"})], rules=2)["medal"], "Scrap")
+        capped = v2_session(numbers={"median_fps": 18.0, "low1_fps": 17.0})
+        self.assertEqual(score.combine([capped], fps_cap=18, rules=2)["broken"], [])
         # no frame times: no medal, as in rules 1
         t = v2_session(numbers={"median_fps": None, "low1_fps": None})
         self.assertEqual(score.combine([t], rules=2)["medal"], "Untested")
+        # rules 1 keeps its weakest link
+        self.assertEqual(score.rate({"frame": 100, "smooth": 100, "sound": 0})["medal"], "Bronze")
 
 
 def v1_session(i="v1", date="2026-10-25", fps=40.0):
@@ -875,12 +908,17 @@ class RulesSelection(unittest.TestCase):
                 self.assertIn("controller-full", out["badges"])
 
 
+REVIEW_OK = ("verdict: ok\nstretched: no\ntext_px: 24: the HUD\npointer: hidden\ngarbage: no\nmissing: no\n"
+             "colours: no\nflicker: no\nlighting: no\nsofter: no\nbroken: none\n")
+
+
 class ImporterV2(Importer):
     """a session recorded with the second form: data version 2, raw numbers, the form and the review mapped"""
 
     def form(self, **over):
-        f = {"form_version": 2, "sound": "yes", "music": "none", "glitches": "minor", "played_with": "both",
-             "pad_menus": "yes", "menus_modes": "no", "saves_load": "na", "controls": "full", "notes": "x"}
+        f = {"form_version": 2, "sound": "yes", "music": "none", "glitches": "minor", "pad_menus": "worked",
+             "pad_play": "seamless", "keyboard_mouse": "na", "menus_modes": "no", "saves_load": "na",
+             "controls": "full", "notes": "x"}
         f.update(over)
         (self.run_dir / "session.toml").write_text("".join("%s = %s\n" % (k, json.dumps(v)) for k, v in f.items()))
 
@@ -893,8 +931,8 @@ class ImporterV2(Importer):
 
     def test_form_to_numbers(self):
         self.form()
-        self.write_bench(desktop_back_s="3.5", config_changed="1", config_new="0", config_video_keys="r_mode,r_fullscreen",
-                         settings_reread="yes", play_from="mark", play_start="20")
+        self.write_bench(desktop_back_s="3.5", fresh_home="2", fresh_home_new="1", recovered="0",
+                         play_from="mark", play_start="40")
         self.write_geometry((60, 0, 0, 1920, 1080, 1, 1920, 1080), (120, 0, 0, 1920, 1080, 1, 1920, 1080))
         geo = self.run_dir / "shots" / "geometry.tsv"
         rows = geo.read_text().splitlines()
@@ -903,47 +941,64 @@ class ImporterV2(Importer):
         (self.run_dir / "input.tsv").write_text(
             "# inputlog readable=pad,keyboard,mouse unreadable=-\nt_s\twhat\tdev\tclass\tn\n"
             "0.3\tpresent\tevent3\tpad\tSony PLAYSTATION(R)3 Controller\n0.3\tpresent\tevent1\tkeyboard\tkbd\n"
-            "4.0\topened\tevent3\tpad\t-\n10\tpress\t-\tkeyboard\t4\n30\tpress\t-\tpad\t25\n40\tmove\t-\tpad\t300\n"
+            "4.0\topened\tevent3\tpad\t-\n10\tpress\t-\tkeyboard\t4\n"
+            "28.250\tkey\tevent3\tpad\t-\n31.500\tkey\tevent3\tpad\t-\n41.000\tkey\tevent3\tpad\t-\n"
+            "30\tpress\t-\tpad\t25\n40\tmove\t-\tpad\t300\n"
             "65.2\tadded\tevent9\tpad\tSony PLAYSTATION(R)3 Controller\n")
-        (self.run_dir / "REVIEW.md").write_text("verdict: wrong\n- defect: missing ps3: the HUD's ammo counter\n"
-                                                "text_px: 15\nbroken: menus_modes pc: the editor doesn't open\n")
+        (self.run_dir / "REVIEW.md").write_text(REVIEW_OK.replace("verdict: ok", "verdict: wrong").replace(
+            "missing: no", "missing: ps3: the HUD's ammo counter").replace("text_px: 24: the HUD", "text_px: 15: the chat")
+            .replace("broken: none", "broken: menus_modes pc: the editor doesn't open"))
         r, _ = self.do()
         n, f, rv = r["numbers"], r["form"], r["review"]
         self.assertEqual(r["rules"], "2.0")
         self.assertNotIn("scores", r)                        # scored at catalog time
         self.assertEqual(n["sound_effects"], "yes")
-        self.assertEqual(f, {"glitches": "minor", "played_with": "both", "pad_menus": "yes", "menus_modes": "no",
-                             "saves_load": "na"})
+        self.assertEqual(f, {"glitches": "minor", "pad_menus": "worked", "pad_play": "seamless", "keyboard_mouse": "na",
+                             "menus_modes": "no", "saves_load": "na"})
         self.assertEqual(rv["defects"], ["missing ps3: the HUD's ammo counter"])
-        self.assertEqual((rv["text_px"], rv["broken"]), (15, ["menus_modes pc: the editor doesn't open"]))
+        self.assertEqual((rv["text_px"], rv["text_where"], rv["broken"]), (15, "the chat", ["menus_modes pc: the editor doesn't open"]))
+        self.assertEqual((rv["stretched"], rv["pointer"]), ("no", "hidden"))
         self.assertEqual(n["geometry"], ["0 0 1920 1080 1 1920 1080"] * 2)
         self.assertNotIn("display_score", n)
         self.assertEqual((n["pointer_samples"], n["pointer_visible"]), (2, 1))
-        self.assertEqual((n["desktop_back_s"], n["config_video_keys"], n["settings_reread"]), (3.5, ["r_mode", "r_fullscreen"], "yes"))
+        self.assertEqual((n["desktop_back_s"], n["fresh_home"], n["fresh_home_new"]), (3.5, 2, 1))
         self.assertEqual((n["pads_present"], n["pad_opened"], n["pad_events_play"], n["kb_presses"], n["kb_readable"]),
-                         (2, True, 325, 4, True))
+                         (2, True, 300, 4, True))           # pad buckets from the mark on
         self.assertEqual((n["pads_hotplugged"], n["pads_hotplug_opened"]), (1, 0))
+        self.assertEqual(n["load_level_s"], 8.5)                # the last press before the mark (31.5) to it (40)
         # and the numbers become the checks and the scores
-        t = dict(r, id="t")
-        rr = score.combine([t], rules=2)
-        self.assertEqual(rr["checks"]["pad_setup"], "yes")
+        rr = score.combine([dict(r, id="t")], rules=2)
+        self.assertEqual((rr["checks"]["pad_setup"], rr["checks"]["pad_menus"]), ("yes", "yes"))
         self.assertEqual(rr["checks"]["no_keyboard"], "no")          # 4 presses while playing with the pad
         self.assertEqual(rr["checks"]["pad_hotplug"], "no")
-        self.assertEqual(rr["checks"]["keyboard"], "yes")
         self.assertEqual(rr["checks"]["menus_modes"], "no")
         self.assertEqual(rr["aspects"]["picture"], 75)            # missing -25; "minor" is covered
-        self.assertEqual(rr["aspects"]["display"], 100 - 10 - 15 - 20)   # pointer 1 of 2, text 15 px, r_mode changed
-        self.assertEqual(rr["aspects"]["features"], 50)           # menus_modes no, settings_stick yes
+        self.assertEqual(rr["aspects"]["display"], 100 - 15)      # text 15 px; the pointer: the reviewer says hidden
+        self.assertEqual(rr["aspects"]["features"], 0)            # menus_modes no; nothing else tested
+        self.assertEqual(rr["features_failed"][0]["origin"], "also on the PC")
 
-    def test_review_refusals(self):
+    def test_review_questionnaire(self):
         self.form()
-        for review in ("verdict: ok\ndefect: missing: no origin\n", "verdict: ok\ndefect: weird ps3: x\n",
-                       "verdict: wrong\n", "verdict: ok\ntext_px: big\n", "verdict: ok\ncheck: flying yes\n"):
+        (self.run_dir / "REVIEW.md").write_text(REVIEW_OK)
+        self.assertEqual(self.do()[0]["review"], {"text_px": 24, "text_where": "the HUD", "pointer": "hidden",
+                                                  "stretched": "no"})
+        for review in (REVIEW_OK.replace("stretched: no", "stretched: ?"),            # unanswered
+                       REVIEW_OK.replace("flicker: no\n", ""),                         # missing
+                       REVIEW_OK.replace("missing: no", "missing: yes: the HUD"),       # no origin
+                       REVIEW_OK.replace("verdict: ok", "verdict: wrong"),              # wrong, no defect
+                       REVIEW_OK.replace("text_px: 24: the HUD", "text_px: big"),
+                       REVIEW_OK.replace("broken: none", "broken: flying ps3: x"),
+                       REVIEW_OK + "defect: weird ps3: x\n", REVIEW_OK + "check: flying yes\n"):
             (self.run_dir / "REVIEW.md").write_text(review)
             with self.assertRaises(self.ir.Refused, msg=review):
                 self.ir.import_run(self.run_dir, "ex", self.content)
+        (self.run_dir / "REVIEW.md").write_text(REVIEW_OK.replace("text_px: 24: the HUD", "text_px: none") +
+                                                "defect: colours pc: the sky\ncheck: online no\n")
+        rv = self.do()[0]["review"]
+        self.assertEqual((rv["text_px_none"], rv["defects"], rv["checks"]), (True, ["colours pc: the sky"], ["online no"]))
 
     def test_rules_option(self):
+        (self.run_dir / "REVIEW.md").write_text(REVIEW_OK)
         self.ir.import_run(self.run_dir, "ex", self.content, rules="2.0")
         out = next((self.content / "ex" / "tests").iterdir())
         self.assertEqual(tomllib.loads((out / "result.toml").read_text())["rules"], "2.0")
@@ -961,6 +1016,25 @@ class ImporterV2(Importer):
         pics = {"a": pic(24), "b": pic(24), "c": pic(0)}
         out = self.ir.bars(["a", "b", "c"], (1920, 1080), look=lambda p: pics[p])
         self.assertEqual(out, {"lit_shots": 3, "bars_shots": 2, "bars": "pillarbox", "bars_content": "1440x1080"})
+
+    def test_review_template(self):
+        spec = importlib.util.spec_from_file_location("review", HERE / "review.py")
+        rv = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rv)
+        text = rv.template(self.run_dir, {"bars": "no black bars", "pointer_words": "visible in 0 of 3 shots",
+                                          "pointer": "hidden"})
+        # every question the importer needs is in it, unanswered but the measured pointer
+        (self.run_dir / "REVIEW.md").write_text(text)
+        self.form()
+        with self.assertRaises(self.ir.Refused) as e:
+            self.ir.import_run(self.run_dir, "ex", self.content)
+        self.assertIn("verdict, stretched, text_px, garbage, missing, colours, flicker, lighting, softer, broken",
+                      str(e.exception))
+        answered = re.sub(r"(?m)^(garbage|missing|colours|flicker|lighting|softer): \?$", r"\1: no", text)
+        answered = answered.replace("verdict: ?", "verdict: ok").replace("stretched: ?", "stretched: no") \
+            .replace("text_px: ?", "text_px: 20: menu").replace("broken: ?", "broken: none")
+        (self.run_dir / "REVIEW.md").write_text(answered)
+        self.assertEqual(self.do()[0]["review"]["text_px"], 20)
 
 
 def load_bench(name):
@@ -995,37 +1069,76 @@ class Recorders(unittest.TestCase):
             self.assertEqual(il.classify(dev("event2", key=(0x110,), rel=(0, 1))), "mouse")
             self.assertEqual(il.classify(dev("event3", props=(6,))), "motion")
             self.assertEqual(il.classify(dev("event4", key=(116,))), "other")      # the power button
-        c = {"press": 0, "move": 0}
-        data = b"".join(il.EV.pack(0, 0, typ, code, val) for typ, code, val in
-                        ((1, 0x130, 1), (1, 0x130, 0), (0, 0, 0), (3, 0, 128), (3, 1, 120), (1, 30, 2)))
-        il.count(data + b"xx", c)     # a partial event at the end is left for the next read
+        c, times = {"press": 0, "move": 0}, []
+        data = b"".join(il.EV.pack(100, usec, typ, code, val) for usec, typ, code, val in
+                        ((250000, 1, 0x130, 1), (300000, 1, 0x130, 0), (0, 0, 0, 0), (0, 3, 0, 128), (0, 3, 1, 120),
+                         (0, 1, 30, 2)))
+        il.count(data + b"xx", c, times)     # a partial event at the end is left for the next read
         self.assertEqual(c, {"press": 1, "move": 2})
+        self.assertEqual(times, [100.25])    # the press at the kernel's own time
         self.assertEqual(il.event_of("/dev/input/event5"), "event5")
         self.assertIsNone(il.event_of("/dev/input/mice"))
 
-    def test_confwatch_read_only(self):
-        cw = load_bench("confwatch")
+    def test_freshhome_lossless(self):
+        fh = load_bench("freshhome")
         with tempfile.TemporaryDirectory() as t:
-            home, run = Path(t) / "home", Path(t) / "run"
-            cfg = home / ".config" / "xmoto" / "config.dat"
-            cfg.parent.mkdir(parents=True)
+            home, run, state = Path(t) / "home", Path(t) / "run", Path(t) / "state"
             run.mkdir()
-            cfg.write_text("<var name=\"Fullscreen\" value=\"true\"/>\nwindow_x = 10\nPlayer = me\n")
-            (home / ".config" / "other").mkdir()
-            (home / ".config" / "other" / "x.cfg").write_text("r_mode 3\n")
-            st = cfg.stat()
-            cw.before(str(Path(t) / "b.json"), str(Path(t) / "s.json"), ["xmoto"], home=str(home))
-            self.assertEqual((cfg.stat().st_atime_ns, cfg.stat().st_mtime_ns), (st.st_atime_ns, st.st_mtime_ns))
-            cfg.write_text("<var name=\"Fullscreen\" value=\"false\"/>\nwindow_x = 99\nPlayer = me\n")
-            (home / ".config" / "other" / "x.cfg").write_text("r_mode 4\n")     # not the game's directory
-            lines = cw.after(str(Path(t) / "b.json"), str(Path(t) / "s.json"), str(run), home=str(home))
-            self.assertIn("config_changed=1", lines)
-            self.assertIn("config_video_keys=", lines)      # an XML attribute line: the tag is "var"
-            self.assertIn("me", cfg.read_text())            # untouched
-            # a "key = value" line with a video key, and a window position that isn't one
-            self.assertEqual(cw.video_keys(b"vid_fullscreen 1\nvid_xpos 3\nseta r_mode \"4\"\n", []),
-                             {"vid_fullscreen", "r_mode"})
-            self.assertEqual(json.loads((Path(t) / "s.json").read_text())["written"].keys(), {".config/xmoto/config.dat"})
+            (home / ".openarena" / "baseoa").mkdir(parents=True)
+            (home / ".openarena" / "baseoa" / "q3config.cfg").write_text('seta name "me"\n')
+            world = home / ".local" / "share" / "warzone2100-4"
+            world.mkdir(parents=True)
+            (world / "big.wz").write_bytes(b"x" * (6 * 1024 * 1024))
+            ino = (world / "big.wz").stat().st_ino
+            out = fh.aside(str(state), "g", [".openarena", ".local/share/warzone2100*", ".config/new", "../outside"],
+                           home=str(home))
+            plan, lines = out[0], out[1:]
+            self.assertIn("fresh_home=2", lines)
+            self.assertTrue(any("not under the home" in x for x in lines))
+            self.assertFalse((home / ".openarena").exists())
+            self.assertTrue(any(x.name.startswith(".openarena.walnut-aside-") for x in home.iterdir()))
+            # the game runs on fresh defaults: it makes its own, a big one too
+            (home / ".openarena" / "baseoa").mkdir(parents=True)
+            (home / ".openarena" / "baseoa" / "q3config.cfg").write_text('seta name "UnnamedPlayer"\n')
+            (home / ".config" / "new").mkdir(parents=True)
+            (home / ".config" / "new" / "c").write_text("fresh")
+            world.mkdir()
+            (world / "fresh.bin").write_bytes(b"y" * (6 * 1024 * 1024))     # over the evidence cap
+            self.assertEqual(fh.restore(plan, str(run)), ["fresh_home_new=3"])
+            # the player's own back, the very same files (a rename: the same inode, nothing copied)
+            self.assertEqual((home / ".openarena" / "baseoa" / "q3config.cfg").read_text(), 'seta name "me"\n')
+            self.assertEqual((world / "big.wz").stat().st_ino, ino)
+            self.assertFalse((home / ".config" / "new").exists())
+            # the session's own: small ones in the run directory, the big one kept beside the original
+            self.assertEqual(sorted(x.name for x in (run / "fresh-home").iterdir()), [".config%new", ".openarena"])
+            fresh = [x for x in world.parent.iterdir() if ".walnut-fresh-" in x.name]
+            self.assertEqual(len(fresh), 1)
+            self.assertTrue((fresh[0] / "fresh.bin").exists())
+            self.assertTrue(Path(plan + ".done").exists())
+
+    def test_freshhome_recovers_a_killed_session(self):
+        fh = load_bench("freshhome")
+        with tempfile.TemporaryDirectory() as t:
+            home, state = Path(t) / "home", Path(t) / "state"
+            (home / ".neverball").mkdir(parents=True)
+            (home / ".neverball" / "neverballrc").write_text("mine")
+            fh.aside(str(state), "neverball", [".neverball"], home=str(home))
+            (home / ".neverball").mkdir()                   # the game's fresh one; then the session is killed
+            (home / ".neverball" / "neverballrc").write_text("fresh")
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                out = fh.aside(str(state), "other", [".other"], home=str(home))     # the next session starts
+            self.assertIn("recovered=1", out)
+            self.assertIn("didn't restore", err.getvalue())
+            self.assertEqual((home / ".neverball" / "neverballrc").read_text(), "mine")
+            kept = [x for x in home.iterdir() if ".walnut-fresh-" in x.name]
+            self.assertEqual(len(kept), 1)                  # the fresh one kept, never deleted
+            # an aside name already taken: that directory is left alone, nothing overwritten
+            st = fh.stamp()
+            (home / (".neverball.walnut-aside-" + st)).mkdir()
+            out = fh.aside(str(state), "neverball", [".neverball"], home=str(home))
+            if fh.stamp() == st:
+                self.assertIn("fresh_home=0", out)
+                self.assertTrue((home / ".neverball").exists())
 
     def test_pointer_columns(self):
         geom = load_geom()
@@ -1037,16 +1150,17 @@ class Recorders(unittest.TestCase):
 
     def test_form_writes_the_second_form(self):
         with tempfile.TemporaryDirectory() as t:
-            env = dict(os.environ, WALNUT_FORM_AUTO="sound=partly,music=none,glitches=broken,saves_load=no,notes=a\\nb")
+            env = dict(os.environ, WALNUT_FORM_AUTO="sound=partly,music=none,glitches=broken,pad_play=setup,"
+                                                    "saves_load=no,notes=a\\nb")
             env.pop("DISPLAY", None)
             import subprocess
             p = subprocess.run([sys.executable, "-I", str(REPO / "games" / "bench" / "session-form.py"), t, "g", "base"],
                                env=env, capture_output=True, text=True)
             self.assertEqual(p.returncode, 0, p.stderr)
             f = tomllib.loads((Path(t) / "session.toml").read_text())
-            self.assertEqual((f["form_version"], f["sound"], f["glitches"], f["played_with"], f["pad_menus"],
-                              f["saves_load"], f["controls"], f["notes"]),
-                             (2, "partly", "broken", "pad", "yes", "no", "full", "a\nb"))
+            self.assertEqual((f["form_version"], f["sound"], f["glitches"], f["pad_play"], f["pad_menus"],
+                              f["keyboard_mouse"], f["saves_load"], f["controls"], f["notes"]),
+                             (2, "partly", "broken", "setup", "na", "na", "no", "partial", "a\nb"))
 
 
 if __name__ == "__main__":

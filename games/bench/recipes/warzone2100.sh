@@ -62,6 +62,9 @@ COMM=warzone2100
 DURATION=${SMOKE_SECS:-300}
 WZ_CFG=$HOME/.local/share/warzone2100-ps3bench
 BACKUP=("$WZ_CFG/config")
+# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
+# freshhome.py); checked against the XDG data directory (versioned names, hence the globs), older releases' ~/.warzone2100-x.y
+SESSION_HOME=('.local/share/warzone2100*' '.warzone2100*')
 DATA_DIRS=(/usr/share/warzone2100)
 ENV+=(WZ_AUTOGAME_SPEED=1)
 WZ_MUSIC=true

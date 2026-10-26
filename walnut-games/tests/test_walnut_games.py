@@ -571,6 +571,8 @@ class RatingText(unittest.TestCase):
                                                 "Broken: saves load [PS3/Walnut only]"])
         self.assertEqual(app.basis_text({"medal": "Gold"}), "")     # an older catalog
         self.assertEqual(app.problem_lines({}), [])
+        self.assertEqual(app.problem_lines({"broken": ["picture broken (garbage textures or geometry)"]}),
+                         ["Scrap: picture broken (garbage textures or geometry)"])
 
 
 class Window(unittest.TestCase):

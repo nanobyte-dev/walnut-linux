@@ -14,6 +14,9 @@ SUITE=1
 COMM=quake2
 ENV=(vblank_mode=0)
 BACKUP=("$HOME/.yq2/baseq2/config.cfg" "$HOME/.yq2/baseq2/autoexec.cfg")
+# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
+# freshhome.py); checked against the recipe's config.cfg path
+SESSION_HOME=(.yq2)
 setup() {
 	mkdir -p "$HOME/.yq2/baseq2"
 	printf '%s\n' 'alias bench "set nextdemo bench; disconnect; demomap q2demo1.dm2"' > "$HOME/.yq2/baseq2/autoexec.cfg"

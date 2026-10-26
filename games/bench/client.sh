@@ -123,8 +123,8 @@ SESSION=${BENCH_SESSION:-0}; UP0=
 if [ "$SESSION" = 1 ]; then
 	unset -f during; parse() { :; }
 	if declare -F session > /dev/null; then session; fi	# the recipe's playable command
-	# the player's own game, as they left it: no config restored after the session (their settings
-	# stay), no recipe setup (it prepares benchmark files)
+	# the game as shipped: session.sh renamed its directories aside (fresh defaults) and puts the player's
+	# back afterwards (freshhome.py), so no BACKUP here; no recipe setup (it prepares benchmark files)
 	BACKUP=(); setup() { :; }
 	# the command of a menu launcher (session.sh): NUL-separated argv, ps3-game left out (launch= adds it)
 	if [ -n "${BENCH_CMD_FILE:-}" ]; then
@@ -725,13 +725,13 @@ watch_game() {
 # the recipe's own helper while the game runs (input recording/replay); stopped with the others
 DURING_PID=
 declare -F during >/dev/null && { during > "$D/during.log" 2>&1 & DURING_PID=$!; helpers+=($!); }
-# a played session: the input devices' activity and which ones the game opened, for the Controls checks
-# (inputlog.py: read-only, never grabs, counts presses and moves, never which key), as root where sudo -n
-# allows (keyboards and mice are root's), else what the user can read (the pads). It ends by itself when
-# the game's process group leader is gone (the final wait below collects it). BENCH_INPUTLOG=0: none
+# a played session: the input devices' activity, which ones the game opened and when each press came, for
+# the Controls checks and the level load (inputlog.py: read-only, never grabs, never which key), as the
+# player: the pads always, keyboards and mice with the `input` group (else those items stay untested). It
+# ends by itself when the game's process group leader is gone (the final wait below collects it).
+# BENCH_INPUTLOG=0: none
 if [ "$SESSION" = 1 ] && [ "${BENCH_INPUTLOG:-1}" = 1 ] && command -v python3 > /dev/null; then
-	isudo=(); sudo -n true 2>/dev/null && isudo=(sudo -n)
-	"${isudo[@]}" nice -n 19 python3 -I "$here/inputlog.py" "$t0" "$gp" > "$D/input.tsv" 2> "$D/input.err" &
+	nice -n 19 python3 -I "$here/inputlog.py" "$t0" "$gp" > "$D/input.tsv" 2> "$D/input.err" &
 fi
 (sleep "$SOUND_AT"; cat /proc/asound/card*/pcm*p/sub*/status 2>/dev/null |
 	awk '$1 == "state:" { s = s (s ? "," : "") $2 } END { print s ? s : "none" }' > "$D/.sound") \

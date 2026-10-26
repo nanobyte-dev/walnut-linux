@@ -41,8 +41,9 @@ Walnut 0.1.0, the first public alpha, is out ([release/ALPHA.md](release/ALPHA.m
    - P3 the session recorder (the ~10-minute played session, its end-of-session form);
    - P4 the desktop app (Tk) and its install helper;
    - P5 the games one by one to about 50, new games first. Rules 2.0 (2026-10-26, [GAMEDB.md](GAMEDB.md#rules-versions))
-     rate the sessions from here on: the recorder measures the input, the settings files, the pointer
-     and the quit; the form asks seven one-tap questions.
+     rate the sessions from here on: each game runs on its shipped defaults (the player's settings set
+     aside and back), the recorder measures the input, the pointer, the level load and the quit, the
+     importing agent answers a picture questionnaire (review.py), the form asks eight one-tap questions.
    - P5b, planned: scripted runs for what one player can't test ([games/SUITE.md](games/SUITE.md#scripted-runs-planned)):
      a virtual DualShock through uinput (a pad plugged in mid-game, a second and third pad joining,
      menus by d-pad, judged from screenshots), and unattended soaks for crash-free hours.

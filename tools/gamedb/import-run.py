@@ -39,13 +39,13 @@ Design
   X pointer over the window (pointer_samples, pointer_visible: geom.py), black bars on the screenshots
   (bars, bars_content), the desktop back after the quit (desktop_back_s, desktop_stuck: session.sh), the
   input devices (pads_present, pad_opened, pad_events_play, pads_hotplugged, pads_hotplug_opened,
-  kb_presses, kb_readable: inputlog.py's input.tsv), the settings files (config_changed,
-  config_video_keys, settings_reread: confwatch.py), the form's answers ([form]) and the reviewer's
-  REVIEW.md items ([review]): `defect: <category> <pc|ps3>: <what>` (categories garbage, missing,
-  colours, flicker, lighting, softer; pc: also on the PC reference, ps3: PS3/Walnut only),
-  `text_px: N`, `pointer: visible|hidden`, `stretched: yes|no`, `check: <item> yes|no|na`,
-  `broken: <item> <pc|ps3>: <what>`. A defect without a known category or origin is refused, and so is
-  `verdict: wrong` without a defect line.
+  kb_presses, kb_readable: inputlog.py's input.tsv), the level load (load_level_s: the player's last
+  press before the play mark to the mark), the fresh defaults (fresh_home, fresh_home_new, recovered:
+  freshhome.py), the form's answers ([form]) and the reviewer's answers ([review]) to review.py's
+  questionnaire: verdict, stretched, text_px, pointer, each defect category (no, or pc|ps3 and where;
+  pc: also on the PC reference, ps3: PS3/Walnut only) and broken (none, or `<item> <pc|ps3>: <what>`),
+  plus optional `check: <item> yes|partly|no|na` lines. A question left unanswered ("?") is refused, so
+  is an answer that can't be read, and `verdict: wrong` without a defect.
 - Refused: runs with interfered=1 (or TEMPLIMIT / thermal stop), capture runs without REVIEW.md.
 - No absolute path, host name or user name is written: the run is named by its directory name only.
 Importing the same run again rewrites its test directory; another run of the same day and kind gets
@@ -332,6 +332,17 @@ def bars(pictures, screen, look=gray):
     return out
 
 
+def key_times(d):
+    """the times (s after the start) of every press inputlog.py recorded (its key rows)"""
+    f = d / "input.tsv"
+    out = []
+    for line in (f.read_text(errors="replace").splitlines() if f.exists() else []):
+        c = line.split("\t")
+        if len(c) >= 4 and c[1] == "key" and report.num(c[0]) is not None:
+            out.append(report.num(c[0]))
+    return out
+
+
 def input_numbers(d, play_from):
     """the Controls measurements of inputlog.py's input.tsv (what the game opened, pad and keyboard use):
     {} without the file"""
@@ -366,52 +377,96 @@ def input_numbers(d, play_from):
     return n
 
 
-REVIEW_RE = re.compile(r"^\s*[-*]?\s*(defect|text_px|pointer|stretched|check|broken):\s*(.*?)\s*$", re.I)
+REVIEW_RE = re.compile(r"^\s*[-*]?\s*([a-z_]+):\s*(.*?)\s*$", re.I)
+# the questionnaire of tools/gamedb/review.py's template: every one answered under rules 2
+REVIEW_REQUIRED = ["verdict", "stretched", "text_px", "pointer"] + list(score.DEFECTS) + ["broken"]
+
+
+def answer_where(v):
+    """("answer", "where") of "answer: where" or "answer" """
+    a, _, w = v.partition(":")
+    return a.strip().lower(), w.strip()
 
 
 def review_items(d):
-    """the data-version-2 items of REVIEW.md ({defects, text_px, pointer, stretched, checks, broken}), or
-    Refused for one that can't be read"""
+    """the rules-2 answers of REVIEW.md ({defects, text_px, pointer, stretched, stretched_where, checks,
+    broken}); Refused for an unanswered question (a missing line or "?") or one that can't be read. The
+    template (review.py) has one line per question; `defect: <category> <pc|ps3>: <what>` and repeated
+    category or broken lines add more"""
     f = d / "REVIEW.md"
-    out = {}
     if not f.exists():
-        return out
+        raise Refused("%s: no REVIEW.md (tools/gamedb/review.py %s writes the questions)" % (d.name, d.name))
+    out, seen = {}, set()
+    bad = lambda line, want: Refused("REVIEW.md: %r: want %s" % (line.strip(), want))
     for line in f.read_text(errors="replace").splitlines():
+        if line.lstrip().startswith("#"):
+            continue
         m = REVIEW_RE.match(line)
         if not m:
             continue
         k, v = m[1].lower(), m[2]
-        if k == "defect":
+        if v.strip() in ("", "?"):
+            continue                      # unanswered: reported below
+        if k == "verdict":
+            seen.add(k)
+        elif k == "defect":
             head, _, what = v.partition(":")
             words = head.split()
             if len(words) != 2 or not score.defect_category(words[0]) or words[1].lower() not in score.ORIGINS:
-                raise Refused("REVIEW.md: %r: want `defect: <%s> <pc|ps3>: <what>`" % (line.strip(), "|".join(score.DEFECTS)))
+                raise bad(line, "`defect: <%s> <pc|ps3>: <what>`" % "|".join(score.DEFECTS))
             out.setdefault("defects", []).append("%s %s: %s" % (score.defect_category(words[0]), words[1].lower(), what.strip()))
+        elif score.defect_category(k) and k in score.DEFECTS:
+            seen.add(k)
+            a, where = answer_where(v)
+            if a == "no":
+                continue
+            if a not in score.ORIGINS:
+                raise bad(line, "`%s: no`, or `%s: pc|ps3: where`" % (k, k))
+            out.setdefault("defects", []).append("%s %s: %s" % (k, a, where))
         elif k == "text_px":
-            if not v.isdigit():
-                raise Refused("REVIEW.md: %r: text_px is a whole number of pixels at 1080p" % line.strip())
-            out["text_px"] = int(v)
+            seen.add(k)
+            a, where = answer_where(v)
+            if a == "none":
+                out["text_px_none"] = True
+            elif a.isdigit():
+                out["text_px"] = int(a)
+                if where:
+                    out["text_where"] = where
+            else:
+                raise bad(line, "`text_px: N: where` (pixels at 1080p) or `text_px: none`")
         elif k in ("pointer", "stretched"):
+            seen.add(k)
+            a, where = answer_where(v)
             ok = ("visible", "hidden") if k == "pointer" else ("yes", "no")
-            if v.lower() not in ok:
-                raise Refused("REVIEW.md: %r: %s is %s" % (line.strip(), k, " or ".join(ok)))
-            out[k] = v.lower()
+            if a not in ok:
+                raise bad(line, "%s: %s" % (k, " or ".join(ok)))
+            out[k] = a
+            if k == "stretched" and where:
+                out["stretched_where"] = where
         elif k == "check":
             item, _, ans = v.partition(" ")
-            if item not in score.CHECK_NAMES or ans.strip() not in ("yes", "no", "na"):
-                raise Refused("REVIEW.md: %r: want `check: <%s> yes|no|na`" % (line.strip(), "|".join(score.CHECK_NAMES)))
+            if item not in score.CHECK_NAMES or ans.strip() not in ("yes", "partly", "no", "na"):
+                raise bad(line, "`check: <%s> yes|partly|no|na`" % "|".join(score.CHECK_NAMES))
             out.setdefault("checks", []).append("%s %s" % (item, ans.strip()))
         elif k == "broken":
+            seen.add(k)
+            if v.strip().lower() == "none":
+                continue
             head, _, what = v.partition(":")
             words = head.split()
             if len(words) != 2 or words[0] not in score.CHECK_NAMES or words[1].lower() not in score.ORIGINS:
-                raise Refused("REVIEW.md: %r: want `broken: <item> <pc|ps3>: <what>`" % line.strip())
+                raise bad(line, "`broken: none`, or `broken: <item> <pc|ps3>: <what>` (items: %s)" % ", ".join(score.CHECK_NAMES))
             out.setdefault("broken", []).append("%s %s: %s" % (words[0], words[1].lower(), what.strip()))
+    missing = [q for q in REVIEW_REQUIRED if q not in seen]
+    if missing:
+        raise Refused("%s: REVIEW.md leaves unanswered: %s (tools/gamedb/review.py makes the template)" % (
+            d.name, ", ".join(missing)))
     return out
 
 
-FORM_KEYS = {"glitches": ("none", "minor", "broken"), "played_with": ("pad", "keyboard", "both"),
-             "pad_menus": ("yes", "no", "na"), "menus_modes": ("yes", "no"), "saves_load": ("yes", "no", "na")}
+FORM_KEYS = {"glitches": ("none", "minor", "broken"), "pad_menus": tuple(score.FORM_PAD_MENUS),
+             "pad_play": tuple(score.FORM_PAD_PLAY), "keyboard_mouse": tuple(score.FORM_KM),
+             "menus_modes": ("yes", "no"), "saves_load": ("yes", "no", "na")}
 
 
 def form_v2(d):
@@ -438,13 +493,15 @@ def v2_numbers(d, b, n, sh):
     if b.get("desktop_stuck") == "1":
         n["desktop_stuck"] = True
     n.update(input_numbers(d, play_start(d, b)))
-    for k in ("config_changed", "config_new"):
+    for k in ("fresh_home", "fresh_home_new", "recovered"):    # the fresh defaults (freshhome.py)
         if report.num(b.get(k)) is not None:
             n[k] = int(report.num(b[k]))
-    if b.get("config_video_keys"):
-        n["config_video_keys"] = [k for k in b["config_video_keys"].split(",") if k]
-    if b.get("settings_reread") in ("yes", "no"):
-        n["settings_reread"] = b["settings_reread"]
+    # the level load: from the player's last press before the play mark to the mark (inputlog.py's key rows)
+    ps = play_start(d, b)
+    if b.get("play_from") == "mark" and ps is not None and n.get("input_log"):
+        before = [t for t in key_times(d) if t < ps]
+        if before:
+            n["load_level_s"] = round(ps - max(before), 1)
 
 
 def ended(d, b):
@@ -583,7 +640,7 @@ def import_run(run, game, content, dry=False, launcher=None, keep=None, rules=No
     data = int(str(rules).split(".")[0]) if rules else (2 if fv >= 2 else 1)
     if data not in score.FORMULA:
         raise Refused("--rules %s: the data versions are %s" % (rules, ", ".join(map(str, score.FORMULA))))
-    review = review_items(d) if data >= 2 else {}
+    review = review_items(d) if data >= 2 and (has_shots or (d / "REVIEW.md").exists()) else {}
     if data >= 2:
         if verdict == "wrong" and not review.get("defects"):
             raise Refused("%s: verdict: wrong needs a `defect: <category> <pc|ps3>: <what>` line (rules 2)" % d.name)
@@ -603,8 +660,9 @@ def import_run(run, game, content, dry=False, launcher=None, keep=None, rules=No
            "render": "1920x1080"}
     note = ""
     if (d / "REVIEW.md").exists():
-        note = " ".join((d / "REVIEW.md").read_text(errors="replace").split("\n")[0].split())
-        note = re.sub(r"^verdict:\s*", "", note)
+        lines = (d / "REVIEW.md").read_text(errors="replace").split("\n")
+        first = next((x for x in lines if re.match(r"\s*verdict:", x, re.I)), lines[0])   # the template opens with notes
+        note = re.sub(r"^verdict:\s*", "", " ".join(first.split()))
     tables = {"numbers": n, "scores": {k: round(v, 1) for k, v in scores.items() if v is not None},
               "versions": versions(d),
               "picture": {"verdict": verdict, "note": note or None},

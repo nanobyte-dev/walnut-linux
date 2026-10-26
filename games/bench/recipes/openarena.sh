@@ -15,6 +15,9 @@ DATA_DIRS=(/usr/share/games/openarena)
 SOUND_AT=25	# after the level load (a cold first run takes ~12 s), during the demo
 OA_AUTOEXEC=$HOME/.openarena/baseoa/autoexec.cfg
 BACKUP=("$HOME/.openarena/baseoa/q3config.cfg" "$OA_AUTOEXEC")
+# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
+# freshhome.py); checked against the recipe's q3config.cfg path
+SESSION_HOME=(.openarena)
 setup() {
 	mkdir -p "$HOME/.openarena/baseoa/demos"
 	# the variant's cvars (OA_X) as set lines: the engine runs autoexec.cfg at start, before the

@@ -13,6 +13,9 @@ COMM=xmoto
 ENV=(vblank_mode=0 XMOTO_BENCH_LOOPS=2)
 PASSES=1
 BACKUP=("$HOME/.config/xmoto/config.dat")
+# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
+# freshhome.py); checked against the recipe's config.dat and Replays paths
+SESSION_HOME=(.config/xmoto .local/share/xmoto)
 setup() {
 	mkdir -p "$HOME/.local/share/xmoto/Replays"
 	cp "$ASSETS/xmoto-credits.rpl" "$HOME/.local/share/xmoto/Replays/credits.rpl"

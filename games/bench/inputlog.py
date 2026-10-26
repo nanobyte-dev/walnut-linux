@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""inputlog.py T0 PID [--every S]: the input devices during a played session, for the Controls checks
-(docs/GAMEDB.md "Rules versions", docs/games/SUITE.md "Played sessions"). Started by client.sh in a
-session (BENCH_SESSION=1) next to the game, at nice 19, as root when `sudo -n` works (keyboards and mice
-are root's; the user can read the pads through logind's uaccess); exits by itself when PID (the game's
-process group leader) is gone. Read-only: it never grabs a device, so the game gets every event as before.
-It counts, never records which key: no key codes, no text.
+"""inputlog.py T0 PID [--every S]: the input devices during a played session, for the Controls checks and
+the level load (docs/GAMEDB.md "How a game is rated", docs/games/SUITE.md "Played sessions"). Started by
+client.sh in a session (BENCH_SESSION=1) next to the game, at nice 19, as the player: it reads what the
+player may read (the pads through logind's uaccess; keyboards and mice with the `input` group), and a
+class it can't read stays unread (the header says which): its items are "not tested", never "no". It
+exits by itself when PID (the game's process group leader) is gone. Read-only: it never grabs a device,
+so the game gets every event as before. It counts presses and keeps their times, never which key: no
+key codes, no text.
 
 Output on stdout, TSV, the time in seconds after T0 (client.sh's $EPOCHREALTIME at the game's start):
   # inputlog readable=pad,keyboard unreadable=mouse
@@ -12,6 +14,7 @@ Output on stdout, TSV, the time in seconds after T0 (client.sh's $EPOCHREALTIME 
   0.4  present  event3   pad       Sony PLAYSTATION(R)3 Controller      (n: the device's name)
   95.1 added    event7   pad       ...                                  (turned on after the start)
   2.0  opened   event3   pad       -                                    (the game, or a child of it, opened it)
+  31.207 key    event3   pad       -                                    (a press, at the event's own time)
   10   press    -        pad       14                                   (key/button presses in the 10 s from t_s)
   10   move     -        pad       230                                  (axis and relative events in those 10 s)
   .    removed  event7   pad       -
@@ -20,7 +23,7 @@ motion (an accelerometer: the DualShock's motion sensors, never read), mouse (RE
 keyboard (KEY_Q, KEY_A, KEY_Z), other. /dev/input/jsN (the joydev interface older SDL opens) counts as its
 eventN sibling. The game's open devices are read from /proc/<pid>/fd of PID and its descendants every 2 s.
 Every 0.25 s the readable devices are drained (non-blocking reads: an overflowing buffer drops events,
-the counts are approximate)."""
+the counts are approximate; a press's time is the kernel's timestamp, exact to the microsecond)."""
 import io
 import os
 import struct
@@ -130,11 +133,14 @@ def opened_devices(pids, proc="/proc"):
     return out
 
 
-def count(data, counts):
-    """add the events in data (whole input_events) to counts {"press", "move"}"""
-    for _, _, typ, code, value in EV.iter_unpack(data[:len(data) - len(data) % EV.size]):
+def count(data, counts, presses=None):
+    """add the events in data (whole input_events) to counts {"press", "move"}; presses: a list the press
+    times (the event's own timestamp, CLOCK_REALTIME: evdev's default) are appended to"""
+    for sec, usec, typ, code, value in EV.iter_unpack(data[:len(data) - len(data) % EV.size]):
         if typ == EV_KEY and value == 1:
             counts["press"] += 1
+            if presses is not None:
+                presses.append(sec + usec / 1e6)
         elif typ in (EV_ABS, EV_REL):
             counts["move"] += 1
 
@@ -189,6 +195,7 @@ class Log:
             if d["fd"] is None:
                 continue
             c = self.counts.setdefault(d["class"], {"press": 0, "move": 0})
+            presses = []
             while True:
                 try:
                     data = os.read(d["fd"], EV.size * 512)
@@ -198,7 +205,9 @@ class Log:
                     break
                 if not data:
                     break
-                count(data, c)
+                count(data, c, presses)
+            for p in presses:      # each press at its own time: Load's level load ends at the play mark
+                self.row("%.3f" % (p - self.t0), "key", n, d["class"], "-")
 
     def flush(self):
         for cls, c in sorted(self.counts.items()):

@@ -14,40 +14,47 @@ Status (2026-10-26): the catalog, the scoring, the site, the session recorder an
 
 **What a rating says.** How well a game plays on the PS3 under Walnut, not how good the game is.
 Game design never scores: unforgiving gameplay, short levels, the game's own frame cap or simulation
-rate (OpenTTD's 37 a second), a control layout made for a PC keyboard, how fun it is. Breakage a
-Walnut player runs into does score, wherever it comes from, and says where: every picture defect and
-broken feature is labelled "also on the PC" (upstream's, seen on the PC reference) or "PS3/Walnut
-only", so a page tells our problems from upstream's.
+rate (OpenTTD's 37 a second), a control layout made for a PC keyboard, how fun it is. A game designed
+for keyboard and mouse (an RTS, a PC shooter, a city builder) is never marked down for weak gamepad
+support. Breakage a Walnut player runs into does score, wherever it comes from, and says where: every
+picture defect and broken feature is labelled "also on the PC" (upstream's, seen on the PC reference)
+or "PS3/Walnut only", so a page tells our problems from upstream's.
 
-**One player, one session.** The ratings are made by one person reviewing dozens of games, about
-one ten-minute session each. What that player can't reasonably test (several pads, online play, a
-mode nobody reached) is "not tested" and never costs anything: its weight goes to what was tested,
-like an unmeasured aspect. What can be measured is measured; scripted runs without the player cover
-some of the rest (planned, [games/SUITE.md](games/SUITE.md#scripted-runs-planned)); the form asks only
-what the player saw anyway.
+**One player, one session, the game as shipped.** The ratings are made by one person reviewing dozens
+of games, about one ten-minute session each, on the game's shipped defaults (the harness sets the
+player's own settings aside for the session) without changing any setting. What that player can't
+reasonably test (several pads, a pad turned on mid-game, online play, a mode nobody reached) is "not
+tested" and never costs anything: its weight goes to what was tested, like an unmeasured aspect. What
+can be measured is measured; the reviewing agent answers a fixed questionnaire over the screenshots;
+scripted runs without the player will cover some of the rest (planned,
+[games/SUITE.md](games/SUITE.md#scripted-runs-planned)); the form asks only what the player saw anyway.
 
 ## How a game is tested
 
 1. **A played session, about 10 minutes, the graded test.** Someone plays the game normally,
    started from the desktop menu like any user would: game mode, the settings Walnut ships, vsync,
-   the 1080p TV. Players hit menus, saves, level changes and odd inputs that a scripted run never
-   reaches. A session recorder records the frame times, every sound dropout (how long the output
-   went dry, how loud it was around it), memory, the kernel log, how the game ended and how fast the
-   desktop came back, a screenshot about once a minute with the game's window and the mouse pointer,
-   the input devices (which ones the game opened, pad and keyboard use, counts only), and the
-   game's settings files before and after (hashes only, never touched). When the game exits a short
-   form, under a minute, asks what only the player knows (sound and music heard, glitches seen,
-   what they played with, whether the menus worked with the pad, menus and modes, saves) and has a
-   notes box; the notes are read with the numbers and become the game's known issues. A game with
-   several launchers (OpenArena has "GL 1.2" and "GL 2.0") is played once per launcher: a session
-   starts the chosen menu entry's command, records its Name, and each launcher is rated on its own.
-   A session without a launcher counts for the game's default one.
-2. **The review.** The reviewer (an agent) puts the session's screenshots next to the PC's
-   (`tools/play-pc.sh` plays the same game on the PC alongside, a scripted capture run gives fixed
-   points) and writes REVIEW.md: the verdict, each picture defect with its category and whether the
-   PC shows it too, the smallest text's height, and any broken feature from the notes with its origin
-   ([games/SUITE.md](games/SUITE.md#played-sessions)). Not a pixel diff. The PC pictures are for that
-   review only; the website and the app show the PS3's pictures alone.
+   the 1080p TV. The harness first renames the game's settings and data directories aside, so the
+   game starts as a new player's would, and renames the player's own back when it quits (lossless:
+   a rename on the same filesystem, never a delete; a session cut short is put back at the next
+   session's start; `freshhome.py`). The player changes no settings; a game that can't be played
+   without changing one is reported in the notes. A session recorder records the frame times, every
+   sound dropout (how long the output went dry, how loud it was around it), memory, the kernel log,
+   how the game ended and how fast the desktop came back, a screenshot about once a minute with the
+   game's window and the mouse pointer, and the input devices (which ones the game opened, pad and
+   keyboard use, when each press came; counts and times only, never which key). When the game exits,
+   a short form, under a minute, asks what only the player knows: sound and music heard, glitches
+   seen, the gamepad in the menus and in play, the keyboard and mouse, menus and modes, saves; and a
+   notes box. A game with several launchers (OpenArena has "GL 1.2" and "GL 2.0") is played once per
+   launcher: a session starts the chosen menu entry's command, records its Name, and each launcher is
+   rated on its own. A session without a launcher counts for the game's default one.
+2. **The review**, by the agent that imports the run. `tools/gamedb/review.py RUN` puts the session's
+   screenshots next to the PC reference where one exists, adds 1:1 crops with a pixel ruler, and
+   writes REVIEW.md: a fixed questionnaire (stretched or squashed; the smallest text's height; the
+   mouse pointer, measured, confirmed or overridden; each defect category, with pc or ps3 and where;
+   anything broken, with its origin). The agent answers every question by looking at the pictures,
+   never by pixel metrics; import-run.py refuses a questionnaire left unanswered
+   ([games/SUITE.md](games/SUITE.md#played-sessions)). The PC pictures are for that review only; the
+   website and the app show the PS3's pictures alone.
 3. **A scripted capture run, for the picture** (optional). A recipe drives the game to fixed points
    (a menu, a map, a camera position), the PS3 captures them, and the same recipe captures them on a PC.
 
@@ -64,71 +71,100 @@ weighted mean of the scores. The current rules, 2.0 (2026-10-26):
 | Frame rate | 22 | median and 1% low over the session's play | median 20 fps, 1% low 10 | median 55, 1% low 45, or the game holds its own cap |
 | Smoothness | 18 | stutter time per minute and the longest frame | 5 s a minute, or a freeze over 5 s | 0.1 s a minute, nothing over 250 ms |
 | Sound | 12 | half: the right sounds playing (the form); half: audible sound dropouts per minute of play; a wedged sound device | nothing heard, or wedged | effects and music heard, no dropouts |
-| Picture | 12 | fixed deductions per defect category (below) | garbage, or several kinds of fault | the same as the PC |
+| Picture | 12 | fixed deductions per defect category (below) | several kinds of fault | the same as the PC |
 | Stability | 12 | crashes and unclean quits per hour of play over all tests | crashes in most sessions | no crashes, quits clean |
-| Controls | 10 | a checklist (below): the share of the tested items that pass | nothing works with the pad | everything tested works |
-| Display | 6 | the window against the screen at each screenshot, then deductions (below) | cropped or off-screen | fills the screen, right shape, as shipped |
+| Controls | 10 | a checklist (below): the share of the tested items that pass | nothing tested works | everything tested works |
+| Display | 6 | the window against the screen at each screenshot, as shipped, then deductions (below) | cropped or off-screen | fills the screen, right shape, readable |
 | Features | 5 | a checklist (below) | everything tested is broken | everything tested works |
-| Load | 3 | launch to the game's first frame (hud_t1; the player's time in its menus never counts) | 120 s | 15 s |
+| Load | 3 | the initial load plus the level load (below) | 120 s | 15 s |
+
+**The medal is the weighted mean's**, with no weakest link: a weak aspect costs points, not a medal
+level. The one exception: **a broken core subsystem makes the game Scrap**, whatever its mean, and
+the page names it next to the mean ("Scrap · 82: picture broken (garbage textures or geometry)"). We
+can't call a game with corrupted textures or no sound good because it runs at 400 fps. Broken is an
+explicit flag, not a score threshold (a garbage-texture deduction still leaves Picture at 40):
+
+| Core aspect | Broken when |
+|---|---|
+| Picture | the review finds garbage textures or geometry, or the player answers the glitches "Broken" |
+| Sound | the player heard no sound effects, or the sound device wedged (missing music alone isn't) |
+| Frame rate | the median is under 20 fps (the score's 0 point), unless the game's own cap is lower and held |
+| Smoothness | a freeze over 5 s in play, or 5 s of stutter a minute |
+| Stability | under an hour of play between crashes (and, as always, crashes in most sessions) |
+
+Controls, Features, Display and Load never make a game Scrap: they only weigh in the mean. The other
+Scrap floors stay: won't start, doesn't reach play, crashes in most sessions, too slow (a median under
+15 fps or 10 s of stutter a minute).
 
 **Picture**, from 100, each category deducted once per launcher however often it shows, floor 0.
-The reviewer's REVIEW.md lines `defect: <category> <pc|ps3>: <what>`:
+The reviewer's answers (`<category>: no`, or `<category>: pc|ps3: where`):
 
 | Category | Deduction |
 |---|---|
-| `garbage`: garbage textures or geometry | 60 |
+| `garbage`: garbage textures or geometry (also: picture broken) | 60 |
 | `missing`: a missing element (the HUD, models, shadows, an effect) | 25 |
 | `colours`: wrong colours or blending | 25 |
 | `flicker`: flicker, z-fighting, one-frame glitches | 15 |
 | `lighting`: lighting or shading differs | 10 |
-| `softer`: softer or less detailed from Walnut's own defaults (DXT, lean settings); the what says why | 5 |
+| `softer`: softer or less detailed from Walnut's own defaults (DXT, lean settings); the where says why | 5 |
 
 The player's "Visual glitches" answer adds 25 for "broken" unless a reviewed defect already takes 25
 or more, and 10 for "minor" unless one takes 10 or more; "didn't notice any" adds nothing. A launcher
 with neither a review nor an answer has Picture unmeasured.
 
-**Display.** The window geometry's scale first (a window covering the screen 100, a smaller one 30
-from half the screen up, 10 below, cropped 0, the median sample of all the launcher's sessions), then:
+**Display.** The game as shipped: the window geometry's scale first (a window covering the screen
+100, a smaller one 30 from half the screen up, 10 below, cropped 0, the median sample of all the
+launcher's sessions), then the reviewer's deductions:
 
 | Deduction | | How it's known |
 |---|---|---|
-| stretched to the wrong shape | 30 | measured where the game reports its render size (`render_res`): its aspect against the window's, unless black bars on the screenshots hold the right shape; else the reviewer's `stretched: yes` |
-| a desktop mouse pointer over the game | 10 | measured: an X pointer visible over the window in half the screenshots or more (XFixes); the reviewer's `pointer: hidden` corrects a game that hides it in a way XFixes can't see |
-| UI text under 18 px at 1080p | 15 | the reviewer's `text_px: N`, the smallest menu or HUD text read off a screenshot |
-| not as shipped | 20 | measured: the window changed size or fullscreen state between screenshots, or a settings file the game had before got new video lines (`r_mode`, `fullscreen`, ...) |
+| stretched or squashed (circles and characters out of proportion) | 30 | the reviewer, looking; black bars measured on the screenshots are printed as a hint, never scored |
+| a desktop mouse pointer over the game | 10 | measured (an X pointer visible over the window in half the screenshots or more, XFixes), confirmed or overridden by the reviewer |
+| UI text under 18 px at 1080p | 15 | the reviewer, from 1:1 crops with a ruler |
 
 Black bars around the right shape cost nothing; the game's own resolution is never scored.
 
-**Controls and Features** are checklists. Each item is yes, no or not tested; the score is the share
-of the tested items that pass (x 100), and a list with nothing tested leaves the aspect unmeasured.
-When the pad doesn't work without setup, Controls is at most 30. The old controller badge (full,
-partial, keyboard) comes from the Controls items.
+**Controls and Features** are checklists. Each item is yes, partly (half), no or not tested; the
+score is the share of the tested items that pass (x 100), and a list with nothing tested leaves the
+aspect unmeasured.
 
 | Item | Aspect | Where it comes from |
 |---|---|---|
-| the pad works without setup | Controls | measured: the player used the pad in play and the game opened it (inputlog.py); no when the pad was used and the game never opened it, or the player says they played with the keyboard instead |
-| the menus work with the pad | Controls | asked (the player went through them anyway); scripted runs, planned |
-| a pad turned on later is found | Controls | measured when a pad appeared mid-session (opened by the game or not); scripted runs, planned |
-| each extra pad joins as the next player | Controls | scripted runs, planned; else not tested |
-| the keyboard works too | Controls | the player played with it (asked) |
-| nothing needs the keyboard | Controls | measured: more than 2 key presses during a session played with the pad means no |
+| the gamepad works in play | Controls (pad games) | asked: "Gamepad in play: seamless / needed setup / didn't work / didn't try"; else measured: the player used the pad and the game opened it (inputlog.py) |
+| the gamepad works without setup | Controls (pad games) | the same answer: seamless is yes, needed setup and didn't work are no; Controls is then at most 30 |
+| the menus work with the gamepad | Controls (pad games) | asked: "worked / partly / didn't / didn't try"; scripted later |
+| a gamepad turned on later is found | Controls (pad games) | scripted (planned); measured if it happens in a session; never asked (a DualShock 3 can't easily be turned off mid-game) |
+| each extra gamepad joins as the next player | Controls (pad games) | scripted (planned), else not tested; never asked (one player, one pad) |
+| nothing needs the keyboard | Controls (pad games) | measured: more than 2 key presses during a session played with the pad means no; not tested while the logger can't read the keyboard (the `input` group) |
+| keyboard and mouse work | Controls (all games) | asked: "worked / something didn't / didn't use" |
 | every menu and mode opened works | Features | asked |
-| settings stick across restarts | Features | measured in part: the settings files the game wrote in its last session are read back at the next start (confwatch.py, access times) |
 | saves load | Features | asked ("didn't try": not tested) |
-| online play works | Features | the reviewer (`check: online yes|no`) or a scripted run; else not tested |
+| online play works | Features | the reviewer (`check: online yes\|no`) or a scripted run; else not tested |
 
-The reviewer's `check: <item> yes|no|na` and `broken: <item> <pc|ps3>: <what>` lines win over the
-measured and asked answers, and label a broken item with where it comes from. Over several sessions
-the newest answer of each item counts.
+**Games designed for keyboard and mouse.** The catalog entry's `designed_for = "keyboard-mouse"`
+(default `"pad"`) makes Controls score the keyboard and mouse alone; the gamepad items only make the
+controller badge, and the page shows a "made for keyboard and mouse" badge.
+
+The reviewer's `check: <item> yes|partly|no|na` and `broken: <item> <pc|ps3>: <what>` answers win
+over the measured and asked ones, and label a broken item with where it comes from. Over several
+sessions the newest answer of each item counts. The controller badge (full, partial, keyboard) comes
+from the gamepad items.
 
 **Stability.** Crashes and unclean quits per hour of play over all the launcher's tests (scripted runs
 and soaks count their hours too). A quit is clean when the game exits with code 0 and the desktop is
 back within 10 s of its end (session.sh's `desktop_back_s`); the player killing it (Ctrl+Alt+Esc), an
-error exit, or a desktop that doesn't come back count like a crash in the rate. Only real crashes
-(a signal, a segfault, out of memory) make the "crashes in most sessions" Scrap floor. The score of a
-crash-free game starts at 90 and rises to 100 over its first three hours; with failures it is read
-off the rate: 1 in 3 hours scores 75, 1 an hour 55, 4 an hour 35, 12 an hour 0. Under an hour of
-play it is marked provisional.
+error exit, or a desktop that doesn't come back count like a crash in the rate (but never make the
+game broken). The score of a crash-free game starts at 90 and rises to 100 over its first three
+hours; with failures it is read off the rate: 1 in 3 hours scores 75, 1 an hour 55, 4 an hour 35, 12
+an hour 0. Under an hour of play it is marked provisional.
+
+**Load** is the time a player waits, never the time they spend in menus. With fresh defaults every
+session, a game may need menus, a profile or a new game set up before play; that time is the
+player's and doesn't count. Load = the initial load (launch to the game's first frame, `hud_t1`) +
+the level load (from the player's last input before the play mark, inputlog.py's press times, to the
+play mark: from "start game" to play actually starting). Without a play mark or an input log, Load is
+the initial load only and the page says so. Frame rate, smoothness and dropouts are measured from the
+play mark plus the 30 s warm-up.
 
 - **Resolution.** Games are tested on a 1080p TV as Walnut ships them. The game's own resolution
   isn't graded: a pixel-art game drawing 320x240 and scaled up to the TV is fine.
@@ -163,26 +199,27 @@ curve because most of those faults were never heard: 40 at ten a minute, 32 at t
 
 | Criterion | How |
 |---|---|
-| frame rate, smoothness, load | measured (the Gallium HUD's frame times) |
+| frame rate, smoothness, initial load | measured (the Gallium HUD's frame times) |
+| level load | measured (inputlog.py's press times, the recipe's play mark) |
 | sound dropouts, a wedged device | measured (ps3-xrunlog, the card's pointer) |
 | sound and music heard | asked |
-| picture defects, their origin | agent-reviewed (PS3 screenshots next to the PC) |
+| picture defects and their origin, stretched, text size | agent-reviewed (review.py's questionnaire over the PS3 screenshots and the PC reference, by looking) |
 | visual glitches the screenshots missed | asked |
 | crashes, unclean quits | measured (exit code, kernel log, the desktop's return) |
-| window geometry, black bars, the mouse pointer | measured (geom.py at each screenshot, the screenshots) |
-| stretched | measured where the render size is known, else agent-reviewed |
-| text size | agent-reviewed |
-| video settings changed | measured (window changes, the settings files' new lines) |
-| pad without setup, a pad found later, nothing needs the keyboard | measured (inputlog.py); scripted later |
-| menus with the pad | asked; scripted later |
-| extra pads join as players | scripted (planned); not tested until then |
-| keyboard works, menus and modes, saves | asked |
-| settings stick | measured in part (confwatch.py) |
+| window geometry | measured (geom.py at each screenshot), on shipped defaults (freshhome.py) |
+| the mouse pointer | measured (XFixes), confirmed by the reviewer |
+| black bars | measured, a hint for the reviewer only |
+| the gamepad in play, without setup | asked; measured when not answered (inputlog.py); scripted later |
+| the gamepad in the menus | asked; scripted later |
+| a gamepad found later, extra gamepads join | scripted (planned); not tested until then |
+| nothing needs the keyboard | measured (inputlog.py, with the `input` group); else not tested |
+| keyboard and mouse, menus and modes, saves | asked |
 | online play | agent-reviewed or scripted; else not tested |
 | hours of play | measured; scripted runs and soaks add more (planned) |
 
-Asked, the whole form: sound, music, glitches, played with, the menus with the pad, menus and modes,
-saves, and the notes.
+Asked, the whole form: sound, music, glitches, the gamepad in the menus, the gamepad in play, the
+keyboard and mouse, menus and modes, saves, and the notes (including a setting that had to be changed
+to play).
 
 ## Rules versions
 
@@ -209,8 +246,9 @@ current rules and links each rating's rules to its section.
 
 **Rules 2.0 (2026-10-26)**, current: the tables above. A session is data version 2 when its form is the
 second one (session.toml `form_version = 2`, `import-run.py --rules 2.0` for a run reviewed the new way).
-Its data points beyond 1.0: the raw window samples with the pointer, black bars, the desktop's return
-after the quit, the input log, the settings files, the form's answers and the reviewer's items.
+Its data points beyond 1.0: the game on shipped defaults (the settings set aside), the raw window
+samples with the pointer, black bars, the desktop's return after the quit, the input log with press
+times (the level load), the form's answers and the reviewer's questionnaire.
 
 **Rules 1.0 (2026-10-24)**, the ratings made before (kept as they are: their tests lack the new data):
 
@@ -224,8 +262,10 @@ after the quit, the input log, the settings files, the form's answers and the re
 | Display | 5 | the window geometry alone, no deductions (stored per test as `display_score`) |
 | Load | 5 | as in 2.0 |
 
-No Controls or Features (the controller badge is the catalog entry's `controller`), the same medals,
-weakest link, Scrap floors and curves.
+No Controls or Features (the controller badge is the catalog entry's `controller`), the player's own
+settings, Load the initial load only, the same curves and Scrap floors, and the weakest-link cap: the
+medal at most one level above the weakest aspect (counted on the Platinum-to-Bronze scale), where 2.0
+has the broken-subsystem rule instead.
 
 ## The medals
 
@@ -237,15 +277,14 @@ weakest link, Scrap floors and curves.
 | **Bronze** | works, with clear problems | 35 or more |
 | **Tin** | playable, but rough | 25 to 35 |
 | **Rust** | barely playable | 15 to 25 |
-| **Scrap** | doesn't work: won't start, doesn't reach play, crashes in most sessions, or too slow (a median under 15 fps, or over 10 s of stutter a minute) | under 15, or any of those |
+| **Scrap** | doesn't work: won't start, doesn't reach play, crashes in most sessions, too slow (a median under 15 fps, or over 10 s of stutter a minute), or a core subsystem broken (rules 2.0) | under 15, or any of those |
 | **Untested** | nobody has played it on Walnut yet | |
 
-- **Leeway, with a weakest link.** The mean gives leeway: a game perfect everywhere at 50 fps loses
-  a few points, not a medal. But the medal is at most one level above the game's weakest aspect,
-  counted on the Platinum-to-Bronze scale (an aspect under 35 counts as below Bronze). One near-miss
-  doesn't cost a medal; one real failure isn't averaged away. A game that plays perfectly but is
-  silent is Bronze, with a "no sound" badge.
-- **Scrap shows its reason**: won't start, crashes, or too slow.
+- **The mean, and broken means Scrap** (rules 2.0). The mean gives leeway: a game perfect everywhere
+  at 50 fps loses a few points, not a medal, and one weak aspect costs only its weight. A broken core
+  subsystem isn't averaged away: the game is Scrap, with the mean shown beside it and what's broken
+  ([How a game is rated](#how-a-game-is-rated)). Rules 1.0 had a weakest-link cap instead.
+- **Scrap shows its reason**: won't start, crashes, too slow, or what's broken.
 - **Sessions measured alike are merged** (medians), those of the newest version measured the way its
   newest session was: a session from before the sound dropout logger isn't merged with one after it
   (catalog.py `method`), nor one of another rules data version; it stays on the page as a test run.
@@ -379,7 +418,8 @@ buttons Install, Remove, Play and "Open on the web". The window follows the Waln
 
 A game is one folder, `gamedb/content/games/<id>/`: `index.md` with the catalog entry in its
 front matter (title, summary, categories, tags, the packages to install, optionally the .desktop entries,
-`fps_cap` if it has one, whether it needs the user's own data, the controller) and notes as its
+`fps_cap` if it has one, whether it needs the user's own data, the controller, `designed_for`:
+`"pad"` by default or `"keyboard-mouse"`, set by the user per game) and notes as its
 body, a `thumb.png`, and one folder per test (`tests/<date>-<kind>/`) with its generated
 `result.toml` and the screenshots it lists (`ps3-<point>.jpg`, 800x450 JPEG, kept in Git LFS). A
 session takes a screenshot every minute; the importer publishes up to four that differ (black

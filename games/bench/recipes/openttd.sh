@@ -51,6 +51,9 @@ SUITE=1
 COMM=openttd
 OT_CFG=$HOME/.config/openttd/bench.cfg
 BACKUP=("$OT_CFG")
+# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
+# freshhome.py); checked against XDG config and data (saves); .openttd from older releases
+SESSION_HOME=(.config/openttd .local/share/openttd .openttd)
 # participate_survey lives in private.cfg since 13.0, but a config without [version] (this one:
 # -x keeps OpenTTD from writing it back) is read as older than that split, so OpenTTD 15.1 takes
 # the private settings from it as well (settings.cpp, IFV_PRIVATE_SECRETS)

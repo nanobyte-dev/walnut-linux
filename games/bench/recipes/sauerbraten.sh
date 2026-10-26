@@ -36,6 +36,9 @@ DATA_DIRS=(/usr/share/games/cube2)
 SB_HOME=$HOME/.cube2
 BACKUP=("$SB_HOME/autoexec.cfg" "$SB_HOME/config.cfg" "$SB_HOME/restore.cfg" "$SB_HOME/init.cfg"
 	"$SB_HOME/demo/bench.dmo")
+# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
+# freshhome.py); checked against BananaBread's home (sauerbraten/files/sauerbraten keeps Sauerbraten's apart in ~/.sauerbraten)
+SESSION_HOME=(.cube2)
 SB_MAP=cave
 SB_SET=()	# extra CubeScript lines for autoexec.cfg (variants)
 SB_INIT=()	# extra lines for init.cfg, which the engine reads before it starts the sound (soundfreq...)

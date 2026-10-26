@@ -1,3 +1,4 @@
 {{- $n := dict "needs-data" "needs your own data" "no-sound" "no sound" "low-memory" "low memory"
-    "controller-full" "controller: full" "controller-partial" "controller: partial" "controller-keyboard" "keyboard and mouse" -}}
+    "controller-full" "controller: full" "controller-partial" "controller: partial" "controller-keyboard" "keyboard and mouse"
+    "keyboard-mouse" "made for keyboard and mouse" -}}
 {{- index $n . | default . -}}

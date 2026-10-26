@@ -8,14 +8,19 @@ tkinter it asks on the terminal (/dev/tty, else stdin).
   session.toml   sound = "yes" | "partly" | "no"                  (no default)
                  music = "yes" | "no" | "none"                    (none: the game has no music; no default)
                  glitches = "none" | "minor" | "broken"           (default none: didn't notice any)
-                 played_with = "pad" | "keyboard" | "both"        (default pad)
-                 pad_menus = "yes" | "no" | "na"                  (the menus with the pad; default yes)
+                 pad_menus = "worked" | "partly" | "didnt" | "na" (the gamepad in the menus; default na: didn't try)
+                 pad_play = "seamless" | "setup" | "didnt" | "na" (the gamepad in play: no setup, needed setup,
+                                                                  didn't work; default na)
+                 keyboard_mouse = "worked" | "some" | "na"        (some: something didn't; default na: didn't use)
                  menus_modes = "yes" | "no"                       (the menus and modes opened worked; default yes)
                  saves_load = "yes" | "no" | "na"                 (default na: didn't try)
-                 controls = "full" | "partial" | "keyboard-mouse" (derived, for the old badge and old readers)
+                 controls = "full" | "partial" | "keyboard-mouse" (derived when it can be, for the old badge)
                  notes = "..."                                    (one string, \\n for line breaks)
                  form_version = 2, saved = "2026-10-26T18:04:11Z", game, variant, form = "tk" | "terminal"
 
+The game runs on fresh defaults (session.sh) and the player changes no settings: a game that couldn't be
+played without changing one goes in the notes. One pad: a pad turned on mid-game and extra players are
+scripted runs' (planned), never asked.
 form_version 2 makes the importer file the session under rules 2.x (tools/gamedb/import-run.py); the
 first form (sound, music, controls, notes) had none. Closing the window without Save writes nothing (the
 run directory has no session.toml; run this script again on it). Exit status: 0 saved, 1 not saved, 2 usage.
@@ -40,10 +45,12 @@ QUESTIONS = [
      [("yes", "Yes"), ("no", "No"), ("none", "No music in this game")], None),
     ("glitches", "Visual glitches?",
      [("none", "Didn't notice any"), ("minor", "Minor"), ("broken", "Broken")], "none"),
-    ("played_with", "You played with",
-     [("pad", "The pad"), ("keyboard", "Keyboard/mouse"), ("both", "Both")], "pad"),
-    ("pad_menus", "The menus with the pad",
-     [("yes", "Worked"), ("no", "Didn't"), ("na", "Didn't try")], "yes"),
+    ("pad_menus", "Gamepad in the menus",
+     [("worked", "Worked"), ("partly", "Partly"), ("didnt", "Didn't"), ("na", "Didn't try")], "na"),
+    ("pad_play", "Gamepad in play",
+     [("seamless", "Seamless"), ("setup", "Needed setup"), ("didnt", "Didn't work"), ("na", "Didn't try")], "na"),
+    ("keyboard_mouse", "Keyboard and mouse",
+     [("worked", "Worked"), ("some", "Something didn't"), ("na", "Didn't use")], "na"),
     ("menus_modes", "Menus and modes you opened",
      [("yes", "Worked"), ("no", "Something didn't")], "yes"),
     ("saves_load", "Saving and loading",
@@ -52,10 +59,14 @@ QUESTIONS = [
 
 
 def derived_controls(a):
-    """the first form's controls answer from the new ones (the old controller badge)"""
-    if a.get("played_with") == "keyboard":
+    """the first form's controls answer from the gamepad ones (the old controller badge), or None"""
+    if a.get("pad_play") == "seamless":
+        return "full" if a.get("pad_menus") in ("worked", "na") else "partial"
+    if a.get("pad_play") == "setup":
+        return "partial"
+    if a.get("pad_play") == "didnt" or a.get("keyboard_mouse") == "worked":
         return "keyboard-mouse"
-    return "full" if a.get("pad_menus") == "yes" else "partial"
+    return None
 
 
 def toml_str(s):
@@ -82,7 +93,8 @@ def save(run_dir, answers, notes, game, variant, form):
     lines = ["# the end-of-session form (games/bench/session-form.py)", "form_version = %d" % FORM_VERSION]
     for key, _, _, _ in QUESTIONS:
         lines.append("%s = %s" % (key, toml_str(answers[key])))
-    lines.append("controls = %s" % toml_str(derived_controls(answers)))
+    if derived_controls(answers):
+        lines.append("controls = %s" % toml_str(derived_controls(answers)))
     lines.append("notes = %s" % toml_str(notes.strip()))
     lines.append("saved = %s" % toml_str(now))
     lines.append("form = %s" % toml_str(form))
@@ -200,7 +212,7 @@ def form_tk(run_dir, game, variant):
     n = len(QUESTIONS)
     tk.Label(body, text="Notes", bg=PANEL, fg=TEXT, font=f_big).grid(row=n, column=0, sticky="nw", padx=(24, 18),
                                                                      pady=(16, 0))
-    tk.Label(body, text="What didn't work, a glitch and where, odd sound, anything the numbers won't show.",
+    tk.Label(body, text="What didn't work, a glitch and where, a setting you'd have had to change to play.",
              bg=PANEL, fg=MUTED, font=f_small).grid(row=n, column=1, sticky="w", pady=(16, 0))
     notes = tk.Text(body, height=4, wrap="word", bg=BG, fg=TEXT, insertbackground=ACCENT,
                     font=f_big, relief="flat", bd=0, padx=12, pady=8, highlightthickness=2,

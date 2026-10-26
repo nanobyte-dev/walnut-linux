@@ -175,7 +175,7 @@ def rules_info(data):
             "rules_label": score.rules_label(data), "rules_anchor": score.RULES[data]["anchor"]}
 
 
-def history(groups, fps_cap):
+def history(groups, fps_cap, designed_for="pad"):
     """one row per version and data version: its own rating (from that version's sessions of that data version,
     measured like its newest), for the website's comparison between versions and rules"""
     out = []
@@ -186,7 +186,7 @@ def history(groups, fps_cap):
         if not any(t.get("kind") in GRADED for t in ts) and any(
                 x[0] == (walnut, pkg, ver) and x[1] != data and any(t.get("kind") in GRADED for t in x[2]) for x in rows):
             continue    # a capture under other rules than the version's sessions: no row of its own
-        r = score.combine(rated_tests(ts), fps_cap, data)
+        r = score.combine(rated_tests(ts), fps_cap, data, designed_for)
         row = {"walnut": walnut, "package": pkg, "version": ver,
                "first": min(t["date"] for t in ts), "last": max(t["date"] for t in ts), "tests": len(ts),
                "hours": round(r["hours"], 2), "crashes": r["crashes"], "medal": r["medal"],
@@ -218,14 +218,15 @@ def rate_launcher(tests, fm):
     """one launcher's rating, from the newest version's sessions measured like its newest one (capture
     runs of any version add their picture), and its history (every version rated the same way)"""
     fps_cap = fm.get("fps_cap")
-    hist = history(version_groups(tests, fm["packages"]), fps_cap)
+    designed_for = fm.get("designed_for", "pad")
+    hist = history(version_groups(tests, fm["packages"]), fps_cap, designed_for)
     data = newest_data(tests)
     tests = [t for t in tests if score.data_version(t) == data]
     groups = version_groups(tests, fm["packages"])
     current = next((k for k, ts in groups if any(t.get("kind") in GRADED for t in ts)), None)
     cur = rated_tests([t for k, ts in groups for t in ts if k == current or t.get("kind") not in GRADED])
     cur.sort(key=lambda t: (t["date"], t["id"]))
-    r = score.combine(cur, fps_cap, data)
+    r = score.combine(cur, fps_cap, data, designed_for)
     det = details(r, fps_cap)
     det.update(r.get("details") or {})
     pic = [(t["numbers"]["shot_points"], t["numbers"]["shot_differing"]) for t in cur
@@ -254,7 +255,7 @@ def rate_launcher(tests, fm):
     rating["basis"] = {"tests": len(graded), "kind": r["graded_by"],
                        "minutes": int(round(sum(t.get("play_seconds") or 0 for t in graded) / 60))}
     if data >= 2:
-        rating.update(hangs=r["hangs"], defects=r["defects"], controls_failed=r["controls_failed"],
+        rating.update(hangs=r["hangs"], defects=r["defects"], broken=r.get("broken", []), designed_for=designed_for, controls_failed=r["controls_failed"],
                       features_failed=r["features_failed"], controller=r["controller"], checks=r["checks"],
                       display_deductions=[{"what": w, "points": p} for w, p in r["display_deductions"]])
     return rating, hist
@@ -292,6 +293,8 @@ def build_game(gdir, repo, debs):
     badges = []
     if fm["needs_data"]:
         badges.append("needs-data")
+    if fm.get("designed_for") == "keyboard-mouse":
+        badges.append("keyboard-mouse")
     # the controller badge: the best launcher's Controls checks under rules 2, else the front matter's
     controller = best["rating"].get("controller") or fm["controller"]
     if controller != "unknown":

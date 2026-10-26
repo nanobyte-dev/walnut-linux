@@ -19,6 +19,9 @@
 SUITE=1
 COMM=quakespasm
 BACKUP=("$HOME/.quakespasm/id1/config.cfg" "$HOME/.quakespasm/id1/quake.rc")
+# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
+# freshhome.py); checked against the recipe's config.cfg path
+SESSION_HOME=(.quakespasm)
 setup() {
 	mkdir -p "$HOME/.quakespasm/id1"
 	printf '%s\n' "exec default.cfg" "exec config.cfg" "exec autoexec.cfg" "stuffcmds" \

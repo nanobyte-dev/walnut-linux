@@ -5,7 +5,8 @@ summary = "How Walnut Games tests a game on the PS3 and turns the measurements i
 
 **A rating says how well a game plays on a PS3 under Walnut, not how good the game is.** Game
 design never scores: a punishing difficulty, short levels, a game's own frame cap or simulation
-speed, controls laid out for a PC keyboard, or whether it's fun. Anything broken that you'd run into
+speed, controls laid out for a PC keyboard, or whether it's fun. A game made for keyboard and mouse
+(a strategy game, a PC shooter) isn't marked down for weak gamepad support. Anything broken that you'd run into
 playing it on Walnut does score, wherever it comes from, and the page says where: each problem is
 marked "also on the PC" (the game's own, it happens on a PC too) or "PS3/Walnut only" (ours).
 
@@ -18,19 +19,22 @@ rests on ("1 session, 9 min of play").
 ## How a game is tested
 
 **A played session.** One person plays the game for about ten minutes, the way you would: started
-from the Walnut desktop, with the settings Walnut ships, on a 1080p TV. While they play, a recorder
-notes every frame's time, every sound dropout, the memory, how the game ended and how quickly the
-desktop came back, a screenshot about once a minute with where the game's window and the mouse
-pointer were, which controllers the game picked up and whether the pad or the keyboard was used
-(counts only, never what was typed), and whether the game's settings files changed (checked, never
-touched). At the end the player answers a few one-tap questions about what only they could tell:
-whether they heard the sound and music, glitches they saw, whether the menus worked with the pad,
-whether saving worked, and writes down anything odd; those notes become the game's known issues.
+from the Walnut desktop, on a 1080p TV, as the game ships: the tester's own settings for it are put
+aside for the session and come back afterwards, so the game starts like it would for you on day one,
+and no setting is changed while testing. While they play, a recorder notes every frame's time, every
+sound dropout, the memory, how the game ended and how quickly the desktop came back, a screenshot
+about once a minute with where the game's window and the mouse pointer were, and which controllers
+the game picked up and when buttons were pressed (never which keys, never what was typed). At the end
+the player answers a few one-tap questions about what only they could tell: whether they heard the
+sound and music, glitches they saw, how the gamepad worked in the menus and in play, the keyboard and
+mouse, whether saving worked, and writes down anything odd; those notes become the game's known
+issues.
 
-**A side-by-side picture check.** The screenshots are put next to the same game on a PC and looked
-at: missing textures, wrong colours, text that isn't drawn, text too small to read on a TV. Each
-problem is noted with whether the PC shows it too. The screenshots on these pages are all from the
-PS3.
+**A picture check.** The screenshots are put next to the same game on a PC, and a reviewer answers
+the same fixed questions for every game by looking at them: is the picture stretched or squashed, how
+small is the smallest text, is a mouse pointer in the way, is anything garbled, missing, wrongly
+coloured, flickering or lit differently, is anything broken. Each problem is noted with whether the PC
+shows it too. The screenshots on these pages are all from the PS3.
 
 **What one player can't test isn't held against a game.** A second or third controller, online play,
 a mode nobody reached: those are "not tested", and their weight goes to what was. Scripted runs on
@@ -49,9 +53,9 @@ Each part of the experience gets a score from 0 to 100. The same scale applies t
 | Picture | 12 | garbled, or several kinds of fault | the same as on a PC |
 | Stability | 12 | crashes in most sessions | no crashes, quits cleanly back to the desktop |
 | Controls | 10 | nothing works with the controller | everything tested works with the controller |
-| Display | 6 | cropped or off-screen | full screen, right shape, readable, right out of the box |
+| Display | 6 | cropped or off-screen | full screen, right shape, readable, as shipped |
 | Features | 5 | everything tested is broken | menus, modes, saves and settings work |
-| Load | 3 | two minutes to start | 15 seconds (to the game's first screen; your time in its menus doesn't count) |
+| Load | 3 | two minutes of waiting | 15 seconds (starting the game, plus from "start" to play; your time in its menus doesn't count) |
 
 **Picture** starts at 100 and loses a fixed amount for each kind of fault, counted once however
 often it shows:
@@ -70,16 +74,16 @@ often it shows:
 
 | Problem | Points |
 |---|---|
-| stretched to the wrong shape | 30 |
-| not right out of the box: the video settings had to be changed | 20 |
+| stretched or squashed out of shape | 30 |
 | text smaller than 18 pixels on a 1080p TV | 15 |
 | the desktop's mouse pointer sits over the game | 10 |
 
-**Controls** and **Features** are checklists: the pad works without setup, the menus work with it,
-a pad turned on later is found, extra pads join as players, the keyboard works too, nothing needs the
-keyboard; every menu and mode works, settings stick, saves load, online play works. The score is the
-share of the tested items that pass. A game whose controller doesn't work without setup scores 30 at
-most on Controls.
+**Controls** and **Features** are checklists: the gamepad works in play without setup, the menus
+work with it, a gamepad turned on later is found, extra gamepads join as players, nothing needs the
+keyboard, keyboard and mouse work; every menu and mode works, saves load, online play works. The
+score is the share of the tested items that pass. A game whose gamepad doesn't work without setup
+scores 30 at most on Controls. A game made for keyboard and mouse is scored on those alone; how it
+does with a gamepad shows as a badge.
 
 A few more things worth knowing:
 
@@ -120,7 +124,8 @@ The current rules: everything on this page.
 
 Older ratings use the 2026-10-24 rules: seven scores (frame rate 25, smoothness 20, sound 15, picture
 15, stability 15, display 5, load 5), no Controls or Features, the picture judged right or wrong as a
-whole, and the display from the window's size alone.
+whole, the display from the window's size alone, the tester's own settings, and a weakest-link cap
+(a medal at most one level above the weakest score) in place of the broken rule.
 
 ## The medals
 
@@ -134,15 +139,17 @@ The medal comes from the weighted average of the scores.
 | {{< medal "Bronze" >}} | Works, with clear problems | 35 or more |
 | {{< medal "Tin" >}} | Playable, but rough | 25 or more |
 | {{< medal "Rust" >}} | Barely playable | 15 or more |
-| {{< medal "Scrap" >}} | Doesn't work: won't start, crashes in most sessions, or far too slow | under 15 |
+| {{< medal "Scrap" >}} | Doesn't work: won't start, crashes, far too slow, or something core is broken | under 15, or broken |
 | {{< medal "Untested" >}} | Nobody has played it on Walnut yet | |
 
-**An average, with a weakest link.** The average gives some leeway: a game that is perfect except
-for running at 50 frames a second loses a few points, not a medal. But a game can be at most one
-medal above its weakest score, so one real problem isn't averaged away. A game that plays
-perfectly but is silent is Bronze, with a "no sound" badge. And some failures make a game Scrap
-whatever its average: it doesn't start, crashes in most sessions, runs under 15 frames a second, or
-stutters for more than 10 seconds a minute. The page then says which.
+**An average, unless something is broken.** The average gives leeway: a game that is perfect except
+for running at 50 frames a second loses a few points, not a medal, and a weak spot costs only its
+share. But a game where a core part is broken is Scrap however fast it runs, with its average shown
+next to it ("Scrap · 82") and what's broken: garbled textures or geometry, no sound effects, under 20
+frames a second, freezes over 5 seconds or 5 seconds of stutter a minute, or a crash within an hour
+of play. A game that doesn't start, crashes in most sessions, runs under 15 frames a second or
+stutters for more than 10 seconds a minute is Scrap too. Controls, features, display and load never
+make a game Scrap: they only count in the average.
 
 **Games with more than one launcher.** Some games have two entries in the menu, like OpenArena
 with its GL 1.2 and GL 2.0 renderers. Each is played and rated on its own, and the game's medal is

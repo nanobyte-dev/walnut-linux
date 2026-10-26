@@ -247,8 +247,9 @@ def basis_text(rating):
 
 
 def problem_lines(rating):
-    """rules 2's defects and failed checks, each with where it comes from ("also on the PC", "PS3/Walnut only")"""
-    out = []
+    """rules 2's broken core subsystems (they make the game Scrap whatever its mean), then its defects and failed
+    checks, each with where it comes from ("also on the PC", "PS3/Walnut only")"""
+    out = ["Scrap: " + "; ".join(rating["broken"])] if rating.get("broken") else []
     for d in rating.get("defects") or []:
         out.append("Picture: %s%s, -%d%s" % (d.get("name", ""), " (%s)" % d["what"] if d.get("what") else "",
                                              d.get("points", 0), " [%s]" % d["origin"] if d.get("origin") else ""))

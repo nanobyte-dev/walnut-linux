@@ -11,6 +11,7 @@ if it exists (`base` needs none).
 | `SUITE=1` | part of `run.sh suite` |
 | `COMM` | the game's process name (ps3rsx per-client VRAM, peak RSS) |
 | `BACKUP=(...)` | files the game rewrites (configs): restored after every run |
+| `SESSION_HOME=(...)` | the game's settings and data directories under ~ (globs allowed): a played session sets them aside and runs the game on fresh defaults (freshhome.py); without it, the top directories of the BACKUP files |
 | `DATA_DIRS=(...)` | the game's data directories (absolute): `GAMEDATA=ssd` (run.sh, an ENVS token) runs the game with each one bind-mounted from its SSD copy (`ssd-arm.sh copy GAME` makes it; docs/GAMEOS-HDD.md "Test drive, Phase A") |
 | `setup()` | puts assets and config in place (`$ASSETS` is `games/bench/assets`) |
 | `END_RE` | output line after which the game is stopped (games that don't quit) |

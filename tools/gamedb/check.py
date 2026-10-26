@@ -40,7 +40,7 @@ FIELDS = {
     "tags": (list, True), "license": (str, True), "homepage": (str, True), "packages": (list, True),
     "desktop": (list, False), "recipes": (list, False), "needs_data": (bool, True), "data_guide": (str, False),
     "controller": (str, True), "fps_cap": ((int, float), False), "medal_note": (str, False),
-    "known_issues": (list, False), "patched_by": (list, False),
+    "known_issues": (list, False), "patched_by": (list, False), "designed_for": (str, False),
 }
 TEST_FILES = {"result.toml"}
 
@@ -104,6 +104,8 @@ def check_game(gdir, bad, repo):
     for d in fm.get("desktop", []):
         if not isinstance(d, str) or not re.fullmatch(r"[A-Za-z0-9._-]+\.desktop", d):
             errs.append("desktop entry %r" % (d,))
+    if fm.get("designed_for", "pad") not in score.DESIGNED_FOR:
+        errs.append("designed_for %r: one of %s (default pad)" % (fm["designed_for"], ", ".join(score.DESIGNED_FOR)))
     if fm["controller"] not in CONTROLLERS:
         errs.append("controller %r: one of %s" % (fm["controller"], ", ".join(CONTROLLERS)))
     if fm["needs_data"] and not URL_RE.match(fm.get("data_guide", "")):

@@ -11,6 +11,9 @@ SUITE=1
 COMM=dsda-doom
 DD_CFG=$HOME/.local/share/dsda-doom/dsda-doom.cfg
 BACKUP=("$DD_CFG")
+# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
+# freshhome.py); checked against the recipe's config path; .dsda-doom from older releases
+SESSION_HOME=(.local/share/dsda-doom .dsda-doom)
 DD_SET=()	# "key value" pairs written into the config before the run
 setup() {
 	[ ${#DD_SET[@]} -gt 0 ] && [ -e "$DD_CFG" ] || return 0

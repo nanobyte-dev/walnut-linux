@@ -17,10 +17,12 @@
 # client.sh with BENCH_SESSION=1 under `ps3-bench.sh session`) with a screenshot about every
 # minute. There is no time limit: the session ends when the player quits the game. Then the form
 # (session-form.py) asks the few things only the player knows, and writes session.toml. Around the
-# game: confwatch.py (its settings files, read-only: hashes before and after), the desktop's thaw
-# (desktop_back_s, a clean quit), and client.sh's inputlog.py (the input devices, counts only).
+# game: freshhome.py (the game runs as shipped: its settings and data directories are renamed aside
+# before it starts and the player's own renamed back after it, losslessly), the desktop's thaw
+# (desktop_back_s, a clean quit), and client.sh's inputlog.py (the input devices, counts and times).
 # The terminal is frozen by game mode while the game runs: this script moves itself into
 # ps3-game.slice first (as ps3-game does), and logs to ~/.cache/ps3-session/ instead of the terminal.
+#   SESSION_FRESH=0              the player's own settings (no fresh defaults; then the session tests that)
 #   SESSION_SHOT_EVERY=SECONDS   screenshots interval (default 60), SESSION_SHOT_MAX=N the most (40;
 #                                8 MB each on the disk until make bench-pull)
 #   SESSION_FORM=0               no form (ask later: python3 -I session-form.py RUN_DIR GAME VARIANT)
@@ -131,11 +133,40 @@ versions() {	# the game's package and the graphics stack, as run.sh's
 	printf 'walnut\t%s\n' "$(. /etc/os-release 2>/dev/null; echo "${VERSION_ID:-}")"
 }
 
-# the game's settings files before it starts (confwatch.py: hashes only, read-only, O_NOATIME): did the
-# player change the video settings, and does the game read its settings back next time
-cw=$HOME/.cache/ps3-session/confwatch; mkdir -p "$cw"; cwb=$(mktemp "$cw/before.XXXXXX")
-# shellcheck disable=SC2046
-python3 -I "$here/confwatch.py" before "$cwb" "$cw/$g.json" "$g" $(pkgs) 2> /dev/null || cwb=
+homes() {	# the game's settings and data directories, relative to ~: the recipe's SESSION_HOME (globs
+	# allowed), else the top directories of its BACKUP files (~/.X, ~/.config/X, ~/.local/share/X)
+	( CMD=(); ENV=(); BACKUP=(); SESSION_HOME=(); ASSETS=; . "$R/$g.sh"
+	  declare -F "variant_$v" > /dev/null && "variant_$v"
+	  if [ ${#SESSION_HOME[@]} -gt 0 ]; then printf '%s\n' "${SESSION_HOME[@]}"; exit 0; fi
+	  for f in "${BACKUP[@]}"; do
+		r=${f#"$HOME"/}; [ "$r" = "$f" ] && continue
+		case $r in .config/*/*) echo "$r" | cut -d/ -f1-2 ;; .local/share/*/*) echo "$r" | cut -d/ -f1-3 ;;
+			*/*) echo "${r%%/*}" ;; esac
+	  done | sort -u ) 2> /dev/null
+}
+# the game as shipped, on fresh defaults (the user, 2026-10-26): its directories renamed aside (a sibling
+# on the same filesystem, instant, never a delete), the player's own renamed back after the game; a
+# session cut short is put back at the next session's start (freshhome.py: the plan is written first)
+fh_state=$HOME/.cache/ps3-session/freshhome; fh_plan=; fh_lines=; fh_done=
+fresh_restore() {	# fresh_restore RUN_DIR|-: the player's own back; the session's small fresh ones to RUN_DIR
+	[ -n "$fh_plan" ] && [ -z "$fh_done" ] || return 0
+	fh_done=1
+	python3 -I "$here/freshhome.py" restore "$fh_plan" "${1:--}"
+}
+if [ "${SESSION_FRESH:-1}" = 1 ]; then
+	mapfile -t hl < <(homes)
+	if [ ${#hl[@]} -gt 0 ]; then
+		echo "session: fresh defaults: setting aside ~/${hl[*]}"
+		if out=$(python3 -I "$here/freshhome.py" aside "$fh_state" "$g" "${hl[@]}"); then
+			fh_plan=$(head -1 <<< "$out"); fh_lines=$(sed 1d <<< "$out")
+			trap 'fresh_restore -; [ -n "$cmdfile" ] && rm -f "$cmdfile"' EXIT
+		else
+			echo "session: freshhome.py failed: the game runs on the player's own settings" >&2
+		fi
+	else
+		echo "session: $g: no SESSION_HOME or BACKUP in its recipe: the player's own settings"
+	fi
+fi
 # the desktop's thaw after the game (game mode freezes ps3-desktop.slice while it runs): when it came back,
 # for Stability's clean quit (bench.txt desktop_back_s, from the game's end at t0 + seconds); a second's
 # resolution, builtins only (no fork a second: the tick is a read timing out on a fifo nobody writes)
@@ -180,8 +211,8 @@ if [ -n "$watch_pid" ]; then
 	fi
 fi
 rm -f "$thawf"
-[ -n "$cwb" ] && python3 -I "$here/confwatch.py" after "$cwb" "$cw/$g.json" "$d" >> "$d/bench.txt" 2> /dev/null
-[ -n "$cwb" ] && rm -f "$cwb"
+[ -n "$fh_lines" ] && printf '%s\n' "$fh_lines" >> "$d/bench.txt"
+[ -n "$fh_plan" ] && fresh_restore "$d" >> "$d/bench.txt"
 if [ "${SESSION_FORM:-1}" = 1 ]; then
 	python3 -I "$here/session-form.py" "$d" "$g" "$v" || echo "session: no session.toml (python3 -I $here/session-form.py $d $g $v)"
 fi

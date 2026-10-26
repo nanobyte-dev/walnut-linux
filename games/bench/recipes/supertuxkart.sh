@@ -26,6 +26,9 @@ REF_PKGS=supertuxkart	# the PC reference (tools/bench-ref.sh): Debian's supertux
 DATA_DIRS=(/usr/share/games/supertuxkart)
 STK_CFG=$HOME/.config/supertuxkart/config-0.10/config.xml
 BACKUP=("$STK_CFG")
+# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
+# freshhome.py); checked against src/io/file_manager.cpp: XDG config, and addons, replays, screenshots in XDG data; the cache stays
+SESSION_HOME=(.config/supertuxkart .local/share/supertuxkart)
 STK_TRACK=lighthouse STK_KARTS=4 STK_TIME=180
 ENV=(STK_PROFILE_WARMUP=60)
 declare -A STK_VIDEO=([enable_high_definition_textures]=1 [max_texture_size]=512
