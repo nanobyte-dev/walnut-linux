@@ -37,18 +37,18 @@ against the owning buffer, like the fragment textures.
 
 Rank 16. Fewer, larger GL calls in the games that are CPU-bound in the driver stack.
 
-**Why.** Batching in the games beat driver work by far: X-Moto 44.5 -> 166.5 fps (18,500 -> 165 GL
-calls a frame), Extreme Tux Racer 52 -> 59. Where the game is GPU-bound or lightly loaded the gain
-is small: dsda-doom +3%, OpenArena opengl1 neutral, ClassiCube -4% steady with better lows until
+**Why.** Batching in the games beat driver work by far: [X-Moto](../../gamedb/games/xmoto/) 44.5 -> 166.5 fps (18,500 -> 165 GL
+calls a frame), [Extreme Tux Racer](../../gamedb/games/etr/) 52 -> 59. Where the game is GPU-bound or lightly loaded the gain
+is small: [dsda-doom](../../gamedb/games/dsda-doom/) +3%, [OpenArena](../../gamedb/games/openarena/) opengl1 neutral, [ClassiCube](../../gamedb/games/classicube/) -4% steady with better lows until
 `CC_GL_CHUNKS=1` (+4.7%, batch 16).
 
 - **Payoff:** medium: large where a game is CPU-bound in the driver stack, nothing where it isn't.
 - **Effort:** M per game. **Risk:** low: each change behind a switch, pixels checked on llvmpipe.
 - **Needs:** host, PS3.
 - **The games left** are each one item of its GameDB backlog (`gamedb/games/<id>/todo.toml`, source
-  PLAN 3.1): BananaBread's cube2 0007-0009, on by default and never A/B'd on the PS3; SuperTuxKart's
+  PLAN 3.1): [BananaBread](../../gamedb/games/bananabread/)'s cube2 0007-0009, on by default and never A/B'd on the PS3; [SuperTuxKart](../../gamedb/games/supertuxkart/)'s
   client arrays in Irrlicht's legacy driver (17.6% of its CPU in the symbolised ssdroot2 P1b profiles,
-  [HOTPATHS.md](../HOTPATHS.md#inside-the-graphics-stack)); OpenTTD's GL driver, never tried.
+  [HOTPATHS.md](../HOTPATHS.md#inside-the-graphics-stack)); [OpenTTD](../../gamedb/games/openttd/)'s GL driver, never tried.
 - **Source:** PLAN 3.1; [archive/HOTPATHS.md, "ClassiCube's batching measured slower: GPU-bound"](../archive/HOTPATHS.md#classicubes-batching-measured-slower-gpu-bound).
 
 **To start.** Count GL calls and draws per frame on llvmpipe forced to GL 2.1 (`tools/glcount`),
@@ -65,13 +65,13 @@ Rank 17. The submission ioctl's state shadow replayed by runs of methods (module
 `shadow_fast` replays bursts by runs of one kind and walks the restore a bitmap word at a time; a
 userspace fuzz found the old and new paths identical over 38M bursts and 3.8M submits (x86 and
 big-endian ppc64 under qemu). Expected from instruction counts: ~60% of shadow_burst's
-instructions, 0.6-1.5% of each game's CPU (ClassiCube's shadow_burst 1.95 -> ~0.8%).
+instructions, 0.6-1.5% of each game's CPU ([ClassiCube](../../gamedb/games/classicube/)'s shadow_burst 1.95 -> ~0.8%).
 
 - **Payoff:** low-medium (CPU for every game). **Effort:** S (built; flips at runtime).
 - **Risk:** low: a shadow mismatch would garble a channel switch (the fuzz says no).
 - **Needs:** PS3.
 - **Status:** built (ps3rsx 0.443 in kernel .472, switch `shadow_fast`, off) and measured in batch
-  ssdroot2 P2 (`PS3RSX_SHADOW_FAST=1` against `-`, ClassiCube, BananaBread, X-Moto, x2): no gain in fps,
+  ssdroot2 P2 (`PS3RSX_SHADOW_FAST=1` against `-`, ClassiCube, [BananaBread](../../gamedb/games/bananabread/), [X-Moto](../../gamedb/games/xmoto/), x2): no gain in fps,
   stalls or CPU beyond the spread ([HOTPATHS.md](../HOTPATHS.md#ps3rsxs-submission-path)). The
   profiles put the shadow work at 1.2-2.3% of the CPU, so little can be won; it stays off and the
   rest of the suite is not worth a batch.
@@ -85,9 +85,9 @@ the reservation locks), which `shadow_fast` leaves untouched.
 
 Rank 22. Indexed constant loads in nv30 vertex programs (ARL, already encoded by nvfx).
 
-**Why.** GPU skinning runs but is unusable: BananaBread at 11 fps by its own counter with GPU
+**Why.** GPU skinning runs but is unusable: [BananaBread](../../gamedb/games/bananabread/) at 11 fps by its own counter with GPU
 skinning against 28 on the CPU, which is why cube2 skins on the CPU by default. Without indirect
-addressing, programs compile to if/else trees, which also inflate OpenArena opengl2's shaders and
+addressing, programs compile to if/else trees, which also inflate [OpenArena](../../gamedb/games/openarena/) opengl2's shaders and
 its compile RAM.
 
 - **Payoff:** medium: GPU skinning becomes usable, smaller shader trees.
@@ -119,7 +119,7 @@ VRAM.
 
 Rank 37. The index buffer fenced, and fragment program constants run from GART, only where needed.
 
-**Why.** X-Moto lost 5% on Mesa ps3.299 against ps3.282 (row 47), about a frame each from 0028 and
+**Why.** [X-Moto](../../gamedb/games/xmoto/) lost 5% on Mesa ps3.299 against ps3.282 (row 47), about a frame each from 0028 and
 0031. The latest profiles show them small: 0028's fence refs 0.3% in 2 games, 0031's constants
 0.2%. 0028 is a race fix, so it must stay correct.
 
@@ -132,16 +132,16 @@ Rank 37. The index buffer fenced, and fragment program constants run from GART, 
 
 Rank 46. The smaller targets of HOTPATHS.md that no patch took.
 
-- **QuakeSpasm's 2D path in immediate mode** (`glBegin`/`glTexCoord2f`/`glVertex2f`, ~10% of its
+- **[QuakeSpasm](../../gamedb/games/quakespasm/)'s 2D path in immediate mode** (`glBegin`/`glTexCoord2f`/`glVertex2f`, ~10% of its
   CPU). QuakeSpasm already runs at 91 fps, so this is CPU for the rest of the system.
 - **u_vbuf converting static buffers at every draw.** 0033's table made the conversion cheap, and
   Mesa 0043 `NV30_VTX_SNORM8` (built, waiting for batch hotpaths3) leaves SNORM8, the only format
   the profiles show converted, to the vertex program. A cache of the converted copy (needs write
   tracking) would only matter for other formats.
-- **Client vertex arrays copied per draw** (`u_upload_data`: SuperTuxKart 10.1%, ETR 2.3%). The
+- **Client vertex arrays copied per draw** (`u_upload_data`: [SuperTuxKart](../../gamedb/games/supertuxkart/) 10.1%, ETR 2.3%). The
   min/max scans of client index arrays (`vbo_get_minmax_index_mapped`: SuperTuxKart 6.5%,
-  OpenArena 1.3%, Yamagi 1.0%) have Mesa 0044 `NV30_MINMAX_VMX` (built; SuperTuxKart +5% fps, CPU unchanged, n=3: [HOTPATHS.md](../HOTPATHS.md#measured-0041-0042-0044)).
-- **Mesa 0036's staging pool on QuakeSpasm and Yamagi**: measured on ClassiCube only (same fps, CPU
+  [OpenArena](../../gamedb/games/openarena/) 1.3%, Yamagi 1.0%) have Mesa 0044 `NV30_MINMAX_VMX` (built; SuperTuxKart +5% fps, CPU unchanged, n=3: [HOTPATHS.md](../HOTPATHS.md#measured-0041-0042-0044)).
+- **Mesa 0036's staging pool on QuakeSpasm and Yamagi**: measured on [ClassiCube](../../gamedb/games/classicube/) only (same fps, CPU
   -4%, row 64); expected -1.5 to -2% CPU there.
 
 - **Payoff:** low (about 1-2% each). **Effort:** S-M. **Risk:** low.
@@ -154,7 +154,7 @@ Rank 46. The smaller targets of HOTPATHS.md that no patch took.
 
 Rank 18. Colour and depth tiles and Z-cull through lv1 attributes 0x300/0x301 (RPCS3's encodings).
 
-**Why.** With batching, games stop being CPU-bound: ClassiCube's process is busy 8.5 ms of a
+**Why.** With batching, games stop being CPU-bound: [ClassiCube](../../gamedb/games/classicube/)'s process is busy 8.5 ms of a
 20.7 ms frame and waits on the GPU the rest (HOTPATHS), and it was still slower than upstream's
 drawing. So the old "frames are PPE-bound, defer" no longer holds. Estimated +10-30% in fill-bound
 scenes.
@@ -182,7 +182,7 @@ Rank 23. Four probes RSX-SPU-FEASIBILITY.md recommends; none has run.
   DATA_STORAGE event or an MFC class-0 error. It enables SPU decompression and generation straight
   into VRAM and meshes into VBOs ([spu.md](spu.md)).
 - **E17, M2MF small-copy latency**: VRAM to GART copies of 1, 8, 32 and 256 pages (one op per page,
-  one per contiguous run), submit to ref with the GPU idle, then while glxgears or an OpenArena
+  one per contiguous run), submit to ref with the GPU idle, then while glxgears or an [OpenArena](../../gamedb/games/openarena/)
   timedemo runs. It decides the VRAM swap's thresholds.
 - **spufs dispatch latency**: quoted 20-200 us, never measured here.
 
@@ -247,10 +247,10 @@ Whether a Petitboot-only reboot clears a wedge, and kexec from our Linux, are
 Rank 52. Fixed only once a game needs one; every game that hit them has a workaround.
 
 - **ARB_texture_rg**: needs R8 and R8G8 render targets; the hardware has a B8 colour format, a G8B8
-  one is unverified. dsda-doom (a GL_LUMINANCE_ALPHA fallback) and OpenTTD (GL_LUMINANCE8) are
+  one is unverified. [dsda-doom](../../gamedb/games/dsda-doom/) (a GL_LUMINANCE_ALPHA fallback) and [OpenTTD](../../gamedb/games/openttd/) (GL_LUMINANCE8) are
   patched instead.
 - **ARB_shader_texture_lod**: NV40 fragment TXL; OpenTTD's shaders were patched instead.
-- **ARB_framebuffer_object on nv30** (renderergl2's FBO features, Neverball's effects): the risk is
+- **ARB_framebuffer_object on nv30** (renderergl2's FBO features, [Neverball](../../gamedb/games/neverball/)'s effects): the risk is
   one RT format shared by colour and depth, which mixed sizes on swizzled surfaces would
   mis-address.
 
@@ -274,10 +274,10 @@ makes the next wedge diagnosable from one dump.
 Rank 75. A full GART or VRAM ended in a segfault in 6 runs.
 
 **Why.** [LOG-FINDINGS.md, item 2](../games/LOG-FINDINGS.md#2-a-failed-buffer-allocation-ends-in-a-segfault):
-after ten `ps3rsx: out of GART for a 4096 KiB BO` BananaBread (5 runs) died at address 0 inside libc,
-and SuperTuxKart (1 run) after 270 `out of VRAM` lines and an incomplete FBO. Not seen in the 40+
+after ten `ps3rsx: out of GART for a 4096 KiB BO` [BananaBread](../../gamedb/games/bananabread/) (5 runs) died at address 0 inside libc,
+and [SuperTuxKart](../../gamedb/games/supertuxkart/) (1 run) after 270 `out of VRAM` lines and an incomplete FBO. Not seen in the 40+
 runs since, but a player with a bigger map would hit it. Also from the same triage, to watch:
-OpenTTD with `NV30_STAGING_POOL_MB=24` logged `no memory to back the GART (56 of 63 MiB)` once in 13
+[OpenTTD](../../gamedb/games/openttd/) with `NV30_STAGING_POOL_MB=24` logged `no memory to back the GART (56 of 63 MiB)` once in 13
 runs since ps3.544.
 
 - **To start.** Force it (the `ps3rsx_gart` command-line size down to 16 MiB), take a backtrace with

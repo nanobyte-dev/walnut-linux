@@ -8,6 +8,6 @@ license = "MIT"
 homepage = "https://mrboom.mumblecore.org/"
 controller = "full"
 known_issues = [
-  "Crashes within half a minute on the PS3 (a segfault in the game's own code, likely a little-endian assumption of its translated 8086 code): being investigated.",
+  "Debian's build crashed within half a minute on the PS3 (a segfault in the game's own code: its translated 8086 code assumed little-endian registers). Fixed in our mrboom 5.5+ds-1+ps3.872 (the big-endian register layout), which still awaits a check on the PS3.",
 ]
 +++

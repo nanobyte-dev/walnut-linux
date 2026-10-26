@@ -4,7 +4,7 @@ Our build of Debian's `ioquake3` (`1.36+u20260719.58839361+dfsg-1+ps3.N`,
 [packages/ioquake3](packages/ioquake3/)) replaces Debian's and carries 28 patches (there is no 0017).
 OpenArena is the one game on it ([its notes](../../games/openarena/technical.md)). Every change sits
 behind a cvar, so a recipe variant can turn it back to upstream's behaviour. The PS3 runs ps3.462 since
-gamedb:batch/2026-10-18-batch17; the release candidate is ps3.396 ([RELEASE-CANDIDATES.md](../../../docs/RELEASE-CANDIDATES.md)).
+gamedb:batch/2026-10-18-batch17; the release candidate is ps3.396 ([the archived release plan](../../../docs/archive/RELEASE-CANDIDATES-2026-10-19.md)).
 
 ## renderergl2 memory (0001-0010)
 

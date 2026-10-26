@@ -39,7 +39,7 @@ the run and the game's peak VRAM.
 
 Light games (the Quakes, X-Moto, Armagetron, Neverball, OpenArena opengl1) reach 60 fps or more with
 little stalling; Extreme Tux Racer and OpenArena opengl2 sit at 56-60; the rest are held back by the PPE or
-by memory, and ClassiCube by the RSX itself. SuperTuxKart's own "Average FPS" is its physics tick rate; the
+by memory, and [ClassiCube](../../gamedb/games/classicube/) by the RSX itself. SuperTuxKart's own "Average FPS" is its physics tick rate; the
 table holds the HUD's frame rate (gamedb:supertuxkart/two-frame-rates).
 
 Games outside the suite (smoke runs, first runs, the games tried and parked) are draft bundles in
@@ -62,8 +62,8 @@ commands). "Row N" below is the batch with `order = N` in gamedb/benchmarks/batc
   records 8 s of the webcam microphone after every photo (`build/bench-cam/audio.log`); whether a
   game sounds right is still the user's call by ear. The room's floor in those clips is rms about
   -50.5 dBFS, spectral flatness 0.03, a peak at 445 Hz and the bands 11/83/5/0%; a clip with that
-  signature has no game audible above the hum (BananaBread's 20 of 20, most of SuperTuxKart's,
-  Luanti's and ClassiCube's), clips of OpenArena, X-Moto and dsda-doom sit 2-7 dB above it with another
+  signature has no game audible above the hum ([BananaBread](../../gamedb/games/bananabread/)'s 20 of 20, most of [SuperTuxKart](../../gamedb/games/supertuxkart/)'s,
+  [Luanti](../../gamedb/games/luanti/)'s and [ClassiCube](../../gamedb/games/classicube/)'s), clips of [OpenArena](../../gamedb/games/openarena/), [X-Moto](../../gamedb/games/xmoto/) and [dsda-doom](../../gamedb/games/dsda-doom/) sit 2-7 dB above it with another
   spectrum. The mic is a floor check, not a judge. bench.txt's `sound=` and `underruns=` lines are
   what the PS3 itself sees.
 - **Desktop stopped, swaps emptied.** `ps3-bench.sh` stops the desktop before each run, so no game
@@ -73,7 +73,7 @@ commands). "Row N" below is the batch with `order = N` in gamedb/benchmarks/batc
   120 s are measured (`MEASURE`). Steady fps is the median over the window: the game's own counter
   over its counted passes where it has one, else the HUD's per-second fps. A stall is a frame over
   100 ms. For a game that loops a demo, the gameplay columns leave out the reload at each pass
-  (OpenArena's map reload, Neverball's restart; [STALLS.md, "Gameplay-only columns"](../STALLS.md#gameplay-only-columns)).
+  (OpenArena's map reload, [Neverball](../../gamedb/games/neverball/)'s restart; [STALLS.md, "Gameplay-only columns"](../STALLS.md#gameplay-only-columns)).
 - **Same-boot A/B only.** ClassiCube gave 50.1 fps on one boot and 46.5-46.9 on another with the
   same Mesa builds, and 48.1 then 46.1 inside the SSD boot of 2026-10-19 with nothing changed. A change is measured against its off switch in the same session, interleaved;
   numbers from different boots are a regression check, not a comparison.
@@ -93,7 +93,7 @@ commands). "Row N" below is the batch with `order = N` in gamedb/benchmarks/batc
   ([GAMEOS-HDD.md](../GAMEOS-HDD.md#result-the-ssd-root-batches-ssdroot1-and-ssdroot2)). The
   comparison is cross-boot until the alternating boots are run.
 - **Profiled runs** (`PERF=1`, `MEM=1`, `PERF_LOAD=1`) are for profiles, not for fps.
-- Single runs vary: OpenArena gave 23 to 54 fps and QuakeSpasm 66 to 84 in single runs on Mesa
+- Single runs vary: OpenArena gave 23 to 54 fps and [QuakeSpasm](../../gamedb/games/quakespasm/) 66 to 84 in single runs on Mesa
   ps3.262, and BananaBread's first-person demo swung 23-38 by itself in rows 64-65. A few fps between
   single runs is noise.
 
@@ -179,14 +179,14 @@ ARB_framebuffer_object) are in [backlog/graphics.md](../backlog/graphics.md).
 
 ## History
 
-- **2026-10-16, stage 0.** The runner and its first two recipes (OpenArena, ClassiCube). Two display
+- **2026-10-16, stage 0.** The runner and its first two recipes ([OpenArena](../../gamedb/games/openarena/), [ClassiCube](../../gamedb/games/classicube/)). Two display
   bugs went first, both found because the screen stayed black (the missing window manager, ps3rsx's
   muted video). Validation: OpenArena tc1 42.2 fps, ClassiCube 50.5 HUD median, picture on camera.
 - **2026-10-16/17, first runs.** Every game of the suite ran within two days, after six big-endian
   bugs in games and libraries and five driver bugs. Most played at 35-50 fps, CPU-bound in the driver
   stack; four rendered smoothly between multi-second memory stalls.
 - **2026-10-17, Mesa rounds.** ps3.246 (0015-0017): +2 to +9%. ps3.262 (0019-0025, fewer words per
-  draw): OpenArena tc1 +23%, Yamagi +14-24%, X-Moto +21%, ETR +15%, QuakeSpasm +11%, Armagetron -13%
+  draw): OpenArena tc1 +23%, Yamagi +14-24%, [X-Moto](../../gamedb/games/xmoto/) +21%, ETR +15%, [QuakeSpasm](../../gamedb/games/quakespasm/) +11%, Armagetron -13%
   (no CPU/GPU overlap without relocations). ps3.299 (0027-0031): 0027's adaptive submission took
   Armagetron back to 61.5. A fixed `kick100` was rejected because it cost X-Moto 9%.
 - **2026-10-17 evening.** Game-side batching beat the driver: X-Moto 3.7x, ETR +13%.

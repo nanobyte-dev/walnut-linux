@@ -40,7 +40,6 @@ layout and the build commands are in [LAYOUT.md](LAYOUT.md).
 | [WALNUT-SERVER.md](WALNUT-SERVER.md) | walnut.nanobyte.dev's containers, and why concurrent uploads, publishes and ccache writes can't break anything |
 | [release/ALPHA.md](release/ALPHA.md) | Walnut 0.1-alpha, the first public release: plan, milestones M0-M9, the review's blockers, cuts, verification |
 | [release/TESTING-0.1.md](release/TESTING-0.1.md) | Testing the nightlies before 0.1.0: feedback from the PS3 and what was done about each |
-| [RELEASE-CANDIDATES.md](RELEASE-CANDIDATES.md) | The 2026-10-18 release plan for the retired LAN repository: its checks and versions (superseded 2026-10-26) |
 | [IMAGE-DIFF.md](IMAGE-DIFF.md) | A fresh image compared with the live PS3 (2026-10-16): what a reimage would lose |
 
 ## Games
@@ -50,7 +49,10 @@ layout and the build commands are in [LAYOUT.md](LAYOUT.md).
 | [games/README.md](games/README.md) | Every suite game at a glance (generated from the summary batch); how to read the numbers; what holds for every game; the driver and library bugs the games found (generated from their investigations) |
 | [games/SUITE.md](games/SUITE.md) | How the benchmark suite runs: `bench/`, recipes, the protocol, the results |
 | [games/LOG-FINDINGS.md](games/LOG-FINDINGS.md) | What the game logs say: the errors and warnings that hold across games, ranked, with causes and fixes; `bench/logscan.py` |
-| [gamedb/games/](../gamedb/games/) | Each game's own notes, in its GameDB bundle: `technical.md` (packages and patches, settings, how it performs, known problems, what was tried; [the site's technical pages](https://walnut.nanobyte.dev/gamedb/technical/) for the published games), `investigations/` (the dated stories: bugs found and fixed, measurement campaigns), `todo.toml` |
+| [gamedb/README.md](../gamedb/README.md) | GameDB, the games database: everything about one game lives in its bundle; the schema of every file there, the tools that read it, what is generated from it, and how a game appears outside it (a generated block, a `gamedb:` reference or link, frozen history) |
+| [gamedb/games/](../gamedb/games/) | Each game's own notes, in its GameDB bundle: `technical.md` (packages and patches, settings, how it performs, known problems, what was tried; [the site's technical pages](https://walnut.nanobyte.dev/gamedb/technical/) for the published games), `investigations/` (the dated stories: bugs found and fixed, measurement campaigns), `todo.toml` (its open work: sessions, benchmarks, packaging, fixes) |
+| [gamedb/engines/](../gamedb/engines/) | The shared engines ([Cube 2](../gamedb/engines/cube2/), [ioquake3](../gamedb/engines/ioquake3/), [DarkPlaces](../gamedb/engines/darkplaces/)): the same, for an engine several games run on |
+| [gamedb/benchmarks/README.md](../gamedb/benchmarks/README.md) | The benchmark results as records: every batch once in `batches.toml`, each game's numbers in its bundle, cited as `gamedb:batch/<name>` |
 
 ## Backlog: what we haven't tried
 
@@ -87,7 +89,7 @@ The surveys of game candidates are GameDB's, in gamedb/research/; each game they
 | Survey | What it is for |
 |---|---|
 | [game-candidates.md](../gamedb/research/game-candidates.md) | How the suite's games were picked (2026-10-16) |
-| [game-reeval.md](../gamedb/research/game-reeval.md) | Games first ruled out for non-GL3 reasons, measured and costed again (2026-10-19): DDNet, OpenTyrian, UQM, Hedgewars, OpenRCT2, 0 A.D., Java/.NET games and the Reddit list |
+| [game-reeval.md](../gamedb/research/game-reeval.md) | Games first ruled out for non-GL3 reasons, measured and costed again (2026-10-19): [DDNet](../gamedb/games/ddnet/), [OpenTyrian](../gamedb/games/opentyrian/), UQM, [Hedgewars](../gamedb/games/hedgewars/), [OpenRCT2](../gamedb/games/openrct2/), 0 A.D., Java/.NET games and the Reddit list |
 | [gl3-census.md](../gamedb/research/gl3-census.md) | Open-source games that need GL 3+, and what it takes to run each on the RSX (2026-10-19), with parts A-F per game |
 | [pc-classics.md](../gamedb/research/pc-classics.md) | Windows PC games of 1990-2010 with open engines, decompilations or source releases (2026-10-20): state, renderer, big-endian prior art, console ports, PS3 effort; the shortlist; every alternative project per game with its popularity |
 
@@ -95,8 +97,8 @@ Endless Sky's memory and renderer study (2026-10-19) is the game's investigation
 
 ## Elsewhere in docs/
 
-- [upstream/](upstream/README.md): drafts of upstream bug reports and patches (Teeworlds, Yamagi, Mesa, two kernel patches), none sent.
-- [archive/](archive/): the originals these docs were rewritten from on 2026-10-19, unchanged except for a first line naming their successor. Every dated number and decision of 2026-10-13 to 10-19 is there.
+- [upstream/](upstream/README.md): drafts of upstream bug reports and patches ([Teeworlds](../gamedb/games/teeworlds/), Yamagi, Mesa, two kernel patches), none sent.
+- [archive/](archive/): the originals these docs were rewritten from on 2026-10-19, unchanged except for a first line naming their successor. Every dated number and decision of 2026-10-13 to 10-19 is there. [archive/RELEASE-CANDIDATES-2026-10-19.md](archive/RELEASE-CANDIDATES-2026-10-19.md) is the 2026-10-18 release plan for the retired LAN repository (its checks and the version record), superseded on 2026-10-26.
 - `glxinfo-nv47.txt`: glxinfo of Mesa nv30 on the RSX. `dumps/`: GPU exception dumps from the LXQt days.
 
 ## Where the old docs went

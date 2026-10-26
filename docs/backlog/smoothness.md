@@ -17,7 +17,7 @@ Rank 2. The whole system on the SSD image (Phase B), measured against the USB ro
 boots.
 
 **Why.** The disk is the largest single item in every load: disk and I/O wait are 34-41% of the
-load's wall time in BananaBread, OpenArena gl2min, Luanti and SuperTuxKart, 35% in ClassiCube,
+load's wall time in [BananaBread](../../gamedb/games/bananabread/), [OpenArena](../../gamedb/games/openarena/) gl2min, [Luanti](../../gamedb/games/luanti/) and [SuperTuxKart](../../gamedb/games/supertuxkart/), 35% in [ClassiCube](../../gamedb/games/classicube/),
 40-51% with the page faults (batch 17, [archive/PROFILING.md, "Where the time goes"](../archive/PROFILING.md#where-the-time-goes-measured)).
 The USB disk reads 27.8 MB/s and 20 ms a random read; the internal SSD 100 MB/s and 0.1 ms. Phase
 A (only the game data on the SSD, batch ssd1, row 70) left the load's USB wait at 4.8-5.5 s in
@@ -64,12 +64,12 @@ both USB boots.
 Rank 13. The CPU side of loads and of the first minute, once the disk is fast.
 
 **Why.** Batch 17's start-up profiles (one run per game, kernel .433, Mesa .466) put every CPU
-item at 1-3 s per game except SuperTuxKart (5-8 s). The warm-up's stall frames are large: 21.1 s in
-53 frames in BananaBread, 25.5 s in 30 in OpenArena, 18.9 s in 24 in SuperTuxKart (one frame of
+item at 1-3 s per game except [SuperTuxKart](../../gamedb/games/supertuxkart/) (5-8 s). The warm-up's stall frames are large: 21.1 s in
+53 frames in [BananaBread](../../gamedb/games/bananabread/), 25.5 s in 30 in [OpenArena](../../gamedb/games/openarena/), 18.9 s in 24 in SuperTuxKart (one frame of
 10 s). Decoders on the load's main thread: SuperTuxKart's png, zlib, jpeg and audio 12.4 of 24.7 s
 (50%), BananaBread's zlib and audio 1.6 of 5.3 s, OpenArena's inflate, jpeg, TGA and audio 2.6 of
 10.4 s. With the disk fixed, PROFILING.md expects the loads to become CPU-bound at roughly 15 s
-(BananaBread), 21 (OpenArena), 33 (Luanti, a mapgen wait), 43 (SuperTuxKart), 11 (ClassiCube).
+(BananaBread), 21 (OpenArena), 33 ([Luanti](../../gamedb/games/luanti/), a mapgen wait), 43 (SuperTuxKart), 11 ([ClassiCube](../../gamedb/games/classicube/)).
 
 The candidates, estimates from batch 17's pools (none run as an A/B):
 
@@ -107,7 +107,7 @@ runs.
 Rank 47. The kernel's readahead and `readahead(2)` on the packs, while the USB disk is the root.
 
 **Why.** During loads the USB disk is busy 57-72% of the time but moves only 6-8 MB/s: the average
-request is 28-40 KB (Luanti 28 KB) against 27.8 MB/s sequential, so it seeks between small reads
+request is 28-40 KB ([Luanti](../../gamedb/games/luanti/) 28 KB) against 27.8 MB/s sequential, so it seeks between small reads
 (batch 17). PROFILING.md calls `read_ahead_kb` and `readahead(2)` on the pk3s "the cheap version"
 of reading ahead in big blocks. The expensive version, the game prefetch, gave no gain (batch 16,
 row 68: its sorted reads compete with the game's own on this disk), so the expected payoff is
@@ -147,9 +147,9 @@ memory numbers to the run directory.
 Rank 14. 30 minutes or more of one heavy game, supervised.
 
 **Why.** The bench window is 3 minutes; players play for an hour, and nothing cools the console but
-SYSCON. Two growths are known: Extreme Tux Racer's GART went 8.8 -> 12.8 -> 16.8 MB in 117 s (two
+SYSCON. Two growths are known: [Extreme Tux Racer](../../gamedb/games/etr/)'s GART went 8.8 -> 12.8 -> 16.8 MB in 117 s (two
 new ~4 MB buffers, one a minute; candidate: the track marks in the snow) and its heap 17.5 -> 19.9
-MB; Luanti's malloc free memory grew 12.8 -> 22.9 -> 28.2 MB over three minutes (blocks and meshes
+MB; [Luanti](../../gamedb/games/luanti/)'s malloc free memory grew 12.8 -> 22.9 -> 28.2 MB over three minutes (blocks and meshes
 freed into the arenas and kept there). A soak tells a cap from a leak.
 
 - **Payoff:** medium: finds stalls and swap growth that only long play shows.
@@ -218,7 +218,7 @@ Rank 35. nv30's own translations (`nir_to_tgsi` and the nvfx code) in the disk s
 
 **Why.** Built (Mesa 0039, `NV30_SHADER_CACHE=on`, default off; compile-tested only). Batch 17
 bounds what it can save: the `shader.backend` seconds over load and warm-up, all threads, are 0.28
-(OpenArena), 0.39 (BananaBread), 0.11 (Luanti), 0.11 (SuperTuxKart), 0.02 s (ClassiCube), below the
+([OpenArena](../../gamedb/games/openarena/)), 0.39 ([BananaBread](../../gamedb/games/bananabread/)), 0.11 ([Luanti](../../gamedb/games/luanti/)), 0.11 ([SuperTuxKart](../../gamedb/games/supertuxkart/)), 0.02 s ([ClassiCube](../../gamedb/games/classicube/)), below the
 run-to-run noise. Mesa's GLSL disk cache, which is on, saved 1.2 and 0.8 s of main-thread CPU and
 no wall time. Cheap to run; it also tests that a hit gives the same code (any picture difference is
 a bug).
@@ -247,15 +247,15 @@ Rank 48. Small fixes and checks that make the numbers trustworthy.
   profile has its pid), and bench.txt should carry the scan's verdict (a crash, a GART failure, an
   OpenAL wedge) so report.py can mark such a run like `!INTERFERED`.
 - **perf's own cost.** The rule is a same-boot A/B (`PERF=0` against `PERF=1`, three rounds) before
-  reading fps off profiled runs at all; it has never run. One profiling batch had OpenArena at
+  reading fps off profiled runs at all; it has never run. One profiling batch had [OpenArena](../../gamedb/games/openarena/) at
   50.7, 50.5, 52.7 fps profiled against 52.7 and 50.2 without: one game, not interleaved.
   `PERF_HZ=199` cuts the cost by 2.5. ([archive/PROFILING.md, "Overhead"](../archive/PROFILING.md#overhead))
 - **The recorder's own cost on the fixed kernel.** Before local/0009 the recorder removed stalls
   (its 10 ms wakeups acted as a kicker), so `STALLS=1` runs are their own variant. A same-boot
   `STALLS=0` against `STALLS=1` A/B on a kernel with the fix has never run; until it does the
   recorder stays off by default ([STALLS.md](../STALLS.md#the-recorder-removes-stalls)).
-- **Luanti's warm-up CPU.** The recorder counts 35.6 s of main-thread CPU, perf 16.6 s for the same
-  thread (the load phase agrees: 11.5 against 8.8; BananaBread's warm-up agrees exactly). Not
+- **[Luanti](../../gamedb/games/luanti/)'s warm-up CPU.** The recorder counts 35.6 s of main-thread CPU, perf 16.6 s for the same
+  thread (the load phase agrees: 11.5 against 8.8; [BananaBread](../../gamedb/games/bananabread/)'s warm-up agrees exactly). Not
   resolved; Luanti's warm-up CPU split should not be quoted until it is.
 - **Which mappings Luanti faults.** About 13 of its 17 s of load disk wait are major faults, and the
   recorder has no file for a fault. Its fd for page faults would name them (the binary and libraries
@@ -277,7 +277,7 @@ Rank 48. Small fixes and checks that make the numbers trustworthy.
 
 ## Measured since, and not backlog any more
 
-- The game prefetch (batch 16, row 68): no gain on the USB disk, Luanti worse (load +1 to +4 s, two
+- The game prefetch (batch 16, row 68): no gain on the USB disk, [Luanti](../../gamedb/games/luanti/) worse (load +1 to +4 s, two
   runs with 3 s hitches); `PS3_GAME_PREFETCH_GAME` defaults to off since b85d0b9. The code stays
   for a faster disk. See [STALLS.md](../STALLS.md).
 - The lost-decrementer fix on and off, clean (batch 16, row 68): gameplay stalls 0.4 and 0.4 s

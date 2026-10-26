@@ -54,7 +54,7 @@ play: gl2min's "16 s gameplay freeze" was that frame, and its `stall_play_s` wen
 <!-- /gamedb:reload-rules -->
 
 Why each rule is what it is (measured, or a guess to check with `passsplit.py -v`) is a comment next
-to it in the game's analysis.toml. A game whose recipe window already leaves its reload out (BananaBread's
+to it in the game's analysis.toml. A game whose recipe window already leaves its reload out ([BananaBread](../gamedb/games/bananabread/)'s
 `WIN_ON_RE`/`WIN_OFF_RE`) needs none: its play numbers equal the old ones.
 
 A run whose game needs the load line but has no `t0` (OpenArena before 2026-10-17 23:00) gets `-` in
@@ -180,7 +180,7 @@ runs read 5.7-6.4%). On a Zen 2 host it is 1.2% (about 70 us of work a sample pl
 `/proc/vmstat` alone takes 37 us there, mostly summing per-CPU counters over 24 CPUs). stalls.py
 prints the cost per sample of each part.
 
-On the kernels before the idle fix the recorder also *removed* stalls: OpenArena's gameplay stall
+On the kernels before the idle fix the recorder also *removed* stalls: [OpenArena](../gamedb/games/openarena/)'s gameplay stall
 time fell from 21-29 s to 7 s with it running (below, "The recorder removes stalls"). So report.py
 shows recorder runs as their own variant (`base@rec10`), and a decision compares recorder runs only
 with recorder runs. Nobody has yet run the same-boot `STALLS=0` against `STALLS=1` A/B on the fixed
@@ -213,8 +213,8 @@ draft (`docs/upstream/linux-ps3-idle.md`) points here.
 
 ### The recorder removes stalls
 
-Same boot, 2026-10-18, OpenArena base, the timedemo looped, the recorder off and on in turn. All four
-runs had the same ioquake3 (ps3.379), Mesa, kernel and packages (`versions`):
+Same boot, 2026-10-18, [OpenArena](../gamedb/games/openarena/) base, the timedemo looped, the recorder off and on in turn. All four
+runs had the same [ioquake3](../gamedb/engines/ioquake3/) (ps3.379), Mesa, kernel and packages (`versions`):
 
 | | T2332 off | T2337 on | T2341 off | T2345 on |
 |---|---|---|---|---|
@@ -233,7 +233,7 @@ A frame that doesn't stall costs the same either way (smooth fps, CPU per frame)
 not on the bot joins (frames 348, 948) or the reloads, which both kinds of run have. Swap was quiet
 during them (no pswpin/pswpout in ps3-bench.sh's 0.5 s samples, 55 MB available). Every run of
 2026-10-17 without the recorder had frames over 2 s after its first 400 frames (OpenArena 1-6 a run,
-Neverball 1-4, Luanti 1-3).
+[Neverball](../gamedb/games/neverball/) 1-4, [Luanti](../gamedb/games/luanti/) 1-3).
 
 The recorder itself went late the same way. It sleeps to an absolute 10 ms deadline at nice -10 and
 still missed by up to 879 ms (13 gaps over 30 ms in each run). The longest gaps (T2337: 245, 879,
@@ -359,7 +359,7 @@ worst wakeup was 3.6 / 4.0 ms (none 10 ms or later). With the switch at 0, threa
 late (11 wakeups 100 ms or more, 1 over 1 s) and thread 0 16.7 ms. The fix does better than the 10 ms
 kicker (19.4 ms worst).
 
-In a game, two batches, no kicker and no recorder, OpenArena base, the switch alternated:
+In a game, two batches, no kicker and no recorder, [OpenArena](../gamedb/games/openarena/) base, the switch alternated:
 
 | Batch | Kernel | Results row | stall_play_s on / off | longest frame on / off | Notes |
 |---|---|---|---|---|---|
@@ -396,8 +396,8 @@ numbers per game are in [games/README.md](games/README.md).
 `ps3-game-prefetch` (ps3-desktop; code in `files/libexec/ps3_game_prefetch.py`, its header has the
 details) learns which files a game used and, at its next start, reads them back in one pass in disk
 order while the game loads. It was built because the root disk then was a 2.5" hard disk on USB 2.0,
-10-20 ms a random read, and the recorder put BananaBread's hitches and about a third of its 16.5 s
-load on that disk (row 55). **Measured in batch 16: no gain, Luanti worse. `PS3_GAME_PREFETCH_GAME`
+10-20 ms a random read, and the recorder put [BananaBread](../gamedb/games/bananabread/)'s hitches and about a third of its 16.5 s
+load on that disk (row 55). **Measured in batch 16: no gain, [Luanti](../gamedb/games/luanti/) worse. `PS3_GAME_PREFETCH_GAME`
 defaults to off** (ps3-desktop 0.474). The code stays, for a faster disk.
 
 ### How it works
@@ -568,7 +568,7 @@ end (`--include-interfered` keeps them in). matrix.py skips them and lists what 
 `gamedb/benchmarks/interfered.txt`, which report.py and matrix.py read the same way.
 
 It has caught real disturbances since it went live with batch 15: 3 runs with SSH logins in batch 16,
-a key press in batch 17 (BananaBread (Debian's cube2) shortnormals, round 3) and a key press 195 s into an OpenArena
+a key press in batch 17 ([BananaBread](../gamedb/games/bananabread/) (Debian's cube2) shortnormals, round 3) and a key press 195 s into an [OpenArena](../gamedb/games/openarena/)
 run of batch ssd1 (230542Z). All were left out of their rows.
 
 ### The bench console
@@ -587,7 +587,7 @@ so. `desktop` switches to vt1 and frees tty8. The detector expects both of the X
 
 `bench/interference-scan.py` looks at what saved run directories still show: Xorg.0.log (VT
 switches, input devices added or removed mid-run, the evemu keyboards left out), dmesg.log (USB
-connects, non-virtual input devices, Bluetooth HID lines), and game.log for Luanti, which logs every
+connects, non-virtual input devices, Bluetooth HID lines), and game.log for [Luanti](../gamedb/games/luanti/), which logs every
 player action ("singleplayer digs/activates ..."). The benchmark's flight never digs or clicks, so
 each such line is a mouse button pressed in the game. Run over the 339 pulled directories of
 2026-10-17 and 18 (`--write` filled `results/interfered.txt`), it found six:
@@ -615,14 +615,14 @@ game's log, the game window losing focus, and SSH logins or commands during a ru
 saved per run. The PS3's kernel journal for 2026-10-18 has no input, USB or Bluetooth connect or
 disconnect lines; its hci0 found/removed lines are mpris-proxy starting and stopping with each
 desktop restart. So a run without evidence isn't proven clean. Four runs with no trace in their files
-are known to be contaminated and are listed by hand: the OpenArena `ps3_idle_prep` on/off batch of
+are known to be contaminated and are listed by hand: the [OpenArena](../gamedb/games/openarena/) `ps3_idle_prep` on/off batch of
 15:13-15:31 local on 2026-10-18 (20261018T121340Z, 121821Z, 122303Z, 122726Z; row 66, whose
 observations carry the caveat). An agent's wait loop polled the PS3 over SSH every ~11 s through all
 four, and SSH scans of the journal and Xorg logs ran in the last one. Batch 16 repeated them clean.
 
 ### Checking it on the PS3
 
-Still to do. The detector has run with every bench run since batch 15 and the clean Luanti re-runs report
+Still to do. The detector has run with every bench run since batch 15 and the clean [Luanti](../gamedb/games/luanti/) re-runs report
 `interfered=0`, but the deliberate checks below need someone at the PS3 and have not been done
 (PLAN 1.13). Needs ps3-gpu-tools 0.453 or later and `make bench-push`; nobody else using the PS3;
 webMAN fan on SYSCON.
@@ -653,10 +653,10 @@ kernel.
 
 ## History
 
-- 2026-10-17 evening: first recorder runs; the gameplay-only columns added after OpenArena's reloads
+- 2026-10-17 evening: first recorder runs; the gameplay-only columns added after [OpenArena](../gamedb/games/openarena/)'s reloads
   turned out to be most of its stall time.
 - 2026-10-18 ~02:40-03:20 (row 55, commit b9a4187): recorder off/on alternation shows it removes
-  stalls; OpenArena's remaining stalls are CPU, BananaBread's disk.
+  stalls; OpenArena's remaining stalls are CPU, [BananaBread](../gamedb/games/bananabread/)'s disk.
 - 2026-10-18 ~04:00 (row 56, commit fce0c5b): probe and wakers; the lost decrementer confirmed on the
   idle thread; the 10 ms kicker halves OpenArena's gameplay stalls and becomes the stopgap.
 - 2026-10-18 15:13 (row 66, commit e59c09a): `local/0009` on .419, on/off in game (SSH-polled).

@@ -17,7 +17,7 @@ they came from.
 | Game | Open items | Kinds | From the plan |
 |---|---|---|---|
 | [Armagetron Advanced](../../gamedb/games/armagetronad/todo.toml) | 2 | 1 benchmark, 1 session | 2.6 |
-| [BananaBread](../../gamedb/games/bananabread/todo.toml) | 6 | 4 benchmark, 1 fix, 1 session | 2.6, 3.1 |
+| [BananaBread](../../gamedb/games/bananabread/todo.toml) | 7 | 4 benchmark, 1 fix, 1 package, 1 session | 2.6, 3.1 |
 | [Battle for Wesnoth](../../gamedb/games/wesnoth/todo.toml) | 1 | 1 benchmark |  |
 | [Chromium B.S.U.](../../gamedb/games/chromium-bsu/todo.toml) | 1 | 1 benchmark | 1.11 |
 | [ClassiCube](../../gamedb/games/classicube/todo.toml) | 3 | 2 package, 1 research | 3.12 |
@@ -46,7 +46,7 @@ they came from.
 | [ScummVM](../../gamedb/games/scummvm/todo.toml) | 1 | 1 benchmark |  |
 | [SimCity (Micropolis)](../../gamedb/games/simcity/todo.toml) | 1 | 1 package |  |
 | [Simutrans](../../gamedb/games/simutrans/todo.toml) | 1 | 1 benchmark |  |
-| [SuperTuxKart](../../gamedb/games/supertuxkart/todo.toml) | 4 | 2 fix, 1 research, 1 session | 2.1, 3.1 |
+| [SuperTuxKart](../../gamedb/games/supertuxkart/todo.toml) | 5 | 2 fix, 1 package, 1 research, 1 session | 2.1, 3.1 |
 | [Teeworlds](../../gamedb/games/teeworlds/todo.toml) | 1 | 1 benchmark | 2.6 |
 | [TORCS](../../gamedb/games/torcs/todo.toml) | 1 | 1 benchmark | 1.11 |
 | [Trigger Rally](../../gamedb/games/trigger-rally/todo.toml) | 1 | 1 benchmark | 1.11 |
@@ -74,7 +74,7 @@ Rank 72. In about 10% of OpenAL runs the sound stopped for the rest of the run.
 **Why.** [LOG-FINDINGS.md, item 1](../games/LOG-FINDINGS.md#1-the-sound-cards-dma-stops-and-openals-mixer-waits-for-good):
 snd_ps3's interrupt-driven DMA chain stops while the card stays RUNNING (dmix never lets it xrun), so
 OpenAL Soft waits on dmix's period timer for good and logs `Wait timeout... buffer size too low?` once a
-second (SuperTuxKart, OpenArena, ClassiCube, Luanti). Every OpenAL game's CPU number is lower in a
+second ([SuperTuxKart](../../gamedb/games/supertuxkart/), [OpenArena](../../gamedb/games/openarena/), [ClassiCube](../../gamedb/games/classicube/), [Luanti](../../gamedb/games/luanti/)). Every OpenAL game's CPU number is lower in a
 wedged run.
 
 - **Fix.** Kernel patch local/0047 (snd_ps3 DMA watchdog, `snd_ps3.dma_watchdog_ms`). The harness
@@ -100,10 +100,10 @@ game.log, then `logscan.py -c nouveau,gl`.
 
 Not ranked: measured, waiting for a default decision. Mesa's `NV30_SYSMEM_COPY=2` +
 `NV30_INVALIDATE_BUFFER=1` on renderergl2's old 16-bit colours (`gl2min_color16`, batch 17): gameplay
-stalls 11.1 to 1.4 s, swap stalls 22.9 to 0.9 s, 53.7 to 59.1 fps. OpenArena's gl2min no longer needs
-it (ioquake3 0027 is the default), so the question is a default for the games nobody patched.
+stalls 11.1 to 1.4 s, swap stalls 22.9 to 0.9 s, 53.7 to 59.1 fps. [OpenArena](../../gamedb/games/openarena/)'s gl2min no longer needs
+it ([ioquake3](../../gamedb/engines/ioquake3/) 0027 is the default), so the question is a default for the games nobody patched.
 
-The per-game defaults that wait for a decision the same way (ClassiCube `CC_GL_CHUNKS=1`, X-Moto
+The per-game defaults that wait for a decision the same way ([ClassiCube](../../gamedb/games/classicube/) `CC_GL_CHUNKS=1`, [X-Moto](../../gamedb/games/xmoto/)
 `XMOTO_GL_STREAM=1`, cube2 `vanormalshort 1`, ioquake3 `r_md3PackedFrames 1`) are `package` items in
 their games' and engines' todo.toml.
 

@@ -58,7 +58,7 @@ The rest of this file predates the 0.1.0 release and gets a refresh alongside P2
 The whole stack is built and packaged: the kernel (6.12 LTS with our PS3 patches), the ps3rsx
 driver, Mesa nv30, the SPU toolchain and libspeq, the desktop with game mode, the splash, our apt
 repository. The release kernel `6.12.111+ps3.472` with ps3rsx 0.443 and Mesa `.476` is the
-default of the 2026-10-18 release build ([RELEASE-CANDIDATES.md](RELEASE-CANDIDATES.md)). Releases
+default of the 2026-10-18 release build ([archive/RELEASE-CANDIDATES-2026-10-19.md](archive/RELEASE-CANDIDATES-2026-10-19.md)). Releases
 now go through CI to walnut.nanobyte.dev's stable suite (docs/release/ALPHA.md); the LAN repository
 that build waited in was retired on 2026-10-26 (docs/PACKAGING.md).
 
@@ -66,12 +66,12 @@ What limits the games, in order: RAM (about 217 MB reach Linux), then the PPE (t
 takes 30-55% of a game's CPU), then the disk. The RSX and the SPEs have headroom. What we learned
 in the last three days:
 
-- Fewer GL calls in the game beat driver work by far: X-Moto went from 44.5 to 166.5 fps (18,500 to
+- Fewer GL calls in the game beat driver work by far: [X-Moto](../gamedb/games/xmoto/) went from 44.5 to 166.5 fps (18,500 to
   165 GL calls a frame), against +5 to +24% from Mesa's patch rounds.
 - A kernel bug caused many of the "random" stalls: an idle PPE thread lost its timer on the way
   into `lv1_pause` and slept up to 1.4 s. The fix (local/0009) is confirmed on the PS3, including a
   clean in-game repeat (batch 16), and is in every current kernel. [STALLS.md](STALLS.md)
-- Memory patches in the games remove most of what stalls are left: OpenArena's preload took its
+- Memory patches in the games remove most of what stalls are left: [OpenArena](../gamedb/games/openarena/)'s preload took its
   gameplay stalls from 9-10 s to 0; vertex formats nv30 can fetch took OpenArena's opengl2
   renderer to 57-60 fps with 1-2 s of stalls (9-11 s before, batch 17). [MEMORY.md](MEMORY.md)
 - The internal SSD reads at 100 MB/s with 0.1 ms random reads, against the USB disk's 27.8 MB/s
@@ -90,22 +90,22 @@ Other docs cite these numbers; "old N" was the number before the 2026-10-18 rest
 
 | # | Decision | Rests on | Item |
 |---|---|---|---|
-| D1 | Stable publish of the release (old 1). Decided 2026-10-18 as "test first, then publish": everything rebuilt official, an image built, the PS3 image session, then the stable publish with an explicit `DEBS=` list and `build/aptly` backed up. Nothing is published yet. | [RELEASE-CANDIDATES.md](RELEASE-CANDIDATES.md) | 5.1 |
+| D1 | Stable publish of the release (old 1). Decided 2026-10-18 as "test first, then publish": everything rebuilt official, an image built, the PS3 image session, then the stable publish with an explicit `DEBS=` list and `build/aptly` backed up. Nothing is published yet. | [archive/RELEASE-CANDIDATES-2026-10-19.md](archive/RELEASE-CANDIDATES-2026-10-19.md) | 5.1 |
 | D2 | The 720p console (old 8): 4 MB of RAM always, but X shares the mode, so the desktop and games run at 720p (2.25x fewer pixels) | [KERNEL-MEMORY.md](KERNEL-MEMORY.md) | 4.10 |
 | D3 | dsda-doom's music default (old 8): fluidsynth on the SPEs (chops), OPL, or off | [SPU-AUDIO.md](SPU-AUDIO.md) | gamedb:dsda-doom (was 2.8) |
-| D4 | SuperTuxKart's `lean` default (old 7): 21.4 smooth fps and 2.4 s of stalls against 13 fps and 13.5 s; only after the sound check | [games/supertuxkart.md](games/supertuxkart.md) | 2.1 |
+| D4 | SuperTuxKart's `lean` default (old 7): 21.4 smooth fps and 2.4 s of stalls against 13 fps and 13.5 s. Its package's patch 0006 now makes `lean` a fresh configuration's default; the sound check by ear is still open | [technical notes](../gamedb/games/supertuxkart/technical.md) | 2.1 |
 | D5 | Fan floor and the panic-path test (old 4): a fixed floor (at least 60%, `pwm1`) and the optional panic test, each only with the user's explicit OK | [THERMAL.md](THERMAL.md) | 4.4 |
 | D6 | The 7th SPE entry (old 6): a Petitboot entry with `spu_base.enum_shared=1` and a same-boot benchmark | [research/FLASH-SYSCON.md](research/FLASH-SYSCON.md) | 4.2 |
 | D7 | XMB-side backups (old 5): a second NOR dump with `cmp`, EEPROM, flags, SYSCON error log, encrypted copies off the PC | [CONSOLE.md](CONSOLE.md) | 4.1 |
 | D8 | lv1 peek (old 5): a read-only probe of hypercall 182 and the `gpu-4kb-iopage` site; the RAM it could win is small | [research/FLASH-SYSCON.md](research/FLASH-SYSCON.md) | 4.3 |
 | D9 | GameOS auto-mount at boot (read-only), asked on 2026-10-18, no answer yet | [GAMEOS-HDD.md](GAMEOS-HDD.md) | 4.5 |
-| D10 | Upstream drafts (old 9): five drafts (Teeworlds, Yamagi, the Mesa LUT, two kernel patches), none sent | [upstream/README.md](upstream/README.md) | 5.8 |
+| D10 | Upstream drafts (old 9): five drafts ([Teeworlds](../gamedb/games/teeworlds/), Yamagi, the Mesa LUT, two kernel patches), none sent | [upstream/README.md](upstream/README.md) | 5.8 |
 | D11 | Recovery hardware (old 5): a NOR flasher and a SYSCON UART are hardware mods, so only on request; every flash or SYSCON write waits for them | [CONSOLE.md](CONSOLE.md) | 4.1 |
-| D12 | Nexuiz install: about 800 MB on the USB disk for one smoke run | [games/smoke-tested.md](games/smoke-tested.md) | gamedb:nexuiz (was 1.12) |
-| D13 | The default kernel: the release build makes `.472` (with the idle fix) the default; the stable suite still has the 2026-10-16 builds. Left: when the stopgap kicker goes for good | [RELEASE-CANDIDATES.md](RELEASE-CANDIDATES.md) | 1.2 |
+| D12 | Nexuiz install: about 800 MB on the USB disk for one smoke run | [technical notes](../gamedb/games/nexuiz/technical.md) | gamedb:nexuiz (was 1.12) |
+| D13 | The default kernel: the release build makes `.472` (with the idle fix) the default; the stable suite still has the 2026-10-16 builds. Left: when the stopgap kicker goes for good | [archive/RELEASE-CANDIDATES-2026-10-19.md](archive/RELEASE-CANDIDATES-2026-10-19.md) | 1.2 |
 | D14 | Reimage timing: the user said on 2026-10-17 the image rebuild waits until this plan is through; it is in Stage 5 | [IMAGE-DIFF.md](IMAGE-DIFF.md) | 5.4 |
 
-Settled since the list was made: Luanti's package default (base stays, clean runs, row 67).
+Settled since the list was made: [Luanti](../gamedb/games/luanti/)'s package default (base stays, clean runs, row 67).
 
 ## The stages
 
@@ -122,7 +122,7 @@ listed under [Per-game items](#per-game-items) below; those numbers aren't reuse
 ### Stage 1: close what's in flight
 
 Built or queued work, mostly PS3 runs. Done when every row has a measured verdict. Done and about
-one game: 1.3 (OpenArena's opengl2 memory) and 1.4 (BananaBread's world normals as shorts), both
+one game: 1.3 ([OpenArena](../gamedb/games/openarena/)'s opengl2 memory) and 1.4 ([BananaBread](../gamedb/games/bananabread/)'s world normals as shorts), both
 measured in batch 17 (gamedb:batch/2026-10-18-batch17). Moved to their games: 1.11 (the menu-only
 smoke games), 1.12 (Nexuiz).
 
@@ -130,50 +130,50 @@ smoke games), 1.12 (Nexuiz).
 |---|---|---|---|---|
 | 1.1 | Clean repeat of the idle fix on/off | **done** (batch 16): confirmed, no SSH poll | PS3 | [STALLS.md](STALLS.md) |
 | 1.2 | The fixed kernel as the default, then retire the stopgap kicker | `.472` is the release default; the bench's default `ENVS` is `-` (no kicker); game mode's `ps3-kick` skips itself when `ps3_idle_prep` is on. Left: drop `ps3-kick` once no kernel without the fix is in use (D13) | host, PS3 | [DESKTOP.md](DESKTOP.md), [STALLS.md](STALLS.md) |
-| 1.5 | Game prefetch A/B | **done** (batch 16): no gain, Luanti loads slower, default off | PS3 | [STALLS.md](STALLS.md) |
+| 1.5 | Game prefetch A/B | **done** (batch 16): no gain, [Luanti](../gamedb/games/luanti/) loads slower, default off | PS3 | [STALLS.md](STALLS.md) |
 | 1.6 | Internal disk speed test, read-only | **done**: SSD 100 MB/s, 0.1 ms random 4K; USB 27.8 MB/s, 20 ms | PS3 | [GAMEOS-HDD.md](GAMEOS-HDD.md) |
-| 1.7 | Load and warm-up profiles of 5 games, shader caches cold/warm | batch 17 read: the disk is 34-41% of every load, CPU items 1-3 s per game (SuperTuxKart 5-8), the GLSL cache saves CPU but no wall time. The SSD root (ssdroot2 P1a): loads -39 to -61%, the disk 11-26% of a load, decoders and linking are what is left. Left: Mesa 0039 `NV30_SHADER_CACHE` cold/warm, a symbolised re-run | PS3 | [PROFILING.md](PROFILING.md) |
+| 1.7 | Load and warm-up profiles of 5 games, shader caches cold/warm | batch 17 read: the disk is 34-41% of every load, CPU items 1-3 s per game ([SuperTuxKart](../gamedb/games/supertuxkart/) 5-8), the GLSL cache saves CPU but no wall time. The SSD root (ssdroot2 P1a): loads -39 to -61%, the disk 11-26% of a load, decoders and linking are what is left. Left: Mesa 0039 `NV30_SHADER_CACHE` cold/warm, a symbolised re-run | PS3 | [PROFILING.md](PROFILING.md) |
 | 1.8 | local/0041's power paths: `poweroff`, power button taps during shutdown, reboot | open; upstream draft 3 waits on it | user | [THERMAL.md](THERMAL.md) |
 | 1.9 | The next kernel's checks | `.457` was never booted; `.472` carries its changes and runs since batch ssd1 (2026-10-19). Left: local/0043's console-frame release checks (`ps3fb.shadow_release=1`, not scheduled yet), `dev_hdd1` with NLS, ps3rsx `shadow_fast` A/B (scheduled ssdroot2 P2) | user, PS3 | [KERNEL-MEMORY.md](KERNEL-MEMORY.md), [HOTPATHS.md](HOTPATHS.md) |
 | 1.10 | Game mode at the TV: the escape keys, the automatic start, Luanti from the menu with sound, the desktop's return time, `gamemode-check.sh`, the `ps3-game-kick` unit | open; almost none of it has run on the PS3 | user | [DESKTOP.md](DESKTOP.md) |
 | 1.13 | The interference detector's own checks: a key press, an SSH login, a mouse bump, the tty8 screen | open | user | [STALLS.md](STALLS.md) |
 | 1.14 | The whole system on the SSD image (Phase B) | the SSD root ran batches ssdroot1 and ssdroot2 (loads -39 to -61%, BananaBread's gameplay stalls 1.6 to 0.05 s); left: USB root against SSD root in alternating boots | PS3, user (reboots) | [GAMEOS-HDD.md](GAMEOS-HDD.md) |
 | 1.15 | The kernel guard (local/0045) on the PS3: a kernel deb with it, then the "On the PS3" checks | built, on in the series since 1abb2a1, not booted | user, PS3 | [GAMEOS-HDD.md](GAMEOS-HDD.md) |
-| 1.16 | Smoke runs of the new games (ScummVM, Simutrans, Crawl, Freeciv, LinCity-NG, Flare, Widelands, Warmux, Cataclysm) and OpenTTD's gameplay benchmark | first runs done in batch ssdroot3 (seven of nine start; OpenTTD `blit8` 34-43 fps against 11, now the package default); the re-runs and the menu-only games are each game's todo item (TESTS.md Next lists them) | PS3 | [TESTS.md](TESTS.md), [games/README.md](games/README.md) |
+| 1.16 | Smoke runs of the new games ([ScummVM](../gamedb/games/scummvm/), [Simutrans](../gamedb/games/simutrans/), Crawl, [Freeciv](../gamedb/games/freeciv/), [LinCity-NG](../gamedb/games/lincity-ng/), [Flare](../gamedb/games/flare/), [Widelands](../gamedb/games/widelands/), [Warmux](../gamedb/games/warmux/), Cataclysm) and [OpenTTD](../gamedb/games/openttd/)'s gameplay benchmark | first runs done in batch ssdroot3 (seven of nine start; OpenTTD `blit8` 34-43 fps against 11, now the package default); the re-runs and the menu-only games are each game's todo item (TESTS.md Next lists them) | PS3 | [TESTS.md](TESTS.md), [games/README.md](games/README.md) |
 
 ### Stage 2: smoothness and correctness for the suite
 
 The suite as a player sees it: sound, game mode, VRAM, and results that hold up on a second run.
-Moved to their games: 2.8 (dsda-doom's chopping music, which OpenTTD's shares; decision D3) and 2.9
-(Luanti's `view40`).
+Moved to their games: 2.8 ([dsda-doom](../gamedb/games/dsda-doom/)'s chopping music, which [OpenTTD](../gamedb/games/openttd/)'s shares; decision D3) and 2.9
+([Luanti](../gamedb/games/luanti/)'s `view40`).
 
 | # | Item | Status | Needs | Where |
 |---|---|---|---|---|
-| 2.1 | Sound check across all games; fix what is silent (SuperTuxKart's `sound=none` was a read before the game opened its device; RUNNING since the SSD root, still not heard by ear) | open; D4 waits on it | PS3, user by ear | [games/README.md](games/README.md) |
+| 2.1 | Sound check across all games; fix what is silent ([SuperTuxKart](../gamedb/games/supertuxkart/)'s `sound=none` was a read before the game opened its device; RUNNING since the SSD root, still not heard by ear) | open; D4 waits on it | PS3, user by ear | [games/README.md](games/README.md) |
 | 2.2 | A benchmark round through game mode, reconciled with the desktop-stopped baselines, same boot | open; no number was ever taken the way games are played | PS3 | [DESKTOP.md](DESKTOP.md) |
-| 2.3 | VRAM measurement for OpenArena opengl2 and SuperTuxKart, then a VRAM reserve game mode shrinks | open | PS3, then host | [backlog/memory.md](backlog/memory.md) |
-| 2.4 | Texture compression at upload for every game (Mesa 0038, `NV30_FORCE_DXT`) | built, default off; ssdroot2 P2: BananaBread -42 MB VRAM with no fps change resolved, SuperTuxKart and OpenArena gl2min force nothing; Luanti, ClassiCube, `all` and `NEAREST` left | PS3 | [MEMORY.md](MEMORY.md) |
+| 2.3 | VRAM measurement for [OpenArena](../gamedb/games/openarena/) opengl2 and SuperTuxKart, then a VRAM reserve game mode shrinks | open | PS3, then host | [backlog/memory.md](backlog/memory.md) |
+| 2.4 | Texture compression at upload for every game (Mesa 0038, `NV30_FORCE_DXT`) | built, default off; ssdroot2 P2: [BananaBread](../gamedb/games/bananabread/) -42 MB VRAM with no fps change resolved, SuperTuxKart and OpenArena gl2min force nothing; Luanti, [ClassiCube](../gamedb/games/classicube/), `all` and `NEAREST` left | PS3 | [MEMORY.md](MEMORY.md) |
 | 2.5 | The kernel's OS-area flash write | done: local/0044 (`ps3_os_area.write`, default 0); the passive check passed on 2026-10-20 (no write attempt in a 13 h boot after the NTP sync) | PS3 | [CONSOLE.md](CONSOLE.md) |
-| 2.6 | Repeats of single-run results | ClassiCube `chunks1` (+4.7%) and X-Moto's stream buffer (+1%) repeated in batch 16. Left: one benchmark item each in BananaBread, Luanti, Extreme Tux Racer, Teeworlds and Armagetron Advanced ([Per-game items](#per-game-items)) | PS3 | TESTS.md Next |
+| 2.6 | Repeats of single-run results | ClassiCube `chunks1` (+4.7%) and [X-Moto](../gamedb/games/xmoto/)'s stream buffer (+1%) repeated in batch 16. Left: one benchmark item each in BananaBread, Luanti, [Extreme Tux Racer](../gamedb/games/etr/), [Teeworlds](../gamedb/games/teeworlds/) and [Armagetron Advanced](../gamedb/games/armagetronad/) ([Per-game items](#per-game-items)) | PS3 | TESTS.md Next |
 | 2.7 | A 30-minute soak of a heavy game, supervised (temperatures, Extreme Tux Racer's GART growth of 4 MB a minute, Luanti's arena growth) | open | PS3, user nearby | [backlog/smoothness.md](backlog/smoothness.md#long-session-soak) |
 
 ### Stage 3: performance work
 
 With the stalls gone, the frame rate of the CPU- and GPU-bound games. Details for every row are in
-the backlog. Moved to their games: 3.7 (OpenArena's hunk trim and renderergl2 `r_keepImages`), 3.8
-(Red Eclipse's memory patches), 3.10 (Neverball's longer replay).
+the backlog. Moved to their games: 3.7 ([OpenArena](../gamedb/games/openarena/)'s hunk trim and renderergl2 `r_keepImages`), 3.8
+([Red Eclipse](../gamedb/games/redeclipse/)'s memory patches), 3.10 ([Neverball](../gamedb/games/neverball/)'s longer replay).
 
 | # | Item | Effort | Where |
 |---|---|---|---|
-| 3.1 | The remaining game-side batching, perf first: the method is in the backlog, the work one item per game (BananaBread's cube2 0007-0009 unmeasured, SuperTuxKart's legacy renderer, OpenTTD's GL driver) | M per game | [backlog/graphics.md](backlog/graphics.md#game-side-batching-in-the-remaining-games) |
-| 3.2 | Tiling and Z-cull (lv1 attributes 0x300/0x301): ClassiCube is GPU-bound now | M-L | [backlog/graphics.md](backlog/graphics.md) |
+| 3.1 | The remaining game-side batching, perf first: the method is in the backlog, the work one item per game ([BananaBread](../gamedb/games/bananabread/)'s cube2 0007-0009 unmeasured, [SuperTuxKart](../gamedb/games/supertuxkart/)'s legacy renderer, [OpenTTD](../gamedb/games/openttd/)'s GL driver) | M per game | [backlog/graphics.md](backlog/graphics.md#game-side-batching-in-the-remaining-games) |
+| 3.2 | Tiling and Z-cull (lv1 attributes 0x300/0x301): [ClassiCube](../gamedb/games/classicube/) is GPU-bound now | M-L | [backlog/graphics.md](backlog/graphics.md) |
 | 3.3 | RSX/SPU probes E8b, E16, E17 and the spufs dispatch latency | S each | [backlog/graphics.md](backlog/graphics.md) |
 | 3.4 | Indirect constant addressing (ARL) in nv30 vertex programs, for GPU skinning | M-L | [backlog/graphics.md](backlog/graphics.md) |
 | 3.5 | Mesa built with nv30 only | S-M | [backlog/memory.md](backlog/memory.md) |
 | 3.6 | Sound straight to ALSA, without the pulse plugin and server | M | [backlog/memory.md](backlog/memory.md) |
-| 3.9 | Smaller ideas: cheaper Mesa 0028/0031, ADPCM sound effects in ioquake3, half-float vertex data, shader IR dropped after linking, OpenAL Soft's b16/f44 | S-M each | [backlog/README.md](backlog/README.md) |
+| 3.9 | Smaller ideas: cheaper Mesa 0028/0031, ADPCM sound effects in [ioquake3](../gamedb/engines/ioquake3/), half-float vertex data, shader IR dropped after linking, OpenAL Soft's b16/f44 | S-M each | [backlog/README.md](backlog/README.md) |
 | 3.11 | Kernel stat options (PSI, delay accounting, schedstats) and a debugfs `ps3rsx_stats`, each with its RAM cost | S-M | [backlog/smoothness.md](backlog/smoothness.md) |
-| 3.12 | Later: vertex texture fetch, derivatives, instancing, video decoding on the SPEs (parked by CLAUDE.md); SPU meshing is a Luanti and a ClassiCube item | L | [backlog/spu.md](backlog/spu.md), [backlog/graphics.md](backlog/graphics.md) |
+| 3.12 | Later: vertex texture fetch, derivatives, instancing, video decoding on the SPEs (parked by CLAUDE.md); SPU meshing is a [Luanti](../gamedb/games/luanti/) and a ClassiCube item | L | [backlog/spu.md](backlog/spu.md), [backlog/graphics.md](backlog/graphics.md) |
 
 ### Stage 4: hardware, safety and platform
 
@@ -203,10 +203,10 @@ Everything meant for other users. Nothing here is published without the user's O
 
 | # | Item | Status | Where |
 |---|---|---|---|
-| 5.1 | Stable publish of the release (D1), then a written release process | every package rebuilt official (kernel `.472` the default, Mesa `.476`, ...) and in `ps3-dev`; the stable command with its `DEBS=` list is written, not run, until the image session passes | [RELEASE-CANDIDATES.md](RELEASE-CANDIDATES.md) |
+| 5.1 | Stable publish of the release (D1), then a written release process | every package rebuilt official (kernel `.472` the default, Mesa `.476`, ...) and in `ps3-dev`; the stable command with its `DEBS=` list is written, not run, until the image session passes | [archive/RELEASE-CANDIDATES-2026-10-19.md](archive/RELEASE-CANDIDATES-2026-10-19.md) |
 | 5.2 | A repository for others: a public host, signing and a published key, mirrors; licensed data only for the owner | done: walnut.nanobyte.dev (2026-10-21; signed suites built by CI, the licensed suite password-protected, published from the PC); the LAN repository on tibi-server retired 2026-10-26; mirrors not done | [backlog/platform.md](backlog/platform.md) |
 | 5.3 | The installer (GameOS app design), `make iso`, `make disk-image`, first-boot assumptions | designed, not built | [backlog/platform.md](backlog/platform.md), [GAMEOS-HDD.md](GAMEOS-HDD.md) |
-| 5.4 | Image rebuild and a reimage of the USB disk (D14) | the image is built (2026-10-18, 2.9 GiB, sha256 `65dae499...`); its PS3 session is pending | [RELEASE-CANDIDATES.md](RELEASE-CANDIDATES.md), [IMAGE-DIFF.md](IMAGE-DIFF.md) |
+| 5.4 | Image rebuild and a reimage of the USB disk (D14) | the image is built (2026-10-18, 2.9 GiB, sha256 `65dae499...`); its PS3 session is pending | [archive/RELEASE-CANDIDATES-2026-10-19.md](archive/RELEASE-CANDIDATES-2026-10-19.md), [IMAGE-DIFF.md](IMAGE-DIFF.md) |
 | 5.5 | End-user docs: booting through Petitboot (the fan and boot-flag steps), game mode and its keys, which games work, licensed data, OtherOS++ safety | open | [backlog/platform.md](backlog/platform.md) |
 | 5.6 | Security update policy: the sid snapshot plus Debian's live ports, when we rebase, SSH exposure | open | [PACKAGING.md](PACKAGING.md) |
 | 5.7 | Other PS3 models (fats, other slims, the QCFW/BadWDSD news for 25xx-40xx); everything is tested on one CECH-20xx | open (research) | [backlog/hardware.md](backlog/hardware.md) |
@@ -224,7 +224,7 @@ backlog, the played-session queue's place included, is its todo.toml. The full l
 | Game | Open items | Kinds | From the plan |
 |---|---|---|---|
 | [Armagetron Advanced](../gamedb/games/armagetronad/todo.toml) | 2 | 1 benchmark, 1 session | 2.6 |
-| [BananaBread](../gamedb/games/bananabread/todo.toml) | 6 | 4 benchmark, 1 fix, 1 session | 2.6, 3.1 |
+| [BananaBread](../gamedb/games/bananabread/todo.toml) | 7 | 4 benchmark, 1 fix, 1 package, 1 session | 2.6, 3.1 |
 | [Chromium B.S.U.](../gamedb/games/chromium-bsu/todo.toml) | 1 | 1 benchmark | 1.11 |
 | [ClassiCube](../gamedb/games/classicube/todo.toml) | 3 | 2 package, 1 research | 3.12 |
 | [dsda-doom](../gamedb/games/dsda-doom/todo.toml) | 2 | 1 research, 1 session | 2.8 |
@@ -235,7 +235,7 @@ backlog, the played-session queue's place included, is its todo.toml. The full l
 | [OpenArena](../gamedb/games/openarena/todo.toml) | 6 | 2 benchmark, 2 fix, 1 package, 1 session | 3.7 |
 | [OpenTTD](../gamedb/games/openttd/todo.toml) | 5 | 2 benchmark, 1 fix, 1 research, 1 session | 2.8, 3.1 |
 | [Red Eclipse](../gamedb/games/redeclipse/todo.toml) | 1 | 1 fix | 3.8 |
-| [SuperTuxKart](../gamedb/games/supertuxkart/todo.toml) | 4 | 2 fix, 1 research, 1 session | 2.1, 3.1 |
+| [SuperTuxKart](../gamedb/games/supertuxkart/todo.toml) | 5 | 2 fix, 1 package, 1 research, 1 session | 2.1, 3.1 |
 | [Teeworlds](../gamedb/games/teeworlds/todo.toml) | 1 | 1 benchmark | 2.6 |
 | [TORCS](../gamedb/games/torcs/todo.toml) | 1 | 1 benchmark | 1.11 |
 | [Trigger Rally](../gamedb/games/trigger-rally/todo.toml) | 1 | 1 benchmark | 1.11 |

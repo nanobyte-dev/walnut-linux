@@ -219,7 +219,7 @@ mounts the UFS again (other files unchanged) and rechecks (unchanged). Both geom
   32 MiB, where UFS2 puts an indirect block).
 - `map` took 79 s in Python. `verify` passed all 4194304 blocks, `recheck` passed.
 - With the user's go: `create` made `ps3ssd` (15 GiB) and `ps3ssd-swap` (1 GiB), mkfs.ext4, and
-  five games' data copied (1.6 GiB, `diff` clean). Luanti's `DATA_DIRS` cover only 16 MB: its
+  five games' data copied (1.6 GiB, `diff` clean). [Luanti](../gamedb/games/luanti/)'s `DATA_DIRS` cover only 16 MB: its
   load's disk wait is its mapped binaries and the world.
 - `ps3-vswap` on its dm backing (`PS3_VSWAP_DM=1`) came up as expected, and the `SWAP=ssd` table
   switch under it ran in batch ssd1 (its first real run).
@@ -292,9 +292,9 @@ Two arms, switched between runs by `bench/ssd-arm.sh` (run.sh calls it before ea
 quiet) and recorded by client.sh in bench.txt (`gamedata=`, `gamedata_dirs=`, `swap=`, `swaps=`;
 report.py tags `base@gdssd`, `base@gdssd+swssd`):
 
-- `GAMEDATA=ssd`: the recipe's `DATA_DIRS` (BananaBread `/usr/share/games/cube2`, OpenArena
-  `/usr/share/games/openarena`, Luanti `/usr/share/luanti`, SuperTuxKart
-  `/usr/share/games/supertuxkart`, ClassiCube `~/.local/share/classicube/{texpacks,audio}`) are
+- `GAMEDATA=ssd`: the recipe's `DATA_DIRS` ([BananaBread](../gamedb/games/bananabread/) `/usr/share/games/cube2`, [OpenArena](../gamedb/games/openarena/)
+  `/usr/share/games/openarena`, [Luanti](../gamedb/games/luanti/) `/usr/share/luanti`, [SuperTuxKart](../gamedb/games/supertuxkart/)
+  `/usr/share/games/supertuxkart`, [ClassiCube](../gamedb/games/classicube/) `~/.local/share/classicube/{texpacks,audio}`) are
   bind-mounted from `/mnt/ps3ssd/games/<dir>` for the run and unmounted for runs without it. The
   quiet drops the page cache after the bind as before every run. The binary, the libraries, Mesa's
   shader cache (`~/.cache`) and Luanti's world (`/var/tmp`) stay on the USB disk.
@@ -328,7 +328,7 @@ What to compare ([PROFILING.md](PROFILING.md), "Start-up profiling"; [STALLS.md]
 
 2026-10-18 22:10-23:25Z, kernel 6.12.111+ps3.472, USB root, same boot, `STALLS=1 ROTATE=1`, results
 commit 9e6bc57 (gamedb:batch/2026-10-18-ssd1). Only BananaBread (9 runs) and part of
-OpenArena ran before the batch was stopped for Phase B; Luanti, SuperTuxKart and ClassiCube never
+OpenArena ran before the batch was stopped for Phase B; [Luanti](../gamedb/games/luanti/), [SuperTuxKart](../gamedb/games/supertuxkart/) and [ClassiCube](../gamedb/games/classicube/) never
 got their SSD arms. Medians with [min..max]:
 
 | [BananaBread](../gamedb/games/bananabread/) base, n=3 | USB | GAMEDATA=ssd | ssd + SWAP=ssd |
@@ -394,7 +394,7 @@ fallback for everything here.
 `ssd-6.12.111+ps3.472`: root `/dev/mapper/ps3root`, the VRAM swap's backing `/dev/mapper/ps3swap`,
 the boot's recheck 6.3 s, the boot 24.7 s. The benchmark batches ssdroot1 and ssdroot2 ran on it
 ([TESTS.md](TESTS.md)): loads 39-61% shorter, the disk's share of a load from about 40% to 11-26%,
-BananaBread's gameplay stalls from 1.6 s to 0.05 s
+[BananaBread](../gamedb/games/bananabread/)'s gameplay stalls from 1.6 s to 0.05 s
 ([result](#result-the-ssd-root-batches-ssdroot1-and-ssdroot2)). The comparison against the USB root in
 alternating boots is still to run ([below](#the-benchmark-usb-root-against-ssd-root)). Kernel `.472` has no guard, so on this boot the
 initramfs logs `kernel has no write guard` and ps3db's writes are not limited to the image's

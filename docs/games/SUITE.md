@@ -22,12 +22,12 @@ recorder, the profiles and the memory snapshots have their own docs ([STALLS.md]
 
 A game's own part is in its bundle, `gamedb/games/<id>/benchmark/` ([gamedb/README.md](../../gamedb/README.md#gamesbenchmark)):
 `recipe.sh` (the variables are listed there), `assets/` (demos, replays, saves, maps and mods, e.g.
-OpenArena's `openarena-bench.dm_71`, X-Moto's `xmoto-credits.rpl`, ETR's `etr-race.evemu`),
-`assets-src/` (how built assets are made: ClassiCube's timedemo plugin `ccbench.c`, which
-`make classicube-bench` builds into `assets/classicube-bench.so`; OpenTTD's save generator), `lib/`
-(Hedgewars' `hwdrive.py`), `analysis.toml` (what the analysis tools need: the old recipe names, the reload rule, the log rules, the interference pattern) and `legacy/` (OpenArena's step 0
+OpenArena's `openarena-bench.dm_71`, [X-Moto](../../gamedb/games/xmoto/)'s `xmoto-credits.rpl`, ETR's `etr-race.evemu`),
+`assets-src/` (how built assets are made: [ClassiCube](../../gamedb/games/classicube/)'s timedemo plugin `ccbench.c`, which
+`make classicube-bench` builds into `assets/classicube-bench.so`; [OpenTTD](../../gamedb/games/openttd/)'s save generator), `lib/`
+([Hedgewars](../../gamedb/games/hedgewars/)' `hwdrive.py`), `analysis.toml` (what the analysis tools need: the old recipe names, the reload rule, the log rules, the interference pattern) and `legacy/` (OpenArena's step 0
 scripts). A game is named by its gamedb id. Two recipes were renamed when they moved there
-(2026-10-26): `sauerbraten` is now `bananabread` (BananaBread on Debian's cube2) and
+(2026-10-26): `sauerbraten` is now `bananabread` ([BananaBread](../../gamedb/games/bananabread/) on Debian's cube2) and
 `sauerbraten-edition` is now `sauerbraten`. Runs from before then keep their old names in bench.txt
 and their directory names; the tools read those through each bundle's `analysis.toml` (`[legacy]
 recipe_names`), and `run.sh` still takes `sauerbraten-edition`.
@@ -136,7 +136,7 @@ the first `LOAD_RE` line, or else the HUD's first frame. A game that repeats its
 prints one line per pass; a pass counts when it starts at least 0.9 x `WARMUP` after the load, and
 the game is stopped once the counted passes cover 0.95 x `MEASURE`. `fps`, `maxms`, `load` are then
 the first pass's, as the run was before. A game can mark its own window with `WIN_ON_RE` and
-`WIN_OFF_RE` (BananaBread (Debian's cube2) leaves its demo reload out that way). Each recipe's header says which way
+`WIN_OFF_RE` ([BananaBread](../../gamedb/games/bananabread/) (Debian's cube2) leaves its demo reload out that way). Each recipe's header says which way
 it works and what isn't identical between runs. bench.txt gets `warmup`, `measure`, `load_end`,
 `hud_t1`, `window`, `passes`, `measured` and `pass<N>` lines for report.py. This replaced the first
 harness's 90 s cap and its 12 s HUD skip.
@@ -208,7 +208,7 @@ back to GameOS at the end. For bench runs:
   (`/var/tmp/ps3-bench/backup/<game>`) and its next run restores them first.
 - Compare load times only with the shader cache in the same state.
 - `perf` on the PS3 needs `--proc-map-timeout=20000`, or it starts sampling before it has read a big
-  process's maps and files most samples as `[unknown]` (77% of OpenArena's once).
+  process's maps and files most samples as `[unknown]` (77% of [OpenArena](../../gamedb/games/openarena/)'s once).
 - After the batch: `make bench-pull` (PNGs and sheets), the sheets reviewed (`make bench-shots` lists
   the open ones), `report.py`, then a batch in the records.
 
@@ -238,7 +238,7 @@ with the harness and the dropout logger in place, and `play-test.sh collect GAME
 lists the game's sessions (end, play time, launcher, sound dropouts, the form's answers, imported or
 new).
 
-**Pick the launcher.** A game can have several menu entries (OpenArena: `openarena-gl1.desktop`
+**Pick the launcher.** A game can have several menu entries ([OpenArena](../../gamedb/games/openarena/): `openarena-gl1.desktop`
 "OpenArena (GL 1.2)" and `openarena-gl2.desktop` "OpenArena (GL 2.0)"). `LAUNCHER` is an entry's file
 name or its Name; the session starts exactly that entry's `Exec` (field codes cut out, no shell), so
 the game gets the arguments the menu gives it. The game's played test, `rating/test.toml` in its bundle
@@ -257,7 +257,7 @@ on its own: play every launcher of a game.
 
 `make bench-push` puts the scripts there; the harness needs a `ps3-gpu-tools` with
 `ps3-bench.sh session`. `run.sh list` names the games. A game without a menu launcher needs a playable
-`command` in its test.toml (OpenArena's and X-Moto's are there); a timedemo or autoplay recipe without one
+`command` in its test.toml (OpenArena's and [X-Moto](../../gamedb/games/xmoto/)'s are there); a timedemo or autoplay recipe without one
 would run its bench command. The script moves into `ps3-game.slice`
 (game mode freezes the terminal) and logs to `~/.cache/ps3-session/`. Nothing else is needed from
 the terminal: play, then quit the game from its menu. There is no time limit. Don't use the PS3
@@ -377,7 +377,7 @@ a PS3 ([GAMEDB.md](../GAMEDB.md)). Their captures may serve the reviewer as refe
 ## Sound dropouts
 
 Every harness run (benchmarks and played sessions) measures the moments the game's sound output
-ran dry. Counting ALSA's "underrun occurred" lines told nothing about what was heard: an X-Moto
+ran dry. Counting ALSA's "underrun occurred" lines told nothing about what was heard: an [X-Moto](../../gamedb/games/xmoto/)
 session counted 92 in six minutes while the player heard clean sound and music. What decides it is
 how long the output stayed dry (a couple of ms is inaudible, tens of ms is a click or a chop) and
 whether sound was playing around it.
@@ -442,10 +442,10 @@ runs none unless `SHOTS` is given. The points count from a game state, not from 
 
 - `SHOT_FROM=load` (default): the load's end as the window has it (`LOAD_MARK`, `LOAD_RE`, else the
   HUD's first frame; for many smoke recipes the first frame is a loading screen, so they name a line);
-- `SHOT_RE=regex`: the first game output line matching it (Warzone 2100: `Started writing replay file`,
+- `SHOT_RE=regex`: the first game output line matching it ([Warzone 2100](../../gamedb/games/warzone2100/): `Started writing replay file`,
   the match's start);
-- `SHOT_FROM=mark`: when the recipe's `during()` calls `shot_mark`, after its keys (Endless Sky's
-  flight, SuperTux, OpenTyrian, UQM, ScummVM, Crawl, Simutrans); a variant whose `during()` ends without
+- `SHOT_FROM=mark`: when the recipe's `during()` calls `shot_mark`, after its keys ([Endless Sky](../../gamedb/games/endless-sky/)'s
+  flight, [SuperTux](../../gamedb/games/supertux/), [OpenTyrian](../../gamedb/games/opentyrian/), UQM, [ScummVM](../../gamedb/games/scummvm/), Crawl, [Simutrans](../../gamedb/games/simutrans/)); a variant whose `during()` ends without
   it (no keys) falls back to the load's end (`shot_ref=load-nomark`);
 - `SHOT_FROM=start`: the client's start.
 
@@ -469,8 +469,8 @@ runs the recipe through the same client.sh in an amd64 container (`build-contain
 sid from the PS3's snapshot) under Xvfb 1920x1080, with llvmpipe forced to the RSX's GL 2.1 and GLSL
 1.20 (`MESA_GL_VERSION_OVERRIDE=2.1`, `MESA_GLSL_VERSION_OVERRIDE=120`; the extension list is
 llvmpipe's own), no sound device, and the same shot points after the same game state. The recipe says
-where the game comes from: `REF_PKGS` (Debian packages, for the games we take from Debian: OpenArena,
-SuperTuxKart) or `REF_IMAGE` (a local image with our amd64 build of a game we patch: Warzone 2100's
+where the game comes from: `REF_PKGS` (Debian packages, for the games we take from Debian: [OpenArena](../../gamedb/games/openarena/),
+[SuperTuxKart](../../gamedb/games/supertuxkart/)) or `REF_IMAGE` (a local image with our amd64 build of a game we patch: Warzone 2100's
 `wz-amd64-view`); `REF_ENV` adds NAME=VALUE for the PC run. Output: `build/bench-ref/<game>-<variant>/`
 (the run directory) and `build/bench-ref/<game>-<variant>-<s>s.png`; an older reference moves to
 `build/bench-ref/old/` first. The container is `shot-ref-<game>-<pid>`, removed at the end.
@@ -549,25 +549,25 @@ gamedb `build.toml`.
 
 ## Disk and download
 
-Sizes computed on 2026-10-16 against the image of that day (OpenArena and ClassiCube in it),
+Sizes computed on 2026-10-16 against the image of that day ([OpenArena](../../gamedb/games/openarena/) and [ClassiCube](../../gamedb/games/classicube/) in it),
 before anything ran:
 
 | Set | New packages | Download | Installed |
 |---|---|---|---|
-| The suite without SuperTuxKart | 56 | 298 MB | 649 MB |
+| The suite without [SuperTuxKart](../../gamedb/games/supertuxkart/) | 56 | 298 MB | 649 MB |
 | SuperTuxKart (its data 752 MB, Noto fonts) | +12 | +678 MB | +839 MB |
 | The whole suite | 67 | 976 MB | 1.49 GB |
-| Reserves (ETR, Armagetron, SuperTux, Teeworlds) | 44 | 228 MB | 377 MB |
+| Reserves (ETR, Armagetron, [SuperTux](../../gamedb/games/supertux/), [Teeworlds](../../gamedb/games/teeworlds/)) | 44 | 228 MB | 377 MB |
 
 The biggest items: supertuxkart-data 752 MB, cube2-data 260 MB, neverball data 108 MB (Neverputt
 26 MB more), xmoto-data 62 MB, freedoom 57 MB. The first smoke set was about 1.5 GB to download and
-2 GB installed (TORCS and Red Eclipse's data 1.5 GB of it); Nexuiz Classic about 800 MB.
+2 GB installed (TORCS and [Red Eclipse](../../gamedb/games/redeclipse/)'s data 1.5 GB of it); Nexuiz Classic about 800 MB.
 
 ## Stage 0: how the suite started
 
 On 2026-10-16 the runner replaced `gamedb/games/openarena/benchmark/legacy/step0.sh`: `run.sh`, `client.sh`, `report.py`
 (from step0-report.py), recipes and assets; config backups on disk, ALSA underrun counting, a 90 s
-cap at the time. The first two recipes were OpenArena (tc0, tc1, gl2min, gl2) and ClassiCube (a
+cap at the time. The first two recipes were OpenArena (tc0, tc1, gl2min, gl2) and [ClassiCube](../../gamedb/games/classicube/) (a
 saved map, 60 s, HUD fps; later the ccbench timedemo). Games ran directly, with `GAMEMODE=1` as a
 variant, because game mode changes memory and timing. It was accepted when both recipes gave
 numbers with the picture on screen; matching step 0 was dropped as a criterion because step 0 ran

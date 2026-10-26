@@ -16,7 +16,7 @@ Status (2026-10-26): the catalog, the scoring, the site, the session recorder an
 
 **What a rating says.** How well a game plays on the PS3 under Walnut, not how good the game is.
 Game design never scores: unforgiving gameplay, short levels, the game's own frame cap or simulation
-rate (OpenTTD's 37 a second), a control layout made for a PC keyboard, how fun it is. A game designed
+rate ([OpenTTD](../gamedb/games/openttd/)'s 37 a second), a control layout made for a PC keyboard, how fun it is. A game designed
 for keyboard and mouse (an RTS, a PC shooter, a city builder) is never marked down for weak gamepad
 support. Breakage a Walnut player runs into does score, wherever it comes from, and says where: every
 picture defect and broken feature is labelled "also on the PC" (upstream's, seen on the PC reference)
@@ -46,7 +46,7 @@ and game optimizations and never answer any of it.
    keyboard use, when each press came; counts and times only, never which key). When the game exits,
    a short form, under a minute, asks what only the player knows: sound and music heard, glitches
    seen, the gamepad in the menus and in play, the keyboard and mouse, menus and modes, saves; and a
-   notes box. A game with several launchers (OpenArena has "GL 1.2" and "GL 2.0") is played once per
+   notes box. A game with several launchers ([OpenArena](../gamedb/games/openarena/) has "GL 1.2" and "GL 2.0") is played once per
    launcher: a session starts the chosen menu entry's command, records its Name, and each launcher is
    rated on its own. A session without a launcher counts for the game's default one.
 2. **The review**, by the agent that imports the run. `tools/gamedb/review.py RUN` puts the session's
@@ -191,7 +191,7 @@ music; 25 with one missing or the effects only partly; nothing heard makes the w
 a benchmark run with no form counts the sound as present), and 50 for cleanliness.
 
 Cleanliness comes from the audible dropouts a minute: 45 at one, 35 at four, 22 at ten, 10 at
-twenty, 0 at forty. A count of underruns says nothing about what was heard: in an X-Moto session the
+twenty, 0 at forty. A count of underruns says nothing about what was heard: in an [X-Moto](../gamedb/games/xmoto/) session the
 player heard clean sound and music while 92 underruns were counted in six minutes. So the recorder
 measures each one (`ps3-xrunlog`, an ALSA plugin in front of the game's sound device for the run,
 [games/SUITE.md](games/SUITE.md#sound-dropouts)): how long the output stayed dry, and how loud the
@@ -261,7 +261,7 @@ the first 5 minutes of play) or one at startup is still Scrap with one session. 
 the medals were redefined (the user, 2026-10-26), with the weights and curves unchanged. Platinum,
 Gold, Silver and Bronze come from the mean as before; Tin is gone; Rust is a playable game with a
 core subsystem broken (or a mean under 35); Scrap only a game that can't be played (consistent
-crashes, under 5 fps). Every data-version-2 test was re-scored; no medal moved (Mr.Boom stays Scrap:
+crashes, under 5 fps). Every data-version-2 test was re-scored; no medal moved ([Mr.Boom](../gamedb/games/mrboom/) stays Scrap:
 it crashed within 30 s of play in both its sessions).
 
 **Rules 2.0 (2026-10-26)**: the same data and scores; a broken core subsystem made the game Scrap,
@@ -316,7 +316,7 @@ game has it.
   sessions (12 min into play) is Rust, the crash on the page ("stability broken (1 crash in 0.4 h)");
   one crash with over an hour of play between crashes only lowers Stability. Scrap needs the crash
   to be consistent: at startup or before play in any session, in more than half the sessions, or
-  within the first 5 minutes of play in half of them or more (Mr.Boom: 30 s into both sessions). A
+  within the first 5 minutes of play in half of them or more ([Mr.Boom](../gamedb/games/mrboom/): 30 s into both sessions). A
   single session that crashed late is Rust (rules 2.2): one session can't show the crash is consistent;
   one that crashed early or at startup is Scrap.
 - **Rust and Scrap show their reason**: won't start, crashes (how many, how early), too slow, or what's
@@ -355,7 +355,7 @@ game has it.
   version add their picture. The app and the page say which version that was ("Tested on Walnut 0.1
   with xmoto 0.6.3+repack-1"). The website's History table rates every version from its own
   tests alone, newest first, so a game can be compared between versions.
-- **Launchers.** A game with several menu entries (OpenArena's GL 1.2 and GL 2.0 renderers) is rated
+- **Launchers.** A game with several menu entries ([OpenArena](../gamedb/games/openarena/)'s GL 1.2 and GL 2.0 renderers) is rated
   once per launcher: each test records the entry it started (result.toml's `launcher`, the entry's
   Name; `import-run.py --launcher NAME` for runs from before it was recorded). The game's medal is its
   best launcher's, named with it ("Gold, with OpenArena (GL 1.2)"); the page and the app show every
@@ -403,8 +403,8 @@ every value with its source); `tools/gamedb/score.py` reads it, and the table is
 | OpenTTD, 32bpp | 0 (11 fps, 1% low 5.7) | 0 (52 s of stalls, longest 311 ms) | 50 (3500 faults a minute) | 45 | 0 (frame) | Scrap (too slow) |
 <!-- /gamedb:calibration -->
 
-Every medal below Gold has a real problem behind it: slow frame rates (Luanti, BananaBread,
-SuperTuxKart), Neverball's 3.9 s level reload, dsda-doom's chopping sound, and the 32bpp OpenTTD that
+Every medal below Gold has a real problem behind it: slow frame rates ([Luanti](../gamedb/games/luanti/), [BananaBread](../gamedb/games/bananabread/),
+[SuperTuxKart](../gamedb/games/supertuxkart/)), [Neverball](../gamedb/games/neverball/)'s 3.9 s level reload, [dsda-doom](../gamedb/games/dsda-doom/)'s chopping sound, and the 32bpp [OpenTTD](../gamedb/games/openttd/) that
 can't be played is Scrap. Sound is half presence, half cleanliness, so bad sound costs a medal step
 but no longer sinks a game on its own. Open: whether strategy and turn-based games need their own
 frame-rate scale (OpenTTD plays fine at 38 fps and scores 31 on frame rate); one scale for now, revisited after the first strategy sessions.
@@ -441,7 +441,7 @@ buttons Install, Remove, Play and "Open on the web". The window follows the Waln
   Walnut Games update". Play and Remove work for installed games.
 - **Installed** comes from `dpkg-query`. **Play** finds the game's launchers in its packages'
   manifest (`dpkg -L`): the menu entries they ship (a diverted one isn't there and drops out), and any
-  shown menu entry that runs one of their programs (Walnut's own entries, like OpenArena's GL 1.2 and
+  shown menu entry that runs one of their programs (Walnut's own entries, like [OpenArena](../gamedb/games/openarena/)'s GL 1.2 and
   GL 2.0). The catalog's `desktop` list is optional: it orders the launchers or adds one the manifest
   can't lead to. Each launcher starts through its runtime menu copy
   (`$XDG_RUNTIME_DIR/ps3-game-menu/applications/`, Exec through `ps3-game`), else `ps3-game` plus the
@@ -488,7 +488,7 @@ gallery from Git LFS: `tools/gamedb/gallery.py`). A test is a `session` (a playe
 picture only). Ratings come from played sessions alone: the benchmark runs of the suite (the
 desktop stopped, vsync off) don't describe what a player gets and aren't imported; the code still
 reads a `demo` test (a harness run with a measured window) if one is ever imported on purpose. Games that need the user's own data (Quake,
-Quake II, Sauerbraten) are listed and shown, with a guide to setting up the data; the data itself is never
+Quake II, [Sauerbraten](../gamedb/games/sauerbraten/)) are listed and shown, with a guide to setting up the data; the data itself is never
 offered (their screenshots, thumbnail included, are published like any game's).
 
 The guide is two parts. `needs_data = true` requires `data_steps` in the front matter: a list of short steps,

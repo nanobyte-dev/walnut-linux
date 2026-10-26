@@ -36,15 +36,18 @@ replacing Debian's, with Debian's `freedoom` 0.13.0 (`/usr/share/games/doom/free
 | software, profiled | 40.3 | 0.0 s / 21.8 / 97 ms | 45 / 26 MB | gamedb:batch/2026-10-18-mesa-407-switches |
 | `gl`, profiled, SSD root | 55.9 | 0.0 s / 39.7 / 42 ms | 43 / 66 MB | gamedb:batch/2026-10-19-ssdroot2-gameplay-profiles |
 
-The batching gave +3% and better lows (CPU 118 against 161 s). The gameplay profile: Mesa 22.3% of the
-samples, the game 20.5%, the music synthesis about 30% on the audio thread (FluidSynth 15%, libspeq 12%,
-ALSA 3.4%), kernel 12.7%, ps3rsx 3.4%, Xorg 8.7% of the game's; 2793 underruns in the run. The music is
+The batching gave +3% and better lows (CPU 118 against 161 s). The gameplay profile
+(gamedb:batch/2026-10-19-ssdroot2-gameplay-profiles): Mesa 22% of the samples, the game 20.5%, the music
+about 31% on the audio thread (FluidSynth 14.2%, libspeq 11.9%: `speq_synth_add_v2` 7.4%,
+`speq_synth_render_v2` 2.0%; ALSA 3.4%), kernel 12.7%, ps3rsx 3.3%, Xorg 8.7% of the game's; 2793
+underruns in the run. The music is
 the largest share of the seven profiles
 ([HOTPATHS.md](../../../docs/HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b)).
 
 The benchmark ([recipe](benchmark/recipe.sh)): `-timedemo demo1` (Freedoom's own DEMO1 lump, 2664
 gametics, 76 s at 35 Hz), 6 passes (`DSDA_BENCH_LOOPS=6`, `PASSES=1`). The load ends at `Playing demo:`
-(0.30 never prints the `R_Init` lines on the PS3). Base is the software renderer at 960x540 scaled by SDL;
+(the recipe's `LOAD_MARK`; 0.30 never prints the `R_Init` lines on the PS3), where the window, perf and the
+memory snapshots start. Base is the software renderer at 960x540 scaled by SDL;
 the bench row of the suite is `gl`. Freedoom 0.13's own demos desync (freedoom issue #1532), which
 doesn't matter for a timedemo: the same tics play every run. Variants include `play` (the demo at normal
 speed with GL, 60 s, for the sound), `playnomusic`, `tuned` (OPL music, 48 kHz, a 2048 buffer, 60 fps

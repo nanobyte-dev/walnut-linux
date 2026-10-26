@@ -30,8 +30,8 @@ a session with all three is still to be played.
   session's VRAM column decides whether it stays.
 - `sauerbraten-data` is a second package beside BananaBread's `sauerbraten-nonfree-data`: the real game
   needs the maps, textures and music too, in its own directory so neither game sees the other's files.
-  The orig tarball is made from the pinned release archive (`make sauerbraten-data-src`), never
-  committed; mixed, partly non-commercial licences, so it is licensed (no CI workflow).
+  The orig tarball is made from the pinned release archive by its `sauerbraten-full-data.sh` (`make
+  sauerbraten-data-src`), never committed; mixed, partly non-commercial licences, so it is licensed (no CI workflow).
 - Endianness: nothing to fix. The engine already runs big-endian (the maps read through `lilswap`), and
   the release's maps and models use the same formats.
 - All of the engine's patches apply (0001-0010; 0011 `vanormalshort` built in and off).
@@ -67,8 +67,9 @@ reference (`tools/play-pc.sh`) installs the entry's packages from Debian, which 
 
 - **VRAM runs full on the big maps.** New installs compress more textures (`texcompress 512`); an
   existing config keeps its own setting. A launcher-environment alternative that works with any config
-  is Mesa's `NV30_FORCE_DXT=opaque` (BananaBread: -40% VRAM, softer textures): not set, the user's call
-  after seeing it.
+  is Mesa's `NV30_FORCE_DXT=opaque` (BananaBread: -40% VRAM, softer textures,
+  gamedb:batch/2026-10-19-ssdroot2-force-dxt): the user agreed to it as the launcher's default on
+  2026-10-26; not set yet, it comes with its own session after the crash fixes' (todo.toml).
 - **`out of VRAM for a 8100 KiB BO` bursts** (135 failures each) come 1.4-1.5 s after each of the bench's
   `xwd` screenshots when the VRAM is full: X's GetImage answers in bands of 8 lines (135 = 1080 / 8) and
   each band asks for a screen-sized buffer (most likely glamor's readback copy), which fails and falls

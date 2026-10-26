@@ -62,3 +62,14 @@ packages/gk/fantasy/skyfantasy/skyfantasy` (73 of 74 runs) and `could not load e
 skyboxes/morning` (65 runs), so the benchmark map may draw without its sky and reflections. List \
 those paths in the installed cube2 data, find which package has them, look at a run's photo for the \
 sky."""
+
+[[item]]
+kind = "package"
+added = 2026-10-19
+source = "MEMORY.md \"Texture compression at upload\""
+text = """\
+Decide `NV30_FORCE_DXT=opaque` in the Cube2:Demo launcher: 73 textures to DXT1, peak VRAM 117 to \
+73-78 MB, the game's ps3rsx buffers 351 to 215 MB, fps unchanged (39.0 against 39.9, \
+gamedb:batch/2026-10-19-ssdroot2-force-dxt), the rock textures softer and a little darker on the \
+webcam. The user's call at the TV after seeing it (Sauerbraten's launcher gets it already, its own \
+todo.toml)."""

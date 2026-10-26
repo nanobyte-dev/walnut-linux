@@ -6,7 +6,7 @@ This is the release plan for 2026-10-18, "test first, then publish": every packa
 
 The rules (memory "Publish only when proven"; CLAUDE.md "Never delete what we publish"): a package goes to stable only after it is proven on the PS3, with an explicit `DEBS=` list, `build/aptly` backed up first, and never a `~dev` version. Stable versions are kept forever. Promotion (see [PACKAGING.md](PACKAGING.md#the-repository)) is: commit, rebuild the official version (`0.N`, `...+ps3.N`, no `~dev`), `make publish`.
 
-"fps.csv row N" is the benchmark batch with `order = N` (gamedb/benchmarks/batches.toml, which has its observations). Proof rows have the picture checked on the webcam unless said otherwise. Terms: [glossary](README.md#glossary).
+"fps.csv row N" is the benchmark batch with `order = N` (gamedb/benchmarks/batches.toml, which has its observations). Proof rows have the picture checked on the webcam unless said otherwise. Terms: [glossary](../README.md#glossary).
 
 ## The decision (the user, 2026-10-18 evening)
 
@@ -282,4 +282,4 @@ What the draft's verdicts decided that still matters:
 
 Commands of the draft (kernel `.178` pair from `build/aptly/pool`, a one-line `make publish` of the READY set after `cp -a build/aptly build/aptly-backup-<stamp>`, a second publish of the NEEDS-CHECK packages) are superseded by the command above; the archive keeps them with the full verdict tables and the evidence rows.
 
-Older versions and the dated history: [archive/RELEASE-CANDIDATES.md](archive/RELEASE-CANDIDATES.md).
+Older versions and the dated history: [archive/RELEASE-CANDIDATES.md](../archive/RELEASE-CANDIDATES.md).

@@ -17,6 +17,48 @@ and about 20-25 MB of RAM free at the lowest. Its played session (the "Cube2:Dem
   `ps3-games-licensed`. It fills in `/usr/share/games/cube2` (912 files). BananaBread itself is in no
   suite: it deploys by name.
 
+### The licensed models and sounds (`sauerbraten-nonfree-data`)
+
+Debian's `cube2-data` 1.3-1 is not a DFSG-cleaned Sauerbraten. It is the BananaBread content
+(gitlab.com/cube2-data/cube2-data, 295 MB, 989 files under `packages/`), installed in
+`/usr/share/games/cube2`, which `/usr/games/cube2` passes to the engine as `-k`. The engine (Sauerbraten's
+`fpsgame`, which BananaBread forked) loads models and sounds by names compiled in (`entities.cpp`,
+`render.cpp`, `weapon.cpp`, `monster.cpp`) or from `data/sounds.cfg`, and cube2-data lacks most of them:
+hence "could not load model" for the pickups, HUD guns, gibs and so on, and "failed to load sample".
+
+The match is the SourceForge release `2020_12_29` (`sauerbraten_2020_12_29_linux.tar.bz2`, 985,823,440
+bytes, its MD5 as SourceForge lists it and the SHA256 of our download pinned in the package's
+`upstream.mk`, the archive kept in `build/downloads/game-data`).
+Of the 8,914 files under its `packages/`, 8,780 are not in cube2-data (the maps' textures, map models,
+skyboxes, music, which cube2-data's own maps don't use). The package holds only what the game code and
+`sounds.cfg` need: `files.txt`, 912 files, 149 MB unpacked.
+
+- Models: `ammo health boost quad quadrings quadspheres teleporter carrot checkpoint hudguns vwep
+  projectiles gibs debris barreldebris base skull flags armor`, the five player models (`mrfixit snoutx10k
+  ogro2 inky captaincannon`, with their `armor/` and `hudguns/`), `ogro` and `monster`.
+- Sounds: every one cube2-data lacks.
+- Files cube2-data has are not repeated. A few differ in the release (e.g. `models/debris/md2.cfg`,
+  `models/armor/armor.txt`) and cube2-data's win, so the package installs next to cube2-data without a
+  conflict.
+- Not packaged: the other 7,868 files (map models, the Sauerbraten maps' textures). The real game has its
+  own package, [Sauerbraten's](../sauerbraten/technical.md) `sauerbraten-data`.
+
+Why Debian leaves them out: the licences are not DFSG-free. By directory, from the licence and readme
+files kept in the package: `ammo boost health flags gibs debris barreldebris` (makkE) CC BY-NC-SA;
+`hudguns vwep mrfixit inky captaincannon` (geartrooper and others) CC BY-NC 3.0; `snoutx10k` CC BY 3.0 and
+`skull` CC BY-SA 3.0 (free, but in the same release); `quad` by DCP, converted by makkE; `teleporter`
+(Todretter) "all rights reserved so far"; `ogro` and `ogro2` carry the 1998 Quake II player model's own
+readme; the sounds are mixed (`ambience` CC Sampling+, `q009` CC BY-SA, `free`/`awesund` modified by
+Darthvim, others per their README). So: personal use only, the licensed suite.
+
+Section `local/games`, version `0.0.20201229-1+ps3.N`, arch all. `cube2` and `cube2-server` don't depend
+on it (cube2 isn't rebuilt for a `Suggests`); the package `Depends: cube2-data`, and `ps3-games-licensed`
+depends on it. The source tarball is made by its `sauerbraten-data.sh` (`make
+sauerbraten-nonfree-data-src`: the release downloaded once and checked, the listed files with a fixed
+owner and mtime, `gzip -n`), the deb by `make sauerbraten-nonfree-data-deb` (indep builder, no qemu). The
+same files give the same deb for a given commit; once a version is published it is never built again under
+that version: take the published file.
+
 ## How it performs
 
 | Configuration | Steady fps | Gameplay stalls / 1% low / longest | Free RAM / VRAM | Batch |
@@ -35,10 +77,16 @@ Later SSD-root batches agree: 39.4-39.8 (gamedb:batch/2026-10-19-ssdroot7-query-
   judged by ear, not by the mic.
 - **The load** takes 7.1 s on the SSD root against 15.4-19.3 s on the USB root, its disk wait 1.7-1.9 s
   against 4.7-5.6 s, and the gameplay stalls fell from 1.6 s to 0.05 s: the USB stalls were disk
-  faults. After the load the main thread is 56% on the CPU (3.9 s of CPU, 1.9 s of disk wait); map
-  inflate (zlib) is 1.6 s of it ([PROFILING.md](../../../docs/PROFILING.md#start-up-profiles-on-the-ssd-root-batch-ssdroot2)).
+  faults. After the load the main thread is 56% on the CPU (3.9 s of CPU, 1.9 s of disk wait). Its CPU in
+  the load, all threads (gamedb:batch/2026-10-19-ssdroot2-startup-profiles): zlib 1.6 s, all on the main
+  thread (the `.ogz` map's inflate: `inflate` 0.55, `crc32` 0.17, the rest without symbols), the kernel's
+  soft-interrupt replay 0.7, linking 0.4, the game 0.35, Mesa 0.34, libc 0.33; 4.9 s in all. Its one lever
+  is zlib (0.8 s off the main thread if inflate were twice as fast: zlib-ng, or the `.ogz` stored)
+  ([PROFILING.md](../../../docs/PROFILING.md#start-up-profiles-on-the-ssd-root-batch-ssdroot2)).
   Mesa's GLSL disk cache saves no load time here (17.4 s cold, 18.4 warm, on USB).
-- **Gameplay CPU**: Mesa 62.8% of the samples, the game 10.5%, ps3rsx 4.8%, audio about 5%
+- **Gameplay CPU** (gamedb:batch/2026-10-19-ssdroot2-gameplay-profiles, 38-40 fps profiled): Mesa 62.8%
+  of the samples, on the main thread, the game 10.5%, ps3rsx 4.6%, the audio thread (Vorbis, the mixer,
+  ALSA) about 6%; what stays inside Mesa since the LUT took the vertex unpack has to be read with symbols
   ([HOTPATHS.md](../../../docs/HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b)); most of
   Mesa's share was the world normals' conversion ([the engine's investigation](../../engines/cube2/investigations/2026-10-18-byte-normals.md)).
 - **Memory** ([MEMORY.md](../../../docs/MEMORY.md)): 78 MB Rss plus 12.3 MB swapped, malloc 63.4 MB used
@@ -90,7 +138,7 @@ The recipe was called `sauerbraten` before 2026-10-26; old runs keep that name.
 | Game prefetch (`GAMEPREFETCH=fetch`) | load 18.1-18.6 s against 15.2-18.8 (gamedb:batch/2026-10-18-batch16) | no gain, default off |
 | SSD game data, SSD swap spill | 39.3 / 38.5 against 38.5; load -3 to -6%, inside the spread (gamedb:batch/2026-10-18-ssd1) | no proven gain: the binary, libraries and shader cache stayed on USB |
 | The whole root on the SSD | load 16.9 to 7.1 s, gameplay stalls 1.6 to 0.05 s, steady 38.5 to 39.1 (gamedb:batch/2026-10-19-ssdroot1-baseline) | helps loads and stalls, not frame cost |
-| Mesa 0038 `NV30_FORCE_DXT=opaque` | 73 textures to DXT1 (88 MB to 11 MB), peak VRAM 119.8 to 73-78 MB, steady 39.9 to 39.0 (inside the spread), the picture slightly softer (gamedb:batch/2026-10-19-ssdroot2-force-dxt) | a VRAM win, lossy, off by default |
+| Mesa 0038 `NV30_FORCE_DXT=opaque` | 73 textures to DXT1 (88 MB to 11 MB), peak VRAM 119.8 to 73-78 MB, the game's ps3rsx buffers 351 to 215 MB, steady 39.9 to 39.0 (inside the spread), the rock textures softer and a little darker on the webcam (gamedb:batch/2026-10-19-ssdroot2-force-dxt) | a VRAM win, lossy, off by default; in the launcher if the user accepts the softer rock at the TV (todo.toml) |
 | ps3rsx `shadow_fast` | 39.7 against 39.15 (x2), stalls and VRAM equal (gamedb:batch/2026-10-19-ssdroot2-shadow-fast) | no gain at n=2, off |
 | Mesa 0042 `NV30_QUERY_KICK` 2 and 0 | 39.8 and 39.6 against 39.4, CPU equal (gamedb:batch/2026-10-19-ssdroot7-query-kick) | neutral |
 | Mesa 0044 `NV30_MINMAX_VMX=1` | 39.37 against 39.64 (gamedb:batch/2026-10-20-ssdroot11-minmax-vmx) | neutral here |

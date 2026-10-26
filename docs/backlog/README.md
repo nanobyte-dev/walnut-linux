@@ -65,7 +65,7 @@ game's backlog, `gamedb/games/<id>/todo.toml`, where its details are.
 | 34 | [SSD root follow-ups](platform.md#ssd-root-follow-ups) | the SSD root without the USB disk | M each | host, PS3, user | 1.14 | - |
 | 35 | [Mesa 0039: nv30's shader cache A/B](smoothness.md#mesa-0039-nv30s-shader-cache-ab) | at most 0.4 s of a load | S (built) | PS3 | 1.7 | - |
 | 36 | [Sound straight to ALSA](memory.md#sound-straight-to-alsa) | 0.5-3 MB per game plus the server | M | PS3 | 3.6 | - |
-| 37 | [Cheaper Mesa 0028 and 0031](graphics.md#cheaper-mesa-0028-and-0031) | about a frame each in X-Moto | S-M | host, PS3 | 3.9 | #10 |
+| 37 | [Cheaper Mesa 0028 and 0031](graphics.md#cheaper-mesa-0028-and-0031) | about a frame each in [X-Moto](../../gamedb/games/xmoto/) | S-M | host, PS3 | 3.9 | #10 |
 | 38 | [ADPCM sound effects in ioquake3](../../gamedb/engines/ioquake3/todo.toml) | ~5 MB in OpenArena | M | host, PS3, user | 3.9 | #16 |
 | 39 | [Mesa built with nv30 only](memory.md#mesa-built-with-nv30-only) | 0.3-0.5 MB per game (est.) | S-M | host | 3.5 | - |
 | 40 | [Neverball: a longer replay](../../gamedb/games/neverball/todo.toml) | a row to trust | S | user, PS3 | 3.10 | - |
@@ -77,7 +77,7 @@ game's backlog, `gamedb/games/<id>/todo.toml`, where its details are.
 | 46 | [CPU hot paths left over](graphics.md#cpu-hot-paths-left-over) | about 1-2% each | S-M | host, PS3 | - | - |
 | 47 | [Bigger reads on the USB disk](smoothness.md#bigger-reads-on-the-usb-disk) | small; USB roots only | S | PS3 | - | - |
 | 48 | [Gaps in the measurement tools](smoothness.md#gaps-in-the-measurement-tools) | numbers to trust | S each | host, PS3 | - | - |
-| 49 | [SPU meshing for Luanti and ClassiCube](games.md#every-games-open-items) | Luanti's load stalls, ClassiCube's chunks | L | host, PS3 | 3.12 | #13 |
+| 49 | [SPU meshing for Luanti and ClassiCube](games.md#every-games-open-items) | Luanti's load stalls, [ClassiCube](../../gamedb/games/classicube/)'s chunks | L | host, PS3 | 3.12 | #13 |
 | 50 | [Vertex texture fetch, derivatives, instancing](graphics.md#vertex-texture-fetch-derivatives-instancing) | none for today's games | M each | host, PS3 | 3.12 | #21 |
 | 51 | [Driver limits not pushed yet](graphics.md#driver-limits-not-pushed-yet) | wedge recovery, finer GART, VRAM above 224 MB | M-L | PS3 | - | - |
 | 52 | [GL extensions the games worked around](graphics.md#gl-extensions-the-games-worked-around) | none today (workarounds exist) | M each | host, PS3 | - | - |
@@ -117,22 +117,22 @@ Parked by CLAUDE.md, not ranked: [video decoding on the SPEs](spu.md#video-decod
 
 These ran since the docs were written; what is left is to change a default or decide not to.
 The per-game ones are `package` items (the `gl2min_mippowf` repeat a `benchmark` item) in their games'
-and engines' todo.toml ([games.md](games.md#every-games-open-items)): ClassiCube `CC_GL_CHUNKS=1`
-(+4.7%, x3), X-Moto `XMOTO_GL_STREAM=1` (+1%, the longest frame mixed), cube2 `vanormalshort 1`
-(+17%), ioquake3 `r_md3PackedFrames 1` (-20 MB of VRAM) and `gl2min_mippowf` (needs a repeat). Mesa
+and engines' todo.toml ([games.md](games.md#every-games-open-items)): [ClassiCube](../../gamedb/games/classicube/) `CC_GL_CHUNKS=1`
+(+4.7%, x3), [X-Moto](../../gamedb/games/xmoto/) `XMOTO_GL_STREAM=1` (+1%, the longest frame mixed), cube2 `vanormalshort 1`
+(+17%), [ioquake3](../../gamedb/engines/ioquake3/) `r_md3PackedFrames 1` (-20 MB of VRAM) and `gl2min_mippowf` (needs a repeat). Mesa
 0037's `NV30_SYSMEM_COPY=2` + `NV30_INVALIDATE_BUFFER=1` for games we don't patch is in
 [games.md](games.md#a-mesa-default-for-the-games-we-dont-patch).
 
 ## Not worth it
 
 Measured:
-- **The game prefetch** on the USB disk (gamedb:batch/2026-10-18-batch16): no gain, Luanti worse (load +1
+- **The game prefetch** on the USB disk (gamedb:batch/2026-10-18-batch16): no gain, [Luanti](../../gamedb/games/luanti/) worse (load +1
   to +4 s, two runs with 3 s hitches); off by default since b85d0b9, the code kept for a faster disk.
 - **Mesa 0035 `NV30_QUERY_WAIT`**: no fps gain in the repeat (row 65: 23.0/33.4 against 26.0/37.9),
   CPU lower; off. **0034's fence pool**: neutral (row 58). **0036's staging pool**: same fps, CPU -4%
   (row 64); off.
 - **`vm.watermark_boost_factor=0`** on Luanti: no clear gain (row 62).
-- **The malloc presets** (`MALLOC=trim`, `mmap`) on BananaBread (Debian's cube2) and OpenArena: the rounds disagreed,
+- **The malloc presets** (`MALLOC=trim`, `mmap`) on [BananaBread](../../gamedb/games/bananabread/) (Debian's cube2) and [OpenArena](../../gamedb/games/openarena/): the rounds disagreed,
   read as noise (row 61). **Luanti `trim16`**: more stalls, 3.35 -> 8.6 s (row 57).
 - **Luanti `cliunload`**: worse, 3.8 and 5.2 s of stalls with 2 s reload hitches against base's 1.5
   and 2.1 s (row 67). **Luanti `lean`**: a black void; `chunk3` is the cause, and `srvunload` and
@@ -148,7 +148,7 @@ Reasoned:
 - **An SPU mixer for OpenAL Soft**: 3.7-4.7% of a game's samples, under the 6% bar (it comes back
   if a game reaches 6%; the design is [research/OPENAL-SPU-MIXER.md](../research/OPENAL-SPU-MIXER.md)).
 - **Vorbis or zlib on the SPEs** (OpenArena's effects are WAV; libdeflate on the PPE instead),
-  **OpenTTD's blitter on the SPEs** (its GL driver is built), **the validator, zram or VRAM swap
+  **[OpenTTD](../../gamedb/games/openttd/)'s blitter on the SPEs** (its GL driver is built), **the validator, zram or VRAM swap
   copies on the SPEs** (the kernel can't drive them), **Mesa's per-draw paths on the SPEs**,
   **compressed swap through a userspace block device** (reclaim deadlocks), **software rendering on
   the SPEs**.
@@ -205,11 +205,11 @@ for upstream (the user, 2026-10-18); setting it up is the user's.
    SYSCON writes stay forbidden (CLAUDE.md).
 3. **OtherOS++ patches:** dropped `/dev/ps3sysmngr` (0060), the BD vendor commands (0090), the
    Jupiter Wi-Fi driver with the eurus repository write (0170, 0160, 0316); `PS3_DISP_MANAGER` off.
-4. **Open for the user** at the time: the stable publish of the READY set, Luanti's default, the
-   test-kernel boot session, the fan floor, the 7th SPE entry, SuperTuxKart's `lean` default, the
+4. **Open for the user** at the time: the stable publish of the READY set, [Luanti](../../gamedb/games/luanti/)'s default, the
+   test-kernel boot session, the fan floor, the 7th SPE entry, [SuperTuxKart](../../gamedb/games/supertuxkart/)'s `lean` default, the
    720p console. Since then: Luanti's default is settled by the clean runs (base stays, row 67); the
    test kernels booted (.419, .433, now .472); the stable publish became "test first, then publish"
-   (RELEASE-CANDIDATES.md, 2026-10-18 evening); the upstream drafts in docs/upstream/ wait for the
+   ([archive/RELEASE-CANDIDATES-2026-10-19.md](../archive/RELEASE-CANDIDATES-2026-10-19.md), 2026-10-18 evening); the upstream drafts in docs/upstream/ wait for the
    user to send them. The current list of open decisions is PLAN.md's D1-D14.
 
 ## Where the old IDEAS.md numbers went

@@ -16,9 +16,12 @@ no audible dropouts: one of the games that meet the 60 fps target with room to s
   10-bit format anyway.
 - **The data** (licensed, not in the public suite): `quake-shareware`
   (`/usr/share/games/quake/id1/pak0.pak`, Quake 1.06 shareware, 18 MB, demo1-3), built once on the PC by
-  game-data-packager (`make game-data`, the Debian games builder with `lhasa`) and published once to our
-  licensed suite, since game-data-packager's output isn't reproducible; `ps3-games-licensed` pulls it
-  in. A registered Quake needs the player's own `id1/pak0.pak` and `pak1.pak` (the data guide on the
+  game-data-packager 89 (`make game-data`, the Debian games builder with `lhasa`; the shareware archive
+  downloaded from id's mirrors and kept in `build/downloads/game-data`) as `quake-shareware_89_all.deb`,
+  Section `non-free/games`, and published once to our licensed suite, since game-data-packager's output
+  isn't reproducible: the version 89 files the LAN repository published are in the retirement backup's
+  `ps3-licensed-debs/`, and `make publish DEBS="<those files>"` before the next `make game-data` keeps
+  them the same. `ps3-games-licensed` pulls it in. A registered Quake needs the player's own `id1/pak0.pak` and `pak1.pak` (the data guide on the
   game's page).
 
 ## How it performs
@@ -27,8 +30,9 @@ no audible dropouts: one of the games that meet the 60 fps target with room to s
   2.5 s of gameplay stalls (10 frames over 100 ms), longest 393 ms, 44 MB free at the lowest, 49 MB of
   VRAM, 5 underruns. Mesa's `NV30_TRANSLATE_LUT=1` changed nothing in fps (90.9/91.0 against 91.0/90.8)
   but saved about 3% of the CPU.
-- Memory: 58 MB Rss, its 256 MB heap mapping 24.8 MB touched; nothing to cut at that size
-  ([MEMORY.md](../../../docs/MEMORY.md)).
+- Memory: 58 MB Rss, its 256 MB heap mapping 24.8 MB touched. The cache inside the heap never needs
+  flushing at this size, so sounds and models stay loaded; nothing to cut
+  ([MEMORY.md](../../../docs/MEMORY.md#findings-in-the-games-code)).
 - How it got there: the first runs on 2026-10-17 gave 59.2 fps without GLSL, 64.8 with, 70.3 with the
   gamma pass, colours right; Mesa ps3.262 took it from 70.5 to 78.6 (+11%, gamedb:batch/2026-10-17-mesa-262).
 

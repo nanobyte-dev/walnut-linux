@@ -1,12 +1,12 @@
 # Memory: where the games' RAM and VRAM go
 
 This is where each suite game's memory goes on the PS3, what we found in the games' code and in
-Mesa, and what each memory change measured. The state on 2026-10-19: the Yamagi Quake II table cut
-is the default, and three memory fixes won their same-boot A/B in batch 17 (ioquake3's SNORM
+Mesa, and what each memory change measured. The state on 2026-10-19: the [Yamagi Quake II](../gamedb/games/yquake2/) table cut
+is the default, and three memory fixes won their same-boot A/B in batch 17 ([ioquake3](../gamedb/engines/ioquake3/)'s SNORM
 colours, Mesa 0037's copy limit, BananaBread's short normals:
 [byte-normals](../gamedb/engines/cube2/investigations/2026-10-18-byte-normals.md)), though only the
 first is on by default. Texture compression at upload (Mesa 0038) cut BananaBread's VRAM from the 117 MB cap to
-73-78 MB without a resolved fps change and did nothing in SuperTuxKart and OpenArena (batch ssdroot2
+73-78 MB without a resolved fps change and did nothing in [SuperTuxKart](../gamedb/games/supertuxkart/) and [OpenArena](../gamedb/games/openarena/) (batch ssdroot2
 P2, [below](#measured-on-the-ps3-batch-ssdroot2-p2)); batch ssdroot8 ran it on the rest of the suite: `all` took
 SuperTuxKart from 95.5 to 58.1 MiB of VRAM at the same fps, and the other three games had nothing the
 modes take ([below](#measured-on-the-ps3-batch-ssdroot8-the-rest-of-the-suite)). It stays off. The kernel's own share is in [KERNEL-MEMORY.md](KERNEL-MEMORY.md), and the cuts
@@ -15,7 +15,7 @@ nobody has tried yet are in [backlog/memory.md](backlog/memory.md).
 ## The console's memory budget
 
 The PS3 has 256 MB of XDR RAM and 256 MB of VRAM. Linux gets 240 MiB of the XDR; with the release
-kernel (.472) `MemTotal` is 222716 kB (217.5 MiB). The split, from the OpenArena measurement of
+kernel (.472) `MemTotal` is 222716 kB (217.5 MiB). The split, from the [OpenArena](../gamedb/games/openarena/) measurement of
 2026-10-15 with the kernel rows updated for the release kernel:
 
 | Of 256 MB XDR | MB | Note |
@@ -51,11 +51,11 @@ Profiled runs: their fps don't count, their memory does. The run directories are
 `build/tmp/prof-runs.txt` and were pulled into `build/bench/`. MB are MiB; numbers are the middle
 snapshot unless a column says otherwise.
 
-- dsda-doom and OpenTTD have no snapshots. dsda-doom's `LOAD_MARK` (`R_Init`...) never prints in
+- [dsda-doom](../gamedb/games/dsda-doom/) and [OpenTTD](../gamedb/games/openttd/) have no snapshots. dsda-doom's `LOAD_MARK` (`R_Init`...) never prints in
   0.30, so the window never started (fixed: the recipe now also takes `Playing demo:`). OpenTTD
   with SDL's software video never feeds the Gallium HUD, so its HUD-based window never opened; it
   needs a `LOAD_MARK` or the `gl` variant.
-- Webcam (`build/bench-cam/<run>-60s.jpg`, `-150s.jpg`): every game shows its picture. OpenArena's
+- Webcam (`build/bench-cam/<run>-60s.jpg`, `-150s.jpg`): every game shows its picture. [OpenArena](../gamedb/games/openarena/)'s
   60 s photo is its loading screen (the window starts later). Armagetron's 150 s photo is black
   with the mouse pointer: its recorded round ends about 65 s into the window, so its middle and end
   snapshots are the game idling after playback, with no ps3rsx client line (it had closed its GL
@@ -112,17 +112,17 @@ no game leaks RAM in this window. Inside malloc it moves:
 
 - **Luanti**'s malloc holds more free memory the longer it plays: freed map blocks and meshes stay in
   its arenas ([malloc-trim](../gamedb/games/luanti/investigations/2026-10-18-malloc-trim.md)).
-- **OpenArena** has a 12 MB transient around the middle whose pages are kept, and **Extreme Tux
-  Racer**'s GART grows by about 4 MB a minute (a soak in [backlog/memory.md](backlog/memory.md) is to
-  tell a cap from a leak); both on their games' technical pages.
-- File-backed Rss falls in most games (BananaBread (Debian's cube2) 17.1 -> 9.3, Neverball 23.5 -> 15.6, ETR 20.3
+- **[OpenArena](../gamedb/games/openarena/)** has a 12 MB transient around the middle whose pages are kept, and **Extreme Tux
+  Racer**'s GART grows by about 4 MB a minute (the [long-session soak](backlog/smoothness.md#long-session-soak)
+  is to tell a cap from a leak); both on their games' technical pages.
+- File-backed Rss falls in most games ([BananaBread](../gamedb/games/bananabread/) (Debian's cube2) 17.1 -> 9.3, [Neverball](../gamedb/games/neverball/) 23.5 -> 15.6, ETR 20.3
   -> 14.1): code and data pages dropped from the page cache and read back when needed.
 
 ### Malloc arenas
 
 glibc gives a thread that mallocs while another holds an arena its own arena, up to 8 x cores = 16
 on the PPE's two threads. Most games have 3-4, all but the main one at 0.1 MB, so
-`MALLOC_ARENA_MAX` saves under 0.3 MB there. ClassiCube has 6 (one of 1.7 MB), Luanti 14 (three
+`MALLOC_ARENA_MAX` saves under 0.3 MB there. [ClassiCube](../gamedb/games/classicube/) has 6 (one of 1.7 MB), Luanti 14 (three
 of 31-47 MB). A free hole in one arena can't serve another thread, so fewer arenas mean less
 fragmentation, traded against lock contention between a game's threads
 ([malloc-trim](../gamedb/games/luanti/investigations/2026-10-18-malloc-trim.md) has Luanti's).
@@ -135,8 +135,8 @@ fragmentation, traded against lock contention between a game's threads
   its own front plus the game's two; the census counts shared buffers once per client (Armagetron's
   mid snapshot: Xorg drops from 25.4 to 9.5 MB once the game's buffers are gone). That is 24 MB of
   VRAM per game for the window, at minimum.
-- The VRAM a game takes comes out of the VRAM swap. "VRAM cpu" was 99% used in BananaBread (218 of
-  220 MB), and Luanti's VRAM swap had 88 MB in VRAM and 54 MB on the disk at the middle snapshot.
+- The VRAM a game takes comes out of the VRAM swap. "VRAM cpu" was 99% used in [BananaBread](../gamedb/games/bananabread/) (218 of
+  220 MB), and [Luanti](../gamedb/games/luanti/)'s VRAM swap had 88 MB in VRAM and 54 MB on the disk at the middle snapshot.
 - GART (system RAM, taken from CMA on demand): 6.7-12.8 MB per game (push buffers, Mesa's upload
   and stream buffers), plus Xorg's 6.7. "GART backed by memory" is 17-27 MB system-wide.
 - The census lists only the first eight distinct buffer sizes above 64 KiB per client, so new
@@ -160,12 +160,12 @@ fragmentation, traded against lock contention between a game's threads
   ([prng-table](../gamedb/games/yquake2/investigations/2026-10-18-prng-table.md)).
 - **Luanti** trims its arenas only after 256 MB were freed, which a 217 MB machine rarely reaches
   ([malloc-trim](../gamedb/games/luanti/investigations/2026-10-18-malloc-trim.md)).
-- **OpenArena**'s hunk and **QuakeSpasm**'s heap: big mappings, mostly never touched, nothing to gain
+- **[OpenArena](../gamedb/games/openarena/)**'s hunk and **[QuakeSpasm](../gamedb/games/quakespasm/)**'s heap: big mappings, mostly never touched, nothing to gain
   (on their technical pages).
 - **glibc's dynamic mmap threshold**: after the first free of a block mmapped above 128 KiB, glibc
   raises the threshold to that size (up to 32 MiB) and the trim threshold to twice it (up to 64
   MiB). From then on texture and map scratch buffers of a few MB come from the heap and leave holes,
-  and up to 64 MB of free top is never given back. That is why OpenArena and BananaBread keep 16-17
+  and up to 64 MB of free top is never given back. That is why OpenArena and [BananaBread](../gamedb/games/bananabread/) keep 16-17
   MB free in their main heap.
 
 ## Cuts, ranked
@@ -183,13 +183,13 @@ investigation.
 | 3 | [BananaBread](../gamedb/games/bananabread/) | `MALLOC=trim` or `MALLOC=mmap` | 17 (17.0-17.4 in free chunks of the main heap) | env | batch 8: noise (below); not shipped | mmap: a syscall and zeroed pages per big alloc |
 | 4 | [OpenArena](../gamedb/games/openarena/) gl1 | `MALLOC=trim` or `MALLOC=mmap` | 12-16 at rest (11.7-12.2 in free chunks + 3.6 top), its 13.9 MB of swapped heap | env | batch 8: noise (below); not shipped | as above |
 | 5 | [BananaBread](../gamedb/games/bananabread/) | `texreduce 1` (variant `tex1`) | VRAM ~45-60 of its 117 (textures are ~87 MB of it; DDS and JPG at a quarter) | env | not run | blurrier textures |
-| 6 | Armagetron, Neverball, Yamagi, ETR, ClassiCube, QuakeSpasm | `MALLOC=trim` | 4.2 / 2.3 / 2.7 / 0.8-1.9 / 1.0 / 1.3 (mostly top chunks) | env | not run | small |
-| 7 | [OpenArena](../gamedb/games/openarena/) | madvise the hunk's unused high-water after a map load | 2.7 (gl1) | pkg | not tried: [backlog/memory.md](backlog/memory.md) | none known |
+| 6 | Armagetron, [Neverball](../gamedb/games/neverball/), Yamagi, ETR, [ClassiCube](../gamedb/games/classicube/), [QuakeSpasm](../gamedb/games/quakespasm/) | `MALLOC=trim` | 4.2 / 2.3 / 2.7 / 0.8-1.9 / 1.0 / 1.3 (mostly top chunks) | env | not run | small |
+| 7 | [OpenArena](../gamedb/games/openarena/) | madvise the hunk's unused high-water after a map load | 2.7 (gl1) | pkg | not tried: [its todo.toml](../gamedb/games/openarena/todo.toml) | none known |
 | 8 | every game | Mesa with nv30 only (no nv50/nvc0, softpipe elsewhere) | ~0.3-0.5 private each (estimate) | pkg | not tried: backlog | softpipe is the mesa-tests reference |
 | 9 | every game | sound straight to ALSA, no pulse plugin and server | 0.5-3 per game + the server | config | not tried: backlog (game-mode work) | underruns |
 | - | most games | `MALLOC=arena1/arena2` | < 0.3 (extra arenas are 0.1 MB) | env | not worth it | - |
 
-Not worth a change at these sizes: thread stacks, X-Moto's heap (0.3 MB free), QuakeSpasm's heap,
+Not worth a change at these sizes: thread stacks, [X-Moto](../gamedb/games/xmoto/)'s heap (0.3 MB free), QuakeSpasm's heap,
 OpenArena's 176 MB hunk mapping (untouched pages). Also tried on Luanti:
 `vm.watermark_boost_factor=0` (gamedb:batch/2026-10-18-smoke-reruns-watermark): stalls 12.5 / 0.8 / 2.0 / 2.1 s alternating 15000 / 0
 (first run an outlier), no clear gain, not shipped.
@@ -305,10 +305,10 @@ nouveau_context.h, nv30/). Mesa 0037 adds switches that limit the copies; it is 
 
 | Option | Gain | Cost / risk | Done |
 |---|---|---|---|
-| Never set the hint (`NV30_SYSMEM_COPY=0`) | the copies of buffers never read (OpenArena gl2: ~62 MB) | an app that orphans read buffers pays a readback and drain per new buffer: OpenArena gl2 with 16-bit colours would drain at every tess flush, so only together with `NV30_INVALIDATE_BUFFER=1` | yes, off |
+| Never set the hint (`NV30_SYSMEM_COPY=0`) | the copies of buffers never read ([OpenArena](../gamedb/games/openarena/) gl2: ~62 MB) | an app that orphans read buffers pays a readback and drain per new buffer: OpenArena gl2 with 16-bit colours would drain at every tess flush, so only together with `NV30_INVALIDATE_BUFFER=1` | yes, off |
 | Hint only for DYNAMIC buffers (`NV30_SYSMEM_COPY=2`) | the same 62 MB (MD3 VBOs are STATIC); the streaming case the hint is for keeps working | static buffers read later get one readback each at their first read | yes, off; measured |
-| Buffer invalidation (`NV30_INVALIDATE_BUFFER=1`) | orphaning keeps the buffer and its copy: no new pipe buffer, copy, readback or vertex array revalidation per tess flush; the hint's trigger goes away for this pattern | the code is nv50/nvc0's (`nouveau_buffer_invalidate`; nv30 already reallocates GART buffers in place on discard maps); applies to every orphaning game (BananaBread's particles and grass: GART STREAM buffers, now reallocated in place when busy instead of replaced) | yes, off; measured |
-| The game sends fetchable formats | no u_vbuf, no copies, no per-draw CPU conversion | per game | ioquake3 0027 (default), cube2 0011 (opt-in): the investigations above |
+| Buffer invalidation (`NV30_INVALIDATE_BUFFER=1`) | orphaning keeps the buffer and its copy: no new pipe buffer, copy, readback or vertex array revalidation per tess flush; the hint's trigger goes away for this pattern | the code is nv50/nvc0's (`nouveau_buffer_invalidate`; nv30 already reallocates GART buffers in place on discard maps); applies to every orphaning game ([BananaBread](../gamedb/games/bananabread/)'s particles and grass: GART STREAM buffers, now reallocated in place when busy instead of replaced) | yes, off; measured |
+| The game sends fetchable formats | no u_vbuf, no copies, no per-draw CPU conversion | per game | [ioquake3](../gamedb/engines/ioquake3/) 0027 (default), cube2 0011 (opt-in): the investigations above |
 
 Three more options were weighed and not built (free copies after N frames without reads, u_vbuf
 reading from the CPU-side upload source, converting at upload into a fetchable format); their
@@ -339,7 +339,7 @@ gamedb:batch/2026-10-18-batch17, [OpenArena](../gamedb/games/openarena/)'s `gl2m
 
 The switches remove the 61 MB of copies and the churn, and the stalls follow. `NV30_SYSMEM_COPY=0`
 without the invalidation was left out on purpose (a drain at every tess flush). With 0027 on (the
-default) OpenArena doesn't need them, and BananaBread never sets the hint, so the switches matter
+default) OpenArena doesn't need them, and [BananaBread](../gamedb/games/bananabread/) never sets the hint, so the switches matter
 for games we don't patch that send formats nv30 can't fetch. They are still off by default; making
 them the PS3 default needs a run over the rest of the suite (players and world drawn, no GL errors
 in game.log).
@@ -350,7 +350,7 @@ PLAN 2.4. Most games upload plain RGB(A)8 textures, which the RSX stores at 4 by
 X8R8G8B8). VRAM is also our swap tier, so every MB of textures not kept is memory. DXT1 takes an
 eighth of that, DXT5 a quarter, and libspeq (Mesa 0011/0032) already compresses on the SPEs, RGB
 sources included (1024x1024 in about 1 ms on 4 SPEs). Mesa 0038 is in Mesa .466~dev and .476 (on
-the PS3) and off by default; its first A/B (BananaBread, SuperTuxKart lean, OpenArena gl2min) is
+the PS3) and off by default; its first A/B ([BananaBread](../gamedb/games/bananabread/), [SuperTuxKart](../gamedb/games/supertuxkart/) lean, [OpenArena](../gamedb/games/openarena/) gl2min) is
 [below](#measured-on-the-ps3-batch-ssdroot2-p2).
 
 ### What it does
@@ -377,7 +377,7 @@ Not taken, and why:
 | `glTexImage2D(NULL)` without a PBO | render targets and textures filled later by `glTexSubImage` (font caches, lightmap atlases) |
 | smaller than `NV30_FORCE_DXT_MIN` (64) in width or height | small UI pieces; little to win |
 | sizes not powers of two | nv30 lays DXT out for POT mipmaps (`nv30_miptree.c`: compressed textures are neither swizzled nor linear-flagged); its NPOT layout with DXT has never run |
-| magnification already `GL_NEAREST` at upload | pixel art and UI drawn 1:1 show DXT's 4x4 blocks most; `NV30_FORCE_DXT_NEAREST=1` takes them. Games that set filters after the upload (ioquake3) aren't caught by this |
+| magnification already `GL_NEAREST` at upload | pixel art and UI drawn 1:1 show DXT's 4x4 blocks most; `NV30_FORCE_DXT_NEAREST=1` takes them. Games that set filters after the upload ([ioquake3](../gamedb/engines/ioquake3/)) aren't caught by this |
 | cube maps, rectangles, 1D/3D, arrays | every face of a cube would have to decide alike (one format, or the cube is incomplete) |
 | an uncompressed level 1 already there with the same internal format | levels uploaded smallest first, or a chain made with `glTexImage2D(NULL)` given data later: one format for all levels |
 | sRGB, 16-bit, float, luminance/alpha formats, borders, pixel transfer ops, swapped bytes | not 8-bit RGB(A), or the source isn't what the scan reads |
@@ -396,7 +396,7 @@ After the upload the texture behaves as the game uploaded it:
 - `glGenerateMipmap` and `GL_GENERATE_MIPMAP` take Mesa's path for compressed textures: the base
   read back decoded (a GPU blit), the levels made on the CPU (box filter) and compressed through
   libspeq. The GPU can't render into DXT, so this costs PPE time, counted in `fdxt_mipgen_ms`.
-  SuperTuxKart and Luanti make their mipmaps this way.
+  [SuperTuxKart](../gamedb/games/supertuxkart/) and [Luanti](../gamedb/games/luanti/) make their mipmaps this way.
 - `glGetTexImage` returns the decoded blocks; `GL_TEXTURE_INTERNAL_FORMAT` reports the game's
   internal format and `GL_TEXTURE_COMPRESSED` is true (the spec allows storing a generic format
   compressed).
@@ -470,12 +470,12 @@ commands:
 Read `vram` and `mem_gpu_vram` (the win), `fdxt_raw_mb` against `fdxt_dxt_mb` (what was
 compressed), `fdxt_skip` (what was left and why), `fdxt_unforced` (textures that went back:
 expected a handful at most; many means a game updates its textures off the block grid and the mode
-buys little there), `fdxt_mipgen_ms` and the `load` column (SuperTuxKart and Luanti make their
+buys little there), `fdxt_mipgen_ms` and the `load` column ([SuperTuxKart](../gamedb/games/supertuxkart/) and [Luanti](../gamedb/games/luanti/) make their
 mipmaps on the CPU now), `stall_play_s`, `low1` and the fps (smaller textures are less bandwidth:
-expected the same or better), `mem_swap` (VRAM freed for the VRAM swap). OpenArena gl2min and
+expected the same or better), `mem_swap` (VRAM freed for the VRAM swap). [OpenArena](../gamedb/games/openarena/) gl2min and
 SuperTuxKart already ask for compression themselves (`r_ext_compressed_textures 1`,
 `enable_texture_compression`), and cube2 compresses from 1024 up, so there `opaque` takes the rest
-only (lightmaps, small textures, UI); Luanti and ClassiCube upload everything plain and should show
+only (lightmaps, small textures, UI); Luanti and [ClassiCube](../gamedb/games/classicube/) upload everything plain and should show
 the most. A game where `opaque` looks right and saves VRAM gets `NV30_FORCE_DXT=opaque` in its
 launcher environment (a ps3-desktop change, after the user has seen it).
 
@@ -586,7 +586,7 @@ The driver and tool side; nothing here is in the stable `ps3` suite; the version
 | ps3-gpu-tools | 0.476 (malloctrim since 0.403) | `/usr/lib/ps3/lib/ps3-malloctrim.so`; `gl-forcedxt` since 0.476 |
 | Mesa | 26.2.4-1+ps3.476 | 0037 (since .442~dev), 0038 and 0039 (since .466~dev), all off by default |
 
-The game packages' memory changes (luanti 0007, yamagi-quake2 0002, ioquake3 0027-0029, cube2 0011) are
+The game packages' memory changes (luanti 0007, yamagi-quake2 0002, [ioquake3](../gamedb/engines/ioquake3/) 0027-0029, cube2 0011) are
 in their investigations, linked above, with the versions that carry them.
 
 The selftest (`python3 bench/selftest.py`, all pass) covers this: section 8 runs client.sh
@@ -597,23 +597,23 @@ process of another name is left alone.
 
 ## Proposed, not implemented
 
-Moved to [backlog/memory.md](backlog/memory.md): OpenArena's hunk trim after a map load, ps3rsx's
+Moved to [backlog/memory.md](backlog/memory.md): [OpenArena](../gamedb/games/openarena/)'s hunk trim after a map load, ps3rsx's
 census listing the largest buffers, an ETR soak, the nv30-only Mesa build, sound without the pulse
-plugin, renderergl2's `r_keepImages`, BananaBread's grass normals, and a fix for the Luanti bench
+plugin, renderergl2's `r_keepImages`, [BananaBread](../gamedb/games/bananabread/)'s grass normals, and a fix for the [Luanti](../gamedb/games/luanti/) bench
 mod, whose memory lines are parsed wrongly (its `vmrss`, `rssanon`, `rssfile` and `vmswap` never
 come out; still so in the runs of 2026-10-18).
 
 ## History
 
 - 2026-10-18 06:47 (row 57): Yamagi's small table measured (-70 MB, stalls 22.6 -> 0.05 s), later
-  made the default; Luanti `trim16` rejected for its extra stalls.
-- 2026-10-18 morning (row 61): the malloc presets on BananaBread and OpenArena read as noise, so no
+  made the default; [Luanti](../gamedb/games/luanti/) `trim16` rejected for its extra stalls.
+- 2026-10-18 morning (row 61): the malloc presets on [BananaBread](../gamedb/games/bananabread/) and [OpenArena](../gamedb/games/openarena/) read as noise, so no
   preset became a default.
 - 2026-10-18: report.py stopped counting a reload's last frame as play (commit 3634dcc), which
   turned OpenArena opengl2's "16 s gameplay freeze" into a load-time frame.
-- 2026-10-18 evening (batch 17, commit 3939a48): ioquake3 0027, Mesa 0037's switches and cube2 0011
+- 2026-10-18 evening (batch 17, commit 3939a48): [ioquake3](../gamedb/engines/ioquake3/) 0027, Mesa 0037's switches and cube2 0011
   measured; 0027 already the default, the other two still off by default.
 - 2026-10-19 (batch ssdroot2 P2): Mesa 0038 `opaque` measured on three games: BananaBread -42 MB of
-  VRAM, no fps change; SuperTuxKart and OpenArena 0 textures forced.
+  VRAM, no fps change; [SuperTuxKart](../gamedb/games/supertuxkart/) and OpenArena 0 textures forced.
 
 Older versions and the dated history: [archive/MEMORY.md](archive/MEMORY.md).

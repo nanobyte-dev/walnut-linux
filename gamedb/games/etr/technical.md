@@ -36,10 +36,12 @@ Debian's. SFML 3.1 already has its big-endian Ogg fix.
   27.3, longest 483 ms, 29 MB free, 58 MB of VRAM, no underruns; the window holds the game-over screen and
   a reload. Picture and sound right.
 - Its CPU outside Mesa is mostly freetype and harfbuzz (29% of the samples) and SFML audio.
-- **Its memory grows**: over a 117 s window the heap went 17.5 to 19.9 MB and its GART 8.8 to 12.8 to
-  16.8 MB (161 to 163 handles), two new buffers of about 4 MB, one a minute. The candidate is the track
-  marks in the snow, a growing list drawn through our stream buffers; a soak would tell a cap from a leak
-  (the game's todo).
+- **Its memory grows** ([MEMORY.md](../../../docs/MEMORY.md#growth-over-the-window), the `MEM=1` batch of
+  2026-10-18 on Mesa ps3.299): over a 117 s window malloc's used memory went 17.5 to 18.5 to 19.9 MB (+2.4
+  MB) and its GART 8.8 to 12.8 to 16.8 MB (161 to 163 handles), two new buffers of about 4 MB, one a
+  minute. The candidate is the track marks in the snow, a growing list drawn through our stream buffers;
+  only a longer run tells a cap from a leak (the game's todo.toml; the
+  [long-session soak](../../../docs/backlog/smoothness.md#long-session-soak)).
 
 The benchmark ([recipe](benchmark/recipe.sh)): ETR has no demo mode, so the user's race was recorded as
 keyboard events (`evemu-record`, variant `record`) and is replayed into a virtual keyboard from when ETR's

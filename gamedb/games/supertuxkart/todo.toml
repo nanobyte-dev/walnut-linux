@@ -44,3 +44,14 @@ Batching in Irrlicht's legacy driver: its client arrays were 17.6% of the CPU in
 profile (vertex copies 10.1, index scans 6.5; Mesa 0044 takes most of the scans), and the copies \
 need VBOs in the legacy driver. Count GL calls on llvmpipe at GL 2.1 (`tools/glcount`), then perf on \
 the PS3."""
+
+[[item]]
+kind = "package"
+added = 2026-10-20
+source = "MEMORY.md \"Texture compression at upload\""
+text = """\
+`NV30_FORCE_DXT=all` in the launcher if SuperTuxKart goes into game mode with VRAM short: its 182 \
+textures of 64 px and up all carry alpha, so `opaque` forces nothing, and `all` sends them as DXT5: \
+peak VRAM 95.5 to 58.1 MiB (-39%) at the same fps, 1% low, stalls, CPU and load, no blocks or banding \
+on the webcam (gamedb:batch/2026-10-20-ssdroot8-force-dxt). Not set: the user sees the picture at the \
+TV first."""

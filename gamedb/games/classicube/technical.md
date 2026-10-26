@@ -25,6 +25,32 @@ data in `ps3-games-licensed`. The release candidate is ps3.374.
 
 On llvmpipe the bench path went from 5127 GL calls and 1107 draws a frame to 1524 and 294.
 
+### The data (`classicube-data`)
+
+The `classicube` source package built both binaries until 2026-10-17 (`+ps3.366`); since then
+`classicube-data` (all, Section `local/games`, so the licensed suite) is a source package of its own in
+`licensed/classicube-data/` (`upstream.mk`; its `orig.mk` makes the tarball from the texture pack and
+`sounds.sh`'s audio). It holds two things, both Mojang's:
+
+- the texture pack, `static.classicube.net/default.zip`: the files ClassiCube's launcher otherwise extracts
+  from Mojang's Minecraft Classic 0.30 and 1.6.2 client jars (`terrain.png`, `char.png`, the mob skins; the
+  "classic jar files" in the pinned `src/Resources.c`) with ClassiCube's patches;
+- the sounds and music from Mojang's resource server
+  ([packages/classicube/sounds.sh](packages/classicube/sounds.sh)).
+
+Paths are `/usr/lib/classicube/texpacks` and `audio/`. `classicube` only `Suggests` `classicube-data` (a
+free package never depends on licensed data); `classicube-data` has `Breaks`/`Replaces: classicube (<<
+1.3.8~git20261014.aa47929-1+ps3.366~)` for the upgrade from the bundled package, which dpkg handled in
+either unpack order (checked 2026-10-17). Each new `classicube-data` (15 MB) goes to the licensed suite and
+is kept there.
+
+Without the data the engine still works: `/usr/games/classicube` runs from `~/.local/share/classicube`, and
+the launcher (`Resources_CheckExistence` in the pinned source) finds `texpacks/classicube.zip` missing and
+offers to fetch it and the audio (BearSSL is built in), writing only under that directory; our patches
+leave this alone. The steps for a user, or for copying the files by hand, are in
+`/usr/share/doc/classicube/README.Debian`
+([debian/classicube.README.Debian](packages/classicube/debian/classicube.README.Debian)).
+
 ## How it performs
 
 | Configuration | Steady fps | Gameplay stalls / 1% low / longest | Free RAM / VRAM | Batch |
@@ -38,7 +64,15 @@ On llvmpipe the bench path went from 5127 GL calls and 1107 draws a frame to 152
 - The load is 7.6 s on the SSD root against 13.9 s on the USB root; nothing else changed. The steady fps was
   48.0-48.1 in the first five runs of the SSD boot and 46.1 in the five after 02:00Z with the same
   configuration: an unexplained step inside one boot, the reason a change is compared only within a boot.
-- Gameplay CPU: Mesa 41.2%, kernel 20.1%, ps3rsx 7.1%, the game 15.6%, OpenAL and ALSA 9.9%
+  Its CPU in the load, all threads (gamedb:batch/2026-10-19-ssdroot2-startup-profiles): the game 1.8 s (1.5
+  on the main thread), linking 0.65, Mesa 0.63, ps3rsx 0.25; 4.9 s in all. The one lever there is the
+  game's own load path (0.8 s of the main thread), then linking (0.3 s)
+  ([PROFILING.md](../../../docs/PROFILING.md#start-up-profiles-on-the-ssd-root-batch-ssdroot2)).
+- Gameplay CPU (gamedb:batch/2026-10-19-ssdroot2-gameplay-profiles): Mesa 41.2%, the kernel 20.1% (a
+  quarter of it soft-interrupt replay; 4.5% of all samples under page-table flushes from unmapping, 1.7% in
+  `ps3rsx_gart_clear`), the game 15.6%, ps3rsx 7.1%, OpenAL and ALSA 9.9% (1.9% in
+  `snd_pcm_lfloat_convert_float_integer`: the ALSA plug converting OpenAL's float output), and Xorg spends
+  7.6% of the game's CPU besides
   ([HOTPATHS.md](../../../docs/HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b)). Memory: 41
   MB Rss, nothing swapped, 6 malloc arenas.
 - Neutral: Mesa 0034 `NV30_FENCE_BO_POOL=16` (48.4 both), 0036 `NV30_STAGING_POOL=8` (same fps, CPU -4%),

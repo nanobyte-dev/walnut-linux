@@ -57,7 +57,7 @@ quiet drops the caches and empties the swaps again). By hand, for a run made ear
     `extremetuxracer-dbgsym`, `neverball-dbgsym`, `openttd-dbgsym`, `supertuxkart-dbgsym`,
     `xmoto-dbgsym`, `luanti-dbgsym` with `libluajit-5.1-2-dbgsym`.
   - Not ours, so no dbgsym in our repository: libdrm and libdrm_nouveau (Debian's; their exported
-    functions resolve from the dynamic symbol table), and the Debian games (QuakeSpasm, Armagetron,
+    functions resolve from the dynamic symbol table), and the Debian games ([QuakeSpasm](../gamedb/games/quakespasm/), Armagetron,
     Chromium B.S.U., ...), whose code shows as addresses but still counts as `game`.
   - The kernel and ps3rsx need nothing: perf-post.sh runs perf as root, which reads
     `/proc/kallsyms` (module symbols included).
@@ -148,7 +148,7 @@ sampled instruction, self time:
 
 | Column | Class |
 |---|---|
-| `perf_game` | the game's executable and its own libraries (same package, or the package of the recipe's command as run.sh's `versions` names it: OpenArena's cgame and ui are `openarena`'s, the engine `ioquake3`'s; same directory, `/usr/lib/<name>`) |
+| `perf_game` | the game's executable and its own libraries (same package, or the package of the recipe's command as run.sh's `versions` names it: [OpenArena](../gamedb/games/openarena/)'s cgame and ui are `openarena`'s, the engine `ioquake3`'s; same directory, `/usr/lib/<name>`) |
 | `perf_mesa` | libgallium, `*_dri.so`, libGLX_mesa, libEGL_mesa, libgbm, libglapi, glvnd's libGL/libGLX/libGLdispatch |
 | `perf_drm` | libdrm, libdrm_nouveau (pushbuf, fences, buffer objects) |
 | `perf_kgpu` | the `[ps3rsx]` and `[drm*]` modules, and `drm_*`, `dma_fence*`, `dma_resv*`, `ttm_*`, `nouveau*`, `ps3rsx*` in the kernel image (perf on the PS3 names them with ppc64's dot, `.drm_ioctl`, and puts ps3rsx's functions in `[kernel.kallsyms]`; both handled since 2026-10-18) |
@@ -290,7 +290,7 @@ cache is keyed by the driver's build id: a new Mesa build makes every entry miss
   dlopened libraries included (no `perf.track` step needed).
 - **To the window's start.** `disable` where the measured window begins: load + WARMUP, 0.9 x WARMUP
   for games that repeat a demo (`PASSES=1`), the first `WIN_ON_RE` line for games that mark their own
-  window (BananaBread). bench.txt: `perf_load_win` (on, off: seconds from t0), `perf_load_ack`,
+  window ([BananaBread](../gamedb/games/bananabread/)). bench.txt: `perf_load_win` (on, off: seconds from t0), `perf_load_ack`,
   `perf_load_cpu` (perf's own CPU over the span), `mono_t0` (`/proc/uptime` read next to t0: perf's
   clock, CLOCK_MONOTONIC, equals CLOCK_BOOTTIME on a PS3 that never suspends; 10 ms resolution),
   `game_pid`.
@@ -362,7 +362,7 @@ both phases), `lp_wshader` (the three shader groups in the warm-up alone), `lp_m
 
 Five games, one run each, `PERF_LOAD=1 STALLS=1`, cold page cache, prefetch off, kernel
 6.12.111+ps3.433, Mesa 26.2.4-1+ps3.442~dev (the runs' `versions`), USB root, 2026-10-18 evening
-(gamedb:batch/2026-10-18-batch17, commit 3939a48). Three shader-cache runs each of OpenArena gl2min and BananaBread
+(gamedb:batch/2026-10-18-batch17, commit 3939a48). Three shader-cache runs each of [OpenArena](../gamedb/games/openarena/) gl2min and [BananaBread](../gamedb/games/bananabread/)
 came with them (prime, cold, warm). Run list: `build/tmp/batch17-runs.txt` lines 2-12; raw tables in
 `build/tmp/b17/` (both ephemeral). Everything below was read from those run directories with
 loadprof.py and stalls.py.
@@ -445,8 +445,8 @@ warm-up exactly (67.1 against 67.9). Don't quote Luanti's warm-up CPU split.
 ### What the profiles point at
 
 The disk wait is one pool, and it decides the load times together with game mode's memory freeing
-(the 17-31k refaults). Every CPU item together is 1-3 s per game, SuperTuxKart's 5-8 s. With the disk
-taken out, the loads would become CPU-bound at roughly SB 15 s, OA 21 s, Luanti 33 s (a mapgen wait),
+(the 17-31k refaults). Every CPU item together is 1-3 s per game, [SuperTuxKart](../gamedb/games/supertuxkart/)'s 5-8 s. With the disk
+taken out, the loads would become CPU-bound at roughly SB 15 s, OA 21 s, [Luanti](../gamedb/games/luanti/) 33 s (a mapgen wait),
 STK 43 s, CB 11 s; that is where decoders and CPU mipmaps begin to matter. What has been tried
 against the pool since:
 
@@ -459,7 +459,7 @@ against the pool since:
 The whole system on the SSD (Phase B, [GAMEOS-HDD.md](GAMEOS-HDD.md)) took the loads down by 39-61%
 and the disk wait from 34-41% of a load to 11-26% ([below](#start-up-profiles-on-the-ssd-root-batch-ssdroot2);
 the USB-against-SSD comparison in alternating boots is still to run). The rest of the estimated wins (bigger reads, faster
-inflate/PNG/JPEG, OpenArena's pk3s stored and mipmaps off the CPU, audio decoded later, less dynamic
+inflate/PNG/JPEG, [OpenArena](../gamedb/games/openarena/)'s pk3s stored and mipmaps off the CPU, audio decoded later, less dynamic
 linking, game-level items) and the measurements that would turn them into facts are in
 [backlog/smoothness.md](backlog/smoothness.md).
 
@@ -585,7 +585,7 @@ main thread. The game's own load (`load=`) was 10.3 s cold against 10.6 s warm f
   warm-up stalls go 19.0 -> 15.0 s warm (56 -> 51 stalls, longest 2.1 -> 1.7 s): a hint that the
   first-use compiles mattered, from one run each against a prime arm at 19.7.
 - Shader time in the load: BananaBread 1.11 s on the main thread plus 0.77 s in the warm-up,
-  OpenArena 1.37 s, Luanti 0.43, STK 0.03, ClassiCube 0.02 s. The cache is no lever for the last
+  OpenArena 1.37 s, [Luanti](../gamedb/games/luanti/) 0.43, STK 0.03, [ClassiCube](../gamedb/games/classicube/) 0.02 s. The cache is no lever for the last
   three.
 
 Verdict: Mesa's cache stays on (it is the default) for the CPU it saves; it gives no measurable load
@@ -613,7 +613,7 @@ and their sizes and are dropped if they don't parse. Only a program in its initi
 tracker's variant work (`st_create_fp_variant`, `st_finalize_nir`) and the NIR serialization the TGSI
 key needs (cheaper than `nir_to_tgsi`'s passes but not free: the `shc_hit_ms` column says how much a
 hit costs). The design estimate was 0.5-2 KiB a stage (16-byte instructions, a few tens of them), about
-60-250 KiB for OpenArena opengl2's ~55 programs.
+60-250 KiB for [OpenArena](../gamedb/games/openarena/) opengl2's ~55 programs.
 
 `NV30_SHADER_CACHE_STATS=1` prints a `nv30-shcache:` line at context destruction and at exit with
 hits, misses and the ms of each for TGSI, fragment and vertex programs (report.py `shc_*`). With the
@@ -621,7 +621,7 @@ cache off every creation counts as a miss, so an off run's `shc_miss_ms` is the 
 save. Compile-tested only: nv30 code can't run on the host.
 
 **Its upper bound, measured.** The cache can save at most the `shader.backend` seconds. Batch 17, load
-plus warm-up, all threads: OpenArena 0.28, BananaBread 0.39, Luanti 0.11, STK 0.11, ClassiCube 0.02 s
+plus warm-up, all threads: OpenArena 0.28, [BananaBread](../gamedb/games/bananabread/) 0.39, [Luanti](../gamedb/games/luanti/) 0.11, STK 0.11, [ClassiCube](../gamedb/games/classicube/) 0.02 s
 (main-thread load share 0.24, 0.20, 0.08, 0.04, 0.02). That is before the cost of a hit and below the
 run noise, so the A/B was skipped in batch ssd1. It is still queued because it is cheap
 ([TESTS.md](TESTS.md), "Next"):
@@ -800,7 +800,7 @@ zlib, so it can be done; per game gets the same load gain without the risk).
 
 Batch ssd1 (2026-10-18 22:10-23:25Z, kernel .472, USB root, gamedb:batch/2026-10-18-ssd1, commit 9e6bc57) put the
 game data (and in a third arm the VRAM swap's spill) on a disk image on the internal SSD. The load's
-disk wait (the recorder's sda class) stayed at 4.8-5.5 s in BananaBread and 6.2-6.7 s in OpenArena:
+disk wait (the recorder's sda class) stayed at 4.8-5.5 s in [BananaBread](../gamedb/games/bananabread/) and 6.2-6.7 s in [OpenArena](../gamedb/games/openarena/):
 only 16-50 MB of the load's 76-144 MB of sda reads are game data, and the rest (binary, libraries,
 Mesa, the shader cache, Xorg) stays on USB. The load's CPU, fault and io shares did not change either.
 OpenArena's own load was shorter by about 3 s (-28%) and its `load_end` by about 3.6 s; BananaBread
@@ -814,7 +814,7 @@ Measured on the host (Zen 2), estimated for the PPE; every run states its own nu
   stack) per sample, at 499 Hz for each running thread. Estimated 1-3% of the PPE for a CPU-bound game,
   charged to the game's threads, so it shows only as lower fps. perf's own reader: `perf_self` (0.25%
   of a Zen 2 thread for two busy processes in the container test). Data: about 250-400 bytes a sample
-  to the disk. The one PS3 data point: in the 2026-10-18 profiling batch OpenArena ran at 50.7, 50.5
+  to the disk. The one PS3 data point: in the 2026-10-18 profiling batch [OpenArena](../gamedb/games/openarena/) ran at 50.7, 50.5
   and 52.7 fps profiled against 52.7 and 50.2 without ([HOTPATHS.md](HOTPATHS.md)), inside the
   noise, but that is one game and no interleaved A/B. Before reading fps off profiled runs at all,
   measure it with a same-boot A/B (`PERF=0` against `PERF=1`, three rounds); `PERF_HZ=199` cuts the
@@ -902,11 +902,11 @@ it. All are fixed for new runs.
   `perf-threads.txt` were complete). Debian's perf 7.2 for ppc64 has neither libbfd nor LLVM, so to
   name inlined functions perf script runs the binutils `addr2line` command, which the image doesn't
   have: it wrote to the dead command and died of SIGPIPE (exit 141), and `perf-post.err` had
-  `addr2line configuration failed` (not always: the ClassiCube, ETR, Neverball and BananaBread runs
+  `addr2line configuration failed` (not always: the [ClassiCube](../gamedb/games/classicube/), ETR, [Neverball](../gamedb/games/neverball/) and [BananaBread](../gamedb/games/bananabread/) runs
   died without the message). perf report with `-g none` never asks for inlines. Fix: `--no-inline`,
   plus the sample-count check after the collapse.
 - **`[unknown]` libraries.** perf recorded no mmap while disabled, so libGLX_mesa and libgallium were
-  `[unknown]`: 25.7% of OpenArena's samples. Fix: the tracking step at perf's start (ps3-gpu-tools
+  `[unknown]`: 25.7% of [OpenArena](../gamedb/games/openarena/)'s samples. Fix: the tracking step at perf's start (ps3-gpu-tools
   0.412); for older records perfprof.py fills the frames from the MEM=1 smaps.
 - **`--proc-map-timeout=20000`.** With perf's default of 500 ms for reading a running process's
   maps, most samples were `[unknown]`.
@@ -915,9 +915,9 @@ it. All are fixed for new runs.
   learnt both.
 - **Runs that never started their window or showed the wrong picture.** Armagetron's base played back
   a 90 s recording that draws nothing after its end (black screen with the cursor; the recipe now plays
-  live AI rounds, the recording is variant `playback`). OpenTTD's base had no GL, so no HUD frame ever
+  live AI rounds, the recording is variant `playback`). [OpenTTD](../gamedb/games/openttd/)'s base had no GL, so no HUD frame ever
   started the window (the recipe now starts it at the title game's load, `-d sl=1`), and its survey
-  prompt covered the title game (answered in its config). dsda-doom's window never started because its
+  prompt covered the title game (answered in its config). [dsda-doom](../gamedb/games/dsda-doom/)'s window never started because its
   `LOAD_MARK` lines never print (fixed in 6a59892: `Playing demo:`). In all three the result's perf
   line said `window never enabled` or the HUD stopped early. Check every profiled run's webcam photos
   and its perf line.

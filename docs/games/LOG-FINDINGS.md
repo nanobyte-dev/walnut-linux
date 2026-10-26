@@ -87,14 +87,14 @@ State (2026-10-20): cause found from two DUMPON captures; the fix is kernel patc
 watchdog in snd_ps3), built as a test module for the booted kernel, not on the PS3 yet. The A/B is in
 [TESTS.md](../TESTS.md) "Next".
 
-Games: SuperTuxKart (6 of 21 runs from 10-18 to 10-19 morning), OpenArena (6 of 75), ClassiCube (3 of
-31), Luanti (2 of 38): about 10% of the runs of the games that play through OpenAL Soft. 42 runs in
+Games: [SuperTuxKart](../../gamedb/games/supertuxkart/) (6 of 21 runs from 10-18 to 10-19 morning), [OpenArena](../../gamedb/games/openarena/) (6 of 75), [ClassiCube](../../gamedb/games/classicube/) (3 of
+31), [Luanti](../../gamedb/games/luanti/) (2 of 38): about 10% of the runs of the games that play through OpenAL Soft. 42 runs in
 build/bench have more than 5 `Wait timeout` lines; in 14 of them the first OpenAL error is the timeout
 itself, with no xrun before it.
 
 Counts from the repro batches, stock snd_ps3 (`DUMPON=1`; "wedge" = `Wait timeout` lines, "xrun" = only
 `mmap commit error` lines, the card still moving). Batch ssdroot7 (2026-10-19 20:53-21:40Z): SuperTuxKart
-3 of 4, OpenArena 1 of 3, ClassiCube 1 of 3, BananaBread 0 of 3. Batch ssdroot8 (2026-10-20 00:39-01:25Z,
+3 of 4, OpenArena 1 of 3, ClassiCube 1 of 3, [BananaBread](../../gamedb/games/bananabread/) 0 of 3. Batch ssdroot8 (2026-10-20 00:39-01:25Z,
 10 runs): SuperTuxKart 2 of 4 (291 lines with the card's pointer 1.0 s stopped before the first
 timeout; 29 lines after a first xrun; one run xrun only, one clean), OpenArena 0 of 3 (an xrun dump
 each, at 21, 20 and 33 s), ClassiCube 1 of 3 (12 lines after an xrun at 2.9 s; one xrun only, one
@@ -171,7 +171,7 @@ still while RUNNING, sampled once a second) and `snd_stall_at=`, `oal_wait=` (Wa
 
 ### 2. A failed buffer allocation ends in a segfault
 
-Games: BananaBread (5 runs on 10-18, 07:29 to 11:42 UTC), SuperTuxKart (1 run, 10-17 12:53), real Sauerbraten
+Games: [BananaBread](../../gamedb/games/bananabread/) (5 runs on 10-18, 07:29 to 11:42 UTC), [SuperTuxKart](../../gamedb/games/supertuxkart/) (1 run, 10-17 12:53), real Sauerbraten
 (`20261025T013202Z-session-sauerbraten-edition`, the one run with the call site resolved). Fixed in Mesa 0047 and
 0048, not yet confirmed on the PS3.
 
@@ -202,9 +202,9 @@ were not resolved.
 ### 3. Audio underruns in every SDL and direct-ALSA game
 
 Games and counts per 2-minute window, runs since 10-19: dsda-doom 2793, OpenTTD 0-4020 (mean 3600 with
-music on, 13 runs since ps3.544), DDNet 1765, X-Moto 200-218, BananaBread 60-181 (14 runs, mean 137),
-Freeciv 87, OpenTyrian 71, Warmux 26, ScummVM 20, LinCity-NG 16, UQM 10, Flare 5. Earlier days: Neverball
-780 over 13 runs, Armagetron 1223 over 29, Chocolate Doom 2701, Crispy Doom 1016, Red Eclipse 1280.
+music on, 13 runs since ps3.544), [DDNet](../../gamedb/games/ddnet/) 1765, [X-Moto](../../gamedb/games/xmoto/) 200-218, [BananaBread](../../gamedb/games/bananabread/) 60-181 (14 runs, mean 137),
+[Freeciv](../../gamedb/games/freeciv/) 87, [OpenTyrian](../../gamedb/games/opentyrian/) 71, [Warmux](../../gamedb/games/warmux/) 26, [ScummVM](../../gamedb/games/scummvm/) 20, [LinCity-NG](../../gamedb/games/lincity-ng/) 16, UQM 10, [Flare](../../gamedb/games/flare/) 5. Earlier days: [Neverball](../../gamedb/games/neverball/)
+780 over 13 runs, Armagetron 1223 over 29, [Chocolate Doom](../../gamedb/games/chocolate-doom/) 2701, [Crispy Doom](../../gamedb/games/crispy-doom/) 1016, [Red Eclipse](../../gamedb/games/redeclipse/) 1280.
 
 Evidence: `ALSA lib pcm.c:8787:(snd_pcm_recover) [error.pcm] underrun occurred` in game.log, repeated;
 bench.txt `underruns=N`.
@@ -221,7 +221,7 @@ straight to ALSA"). The one thing logscan adds is a way to compare: `logscan.py 
 
 ### 4. Texture and buffer pressure shows as "out of VRAM" lines
 
-Games: DDNet (95 lines in its first run, 10-19 09:53, since ps3.544), SuperTuxKart (270 in one run). The
+Games: [DDNet](../../gamedb/games/ddnet/) (95 lines in its first run, 10-19 09:53, since ps3.544), [SuperTuxKart](../../gamedb/games/supertuxkart/) (270 in one run). The
 other games have none.
 
 Evidence: `20261019T095332Z-ddnet-base` dmesg.log: `ps3rsx: out of VRAM for a 4096 KiB BO` and 4196 KiB
@@ -239,8 +239,8 @@ Fix: put DDNet in the next VRAM-pressure batch (TESTS Next: stalls recorder on, 
 ### 5. Input lag messages from libinput, and a few harness things
 
 - `(EE) event1 - Logitech USB Receiver Mouse: client bug: event processing lagging behind by Nms, your
-  system is too slow` and `scheduled expiry is in the past`: 12 runs from 10-17 to 10-18 (BananaBread,
-  OpenArena, Luanti, ClassiCube). Xorg's input thread starved during stalls; the mouse pointer would hang.
+  system is too slow` and `scheduled expiry is in the past`: 12 runs from 10-17 to 10-18 ([BananaBread](../../gamedb/games/bananabread/),
+  OpenArena, [Luanti](../../gamedb/games/luanti/), [ClassiCube](../../gamedb/games/classicube/)). Xorg's input thread starved during stalls; the mouse pointer would hang.
   Not seen on 10-19. Nothing to fix beyond the stalls themselves.
 - 16 runs (all with the `perfload` harness, 10-18 17:42 to 10-19 01:56) print `client.sh: line N:
   /dev/shm/ps3-bench-<stamp>-<game>/.pid: No such file or directory` 4 to 9 times. The runs completed
@@ -248,12 +248,12 @@ Fix: put DDNet in the next VRAM-pressure batch (TESTS Next: stalls recorder on, 
   tools" (S).
 - ioquake3's `DOUBLE SIGNAL FAULT` at the harness's SIGTERM, after the window (OpenArena, 5 runs): harmless
   to numbers ([the engine's notes](../../gamedb/engines/ioquake3/technical.md#log-noise)).
-- Kernel `os_area_queue_work_handler: Could not update FLASH ROM`: 2 runs (Extreme Tux Racer 10-18
+- Kernel `os_area_queue_work_handler: Could not update FLASH ROM`: 2 runs ([Extreme Tux Racer](../../gamedb/games/etr/) 10-18
   00:54, OpenArena 10-18 07:50). The kernel tried to write the PS3's OS area and failed. Probably the
   clock sync writing the RTC offset. Nothing was written, which is the safe outcome, but find out what
   triggers the write (S, reading code only), since the project rule is no flash writes beyond the
   install.
-- `bench.txt: run ended=killed` (Quakespasm, dsda-doom, Armagetron, 10-16 and 10-17): the harness had to kill the X server (`xinit: unexpected signal`); not seen since.
+- `bench.txt: run ended=killed` (Quakespasm, [dsda-doom](../../gamedb/games/dsda-doom/), Armagetron, 10-16 and 10-17): the harness had to kill the X server (`xinit: unexpected signal`); not seen since.
 
 ### 6. Not in the logs, worth adding
 
@@ -265,23 +265,23 @@ compile failures and the draw-module fallbacks, the log into game.log, then `log
 
 | What | Game, run | Status |
 |---|---|---|
-| GPU wedge: `nouveau: kernel rejected pushbuf`, 89 lines and 35 000 dump lines, `ps3rsx: graph exception`, `ps3fb_vsync_interrupt: graphics exception` | Neverball smoke, 10-16 21:54 | no recurrence in the 12 Neverball runs since |
+| GPU wedge: `nouveau: kernel rejected pushbuf`, 89 lines and 35 000 dump lines, `ps3rsx: graph exception`, `ps3fb_vsync_interrupt: graphics exception` | [Neverball](../../gamedb/games/neverball/) smoke, 10-16 21:54 | no recurrence in the 12 Neverball runs since |
 | validator `rejected push: swizzled render target 1 pixel wide` | gl-genmip probe, 10-16 | one probe run; not repeated |
-| oom-killer | BananaBread 10-17 08:17, Red Eclipse 10-18 06:00 | not repeated in the BananaBread runs after it; Red Eclipse still needs its patches (gamedb:redeclipse/oom-the-memory-is-the-sound) |
-| `Sys_LoadLibrary failed: libcurl.so.4` | Yamagi Quake II, 6 runs | optional download library, harmless |
+| oom-killer | [BananaBread](../../gamedb/games/bananabread/) 10-17 08:17, Red Eclipse 10-18 06:00 | not repeated in the BananaBread runs after it; Red Eclipse still needs its patches (gamedb:redeclipse/oom-the-memory-is-the-sound) |
+| `Sys_LoadLibrary failed: libcurl.so.4` | [Yamagi Quake II](../../gamedb/games/yquake2/), 6 runs | optional download library, harmless |
 | `QUAKE ERROR: You must have the registered version to use modified games` | Quakespasm, 10-16 (a launch-option error, one run) | one run; not repeated |
 | `Unable to load driver 'sdl-opengl': Single element texture formats not supported` | OpenTTD 10-16 | worked around (openttd 0001: gamedb:openttd/gl-driver-on-gl21) |
 
 ### 8. Noise that is harmless
 
 - `GL_ARB_framebuffer_object / texture_float / seamless_cube_map / texture_compression_bptc not found`
-  and `SDL_GL_CreateContext() ... Core context failed` (OpenArena, 57 runs): ioquake3 probes for
+  and `SDL_GL_CreateContext() ... Core context failed` ([OpenArena](../../gamedb/games/openarena/), 57 runs): [ioquake3](../../gamedb/engines/ioquake3/) probes for
   extensions nv30 does not have and carries on.
-- No IPv6 in the kernel: OpenArena, DDNet, Teeworlds, SuperTuxKart print socket errors for it.
-- First-run files: tyrian.cfg/.sav (OpenTyrian), widelands config, DDNet storage.cfg, Teeworlds settings,
+- No IPv6 in the kernel: OpenArena, [DDNet](../../gamedb/games/ddnet/), [Teeworlds](../../gamedb/games/teeworlds/), [SuperTuxKart](../../gamedb/games/supertuxkart/) print socket errors for it.
+- First-run files: tyrian.cfg/.sav ([OpenTyrian](../../gamedb/games/opentyrian/)), widelands config, DDNet storage.cfg, Teeworlds settings,
   hedgewars "Settings file not found", UQM's voice add-on, `ALSA lib seq_hw.c ... /dev/snd/seq` (no
   sequencer device; fluidsynth games), `Could not query RTKit`, `Failed to create PipeWire event context`.
 - speq (libspeq) statistics lines print "errors" in their text; only non-zero counts are kept by the tool.
-- Each game's own noise (OpenTTD's luminance fallback, Luanti's lag lines, SuperTuxKart's fixed pipeline and
-  config lines, BananaBread's and OpenArena's missing content, libspeq refusals in BananaBread) is in its
+- Each game's own noise ([OpenTTD](../../gamedb/games/openttd/)'s luminance fallback, [Luanti](../../gamedb/games/luanti/)'s lag lines, SuperTuxKart's fixed pipeline and
+  config lines, [BananaBread](../../gamedb/games/bananabread/)'s and OpenArena's missing content, libspeq refusals in BananaBread) is in its
   technical notes (`gamedb/games/<id>/technical.md`, "Known problems").

@@ -5,14 +5,14 @@ same-boot profiling batch of 2026-10-18 (`PERF=1 MEM=1`, Mesa ps3.299, kernel 6.
 ps3rsx 0.249), and 7 games from the SSD-root batch of 2026-10-19 (Mesa ps3.476, kernel .472, ps3rsx
 0.443: after 0033's table, 0036 and the games' batching patches), [below](#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b).
 Of the changes the first one led to, one is a clear win and on by default: Mesa 0033's lookup table
-for 8-bit vertex attributes (BananaBread (Debian's cube2) +53%). The fence pool (0034), the query wait (0035) and the
+for 8-bit vertex attributes ([BananaBread](../gamedb/games/bananabread/) (Debian's cube2) +53%). The fence pool (0034), the query wait (0035) and the
 staging pool (0036) measured neutral and stay off; ps3rsx's `shadow_fast` showed no gain in its A/B
 (batch ssdroot2, x2 on three games) and stays off. The second ranking led to Mesa 0041-0044
 ([third round](#third-round-submissions-snorm8-attributes-index-scans)): fewer submissions
 (`NV30_FENCE_WORK_KICK`, `NV30_QUERY_KICK`), SNORM8 attributes normalized in the vertex program
 (`NV30_VTX_SNORM8`) and AltiVec index scans (`NV30_MINMAX_VMX`), built in Mesa
 26.2.4-1+ps3.545~dev, off by default. 0041, 0042 and 0044 are measured ([below](#measured-0041-0042-0044)): 0041 and
-0042 neutral, 0044 +10% on SuperTuxKart at n=5 (a candidate default) and neutral elsewhere. 0043 as built there wedged the RSX
+0042 neutral, 0044 +10% on [SuperTuxKart](../gamedb/games/supertuxkart/) at n=5 (a candidate default) and neutral elsewhere. 0043 as built there wedged the RSX
 on its first run (graph exception 0x106: [below](#snorm8-attributes-in-the-vertex-program-mesa-0043));
 the fixed 0043 is in Mesa 26.2.4-1+ps3.570~dev (`build/debs/hotpaths3b/mesa`), not yet run. How the profiles are taken is in
 [PROFILING.md](PROFILING.md); nv30, ps3rsx and the other terms are in the [glossary](README.md#glossary).
@@ -25,7 +25,7 @@ Two problems turned up before any ranking could be made. Both are fixed on the P
 ([PROFILING.md](PROFILING.md#pitfalls)), but this batch's text files stay wrong:
 
 - **`perf.folded` and `perf-leaf.txt` hold only a few samples** (1 to 621 per run, from the first
-  0.1-2 s), so report.py's `perf_*` columns are wrong for the whole batch (OpenArena 011212 shows
+  0.1-2 s), so report.py's `perf_*` columns are wrong for the whole batch ([OpenArena](../gamedb/games/openarena/) 011212 shows
   `perf_unk=100` from a single sample). `perf script` stopped early every time, right after
   `cmd_addr2line_configure ... addr2line configuration failed` in `perf-post.err`. `perf-report.txt`
   and `perf-threads.txt` (perf report) are complete.
@@ -33,7 +33,7 @@ Two problems turned up before any ranking could be made. Both are fixed on the P
   during the game's load and enables it at the window, and libraries the game dlopens in that time
   (libGLX_mesa and libgallium come in at context creation) got no MMAP2 record, so their samples are
   `[unknown]` in the PS3's own report. In OpenArena 011212 that was 25.7% of the game's samples;
-  Luanti, BananaBread, X-Moto and Armagetron lost libgallium the same way.
+  [Luanti](../gamedb/games/luanti/), [BananaBread](../gamedb/games/bananabread/), [X-Moto](../gamedb/games/xmoto/) and Armagetron lost libgallium the same way.
 
 On this batch's perf.data the fixed perf-post.sh now gives this tool's class shares to the tenth.
 
@@ -52,7 +52,7 @@ with build ids) and symbolises it on the PC:
   the leaf has saved it already. perf on the PS3 checks that against the CFI; this tool drops the
   entry when it equals the next one or falls in the leaf's own function;
 - checked against the PS3's `perf-report.txt`: the same top symbols with the same self shares
-  (ps3rsx_shadow_burst 1.73% here against 1.78% there in OpenArena, __memcpy_cell 2.22/2.22%,
+  (ps3rsx_shadow_burst 1.73% here against 1.78% there in [OpenArena](../gamedb/games/openarena/), __memcpy_cell 2.22/2.22%,
   RB_StageIteratorGeneric, Resample_Cubic_C), apart from the samples the PS3 had as `[unknown]`.
 
 Classes are report.py's (`perf_game`, `perf_mesa`, ...), by the DSO of the sampled instruction, with
@@ -74,15 +74,15 @@ were checked for every run:
 
 | Run | Picture | Used |
 |---|---|---|
-| openarena 011212 (PERF+MEM) | loading at 60 s (warm-up), gameplay at 150 s | yes, the OpenArena profile |
+| openarena 011212 (PERF+MEM) | loading at 60 s (warm-up), gameplay at 150 s | yes, the [OpenArena](../gamedb/games/openarena/) profile |
 | openarena 001600, 003017 (PERF) | gameplay | cross-check only: no MEM smaps, but perf had Mesa's maps there; class shares within 1% of 011212 |
 | openarena 001126, 002131, 002559, 003614 | gameplay | overhead runs, no profile |
 | armagetronad 004040 | gameplay at 60 s, **black screen with a cursor at 150 s** | **no**: samples only in the first 20 s of the 120 s window (3973 + 502, then none) |
 | openttd 011738 | **main menu with the survey dialog**, not gameplay | **no**, and perf recorded no samples |
-| dsda-doom 005026 | gameplay | **no**: perf recorded no samples (`perf_win` empty) |
-| classicube, etr, luanti, neverball, quakespasm, sauerbraten, xmoto, yquake2 | gameplay (QuakeSpasm dark but in the level) | yes |
+| [dsda-doom](../gamedb/games/dsda-doom/) 005026 | gameplay | **no**: perf recorded no samples (`perf_win` empty) |
+| classicube, etr, luanti, neverball, quakespasm, sauerbraten, xmoto, yquake2 | gameplay ([QuakeSpasm](../gamedb/games/quakespasm/) dark but in the level) | yes |
 
-So 9 games: OpenArena, ClassiCube, ETR, Luanti, Neverball, QuakeSpasm, BananaBread, X-Moto, Yamagi
+So 9 games: OpenArena, [ClassiCube](../gamedb/games/classicube/), ETR, [Luanti](../gamedb/games/luanti/), [Neverball](../gamedb/games/neverball/), QuakeSpasm, [BananaBread](../gamedb/games/bananabread/), [X-Moto](../gamedb/games/xmoto/), Yamagi
 Quake II. perf's cost on fps is within the noise here: OpenArena 50.7, 50.5, 52.7 fps profiled against
 52.7 and 50.2 without (and 52.9, 54.2 with the stall recorder).
 
@@ -121,7 +121,7 @@ Mean % of a game's CPU, number of games at 1% or more, and per game:
 | st/mesa per-draw state (`st_prepare_draw`, `_mesa_update_*`, texture state, ff programs, u_vbuf bookkeeping, buffer binds) | 13.1 | 9 | 15.1 | 18.3 | 8.2 | 7.5 | 22.6 | 12.4 | 8.6 | 12.6 | 12.5 | own code 11.1 |
 | **vertex format translation** (u_vbuf `generic_run`, SNORM8 unpack) | 5.7 | 2 | 0.1 | 0 | 0 | 0 | 0 | 6.1 | **44.9** | 0 | 0 | own code |
 | **submission** (`pushbuf_flush`: the pushbuf ioctl) | 5.4 | 9 | 5.3 | 8.4 | 3.4 | 3.1 | 10.3 | 5.6 | 4.3 | 4.3 | 4.1 | ps3rsx 3.9, kernel 1.3 |
-| GL API entry and immediate mode (`_mesa_*`, dispatch stubs) | 5.0 | 9 | 2.4 | 5.1 | 2.9 | 2.5 | 6.7 | 15.3 | 2.8 | 2.1 | 5.0 | QuakeSpasm: glBegin/glTexCoord2f/glVertex2f ~10% |
+| GL API entry and immediate mode (`_mesa_*`, dispatch stubs) | 5.0 | 9 | 2.4 | 5.1 | 2.9 | 2.5 | 6.7 | 15.3 | 2.8 | 2.1 | 5.0 | [QuakeSpasm](../gamedb/games/quakespasm/): glBegin/glTexCoord2f/glVertex2f ~10% |
 | nv30 state validation (`nv30_state_validate` and its `*_validate`) | 3.6 | 9 | 4.1 | 6.3 | 2.3 | 2.1 | 6.0 | 3.2 | 2.3 | 3.2 | 2.7 | own code |
 | **buffer allocation and free** (`nouveau_bo_new`/`_ref`) | 2.4 | 8 | 1.8 | 6.3 | 0.9 | 1.0 | 1.9 | 3.8 | 2.2 | 1.5 | 2.5 | kernel 1.3, ps3rsx/drm 0.8 |
 | winsys bookkeeping (`pushbuf_kref`, `pushbuf_validate`, bufctx, fence refs) | 2.2 | 8 | 1.9 | 5.9 | 0.9 | 1.4 | 2.7 | 1.8 | 1.7 | 1.4 | 1.6 | own code |
@@ -139,12 +139,12 @@ Top single functions (self time; memcpy counted at its Mesa caller), mean % and 
 
 | Function | mean | games | notes |
 |---|---|---|---|
-| util_format_r8g8b8a8_snorm_unpack_rgba_float | 2.5 | 2 | BananaBread 18.2, QuakeSpasm 4.5 |
+| util_format_r8g8b8a8_snorm_unpack_rgba_float | 2.5 | 2 | [BananaBread](../gamedb/games/bananabread/) 18.2, QuakeSpasm 4.5 |
 | util_format_r8g8b8_snorm_unpack_rgba_float | 1.8 | 1 | BananaBread 16.4 |
 | ps3rsx_shadow_burst (kernel) | 1.3 | 9 | the software context switch's per-word parse of every push |
 | nv30_query_result | 1.1 | 1 | BananaBread 10.3 |
-| nv30_state_validate | 1.1 | 9 | ClassiCube 3.0 |
-| memcpy < u_upload_data | 1.1 | 4 | X-Moto 5.3, ETR 1.9: client vertex arrays |
+| nv30_state_validate | 1.1 | 9 | [ClassiCube](../gamedb/games/classicube/) 3.0 |
+| memcpy < u_upload_data | 1.1 | 4 | [X-Moto](../gamedb/games/xmoto/) 5.3, ETR 1.9: client vertex arrays |
 | nv30_draw_vbo | 1.0 | 6 | ClassiCube 3.9 |
 | _mesa_update_texture_state | 0.9 | 5 | fixed-function texture state per state change |
 | generic_run | 0.9 | 2 | the translate loop around the unpacks |
@@ -155,7 +155,7 @@ Top single functions (self time; memcpy counted at its Mesa caller), mean % and 
 | util_set_vertex_buffers_mask | 0.6 | 1 | ClassiCube 2.9 |
 | st_prepare_draw | 0.5 | 3 | |
 
-Inclusive, for scale: `glXSwapBuffers` 9.0% on average (Neverball 18, ClassiCube 16), mostly the flush
+Inclusive, for scale: `glXSwapBuffers` 9.0% on average ([Neverball](../gamedb/games/neverball/) 18, ClassiCube 16), mostly the flush
 it does; `pushbuf_flush` 6.4% (9 games); `nv30_draw_vbo` 6.9%; `st_prepare_draw` 5.7%;
 `nv30_context_kick_notify` 0.9%, of which `nouveau_fence_new` 0.7.
 
@@ -164,12 +164,12 @@ it does; `pushbuf_flush` 6.4% (9 games); `nv30_draw_vbo` 6.9%; `st_prepare_draw`
 The five targets the ranking gave, numbered as the code and other docs cite them, and what became of
 each. Estimated savings were % of each game's CPU, from the profile shares and what the change removes;
 a frame gets that much shorter only where the time sits on the game's render thread and the game is
-CPU-bound. X-Moto (154 fps) and Neverball (80) had headroom; BananaBread (22), Luanti (45) and
-ClassiCube (43) didn't.
+CPU-bound. X-Moto (154 fps) and [Neverball](../gamedb/games/neverball/) (80) had headroom; BananaBread (22), [Luanti](../gamedb/games/luanti/) (45) and
+[ClassiCube](../gamedb/games/classicube/) (43) didn't.
 
 | # | Target | Share | Built | Outcome |
 |---|---|---|---|---|
-| 1 | u_vbuf's SNORM8 vertex conversion | BananaBread 44.9%, QuakeSpasm 6.1% | Mesa 0033 `NV30_TRANSLATE_LUT` | BananaBread +53% ([byte-normals](../gamedb/engines/cube2/investigations/2026-10-18-byte-normals.md)); **on by default** |
+| 1 | u_vbuf's SNORM8 vertex conversion | BananaBread 44.9%, [QuakeSpasm](../gamedb/games/quakespasm/) 6.1% | Mesa 0033 `NV30_TRANSLATE_LUT` | BananaBread +53% ([byte-normals](../gamedb/engines/cube2/investigations/2026-10-18-byte-normals.md)); **on by default** |
 | 2 | The submission ioctl in ps3rsx | 5.4% in all 9 games | ps3rsx `shadow_fast` | no gain resolved in the A/B (ClassiCube, BananaBread, X-Moto, x2), stays off |
 | 3 | Per-draw state work in st/mesa and nv30 | about 20% together, diffuse | nothing in Mesa; game-side batching | no single patch takes more than ~1% here; the lever is fewer draws in the games |
 | 4 | A buffer allocation and free per fence | 1.3% average | Mesa 0034 `NV30_FENCE_BO_POOL=N` | neutral, off |
@@ -178,7 +178,7 @@ ClassiCube (43) didn't.
 Smaller ones from the same profiles: the staging buffer per texture upload (ClassiCube 5.4,
 QuakeSpasm 2.2, Yamagi 1.7: Mesa 0036 `NV30_STAGING_POOL`, neutral); client vertex arrays copied per
 draw (X-Moto 5.5, fixed in the game: [client-array-copies](../gamedb/games/xmoto/investigations/2026-10-18-client-array-copies.md); ETR 2.3, not done); the min/max scans of client index
-arrays (`vbo_get_minmax_index_mapped`: OpenArena 1.3, Yamagi 1.0; the index side is 0030's). The
+arrays (`vbo_get_minmax_index_mapped`: [OpenArena](../gamedb/games/openarena/) 1.3, Yamagi 1.0; the index side is 0030's). The
 Gallium HUD costs 1.3% in bench runs only (number formatting), not in play. 0028 (index fencing) shows
 as `nouveau_fence_ref < nv30_state_validate`, 0.3% in 2 games; 0031's fragment program constants are
 down to 0.2%.
@@ -190,7 +190,7 @@ GL_BYTE-normalized normals and tangents into 32-bit floats on every draw, for th
 static VBOs included. translate_generic does that with the format's unpack function and an emit
 function per vertex and attribute, and every byte passes an integer-to-float conversion, which the
 PPE does through memory (store, load into an FPR, a load-hit-store stall of tens of cycles per
-component). The estimate was 35-40% of BananaBread's CPU and 4-5% of QuakeSpasm's.
+component). The estimate was 35-40% of BananaBread's CPU and 4-5% of [QuakeSpasm](../gamedb/games/quakespasm/)'s.
 
 **0033 translate: 8-bit vertex attributes to floats through a table (`NV30_TRANSLATE_LUT`).** In
 translate_generic, an element whose input is a plain 8-bit array format with identity swizzle (R8 to
@@ -273,18 +273,18 @@ under 2%. Running it on the rest of the suite would add no information a profile
 Earlier Mesa rounds (0016-0025) took the nv30 part down. What is left: st-validate 13.1 +
 nv30-validate 3.6 + winsys bookkeeping 2.2 + draw emit 1.2, about 20% together, spread over dozens of
 functions of 0.2-1% each. The biggest single ones: `_mesa_update_texture_state` (0.9, 5 games),
-`nv30_state_validate` self (1.1, 9 games), `util_set_vertex_buffers_mask` (ClassiCube 2.9),
+`nv30_state_validate` self (1.1, 9 games), `util_set_vertex_buffers_mask` ([ClassiCube](../gamedb/games/classicube/) 2.9),
 `pushbuf_kref`/`pushbuf_validate` (0.9, 0017's area). No single patch takes more than about 1% here.
 The lever is fewer draws in the games, which ClassiCube's chunk merging showed (below), and immediate
-mode out of QuakeSpasm's 2D path (~10%).
+mode out of [QuakeSpasm](../gamedb/games/quakespasm/)'s 2D path (~10%).
 
 ### Target 4: a buffer per fence (Mesa 0034)
 
 Every fence makes a 4 KiB GART buffer for the kernel to block on, and nv30 makes a fence per
 submission: `nouveau_fence_new` 0.7% and the frees under `_nouveau_fence_ref` 0.6% on average, all 9
 games, mostly kernel time (GEM create/close, drm_mm placement). 0027's adaptive kick makes more
-submissions, so more of these. The estimate was 1-1.5% per game (BananaBread 2.1, ClassiCube and
-Neverball 1.6).
+submissions, so more of these. The estimate was 1-1.5% per game ([BananaBread](../gamedb/games/bananabread/) 2.1, [ClassiCube](../gamedb/games/classicube/) and
+[Neverball](../gamedb/games/neverball/) 1.6).
 
 **0034 nouveau: recycle the wait buffers of deleted fences (`NV30_FENCE_BO_POOL=N`).** Up to N (at most
 32) buffers of deleted fences go into a pool on the screen's fence list, and the next fences take them
@@ -333,7 +333,7 @@ A draw from a client vertex array makes Mesa copy the array into GART at every d
 ps3rsx maps GART cacheable, ordinary RAM). X-Moto's batches were the biggest case in the first round
 (5.5% of its CPU), fixed in the game: xmoto 0004 writes its batches straight into a mapped stream
 buffer ([client-array-copies](../gamedb/games/xmoto/investigations/2026-10-18-client-array-copies.md)).
-SuperTuxKart's are the case left (Irrlicht's legacy driver, [below](#inside-the-graphics-stack)).
+[SuperTuxKart](../gamedb/games/supertuxkart/)'s are the case left (Irrlicht's legacy driver, [below](#inside-the-graphics-stack)).
 
 ## Gameplay profiles on the SSD root (batch ssdroot2 P1b)
 
@@ -443,8 +443,8 @@ user prioritises these over game-level fixes). Mesa's inner split is not availab
 
 | # | Target | Mean share | Games at 4%+ | Per game (%) | Lever |
 |---|---|---|---|---|---|
-| 1 | **Mesa/nv30 in the GL calls** (libgallium: state, draw, translate, upload, the query wait) | 28.6 | 6 of 7 | Sb 62.8, CC 41.2, STK 35.5, OA 23.2, dsda 22.1, Lu 14.6, OTTD 1.1 | split [above](#inside-the-graphics-stack): per-draw state 10.4 (diffuse), submission 5.2, buffers 5.4; the single big ones are BananaBread's conversion and query wait, OpenArena's submissions for deferred frees and SuperTuxKart's client arrays: Mesa 0041-0044 ([third round](#third-round-submissions-snorm8-attributes-index-scans)) |
-| 2 | **Audio mixing and synthesis** (OpenAL Soft's mixer, ALSA's float conversion, FluidSynth, libspeq, Vorbis, SDL_mixer) | 11.9 | 5 of 7 | dsda 30.9, OTTD 16.8, OA 15.0, CC 10.0, Sb 6.0, STK 3.3, Lu 1.3 | built, not run: OpenAL Soft's mixer and libvorbis's `ov_read` without load-hit-stores, OpenAL's output 16-bit so the ALSA plug stops converting (1.9% ClassiCube, 0.8 STK, 0.7 OA), fluidsynth's reverb without per-sample divides ([SPU-AUDIO.md](SPU-AUDIO.md#openal-soft-on-the-ppe-conversions-and-output-format)); the music synth is also where the underruns are (dsda 2793, OpenTTD 4172) |
+| 1 | **Mesa/nv30 in the GL calls** (libgallium: state, draw, translate, upload, the query wait) | 28.6 | 6 of 7 | Sb 62.8, CC 41.2, STK 35.5, OA 23.2, dsda 22.1, Lu 14.6, OTTD 1.1 | split [above](#inside-the-graphics-stack): per-draw state 10.4 (diffuse), submission 5.2, buffers 5.4; the single big ones are [BananaBread](../gamedb/games/bananabread/)'s conversion and query wait, [OpenArena](../gamedb/games/openarena/)'s submissions for deferred frees and [SuperTuxKart](../gamedb/games/supertuxkart/)'s client arrays: Mesa 0041-0044 ([third round](#third-round-submissions-snorm8-attributes-index-scans)) |
+| 2 | **Audio mixing and synthesis** (OpenAL Soft's mixer, ALSA's float conversion, FluidSynth, libspeq, Vorbis, SDL_mixer) | 11.9 | 5 of 7 | dsda 30.9, OTTD 16.8, OA 15.0, CC 10.0, Sb 6.0, STK 3.3, Lu 1.3 | built, not run: OpenAL Soft's mixer and libvorbis's `ov_read` without load-hit-stores, OpenAL's output 16-bit so the ALSA plug stops converting (1.9% [ClassiCube](../gamedb/games/classicube/), 0.8 STK, 0.7 OA), fluidsynth's reverb without per-sample divides ([SPU-AUDIO.md](SPU-AUDIO.md#openal-soft-on-the-ppe-conversions-and-output-format)); the music synth is also where the underruns are (dsda 2793, [OpenTTD](../gamedb/games/openttd/) 4172) |
 | 3 | **libc and libm** (memcpy, malloc and free, mutexes, math) | 9.1 | 7 of 7 | STK 15.1, Lu 13.7, OTTD 9.1, OA 8.9, dsda 7.4, CC 4.8, Sb 4.6 | libc6-dbg symbols to say which (named so far: `pthread_mutex_lock` 0.5-1.2%, `__memcmpeq` 0.4-0.7, `malloc`, `cfree` 0.4-0.9) |
 | 4 | **Soft-masked time** (kernel `__replay_soft_interrupts`, `arch_local_irq_restore`) | 8.7 (3.9 without OpenTTD) | 5 of 7 | OTTD 37.6, Lu 5.7, CC 5.0, OA 4.1, dsda 4.1, Sb 2.5, STK 1.7 | real time, split by where interrupts came back on ([below](#soft-masked-time-and-the-staging-buffer-per-frame)): OpenTTD's is its per-frame staging buffer (Mesa 0040); elsewhere hash faults 0.2-1.6, ALSA's stream lock 0.1-1.3, system call entry and exit 0.3-1.0, wakeups 0.1-1.1 (kernel local/0046 takes one lv1 call off every hash fault) |
 | 5 | **ps3rsx submission and validation** (`ps3rsx_shadow_burst`, `_validate`, the push ioctls, ww_mutex) | 3.6 | 3 of 7 | CC 6.8, OA 5.6, Sb 4.6, dsda 3.3, STK 2.5, Lu 2.0 | `shadow_fast` measured no gain, so this is the structural cost of the software channel switch; fewer, larger submits are the game-side lever |
@@ -454,7 +454,7 @@ user prioritises these over game-level fixes). Mesa's inner split is not availab
 Items 1-3 touch most of the suite. Item 2 has a hardware lever and a measured symptom (underruns);
 item 1 has the most CPU, and its switches are built; items 4 and 6 are one cause in OpenTTD, built
 against and waiting for their A/B.
-Game-level items (Luanti's MeshUpdate thread, STK's skinning, OpenTTD's blitter) are in the per-game
+Game-level items ([Luanti](../gamedb/games/luanti/)'s MeshUpdate thread, STK's skinning, OpenTTD's blitter) are in the per-game
 files.
 
 ## Third round: submissions, SNORM8 attributes, index scans
@@ -467,14 +467,14 @@ default, in Mesa 26.2.4-1+ps3.545~dev (patches 0041-0044 on top of ps3.544's 004
 
 | Mesa | Switch | Takes away | Share in the profiles | Expected |
 |---|---|---|---|---|
-| 0041 | `NV30_FENCE_WORK_KICK=N` (64, the default, as upstream; 0: never) | the submissions for deferred frees | OpenArena gl2min 12.5% | OpenArena's CPU about -10% with N=1024 or 0; fps up to +10% where its main thread is the limit |
-| 0042 | `NV30_QUERY_KICK=0` or `2` (1, the default: as before) | the submission at the end of every query | BananaBread 5.6% | BananaBread's CPU -5%; fps 0 to +5%, or worse in mode 0 if the water query's wait gets longer |
-| 0043 | `NV30_VTX_SNORM8=1` (only with ps3.570~dev or later: ps3.545's wedges the RSX) | u_vbuf's conversion of GL_BYTE normalized attributes | BananaBread 18-19%, QuakeSpasm 4-6% (10-18) | BananaBread +15 to 20% fps (cube2 0011's game-side version of the same gave +17%, row 69), no system memory copies of its VRAM buffers; QuakeSpasm's CPU -4% |
-| 0044 | `NV30_MINMAX_VMX=1` | most of the min/max scan of client index arrays | SuperTuxKart 6.5%; OpenArena opengl1 1.3, Yamagi 1.0 (10-18) | SuperTuxKart's CPU about -5%, fps +3 to 5% |
+| 0041 | `NV30_FENCE_WORK_KICK=N` (64, the default, as upstream; 0: never) | the submissions for deferred frees | [OpenArena](../gamedb/games/openarena/) gl2min 12.5% | OpenArena's CPU about -10% with N=1024 or 0; fps up to +10% where its main thread is the limit |
+| 0042 | `NV30_QUERY_KICK=0` or `2` (1, the default: as before) | the submission at the end of every query | [BananaBread](../gamedb/games/bananabread/) 5.6% | BananaBread's CPU -5%; fps 0 to +5%, or worse in mode 0 if the water query's wait gets longer |
+| 0043 | `NV30_VTX_SNORM8=1` (only with ps3.570~dev or later: ps3.545's wedges the RSX) | u_vbuf's conversion of GL_BYTE normalized attributes | BananaBread 18-19%, [QuakeSpasm](../gamedb/games/quakespasm/) 4-6% (10-18) | BananaBread +15 to 20% fps (cube2 0011's game-side version of the same gave +17%, row 69), no system memory copies of its VRAM buffers; QuakeSpasm's CPU -4% |
+| 0044 | `NV30_MINMAX_VMX=1` | most of the min/max scan of client index arrays | [SuperTuxKart](../gamedb/games/supertuxkart/) 6.5%; OpenArena opengl1 1.3, Yamagi 1.0 (10-18) | SuperTuxKart's CPU about -5%, fps +3 to 5% |
 
 Not picked: the per-draw state; the query wait itself (the GPU is behind there: cube2 0010 is the
-lever); ClassiCube's and dsda-doom's one submission a frame (ps3rsx's per-word cost, which
-`shadow_fast` didn't move); OpenTTD's PBO copy (0040 is its lever, measured +53% in ssdroot4);
+lever); [ClassiCube](../gamedb/games/classicube/)'s and [dsda-doom](../gamedb/games/dsda-doom/)'s one submission a frame (ps3rsx's per-word cost, which
+`shadow_fast` didn't move); [OpenTTD](../gamedb/games/openttd/)'s PBO copy (0040 is its lever, measured +53% in ssdroot4);
 SuperTuxKart's vertex copies (memcpy < `u_upload_data` 10.1%: Irrlicht's legacy driver draws from
 client arrays; the lever is VBOs in the game).
 
@@ -499,7 +499,7 @@ the fence notifier), so a query never leaves the GPU idle that the old submissio
 The 124 report slots are recycled by spinning on the oldest: each slot holds the fence of the batch
 that writes it, and in modes 0 and 2 that batch is submitted before the spin. A context that goes
 away waits for its last fence, so no slot outlives its batch. What changes for a frame that waits
-for a result (BananaBread's water): the wait starts at the check instead of the query's end when
+for a result ([BananaBread](../gamedb/games/bananabread/)'s water): the wait starts at the check instead of the query's end when
 nothing submitted the batch in between, which mode 2 makes rare.
 
 No host test for these two: they change when batches go to the GPU, not what is in them; the A/B
@@ -520,7 +520,7 @@ The fetch is always four bytes, U8_USCALED x4: the RSX faults on U8_USCALED with
 MAX work on the attribute's components; for R8, R8G8 and R8G8B8 a fifth instruction moves
 (0, 0, 0, 1) into the others, so the bytes after the attribute, which the fetch reads too, never
 reach the program. That needs four bytes of room from the attribute to the end of its vertex
-(`src_offset % stride + 4 <= stride`; BananaBread's normal sits at 12 in a 32-byte vertex). A 1 to 3
+(`src_offset % stride + 4 <= stride`; [BananaBread](../gamedb/games/bananabread/)'s normal sits at 12 in a 32-byte vertex). A 1 to 3
 byte attribute packed at the very end of its vertex is converted to float by nv30 itself instead,
 with the vertices pushed inline (slow, and no game we run has one). The program reads that temp
 instead of the input. Which inputs get it is a key of 3 bits per input in the vertex
@@ -569,7 +569,7 @@ Tests (`tools/run-tests.sh mesa-vtx-snorm8`, from `build/work/mesa`):
 
 What the host can't check is the RSX's own rounding of the multiply: if it isn't IEEE's, a component
 can be one ulp off, invisible in lighting. On the PS3 the check is the picture: BananaBread's world
-lighting and QuakeSpasm's model shading against the switch off.
+lighting and [QuakeSpasm](../gamedb/games/quakespasm/)'s model shading against the switch off.
 
 ### AltiVec index scans (Mesa 0044)
 
@@ -677,7 +677,7 @@ analysed above; it has no numbers.
 
 ## Soft-masked time and the staging buffer per frame
 
-What the "soft-irq replay" of the profiles above is, what OpenTTD's 37.6% of it is made of, and the
+What the "soft-irq replay" of the profiles above is, what [OpenTTD](../gamedb/games/openttd/)'s 37.6% of it is made of, and the
 three switches built against it. All three are off by default and wait for their A/B
 ([TESTS.md](TESTS.md), batch irqoff).
 
@@ -728,9 +728,9 @@ lockstep. From OpenTTD's shares (two such uploads a frame, 2540 pages, 18 fps) a
 pixel buffers every frame that way: over 40% of its CPU
 ([staging-buffer-per-frame](../gamedb/games/openttd/investigations/2026-10-19-staging-buffer-per-frame.md)).
 
-ClassiCube has the same pattern, small: the staging buffers of its animated textures (mmap 2.4,
+[ClassiCube](../gamedb/games/classicube/) has the same pattern, small: the staging buffers of its animated textures (mmap 2.4,
 munmap 2.0, GEM create 1.7, close 0.9; Mesa 0036 `NV30_STAGING_POOL` covers them and measured CPU -4%,
-fps unchanged: ClassiCube is GPU-bound). OpenArena's 3.3% and BananaBread's 2.2% of GEM create and
+fps unchanged: ClassiCube is GPU-bound). [OpenArena](../gamedb/games/openarena/)'s 3.3% and [BananaBread](../gamedb/games/bananabread/)'s 2.2% of GEM create and
 close are small buffers (fences, small uploads), where the cost is the ioctls, drm_mm and an
 occasional CMA chunk, not the zeroing (memset 0.1%).
 
@@ -738,7 +738,7 @@ occasional CMA chunk, not the zeroing (memset 0.1%).
 
 | Switch | What it does | Expected |
 |---|---|---|
-| Mesa 0040 `NV30_STAGING_POOL_MB=M` (M up to 64; 0, the default: off) | Uploads over 256 KiB take an idle staging buffer of their MiB class, or one up to twice it, from a pool of buffers that are still mapped; the fence work that freed the buffer gives it back. At most M MiB and 16 buffers, oldest freed first, every buffer unused for a second freed (checked at each flush), so a load's burst leaves no GART behind. A reused buffer takes no new GART: no in-flight wait. `NV30_STAGING_POOL_STATS=1` prints hits and misses at exit | a game with big uploads every frame: the new buffer, its zeroing, faults, unmapping and in-flight wait go (OpenTTD: about 40% of its samples; measured 34 -> 52 fps, +53%, with the 8bpp blitter: [staging-buffer-per-frame](../gamedb/games/openttd/investigations/2026-10-19-staging-buffer-per-frame.md)). GART: the buffers of the classes in use stay while it runs, as they do now from frame to frame. Nothing for games without big uploads (ClassiCube and OpenArena neutral, ssdroot5) |
+| Mesa 0040 `NV30_STAGING_POOL_MB=M` (M up to 64; 0, the default: off) | Uploads over 256 KiB take an idle staging buffer of their MiB class, or one up to twice it, from a pool of buffers that are still mapped; the fence work that freed the buffer gives it back. At most M MiB and 16 buffers, oldest freed first, every buffer unused for a second freed (checked at each flush), so a load's burst leaves no GART behind. A reused buffer takes no new GART: no in-flight wait. `NV30_STAGING_POOL_STATS=1` prints hits and misses at exit | a game with big uploads every frame: the new buffer, its zeroing, faults, unmapping and in-flight wait go (OpenTTD: about 40% of its samples; measured 34 -> 52 fps, +53%, with the 8bpp blitter: [staging-buffer-per-frame](../gamedb/games/openttd/investigations/2026-10-19-staging-buffer-per-frame.md)). GART: the buffers of the classes in use stay while it runs, as they do now from frame to frame. Nothing for games without big uploads ([ClassiCube](../gamedb/games/classicube/) and [OpenArena](../gamedb/games/openarena/) neutral, ssdroot5) |
 | kernel local/0046 `ps3_htab.insert_readback=0` (1, the default: the read-back; 2: both, compared, mismatches counted) | One lv1 call per hash table insertion instead of two: whether the entry is in the secondary group follows from the index lv1 returns (outside the group we gave it: the secondary). Also `/sys/module/ps3_htab/parameters/stats`: inserts, evictions, read-backs, mismatches, invalidations and update-pp's with their microseconds in lv1 | every hash fault, every process: the read-back is up to half of an insertion's lv1 time. OpenTTD without 0040: up to ~13 of its 27 points; elsewhere up to half of 0.2-1.6. Its stats say what the htab costs, in microseconds |
 | ps3rsx `clear_dcbz=1` (0, the default: memset) | New GART buffers zeroed with `clear_page` (dcbz: a cache line zeroed without being read first) instead of memset's stores, which on the PPE read every line before writing it | the zeroing about halves: OpenTTD 5.3 -> ~2.5% without 0040, nothing with it; other games under 0.1% |
 
@@ -803,8 +803,8 @@ report.py shows `base@translate_lut0`, `base@query_wait0`, `base@staging_pool16`
 `PS3RSX_NAME=V` write the value to `/sys/module/ps3rsx/parameters/name` for that run and put the old
 one back after it (`sudo -n`; bench.txt gets `kparam=`, report.py shows `base@rsx_shadow_fast1`).
 selftest.py covers the tokens. Same boot, interleaved, desktop stopped, webcam photos checked (wrong
-pixels from 0033 would show as lighting or shading differences on BananaBread's and QuakeSpasm's
-models; look for missing or flickering minimap dots and sprites with X-Moto's stream):
+pixels from 0033 would show as lighting or shading differences on [BananaBread](../gamedb/games/bananabread/)'s and [QuakeSpasm](../gamedb/games/quakespasm/)'s
+models; look for missing or flickering minimap dots and sprites with [X-Moto](../gamedb/games/xmoto/)'s stream):
 
     ENVS="- NV30_TRANSLATE_LUT=0" /var/tmp/bench/run.sh bench bananabread base 3
     ENVS="- NV30_FENCE_BO_POOL=16" /var/tmp/bench/run.sh bench classicube base 3
@@ -848,7 +848,7 @@ Batch hotpaths3 (Mesa 0041-0044, the third round above). Install Mesa 26.2.4-1+p
 RSX: never run `NV30_VTX_SNORM8=1` on it) and ps3rsx 0.545~dev for .472 from
 `build/debs/hotpaths3b/ps3rsx-472`, after the 0043 re-test in docs/TESTS.md passed (every switch
 off by default, so the other rows are unaffected), then same boot, interleaved, x3. Pictures: BananaBread's world lighting and water,
-QuakeSpasm's model shading, SuperTuxKart's track and karts all there; MemAvailable (bench.txt's
+QuakeSpasm's model shading, [SuperTuxKart](../gamedb/games/supertuxkart/)'s track and karts all there; MemAvailable (bench.txt's
 `min_memavailable_kb`) for 0041, which holds staging memory until the next submission:
 
     ENVS="- NV30_FENCE_WORK_KICK=1024 NV30_FENCE_WORK_KICK=0" /var/tmp/bench/run.sh bench openarena gl2min 3
@@ -856,7 +856,7 @@ QuakeSpasm's model shading, SuperTuxKart's track and karts all there; MemAvailab
     ENVS="- NV30_QUERY_KICK=0" /var/tmp/bench/run.sh bench bananabread base 3
     ENVS="- NV30_MINMAX_VMX=1" /var/tmp/bench/run.sh bench supertuxkart lean 3
     ENVS="- NV30_VTX_SNORM8=1" /var/tmp/bench/run.sh bench quakespasm base 3
-    # control: nothing to take away in ClassiCube (no SNORM8, no queries, few deferred frees)
+    # control: nothing to take away in [ClassiCube](../gamedb/games/classicube/) (no SNORM8, no queries, few deferred frees)
     ENVS="- NV30_FENCE_WORK_KICK=1024+NV30_QUERY_KICK=2+NV30_VTX_SNORM8=1+NV30_MINMAX_VMX=1" /var/tmp/bench/run.sh bench classicube base 2
     # profiles with the switches (for the CPU shares, not for fps)
     PERF=1 MEM=1 ENVS="NV30_VTX_SNORM8=1+NV30_QUERY_KICK=2" /var/tmp/bench/run.sh bench bananabread base 1
@@ -865,7 +865,7 @@ QuakeSpasm's model shading, SuperTuxKart's track and karts all there; MemAvailab
 
 In the profiles, `generic_run` should be gone from BananaBread (and `nouveau_buffer_transfer_map`
 reads of its world buffers), `nv30_query_end > nouveau_pushbuf_kick` near 0,
-`nouveau_fence_work > nouveau_fence_kick` gone from OpenArena, and `vbo_get_minmax_index_mapped`
+`nouveau_fence_work > nouveau_fence_kick` gone from [OpenArena](../gamedb/games/openarena/), and `vbo_get_minmax_index_mapped`
 down to a fifth or less in SuperTuxKart (`stacks.py chain` reads all four).
 
 ## Fewer draws can cost the GPU more
@@ -904,15 +904,15 @@ converting it each draw (needs write tracking on the buffer; 0043 makes it unnee
 only format the profiles show converted); in ps3rsx, the parts of the submission path
 `shadow_fast` leaves untouched (validate, the push copy, the reservation locks) and a restore of only
 what other channels changed since this one ran (a per-channel stale bitmap, which needs a wider
-proof); immediate mode out of QuakeSpasm's 2D path; ETR's and SuperTuxKart's client vertex arrays
+proof); immediate mode out of [QuakeSpasm](../gamedb/games/quakespasm/)'s 2D path; ETR's and [SuperTuxKart](../gamedb/games/supertuxkart/)'s client vertex arrays
 (VBOs in the games). They are in [backlog/graphics.md](backlog/graphics.md).
 
 ## History
 
 - 2026-10-18 early morning: the profiling batch, its PS3-side text files found broken, the analysis
   moved to the PC; 0033 and 0034 written (Mesa ps3.407).
-- 2026-10-18 06:47 (row 57, commit da8239c): 0033 +53% on BananaBread, made the default in ps3.408.
-  07:43 (row 58, commit 350683b): QuakeSpasm LUT and the fence pool neutral.
+- 2026-10-18 06:47 (row 57, commit da8239c): 0033 +53% on [BananaBread](../gamedb/games/bananabread/), made the default in ps3.408.
+  07:43 (row 58, commit 350683b): [QuakeSpasm](../gamedb/games/quakespasm/) LUT and the fence pool neutral.
 - 2026-10-18 morning: the second round (0035, 0036, cube2 0010, xmoto 0004, `shadow_fast`; Mesa
   ps3.416~dev, ps3rsx 0.250~dev). 14:21 and 14:38 (rows 64-65, commits 31e356a, 0382e3e): the query
   wait's single-run gain not confirmed.

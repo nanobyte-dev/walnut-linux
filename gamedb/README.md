@@ -15,18 +15,25 @@ Outside this folder a game may appear only as:
 - **frozen history** (docs/archive/, git, changelogs);
 - **test fixtures** that use a game as sample data.
 
-**Status (2026-10-26): step 2 is done, the catalog, the game packages, the benchmarks, their results and the build facts live here.** Each game's
-`index.md`, `thumb.png` and played sessions (`rating/sessions/<run>/`) are in `games/<id>/`; the site
-mounts them (website/gamedb/hugo.toml) and the app's catalog is packed from them. Every game package
-is in its bundle's `packages/`, the three engines (cube2, ioquake3, darkplaces-gl2) in `engines/<e>/`,
-the licensed data packages and builders in `games/<id>/licensed/`, the teeworlds and yquake2 upstream
-drafts in `upstream.md`; games with a package or a recipe but no published page have draft bundles.
+**Status (2026-10-26): every migration step through 8 is done; step 9, the split of `bench/` into
+harness, lib, analysis and tests, is the one left.** Each game's `index.md`, `thumb.png` and played
+sessions (`rating/sessions/<run>/`, with their evidence: step 6) are in `games/<id>/`; the site mounts them
+(website/gamedb/hugo.toml) and the app's catalog is packed from them. Every game package is in its
+bundle's `packages/`, the three engines (cube2, ioquake3, darkplaces-gl2) in `engines/<e>/`, the licensed
+data packages and builders in `games/<id>/licensed/`, the teeworlds and yquake2 upstream drafts in
+`upstream.md`; every game the surveys and plans named has a bundle, a draft when it isn't published.
 Every bench recipe, with its assets and helpers, is in its bundle's `benchmark/`. How each game is built
-and installed (its packages, engine, suite, data, licensed data) is its `build.toml`, which the Makefile,
-the catalog and the licensed guards read; each package's orig tarball recipe is its `orig.mk`. Every played session keeps its evidence
-(form, review, every screenshot, the harness's files: step 6), from which its record is derived. Every benchmark result is a record:
-the batches in `benchmarks/batches.toml`, each game's numbers in its `benchmark/results/<batch>.toml` (step 5). The tools below already look here (marked *read now*);
-the rest is marked *planned*, with the migration step that brings it.
+and installed is its `build.toml`, which the Makefile, the catalog and the licensed guards read; each
+package's orig tarball recipe is its `orig.mk`; the integration (launchers, config files, diversions) is
+each bundle's `desktop/`, packed into `ps3-games-integration` (step 3). Every benchmark result is a
+record: the batches in `benchmarks/batches.toml`, each game's numbers in its
+`benchmark/results/<batch>.toml` (step 5). Since step 8 the game-specific parts of the docs live here too:
+each game's and engine's current state in its `technical.md`, the stories behind it in
+`investigations/`, its open work in `todo.toml`; the docs keep the cross-game mechanisms, with generated
+blocks and `gamedb:` references back into the bundles, and `tools/gamedb/game-mentions.py` (in `make
+test`, a warning) lists the sections that name a game without linking it. The site's technical pages
+(step 7) are made from all of this. The tools below look here (marked *read now*); what is still to come
+is marked *planned*.
 
 ## Layout
 
@@ -377,7 +384,11 @@ then the body), and the index `technical/`, a row per published game. A publishe
 technical.md gets its page from the data alone, which says it has no notes yet. A file's first `# `
 heading is its page's title. Relative links are rewritten: to a survey, a published game, its technical
 page or investigation, an engine: that page; any other file of the repository: the public repository
-on GitHub; a draft's bundle, a licensed directory, raw/, a path that doesn't exist: the text only. Every
+on GitHub; a draft's bundle, a licensed directory, raw/, a path that doesn't exist: the text only.
+References become links too: `gamedb:<id>` to the game's technical page (an engine's page),
+`gamedb:<id>/<inv-id>` to the investigation's page with its title as the text, `gamedb:batch/<name>` to
+that batch's table (`#batch-<name>`) on the page's own game's technical page, or on the first published
+game with results in it (the engine's games first); a draft's id stays plain text. Every
 string of technical.json passes the public-safe scan first (tools/gamedb/evidence.py `leftovers`, and the
 patterns of tools/public-replace.local.txt), or the build stops. The app's catalog never holds it
 (pack-catalog.py packs catalog.build() only).
@@ -409,8 +420,8 @@ game patches; docs/upstream/README.md links every draft.
 `engine.md` (*now*: TOML front matter between `+++` lines with `id`, `title`, `homepage`, `license` and
 `games = [...]`, the bundles that run on it; then a short note), `packages/<pkg>/` (*now*: cube2,
 ioquake3, darkplaces-gl2), `build.toml` (*now*: `packages`, `[[licensed]]`), `analysis.toml` (*now*: the
-log rules its games share, [above](#benchmarkanalysistoml)), and *planned* `technical.md`, `investigations/`,
-as for a game. Its page on the site, `engines/<e>/` (*now*): engine.md's note, its technical.md, our packages
+log rules its games share, [above](#benchmarkanalysistoml)), `technical.md`, `investigations/` and
+`todo.toml` (*now*, step 8), as for a game. Its page on the site, `engines/<e>/` (*now*): engine.md's note, its technical.md, our packages
 with their patches, the published games on it; its investigations at `engines/<e>/investigations/<inv-id>/`.
 
 ### benchmarks/batches.toml, benchmarks/metrics.toml, games/<id>/benchmark/results/
@@ -461,7 +472,9 @@ and platform research (EMULATORS, CLASSIC-MACOS, DARLING-PPC) stay in docs/resea
 ## Checks
 
 `make test` runs `tools/licensed.py check`, `github-ci/gen-workflows.py --check`,
-`tools/gamedb/blocks.py --check` and `tools/doclinks.py` (report only, for now). During the
+`tools/gamedb/blocks.py --check`, `tools/doclinks.py` (report only) and `tools/gamedb/game-mentions.py`
+(a warning: the sections of docs/ and README.md that name a game without a link into its bundle;
+`--list` shows them, `--fix` links each one's first mention of the title). During the
 migration, `tools/gamedb/baseline-check.py check` compares a phase's result with the baseline saved
 before it started (build/tmp/gamedb-baseline/), and `tools/gamedb/catalog.py --diff OLD` lists every
 field of the catalog that changed against an older catalog.json (games and tests matched by id).

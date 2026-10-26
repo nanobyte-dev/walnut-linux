@@ -110,7 +110,7 @@ The PC never builds ext4. It only uploads, which reuses `tools/ssdimg/stamp.py`'
 
 1. **Keys.** The **stable key stays offline** on the PC, off any runner. A CI subkey signs `testing` only. The installer pins the fingerprint, and expiry and rotation are planned. `tools/aptly.conf` turns signing on (today `gpgDisableSign: true`).
 2. **The suites:**
-   - **`stable`:** only **promotes the exact tested binaries** from `testing` (an aptly copy or snapshot, no rebuild), with the user's approval (RELEASE-CANDIDATES.md:5).
+   - **`stable`:** only **promotes the exact tested binaries** from `testing` (an aptly copy or snapshot, no rebuild), with the user's approval (archive/RELEASE-CANDIDATES-2026-10-19.md, its first lines).
    - **`testing`:** the newest 5 of each package.
    - **`licensed`:** behind basic auth, set up in the OVH "main-proxy" docker, HTTPS only.
 3. **Debian base and GPL.**

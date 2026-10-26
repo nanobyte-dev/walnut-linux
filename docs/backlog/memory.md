@@ -9,9 +9,9 @@ Items are in rank order; the rank is the one in [the ranked list](README.md). Te
 Effort: S = a day or less, M = days, L = weeks. "PS3" means a run with nobody at the console,
 "user" the user at the console or TV.
 
-Where the heavy games stand (gamedb:batch/2026-10-18-batch16, gamedb:batch/2026-10-18-batch17 and gamedb:batch/2026-10-18-ssd1): BananaBread (Debian's cube2) 117 MB of VRAM
-and 16-24 MB of RAM free at the lowest; OpenArena gl2min 117 MB (97.7 with packed MD3 frames) and
-9-20 MB free; SuperTuxKart `lean` 95-96 MB and 22-27 MB free; Luanti 60-66 MB and 12.6-18 MB free.
+Where the heavy games stand (gamedb:batch/2026-10-18-batch16, gamedb:batch/2026-10-18-batch17 and gamedb:batch/2026-10-18-ssd1): [BananaBread](../../gamedb/games/bananabread/) (Debian's cube2) 117 MB of VRAM
+and 16-24 MB of RAM free at the lowest; [OpenArena](../../gamedb/games/openarena/) gl2min 117 MB (97.7 with packed MD3 frames) and
+9-20 MB free; [SuperTuxKart](../../gamedb/games/supertuxkart/) `lean` 95-96 MB and 22-27 MB free; [Luanti](../../gamedb/games/luanti/) 60-66 MB and 12.6-18 MB free.
 
 ## VRAM
 
@@ -23,9 +23,9 @@ or DXT5 (with alpha), compressed by libspeq on the SPEs.
 **Why.** Most games upload plain RGB(A)8, which the RSX stores at 4 bytes a texel; DXT1 takes an
 eighth of that, DXT5 a quarter. The heavy games are VRAM-bound (above), and every MB of textures is
 a MB the VRAM swap moves to the disk. libspeq compresses RGB sources on 4 SPEs in 1.0 ms per
-1024x1024 against about 175 ms on the PPE (row 59), so the load cost is gone. OpenArena gl2min and
-SuperTuxKart already ask for compression themselves and BananaBread's cube2 compresses from 1024
-up, so `opaque` takes only the rest there; Luanti and ClassiCube upload everything plain and should
+1024x1024 against about 175 ms on the PPE (row 59), so the load cost is gone. [OpenArena](../../gamedb/games/openarena/) gl2min and
+[SuperTuxKart](../../gamedb/games/supertuxkart/) already ask for compression themselves and [BananaBread](../../gamedb/games/bananabread/)'s cube2 compresses from 1024
+up, so `opaque` takes only the rest there; [Luanti](../../gamedb/games/luanti/) and [ClassiCube](../../gamedb/games/classicube/) upload everything plain and should
 show the most.
 
 - **Payoff:** high for the VRAM-bound games: texture VRAM /4 to /8.
@@ -55,7 +55,7 @@ the A/B with the stats line in every arm:
 Read `vram` and `mem_gpu_vram`, `fdxt_raw_mb` against `fdxt_dxt_mb`, `fdxt_skip`,
 `fdxt_unforced`, `fdxt_mipgen_ms`, `load`, `stall_play_s`, `low1`, `mem_swap`. Add `SPEQ_DEBUG=1`
 in one run: no game has exercised libspeq's RGB path yet (BananaBread's demo uploads none), and
-Teeworlds' DXT5 has never shown a `SPEQ` line.
+[Teeworlds](../../gamedb/games/teeworlds/)' DXT5 has never shown a `SPEQ` line.
 
 ### VRAM budget in game mode
 
@@ -65,7 +65,7 @@ caps.
 **Why.** The VRAM swap may hold up to 96 MB (`vswap_vram_mb`) of the ~245 MB of VRAM. A buffer that
 finds no VRAM first makes the swap hand chunks back (`ps3rsx_vswap_shrink`), and those pages go to
 the disk; only if that fails does the buffer land in GART (system RAM). So a heavy game's VRAM
-costs disk swap traffic first. Which of the two OpenArena opengl2 (117 MB of VRAM) and SuperTuxKart
+costs disk swap traffic first. Which of the two [OpenArena](../../gamedb/games/openarena/) opengl2 (117 MB of VRAM) and [SuperTuxKart](../../gamedb/games/supertuxkart/)
 (96 MB, "out of VRAM" lines remain) hit has never been measured. The user's decision of 2026-10-17:
 a measurement first, then the reserve.
 
@@ -162,9 +162,9 @@ the reference of the mesa-tests.
 
 Rank 43. Half floats or 16-bit vertex attributes, which nv30 fetches natively.
 
-**Why.** Vertex buffers halve. Part of this is done where it removed per-draw conversions: ioquake3
+**Why.** Vertex buffers halve. Part of this is done where it removed per-draw conversions: [ioquake3](../../gamedb/engines/ioquake3/)
 0027 (SNORM colours, the default) and 0029 (packed MD3 frames, 62.2 -> 37.5 MB of VRAM on the
-host, -20 MB in batch 17) and cube2 0011 (world normals as shorts). Left in BananaBread: the grass
+host, -20 MB in batch 17) and cube2 0011 (world normals as shorts). Left in [BananaBread](../../gamedb/games/bananabread/): the grass
 (`grassvert.bounds`, GL_BYTE in a GART stream buffer: a per-draw conversion but no copy) and the
 edit-mode prefab preview; elsewhere, float vertex data in any engine.
 
@@ -177,8 +177,8 @@ edit-mode prefab preview; elsewhere, float vertex data in any engine.
 Rank 44. Mesa drops a program's compiled IR after linking and rebuilds it from the disk cache when
 needed.
 
-**Why.** Estimated at tens of MB for OpenArena opengl2 when it kept ~100-115 GLSL programs with their
-source and IR; ioquake3 0001 already frees the shader objects after link, so what Mesa itself still
+**Why.** Estimated at tens of MB for [OpenArena](../../gamedb/games/openarena/) opengl2 when it kept ~100-115 GLSL programs with their
+source and IR; [ioquake3](../../gamedb/engines/ioquake3/) 0001 already frees the shader objects after link, so what Mesa itself still
 keeps is unknown.
 
 - **Payoff:** low-medium now. **Effort:** M. **Risk:** medium (variant recompiles at draw time
@@ -216,7 +216,7 @@ is the 720p console above.
 - The cuts inside one game or engine are in its GameDB backlog (`gamedb/games/<id>/todo.toml`,
   [the list](games.md#every-games-open-items)): OpenArena's hunk trim, renderergl2's `r_keepImages`
   and `MALLOC=trim` (rank 20), ioquake3's ADPCM sound effects and `s_khz 11` (rank 38, in
-  `gamedb/engines/ioquake3/todo.toml`), Luanti's memory (rank 19), BananaBread's `texreduce` (rank 42).
+  `gamedb/engines/ioquake3/todo.toml`), [Luanti](../../gamedb/games/luanti/)'s memory (rank 19), [BananaBread](../../gamedb/games/bananabread/)'s `texreduce` (rank 42).
 - 64 KB IO pages for finer GART allocations are [graphics.md, "Driver limits not pushed yet"](graphics.md#driver-limits-not-pushed-yet).
 
 Older versions and the dated history: [archive/MEMORY.md](../archive/MEMORY.md),

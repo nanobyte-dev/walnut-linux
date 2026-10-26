@@ -47,13 +47,17 @@ by hand clears it). A pad with fewer buttons gets the game's older default. Hot-
   frame rate; the HUD's 19-22 is ([the investigation](investigations/2026-10-19-two-frame-rates.md)).
 - **The load** is the suite's longest: 54.3 s on the USB root, 31.1 s on the SSD root, where the main
   thread's 23.8 s of CPU is 53% decoders (png 4.2, zlib 3.9, audio 2.2, jpeg 2.1 s)
-  ([PROFILING.md](../../../docs/PROFILING.md#start-up-profiles-on-the-ssd-root-batch-ssdroot2)). Our libpng16
+  ([PROFILING.md](../../../docs/PROFILING.md#start-up-profiles-on-the-ssd-root-batch-ssdroot2)); all threads
+  (gamedb:batch/2026-10-19-ssdroot2-startup-profiles): the game 5.35 s, png 4.2, zlib 3.9, audio 2.2, jpeg
+  2.1, Mesa 1.3, linking 0.9. It is the one game where decoders matter: twice as fast, the main thread
+  would lose 2.7 s of the game's load path, 2.1 of png, 2.0 of zlib, 1.1 each of audio and jpeg. Our libpng16
   +ps3.560 took the png part from 4.0 to 1.6 s and the load from 30.3 to 27.6 s
   (gamedb:batch/2026-10-19-ssdroot6-libpng); our libvorbis -0.7 s, zlib-ng -0.9 s, and libjpeg-turbo's
   AltiVec path is in use (`JSIMD=none` +1 s) (gamedb:batch/2026-10-19-ssdroot5-load-libraries).
-- **Gameplay CPU** (gamedb:batch/2026-10-19-ssdroot2-gameplay-profiles): the game 36.5% (the main thread:
-  Irrlicht's driver, Bullet), Mesa 35.5%, libc 15.1%, the kernel 5.1%, ps3rsx 2.6%, ALSA and OpenAL about
-  3% ([HOTPATHS.md](../../../docs/HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b)).
+- **Gameplay CPU** (gamedb:batch/2026-10-19-ssdroot2-gameplay-profiles, 20 fps profiled): the game 36.5%
+  (the main thread: Irrlicht's driver and Bullet by the symbolised profile of 10-18; `__dynamic_cast`
+  0.8%), Mesa 35.5%, libc 15.1% (unsymbolised but for `__memcmpeq` 0.7, `cfree` 0.7, `malloc` 0.5), the
+  kernel 5.1%, ps3rsx 2.6%, the audio thread 3.3% with the "buffer size too low" warnings ([HOTPATHS.md](../../../docs/HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b)).
 - **Played** (rules 2.0): on Mesa ps3.827 a crash on Ravenbridge Mansion after GART ran out, with garbage
   textures from dropped uploads before it; Mesa 0049 (ps3.850) fixed both, and the next session played
   five tracks with a restart, textures and kart shadows as on the PC
@@ -88,7 +92,8 @@ so the runs of 2026-10-17 and 10-18 logged `sound=none`.
 
 | Change | Result | Verdict |
 |---|---|---|
-| Mesa 0038 `NV30_FORCE_DXT=opaque` on `lean` | forced 0 textures (182 kept for alpha, 173 for their format, 22 small, 6 non-power-of-two: the game's own compression already takes its opaque ones), fps and stalls equal (gamedb:batch/2026-10-19-ssdroot2-force-dxt) | nothing to gain; `=all` not run |
+| Mesa 0038 `NV30_FORCE_DXT=opaque` on `lean` | forced 0 textures (182 kept for alpha, 173 for their format, 22 small, 6 non-power-of-two: the game's own compression already takes its opaque ones), fps and stalls equal (gamedb:batch/2026-10-19-ssdroot2-force-dxt) | nothing to gain |
+| Mesa 0038 `NV30_FORCE_DXT=all` on `lean` | its alpha textures as DXT5: peak VRAM 95.5 to 58.1 MiB (-39%), fps, 1% low, stalls, CPU and load the same, no blocks or banding on the webcam (gamedb:batch/2026-10-20-ssdroot8-force-dxt) | a VRAM win if it goes into game mode short of VRAM; not set until the user has seen the picture at the TV (todo.toml) |
 | Mesa 0044 `NV30_MINMAX_VMX=1` | +10% (22 against 20), stalls 0.6 against 1.2 s (gamedb:batch/2026-10-20-ssdroot9-minmax-vmx); +5% in gamedb:batch/2026-10-19-ssdroot7-minmax-vmx | a gain, candidate default |
 | our openal-soft, Debian's, and `OAL=f32` | wedged 2, 3 and 0 of 5 runs: the wedge is the sound card, not OpenAL (gamedb:batch/2026-10-20-ssdroot10-openal-wedge) | the kernel fix instead |
 | game prefetch | the USB load unchanged (gamedb:batch/2026-10-18-batch16) | off |

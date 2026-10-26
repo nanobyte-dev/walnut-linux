@@ -43,10 +43,23 @@ Picture and sound are right in both renderers. opengl2 holds an Rss of 79-104 MB
   the map and players again (131 MB) because memory pressure evicted them. With the whole root on the
   SSD it takes 6.9 s by the game's number and 14.2 s to the end of the loading screens, the disk wait
   2.5 s against 6.3 s ([PROFILING.md](../../../docs/PROFILING.md#start-up-profiles-on-the-ssd-root-batch-ssdroot2)).
-  Gameplay was already clean on USB, so the SSD root changed the reloads, not the frame rate.
-- **Where the CPU goes** in play (gamedb:batch/2026-10-19-ssdroot2-gameplay-profiles): Mesa 23.1%, the
-  game's renderer 24.1%, OpenAL 12.4%, kernel 14.2%, libdeflate 3.9%, ps3rsx 5.7%
-  ([HOTPATHS.md](../../../docs/HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b)).
+  Gameplay was already clean on USB, so the SSD root changed the reloads, not the frame rate. Its CPU in
+  the load, all threads (gamedb:batch/2026-10-19-ssdroot2-startup-profiles): the game 3.9 s (the shader
+  scripts, mipmaps and pk3 scans; in batch 17's profile files 1.95, game 1.91, mipmap 1.34), Mesa 0.55,
+  linking 0.5, jpeg 0.29, DXT 0.27; 10.4 s in all. The lever is the game's own load path (2.0 s of the
+  main thread if it were twice as fast).
+- **Where the CPU goes** in play (gamedb:batch/2026-10-19-ssdroot2-gameplay-profiles, gl2min, 44 fps
+  profiled): the renderer `renderer_opengl2.so` 24.1%, Mesa 23.1%, the kernel 14.2%, OpenAL 12.4% (the
+  game mixes its sounds in OpenAL Soft's mixer on the PPE), libc 8.6%, ps3rsx 5.7%, libdeflate 3.9% (the
+  demo's map reloads) ([HOTPATHS.md](../../../docs/HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b)).
+- **Memory** (opengl1, [MEMORY.md](../../../docs/MEMORY.md)'s `MEM=1` batch of 2026-10-18, Mesa ps3.299):
+  malloc used 21.4 / 33.5 / 20.8 MB at the window's start, middle and end, a 12 MB transient around the
+  middle whose pages are kept (free 15.9 / 3.8 / 16.5 MB); 13.9 MB of heap went to swap while 15.9 MB sat
+  free in its arenas. The hunk holds 30.7 MB (low permanent 16.1, high 14.7; temp high-waters 17.7 and
+  15.7), so 2.7 MB of pages touched by loading are never used again ("unused highwater" in its own
+  meminfo, in game.log). The hunk (128 MB) and the zone (48 MB) are one 176 MB mapping with 34.6 MB
+  resident; the rest is never touched and costs nothing. Giving back the unused high-water after a map
+  load (`com_hunkTrim`, 2.7 MB) is in the game's todo.
 - **What used to stall.** In opengl1 the map reload at each pass and bots joining mid-match: 0025 and
   0026 took gameplay stalls from 9-10 s to 0. Many of the remaining "random" stalls were the kernel's
   lost decrementer, gone with the kernel fix

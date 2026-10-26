@@ -25,7 +25,7 @@ recipe ([benchmark/recipe.sh](benchmark/recipe.sh)) is for sessions only, no ben
 
 ## Known problems
 
-- Until our package is on the console: the crash within half a minute.
+- Debian's build crashes within half a minute; our fixed package (ps3.872) waits for its PS3 check.
 - Esc on the welcome screen quits the game outright (upstream behaviour, unchanged).
 
 What the next session checks (docs/TESTS.md, batch mrboom-be): the welcome screen's text and the attract

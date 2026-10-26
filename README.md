@@ -26,7 +26,7 @@ Walnut provides a lightweight desktop environment tailored to the console's 256 
 
 - **Kernel**: Linux 6.12 LTS with the OtherOS++ patch set for the PS3 (see [Credits](#credits)), upstream fixes, and our own changes (a swap tier in video memory, the internal-disk write guard, fan and thermal handling).
 - **3D Graphics**: Hardware acceleration on the RSX GPU through the `ps3rsx` DRM driver and Mesa Gallium nv30 (OpenGL 2.1).
-- **SPEs**: libspeq, resident workers on the Cell's SPEs: Mesa's DXT1/DXT5 texture compression (every GL game), fluidsynth's voice DSP (MIDI music), and an optional skinning path for BananaBread. Programs load it at run time, so they also run without it, on the PPE ([docs/SPU.md](docs/SPU.md)).
+- **SPEs**: libspeq, resident workers on the Cell's SPEs: Mesa's DXT1/DXT5 texture compression (every GL game), fluidsynth's voice DSP (MIDI music), and an optional skinning path for [BananaBread](gamedb/games/bananabread/). Programs load it at run time, so they also run without it, on the PPE ([docs/SPU.md](docs/SPU.md)).
 - **Desktop**: Fast, lightweight X11 desktop (Openbox, tint2, PCManFM, jgmenu) configured to stay within 256 MB RAM.
 - **Game Mode**: Automatic detection of fullscreen 3D applications; unloads desktop components and frees memory during gameplay, restoring them automatically on exit.
 - **Sound**: ALSA, and OpenAL Soft on the PPE with AltiVec; MIDI music through fluidsynth, whose voice DSP runs on the SPEs ([docs/SPU-AUDIO.md](docs/SPU-AUDIO.md)).

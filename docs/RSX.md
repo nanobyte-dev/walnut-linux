@@ -100,8 +100,8 @@ A graph exception is reported through ps3fb's interrupt (for channel 1 as well).
 
 | Cause | Trigger |
 |---|---|
-| 0x105 | an M2MF transfer in a fresh context whose notifier DMA was never set; also a 3D texture sampled at an offset that is not 128-byte aligned (+0xaa0, from Mesa's blit reading back a 2x2 mip level for Neverball, 2026-10-17) |
-| 0x106 | rendering to a swizzled surface 1 pixel wide (RT_FORMAT type swizzled, log2 width 0); also a draw from a vertex format of type 7 (U8_USCALED, libgcm's UB256) with 3 components (0x1740+ with `data & 0xff == 0x37`), Mesa 0043 on BananaBread, 2026-10-19 |
+| 0x105 | an M2MF transfer in a fresh context whose notifier DMA was never set; also a 3D texture sampled at an offset that is not 128-byte aligned (+0xaa0, from Mesa's blit reading back a 2x2 mip level for [Neverball](../gamedb/games/neverball/), 2026-10-17) |
+| 0x106 | rendering to a swizzled surface 1 pixel wide (RT_FORMAT type swizzled, log2 width 0); also a draw from a vertex format of type 7 (U8_USCALED, libgcm's UB256) with 3 components (0x1740+ with `data & 0xff == 0x37`), Mesa 0043 on [BananaBread](../gamedb/games/bananabread/), 2026-10-19 |
 | 0x109 | M2MF methods sent to the surface-2D object |
 | (graph exception, no cause noted) | vertex format type 0 (0x1740+ with `data & 0xf == 0`) |
 
@@ -145,7 +145,7 @@ Getting stock Mesa nv30 to run turned up these facts. The fixes are patches in o
 - The scanout format: the RSX renders and scans out A8R8G8B8 words, bytes A, R, G, B in memory. A big-endian X server asks gbm for ARGB8888 meaning exactly that, so on big-endian the DRM 8888 fourccs are taken as host-order words (0009).
 - nv30 exports the fragment colour from the fp16 register H0. FP_CONTROL bit 6 (libgcm's "32-bit exports") takes it from R0 instead. That works on the RSX and rounds like an fp32 pipeline (0008). What remains against softpipe is attribute interpolation: the cutover between rounding down and up wanders over about 0.50 to 0.57 of an 8-bit step.
 - **The fragment program's TXB (opcode 0x31, the bias in .w) samples wrong whatever the bias.** Warzone 2100's 3D shaders sample through texture2D(s, uv, bias) ([dark-3d-view](../gamedb/games/warzone2100/investigations/2026-10-20-dark-3d-view.md)). Drawn in stripes on 2026-10-20, the same lookups were right as TEX and dark and flat as TXB, with bias 0 and with bias -20 alike. Mesa now emits TXB as TEX (0045; `NV30_TXB_HW=1` keeps the old code for tests). An exact bias would need another route (TXD with scaled derivatives, untried); the switch is there for that.
-- The RSX fetches big-endian vertex and index buffers itself (0005), so vertex data is not pushed inline vertex by vertex. That change took ClassiCube from 6.5 fps to 60 fps (vsync-capped) at 1080p; the patch notes give 79 fps uncapped.
+- The RSX fetches big-endian vertex and index buffers itself (0005), so vertex data is not pushed inline vertex by vertex. That change took [ClassiCube](../gamedb/games/classicube/) from 6.5 fps to 60 fps (vsync-capped) at 1080p; the patch notes give 79 fps uncapped.
 
 KMS: `lv1_gpu_display_flip` from our context shows any VRAM offset, including above 224 MB (tested at 0xe100000). The CPU's writes through a VRAM mmap are seen by the GPU as written. The flip latches at the display's vsync, and the driver sends flip events from the vsync interrupt (E7); `vblank_irq=0` brings back an earlier frame-rate timer that drifted against the real vsync. kmscube runs at 60 fps at 1920x1080.
 
@@ -157,7 +157,7 @@ Sharing with ps3fb's consoles: the display shows whichever offset was flipped la
 
 `glxinfo -l` on the desktop is kept in `glxinfo-nv47.txt` in this directory (extensions and limits). We get OpenGL 2.1 and GLSL 1.20.
 
-Absent, with what that costs games (per game in [games/README.md](games/README.md)): ARB_texture_rg (dsda-doom's GL mode, OpenTTD's GL mode), ARB_shader_texture_lod, EXT/ARB_vertex_array_bgra, ARB_framebuffer_object (renderergl2's FBO features) and ARB_texture_float. Present: EXT_framebuffer_object, ARB_point_parameters and point sprites, NPOT textures, SGIS_generate_mipmap, EXT_texture3D, ARB_vertex_array_object and S3TC.
+Absent, with what that costs games (per game in [games/README.md](games/README.md)): ARB_texture_rg ([dsda-doom](../gamedb/games/dsda-doom/)'s GL mode, [OpenTTD](../gamedb/games/openttd/)'s GL mode), ARB_shader_texture_lod, EXT/ARB_vertex_array_bgra, ARB_framebuffer_object (renderergl2's FBO features) and ARB_texture_float. Present: EXT_framebuffer_object, ARB_point_parameters and point sprites, NPOT textures, SGIS_generate_mipmap, EXT_texture3D, ARB_vertex_array_object and S3TC.
 
 Measured with `packages/walnut/tools/ps3-gpu-tools/mesa-tests` on 2026-10-17:
 
@@ -168,6 +168,6 @@ Measured with `packages/walnut/tools/ps3-gpu-tools/mesa-tests` on 2026-10-17:
 ## Submission and fetch (2026-10-17, Mesa ps3.262 to ps3.299)
 
 - Without relocations (Mesa 0019) nothing forced a submission mid-frame, so a frame reached the GPU in one piece at SwapBuffers and the GPU idled while the CPU built it. Armagetron dropped from 60 to 50 fps at the same CPU time. Submitting every 100 draws, or (0027) at a draw start once the GPU has passed the last fence and enough is queued, gave the overlap back (61.5 fps).
-- The RSX fetches fragment programs from GART (Mesa 0031: constant changes run from a GART copy). OpenArena opengl2 draws the right picture with no exception.
+- The RSX fetches fragment programs from GART (Mesa 0031: constant changes run from a GART copy). [OpenArena](../gamedb/games/openarena/) opengl2 draws the right picture with no exception.
 
 Older versions and the dated history: [archive/RSX.md](archive/RSX.md).

@@ -94,7 +94,7 @@ The DRM name is "nouveau", version 1.3.1 (exactly Mesa's minimum), with `DRIVER_
 - **Per submit:** look up the BOs, copy and validate the pushes, apply relocations to the copy if `presumed` is ever invalid (offsets never move, so it should not be), then append `SET_REFERENCE seq` and write PUT.
 - **Wrap:** a JMP only between submits (a submit is at most 512 KB and the ring 2 MB), so no mid-push decoding is needed. Ring space is counted from ref.
 - The ioctl returns `suffix0 = suffix1 = 0` (no RETURN needed) and `vram_available`/`gart_available`, and honours `NOUVEAU_GEM_PUSHBUF_SYNC`. The first `nr_push=0` call must succeed.
-- **Fences:** a `dma_fence` per submit, attached to the BOs it references but not to BOs that are only push sources (Mesa maps those at every buffer switch). An hrtimer polls ref (HZ=250, PREEMPT_NONE), and it runs fast only while someone waits (this took timer interrupts from 4000 to 1540 a second and fixed ClassiCube stutters). `CPU_PREP` polls ref directly while waiting. Expect heavy churn of 4 KB GART BOs from Mesa's per-fence BO.
+- **Fences:** a `dma_fence` per submit, attached to the BOs it references but not to BOs that are only push sources (Mesa maps those at every buffer switch). An hrtimer polls ref (HZ=250, PREEMPT_NONE), and it runs fast only while someone waits (this took timer interrupts from 4000 to 1540 a second and fixed [ClassiCube](../gamedb/games/classicube/) stutters). `CPU_PREP` polls ref directly while waiting. Expect heavy churn of 4 KB GART BOs from Mesa's per-fence BO.
 - **Wedge detection:** an exception IRQ, or no ref progress for 2 s with work pending. On a wedge the driver dumps the exception block to netconsole, returns -EIO, and errors all fences.
 - **Module parameters:** `trace=1` dumps each submit to the kernel log (small tests only), `dry_run=1` validates but sends nothing, `ctxsw` (default on) switches the software context.
 
@@ -133,7 +133,7 @@ A `drm_simple_display_pipe` with a virtual connector and the single current mode
 
 - BGRX8888 matches the RSX's X,R,G,B memory order on big-endian, and `quirk_addfb_prefer_host_byte_order` is set. XRGB8888 is also accepted (for kmscube, whose colours then come out off).
 - `addfb` rejects any pitch other than ps3fb's `ddr_line_length`. A scanout buffer may sit anywhere in VRAM, including above 224 MB (flips there work).
-- Flips go to both heads, as ps3fb's do, with `lv1_gpu_display_flip` from our context, at `full_offset`-relative addresses. Vblank comes from our context's vsync interrupt (E7), head A like ps3fb; `vblank_irq=0` brings back a frame-rate timer, which drifted against the real vsync and sent flip events before the flip had latched (clients drew into the buffer still being scanned out). Flip events wait for the flip to latch, which ended the half-redrawn frames seen in ClassiCube.
+- Flips go to both heads, as ps3fb's do, with `lv1_gpu_display_flip` from our context, at `full_offset`-relative addresses. Vblank comes from our context's vsync interrupt (E7), head A like ps3fb; `vblank_irq=0` brings back a frame-rate timer, which drifted against the real vsync and sent flip events before the flip had latched (clients drew into the buffer still being scanned out). Flip events wait for the flip to latch, which ended the half-redrawn frames seen in [ClassiCube](../gamedb/games/classicube/).
 - On unload the driver flips back to ps3fb's frame 0 and releases the GPU, so fbcon returns.
 - DPMS off blanks with a ps3av video mute (like ps3fb's blanking) instead of showing ps3fb's console, and the hardware cursor comes back with the display (f30b505). The video unmute is always sent, and a reflip with an active CRTC unmutes it: before a1f1b91 and 8baa747 (ps3rsx 0.219), every X after the first started black because the cached mute flag was stale.
 - PRIME uses the stock GEM helpers.
@@ -150,7 +150,7 @@ The PS3 has 256 MB of RAM and 256 MB of VRAM, and X plus a game use well under h
 
 `kcopy.c` is the kernel-submitted M2MF copy between client submits. It never waits for anything a submitter might hold while it reclaims memory (a submitter allocates under `exec_lock`), so every lock in it is a trylock and every failure means "use the PPE". The GPU must already be ours (`own_lock`, `gpu_owned`, no console handover pending), with no primitive open on any channel, context switching on and not a dry run. The copy uses Mesa's M2MF object on subchannel 6 (Mesa uses 2 to 5 and 7), records every word in the hardware shadow and makes the next client submit restore its own state, so no client ever sees our M2MF settings. There is no `dma_fence`: a bare `SET_REFERENCE`, polled. Requests run on the driver's own work queue with a fresh stack, because blk-mq can run `queue_rq` inline from a plug flush in direct reclaim, which was already deep (an IRQ found under 4 KB of stack left).
 
-Measured (task #13): a working set that fits the VRAM tier swaps in about 10 times faster (passes of 0.2 to 1.2 s against 4.4 to 17.7 s); the GL suite passed three times in a row while about 92,000 kernel copies interleaved with its clients; zero fallbacks. OpenArena did not improve, because its threads no longer block on swap-ins; what remains is file I/O on the USB disk ([STALLS.md](STALLS.md)).
+Measured (task #13): a working set that fits the VRAM tier swaps in about 10 times faster (passes of 0.2 to 1.2 s against 4.4 to 17.7 s); the GL suite passed three times in a row while about 92,000 kernel copies interleaved with its clients; zero fallbacks. [OpenArena](../gamedb/games/openarena/) did not improve, because its threads no longer block on swap-ins; what remains is file I/O on the USB disk ([STALLS.md](STALLS.md)).
 
 ## The Mesa side
 
@@ -221,7 +221,7 @@ Phase 6 needed glamor, which requires GL 2.1, `GL_ARB_texture_border_clamp` and 
 
 - ps3rsx 0.219 (a1f1b91, 8baa747): the video unmute fixes above.
 - ps3rsx 0.249 (9e2a3b9, 8e99b76): the validator fast path, shadow per burst with dirty bitmaps, the texture-offset check.
-- `shadow_fast` (0.250, f8f1608): built and fuzzed, default off; run on the PS3 in batch ssdroot2 (ClassiCube, BananaBread, X-Moto, x2): no gain resolved.
+- `shadow_fast` (0.250, f8f1608): built and fuzzed, default off; run on the PS3 in batch ssdroot2 ([ClassiCube](../gamedb/games/classicube/), [BananaBread](../gamedb/games/bananabread/), [X-Moto](../gamedb/games/xmoto/), x2): no gain resolved.
 - The dynamic GART from CMA, the VRAM swap's GPU copies (`kcopy.c`), the vsync interrupt for vblank, and the fence timer that polls fast only while someone waits.
 - Done around the driver and recorded in [PLAN.md](PLAN.md): GPU vertex fetch (ClassiCube 6.5 to 60 fps), Mesa fixes (fog, banded uploads, staging limits), game mode and the VRAM swap.
 

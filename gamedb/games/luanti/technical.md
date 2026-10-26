@@ -43,9 +43,15 @@ meshed: that stutter is the real problem, more than the frame rate.
   9.8 s to 3.4 s, and what is left is the map generation (the 15 s hold, Emerge-0's 8.6 s of CPU, the
   main thread's 15.4 s of CPU and 2.8 s waiting for the GPU). The window's stalls did not improve on the
   SSD root (direct reclaim 1.6 s against 0.4 s): the cost is CPU and reclaim, not the disk
-  ([PROFILING.md](../../../docs/PROFILING.md#start-up-profiles-on-the-ssd-root-batch-ssdroot2)).
-- **Gameplay CPU**: the game 47.2% of the samples (the MeshUpdate thread alone 20.7% of all, Emerge-0
-  6.6%), Mesa 14.6%, libc 13.7%, kernel 13.6%, zstd 1.2%; no single driver path stands out
+  ([PROFILING.md](../../../docs/PROFILING.md#start-up-profiles-on-the-ssd-root-batch-ssdroot2)). Its CPU in
+  the load, all threads (gamedb:batch/2026-10-19-ssdroot2-startup-profiles): the game 12.8 s (1.9 on the
+  main thread; Emerge-0's map generation 8.6, MeshUpdate 2.9, Server 2.6), Mesa 2.2, Lua 1.0, linking 0.7,
+  the C++ runtime 0.5, zstd 0.4, fonts 0.3; 28.9 s of CPU in a 26 s load, so the 15 s hold and the map
+  generation decide it. Twice as fast, Mesa would take 1.1 s and the game 1.0 s off the main thread.
+- **Gameplay CPU** (gamedb:batch/2026-10-19-ssdroot2-gameplay-profiles, 46 fps profiled): the game 47.2%
+  of the samples, spread over threads (MeshUpdate 20.7% of all, the main thread 14.1% game code plus 13.3%
+  Mesa, Emerge-0 6.6%), Mesa 14.6% in all, libc 13.7% (9.5% unsymbolised), kernel 13.6%, zstd 1.2%; no
+  single driver path stands out
   ([HOTPATHS.md](../../../docs/HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b)).
 - **Memory** ([MEMORY.md](../../../docs/MEMORY.md)): 102 MB Rss plus 47.1 MB swapped (28.5 MB of it heap),
   malloc 96.8 MB used and 22.9 MB free across 14 arenas (glibc gives each thread that mallocs under

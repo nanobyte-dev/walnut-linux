@@ -132,7 +132,7 @@ Taken on kernel 6.12.111+ps3.4xx~dev, compile-tested at the time. Each item says
 4. **0090 dropped.** It passed arbitrary vendor SCSI commands to the BD drive (root only). A grep of the repo found no user. `PS3_ROM` itself stays (`PS3_ROM=y`).
 5. Internal Wi-Fi: see 1.
 6. **T2's ps3fb-in-VRAM (0666): not taken.** It would give up to 8.5 MB of XDR back (the console shadow), but costs 23 MB more VRAM, which is scarce (VRAM doubles as swap, see [KERNEL-MEMORY.md](KERNEL-MEMORY.md)), and it conflicts with how ps3rsx shares ps3fb's command area. A reworked version that keeps 9 MB of VRAM is a design job, not a port. Instead `local/0043` frees 8 of the 9 MB of XDR only while ps3rsx owns the GPU, with no VRAM change (switch `ps3fb.shadow_release`, off until measured; [KERNEL-MEMORY.md](KERNEL-MEMORY.md)).
-7. **`vm.watermark_boost_factor=0`** (T2, Gentoo): a sysctl in ps3-system's `60-ps3-memory.conf`, no kernel change. Measured 2026-10-18 on Luanti with the kicker on (15000/0/15000/0): gameplay stalls 12.5 / 0.8 / 2.0 / 2.1 s, the first run an outlier. No clear gain, so it is not shipped (results row "smoke re-runs ... vm.watermark_boost_factor A/B"; protocol in [STALLS.md](STALLS.md)).
+7. **`vm.watermark_boost_factor=0`** (T2, Gentoo): a sysctl in ps3-system's `60-ps3-memory.conf`, no kernel change. Measured 2026-10-18 on [Luanti](../gamedb/games/luanti/) with the kicker on (15000/0/15000/0): gameplay stalls 12.5 / 0.8 / 2.0 / 2.1 s, the first run an outlier. No clear gain, so it is not shipped (results row "smoke re-runs ... vm.watermark_boost_factor A/B"; protocol in [STALLS.md](STALLS.md)).
 
 ## Left open
 

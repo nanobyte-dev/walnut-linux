@@ -2,7 +2,7 @@
 
 This is a dated record. On 2026-10-16 we built a fresh root filesystem image from the current packages and compared it with the root the PS3 runs from its USB disk, to see what a reimage would lose or drop. Nothing was reimaged and the PS3 was only read.
 
-The two package fixes it found were made, and both are in the release image of 2026-10-18 (2.9 GiB, sha256 `65dae499...`, see [RELEASE-CANDIDATES.md](RELEASE-CANDIDATES.md#the-image)). What a reimage would still lose is the live system's own state: old kernels, hand edits and a few files under "Elsewhere" and "Home" below. The image session on the PS3 has not run yet.
+The two package fixes it found were made, and both are in the release image of 2026-10-18 (2.9 GiB, sha256 `65dae499...`, see [archive/RELEASE-CANDIDATES-2026-10-19.md](archive/RELEASE-CANDIDATES-2026-10-19.md#the-image)). What a reimage would still lose is the live system's own state: old kernels, hand edits and a few files under "Elsewhere" and "Home" below. The image session on the PS3 has not run yet.
 
 Key for the Action column: **a** = goes into a package or the image, **b** = dropped at reimage, **c** = the user keeps it.
 

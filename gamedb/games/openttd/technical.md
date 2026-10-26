@@ -58,7 +58,12 @@ the wall clock, the work per frame is the same. fps from the Gallium HUD (60 s w
   34 fps; effects off (`FLUIDFX=off`) 40 (gamedb:batch/2026-10-19-ssdroot5-fluidsynth).
 - The title screen (the benchmark until 2026-10-18, a lighter scene): `gl` 21 steady with 6.3 s of stalls
   (gamedb:batch/2026-10-18-batch8); software with SDL3's accelerated framebuffer 9.5, 12 with 8bpp
-  (gamedb:batch/2026-10-17-ps3rsx-249-first-boot).
+  (gamedb:batch/2026-10-17-ps3rsx-249-first-boot). Its CPU profile (gamedb:batch/2026-10-19-ssdroot2-gameplay-profiles,
+  18 fps, before Mesa 0040; a menu, not a measure of play) was half kernel, 49.5%, nearly all of it the new
+  8 MB staging buffer per frame for the screen upload: hash page faults on it 27.1% and its unmapping 8.4%
+  (both booked as `__replay_soft_interrupts`), its zeroing (`memset` under `ps3rsx_gart_clear`) 5.3%; then
+  FluidSynth 10.2% and libspeq 4.2% on the audio thread and `Blitter_40bppAnim::Draw` 8.5%
+  ([HOTPATHS.md](../../../docs/HOTPATHS.md#soft-masked-time-and-the-staging-buffer-per-frame)).
 
 ## Known problems
 

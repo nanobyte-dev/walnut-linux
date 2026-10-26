@@ -1,14 +1,14 @@
 # Backlog: the SPEs
 
 SPU work not done yet. What runs on the SPEs today (libspeq's DXT1/DXT5 encoders, fluidsynth's voice
-DSP on the shared 2-SPE deadline pool, BananaBread's optional skinning) is in [SPU.md](../SPU.md)
+DSP on the shared 2-SPE deadline pool, [BananaBread](../../gamedb/games/bananabread/)'s optional skinning) is in [SPU.md](../SPU.md)
 and [SPU-AUDIO.md](../SPU-AUDIO.md). What is left: a 7th SPE, the audio libraries, and the work that
 waits on probe E16. Items are in rank order; the rank is the one in [the ranked list](README.md).
 Terms: [glossary](../README.md#glossary).
 
 Two items are one game's each and live in its GameDB backlog (`gamedb/games/<id>/todo.toml`): why
-dsda-doom's music still chops with fluidsynth's voices on the SPEs (rank 10; OpenTTD's MIDI shares the
-path, decision D3 waits on it), and SPU meshing for Luanti and for ClassiCube (rank 49; it needs E16).
+[dsda-doom](../../gamedb/games/dsda-doom/)'s music still chops with fluidsynth's voices on the SPEs (rank 10; [OpenTTD](../../gamedb/games/openttd/)'s MIDI shares the
+path, decision D3 waits on it), and SPU meshing for [Luanti](../../gamedb/games/luanti/) and for [ClassiCube](../../gamedb/games/classicube/) (rank 49; it needs E16).
 
 Effort: S = a day or less, M = days, L = weeks.
 
@@ -42,10 +42,10 @@ choices that change the sound (`OAL=lin`, `OAL=f44`, `FLUIDFX=...`).
 **Why.** Audio is 11.9% of a game's CPU on average in the SSD-root profiles (5 of 7 games). The
 PPE pays about 40 cycles for every int/float conversion (a load-hit-store); under qemu with a
 counter for them, they were half of OpenAL's mixer, a third of a Vorbis decode, and the reverb's
-divides 40% of OpenTTD's reverb ([SPU-AUDIO.md](../SPU-AUDIO.md#openal-soft-on-the-ppe-conversions-and-output-format)).
+divides 40% of [OpenTTD](../../gamedb/games/openttd/)'s reverb ([SPU-AUDIO.md](../SPU-AUDIO.md#openal-soft-on-the-ppe-conversions-and-output-format)).
 
-- **Payoff:** low to medium: OpenArena 3-5% of its CPU, ClassiCube 2-3% plus ALSA's 1.9% float
-  conversion, OpenTTD 1.7-2.3%, SuperTuxKart 0.6-0.9 s of load; all estimates from qemu counts.
+- **Payoff:** low to medium: [OpenArena](../../gamedb/games/openarena/) 3-5% of its CPU, [ClassiCube](../../gamedb/games/classicube/) 2-3% plus ALSA's 1.9% float
+  conversion, OpenTTD 1.7-2.3%, [SuperTuxKart](../../gamedb/games/supertuxkart/) 0.6-0.9 s of load; all estimates from qemu counts.
 - **Effort:** S (built). **Risk:** low: each patch is bit-identical to the scalar code it replaces;
   the 16-bit default sounds the same (no limiter, no dither, as the float output had).
 - **Needs:** PS3 (same-boot, the stock libraries through `LDPATH=`), the user for the variants that
@@ -65,7 +65,7 @@ Rank 64. Small runtime leftovers, and the uses that wait for SPU DMA into VRAM.
 - Checks never run on the PS3: the deadline pool's and skinning's own PS3 steps (`packages/walnut/tools/ps3-spu/doc/pool.md`
   section 5), skinning on a map with bots (the HUD gun alone shows little), skinning's early submit
   (begin and adds at `endmodelbatches`, end at the draw; the API allows it, cube2's hook doesn't do
-  it), RGB DXT compression in a real game, and a Teeworlds log line showing its DXT5 path.
+  it), RGB DXT compression in a real game, and a [Teeworlds](../../gamedb/games/teeworlds/) log line showing its DXT5 path.
 - Audio side work: reverb and chorus on a resident worker (their state is serial), and AltiVec
   `Mix_VMX`/`Resample_Cubic_VMX` for OpenAL Soft's PPE mixer (SPU-AUDIO's design notes; the mixer is
   3.7-4.7% of a game, so small).
@@ -73,7 +73,7 @@ Rank 64. Small runtime leftovers, and the uses that wait for SPU DMA into VRAM.
   4-8 weeks and only forced when GCC deletes reload ([SPU-GCC.md](../SPU-GCC.md)).
 - If E16 shows GB/s: SPU decompression and generation straight into VRAM (assets stay compressed in
   RAM and on disk; estimated 2-4x less RAM and USB I/O for them), procedural textures and meshes
-  from seeds, ClassiCube's chunk meshing into VBOs.
+  from seeds, [ClassiCube](../../gamedb/games/classicube/)'s chunk meshing into VBOs.
 - Later still (HARDWARE-LEVERAGE.md, deferred): SPU culling and vertex work, SPU post-processing
   (MLAA, about 10 ms of SPU time per 720p frame in the PS3 games that did it). The readback for
   post-processing must go through M2MF.
@@ -100,11 +100,11 @@ Source: [archive/SPU-OFFLOAD.md, "Ranked candidates"](../archive/SPU-OFFLOAD.md#
   a game's samples in the configuration we ship. The design (one libspeq job per mixer update,
   `speq_mix_v1` on the shared deadline pool) is in
   [research/OPENAL-SPU-MIXER.md](../research/OPENAL-SPU-MIXER.md).
-- **BananaBread's skinning on the SPEs** (measured): libspeq's PPE path 28.1 fps with no stalls, the
+- **[BananaBread](../../gamedb/games/bananabread/)'s skinning on the SPEs** (measured): libspeq's PPE path 28.1 fps with no stalls, the
   SPU path 23.6 with 21 stalls (4.3 s). cube2 keeps CPU skinning; `SPEQ_SKIN` selects.
-- **Vorbis or zlib on the SPEs**: OpenArena's effects are WAV and its music is already decoded per
+- **Vorbis or zlib on the SPEs**: [OpenArena](../../gamedb/games/openarena/)'s effects are WAV and its music is already decoded per
   4 KB buffer; inflate is serial and branchy (libdeflate on the PPE instead).
-- **OpenTTD's blitter on the SPEs**: its OpenGL driver is built and runs.
+- **[OpenTTD](../../gamedb/games/openttd/)'s blitter on the SPEs**: its OpenGL driver is built and runs.
 - **The validator, zram or VRAM swap copies on the SPEs**: the kernel can't drive SPEs, and
   validation must stay in the kernel to be trusted.
 - **Mesa's per-draw paths on the SPEs**: microsecond-sized, branchy, needed at once.

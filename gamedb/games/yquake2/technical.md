@@ -21,8 +21,13 @@ random-number table shrank from 32 MB to 64 KB, and its played session had a 60 
   [upstream.md](upstream.md).
 - One menu entry of ours, "Quake II (demo)" ([desktop/launchers](desktop/launchers/)): the gl1 renderer,
   fullscreen at the desktop's resolution (`r_mode -2`), `-datadir /usr/share/games/quake2-demo`.
-- **The data** (licensed): `quake2-demo-data` (`/usr/share/games/quake2-demo/baseq2/`), built once with
-  game-data-packager (`make game-data`) and published once to the licensed suite. The full game needs the
+- **The data** (licensed): `quake2-demo-data` (`/usr/share/games/quake2-demo/baseq2/`, the demo's
+  `baseq2` with `demos/q2demo1.dm2` in its pak), built once with game-data-packager 89 (`make game-data`,
+  the demo archive downloaded from id's mirrors and kept in `build/downloads/game-data`) as
+  `quake2-demo-data_89_all.deb`, Section `local/games`, and published once to the licensed suite. Quake
+  II's demo may not be redistributed at all. game-data-packager's output isn't reproducible: the version
+  89 file the LAN repository published is in the retirement backup's `ps3-licensed-debs/`, and `make
+  publish DEBS="<that file>"` before the next `make game-data` keeps it the same. The full game needs the
   player's own Quake II data (the data guide on the game's page).
 - The config lives in `~/.local/share/YamagiQ2/baseq2/config.cfg` (`~/.yq2` before the XDG build).
 
