@@ -47,20 +47,10 @@ layout and the build commands are in [LAYOUT.md](LAYOUT.md).
 
 | Doc | What it is for |
 |---|---|
-| [games/README.md](games/README.md) | Every game at a glance: runs?, fps, smoothness, memory, picture and sound, what's next; how to read the numbers; the driver bugs games found |
+| [games/README.md](games/README.md) | Every suite game at a glance (generated from the summary batch); how to read the numbers; what holds for every game; the driver and library bugs the games found (generated from their investigations) |
 | [games/SUITE.md](games/SUITE.md) | How the benchmark suite runs: `bench/`, recipes, the protocol, the results |
-| [games/LOG-FINDINGS.md](games/LOG-FINDINGS.md) | What the game logs say: errors and warnings by game, ranked, with causes and fixes; `bench/logscan.py` |
-| [games/openarena.md](games/openarena.md) | OpenArena on our ioquake3, both renderers |
-| [games/quake.md](games/quake.md) | QuakeSpasm and Yamagi Quake II |
-| [games/sauerbraten.md](games/sauerbraten.md) | BananaBread (cube2) and Red Eclipse |
-| [games/luanti.md](games/luanti.md) | Luanti and our LuaJIT |
-| [games/supertuxkart.md](games/supertuxkart.md) | SuperTuxKart |
-| [games/classicube.md](games/classicube.md) | ClassiCube |
-| [games/doom.md](games/doom.md) | dsda-doom, and Chocolate, Crispy and Woof Doom |
-| [games/openttd.md](games/openttd.md) | OpenTTD and its GL driver |
-| [games/openrct2.md](games/openrct2.md) | OpenRCT2's big-endian port: patches, BE-vs-LE checks, RAM, the PS3 steps |
-| [games/light-games.md](games/light-games.md) | X-Moto, Extreme Tux Racer, Neverball, Armagetron |
-| [games/smoke-tested.md](games/smoke-tested.md) | Games tried once (Teeworlds, SuperTux, Nexuiz, ...) and the new games waiting for a first run |
+| [games/LOG-FINDINGS.md](games/LOG-FINDINGS.md) | What the game logs say: the errors and warnings that hold across games, ranked, with causes and fixes; `bench/logscan.py` |
+| [gamedb/games/](../gamedb/games/) | Each game's own notes, in its GameDB bundle: `technical.md` (packages and patches, settings, how it performs, known problems, what was tried; [the site's technical pages](https://walnut.nanobyte.dev/gamedb/technical/) for the published games), `investigations/` (the dated stories: bugs found and fixed, measurement campaigns), `todo.toml` |
 
 ## Backlog: what we haven't tried
 

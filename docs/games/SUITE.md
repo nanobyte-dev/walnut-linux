@@ -143,24 +143,50 @@ harness's 90 s cap and its 12 s HUD skip.
 
 ## Per game: command, end, result
 
-| Game | Command (recipe) | Ends | Result read from | Display, input |
+Every recipe with `SUITE=1`, from the recipes themselves (`gamedb/games/<id>/benchmark/recipe.sh`; each
+header says how its warm-up and window work and what is not identical between runs). How each game is
+started, parsed and what its variants do is in its technical notes.
+
+<!-- gamedb:suite-recipes docs/games -->
+| Game | Command | Ends | Result read from | Variants |
 |---|---|---|---|---|
-| OpenArena | `/usr/games/openarena +set cl_renderer opengl1\|opengl2 +set r_ext_compressed_textures 0\|1 +set r_swapInterval 0 +set com_maxfps 0 +set timedemo 1 +vstr bench_loop`, cvars in autoexec.cfg | passes | `N frames S seconds F fps min/avg/max/`, `CL_InitCGame: N seconds` | `r_mode -2 r_fullscreen 1`; DS3 through SDL GameController (bound in autoexec.cfg) |
-| QuakeSpasm | `quakespasm -nopackedpixels -width 1920 -height 1080 -fullscreen` with our `~/.quakespasm/id1/quake.rc` | passes | `N frames S seconds F fps` | gamepad unverified |
-| Yamagi Quake II | `/usr/lib/yamagi-quake2/quake2 +timedemo 1 +demomap q2demo1.dm2` | passes | `N frames, S seconds: F fps` | |
-| dsda-doom | `dsda-doom -iwad freedoom2.wad -vidmode sw\|gl -width W -height H -fullscreen -timedemo demo1`, `DSDA_BENCH_LOOPS=6` | passes | `Timed N gametics in N realtics = F frames per second` | SDL GameController |
-| X-Moto | `xmoto --nowww -fs -res 1920x1080 --replay credits --timedemo --benchmark`, `XMOTO_BENCH_LOOPS=2` | passes | `Average framerate: F fps` | |
-| Neverball | `neverball --replay gui/demo1.nbr`, `NEVERBALL_BENCH=1 NEVERBALL_BENCH_LOOPS=20` | passes | our bench line per pass | SDL joystick works |
-| Extreme Tux Racer | the recorded race replayed through evemu | `WINDOW_STOP` | HUD | the race is the user's |
-| Armagetron | live AI rounds, the player spectating, keys through a virtual keyboard | `WINDOW_STOP` | HUD | |
-| ClassiCube | the game with `CC_BENCH` and the ccbench plugin | the plugin quits | the plugin's fps per pass | |
-| BananaBread (the recipe is still called `sauerbraten`) | `/usr/games/cube2` with the demo and a CubeScript frame counter (`-x`) | the script quits | `ps3bench: loop`, `ps3bench: steady` | no gamepad |
-| Luanti | `luanti --go --world ... --config ...` with the ps3bench mod | `ps3bench: path end` | HUD from `ps3bench: path start` | joystick (`enable_joysticks`) unverified |
-| SuperTuxKart | `supertuxkart --fullscreen --screensize=1920x1080 --track=lighthouse --numkarts=4 --profile-time=180 --no-start-screen`, `STK_PROFILE_WARMUP=60` | the game quits | the HUD (its `Average FPS: F` is the physics tick rate, [supertuxkart.md](supertuxkart.md#the-two-frame-rates)) | SDL GameController |
-| OpenTTD | `/usr/games/openttd -x -c CFG -r 1920x1080 -v sdl\|sdl-opengl -d sl=1`; `sim`: `-g -G 12345 -v null:ticks=20000 -s null -m null` | `WINDOW_STOP`; sim exits | HUD (gl), none (software), wall time (sim) | no gamepad |
+| [Armagetron Advanced](../../gamedb/games/armagetronad/technical.md) | `/usr/games/armagetronad` | the window (`WINDOW_STOP`) | the Gallium HUD | [9](../../gamedb/games/armagetronad/benchmark/recipe.sh) |
+| [BananaBread](../../gamedb/games/bananabread/technical.md) | set in `setup()` | the game quits | the game's steady line (`STEADY_RE`) | [42](../../gamedb/games/bananabread/benchmark/recipe.sh) |
+| [ClassiCube](../../gamedb/games/classicube/technical.md) | `/usr/games/classicube "$CC_DIR/maps/bench.cw"` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [25](../../gamedb/games/classicube/benchmark/recipe.sh) |
+| [dsda-doom](../../gamedb/games/dsda-doom/technical.md) | set in `setup()` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [20](../../gamedb/games/dsda-doom/benchmark/recipe.sh) |
+| [Extreme Tux Racer](../../gamedb/games/etr/technical.md) | `/usr/games/etr` | the window (`WINDOW_STOP`) | the Gallium HUD | [13](../../gamedb/games/etr/benchmark/recipe.sh) |
+| [Luanti](../../gamedb/games/luanti/technical.md) | `/usr/games/luanti --go --world "$LU_WORLD" --config "$LU_CONF"` | its own last line (`END_RE`) | the Gallium HUD | [44](../../gamedb/games/luanti/benchmark/recipe.sh) |
+| [Neverball](../../gamedb/games/neverball/technical.md) | `/usr/games/neverball --replay /usr/share/games/neverball/gui/demo1.nbr` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [7](../../gamedb/games/neverball/benchmark/recipe.sh) |
+| [OpenArena](../../gamedb/games/openarena/technical.md) | set in `setup()` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [54](../../gamedb/games/openarena/benchmark/recipe.sh) |
+| [OpenTTD](../../gamedb/games/openttd/technical.md) | set in `setup()` | the window (`WINDOW_STOP`) | the Gallium HUD | [20](../../gamedb/games/openttd/benchmark/recipe.sh) |
+| [QuakeSpasm](../../gamedb/games/quakespasm/technical.md) | set in `setup()` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [3](../../gamedb/games/quakespasm/benchmark/recipe.sh) |
+| [X-Moto](../../gamedb/games/xmoto/technical.md) | `/usr/games/xmoto --nowww -fs -res 1920x1080 --replay credits --timedemo --benchmark` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [11](../../gamedb/games/xmoto/benchmark/recipe.sh) |
+| [Yamagi Quake II](../../gamedb/games/yquake2/technical.md) | set in `setup()` | passes (the game repeats its demo) | the game's own line (`FPS_RE`) | [13](../../gamedb/games/yquake2/benchmark/recipe.sh) |
+<!-- /gamedb:suite-recipes -->
 
 The GPU timers of any game's own profiler are garbage on the RSX: nv30's TIMESTAMP and TIME_ELAPSED
 queries return a pixel count.
+
+## Smoke runs
+
+Games outside the suite get one launch each to see whether they start and play: no numbers kept, no
+repeats, not part of `run.sh suite` (decided with the user on 2026-10-17). A smoke recipe sources
+`"$BENCH_LIB/smoke.inc"`: `SUITE=0`, a 120 s `DURATION` that `SMOKE_SECS=N` overrides (`run.sh smoke` caps a
+run at 360 s; `BENCH_TIMEOUT=N` raises that), a short HUD window for the report only (10 s after the load,
+then 90 s), and `vblank_mode=0`. setup() writes the game's config (restored after the run) and starts it in
+the closest thing to play its command line allows. `smoke_keys` types keys into a virtual keyboard (evemu)
+once the game's window is up, `smoke_xkeys` through XTEST (`bench/xkeys.py`) where SDL ignored the virtual
+keyboard. `run.sh smoke` runs with the VRAM swap off unless `NOVSWAP=0`, and prints the result, the picture
+check and the game's and kernel's errors.
+
+Before a smoke session: the games installed on the PS3 (`df -h /` first; Debian ports games with `sudo apt
+install`, the Doom ports with `--no-install-recommends`; packages of ours with `make deploy PKGS="..."` from
+the PC, which serves the local builds and installs them with `-t walnut-deploy`, then `dpkg -l` shows the
+`+ps3` version), then `make bench-push`. Run as tibi on the PS3 from `/var/tmp/bench`, in the safe order:
+software renderers first, the heaviest last, since a graph exception ends the session. Menu games need time
+at the controller: `SMOKE_SECS=300 BENCH_TIMEOUT=420 ./run.sh smoke GAME`. End the session with
+`ps3-bench.sh desktop`. What each game's smoke showed is in its technical notes (the draft bundles with
+`status = "tried"`).
 
 ## A session on the PS3
 

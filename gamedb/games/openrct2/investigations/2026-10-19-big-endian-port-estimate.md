@@ -5,7 +5,7 @@ games = ["openrct2"]
 
 # OpenRCT2 on the PS3: big-endian port estimate (2026-10-19)
 
-Moved on 2026-10-26 from [game-reeval.md](../../../research/game-reeval.md), where it was part B of the re-evaluation of 2026-10-19 (the file `reeval-part-B-openrct2.md` its ranked table names). It was written before the port: the package and its PS3 runs are in the game's bundle and docs/games/openrct2.md.
+Moved on 2026-10-26 from [game-reeval.md](../../../research/game-reeval.md), where it was part B of the re-evaluation of 2026-10-19 (the file `reeval-part-B-openrct2.md` its ranked table names). It was written before the port: the package and its PS3 runs are in the game's bundle ([technical notes](../technical.md), [the port](2026-10-19-big-endian-port.md)).
 
 2026-10-19. Read-only look at the source plus web research. Nothing was built for ppc64. The RAM
 figure in section 9 was measured in a throwaway amd64 container.

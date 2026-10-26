@@ -31,7 +31,7 @@ made-up runs.
 
 What the logs cannot show: nothing in them reports a Mesa nv30 shader compile or link failure, an "out
 of temps", a TGSI fallback or the draw module. Mesa prints those only with `NV30_DEBUG` or
-`MESA_DEBUG`, which no recipe sets, so "no such lines" means "not looked for". Item 9 proposes one run
+`MESA_DEBUG`, which no recipe sets, so "no such lines" means "not looked for". Item 6 proposes one run
 per game with the debug output on.
 
 ## Catching failures
@@ -195,30 +195,11 @@ Found (2026-10-25, real Sauerbraten): the NULL write is the memcpy in Mesa's `st
 checks; the uploader's next 1 MiB buffer needs a 4 MiB nouveau_mm GART slab, hence "out of GART for a 4096 KiB BO"
 just before. Mesa 0047 stops the write (and fixes `u_upload_alloc()`'s leak of the previous buffer at each failure),
 0048 makes nouveau fail its other allocation paths cleanly and fall back from a slab to a buffer of the request's size
-([DRIVER.md](../DRIVER.md#the-mesa-side), [sauerbraten.md](sauerbraten.md#the-second-session-2026-10-25)). BananaBread's
+([DRIVER.md](../DRIVER.md#the-mesa-side), gamedb:sauerbraten/online-crashes). BananaBread's
 crashes had the same signature (SuperTuxKart's segfault was in its own code after VRAM failures); their call sites
 were not resolved.
 
-### 3. GART nearly full in OpenTTD since ps3.544 (new)
-
-Games: OpenTTD (1 of 13 runs since ps3.544, flagged NEW).
-
-Evidence: `20261019T102932Z-openttd-base` dmesg.log: five `ps3rsx: no memory to back the GART (56 of 63
-MiB in use)` within a second at 37683 s; genv `NV30_STAGING_POOL_MB=24`. The run still finished
-(`ended=window`) and the other twelve runs are clean.
-
-Cause: OpenTTD uploads an 8 MB staging buffer per frame; the 24 MB pool (Mesa 0040) and the rest of
-the process's buffers reach the 63 MiB GART when something else (a second 4 MB buffer, the title
-screen's textures) arrives at the same moment. The failure is a different path from item 2: the kernel
-cannot get pages to back the GART (CMA chunks), not a full aperture.
-
-Effect: none seen in the picture; the draw that asked for the buffer may have been dropped. One run in
-13, so rare, but it is the only new kernel-side message since the Mesa change.
-
-Fix: none needed yet. Repeat OpenTTD `blit8` with `NV30_STAGING_POOL_MB=24` x6 and watch dmesg (TESTS
-Next); if it repeats, cap the pool at 16 MB or have the pool release on a failed allocation.
-
-### 4. Audio underruns in every SDL and direct-ALSA game
+### 3. Audio underruns in every SDL and direct-ALSA game
 
 Games and counts per 2-minute window, runs since 10-19: dsda-doom 2793, OpenTTD 0-4020 (mean 3600 with
 music on, 13 runs since ps3.544), DDNet 1765, X-Moto 200-218, BananaBread 60-181 (14 runs, mean 137),
@@ -229,8 +210,8 @@ Evidence: `ALSA lib pcm.c:8787:(snd_pcm_recover) [error.pcm] underrun occurred` 
 bench.txt `underruns=N`.
 
 Cause: the SDL/ALSA callback thread misses its deadline because the PPE is busy or stalled; known and
-measured for dsda-doom and OpenTTD ([SPU-AUDIO.md](../SPU-AUDIO.md), [doom.md](doom.md),
-[openttd.md](openttd.md)). BananaBread's 60-181 a run is a small number for a game the microphone found silent; the log has no sound error for it since 10-17 (the
+measured for dsda-doom and OpenTTD ([SPU-AUDIO.md](../SPU-AUDIO.md), gamedb:dsda-doom/music-on-the-spes,
+gamedb:openttd/savegame-blitters). BananaBread's 60-181 a run is a small number for a game the microphone found silent; the log has no sound error for it since 10-17 (the
 nine early runs that said `failed to load sample` were missing data files, fixed).
 
 Effect: audible chopping, strongest in dsda-doom and OpenTTD music. Nothing new since ps3.544.
@@ -238,7 +219,7 @@ Effect: audible chopping, strongest in dsda-doom and OpenTTD music. Nothing new 
 Fix: already on the list ([backlog spu.md](../backlog/spu.md), games.md rank 32, memory.md "Sound
 straight to ALSA"). The one thing logscan adds is a way to compare: `logscan.py -c audio --by-message`.
 
-### 5. Texture and buffer pressure shows as "out of VRAM" lines
+### 4. Texture and buffer pressure shows as "out of VRAM" lines
 
 Games: DDNet (95 lines in its first run, 10-19 09:53, since ps3.544), SuperTuxKart (270 in one run). The
 other games have none.
@@ -255,36 +236,7 @@ Effect: possible stalls while pages move; not measured for DDNet (one smoke run,
 
 Fix: put DDNet in the next VRAM-pressure batch (TESTS Next: stalls recorder on, NV30 force-DXT).
 
-### 6. SuperTuxKart runs on the fixed pipeline, with config noise
-
-Evidence: every run: `irr_driver: Using the fixed pipeline (old GPU, or shaders disabled)` and `OpenGL:
-OpenGL version is too old!` (26 of 27); 25 runs print 30 `User Config: Unknown value for X; expected true
-or false` and `Couldn't find parameter group ...`; `SFXBuffer: Positional audio is not supported with
-stereo files` for WilhelmScream.ogg and a car sound.
-
-Cause: STK 1.5's modern renderer needs GL 3.3; nv30 reports 2.1, so the legacy renderer is chosen
-(designed, [supertuxkart.md](supertuxkart.md)). The config errors come from STK reading the v8
-`config.xml` our recipe writes with only the attributes it sets: the groups it expects (address-history,
-server-bookmarks, ...) are missing and the booleans are read from absent attributes; all keep their
-defaults. The two stereo sounds play without positional audio.
-
-Effect: none on the picture. The fixed pipeline is the reason for the 13-21 fps; the config noise is
-cosmetic.
-
-Fix: none for the first. Write a full default config once (let STK write it, keep it) so its log is
-clean and the next error in it shows (S, host).
-
-### 7. BananaBread and OpenArena: missing content
-
-BananaBread, 65-74 of 74 runs: `could not read "data/blendbrush.cfg"`, `"data/heightmap.cfg"` (editor
-files), `could not load texture packages/gk/fantasy/skyfantasy/skyfantasy` (73 runs) and `could not load
-envmap skyboxes/morning` (65 runs, 910 lines). If the benchmark map uses them, its sky and reflections use a fallback and the picture differs from a PC's (check on a photo). Check the
-package for the files (backlog "BananaBread data files", S, host). The `could not load model` and `failed to load sample` (8) lines appear only in nine runs of 10-17 and are gone since.
-
-OpenArena, 143 of 147 runs: six `Failed to load sound ...wav` / `Using default sound` pairs
-(vulcan impacts, nailgun, yousuck, cl_ammoregen). Probably upstream data gaps (not compared with a PC run yet); the engine plays a default sound. Also `Couldn't read q3history`, a first-run file.
-
-### 8. Input lag messages from libinput, and a few harness things
+### 5. Input lag messages from libinput, and a few harness things
 
 - `(EE) event1 - Logitech USB Receiver Mouse: client bug: event processing lagging behind by Nms, your
   system is too slow` and `scheduled expiry is in the past`: 12 runs from 10-17 to 10-18 (BananaBread,
@@ -294,9 +246,8 @@ OpenArena, 143 of 147 runs: six `Failed to load sound ...wav` / `Using default s
   /dev/shm/ps3-bench-<stamp>-<game>/.pid: No such file or directory` 4 to 9 times. The runs completed
   and were not interfered, but the load profile may be missing its pid. Backlog "Gaps in the measurement
   tools" (S).
-- OpenArena, 5 runs: `DOUBLE SIGNAL FAULT: Received signal 11` right after `Client Shutdown (Received
-  signal 15)`: ioquake3 crashes while shutting down on the harness's SIGTERM, after the window. Harmless
-  to numbers.
+- ioquake3's `DOUBLE SIGNAL FAULT` at the harness's SIGTERM, after the window (OpenArena, 5 runs): harmless
+  to numbers ([the engine's notes](../../gamedb/engines/ioquake3/technical.md#log-noise)).
 - Kernel `os_area_queue_work_handler: Could not update FLASH ROM`: 2 runs (Extreme Tux Racer 10-18
   00:54, OpenArena 10-18 07:50). The kernel tried to write the PS3's OS area and failed. Probably the
   clock sync writing the RTC offset. Nothing was written, which is the safe outcome, but find out what
@@ -304,45 +255,33 @@ OpenArena, 143 of 147 runs: six `Failed to load sound ...wav` / `Using default s
   install.
 - `bench.txt: run ended=killed` (Quakespasm, dsda-doom, Armagetron, 10-16 and 10-17): the harness had to kill the X server (`xinit: unexpected signal`); not seen since.
 
-### 9. Not in the logs, worth adding
+### 6. Not in the logs, worth adding
 
 Mesa nv30 shader and fallback messages (see "The tool"): run each light game once with `NV30_DEBUG` for
 compile failures and the draw-module fallbacks, the log into game.log, then `logscan.py -c nouveau,gl`
 (backlog "Mesa nv30 messages in the logs", S, PS3).
 
-### 10. Old, not seen since (kept so a return is recognised)
+### 7. Old, not seen since (kept so a return is recognised)
 
 | What | Game, run | Status |
 |---|---|---|
 | GPU wedge: `nouveau: kernel rejected pushbuf`, 89 lines and 35 000 dump lines, `ps3rsx: graph exception`, `ps3fb_vsync_interrupt: graphics exception` | Neverball smoke, 10-16 21:54 | no recurrence in the 12 Neverball runs since |
 | validator `rejected push: swizzled render target 1 pixel wide` | gl-genmip probe, 10-16 | one probe run; not repeated |
-| oom-killer | BananaBread 10-17 08:17, Red Eclipse 10-18 06:00 | not repeated in the BananaBread runs after it; Red Eclipse still needs its patches ([backlog games.md](../backlog/games.md#red-eclipse-engine-patches)) |
+| oom-killer | BananaBread 10-17 08:17, Red Eclipse 10-18 06:00 | not repeated in the BananaBread runs after it; Red Eclipse still needs its patches (gamedb:redeclipse/oom-the-memory-is-the-sound) |
 | `Sys_LoadLibrary failed: libcurl.so.4` | Yamagi Quake II, 6 runs | optional download library, harmless |
 | `QUAKE ERROR: You must have the registered version to use modified games` | Quakespasm, 10-16 (a launch-option error, one run) | one run; not repeated |
-| `Unable to load driver 'sdl-opengl': Single element texture formats not supported` | OpenTTD 10-16 | worked around (item 11) |
+| `Unable to load driver 'sdl-opengl': Single element texture formats not supported` | OpenTTD 10-16 | worked around (openttd 0001: gamedb:openttd/gl-driver-on-gl21) |
 
-### 11. Noise that is harmless
+### 8. Noise that is harmless
 
 - `GL_ARB_framebuffer_object / texture_float / seamless_cube_map / texture_compression_bptc not found`
   and `SDL_GL_CreateContext() ... Core context failed` (OpenArena, 57 runs): ioquake3 probes for
   extensions nv30 does not have and carries on.
-- `OpenGL: Single element texture formats not supported, using luminance textures` (OpenTTD, 56 runs):
-  nv30 lacks `GL_ARB_texture_rg`; OpenTTD's own fallback works ([backlog graphics.md](../backlog/graphics.md#gl-extensions-the-games-worked-around)).
-  `GL_ARB_shader_texture_lod unsupported` (OpenTTD, 3 runs) is gone since 10-19 02:25.
 - No IPv6 in the kernel: OpenArena, DDNet, Teeworlds, SuperTuxKart print socket errors for it.
 - First-run files: tyrian.cfg/.sav (OpenTyrian), widelands config, DDNet storage.cfg, Teeworlds settings,
   hedgewars "Settings file not found", UQM's voice add-on, `ALSA lib seq_hw.c ... /dev/snd/seq` (no
   sequencer device; fluidsynth games), `Could not query RTKit`, `Failed to create PipeWire event context`.
-- Luanti: `Maximum lag peaked`, `active block modifiers took Nms`, `Field "image" on TileDef is
-  deprecated` (minetest_game's own).
 - speq (libspeq) statistics lines print "errors" in their text; only non-zero counts are kept by the tool.
-  BananaBread 10-17 and 10-18: 7 runs with `speq: s3tc dxt1/dxt5 ... Operation not supported` (the SPE
-  compressor refused those job sizes; the CPU path took over) and one `N batches in a row failed on the
-  SPEs, the game skins for N ms` (10-18 05:13); none since.
-
-## Games that failed to start (smoke runs awaiting a re-run)
-
-- Hedgewars (`20261019T095215Z`): `hwdrive: the engine never connected`, `Error opening file 1`, rc 1.
-- Wesnoth (`20261019T095158Z`): killed after 1.7 s (rc 143), no game.log: its own log redirect
-  ([smoke-tested.md](smoke-tested.md)).
-- Both are already in TESTS Next ("Smoke re-runs").
+- Each game's own noise (OpenTTD's luminance fallback, Luanti's lag lines, SuperTuxKart's fixed pipeline and
+  config lines, BananaBread's and OpenArena's missing content, libspeq refusals in BananaBread) is in its
+  technical notes (`gamedb/games/<id>/technical.md`, "Known problems").

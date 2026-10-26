@@ -8,7 +8,7 @@
 # (esetmissteam, eaddmisshh x4), a seed and "escript Missions/Training/<MISSION>.lua"
 # (HWGame::SendTrainingConfig). Ends when the engine exits or sends 'q'/'Q'/'E'. Exit code: the engine's.
 # 'q' means the game ended by itself (the mission's EndGame); on the PS3 the Movement mission does that after
-# about 45 s without any input (the final crate's deletion calls victory(), probably it falls into the water: docs/games/smoke-tested.md), on amd64 it runs on for 250 s.
+# about 45 s without any input (the final crate's deletion calls victory(), probably it falls into the water: gamedb/games/hedgewars/investigations/2026-10-19-mission-ends-by-itself.md), on amd64 it runs on for 250 s.
 # Env: HW_DATA (Data dir, default /usr/share/games/hedgewars/Data), HW_USER (default ~/.hedgewars),
 # HW_FOLDER (Training, or Scenario ...), HW_TEAM (default "Cosmic Avenger"), HW_HOGS (4).
 import os, socket, subprocess, sys, time

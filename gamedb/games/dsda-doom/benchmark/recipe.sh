@@ -1,6 +1,6 @@
 # dsda-doom 0.30.0 + Freedoom 2 (stands in for PrBoom+ GL): timedemo of Freedoom's own DEMO1 lump,
 # fullscreen 1920x1080. Software renderer first (base, safest), GL as a variant: GL mode uploads
-# indexed textures as GL_RG, which nv30 lacks (docs/games/doom.md), so expect missing textures there.
+# indexed textures as GL_RG, which nv30 lacks (the game's technical.md), so expect missing textures there.
 # Steady state: passes. DEMO1 is 2664 gametics (76 s at 35 Hz; the timedemo takes ~54 s at 49 fps).
 # Stock dsda-doom exits at a timedemo's end (dsda_demo_end_quit), so our patch 0006 (g_game.c, the
 # timingdemo branch of G_CheckDemoStatus) repeats it: DSDA_BENCH_LOOPS=N passes, each with its own

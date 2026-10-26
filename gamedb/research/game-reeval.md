@@ -1,6 +1,6 @@
 # Excluded games re-evaluated (research, 2026-10-19)
 
-The second pass over games first ruled out for reasons other than GL 3: RAM measured on the PC (amd64, Xvfb + llvmpipe, which adds about 100-200 MB), build and big-endian costs estimated. The first pass is build/tmp/newgames/RESEARCH.md, summarised in docs/games/smoke-tested.md. Builds of DDNet, OpenTyrian, UQM and Hedgewars started the same night.
+The second pass over games first ruled out for reasons other than GL 3: RAM measured on the PC (amd64, Xvfb + llvmpipe, which adds about 100-200 MB), build and big-endian costs estimated. The first pass is build/tmp/newgames/RESEARCH.md, summarised in the games' technical notes (gamedb/games/<id>/technical.md). Builds of DDNet, OpenTyrian, UQM and Hedgewars started the same night.
 
 **Where this lives now (2026-10-26).** This survey moved from docs/research to gamedb/research. Every game it names has a bundle in gamedb/games/ (a draft when it is only a candidate, `status` and `status_note` saying where it stands) whose technical.md cites this file by section. Part B (OpenRCT2's big-endian port estimate) moved into the game's investigations/. The per-game tables and blocks here are kept by hand for now; they become generated blocks (tools/gamedb/blocks.py) in a later step, and until then a game's current state is its bundle's, not this file's.
 

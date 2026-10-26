@@ -61,7 +61,7 @@ parse() {	# renderergl2's program counts and compile times (first start, the dem
 variant_tc0() { OA_TC=0; oa_cmd; }
 # opengl1, compressed (shipped default, step 0's tc1)
 variant_tc1() { OA_TC=1; oa_cmd; }
-# renderergl2 with its expensive features off (docs/games/openarena.md, gl2min), then Debian's defaults.
+# renderergl2 with its expensive features off (the game's technical.md, gl2min), then Debian's defaults.
 # Debian's ioquake3 compiles 97 GLSL programs (gl2: 115, ~30 s on the PPE) at start and again when
 # the demo loads its map (the client restarts the renderer at every map load), so the gl2 runs get
 # 330 s (240 before the steady-state passes). Our ioquake3 (gamedb/engines/ioquake3/packages/ioquake3/patches, +ps3) cuts that memory; its defaults are on in gl2min and
@@ -129,7 +129,7 @@ variant_zlib() { oa_x +set fs_zipFast 0; }
 variant_huffslow() { oa_cmd; CMD+=(+set msg_huffSlow 1); }
 # all of them as before (not the build flags, nor the AltiVec code being compiled in)
 variant_up() { oa_x +set r_shaderTextScan 1 +set fs_zipCrc 1 +set com_altivec 0 +set r_markClear 1 +set s_alLazy 0 +set fs_zipFast 0; CMD+=(+set msg_huffSlow 1); }
-# Batching (ioquake3 0019-0022, docs/games/openarena.md): fewer GL calls and draws a frame from
+# Batching (ioquake3 0019-0022, gamedb/engines/ioquake3/technical.md): fewer GL calls and draws a frame from
 # renderergl1. On llvmpipe forced to GL 2.1 the demo went from 3022 GL calls and 198 draws a frame
 # to 377 and 79, the same picture (atlas: 74 pixels differ by at most 2). Each variant turns one
 # change back to upstream, allbatchoff all four.

@@ -294,7 +294,7 @@ needs none). Before it is sourced, `GAME_DIR` is the game's benchmark directory,
 a `lib/` of its own in step 9): `"$BENCH_LIB/smoke.inc"` (the header of the smoke recipes: `SUITE=0`, a 120 s
 `DURATION` that `SMOKE_SECS` overrides, a short HUD window, `vblank_mode=0`, and `smoke_keys` /
 `smoke_xkeys` for keys into the game; a smoke recipe is a game tried once to see whether it starts and
-plays, docs/games/smoke-tested.md), `"$BENCH_LIB/openal.inc"` (the OpenAL Soft variants `allog`,
+plays, docs/games/SUITE.md "Smoke runs"), `"$BENCH_LIB/openal.inc"` (the OpenAL Soft variants `allog`,
 `b16`, `f44`, `b16f44`, `p1024`, `alnull` the OpenAL games' recipes share, docs/SPU-AUDIO.md M0, with
 an optional perf profile, `OAL_PERF=N`, that `bench/oal-perf.sh` splits by symbol),
 `"$BENCH_LIB/keyboard.evemu"` (a keyboard's description for an evemu virtual keyboard: ETR's
@@ -346,10 +346,13 @@ matrix.py with a fake game and made-up runs, and sources every recipe and varian
 
 ### games/<id>/technical.md, investigations/
 
-`technical.md` (*now* for the drafts and a few published games, step 7; the rest in step 8) is the
-current state, with links to the investigations; a draft's has an "Engine options" list when it has
-several, and a "Research" section: what the surveys said, each line with its source file, section and
-date. An
+`technical.md` (*now*: every published game has one, which `check.py` requires, and the drafts that were
+tried; step 8 moved docs/games' per-game files into them) is the current state, not a dated log: the
+engine and version, our packages and why (linking the patches), the settings and defaults, how it
+performs (citing `gamedb:batch/<name>`), the known problems, what was tried, and links to the
+investigations. A draft's starts with a "Status" section when it was tried, has an "Engine options" list
+when it has several, and a "Research" section: what the surveys said, each line with its source file,
+section and date. An
 investigation, `investigations/<date>-<slug>.md`, has front matter `id` (never renamed), `games`,
 `driver_patches`, `game_patches`, `sessions`, `batches`, and a body: symptom, evidence, cause, fix.
 `gamedb:<id>/<investigation-id>` resolves by that `id` (`tools/doclinks.py`, *read now*). A driver bug a

@@ -892,7 +892,7 @@ title = "batch ssdroot5 smoke re-runs: Widelands, OpenTyrian, Freeciv, Simutrans
 date = 2026-10-19
 runs = 2
 stack = { kernel = "ps3.472", mesa = "ps3.544" }
-observations = "same boot (2026-10-19 10:55-11:16Z), one run each with the recipes fixed after ssdroot3. Widelands, OpenTyrian, ScummVM and Warmux were nudged by the user (mouse and keys) and are interfered, out of the cells. Freeciv, Simutrans and Stone Soup start; details in docs/games/smoke-tested.md"
+observations = "same boot (2026-10-19 10:55-11:16Z), one run each with the recipes fixed after ssdroot3. Widelands, OpenTyrian, ScummVM and Warmux were nudged by the user (mouse and keys) and are interfered, out of the cells. Freeciv, Simutrans and Stone Soup start; details in the games' technical notes"
 source = "bench/results row 83"
 
 [[batch]]
@@ -1024,7 +1024,7 @@ title = "batch ssdroot8 smoke: Wesnoth AI vs AI 360 s and Hedgewars window (SSD 
 date = 2026-10-19
 runs = 2
 stack = { kernel = "ps3.472", mesa = "ps3.545~dev" }
-observations = "same boot (2026-10-19 22:54-23:01Z), 1 run each. Wesnoth variant ai (two AIs on The Freelands, --nodelay, 20 turns, rng-seed 1, SMOKE_SECS=360): ran the whole 360 s (rc=143 from the harness, the 20 turns did not finish), picture right at 60 s and 150 s (the map with units moving and 2 enemy units sighted), HUD median 114 fps, steady 68, 1% low 5.7, 98 frames over 100 ms with a 7.9 s longest (the load), CPU 179 s, peak RSS 110 MB, lowest MemAvailable 15.3 MiB, 83 underruns, oal_wedge 0; game.log: the music tracks cannot be opened (wesnoth music is not installed, 150 lines of 'cannot open track'). Hedgewars window (1280x720, Basic Training Movement through hwdrive.py): the engine ended by itself after 55 s (rc=0, ended=exit; 54 s in the earlier base run), hwdrive printed 'engine says q', which is the engine's end of game: the mission's victory() ran with no input (the Victory voice and two water Droplet sounds are the last lines of game.log); the PC's amd64 engine in the same mission ran 250 s without ending, so the ppc64 engine's world differs (see docs/games/smoke-tested.md); 562 underruns, HWM 90 MB; no photo (the run ended before 60 s)"
+observations = "same boot (2026-10-19 22:54-23:01Z), 1 run each. Wesnoth variant ai (two AIs on The Freelands, --nodelay, 20 turns, rng-seed 1, SMOKE_SECS=360): ran the whole 360 s (rc=143 from the harness, the 20 turns did not finish), picture right at 60 s and 150 s (the map with units moving and 2 enemy units sighted), HUD median 114 fps, steady 68, 1% low 5.7, 98 frames over 100 ms with a 7.9 s longest (the load), CPU 179 s, peak RSS 110 MB, lowest MemAvailable 15.3 MiB, 83 underruns, oal_wedge 0; game.log: the music tracks cannot be opened (wesnoth music is not installed, 150 lines of 'cannot open track'). Hedgewars window (1280x720, Basic Training Movement through hwdrive.py): the engine ended by itself after 55 s (rc=0, ended=exit; 54 s in the earlier base run), hwdrive printed 'engine says q', which is the engine's end of game: the mission's victory() ran with no input (the Victory voice and two water Droplet sounds are the last lines of game.log); the PC's amd64 engine in the same mission ran 250 s without ending, so the ppc64 engine's world differs (see gamedb/games/hedgewars/investigations/2026-10-19-mission-ends-by-itself.md); 562 underruns, HWM 90 MB; no photo (the run ended before 60 s)"
 source = "bench/results row 95"
 
 [[batch]]

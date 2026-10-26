@@ -53,7 +53,7 @@ From `nv30_screen.c` and `nv30_format.c` (Mesa 26.2.4) and [RSX.md](../../docs/R
   - hedgewars 1.0.3: builds, then 2 of 7 engine Lua tests fail (`EInvalidOp` in `stuckcake.lua`, wrong
     positions in `gravity_get_set.lua`). Looked like FPC floating point on PPC, not byte order
     (UNVERIFIED then; later reading of the build log: two different failures, see
-    [games/smoke-tested.md](../../docs/games/smoke-tested.md#skipped)).
+    [Hedgewars' investigation](../games/hedgewars/investigations/2026-10-19-mission-ends-by-itself.md)).
   - ddnet 20.1.1: the test run hangs in `Net.Ipv4AndIpv6Work` and the buildd kills it.
   - warzone2100 4.7.0: **a real big-endian bug**, a static assert in the bundled GameNetworkingSockets
     (`minbase_endian.h:26`, `LittleWord()` on a uint64). Moot anyway: it needs GL 3.0.

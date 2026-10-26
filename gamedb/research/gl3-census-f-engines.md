@@ -175,7 +175,7 @@ SCORES: popularity=2 novelty=4 playability_256MB=4 effort=S (per game)
   post effects, DoF and motion blur, hardware skinning (kart skinning is on the CPU, as our docs say). It keeps
   the kart/track draw, fog, texture compression and simple blob shadows. Nothing important for gameplay.
 - **Yamagi Quake II gl3/gles3**: skip. Debian ships `ref_gl1` (GL 1.4 fixed function, runs) and `ref_gl3`
-  (GL 3.2 core); gles3 same class. docs/games/quake.md:46-49 already say gl1 runs. gl3 adds coloured lighting
+  (GL 3.2 core); gles3 same class. gamedb/games/yquake2/technical.md already says gl1 runs. gl3 adds coloured lighting
   and MSAA only.
 
 ---
