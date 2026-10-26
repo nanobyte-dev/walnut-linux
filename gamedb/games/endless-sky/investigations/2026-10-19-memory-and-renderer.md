@@ -1,4 +1,11 @@
++++
+id = "memory-and-renderer"
+games = ["endless-sky"]
++++
+
 # Endless Sky on the PS3: memory and renderer (research, 2026-10-19)
+
+Moved on 2026-10-26 from the docs' research folder (ENDLESS-SKY.md). The state below is as of 2026-10-20; the package is `gamedb/games/endless-sky/packages/endless-sky/`.
 
 Go, effort M (1.5-2 weeks), memory borderline. The ~700 MB seen on the PC was glibc fragmentation from 24 loader threads plus sprite textures that belong in VRAM; with the defer-images preference, 2 threads and mono sounds the estimate is ~175 MB of XDR. Renderer: upstream GL2 path + 22 GLSL 1.20 shaders (written, run on llvmpipe at GL 2.1), a 2D DXT5 atlas instead of 3D textures (nv30 3D limit 512), the fog map as LUMINANCE8. Four big-endian bugs (~30 lines). First step: --parse-assets on the PS3 for anon memory and load time.
 
@@ -135,7 +142,7 @@ GL_TEXTURE_2D_ARRAY (Sprite.cpp:38), EXT FBO. There is no shipped GL2 shader set
 `shaders/*.vert|.frag` from plugins (GameData::LoadShaders, plugin shaders override by name) and prefixes
 `#version <driver GLSL version>`.
 
-**I wrote the 22 shaders and ran the game on them: gl2-plugin/ (plugin.txt + shaders/).** Method: sed
+**I wrote the 22 shaders and ran the game on them: gl2-plugin/ (plugin.txt + shaders/).** (That plugin, with the sprites in 3D textures, was the first version: the package's patch 0006 ships the shaders in `shaders-gl2/`, rewritten for the 2D atlas of patch 0004, so the plugin directory (endless-sky/gl2-plugin/ in the docs' research folder) was deleted on 2026-10-26; git has it.) Method: sed
 (`in`->attribute/varying, `out`->gl_FragColor, `texture`->texture2D, drop precision/highp/mediump,
 `2.f`->`2.0`) plus hand edits for the three array users (sprite.frag, batch.frag, outline.frag): sampler3D
 and a helper `L(uv, layer) = vec3(uv, (layer+0.5)/frameCount)` for the slice centre; the swizzle mask uses

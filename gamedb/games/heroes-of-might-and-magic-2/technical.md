@@ -1,0 +1,11 @@
+# Heroes of Might and Magic II (fheroes2): technical notes
+
+Also known as: fheroes2 (the engine).
+
+## Research
+
+What the surveys and plans said about it, newest first; each line names its source, the section and the date.
+
+- 2026-10-26, [docs/backlog/games.md](../../../docs/backlog/games.md), "Games to smoke next, and Wesnoth's music": on the "try now" list (HoMM2 demo data); not started.
+- 2026-10-20, [pc-classics.md](../../research/pc-classics.md), "Shortlist / Strategy": shortlist #8 (never on a console): complete, very active, SDL2, free demo data, effort M; 3.5k stars, the only active one.
+- 2026-10-19, [game-reeval.md](../../research/game-reeval.md), "fheroes2 (Heroes 2 engine)": no hard no: SDL2 + software compositing of an 8-bit palette surface (`src/engine/screen.cpp` has `SDL_BIG_ENDIAN` branches). Debian contrib `fheroes2` 1.1.17+dfsg-1, no ppc64 binary; tiny Build-Depends (sdl2, sdl2-mixer, libsmacker, zlib): S. Big-endian: explicit `getLE16`/`getBE16` helpers; no BE issue found; BE cost S. RAM estimate 100-250 MB (the world-map sprite cache and 32-bit 1080p output are the consumers; run 640x480 or scale). Data: the HoMM II demo is supported (README, `extract_homm2_resources`); full data from GOG. Effort S. Verdict: TRY NOW, the second best of part A.

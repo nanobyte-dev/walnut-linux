@@ -79,7 +79,13 @@ TOML front matter between `+++` lines, then the notes as markdown. Keys (today's
 
 A draft needs only `id`, `title` and `status`. Every other key may be missing, and nothing is made
 up to fill it; whatever a draft does have is checked like a published game's. Every candidate game
-gets a draft bundle (step 7).
+gets a draft bundle (*now*, step 7: every game the research surveys and the plans named, including the
+closed-source ones with no open engine, `impossible` with the reason; aliases and the engines of one game
+merged into one bundle, its technical.md listing the engine options). What the statuses mean for a draft:
+`candidate` a port worth trying, with its cost; `tried` started on the PS3, not published; `blocked` an
+open project exists but can't run here yet (unfinished, needs the original x86 executable, a runtime with
+no big-endian ppc64 port); `dropped` decided against (RAM, CPU, licence), the reason in `status_note`;
+`impossible` no open engine, or one bound to a closed runtime (Unity).
 
 Read by: `check.py` (*read now*, drafts included), `catalog.py` and `pack-catalog.py` (drafts left
 out), Hugo (website/gamedb/hugo.toml mounts `games/` as `content/games/` with an allowlist: `*/index.md`,
@@ -316,7 +322,10 @@ matrix.py with a fake game and made-up runs, and sources every recipe and varian
 
 ### games/<id>/technical.md, investigations/
 
-*Planned* (steps 7, 8). `technical.md` is the current state, with links to the investigations. An
+`technical.md` (*now* for the drafts and a few published games, step 7; the rest in step 8) is the
+current state, with links to the investigations; a draft's has an "Engine options" list when it has
+several, and a "Research" section: what the surveys said, each line with its source file, section and
+date. An
 investigation, `investigations/<date>-<slug>.md`, has front matter `id` (never renamed), `games`,
 `driver_patches`, `game_patches`, `sessions`, `batches`, and a body: symptom, evidence, cause, fix.
 `gamedb:<id>/<investigation-id>` resolves by that `id` (`tools/doclinks.py`, *read now*). A driver bug a
@@ -347,9 +356,12 @@ direction and the tool that computes it.
 
 ### research/<slug>.md
 
-*Planned* (step 7): surveys across games (the GL3 census, candidates, re-evaluations, PC
-classics), with their per-game tables generated. Emulator and platform research stays in
-docs/research/.
+*Now* (step 7): surveys across games, `game-candidates.md` (the suite's 2026-10-16 pick),
+`game-reeval.md`, `gl3-census.md` with its parts `gl3-census-<part>.md`, `pc-classics.md`. Their method,
+scope and conclusions are text; their per-game tables are still kept by hand (*planned*: generated blocks,
+`tools/gamedb/blocks.py`); per-game sections longer than ~50 lines moved into the game's investigations/
+with a link left behind. The census's driver part (docs/research/gl3-census/G-driver.md) and the emulator
+and platform research (EMULATORS, CLASSIC-MACOS, DARLING-PPC) stay in docs/research/.
 
 ## Generated from here
 

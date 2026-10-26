@@ -27,64 +27,7 @@ FEATURES: glsl_min=330 core_only=y fallback=none int_ops=opt (1 shader: floatBit
 SCORES: popularity=3 novelty=5 playability_256MB=2 effort=L
   ppc64=builds (taisei 1.4.4+dfsg-3 in debian-ports) data=free (CC/MIT code; art free) size_MB=175 (00-taisei.zip; Debian build ships no bgm/sfx)
 
-### 1. GL needs (source + trace)
-- Backends in master: gl33, gles30, sdlgpu (SDL3 GPU API, Vulkan/D3D/Metal), null (src/renderer/meson.build:1-60).
-  v1.4.4 has the same four (read via git tag v1.4.4). gles20 existed in v1.3.2 ("incomplete", meson_options.txt:125, src/renderer/gles20/gles20.c)
-  and was removed before 1.4. The old gles20 backend needed VAOs and glDrawElementsInstanced (gles20.c:17-45), i.e. it also depended on extensions.
-  Debian's binary offers only `--renderer {gl33,null}`.
-- Context: 3.3 core (TAISEI_GL33_VERSION_MAJOR env, gl33.c:1210). It logs "Unsupported OpenGL version, expect problems" below 3.3/GLES3 (glcommon/opengl.c:867) but continues, then dies on missing functions. Extensions are probed
-  through GL_ATLEAST/CHECK_EXT macros (glcommon/opengl.c:184-650): instancing is core for >=3.3 or ARB_instanced_arrays;
-  VAO from 3.0 or ARB_vertex_array_object; texture_rg from 3.3/ES3; float textures from ES3 or ARB_texture_float; draw_buffers,
-  depth_texture, swizzle (RFEAT bits, gl33.c:357-376). If instancing is absent the feature bit is simply unset and sprite batching still
-  issues glDrawArraysInstanced (sprite_batch.c; no fallback path found in src/renderer/common): treat as required.
-- Shaders: 186 files under resources/00-taisei.pkgdir/shader, all `#version 330 core`; the engine has a SPIR-V/SPIRV-Cross-style
-  transpiler (src/renderer/common/shaderlib: lang_spirv.c, lang_dxbc.c, lang_glsl.c) that can emit GLSL ES 100
-  and 300 es. lib/defs.glslh:35-40 still includes legacy_compat.glslh (textureLod/textureGrad -> texture(), tanh emulation) when the target is
-  GLSL < 130 or ES < 300. So the shader side was designed to reach GLSL ES 1.00; the removed gles20 backend was the missing half.
-- Trace (stage 1, 4686 frames at 7-17 fps llvmpipe): 49 unique shaders, median 9 draws/frame (max 42), 45 GL calls/frame, 37719 glDrawArraysInstanced
-  (per-instance attribute buffer with glVertexAttribDivisor; ~8 instanced draws/frame), 859 glBlitFramebuffer, 4 VAOs, glTexStorage2D x50, KHR_debug labels (optional).
-  Formats: BPTC (BC7) x15 and RGTC1/2 compressed (basisu transcodes to whatever the GPU supports), RGBA8, R8, RGB16, RGBA16, RGBA16F, RG16F, DEPTH24.
-  Framebuffers (stagedraw.c:217-233): FG RGB16, FG aux RGBA8, BG HDR RGBA16F x2 + depth, powersurge RGBA16 at 1/8 x 1/4 scale. Lasers use RG16F (lasers/draw.c:279).
-- Bitwise: one shader (sprite_fairy.frag, `floatBitsToUint(customParams.z)`, `bits & 0xFFFF`) unpacks two 16-bit values from a float.
-
-### 2. Port to GL 2.1/GLES 2 on nv30
-- Instancing: either Mesa-side or game-side. nv30 reports vertex_element_instance_divisor=false with the comment "xxx = yes?" (nv30_screen.c:156) and
-  nv30_vbo.c:321 already carries instance_divisor into the translate key, but the draw functions ignore instance_count (nv30_vbo.c:372-400). A u_vbuf-style unroll,
-  or enabling ARB_instanced_arrays through the translate path, covers all 37k calls with no game change (UNVERIFIED that u_vbuf handles it for nv30 as is). Game-side alternative: expand each sprite to 4 vertices on the CPU (the sprite
-  batch already writes one 'instance' struct per sprite; 4x data, PPE cost real).
-- Core profile: needs a 330 -> GLSL 1.20 / ES 1.00 output of the transpiler (exists) plus a new gl20 backend: the old gles20 code is in v1.3.2 history and shows the size (two files). Driver override can fake GL 3.3 for the
-  rest (VAO, draw_buffers present).
-- Float targets: RGBA16F background, RG16F lasers, RGB16/RGBA16 unorm: the RSX has FP16 render targets in hardware; Mesa nv30 hides float textures (ARB_texture_float off). A driver flag would give FP16 color
-  buffers. Without it: BG buffer -> RGBA8 (banding in dark bloom paths), lasers RG16F -> RGBA8 with a packed encoding (changes shader math), RGB16 -> RGBA8.
-- glBlitFramebuffer with mixed sizes: not in nv30 (no ARB_fbo). The FBO ping-pong does full-size blits; emulate with a textured quad draw (Taisei already does this for WebGL: `BROKEN_GL_BLIT_FRAMEBUFFER`, gles30.c:25-30, fbcopy_fallback.c). Cheap: enable that define.
-- R8/RG textures: texture_rg absent in nv30; loader chooses via caps; the R8 alpha maps use LUMINANCE8/ALPHA8 workaround (as done in OpenTTD).
-- Compressed textures: basisu transcodes to a format the GPU reports; need BC3 (DXT5) path to be preferred (glcommon_ext_texture_format_s3tc_dx5, opengl.c:499). nv30 has S3TC: 1:1.
-- Drop: powersurge feedback FB (rare), fxaa/bloom passes; blur5/9/13/25 loops (3 shaders have loops; nv30 unrolls constant loops, OK).
-- Driver-level coverage by a "GL 3.3 subset": instancing, FP16 RT, blit-by-quad, VAO are all driver-addressable. Game-side: legacy GLSL output + a gl20-style backend and the one bitwise shader.
-- Effort L (a month): new backend (the abstraction exists: RendererBackend vtable, gl33 is subclassed by gles20/gles30), shader re-tests, FP16 plumbing.
-
-### 3. Memory
-- Measured (960x540, stage 1 running, with trace; peak/steady): RSS 552 MB, VmHWM 562 MB. Menu/cutscene before the stage: 410-430 MB.
-  Texture upload estimate 221 MB live, 234 MB peak (glcensus; BPTC counts as compressed bytes, so this is mostly
-  GPU data, kept in llvmpipe RAM); buffers 9 MB.
-- PS3 estimate: 552 - 100 (llvmpipe) - ~221 (textures) = ~230 MB of game heap and CPU-side copies (zip resource cache, decoded pixmaps, audio absent here: Debian build has no music) plus 221 MB of textures -> VRAM/swap. At 1080p add FBO colour: FG RGB16 ~12 MB, BG RGBA16F x2 ~32 MB, aux x2 16 MB, depth 8 MB (~70 MB, VRAM). Does not fit 160 MB of game RAM; every texture is preloaded per stage.
-- Cuts: lower texture scale (Taisei has a texture quality/"low" setting, basisu lets you pick lower mips: UNVERIFIED), skip preloading, 720p. Even so ~350 MB RSS-equivalent: a stretch.
-
-### 4. CPU
-- Bullet hell: thousands of objects, C code with coroutines (cotask), fixed 60 logic ticks; measured game thread 2.9 s of CPU in 105 s only because llvmpipe throttled it, so no usable number. Draws are few (median 9) thanks to sprite batching, which is the right shape for the PPE. Expect the PPE to hold 60 fps on stage 1; later stages with 2000+ bullets are UNVERIFIED. Replay system is deterministic and logic-only.
-
-### 5. ppc64 big-endian
-- In debian-ports ppc64 (1.4.4+dfsg-3). Code is endian-aware: zipfile.c LE16/LE32 (zipfile.c:83), atlas.c headers with SDL_Swap*LE (atlas.c:135-140), rwops_zstd.c frame footers swapped, iqm_loader, progress.c, sha256, pixmap png. Needs SDL3 (we patched it for BE) and SPIRV tools; basisu transcoder is a subproject (C++, BE OK in upstream basis_universal? UNVERIFIED). Replays and progress files are explicitly LE-framed.
-
-### 6. Data and licence
-- Code MIT/CC; game data CC-BY-SA/CC0 mix; Debian ships 175 MB zip without the music (bgm/sfx missing, "Failed to locate bgm 'menu'"). The upstream zip includes music (size not measured). Free.
-
-### 7. Novelty
-- No PS3 GameOS port found (web search for Taisei/PS3 returned nothing; UNVERIFIED beyond that). Touhou fans' ports use other engines. Novelty 5. Popularity 3 (several hundred thousand downloads; well known in the Touhou fangame scene).
-
-### Sources
-- build/tmp/gl3census src clones (deleted): github.com/taisei-project/taisei master, tags v1.3.2, v1.4.4; src/renderer/**, resources/00-taisei.pkgdir/shader/**, nv30_screen.c, nv30_vbo.c in build/src/mesa/mesa-26.2.4.
-- Trace report: /mnt/data_linux/Temp/ps3/gl3census/traces/taisei/c4/report.md, t4.mem.txt.
+The detail (GL needs, the port, memory, CPU, big-endian, data, novelty and its sources) is in the game's bundle: [gamedb/games/taisei/investigations/2026-10-19-gl3-census.md](../games/taisei/investigations/2026-10-19-gl3-census.md).
 
 ---
 
