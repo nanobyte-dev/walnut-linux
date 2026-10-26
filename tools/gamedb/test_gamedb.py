@@ -663,7 +663,8 @@ class RulesV1Unchanged(unittest.TestCase):
                 continue    # a game tested again since: its rating moved on purpose
             same += 1
             self.assertEqual(strip_to(g["launchers"], want["launchers"]), want["launchers"], gid)
-            self.assertEqual(g["badges"], want["badges"], gid)
+            # the "made for keyboard and mouse" badge comes from the front matter (designed_for), not a rating
+            self.assertEqual([b for b in g["badges"] if b != "keyboard-mouse"], want["badges"], gid)
             for l in g["launchers"]:
                 self.assertEqual((l["rating"]["rules"], l["rating"]["rules_data"]), ("1.0", 1), gid)
         self.assertGreater(same, 5)
