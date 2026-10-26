@@ -1,0 +1,392 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Mon, 26 Oct 2026 04:25:12 +0200
+Subject: nv30: GL_POINT_SMOOTH points are round (NV30_POINT_SMOOTH)
+
+Yamagi Quake II's gl1 renderer draws its particles (blood, sparks, bullet trails) as GL_POINTS
+with GL_POINT_SMOOTH and ARB_point_parameters; on the PS3 they came out as squares (2026-10-26,
+round on llvmpipe). nv30 ignored pipe_rasterizer_state::point_smooth: NV3x/NV4x have no known
+point smoothing switch (nouveau's method list has none, nor has the RSX's libgcm), and the state
+tracker leaves the smoothing to the driver (radeonsi and zink run nir_lower_point_smooth on a
+fragment shader variant).
+
+nv30 does the same on its TGSI: points drawn with point_smooth (the reduced primitive is points,
+hardware TnL) run a variant of the bound fragment program, made at the first such draw
+(nv30_point_smooth.c). It declares a PCOORD input, which nvfx puts in a free texture coordinate
+with the point sprite's coordinate replacement (as for gl_PointCoord), and adds about 20
+instruction slots: the distance from the centre, the size in pixels from 1 / |ddx(pc.x)|, the
+fragment killed outside the circle, COLOR[0].a times the coverage of a one pixel edge,
+clamp(r - d, 0, 1), as nir_lower_point_smooth. The application's blending does the rest.
+- nv30->fragprog.user: the bound program; fragprog.program, what the GPU runs, is it or its
+  variant (nv30_fragprog_select() before each draw). The blitter saves the bound one.
+- nv30_validate_point_coord(): POINT_SPRITE_ENABLE for the variant.
+- The variant's point coordinate slot counts as free for the vertex program (it routes nothing
+  there either), so switching between the two keeps the vertex program's code.
+- No variant (the points stay square): no COLOR[0] output, RET/CAL in the program, all ten
+  texture coordinates in use, a translation failure.
+- Deleting a program forgets it as the one the GPU holds (a later program at the same address
+  is uploaded and bound).
+NV30_POINT_SMOOTH=0: square points, as before.
+
+Host test mesa/tests/point-smooth-test.c (tools/run-tests.sh mesa-point-smooth): the variant on
+Mesa's TGSI interpreter over each point's square (sizes 1 to 64), its NV40 translation; PS3 check
+ps3-gpu-tools/mesa-tests/gl-pointsmooth.
+
+diff --git a/src/gallium/drivers/nouveau/meson.build b/src/gallium/drivers/nouveau/meson.build
+--- a/src/gallium/drivers/nouveau/meson.build
++++ b/src/gallium/drivers/nouveau/meson.build
+@@ -40,6 +40,7 @@ files_libnouveau = files(
+   'nv30/nv30_shader_cache.c',
+   'nv30/nv30_fragtex.c',
+   'nv30/nv30_miptree.c',
++  'nv30/nv30_point_smooth.c',
+   'nv30/nv30_push.c',
+   'nv30/nv30_query.c',
+   'nv30/nv30_resource.c',
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.h
+@@ -110,7 +110,10 @@ struct nv30_context {
+    } vertprog;
+ 
+    struct {
++      /* the program the GPU runs: the bound one (user) or its smooth point variant
++       * (nv30_fragprog_select) */
+       struct nv30_fragprog *program;
++      struct nv30_fragprog *user;
+ 
+       struct pipe_resource *constbuf;
+       unsigned constbuf_nr;
+@@ -191,6 +194,9 @@ nv30_fragprog_init(struct pipe_context *pipe);
+ void
+ nv30_fragprog_validate(struct nv30_context *nv30);
+ 
++void
++nv30_fragprog_select(struct nv30_context *nv30, bool smooth_points);
++
+ void
+ nv30_texture_init(struct pipe_context *pipe);
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c b/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
+@@ -230,8 +230,15 @@ nv30_fp_state_create(struct pipe_context *pipe,
+ static void
+ nv30_fp_state_delete(struct pipe_context *pipe, void *hwcso)
+ {
++   struct nv30_context *nv30 = nv30_context(pipe);
+    struct nv30_fragprog *fp = hwcso;
+ 
++   if (fp->smooth)
++      nv30_fp_state_delete(pipe, fp->smooth);
++   /* a program made later at this address is not the one the GPU holds */
++   if (nv30->state.fragprog == fp)
++      nv30->state.fragprog = NULL;
++
+    pipe_resource_reference(&fp->buffer, NULL);
+ 
+    if (fp->draw)
+@@ -256,6 +263,70 @@ nv30_fp_state_bind(struct pipe_context *pipe, void *hwcso)
+       nouveau_bufctx_reset(nv30->bufctx, BUFCTX_FRAGPROG);
+ 
+    nv30->fragprog.program = fp;
++   nv30->fragprog.user = fp;
++   nv30->dirty |= NV30_NEW_FRAGPROG;
++}
++
++/* NV30_POINT_SMOOTH: the smooth point variant of fp (nv30_point_smooth.c), translated, or fp
++ * when it can't be had (no colour output, out of texture coordinates for the point coordinate,
++ * a translation failure) */
++static struct nv30_fragprog *
++nv30_fragprog_smooth(struct nv30_context *nv30, struct nv30_fragprog *fp)
++{
++   struct nv30_fragprog *v;
++
++   if (fp->smooth)
++      return fp->smooth;
++   if (fp->smooth_failed)
++      return fp;
++
++   fp->smooth_failed = true;
++   v = CALLOC_STRUCT(nv30_fragprog);
++   if (!v)
++      return fp;
++   v->pipe.tokens = nv30_point_smooth_tokens(fp->pipe.tokens);
++   if (!v->pipe.tokens) {
++      FREE(v);
++      return fp;
++   }
++   tgsi_scan_shader(v->pipe.tokens, &v->info);
++   v->is_smooth = true;
++   nv30_shader_cache_fp_translate(nv30, v);   /* _nvfx_fragprog_translate */
++   if (!v->translated) {
++      nv30_fp_state_delete(&nv30->base.pipe, v);
++      return fp;
++   }
++   /* The point coordinate's texture coordinate is marked 0xfffe (replaced, nothing routed to
++    * it). Vertex programs route nothing to a free one (0xffff) either: as free, a vertex program
++    * keeps its code when the program switches between fp and the variant (nv30_vertprog_validate
++    * translates it again when the texture coordinates differ). */
++   for (unsigned i = 0; i < ARRAY_SIZE(v->texcoord); i++) {
++      if (v->texcoord[i] == 0xfffe)
++         v->texcoord[i] = 0xffff;
++   }
++   fp->smooth_failed = false;
++   fp->smooth = v;
++   return v;
++}
++
++/* Before each draw: the GPU runs the bound program, or its smooth point variant for points drawn
++ * with point_smooth (NV30_POINT_SMOOTH) */
++void
++nv30_fragprog_select(struct nv30_context *nv30, bool smooth_points)
++{
++   struct nv30_fragprog *fp = nv30->fragprog.user;
++
++   if (!fp)
++      return;
++   if (smooth_points)
++      fp = nv30_fragprog_smooth(nv30, fp);
++   if (fp == nv30->fragprog.program)
++      return;
++
++   /* as nv30_fp_state_bind */
++   if (fp != nv30->state.fragprog)
++      nouveau_bufctx_reset(nv30->bufctx, BUFCTX_FRAGPROG);
++   nv30->fragprog.program = fp;
+    nv30->dirty |= NV30_NEW_FRAGPROG;
+ }
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
+@@ -259,7 +259,7 @@ nv30_blit(struct pipe_context *pipe,
+    util_blitter_save_rasterizer(nv30->blitter, nv30->rast);
+    util_blitter_save_viewport(nv30->blitter, &nv30->viewport);
+    util_blitter_save_scissor(nv30->blitter, &nv30->scissor);
+-   util_blitter_save_fragment_shader(nv30->blitter, nv30->fragprog.program);
++   util_blitter_save_fragment_shader(nv30->blitter, nv30->fragprog.user);
+    util_blitter_save_blend(nv30->blitter, nv30->blend);
+    util_blitter_save_depth_stencil_alpha(nv30->blitter,
+                                          nv30->zsa);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_point_smooth.c b/src/gallium/drivers/nouveau/nv30/nv30_point_smooth.c
+new file mode 100644
+--- /dev/null
++++ b/src/gallium/drivers/nouveau/nv30/nv30_point_smooth.c
+@@ -0,0 +1,144 @@
++/*
++ * Round points for GL_POINT_SMOOTH on nv30 (NV30_POINT_SMOOTH=1, the default).
++ *
++ * Neither NV3x nor NV4x has a known point smoothing switch (nouveau's method list has none, the
++ * RSX's libgcm neither), and nv30 ignored pipe_rasterizer_state::point_smooth: smooth points came
++ * out square (Yamagi Quake II's particles, which draws them as GL_POINTS with GL_POINT_SMOOTH
++ * and ARB_point_parameters). The state tracker leaves the smoothing to the driver (radeonsi and
++ * zink run nir_lower_point_smooth on a fragment shader variant). nv30 does the same on TGSI:
++ * points drawn with point_smooth run a variant of the bound fragment program
++ * (nv30_fragprog_select) which reads the point coordinate the hardware puts in a free texture
++ * coordinate (the point sprite's coordinate replacement, as for gl_PointCoord), computes the
++ * fragment's distance from the centre, discards it outside the circle and multiplies the colour's
++ * alpha by the coverage of a one-pixel edge, like nir_lower_point_smooth:
++ *
++ *    t.xy = pc.xy - 0.5
++ *    t.x  = 1 / rsq(t.x * t.x + t.y * t.y)      distance from the centre, in point units
++ *    t.z  = 1 / |ddx(pc.x)|                     the point's size in pixels
++ *    t.w  = (0.5 - t.x) * t.z                   pixels inside the edge
++ *    kill if t.w < 0
++ *    t.w  = min(t.w, 1)
++ *    COLOR[0] = colour * (1, 1, 1, t.w)
++ *
++ * The blending the application set does the rest (GL leaves it to the application: smooth
++ * points without blending have the coverage in alpha only). 1 / rsq: nvfx has no SQRT, and
++ * rsq(0) is infinite, so the centre is 0 instead of 0 * inf.
++ */
++
++#include "tgsi/tgsi_parse.h"
++#include "tgsi/tgsi_scan.h"
++#include "tgsi/tgsi_transform.h"
++
++#include "nv30/nv30_state.h"
++
++struct smooth_ctx {
++   struct tgsi_transform_context base;
++   int color_out;       /* OUT index of COLOR[0] */
++   unsigned tmp;        /* coverage temporary */
++   unsigned color_tmp;  /* COLOR[0] as the program writes it */
++   unsigned coord;      /* the new PCOORD input */
++   unsigned imm;        /* (0.5, 0.5, 1.0, 0.0) */
++};
++
++static void
++smooth_prolog(struct tgsi_transform_context *tctx)
++{
++   struct smooth_ctx *s = (struct smooth_ctx *)tctx;
++   struct tgsi_full_instruction inst;
++   const unsigned t = s->tmp, X = TGSI_SWIZZLE_X, Z = TGSI_SWIZZLE_Z, W = TGSI_SWIZZLE_W;
++
++   tgsi_transform_temps_decl(tctx, s->tmp, s->color_tmp);
++   tgsi_transform_input_decl(tctx, s->coord, TGSI_SEMANTIC_PCOORD, 0, TGSI_INTERPOLATE_LINEAR);
++   tgsi_transform_immediate_decl(tctx, 0.5f, 0.5f, 1.0f, 0.0f);
++
++   /* t.xy = pc.xy - 0.5; t.x = dot(t.xy, t.xy); t.x = 1 / rsq(t.x) */
++   tgsi_transform_op2_inst(tctx, TGSI_OPCODE_ADD, TGSI_FILE_TEMPORARY, t, TGSI_WRITEMASK_XY,
++                           TGSI_FILE_INPUT, s->coord, TGSI_FILE_IMMEDIATE, s->imm, true);
++   tgsi_transform_op2_inst(tctx, TGSI_OPCODE_DP2, TGSI_FILE_TEMPORARY, t, TGSI_WRITEMASK_X,
++                           TGSI_FILE_TEMPORARY, t, TGSI_FILE_TEMPORARY, t, false);
++   tgsi_transform_op1_swz_inst(tctx, TGSI_OPCODE_RSQ, TGSI_FILE_TEMPORARY, t, TGSI_WRITEMASK_X,
++                               TGSI_FILE_TEMPORARY, t, X);
++   tgsi_transform_op1_swz_inst(tctx, TGSI_OPCODE_RCP, TGSI_FILE_TEMPORARY, t, TGSI_WRITEMASK_X,
++                               TGSI_FILE_TEMPORARY, t, X);
++
++   /* t.z = 1 / |ddx(pc.x)| */
++   tgsi_transform_op1_swz_inst(tctx, TGSI_OPCODE_DDX, TGSI_FILE_TEMPORARY, t, TGSI_WRITEMASK_Z,
++                               TGSI_FILE_INPUT, s->coord, X);
++   inst = tgsi_default_full_instruction();
++   inst.Instruction.Opcode = TGSI_OPCODE_RCP;
++   inst.Instruction.NumDstRegs = 1;
++   tgsi_transform_dst_reg(&inst.Dst[0], TGSI_FILE_TEMPORARY, t, TGSI_WRITEMASK_Z);
++   inst.Instruction.NumSrcRegs = 1;
++   tgsi_transform_src_reg(&inst.Src[0], TGSI_FILE_TEMPORARY, t, Z, Z, Z, Z);
++   inst.Src[0].Register.Absolute = 1;
++   tctx->emit_instruction(tctx, &inst);
++
++   /* t.w = (0.5 - t.x) * t.z; kill if negative; t.w = min(t.w, 1) */
++   tgsi_transform_op2_swz_inst(tctx, TGSI_OPCODE_ADD, TGSI_FILE_TEMPORARY, t, TGSI_WRITEMASK_W,
++                               TGSI_FILE_IMMEDIATE, s->imm, X, TGSI_FILE_TEMPORARY, t, X, true);
++   tgsi_transform_op2_swz_inst(tctx, TGSI_OPCODE_MUL, TGSI_FILE_TEMPORARY, t, TGSI_WRITEMASK_W,
++                               TGSI_FILE_TEMPORARY, t, W, TGSI_FILE_TEMPORARY, t, Z, false);
++   tgsi_transform_kill_inst(tctx, TGSI_FILE_TEMPORARY, t, W, false);
++   tgsi_transform_op2_swz_inst(tctx, TGSI_OPCODE_MIN, TGSI_FILE_TEMPORARY, t, TGSI_WRITEMASK_W,
++                               TGSI_FILE_TEMPORARY, t, W, TGSI_FILE_IMMEDIATE, s->imm, Z, false);
++}
++
++static void
++smooth_inst(struct tgsi_transform_context *tctx, struct tgsi_full_instruction *inst)
++{
++   struct smooth_ctx *s = (struct smooth_ctx *)tctx;
++
++   for (unsigned i = 0; i < inst->Instruction.NumDstRegs; i++) {
++      struct tgsi_full_dst_register *dst = &inst->Dst[i];
++      if (dst->Register.File == TGSI_FILE_OUTPUT && dst->Register.Index == s->color_out) {
++         dst->Register.File = TGSI_FILE_TEMPORARY;
++         dst->Register.Index = s->color_tmp;
++      }
++   }
++   tctx->emit_instruction(tctx, inst);
++}
++
++static void
++smooth_epilog(struct tgsi_transform_context *tctx)
++{
++   struct smooth_ctx *s = (struct smooth_ctx *)tctx;
++
++   tgsi_transform_op1_inst(tctx, TGSI_OPCODE_MOV, TGSI_FILE_OUTPUT, s->color_out,
++                           TGSI_WRITEMASK_XYZ, TGSI_FILE_TEMPORARY, s->color_tmp);
++   tgsi_transform_op2_swz_inst(tctx, TGSI_OPCODE_MUL, TGSI_FILE_OUTPUT, s->color_out,
++                               TGSI_WRITEMASK_W, TGSI_FILE_TEMPORARY, s->color_tmp, TGSI_SWIZZLE_W,
++                               TGSI_FILE_TEMPORARY, s->tmp, TGSI_SWIZZLE_W, false);
++}
++
++/* The program's smooth point variant (tokens to FREE), or NULL: no COLOR[0] output, control
++ * flow that returns early, or out of memory. */
++struct tgsi_token *
++nv30_point_smooth_tokens(const struct tgsi_token *tokens)
++{
++   struct tgsi_shader_info info;
++   struct smooth_ctx s;
++
++   tgsi_scan_shader(tokens, &info);
++   if (info.processor != MESA_SHADER_FRAGMENT ||
++       info.opcode_count[TGSI_OPCODE_RET] || info.opcode_count[TGSI_OPCODE_CAL])
++      return NULL;
++
++   memset(&s, 0, sizeof(s));
++   s.color_out = -1;
++   for (unsigned i = 0; i < info.num_outputs; i++) {
++      if (info.output_semantic_name[i] == TGSI_SEMANTIC_COLOR &&
++          info.output_semantic_index[i] == 0)
++         s.color_out = i;
++   }
++   if (s.color_out < 0)
++      return NULL;
++   s.tmp = info.file_max[TGSI_FILE_TEMPORARY] + 1;
++   s.color_tmp = s.tmp + 1;
++   s.coord = info.file_max[TGSI_FILE_INPUT] + 1;
++   s.imm = info.immediate_count;
++
++   s.base.prolog = smooth_prolog;
++   s.base.transform_instruction = smooth_inst;
++   s.base.epilog = smooth_epilog;
++   return tgsi_transform_shader(tokens, tgsi_num_tokens(tokens) + 200, &s.base);
++}
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -557,6 +557,7 @@ nv30_screen_create(struct nouveau_device *dev)
+    screen->index_upload = debug_get_num_option("NV30_INDEX_UPLOAD", ps3 ? 32 : 0);
+    screen->ctx_state_keep = debug_get_bool_option("NV30_CTX_STATE_KEEP", false);
+    screen->idxbuf_late_ref = debug_get_bool_option("NV30_IDXBUF_LATE_REF", false);
++   screen->point_smooth = debug_get_bool_option("NV30_POINT_SMOOTH", true);
+    /* NV30_FENCE_BO_POOL=N: keep up to N wait buffers of deleted fences for the next fences
+     * instead of a 4 KiB GART buffer allocation and free per submission (nouveau_fence.h); 0: off.
+     */
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.h b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.h
+@@ -45,6 +45,7 @@ struct nv30_screen {
+    unsigned index_upload;      /* NV30_INDEX_UPLOAD: least count of CPU-held indices uploaded */
+    bool ctx_state_keep;        /* NV30_CTX_STATE_KEEP: trust the state after the last context went */
+    bool idxbuf_late_ref;       /* NV30_IDXBUF_LATE_REF: index buffer referenced after validation */
++   bool point_smooth;          /* NV30_POINT_SMOOTH: round smooth points (nv30_point_smooth.c) */
+    bool ps3_kick_auto;         /* NV30_PS3_KICK_AUTO: submit once the GPU caught up (nv30_vbo.c) */
+    unsigned ps3_kick_min_words; /* NV30_PS3_KICK_MIN_BYTES / 4: least work worth a submission */
+    unsigned ps3_kick_split;    /* NV30_PS3_KICK_SPLIT: at most about this many parts per frame */
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state.h b/src/gallium/drivers/nouveau/nv30/nv30_state.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_state.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_state.h
+@@ -129,8 +129,17 @@ struct nv30_fragprog {
+    uint32_t coord_conventions;
+    uint32_t texcoords;
+    uint32_t rt_enable;
++
++   /* NV30_POINT_SMOOTH (nv30_point_smooth.c): this program for points drawn with point_smooth,
++    * made at the first such draw; smooth_failed: it can't be (then the points stay square) */
++   struct nv30_fragprog *smooth;
++   bool smooth_failed;
++   bool is_smooth;	/* this is such a variant: the point sprite is enabled for it */
+ };
+ 
++struct tgsi_token *
++nv30_point_smooth_tokens(const struct tgsi_token *tokens);
++
+ struct nv30_vertex_element {
+    unsigned state;
+ };
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+@@ -378,7 +378,8 @@ nv30_validate_point_coord(struct nv30_context *nv30)
+          if (hw)
+             nv30->draw_flags |= NV30_NEW_RASTERIZER;
+       } else
+-      if (rasterizer->point_quad_rasterization) {
++      if (rasterizer->point_quad_rasterization || (fp && fp->is_smooth)) {
++         /* the smooth point variant reads the replaced coordinate (nv30_point_smooth.c) */
+          hw |= NV30_3D_POINT_SPRITE_ENABLE;
+       }
+    }
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_vbo.c
+@@ -792,6 +792,12 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+       }
+    }
+ 
++   /* NV30_POINT_SMOOTH: points with point_smooth run the fragment program's round point variant
++    * (nv30_point_smooth.c; not on the draw module's path, which has no point coordinate) */
++   if (likely(nv30->screen->point_smooth))
++      nv30_fragprog_select(nv30, nv30->rast && nv30->rast->pipe.point_smooth && !nv30->draw_flags &&
++                                 u_reduced_prim(info->mode) == MESA_PRIM_POINTS);
++
+    nv30_state_validate(nv30, ~0, true);
+    if (nv30->draw_flags) {
+       nv30_render_vbo(pipe, info, drawid_offset, &draws[0]);

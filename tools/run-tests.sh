@@ -14,7 +14,9 @@
 #            mesa-query-steal (Mesa 0046: nv30's queries when the report slots run out, against a
 #            fake GPU, under AddressSanitizer; with it Mesa 0047-0049's alloc-fail-test: u_upload_mgr,
 #            nouveau_mm and nouveau_fence when buffers cannot be had, and 0049's transfer-cpu-test:
-#            nv30 texture uploads and reads by the CPU when the GART is full),
+#            nv30 texture uploads and reads by the CPU when the GART is full), mesa-point-smooth
+#            (Mesa 0050's round GL_POINT_SMOOTH points: the fragment program variant on Mesa's
+#            TGSI interpreter over each point's square, and its NV40 translation),
 #            ssdimg (the SSD test
 #            drive's stamp.py, ps3-imgmap on a fake UFS layer, ps3-vswap's device-mapper backing;
 #            ps3-imgmap-boot's maps and tables against ps3-imgmap's; both tools' write guard
@@ -185,6 +187,30 @@ t_autogm() {
 	ps3-desktop/tests/autogm-check.sh
 }
 
+t_pointsmooth() {
+	local M=build/work/mesa T=build/tmp/tests
+	[ -e $M/src/gallium/drivers/nouveau/nv30/nv30_point_smooth.c ] ||
+		{ echo "skip: no build/work/mesa with the NV30_POINT_SMOOTH patch (make mesa-work)"; exit 77; }
+	need gcc
+	local G=$T/mesa-gen N=$M/src/compiler/nir A=$M/src/gallium/auxiliary/tgsi
+	mkdir -p $G/util/format
+	python3 $M/src/util/format/u_format_table.py $M/src/util/format/u_format.yaml --enums > $G/util/format/u_format_gen.h &&
+	python3 $M/src/compiler/builtin_types_h.py $G/builtin_types.h &&
+	python3 $N/nir_opcodes_h.py > $G/nir_opcodes.h && python3 $N/nir_builder_opcodes_h.py > $G/nir_builder_opcodes.h &&
+	python3 $N/nir_intrinsics_h.py --out $G/nir_intrinsics.h &&
+	python3 $N/nir_intrinsics_indices_h.py --out $G/nir_intrinsics_indices.h || exit 1
+	gcc -g -O1 -std=gnu11 -fsanitize=address,undefined -DHAVE_PTHREAD -D_GNU_SOURCE -DHAVE_TIMESPEC_GET \
+		-DHAVE_STRUCT_TIMESPEC -DUTIL_ARCH_BIG_ENDIAN=0 -DUTIL_ARCH_LITTLE_ENDIAN=1 -I$G -I$M/include -I$M/src \
+		-I$M/src/gallium/include -I$M/src/gallium/auxiliary -I$M/src/gallium/drivers/nouveau -I$M/src/util \
+		-I$M/src/mapi -I$M/src/mesa -I$M/src/compiler/nir -I$M/src/compiler -I$M/src/gallium/winsys/nouveau/drm \
+		-I$M/src/nouveau/headers -o $T/point-smooth-test mesa/tests/point-smooth-test.c \
+		$M/src/gallium/drivers/nouveau/nv30/nv30_point_smooth.c $M/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c \
+		$A/tgsi_exec.c $A/tgsi_transform.c $A/tgsi_text.c $A/tgsi_build.c $A/tgsi_info.c $A/tgsi_util.c \
+		$A/tgsi_strings.c $A/tgsi_parse.c $A/tgsi_dump.c $A/tgsi_iterate.c $A/tgsi_scan.c \
+		$M/src/util/ralloc.c $M/src/util/u_dynarray.c -lm || exit 1
+	ASAN_OPTIONS=detect_leaks=0 $T/point-smooth-test
+}
+
 run bench-selftest python3 games/bench/selftest.py
 run gprefetch python3 ps3-desktop/tests/gprefetch-check.py
 run ps3rsx-shadow bash -c "$(declare -f need t_ps3rsx); t_ps3rsx"
@@ -195,6 +221,7 @@ run mesa-staging-pool bash -c "$(declare -f need t_stagingpool); t_stagingpool"
 run mesa-vtx-snorm8 bash -c "$(declare -f need t_vtxsnorm8); t_vtxsnorm8"
 run mesa-minmax-vmx bash -c "$(declare -f need t_minmaxvmx); t_minmaxvmx"
 run mesa-query-steal bash -c "$(declare -f need t_querysteal); t_querysteal"
+run mesa-point-smooth bash -c "$(declare -f need t_pointsmooth); t_pointsmooth"
 run ssdimg python3 tools/ssdimg/test_ssdimg.py
 run ps3-boot python3 ps3-boot/tests/test_kboot.py
 run leak-check python3 tools/test_leak_check.py

@@ -46,3 +46,4 @@
 0047-u_upload-st-nv30-an-upload-buffer-that-cannot-be-had.patch
 0048-nouveau-a-buffer-allocation-that-fails-fails-the-cal.patch
 0049-nouveau-nv30-out-of-GART-a-context-keeps-its-fence-a.patch
+0050-nv30-GL_POINT_SMOOTH-points-are-round-NV30_POINT_SMO.patch
