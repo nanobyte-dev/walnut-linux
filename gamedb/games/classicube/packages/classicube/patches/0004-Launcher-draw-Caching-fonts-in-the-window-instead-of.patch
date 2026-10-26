@@ -1,0 +1,121 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 27 Oct 2026 01:05:00 +0200
+Subject: [PATCH] Launcher: draw "Caching fonts..." in the window instead of a
+ modal dialog
+
+The first run (no fontscache.txt yet) scans the platform's fonts before the launcher's first draw,
+and SystemFonts announced the wait with Window_ShowDialog. On Linux with SDL3 that is a modal message
+box that only a mouse click on OK closes, with the launcher undrawn behind it: on a console with only
+a gamepad the launcher never starts. SystemFonts now logs the message and calls a hook; the launcher
+sets it around LBackend_Init (its fonts are the first lookup) and draws the notice into the window's
+framebuffer, with the built-in fallback font (the texture pack isn't loaded yet), then the scan runs.
+Elsewhere (in game, other front ends) the message is only logged. With a font cache nothing changes.
+---
+ src/Launcher.c    | 41 +++++++++++++++++++++++++++++++++++++++++
+ src/SystemFonts.c |  7 +++++--
+ src/SystemFonts.h |  3 +++
+ 3 files changed, 49 insertions(+), 2 deletions(-)
+
+diff --git a/src/Launcher.c b/src/Launcher.c
+index 084b974..eda5566 100644
+--- a/src/Launcher.c
++++ b/src/Launcher.c
+@@ -226,6 +226,44 @@ static void Launcher_Init(void) {
+ 	Event_Register_(&InputEvents.Wheel,         NULL, OnMouseWheel);
+ }
+ 
++/* Drawn while the first run scans the platform's fonts (SysFonts_NoticeHook), in place of a modal */
++/*  dialog. The texture pack isn't loaded yet, so the text uses the built-in fallback font */
++static void DrawFontsNotice(const char* msg) {
++	cc_string text = String_FromReadonly(msg);
++	struct DrawTextArgs args;
++	struct FontDesc font;
++	struct Context2D ctx;
++	struct Bitmap bmp;
++	Rect2D rect;
++	int i, x, y;
++
++	/* A few rounds: the new window may still be mapping or changing to its fullscreen size */
++	for (i = 0; i < 3; i++) {
++		Window_ProcessEvents(0);
++		if (!Window_Main.Exists) return;
++
++		Drawer2D.BitmappedText = true;
++		Font_Make(&font, max(16, Window_Main.Height / 20), FONT_FLAGS_NONE);
++		Drawer2D.BitmappedText = false;
++		DrawTextArgs_Make(&args, &text, &font, true);
++
++		Window_AllocFramebuffer(&bmp, Window_Main.Width, Window_Main.Height);
++		Context2D_Wrap(&ctx, &bmp);
++		Gradient_Noise(&ctx, Launcher_ModernTheme.BackgroundColor, 6, 0, 0, bmp.width, bmp.height);
++
++		x = Gui_CalcPos(ANCHOR_CENTRE, 0, Drawer2D_TextWidth(&args),  bmp.width);
++		y = Gui_CalcPos(ANCHOR_CENTRE, 0, Drawer2D_TextHeight(&args), bmp.height);
++		Context2D_DrawText(&ctx, &args, x, y);
++
++		rect.x = 0; rect.width  = bmp.width;
++		rect.y = 0; rect.height = bmp.height;
++		Window_DrawFramebuffer(rect, &bmp);
++		Window_FreeFramebuffer(&bmp);
++		Font_Free(&font);
++		Thread_Sleep(20);
++	}
++}
++
+ void Launcher_Setup(void) {
+ 	static const cc_string title = String_FromConst(GAME_APP_TITLE);
+ 	Window_Create2D(640, 400);
+@@ -247,7 +285,10 @@ void Launcher_Setup(void) {
+ 	Drawer2D.BitmappedText    = false;
+ 	Drawer2D.BlackTextShadows = true;
+ 
++	/* LBackend_Init's fonts are the first lookup: on a first run, the slow font scan */
++	SysFonts_NoticeHook = DrawFontsNotice;
+ 	LBackend_Init();
++	SysFonts_NoticeHook = NULL;
+ 	LBackend_InitFramebuffer();
+ 	Launcher_ShowEmptyServers = Options_GetBool(LOPT_SHOW_EMPTY, true);
+ 	Options_Get(LOPT_USERNAME, &Launcher_Username, "");
+diff --git a/src/SystemFonts.c b/src/SystemFonts.c
+index 3fda68e..9d8425a 100644
+--- a/src/SystemFonts.c
++++ b/src/SystemFonts.c
+@@ -14,6 +14,7 @@
+ #include "Options.h"
+ 
+ static char defaultBuffer[STRING_SIZE];
++void (*SysFonts_NoticeHook)(const char* msg);
+ static cc_string font_default = String_FromArray(defaultBuffer);
+ 
+ void SysFont_SetDefault(const cc_string* fontName) {
+@@ -564,8 +565,10 @@ static void SysFonts_LoadPlatform(void) {
+ 
+ 	/* TODO this basically gets called all the time on non-Window platforms */
+ 	/* Maybe we can cache the default system font to avoid this extra work? */
+-	if (font_list.count == 0)
+-		Window_ShowDialog("One time load", "Initialising font cache, this can take several seconds.");
++	if (font_list.count == 0) {
++		Platform_LogConst("Initialising font cache, this can take several seconds.");
++		if (SysFonts_NoticeHook) SysFonts_NoticeHook("Caching fonts...");
++	}
+ 
+ 	InitFreeTypeLibrary();
+ 	Platform_LoadSysFonts();
+diff --git a/src/SystemFonts.h b/src/SystemFonts.h
+index 1e7eed3..db0c71c 100644
+--- a/src/SystemFonts.h
++++ b/src/SystemFonts.h
+@@ -43,6 +43,9 @@ CC_API void SysFonts_GetNames(struct StringsBuffer* buffer);
+ /*  NOTE: If this file has been decoded before (fontscache.txt), does nothing */
+ cc_result SysFonts_Register(const cc_string* path, SysFont_RegisterCallback callback);
+ void SysFonts_SaveCache(void);
++/* Called with a short message before the slow first scan of the platform's fonts (no fontscache.txt yet), */
++/*  so that e.g. the launcher can draw a notice. NULL (the default): the message is only logged */
++extern void (*SysFonts_NoticeHook)(const char* msg);
+ 
+ CC_END_HEADER
+ #endif
+-- 
+2.56.0
+

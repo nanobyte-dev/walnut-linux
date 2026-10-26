@@ -1,3 +1,4 @@
 0001-OpenGL-backend-CC_GL-switches-vertex-pointers-set-on.patch
 0002-map-renderer-a-chunk-part-in-one-draw-neighbouring-r.patch
 0003-SDL3-window-fullscreen-by-default-option-win-fullscr.patch
+0004-Launcher-draw-Caching-fonts-in-the-window-instead-of.patch

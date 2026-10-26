@@ -22,6 +22,7 @@ data in `ps3-games-licensed`. The release candidate is ps3.374.
 | [0001](packages/classicube/patches/0001-OpenGL-backend-CC_GL-switches-vertex-pointers-set-on.patch) | the OpenGL backend sets vertex pointers once per buffer, buffer binds and face culling only on change | `CC_GL=0` all off; `CC_GL_PTR=0`, `CC_GL_STATE=0`; `CC_GL_STATS=1` counts |
 | [0002](packages/classicube/patches/0002-map-renderer-a-chunk-part-in-one-draw-neighbouring-r.patch) | the map renderer draws a chunk part in one draw, neighbouring ranges merged | `CC_GL_CHUNKS=0` (upstream: a draw per face direction), `1` (the same faces, neighbouring ranges merged, about 770 draws a frame), `2` (default: all faces of a chunk part, about 290 draws, 75% more indices) |
 | [0003](packages/classicube/patches/0003-SDL3-window-fullscreen-by-default-option-win-fullscr.patch) | the SDL3 window fullscreen at the desktop's resolution by default (option `win-fullscreen`); this replaced an Openbox window rule in the desktop package | |
+| [0004](packages/classicube/patches/0004-Launcher-draw-Caching-fonts-in-the-window-instead-of.patch) | the first run's font scan (no `fontscache.txt`) shows "Caching fonts..." in the launcher's window (built-in fallback font) instead of a modal X11 box that only a mouse click closed; in game it is only logged | |
 
 On llvmpipe the bench path went from 5127 GL calls and 1107 draws a frame to 1524 and 294.
 

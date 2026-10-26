@@ -29,9 +29,9 @@ VBOs once probe E16 allows it. Effort L, engine patches."""
 [[item]]
 kind = "fix"
 added = 2026-10-27
-source = "the ps3-games-split check on the PS3"
+source = "the patch 0004 check on the PS3"
 text = """\
-The launcher's first run (no `fontscache.txt` in the home: a new user, every fresh-defaults session) opens \
-a modal X11 box, "Initialising font cache, this can take several seconds.", and waits for a mouse click on \
-OK: no keyboard or pad way out, the fullscreen launcher behind it undrawn until then. A patch that skips \
-the box (log the message instead) or makes Return/Escape close it."""
+Every launch scans the platform's fonts again, cache or not: the first font candidate, Arial, isn't \
+installed, so `Font_Lookup` misses in `fontscache.txt` and calls `SysFonts_LoadPlatform` (the log shows \
+"Searching for fonts in /usr/share/fonts" on each run). Measure what it costs before the launcher's first \
+draw; a fix could look up the cached fallbacks before rescanning."""

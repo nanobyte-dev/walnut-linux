@@ -100,7 +100,7 @@ gamedb/README.md.
 | `engines/ioquake3/packages/ioquake3/` | [ioquake3 (engine)](../gamedb/engines/ioquake3/) | Debian's `ioquake3` 1.36+u20260719.58839361+dfsg-1 | 28 (+ `packaging/`) |
 | `games/armagetronad/packages/armagetronad/` | [Armagetron Advanced](../gamedb/games/armagetronad/) | Debian's `armagetronad` 0.2.9.3.0-1 | 2 |
 | `games/bomberclone/packages/bomberclone/` | [BomberClone](../gamedb/games/bomberclone/) | Debian's `bomberclone` 0.11.9-9 | 2 |
-| `games/classicube/packages/classicube/` | [ClassiCube](../gamedb/games/classicube/) | upstream tarball (`upstream.mk`) | 3 (+ `debian/`) |
+| `games/classicube/packages/classicube/` | [ClassiCube](../gamedb/games/classicube/) | upstream tarball (`upstream.mk`) | 4 (+ `debian/`) |
 | `games/ddnet/packages/ddnet/` | [DDNet](../gamedb/games/ddnet/) | Debian's `ddnet` 20.1.1+ds-1 | 1 |
 | `games/dsda-doom/packages/dsda-doom/` | [dsda-doom](../gamedb/games/dsda-doom/) | Debian's `dsda-doom` 0.30.0+dfsg-1 | 6 |
 | `games/endless-sky/packages/endless-sky/` | [Endless Sky](../gamedb/games/endless-sky/) | Debian's `endless-sky` 0.11.2-1 | 11 (+ `packaging/`) |
