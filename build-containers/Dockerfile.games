@@ -1,6 +1,6 @@
 # Game asset tools on top of the builder (its own image, so the kernel/rootfs tags don't change):
 # oggdec for ClassiCube's sounds; game-data-packager (contrib, the same snapshot) with lhasa for
-# the Quake and Quake II data debs (make quake-data).
+# the Quake and Quake II data debs (make game-data).
 ARG BUILDER
 FROM ${BUILDER}
 

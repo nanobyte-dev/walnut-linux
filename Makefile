@@ -30,24 +30,30 @@ BUILDER_STAMP := $(BUILD)/.builder-$(subst :,-,$(BUILDER_TAG))
 DOCKER_RUN := docker run --rm -v $(CURDIR):/work -w /work \
 	-e SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) -e JOBS=$(JOBS)
 
+# the games' packages in the image's package layer (gamedb build.toml image_base): system/image/packages.txt
+# names only generic ones
+ROOTFS_GAMES := $(shell python3 -I tools/gamedb/build-info.py image-base)
+$(if $(filter 0,$(.SHELLSTATUS)),,$(error tools/gamedb/build-info.py image-base failed (above)))
 ROOTFS_ENV := -e DEBIAN_SUITE=$(DEBIAN_SUITE) -e DEBIAN_MIRROR=$(DEBIAN_MIRROR) \
-	-e ROOTFS_PACKAGES=$(ROOTFS_PACKAGES) -e ROOTFS_CUSTOMIZE=$(ROOTFS_CUSTOMIZE) -e OWNER=$(UID_GID)
+	-e ROOTFS_PACKAGES=$(ROOTFS_PACKAGES) -e ROOTFS_GAMES="$(ROOTFS_GAMES)" -e ROOTFS_CUSTOMIZE=$(ROOTFS_CUSTOMIZE) \
+	-e OWNER=$(UID_GID)
 
 # The base layer depends on these settings only, not on all of config.mk: this file is rewritten
 # only when they change, so e.g. an IP change doesn't trigger a rebuild.
 ROOTFS_VARS := $(BUILD)/rootfs.vars
-ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE_DATE_EPOCH BUILDER_TAG,$(v)=$($(v)))
+ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE_DATE_EPOCH BUILDER_TAG ROOTFS_GAMES,$(v)=$($(v)))
 $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
 .PHONY: gamedb-catalog walnut-server walnut-site walnut-server-test public-push initrd-ssd initrd-walnut initrd-busybox publish du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref \
-	classicube classicube-audio classicube-deploy game-data licensed-data
+	classicube-audio game-data licensed-data game-debs game-deploy gamedb-integration
 
 help:
 	@echo "Packages (docs/PACKAGING.md):"
 	@echo "  make packages     all our packages -> $(BUILD)/debs/<pkg> (kernel first, ps3rsx last)"
 	@echo "  make <pkg>-deb    one source package (linux, mesa, ps3-desktop, ...); make ps3rsx-modules; make snd-ps3-ko REL=..."
 	@echo "                    the RSX driver for both kernels in $(BUILD)/debs/linux"
+	@echo "  make game-debs GAME=<id>  every source package of one game's gamedb bundle (packages/, licensed/)"
 	@echo "  make game-data    the licensed game data debs game-data-packager makes (Quake shareware, Quake II"
 	@echo "                    demo: gamedb build.toml; the published files when the licensed suite has them)"
 	@echo "                    -> $(BUILD)/debs/game-data"
@@ -68,7 +74,7 @@ help:
 	@echo "Update the running PS3 without reinstalling (fixes still go into the build):"
 	@echo "  make deploy       install our packages on the running PS3 (PKGS=\"ps3-desktop ...\"; KERNELS=1"
 	@echo "                    upgrades kernels too; DRY_RUN=1 simulates)"
-	@echo "  make gpu-deploy | classicube-deploy | spu-deploy"
+	@echo "  make gpu-deploy | spu-deploy | game-deploy GAME=<gamedb id> (its build.toml packages)"
 	@echo "Tests (no PS3):"
 	@echo "  make test         every quick host test suite, a summary table (tools/run-tests.sh)"
 	@echo "  make test-slow    the same plus the container-based ones (autogm); ONLY=<suite> runs one"
@@ -163,8 +169,19 @@ LICENSED_PKG_DIRS := $(filter gamedb/%,$(foreach d,$(PKG_DIRS),$(if $(findstring
 include $(sort $(wildcard $(addsuffix /orig.mk,$(filter-out $(LICENSED_PKG_DIRS),$(PKG_DIRS)))))
 include $(sort $(wildcard $(addsuffix /orig.mk,$(LICENSED_PKG_DIRS))))
 
-classicube-deploy:
-	$(MAKE) deploy PKGS=classicube
+# One game's packages (gamedb/games/<GAME>/): make game-debs builds every source package of ours in its
+# bundle (packages/ and licensed/: tools/gamedb/build-info.py own-packages), make game-deploy installs its
+# build.toml packages on the running PS3
+game-debs:
+	@[ -n "$(GAME)" ] || { echo "make game-debs GAME=<gamedb id>"; exit 2; }
+	@set -e; p=$$(python3 -I tools/gamedb/build-info.py own-packages $(GAME)); \
+	[ -n "$$p" ] || { echo "$(GAME): no source package of ours in its bundle"; exit 1; }; \
+	$(MAKE) --no-print-directory $$(printf '%s-deb ' $$p)
+game-deploy:
+	@[ -n "$(GAME)" ] || { echo "make game-deploy GAME=<gamedb id>"; exit 2; }
+	@set -e; p=$$(python3 -I tools/gamedb/build-info.py packages $(GAME)); \
+	[ -n "$$p" ] || { echo "$(GAME): no packages in its build.toml"; exit 1; }; \
+	$(MAKE) --no-print-directory deploy PKGS="$$p"
 
 # The licensed game data made by game-data-packager (tools/game-data.sh): every gamedb build.toml
 # [[licensed]] with builder = "game-data-packager:<game>" (tools/gamedb/build-info.py game-data; today
@@ -185,8 +202,6 @@ game-data: | $(GAMES_BUILDER_STAMP)
 licensed-data:
 	@[ -n "$(PKG)" ] && [ -n "$(INPUT)" ] || { echo "make licensed-data PKG=<pkg> INPUT=<file>: $$(python3 -I tools/gamedb/build-info.py scripts | paste -sd' ')"; exit 2; }
 	s=$$(python3 -I tools/gamedb/build-info.py script $(PKG)) && $$s "$(INPUT)"
-
-classicube: classicube-deb classicube-data-deb
 
 # The benchmarks' built assets (gamedb/README.md "benchmark/assets-src/"): each assets.mk has its
 # rules and adds its targets to BENCH_ASSETS (ClassiCube's plugin: make classicube-bench)
@@ -491,6 +506,11 @@ ps3-boot-src: initrd-walnut
 gamedb-catalog:
 	python3 -I tools/gamedb/pack-catalog.py
 walnut-games-src: gamedb-catalog
+# ps3-games ships the games' integration (launchers, config files, divert and migrate-home lists) and the
+# metapackages' Depends, ps3-games-licensed its Depends (package.conf COPY_IN): packed from gamedb first
+gamedb-integration:
+	python3 -I tools/gamedb/pack-integration.py
+ps3-games-src ps3-games-licensed-src: gamedb-integration
 %-deb: %-src | $(BUILD)/chroot/sid-ppc64.tar
 	@tools/disk-check.sh
 	tools/ccache-remote.sh docker run --rm --privileged -v $(CURDIR):/work -w /work $(DEB_ENV) -e JOBS=$(DEB_JOBS) -e KEEP_TREE=$(KEEP_TREE) \

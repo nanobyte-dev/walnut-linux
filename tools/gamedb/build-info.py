@@ -8,6 +8,10 @@
   build-info.py script PKG         the builder script of one: gamedb/<games|engines>/<id>/licensed/PKG/PKG.sh
   build-info.py needs-licensed     the packages of every game with suite = "licensed" (in ps3-games, but
                                    not in the public ps3-games-free or the public image: tools/image-packages.sh)
+  build-info.py image-base         the packages of every game with image_base = true (the image's package
+                                   layer: the Makefile's ROOTFS_GAMES, tools/build-rootfs.sh)
+  build-info.py own-packages ID    the source packages of ours in game ID's bundle: packages/<pkg>/ and
+                                   licensed/<pkg>/ with a package.conf (make game-debs GAME=ID)
   build-info.py data ID            game ID's data packages (tools/play-pc.sh)
   build-info.py packages ID        game ID's packages (tools/play-pc.sh)
 
@@ -63,6 +67,8 @@ def main(argv=None):
     sub.add_parser("scripts")
     sub.add_parser("script").add_argument("pkg")
     sub.add_parser("needs-licensed")
+    sub.add_parser("image-base")
+    sub.add_parser("own-packages").add_argument("id")
     sub.add_parser("data").add_argument("id")
     sub.add_parser("packages").add_argument("id")
     a = ap.parse_args(argv)
@@ -89,6 +95,15 @@ def main(argv=None):
             for _, b in builds(root):
                 if b.get("suite") == "licensed":
                     print("\n".join(b.get("packages", [])))
+        elif a.cmd == "image-base":
+            for d, b in builds(root):
+                if d.parent.name == "games" and b.get("image_base") is True:
+                    print("\n".join(b.get("packages", [])))
+        elif a.cmd == "own-packages":
+            game(root, a.id)
+            gdir = Path(root) / "games" / a.id
+            print(" ".join(sorted(p.parent.name for k in ("packages", "licensed")
+                                  for p in (gdir / k).glob("*/package.conf"))))
         elif a.cmd in ("data", "packages"):
             print(" ".join(game(root, a.id).get(a.cmd, [])))
     except Error as e:

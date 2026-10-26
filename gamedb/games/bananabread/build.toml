@@ -10,3 +10,5 @@ recipes = ["bananabread:base"]
 [[licensed]]
 name = "sauerbraten-nonfree-data"
 builder = "source"
+# in ps3-games-licensed, though BananaBread is in no suite
+meta = true

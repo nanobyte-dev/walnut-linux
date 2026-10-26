@@ -1,0 +1,5 @@
+# ps3-migrate-home (ps3-desktop): files the old image setup wrote into a home directory, now installed
+# system-wide; "<path in the home> [<the packaged default>]": removed when identical to the default,
+# else moved to ~/.local/share/ps3-legacy/ (gamedb/README.md "desktop/")
+.openarena/baseoa/autoexec.cfg /usr/lib/openarena/baseoa/autoexec.cfg
+.local/share/applications/openarena.desktop /usr/share/applications/openarena.desktop

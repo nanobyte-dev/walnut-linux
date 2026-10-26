@@ -43,6 +43,7 @@ on:
       - "pkg: pnmixer"
       - "pkg: ps3-boot"
       - "pkg: ps3-desktop"
+      - "pkg: ps3-games"
       - "pkg: ps3-gpu-tools"
       - "pkg: ps3-splash"
       - "pkg: ps3-spu"

@@ -40,7 +40,6 @@ override_dh_auto_install:
 	install -D -m 644 debian/startup.wav $(P)/usr/share/sounds/walnut/startup.wav
 	install -d $(P)/usr/share/applications
 	install -m 644 files/applications/* $(P)/usr/share/applications/
-	install -D -m 644 files/autoexec.cfg $(P)/usr/lib/openarena/baseoa/autoexec.cfg
 	install -d $(P)/usr/share/backgrounds/walnut
 	install -m 644 files/backgrounds/*.jpg $(P)/usr/share/backgrounds/walnut/
 	install -D -m 644 files/backgrounds/CREDITS $(P)/usr/share/doc/ps3-desktop/CREDITS.backgrounds

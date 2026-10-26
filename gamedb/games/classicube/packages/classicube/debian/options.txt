@@ -1,5 +1,6 @@
 # Defaults for a fresh ClassiCube (copied by the launcher when the user has no options.txt yet).
 # vsync; at most 4 chunk rebuilds per frame (the game raises it up to 30 while it stays above
-# ~23 fps, and on the PPE that stretched frames into visible stutters at 60 fps)
+# ~23 fps, and on the PPE that stretched frames into visible stutters at 60 fps). Fullscreen is the
+# default (patches/0003; win-fullscreen=false for a window)
 fpslimit=LimitVSync
 gfx-maxchunkupdates=4

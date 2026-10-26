@@ -1,0 +1,46 @@
+#!/bin/sh
+# ps3-games-integration's preinst (debian/rules writes it from debian/integration.preinst.in, the list
+# from gamedb's build.toml divert keys). Each listed file of a game's package (its own menu entry, which
+# ours stand for) is diverted out of the menu's reach to /usr/share/ps3-games/diverted<path>: jgmenu
+# takes any file name containing ".desktop" in the applications directories, so the original can't
+# stay next to ours under another name. ps3-desktop held these diversions before 0.893: each one it
+# still holds is handed over where it is (no rename: the file already sits at the diverted name, and is
+# never left unmanaged). Diversions of ours that the list no longer names are given back.
+set -e
+P=ps3-games-integration
+LIST="
+@DIVERT@
+"
+take() {	# <file>
+	f=$1
+	if dpkg-divert --list "$f" | grep -q '^local diversion'; then
+		dpkg-divert --quiet --local --rename --remove "$f"
+	fi
+	owner=$(dpkg-divert --listpackage "$f")
+	case $owner in
+	"$P") ;;
+	"")
+		t=/usr/share/ps3-games/diverted$f
+		mkdir -p "$(dirname "$t")"
+		dpkg-divert --quiet --package "$P" --rename --divert "$t" --add "$f" ;;
+	ps3-desktop)
+		cur=$(dpkg-divert --truename "$f")
+		dpkg-divert --quiet --package ps3-desktop --no-rename --remove "$f"
+		dpkg-divert --quiet --package "$P" --no-rename --divert "$cur" --add "$f" ;;
+	*)
+		echo "$P: $f is diverted by $owner, left as it is" >&2 ;;
+	esac
+}
+case "$1" in
+install|upgrade)
+	held=$(dpkg-divert --list | sed -n "s/^diversion of \(.*\) to .* by $P\$/\1/p")
+	for f in $held; do
+		case "$LIST" in *"
+$f
+"*) ;; *) dpkg-divert --quiet --package "$P" --rename --remove "$f" ;; esac
+	done
+	for f in $LIST; do take "$f"; done
+	;;
+esac
+#DEBHELPER#
+exit 0

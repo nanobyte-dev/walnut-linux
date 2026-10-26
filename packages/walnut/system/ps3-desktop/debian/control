@@ -23,7 +23,8 @@ Description: PS3 desktop (Openbox on the RSX, game mode)
  order, from what it used the last time. It starts by itself for any fullscreen 3D program
  (ps3-game-detect; browsers and video players excepted) and with the menu's games (ps3-game);
  PS3_GAME_MODE=off in a program's environment, or system-wide, turns it off. Gamepads move the
- pointer outside games. Shut down and Reboot menu entries, OpenArena's PS3 settings.
+ pointer outside games. Shut down and Reboot menu entries. The games' own menu entries and
+ settings are ps3-games-integration's.
 
 Package: ps3-apps
 Architecture: all
@@ -34,24 +35,3 @@ Description: everyday desktop applications for the PS3
  (GPicView), a PDF viewer (zathura), an archive manager (Xarchiver), a calculator (Galculator),
  a task manager (LXTask), screenshots (scrot, on the Print key) and a media player (mpv). The
  PS3 desktop opens files with them by default. Remove this package to remove them.
-
-Package: ps3-games
-Architecture: all
-Depends: ${misc:Depends}, openarena, classicube, quakespasm, yamagi-quake2,
- armagetronad, neverball, xmoto, extremetuxracer, dsda-doom, freedoom, openttd, openttd-opengfx,
- openttd-opensfx, openttd-openmsx
-Description: the PS3's game suite
- The games this distribution is tested and benchmarked with (docs/GAME-PLAN.md): each one known to
- run on the RSX, with its sound, joins this package once it does. Remove this package to remove
- them. Only free packages: the licensed game data (Quake, Quake II, ClassiCube) is in
- ps3-games-licensed.
-
-Package: ps3-games-free
-Architecture: all
-Depends: ${misc:Depends}, openarena, armagetronad, neverball, xmoto, extremetuxracer,
- dsda-doom, freedoom, openttd, openttd-opengfx, openttd-opensfx, openttd-openmsx
-Suggests: classicube, quakespasm, yamagi-quake2
-Description: the PS3's game suite (free data only)
- Games from the PS3 game suite that do not require non-redistributable or
- proprietary game data to run. Games whose data is licensed (ClassiCube,
- Quake, Quake II) are omitted from this public metapackage variant.

@@ -1,20 +1,26 @@
 #!/bin/sh
 # menu-check.sh [DIR]: the Games menu as jgmenu would list it, on this host, with no PS3.
-# Builds an applications directory from the package's own entries plus stubs of the Debian games'
-# entries (those the preinst diverts are moved away, as dpkg does), runs ps3-game-menu over it,
+# Builds an applications directory from the package's own entries, ps3-games-integration's (the
+# games' launchers, from gamedb: tools/gamedb/pack-integration.py --tree) and stubs of the Debian games'
+# entries (those its divert list names are moved away, as dpkg does), runs ps3-game-menu over it,
 # then lists what jgmenu shows: every file whose name contains ".desktop" (the worst case: that is
 # what showed 0.307's openarena.desktop.ps3-orig as a second OpenArena) in the runtime directory
 # then the system one, one per file name, without NoDisplay/Hidden/OnlyShowIn. Fails on a repeated
 # Name or a game that is not through ps3-game.
 here=$(cd "$(dirname "$0")/.." && pwd)
+repo=$(cd "$here/../../../.." && pwd)
 W=${1:-$(mktemp -d)}
-rm -rf "$W/usr" "$W/run"; mkdir -p "$W/usr/share/applications" "$W/run"
+rm -rf "$W/usr" "$W/run" "$W/integration" "$W/diverted"; mkdir -p "$W/usr/share/applications" "$W/run"
 cp "$here"/files/applications/*.desktop "$W/usr/share/applications/"
+python3 -I "$repo/tools/gamedb/pack-integration.py" --out "$W/integration.tar" --licensed-out '' \
+	--tree "$W/integration" >/dev/null || exit 1
+cp "$W"/integration/tree/usr/share/applications/*.desktop "$W/usr/share/applications/"
 stub() {	# file, name, exec, icon, categories
 	printf '[Desktop Entry]\nType=Application\nName=%s\nExec=%s\nIcon=%s\nCategories=%s\n' "$2" "$3" "$4" "$5" > "$W/usr/share/applications/$1"
 }
-# Debian's (and our +ps3 packages') entries as they ship; a diverted one lands where the preinst says
-for g in $(sed -n 's|^\tfor g in \(.*\); do$|\1|p' "$here/debian/preinst"); do
+# Debian's (and our +ps3 packages') entries as they ship; a diverted one lands outside the menu's reach
+for f in $(grep '^/usr/share/applications/.*\.desktop$' "$W/integration/tree/usr/share/ps3-games/divert.list"); do
+	g=$(basename "$f" .desktop)
 	div="$W/diverted/$g.desktop"; mkdir -p "$W/diverted"
 	case $g in
 	openarena) n=OpenArena e=/usr/games/openarena i=openarena128 ;;

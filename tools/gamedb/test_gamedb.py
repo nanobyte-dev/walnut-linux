@@ -282,7 +282,7 @@ class RulesTwoSessionsOnly(unittest.TestCase):
         self.assertEqual(score.combine([sess, crashed], rules=2)["crashes"], 0)
 
 
-BUILD_KEYS = ("packages", "engine", "suite", "needs_data", "data", "desktop", "divert", "image_base", "recipes")
+BUILD_KEYS = ("packages", "engine", "suite", "needs_data", "data", "desktop", "divert", "image_base", "recipes", "meta")
 
 
 def write_game(content, gid="ex", **over):
@@ -394,9 +394,32 @@ class Check(unittest.TestCase):
         self.assertEqual(self.problems(), {})
         write_game(self.content, divert='["usr/share/x.desktop"]', image_base="true")
         self.assertIn("divert", " ".join(self.problems()["ex"]))
+        write_game(self.content, meta='["example"]')
+        self.assertEqual(self.problems(), {})
+        write_game(self.content, meta='["other"]')               # only its own packages
+        self.assertIn("meta ['other']", " ".join(self.problems()["ex"]))
+
+    def test_desktop(self):
+        g = write_game(self.content)
+        (g / "desktop" / "launchers").mkdir(parents=True)
+        (g / "desktop" / "launchers" / "ex.desktop").write_text("[Desktop Entry]\nName=Ex\nExec=ps3-game ex -f\n")
+        (g / "desktop" / "files" / "etc").mkdir(parents=True)
+        (g / "desktop" / "files" / "etc" / "ex.cfg").write_text("x\n")
+        (g / "desktop" / "migrate-home.txt").write_text("# c\n.ex/ex.cfg /etc/ex.cfg\n")
+        self.assertEqual(self.problems(), {})
+        (g / "desktop" / "launchers" / "ex.desktop").write_text("[Desktop Entry]\nName=Ex\nExec=ex -f\n")
+        self.assertIn("through ps3-game", " ".join(self.problems()["ex"]))
+        (g / "desktop" / "launchers" / "ex.desktop").write_text("[Desktop Entry]\nName=Ex\nExec=ps3-game ex\n")
+        (g / "desktop" / "migrate-home.txt").write_text("/abs/path\n")
+        (g / "desktop" / "notes.txt").write_text("")
+        text = " ".join(self.problems()["ex"])
+        self.assertIn("migrate-home.txt line", text)
+        self.assertIn("unexpected file desktop/notes.txt", text)
 
     def test_build_toml_licensed(self):
         lic = '[[licensed]]\nname = "ex-data"\nbuilder = "source"\n'
+        write_game(self.content, build=lic + 'meta = "yes"\n')
+        self.assertIn("meta is true or false", " ".join(self.problems()["ex"]))
         write_game(self.content, build=lic)
         self.assertEqual(self.problems(), {})       # no licensed directory anywhere: the public copy
         g = self.content / "ex" / "licensed" / "ex-data"
@@ -550,8 +573,117 @@ class BuildInfo(unittest.TestCase):
             self.assertEqual(self.run_info(root, "script", "rct2-data"),
                              (0, ["gamedb/games/r/licensed/rct2-data/rct2-data.sh"]))
             self.assertEqual(self.run_info(root, "script", "quake-shareware")[0], 2)
+            self.assertEqual(self.run_info(root, "image-base"), (0, []))
+            (root / "games" / "f" / "build.toml").write_text('packages = ["free", "free-data"]\nimage_base = true\n')
+            self.assertEqual(self.run_info(root, "image-base"), (0, ["free", "free-data"]))
+            self.assertEqual(self.run_info(root, "own-packages", "r"), (0, []))  # rct2-data.sh: no package.conf
+            for d in ("packages/r-engine", "licensed/rct2-data"):
+                (root / "games" / "r" / d).mkdir(parents=True, exist_ok=True)
+                (root / "games" / "r" / d / "package.conf").write_text("")
+            self.assertEqual(self.run_info(root, "own-packages", "r"), (0, ["r-engine", "rct2-data"]))
+            self.assertEqual(self.run_info(root, "own-packages", "none")[0], 2)
             (root / "games" / "f" / "build.toml").write_text("packages = [\n")
             self.assertEqual(self.run_info(root, "game-data")[0], 2)            # fails closed
+
+
+class PackIntegration(unittest.TestCase):
+    """tools/gamedb/pack-integration.py over a small gamedb tree"""
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("pack_integration", HERE / "pack-integration.py")
+        self.pi = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.pi)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name) / "games"
+        self.out = Path(self.tmp.name) / "out"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def game(self, gid, build, draft=False, launchers=(), files=(), migrate=None):
+        g = self.root / gid
+        g.mkdir(parents=True)
+        (g / "index.md").write_text('+++\nid = "%s"\n%s+++\n' % (gid, "draft = true\n" if draft else ""))
+        (g / "build.toml").write_text(build)
+        for name, text in launchers:
+            (g / "desktop" / "launchers").mkdir(parents=True, exist_ok=True)
+            (g / "desktop" / "launchers" / name).write_text(text)
+        for path, text in files:
+            f = g / "desktop" / "files" / path
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(text)
+        if migrate is not None:
+            (g / "desktop" / "migrate-home.txt").write_text(migrate)
+
+    def pack(self):
+        os.environ["SOURCE_DATE_EPOCH"] = "0"
+        try:
+            return self.pi.pack(self.root, self.out / "i.tar", self.out / "lic.substvars", self.out / "tree")
+        finally:
+            del os.environ["SOURCE_DATE_EPOCH"]
+
+    def read(self, name):
+        return (self.out / "tree" / name).read_text()
+
+    def test_depends_and_tree(self):
+        self.game("a", 'packages = ["a", "a-data"]\nmeta = ["a"]\nsuite = "free"\n'
+                       'divert = ["/usr/share/applications/a.desktop"]\n',
+                  launchers=[("a-gl.desktop", "[Desktop Entry]\nName=A\nExec=ps3-game env X=1 a -gl\nTryExec=old\n")],
+                  files=[("usr/lib/a/a.cfg", "set x 1\n")], migrate="# home\n.a/a.cfg /usr/lib/a/a.cfg\n")
+        self.game("b", 'packages = ["b"]\nsuite = "licensed"\ndata = ["b-data"]\n'
+                       '[[licensed]]\nname = "b-data"\nbuilder = "source"\n', draft=True)   # a draft counts
+        self.game("c", 'packages = ["c"]\nsuite = "none"\n[[licensed]]\nname = "c-data"\nbuilder = "source"\n'
+                       'meta = true\n[[licensed]]\nname = "c-extra"\nbuilder = "script"\n')
+        n, f, deps = self.pack()
+        self.assertEqual(deps["ps3-games"], {"Depends": ["a", "b"], "Suggests": []})
+        self.assertEqual(deps["ps3-games-free"], {"Depends": ["a"], "Suggests": ["b"]})
+        self.assertEqual(deps["ps3-games-licensed"]["Depends"], ["b-data", "c-data"])
+        self.assertEqual(self.read("control/ps3-games-free.substvars"), "games:Depends=a\ngames:Suggests=b\n")
+        self.assertEqual((self.out / "lic.substvars").read_text(), "games:Depends=b-data, c-data\n")
+        self.assertEqual(self.read("tree/usr/share/applications/a-gl.desktop"),
+                         "[Desktop Entry]\nName=A\nExec=ps3-game env X=1 a -gl\nTryExec=a\n")
+        self.assertEqual(self.read("tree/usr/lib/a/a.cfg"), "set x 1\n")
+        self.assertEqual(self.read("tree/usr/share/ps3-games/divert.list"), "/usr/share/applications/a.desktop\n")
+        self.assertEqual(self.read("tree/usr/share/ps3-games/migrate-home.list"), ".a/a.cfg /usr/lib/a/a.cfg\n")
+        with tarfile.open(self.out / "i.tar") as t:
+            names = t.getnames()
+            self.assertEqual(names, sorted(names))
+            self.assertTrue(all(m.uid == 0 and m.mtime == 0 for m in t.getmembers()))
+        first = (self.out / "i.tar").read_bytes()
+        self.pack()
+        self.assertEqual((self.out / "i.tar").read_bytes(), first)          # reproducible
+
+    def test_fails_closed(self):
+        self.game("a", 'packages = ["a"]\nmeta = ["z"]\nsuite = "free"\n')
+        with self.assertRaisesRegex(self.pi.Error, "meta z not in its packages"):
+            self.pack()
+        shutil.rmtree(self.root / "a")
+        self.game("a", 'packages = ["a"]\nsuite = "free"\n', launchers=[("a.desktop", "Exec=a\n")])
+        with self.assertRaisesRegex(self.pi.Error, "through ps3-game"):
+            self.pack()
+        shutil.rmtree(self.root / "a")
+        self.game("a", 'packages = ["a"]\nsuite = "free"\n', files=[("etc/x.cfg", "1")])
+        self.game("b", 'packages = ["b"]\nsuite = "free"\n', files=[("etc/x.cfg", "2")])
+        with self.assertRaisesRegex(self.pi.Error, "a and b both install /etc/x.cfg"):
+            self.pack()
+        (self.root / "b" / "build.toml").write_text("packages = [\n")
+        self.assertEqual(self.pi.main(["--root", str(self.root), "--out", str(self.out / "x.tar")]), 2)
+
+    def test_this_gamedb(self):
+        """the real gamedb packs, every launcher gets a TryExec, nothing licensed goes into the public tarball"""
+        with tempfile.TemporaryDirectory() as t:
+            os.environ["SOURCE_DATE_EPOCH"] = "0"
+            try:
+                _, _, deps = self.pi.pack(self.pi.GAMES, Path(t) / "i.tar", Path(t) / "l.substvars", Path(t) / "tree")
+            finally:
+                del os.environ["SOURCE_DATE_EPOCH"]
+            apps = list((Path(t) / "tree" / "tree" / "usr/share/applications").glob("*.desktop"))
+            self.assertTrue(apps)
+            for a in apps:
+                self.assertIn("\nTryExec=", a.read_text())
+            public = " ".join((Path(t) / "tree" / "control" / f).read_text()
+                              for f in ("ps3-games.substvars", "ps3-games-free.substvars"))
+            for name in deps["ps3-games-licensed"]["Depends"]:
+                self.assertNotIn(name, public)
 
 
 class Importer(unittest.TestCase):

@@ -757,10 +757,6 @@
 
   # end of the example
 -->
-  <application class="ClassiCube">
-    <decor>no</decor>
-    <fullscreen>yes</fullscreen>
-  </application>
 </applications>
 
 </openbox_config>

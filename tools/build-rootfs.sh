@@ -1,10 +1,11 @@
 #!/bin/bash
 # Builds the package layer of the PS3 root filesystem: Debian ppc64 with every package from
-# system/image/packages.txt installed, nothing of ours yet (build-image.sh adds that). This is the slow
+# system/image/packages.txt and the games' ROOTFS_GAMES (gamedb build.toml image_base, from the Makefile)
+# installed, nothing of ours yet (build-image.sh adds that). This is the slow
 # part (dpkg under qemu, about 15 minutes), so it only reruns when the package list or the
 # snapshot changes. Runs as root inside the builder container (privileged, for mounts in the
 # chroot); foreign binaries run through the host's qemu-ppc64 binfmt.
-# Inputs (env): DEBIAN_SUITE DEBIAN_MIRROR ROOTFS_PACKAGES SOURCE_DATE_EPOCH OWNER
+# Inputs (env): DEBIAN_SUITE DEBIAN_MIRROR ROOTFS_PACKAGES ROOTFS_GAMES SOURCE_DATE_EPOCH OWNER
 # Output: build/rootfs/base.tar. Downloaded packages are kept in build/apt-cache.
 set -euo pipefail
 # The body is one block, parsed whole before it runs: editing this file during a build (bash
@@ -14,7 +15,7 @@ set -euo pipefail
 OUT=build/rootfs
 CACHE="$PWD/build/apt-cache"
 mkdir -p "$OUT" "$CACHE"
-PACKAGES="$(grep -v -e '^\s*#' -e '^\s*$' "$ROOTFS_PACKAGES" | paste -sd,)"
+PACKAGES="$({ grep -v -e '^\s*#' -e '^\s*$' "$ROOTFS_PACKAGES"; [ -z "${ROOTFS_GAMES:-}" ] || printf '%s\n' $ROOTFS_GAMES; } | paste -sd,)"
 
 export SOURCE_DATE_EPOCH
 

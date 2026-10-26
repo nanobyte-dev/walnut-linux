@@ -1,0 +1,16 @@
+#!/bin/sh
+# Every diversion of ours given back (the games' own menu entries return), and the directories they
+# were diverted to removed when empty.
+set -e
+P=ps3-games-integration
+if [ "$1" = remove ] || [ "$1" = abort-install ] || [ "$1" = disappear ]; then
+	held=$(dpkg-divert --list | sed -n "s/^diversion of \(.*\) to \(.*\) by $P\$/\1 \2/p")
+	printf '%s\n' "$held" | while read -r f t; do
+		[ -n "$f" ] || continue
+		dpkg-divert --quiet --package "$P" --rename --remove "$f" || true
+		d=$(dirname "$t")
+		while [ "$d" != /usr/share ] && [ "$d" != / ] && rmdir "$d" 2>/dev/null; do d=$(dirname "$d"); done
+	done
+fi
+#DEBHELPER#
+exit 0

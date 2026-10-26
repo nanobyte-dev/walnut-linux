@@ -1,9 +1,10 @@
 #!/bin/sh
 set -e
 if [ "$1" = remove ] || [ "$1" = abort-install ]; then
-	for f in /usr/share/gvfs/remote-volume-monitors/afc.monitor /usr/share/gvfs/remote-volume-monitors/goa.monitor \
-		/usr/share/applications/openarena.desktop /usr/share/applications/dsda-doom.desktop \
-		/usr/share/applications/openttd.desktop /usr/share/applications/quakespasm.desktop; do
+	# every diversion this package holds given back: gvfs's monitors (preinst), and any game menu entry
+	# it held before 0.893 that ps3-games-integration hasn't taken over
+	held=$(dpkg-divert --list | sed -n 's/^diversion of \(.*\) to .* by ps3-desktop$/\1/p')
+	for f in $held; do
 		dpkg-divert --quiet --package ps3-desktop --rename --remove "$f" || true
 	done
 	rmdir /usr/share/ps3-desktop/diverted-menu /usr/share/ps3-desktop 2>/dev/null || true

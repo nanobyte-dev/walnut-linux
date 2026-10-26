@@ -96,14 +96,15 @@ and `needs_data`; a draft has a build.toml only when something about its build i
 |---|---|---|
 | `packages` | list | the packages the app installs (`walnut-games-helper`; `tools/play-pc.sh` on the PC): Debian package names, none licensed; each one in the apt index (`check.py --apt-index URL`, e.g. the Debian snapshot's and our repository's Packages) or built by a `debian/control` of ours |
 | `engine` | string | the engine bundle in `engines/` it runs on; that engine's `engine.md` `games` lists the game (check.py checks both ways) |
-| `suite` | string | `free`: in `ps3-games` and the public `ps3-games-free`; `licensed`: in `ps3-games` only, its data is licensed (the public image leaves its packages out: `tools/image-packages.sh`); `none`: in neither |
+| `suite` | string | `free`: in `ps3-games` and the public `ps3-games-free`; `licensed`: in `ps3-games` only (`ps3-games-free` suggests it), its data is licensed (the public image leaves its packages out: `tools/image-packages.sh`); `none`: in neither. Drafts count too (ClassiCube is a draft in `ps3-games`) |
+| `meta` | list | the packages `ps3-games` and `ps3-games-free` name for the game, when not all of `packages` (e.g. `["neverball"]`: its data comes with it); each one of `packages` |
 | `needs_data` | bool | the player supplies data the game can't run without (index.md then has `data_guide` and `data_steps`) |
 | `data` | list | the data packages (often licensed) the game plays with: on the PC, `tools/play-pc.sh` mounts each one's files from a `.deb` found in build/ |
 | `desktop` | list | the game's own menu entries the app starts (`<name>.desktop`) |
-| `divert` | list | absolute paths of files of the game's packages we divert (today ps3-desktop's preinst moves the games' own menu entries away; step 3 generates it from here) |
-| `image_base` | bool | in the image's package layer (system/image/packages.txt) |
+| `divert` | list | absolute paths of files of the game's packages we divert: the game's own menu entries, which our launchers stand for (`ps3-games-integration`'s preinst moves each to `/usr/share/ps3-games/diverted<path>`, out of the menu's reach) |
+| `image_base` | bool | its packages are in the image's package layer (`tools/gamedb/build-info.py image-base`, the Makefile's `ROOTFS_GAMES`; system/image/packages.txt names only generic packages) |
 | `recipes` | list | the bench runs that stand for the game, `"<id>:<variant>"` of its own `benchmark/recipe.sh` (the catalog's `recipes`) |
-| `[[licensed]]` | tables | the game's licensed data: `name` (the package), `builder` (`source`: a source package of ours in `licensed/<name>/`; `script`: `licensed/<name>/<name>.sh` run on the owner's own copy, `make licensed-data PKG=<name> INPUT=<file>`; `game-data-packager:<game>`: `make game-data`), `leak_files` (paths of its content in upstream tarballs, leak globs) |
+| `[[licensed]]` | tables | the game's licensed data: `name` (the package), `builder` (`source`: a source package of ours in `licensed/<name>/`; `script`: `licensed/<name>/<name>.sh` run on the owner's own copy, `make licensed-data PKG=<name> INPUT=<file>`; `game-data-packager:<game>`: `make game-data`), `leak_files` (paths of its content in upstream tarballs, leak globs), `meta` (bool: `ps3-games-licensed` depends on it; by default true for a game with suite `licensed`; BananaBread's `sauerbraten-nonfree-data` sets it) |
 
 Every `licensed/<pkg>/` directory of a bundle has its `[[licensed]]` entry, and every `source` or `script`
 entry its directory (a checkout without licensed directories, the public copy, skips that direction).
@@ -114,12 +115,13 @@ and `[[licensed]]` only.
 Read by: `tools/gamedb/check.py` (validates), `catalog.py` (packages, needs_data, desktop, recipes),
 `tools/licensed.py` (`[[licensed]]` names and leak_files), `tools/gamedb/build-info.py` (for the Makefile's
 `make game-data` and `make licensed-data`, `tools/image-packages.sh`'s licensed-suite games, `tools/play-pc.sh`'s
-packages and data); *planned* (step 3) `tools/gamedb/pack-integration.py` (suite, desktop, divert: the
-ps3-games Depends and the integration package).
+packages and data, `image-base`, `own-packages` for `make game-debs`), `tools/gamedb/pack-integration.py`
+(suite, packages, meta, divert, `[[licensed]]` meta: the metapackages' Depends and the integration package).
 
-Versions: `walnut-games` (*now*), `ps3-games` and `ps3-games-licensed` (*planned*) carry `VERSION_PATHS` over
+Versions: `walnut-games`, `ps3-games` and `ps3-games-licensed` carry `VERSION_PATHS` over
 exactly the gamedb files they consume (index.md, thumb.png, build.toml, rating/test.toml,
-rating/sessions/*/* and packages/*/patches/** for the app; build.toml and desktop/ for ps3-games), never a session's raw/, technical.md, investigations, todo.toml, benchmark/ or
+rating/sessions/*/* and packages/*/patches/** for the app; build.toml and desktop/ for ps3-games, build.toml for
+ps3-games-licensed), never a session's raw/, technical.md, investigations, todo.toml, benchmark/ or
 research. `tools/deb-version.sh` reads a pattern there as GitHub's path filters do: `*` within one
 path component, `**` across them.
 
@@ -150,10 +152,23 @@ its own bundle's build.toml.
 
 ### games/<id>/desktop/
 
-*Planned* (step 3): `launchers/*.desktop`, `files/<absolute path>` (config files we install, e.g.
-OpenArena's defaults), `migrate-home.txt`. `tools/gamedb/pack-integration.py` turns them into the
-`ps3-games-integration` package's tree, and `ps3-games` / `ps3-games-free` / `ps3-games-licensed`'s
-Depends.
+How the game is integrated into the PS3 desktop, as files (`tools/gamedb/check.py` allows only these):
+
+- `launchers/*.desktop`: our menu entries, one per way to start the game (OpenArena's two renderers); the
+  Exec starts it through `ps3-game` (game mode). `pack-integration.py` adds `TryExec=` the program Exec runs
+  (past `env` and `VAR=value`), so the entry shows only when the game is installed.
+- `files/<absolute path>`: config files installed as they are (OpenArena's PS3 defaults:
+  `files/usr/lib/openarena/baseoa/autoexec.cfg`). Two games installing one path is an error.
+- `migrate-home.txt`: `<path in the home> [<packaged default>]` per line (`#` comments): files the old image
+  setup wrote into a home directory; `ps3-migrate-home` (ps3-desktop) removes each one that equals the
+  default and moves the others to `~/.local/share/ps3-legacy/`.
+
+`tools/gamedb/pack-integration.py` (`make gamedb-integration`) packs every game's desktop/ and the build.toml
+keys above into build/gamedb/integration.tar, which the `ps3-games` source package
+(packages/walnut/system/ps3-games/) takes in: `ps3-games-integration` installs the tree (the launchers in
+/usr/share/applications/, the files, /usr/share/ps3-games/divert.list and migrate-home.list) and diverts the
+listed files; `ps3-games` and `ps3-games-free` get their Depends and Suggests from it. `ps3-games-licensed`'s
+Depends come from build/gamedb/ps3-games-licensed.substvars (kept out of the public tarball).
 
 ### games/<id>/rating/
 
@@ -298,7 +313,7 @@ docs/research/.
 |---|---|
 | catalog.json (site, app); technical.json (*planned*) | `tools/gamedb/catalog.py` |
 | the app's catalog.tar | `tools/gamedb/pack-catalog.py` |
-| the integration tree and the ps3-games Depends (*planned*) | `tools/gamedb/pack-integration.py` |
+| the integration tree, the ps3-games / ps3-games-free / ps3-games-licensed Depends | `tools/gamedb/pack-integration.py` (`make gamedb-integration`) |
 | `PKG_DIRS`, `SRC_PACKAGES` (every package of ours, in build order) | `tools/pkg-dir.sh --all`, `--order` |
 | orig recipes and `DEB_ENV`'s tarball variables | the packages' `orig.mk`, included by the Makefile |
 | `make game-data`, `make licensed-data`, the public image's licensed-suite games, play-pc's packages and data | `tools/gamedb/build-info.py` |

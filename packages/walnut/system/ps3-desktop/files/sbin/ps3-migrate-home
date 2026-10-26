@@ -3,7 +3,9 @@
 # home directory (ps3-desktop now ships them system-wide). Files identical to the packaged
 # defaults are removed; changed ones are moved to ~/.local/share/ps3-legacy/ (nothing is lost).
 # The old ~/.bash_profile (it started X itself; /etc/profile.d/ps3-desktop.sh does now) is
-# moved there too. Safe to run more than once. Run as root or as the user.
+# moved there too, and so are the games' files /usr/share/ps3-games/migrate-home.list names
+# (ps3-games-integration, from gamedb: "<path in the home> [<packaged default>]" per line).
+# Safe to run more than once. Run as root or as the user.
 set -e
 u=${1:?usage: ps3-migrate-home <user>}
 h=$(getent passwd "$u" | cut -d: -f6)
@@ -30,8 +32,13 @@ take .config/openbox/rc.xml /etc/xdg/ps3/openbox/rc.xml
 take .config/tint2/tint2rc /etc/xdg/ps3/tint2/tint2rc
 take .config/gtk-3.0/settings.ini /etc/xdg/ps3/gtk-3.0/settings.ini
 take .config/pcmanfm/default/desktop-items-0.conf /etc/xdg/ps3/pcmanfm/default/desktop-items-0.conf
-take .openarena/baseoa/autoexec.cfg /usr/lib/openarena/baseoa/autoexec.cfg
-take .local/share/applications/openarena.desktop /usr/share/applications/openarena.desktop
+L=/usr/share/ps3-games/migrate-home.list
+if [ -r "$L" ]; then
+	while read -r f d; do
+		case $f in ''|'#'*) continue ;; esac
+		take "$f" "$d"
+	done < "$L"
+fi
 mkdir -p "$backup" && : > "$backup/.migrated"
 chown -R "$u:" "$backup" 2>/dev/null || true
 [ -z "$moved" ] || echo "ps3-migrate-home: moved to $backup:$moved"

@@ -1,4 +1,6 @@
-# Debian packages installed into the PS3 root filesystem (one per line, comments allowed).
+# Debian packages installed into the PS3 root filesystem (one per line, comments allowed). Generic names
+# only: the games' packages in this layer are gamedb's (build.toml image_base; tools/build-rootfs.sh adds
+# tools/gamedb/build-info.py image-base, the Makefile's ROOTFS_GAMES)
 systemd-sysv
 udev
 kmod
@@ -81,10 +83,3 @@ python3
 gdb
 strace
 linux-perf
-# ClassiCube (packages/patched/games/classicube/): SDL3 (window, DualShock 3), OpenAL (sound; dlopen'd), libssl
-# (system certificates for its HTTPS downloads; dlopen'd)
-libsdl3-0
-libopenal1
-libssl3t64
-# OpenArena (Debian's ioquake3 engine: SDL2 window and gamepad, OpenAL, GL1 renderer)
-openarena

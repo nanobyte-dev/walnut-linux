@@ -1,5 +1,7 @@
 # How X-Moto is built, installed and integrated (gamedb/README.md "build.toml").
 packages = ["xmoto", "xmoto-data"]
+# ps3-games names only the game; the rest comes with it
+meta = ["xmoto"]
 suite = "free"
 needs_data = false
 recipes = ["xmoto:base"]

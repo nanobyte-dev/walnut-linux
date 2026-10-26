@@ -15,7 +15,8 @@ Design
       suite only, never into the public catalog), each one built by a debian/control of ours or, with
       --apt-index (a Packages file or URL: the Debian snapshot's), in that index; engine names an
       engines/<e>/ whose engine.md lists the game (and every game engine.md lists says so); suite one
-      of SUITES (licensed: a licensed data package); [[licensed]] entries (name, builder, leak_files)
+      of SUITES (licensed: a licensed data package); meta only names packages of its own; [[licensed]]
+      entries (name, builder, leak_files, meta)
       match the bundle's licensed/<pkg>/ directories (builder source: a package.conf, script: <pkg>.sh;
       game-data-packager:<game> has none), every licensed/ directory declared; a checkout without any
       licensed directory (the public copy) skips that direction. A published game has packages,
@@ -26,7 +27,8 @@ Design
       backticks that must pair up)
     * thumb.png is a PNG; every test has a parsable result.toml of schema 1 whose listed screenshots
       exist, and no stray file sits in a session folder or the game's folder (GAME_FILES: index.md, thumb.png,
-      build.toml, rating/, packages/, licensed/, upstream.md, upstream/, benchmark/: BENCH_FILES); its rules, when given, are "<data>.<formula>" of a
+      build.toml, rating/, packages/, licensed/, upstream.md, upstream/, benchmark/: BENCH_FILES,
+      desktop/: DESKTOP_FILES, its launchers and migrate-home.txt as tools/gamedb/pack-integration.py reads them); its rules, when given, are "<data>.<formula>" of a
       data version score.py knows, and a data-version-2 test's defects name known categories
     * drafts (draft = true: a candidate, or a game tried and not published) need only id, title and
       status (one of STATUSES; status_note says why); summary, license, homepage, categories, tags,
@@ -69,11 +71,11 @@ FIELDS = {
 BUILD_KEYS = {
     "packages": (list, True), "engine": (str, False), "suite": (str, True), "needs_data": (bool, True),
     "data": (list, False), "desktop": (list, False), "divert": (list, False), "image_base": (bool, False),
-    "recipes": (list, False), "licensed": (list, False),
+    "recipes": (list, False), "licensed": (list, False), "meta": (list, False),
 }
 # an engine's build.toml: the packages the games run it from, its licensed data
 ENGINE_KEYS = {"packages": (list, False), "licensed": (list, False)}
-LICENSED_KEYS = {"name", "builder", "leak_files"}
+LICENSED_KEYS = {"name", "builder", "leak_files", "meta"}
 SUITES = ["free", "licensed", "none"]
 BUILDER_RE = re.compile(r"(source|script|game-data-packager:[a-z0-9][a-z0-9-]*)\Z")
 # a draft (draft = true: a candidate or a game we tried, not published: catalog.py, pack-catalog.py and
@@ -83,7 +85,9 @@ STATUSES = ["candidate", "tried", "blocked", "dropped", "impossible", "tested"]
 TEST_FILES = {"result.toml"}
 # what a game's folder may hold so far (gamedb/README.md; the later migration steps add theirs): the page,
 # the thumbnail, the sessions, our source packages, the licensed data packages and builders, upstream offers
-GAME_DIRS = ("rating", "packages", "licensed", "upstream", "benchmark")
+GAME_DIRS = ("rating", "packages", "licensed", "upstream", "benchmark", "desktop")
+# what desktop/ may hold: our launchers, the config files we install (by absolute path), the migrate-home lines
+DESKTOP_FILES = ("launchers", "files", "migrate-home.txt")
 # what benchmark/ may hold so far: the recipe (code), its analysis data, its helpers and files, the sources of
 # built files (assets.mk), superseded tools (steps 5 and 6 add results/ and runs/)
 BENCH_FILES = ("recipe.sh", "analysis.toml", "lib", "assets", "assets-src", "legacy")
@@ -275,6 +279,7 @@ def check_game(gdir, bad, repo, ctx=None):
         elif f in GAME_DIRS and not (gdir / f).is_dir():
             errs.append("%s is not a folder" % f)
     errs += benchmark_errors(gdir, build)
+    errs += desktop_errors(gdir)
     rating = gdir / "rating"
     for f in sorted(x.name for x in rating.iterdir()) if rating.is_dir() else []:
         if f != "sessions":
@@ -318,6 +323,8 @@ def licensed_errors(d, entries, ctx):
         if not isinstance(b, str) or not BUILDER_RE.match(b):
             errs.append("[[licensed]] %s: builder %r: source, script or game-data-packager:<game>" % (n, b))
             continue
+        if not isinstance(e.get("meta", False), bool):
+            errs.append("[[licensed]] %s: meta is true or false (in ps3-games-licensed or not)" % n)
         lf = e.get("leak_files", [])
         if not isinstance(lf, list) or not all(isinstance(x, str) and x and not x.startswith("/") and " " not in x for x in lf):
             errs.append("[[licensed]] %s: leak_files is a list of relative path patterns" % n)
@@ -382,6 +389,9 @@ def build_errors(gdir, build, bad, ctx, draft):
     for d in build.get("desktop", []):
         if not isinstance(d, str) or not re.fullmatch(r"[A-Za-z0-9._-]+\.desktop", d):
             errs.append("build.toml: desktop entry %r" % (d,))
+    bad_meta = [m for m in build.get("meta", []) if m not in build.get("packages", [])]
+    if bad_meta:
+        errs.append("build.toml: meta %r: the metapackages name only the game's own packages" % (bad_meta,))
     for d in build.get("divert", []):
         if not isinstance(d, str) or not re.fullmatch(r"(/[A-Za-z0-9._+-]+)+", d):
             errs.append("build.toml: divert %r is not an absolute path" % (d,))
@@ -413,6 +423,38 @@ def engine_errors(edir, bad, ctx):
             continue   # the game's own check says so
         if ge != Path(edir).name:
             errs.append("engine.md games lists %s, whose build.toml doesn't say engine = %r" % (g, Path(edir).name))
+    return errs
+
+
+def pack_integration():
+    spec = importlib.util.spec_from_file_location("pack_integration", Path(__file__).resolve().parent / "pack-integration.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def desktop_errors(gdir):
+    """desktop/: only DESKTOP_FILES; launchers/*.desktop that start the game through ps3-game (as
+    pack-integration.py reads them), files/ holding files only, migrate-home.txt lines it can read"""
+    errs, d = [], gdir / "desktop"
+    if not d.is_dir():
+        return errs
+    pi = pack_integration()
+    for f in sorted(x.name for x in d.iterdir()):
+        if f not in DESKTOP_FILES:
+            errs.append("unexpected file desktop/%s (desktop/ holds %s)" % (f, ", ".join(DESKTOP_FILES)))
+    for f in sorted((d / "launchers").iterdir()) if (d / "launchers").is_dir() else []:
+        try:
+            if not f.name.endswith(".desktop") or not f.is_file():
+                raise pi.Error("desktop/launchers/%s is not a .desktop file" % f.name)
+            pi.launcher(gdir.name, f)
+        except pi.Error as e:
+            errs.append(str(e))
+    if (d / "migrate-home.txt").is_file():
+        try:
+            pi.migrate_lines(gdir.name, d / "migrate-home.txt")
+        except pi.Error as e:
+            errs.append(str(e))
     return errs
 
 

@@ -1,0 +1,27 @@
+#!/usr/bin/make -f
+# integration/integration.tar (package.conf COPY_IN; tools/gamedb/pack-integration.py): tree/ is installed
+# as ps3-games-integration, control/<pkg>.substvars give ps3-games and ps3-games-free their Depends and
+# Suggests, tree/usr/share/ps3-games/divert.list goes into ps3-games-integration's preinst
+I := debian/integration
+P := debian/ps3-games-integration
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	rm -rf $(I) && mkdir -p $(I)
+	tar -xf integration/integration.tar -C $(I) --no-same-owner
+	sed -e '/@DIVERT@/{r $(I)/tree/usr/share/ps3-games/divert.list' -e 'd}' debian/integration.preinst.in \
+		> debian/ps3-games-integration.preinst
+	sh -n debian/ps3-games-integration.preinst
+
+override_dh_auto_install:
+	install -d $(P)
+	cd $(I)/tree && find . -type f -exec install -D -m 644 {} ../../../$(P)/{} \;
+
+override_dh_gencontrol:
+	for p in ps3-games ps3-games-free; do cat $(I)/control/$$p.substvars >> debian/$$p.substvars; done
+	dh_gencontrol
+
+override_dh_auto_clean:
+	rm -rf $(I) debian/ps3-games-integration.preinst

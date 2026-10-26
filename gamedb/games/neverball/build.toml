@@ -1,5 +1,7 @@
 # How Neverball is built, installed and integrated (gamedb/README.md "build.toml").
 packages = ["neverball", "neverball-common", "neverball-data"]
+# ps3-games names only the game; the rest comes with it
+meta = ["neverball"]
 suite = "free"
 needs_data = false
 recipes = ["neverball:base"]

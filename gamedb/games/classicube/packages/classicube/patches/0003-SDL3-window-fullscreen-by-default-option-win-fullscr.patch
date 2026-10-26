@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Mon, 26 Oct 2026 18:30:00 +0200
+Subject: [PATCH] SDL3 window: fullscreen by default (option win-fullscreen)
+
+On a console's TV the launcher and the game belong fullscreen. The window opens fullscreen at the
+desktop's resolution unless options.txt says win-fullscreen=false; the fullscreen key still switches at
+run time. Walnut used to force this with an Openbox window rule in its desktop package; the default now
+lives with the game.
+---
+ src/Window_SDL3.c | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/src/Window_SDL3.c b/src/Window_SDL3.c
+index 5f3c0da..3eae24e 100644
+--- a/src/Window_SDL3.c
++++ b/src/Window_SDL3.c
+@@ -7,6 +7,9 @@
+ #include "Funcs.h"
+ #include "Bitmap.h"
+ #include "Errors.h"
++#include "Options.h"
++/* ours (Walnut): not in Options.h, whose CRLF lines patch badly */
++#define OPT_FULLSCREEN "win-fullscreen"
+ #include <SDL3/SDL.h>
+ static SDL_Window* win_handle;
+ static Uint32 dlg_event;
+@@ -62,7 +65,11 @@ static void ApplyIcon(void) {
+ }
+ 
+ static void DoCreateWindow(int width, int height, int flags) {
+-	SDL_PropertiesID props = SDL_CreateProperties();
++	SDL_PropertiesID props;
++	/* A console's TV: the launcher and the game open fullscreen at the desktop's resolution unless
++	   options.txt says win-fullscreen=false (the fullscreen key still switches at run time) */
++	if (Options_GetBool(OPT_FULLSCREEN, true)) flags |= SDL_WINDOW_FULLSCREEN;
++	props = SDL_CreateProperties();
+ 	SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_X_NUMBER, SDL_WINDOWPOS_CENTERED);
+ 	SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_Y_NUMBER, SDL_WINDOWPOS_CENTERED);
+ 	SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER,  width);
+-- 
+2.56.0
+

@@ -1,0 +1,36 @@
+Source: ps3-games
+Section: games
+Priority: optional
+Maintainer: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: ps3-games
+Architecture: all
+Depends: ${misc:Depends}, ps3-games-integration (= ${binary:Version}), ${games:Depends}
+Description: the PS3's game suite
+ The games this distribution is tested and benchmarked with: each one known to run on the RSX, with
+ its sound, joins this package once it does (gamedb build.toml suite = "free" or "licensed"). Remove
+ this package to remove them. Only free packages: the licensed game data is in ps3-games-licensed.
+
+Package: ps3-games-free
+Architecture: all
+Depends: ${misc:Depends}, ps3-games-integration (= ${binary:Version}), ${games:Depends}
+Suggests: ${games:Suggests}
+Description: the PS3's game suite (free data only)
+ Games from the PS3 game suite that do not require non-redistributable or proprietary game data to
+ run (gamedb build.toml suite = "free"). Games whose data is licensed are suggested only: this public
+ metapackage variant leaves them out.
+
+Package: ps3-games-integration
+Architecture: all
+Depends: ${misc:Depends}
+Breaks: ps3-desktop (<< 0.893)
+Replaces: ps3-desktop (<< 0.893)
+Description: Walnut's menu entries and settings for the PS3's games
+ The games' integration into the PS3 desktop, from the games database (gamedb desktop/): menu
+ entries that start each game's modes through ps3-game (game mode), shown only when the game is
+ installed; the PS3 defaults some games read from system-wide files (e.g. OpenArena's); the games'
+ own menu entries that ours stand for, diverted out of the menu; the list of old per-user files
+ ps3-migrate-home tidies up.

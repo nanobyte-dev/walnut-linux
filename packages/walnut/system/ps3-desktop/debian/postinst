@@ -23,6 +23,16 @@ if [ "$1" = configure ]; then
 	else
 		python3 -m compileall -q /usr/lib/ps3/desktop >/dev/null 2>&1 || true
 	fi
+	# the games' own menu entries this package diverted before 0.893 are ps3-games-integration's: its
+	# preinst takes each one over; one still held here means it isn't installed (yet), so the entry is
+	# given back (the game's own menu entry returns) until it comes and diverts it again
+	held=$(dpkg-divert --list | sed -n 's/^diversion of \(.*\) to .* by ps3-desktop$/\1/p')
+	for f in $held; do
+		case $f in /usr/share/gvfs/remote-volume-monitors/*) continue ;; esac
+		dpkg-divert --quiet --package ps3-desktop --rename --remove "$f" ||
+			echo "ps3-desktop: could not give back the diversion of $f" >&2
+	done
+	rmdir /usr/share/ps3-desktop/diverted-menu /usr/share/ps3-desktop 2>/dev/null || true
 	# RAM: blueman's privileged helper only on demand (first install only)
 	if [ -z "$2" ]; then
 		deb-systemd-helper disable blueman-mechanism.service >/dev/null 2>&1 || true
