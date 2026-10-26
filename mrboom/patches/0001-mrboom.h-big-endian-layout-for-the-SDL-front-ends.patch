@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Mon, 26 Oct 2026 05:22:18 +0200
+Subject: mrboom.h: big-endian layout for the SDL front ends
+
+The 8086 registers and the string instructions (LODSB, STOSW, ...) have
+a big-endian layout under MSB_FIRST, but only the libretro core gets it,
+from retro_endianness.h. The SDL2 binary built on a big-endian machine
+used the little-endian layout: a byte written to AL landed in the top
+byte of EAX, so the font code's offsets went out of range and the game
+crashed on its first frames of text (ppc64: segfault in program(), at
+LODSB in aff_lettre, ESI 0x481dd440). Define MSB_FIRST from the
+compiler's byte order when the libretro header isn't used.
+
+Forwarded: no
+
+diff --git a/mrboom.h b/mrboom.h
+--- a/mrboom.h
++++ b/mrboom.h
+@@ -15,6 +15,11 @@
+ #endif
+ #else
+ #include <stdbool.h>
++/* Only the libretro core gets MSB_FIRST from retro_endianness.h; the SDL
++ * front ends need it too on a big-endian machine. */
++#if !defined(MSB_FIRST) && defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++#define MSB_FIRST 1
++#endif
+ #endif
+ 
+ #ifdef __cplusplus

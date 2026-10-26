@@ -1,0 +1,2 @@
+# Our patches on Debian's mrboom (Mr.Boom, a Bomberman clone for up to 8 players)
+0001-mrboom.h-big-endian-layout-for-the-SDL-front-ends.patch

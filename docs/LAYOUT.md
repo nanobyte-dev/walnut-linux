@@ -18,6 +18,7 @@ package (Debian source packages; docs/PACKAGING.md).
 | `plymouth/` | Debian's `plymouth` source package plus `patches/` (the script plugin without a console viewer) |
 | `pnmixer/` | Debian's `pnmixer` source package plus `patches/` (no crash on a volume change without a sound card) |
 | `bomberclone/` | Debian's `bomberclone` (an Atomic Bomberman clone) plus `patches/` (a clean quit: no segfault in the audio thread at exit; full screen by default) |
+| `mrboom/` | Debian's `mrboom` (Mr.Boom, a Bomberman clone for up to 8 players) plus `patches/` (the big-endian register layout for the SDL2 build: Debian's ppc64 binary segfaults on its first text) |
 | `ps3-splash/` | The Walnut Linux boot splash: Plymouth script theme (`theme/`), artwork generators (`art/`), `debian/` (the DRM renderer diverted, Plymouth drop-ins); also `ps3-no-initramfs` |
 | `ps3-boot/` | `ps3-update-kboot`: Petitboot's boot menu from the installed kernels, plus the entries in `/etc/kboot.d/*.conf` as written (the SSD root's); `tests/test_kboot.py` (suite `ps3-boot`); `webman/autoexec.bat`: draft GameOS startup script that backs up the boot files from dev_hdd1 to dev_hdd0 and restores them (docs/GAMEOS-HDD.md) |
 | `yquake2/` | Yamagi Quake II: Debian's `yquake2` source package (`package.conf`: version, .dsc hash, `COMPONENT=contrib`); the game data (Quake shareware, Quake II demo) comes from `make quake-data` |
