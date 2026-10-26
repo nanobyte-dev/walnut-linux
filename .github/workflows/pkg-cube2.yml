@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/patched/games/cube2/**"
+      - "gamedb/engines/cube2/packages/cube2/**"
   workflow_dispatch:
     inputs:
       target:

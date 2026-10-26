@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/patched/games/dsda-doom/**"
+      - "gamedb/games/dsda-doom/packages/dsda-doom/**"
   workflow_dispatch:
     inputs:
       target:

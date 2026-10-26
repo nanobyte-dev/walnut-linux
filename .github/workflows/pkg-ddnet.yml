@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/patched/games/ddnet/**"
+      - "gamedb/games/ddnet/packages/ddnet/**"
   workflow_dispatch:
     inputs:
       target:

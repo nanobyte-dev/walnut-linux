@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/patched/games/yquake2/**"
+      - "gamedb/games/yquake2/packages/yquake2/**"
   workflow_dispatch:
     inputs:
       target:

@@ -11,7 +11,7 @@
 # Vulkan try and the fall-back chain, with the time they take), menu (no server: the client stays in
 # the main menu), window.
 # Needs our ddnet and ddnet-server packages: Debian's ppc64 ones are older and, like Teeworlds 0.7.5,
-# have the unsigned long FIONBIO bug (packages/patched/games/ddnet/ patch 0001: the sockets stayed blocking on big-endian
+# have the unsigned long FIONBIO bug (gamedb/games/ddnet/packages/ddnet/ patch 0001: the sockets stayed blocking on big-endian
 # 64-bit, the client sat in recvfrom() at the loading screen). `dpkg -l ddnet` must show +ps3.
 # Settings go on the command line (each argument is a console line run before the client starts);
 # the client writes them to ~/.local/share/ddnet/settings_ddnet.cfg at exit, which BACKUP restores.

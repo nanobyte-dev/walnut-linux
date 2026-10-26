@@ -83,7 +83,7 @@ variant_kick100() { ENV+=(NV30_PS3_KICK_DRAWS=100); }
 # Mesa ps3.299 switches, to bisect its cost here: 0027 (adaptive submission) off, 0030 (index upload) off
 variant_autooff() { ENV+=(NV30_PS3_KICK_AUTO=0); }
 variant_idxoff() { ENV+=(NV30_INDEX_UPLOAD=0); }
-# Our classicube build's GL submission switches (packages/patched/games/classicube/patches, src/Graphics_GL1.c): CC_GL=0 is
+# Our classicube build's GL submission switches (gamedb/games/classicube/packages/classicube/patches, src/Graphics_GL1.c): CC_GL=0 is
 # the game as upstream draws it, the base run has them all on. CC_GL_STATS=1 prints draws, buffer
 # binds and pointer sets per frame once a second into game.log (not for pictures: it adds clock reads).
 variant_gloff() { ENV+=(CC_GL=0); }

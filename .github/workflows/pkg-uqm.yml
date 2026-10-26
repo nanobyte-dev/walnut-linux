@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/patched/games/uqm/**"
+      - "gamedb/games/uqm/packages/uqm/**"
   workflow_dispatch:
     inputs:
       target:

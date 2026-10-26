@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/patched/games/teeworlds/**"
+      - "gamedb/games/teeworlds/packages/teeworlds/**"
   workflow_dispatch:
     inputs:
       target:

@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/patched/games/supertuxkart/**"
+      - "gamedb/games/supertuxkart/packages/supertuxkart/**"
   workflow_dispatch:
     inputs:
       target:

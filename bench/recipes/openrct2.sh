@@ -1,4 +1,4 @@
-# OpenRCT2 0.5.6 (our big-endian build, packages/patched/games/openrct2/: openrct2 0.5.6+ds-1+ps3.N, plus openrct2-data and
+# OpenRCT2 0.5.6 (our big-endian build, gamedb/games/openrct2/packages/openrct2/: openrct2 0.5.6+ds-1+ps3.N, plus openrct2-data and
 # openrct2-music, both arch all; Debian's is little-endian only) with the user's RollerCoaster Tycoon 2 data
 # (rct2-data, the licensed suite, in /usr/share/games/rct2): smoke test, not benchmarked. The software
 # renderer (the OpenGL engine needs GL 3.3): the game draws an 8-bit frame on the CPU and SDL's renderer

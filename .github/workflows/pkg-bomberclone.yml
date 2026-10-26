@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/patched/games/bomberclone/**"
+      - "gamedb/games/bomberclone/packages/bomberclone/**"
   workflow_dispatch:
     inputs:
       target:

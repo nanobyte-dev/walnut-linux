@@ -2,7 +2,7 @@
 # smoke test, not benchmarked. SDL2 renders the 320x200 8-bit VGA surface through a scaler (Scale2x
 # by default, in software) to a texture that SDL draws scaled up to the 1920x1080 desktop-fullscreen
 # window; no OpenGL needs from the game itself. Data: /usr/share/games/tyrian (the freeware Tyrian
-# 2.1, tools/tyrian-data.sh -> package tyrian-data), found without options.
+# 2.1, gamedb/games/opentyrian/licensed/tyrian-data/tyrian-data.sh -> package tyrian-data), found without options.
 # The game starts at its intro and title screen: during() presses Return (XTEST, smoke_xkeys) to skip
 # the intro and take "New Game" (the default item), then through the episode, difficulty and ship
 # screens into the first level, then Space (fire) now and then. The key sequence is a first guess

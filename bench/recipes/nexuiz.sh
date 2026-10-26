@@ -1,5 +1,5 @@
 # Nexuiz Classic 2.5.2 (Debian's nexuiz-data and nexuiz-textures, 764 MB in two pk3s in
-# /usr/share/games/nexuiz/data) on our darkplaces-gl2 (packages/patched/games/darkplaces-gl2/: DarkPlaces 0~20180412, the last
+# /usr/share/games/nexuiz/data) on our darkplaces-gl2 (gamedb/engines/darkplaces/packages/darkplaces-gl2/: DarkPlaces 0~20180412, the last
 # snapshot with the GL 1.1/1.3/2.0 renderpaths; Debian's darkplaces is GL 3.2 core only): smoke test
 # first (UNVERIFIED on the PS3: only built, and its server run under qemu), then a bench variant. The game is
 # the engine's own benchmark: -benchmark demos/bench1.dem (a timedemo in data.pk3) prints

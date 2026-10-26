@@ -8,7 +8,7 @@ open items (repeats, a longer Neverball replay, ETR's GART growth) are in
 
 ## X-Moto
 
-`xmoto`, `xmoto-data` (`0.6.3+repack-1+ps3.N`, package directory `packages/patched/games/xmoto/`), replacing Debian's.
+`xmoto`, `xmoto-data` (`0.6.3+repack-1+ps3.N`, package directory `gamedb/games/xmoto/packages/xmoto/`), replacing Debian's.
 
 | Patch | What | Switch |
 |---|---|---|
@@ -26,7 +26,7 @@ Pads plugged in later take the first free player; controller events are always o
 "Enable joysticks" says. Menus take the d-pad, left stick, Cross and Circle (X-Moto's own).
 
 0001-0002 took a frame from 18,500 GL calls and 1,960 draws to 165 and 40 (host count), picture
-identical. `packages/patched/games/xmoto/test/glbatch-test.sh` checks the GL layer on the PC's llvmpipe: 400 frames of a
+identical. `gamedb/games/xmoto/packages/xmoto/test/glbatch-test.sh` checks the GL layer on the PC's llvmpipe: 400 frames of a
 random scene, the same pixels with and without the stream buffer, no GL errors (`make test
 ONLY=xmoto-glbatch`, needs `make xmoto-work`).
 
@@ -59,7 +59,7 @@ underruns a run.
 
 ## Extreme Tux Racer
 
-`extremetuxracer`, `extremetuxracer-data` (`0.8.4-2+ps3.N`, package directory `packages/patched/games/etr/`), replacing
+`extremetuxracer`, `extremetuxracer-data` (`0.8.4-2+ps3.N`, package directory `gamedb/games/etr/packages/etr/`), replacing
 Debian's. SFML 3.1 already has its big-endian Ogg fix. Patches 0001-0006 send fewer, larger GL
 submissions, each behind a switch (`ETR_GL=0` turns all off): a bind cache and the HUD numbers
 (`ETR_GL_BIND`, `ETR_GL_HUD`), the terrain from buffer objects in one quadtree walk
@@ -116,7 +116,7 @@ History: Mesa ps3.246 46 to ps3.262 53 HUD (+15%); ps3.299 52; first runs 2026-1
 ## Neverball
 
 `neverball`, `neverputt` and their data (`1.6.0+git20180603-3+ps3.N`, package directory
-`packages/patched/games/neverball/`; Debian's 2018 snapshot of 1.6), replacing Debian's.
+`gamedb/games/neverball/packages/neverball/`; Debian's 2018 snapshot of 1.6), replacing Debian's.
 
 | Patch | What | Switch |
 |---|---|---|
@@ -150,7 +150,7 @@ Mesa ps3.246 78.2, ps3.262 75.9 (74, 78: noise). No wedge since ps3rsx 0.249 (ro
 
 ## Armagetron
 
-Debian's `armagetronad` 0.2.9.3 with two patches of ours (`packages/patched/games/armagetronad/`): its textures are RGBA8 and the
+Debian's `armagetronad` 0.2.9.3 with two patches of ours (`gamedb/games/armagetronad/packages/armagetronad/`): its textures are RGBA8 and the
 big-endian risk (GL_RGBA or GL_BGRA picked from the SDL surface's red mask) didn't bite. Picture and sound right.
 
 - **0001, fullscreen by default.** The compiled-in default was already fullscreen at the desktop's

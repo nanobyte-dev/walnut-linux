@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/patched/games/luanti/**"
+      - "gamedb/games/luanti/packages/luanti/**"
   workflow_dispatch:
     inputs:
       target:

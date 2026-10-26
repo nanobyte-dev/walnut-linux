@@ -6,7 +6,7 @@
 # controls a hedgehog (Enter jumps, arrows walk, Tab switches, Space fires); the mission teaches the
 # moves step by step. Variants: bazooka, rope (other training missions), lowq (--low-quality), nosound,
 # window. Needs only hedgewars-engine (+ hedgewars-data, 160 MB), no Qt5: `apt install
-# hedgewars-engine`. The engine starts with the FPU exceptions masked (packages/patched/games/hedgewars/ patch 0001: without
+# hedgewars-engine`. The engine starts with the FPU exceptions masked (gamedb/games/hedgewars/packages/hedgewars/ patch 0001: without
 # it ppc64 dies with EInvalidOp before the first step). The user data goes to ~/.hedgewars.
 COMM=hwengine
 . "$here/recipes/smoke.inc"

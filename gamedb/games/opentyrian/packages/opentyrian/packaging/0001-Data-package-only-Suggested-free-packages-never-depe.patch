@@ -4,7 +4,7 @@ Date: Mon, 19 Oct 2026 05:36:32 +0300
 Subject: Data package only Suggested (free packages never depend on licensed
  ones)
 
-Debian's opentyrian Depends on tyrian-data | game-data-packager. Our tyrian-data (tools/tyrian-data.sh,
+Debian's opentyrian Depends on tyrian-data | game-data-packager. Our tyrian-data (gamedb/games/opentyrian/licensed/tyrian-data/tyrian-data.sh,
 Section local/games: the freeware Tyrian 2.1 under Epic's limited-use license) lives in the
 ps3-licensed suite, and a free package must not Depend or Recommend a licensed one
 (docs/PACKAGING.md, "Game data"). Both become Suggests; the engine tells the user what is missing.

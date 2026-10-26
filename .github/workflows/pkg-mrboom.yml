@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/patched/games/mrboom/**"
+      - "gamedb/games/mrboom/packages/mrboom/**"
   workflow_dispatch:
     inputs:
       target:

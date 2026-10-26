@@ -71,7 +71,7 @@ variant_tc1() { OA_TC=1; oa_cmd; }
 # renderergl2 with its expensive features off (docs/games/openarena.md, gl2min), then Debian's defaults.
 # Debian's ioquake3 compiles 97 GLSL programs (gl2: 115, ~30 s on the PPE) at start and again when
 # the demo loads its map (the client restarts the renderer at every map load), so the gl2 runs get
-# 330 s (240 before the steady-state passes). Our ioquake3 (packages/patched/games/ioquake3/patches, +ps3) cuts that memory; its defaults are on in gl2min and
+# 330 s (240 before the steady-state passes). Our ioquake3 (gamedb/engines/ioquake3/packages/ioquake3/patches, +ps3) cuts that memory; its defaults are on in gl2min and
 # gl2, and each gl2min_* variant below turns one change back (or an opt-in one on) to measure it.
 OA_GL2MIN=(+set r_normalMapping 0 +set r_specularMapping 0 +set r_deluxeMapping 0 +set r_sunlightMode 0
 	+set r_sunShadows 0 +set r_dlightMode 0 +set r_depthPrepass 0 +set r_hdr 0 +set r_postProcess 0

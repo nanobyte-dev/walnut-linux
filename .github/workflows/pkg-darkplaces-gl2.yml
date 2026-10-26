@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/patched/games/darkplaces-gl2/**"
+      - "gamedb/engines/darkplaces/packages/darkplaces-gl2/**"
   workflow_dispatch:
     inputs:
       target:

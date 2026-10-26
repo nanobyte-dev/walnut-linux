@@ -11,7 +11,7 @@ The music costs about a fifth of the frame rate and chops (3500-4700 underruns a
 
 ## Packages and patches
 
-`openttd`, `openttd-data` (`15.1-1+ps3.N`, package directory `packages/patched/games/openttd/`), replacing Debian's, with
+`openttd`, `openttd-data` (`15.1-1+ps3.N`, package directory `gamedb/games/openttd/packages/openttd/`), replacing Debian's, with
 Debian's `openttd-opengfx`, `openttd-opensfx`, `openttd-openmsx`; all in `ps3-games`. The release
 candidate is ps3.297. OpenTTD passes its 97 ctest tests on ppc64 in Debian's build.
 

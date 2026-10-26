@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/patched/games/xmoto/**"
+      - "gamedb/games/xmoto/packages/xmoto/**"
   workflow_dispatch:
     inputs:
       target:

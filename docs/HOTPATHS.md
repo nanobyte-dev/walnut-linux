@@ -348,7 +348,7 @@ sources the buffer at the batch's offset: the vertices are written once, where t
 When the next batch may not fit, the buffer gets new storage (glBufferData NULL), so nothing the GPU
 may still read is written again; nothing else reaches the GL while it is mapped (every other call
 draws what is pending first). Same vertices, order and draws. In nv30 an unsynchronized map of a GART
-buffer is the buffer's own mapping, no staging. The llvmpipe check `packages/patched/games/xmoto/test/glbatch-test.sh` draws
+buffer is the buffer's own mapping, no staging. The llvmpipe check `gamedb/games/xmoto/packages/xmoto/test/glbatch-test.sh` draws
 a random scene through the layer for 400 frames (about 950 batches and one buffer renewal a frame):
 the same pixels with and without, no GL errors.
 

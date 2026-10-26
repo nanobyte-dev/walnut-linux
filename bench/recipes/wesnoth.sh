@@ -1,4 +1,4 @@
-# Battle for Wesnoth 1.18.8 (our ppc64 build, packages/patched/games/wesnoth/: wesnoth-1.18 1:1.18.8-1+ps3.N; Debian has
+# Battle for Wesnoth 1.18.8 (our ppc64 build, gamedb/games/wesnoth/packages/wesnoth/: wesnoth-1.18 1:1.18.8-1+ps3.N; Debian has
 # none, Boost.Context, which only wesnothd uses, is our boost-context; data and campaigns are
 # Debian's arch-all packages, wesnoth-1.18-data is 190 MB installed): smoke test, not benchmarked. base starts the tutorial at once (-c Tutorial
 # --campaign-difficulty 1 --campaign-skip-story): the map with Konrad's keep and the "Select

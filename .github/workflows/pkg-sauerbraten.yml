@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/walnut/apps/sauerbraten/**"
+      - "gamedb/games/sauerbraten/packages/sauerbraten/**"
   workflow_dispatch:
     inputs:
       target:

@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/patched/games/etr/**"
+      - "gamedb/games/etr/packages/etr/**"
   workflow_dispatch:
     inputs:
       target:

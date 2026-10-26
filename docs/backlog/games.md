@@ -148,7 +148,7 @@ Rank 33. Games that need someone at the controller, or that are new.
   the GL 2.0 path's shaders on nv30 (`vid_gl20 0` first), VRAM and RAM with its maps, sound byte
   order, the generic (non-SSE) skeletal code's CPU.
 - **The new games** (recipes in 6d9fcaf): ScummVM (sky, queen, drascula, lure), Simutrans,
-  Crawl tiles, Freeciv, LinCity-NG, Flare, Widelands, Warmux, Cataclysm tiles; `tools/rct2-data.sh`
+  Crawl tiles, Freeciv, LinCity-NG, Flare, Widelands, Warmux, Cataclysm tiles; `gamedb/games/openrct2/licensed/rct2-data/rct2-data.sh`
   builds a licensed `rct2-data` deb from the user's RCT2 CD (the licensed suite only).
 
 - **Payoff:** more games for the suite. **Effort:** S. **Risk:** a graph exception ends the session:

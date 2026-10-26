@@ -11,17 +11,17 @@
 quake-shareware
 # Quake II's demo data (game-data-packager, Section local/games: not redistributable at all)
 quake2-demo-data
-# ClassiCube's textures, sounds and music, Mojang's (packages/licensed/classicube-data/, its own source; Section local/games)
+# ClassiCube's textures, sounds and music, Mojang's (gamedb/games/classicube/licensed/classicube-data/, its own source; Section local/games)
 classicube-data
 # Sauerbraten's models and sounds that Debian's cube2-data leaves out, CC BY-NC and the like
-# (packages/licensed/sauerbraten-nonfree-data/, Section local/games)
+# (gamedb/games/bananabread/licensed/sauerbraten-nonfree-data/, Section local/games)
 sauerbraten-nonfree-data
 # The metapackage that pulls the licensed data in with ps3-games (packages/licensed/ps3-games-licensed/, Section local/games)
 ps3-games-licensed
-# OpenRCT2's game data, unpacked from the user's own RCT2 CD (tools/rct2-data.sh, Section local/games)
+# OpenRCT2's game data, unpacked from the user's own RCT2 CD (gamedb/games/openrct2/licensed/rct2-data/rct2-data.sh, Section local/games)
 rct2-data
-# Tyrian 2.1's freeware data for OpenTyrian, Epic's limited-use license (tools/tyrian-data.sh, Section local/games)
+# Tyrian 2.1's freeware data for OpenTyrian, Epic's limited-use license (gamedb/games/opentyrian/licensed/tyrian-data/tyrian-data.sh, Section local/games)
 tyrian-data
 
-# Sauerbraten's full game data (packages/licensed/sauerbraten-data/, Section local/games)
+# Sauerbraten's full game data (gamedb/games/sauerbraten/licensed/sauerbraten-data/, Section local/games)
 sauerbraten-data

@@ -45,7 +45,7 @@ End the session with `ps3-bench.sh desktop`.
 
 ## Run on the PS3
 
-**Teeworlds 0.7.5** (our `teeworlds`, `teeworlds-server` `0.7.5-3+ps3.N`, package `packages/patched/games/teeworlds/`;
+**Teeworlds 0.7.5** (our `teeworlds`, `teeworlds-server` `0.7.5-3+ps3.N`, package `gamedb/games/teeworlds/packages/teeworlds/`;
 Debian's `teeworlds-data`). Runs: in game on dm1, 183 fps (2026-10-18, row 62). The recipe starts a
 `teeworlds-server` on the PS3 (map dm1, no master server registration, 4 slots) and the SDL2 client
 connects at 1920x1080; there is no single player and no bots, so the player runs around alone.
@@ -106,8 +106,8 @@ All three are installed on the PS3 (PLAN 1.11).
 decides. Debian's darkplaces (0~20180908 and the 2026 git snapshot) has only GL 3.2 core and GLES2
 renderpaths, so it can't run on the RSX. The last snapshot with the GL 1.1/1.3/2.0 renderpaths
 (`RENDERPATH_GL11/GL13/GL20`, an SDL2 window, `vid_gl20 0` for the combiner path) is
-0~20180412~beta1, Debian buster's orig tarball (snapshot.debian.org, `packages/patched/games/darkplaces-gl2/upstream.mk`).
-`packages/patched/games/darkplaces-gl2/` (`TYPE=upstream`, `make darkplaces-gl2-deb`, 2 MB) builds it with Debian's 13
+0~20180412~beta1, Debian buster's orig tarball (snapshot.debian.org, `gamedb/engines/darkplaces/packages/darkplaces-gl2/upstream.mk`).
+`gamedb/engines/darkplaces/packages/darkplaces-gl2/` (`TYPE=upstream`, `make darkplaces-gl2-deb`, 2 MB) builds it with Debian's 13
 patches (link options, no SSE rasterizer off x86, GPU skinning off) and `-std=gnu17` (the code uses
 `false`/`true` as enum names; gcc 15 defaults to C23). It installs `/usr/games/darkplaces-gl2` beside
 Debian's engine and `/usr/games/nexuiz-gl2` (Debian's wrapper: `-nexuiz -basedir
@@ -154,7 +154,7 @@ game, so its 17 MB free and 91 MB peak are the load's, not play's. ScummVM's ALS
 dropped from the batch (`cataclysm-dda-data` is not installable on ports). Re-runs and the games
 that need the user are in [TESTS.md](../TESTS.md) Next.
 
-OpenRCT2 has a recipe (`openrct2.sh`) and a baseline on the PS3 ([openrct2.md](openrct2.md#on-the-ps3-batch-ssdroot8)). `tools/rct2-data.sh <RCT2.iso>` builds the licensed `rct2-data` deb it
+OpenRCT2 has a recipe (`openrct2.sh`) and a baseline on the PS3 ([openrct2.md](openrct2.md#on-the-ps3-batch-ssdroot8)). `gamedb/games/openrct2/licensed/rct2-data/rct2-data.sh <RCT2.iso>` builds the licensed `rct2-data` deb it
 needs (arch all, `/usr/share/games/rct2`, about 115 MB without the ride music; `RCT2_MUSIC=1` adds
 it) from the user's own RollerCoaster Tycoon 2 CD. It unpacks the InstallShield cabinets with
 `unshield` and runs nothing from the disc; the package goes to the licensed suite only
@@ -168,7 +168,7 @@ mouse and keyboard only, a sparse 1999 UI, small at 1080p (Options > Video > Dis
 The PC reference image `wz-amd64-view` is deleted (the recipe's `REF_IMAGE`); the reference
 captures stay in `build/bench-ref/warzone2100-base`.
 
-**Warzone 2100 4.3.5** (our `packages/patched/games/warzone2100/`, the last release with a GL 2.1 renderer; recipe
+**Warzone 2100 4.3.5** (our `gamedb/games/warzone2100/packages/warzone2100/`, the last release with a GL 2.1 renderer; recipe
 `warzone2100.sh`, its header has the settings and the PC's RAM numbers). The first PS3 smoke run
 (ssdroot6, ps3.566) had the HUD and the minimap but a black 3D view. Two causes, neither of them
 the GL 2.1 driver:

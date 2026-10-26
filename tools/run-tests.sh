@@ -85,7 +85,7 @@ t_ps3rsx() {
 t_xmoto() {
 	[ -e build/work/xmoto/src/drawlib/GLBatch.cpp ] || { echo "skip: no build/work/xmoto (make xmoto-work)"; exit 77; }
 	need g++
-	packages/patched/games/xmoto/test/glbatch-test.sh 100
+	"$(tools/pkg-dir.sh xmoto)/test/glbatch-test.sh" 100
 }
 t_forcedxt() {
 	[ -e build/work/mesa/src/mesa/main/texforcedxt_policy.h ] || { echo "skip: no build/work/mesa with patch 0038 (make mesa-work)"; exit 77; }

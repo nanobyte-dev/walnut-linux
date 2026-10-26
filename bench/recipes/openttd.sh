@@ -133,7 +133,7 @@ variant_sim() {
 	HUD=0; WM=; DURATION=90; WINDOW_STOP=0; LOAD_MARK=
 }
 # the title game with the sdl-opengl driver (the package's default blitter: 32bpp-anim before patch
-# 0003, with sprites drawn on the CPU and the palette animation and the screen upload on the GPU); needs our openttd package (packages/patched/games/openttd/:
+# 0003, with sprites drawn on the CPU and the palette animation and the screen upload on the GPU); needs our openttd package (gamedb/games/openttd/packages/openttd/:
 # Debian's refuses nv30, no ARB_texture_rg); compare with title and accel
 # -d driver=2: the GL renderer, the luminance fallback and shader compiler warnings on stderr
 variant_gl() { OT_GAME=title; OT_V=sdl-opengl; ot_cmd; CMD+=(-d driver=2); HUD=1; LOAD_MARK='Loading savegame version'; }

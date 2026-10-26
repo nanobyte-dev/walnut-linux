@@ -2,7 +2,7 @@
 
 Status: draft, not sent. Patch: `yquake2-0001-kiss-table-size.patch`, cut against yquake2 8.70
 (`src/common/shared/rand.c`; upstream master's file is identical in the part that changes, read on
-GitHub 2026-10-18). Our package patch (`packages/patched/games/yquake2/patches/0002`) is bigger: it allocates the table at
+GitHub 2026-10-18). Our package patch (`gamedb/games/yquake2/packages/yquake2/patches/0002`) is bigger: it allocates the table at
 first use and has a `YQ2_KISS_QSIZE` environment variable, and touches `rogue/` and `xatrix/` copies.
 The upstream form is the smallest change that gets the same memory: `QSIZE` 0x1000, still a static
 array. The seeding is the same code, so the sequence for a given table size matches what we ran on
@@ -53,7 +53,7 @@ do that (play a recorded demo with both builds) before saying anything firm abou
 
 ## Submission steps
 
-1. Fork github.com/yquake2/yquake2, `git am docs/upstream/yquake2-0001-kiss-table-size.patch`.
+1. Fork github.com/yquake2/yquake2, `git am gamedb/games/yquake2/upstream/yquake2-0001-kiss-table-size.patch`.
 2. Read their CONTRIBUTING / code style (tabs, braces on their own lines; the patch follows the file).
 3. Open the issue first, wait for the maintainer (Yamagi) to answer, then the PR. Yamagi tends to reply
    on the issue; an unsolicited PR on a design question may be closed.

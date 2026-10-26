@@ -8,7 +8,7 @@ offering. Open items: [backlog/games.md](../backlog/games.md).
 
 ## Packages and patches
 
-- `luanti`, `luanti-data`, `luanti-server` (`5.15.2+dfsg-2+ps3.N`, package directory `packages/patched/games/luanti/`):
+- `luanti`, `luanti-data`, `luanti-server` (`5.15.2+dfsg-2+ps3.N`, package directory `gamedb/games/luanti/packages/luanti/`):
   Debian's source with ppc64 added to the Architecture of `luanti` and `luanti-server` (Debian's
   control lists only LuaJIT architectures). LuaJIT is kept. `luanti-data` is ours too, because
   `luanti` depends on its exact version; `luanti-game-minetest` is Debian's. `CHECK=1` in

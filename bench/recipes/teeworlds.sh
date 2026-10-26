@@ -10,7 +10,7 @@
 # Mpixel/s, so the start can take seconds longer; note which it was, the log has libspeq's lines with
 # SPEQ_DEBUG=1), and the tile maps are uploaded as one 3D texture (the tiles as layers), the case
 # docs/research/GAME-CANDIDATES.md lists it for. Variant notc is the same without compression.
-# Needs our teeworlds and teeworlds-server (0.7.5-3+ps3.N, package packages/patched/games/teeworlds/): Debian's hang on
+# Needs our teeworlds and teeworlds-server (0.7.5-3+ps3.N, package gamedb/games/teeworlds/packages/teeworlds/): Debian's hang on
 # big-endian 64-bit. Their UDP sockets stay blocking (FIONBIO given an unsigned long, the kernel
 # reads an int: 0 on ppc64), so the client sits in recvfrom() right after the server's accept and
 # the screen keeps the last loading frame (the run of 2026-10-18: 52% at 40 and 90 s, no frame

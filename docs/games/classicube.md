@@ -8,7 +8,7 @@ but made the RSX the limit. Next: `chunks1` as the default, then tiling and Z-cu
 
 ## Packages and patches
 
-`classicube` (the engine, `1.3.8~git20261014.aa47929-1+ps3.N`, package directory `packages/patched/games/classicube/`,
+`classicube` (the engine, `1.3.8~git20261014.aa47929-1+ps3.N`, package directory `gamedb/games/classicube/packages/classicube/`,
 `TYPE=upstream` from a pinned tarball) and `classicube-data` (Mojang's texture pack, sounds and music,
 the licensed suite only; `sounds.sh` fetches the sounds and music from Mojang by SHA-1, the
 `build-containers/Dockerfile.games` image converts them). Game data lives per user in

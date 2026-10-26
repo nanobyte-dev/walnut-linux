@@ -99,7 +99,7 @@ The PC never builds ext4. It only uploads, which reuses `tools/ssdimg/stamp.py`'
 
 ### M3. Licensed separation everywhere (R: B2, B3)
 
-1. **ClassiCube.** Split the source: engine and data. `packages/patched/games/classicube/package.conf`'s `COMPONENTS` hold Mojang's texpack and audio, which would otherwise ship as deb-src orig components and be downloaded on a CI runner.
+1. **ClassiCube.** Split the source: engine and data. `gamedb/games/classicube/packages/classicube/package.conf`'s `COMPONENTS` hold Mojang's texpack and audio, which would otherwise ship as deb-src orig components and be downloaded on a CI runner.
    - *Status: Done (cced0cc, 35c2a3c). Engine source repacked `+dfsg` without console port assets and Mojang textures; data in `classicube-data`.*
 2. **Sources and the leak scan.** Source publishing excludes every licensed source: sauerbraten-nonfree-data, ps3-games-licensed, and the rct2, tyrian and quake data. The leak scan also checks source tarballs.
    - *Status: Done (35c2a3c). `tools/aptly-publish.sh` and `tools/repo-publish.sh` route licensed sources to `ps3-licensed`, free sources leak-checked against licensed debs and `tools/licensed-files.txt` via `tools/leak-check.py`. Test suite `test_leak_check.py` integrated into `tools/run-tests.sh`.*

@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/patched/games/opentyrian/**"
+      - "gamedb/games/opentyrian/packages/opentyrian/**"
   workflow_dispatch:
     inputs:
       target:

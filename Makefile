@@ -151,7 +151,7 @@ $(ZNG_ORIG):
 	echo "$(ZLIBNG_SHA256)  $@.tmp" | sha256sum -c --quiet
 	mv $@.tmp $@
 
-# --- Warzone 2100 (packages/patched/games/warzone2100/: upstream's release tarball with a Debian-style debian/) ------
+# --- Warzone 2100 (gamedb/games/warzone2100/packages/warzone2100/: upstream's release tarball with a Debian-style debian/) ------
 WZ_ORIG := $(DOWNLOADS)/warzone2100_$(WARZONE_VERSION).orig.tar.xz
 $(WZ_ORIG):
 	@mkdir -p $(DOWNLOADS)
@@ -159,7 +159,7 @@ $(WZ_ORIG):
 	echo "$(WARZONE_SHA256)  $@.tmp" | sha256sum -c --quiet
 	mv $@.tmp $@
 
-# --- OpenRCT2 (packages/patched/games/openrct2/: upstream's release tarball and asset zips, a Debian-style debian/) ------
+# --- OpenRCT2 (gamedb/games/openrct2/packages/openrct2/: upstream's release tarball and asset zips, a Debian-style debian/) ------
 # the zips keep their upstream names (debian/rules refers to them), one directory per asset version.
 # The orig tarball is upstream's without its own debian/ directory (+ds, as Debian does): ours replaces it
 ORCT2_DL := $(DOWNLOADS)/OpenRCT2-$(OPENRCT2_VERSION).tar.gz
@@ -192,7 +192,7 @@ CC_TARBALL := $(DOWNLOADS)/ClassiCube-$(CLASSICUBE_COMMIT).tar.gz
 CC_TEXPACK := $(DOWNLOADS)/classicube-texpack-$(CLASSICUBE_TEXPACK_SHA256).zip
 # the engine's source package takes the tarball without the console ports' assets: upstream's
 # copies of Mojang's textures and Minecraft's sounds (plain, zipped, embedded in a C header), a
-# 3DS banner sound of unknown origin and Sony's PS4 SDK modules (packages/patched/games/classicube/package.conf; the
+# 3DS banner sound of unknown origin and Sony's PS4 SDK modules (gamedb/games/classicube/packages/classicube/package.conf; the
 # Linux build uses none of them; tools/leak-check.py finds the Mojang ones)
 CC_DFSG_EXCLUDE := misc/cc_textures.zip misc/cc_audio.zip misc/ps1/classicube.zip misc/ps1/classicubezip.h \
 	misc/ps1/sounds misc/n64/files/default.zip misc/3ds/audio.wav misc/3ds/banner.bin misc/ps4/right.sprx \
@@ -229,29 +229,29 @@ $(SAUER_RELEASE):
 	echo "$(SAUER_RELEASE_MD5)  $@.tmp" | md5sum -c --quiet
 	echo "$(SAUER_RELEASE_SHA256)  $@.tmp" | sha256sum -c --quiet
 	mv $@.tmp $@
-$(SB_ORIG): $(SAUER_RELEASE) packages/licensed/sauerbraten-nonfree-data/files.txt tools/sauerbraten-data.sh
+$(SB_ORIG): $(SAUER_RELEASE) $(call pkgdir,sauerbraten-nonfree-data)/files.txt $(call pkgdir,sauerbraten-nonfree-data)/sauerbraten-data.sh
 	mkdir -p $(dir $@)
-	tools/sauerbraten-data.sh $(SAUER_RELEASE) packages/licensed/sauerbraten-nonfree-data/files.txt $@ sauerbraten-nonfree-data-0.0.20201229
+	$(call pkgdir,sauerbraten-nonfree-data)/sauerbraten-data.sh $(SAUER_RELEASE) $(call pkgdir,sauerbraten-nonfree-data)/files.txt $@ sauerbraten-nonfree-data-0.0.20201229
 # sauerbraten-data (licensed): the release's data/ and packages/ whole, for the real Sauerbraten (own dir, /usr/share/games/sauerbraten)
 SBD_ORIG := $(BUILD)/sauerbraten-data/sauerbraten-data-0.0.20201229.tar.gz
-$(SBD_ORIG): $(SAUER_RELEASE) tools/sauerbraten-full-data.sh
+$(SBD_ORIG): $(SAUER_RELEASE) $(call pkgdir,sauerbraten-data)/sauerbraten-full-data.sh
 	mkdir -p $(dir $@)
-	tools/sauerbraten-full-data.sh $(SAUER_RELEASE) $@ sauerbraten-data-0.0.20201229
+	$(call pkgdir,sauerbraten-data)/sauerbraten-full-data.sh $(SAUER_RELEASE) $@ sauerbraten-data-0.0.20201229
 
-# Sounds and music, fetched and converted as the game's launcher would (packages/patched/games/classicube/sounds.sh)
+# Sounds and music, fetched and converted as the game's launcher would (gamedb/games/classicube/packages/classicube/sounds.sh)
 CC_AUDIO := $(BUILD)/classicube/audio
 classicube-audio: $(CC_AUDIO)/default2.zip
-$(CC_AUDIO)/default2.zip: $(CC_TARBALL) packages/patched/games/classicube/sounds.sh | $(GAMES_BUILDER_STAMP)
-	$(DOCKER_RUN) --user $(UID_GID) -e CC_TARBALL=$(CC_TARBALL) $(GAMES_BUILDER_TAG) packages/patched/games/classicube/sounds.sh
+$(CC_AUDIO)/default2.zip: $(CC_TARBALL) $(call pkgdir,classicube)/sounds.sh | $(GAMES_BUILDER_STAMP)
+	$(DOCKER_RUN) --user $(UID_GID) -e CC_TARBALL=$(CC_TARBALL) $(GAMES_BUILDER_TAG) $(call pkgdir,classicube)/sounds.sh
 
 classicube-deploy:
 	$(MAKE) deploy PKGS=classicube
 
-# classicube-data's upstream tarball (its own source package, licensed: packages/licensed/classicube-data/): the
+# classicube-data's upstream tarball (its own source package, licensed: gamedb/games/classicube/licensed/classicube-data/): the
 # texture pack in texpack/, the sounds and music in audio/, packed reproducibly
-CCD_UPVER := $(shell sed -n 's/^UPVER=//p' packages/licensed/classicube-data/package.conf 2>/dev/null)
+CCD_UPVER := $(shell sed -n 's/^UPVER=//p' $(call pkgdir,classicube-data)/package.conf 2>/dev/null)
 CCD_ORIG := $(BUILD)/classicube-data/classicube-data-$(CCD_UPVER).tar.gz
-$(CCD_ORIG): $(CC_TEXPACK) $(CC_AUDIO)/default2.zip packages/licensed/classicube-data/package.conf
+$(CCD_ORIG): $(CC_TEXPACK) $(CC_AUDIO)/default2.zip $(call pkgdir,classicube-data)/package.conf
 	rm -rf $(BUILD)/classicube-data/tree; mkdir -p $(BUILD)/classicube-data/tree/classicube-data-$(CCD_UPVER)/texpack
 	cp $(CC_TEXPACK) $(BUILD)/classicube-data/tree/classicube-data-$(CCD_UPVER)/texpack/
 	cp -a $(CC_AUDIO) $(BUILD)/classicube-data/tree/classicube-data-$(CCD_UPVER)/audio

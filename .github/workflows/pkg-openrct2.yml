@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/patched/games/openrct2/**"
+      - "gamedb/games/openrct2/packages/openrct2/**"
   workflow_dispatch:
     inputs:
       target:

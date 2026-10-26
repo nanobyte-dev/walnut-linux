@@ -18,7 +18,7 @@ OpenRCT2 0.5.6 ported to big-endian ppc64 (milestone 1, 2026-10-19): under qemu-
 - [x] DWARF check of the S6/S4 swap tables (swapcheck.py): no field missing (see below)
 - [x] screenshots (shots.sh) of the 35 open-park saves at 10000 ticks, 6 views each: 210/210 byte-identical
 - [x] RAM on the PC (ram.sh, ram-all.sh, smaps.sh): table below
-- [x] packages/patched/games/openrct2/ package (package.conf, debian/, patches/ 0001-0005), config.mk + Makefile pins: commit 341fd04;
+- [x] gamedb/games/openrct2/packages/openrct2/ package (package.conf, debian/, patches/ 0001-0005), config.mk + Makefile pins: commit 341fd04;
       patch 0006 (serialiser) commit 70e96eb
 - [x] recipe bench/recipes/openrct2.sh, selftest passes: commit bdbfead
 - [x] make openrct2-deb (build-deb.sh, chroot on the overflow disk): first build ps3.571 (45 min, 5 patches)
@@ -169,7 +169,7 @@ baseline".
   by ear.
 
 ## Package
-- packages/patched/games/openrct2/ (TYPE=upstream), version 0.5.6+ds-1+ps3.N; debs: openrct2 (any), openrct2-data, openrct2-music (all)
+- gamedb/games/openrct2/packages/openrct2/ (TYPE=upstream), version 0.5.6+ds-1+ps3.N; debs: openrct2 (any), openrct2-data, openrct2-music (all)
 - build: build/tmp/openrct2/build-deb.sh openrct2 (chroot and ccache on /mnt/.../openrct2/debbuild); about
   45 min on this host (qemu, 16 jobs, LTO link included); debs in build/debs/openrct2/
 - sizes (ps3.571; ps3.574 the same): openrct2 5.7 MB (installed 31 MB: openrct2 17 MB, openrct2-cli 14 MB), openrct2-data 23 MB

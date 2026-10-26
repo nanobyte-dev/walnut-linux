@@ -1,7 +1,7 @@
 # Teeworlds: ioctl(FIONBIO) with an unsigned long on big-endian 64-bit
 
 Status: draft, not sent. Patch: `teeworlds-0001-ioctl-fionbio-int.patch` (git format-patch, author
-from git config; our source is `packages/patched/games/teeworlds/patches/0001`). Checked: upstream master `src/base/system.c`
+from git config; our source is `gamedb/games/teeworlds/packages/teeworlds/patches/0001`). Checked: upstream master `src/base/system.c`
 (read on GitHub, 2026-10-18) has the same `unsigned long mode` code as 0.7.5, so the patch applies
 there as is (it was cut against the 0.7.5 tarball; run `git am` on a fresh clone to be sure).
 
@@ -42,7 +42,7 @@ same value the long's low half had.
 
 ## Submission steps
 
-1. Fork github.com/teeworlds/teeworlds, clone, `git am docs/upstream/teeworlds-0001-ioctl-fionbio-int.patch`
+1. Fork github.com/teeworlds/teeworlds, clone, `git am gamedb/games/teeworlds/upstream/teeworlds-0001-ioctl-fionbio-int.patch`
    (if it fails on master, `git apply --3way` and fix by hand: two functions, same lines).
 2. Open the issue with the text above, then the PR from your branch; put the issue number in the PR.
 3. Check CONTRIBUTING / the repository's current state first: the project is in maintenance mode, so the

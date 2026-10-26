@@ -16,7 +16,8 @@ Design
       getting and setting up the data: sentences, with `code` in backticks that must pair up) and
       offers no data package
     * thumb.png is a PNG; every test has a parsable result.toml of schema 1 whose listed screenshots
-      exist, and no stray file sits in a session folder or the game's folder; its rules, when given, are "<data>.<formula>" of a
+      exist, and no stray file sits in a session folder or the game's folder (GAME_FILES: index.md, thumb.png,
+      rating/, packages/, licensed/, upstream.md, upstream/); its rules, when given, are "<data>.<formula>" of a
       data version score.py knows, and a data-version-2 test's defects name known categories
     * patched_by names source packages of ours (tools/pkg-dir.sh, and patches/series)
     * drafts (draft = true: a candidate, or a game tried and not published) need only id, title and
@@ -58,6 +59,10 @@ FIELDS = {
 DRAFT_REQUIRED = {"id", "title", "status"}
 STATUSES = ["candidate", "tried", "blocked", "dropped", "impossible", "tested"]
 TEST_FILES = {"result.toml"}
+# what a game's folder may hold so far (gamedb/README.md; the later migration steps add theirs): the page,
+# the thumbnail, the sessions, our source packages, the licensed data packages and builders, upstream offers
+GAME_DIRS = ("rating", "packages", "licensed", "upstream")
+GAME_FILES = ("index.md", "thumb.png", "upstream.md") + GAME_DIRS
 # where a game's sessions (each one's result.toml and screenshots) live, relative to its folder
 SESSIONS = "rating/sessions"
 CONTENT = REPO / "gamedb" / "games"
@@ -186,8 +191,10 @@ def check_game(gdir, bad, repo):
             if f not in listed and f not in TEST_FILES:
                 errs.append(SESSIONS + "/%s: unexpected file %s" % (t.name, f))
     for f in sorted(x.name for x in gdir.iterdir()):
-        if f not in ("index.md", "thumb.png", "rating"):
-            errs.append("unexpected file %s (a game folder holds index.md, thumb.png and rating/)" % f)
+        if f not in GAME_FILES:
+            errs.append("unexpected file %s (a game folder holds %s)" % (f, ", ".join(GAME_FILES)))
+        elif f in GAME_DIRS and not (gdir / f).is_dir():
+            errs.append("%s is not a folder" % f)
     rating = gdir / "rating"
     for f in sorted(x.name for x in rating.iterdir()) if rating.is_dir() else []:
         if f != "sessions":

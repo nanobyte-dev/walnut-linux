@@ -1,6 +1,6 @@
 # Upstream submissions (drafts)
 
-Everything here is a draft. Nothing has been sent, opened or posted; the decision and the sending are yours.
+Everything here is a draft. A game's drafts live in its gamedb bundle (`gamedb/games/<id>/upstream.md` and `upstream/`); the table links them. Nothing has been sent, opened or posted; the decision and the sending are yours.
 Patches are `git format-patch` output with author Tiberiu Chibici <chibicitiberiu@gmail.com>, no
 Co-authored-by or other attribution lines. The kernel patches carry your Signed-off-by (required there).
 Bases: the pristine upstream tarballs we package (teeworlds 0.7.5, yquake2 8.70, Linux 6.12.111, Mesa 26.2.4).
@@ -8,10 +8,10 @@ Rebase onto each project's current head before sending.
 
 | # | Item | Where to submit | Files | Status |
 |---|---|---|---|---|
-| 1 | Teeworlds FIONBIO int (big-endian 64-bit) | GitHub teeworlds/teeworlds issue + PR; Debian BTS for `teeworlds` | `teeworlds.md`, `teeworlds-0001-ioctl-fionbio-int.patch` | draft, not sent. Master has the same code; tested on PS3 and qemu |
+| 1 | Teeworlds FIONBIO int (big-endian 64-bit) | GitHub teeworlds/teeworlds issue + PR; Debian BTS for `teeworlds` | [gamedb: teeworlds/upstream.md](../../gamedb/games/teeworlds/upstream.md), [upstream/teeworlds-0001-ioctl-fionbio-int.patch](../../gamedb/games/teeworlds/upstream/teeworlds-0001-ioctl-fionbio-int.patch) | draft, not sent. Master has the same code; tested on PS3 and qemu |
 | 2 | Linux ps3_power_save() lost decrementer | mail: geoff@infradead.org, linuxppc-dev | `linux-ps3-idle.md`, `linux-ps3-0001-idle-lost-decrementer.patch` | draft, not sent. RFC: problem measured; the fix booted on 2026-10-18 (kernel .419: worst idle wakeup 4 ms with it, 1103 ms without), numbers not yet in the commit message |
 | 3 | Linux ps3_sys_manager_fin() hang | mail: same recipients | `linux-ps3-sys-manager.md`, `linux-ps3-0002-sys-manager-fin-wait-for-command.patch` | draft, not sent. RFC: compiled only; in the booted kernel .433 since 2026-10-18, but its power-off and button checks have not run |
-| 4 | Yamagi Quake II KISS table | GitHub yquake2/yquake2 issue + PR | `yquake2.md`, `yquake2-0001-kiss-table-size.patch` | draft, not sent. Smallest form of our fix; measured with the heap variant |
+| 4 | Yamagi Quake II KISS table | GitHub yquake2/yquake2 issue + PR | [gamedb: yquake2/upstream.md](../../gamedb/games/yquake2/upstream.md), [upstream/yquake2-0001-kiss-table-size.patch](../../gamedb/games/yquake2/upstream/yquake2-0001-kiss-table-size.patch) | draft, not sent. Smallest form of our fix; measured with the heap variant |
 | 5 | Mesa translate_generic 8-bit LUT | gitlab.freedesktop.org/mesa/mesa MR | `mesa.md`, `mesa-0001-translate-8bit-lut.patch` | draft, not sent. Generic (all u_vbuf/draw users); upstream form not compiled |
 | 6 | Boost.Context ppc64 fcontext (ELFv2/ELFv1 on big-endian ppc64) | Debian BTS #1146645 (boost1.92) follow-up; GitHub boostorg/context issue + PR | `boost-context.md`, `packages/patched/libs/boost-context/packaging/0001-ppc64-fcontext.patch` | draft, not sent. Wesnoth runs on the PS3 with it (batch ssdroot8) |
 

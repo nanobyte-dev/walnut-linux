@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/patched/games/armagetronad/**"
+      - "gamedb/games/armagetronad/packages/armagetronad/**"
   workflow_dispatch:
     inputs:
       target:

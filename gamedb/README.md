@@ -15,10 +15,13 @@ Outside this folder a game may appear only as:
 - **frozen history** (docs/archive/, git, changelogs);
 - **test fixtures** that use a game as sample data.
 
-**Status (2026-10-26): step 1a is done, the catalog lives here.** Each game's `index.md`, `thumb.png`
-and played sessions (`rating/sessions/<run>/`) are in `games/<id>/`; the site mounts them
-(website/gamedb/hugo.toml) and the app's catalog is packed from them. The packages are still in
-`packages/`, the benchmark recipes in `bench/`. The tools below already look here (marked *read now*);
+**Status (2026-10-26): step 1b is done, the catalog and the game packages live here.** Each game's
+`index.md`, `thumb.png` and played sessions (`rating/sessions/<run>/`) are in `games/<id>/`; the site
+mounts them (website/gamedb/hugo.toml) and the app's catalog is packed from them. Every game package
+is in its bundle's `packages/`, the three engines (cube2, ioquake3, darkplaces-gl2) in `engines/<e>/`,
+the licensed data packages and builders in `games/<id>/licensed/`, the teeworlds and yquake2 upstream
+drafts in `upstream.md`; games with a package but no published page have draft bundles. The
+benchmark recipes are still in `bench/` (step 1c). The tools below already look here (marked *read now*);
 the rest is marked *planned*, with the migration step that brings it.
 
 ## Layout
@@ -55,8 +58,8 @@ gamedb/
 ### games/<id>/index.md
 
 TOML front matter between `+++` lines, then the notes as markdown. Keys (today's set, from
-`tools/gamedb/check.py`, which also allows only `index.md`, `thumb.png` and `rating/sessions/` in a
-game's folder until the later steps add their files):
+`tools/gamedb/check.py`, which also allows only `index.md`, `thumb.png`, `rating/sessions/`, `packages/`,
+`licensed/`, `upstream.md` and `upstream/` in a game's folder until the later steps add their files):
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -106,7 +109,9 @@ path component, `**` across them.
 
 ### games/<id>/packages/<pkg>/, engines/<e>/packages/<pkg>/
 
-A source package, laid out as in `packages/` (docs/PACKAGING.md): `package.conf`, `upstream.mk`,
+Our source packages for one game (for an engine: `engines/<e>/packages/`; step 1b moved them all
+here), each laid out as in `packages/`
+(docs/PACKAGING.md): `package.conf`, `upstream.mk`,
 `debian/`, `patches/`, `files/`, `tests/`, plus *planned* `orig.mk` (its orig tarball recipe, included by
 the Makefile; step 2) and `dfsg-exclude.txt` (paths left out of the upstream tarball, one per line;
 `tools/licensed.py` *reads it now* as leak globs, an entry `E` as `E` and `E/*`).
@@ -117,7 +122,9 @@ headers.
 
 ### games/<id>/licensed/<pkg>/
 
-A licensed data package or its builder: text only, built on our own PC, never by CI, published to
+A licensed data package or its builder (step 1b: `classicube-data` in classicube, `sauerbraten-data` in
+sauerbraten, `sauerbraten-nonfree-data` in bananabread, since it fills in the `cube2-data` BananaBread
+plays, `rct2-data.sh` in openrct2, `tyrian-data.sh` in opentyrian): text only, built on our own PC, never by CI, published to
 the password-protected licensed suite only. A directory here is licensed by its location:
 `tools/licensed.py` *reads it now* (with `packages/licensed/` and `tools/licensed-packages.txt`),
 the public copy drops `gamedb/*/*/licensed/*` from every commit (`tools/public-export.sh`), CI never
@@ -165,14 +172,16 @@ link. An engine-wide one lives in `engines/<e>/investigations/`.
 
 ### games/<id>/todo.toml, upstream.md
 
-*Planned* (step 8). `todo.toml`: `[[item]]` with `kind` = `session`, `benchmark`, `package`, `fix`,
+`todo.toml`, *planned* (step 8): `[[item]]` with `kind` = `session`, `benchmark`, `package`, `fix`,
 `research` or `upstream`: the game's backlog, its rows of docs/PLAN.md and its played-session queue.
-`upstream.md` and `upstream/*.patch`: what we would offer upstream of our game patches.
+`upstream.md` and `upstream/*.patch` (*now*, teeworlds and yquake2): what we would offer upstream of our
+game patches; docs/upstream/README.md links every draft.
 
 ### engines/<e>/
 
-`engine.md` (front matter `games = [...]`, the bundles that run on it), `build.toml`,
-`technical.md`, `investigations/`, `packages/<pkg>/`, as for a game. *Planned* (step 1b).
+`engine.md` (*now*: TOML front matter between `+++` lines with `id`, `title`, `homepage`, `license` and
+`games = [...]`, the bundles that run on it; then a short note), `packages/<pkg>/` (*now*: cube2,
+ioquake3, darkplaces-gl2), and *planned* `build.toml`, `technical.md`, `investigations/`, as for a game.
 
 ### benchmarks/batches.toml, benchmarks/metrics.toml
 

@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/patched/games/wesnoth/**"
+      - "gamedb/games/wesnoth/packages/wesnoth/**"
   workflow_dispatch:
     inputs:
       target:

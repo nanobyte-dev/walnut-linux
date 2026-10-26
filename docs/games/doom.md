@@ -8,7 +8,7 @@ are smoke-tested: they run at the vanilla 35 Hz cap.
 
 ## dsda-doom
 
-Our build of Debian's `dsda-doom` 0.30.0 (`0.30.0+dfsg-1+ps3.N`, package directory `packages/patched/games/dsda-doom/`),
+Our build of Debian's `dsda-doom` 0.30.0 (`0.30.0+dfsg-1+ps3.N`, package directory `gamedb/games/dsda-doom/packages/dsda-doom/`),
 replacing Debian's, with Debian's `freedoom` 0.13.0 (`/usr/share/games/doom/freedoom2.wad`). Both are
 in `ps3-games`. The release candidate is ps3.361.
 

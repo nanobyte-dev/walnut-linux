@@ -8,7 +8,7 @@ CC      := powerpc64-linux-gnu-gcc
 endif
 CC_SRC  ?= $(error CC_SRC: the unpacked ClassiCube source)
 OUT     ?= ccbench.so
-# as the package builds the game (packages/patched/games/classicube/debian/rules: -mcpu=cell, SDL3 window); a host test
+# as the package builds the game (gamedb/games/classicube/packages/classicube/debian/rules: -mcpu=cell, SDL3 window); a host test
 # build: CC=gcc CPU=
 CPU     ?= -mcpu=cell -mtune=cell
 CFLAGS  := -O2 $(CPU) -fPIC -fvisibility=hidden -fno-ident -Wall -Wno-unused-function \

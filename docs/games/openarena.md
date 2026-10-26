@@ -9,7 +9,7 @@ fetch (rows 69, 70). What is left is in [backlog/games.md](../backlog/games.md).
 ## Packages and patches
 
 `ioquake3`, `ioquake3-server`: our build of Debian's `ioquake3`
-(`1.36+u20260719.58839361+dfsg-1+ps3.N`, package directory `packages/patched/games/ioquake3/`), replacing Debian's. The PS3
+(`1.36+u20260719.58839361+dfsg-1+ps3.N`, package directory `gamedb/engines/ioquake3/packages/ioquake3/`), replacing Debian's. The PS3
 runs ps3.462 since batch 17; the release candidate is ps3.396 ([RELEASE-CANDIDATES.md](../RELEASE-CANDIDATES.md)).
 Every change is behind a cvar, so a recipe variant can turn it back.
 

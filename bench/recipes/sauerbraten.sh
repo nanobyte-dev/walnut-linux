@@ -22,7 +22,7 @@
 # towers and *skin variants use it (the hud gun and the other map only exist there).
 # getfps itself averages only the last 60 frames. Settings go into ~/.cube2/autoexec.cfg (run after config.cfg, so the
 # player's saved fullscreen or vsync can't override them); both files are restored after the run.
-# Our cube2 (ps3.N, docs/games/sauerbraten.md) ships the memory defaults of packages/patched/games/cube2/patches: CPU skinning
+# Our cube2 (ps3.N, docs/games/sauerbraten.md) ships the memory defaults of gamedb/engines/cube2/packages/cube2/patches: CPU skinning
 # (gpuskel 0: GPU skinning indexes a bone array in the vertex shader, which nv30 compiles to if/else
 # trees, 11 fps against 28; no GPU skinning shaders are built then), sky boxes and cube maps from their
 # 256x256 .dds (skydds 1), lightmaps' CPU copies freed after upload (lmfreedata 1), dynamic light and
@@ -37,7 +37,7 @@ SB_HOME=$HOME/.cube2
 BACKUP=("$SB_HOME/autoexec.cfg" "$SB_HOME/config.cfg" "$SB_HOME/restore.cfg" "$SB_HOME/init.cfg"
 	"$SB_HOME/demo/bench.dmo")
 # played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
-# freshhome.py); checked against BananaBread's home (packages/walnut/apps/sauerbraten/files/sauerbraten keeps Sauerbraten's apart in ~/.sauerbraten)
+# freshhome.py); checked against BananaBread's home (gamedb/games/sauerbraten/packages/sauerbraten/files/sauerbraten keeps Sauerbraten's apart in ~/.sauerbraten)
 SESSION_HOME=(.cube2)
 SB_MAP=cave
 SB_SET=()	# extra CubeScript lines for autoexec.cfg (variants)

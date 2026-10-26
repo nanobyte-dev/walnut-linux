@@ -14,7 +14,7 @@ settings. Open items are in [backlog/games.md](../backlog/games.md).
 
 ## Packages and patches
 
-`cube2`, `cube2-server` (`0.0.20201229+dfsg-1+ps3.N`, package directory `packages/patched/games/cube2/`), replacing Debian's.
+`cube2`, `cube2-server` (`0.0.20201229+dfsg-1+ps3.N`, package directory `gamedb/engines/cube2/packages/cube2/`), replacing Debian's.
 The release candidate is ps3.354; ps3.442~dev added 0011. The data is Debian's
 `cube2-data` 1.3 (the BananaBread content, 20 maps) plus `sauerbraten-nonfree-data` (the models and
 sounds Debian leaves out, CC BY-NC, the licensed suite only, pulled in by `ps3-games-licensed`).
@@ -189,19 +189,19 @@ would give the same program without the patches. What was missing was the launch
   fullscreen at the desktop's resolution (the engine sizes its window from the desktop when `scr_w`/`scr_h` are unset;
   Debian's build defaults to a window, hence `-t1`), settings apart from BananaBread's `~/.cube2`, no user file written.
   `SAUERBRATEN_WINDOWED=1` starts in a window. The game's own `config.cfg` can still switch it later, as in the stock game.
-- Walnut's defaults: the first package directory holds only `data/defaults.cfg` (`packages/walnut/apps/sauerbraten/files/walnut/`), which the
+- Walnut's defaults: the first package directory holds only `data/defaults.cfg` (`gamedb/games/sauerbraten/packages/sauerbraten/files/walnut/`), which the
   engine runs only while `~/.sauerbraten/config.cfg` does not exist. It runs the release's own defaults.cfg, then sets
   `texcompress 512`; the game saves that into config.cfg at the first quit, and the player's settings rule from then
   on (`/texcompress 1024` restores the engine's value). A player with a config.cfg already gets nothing from it.
 - `sauerbraten-data` is a second package beside `sauerbraten-nonfree-data` (kept as it is: it completes `cube2-data` in
   `/usr/share/games/cube2` for the BananaBread entry, 912 files). Reusing it was not possible, since the real game needs
   the maps, textures and music too, in its own directory so neither game sees the other's files. The orig tarball is made
-  from the same pinned release archive (`make sauerbraten-data-src`, `tools/sauerbraten-full-data.sh`), never committed.
+  from the same pinned release archive (`make sauerbraten-data-src`, `gamedb/games/sauerbraten/licensed/sauerbraten-data/sauerbraten-full-data.sh`), never committed.
   Mixed, partly non-commercial licences: `tools/licensed-packages.txt`, no CI workflow. Not in `ps3-games-licensed`'s
   Depends (980 MB); install by name.
 - Endianness: nothing to fix. The engine already runs big-endian on the PS3 (the BananaBread maps read through
   `lilswap`), and the release's maps and models use the same formats.
-- Patches in effect (all of `packages/patched/games/cube2/patches`, since it is the same engine): 0001 `texcompress`, 0002 `gpuskel 0` and no
+- Patches in effect (all of `gamedb/engines/cube2/packages/cube2/patches`, since it is the same engine): 0001 `texcompress`, 0002 `gpuskel 0` and no
   GPU skinning shaders, 0003-0005, 0006 libspeq skinning, 0007-0009 fewer GL calls, 0010 `oqwaterlag`. 0011
   `vanormalshort` is built in and off by default. Nothing is left unported. The real maps fill the VRAM at the engine's
   texture settings (the first session, below), hence Walnut's `texcompress 512` default.

@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/patched/games/ioquake3/**"
+      - "gamedb/engines/ioquake3/packages/ioquake3/**"
   workflow_dispatch:
     inputs:
       target:

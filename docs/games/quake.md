@@ -43,7 +43,7 @@ right. Mesa ps3.262 70.5 to 78.6 (73 and 84 in two runs, +11%).
 
 ## Yamagi Quake II
 
-Our build of Debian's `yquake2` 8.70 (`packages/patched/games/yquake2/`, `COMPONENT=contrib`): debian-ports builds nothing
+Our build of Debian's `yquake2` 8.70 (`gamedb/games/yquake2/packages/yquake2/`, `COMPONENT=contrib`): debian-ports builds nothing
 arch-specific in contrib, so Debian has no ppc64 binary. Packages `yamagi-quake2`,
 `yamagi-quake2-core` (`/usr/lib/yamagi-quake2/quake2`, renderers `ref_gl1` and `ref_gl3`). The gl1
 renderer (GL 1.4 fixed function) is the one that runs; gl3 and gles3 need GL 3.
