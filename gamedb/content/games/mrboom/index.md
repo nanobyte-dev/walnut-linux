@@ -10,4 +10,7 @@ packages = ["mrboom"]
 recipes = ["mrboom:base"]
 needs_data = false
 controller = "full"
+known_issues = [
+  "Crashes within half a minute on the PS3 (a segfault in the game's own code, likely a little-endian assumption of its translated 8086 code): being investigated.",
+]
 +++
