@@ -154,7 +154,9 @@ from the gamepad items.
 and soaks count their hours too). A quit is clean when the game exits with code 0 and the desktop is
 back within 10 s of its end (session.sh's `desktop_back_s`); the player killing it (Ctrl+Alt+Esc), an
 error exit, or a desktop that doesn't come back count like a crash in the rate (but never make the
-game broken). The score of a crash-free game starts at 90 and rises to 100 over its first three
+game broken). The freeze leading into a crash (the run of frames over 1 s at the end of a crashed run) is
+the crash: Stability counts it, Smoothness and the input checks stop where it began (keys pressed to get
+out of a frozen game don't mean the game needs a keyboard). The score of a crash-free game starts at 90 and rises to 100 over its first three
 hours; with failures it is read off the rate: 1 in 3 hours scores 75, 1 an hour 55, 4 an hour 35, 12
 an hour 0. Under an hour of play it is marked provisional.
 

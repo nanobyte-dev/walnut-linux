@@ -12,9 +12,8 @@ recipes = ["supertuxkart:lean"]
 needs_data = false
 controller = "partial"
 known_issues = [
-  "The textures are corrupted on the PS3 (the geometry is right): being investigated.",
-  "About 20 frames a second even at the lean settings: the PS3's PowerPC core and its memory limit what the game can draw.",
-  "OpenAL logs buffer warnings in about half the runs; the sound has not been judged by ear yet.",
+  "On heavy tracks (Ravenbridge Mansion) the GPU's memory runs out: objects pop in and out, the game can freeze for many seconds and crash (a Mesa fix is in progress).",
+  "About 30 frames a second at the lean settings, with long stalls on heavy tracks.",
 ]
 +++
 

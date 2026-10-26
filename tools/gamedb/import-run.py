@@ -100,6 +100,27 @@ def play_start(d, b):
 WARMUP_S = 30   # seconds of play after the load that settle (the first level's start, caches): not measured
 
 
+CRASH_FREEZE_MS = 1000   # the run of frames this long at the end of a crashed run: the freeze leading into the crash
+
+
+def crash_freeze(d, b):
+    """seconds after the start when the freeze leading into a crash began (the trailing frames over
+    CRASH_FREEZE_MS of a run that ended in a crash), or None. That freeze is the crash: Stability counts it,
+    Smoothness and the input checks don't (the player pressing keys to get out of a frozen game is not the
+    game needing a keyboard)"""
+    if b.get("ended") not in ("crash", "oom") and not (b.get("ended") == "exit" and (report.num(b.get("rc")) or 0) > 128):
+        return None
+    path = d / "hud" / "frametime_(ms)"
+    ft = report.floats(path) if path.exists() else []
+    if not ft:
+        return None
+    ends = report.frame_ends(ft, b)
+    i = len(ft)
+    while i > 0 and ft[i - 1] > CRASH_FREEZE_MS:
+        i -= 1
+    return ends[i] - ft[i] / 1000 if i < len(ft) else None
+
+
 def frames(d, b):
     """(frame times in ms of the play, the seconds they span) or ([], 0): from WARMUP_S after the load,
     the reload segments of a looped demo left out"""
@@ -113,6 +134,9 @@ def frames(d, b):
     start = (play_start(d, b) or 0.0) + WARMUP_S
     rel = report.reload_segments(d, b) or []
     secs = report.num(b.get("seconds")) or float("inf")   # frames past the run's end: the clock drifted
+    cf = crash_freeze(d, b)
+    if cf is not None:
+        secs = min(secs, cf)
     keep = [v for e, v in zip(ends, ft)
             if e - v / 1000 >= start - 0.05 and e <= secs and not any(s < e <= t for s, t in rel)]
     return keep, sum(keep) / 1000
@@ -343,7 +367,7 @@ def key_times(d):
     return out
 
 
-def input_numbers(d, play_from):
+def input_numbers(d, play_from, until=None):
     """the Controls measurements of inputlog.py's input.tsv (what the game opened, pad and keyboard use):
     {} without the file"""
     f = d / "input.tsv"
@@ -366,7 +390,7 @@ def input_numbers(d, play_from):
                 hot.add(dev)
         elif what == "opened":
             opened.add(dev)
-        elif what in ("press", "move") and t is not None:
+        elif what in ("press", "move") and t is not None and (until is None or t < until):
             k = int(report.num(c[4]) or 0)
             if cls == "pad" and t + 10 > (play_from or 0):
                 pad_ev += k
@@ -492,7 +516,7 @@ def v2_numbers(d, b, n, sh):
         n["desktop_back_s"] = report.num(b["desktop_back_s"])
     if b.get("desktop_stuck") == "1":
         n["desktop_stuck"] = True
-    n.update(input_numbers(d, play_start(d, b)))
+    n.update(input_numbers(d, play_start(d, b), crash_freeze(d, b)))
     for k in ("fresh_home", "fresh_home_new", "recovered"):    # the fresh defaults (freshhome.py)
         if report.num(b.get(k)) is not None:
             n[k] = int(report.num(b[k]))

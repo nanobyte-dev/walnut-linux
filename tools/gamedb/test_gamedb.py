@@ -367,6 +367,21 @@ class Importer(unittest.TestCase):
         self.assertEqual(len(out), 1)
         return tomllib.loads((out[0] / "result.toml").read_text()), out[0]
 
+    def test_crash_freeze_is_the_crash(self):
+        # frames, then a 60 s freeze into a crash: smoothness and the input checks stop where the freeze began
+        ft = ["20"] * 4500 + ["400"] * 5 + ["60000"]
+        (self.run_dir / "hud" / "frametime_(ms)").write_text("\n".join(ft) + "\n")
+        self.write_bench(ended="crash", rc="139", seconds="170")
+        b = self.ir.report.kv(self.run_dir / "bench.txt")
+        self.assertAlmostEqual(self.ir.crash_freeze(self.run_dir, b), 102.0, delta=1.0)
+        keep, _ = self.ir.frames(self.run_dir, b)
+        self.assertLess(max(keep), 1000)
+        (self.run_dir / "input.tsv").write_text("# inputlog readable=keyboard,pad unreadable=-\nt_s\twhat\tdev\tclass\tn\n"
+                                                "50\tpress\t-\tkeyboard\t2\n130\tpress\t-\tkeyboard\t9\n")
+        self.assertEqual(self.ir.input_numbers(self.run_dir, 10, self.ir.crash_freeze(self.run_dir, b))["kb_presses"], 2)
+        self.write_bench(ended="quit", rc="0", seconds="170")
+        self.assertIsNone(self.ir.crash_freeze(self.run_dir, self.ir.report.kv(self.run_dir / "bench.txt")))
+
     def test_numbers(self):
         r, _ = self.do()
         n = r["numbers"]
