@@ -25,3 +25,13 @@ source = "PLAN 3.12"
 text = """\
 SPU meshing: `Builder_MakeChunk` is its biggest load item; chunk builds as SPU jobs, the meshes into \
 VBOs once probe E16 allows it. Effort L, engine patches."""
+
+[[item]]
+kind = "fix"
+added = 2026-10-27
+source = "the ps3-games-split check on the PS3"
+text = """\
+The launcher's first run (no `fontscache.txt` in the home: a new user, every fresh-defaults session) opens \
+a modal X11 box, "Initialising font cache, this can take several seconds.", and waits for a mouse click on \
+OK: no keyboard or pad way out, the fullscreen launcher behind it undrawn until then. A patch that skips \
+the box (log the message instead) or makes Return/Escape close it."""

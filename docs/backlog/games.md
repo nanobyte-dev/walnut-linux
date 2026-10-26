@@ -20,7 +20,7 @@ they came from.
 | [BananaBread](../../gamedb/games/bananabread/todo.toml) | 7 | 4 benchmark, 1 fix, 1 package, 1 session | 2.6, 3.1 |
 | [Battle for Wesnoth](../../gamedb/games/wesnoth/todo.toml) | 1 | 1 benchmark |  |
 | [Chromium B.S.U.](../../gamedb/games/chromium-bsu/todo.toml) | 1 | 1 benchmark | 1.11 |
-| [ClassiCube](../../gamedb/games/classicube/todo.toml) | 3 | 2 package, 1 research | 3.12 |
+| [ClassiCube](../../gamedb/games/classicube/todo.toml) | 4 | 1 fix, 2 package, 1 research | 3.12 |
 | [Diablo (DevilutionX)](../../gamedb/games/diablo/todo.toml) | 1 | 1 benchmark |  |
 | [dsda-doom](../../gamedb/games/dsda-doom/todo.toml) | 2 | 1 research, 1 session | 2.8 |
 | [Duke Nukem 3D](../../gamedb/games/duke-nukem-3d/todo.toml) | 1 | 1 benchmark |  |

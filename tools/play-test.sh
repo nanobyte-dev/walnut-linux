@@ -40,7 +40,8 @@ start)
 	[ -n "$G" ] || { echo "usage: play-test.sh start GAME [LAUNCHER]" >&2; exit 2; }
 	bench_id "$R" > /dev/null || { echo "!! no recipe gamedb/games/$R/benchmark/recipe.sh" >&2; exit 2; }
 	# the PS3 first: the load time counts from here
-	ps3 "systemctl --user is-active -q walnut-session-$R && { echo '!! a $R session is still open (its form?)'; exit 1; }
+	ps3 "[ -S /tmp/.X11-unix/X0 ] || { echo '!! the desktop is down (a benchmark leaves it so: ps3-bench.sh desktop)'; exit 1; }
+		systemctl --user is-active -q walnut-session-$R && { echo '!! a $R session is still open (its form?)'; exit 1; }
 		systemctl --user is-active -q ps3-game-mode.service && { echo '!! a game is running'; exit 1; }
 		systemctl --user reset-failed walnut-session-$R 2>/dev/null
 		systemd-run --user --unit=walnut-session-$R -q -E DISPLAY=:0 -E XAUTHORITY=\$HOME/.Xauthority \
