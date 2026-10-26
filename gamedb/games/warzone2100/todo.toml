@@ -10,4 +10,4 @@ added = 2026-10-24
 source = "TESTS.md played sessions"
 text = """\
 Our 4.3.5 build has no PC image any more (wz-amd64-view deleted); Debian's 4.6 needs GL 3. Why the \
-3D view was dark: gamedb:warzone2100/dark-3d-view."""
+3D view was dark is gamedb:warzone2100/dark-3d-view (the RSX's TXB)."""
