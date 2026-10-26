@@ -90,13 +90,13 @@ STATUSES = ["candidate", "tried", "blocked", "dropped", "impossible", "tested"]
 TEST_FILES = {"result.toml"}
 # what a game's folder may hold so far (gamedb/README.md; the later migration steps add theirs): the page,
 # the thumbnail, the sessions, our source packages, the licensed data packages and builders, upstream offers
-GAME_DIRS = ("rating", "packages", "licensed", "upstream", "benchmark", "desktop")
+GAME_DIRS = ("rating", "packages", "licensed", "upstream", "benchmark", "desktop", "investigations")
 # what desktop/ may hold: our launchers, the config files we install (by absolute path), the migrate-home lines
 DESKTOP_FILES = ("launchers", "files", "migrate-home.txt")
 # what benchmark/ may hold so far: the recipe (code), its analysis data, its helpers and files, the sources of
 # built files (assets.mk), superseded tools (steps 5 and 6 add results/ and runs/)
 BENCH_FILES = ("recipe.sh", "analysis.toml", "lib", "assets", "assets-src", "legacy")
-GAME_FILES = ("index.md", "thumb.png", "build.toml", "upstream.md") + GAME_DIRS
+GAME_FILES = ("index.md", "thumb.png", "build.toml", "upstream.md", "technical.md", "todo.toml") + GAME_DIRS
 # where a game's sessions (each one's result.toml and screenshots) live, relative to its folder
 SESSIONS = "rating/sessions"
 CONTENT = REPO / "gamedb" / "games"
