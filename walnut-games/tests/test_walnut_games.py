@@ -342,7 +342,10 @@ class AppFunctions(unittest.TestCase):
             self.assertEqual(app.play_commands(g, str(rt), str(apps)), [])
 
     def test_entry_program(self):
-        self.assertEqual(app.entry_program(["ps3-game", "env", "A=1", "B=2", "/usr/games/oa", "+set", "x=1"]), "oa")
+        # a full path stays one (matched against the package's files), a bare name is matched by name
+        self.assertEqual(app.entry_program(["ps3-game", "env", "A=1", "B=2", "/usr/games/oa", "+set", "x=1"]), "/usr/games/oa")
+        self.assertEqual(app.entry_program(["ps3-game", "/usr/lib/yamagi-quake2/quake2", "-datadir", "/x"]),
+                         "/usr/lib/yamagi-quake2/quake2")
         self.assertEqual(app.entry_program(["oa", "--opt=1"]), "oa")
         self.assertIsNone(app.entry_program(["ps3-game"]))
 

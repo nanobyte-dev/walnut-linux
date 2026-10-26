@@ -81,7 +81,9 @@ def entry_program(argv):
     while i < len(argv) and (os.path.basename(argv[i]) in ("ps3-game", "env") or
                              (i and "=" in argv[i] and not argv[i].startswith("-"))):
         i += 1
-    return os.path.basename(argv[i]) if i < len(argv) else None
+    if i >= len(argv):
+        return None
+    return argv[i] if os.path.isabs(argv[i]) else os.path.basename(argv[i])   # a full path stays one
 
 
 def game_argv(argv):
@@ -96,7 +98,8 @@ def game_argv(argv):
 def launchers(files, runtime_dir=None, apps="/usr/share/applications"):
     """[(file name, Name, argv with ps3-game)] in the app's order"""
     dirs = ([os.path.join(runtime_dir, "applications")] if runtime_dir else []) + [apps]
-    progs = {os.path.basename(f) for f in files if os.path.dirname(f) in BIN_DIRS}
+    # the programs by name (on PATH) and by full path (an Exec of /usr/lib/yamagi-quake2/quake2)
+    progs = {os.path.basename(f) for f in files if os.path.dirname(f) in BIN_DIRS} | set(files)
     names = sorted({os.path.basename(f) for f in files if os.path.dirname(f) == apps and f.endswith(".desktop")})
     out, seen = [], set()
 

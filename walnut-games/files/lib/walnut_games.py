@@ -347,7 +347,9 @@ def entry_program(argv):
     while i < len(argv) and (os.path.basename(argv[i]) in ("ps3-game", "env") or
                              (i and "=" in argv[i] and not argv[i].startswith("-"))):
         i += 1
-    return os.path.basename(argv[i]) if i < len(argv) else None
+    if i >= len(argv):
+        return None
+    return argv[i] if os.path.isabs(argv[i]) else os.path.basename(argv[i])   # a full path stays one
 
 
 def play_commands(game, runtime_dir=None, apps=APPS, files=None):
@@ -360,7 +362,8 @@ def play_commands(game, runtime_dir=None, apps=APPS, files=None):
     is the entry's Name."""
     dirs = ([os.path.join(runtime_dir, "applications")] if runtime_dir else []) + [apps]
     shipped = files() if files else []
-    progs = {os.path.basename(f) for f in shipped if os.path.dirname(f) in BIN_DIRS}
+    # the programs by name (on PATH) and by full path (an Exec of /usr/lib/yamagi-quake2/quake2)
+    progs = {os.path.basename(f) for f in shipped if os.path.dirname(f) in BIN_DIRS} | set(shipped)
     names = list(game.get("desktop", []))
     names += sorted(os.path.basename(f) for f in shipped
                     if os.path.dirname(f) == apps and f.endswith(".desktop") and os.path.basename(f) not in names)
