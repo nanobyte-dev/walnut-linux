@@ -35,32 +35,25 @@ against the owning buffer, like the fragment textures.
 
 ### Game-side batching in the remaining games
 
-Rank 16. Fewer, larger GL calls in BananaBread, SuperTuxKart's legacy renderer and OpenTTD's GL
-driver.
+Rank 16. Fewer, larger GL calls in the games that are CPU-bound in the driver stack.
 
 **Why.** Batching in the games beat driver work by far: X-Moto 44.5 -> 166.5 fps (18,500 -> 165 GL
 calls a frame), Extreme Tux Racer 52 -> 59. Where the game is GPU-bound or lightly loaded the gain
 is small: dsda-doom +3%, OpenArena opengl1 neutral, ClassiCube -4% steady with better lows until
-`CC_GL_CHUNKS=1` (+4.7%, batch 16). BananaBread's cube2 0007-0009 (`gluniformcache`, `glbatchtmu`,
-`glpartvbo`, all 1 by default since 33148f2) have never been A/B'd on the PS3: the recipe's
-`allbatchoff` variant exists and has no row. BananaBread (Debian's cube2) spent 72% of its CPU in Mesa in the HOTPATHS
-profile (44.9 points of it the vertex conversion that 0033 and cube2 0011 have cut since), SuperTuxKart `lean` runs at a 1% low of 11.4 (row 68), OpenTTD reaches 21 fps with its GL
-driver.
+`CC_GL_CHUNKS=1` (+4.7%, batch 16).
 
 - **Payoff:** medium: large where a game is CPU-bound in the driver stack, nothing where it isn't.
 - **Effort:** M per game. **Risk:** low: each change behind a switch, pixels checked on llvmpipe.
 - **Needs:** host, PS3.
-- **Status:** never tried for SuperTuxKart and OpenTTD; BananaBread's patches are on but
-  unmeasured. The gameplay profiles of batch ssdroot2 P1b, symbolised
-  ([HOTPATHS.md](../HOTPATHS.md#inside-the-graphics-stack)), put SuperTuxKart's client arrays at
-  17.6% of its CPU (vertex copies 10.1, index scans 6.5: Mesa 0044 takes most of the scans; the
-  copies need VBOs in Irrlicht's legacy driver).
+- **The games left** are each one item of its GameDB backlog (`gamedb/games/<id>/todo.toml`, source
+  PLAN 3.1): BananaBread's cube2 0007-0009, on by default and never A/B'd on the PS3; SuperTuxKart's
+  client arrays in Irrlicht's legacy driver (17.6% of its CPU in the symbolised ssdroot2 P1b profiles,
+  [HOTPATHS.md](../HOTPATHS.md#inside-the-graphics-stack)); OpenTTD's GL driver, never tried.
 - **Source:** PLAN 3.1; [archive/HOTPATHS.md, "ClassiCube's batching measured slower: GPU-bound"](../archive/HOTPATHS.md#classicubes-batching-measured-slower-gpu-bound).
 
 **To start.** Count GL calls and draws per frame on llvmpipe forced to GL 2.1 (`tools/glcount`),
 then `perf` the PS3 run with `--proc-map-timeout=20000` (without it most samples land in
-`[unknown]`). Each change gets a switch and a recipe variant. For BananaBread:
-`/var/tmp/bench/run.sh bench bananabread "base allbatchoff" 3`.
+`[unknown]`). Each change gets a switch and a recipe variant.
 
 ### ps3rsx shadow_fast
 

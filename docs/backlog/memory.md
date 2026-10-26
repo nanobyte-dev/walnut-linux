@@ -131,25 +131,6 @@ console would save RAM mainly while the text console is visible; its other gain 
 - **Status:** waiting on decision D2.
 - **Source:** PLAN 4.10, D2; [archive/KERNEL-MEMORY.md, "ps3fb: how big must it be"](../archive/KERNEL-MEMORY.md#ps3fb-how-big-must-it-be-and-can-the-console-move-to-vram).
 
-### OpenArena opengl2: what is left
-
-Rank 20. The renderer's texture reloads, the hunk's high water, a malloc trim on top.
-
-**Why.** Batch 17 took gl2min to 57-60 fps with 0.7-2.6 s of gameplay stalls (ioquake3 462's SNORM
-colours, row 69), but its RAM is still the lowest of the suite (9-20 MB free at the lowest, rows 68-70). Left:
-
-- renderergl2 has no `r_keepImages` (0025 is opengl1's), so every demo pass and map change reloads,
-  decodes and mipmaps every texture: `R_MipMapsRGB` was 7.8% of a profiled window with three
-  reloads, `COM_ParseExt` (the .shader scripts, at every load) 2.8%;
-- after a map load, `madvise(MADV_DONTNEED)` on the page-aligned gap between `hunk_low.temp` and
-  `s_hunkTotal - hunk_high.temp` in `s_hunkData` (code/qcommon/common.c, next to
-  `Com_TouchMemory`), behind a cvar `com_hunkTrim` (default 0): 2.7 MB in opengl1;
-- MEMORY.md's second A/B step, `MALLOC=trim` on top of gl2min and `gl2min_md3pack`, never ran.
-
-- **Payoff:** a few MB and shorter reloads. **Effort:** S-M.
-- **Risk:** low. **Needs:** host, PS3. **Status:** never tried.
-- **Source:** PLAN 3.7; [archive/MEMORY.md, "Proposed, not implemented"](../archive/MEMORY.md#proposed-not-implemented).
-
 ### Sound straight to ALSA
 
 Rank 36. The games' sound without ALSA's pulse plugin and the PulseAudio server.
@@ -162,23 +143,6 @@ desktop keeps its sound (CLAUDE.md "Memory trims"): this would be a game-mode or
 - **Payoff:** 0.5-3 MB per game plus the server. **Effort:** M.
 - **Risk:** underruns (measure them). **Needs:** PS3. **Status:** never tried.
 - **Source:** PLAN 3.6; [archive/MEMORY.md, "Shared by every game"](../archive/MEMORY.md#shared-by-every-game), cut #11.
-
-### ADPCM sound effects in ioquake3
-
-Rank 38. OpenArena's effects stored as 4-bit ADPCM, which OpenAL Soft decodes at mix time.
-
-**Why.** OpenArena's ~7 MB of decoded sound is WAV effects (518 files, all mono PCM; only the 7
-music tracks are Ogg, already streamed in 4 KB buffers). OpenAL Soft accepts `AL_FORMAT_MONO_IMA4`
-and `AL_FORMAT_MONO_MSADPCM_SOFT` (al/buffer.cpp:645-646) and decodes them when it mixes
-(`LoadSamples<IMA4Data>`, voice.cpp:279). ioquake3's `S_AL_BufferLoad` would encode 16-bit effects
-before `qalBufferData`: a quarter of the memory. A free step comes first and was never measured
-either: `s_khz 11` halves OpenArena's decoded sounds (HARDWARE-LEVERAGE.md's per-game settings,
-with ClassiCube's view distance, which decides the chunk meshes it builds on the CPU).
-
-- **Payoff:** ~5 MB in OpenArena. **Effort:** M (an ioquake3 patch, encoding at load).
-- **Risk:** 4-bit quality: the user listens. **Needs:** host, PS3, the user by ear.
-- **Status:** never tried.
-- **Source:** PLAN 3.9; [archive/SPU-AUDIO.md, "(d) Vorbis on an SPU: no; ADPCM effects instead (d')"](../archive/SPU-AUDIO.md#d-vorbis-on-an-spu-no-adpcm-effects-instead-d).
 
 ### Mesa built with nv30 only
 
@@ -249,8 +213,10 @@ is the 720p console above.
 
 - The lv1 `gpu-4kb-iopage` patch (4 KB IO pages for the GART: a few MB at most) is
   [hardware.md, "Read-only probes of lv1 and the firmware state"](hardware.md#read-only-probes-of-lv1-and-the-firmware-state).
-- Luanti's memory is [games.md, "Luanti: view40 as an option, and its memory"](games.md#luanti-view40-as-an-option-and-its-memory),
-  BananaBread's `texreduce` is [games.md, "BananaBread: texreduce"](games.md#sauerbraten-texreduce).
+- The cuts inside one game or engine are in its GameDB backlog (`gamedb/games/<id>/todo.toml`,
+  [the list](games.md#every-games-open-items)): OpenArena's hunk trim, renderergl2's `r_keepImages`
+  and `MALLOC=trim` (rank 20), ioquake3's ADPCM sound effects and `s_khz 11` (rank 38, in
+  `gamedb/engines/ioquake3/todo.toml`), Luanti's memory (rank 19), BananaBread's `texreduce` (rank 42).
 - 64 KB IO pages for finer GART allocations are [graphics.md, "Driver limits not pushed yet"](graphics.md#driver-limits-not-pushed-yet).
 
 Older versions and the dated history: [archive/MEMORY.md](../archive/MEMORY.md),

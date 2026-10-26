@@ -20,8 +20,10 @@ IDEAS.md. Terms: [glossary](../README.md#glossary).
 
 Area files: [smoothness.md](smoothness.md) (stalls, loads, the disk, tools), [memory.md](memory.md)
 (RAM, VRAM, compression), [graphics.md](graphics.md) (Mesa nv30, ps3rsx, the RSX),
-[spu.md](spu.md), [games.md](games.md), [platform.md](platform.md) (storage, game mode, desktop,
-release), [hardware.md](hardware.md) (backups, fan, lv1, out of scope).
+[spu.md](spu.md), [games.md](games.md) (what the games found across them, and the index of the
+games' own backlogs), [platform.md](platform.md) (storage, game mode, desktop, release),
+[hardware.md](hardware.md) (backups, fan, lv1, out of scope). A line about one game links that
+game's backlog, `gamedb/games/<id>/todo.toml`, where its details are.
 
 ## The ranked list
 
@@ -34,9 +36,9 @@ release), [hardware.md](hardware.md) (backups, fan, lv1, out of scope).
 | 5 | [Console frame release (local/0043) on the PS3](memory.md#console-frame-release-local0043-on-the-ps3) | +8 MB of RAM during every game | S (built) | PS3, user | 1.9 | #14 |
 | 6 | [Game mode at the TV](platform.md#game-mode-at-the-tv) | the path every player takes, checked | S | user | 1.10 | #3 |
 | 7 | [A benchmark round through game mode](smoothness.md#a-benchmark-round-through-game-mode) | whether players get the measured smoothness | M | PS3 | 2.2 | - |
-| 8 | [The single-run results, repeated](games.md#the-single-run-results-repeated) | defaults on solid ground (BananaBread `oqlag` 39.4 against 25.0 in one run) | M | PS3 | 2.6 | - |
-| 9 | [SuperTuxKart's missing sound](games.md#supertuxkarts-missing-sound) | a playable game; unblocks D4 | S-M | user | 2.1 | #26 |
-| 10 | [dsda-doom's chopping music](spu.md#dsda-dooms-chopping-music) | two games' music; unblocks D3 | S-M | PS3, user | 2.8 | #8 |
+| 8 | [The single-run results, repeated](games.md#every-games-open-items) | defaults on solid ground (BananaBread `oqlag` 39.4 against 25.0 in one run): a benchmark item in each of five games | M | PS3 | 2.6 | - |
+| 9 | [SuperTuxKart's missing sound](../../gamedb/games/supertuxkart/todo.toml) | a playable game; unblocks D4 | S-M | user | 2.1 | #26 |
+| 10 | [dsda-doom's chopping music](../../gamedb/games/dsda-doom/todo.toml) | two games' music; unblocks D3 | S-M | PS3, user | 2.8 | #8 |
 | 11 | [XMB-side backups](hardware.md#xmb-side-backups) | a way back: the EEPROM half has no backup | S | user | 4.1 | - |
 | 12 | [Validator checks for the vertex texture methods](graphics.md#validator-checks-for-the-vertex-texture-methods) | closes a wedge any client can cause | S | host, PS3 | 4.6 | #20 |
 | 13 | [Start-up and warm-up after the disk](smoothness.md#start-up-and-warm-up-after-the-disk) | seconds off loads, fewer warm-up stalls | S-M | host, PS3 | 1.7 | #27 |
@@ -45,8 +47,8 @@ release), [hardware.md](hardware.md) (backups, fan, lv1, out of scope).
 | 16 | [Game-side batching in the remaining games](graphics.md#game-side-batching-in-the-remaining-games) | fps where a game is CPU-bound | M per game | host, PS3 | 3.1 | #6 |
 | 17 | [ps3rsx shadow_fast](graphics.md#ps3rsx-shadow_fast) | 0.6-1.5% CPU in every game (measured: no gain) | S (built, measured) | PS3 | 1.9 | - |
 | 18 | [Tiling and Z-cull](graphics.md#tiling-and-z-cull) | +10-30% in fill-bound scenes (est.) | M-L | host, PS3 | 3.2 | #19 |
-| 19 | [Luanti: view40 as an option, and its memory](games.md#luanti-view40-as-an-option-and-its-memory) | a 59 fps option, RAM | S-M | PS3, host | 2.9 | #2 |
-| 20 | [OpenArena opengl2: what is left](memory.md#openarena-opengl2-what-is-left) | a few MB, shorter reloads | S-M | host, PS3 | 3.7 | - |
+| 19 | [Luanti: view40 as an option, and its memory](../../gamedb/games/luanti/todo.toml) | a 59 fps option, RAM | S-M | PS3, host | 2.9 | #2 |
+| 20 | [OpenArena opengl2: what is left](../../gamedb/games/openarena/todo.toml) | a few MB, shorter reloads | S-M | host, PS3 | 3.7 | - |
 | 21 | [The 7th SPE](spu.md#the-7th-spe) | one more SPE, no write of any kind | S | user, PS3 | 4.2 | #7 |
 | 22 | [Indirect constant addressing (ARL) in vertex programs](graphics.md#indirect-constant-addressing-arl-in-vertex-programs) | usable GPU skinning, smaller shaders | M-L | host, PS3 | 3.4 | #11 |
 | 23 | [RSX and SPU probes: E8b, E16, E17](graphics.md#rsx-and-spu-probes-e8b-e16-e17) | enabling: SPU writes into VRAM, WC mappings | S each | PS3 | 3.3 | #12 |
@@ -54,33 +56,33 @@ release), [hardware.md](hardware.md) (backups, fan, lv1, out of scope).
 | 25 | [The interference detector's own checks](smoothness.md#the-interference-detectors-own-checks) | trust in every row since batch 15 | S | user | 1.13 | - |
 | 26 | [Fan: the floor, the panic path, the steps not run](hardware.md#fan-the-floor-the-panic-path-the-steps-not-run) | the fan's exit paths proven | S | user (D5) | 4.4 | - |
 | 27 | [Retire the stopgap kicker](platform.md#retire-the-stopgap-kicker) | cleanup | S | host (D13) | 1.2 | #1 |
-| 28 | [Red Eclipse engine patches](games.md#red-eclipse-engine-patches) | full sound and settings | M | host, PS3 | 3.8 | - |
-| 29 | [Extreme Tux Racer's last frame to 60](games.md#extreme-tux-racers-last-frame-to-60) | 60 fps in a light game | S to look | host, PS3 | - | - |
+| 28 | [Red Eclipse engine patches](../../gamedb/games/redeclipse/todo.toml) | full sound and settings | M | host, PS3 | 3.8 | - |
+| 29 | [Extreme Tux Racer's last frame to 60](../../gamedb/games/etr/todo.toml) | 60 fps in a light game | S to look | host, PS3 | - | - |
 | 30 | [Kernel stat options and ps3rsx counters](smoothness.md#kernel-stat-options-and-ps3rsx-counters) | exact stall causes instead of samples | S-M | host, a reboot | 3.11 | - |
 | 31 | [The dcbz memcpy trap](graphics.md#the-dcbz-memcpy-trap) | the desktop's CPU drawing into VRAM | S check, M fix | PS3 | 4.14 | #9 |
-| 32 | [OpenTTD's music and its gameplay benchmark](games.md#openttds-music-and-its-gameplay-benchmark) | music that doesn't chop, a real benchmark | M | PS3, user | 2.8, 3.1 | - |
-| 33 | [Smoke runs: menu-only games, Nexuiz, the new games](games.md#smoke-runs-menu-only-games-nexuiz-the-new-games) | more games for the suite | S | user, PS3 | 1.11, 1.12 | - |
+| 32 | [OpenTTD's music and its gameplay benchmark](../../gamedb/games/openttd/todo.toml) | music that doesn't chop, a real benchmark | M | PS3, user | 2.8, 3.1 | - |
+| 33 | [Smoke runs: menu-only games, Nexuiz, the new games](games.md#every-games-open-items) | more games for the suite | S | user, PS3 | 1.11, 1.12 | - |
 | 34 | [SSD root follow-ups](platform.md#ssd-root-follow-ups) | the SSD root without the USB disk | M each | host, PS3, user | 1.14 | - |
 | 35 | [Mesa 0039: nv30's shader cache A/B](smoothness.md#mesa-0039-nv30s-shader-cache-ab) | at most 0.4 s of a load | S (built) | PS3 | 1.7 | - |
 | 36 | [Sound straight to ALSA](memory.md#sound-straight-to-alsa) | 0.5-3 MB per game plus the server | M | PS3 | 3.6 | - |
 | 37 | [Cheaper Mesa 0028 and 0031](graphics.md#cheaper-mesa-0028-and-0031) | about a frame each in X-Moto | S-M | host, PS3 | 3.9 | #10 |
-| 38 | [ADPCM sound effects in ioquake3](memory.md#adpcm-sound-effects-in-ioquake3) | ~5 MB in OpenArena | M | host, PS3, user | 3.9 | #16 |
+| 38 | [ADPCM sound effects in ioquake3](../../gamedb/engines/ioquake3/todo.toml) | ~5 MB in OpenArena | M | host, PS3, user | 3.9 | #16 |
 | 39 | [Mesa built with nv30 only](memory.md#mesa-built-with-nv30-only) | 0.3-0.5 MB per game (est.) | S-M | host | 3.5 | - |
-| 40 | [Neverball: a longer replay](games.md#neverball-a-longer-replay) | a row to trust | S | user, PS3 | 3.10 | - |
+| 40 | [Neverball: a longer replay](../../gamedb/games/neverball/todo.toml) | a row to trust | S | user, PS3 | 3.10 | - |
 | 41 | [Read-only probes of lv1 and the firmware state](hardware.md#read-only-probes-of-lv1-and-the-firmware-state) | the yes/no on lv1 patches at run time; a few MB | S | user's OK (D8), PS3 | 4.3 | #15 |
-| 42 | [BananaBread: texreduce](games.md#sauerbraten-texreduce) | ~45-60 MB of VRAM, blurrier textures | S | PS3 | - | - |
+| 42 | [BananaBread: texreduce](../../gamedb/games/bananabread/todo.toml) | ~45-60 MB of VRAM, blurrier textures | S | PS3 | - | - |
 | 43 | [Smaller vertex data](memory.md#smaller-vertex-data) | vertex buffers /2 | M per engine | host, PS3 | 3.9 | #17 |
 | 44 | [Shader IR dropped after linking](memory.md#shader-ir-dropped-after-linking) | unknown, measure first | M | host | 3.9 | #18 |
 | 45 | [Audio libraries on the PPE](spu.md#audio-libraries-on-the-ppe) | measured in ssdroot5: OpenAL +2% on OpenArena, FluidSynth reverb +3% (effects off +18%), SuperTuxKart load -0.7 s (vorbis); the installed defaults since 10-20; left: the stable publish | S (built, measured) | PS3, user | 3.9 | #22 |
 | 46 | [CPU hot paths left over](graphics.md#cpu-hot-paths-left-over) | about 1-2% each | S-M | host, PS3 | - | - |
 | 47 | [Bigger reads on the USB disk](smoothness.md#bigger-reads-on-the-usb-disk) | small; USB roots only | S | PS3 | - | - |
 | 48 | [Gaps in the measurement tools](smoothness.md#gaps-in-the-measurement-tools) | numbers to trust | S each | host, PS3 | - | - |
-| 49 | [SPU meshing for Luanti and ClassiCube](spu.md#spu-meshing-for-luanti-and-classicube) | Luanti's load stalls, ClassiCube's chunks | L | host, PS3 | 3.12 | #13 |
+| 49 | [SPU meshing for Luanti and ClassiCube](games.md#every-games-open-items) | Luanti's load stalls, ClassiCube's chunks | L | host, PS3 | 3.12 | #13 |
 | 50 | [Vertex texture fetch, derivatives, instancing](graphics.md#vertex-texture-fetch-derivatives-instancing) | none for today's games | M each | host, PS3 | 3.12 | #21 |
 | 51 | [Driver limits not pushed yet](graphics.md#driver-limits-not-pushed-yet) | wedge recovery, finer GART, VRAM above 224 MB | M-L | PS3 | - | - |
 | 52 | [GL extensions the games worked around](graphics.md#gl-extensions-the-games-worked-around) | none today (workarounds exist) | M each | host, PS3 | - | - |
 | 53 | [DualShock 3 in play](platform.md#dualshock-3-in-play) | the console from the sofa | M | user | 4.7 | - |
-| 54 | [Wi-Fi from nm-applet, NetworkManager on eth0](platform.md#wi-fi-from-nm-applet-networkmanager-on-eth0) | the network applet works | S | user | 4.8 | - |
+| 54 | [Wi-Fi from nm-applet, NetworkManager on eth0](platform.md#internal-wi-fi) | the network applet works | S | user | 4.8 | - |
 | 55 | [Display variety](platform.md#display-variety) | TVs other than one 1080p monitor | M | user, a TV | 4.10 | - |
 | 56 | [Hardware cursor and tearing](platform.md#hardware-cursor-and-tearing) | desktop polish | M | user | 4.11 | - |
 | 57 | [Remote Start by Wake-on-LAN, idle auto-off](platform.md#remote-start-by-wake-on-lan-idle-auto-off) | fewer XMB trips, no forgotten console | S-M | user | 4.9 | #23 |
@@ -98,13 +100,13 @@ release), [hardware.md](hardware.md) (backups, fan, lv1, out of scope).
 | 69 | [End-user docs](platform.md#end-user-docs) | others can set it up | M | host | 5.5 | - |
 | 70 | [Security update policy](platform.md#security-update-policy) | users know what gets fixed | S | host | 5.6 | - |
 | 71 | [Other PS3 models](platform.md#other-ps3-models) | beyond one CECH-20xx | M | host | 5.7 | - |
-| 72 | [OpenAL's stuck mixer: the sound card's DMA stops](games.md#openals-stuck-mixer-the-sound-cards-dma-stops) | sound back in four games, honest numbers | done on the PC (kernel local/0047); PS3 test ~1 h | PS3 | 2.1 | - |
-| 73 | [BananaBread data files, and a clean SuperTuxKart config](games.md#sauerbraten-data-files-and-a-clean-supertuxkart-config) | picture closer to the PC's, a clean log | S | host, PS3 | - | - |
+| 72 | [OpenAL's stuck mixer: the sound card's DMA stops](games.md#openals-stuck-mixer-the-sound-cards-dma-stops) | sound back in four games, honest numbers | done (kernel local/0047, in the kernel since .648) | PS3 | 2.1 | - |
+| 73 | [BananaBread data files, and a clean SuperTuxKart config](games.md#every-games-open-items) | picture closer to the PC's, a clean log | S | host, PS3 | - | - |
 | 74 | [Mesa nv30 messages in the logs](games.md#mesa-nv30-messages-in-the-logs) | fallbacks we cannot see now | S | PS3 | - | - |
 | 75 | [A failed buffer allocation must not crash](graphics.md#a-failed-buffer-allocation-must-not-crash) | no segfault at the GART/VRAM limit | M | host, PS3 | - | - |
-| 76 | [Games to smoke next, and Wesnoth's music](games.md#games-to-smoke-next-and-wesnoths-music) | novel games for the suite | S each | PS3 | - | - |
+| 76 | [Games to smoke next, and Wesnoth's music](games.md#every-games-open-items) | novel games for the suite | S each | PS3 | - | - |
 | 77 | [The SSD root image is nearly full](platform.md#the-ssd-root-image-is-nearly-full) | room for more games | M | user | - | - |
-| 78 | [ps3disk multi-region (packages/patched/kernel/linux/patches/ps3/0010): two bugs](platform.md#ps3disk-multi-region-linuxpatchesps30010-two-bugs) | a failed probe and a remove that are safe | S | host, user | - | - |
+| 78 | [ps3disk multi-region (packages/patched/kernel/linux/patches/ps3/0010): two bugs](platform.md#ps3disk-multi-region-packagespatchedkernellinuxpatchesps30010-two-bugs) | a failed probe and a remove that are safe | S | host, user | - | - |
 | 79 | [ps3fb's exception dump prints the wrong FIFO entries](graphics.md#ps3fbs-exception-dump-prints-the-wrong-fifo-entries) | wedges diagnosable from one dump | S | host, a reboot | - | - |
 | 72 | [Host tests run automatically](platform.md#host-tests-run-automatically) | tests that run without someone remembering | S-M | host | 5.9 | - |
 
@@ -114,11 +116,12 @@ Parked by CLAUDE.md, not ranked: [video decoding on the SPEs](spu.md#video-decod
 ## Measured, waiting for a default decision
 
 These ran since the docs were written; what is left is to change a default or decide not to.
-Details and rows in [games.md, "Measured, waiting for a default decision"](games.md#measured-waiting-for-a-default-decision):
-ClassiCube `CC_GL_CHUNKS=1` (+4.7%, x3), X-Moto `XMOTO_GL_STREAM=1` (+1%, the longest frame
-mixed), cube2 `vanormalshort 1` (+17%), ioquake3 `r_md3PackedFrames 1` (-20 MB of VRAM),
-ioquake3's `gl2min_mippowf` result (needs a repeat), and Mesa 0037's `NV30_SYSMEM_COPY=2` +
-`NV30_INVALIDATE_BUFFER=1` for games we don't patch.
+The per-game ones are `package` items (the `gl2min_mippowf` repeat a `benchmark` item) in their games'
+and engines' todo.toml ([games.md](games.md#every-games-open-items)): ClassiCube `CC_GL_CHUNKS=1`
+(+4.7%, x3), X-Moto `XMOTO_GL_STREAM=1` (+1%, the longest frame mixed), cube2 `vanormalshort 1`
+(+17%), ioquake3 `r_md3PackedFrames 1` (-20 MB of VRAM) and `gl2min_mippowf` (needs a repeat). Mesa
+0037's `NV30_SYSMEM_COPY=2` + `NV30_INVALIDATE_BUFFER=1` for games we don't patch is in
+[games.md](games.md#a-mesa-default-for-the-games-we-dont-patch).
 
 ## Not worth it
 
@@ -139,6 +142,7 @@ Measured:
 - **OpenArena's lightmap atlas**: any atlas page adds about 10 s of hitches (rows 51, 53); off by
   default. **OpenArena opengl1 batching**: neutral.
 - **Mesa's GLSL disk cache as a load win**: no load gain (row 69); it stays on, it saves CPU.
+- **dsda-doom's software renderer** (gamedb:dsda-doom): the GL renderer is the way (38 fps in software).
 
 Reasoned:
 - **An SPU mixer for OpenAL Soft**: 3.7-4.7% of a game's samples, under the 6% bar (it comes back
@@ -213,21 +217,21 @@ for upstream (the user, 2026-10-18); setting it up is the user's.
 | Was | Now |
 |---|---|
 | IDEAS #1 (the idle-fix test kernel) | measured (rows 66, 68: stalls 0.4 s with the fix against 8-9 s without): [STALLS.md](../STALLS.md); left: [Retire the stopgap kicker](platform.md#retire-the-stopgap-kicker) |
-| IDEAS #2 (Luanti's default) | settled, base stays (row 67); left: [Luanti: view40 as an option, and its memory](games.md#luanti-view40-as-an-option-and-its-memory) |
+| IDEAS #2 (Luanti's default) | settled, base stays (row 67); left: [Luanti: view40 as an option, and its memory](../../gamedb/games/luanti/todo.toml) |
 | IDEAS #3 (prefetch, game mode's kicker) | prefetch measured, no gain (row 68): "Not worth it" above; the kicker: [Game mode at the TV](platform.md#game-mode-at-the-tv) |
 | IDEAS #4 | [Texture compression at upload for every game](memory.md#texture-compression-at-upload-for-every-game) |
 | IDEAS #5 | [VRAM budget in game mode](memory.md#vram-budget-in-game-mode) |
 | IDEAS #6 | [Game-side batching in the remaining games](graphics.md#game-side-batching-in-the-remaining-games) |
 | IDEAS #7 | [The 7th SPE](spu.md#the-7th-spe) |
-| IDEAS #8 | [dsda-doom's chopping music](spu.md#dsda-dooms-chopping-music) |
+| IDEAS #8 | [dsda-doom's chopping music](../../gamedb/games/dsda-doom/todo.toml) |
 | IDEAS #9 | [The dcbz memcpy trap](graphics.md#the-dcbz-memcpy-trap) |
 | IDEAS #10 | [Cheaper Mesa 0028 and 0031](graphics.md#cheaper-mesa-0028-and-0031) |
 | IDEAS #11 | [Indirect constant addressing (ARL) in vertex programs](graphics.md#indirect-constant-addressing-arl-in-vertex-programs) |
 | IDEAS #12 | [RSX and SPU probes: E8b, E16, E17](graphics.md#rsx-and-spu-probes-e8b-e16-e17) |
-| IDEAS #13 | [SPU meshing for Luanti and ClassiCube](spu.md#spu-meshing-for-luanti-and-classicube) |
+| IDEAS #13 | SPU meshing for [Luanti](../../gamedb/games/luanti/todo.toml) and [ClassiCube](../../gamedb/games/classicube/todo.toml) |
 | IDEAS #14 | [Console frame release (local/0043) on the PS3](memory.md#console-frame-release-local0043-on-the-ps3), [The 720p console](memory.md#the-720p-console) |
 | IDEAS #15 | [Read-only probes of lv1 and the firmware state](hardware.md#read-only-probes-of-lv1-and-the-firmware-state) |
-| IDEAS #16 | [ADPCM sound effects in ioquake3](memory.md#adpcm-sound-effects-in-ioquake3) |
+| IDEAS #16 | [ADPCM sound effects in ioquake3](../../gamedb/engines/ioquake3/todo.toml) |
 | IDEAS #17 | [Smaller vertex data](memory.md#smaller-vertex-data) |
 | IDEAS #18 | [Shader IR dropped after linking](memory.md#shader-ir-dropped-after-linking) |
 | IDEAS #19 | [Tiling and Z-cull](graphics.md#tiling-and-z-cull) |
@@ -237,7 +241,7 @@ for upstream (the user, 2026-10-18); setting it up is the user's.
 | IDEAS #23 | [Dev loop questions](platform.md#dev-loop-questions), [Remote Start by Wake-on-LAN, idle auto-off](platform.md#remote-start-by-wake-on-lan-idle-auto-off) |
 | IDEAS #24 | parked by CLAUDE.md: [Video decoding on the SPEs](spu.md#video-decoding-on-the-spes) |
 | IDEAS #25 (formats nv30 fetches) | measured in batch 17 (row 69): [MEMORY.md](../MEMORY.md); the defaults: "Measured, waiting for a default decision" above |
-| IDEAS #26 | [SuperTuxKart's missing sound](games.md#supertuxkarts-missing-sound) |
+| IDEAS #26 | [SuperTuxKart's missing sound](../../gamedb/games/supertuxkart/todo.toml) |
 | IDEAS #27 (the internal disk, load profiles) | the disk test and the start-up profiles are measured ([GAMEOS-HDD.md](../GAMEOS-HDD.md), [PROFILING.md](../PROFILING.md)); left: [SSD root against USB root](smoothness.md#ssd-root-against-usb-root), [Start-up and warm-up after the disk](smoothness.md#start-up-and-warm-up-after-the-disk) |
 
 Older versions and the dated history: [archive/IDEAS.md](../archive/IDEAS.md),

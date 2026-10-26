@@ -2,36 +2,15 @@
 
 SPU work not done yet. What runs on the SPEs today (libspeq's DXT1/DXT5 encoders, fluidsynth's voice
 DSP on the shared 2-SPE deadline pool, BananaBread's optional skinning) is in [SPU.md](../SPU.md)
-and [SPU-AUDIO.md](../SPU-AUDIO.md). What is left: the cause of dsda-doom's chopping music, a 7th
-SPE, meshing, and the work that waits on probe E16. Items are in rank order; the rank is the one in
-[the ranked list](README.md). Terms: [glossary](../README.md#glossary).
+and [SPU-AUDIO.md](../SPU-AUDIO.md). What is left: a 7th SPE, the audio libraries, and the work that
+waits on probe E16. Items are in rank order; the rank is the one in [the ranked list](README.md).
+Terms: [glossary](../README.md#glossary).
+
+Two items are one game's each and live in its GameDB backlog (`gamedb/games/<id>/todo.toml`): why
+dsda-doom's music still chops with fluidsynth's voices on the SPEs (rank 10; OpenTTD's MIDI shares the
+path, decision D3 waits on it), and SPU meshing for Luanti and for ClassiCube (rank 49; it needs E16).
 
 Effort: S = a day or less, M = days, L = weeks.
-
-### dsda-doom's chopping music
-
-Rank 10. Why the music still chops with fluidsynth's voices on the SPEs.
-
-**Why.** fluidsynth's voice DSP on the SPEs cut dsda-doom's CPU from 44.5 to 31.8 s a minute and
-about halved the underruns; the user, listening: "night and day". On libspeq 0.367's shared pool
-it is 465 underruns a minute against 1095 on the PPE, 0 timeouts, 0.84 ms mean wait (row 52). The
-music still chops audibly. Whether the rest is the pool's wait, SDL's audio buffer or the game's own
-frame stalls is not established. OpenTTD's music (3893 underruns, choppy) and every SDL_mixer MIDI
-user share the path.
-
-- **Payoff:** medium: two games' music, and decision D3 (dsda-doom's music default: fluidsynth on
-  the SPEs, OPL, or off) waits on it.
-- **Effort:** S-M. **Risk:** low (the PPE fallback per round stays).
-- **Needs:** PS3, the user by ear.
-- **Status:** never tried beyond the underrun counts. The listening part is scheduled: TESTS.md
-  "Next" (sound by ear, with the user).
-- **Source:** PLAN 2.8; [archive/SPU-AUDIO.md, "(e) Second version"](../archive/SPU-AUDIO.md#e-second-version-rounds-single-precision-two-workers).
-
-**To start.** The recipe's variants `playspu`, `playppe` and `playoff` (`SPEQ_SYNTH=spu|ppe|off`)
-interleaved with `playnomusic`, `SPEQ_DEBUG=1` in the log (rounds, waits, timeouts), and
-`perf record -p` on the dsda-doom process with `libfluidsynth3-dbgsym` to see what is left on the
-PPE. Then the same with a larger SDL audio buffer, and the stall recorder (`STALLS=1`) to line up
-underruns with frame stalls.
 
 ### The 7th SPE
 
@@ -75,19 +54,6 @@ divides 40% of OpenTTD's reverb ([SPU-AUDIO.md](../SPU-AUDIO.md#openal-soft-on-t
   load -0.7 s from libvorbis) and the defaults since 2026-10-20: libopenal1, libvorbis0a/libvorbisfile3
   and libfluidsynth3 +ps3.549 replace Debian's on the PS3 and in the image. Left: the stable publish.
 - **Source:** PLAN 3.9; [SPU-AUDIO.md](../SPU-AUDIO.md).
-
-### SPU meshing for Luanti and ClassiCube
-
-Rank 49. Block meshes and chunk builds as SPU jobs.
-
-**Why.** Luanti's map generation burns 8.4 s on its emerge thread during the load and its mesh
-thread 8.9 s in the warm-up (batch 17); ClassiCube's `Builder_MakeChunk` is its biggest load item.
-The work is data-parallel and asynchronous already, the shape SPU jobs suit. Writing the meshes
-straight into VBOs needs E16 ([graphics.md, "RSX and SPU probes: E8b, E16, E17"](graphics.md#rsx-and-spu-probes-e8b-e16-e17)).
-
-- **Payoff:** medium (Luanti's load stalls, ClassiCube's chunk builds). **Effort:** L.
-- **Risk:** medium (engine patches). **Needs:** host, PS3. **Status:** never tried.
-- **Source:** PLAN 3.12; [archive/SPU-OFFLOAD-PLAN.md, "Parked"](../archive/SPU-OFFLOAD-PLAN.md#parked-in-the-order-they-would-come-back) 6.
 
 ### libspeq leftovers and SPU work after E16
 
