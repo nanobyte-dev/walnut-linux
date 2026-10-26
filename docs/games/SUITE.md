@@ -326,6 +326,21 @@ Optional lines: `check: <item> yes|partly|no|na` for an item the reviewer could 
 **Collect** with `make bench-pull` (the screenshots become PNGs); the run directory is
 `/var/tmp/ps3-bench/<stamp>-session-GAME-VARIANT/`, and `tools/gamedb/import-run.py` reads it.
 
+**What is kept.** build/bench is ephemeral; the import keeps the session's evidence in gamedb
+(`rating/sessions/<run>/`, [gamedb/README.md](../../gamedb/README.md#gamesrating)), enough to derive the
+record again without the run (`tools/gamedb/reimport.py`): every screenshot (`shots/`, JPEG at 800x450,
+the timed ones and the player's marks; the gallery is the four the record lists), the PC reference the
+sheet had (`shots/pc/`), the form as the player saved it (`form.toml`, the run's session.toml), the review
+as written (`review.md`), and in `raw/` the harness's files: the frame times (`hud/`), `bench.txt`,
+`versions`, `samples`, `result`, `temps`, `out.log` and `game.log`, `dmesg.log` (the run's part only),
+`input.tsv`, `xruns.tsv`, `xruns.log`, the memory snapshots, the X log, `shots/geometry.tsv`, and the game's
+fresh settings (`fresh-home/`, text files up to 64 KB). raw/ is scrubbed (home directories, MAC and LAN
+addresses, the console's and this PC's user and host names) and each file xz-compressed; it stays in the
+private repository (the public copy strips it). Left out: the sheets (`shots-vs-pc.png`, `review-text.png`,
+made again by review.py), `pgid`, and the fresh settings' binary or large files (raw/import.toml names
+them). It costs about 0.35 MB of Git LFS a session beyond the gallery (the first 25 sessions, 2026-10-26:
+5.8 MB of screenshots and 2.5 MB of raw/), and the record can always be derived again from it.
+
 ### Scripted runs
 
 The benchmark harness (demos, recipes, `make bench-*`) measures game and GPU-driver optimizations: A/B runs

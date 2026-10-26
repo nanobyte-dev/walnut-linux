@@ -441,13 +441,18 @@ front matter (title, summary, categories, tags, the packages to install, optiona
 `fps_cap` if it has one, whether it needs the user's own data, the controller, `designed_for`:
 `"pad"` by default or `"keyboard-mouse"`, set by the user per game) and notes as its
 body, a `thumb.png`, and one folder per test (`rating/sessions/<date>-<kind>/`) with its generated
-`result.toml` and the screenshots it lists (`ps3-<point>.jpg`, 800x450 JPEG, kept in Git LFS). A
-session takes a screenshot every minute; the importer publishes up to four that differ (black
-frames and near-duplicates, like a menu caught three times, dropped by comparing small greyscale
-versions; then the most varied), and `--shots 60,240` picks them by hand instead. `tools/gamedb/import-run.py RUN... --game ID` writes a test folder from harness run
-directories and never touches `index.md`; `tools/gamedb/check.py` validates the catalog;
+`result.toml` and the session's evidence: every screenshot (`shots/ps3-<point>.jpg`, 800x450 JPEG, Git
+LFS), the player's `form.toml`, the reviewer's `review.md` and the harness's files (`raw/`, scrubbed,
+private; gamedb/README.md has the layout). A session takes a screenshot every minute; the record's
+gallery is up to four that differ (black frames and near-duplicates, like a menu caught three times,
+dropped by comparing small greyscale versions; then the most varied), and `--shots 60,240` picks them by
+hand instead. `tools/gamedb/import-run.py RUN... --game ID` writes a test folder from harness run
+directories and never touches `index.md`; the record is derived from the evidence it keeps, so
+`tools/gamedb/reimport.py` derives every record again without build/bench when the derivation changes
+(`--check` in `make test`: nothing changes); `tools/gamedb/check.py` validates the catalog;
 `tools/gamedb/build.sh OUT` builds the site (website/gamedb/hugo.toml mounts `gamedb/games/` as its
-`content/games/`, only `index.md`, `thumb.png` and the sessions' JPEGs). A test is a `session` (a played session) or a `capture` (the
+`content/games/`, only `index.md`, `thumb.png` and the sessions' `shots/*.jpg`; CI fetches only the
+gallery from Git LFS: `tools/gamedb/gallery.py`). A test is a `session` (a played session) or a `capture` (the
 picture only). Ratings come from played sessions alone: the benchmark runs of the suite (the
 desktop stopped, vsync off) don't describe what a player gets and aren't imported; the code still
 reads a `demo` test (a harness run with a measured window) if one is ever imported on purpose. Games that need the user's own data (Quake,

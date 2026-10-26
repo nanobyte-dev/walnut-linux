@@ -23,7 +23,8 @@ the licensed data packages and builders in `games/<id>/licensed/`, the teeworlds
 drafts in `upstream.md`; games with a package or a recipe but no published page have draft bundles.
 Every bench recipe, with its assets and helpers, is in its bundle's `benchmark/`. How each game is built
 and installed (its packages, engine, suite, data, licensed data) is its `build.toml`, which the Makefile,
-the catalog and the licensed guards read; each package's orig tarball recipe is its `orig.mk`. Every benchmark result is a record:
+the catalog and the licensed guards read; each package's orig tarball recipe is its `orig.mk`. Every played session keeps its evidence
+(form, review, every screenshot, the harness's files: step 6), from which its record is derived. Every benchmark result is a record:
 the batches in `benchmarks/batches.toml`, each game's numbers in its `benchmark/results/<batch>.toml` (step 5). The tools below already look here (marked *read now*);
 the rest is marked *planned*, with the migration step that brings it.
 
@@ -92,7 +93,7 @@ no big-endian ppc64 port); `dropped` decided against (RAM, CPU, licence), the re
 
 Read by: `check.py` (*read now*, drafts included), `catalog.py` and `pack-catalog.py` (drafts left
 out), Hugo (website/gamedb/hugo.toml mounts `games/` as `content/games/` with an allowlist: `*/index.md`,
-`*/thumb.png`, `*/rating/sessions/*/*.jpg`; nothing else of a bundle becomes a page or a resource),
+`*/thumb.png`, `*/rating/sessions/*/shots/*.jpg`; nothing else of a bundle becomes a page or a resource),
 `import-run.py`, `tools/play-pc.sh`, `tools/play-test.sh`.
 
 ### games/<id>/build.toml (and engines/<e>/build.toml)
@@ -129,7 +130,7 @@ packages and data, `image-base`, `own-packages` for `make game-debs`), `tools/ga
 
 Versions: `walnut-games`, `ps3-games` and `ps3-games-licensed` carry `VERSION_PATHS` over
 exactly the gamedb files they consume (index.md, thumb.png, build.toml, rating/test.toml,
-rating/sessions/*/* and packages/*/patches/** for the app; build.toml and desktop/ for ps3-games, build.toml for
+rating/sessions/*/*, rating/sessions/*/shots/* and packages/*/patches/** for the app; build.toml and desktop/ for ps3-games, build.toml for
 ps3-games-licensed), never a session's raw/, technical.md, investigations, todo.toml, benchmark/ or
 research. `tools/deb-version.sh` reads a pattern there as GitHub's path filters do: `*` within one
 path component, `**` across them.
@@ -184,13 +185,31 @@ Depends come from build/gamedb/ps3-games-licensed.substvars (kept out of the pub
 Ratings come only from played sessions; benchmarks never rate (docs/GAMEDB.md).
 
 - `test.toml` (*read now*, step 4): the played test, below.
-- `sessions/<run>/`: `result.toml` (written by `import-run.py`; the run names are `<date>-<kind>`, with
-  `-<hhmm>` for a second one that day) and the screenshots it lists (`ps3-<point>.jpg`, Git LFS); the
-  catalog, the site and the app name a screenshot by its path in the bundle,
-  `rating/sessions/<run>/<file>.jpg`, which is also its URL under `games/<id>/` on the site. *Planned*
-  (step 6) `form.toml`, `review.md`, `shots/` (every screenshot, JPEG;
-  `pc/` for the PC reference) and `raw/` (the harness's files, scrubbed; private: the public copy strips
-  `gamedb/**/raw/**`).
+- `sessions/<run>/` (*now*, step 6): one played session, the record and its evidence
+  (`tools/gamedb/evidence.py`). The folder names are `<date>-<kind>`, with `-<hhmm>` for a second one that
+  day; `tools/gamedb/import-run.py` writes all of it from a harness run directory, and nothing else may be
+  in it (`check.py`):
+
+  | File | What |
+  |---|---|
+  | `result.toml` | the record: the numbers, the versions, the picture verdict, the form's and the review's answers (data version 2), and `[shots] ps3`, the gallery: the pictures the site and the app show, as paths in the folder (`shots/ps3-60s.jpg`). Derived from the evidence below alone, so `tools/gamedb/reimport.py` derives it again without the run |
+  | `form.toml` | the player's answers as saved (the run's `session.toml`) |
+  | `review.md` | the reviewer's questionnaire as answered (the run's `REVIEW.md`, `tools/gamedb/review.py`) |
+  | `shots/` | every screenshot of the session as JPEG, 800x450: `ps3-<s>s.jpg` the timed ones, `ps3-mark-<t>s.jpg` the player's own (Alt+F12, Select+Start); `pc/pc-<s>s.jpg` the PC reference the review sheet had (build/bench-ref) |
+  | `raw/` | the harness's files a re-derivation reads, each scrubbed (home directories, MAC and LAN addresses, the console's and this PC's user and host names) and xz-compressed as `raw/<its path in the run>.xz`: `bench.txt`, `versions`, `hud/` (the frame times), `samples`, `result`, `temps`, `out.log`, `game.log`, `dmesg.log` (the run's part), `input.tsv`, `xruns.tsv`, `xruns.log`, the memory snapshots, `Xorg.0.log`, `shots/geometry.tsv`, `fresh-home/` (the game's settings as the session wrote them: text files up to 64 KB); `pc/` the reference's `bench.txt` and `versions`; `import.toml` the importer's inputs (the run's name, `--launcher`, `--shots`, `--rules`, what was left out; `frozen = true`: a record kept as an older importer derived it) |
+
+  `shots/` and `raw/` are Git LFS files; CI fetches only the gallery (`tools/gamedb/gallery.py`). `raw/` is
+  private: the public copy strips `gamedb/**/raw/**` (`tools/public-export.sh`), and `check.py`'s
+  public-safe scan refuses, in `result.toml`, `form.toml`, `review.md` and every `raw/` file (read
+  decompressed), a home directory, a LAN address, a MAC address, the private user and host names
+  (from config.local.mk and this machine; the public copy has none to look for) and a `raw/` path that
+  matches a licensed leak glob. The catalog, the site and the app name a screenshot by its path in the
+  bundle, `rating/sessions/<run>/shots/<file>.jpg`, which is also its URL under `games/<id>/` on the site.
+
+  Records without a rules version (`rules` absent: the 18 sessions imported before 2026-10-26 with rules
+  1) are frozen: their numbers came from an importer whose derivation has changed since, so the backfill
+  kept them as they were (`import-run.py --keep-record`) and `reimport.py` leaves them; `reimport.py
+  --unfreeze --check` shows what today's derivation would make of them (their ratings would move).
 
 catalog.json is a cache of the ratings computed from these at build time.
 
@@ -392,6 +411,8 @@ and platform research (EMULATORS, CLASSIC-MACOS, DARLING-PPC) stay in docs/resea
 | doc blocks (`licensed-names`, `calibration`: docs/GAMEDB.md, `suite-table`: README.md) | `tools/gamedb/blocks.py --write`, `--check` |
 | the CSV matrices of the benchmark results | `make bench-matrix` (`bench/matrix.py --csv`) into build/bench-matrix/ |
 | the PS3's bench tree (`/var/tmp/bench/games/<id>/`) | `make bench-push` |
+| a session's record (`result.toml`) from its evidence | `tools/gamedb/import-run.py`, `tools/gamedb/reimport.py` (`--check` in make test) |
+| the gallery's list for `git lfs pull -I` in CI | `tools/gamedb/gallery.py --lfs-include` |
 
 ## Checks
 
