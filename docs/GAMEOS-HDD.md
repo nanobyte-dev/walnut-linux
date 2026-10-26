@@ -267,7 +267,7 @@ Only with the user's explicit go:
     sudo mkfs.ext4 -L ps3ssd /dev/mapper/ps3ssd
     sudo mkdir -p /mnt/ps3ssd && sudo mount -o noatime /dev/mapper/ps3ssd /mnt/ps3ssd
     sudo mkdir -p /mnt/ps3ssd/games
-    for g in "sauerbraten base" "openarena gl2min" "luanti base" "supertuxkart lean" "classicube base"; do
+    for g in "bananabread base" "openarena gl2min" "luanti base" "supertuxkart lean" "classicube base"; do
         /var/tmp/bench/ssd-arm.sh copy $g; done      # cp -a, then diff -rq against the original
     dpkg -L luanti-game-minetest | head -3     # under /usr/share/luanti? else add its dir to DATA_DIRS
 
@@ -331,7 +331,7 @@ commit 9e6bc57 (gamedb:batch/2026-10-18-ssd1). Only BananaBread (9 runs) and par
 OpenArena ran before the batch was stopped for Phase B; Luanti, SuperTuxKart and ClassiCube never
 got their SSD arms. Medians with [min..max]:
 
-| BananaBread base, n=3 | USB | GAMEDATA=ssd | ssd + SWAP=ssd |
+| [BananaBread](../gamedb/games/bananabread/) base, n=3 | USB | GAMEDATA=ssd | ssd + SWAP=ssd |
 |---|---|---|---|
 | load (s) | 16.9 [15.4..19.3] | 15.9 [15.4..16.7] | 16.4 [15.3..17.5] |
 | load_disk_s (sda wait in the load) | 5.5 [4.7..5.6] | 4.9 [4.8..5.5] | 5.4 [5.0..5.4] |
@@ -342,7 +342,7 @@ got their SSD arms. Medians with [min..max]:
 | warm-up stall seconds / sda wait | 16.0 / 3.2 s | 11.9 / 2.9 s | 12.2 / 3.2 s |
 | swapped out pages, whole run | 21.4k | 20.8k | 19.8k |
 
-| OpenArena gl2min | USB (n=2) | GAMEDATA=ssd (n=1) | ssd + SWAP=ssd (n=3) |
+| [OpenArena](../gamedb/games/openarena/) gl2min | USB (n=2) | GAMEDATA=ssd (n=1) | ssd + SWAP=ssd (n=3) |
 |---|---|---|---|
 | load (s, the game's own) | 10.7 [9.8..11.6] | 7.7 | 7.6 [7.5..7.6] |
 | load_disk_s | 6.3 [6.2..6.4] | 6.5 | 6.4 [6.4..6.7] |
@@ -659,8 +659,8 @@ cross-boot comparison of its own, below.
 2026-10-19 00:22-04:20Z, one boot, kernel 6.12.111+ps3.472, root `/dev/mapper/ps3root` on the
 console's internal SSD image (an upgraded SSD; a stock PS3 has a 2.5" HDD and would land between
 these numbers and the USB disk's), Mesa .476, ps3rsx 0.443, ps3-gpu-tools 0.477~dev (its stall
-recorder samples `ps3db`, so the SSD's disk wait is counted), `STALLS=1`. Results rows 71-75, commit
-named in TESTS.md. **Cross-boot and indicative**: the USB numbers are from other boots. For BananaBread
+recorder samples `ps3db`, so the SSD's disk wait is counted), `STALLS=1`. Batches gamedb:batch/2026-10-19-ssdroot1-baseline to
+gamedb:batch/2026-10-19-ssdroot2-shadow-fast, commit named in TESTS.md. **Cross-boot and indicative**: the USB numbers are from other boots. For BananaBread
 and OpenArena they are batch ssd1's "-" arm (the same kernel, Mesa and ps3rsx, USB root); for Luanti,
 SuperTuxKart and ClassiCube they are batch 16 (kernel .433, Mesa .442~dev, ps3rsx 0.249), so a small
 difference for those three may be the software. A same-boot comparison needs alternating boots
@@ -668,11 +668,11 @@ difference for those three may be the software. A same-boot comparison needs alt
 
 | Game (n SSD / n USB) | Load, the game's own (s) | Load's disk wait (s) | Gameplay stalls (s) | Longest gameplay frame (ms) | 1% low | Steady fps |
 |---|---|---|---|---|---|---|
-| BananaBread (4 / 3) | **7.1** [6.9..7.2] / 16.9 [15.4..19.3] | **1.85** [1.7..1.9] / 5.5 [4.7..5.6] | **0.05** [0..0.4] / 1.6 [0.7..2.4] | **103** [80..152] / 459 [388..665] | 25.6 / 24.1 | 39.15 / 38.5 |
-| OpenArena gl2min (3 / 2) | **6.9** [6.7..7.1] / 10.7 [9.8..11.6] | **2.5** [2.2..2.6] / 6.3 [6.2..6.4] | 0.2 [0.1..0.5] / 0.3 | 199 [122..202] / 111 | 25.6 / 23.1 | **60.4** [60.3..63.3] / 55.9 |
-| Luanti (3 / 3) | **25.0** [24.5..25.1] / 40.8 [40.6..42.6] | **3.4** [3.0..3.5] / 9.8 [9.6..10.4] | 3.5 [2.4..5.8] / 2.5 [2.3..3.2] | 724 [724..907] / 358 [272..365] | 19.1 / 17.5 | 46 / 46 |
-| SuperTuxKart lean (3 / 3) | **31.1** [31.0..31.5] / 53.6 [53.2..54.9] | **3.3** [3.1..3.5] / 10.9 [10.4..11.5] | 2.0 [0.2..3.6] / 1.8 [1.2..4.1] | 448 [108..513] / 686 [504..768] | 11.1 / 11.4 | 20 / 20 (HUD) |
-| ClassiCube (5 / 2) | **7.65** [7.45..8.24] / 14.2 [13.9..14.4] | 1.3 [0.9..1.3] / 3.4 (batch 17) | 0 / 0.05 | 65 [58..74] / 99 | 30.7 / 30.05 | 48.1 then 46.1 / 45.9 |
+| [BananaBread](../gamedb/games/bananabread/) (4 / 3) | **7.1** [6.9..7.2] / 16.9 [15.4..19.3] | **1.85** [1.7..1.9] / 5.5 [4.7..5.6] | **0.05** [0..0.4] / 1.6 [0.7..2.4] | **103** [80..152] / 459 [388..665] | 25.6 / 24.1 | 39.15 / 38.5 |
+| [OpenArena](../gamedb/games/openarena/) gl2min (3 / 2) | **6.9** [6.7..7.1] / 10.7 [9.8..11.6] | **2.5** [2.2..2.6] / 6.3 [6.2..6.4] | 0.2 [0.1..0.5] / 0.3 | 199 [122..202] / 111 | 25.6 / 23.1 | **60.4** [60.3..63.3] / 55.9 |
+| [Luanti](../gamedb/games/luanti/) (3 / 3) | **25.0** [24.5..25.1] / 40.8 [40.6..42.6] | **3.4** [3.0..3.5] / 9.8 [9.6..10.4] | 3.5 [2.4..5.8] / 2.5 [2.3..3.2] | 724 [724..907] / 358 [272..365] | 19.1 / 17.5 | 46 / 46 |
+| [SuperTuxKart](../gamedb/games/supertuxkart/) lean (3 / 3) | **31.1** [31.0..31.5] / 53.6 [53.2..54.9] | **3.3** [3.1..3.5] / 10.9 [10.4..11.5] | 2.0 [0.2..3.6] / 1.8 [1.2..4.1] | 448 [108..513] / 686 [504..768] | 11.1 / 11.4 | 20 / 20 (HUD) |
+| [ClassiCube](../gamedb/games/classicube/) (5 / 2) | **7.65** [7.45..8.24] / 14.2 [13.9..14.4] | 1.3 [0.9..1.3] / 3.4 (batch 17) | 0 / 0.05 | 65 [58..74] / 99 | 30.7 / 30.05 | 48.1 then 46.1 / 45.9 |
 
 (SSD / USB in each cell. OpenArena's gameplay columns leave out the map reloads; its window as a whole
 had 36.2 s of stalls against 52.0 s, the reloads 40.7 s against 55.7 s. The SSD rows for BananaBread

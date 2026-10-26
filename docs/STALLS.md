@@ -35,22 +35,27 @@ whole-window columns stay as they were, for history. matrix.py writes `stalls_pl
 `stall_play_s.csv`, `low1_play.csv` and `longest_play_ms.csv`, each created by the first run that has
 the number. Only HUD frame times give these (not the per-second form).
 
-A reload segment is found per pass (the `pass<N>` stamps in bench.txt) from the game's entry in
-`report.RELOADS`. A frame that ends inside the segment belongs to the reload, and so does a frame
+A reload segment is found per pass (the `pass<N>` stamps in bench.txt) from the `[reload]` table of the
+game's `benchmark/analysis.toml` (gamedb/README.md; `bench/gamedata.py`). A frame that ends inside the segment belongs to the reload, and so does a frame
 that starts inside it; the segment then ends with that frame. That second rule matters for
 OpenArena's opengl2 renderer, whose load ends in one 8-16 s frame (the cgame load, `cl_preloadLate`
 and `RB_ShowImages`) that outlasts "CL_InitCGame:" + 1 s by 4-5 s. Before the rule it counted as
 play: gl2min's "16 s gameplay freeze" was that frame, and its `stall_play_s` went from 54.7 to
 16.0 s once it was left out (opengl1 runs moved by 0-4 s; [MEMORY.md](MEMORY.md)).
 
-| Game | Reload | Segment | Basis |
-|---|---|---|---|
-| OpenArena | map reload at every demo pass | pass start to 1 s after its first out.log line `CL_InitCGame:` (needs bench.txt `t0`) | measured on 20261017T2337 and T2345: 10.2-10.8 s of reload, 7.1-7.3 s of demo |
-| Neverball | the replay restarts at every pass | pass start + 1 s | measured: the load frames (0.15-2 s) end 0.4 s after the pass line; a fixed time, so runs from before `t0` work |
-| dsda-doom | level load after each timed pass | pass start + 1 s | a guess; check the stalls' seconds into each pass with `passsplit.py -v` |
-| X-Moto | a new replay state per pass | pass start + 2 s | a guess, same |
-| BananaBread | demoend plays the demo again | none: its `WIN_ON_RE`/`WIN_OFF_RE` window already leaves the reload out | play equals the old numbers |
-| SuperTuxKart and the rest | one race or session | none | play equals the old numbers |
+<!-- gamedb:reload-rules -->
+| Game | Reload segment of a pass |
+|---|---|
+| [dsda-doom](../gamedb/games/dsda-doom/) | pass start + 1 s |
+| [Neverball](../gamedb/games/neverball/) | pass start + 1 s |
+| [OpenArena](../gamedb/games/openarena/) | pass start to 1 s after its first out.log line matching `CL_InitCGame:` |
+| [X-Moto](../gamedb/games/xmoto/) | pass start + 2 s |
+| every other game | none: one race or session, or a window that leaves the reload out |
+<!-- /gamedb:reload-rules -->
+
+Why each rule is what it is (measured, or a guess to check with `passsplit.py -v`) is a comment next
+to it in the game's analysis.toml. A game whose recipe window already leaves its reload out (BananaBread's
+`WIN_ON_RE`/`WIN_OFF_RE`) needs none: its play numbers equal the old ones.
 
 A run whose game needs the load line but has no `t0` (OpenArena before 2026-10-17 23:00) gets `-` in
 the play columns rather than a wrong number. A recipe can set its own segment: `parse()` prints
@@ -377,43 +382,14 @@ because their kernels predate the fix or were measured that way; compare them wi
 with later rows. A second stopgap, ps3rsx retiring fences from its 60 Hz vsync interrupt as well as from the
 poll timer, was considered and is not needed with the fix.
 
-## OpenArena
+## What the recorder found in a game: OpenArena
 
-What stalls in OpenArena, and why.
-
-The first recorder runs (ioquake3 ps3.379, the timedemo looped, 20261017T233701Z and T234549Z) put
-81% of the window's stall time on the main thread's CPU. `passsplit.py` splits it by where it falls
-in a pass:
-
-- 10.2-10.8 s of the 17.6-17.9 s are the map reload at the start of every pass: three load-screen
-  frames of 340, 700 and 380 ms, the world's textures read from pak4-textures.pk3, decoded and
-  compressed to DXT on the PPE.
-- 7.1-7.3 s are the demo itself: four stalls a pass of 130-400 ms, 6.9, 10.1, 13.5 and 16.7 s into
-  it. Those are bots joining. The demo starts a match with bot_minplayers, which adds a bot every
-  10 s of game time (every 200 timedemo frames), and OpenArena's qagame sends `loaddefered` with
-  every bot added during play, so the cgame loads its models, skins and textures at once
-  (cg_deferPlayers can't defer them). Real play does the same at every match with bots. A host trace
-  (llvmpipe, the demo, three passes) has per pass 5 joins, 15 MD3 models, 15 skins, 35 image lookups
-  and 23 texture uploads during the demo. Sounds load once per session (OpenAL keeps them across
-  levels).
-
-These runs had the recorder running, so they describe the stalls left once the lost decrementer was
-masked. The reloads and the bot joins are real either way.
-
-ioquake3 0025-0026 (+ps3.396, both on by default, host frames identical over three passes):
-
-- `r_keepImages 1` keeps the textures of image files across a map change and takes them back by
-  name when the next level is the same map (host reload 0.46 -> 0.17 s, the joins' uploads gone).
-- `cl_preloadLate 1` registers what the cgame registered during the last level's play again at the
-  end of the next load of the same map. From the second pass on nothing loads during the demo; the
-  longest frame went 37 -> 14 ms on the host.
-
-Both start working at the second pass, which the window never includes. `cl_deferPlayers 1`
-(opt-in) drops `loaddefered`: the bots keep a substitute model, which changes the picture. Recipe
-variants `keepimg0`, `preload0`, `loads0` (both off) and `defer` (`gamedb/games/openarena/benchmark/recipe.sh`).
-On the PS3 (results row 59, TESTS.md 10-18 08:25, commit 2d3243c) gameplay stalls went 9-10 s -> 0
-and steady fps 65 -> 70.6. OpenArena's current numbers (gl2min 57-60 fps with 1-2 s of stalls since
-batch 17) are in [games/README.md](games/README.md).
+The first recorder runs put 81% of OpenArena's stall time on its main thread's CPU: the map reload at
+every demo pass and the bots joining mid-demo, whose models, skins and textures the cgame loads at
+once. ioquake3 0025-0026 (textures kept and late loads preloaded across same-map reloads) took its
+gameplay stalls from 9-10 s to 0
+([reload-stalls](../gamedb/games/openarena/investigations/2026-10-17-reload-stalls.md)). Current
+numbers per game are in [games/README.md](games/README.md).
 
 ## Game prefetch
 
@@ -501,7 +477,7 @@ cold, base and prefetch runs interleaved, all with the recorder (`STALLS=1`) for
 `load_disk_s` (the recorder changes the stalls it records, but for both sides alike):
 
     # 0. one learn run per game, cold, not measured
-    for g in "sauerbraten base" "openarena gl2min" "luanti base" "supertuxkart lean"; do
+    for g in "bananabread base" "openarena gl2min" "luanti base" "supertuxkart lean"; do
         ENVS="GAMEPREFETCH=learn" /var/tmp/bench/run.sh bench $g 1; done
     /usr/lib/ps3/desktop/ps3-game-prefetch game-list --dir /var/tmp/ps3-bench/gprefetch
     # 1. base against prefetch, 3 rounds each
@@ -509,14 +485,14 @@ cold, base and prefetch runs interleaved, all with the recorder (`STALLS=1`) for
     #    ... the same for "openarena gl2min", "luanti base", "supertuxkart lean"
     python3 /var/tmp/bench/report.py --stalls /var/tmp/ps3-bench/<the runs>
 
-Batch 16 (2026-10-18 evening, kernel .433, USB root, results row 68, commit 296f99d), medians of 3:
+Batch 16 (gamedb:batch/2026-10-18-batch16: 2026-10-18 evening, kernel .433, USB root, commit 296f99d), medians of 3:
 
 | Game | load, base / fetch | stall_play_s, base / fetch | longest_play, base / fetch | steady fps, base / fetch |
 |---|---|---|---|---|
-| BananaBread base | 15.2-18.8 / 18.1-18.6 s | 1.4 / 1.0 s | 514 / 518 ms | 38.8 / 38.8 |
-| OpenArena gl2min | about 0.5 s faster with fetch | 11.0 / 10.4 s | 2038 / 1782 ms | 51.8 / 53.1 |
-| Luanti base | +1 to +4 s with fetch | 2.5 / 5.5 s | 358 / 3089 ms | 46 / 46 |
-| SuperTuxKart lean | unchanged | 1.8 / 2.7 s | 686 / 682 ms | 107.3 / 106.7 |
+| [BananaBread](../gamedb/games/bananabread/) base | 15.2-18.8 / 18.1-18.6 s | 1.4 / 1.0 s | 514 / 518 ms | 38.8 / 38.8 |
+| [OpenArena](../gamedb/games/openarena/) gl2min | about 0.5 s faster with fetch | 11.0 / 10.4 s | 2038 / 1782 ms | 51.8 / 53.1 |
+| [Luanti](../gamedb/games/luanti/) base | +1 to +4 s with fetch | 2.5 / 5.5 s | 358 / 3089 ms | 46 / 46 |
+| [SuperTuxKart](../gamedb/games/supertuxkart/) lean | unchanged | 1.8 / 2.7 s | 686 / 682 ms | 107.3 / 106.7 |
 
 BananaBread's load disk wait stayed at 4.5-5.5 s, and two Luanti prefetch runs had 3 s hitches in
 play. On the USB hard disk the prefetch's sorted reads compete with the game's own reads. The

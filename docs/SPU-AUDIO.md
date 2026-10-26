@@ -6,14 +6,14 @@ Two audio libraries were looked at for the SPEs. fluidsynth (MIDI synthesis, use
 
 OpenAL Soft plays the sound of OpenArena (ioquake3 dlopens `libopenal.so.1`), Yamagi Quake II (`s_openal 1`, its default), ClassiCube, Luanti and SuperTuxKart. It does not play QuakeSpasm (SDL2's audio), BananaBread (SDL2_mixer) or Extreme Tux Racer (SFML, whose audio module is miniaudio).
 
-**M0, the profile split** (2026-10-17, Mesa ps3.262, our `libopenal1` with its `-dbgsym`, perf on the game's process only): libopenal's own share was
+**M0, the profile split** (2026-10-17, gamedb:batch/2026-10-17-mesa-262-perf, Mesa ps3.262, our `libopenal1` with its `-dbgsym`, perf on the game's process only): libopenal's own share was
 
 | Game | OpenAL Soft share of the game's samples |
 |---|---|
-| OpenArena | 4.7% (`renderSamples` 1.3, `Resample_Cubic_C` 1.2, `Mix_C` 0.8, `LoadSamples` 0.5), plus libasound 2.8% |
-| ClassiCube | 3.7% (music playing) |
-| Yamagi Quake II | its audio thread, 11% of its samples (the SDL audio path, not OpenAL's mixer) |
-| Luanti | no sound played in its flight |
+| [OpenArena](../gamedb/games/openarena/) | 4.7% (`renderSamples` 1.3, `Resample_Cubic_C` 1.2, `Mix_C` 0.8, `LoadSamples` 0.5), plus libasound 2.8% |
+| [ClassiCube](../gamedb/games/classicube/) | 3.7% (music playing) |
+| [Yamagi Quake II](../gamedb/games/yquake2/) | its audio thread, 11% of its samples (the SDL audio path, not OpenAL's mixer) |
+| [Luanti](../gamedb/games/luanti/) | no sound played in its flight |
 
 No game reached the 6% bar, so voice mixing stays on the PPE. The frame-rate variants (b16, f44, alnull) were not run; they would move at most part of the 3.7 to 4.7%. They are in [backlog/spu.md](backlog/spu.md). The profile is reproducible with `bench/oal-perf.sh` and the variants in `bench/openal.inc` (`allog`, `b16`, `f44`, `b16f44`, `p1024`, `alnull`, `nosound`); the bar was "voice mixing (`Voice::mix`, inclusive) at least 6% of a game's samples in the configuration we would ship".
 

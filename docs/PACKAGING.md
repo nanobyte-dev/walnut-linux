@@ -17,7 +17,7 @@ Decided 2026-10-15, with the packaging plan of 2026-10-16.
 - binutils 2.47 for the SPU, with one gas patch (`packages/patched/toolchain/spu/binutils/`): gas took `nop 127` for the `.nop` directive, which broke branch hints (the `hbrr` regression).
 - newlib 4.6.0 for the SPU, with seven patches (`packages/patched/toolchain/spu/newlib-4.6/`).
 - On the SPEs (2026-10-15) 1629 of 1677 execute tests pass, the same tests one by one as with binutils 2.33.1 and newlib 1.20.
-- A PPE miscompile to know about (2026-10-20): GCC 16.2's loop vectorizer at `-O3` with `-mcpu=cell` (AltiVec without VSX; `-mcpu=970` and `-mcpu=power6 -maltivec` too, `-O2` not) gets stb_image_resize's 4-channel horizontal downsampling loop wrong, and the result is near-black, transparent images. It needs `-DNDEBUG`, because the asserts inside the loop stop the vectorizer. Warzone 2100 is fixed (patch 0007, [games/smoke-tested.md](games/smoke-tested.md)). Any other package that builds stb_image_resize, or other float accumulation loops like it, at `-O3 -mcpu=cell` can hit the same bug (most CMake Release builds use `-O3`). A minimal C reproducer is still missing, so nothing has gone upstream yet.
+- A PPE miscompile to know about (2026-10-20): GCC 16.2's loop vectorizer at `-O3` with `-mcpu=cell` (AltiVec without VSX; `-mcpu=970` and `-mcpu=power6 -maltivec` too, `-O2` not) gets stb_image_resize's 4-channel horizontal downsampling loop wrong, and the result is near-black, transparent images. It needs `-DNDEBUG`, because the asserts inside the loop stop the vectorizer. Warzone 2100 is fixed (its patch 0007: [warzone2100](../gamedb/games/warzone2100/)). Any other package that builds stb_image_resize, or other float accumulation loops like it, at `-O3 -mcpu=cell` can hit the same bug (most CMake Release builds use `-O3`). A minimal C reproducer is still missing, so nothing has gone upstream yet.
 
 **Kernel.** 6.12 LTS (supported to December 2028), from Debian's `linux` source (trixie, 6.12.111-1) with our patches. Two flavours, named 2026-10-16:
 
@@ -108,7 +108,7 @@ The old LAN repository on tibi-server (`http://10.0.0.10:8070`: suites `ps3`, `p
 
 ### Licensed packages and the licensed suite
 
-A package is licensed when its Debian Section is `non-free/*` or `local/*` (game-data-packager marks non-redistributable data `local/`), or when its name is a licensed name. `tools/licensed.py` is the one place that answers it, and every guard below asks it: the names are every directory under `packages/licensed/` and `gamedb/*/*/licensed/`, the `[[licensed]]` entries of gamedb's `build.toml` files (every game's licensed data, also what has no directory of ours: game-data-packager's packages; in the public copy, which has no licensed directory, the names come from these), and the generic `ps3-games-licensed` (`GENERIC` in licensed.py: no game's, licensed in every checkout); the leak globs are `tools/licensed-files.txt` (the generic ones, Sony's `*.prx`/`*.sprx`) plus the `[[licensed]]` `leak_files` and every `dfsg-exclude.txt` entry. It fails closed: a list it can't read stops the guard. `licensed.py check` (in `make test`) wants every `gamedb/*/*/licensed/<pkg>/` declared in its own bundle's `build.toml`, no licensed name outside a licensed directory, a `local/*` or `non-free/*` Section on exactly the licensed packages of ours, and a checkout with all licensed directories or none; `check --since REV` that no name has left the set since REV. Today that is `classicube-data` (Mojang's textures and audio), `quake-shareware`, `quake2-demo-data`, `sauerbraten-nonfree-data` (Sauerbraten models and sounds Debian's cube2-data lacks), `sauerbraten-data` (the real Sauerbraten's whole data, launched by the public `sauerbraten` package on our `cube2` engine: docs/games/sauerbraten.md), `rct2-data`, `tyrian-data` and the metapackage `ps3-games-licensed`. A `[[licensed]]` entry's `builder` says how it is made: `source` (a source package of ours in `licensed/<pkg>/`: classicube-data, both Sauerbraten data packages), `script` (`licensed/<pkg>/<pkg>.sh` from the owner's own copy: `make licensed-data PKG=rct2-data INPUT=<RCT2 CD image>`, `PKG=tyrian-data INPUT=<tyrian21.zip>`) or `game-data-packager:<game>` (`make game-data`, below). `tools/gamedb/build-info.py` reads these for the Makefile.
+A package is licensed when its Debian Section is `non-free/*` or `local/*` (game-data-packager marks non-redistributable data `local/`), or when its name is a licensed name. `tools/licensed.py` is the one place that answers it, and every guard below asks it: the names are every directory under `packages/licensed/` and `gamedb/*/*/licensed/`, the `[[licensed]]` entries of gamedb's `build.toml` files (every game's licensed data, also what has no directory of ours: game-data-packager's packages; in the public copy, which has no licensed directory, the names come from these), and the generic `ps3-games-licensed` (`GENERIC` in licensed.py: no game's, licensed in every checkout); the leak globs are `tools/licensed-files.txt` (the generic ones, Sony's `*.prx`/`*.sprx`) plus the `[[licensed]]` `leak_files` and every `dfsg-exclude.txt` entry. It fails closed: a list it can't read stops the guard. `licensed.py check` (in `make test`) wants every `gamedb/*/*/licensed/<pkg>/` declared in its own bundle's `build.toml`, no licensed name outside a licensed directory, a `local/*` or `non-free/*` Section on exactly the licensed packages of ours, and a checkout with all licensed directories or none; `check --since REV` that no name has left the set since REV. Today that is every package of the table in [Game data](#the-licensed-data-packages) and the metapackage `ps3-games-licensed`. A `[[licensed]]` entry's `builder` says how it is made: `source` (a source package of ours in `licensed/<pkg>/`), `script` (`licensed/<pkg>/<pkg>.sh` from the owner's own copy: `make licensed-data PKG=<pkg> INPUT=<the owner's CD image or archive>`) or `game-data-packager:<game>` (`make game-data`, below). `tools/gamedb/build-info.py` reads these for the Makefile.
 
 - **Built here only.** CI never builds them: they have no workflow (`gen-workflows.py` skips every licensed name and directory), and `github-ci/build-package.sh` refuses them. GitHub has no game data.
 - **Never public.** The public GitHub copy leaves `packages/licensed/` and `gamedb/*/*/licensed/` out of every commit, and any `packages/**/<name>/` of a licensed name as a second check (`tools/public-export.sh`). The image's public profile leaves them out too (`tools/image-packages.sh`). `tools/leak-check.py` keeps licensed files out of every free package and source CI publishes.
@@ -221,53 +221,36 @@ Every free package (the engines, `ps3-games`, `ps3-desktop`, ...) must be instal
 
 Our own machines get the data from the licensed suite through the metapackage `ps3-games-licensed` (`packages/licensed/ps3-games-licensed/`, Section `local/games`, so the licensed suite only). It depends on `ps3-games` and the licensed data gamedb names for it (the `[[licensed]]` entries of the games with suite `licensed`, and those with `meta = true`; `tools/gamedb/pack-integration.py` writes its substvars), so `sudo apt install ps3-games-licensed` gives the whole suite with its data. Personal use only. A new licensed data package gets a `[[licensed]]` entry in its game's `build.toml`, which puts it into that metapackage's `Depends`.
 
-### Quake data from game-data-packager
+### The licensed data packages
 
-`make game-data` (`tools/game-data.sh`, in the games builder with game-data-packager 89 from contrib and lhasa) makes every `build.toml` `[[licensed]]` with `builder = "game-data-packager:<game>"` (`tools/gamedb/build-info.py game-data`), today two packages, into `build/debs/game-data` (`build/debs/quake-data` before 2026-10-26, as `make quake-data`):
+Each is declared by a `[[licensed]]` entry in its game's `build.toml` (gamedb/README.md); what it holds,
+where its files come from and their licences are on the game's technical page.
 
-- `quake-shareware_89_all.deb`: Quake's shareware `id1/pak0.pak`, demos included, Section `non-free/games`;
-- `quake2-demo-data_89_all.deb`: Quake II's demo `baseq2`, `demos/q2demo1.dm2` in its pak, Section `local/games`.
+<!-- gamedb:licensed-table -->
+| Package | Game | Built by | In ps3-games-licensed |
+|---|---|---|---|
+| `sauerbraten-nonfree-data` | [BananaBread](../gamedb/games/bananabread/) | `games/bananabread/licensed/sauerbraten-nonfree-data/` | yes |
+| `classicube-data` | [ClassiCube](../gamedb/games/classicube/) | `games/classicube/licensed/classicube-data/` | yes |
+| `rct2-data` | [OpenRCT2](../gamedb/games/openrct2/) | `games/openrct2/licensed/rct2-data/` | no |
+| `tyrian-data` | [OpenTyrian](../gamedb/games/opentyrian/) | `games/opentyrian/licensed/tyrian-data/` | no |
+| `quake-shareware` | [QuakeSpasm](../gamedb/games/quakespasm/) | game-data-packager (`make game-data`) | yes |
+| `sauerbraten-data` | [Sauerbraten](../gamedb/games/sauerbraten/) | `games/sauerbraten/licensed/sauerbraten-data/` | no |
+| `quake2-demo-data` | [Yamagi Quake II](../gamedb/games/yquake2/) | game-data-packager (`make game-data`) | yes |
+<!-- /gamedb:licensed-table -->
 
-The shareware archives are downloaded from id's mirrors (kept in `build/downloads/game-data`). Deploys, images and `make publish` take the debs like any build. The data is licensed (Quake II's demo may not be redistributed at all), so they go to the licensed suite only (`make publish`).
+A licensed package is built on our own PC, never by CI, and goes to the licensed suite only
+(`make publish`), kept forever. Free packages only `Suggests` it (the rule above), and a package that
+replaces data a free package used to bundle carries the `Breaks`/`Replaces` for that upgrade.
 
-game-data-packager's output isn't reproducible (the files' dates are the build time), and the kept suites never take a different file under a published version. So once a version is published, `make game-data` downloads that file from the licensed suite instead of making it again (with the suite's login from `apt-repo/licensed-auth.sh`, checked against the suite's SHA256). The suite has nothing yet: the version 89 files the LAN repository published are in the retirement backup's `ps3-licensed-debs/`, so `make publish DEBS="<those two>"` before the next `make game-data` keeps the same files. `REGEN=1` makes it anyway and refuses when the version it gets is already published. A new file only goes out under a new version (a newer game-data-packager).
+### Built by game-data-packager
 
-### ClassiCube's data
+`make game-data` (`tools/game-data.sh`, in the games builder with game-data-packager 89 from contrib and lhasa) makes every `build.toml` `[[licensed]]` with `builder = "game-data-packager:<game>"` (`tools/gamedb/build-info.py game-data`) into `build/debs/game-data` (`build/debs/quake-data` before 2026-10-26, as `make quake-data`); the archives it downloads are kept in `build/downloads/game-data`. Deploys, images and `make publish` take the debs like any build.
 
-The `classicube` source package builds two packages (since 2026-10-17, `+ps3.366`): `classicube`, the engine (ppc64, free), and `classicube-data` (all, Section `local/games`, so the licensed suite), which holds the texture pack and the audio, both Mojang's. Since then `classicube-data` is a source package of its own (`gamedb/games/classicube/licensed/classicube-data/`).
+game-data-packager's output isn't reproducible (the files' dates are the build time), and the kept suites never take a different file under a published version. So once a version is published, `make game-data` downloads that file from the licensed suite instead of making it again (with the suite's login from `apt-repo/licensed-auth.sh`, checked against the suite's SHA256). `REGEN=1` makes it anyway and refuses when the version it gets is already published. A new file only goes out under a new version (a newer game-data-packager).
 
-- The texture pack, `static.classicube.net/default.zip`, has the files ClassiCube's launcher otherwise extracts from Mojang's Minecraft Classic 0.30 and 1.6.2 client jars (`terrain.png`, `char.png`, the mob skins; the "classic jar files" in the pinned `src/Resources.c`) with ClassiCube's patches. The sounds and music come from Mojang's resource server (`gamedb/games/classicube/packages/classicube/sounds.sh`). Paths are as before (`/usr/lib/classicube/texpacks`, `audio/`).
-- `classicube` only `Suggests` `classicube-data`, as the rule above requires. `classicube-data` has `Breaks`/`Replaces: classicube (<< 1.3.8~git20261014.aa47929-1+ps3.366~)` for the upgrade from the bundled package.
-- Each new `classicube-data` (15 MB) goes to the licensed suite, kept forever.
-- Checked with dpkg on 2026-10-17: the bundled 330 upgrades to the pair in any unpack order, and the files then belong to `classicube-data`.
+### Built from a source package or a script
 
-Without the data the engine still works. `/usr/games/classicube` runs it from `~/.local/share/classicube`, and ClassiCube's launcher (the pinned source's `Resources_CheckExistence`) finds `texpacks/classicube.zip` missing and asks to fetch it and the sounds and music: the texture pack from `static.classicube.net`, the audio from Mojang's resource server (BearSSL is built in). It writes them under that directory, nothing outside it, and our patches leave this alone. The steps for a user, or for copying the files by hand, are in `/usr/share/doc/classicube/README.Debian` (`gamedb/games/classicube/packages/classicube/debian/classicube.README.Debian`).
-
-### Sauerbraten's models and sounds (`sauerbraten-nonfree-data`)
-
-Debian's `cube2-data` 1.3-1 is not a DFSG-cleaned Sauerbraten. It is the BananaBread content (gitlab.com/cube2-data/cube2-data, 295 MB, 989 files under `packages/`), installed in `/usr/share/games/cube2`, which its `/usr/games/cube2` passes to the engine as `-k`. The engine (cube2 0.0.20201229, Sauerbraten's `fpsgame`, which BananaBread forked) loads models and sounds by names compiled in (`entities.cpp`, `render.cpp`, `weapon.cpp`, `monster.cpp`) or from `data/sounds.cfg`. cube2-data lacks most of them, hence "could not load model" for the pickups, hud guns, gibs and so on, and "failed to load sample".
-
-The match is the SourceForge release `2020_12_29` (`sauerbraten_2020_12_29_linux.tar.bz2`, 985,823,440 bytes, MD5 `b50d018f...` as SourceForge lists it, SHA256 `cdba7c4a...`, both in `config.mk`; kept in `build/downloads/game-data`).
-
-Of the 8,914 files under that release's `packages/`, 8,780 are not in cube2-data (the maps' textures, map models, skyboxes, music; cube2-data's own maps don't use them). We package only what the game code and `sounds.cfg` need: `gamedb/games/bananabread/licensed/sauerbraten-nonfree-data/files.txt`, 912 files, 149 MB unpacked.
-
-- Models: `ammo health boost quad quadrings quadspheres teleporter carrot checkpoint hudguns vwep projectiles gibs debris barreldebris base skull flags armor`, the five player models (`mrfixit snoutx10k ogro2 inky captaincannon`, with their `armor/` and `hudguns/`), `ogro` and `monster`.
-- Sounds: every one cube2-data lacks.
-- Files cube2-data has are not repeated. A few differ in the release (e.g. `models/debris/md2.cfg`, `models/armor/armor.txt`) and cube2-data's win, so the package installs next to cube2-data without a conflict.
-- Not packaged: the other 7,868 files (mapmodels, the Sauerbraten maps' textures and so on). Add them to `files.txt` if Sauerbraten's own maps are ever wanted.
-
-Why Debian leaves them out: the licenses are not DFSG-free. By directory, from the license and readme files kept in the package:
-
-- `ammo boost health flags gibs debris barreldebris` (makkE): CC BY-NC-SA;
-- `hudguns vwep mrfixit inky captaincannon` (geartrooper and others): CC BY-NC 3.0;
-- `snoutx10k` CC BY 3.0 and `skull` CC BY-SA 3.0 (free, but in the same release);
-- `quad` by DCP, converted by makkE; `teleporter` (Todretter) "all rights reserved so far";
-- `ogro` and `ogro2` carry the 1998 Quake II player model's own readme;
-- the sounds are mixed: `ambience` CC Sampling+, `q009` CC BY-SA, `free`/`awesund` modified by Darthvim, others per their README.
-
-So: personal use only, hence the licensed suite. Section `local/games`, version `0.0.20201229-1+ps3.N`, arch all. `cube2` and `cube2-server` don't depend on it (cube2 isn't rebuilt for a `Suggests`); the package `Depends: cube2-data`, and `ps3-games-licensed` depends on it.
-
-The source tarball is made by `gamedb/games/bananabread/licensed/sauerbraten-nonfree-data/sauerbraten-data.sh` (`make sauerbraten-nonfree-data-src`: the release downloaded once and checked, the listed files with a fixed owner and mtime, `gzip -n`). The deb is `make sauerbraten-nonfree-data-deb` (indep builder, no qemu). The same files give the same deb for a given commit. As with the Quake data, once a version is published, never build it again under that version: take the published file.
+A licensed source package lives in its game's bundle, `gamedb/games/<id>/licensed/<pkg>/` (licensed by its place: text only, never public). Its tarball is made by its `orig.mk` or the builder script there (the upstream archive downloaded once and checked, the listed files with a fixed owner and mtime, `gzip -n`), so the same files give the same deb for a given commit; `make <pkg>-src` and `make <pkg>-deb` (indep builder) build it. A builder script without a `package.conf` (`builder = "script"`) makes the deb itself from the owner's own copy. As with game-data-packager's output, once a version is published, never build it again under that version: take the published file.
 
 ## Migration from the old image scripts
 

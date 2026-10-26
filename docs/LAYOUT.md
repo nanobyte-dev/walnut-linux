@@ -88,39 +88,44 @@ package or its builder in `gamedb/games/<id>/licensed/<pkg>/` (licensed by its p
 never public). A game without a published page has a draft bundle (`draft = true` in its `index.md`). The schema is
 gamedb/README.md.
 
-| Path (in gamedb/) | What |
-|---|---|
-| `engines/cube2/packages/cube2/` | The Cube 2 engine (BananaBread, and Sauerbraten through `games/sauerbraten/packages/sauerbraten/`): Debian's `cube2` source package plus `patches/` (textures compressed at upload on Mesa too; CPU skinning by default, optionally on the SPEs through libspeq; only the drawable shader variants; sky from its .dds; lightmap copies freed; fewer GL calls; water queries without waiting; world normals as shorts nv30 fetches, `vanormalshort`, off by default; game data from Debian's `cube2-data`) |
-| `engines/darkplaces/packages/darkplaces-gl2/` | DarkPlaces 0~20180412 (the last with GL 1.x/2.0 renderpaths; `package.conf`, Debian's patches in `patches/`, `debian/`: wrapper `nexuiz-gl2` and lean config) for Debian's `nexuiz-data`; the tarball is pinned in its `upstream.mk`, fetched by its `orig.mk`; docs/games/smoke-tested.md "Nexuiz Classic" |
-| `engines/ioquake3/packages/ioquake3/` | ioquake3 (OpenArena's engine): Debian's `ioquake3` source package plus `patches/` (0001-0010 renderer_opengl2 memory: shaders freed after link, no unusable bone/FBO programs, programs kept across map loads, no CPU copy of model vertices, the VAO cache only on demand; 0011-0018 CPU time of the engine and renderer_opengl1: shader lookups, pk3 reads through libdeflate without crc32, AltiVec, sounds loaded when played; 0019-0024 renderer_opengl1 batching, the lightmap atlas off by default; 0025-0026 textures kept and late loads preloaded across same-map reloads; 0027-0029 renderer_opengl2 vertex formats nv30 fetches, mipmaps without powf, packed MD3 frames) |
-| `games/armagetronad/packages/armagetronad/` | Armagetron Advanced: Debian's `armagetronad` plus `patches/` (a fresh config starts fullscreen at the desktop's resolution; a fixed game-controller scheme, controller N plays local player N) |
-| `games/bomberclone/packages/bomberclone/` | Debian's `bomberclone` (an Atomic Bomberman clone) plus `patches/` (a clean quit: no segfault in the audio thread at exit; full screen by default) |
-| `games/classicube/packages/classicube/` | ClassiCube: `package.conf` (pinned upstream tarball plus texpack/audio components), `patches/` (fewer GL calls per frame: vertex pointers once per buffer, a chunk part in one draw; `CC_GL*` switches), `debian/` (launcher, defaults; the package `classicube`, the engine; Mojang's textures and audio are `licensed/classicube-data/`), `sounds.sh` (sounds/music from Mojang by SHA-1) |
-| `games/ddnet/packages/ddnet/` | DDNet 20.1.1: Debian's newer `ddnet` source (`SOURCE_SNAPSHOT`) plus `patches/` (non-blocking sockets on big-endian 64-bit: the unsigned long FIONBIO bug) |
-| `games/dsda-doom/packages/dsda-doom/` | dsda-doom (PrBoom+ successor): Debian's `dsda-doom` source package (`package.conf`: version and .dsc hash) plus `patches/` (big-endian fixes: dsda-doom.wad's DMX sounds, the software renderer's colours, screenshots; GL renderer without ARB_texture_rg for nv30; batched GL draws, `DSDA_GL_*` switches) |
-| `games/endless-sky/packages/endless-sky/` | Endless Sky 0.11.2: Debian's `endless-sky` source package plus `patches/` (big-endian pixel and WAV byte order, mono sounds, `ES_LOW_MEMORY` defaults, the game's OpenGL 2 path with GLSL 1.20 shaders in `shaders-gl2`, sprites as 2D atlases, fog map as luminance, a cheap outline shader) and `packaging/` (unit tests only, a decode hash dump) |
-| `games/etr/packages/etr/` | Extreme Tux Racer: Debian's `extremetuxracer` source package plus `patches/` (fewer, larger GL submissions: terrain from buffer objects, Tux, shadow, track marks, trees and snow as arrays, a bind cache; `ETR_GL*` switches) |
-| `games/hedgewars/packages/hedgewars/` | Hedgewars: Debian's `hedgewars` plus `packaging/` and `patches/` (the engine starts with the FPU exceptions masked) |
-| `games/luanti/packages/luanti/` | Luanti: Debian's `luanti` source package plus `packaging/` (ppc64 added to the Architecture of `luanti` and `luanti-server`; LuaJIT kept); `CHECK=1` runs its unit tests in the build; built against our `luajit` |
-| `games/mrboom/packages/mrboom/` | Debian's `mrboom` (Mr.Boom, a Bomberman clone for up to 8 players) plus `patches/` (the big-endian register layout for the SDL2 build: Debian's ppc64 binary segfaults on its first text) |
-| `games/neverball/packages/neverball/` | Neverball: Debian's `neverball` source package plus `patches/` (`NEVERBALL_BENCH=1`: a replay prints its frames and fps and the game quits; fewer GL calls and draws: shared mesh buffers, items in a row, batched background billboards; `NEVERBALL_GL*` switches) |
-| `games/openrct2/packages/openrct2/` | OpenRCT2 0.5.6: upstream's release and asset zips (`upstream.mk`) with a Debian-style `debian/`, plus `patches/` (the big-endian port: docs/games/openrct2.md); `rct2-data` comes from the owner's CD (`gamedb/games/openrct2/licensed/rct2-data/rct2-data.sh`, licensed) |
-| `games/openttd/packages/openttd/` | OpenTTD: Debian's `openttd` source package plus `patches/` (the OpenGL video driver on GL 2.1 without ARB_texture_rg or ARB_shader_texture_lod, the sprite recolour in the GLSL 1.10 shader) |
-| `games/opentyrian/packages/opentyrian/` | OpenTyrian 2.1: Debian's `opentyrian` plus `packaging/` (the data package only Suggested; `tyrian-data` comes from `gamedb/games/opentyrian/licensed/tyrian-data/tyrian-data.sh`, licensed) |
-| `games/sauerbraten/packages/sauerbraten/` | Sauerbraten's launcher (native, all): `files/sauerbraten` runs our `cube2` engine on the real game's data (`sauerbraten-data`, licensed) with its own home `~/.sauerbraten`, the menu entry and icon; docs/games/sauerbraten.md |
-| `games/supertuxkart/packages/supertuxkart/` | SuperTuxKart: Debian's `supertuxkart` source package plus `patches/` (big-endian: the .spm mesh and armature loader byte-swaps the little-endian data instead of refusing to run; textures and vertex colours in the right channel order on the OpenGL driver; legacy renderer: no crash when render to texture fails, a power-of-two minimap, opaque textures as DXT1) |
-| `games/teeworlds/packages/teeworlds/` | Teeworlds: Debian's `teeworlds` source package plus `patches/` (big-endian: the UDP sockets really non-blocking, FIONBIO given an int; without it the client hangs in recvfrom() after connecting) |
-| `games/uqm/packages/uqm/` | The Ur-Quan Masters: Debian's `uqm` plus `packaging/` (the content packages only Suggested, so `uqm` installs without them) |
-| `games/warzone2100/packages/warzone2100/` | Warzone 2100 4.3.5 (the last with a GL 2.1 renderer): upstream's release tarball (`upstream.mk`) with a Debian-style `debian/`, plus `patches/` (GCC 16, big-endian decals, `WZ_AUTOGAME_SPEED`, the stb_image_resize miscompile) |
-| `games/wesnoth/packages/wesnoth/` | Battle for Wesnoth 1.18: Debian's `wesnoth-1.18` source package plus `packaging/` (build profile `pkg.wesnoth.archonly`: only `wesnoth-1.18` and `wesnoth-1.18-server`, the data and campaigns are Debian's); built against our `boost-context` |
-| `games/xmoto/packages/xmoto/` | X-Moto: Debian's `xmoto` source package plus `patches/` (fewer, larger GL draws: DrawLib's primitives batched per state run, the level's blocks and edges from one buffer, batches written into a mapped stream buffer; `XMOTO_GL_BATCH`, `XMOTO_GL_BLOCKS`, `XMOTO_GL_STREAM`, `XMOTO_GL_STATS`); `test/glbatch-test.sh` (the GL layer on the PC's llvmpipe: same pixels with and without the stream buffer) |
-| `games/yquake2/packages/yquake2/` | Yamagi Quake II: Debian's `yquake2` source package (`package.conf`: version, .dsc hash, `COMPONENT=contrib`); the game data (Quake shareware, Quake II demo) comes from `make game-data` |
-| `games/bananabread/licensed/sauerbraten-nonfree-data/` | The models and sounds of the Sauerbraten release that Debian's cube2-data lacks (`files.txt`, 912 files; `sauerbraten-data.sh` here); Section local/games. BananaBread's: it fills in Debian's `cube2-data` (its Depends), the data BananaBread plays (the bench recipe `sauerbraten.sh`); the real Sauerbraten has `sauerbraten-data` |
-| `games/classicube/licensed/classicube-data/` | ClassiCube's texture pack and audio, Mojang's (`upstream.mk`, the tarball made by its `orig.mk` from the texture pack and `classicube/sounds.sh`'s audio); Section local/games |
-| `games/sauerbraten/licensed/sauerbraten-data/` | The Sauerbraten 2020_12_29 release's whole game data for the real Sauerbraten (`sauerbraten-full-data.sh` here makes the tarball); Section local/games |
-| `games/openrct2/licensed/rct2-data/` | `rct2-data.sh`: the licensed `rct2-data` deb from the owner's RollerCoaster Tycoon 2 CD (no package.conf: the script builds the deb itself) |
-| `games/opentyrian/licensed/tyrian-data/` | `tyrian-data.sh`: the licensed `tyrian-data` deb from Tyrian 2.1's freeware zip (no package.conf: the script builds the deb itself) |
-| `games/teeworlds/upstream.md`, `games/yquake2/upstream.md` | Drafts offering our patches upstream, with the patches in `upstream/` (docs/upstream/README.md lists every draft) |
+<!-- gamedb:gamedb-packages -->
+| Path (in gamedb/) | For | Source | Patches |
+|---|---|---|---|
+| `engines/cube2/packages/cube2/` | [Cube 2 (engine)](../gamedb/engines/cube2/) | Debian's `cube2` 0.0.20201229+dfsg-1 | 11 |
+| `engines/darkplaces/packages/darkplaces-gl2/` | [DarkPlaces (engine)](../gamedb/engines/darkplaces/) | upstream tarball (`upstream.mk`) | 14 (+ `debian/`) |
+| `engines/ioquake3/packages/ioquake3/` | [ioquake3 (engine)](../gamedb/engines/ioquake3/) | Debian's `ioquake3` 1.36+u20260719.58839361+dfsg-1 | 28 (+ `packaging/`) |
+| `games/armagetronad/packages/armagetronad/` | [Armagetron Advanced](../gamedb/games/armagetronad/) | Debian's `armagetronad` 0.2.9.3.0-1 | 2 |
+| `games/bomberclone/packages/bomberclone/` | [BomberClone](../gamedb/games/bomberclone/) | Debian's `bomberclone` 0.11.9-9 | 2 |
+| `games/classicube/packages/classicube/` | [ClassiCube](../gamedb/games/classicube/) | upstream tarball (`upstream.mk`) | 3 (+ `debian/`) |
+| `games/ddnet/packages/ddnet/` | [DDNet](../gamedb/games/ddnet/) | Debian's `ddnet` 20.1.1+ds-1 | 1 |
+| `games/dsda-doom/packages/dsda-doom/` | [dsda-doom](../gamedb/games/dsda-doom/) | Debian's `dsda-doom` 0.30.0+dfsg-1 | 6 |
+| `games/endless-sky/packages/endless-sky/` | [Endless Sky](../gamedb/games/endless-sky/) | Debian's `endless-sky` 0.11.2-1 | 11 (+ `packaging/`) |
+| `games/etr/packages/etr/` | [Extreme Tux Racer](../gamedb/games/etr/) | Debian's `extremetuxracer` 0.8.4-2 | 8 |
+| `games/hedgewars/packages/hedgewars/` | [Hedgewars](../gamedb/games/hedgewars/) | Debian's `hedgewars` 1.0.3-5 | 1 (+ `packaging/`) |
+| `games/luanti/packages/luanti/` | [Luanti](../gamedb/games/luanti/) | Debian's `luanti` 5.15.2+dfsg-2 | 6 (+ `packaging/`) |
+| `games/mrboom/packages/mrboom/` | [Mr.Boom](../gamedb/games/mrboom/) | Debian's `mrboom` 5.5+ds-1 | 1 |
+| `games/neverball/packages/neverball/` | [Neverball](../gamedb/games/neverball/) | Debian's `neverball` 1.6.0+git20180603-3 | 3 |
+| `games/openrct2/packages/openrct2/` | [OpenRCT2](../gamedb/games/openrct2/) | upstream tarball (`upstream.mk`) | 6 (+ `debian/`) |
+| `games/openttd/packages/openttd/` | [OpenTTD](../gamedb/games/openttd/) | Debian's `openttd` 15.1-1 | 3 |
+| `games/opentyrian/packages/opentyrian/` | [OpenTyrian](../gamedb/games/opentyrian/) | Debian's `opentyrian` 2.1.20260912-1 | none (+ `packaging/`) |
+| `games/sauerbraten/packages/sauerbraten/` | [Sauerbraten](../gamedb/games/sauerbraten/) | native (ours) | none (+ `debian/`) |
+| `games/supertuxkart/packages/supertuxkart/` | [SuperTuxKart](../gamedb/games/supertuxkart/) | Debian's `supertuxkart` 1.5-2 | 7 |
+| `games/teeworlds/packages/teeworlds/` | [Teeworlds](../gamedb/games/teeworlds/) | Debian's `teeworlds` 0.7.5-3 | 1 |
+| `games/uqm/packages/uqm/` | [The Ur-Quan Masters](../gamedb/games/uqm/) | Debian's `uqm` 0.8.0+dfsg-4 | none (+ `packaging/`) |
+| `games/warzone2100/packages/warzone2100/` | [Warzone 2100](../gamedb/games/warzone2100/) | upstream tarball (`upstream.mk`) | 10 (+ `debian/`) |
+| `games/wesnoth/packages/wesnoth/` | [Battle for Wesnoth](../gamedb/games/wesnoth/) | Debian's `wesnoth-1.18` 1:1.18.8-1 | none (+ `packaging/`) |
+| `games/xmoto/packages/xmoto/` | [X-Moto](../gamedb/games/xmoto/) | Debian's `xmoto` 0.6.3+repack-1 | 5 |
+| `games/yquake2/packages/yquake2/` | [Yamagi Quake II](../gamedb/games/yquake2/) | Debian's `yquake2` 8.70+dfsg-1 | 2 |
+| `games/bananabread/licensed/sauerbraten-nonfree-data/` | [BananaBread, licensed data](../gamedb/games/bananabread/) | upstream tarball (`upstream.mk`) | none (+ `debian/`) |
+| `games/classicube/licensed/classicube-data/` | [ClassiCube, licensed data](../gamedb/games/classicube/) | upstream tarball (`upstream.mk`) | none (+ `debian/`) |
+| `games/openrct2/licensed/rct2-data/` | [OpenRCT2, licensed data](../gamedb/games/openrct2/) | script `rct2-data.sh` | none |
+| `games/opentyrian/licensed/tyrian-data/` | [OpenTyrian, licensed data](../gamedb/games/opentyrian/) | script `tyrian-data.sh` | none |
+| `games/sauerbraten/licensed/sauerbraten-data/` | [Sauerbraten, licensed data](../gamedb/games/sauerbraten/) | upstream tarball (`upstream.mk`) | none (+ `debian/`) |
+<!-- /gamedb:gamedb-packages -->
+
+What a package's patches do: its `patches/series` and the patch headers, and its game's technical page
+(the site lists every package with its patch subjects). The upstream drafts of our game patches are each
+game's `upstream.md` with `upstream/*.patch` ([upstream/README.md](upstream/README.md) lists them).
 
 ### Everything else
 
@@ -175,7 +180,9 @@ gamedb/README.md.
 The image builds in two layers. `build/rootfs/base.tar` has the Debian packages (dpkg under qemu,
 about 15 minutes; downloads cached in `build/apt-cache/`) and is rebuilt only when
 `system/image/packages.txt` or the snapshot changes. `build/rootfs/debian-ppc64.tar` adds our config and
-our own packages, in a minute or two. Everything we build is a .deb in `build/debs/<pkg>`:
+our own packages, in a minute or two. Everything we build is a .deb in `build/debs/<pkg>`. The system,
+driver and library packages (each game's own packages are in the gamedb table above, and what they install
+on the game's technical page):
 
 | Package | Installs |
 |---|---|
@@ -183,32 +190,17 @@ our own packages, in a minute or two. Everything we build is a .deb in `build/de
 | `ps3-boot` | `ps3-update-kboot`: Petitboot's `/etc/kboot.conf` from the installed kernels (newest first, the default) and `/etc/kboot.d/*.conf` |
 | `ps3-gpu-tools` | RSX probes, driver tests, the GL tests, `ps3-bench.sh`, `ps3-stallrec`, `ps3-waker` and `ps3-intfwatch` in `/usr/lib/ps3/bin` (on `PATH`), `ps3-mallocstat.so` and `ps3-malloctrim.so` in `/usr/lib/ps3/lib` |
 | `mesa-libgallium`, `libgl1-mesa-dri`, `libegl-mesa0`, `libglx-mesa0`, `libgbm1`, … | Debian's Mesa packages rebuilt from `packages/patched/graphics/mesa/` (`26.2.4-1+ps3.N`), replacing Debian's |
-| `dsda-doom` | `/usr/games/dsda-doom` (`0.30.0+dfsg-1+ps3.N`), replacing Debian's: right colours on big-endian, `-vidmode gl` on nv30 |
-| `luanti`, `luanti-data`, `luanti-server` | `/usr/games/luanti` (`5.15.2+dfsg-2+ps3.N`; Debian builds none for ppc64); Minetest Game from Debian (`luanti-game-minetest`) |
 | `libluajit-5.1-2`, `luajit`, ... | LuaJIT (`2.1.0+openresty20251030-1+ps3.N`), replacing Debian's: `luaL_newstate()` no longer fails on ppc64 |
 | `libopenal1`, `libopenal-data`, `libopenal-dev`, `openal-tools` | OpenAL Soft (`1:1.25.2-1+ps3.N`), replacing Debian's: the mixer without load-hit-stores on the PPE (bit-identical output) |
 | `libsfml-audio3.1` (and the other `libsfml*` binaries) | SFML (`3.1.0+dfsg-4+ps3.N`), replacing Debian's: a 1024 frame playback period instead of 64 (about 64 ms of buffer, `SFML_AUDIO_PERIOD_FRAMES` overrides) |
 | `libvorbis0a`, `libvorbisfile3`, `libvorbisenc2`, `libvorbis-dev` | libvorbis (`1.3.7-3+ps3.N`), replacing Debian's: `ov_read`'s 16-bit packing in AltiVec (bit-identical output) |
 | `libpng16-16t64`, `libpng-dev`, `libpng-tools` | libpng (`1.6.59-1+ps3.N`), replacing Debian's: PNG row unfiltering in AltiVec (bit-identical output) |
 | `libz-ng-compat` | zlib-ng's zlib-compat `libz.so.1` in `/usr/lib/powerpc64-linux-gnu/zlib-ng`, used only by programs started with that directory in `LD_LIBRARY_PATH` |
-| `cube2`, `cube2-server` | BananaBread's engine (`0.0.20201229+dfsg-1+ps3.N`), replacing Debian's: texture compression on Mesa, CPU skinning (on the SPEs when libspeq takes it), less memory; data from Debian's `cube2-data` |
-| `ioquake3`, `ioquake3-server` | OpenArena's engine (`1.36+u20260719.58839361+dfsg-1+ps3.N`), replacing Debian's: renderer_opengl2 memory patches, engine and renderer_opengl1 CPU patches |
-| `supertuxkart`, `supertuxkart-data` | `/usr/games/supertuxkart` (`1.5-2+ps3.N`), replacing Debian's: loads its .spm models on big-endian (Debian's quits while loading); `supertuxkart-data` is Debian's data, rebuilt because `supertuxkart` needs it at its own version |
-| `xmoto`, `xmoto-data` | X-Moto (`0.6.3+repack-1+ps3.N`), replacing Debian's: batched GL drawing |
 | `libboost-context1.92.0`, `libboost-coroutine1.92.0`, `libboost-fiber1.92.0`, their -dev | Boost 1.92's context libraries (`1.92.0-3+ps3.N`), replacing Debian's: the fcontext assembler on ppc64 (Debian's build lacks make/jump_fcontext, and its libboost_coroutine can't link) with the FPRs and AltiVec registers kept across a switch |
-| `wesnoth-1.18`, `wesnoth-1.18-server` | Battle for Wesnoth (`1:1.18.8-1+ps3.N`), which Debian has no ppc64 build of; data and campaigns from Debian's arch-all packages |
-| `endless-sky`, `endless-sky-data` | Endless Sky (`0.11.2-1+ps3.N`), replacing Debian's: runs on big-endian and on OpenGL 2.1 (Debian's has no GL2 shaders and wrong pixel/sound byte order) |
-| `teeworlds`, `teeworlds-server`, `teeworlds-data` | Teeworlds (`0.7.5-3+ps3.N`), replacing Debian's: connects on big-endian (Debian's client hangs on the loading screen) |
-| `extremetuxracer`, `extremetuxracer-data` | Extreme Tux Racer (`0.8.4-2+ps3.N`), replacing Debian's: batched GL drawing |
-| `neverball`, `neverputt`, ... | Neverball (`1.6.0+git20180603-3+ps3.N`), replacing Debian's: the bench mode, batched GL drawing |
-| `openttd`, `openttd-data` | OpenTTD (`15.1-1+ps3.N`), replacing Debian's: the OpenGL driver on nv30 |
 | `libsdl3-0`, ... | SDL3 (`3.4.18+ds-1+ps3.N`), replacing Debian's: window framebuffer colours and native uploads on big-endian |
 | `libsdl2-2.0-0`, ... | SDL2 as sdl2-compat (`2.32.74+ds-1+ps3.N`), replacing Debian's: no deadlock when an app (or an SDL 1.2 game through sdl12-compat) closes the audio device with its lock held |
 | `libfluidsynth3`, `fluidsynth`, ... | FluidSynth (`2.6.1+dfsg-1+ps3.N`), replacing Debian's: voice DSP on the SPEs through libspeq (`SPEQ_SYNTH`), setting overrides (`/etc/fluidsynth/settings`, `FLUIDSYNTH_SETTINGS`), a cheaper reverb |
-| `classicube`, `classicube-data` | `/usr/games/classicube` (game data per user in `~/.local/share/classicube`); `classicube-data`: its texture pack, sounds and music (Mojang's), in the licensed suite only |
-| `yamagi-quake2`, `yamagi-quake2-core` | Yamagi Quake II (`/usr/lib/yamagi-quake2/quake2`, renderers `ref_gl1`, `ref_gl3`), built from Debian's contrib source (debian-ports builds no contrib) |
-| `quake-shareware`, `quake2-demo-data` | game data from game-data-packager (`make game-data`, `build/debs/game-data`): `/usr/share/games/quake/id1/pak0.pak`, `/usr/share/games/quake2-demo/baseq2/`; non-free, the licensed suite only |
-| `libspeq0` | libspeq: SPU jobs from any program (resident workers on the SPEs); DXT1 compression for Mesa, fluidsynth's voice DSP and BananaBread's skinning, each loading it at run time (`SPEQ_S3TC`, `SPEQ_SYNTH`, `SPEQ_SKIN` = `auto\|spu\|ppe\|off`, `SPEQ_S3TC_RGB=ppe`, `SPEQ_DEBUG=1`) |
+| `libspeq0` | libspeq: SPU jobs from any program (resident workers on the SPEs); DXT1 compression for Mesa, fluidsynth's voice DSP and the Cube 2 engine's skinning, each loading it at run time (`SPEQ_S3TC`, `SPEQ_SYNTH`, `SPEQ_SKIN` = `auto\|spu\|ppe\|off`, `SPEQ_S3TC_RGB=ppe`, `SPEQ_DEBUG=1`) |
 | `ps3-spu`, `ps3-spu-programs` | `spurun`, `speq-dxt`, `speq-bench`, spufs mounted at `/spu`; the SPU programs in `/usr/lib/ps3/spu` |
 | `ps3rsx-modules-<release>`, `ps3rsx-modules-ps3`, `ps3rsx-modules-ps3-debug` | the RSX driver (loaded at boot) and probe modules for a kernel; the metas follow the release and debug kernels |
 | `ps3-splash`, `plymouth`, `libplymouth5`, … | the boot splash (Walnut theme) on our patched Plymouth; `ps3-no-initramfs` stands in for initramfs-tools |

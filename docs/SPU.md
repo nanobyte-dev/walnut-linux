@@ -36,7 +36,7 @@ All switches are environment variables read by libspeq. `SPEQ_DEBUG=1` prints a 
 | `SPEQ_S3TC_RGB` | `ppe`, `off` | applies to RGB (3-byte) sources only; `ppe` sends them to the PPE encoder |
 | `SPEQ_S3TC_MIN` | 64 (64x64 pixels) | smallest image sent to the SPEs; smaller mip levels stay on the PPE |
 | `SPEQ_SYNTH` | `auto` (default), `spu`, `ppe`, `off` | fluidsynth's voice DSP. `auto` takes rounds with at least 4 voices (`SPEQ_SYNTH_MIN`); `ppe` runs libspeq's DSP on the calling thread (to tell hook bugs from SPU bugs); `off` is stock fluidsynth |
-| `SPEQ_SKIN` | `auto` (default), `spu`, `ppe`, `off` | BananaBread's skinning, if the engine's hook is used; `auto` declines batches under `SPEQ_SKIN_MIN` (256) vertices |
+| `SPEQ_SKIN` | `auto` (default), `spu`, `ppe`, `off` | the Cube 2 engine's CPU skinning (cube2 0006), if its hook is used; `auto` declines batches under `SPEQ_SKIN_MIN` (256) vertices |
 | `SPEQ_POOL_SPES` | 2 | workers in the deadline pool |
 | `SPEQ_SYNTH_SPES`, `SPEQ_SKIN_SPES` | 0 = all | most pool workers one synth round or one mesh is split across; they open nothing |
 | `SPEQ_SPIN_US`, `SPEQ_IDLE_US`, `SPEQ_FREE_MS` | 80, 10000, 5000 | queue tuning |
@@ -55,7 +55,7 @@ What it does:
 - **DXT5** (Mesa 0032, libspeq 0.367): generic compressed RGBA requests (`GL_COMPRESSED_RGBA`, `RGBA_DXT5`) go to libspeq too. Details and the alpha block in [packages/walnut/tools/ps3-spu/doc/dxt5.md](../packages/walnut/tools/ps3-spu/doc/dxt5.md).
 - **RGB sources** (libspeq 0.394): a 3-byte source used to fall to the PPE encoder at 165 ms for a 1024x1024 (43 ms for 512x512). The SPEs now take them: **1.0 ms per 1024x1024 on 4 SPEs against about 175 ms on the PPE**. Details in [packages/walnut/tools/ps3-spu/doc/dxt-rgb.md](../packages/walnut/tools/ps3-spu/doc/dxt-rgb.md). No game in the suite has exercised this path: BananaBread's demo uploads no RGB DXT1 (rgbspu and rgbppe came out identical at 39 fps, gamedb:batch/2026-10-18-ioquake3-396), and Teeworlds' DXT5 has not shown a `SPEQ` line in a log yet.
 
-What shipped: OpenArena runs with `r_ext_compressed_textures 1` (set in ps3-desktop's `autoexec.cfg`). It compresses only opaque textures, as RGBA DXT1. With the SPU encoder (libspeq 0.210, `SPEQ_S3TC=auto`, 5 runs each, interleaved): level load **13.84 s uncompressed against 13.63 s compressed** (the fewer bytes to upload pay for the encoding), game VRAM 51.7 to 37.5 MB (**14 MB less**), fps 49.1 to 52.7, longest frame unchanged within the noise. One level load made 1476 compression calls with `SPEQ_DEBUG=1`: 254 on the SPEs (every texture from 64x64 up, no failures), the rest small mip levels on the PPE (under 64x64, tens of us each) or, for 1x1 and 2x2, Mesa's own encoder. The queue opens once per game (67 ms). These OpenArena numbers come from step 0's harness, which had a display problem (see "Measured: step 0 and the harness" below); the VRAM figures do not depend on the display, and the load-time comparison has not been repeated through the suite.
+What shipped: [OpenArena](../gamedb/games/openarena/) runs with `r_ext_compressed_textures 1` (set in ps3-desktop's `autoexec.cfg`). It compresses only opaque textures, as RGBA DXT1. With the SPU encoder (libspeq 0.210, `SPEQ_S3TC=auto`, 5 runs each, interleaved): level load **13.84 s uncompressed against 13.63 s compressed** (the fewer bytes to upload pay for the encoding), game VRAM 51.7 to 37.5 MB (**14 MB less**), fps 49.1 to 52.7, longest frame unchanged within the noise. One level load made 1476 compression calls with `SPEQ_DEBUG=1`: 254 on the SPEs (every texture from 64x64 up, no failures), the rest small mip levels on the PPE (under 64x64, tens of us each) or, for 1x1 and 2x2, Mesa's own encoder. The queue opens once per game (67 ms). These OpenArena numbers come from step 0's harness, which had a display problem (see "Measured: step 0 and the harness" below); the VRAM figures do not depend on the display, and the load-time comparison has not been repeated through the suite.
 
 Compression at upload for every game, not only those that ask for it, is a separate Mesa switch, `NV30_FORCE_DXT=off|opaque|all` (patch 0038, off by default, checked on softpipe). It uses this encoder; its PS3 A/B is in [MEMORY.md, "Texture compression at upload"](MEMORY.md) and is scheduled in [TESTS.md](TESTS.md).
 
@@ -65,19 +65,9 @@ The per-voice DSP of fluidsynth 2.6.1 (sample interpolation, the resonant filter
 
 Result on the PS3 (dsda-doom `play`, 60 s): CPU 44.5 to 31.8 s a minute (no music at all: about 29 s), ALSA underruns about halved, and the user, listening, called it "night and day". The music still chops: 465 underruns a minute on the pool against 1095 on the PPE, against 18 with no music. Design, host tests, and the open question are in [SPU-AUDIO.md](SPU-AUDIO.md).
 
-### BananaBread's skinning
+### Skinning
 
-BananaBread skins its skeletal models on the PPE (GPU skinning on nv30 turns the bone lookups into if/else trees: 11 fps against 28). libspeq has a skinning op (`speq_skin_*_v1`, `SPEQ_SKIN_ABI` 1, dual-quaternion palettes, one SPU pass per mesh, run on the pool) and cube2 patch `0006-CPU-skinning-through-libspeq-on-the-PS3-s-SPEs.patch` hooks it in. The modes are `SPEQ_SKIN=auto|spu|ppe|off`; the engine's own loop remains the default in the package.
-
-Measured (BananaBread (Debian's cube2) spawn and gun, one run each, same boot 2026-10-18; gamedb:batch/2026-10-17-luanti-neverball-batching):
-
-| Mode | steady fps | stalls |
-|---|---|---|
-| `ppe` (libspeq's vector code on the calling thread) | 28.1 | none |
-| `spu` | 23.6 | 21 (4.3 s) |
-| engine's own loop (`off`) | 23.0 | none |
-
-So libspeq's PPE path is the fastest, and the SPU path adds hitches. The expected gain was small anyway (about 1% on map cave, where only the hud gun is skinned, around 3200 vertices). Skinning stays selectable and off the default. Design and tests: [packages/walnut/tools/ps3-spu/doc/skin.md](../packages/walnut/tools/ps3-spu/doc/skin.md).
+libspeq has a skinning op (`speq_skin_*_v1`, `SPEQ_SKIN_ABI` 1, dual-quaternion palettes, one SPU pass per mesh, run on the pool; modes `SPEQ_SKIN=auto|spu|ppe|off`). Its one user is the Cube 2 engine's CPU skinning (cube2 0006). On BananaBread's map the SPU path was slower than libspeq's own PPE code and added hitches, and the gain was small anyway (only the hud gun is skinned there), so it stays selectable and off the default: [spu-skinning](../gamedb/engines/cube2/investigations/2026-10-17-spu-skinning.md). Design and tests: [packages/walnut/tools/ps3-spu/doc/skin.md](../packages/walnut/tools/ps3-spu/doc/skin.md).
 
 ## Measured: step 0 and the harness
 

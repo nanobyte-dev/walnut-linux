@@ -129,7 +129,7 @@ A hung game in game mode must not trap you (the user, 2026-10-18). At the TV:
 
 ### The menu freeze (2026-10-18, fixed in 0.456)
 
-On the PS3, Luanti started from the Games menu found no video device and quit. About 10 s after the click, the freeze had caught jgmenu, which stays running between uses, while it held its keyboard and pointer grab. X stopped answering other clients; killing jgmenu freed it.
+Game mode's freeze caught jgmenu, which stays running between uses, while it held its keyboard and pointer grab: X stopped answering other clients until jgmenu was killed, so the game just started from that menu found no X (found by [Luanti](../gamedb/games/luanti/investigations/2026-10-18-menu-freeze.md), started from the Games menu).
 
 The fix: before freezing `ps3-desktop.slice` the guard closes jgmenu (SIGTERM; restarted hidden at the end of leave). Then `ps3-x-ready` (Python, ctypes) checks X. It grabs the keyboard and pointer for a moment. If one is already grabbed while an override-redirect window (a menu or popup) of a `ps3-desktop.slice` program is mapped, that program holds it. X not answering within 6 s is a server grab. Either defers the freeze: 5 s at entering, then every 3 s for a minute while the game runs, with the rest of game mode going on. It checks again right after freezing and thaws if X is held then (a program caught in the middle of a grab). A grab with no desktop popup is the game's own and is left alone. The journal says `jgmenu closed`, `the desktop not frozen yet: ...`, `the desktop frozen now`.
 
