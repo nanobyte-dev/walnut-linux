@@ -1,5 +1,7 @@
 # How Sauerbraten is built, installed and integrated (gamedb/README.md "build.toml").
-packages = ["sauerbraten", "cube2"]
+packages = ["sauerbraten-walnut", "cube2"]
+# up to 0.874 the launcher was sauerbraten, Debian's name (docs/PACKAGING.md); older sessions recorded it so
+former_packages = ["sauerbraten"]
 engine = "cube2"
 suite = "none"
 needs_data = true

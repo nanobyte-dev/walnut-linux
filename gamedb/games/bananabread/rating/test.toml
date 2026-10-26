@@ -1,7 +1,7 @@
 # BananaBread: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
 # harness reads it through bench/harness/playdef.py.
 process = 'cube2_client'
-# its settings and data, set aside for a session on fresh defaults; checked against BananaBread's home (gamedb/games/sauerbraten/packages/sauerbraten/files/sauerbraten keeps Sauerbraten's apart in ~/.sauerbraten)
+# its settings and data, set aside for a session on fresh defaults; checked against BananaBread's home (gamedb/games/sauerbraten/packages/sauerbraten-walnut/files/sauerbraten keeps Sauerbraten's apart in ~/.sauerbraten)
 home = ['.cube2']
 play_mark = '^read map '	# the map is read
 load_mark = '^read map '

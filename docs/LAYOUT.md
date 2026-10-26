@@ -112,7 +112,7 @@ gamedb/README.md.
 | `games/openrct2/packages/openrct2/` | [OpenRCT2](../gamedb/games/openrct2/) | upstream tarball (`upstream.mk`) | 6 (+ `debian/`) |
 | `games/openttd/packages/openttd/` | [OpenTTD](../gamedb/games/openttd/) | Debian's `openttd` 15.1-1 | 3 |
 | `games/opentyrian/packages/opentyrian/` | [OpenTyrian](../gamedb/games/opentyrian/) | Debian's `opentyrian` 2.1.20260912-1 | none (+ `packaging/`) |
-| `games/sauerbraten/packages/sauerbraten/` | [Sauerbraten](../gamedb/games/sauerbraten/) | native (ours) | none (+ `debian/`) |
+| `games/sauerbraten/packages/sauerbraten-walnut/` | [Sauerbraten](../gamedb/games/sauerbraten/) | native (ours) | none (+ `debian/`) |
 | `games/supertuxkart/packages/supertuxkart/` | [SuperTuxKart](../gamedb/games/supertuxkart/) | Debian's `supertuxkart` 1.5-2 | 7 |
 | `games/teeworlds/packages/teeworlds/` | [Teeworlds](../gamedb/games/teeworlds/) | Debian's `teeworlds` 0.7.5-3 | 1 |
 | `games/uqm/packages/uqm/` | [The Ur-Quan Masters](../gamedb/games/uqm/) | Debian's `uqm` 0.8.0+dfsg-4 | none (+ `packaging/`) |

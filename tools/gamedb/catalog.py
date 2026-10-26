@@ -140,6 +140,12 @@ PRE_RELEASE = "pre-0.1"   # runs from before the harness recorded the release (a
 GRADED = ("session", "demo")
 
 
+def recorded_packages(fm):
+    """the names a game's tests may have recorded its packages under: today's, then former ones (build.toml
+    former_packages: a package renamed, as Sauerbraten's launcher was from Debian's name sauerbraten)"""
+    return fm["packages"] + [p for p in fm.get("former_packages", []) if p not in fm["packages"]]
+
+
 def tested_version(t, packages):
     """(walnut release, game package, its version) a test ran on: the release from the run's
     os-release, the game's version from its first package the run recorded"""
@@ -241,10 +247,10 @@ def rate_launcher(tests, fm):
     runs of any version add their picture), and its history (every version rated the same way)"""
     fps_cap = fm.get("fps_cap")
     designed_for = fm.get("designed_for", "pad")
-    hist = history(version_groups(tests, fm["packages"]), fps_cap, designed_for)
+    hist = history(version_groups(tests, recorded_packages(fm)), fps_cap, designed_for)
     data = newest_data(tests)
     tests = [t for t in tests if score.data_version(t) == data]
-    groups = version_groups(tests, fm["packages"])
+    groups = version_groups(tests, recorded_packages(fm))
     current = next((k for k, ts in groups if any(t.get("kind") in GRADED for t in ts)), None)
     cur = rated_tests([t for k, ts in groups for t in ts if k == current or t.get("kind") not in GRADED])
     cur.sort(key=lambda t: (t["date"], t["id"]))
@@ -328,7 +334,7 @@ def build_game(gdir, repo, debs):
         badges.append("low-memory")
     out_tests = []
     for t in sorted(all_tests, key=lambda t: (t["date"], t["id"]), reverse=True):
-        walnut, pkg, ver = tested_version(t, fm["packages"])
+        walnut, pkg, ver = tested_version(t, recorded_packages(fm))
         out_tests.append({
             "walnut": walnut, "package": pkg, "version": ver, "launcher": t.get("launcher"),
             "id": t["id"], "kind": t["kind"], "date": t["date"], "variant": t.get("variant"),

@@ -49,7 +49,7 @@ on:
       - "pkg: ps3-spu"
       - "pkg: ps3-system"
       - "pkg: ps3rsx"
-      - "pkg: sauerbraten"
+      - "pkg: sauerbraten-walnut"
       - "pkg: sdl2-compat"
       - "pkg: supertuxkart"
       - "pkg: teeworlds"

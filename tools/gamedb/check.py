@@ -83,7 +83,7 @@ FIELDS = {
 BUILD_KEYS = {
     "packages": (list, True), "engine": (str, False), "suite": (str, True), "needs_data": (bool, True),
     "data": (list, False), "desktop": (list, False), "divert": (list, False), "image_base": (bool, False),
-    "recipes": (list, False), "licensed": (list, False), "meta": (list, False),
+    "recipes": (list, False), "licensed": (list, False), "meta": (list, False), "former_packages": (list, False),
 }
 # an engine's build.toml: the packages the games run it from, its licensed data
 ENGINE_KEYS = {"packages": (list, False), "licensed": (list, False)}
@@ -142,7 +142,7 @@ def game_facts(gdir):
     recipes) and patched_by, as catalog.py reads a game"""
     fm = front_matter(Path(gdir) / "index.md")
     b = read_build(gdir)
-    fm.update({k: b[k] for k in ("packages", "needs_data", "desktop", "recipes") if k in b})
+    fm.update({k: b[k] for k in ("packages", "needs_data", "desktop", "recipes", "former_packages") if k in b})
     fm["patched_by"] = patched_by(gdir, b)
     return fm
 

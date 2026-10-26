@@ -1,4 +1,4 @@
-Source: sauerbraten
+Source: sauerbraten-walnut
 Section: games
 Priority: optional
 Maintainer: Tiberiu Chibici <chibicitiberiu@gmail.com>
@@ -7,9 +7,15 @@ Standards-Version: 4.7.2
 Rules-Requires-Root: no
 Homepage: http://sauerbraten.org/
 
-Package: sauerbraten
+Package: sauerbraten-walnut
 Architecture: all
 Depends: ${misc:Depends}, cube2 (>= 0.0.20201229+dfsg-1+ps3)
+# our launcher was published as sauerbraten up to 0.874, a name and version that are Debian's; both ship
+# /usr/games/sauerbraten, so this one takes over from either; Provides (no version) keeps the published
+# sauerbraten-data's Depends: sauerbraten satisfied
+Conflicts: sauerbraten
+Replaces: sauerbraten
+Provides: sauerbraten
 Suggests: sauerbraten-data
 Description: Cube 2: Sauerbraten, the 2020 Edition, launcher and menu entry
  Sauerbraten is a fast first person shooter with bots, a good deal of single player and

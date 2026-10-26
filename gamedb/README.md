@@ -113,6 +113,7 @@ and `needs_data`; a draft has a build.toml only when something about its build i
 | Key | Type | Meaning |
 |---|---|---|
 | `packages` | list | the packages the app installs (`walnut-games-helper`; `tools/play-pc.sh` on the PC): Debian package names, none licensed; each one in the apt index (`check.py --apt-index URL`, e.g. the Debian snapshot's and our repository's Packages) or built by a `debian/control` of ours |
+| `former_packages` | list | older names of the game's packages, which earlier sessions recorded their versions under (catalog.py reads them after `packages`): a renamed package keeps its version history |
 | `engine` | string | the engine bundle in `engines/` it runs on; that engine's `engine.md` `games` lists the game (check.py checks both ways) |
 | `suite` | string | `free`: in `ps3-games` and the public `ps3-games-free`; `licensed`: in `ps3-games` only (`ps3-games-free` suggests it), its data is licensed (the public image leaves its packages out: `tools/image-packages.sh`); `none`: in neither. Drafts count too (ClassiCube is a draft in `ps3-games`) |
 | `meta` | list | the packages `ps3-games` and `ps3-games-free` name for the game, when not all of `packages` (e.g. `["neverball"]`: its data comes with it); each one of `packages` |

@@ -1,5 +1,5 @@
 #!/usr/bin/make -f
-P := debian/sauerbraten
+P := debian/sauerbraten-walnut
 
 %:
 	dh $@

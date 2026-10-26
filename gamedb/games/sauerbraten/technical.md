@@ -12,7 +12,7 @@ a session with all three is still to be played.
 
 | Package | Suite | What |
 |---|---|---|
-| `sauerbraten` ([packages/sauerbraten](packages/sauerbraten/)) | public (testing, stable; CI builds it, `0.N`) | `/usr/games/sauerbraten`, the menu entry (Name `Sauerbraten`), an icon. Depends on `cube2`, Suggests `sauerbraten-data` |
+| `sauerbraten-walnut` ([packages/sauerbraten-walnut](packages/sauerbraten-walnut/)) | public (testing, stable; CI builds it, `0.N`; up to 0.874 it was named `sauerbraten`, Debian's non-free package's name, and now Conflicts/Replaces it) | `/usr/games/sauerbraten`, the menu entry (Name `Sauerbraten`), an icon. Depends on `cube2`, Suggests `sauerbraten-data` |
 | `sauerbraten-data` (`licensed/sauerbraten-data`) | the licensed suite only, built locally (`0.0.20201229-1+ps3.N`, about 980 MB) | the release's `data/` and `packages/` whole, in `/usr/share/games/sauerbraten`. Depends on `sauerbraten`, so installing the data installs the game. Not in `ps3-games-licensed`'s Depends (980 MB): install by name |
 
 - The launcher runs `cube2_client -q$HOME/.sauerbraten -k/usr/share/sauerbraten/walnut
@@ -21,7 +21,7 @@ a session with all three is still to be played.
   settings apart from BananaBread's `~/.cube2`, no user file written. `SAUERBRATEN_WINDOWED=1` starts in
   a window.
 - **Walnut's defaults**: the first package directory holds only `data/defaults.cfg`
-  ([files/walnut](packages/sauerbraten/files/walnut/)), which the engine runs only while
+  ([files/walnut](packages/sauerbraten-walnut/files/walnut/)), which the engine runs only while
   `~/.sauerbraten/config.cfg` does not exist. It runs the release's own defaults.cfg, then sets
   `texcompress 512`: of the release's 2155 world texture files, the 512-pixel ones are 772 files and 76%
   of the bytes, which `texcompress 1024` leaves plain and 512 stores in an eighth (DXT1) or a quarter
