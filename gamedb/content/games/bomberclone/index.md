@@ -11,4 +11,8 @@ patched_by = ["bomberclone"]
 recipes = ["bomberclone:base"]
 needs_data = false
 controller = "partial"
+known_issues = [
+  "The gamepad works in matches but not in the menus: they need the keyboard.",
+  "The HUD text is small at 1080p.",
+]
 +++
