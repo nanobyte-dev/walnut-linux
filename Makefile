@@ -246,7 +246,7 @@ classicube-deploy:
 
 # classicube-data's upstream tarball (its own source package, licensed: packages/licensed/classicube-data/): the
 # texture pack in texpack/, the sounds and music in audio/, packed reproducibly
-CCD_UPVER := $(shell sed -n 's/^UPVER=//p' packages/licensed/classicube-data/package.conf)
+CCD_UPVER := $(shell sed -n 's/^UPVER=//p' packages/licensed/classicube-data/package.conf 2>/dev/null)
 CCD_ORIG := $(BUILD)/classicube-data/classicube-data-$(CCD_UPVER).tar.gz
 $(CCD_ORIG): $(CC_TEXPACK) $(CC_AUDIO)/default2.zip packages/licensed/classicube-data/package.conf
 	rm -rf $(BUILD)/classicube-data/tree; mkdir -p $(BUILD)/classicube-data/tree/classicube-data-$(CCD_UPVER)/texpack
