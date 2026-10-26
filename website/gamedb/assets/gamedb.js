@@ -1,4 +1,4 @@
-// Walnut Games: filters and search over the card grid, and the copy button. Without JavaScript the
+// Walnut Games: filters and search over the card grid, the copy button, and links into collapsed batch tables. Without JavaScript the
 // page is the full list (the filter bar stays hidden); with it, a card is hidden by toggling `hidden`.
 (function () {
   "use strict";
@@ -73,4 +73,15 @@
       }
     });
   });
+
+  // a link to a batch table (#batch-<name>, technical pages) opens the collapsed "older batches" holding it
+  function openTarget() {
+    var id = decodeURIComponent(location.hash.slice(1));
+    var el = id && id.indexOf("batch-") === 0 ? document.getElementById(id) : null;
+    if (!el) return;
+    for (var d = el.closest("details"); d; d = d.parentElement && d.parentElement.closest("details")) d.open = true;
+    el.scrollIntoView();
+  }
+  window.addEventListener("hashchange", openTarget);
+  openTarget();
 })();

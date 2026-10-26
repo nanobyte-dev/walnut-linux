@@ -27,7 +27,8 @@
 #            fake trees), licensed (tools/licensed.py check on this tree), workflows
 #            (github-ci/gen-workflows.py --check: .github/workflows is what it writes), blocks
 #            (tools/gamedb/blocks.py --check: no stale generated block), doclinks (tools/doclinks.py:
-#            the links that don't resolve, a warning only for now), walnut-repo (apt-repo/walnut-repo.py against the real
+#            the links that don't resolve, a warning only for now), game-mentions (tools/gamedb/game-mentions.py:
+#            sections of the docs that name a game without a GameDB link, a warning only), walnut-repo (apt-repo/walnut-repo.py against the real
 #            walnut-watch: testing, stable and the password-protected licensed suite), walnut-watch
 #            (the server's publisher on good and hostile uploads), batch-publish (github-ci/batch-publish.py,
 #            testing's one publisher: its plan, and whole runs through publish.sh against a fake
@@ -246,6 +247,9 @@ run doclinks python3 -I tools/doclinks.py --report
 # report only for now: what doesn't resolve is listed in its log, not a failure
 [ ! -s "$L/doclinks.log" ] || { [ -n "$only" ] && [ "$only" != doclinks ]; } ||
 	grep -q ' 0 unresolved' "$L/doclinks.log" || echo "   warn: $(tail -n 1 "$L/doclinks.log") ($L/doclinks.log)"
+run game-mentions python3 -I tools/gamedb/game-mentions.py
+[ ! -s "$L/game-mentions.log" ] || { [ -n "$only" ] && [ "$only" != game-mentions ]; } ||
+	grep -q ': 0 sections' "$L/game-mentions.log" || echo "   warn: $(tail -n 1 "$L/game-mentions.log") ($L/game-mentions.log)"
 run walnut-repo python3 apt-repo/test_walnut_repo.py
 run walnut-watch python3 servers/walnut.nanobyte.dev/test_walnut_watch.py
 run batch-publish python3 -I github-ci/test_batch_publish.py

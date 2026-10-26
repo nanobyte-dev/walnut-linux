@@ -27,6 +27,9 @@ our [investigation](investigations/2026-01-02-slow-load.md), the [doc](../../../
 a [gone](../../../docs/GONE.md) one, [licensed](licensed/ex-data/), [web](https://example.org/a) and
 [top](#current).
 
+Refs: gamedb:batch/b2, (gamedb:batch/b9), gamedb:ex/slow-load, gamedb:eng, gamedb:cand,
+gamedb:cand/x, gamedb:nosuch, `gamedb:batch/b1` and [gamedb:batch/b1](#top).
+
 ```
 [not a link](../../research/survey.md)
 ```
@@ -39,7 +42,7 @@ driver_patches = ["mesa 0050"]
 +++
 # Slow load
 
-Back to [the notes](../technical.md) and [the survey](../../../research/survey.md).
+Back to [the notes](../technical.md) and [the survey](../../../research/survey.md); gamedb:batch/b1, gamedb:ex.
 """
 
 RECIPE = """# Example 1.0: a demo, timed.
@@ -163,6 +166,19 @@ class Pages(Fixture):
         self.assertIn("Cand.", r["body"])
         e = t["engines"][0]
         self.assertIn("[package](%s)" % (technical.GITHUB % ("tree", "gamedb/engines/eng/packages/eng")), e["body"])
+
+    def test_references(self):
+        t = self.build()
+        n = t["games"][0]["notes"]
+        self.assertIn("Refs: [batch b2](#batch-b2), (batch b9), [Slow load](../investigations/slow-load/), "
+                      "[Eng](../../../engines/eng/), cand,\nx, gamedb:nosuch, `gamedb:batch/b1` and "
+                      "[gamedb:batch/b1](#top).", n)                 # drafts and unknown ids: text; code: as is
+        inv = t["investigations"][0]["body"]
+        self.assertIn("gamedb:batch/b1", INV_MD)
+        self.assertIn("[batch b1](../../technical/#batch-b1), [Example](../../technical/).", inv)
+        (self.root / "engines" / "eng" / "technical.md").write_text("# Eng\n\nOn the engine: gamedb:batch/b2.\n")
+        e = self.build()["engines"][0]
+        self.assertIn("[batch b2](../../games/ex/technical/#batch-b2)", e["notes"])
 
     def test_benchmark(self):
         b = self.build()["games"][0]["benchmark"]

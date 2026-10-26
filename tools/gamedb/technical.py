@@ -21,6 +21,11 @@ Design
   page or investigation, an engine go to their pages; any other file of the repository to the public
   repository on GitHub; a link into a draft's bundle, a licensed directory, a session's raw/ or a path
   that does not exist keeps its text and loses the link.
+- References (gamedb/README.md: `gamedb:<id>`, `gamedb:<id>/<investigation-id>`, `gamedb:batch/<name>`)
+  outside code become links: a published game to its technical page, an engine to its page, an
+  investigation to its page (its title the text); a batch to its table (`#batch-<name>`) on the page's own
+  game's technical page when that game has results in it, else on the first published game that has (the
+  engine's games first), else plain text. A draft's game or investigation is its id as plain text.
 - Public-safe: every string of the file is scanned before it is written (tools/gamedb/evidence.py
   leftovers: /home/, private IPv4 and MAC addresses, this checkout's private user and host names;
   and the patterns of tools/public-replace.local.txt, which the public copy of the repository hides);
@@ -46,6 +51,11 @@ SCHEMA = 1
 GITHUB = "https://github.com/nanobyte-dev/walnut-linux/%s/main/%s"
 LINK_RE = re.compile(r"(!?)\[((?:[^\[\]\n]|\[[^\[\]\n]*\])*)\]\(<?([^()\s<>]+(?:\([^()\s]*\)[^()\s<>]*)?)>?((?:\s+\"[^\"\n]*\")?)\)")
 VARIANT_RE = re.compile(r"^variant_([A-Za-z0-9_]+)\s*\(\)")
+# a gamedb reference as tools/doclinks.py reads it (not a <!-- gamedb:NAME --> block marker)
+REF_RE = re.compile(r"(?<![\w/.-])(?<!<!-- )(?<!<!-- /)gamedb:(batch/[A-Za-z0-9._-]+|[a-z0-9][a-z0-9-]{0,63}"
+                    r"(?:/[a-z0-9][a-z0-9.-]*)?)(?![\w/-])")
+# what references are not replaced in: inline code, and links already written
+SKIP_RE = re.compile(r"(`+).+?\1|" + LINK_RE.pattern)
 
 
 class TechnicalError(Exception):
@@ -73,6 +83,12 @@ class Site:
         self.published = {d.name for d in games.iterdir() if d.is_dir() and not check.is_draft(d)} if games.is_dir() else set()
         self.engines = {d.name for d in (self.root / "engines").iterdir() if d.is_dir()} if (self.root / "engines").is_dir() else set()
         self.inv_ids = {}
+        self.batch_games = {}        # batch name: the published games with results in it (build() fills it)
+        self.engine_games = {}       # engine: the published games on it (engine.md's games)
+        for e in self.engines:
+            f = self.root / "engines" / e / "engine.md"
+            if f.is_file():
+                self.engine_games[e] = [g for g in split_md(f.read_text())[0].get("games", []) if g in self.published]
 
     def inv_id(self, path):
         if path not in self.inv_ids:
@@ -112,8 +128,71 @@ class Site:
             return None
         return GITHUB % ("tree" if p.is_dir() else "blob", rel)
 
+    def rel(self, target, page):
+        """the site path target ("games/x/technical/#a") relative to the page at site path page"""
+        path, _, anchor = target.partition("#")
+        if path.rstrip("/") == page.rstrip("/"):
+            return "#" + anchor if anchor else "./"
+        return posixpath.relpath(path.rstrip("/"), page.rstrip("/")) + "/" + ("#" + anchor if anchor else "")
+
+    def inv_by_id(self, owner, iid):
+        """the investigation file with id iid of game or engine owner, or None"""
+        for kind in ("games", "engines"):
+            d = self.root / kind / owner / "investigations"
+            for f in sorted(d.glob("*.md")) if d.is_dir() else []:
+                if self.inv_id(f) == iid:
+                    return kind, f
+        return None
+
+    def ref(self, m, page):
+        """a gamedb: reference as a link for the page at site path page, or its plain text (a sentence's
+        full stop after it is not part of it)"""
+        what = m[1].rstrip(".")
+        return self._ref(what, "gamedb:" + what, page) + m[1][len(what):]
+
+    def _ref(self, what, raw, page):
+        if what.startswith("batch/"):
+            name = what[6:]
+            have = self.batch_games.get(name, set())
+            parts = page.split("/")
+            prefer = [parts[1]] if len(parts) > 1 and parts[0] == "games" else []
+            if len(parts) > 1 and parts[0] == "engines":
+                prefer = self.engine_games.get(parts[1], [])
+            gid = next((g for g in prefer if g in have), None) or next(iter(sorted(have)), None)
+            text = "batch %s" % name
+            return "[%s](%s)" % (text, self.rel("games/%s/technical/#batch-%s" % (gid, name), page)) if gid else text
+        owner, _, iid = what.partition("/")
+        if not iid:
+            if owner in self.published:
+                fm, _ = split_md((self.root / "games" / owner / "index.md").read_text())
+                return "[%s](%s)" % (fm.get("title", owner), self.rel("games/%s/technical/" % owner, page))
+            if owner in self.engines:
+                f = self.root / "engines" / owner / "engine.md"
+                title = split_md(f.read_text())[0].get("title", owner) if f.is_file() else owner
+                return "[%s](%s)" % (title, self.rel("engines/%s/" % owner, page))
+            return owner if (self.root / "games" / owner).is_dir() else raw
+        found = self.inv_by_id(owner, iid)
+        if not found:
+            return raw
+        kind, f = found
+        if kind == "games" and owner not in self.published:
+            return iid
+        title, _ = title_body(split_md(f.read_text())[1])
+        return "[%s](%s)" % (title or iid, self.rel("%s/%s/investigations/%s/" % (kind, owner, iid), page))
+
+    def refs(self, line, page):
+        """line with its gamedb: references as links, outside inline code and links"""
+        out, pos = [], 0
+        for m in SKIP_RE.finditer(line):
+            out.append(REF_RE.sub(lambda r: self.ref(r, page), line[pos:m.start()]))
+            out.append(m[0])
+            pos = m.end()
+        out.append(REF_RE.sub(lambda r: self.ref(r, page), line[pos:]))
+        return "".join(out)
+
     def links(self, md, src, page):
-        """md with its relative links rewritten for the page at site path page (src: the file's repository path)"""
+        """md with its relative links rewritten for the page at site path page (src: the file's repository
+        path), its gamedb: references made links"""
         out, fence = [], None
         for line in md.split("\n"):
             m = re.match(r"\s*(```+|~~~+)", line)
@@ -125,7 +204,7 @@ class Site:
                 fence = m[1]
                 out.append(line)
                 continue
-            out.append(LINK_RE.sub(lambda x: self._link(x, src, page), line))
+            out.append(self.refs(LINK_RE.sub(lambda x: self._link(x, src, page), line), page))
         return "\n".join(out)
 
     def _link(self, m, src, page):
@@ -322,6 +401,7 @@ def build(content, cat, repo=REPO, patch_subjects=None, package_dir=None):
     root = content.parent
     site = Site(root, repo)
     results = benchrecords.results(root)
+    site.batch_games = {b: {g for g in t if g in site.published} for b, t in results.items()}
     batches = benchrecords.load_batches(root)
     metrics = benchrecords.load_metrics(root)
     games, invs = [], []
