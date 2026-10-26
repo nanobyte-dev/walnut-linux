@@ -259,6 +259,27 @@ class Combine(unittest.TestCase):
         self.assertEqual(score.combine([good, session])["graded_by"], "session")   # sessions replace demos
 
 
+class RulesTwoSessionsOnly(unittest.TestCase):
+    """rules 2: a rating comes only from played sessions; scripted, demo and capture runs count for nothing"""
+    def test(self):
+        nums = {"median_fps": 60, "low1_fps": 50, "stutter_s_per_min": 0, "longest_ms": 40, "sound_faults_per_min": 0}
+        demo = {"kind": "demo", "play_seconds": 7200, "crashed": False, "numbers": nums}
+        script = {"kind": "script", "play_seconds": 7200, "crashed": False, "numbers": nums,
+                  "checks": {"pad_play": "yes", "pad_hotplug": "yes"}}
+        self.assertEqual(score.combine([demo, script], rules=2)["medal"], "Untested")   # no session, no rating
+        sess = {"kind": "session", "play_seconds": 600, "crashed": False, "numbers": nums, "date": "2026-10-26",
+                "picture": {"verdict": "ok"}, "review": {}}
+        alone = score.combine([sess], rules=2)
+        with_extra = score.combine([sess, demo, script], rules=2)
+        self.assertEqual(with_extra["hours"], alone["hours"])                           # no crash-free hours
+        self.assertEqual(with_extra["checks"], alone["checks"])                         # no scripted answers
+        self.assertNotIn("pad_hotplug", with_extra["checks"])
+        self.assertEqual(with_extra["aspects"]["stability"], alone["aspects"]["stability"])
+        self.assertEqual(score.checks_of([script]), {})
+        crashed = dict(demo, crashed=True, end="crash")
+        self.assertEqual(score.combine([sess, crashed], rules=2)["crashes"], 0)
+
+
 def write_game(content, gid="ex", **over):
     fm = {"id": gid, "title": "Example", "summary": "An example.", "categories": '["puzzle"]', "tags": '["a"]',
           "license": '"GPL-2.0-or-later"', "homepage": '"https://example.org/"', "packages": '["example"]',
@@ -1017,7 +1038,7 @@ class ImporterV2(Importer):
         self.assertEqual((n["pads_hotplugged"], n["pads_hotplug_opened"]), (1, 0))
         self.assertEqual(n["load_level_s"], 8.5)                # the last press before the mark (31.5) to it (40)
         # and the numbers become the checks and the scores
-        rr = score.combine([dict(r, id="t")], rules=2)
+        rr = score.combine([dict(r, id="t", kind="session")], rules=2)
         self.assertEqual((rr["checks"]["pad_setup"], rr["checks"]["pad_menus"]), ("yes", "yes"))
         self.assertEqual(rr["checks"]["no_keyboard"], "no")          # 4 presses while playing with the pad
         self.assertEqual(rr["checks"]["pad_hotplug"], "no")

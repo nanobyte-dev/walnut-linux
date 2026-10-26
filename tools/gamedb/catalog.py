@@ -249,7 +249,7 @@ def rate_launcher(tests, fm):
     for k in score.ASPECTS[data]:
         aspects[k] = {"name": score.ALL_ASPECT_NAMES[k], "weight": score.WEIGHTS_OF[data][k],
                       "score": rnd(r["aspects"].get(k)), "detail": det.get(k)}
-    graded = [t for t in cur if t.get("kind") in GRADED]
+    graded = [t for t in cur if t.get("kind") in (("session",) if data >= 2 else GRADED)]   # rules 2: sessions only
     avail = [t["numbers"]["min_avail_kb"] for t in graded if "min_avail_kb" in t.get("numbers", {})]
     rating = {"medal": r["medal"], "score": rnd(r["score"]), "capped": r["capped"], "reason": r["reason"],
               "weakest": r["weakest"], "aspects": aspects,

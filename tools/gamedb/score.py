@@ -486,15 +486,12 @@ def measured_checks(t):
 
 def checks_of(tests):
     """{item: (answer, origin, what)} over a launcher's tests, oldest first, the newest answer winning: the
-    measured and asked answers, then the reviewer's (REVIEW.md `check:` and `broken:` lines, and scripted runs'
-    checks), which win over both"""
+    measured and asked answers, then the reviewer's (REVIEW.md `check:` and `broken:` lines), which win over
+    both. Only played sessions answer: a scripted run's checks are ignored"""
     out = {}
-    for t in sorted(tests, key=lambda t: (t.get("date", ""), t.get("id", ""))):
+    for t in sorted((t for t in tests if t.get("kind") == "session"), key=lambda t: (t.get("date", ""), t.get("id", ""))):
         for k, v in measured_checks(t).items():
             out[k] = (v, None, "")
-        for k, v in (t.get("checks") or {}).items():   # a scripted run's (kind "script") answers
-            if v in ("yes", "partly", "no", "na") and k in CHECK_NAMES:
-                out[k] = (v, None, "")
         rv = t.get("review", {})
         for line in rv.get("checks") or []:
             k, _, v = line.partition(" ")
@@ -559,14 +556,13 @@ def stutter_v2(n):
 def combine_v2(tests, fps_cap=None, designed_for="pad"):
     """combine() under rules 2: a launcher's tests of data version 2. The aspects as in combine() where they
     didn't change (medians of frame, smooth, sound, load over the graded tests); Picture, Display, Controls
-    and Features from all the launcher's tests together; Stability counts crashes and unclean quits over the
-    play of every test (scripted runs and soaks add crash-free hours with nobody playing). No weakest link:
+    and Features from the launcher's sessions together (only sessions, kind "session", count at all); Stability counts crashes and unclean quits over the
+    play of the sessions (scripted runs and soaks never count: nobody is playing). No weakest link:
     the mean's medal, Scrap when a core subsystem is broken (broken_v2). designed_for: "keyboard-mouse" scores Controls on the keyboard and mouse
     alone (the gamepad only makes the badge). Adds {rules, hangs, defects, display_deductions,
     controls_failed, features_failed, checks, controller, play_seconds, details, broken}."""
-    sessions = [t for t in tests if t.get("kind") == "session"]
-    demos = [t for t in tests if t.get("kind") == "demo"]
-    graded = sessions or demos
+    tests = [t for t in tests if t.get("kind") == "session"]   # rules 2: only real played sessions count
+    sessions = graded = tests
     played = [t for t in tests if t.get("play_seconds")]
     hours = sum(t["play_seconds"] for t in played) / 3600
     fails = [end_failure(t) for t in played]
@@ -632,7 +628,7 @@ def combine_v2(tests, fps_cap=None, designed_for="pad"):
     if missing and not floor:
         rated = {"score": None, "medal": "Untested", "weakest": None, "capped": False,
                  "reason": " and ".join(missing) + " not measured"}
-    return dict(base, provisional=provisional, graded_by="session" if sessions else "demo", broken=broken, **rated)
+    return dict(base, provisional=provisional, graded_by="session", broken=broken, **rated)
 
 
 def broken_v2(graded, nums, defects, glitches, crashes, hours, fps_cap=None):

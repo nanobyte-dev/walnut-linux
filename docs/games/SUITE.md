@@ -277,7 +277,7 @@ the menus (worked, partly, didn't, didn't try), the gamepad in play (seamless, n
 work, didn't try), the keyboard and mouse (worked, something didn't, didn't use), menus and modes
 you opened (worked, something didn't), saving and loading (worked, didn't, didn't try); and a notes
 box. A pad turned on mid-game and extra pads are never asked (one player, one DualShock 3 that can't
-easily be turned off): scripted runs, below. Save writes `session.toml` (`form_version = 2`,
+easily be turned off): not tested unless it happens in a session. Save writes `session.toml` (`form_version = 2`,
 `sound`, `music`, `glitches`, `pad_menus`, `pad_play`, `keyboard_mouse`, `menus_modes`, `saves_load`,
 the derived `controls`, `notes`, `saved`, `form`); Skip or closing the window writes nothing. `form_version = 2` files the session under rules 2.0; a
 `session.toml` of the first form (sound, music, controls, notes) imports under 1.0 as before. The
@@ -311,24 +311,12 @@ Optional lines: `check: <item> yes|partly|no|na` for an item the reviewer could 
 **Collect** with `make bench-pull` (the screenshots become PNGs); the run directory is
 `/var/tmp/ps3-bench/<stamp>-session-GAME-VARIANT/`, and `tools/gamedb/import-run.py` reads it.
 
-### Scripted runs (planned)
+### Scripted runs
 
-What one player can't test in a session, run on the PS3 without the player (never during a played
-session), as tests of their own (`kind = "script"`, their checklist answers in result.toml `[checks]`,
-which score.py already merges with a launcher's other answers):
-
-- **A virtual DualShock.** `uinput` is a module in our kernel (`CONFIG_INPUT_UINPUT=m`); python3 can
-  drive `/dev/uinput` with `fcntl.ioctl` and `struct` alone (no python3-evdev in the image), as root:
-  a device with the DualShock 3's name, ids and buttons, so SDL's mapping database treats it as one.
-  Checks: create it after the game started and see the game open it (`pad_hotplug`); create a second
-  and third, press Start on each and compare screenshots before and after (`pad_players`, judged by
-  the reviewer); on the main menu press the d-pad down and confirm, and see the screenshot change
-  (`pad_menus`).
-- **Soaks.** A recipe's demo or attract loop left running for hours with nobody playing: crash-free
-  hours for Stability.
-
-Not built yet (PLAN.md, P5b): a runner (`script.sh GAME`) on top of client.sh, the uinput helper,
-and per-recipe menu keys.
+The benchmark harness (demos, recipes, `make bench-*`) measures game and GPU-driver optimizations: A/B runs
+in the same boot, regressions, profiling. Its runs, and any unattended soak, are not played sessions and never feed
+a rating (no hours, no checklist answers, no frame-rate numbers): a rating comes only from someone playing on
+a PS3 ([GAMEDB.md](../GAMEDB.md)). Their captures may serve the reviewer as reference material.
 
 ## Sound dropouts
 

@@ -1,7 +1,9 @@
 # Walnut Games: the games database and launcher
 
 A list of the games that run on Walnut, each played and measured on the PS3, compared with the same
-game on a PC, and rated. It is two things over one catalog:
+game on a PC, and rated. **Every rating comes from someone playing the game on a PS3; nothing scripted counts.** Benchmark, demo and
+scripted runs (the harness for measuring game and GPU-driver optimizations) and unattended soaks never feed a
+rating: no crash-free hours, no checklist answers, no frame-rate numbers. It is two things over one catalog:
 
 - **the website**, https://walnut.nanobyte.dev/gamedb/: a card for every game with its medal,
   filters (category, medal, tags) and search; each game's page has the
@@ -26,8 +28,8 @@ player's own settings aside for the session) without changing any setting. What 
 reasonably test (several pads, a pad turned on mid-game, online play, a mode nobody reached) is "not
 tested" and never costs anything: its weight goes to what was tested, like an unmeasured aspect. What
 can be measured is measured; the reviewing agent answers a fixed questionnaire over the screenshots;
-scripted runs without the player will cover some of the rest (planned,
-[games/SUITE.md](games/SUITE.md#scripted-runs-planned)); the form asks only what the player saw anyway.
+the form asks only what the player saw. Scripted runs ([games/SUITE.md](games/SUITE.md#scripted-runs)) test driver
+and game optimizations and never answer any of it.
 
 ## How a game is tested
 
@@ -55,11 +57,12 @@ scripted runs without the player will cover some of the rest (planned,
    never by pixel metrics; import-run.py refuses a questionnaire left unanswered
    ([games/SUITE.md](games/SUITE.md#played-sessions)). The PC pictures are for that review only; the
    website and the app show the PS3's pictures alone.
-3. **A scripted capture run, for the picture** (optional). A recipe drives the game to fixed points
-   (a menu, a map, a camera position), the PS3 captures them, and the same recipe captures them on a PC.
+3. **A scripted capture run, as a PC reference** (optional). A recipe drives the game to fixed points
+   (a menu, a map, a camera position) and the same recipe captures them on a PC; the reviewer may look at them next
+   to the session's screenshots, but the capture run itself rates nothing.
 
 Every session adds its play time to the game's totals, so the numbers sharpen as people play;
-scripted runs and unattended soaks (planned) add crash-free hours with nobody playing.
+only sessions count: scripted runs and unattended soaks add no hours.
 
 ## How a game is rated
 
@@ -132,14 +135,14 @@ aspect unmeasured.
 |---|---|---|
 | the gamepad works in play | Controls (pad games) | asked: "Gamepad in play: seamless / needed setup / didn't work / didn't try"; else measured: the player used the pad and the game opened it (inputlog.py) |
 | the gamepad works without setup | Controls (pad games) | the same answer: seamless is yes, needed setup and didn't work are no; Controls is then at most 30 |
-| the menus work with the gamepad | Controls (pad games) | asked: "worked / partly / didn't / didn't try"; scripted later |
-| a gamepad turned on later is found | Controls (pad games) | scripted (planned); measured if it happens in a session; never asked (a DualShock 3 can't easily be turned off mid-game) |
-| each extra gamepad joins as the next player | Controls (pad games) | scripted (planned), else not tested; never asked (one player, one pad) |
+| the menus work with the gamepad | Controls (pad games) | asked: "worked / partly / didn't / didn't try" |
+| a gamepad turned on later is found | Controls (pad games) | measured if it happens in a session (the input log sees a pad added and the game open it); else not tested; never asked (a DualShock 3 can't easily be turned off mid-game) |
+| each extra gamepad joins as the next player | Controls (pad games) | not tested unless it happens in a session; never asked (one player, one pad) |
 | nothing needs the keyboard | Controls (pad games) | measured: more than 2 key presses during a session played with the pad means no; not tested while the logger can't read the keyboard (the `input` group) |
 | keyboard and mouse work | Controls (all games) | asked: "worked / something didn't / didn't use" |
 | every menu and mode opened works | Features | asked |
 | saves load | Features | asked ("didn't try": not tested) |
-| online play works | Features | the reviewer (`check: online yes\|no`) or a scripted run; else not tested |
+| online play works | Features | the reviewer (`check: online yes\|no`); else not tested |
 
 **Games designed for keyboard and mouse.** The catalog entry's `designed_for = "keyboard-mouse"`
 (default `"pad"`) makes Controls score the keyboard and mouse alone; the gamepad items only make the
@@ -150,8 +153,8 @@ over the measured and asked ones, and label a broken item with where it comes fr
 sessions the newest answer of each item counts. The controller badge (full, partial, keyboard) comes
 from the gamepad items.
 
-**Stability.** Crashes and unclean quits per hour of play over all the launcher's tests (scripted runs
-and soaks count their hours too). A quit is clean when the game exits with code 0 and the desktop is
+**Stability.** Crashes and unclean quits per hour of play over the launcher's played sessions (scripted
+runs and soaks count for nothing). A quit is clean when the game exits with code 0 and the desktop is
 back within 10 s of its end (session.sh's `desktop_back_s`); the player killing it (Ctrl+Alt+Esc), an
 error exit, or a desktop that doesn't come back count like a crash in the rate (but never make the
 game broken). The freeze leading into a crash (the run of frames over 1 s at the end of a crashed run) is
@@ -211,13 +214,13 @@ curve because most of those faults were never heard: 40 at ten a minute, 32 at t
 | window geometry | measured (geom.py at each screenshot), on shipped defaults (freshhome.py) |
 | the mouse pointer | measured (XFixes), confirmed by the reviewer |
 | black bars | measured, a hint for the reviewer only |
-| the gamepad in play, without setup | asked; measured when not answered (inputlog.py); scripted later |
-| the gamepad in the menus | asked; scripted later |
-| a gamepad found later, extra gamepads join | scripted (planned); not tested until then |
+| the gamepad in play, without setup | asked; measured when not answered (inputlog.py) |
+| the gamepad in the menus | asked |
+| a gamepad found later, extra gamepads join | measured if it happens in a session; else not tested |
 | nothing needs the keyboard | measured (inputlog.py, with the `input` group); else not tested |
 | keyboard and mouse, menus and modes, saves | asked |
-| online play | agent-reviewed or scripted; else not tested |
-| hours of play | measured; scripted runs and soaks add more (planned) |
+| online play | agent-reviewed; else not tested |
+| hours of play | measured, sessions only |
 
 Asked, the whole form: sound, music, glitches, the gamepad in the menus, the gamepad in play, the
 keyboard and mouse, menus and modes, saves, and the notes (including a setting that had to be changed
@@ -329,8 +332,7 @@ has the broken-subsystem rule instead.
 - **Stability needs hours.** The page shows the play time and crashes behind it ("0 crashes in
   1.7 h"); a full score needs three crash-free hours (0 crashes in 3 h bounds the rate under one an
   hour, the rule of three), and the 90 a crash-free game starts at is Platinum level, so a short test
-  never caps the medal. Confidence grows with hours, and they needn't all be played: scripted runs and
-  unattended soaks add crash-free hours with nobody at the PS3 (planned).
+  never caps the medal. Confidence grows with the hours played.
 - **Badges, outside the medal:** controller support (full, partial, keyboard: from the Controls
   checks under rules 2.0, else the catalog entry's `controller`), needs your own game data, no sound,
   low memory (under 10 MB free at some point in play).

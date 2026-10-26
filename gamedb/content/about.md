@@ -3,7 +3,7 @@ title = "About the ratings"
 summary = "How Walnut Games tests a game on the PS3 and turns the measurements into a medal."
 +++
 
-**A rating says how well a game plays on a PS3 under Walnut, not how good the game is.** Game
+**Every rating comes from someone playing the game on a PS3; nothing scripted counts.**A rating says how well a game plays on a PS3 under Walnut, not how good the game is.** Game
 design never scores: a punishing difficulty, short levels, a game's own frame cap or simulation
 speed, controls laid out for a PC keyboard, or whether it's fun. A game made for keyboard and mouse
 (a strategy game, a PC shooter) isn't marked down for weak gamepad support. Anything broken that you'd run into
@@ -37,9 +37,8 @@ coloured, flickering or lit differently, is anything broken. Each problem is not
 shows it too. The screenshots on these pages are all from the PS3.
 
 **What one player can't test isn't held against a game.** A second or third controller, online play,
-a mode nobody reached: those are "not tested", and their weight goes to what was. Scripted runs on
-the PS3 without anyone playing (a virtual controller plugged in mid-game, extra players joining,
-hours of unattended play) are planned to fill some of that in.
+a mode nobody reached: those are "not tested", and their weight goes to what was. Scripted runs and unattended
+soaks are for testing optimizations and never count toward a rating.
 
 ## The scores
 
