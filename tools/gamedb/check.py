@@ -38,6 +38,8 @@ Design
       follow bench/gamedata.py's (closed keys: [legacy], [reload], [[log_ignore]], [[log_strip]],
       [interference]; an engine's only the log rules; every regex compiles); benchmark/results/<batch>.toml and
       gamedb/benchmarks/{batches,metrics}.toml: records_errors() (bench/benchrecords.py; gamedb/benchmarks/README.md)
+    * todo.toml (a game's or an engine's backlog: [[item]] tables): todo_errors() (closed keys TODO_KEYS, kind
+      one of TODO_KINDS, added a date, order an int of 1 or more, order/launcher/pc on session items only)
     * drafts (draft = true: a candidate, or a game tried and not published) need only id, title and
       status (one of STATUSES; status_note says why); summary, license, homepage, categories, tags,
       controller, thumb.png and build.toml (or any of its keys) may be missing, and nothing is made up for them;
@@ -46,6 +48,7 @@ Design
 - Prints every problem with the game it belongs to, exits 1 if there is any.
 """
 import argparse
+import datetime
 import gzip
 import importlib.util
 import lzma
@@ -100,6 +103,13 @@ DESKTOP_FILES = ("launchers", "files", "migrate-home.txt")
 # built files (assets.mk), superseded tools, the results (step 5; step 6 adds runs/)
 BENCH_FILES = ("recipe.sh", "analysis.toml", "lib", "assets", "assets-src", "legacy", "results")
 GAME_FILES = ("index.md", "thumb.png", "build.toml", "upstream.md", "technical.md", "todo.toml") + GAME_DIRS
+# todo.toml (gamedb/README.md): [[item]] tables with these keys (a closed set): kind one of TODO_KINDS, text,
+# added (a date), source (where it came from: "PLAN 2.6", "TESTS.md Next", ...); a session item may have
+# order (its place in the played-session queue, docs/TESTS.md's block), launcher and pc (the PC side)
+TODO_KINDS = ("session", "benchmark", "package", "fix", "research", "upstream")
+TODO_KEYS = {"kind": str, "text": str, "added": datetime.date, "source": str, "order": int, "launcher": str, "pc": str}
+TODO_REQUIRED = ("kind", "text", "added")
+TODO_SESSION_ONLY = ("order", "launcher", "pc")
 # where a game's sessions (each one's result.toml and screenshots) live, relative to its folder
 SESSIONS = "rating/sessions"
 CONTENT = REPO / "gamedb" / "games"
@@ -207,6 +217,31 @@ def front_matter(path):
     return tomllib.loads(m[1])
 
 
+def todo_errors(data):
+    """the problems of a parsed todo.toml (TODO_KEYS; an engine's has the same form)"""
+    errs = ["unknown table %r (todo.toml holds [[item]] tables)" % k for k in data if k != "item"]
+    items = data.get("item", [])
+    if not isinstance(items, list) or not all(isinstance(i, dict) for i in items):
+        return errs + ["item: [[item]] tables"]
+    for n, it in enumerate(items, 1):
+        for k, v in it.items():
+            t = TODO_KEYS.get(k)
+            if t is None:
+                errs.append("item %d: unknown key %r (%s)" % (n, k, ", ".join(TODO_KEYS)))
+            elif not isinstance(v, t) or isinstance(v, bool) or (t is datetime.date and isinstance(v, datetime.datetime)):
+                errs.append("item %d: %r should be %s" % (n, k, "a date" if t is datetime.date else t.__name__))
+        errs += ["item %d: missing key %r" % (n, k) for k in TODO_REQUIRED if k not in it]
+        if it.get("kind") is not None and it.get("kind") not in TODO_KINDS:
+            errs.append("item %d: kind %r: one of %s" % (n, it["kind"], ", ".join(TODO_KINDS)))
+        if it.get("kind") != "session":
+            errs += ["item %d: %s only on a session item" % (n, k) for k in TODO_SESSION_ONLY if k in it]
+        if isinstance(it.get("order"), int) and not isinstance(it["order"], bool) and it["order"] < 1:
+            errs.append("item %d: order must be 1 or more" % n)
+        if isinstance(it.get("text"), str) and not it["text"].strip():
+            errs.append("item %d: empty text" % n)
+    return errs
+
+
 def check_game(gdir, bad, repo, ctx=None):
     """a list of problems of one game folder"""
     errs = []
@@ -310,6 +345,8 @@ def check_game(gdir, bad, repo, ctx=None):
             errs.append("unexpected file rating/%s (rating/ holds sessions/ and test.toml)" % f)
     if (rating / "test.toml").is_file():
         errs += toml_errors(rating / "test.toml", "rating/test.toml", bench_module("playdef").validate)
+    if (gdir / "todo.toml").is_file():
+        errs += toml_errors(gdir / "todo.toml", "todo.toml", todo_errors)
     return errs
 
 
@@ -444,6 +481,8 @@ def engine_errors(edir, bad, ctx):
     if (Path(edir) / "analysis.toml").exists():
         errs += toml_errors(Path(edir) / "analysis.toml", "analysis.toml",
                             lambda a: bench_module("gamedata").validate_analysis(a, engine=True))
+    if (Path(edir) / "todo.toml").is_file():
+        errs += toml_errors(Path(edir) / "todo.toml", "todo.toml", todo_errors)
     for g in ctx["engines"].get(Path(edir).name, []):
         gdir = Path(edir).parent.parent / "games" / str(g)
         try:

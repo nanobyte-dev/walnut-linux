@@ -418,6 +418,20 @@ class Check(unittest.TestCase):
         write_game(self.content, "x", id='"y"')       # id and folder differ
         self.assertIn("x", self.problems())
 
+    def test_todo(self):
+        write_game(self.content)
+        todo = self.content / "ex" / "todo.toml"
+        todo.write_text('[[item]]\nkind = "session"\ntext = "play it"\nadded = 2026-10-26\norder = 3\nlauncher = "Ex"\npc = "ready"\n'
+                        '[[item]]\nkind = "fix"\ntext = "the menu"\nadded = 2026-10-26\nsource = "PLAN 2.6"\n')
+        self.assertEqual(self.problems(), {})
+        todo.write_text('[[item]]\nkind = "wish"\ntext = ""\nadded = "today"\norder = 1\nprio = 2\n[x]\n')
+        msg = " ".join(self.problems()["ex"])
+        for want in ("kind 'wish'", "empty text", "'added' should be a date", "unknown key 'prio'", "order only on a session",
+                     "unknown table 'x'"):
+            self.assertIn(want, msg)
+        todo.write_text('[[item]]\nkind = "session"\ntext = "t"\nadded = 2026-10-26\norder = "1"\n')
+        self.assertIn("'order' should be int", " ".join(self.problems()["ex"]))
+
     def test_licensed_package_refused(self):
         write_game(self.content, packages='["example", "quake-shareware"]')
         self.assertIn("licensed", " ".join(self.problems()["ex"]))
