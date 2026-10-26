@@ -3,7 +3,9 @@
  * the bottom:
  *   smooth        GL_POINT_SMOOTH, glPointSize
  *   smooth+param  GL_POINT_SMOOTH with point parameters (the size from the vertex program, as
- *                 Quake II's gl1_pointparameters 1)
+ *                 Quake II's gl1_pointparameters 1), drawn as Quake II draws its particles:
+ *                 vertex and colour arrays (unsigned bytes) and glDrawArrays, so the colour is
+ *                 no constant of the fragment program (ps3.860 crashed on this, not on row 1)
  *   square        GL_POINT_SMOOTH off: squares
  *   quad          a square drawn as GL_QUADS with GL_POINT_SMOOTH still on (Quake II leaves it
  *                 on for everything): must stay square
@@ -107,9 +109,21 @@ int main(void)
 				glEnd();
 			} else {
 				glPointSize(sizes[i]);
-				glBegin(GL_POINTS);
-				glVertex2f(cx, cy);
-				glEnd();
+				if (row == 1) {
+					static const GLubyte white[4] = { 255, 255, 255, 255 };
+					GLfloat v[2] = { cx, cy };
+					glEnableClientState(GL_VERTEX_ARRAY);
+					glEnableClientState(GL_COLOR_ARRAY);
+					glVertexPointer(2, GL_FLOAT, 0, v);
+					glColorPointer(4, GL_UNSIGNED_BYTE, 0, white);
+					glDrawArrays(GL_POINTS, 0, 1);
+					glDisableClientState(GL_VERTEX_ARRAY);
+					glDisableClientState(GL_COLOR_ARRAY);
+				} else {
+					glBegin(GL_POINTS);
+					glVertex2f(cx, cy);
+					glEnd();
+				}
 			}
 		}
 	}

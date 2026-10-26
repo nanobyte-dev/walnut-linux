@@ -24,6 +24,11 @@ clamp(r - d, 0, 1), as nir_lower_point_smooth. The application's blending does t
   there either), so switching between the two keeps the vertex program's code.
 - No variant (the points stay square): no COLOR[0] output, RET/CAL in the program, all ten
   texture coordinates in use, a translation failure.
+- nv30_fragprog_validate() uploads a program that has no VRAM buffer yet: the variant is
+  translated when it is made, so validate's "not translated yet" upload never ran for it, and a
+  variant without constants was bound with a NULL buffer (ps3.860: Yamagi Quake II's segfault in
+  PUSH_RESRC at its first particles, 2026-10-26; gl-pointsmooth's points, whose colour was a
+  constant, went through the stream copy instead).
 - Deleting a program forgets it as the one the GPU holds (a later program at the same address
   is uploaded and bound).
 NV30_POINT_SMOOTH=0: square points, as before.
@@ -70,7 +75,17 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.h b/src/gallium/drive
 diff --git a/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c b/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
 --- a/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
 +++ b/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
-@@ -230,8 +230,15 @@ nv30_fp_state_create(struct pipe_context *pipe,
+@@ -121,6 +121,9 @@ nv30_fragprog_validate(struct nv30_context *nv30)
+ 
+       upload = true;
+    }
++   /* translated elsewhere (the smooth point variant: nv30_fragprog_smooth) and never uploaded */
++   if (unlikely(!fp->buffer))
++      upload = true;
+ 
+    /* update constants, also needs to be done on every fp switch as we
+     * have no idea whether the constbuf changed in the meantime
+@@ -230,8 +233,15 @@ nv30_fp_state_create(struct pipe_context *pipe,
  static void
  nv30_fp_state_delete(struct pipe_context *pipe, void *hwcso)
  {
@@ -86,7 +101,7 @@ diff --git a/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c b/src/gallium/driv
     pipe_resource_reference(&fp->buffer, NULL);
  
     if (fp->draw)
-@@ -256,6 +263,70 @@ nv30_fp_state_bind(struct pipe_context *pipe, void *hwcso)
+@@ -256,6 +266,70 @@ nv30_fp_state_bind(struct pipe_context *pipe, void *hwcso)
        nouveau_bufctx_reset(nv30->bufctx, BUFCTX_FRAGPROG);
  
     nv30->fragprog.program = fp;
