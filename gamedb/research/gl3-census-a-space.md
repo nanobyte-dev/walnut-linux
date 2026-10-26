@@ -1,3 +1,5 @@
+# Part A: space games (Endless Sky, Naev)
+
 ## Endless Sky (own C++ engine, SDL2 + GLEW, upstream master 2026-10-18; Debian sid/ports 0.11.2-1)
 
 Verdict: the only game of the pair worth porting, and upstream already ships an "experimental OpenGL 2" path (3D textures instead of texture arrays, no VAO, EXT FBO) that needs GLSL 1.20 shader files supplied as a plugin, so effort is M. The blocker is memory: 1.3 GB RSS on the PC with the lowest texture settings, 477 MB of it GPU textures; it fits 256 MB only after DXT compression plus more cuts, and that is unproven. ppc64 binary exists in debian-ports, novelty is 5 (no PS3 port found).

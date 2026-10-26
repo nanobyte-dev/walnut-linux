@@ -1,0 +1,8 @@
+{{ define "main" }}
+{{/* a survey across games (technical.json research[]: gamedb/research/<slug>.md) */}}
+<p class="crumbs"><a href="{{ "technical/" | relURL }}">Technical notes</a> · <a href="{{ "research/" | relURL }}">Research</a></p>
+<article class="tech">
+  <h1>{{ .Title }}</h1>
+  <section class="tech-notes prose">{{ .Content }}</section>
+</article>
+{{ end }}

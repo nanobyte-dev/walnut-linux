@@ -1,0 +1,27 @@
+{{ define "main" }}
+{{/* an engine (technical.json engines[]): engine.md and technical.md as the content, then its packages,
+     the published games on it and its investigations */}}
+{{ $e := index (where hugo.Data.technical.engines "id" .Params.eid) 0 }}
+<p class="crumbs"><a href="{{ "technical/" | relURL }}">Technical notes</a> · <a href="{{ "engines/" | relURL }}">Engines</a></p>
+<article class="tech">
+  <h1>{{ $e.title }}</h1>
+  <p class="muted">{{ with $e.homepage }}<a href="{{ . }}">{{ . }}</a>{{ end }}{{ with $e.license }} · License: {{ . }}{{ end }}</p>
+  <section class="tech-notes prose">{{ .Content }}</section>
+  <section>
+    <h2>Games on it</h2>
+    {{ with $e.games }}<ul>{{ range . }}<li><a href="{{ .url | relURL }}">{{ .title }}</a></li>{{ end }}</ul>{{ else }}<p class="muted">No published game runs on it yet.</p>{{ end }}
+  </section>
+  <section>
+    <h2>Our source packages</h2>
+    {{ with $e.packages }}<p>The packages its games run: {{ range $i, $p := . }}{{ if $i }}, {{ end }}<code>{{ $p }}</code>{{ end }}.</p>{{ end }}
+    {{ with $e.our_packages }}{{ partial "tech-packages.html" . }}{{ else }}<p class="muted">None.</p>{{ end }}
+    {{ with $e.licensed }}<p>Licensed data: {{ range $i, $p := . }}{{ if $i }}, {{ end }}<code>{{ $p }}</code>{{ end }} <span class="muted">(never public)</span></p>{{ end }}
+  </section>
+  {{ with $e.investigations }}
+  <section>
+    <h2>Investigations</h2>
+    <ul>{{ range . }}<li><a href="{{ .url | relURL }}">{{ .title }}</a>{{ with .date }} <span class="muted">{{ . }}</span>{{ end }}</li>{{ end }}</ul>
+  </section>
+  {{ end }}
+</article>
+{{ end }}

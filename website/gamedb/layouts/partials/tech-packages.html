@@ -1,0 +1,14 @@
+{{/* our source packages (technical.json our_packages): the directory on GitHub, then its patches */}}
+{{ with . }}
+<ul class="tech-pkgs">
+  {{ range . }}
+  <li><strong>{{ .name }}</strong>{{ with .url }} <a href="{{ . }}">source</a>{{ end }}
+    {{ if .patches }}
+    <details><summary>{{ len .patches }} patch{{ if ne (len .patches) 1 }}es{{ end }}</summary>
+      <ol class="patches">{{ range .patches }}<li><a href="{{ .url }}">{{ .subject }}</a></li>{{ end }}</ol>
+    </details>
+    {{ else }}<span class="muted">no patches on top of the upstream source</span>{{ end }}
+  </li>
+  {{ end }}
+</ul>
+{{ end }}

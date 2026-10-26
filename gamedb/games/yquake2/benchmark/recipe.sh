@@ -5,7 +5,7 @@
 # after the demo: stopped at the result line. The engine is run directly (Debian's quake2 wrapper
 # package is contrib and not ours); the config is
 # ~/.local/share/YamagiQ2/baseq2/config.cfg (8.70 is built with XDG support: "Using
-# '/home/<user>/.local/share/YamagiQ2/baseq2' for writing", session of 2026-10-26); builds without it used ~/.yq2.
+# '<home>/.local/share/YamagiQ2/baseq2' for writing", session of 2026-10-26); builds without it used ~/.yq2.
 # Steady state: the timedemo repeated in one session (PASSES=1: passes starting 54 s or more after
 # the first counted until ~120 s, then the game is stopped). At a demo's end the server runs the
 # nextserver cvar, which demomap fills from nextdemo; autoexec.cfg's alias `bench` sets nextdemo

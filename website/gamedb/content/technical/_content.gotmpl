@@ -1,0 +1,15 @@
+{{/* The technical pages of the published games and the investigations, from data/technical.json
+     (tools/gamedb/catalog.py, tools/gamedb/technical.py; drafts are never in it). A game's page is at
+     games/<id>/technical/, an investigation at games/<id>/investigations/<inv>/ or
+     engines/<e>/investigations/<inv>/: the url, not the section, places them. */}}
+{{ $t := hugo.Data.technical }}
+{{ range $t.games }}
+  {{ $.AddPage (dict "path" .id "title" (printf "%s: technical notes" .title) "url" (printf "/%s" .url)
+      "params" (dict "gid" .id "summary" (printf "How %s is built, patched, tested and measured on Walnut." .title))
+      "content" (dict "mediaType" "text/markdown" "value" (.notes | default ""))) }}
+{{ end }}
+{{ range $t.investigations }}
+  {{ $.AddPage (dict "path" (printf "investigation-%s-%s" .owner .id) "title" .title "url" (printf "/%s" .url)
+      "layout" "investigation" "params" (dict "inv_url" .url)
+      "content" (dict "mediaType" "text/markdown" "value" .body)) }}
+{{ end }}

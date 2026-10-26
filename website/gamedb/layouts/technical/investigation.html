@@ -1,0 +1,16 @@
+{{ define "main" }}
+{{/* an investigation (technical.json investigations[]): its facts, then its body */}}
+{{ $i := index (where hugo.Data.technical.investigations "url" .Params.inv_url) 0 }}
+{{ $owner := cond (hasPrefix $i.url "engines/") (printf "engines/%s/" $i.owner) (printf "games/%s/technical/" $i.owner) }}
+<p class="crumbs"><a href="{{ "technical/" | relURL }}">Technical notes</a> · <a href="{{ $owner | relURL }}">{{ $i.owner_title | default $i.owner }}</a></p>
+<article class="tech">
+  <h1>{{ .Title }}</h1>
+  {{ $f := $i.facts }}
+  <table class="facts"><tbody>
+    {{ with $i.date }}<tr><th>Date</th><td>{{ . }}</td></tr>{{ end }}
+    {{ with $f.games }}<tr><th>Games</th><td>{{ range $n, $g := . }}{{ if $n }}, {{ end }}<a href="{{ $g.url | relURL }}">{{ $g.title }}</a>{{ end }}</td></tr>{{ end }}
+    {{ range $k, $v := $f }}{{ if and (ne $k "games") $v }}<tr><th>{{ replace $k "_" " " }}</th><td>{{ if reflect.IsSlice $v }}{{ range $n, $x := $v }}{{ if $n }}, {{ end }}<code>{{ $x }}</code>{{ end }}{{ else }}{{ $v }}{{ end }}</td></tr>{{ end }}{{ end }}
+  </tbody></table>
+  <section class="tech-notes prose">{{ .Content }}</section>
+</article>
+{{ end }}

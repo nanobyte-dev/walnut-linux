@@ -14,6 +14,7 @@
         <span class="muted">{{ printf "%.1f" $r.hours }} h played, {{ $r.crashes }} crash{{ if ne (int $r.crashes) 1 }}es{{ end }}</span>{{ end }}
       </p>
       <p>{{ $g.summary }}</p>
+      {{ with site.GetPage (printf "/technical/%s" $g.id) }}<p class="tech-link"><a href="{{ .RelPermalink }}">Technical notes</a>: how it's built, patched, tested and measured</p>{{ end }}
       <p class="badges">
         {{ range $g.badges }}<span class="badge badge-{{ . }}">{{ partial "badge-name.html" . }}</span>{{ end }}
         <span class="badge">{{ delimit $g.categories ", " }}</span>

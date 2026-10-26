@@ -93,7 +93,8 @@ no big-endian ppc64 port); `dropped` decided against (RAM, CPU, licence), the re
 
 Read by: `check.py` (*read now*, drafts included), `catalog.py` and `pack-catalog.py` (drafts left
 out), Hugo (website/gamedb/hugo.toml mounts `games/` as `content/games/` with an allowlist: `*/index.md`,
-`*/thumb.png`, `*/rating/sessions/*/shots/*.jpg`; nothing else of a bundle becomes a page or a resource),
+`*/thumb.png`, `*/rating/sessions/*/shots/*.jpg`; nothing else of a bundle becomes a page or a resource:
+the technical pages come from `data/technical.json`, below),
 `import-run.py`, `tools/play-pc.sh`, `tools/play-test.sh`.
 
 ### games/<id>/build.toml (and engines/<e>/build.toml)
@@ -355,6 +356,23 @@ investigation, `investigations/<date>-<slug>.md`, has front matter `id` (never r
 game found: the investigation lives with the game, the mechanism in docs/DRIVER.md with a "found by"
 link. An engine-wide one lives in `engines/<e>/investigations/`.
 
+On the site (*now*, step 7a): `tools/gamedb/technical.py`, run by catalog.py, writes
+`website/gamedb/data/technical.json`, and Hugo's content adapters (`website/gamedb/content/technical/`,
+`engines/`, `research/`: `_content.gotmpl`) make the pages from it, for published games only (a draft has
+no page, its name is in no list, a link into its bundle keeps its text and loses the link):
+`games/<id>/technical/` (technical.md, then the build facts of build.toml with our packages and their
+patches, licensed data by name only, the played test of rating/test.toml with the medal, the recipe's
+header and variants, the benchmark tables of `benchmark/results/`: the summary, then each batch newest
+first, a column per metric with its unit), `games/<id>/investigations/<inv-id>/` (front matter as facts,
+then the body), and the index `technical/`, a row per published game. A published game without a
+technical.md gets its page from the data alone, which says it has no notes yet. A file's first `# `
+heading is its page's title. Relative links are rewritten: to a survey, a published game, its technical
+page or investigation, an engine: that page; any other file of the repository: the public repository
+on GitHub; a draft's bundle, a licensed directory, raw/, a path that doesn't exist: the text only. Every
+string of technical.json passes the public-safe scan first (tools/gamedb/evidence.py `leftovers`, and the
+patterns of tools/public-replace.local.txt), or the build stops. The app's catalog never holds it
+(pack-catalog.py packs catalog.build() only).
+
 ### games/<id>/todo.toml, upstream.md
 
 `todo.toml`, *planned* (step 8): `[[item]]` with `kind` = `session`, `benchmark`, `package`, `fix`,
@@ -368,7 +386,8 @@ game patches; docs/upstream/README.md links every draft.
 `games = [...]`, the bundles that run on it; then a short note), `packages/<pkg>/` (*now*: cube2,
 ioquake3, darkplaces-gl2), `build.toml` (*now*: `packages`, `[[licensed]]`), `analysis.toml` (*now*: the
 log rules its games share, [above](#benchmarkanalysistoml)), and *planned* `technical.md`, `investigations/`,
-as for a game.
+as for a game. Its page on the site, `engines/<e>/` (*now*): engine.md's note, its technical.md, our packages
+with their patches, the published games on it; its investigations at `engines/<e>/investigations/<inv-id>/`.
 
 ### benchmarks/batches.toml, benchmarks/metrics.toml, games/<id>/benchmark/results/
 
@@ -393,14 +412,15 @@ matrix.py leave out. Written by `bench/matrix.py` (a batch's runs, from build/be
 `game-reeval.md`, `gl3-census.md` with its parts `gl3-census-<part>.md`, `pc-classics.md`. Their method,
 scope and conclusions are text; their per-game tables are still kept by hand (*planned*: generated blocks,
 `tools/gamedb/blocks.py`); per-game sections longer than ~50 lines moved into the game's investigations/
-with a link left behind. The census's driver part (docs/research/gl3-census/G-driver.md) and the emulator
+with a link left behind. Each one is a page on the site, `research/<slug>/` (*now*, technical.json; its
+first `# ` heading the title). The census's driver part (docs/research/gl3-census/G-driver.md) and the emulator
 and platform research (EMULATORS, CLASSIC-MACOS, DARLING-PPC) stay in docs/research/.
 
 ## Generated from here
 
 | Output | Tool |
 |---|---|
-| catalog.json (site, app); technical.json (*planned*) | `tools/gamedb/catalog.py` |
+| catalog.json (site, app); technical.json (site only: the technical, investigation, engine and research pages) | `tools/gamedb/catalog.py` (technical.json through `tools/gamedb/technical.py`) |
 | the app's catalog.tar | `tools/gamedb/pack-catalog.py` |
 | the integration tree, the ps3-games / ps3-games-free / ps3-games-licensed Depends | `tools/gamedb/pack-integration.py` (`make gamedb-integration`) |
 | `PKG_DIRS`, `SRC_PACKAGES` (every package of ours, in build order) | `tools/pkg-dir.sh --all`, `--order` |

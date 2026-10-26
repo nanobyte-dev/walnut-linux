@@ -1,0 +1,1 @@
+<ul>{{ range . }}<li><a href="{{ .url | relURL }}">{{ .title }}</a>{{ with .games }}: {{ range $i, $g := . }}{{ if $i }}, {{ end }}{{ $g.title }}{{ end }}{{ else }} <span class="muted">(no published game on it yet)</span>{{ end }}</li>{{ end }}</ul>

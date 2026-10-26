@@ -1,3 +1,5 @@
+# Part D: first-person shooters (Xonotic, Unvanquished, Red Eclipse 2, Warfork, OpenMoHAA, ET: Legacy)
+
 ## Xonotic (DarkPlaces, release 0.8.6 of 2023-06-20 and engine git master of 2026-01-22)
 
 Verdict: Xonotic 0.8.6 is NOT GL3-blocked: its own DarkPlaces still has the GL 1.1/1.3/2.0 renderpaths and runs on GL 2.1 + GLSL 1.20 as shipped (measured). Only engine master (and Debian's darkplaces) dropped them for GL 3.2 core / GLES2. Route: build the 0.8.6 engine for ppc64 like darkplaces-gl2 (effort S-M), keep the GL20 path. The cost is memory (about 200 MB of textures, 850 MB PC RSS) and ~450 draws/frame: a "needs cuts" game, not a port.

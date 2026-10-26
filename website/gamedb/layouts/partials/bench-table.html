@@ -1,0 +1,23 @@
+{{/* one batch of a game's benchmark results (technical.json benchmark.tables[]): its facts, then a row
+     per variant and a column per metric, with the metric's unit */}}
+{{ $b := . }}
+<div class="batch" id="batch-{{ $b.batch }}">
+  <h3>{{ if eq $b.kind "summary" }}Suite summary{{ else }}{{ with $b.title }}{{ . }}{{ else }}{{ $b.batch }}{{ end }}{{ end }}</h3>
+  <p class="muted small">{{ with $b.date }}{{ . }} · {{ end }}batch <code>{{ $b.batch }}</code>{{ with $b.runs }} · {{ . }} run{{ if ne (int .) 1 }}s{{ end }}{{ end }}
+    {{ with $b.stack }} · {{ range $i, $s := . }}{{ if $i }}, {{ end }}{{ $s.name }} {{ $s.version }}{{ end }}{{ end }}
+    {{ with $b.column }} · recorded as <code>{{ . }}</code>{{ end }}</p>
+  {{ with $b.purpose }}<p class="small">{{ . }}</p>{{ end }}
+  <div class="table-wrap">
+  <table class="bench">
+    <thead><tr><th>{{ if eq $b.kind "summary" }}Row{{ else }}Variant{{ end }}</th>
+      {{ range $b.columns }}<th class="num" title="{{ .what }} ({{ .better }} is better)">{{ .name }}{{ with .unit }}<br><span class="unit">{{ . }}</span>{{ end }}</th>{{ end }}
+      {{ if eq $b.kind "summary" }}<th>Picture, sound</th>{{ end }}</tr></thead>
+    <tbody>{{ range $b.rows }}{{ $r := . }}
+      <tr><td>{{ with .label }}{{ . }} <span class="muted small">{{ $r.variant }}</span>{{ else }}<code>{{ .variant }}</code>{{ end }}</td>
+      {{ range .values }}<td class="num">{{ with . }}{{ . }}{{ else }}<span class="muted">-</span>{{ end }}</td>{{ end }}
+      {{ if eq $b.kind "summary" }}<td class="small">{{ .note }}</td>{{ end }}</tr>
+    {{ end }}</tbody>
+  </table>
+  </div>
+  {{ with $b.observations }}<details class="obs"><summary>Observations</summary><p class="small">{{ . }}</p></details>{{ end }}
+</div>

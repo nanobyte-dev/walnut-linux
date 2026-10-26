@@ -1,0 +1,8 @@
+{{ define "main" }}
+<article class="tech">
+  <p class="crumbs"><a href="{{ "technical/" | relURL }}">Technical notes</a></p>
+  <h1>{{ .Title }}</h1>
+  <p>{{ .Params.description }}</p>
+  {{ partial "tech-engine-list.html" hugo.Data.technical.engines }}
+</article>
+{{ end }}

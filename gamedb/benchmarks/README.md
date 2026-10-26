@@ -154,9 +154,11 @@ docs is the batch with `order = N`). `tools/gamedb/bench-import.py` turned them 
 `--verify DIR` checks a directory of them against the records: each of the 4870 cells found in exactly
 one record with the same value, and the matrices made from the records byte for byte the old files.
 
-## The technical pages (planned)
+## The technical pages
 
-A game's technical page (the plan's step 7a, `technical.json` from `tools/gamedb/catalog.py`) shows its
-results as tables made from these records: per batch (in order, with its date, title, stack and a link
-`gamedb:batch/<name>`), a row per variant with the batch's metrics as columns; `benchrecords.results()`
-gives `{batch: {game: table}}` and `load_batches()` the batches' order and facts.
+A game's technical page on the site (`games/<id>/technical/`, from `technical.json`: `tools/gamedb/technical.py`,
+run by `tools/gamedb/catalog.py`) shows its results as tables made from these records: the summary batch
+first, then the run batches newest first, each with its date, title, run count, stack and observations,
+a row per variant and a column per metric the game has in that batch, with the metric's unit from
+`metrics.toml` (`benchrecords.results()` gives `{batch: {game: table}}`, `load_batches()` the batches'
+order and facts). Tables only, no graphs yet.

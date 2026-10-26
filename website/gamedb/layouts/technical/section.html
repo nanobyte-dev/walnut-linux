@@ -1,0 +1,25 @@
+{{ define "main" }}
+{{/* /technical/: a row per published game (technical.json games[]), then the engines and the research */}}
+{{ $t := hugo.Data.technical }}
+<article class="tech">
+  <h1>{{ .Title }}</h1>
+  <p>{{ .Params.description }}</p>
+  <div class="table-wrap">
+  <table class="tech-index">
+    <thead><tr><th>Game</th><th>Our packages</th><th class="num">Patches</th><th>Benchmark</th><th>Medal</th><th class="num">Investigations</th></tr></thead>
+    <tbody>{{ range sort $t.games "title" }}
+      <tr><td><a href="{{ .url | relURL }}">{{ .title }}</a></td>
+      <td>{{ range $i, $p := .our_packages }}{{ if $i }}, {{ end }}<a href="{{ $p.url }}"><code>{{ $p.name }}</code></a>{{ else }}<span class="muted">Debian's</span>{{ end }}</td>
+      <td class="num">{{ .patch_count }}</td>
+      <td>{{ with .benchmark.tables }}yes, {{ len . }} batch{{ if ne (len .) 1 }}es{{ end }}{{ else }}<span class="muted">no</span>{{ end }}</td>
+      <td>{{ partial "medal.html" .medal }}</td>
+      <td class="num">{{ len .investigations }}</td></tr>
+    {{ end }}</tbody>
+  </table>
+  </div>
+  <h2 id="engines"><a href="{{ "engines/" | relURL }}">Engines</a></h2>
+  {{ partial "tech-engine-list.html" $t.engines }}
+  <h2 id="research"><a href="{{ "research/" | relURL }}">Research</a></h2>
+  {{ partial "tech-research-list.html" $t.research }}
+</article>
+{{ end }}

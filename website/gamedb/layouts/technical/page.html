@@ -1,0 +1,88 @@
+{{ define "main" }}
+{{/* a published game's technical page (technical.json games[]): the notes (technical.md), then what the
+     database knows: the build, the played test, the benchmark tables, the investigations */}}
+{{ $t := index (where hugo.Data.technical.games "id" .Params.gid) 0 }}
+{{ $game := site.GetPage (printf "/games/%s" $t.id) }}
+<p class="crumbs"><a href="{{ site.Home.RelPermalink }}">All games</a> · <a href="{{ $game.RelPermalink }}">{{ $t.title }}</a> · <a href="{{ "technical/" | relURL }}">Technical notes</a></p>
+<article class="tech">
+  <h1>{{ $t.title }}: technical notes</h1>
+  <p class="meta">{{ partial "medal.html" $t.medal }}
+    <span class="muted">{{ if eq $t.sessions 0 }}no played session yet{{ else }}from {{ $t.sessions }} played session{{ if ne (int $t.sessions) 1 }}s{{ end }}{{ end }}; the rating is on <a href="{{ $game.RelPermalink }}">the game's page</a></span>
+    {{ with $t.engine }}<span>Engine: <a href="{{ .url | relURL }}">{{ .title }}</a></span>{{ end }}</p>
+
+  <section class="tech-notes prose">
+  {{ with .Content }}{{ . }}{{ else }}<p class="muted">No technical notes for this game yet. Everything below is read from the games database (its build.toml, its played test, the benchmark records).</p>{{ end }}
+  </section>
+
+  <section>
+    <h2 id="build">Build</h2>
+    {{ $b := $t.build }}
+    <table class="facts">
+      <tbody>
+      <tr><th>Packages</th><td>{{ range $i, $p := $b.packages }}{{ if $i }}, {{ end }}<code>{{ $p }}</code>{{ end }}</td></tr>
+      <tr><th>Suite</th><td>{{ if eq $b.suite "free" }}free: in <code>ps3-games</code> and <code>ps3-games-free</code>{{ else if eq $b.suite "licensed" }}licensed data: in <code>ps3-games</code> only{{ else }}in neither games metapackage{{ end }}{{ with $b.meta }} (as {{ range $i, $p := . }}{{ if $i }}, {{ end }}<code>{{ $p }}</code>{{ end }}){{ end }}</td></tr>
+      <tr><th>Game data</th><td>{{ if $b.needs_data }}the player supplies it (see the game's page){{ else }}comes with the packages{{ end }}{{ with $b.data }}; plays with {{ range $i, $p := . }}{{ if $i }}, {{ end }}<code>{{ $p }}</code>{{ end }}{{ end }}</td></tr>
+      {{ with $b.licensed }}<tr><th>Licensed data</th><td>{{ range $i, $p := . }}{{ if $i }}, {{ end }}<code>{{ $p }}</code>{{ end }} <span class="muted">(built from the player's own copy, never public)</span></td></tr>{{ end }}
+      {{ with $b.desktop }}<tr><th>Menu entries</th><td>{{ range $i, $p := . }}{{ if $i }}, {{ end }}<code>{{ $p }}</code>{{ end }}</td></tr>{{ end }}
+      {{ with $b.divert }}<tr><th>Diverted</th><td>{{ range $i, $p := . }}{{ if $i }}, {{ end }}<code>{{ $p }}</code>{{ end }} <span class="muted">(our launchers stand for them)</span></td></tr>{{ end }}
+      {{ if $b.image_base }}<tr><th>Image</th><td>in the image's package layer</td></tr>{{ end }}
+      </tbody>
+    </table>
+    <h3>Our source packages</h3>
+    {{ with $t.our_packages }}{{ partial "tech-packages.html" . }}{{ else }}<p class="muted">None: the game runs from Debian's packages as they are.</p>{{ end }}
+  </section>
+
+  {{ with $t.test }}
+  <section>
+    <h2 id="test">Played test</h2>
+    <p class="muted">What a played session sets up (rating/test.toml); the medal comes from these sessions only.</p>
+    <table class="facts">
+      <tbody>
+      <tr><th>Process</th><td><code>{{ .process }}</code></td></tr>
+      <tr><th>Set aside</th><td>{{ range $i, $p := .home }}{{ if $i }}, {{ end }}<code>~/{{ $p }}</code>{{ end }} <span class="muted">(the game starts on fresh defaults)</span></td></tr>
+      {{ with .command }}<tr><th>Command</th><td><code>{{ delimit . " " }}</code></td></tr>{{ end }}
+      {{ with .env }}<tr><th>Environment</th><td>{{ range $i, $p := . }}{{ if $i }}, {{ end }}<code>{{ $p }}</code>{{ end }}</td></tr>{{ end }}
+      {{ with .play_mark }}<tr><th>Play starts at</th><td><code>{{ . }}</code></td></tr>{{ end }}
+      {{ with .load_mark }}<tr><th>Load ends at</th><td><code>{{ . }}</code></td></tr>{{ end }}
+      {{ with .sound_at }}<tr><th>Sound read at</th><td>{{ . }} s</td></tr>{{ end }}
+      {{ if eq .hud false }}<tr><th>HUD</th><td>off</td></tr>{{ end }}
+      </tbody>
+    </table>
+  </section>
+  {{ end }}
+
+  <section>
+    <h2 id="benchmark">Benchmark</h2>
+    {{ $bm := $t.benchmark }}
+    <p class="muted">A/B runs of game and driver changes on the PS3 (the desktop stopped, vsync off). Benchmarks never rate a game.</p>
+    {{ with $bm.header }}<p class="small">{{ . }}</p>{{ end }}
+    {{ if gt (len $bm.variants) 1 }}
+    <details><summary>{{ len $bm.variants }} variants of the recipe</summary>
+      <table class="facts">
+        <tbody>{{ range $bm.variants }}<tr><th><code>{{ .name }}</code>{{ if .catalog }} <span class="badge">stands for the game</span>{{ end }}</th><td class="small">{{ with .note }}{{ . }}{{ else }}<span class="muted">-</span>{{ end }}</td></tr>{{ end }}</tbody>
+      </table>
+    </details>
+    {{ end }}
+    {{ with $bm.tables }}
+      {{ $n := len . }}
+      {{ range $i, $b := . }}
+        {{ if lt $i 4 }}{{ partial "bench-table.html" $b }}{{ end }}
+      {{ end }}
+      {{ if gt $n 4 }}
+      <details class="older"><summary>{{ sub $n 4 }} older batch{{ if ne (sub $n 4) 1 }}es{{ end }}</summary>
+        {{ range $i, $b := . }}{{ if ge $i 4 }}{{ partial "bench-table.html" $b }}{{ end }}{{ end }}
+      </details>
+      {{ end }}
+    {{ else }}
+    <p class="muted">No benchmark results recorded for it yet.</p>
+    {{ end }}
+  </section>
+
+  {{ with $t.investigations }}
+  <section>
+    <h2 id="investigations">Investigations</h2>
+    <ul>{{ range . }}<li><a href="{{ .url | relURL }}">{{ .title }}</a>{{ with .date }} <span class="muted">{{ . }}</span>{{ end }}</li>{{ end }}</ul>
+  </section>
+  {{ end }}
+</article>
+{{ end }}

@@ -1,0 +1,6 @@
+{{/* An engine's page at engines/<e>/, from data/technical.json: engine.md, then its technical.md */}}
+{{ range hugo.Data.technical.engines }}
+  {{ $md := .body }}{{ with .notes }}{{ $md = printf "%s\n\n## Technical notes\n\n%s" $md . }}{{ end }}
+  {{ $.AddPage (dict "path" .id "title" .title "params" (dict "eid" .id "summary" (printf "The %s engine on Walnut: our package, its patches and the games on it." .title))
+      "content" (dict "mediaType" "text/markdown" "value" $md)) }}
+{{ end }}

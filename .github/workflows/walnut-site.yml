@@ -12,17 +12,21 @@ on:
     paths:
       - "website/gamedb/**"
       # the games database (gamedb/README.md), but not what the site never reads: a package's sources
-      # other than its patches (the pages list their subjects), licensed data, benchmarks, menu
+      # other than its patches (the pages list their subjects), licensed data, a benchmark's code
+      # and assets (the technical pages show its recipe's header and variants and its results), menu
       # entries, backlogs, sessions' raw files
       - "gamedb/**"
       - "!gamedb/*/*/packages/**"
       - "gamedb/*/*/packages/*/patches/**"
       - "!gamedb/*/*/licensed/**"
       - "!gamedb/*/*/benchmark/**"
+      - "gamedb/*/*/benchmark/recipe.sh"
+      - "gamedb/*/*/benchmark/results/**"
       - "!gamedb/*/*/desktop/**"
       - "!gamedb/*/*/todo.toml"
       - "!gamedb/**/raw/**"
       - "tools/gamedb/**"
+      - "bench/benchrecords.py"
       - "website/site/**"
       - "servers/walnut.nanobyte.dev/publish-site.sh"
       - ".github/workflows/walnut-site.yml"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""catalog.py [--out FILE] [--deb-index URL] [--diff OLD]: build catalog.json from gamedb/games, the one
+"""catalog.py [--out FILE] [--technical FILE] [--deb-index URL] [--diff OLD]: build catalog.json from gamedb/games, the one
 file the website's templates (Hugo reads it as data) and the desktop app (later, packaged) use.
 
 Design
@@ -16,6 +16,9 @@ Design
   found there gets a direct .deb link (Filename: -> URL/<Filename>). Without the option, or without a
   network, the links are simply left out; nothing else changes.
 - SOURCE_DATE_EPOCH, when set, fixes "generated" so a build can be repeated byte for byte.
+- Beside it, technical.json (--technical FILE, default website/gamedb/data/technical.json): the site's
+  technical pages (tools/gamedb/technical.py: technical.md, investigations, engines, research, the build
+  facts and benchmark tables), public-safe scanned; site only, pack-catalog.py never packs it.
 - --diff OLD: build the catalog (nothing is written) and print every difference to the catalog.json OLD,
   one line per JSON path (games and tests matched by their id; "generated" left out); exit 1 if any.
   A change to the content or the scoring shows as exactly the fields it moved.
@@ -401,6 +404,8 @@ def main():
     ap.add_argument("--content", default=str(check.CONTENT))
     ap.add_argument("--out", default=str(REPO / "website" / "gamedb" / "data" / "catalog.json"))
     ap.add_argument("--deb-index", metavar="URL", help="apt repository root, e.g. https://walnut.nanobyte.dev/apt")
+    ap.add_argument("--technical", default=str(REPO / "website" / "gamedb" / "data" / "technical.json"),
+                    help="where technical.json goes (the site's technical pages)")
     ap.add_argument("--diff", metavar="OLD", help="print the differences to the catalog.json OLD instead of writing")
     a = ap.parse_args()
     cat = build(a.content, REPO, a.deb_index)
@@ -410,6 +415,14 @@ def main():
         return 1 if lines else 0
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     Path(a.out).write_text(json.dumps(cat, indent=1, ensure_ascii=False) + "\n")
+    import technical
+    try:
+        tech = technical.write(a.content, cat, a.technical, REPO)
+    except technical.TechnicalError as e:
+        print("catalog.py: %s" % e, file=sys.stderr)
+        return 1
+    print("technical.json: %d games, %d engines, %d investigations, %d research pages"
+          % (len(tech["games"]), len(tech["engines"]), len(tech["investigations"]), len(tech["research"])))
     for g in cat["games"]:
         r = g["rating"]
         print("%-14s %-9s %s" % (g["id"], r["medal"], r["score"] if r["score"] is not None else "-"))

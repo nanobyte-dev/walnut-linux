@@ -1,0 +1,5 @@
+{{/* A survey's page at research/<slug>/, from data/technical.json (gamedb/research/<slug>.md) */}}
+{{ range hugo.Data.technical.research }}
+  {{ $.AddPage (dict "path" .slug "title" .title "params" (dict "slug" .slug)
+      "content" (dict "mediaType" "text/markdown" "value" .body)) }}
+{{ end }}
