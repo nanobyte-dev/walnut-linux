@@ -4,8 +4,9 @@
 # docs/PACKAGING.md "The licensed suite"). Licensed packages are built here only, never on GitHub
 # Actions (no game data there); every free package is published by CI.
 #   Without arguments: every licensed .deb in build/debs/*/ and the .dsc of each licensed source in
-#   build/src/<dir>/ next to them. A package is licensed when tools/leak-check.py says so (its Section
-#   non-free/* or local/*, or its name in tools/licensed-packages.txt).
+#   build/src/<dir>/ next to them. A package is licensed when tools/leak-check.py says so, which asks
+#   tools/licensed.py (its Section non-free/* or local/*, or a licensed name); licensed.py check runs
+#   first, and declarations that disagree or can't be read stop the publish.
 #   Refused: a free package (CI publishes those), a ~dev version (commit, rebuild), and a version
 #   already published with other bytes (the suite keeps every file forever: a new file needs a new
 #   version; apt-repo/walnut-repo.py --strict).
@@ -24,7 +25,12 @@ cd "$(dirname "$0")/.."
 URL=${WALNUT_LICENSED_URL:-https://walnut.nanobyte.dev/licensed}
 STATUS=${WALNUT_STATUS_URL:-https://walnut.nanobyte.dev/status}
 RING=apt-repo/keyrings/archive-keyring.gpg
-is_licensed_deb() { ! python3 -I tools/leak-check.py debs "$1" >/dev/null 2>&1; }
+python3 -I tools/licensed.py check || { echo "!! tools/licensed.py check failed: nothing published" >&2; exit 1; }
+is_licensed_deb() {	# leak-check: 1 licensed, 0 free, anything else stops (fails closed)
+	local rc=0
+	python3 -I tools/leak-check.py debs "$1" >/dev/null 2>&1 || rc=$?
+	case $rc in 0) return 1 ;; 1) return 0 ;; *) echo "!! tools/leak-check.py debs $1 failed (exit $rc)" >&2; exit 1 ;; esac
+}
 
 files=("$@")
 if [ ${#files[@]} = 0 ]; then

@@ -1,10 +1,12 @@
 # Licensed game content we may not redistribute: these packages are built on our own PC only (never
 # by CI: github-ci/gen-workflows.py, build-package.sh) and go to the password-protected licensed suite
 # on walnut.nanobyte.dev only (apt-repo/licensed-publish.sh, docs/PACKAGING.md), never to a public one.
-# A package is licensed when it is listed here or its Section is non-free/* or local/*; the list
-# catches one whose Section doesn't say so. A source package is licensed when its name is listed here
-# or any package it builds is licensed; its source then goes to the licensed suite too, and never
-# into a public deb-src (tools/leak-check.py).
+# The seed list of tools/licensed.py, which answers what is licensed for every guard: a name here, a
+# directory under packages/licensed/ (or gamedb/*/*/licensed/), a gamedb build.toml [[licensed]] entry,
+# or a Section non-free/* or local/*. This list carries the names with no directory of ours and keeps
+# a record of the rest (licensed.py check wants every licensed directory named here or in a build.toml).
+# A source package is licensed when its name is licensed or any package it builds is; its source then
+# goes to the licensed suite too, and never into a public deb-src (tools/leak-check.py).
 # Quake's shareware data (game-data-packager, Section non-free/games)
 quake-shareware
 # Quake II's demo data (game-data-packager, Section local/games: not redistributable at all)

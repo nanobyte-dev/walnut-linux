@@ -81,7 +81,8 @@ else
 	if [ "$PROFILE" = "public" ]; then
 		# No debug kernel or debug ps3rsx in public image
 		rm -f "$R"/tmp/ps3-repo/*-debug*.deb
-		# No licensed debs in the flat repo: tools/leak-check.py verifies each package
+		# No licensed debs in the flat repo: tools/leak-check.py (tools/licensed.py's answer) verifies each package
+		python3 -I tools/licensed.py names >/dev/null || { echo "!! tools/licensed.py failed"; exit 1; }
 		for d in "$R"/tmp/ps3-repo/*.deb; do
 			[ -e "$d" ] || continue
 			if ! python3 tools/leak-check.py debs "$d" >/dev/null 2>&1; then
@@ -96,13 +97,9 @@ fi
 # man-db: no database rebuild on every package install (slow and RAM-hungry on the PS3; its daily
 # timer still updates it), and none in the image (index.db isn't reproducible)
 echo "man-db man-db/auto-update boolean false" | chroot "$R" debconf-set-selections
-if [ "$PROFILE" = "public" ]; then
-	PKGS=$(grep -v -e '^\s*#' -e '^\s*$' system/image/packages-ours.txt | \
-		grep -v -E '^(linux-image-ps3-debug|ps3rsx-modules-ps3-debug|ps3-games-licensed|classicube)$' | \
-		sed 's/^ps3-games$/ps3-games-free/')
-else
-	PKGS=$(grep -v -e '^\s*#' -e '^\s*$' system/image/packages-ours.txt)
-fi
+# our packages (system/image/packages-ours.txt); public: no debug kernel, nothing licensed
+# (tools/licensed.py) or needing licensed data, ps3-games-free for ps3-games (tools/image-packages.sh)
+PKGS=$(tools/image-packages.sh "$([ "$PROFILE" = public ] && echo public || echo dev)")
 APT="chroot $R env DEBIAN_FRONTEND=noninteractive apt-get -q -y -o Dpkg::Use-Pty=0 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold"
 $APT update > /dev/null
 $APT --no-remove upgrade > /dev/null

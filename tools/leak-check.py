@@ -8,19 +8,21 @@
                                                  these source packages are free, and no file in
                                                  their tarballs is licensed content: not a file of a
                                                  licensed binary package (by SHA-256, members of .zip
-                                                 archives included on both sides) and no path listed
-                                                 in tools/licensed-files.txt
+                                                 archives included on both sides) and no path
+                                                 matching a leak glob (tools/licensed.py globs)
 
-A binary package is licensed when its Section is non-free/* or local/*, or its name is in
-tools/licensed-packages.txt. A source package is licensed when its name is in that list or any
-package in its Package-List is licensed. Exit status: 0 clean, 1 a leak (each one printed), 2 usage.
+What is licensed is tools/licensed.py's answer (its names, the Section rule, its leak globs; it reads
+tools/licensed-packages.txt, tools/licensed-files.txt and the licensed directories): a binary package
+is licensed when its Section is non-free/* or local/* or its name is a licensed name; a source
+package when its name is one or any package in its Package-List is licensed. Exit status: 0 clean,
+1 a leak (each one printed), 2 usage or a licensed declaration that can't be read (fails closed).
 Reads .deb files itself (ar, then data.tar.{xz,gz,zst,} with python's modules or zstd), so it runs
 without dpkg on the PC too.
 """
 import argparse
-import fnmatch
 import gzip
 import hashlib
+import importlib.util
 import io
 import lzma
 import os
@@ -31,24 +33,17 @@ import tarfile
 import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-LICENSED_LIST = os.path.join(HERE, "licensed-packages.txt")
-LICENSED_FILES = os.path.join(HERE, "licensed-files.txt")
+# tools/licensed.py by path: python3 -I keeps the script's directory off sys.path
+_spec = importlib.util.spec_from_file_location("licensed", os.path.join(HERE, "licensed.py"))
+licensed = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(licensed)
 # files of a licensed package that say nothing about its content, and tiny files that match by chance
 SKIP_PREFIXES = ("usr/share/doc/", "usr/share/lintian/", "usr/share/doc-base/")
 MIN_SIZE = 256
 
 
-def read_list(path):
-    try:
-        with open(path) as f:
-            return [ln.strip() for ln in f if ln.strip() and not ln.lstrip().startswith("#")]
-    except FileNotFoundError:
-        return []
-
-
 def is_licensed(name, section, names):
-    section = section or ""
-    return section.startswith("non-free/") or section.startswith("local/") or name in names
+    return licensed.is_licensed(name, section, names)
 
 
 def parse_fields(text):
@@ -195,10 +190,6 @@ def expand_debs(items):
     return sorted(set(out))
 
 
-def strip_top(path):
-    return path.split("/", 1)[1] if "/" in path else path
-
-
 def cmd_debs(a, names):
     bad = 0
     for d in a.files:
@@ -233,7 +224,7 @@ def cmd_classify(a, names):
 
 
 def cmd_sources(a, names):
-    patterns = read_list(LICENSED_FILES)
+    patterns = licensed.globs()
     hashes = licensed_hashes(expand_debs(a.licensed), names)
     bad = 0
     for dsc in a.dsc:
@@ -247,10 +238,9 @@ def cmd_sources(a, names):
             if not re.search(r"\.tar(\.(gz|xz|bz2|lzma|zst))?$", fn):	# not the .asc signatures next to them
                 continue
             for path, blob in tar_files(p):
-                rel = strip_top(path)
-                hit = [pat for pat in patterns if fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(path, pat)]
+                hit = licensed.glob_hit(path, patterns)
                 if hit:
-                    print("LEAK: %s: %s matches %s (tools/licensed-files.txt)" % (fn, path, hit[0]))
+                    print("LEAK: %s: %s matches %s (tools/licensed.py globs)" % (fn, path, hit))
                     bad += 1
                 found = {}
                 file_hashes(path, blob, found)
@@ -265,7 +255,6 @@ def cmd_sources(a, names):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--list", default=LICENSED_LIST, help=argparse.SUPPRESS)
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("debs")
     s.add_argument("files", nargs="*")
@@ -277,11 +266,11 @@ def main(argv=None):
     s.add_argument("--licensed", action="append", default=[], help="licensed .deb files or directories of them")
     s.add_argument("dsc", nargs="*")
     a = p.parse_args(argv)
-    names = set(read_list(a.list))
     try:
+        names = licensed.names()
         return {"debs": cmd_debs, "installed": cmd_installed, "classify": cmd_classify,
                 "sources": cmd_sources}[a.cmd](a, names)
-    except (OSError, ValueError, tarfile.TarError) as e:
+    except (OSError, ValueError, tarfile.TarError, licensed.Error) as e:
         print("leak-check: %s" % e, file=sys.stderr)
         return 2
 

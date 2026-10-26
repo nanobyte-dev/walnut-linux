@@ -9,18 +9,24 @@ Design
     * required fields present and of the right type, no unknown field (a typo would silently vanish)
     * categories from the fixed list below, 1 to 3 of them
     * packages: Debian package names (they must end in [a-z0-9]); none of them, and no patched_by
-      source, in tools/licensed-packages.txt (those go to the licensed suite only, never into the public
-      catalog). Offline: only that file is read, Sections aren't checked
+      source, licensed (tools/licensed.py names: those go to the licensed suite only, never into the
+      public catalog). Offline: the declarations are read, Sections aren't checked
     * a game that needs the user's own data has a data_guide URL, data_steps (the numbered steps of
       getting and setting up the data: sentences, with `code` in backticks that must pair up) and
       offers no data package
     * thumb.png is a PNG; every test has a parsable result.toml of schema 1 whose listed screenshots
       exist, and no stray file sits in a test folder; its rules, when given, are "<data>.<formula>" of a
       data version score.py knows, and a data-version-2 test's defects name known categories
-    * patched_by names source packages of ours (packages/**/<name>/package.conf, and patches/series)
+    * patched_by names source packages of ours (tools/pkg-dir.sh, and patches/series)
+    * drafts (draft = true: a candidate, or a game tried and not published) need only id, title and
+      status (one of STATUSES; status_note says why); summary, license, homepage, categories, tags,
+      packages, needs_data, controller and thumb.png may be missing, and nothing is made up for them;
+      whatever a draft has is checked like a published game's. catalog.py (and so pack-catalog.py)
+      and Hugo leave drafts out
 - Prints every problem with the game it belongs to, exits 1 if there is any.
 """
 import argparse
+import importlib.util
 import re
 import sys
 import tomllib
@@ -44,17 +50,30 @@ FIELDS = {
     "data_steps": (list, False),
     "controller": (str, True), "fps_cap": ((int, float), False), "medal_note": (str, False),
     "known_issues": (list, False), "patched_by": (list, False), "designed_for": (str, False),
+    "draft": (bool, False), "status": (str, False), "status_note": (str, False),
 }
+# a draft (draft = true: a candidate or a game we tried, not published: catalog.py, pack-catalog.py and
+# Hugo leave it out) needs only these; whatever else it has is checked as usual, nothing is filled in
+DRAFT_REQUIRED = {"id", "title", "status"}
+STATUSES = ["candidate", "tried", "blocked", "dropped", "impossible", "tested"]
 TEST_FILES = {"result.toml"}
 
 
 def licensed(repo):
-    out = set()
-    for line in (repo / "tools" / "licensed-packages.txt").read_text().splitlines():
-        line = line.split("#", 1)[0].strip()
-        if line:
-            out.add(line)
-    return out
+    """the licensed package names (tools/licensed.py, the one answer; it fails closed: an unreadable
+    declaration raises)"""
+    spec = importlib.util.spec_from_file_location("licensed", Path(__file__).resolve().parent.parent / "licensed.py")
+    lic = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lic)
+    return lic.names(repo)
+
+
+def is_draft(gdir):
+    """the game folder holds a draft (index.md front matter draft = true); False when it can't be read"""
+    try:
+        return front_matter(Path(gdir) / "index.md").get("draft") is True
+    except (ValueError, OSError, tomllib.TOMLDecodeError):
+        return False
 
 
 def front_matter(path):
@@ -75,59 +94,63 @@ def check_game(gdir, bad, repo):
     except (ValueError, tomllib.TOMLDecodeError) as e:
         return ["index.md: %s" % e]
     for k in fm:
-        if k not in FIELDS and k not in ("title", "description", "date", "draft"):
+        if k not in FIELDS and k not in ("title", "description", "date"):
             errs.append("unknown field %r" % k)
+    draft = fm.get("draft") is True
     for k, (t, req) in FIELDS.items():
         if k not in fm:
-            if req:
-                errs.append("missing field %r" % k)
+            if (k in DRAFT_REQUIRED) if draft else req:
+                errs.append("missing field %r%s" % (k, " (a draft needs id, title and status)" if draft else ""))
         elif not isinstance(fm[k], t) or (t is not bool and isinstance(fm[k], bool)):
             errs.append("field %r should be %s" % (k, t.__name__ if isinstance(t, type) else "a number"))
     if any(not e.startswith("unknown") for e in errs):
         return errs   # the later checks need the fields
     if not ID_RE.match(fm["id"]) or fm["id"] != gdir.name:
         errs.append("id %r must match ^[a-z0-9][a-z0-9-]{0,63}$ and the folder name %r" % (fm["id"], gdir.name))
-    if not 1 <= len(fm["categories"]) <= 3 or any(c not in CATEGORIES for c in fm["categories"]):
+    if "status" in fm and fm["status"] not in STATUSES:
+        errs.append("status %r: one of %s" % (fm["status"], ", ".join(STATUSES)))
+    if "categories" in fm and (not 1 <= len(fm["categories"]) <= 3 or any(c not in CATEGORIES for c in fm["categories"])):
         errs.append("categories %r: one to three of %s" % (fm["categories"], ", ".join(CATEGORIES)))
-    for t in fm["tags"]:
+    for t in fm.get("tags", []):
         if not isinstance(t, str) or not TAG_RE.match(t):
             errs.append("bad tag %r (lower case letters, digits, space, dash)" % (t,))
-    if not URL_RE.match(fm["homepage"]):
+    if "homepage" in fm and not URL_RE.match(fm["homepage"]):
         errs.append("homepage is not an http(s) URL")
-    if not fm["packages"]:
+    if not fm.get("packages") and not draft:
         errs.append("packages is empty")
-    for p in fm["packages"] + fm.get("patched_by", []):
+    for p in fm.get("packages", []) + fm.get("patched_by", []):
         if not isinstance(p, str) or not PKG_RE.match(p):
             errs.append("package name %r: lower case letters, digits, + . - and it must end in [a-z0-9]" % (p,))
         elif p in bad:
-            errs.append("package %r is licensed (tools/licensed-packages.txt): not for the public catalog" % p)
+            errs.append("package %r is licensed (tools/licensed.py): not for the public catalog" % p)
     for p in fm.get("patched_by", []):
         if isinstance(p, str) and not score.package_dir(repo, p):
-            errs.append("patched_by %r: no packages/**/%s/package.conf in the repository" % (p, p))
+            errs.append("patched_by %r: no package %s in the repository (tools/pkg-dir.sh)" % (p, p))
     for d in fm.get("desktop", []):
         if not isinstance(d, str) or not re.fullmatch(r"[A-Za-z0-9._-]+\.desktop", d):
             errs.append("desktop entry %r" % (d,))
     if fm.get("designed_for", "pad") not in score.DESIGNED_FOR:
         errs.append("designed_for %r: one of %s (default pad)" % (fm["designed_for"], ", ".join(score.DESIGNED_FOR)))
-    if fm["controller"] not in CONTROLLERS:
+    if "controller" in fm and fm["controller"] not in CONTROLLERS:
         errs.append("controller %r: one of %s" % (fm["controller"], ", ".join(CONTROLLERS)))
-    if fm["needs_data"] and not URL_RE.match(fm.get("data_guide", "")):
+    if fm.get("needs_data") and not URL_RE.match(fm.get("data_guide", "")):
         errs.append("needs_data = true needs a data_guide URL (the data itself is never offered)")
     steps = fm.get("data_steps", [])
-    if fm["needs_data"] and not steps:
+    if fm.get("needs_data") and not steps:
         errs.append("needs_data = true needs data_steps (how to get the data and where it goes)")
     for st in steps:
         if not isinstance(st, str) or not st.strip():
             errs.append("data_steps: each step is a non-empty string")
         elif st.count("`") % 2:
             errs.append("data_steps %r: the backticks around code do not pair up" % st[:40])
-    if steps and not fm["needs_data"]:
+    if steps and not fm.get("needs_data"):
         errs.append("data_steps without needs_data = true")
     if fm.get("fps_cap", 1) <= 0:
         errs.append("fps_cap must be positive")
     thumb = gdir / "thumb.png"
     if not thumb.exists():
-        errs.append("no thumb.png")
+        if not draft:
+            errs.append("no thumb.png")
     elif thumb.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
         errs.append("thumb.png is not a PNG")
     tests = gdir / "tests"

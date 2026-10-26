@@ -6,9 +6,16 @@ set -euo pipefail
 PKG=$1
 PD=$(tools/pkg-dir.sh "$PKG")
 paths=("$PD/" tools/deb-prepare.sh tools/deb-build.sh tools/deb-chroot.sh build-containers/Dockerfile.deb)
-# package.conf VERSION_PATHS: more sources the package carries (e.g. ps3-boot's initramfs, tools/ssdimg)
+# package.conf VERSION_PATHS: more sources the package carries (e.g. ps3-boot's initramfs, tools/ssdimg):
+# a file, a directory, or a pattern read as GitHub's path filters read it (github-ci/gen-workflows.py
+# passes the same strings): * within one path component, ** across them; so a pattern is a git
+# :(glob) pathspec (plain git lets * cross /)
 VERSION_PATHS=$(sed -n 's/^VERSION_PATHS="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$PD/package.conf" 2>/dev/null)
-for v in $VERSION_PATHS; do paths+=("$v"); done
+set -f	# the patterns reach git as they are, not expanded here
+for v in $VERSION_PATHS; do
+	case $v in *'*'*) paths+=(":(glob)$v") ;; *) paths+=("$v") ;; esac
+done
+set +f
 last=$(git log -1 --format=%H -- "${paths[@]}")
 n=$(git rev-list --count "$last")
 date=$(git log -1 --format=%cD "$last")

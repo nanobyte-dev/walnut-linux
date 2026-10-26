@@ -3,8 +3,9 @@
 # (.github/workflows/walnut-package.yml) into OUT/ (the .debs, debug ones included) and OUT/src/ (the
 # source package). No secrets here: this job runs the build, the keys are only in the publish job.
 # Our own build dependencies (package.conf LOCAL_DEPS; ps3rsx: the kernel) come from the suite the
-# build is for, checked against its signed index. The licensed packages never build in CI
-# (packages/licensed/, and tools/licensed-packages.txt as a second check).
+# build is for, checked against its signed index. The licensed packages never build in CI: what is
+# licensed is tools/licensed.py's answer (its check first: declarations that disagree or can't be read
+# stop the build), and a package in a licensed directory is refused by its path too.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 pkg=$1 out=$2 target=${3:-testing}
@@ -14,8 +15,14 @@ case $target in
 	*) echo "!! target: testing or stable" >&2; exit 2 ;;
 esac
 pd=$(tools/pkg-dir.sh "$pkg") || exit 2
-case $pd in packages/licensed/*) echo "!! $pkg is licensed ($pd): never built in CI" >&2; exit 2 ;; esac
-! grep -qx "$pkg" tools/licensed-packages.txt || { echo "!! $pkg is licensed: never built in CI" >&2; exit 2; }
+case $pd in packages/licensed/*|gamedb/*/*/licensed/*) echo "!! $pkg is licensed ($pd): never built in CI" >&2; exit 2 ;; esac
+python3 -I tools/licensed.py check || { echo "!! tools/licensed.py check failed: no build" >&2; exit 2; }
+rc=0; python3 -I tools/licensed.py is-licensed "$pkg" || rc=$?
+case $rc in
+	0) echo "!! $pkg is licensed: never built in CI" >&2; exit 2 ;;
+	1) ;;
+	*) echo "!! tools/licensed.py is-licensed $pkg failed (exit $rc): no build" >&2; exit 2 ;;
+esac
 conf() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" "$pd/package.conf"; }
 github-ci/runner-prep.sh
 

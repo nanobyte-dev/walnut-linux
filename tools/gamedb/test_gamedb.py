@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import sys
+import tarfile
 import tempfile
 import tomllib
 import unittest
@@ -366,6 +367,49 @@ class Check(unittest.TestCase):
         (t / "ps3-1s.jpg").write_bytes(b"x")
         (t / "stray.dat").write_bytes(b"x")
         self.assertIn("unexpected file stray.dat", " ".join(self.problems()["ex"]))
+
+    def test_draft_needs_only_id_title_status(self):
+        g = Path(self.content) / "cand"
+        g.mkdir(parents=True)
+        (g / "index.md").write_text('+++\nid = "cand"\ntitle = "Candidate"\ndraft = true\nstatus = "candidate"\n+++\n')
+        self.assertEqual(self.problems(), {})
+        (g / "index.md").write_text('+++\nid = "cand"\ntitle = "Candidate"\ndraft = true\n+++\n')
+        self.assertIn("missing field 'status'", " ".join(self.problems()["cand"]))
+        (g / "index.md").write_text('+++\nid = "cand"\ntitle = "C"\ndraft = true\nstatus = "maybe"\n+++\n')
+        self.assertIn("status 'maybe'", " ".join(self.problems()["cand"]))
+        # what a draft has is still checked
+        (g / "index.md").write_text('+++\nid = "cand"\ntitle = "C"\ndraft = true\nstatus = "tried"\n'
+                                    'status_note = "crashes at start"\ncategories = ["fun"]\nhomepage = "x"\n+++\n')
+        text = " ".join(self.problems()["cand"])
+        self.assertIn("categories", text)
+        self.assertIn("homepage", text)
+        (g / "index.md").write_text('+++\nid = "cand"\ntitle = "C"\ndraft = "yes"\nstatus = "tried"\n+++\n')
+        self.assertIn("'draft' should be bool", " ".join(self.problems()["cand"]))
+
+    def test_published_game_keeps_the_full_rules(self):
+        g = write_game(self.content, draft="false", status='"tested"')
+        self.assertEqual(self.problems(), {})
+        (g / "thumb.png").unlink()
+        self.assertIn("thumb.png", " ".join(self.problems()["ex"]))
+        g2 = Path(self.content) / "nofields"
+        g2.mkdir()
+        (g2 / "index.md").write_text('+++\nid = "nofields"\ntitle = "N"\nstatus = "candidate"\n+++\n')
+        self.assertIn("missing field 'summary'", " ".join(self.problems()["nofields"]))
+
+    def test_drafts_left_out_of_the_catalog_and_pack(self):
+        write_game(self.content)
+        g = Path(self.content) / "cand"
+        g.mkdir()
+        (g / "index.md").write_text('+++\nid = "cand"\ntitle = "Candidate"\ndraft = true\nstatus = "candidate"\n+++\n')
+        cat = catalog.build(self.content, self.repo)
+        self.assertEqual([x["id"] for x in cat["games"]], ["ex"])
+        out = Path(self.tmp.name) / "catalog.tar"
+        spec = importlib.util.spec_from_file_location("pack_catalog", HERE / "pack-catalog.py")
+        pack = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pack)
+        pack.pack(self.content, out, self.repo)
+        with tarfile.open(out) as t:
+            self.assertFalse([n for n in t.getnames() if "cand" in n])
 
     def test_repository_catalog_is_valid(self):
         self.assertEqual(check.check(REPO / "website" / "gamedb" / "content" / "games"), {})

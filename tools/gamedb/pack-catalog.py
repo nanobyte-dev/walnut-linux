@@ -7,7 +7,8 @@ Design
 - Contents: catalog.json (catalog.py's, without the .deb links: the app installs from the apt
   repository), and for every game games/<id>/thumb.png plus the screenshots its tests list
   (games/<id>/tests/<test>/<file>.jpg). The rest of a game's folder (index.md, result.toml) stays out.
-- The catalog is checked first (check.py): a catalog that does not validate is not packed.
+- The catalog is checked first (check.py): a catalog that does not validate is not packed. Drafts
+  (index.md draft = true) are left out, as catalog.py leaves them out, pictures included.
 - Screenshots are Git LFS files. A checkout without the LFS objects holds 130-byte pointer files;
   packing those would ship broken pictures, so they stop the build with a message (CI checks out
   with lfs: true for this package, .github/workflows/walnut-package.yml).
@@ -58,6 +59,8 @@ def pack(content, out, repo=REPO):
     files = {}
     for g in cat["games"]:
         gdir = Path(content) / g["id"]
+        if check.is_draft(gdir):
+            raise SystemExit("%s is a draft and must not be packed (catalog.py leaves drafts out)" % g["id"])
         names = [g["thumb"].split("/", 2)[2]]
         for t in g["tests"]:
             names += t["ps3"]   # only the PS3's pictures are published

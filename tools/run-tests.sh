@@ -22,7 +22,12 @@
 #            ps3-imgmap-boot's maps and tables against ps3-imgmap's; both tools' write guard
 #            registration against a model of the kernel's side), ps3-boot (ps3-update-kboot's
 #            entries and its /etc/kboot.d extras on a fake root), leak-check (tools/leak-check.py on
-#            synthetic packages and sources), walnut-repo (apt-repo/walnut-repo.py against the real
+#            synthetic packages and sources), repo-tools (tools/test_repo_tools.py: pkg-dir.sh,
+#            licensed.py, deb-version.sh's patterns, doclinks.py, blocks.py, image-packages.sh on small
+#            fake trees), licensed (tools/licensed.py check on this tree), workflows
+#            (github-ci/gen-workflows.py --check: .github/workflows is what it writes), blocks
+#            (tools/gamedb/blocks.py --check: no stale generated block), doclinks (tools/doclinks.py:
+#            the links that don't resolve, a warning only for now), walnut-repo (apt-repo/walnut-repo.py against the real
 #            walnut-watch: testing, stable and the password-protected licensed suite), walnut-watch
 #            (the server's publisher on good and hostile uploads), batch-publish (github-ci/batch-publish.py,
 #            testing's one publisher: its plan, and whole runs through publish.sh against a fake
@@ -229,6 +234,14 @@ run mesa-point-smooth bash -c "$(declare -f need t_pointsmooth); t_pointsmooth"
 run ssdimg python3 tools/ssdimg/test_ssdimg.py
 run ps3-boot python3 packages/walnut/system/ps3-boot/tests/test_kboot.py
 run leak-check python3 tools/test_leak_check.py
+run repo-tools python3 -I tools/test_repo_tools.py
+run licensed python3 -I tools/licensed.py check
+run workflows python3 -I github-ci/gen-workflows.py --check
+run blocks python3 -I tools/gamedb/blocks.py --check
+run doclinks python3 -I tools/doclinks.py --report
+# report only for now: what doesn't resolve is listed in its log, not a failure
+[ ! -s "$L/doclinks.log" ] || { [ -n "$only" ] && [ "$only" != doclinks ]; } ||
+	grep -q ' 0 unresolved' "$L/doclinks.log" || echo "   warn: $(tail -n 1 "$L/doclinks.log") ($L/doclinks.log)"
 run walnut-repo python3 apt-repo/test_walnut_repo.py
 run walnut-watch python3 servers/walnut.nanobyte.dev/test_walnut_watch.py
 run batch-publish python3 -I github-ci/test_batch_publish.py

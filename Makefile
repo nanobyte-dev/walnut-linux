@@ -3,9 +3,12 @@ include config.mk
 # the shared ccache's login (config.local.mk, or the CI secret) reaches tools/ccache-remote.sh through
 # the environment, never on a command line make prints
 export WALNUT_CCACHE_AUTH
-# Our source packages: packages/<group>/[<area>/]<name>/package.conf (docs/LAYOUT.md), named by their
-# directory alone (make <name>-deb, build/debs/<name>); $(call pkgdir,<name>) is the directory
-PKG_DIRS := $(patsubst %/package.conf,%,$(wildcard packages/*/*/package.conf packages/*/*/*/package.conf))
+# Our source packages: every directory with a package.conf where tools/pkg-dir.sh looks (packages/<group>/
+# [<area>/]<name>/, a game's or engine's packages/<name>/ and licensed/<name>/ in gamedb/; docs/LAYOUT.md),
+# named by their directory alone (make <name>-deb, build/debs/<name>); two of one name stop make here.
+# $(call pkgdir,<name>) is the directory
+PKG_DIRS := $(shell tools/pkg-dir.sh --all)
+$(if $(filter 0,$(.SHELLSTATUS)),,$(error tools/pkg-dir.sh --all failed (above)))
 pkgdir = $(filter %/$(1),$(PKG_DIRS))
 # each package's upstream pins (<pkg dir>/upstream.mk; config.mk says which), the SPU toolchain's
 include $(sort $(wildcard $(PKG_DIRS:%=%/upstream.mk))) packages/patched/toolchain/spu/upstream.mk tools/ssdimg/upstream.mk
@@ -391,7 +394,8 @@ deploy: | $(REPO_BUILDER_STAMP)
 
 # --- Image --------------------------------------------------------------------
 # The package layer plus our config (system/image/) and our packages (build/debs/*)
-IMAGE_INPUTS := $(ROOTFS_BASE) $(wildcard system/image/*) tools/build-image.sh $(wildcard $(SSH_PUBKEY)) \
+IMAGE_INPUTS := $(ROOTFS_BASE) $(wildcard system/image/*) tools/build-image.sh tools/image-packages.sh \
+	tools/licensed.py tools/licensed-packages.txt $(wildcard $(SSH_PUBKEY)) \
 	$(wildcard $(BUILD)/debs/*/*.deb)
 PROFILE ?= dev
 rootfs: $(ROOTFS_TAR)

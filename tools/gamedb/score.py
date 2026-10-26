@@ -36,7 +36,10 @@ broken core subsystem makes the game Scrap (broken_v2): combine(tests, rules=2) 
 test_scores_v2(test). A rating never mixes the two: catalog.py picks a launcher's newest data version
 and rates it from those tests alone.
 """
+import functools
+import os
 import statistics
+import subprocess
 from pathlib import Path
 import sys
 
@@ -57,14 +60,22 @@ RULES = {1: {"date": "2026-10-24", "anchor": "rules-1"},
 CURRENT_DATA = 2
 
 
+@functools.lru_cache(maxsize=None)
+def package_dirs(repo):
+    """{name: directory} of every source package of ours in the tree repo (tools/pkg-dir.sh --all:
+    packages/<group>/[<area>/]NAME, a game's or engine's packages/ and licensed/ in gamedb/). Two of one
+    name are an error there, and a RuntimeError here."""
+    p = subprocess.run([str(Path(__file__).resolve().parent.parent / "pkg-dir.sh"), "--all"], stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE, text=True, env=dict(os.environ, PKG_DIR_ROOT=str(repo)))
+    if p.returncode:
+        raise RuntimeError("tools/pkg-dir.sh --all: %s" % p.stderr.strip())
+    return {d.rsplit("/", 1)[-1]: d for d in p.stdout.split()}
+
+
 def package_dir(repo, name):
-    """Our source package NAME's directory relative to the repository (packages/<group>/[<area>/]NAME,
-    with a package.conf; tools/pkg-dir.sh), or None. Shared by check.py and catalog.py."""
-    for pat in ("packages/*/%s", "packages/*/*/%s", "packages/*/*/*/%s"):
-        for d in sorted(Path(repo).glob(pat % name)):
-            if (d / "package.conf").is_file():
-                return d.relative_to(repo).as_posix()
-    return None
+    """Our source package NAME's directory relative to the repository (tools/pkg-dir.sh), or None.
+    Shared by check.py and catalog.py."""
+    return package_dirs(str(Path(repo).resolve())).get(name)
 
 
 def data_version(t):

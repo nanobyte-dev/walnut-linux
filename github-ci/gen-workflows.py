@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """gen-workflows.py: writes .github/workflows/pkg-<name>.yml for every package GitHub builds
-(every packages/**/<name>/package.conf except the licensed ones: packages/licensed/ and
-tools/licensed-packages.txt), and walnut-publish.yml, testing's one publisher, which starts when any
+(every package tools/pkg-dir.sh --all lists except the licensed ones: tools/licensed.py names, and any
+package in a licensed directory), and walnut-publish.yml, testing's one publisher, which starts when any
 of them finishes. A push that changes the package's own files (its directory, and the sources
 package.conf VERSION_PATHS says it carries) builds it for testing; the publisher puts it there. A
 change to the shared build tools or a workflow builds nothing by itself (the owner, 2026-10-21: no
@@ -9,8 +9,11 @@ change to the shared build tools or a workflow builds nothing by itself (the own
 stable is never built automatically and publishes from its own run, with the owner's approval.
 ps3rsx also builds for testing after every linux build goes out (the publisher starts it: testing's
 kernel needs its GPU module). Stale pkg-*.yml files are removed. Run it after adding or removing a
-package."""
-import glob, os, re
+package; --check writes nothing and exits 1 when the files on disk aren't what it would write (make
+test runs it). Packages: tools/pkg-dir.sh --all; licensed: tools/licensed.py. A VERSION_PATHS entry
+is a GitHub path filter as it is (a directory gets /**): * stays within one path component and **
+crosses them, as tools/deb-version.sh reads the same strings (git :(glob) pathspecs)."""
+import glob, importlib.util, os, re, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WF = f"{ROOT}/.github/workflows"
@@ -88,14 +91,23 @@ def conf(pkg, key):
 	return m.group(1).split() if m else []
 
 
-def main():
-	licensed = {l.strip() for l in open(f"{ROOT}/tools/licensed-packages.txt") if l.strip() and not l.startswith("#")}
-	for depth in ("*", "*/*", "*/*/*"):
-		for p in glob.glob(f"{ROOT}/packages/{depth}/package.conf"):
-			d = os.path.relpath(os.path.dirname(p), ROOT)
-			DIRS[os.path.basename(d)] = d
-	pkgs = sorted(p for p in DIRS if p not in licensed and not DIRS[p].startswith("packages/licensed/"))
-	written = set()
+def licensed_module():
+	spec = importlib.util.spec_from_file_location("licensed", f"{ROOT}/tools/licensed.py")
+	m = importlib.util.module_from_spec(spec)
+	spec.loader.exec_module(m)
+	return m
+
+
+def generate():
+	"""{file name: text} of every workflow this generator owns"""
+	lic = licensed_module()
+	licensed = lic.names(ROOT)
+	for d in subprocess.run([f"{ROOT}/tools/pkg-dir.sh", "--all"], stdout=subprocess.PIPE, text=True,
+	                        check=True).stdout.split():
+		DIRS[os.path.basename(d)] = d
+	pkgs = sorted(p for p in DIRS if p not in licensed
+	              and not any(re.match(g.replace("*", "[^/]+") + r"\Z", DIRS[p]) for g in lic.LICENSED_DIR_GLOBS))
+	files = {}
 	for pkg in pkgs:
 		paths = [f"{DIRS[pkg]}/**"] + [f"{v.rstrip('/')}/**" if os.path.isdir(f"{ROOT}/{v}") else v
 		                         for v in conf(pkg, "VERSION_PATHS")]
@@ -126,17 +138,29 @@ jobs:
       target: ${{{{ inputs.target || 'testing' }}}}
     secrets: inherit
 """
-		name = f"pkg-{pkg}.yml"
-		with open(f"{WF}/{name}", "w") as f:
-			f.write(text)
-		written.add(name)
-	with open(f"{WF}/walnut-publish.yml", "w") as f:
-		f.write(PUBLISHER.replace("@WORKFLOWS@", "".join(f'      - "pkg: {p}"\n' for p in pkgs)))
-	for old in glob.glob(f"{WF}/pkg-*.yml"):
-		if os.path.basename(old) not in written:
-			os.unlink(old)
-	print(f">> {len(written)} package workflows and walnut-publish.yml")
+		files[f"pkg-{pkg}.yml"] = text
+	files["walnut-publish.yml"] = PUBLISHER.replace("@WORKFLOWS@", "".join(f'      - "pkg: {p}"\n' for p in pkgs))
+	return files
+
+
+def main():
+	files = generate()
+	stale = [os.path.basename(f) for f in glob.glob(f"{WF}/pkg-*.yml") if os.path.basename(f) not in files]
+	if "--check" in sys.argv[1:]:
+		bad = [n for n, t in sorted(files.items())
+		       if not os.path.exists(f"{WF}/{n}") or open(f"{WF}/{n}").read() != t] + stale
+		for n in bad:
+			print(f"!! .github/workflows/{n} isn't what github-ci/gen-workflows.py writes (run it)")
+		print(f">> {len(files) - 1} package workflows and walnut-publish.yml: {'%d stale' % len(bad) if bad else 'current'}")
+		return 1 if bad else 0
+	for n, t in files.items():
+		with open(f"{WF}/{n}", "w") as f:
+			f.write(t)
+	for n in stale:
+		os.unlink(f"{WF}/{n}")
+	print(f">> {len(files) - 1} package workflows and walnut-publish.yml")
+	return 0
 
 
 if __name__ == "__main__":
-	main()
+	sys.exit(main())

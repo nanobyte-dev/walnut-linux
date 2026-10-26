@@ -9,7 +9,7 @@ Design
     {"schema": 1, "generated": "<UTC>", "content_date", "revision", "games": [{"id", "title", ..., "rating": {...}, "tests": [...],
       "patched": bool, "patches": [{source, subject, file, url}], "debs": [{"package", "url"}], "badges": [...]}]}
   Scores are rounded to whole numbers here, the only place that rounds.
-- Patched by Walnut: a game whose patched_by names a source package of ours (packages/**/<name>/package.conf with
+- Patched by Walnut: a game whose patched_by names a source package of ours (tools/pkg-dir.sh: a package.conf with
   <dir>/patches/series). The patches are listed by the Subject: line of each patch file (linked to the file on the public repository's main branch), in series
   order. With --deb-index URL (the apt repository root, e.g. https://walnut.nanobyte.dev/apt) the
   stable suite's dists/stable/main/binary-ppc64/Packages.xz is read and each of the game's packages
@@ -342,7 +342,8 @@ def build_game(gdir, repo, debs):
 def build(content, repo=REPO, deb_url=None):
     debs = deb_index(deb_url) if deb_url else {}
     debs = {p: deb_url.rstrip("/") + "/" + f for p, f in debs.items()}
-    games = [build_game(d, repo, debs) for d in sorted(Path(content).iterdir()) if d.is_dir()]
+    # drafts (index.md draft = true) are not published: no catalog entry (Hugo skips their pages too)
+    games = [build_game(d, repo, debs) for d in sorted(Path(content).iterdir()) if d.is_dir() and not check.is_draft(d)]
     epoch = os.environ.get("SOURCE_DATE_EPOCH")
     when = datetime.datetime.fromtimestamp(int(epoch), datetime.timezone.utc) if epoch \
         else datetime.datetime.now(datetime.timezone.utc)

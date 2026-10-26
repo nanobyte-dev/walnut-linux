@@ -47,7 +47,8 @@ awk '/^Package:/{p=$2} /^Status:/{s=$4} /^Version:/{v=$2} /^$/{if (s=="installed
 	"$x/var/lib/dpkg/status" | LC_ALL=C sort > "$x/MANIFEST"
 
 # nothing licensed, no dev account, no LAN repository in the image
-if grep -qxF -f <(grep -v -e '^\s*#' -e '^\s*$' tools/licensed-packages.txt) <(cut -d' ' -f1 "$x/MANIFEST"); then
+lic=$(python3 -I tools/licensed.py names) && [ -n "$lic" ] || { echo "!! tools/licensed.py names failed" >&2; exit 1; }
+if grep -qxF -f <(printf '%s\n' $lic) <(cut -d' ' -f1 "$x/MANIFEST"); then
 	echo "!! a licensed package in the image" >&2; exit 1
 fi
 tar -tf "$tar" | grep -q -e '^\./home/tibi' -e '^\./etc/sudoers\.d/tibi$' -e '^\./etc/apt/sources\.list\.d/ps3-lan' &&

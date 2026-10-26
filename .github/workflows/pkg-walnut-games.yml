@@ -11,6 +11,9 @@ on:
       - "tools/gamedb/pack-catalog.py"
       - "tools/gamedb/score.py"
       - "tools/gamedb/check.py"
+      - "tools/pkg-dir.sh"
+      - "tools/licensed.py"
+      - "tools/licensed-packages.txt"
   workflow_dispatch:
     inputs:
       target:
