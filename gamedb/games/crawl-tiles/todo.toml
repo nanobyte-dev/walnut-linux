@@ -1,0 +1,10 @@
+# Dungeon Crawl Stone Soup: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-19
+source = "TESTS.md Next (smoke re-runs)"
+text = """\
+Smoke re-run of 300 s (the load takes longer than 120 s), then the fullscreen check; ending with \
+SIGTERM prints Crawl's \"crash\" report, which is the harness."""

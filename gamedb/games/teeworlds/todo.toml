@@ -1,0 +1,8 @@
+# Teeworlds: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-19
+source = "PLAN 2.6"
+text = "A second run: 183 fps on dm1, smoke only so far."

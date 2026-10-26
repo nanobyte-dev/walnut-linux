@@ -15,7 +15,9 @@ A generator is a function (repo, args) -> markdown text, registered in GENERATOR
 "Generated from gamedb"): the README game table, GAMEDB's calibration, the TESTS queue, driver-doc
 evidence tables, research tables, "bugs the games found". Now: licensed-names, calibration (docs/GAMEDB.md:
 the rules-1 calibration, score.py over the summary batch), suite-table (README.md: the suite's games, the
-summary batch's numbers and each game's medal from its played sessions, as the catalog computes it).
+summary batch's numbers and each game's medal from its played sessions, as the catalog computes it),
+session-queue (docs/TESTS.md: the played-session queue from the games' todo.toml, with each game's medal),
+todo-summary (docs/PLAN.md, docs/backlog/games.md: the per-game open work, counted from the todo.toml files).
 """
 import argparse
 import importlib.util
@@ -100,10 +102,77 @@ def gen_suite_table(repo, args):
     return "\n".join(out) + "\n"
 
 
+def _todos(repo):
+    """[(kind of folder, id, title, [items])] of every gamedb/games/<id>/todo.toml and engines/<e>/todo.toml
+    (the title from index.md or engine.md)"""
+    import tomllib
+    check = _load("check", Path(repo) / "tools" / "gamedb" / "check.py")
+    out = []
+    for kind, page in (("games", "index.md"), ("engines", "engine.md")):
+        for d in sorted((Path(repo) / "gamedb" / kind).glob("*/todo.toml")):
+            items = tomllib.loads(d.read_text()).get("item", [])
+            out.append((kind, d.parent.name, check.front_matter(d.parent / page).get("title", d.parent.name), items))
+    return out
+
+
+def _cell(text):
+    """a todo text as one markdown table cell"""
+    return " ".join(str(text).split()).replace("|", "\\|")
+
+
+def gen_session_queue(repo, args):
+    """docs/TESTS.md's played-session queue: every session item with an order (gamedb/games/<id>/todo.toml), in
+    that order, with the game's medal now (catalog.py's rating from its played sessions)"""
+    if args:
+        raise ValueError("session-queue takes no arguments")
+    repo = Path(repo)
+    catalog = _load("catalog", repo / "tools" / "gamedb" / "catalog.py")
+    games = {g["id"]: g for g in catalog.build(repo / "gamedb" / "games", repo)["games"]}
+    rows = [(it["order"], gid, title, it) for kind, gid, title, items in _todos(repo) if kind == "games"
+            for it in items if it.get("kind") == "session" and "order" in it]
+    out = ["| # | Game | Medal now | Launcher (PS3 and PC) | PC side | Notes |", "|---|---|---|---|---|---|"]
+    for order, gid, title, it in sorted(rows, key=lambda r: (r[0], r[1])):
+        g = games.get(gid)
+        rating = (g or {}).get("rating") or {}
+        medal = "%s · %d" % (rating["medal"], rating["score"]) if rating.get("score") is not None else "not rated yet"
+        out.append("| %d | %s | %s | %s | %s | %s |" % (
+            order, "[%s](%s)" % (title, SITE % gid) if g else title, medal, _cell(it.get("launcher", "")),
+            _cell(it.get("pc", "")), _cell(it["text"])))
+    return "\n".join(out) + "\n"
+
+
+def gen_todo_summary(repo, args):
+    """the per-game open work: a row per game (or engine) with a todo.toml, its items by kind and the PLAN items
+    they came from, linking the file. Args: the path from the doc to gamedb/ (default ../gamedb); `plan`: only
+    the games with an item from docs/PLAN.md (source "PLAN N.N")"""
+    words = list(args)
+    plan_only = "plan" in words
+    words = [w for w in words if w != "plan"]
+    if len(words) > 1:
+        raise ValueError("todo-summary takes [PATH-TO-GAMEDB] [plan]")
+    root = (words or ["../gamedb"])[0].rstrip("/")
+    plan_re = re.compile(r"PLAN (\d+\.\d+)")
+    out = ["| Game | Open items | Kinds | From the plan |", "|---|---|---|---|"]
+    for kind, gid, title, items in sorted(_todos(repo), key=lambda t: (t[0] != "games", t[2].lower())):
+        plan = sorted({m for it in items for m in plan_re.findall(it.get("source", ""))},
+                      key=lambda x: tuple(map(int, x.split("."))))
+        if not items or (plan_only and not plan):
+            continue
+        kinds = {}
+        for it in items:
+            kinds[it["kind"]] = kinds.get(it["kind"], 0) + 1
+        out.append("| [%s](%s/%s/%s/todo.toml) | %d | %s | %s |" % (
+            title + (" (engine)" if kind == "engines" else ""), root, kind, gid, len(items),
+            ", ".join("%d %s" % (n, k) for k, n in sorted(kinds.items())), ", ".join(plan)))
+    return "\n".join(out) + "\n"
+
+
 GENERATORS = {
     "licensed-names": gen_licensed_names,
     "calibration": gen_calibration,
     "suite-table": gen_suite_table,
+    "session-queue": gen_session_queue,
+    "todo-summary": gen_todo_summary,
 }
 
 

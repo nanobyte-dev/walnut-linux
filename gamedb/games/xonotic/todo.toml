@@ -1,0 +1,11 @@
+# Xonotic: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "package"
+added = 2026-10-19
+source = "backlog/games.md rank 76"
+text = """\
+Xonotic 0.8.6 as `xonotic-gl2`, after Nexuiz runs on `darkplaces-gl2`: the release engine still has \
+the GL 2.0 path (engine master's GLES2 path is no way out); 1.2 GB of data, RAM is the risk. Steps \
+in gamedb/research/gl3-census.md (\"2. Xonotic 0.8.6\")."""

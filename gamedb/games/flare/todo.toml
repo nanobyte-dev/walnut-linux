@@ -1,0 +1,8 @@
+# Flare: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-19
+source = "TESTS.md Next (menu-only new games)"
+text = "Menu-only smoke with the user at the controller: the player picks a language and starts."

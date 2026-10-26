@@ -1,0 +1,54 @@
+# OpenArena: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "session"
+order = 7
+launcher = "OpenArena (GL 1.2), then OpenArena (GL 2.0)"
+pc = "ready"
+added = 2026-10-24
+source = "TESTS.md played sessions"
+text = "Two launchers, one session each."
+
+[[item]]
+kind = "fix"
+added = 2026-10-19
+source = "PLAN 3.7"
+text = """\
+renderergl2 has no `r_keepImages` (ioquake3 0025 is opengl1's), so every demo pass and map change \
+reloads, decodes and mipmaps every texture: `R_MipMapsRGB` was 7.8% of a profiled window with three \
+reloads, `COM_ParseExt` (the .shader scripts, at every load) 2.8%."""
+
+[[item]]
+kind = "fix"
+added = 2026-10-19
+source = "PLAN 3.7"
+text = """\
+After a map load, `madvise(MADV_DONTNEED)` on the page-aligned gap between `hunk_low.temp` and \
+`s_hunkTotal - hunk_high.temp` in `s_hunkData` (code/qcommon/common.c, next to `Com_TouchMemory`), \
+behind a cvar `com_hunkTrim` (default 0): 2.7 MB in opengl1. Its RAM is still the lowest of the \
+suite (9-20 MB free at the lowest, rows 68-70)."""
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-19
+source = "PLAN 3.7"
+text = """\
+MEMORY.md's second A/B step: `MALLOC=trim` on top of gl2min and `gl2min_md3pack`, never run."""
+
+[[item]]
+kind = "package"
+added = 2026-10-19
+source = "backlog/games.md \"Measured, waiting for a default decision\""
+text = """\
+`r_md3PackedFrames 1` (`gl2min_md3pack`) as the default, or not: VRAM 117.1 to 97.7 MB, 59.0 fps, \
+stalls 1.3 s against 2.4 (batch 17)."""
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-19
+source = "backlog/games.md \"Measured, waiting for a default decision\""
+text = """\
+`gl2min_mippowf` (`r_mipMapPowf`, 0028 off) repeated: the lowest stalls of batch 17 (0.8 s, 60.0 \
+fps) in one run, but 0028 should change only the load's CPU, so nothing is read into it before a \
+repeat."""

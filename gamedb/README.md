@@ -375,8 +375,23 @@ patterns of tools/public-replace.local.txt), or the build stops. The app's catal
 
 ### games/<id>/todo.toml, upstream.md
 
-`todo.toml`, *planned* (step 8): `[[item]]` with `kind` = `session`, `benchmark`, `package`, `fix`,
-`research` or `upstream`: the game's backlog, its rows of docs/PLAN.md and its played-session queue.
+`todo.toml` (*now*, step 8; an engine's at `engines/<e>/todo.toml`, the same form): the game's backlog,
+its items of docs/PLAN.md and of docs/backlog/, and its place in the played-session queue. One
+`[[item]]` table per item, the keys a closed set (`tools/gamedb/check.py` `todo_errors()`):
+
+| Key | Type | Meaning |
+|---|---|---|
+| `kind` | string | `session` (a played session), `benchmark` (a scripted run: an A/B, a repeat, a smoke run), `package` (packaging, a default to set), `fix` (a game or engine patch), `research`, `upstream` |
+| `text` | string | what to do, with the numbers it rests on and how to start; current state, not history |
+| `added` | date | when the item was first written down (for a migrated item, its source's date) |
+| `source` | string | where it came from: `PLAN 2.6`, `backlog/games.md rank 19`, `TESTS.md Next`, ... (one PLAN item per `PLAN N.N`) |
+| `order` | integer | a session item's place in the played-session queue (1 first; games may share a place) |
+| `launcher`, `pc` | string | a session item's launchers (PS3 and PC) and the PC side's state |
+
+Generated from them (`tools/gamedb/blocks.py`): the played-session queue in docs/TESTS.md
+(`session-queue`: the session items with an `order`, with each game's medal from the catalog) and the
+per-game summaries in docs/PLAN.md and docs/backlog/games.md (`todo-summary`). Never part of a
+package's version, never on the site.
 `upstream.md` and `upstream/*.patch` (*now*, teeworlds and yquake2): what we would offer upstream of our
 game patches; docs/upstream/README.md links every draft.
 

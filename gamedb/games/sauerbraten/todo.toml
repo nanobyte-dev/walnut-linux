@@ -1,0 +1,26 @@
+# Sauerbraten: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "session"
+order = 13
+launcher = "Sauerbraten"
+pc = "none (PC=0)"
+added = 2026-10-25
+source = "TESTS.md played sessions"
+text = """\
+Again (played 10-24: a query crash, Mesa 0046; 10-25: a NULL write after GART ran out, Mesa \
+0047/0048; gamedb:sauerbraten/online-crashes). Next with Mesa ps3.827 or later (ps3.850 with the \
+mesa-0049 batch): a match of 10 minutes or more over a map change, the map that ran out of GART \
+included; no segfault, dmesg's `out of GART`/`out of VRAM` lines and whether the game kept going \
+through them (a missing texture or a frame of wrong colour is the expected cost now), stutter \
+against 14.7 s a minute. The player's config keeps `texcompress 1024`, so VRAM stays full."""
+
+[[item]]
+kind = "package"
+added = 2026-10-26
+source = "TESTS.md played sessions"
+text = """\
+`NV30_FORCE_DXT=opaque` as the launcher's default (the user agreed, 2026-10-26; in BananaBread it \
+took peak VRAM from 120 to 73-78 MB, fps unchanged, a slightly softer picture), measured in its own \
+session after the one above, so each fix shows on its own."""

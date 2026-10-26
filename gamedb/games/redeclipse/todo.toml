@@ -1,0 +1,17 @@
+# Red Eclipse: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "fix"
+added = 2026-10-19
+source = "PLAN 3.8"
+text = """\
+cube2's memory patches carried over, and its sounds loaded when first played. It runs (86 fps HUD \
+peak, no OOM, row 62) only at lean settings with 11 kHz mono sound. Its memory is the sound: \
+`addsound` loads each sample at registration and SDL_mixer decodes it whole (about 190 samples at \
+the start, and every `mapsound` of a map: torus has 74 ambience files, 24 MB of .ogg). On the host \
+(amd64, llvmpipe, which keeps textures in RAM): 534 MB RSS after loading torus at 44.1 kHz stereo, \
+381 MB with no sample loaded, 397 MB with `soundmono 1` + `soundfreq 11025`, 326 MB with `maxtexsize \
+256` + `texreduce 3`. Described, not built: samples loaded at their first play, cube2 0001 \
+(compression; `usetexcompress` is read-only without it), 0002/0003 (shader variants), 0005 (lightmap \
+CPU copies), the sky cube map shrunk while its sides are decoded."""

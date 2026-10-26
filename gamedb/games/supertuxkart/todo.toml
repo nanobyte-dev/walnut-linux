@@ -1,0 +1,46 @@
+# SuperTuxKart: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "session"
+order = 11
+launcher = "SuperTuxKart"
+pc = "ready"
+added = 2026-10-25
+source = "TESTS.md played sessions"
+text = """\
+Played 2026-10-25 (Scrap: 7 fps on the old default graphics, every texture garbage after a restart) \
+and twice on 2026-10-26: the crash on Ravenbridge Mansion (gamedb:supertuxkart/fence-segfault), then \
+on Mesa ps3.850 (0049) with the package's lean defaults (0006) and pad scheme (0007) every track \
+right, no crash. Next when the round comes back to it."""
+
+[[item]]
+kind = "research"
+added = 2026-10-19
+source = "PLAN 2.1"
+text = """\
+Does it sound right, by ear? The device is RUNNING since the SSD root (the old `sound=none` was read \
+before the game opened its device), but OpenAL logs \"Wait timeout... buffer size too low?\" 83-244 \
+times in half the runs and the webcam mic heard only the room in 14 of 17 clips. Decision D4 (`lean` \
+as the package default) waited on it; package 0006 now ships lean defaults. Start it from the \
+desktop as a player would and listen; if it is silent outside profile mode too, OpenAL Soft's log \
+(`ALSOFT_LOGLEVEL`) and an strace of the device open say which side fails."""
+
+[[item]]
+kind = "fix"
+added = 2026-10-19
+source = "backlog/games.md rank 73"
+text = """\
+A clean recipe config: the bench recipe writes a partial config.xml, so the game prints 30 config \
+errors a run (LOG-FINDINGS item 7). Let the game write its default config once and keep that as the \
+recipe's base."""
+
+[[item]]
+kind = "fix"
+added = 2026-10-19
+source = "PLAN 3.1"
+text = """\
+Batching in Irrlicht's legacy driver: its client arrays were 17.6% of the CPU in the ssdroot2 P1b \
+profile (vertex copies 10.1, index scans 6.5; Mesa 0044 takes most of the scans), and the copies \
+need VBOs in the legacy driver. Count GL calls on llvmpipe at GL 2.1 (`tools/glcount`), then perf on \
+the PS3."""

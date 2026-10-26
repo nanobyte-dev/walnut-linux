@@ -1,0 +1,29 @@
+# Extreme Tux Racer: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "session"
+order = 3
+launcher = "Extreme Tux Racer"
+pc = "ready"
+added = 2026-10-24
+source = "TESTS.md played sessions"
+text = "A played session in the round."
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-19
+source = "PLAN 2.6"
+text = """\
+The steady-state row with stalls: batch 17 has one uncapped run (59 fps, 2.9 s of gameplay stalls, \
+longest frame 483 ms, 1% low 27.3)."""
+
+[[item]]
+kind = "research"
+added = 2026-10-19
+source = "backlog/games.md rank 29"
+text = """\
+The last frame to 60: uncapped (`vblank_mode=0`, 52477a2) it still runs at 59, so not a vsync cap. \
+In the HOTPATHS profile 45.6% of its CPU is outside the game and Mesa (freetype and harfbuzz 29%, \
+SFML audio): find what draws text every frame. Its GART grows by about 4 MB a minute (the \
+long-session soak, backlog smoothness.md)."""

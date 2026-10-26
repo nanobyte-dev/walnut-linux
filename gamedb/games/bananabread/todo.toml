@@ -1,0 +1,64 @@
+# BananaBread: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "session"
+order = 6
+launcher = "Cube2:Demo"
+pc = "ready"
+added = 2026-10-24
+source = "TESTS.md played sessions"
+text = """\
+Played 2026-10-24: Scrap (20 fps, 22 s of stutter a minute, 64 s to load). Debian's cube2 is \
+BananaBread, not Sauerbraten; the real Sauerbraten is its own bundle (gamedb:sauerbraten)."""
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-19
+source = "PLAN 2.6"
+text = """\
+`oqlag` repeated x3 (cube2 0010 `oqwaterlag 1`: this frame's water query counts only once its result \
+is in): one run gave 39.4 steady / 43.5 smooth fps against base 25.0 / 30.3 (row 64). It matters \
+most of the repeats: the water query wait was 10.3% of the CPU, and Mesa's own fix (0035 \
+`NV30_QUERY_WAIT`) gave no fps in its repeat (row 65). `run.sh bench bananabread \"base oqlag \
+oqnowait\" 3` with `STALLS=1` (`oqnowait` is the stock engine's `oqwait 0`); it changes pixels in \
+one case (the first frame water shows again keeps its old reflection)."""
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-19
+source = "PLAN 2.6"
+text = """\
+A first-person baseline with the translate LUT re-A/B'd: the LUT's +53% (25.9 to 39.6) was on the \
+earlier spectator demo, and the first-person demo swings 23-38 fps by itself, so three rounds or \
+more."""
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-19
+source = "PLAN 3.1"
+text = """\
+cube2 0007-0009 (`gluniformcache`, `glbatchtmu`, `glpartvbo`, on by default since 33148f2) have \
+never been A/B'd on the PS3: `run.sh bench bananabread \"base allbatchoff\" 3`. The HOTPATHS profile \
+had 72% of its CPU in Mesa, 44.9 points of it the vertex conversion that Mesa 0033 and cube2 0011 \
+have cut since."""
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-19
+source = "backlog/games.md rank 42"
+text = """\
+`texreduce 1` (recipe variant `tex1`, no row yet): it holds 117 MB of VRAM (rows 68-70), about 87 MB \
+of it textures; DDS and JPG at a quarter would take 45-60 MB off, blurrier (the user decides). The \
+fallback if texture compression at upload takes little here (cube2 already compresses from 1024 up)."""
+
+[[item]]
+kind = "fix"
+added = 2026-10-19
+source = "backlog/games.md rank 73"
+text = """\
+Data files the logs miss (LOG-FINDINGS items 6): `could not load texture \
+packages/gk/fantasy/skyfantasy/skyfantasy` (73 of 74 runs) and `could not load envmap \
+skyboxes/morning` (65 runs), so the benchmark map may draw without its sky and reflections. List \
+those paths in the installed cube2 data, find which package has them, look at a run's photo for the \
+sky."""

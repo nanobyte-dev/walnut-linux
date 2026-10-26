@@ -1,0 +1,14 @@
+# ioquake3 (engine): the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "fix"
+added = 2026-10-19
+source = "PLAN 3.9"
+text = """\
+ADPCM sound effects: OpenArena's ~7 MB of decoded sound is WAV effects (518 files, all mono PCM; \
+only the 7 music tracks are Ogg, streamed in 4 KB buffers). OpenAL Soft accepts \
+`AL_FORMAT_MONO_IMA4` and `AL_FORMAT_MONO_MSADPCM_SOFT` (al/buffer.cpp:645-646) and decodes them \
+when it mixes (`LoadSamples<IMA4Data>`, voice.cpp:279); `S_AL_BufferLoad` would encode 16-bit \
+effects before `qalBufferData`: a quarter of the memory, about 5 MB. A free step first, never \
+measured either: `s_khz 11` halves the decoded sounds. 4-bit quality: the user listens."""

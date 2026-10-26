@@ -1,0 +1,68 @@
+# Luanti: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "session"
+order = 5
+launcher = "Luanti"
+pc = "ready"
+added = 2026-10-24
+source = "TESTS.md played sessions"
+text = """\
+Played 2026-10-24: Scrap (25 s of stutter a minute, frames up to 4.3 s). Next after the package fix \
+in its todo.toml; the stutter (map generation and meshing) is the real problem."""
+
+[[item]]
+kind = "fix"
+added = 2026-10-24
+source = "TESTS.md played sessions"
+text = """\
+A package patch for the two known issues (index.md): it starts in a window instead of fullscreen, \
+and the options menu is broken. Then the known issues go."""
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-19
+source = "PLAN 2.6"
+text = """\
+`view40` repeated x3: one run gave 59 fps with closer fog and 0.9 s of stalls (row 63). `run.sh \
+bench luanti \"base view40\" 3` with `STALLS=1`."""
+
+[[item]]
+kind = "package"
+added = 2026-10-19
+source = "PLAN 2.9"
+text = """\
+`view40` as a menu option, once its repeat holds. (`base` stays the default after the clean runs: \
+1.5 and 2.1 s of gameplay stalls, 45-46 fps; `cliunload` is worse, `lean` draws a black void because \
+`chunk3` empties the world, `srvunload` and `active2` render but stall more, 6.3 and 6.7 s against \
+about 2.5.)"""
+
+[[item]]
+kind = "research"
+added = 2026-10-19
+source = "backlog/games.md rank 19"
+text = """\
+The memory: 102 MB resident plus 47 MB swapped, 14 malloc arenas with 22.9 MB free in them, 12.6-18 \
+MB of RAM free at the lowest (rows 63, 68). `LU_TRIM_MB=16` was rejected (more stalls, row 57); \
+`MALLOC=arena2` and `MALLOC=tune` never had a clean run; of the ~20 recipe variants only base, \
+cliunload, lean, chunk3, srvunload, active2 (clean) and view40, nomerge (one run each) have numbers."""
+
+[[item]]
+kind = "research"
+added = 2026-10-19
+source = "backlog/games.md rank 19"
+text = """\
+The load: about 13 of its 17 s of disk wait are major faults on mappings the recorder can't name \
+(backlog smoothness.md \"Gaps in the measurement tools\"); and the bench mod reads \
+`/proc/self/status` wrongly."""
+
+[[item]]
+kind = "research"
+added = 2026-10-19
+source = "PLAN 3.12"
+text = """\
+SPU meshing: map generation burns 8.4 s on the emerge thread in the load and the mesh thread 8.9 s \
+in the warm-up (batch 17). The work is data-parallel and asynchronous already, the shape SPU jobs \
+suit; writing the meshes straight into VBOs needs probe E16 (backlog graphics.md \"RSX and SPU \
+probes\"). Effort L, engine patches."""

@@ -1,0 +1,13 @@
+# Nexuiz Classic: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-19
+source = "PLAN 1.12"
+text = """\
+Nexuiz Classic on our `darkplaces-gl2` (the last DarkPlaces with GL 1.x/2.0 renderpaths): built, \
+never run. Needs `darkplaces-gl2 nexuiz-data nexuiz-textures` (about 800 MB on the disk, decision \
+D12), then `run.sh smoke nexuiz`, then variants `gl20` and `hires`. Risks in order: the GL 2.0 \
+path's shaders on nv30 (`vid_gl20 0` first), VRAM and RAM with its maps, sound byte order, the \
+generic (non-SSE) skeletal code's CPU."""

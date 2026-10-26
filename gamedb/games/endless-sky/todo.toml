@@ -1,0 +1,18 @@
+# Endless Sky: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-20
+source = "TESTS.md Next"
+text = """\
+What is left after the ps3.624 flight smoke passed (gamedb:endless-sky/flight-smoke): `MEM=1 run.sh \
+smoke endless-sky menu`, then `MEM=1 run.sh smoke endless-sky base` (menu, Enter Ship, Depart, 5 s \
+of flight in Rutilicus; the keys wait 240 s for the load). Check game.log's `nv30-forcedxt:` line \
+(`NV30_FORCE_DXT_STATS=100`: about 384 to 96 MB expected), no \"out of VRAM\" in dmesg.log, \
+MemAvailable through the load, the load time (150 s or more with ps3.589; mid.malloc and end.malloc: \
+mmapped blocks small during the load, the arena about 100 MB; swap and the zram share), then 5 s \
+after Depart the starfield, radar, status bars, date and credits, no \"out of temps\" (if not: \
+variants `fullout`, `noblur`, `ENVS=\"- NV30_FORCE_DXT=off\"`, one at a time), then fps, stalls and \
+smoothness in flight. Install with `make deploy PKGS=\"endless-sky endless-sky-data\"` (the user at \
+the PS3 or with the OK)."""

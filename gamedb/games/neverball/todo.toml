@@ -1,0 +1,20 @@
+# Neverball: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "session"
+order = 4
+launcher = "Neverball"
+pc = "ready"
+added = 2026-10-24
+source = "TESTS.md played sessions"
+text = "The level reloads were 8 s of stutter a minute in the benchmark: does play feel smooth?"
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-19
+source = "PLAN 3.10"
+text = """\
+A longer replay, about 60 s played by the user: the shipped one is about 20 s and its start-up \
+stutters weigh too much in it (51 frames over 100 ms in 20 s, row 54). Batching cut its CPU by 19% \
+(80 to 65 s); 66.5 fps steady, 118 underruns."""

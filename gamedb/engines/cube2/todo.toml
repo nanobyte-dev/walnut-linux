@@ -1,0 +1,11 @@
+# Cube 2 (engine): the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "package"
+added = 2026-10-19
+source = "backlog/games.md \"Measured, waiting for a default decision\""
+text = """\
+`vanormalshort 1` (world normals as shorts, cube2 0011) as the default, or not: 45.1 against 38.8 \
+steady fps in the matrix (+17%), 1% low 30.4 against 25.0, stalls 1.6 against 1.2 s, VRAM +4 MB; \
+pixels differ slightly from the stock build (batch 17, row 69; measured on BananaBread)."""

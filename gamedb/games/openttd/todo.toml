@@ -1,0 +1,47 @@
+# OpenTTD: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "session"
+order = 9
+launcher = "OpenTTD (OpenGL), then OpenTTD (software)"
+pc = "ready"
+added = 2026-10-24
+source = "TESTS.md played sessions"
+text = "The music chopped in the benchmarks."
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-20
+source = "TESTS.md Next"
+text = """\
+`blit8` against `blit32anim` with the picture checked (ssdroot3, 4 and 5 ran `blit8` against `base`, \
+`zoomout` and `scroll` with 8bpp): `run.sh bench openttd \"blit8 blit32anim\" 3`; then the new \
+openttd package (8bpp-optimized by default, patch 0003; `make deploy PKGS=openttd` only with the \
+user's OK) as `base`."""
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-19
+source = "TESTS.md Next"
+text = """\
+32bpp art, only if Mesa 0040 helps the 32bpp path (it took 32bpp-anim from 11 to 20.5 fps in \
+ssdroot4): a GPL 32bpp base set (zBase or OpenGFX2 high-detail, packaged like openttd-opengfx), \
+32bpp-anim with `NV30_STAGING_POOL_MB=24` and a capped sprite cache, against 8bpp; fps, stalls, \
+MemAvailable."""
+
+[[item]]
+kind = "research"
+added = 2026-10-19
+source = "PLAN 2.8"
+text = """\
+The music chops (3893 underruns in batch 8) and costs about 20% (3 fps, ssdroot3): its MIDI goes \
+through the same SDL_mixer and fluidsynth path as dsda-doom's (gamedb:dsda-doom); the user listens."""
+
+[[item]]
+kind = "fix"
+added = 2026-10-19
+source = "PLAN 3.1"
+text = """\
+Batching its GL driver, never tried: count GL calls on llvmpipe at GL 2.1 (`tools/glcount`), then \
+perf on the PS3 (`--proc-map-timeout=20000`); each change behind a switch and a recipe variant."""

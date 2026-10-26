@@ -1,0 +1,10 @@
+# Battle for Wesnoth: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-19
+source = "backlog/games.md rank 76"
+text = """\
+The music package is not installed on the PS3 (game.log is full of `cannot open track '*.ogg'`, only \
+the effects sound): install it, repeat the `ai` smoke run and listen (the user, by ear)."""

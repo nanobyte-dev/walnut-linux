@@ -1,0 +1,13 @@
+# Warzone 2100: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "session"
+order = 10
+launcher = "Warzone 2100"
+pc = "none (PC=0)"
+added = 2026-10-24
+source = "TESTS.md played sessions"
+text = """\
+Our 4.3.5 build has no PC image any more (wz-amd64-view deleted); Debian's 4.6 needs GL 3. Why the \
+3D view was dark: gamedb:warzone2100/dark-3d-view."""

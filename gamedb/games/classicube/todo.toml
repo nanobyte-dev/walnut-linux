@@ -1,0 +1,27 @@
+# ClassiCube: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "package"
+added = 2026-10-26
+source = "TESTS.md Next batches (ps3-games-split)"
+text = """\
+Patch 0003 (fullscreen by default), checked with the ps3-games-split batch (TESTS.md): the launcher \
+and the game open fullscreen and undecorated without the old Openbox rule (the user's \
+~/.config/openbox/rc.xml may still have it). Host side passed under Xvfb/openbox."""
+
+[[item]]
+kind = "package"
+added = 2026-10-19
+source = "backlog/games.md \"Measured, waiting for a default decision\""
+text = """\
+`CC_GL_CHUNKS=1` (the faces upstream draws, ranges merged) as the default: 48.1 against 46.0 steady \
+(+4.7%, x3, batch 16) after +5% in a single run; HOTPATHS recommends it."""
+
+[[item]]
+kind = "research"
+added = 2026-10-19
+source = "PLAN 3.12"
+text = """\
+SPU meshing: `Builder_MakeChunk` is its biggest load item; chunk builds as SPU jobs, the meshes into \
+VBOs once probe E16 allows it. Effort L, engine patches."""

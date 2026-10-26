@@ -1,0 +1,27 @@
+# dsda-doom: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "session"
+order = 8
+launcher = "DSDA-Doom (OpenGL), then DSDA-Doom (software)"
+pc = "ready"
+added = 2026-10-24
+source = "TESTS.md played sessions"
+text = "Freedoom 2; its music was the weak spot."
+
+[[item]]
+kind = "research"
+added = 2026-10-19
+source = "PLAN 2.8"
+text = """\
+Why the music still chops with fluidsynth's voices on the SPEs: the SPE DSP cut the game's CPU from \
+44.5 to 31.8 s a minute and about halved the underruns (the user: \"night and day\"); on libspeq \
+0.367's shared pool it is 465 underruns a minute against 1095 on the PPE, 0 timeouts, 0.84 ms mean \
+wait (row 52), and still audibly choppy. Whether the rest is the pool's wait, SDL's audio buffer or \
+the game's own frame stalls is open; OpenTTD's music and every SDL_mixer MIDI user share the path. \
+Decision D3 (the music default: fluidsynth on the SPEs, OPL, or off) waits on it. To start: the \
+recipe's `playspu`, `playppe`, `playoff` (`SPEQ_SYNTH=spu|ppe|off`) interleaved with `playnomusic`, \
+`SPEQ_DEBUG=1` in the log (rounds, waits, timeouts), `perf record -p` on the game with \
+`libfluidsynth3-dbgsym`; then a larger SDL audio buffer, and `STALLS=1` to line up underruns with \
+frame stalls. Needs the user by ear."""

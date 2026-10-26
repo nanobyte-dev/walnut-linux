@@ -1,0 +1,10 @@
+# Warmux: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-19
+source = "TESTS.md Next (smoke re-runs)"
+text = """\
+Smoke re-run (8511b3f: `setup()` sets `full_screen` in ~/.config/wormux/config.xml), menu only, with \
+the user at the controller; set Options > Fullscreen once if the config edit did not take."""

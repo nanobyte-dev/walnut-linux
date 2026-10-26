@@ -1,0 +1,22 @@
+# Mr.Boom: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "session"
+order = 14
+launcher = "Mr.Boom"
+pc = "Debian's amd64 mrboom"
+added = 2026-10-26
+source = "TESTS.md Next batches (mrboom-be)"
+text = """\
+Our `mrboom` (`5.5+ds-1+ps3.N`, the package's patch 0001: MSB_FIRST for the SDL2 build; Debian's \
+5.5+ds-1 segfaulted twice within 15 s on the welcome screen, in `program()` at LODSB in aff_lettre), \
+installed from testing (`apt policy mrboom` shows `+ps3`). The session (`play-test.sh start mrboom`, \
+the user drives): the welcome screen's text and the attract demo for a minute, the DS3 joins as \
+player 1 (any button), Space adds bots, a full match on 2-3 levels and back to the menu; no segfault \
+in dmesg, the picture against the PC (palette, sprites, no garbage), the music and effects by ear. \
+Then `mrboom -e -z` from a terminal (the 16 recorded demos against upstream's frame numbers; all 16 \
+passed in ppc64 qemu-user, where Debian's binary segfaults at once): ends `SUCCESS check demos`. Esc \
+on the welcome screen quits the game (upstream behaviour); fullscreen is already the default \
+(1920x1080 through sdl2-compat, the 320x200 picture stretched to 16:9). Waits for CI's testing \
+build. Then the known issue about the crash goes."""

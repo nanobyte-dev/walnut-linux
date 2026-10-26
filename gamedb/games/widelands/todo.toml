@@ -1,0 +1,11 @@
+# Widelands: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-19
+source = "TESTS.md Next (smoke re-runs)"
+text = """\
+Smoke re-run: `run.sh smoke widelands` (the recipe passes `--fullscreen` without a value since \
+e40e282, and not with `--xres` since 57339ca); ssdroot5's run was nudged by the user, so it doesn't \
+count. `make bench-push` first."""

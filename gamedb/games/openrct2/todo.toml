@@ -1,0 +1,11 @@
+# OpenRCT2: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "benchmark"
+added = 2026-10-19
+source = "TESTS.md Next"
+text = """\
+The first-start object indexing time (not recorded in ssdroot8: the config was indexed before); a \
+frame counter for `sdlsw`; `kMaxEntities` 16384 against the load stall; sound and a track-design \
+save and reload by the user."""

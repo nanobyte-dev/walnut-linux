@@ -1,0 +1,21 @@
+# X-Moto: the backlog (gamedb/README.md, "games/<id>/todo.toml"): [[item]] with kind, text, added, source;
+# a session item's order is its place in the played-session queue (docs/TESTS.md's generated block).
+
+[[item]]
+kind = "session"
+order = 1
+launcher = "X-Moto"
+pc = "ready"
+added = 2026-10-24
+source = "TESTS.md played sessions"
+text = """\
+Again, for the DualShock 3: paired before and after the start (player 1 either way), the keyboard at \
+the same time, Triangle/Square/Start; `xruns_audible` against the 92 underruns that sounded clean."""
+
+[[item]]
+kind = "package"
+added = 2026-10-19
+source = "backlog/games.md \"Measured, waiting for a default decision\""
+text = """\
+`XMOTO_GL_STREAM=1` as the default, or not: 162.1 against 160.6 fps (+1%); the longest gameplay \
+frame went the other way in batch 16 (380 against 43 ms) after 146 against 404 ms in row 64."""
