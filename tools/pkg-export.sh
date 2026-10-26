@@ -8,7 +8,8 @@
 set -euo pipefail
 {
 PKG=$1
-. "$PKG/package.conf"
+PD=$(tools/pkg-dir.sh "$PKG")
+. "$PD/package.conf"
 W=build/work/$PKG
 [ -d "$W/.git" ] || { echo "!! no work tree: make $PKG-work"; exit 1; }
 cd "$W"
@@ -44,7 +45,7 @@ for c in $(git rev-list --reverse "$base"..HEAD); do
 done
 # replace the series in the repository (only patch files and series; review with git diff)
 for kind in packaging patches; do
-	D=/work/$PKG/$kind
+	D=/work/$PD/$kind
 	if [ -s "$OUT/$kind/series" ]; then
 		mkdir -p "$D"
 		# the series file's leading comment block (where the patches come from) is kept
@@ -61,6 +62,6 @@ done
 rm -rf "$OUT"
 git tag -f exported >/dev/null
 count() { grep -cv -e '^\s*#' -e '^\s*$' "$1" 2>/dev/null || echo 0; }
-echo ">> $PKG: $(count /work/$PKG/packaging/series) packaging and $(count /work/$PKG/patches/series) source patches exported; review with git diff -- $PKG"
+echo ">> $PKG: $(count /work/$PD/packaging/series) packaging and $(count /work/$PD/patches/series) source patches exported; review with git diff -- $PD"
 exit
 }

@@ -1,4 +1,4 @@
-# OpenTyrian 2.1 (our opentyrian, 2.1.20260912-1+ps3.N, and tyrian-data from the ps3-licensed suite):
+# OpenTyrian 2.1 (our opentyrian, 2.1.20260912-1+ps3.N, and tyrian-data from the licensed suite):
 # smoke test, not benchmarked. SDL2 renders the 320x200 8-bit VGA surface through a scaler (Scale2x
 # by default, in software) to a texture that SDL draws scaled up to the 1920x1080 desktop-fullscreen
 # window; no OpenGL needs from the game itself. Data: /usr/share/games/tyrian (the freeware Tyrian
@@ -19,7 +19,7 @@ CMD=(/usr/games/opentyrian)
 setup() {
 	mkdir -p "$HOME/.config/opentyrian"
 	printf "section video\n\titem fullscreen 0\n\titem scaler '%s'\n\titem scaling_mode 'Fit 8:5'\n" "$OT_SCALER" > "$HOME/.config/opentyrian/opentyrian.cfg"
-	[ -e /usr/share/games/tyrian/tyrian1.lvl ] || echo "WARNING: no Tyrian data: apt install tyrian-data (ps3-licensed suite)"
+	[ -e /usr/share/games/tyrian/tyrian1.lvl ] || echo "WARNING: no Tyrian data: apt install tyrian-data (the licensed suite)"
 }
 during() { [ ${#OT_KEYS[@]} -gt 0 ] || return 0; smoke_xkeys OpenTyrian 8 "${OT_KEYS[@]}"; shot_mark; }
 SHOT_FROM=mark	# the screenshots after the keys (the load's end in the variants without keys)

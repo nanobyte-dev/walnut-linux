@@ -178,7 +178,7 @@ variant_leaner() {
 	variant_meshdelay
 }
 
-# Our luanti build's GL submission switches (luanti/patches 0004-0006, irr/include/LuGlOpt.h): all on
+# Our luanti build's GL submission switches (packages/patched/games/luanti/patches 0004-0006, irr/include/LuGlOpt.h): all on
 # in the base run, LU_GL=0 is the game as upstream draws it. On the host (llvmpipe, GL 2.1, the same
 # flight) they take the GL calls from ~1180 to ~835 a frame and the buffer bytes uploaded from ~32 KB
 # to ~16 KB a frame; each variant turns one off (or all, allbatchoff).

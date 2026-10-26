@@ -4,7 +4,7 @@
 # files of the licensed packages (tools/licensed-packages.txt), which catches copies under other
 # names; this list is for what no licensed package of ours has.
 # ClassiCube's tarball: upstream's copies of Mojang's textures and Minecraft's sounds, and Sony's
-# PS4 SDK modules (classicube/package.conf repacks it without them)
+# PS4 SDK modules (packages/patched/games/classicube/package.conf repacks it without them)
 misc/cc_textures.zip
 misc/cc_audio.zip
 misc/ps1/classicube.zip

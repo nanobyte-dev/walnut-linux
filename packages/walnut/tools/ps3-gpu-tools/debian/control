@@ -15,7 +15,7 @@ Description: PS3 RSX probes, driver tests and GL tests
  interference detector (ps3-intfwatch), and the test scripts (rsx-suite.sh, rsx-x.sh,
  ps3-bench.sh, ...), in
  /usr/lib/ps3/bin with links in /usr/bin; ps3-mallocstat.so (glibc malloc statistics of a
- running game on request, for games/bench MEM=1) in /usr/lib/ps3/lib. ps3-xrunlog.so and
+ running game on request, for bench MEM=1) in /usr/lib/ps3/lib. ps3-xrunlog.so and
  ps3-xrunlog.conf: an ALSA plugin, put in front of a game's default sound device for one
- run, that logs every sound dropout with its length and the loudness around it (games/bench);
+ run, that logs every sound dropout with its length and the loudness around it (bench);
  ps3-xrun-test makes some and checks the log.

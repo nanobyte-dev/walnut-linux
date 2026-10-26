@@ -190,7 +190,7 @@ def main(argv):
     if write and strong:
         f = Path(os.environ.get("BENCH_RESULTS") or HERE / "results") / "interfered.txt"
         old = f.read_text().splitlines() if f.exists() else [
-            "# runs found disturbed after the fact (games/bench/interference-scan.py --write, docs/STALLS.md",
+            "# runs found disturbed after the fact (bench/interference-scan.py --write, docs/STALLS.md",
             "# \"Interference\"): run directory, then the evidence. report.py and matrix.py leave them out."]
         names = {l.split(" ", 1)[0] for l in old if l and not l.startswith("#")}
         new = old + ["%s %s" % (n, why) for n, why in strong if n not in names]

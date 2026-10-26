@@ -1,6 +1,6 @@
-# OpenRCT2 0.5.6 (our big-endian build, openrct2/: openrct2 0.5.6+ds-1+ps3.N, plus openrct2-data and
+# OpenRCT2 0.5.6 (our big-endian build, packages/patched/games/openrct2/: openrct2 0.5.6+ds-1+ps3.N, plus openrct2-data and
 # openrct2-music, both arch all; Debian's is little-endian only) with the user's RollerCoaster Tycoon 2 data
-# (rct2-data, ps3-licensed suite, in /usr/share/games/rct2): smoke test, not benchmarked. The software
+# (rct2-data, the licensed suite, in /usr/share/games/rct2): smoke test, not benchmarked. The software
 # renderer (the OpenGL engine needs GL 3.3): the game draws an 8-bit frame on the CPU and SDL's renderer
 # (opengl on nouveau) scales and presents it. Base: borderless fullscreen 1920x1080 with window_scale 2, so the
 # game renders 960x540 and SDL doubles it (the setting to ship: the PPE paints a quarter of the pixels).
@@ -43,7 +43,7 @@ ORCT2_SOUND=true
 ORCT2_MT=true
 ORCT2_PARK="/usr/share/games/rct2/Scenarios/Electric Fields.SC6"
 setup() {
-	[ -e /usr/share/games/rct2/Data/g1.dat ] || echo "WARNING: no RCT2 data: apt install rct2-data (ps3-licensed suite)"
+	[ -e /usr/share/games/rct2/Data/g1.dat ] || echo "WARNING: no RCT2 data: apt install rct2-data (the licensed suite)"
 	mkdir -p "$ORCT2_DIR"
 	printf '%s\n' "[general]" "game_path = \"/usr/share/games/rct2\"" "last_run_version = \"0.5.6\"" "play_intro = false" \
 		"drawing_engine = SOFTWARE_HWD" "fullscreen_mode = 2" "fullscreen_width = 1920" "fullscreen_height = 1080" \

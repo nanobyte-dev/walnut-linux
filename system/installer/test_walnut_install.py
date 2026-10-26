@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for installer/walnut-install (docs/release/ALPHA.md M5).
+"""Tests for system/installer/walnut-install (docs/release/ALPHA.md M5).
 
 Unit tests with no root permissions, no real block devices, and no real network.
 """

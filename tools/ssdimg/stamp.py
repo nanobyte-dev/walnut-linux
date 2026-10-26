@@ -298,7 +298,7 @@ def kboot_entry(release, args_file, image):
 
 
 def kboot(a):
-    """the release's kboot.conf, for setting up by hand what install does (tools/ci/build-release.sh)"""
+    """the release's kboot.conf, for setting up by hand what install does (github-ci/build-release.sh)"""
     if not GOOD_PATH.match(a.image) or "/../" in a.image or not a.image.endswith(".img"):
         sys.exit("!! --image %s: an absolute path on dev_hdd0 ending in .img" % a.image)
     if not re.match(r"^[A-Za-z0-9._+-]+$", a.release):

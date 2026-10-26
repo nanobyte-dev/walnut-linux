@@ -2,7 +2,7 @@
 # build-release.sh ID OUT stable|testing: a Walnut release image (docs/release/ALPHA.md M7) into OUT/,
 # built on a GitHub runner (.github/workflows/release-image.yml) or the dev PC. The image is the
 # public profile with our packages from that suite on walnut.nanobyte.dev, checked against its key.
-# ID (tools/ci/release-id.sh): A.B.C for stable, nightly-<date>-<time>-<commit> for testing.
+# ID (github-ci/release-id.sh): A.B.C for stable, nightly-<date>-<time>-<commit> for testing.
 #   walnut-ID.tar   the release archive: walnut-ID/ with the installer (walnut-install, lib/stamp.py),
 #                   README.TXT (the install by hand), MANIFEST, SHA256SUMS, and what goes on the
 #                   PS3 laid out like its two disks: dev_hdd0/linux/walnut.img.xz (the stamped 16 GiB
@@ -12,14 +12,14 @@
 #   SHA256SUMS      of both; the publish job signs it (SHA256SUMS.asc)
 # No secrets here.
 set -euo pipefail
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/.."
 ver=$1 out=$2 suite=$3
 case $suite in
 	stable) [[ $ver =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ;;
 	testing) [[ $ver =~ ^nightly-[0-9]{8}-[0-9]{4}-[0-9a-f]{7}$ ]] ;;
 	*) false ;;
 esac || { echo "!! usage: $0 A.B.C OUT stable | $0 nightly-<date>-<time>-<commit> OUT testing" >&2; exit 2; }
-tools/ci/runner-prep.sh
+github-ci/runner-prep.sh
 
 echo "::group::make rootfs (public, $suite)"
 # a package layer restored from the CI cache (keyed on its inputs) is taken as it is, whatever its mtime
@@ -70,12 +70,12 @@ python3 tools/ssdimg/stamp.py prepare --rootfs "$x/rootfs.tar.xz" --kernel "$x/b
 	--uuid "$(python3 -c 'import sys, uuid; print(uuid.uuid5(uuid.NAMESPACE_URL, "https://walnut.nanobyte.dev/download/" + sys.argv[1]))' "$ver")" \
 	--out "$d"
 mkdir -p "$d/lib"
-cp installer/walnut-install "$d/"
+cp system/installer/walnut-install "$d/"
 cp tools/ssdimg/stamp.py "$d/lib/"
 cp LICENSE "$x/MANIFEST" "$d/"
-sed -e "s/@ID@/$ver/g" -e "s/@RELEASE@/$rel/g" -e "s/@SUITE@/$suite/g" installer/README.release > "$d/README.TXT"
+sed -e "s/@ID@/$ver/g" -e "s/@RELEASE@/$rel/g" -e "s/@SUITE@/$suite/g" system/installer/README.release > "$d/README.TXT"
 (cd "$d" && find . -type f ! -name SHA256SUMS -printf '%P\n' | LC_ALL=C sort | xargs -d '\n' sha256sum > SHA256SUMS)
-python3 installer/walnut-install internal --release-dir "$d" --host 192.0.2.1 --dry-run > /dev/null
+python3 system/installer/walnut-install internal --release-dir "$d" --host 192.0.2.1 --dry-run > /dev/null
 tar --sort=name --mtime="@$(git log -1 --format=%ct)" --owner=0 --group=0 --numeric-owner \
 	-C "$x" -cf "$out/walnut-$ver.tar" "walnut-$ver"
 echo "::endgroup::"

@@ -1,5 +1,5 @@
 #!/bin/bash
-# publish.sh testing|stable PKG DIR: publishes a CI build (DIR: tools/ci/build-package.sh's output)
+# publish.sh testing|stable PKG DIR: publishes a CI build (DIR: github-ci/build-package.sh's output)
 # to walnut.nanobyte.dev's apt suites from a GitHub runner (.github/workflows/walnut-package.yml).
 #   testing  everything into testing, debug kernel and debug modules included, the newest 5 source
 #            versions kept; signed with the CI key (environment walnut-testing)
@@ -13,11 +13,11 @@
 # (walnut.nanobyte.dev/status/<id>) says ok, stale (another publish landed first: made again on the
 # new state) or refused (why).
 set -euo pipefail
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/.."
 target=$1 pkg=$2 dir=$3
 case $target in
-	testing) ring=tools/walnut-server/testing-keyring.gpg opts=(--keep 5 --debug-keep 5) ;;
-	stable) ring=tools/walnut-server/archive-keyring.gpg opts=(--keep 0 --debug-keep 3 --release-only) ;;
+	testing) ring=apt-repo/keyrings/testing-keyring.gpg opts=(--keep 5 --debug-keep 5) ;;
+	stable) ring=apt-repo/keyrings/archive-keyring.gpg opts=(--keep 0 --debug-keep 3 --release-only) ;;
 	*) echo "usage: $0 testing|stable PKG DIR" >&2; exit 2 ;;
 esac
 : "${WALNUT_SIGN_KEY:?the signing key secret}" "${WALNUT_DEPLOY_KEY_DATA:?the upload key secret}"
@@ -39,12 +39,12 @@ export WALNUT_DEPLOY_KEY=$tmp/deploy
 status_url=${WALNUT_STATUS_URL:-https://walnut.nanobyte.dev/status}
 for attempt in 1 2 3 4 5 6 7 8; do
 	b=$tmp/bundle
-	tools/walnut-repo.py add --suite "$target" --keyring "$ring" --sign-key "$fpr" "${opts[@]}" --out "$b" \
+	apt-repo/walnut-repo.py add --suite "$target" --keyring "$ring" --sign-key "$fpr" "${opts[@]}" --out "$b" \
 		"$dir"/*.deb $(ls "$dir"/src/*.dsc 2>/dev/null)
 	id=$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA:0:7}-$pkg-$target-$attempt
 	up=
 	for try in 1 2 3 4; do
-		tools/walnut-server/walnut-upload.sh apt "$id-u$try" "$b" && { up=$id-u$try; break; }
+		servers/walnut.nanobyte.dev/walnut-upload.sh apt "$id-u$try" "$b" && { up=$id-u$try; break; }
 		echo "-- upload try $try failed"
 		sleep $((try * 15))
 	done

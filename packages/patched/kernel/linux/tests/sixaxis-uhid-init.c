@@ -1,5 +1,5 @@
 /*
- * sixaxis-uhid-init: PID 1 of the QEMU guest of linux/tests/sixaxis-idle-axes.sh. Loads
+ * sixaxis-uhid-init: PID 1 of the QEMU guest of packages/patched/kernel/linux/tests/sixaxis-idle-axes.sh. Loads
  * /hid-sony.ko, creates a DS3 over uhid (USB bus, 054c:0268, the real descriptor, from hid-tools'
  * PS3Controller), answers hid-sony's feature requests, and prints the stick axes before any input
  * report (the not-yet-activated pad), then after two reports. Freestanding: no libc, x86_64

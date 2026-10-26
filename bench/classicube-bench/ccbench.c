@@ -26,7 +26,7 @@
  * the path; the time they take is left out of the numbers).
  * CC_BENCH_PASSES=N: the path flown N times, each pass with its own report (after a line
  *   "ccbench: pass K of N"), the game closed after the last: the first passes are a warm-up for
- *   the harness (games/bench/client.sh counts the later ones). The camera jumps back to the first
+ *   the harness (bench/client.sh counts the later ones). The camera jumps back to the first
  *   pose between passes; the map is built by then, so no pass builds chunks.
  *
  * Built against the headers of the ClassiCube it runs in (Makefile); uses only exported symbols

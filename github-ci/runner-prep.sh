@@ -1,9 +1,9 @@
 #!/bin/bash
-# runner-prep.sh: a GitHub runner made ready for our builds (tools/ci/build-package.sh,
+# runner-prep.sh: a GitHub runner made ready for our builds (github-ci/build-package.sh,
 # build-release.sh): disk space, and ppc64 binaries through Debian's qemu, registered like the dev
 # PC's. Elsewhere it only checks that the qemu-ppc64 binfmt is there.
 set -euo pipefail
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/.."
 # qemu-user from the build snapshot (relative to SNAPSHOT_URL), pinned
 QEMU_DEB_URL=archive/debian/20261013T000000Z/pool/main/q/qemu/qemu-user_11.1.2+ds-3_amd64.deb
 QEMU_DEB_SHA256=4bacc2bf647f1756c5f08e7f146161d3eeef9d9f53e5d6412d1b3daca0c93655

@@ -28,7 +28,7 @@
 # change the reference: setup refuses to run then.
 # OAL_PERF=N in run.sh's environment: these variants also record a perf profile of the game for N
 # seconds (at most 30), from SOUND_AT seconds after the start, into the run directory's perf.data
-# (perf record -p, -F 999 -g; never -a). games/bench/oal-perf.sh reads it. Profiled runs are for
+# (perf record -p, -F 999 -g; never -a). bench/oal-perf.sh reads it. Profiled runs are for
 # the split, not for fps.
 OAL_SET=()	# alsoft.conf [general] lines
 OAL_ASOUNDRC=	# ~/.asoundrc content (f44): written by setup, removed after the run (BACKUP)
@@ -71,7 +71,7 @@ oal_setup() {
 	if [ -n "$OAL_ASOUNDRC" ]; then
 		# BACKUP saved it already; one of ours left by a run cut short was restored (removed) then
 		[ -e "$HOME/.asoundrc" ] && { echo "!! ~/.asoundrc exists: f44 would replace it"; return 1; }
-		printf '%s\n' "# games/bench (openal.inc): removed after the run" "$OAL_ASOUNDRC" > "$HOME/.asoundrc"
+		printf '%s\n' "# bench (openal.inc): removed after the run" "$OAL_ASOUNDRC" > "$HOME/.asoundrc"
 	fi
 	ENV+=(ALSOFT_CONF="$D/alsoft.conf" ALSOFT_LOGLEVEL=3 ALSOFT_LOGFILE="$D/alsoft.log")
 }

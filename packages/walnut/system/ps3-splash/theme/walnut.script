@@ -2,7 +2,7 @@
 # The logo on the desktop's blue and under it a progress bar made of small images,
 # [=====@.......], with the walnut rolling (rotating) along at its head. No text: Plymouth's
 # text rendering (plymouth-label) is not installed, it took 10 s to load from the USB disk at
-# boot (our Plymouth's script plugin works without it: plymouth/patches).
+# boot (our Plymouth's script plugin works without it: packages/patched/desktop/plymouth/patches).
 
 Window.SetBackgroundTopColor(0.078, 0.188, 0.302);      # #14304d, the desktop's blue
 Window.SetBackgroundBottomColor(0.078, 0.188, 0.302);

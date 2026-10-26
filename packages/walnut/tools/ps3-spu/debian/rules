@@ -7,7 +7,7 @@ LIBDIR := usr/lib/$(DEB_HOST_MULTIARCH)
 %:
 	dh $@
 
-# ps3-spu/Makefile: `ppe` (libspeq, speq-dxt, speq-bench, spurun) here in the ppc64 chroot,
+# packages/walnut/tools/ps3-spu/Makefile: `ppe` (libspeq, speq-dxt, speq-bench, spurun) here in the ppc64 chroot,
 # `spu` (the SPU programs and the runtime they link) with spu-elf GCC on PATH (our host
 # toolchain, tools/deb-build.sh INDEP_PATH)
 override_dh_auto_build-arch:

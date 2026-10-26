@@ -4,7 +4,7 @@
 CI runners keep no state, so every publish starts from what is published: the suite's InRelease,
 checked against the suite's keyring, and the indices it signs. New packages are added, old
 versions pruned, the indices and Release written and signed, and the result is an upload bundle
-for tools/walnut-server/walnut-upload.sh (kind apt): the new pool files and dists/<suite>/. The
+for servers/walnut.nanobyte.dev/walnut-upload.sh (kind apt): the new pool files and dists/<suite>/. The
 signed Release names the InRelease it was built on (X-Walnut-Base); the server's walnut-watch
 refuses a bundle whose base is no longer the published one, so two publishes at once can't lose
 each other's packages: the loser builds again on the new state.
@@ -24,7 +24,7 @@ Signing uses gpg with the key in GNUPGHOME (its passphrase, if any, in the file
 WALNUT_SIGN_PASSPHRASE_FILE names). Pure Python (reads .deb files itself); gpg/gpgv for
 signatures. --url defaults to https://walnut.nanobyte.dev/apt; the password-protected licensed suite
 is https://walnut.nanobyte.dev/licensed, its login (one line, user:password) in the file
-WALNUT_APT_AUTH_FILE names (tools/licensed-auth.sh writes one), never on a command line.
+WALNUT_APT_AUTH_FILE names (apt-repo/licensed-auth.sh writes one), never on a command line.
 """
 import argparse, base64, gzip, hashlib, io, lzma, os, re, shutil, subprocess, sys, tarfile, tempfile, time
 import urllib.error, urllib.request

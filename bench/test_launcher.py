@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """test_launcher.py: launcher.py (a game's menu launchers) and session.sh's choice of one, with
-temporary .desktop files and a fake dpkg (python3 -I games/bench/test_launcher.py)."""
+temporary .desktop files and a fake dpkg (python3 -I bench/test_launcher.py)."""
 import os
 import subprocess
 import sys

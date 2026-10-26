@@ -1,5 +1,5 @@
 /*
- * ps3-intfwatch: the interference detector of games/bench (docs/STALLS.md "Interference"). A run
+ * ps3-intfwatch: the interference detector of bench (docs/STALLS.md "Interference"). A run
  * somebody disturbed doesn't count: a key or controller button pressed, a stick or the mouse
  * moved for real, a VT switch, a device plugged in or out, an SSH login or a command typed on the
  * PS3 while the game ran. ps3-bench.sh starts it as root next to every run (x and run) and stops

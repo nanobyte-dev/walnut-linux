@@ -30,7 +30,7 @@ Design
   else `ps3-game` plus the entry in /usr/share/applications with the field codes cut out and
   split by shlex, never through a shell.
 - The pure parts (catalog, filters, Exec parsing, colours, helper output) are plain functions, tested
-  on a PC without a display by walnut-games/tests/test_walnut_games.py; the window is the App class.
+  on a PC without a display by packages/walnut/apps/walnut-games/tests/test_walnut_games.py; the window is the App class.
 """
 import json
 import os

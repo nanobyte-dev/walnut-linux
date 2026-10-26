@@ -1,5 +1,5 @@
 # The Ur-Quan Masters 0.8.0 (our uqm, 0.8.0+dfsg-4+ps3.N; the content is Debian's non-free arch:all
-# uqm-content and uqm-music 0.8.0+deb-1, installed from the ps3-licensed suite, where we put them
+# uqm-content and uqm-music 0.8.0+deb-1, installed from the licensed suite, where we put them
 # unchanged): smoke test, not benchmarked. SDL2; the 320x240 game screen is scaled up by the engine's
 # OpenGL path (--opengl: one textured quad through SDL's GL context, fixed function) to a 1920x1080
 # fullscreen window. Variants: sdl (--nogl: SDL2's own renderer instead), window, menu (no keys),
@@ -19,7 +19,7 @@ UQM_KEYS=(Return +4 Return +4 Return +6 Return +6 Return +10 Return)
 uqm_cmd() { CMD=(/usr/games/uqm -r 1920x1080 "${UQM_WIN[@]}" "${UQM_GL[@]}" "${UQM_EXTRA[@]}"); }
 UQM_EXTRA=()
 uqm_cmd
-setup() { [ -e /usr/share/games/uqm/content/uqm.addons ] || [ -d /usr/share/games/uqm/content ] || echo "WARNING: no UQM content: apt install uqm-content uqm-music (ps3-licensed suite)"; }
+setup() { [ -e /usr/share/games/uqm/content/uqm.addons ] || [ -d /usr/share/games/uqm/content ] || echo "WARNING: no UQM content: apt install uqm-content uqm-music (the licensed suite)"; }
 during() { [ ${#UQM_KEYS[@]} -gt 0 ] || return 0; smoke_xkeys "The Ur-Quan" 8 "${UQM_KEYS[@]}"; shot_mark; }
 SHOT_FROM=mark	# the screenshots after the keys (the load's end in the variants without keys)
 variant_sdl() { UQM_GL=(--nogl); uqm_cmd; }

@@ -1,7 +1,7 @@
 #!/bin/bash
 # rct2-data.sh <RCT2.iso> [out dir]: the licensed game data deb OpenRCT2 needs, made from the user's own
 # RollerCoaster Tycoon 2 CD image (Infogrames/Atari: not redistributable). Package rct2-data (arch all,
-# Section local/games), so tools/licensed-publish.sh takes it, for the licensed suite only (also listed in
+# Section local/games), so apt-repo/licensed-publish.sh takes it, for the licensed suite only (also listed in
 # tools/licensed-packages.txt). The data is never committed or put in a public suite.
 # The CD has the files in InstallShield cabinets (DATA1.CAB/HDR, DATA2.CAB); unshield unpacks the
 # "Minimum" group (Data, ObjData, Scenarios, Tracks, Landscapes: what OpenRCT2 reads as its game_path;

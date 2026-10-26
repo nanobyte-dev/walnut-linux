@@ -1,4 +1,4 @@
-# OpenArena (ioquake3 0.8.8): timedemo of bench.dm_71 (as games/openarena/step0.sh), renderer and
+# OpenArena (ioquake3 0.8.8): timedemo of bench.dm_71 (as bench/openarena/step0.sh), renderer and
 # texture compression per variant. The game archives +set cvars to q3config.cfg on quit.
 # Steady state: the timedemo repeated in one session (PASSES=1: every pass prints its line; passes
 # starting 54 s or more after the first map load are counted until ~120 s, then the game is
@@ -71,7 +71,7 @@ variant_tc1() { OA_TC=1; oa_cmd; }
 # renderergl2 with its expensive features off (docs/games/openarena.md, gl2min), then Debian's defaults.
 # Debian's ioquake3 compiles 97 GLSL programs (gl2: 115, ~30 s on the PPE) at start and again when
 # the demo loads its map (the client restarts the renderer at every map load), so the gl2 runs get
-# 330 s (240 before the steady-state passes). Our ioquake3 (ioquake3/patches, +ps3) cuts that memory; its defaults are on in gl2min and
+# 330 s (240 before the steady-state passes). Our ioquake3 (packages/patched/games/ioquake3/patches, +ps3) cuts that memory; its defaults are on in gl2min and
 # gl2, and each gl2min_* variant below turns one change back (or an opt-in one on) to measure it.
 OA_GL2MIN=(+set r_normalMapping 0 +set r_specularMapping 0 +set r_deluxeMapping 0 +set r_sunlightMode 0
 	+set r_sunShadows 0 +set r_dlightMode 0 +set r_depthPrepass 0 +set r_hdr 0 +set r_postProcess 0
@@ -157,7 +157,7 @@ variant_allbatchoff() { oa_x +set r_glStateCache 0 +set r_lockArrays 1 +set r_sk
 # every 200 frames (bot_minplayers, and qagame's loaddefered makes the cgame load each at once): 3
 # models, 3 skins, 3-6 textures each, 4 stalls of 130-400 ms a pass on the PS3; and every pass
 # reloads the map: 3 load-screen stalls of 340/700/380 ms (402 image files read, decoded, DXT on
-# the PPE), 10 of the run's 17.6 s of stalls (games/bench/passsplit.py tells the two apart). Both
+# the PPE), 10 of the run's 17.6 s of stalls (bench/passsplit.py tells the two apart). Both
 # switches are on in base (llvmpipe: picture identical over three passes; the second pass on loads
 # nothing during the demo, the reload 0.46 -> 0.17 s). The first pass still loads them (unmeasured).
 # 0025: r_keepImages 0, every texture freed and its file loaded again at each map load
@@ -197,7 +197,7 @@ variant_lin() { oal_variant lin; }
 variant_nosound() { OA_X+=(+set s_initsound 0); oa_cmd; }
 # Mesa ps3.282: a submission every 100 draws (0026), the Armagetron fix, checked here
 variant_kick100() { ENV+=(NV30_PS3_KICK_DRAWS=100); }
-# DXT1 of RGB sources (libspeq 2026-10-18, ps3-spu/doc/dxt-rgb.md): an RGB source (3 bytes a pixel,
+# DXT1 of RGB sources (libspeq 2026-10-18, packages/walnut/tools/ps3-spu/doc/dxt-rgb.md): an RGB source (3 bytes a pixel,
 # "speq: s3tc dxt1 ... comps 3" lines) used to be encoded on the PPE (165 ms for a 1024x1024, 43 ms
 # for a 512x512: hitches when a texture loads mid-demo); now the SPEs take it. rgbppe sends RGB back
 # to the PPE encoder (the old behaviour), rgbspu is the default with the same logging, so the pair

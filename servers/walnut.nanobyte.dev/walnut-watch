@@ -328,7 +328,7 @@ def check_release_hashes(suite, sdir, signed):
 
 
 def check_base(kind, suite, signed):
-	"""The signed Release names the InRelease it was made from (tools/walnut-repo.py); anything
+	"""The signed Release names the InRelease it was made from (apt-repo/walnut-repo.py); anything
 	published since makes it stale: the publisher builds again on the new state."""
 	with open(signed, encoding="utf-8", errors="replace") as f:
 		m = re.search(r"^X-Walnut-Base: (\S+)", f.read(), re.M)

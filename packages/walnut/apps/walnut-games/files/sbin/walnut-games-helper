@@ -25,7 +25,7 @@ Design
   gone the program keeps working and says nothing.
 - Exit codes: 0 done, 2 refused (a message says why, nothing was changed), 1 apt failed.
 - stdlib only. The functions take the catalog path and a command runner so that
-  walnut-games/tests/test_walnut_games.py runs them on a PC with a fake apt-get.
+  packages/walnut/apps/walnut-games/tests/test_walnut_games.py runs them on a PC with a fake apt-get.
 """
 import json
 import os

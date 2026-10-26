@@ -5,7 +5,7 @@
 #            once (release-image.yml's concurrency group), and the server refuses an id it has.
 #   testing  nightly-<yyyymmdd>-<hhmm>-<commit>, UTC
 set -euo pipefail
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/.."
 dl=${WALNUT_DOWNLOAD_URL:-https://walnut.nanobyte.dev/download}
 case ${1:-} in
 	stable)

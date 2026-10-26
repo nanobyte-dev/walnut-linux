@@ -34,7 +34,7 @@ variant_kick100() { ENV+=(NV30_PS3_KICK_DRAWS=100); }
 # Mesa ps3.299 switches, to bisect its cost here: 0027 (adaptive submission) off, 0030 (index upload) off
 variant_autooff() { ENV+=(NV30_PS3_KICK_AUTO=0); }
 variant_idxoff() { ENV+=(NV30_INDEX_UPLOAD=0); }
-# our xmoto (xmoto/, +ps3.N): DrawLib's primitives batched and the GL state set only when
+# our xmoto (packages/patched/games/xmoto/, +ps3.N): DrawLib's primitives batched and the GL state set only when
 # drawing (XMOTO_GL_BATCH), the level's blocks and edges from one buffer (XMOTO_GL_BLOCKS);
 # base has both. Draws, vertices and syncs per frame every 5 s on stderr (game.log):
 variant_glstats() { ENV+=(XMOTO_GL_STATS=1); }

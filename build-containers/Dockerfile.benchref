@@ -1,4 +1,4 @@
-# The PC reference of a games/bench recipe (tools/bench-ref.sh, docs/games/SUITE.md "Screenshots"): Debian
+# The PC reference of a bench recipe (tools/bench-ref.sh, docs/games/SUITE.md "Screenshots"): Debian
 # sid from the same snapshot as the PS3's root, a virtual X server (Xvfb) and what client.sh calls (xwd,
 # xprop, xset, pgrep, findmnt, openbox, python3 with libX11/libXtst for xkeys.py), Mesa's llvmpipe, and the
 # game. BASE is plain Debian (BUILDER_BASE) for a game we take from Debian, with its packages in PKGS, or

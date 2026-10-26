@@ -2,7 +2,7 @@
 # (walnut-site), each its own nginx on the main proxy's network. The proxy terminates TLS (the *.nanobyte.dev certificate) and
 # passes everything on (walnut.nanobyte.dev.conf). The image is walnut-site:<id>, built and switched
 # by walnut-watch, which writes WALNUT_SITE_TAG to .env. walnut-upload takes uploads into incoming/
-# (upload/Dockerfile); walnut-aptcache caches Debian's snapshot for builds (aptcache/Dockerfile). Deployed by tools/walnut-server/deploy.sh.
+# (upload/Dockerfile); walnut-aptcache caches Debian's snapshot for builds (aptcache/Dockerfile). Deployed by servers/walnut.nanobyte.dev/deploy.sh.
 name: walnut
 
 services:

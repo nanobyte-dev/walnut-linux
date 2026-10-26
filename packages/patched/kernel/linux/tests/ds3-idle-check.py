@@ -1,6 +1,6 @@
 #!/usr/bin/python3 -I
 """ds3-idle-check.py: on the PS3, the axes a DualShock 3's input device starts with
-(linux/patches/local/0050). Plug the pad in by USB and don't press its PS button, then run this
+(packages/patched/kernel/linux/patches/local/0050). Plug the pad in by USB and don't press its PS button, then run this
 (no root needed when the user may read /dev/input/event*; else sudo). It reads every evdev node
 named like the DS3 with EVIOCGABS: with the patch the sticks (ABS_X, ABS_Y, ABS_RX, ABS_RY) are
 128 and the triggers (ABS_Z, ABS_RZ) 0; without it everything is 0, the sticks fully up and left.

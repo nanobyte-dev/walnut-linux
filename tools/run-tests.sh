@@ -5,8 +5,8 @@
 #   default  quick suites: bench-selftest, gprefetch, ps3rsx-shadow (and ps3rsx's clear_dcbz zeroing
 #            and the validator's vertex format checks),
 #            ps3-spu, xmoto-glbatch,
-#            mesa-forcedxt (Mesa 0038's NV30_FORCE_DXT decision, mesa/tests), mesa-staging-pool
-#            (Mesa 0040's NV30_STAGING_POOL_MB decisions and a model of the pool, mesa/tests),
+#            mesa-forcedxt (Mesa 0038's NV30_FORCE_DXT decision, packages/patched/graphics/mesa/tests), mesa-staging-pool
+#            (Mesa 0040's NV30_STAGING_POOL_MB decisions and a model of the pool, packages/patched/graphics/mesa/tests),
 #            mesa-vtx-snorm8 (Mesa 0043's NV30_VTX_SNORM8 vertex program normalization against
 #            util_format's unpack, every byte; the per-input key; the translator's output run on
 #            an NV40 vertex program interpreter with and without it), mesa-minmax-vmx (Mesa 0044's
@@ -22,13 +22,13 @@
 #            ps3-imgmap-boot's maps and tables against ps3-imgmap's; both tools' write guard
 #            registration against a model of the kernel's side), ps3-boot (ps3-update-kboot's
 #            entries and its /etc/kboot.d extras on a fake root), leak-check (tools/leak-check.py on
-#            synthetic packages and sources), walnut-repo (tools/walnut-repo.py against the real
+#            synthetic packages and sources), walnut-repo (apt-repo/walnut-repo.py against the real
 #            walnut-watch: testing, stable and the password-protected licensed suite), walnut-watch
 #            (the server's publisher on good and hostile uploads), gamedb (Walnut Games' scoring against the calibration
 #            table in docs/GAMEDB.md, check.py, import-run.py, catalog.py), walnut-games (the app and its root
 #            helper: validation, remove-cascade refusal, Exec parsing, a window smoke test), ps3disk-guard (kernel local/0045's
-#            range checks, linux/tests/ps3disk-guard.sh)
-#   --slow   also autogm (ps3-desktop/tests/autogm-check.sh: needs Xvfb+openbox or docker/podman) and
+#            range checks, packages/patched/kernel/linux/tests/ps3disk-guard.sh)
+#   --slow   also autogm (packages/walnut/system/ps3-desktop/tests/autogm-check.sh: needs Xvfb+openbox or docker/podman) and
 #            ssdimg-vm (tools/ssdimg/vm-e2e.sh: ps3-imgmap on a real big-endian UFS2 image in a KVM
 #            guest of the host's kernel, then Phase B: ps3-imgmap-boot's devices, the initramfs
 #            booting root from the image, refused boots; the second Phase B geometry behind the
@@ -62,7 +62,7 @@ need() { command -v "$1" >/dev/null || { echo "skip: no $1"; exit 77; }; }
 t_ps3rsx() {
 	O=$PWD/build/tmp/ps3rsx-test
 	need gcc
-	make -C ps3rsx/test O="$O" "$O/shadow-equiv" "$O/shadow-equiv-fast" "$O/zero-test" "$O/validate-test" || exit 1
+	make -C packages/walnut/drivers/ps3rsx/test O="$O" "$O/shadow-equiv" "$O/shadow-equiv-fast" "$O/zero-test" "$O/validate-test" || exit 1
 	"$O/shadow-equiv" 200000 20000 1 || exit 1
 	"$O/shadow-equiv-fast" 1000000 100000 2 || exit 1
 	"$O/zero-test" 20000 1 || exit 1
@@ -70,7 +70,7 @@ t_ps3rsx() {
 	# big-endian run under qemu, when the cross compiler, the sysroot and qemu are there
 	if command -v powerpc64-linux-gnu-gcc >/dev/null && command -v qemu-ppc64-static >/dev/null &&
 	   [ -d build/mesa/sysroot ]; then
-		make -C ps3rsx/test O="$O" "$O/shadow-equiv-ppc64" "$O/zero-test-ppc64" || exit 1
+		make -C packages/walnut/drivers/ps3rsx/test O="$O" "$O/shadow-equiv-ppc64" "$O/zero-test-ppc64" || exit 1
 		qemu-ppc64-static "$O/shadow-equiv-ppc64" 100000 10000 3 || exit 1
 		qemu-ppc64-static "$O/zero-test-ppc64" 20000 2 || exit 1
 	else echo "(ppc64 run skipped: no cross gcc, qemu or sysroot)"; fi
@@ -78,14 +78,14 @@ t_ps3rsx() {
 t_xmoto() {
 	[ -e build/work/xmoto/src/drawlib/GLBatch.cpp ] || { echo "skip: no build/work/xmoto (make xmoto-work)"; exit 77; }
 	need g++
-	xmoto/test/glbatch-test.sh 100
+	packages/patched/games/xmoto/test/glbatch-test.sh 100
 }
 t_forcedxt() {
 	[ -e build/work/mesa/src/mesa/main/texforcedxt_policy.h ] || { echo "skip: no build/work/mesa with patch 0038 (make mesa-work)"; exit 77; }
 	need gcc
 	mkdir -p build/tmp/tests
 	gcc -O2 -Wall -Wextra -Werror -I build/work/mesa/include -I build/work/mesa/src \
-		-o build/tmp/tests/forcedxt-policy-test mesa/tests/forcedxt-policy-test.c || exit 1
+		-o build/tmp/tests/forcedxt-policy-test packages/patched/graphics/mesa/tests/forcedxt-policy-test.c || exit 1
 	build/tmp/tests/forcedxt-policy-test
 }
 t_stagingpool() {
@@ -93,7 +93,7 @@ t_stagingpool() {
 	need gcc
 	mkdir -p build/tmp/tests
 	gcc -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -I build/work/mesa/src/gallium/drivers/nouveau \
-		-o build/tmp/tests/staging-pool-test mesa/tests/staging-pool-test.c || exit 1
+		-o build/tmp/tests/staging-pool-test packages/patched/graphics/mesa/tests/staging-pool-test.c || exit 1
 	build/tmp/tests/staging-pool-test
 }
 t_vtxsnorm8() {
@@ -108,7 +108,7 @@ t_vtxsnorm8() {
 	     p { print } p && /^\}/ { p = 0 }' $T/u_format_table.c > $T/snorm8-ref.h
 	[ "$(grep -c '_unpack_rgba_float(' $T/snorm8-ref.h)" = 4 ] || { echo "snorm8-ref.h: unpack functions not found"; exit 1; }
 	gcc -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -I $M/src/gallium/drivers/nouveau -I $T \
-		-DUTIL_ARCH_BIG_ENDIAN=0 -o $T/vtx-snorm8-test mesa/tests/vtx-snorm8-test.c || exit 1
+		-DUTIL_ARCH_BIG_ENDIAN=0 -o $T/vtx-snorm8-test packages/patched/graphics/mesa/tests/vtx-snorm8-test.c || exit 1
 	$T/vtx-snorm8-test || exit 1
 	# the translator itself (nvfx_vertprog.c) on an NV40 vertex program interpreter
 	local G=$T/mesa-gen N=$M/src/compiler/nir A=$M/src/gallium/auxiliary/tgsi
@@ -122,7 +122,7 @@ t_vtxsnorm8() {
 		-DHAVE_STRUCT_TIMESPEC -DUTIL_ARCH_BIG_ENDIAN=0 -DUTIL_ARCH_LITTLE_ENDIAN=1 -I$G -I$M/include -I$M/src \
 		-I$M/src/gallium/include -I$M/src/gallium/auxiliary -I$M/src/gallium/drivers/nouveau -I$M/src/util \
 		-I$M/src/mapi -I$M/src/mesa -I$M/src/compiler/nir -I$M/src/compiler -I$M/src/gallium/winsys/nouveau/drm \
-		-I$M/src/nouveau/headers -o $T/vtx-snorm8-vpsim mesa/tests/vtx-snorm8-vpsim.c mesa/tests/vtx-snorm8-stubs.c \
+		-I$M/src/nouveau/headers -o $T/vtx-snorm8-vpsim packages/patched/graphics/mesa/tests/vtx-snorm8-vpsim.c packages/patched/graphics/mesa/tests/vtx-snorm8-stubs.c \
 		$M/src/gallium/drivers/nouveau/nv30/nvfx_vertprog.c $A/tgsi_text.c $A/tgsi_build.c $A/tgsi_info.c \
 		$A/tgsi_util.c $A/tgsi_strings.c $A/tgsi_parse.c $A/tgsi_dump.c $A/tgsi_iterate.c $A/tgsi_scan.c \
 		$M/src/util/ralloc.c $M/src/util/u_dynarray.c -lm || exit 1
@@ -134,7 +134,7 @@ t_minmaxvmx() {
 	need gcc
 	mkdir -p $T
 	gcc -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -I $M/src/mesa/vbo \
-		-o $T/minmax-vmx-test mesa/tests/minmax-vmx-test.c || exit 1
+		-o $T/minmax-vmx-test packages/patched/graphics/mesa/tests/minmax-vmx-test.c || exit 1
 	$T/minmax-vmx-test || exit 1
 	# AltiVec itself: the deb builder's ppc64 cross compiler, run under qemu-user
 	local img; img=$(docker images --format '{{.Repository}}:{{.Tag}}' ps3-deb-builder 2>/dev/null | head -1)
@@ -142,7 +142,7 @@ t_minmaxvmx() {
 		echo "ppc64 part skipped: needs docker with a ps3-deb-builder image and qemu-ppc64-static"; return 0
 	fi
 	docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/w" -w /w "$img" powerpc64-linux-gnu-gcc -O2 -mcpu=cell \
-		-Wall -Wextra -Werror -static -I $M/src/mesa/vbo -o $T/minmax-vmx-test-ppc64 mesa/tests/minmax-vmx-test.c || exit 1
+		-Wall -Wextra -Werror -static -I $M/src/mesa/vbo -o $T/minmax-vmx-test-ppc64 packages/patched/graphics/mesa/tests/minmax-vmx-test.c || exit 1
 	qemu-ppc64-static $T/minmax-vmx-test-ppc64
 }
 t_querysteal() {
@@ -161,7 +161,7 @@ t_querysteal() {
 		-DHAVE_STRUCT_TIMESPEC -DUTIL_ARCH_BIG_ENDIAN=0 -DUTIL_ARCH_LITTLE_ENDIAN=1 -I$G -I$M/include -I$M/src \
 		-I$M/src/gallium/include -I$M/src/gallium/auxiliary -I$M/src/gallium/drivers/nouveau -I$M/src/util \
 		-I$M/src/mapi -I$M/src/mesa -I$M/src/compiler/nir -I$M/src/compiler -I$M/src/gallium/winsys/nouveau/drm \
-		-I$M/src/nouveau/headers -o $T/query-steal-test mesa/tests/query-steal-test.c || exit 1
+		-I$M/src/nouveau/headers -o $T/query-steal-test packages/patched/graphics/mesa/tests/query-steal-test.c || exit 1
 	$T/query-steal-test || exit 1
 	if grep -q 'reallocate_or_keep' $M/src/gallium/drivers/nouveau/nouveau_buffer.c; then
 		gcc -g -O1 -std=gnu11 -Wall -Werror -fsanitize=address,undefined -DHAVE_PTHREAD -D_GNU_SOURCE \
@@ -169,7 +169,7 @@ t_querysteal() {
 			-I$M/include -I$M/src -I$M/src/gallium/include -I$M/src/gallium/auxiliary \
 			-I$M/src/gallium/drivers/nouveau -I$M/src/util -I$M/src/mapi -I$M/src/mesa -I$M/src/compiler/nir \
 			-I$M/src/compiler -I$M/src/gallium/winsys/nouveau/drm -I$M/src/nouveau/headers \
-			-o $T/alloc-fail-test mesa/tests/alloc-fail-test.c || exit 1
+			-o $T/alloc-fail-test packages/patched/graphics/mesa/tests/alloc-fail-test.c || exit 1
 		$T/alloc-fail-test || exit 1
 	else echo "(alloc-fail part skipped: build/work/mesa without patch 0048)"; fi
 	if grep -q 'nv30_transfer_map_cpu' $M/src/gallium/drivers/nouveau/nv30/nv30_miptree.c; then
@@ -178,7 +178,7 @@ t_querysteal() {
 			-I$M/include -I$M/src -I$M/src/gallium/include -I$M/src/gallium/auxiliary \
 			-I$M/src/gallium/drivers/nouveau -I$M/src/util -I$M/src/mapi -I$M/src/mesa -I$M/src/compiler/nir \
 			-I$M/src/compiler -I$M/src/gallium/winsys/nouveau/drm -I$M/src/nouveau/headers \
-			-o $T/transfer-cpu-test mesa/tests/transfer-cpu-test.c || exit 1
+			-o $T/transfer-cpu-test packages/patched/graphics/mesa/tests/transfer-cpu-test.c || exit 1
 		$T/transfer-cpu-test
 	else echo "(transfer-cpu part skipped: build/work/mesa without patch 0049)"; fi
 }
@@ -186,7 +186,7 @@ t_autogm() {
 	if ! { command -v Xvfb >/dev/null && command -v openbox >/dev/null; } &&
 	   ! command -v docker >/dev/null && ! command -v podman >/dev/null; then
 		echo "skip: needs Xvfb+openbox or docker/podman"; exit 77; fi
-	ps3-desktop/tests/autogm-check.sh
+	packages/walnut/system/ps3-desktop/tests/autogm-check.sh
 }
 
 t_pointsmooth() {
@@ -205,7 +205,7 @@ t_pointsmooth() {
 		-DHAVE_STRUCT_TIMESPEC -DUTIL_ARCH_BIG_ENDIAN=0 -DUTIL_ARCH_LITTLE_ENDIAN=1 -I$G -I$M/include -I$M/src \
 		-I$M/src/gallium/include -I$M/src/gallium/auxiliary -I$M/src/gallium/drivers/nouveau -I$M/src/util \
 		-I$M/src/mapi -I$M/src/mesa -I$M/src/compiler/nir -I$M/src/compiler -I$M/src/gallium/winsys/nouveau/drm \
-		-I$M/src/nouveau/headers -o $T/point-smooth-test mesa/tests/point-smooth-test.c \
+		-I$M/src/nouveau/headers -o $T/point-smooth-test packages/patched/graphics/mesa/tests/point-smooth-test.c \
 		$M/src/gallium/drivers/nouveau/nv30/nv30_point_smooth.c $M/src/gallium/drivers/nouveau/nv30/nvfx_fragprog.c \
 		$A/tgsi_exec.c $A/tgsi_transform.c $A/tgsi_text.c $A/tgsi_build.c $A/tgsi_info.c $A/tgsi_util.c \
 		$A/tgsi_strings.c $A/tgsi_parse.c $A/tgsi_dump.c $A/tgsi_iterate.c $A/tgsi_scan.c \
@@ -213,10 +213,10 @@ t_pointsmooth() {
 	ASAN_OPTIONS=detect_leaks=0 $T/point-smooth-test
 }
 
-run bench-selftest python3 games/bench/selftest.py
-run gprefetch python3 ps3-desktop/tests/gprefetch-check.py
+run bench-selftest python3 bench/selftest.py
+run gprefetch python3 packages/walnut/system/ps3-desktop/tests/gprefetch-check.py
 run ps3rsx-shadow bash -c "$(declare -f need t_ps3rsx); t_ps3rsx"
-run ps3-spu make -C ps3-spu test
+run ps3-spu make -C packages/walnut/tools/ps3-spu test
 run xmoto-glbatch bash -c "$(declare -f need t_xmoto); t_xmoto"
 run mesa-forcedxt bash -c "$(declare -f need t_forcedxt); t_forcedxt"
 run mesa-staging-pool bash -c "$(declare -f need t_stagingpool); t_stagingpool"
@@ -225,13 +225,13 @@ run mesa-minmax-vmx bash -c "$(declare -f need t_minmaxvmx); t_minmaxvmx"
 run mesa-query-steal bash -c "$(declare -f need t_querysteal); t_querysteal"
 run mesa-point-smooth bash -c "$(declare -f need t_pointsmooth); t_pointsmooth"
 run ssdimg python3 tools/ssdimg/test_ssdimg.py
-run ps3-boot python3 ps3-boot/tests/test_kboot.py
+run ps3-boot python3 packages/walnut/system/ps3-boot/tests/test_kboot.py
 run leak-check python3 tools/test_leak_check.py
-run walnut-repo python3 tools/test_walnut_repo.py
-run walnut-watch python3 tools/walnut-server/test_walnut_watch.py
+run walnut-repo python3 apt-repo/test_walnut_repo.py
+run walnut-watch python3 servers/walnut.nanobyte.dev/test_walnut_watch.py
 run gamedb python3 -I tools/gamedb/test_gamedb.py
-run walnut-games python3 -I walnut-games/tests/test_walnut_games.py
-run ps3disk-guard linux/tests/ps3disk-guard.sh
+run walnut-games python3 -I packages/walnut/apps/walnut-games/tests/test_walnut_games.py
+run ps3disk-guard packages/patched/kernel/linux/tests/ps3disk-guard.sh
 [ $slow = 1 ] && run autogm bash -c "$(declare -f t_autogm); t_autogm"
 [ $slow = 1 ] && run ssdimg-vm tools/ssdimg/vm-e2e.sh
 

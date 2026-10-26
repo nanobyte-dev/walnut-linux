@@ -8,8 +8,8 @@ Item 4 of docs/SPU-OFFLOAD-PLAN.md. Sauerbraten on the PS3 skins its skeletal mo
 Files: `lib/skin-kern.h` (the kernel, shared by both sides), `lib/skin-job.h` (the job),
 `lib/skin.c` (the API and its policy), `spu/skin-op.c` (the op, in the deadline pool's
 deadline.spu since 2026-10-17: doc/pool.md), `tools/speq-skin.c` (tests,
-the reference, the benchmark), `cube2/patches/0006-*.patch` (the hook),
-`games/bench/recipes/sauerbraten.sh` (variants spuskin, ppeskin, offskin).
+the reference, the benchmark), `packages/patched/games/cube2/patches/0006-*.patch` (the hook),
+`bench/recipes/sauerbraten.sh` (variants spuskin, ppeskin, offskin).
 
 ## 1. How Sauerbraten skins
 
@@ -43,7 +43,7 @@ Line numbers: `engine/skelmodel.h` of our cube2 source up to patch 0005 (Debian
   and each of the 4 float-to-short conversions goes `fctiwz`, `stfiwx`, `lwz`: a load-hit-store
   stall each on the Cell (tens of cycles). Estimate: 300-400 cycles a vertex with tangents,
   ~150 with normals.
-- **Work per frame on map cave** (games/bench's sauerbraten recipe, cube2-data 1.3): `-l` starts
+- **Work per frame on map cave** (bench's sauerbraten recipe, cube2-data 1.3): `-l` starts
   coop edit, the player alone; cave.cfg loads no map models. So `base` skins nothing. Variant
   `gun` draws the grenade launcher: two mesh groups with separate skeletons, the hands
   (`snout_hands.iqm`, 1497 vertices, 33 joints) and the gun (`gl.iqm`, 1683 vertices, 4
@@ -183,7 +183,7 @@ emulated shuffles there; with -march=native it is 2.6-4x faster than the engine'
   rounding. Then `speq-skin --bench`: us per frame for the hud gun and a player model through
   the engine's loop (compiled the same way), libspeq's PPE path and the SPEs, hot and after
   the workers parked.
-- Sauerbraten through games/bench, interleaved, a few rounds each: `gun` (auto), `spuskin`,
+- Sauerbraten through bench, interleaved, a few rounds each: `gun` (auto), `spuskin`,
   `ppeskin`, `offskin` (the engine's loop, as before 0006). Watch:
   - the picture (webcam): the hands and gun drawn, animated (idle sway), lit and bump-mapped
     as with `offskin`; a wrong tangent frame shows as inverted or flat lighting on the gun, a

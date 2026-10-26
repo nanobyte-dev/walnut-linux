@@ -33,8 +33,8 @@ which /usr/games/classicube creates and runs the game from.
    With every file present the launcher goes straight to the main menu. The game also runs
    without sounds or music; the texture pack is required.
 
-3. The classicube-data package (our own LAN repository only)
-   In the PS3 project's apt repository, the ps3-licensed suite has classicube-data, which
+3. The classicube-data package (our own licensed suite only)
+   In the PS3 project's apt repository, the licensed suite has classicube-data, which
    installs the same files under /usr/lib/classicube/. /usr/games/classicube then copies them
    into the user directory on first start. It is for personal / LAN use and is not distributed
    with the game. ps3-games-licensed pulls it in along with the other licensed game data:

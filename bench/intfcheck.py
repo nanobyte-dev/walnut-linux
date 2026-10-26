@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """intfcheck.py: the interference detector checked on the host (selftest.py runs it; alone:
-python3 games/bench/intfcheck.py). docs/STALLS.md "Interference".
+python3 bench/intfcheck.py). docs/STALLS.md "Interference".
   1. ps3-intfwatch builds with the host's cc without warnings
   2. its input filter on recorded event streams (-r), each in both byte orders: the 64-bit struct
      input_event is 24 bytes on ppc64 (big-endian) and x86-64 (little-endian), same layout; both
@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-SRC = HERE.parent.parent / "ps3-gpu-tools" / "src" / "ps3-intfwatch.c"
+SRC = HERE.parent / "packages" / "walnut" / "tools" / "ps3-gpu-tools" / "src" / "ps3-intfwatch.c"
 FAILS = []
 
 

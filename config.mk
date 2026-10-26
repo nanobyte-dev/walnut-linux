@@ -1,19 +1,19 @@
 # Build settings. Everything that decides what ends up on the PS3 lives here or in the files it points to.
 
 # The kernel and Mesa are Debian source packages: their versions, hashes, configs and boot
-# arguments are in linux/package.conf and mesa/package.conf (docs/PACKAGING.md).
+# arguments are in packages/patched/kernel/linux/package.conf and packages/patched/graphics/mesa/package.conf (docs/PACKAGING.md).
 
 # --- Debian root filesystem ---------------------------------------------------
 # Packages come from a frozen snapshot of debian-ports, so a rebuild gets the same versions.
 DEBIAN_SNAPSHOT     := 20261013T000000Z
 DEBIAN_SUITE        := unstable
 # Builds fetch the snapshot through walnut.nanobyte.dev's cache of snapshot.debian.org (walnut-aptcache,
-# tools/walnut-server/aptcache): snapshot.debian.org throttles bulk downloads (503 TooManyRequests), a
+# servers/walnut.nanobyte.dev/aptcache): snapshot.debian.org throttles bulk downloads (503 TooManyRequests), a
 # pinned snapshot never changes. SNAPSHOT_URL=http://snapshot.debian.org goes to the source.
 SNAPSHOT_URL        ?= http://walnut.nanobyte.dev/debian-snapshot
 DEBIAN_MIRROR       := $(SNAPSHOT_URL)/archive/debian-ports/$(DEBIAN_SNAPSHOT)
-ROOTFS_PACKAGES     := image/packages.txt
-ROOTFS_CUSTOMIZE    := image/customize.sh
+ROOTFS_PACKAGES     := system/image/packages.txt
+ROOTFS_CUSTOMIZE    := system/image/customize.sh
 
 # --- Package upstreams --------------------------------------------------------
 # Each package's pinned upstream versions, URLs and sha256s are in its own directory: <pkg>/upstream.mk
@@ -53,8 +53,8 @@ NFS_ROOT            ?= /srv/ps3root
 
 # netboot's HTTP server on this PC (make netboot-deb, usb-root-petitboot)
 HTTP_PORT           := 8000
-# Boot arguments (linux/flavours/*.args and the ones below). ps3rsx_cma=64M: the GPU's GART comes
-# on demand from a 64 MiB CMA area, which holds ordinary movable pages while the GPU doesn't use it (ps3rsx/src/gart.c); ps3rsx_gart=0 turns off the
+# Boot arguments (packages/patched/kernel/linux/flavours/*.args and the ones below). ps3rsx_cma=64M: the GPU's GART comes
+# on demand from a 64 MiB CMA area, which holds ordinary movable pages while the GPU doesn't use it (packages/walnut/drivers/ps3rsx/src/gart.c); ps3rsx_gart=0 turns off the
 # fixed reservation that was used before (ps3rsx_gart=<size> still works as a fallback).
 # netconsole spells out source IP, device and target MAC: built-in netconsole starts before
 # ip=dhcp has configured eth0 and gives up without them.
@@ -74,7 +74,7 @@ ROOT_ARGS_usb       := root=PARTUUID=$(USB_ROOT_PARTUUID) rootfstype=ext4 ro
 # The USB disk for the root filesystem (its /dev/disk/by-id name on the PS3, config.local.mk)
 USB_DISK_ID         ?=
 # The kernel's own arguments are shipped in its package (/usr/lib/ps3/boot/<release>.args, from
-# linux/flavours/<flavour>.args), so each kernel in the boot menu gets the ones it understands;
+# packages/patched/kernel/linux/flavours/<flavour>.args), so each kernel in the boot menu gets the ones it understands;
 # make netboot-deb uses them too.
 # This installation's development extras: DHCP for netconsole, netconsole to this PC
 # (netconsole only with all three addresses in config.local.mk). The public image has none of

@@ -116,7 +116,7 @@ if [ $PHASEB = 1 ]; then
 		dpkg-deb --fsys-tarfile $BB_AMD64 | tar -x -O ./usr/bin/busybox > $REL_W/busybox && chmod 755 $REL_W/busybox" ||
 		{ echo "Phase B tools build failed"; exit 1; }
 	mkdir -p "$W/guard-inc"
-	linux/tests/guard-header.sh > "$W/guard-inc/ps3disk_guard.h" || exit 1
+	packages/patched/kernel/linux/tests/guard-header.sh > "$W/guard-inc/ps3disk_guard.h" || exit 1
 	docker run --rm --network none -u "$(id -u):$(id -g)" -v "$ROOT:/work" -w /work "$IMG_BUILDER" sh -c "
 		gcc -static -O2 -Wall -Wextra -Werror -DPS3_GUARD_FAKE -I $REL_W/guard-inc -I tools/ssdimg \
 			-o $REL_W/pib-amd64-fake tools/ssdimg/ps3-imgmap-boot.c" || { echo "guard model build failed"; exit 1; }

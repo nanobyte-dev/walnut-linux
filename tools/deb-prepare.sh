@@ -9,7 +9,8 @@ set -euo pipefail
 # execute a shifted fragment.
 {
 PKG=$1 N=$2 DATE=$3 HASH=${4:-}
-. "$PKG/package.conf"
+PD=$(tools/pkg-dir.sh "$PKG")	# its directory under packages/
+. "$PD/package.conf"
 OUT=build/src/$PKG
 if [ "$TYPE" = native ]; then
 	# our own code: this directory is the source package, version 0.<N>; kernel module packages
@@ -22,7 +23,8 @@ if [ "$TYPE" = native ]; then
 	rm -rf "$OUT"; mkdir -p "$OUT"
 	T=$OUT/$SOURCE-$NEWVER
 	mkdir -p "$T"
-	git -C "$PKG" ls-files -z --cached --others --exclude-standard | (cd "$PKG" && xargs -0 cp --parents -t "$PWD/../$T")
+	top=$PWD
+	git -C "$PD" ls-files -z --cached --others --exclude-standard | (cd "$PD" && xargs -0 cp --parents -t "$top/$T")
 	# package.conf COPY_IN="BUILT:DEST ...": files built elsewhere in this checkout (never in git) into
 	# the source tree, e.g. ps3-boot's generic initramfs (make initrd-walnut); a missing one stops here
 	for c in ${COPY_IN:-}; do
@@ -94,15 +96,15 @@ if [ "$TYPE" = upstream ]; then
 		cp -a "$stage" "$T/$name"
 		rm -rf "$OUT/.component"
 	done
-	cp -a "$PKG/debian" "$T/"
-	if [ -s "$PKG/patches/series" ]; then
+	cp -a "$PD/debian" "$T/"
+	if [ -s "$PD/patches/series" ]; then
 		mkdir -p "$T/debian/patches"
 		while read -r p; do
 			[ -n "$p" ] && [ "${p#\#}" = "$p" ] || continue
-			cp "$PKG/patches/$p" "$T/debian/patches/"
+			cp "$PD/patches/$p" "$T/debian/patches/"
 			echo "$p" >> "$T/debian/patches/series"
-			patch -d "$T" -p1 -s --no-backup-if-mismatch < "$PKG/patches/$p"
-		done < "$PKG/patches/series"
+			patch -d "$T" -p1 -s --no-backup-if-mismatch < "$PD/patches/$p"
+		done < "$PD/patches/series"
 	fi
 	(cd "$T" && DEBEMAIL="chibicitiberiu@gmail.com" DEBFULLNAME="Tiberiu Chibici" \
 		dch --create --package "$SOURCE" -v "$NEWVER" --distribution ps3 --force-distribution \
@@ -127,22 +129,22 @@ T=$OUT/$SOURCE-$UPVER
 export QUILT_PATCHES=debian/patches QUILT_PC=.pc
 
 # Packaging patches change debian/ itself (rules, control.in...), applied directly
-if [ -s "$PKG/packaging/series" ]; then
+if [ -s "$PD/packaging/series" ]; then
 	while read -r p; do
 		[ -n "$p" ] && [ "${p#\#}" = "$p" ] || continue
-		patch -d "$T" -p1 -s --no-backup-if-mismatch < "$PKG/packaging/$p"
-	done < "$PKG/packaging/series"
+		patch -d "$T" -p1 -s --no-backup-if-mismatch < "$PD/packaging/$p"
+	done < "$PD/packaging/series"
 fi
 # Source patches join Debian's quilt series under ps3/
-if [ -s "$PKG/patches/series" ]; then
+if [ -s "$PD/patches/series" ]; then
 	mkdir -p "$T/debian/patches/ps3"
 	while read -r p; do
 		[ -n "$p" ] && [ "${p#\#}" = "$p" ] || continue
 		mkdir -p "$T/debian/patches/ps3/$(dirname "$p")"
-		cp "$PKG/patches/$p" "$T/debian/patches/ps3/$p"
+		cp "$PD/patches/$p" "$T/debian/patches/ps3/$p"
 		echo "ps3/$p" >> "$T/debian/patches/series"
 		(cd "$T" && quilt push -q "ps3/$p" >/dev/null)
-	done < "$PKG/patches/series"
+	done < "$PD/patches/series"
 fi
 # Package-specific: Mesa generates debian/control from control.in
 if [ "$SOURCE" = mesa ]; then make -s -C "$T" -f debian/rules regen_control; fi
@@ -158,7 +160,7 @@ s = open(p).read()
 s = re.sub(r'^( -- .*>)  .*$', lambda m: m.group(1) + '  ' + date, s, count=1, flags=re.M)
 open(p, 'w').write(s)
 PY2
-# Package-specific: the kernel (linux/package.conf FLAVOURS). The ABI name gets +ps3.<N> (package
+# Package-specific: the kernel (packages/patched/kernel/linux/package.conf FLAVOURS). The ABI name gets +ps3.<N> (package
 # names can't have '~': a test build's <n>~dev<stamp> becomes <n>.dev<stamp>), the debug release
 # -debug<stamp> (the date of the commit the version stands for, or of now for a dirty tree, as
 # deb-version.sh gives it: the same checkout gives the same release); each flavour's full config
@@ -172,7 +174,7 @@ if [ "$SOURCE" = linux ]; then
 	for f in $FLAVOURS; do
 		d=DEBIAN_FLAVOUR_$f; d=${!d}
 		tools/linux-config.sh "$T" "$f" "$T/debian/config/ppc64/config.$d"
-		cp "$PKG/flavours/$f.args" "$T/debian/config/ppc64/args.$d"
+		cp "$PD/flavours/$f.args" "$T/debian/config/ppc64/args.$d"
 	done
 	(cd "$T" && PYTHONDONTWRITEBYTECODE=1 make -f debian/rules debian/control-real > ../gencontrol.log 2>&1) || true
 	if ! (cd "$T" && md5sum --check --status debian/control.md5sum) || \

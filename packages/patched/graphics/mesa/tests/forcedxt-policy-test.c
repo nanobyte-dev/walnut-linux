@@ -1,7 +1,7 @@
 /* forcedxt-policy-test: NV30_FORCE_DXT's decision (Mesa patch "texture compression at upload",
  * src/mesa/main/texforcedxt_policy.h) on the host: which glTexImage2D calls become DXT1/DXT5, the
  * alpha scan, the block-alignment test for sub-image updates, the byte counts.
- *   cc -I build/work/mesa/include -I build/work/mesa/src mesa/tests/forcedxt-policy-test.c
+ *   cc -I build/work/mesa/include -I build/work/mesa/src packages/patched/graphics/mesa/tests/forcedxt-policy-test.c
  * (tools/run-tests.sh mesa-forcedxt; skipped without build/work/mesa) */
 #include <stdio.h>
 #include <stdlib.h>

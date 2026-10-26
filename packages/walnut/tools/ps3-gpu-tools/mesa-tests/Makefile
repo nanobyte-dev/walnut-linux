@@ -2,9 +2,9 @@
 # sysroot's glvnd libEGL/libGLESv2 (see top-level Makefile, `make mesa-tests`).
 CROSS   ?= powerpc64-linux-gnu-
 CC      := $(CROSS)gcc
-SYSROOT ?= ../../build/mesa/sysroot
+SYSROOT ?= ../../../../../build/mesa/sysroot
 CFLAGS  ?= -O2 -Wall -Wextra -mcpu=cell
-OUT     ?= ../../build/mesa/tests
+OUT     ?= ../../../../../build/mesa/tests
 TESTS   := $(patsubst %.c,$(OUT)/%,$(wildcard *.c))
 
 all: $(TESTS)

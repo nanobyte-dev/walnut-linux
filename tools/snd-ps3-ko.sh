@@ -2,7 +2,7 @@
 # snd-ps3-ko.sh RELEASE: sound/ppc/snd_ps3.ko built out of tree for the kernel RELEASE (e.g.
 # 6.12.111+ps3.472), for trying a snd_ps3 patch on the booted kernel without a new kernel and a
 # reboot (make snd-ps3-ko REL=...; runs in the deb builder, whose cross compiler built our kernels).
-# Source: build/src/linux's snd_ps3 (make linux-src) plus every patch of linux/patches/series that
+# Source: build/src/linux's snd_ps3 (make linux-src) plus every patch of packages/patched/kernel/linux/patches/series that
 # touches sound/ppc and is not in that tree yet. Config and Module.symvers: RELEASE's linux-image and
 # linux-headers debs in build/debs/linux (only read: it may hold release candidates).
 # Out: build/debs/snd-ps3/RELEASE/snd_ps3.ko, modinfo.txt, build.log. Work tree build/tmp/snd-ps3-ko,
@@ -32,13 +32,13 @@ cp "$SRC"/sound/ppc/snd_ps3.c "$SRC"/sound/ppc/snd_ps3.h "$SRC"/sound/ppc/snd_ps
 applied=
 while read -r p; do
 	case $p in ''|'#'*) continue ;; esac
-	grep -q '^+++ b/sound/ppc/' "linux/patches/$p" || continue
+	grep -q '^+++ b/sound/ppc/' "packages/patched/kernel/linux/patches/$p" || continue
 	if (cd "$W/m" && patch -p1 -R -s -f --dry-run < "$R/linux/patches/$p" > /dev/null 2>&1); then
 		echo ">> $p: in the tree already"
 	else
 		(cd "$W/m" && patch -p1 -s < "$R/linux/patches/$p"); applied="$applied $p"
 	fi
-done < linux/patches/series
+done < packages/patched/kernel/linux/patches/series
 echo 'obj-m := snd_ps3.o' > "$W/m/sound/ppc/Kbuild"
 kv=$(make -s -C "$SRC" kernelversion)
 mk=(make -C "$SRC" ARCH=powerpc CROSS_COMPILE=powerpc64-linux-gnu- O="$W/kb" LOCALVERSION="${REL#"$kv"}")

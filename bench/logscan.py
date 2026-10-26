@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""logscan.py [options] [run dir | build/bench dir]...: errors and warnings in the logs of games/bench runs.
+"""logscan.py [options] [run dir | build/bench dir]...: errors and warnings in the logs of bench runs.
 
 Scans game.log, out.log, dmesg.log, Xorg.0.log and wm.log of each run directory (default: every run
 in build/bench) plus the facts bench.txt carries (rc, ended, sound, underruns), normalises the
@@ -41,7 +41,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-BENCH = HERE.parent.parent / "build" / "bench"
+BENCH = HERE.parent / "build" / "bench"
 SINCE_DEFAULT = "20261019T09"     # runs from here on have Mesa ps3.544
 
 CLASSES = ["crash", "oom", "rsx", "nouveau", "gl", "audio", "sdl", "script", "x", "missing", "game"]
@@ -337,7 +337,7 @@ def find_dirs(args):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="errors and warnings in games/bench run logs")
+    ap = argparse.ArgumentParser(description="errors and warnings in bench run logs")
     ap.add_argument("dirs", nargs="*")
     ap.add_argument("--since", default=SINCE_DEFAULT, help="stamp prefix splitting before/after (default %(default)s)")
     ap.add_argument("-g", "--game", action="append", default=[])

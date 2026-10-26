@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""shots.py: the screenshots of games/bench runs (client.sh BENCH_SHOTS, run.sh SHOTS=; docs/games/SUITE.md
+"""shots.py: the screenshots of bench runs (client.sh BENCH_SHOTS, run.sh SHOTS=; docs/games/SUITE.md
 "Screenshots"). The picture check: a PS3 capture next to the PC reference of the same recipe at the same
 shot point, for a human or an agent to look at. Not a pixel diff: the two runs are at different moments
 (loads differ, physics isn't deterministic); only a black or flat screen is flagged by itself.
@@ -36,7 +36,7 @@ import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parent.parent
+REPO = HERE.parent
 TILE_W, TILE_H, GAP = 800, 450, 8
 SKIP_PKGS = {"libspeq0", "libfluidsynth3", "libopenal1", "libsdl3-0", "ps3-gpu-tools"}
 
@@ -446,7 +446,7 @@ def main(argv):
             print(line or "%s: no shots" % d)
     elif cmd == "post":
         made = post(args[0] if args else REPO / "build" / "bench", ref)
-        print(">> %d new sheet(s); not reviewed yet: games/bench/shots.py pending %s" % (len(made), args[0] if args else "build/bench"))
+        print(">> %d new sheet(s); not reviewed yet: bench/shots.py pending %s" % (len(made), args[0] if args else "build/bench"))
     elif cmd == "pending":
         pending(args[0] if args else REPO / "build" / "bench")
     else:

@@ -848,7 +848,7 @@ def build_boot_tool_fake():
         inc = SCRATCH / "guard-inc"
         inc.mkdir(exist_ok=True)
         with open(inc / "ps3disk_guard.h", "w") as f:
-            subprocess.run([str(ROOT / "linux" / "tests" / "guard-header.sh")], stdout=f, check=True)
+            subprocess.run([str(ROOT / "packages" / "patched" / "kernel" / "linux" / "tests" / "guard-header.sh")], stdout=f, check=True)
         subprocess.run(["gcc", "-O2", "-Wall", "-Wextra", "-Werror", "-DPS3_GUARD_FAKE", "-I", str(inc), "-I", str(HERE),
                         "-o", str(out), str(HERE / "ps3-imgmap-boot.c")], check=True)
     return out
@@ -971,7 +971,7 @@ for _cls in (GuardPhaseA, GuardBootTool):
 class VswapScript(unittest.TestCase):
     """ps3-system's ps3-vswap with PS3_VSWAP_DM (the SSD swap arm's backing): commands stubbed, /etc
     and /sys under PS3_VSWAP_ROOT; the default (no /etc/default/ps3-vswap) must stay the partition"""
-    SCRIPT = ROOT / "ps3-system" / "files" / "sbin" / "ps3-vswap"
+    SCRIPT = ROOT / "packages" / "walnut" / "system" / "ps3-system" / "files" / "sbin" / "ps3-vswap"
 
     def setUp(self):
         import stat

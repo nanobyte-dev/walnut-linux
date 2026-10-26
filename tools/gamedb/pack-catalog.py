@@ -2,7 +2,7 @@
 """pack-catalog.py [--out FILE]: the catalog the desktop app ships, build/gamedb/catalog.tar.
 
 Design
-- `make gamedb-catalog` runs this; walnut-games/package.conf COPY_IN takes the tarball into the
+- `make gamedb-catalog` runs this; packages/walnut/apps/walnut-games/package.conf COPY_IN takes the tarball into the
   package, whose rules unpack it to /usr/share/walnut-games/ (docs/GAMEDB.md "The desktop app").
 - Contents: catalog.json (catalog.py's, without the .deb links: the app installs from the apt
   repository), and for every game games/<id>/thumb.png plus the screenshots its tests list
@@ -36,7 +36,7 @@ def mtime():
     e = os.environ.get("SOURCE_DATE_EPOCH")
     if e:
         return int(e)
-    r = subprocess.run(["git", "-C", str(REPO), "log", "-1", "--format=%ct", "--", "gamedb/content"],
+    r = subprocess.run(["git", "-C", str(REPO), "log", "-1", "--format=%ct", "--", "website/gamedb/content"],
                        capture_output=True, text=True)
     return int(r.stdout.strip() or 0)
 
@@ -79,7 +79,7 @@ def pack(content, out, repo=REPO):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--content", default=str(REPO / "gamedb" / "content" / "games"))
+    ap.add_argument("--content", default=str(REPO / "website" / "gamedb" / "content" / "games"))
     ap.add_argument("--out", default=str(REPO / "build" / "gamedb" / "catalog.tar"))
     a = ap.parse_args()
     n, f = pack(a.content, a.out)

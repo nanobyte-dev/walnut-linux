@@ -1,7 +1,7 @@
 /* guard-fake.h: test builds of ps3-imgmap-boot only (-DPS3_GUARD_FAKE -I<dir of ps3disk_guard.h>;
  * test_ssdimg.py, vm-e2e.sh). A model of the kernel's /sys/block/ps3db/write_guard (local/0045) in
  * place of the sysfs I/O, on the kernel's own range code: ps3disk_guard.h, taken from the patch by
- * linux/tests/guard-header.sh. Like sysfs and the driver: a write of more than 4096 bytes is cut at
+ * packages/patched/kernel/linux/tests/guard-header.sh. Like sysfs and the driver: a write of more than 4096 bytes is cut at
  * 4096 before the parser sees it, each write is taken whole or not at all (EINVAL, ENOSPC), the seal
  * sorts and merges, and after it ranges and sealed give EPERM.
  *

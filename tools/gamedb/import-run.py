@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""import-run.py RUN... --game ID [--launcher NAME] [--shots POINTS] [--content DIR] [--dry-run]: turn games/bench run
+"""import-run.py RUN... --game ID [--launcher NAME] [--shots POINTS] [--content DIR] [--dry-run]: turn bench run
 directories into a game's tests in the Walnut Games catalog (docs/GAMEDB.md).
 
 Design
-- Input: a run directory of the harness (games/bench/run.sh, make bench-pull: bench.txt, versions,
-  hud/, game.log, dmesg.log, REVIEW.md, shots/). games/bench/report.py's run() supplies the numbers
+- Input: a run directory of the harness (bench/run.sh, make bench-pull: bench.txt, versions,
+  hud/, game.log, dmesg.log, REVIEW.md, shots/). bench/report.py's run() supplies the numbers
   it already derives (steady fps, 1% low, the interference verdict, memory, the screenshots' review);
   this tool adds the ones the rating needs and report.py doesn't compute:
     stutter   frames longer than max(50 ms, 3 x the median frame); the time they lost is their
@@ -62,8 +62,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
-sys.path[:0] = [str(REPO / "games" / "bench"), str(HERE)]   # python3 -I keeps the script's directory out
-import report   # noqa: E402  (games/bench/report.py)
+sys.path[:0] = [str(REPO / "bench"), str(HERE)]   # python3 -I keeps the script's directory out
+import report   # noqa: E402  (bench/report.py)
 import score    # noqa: E402
 import shots    # noqa: E402
 
@@ -114,14 +114,14 @@ def play_marks(d, b):
 
 
 def recipe_play_mark(game):
-    """a recipe's PLAY_MARK regex (games/bench/recipes/GAME.sh, sourced the way play-pc.sh does), or None"""
-    rec = REPO / "games" / "bench" / "recipes" / ("%s.sh" % game)
+    """a recipe's PLAY_MARK regex (bench/recipes/GAME.sh, sourced the way play-pc.sh does), or None"""
+    rec = REPO / "bench" / "recipes" / ("%s.sh" % game)
     if not rec.exists():
         return None
     try:
         out = subprocess.run(["bash", "-c", 'here=$1; ASSETS=$here/assets; CMD=(); ENV=(); PLAY_MARK=; LOAD_MARK=\n'
                               'setup() { :; }; parse() { :; }; . "$here/recipes/$2.sh" > /dev/null 2>&1; printf %s "$PLAY_MARK"',
-                              "_", str(REPO / "games" / "bench"), game], capture_output=True, text=True, timeout=20).stdout
+                              "_", str(REPO / "bench"), game], capture_output=True, text=True, timeout=20).stdout
     except (OSError, subprocess.SubprocessError):
         return None
     return out or None
@@ -316,7 +316,7 @@ def numbers(d, b, r):
     if play >= 30:
         n["sound_faults_per_min"] = round(faults / (play / 60), 2)
     n["sound_faults"] = faults
-    # the dropouts ps3-xrunlog measured (games/bench/xruns.py): the audible ones, plus OpenAL's waits
+    # the dropouts ps3-xrunlog measured (bench/xruns.py): the audible ones, plus OpenAL's waits
     # (each a second without sound), replace the fault counts in the score where the run has them
     if b.get("xrunlog") == "on" and report.num(b.get("xruns_audible")) is not None:
         start = play_start(d, b)
@@ -836,7 +836,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("runs", nargs="+")
     ap.add_argument("--game", required=True, help="the game's id (its folder under the content directory)")
-    ap.add_argument("--content", default=str(REPO / "gamedb" / "content" / "games"))
+    ap.add_argument("--content", default=str(REPO / "website" / "gamedb" / "content" / "games"))
     ap.add_argument("--launcher", help="the menu launcher's Name the run started (for runs that recorded none)")
     ap.add_argument("--shots", help="the screenshot points to publish, e.g. 60,240 (default: up to %d that differ)"
                     % SHOTS_MAX)

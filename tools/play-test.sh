@@ -1,7 +1,7 @@
 #!/bin/bash
 # play-test.sh: a played test, both sides from one command (docs/games/SUITE.md "Played sessions").
 #   play-test.sh check                    the PS3 is up and idle; the harness pushed and the logger in place
-#   play-test.sh start GAME [LAUNCHER]    the recorded session on the PS3 (games/bench/session.sh, which
+#   play-test.sh start GAME [LAUNCHER]    the recorded session on the PS3 (bench/session.sh, which
 #                                         counts the load from here) and the same game and launcher on this
 #                                         PC (tools/play-pc.sh, detached; its log in build/pc-play/GAME.log)
 #       PC=0 play-test.sh start ...       the PS3 only (the PC copy is still open, or a game with no PC side)
@@ -24,11 +24,11 @@ cmd=${1:-}; G=${2:-}; L=${3:-}
 # that lists it): BananaBread's entry runs the recipe that is still called sauerbraten
 E=$G; R=$G
 if [ -n "$G" ]; then
-	if [ -e "gamedb/content/games/$G/index.md" ]; then
-		r=$(sed -n 's/^recipes = \["\([a-z0-9-]*\).*/\1/p' "gamedb/content/games/$G/index.md")
-		[ -n "$r" ] && [ -e "games/bench/recipes/$r.sh" ] && R=$r
+	if [ -e "website/gamedb/content/games/$G/index.md" ]; then
+		r=$(sed -n 's/^recipes = \["\([a-z0-9-]*\).*/\1/p' "website/gamedb/content/games/$G/index.md")
+		[ -n "$r" ] && [ -e "bench/recipes/$r.sh" ] && R=$r
 	else
-		e=$(grep -l "^recipes = .*\"$G[:\"]" gamedb/content/games/*/index.md 2>/dev/null | head -1)
+		e=$(grep -l "^recipes = .*\"$G[:\"]" website/gamedb/content/games/*/index.md 2>/dev/null | head -1)
 		[ -n "$e" ] && E=$(basename "$(dirname "$e")")
 	fi
 fi
@@ -43,7 +43,7 @@ check)
 		df -h /var/tmp | awk "NR == 2 { print \"disk: \" \$4 \" free\" }"' ;;
 start)
 	[ -n "$G" ] || { echo "usage: play-test.sh start GAME [LAUNCHER]" >&2; exit 2; }
-	[ -e "games/bench/recipes/$R.sh" ] || { echo "!! no recipe games/bench/recipes/$R.sh" >&2; exit 2; }
+	[ -e "bench/recipes/$R.sh" ] || { echo "!! no recipe bench/recipes/$R.sh" >&2; exit 2; }
 	# the PS3 first: the load time counts from here
 	ps3 "systemctl --user is-active -q walnut-session-$R && { echo '!! a $R session is still open (its form?)'; exit 1; }
 		systemctl --user is-active -q ps3-game-mode.service && { echo '!! a game is running'; exit 1; }
@@ -71,7 +71,7 @@ import glob, os, sys, tomllib
 g, entry = sys.argv[1], sys.argv[2]
 kv = lambda f: dict(l.split("=", 1) for l in open(f, errors="replace").read().splitlines() if "=" in l)
 done = set()
-for r in glob.glob("gamedb/content/games/%s/tests/*/result.toml" % entry):
+for r in glob.glob("website/gamedb/content/games/%s/tests/*/result.toml" % entry):
     done.add(tomllib.loads(open(r).read()).get("run"))
 runs = sorted(glob.glob("build/bench/ps3-bench-*-session-%s-*" % g))
 if not runs:

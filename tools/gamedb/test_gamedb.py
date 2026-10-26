@@ -126,7 +126,7 @@ class Display(unittest.TestCase):
 
 
 class Geom(unittest.TestCase):
-    """games/bench/geom.py's window choice, with xwininfo/xprop faked"""
+    """bench/geom.py's window choice, with xwininfo/xprop faked"""
     TREE = """
 xwininfo: Window id: 0x1a3 (the root window) (has no name)
 
@@ -167,7 +167,7 @@ xwininfo: Window id: 0x1a3 (the root window) (has no name)
 
 
 def load_geom():
-    spec = importlib.util.spec_from_file_location("geom", REPO / "games" / "bench" / "geom.py")
+    spec = importlib.util.spec_from_file_location("geom", REPO / "bench" / "geom.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -368,7 +368,7 @@ class Check(unittest.TestCase):
         self.assertIn("unexpected file stray.dat", " ".join(self.problems()["ex"]))
 
     def test_repository_catalog_is_valid(self):
-        self.assertEqual(check.check(REPO / "gamedb" / "content" / "games"), {})
+        self.assertEqual(check.check(REPO / "website" / "gamedb" / "content" / "games"), {})
 
 
 class Importer(unittest.TestCase):
@@ -577,7 +577,7 @@ def fixture_game(d):
     """OpenArena's catalog entry in d with one benchmark test (testdata/demo-result.toml, a 2026-10-20
     run): the test folder, for the tests that need a rated game"""
     g = Path(d) / "openarena"
-    shutil.copytree(REPO / "gamedb" / "content" / "games" / "openarena", g, ignore=shutil.ignore_patterns("tests"))
+    shutil.copytree(REPO / "website" / "gamedb" / "content" / "games" / "openarena", g, ignore=shutil.ignore_patterns("tests"))
     t = g / "tests" / "2026-10-20-demo"
     t.mkdir(parents=True)
     shutil.copy(Path(__file__).parent / "testdata" / "demo-result.toml", t / "result.toml")
@@ -587,8 +587,9 @@ def fixture_game(d):
 class Catalog(unittest.TestCase):
     def test_patch_subjects(self):
         with tempfile.TemporaryDirectory() as t:
-            p = Path(t) / "pkg" / "patches"
+            p = Path(t) / "packages" / "patched" / "games" / "pkg" / "patches"
             p.mkdir(parents=True)
+            (p.parent / "package.conf").write_text("TYPE=debsrc\n")
             (p / "series").write_text("0001-a.patch\n0002-b.patch\n")
             (p / "0001-a.patch").write_text("From: x\nSubject: [PATCH 1/2] first thing\n and its tail\nDate: y\n\n---\n")
             (p / "0002-b.patch").write_text("Subject: second\n")
@@ -691,11 +692,11 @@ class Catalog(unittest.TestCase):
             self.assertEqual({t["launcher"] for t in out["tests"]}, {"OpenArena (GL 1.2)", "OpenArena (GL 2.0)"})
 
     def test_repository_catalog(self):
-        cat = catalog.build(REPO / "gamedb" / "content" / "games", REPO)
+        cat = catalog.build(REPO / "website" / "gamedb" / "content" / "games", REPO)
         self.assertEqual(cat["schema"], 1)
         self.assertEqual(cat["content_date"], max(t["date"] for g in cat["games"] for t in g["tests"]))
         self.assertEqual(len(cat["revision"]), 16)
-        again = catalog.build(REPO / "gamedb" / "content" / "games", REPO)
+        again = catalog.build(REPO / "website" / "gamedb" / "content" / "games", REPO)
         self.assertEqual(again["revision"], cat["revision"])     # content only, not the clock
         ids = [g["id"] for g in cat["games"]]
         self.assertTrue({"openarena", "supertuxkart", "warzone2100", "xmoto"} <= set(ids))
@@ -725,7 +726,7 @@ class RulesV1Unchanged(unittest.TestCase):
 
     def test_snapshot(self):
         snap = json.loads((HERE / "testdata" / "v1-ratings.json").read_text())
-        cat = {g["id"]: g for g in catalog.build(REPO / "gamedb" / "content" / "games", REPO)["games"]}
+        cat = {g["id"]: g for g in catalog.build(REPO / "website" / "gamedb" / "content" / "games", REPO)["games"]}
         same = 0
         for gid, want in snap.items():
             g = cat.get(gid)
@@ -1109,7 +1110,7 @@ class ImporterV2(Importer):
 
 
 def load_bench(name):
-    spec = importlib.util.spec_from_file_location(name.replace("-", "_"), REPO / "games" / "bench" / (name + ".py"))
+    spec = importlib.util.spec_from_file_location(name.replace("-", "_"), REPO / "bench" / (name + ".py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -1295,7 +1296,7 @@ class Recorders(unittest.TestCase):
                                                     "saves_load=no,notes=a\\nb")
             env.pop("DISPLAY", None)
             import subprocess
-            p = subprocess.run([sys.executable, "-I", str(REPO / "games" / "bench" / "session-form.py"), t, "g", "base"],
+            p = subprocess.run([sys.executable, "-I", str(REPO / "bench" / "session-form.py"), t, "g", "base"],
                                env=env, capture_output=True, text=True)
             self.assertEqual(p.returncode, 0, p.stderr)
             f = tomllib.loads((Path(t) / "session.toml").read_text())

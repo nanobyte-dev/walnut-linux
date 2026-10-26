@@ -2,7 +2,7 @@
 #   base: a real game (2026-10-19). assets/openttd-bench.sav: 1962, 30 towns (65000 inhabitants),
 #         318 stations, 132 trains, 600 road vehicles, 5 ships, 83 aircraft (a 256x256 map, played by
 #         six AIs for 12 years on the PC, then every company made a human one: no script runs, no AI
-#         window, no news; made with games/bench/openttd-savegen/). Loaded from the command line
+#         window, no news; made with bench/openttd-savegen/). Loaded from the command line
 #         (-g), 1920x1080 fullscreen, the camera on Taningville (a city of 5000 with a rail station
 #         and a bus hub, ~35 vehicles within 16 tiles) at the normal zoom, the game at normal speed
 #         for the whole run (OpenTTD has no timedemo: a fixed duration; the game thread's work per
@@ -17,7 +17,7 @@
 #         survey off (OpenTTD 14+ asks on the first start). The AI window can't open: no AI is left
 #         in the save.
 #         The PS3 needs the image's openttd, openttd-opengfx, openttd-opensfx, openttd-openmsx and
-#         fluidsynth with a soundfont (all in image/deps.txt), no NewGRF, no AI.
+#         fluidsynth with a soundfont (all from Debian), no NewGRF, no AI.
 #   sw:   the same game with the SDL software video driver through plain X11 (SDL3's accelerated
 #         window framebuffer shows a blue cast on big-endian until the SDL3 fix): no GL, so no HUD and
 #         no fps (CPU profiles, stalls, memory); the window starts at the savegame's load line
@@ -133,7 +133,7 @@ variant_sim() {
 	HUD=0; WM=; DURATION=90; WINDOW_STOP=0; LOAD_MARK=
 }
 # the title game with the sdl-opengl driver (the package's default blitter: 32bpp-anim before patch
-# 0003, with sprites drawn on the CPU and the palette animation and the screen upload on the GPU); needs our openttd package (openttd/:
+# 0003, with sprites drawn on the CPU and the palette animation and the screen upload on the GPU); needs our openttd package (packages/patched/games/openttd/:
 # Debian's refuses nv30, no ARB_texture_rg); compare with title and accel
 # -d driver=2: the GL renderer, the luminance fallback and shader compiler warnings on stderr
 variant_gl() { OT_GAME=title; OT_V=sdl-opengl; ot_cmd; CMD+=(-d driver=2); HUD=1; LOAD_MARK='Loading savegame version'; }

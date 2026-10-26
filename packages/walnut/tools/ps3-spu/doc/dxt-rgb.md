@@ -85,7 +85,7 @@ On the PPE side `touch` (the page pre-touch before submit) now reads the source 
   behaviour, for A/B runs (debug line `ppe (SPEQ_S3TC_RGB=ppe)`); `off`: RGB sources back to Mesa's
   encoder (-ENOTSUP); `auto` (default): as RGBA.
 - Bench recipes: `rgbspu` (the default path with `SPEQ_DEBUG=1`) and `rgbppe`
-  (`SPEQ_S3TC_RGB=ppe SPEQ_DEBUG=1`) in `games/bench/recipes/sauerbraten.sh` and `openarena.sh`.
+  (`SPEQ_S3TC_RGB=ppe SPEQ_DEBUG=1`) in `bench/recipes/sauerbraten.sh` and `openarena.sh`.
 
 ## 4. Tests (host, 2026-10-18)
 
@@ -116,7 +116,7 @@ After `make deploy PKGS="libspeq0"` (the user's call), as tibi over SSH, desktop
     speq-dxt --bench --fmt dxt1 --comps 4       # the same with RGBA, to compare
     SPEQ_DEBUG=1 SPEQ_S3TC=spu gl-dxt           # through glTexImage (RGBA)
 
-`dxt-test.spu` (cycles of the expansion): on the host `make -f ps3-spu/spu/dxt-test.mk
+`dxt-test.spu` (cycles of the expansion): on the host `make -f packages/walnut/tools/ps3-spu/spu/dxt-test.mk
 O=build/tmp/dxt-test`, copy `build/tmp/dxt-test/dxt-test.spu` over, `spurun dxt-test.spu
 result`: `PASS ...; rgb expand N cyc/16px`.
 

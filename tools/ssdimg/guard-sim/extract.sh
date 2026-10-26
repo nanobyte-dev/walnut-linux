@@ -1,6 +1,6 @@
 #!/bin/sh
 # extract.sh OUTDIR [PATCH]: the sources of ps3guard_sim (vm-e2e.sh) into OUTDIR: ps3guard_sim.c and
-# Kbuild from here, and from local/0045 itself: ps3disk_guard.h (linux/tests/guard-header.sh), then
+# Kbuild from here, and from local/0045 itself: ps3disk_guard.h (packages/patched/kernel/linux/tests/guard-header.sh), then
 # the patch's own ps3disk.c code the simulation runs unchanged: guard-struct.inc (struct
 # ps3disk_guard) and guard-patch.inc (ps3disk_region_idx, ps3disk_guard_of, ps3disk_region_policy,
 # ps3disk_set_read_only and the whole sysfs interface: write_guard/'s show and store functions, the

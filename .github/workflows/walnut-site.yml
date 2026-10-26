@@ -1,19 +1,19 @@
-# Publishes walnut.nanobyte.dev's site (tools/walnut-server/site/, with the Walnut Games database built
+# Publishes walnut.nanobyte.dev's site (website/site/, with the Walnut Games database built
 # into /gamedb/ by tools/gamedb/build.sh) on every push that changes them, or when started by hand. The upload
 # goes to the walnut-upload container (write-only, no shell); the server's walnut-watch checks it,
 # builds walnut-site:<id> and switches the container, and this job waits until the new version is
 # served. Secret WALNUT_DEPLOY_KEY: the upload key (environment walnut-site; add a required reviewer
-# there to gate it). The server's host key is pinned in tools/walnut-server/known_hosts.
+# there to gate it). The server's host key is pinned in servers/walnut.nanobyte.dev/known_hosts.
 name: Walnut site
 
 on:
   push:
     branches: [main]
     paths:
-      - "gamedb/**"
+      - "website/gamedb/**"
       - "tools/gamedb/**"
-      - "tools/walnut-server/site/**"
-      - "tools/walnut-server/publish-site.sh"
+      - "website/site/**"
+      - "servers/walnut.nanobyte.dev/publish-site.sh"
       - ".github/workflows/walnut-site.yml"
   workflow_dispatch:
 
@@ -41,7 +41,7 @@ jobs:
           key="$RUNNER_TEMP/walnut-deploy"
           install -m 600 /dev/null "$key"
           printf '%s\n' "$WALNUT_DEPLOY_KEY_DATA" > "$key"
-          WALNUT_DEPLOY_KEY="$key" tools/walnut-server/publish-site.sh
+          WALNUT_DEPLOY_KEY="$key" servers/walnut.nanobyte.dev/publish-site.sh
       - name: Remove the key
         if: always()
         run: rm -f "$RUNNER_TEMP/walnut-deploy"

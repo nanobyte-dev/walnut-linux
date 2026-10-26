@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * ps3guard_sim: ps3disk's write guard (linux/patches/local/0045) in vm-e2e.sh's x86 KVM guest, which
+ * ps3guard_sim: ps3disk's write guard (packages/patched/kernel/linux/patches/local/0045) in vm-e2e.sh's x86 KVM guest, which
  * has no PS3 storage. Two bio-based disks named like the PS3's, each over a virtio disk:
  *
  *   ps3da  region 0 over da= (default /dev/vdb): read-only

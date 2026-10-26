@@ -10,7 +10,7 @@
  *   -D        the device (default "default": the one ps3-xrunlog wraps)
  *   -a        the tone's loudness, RMS dBFS (default -40: quiet)
  *   -g        the gaps in ms, comma-separated (default 10,40,150,s60); an "s" makes that one silent
- *             on both sides (not audible by games/bench/xruns.py's rule)
+ *             on both sides (not audible by bench/xruns.py's rule)
  *   -l        the libasound to dlopen (default libasound.so.2), loaded with dlopen and its functions
  *             with dlsym, as SDL and OpenAL Soft do
  *   -n        don't set up the log: just play (for listening)

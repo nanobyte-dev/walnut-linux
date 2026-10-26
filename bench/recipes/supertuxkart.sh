@@ -1,4 +1,4 @@
-# SuperTuxKart 1.5 (our build, supertuxkart/: big-endian .spm loading, legacy-renderer fixes;
+# SuperTuxKart 1.5 (our build, packages/patched/games/supertuxkart/: big-endian .spm loading, legacy-renderer fixes;
 # 839 MB with its data, deployed by name, not in ps3-games). Its profile mode (--profile-time)
 # starts a race at once with every kart driven by the AI, drives for the given seconds, prints
 # "Number of frames: N time T, Average FPS: F" and quits. GL 2.1 picks the legacy renderer by

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds the PS3 root filesystem image: the package layer (build/rootfs/base.tar, from
-# build-rootfs.sh) plus our configuration (image/customize.sh) and our own packages from
+# build-rootfs.sh) plus our configuration (system/image/customize.sh) and our own packages from
 # build/debs/* (kernels, RSX driver, Mesa, games, SPU tools: make packages) or WALNUT_SUITE. Takes a
 # minute or two, so a config change doesn't reinstall the Debian packages. Runs as root in the
 # builder container. Inputs (env): ROOTFS_CUSTOMIZE SOURCE_DATE_EPOCH BOOT_ROOT_ARGS
@@ -97,11 +97,11 @@ fi
 # timer still updates it), and none in the image (index.db isn't reproducible)
 echo "man-db man-db/auto-update boolean false" | chroot "$R" debconf-set-selections
 if [ "$PROFILE" = "public" ]; then
-	PKGS=$(grep -v -e '^\s*#' -e '^\s*$' image/packages-ours.txt | \
+	PKGS=$(grep -v -e '^\s*#' -e '^\s*$' system/image/packages-ours.txt | \
 		grep -v -E '^(linux-image-ps3-debug|ps3rsx-modules-ps3-debug|ps3-games-licensed|classicube)$' | \
 		sed 's/^ps3-games$/ps3-games-free/')
 else
-	PKGS=$(grep -v -e '^\s*#' -e '^\s*$' image/packages-ours.txt)
+	PKGS=$(grep -v -e '^\s*#' -e '^\s*$' system/image/packages-ours.txt)
 fi
 APT="chroot $R env DEBIAN_FRONTEND=noninteractive apt-get -q -y -o Dpkg::Use-Pty=0 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold"
 $APT update > /dev/null
@@ -123,14 +123,14 @@ if [ "${WALNUT_SUITE:-}" = testing ]; then
 	printf '%s\n' '# a nightly image: testing as the default (ps3-system walnut.pref has it at 1 otherwise)' \
 		'Package: *' 'Pin: release o=Walnut, n=testing' 'Pin-Priority: 990' > "$R/etc/apt/preferences.d/00-walnut-nightly"
 fi
-# The release this image becomes (WALNUT_RELEASE, from tools/ci/release-id.sh: VERSION's A.B and the
+# The release this image becomes (WALNUT_RELEASE, from github-ci/release-id.sh: VERSION's A.B and the
 # next C, or a nightly's id), for bug reports; a file of its own, which updates never change
 if [ -n "${WALNUT_RELEASE:-}" ]; then
 	printf '%s\n' '# the Walnut release this system was installed from (written by the image build)' \
 		"BUILD_ID=$WALNUT_RELEASE" "SUITE=${WALNUT_SUITE:-}" > "$R/etc/walnut-image"
 fi
 # Public profile: no video= (the mode follows Petitboot's, which works on any TV). Kernel packages
-# carry none from +ps3.747 on (linux/flavours/*.args; the dev profile sets its 1080p in
+# carry none from +ps3.747 on (packages/patched/kernel/linux/flavours/*.args; the dev profile sets its 1080p in
 # PS3_EXTRA_ARGS above); older ones still in a suite had the dev console's mode:133, stripped here
 if [ "$PROFILE" = "public" ]; then
 	for argf in "$R"/usr/lib/ps3/boot/*.args; do
@@ -147,7 +147,7 @@ chroot "$R" apt-get clean
 rm -rf "$R"/var/lib/apt/lists/* && mkdir -p "$R/var/lib/apt/lists/partial"
 chroot "$R" ldconfig
 
-# The installation's own settings: hostname, user, SSH key, locale (image/customize.sh)
+# The installation's own settings: hostname, user, SSH key, locale (system/image/customize.sh)
 PROFILE="$PROFILE" PUBKEY_FILE="$PWD/$OUT/authorized_keys" bash "$ROOTFS_CUSTOMIZE" "$R"
 
 umount "$R/proc" "$R/sys"

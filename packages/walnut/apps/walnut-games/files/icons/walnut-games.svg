@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
-  <!-- Walnut Games: the walnut mark (tools/walnut-server/site/walnut-mark.svg) on a Walnut-blue tile,
+  <!-- Walnut Games: the walnut mark (website/site/walnut-mark.svg) on a Walnut-blue tile,
        a small gamepad in the corner; readable down to the panel's 24 px -->
   <defs>
     <mask id="cut" maskUnits="userSpaceOnUse" x="-200" y="-200" width="400" height="400">

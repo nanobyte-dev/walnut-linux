@@ -4,7 +4,7 @@
 # into build/sources/<pkg>/, and checks the .dsc against DSC_SHA256 (printed if not pinned yet).
 # package.conf COMPONENT (e.g. contrib): the archive component the source is in, when it isn't main;
 # the builder's apt sources are main only, so its deb-src lines are added for this fetch (the
-# container is thrown away after it; docker/Dockerfile.deb stays as it is).
+# container is thrown away after it; build-containers/Dockerfile.deb stays as it is).
 # package.conf SOURCE_SNAPSHOT: a Debian source newer than the build snapshot, fetched from the
 # snapshot it first appears in (its unstable deb-src line added the same way); DSC_SHA256 still pins it.
 # Env: OWNER (uid:gid for the files)
@@ -13,7 +13,8 @@ set -euo pipefail
 # execute a shifted fragment.
 {
 PKG=$1
-. "$PKG/package.conf"
+PD=$(tools/pkg-dir.sh "$PKG")
+. "$PD/package.conf"
 OUT=build/sources/$PKG
 mkdir -p "$OUT"
 DSC=$OUT/${SOURCE}_${VERSION#*:}.dsc
@@ -32,7 +33,7 @@ fi
 chown -R "${OWNER:-0:0}" "$OUT"
 sum=$(sha256sum "$DSC" | cut -d' ' -f1)
 if [ -z "${DSC_SHA256:-}" ]; then
-	echo "!! $PKG/package.conf has no DSC_SHA256; the downloaded .dsc is: DSC_SHA256=$sum"
+	echo "!! $PD/package.conf has no DSC_SHA256; the downloaded .dsc is: DSC_SHA256=$sum"
 	exit 1
 fi
 [ "$sum" = "$DSC_SHA256" ] || { echo "!! $DSC: sha256 $sum, expected $DSC_SHA256"; exit 1; }

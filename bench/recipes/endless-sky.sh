@@ -1,4 +1,4 @@
-# Endless Sky 0.11.2 (our ppc64 build, endless-sky/: endless-sky 0.11.2-1+ps3.N plus endless-sky-data; Debian's
+# Endless Sky 0.11.2 (our ppc64 build, packages/patched/games/endless-sky/: endless-sky 0.11.2-1+ps3.N plus endless-sky-data; Debian's
 # source with our patches: big-endian pixel and WAV fixes, ES_LOW_MEMORY defaults, the game's OpenGL 2 path
 # with GLSL 1.20 shaders in shaders-gl2 and the sprites as 2D atlases for Mesa's DXT compression): smoke
 # test, not benchmarked. Needs our endless-sky (the upstream package has no GL2 shaders and its pixel code is

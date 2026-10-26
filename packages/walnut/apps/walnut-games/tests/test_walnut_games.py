@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for the walnut-games package, on a PC without root, apt or (unless an X server program is
-installed) a display: python3 -I walnut-games/tests/test_walnut_games.py (tools/run-tests.sh, suite
+installed) a display: python3 -I packages/walnut/apps/walnut-games/tests/test_walnut_games.py (tools/run-tests.sh, suite
 walnut-games).
 
 - The root helper (files/sbin/walnut-games-helper): ids and package names validated, packages only
@@ -30,6 +30,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PKG = HERE.parent
+REPO = PKG.parents[3]   # the repository (PKG: packages/walnut/apps/walnut-games)
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(PKG / "files" / "lib"))
 import walnut_games as app   # noqa: E402
@@ -417,9 +418,9 @@ class AppFunctions(unittest.TestCase):
             self.assertIn(m, app.MEDAL_COLORS)
 
     def test_the_packaged_catalog_of_the_repository(self):
-        sys.path.insert(0, str(PKG.parent / "tools" / "gamedb"))
+        sys.path.insert(0, str(REPO / "tools" / "gamedb"))
         import catalog
-        cat = catalog.build(PKG.parent / "gamedb" / "content" / "games", PKG.parent)
+        cat = catalog.build(REPO / "website" / "gamedb" / "content" / "games", REPO)
         for g in cat["games"]:
             helper.game_packages(g["id"], {x["id"]: x for x in cat["games"]})   # the helper accepts every entry
             self.assertIn(app.medal_of(g), app.MEDAL_ORDER)

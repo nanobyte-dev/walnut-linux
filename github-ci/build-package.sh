@@ -4,27 +4,28 @@
 # source package). No secrets here: this job runs the build, the keys are only in the publish job.
 # Our own build dependencies (package.conf LOCAL_DEPS; ps3rsx: the kernel) come from the suite the
 # build is for, checked against its signed index. The licensed packages never build in CI
-# (tools/licensed-packages.txt).
+# (packages/licensed/, and tools/licensed-packages.txt as a second check).
 set -euo pipefail
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/.."
 pkg=$1 out=$2 target=${3:-testing}
 case $target in
-	testing) ring=tools/walnut-server/testing-keyring.gpg ;;
-	stable) ring=tools/walnut-server/archive-keyring.gpg ;;
+	testing) ring=apt-repo/keyrings/testing-keyring.gpg ;;
+	stable) ring=apt-repo/keyrings/archive-keyring.gpg ;;
 	*) echo "!! target: testing or stable" >&2; exit 2 ;;
 esac
-[ -f "$pkg/package.conf" ] || { echo "!! no package $pkg" >&2; exit 2; }
+pd=$(tools/pkg-dir.sh "$pkg") || exit 2
+case $pd in packages/licensed/*) echo "!! $pkg is licensed ($pd): never built in CI" >&2; exit 2 ;; esac
 ! grep -qx "$pkg" tools/licensed-packages.txt || { echo "!! $pkg is licensed: never built in CI" >&2; exit 2; }
-conf() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" "$pkg/package.conf"; }
-tools/ci/runner-prep.sh
+conf() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" "$pd/package.conf"; }
+github-ci/runner-prep.sh
 
 fetch() {	# fetch DIR SOURCE: the target suite's newest build of SOURCE into build/debs/DIR
-	tools/walnut-repo.py fetch --suite "$target" --keyring "$ring" --source "$2" --to "build/debs/$1"
+	apt-repo/walnut-repo.py fetch --suite "$target" --keyring "$ring" --source "$2" --to "build/debs/$1"
 }
 deps=$(conf LOCAL_DEPS)
 [ "$pkg" = ps3rsx ] && deps="linux"
 for d in $deps; do
-	s=$(sed -n 's/^SOURCE=//p' "$d/package.conf"); s=${s:-$d}
+	s=$(sed -n 's/^SOURCE=//p' "$(tools/pkg-dir.sh "$d")/package.conf"); s=${s:-$d}
 	echo "::group::build dependency $d ($s) from $target"
 	fetch "$d" "$s"
 	echo "::endgroup::"

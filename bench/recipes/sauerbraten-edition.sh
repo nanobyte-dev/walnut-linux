@@ -1,7 +1,7 @@
 # Sauerbraten, the real game (Cube 2: Sauerbraten, 2020 Edition): our `sauerbraten` launcher (fullscreen at the
 # desktop's resolution, settings in ~/.sauerbraten) on our cube2 engine, with sauerbraten-data (the release's
-# maps, textures, models, sounds; ps3-licensed). The engine and its patches are the ones of the BananaBread
-# recipe (sauerbraten.sh, Debian's cube2 + cube2/patches): CPU skinning (gpuskel 0), textures compressed at
+# maps, textures, models, sounds; the licensed suite). The engine and its patches are the ones of the BananaBread
+# recipe (sauerbraten.sh, Debian's cube2 + packages/patched/games/cube2/patches): CPU skinning (gpuskel 0), textures compressed at
 # upload (texcompress), the cheaper GL call patterns. Only the data differs. Settings go into
 # ~/.sauerbraten/autoexec.cfg (run after config.cfg, so the player's saved fullscreen or vsync can't override
 # them); the files are restored after the run.
@@ -20,7 +20,7 @@ DATA_DIRS=(/usr/share/games/sauerbraten)
 SB_HOME=$HOME/.sauerbraten
 BACKUP=("$SB_HOME/autoexec.cfg" "$SB_HOME/config.cfg" "$SB_HOME/restore.cfg" "$SB_HOME/init.cfg")
 # played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
-# freshhome.py); checked against sauerbraten/files/sauerbraten: -q"$HOME/.sauerbraten"
+# freshhome.py); checked against packages/walnut/apps/sauerbraten/files/sauerbraten: -q"$HOME/.sauerbraten"
 SESSION_HOME=(.sauerbraten)
 SB_MAP=ot
 SB_SET=()	# extra CubeScript lines for autoexec.cfg (variants)

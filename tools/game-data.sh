@@ -1,6 +1,6 @@
 #!/bin/bash
 # game-data.sh <out dir> <game>:<package>...: game data debs made by game-data-packager (in the games
-# builder, docker/Dockerfile.games), e.g. quake:quake-shareware. Their data is non-free: the
+# builder, build-containers/Dockerfile.games), e.g. quake:quake-shareware. Their data is non-free: the
 # password-protected licensed suite on walnut.nanobyte.dev only (tools/licensed-packages.txt), never
 # anywhere public.
 # game-data-packager's output isn't reproducible (file dates are the build time), and the licensed
@@ -10,7 +10,7 @@
 # game-data-packager): a regenerated file under a published version is refused here.
 # Downloads (the shareware archives) are kept in build/downloads/game-data.
 # Env: LICENSED_URL (https://walnut.nanobyte.dev/licensed), LICENSED_NETRC (a curl netrc with the
-# suite's login, tools/licensed-auth.sh FILE netrc), REGEN
+# suite's login, apt-repo/licensed-auth.sh FILE netrc), REGEN
 set -euo pipefail
 # One block, parsed whole before it runs: editing this file during a run can't make bash
 # execute a shifted fragment.

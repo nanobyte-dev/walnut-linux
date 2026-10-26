@@ -13,7 +13,7 @@ if it exists (`base` needs none).
 | `BACKUP=(...)` | files the game rewrites (configs): restored after every run |
 | `SESSION_HOME=(...)` | the game's settings and data directories under ~ (globs allowed): a played session sets them aside and runs the game on fresh defaults (freshhome.py); without it, the top directories of the BACKUP files |
 | `DATA_DIRS=(...)` | the game's data directories (absolute): `GAMEDATA=ssd` (run.sh, an ENVS token) runs the game with each one bind-mounted from its SSD copy (`ssd-arm.sh copy GAME` makes it; docs/GAMEOS-HDD.md "Test drive, Phase A") |
-| `setup()` | puts assets and config in place (`$ASSETS` is `games/bench/assets`) |
+| `setup()` | puts assets and config in place (`$ASSETS` is `bench/assets`) |
 | `END_RE` | output line after which the game is stopped (games that don't quit) |
 | `DURATION` | seconds from start after which the game is stopped: a safety cap (default 270: load + 60 s warm-up + 120 s measured + margin) |
 | `WARMUP`, `MEASURE` | the steady state (the user, 2026-10-17): `WARMUP` seconds after the load ends are left out (default 60), then at least `MEASURE` seconds are measured (default 120). The load ends at the `LOAD_MARK` line or the first `LOAD_RE` line, else at the HUD's first frame |
@@ -43,12 +43,12 @@ Each recipe's header says how its warm-up and window work (passes, the game's ow
 HUD window, and what is not identical between runs). `bench.txt` gets `warmup`, `measure`,
 `load_end` and `hud_t1` (seconds from the start: the load's end, the HUD's first value), `window`
 (start and end of the measured window), `passes`, `measured` and `pass<N>` lines (`start end fps
-maxms counted`) for report.py. `python3 games/bench/selftest.py` checks client.sh, report.py and
+maxms counted`) for report.py. `python3 bench/selftest.py` checks client.sh, report.py and
 matrix.py with a fake game and made-up runs, and sources every recipe and variant.
 
 `openal.inc` is not a recipe: the OpenAL Soft variants (`allog`, `b16`, `f44`, `b16f44`, `p1024`,
 `alnull`) the OpenAL games' recipes share (docs/SPU-AUDIO.md, M0), with an optional perf profile
-(`OAL_PERF=N`) that `games/bench/oal-perf.sh` splits by symbol.
+(`OAL_PERF=N`) that `bench/oal-perf.sh` splits by symbol.
 
 `smoke.inc` is not a recipe either: the shared header of the smoke recipes (`SUITE=0`, a 120 s
 `DURATION` that `SMOKE_SECS` overrides, a short HUD window, `vblank_mode=0`). A smoke recipe is a

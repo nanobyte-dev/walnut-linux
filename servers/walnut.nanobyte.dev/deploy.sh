@@ -16,7 +16,7 @@
 # `nginx -t` fails). The systemd units need sudo. Content is published by uploads, never by this.
 set -euo pipefail
 cd "$(dirname "$0")"
-{ read -r host; read -r user; read -r pass; read -r ccache_auth; } < <(../config-get.sh WALNUT_HOST WALNUT_LICENSED_USER WALNUT_LICENSED_PASS WALNUT_CCACHE_AUTH)
+{ read -r host; read -r user; read -r pass; read -r ccache_auth; } < <(../../tools/config-get.sh WALNUT_HOST WALNUT_LICENSED_USER WALNUT_LICENSED_PASS WALNUT_CCACHE_AUTH)
 [ -n "$host" ] && [ -n "$user" ] && [ -n "$pass" ] && [ -n "$ccache_auth" ] || { echo "!! set WALNUT_HOST, WALNUT_LICENSED_USER, WALNUT_LICENSED_PASS, WALNUT_CCACHE_AUTH (user:password) in config.local.mk" >&2; exit 2; }
 [ -s deploy-keys.pub ] || { echo "!! no deploy-keys.pub (the upload keys' public halves)" >&2; exit 2; }
 DIR=/data/nanobyte/Walnut
@@ -33,7 +33,8 @@ trap 'command ssh -o ControlPath="$CTL" -O exit "$host" 2>/dev/null || true' EXI
 ssh "$host" "umask 022; mkdir -p $DIR/{incoming/{site,download,apt,licensed},www/{apt,download,licensed},site,state,bin,keys,upload-keys}
 	chmod 755 $DIR $DIR/{incoming,incoming/*,www,www/*,site,state,bin,keys,upload-keys}"
 # nginx.conf with the snapshot dates the builds use (the only ones the Debian cache passes)
-dates=$(cat ../../config.mk ../../*/upstream.mk ../ssdimg/upstream.mk ../../*/package.conf | grep -oE '[0-9]{8}T[0-9]{6}Z' | sort -u | paste -sd'|')
+dates=$(cat ../../config.mk ../../packages/*/*/upstream.mk ../../packages/*/*/*/upstream.mk \
+	../../tools/ssdimg/upstream.mk ../../packages/*/*/package.conf ../../packages/*/*/*/package.conf | grep -oE '[0-9]{8}T[0-9]{6}Z' | sort -u | paste -sd'|')
 [ -n "$dates" ] || { echo "!! no snapshot dates found" >&2; exit 1; }
 sed "s/@SNAPSHOT_DATES@/$dates/" repo.conf > "$CTL.repo.conf"
 rsync -rt --chmod=D755,F644 docker-compose.yml Dockerfile site.conf upload aptcache ccache "$host:$DIR/"
@@ -44,11 +45,11 @@ ssh "$host" "umask 022; mkdir -p $DIR/aptcache-data
 rsync -t --chmod=755 walnut-watch "$host:$DIR/bin/"
 # the public keys: archive (releases, stable, licensed) and CI (testing only); a suite whose key is
 # missing is refused
-for k in archive-keyring.gpg testing-keyring.gpg; do
+for k in ../../apt-repo/keyrings/{archive,testing}-keyring.gpg; do
 	if [ -s "$k" ]; then
 		rsync -t --chmod=644 "$k" "$host:$DIR/keys/"
 	else
-		echo "-- no $k yet: what it signs is refused until there is one"
+		echo "-- no ${k##*/} yet: what it signs is refused until there is one"
 	fi
 done
 ssh "$host" "rm -f $DIR/www/index.html"	# the first placeholder, now in the site

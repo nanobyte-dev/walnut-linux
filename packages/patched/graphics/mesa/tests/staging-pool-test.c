@@ -5,7 +5,7 @@
  * every flush): OpenTTD's two full-screen uploads a frame, a load-time burst followed by silence,
  * and random traffic against the invariants (bytes = sum of the classes, at most M MiB and 16
  * entries, nothing older than the idle time after an age).
- *   cc -I build/work/mesa/src/gallium/drivers/nouveau mesa/tests/staging-pool-test.c
+ *   cc -I build/work/mesa/src/gallium/drivers/nouveau packages/patched/graphics/mesa/tests/staging-pool-test.c
  * (tools/run-tests.sh mesa-staging-pool; skipped without build/work/mesa) */
 #include <stdio.h>
 #include <stdlib.h>

@@ -10,7 +10,8 @@ set -euo pipefail
 {
 MODE=$1 PKG=$2
 : "${NEWVERSION:?}"
-. "$PKG/package.conf"
+PD=$(tools/pkg-dir.sh "$PKG")
+. "$PD/package.conf"
 SRC=build/sources/$PKG
 NEWDSC=$SRC/${SOURCE}_${NEWVERSION#*:}.dsc
 case $MODE in
@@ -48,13 +49,13 @@ git tag -f "base/${NEWVERSION//:/%}" >/dev/null
 rm -rf "/work/$T"
 if ! git rebase -q --onto "base/${NEWVERSION//:/%}" "base/${VERSION//:/%}" work; then
 	echo "!! conflict: resolve it in $W (git status; git rebase --continue), then make $PKG-patches"
-	echo "   and set VERSION=$NEWVERSION, DSC_SHA256=$(sha256sum "/work/$NEWDSC" | cut -d' ' -f1) in $PKG/package.conf"
+	echo "   and set VERSION=$NEWVERSION, DSC_SHA256=$(sha256sum "/work/$NEWDSC" | cut -d' ' -f1) in $PD/package.conf"
 	exit 1
 fi
 cd /work
 sed -i -e "s/^VERSION=.*/VERSION=$NEWVERSION/" \
-	-e "s/^DSC_SHA256=.*/DSC_SHA256=$(sha256sum "$NEWDSC" | cut -d' ' -f1)/" "$PKG/package.conf"
+	-e "s/^DSC_SHA256=.*/DSC_SHA256=$(sha256sum "$NEWDSC" | cut -d' ' -f1)/" "$PD/package.conf"
 tools/pkg-export.sh "$PKG"
-echo ">> $PKG rebased onto $NEWVERSION; review with git diff -- $PKG"
+echo ">> $PKG rebased onto $NEWVERSION; review with git diff -- $PD"
 exit
 }

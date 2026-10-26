@@ -356,7 +356,7 @@ def end_to_end(w):
 def main():
     base = Path(sys.argv[1]) if len(sys.argv) > 1 else None
     if base is None:
-        b = HERE.parent.parent / "build" / "tmp"
+        b = HERE.parents[4] / "build" / "tmp"
         b.mkdir(parents=True, exist_ok=True)
         base = Path(tempfile.mkdtemp(prefix="gprefetch-check-", dir=b))
     base.mkdir(parents=True, exist_ok=True)

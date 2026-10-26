@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""selftest.py: the steady-state benchmark harness checked without the PS3 (python3 games/bench/selftest.py).
+"""selftest.py: the steady-state benchmark harness checked without the PS3 (python3 bench/selftest.py).
   1. report.py on made-up run directories (HUD frame times, per-second fps only, repeated passes,
      a game's own window, a run from before the steady state): the window's median, 1% low,
      stalls and longest frame come out as computed by hand
@@ -54,7 +54,7 @@
      (1608 px wide, BLACK flagged, the result's shotsheet: line), pending and REVIEW.md's verdict
  15. sound dropouts (docs/games/SUITE.md "Sound dropouts"): xruns.py's audible rule and summary on
      made-up lines; ps3-xrunlog.so built against the host's alsa-lib in front of a pretend card
-     (ps3-gpu-tools/tests/xrun-pacer.c: plays nothing, underruns in real time), ps3-xrun-test's made
+     (packages/walnut/tools/ps3-gpu-tools/tests/xrun-pacer.c: plays nothing, underruns in real time), ps3-xrun-test's made
      dropouts logged with their gaps and loudness (writei as SDL, mmap as OpenAL), a conf.d-style
      default wrapped by the hook; client.sh's xrunlog=, xruns_* and xruns.tsv, off and missing
 Exit status 0 when every check passes; scratch files in a temporary directory, removed at the end."""
@@ -461,7 +461,7 @@ def client_gprefetch(tmp):
     """client.sh's BENCH_GAMEPREFETCH (docs/STALLS.md "Game prefetch") with ps3-desktop's
     ps3-game-prefetch from this tree: a learn run leaves a list, a fetch run reads it, the tags and
     the warm-up columns in report.py"""
-    gp = HERE.parent.parent / "ps3-desktop" / "files" / "libexec" / "ps3-game-prefetch"
+    gp = HERE.parent / "packages" / "walnut" / "system" / "ps3-desktop" / "files" / "libexec" / "ps3-game-prefetch"
     env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "GALLIUM_HUD",
                                                             "GALLIUM_HUD_DUMP_DIR")}
     lists = tmp / "gprefetch"
@@ -1015,7 +1015,7 @@ def block_dev(path):
 
 def stallrec_e2e(tmp):
     import stalls
-    src = HERE.parent.parent / "ps3-gpu-tools" / "src" / "ps3-stallrec.c"
+    src = HERE.parent / "packages" / "walnut" / "tools" / "ps3-gpu-tools" / "src" / "ps3-stallrec.c"
     exe = tmp / "ps3-stallrec"
     cc = shutil.which("cc") or shutil.which("gcc")
     if not cc or not src.exists():
@@ -1333,13 +1333,13 @@ def client_prof(tmp):
     import memprof
     cc = shutil.which("cc") or shutil.which("gcc")
     so = tmp / "ps3-mallocstat.so"
-    src = HERE.parent.parent / "ps3-gpu-tools" / "preload" / "ps3-mallocstat.c"
+    src = HERE.parent / "packages" / "walnut" / "tools" / "ps3-gpu-tools" / "preload" / "ps3-mallocstat.c"
     p = subprocess.run([cc, "-O2", "-Wall", "-Wextra", "-fPIC", "-shared", "-o", str(so), str(src), "-lpthread"],
                        capture_output=True, text=True) if cc else None
     check("mallocstat: builds without warnings", p is not None and p.returncode == 0 and not p.stderr.strip(),
           p and p.stderr[-600:])
     trim = tmp / "ps3-malloctrim.so"
-    src = HERE.parent.parent / "ps3-gpu-tools" / "preload" / "ps3-malloctrim.c"
+    src = HERE.parent / "packages" / "walnut" / "tools" / "ps3-gpu-tools" / "preload" / "ps3-malloctrim.c"
     p = subprocess.run([cc, "-O2", "-Wall", "-Wextra", "-fPIC", "-shared", "-o", str(trim), str(src), "-lpthread"],
                        capture_output=True, text=True) if cc else None
     check("malloctrim: builds without warnings", p is not None and p.returncode == 0 and not p.stderr.strip(),
@@ -1539,7 +1539,7 @@ def malloctrim_real(tmp):
     write(src, FRAG_C)
     p = subprocess.run([cc, "-O2", "-o", str(exe), str(src), "-lpthread"], capture_output=True, text=True)
     q = subprocess.run([cc, "-O2", "-fPIC", "-shared", "-o", str(so),
-                        str(HERE.parent.parent / "ps3-gpu-tools" / "preload" / "ps3-malloctrim.c"), "-lpthread"],
+                        str(HERE.parent / "packages" / "walnut" / "tools" / "ps3-gpu-tools" / "preload" / "ps3-malloctrim.c"), "-lpthread"],
                        capture_output=True, text=True)
     if p.returncode or q.returncode:
         check("malloctrim: test program and library build", False, (p.stderr + q.stderr)[-400:])
@@ -1904,7 +1904,7 @@ def xrunlog_e2e(tmp):
     as OpenAL does (mmap); a conf.d-style pcm.!default wrapped too; then client.sh with a recipe running
     ps3-xrun-test: bench.txt's xrunlog= and xruns_*, xruns.tsv, BENCH_XRUNLOG=0 and a missing plugin"""
     cc = shutil.which("cc") or shutil.which("gcc")
-    tools = HERE.parent.parent / "ps3-gpu-tools"
+    tools = HERE.parent / "packages" / "walnut" / "tools" / "ps3-gpu-tools"
     if not cc or not Path("/usr/include/alsa/pcm_external.h").exists():
         print("skip  xrunlog: needs a C compiler and alsa-lib's headers (alsa-lib-devel, libasound2-dev)")
         return

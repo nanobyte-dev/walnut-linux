@@ -1,5 +1,5 @@
 # walnut-upload (port 2223): the upload container's sshd, like nginx-scanners: banned in DOCKER-USER
-# (container traffic bypasses INPUT). Installed by tools/walnut-server/deploy.sh.
+# (container traffic bypasses INPUT). Installed by servers/walnut.nanobyte.dev/deploy.sh.
 [walnut-upload]
 enabled   = true
 backend   = systemd

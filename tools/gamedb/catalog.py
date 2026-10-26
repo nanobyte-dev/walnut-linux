@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""catalog.py [--out FILE] [--deb-index URL]: build catalog.json from gamedb/content/games, the one
+"""catalog.py [--out FILE] [--deb-index URL]: build catalog.json from website/gamedb/content/games, the one
 file the website's templates (Hugo reads it as data) and the desktop app (later, packaged) use.
 
 Design
@@ -9,7 +9,7 @@ Design
     {"schema": 1, "generated": "<UTC>", "content_date", "revision", "games": [{"id", "title", ..., "rating": {...}, "tests": [...],
       "patched": bool, "patches": [{source, subject, file, url}], "debs": [{"package", "url"}], "badges": [...]}]}
   Scores are rounded to whole numbers here, the only place that rounds.
-- Patched by Walnut: a game whose patched_by names a directory of ours (<dir>/package.conf with
+- Patched by Walnut: a game whose patched_by names a source package of ours (packages/**/<name>/package.conf with
   <dir>/patches/series). The patches are listed by the Subject: line of each patch file (linked to the file on the public repository's main branch), in series
   order. With --deb-index URL (the apt repository root, e.g. https://walnut.nanobyte.dev/apt) the
   stable suite's dists/stable/main/binary-ppc64/Packages.xz is read and each of the game's packages
@@ -56,9 +56,12 @@ PATCH_URL = "https://github.com/nanobyte-dev/walnut-linux/blob/main/%s/patches/%
 
 
 def patch_subjects(srcdir, repo):
-    """[(file name, Subject: line)] of <srcdir>/patches/series' patches, in order (wrapped lines joined,
-    "[PATCH n/m]" cut)"""
-    pdir = repo / srcdir / "patches"
+    """[(file name, Subject: line)] of source package <srcdir>'s patches/series patches, in order (wrapped
+    lines joined, "[PATCH n/m]" cut)"""
+    d = score.package_dir(repo, srcdir)
+    if not d:
+        return []
+    pdir = Path(repo) / d / "patches"
     series = pdir / "series"
     if not series.exists():
         return []
@@ -299,7 +302,8 @@ def build_game(gdir, repo, debs):
         subjects = patch_subjects(src, repo)
         if subjects:
             patched_dirs.append(src)
-            patches += [{"source": src, "subject": s, "file": f, "url": PATCH_URL % (src, f)} for f, s in subjects]
+            patches += [{"source": src, "subject": s, "file": f, "url": PATCH_URL % (score.package_dir(repo, src), f)}
+                        for f, s in subjects]
     links = [{"package": p, "url": debs[p]}
              for p in dict.fromkeys(fm["packages"] + patched_dirs) if p in debs]
     badges = []
@@ -355,8 +359,8 @@ def build(content, repo=REPO, deb_url=None):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--content", default=str(REPO / "gamedb" / "content" / "games"))
-    ap.add_argument("--out", default=str(REPO / "gamedb" / "data" / "catalog.json"))
+    ap.add_argument("--content", default=str(REPO / "website" / "gamedb" / "content" / "games"))
+    ap.add_argument("--out", default=str(REPO / "website" / "gamedb" / "data" / "catalog.json"))
     ap.add_argument("--deb-index", metavar="URL", help="apt repository root, e.g. https://walnut.nanobyte.dev/apt")
     a = ap.parse_args()
     cat = build(a.content, REPO, a.deb_index)

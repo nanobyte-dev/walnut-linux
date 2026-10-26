@@ -1,6 +1,6 @@
 #!/bin/bash
-# Builds the spu-elf cross toolchain for the Cell's SPEs: binutils (spu-toolchain/binutils/*.patch), GCC (C
-# only, with our port of the SPU backend: spu-toolchain/gcc/*.patch) and newlib (spu-toolchain/newlib-*/*.patch), installed under
+# Builds the spu-elf cross toolchain for the Cell's SPEs: binutils (packages/patched/toolchain/spu/binutils/*.patch), GCC (C
+# only, with our port of the SPU backend: packages/patched/toolchain/spu/gcc/*.patch) and newlib (packages/patched/toolchain/spu/newlib-*/*.patch), installed under
 # build/spu/install/opt/spu. Runs as the user inside the SPU builder container.
 # Inputs (env): SPU_GCC_VERSION SPU_BINUTILS_VERSION SPU_NEWLIB_VERSION SOURCE_DATE_EPOCH JOBS
 set -euo pipefail
@@ -23,11 +23,11 @@ mkdir -p "$SRC"
 tar -xf "$D/binutils-$SPU_BINUTILS_VERSION.tar.xz" -C "$SRC"
 tar -xf "$D/gcc-$SPU_GCC_VERSION.tar.xz" -C "$SRC"
 tar -xf "$D/newlib-$SPU_NEWLIB_VERSION.tar.gz" -C "$SRC"
-for p in spu-toolchain/gcc/*.patch; do patch -d "$SRC/gcc-$SPU_GCC_VERSION" -p1 -s < "$p"; done
-for p in $(ls spu-toolchain/binutils/*.patch 2>/dev/null); do patch -d "$SRC/binutils-$SPU_BINUTILS_VERSION" -p1 -s < "$p"; done
-# Newlib patches: spu-toolchain/newlib-<version>/, else newlib-<major.minor>/, else newlib/ (1.20.0)
-NLPATCHES=spu-toolchain/newlib
-for d in "spu-toolchain/newlib-$SPU_NEWLIB_VERSION" "spu-toolchain/newlib-$(echo "$SPU_NEWLIB_VERSION" | cut -d. -f1,2)"; do
+for p in packages/patched/toolchain/spu/gcc/*.patch; do patch -d "$SRC/gcc-$SPU_GCC_VERSION" -p1 -s < "$p"; done
+for p in $(ls packages/patched/toolchain/spu/binutils/*.patch 2>/dev/null); do patch -d "$SRC/binutils-$SPU_BINUTILS_VERSION" -p1 -s < "$p"; done
+# Newlib patches: packages/patched/toolchain/spu/newlib-<version>/, else newlib-<major.minor>/, else newlib/ (1.20.0)
+NLPATCHES=packages/patched/toolchain/spu/newlib
+for d in "packages/patched/toolchain/spu/newlib-$SPU_NEWLIB_VERSION" "packages/patched/toolchain/spu/newlib-$(echo "$SPU_NEWLIB_VERSION" | cut -d. -f1,2)"; do
 	[ -d "$d" ] && { NLPATCHES=$d; break; }
 done
 echo ">> newlib patches: $NLPATCHES"

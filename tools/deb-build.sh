@@ -15,7 +15,8 @@ set -euo pipefail
 # execute a shifted fragment.
 {
 PKG=$1
-. "$PKG/package.conf"
+PD=$(tools/pkg-dir.sh "$PKG")
+. "$PD/package.conf"
 NOCHECK=nocheck; [ "${CHECK:-0}" = 1 ] && NOCHECK=
 DSC=$(ls build/src/"$PKG"/*.dsc | head -1)
 if [ "$TYPE" = native ]; then
@@ -30,7 +31,7 @@ rm -rf "$OUT"; mkdir -p "$OUT"
 # the ppc64 ones in the chroot (-B). BUILD=native (default): all in the chroot.
 # BUILD=cross: cross-built here for ppc64 (kernel modules against our kernel tree; the build
 # dependencies are this builder's own, not checked).
-# BUILD=cross-linux (the kernel, linux/): the kernel packages cross-built here for ppc64 with
+# BUILD=cross-linux (the kernel, packages/patched/kernel/linux/): the kernel packages cross-built here for ppc64 with
 # CROSS_PROFILES (build dependencies: this builder's own, not checked; ccache in build/ccache) in
 # build/chroot/cross-<pkg> (kept with KEEP_TREE=1), then linux-kbuild (the ppc64 host tools
 # linux-headers needs) natively in the chroot below: -B with NATIVE_PROFILES, its .changes,

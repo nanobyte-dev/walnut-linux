@@ -11,7 +11,7 @@ set -euo pipefail
 {
 BIN=$1
 HERE=$(cd "$(dirname "$0")" && pwd)
-TOP=$(cd "$HERE/../.." && pwd)
+TOP=$(cd "$HERE/../../../../.." && pwd)
 CORPUS=${2:-$TOP/build/tmp/speq-corpus}
 if [ ! -d "$CORPUS/oa-a5" ]; then
 	mkdir -p "$CORPUS"

@@ -6,7 +6,9 @@
 # stops on anything that must never be public (tools/public-strip-blobs.txt lists blobs left out, e.g. a
 # third-party image whose licence forbids redistribution; tools/public-replace.local.txt, untracked, text
 # replaced in every file of every commit, e.g. the console's NOR dump hash). It checks for backups/ or firmware/ paths,
-# NOR/NAND dumps and disk images, licensed game data paths, private keys. The rewrite is deterministic: running it again on a
+# NOR/NAND dumps and disk images, licensed game data paths, private keys. The licensed packages' sources
+# (packages/licensed/, and as a second check any packages/**/<name>/ of tools/licensed-packages.txt) are
+# left out of every commit. The rewrite is deterministic: running it again on a
 # longer main gives the same commit IDs for the old commits, so the public repository fast-forwards.
 # Nothing is pushed: the push to github.com/nanobyte-dev is the user's step (printed at the end).
 # Needs git-filter-repo (pip install --user git-filter-repo).
@@ -24,7 +26,11 @@ git clone -q --no-local --single-branch --branch main "$SRC" "$DIR"
 cd "$DIR"
 git remote remove origin
 grep -Eo '^[0-9a-f]{40}' "$SRC/tools/public-strip-blobs.txt" > "$DIR/.git/strip-blobs" || true
-git filter-repo --quiet --force --strip-blobs-with-ids "$DIR/.git/strip-blobs" \
+# the licensed packages' directories, never public (a commit from before the 2026-10-26 layout has none)
+licensed=$(grep -v -e '^\s*#' -e '^\s*$' "$SRC/tools/licensed-packages.txt")
+drop=(--path packages/licensed/)
+for n in $licensed; do drop+=(--path-glob "packages/*/$n/*" --path-glob "packages/*/*/$n/*"); done
+git filter-repo --quiet --force --invert-paths "${drop[@]}" --strip-blobs-with-ids "$DIR/.git/strip-blobs" \
 	--replace-text "$REPL" --message-callback '
 import re
 lines = message.split(b"\n")
@@ -41,6 +47,9 @@ left=$(git log --all --format=%B | grep -ciE '^\s*(co-authored-by:\s*claude|clau
 paths=$(git log --all --name-only --format= | sort -u)
 hits=$(printf '%s\n' "$paths" | grep -E '^(backups|firmware)/|\.(bin|img|pup|PUP|nor|nand)$|(^|/)(sauerbraten-nonfree-data|classicube-data|quake-data|rct2-data|tyrian-data)/.*\.(pk3|ogz|cfg|dat|zip|ogg|wav|png|jpg)$' || true)
 [ -z "$hits" ] || { echo "!! private or licensed paths in the history:"; printf '   %s\n' $hits | head -40; bad=1; }
+lic=$({ printf '%s\n' "$paths" | grep -E '^packages/licensed/'
+	for n in $licensed; do printf '%s\n' "$paths" | grep -E "^packages/([^/]+/){1,2}$n/"; done; } || true)
+[ -z "$lic" ] || { echo "!! licensed packages' files in the history:"; printf '   %s\n' $lic | head -20; bad=1; }
 for b in $(cat .git/strip-blobs); do
 	git cat-file -e "$b" 2>/dev/null && { echo "!! stripped blob $b is still in the history"; bad=1; }
 done

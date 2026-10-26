@@ -10,7 +10,7 @@ a decoder), `spu/dxt.c` (the SPU encoder, SIMD, and a scalar copy for big-endian
 `spu/dxt-op.c` (dxt.spu's job, mode `DXT_JOB_DXT5`), `lib/s3tc.c` (the policy),
 `tools/speq-dxt.c` (`--fmt dxt5`), `spu/dxt-test.c` (fuzzing, SPU cycles), `tests/mesa-dxt.c`,
 `tests/mesa-compare.sh`, `tests/make-corpus.py` (the alpha sets),
-`mesa/patches/0032-s3tc-dxt5-libspeq.patch` (Mesa's call).
+`packages/patched/graphics/mesa/patches/0032-s3tc-dxt5-libspeq.patch` (Mesa's call).
 
 ## 1. The format and what decoders do
 
@@ -88,7 +88,7 @@ pixels; PSNR of the set's summed squared error.
 ## 5. Mesa's side
 
 Patch 0011's hook calls `speq_s3tc_compress_v1(fmt, ...)` from `_mesa_texstore_rgb_dxt1` and
-`_mesa_texstore_rgba_dxt1` only, so DXT5 never reached libspeq. `mesa/patches/0032-s3tc-dxt5-
+`_mesa_texstore_rgba_dxt1` only, so DXT5 never reached libspeq. `packages/patched/graphics/mesa/patches/0032-s3tc-dxt5-
 libspeq.patch` adds the same call with `GL_COMPRESSED_RGBA_S3TC_DXT5_EXT` before
 `tx_compress_dxt5` in `_mesa_texstore_rgba_dxt5` (sRGB DXT5 goes the same way: only decoding
 differs). An older libspeq returns -ENOTSUP for DXT5 and Mesa's encoder runs as before. The

@@ -5,7 +5,7 @@
 # XMOTO_GL_STREAM=0 and =1, and compares every frame's pixels (a hash) and the GL errors. Needs the
 # patched work tree (make xmoto-work), g++, the host's EGL and Mesa. Scratch in build/tmp/glbatch-test.
 set -eu
-top=$(cd "$(dirname "$0")/../.." && pwd)
+top=$(cd "$(dirname "$0")/../../../../.." && pwd)
 X=$top/build/work/xmoto
 T=$top/build/tmp/glbatch-test
 [ -e "$X/src/drawlib/GLBatch.cpp" ] || { echo "!! no $X: make xmoto-work"; exit 1; }

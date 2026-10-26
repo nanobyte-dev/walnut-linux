@@ -1,7 +1,7 @@
 #!/bin/bash
-# bench-ref.sh GAME [VARIANT]: the PC reference of a games/bench recipe, for the PS3 | PC screenshot
-# sheet (games/bench/shots.py, docs/games/SUITE.md "Screenshots"). Runs the recipe through the same
-# client.sh in an amd64 container (docker/Dockerfile.benchref: Debian sid from the PS3's snapshot) under
+# bench-ref.sh GAME [VARIANT]: the PC reference of a bench recipe, for the PS3 | PC screenshot
+# sheet (bench/shots.py, docs/games/SUITE.md "Screenshots"). Runs the recipe through the same
+# client.sh in an amd64 container (build-containers/Dockerfile.benchref: Debian sid from the PS3's snapshot) under
 # Xvfb at 1920x1080 with Mesa's llvmpipe forced to the RSX's GL 2.1 / GLSL 1.20
 # (MESA_GL_VERSION_OVERRIDE=2.1, MESA_GLSL_VERSION_OVERRIDE=120), no sound device (SDL's dummy driver,
 # OpenAL Soft's null backend), and takes the screenshots at the same shot points after the same game
@@ -37,7 +37,7 @@ fi
 
 cd "$(dirname "$0")/.."
 G=${1:?game}; V=${2:-base}
-R=games/bench/recipes/$G.sh
+R=bench/recipes/$G.sh
 [ -e "$R" ] || { echo "!! no recipe $R"; exit 2; }
 # the recipe's PC settings (sourced as client.sh does, in a subshell)
 REF_PKGS=; REF_IMAGE=; REF_ENV=; DURATION=270
@@ -45,17 +45,17 @@ eval "$(bash -c 'here=$1; ASSETS=$here/assets; CMD=(); ENV=(); BACKUP=(); DATA_D
 	REF_ENV=; DURATION=270; setup() { :; }; parse() { :; }
 	. "$here/recipes/$2.sh" > /dev/null || exit 2
 	if declare -F "variant_$3" > /dev/null; then "variant_$3"; elif [ "$3" != base ]; then echo "echo \"!! no variant $3\" >&2; exit 2"; exit; fi
-	declare -p REF_PKGS REF_IMAGE REF_ENV DURATION' _ "$PWD/games/bench" "$G" "$V")"
+	declare -p REF_PKGS REF_IMAGE REF_ENV DURATION' _ "$PWD/bench" "$G" "$V")"
 [ -n "$REF_PKGS$REF_IMAGE" ] || { echo "!! $R has no REF_PKGS (Debian packages) or REF_IMAGE (an image with the game)"; exit 2; }
 SNAPSHOT=$(sed -n 's/^DEBIAN_SNAPSHOT *:= *//p' config.mk)
 BASE=${REF_IMAGE:-$(sed -n 's/^BUILDER_BASE *:= *//p' config.mk)}
 if [ -n "$REF_IMAGE" ]; then
 	BID=$(docker image inspect -f '{{.Id}}' "$REF_IMAGE" 2>/dev/null) || { echo "!! no image $REF_IMAGE here (REF_IMAGE of $R)"; exit 2; }
 else BID=$BASE; fi
-TAG=ps3-bench-ref:$( (cat docker/Dockerfile.benchref; echo "$BID $SNAPSHOT $REF_PKGS") | sha256sum | cut -c1-12)
+TAG=ps3-bench-ref:$( (cat build-containers/Dockerfile.benchref; echo "$BID $SNAPSHOT $REF_PKGS") | sha256sum | cut -c1-12)
 if ! docker image inspect "$TAG" > /dev/null 2>&1; then
 	echo ">> building $TAG (base $BASE, packages: ${REF_PKGS:-none})"
-	docker build -q -t "$TAG" -f docker/Dockerfile.benchref --build-arg BASE="$BASE" --build-arg SNAPSHOT="$SNAPSHOT" \
+	docker build -q -t "$TAG" -f build-containers/Dockerfile.benchref --build-arg BASE="$BASE" --build-arg SNAPSHOT="$SNAPSHOT" \
 		--build-arg PKGS="$REF_PKGS" docker > /dev/null
 fi
 OUT=build/bench-ref; N=$G-$V; W=$OUT/.new-$N
@@ -66,10 +66,10 @@ envs=()
 for e in $REF_ENV; do envs+=(-e "$e"); done
 echo ">> $G $V on the PC (llvmpipe, GL 2.1), shots ${SHOTS:-auto}: at most $((DURATION + 60)) s"
 docker run --rm --init --name "$NAME" --user "$(id -u):$(id -g)" -e HOME=/tmp/home -e SHOTS="${SHOTS:-auto}" "${envs[@]}" \
-	-v "$PWD/games/bench:/bench:ro" -v "$PWD/tools/bench-ref.sh:/bench-ref.sh:ro" -v "$PWD/$W:/out" \
+	-v "$PWD/bench:/bench:ro" -v "$PWD/tools/bench-ref.sh:/bench-ref.sh:ro" -v "$PWD/$W:/out" \
 	"$TAG" bash /bench-ref.sh --inside "$G" "$V" "$DURATION" || echo "!! the container failed"
 [ -s "$W/run/bench.txt" ] || { echo "!! no bench.txt: $(tail -5 "$W/run/out.log" 2>/dev/null)"; exit 1; }
-python3 games/bench/shots.py convert "$W/run" > /dev/null
+python3 bench/shots.py convert "$W/run" > /dev/null
 if [ -e "$OUT/$N" ]; then	# the previous reference kept (old/ is ephemeral: make clean-ephemeral may go)
 	mkdir -p "$OUT/old"; s=$(date -u +%Y%m%dT%H%M%SZ)
 	mv "$OUT/$N" "$OUT/old/$s-$N"

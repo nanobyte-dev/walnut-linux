@@ -1,5 +1,5 @@
 # Neverball (1.6 snapshot of 2018): its shipped replay gui/demo1.nbr, real-time paced. Our package
-# (neverball/patches) prints one line with NEVERBALL_BENCH=1 when the replay ends, from the first
+# (packages/patched/games/neverball/patches) prints one line with NEVERBALL_BENCH=1 when the replay ends, from the first
 # replay frame (frames, seconds, fps, longest frame) and quits, so the run is exactly the replay;
 # DURATION is a safety cap. Config ~/.neverball/
 # neverballrc: fullscreen 1920x1080, vsync off, the fps counter on. It generates mipmaps on the GPU
@@ -31,7 +31,7 @@ setup() {
 CMD=(/usr/games/neverball --replay /usr/share/games/neverball/gui/demo1.nbr)
 DURATION=400	# a safety cap: load, 20 passes of 12-16 s, margin
 variant_nomip() { NB_MIP=0; }
-# our neverball (neverball/patches/0003): fewer GL calls and draws a frame, each change behind an
+# our neverball (packages/patched/games/neverball/patches/0003): fewer GL calls and draws a frame, each change behind an
 # environment switch, base has them all on. gui/demo1.nbr on llvmpipe at GL 2.1: 2154 -> 844 calls,
 # 137 -> 74 draws a frame (levels at their intro view: greed 6289 -> 1915, mover 8205 -> 2463 calls).
 # gloff is NEVERBALL_GL=0 (the game as Debian draws it), a no* variant is base with one change off.

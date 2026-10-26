@@ -2,13 +2,13 @@
 # headers of the upstream source our classicube package is built from (CC_SRC: the unpacked
 # tarball, with src/). The top-level `make classicube-bench` runs this in the builder image (its
 # cross GCC is the snapshot's, the same as the package's) and puts the result in
-# games/bench/assets/classicube-bench.so.
+# bench/assets/classicube-bench.so.
 ifeq ($(origin CC),default)
 CC      := powerpc64-linux-gnu-gcc
 endif
 CC_SRC  ?= $(error CC_SRC: the unpacked ClassiCube source)
 OUT     ?= ccbench.so
-# as the package builds the game (classicube/debian/rules: -mcpu=cell, SDL3 window); a host test
+# as the package builds the game (packages/patched/games/classicube/debian/rules: -mcpu=cell, SDL3 window); a host test
 # build: CC=gcc CPU=
 CPU     ?= -mcpu=cell -mtune=cell
 CFLAGS  := -O2 $(CPU) -fPIC -fvisibility=hidden -fno-ident -Wall -Wno-unused-function \

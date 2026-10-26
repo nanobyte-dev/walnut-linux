@@ -1,4 +1,4 @@
-# Warzone 2100 4.3.5 (our ppc64 build, warzone2100/: warzone2100 4.3.5-1+ps3.N, plus warzone2100-data
+# Warzone 2100 4.3.5 (our ppc64 build, packages/patched/games/warzone2100/: warzone2100 4.3.5-1+ps3.N, plus warzone2100-data
 # and warzone2100-music, both arch all; Debian has 4.5/4.7, which need GL 3): smoke test, not
 # benchmarked. 4.3.5 is the last release with an OpenGL 2.1 / GLES 2 renderer (GLSL 1.20 shaders: 19
 # of them, no instancing, UBOs or texture arrays; docs/research/gl3-census/C-rts.md). The game asks

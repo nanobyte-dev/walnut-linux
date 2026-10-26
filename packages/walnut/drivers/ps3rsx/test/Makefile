@@ -5,8 +5,8 @@
 #   make && make run		x86 with ASan/UBSan, x86 plain, ppc64 (big-endian) under qemu
 #   ./count.sh			ppc64 instructions per word, both paths (qemu exec log)
 # ppc64 needs a ppc64 sysroot (SYSROOT: the Mesa cross build's) and qemu-ppc64-static.
-O ?= ../../build/tmp/ps3rsx-test
-SYSROOT ?= ../../build/mesa/sysroot
+O ?= ../../../../../build/tmp/ps3rsx-test
+SYSROOT ?= ../../../../../build/mesa/sysroot
 SRC := shadow-equiv.c ../src/shadow.c inc/shim.h
 CFLAGS := -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -fno-strict-aliasing -Iinc
 PPCFLAGS := --sysroot=$(SYSROOT) -isystem $(SYSROOT)/usr/include/powerpc64-linux-gnu \

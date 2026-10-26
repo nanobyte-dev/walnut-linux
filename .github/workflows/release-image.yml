@@ -1,12 +1,12 @@
 # A Walnut release image (docs/release/ALPHA.md M7), by hand only, from one of the two suites:
-#   stable   version A.B.C: A.B from the file VERSION, C counted up (tools/ci/release-id.sh); signed
+#   stable   version A.B.C: A.B from the file VERSION, C counted up (github-ci/release-id.sh); signed
 #            by the archive key's signing subkey (environment walnut-stable: the owner approves),
 #            published to walnut.nanobyte.dev/download/A.B.C/ and as the GitHub release vA.B.C
 #   testing  a nightly, nightly-<date>-<time>-<commit>: the image follows testing; signed by the CI
 #            key (environment walnut-testing), published to download/nightly/<id>/ (the newest 3
 #            are kept), not on GitHub
 #   build    the public image from that suite, its kernel, the internal install's initramfs and
-#            the installer (tools/ci/build-release.sh); no secrets
+#            the installer (github-ci/build-release.sh); no secrets
 # A published release never changes: a new build is a new id.
 name: "Walnut release"
 
@@ -44,7 +44,7 @@ jobs:
         env:
           CHANNEL: ${{ inputs.channel }}
         run: |
-          id=$(tools/ci/release-id.sh "$CHANNEL")
+          id=$(github-ci/release-id.sh "$CHANNEL")
           echo "id=$id" >> "$GITHUB_OUTPUT"
           echo "### Walnut $id ($CHANNEL)" >> "$GITHUB_STEP_SUMMARY"
       - name: The package layer (Debian's packages, from the build snapshot)
@@ -52,12 +52,12 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: build/rootfs/base.tar
-          key: rootfs-base-${{ hashFiles('image/packages.txt', 'tools/build-rootfs.sh', 'config.mk', 'docker/Dockerfile') }}
+          key: rootfs-base-${{ hashFiles('system/image/packages.txt', 'tools/build-rootfs.sh', 'config.mk', 'build-containers/Dockerfile') }}
       - name: Build
         env:
           ID: ${{ steps.id.outputs.id }}
           CHANNEL: ${{ inputs.channel }}
-        run: tools/ci/build-release.sh "$ID" out "$CHANNEL"
+        run: github-ci/build-release.sh "$ID" out "$CHANNEL"
       - name: Keep the package layer, even when a later step failed (it is written whole, by rename)
         if: always() && steps.base.outputs.cache-hit != 'true' && hashFiles('build/rootfs/base.tar') != ''
         uses: actions/cache/save@v6
@@ -90,14 +90,14 @@ jobs:
           WALNUT_SIGN_KEY: ${{ inputs.channel == 'stable' && secrets.WALNUT_ARCHIVE_SUBKEY || secrets.WALNUT_TESTING_KEY }}
           WALNUT_SIGN_PASSPHRASE: ${{ inputs.channel == 'stable' && secrets.WALNUT_ARCHIVE_PASSPHRASE || '' }}
           WALNUT_DEPLOY_KEY_DATA: ${{ secrets.WALNUT_DEPLOY_KEY }}
-        run: tools/ci/publish-release.sh "$ID" out
+        run: github-ci/publish-release.sh "$ID" out
       - name: The GitHub release
         if: inputs.channel == 'stable'
         env:
           ID: ${{ needs.build.outputs.id }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          tools/ci/release-notes.sh "$ID" out > notes.md
+          github-ci/release-notes.sh "$ID" out > notes.md
           pre=; [[ $ID == 0.* ]] && pre=--prerelease  # 0.x: alpha
           gh release create "v$ID" --target "$GITHUB_SHA" $pre \
             --title "Walnut $ID" --notes-file notes.md out/*

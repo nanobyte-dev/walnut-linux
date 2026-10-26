@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """launcher.py [options] PACKAGE...: the menu launchers of a game, found the way the Walnut Games app
-finds them (walnut-games/files/lib/walnut_games.py play_commands), for session.sh.
+finds them (packages/walnut/apps/walnut-games/files/lib/walnut_games.py play_commands), for session.sh.
 
   --choose NAME      the launcher to take: a menu entry's file name (openarena-gl2.desktop, with or
                      without .desktop) or its Name (OpenArena (GL 2.0)). Without it: the first one.

@@ -4,7 +4,7 @@ set -e
 # heads") and only cost seconds of failed attempts before the framebuffer fallback (ps3fb).
 # Without it Plymouth goes straight to the framebuffer. (X doesn't use it.)
 # 0.180 diverted Plymouth's Pango text plugin instead; our patched Plymouth no longer needs text
-# rendering for the script theme at all (plymouth/patches), so that diversion goes.
+# rendering for the script theme at all (packages/patched/desktop/plymouth/patches), so that diversion goes.
 multiarch() {
 	case "$(dpkg --print-architecture)" in
 	ppc64) echo powerpc64-linux-gnu ;;

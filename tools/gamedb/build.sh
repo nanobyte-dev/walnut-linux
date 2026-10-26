@@ -2,13 +2,13 @@
 # build.sh [--preview] OUT: build the Walnut Games site into the directory OUT (docs/GAMEDB.md).
 #
 # Steps, each of which stops the build on failure:
-#   1. check.py: the catalog (gamedb/content/games) is valid, no licensed package in it
-#   2. catalog.py: gamedb/data/catalog.json (the ratings, from the tests' result.toml); with
+#   1. check.py: the catalog (website/gamedb/content/games) is valid, no licensed package in it
+#   2. catalog.py: website/gamedb/data/catalog.json (the ratings, from the tests' result.toml); with
 #      GAMEDB_DEB_INDEX=https://walnut.nanobyte.dev/apt the pages also link the .deb files of the patched
 #      games (without it, or offline, no links)
 #   3. Hugo: the pinned release of tools/gamedb/hugo.version, downloaded to build/tools/hugo-<version>/
 #      on first use and verified with its sha256 (the pinned one and the release's checksums file)
-#   4. the output against walnut-watch's site rules (tools/walnut-server/walnut-watch: SITE_EXT,
+#   4. the output against walnut-watch's site rules (servers/walnut.nanobyte.dev/walnut-watch: SITE_EXT,
 #      NAME_RE, no symlinks, an index.html): anything the server would refuse fails here, before an upload
 # --preview builds for http://localhost:8000/ (serve it with: python3 -m http.server -d OUT 8000);
 # without it the links are for https://walnut.nanobyte.dev/gamedb/.
@@ -47,13 +47,13 @@ deb=()
 python3 -I "$here/catalog.py" "${deb[@]}"
 
 mkdir -p "$out"
-args=(--source "$repo/gamedb" --destination "$out" --cleanDestinationDir --cacheDir "$repo/build/tools/hugo-cache")
+args=(--source "$repo/website/gamedb" --destination "$out" --cleanDestinationDir --cacheDir "$repo/build/tools/hugo-cache")
 [ -z "$base" ] || args+=(--baseURL "$base")
 "$hugo" "${args[@]}"
-cp "$repo/gamedb/data/catalog.json" "$out/catalog.json"
+cp "$repo/website/gamedb/data/catalog.json" "$out/catalog.json"
 
 # the server's rules, read from walnut-watch itself so the two cannot drift apart
-python3 -I - "$repo/tools/walnut-server/walnut-watch" "$out" <<'PY'
+python3 -I - "$repo/servers/walnut.nanobyte.dev/walnut-watch" "$out" <<'PY'
 import os, re, sys
 src = open(sys.argv[1]).read()
 ext = set(eval(re.search(r"^SITE_EXT = (\{.*?\})", src, re.S | re.M)[1]))

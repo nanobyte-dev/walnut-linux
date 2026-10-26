@@ -4,10 +4,10 @@
 # build/debs/boost-context; then ctxtest.cpp under qemu-ppc64 (-O2, and -mcpu=cell -maltivec), and
 # Boost's own tests of Context, Coroutine and Fiber (single-threaded ones) from build/src/boost-context.
 # docker run --rm --privileged -v $PWD:/work -v /scratch:/troot -w /work <deb builder> \
-#   bash boost-context/test/run-test.sh /troot/root
+#   bash packages/patched/libs/boost-context/test/run-test.sh /troot/root
 set -eu
 R=$1
-T=/work/boost-context/test
+T=/work/packages/patched/libs/boost-context/test
 if [ ! -e "$R/.ready" ]; then
 	rm -rf --one-file-system "$R"; mkdir -p "$R"
 	tar -xf /work/build/chroot/sid-ppc64.tar -C "$R"

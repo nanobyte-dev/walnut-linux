@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""report.py [--stalls] [--perf] [--mem] [--load] [--include-interfered] <run dir>...: one line per games/bench run (ps3-bench.sh run directories with the
+"""report.py [--stalls] [--perf] [--mem] [--load] [--include-interfered] <run dir>...: one line per bench run (ps3-bench.sh run directories with the
 bench.txt client.sh writes), then the median per game and variant, then, when a game ran in more
 than one variant, each variant against the first: fps and load as ratios, so a decision reads
 across games. Columns:
@@ -44,7 +44,7 @@ from before 2026-10-17 have none):
   sstall  seconds the sound card's hw pointer stood still while RUNNING (its DMA stopped: bench.txt
           snd_stall=, LOG-FINDINGS.md 1), "rN" after it: snd_ps3's watchdog restarted it N times
   dump    DUMPON=1 runs: what caught the failure dump (trigger, crash, trigger+crash, none) @ seconds
-          into the run (bench.txt dump=, dump_at=; games/bench/dumpana.sh analyses it)
+          into the run (bench.txt dump=, dump_at=; bench/dumpana.sh analyses it)
   tmax    the hottest temperature over the run per zone, degrees C, Cell/RSX (ps3-bench.sh temp_max=,
           from the kernel's ps3_sm sensors, docs/THERMAL.md); "!" after it: the run was stopped at
           BENCH_TEMP_MAX. tcell, trsx the same as numbers (medians in the per-variant line)

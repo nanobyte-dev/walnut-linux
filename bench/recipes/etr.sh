@@ -74,7 +74,7 @@ during() {
 	fi
 }
 variant_record() { ETR_MODE=record; DURATION=600; WINDOW_STOP=0; }
-# Our extremetuxracer (etr/): fewer, larger GL submissions, each with an environment variable
+# Our extremetuxracer (packages/patched/games/etr/): fewer, larger GL submissions, each with an environment variable
 # (src/glfast.h in the package). base has them all on, gloff is ETR_GL=0 (the game as Debian
 # draws it), a no* variant is base with one change off.
 variant_gloff() { ENV+=(ETR_GL=0); }

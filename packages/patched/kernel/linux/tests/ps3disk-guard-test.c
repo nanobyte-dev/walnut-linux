@@ -5,7 +5,7 @@
  *
  *   ps3disk-guard-test [ROUNDS [SEED]]
  *
- * linux/tests/ps3disk-guard.sh extracts the header from the patch and builds this. */
+ * packages/patched/kernel/linux/tests/ps3disk-guard.sh extracts the header from the patch and builds this. */
 #include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>

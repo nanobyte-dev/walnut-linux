@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for walnut-watch: runs it against a temporary root (WALNUT_ROOT, no docker) with bundles
 dropped the way walnut-upload.sh drops them, good ones and hostile ones.
-  python3 tools/walnut-server/test_walnut_watch.py"""
+  python3 servers/walnut.nanobyte.dev/test_walnut_watch.py"""
 import gzip, hashlib, os, shutil, subprocess, tempfile, time, unittest
 
 WATCH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "walnut-watch")

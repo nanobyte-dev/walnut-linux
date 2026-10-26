@@ -1,5 +1,5 @@
 #!/bin/bash
-# sixaxis-idle-axes.sh: linux/patches/local/0050 (hid-sony starts the Sixaxis sticks centered) in a
+# sixaxis-idle-axes.sh: packages/patched/kernel/linux/patches/local/0050 (hid-sony starts the Sixaxis sticks centered) in a
 # QEMU guest. An x86_64 defconfig kernel from our Linux source tree (make linux-src) with uhid,
 # joydev and hid-sony as a module; hid-sony.ko built twice from that tree's hid-sony.c, without the
 # patch and with it. The guest's init (sixaxis-uhid-init.c, no libc) loads the module, makes a
@@ -9,8 +9,8 @@
 # reports followed in both. Needs gcc, cpio, qemu-system-x86_64 (KVM if there).
 # WORK (default build/tmp/tests/sixaxis-idle-axes, ~700 MB) holds the kernel build.
 set -euo pipefail
-cd "$(dirname "$0")/../.."
-P=$PWD/linux/patches/local/0050-hid-sony-sixaxis-center-sticks.patch
+cd "$(dirname "$0")/../../../../.."
+P=$PWD/packages/patched/kernel/linux/patches/local/0050-hid-sony-sixaxis-center-sticks.patch
 WORK=$(realpath -m "${WORK:-build/tmp/tests/sixaxis-idle-axes}")
 SRC=$(ls -d build/src/linux/linux-*/ 2>/dev/null | head -1)
 [ -n "$SRC" ] || { echo "skip: no kernel source tree (make linux-src)"; exit 77; }
@@ -47,7 +47,7 @@ if [ ! -e "$O/Module.symvers" ]; then
 fi
 
 gcc -Wall -Werror -O2 -nostdlib -static -ffreestanding -fno-stack-protector -fno-pie -no-pie -fno-builtin \
-	-o "$WORK/init" linux/tests/sixaxis-uhid-init.c
+	-o "$WORK/init" packages/patched/kernel/linux/tests/sixaxis-uhid-init.c
 
 # the tree's hid-sony.c may or may not carry the patch already (a source package made after it)
 for v in stock patched; do

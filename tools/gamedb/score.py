@@ -37,6 +37,7 @@ test_scores_v2(test). A rating never mixes the two: catalog.py picks a launcher'
 and rates it from those tests alone.
 """
 import statistics
+from pathlib import Path
 import sys
 
 MEDALS = ["Scrap", "Rust", "Tin", "Bronze", "Silver", "Gold", "Platinum"]
@@ -54,6 +55,16 @@ FORMULA = {1: 0, 2: 0}
 RULES = {1: {"date": "2026-10-24", "anchor": "rules-1"},
          2: {"date": "2026-10-26", "anchor": "rules-2"}}
 CURRENT_DATA = 2
+
+
+def package_dir(repo, name):
+    """Our source package NAME's directory relative to the repository (packages/<group>/[<area>/]NAME,
+    with a package.conf; tools/pkg-dir.sh), or None. Shared by check.py and catalog.py."""
+    for pat in ("packages/*/%s", "packages/*/*/%s", "packages/*/*/*/%s"):
+        for d in sorted(Path(repo).glob(pat % name)):
+            if (d / "package.conf").is_file():
+                return d.relative_to(repo).as_posix()
+    return None
 
 
 def data_version(t):
@@ -86,7 +97,7 @@ LONGEST_FRAME_MS = [(250, 100), (1000, 75), (3000, 55), (5000, 0)]
 SOUND_PRESENT = 50
 SOUND_CLEAN_PER_MIN = [(0, 50), (10, 40), (30, 32), (60, 22), (120, 10), (240, 0)]
 # the same half from audible dropouts a minute (ps3-xrunlog: gaps of 20 ms or more with sound on a side,
-# games/bench/xruns.py), where a run measured them: every one is a click or chop someone hears, so it
+# bench/xruns.py), where a run measured them: every one is a click or chop someone hears, so it
 # falls much faster than the raw counts' curve, most of whose faults were never heard
 SOUND_DROPOUTS_PER_MIN = [(0, 50), (1, 45), (4, 35), (10, 22), (20, 10), (40, 0)]
 CRASHES_PER_HOUR = [(0, 100), (1 / 3, 75), (1, 55), (4, 35), (12, 0)]
@@ -181,7 +192,7 @@ CROP_MAX = 0.02  # the share of a window outside the screen above which the pict
 
 
 def display_sample(x, y, w, h, fullscreen, sw, sh):
-    """(score, detail) of one geometry sample (games/bench/geom.py): the game's window at x, y, w x h on a
+    """(score, detail) of one geometry sample (bench/geom.py): the game's window at x, y, w x h on a
     screen of sw x sh. Fullscreen or a window covering the screen is 100 (bars inside the picture can't be
     told from geometry, and cost nothing); cropped or partly off-screen 0; a smaller window 30 from half the
     screen's area up, 10 below."""
@@ -458,7 +469,7 @@ def end_failure(t):
 
 def measured_checks(t):
     """a test's checklist answers {item: "yes" | "partly" | "no"} from the player's form and the recorder's
-    numbers (games/bench/inputlog.py); what can't be told is left out (not tested). The form wins; the input
+    numbers (bench/inputlog.py); what can't be told is left out (not tested). The form wins; the input
     log fills in what the player didn't answer"""
     n, f = t.get("numbers", {}), t.get("form", {})
     out = {}

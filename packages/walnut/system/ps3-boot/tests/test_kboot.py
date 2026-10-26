@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent.parent
+ROOT = HERE.parents[4]   # the repository (packages/walnut/system/ps3-boot/tests)
 SCRIPT = HERE.parent / "ps3-update-kboot"
 SCRATCH = ROOT / "build" / "tmp" / "ps3-boot-test"
 

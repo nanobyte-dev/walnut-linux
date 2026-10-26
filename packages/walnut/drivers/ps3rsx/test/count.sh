@@ -4,7 +4,7 @@
 # -mcpu=cell; the kernel's own flags differ a little: an estimate, not the PPE's cycles).
 set -euo pipefail
 cd "$(dirname "$0")"
-O=${O:-../../build/tmp/ps3rsx-test}
+O=${O:-../../../../../build/tmp/ps3rsx-test}
 make -s O="$O" "$O/shadow-equiv-fast" "$O/cnt-ppc64"
 # shadow.c's functions (dot symbols, ELFv1), not the ones run once (init) or the test's
 R=$(powerpc64-linux-gnu-objdump -d "$O/cnt-ppc64" | awk '/^[0-9a-f]+ <\./ {a=strtonum("0x"$1);

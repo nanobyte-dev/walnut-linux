@@ -10,7 +10,8 @@
 set -euo pipefail
 {
 PKG=$1
-. "$PKG/package.conf"
+PD=$(tools/pkg-dir.sh "$PKG")
+. "$PD/package.conf"
 [ "$TYPE" = debsrc ] || { echo "!! $PKG is not a Debian source package (TYPE=$TYPE)"; exit 1; }
 W=build/work/$PKG
 export GIT_COMMITTER_NAME="Tiberiu Chibici" GIT_COMMITTER_EMAIL=chibicitiberiu@gmail.com
@@ -18,7 +19,7 @@ if [ -d "$W/.git" ]; then
 	if [ "$(git -C "$W" rev-parse HEAD)" != "$(git -C "$W" rev-parse -q --verify exported 2>/dev/null)" ] ||
 	   [ -n "$(git -C "$W" status --porcelain)" ]; then
 		if [ "${FORCE:-0}" != 1 ]; then
-			echo "!! $W has changes not exported to $PKG/ (make $PKG-patches first, or FORCE=1 to discard)"
+			echo "!! $W has changes not exported to $PD/ (make $PKG-patches first, or FORCE=1 to discard)"
 			exit 1
 		fi
 	fi
@@ -53,10 +54,10 @@ series() {	# <dir>: its series entries
 	[ -s "$1/series" ] || return 0
 	grep -v -e '^\s*#' -e '^\s*$' "$1/series" | awk '{print $1}'
 }
-for p in $(series "/work/$PKG/packaging"); do apply "/work/$PKG/packaging/$p" packaging "$p"; done
-for p in $(series "/work/$PKG/patches"); do
+for p in $(series "/work/$PD/packaging"); do apply "/work/$PD/packaging/$p" packaging "$p"; done
+for p in $(series "/work/$PD/patches"); do
 	t=$(dirname "$p"); [ "$t" = . ] && t=
-	apply "/work/$PKG/patches/$p" "$t" "$p"
+	apply "/work/$PD/patches/$p" "$t" "$p"
 done
 git tag -f exported >/dev/null
 B="base/${VERSION//:/%}"

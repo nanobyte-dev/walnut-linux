@@ -3,7 +3,7 @@
 # freeware Tyrian 2.1 zip (Epic MegaGames / Daniel Cook, camanis.net; its license.doc is Epic's
 # "Limited Use Software License Agreement" and file_id.diz says all copying and distribution is
 # prohibited, so we do not redistribute it). Package tyrian-data (the name OpenTyrian's Depends
-# asks for; arch all, Section local/games), so tools/licensed-publish.sh takes it, for the licensed
+# asks for; arch all, Section local/games), so apt-repo/licensed-publish.sh takes it, for the licensed
 # suite only (also listed in tools/licensed-packages.txt). The data is never committed or put in a
 # public suite. Installs to /usr/share/games/tyrian (OpenTyrian's TYRIAN_DIR).
 # The DOS executables, the setup and order programs and the manuals' installers are left out; the

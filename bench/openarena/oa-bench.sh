@@ -3,7 +3,7 @@
 # (median and 10th percentile, from the Gallium HUD)
 pgrep -x ioquake3 && { echo "already running"; exit 1; }
 demo=$1; shift
-[ -e ~/.openarena/baseoa/demos/"$demo".dm_71 ] || { echo "no demo ~/.openarena/baseoa/demos/$demo.dm_71 (games/openarena/)"; exit 1; }
+[ -e ~/.openarena/baseoa/demos/"$demo".dm_71 ] || { echo "no demo ~/.openarena/baseoa/demos/$demo.dm_71 (bench/openarena/)"; exit 1; }
 cd ~; rm -rf /tmp/hud; mkdir /tmp/hud
 DISPLAY=:0 GALLIUM_HUD=fps GALLIUM_HUD_VISIBLE=false GALLIUM_HUD_DUMP_DIR=/tmp/hud GALLIUM_HUD_PERIOD=1 \
 	timeout -s KILL 150 ps3-game openarena "$@" +set r_swapInterval 0 +set com_maxfps 0 \

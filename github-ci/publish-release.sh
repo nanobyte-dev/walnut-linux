@@ -1,5 +1,5 @@
 #!/bin/bash
-# publish-release.sh ID DIR: signs a release image (tools/ci/build-release.sh's DIR) and publishes it
+# publish-release.sh ID DIR: signs a release image (github-ci/build-release.sh's DIR) and publishes it
 # (.github/workflows/release-image.yml): a stable A.B.C to walnut.nanobyte.dev/download/ID/, signed
 # by the archive key's signing subkey (environment walnut-stable), a nightly to download/nightly/ID/,
 # signed by the CI key (environment walnut-testing). SHA256SUMS gets a detached signature (secrets
@@ -7,12 +7,12 @@
 # walnut-watch checks it again and refuses a release that differs from its SHA256SUMS. Upload key:
 # WALNUT_DEPLOY_KEY_DATA. A published release never changes: a new build is a new version.
 set -euo pipefail
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/.."
 ver=$1 dir=$2
 : "${WALNUT_SIGN_KEY:?the signing key secret}" "${WALNUT_DEPLOY_KEY_DATA:?the upload key secret}"
 case $ver in
-	nightly-*) ring=tools/walnut-server/testing-keyring.gpg path=nightly/$ver ;;
-	*) ring=tools/walnut-server/archive-keyring.gpg path=$ver ;;
+	nightly-*) ring=apt-repo/keyrings/testing-keyring.gpg path=nightly/$ver ;;
+	*) ring=apt-repo/keyrings/archive-keyring.gpg path=$ver ;;
 esac
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -38,7 +38,7 @@ up=
 for try in 1 2 3 4; do
 	# the id is the version, so a retry goes to the same place: rsync sends only what didn't arrive,
 	# and the watcher publishes nothing before the manifest, which goes last
-	tools/walnut-server/walnut-upload.sh download "$ver" "$dir" && { up=1; break; }
+	servers/walnut.nanobyte.dev/walnut-upload.sh download "$ver" "$dir" && { up=1; break; }
 	echo "-- upload try $try failed"
 	sleep $((try * 30))
 done

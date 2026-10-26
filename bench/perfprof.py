@@ -100,7 +100,7 @@ class Fill:
     so libGLX_mesa and libgallium, dlopened during the load, got no mmap record). The DSO comes from
     the run's MEM=1 smaps (mem/mid.smaps, else start or end), the symbol from the library and its
     debug file (/usr/lib/debug/.build-id, by the build id in perf-buildids.txt or the library's
-    own note) through hotpaths/elfsym.py, as games/bench/hotpaths/analyze.py does on the PC.
+    own note) through hotpaths/elfsym.py, as bench/hotpaths/analyze.py does on the PC.
     PERFPROF_ROOT: where those files are (default /; on the PC a symbol root such as symroot.sh's).
     Without smaps (a run without MEM=1) the frames stay [unknown]."""
 

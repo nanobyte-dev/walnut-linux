@@ -8,11 +8,11 @@
 #   non-free/* or local/*, or its name in tools/licensed-packages.txt).
 #   Refused: a free package (CI publishes those), a ~dev version (commit, rebuild), and a version
 #   already published with other bytes (the suite keeps every file forever: a new file needs a new
-#   version; tools/walnut-repo.py --strict).
+#   version; apt-repo/walnut-repo.py --strict).
 # The suite is signed with the archive key (pass Projects/Walnut/ArchiveKey, imported into a
 # throwaway GNUPGHOME; GNUPGHOME + WALNUT_SIGN_KEY_FPR use a keyring of yours instead). Its passphrase:
 # the file WALNUT_SIGN_PASSPHRASE_FILE names, or asked on the terminal. The suite's login:
-# tools/licensed-auth.sh. The upload goes through tools/walnut-server/walnut-upload.sh (kind licensed,
+# apt-repo/licensed-auth.sh. The upload goes through servers/walnut.nanobyte.dev/walnut-upload.sh (kind licensed,
 # the deploy key ~/.ssh/walnut-deploy); walnut-watch's verdict is waited for, and a stale bundle
 # (another publish landed first) is made again on the new state.
 # Env: DRY_RUN=1 makes and checks the bundle (build/tmp/licensed-bundle) without uploading it.
@@ -23,7 +23,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 URL=${WALNUT_LICENSED_URL:-https://walnut.nanobyte.dev/licensed}
 STATUS=${WALNUT_STATUS_URL:-https://walnut.nanobyte.dev/status}
-RING=tools/walnut-server/archive-keyring.gpg
+RING=apt-repo/keyrings/archive-keyring.gpg
 is_licensed_deb() { ! python3 -I tools/leak-check.py debs "$1" >/dev/null 2>&1; }
 
 files=("$@")
@@ -54,7 +54,7 @@ echo ">> ${#files[@]} files for the licensed suite:"; printf '   %s\n' "${files[
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-tools/licensed-auth.sh "$tmp/auth"
+apt-repo/licensed-auth.sh "$tmp/auth"
 export WALNUT_APT_AUTH_FILE=$tmp/auth
 if [ -n "${WALNUT_SIGN_KEY_FPR:-}" ]; then
 	fpr=$WALNUT_SIGN_KEY_FPR
@@ -74,12 +74,12 @@ fi
 
 for attempt in 1 2 3 4 5; do
 	b=build/tmp/licensed-bundle
-	tools/walnut-repo.py --url "$URL" add --suite licensed --keyring "$RING" --sign-key "$fpr" --strict \
+	apt-repo/walnut-repo.py --url "$URL" add --suite licensed --keyring "$RING" --sign-key "$fpr" --strict \
 		--out "$b" "${files[@]}"
 	[ ! -d "$b/dists/licensed-debug" ] || { echo "!! debug symbols have no place in the licensed suite" >&2; exit 1; }
 	if [ "${DRY_RUN:-0}" = 1 ]; then echo ">> DRY_RUN: the bundle is in $b, not uploaded"; exit 0; fi
 	id=$(date -u +%Y%m%d-%H%M%S)-licensed-$attempt
-	tools/walnut-server/walnut-upload.sh licensed "$id" "$b"
+	servers/walnut.nanobyte.dev/walnut-upload.sh licensed "$id" "$b"
 	verdict=
 	for _ in $(seq 100); do
 		sleep 3

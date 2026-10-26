@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds the package layer of the PS3 root filesystem: Debian ppc64 with every package from
-# image/packages.txt installed, nothing of ours yet (build-image.sh adds that). This is the slow
+# system/image/packages.txt installed, nothing of ours yet (build-image.sh adds that). This is the slow
 # part (dpkg under qemu, about 15 minutes), so it only reruns when the package list or the
 # snapshot changes. Runs as root inside the builder container (privileged, for mounts in the
 # chroot); foreign binaries run through the host's qemu-ppc64 binfmt.

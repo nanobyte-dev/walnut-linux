@@ -23,8 +23,8 @@ CFLAGS  ?= -O2 -g
 override CFLAGS += -Wall -std=gnu11
 SPU_CFLAGS ?= -O2 -g
 override SPU_CFLAGS += -Wall -std=gnu11 -Ilib -Ispu
-TEST_OUT ?= ../build/speq-test
-MESA    ?= ../build/work/mesa
+TEST_OUT ?= ../../../../build/speq-test
+MESA    ?= ../../../../build/work/mesa
 
 SPEQ_SRC := lib/s3tc.c lib/dxt-ref.c lib/synth.c lib/skin.c lib/pool.c lib/queue.c lib/spe.c
 SPEQ_HDR := $(wildcard lib/*.h)
@@ -157,7 +157,7 @@ test-mesa: test
 
 # fluidsynth (make fluidsynth-work: build/work/fluidsynth, the hook's commits on Debian's tree)
 # and its base built for the host with cmake, the hook loading $(TEST_OUT)/fake/libspeq.so.0
-FLUIDSYNTH ?= ../build/work/fluidsynth
+FLUIDSYNTH ?= ../../../../build/work/fluidsynth
 test-fluidsynth:
 	$(MAKE) OUT=$(TEST_OUT) $(TEST_OUT)/fake/libspeq.so.0
 	tests/fluidsynth-compare.sh $(FLUIDSYNTH) $(TEST_OUT)

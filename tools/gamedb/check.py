@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""check.py [--content DIR]: validate the Walnut Games catalog (gamedb/content/games) before it is
+"""check.py [--content DIR]: validate the Walnut Games catalog (website/gamedb/content/games) before it is
 built or published (tools/gamedb/build.sh runs it first).
 
 Design
@@ -17,7 +17,7 @@ Design
     * thumb.png is a PNG; every test has a parsable result.toml of schema 1 whose listed screenshots
       exist, and no stray file sits in a test folder; its rules, when given, are "<data>.<formula>" of a
       data version score.py knows, and a data-version-2 test's defects name known categories
-    * patched_by names directories of ours with a package.conf (and patches/series)
+    * patched_by names source packages of ours (packages/**/<name>/package.conf, and patches/series)
 - Prints every problem with the game it belongs to, exits 1 if there is any.
 """
 import argparse
@@ -102,8 +102,8 @@ def check_game(gdir, bad, repo):
         elif p in bad:
             errs.append("package %r is licensed (tools/licensed-packages.txt): not for the public catalog" % p)
     for p in fm.get("patched_by", []):
-        if not (repo / p / "package.conf").exists():
-            errs.append("patched_by %r: no %s/package.conf in the repository" % (p, p))
+        if isinstance(p, str) and not score.package_dir(repo, p):
+            errs.append("patched_by %r: no packages/**/%s/package.conf in the repository" % (p, p))
     for d in fm.get("desktop", []):
         if not isinstance(d, str) or not re.fullmatch(r"[A-Za-z0-9._-]+\.desktop", d):
             errs.append("desktop entry %r" % (d,))
@@ -185,7 +185,7 @@ def check(content, repo=REPO):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--content", default=str(REPO / "gamedb" / "content" / "games"))
+    ap.add_argument("--content", default=str(REPO / "website" / "gamedb" / "content" / "games"))
     a = ap.parse_args()
     problems = check(a.content)
     for g, errs in problems.items():

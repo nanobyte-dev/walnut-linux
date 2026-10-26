@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """matrix.py ROW [--obs TEXT] <run dir>...: puts the runs into the results matrices, one CSV per
-metric in games/bench/results/, one row per tested configuration (ROW: what was installed or
+metric in bench/results/, one row per tested configuration (ROW: what was installed or
 switched on, e.g. "Mesa ps3.262"), one column per game-variant. A cell is the median over the
 given runs of that game-variant; cells of other columns in the row stay as they were, so a row
 can be filled over several sessions. Files:

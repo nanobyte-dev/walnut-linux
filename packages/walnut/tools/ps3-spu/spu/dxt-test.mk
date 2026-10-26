@@ -1,5 +1,5 @@
-# The SPU DXT1 encoder's test (standalone until it's wired into ps3-spu/Makefile):
-#   make -f ps3-spu/spu/dxt-test.mk [O=dir] [all|check|clean]
+# The SPU DXT1 encoder's test (standalone until it's wired into packages/walnut/tools/ps3-spu/Makefile):
+#   make -f packages/walnut/tools/ps3-spu/spu/dxt-test.mk [O=dir] [all|check|clean]
 # all:   $(O)/dxt-test.spu (SIMD, -O3) and $(O)/dxt-test-scalar.spu (DXT_SCALAR), for spurun
 #        on the PS3, plus the host builds below
 # check: on the host, the SIMD path through dxt-emu.h and the scalar path against the

@@ -1,6 +1,6 @@
-# Upstream pins of openrct2/ (included by the Makefile after config.mk; a change here is a change to the
+# Upstream pins of packages/patched/games/openrct2/ (included by the Makefile after config.mk; a change here is a change to the
 # package, so its version goes up). Downloads are checked against these sha256s.
-# --- OpenRCT2 (openrct2/): release 0.5.6 with our big-endian patches, and the asset zips its CMake would fetch ---
+# --- OpenRCT2 (packages/patched/games/openrct2/): release 0.5.6 with our big-endian patches, and the asset zips its CMake would fetch ---
 # (upstream's assets.json at v0.5.6: objects, title sequences, OpenSoundEffects, OpenMusic; same sha256)
 OPENRCT2_VERSION    := 0.5.6
 OPENRCT2_SHA256     := f4732724c1a709cfaff02ddff7fe3b6d027ad7827b343bf6f2a254114d32128b

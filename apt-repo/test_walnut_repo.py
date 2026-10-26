@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""tools/walnut-repo.py against the real tools/walnut-server/walnut-watch: real .deb files, the
-published tree served over local HTTP, throwaway keys (archive, CI). python3 tools/test_walnut_repo.py"""
+"""apt-repo/walnut-repo.py against the real servers/walnut.nanobyte.dev/walnut-watch: real .deb files, the
+published tree served over local HTTP, throwaway keys (archive, CI). python3 apt-repo/test_walnut_repo.py"""
 import base64, functools, hashlib, http.server, io, lzma, os, shutil, subprocess, tarfile, tempfile, threading, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = f"{HERE}/walnut-repo.py"
-WATCH = f"{HERE}/walnut-server/walnut-watch"
+WATCH = f"{HERE}/../servers/walnut.nanobyte.dev/walnut-watch"
 UPLOAD_ID = iter(range(1, 1000))
 
 
@@ -194,7 +194,7 @@ class Repo(unittest.TestCase):
 		self.assertIn("not signed by", r.stderr)
 
 	def test_licensed_suite(self):
-		"""The password-protected licensed suite (tools/licensed-publish.sh): read with the login from
+		"""The password-protected licensed suite (apt-repo/licensed-publish.sh): read with the login from
 		WALNUT_APT_AUTH_FILE, signed with the archive key, every version kept, and a published version
 		with other bytes refused (--strict)."""
 		www = f"{self.root}/www/licensed"

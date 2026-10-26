@@ -12,7 +12,7 @@ PS3_USER            := walnut
 PC_IP               := 192.168.1.10
 PC_MAC              := 00:00:00:00:00:00
 # The login of walnut.nanobyte.dev's password-protected licensed suite (make publish, make quake-data;
-# else tools/licensed-auth.sh reads pass Projects/Walnut/LicensedRepo)
+# else apt-repo/licensed-auth.sh reads pass Projects/Walnut/LicensedRepo)
 #WALNUT_LICENSED_USER := walnut
 #WALNUT_LICENSED_PASS := <password>
 # The USB root disk's name in /dev/disk/by-id on the PS3 (make usb-root)

@@ -4,7 +4,7 @@
 #   ps3-bench.sh run LABEL -- cmd...       quiet, then cmd with memory/VRAM samples every 0.5 s
 #   ps3-bench.sh x LABEL -- cmd...         the same, cmd as the only client of a bare X on vt1
 #   ps3-bench.sh snap LABEL                one full snapshot into the current run directory
-#   ps3-bench.sh session LABEL -- cmd...   a played session (games/bench/session.sh): cmd in the live
+#   ps3-bench.sh session LABEL -- cmd...   a played session (bench/session.sh): cmd in the live
 #                                          desktop, recorded like x; no quiet, no bare X server, no bench
 #                                          lock, no screen, no interference detector (the player's input
 #                                          is the point), no time limit (BENCH_TIMEOUT=0); the thermal
@@ -19,7 +19,7 @@
 # desktop (a session never ended gets them back at the next boot: stop is not disable). Not after
 # each run: apt-daily's timer is Persistent, so starting it again would fire the missed run into the
 # next measurement. bench.txt and result get timers_paused=.
-# Games and their config files are the business of games/bench (its client.sh backs up and
+# Games and their config files are the business of bench (its client.sh backs up and
 # restores what each game rewrites).
 # A watchdog stops the command on a "PS3 Thermal Alert". With the kernel's temperature sensors
 # (hwmon ps3_sm, CONFIG_PS3_SYS_MANAGER_HWMON, docs/THERMAL.md) the sampler also reads them every
@@ -31,11 +31,11 @@
 # HUD into the run directory. BENCH_NOVSWAP=1: VRAM swap off for the run (the first run of anything
 # that might wedge the GPU); desktop turns it back on. BENCH_STALLS=1: ps3-stallrec records the
 # game's main thread and the memory and disk counters every BENCH_STALLS_MS (default 10) ms into
-# stalls.rec, for games/bench/stalls.py (why frames stall, docs/STALLS.md). BENCH_PERF=1: perf
+# stalls.rec, for bench/stalls.py (why frames stall, docs/STALLS.md). BENCH_PERF=1: perf
 # record (call graphs, BENCH_PERF_HZ samples a second, default 499) of the game's threads, Xorg and
 # kswapd0, started disabled once client.sh's .pid appears and switched on and off by client.sh over
 # the measured window through the fifo $BENCH_PERF_CTL; perf.data goes to the disk, not /dev/shm,
-# and into the run directory at the end (docs/PROFILING.md; games/bench/perf-post.sh reads it).
+# and into the run directory at the end (docs/PROFILING.md; bench/perf-post.sh reads it).
 # BENCH_PERF_ALL=1 adds a system-wide perf without call graphs (perf-sys.data). BENCH_PERF_LOAD=1:
 # a second perf record (perf-load.data, call graphs) of the start-up: client.sh holds the game at a
 # gate until this perf has attached to it (its pid in $D/.launch.pid), switches it on through the
@@ -571,9 +571,9 @@ run_job() {
 		[ "$x" -nt "$D/cmd" ] && cp "$x" "$D/" && break
 	done
 	{ echo "rc $rc wall $(awk -v a="$t0" -v b="$t1" 'BEGIN { printf "%.2f", b - a }') s"
-	  # the client's CPU time, and games/bench's summary (bench: key=value)
+	  # the client's CPU time, and bench's summary (bench: key=value)
 	  grep -h -a -E '^[0-9.]+ (client|bench): ' "$D/out.log" | cut -d' ' -f2-
-	  # fps per second after loading: the game's load time from games/bench, else 12 s
+	  # fps per second after loading: the game's load time from bench, else 12 s
 	  skip=$(awk -F= '$1 == "load" && $2 != "" { s = int($2) + 1 } $1 == "hud_skip" && !s { s = $2 }
 		END { print s ? s : 12 }' "$D/bench.txt" 2>/dev/null || echo 12)
 	  [ -s "$D/hud/fps" ] && awk -v s="$skip" 'NR>s{print int($1)}' "$D/hud/fps" | sort -n |

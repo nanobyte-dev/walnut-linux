@@ -6,7 +6,7 @@
  * On the host GCC's generic vectors run as SSE2; tools/run-tests.sh also builds it for ppc64 with
  * -mcpu=cell in the deb builder's cross compiler and runs it under qemu-ppc64 (AltiVec), when
  * docker and the image are there.
- *   cc -I build/work/mesa/src/mesa/vbo mesa/tests/minmax-vmx-test.c */
+ *   cc -I build/work/mesa/src/mesa/vbo packages/patched/graphics/mesa/tests/minmax-vmx-test.c */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

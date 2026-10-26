@@ -3,7 +3,7 @@
 # walnut-upload container (upload/: rrsync, write-only, no overwrite, no delete), then its manifest ID.ready
 # (sha256sum of every file) last. The server's walnut-watch picks the bundle up only once the
 # manifest is there, checks every file against it and puts it in place without a half-written
-# moment (tools/walnut-server/walnut-watch). KIND: site, download, apt, licensed. An ID is used
+# moment (servers/walnut.nanobyte.dev/walnut-watch). KIND: site, download, apt, licensed. An ID is used
 # once; a new upload takes a new one (e.g. date-sha).
 # Env: WALNUT_DEPLOY_KEY (the private key file; default ~/.ssh/walnut-deploy), WALNUT_DEPLOY_HOST
 # (walnut.nanobyte.dev), WALNUT_DEPLOY_PORT (2223, the container's), WALNUT_KNOWN_HOSTS (this directory's known_hosts:
