@@ -158,7 +158,7 @@ OpenRCT2 has a recipe (`openrct2.sh`) and a baseline on the PS3 ([openrct2.md](o
 needs (arch all, `/usr/share/games/rct2`, about 115 MB without the ride music; `RCT2_MUSIC=1` adds
 it) from the user's own RollerCoaster Tycoon 2 CD. It unpacks the InstallShield cabinets with
 `unshield` and runs nothing from the disc; the package goes to the licensed suite only
-(`tools/licensed-packages.txt`) and the data is never committed.
+(`gamedb/games/openrct2/build.toml` `[[licensed]]`; `make licensed-data PKG=rct2-data INPUT=<image>`) and the data is never committed.
 
 **Done (2026-10-20): stable `warzone2100` 4.3.5-1+ps3.644, uninstalled from the PS3.** The user
 played it normally next to the PC build: renders like the PC, sound right, the ground textured

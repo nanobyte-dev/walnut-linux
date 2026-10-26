@@ -15,13 +15,15 @@ Outside this folder a game may appear only as:
 - **frozen history** (docs/archive/, git, changelogs);
 - **test fixtures** that use a game as sample data.
 
-**Status (2026-10-26): step 1c is done, the catalog, the game packages and the benchmarks live here.** Each game's
+**Status (2026-10-26): step 2 is done, the catalog, the game packages, the benchmarks and the build facts live here.** Each game's
 `index.md`, `thumb.png` and played sessions (`rating/sessions/<run>/`) are in `games/<id>/`; the site
 mounts them (website/gamedb/hugo.toml) and the app's catalog is packed from them. Every game package
 is in its bundle's `packages/`, the three engines (cube2, ioquake3, darkplaces-gl2) in `engines/<e>/`,
 the licensed data packages and builders in `games/<id>/licensed/`, the teeworlds and yquake2 upstream
 drafts in `upstream.md`; games with a package or a recipe but no published page have draft bundles.
-Every bench recipe, with its assets and helpers, is in its bundle's `benchmark/`. The tools below already look here (marked *read now*);
+Every bench recipe, with its assets and helpers, is in its bundle's `benchmark/`. How each game is built
+and installed (its packages, engine, suite, data, licensed data) is its `build.toml`, which the Makefile,
+the catalog and the licensed guards read; each package's orig tarball recipe is its `orig.mk`. The tools below already look here (marked *read now*);
 the rest is marked *planned*, with the migration step that brings it.
 
 ## Layout
@@ -58,7 +60,7 @@ gamedb/
 ### games/<id>/index.md
 
 TOML front matter between `+++` lines, then the notes as markdown. Keys (today's set, from
-`tools/gamedb/check.py`, which also allows only `index.md`, `thumb.png`, `rating/sessions/`, `packages/`,
+`tools/gamedb/check.py`, which also allows only `index.md`, `thumb.png`, `build.toml`, `rating/sessions/`, `packages/`,
 `licensed/`, `upstream.md`, `upstream/` and `benchmark/` in a game's folder until the later steps add their files):
 
 | Key | Type | Meaning |
@@ -67,9 +69,7 @@ TOML front matter between `+++` lines, then the notes as markdown. Keys (today's
 | `summary`, `license`, `homepage` | string | required for a published game |
 | `categories` | list | one to three of check.py's CATEGORIES |
 | `tags` | list | lower case words |
-| `packages` | list | what the app installs (moves to build.toml in step 2) |
-| `desktop`, `recipes`, `patched_by` | list | menu entries; bench runs, `"<id>:<variant>"` of the game's own recipe (check.py; the field goes in step 2); our source packages that patch it |
-| `needs_data`, `data_guide`, `data_steps` | bool, string, list | the player's own data and how to set it up |
+| `data_guide`, `data_steps` | string, list | how a player gets and sets up their own data: required when build.toml says `needs_data = true`, refused otherwise |
 | `controller`, `designed_for` | string | gamepad support; `pad` or a PC input |
 | `fps_cap`, `medal_note`, `known_issues` | number, string, list | |
 | `draft` | bool | not published: catalog.py, pack-catalog.py and Hugo leave it out |
@@ -88,18 +88,34 @@ out), Hugo (website/gamedb/hugo.toml mounts `games/` as `content/games/` with an
 
 ### games/<id>/build.toml (and engines/<e>/build.toml)
 
-How the game is built, installed and integrated. *Planned* (step 2), except `[[licensed]]`:
+How the game is built, installed and integrated (*read now*). TOML, a closed key set (`tools/gamedb/check.py`
+BUILD_KEYS: an unknown key is an error, so a typo can't vanish). A published game needs `packages`, `suite`
+and `needs_data`; a draft has a build.toml only when something about its build is known, and only those keys.
 
-| Key | Meaning |
-|---|---|
-| `packages` | the packages the app installs |
-| `engine` | the engine bundle in `engines/` it runs on |
-| `suite` | `free`, `licensed` or `none` |
-| `needs_data`, `data` | the player's own data; the data packages |
-| `desktop`, `divert`, `image_base` | menu entries; files we divert; in the image's base set |
-| `[[licensed]]` `name` | a licensed package name (*read now* by `tools/licensed.py`) |
-| `[[licensed]]` `leak_files` | paths of its content in upstream tarballs, leak globs (*read now*) |
-| `[[licensed]]` `builder` | how the data package is made (*planned*) |
+| Key | Type | Meaning |
+|---|---|---|
+| `packages` | list | the packages the app installs (`walnut-games-helper`; `tools/play-pc.sh` on the PC): Debian package names, none licensed; each one in the apt index (`check.py --apt-index URL`, e.g. the Debian snapshot's and our repository's Packages) or built by a `debian/control` of ours |
+| `engine` | string | the engine bundle in `engines/` it runs on; that engine's `engine.md` `games` lists the game (check.py checks both ways) |
+| `suite` | string | `free`: in `ps3-games` and the public `ps3-games-free`; `licensed`: in `ps3-games` only, its data is licensed (the public image leaves its packages out: `tools/image-packages.sh`); `none`: in neither |
+| `needs_data` | bool | the player supplies data the game can't run without (index.md then has `data_guide` and `data_steps`) |
+| `data` | list | the data packages (often licensed) the game plays with: on the PC, `tools/play-pc.sh` mounts each one's files from a `.deb` found in build/ |
+| `desktop` | list | the game's own menu entries the app starts (`<name>.desktop`) |
+| `divert` | list | absolute paths of files of the game's packages we divert (today ps3-desktop's preinst moves the games' own menu entries away; step 3 generates it from here) |
+| `image_base` | bool | in the image's package layer (system/image/packages.txt) |
+| `recipes` | list | the bench runs that stand for the game, `"<id>:<variant>"` of its own `benchmark/recipe.sh` (the catalog's `recipes`) |
+| `[[licensed]]` | tables | the game's licensed data: `name` (the package), `builder` (`source`: a source package of ours in `licensed/<name>/`; `script`: `licensed/<name>/<name>.sh` run on the owner's own copy, `make licensed-data PKG=<name> INPUT=<file>`; `game-data-packager:<game>`: `make game-data`), `leak_files` (paths of its content in upstream tarballs, leak globs) |
+
+Every `licensed/<pkg>/` directory of a bundle has its `[[licensed]]` entry, and every `source` or `script`
+entry its directory (a checkout without licensed directories, the public copy, skips that direction).
+The catalog's `patched_by` is no key: it is the source packages of ours in the bundle's `packages/` and its
+engine's (`check.patched_by`). An engine's build.toml takes `packages` (the engine's packages its games run)
+and `[[licensed]]` only.
+
+Read by: `tools/gamedb/check.py` (validates), `catalog.py` (packages, needs_data, desktop, recipes),
+`tools/licensed.py` (`[[licensed]]` names and leak_files), `tools/gamedb/build-info.py` (for the Makefile's
+`make game-data` and `make licensed-data`, `tools/image-packages.sh`'s licensed-suite games, `tools/play-pc.sh`'s
+packages and data); *planned* (step 3) `tools/gamedb/pack-integration.py` (suite, desktop, divert: the
+ps3-games Depends and the integration package).
 
 Versions: `walnut-games` (*now*), `ps3-games` and `ps3-games-licensed` (*planned*) carry `VERSION_PATHS` over
 exactly the gamedb files they consume (index.md, thumb.png, build.toml, rating/test.toml,
@@ -112,9 +128,10 @@ path component, `**` across them.
 Our source packages for one game (for an engine: `engines/<e>/packages/`; step 1b moved them all
 here), each laid out as in `packages/`
 (docs/PACKAGING.md): `package.conf`, `upstream.mk`,
-`debian/`, `patches/`, `files/`, `tests/`, plus *planned* `orig.mk` (its orig tarball recipe, included by
-the Makefile; step 2) and `dfsg-exclude.txt` (paths left out of the upstream tarball, one per line;
-`tools/licensed.py` *reads it now* as leak globs, an entry `E` as `E` and `E/*`).
+`debian/`, `patches/`, `files/`, `tests/`, `orig.mk` (*now*: its orig tarball recipe, included by the
+Makefile, free packages first, then the licensed ones; docs/PACKAGING.md "Upstream tarballs") and
+`dfsg-exclude.txt` (*now*, classicube: paths left out of the upstream tarball, one per line, read by its
+orig.mk; `tools/licensed.py` reads it as leak globs, an entry `E` as `E` and `E/*`).
 A package is named by its directory alone, here as in `packages/`: `tools/pkg-dir.sh` *finds these
 now*, and two packages of one name anywhere are an error. Shared libraries patched because of a
 game (libsfml, luajit, sdl2-compat, libpng, ...) stay in `packages/` and cite `gamedb:<id>` in their
@@ -126,9 +143,10 @@ A licensed data package or its builder (step 1b: `classicube-data` in classicube
 sauerbraten, `sauerbraten-nonfree-data` in bananabread, since it fills in the `cube2-data` BananaBread
 plays, `rct2-data.sh` in openrct2, `tyrian-data.sh` in opentyrian): text only, built on our own PC, never by CI, published to
 the password-protected licensed suite only. A directory here is licensed by its location:
-`tools/licensed.py` *reads it now* (with `packages/licensed/` and `tools/licensed-packages.txt`),
+`tools/licensed.py` *reads it now* (with `packages/licensed/` and the `[[licensed]]` entries of build.toml),
 the public copy drops `gamedb/*/*/licensed/*` from every commit (`tools/public-export.sh`), CI never
-gets a workflow for it (`github-ci/gen-workflows.py`). `licensed.py check` wants every one declared.
+gets a workflow for it (`github-ci/gen-workflows.py`). `licensed.py check` wants every one declared in
+its own bundle's build.toml.
 
 ### games/<id>/desktop/
 
@@ -258,7 +276,8 @@ game patches; docs/upstream/README.md links every draft.
 
 `engine.md` (*now*: TOML front matter between `+++` lines with `id`, `title`, `homepage`, `license` and
 `games = [...]`, the bundles that run on it; then a short note), `packages/<pkg>/` (*now*: cube2,
-ioquake3, darkplaces-gl2), and *planned* `build.toml`, `technical.md`, `investigations/`, as for a game.
+ioquake3, darkplaces-gl2), `build.toml` (*now*: `packages`, `[[licensed]]`), and *planned* `technical.md`,
+`investigations/`, as for a game.
 
 ### benchmarks/batches.toml, benchmarks/metrics.toml
 
@@ -280,7 +299,9 @@ docs/research/.
 | catalog.json (site, app); technical.json (*planned*) | `tools/gamedb/catalog.py` |
 | the app's catalog.tar | `tools/gamedb/pack-catalog.py` |
 | the integration tree and the ps3-games Depends (*planned*) | `tools/gamedb/pack-integration.py` |
-| `PKG_DIRS` (and, *planned*, a complete `SRC_PACKAGES`) | `tools/pkg-dir.sh --all`, `--order` |
+| `PKG_DIRS`, `SRC_PACKAGES` (every package of ours, in build order) | `tools/pkg-dir.sh --all`, `--order` |
+| orig recipes and `DEB_ENV`'s tarball variables | the packages' `orig.mk`, included by the Makefile |
+| `make game-data`, `make licensed-data`, the public image's licensed-suite games, play-pc's packages and data | `tools/gamedb/build-info.py` |
 | licensed names and leak globs | `tools/licensed.py` |
 | CI workflows | `github-ci/gen-workflows.py` (`--check` in make test) |
 | doc blocks | `tools/gamedb/blocks.py --write`, `--check` |

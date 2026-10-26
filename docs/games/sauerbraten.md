@@ -197,7 +197,7 @@ would give the same program without the patches. What was missing was the launch
   `/usr/share/games/cube2` for the BananaBread entry, 912 files). Reusing it was not possible, since the real game needs
   the maps, textures and music too, in its own directory so neither game sees the other's files. The orig tarball is made
   from the same pinned release archive (`make sauerbraten-data-src`, `gamedb/games/sauerbraten/licensed/sauerbraten-data/sauerbraten-full-data.sh`), never committed.
-  Mixed, partly non-commercial licences: `tools/licensed-packages.txt`, no CI workflow. Not in `ps3-games-licensed`'s
+  Mixed, partly non-commercial licences: licensed (`licensed/`, the bundle's build.toml `[[licensed]]`), no CI workflow. Not in `ps3-games-licensed`'s
   Depends (980 MB); install by name.
 - Endianness: nothing to fix. The engine already runs big-endian on the PS3 (the BananaBread maps read through
   `lilswap`), and the release's maps and models use the same formats.

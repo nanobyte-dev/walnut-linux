@@ -7,8 +7,8 @@ upstream drafts of our Yamagi fix are in `docs/upstream/` (PLAN 5.8).
 
 ## The data
 
-Both games use non-free data, built once on the PC with game-data-packager (`make quake-data`, the
-Debian games builder with `lhasa`, into `build/debs/quake-data`): `quake-shareware`
+Both games use non-free data, built once on the PC with game-data-packager (`make game-data`, the
+Debian games builder with `lhasa`, into `build/debs/game-data`): `quake-shareware`
 (`/usr/share/games/quake/id1/pak0.pak`, Quake 1.06 shareware, 18 MB, demo1-3) and `quake2-demo-data`
 (`/usr/share/games/quake2-demo/baseq2/`). They are published once to our licensed suite
 (`make publish`) and reused, since game-data-packager's output isn't reproducible, and
