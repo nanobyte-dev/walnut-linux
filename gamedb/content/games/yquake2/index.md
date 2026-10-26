@@ -21,6 +21,11 @@ data_steps = [
 ]
 controller = "keyboard"
 designed_for = "keyboard-mouse"
+known_issues = [
+  "Particles (blood, sparks, bullet trails) draw as squares instead of round dots: the RSX's Mesa driver lacks smooth points (a fix in progress).",
+  "Movement is bound to E/S/D/F out of the box, not W/A/S/D (Yamagi's defaults): rebind it in Options, Customize controls.",
+  "The menu and HUD text is small at 1080p.",
+]
 +++
 
 Yamagi Quake II 8.70 runs on the gl1 renderer at about 70 frames a second on the Quake II demo
