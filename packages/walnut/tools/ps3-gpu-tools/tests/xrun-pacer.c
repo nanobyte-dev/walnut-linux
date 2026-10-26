@@ -1,5 +1,5 @@
 /*
- * xrun-pacer.so: a pretend sound card for testing ps3-xrunlog.so on the PC (bench/selftest.py):
+ * xrun-pacer.so: a pretend sound card for testing ps3-xrunlog.so on the PC (bench/tests/selftest.py):
  * an ALSA ioplug that plays nothing but consumes frames in real time from its start, on
  * CLOCK_MONOTONIC, and goes into XRUN as soon as its position passes the frames written, like a
  * card that ran dry. Never built into the package; no sound reaches the PC's speakers.

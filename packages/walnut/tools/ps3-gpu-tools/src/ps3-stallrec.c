@@ -1,7 +1,7 @@
 /*
  * ps3-stallrec: the stall attribution recorder (docs/STALLS.md). One long-lived process that
  * samples, every few milliseconds, what the game's main thread is doing and what the memory
- * system and the disks did since the last sample, so that bench/stalls.py can say why a
+ * system and the disks did since the last sample, so that bench/analysis/stalls.py can say why a
  * frame took more than 100 ms. Run by ps3-bench.sh (BENCH_STALLS=1) as root.
  *
  *   ps3-stallrec [-o OUT] [-i MS] (-p PIDFILE | -P PID) [-T COMM] [-f FRAMEFILE] [-s STOPFILE]

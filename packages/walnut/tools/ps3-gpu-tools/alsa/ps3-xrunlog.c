@@ -1,7 +1,7 @@
 /*
  * ps3-xrunlog.so: an ALSA PCM plugin that logs every time a game's sound output ran dry, how long
  * it stayed dry and how loud the sound was on either side (docs/games/SUITE.md "Sound dropouts").
- * bench/client.sh puts it in front of the game's default device for one run, without
+ * bench/harness/client.sh puts it in front of the game's default device for one run, without
  * touching any configuration file:
  *
  *   ALSA_CONFIG_PATH=/usr/share/alsa/alsa.conf:/usr/lib/ps3/lib/ps3-xrunlog.conf \
@@ -36,7 +36,7 @@
  * (a full-scale square wave is 0 dB, a full-scale sine -3 dB); -inf for digital silence, nan
  * when unknown (a sample format it can't read, nothing written). via: prepare or late.
  * Also "open" (the stream's parameters, at hw_params) and "close" lines. Which dropouts can be
- * heard is decided by bench/xruns.py, not here.
+ * heard is decided by bench/harness/xruns.py, not here.
  *
  * Without PS3_XRUNLOG (or for capture streams) the plugin only copies.
  */

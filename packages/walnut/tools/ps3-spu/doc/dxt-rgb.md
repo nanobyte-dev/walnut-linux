@@ -122,8 +122,8 @@ result`: `PASS ...; rgb expand N cyc/16px`.
 
 Games (`make bench-push`, then on the PS3 in `/var/tmp/bench`), same boot, interleaved:
 
-    STALLS=1 ./run.sh bench bananabread "rgbspu rgbppe" 3
-    STALLS=1 ./run.sh bench openarena "rgbspu rgbppe" 3      # first: grep -c 'comps 3' in a game.log
+    STALLS=1 harness/run.sh bench bananabread "rgbspu rgbppe" 3
+    STALLS=1 harness/run.sh bench openarena "rgbspu rgbppe" 3      # first: grep -c 'comps 3' in a game.log
 
 Look at the webcam pictures (bench-cam), then `report.py` on the run directories: stall_cpu_s,
 longest_ms, load; and in game.log the `speq: s3tc ... comps 3` lines: `spu` and a few hundred us

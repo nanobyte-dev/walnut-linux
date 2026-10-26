@@ -1,6 +1,6 @@
 /*
  * ps3-mallocstat.so: glibc's malloc statistics of a running game, on request (docs/PROFILING.md).
- * bench/client.sh (MEM=1) preloads it into the game:
+ * bench/harness/client.sh (MEM=1) preloads it into the game:
  *
  *   LD_PRELOAD=/usr/lib/ps3/lib/ps3-mallocstat.so PS3_MALLOCSTAT_FIFO=<fifo>
  *   PS3_MALLOCSTAT_DIR=<dir> PS3_MALLOCSTAT_COMM=<comm> <game>

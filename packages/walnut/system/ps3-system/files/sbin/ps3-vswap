@@ -3,7 +3,7 @@
 # PS3_VSWAP_DM=1 in /etc/default/ps3-vswap (off when unset): the VRAM swap's backing is a device-mapper
 # device, ps3vswap-back (dm-linear over the partition's first vswap_size_mb, all the VRAM swap uses),
 # instead of the partition itself. The backing is set once per boot, but the table under it can be
-# switched while the VRAM swap is off: the bench's SSD swap arm (bench/ssd-arm.sh,
+# switched while the VRAM swap is off: the bench's SSD swap arm (bench/harness/ssd-arm.sh,
 # docs/GAMEOS-HDD.md "Test drive, Phase A"). Without dmsetup or dm-mod, or if the device fails,
 # the partition as before. PS3_VSWAP_ROOT: a prefix for /etc and /sys (host tests only).
 R=${PS3_VSWAP_ROOT:-}
