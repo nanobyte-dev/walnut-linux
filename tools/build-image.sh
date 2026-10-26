@@ -1,10 +1,10 @@
 #!/bin/bash
 # Builds the PS3 root filesystem image: the package layer (build/rootfs/base.tar, from
 # build-rootfs.sh) plus our configuration (image/customize.sh) and our own packages from
-# build/debs/* (kernels, RSX driver, Mesa, games, SPU tools: make packages), REPO_SUITE or WALNUT_SUITE. Takes a
+# build/debs/* (kernels, RSX driver, Mesa, games, SPU tools: make packages) or WALNUT_SUITE. Takes a
 # minute or two, so a config change doesn't reinstall the Debian packages. Runs as root in the
 # builder container. Inputs (env): ROOTFS_CUSTOMIZE SOURCE_DATE_EPOCH BOOT_ROOT_ARGS
-# BOOT_EXTRA_ARGS REPO_SUITE REPO_URL WALNUT_SUITE WALNUT_APT WALNUT_KEYRING OWNER
+# BOOT_EXTRA_ARGS WALNUT_SUITE WALNUT_APT WALNUT_KEYRING OWNER
 # Output: build/rootfs/debian-ppc64.tar, byte-for-byte the same from the same inputs
 set -euo pipefail
 {
@@ -51,7 +51,7 @@ fi
 rm -f "$R/etc/resolv.conf" && cp /etc/resolv.conf "$R/etc/resolv.conf"
 
 # Our packages, installed by apt from a local flat repository of our debs (build/debs/*) or,
-# with REPO_SUITE, a frozen snapshot of the stable suite on the server; pinned above Debian's, with
+# with WALNUT_SUITE, a suite on walnut.nanobyte.dev; pinned above Debian's, with
 # the base's snapshot source for anything new. The pin file sorts first: apt takes the first pin
 # that matches a release, and ps3-system's own (walnut) come in with it. Our Mesa replaces Debian's as an upgrade (auto marks kept); then whatever only
 # Debian's Mesa needed (LLVM, z3, sensors) is autoremoved.
@@ -73,21 +73,6 @@ if [ -n "${WALNUT_SUITE:-}" ]; then
 		echo "deb [signed-by=$ring] $WALNUT_APT $s main" >> "$R/etc/apt/sources.list.d/zz-image.list"
 		printf 'Package: *\nPin: release o=Walnut, n=%s\nPin-Priority: 1001\n\n' $s >> "$R/etc/apt/preferences.d/00-image"
 	done
-elif [ -n "${REPO_SUITE:-}" ]; then
-	# a frozen snapshot of our stable suite on the server (make repo-snapshot)
-	echo ">> our packages from $REPO_URL/ps3, suite $REPO_SUITE"
-	mkdir -p "$R/tmp/ps3-repo"
-	echo "deb [trusted=yes] $REPO_URL/ps3 $REPO_SUITE main deps" > "$R/etc/apt/sources.list.d/zz-image.list"
-	if [ "$PROFILE" != "public" ]; then
-		# the licensed suite's snapshot of the same name (classicube-data, game data), when there is
-		# one: snapshots from before the ps3-licensed split have their licensed packages in ps3 itself
-		if python3 -c 'import sys, urllib.request; urllib.request.urlopen(sys.argv[1], timeout=30)' \
-				"$REPO_URL/ps3-licensed/dists/$REPO_SUITE/Release" 2>/dev/null; then
-			echo ">> licensed packages from $REPO_URL/ps3-licensed, suite $REPO_SUITE"
-			echo "deb [trusted=yes] $REPO_URL/ps3-licensed $REPO_SUITE main" >> "$R/etc/apt/sources.list.d/zz-image.list"
-		fi
-	fi
-	printf 'Package: *\nPin: release n=%s\nPin-Priority: 1001\n' "$REPO_SUITE" > "$R/etc/apt/preferences.d/00-image"
 else
 	# this checkout's build outputs, as a flat repository
 	mkdir -p "$R/tmp/ps3-repo"

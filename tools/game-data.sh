@@ -1,34 +1,35 @@
 #!/bin/bash
 # game-data.sh <out dir> <game>:<package>...: game data debs made by game-data-packager (in the games
-# builder, docker/Dockerfile.games), e.g. quake:quake-shareware. Their data is non-free: our LAN
-# repository only (the ps3-licensed suite: tools/licensed-packages.txt), never anywhere public.
-# game-data-packager's output isn't reproducible (file dates are the build time), and the kept suites
-# never take a different file under a published version (docs/PACKAGING.md). So a package already
-# published (in ps3-licensed, or in ps3 where earlier publishes put it) is downloaded from the
-# repository (checked against the suite's SHA256) instead of made again. REGEN=1 makes it anyway,
-# which is only publishable when the version is new (a newer game-data-packager): a regenerated file
-# under a published version is refused here.
+# builder, docker/Dockerfile.games), e.g. quake:quake-shareware. Their data is non-free: the
+# password-protected licensed suite on walnut.nanobyte.dev only (tools/licensed-packages.txt), never
+# anywhere public.
+# game-data-packager's output isn't reproducible (file dates are the build time), and the licensed
+# suite never takes a different file under a published version (docs/PACKAGING.md). So a package
+# already published there is downloaded (checked against the suite's SHA256) instead of made again.
+# REGEN=1 makes it anyway, which is only publishable when the version is new (a newer
+# game-data-packager): a regenerated file under a published version is refused here.
 # Downloads (the shareware archives) are kept in build/downloads/game-data.
-# Env: REPO_URL REGEN
+# Env: LICENSED_URL (https://walnut.nanobyte.dev/licensed), LICENSED_NETRC (a curl netrc with the
+# suite's login, tools/licensed-auth.sh FILE netrc), REGEN
 set -euo pipefail
 # One block, parsed whole before it runs: editing this file during a run can't make bash
 # execute a shifted fragment.
 {
 OUT=$1; shift
-: "${REPO_URL:?}"
+URL=${LICENSED_URL:-https://walnut.nanobyte.dev/licensed}
 DL=build/downloads/game-data
 rm -rf "$OUT"; mkdir -p "$OUT" "$DL"
 IDX=$(mktemp)
 trap 'rm -f "$IDX"' EXIT
-# the licensed suite first (where these packages go now), then the stable one (published there
-# before the ps3-licensed split); each paragraph gets the prefix its Filename is under
-for suite in ps3-licensed ps3; do
-	if curl -fsS -m 30 "$REPO_URL/$suite/dists/$suite/main/binary-all/Packages" 2>/dev/null | sed "s|^Filename: |Filename: $suite/|" >> "$IDX"; then
-		echo >> "$IDX"
-	elif [ "$suite" = ps3 ]; then
-		echo "!! can't read the ps3 suite's index at $REPO_URL (it decides whether to reuse or make)"; exit 1
-	fi
-done
+get() { curl -fsS -m 60 ${LICENSED_NETRC:+--netrc-file "$LICENSED_NETRC"} "$@"; }
+# the suite's index; a suite with nothing published yet has no Release (404)
+code=$(curl -sS -m 30 -o /dev/null -w '%{http_code}' ${LICENSED_NETRC:+--netrc-file "$LICENSED_NETRC"} "$URL/dists/licensed/Release" || true)
+case $code in
+200) get "$URL/dists/licensed/main/binary-ppc64/Packages" > "$IDX" ;;
+404) echo ">> the licensed suite has nothing published yet" ;;
+*) if [ "${REGEN:-0}" = 1 ]; then echo ">> the licensed suite isn't readable (HTTP $code): REGEN=1, making them"
+   else echo "!! can't read the licensed suite at $URL (HTTP $code; its login: LICENSED_NETRC): it decides whether to reuse or make"; exit 1; fi ;;
+esac
 # published <package>: "<version> <prefix>/<pool file> <sha256>" of its newest published version
 published() {
 	awk -v p="$1" 'BEGIN { RS = ""; FS = "\n" } {
@@ -50,8 +51,8 @@ for spec in "$@"; do
 	pub=$(published "$pkg")
 	if [ -n "$pub" ] && [ "${REGEN:-0}" != 1 ]; then
 		read -r v f s <<<"$pub"
-		echo ">> $pkg $v: the published file ($REPO_URL/$f)"
-		curl -fsS -o "$OUT/$(basename "$f").tmp" "$REPO_URL/$f"
+		echo ">> $pkg $v: the published file ($URL/$f)"
+		get -o "$OUT/$(basename "$f").tmp" "$URL/$f"
 		echo "$s  $OUT/$(basename "$f").tmp" | sha256sum -c --quiet
 		mv "$OUT/$(basename "$f").tmp" "$OUT/$(basename "$f")"
 		continue

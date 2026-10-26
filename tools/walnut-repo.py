@@ -14,16 +14,19 @@ suite has its own pool (pool/<suite>/main/...): testing and stable are separate 
 version, and their bytes may differ.
 
   add    --suite S --keyring K --sign-key FPR --out DIR [--keep N] [--debug-keep N] [--release-only]
-         FILE.deb|FILE.dsc...   (--release-only: without the debug kernel and the modules built for
-         it, which are for testing)
+         [--strict] FILE.deb|FILE.dsc...   (--release-only: without the debug kernel and the modules
+         built for it, which are for testing; --strict: a version already published with other bytes
+         is an error, not a note, for the licensed suite whose files never change)
   fetch  --suite S --keyring K --source NAME --to DIR  (the newest version's debs, checked)
   base   --suite S --keyring K  (prints the sha256 of the published InRelease, or none)
 
 Signing uses gpg with the key in GNUPGHOME (its passphrase, if any, in the file
 WALNUT_SIGN_PASSPHRASE_FILE names). Pure Python (reads .deb files itself); gpg/gpgv for
-signatures. --url defaults to https://walnut.nanobyte.dev/apt.
+signatures. --url defaults to https://walnut.nanobyte.dev/apt; the password-protected licensed suite
+is https://walnut.nanobyte.dev/licensed, its login (one line, user:password) in the file
+WALNUT_APT_AUTH_FILE names (tools/licensed-auth.sh writes one), never on a command line.
 """
-import argparse, gzip, hashlib, io, lzma, os, re, shutil, subprocess, sys, tarfile, tempfile, time
+import argparse, base64, gzip, hashlib, io, lzma, os, re, shutil, subprocess, sys, tarfile, tempfile, time
 import urllib.error, urllib.request
 from email.utils import formatdate
 
@@ -193,12 +196,26 @@ def stanza_source_version(s):
 
 # --- the published suite ---------------------------------------------------------------------
 
+def auth_header():
+	"""Basic auth from the file WALNUT_APT_AUTH_FILE names (user:password), or None."""
+	f = os.environ.get("WALNUT_APT_AUTH_FILE")
+	if not f:
+		return None
+	with open(f, encoding="utf-8") as fh:
+		cred = fh.readline().strip()
+	if ":" not in cred:
+		raise Error(f"{f}: not user:password")
+	return "Basic " + base64.b64encode(cred.encode()).decode()
+
+
 def http_get(url, tries=6):
 	"""The body, or None for a 404. Server errors and dropped connections are retried (the server's
 	container restarts when the site is updated)."""
+	auth = auth_header()
 	for n in range(tries):
 		try:
-			with urllib.request.urlopen(url, timeout=60) as r:
+			req = urllib.request.Request(url, headers={"Authorization": auth} if auth else {})
+			with urllib.request.urlopen(req, timeout=60) as r:
 				return r.read()
 		except urllib.error.HTTPError as e:
 			if e.code == 404:
@@ -308,14 +325,18 @@ def write_suite(out, suite, base, packages, sources, sign_key):
 	subprocess.run(gpg + ["--armor", "--detach-sign", "-o", f"{dists}/Release.gpg", f"{dists}/Release"], check=True)
 
 
-def merge(existing, new, key, label, log):
-	"""existing + new stanzas; a package version already published stays as it is."""
+def merge(existing, new, key, label, log, strict=False):
+	"""existing + new stanzas; a package version already published stays as it is (strict: one with
+	other bytes is an error)."""
 	have = {key(s): s for s in existing}
 	added = []
 	for s in new:
 		k = key(s)
 		if k in have:
-			same = have[k].get("SHA256") == s.get("SHA256") or have[k].get("Checksums-Sha256") == s.get("Checksums-Sha256")
+			field = "SHA256" if "SHA256" in s else "Checksums-Sha256"	# a deb's, a dsc's
+			same = have[k].get(field) == s.get(field)
+			if strict and not same:
+				raise Error(f"{label} {' '.join(k)} is already published with other bytes: a new file needs a new version")
 			log(f"-- {label} {' '.join(k)}: already published{'' if same else ' (other bytes: the published one stays)'}")
 			continue
 		have[k] = s
@@ -338,8 +359,8 @@ def add_suite(a, out, suite, debs, dscs, keep):
 	new_src = [dsc_stanza(f, suite) for f in dscs]
 	bkey = lambda s: (s["Package"], s.get("Architecture", ""), s["Version"])
 	skey = lambda s: (s["Package"], s["Version"])
-	packages, added_bin = merge(cur.packages, [s for s, _ in new_bin], bkey, "deb", print)
-	sources, added_src = merge(cur.sources, [s for s, _ in new_src], skey, "dsc", print)
+	packages, added_bin = merge(cur.packages, [s for s, _ in new_bin], bkey, "deb", print, a.strict)
+	sources, added_src = merge(cur.sources, [s for s, _ in new_src], skey, "dsc", print, a.strict)
 	packages = prune(packages, keep, stanza_source, stanza_source_version)
 	sources = prune(sources, keep, lambda s: s["Package"], lambda s: s["Version"])
 	keep_bin = {id(s) for s in added_bin}
@@ -410,6 +431,7 @@ def main():
 	s.add_argument("--keep", type=int, default=0, help="source versions kept per package (0: all)")
 	s.add_argument("--debug-keep", type=int, default=0, help="the same for <suite>-debug")
 	s.add_argument("--release-only", action="store_true", help="leave out the debug kernel and its modules")
+	s.add_argument("--strict", action="store_true", help="a published version with other bytes is an error")
 	s.add_argument("files", nargs="+")
 	s = sub.add_parser("fetch")
 	s.add_argument("--suite", required=True)

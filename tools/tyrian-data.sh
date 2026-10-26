@@ -3,7 +3,7 @@
 # freeware Tyrian 2.1 zip (Epic MegaGames / Daniel Cook, camanis.net; its license.doc is Epic's
 # "Limited Use Software License Agreement" and file_id.diz says all copying and distribution is
 # prohibited, so we do not redistribute it). Package tyrian-data (the name OpenTyrian's Depends
-# asks for; arch all, Section local/games), so tools/repo-publish.sh sends it to the ps3-licensed
+# asks for; arch all, Section local/games), so tools/licensed-publish.sh takes it, for the licensed
 # suite only (also listed in tools/licensed-packages.txt). The data is never committed or put in a
 # public suite. Installs to /usr/share/games/tyrian (OpenTyrian's TYRIAN_DIR).
 # The DOS executables, the setup and order programs and the manuals' installers are left out; the
@@ -46,7 +46,7 @@ Maintainer: Tiberiu Chibici <chibicitiberiu@gmail.com>
 Description: Tyrian 2.1 game data for OpenTyrian (freeware release, not redistributable)
  The data files of the freeware Tyrian 2.1 (Epic MegaGames, 2004; levels, graphics, music and
  sound), from the zip on camanis.net. The license is Epic's limited-use agreement, so this package
- is for our LAN repository only (the ps3-licensed suite). OpenTyrian finds it in
+ is for our own licensed suite only. OpenTyrian finds it in
  /usr/share/games/tyrian.
 EOC
 ( cd "$W/pkg" && find usr -type f -exec md5sum {} + > DEBIAN/md5sums )

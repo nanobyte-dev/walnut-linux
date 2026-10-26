@@ -9,7 +9,7 @@ Design
     * required fields present and of the right type, no unknown field (a typo would silently vanish)
     * categories from the fixed list below, 1 to 3 of them
     * packages: Debian package names (they must end in [a-z0-9]); none of them, and no patched_by
-      source, in tools/licensed-packages.txt (those go to ps3-licensed only, never into the public
+      source, in tools/licensed-packages.txt (those go to the licensed suite only, never into the public
       catalog). Offline: only that file is read, Sections aren't checked
     * a game that needs the user's own data has a data_guide URL, data_steps (the numbered steps of
       getting and setting up the data: sentences, with `code` in backticks that must pair up) and

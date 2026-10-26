@@ -1,7 +1,7 @@
 #!/bin/bash
 # deb-version.sh <pkg>: prints N for <pkg>'s "+ps3.N" version, the date and the short hash of that commit:
 # N = the commit count up to the last commit that touched the package's directory or the shared
-# packaging tooling (so versions only grow); a dirty tree gives "<N+1>~dev<stamp>" (ps3-dev only).
+# packaging tooling (so versions only grow); a dirty tree gives "<N+1>~dev<stamp>" (make deploy only).
 set -euo pipefail
 PKG=$1
 paths=("$PKG/" tools/deb-prepare.sh tools/deb-build.sh tools/deb-chroot.sh docker/Dockerfile.deb)

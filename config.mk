@@ -32,7 +32,7 @@ SOURCE_DATE_EPOCH   := 1791849600
 
 # --- This installation's LAN: config.local.mk (not tracked) ---------------------
 # The values that belong to one developer's machines (addresses, the user and key on the PS3, the
-# repository server, the USB disk's serial) live in config.local.mk next to this file, which git
+# licensed suite's login, the USB disk's serial) live in config.local.mk next to this file, which git
 # ignores; config.local.mk.example lists them. Without it the defaults below are empty, and the
 # targets that need one stop and say which (the image build, the packages and the tests don't).
 -include $(dir $(lastword $(MAKEFILE_LIST)))config.local.mk
@@ -51,15 +51,7 @@ PC_IP               ?=
 PC_MAC              ?=
 NFS_ROOT            ?= /srv/ps3root
 
-# --- apt repository (tools/repo-server/, published with aptly from build/aptly) -----------------
-# REPO_HOST: user@host that make publish rsyncs to; REPO_DIR: the repository's directory there;
-# REPO_URL: what the PS3 and the image build fetch from
-REPO_HOST           ?=
-REPO_DIR            ?=
-REPO_URL            ?=
-# The image's packages: empty = this checkout's build outputs; img-<stamp> = that frozen snapshot of
-# the stable suite (make repo-snapshot), for an image anyone can rebuild from the server
-REPO_SUITE          ?=
+# netboot's HTTP server on this PC (make netboot-deb, usb-root-petitboot)
 HTTP_PORT           := 8000
 # Boot arguments (linux/flavours/*.args and the ones below). ps3rsx_cma=64M: the GPU's GART comes
 # on demand from a 64 MiB CMA area, which holds ordinary movable pages while the GPU doesn't use it (ps3rsx/src/gart.c); ps3rsx_gart=0 turns off the

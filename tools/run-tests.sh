@@ -22,7 +22,9 @@
 #            ps3-imgmap-boot's maps and tables against ps3-imgmap's; both tools' write guard
 #            registration against a model of the kernel's side), ps3-boot (ps3-update-kboot's
 #            entries and its /etc/kboot.d extras on a fake root), leak-check (tools/leak-check.py on
-#            synthetic packages and sources), gamedb (Walnut Games' scoring against the calibration
+#            synthetic packages and sources), walnut-repo (tools/walnut-repo.py against the real
+#            walnut-watch: testing, stable and the password-protected licensed suite), walnut-watch
+#            (the server's publisher on good and hostile uploads), gamedb (Walnut Games' scoring against the calibration
 #            table in docs/GAMEDB.md, check.py, import-run.py, catalog.py), walnut-games (the app and its root
 #            helper: validation, remove-cascade refusal, Exec parsing, a window smoke test), ps3disk-guard (kernel local/0045's
 #            range checks, linux/tests/ps3disk-guard.sh)
@@ -225,6 +227,8 @@ run mesa-point-smooth bash -c "$(declare -f need t_pointsmooth); t_pointsmooth"
 run ssdimg python3 tools/ssdimg/test_ssdimg.py
 run ps3-boot python3 ps3-boot/tests/test_kboot.py
 run leak-check python3 tools/test_leak_check.py
+run walnut-repo python3 tools/test_walnut_repo.py
+run walnut-watch python3 tools/walnut-server/test_walnut_watch.py
 run gamedb python3 -I tools/gamedb/test_gamedb.py
 run walnut-games python3 -I walnut-games/tests/test_walnut_games.py
 run ps3disk-guard linux/tests/ps3disk-guard.sh

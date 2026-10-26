@@ -53,7 +53,7 @@ args=(--rm --init --name "play-pc-$G" --user "$(id -u):$(id -g)" --ipc=host --se
 	-v "$PWD/games/bench/launcher.py:/walnut/launcher.py:ro" -v "$PWD/ps3-desktop/files/applications:/walnut/menu/applications:ro")
 [ -n "${XAUTHORITY:-}" ] && [ -r "$XAUTHORITY" ] && args+=(-e XAUTHORITY=/walnut/xauth -v "$XAUTHORITY:/walnut/xauth:ro")
 [ -S "$pulse" ] && args+=(-e PULSE_SERVER=unix:/walnut/pulse -v "$pulse:/walnut/pulse")
-# licensed game data the PS3 has from the ps3-licensed suite (a game's `data` packages: PLAY_PC_DATA="pkg ..."
+# licensed game data the PS3 has from the licensed suite (a game's `data` packages: PLAY_PC_DATA="pkg ..."
 # or the entry's needs_data games below), unpacked once under build/pc-play/data and mounted read-only
 # where the package puts it; never committed (build/), the .debs found in build/ or the overflow disk
 data_debs=${PLAY_PC_DATA:-}

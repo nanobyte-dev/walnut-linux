@@ -33,7 +33,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: gamedb-catalog walnut-server walnut-site walnut-server-test public-push initrd-ssd initrd-walnut initrd-busybox repo-snapshot publish deps du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref \
+.PHONY: gamedb-catalog walnut-server walnut-site walnut-server-test public-push initrd-ssd initrd-walnut initrd-busybox publish du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref \
 	classicube classicube-audio classicube-deploy classicube-bench quake-data
 
 help:
@@ -42,7 +42,9 @@ help:
 	@echo "  make <pkg>-deb    one source package (linux, mesa, ps3-desktop, ...); make ps3rsx-modules; make snd-ps3-ko REL=..."
 	@echo "                    the RSX driver for both kernels in $(BUILD)/debs/linux"
 	@echo "  make quake-data   Quake shareware and Quake II demo data debs (game-data-packager; the published"
-	@echo "                    files when the ps3 suite has them) -> $(BUILD)/debs/quake-data"
+	@echo "                    files when the licensed suite has them) -> $(BUILD)/debs/quake-data"
+	@echo "  make publish      licensed packages built here -> walnut.nanobyte.dev's licensed suite (DEBS=...;"
+	@echo "                    free packages are published by CI only)"
 	@echo "Image:"
 	@echo "  make rootfs [PROFILE=public|dev]  the PS3's root filesystem image -> $(ROOTFS_TAR)"
 	@echo "                    (package layer + our config and packages: kernels, RSX driver, Mesa, games)"
@@ -252,12 +254,15 @@ $(CCD_ORIG): $(CC_TEXPACK) $(CC_AUDIO)/default2.zip classicube-data/package.conf
 	mv $@.tmp $@
 
 # Quake's shareware and Quake II's demo data (QuakeSpasm, Yamagi Quake II) from game-data-packager
-# (tools/game-data.sh): non-free, our LAN repository only. A version already in the ps3 suite is
-# downloaded from there, never made again (its output isn't reproducible); REGEN=1 makes it anyway.
+# (tools/game-data.sh): non-free, the licensed suite only. A version already published there is
+# downloaded, never made again (its output isn't reproducible); REGEN=1 makes it anyway. The suite's
+# login reaches the container as a netrc file under build/tmp, deleted afterwards.
 quake-data: | $(GAMES_BUILDER_STAMP)
-	$(call need,REPO_URL)
-	$(DOCKER_RUN) --user $(UID_GID) -e HOME=/tmp -e REPO_URL=$(REPO_URL) -e REGEN=$(REGEN) $(GAMES_BUILDER_TAG) \
-		tools/game-data.sh $(BUILD)/debs/quake-data quake:quake-shareware quake2:quake2-demo-data
+	@mkdir -p $(BUILD)/tmp; n=$(BUILD)/tmp/licensed.netrc; rm -f $$n; \
+	tools/licensed-auth.sh $$n netrc || [ "$(REGEN)" = 1 ] || exit 1; \
+	auth=; [ ! -e $$n ] || auth="-e LICENSED_NETRC=/work/$$n"; \
+	$(DOCKER_RUN) --user $(UID_GID) -e HOME=/tmp $$auth -e REGEN=$(REGEN) $(GAMES_BUILDER_TAG) \
+		tools/game-data.sh $(BUILD)/debs/quake-data quake:quake-shareware quake2:quake2-demo-data; rc=$$?; rm -f $$n; exit $$rc
 
 classicube: classicube-deb classicube-data-deb
 
@@ -363,7 +368,8 @@ $(REPO_BUILDER_STAMP): docker/Dockerfile.deb | $(BUILDER_STAMP)
 		--build-arg SNAPSHOT=$(DEBIAN_SNAPSHOT) --build-arg SNAPSHOT_URL=$(SNAPSHOT_URL) docker
 	@touch $@
 
-# Deploy to the running PS3 through the dev suite (tools/deploy.sh): make deploy [PKGS="..."]
+# Deploy to the running PS3 from this PC's builds (tools/deploy.sh: a flat repository of build/debs,
+# reached by the PS3 through an SSH reverse tunnel): make deploy [PKGS="..."]
 # [AUTOREMOVE=1] [KERNELS=1] [DRY_RUN=1]. Upgrades everything of ours that is installed (Mesa
 # included; kernels and ps3rsx modules only with KERNELS=1 or when named), then installs the named
 # top-level packages; simulated first. dpkg replaces files by renaming, so even Mesa under a
@@ -374,35 +380,35 @@ AUTOREMOVE ?= 0
 STOP_DESKTOP ?= auto
 PS3_SCP = scp -q -i $(PS3_SSH_KEY) -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts
 deploy: | $(REPO_BUILDER_STAMP)
-	$(call need,PS3_IP PS3_USER REPO_HOST REPO_DIR)
+	$(call need,PS3_IP PS3_USER)
 	PS3=$(PS3_USER)@$(PS3_IP) SSH="ssh -i $(PS3_SSH_KEY) -o UserKnownHostsFile=$(CURDIR)/$(BUILD)/ps3_known_hosts" \
-		SCP="$(PS3_SCP)" REPO_BUILDER_TAG=$(REPO_BUILDER_TAG) REPO_HOST=$(REPO_HOST) REPO_DIR=$(REPO_DIR) \
+		SCP="$(PS3_SCP)" REPO_BUILDER_TAG=$(REPO_BUILDER_TAG) \
 		AUTOREMOVE=$(AUTOREMOVE) STOP_DESKTOP=$(STOP_DESKTOP) DRY_RUN=$(DRY_RUN) KERNELS=$(KERNELS) tools/deploy.sh $(PKGS)
 
 # --- Image --------------------------------------------------------------------
 # The package layer plus our config (image/) and our packages (build/debs/*)
-IMAGE_INPUTS := $(ROOTFS_BASE) $(wildcard image/* tools/repo-server/apt/*) tools/build-image.sh $(wildcard $(SSH_PUBKEY)) \
+IMAGE_INPUTS := $(ROOTFS_BASE) $(wildcard image/*) tools/build-image.sh $(wildcard $(SSH_PUBKEY)) \
 	$(wildcard $(BUILD)/debs/*/*.deb)
 PROFILE ?= dev
 rootfs: $(ROOTFS_TAR)
 IMAGE_VARS := $(BUILD)/image.vars
 BOOT_ROOT_ARGS := $(ROOT_ARGS_usb) rootwait
 # WALNUT_SUITE=stable|testing: our packages from that suite on walnut.nanobyte.dev, checked against
-# its key (the release image, .github/workflows/release-image.yml); else REPO_SUITE or build/debs
+# its key (the release image, .github/workflows/release-image.yml); else build/debs
 WALNUT_SUITE ?=
 WALNUT_APT ?= https://walnut.nanobyte.dev/apt
 # the release this image becomes (tools/ci/release-id.sh: VERSION's A.B and the next C, or a nightly's
 # id): /etc/walnut-image's BUILD_ID; empty for images that aren't releases
 WALNUT_RELEASE ?=
 WALNUT_KEYRING = tools/walnut-server/$(if $(filter testing,$(WALNUT_SUITE)),testing,archive)-keyring.gpg
-IMAGE_VARS_NOW := $(BOOT_ROOT_ARGS) $(DEBUG_ARGS) $(REPO_SUITE) $(PROFILE) $(WALNUT_SUITE) $(WALNUT_APT) $(WALNUT_RELEASE)
+IMAGE_VARS_NOW := $(BOOT_ROOT_ARGS) $(DEBUG_ARGS) $(PROFILE) $(WALNUT_SUITE) $(WALNUT_APT) $(WALNUT_RELEASE)
 $(shell [ "$$(cat $(IMAGE_VARS) 2>/dev/null)" = "$(IMAGE_VARS_NOW)" ] || echo "$(IMAGE_VARS_NOW)" > $(IMAGE_VARS))
 $(ROOTFS_TAR): $(IMAGE_INPUTS) $(IMAGE_VARS) | $(REPO_BUILDER_STAMP)
 	@mkdir -p $(BUILD)/rootfs
 	[ -f "$(SSH_PUBKEY)" ] && cp $(SSH_PUBKEY) $(BUILD)/rootfs/authorized_keys || touch $(BUILD)/rootfs/authorized_keys
 	$(DOCKER_RUN) --privileged $(ROOTFS_ENV) -e BOOT_ROOT_ARGS="$(BOOT_ROOT_ARGS)" \
 		-e BOOT_EXTRA_ARGS="$(DEBUG_ARGS)" -e PROFILE=$(PROFILE) \
-		-e REPO_SUITE=$(REPO_SUITE) -e REPO_URL=$(REPO_URL) -e WALNUT_SUITE=$(WALNUT_SUITE) \
+		-e WALNUT_SUITE=$(WALNUT_SUITE) \
 		-e WALNUT_APT=$(WALNUT_APT) -e WALNUT_KEYRING=$(WALNUT_KEYRING) -e WALNUT_RELEASE=$(WALNUT_RELEASE) \
 		$(REPO_BUILDER_TAG) tools/build-image.sh
 	rm -f $(BUILD)/rootfs/authorized_keys
@@ -496,27 +502,13 @@ public-push:
 	git -C $${WALNUT_PUBLIC_DIR:-/mnt/data_linux/Temp/ps3/walnut-public} push origin main
 
 # --- Repository and workspace ------------------------------------------------------------
-# Publish packages to the repository server (tools/repo-publish.sh). DEBS: the files to publish
-# (default: every current build in build/debs/*, debug symbols to ps3-dbgsym); DIST=dev for
-# throwaway test builds.
-DEBS ?= $(wildcard $(BUILD)/debs/*/*.deb)
-DIST ?= ps3
-publish: | $(REPO_BUILDER_STAMP)
-	$(call need,REPO_HOST REPO_DIR)
-	@tools/disk-check.sh
-	REPO_BUILDER_TAG=$(REPO_BUILDER_TAG) REPO_HOST=$(REPO_HOST) REPO_DIR=$(REPO_DIR) DIST=$(DIST) \
-		tools/repo-publish.sh $(DEBS)
-
-# Freeze the stable suite as img-<stamp> for reproducible images (REPO_SUITE=img-<stamp>)
-repo-snapshot: | $(REPO_BUILDER_STAMP)
-	docker run --rm -v $(CURDIR):/work -w /work --user $(UID_GID) -e HOME=/tmp $(REPO_BUILDER_TAG) tools/repo-snapshot.sh
-	$(MAKE) --no-print-directory publish DEBS=
-
-# The repository's `deps` component: Debian packages listed in image/deps.txt, from the snapshot
-deps: | $(REPO_BUILDER_STAMP)
-	docker run --rm -v $(CURDIR):/work -w /work --user $(UID_GID) -e HOME=/tmp -e DEBIAN_MIRROR=$(DEBIAN_MIRROR) \
-		$(REPO_BUILDER_TAG) tools/deps-update.sh
-	$(MAKE) --no-print-directory publish DEBS=
+# Publish licensed packages built here to walnut.nanobyte.dev's password-protected licensed suite
+# (tools/licensed-publish.sh; docs/PACKAGING.md "The licensed suite"). DEBS: the .deb/.dsc files
+# (default: every licensed build in build/debs with its source). Free packages are refused: CI
+# publishes them (testing on every push, stable by hand). DRY_RUN=1 makes the bundle only.
+DEBS ?=
+publish:
+	DRY_RUN=$(DRY_RUN) tools/licensed-publish.sh $(DEBS)
 
 # Disk use of build/ (on /home, nearly full) and what may be deleted (CLAUDE.md: everything but
 # build/aptly and patch work trees with unexported commits)

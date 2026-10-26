@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/walnut-repo.py against the real tools/walnut-server/walnut-watch: real .deb files, the
 published tree served over local HTTP, throwaway keys (archive, CI). python3 tools/test_walnut_repo.py"""
-import functools, hashlib, http.server, io, lzma, os, shutil, subprocess, tarfile, tempfile, threading, unittest
+import base64, functools, hashlib, http.server, io, lzma, os, shutil, subprocess, tarfile, tempfile, threading, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = f"{HERE}/walnut-repo.py"
@@ -192,6 +192,63 @@ class Repo(unittest.TestCase):
 		self.assertTrue(self.publish(self.add([make_deb(f"{self.debs}/e_1_ppc64.deb", "e", "1")])).startswith("ok"))
 		r = self.repo("base", "--suite", "testing", "--keyring", self.keys["archive"][2], ok=False)
 		self.assertIn("not signed by", r.stderr)
+
+	def test_licensed_suite(self):
+		"""The password-protected licensed suite (tools/licensed-publish.sh): read with the login from
+		WALNUT_APT_AUTH_FILE, signed with the archive key, every version kept, and a published version
+		with other bytes refused (--strict)."""
+		www = f"{self.root}/www/licensed"
+		os.makedirs(www)
+
+		class Auth(http.server.SimpleHTTPRequestHandler):
+			def __init__(self, *a, **kw):
+				super().__init__(*a, directory=www, **kw)
+
+			def log_message(self, *a):
+				pass
+
+			def do_GET(self):
+				if self.headers.get("Authorization") != "Basic " + base64.b64encode(b"walnut:secret").decode():
+					self.send_response(401)
+					self.end_headers()
+					return
+				super().do_GET()
+		httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Auth)
+		threading.Thread(target=httpd.serve_forever, daemon=True).start()
+		self.addCleanup(httpd.shutdown)
+		url = f"http://127.0.0.1:{httpd.server_port}"
+		auth = f"{self.root}/auth"
+		with open(auth, "w") as f:
+			f.write("walnut:secret\n")
+		home, fpr, ring = self.keys["archive"]
+
+		def add(files, with_auth=True, ok=True):
+			out = f"{self.root}/bundle-{next(UPLOAD_ID)}"
+			env = dict(os.environ, GNUPGHOME=home)
+			if with_auth:
+				env["WALNUT_APT_AUTH_FILE"] = auth
+			r = subprocess.run([REPO, "--url", url, "add", "--suite", "licensed", "--keyring", ring, "--sign-key", fpr,
+			                    "--strict", "--out", out, *files], env=env, capture_output=True, text=True)
+			if ok:
+				self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+			return out, r
+		d = self.debs
+		os.makedirs(f"{d}/x")
+		b, _ = add([make_deb(f"{d}/data_1_all.deb", "data", "1", arch="all")])
+		self.assertTrue(self.publish(b, kind="licensed").startswith("ok"))
+		b, _ = add([make_deb(f"{d}/data_2_all.deb", "data", "2", arch="all")])
+		self.assertTrue(self.publish(b, kind="licensed").startswith("ok"))
+		pk = open(f"{www}/dists/licensed/main/binary-ppc64/Packages").read()
+		self.assertIn("Version: 1\n", pk)	# kept: no --keep
+		self.assertIn("Filename: pool/licensed/main/d/data/data_2_all.deb", pk)
+		_, r = add([f"{d}/data_2_all.deb"], with_auth=False, ok=False)	# the suite needs its login
+		self.assertNotEqual(r.returncode, 0)
+		self.assertIn("401", r.stderr)
+		other = make_deb(f"{d}/x/data_2_all.deb", "data", "2", arch="all")
+		with open(other, "ab") as f:	# the same version, other bytes
+			f.write(b"\n")
+		_, r = add([other], ok=False)
+		self.assertIn("already published with other bytes", r.stderr)
 
 
 if __name__ == "__main__":

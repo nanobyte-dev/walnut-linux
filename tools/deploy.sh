@@ -1,7 +1,9 @@
 #!/bin/bash
-# deploy.sh <pkg>...: deploys our current builds to the running PS3 through the dev suite
-# (docs/PACKAGING.md): every local build (build/debs/*, debug symbols included) is
-# published to ps3-dev (licensed ones to ps3-licensed), then the PS3 installs from there with apt:
+# deploy.sh <pkg>...: deploys our current builds to the running PS3 (docs/PACKAGING.md "Deploying"):
+# every local build (build/debs/*, debug symbols and licensed packages included) becomes a flat apt
+# repository in build/tmp/deploy-repo, served on this PC's loopback and reached by the PS3 through
+# an SSH reverse tunnel (127.0.0.1:DEPLOY_PORT on both ends), so apt fetches only what it installs
+# and nothing is published anywhere. Then on the PS3, with apt:
 #   1. our lists only are refreshed (not Debian's: ~100 MB on a 256 MB machine);
 #   2. every installed package of ours that has a newer build is upgraded (Mesa replaces
 #      Debian's this way and keeps its auto marks); kernels and their modules only with KERNELS=1
@@ -10,43 +12,62 @@
 #   3. the named top-level packages are installed (--no-remove: a step that would remove anything
 #      fails; "name-" entries remove exactly those packages, e.g. one replaced by a renamed one);
 #   4. step 2 again (what it held back until step 3 brought in a new dependency).
-# Each step is simulated first. The deploy uses its own copy of the LAN sources and pins
-# (tools/repo-server/apt), so it works before the PS3 has them. AUTOREMOVE=1 then purges what nothing
-# needs any more (simulated first). ps3-migrate-home runs once for the deploying user. Kernel and
-# Mesa installs stop the desktop first (STOP_DESKTOP=auto|1|0).
-# DRY_RUN=1: publish, then only the simulations on the PS3. KERNELS=1: upgrade kernels too (step 2).
-# Env: PS3 (ssh destination), SSH, SCP, REPO_BUILDER_TAG, REPO_HOST, REPO_DIR
+# Each step is simulated first. Only this repository's list is read, so a Debian package that one of
+# ours newly depends on must be installed from Debian first (apt says which). AUTOREMOVE=1 then
+# purges what nothing needs any more (simulated first). ps3-migrate-home runs once for the
+# deploying user. Kernel and Mesa installs stop the desktop first (STOP_DESKTOP=auto|1|0).
+# DRY_RUN=1: only the simulations on the PS3. KERNELS=1: upgrade kernels too (step 2).
+# Env: PS3 (ssh destination), SSH, SCP, REPO_BUILDER_TAG, DEPLOY_PORT (18071), DEBS_DIR (build/debs)
 set -euo pipefail
 # One block, parsed whole before it runs: editing this file during a run can't make bash
 # execute a shifted fragment.
 {
-: "${PS3:?}" "${REPO_BUILDER_TAG:?}" "${REPO_HOST:?}" "${REPO_DIR:?}"
+: "${PS3:?}" "${REPO_BUILDER_TAG:?}"
+PORT=${DEPLOY_PORT:-18071}
+DEBS_DIR=${DEBS_DIR:-build/debs}
 # never during a bench session (ps3-bench.sh: measurements from a quiet PS3; desktop ends it)
 if $SSH "$PS3" 'test -e /dev/shm/ps3-bench.lock'; then
 	echo "!! a bench session runs on the PS3 (ps3-bench.sh desktop ends it)"; exit 1
 fi
-debs=$(find build/debs -mindepth 2 -maxdepth 2 -name '*.deb' | sort)
+debs=$(find "$DEBS_DIR" -mindepth 2 -maxdepth 2 -name '*.deb' | sort)
 [ -n "$debs" ] || { echo "!! no packages built"; exit 1; }
-DIST=dev tools/repo-publish.sh $debs
+# the flat repository: hard links to the builds (copies across file systems), without the packages
+# that must never shadow Debian's (linux-libc-dev, linux-bpf-dev, docs and source)
+REPO=build/tmp/deploy-repo
+rm -rf "$REPO"; mkdir -p "$REPO"
+for f in $debs; do
+	case ${f##*/} in linux-libc-dev_*|linux-bpf-dev_*|linux-doc*|linux-source*) continue ;; esac
+	ln "$f" "$REPO/" 2>/dev/null || cp "$f" "$REPO/"
+done
+docker run --rm -v "$PWD:/work" -w /work/$REPO --user "$(id -u):$(id -g)" "$REPO_BUILDER_TAG" sh -c '
+	apt-ftparchive packages . > Packages
+	apt-ftparchive -o APT::FTPArchive::Release::Origin=Walnut-deploy -o APT::FTPArchive::Release::Label=Walnut-deploy \
+		-o APT::FTPArchive::Release::Suite=walnut-deploy -o APT::FTPArchive::Release::Codename=walnut-deploy release . > ../deploy-Release
+	mv ../deploy-Release Release'
+sed -n 's/^Package: //p' "$REPO/Packages" | sort -u > "$REPO/avail"
+echo ">> $(wc -l < "$REPO/avail") packages in $REPO, served to the PS3 on 127.0.0.1:$PORT"
+python3 -m http.server --bind 127.0.0.1 --directory "$REPO" "$PORT" >build/tmp/deploy-http.log 2>&1 &
+http=$!
+trap 'kill $http 2>/dev/null || true' EXIT
+for _ in $(seq 50); do curl -fsS -o /dev/null "http://127.0.0.1:$PORT/Release" 2>/dev/null && break; sleep 0.1; done
+kill -0 $http 2>/dev/null || { echo "!! the repository's HTTP server didn't start (port $PORT taken? build/tmp/deploy-http.log)"; exit 1; }
 
 $SSH "$PS3" 'rm -rf /var/tmp/ps3-deploy && mkdir -p /var/tmp/ps3-deploy/ours'
-$SCP tools/repo-server/apt/ps3-lan.sources tools/repo-server/apt/ps3-lan.pref "$PS3:/var/tmp/ps3-deploy/"
-$SSH "$PS3" "set -e; cd /var/tmp/ps3-deploy
-cp ps3-lan.sources ours/
-# Only our repository's lists, never Debian's: with Debian's ~60000 packages apt's solves (five of
-# them here) exhausted the PS3's 256 MB and stalled it (2026-10-16). Debian packages ours depend on
-# come from our deps component. apt's caches stay in memory (the system's are for Debian's lists).
+$SCP "$REPO/avail" "$PS3:/var/tmp/ps3-deploy/"
+$SSH -o ExitOnForwardFailure=yes -R "127.0.0.1:$PORT:127.0.0.1:$PORT" "$PS3" "set -e; cd /var/tmp/ps3-deploy
+echo 'deb [trusted=yes] http://127.0.0.1:$PORT ./' > ours/walnut-deploy.list
+# Only our repository's list, never Debian's: with Debian's ~60000 packages apt's solves (five of
+# them here) exhausted the PS3's 256 MB and stalled it (2026-10-16). apt's caches stay in memory
+# (the system's are for Debian's lists).
 U='-o Dir::Etc::SourceList=/dev/null -o Dir::Etc::SourceParts=/var/tmp/ps3-deploy/ours -o APT::Get::List-Cleanup=0'
 O='-o Dir::Etc::SourceList=/dev/null -o Dir::Etc::SourceParts=/var/tmp/ps3-deploy/ours \
 -o Dir::Cache::pkgcache= -o Dir::Cache::srcpkgcache= \
--o Dir::Etc::Preferences=/var/tmp/ps3-deploy/ps3-lan.pref -o Dir::Etc::PreferencesParts=/dev/null \
+-o Dir::Etc::Preferences=/dev/null -o Dir::Etc::PreferencesParts=/dev/null \
 -o Dpkg::Use-Pty=0 -o APT::Get::Assume-Yes=true -o Dpkg::Options::=--force-confdef \
--o Dpkg::Options::=--force-confold -t ps3-dev'
+-o Dpkg::Options::=--force-confold -t walnut-deploy'
 sudo DEBIAN_FRONTEND=noninteractive dpkg --configure -a	# an install interrupted earlier
 sudo apt-get \$U -qq update
-ours() {	# installed packages that the dev or licensed suite has (kernels only with KERNELS=1)
-	sed -n 's/^Package: //p' /var/lib/apt/lists/*_ps3-dev_dists_ps3-dev_*Packages \
-		\$(ls /var/lib/apt/lists/*_ps3-licensed_dists_ps3-licensed_*Packages 2>/dev/null) | sort -u > avail
+ours() {	# installed packages that this deploy has a build of (kernels only with KERNELS=1)
 	dpkg-query -W -f='\${Package}\n' | sort -u | comm -12 - avail |
 		if [ '${KERNELS:-0}' = 1 ]; then cat; else grep -vE '^(linux-(image|headers|kbuild)|ps3rsx-modules)'; fi
 }
@@ -97,5 +118,6 @@ if [ '${AUTOREMOVE:-0}' = 1 ]; then
 	sudo DEBIAN_FRONTEND=noninteractive apt-get \$O -q autoremove --purge | grep -E '^(Removing|Purging)' || true
 fi
 cd / && rm -rf /var/tmp/ps3-deploy"
+rm -rf "$REPO"
 exit
 }
