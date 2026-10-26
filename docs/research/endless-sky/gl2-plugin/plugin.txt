@@ -1,3 +1,0 @@
-name "GL2 shaders"
-about "GLSL 1.20 shaders for the OpenGL 2 path."
-version "0.1"

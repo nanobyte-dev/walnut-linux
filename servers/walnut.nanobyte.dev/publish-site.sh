@@ -15,13 +15,14 @@ cp -r "$here/../../website/site/." "$tmp/"
 echo "$id" > "$tmp/version.txt"
 "$here/walnut-upload.sh" site "$id" "$tmp"
 url=${WALNUT_SITE_URL:-https://walnut.nanobyte.dev}
-for _ in $(seq 60); do
+# up to 15 minutes: the watcher's path unit starts it within seconds, its timer is the fallback
+for _ in $(seq 300); do
 	if [ "$(curl -fsS "$url/version.txt" 2>/dev/null)" = "$id" ]; then
 		echo ">> $url is on $id"
 		exit 0
 	fi
 	sleep 3
 done
-echo "!! $id is not live after 3 minutes: the watcher refused it or the new container was not healthy" >&2
+echo "!! $id is not live after 15 minutes: the watcher refused it or the new container was not healthy" >&2
 echo "   (on the server: journalctl -u walnut-watch, state/done/site__$id)" >&2
 exit 1
