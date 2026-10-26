@@ -22,9 +22,6 @@ SUITE=1
 COMM=armagetronad.re	# armagetronad.real, cut to 15 characters
 AA_CFG=$HOME/.armagetronad/var/user.cfg
 BACKUP=("$AA_CFG")
-# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
-# freshhome.py); checked against the recipe's user.cfg path
-SESSION_HOME=(.armagetronad)
 AA_REC=$ASSETS/armagetronad-bench.aarec
 AA_KBD_WAIT=25	# seconds from the window's mapping to the keys (load, splash screen of up to 6 s, then the menu waits)
 AA_LIVE=1	# the raised match limits (not for playback and record: a recording replays only with the settings it was made with)

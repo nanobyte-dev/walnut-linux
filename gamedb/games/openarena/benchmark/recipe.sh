@@ -15,9 +15,6 @@ DATA_DIRS=(/usr/share/games/openarena)
 SOUND_AT=25	# after the level load (a cold first run takes ~12 s), during the demo
 OA_AUTOEXEC=$HOME/.openarena/baseoa/autoexec.cfg
 BACKUP=("$HOME/.openarena/baseoa/q3config.cfg" "$OA_AUTOEXEC")
-# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
-# freshhome.py); checked against the recipe's q3config.cfg path
-SESSION_HOME=(.openarena)
 setup() {
 	mkdir -p "$HOME/.openarena/baseoa/demos"
 	# the variant's cvars (OA_X) as set lines: the engine runs autoexec.cfg at start, before the
@@ -44,10 +41,6 @@ oa_cmd
 FPS_RE='[0-9]+ frames [0-9.]+ seconds ([0-9.]+) fps'
 MAXMS_RE='[0-9.]+ fps [0-9.]+/[0-9.]+/([0-9.]+)/'
 LOAD_RE='CL_InitCGame: +([0-9.]+) seconds'
-PLAY_MARK='CL_InitCGame'	# the map is loaded, the client is in the game (a played session)
-# A played session (session.sh): the game as the menu starts it, the engine's own settings (the
-# timedemo and swap-interval overrides out); the player picks the map
-session() { CMD=(/usr/games/openarena); }
 PASSES=1
 DURATION=300	# a safety cap: the passes end the run (opengl1: ~12 s load, passes of ~25 s)
 parse() {	# renderergl2's program counts and compile times (first start, the demo's), meminfo's hunk

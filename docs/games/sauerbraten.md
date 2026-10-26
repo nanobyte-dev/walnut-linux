@@ -205,8 +205,9 @@ would give the same program without the patches. What was missing was the launch
   GPU skinning shaders, 0003-0005, 0006 libspeq skinning, 0007-0009 fewer GL calls, 0010 `oqwaterlag`. 0011
   `vanormalshort` is built in and off by default. Nothing is left unported. The real maps fill the VRAM at the engine's
   texture settings (the first session, below), hence Walnut's `texcompress 512` default.
-- Recipe `gamedb/games/sauerbraten/benchmark/recipe.sh` (variants `complex`, `metl3`, `lean`, `gpuskel`; `session()` is the
-  launcher alone; `PLAY_MARK` is the `read map` line); entry `gamedb/games/sauerbraten/`. Its PC reference
+- Recipe `gamedb/games/sauerbraten/benchmark/recipe.sh` (variants `complex`, `metl3`, `lean`, `gpuskel`); the played
+  test `gamedb/games/sauerbraten/rating/test.toml` (the launcher alone; its `play_mark` is the `read map` line); entry
+  `gamedb/games/sauerbraten/`. Its PC reference
   (`tools/play-pc.sh`) installs the entry's packages from Debian, which has no `sauerbraten`: `PC=0 play-test.sh start
   sauerbraten` until the PC image gets our two debs.
 

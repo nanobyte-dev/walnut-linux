@@ -376,10 +376,12 @@ ps3-reboot:
 # bench-pull: the PS3's run directories (/var/tmp/ps3-bench) into $(BUILD)/bench; the raw profiles
 # (perf.data ~20 MB a run, perf-load.data, perf-syms.tar) only with PERFDATA=1 (docs/PROFILING.md)
 # The tree: bench/ (__pycache__ left out) and every game's benchmark (gamedb/games/<id>/benchmark/: recipe.sh,
-# analysis.toml, lib/, assets/; not assets-src/, legacy/, results/, runs/) as games/<id>/ (bench/games.sh).
-BENCH_GAME_FILES = $(wildcard $(foreach f,recipe.sh analysis.toml lib assets,gamedb/games/*/benchmark/$(f)))
+# analysis.toml, lib/, assets/; not assets-src/, legacy/, results/, runs/) as games/<id>/ (bench/games.sh), its
+# played test (gamedb/games/<id>/rating/test.toml) as games/<id>/rating/test.toml (playdef.py, play-test.sh stop).
+BENCH_GAME_FILES = $(wildcard $(foreach f,recipe.sh analysis.toml lib assets,gamedb/games/*/benchmark/$(f)) \
+	gamedb/games/*/rating/test.toml)
 BENCH_TAR = tar -c --exclude=__pycache__ --transform='s,^gamedb/games/\([^/]*\)/benchmark,bench/games/\1,' \
-	bench $(sort $(BENCH_GAME_FILES))
+	--transform='s,^gamedb/games/\([^/]*\)/rating/,bench/games/\1/rating/,' bench $(sort $(BENCH_GAME_FILES))
 bench-push:
 	$(call need,PS3_IP PS3_USER)
 	$(BENCH_TAR) | $(PS3_SSH) 'set -e; rm -rf /var/tmp/bench.new /var/tmp/bench.old; \

@@ -1,0 +1,6 @@
+# X-Moto's benchmark: data for the analysis tools (bench/gamedata.py; gamedb/README.md "games/<id>/benchmark/").
+
+[reload]
+# a new StatePreplayingReplay at every pass (report.py's *_play numbers leave 2 s after the pass line out;
+# no data from the PS3 yet)
+fixed = 2.0

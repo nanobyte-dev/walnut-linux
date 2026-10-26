@@ -17,8 +17,6 @@ COMM=flare
 . "$BENCH_LIB/smoke.inc"
 FL_CFG=$HOME/.config/flare/settings.txt
 BACKUP=("$FL_CFG")
-# played sessions' fresh defaults (session.sh, freshhome.py): the game's real directories (checked against its XDG/legacy paths)
-SESSION_HOME=(.config/flare .local/share/flare)
 FL_HW=1
 setup() {
 	mkdir -p "${FL_CFG%/*}"

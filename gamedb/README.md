@@ -60,7 +60,7 @@ gamedb/
 ### games/<id>/index.md
 
 TOML front matter between `+++` lines, then the notes as markdown. Keys (today's set, from
-`tools/gamedb/check.py`, which also allows only `index.md`, `thumb.png`, `build.toml`, `rating/sessions/`, `packages/`,
+`tools/gamedb/check.py`, which also allows only `index.md`, `thumb.png`, `build.toml`, `rating/sessions/`, `rating/test.toml`, `packages/`,
 `licensed/`, `upstream.md`, `upstream/` and `benchmark/` in a game's folder until the later steps add their files):
 
 | Key | Type | Meaning |
@@ -174,8 +174,7 @@ Depends come from build/gamedb/ps3-games-licensed.substvars (kept out of the pub
 
 Ratings come only from played sessions; benchmarks never rate (docs/GAMEDB.md).
 
-- `test.toml`, *planned* (step 4): the played test as data the app reads, never executes: `process`,
-  `home`, `play_mark`, `load_mark`, `command`.
+- `test.toml` (*read now*, step 4): the played test, below.
 - `sessions/<run>/`: `result.toml` (written by `import-run.py`; the run names are `<date>-<kind>`, with
   `-<hhmm>` for a second one that day) and the screenshots it lists (`ps3-<point>.jpg`, Git LFS); the
   catalog, the site and the app name a screenshot by its path in the bundle,
@@ -186,6 +185,30 @@ Ratings come only from played sessions; benchmarks never rate (docs/GAMEDB.md).
 
 catalog.json is a cache of the ratings computed from these at build time.
 
+#### rating/test.toml
+
+The played test as data: the session harness and the app read it, nothing in it is run. TOML, a closed
+key set (`bench/playdef.py` KEYS; `tools/gamedb/check.py` runs its `validate()`, an unknown key is an error):
+
+| Key | Type | Meaning |
+|---|---|---|
+| `process` | string | required: the game's process name (`pgrep -x`: peak RSS, the per-client VRAM; `tools/play-test.sh stop` ends it) |
+| `home` | list | required: the game's settings and data directories under ~, relative, globs allowed, never one every game shares (`.config`, `.local/share`, ...): a session sets them aside and runs the game on fresh defaults (`bench/freshhome.py`) |
+| `play_mark` | string | a regex on the game's output: the first gameplay frame (a map loaded, a race started): bench.txt `play_from=mark`, `play_start`, `play_marks`, and the HUD window starts there; `import-run.py` reads it for runs recorded before `play_marks=` |
+| `load_mark` | string | a regex on the game's output: the load's end (`play_from=load` when there is no play mark) |
+| `command` | list | the command a player starts, the program as an absolute path: the session runs it when the game has no menu launcher (a launcher's Exec wins); without it the recipe's `CMD` |
+| `env` | list | `NAME=value`: the game's environment in a session, instead of the recipe's `ENV` (the benchmark's switches); only what the recording needs (Wesnoth's log kept on stderr) |
+| `sound_at` | integer | seconds from the start when the sound card's state is read (default 15) |
+| `hud` | bool | the Gallium HUD's frame times (default true) |
+
+Every game with a benchmark recipe has one, and its recipe has no session part (`bench/selftest.py`: the
+file is valid, the marks are bash regexes too, `process` is the recipe's `COMM`). `bench/session.sh` and
+`bench/client.sh` read it through `playdef.py` (shlex-quoted `TEST_*` assignments; `bench_playdef` in
+bench/games.sh), `make bench-push` puts it on the PS3 as `/var/tmp/bench/games/<id>/rating/test.toml`.
+A session takes no recipe variant (the menu launchers took their place); the recipe's base still gives
+the recording settings (`LOAD_RE` and the like). A game without a test.toml runs its recipe as it is,
+on fresh defaults from the top directories of its `BACKUP` files.
+
 ### games/<id>/benchmark/
 
 The A/B benchmark of game and driver optimizations (docs/games/SUITE.md), *read now* (step 1c) by the
@@ -194,7 +217,7 @@ harness in `bench/`:
 | File | What |
 |---|---|
 | `recipe.sh` | the recipe: code, sourced by `bench/client.sh` (below) |
-| `analysis.toml` | data for the Python analysis tools: *now* `[legacy] recipe_names`, the recipe's file names before it moved here (`sauerbraten` in bananabread, `sauerbraten-edition` in sauerbraten); *planned* (step 4) the reload rule, the log lines to ignore, the interference pattern |
+| `analysis.toml` | data for the Python analysis tools (below) |
 | `lib/` | the game's own helpers (Hedgewars' `hwdrive.py`), reached as `"$GAME_DIR/lib/..."` |
 | `assets/` | the files a recipe puts in place (demos, replays, saves, maps, mods), reached as `"$ASSETS/..."`; small normal files, not Git LFS |
 | `assets-src/` | how built assets are made: an `assets.mk` the top-level Makefile includes (ClassiCube's plugin, `make classicube-bench`; `make bench-assets` makes all), or the scripts that made them (OpenTTD's saves) |
@@ -209,10 +232,28 @@ the move (no `recipe=`) names the old recipe file, so its `game=` and its direct
 through the `[legacy] recipe_names` first (game=sauerbraten in such a run is BananaBread); `run.sh`
 also takes an old name that is no id (`sauerbraten-edition`). Read by `bench/client.sh`, `run.sh`
 (`list`, variants, `suite`), `session.sh`, `ssd-arm.sh`, `matrix.py` (run labels), `selftest.py` (every
-recipe and variant sourced), `tools/gamedb/import-run.py` (a recipe's `PLAY_MARK`), `tools/play-test.sh`,
-`tools/play-pc.sh` (`REF_IMAGE`), `tools/bench-ref.sh` (the container sees `bench/` and the game's
-benchmark directory) and `tools/gamedb/check.py` (`benchmark/` holds only these files; a recipe.sh;
-`analysis.toml` parses).
+recipe and variant sourced), the analysis tools through `bench/gamedata.py` (`analysis.toml`),
+`tools/play-test.sh`, `tools/play-pc.sh` (`REF_IMAGE`), `tools/bench-ref.sh` (the container sees `bench/`
+and the game's benchmark directory) and `tools/gamedb/check.py` (`benchmark/` holds only these files; a
+recipe.sh; `analysis.toml` in gamedata.py's schema).
+
+#### benchmark/analysis.toml
+
+The data the analysis tools need about the game (*read now*, step 4): `bench/report.py`, `logscan.py`,
+`matrix.py` and `interference-scan.py` read it through `bench/gamedata.py` and hold no game of their own.
+TOML, a closed key set (`gamedata.validate_analysis`, run by check.py); every regex compiles:
+
+| Table | Keys | Read by |
+|---|---|---|
+| `[legacy]` | `recipe_names`: the recipe's file names before it moved here (`sauerbraten` in bananabread, `sauerbraten-edition` in sauerbraten): runs from before then are read as this game's and grouped with its new ones; `run_labels`: `{ re, variant, drop }`, an older harness's run directory names without a bench.txt (OpenArena's `oa-*`: the label matching `re`, the variant its expansion with each `drop` string removed) | games.py, games.sh, report.py and logscan.py (grouping), matrix.py (labels) |
+| `[reload]` | `re` (the output line that ends a looped demo's reload) and `after` (seconds after it, default 1), or `fixed` (seconds after the pass's start) | report.py's `*_play` numbers, passsplit.py |
+| `[[log_ignore]]` | `re`, `why`: log lines that are this game's noise (case-insensitive) | logscan.py, on this game's runs only, after its generic list |
+| `[[log_strip]]` | `re`, `why`: text removed from each log line before messages are compared | logscan.py |
+| `[interference]` | `file` (in the run directory), `action_re` (groups: the time, the action, the rest), `time_format` (strptime), `anchor_re` (group 1 a time that is the run's `load_end`, for runs without `t0`), `evidence` (the words after the count): the game's own log of what the player did | interference-scan.py |
+
+An engine's `analysis.toml` (`engines/<e>/analysis.toml`: `[[log_ignore]]` and `[[log_strip]]` only)
+holds the rules every game on the engine shares (its build.toml `engine`); they come before the game's
+own. ioquake3's: the SIGTERM line Quake 3 engines print when the harness stops them, the colour codes.
 
 #### benchmark/recipe.sh
 
@@ -236,7 +277,6 @@ recording without its events) and `"$BENCH_LIB/xkeys.py"` (keys through XTEST).
 | `SUITE=1` | part of `run.sh suite` |
 | `COMM` | the game's process name (ps3rsx per-client VRAM, peak RSS) |
 | `BACKUP=(...)` | files the game rewrites (configs): restored after every run |
-| `SESSION_HOME=(...)` | the game's settings and data directories under ~ (globs allowed): a played session sets them aside and runs the game on fresh defaults (freshhome.py); without it, the top directories of the BACKUP files |
 | `DATA_DIRS=(...)` | the game's data directories (absolute): `GAMEDATA=ssd` (run.sh, an ENVS token) runs the game with each one bind-mounted from its SSD copy (`ssd-arm.sh copy GAME` makes it; docs/GAMEOS-HDD.md "Test drive, Phase A") |
 | `setup()` | puts assets and config in place (from `$ASSETS`) |
 | `END_RE` | output line after which the game is stopped (games that don't quit) |
@@ -248,12 +288,15 @@ recording without its events) and `"$BENCH_LIB/xkeys.py"` (keys through XTEST).
 | `WIN_ON_RE`, `WIN_OFF_RE` | the game marks its own window, maybe in pieces: each ON line opens a piece, the next OFF line closes it (a piece still open at the end closes there); replaces load + `WARMUP` for the HUD metrics (e.g. a demo's reload between loops left out) |
 | `FPS_RE`, `MAXMS_RE`, `LOAD_RE` | the first capture group of the last matching output line |
 | `LOAD_MARK` | an output line whose time (seconds from start) is the load time |
-| `PLAY_MARK` | played sessions only (`session.sh`): a regex on the game's output line that marks the first gameplay frame (a map loaded, a race started); bench.txt `play_from=mark`, `play_start`, `play_seconds`, and the HUD window starts there. Without it the session falls back to `LOAD_MARK`/`LOAD_RE` (`play_from=load`), else the whole run counts (`play_from=start`, an upper bound). Smoke and bench runs ignore it |
-| `session()` | played sessions only: changes `CMD`/`ENV` into the command a player starts (the timedemo, autoplay and benchmark arguments out). A session already drops `vblank_mode=0`, `during()`, `parse()`, `END_RE`, `DURATION` and the passes/windows. Without `session()` the recipe's `CMD` runs as it is: right for a `menu` variant, wrong for a timedemo |
 | `HUD_SKIP` | HUD seconds left out as loading when there is no load time (default 12) |
 | `RESULT_FILE` | files the game writes, copied into the run directory |
 | `during()` | runs in the background while the game runs (its output in during.log), stopped at the end |
 | `parse()` | prints extra `key=value` lines into bench.txt |
+
+A played session's part (the process, the directories set aside, the play and load marks, the command
+without a launcher, the environment) is no recipe variable: it is the game's `rating/test.toml` (above).
+A session drops the recipe's `vblank_mode=0`, `during()`, `parse()`, `END_RE`, `DURATION` and the
+passes and windows.
 | `HUD` | 1 (default): Gallium HUD fps per second into `hud/fps` and every frame's time (ms) into `hud/frametime_(ms)` |
 | `WM` | window manager started first (default `openbox`; empty: none, the game's window may not show) |
 | `GAMEMODE` | 1: start through `ps3-game` (as the desktop does); default 0, as step 0 (the game gets `PS3_GAME_MODE=off`, so ps3-game-detect leaves it alone too) |
@@ -291,8 +334,9 @@ game patches; docs/upstream/README.md links every draft.
 
 `engine.md` (*now*: TOML front matter between `+++` lines with `id`, `title`, `homepage`, `license` and
 `games = [...]`, the bundles that run on it; then a short note), `packages/<pkg>/` (*now*: cube2,
-ioquake3, darkplaces-gl2), `build.toml` (*now*: `packages`, `[[licensed]]`), and *planned* `technical.md`,
-`investigations/`, as for a game.
+ioquake3, darkplaces-gl2), `build.toml` (*now*: `packages`, `[[licensed]]`), `analysis.toml` (*now*: the
+log rules its games share, [above](#benchmarkanalysistoml)), and *planned* `technical.md`, `investigations/`,
+as for a game.
 
 ### benchmarks/batches.toml, benchmarks/metrics.toml
 

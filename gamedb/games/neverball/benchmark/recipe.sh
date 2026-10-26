@@ -14,9 +14,6 @@ SUITE=1
 COMM=neverball
 NB_RC=$HOME/.neverball/neverballrc
 BACKUP=("$NB_RC")
-# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
-# freshhome.py); checked against the recipe's neverballrc path
-SESSION_HOME=(.neverball)
 NB_MIP=1
 ENV=(NEVERBALL_BENCH=1 NEVERBALL_BENCH_LOOPS=20)	# passes take 12-16 s on the PS3: 12 sometimes ended before the 60 + 120 s window (2026-10-18)
 PASSES=1

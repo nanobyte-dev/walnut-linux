@@ -1,0 +1,6 @@
+# Cataclysm: Dark Days Ahead: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/playdef.py.
+process = 'cataclysm-tiles'
+# its settings and data, set aside for a session on fresh defaults; checked against its XDG/legacy paths
+home = ['.config/cataclysm-dda', '.local/share/cataclysm-dda', '.cataclysm-dda']
+command = ['/usr/games/cataclysm-tiles']	# without a menu launcher

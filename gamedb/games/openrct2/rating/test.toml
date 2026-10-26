@@ -1,0 +1,5 @@
+# OpenRCT2: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/playdef.py.
+process = 'openrct2'
+# its settings and data, set aside for a session on fresh defaults; checked against its XDG/legacy paths; .config/OpenRCT2-ps3bench is the benchmark's own, a played session runs on the real ~/.config/OpenRCT2
+home = ['.config/OpenRCT2', '.config/OpenRCT2-ps3bench']

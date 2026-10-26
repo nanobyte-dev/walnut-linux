@@ -21,9 +21,6 @@ SUITE=1
 COMM=etr
 ETR_KBD=/dev/input/event0	# the Logitech receiver's keyboard on the PS3
 ETR_REC=$ASSETS/etr-race.evemu
-# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
-# freshhome.py); checked against src/game_config.cpp: ~/.etr if it exists, else $XDG_CONFIG_HOME/etr
-SESSION_HOME=(.etr .config/etr)
 CMD=(/usr/games/etr)
 DURATION=270	# a safety cap: the window ends the run at ~185 s
 WINDOW_STOP=1

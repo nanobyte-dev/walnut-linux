@@ -13,9 +13,11 @@ Evidence, per file (each run directory has what ps3-bench.sh and client.sh saved
                     long before the server's end (a device unplugged, or the VT switch's own)
   dmesg.log         the kernel's lines during the run: a USB device connected or disconnected, an
                     input device registered that isn't virtual, Bluetooth HID lines
-  game.log          Luanti logs what the player does ("singleplayer digs/places/activates/punches"):
-                    the benchmark's flight never digs or clicks, so each line is a mouse button
-                    pressed in the game; placed against the run's load, warm-up and window
+  game.log          a game that logs what the player does (its [interference] in benchmark/analysis.toml,
+                    bench/gamedata.py: action_re, time_format, anchor_re; gamedb:luanti's "singleplayer
+                    digs/places/activates/punches", which its benchmark's flight never does, so each
+                    line is a mouse button pressed in the game); placed against the run's load, warm-up
+                    and window
 Strength: strong (input or a switch that reached the game), medium (a device event, no proof it
 touched the game). Key presses, mouse motion, controller input and SSH commands leave no trace in
 these files: a run without evidence is not proven clean."""
@@ -26,8 +28,8 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-LUANTI_ACT = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d): ACTION\[Server\]: singleplayer "
-                        r"(digs|places|activates|punches|uses|moves|takes|puts|crafts|drops)\b(.*)$")
+sys.path.insert(0, str(HERE))
+import gamedata  # noqa: E402  (a game's own log of the player: gamedb/games/<id>/benchmark/analysis.toml)
 XLINE = re.compile(r"^\[\s*([\d.]+)\] (.*)$")
 
 
@@ -114,17 +116,22 @@ def scan_dmesg(d, ev):
 
 
 def scan_game(d, b, ev, verbose):
-    f = d / "game.log"
-    if not f.exists() or (b.get("game") or "") != "luanti":
+    gid = gamedata.run_id(b)
+    cfg = gamedata.interference(gid)
+    if not cfg:
         return
+    f = d / cfg["file"]
+    if not f.exists():
+        return
+    act, anchor = re.compile(cfg["action_re"]), re.compile(cfg["anchor_re"]) if cfg.get("anchor_re") else None
     t0 = num(b.get("t0"))
     acts = []
-    stamp = lambda x: datetime.datetime.strptime(x, "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.timezone.utc).timestamp()
+    stamp = lambda x: datetime.datetime.strptime(x, cfg["time_format"]).replace(tzinfo=datetime.timezone.utc).timestamp()
     for l in f.read_text(errors="replace").splitlines():
-        if m := LUANTI_ACT.match(l):
+        if m := act.match(l):
             acts.append((stamp(m[1]), m[2], m[3].strip()))
-        elif t0 is None and "ps3bench: path start" in l and num(b.get("load_end")) is not None:
-            t0 = stamp(l[:19]) - num(b["load_end"])   # runs before t0=: the load mark is load_end
+        elif t0 is None and anchor and num(b.get("load_end")) is not None and (m := anchor.search(l)):
+            t0 = stamp(m[1]) - num(b["load_end"])   # runs before t0=: the anchor line is at load_end
     if not acts:
         return
     by = {}
@@ -134,8 +141,8 @@ def scan_game(d, b, ev, verbose):
         by[p][what] += 1
     first = acts[0][0] - t0 if t0 else None
     desc = "; ".join("%s: %s" % (p, ", ".join("%d %s" % (n, w) for w, n in sorted(c.items()))) for p, c in by.items())
-    ev.append(("strong", "game.log: Luanti logged %d player action(s) (mouse buttons in the game)%s: %s" % (
-        len(acts), " from %.0f s" % first if first is not None else "", desc)))
+    ev.append(("strong", "%s: %s logged %d %s%s: %s" % (
+        cfg["file"], gamedata.title(gid), len(acts), cfg["evidence"], " from %.0f s" % first if first is not None else "", desc)))
     if verbose:
         for ts, what, rest in acts[:10]:
             ev.append(("detail", "   %+.1f s %s %s" % (ts - t0 if t0 else 0, what, rest)))

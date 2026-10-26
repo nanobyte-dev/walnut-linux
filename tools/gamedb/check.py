@@ -30,6 +30,11 @@ Design
       build.toml, rating/, packages/, licensed/, upstream.md, upstream/, benchmark/: BENCH_FILES,
       desktop/: DESKTOP_FILES, its launchers and migrate-home.txt as tools/gamedb/pack-integration.py reads them); its rules, when given, are "<data>.<formula>" of a
       data version score.py knows, and a data-version-2 test's defects name known categories
+    * rating/ holds sessions/ and the played test, rating/test.toml: bench/playdef.py's schema (closed keys,
+      process a process name, home relative paths inside ~ that no other game shares, the marks compile,
+      command an absolute program, env NAME=value); benchmark/analysis.toml and engines/<e>/analysis.toml
+      follow bench/gamedata.py's (closed keys: [legacy], [reload], [[log_ignore]], [[log_strip]],
+      [interference]; an engine's only the log rules; every regex compiles)
     * drafts (draft = true: a candidate, or a game tried and not published) need only id, title and
       status (one of STATUSES; status_note says why); summary, license, homepage, categories, tags,
       controller, thumb.png and build.toml (or any of its keys) may be missing, and nothing is made up for them;
@@ -152,6 +157,23 @@ def apt_index(src):
     elif src.endswith(".gz"):
         data = gzip.decompress(data)
     return set(re.findall(r"^Package:\s*(\S+)", data.decode("utf-8", "replace"), re.M))
+
+
+def bench_module(name):
+    """a module of the harness (bench/: playdef.py's and gamedata.py's schemas)"""
+    spec = importlib.util.spec_from_file_location(name, REPO / "bench" / (name + ".py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def toml_errors(path, what, validate):
+    """the problems of a TOML data file (validate: the parsed dict -> [problems]), each prefixed with what"""
+    try:
+        data = tomllib.loads(Path(path).read_text())
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as e:
+        return ["%s: %s" % (what, e)]
+    return ["%s: %s" % (what, e) for e in validate(data)]
 
 
 def licensed_module():
@@ -282,8 +304,10 @@ def check_game(gdir, bad, repo, ctx=None):
     errs += desktop_errors(gdir)
     rating = gdir / "rating"
     for f in sorted(x.name for x in rating.iterdir()) if rating.is_dir() else []:
-        if f != "sessions":
-            errs.append("unexpected file rating/%s (rating/ holds sessions/)" % f)
+        if f not in ("sessions", "test.toml"):
+            errs.append("unexpected file rating/%s (rating/ holds sessions/ and test.toml)" % f)
+    if (rating / "test.toml").is_file():
+        errs += toml_errors(rating / "test.toml", "rating/test.toml", bench_module("playdef").validate)
     return errs
 
 
@@ -415,6 +439,9 @@ def engine_errors(edir, bad, ctx):
         return errs
     errs += package_errors(build.get("packages", []), "build.toml packages", bad, ctx)
     errs += ["build.toml: " + x for x in licensed_errors(edir, build.get("licensed", []), ctx)]
+    if (Path(edir) / "analysis.toml").exists():
+        errs += toml_errors(Path(edir) / "analysis.toml", "analysis.toml",
+                            lambda a: bench_module("gamedata").validate_analysis(a, engine=True))
     for g in ctx["engines"].get(Path(edir).name, []):
         gdir = Path(edir).parent.parent / "games" / str(g)
         try:
@@ -459,7 +486,7 @@ def desktop_errors(gdir):
 
 
 def benchmark_errors(gdir, build):
-    """benchmark/: a recipe.sh, an analysis.toml that parses ([legacy] recipe_names: names), only BENCH_FILES;
+    """benchmark/: a recipe.sh, an analysis.toml in gamedata.py's schema, only BENCH_FILES;
     every `recipes` entry of build.toml ("<recipe>:<variant>") names this game's own recipe and one of its variants"""
     errs, b = [], gdir / "benchmark"
     if b.is_dir():
@@ -469,12 +496,7 @@ def benchmark_errors(gdir, build):
             if f not in BENCH_FILES:
                 errs.append("unexpected file benchmark/%s (benchmark/ holds %s)" % (f, ", ".join(BENCH_FILES)))
         if (b / "analysis.toml").exists():
-            try:
-                names = tomllib.loads((b / "analysis.toml").read_text()).get("legacy", {}).get("recipe_names", [])
-                if not isinstance(names, list) or not all(isinstance(n, str) and n for n in names):
-                    errs.append("benchmark/analysis.toml: [legacy] recipe_names is a list of names")
-            except tomllib.TOMLDecodeError as e:
-                errs.append("benchmark/analysis.toml: %s" % e)
+            errs += toml_errors(b / "analysis.toml", "benchmark/analysis.toml", bench_module("gamedata").validate_analysis)
     recipe = (b / "recipe.sh").read_text(errors="replace") if (b / "recipe.sh").is_file() else None
     for r in build.get("recipes", []) if isinstance(build.get("recipes"), list) else []:
         name, _, variant = str(r).partition(":")

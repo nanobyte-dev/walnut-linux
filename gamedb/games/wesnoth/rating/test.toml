@@ -1,0 +1,6 @@
+# Battle for Wesnoth: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/playdef.py.
+process = 'wesnoth-1.18'
+# its settings and data, set aside for a session on fresh defaults; checked against its XDG/legacy paths
+home = ['.config/wesnoth-1.18', '.local/share/wesnoth', '.wesnoth1.18']
+env = ['WESNOTH_NO_LOG_FILE=1']

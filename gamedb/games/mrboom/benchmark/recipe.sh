@@ -2,6 +2,3 @@
 # Played sessions only so far (no benchmark): the menu leads into a match.
 COMM=mrboom
 CMD=(/usr/games/mrboom)
-# played sessions' fresh defaults (session.sh, freshhome.py): where it may keep its settings (none
-# existed on the PS3 before the first session)
-SESSION_HOME=(.mrboom .config/mrboom .local/share/mrboom)

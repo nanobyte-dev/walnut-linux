@@ -21,11 +21,12 @@ from before 2026-10-17 have none):
   *_play  the same over the gameplay only: the window less the reload segments of a game that loops
           its demo (stalls_play, stall_play_s, longest_play, low1_play, win_play; reload_s the
           seconds left out, reload_n the segments). A segment is a pass's start to the load-done
-          line plus 1 s (OpenArena: CL_InitCGame, needs t0 and out.log) or a fixed time after the
-          pass's start (Neverball, dsda-doom, X-Moto); RELOADS below holds each game's, and a recipe's
-          parse() may print reload_re / reload_after / reload_fixed to bench.txt to set its own.
-          Games without a reload in the window (BananaBread's WIN_ON/OFF pieces already leave it
-          out, SuperTuxKart's one race) get the plain numbers; src hud only
+          line plus 1 s (re + after: gamedb:openarena, needs t0 and out.log) or a fixed time after the
+          pass's start (fixed: gamedb:neverball, gamedb:dsda-doom, gamedb:xmoto); each game's rule is
+          the [reload] of its benchmark/analysis.toml (bench/gamedata.py), and a recipe's parse() may
+          print reload_re / reload_after / reload_fixed to bench.txt to set its own. Games without a
+          reload in the window (gamedb:bananabread's WIN_ON/OFF pieces already leave it out,
+          gamedb:supertuxkart's one race) get the plain numbers; src hud only
   *_warm  the first minute: stalls_warm, stall_warm_s, longest_warm over the WARMUP seconds after the
           load (bench.txt load_end, warmup), which the window leaves out; HUD frame times only
   win     seconds measured; ftdrift: run time minus the end of the last HUD frame (s: large when the
@@ -103,13 +104,19 @@ screenshots (client.sh BENCH_SHOTS, run.sh SHOTS=; shots.py): shot_n captures ta
   --perf, --mem, --load print perfprof.py's, memprof.py's and loadprof.py's tables for every run that has them
 A run with something alongside the game shows it after the variant (base@rec10, base@wksleep10c1,
 base@perf: bench.txt harness=, ps3-bench.sh; older runs: rec<ms> from a stalls.rec, perf from
-perf.targets), and is grouped apart: the stall recorder alone takes OpenArena's gameplay stalls from
-21-29 s to 7 s (docs/STALLS.md "The recorder removes stalls")."""
+perf.targets), and is grouped apart: the stall recorder alone takes gamedb:openarena's gameplay stalls
+from 21-29 s to 7 s (docs/STALLS.md "The recorder removes stalls").
+Runs are grouped by their game's id (bench/gamedata.py run_id): a run from before the recipes moved into
+gamedb names the old recipe in game=, which [legacy] recipe_names reads (game=sauerbraten then was
+gamedb:bananabread); a run without a bench.txt by its label."""
 import os
 import re
 import statistics
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gamedata  # noqa: E402  (each game's analysis rules: gamedb/games/<id>/benchmark/analysis.toml)
 
 INCLUDE_INTERFERED = False
 
@@ -214,8 +221,10 @@ def run(d):
     d = Path(d)
     b = kv(d / "bench.txt")
     label = re.sub(r"^(ps3-bench-)?\d{8}T\d{6}Z-", "", d.name)
+    # game: as the run named it (matrix.py's columns); group: its game's id, which the summary goes by
     r = {"game": b.get("game") or label, "variant": b.get("variant") or "-", "dir": d.name,
          "snd": b.get("sound") or "-", "end": b.get("ended") or "-"}
+    r["group"] = gamedata.run_id(b) or r["game"]
     if h := harness(d, b):     # runs with the recorder, a waker or perf are kept apart
         r["variant"] += "@" + h
         r["harness"] = h
@@ -397,23 +406,16 @@ def window(b):
     return list(zip(w[::2], w[1::2]))   # maybe in pieces (WIN_ON_RE/WIN_OFF_RE)
 
 
-# where a looped demo reloads (docs/STALLS.md): per game, "re" the output line that says the load is
-# done (the pass's reload ends "after" s later, default 1), "fixed" else a time after the pass's start,
-# in which the frames ending are the reload's (the long load frame ends just after the pass line).
-# No entry: nothing to leave out. bench.txt's reload_re / reload_after / reload_fixed win.
-RELOADS = {
-    "openarena": {"re": r"CL_InitCGame:", "after": 1.0},
-    "neverball": {"fixed": 1.0},     # the replay restarts: frames of 0.15-2 s end 0.4 s after the pass line
-    "dsda-doom": {"fixed": 1.0},     # G_DoLoadLevel after each timed pass (no data from the PS3 yet)
-    "xmoto": {"fixed": 2.0},         # a new StatePreplayingReplay per pass (no data from the PS3 yet)
-}
-
-
+# where a looped demo reloads (docs/STALLS.md): each game's [reload] (benchmark/analysis.toml,
+# bench/gamedata.py), "re" the output line that says the load is done (the pass's reload ends "after" s
+# later, default 1), "fixed" else a time after the pass's start, in which the frames ending are the
+# reload's (the long load frame ends just after the pass line). None: nothing to leave out. bench.txt's
+# reload_re / reload_after / reload_fixed win.
 def reload_segments(d, b):
     """the reload segments [(start, end)] of run directory d (bench.txt b), seconds from the client's
     start: [] when the game has none in its window, None when they can't be told (the load-done
     line needs t0 and out.log)"""
-    cfg = dict(RELOADS.get(b.get("game") or "", {}))
+    cfg = gamedata.reload(gamedata.run_id(b))
     if b.get("reload_re"):
         cfg["re"] = b["reload_re"]
     if (v := num(b.get("reload_after"))) is not None:
@@ -474,7 +476,7 @@ def play(d, b, r, segs, inw):
     if rel is None:
         return
     # a frame that starts inside a segment is the reload's too, and the segment ends with it: the
-    # load's last frame can outlast the cut (OpenArena opengl2: the cgame load, cl_preloadLate and
+    # load's last frame can outlast the cut (gamedb:openarena opengl2: the cgame load, cl_preloadLate and
     # RB_ShowImages in one 8-16 s frame that ends 4-5 s after "CL_InitCGame:" + 1 s)
     rel = [(s, max([t] + [e for e, v in inw if s < e - v / 1000 < t])) for s, t in rel]
     keep = sorted(v for e, v in inw if not any(s < e <= t for s, t in rel))
@@ -632,13 +634,13 @@ def bad(r):
 def main(dirs):
     allruns = [run(d) for d in dirs]
     for r in allruns:
-        print("%-24s %s%s" % ("%s-%s" % (r["game"], r["variant"]), "!INTERFERED " if r.get("intf") == 1 else "", show(r)))
+        print("%-24s %s%s" % ("%s-%s" % (r["group"], r["variant"]), "!INTERFERED " if r.get("intf") == 1 else "", show(r)))
     print()
     runs = [r for r in allruns if not bad(r)]
     med = {}
-    keys = list(dict.fromkeys((r["game"], r["variant"]) for r in runs))
+    keys = list(dict.fromkeys((r["group"], r["variant"]) for r in runs))
     for key in keys:
-        rs = [r for r in runs if (r["game"], r["variant"]) == key]
+        rs = [r for r in runs if (r["group"], r["variant"]) == key]
         m = {}
         for c in COLS + ["hud_med"]:
             vals = [r[c] for r in rs if isinstance(r.get(c), (int, float))]
@@ -652,7 +654,7 @@ def main(dirs):
                 shown[c] = "%s [%s..%s]" % (shown[c], min(vals), max(vals))
         shown["hud"] = shown.pop("hud_med", "-")
         shown.pop("intf", None)
-        left = len([r for r in allruns if (r["game"], r["variant"]) == key and bad(r)])
+        left = len([r for r in allruns if (r["group"], r["variant"]) == key and bad(r)])
         print("%-24s n=%d%s %s" % ("%s-%s" % key, len(rs), " (+%d interfered left out)" % left if left else "", show(shown)))
 
     games = list(dict.fromkeys(g for g, _ in keys))

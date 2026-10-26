@@ -1,0 +1,6 @@
+# Trigger Rally: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/playdef.py.
+process = 'trigger-rally'
+# its settings and data, set aside for a session on fresh defaults: the directories of the files the benchmark rewrites
+home = ['.local/share/trigger-rally']
+command = ['/usr/games/trigger-rally']	# without a menu launcher

@@ -1,0 +1,16 @@
+# OpenArena's benchmark: data for the analysis tools (bench/gamedata.py; gamedb/README.md "games/<id>/benchmark/").
+# Its engine's rules (gamedb/engines/ioquake3/analysis.toml) come with it.
+
+[reload]
+# the timedemo reloads the map at every pass (report.py's *_play numbers leave it out): a pass's reload
+# ends 1 s after the cgame's load line
+re = 'CL_InitCGame:'
+after = 1.0
+
+[legacy]
+# the first day's harness (legacy/step0.sh), run directories without a bench.txt (matrix.py's game and
+# variant): "oa" ran the tc0 settings, "oa-<settings>[-first]" the others
+run_labels = [
+	{ re = 'oa', variant = 'tc0' },
+	{ re = 'oa-(.+)', variant = '\1', drop = ['-first', '-'] },
+]

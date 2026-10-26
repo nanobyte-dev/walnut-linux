@@ -42,9 +42,6 @@ setup() {
 		"ps3bench_warmup = 15" "ps3bench_seconds = 45" "ps3bench_loops = 4" "secure.trusted_mods = ps3bench" \
 		"${LU_SET[@]}" > "$LU_CONF"
 }
-# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
-# freshhome.py); checked against the user directory; which name this release uses is unverified, both are set aside
-SESSION_HOME=(.minetest .luanti)
 CMD=(/usr/games/luanti --go --world "$LU_WORLD" --config "$LU_CONF")
 LOAD_MARK='ps3bench: path start'
 END_RE='ps3bench: path end'

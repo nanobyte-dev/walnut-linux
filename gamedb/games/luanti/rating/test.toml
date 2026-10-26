@@ -1,0 +1,5 @@
+# Luanti: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/playdef.py.
+process = 'luanti'
+# its settings and data, set aside for a session on fresh defaults; checked against the user directory; which name this release uses is unverified, both are set aside
+home = ['.minetest', '.luanti']

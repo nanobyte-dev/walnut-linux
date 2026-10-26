@@ -1,0 +1,17 @@
+# Luanti's benchmark: data for the analysis tools (bench/gamedata.py; gamedb/README.md "games/<id>/benchmark/").
+
+[[log_ignore]]
+# logscan.py: the harness mod's ticks (lib/, the flight) and the server's ACTION lines are no findings
+re = 'psbench: mem tick|ACTION\['
+why = "luanti's harness mod ticks"
+
+[interference]
+# interference-scan.py: the game logs what the player does ("singleplayer digs/places/activates/punches"):
+# the benchmark's flight never digs or clicks, so each line is a mouse button pressed in the game
+file = "game.log"
+# group 1 the time (time_format), 2 the action, 3 the rest
+action_re = '^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d): ACTION\[Server\]: singleplayer (digs|places|activates|punches|uses|moves|takes|puts|crafts|drops)\b(.*)$'
+time_format = "%Y-%m-%d %H:%M:%S"
+# runs without bench.txt t0=: the harness mod's path start (group 1 its time) is the run's load_end
+anchor_re = '^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d).*ps3bench: path start'
+evidence = "player action(s) (mouse buttons in the game)"

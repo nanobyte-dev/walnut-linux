@@ -52,7 +52,11 @@ start)
 	fi ;;
 stop)
 	[ -n "$G" ] || { echo "usage: play-test.sh stop GAME" >&2; exit 2; }
-	T=120 ps3 "c=\$(sed -n 's/^COMM=//p' /var/tmp/bench/games/$R/recipe.sh | head -1); c=\${c%%[[:space:]]*}; c=\${c:0:15}; [ -n \"\$c\" ] && pkill -TERM -x \"\$c\"
+	# the game's process: its played test's (rating/test.toml through playdef.py; bench-push carries it),
+	# else the recipe's COMM (a harness pushed before the test.toml files)
+	T=120 ps3 "c=; eval \"\$(python3 -I /var/tmp/bench/playdef.py /var/tmp/bench/games/$R/rating/test.toml 2>/dev/null)\"; c=\${TEST_PROCESS:-}
+		[ -n \"\$c\" ] || { c=\$(sed -n 's/^COMM=//p' /var/tmp/bench/games/$R/recipe.sh | head -1); c=\${c%%[[:space:]]*}; }
+		c=\${c:0:15}; [ -n \"\$c\" ] && pkill -TERM -x \"\$c\"
 		for i in \$(seq 30); do sleep 1
 			f=\$(pgrep -a -x python3 | grep session-form.py | cut -d' ' -f1); [ -n \"\$f\" ] && kill \$f
 			systemctl --user is-active -q walnut-session-$R || break; done

@@ -1,0 +1,6 @@
+# Armagetron Advanced: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/playdef.py.
+process = 'armagetronad.re'
+# its settings and data, set aside for a session on fresh defaults; checked against the benchmark's user.cfg path
+home = ['.armagetronad']
+command = ['/usr/games/armagetronad']	# without a menu launcher

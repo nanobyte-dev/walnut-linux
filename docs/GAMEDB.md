@@ -296,7 +296,8 @@ has the broken-subsystem rule instead.
 - **The first 30 s of play are a warm-up** (the first level starting, caches filling): frame times,
   stutter and sound dropouts are measured from 30 s after the load (import-run.py `WARMUP_S`).
 - **Play starts at the match.** In a played session the frames, stutter and dropouts are measured
-  from the recipe's play mark (the line a game logs when the match or level starts: PLAY_MARK) plus
+  from the game's play mark (the line a game logs when the match or level starts: `play_mark` in its
+  gamedb `rating/test.toml`) plus
   the warm-up, so menus, setup screens and the player's time there never count as play.
 - **Every level start is a load (rules 2).** A played session's play mark is logged at each race or level
   start (bench.txt `play_marks=`). The load before each later one (from the earlier of the player's last

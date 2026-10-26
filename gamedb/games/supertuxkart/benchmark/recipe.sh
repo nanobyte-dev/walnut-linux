@@ -26,9 +26,6 @@ REF_PKGS=supertuxkart	# the PC reference (tools/bench-ref.sh): Debian's supertux
 DATA_DIRS=(/usr/share/games/supertuxkart)
 STK_CFG=$HOME/.config/supertuxkart/config-0.10/config.xml
 BACKUP=("$STK_CFG")
-# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
-# freshhome.py); checked against src/io/file_manager.cpp: XDG config, and addons, replays, screenshots in XDG data; the cache stays
-SESSION_HOME=(.config/supertuxkart .local/share/supertuxkart)
 STK_TRACK=lighthouse STK_KARTS=4 STK_TIME=180
 ENV=(STK_PROFILE_WARMUP=60)
 declare -A STK_VIDEO=([enable_high_definition_textures]=1 [max_texture_size]=512
@@ -62,7 +59,6 @@ stk_cmd
 # 120 Hz tick: 21602 "frames" in every run, 0.92 x real time at 110), not rendered frames; the HUD
 # (19-21 fps) is the frame rate. parse() keeps the tick numbers as stk_ticks, stk_tickrate.
 LOAD_MARK='Track: Overall scene complexity'
-PLAY_MARK=$LOAD_MARK	# the track is built, the race starts (a played session; no session() command yet)
 SOUND_AT=70	# the game opens its audio device late on a slow root: a read at 15 s said sound=none until 2026-10-18
 DURATION=420	# a safety cap: the load (~60 s, more when it swaps), 240 s of race, the quit
 during() {

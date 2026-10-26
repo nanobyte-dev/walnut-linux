@@ -125,14 +125,26 @@ class Cli(unittest.TestCase):
         p = self.session("Game B")
         self.assertIn("command: game --b", p.stdout)
         self.assertIn("client.sh game base", p.stdout)
-        p = self.session("b.desktop", "fast")          # a launcher, then a recipe variant
-        self.assertIn("command: game --b", p.stdout)
-        self.assertIn("client.sh game fast", p.stdout)
+        p = self.session("b.desktop", "fast")          # no recipe variants any more: a launcher only
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("no recipe variants", p.stderr)
 
-    def test_session_variant_still_works(self):
-        p = self.session("fast")
-        self.assertIn("client.sh game fast", p.stdout)
-        self.assertIn("command: game --a", p.stdout)
+    def test_session_variant_is_a_launcher_name(self):
+        p = self.session("fast")                       # a variant's name is no launcher (launchers replaced them)
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("no launcher 'fast'", p.stderr)
+
+    def test_session_test_toml(self):
+        t = Path(self.tmp.name) / "recipes"
+        (t / "game.test.toml").write_text('process = "game"\nhome = [".game"]\ncommand = ["/usr/games/game", "--play"]\n')
+        p = self.session(SESSION_LAUNCHER_ARGS="--apps %s/none --runtime-dir %s/none --dpkg true" % (t, t))
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("its test's command runs", p.stdout)
+        self.assertIn("command: /usr/games/game --play", p.stdout)
+        (t / "game.test.toml").write_text('process = "game"\nhome = ["/etc"]\n')
+        p = self.session()
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("not a valid played test", p.stderr)
 
     def test_session_unknown(self):
         p = self.session("zzz")

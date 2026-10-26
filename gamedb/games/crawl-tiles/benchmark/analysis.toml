@@ -1,0 +1,5 @@
+# Dungeon Crawl Stone Soup's benchmark: data for the analysis tools (bench/gamedata.py; gamedb/README.md "games/<id>/benchmark/").
+
+[[log_ignore]]
+re = 'Crash caused by signal #15|submit a bug report|We crashed'
+why = "Crawl's handler reporting the harness's SIGTERM at the end of the run"

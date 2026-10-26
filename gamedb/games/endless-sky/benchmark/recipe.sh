@@ -32,8 +32,6 @@ COMM=endless-sky
 # The stats line goes to game.log: textures taken, KiB before and after.
 ENV+=(NV30_FORCE_DXT_STATS=100)
 ES_DIR=$HOME/.config/endless-sky-ps3bench
-# played sessions: the real directories (saves and plugins in .local/share, older builds .config/endless-sky)
-SESSION_HOME=(.local/share/endless-sky .config/endless-sky .config/endless-sky-ps3bench)
 ES_LOAD_WAIT=${ES_LOAD_WAIT:-240}
 ES_KEYS=1
 ES_REDUCE=2

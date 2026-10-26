@@ -1,0 +1,6 @@
+# ScummVM: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/playdef.py.
+process = 'scummvm'
+# its settings and data, set aside for a session on fresh defaults; checked against its XDG/legacy paths
+home = ['.config/scummvm', '.local/share/scummvm', '.scummvmrc']
+command = ['/usr/games/scummvm', '-f', '--stretch-mode=fit', '-p', '/usr/share/scummvm/beneath-a-steel-sky', 'sky']	# without a menu launcher

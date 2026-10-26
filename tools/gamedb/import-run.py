@@ -65,6 +65,7 @@ REPO = HERE.parent.parent
 sys.path[:0] = [str(REPO / "bench"), str(HERE)]   # python3 -I keeps the script's directory out
 import check    # noqa: E402  (the catalog's layout: SESSIONS, CONTENT)
 import games    # noqa: E402  (bench/games.py: a run's game and its recipe)
+import gamedata  # noqa: E402  (bench/gamedata.py: a game's played test, rating/test.toml)
 import report   # noqa: E402  (bench/report.py)
 import score    # noqa: E402
 import shots    # noqa: E402
@@ -91,8 +92,8 @@ LOAD_LOOKBACK_S = 30
 
 def play_marks(d, b):
     """every time the game logged its play mark (a race or level starting), seconds after the start:
-    bench.txt play_marks= (client.sh), else the recipe's PLAY_MARK regex over out.log's timestamped
-    lines (runs recorded before play_marks=), else just play_start. [] without a mark"""
+    bench.txt play_marks= (client.sh), else the game's play_mark (rating/test.toml) over out.log's
+    timestamped lines (runs recorded before play_marks=), else just play_start. [] without a mark"""
     if b.get("play_from") != "mark":
         return []
     if b.get("play_marks"):
@@ -100,7 +101,7 @@ def play_marks(d, b):
     first = report.num(b.get("play_start"))
     game = games.run_game(b) if b.get("game") or b.get("recipe") else \
         games.resolve(d.name.split("-session-")[-1].rsplit("-", 1)[0], old=True)
-    rx, out, t0 = recipe_play_mark(game), \
+    rx, out, t0 = test_play_mark(game), \
         d / "out.log", report.num(b.get("t0"))
     marks = []
     if rx and out.exists() and t0 is not None:
@@ -117,18 +118,11 @@ def play_marks(d, b):
     return sorted(marks)
 
 
-def recipe_play_mark(game):
-    """a recipe's PLAY_MARK regex (the game's benchmark/recipe.sh, bench/games.py; sourced the way
-    play-pc.sh does), or None"""
-    if not game or game not in games.dirs():
-        return None
-    try:
-        out = subprocess.run(["bash", "-c", 'here=$1; . "$here/games.sh"; bench_use "$2"; CMD=(); ENV=(); PLAY_MARK=; LOAD_MARK=\n'
-                              'setup() { :; }; parse() { :; }; . "$(bench_recipe "$2")" > /dev/null 2>&1; printf %s "$PLAY_MARK"',
-                              "_", str(REPO / "bench"), game], capture_output=True, text=True, timeout=20).stdout
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return out or None
+def test_play_mark(game):
+    """the game's play_mark regex (its rating/test.toml, bench/gamedata.py; a run from before the recipes
+    moved into gamedb names its game by the old recipe, which games.run_game has read already), or None"""
+    v = gamedata.test(game).get("play_mark") if game else None
+    return v if isinstance(v, str) and v else None
 
 
 def level_loads(d, b):
@@ -165,7 +159,7 @@ def play_start(d, b):
     """seconds from the client's start to the first gameplay frame: the recipe's own mark where it has
     one (SHOT_RE / shot_mark: the line the game prints when the match starts, shot_ref=re|mark:<s>),
     else the end of the load (bench.txt load_end). A played session's own mark (bench.txt play_from=mark,
-    play_start=: the recipe's PLAY_MARK, the match starting after the menus) comes first: without it the
+    play_start=: the played test's play_mark, the match starting after the menus) comes first: without it the
     menus and the setup screens counted as play (Warzone, 2026-10-25). None when nothing is known"""
     if b.get("play_from") == "mark" and report.num(b.get("play_start")) is not None:
         return report.num(b.get("play_start"))

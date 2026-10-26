@@ -1,0 +1,8 @@
+# OpenArena: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/playdef.py.
+process = 'ioquake3'
+# its settings and data, set aside for a session on fresh defaults; checked against the benchmark's q3config.cfg path
+home = ['.openarena']
+play_mark = 'CL_InitCGame'	# the map is loaded, the client is in the game
+command = ['/usr/games/openarena']	# without a menu launcher
+sound_at = 25

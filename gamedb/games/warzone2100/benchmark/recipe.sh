@@ -62,9 +62,6 @@ COMM=warzone2100
 DURATION=${SMOKE_SECS:-300}
 WZ_CFG=$HOME/.local/share/warzone2100-ps3bench
 BACKUP=("$WZ_CFG/config")
-# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
-# freshhome.py); checked against the XDG data directory (versioned names, hence the globs), older releases' ~/.warzone2100-x.y
-SESSION_HOME=('.local/share/warzone2100*' '.warzone2100*')
 DATA_DIRS=(/usr/share/warzone2100)
 ENV+=(WZ_AUTOGAME_SPEED=1)
 WZ_MUSIC=true
@@ -104,7 +101,6 @@ CMD=("${WZ[@]}" --autogame --skirmish=ps3bench.json)
 # image wz-amd64-view (tools/bench-ref.sh warzone2100; deleted 2026-10-20, the game is done: a docker
 # commit of an amd64 build container with our debs installed brings it back).
 SHOT_RE='Started writing replay file'
-PLAY_MARK=$SHOT_RE	# the match has started (a played session; no session() command yet)
 REF_IMAGE=wz-amd64-view
 variant_lobby() { CMD=("${WZ[@]}" --skirmish=ps3bench.json); SHOT_RE=; }
 variant_menu() { CMD=("${WZ[@]}"); SHOT_RE=; SHOT_STATIC=1; }

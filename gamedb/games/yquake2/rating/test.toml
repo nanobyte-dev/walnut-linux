@@ -1,0 +1,5 @@
+# Yamagi Quake II: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/playdef.py.
+process = 'quake2'
+# its settings and data, set aside for a session on fresh defaults; checked against the engine's own "Using ... for writing" line
+home = ['.local/share/YamagiQ2', '.yq2']

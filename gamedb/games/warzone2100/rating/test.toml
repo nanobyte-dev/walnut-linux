@@ -1,0 +1,6 @@
+# Warzone 2100: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/playdef.py.
+process = 'warzone2100'
+# its settings and data, set aside for a session on fresh defaults; checked against the XDG data directory (versioned names, hence the globs), older releases' ~/.warzone2100-x.y
+home = ['.local/share/warzone2100*', '.warzone2100*']
+play_mark = 'Started writing replay file'	# the match has started (the replay file opens when the map has loaded)

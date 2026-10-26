@@ -90,16 +90,17 @@
 # SUITE.md "Played sessions"): the game as the desktop menu starts it, in the live desktop. Through
 # ps3-game (BENCH_PS3GAME another command), vsync as shipped (the recipe's vblank_mode=0 dropped), no
 # window manager of ours, no time limit, no END_RE, no passes or windows; the recipe's during() and
-# parse() are dropped and its optional session() function changes CMD/ENV to a playable command (a
-# smoke recipe's autoplay arguments out). The player quits the game; bench.txt gets kind=session,
+# parse() are dropped, and the game's played test (rating/test.toml, read through playdef.py) gives the
+# process (COMM), PLAY_MARK, LOAD_MARK, ENV (the recipe's is the benchmark's), SOUND_AT, HUD and the command
+# when there is no menu launcher (else the recipe's CMD). The player quits the game; bench.txt gets kind=session,
 # ended= quit (exit code 0), error (another code), crash (signal or a segfault in dmesg.log), oom,
 # closed (SIGTERM/SIGKILL: Ctrl+Alt+Esc), killed (the harness stopped it), ended_why=, play_from=
 # mark|load|start, play_start=, play_seconds=, window= (the play, for the HUD metrics), vsync=shipped,
 # gamemode=1. BENCH_CMD_FILE (session.sh, a menu launcher): the file holds the game's command, NUL-separated
 # (it replaces the recipe's CMD, without ps3-game: the session adds it); BENCH_LAUNCHER and
 # BENCH_LAUNCHER_FILE (the entry's Name and file name) go to bench.txt as launcher= and launcher_file=.
-# PLAY_MARK (a recipe's regex on the game's output) is the first gameplay frame; else
-# the load mark (LOAD_MARK, LOAD_RE); else play_from=start and play_seconds is the whole run.
+# PLAY_MARK (the test's play_mark, a regex on the game's output) is the first gameplay frame; else
+# the load mark (LOAD_MARK, the recipe's LOAD_RE); else play_from=start and play_seconds is the whole run.
 {
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
@@ -125,7 +126,15 @@ elif [ "$VARIANT" != base ]; then echo "!! $GAME: no variant $VARIANT"; exit 2; 
 SESSION=${BENCH_SESSION:-0}; UP0=
 if [ "$SESSION" = 1 ]; then
 	unset -f during; parse() { :; }
-	if declare -F session > /dev/null; then session; fi	# the recipe's playable command
+	# the played test (the game's rating/test.toml through playdef.py, games.sh): its process, play and load
+	# marks, environment (instead of the recipe's ENV: the benchmark's switches), sound check time, HUD and
+	# the command without a menu launcher; a game without one keeps the recipe's
+	bench_playdef "$GAME" || { echo "!! $GAME: $(bench_test "$GAME") is not a valid played test"; exit 2; }
+	if [ -n "$TEST_FILE" ]; then
+		COMM=$TEST_PROCESS; PLAY_MARK=$TEST_PLAY_MARK; LOAD_MARK=$TEST_LOAD_MARK; ENV=("${TEST_ENV[@]}")
+		SOUND_AT=${TEST_SOUND_AT:-15}; HUD=$TEST_HUD
+		[ ${#TEST_COMMAND[@]} -gt 0 ] && CMD=("${TEST_COMMAND[@]}")
+	fi
 	# the game as shipped: session.sh renamed its directories aside (fresh defaults) and puts the player's
 	# back afterwards (freshhome.py), so no BACKUP here; no recipe setup (it prepares benchmark files)
 	BACKUP=(); setup() { :; }

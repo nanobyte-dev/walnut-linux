@@ -1,0 +1,5 @@
+# Endless Sky: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/playdef.py.
+process = 'endless-sky'
+# its settings and data, set aside for a session on fresh defaults; the real directories (saves and plugins in .local/share, older builds .config/endless-sky)
+home = ['.local/share/endless-sky', '.config/endless-sky', '.config/endless-sky-ps3bench']

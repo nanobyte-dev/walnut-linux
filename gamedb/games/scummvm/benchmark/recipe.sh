@@ -22,8 +22,6 @@ COMM=scummvm
 . "$BENCH_LIB/smoke.inc"
 SV_CFG=$HOME/.config/scummvm/scummvm.ini
 BACKUP=("$SV_CFG")
-# played sessions' fresh defaults (session.sh, freshhome.py): the game's real directories (checked against its XDG/legacy paths)
-SESSION_HOME=(.config/scummvm .local/share/scummvm .scummvmrc)
 SV_GFX=		# empty: the backend default (--gfx-mode=normal was "unrecognized" in 2026.1.0, 2026-10-19)
 SV_KEYS=1
 SV_KBD_WAIT=8

@@ -11,17 +11,14 @@
 # steady window, 60 s after the first frame for 120 s (STEADY_RE), and quits. One view's rendering once
 # loading is over; a map with players and bots (the played session) costs more. Written without a PS3 run
 # (2026-10-25): the first base run still has to confirm the map, the window and the numbers.
-# A played session (session.sh): the launcher alone, the main menu; the player picks a map and mode. The map's
-# "read map" line marks the first gameplay frame (PLAY_MARK).
+# A played session (session.sh, the game's rating/test.toml): the launcher alone, the main menu; the player
+# picks a map and mode, and the map's "read map" line marks the first gameplay frame.
 SUITE=0
 COMM=cube2_client
 # the game data GAMEDATA=ssd takes from the SSD (sauerbraten-data)
 DATA_DIRS=(/usr/share/games/sauerbraten)
 SB_HOME=$HOME/.sauerbraten
 BACKUP=("$SB_HOME/autoexec.cfg" "$SB_HOME/config.cfg" "$SB_HOME/restore.cfg" "$SB_HOME/init.cfg")
-# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
-# freshhome.py); checked against gamedb/games/sauerbraten/packages/sauerbraten/files/sauerbraten: -q"$HOME/.sauerbraten"
-SESSION_HOME=(.sauerbraten)
 SB_MAP=ot
 SB_SET=()	# extra CubeScript lines for autoexec.cfg (variants)
 SB_INIT=()	# extra lines for init.cfg, which the engine reads before it starts the sound (soundfreq...)
@@ -42,11 +39,6 @@ MAXMS_RE='^ps3bench: .* longest ([0-9]+) ms'
 STEADY_RE='^ps3bench: steady [0-9]+ frames in [0-9]+ ms: ([0-9.]+) fps'
 STEADY_MAXMS_RE='^ps3bench: steady .* longest ([0-9]+) ms'
 LOAD_MARK='^read map '
-PLAY_MARK=$LOAD_MARK
-# the launcher without the benchmark map and script: the player starts at the menu
-session() {
-	CMD=(/usr/games/sauerbraten)
-}
 # a safety net: the load, then ~190 s of counting; quits by itself
 DURATION=330
 during() {

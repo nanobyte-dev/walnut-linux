@@ -4,7 +4,8 @@
 Scans game.log, out.log, dmesg.log, Xorg.0.log and wm.log of each run directory (default: every run
 in build/bench) plus the facts bench.txt carries (rc, ended, sound, underruns), normalises the
 messages (timestamps, numbers, addresses and the run's own paths stripped), and prints per game
-(bench.txt game=) every distinct message with its severity class, the number of runs it appears in,
+(its id: bench.txt recipe=, or game= read through the old recipe names, else the run's label;
+bench/gamedata.py run_id) every distinct message with its severity class, the number of runs it appears in,
 its total count, the first and last run, and a trend flag against --since:
 
   NEW      only in runs from --since on, and the game has runs from before (a regression candidate)
@@ -20,7 +21,7 @@ graph exceptions), nouveau (nv30/Mesa), gl (shader compile/link, fallbacks, miss
 
   logscan.py                          every run in build/bench, per game
   logscan.py --since 20261019T09      trend flag against another stamp
-  logscan.py -g sauerbraten -c audio  one game, one class (-g and -c repeat or take commas)
+  logscan.py -g <id> -c audio         one game, one class (-g and -c repeat or take commas)
   logscan.py --by-message             one block per message across games instead of per game
   logscan.py --new                    only the NEW messages
   logscan.py --min-class gl           only gl and worse
@@ -28,9 +29,11 @@ graph exceptions), nouveau (nv30/Mesa), gl (shader compile/link, fallbacks, miss
   logscan.py --show-ignored           what the ignore list swallowed, with counts
   logscan.py --json                   the findings as JSON
   logscan.py DIR...                   run directories (or directories of them); stamps like
-                                      ps3-bench-20261019T104123Z-openttd-base
+                                      ps3-bench-20261019T104123Z-<id>-base
 The game.log lines also appear in out.log (with a time prefix); a message found in both is counted
-once, from game.log.
+once, from game.log. A game's own rules (lines to ignore, text to strip before comparing) are its data:
+[[log_ignore]] and [[log_strip]] of its benchmark/analysis.toml and of its engine's analysis.toml
+(bench/gamedata.py), applied to that game's runs only, after the generic IGNORE list below.
 """
 import argparse
 import collections
@@ -41,6 +44,8 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import gamedata  # noqa: E402  (each game's log rules: gamedb/games/<id>/benchmark/analysis.toml)
 BENCH = HERE.parent / "build" / "bench"
 SINCE_DEFAULT = "20261019T09"     # runs from here on have Mesa ps3.544
 
@@ -77,7 +82,8 @@ RULES = [
 ]
 DEFAULT_CLASS = "game"
 
-# --- the ignore list: known-harmless noise, one reason each. Keep it short. ------------------
+# --- the ignore list: known-harmless noise, one reason each. Keep it short; a game's own noise is its
+# [[log_ignore]] (benchmark/analysis.toml or its engine's analysis.toml) --------------------------
 IGNORE = [
     (r"xkbcomp|XKEYBOARD keymap|Could not resolve keysym|Symbol map for key|Multiple symbols for level|"
      r"\(WW\) warning, \(EE\) error", "Xorg's keymap compiler complains about keysyms it doesn't know; not fatal"),
@@ -89,20 +95,16 @@ IGNORE = [
     (r"input: Logitech", "the receiver re-enumerates; not a game message"),
     (r"kmalloc-|^\s*(unevictable|slab_reclaimable|sec_pagetables)", "the slab/mem dump that follows an allocation failure; the failure line itself is kept"),
     (r"GL_EXTENSIONS|GL extensions:|^bench:|bench: ", "extension lists and the harness's own output"),
-    (r"Client Shutdown \(Received signal 15\)", "Quake 3 engines report the harness's SIGTERM at the end of the run"),
     (r"nv30-(sysmem|forcedxt)", "our driver trace lines, not errors"),
     (r"\]\s+\[\s*(pid\s*\]|\d+\])|oom_kill_process|Tasks state|Mem-Info|Node \d+ |active_anon|Hardware name|Call Trace|^\s*\S+\+0x", "the kernel's OOM report: task table and backtrace; the oom-killer lines themselves are kept"),
     (r"callbacks suppressed", "rate-limit footer; the suppressed line is kept"),
-    (r"psbench: mem tick|ACTION\[", "luanti's harness mod ticks"),
     (r'\(WW\) The directory "/usr/share/fonts', "Xorg's default font path names directories this image doesn't have; no game uses X core fonts"),
     (r"\b0 timeouts, 0 errors", "SPU synth's statistics line with nothing wrong in it (a non-zero one is kept)"),
-    (r"Crash caused by signal #15|submit a bug report|We crashed", "Crawl's handler reporting the harness's SIGTERM at the end of the run"),
 ]
 IGNORE = [(re.compile(p, re.I), why) for p, why in IGNORE]
 
 # --- normalisation ----------------------------------------------------------------------------
 ANSI = re.compile(r"\x1b?\[[0-9;]*m")
-CARET = re.compile(r"\^[0-9a-z]")                       # Quake colour codes
 TS_LEAD = re.compile(r"^\s*(\[\s*[\d.]+\]\s*)?(\d+\.\d+\s+)?")   # "[  12.3] " kernel, "12.3 " out.log
 TS_DATE = re.compile(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d:?")
 TS_PW = re.compile(r"\[\d+:\d+:\d+\.\d+\]")
@@ -112,9 +114,11 @@ NUM = re.compile(r"(?<![A-Za-z_\d])\d+(\.\d+)?")
 SP = re.compile(r"\s+")
 
 
-def normalise(line):
+def normalise(line, strip=()):
+    """the message of a log line; strip: the game's [[log_strip]] patterns, removed after the colours"""
     s = ANSI.sub("", line.rstrip("\n"))
-    s = CARET.sub("", s)
+    for rx in strip:
+        s = rx.sub("", s)
     s = TS_LEAD.sub("", s, count=1)
     s = TS_DATE.sub("", s)
     s = TS_PW.sub("", s)
@@ -135,8 +139,12 @@ def classify(msg):
     return DEFAULT_CLASS
 
 
-def ignored(raw):
+def ignored(raw, own=()):
+    """why a line is noise (the generic list, then the game's own [[log_ignore]]), or None"""
     for rx, why in IGNORE:
+        if rx.search(raw):
+            return why
+    for rx, why in own:
         if rx.search(raw):
             return why
     return None
@@ -160,18 +168,21 @@ def run_stamp(d):
     return m.group(1) if m else d.name
 
 
-def run_game(d, kv):
-    g = kv.get("game")
-    if g:
-        return g
+def run_label(d):
     m = re.search(r"\d{8}T\d{6}Z-(.+?)-[^-]+$", d.name)
     g = m.group(1) if m else d.name
     return g[6:] if g.startswith("smoke-") else g       # smoke runs of the same game count with it
 
 
+def run_game(d, kv):
+    """the run's game: its id (gamedata.run_id), else the name bench.txt or the label gives"""
+    return gamedata.run_id(kv, run_label(d)) or kv.get("game") or run_label(d)
+
+
 def scan_run(d, ignored_out=None):
     """-> {(class, msg): count}, summary facts"""
     kv = read_kv(d / "bench.txt")
+    own, strip = gamedata.log_rules(gamedata.run_id(kv, run_label(d)))
     found = collections.Counter()
     seen_game = set()      # normalised messages game.log already counted
     for fn in FILES:
@@ -188,12 +199,12 @@ def scan_run(d, ignored_out=None):
             body = TS_LEAD.sub("", raw, count=1) if fn == "out.log" else raw
             if fn != "dmesg.log" and not CANDIDATE.search(raw):
                 continue
-            why = ignored(body)
+            why = ignored(body, own)
             if why:
                 if ignored_out is not None:
-                    ignored_out[(normalise(raw), why)] += 1
+                    ignored_out[(normalise(raw, strip), why)] += 1
                 continue
-            msg = normalise(raw)
+            msg = normalise(raw, strip)
             if not msg or len(msg) < 4:
                 continue
             if fn == "dmesg.log" and not CANDIDATE.search(raw) and "ps3rsx" not in raw:

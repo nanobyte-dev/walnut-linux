@@ -1,0 +1,8 @@
+# SuperTuxKart: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/playdef.py.
+process = 'supertuxkart'
+# its settings and data, set aside for a session on fresh defaults; checked against src/io/file_manager.cpp: XDG config, and addons, replays, screenshots in XDG data; the cache stays
+home = ['.config/supertuxkart', '.local/share/supertuxkart']
+play_mark = 'Track: Overall scene complexity'	# the track is built, the race starts
+load_mark = 'Track: Overall scene complexity'
+sound_at = 70

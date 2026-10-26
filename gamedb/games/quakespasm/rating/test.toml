@@ -1,0 +1,7 @@
+# QuakeSpasm: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/playdef.py.
+process = 'quakespasm'
+# its settings and data, set aside for a session on fresh defaults; checked against the benchmark's config.cfg path
+home = ['.quakespasm']
+load_mark = '^Playing demo from'
+command = ['/usr/games/quakespasm', '-basedir', '/usr/share/games/quake', '-nopackedpixels', '-width', '1920', '-height', '1080', '-fullscreen']	# without a menu launcher

@@ -1,0 +1,6 @@
+# Extreme Tux Racer: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/playdef.py.
+process = 'etr'
+# its settings and data, set aside for a session on fresh defaults; checked against src/game_config.cpp: ~/.etr if it exists, else $XDG_CONFIG_HOME/etr
+home = ['.etr', '.config/etr']
+command = ['/usr/games/etr']	# without a menu launcher

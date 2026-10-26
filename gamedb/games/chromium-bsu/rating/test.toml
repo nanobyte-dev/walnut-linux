@@ -1,0 +1,6 @@
+# Chromium B.S.U.: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/playdef.py.
+process = 'chromium-bsu'
+# its settings and data, set aside for a session on fresh defaults; checked against its XDG/legacy paths
+home = ['.chromium-bsu']
+command = ['/usr/games/chromium-bsu', '--fullscreen']	# without a menu launcher

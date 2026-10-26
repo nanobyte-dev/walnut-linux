@@ -13,20 +13,12 @@ COMM=xmoto
 ENV=(vblank_mode=0 XMOTO_BENCH_LOOPS=2)
 PASSES=1
 BACKUP=("$HOME/.config/xmoto/config.dat")
-# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
-# freshhome.py); checked against the recipe's config.dat and Replays paths
-SESSION_HOME=(.config/xmoto .local/share/xmoto)
 setup() {
 	mkdir -p "$HOME/.local/share/xmoto/Replays"
 	cp "$ASSETS/xmoto-credits.rpl" "$HOME/.local/share/xmoto/Replays/credits.rpl"
 }
 CMD=(/usr/games/xmoto --nowww -fs -res 1920x1080 --replay credits --timedemo --benchmark)
 FPS_RE='Average framerate: ([0-9.]+) fps'
-# A played session (session.sh): the game without the credits replay and the benchmark loop
-session() {
-	local x e=(); for x in "${ENV[@]}"; do [[ $x == XMOTO_BENCH_LOOPS=* ]] || e+=("$x"); done; ENV=("${e[@]}")
-	CMD=(/usr/games/xmoto --nowww -fs -res 1920x1080)
-}
 DURATION=450	# a safety cap: the load, two passes of ~150 s with the reload, the quit
 SOUND_AT=20
 # Mesa ps3.282: a submission every 100 draws (0026), the Armagetron fix, checked here

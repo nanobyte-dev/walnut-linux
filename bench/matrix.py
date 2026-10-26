@@ -19,8 +19,9 @@ before 2026-10-17 have no such cells):
 the stall causes (runs recorded with STALLS=1, stalls.py; a file is created by the first run that has
 the number): seconds of the window's stalls spent on each cause (lower is better)
   stall_disk_s.csv, stall_swap_s.csv, stall_reclaim_s.csv, stall_gpu_s.csv, stall_cpu_s.csv
-the gameplay only (report.py *_play: the window less the reloads of a game that loops its demo,
-OpenArena's map reload at every pass, Neverball's replay restart; a game without one has the plain
+the gameplay only (report.py *_play: the window less the reloads of a game that loops its demo, its
+[reload] in benchmark/analysis.toml: gamedb:openarena's map reload at every pass, gamedb:neverball's
+replay restart; a game without one has the plain
 numbers; runs before the reload rules or without t0 where they need it have none; a file is created by
 the first run that has the number): stalls_play.csv, stall_play_s.csv (lower is better), low1_play.csv
 (higher), longest_play_ms.csv (lower). The old stalls/low1/longest_ms files keep the whole window.
@@ -33,11 +34,12 @@ Columns: test, date (of the newest run), runs (count), observations (did the gam
                results/interfered.txt; docs/STALLS.md "Interference"); by default they are skipped and
                listed, and don't count in `runs`
   --hud GAMES  comma-separated games whose fps and fps_steady cells are the Gallium HUD medians even when
-               the run has the game's own fps (Armagetron's benchmark average and its HUD median are
-               different numbers; X-Moto's average covers its whole replay since 2026-10-17)
-Run directories of the first day have no bench.txt (the old OpenArena harness, or a run cut short): the
-game and variant come from the label (oa-tc1, smoke-dsda-doom-base), OpenArena's fps from the timedemo
-line, ALSA underruns from the game.log lines. Test runs (gl-*, t-*, xtest*, speq-*, ...) count in
+               the run has the game's own fps (gamedb:armagetronad's benchmark average and its HUD median
+               are different numbers; gamedb:xmoto's average covers its whole replay since 2026-10-17)
+Run directories of the first day have no bench.txt (gamedb:openarena's old harness, or a run cut short):
+the game and variant come from the label, through the games' [legacy] run_labels (benchmark/analysis.toml,
+bench/gamedata.py: oa-tc1) or a game's id or old recipe name and the variant after it
+(smoke-<id>-base), the fps from a timedemo's result line, ALSA underruns from the game.log lines. Test runs (gl-*, t-*, xtest*, speq-*, ...) count in
 `runs` but make no cell."""
 import csv
 import os
@@ -49,6 +51,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from report import run  # noqa: E402
 import games  # noqa: E402
+import gamedata  # noqa: E402
 
 RESULTS = Path(os.environ.get("BENCH_RESULTS") or Path(__file__).resolve().parent / "results")
 HUD_GAMES = set()
@@ -77,10 +80,8 @@ def label_game(d):
     """(game, variant) from a run directory's label when it has no bench.txt, else None (a test)"""
     label = re.sub(r"^(ps3-bench-)?\d{8}T\d{6}Z-", "", Path(d).name)
     label = re.sub(r"^smoke-", "", label)
-    if label == "oa":  # step 0's first launch: the tc0 settings
-        return "openarena", "tc0"
-    if m := re.match(r"oa-(.+)$", label):  # step 0's OpenArena harness
-        return "openarena", m[1].replace("-first", "").replace("-", "")
+    if gv := gamedata.run_label(label):  # a game's [legacy] run_labels (an older harness's names)
+        return gv
     for g in RECIPES:
         if label.startswith(g + "-"):
             return g, label[len(g) + 1:]

@@ -13,7 +13,9 @@
      its warm-up columns); the SSD arms (BENCH_GAMEDATA, BENCH_SWAP: checks, bench.txt, report.py's
      tags) and ssd-arm.sh's root commands in its dry mode
   4. every recipe (each game's benchmark/recipe.sh, games.py) and variant sourced as client.sh does: CMD set, and the durations against
-     load + WARMUP + MEASURE (a variant that can't hold a window is listed, not an error)
+     load + WARMUP + MEASURE (a variant that can't hold a window is listed, not an error); every recipe's
+     played test (rating/test.toml) read by playdef.py, its marks bash regexes, its process the recipe's
+     COMM, and no session part left in the recipe
   5. stalls.py on a made-up stalls.rec: one stall per cause the host can't make (GPU fence wait,
      zram and VRAM swap-ins, direct reclaim, GART growth, runnable without CPU) classified as such
   6. ps3-stallrec end to end (built with the host's cc into the scratch directory) on a fake game
@@ -57,6 +59,10 @@
      (packages/walnut/tools/ps3-gpu-tools/tests/xrun-pacer.c: plays nothing, underruns in real time), ps3-xrun-test's made
      dropouts logged with their gaps and loudness (writei as SDL, mmap as OpenAL), a conf.d-style
      default wrapped by the hook; client.sh's xrunlog=, xruns_* and xruns.tsv, off and missing
+ 16. the games' data: playdef.py's schema and shell lines (values back exactly through bash), client.sh in a
+     played session taking the test's process, play mark, command, env and HUD; gamedata.py
+     over a made-up gamedb (BENCH_GAMES: an engine's log rules before the game's, [reload], a run's id from
+     bench.txt or its label, the played test, the title) and logscan.py applying a game's rules to its runs only
 Exit status 0 when every check passes; scratch files in a temporary directory, removed at the end."""
 import os
 import re
@@ -1906,6 +1912,115 @@ def lint():
           games.legacy())
     print("variants too short for a window (cut before load + WARMUP + MEASURE; not fps runs or "
           "kept short on purpose):\n  " + ", ".join(short))
+    # the played tests (rating/test.toml) beside the recipes: one each, valid, its marks bash regexes too
+    # (client.sh matches with [[ =~ ]]), its process the recipe's COMM; the session part is data, not code
+    import playdef
+    import gamedata
+    for g, d in games.dirs().items():
+        f = gamedata.test_file(g)
+        rec = (d / "recipe.sh").read_text()
+        left = re.findall(r"^(SESSION_HOME=|PLAY_MARK=|session\(\))", rec, re.M)
+        check("recipe %s: no session part (SESSION_HOME, PLAY_MARK, session(): its rating/test.toml)" % g, not left, left)
+        if not f.exists():
+            check("recipe %s: a played test, rating/test.toml" % g, False, str(f))
+            continue
+        p = subprocess.run(["python3", "-I", str(HERE / "playdef.py"), str(f)], capture_output=True, text=True)
+        sh = subprocess.run(["bash", "-c", 'eval "$1"; for r in "$TEST_PLAY_MARK" "$TEST_LOAD_MARK"; do '
+                             '[ -z "$r" ] && continue; [[ x =~ $r ]]; [ $? = 2 ] && echo "bad: $r"; done; '
+                             'here=$2; . "$here/games.sh"; bench_use "$3"; CMD=(); ENV=(); COMM=; setup() { :; }; '
+                             '. "$(bench_recipe "$3")" > /dev/null 2>&1; [ "$COMM" = "$TEST_PROCESS" ] || echo "process $TEST_PROCESS, COMM $COMM"',
+                             "x", p.stdout, str(HERE), g], capture_output=True, text=True)
+        check("test %s: playdef reads it, the marks are bash regexes, process is the recipe's COMM" % g,
+              p.returncode == 0 and sh.stdout == "", (p.stderr[-200:], sh.stdout[-200:]))
+
+
+# --- 16. the games' data: playdef.py (the played test) and gamedata.py (the analysis rules) ------------
+def gamedata_synthetic(tmp):
+    """playdef.py's schema and its shell lines, gamedata.py's loader over a made-up gamedb (BENCH_GAMES)"""
+    print("\nthe games' data (playdef.py, gamedata.py)")
+    import playdef
+    import gamedata
+    ok = {"process": "game.bin", "home": [".game", ".config/game", ".local/share/game*"], "play_mark": "^map (start|go)",
+          "load_mark": "loaded", "command": ["/usr/games/game", "it's a \"quoted\" $arg"], "env": ["A=1 2", "B="],
+          "sound_at": 25, "hud": False}
+    check("playdef: a full test is valid", playdef.validate(ok) == [], playdef.validate(ok))
+    bad = {"process": "a b", "home": ["/etc", "../x", ".config", "~/x", "a/./b"], "play_mark": "(", "command": ["game"],
+           "env": ["=x"], "sound_at": -1, "colour": 1}
+    errs = playdef.validate(bad)
+    check("playdef: unknown keys, a bad process, homes outside ~ or shared, a bad regex, a relative command, "
+          "a bad env, negative seconds: each a problem", len(errs) == 11, errs)
+    check("playdef: process and home are required", len(playdef.validate({})) == 2, playdef.validate({}))
+    out = playdef.assignments(ok, "/x/test.toml")
+    sh = subprocess.run(["bash", "-c", 'set -u; eval "$1"; printf "%s|" "$TEST_PROCESS" "${#TEST_HOME[@]}" "${TEST_HOME[2]}" '
+                         '"$TEST_PLAY_MARK" "${TEST_COMMAND[1]}" "${TEST_ENV[0]}" "${TEST_ENV[1]}" "$TEST_SOUND_AT" "$TEST_HUD" "$TEST_FILE"',
+                         "x", out], capture_output=True, text=True)
+    check("playdef: the shell lines give the values back exactly (quotes, spaces, $, globs)",
+          sh.stdout == "game.bin|3|.local/share/game*|^map (start|go)|it's a \"quoted\" $arg|A=1 2|B=|25|0|/x/test.toml|",
+          (sh.stdout, sh.stderr[-200:]))
+    sh = subprocess.run(["bash", "-c", 'set -u; eval "$1"; printf "%s|" "$TEST_LOAD_MARK" "${#TEST_COMMAND[@]}" "$TEST_SOUND_AT" "$TEST_HUD"',
+                         "x", playdef.assignments({"process": "g", "home": []}, "f")], capture_output=True, text=True)
+    check("playdef: keys left out come out empty, the HUD on", sh.stdout == "|0||1|", (sh.stdout, sh.stderr[-200:]))
+    # client.sh in a played session takes the test's process, play mark, command, env (not the recipe's
+    # ENV), sound time and HUD (the session's ps3-game: env, BENCH_PS3GAME)
+    sd = tmp / "gamedata" / "session"
+    write(sd / "game.sh", '#!/bin/sh\necho starting; sleep 0.3; echo "map go"; '
+          'echo "env SESS=${SESS:-} BENCH_ONLY=${BENCH_ONLY:-}"; sleep 0.3\n')
+    (sd / "game.sh").chmod(0o755)
+    write(sd / "r" / "fs.sh", "CMD=(/bin/false); ENV=(BENCH_ONLY=1 vblank_mode=0); COMM=wrong; SOUND_AT=99\n")
+    write(sd / "r" / "fs.test.toml", 'process = "game.sh"\nhome = []\nplay_mark = "^map go"\ncommand = ["%s"]\n'
+          'env = ["SESS=yes"]\nsound_at = 1\nhud = false\n' % (sd / "game.sh"))
+    env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "GALLIUM_HUD", "GALLIUM_HUD_DUMP_DIR")}
+    env.update(BENCH_RECIPES=str(sd / "r"), BENCH_BACKUP=str(sd / "b"), BENCH_DIR=str(sd / "run"), BENCH_SESSION="1",
+               BENCH_PS3GAME="env", BENCH_INPUTLOG="0")
+    p = subprocess.run(["bash", str(HERE / "client.sh"), "fs", "base"], env=env, capture_output=True, text=True, timeout=60)
+    b = report.kv(sd / "run" / "bench.txt")
+    log = (sd / "run" / "game.log").read_text() if (sd / "run" / "game.log").exists() else ""
+    check("client.sh session: the test's process, play mark, command and env (the recipe's ENV left out), no HUD",
+          p.returncode == 0 and b.get("comm") == "game.sh" and b.get("play_from") == "mark" and b.get("kind") == "session"
+          and "env SESS=yes BENCH_ONLY=\n" in log and not (sd / "run" / "hud").exists(),
+          (p.returncode, b.get("comm"), b.get("play_from"), log[-200:], p.stdout[-300:]))
+    root = tmp / "gamedata" / "games"
+    write(root / "ga" / "recipe.sh", "CMD=(/bin/true)\nCOMM=ga\n")
+    write(root / "ga" / "analysis.toml", "[reload]\nfixed = 2.5\n[[log_ignore]]\nre = 'own noise'\nwhy = \"ga's own\"\n"
+          "[legacy]\nrecipe_names = [\"old-ga\"]\nrun_labels = [{ re = 'g-(.+)', variant = '\\1', drop = ['-x'] }]\n")
+    write(root / "ga" / "build.toml", 'engine = "eng"\n')
+    write(root / "ga" / "rating" / "test.toml", 'process = "ga"\nhome = [".ga"]\nplay_mark = "go"\n')
+    write(root / "ga" / "index.md", '+++\nid = "ga"\ntitle = "Game A"\n+++\n')
+    write(root / "gb" / "recipe.sh", "CMD=(/bin/true)\n")
+    write(root.parent / "engines" / "eng" / "analysis.toml", "[[log_ignore]]\nre = 'engine noise'\nwhy = 'the engine'\n"
+          "[[log_strip]]\nre = '\\^[0-9]'\nwhy = 'colours'\n")
+    old = os.environ.get("BENCH_GAMES")
+    os.environ["BENCH_GAMES"] = str(root)
+    try:
+        ign, strip = gamedata.log_rules("ga")
+        check("gamedata: the engine's log rules first, then the game's", [w for _, w in ign] == ["the engine", "ga's own"]
+              and len(strip) == 1 and gamedata.log_rules("gb") == ([], []), (ign, strip))
+        check("gamedata: [reload], none for a game without", gamedata.reload("ga") == {"fixed": 2.5} and gamedata.reload("gb") == {})
+        check("gamedata: a run's id from recipe=, from an old game=, from a label (old name, run_labels)",
+              gamedata.run_id({"recipe": "ga", "game": "ga"}) == "ga" and gamedata.run_id({"game": "old-ga"}) == "ga"
+              and gamedata.run_id({}, "old-ga") == "ga" and gamedata.run_id({}, "g-v1-x") == "ga"
+              and gamedata.run_id({"game": "zz"}) is None and gamedata.run_label("g-v1-x") == ("ga", "v1"))
+        check("gamedata: the played test and the title", gamedata.test("ga").get("play_mark") == "go"
+              and gamedata.test("gb") == {} and gamedata.title("ga") == "Game A" and gamedata.title("gb") == "gb")
+        import logscan
+        d = tmp / "gamedata" / "ps3-bench-20261026T000000Z-ga-base"
+        write(d / "bench.txt", "game=ga\nrecipe=ga\nvariant=base\n")
+        write(d / "game.log", "error: own noise\nengine noise error\nerror ^1coloured^7 text\n")
+        write(tmp / "gamedata" / "ps3-bench-20261026T000100Z-gb-base" / "bench.txt", "game=gb\nvariant=base\n")
+        write(tmp / "gamedata" / "ps3-bench-20261026T000100Z-gb-base" / "game.log", "error: own noise\nerror ^1coloured^7 text\n")
+        ign = Counter()
+        found, _ = logscan.scan_run(d, ign)
+        found_b, _ = logscan.scan_run(tmp / "gamedata" / "ps3-bench-20261026T000100Z-gb-base")
+        check("logscan: a game's own rules on its runs only (ignored, stripped), not on another game's",
+              [m for _, m in found] == ["error coloured text"] and sorted(w for _, w in ign) == ["ga's own", "the engine"]
+              and sorted(m for _, m in found_b) == ["error ^Ncoloured^N text", "error: own noise"], (found, ign, found_b))
+    finally:
+        if old is None:
+            os.environ.pop("BENCH_GAMES", None)
+        else:
+            os.environ["BENCH_GAMES"] = old
+        for f in (gamedata.own_analysis, gamedata.engine_analysis, gamedata.log_rules):
+            f.cache_clear()
 
 
 # --- 15. sound dropouts: ps3-xrunlog.so, xruns.py and client.sh's XRUNLOG ----------------------------
@@ -2039,6 +2154,7 @@ if __name__ == "__main__":
         malloctrim_real(tmp)
         xruns_synthetic(tmp)
         xrunlog_e2e(tmp)
+        gamedata_synthetic(tmp)
         import intfcheck
         print("\ninterference detector (intfcheck.py)")
         intfcheck.run(tmp, check)

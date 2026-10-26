@@ -1,0 +1,6 @@
+# The Ur-Quan Masters: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/playdef.py.
+process = 'uqm'
+# its settings and data, set aside for a session on fresh defaults: the directories of the files the benchmark rewrites
+home = ['.uqm']
+command = ['/usr/games/uqm', '-r', '1920x1080', '-f', '--opengl']	# without a menu launcher

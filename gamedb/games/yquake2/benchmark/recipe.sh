@@ -17,9 +17,6 @@ COMM=quake2
 ENV=(vblank_mode=0)
 YQ2_HOME=${XDG_DATA_HOME:-$HOME/.local/share}/YamagiQ2
 BACKUP=("$YQ2_HOME/baseq2/config.cfg" "$YQ2_HOME/baseq2/autoexec.cfg" "$HOME/.yq2/baseq2/config.cfg" "$HOME/.yq2/baseq2/autoexec.cfg")
-# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
-# freshhome.py); checked against the engine's own "Using ... for writing" line
-SESSION_HOME=(.local/share/YamagiQ2 .yq2)
 setup() {
 	mkdir -p "$YQ2_HOME/baseq2"
 	printf '%s\n' 'alias bench "set nextdemo bench; disconnect; demomap q2demo1.dm2"' > "$YQ2_HOME/baseq2/autoexec.cfg"

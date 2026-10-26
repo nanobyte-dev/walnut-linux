@@ -1,0 +1,7 @@
+# X-Moto: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/playdef.py.
+process = 'xmoto'
+# its settings and data, set aside for a session on fresh defaults; checked against the benchmark's config.dat and Replays paths
+home = ['.config/xmoto', '.local/share/xmoto']
+command = ['/usr/games/xmoto', '--nowww', '-fs', '-res', '1920x1080']	# without a menu launcher
+sound_at = 20

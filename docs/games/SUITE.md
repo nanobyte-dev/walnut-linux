@@ -17,6 +17,7 @@ recorder, the profiles and the memory snapshots have their own docs ([STALLS.md]
 | `freshhome.py`, `inputlog.py`, `geom.py` | around a session: the game on fresh defaults (the player's directories set aside and back), the input devices, the window and the pointer |
 | `client.sh` | one game run from a recipe (the X client `ps3-bench.sh x` starts) |
 | `games.sh`, `games.py` | where a game's recipe is: `gamedb/games/<id>/benchmark/` here, `games/<id>/` in the PS3's copy; old recipe names (below) |
+| `playdef.py`, `gamedata.py` | a game's data: its played test (`rating/test.toml`) as shell assignments for session.sh and client.sh; its analysis rules (`benchmark/analysis.toml`) for report.py, logscan.py, matrix.py and interference-scan.py |
 | `smoke.inc`, `openal.inc`, `keyboard.evemu` | pieces the recipes share (`$BENCH_LIB`): the smoke recipes' header, OpenAL Soft's variants, a keyboard's description for the virtual keyboard |
 
 A game's own part is in its bundle, `gamedb/games/<id>/benchmark/` ([gamedb/README.md](../../gamedb/README.md#gamesbenchmark)):
@@ -24,7 +25,7 @@ A game's own part is in its bundle, `gamedb/games/<id>/benchmark/` ([gamedb/READ
 OpenArena's `openarena-bench.dm_71`, X-Moto's `xmoto-credits.rpl`, ETR's `etr-race.evemu`),
 `assets-src/` (how built assets are made: ClassiCube's timedemo plugin `ccbench.c`, which
 `make classicube-bench` builds into `assets/classicube-bench.so`; OpenTTD's save generator), `lib/`
-(Hedgewars' `hwdrive.py`), `analysis.toml` (the old recipe names) and `legacy/` (OpenArena's step 0
+(Hedgewars' `hwdrive.py`), `analysis.toml` (what the analysis tools need: the old recipe names, the reload rule, the log rules, the interference pattern) and `legacy/` (OpenArena's step 0
 scripts). A game is named by its gamedb id. Two recipes were renamed when they moved there
 (2026-10-26): `sauerbraten` is now `bananabread` (BananaBread on Debian's cube2) and
 `sauerbraten-edition` is now `sauerbraten`. Runs from before then keep their old names in bench.txt
@@ -194,7 +195,7 @@ desktop, empty the swaps and switch vsync off; a session does none of that.
 **Start one** on the PS3, from a terminal of the desktop (over SSH works too: one command, then hands off):
 
 ```
-/var/tmp/bench/session.sh GAME [LAUNCHER] [VARIANT]   # or: /var/tmp/bench/run.sh session GAME ...
+/var/tmp/bench/session.sh GAME [LAUNCHER]   # or: /var/tmp/bench/run.sh session GAME ...
 ```
 
 **Play it on the PC alongside.** `tools/play-pc.sh GAME [LAUNCHER]` starts the same game and launcher on
@@ -214,23 +215,24 @@ new).
 **Pick the launcher.** A game can have several menu entries (OpenArena: `openarena-gl1.desktop`
 "OpenArena (GL 1.2)" and `openarena-gl2.desktop` "OpenArena (GL 2.0)"). `LAUNCHER` is an entry's file
 name or its Name; the session starts exactly that entry's `Exec` (field codes cut out, no shell), so
-the game gets the arguments the menu gives it. The recipe still supplies the assets, `PLAY_MARK`,
-the HUD and the recording. The launchers are found as the Walnut Games app finds them
+the game gets the arguments the menu gives it. The game's played test, `rating/test.toml` in its bundle
+([gamedb/README.md](../../gamedb/README.md#ratingtesttoml), read through `playdef.py`), supplies the process,
+the play mark, the directories set aside, the environment and the HUD; the recipe's base the recording
+settings. The launchers are found as the Walnut Games app finds them
 (`launcher.py`): the menu entries the game's packages ship (`dpkg -L`) and any shown entry that runs
 one of their programs. Without `LAUNCHER` the session takes the game's only launcher, or the first of
 several (shipped entries by file name) and prints the list; an unknown `LAUNCHER` prints the choices
-and exits 2. A game with no menu entry runs the recipe's command. A second argument that names a
-recipe variant (`base`, `kick100`) is still taken as the `VARIANT`; with a launcher the variant is the
-third argument. `SESSION_DRY=1` shows the launcher and its command without starting anything.
+and exits 2. A game with no menu entry runs its test's `command` (else the recipe's). A session takes
+no recipe variant: the launchers took their place. `SESSION_DRY=1` shows the launcher and its command
+without starting anything.
 `bench.txt` records `launcher=` (the Name) and `launcher_file=`; `import-run.py` writes the Name as
 `launcher` in `result.toml` (`--launcher NAME` for a run that recorded none). Each launcher is rated
 on its own: play every launcher of a game.
 
 `make bench-push` puts the scripts there; the harness needs a `ps3-gpu-tools` with
-`ps3-bench.sh session`. `run.sh list` names the games. A recipe needs a playable command: openarena
-and xmoto have a `session()` function for it, and the `menu` variants (`warzone2100 menu`) start at
-the game's own menu; a timedemo or autoplay recipe without one would run its bench command
-([gamedb/README.md](../../gamedb/README.md#gamesbenchmark): `session()`). The script moves into `ps3-game.slice`
+`ps3-bench.sh session`. `run.sh list` names the games. A game without a menu launcher needs a playable
+`command` in its test.toml (OpenArena's and X-Moto's are there); a timedemo or autoplay recipe without one
+would run its bench command. The script moves into `ps3-game.slice`
 (game mode freezes the terminal) and logs to `~/.cache/ps3-session/`. Nothing else is needed from
 the terminal: play, then quit the game from its menu. There is no time limit. Don't use the PS3
 for anything else meanwhile, and no SSH: a login is interference for what is measured.
@@ -262,7 +264,7 @@ desktop's window manager), recorded by `ps3-bench.sh session` with `client.sh` (
 | a screenshot about every minute (xwd at nice 19; `SESSION_SHOT_EVERY`, at most `SESSION_SHOT_MAX`=40, 8 MB each), and the player's own on Alt+F12 or pad Select+Start (`mark-<t>s`) | `shots/`, `shot=`, `shot_mark=` |
 | the game's window and the screen at each screenshot (`geom.py`: xwininfo and xprop from x11-utils, by the game's pid and its children; Display, [GAMEDB.md](../GAMEDB.md#how-a-game-is-rated)), and the X pointer: visible over the window or not (XFixes' cursor image through ctypes, libXfixes comes with Mesa; its theme name); a recipe may log `render_res=WxH` in bench.txt (recorded only) | `shots/geometry.tsv` (`at_s x y w h fullscreen screen_w screen_h by cursor cursor_name`) |
 | the input devices (`inputlog.py`, started by client.sh at nice 19, as the player: the pads through logind's uaccess, keyboards and mice with the `input` group; a class it can't read is named in its header and its items stay untested): each device present or added with its class (pad, keyboard, mouse, motion, other), which ones the game or its children opened (`/proc/<pid>/fd` every 2 s, `jsN` counted as its `eventN`), every press at the kernel's timestamp (`key` rows: the level load ends at the play mark), presses and axis moves per class per 10 s. Read-only, never grabs. It records presses and times, never which key, with one exception: the two screenshot chords ([Marking a screenshot](#played-sessions)). For those it holds the state of Alt, F12, Select and Start (nothing else) and writes only a `mark` row with the chord's time, never a code; it also appends the time to `.mark-req`, which client.sh turns into a shot. `BENCH_INPUTLOG=0` leaves it out (and the marking with it) | `input.tsv`, `input.err` |
-| the game on fresh defaults (`freshhome.py`, from session.sh): the recipe's `SESSION_HOME` directories (else the top directories of its `BACKUP` files) renamed to `<dir>.walnut-aside-<stamp>` before the game, the player's own renamed back after it; the session's fresh ones to the run directory up to 5 MB, else renamed to `<dir>.walnut-fresh-<stamp>`; never a delete, never a write over anything. The plan is written first (`~/.cache/ps3-session/freshhome/`), so a session cut short is put back at the next session's start, with a warning. `SESSION_FRESH=0` keeps the player's settings | `fresh-home/`; bench.txt `fresh_home`, `fresh_home_new`, `recovered`, `fresh_home_warn` |
+| the game on fresh defaults (`freshhome.py`, from session.sh): its test's `home` directories (a game without a test.toml: the top directories of its recipe's `BACKUP` files) renamed to `<dir>.walnut-aside-<stamp>` before the game, the player's own renamed back after it; the session's fresh ones to the run directory up to 5 MB, else renamed to `<dir>.walnut-fresh-<stamp>`; never a delete, never a write over anything. The plan is written first (`~/.cache/ps3-session/freshhome/`), so a session cut short is put back at the next session's start, with a warning. `SESSION_FRESH=0` keeps the player's settings | `fresh-home/`; bench.txt `fresh_home`, `fresh_home_new`, `recovered`, `fresh_home_warn` |
 | the desktop's return after the quit (session.sh watches `ps3-desktop.slice`'s `cgroup.freeze` once a second, builtins only): seconds from the game's end to the thaw; 0 when game mode never froze it | bench.txt `desktop_back_s`, or `desktop_stuck=1` |
 | peak RSS, game output, package versions | `hwm`, `game.log`, `versions` |
 | how it ended | `ended`, `ended_why`, `rc` |
@@ -272,8 +274,8 @@ The thermal watchdog and the 80 C limit still stop the game; the interference de
 bench screen are off (the player's input is the point).
 
 `bench.txt` has the usual fields plus `kind=session`, `play_from` (`mark`, `load` or `start`),
-`play_start`, `play_seconds`, `vsync=shipped`, `gamemode=1`. The play starts at the recipe's
-`PLAY_MARK` (the first gameplay frame), else at its load mark; without either `play_from=start` and
+`play_start`, `play_seconds`, `vsync=shipped`, `gamemode=1`. The play starts at the test's
+`play_mark` (the first gameplay frame), else at its load mark; without either `play_from=start` and
 `play_seconds` is the whole run, an upper bound. `ended` is `quit` (exit code 0), `error` (another
 code), `crash` (a signal, or a segfault of the game in `dmesg.log`), `oom` (the kernel killed it),
 `closed` (SIGTERM or SIGKILL, Ctrl+Alt+Esc), `killed` (the harness stopped it: thermal alert,

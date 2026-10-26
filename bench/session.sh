@@ -1,16 +1,17 @@
 #!/bin/bash
-# session.sh GAME [LAUNCHER] [VARIANT]: a played session, the graded test (docs/GAMEDB.md "How a game is
+# session.sh GAME [LAUNCHER]: a played session, the graded test (docs/GAMEDB.md "How a game is
 # tested", docs/games/SUITE.md "Played sessions"). On the PS3, from a terminal of the desktop:
-#   /var/tmp/bench/session.sh GAME [LAUNCHER] [VARIANT]   (or run.sh session GAME ...)
+#   /var/tmp/bench/session.sh GAME [LAUNCHER]   (or run.sh session GAME ...)
 # LAUNCHER is a menu entry of the game, by file name (openarena-gl2.desktop) or Name ("OpenArena
 # (GL 2.0)"): the game is started with that entry's Exec, and each launcher is rated on its own.
 # The launchers are the menu entries the game's packages ship and any shown entry running one of
 # their programs (launcher.py, as the Walnut Games app finds them). Without LAUNCHER: the game's
 # only launcher, else the first (shipped entries by file name); the list is printed. An unknown
-# LAUNCHER prints the choices and exits 2. A game without a menu entry runs the recipe's command.
-# If the second argument names a recipe variant (variant_NAME in the recipe, or base) it is the
-# VARIANT, not a launcher; a recipe variant on top of a launcher is the third argument. The recipe
-# still gives the assets, PLAY_MARK, HUD and recording settings; its ENV applies.
+# LAUNCHER prints the choices and exits 2. A game without a menu entry runs its test's command.
+# The played test is data (the game's rating/test.toml, read through playdef.py; gamedb/README.md
+# "games/<id>/rating/"): the process, the play and load marks, the directories set aside, the command
+# without a launcher, the environment, the sound check time, the HUD. The recipe (its base, no
+# variants: launchers took their place) still gives the recording settings (LOAD_RE and the like).
 # The game starts through ps3-game exactly as the desktop menu starts it (game mode, the VRAM swap
 # on, vsync as shipped), in the live desktop: nothing is stopped, no swap emptied. It is recorded
 # like any run (the Gallium HUD's frame times, the samplers, sound counters, dmesg, temperatures;
@@ -35,19 +36,13 @@
 # measured); collect afterwards with make bench-pull.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
-g=${1:-}; v=base; want=
+g=${1:-}; v=base; want=${2:-}
 [ -n "$g" ] || { sed -n '2,/^set -u/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 2; }
+[ $# -le 2 ] || { echo "session: GAME [LAUNCHER] (no recipe variants: a launcher is the way a game starts)" >&2; exit 2; }
 . "$here/games.sh"
 g=$(bench_id "$g") || { echo "session: no recipe $1 (run.sh list)" >&2; exit 2; }
 RF=$(bench_recipe "$g"); bench_use "$g"
-# the second argument: a recipe variant (backward compatible) or a launcher; the third a variant
-if [ -n "${2:-}" ]; then
-	if [ "$2" = base ] || ( CMD=(); ASSETS=; . "$RF" > /dev/null 2>&1; declare -F "variant_$2" > /dev/null ); then
-		v=$2
-	else
-		want=$2; v=${3:-base}
-	fi
-fi
+bench_playdef "$g" || { echo "session: $(bench_test "$g") is not a valid played test (playdef.py)" >&2; exit 2; }
 B=${PS3_BENCH:-ps3-bench.sh}
 OUT=${BENCH_OUT:-/var/tmp/ps3-bench}
 
@@ -59,13 +54,13 @@ shots=
 for ((i = 1; i <= max; i++)); do shots+="$((i * every)) "; done
 [ "$max" = 0 ] && shots=off
 
-pkgs() {	# the game's packages: the owners of the recipe's binary (its CMD, and the session command)
-	local p
+prog() {	# the game's program: its test's command, else the recipe's CMD
+	if [ ${#TEST_COMMAND[@]} -gt 0 ]; then readlink -f "$(command -v "${TEST_COMMAND[0]}")"
+	else (CMD=(); ENV=(); . "$RF"; readlink -f "$(command -v "${CMD[0]}")"); fi 2> /dev/null
+}
+pkgs() {	# the game's packages: the owners of its program
 	[ -n "${SESSION_PACKAGES:-}" ] && { echo "$SESSION_PACKAGES" | tr -s ' ' '\n'; return; }
-	p=$( (CMD=(); ENV=(); ASSETS=; . "$RF"; declare -F "variant_$v" > /dev/null && "variant_$v"
-		declare -F session > /dev/null && session
-		readlink -f "$(command -v "${CMD[0]}")") 2> /dev/null)
-	dpkg -S "$p" 2> /dev/null | cut -d: -f1 | tr , ' ' | tr -s ' ' '\n' | sort -u
+	dpkg -S "$(prog)" 2> /dev/null | cut -d: -f1 | tr , ' ' | tr -s ' ' '\n' | sort -u
 }
 # the launcher: its Exec becomes the game's command (BENCH_CMD_FILE, NUL-separated, read by client.sh)
 cmdfile=; lname=; lfile=
@@ -81,7 +76,10 @@ q=; [ -n "${PS3_SESSION_SCOPED:-}" ] && q=1	# the scoped copy repeats the choice
 	elif [ "$lrc" != 0 ]; then
 		rm -f "$cmdfile"; cmdfile=
 		[ -z "$want" ] || { echo "session: $g has no menu launchers (asked for '$want')" >&2; exit 2; }
-		[ -n "$q" ] || echo "session: $g: no menu launcher found, the recipe's command runs"
+		if [ -z "$q" ]; then
+			if [ ${#TEST_COMMAND[@]} -gt 0 ]; then echo "session: $g: no menu launcher found, its test's command runs"
+			else echo "session: $g: no menu launcher found, the recipe's command runs"; fi
+		fi
 	else
 		lfile=$(sed -n '1s/\t.*//p' <<< "$out"); lname=$(sed -n '1s/^[^\t]*\t//p' <<< "$out")
 		if [ -z "$q" ]; then
@@ -94,7 +92,8 @@ q=; [ -n "${PS3_SESSION_SCOPED:-}" ] && q=1	# the scoped copy repeats the choice
 	fi
 }
 if [ "${SESSION_DRY:-0}" = 1 ]; then
-	[ -n "$cmdfile" ] && echo "command: $(xargs -0 printf '%q ' < "$cmdfile")"
+	if [ -n "$cmdfile" ]; then echo "command: $(xargs -0 printf '%q ' < "$cmdfile")"
+	elif [ ${#TEST_COMMAND[@]} -gt 0 ]; then echo "command: $(printf '%q ' "${TEST_COMMAND[@]}")"; fi
 	echo "would run: BENCH_SESSION=1 ${cmdfile:+BENCH_CMD_FILE=<command> BENCH_LAUNCHER='$lname' BENCH_LAUNCHER_FILE=$lfile }BENCH_SHOTS='${shots% }' $B session session-$g-$v -- $here/client.sh $g $v"
 	echo "then: python3 -I $here/session-form.py <run dir> $g $v"
 	exit 0
@@ -127,20 +126,17 @@ echo "session: to show something (a glitch): Alt+F12 on the keyboard, or Select+
 if [ -z "${SSH_TTY:-}" ] && { [ -t 1 ] || [ -t 2 ]; }; then exec > "$log" 2>&1; else exec > >(tee "$log") 2>&1; fi
 
 versions() {	# the game's package and the graphics stack, as run.sh's
-	local p
-	p=$( (CMD=(); ASSETS=; . "$RF"; declare -F "variant_$v" > /dev/null && "variant_$v"
-		readlink -f "$(command -v "${CMD[0]}")") 2> /dev/null)
-	dpkg-query -W $(dpkg -S "$p" 2> /dev/null | cut -d: -f1 | tr , ' ') mesa-libgallium ps3rsx-modules-ps3 libspeq0 libfluidsynth3 libopenal1 libsdl3-0 ps3-gpu-tools ps3-desktop 2> /dev/null
+	dpkg-query -W $(dpkg -S "$(prog)" 2> /dev/null | cut -d: -f1 | tr , ' ') mesa-libgallium ps3rsx-modules-ps3 libspeq0 libfluidsynth3 libopenal1 libsdl3-0 ps3-gpu-tools ps3-desktop 2> /dev/null
 	uname -r
 	# the Walnut release (os-release's VERSION_ID): the version a test is filed under in the games database
 	printf 'walnut\t%s\n' "$(. /etc/os-release 2>/dev/null; echo "${VERSION_ID:-}")"
 }
 
-homes() {	# the game's settings and data directories, relative to ~: the recipe's SESSION_HOME (globs
-	# allowed), else the top directories of its BACKUP files (~/.X, ~/.config/X, ~/.local/share/X)
-	( CMD=(); ENV=(); BACKUP=(); SESSION_HOME=(); ASSETS=; . "$RF"
-	  declare -F "variant_$v" > /dev/null && "variant_$v"
-	  if [ ${#SESSION_HOME[@]} -gt 0 ]; then printf '%s\n' "${SESSION_HOME[@]}"; exit 0; fi
+homes() {	# the game's settings and data directories, relative to ~: its test's home (globs allowed),
+	# else (a game without a test.toml) the top directories of its recipe's BACKUP files (~/.X, ~/.config/X,
+	# ~/.local/share/X)
+	if [ -n "$TEST_FILE" ]; then printf '%s\n' "${TEST_HOME[@]}"; return 0; fi
+	( CMD=(); ENV=(); BACKUP=(); . "$RF"
 	  for f in "${BACKUP[@]}"; do
 		r=${f#"$HOME"/}; [ "$r" = "$f" ] && continue
 		case $r in .config/*/*) echo "$r" | cut -d/ -f1-2 ;; .local/share/*/*) echo "$r" | cut -d/ -f1-3 ;;
@@ -167,7 +163,7 @@ if [ "${SESSION_FRESH:-1}" = 1 ]; then
 			echo "session: freshhome.py failed: the game runs on the player's own settings" >&2
 		fi
 	else
-		echo "session: $g: no SESSION_HOME or BACKUP in its recipe: the player's own settings"
+		echo "session: $g: no home in its test.toml (or BACKUP in its recipe): the player's own settings"
 	fi
 fi
 # the desktop's thaw after the game (game mode freezes ps3-desktop.slice while it runs): when it came back,

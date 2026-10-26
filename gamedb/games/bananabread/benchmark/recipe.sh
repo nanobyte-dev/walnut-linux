@@ -36,9 +36,6 @@ DATA_DIRS=(/usr/share/games/cube2)
 SB_HOME=$HOME/.cube2
 BACKUP=("$SB_HOME/autoexec.cfg" "$SB_HOME/config.cfg" "$SB_HOME/restore.cfg" "$SB_HOME/init.cfg"
 	"$SB_HOME/demo/bench.dmo")
-# played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
-# freshhome.py); checked against BananaBread's home (gamedb/games/sauerbraten/packages/sauerbraten/files/sauerbraten keeps Sauerbraten's apart in ~/.sauerbraten)
-SESSION_HOME=(.cube2)
 SB_MAP=cave
 SB_SET=()	# extra CubeScript lines for autoexec.cfg (variants)
 SB_INIT=()	# extra lines for init.cfg, which the engine reads before it starts the sound (soundfreq...)
@@ -80,7 +77,6 @@ sb_cmd
 STEADY_RE='^ps3bench: steady [0-9]+ frames in [0-9]+ ms: ([0-9.]+) fps'
 STEADY_MAXMS_RE='^ps3bench: steady .* longest ([0-9]+) ms'
 LOAD_MARK='^read map '
-PLAY_MARK=$LOAD_MARK	# the map is read (a played session; no session() command yet)
 # a safety net: loading (27-34 s at best, over 100 s while the memory swaps), then ~200 s (demo: two
 # playbacks and a reload; spawn: 180 s); quits by itself. The first version's 170 s cut the run
 # before the measurement printed.
