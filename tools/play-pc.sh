@@ -40,7 +40,7 @@ if [ "${PLAY_PC_DRY:-0}" != 1 ] && ! docker image inspect "$TAG" > /dev/null 2>&
 fi
 
 home=build/pc-play/$G
-mkdir -p "$home"
+mkdir -p "$home/.config" "$home/.local/share"	# as a real home has them (Yamagi Quake II only makes its own last folder)
 # the image's users plus ours: a game that looks its home up (getpwuid) crashes on a uid it can't find
 # (Extreme Tux Racer: a segfault at the start)
 docker run --rm --entrypoint cat "$TAG" /etc/passwd > "build/pc-play/.passwd-$G" 2>/dev/null || :
