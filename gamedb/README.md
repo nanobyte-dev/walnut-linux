@@ -355,9 +355,15 @@ when it has several, and a "Research" section: what the surveys said, each line 
 section and date. An
 investigation, `investigations/<date>-<slug>.md`, has front matter `id` (never renamed), `games`,
 `driver_patches`, `game_patches`, `sessions`, `batches`, and a body: symptom, evidence, cause, fix.
+A patch is named `<package>/<number>` (`mesa/0046`, `cube2/0010`, `linux/local-0009`), a session by its
+folder under the game's `rating/sessions/`, a batch by its name in `benchmarks/batches.toml`;
+`tools/gamedb/check.py` (*now*) checks the keys (a closed set, `id` required, the rest lists of strings),
+that `id` is unique in its folder, and that the games, sessions and batches exist. Its body may carry
+generated blocks (`batch-table`: a batch's numbers, `tools/gamedb/docblocks.py`).
 `gamedb:<id>/<investigation-id>` resolves by that `id` (`tools/doclinks.py`, *read now*). A driver bug a
 game found: the investigation lives with the game, the mechanism in docs/DRIVER.md with a "found by"
-link. An engine-wide one lives in `engines/<e>/investigations/`.
+link. Several games on one engine: `engines/<e>/investigations/`; games on different engines: where it
+was found, linked from the others.
 
 On the site (*now*, step 7a): `tools/gamedb/technical.py`, run by catalog.py, writes
 `website/gamedb/data/technical.json`, and Hugo's content adapters (`website/gamedb/content/technical/`,

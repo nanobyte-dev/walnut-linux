@@ -174,6 +174,8 @@ GENERATORS = {
     "session-queue": gen_session_queue,
     "todo-summary": gen_todo_summary,
 }
+# the driver and system docs' tables: batch-table, licensed-table, gamedb-packages, reload-rules (tools/gamedb/docblocks.py)
+GENERATORS.update(_load("docblocks", Path(__file__).resolve().with_name("docblocks.py")).GENERATORS)
 # docs/games/'s tables: driver-bugs, suite-recipes (tools/gamedb/gamesblocks.py)
 GENERATORS.update(_load("gamesblocks", Path(__file__).resolve().with_name("gamesblocks.py")).GENERATORS)
 

@@ -242,6 +242,57 @@ def todo_errors(data):
     return errs
 
 
+# an investigation (investigations/<date>-<slug>.md): TOML front matter with these keys (a closed set); id
+# is required, every other key a list of strings; games name game folders, sessions folders of
+# rating/sessions/ in one of those games, batches gamedb/benchmarks/batches.toml names
+INV_KEYS = ("id", "games", "driver_patches", "game_patches", "sessions", "batches")
+INV_FILE_RE = re.compile(r"\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\.md\Z")
+
+
+def investigation_errors(d, games_root):
+    """the problems of a game's or an engine's investigations/*.md front matter"""
+    errs, ids = [], {}
+    idir = Path(d) / "investigations"
+    batches = None
+    for f in sorted(idir.glob("*.md")) if idir.is_dir() else []:
+        where = "investigations/%s" % f.name
+        if not INV_FILE_RE.match(f.name):
+            errs.append("%s: the name is <date>-<slug>.md" % where)
+        try:
+            fm = front_matter(f)
+        except (ValueError, tomllib.TOMLDecodeError) as e:
+            errs.append("%s: %s" % (where, e))
+            continue
+        for k, v in fm.items():
+            if k not in INV_KEYS:
+                errs.append("%s: unknown key %r (%s)" % (where, k, ", ".join(INV_KEYS)))
+            elif k == "id":
+                if not isinstance(v, str) or not ID_RE.match(v):
+                    errs.append("%s: id %r must match %s" % (where, v, ID_RE.pattern))
+                elif v in ids:
+                    errs.append("%s: id %r is %s's too" % (where, v, ids[v]))
+                else:
+                    ids[v] = f.name
+            elif not isinstance(v, list) or not all(isinstance(x, str) and x for x in v):
+                errs.append("%s: %r should be a list of strings" % (where, k))
+        if "id" not in fm:
+            errs.append("%s: missing key 'id'" % where)
+        games = [g for g in fm.get("games", []) if isinstance(g, str)]
+        for g in games:
+            if not (Path(games_root) / g / "index.md").is_file():
+                errs.append("%s: games: no game %r" % (where, g))
+        for sname in fm.get("sessions", []) if isinstance(fm.get("sessions"), list) else []:
+            if not any((Path(games_root) / g / SESSIONS / str(sname)).is_dir() for g in games):
+                errs.append("%s: sessions: %r is a session of none of its games" % (where, sname))
+        if isinstance(fm.get("batches"), list) and fm["batches"]:
+            if batches is None:
+                bf = Path(games_root).parent / "benchmarks" / "batches.toml"
+                batches = {b.get("name") for b in tomllib.loads(bf.read_text()).get("batch", [])} if bf.is_file() else set()
+            errs += ["%s: batches: no batch %r in benchmarks/batches.toml" % (where, b)
+                     for b in fm["batches"] if b not in batches]
+    return errs
+
+
 def check_game(gdir, bad, repo, ctx=None):
     """a list of problems of one game folder"""
     errs = []
@@ -349,6 +400,7 @@ def check_game(gdir, bad, repo, ctx=None):
         errs += toml_errors(rating / "test.toml", "rating/test.toml", bench_module("playdef").validate)
     if (gdir / "todo.toml").is_file():
         errs += toml_errors(gdir / "todo.toml", "todo.toml", todo_errors)
+    errs += investigation_errors(gdir, gdir.parent)
     return errs
 
 
@@ -485,6 +537,7 @@ def engine_errors(edir, bad, ctx):
                             lambda a: bench_module("gamedata").validate_analysis(a, engine=True))
     if (Path(edir) / "todo.toml").is_file():
         errs += toml_errors(Path(edir) / "todo.toml", "todo.toml", todo_errors)
+    errs += investigation_errors(edir, Path(edir).parent.parent / "games")
     for g in ctx["engines"].get(Path(edir).name, []):
         gdir = Path(edir).parent.parent / "games" / str(g)
         try:
