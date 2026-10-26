@@ -113,7 +113,7 @@ running; X exit and a pattern written through `/dev/fb0`; a process holding `/de
 the release; a ps3rsx reload; then the 5-10 game suite with the switch on against off in the same
 boot (`MemAvailable` +8 MB, fps unchanged, less swap); reboot and power off with the console
 released. The panic step (`echo c > /proc/sysrq-trigger`) only with the user's OK. When it passes:
-`ps3fb.shadow_release=1` in `linux/flavours/*.args`.
+`ps3fb.shadow_release=1` in `packages/patched/kernel/linux/flavours/*.args`.
 
 ### The 720p console
 

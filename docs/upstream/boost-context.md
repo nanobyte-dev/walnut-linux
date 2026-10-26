@@ -2,8 +2,8 @@
 
 Two messages: one to the Debian bug (#1146645, boost1.92), one to Boost.Context upstream
 (github.com/boostorg/context, a new issue plus a pull request). The patches are in this repository:
-`boost-context/packaging/0001-ppc64-fcontext.patch` (Debian) and
-`boost-context/patches/0001-context-ppc64-save-fprs-vrs.patch` (Boost.Context).
+`packages/patched/libs/boost-context/packaging/0001-ppc64-fcontext.patch` (Debian) and
+`packages/patched/libs/boost-context/patches/0001-context-ppc64-save-fprs-vrs.patch` (Boost.Context).
 
 ---
 

@@ -73,8 +73,8 @@ Not in Linux's RAM, on purpose:
 
 ## 2. The config
 
-From `build/kernel/obj/.config` (ps3_defconfig + linux/config/ps3.config, the debug flavour's
-config; the release flavour adds linux/config/ps3-release.config):
+From `build/kernel/obj/.config` (ps3_defconfig + packages/patched/kernel/linux/config/ps3.config, the debug flavour's
+config; the release flavour adds packages/patched/kernel/linux/config/ps3-release.config):
 
 | Option | State | Cost |
 |---|---|---|
@@ -146,10 +146,10 @@ non-ps3rsx modules) because of three per-module costs. A model computed from the
 | `CONFIG_INET_TABLE_PERTURB_ORDER` (net/ipv4/Kconfig:405, needs `EXPERT`, which we have) | 8 in release; 16 in debug ("Table-perturb hash table entries: 65536 (262144 bytes)") | | **255K** (runtime, zeroed pages) |
 | TCP ehash/bind, UDP, IP idents, futex | 16K + 64K + 8K + 32K + 64K | no knob worth using (`thash_entries=` could save ~60K) | - |
 | Log buffer | `LOG_BUF_SHIFT`=16 in release (288K), 17 in debug (576K) | 15 (144K). The PS3's whole `dmesg` after 34 min was 43K (561 lines) incl. an oops; netconsole and journald catch the rest | 144K more |
-| `vm.min_free_kbytes` | 8192 (image/customize.sh:167); the kernel default for this RAM is ~1.7 MB | leave it: it is a stall guard, not waste (two hangs without it) | - |
+| `vm.min_free_kbytes` | 8192 (system/image/customize.sh:167); the kernel default for this RAM is ~1.7 MB | leave it: it is a stall guard, not waste (two hangs without it) | - |
 | `THREAD_SHIFT` | 14 | 13 would give back ~1.2 MB of the 2.4 MB of stacks, but ppc64 ELFv1 frames are big and root-on-USB plus NFS plus swap paths are deep | not advised |
 
-The boot arguments both flavours ship (`linux/flavours/release.args`, `debug.args`) start with
+The boot arguments both flavours ship (`packages/patched/kernel/linux/flavours/release.args`, `debug.args`) start with
 `video=ps3fb:mode:133 consoleblank=0 ps3rsx_gart=0 ps3rsx_cma=64M`.
 
 ### ps3fb: how big must it be, and can the console move to VRAM?
@@ -173,10 +173,10 @@ The boot arguments both flavours ship (`linux/flavours/release.args`, `debug.arg
   [PLAN.md](PLAN.md), still open. Only one 1080p monitor has been used so far (PLAN 4.10).
 - A smaller console at 1080p output would need a ps3fb patch (a window centred in the mode, and
   `num_frames` computed from the XDR frame only). Not written.
-- **Moving the console into VRAM through ps3rsx is not a small change.** `ps3rsx/src/console.c`
+- **Moving the console into VRAM through ps3rsx is not a small change.** `packages/walnut/drivers/ps3rsx/src/console.c`
   only hands the GPU back and forth between ps3rsx and ps3fb; the console is still drawn by ps3fb
   into XDR and blitted by the GPU. ps3rsx registers no fbdev (`DRM_FBDEV_EMULATION=y` is on, but
-  `grep fbdev ps3rsx/src` finds nothing). A CPU-drawn console in VRAM would run into the 10 MB/s VRAM
+  `grep fbdev packages/walnut/drivers/ps3rsx/src` finds nothing). A CPU-drawn console in VRAM would run into the 10 MB/s VRAM
   reads (fbcon's scroll copy reads), and DRM's generic fbdev would keep a shadow buffer in XDR,
   which is the same 8 MB again. ps3rsx also reads ps3fb's reset program from the start of ps3fb's
   buffer (exec.c:353), so the first 512K must stay either way.
@@ -185,7 +185,7 @@ The boot arguments both flavours ship (`linux/flavours/release.args`, `debug.arg
 
 ### CMA size (`ps3rsx_cma=64M`)
 
-The GART takes 1 MiB chunks from the area on demand (ps3rsx/src/gart.c:3-10); between uses the pages
+The GART takes 1 MiB chunks from the area on demand (packages/walnut/drivers/ps3rsx/src/gart.c:3-10); between uses the pages
 hold page cache. So CMA costs no reserve, and shrinking it returns no RAM: smaller values only
 shrink the cache that can live there and the GART ceiling. 6-14 MB of GART were measured in games,
 so 32M would still work. The one real downside of 64M is that it is movable-only memory. With the
@@ -195,7 +195,7 @@ unmovable kernel allocations measured on 2026-10-15, so there is room. Leave it 
 ## 4. Ranked changes
 
 Savings are steady-state RAM. Every kernel row needs a boot on the PS3. Rows 1, 3, 4, 8, 9, 10 and
-15 are the release flavour (`linux/config/ps3-release.config`), shipped 2026-10-16 and booted:
+15 are the release flavour (`packages/patched/kernel/linux/config/ps3-release.config`), shipped 2026-10-16 and booted:
 `MemTotal` 222704 kB against 213992 kB on the debug kernel, **+8712 kB**, and `vmlinux` 11.9 MB
 against 21.2 MB. The release kernel .472 reads 222716 kB.
 
@@ -205,7 +205,7 @@ against 21.2 MB. The release kernel .472 reads 222716 kB.
 | 2 | Console at 720p: `ps3fb=5M`, `mode:131` | **4 MB** (computed) | the output becomes 720p for X as well | boot args | open: the user's decision (D2) |
 | 3 | `# CONFIG_KALLSYMS_ALL is not set` | **1.0 MB** image + **0.64 MB** modules (measured + modelled) | low: oopses still show function names; data symbols disappear | kernel config | **done**, release |
 | 4 | Drop IPV6, IO_URING, QUOTA, KEXEC, HUGETLBFS; `NFS_V4=m` | **1.0 MB** (measured, variant) | low-medium: some userspace may expect IPv6 sockets or io_uring (libraries fall back). NFS root (v3) stays. Nothing uses our kexec (netboot kexec runs in Petitboot's kernel) | kernel config | **done**, release |
-| 5 | Rootfs: stop zram once ps3vswap is up | 1.5 MB table (vmalloc `disksize_store`, 384M x 16 B) plus its compressed pages | low | image/customize.sh:97-107 | not done: system trims wait (CLAUDE.md "Memory trims"); backlog |
+| 5 | Rootfs: stop zram once ps3vswap is up | 1.5 MB table (vmalloc `disksize_store`, 384M x 16 B) plus its compressed pages | low | system/image/customize.sh:97-107 | not done: system trims wait (CLAUDE.md "Memory trims"); backlog |
 | 6 | Rootfs: seccomp filters from systemd units, 126 BPF programs x 8K in vmalloc | 1.0 MB (`/proc/vmallocinfo`) | low: drop `SystemCallFilter=` on resident services, or `SECCOMP=n` | rootfs / kernel | not done, as row 5; backlog |
 | 7 | Keep `cfg80211` from loading (`install cfg80211 /bin/false`); find who loads it first | 483K (refcount 0) | low; a USB Wi-Fi stick would stop working | rootfs | not done, as row 5; backlog |
 | 8 | `LOG_BUF_SHIFT=16` (15 if you trust netconsole) | 288K (432K) | low | kernel config | **done** (16), release |
@@ -242,7 +242,7 @@ build/kexp/run-variant.sh <name> <fragment names>     # inside the builder conta
 Fragments live in `build/kexp/cfg/`. `DEBUG_INFO=n` is `CONFIG_DEBUG_INFO_NONE=y` (the line
 `# CONFIG_DEBUG_INFO is not set` has no effect: `DEBUG_INFO` is a derived symbol). The release
 flavour is built the way this section once proposed: `FRAGMENTS_release="ps3.config
-ps3-release.config"` in `linux/package.conf`, its own Debian flavour `ps3`
+ps3-release.config"` in `packages/patched/kernel/linux/package.conf`, its own Debian flavour `ps3`
 ([PACKAGING.md](PACKAGING.md)). `build/kexp/` is ephemeral; if it is gone, the variants are a copy
 of the kernel tree with one fragment each.
 
@@ -250,7 +250,7 @@ of the kernel tree with one fragment each.
 
 During games ps3fb's blit thread `ps3fbd` is idle (0 CPU s over 20 s, measured on the PS3,
 2026-10-18), so ps3fb costs no game time, but its XDR frame stays allocated while ps3rsx owns the
-GPU and nobody sees the console. local/0043 (`linux/patches/local/0043-ps3fb-release-console-shadow.patch`)
+GPU and nobody sees the console. local/0043 (`packages/patched/kernel/linux/patches/local/0043-ps3fb-release-console-shadow.patch`)
 gives that memory back.
 
 **State.** Written and compile-tested 2026-10-18 (`ps3fb.o` clean with W=1 for both configs,
@@ -381,7 +381,7 @@ every "console visible" step. Values: `grep -E 'MemTotal|MemFree|MemAvailable|Cm
     second oops from ps3fb.
 
 If anything is odd, `echo 0` returns the frame, and 0 is the default anyway. When the checks pass:
-default on (`ps3fb.shadow_release=1` in `linux/flavours/*.args`, or the default in the patch).
+default on (`ps3fb.shadow_release=1` in `packages/patched/kernel/linux/flavours/*.args`, or the default in the patch).
 
 ## History
 

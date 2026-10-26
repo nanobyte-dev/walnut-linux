@@ -8,7 +8,7 @@ open items (repeats, a longer Neverball replay, ETR's GART growth) are in
 
 ## X-Moto
 
-`xmoto`, `xmoto-data` (`0.6.3+repack-1+ps3.N`, package directory `xmoto/`), replacing Debian's.
+`xmoto`, `xmoto-data` (`0.6.3+repack-1+ps3.N`, package directory `packages/patched/games/xmoto/`), replacing Debian's.
 
 | Patch | What | Switch |
 |---|---|---|
@@ -26,11 +26,11 @@ Pads plugged in later take the first free player; controller events are always o
 "Enable joysticks" says. Menus take the d-pad, left stick, Cross and Circle (X-Moto's own).
 
 0001-0002 took a frame from 18,500 GL calls and 1,960 draws to 165 and 40 (host count), picture
-identical. `xmoto/test/glbatch-test.sh` checks the GL layer on the PC's llvmpipe: 400 frames of a
+identical. `packages/patched/games/xmoto/test/glbatch-test.sh` checks the GL layer on the PC's llvmpipe: 400 frames of a
 random scene, the same pixels with and without the stream buffer, no GL errors (`make test
 ONLY=xmoto-glbatch`, needs `make xmoto-work`).
 
-**Recipe** `games/bench/recipes/xmoto.sh`: the "credits" replay, which ships inside `xmoto.bin` where
+**Recipe** `bench/recipes/xmoto.sh`: the "credits" replay, which ships inside `xmoto.bin` where
 `--replay` doesn't read it, so `assets/xmoto-credits.rpl` is it extracted (MD5 05a7200d...). `xmoto
 --nowww -fs -res 1920x1080 --replay ... --timedemo --benchmark` draws every frame, prints `Average
 framerate` and exits; it sets no swap interval itself, so `vblank_mode=0`. The replay runs in real
@@ -59,7 +59,7 @@ underruns a run.
 
 ## Extreme Tux Racer
 
-`extremetuxracer`, `extremetuxracer-data` (`0.8.4-2+ps3.N`, package directory `etr/`), replacing
+`extremetuxracer`, `extremetuxracer-data` (`0.8.4-2+ps3.N`, package directory `packages/patched/games/etr/`), replacing
 Debian's. SFML 3.1 already has its big-endian Ogg fix. Patches 0001-0006 send fewer, larger GL
 submissions, each behind a switch (`ETR_GL=0` turns all off): a bind cache and the HUD numbers
 (`ETR_GL_BIND`, `ETR_GL_HUD`), the terrain from buffer objects in one quadtree walk
@@ -82,7 +82,7 @@ player, so any pad plays it; hot-plug is SFML's own events. The scheme is on the
 menu, "Keyboard functions") in a second column. The old code took any axis but X for paddle/brake
 and buttons 0-3 for the race; both are gone.
 
-**Recipe** `games/bench/recipes/etr.sh`: ETR has no demo mode, so the user's race was recorded as
+**Recipe** `bench/recipes/etr.sh`: ETR has no demo mode, so the user's race was recorded as
 keyboard events (`evemu-record`, variant `record`) and is replayed into a virtual keyboard
 (`evemu-device`, `evemu-play`) from when ETR's window appears (a marker event starts the recording
 there). `assets/etr-race.evemu`: Practice, one course, 69 s, the menus up to 24.7 s. The race is raced
@@ -101,7 +101,7 @@ Picture and sound right.
 **Sound buffer**: ETR plays through SFML 3.1 (miniaudio), which opens the ALSA device with a 64 frame
 period and 3 periods, a 4 ms buffer; ETR cannot change it (SFML does not expose it). The played
 session (2026-10-24) logged 608 xruns, 7.5 audible-dropout marks a minute, which the player did not
-hear. `libsfml` (package directory `libsfml/`, `3.1.0+dfsg-4+ps3.N`) now opens it with a 1024 frame
+hear. `libsfml` (package directory `packages/patched/audio/libsfml/`, `3.1.0+dfsg-4+ps3.N`) now opens it with a 1024 frame
 period: about 64 ms of buffer at 48 kHz, 24 KB, a sound effect or the music starting at most 23 ms
 late in the mix. `SFML_AUDIO_PERIOD_FRAMES=<32..16384>` overrides it (64 is upstream's). Not yet
 tried on the PS3: the next played session should show the xrun count.
@@ -116,7 +116,7 @@ History: Mesa ps3.246 46 to ps3.262 53 HUD (+15%); ps3.299 52; first runs 2026-1
 ## Neverball
 
 `neverball`, `neverputt` and their data (`1.6.0+git20180603-3+ps3.N`, package directory
-`neverball/`; Debian's 2018 snapshot of 1.6), replacing Debian's.
+`packages/patched/games/neverball/`; Debian's 2018 snapshot of 1.6), replacing Debian's.
 
 | Patch | What | Switch |
 |---|---|---|
@@ -134,7 +134,7 @@ mipmap generation into 1-pixel levels, and the 0x105 graph exception from an una
 that wedged the RSX ([README.md](README.md#driver-bugs-the-games-found)). VBOs and point parameters
 are required with no fallback.
 
-**Recipe** `games/bench/recipes/neverball.sh`: the shipped replay `gui/demo1.nbr`, real-time paced,
+**Recipe** `bench/recipes/neverball.sh`: the shipped replay `gui/demo1.nbr`, real-time paced,
 about 20 s, played 20 times (`NEVERBALL_BENCH_LOOPS=20`; passes take 12-16 s on the PS3 and 12 once
 ended before the window). `~/.neverball/neverballrc`: fullscreen 1920x1080, vsync off, the fps
 counter on. Variants: `nomip`, `gloff`, `nomesh`, `noitems`, `noback`, `nostate`.
@@ -150,7 +150,7 @@ Mesa ps3.246 78.2, ps3.262 75.9 (74, 78: noise). No wedge since ps3rsx 0.249 (ro
 
 ## Armagetron
 
-Debian's `armagetronad` 0.2.9.3 with two patches of ours (`armagetronad/`): its textures are RGBA8 and the
+Debian's `armagetronad` 0.2.9.3 with two patches of ours (`packages/patched/games/armagetronad/`): its textures are RGBA8 and the
 big-endian risk (GL_RGBA or GL_BGRA picked from the SDL surface's red mask) didn't bite. Picture and sound right.
 
 - **0001, fullscreen by default.** The compiled-in default was already fullscreen at the desktop's
@@ -171,7 +171,7 @@ big-endian risk (GL_RGBA or GL_BGRA picked from the SDL surface's red mask) didn
   keyboard are unaffected. Hot-plug: rescanned every second, a new pad takes the first free player.
   Settings > Miscellaneous > Game Controllers shows the scheme (read-only). Not yet tried on the PS3.
 
-**Recipe** `games/bench/recipes/armagetronad.sh`: a local game of 4 AI players with the player
+**Recipe** `bench/recipes/armagetronad.sh`: a local game of 4 AI players with the player
 spectating, round after round (`SPECTATOR_MODE_1` and the `SP_*` settings), fps from the HUD window
 (60 s from the first frame, then 120 s, `WINDOW_STOP=1`). The match limits are raised. On a first
 start 0.2.9 shows a language menu, player setup and welcome screen that wait for a key (the run of

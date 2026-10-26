@@ -16,7 +16,7 @@ until a console reboot (a trip through the XMB), so risky GPU tests go last in a
 Rank 12. ps3rsx checks the vertex texture units (methods 0x900-0x97c) as it checks the fragment
 units.
 
-**Why.** The validator lets 0x900-0x97c through with unchecked data (`ps3rsx/src/validate.c:47`).
+**Why.** The validator lets 0x900-0x97c through with unchecked data (`packages/walnut/drivers/ps3rsx/src/validate.c:47`).
 Any client can send a bad vertex texture format or offset there and wedge the RSX. Nothing uses
 them today (Mesa's vertex sampler count is 0), which is why it is cheap to close now and required
 before vertex texture fetch.
@@ -180,7 +180,7 @@ Rank 23. Four probes RSX-SPU-FEASIBILITY.md recommends; none has run.
   guarded 8-byte stores, WC 8-byte stores, WC 16-byte `stvx` and WC `std` pairs with a `sync` every
   4 KiB (`mftb`); read one page's HPTE back (`lv1_read_htab_entries`) and print `hpte_r &
   (HPTE_R_I|HPTE_R_G)` to see whether lv1 kept G=0. It decides two changes: `pgprot_noncached_wc`
-  for the VRAM buffer mmap (`ps3rsx/src/mem.c:97`) and `ioremap_wc` for the VRAM swap's chunk
+  for the VRAM buffer mmap (`packages/walnut/drivers/ps3rsx/src/mem.c:97`) and `ioremap_wc` for the VRAM swap's chunk
   mapping, each at most ~2x. The user's decision of 2026-10-17: a measurement before either doc is
   relied on.
 - **E16, SPU DMA into a VRAM buffer**: 64 `mfc_put` of 16 KiB from an SPU context into a mapped VRAM

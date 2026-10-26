@@ -13,7 +13,7 @@ sound check (PLAN 2.1) still comes before `lean` can become the package default 
 
 ## Packages and patches
 
-`supertuxkart`, `supertuxkart-data` (`1.5-2+ps3.N`, package directory `supertuxkart/`), replacing
+`supertuxkart`, `supertuxkart-data` (`1.5-2+ps3.N`, package directory `packages/patched/games/supertuxkart/`), replacing
 Debian's: Debian's quits while loading on big-endian. `supertuxkart-data` is Debian's data, rebuilt
 because `supertuxkart` needs it at its own version. 839 MB with the data (752 MB of it data), so it
 deploys by name (`make deploy PKGS="ps3-games supertuxkart supertuxkart-data"`) and isn't in
@@ -58,7 +58,7 @@ open. Not yet tried on the PS3.
 
 ## The recipe
 
-`games/bench/recipes/supertuxkart.sh`: profile mode (`--profile-time`) starts a race at once with
+`bench/recipes/supertuxkart.sh`: profile mode (`--profile-time`) starts a race at once with
 every kart driven by the AI, on lighthouse with 4 karts (`STK_TRACK`, `STK_KARTS`), fullscreen
 1920x1080, `--no-start-screen`. With `STK_PROFILE_WARMUP=60` and `--profile-time=180` it drives 240 s
 and prints `Number of frames: N time T, Average FPS: F` over the 180 s after the warm-up (a tick

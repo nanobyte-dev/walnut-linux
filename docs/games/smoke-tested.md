@@ -10,28 +10,27 @@ them had a first run that night (below). Red Eclipse is in [sauerbraten.md](saue
 
 ## How a smoke run works
 
-A smoke recipe sources `games/bench/recipes/smoke.inc`: `SUITE=0`, a 120 s `DURATION` that
+A smoke recipe sources `bench/recipes/smoke.inc`: `SUITE=0`, a 120 s `DURATION` that
 `SMOKE_SECS=N` overrides (`run.sh smoke` caps a run at 360 s; `BENCH_TIMEOUT=N` raises that), a short
 HUD window for the report only (10 s after the load, then 90 s), and `vblank_mode=0`. setup() writes
 the game's config (restored after the run) and starts it in the closest thing to play its command
 line allows. `smoke_keys` types keys into a virtual keyboard (evemu) once the game's window is up,
-`smoke_xkeys` through XTEST (`games/bench/xkeys.py`) where SDL ignored the virtual keyboard.
+`smoke_xkeys` through XTEST (`bench/xkeys.py`) where SDL ignored the virtual keyboard.
 `run.sh smoke` runs with the VRAM swap off unless `NOVSWAP=0`, and prints the result, the picture
 check and the game's and kernel's errors.
 
 Every game here was in Debian ports ppc64 main at the version of our 20261013 snapshot (Crispy Doom
-live: 7.2-1), and the PS3's apt reads live ports, so no `make deps` is needed; names go into
-`image/deps.txt` only for the games that stay. Before the session (the desktop may be up; about
+live: 7.2-1), and the PS3's apt reads live ports. Before the session (the desktop may be up; about
 1.5 GB download, 2 GB installed for the first set; `df -h /` first, and redeclipse-data and torcs-data
 last if space is short):
 
     sudo apt install teeworlds teeworlds-server supertux trigger-rally chromium-bsu frozen-bubble pingus
     sudo apt install --no-install-recommends chocolate-doom crispy-doom woof-doom freedoom
     sudo apt install torcs redeclipse
-    make bench-push        # on the PC: games/bench to the PS3
+    make bench-push        # on the PC: bench to the PS3
 
 Teeworlds needs our packages first: `make deploy PKGS="teeworlds teeworlds-server"` from the PC (it
-puts the local builds in ps3-dev and installs them with `-t ps3-dev`), then `dpkg -l teeworlds
+serves the local builds to the PS3 and installs them with `-t walnut-deploy`), then `dpkg -l teeworlds
 teeworlds-server | grep ps3` must show `0.7.5-3+ps3.422`. Then, as tibi on the PS3, the safe order
 (software renderers first, the heaviest last: a graph exception ends the session):
 
@@ -46,7 +45,7 @@ End the session with `ps3-bench.sh desktop`.
 
 ## Run on the PS3
 
-**Teeworlds 0.7.5** (our `teeworlds`, `teeworlds-server` `0.7.5-3+ps3.N`, package `teeworlds/`;
+**Teeworlds 0.7.5** (our `teeworlds`, `teeworlds-server` `0.7.5-3+ps3.N`, package `packages/patched/games/teeworlds/`;
 Debian's `teeworlds-data`). Runs: in game on dm1, 183 fps (2026-10-18, row 62). The recipe starts a
 `teeworlds-server` on the PS3 (map dm1, no master server registration, 4 slots) and the SDL2 client
 connects at 1920x1080; there is no single player and no bots, so the player runs around alone.
@@ -102,13 +101,13 @@ mouse move, Space fires. Medium graphics, OpenAL, its own fps counter on. Varian
 
 All three are installed on the PS3 (PLAN 1.11).
 
-**Nexuiz Classic 2.5.2 on `darkplaces-gl2`** (PLAN 1.12, D12). Built and in ps3-dev, not installed:
+**Nexuiz Classic 2.5.2 on `darkplaces-gl2`** (PLAN 1.12, D12). Built, not installed:
 `darkplaces-gl2`, `nexuiz-data`, `nexuiz-textures` are about 800 MB on the USB disk, which the user
 decides. Debian's darkplaces (0~20180908 and the 2026 git snapshot) has only GL 3.2 core and GLES2
 renderpaths, so it can't run on the RSX. The last snapshot with the GL 1.1/1.3/2.0 renderpaths
 (`RENDERPATH_GL11/GL13/GL20`, an SDL2 window, `vid_gl20 0` for the combiner path) is
-0~20180412~beta1, Debian buster's orig tarball (snapshot.debian.org, `darkplaces-gl2/upstream.mk`).
-`darkplaces-gl2/` (`TYPE=upstream`, `make darkplaces-gl2-deb`, 2 MB) builds it with Debian's 13
+0~20180412~beta1, Debian buster's orig tarball (snapshot.debian.org, `packages/patched/games/darkplaces-gl2/upstream.mk`).
+`packages/patched/games/darkplaces-gl2/` (`TYPE=upstream`, `make darkplaces-gl2-deb`, 2 MB) builds it with Debian's 13
 patches (link options, no SSE rasterizer off x86, GPU skinning off) and `-std=gnu17` (the code uses
 `false`/`true` as enum names; gcc 15 defaults to C23). It installs `/usr/games/darkplaces-gl2` beside
 Debian's engine and `/usr/games/nexuiz-gl2` (Debian's wrapper: `-nexuiz -basedir
@@ -122,7 +121,7 @@ Debian's engine and `/usr/games/nexuiz-gl2` (Debian's wrapper: `-nexuiz -basedir
 - `nexuiz-lean.cfg`: `vid_gl20 0`, `gl_picmip 2`, no realtime lighting, bloom or water,
   `r_texture_dds_save 1` (a compressed texture cache in `~/.nexuiz`), mono 22.05 kHz sound, no decals.
   textures.pk3 is 522 MB, read on demand.
-- Recipe `games/bench/recipes/nexuiz.sh` (`SUITE=0`): the engine's own `-benchmark demos/bench1.dem`
+- Recipe `bench/recipes/nexuiz.sh` (`SUITE=0`): the engine's own `-benchmark demos/bench1.dem`
   with `-benchmarkruns N`, which prints "N frames S seconds F fps" per pass. Order on the PS3: base
   (the combiner path), then `gl20` and `hires`; also `stereo`, `nosound`, `bench` (every pass counted,
   as the Quake II recipe).
@@ -158,7 +157,7 @@ that need the user are in [TESTS.md](../TESTS.md) Next.
 OpenRCT2 has a recipe (`openrct2.sh`) and a baseline on the PS3 ([openrct2.md](openrct2.md#on-the-ps3-batch-ssdroot8)). `tools/rct2-data.sh <RCT2.iso>` builds the licensed `rct2-data` deb it
 needs (arch all, `/usr/share/games/rct2`, about 115 MB without the ride music; `RCT2_MUSIC=1` adds
 it) from the user's own RollerCoaster Tycoon 2 CD. It unpacks the InstallShield cabinets with
-`unshield` and runs nothing from the disc; the package goes to `ps3-licensed` only
+`unshield` and runs nothing from the disc; the package goes to the licensed suite only
 (`tools/licensed-packages.txt`) and the data is never committed.
 
 **Done (2026-10-20): stable `warzone2100` 4.3.5-1+ps3.644, uninstalled from the PS3.** The user
@@ -169,7 +168,7 @@ mouse and keyboard only, a sparse 1999 UI, small at 1080p (Options > Video > Dis
 The PC reference image `wz-amd64-view` is deleted (the recipe's `REF_IMAGE`); the reference
 captures stay in `build/bench-ref/warzone2100-base`.
 
-**Warzone 2100 4.3.5** (our `warzone2100/`, the last release with a GL 2.1 renderer; recipe
+**Warzone 2100 4.3.5** (our `packages/patched/games/warzone2100/`, the last release with a GL 2.1 renderer; recipe
 `warzone2100.sh`, its header has the settings and the PC's RAM numbers). The first PS3 smoke run
 (ssdroot6, ps3.566) had the HUD and the minimap but a black 3D view. Two causes, neither of them
 the GL 2.1 driver:
@@ -237,7 +236,7 @@ and yellow (14:28, ps3.633, Mesa ps3.628); the PC reference happened to get pink
 ## Skipped
 
 - **Hedgewars 1.0.3**: our ppc64 engine (`hedgewars-engine`, FPU exceptions masked at start, patch
-  0001) runs without the Qt frontend: `games/bench/hwdrive.py` starts it with `--internal --port N` and
+  0001) runs without the Qt frontend: `bench/hwdrive.py` starts it with `--internal --port N` and
   plays the frontend's IPC for a training mission (recipe `hedgewars.sh`). hwengine takes `--showfps` with
   no value: a stray argument is read as a demo file name. Runs on the PS3 with sound (562-650
   underruns), but the game ends by itself after 54-55 s with rc=0 (two runs, base on 2026-10-19 19:19Z

@@ -423,14 +423,14 @@ buttons Install, Remove, Play and "Open on the web". The window follows the Waln
   the metapackage case first marks the other installed packages it depends on as manually installed;
   it never runs autoremove; SIGHUP and SIGPIPE are ignored, so closing the app never stops dpkg halfway.
   Output is `progress N text`, `log`, `error` lines; exit 0 done, 2 refused, 1 apt failed.
-- Tests: `walnut-games/tests/test_walnut_games.py` (make test ONLY=walnut-games): the helper's validation,
+- Tests: `packages/walnut/apps/walnut-games/tests/test_walnut_games.py` (make test ONLY=walnut-games): the helper's validation,
   catalog mapping, cascade refusal (with a fake `apt-get -s`), install arguments and status relay (a fake
   apt-get writes to the status descriptor), Exec parsing, filters, and a window smoke test on a private
   Xvfb/Xvnc (skipped when neither exists).
 
 ## Adding a game
 
-A game is one folder, `gamedb/content/games/<id>/`: `index.md` with the catalog entry in its
+A game is one folder, `website/gamedb/content/games/<id>/`: `index.md` with the catalog entry in its
 front matter (title, summary, categories, tags, the packages to install, optionally the .desktop entries,
 `fps_cap` if it has one, whether it needs the user's own data, the controller, `designed_for`:
 `"pad"` by default or `"keyboard-mouse"`, set by the user per game) and notes as its

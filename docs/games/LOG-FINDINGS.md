@@ -1,6 +1,6 @@
 # What the game logs say
 
-`games/bench/logscan.py` reads the logs of every run in `build/bench/` (602 runs of 35 games when this
+`bench/logscan.py` reads the logs of every run in `build/bench/` (602 runs of 35 games when this
 was written, 16 October to 19 October 10:41 UTC) and groups the errors and warnings by game and message.
 This page is the triage of what it found, worst first. Each finding names the games, one run that shows
 it, what causes it, whether the player would notice, and the fix. The fixes worth doing are in
@@ -12,13 +12,13 @@ given. "Since ps3.544" means runs from 2026-10-19 09:47 UTC on (Mesa 26.2.4-1+ps
 
 ## The tool
 
-    games/bench/logscan.py                      every run, per game
-    games/bench/logscan.py --new                only messages that appear after --since and not before
-    games/bench/logscan.py -g sauerbraten -c audio,rsx -v
-    games/bench/logscan.py --by-message         one block per message, across games
-    games/bench/logscan.py --min-class gl       only gl and worse
-    games/bench/logscan.py --show-ignored       what the ignore list swallowed
-    games/bench/logscan.py RUNDIR...            some runs (or a directory of runs)
+    bench/logscan.py                      every run, per game
+    bench/logscan.py --new                only messages that appear after --since and not before
+    bench/logscan.py -g sauerbraten -c audio,rsx -v
+    bench/logscan.py --by-message         one block per message, across games
+    bench/logscan.py --min-class gl       only gl and worse
+    bench/logscan.py --show-ignored       what the ignore list swallowed
+    bench/logscan.py RUNDIR...            some runs (or a directory of runs)
 
 It scans game.log, out.log, dmesg.log, Xorg.0.log and wm.log plus the facts in bench.txt (rc, ended,
 sound, underruns). Messages are normalised (timestamps, numbers, addresses, the run's own path), a
@@ -65,7 +65,7 @@ is systemd-coredump, else the core file in the pattern's directory or the game's
 one applies is in `dump/setup.txt` (`core_pattern=`); the system's pattern is never changed. A pipe pattern
 of another handler (apport) is only noted.
 
-Analysis on the PC: `games/bench/dumpana.sh <run dir copied from the PS3>` builds a sysroot in
+Analysis on the PC: `bench/dumpana.sh <run dir copied from the PS3>` builds a sysroot in
 `build/tmp/dumpana/` (base libraries from `build/chroot/sid-ppc64.tar`, then the packages and `-dbgsym` debs
 at the versions in the run's `versions` file, from build/debs, build/aptly/pool, build/apt-cache; libc6
 symbols come from debuginfod.debian.net; the game's executable and any other mapped file the sysroot
@@ -145,7 +145,7 @@ refilled, its trigger time the trigger's second), and the card was still moving 
 wedge came later and on its own. A larger buffer (`OAL=p1024`: 1024-frame periods, 64 ms) would make
 these rarer, at the cost of latency.
 
-Fix: kernel patch `linux/patches/local/0047-snd-ps3-dma-watchdog.patch`. While playing, a timer checks
+Fix: kernel patch `packages/patched/kernel/linux/patches/local/0047-snd-ps3-dma-watchdog.patch`. While playing, a timer checks
 every `snd_ps3.dma_watchdog_ms` (default 200, 0 off, read at stream start;
 `/sys/module/snd_ps3/parameters/dma_watchdog_ms`) that buffer-empty interrupts still arrive. When none
 came, a work item takes the interrupt and the stream lock, stops the DMA (forced, as trigger stop does)

@@ -58,8 +58,9 @@ The rest of this file predates the 0.1.0 release and gets a refresh alongside P2
 The whole stack is built and packaged: the kernel (6.12 LTS with our PS3 patches), the ps3rsx
 driver, Mesa nv30, the SPU toolchain and libspeq, the desktop with game mode, the splash, our apt
 repository. The release kernel `6.12.111+ps3.472` with ps3rsx 0.443 and Mesa `.476` is the
-default of the 2026-10-18 release build, which sits in `ps3-dev` waiting for its PS3 session
-before anything goes to the stable suite ([RELEASE-CANDIDATES.md](RELEASE-CANDIDATES.md)).
+default of the 2026-10-18 release build ([RELEASE-CANDIDATES.md](RELEASE-CANDIDATES.md)). Releases
+now go through CI to walnut.nanobyte.dev's stable suite (docs/release/ALPHA.md); the LAN repository
+that build waited in was retired on 2026-10-26 (docs/PACKAGING.md).
 
 What limits the games, in order: RAM (about 217 MB reach Linux), then the PPE (the driver stack
 takes 30-55% of a game's CPU), then the disk. The RSX and the SPEs have headroom. What we learned
@@ -202,7 +203,7 @@ Everything meant for other users. Nothing here is published without the user's O
 | # | Item | Status | Where |
 |---|---|---|---|
 | 5.1 | Stable publish of the release (D1), then a written release process | every package rebuilt official (kernel `.472` the default, Mesa `.476`, ...) and in `ps3-dev`; the stable command with its `DEBS=` list is written, not run, until the image session passes | [RELEASE-CANDIDATES.md](RELEASE-CANDIDATES.md) |
-| 5.2 | A repository for others: a public host, signing and a published key, mirrors; `ps3-licensed` stays LAN-only | open (today: tibi-server on the LAN, unsigned) | [backlog/platform.md](backlog/platform.md) |
+| 5.2 | A repository for others: a public host, signing and a published key, mirrors; licensed data only for the owner | done: walnut.nanobyte.dev (2026-10-21; signed suites built by CI, the licensed suite password-protected, published from the PC); the LAN repository on tibi-server retired 2026-10-26; mirrors not done | [backlog/platform.md](backlog/platform.md) |
 | 5.3 | The installer (GameOS app design), `make iso`, `make disk-image`, first-boot assumptions | designed, not built | [backlog/platform.md](backlog/platform.md), [GAMEOS-HDD.md](GAMEOS-HDD.md) |
 | 5.4 | Image rebuild and a reimage of the USB disk (D14) | the image is built (2026-10-18, 2.9 GiB, sha256 `65dae499...`); its PS3 session is pending | [RELEASE-CANDIDATES.md](RELEASE-CANDIDATES.md), [IMAGE-DIFF.md](IMAGE-DIFF.md) |
 | 5.5 | End-user docs: booting through Petitboot (the fan and boot-flag steps), game mode and its keys, which games work, licensed data, OtherOS++ safety | open | [backlog/platform.md](backlog/platform.md) |

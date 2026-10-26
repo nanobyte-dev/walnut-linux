@@ -1,10 +1,12 @@
 # Release candidates: what goes from ps3-dev to the stable `ps3` suite
 
+> Superseded on 2026-10-26: the LAN repository this plan publishes to (tibi-server, suites `ps3`, `ps3-dev`, `ps3-licensed`) was retired and deleted, with a backup (docs/PACKAGING.md "The repository"). Releases go through CI to walnut.nanobyte.dev's `stable`; the commands below no longer run. Kept for the checks and the version record.
+
 This is the release plan for 2026-10-18, "test first, then publish": every package is rebuilt as an official version, a fresh image is built from those debs, the image is tried on the PS3, and only then does the stable publish run, with the user's OK. As of 2026-10-19 the packages and the image are built and the dev suite has them; the image session on the PS3 has not run (docs/TESTS.md lists it under "Next", needing the user), and nothing is in stable. The release table, the test plan and the publish command below are what to use. The first plan (a draft at HEAD `0149148`, with the kernel `.178` as the stable kernel) is summarised at the end under History.
 
 The rules (memory "Publish only when proven"; CLAUDE.md "Never delete what we publish"): a package goes to stable only after it is proven on the PS3, with an explicit `DEBS=` list, `build/aptly` backed up first, and never a `~dev` version. Stable versions are kept forever. Promotion (see [PACKAGING.md](PACKAGING.md#the-repository)) is: commit, rebuild the official version (`0.N`, `...+ps3.N`, no `~dev`), `make publish`.
 
-"fps.csv row N" is the Nth data row of the matrices in `games/bench/results/` (same rows in every CSV; the `observations` column has the text). Proof rows have the picture checked on the webcam unless said otherwise. Terms: [glossary](README.md#glossary).
+"fps.csv row N" is the Nth data row of the matrices in `bench/results/` (same rows in every CSV; the `observations` column has the text). Proof rows have the picture checked on the webcam unless said otherwise. Terms: [glossary](README.md#glossary).
 
 ## The decision (the user, 2026-10-18 evening)
 
@@ -30,7 +32,7 @@ A side effect for the PS3 queue: `make deploy` now takes Mesa .476 from `ps3-dev
 `build/rootfs/debian-ppc64.tar`, 3,082,752,000 bytes (2.9 GiB), sha256 `65dae499d6bcab5effcf5233320b2f8f3124a8b7bb9fc8cbe0d403db67c8aa71` (`make checksums`: `build/SHA256SUMS`).
 
 - A copy of this exact file is kept at `/mnt/data_linux/Temp/ps3/release-20261018/debian-ppc64.tar`, because `make nfs-root` and `make usb-root` rebuild the image first if any deb in `build/debs` is newer than the tar.
-- The base layer `build/rootfs/base.tar` is from 2026-10-16 (no change to `image/packages.txt` since). 812 packages.
+- The base layer `build/rootfs/base.tar` is from 2026-10-16 (no change to `system/image/packages.txt` since). 812 packages.
 - Our packages in it are exactly the versions in the table below: both kernels (release and `-debug202610181726`) with their ps3rsx modules, `classicube-data` .366 and the other licensed data from `ps3-games-licensed`.
 - `/etc/kboot.conf` has `default=6.12.111+ps3.472` (release; the debug entry is listed above it). systemd-networkd and ssh are enabled (the two fixes from [IMAGE-DIFF.md](IMAGE-DIFF.md)). LLVM and z3 are autoremoved.
 - It is 0.9 GB larger than the 2026-10-16 image, almost all game data: cube2-data (260 MB) and sauerbraten-nonfree-data (146 MB) through `ps3-games-licensed`, the Quake II demo, the OpenArena sets.
@@ -83,7 +85,7 @@ Everything in the stable suite dates from the morning of 2026-10-16 (builds up t
 
 `ps3-licensed` holds `classicube-data` 1.3.8~git20261014.aa47929-1+ps3.366, `quake-shareware` 89, `quake2-demo-data` 89, `sauerbraten-nonfree-data` 0.0.20201229-1+ps3.388 and `ps3-games-licensed` 0.388 (and 0.374).
 
-Versions depend on the last commit that touches a package or `tools/deb-*.sh`/`docker/Dockerfile.deb`. Any commit to those tools before the stable publish shifts every N in the table and the command; rebuild and regenerate the list then.
+Versions depend on the last commit that touches a package or `tools/deb-*.sh`/`build-containers/Dockerfile.deb`. Any commit to those tools before the stable publish shifts every N in the table and the command; rebuild and regenerate the list then.
 
 ## PS3 test plan for the image session
 
@@ -113,9 +115,9 @@ If any deb in `build/debs` changed after the image, put the kept copy back first
 - Splash (release kernel only): from Petitboot to the desktop with the Walnut splash, no black gap, no text on tty1 (plymouth .247, ps3-splash 0.247).
 - Power paths of local/0041, one each, watching the console and netconsole: `sudo poweroff` (off a few seconds after "System Halted", no "no shutdown command after 5 s"); boot again, `sudo reboot` (back to Petitboot/GameOS); boot again, `sudo poweroff` and tap the power button about once a second until it is off (never hold it). THERMAL.md "PS3 test steps" 5.
 
-**3. Desktop and game mode, with the user** (ps3-desktop 0.474, PLAN 1.10). The desktop comes up (wallpaper, tint2, applets). Start a game from the Games menu and leave it. A fullscreen GL program started from a terminal gets game mode by itself (`journalctl -t ps3-game-mode`: on, then `left game mode`); `PS3_GAME_MODE=off` keeps it out. Ctrl+Alt+Esc and the PS button held 3 s end a game. Time the desktop's return. The wallpaper, applets and frozen services are back (`games/bench/gamemode-check.sh`).
+**3. Desktop and game mode, with the user** (ps3-desktop 0.474, PLAN 1.10). The desktop comes up (wallpaper, tint2, applets). Start a game from the Games menu and leave it. A fullscreen GL program started from a terminal gets game mode by itself (`journalctl -t ps3-game-mode`: on, then `left game mode`); `PS3_GAME_MODE=off` keeps it out. Ctrl+Alt+Esc and the PS button held 3 s end a game. Time the desktop's return. The wallpaper, applets and frozen services are back (`bench/gamemode-check.sh`).
 
-**4. Smoke run of every game recipe, webcam on.** `make bench-push`, then on the PS3 `/var/tmp/bench/run.sh smoke <game>` for each of the 25 recipes in `games/bench/recipes/`, or `run.sh suite base 1` for the 12 suite ones plus the rest one by one. `tools/bench-cam.sh` photographs each run; look at every photo. Pass: the game draws its scene (no black screen, right colours), no kernel error, no RSX wedge, sound line not `none` where the game has sound. The user judges sound by ear (SuperTuxKart, Teeworlds, Luanti, dsda-doom music). The menu-only games (TORCS, Trigger Rally, Chromium B.S.U.) and Nexuiz (needs PLAN D12) need the user.
+**4. Smoke run of every game recipe, webcam on.** `make bench-push`, then on the PS3 `/var/tmp/bench/run.sh smoke <game>` for each of the 25 recipes in `bench/recipes/`, or `run.sh suite base 1` for the 12 suite ones plus the rest one by one. `tools/bench-cam.sh` photographs each run; look at every photo. Pass: the game draws its scene (no black screen, right colours), no kernel error, no RSX wedge, sound line not `none` where the game has sound. The user judges sound by ear (SuperTuxKart, Teeworlds, Luanti, dsda-doom music). The menu-only games (TORCS, Trigger Rally, Chromium B.S.U.) and Nexuiz (needs PLAN D12) need the user.
 
 **5. Short bench of the 5 start-up games** ([PROFILING.md](PROFILING.md), "Start-up profiling": the same variants, x2 each, desktop stopped, swap emptied, 60 s warm-up and a 120 s window). The numbers to compare with are batch 16 (fps.csv row 68, kernel .433, 2026-10-18), steady fps / 1% low in play / gameplay stall s / longest gameplay frame ms:
 

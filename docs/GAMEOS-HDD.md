@@ -46,7 +46,7 @@ GameOS's partitions must never be written from Linux (PS3 safety rules: nothing 
 Linux). The layers:
 
 - The kernel is built with `CONFIG_UFS_FS=m` and `CONFIG_UFS_FS_WRITE` not set
-  (`linux/config/ps3.config`), so the module has no write code at all. Linux's UFS2 write support
+  (`packages/patched/kernel/linux/config/ps3.config`), so the module has no write code at all. Linux's UFS2 write support
   is experimental and deliberately not built.
 - `ps3-gameos-mount` mounts with `ro` and refuses to mount otherwise.
 - The vfat partition is mounted `ro` too. The kernel can write vfat, so there it rests on the mount
@@ -143,7 +143,7 @@ In `tools/ssdimg/`:
   the tool never opens `ps3db` or `ps3da` for writing.
 - `test_ssdimg.py` (`make test`, suite `ssdimg`) and `vm-e2e.sh` (`make test-slow`, suite
   `ssdimg-vm`).
-- `games/bench/ssd-arm.sh`: the bench's SSD arms ([below](#the-ab-in-the-bench)).
+- `bench/ssd-arm.sh`: the bench's SSD arms ([below](#the-ab-in-the-bench)).
 
 **Stamp format** (version 1, stamp.py's docstring): one stamp at the start of every 4 KiB block,
 the rest of the block zero. 8 bytes magic `PS3IMGv1`, 16 bytes instance UUID, the block's offset in
@@ -288,7 +288,7 @@ Mounting it from the USB root is how the install and its fix-ups work; Phase A's
 
 ### The A/B in the bench
 
-Two arms, switched between runs by `games/bench/ssd-arm.sh` (run.sh calls it before each run's
+Two arms, switched between runs by `bench/ssd-arm.sh` (run.sh calls it before each run's
 quiet) and recorded by client.sh in bench.txt (`gamedata=`, `gamedata_dirs=`, `swap=`, `swaps=`;
 report.py tags `base@gdssd`, `base@gdssd+swssd`):
 
@@ -327,7 +327,7 @@ What to compare ([PROFILING.md](PROFILING.md), "Start-up profiling"; [STALLS.md]
 ### Result, batch ssd1
 
 2026-10-18 22:10-23:25Z, kernel 6.12.111+ps3.472, USB root, same boot, `STALLS=1 ROTATE=1`, results
-commit 9e6bc57 (row "batch ssd1" in games/bench/results). Only BananaBread (9 runs) and part of
+commit 9e6bc57 (row "batch ssd1" in bench/results). Only BananaBread (9 runs) and part of
 OpenArena ran before the batch was stopped for Phase B; Luanti, SuperTuxKart and ClassiCube never
 got their SSD arms. Medians with [min..max]:
 
@@ -600,7 +600,7 @@ this boot ([Phase A's "every later boot" steps](#on-linux-us-with-the-users-go-w
        xargs -a /var/lib/ps3ssd/packages-from-usb.txt sudo apt install --allow-downgrades
 
    A version no longer in any suite (ps3-dev keeps 5) fails by name: install that package's current
-   version on both roots instead. Then `make bench-push` from the PC if games/bench changed since
+   version on both roots instead. Then `make bench-push` from the PC if bench changed since
    the copy. The same package versions on both roots are what makes their numbers comparable.
 
 What the 2026-10-19 run showed: the install extracted the tar fresh from the release image and
@@ -865,7 +865,7 @@ MOD runs `/dev_hdd0/autoexec.bat` (or `/dev_hdd0/boot_init.txt`) at startup and 
 when the XMB is up (its README; `include/feat/script.h`: `if exist`/`if not exist`, `md`,
 `copy <src>=<dst>`, `del`, `wait`).
 
-The draft, `ps3-boot/webman/autoexec.bat` (the user, 2026-10-18; f964401): Linux installs every
+The draft, `packages/walnut/system/ps3-boot/webman/autoexec.bat` (the user, 2026-10-18; f964401): Linux installs every
 kernel and its initramfs to `/dev_hdd1/linux/boot/` and rewrites `/dev_hdd1/kboot.conf` (vfat, at
 its root, where Petitboot looks). At every GameOS start the script mirrors dev_hdd1 to
 `/dev_hdd0/linux/boot/` when kboot.conf is there, and copies the mirror back when it isn't. Linux
@@ -916,7 +916,7 @@ writable only for those writes), dm-linear sealed by the guard, mkfs.ext4, the t
 unpacked, the install's fstab and `PS3_BOOT_TARGET=hdd1`, the manifest renamed `install.done` and the
 tarball deleted. An interrupted install resumes at the next boot. Later boots are Phase B's: recheck
 against the saved map, the header stamps, the guard. Kernel updates: `ps3-hdd1-boot` (walnut-boot)
-writes `walnut` and `walnut-prev` to dev_hdd1. The webMAN autoexec (`ps3-boot/webman/autoexec.bat`)
+writes `walnut` and `walnut-prev` to dev_hdd1. The webMAN autoexec (`packages/walnut/system/ps3-boot/webman/autoexec.bat`)
 mirrors dev_hdd1's set to `/dev_hdd0/linux/walnut-mirror` and puts it back if GameOS cleared it.
 
 Tested: `tools/ssdimg/vm-e2e.sh` runs the whole first boot, a second boot and two refusals in a KVM
@@ -943,7 +943,7 @@ only so far.
 
 ## The kernel guard
 
-`linux/patches/local/0045-ps3disk-write-guard.patch` (07fa26b; in `linux/patches/series` since
+`packages/patched/kernel/linux/patches/local/0045-ps3disk-write-guard.patch` (07fa26b; in `packages/patched/kernel/linux/patches/series` since
 1abb2a1). A kernel with it refuses every write to `ps3db` that no boot tool registered. Phase A's
 and Phase B's devices work only once their tool has registered and sealed their ranges, which both
 tools do since 1abb2a1. No kernel with it has been built for the PS3 yet; the next `make linux-deb`
@@ -1086,7 +1086,7 @@ enough to expose dev_hdd0 again. A different region layout needs a changed patch
 
 ### Tested on the PC
 
-2026-10-19, the patch: `linux/tests/ps3disk-guard.sh` (suite `ps3disk-guard`) takes
+2026-10-19, the patch: `packages/patched/kernel/linux/tests/ps3disk-guard.sh` (suite `ps3disk-guard`) takes
 `ps3disk_guard.h` (the parser, the seal's sort and merge, the check, the policy decision; no kernel
 APIs) straight from the patch and runs `ps3disk-guard-test.c` on it, plain with `-Werror` and under
 ASan/UBSan: about 50 fixed cases (malformed lines, a write cut inside a line, overflow at 2^64, the
@@ -1105,7 +1105,7 @@ The boot tools' side:
 
 - `make test` suite `ssdimg`: the C tool's test build (`-DPS3_GUARD_FAKE`:
   `tools/ssdimg/guard-fake.h` replaces the sysfs I/O with a model built on the patch's own
-  `ps3disk_guard.h`, which `linux/tests/guard-header.sh` takes from the patch; it models the
+  `ps3disk_guard.h`, which `packages/patched/kernel/linux/tests/guard-header.sh` takes from the patch; it models the
   4096-byte cut, whole-or-nothing writes, the seal's merge, EPERM after it) runs create's guard steps
   on the boot map's tables (`guard-test`): exactly the device side of both tables, then `1` to
   `sealed`; a fragmented 16 MiB layout goes in several writes, each at most 4096 bytes of whole
@@ -1153,8 +1153,7 @@ a broken guard changes nothing.
    (`scp tools/ssdimg/ps3-imgmap tibi@10.0.0.77:/var/tmp/ps3-imgmap`; `ssd-install-image.sh` with
    [Phase B's step 3](#the-steps-on-the-ps3) copy). First boot of the new kernel without installing
    it: `make netboot-deb FLAVOUR=release ROOT=usb` (Petitboot, the user), or install it
-   (`make deploy KERNELS=1 PKGS="linux-image-ps3 ps3rsx-modules-ps3"`, which publishes to ps3-dev:
-   only with the user's go).
+   (`make deploy KERNELS=1 PKGS="linux-image-ps3 ps3rsx-modules-ps3"`: only with the user's go).
 2. The USB root on the guard kernel, before Phase A's create:
 
        dmesg | grep 'write guard'          # ps3da read-only, ps3db "writes only inside ...", ps3dc writable
@@ -1251,10 +1250,10 @@ mode or at 60% or more.
 
 ## Sources
 
-- The Linux side: `linux/patches/ps3/0010` (multi-region ps3disk), `linux/config/ps3.config`
+- The Linux side: `packages/patched/kernel/linux/patches/ps3/0010` (multi-region ps3disk), `packages/patched/kernel/linux/config/ps3.config`
   (`CONFIG_UFS_FS=m`, no `UFS_FS_WRITE`, the NLS options, `PS3_LV1CALL=m`),
   build/src/linux/linux-6.12.111 (fs/ufs: `ufs_fill_super`, `ufs_bmap`), the patch
-  `linux/patches/local/0045-ps3disk-write-guard.patch` and its tests.
+  `packages/patched/kernel/linux/patches/local/0045-ps3disk-write-guard.patch` and its tests.
 - Petitboot: `firmware/petitboot/dtbImage.ps3.bin` strings and its unpacked initramfs, upstream
   petitboot at 17d63c9 (github.com/open-power/petitboot) and Linux v2.6.30 (fs/ufs/super.c,
   drivers/ps3/ps3stor_lib.c, drivers/block/ps3disk.c).

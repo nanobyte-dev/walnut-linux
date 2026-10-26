@@ -8,10 +8,10 @@ but made the RSX the limit. Next: `chunks1` as the default, then tiling and Z-cu
 
 ## Packages and patches
 
-`classicube` (the engine, `1.3.8~git20261014.aa47929-1+ps3.N`, package directory `classicube/`,
+`classicube` (the engine, `1.3.8~git20261014.aa47929-1+ps3.N`, package directory `packages/patched/games/classicube/`,
 `TYPE=upstream` from a pinned tarball) and `classicube-data` (Mojang's texture pack, sounds and music,
-`ps3-licensed` only; `sounds.sh` fetches the sounds and music from Mojang by SHA-1, the
-`docker/Dockerfile.games` image converts them). Game data lives per user in
+the licensed suite only; `sounds.sh` fetches the sounds and music from Mojang by SHA-1, the
+`build-containers/Dockerfile.games` image converts them). Game data lives per user in
 `~/.local/share/classicube`. The engine is in `ps3-games`, the data in `ps3-games-licensed`. The
 release candidate is ps3.374; the split of the bundled .152 into engine and data was checked with dpkg
 in the chroot only ([RELEASE-CANDIDATES.md](../RELEASE-CANDIDATES.md)).
@@ -25,8 +25,8 @@ On llvmpipe the bench path went from 5127 GL calls and 1107 draws a frame to 152
 
 ## The recipe
 
-`games/bench/recipes/classicube.sh`: a timedemo through a plugin. `assets/classicube-bench.so`
-(source in `games/bench/classicube-bench/`, `make classicube-bench`) flies the camera along
+`bench/recipes/classicube.sh`: a timedemo through a plugin. `assets/classicube-bench.so`
+(source in `bench/classicube-bench/`, `make classicube-bench`) flies the camera along
 `assets/classicube-bench.path` over the saved map `assets/classicube-bench.cw`: 3000 frames, the
 same ones every run, after a warm-up that builds every chunk, then prints the frame rate and the
 slowest frame and closes the game. The plugin flies the path up to 6 times (`CC_BENCH_PASSES`); a

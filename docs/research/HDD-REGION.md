@@ -311,7 +311,7 @@ change is booted before root moves.
   [Format Utility](https://manuals.playstation.net/document/en/ps3/current/settings/formatutility.html).
 - Ours: `firmware/petitboot/dtbImage.ps3.bin` strings and its unpacked initramfs, upstream
   petitboot at 17d63c9 and Linux v2.6.30 (fs/ufs/super.c, drivers/ps3/ps3stor_lib.c,
-  drivers/block/ps3disk.c), `linux/patches/ps3/0010` and `0150`, the `.457` kernel config
+  drivers/block/ps3disk.c), `packages/patched/kernel/linux/patches/ps3/0010` and `0150`, the `.457` kernel config
   (`EFI_PARTITION=y`, `MSDOS_PARTITION=y`, `EXT4_FS=y`, `PS3_STRGMNGR` off),
   [OTHEROS-PATCHES.md](../OTHEROS-PATCHES.md), [FLASH-SYSCON.md](FLASH-SYSCON.md).
 

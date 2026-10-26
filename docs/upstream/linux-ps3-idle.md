@@ -2,7 +2,7 @@
 
 Status: draft, not sent. Mail: `linux-ps3-0001-idle-lost-decrementer.patch` (git format-patch, subject
 prefix `PATCH RFC`, Signed-off-by added, checkpatch clean, compiled for ps3_defconfig with
-powerpc64-linux-gnu-gcc on the 6.12.111 tree). Our source: `linux/patches/local/0009`. The upstream form
+powerpc64-linux-gnu-gcc on the 6.12.111 tree). Our source: `packages/patched/kernel/linux/patches/local/0009`. The upstream form
 drops the `ps3_idle_prep` core_param A/B switch and the comment that mentions it.
 
 ## Needs your attention before sending

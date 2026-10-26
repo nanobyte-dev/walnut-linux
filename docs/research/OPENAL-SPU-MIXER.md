@@ -1,6 +1,6 @@
 # OpenAL Soft's voice mixer on an SPE: the design
 
-Designed 2026-10-16, not built, because M0 measured the mixer under the 6% bar: OpenAL Soft is 3.7 to 4.7% of a game's samples (OpenArena 4.7%, ClassiCube 3.7%), see [../SPU-AUDIO.md](../SPU-AUDIO.md). The design is kept in case a future game spends more on OpenAL. Everything here is read from Debian's `openal-soft` 1:1.25.2-1 (what the PS3 runs; our unpatched rebuild is `openal-soft/`) and `ioquake3` 1.36+u20260719.58839361+dfsg-1. Line numbers refer to those trees. Numbers marked "estimate" were never measured on the PS3. The runtime it would use is described in [../SPU.md](../SPU.md).
+Designed 2026-10-16, not built, because M0 measured the mixer under the 6% bar: OpenAL Soft is 3.7 to 4.7% of a game's samples (OpenArena 4.7%, ClassiCube 3.7%), see [../SPU-AUDIO.md](../SPU-AUDIO.md). The design is kept in case a future game spends more on OpenAL. Everything here is read from Debian's `openal-soft` 1:1.25.2-1 (what the PS3 runs; our unpatched rebuild is `packages/patched/audio/openal-soft/`) and `ioquake3` 1.36+u20260719.58839361+dfsg-1. Line numbers refer to those trees. Numbers marked "estimate" were never measured on the PS3. The runtime it would use is described in [../SPU.md](../SPU.md).
 
 ## The idea in short
 
@@ -141,7 +141,7 @@ If voice mixing is about 80% of the thread (likely for scalar cubic resampling o
 
 1. **M0** (no code): done, stopped here.
 2. **libspeq (`ps3-spu`):** `speq_wait` with a timeout and a no-spin flag (done); a per-queue idle threshold (done); the op `spu/mix-op.c` with a host build; `lib/mix.c` for `speq_mix_v1` (policy, slots, touch, fallback counting, `SPEQ_MIX`); `speq-mix.h` (descriptor ABI) in `libspeq-dev`; host tests in `make -C ps3-spu test`. The queue-sharing decision became the deadline pool.
-3. **Package `openal-soft`:** the unpatched debsrc exists (`openal-soft/package.conf`, `TYPE=debsrc`, `VERSION=1:1.25.2-1`, `DSC_SHA256` `4ea0ebdadbc70fe2ecf1972e85cf6238e09e0664e59fafa6f9aaac9db71ccb14`, `BUILD=native`). Still to do: one patch "voice mixing through libspeq on the Cell's SPEs" (the `Voice::mix` split, the `ProcessContexts` hook and `core/mixer/mixer_speq.cpp`, built only on ppc64). No Debian packaging change (`dh-sequence-dlopenlibdeps` already handles dlopen notes; libspeq stays a soft dependency like Mesa's).
+3. **Package `openal-soft`:** the unpatched debsrc exists (`packages/patched/audio/openal-soft/package.conf`, `TYPE=debsrc`, `VERSION=1:1.25.2-1`, `DSC_SHA256` `4ea0ebdadbc70fe2ecf1972e85cf6238e09e0664e59fafa6f9aaac9db71ccb14`, `BUILD=native`). Still to do: one patch "voice mixing through libspeq on the Cell's SPEs" (the `Voice::mix` split, the `ProcessContexts` hook and `core/mixer/mixer_speq.cpp`, built only on ppc64). No Debian packaging change (`dh-sequence-dlopenlibdeps` already handles dlopen notes; libspeq stays a soft dependency like Mesa's).
 4. **PS3:** the loopback comparison, then the game runs above. Ship if they pass.
 5. **Later, only if needed:** post-process and S16 conversion in the job with int16 output; AltiVec mixers for the fallback; ADPCM effects in ioquake3.
 

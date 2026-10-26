@@ -2,7 +2,7 @@
 
 Status: draft, not sent, RFC (untested on hardware). Mail: `linux-ps3-0002-sys-manager-fin-wait-for-command.patch`
 (subject prefix `PATCH RFC`, Signed-off-by added, checkpatch clean, compiled for ps3_defconfig with
-powerpc64-linux-gnu-gcc on the 6.12.111 tree). Our source: `linux/patches/local/0041`.
+powerpc64-linux-gnu-gcc on the 6.12.111 tree). Our source: `packages/patched/kernel/linux/patches/local/0041`.
 
 ## What changed against our local patch
 

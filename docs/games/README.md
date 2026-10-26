@@ -10,7 +10,7 @@ runner is in [SUITE.md](SUITE.md), what is still to do in [backlog/games.md](../
 
 ## Every game at a glance
 
-Numbers are from `games/bench/results/` (row N = fps.csv row N, the newest same-configuration row
+Numbers are from `bench/results/` (row N = fps.csv row N, the newest same-configuration row
 that measured the game; TESTS.md names the batch). "Stalls" is gameplay stall time in the 120 s
 window (frames over 100 ms), "1% low" is 1000 / the 99th percentile frame time, "longest" the longest
 gameplay frame. Memory is the lowest MemAvailable during the run and the game's peak VRAM.
@@ -49,7 +49,7 @@ fps_steady.csv hold the HUD's median for it ([supertuxkart.md](supertuxkart.md#t
 | Chocolate Doom 3.1.1, Crispy Doom 7.1, Woof 16 | run: Freedoom 2 MAP01, right colours, 35 / 35 / 34 fps (the vanilla 35 Hz cap) | [doom.md](doom.md) |
 | Pingus 0.7.6 | runs: the tutorial level's start screen, 39 fps | [smoke-tested.md](smoke-tested.md) |
 | TORCS 1.3.7, Trigger Rally 0.6.6, Chromium B.S.U. | menu only: installed on the PS3, waiting for the user at the controller (PLAN 1.11) | [smoke-tested.md](smoke-tested.md) |
-| Nexuiz Classic 2.5.2 on our `darkplaces-gl2` | built and in ps3-dev, not installed (about 800 MB with its data; D12, PLAN 1.12) | [smoke-tested.md](smoke-tested.md) |
+| Nexuiz Classic 2.5.2 on our `darkplaces-gl2` | built, not installed (about 800 MB with its data; D12, PLAN 1.12) | [smoke-tested.md](smoke-tested.md) |
 
 Sound was not confirmed by ear in any smoke run (PLAN 2.1).
 
@@ -69,8 +69,8 @@ Seven of the nine recipes of 6d9fcaf ran once (120 s, 1920x1080, SSD root): all 
 | Widelands | exited at start (`--fullscreen` takes no value, fixed) | re-run |
 
 Cataclysm: Dark Days Ahead was dropped (its data package is not installable on ports). OpenRCT2 has a
-data package tool (`tools/rct2-data.sh` makes `rct2-data` from the user's own RCT2 CD, `ps3-licensed`
-only) and a recipe; its baseline is in [openrct2.md](openrct2.md#on-the-ps3-batch-ssdroot8). Details in [smoke-tested.md](smoke-tested.md#new-games-first-runs).
+data package tool (`tools/rct2-data.sh` makes `rct2-data` from the user's own RCT2 CD, the licensed
+suite only) and a recipe; its baseline is in [openrct2.md](openrct2.md#on-the-ps3-batch-ssdroot8). Details in [smoke-tested.md](smoke-tested.md#new-games-first-runs).
 
 ## How to read the numbers
 
@@ -195,7 +195,7 @@ ARB_framebuffer_object) are in [backlog/graphics.md](../backlog/graphics.md).
 - [smoke-tested.md](smoke-tested.md): Teeworlds, SuperTux, Frozen Bubble, Pingus, the menu-only games,
   Nexuiz Classic, the new games, and the games we skipped.
 - [SUITE.md](SUITE.md): the runner, recipes, assets, reports and how a game joins the suite.
-- [LOG-FINDINGS.md](LOG-FINDINGS.md): the errors and warnings in the run logs, by game and by cause, and the tool that finds them (`games/bench/logscan.py`).
+- [LOG-FINDINGS.md](LOG-FINDINGS.md): the errors and warnings in the run logs, by game and by cause, and the tool that finds them (`bench/logscan.py`).
 - [research/GAME-CANDIDATES.md](../research/GAME-CANDIDATES.md): the 2026-10-16 survey that picked
   the suite.
 

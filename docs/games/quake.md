@@ -10,8 +10,8 @@ upstream drafts of our Yamagi fix are in `docs/upstream/` (PLAN 5.8).
 Both games use non-free data, built once on the PC with game-data-packager (`make quake-data`, the
 Debian games builder with `lhasa`, into `build/debs/quake-data`): `quake-shareware`
 (`/usr/share/games/quake/id1/pak0.pak`, Quake 1.06 shareware, 18 MB, demo1-3) and `quake2-demo-data`
-(`/usr/share/games/quake2-demo/baseq2/`). They are published once to the `ps3-licensed` suite of our
-LAN repository and reused, since game-data-packager's output isn't reproducible, and
+(`/usr/share/games/quake2-demo/baseq2/`). They are published once to our licensed suite
+(`make publish`) and reused, since game-data-packager's output isn't reproducible, and
 `ps3-games-licensed` pulls them in. A registered Quake needs the user's own `id1/pak0.pak` and
 `pak1.pak`. Don't install the `quake` launcher package: it pulls GTK 4.
 
@@ -21,7 +21,7 @@ Debian's `quakespasm` 0.96.3, unpatched. 0.96.3 has a big-endian bug: packed-pix
 wrong colours and dlight wraparound (quakespasm issue #114), so the recipe passes `-nopackedpixels`
 (upstream master disables the path on big-endian; nv30 has no 10-bit format anyway).
 
-Recipe `games/bench/recipes/quakespasm.sh`: `quakespasm -nopackedpixels -width 1920 -height 1080
+Recipe `bench/recipes/quakespasm.sh`: `quakespasm -nopackedpixels -width 1920 -height 1080
 -fullscreen` with a `quake.rc` of ours in `~/.quakespasm/id1`. `+timedemo` on the command line
 doesn't work: the shareware's own quake.rc runs `startdemos demo1 demo2 demo3` after the command
 line and the attract loop replaces the timedemo, and the shareware refuses `-game` directories. Our
@@ -43,7 +43,7 @@ right. Mesa ps3.262 70.5 to 78.6 (73 and 84 in two runs, +11%).
 
 ## Yamagi Quake II
 
-Our build of Debian's `yquake2` 8.70 (`yquake2/`, `COMPONENT=contrib`): debian-ports builds nothing
+Our build of Debian's `yquake2` 8.70 (`packages/patched/games/yquake2/`, `COMPONENT=contrib`): debian-ports builds nothing
 arch-specific in contrib, so Debian has no ppc64 binary. Packages `yamagi-quake2`,
 `yamagi-quake2-core` (`/usr/lib/yamagi-quake2/quake2`, renderers `ref_gl1` and `ref_gl3`). The gl1
 renderer (GL 1.4 fixed function) is the one that runs; gl3 and gles3 need GL 3.
@@ -59,7 +59,7 @@ Patches:
   (was 23.7) and 81 KiB in `game.so` (was 16 MB). Client-side random effects differ from the old
   table; the demo itself doesn't.
 
-Recipe `games/bench/recipes/yquake2.sh`: the engine run directly (Debian's `quake2` wrapper is
+Recipe `bench/recipes/yquake2.sh`: the engine run directly (Debian's `quake2` wrapper is
 contrib, not ours) on the demo pak's only demo, `+timedemo 1 +demomap q2demo1.dm2`, vsync off,
 config `~/.local/share/YamagiQ2/baseq2/config.cfg` (`~/.yq2` before the XDG build). The timedemo repeats in one session: autoexec.cfg's `bench` alias
 sets `nextdemo` again, disconnects (which prints the pass's line; a chained demomap would reconnect

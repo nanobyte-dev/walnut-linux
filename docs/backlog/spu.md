@@ -96,7 +96,7 @@ Rank 64. Small runtime leftovers, and the uses that wait for SPU DMA into VRAM.
 - From the queue work: the stop 0x2100/0x2101 printf server and `spurun` on libspeq are not done
   (the timeout, the no-spin wait, `speq_tune` and the bulk and deadline queues are). Per-worker
   doorbells are not needed with one or two workers per deadline queue.
-- Checks never run on the PS3: the deadline pool's and skinning's own PS3 steps (`ps3-spu/doc/pool.md`
+- Checks never run on the PS3: the deadline pool's and skinning's own PS3 steps (`packages/walnut/tools/ps3-spu/doc/pool.md`
   section 5), skinning on a map with bots (the HUD gun alone shows little), skinning's early submit
   (begin and adds at `endmodelbatches`, end at the draw; the API allows it, cube2's hook doesn't do
   it), RGB DXT compression in a real game, and a Teeworlds log line showing its DXT5 path.

@@ -1,6 +1,6 @@
 # RSX as seen from Linux
 
-This is what we measured about the RSX (the PS3's NV47-class GPU) from Linux on the CECH-20xx under our 6.12 kernel: what the GPU context that ps3fb allocates can do, how to fence and copy, and which commands wedge the chip. The probes ran between 2026-10-14 and 2026-10-17 (the Mesa sections at the end are from 10-17); everything here was measured unless it says otherwise. The raw experiments used `ps3-gpu-tools/src/rsx-probe.c` and the probe modules in `ps3rsx/probes/`.
+This is what we measured about the RSX (the PS3's NV47-class GPU) from Linux on the CECH-20xx under our 6.12 kernel: what the GPU context that ps3fb allocates can do, how to fence and copy, and which commands wedge the chip. The probes ran between 2026-10-14 and 2026-10-17 (the Mesa sections at the end are from 10-17); everything here was measured unless it says otherwise. The raw experiments used `packages/walnut/tools/ps3-gpu-tools/src/rsx-probe.c` and the probe modules in `packages/walnut/drivers/ps3rsx/probes/`.
 
 The facts are the reasons behind the driver's design. How the driver is built from them is in [DRIVER.md](DRIVER.md); the method-by-method audit of what Mesa sends is in [MESA-METHODS.md](MESA-METHODS.md); the FIFO words of the first triangle and textured quad are in [RSX-PROGRAMS.md](RSX-PROGRAMS.md). Terms such as lv1, FIFO, GART, M2MF and XDR are in the [glossary](README.md#glossary).
 
@@ -32,7 +32,7 @@ The probe numbers (E1, E2, ...) are cited all over the docs and the commit log.
 At boot ps3fb calls `lv1_gpu_memory_allocate` and `lv1_gpu_context_allocate(mem, 0x820)`. That gives memory handle 0x5a5a5a5a and context 0x55555555, which is hardware channel 0.
 
 - A second `lv1_gpu_memory_allocate` fails with -17 for every argument set we tried (ps3vram's too), so ps3fb's handle owns all of VRAM.
-- A second context on ps3fb's memory handle works (`ps3rsx/probes/rsx_ctx_probe.c`). It gets handle 0x55555554, hardware channel 1, and its own ctrl, driver-info and reports areas. Its FIFO runs, all seven object handles below bind, and M2MF copies are exact. A DRM driver can therefore own a channel next to ps3fb and share VRAM.
+- A second context on ps3fb's memory handle works (`packages/walnut/drivers/ps3rsx/probes/rsx_ctx_probe.c`). It gets handle 0x55555554, hardware channel 1, and its own ctrl, driver-info and reports areas. Its FIFO runs, all seven object handles below bind, and M2MF copies are exact. A DRM driver can therefore own a channel next to ps3fb and share VRAM.
 - **The context limit is ps3fb's plus two more** (hardware channels 1 and 2); the next allocation fails with -2. Allocating up to the limit and then freeing the contexts stalled every FIFO, ps3fb's included, with no graph exception (E1). Which step breaks it (the third context, the failed fourth, or the frees) is unknown. One extra context allocated and freed is safe, and that is all the driver ever uses.
 - **3D state is shared between channels (E5).** A clear in context A, after context B had set its surface, went to B's surface. lv1 does no PGRAPH context switching. So the driver uses one hardware context, and every submission must re-emit the state it depends on.
 - ps3fb's reset program (copied, then CALLed) runs fine in a fresh context and gives it the usual object and DMA setup.
@@ -136,7 +136,7 @@ Two things Mesa does that libgcm does not: it sends the M2MF NOP (0x100 on the M
 
 ## Mesa, KMS and X on the driver
 
-Getting stock Mesa nv30 to run turned up these facts. The fixes are patches in our Mesa fork (`mesa/patches/`, numbered as in `mesa/patches/series`).
+Getting stock Mesa nv30 to run turned up these facts. The fixes are patches in our Mesa fork (`packages/patched/graphics/mesa/patches/`, numbered as in `packages/patched/graphics/mesa/patches/series`).
 
 - **Z16 depth renders wrong.** The PS3 gets only 24-bit depth (0004).
 - The 3D blit into a GART destination needs its own path, and its fragment program is stored halfword-swapped like every RSX fragment program (0007; big-endian only).
@@ -159,7 +159,7 @@ Sharing with ps3fb's consoles: the display shows whichever offset was flipped la
 
 Absent, with what that costs games (per game in [games/README.md](games/README.md)): ARB_texture_rg (dsda-doom's GL mode, OpenTTD's GL mode), ARB_shader_texture_lod, EXT/ARB_vertex_array_bgra, ARB_framebuffer_object (renderergl2's FBO features) and ARB_texture_float. Present: EXT_framebuffer_object, ARB_point_parameters and point sprites, NPOT textures, SGIS_generate_mipmap, EXT_texture3D, ARB_vertex_array_object and S3TC.
 
-Measured with `ps3-gpu-tools/mesa-tests` on 2026-10-17:
+Measured with `packages/walnut/tools/ps3-gpu-tools/mesa-tests` on 2026-10-17:
 
 - `gl-texfmt`: L8, A8, I8, 4444 and 1555 sample right. L8A8 swapped L and A on every texel: Gallium's L8A8 is a byte array, while the RSX reads the 16-bit texel as a big-endian halfword.
 - `gl-genmip`: GPU mipmap generation is right for square power-of-two textures. For non-square ones, the levels 1 pixel wide or high are swizzled render targets that the validator refuses, and the whole push is lost with them, level 0's upload included.

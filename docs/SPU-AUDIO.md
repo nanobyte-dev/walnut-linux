@@ -15,13 +15,13 @@ OpenAL Soft plays the sound of OpenArena (ioquake3 dlopens `libopenal.so.1`), Ya
 | Yamagi Quake II | its audio thread, 11% of its samples (the SDL audio path, not OpenAL's mixer) |
 | Luanti | no sound played in its flight |
 
-No game reached the 6% bar, so voice mixing stays on the PPE. The frame-rate variants (b16, f44, alnull) were not run; they would move at most part of the 3.7 to 4.7%. They are in [backlog/spu.md](backlog/spu.md). The profile is reproducible with `games/bench/oal-perf.sh` and the variants in `games/bench/recipes/openal.inc` (`allog`, `b16`, `f44`, `b16f44`, `p1024`, `alnull`, `nosound`); the bar was "voice mixing (`Voice::mix`, inclusive) at least 6% of a game's samples in the configuration we would ship".
+No game reached the 6% bar, so voice mixing stays on the PPE. The frame-rate variants (b16, f44, alnull) were not run; they would move at most part of the 3.7 to 4.7%. They are in [backlog/spu.md](backlog/spu.md). The profile is reproducible with `bench/oal-perf.sh` and the variants in `bench/recipes/openal.inc` (`allog`, `b16`, `f44`, `b16f44`, `p1024`, `alnull`, `nosound`); the bar was "voice mixing (`Voice::mix`, inclusive) at least 6% of a game's samples in the configuration we would ship".
 
 Why step 0's sound variants (OpenArena, 2026-10-16) told nothing: those game runs never reached the screen ([SPU.md](SPU.md), "Measured: step 0 and the harness"), the profile left the mixer thread as `[unknown]` because libopenal was never mapped, and variant B (`sample-type=int16`) also switched on the output limiter and 16-bit dithering, which likely explains why it cost more. B22 (`frequency=22050`) probably still ran at 48 kHz, since ALSA's dmix is fixed there and OpenAL disables ALSA's resampler.
 
 ### The mixer path in 1.25.2, as far as the measurement needs it
 
-Debian's `openal-soft` 1:1.25.2-1 is what the PS3 ran for M0; our package `openal-soft/` rebuilt it unpatched as `1:1.25.2-1+ps3.N` so `libopenal1-dbgsym` matched the running code (now it carries the PPE patch below). Its build confirms there is no SIMD mixer on ppc64: CMake finds no `xmmintrin.h` (POWER's SSE translation headers need POWER8) and no NEON, "CPU extensions: Default". The PPE runs the scalar `Mix_C` and `Resample_Cubic_C`, and the default resampler is the 4-tap cubic.
+Debian's `openal-soft` 1:1.25.2-1 is what the PS3 ran for M0; our package `packages/patched/audio/openal-soft/` rebuilt it unpatched as `1:1.25.2-1+ps3.N` so `libopenal1-dbgsym` matched the running code (now it carries the PPE patch below). Its build confirms there is no SIMD mixer on ppc64: CMake finds no `xmmintrin.h` (POWER's SSE translation headers need POWER8) and no NEON, "CPU extensions: Default". The PPE runs the scalar `Mix_C` and `Resample_Cubic_C`, and the default resampler is the 4-tap cubic.
 
 The ALSA backend's thread `alsoft-mixer` renders whole periods (512 frames) into the mmap area: process parameter updates, run `Voice::mix` for every playing voice, apply the stereo ambisonic post-process, write floats. Nothing sets ALSA options, so OpenAL opens `default`, which on the PS3 is `plug` to `softvol` to `dmix:CARD=PS3,FORMAT=S16` at 48 kHz. `plug` converts float to S16 inside libasound on the mixer thread, which is the "ALSA conversion" in the profile. HRTF is not on (the ALSA backend never sets the headphone flag, and nobody sets `stereo-mode=headphones`). The perf split to read is `Voice::mix` inclusive for the mixing, `DeviceBase::renderSamples` self plus `CalcPanningAndFilters` and `ProcessVoiceChanges` for parameter updates (our `-O2` build inlines the rest), and libasound for the conversion. The hook point, per-voice work and the rest of the walk-through are in [research/OPENAL-SPU-MIXER.md](research/OPENAL-SPU-MIXER.md).
 
@@ -57,7 +57,7 @@ mono 44.1 kHz voices around the listener into 48 kHz stereo in 512-frame periods
 | OpenAL writing 16-bit output instead of float | +7 M / +0.48 M / +26 M | about +2 M est |
 | ALSA's plug converting float to S16 (480000 samples) | 15.8 M / 0.51 M / 36 M | (not needed with 16-bit output) |
 
-- **The patch** (`openal-soft/patches/0002`, with `-mcpu=cell -mtune=cell` from the packaging
+- **The patch** (`packages/patched/audio/openal-soft/patches/0002`, with `-mcpu=cell -mtune=cell` from the packaging
   patch): the resampler's fraction comes from two 256-entry tables (the same float, exactly), 16-bit
   samples load eight at a time in AltiVec (`vec_ctf(x, 15)` is x/32768 exactly), mono and interleaved
   stereo buffers, and 16-bit stereo output packs in AltiVec (`vec_cts`, `vec_packs`, the scalar
@@ -128,7 +128,7 @@ is its slow unit, so it was not pursued.
 
 - **The conversion was a third of the decode.** `ov_read` rounds each sample with `floor()` and
   converts it to an integer (libvorbis's generic `vorbis_ftoi`, nothing for PowerPC): two
-  load-hit-stores a sample. Our `libvorbis/patches/0002` packs mono and stereo eight samples a step
+  load-hit-stores a sample. Our `packages/patched/audio/libvorbis/patches/0002` packs mono and stereo eight samples a step
   in AltiVec (`floor(x*32768 + 0.5)` with `vec_madd` and `vec_floor`, `vec_cts`, `vec_packs`: the
   scalar rounding and clamping), through an aligned 512-sample buffer so the caller's buffer needs
   no alignment. `oggdec` output is byte-identical to the unpatched build with the same flags for a
@@ -140,7 +140,7 @@ is its slow unit, so it was not pursued.
 
 ## fluidsynth on the SPEs
 
-Debian's `fluidsynth` 2.6.1+dfsg-1 is our package `fluidsynth/` (`2.6.1+dfsg-1+ps3.N`), with one patch, `fluidsynth/patches/0001-rvoice-voice-DSP-through-libspeq-on-the-PS3-s-SPEs.patch`, and libspeq's `speq_synth_*_v2` calls (`ps3-spu/lib/synth.c`, `lib/synth-kern.h`, `spu/synth-op.c`; the op lives in `deadline.spu`).
+Debian's `fluidsynth` 2.6.1+dfsg-1 is our package `packages/patched/audio/fluidsynth/` (`2.6.1+dfsg-1+ps3.N`), with one patch, `packages/patched/audio/fluidsynth/patches/0001-rvoice-voice-DSP-through-libspeq-on-the-PS3-s-SPEs.patch`, and libspeq's `speq_synth_*_v2` calls (`packages/walnut/tools/ps3-spu/lib/synth.c`, `lib/synth-kern.h`, `spu/synth-op.c`; the op lives in `deadline.spu`).
 
 The reason: dsda-doom playing its demo at normal speed used 53 s of CPU in 60 s with fluidsynth music against 29 s without, and ALSA underruns went from 18 to 1280 a minute. A perf profile of dsda-doom (2026-10-17, our `+ps3.270` with dbgsym; `--proc-map-timeout=20000`) put libfluidsynth at 48.3% of the process's samples and its SDL audio thread at 55%. Per function: `fluid_rvoice_dsp_interpolate` 31.1%, `fluid_iir_filter_apply` 7.9%, `fluid_rvoice_buffers_mix` 4.2%, `fluid_rvoice_write` (the control part) 2.2%. So about 43 of those 48 points are per-voice DSP: block-sized and SIMD-friendly.
 
@@ -164,7 +164,7 @@ What stays on the PPE besides control: event handling, voice allocation and stea
 
 **Fallback and the wait.** The SPU never writes a round's entries or input histories, so a late or failed round is redone on the PPE from them with the same DSP code, and render always delivers. The audio thread waits on the done word without spinning (`SPEQ_WAIT_NOSPIN`) for at most 2 ms plus 5 us per voice block (`SPEQ_SYNTH_TIMEOUT_US`). Three failed rounds in a row put the SPEs aside for 5 s; a pool whose workers all broke is gone for the process. Timeouts that come from queueing count as late, not as a failure of the SPU path.
 
-**Where it runs.** The synth shares the deadline pool of 2 SPEs with skinning (design: [ps3-spu/doc/pool.md](../ps3-spu/doc/pool.md); the queue sharing is in [SPU.md](SPU.md)). `SPEQ_SYNTH_SPES` caps how many pool workers one round is split across. `SPEQ_DEBUG=1` prints blocks and voices on the SPEs, jobs, mean and max wait, refusals, timeouts, errors and back-offs.
+**Where it runs.** The synth shares the deadline pool of 2 SPEs with skinning (design: [packages/walnut/tools/ps3-spu/doc/pool.md](../packages/walnut/tools/ps3-spu/doc/pool.md); the queue sharing is in [SPU.md](SPU.md)). `SPEQ_SYNTH_SPES` caps how many pool workers one round is split across. `SPEQ_DEBUG=1` prints blocks and voices on the SPEs, jobs, mean and max wait, refusals, timeouts, errors and back-offs.
 
 **Accuracy.** Version 2 is no longer bit-exact to Debian's double-precision path. `tests/fs-kern.c` (200000 random voice blocks against fluidsynth's own functions): control results identical, samples at 96 dB SNR over all of them (random states include high-pass custom filters at low cutoffs, where single precision cancels). Whole renders of a generated GM piece: 129 to 131 dB SNR against unpatched fluidsynth, 127 to 128 with reverb and chorus, and the SPU path against the PPE path 132 dB (the jobs sum in another order). The SPU rounds float results toward zero and the host tests to nearest, so the PS3 will be a few dB below these; still far under 16-bit output.
 

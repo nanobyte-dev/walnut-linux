@@ -143,13 +143,13 @@ Rank 33. Games that need someone at the controller, or that are new.
 - **TORCS, Trigger Rally, Chromium B.S.U.**: installed on the PS3, they start in a menu. TORCS also
   tests DXT5. `SMOKE_SECS=300 BENCH_TIMEOUT=420 ./run.sh smoke torcs`.
 - **Nexuiz Classic** on our `darkplaces-gl2` (the last DarkPlaces with GL 1.x/2.0 renderpaths):
-  built, in ps3-dev, never run. Needs `darkplaces-gl2 nexuiz-data nexuiz-textures` (~800 MB on the
+  built, never run. Needs `darkplaces-gl2 nexuiz-data nexuiz-textures` (~800 MB on the
   disk, decision D12), then `run.sh smoke nexuiz`, then variants `gl20` and `hires`. Risks in order:
   the GL 2.0 path's shaders on nv30 (`vid_gl20 0` first), VRAM and RAM with its maps, sound byte
   order, the generic (non-SSE) skeletal code's CPU.
 - **The new games** (recipes in 6d9fcaf): ScummVM (sky, queen, drascula, lure), Simutrans,
   Crawl tiles, Freeciv, LinCity-NG, Flare, Widelands, Warmux, Cataclysm tiles; `tools/rct2-data.sh`
-  builds a licensed `rct2-data` deb from the user's RCT2 CD (ps3-licensed only).
+  builds a licensed `rct2-data` deb from the user's RCT2 CD (the licensed suite only).
 
 - **Payoff:** more games for the suite. **Effort:** S. **Risk:** a graph exception ends the session:
   the heavy ones last.

@@ -40,7 +40,7 @@ layout and the build commands are in [LAYOUT.md](LAYOUT.md).
 | [WALNUT-SERVER.md](WALNUT-SERVER.md) | walnut.nanobyte.dev's containers, and why concurrent uploads, publishes and ccache writes can't break anything |
 | [release/ALPHA.md](release/ALPHA.md) | Walnut 0.1-alpha, the first public release: plan, milestones M0-M9, the review's blockers, cuts, verification |
 | [release/TESTING-0.1.md](release/TESTING-0.1.md) | Testing the nightlies before 0.1.0: feedback from the PS3 and what was done about each |
-| [RELEASE-CANDIDATES.md](RELEASE-CANDIDATES.md) | The 2026-10-18 release: what goes from ps3-dev to stable, its test plan, the publish command |
+| [RELEASE-CANDIDATES.md](RELEASE-CANDIDATES.md) | The 2026-10-18 release plan for the retired LAN repository: its checks and versions (superseded 2026-10-26) |
 | [IMAGE-DIFF.md](IMAGE-DIFF.md) | A fresh image compared with the live PS3 (2026-10-16): what a reimage would lose |
 
 ## Games
@@ -48,8 +48,8 @@ layout and the build commands are in [LAYOUT.md](LAYOUT.md).
 | Doc | What it is for |
 |---|---|
 | [games/README.md](games/README.md) | Every game at a glance: runs?, fps, smoothness, memory, picture and sound, what's next; how to read the numbers; the driver bugs games found |
-| [games/SUITE.md](games/SUITE.md) | How the benchmark suite runs: `games/bench/`, recipes, the protocol, the result matrices |
-| [games/LOG-FINDINGS.md](games/LOG-FINDINGS.md) | What the game logs say: errors and warnings by game, ranked, with causes and fixes; `games/bench/logscan.py` |
+| [games/SUITE.md](games/SUITE.md) | How the benchmark suite runs: `bench/`, recipes, the protocol, the result matrices |
+| [games/LOG-FINDINGS.md](games/LOG-FINDINGS.md) | What the game logs say: errors and warnings by game, ranked, with causes and fixes; `bench/logscan.py` |
 | [games/openarena.md](games/openarena.md) | OpenArena on our ioquake3, both renderers |
 | [games/quake.md](games/quake.md) | QuakeSpasm and Yamagi Quake II |
 | [games/sauerbraten.md](games/sauerbraten.md) | BananaBread (cube2) and Red Eclipse |
@@ -146,7 +146,7 @@ The processors and memory
 The graphics stack
 
 - **ps3rsx**: our DRM kernel driver for the RSX. It registers as "nouveau" so stock Mesa and libdrm work.
-- **nv30**: Mesa's Gallium driver for NV30/NV40-class GPUs, which drives the RSX. We carry patches on it (`mesa/patches/`).
+- **nv30**: Mesa's Gallium driver for NV30/NV40-class GPUs, which drives the RSX. We carry patches on it (`packages/patched/graphics/mesa/patches/`).
 - **ps3fb**: the kernel's PS3 framebuffer driver; it owns the console and allocates the GPU context ps3rsx uses.
 - **FIFO, push buffer**: the command stream the CPU writes and the RSX reads.
 - **validator**: the part of ps3rsx that checks every command a client submits, so a client cannot wedge the GPU or reach memory it doesn't own.
@@ -174,10 +174,10 @@ Measuring
 - **warm-up, window**: every bench run skips the first 60 s after loading (warm-up) and measures at least 120 s after it (the window).
 - **1% low**: 1000 divided by the 99th-percentile frame time, in fps.
 - **same-boot A/B**: a change measured against its off-switch in the same PS3 session. Numbers from different boots are not compared.
-- **fps.csv row N**: the Nth data row of the result matrices in `games/bench/results/`; every CSV there has the same rows.
+- **fps.csv row N**: the Nth data row of the result matrices in `bench/results/`; every CSV there has the same rows.
 
 Packages and versions
 
-- **ps3, ps3-dev, ps3-licensed**: the suites of our apt repository. `ps3` holds stable releases (kept forever), `ps3-dev` the dev builds, `ps3-licensed` game data we may not redistribute (LAN only).
+- **stable, testing, licensed**: the suites at walnut.nanobyte.dev. `stable` holds releases (kept forever), `testing` every push's CI build, `licensed` game data we may not redistribute (password-protected, published from the PC). `ps3`, `ps3-dev` and `ps3-licensed` were the retired LAN repository's suites (until 2026-10-26).
 - **`+ps3.N`, `0.N`, `~dev<stamp>`**: version suffixes. A Debian package we rebuild gets `<debver>+ps3.N`, our own packages `0.N`; a dev build adds `~dev<stamp>`. "Mesa .476" or "kernel .472" means `+ps3.476`, `+ps3.472`.
-- **local/NNNN**: our kernel patches in `linux/patches/local/` (for example local/0009, the idle fix).
+- **local/NNNN**: our kernel patches in `packages/patched/kernel/linux/patches/local/` (for example local/0009, the idle fix).

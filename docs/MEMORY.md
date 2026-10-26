@@ -186,7 +186,7 @@ between the renderer, server, emerge and mesh threads.
 The MB are from the 2026-10-18 batch: upper bounds where the free memory's residency isn't known
 page by page ("pages in free chunks" counts whole pages inside free chunks of 8 KiB and more, from
 malloc_info's size lists, plus the top chunks). Effort: env = no rebuild, pkg = our package
-rebuilt. Results are rows of `games/bench/results/fps.csv` ([glossary](README.md#glossary)).
+rebuilt. Results are rows of `bench/results/fps.csv` ([glossary](README.md#glossary)).
 
 | # | Game | Cut | Saves (MB) | Effort | Result | Risk |
 |---|---|---|---|---|---|---|
@@ -210,7 +210,7 @@ OpenArena's 176 MB hunk mapping (untouched pages). Also tried on Luanti:
 
 ## The malloc presets and ps3-malloctrim
 
-The bench gives every game a malloc preset (games/bench: client.sh, run.sh, report.py,
+The bench gives every game a malloc preset (bench: client.sh, run.sh, report.py,
 selftest.py). `BENCH_MALLOC` (run.sh `MALLOC=`, or an `ENVS` token) is a comma list:
 
 | Preset | Environment of the game |
@@ -225,7 +225,7 @@ bench.txt gets `malloc=`, and report.py shows it after the variant (`base@mtune`
 too (each game and variant once per token per round). A recipe's own `LD_PRELOAD` and MEM=1's
 ps3-mallocstat are kept (client.sh `preload_add`). No preset is a default.
 
-**ps3-malloctrim.so** (ps3-gpu-tools/preload/ps3-malloctrim.c, in ps3-gpu-tools since 0.403) is one
+**ps3-malloctrim.so** (packages/walnut/tools/ps3-gpu-tools/preload/ps3-malloctrim.c, in ps3-gpu-tools since 0.403) is one
 thread with a 64 KiB stack and all signals blocked that calls `malloc_trim(0)` every
 `PS3_MALLOC_TRIM` seconds. It never mallocs, so glibc gives it no arena. With `PS3_MALLOC_TRIM_LOG=1`
 (the bench sets it) it prints `ps3-malloctrim: <n> <ms> ms rss <kB> -> <kB> swap <kB> -> <kB> freed
@@ -340,7 +340,7 @@ texture.
 | 0028 | `r_mipMapPowf 0` | the gamma-correct mipmap bytes from 255 thresholds found once by bisection with the same powf, plus a 4096-bin start table: the same bytes without powf | identical; every float in [0,1] equal on x86-64 glibc, every 16th + all within 200000 ulps of each threshold on ppc64 glibc (qemu) |
 | 0029 | `r_md3PackedFrames 0` (opt-in, latched, needs `r_normalMapping 0`) | animated MD3 frames as MD3's own 16-bit positions + 4 unsigned-byte normals, 12 bytes a vertex instead of 20 (V16_SSCALED, U8_UNORM: both native on nv30), decoded in the 4 vertex-animation programs by `u_PackedFrames` (lightall draws single-frame models with that variant too, and they keep floats): the demo's model VBOs 62.2 -> 37.5 MB of VRAM | 1734 pixels differ, by at most 2 levels |
 
-Recipe variants (games/bench/recipes/openarena.sh): `gl2min_color16` (0027 off), `gl2min_mippowf`
+Recipe variants (bench/recipes/openarena.sh): `gl2min_color16` (0027 off), `gl2min_mippowf`
 (0028 off), `gl2min_md3pack` (0029 on); `gl2min_up` turns 0027-0028 off too.
 
 ### Measured on the PS3 (batch 17)
@@ -420,7 +420,7 @@ reasons are in [backlog/memory.md](backlog/memory.md).
 
 ### Switches (Mesa 0037)
 
-`mesa/patches/0037-nv30-optional-limits-on-nouveau-s-system-memory-copi.patch`:
+`packages/patched/graphics/mesa/patches/0037-nv30-optional-limits-on-nouveau-s-system-memory-copi.patch`:
 
 | Switch | Values | What |
 |---|---|---|
@@ -510,7 +510,7 @@ the PS3) and off by default; its first A/B (BananaBread, SuperTuxKart lean, Open
 
 ### What it does
 
-`mesa/patches/0038-mesa-texture-compression-at-upload-for-every-game-NV.patch`, core Mesa
+`packages/patched/graphics/mesa/patches/0038-mesa-texture-compression-at-upload-for-every-game-NV.patch`, core Mesa
 (`src/mesa/main/texforcedxt.c`, the decision alone in `texforcedxt_policy.h`). A `glTexImage2D`
 that the policy takes gets a DXT TexFormat while its InternalFormat stays the game's; Mesa's S3TC
 texstore then compresses it like any compressed upload, through libspeq. Levels above 0 follow
@@ -578,10 +578,10 @@ report.py: `fdxt_tex`, `fdxt_dxt5`, `fdxt_raw_mb`, `fdxt_dxt_mb`, `fdxt_unforced
 
 ### Host checks
 
-- `make test` (suite `mesa-forcedxt`, `mesa/tests/forcedxt-policy-test.c`): the decision for every
+- `make test` (suite `mesa-forcedxt`, `packages/patched/graphics/mesa/tests/forcedxt-policy-test.c`): the decision for every
   case above, the alpha scan (every position of one non-255 byte, odd widths, misaligned rows), the
   block-alignment test, the byte counts. 5105 checks.
-- `ps3-gpu-tools/mesa-tests/gl-forcedxt.c` (installed with ps3-gpu-tools as `gl-forcedxt`): the
+- `packages/walnut/tools/ps3-gpu-tools/mesa-tests/gl-forcedxt.c` (installed with ps3-gpu-tools as `gl-forcedxt`): the
   whole path through GL, with images of one RGB565-exact colour per block so DXT stores them without
   loss and every check is exact: which uploads get compressed per mode, drawn and read back right,
   mip chains by level, `glGenerateMipmap` and `GL_GENERATE_MIPMAP`, sub-images on and off the block
@@ -749,7 +749,7 @@ Nothing here is in the stable `ps3` suite; the versions are in `ps3-dev` and ins
 dsda-doom's recipe also changed: `LOAD_MARK` matches `Playing demo:`, so its window, perf and the
 snapshots start. Its first profile is in [HOTPATHS.md](HOTPATHS.md#gameplay-profiles-on-the-ssd-root-batch-ssdroot2-p1b).
 
-The selftest (`python3 games/bench/selftest.py`, all pass) covers this: section 8 runs client.sh
+The selftest (`python3 bench/selftest.py`, all pass) covers this: section 8 runs client.sh
 with `BENCH_MALLOC=arena2,trim` and checks both preloads' threads in the game, the trim lines in
 game.log, `malloc=` and the variant tag; section 10 runs ps3-malloctrim.so on a C program that
 leaves 88 MB of holes in its main heap and a thread arena (over 60 MB given back) and checks that a

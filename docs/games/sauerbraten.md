@@ -14,10 +14,10 @@ settings. Open items are in [backlog/games.md](../backlog/games.md).
 
 ## Packages and patches
 
-`cube2`, `cube2-server` (`0.0.20201229+dfsg-1+ps3.N`, package directory `cube2/`), replacing Debian's.
-The release candidate is ps3.354; ps3.442~dev (with 0011) is in ps3-dev. The data is Debian's
+`cube2`, `cube2-server` (`0.0.20201229+dfsg-1+ps3.N`, package directory `packages/patched/games/cube2/`), replacing Debian's.
+The release candidate is ps3.354; ps3.442~dev added 0011. The data is Debian's
 `cube2-data` 1.3 (the BananaBread content, 20 maps) plus `sauerbraten-nonfree-data` (the models and
-sounds Debian leaves out, CC BY-NC, `ps3-licensed` only, pulled in by `ps3-games-licensed`).
+sounds Debian leaves out, CC BY-NC, the licensed suite only, pulled in by `ps3-games-licensed`).
 Sauerbraten is not in `ps3-games`' Depends: it deploys by name.
 
 | Patch | What | Switch |
@@ -38,8 +38,8 @@ from 4.40 to 5.50 MB. Details: [MEMORY.md, "Sauerbraten's world normals as short
 
 ## The recipe
 
-`games/bench/recipes/sauerbraten.sh`, base: the user's recorded demo
-(`games/bench/assets/sauerbraten-bench.dmo`, 2026-10-17: an FFA round on cave with two bots, 93 s of
+`bench/recipes/sauerbraten.sh`, base: the user's recorded demo
+(`bench/assets/sauerbraten-bench.dmo`, 2026-10-17: an FFA round on cave with two bots, 93 s of
 game time), copied to `~/.cube2/demo/bench.dmo` and played with `mode -1; map bench`, as the data's
 `demo` command does it. A CubeScript (`-x`) counts frames with a sleep re-armed every frame and wall
 time from `getmillis 1`, and prints `ps3bench: loop <k>: <n> frames in <ms> ms: <fps> fps, longest
@@ -140,7 +140,7 @@ Red Eclipse 1.6.0 (Debian's `redeclipse`, `redeclipse-common`, `redeclipse-data`
 lean sound and textures, a player name set, no OOM, 86 fps HUD peak (2026-10-18). It has none of
 cube2's memory patches.
 
-Recipe `games/bench/recipes/redeclipse.sh` (`SUITE=0`): `-x'dm <map>'` (a deathmatch with bots on
+Recipe `bench/recipes/redeclipse.sh` (`SUITE=0`): `-x'dm <map>'` (a deathmatch with bots on
 the engine's loopback server); `RE_MAP` or the variants `singularity`, `disco`, `cyanide` pick the
 map (torus, 43 KB, is the smallest real one). Variants `tex512`, `fullsound`, `bots0`, `bots3`,
 `defaults`, `menu`.
@@ -183,13 +183,13 @@ would give the same program without the patches. What was missing was the launch
 | Package | Suite | What |
 |---|---|---|
 | `sauerbraten` | public (testing, stable; CI builds it, `0.N`) | `/usr/games/sauerbraten`, the menu entry (Name `Sauerbraten`), an icon. Depends on `cube2`, Suggests `sauerbraten-data` |
-| `sauerbraten-data` | `ps3-licensed` only, built locally (`0.0.20201229-1+ps3.N`, about 980 MB) | the release's `data/` and `packages/` whole, in `/usr/share/games/sauerbraten`, its docs in `/usr/share/doc/sauerbraten-data`. Depends on `sauerbraten`, so installing the data installs the game |
+| `sauerbraten-data` | the licensed suite only, built locally (`0.0.20201229-1+ps3.N`, about 980 MB) | the release's `data/` and `packages/` whole, in `/usr/share/games/sauerbraten`, its docs in `/usr/share/doc/sauerbraten-data`. Depends on `sauerbraten`, so installing the data installs the game |
 
 - The launcher runs `cube2_client -q$HOME/.sauerbraten -k/usr/share/sauerbraten/walnut -k/usr/share/games/sauerbraten -t1`:
   fullscreen at the desktop's resolution (the engine sizes its window from the desktop when `scr_w`/`scr_h` are unset;
   Debian's build defaults to a window, hence `-t1`), settings apart from BananaBread's `~/.cube2`, no user file written.
   `SAUERBRATEN_WINDOWED=1` starts in a window. The game's own `config.cfg` can still switch it later, as in the stock game.
-- Walnut's defaults: the first package directory holds only `data/defaults.cfg` (`sauerbraten/files/walnut/`), which the
+- Walnut's defaults: the first package directory holds only `data/defaults.cfg` (`packages/walnut/apps/sauerbraten/files/walnut/`), which the
   engine runs only while `~/.sauerbraten/config.cfg` does not exist. It runs the release's own defaults.cfg, then sets
   `texcompress 512`; the game saves that into config.cfg at the first quit, and the player's settings rule from then
   on (`/texcompress 1024` restores the engine's value). A player with a config.cfg already gets nothing from it.
@@ -201,12 +201,12 @@ would give the same program without the patches. What was missing was the launch
   Depends (980 MB); install by name.
 - Endianness: nothing to fix. The engine already runs big-endian on the PS3 (the BananaBread maps read through
   `lilswap`), and the release's maps and models use the same formats.
-- Patches in effect (all of `cube2/patches`, since it is the same engine): 0001 `texcompress`, 0002 `gpuskel 0` and no
+- Patches in effect (all of `packages/patched/games/cube2/patches`, since it is the same engine): 0001 `texcompress`, 0002 `gpuskel 0` and no
   GPU skinning shaders, 0003-0005, 0006 libspeq skinning, 0007-0009 fewer GL calls, 0010 `oqwaterlag`. 0011
   `vanormalshort` is built in and off by default. Nothing is left unported. The real maps fill the VRAM at the engine's
   texture settings (the first session, below), hence Walnut's `texcompress 512` default.
-- Recipe `games/bench/recipes/sauerbraten-edition.sh` (variants `complex`, `metl3`, `lean`, `gpuskel`; `session()` is the
-  launcher alone; `PLAY_MARK` is the `read map` line); entry `gamedb/content/games/sauerbraten/`. Its PC reference
+- Recipe `bench/recipes/sauerbraten-edition.sh` (variants `complex`, `metl3`, `lean`, `gpuskel`; `session()` is the
+  launcher alone; `PLAY_MARK` is the `read map` line); entry `website/gamedb/content/games/sauerbraten/`. Its PC reference
   (`tools/play-pc.sh`) installs the entry's packages from Debian, which has no `sauerbraten`: `PC=0 play-test.sh start
   sauerbraten` until the PC image gets our two debs.
 

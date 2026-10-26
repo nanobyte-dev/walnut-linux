@@ -1,6 +1,6 @@
 # OtherOS++ and PS3 kernel patches, surveyed for 6.12
 
-On 2026-10-18 we surveyed every PS3 kernel patch we could find outside our tree (glevand's OtherOS++ work, Geoff Levand's queue, T2 SDE, Gentoo, mainline after 6.12, unmerged postings to linuxppc-dev) and checked which ones our 6.12.111 kernel lacks and which are safe to carry. We ported 13 of them as `linux/patches/local/0020`-`0032`, and the user decided on the risky ones already in our series (four dropped, one switched off). Every candidate has a decision; the few things worth knowing for later are at the end ([Left open](#left-open)). The list of unported hardware ideas is in [backlog/hardware.md](backlog/hardware.md).
+On 2026-10-18 we surveyed every PS3 kernel patch we could find outside our tree (glevand's OtherOS++ work, Geoff Levand's queue, T2 SDE, Gentoo, mainline after 6.12, unmerged postings to linuxppc-dev) and checked which ones our 6.12.111 kernel lacks and which are safe to carry. We ported 13 of them as `packages/patched/kernel/linux/patches/local/0020`-`0032`, and the user decided on the risky ones already in our series (four dropped, one switched off). Every candidate has a decision; the few things worth knowing for later are at the end ([Left open](#left-open)). The list of unported hardware ideas is in [backlog/hardware.md](backlog/hardware.md).
 
 Risk classes follow the safety rules in [CLAUDE.md](../CLAUDE.md):
 
@@ -14,7 +14,7 @@ The "6.12?" column says whether the patch applies to our tree, checked with `git
 
 | Source | What it holds | Checked |
 |---|---|---|
-| psx-place set (Sombat Tragoongoson), via [damiandudycz/ps3](https://github.com/damiandudycz/ps3) `files/kernel-patches/psx-place-Sombat-Tragoongoson/6.12` | glevand's OtherOS++ patches (gitbrew era, numbering 0010-0260) refreshed up to 6.12, plus 0280-0450 fixes | already our `linux/patches/ps3/` (36 patches) |
+| psx-place set (Sombat Tragoongoson), via [damiandudycz/ps3](https://github.com/damiandudycz/ps3) `files/kernel-patches/psx-place-Sombat-Tragoongoson/6.12` | glevand's OtherOS++ patches (gitbrew era, numbering 0010-0260) refreshed up to 6.12, plus 0280-0450 fixes | already our `packages/patched/kernel/linux/patches/ps3/` (36 patches) |
 | glevand on GitHub (`glevand/ps3-linux`, `ps3-linux-patches`) | | gone: the repositories do not answer. The 2012 gists ([3.3.x](https://gist.github.com/2476441), [3.2.x](https://gist.github.com/2476405)) list the same 0010-0260 set |
 | Geoff Levand, [kernel.org geoff/ps3-linux.git](https://git.kernel.org/pub/scm/linux/kernel/git/geoff/ps3-linux.git/) | `ps3-queue-v6.12`, `-v6.13`, `fix-gelic-skb`, `for-merge-net-v9`, `for-merge-hvc-v1` (shallow fetch, depth 60) | yes |
 | T2 SDE (René Rebe), `svn.exactcode.de/t2/trunk/architecture/powerpc64/package/linux/` and `package/kernel/linux/` | glevand's set in T2 form, ps3fb/ps3vram changes, generic hotfixes | yes (current trunk) |
@@ -27,7 +27,7 @@ Not found anywhere: newer idle/decrementer fixes (our `local/0009` is the only o
 
 ## Inventory
 
-### A. glevand / psx-place set, already in our series (`linux/patches/ps3/`)
+### A. glevand / psx-place set, already in our series (`packages/patched/kernel/linux/patches/ps3/`)
 
 Config states are from the shipped `config-6.12.111+ps3.419`.
 
@@ -112,7 +112,7 @@ All SAFE unless stated.
 
 ## What was ported
 
-Thirteen patches in `linux/patches/local/` (0020-0032), each keeping the original `From:` and `Signed-off-by:` lines, an `Origin:` line and, for the unmerged ones, `Forwarded: not-needed`:
+Thirteen patches in `packages/patched/kernel/linux/patches/local/` (0020-0032), each keeping the original `From:` and `Signed-off-by:` lines, an `Origin:` line and, for the unmerged ones, `Forwarded: not-needed`:
 
 - **0020, 0021:** gelic RX allocation-failure handling and NAPI/GRO (upstream, Florian Fuchs). 0020 needed one change for 6.12: `from_timer()` instead of `timer_container_of()` (noted in the patch).
 - **0022:** `cpu_relax()` in `ps3_create_spu()` (upstream, Thorsten Blum).
@@ -128,7 +128,7 @@ Taken on kernel 6.12.111+ps3.4xx~dev, compile-tested at the time. Each item says
 
 1. **0170 dropped, and with it 0160 (ps3jupiter) and 0316 (its alias).** 0170 writes the hypervisor repository on every boot: gelic is built in and at probe clears this LPAR's bit in the system LPAR's `ios.net.eurus.lpar` node (when the LAID is 0x1070000002000001 and hw config bit 0x40000 is set). That goes around `PS3_REPOSITORY_WRITE=n`, which `ps3.config` sets on purpose. The repository lives in hypervisor memory and the change is probably gone after a power cycle, but that was never confirmed. It served only the Jupiter driver, which we do not build. Nothing else depended on it; 0180 only prints eurus command status in the stock gelic wireless driver. Internal Wi-Fi via ps3jupiter was therefore dropped too; the stock gelic wireless path (`GELIC_WIRELESS=y`) is the alternative. (If you want to check an old kernel: `dmesg | grep -i eurus`, "was disabled" means it wrote.)
 2. **0060 dropped (no `/dev/ps3sysmngr`).** Root could send any System Manager packet, and which SM services change persistent state is not documented. While the device is open the kernel also stops handling SM events, including the thermal alert our cooling rule depends on. `local/0040` was reworked not to use its misc device ([THERMAL.md](THERMAL.md)).
-3. **`# CONFIG_PS3_DISP_MANAGER is not set`** in `linux/config/ps3.config`. The dispatcher manager carries the update manager (firmware update, EEPROM writes), and nothing in our tree uses it.
+3. **`# CONFIG_PS3_DISP_MANAGER is not set`** in `packages/patched/kernel/linux/config/ps3.config`. The dispatcher manager carries the update manager (firmware update, EEPROM writes), and nothing in our tree uses it.
 4. **0090 dropped.** It passed arbitrary vendor SCSI commands to the BD drive (root only). A grep of the repo found no user. `PS3_ROM` itself stays (`PS3_ROM=y`).
 5. Internal Wi-Fi: see 1.
 6. **T2's ps3fb-in-VRAM (0666): not taken.** It would give up to 8.5 MB of XDR back (the console shadow), but costs 23 MB more VRAM, which is scarce (VRAM doubles as swap, see [KERNEL-MEMORY.md](KERNEL-MEMORY.md)), and it conflicts with how ps3rsx shares ps3fb's command area. A reworked version that keeps 9 MB of VRAM is a design job, not a port. Instead `local/0043` frees 8 of the 9 MB of XDR only while ps3rsx owns the GPU, with no VRAM change (switch `ps3fb.shadow_release`, off until measured; [KERNEL-MEMORY.md](KERNEL-MEMORY.md)).

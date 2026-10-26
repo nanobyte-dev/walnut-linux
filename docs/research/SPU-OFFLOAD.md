@@ -64,7 +64,7 @@ Notes on the top three:
 
 Resident workers: one spufs context per SPE, at most 6, never oversubscribed, each with a thread blocked in `spu_run`. Dispatch without syscalls: the SPU waits on a 128-byte job-queue line in process memory with an atomic reservation (`getllar`/`putllc`), and a PPE store to that line wakes it. Completion: the SPU DMA-writes a done word the PPE polls, or the PPE blocks on `ibox`. The SPU reads and writes the owning process's addresses directly, so buffers should be touched first.
 
-The pieces: an ELF loader (`ps3-spu/src/spurun.c`) and a way to ship SPU programs, the job ABI, an SPU main loop with double-buffered DMA, newlib's PPE-assisted calls (stop 0x2100, so `printf` works on the SPU), and error reporting with clean teardown. We estimated one to two weeks including a latency benchmark. What was built and measured is in [../SPU.md](../SPU.md).
+The pieces: an ELF loader (`packages/walnut/tools/ps3-spu/src/spurun.c`) and a way to ship SPU programs, the job ABI, an SPU main loop with double-buffered DMA, newlib's PPE-assisted calls (stop 0x2100, so `printf` works on the SPU), and error reporting with clean teardown. We estimated one to two weeks including a latency benchmark. What was built and measured is in [../SPU.md](../SPU.md).
 
 ## What was rejected, and why
 

@@ -1,13 +1,13 @@
 # The game suite: how it is run
 
-`games/bench/` runs the games on the PS3 the same way every time and turns the runs into comparable
+`bench/` runs the games on the PS3 the same way every time and turns the runs into comparable
 rows. One command does a first launch (`smoke`), a measured A/B (`bench`) or a round over every
 suite game (`suite`); each game is a recipe file. The results go into the matrices in
-`games/bench/results/`. What the numbers say per game is in [README.md](README.md); the stall
+`bench/results/`. What the numbers say per game is in [README.md](README.md); the stall
 recorder, the profiles and the memory snapshots have their own docs ([STALLS.md](../STALLS.md),
 [PROFILING.md](../PROFILING.md), [MEMORY.md](../MEMORY.md)).
 
-## What is in games/bench
+## What is in bench
 
 | Path | What |
 |---|---|
@@ -33,11 +33,11 @@ recorder, the profiles and the memory snapshots have their own docs ([STALLS.md]
 | `xkeys.py` | keys through XTEST, for games that ignore the virtual keyboard |
 | `shots.py` | the screenshots ([below](#screenshots)): `cost` (what a capture cost in frames), `convert` (xwd to PNG), `sheet` and `post` (the PS3 \| PC sheet), `pending` (sheets nobody reviewed) |
 
-`make bench-push` copies `games/bench` to `/var/tmp/bench` on the PS3 (unpacked beside the old copy
+`make bench-push` copies `bench` to `/var/tmp/bench` on the PS3 (unpacked beside the old copy
 and swapped in with a rename, so a run in progress keeps its files). `make bench-pull` fetches the
 run directories from `/var/tmp/ps3-bench` into `build/bench/`; `PERFDATA=1` adds perf.data (about
 20 MB a run), perf-load.data and perf-syms.tar. It also turns the runs' screenshots into PNGs and
-makes their PS3 | PC sheets ([Screenshots](#screenshots)). `games/openarena/` keeps step 0's scripts
+makes their PS3 | PC sheets ([Screenshots](#screenshots)). `bench/openarena/` keeps step 0's scripts
 (`step0.sh`, `step0-report.py`, `oa-*.sh`).
 
 ## run.sh
@@ -98,7 +98,7 @@ directories stay; the clean one counts).
 ## Recipes
 
 A recipe is sourced bash, variables and functions only. `client.sh <game> <variant>` sources it and
-calls `variant_<variant>` if it exists. The full list is in `games/bench/recipes/README.md`; the
+calls `variant_<variant>` if it exists. The full list is in `bench/recipes/README.md`; the
 ones that shape a run:
 
 - `CMD=(...)`, `ENV=(...)`, `SUITE=1`, `COMM` (the process name for ps3rsx's per-client VRAM and the
@@ -217,7 +217,7 @@ on its own: play every launcher of a game.
 `ps3-bench.sh session`. `run.sh list` names the games. A recipe needs a playable command: openarena
 and xmoto have a `session()` function for it, and the `menu` variants (`warzone2100 menu`) start at
 the game's own menu; a timedemo or autoplay recipe without one would run its bench command
-([recipes/README.md](recipes/README.md): `session()`). The script moves into `ps3-game.slice`
+([bench/recipes/README.md](../../bench/recipes/README.md): `session()`). The script moves into `ps3-game.slice`
 (game mode freezes the terminal) and logs to `~/.cache/ps3-session/`. Nothing else is needed from
 the terminal: play, then quit the game from its menu. There is no time limit. Don't use the PS3
 for anything else meanwhile, and no SSH: a login is interference for what is measured.
@@ -367,7 +367,7 @@ and `xruns.tsv`, one row per dropout (`at_s` after the run's `t0`, gap, loudness
 40 and 150 ms, and 60 ms with silence on both sides. It prints what the log says next to what it made
 and exits 0 when every gap came out within max(6 ms, 20%) with the right loudness. `-m` writes as
 OpenAL does (mmap, silent recover), the default as SDL does. On the PC, `selftest.py` runs it
-against a pretend card (`ps3-gpu-tools/tests/xrun-pacer.c`) that plays nothing.
+against a pretend card (`packages/walnut/tools/ps3-gpu-tools/tests/xrun-pacer.c`) that plays nothing.
 
 ## Screenshots
 
@@ -409,7 +409,7 @@ from plain runs; report.py's `shot_n`, `shot_ms`, `shot_win`, `shot_frame` colum
 against the 120 frames before) give the numbers.
 
 **On the PC.** `make bench-ref GAME=warzone2100 [VARIANT=base] [SHOTS="30 90"]` (`tools/bench-ref.sh`)
-runs the recipe through the same client.sh in an amd64 container (`docker/Dockerfile.benchref`, Debian
+runs the recipe through the same client.sh in an amd64 container (`build-containers/Dockerfile.benchref`, Debian
 sid from the PS3's snapshot) under Xvfb 1920x1080, with llvmpipe forced to the RSX's GL 2.1 and GLSL
 1.20 (`MESA_GL_VERSION_OVERRIDE=2.1`, `MESA_GLSL_VERSION_OVERRIDE=120`; the extension list is
 llvmpipe's own), no sound device, and the same shot points after the same game state. The recipe says
@@ -432,32 +432,31 @@ file next to the sheet, first line `verdict: ok|wrong|unclear [words]`, and repo
 
 ## The results matrices
 
-`games/bench/results/` holds one CSV per metric with the same rows (oldest first) and the same first
+`bench/results/` holds one CSV per metric with the same rows (oldest first) and the same first
 four columns (`test`, `date`, `runs`, `observations`), then one column per `<game>-<variant>`. A cell
 is the median over the row's runs of that game-variant. `results/README.md` explains every file and
 the caveats (rows 1-10 had nothing on screen; times in observations are UTC, the PS3's local time is
 UTC+3; perf-recording rows are slower). To add a row:
 
     make bench-pull
-    python3 games/bench/matrix.py "Mesa ps3.290 + ps3rsx 0.249" --obs "what the row shows" \
+    python3 bench/matrix.py "Mesa ps3.290 + ps3rsx 0.249" --obs "what the row shows" \
         build/bench/ps3-bench-20261018T*-armagetronad-*
 
 `--replace` drops the row's old cells first; `--hud GAME[,GAME]` takes the HUD median as the fps
 cell. Then fix the observations (plain sentences with names and numbers, caveats, the commit or
-version the row proves) and commit `games/bench/results/` only. docs/TESTS.md names the results
+version the row proves) and commit `bench/results/` only. docs/TESTS.md names the results
 commit of every batch.
 
 ## Adding a game
 
 Every game went through the same steps:
 
-1. **Get it**: a Debian main package (`image/deps.txt`, `make deps` with `build/aptly` backed up
-   first), our package (a debsrc directory like `mesa/`: `make <pkg>-work`, `-patches`, `-deb`), or a
-   data deb. Recommends are never installed (the image's apt config and aptly's
-   `-filter-with-deps` both skip them), so every package a game needs goes into its Depends and
-   `image/deps.txt` by name.
-2. **Before the session**: `make deps` (one refresh per group: each is permanent in the `ps3` suite;
-   `make du` first), the packages built, `make deploy`, `make bench-push`, `df /` on the PS3.
+1. **Get it**: a Debian main package (the PS3 installs it from live debian-ports), our package (a
+   debsrc directory like `packages/patched/graphics/mesa/`: `make <pkg>-work`, `-patches`, `-deb`), or a
+   data deb. Recommends are never installed (the image's apt config skips them), so every package a
+   game needs goes into its Depends by name.
+2. **Before the session**: the packages built, `make deploy` (a Debian package one of ours newly
+   depends on is installed from Debian first), `make bench-push`, `df /` on the PS3.
 3. **Smoke**: `run.sh smoke <game> [variant]` (VRAM swap off, the first launch of anything that might
    wedge the GPU). Check the picture, the sound state in bench.txt and the errors run.sh prints. Each
    recipe's setup writes the game's config first: 1920x1080 fullscreen, first-run dialogs off. Record
@@ -465,7 +464,7 @@ Every game went through the same steps:
    validator reject, graph exception, out of memory, wrong colours (big-endian). Silent failures
    count: grep stderr for `nouveau`, watch for a sudden slowdown.
 4. **Fix**: a driver bug as a Mesa patch or in ps3rsx (new validator rejects and graph exceptions go
-   into [RSX.md](../RSX.md) with a reproducer in `ps3-gpu-tools/mesa-tests`), a game bug in the game's
+   into [RSX.md](../RSX.md) with a reproducer in `packages/walnut/tools/ps3-gpu-tools/mesa-tests`), a game bug in the game's
    own debsrc package. Then smoke again.
 5. **Bench**: a recipe and its asset, then `run.sh bench <game> base 3` as the baseline.
 6. **Done** when the picture and sound are right, no kernel errors, the recipe gives numbers, the
@@ -482,9 +481,9 @@ Then the game joins `ps3-games` (ps3-desktop's `debian/control`) once it runs wi
   dsda-doom, freedoom, openttd, openttd-opengfx, openttd-opensfx, openttd-openmsx. Free packages only.
   The heavy games (BananaBread, Luanti, SuperTuxKart) deploy by name, e.g.
   `make deploy PKGS="ps3-games supertuxkart supertuxkart-data"`.
-- **`ps3-games-licensed`** (`ps3-games-licensed/`, native, all, routed to the `ps3-licensed` suite):
+- **`ps3-games-licensed`** (`packages/licensed/ps3-games-licensed/`, native, all, published to the licensed suite only):
   Depends on ps3-games, classicube-data, quake-shareware, quake2-demo-data, sauerbraten-nonfree-data.
-  For personal and LAN use only; free packages never depend on it.
+  For personal use only; free packages never depend on it.
 
 ## Disk and download
 
@@ -504,7 +503,7 @@ The biggest items: supertuxkart-data 752 MB, cube2-data 260 MB, neverball data 1
 
 ## Stage 0: how the suite started
 
-On 2026-10-16 the runner replaced `games/openarena/step0.sh`: `run.sh`, `client.sh`, `report.py`
+On 2026-10-16 the runner replaced `bench/openarena/step0.sh`: `run.sh`, `client.sh`, `report.py`
 (from step0-report.py), recipes and assets; config backups on disk, ALSA underrun counting, a 90 s
 cap at the time. The first two recipes were OpenArena (tc0, tc1, gl2min, gl2) and ClassiCube (a
 saved map, 60 s, HUD fps; later the ccbench timedemo). Games ran directly, with `GAMEMODE=1` as a
@@ -521,5 +520,5 @@ ps3rsx muted the video for every X started after another had quit (a1f1b91). Val
 | classicube (60 s, saved map) | 2 | | | 50.5 / 44 | 51 MB | 61 MB |
 
 Older versions and the dated history: [archive/GAME-SUITE.md](../archive/GAME-SUITE.md) ("Design:
-games/bench/", "Per game"), [archive/GAME-PLAN.md](../archive/GAME-PLAN.md) ("Stage 0", "Every stage
+bench/", "Per game"), [archive/GAME-PLAN.md](../archive/GAME-PLAN.md) ("Stage 0", "Every stage
 has the same shape", "Sessions").

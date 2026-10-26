@@ -199,7 +199,7 @@ Packages proposed then: a `ps3-games` metapackage next to `ps3-apps` (Depends on
 Recommends the heavy ones); the Luanti engine as our package with its unit tests in the build; the
 Quake shareware deb from game-data-packager (non-free, LAN repository only, installed with
 `--no-install-recommends` because game-data-packager-runtime pulls GTK 4; LibreQuake, a free
-replacement, only in Debian experimental); bench assets of our own in `games/bench/assets/`.
+replacement, only in Debian experimental); bench assets of our own in `bench/assets/`.
 
 ## The planned first session
 

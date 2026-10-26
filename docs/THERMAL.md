@@ -49,7 +49,7 @@ All fields are big-endian. Every SM message is a 16-byte header plus a payload:
 
 ## The hwmon driver (local/0040)
 
-`CONFIG_PS3_SYS_MANAGER_HWMON` (bool; needs `PS3_SYS_MANAGER` and `HWMON`, both on in `linux/config/ps3.config`) adds to `ps3-sys-manager.c` a hwmon device `ps3_sm` with `temp1_*` (Cell BE) and `temp2_*` (RSX). Each has `_input` (millidegrees), `_label` and `_alarm`. The module parameter `ps3_sys_manager.temp_zones=0,1,0x14` adds zones (up to 8) and `ps3_sys_manager.hwmon=0` turns the temperatures off.
+`CONFIG_PS3_SYS_MANAGER_HWMON` (bool; needs `PS3_SYS_MANAGER` and `HWMON`, both on in `packages/patched/kernel/linux/config/ps3.config`) adds to `ps3-sys-manager.c` a hwmon device `ps3_sm` with `temp1_*` (Cell BE) and `temp2_*` (RSX). Each has `_input` (millidegrees), `_label` and `_alarm`. The module parameter `ps3_sys_manager.temp_zones=0,1,0x14` adds zones (up to 8) and `ps3_sys_manager.hwmon=0` turns the temperatures off.
 
 How it behaves:
 
@@ -83,7 +83,7 @@ Still upstream behaviour: `final_power_off` does not send `set_attr(0)` first (r
 - The sampler reads every `temp*_input` and `temp*_alarm` once a second into `$D/temps` (`# Cell BE,RSX`, then `time mC mC`, with `-` when unreadable). The memory samples file is unchanged, since `report.py` and `step0-report.py` parse its fixed columns.
 - It stops the command (TERM, then KILL after 5 s, like the thermal alert watchdog) when a zone reaches `BENCH_TEMP_MAX` or raises its alarm. `BENCH_TEMP_MAX` is in degrees C and defaults to **80**: below SYSCON's own shutdown at about 85-90 C and webMAN's 83 C warning, above what a supervised run with the fan on SYSCON or at 60% or more should reach. `$D/TEMPLIMIT` says why it stopped.
 - `bench.txt` gets `temp_max=cell:71.5 rsx:66.0` and `temp_stop=1`, and `result` gets a "temps max" line.
-- `games/bench/run.sh` stops the whole batch on a TEMPLIMIT, as it does on a thermal alert.
+- `bench/run.sh` stops the whole batch on a TEMPLIMIT, as it does on a thermal alert.
 - `report.py` has columns `tmax` (`71.5/66.0`, `!` when stopped), `tcell` and `trsx` (numbers, with medians in the per-variant line). `selftest.py` checks them, and that runs without sensors get none.
 
 Each temperature read is one SM request. At one read per zone per second that is two small messages a second on a port that otherwise carries a few events per boot.
@@ -213,7 +213,7 @@ For reference, step 3's full-speed test (done on .433): `echo 0 | sudo tee $h/pw
 ## History
 
 - **Earlier implementations (all outside our tree).** glevand's ps3vuart-tools (2011-2012; mirrored at github.com/sguerrini97/ps3linux-ps3vuart-tools) has `ps3sm`, which sends raw SM messages through `/dev/ps3sysmngr`, the char device of glevand's `ps3sysmgr-char-device` patch. sguerrini97 added `get_temperature` (2018-05) and `set_fan_policy` (2018-12) there, and those are the only public Linux-side record of the message layouts. Mainline's `ps3-sys-manager.c` handles only events, next-op, attributes and the shutdown request, and has no temperature or fan driver. In GameOS, webMAN-MOD and IRISMAN read syscall 383 and drive 389 from their own control loops.
-- **`/dev/ps3sysmngr` dropped, 2026-10-18.** The char device was `linux/patches/ps3/0060-ps3sysmgr-char-device.patch`, in our kernels up to 6.12.111+ps3.419. While it is open the kernel's async read of the port is cancelled, so the power button and thermal alerts are not handled, and it can send any SM service. The user dropped it ([OTHEROS-PATCHES.md](OTHEROS-PATCHES.md), decision 2). `local/0040` had used its `struct ps3sm` only to return `-EBUSY` while the device was open; that and the misc device are gone. `ps3-sm-temp.sh --raw`, which sent the temperature request through the device, works only on a kernel that still has it (419 and older).
+- **`/dev/ps3sysmngr` dropped, 2026-10-18.** The char device was `packages/patched/kernel/linux/patches/ps3/0060-ps3sysmgr-char-device.patch`, in our kernels up to 6.12.111+ps3.419. While it is open the kernel's async read of the port is cancelled, so the power button and thermal alerts are not handled, and it can send any SM service. The user dropped it ([OTHEROS-PATCHES.md](OTHEROS-PATCHES.md), decision 2). `local/0040` had used its `struct ps3sm` only to return `-EBUSY` while the device was open; that and the misc device are gone. `ps3-sm-temp.sh --raw`, which sent the temperature request through the device, works only on a kernel that still has it (419 and older).
 - **First draft of the temperature request, 2026-10-18:** 19 bytes with payload size 3, caught by review; now the 20 bytes the reference tool sends.
 - **Research proposal versus built:** see [Fan control research](#fan-control-research).
 

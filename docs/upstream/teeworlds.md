@@ -1,7 +1,7 @@
 # Teeworlds: ioctl(FIONBIO) with an unsigned long on big-endian 64-bit
 
 Status: draft, not sent. Patch: `teeworlds-0001-ioctl-fionbio-int.patch` (git format-patch, author
-from git config; our source is `teeworlds/patches/0001`). Checked: upstream master `src/base/system.c`
+from git config; our source is `packages/patched/games/teeworlds/patches/0001`). Checked: upstream master `src/base/system.c`
 (read on GitHub, 2026-10-18) has the same `unsigned long mode` code as 0.7.5, so the patch applies
 there as is (it was cut against the 0.7.5 tarball; run `git am` on a fresh clone to be sure).
 

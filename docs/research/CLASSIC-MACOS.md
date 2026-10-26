@@ -47,7 +47,7 @@ So: build as 32-bit `powerpc` (ELF, ppc32) and run under the kernel's compat lay
 
 **Kernel.** `build/tmp/netboot/boot/config-6.12.111+ps3.152-ps3-release` has `CONFIG_COMPAT=y`,
 `CONFIG_COMPAT_BINFMT_ELF=y`, `CONFIG_ALTIVEC=y`, `CONFIG_PPC_4K_PAGES=y`, `CONFIG_DEFAULT_MMAP_MIN_ADDR=4096`.
-(linux/config/ps3.config is a fragment on top of Debian's config; it does not mention COMPAT, the built
+(packages/patched/kernel/linux/config/ps3.config is a fragment on top of Debian's config; it does not mention COMPAT, the built
 config does.) No KVM options are set.
 
 **Userland.** debian-ports still builds both: `https://deb.debian.org/debian-ports/dists/unstable/Release`

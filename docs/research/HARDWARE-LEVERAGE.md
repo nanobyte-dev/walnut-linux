@@ -82,7 +82,7 @@ Item by item, as of 2026-10-19.
 
 | Item | Outcome | Where |
 |---|---|---|
-| 1. VRAM swap with GPU copies | **Done**: `ps3rsx/src/kcopy.c`. A working set that fits the VRAM tier swaps in about 10x faster (passes 0.2-1.2 s against 4.4-17.7 s). OpenArena did not improve: its threads no longer block on swap-ins, and what is left is USB file I/O. | [RSX-SPU-FEASIBILITY.md section 3](RSX-SPU-FEASIBILITY.md#3-kernel-m2mf-copies-for-the-vram-swap-vswapc), [KERNEL-MEMORY.md](../KERNEL-MEMORY.md) |
+| 1. VRAM swap with GPU copies | **Done**: `packages/walnut/drivers/ps3rsx/src/kcopy.c`. A working set that fits the VRAM tier swaps in about 10x faster (passes 0.2-1.2 s against 4.4-17.7 s). OpenArena did not improve: its threads no longer block on swap-ins, and what is left is USB file I/O. | [RSX-SPU-FEASIBILITY.md section 3](RSX-SPU-FEASIBILITY.md#3-kernel-m2mf-copies-for-the-vram-swap-vswapc), [KERNEL-MEMORY.md](../KERNEL-MEMORY.md) |
 | 2. Cheap RAM trims | **Partly done.** The release kernel flavour shipped: `MemTotal` +8712 kB measured on the PS3 (the estimate for the kernel trim was 5-10 MB). The wallpaper is unloaded in game mode. The ps3fb console frame release (local/0043) is in the booted default kernel .472 behind a switch that is off by default; it has not been turned on and measured yet. Other trims wait on the "Memory trims" rule in [CLAUDE.md](../../CLAUDE.md): game mode, not permanent removal. The 720p console is the user's call. | [KERNEL-MEMORY.md](../KERNEL-MEMORY.md) sections 4 and 6, [DESKTOP.md](../DESKTOP.md) |
 | 3. SPU DMA into VRAM (E16) | **Not run.** | [backlog/spu.md](../backlog/spu.md) |
 | 4. VTF, derivatives, instancing | **Not started.** No current game uses them. | [backlog/graphics.md](../backlog/graphics.md) |

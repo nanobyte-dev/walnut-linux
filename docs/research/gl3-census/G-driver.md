@@ -334,7 +334,7 @@ ps3rsx before it runs on the PS3, because one bad push wedges the RSX until a re
 - RPCS3 master (2026-10-19): `rpcs3/Emu/RSX/gcm_enums.h`, `rsx_decode.h`, `rsx_methods.h`,
   `Program/RSXFragmentProgram.h`, `Program/RSXVertexProgram.h`, `Program/VertexProgramDecompiler.cpp`.
 - envytools master: `rnndb/graph/nv30-40_3d.xml`.
-- ps3rsx: `ps3rsx/src/validate.c` (allowlist lines 43-70, data checks 176-250).
+- ps3rsx: `packages/walnut/drivers/ps3rsx/src/validate.c` (allowlist lines 43-70, data checks 176-250).
 - NVIDIA, GPU Gems 2 ch. 30, "The GeForce 6 Series GPU Architecture" (fp16 filtering and blending,
   fp32 unblended/unfiltered, 4 vertex textures fp32 nearest, MRT same format and size, stream
   frequency, branching costs).

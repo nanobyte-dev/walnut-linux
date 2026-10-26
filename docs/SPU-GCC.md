@@ -13,13 +13,13 @@ Yes, it was viable, in two steps that cost very different amounts.
 
 ## Status
 
-`make spu-toolchain` builds spu-elf **GCC 16.2.0** from the release tarball plus three patches in `spu-toolchain/gcc/`:
+`make spu-toolchain` builds spu-elf **GCC 16.2.0** from the release tarball plus three patches in `packages/patched/toolchain/spu/gcc/`:
 
 - `0001-spu-transplant-gcc9.5-backend-into-gcc16.2.patch`: the transplant;
 - `0002-spu-port-to-gcc16.2-api.patch`: the API port;
 - `0003-expmed-no-invalid-subregs-for-extv-insv.patch`: an `expmed` fix for the `__complex__` crashes.
 
-It uses old reload and links against newlib 4.6 (`spu-toolchain/newlib-4.6/`) and libgcc, both built by GCC 16.2, and binutils 2.47 with one patch. The version pins and sha256 of the sources are in `config.mk`.
+It uses old reload and links against newlib 4.6 (`packages/patched/toolchain/spu/newlib-4.6/`) and libgcc, both built by GCC 16.2, and binutils 2.47 with one patch. The version pins and sha256 of the sources are in `config.mk`.
 
 Results on the SPEs, 2026-10-15, with everything built by GCC 16.2:
 
@@ -31,7 +31,7 @@ The earlier, first run of the port (old reload, but linked with GCC 9.5's binuti
 
 ### binutils 2.47
 
-binutils 2.47 needs one patch, `spu-toolchain/binutils/0001-gas-spu-nop-is-an-instruction.patch`. It is not upstream yet (binutils master of 2026-10-15 still has the bug).
+binutils 2.47 needs one patch, `packages/patched/toolchain/spu/binutils/0001-gas-spu-nop-is-an-instruction.patch`. It is not upstream yet (binutils master of 2026-10-15 still has the bug).
 
 - **Symptom:** "Relocation doesn't fit" on an `hbrr` (first seen in libgloss's `open.c`), for GCC 9.5's output as well as ours.
 - **Cause:** binutils commit `b1766e7ce886` (2.36, September 2020) added a generic `.nop` directive. The SPU assembler looks pseudo-ops up without the dot (`NO_PSEUDO_DOT`), so `nop` became the directive instead of the SPU instruction. `058430b4a1ae` (also 2.36) then gave `.nop` an optional size, so GCC's `nop 127` (`nop $127`, padding for dual issue) assembles to 32 nops that pad 127 bytes. Branches end up beyond the 9-bit word offset of the hints GCC placed, so some hints fail to assemble. The rest are inflated with no warning: 1245 of 1590 torture-test objects differ from 2.33.1.
@@ -39,14 +39,14 @@ binutils 2.47 needs one patch, `spu-toolchain/binutils/0001-gas-spu-nop-is-an-in
 
 Checked against 2.33.1, both with GCC 16.2 and newlib 4.6, built side by side:
 
-- Assembler: every libgcc, newlib, libgloss and crt object, plus 1572 `-O2` objects (`gcc.c-torture/execute` and `ps3-spu/src/hello.c`), has the same code, relocations and non-debug sections. The only difference is the 4 `__FILE__` strings of the build path in libc.
+- Assembler: every libgcc, newlib, libgloss and crt object, plus 1572 `-O2` objects (`gcc.c-torture/execute` and `packages/walnut/tools/ps3-spu/src/hello.c`), has the same code, relocations and non-debug sections. The only difference is the 4 `__FILE__` strings of the build path in libc.
 - Linker: the 1562 linked test programs come out the same when the 2.47 objects are linked with ld 2.33.1. ld 2.47 itself merges constants in a different order (`lqr`/`ila` addresses), aligns `.note.spu_name` to 4 instead of 16, and lays out merged strings differently (in `string-opt-17` the empty string gets its own 16 bytes): 16 more bytes of `.rodata` in 4 programs.
 - The gas testsuite (`spu.exp`, `gas.exp`, `elf.exp`) passes as unpatched 2.47 does, the generic `.nop` test included.
 - On the SPEs: the same result per test as 2.33.1 (1629 of 1677 pass), so ld 2.47's new layout changes nothing that runs.
 
 ### newlib 4.6.0.20260123
 
-newlib 3.3.0 doesn't build for SPU. 4.6 needs seven small patches (`spu-toolchain/newlib-4.6/`, each with its reason in the file) and builds with plain `-O2`:
+newlib 3.3.0 doesn't build for SPU. 4.6 needs seven small patches (`packages/patched/toolchain/spu/newlib-4.6/`, each with its reason in the file) and builds with plain `-O2`:
 
 - `sys/sched.h` lacks `struct sched_param`;
 - `math.h` declares `isinf`/`isnan`, which SPU's `ieeefp.h` defines as macros;
@@ -67,11 +67,11 @@ The libc/libgloss PPE-assisted ABI (stop code 0x2100 and its argument blocks, th
 - **newlib:** SPU is still upstream but has bit-rotted. With the seven patches 4.6 builds; the PS3 homebrew toolchain (ps3dev/ps3toolchain) still uses 1.20.0.
 - **GDB:** Cell support was removed in GDB 9, so 8.3.1 would be the pin (not built here).
 - **Other efforts:** we found no forward port of the SPU backend. PS3DK's tracking issue (#26, 2026-10) lists it as deferred. LLVM's CellSPU backend was removed in 2012 (LLVM 3.3) and never revived.
-- **PPE side:** libspe2 is gone from Debian. `ps3-spu/src/spurun.c` (106 lines) runs SPU ELFs through spufs directly, and libspeq (`ps3-spu/lib`) keeps them resident as job workers. newlib's SPU code calls the PPE through stop codes. 0x2100 is C99 stdio (`printf` and co.) and 0x2101 is POSIX calls (`write`, `open`, ...); both are served by the PPE program, which neither spurun nor libspeq does yet, so test programs avoid stdio. 0x2104 runs Linux system calls (a whitelist: `write`, `futex`, `nanosleep`, ...) and is served by the kernel inside `spu_run` itself (`spufs/run.c`; newlib's `__linux_syscall`). The word after the stop is `opcode << 24 | LS address` of the argument block; `spu_run` returns with npc pointing at it.
+- **PPE side:** libspe2 is gone from Debian. `packages/walnut/tools/ps3-spu/src/spurun.c` (106 lines) runs SPU ELFs through spufs directly, and libspeq (`packages/walnut/tools/ps3-spu/lib`) keeps them resident as job workers. newlib's SPU code calls the PPE through stop codes. 0x2100 is C99 stdio (`printf` and co.) and 0x2101 is POSIX calls (`write`, `open`, ...); both are served by the PPE program, which neither spurun nor libspeq does yet, so test programs avoid stdio. 0x2104 runs Linux system calls (a whitelist: `write`, `futex`, `nanosleep`, ...) and is served by the kernel inside `spu_run` itself (`spufs/run.c`; newlib's `__linux_syscall`). The word after the stop is `opcode << 24 | LS address` of the argument block; `spu_run` returns with npc pointing at it.
 
 ## The experiment
 
-Reproducible: `tools/spu-port-experiment.sh` does the transplant, `spu-toolchain/gcc/*.patch` hold the result, and `spu-toolchain/scripts/` has the test harnesses (`rebuild.sh`, `torture.sh`, `exec-build.sh`, `exec-build16.sh`, `run-exec.sh`).
+Reproducible: `tools/spu-port-experiment.sh` does the transplant, `packages/patched/toolchain/spu/gcc/*.patch` hold the result, and `packages/patched/toolchain/spu/scripts/` has the test harnesses (`rebuild.sh`, `torture.sh`, `exec-build.sh`, `exec-build16.sh`, `run-exec.sh`).
 
 ### Step 1: transplant without edits
 

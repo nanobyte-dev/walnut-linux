@@ -153,7 +153,7 @@ PLAN 2.2 is the benchmark round through game mode (games started from the deskto
 
 ### The host tests
 
-All in `ps3-desktop/tests/` and `games/bench/`, none needing the PS3:
+All in `packages/walnut/system/ps3-desktop/tests/` and `bench/`, none needing the PS3:
 
 | Test | Covers |
 |---|---|
@@ -161,7 +161,7 @@ All in `ps3-desktop/tests/` and `games/bench/`, none needing the PS3:
 | `autogm-check.sh` | `ps3-game-detect` on Xvfb and Openbox with a stand-in GL game: 47 checks for the detector, plus checks 11 and 12 (a stand-in jgmenu holding both grabs that starts a game through `ps3-game`; a tray popup holding them when a game is detected) and 13 to 15 (a game ignoring SIGTERM closed by the escape, `BTN_MODE` events into the listener, Alt+Tab and Win+D through XTEST with Openbox). Needs Xvfb and openbox, or docker/podman; run by `make test-slow` |
 | `gprefetch-check.py` | the prefetch program's learning and fetching (suite `gprefetch`) |
 | `kick-check.sh` | the kicker's switches |
-| `gamemode-check.sh` (`games/bench/`) | on the desktop: memory idle, in game mode and after, and checks that everything frozen or unloaded comes back (guard gone, nothing frozen, same helpers alive, PCManFM desktop and wallpaper, tray icons, pads, the user and system buses, X, ALSA, the network). Options `-t`, `-a`, `-m`, `--crash`, `--two`, `--sound`; results in `/var/tmp/ps3-bench/<stamp>-gamemode/`. It has never run on the PS3 |
+| `gamemode-check.sh` (`bench/`) | on the desktop: memory idle, in game mode and after, and checks that everything frozen or unloaded comes back (guard gone, nothing frozen, same helpers alive, PCManFM desktop and wallpaper, tray icons, pads, the user and system buses, X, ALSA, the network). Options `-t`, `-a`, `-m`, `--crash`, `--two`, `--sound`; results in `/var/tmp/ps3-bench/<stamp>-gamemode/`. It has never run on the PS3 |
 
 ## Early performance fixes (2026-10-14)
 

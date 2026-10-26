@@ -6,7 +6,7 @@ On 2026-10-15 we worked through the questions that [HARDWARE-LEVERAGE.md](HARDWA
 
 As of 2026-10-19:
 
-- **Section 3 (kernel M2MF copies for the VRAM swap) is built** as `ps3rsx/src/kcopy.c`. A working set that fits the VRAM tier swaps in about 10x faster (passes 0.2-1.2 s against 4.4-17.7 s), the GL suite passes 3 times in a row while ~92k kernel copies interleave with its clients, and there were 0 fallbacks in those runs (source: [archive/PLAN.md](../archive/PLAN.md), work-queue item 1). OpenArena did not improve, since its threads no longer block on swap-ins; what is left there is file I/O on the USB disk. The latency table in section 3 is the research's estimate, kept as it was.
+- **Section 3 (kernel M2MF copies for the VRAM swap) is built** as `packages/walnut/drivers/ps3rsx/src/kcopy.c`. A working set that fits the VRAM tier swaps in about 10x faster (passes 0.2-1.2 s against 4.4-17.7 s), the GL suite passes 3 times in a row while ~92k kernel copies interleave with its clients, and there were 0 fallbacks in those runs (source: [archive/PLAN.md](../archive/PLAN.md), work-queue item 1). OpenArena did not improve, since its threads no longer block on swap-ins; what is left there is file I/O on the USB disk. The latency table in section 3 is the research's estimate, kept as it was.
 - **Not run:** E8b (what lv1 keeps of `ioremap_wc`), E16 (SPU DMA into a VRAM buffer), E17 (M2MF small-copy latency), the memcpy `dcbz` trap check, `egl-deriv`, instancing and vertex texture fetch. [RSX.md](../RSX.md) still lists the E8 result (write-combining 69 MB/s against guarded 70 MB/s) with the caveat that E8's loop timed each page's first touch, which E8b would remove.
 - **The validator still lets 0x900-0x97c (the vertex texture methods) through with unchecked data.** A bad vertex texture format or offset can wedge the RSX today. Hardening it comes before any VTF work.
 - Where each open item lives: probes E8b, E16 and E17, derivatives, instancing and VTF in [backlog/graphics.md](../backlog/graphics.md); SPU DMA into VRAM in [backlog/spu.md](../backlog/spu.md); the VRAM-swap thresholds in [backlog/memory.md](../backlog/memory.md).
@@ -57,11 +57,11 @@ What the PPE can do with cache-inhibited stores (Handbook):
   should be legal (medium: no sentence says so explicitly).
 
 Reading the measurements:
-- 124 MB/s with 8-byte stores (userspace, `ps3-gpu-tools/src/rsx-probe.c:333-353`, through ps3fb's I|G
+- 124 MB/s with 8-byte stores (userspace, `packages/walnut/tools/ps3-gpu-tools/src/rsx-probe.c:333-353`, through ps3fb's I|G
   `/dev/ps3gpu_vram`) is one 8-byte transaction every ~64 ns, i.e. ~200 PPE cycles per store.
   The cost is per transaction, not per byte. The best case for 16-byte transactions is then
   ~250 MB/s.
-- E8 in the kernel (`ps3rsx/probes/rsx_ctx_probe2.c:369-395`) measured 69 vs 70 MB/s, guarded vs WC.
+- E8 in the kernel (`packages/walnut/drivers/ps3rsx/probes/rsx_ctx_probe2.c:369-395`) measured 69 vs 70 MB/s, guarded vs WC.
   That loop times the first touch of each page, so ~1000 hash faults and `lv1_insert_htab_entry`
   calls fall inside the timed region.
 - WC equal to guarded means one of three things: combining didn't happen (the loop isn't the
@@ -94,7 +94,7 @@ What PS3 homebrew does:
      store loop, no `dcbz`. Use it in Mesa's PS3 CPU paths that write VRAM.
    - Check with `perf stat -e alignment-faults,emulation-faults` on X and a game. Any count in
      the thousands per second is this bug.
-2. **`ps3rsx/src/mem.c:97` (VRAM BO mmap):** switch `pgprot_noncached` to `pgprot_noncached_wc`,
+2. **`packages/walnut/drivers/ps3rsx/src/mem.c:97` (VRAM BO mmap):** switch `pgprot_noncached` to `pgprot_noncached_wc`,
    **only after E8b** shows that lv1 keeps G=0 and that it helps.
    - VRAM is plain memory, so G=0 is correct.
    - Writers must then end with `sync` (any ioctl that kicks the GPU already does: `out_be32` has
@@ -124,7 +124,7 @@ Confidence: medium-high for the mechanism. Low for the rate, since nobody has pu
 SPU→VRAM figure for Linux.
 
 The path in the kernel:
-- `bo_mmap` (`ps3rsx/src/mem.c:65-99`): VRAM BOs get `VM_IO|VM_PFNMAP`, `pgprot_noncached`, and
+- `bo_mmap` (`packages/walnut/drivers/ps3rsx/src/mem.c:65-99`): VRAM BOs get `VM_IO|VM_PFNMAP`, `pgprot_noncached`, and
   `io_remap_pfn_range(vma, start, (ddr_lpar + offset) >> PAGE_SHIFT, …)`. `remap_pfn_range`
   fills every PTE at mmap time.
 - An MFC translation miss raises a class-1 interrupt. `spufs_handle_class1`
@@ -165,14 +165,14 @@ Restrictions and prior art:
 - **The kernel still can't use SPEs** (no in-kernel spufs client), so this is for userspace
   producers: libspeq, DXT encode, decompression into VRAM BOs. It is not a vswap path.
 
-**Probe E16 (userspace, `ps3-gpu-tools/src/spu-vram.c` + an SPU kernel):**
+**Probe E16 (userspace, `packages/walnut/tools/ps3-gpu-tools/src/spu-vram.c` + an SPU kernel):**
 1. Open `/dev/dri/renderD128`. Do the PS3_ABI getparam and `GEM_NEW` of a 1 MiB VRAM BO
    (mappable, below 224 MB), then `GEM_INFO` and `mmap` it `MAP_SHARED`. Pre-fill it with
    0x5a through M2MF or PPE stores.
 2. Create an SPU context with `spu_create("/spu/vram", SPU_CREATE_EVENTS_ENABLED, 0755)`. Load
    the SPU program (spu-gcc, [SPU-GCC.md](../SPU-GCC.md)) and pass the EA and size in its registers before
    the first run (the context's `regs` file: crt0 hands r3-r5 to `main`; `spu_run` takes no
-   argument), or through the inbound mailbox. libspeq does both of these (ps3-spu/lib).
+   argument), or through the inbound mailbox. libspeq does both of these (packages/walnut/tools/ps3-spu/lib).
 3. SPU side:
    - fill a 16 KiB LS buffer with a pattern (word = EA offset);
    - issue 64 `mfc_put` of 16 KiB with 4 tags rotating, then `mfc_write_tag_mask`/`mfc_read_tag_status_all`;
@@ -475,7 +475,7 @@ Confidence: high for methods and encodings, medium for semantics (from RPCS3's e
      - Needs `count ≤ 65535` (16-bit field). Indexed draws need the index list replicated with
        `+ inst × (max_index + 1)` offsets, or BASE_INDEX (0x173c) per instance, whose
        interaction with the divider is unverified.
-     - Add 0x1fc0 to the validator allowlist (`ps3rsx/src/validate.c:67`, today
+     - Add 0x1fc0 to the validator allowlist (`packages/walnut/drivers/ps3rsx/src/validate.c:67`, today
        `{0x1fc4, 0x1fd8}`). It's plain state, so `shadow.c` restores it as is.
      - Mesa must write 0x1fc0 = 0 and frequency 0 whenever instancing is off: state is shared
        between channels.

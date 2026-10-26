@@ -8,7 +8,7 @@ Key for the Action column: **a** = goes into a package or the image, **b** = dro
 
 ## The image of 2026-10-16
 
-- `build/rootfs/debian-ppc64.tar`, 2,179,409,920 bytes (2.0 GiB), sha256 `4882903b...f78234`. `build/rootfs/base.tar` (the Debian layer) was rebuilt too, since `image/packages.txt` had changed (kbd): 855 s. Our layer took 200 s. The previous outputs went to `build/old/20261016-194147-rootfs/`.
+- `build/rootfs/debian-ppc64.tar`, 2,179,409,920 bytes (2.0 GiB), sha256 `4882903b...f78234`. `build/rootfs/base.tar` (the Debian layer) was rebuilt too, since `system/image/packages.txt` had changed (kbd): 855 s. Our layer took 200 s. The previous outputs went to `build/old/20261016-194147-rootfs/`.
 - Our packages: kernel `.178` (release and debug), ps3rsx 0.181, Mesa `+ps3.186`, ps3-desktop and ps3-apps 0.202, ps3-system 0.160, ps3-boot 0.152, ps3-gpu-tools 0.189, ps3-splash 0.181~dev, Plymouth `+ps3.177~dev`, classicube `+ps3.152`. ps3-spu, ps3-spu-programs and libspeq0 are 0.201 from the `ps3-dev` pool (sha256 checked), mounted over `build/debs/ps3-spu` for the build, because that directory was rebuilt as 0.204~dev while the base layer ran.
 - The live system ran the same set, so the comparison was like for like.
 
@@ -22,7 +22,7 @@ Two findings needed a package fix. Both are fixed in the 2026-10-18 release imag
 
 | What | Where | Action |
 |---|---|---|
-| systemd-networkd isn't enabled in the image. Live it runs and keeps eth0's DHCP lease; its links came from the old `image/customize.sh` (`systemctl enable systemd-networkd ssh`). ps3-system's postinst calls `deb-systemd-helper enable systemd-networkd.service`, but systemd's own postinst ran `deb-systemd-helper update-state` for the unit first, so the helper sees it as already installed with no links (left disabled by the admin) and creates none. The image booted with only the kernel's `ip=dhcp` address, with no renewal, and `20-ps3-wired.network` went unused. | `ps3-system/debian/postinst` | **a**: enable with `systemctl enable systemd-networkd.service` (works in a chroot) or ship the `.wants` links; rebuild ps3-system. Fixed in 0.489 |
+| systemd-networkd isn't enabled in the image. Live it runs and keeps eth0's DHCP lease; its links came from the old `system/image/customize.sh` (`systemctl enable systemd-networkd ssh`). ps3-system's postinst calls `deb-systemd-helper enable systemd-networkd.service`, but systemd's own postinst ran `deb-systemd-helper update-state` for the unit first, so the helper sees it as already installed with no links (left disabled by the admin) and creates none. The image booted with only the kernel's `ip=dhcp` address, with no renewal, and `20-ps3-wired.network` went unused. | `packages/walnut/system/ps3-system/debian/postinst` | **a**: enable with `systemctl enable systemd-networkd.service` (works in a chroot) or ship the `.wants` links; rebuild ps3-system. Fixed in 0.489 |
 | The image's boot menu defaulted to the **debug** kernel (`default=6.12.111+ps3.178-debug202610161230`) despite `PS3_DEFAULT_FLAVOUR=release`. `build/debs/ps3-boot` was 0.152, from before ecfaa5d; the source (version 176) understands `release`/`debug`, the 0.152 script only `-<flavour>` suffixes. | `ps3-boot` | **a**: `make ps3-boot-deb`, then rebuild the image. Fixed in 0.484 |
 | Live `kboot.conf` defaults to `6.12.112-ps3-debug-202610151803` (old pipeline kernel; it sorts above 6.12.111). Booting without picking in Petitboot gives that kernel, not `.178`. | live only | **b**: goes with the old kernels |
 | `build/debs` was behind the source for ps3-gpu-tools (0.189, source 193) and ps3-splash/Plymouth (`~dev` builds, committed as 182). ps3-system and classicube differed only by tooling commits. | `build/debs` | **a**: rebuild before the image you install. Done for the release image |
@@ -32,8 +32,8 @@ Two findings needed a package fix. Both are fixed in the 2026-10-18 release imag
 | Difference | Packages | Action |
 |---|---|---|
 | Only live: old kernels and their drivers | `linux-image-6.12.111+ps3.152-ps3{,-release}`, `...+ps3.163-ps3{,-release}`, `linux-image-ps3-release` (old meta), `ps3-kernel`, `ps3-kernel-6.12.112-ps3-debug-202610151608`, `...-202610151803`, `ps3rsx` (0.114), `ps3rsx-6.12.112-ps3-debug-202610151608`, `ps3rsx-modules-6.12.111+ps3.{152,163}-ps3{,-release}`, `ps3rsx-modules-6.12.112-ps3-debug-202610151803`, `ps3rsx-modules-ps3-release`; `linux-image-6.12.111+ps3.173.dev...` removed, config files left (`rc`) | **b** |
-| Only live: installed by hand | `htop` | **a** if wanted: add to `image/packages.txt`; else **b** |
-| Only in the image | `kbd` (added to `image/packages.txt` after this root was installed); `linux-image-ps3-debug`, `linux-image-6.12.111+ps3.178-debug202610161230`, `ps3rsx-modules-ps3-debug`, `ps3rsx-modules-6.12.111+ps3.178-debug202610161230` (the deploys left the debug kernel out) | image is right; nothing to do |
+| Only live: installed by hand | `htop` | **a** if wanted: add to `system/image/packages.txt`; else **b** |
+| Only in the image | `kbd` (added to `system/image/packages.txt` after this root was installed); `linux-image-ps3-debug`, `linux-image-6.12.111+ps3.178-debug202610161230`, `ps3rsx-modules-ps3-debug`, `ps3rsx-modules-6.12.111+ps3.178-debug202610161230` (the deploys left the debug kernel out) | image is right; nothing to do |
 | Install marks | Live marks `hsetroot` manual (auto in the image, a ps3-desktop dependency) | **b** |
 | Versions | none differ | |
 

@@ -45,8 +45,8 @@ quiet drops the caches and empties the swaps again). By hand, for a run made ear
 - Debug symbols, for profile runs only (they go to the disk, never into images; remove them
   afterwards). Without them perf names only exported functions, and static ones show as addresses
   inside the DSO (the class shares are right either way). Each must match the installed version
-  exactly (`apt install P-dbgsym=$(dpkg-query -W -f '${Version}' P)`); our dev builds' are in the
-  `ps3-dev` suite, stable releases' in `ps3-dbgsym`:
+  exactly (`apt install P-dbgsym=$(dpkg-query -W -f '${Version}' P)`); our local builds' come with
+  `make deploy` (they are in `build/debs`), testing's and stable's from `testing-debug` and `stable-debug`:
   - the driver, every game: `mesa-libgallium-dbgsym` (libgallium: nv30, the state tracker, u_vbuf),
     `libgl1-mesa-dri-dbgsym`, `libglx-mesa0-dbgsym`, `libegl-mesa0-dbgsym`, `libgbm1-dbgsym`;
   - libc: `libc6-dbg` (Debian's: memcpy and malloc by name);
@@ -181,7 +181,7 @@ game's output keeps flowing. Each one writes `mem/<label>.*`:
 
 bench.txt gets `mem_snaps` (label:seconds:ms per snapshot).
 
-**ps3-mallocstat.so** (`ps3-gpu-tools/preload/`) is preloaded into the game (`LD_PRELOAD`, which
+**ps3-mallocstat.so** (`packages/walnut/tools/ps3-gpu-tools/preload/`) is preloaded into the game (`LD_PRELOAD`, which
 `stdbuf` and the launchers pass on). It acts only in the process named `COMM` (the recipe's): its
 constructor starts one thread with a 64 KiB stack that blocks on a fifo, and every label written there
 makes it dump the statistics. It has no signal handler (a game using SIGUSR1/2 or blocking signals is
@@ -600,7 +600,7 @@ time on the USB root.
 
 ### nv30's shader cache
 
-Mesa 0039 (`mesa/patches/0039-nv30-compiled-programs-in-the-disk-shader-cache-NV30.patch`,
+Mesa 0039 (`packages/patched/graphics/mesa/patches/0039-nv30-compiled-programs-in-the-disk-shader-cache-NV30.patch`,
 `src/gallium/drivers/nouveau/nv30/nv30_shader_cache.c`) puts nv30's own half of `shader.backend` into
 the screen's disk cache. **Built, off by default, never run on the PS3.** It is in Mesa from
 .466~dev20261018175510 on, including the release build .476. With `NV30_SHADER_CACHE=on` it uses the
@@ -717,7 +717,7 @@ and in the image. zlib-ng stays out of the system's libz.so.1 (dpkg, apt and ssh
 deflate output differs from zlib's byte for byte), but every game started through `ps3-game` gets
 it: libz-ng-compat is a Recommends of ps3-desktop, and `PS3_ZLIB=stock` turns it off for a game.
 
-**libpng1.6.** `libpng1.6/` (Debian's source, 1.6.59-1) is built `-O3 -mcpu=cell -mtune=cell`, with
+**libpng1.6.** `packages/patched/graphics/libpng1.6/` (Debian's source, 1.6.59-1) is built `-O3 -mcpu=cell -mtune=cell`, with
 Debian's `-DPNG_POWERPC_VSX=off` kept: libpng's own PowerPC option accepts AltiVec or VSX in its
 run-time check and would run VSX code on a Cell. The patch is `powerpc/filter_cell.h`, included by
 `pngrutil.c` through libpng's `PNG_FILTER_OPTIMIZATIONS` hook, and only compiled for big-endian
@@ -792,7 +792,7 @@ One stock-arm run (17:16Z) ended with SIGABRT at the exit after a full race; the
 looked at. So `libpng16-16t64` +ps3.560 is a proven 2.8 s on SuperTuxKart's 30 s load and nothing
 measurable elsewhere.
 
-**The package.** `zlib-ng/` (TYPE upstream, the pinned 2.3.3 tarball, `zlib-ng/upstream.mk`) builds
+**The package.** `packages/repackaged/zlib-ng/` (TYPE upstream, the pinned 2.3.3 tarball, `packages/repackaged/zlib-ng/upstream.mk`) builds
 `libz-ng-compat`: only `libz.so.1` (zlib-compat API, symbol versions to `ZLIB_1.2.12`) in
 `/usr/lib/powerpc64-linux-gnu/zlib-ng`, which the linker never searches by itself, built
 `-mcpu=cell -mtune=cell`. Games get it through `LD_LIBRARY_PATH`: `ps3-game` sets it for every game since 2026-10-20 (`PS3_ZLIB=stock` off), and so does the bench (`ZLIB=stock` off).
@@ -838,8 +838,8 @@ Measured on the host (Zen 2), estimated for the PPE; every run states its own nu
 
     make bench-pull                 # every run directory into build/bench, without perf.data
     make bench-pull PERFDATA=1      # with perf.data, perf-load.data, perf-sys.data and perf-syms.tar
-    games/bench/report.py --perf --mem build/bench/<run dir>...
-    games/bench/perfprof.py build/bench/<run dir>
+    bench/report.py --perf --mem build/bench/<run dir>...
+    bench/perfprof.py build/bench/<run dir>
     flamegraph.pl build/bench/<run dir>/perf.folded > flame.svg   # or speedscope, inferno
 
 The text files and `perf.folded` are symbolised on the PS3 and are all most analysis needs. For
@@ -851,23 +851,23 @@ and pull with `PERFDATA=1`, then:
 
 perf on x86 reads ppc64's big-endian perf.data (it swaps), but the powerpc call-chain check above does
 not run there. For that, use the PS3's own perf under qemu (next section). The cross-game ranking in
-[HOTPATHS.md](HOTPATHS.md) used a third way, `games/bench/hotpaths/`, which reads perf.data directly.
+[HOTPATHS.md](HOTPATHS.md) used a third way, `bench/hotpaths/`, which reads perf.data directly.
 
 ### Re-processing a run on the PC
 
-`games/bench/hotpaths/perfq.sh` runs the PS3's own perf (Debian's 7.2.9 for ppc64) under qemu-user
+`bench/hotpaths/perfq.sh` runs the PS3's own perf (Debian's 7.2.9 for ppc64) under qemu-user
 from a root (`PERFQ_ROOT`, default `build/tmp/hotpaths-sym`), which gives the PS3's call-chain
 handling on the PC:
 
     R=build/tmp/hotpaths-sym; mkdir -p $R
     tar -xf build/rootfs/base.tar -C $R ./usr/bin/perf ./usr/lib/powerpc64-linux-gnu ./usr/lib64 ./lib ./lib64 ./bin
-    games/bench/hotpaths/symroot.sh     # Mesa and its dbgsym, the kernel's System.map, ps3rsx, libc6-dbg
+    bench/hotpaths/symroot.sh     # Mesa and its dbgsym, the kernel's System.map, ps3rsx, libc6-dbg
     # the game's own binaries and dbgsym of the run's versions: unpack their debs into $R too
-    PERFPOST_PERF=games/bench/hotpaths/perfq.sh PERFPROF_ROOT=$R games/bench/perf-post.sh <copy of the run dir>
+    PERFPOST_PERF=bench/hotpaths/perfq.sh PERFPROF_ROOT=$R bench/perf-post.sh <copy of the run dir>
 
 Module symbols are not in System.map, so `[drm]` frames stay unnamed there (still kgpu). The host has
 no dpkg database of the PS3, so `perf-pkgs.txt` comes out empty: write the game's libraries into it by
-hand (`path<TAB>package`) and run `games/bench/perfprof.py <dir>` again. Delete the root afterwards.
+hand (`path<TAB>package`) and run `bench/perfprof.py <dir>` again. Delete the root afterwards.
 
 To redo a run's text files on the PS3 itself instead: `make bench-push`, then
 `/var/tmp/bench/perf-post.sh /var/tmp/ps3-bench/<run dir>` with the debug symbols of the run's
@@ -875,7 +875,7 @@ versions installed.
 
 ## Validation
 
-`python3 games/bench/selftest.py`, sections 7-9:
+`python3 bench/selftest.py`, sections 7-9:
 
 - perfprof.py on a made-up `perf script` output (call chains: a game, its renderer library,
   libgallium, libdrm_nouveau, ps3rsx and drm in the kernel, a page fault, memcpy, OpenAL, an audio

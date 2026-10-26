@@ -39,7 +39,7 @@ On this batch's perf.data the fixed perf-post.sh now gives this tool's class sha
 
 ### Symbolised again on the PC
 
-`games/bench/hotpaths/` reads `perf.data` directly (big-endian PERFILE2, call chains, MMAP2 records
+`bench/hotpaths/` reads `perf.data` directly (big-endian PERFILE2, call chains, MMAP2 records
 with build ids) and symbolises it on the PC:
 
 - the game's maps are perf's MMAP2 records, with the holes filled from the run's `mem/mid.smaps`
@@ -231,7 +231,7 @@ alternation.
   parameter is read at every burst and restore and both paths leave identical state, so it can be
   flipped at run time: `echo 1 | sudo tee /sys/module/ps3rsx/parameters/shadow_fast` (the bench's
   ENVS token `PS3RSX_SHADOW_FAST=1` does it per run).
-- Equivalence, `ps3rsx/test/` (`make && make run`; `make test ONLY=ps3rsx-shadow`): shadow.c built in
+- Equivalence, `packages/walnut/drivers/ps3rsx/test/` (`make && make run`; `make test ONLY=ps3rsx-shadow`): shadow.c built in
   userspace twice (slow and fast path) and fuzzed with Mesa-like pushes (binds of every object, host
   methods, inc and non-inc bursts, upload pointers in and out of range and near 2^32, runs across
   every split point, all subchannels), plus whole submits on 3 channels as submit.c runs them (sync,
@@ -239,7 +239,7 @@ alternation.
   burst/push cases and 3.8M submits on x86, under ASan/UBSan and on big-endian ppc64 (qemu), the
   shadow structs and the restore buffers identical after every step. 14 of 15 planted bugs were
   caught (the 15th changes nothing).
-- Expected (ppc64 instructions per payload word, `ps3rsx/test/count.sh`): 2D runs -51%, vertex program
+- Expected (ppc64 instructions per payload word, `packages/walnut/drivers/ps3rsx/test/count.sh`): 2D runs -51%, vertex program
   uploads -77%, constants -69%, short 3D state runs -35%, one restore -56%. Weighted by the histogram
   that is ~60% of shadow_burst's instructions, more in cycles (the removed work is the load-hit-store
   kind). Per game ~0.6-1.5% of the CPU (ClassiCube's shadow_burst 1.95 -> ~0.8, restore ~-0.3), less
@@ -348,7 +348,7 @@ sources the buffer at the batch's offset: the vertices are written once, where t
 When the next batch may not fit, the buffer gets new storage (glBufferData NULL), so nothing the GPU
 may still read is written again; nothing else reaches the GL while it is mapped (every other call
 draws what is pending first). Same vertices, order and draws. In nv30 an unsynchronized map of a GART
-buffer is the buffer's own mapping, no staging. The llvmpipe check `xmoto/test/glbatch-test.sh` draws
+buffer is the buffer's own mapping, no staging. The llvmpipe check `packages/patched/games/xmoto/test/glbatch-test.sh` draws
 a random scene through the layer for 400 frames (about 950 batches and one buffer renewal a frame):
 the same pixels with and without, no GL errors.
 
@@ -597,12 +597,12 @@ controlled re-test comes before any A/B (docs/TESTS.md Next, "0043 re-test").
 
 Tests (`tools/run-tests.sh mesa-vtx-snorm8`, from `build/work/mesa`):
 
-- `mesa/tests/vtx-snorm8-test.c`: the prologue's arithmetic in IEEE single precision against
+- `packages/patched/graphics/mesa/tests/vtx-snorm8-test.c`: the prologue's arithmetic in IEEE single precision against
   util_format's generated unpack functions (taken from `u_format_table.py`'s output) for the four
   formats, every byte in every component, whatever bytes follow the attribute (the four-byte
   fetch), constant attributes too, the key, when a four-byte fetch fits in the vertex, and the
   prologue's length: 67,370 checks, bit for bit;
-- `mesa/tests/vtx-snorm8-vpsim.c`: Mesa's own `nvfx_vertprog.c` translates two programs (plain
+- `packages/patched/graphics/mesa/tests/vtx-snorm8-vpsim.c`: Mesa's own `nvfx_vertprog.c` translates two programs (plain
   arithmetic; inputs read with swizzles, negated, as abs, twice in one instruction) without the
   prologue and with it for five keys (1 to 4 components, up to three inputs), and an interpreter of
   NV40 vertex program code (the vector slot's MOV MUL ADD MAD DP3 DP4 MIN MAX SLT SGE, refusing
@@ -611,7 +611,7 @@ Tests (`tools/run-tests.sh mesa-vtx-snorm8`, from `build/work/mesa`):
   (990,030 checks), four instructions more per converted input (five below four components), the
   same input mask. A wrong write mask, a missed input redirect or a missing fill of the absent
   components fails it (checked: without the fifth instruction it fails).
-- `ps3rsx/test/validate-test.c` (in `tools/run-tests.sh ps3rsx-shadow`): the validator's vertex
+- `packages/walnut/drivers/ps3rsx/test/validate-test.c` (in `tools/run-tests.sh ps3rsx-shadow`): the validator's vertex
   format rule, every type and size in every slot, alone and in bursts: 35,333 checks (the
   validator before the fix fails 1,935 of them).
 
@@ -631,7 +631,7 @@ and the tail stay scalar, and so do arrays under 64 (taking the lanes apart at t
 memory, a load-hit-store). Restart indices are masked out; an array of nothing but restart indices
 gives ~0u and 0, as the scalar loop does.
 
-`mesa/tests/minmax-vmx-test.c` (`tools/run-tests.sh mesa-minmax-vmx`) checks it against the scalar
+`packages/patched/graphics/mesa/tests/minmax-vmx-test.c` (`tools/run-tests.sh mesa-minmax-vmx`) checks it against the scalar
 loops (every start alignment, counts 0 to 300, restart off and six restart indices, random, narrow
 and top-of-range values: 2.7 million cases) on the host and as a ppc64 `-mcpu=cell` build from the
 deb builder's cross compiler under qemu-ppc64.
@@ -681,7 +681,7 @@ that fires then is noted and taken later, in `arch_local_irq_restore` -> `__repl
 when interrupts come back on. perf books the sample there. The replay itself costs little: the
 samples are the time of the masked section before it, and the call chain above
 `arch_local_irq_restore` says which section that was. So the path was in the profiles all along, one
-frame up. `games/bench/irqoff.py` (perf-post.sh writes its table to `perf-irqoff.txt`) sorts the
+frame up. `bench/irqoff.py` (perf-post.sh writes its table to `perf-irqoff.txt`) sorts the
 samples by that place:
 
 | Game (P1b) | soft-masked | hash faults (user) | HPTE unmap (munmap) | ALSA stream lock | syscall entry/exit | wakeups | context switch | rest |
@@ -746,7 +746,7 @@ occasional CMA chunk, not the zeroing (memset 0.1%).
 | ps3rsx `clear_dcbz=1` (0, the default: memset) | New GART buffers zeroed with `clear_page` (dcbz: a cache line zeroed without being read first) instead of memset's stores, which on the PPE read every line before writing it | the zeroing about halves: OpenTTD 5.3 -> ~2.5% without 0040, nothing with it; other games under 0.1% |
 
 0040's decisions are in `nv30_staging_policy.h` with no Mesa types, tested on the host
-(`mesa/tests/staging-pool-test.c`, `tools/run-tests.sh` mesa-staging-pool: classes, picks, eviction,
+(`packages/patched/graphics/mesa/tests/staging-pool-test.c`, `tools/run-tests.sh` mesa-staging-pool: classes, picks, eviction,
 OpenTTD's two uploads a frame for 1000 frames (at most 4 buffers made, at least 1996 of the 2000 uploads reused), a load
 burst emptied a second later, 200 random traffic runs against the invariants). `ps3rsx_zero()`
 (`src/zero.h`) runs in `test/zero-test.c` on x86 and, with the kernel's dcbz loop, under
@@ -776,7 +776,7 @@ neither kernel flavour has; not done.
 
 ## Measured on the PS3
 
-Same-boot rows of `games/bench/results/` (row = the row number in fps.csv and its sibling files).
+Same-boot rows of `bench/results/` (row = the row number in fps.csv and its sibling files).
 Rows 57-65 ran with the 10 ms kicker (`@wkkick10`), row 68 on kernel .433 with the idle fix and no
 kicker, so compare within a row only. Steady fps unless noted.
 
@@ -910,13 +910,13 @@ is the limit. The default has not been changed yet (classicube .374 still defaul
 
 ## Reproducing the analysis on the PC
 
-    games/bench/hotpaths/symroot.sh                      # build/tmp/hotpaths-sym: debug files, System.map, modules
+    bench/hotpaths/symroot.sh                      # build/tmp/hotpaths-sym: debug files, System.map, modules
     for d in build/bench/<run dirs>; do
-        python3 games/bench/hotpaths/analyze.py $d build/tmp/hotpaths/$(basename $d).pkl
+        python3 bench/hotpaths/analyze.py $d build/tmp/hotpaths/$(basename $d).pkl
     done
-    python3 games/bench/hotpaths/categorize.py build/tmp/hotpaths/*.pkl   # the tables above
-    python3 games/bench/hotpaths/stacks.py callers <pkl> '^nv30_query_result$' 8   # who calls it
-    python3 games/bench/hotpaths/stacks.py chain '^nv30_query_end$ > ^nouveau_pushbuf_kick$' <pkl>...
+    python3 bench/hotpaths/categorize.py build/tmp/hotpaths/*.pkl   # the tables above
+    python3 bench/hotpaths/stacks.py callers <pkl> '^nv30_query_result$' 8   # who calls it
+    python3 bench/hotpaths/stacks.py chain '^nv30_query_end$ > ^nouveau_pushbuf_kick$' <pkl>...
 
 Pull the runs with `make bench-pull PERFDATA=1`. `symroot.sh` takes the versions as arguments (Mesa,
 kernel release, ps3rsx; the defaults are batch ssdroot2's: 26.2.4-1+ps3.476, 6.12.111+ps3.472,

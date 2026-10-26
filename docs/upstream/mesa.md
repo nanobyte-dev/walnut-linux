@@ -6,7 +6,7 @@ it here); the file changes rarely, but run `git am --3way` on a fresh clone and 
 
 ## Generality (checked)
 
-Our local patch is `mesa/patches/0033` and is named after nv30 (`NV30_TRANSLATE_LUT`), but the code is
+Our local patch is `packages/patched/graphics/mesa/patches/0033` and is named after nv30 (`NV30_TRANSLATE_LUT`), but the code is
 generic: it lives in `gallium/auxiliary/translate/translate_generic.c` and applies to every driver
 that reaches translate_generic: u_vbuf (r300, nv30/nv50 families, svga, and any driver that has
 vertex formats it cannot fetch) and the draw module. The upstream form therefore drops the nv30

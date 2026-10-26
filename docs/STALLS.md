@@ -11,7 +11,7 @@ PPE, decrementer, steady fps and 1% low are in the [glossary](README.md#glossary
 
 ## Counting stalls: report.py
 
-`games/bench/report.py` reads the HUD's frame times of a run's measured window (60 s of warm-up
+`bench/report.py` reads the HUD's frame times of a run's measured window (60 s of warm-up
 left out, then at least 120 s measured) and gives:
 
 | Column | What |
@@ -21,7 +21,7 @@ left out, then at least 120 s measured) and gives:
 | `longest` | the longest frame |
 | `low1` | the 1% low: 1000 / the 99th percentile frame time |
 
-The matrices in `games/bench/results/` have one file per number (`stalls.csv`, `longest_ms.csv`,
+The matrices in `bench/results/` have one file per number (`stalls.csv`, `longest_ms.csv`,
 `low1.csv`; README.md there says how to read them).
 
 ### Gameplay-only columns
@@ -74,7 +74,7 @@ the warm-up's causes.
 
 ## The stall recorder
 
-`ps3-stallrec` (`ps3-gpu-tools/src/ps3-stallrec.c`, installed in `/usr/lib/ps3/bin`) samples the
+`ps3-stallrec` (`packages/walnut/tools/ps3-gpu-tools/src/ps3-stallrec.c`, installed in `/usr/lib/ps3/bin`) samples the
 game's main thread and the system's memory and disk counters every 10 ms. `stalls.py` then gives
 every stall frame a cause: disk, swap, reclaim, GPU, CPU and so on.
 
@@ -183,7 +183,7 @@ a decision rests on are made for that purpose.
 
 ### Validation
 
-`python3 games/bench/selftest.py`, sections 5 and 6:
+`python3 bench/selftest.py`, sections 5 and 6:
 
 - A hand-made `stalls.rec` with one 200 ms stall of each cause the PC can't produce (a fence wait,
   zram and VRAM swap-ins, direct reclaim, GART growth, runnable without CPU, disk and read waits, a
@@ -200,7 +200,7 @@ Kernel stacks need root, so the PC test never reads them; the PS3 runs do.
 
 The short version: on our kernel an idle PPE thread could miss its timer interrupt (the decrementer)
 and sleep for up to 1.4 s. Any game waiting on a GPU fence from that thread froze for as long.
-`linux/patches/local/0009-ps3-idle-no-pause-with-irq-pending.patch` fixes it, confirmed on the PS3
+`packages/patched/kernel/linux/patches/local/0009-ps3-idle-no-pause-with-irq-pending.patch` fixes it, confirmed on the PS3
 twice (kernels .419 and .433), and it is in every kernel since, including the release `.472`. The
 rest of this section is how we found it, kept because the reasoning is not obvious and the upstream
 draft (`docs/upstream/linux-ps3-idle.md`) points here.
@@ -274,7 +274,7 @@ Ruled out:
 
 ### The A/B on the PS3
 
-ps3-gpu-tools 0.399 added `ps3-waker` (`ps3-gpu-tools/src/ps3-waker.c`) and bench switches for it
+ps3-gpu-tools 0.399 added `ps3-waker` (`packages/walnut/tools/ps3-gpu-tools/src/ps3-waker.c`) and bench switches for it
 (ps3-bench.sh's header; run.sh takes them without the `BENCH_` prefix, and `ENVS` interleaves them
 within each round). report.py shows each run's switches after the variant (`base@wksleep10`), from
 bench.txt's `harness=`.
@@ -369,7 +369,7 @@ bench run since saves the System Manager's temperatures (`temps` in the run dire
 **The kicker.** Before the fix, a stopgap went into game mode: `ps3-kick` (ps3-system,
 `/usr/lib/ps3/sbin/ps3-kick`), a cross-CPU wakeup to thread 1 every 10 ms, started by
 `ps3-game-mode on` as unit `ps3-game-kick` and stopped by thaw (`PS3_GAME_KICK=on|off|force`, in the
-game's environment or `/etc/default/ps3-game-mode`; host test `ps3-desktop/tests/kick-check.sh`). It
+game's environment or `/etc/default/ps3-game-mode`; host test `packages/walnut/system/ps3-desktop/tests/kick-check.sh`). It
 skips itself when `ps3_idle_prep` is `Y`, so on the fixed kernels it never runs unless forced. The
 bench rows 57-65 and 67 were made with the kicker (`WAKER=10+WAKER_MODE=kick`, variant `@wkkick10`)
 because their kernels predate the fix or were measured that way; compare them with each other, not
@@ -409,7 +409,7 @@ ioquake3 0025-0026 (+ps3.396, both on by default, host frames identical over thr
 
 Both start working at the second pass, which the window never includes. `cl_deferPlayers 1`
 (opt-in) drops `loaddefered`: the bots keep a substitute model, which changes the picture. Recipe
-variants `keepimg0`, `preload0`, `loads0` (both off) and `defer` (`games/bench/recipes/openarena.sh`).
+variants `keepimg0`, `preload0`, `loads0` (both off) and `defer` (`bench/recipes/openarena.sh`).
 On the PS3 (results row 59, TESTS.md 10-18 08:25, commit 2d3243c) gameplay stalls went 9-10 s -> 0
 and steady fps 65 -> 70.6. OpenArena's current numbers (gl2min 57-60 fps with 1-2 s of stalls since
 batch 17) are in [games/README.md](games/README.md).
@@ -481,16 +481,16 @@ compiled at every start it would cost 8.8 MB (measured on the host).
 `/var/tmp/ps3-bench/gprefetch`, apart from the desktop's. bench.txt gets `gprefetch=`, and report.py
 shows it after the variant (`base@gpffetch`, `base@rec10+gpffetch_mb128`).
 
-**Host tests.** `python3 ps3-desktop/tests/gprefetch-check.py` (73 checks): the range and wrapper
+**Host tests.** `python3 packages/walnut/system/ps3-desktop/tests/gprefetch-check.py` (73 checks): the range and wrapper
 logic and the data-directory rules; mincore after POSIX_FADV_DONTNEED, FIEMAP extents and addresses
 (a sparse file too); learning over 5 made-up sessions (union, first-seen times, misses, a changed
 file, an upgraded program, the command's symlink); the budget's residency-aware selection and its
 order, exact reads, each early stop (with made-up /proc numbers); game-run end to end (learn, pages
-dropped, fetch, pages back, exec keeping the pid, exit statuses). `ps3-desktop/tests/autogm-check.sh`
+dropped, fetch, pages back, exec keeping the pid, exit statuses). `packages/walnut/system/ps3-desktop/tests/autogm-check.sh`
 (53 checks, 6 for the prefetch): a detected game's list learnt after leave, read by the next detected
 start and by a ps3-game start through a second watcher, and `PS3_GAME_PREFETCH_GAME=off`. Under a
 host load of 10-15, autogm-check failed one timing check in 3 of 6 runs, a different one each time;
-the last 3 passed. `games/bench/selftest.py` covers client.sh with learn, then fetch, then a budget,
+the last 3 passed. `bench/selftest.py` covers client.sh with learn, then fetch, then a budget,
 plus the warm-up columns.
 
 ### The prefetch A/B
@@ -534,7 +534,7 @@ movement or a bump is fine, deliberate motion and any button or wheel are not.
 
 ### The detector
 
-`ps3-intfwatch` (`ps3-gpu-tools/src/ps3-intfwatch.c`, its header has every rule; ps3-gpu-tools
+`ps3-intfwatch` (`packages/walnut/tools/ps3-gpu-tools/src/ps3-intfwatch.c`, its header has every rule; ps3-gpu-tools
 0.453 or later) runs as root next to every `ps3-bench.sh x` and `run`, on by default (`BENCH_INTF=0`
 turns it off). It starts just before the command, so it sees the run's X server take vt1, and stops
 with the stop file. What counts, each a `!` line in the run's `interference.log`:
@@ -588,7 +588,7 @@ terminal get a loud `!! INTERFERENCE: ... THIS RUN IS INVALID` line; a clean run
 watched), marks the run `!INTERFERED`, leaves interfered runs out of the medians and lists them at the
 end (`--include-interfered` keeps them in). matrix.py skips them and lists what it skipped
 (`--include-interfered` too). Runs from before the detector are listed in
-`games/bench/results/interfered.txt`, which report.py and matrix.py read the same way.
+`bench/results/interfered.txt`, which report.py and matrix.py read the same way.
 
 It has caught real disturbances since it went live with batch 15: 3 runs with SSH logins in batch 16,
 a key press in batch 17 (BananaBread (Debian's cube2) shortnormals, round 3) and a key press 195 s into an OpenArena
@@ -608,7 +608,7 @@ so. `desktop` switches to vt1 and frees tty8. The detector expects both of the X
 
 ### The retro-scan of 2026-10-17/18
 
-`games/bench/interference-scan.py` looks at what saved run directories still show: Xorg.0.log (VT
+`bench/interference-scan.py` looks at what saved run directories still show: Xorg.0.log (VT
 switches, input devices added or removed mid-run, the evemu keyboards left out), dmesg.log (USB
 connects, non-virtual input devices, Bluetooth HID lines), and game.log for Luanti, which logs every
 player action ("singleplayer digs/activates ..."). The benchmark's flight never digs or clicks, so

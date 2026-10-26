@@ -80,9 +80,10 @@ See [docs/INSTALL.md](docs/INSTALL.md) for detailed installation instructions:
 ## Developer Documentation & Layout
 
 For repository structure, build directions, and developer workflows:
+- The tree: `packages/` holds every source package (`walnut/` our own, `patched/` Debian's or upstream's with our patches, `repackaged/` upstream releases as they are), `apt-repo/` and `servers/` the apt repository and walnut.nanobyte.dev, `website/` the site and the Walnut Games database, `system/` the image and the installer, `bench/` the benchmark harness, `build-containers/`, `github-ci/` and `tools/` the build machinery.
 - [docs/LAYOUT.md](docs/LAYOUT.md): Source tree layout and `make` commands.
 - [docs/README.md](docs/README.md): Index of design documentation, GPU architecture notes, and test logs.
-- [docs/PACKAGING.md](docs/PACKAGING.md): Debian packaging, aptly repositories, and driver builds.
+- [docs/PACKAGING.md](docs/PACKAGING.md): Debian packaging, the apt repositories, and driver builds.
 - [CLAUDE.md](CLAUDE.md): Project guidelines and constraints.
 
 ---
@@ -91,14 +92,14 @@ For repository structure, build directions, and developer workflows:
 
 Walnut stands on other people's work:
 
-- **PS3 kernel patches** (`linux/patches/ps3/`): glevand's OtherOS++ patches, with graf_chokolo's work, refreshed for current kernels by Sombat Tragoongoson (psx-place) and carried for Gentoo by Damian Dudycz ([damiandudycz/ps3](https://github.com/damiandudycz/ps3)), whose repository we took them from.
+- **PS3 kernel patches** (`packages/patched/kernel/linux/patches/ps3/`): glevand's OtherOS++ patches, with graf_chokolo's work, refreshed for current kernels by Sombat Tragoongoson (psx-place) and carried for Gentoo by Damian Dudycz ([damiandudycz/ps3](https://github.com/damiandudycz/ps3)), whose repository we took them from.
 - **Mainline PS3 support**: Geoff Levand, and his [ps3-linux queue](https://git.kernel.org/pub/scm/linux/kernel/git/geoff/ps3-linux.git/) on kernel.org.
-- **Kernel fixes** (`linux/patches/local/0020`-`0032`): upstream and linuxppc-dev fixes by their authors, named in each patch.
+- **Kernel fixes** (`packages/patched/kernel/linux/patches/local/0020`-`0032`): upstream and linuxppc-dev fixes by their authors, named in each patch.
 - **Booting**: OtherOS++ and Petitboot.
 - **Graphics**: Mesa's nv30 driver from the nouveau project.
 - **Base system**: Debian and its ppc64 port (debian-ports).
 
-Ours: the `ps3rsx` GPU driver, our kernel changes in `linux/patches/local/`, the packaging, installer and tools. Where each kernel patch came from is in [docs/OTHEROS-PATCHES.md](docs/OTHEROS-PATCHES.md).
+Ours: the `ps3rsx` GPU driver, our kernel changes in `packages/patched/kernel/linux/patches/local/`, the packaging, installer and tools. Where each kernel patch came from is in [docs/OTHEROS-PATCHES.md](docs/OTHEROS-PATCHES.md).
 
 ## License
 

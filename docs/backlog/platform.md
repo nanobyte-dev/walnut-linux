@@ -51,7 +51,7 @@ Rank 34. What the SSD image still needs before it can stand without the USB disk
   collides with the guard: the design's option 2 spends one boot on `ps3-imgmap header-write`
   (register only the header's blocks, seal, write, read back), and every initramfs and Phase A tool
   must know the relaxed rule before any header is written.
-- **`/boot` on dev_hdd1, kept by webMAN** (draft `ps3-boot/webman/autoexec.bat`, not tried): Linux
+- **`/boot` on dev_hdd1, kept by webMAN** (draft `packages/walnut/system/ps3-boot/webman/autoexec.bat`, not tried): Linux
   writes kernels to `/dev_hdd1/linux/boot/` and `/dev_hdd1/kboot.conf`; at every GameOS start webMAN
   MOD's `autoexec.bat` mirrors them to `/dev_hdd0/linux/boot/` and copies them back if GameOS cleared
   the cache partition. To check: that webMAN's `copy` takes a directory and how long the mirror
@@ -81,10 +81,10 @@ games, or Nexuiz (about 800 MB) and Xonotic (1.2 GB), need room first.
 - **Payoff:** room for the games on the list. **Effort:** M. **Needs:** the user. **Status:** not
   started.
 
-### ps3disk multi-region (linux/patches/ps3/0010): two bugs
+### ps3disk multi-region (packages/patched/kernel/linux/patches/ps3/0010): two bugs
 
 Rank 78. Reported 2026-10-18, not fixed. Both are in `ps3disk_probe` and `ps3disk_remove` of
-[0010-ps3stor-multiple-regions.patch](../../linux/patches/ps3/0010-ps3stor-multiple-regions.patch);
+[0010-ps3stor-multiple-regions.patch](../../packages/patched/kernel/linux/patches/ps3/0010-ps3stor-multiple-regions.patch);
 neither has been hit on the console (the probe succeeds and remove runs at shutdown).
 
 - **The probe error path can loop forever.** `devidx` is `unsigned int`, and `fail_free_tag_set`
@@ -133,7 +133,7 @@ so far: the menu path (`ps3-game`), the wallpaper and services getting out of th
 return after OpenArena (about 30 s, which led to the desktop prefetch). Installed (ps3-desktop
 0.474), never tried at the TV: the escape keys (Ctrl+Alt+Esc; the PS button held 3 s; Alt+Tab and
 Win+D thawing the desktop), the automatic start (`ps3-game-detect`: a terminal game, F11), Luanti
-from the menu with sound, the desktop prefetch's return time, `games/bench/gamemode-check.sh`'s
+from the menu with sound, the desktop prefetch's return time, `bench/gamemode-check.sh`'s
 numbers, and the `ps3-game-kick` unit (it skips itself on a kernel with `ps3_idle_prep` on).
 
 - **Payoff:** high: the players' path. **Effort:** S.
@@ -295,8 +295,9 @@ data split on an upgrade, supertuxkart, teeworlds, ps3-system and ps3-desktop, p
 - **Risk:** the publish is forever (official versions are kept): back up `build/aptly` first, an
   explicit `DEBS=` list, no `~dev` version, the user's OK.
 - **Needs:** the user (the session and the OK), then host.
-- **Status:** scheduled: TESTS.md "Next" (release image session, with the user); the stable command
-  is written, not run (decisions D1, D14).
+- **Status:** superseded: the LAN `ps3` suite this publish was for was retired on 2026-10-26;
+  stable is walnut.nanobyte.dev's, published by CI with the owner's approval (docs/PACKAGING.md).
+  The image session itself is still open (decisions D1, D14).
 - **Source:** PLAN 5.1, 5.4; [archive/RELEASE-CANDIDATES.md, "Release 2026-10-18"](../archive/RELEASE-CANDIDATES.md#release-2026-10-18-test-first-then-publish).
 
 ### Upstream submissions
@@ -326,10 +327,11 @@ syscalls), and PSL1GHT's own PPU GCC, an exception to "one GCC everywhere" the u
 
 ### A repository for others
 
-Rank 68. A public host, signing and a published key, mirrors. Today the repository is tibi-server on
-the LAN, unsigned. Licensed content (`ps3-licensed`) stays LAN-only.
+Rank 68. A public host, signing and a published key, mirrors.
 
-- **Effort:** M. **Needs:** host, the user. **Status:** never tried. **Source:** PLAN 5.2.
+- **Effort:** M. **Needs:** host, the user. **Status:** done except mirrors: walnut.nanobyte.dev
+  (2026-10-21), signed, built by CI; licensed content in its password-protected `licensed` suite
+  (docs/PACKAGING.md); the LAN repository on tibi-server was retired on 2026-10-26. **Source:** PLAN 5.2.
 
 ### End-user docs
 

@@ -139,7 +139,7 @@ player sees the same, and whether game mode gives back the RAM the baselines ass
 **To start.** The harness has no game-mode arm yet: `client.sh` runs games under a bare X with the
 desktop stopped. A round would start each recipe's game through `ps3-game` (or let
 `ps3-game-detect` catch it) on the running desktop, interleaved with the plain arm, and add game
-mode's own journal lines (`journalctl --user -u ps3-game-mode`) and `games/bench/gamemode-check.sh`'s
+mode's own journal lines (`journalctl --user -u ps3-game-mode`) and `bench/gamemode-check.sh`'s
 memory numbers to the run directory.
 
 ### Long-session soak
@@ -241,7 +241,7 @@ Read `load`, `lp_shbe`, `shc_tgsi_hit`/`_miss`, `shc_vp_miss`, `stalls_warm`, `s
 
 Rank 48. Small fixes and checks that make the numbers trustworthy.
 
-- **Run logs not read automatically.** `games/bench/logscan.py` exists now; two gaps it found
+- **Run logs not read automatically.** `bench/logscan.py` exists now; two gaps it found
   ([LOG-FINDINGS.md](../games/LOG-FINDINGS.md)): `PERF_LOAD` runs print `client.sh: line N:
   /dev/shm/ps3-bench-<stamp>/.pid: No such file or directory` 4-9 times (16 runs; check the load
   profile has its pid), and bench.txt should carry the scan's verdict (a crash, a GART failure, an
@@ -269,7 +269,7 @@ Rank 48. Small fixes and checks that make the numbers trustworthy.
   `rssfile` and `vmswap` never come out.
 - **ps3rsx's census** lists the first eight distinct buffer sizes above 64 KiB per client, so new
   buffers of other sizes (ETR's growth) don't show. Listing the largest instead is a small change in
-  `file_usage` (`ps3rsx/src/mem.c`).
+  `file_usage` (`packages/walnut/drivers/ps3rsx/src/mem.c`).
 
 - **Effort:** S each. **Risk:** none. **Needs:** host; PS3 for the perf A/B.
 - **Status:** never tried.

@@ -8,13 +8,13 @@ offering. Open items: [backlog/games.md](../backlog/games.md).
 
 ## Packages and patches
 
-- `luanti`, `luanti-data`, `luanti-server` (`5.15.2+dfsg-2+ps3.N`, package directory `luanti/`):
+- `luanti`, `luanti-data`, `luanti-server` (`5.15.2+dfsg-2+ps3.N`, package directory `packages/patched/games/luanti/`):
   Debian's source with ppc64 added to the Architecture of `luanti` and `luanti-server` (Debian's
   control lists only LuaJIT architectures). LuaJIT is kept. `luanti-data` is ours too, because
   `luanti` depends on its exact version; `luanti-game-minetest` is Debian's. `CHECK=1` in
   package.conf runs `--run-unittests` in the build (under qemu: a failure may be qemu's). The 330
   unit tests pass. The release candidate is ps3.405.
-- `libluajit-5.1-2`, `luajit` (`2.1.0+openresty20251030-1+ps3.N`, `luajit/`): 0001 makes ppc64
+- `libluajit-5.1-2`, `luajit` (`2.1.0+openresty20251030-1+ps3.N`, `packages/patched/libs/luajit/`): 0001 makes ppc64
   big-endian allocate in the low 2 GB where LuaJIT checks the state. Debian's allocated between 2
   and 4 GB, which it then refused: `luaL_newstate()` failed about 40% of the time (331c539).
 
@@ -31,8 +31,8 @@ Luanti is not in `ps3-games`' Depends: it deploys by name.
 
 ## The recipe
 
-`games/bench/recipes/luanti.sh`: a server-side mod can't count rendered frames, so the world mod
-`ps3bench` (`games/bench/assets/luanti-ps3bench`) only makes every run the same. It holds the player
+`bench/recipes/luanti.sh`: a server-side mod can't count rendered frames, so the world mod
+`ps3bench` (`bench/assets/luanti-ps3bench`) only makes every run the same. It holds the player
 at the start for 15 s while the first blocks are generated and meshed, logs `ps3bench: path start`,
 flies 45 s (240 nodes north looking down, then a full turn) four times (`ps3bench_loops`, "path loop
 K"), logs `ps3bench: path end` and shuts the game down. fps comes from the Gallium HUD. `WARMUP=45`
