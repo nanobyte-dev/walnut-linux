@@ -87,6 +87,8 @@ def template(d, hints):
         "# REVIEW.md for %s: answer every line (rules 2.0); a \"?\" left is unanswered and import-run.py refuses it." % d.name,
         "# Judge by looking at shots-vs-pc.png and review-text.png, never by pixel metrics. \"pc\": the PC reference",
         "# shows it too (upstream's); \"ps3\": PS3/Walnut only. \"where\": the screen or the moment, short.",
+    ] + (["# The first rows of the sheet (\"Player's shot\", %d) are what the player marked during play, e.g. a glitch: "
+          "look at those first, and name what they show." % hints["marks"]] if hints.get("marks") else []) + [
         "verdict: ?",
         "# Stretched or squashed: circles and characters out of proportion (black bars around the right shape are fine).",
         "# Hint, measured: %s" % hints["bars"],
@@ -109,7 +111,9 @@ def hints(d):
     ir = importer()
     rows, known, visible = ir.geometry_raw(d)
     sh = shots.parse(d)
-    pics = [shots.image(d, s) for _, s in sorted(sh["shots"].items()) if shots.image(d, s)]
+    # the player's own shots first: they are what the player wanted looked at
+    pics = [shots.image(d, s) for _, s in sorted(sh["marks"].items()) if shots.image(d, s)]
+    pics += [shots.image(d, s) for _, s in sorted(sh["shots"].items()) if shots.image(d, s)]
     screen = next((tuple(int(x) for x in r.split()[5:7]) for r in rows if r != "-"), (1920, 1080))
     b = ir.bars(pics, screen) if pics else {}
     if b.get("bars"):
@@ -124,7 +128,7 @@ def hints(d):
         pointer = "visible" if 2 * visible >= known else "hidden"
     else:
         pw, pointer = "not measured (no cursor column)", "?"
-    return {"bars": bars, "pointer_words": pw, "pointer": pointer}, pics
+    return {"bars": bars, "pointer_words": pw, "pointer": pointer, "marks": len(sh["marks"])}, pics
 
 
 def review(run):

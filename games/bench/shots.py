@@ -23,7 +23,9 @@ shot point, for a human or an agent to look at. Not a pixel diff: the two runs a
 REVIEW.md (next to the sheet, written by the reviewer): the first line "verdict: ok|wrong|unclear
 [words]", then whatever the reviewer saw; report.py shows the verdict as review=.
 bench.txt lines (client.sh): shots=<points>, shot_ref=<from>:<s>, shot=<p>s:<file>:<ms>,
-shot_t=<p>s:<s after t0>:<frame-time lines before>:<after>, shot_skipped=, shot_static=1, shot_err=."""
+shot_t=<p>s:<s after t0>:<frame-time lines before>:<after>, shot_skipped=, shot_static=1, shot_err=.
+The player's own shots of a played session (Alt+F12 or pad Select+Start, inputlog.py + client.sh): shot_mark=<t>s:<file>:<ms>,
+<t> the seconds after t0 of the capture (parse(): "marks" {t: {"file", "ms", "t"}}); the sheet shows them first."""
 import os
 import re
 import shutil
@@ -44,7 +46,7 @@ def parse(d):
     "err", "shots": {point: {"file", "ms", "t", "n0", "n1"}}, "window"}"""
     d = Path(d)
     out = {"points": [], "ref": None, "ref_t": None, "static": False, "skipped": [], "err": [], "shots": {},
-           "window": [], "game": None, "variant": None}
+           "window": [], "game": None, "variant": None, "marks": {}}
     f = d / "bench.txt"
     if not f.exists():
         return out
@@ -66,6 +68,10 @@ def parse(d):
             if m:
                 s = out["shots"].setdefault(int(m[1]), {})
                 s.update(file=None if m[2] == "-" else m[2], ms=int(m[3]))
+        elif k == "shot_mark":
+            m = re.match(r"([\d.]+)s:([^:]*):(\d+)$", v)
+            if m:
+                out["marks"][float(m[1])] = {"file": None if m[2] == "-" else m[2], "ms": int(m[3]), "t": float(m[1])}
         elif k == "shot_t":
             m = re.match(r"(\d+)s:([\d.]+):([-\d]+):([-\d]+)$", v)
             if m:
@@ -303,7 +309,7 @@ def sheet(d, root=None):
     d = Path(d)
     root = Path(root) if root else REPO / "build" / "bench-ref"
     sh = parse(d)
-    if not sh["points"] and not sh["shots"]:
+    if not sh["points"] and not sh["shots"] and not sh["marks"]:
         return None, None
     convert(d)
     rd = ref_dir(sh, root)
@@ -324,24 +330,33 @@ def sheet(d, root=None):
                     REFS.get(sh["ref"], sh["ref"] or "?"), sh["ref_t"] if sh["ref_t"] is not None else "-",
                     ", PC at %s s" % rs["ref_t"] if rs and rs["ref_t"] is not None else "")]
         strip(parts[0], w, [x for ln in head for x in wrap(ln)], bg="#000000", pt=18)
-        for i, p in enumerate(pts):
-            a = sh["shots"].get(p, {})
-            b = rs["shots"].get(p, {}) if rs else {}
+        rows = [("mark", t) for t in sorted(sh["marks"])] + [("pt", p) for p in pts]   # the player's shots first
+        for i, (kind, p) in enumerate(rows):
+            if kind == "mark":
+                a, b = sh["marks"][p], {}
+            else:
+                a = sh["shots"].get(p, {})
+                b = rs["shots"].get(p, {}) if rs else {}
             ia, ib = image(d, a), (image(rd, b) if rd else None)
             fa, fb = (flag(ia) if ia else ""), (flag(ib) if ib else "")
             if fa:
-                flags.append("PS3 %s at %ds" % (fa, p))
+                flags.append("PS3 %s at %ss" % (fa, p))
             if fb:
-                flags.append("PC %s at %ds" % (fb, p))
-            la = "PS3 %d s: at %s s, capture %s ms%s" % (p, a.get("t", "-"), a.get("ms", "-"), "  " + fa if fa else "")
-            lb = "PC %d s: at %s s%s" % (p, b.get("t", "-"), "  " + fb if fb else "")
+                flags.append("PC %s at %ss" % (fb, p))
+            if kind == "mark":
+                la = "Player's shot at %s s, capture %s ms%s" % (p, a.get("ms", "-"), "  " + fa if fa else "")
+                lb = "PC: no reference (the player marked this one)"
+            else:
+                la = "PS3 %d s: at %s s, capture %s ms%s" % (p, a.get("t", "-"), a.get("ms", "-"), "  " + fa if fa else "")
+                lb = "PC %d s: at %s s%s" % (p, b.get("t", "-"), "  " + fb if fb else "")
             lab = tmp / ("l%d.png" % i)
             magick("-size", "%dx34" % w, "xc:#202020", "-fill", "white", "-pointsize", "18", "-gravity", "northwest",
                    "-annotate", "+8+7", text(la), "-annotate", "+%d+7" % (TILE_W + GAP + 8), text(lb), lab)
             ta, tb = tmp / ("a%d.png" % i), tmp / ("b%d.png" % i)
-            why = "not reached (the run ended)" if p in sh["skipped"] else "no shot"
+            why = "not reached (the run ended)" if kind == "pt" and p in sh["skipped"] else "no shot"
             tile(ta, ia, "PS3: " + why)
-            tile(tb, ib, "PC: " + ("no reference run" if not rd else
+            tile(tb, ib, "PC: " + ("the player's own shot: no PC shot" if kind == "mark" else
+                                   "no reference run" if not rd else
                                    "not reached (the run ended)" if p in rs["skipped"] else "no shot"))
             row = tmp / ("r%d.png" % i)
             magick(ta, "-size", "%dx%d" % (GAP, TILE_H), "xc:#000000", tb, "+append", row)

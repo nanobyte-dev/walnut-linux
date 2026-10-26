@@ -16,6 +16,9 @@
 COMM=lincity-ng
 . "$here/recipes/smoke.inc"
 BACKUP=("$HOME/.config/lincity-ng.conf")
+# played sessions' fresh defaults (session.sh, freshhome.py): the game's real directories (checked against its XDG/legacy paths)
+# (the derived default would have been all of ~/.config: the config is a file there)
+SESSION_HOME=(.config/lincity-ng.conf .lincity-ng .local/share/lincity-ng)
 CMD=(/usr/games/lincity-ng -f -S 1920x1080 -s)
 variant_gl() { CMD=(/usr/games/lincity-ng -f -S 1920x1080 -g); }
 variant_mute() { CMD+=(-m); }

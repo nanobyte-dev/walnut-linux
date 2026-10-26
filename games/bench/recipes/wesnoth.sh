@@ -35,6 +35,8 @@ COMM=wesnoth-1.18
 . "$here/recipes/smoke.inc"
 WN_PREFS=$HOME/.config/wesnoth-1.18/preferences
 BACKUP=("$WN_PREFS")
+# played sessions' fresh defaults (session.sh, freshhome.py): the game's real directories (checked against its XDG/legacy paths)
+SESSION_HOME=(.config/wesnoth-1.18 .local/share/wesnoth .wesnoth1.18)
 setup() {
 	mkdir -p "${WN_PREFS%/*}"
 	printf '%s\n' "fullscreen=yes" "maximized=no" "xresolution=1920" "yresolution=1080" "animate_map=no" \

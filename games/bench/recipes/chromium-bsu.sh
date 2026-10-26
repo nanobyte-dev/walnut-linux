@@ -11,6 +11,8 @@ COMM=chromium-bsu
 . "$here/recipes/smoke.inc"
 CB_CFG=$HOME/.chromium-bsu
 BACKUP=("$CB_CFG")
+# played sessions' fresh defaults (session.sh, freshhome.py): the game's real directories (checked against its XDG/legacy paths)
+SESSION_HOME=(.chromium-bsu)
 CB_LEVEL=1
 setup() {
 	printf '%s\n' "full_screen 1" "screenWidth 1920" "screenHigh 1080" "gfxLevel $CB_LEVEL" "show_fps 1" \

@@ -1075,6 +1075,7 @@ def load_bench(name):
 
 
 class Recorders(unittest.TestCase):
+    ir = load_import_run()
     """the session recorders of data version 2: inputlog.py, confwatch.py, geom.py's pointer, the form"""
 
     def test_inputlog_classes_and_counts(self):
@@ -1108,6 +1109,75 @@ class Recorders(unittest.TestCase):
         self.assertEqual(times, [100.25])    # the press at the kernel's own time
         self.assertEqual(il.event_of("/dev/input/event5"), "event5")
         self.assertIsNone(il.event_of("/dev/input/mice"))
+
+    def test_inputlog_screenshot_chords(self):
+        il = load_bench("inputlog")
+        ev = lambda *rows: b"".join(il.EV.pack(int(t), round(t % 1 * 1e6), 1, code, val) for t, code, val in rows)
+        # Alt+F12 on a keyboard (either Alt), F12 alone is nothing, Alt released first is nothing
+        c = il.Chords()
+        self.assertEqual(c.feed(ev((10.0, 88, 1), (10.1, 88, 0))), [])
+        self.assertEqual(c.feed(ev((11.0, 56, 1), (11.2, 88, 1), (11.3, 88, 0), (11.4, 56, 0))), [11.2])
+        self.assertEqual(c.feed(ev((12.0, 100, 1), (12.1, 88, 1))), [12.1])
+        c = il.Chords()
+        self.assertEqual(c.feed(ev((13.0, 56, 1), (13.1, 56, 0), (13.2, 88, 1))), [])
+        # Select+Start on a pad, within 0.3 s, in either order; slower is just two presses
+        c = il.Chords()
+        sel, st = il.BTN_SELECT, il.BTN_START
+        self.assertEqual(c.feed(ev((20.0, sel, 1), (20.2, st, 1))), [20.2])
+        self.assertEqual(c.feed(ev((20.5, sel, 0), (20.6, st, 0), (21.0, st, 1), (21.1, sel, 1))), [21.1])
+        c = il.Chords()
+        self.assertEqual(c.feed(ev((30.0, sel, 1), (30.5, st, 1))), [])
+        self.assertEqual(c.feed(ev((31.0, 0x130, 1), (31.1, 30, 1))), [])      # other keys: nothing, and not remembered
+        self.assertEqual(c.down.keys() <= {sel, st}, True)
+        # the log: a mark row, no key code, a request line; the second chord within 2 s is dropped
+        with tempfile.TemporaryDirectory() as t:
+            req = Path(t) / "req"
+            out = io.StringIO()
+            log = il.Log(100.0, out, request=str(req))
+            self.assertTrue(log.mark(105.0, "event3", "pad"))
+            self.assertFalse(log.mark(106.5, "event3", "pad"))
+            self.assertTrue(log.mark(107.5, "event4", "keyboard"))
+            self.assertEqual(out.getvalue().splitlines(), ["5.000\tmark\tevent3\tpad\t-", "7.500\tmark\tevent4\tkeyboard\t-"])
+            self.assertEqual(req.read_text().split(), ["105.000000", "107.500000"])
+
+    def test_player_marks_in_the_gallery_and_review(self):
+        shots = load_bench("shots")
+        with tempfile.TemporaryDirectory() as t:
+            d = Path(t)
+            (d / "shots").mkdir()
+            lines = ["game=ex", "variant=base", "shots=60 120", "shot=60s:shots/shot-60s.png:300", "shot_t=60s:60.5:1:2",
+                     "shot=120s:shots/shot-120s.png:300", "shot_t=120s:120.5:1:2"]
+            for k in (60, 120):
+                (d / "shots" / ("shot-%ds.png" % k)).write_bytes(b"x")
+            for tt in ("31.4", "75.2", "200.0"):
+                (d / "shots" / ("mark-%ss.png" % tt)).write_bytes(b"x")
+                lines.append("shot_mark=%ss:shots/mark-%ss.png:410" % (tt, tt))
+            lines.append("shot_mark=300.0s:-:410")      # a capture that failed: no picture
+            (d / "bench.txt").write_text("\n".join(lines) + "\n")
+            sh = shots.parse(d)
+            look = lambda f: bytes([sum(map(ord, Path(f).name)) % 200 + 20]) * (32 * 9) + bytes([sum(map(ord, Path(f).name)) * 7 % 200 + 20]) * (32 * 9)
+            self.assertEqual(sorted(sh["marks"]), [31.4, 75.2, 200.0, 300.0])
+            self.assertEqual(sh["marks"][31.4]["file"], "shots/mark-31.4s.png")
+            self.assertIsNone(sh["marks"][300.0]["file"])
+            self.assertEqual(sorted(sh["shots"]), [60, 120])         # the timed ones apart
+            # the importer: all marks first, then timed ones up to four in all
+            names = [self.ir.shot_name(p) for p, _ in self.ir.pick_all(d, sh, look=look)]
+            self.assertEqual(names[:3], ["ps3-mark-31_4s.jpg", "ps3-mark-75_2s.jpg", "ps3-mark-200_0s.jpg"])
+            self.assertEqual(len(names), 4)
+            self.assertEqual(self.ir.shot_name(60), "ps3-60s.jpg")
+            for tt in range(4):      # more marks than the gallery holds: all of them, up to six, and no timed ones
+                (d / "shots" / ("mark-9%d.0s.png" % tt)).write_bytes(b"x")
+                lines.append("shot_mark=9%d.0s:shots/mark-9%d.0s.png:410" % (tt, tt))
+            (d / "bench.txt").write_text("\n".join(lines) + "\n")
+            got = self.ir.pick_all(d, shots.parse(d), look=look)
+            self.assertEqual(len(got), 6)
+            self.assertTrue(all(isinstance(p, float) for p, _ in got))
+            # the dropouts around a marked shot are the recorder's, as around a timed one
+            (d / "xruns.tsv").write_text("at_s\tgap_ms\tbefore_db\tafter_db\taudible\n"
+                                         "31.9\t40.0\t-20\t-20\t1\n"      # 0.5 s after the mark at 31.4
+                                         "40.0\t40.0\t-20\t-20\t1\n")     # the game's
+            (d / "bench.txt").write_text("shot_mark=31.4s:shots/mark-31.4s.png:410\n")
+            self.assertEqual(self.ir.recorder_dropouts(d, 2), (1, 1))
 
     def test_freshhome_lossless(self):
         fh = load_bench("freshhome")

@@ -154,6 +154,10 @@ def shot_times(d):
             parts = line[7:].split(":")
             if len(parts) > 1 and report.num(parts[1]) is not None:
                 out.append(report.num(parts[1]))
+        elif line.startswith("shot_mark="):      # the player's own shots: a capture costs a stall as well
+            t = report.num(line[10:].split(":")[0].rstrip("s"))
+            if t is not None:
+                out.append(t)
     return out
 
 
@@ -510,7 +514,8 @@ def v2_numbers(d, b, n, sh):
     if known:
         n["pointer_samples"], n["pointer_visible"] = known, visible
     screen = next((tuple(int(x) for x in r.split()[5:7]) for r in rows if r != "-"), (1920, 1080))
-    pics = [shots.image(d, s) for _, s in sorted(sh["shots"].items()) if shots.image(d, s)]
+    pics = [shots.image(d, s) for _, s in sorted(sh["marks"].items()) if shots.image(d, s)]
+    pics += [shots.image(d, s) for _, s in sorted(sh["shots"].items()) if shots.image(d, s)]
     n.update(bars(pics, screen))
     if report.num(b.get("desktop_back_s")) is not None:
         n["desktop_back_s"] = report.num(b["desktop_back_s"])
@@ -597,6 +602,26 @@ def pick_shots(items, keep=None, n=SHOTS_MAX, look=tiny):
     return sorted(chosen)
 
 
+MARKS_MAX = 6      # the player's own shots (Alt+F12, Select+Start): all of them, up to this many
+
+
+def shot_name(p):
+    """the published file of a shot: a timed point (int seconds) or a player's mark (float, seconds)"""
+    return "ps3-%ds.jpg" % p if isinstance(p, int) else "ps3-mark-%ss.jpg" % ("%.1f" % p).replace(".", "_")
+
+
+def pick_all(d, sh, keep=None, look=None):
+    """[(point, picture)] to publish: the player's marked shots first (always, up to MARKS_MAX: the player's
+    evidence, e.g. a glitch), then the representative timed ones to fill SHOTS_MAX in all"""
+    marks = [(t, shots.image(d, s)) for t, s in sorted(sh["marks"].items()) if shots.image(d, s)][:MARKS_MAX]
+    timed = [(p, shots.image(d, s)) for p, s in sorted(sh["shots"].items()) if shots.image(d, s)]
+    kw = {"look": look} if look else {}
+    if not marks:
+        return pick_shots(timed, keep, **kw)
+    room = SHOTS_MAX - len(marks)
+    return marks + (pick_shots(timed, keep, n=room, **kw) if room > 0 else [])
+
+
 def toml_value(v):
     if isinstance(v, bool):
         return "true" if v else "false"
@@ -641,7 +666,7 @@ def import_run(run, game, content, dry=False, launcher=None, keep=None, rules=No
         raise Refused("%s: recorded the launcher %r, not %r (--launcher)" % (d.name, recorded, launcher))
     launcher = recorded or (launcher or "").strip() or None
     sh = shots.parse(d)
-    has_shots = any(shots.image(d, s) for s in sh["shots"].values())
+    has_shots = any(shots.image(d, s) for s in list(sh["shots"].values()) + list(sh["marks"].values()))
     verdict = (shots.review(d) or "").rstrip(":;,.") or None   # shots.review keeps a colon: "ok:"
     windowed = bool(report.window(b))
     kind = "session" if b.get("kind") == "session" else "demo" if windowed else "capture"
@@ -672,8 +697,7 @@ def import_run(run, game, content, dry=False, launcher=None, keep=None, rules=No
         n.pop("display_score", None), n.pop("display_detail", None)   # scored at catalog time from geometry
     end, crashed = ended(d, b)
     play = n.pop("play_seconds")
-    ps3 = [(p, shots.image(d, s)) for p, s in sorted(sh["shots"].items()) if shots.image(d, s)]
-    ps3 = pick_shots(ps3, keep)
+    ps3 = pick_all(d, sh, keep)
     if verdict in ("ok", "wrong") and ps3:
         n["shot_points"] = len(ps3)
         n["shot_differing"] = 0 if verdict == "ok" else len(ps3)
@@ -690,7 +714,7 @@ def import_run(run, game, content, dry=False, launcher=None, keep=None, rules=No
     tables = {"numbers": n, "scores": {k: round(v, 1) for k, v in scores.items() if v is not None},
               "versions": versions(d),
               "picture": {"verdict": verdict, "note": note or None},
-              "shots": {"ps3": ["ps3-%ds.jpg" % p for p, _ in ps3]}}
+              "shots": {"ps3": [shot_name(p) for p, _ in ps3]}}
     if data >= 2:   # raw numbers and answers only: the catalog scores them with the current formula
         del tables["scores"]
         tables["form"], tables["review"] = form, review
@@ -702,7 +726,7 @@ def import_run(run, game, content, dry=False, launcher=None, keep=None, rules=No
     for old_shot in list(tdir.glob("ps3-*.jpg")) + list(tdir.glob("pc-*.jpg")):   # an import again: its pick
         old_shot.unlink()
     for p, src in ps3:
-        jpeg(src, tdir / ("ps3-%ds.jpg" % p))
+        jpeg(src, tdir / shot_name(p))
     (tdir / "result.toml").write_text(toml_dump(top, tables))
 
 

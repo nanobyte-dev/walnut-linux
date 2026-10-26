@@ -15,6 +15,8 @@ COMM=cataclysm-tiles
 . "$here/recipes/smoke.inc"
 CD_OPT=$HOME/.config/cataclysm-dda/config/options.json
 BACKUP=("$CD_OPT")
+# played sessions' fresh defaults (session.sh, freshhome.py): the game's real directories (checked against its XDG/legacy paths)
+SESSION_HOME=(.config/cataclysm-dda .local/share/cataclysm-dda .cataclysm-dda)
 CD_REND=software
 setup() {
 	mkdir -p "${CD_OPT%/*}"

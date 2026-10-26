@@ -148,7 +148,9 @@ SHOT_SRC=$SHOT_FROM
 if [ -n "$SHOTS" ] && ! command -v xwd > /dev/null; then
 	echo "!! BENCH_SHOTS: no xwd (x11-apps): no screenshots"; SHOT_ERR="no xwd"; SHOTS=
 fi
-if [ -n "$SHOTS" ]; then
+# a played session also takes the player's marked shots (Alt+F12, pad Select+Start: inputlog.py), with
+# or without timed ones
+if [ -n "$SHOTS" ] || { [ "$SESSION" = 1 ] && command -v xwd > /dev/null; }; then
 	if [ -n "${BENCH_SHOT_DIR:-}" ]; then SHOT_DIR=$BENCH_SHOT_DIR
 	elif [[ $D == /dev/shm/* ]]; then SHOT_DIR=${BENCH_SHOT_ROOT:-/var/tmp/ps3-bench}/.shots-${D##*/}	# not RAM
 	else SHOT_DIR=$D/shots; fi
@@ -164,11 +166,12 @@ shot_plan() {	# shot_plan REF_US: the reference happened REF_US after the start:
 	SHOT_REF_US=$1; SHOT_AT=(); SHOT_Q=("${SHOT_PTS[@]}")
 	for s in "${SHOT_PTS[@]}"; do SHOT_AT+=($(( $1 + s * 1000000 ))); done
 }
-shot_take() {	# shot_take POINT: one capture now (a background job): $SHOT_DIR/shot-<POINT>s.xwd, .shot-<POINT>.info
-	local p=$1 f=shot-$1s.xwd a b n0=- n1=- rc t
+shot_take() {	# shot_take POINT [PREFIX]: one capture now (a background job): $SHOT_DIR/shot-<POINT>s.xwd, .shot-<POINT>.info
+	# (PREFIX mark: the player's, mark-<POINT>s.xwd, .mark-<POINT>.info)
+	local pre=${2:-shot} p=$1 f=${2:-shot}-$1s.xwd a b n0=- n1=- rc t
 	[ -n "$hud_file" ] && [ -e "$hud_file" ] && n0=$(wc -l < "$hud_file")
 	us; a=$US
-	"${SHOT_NICE[@]}" xwd -root -silent > "$SHOT_DIR/$f" 2> "$SHOT_DIR/.shot-$p.err"; rc=$?
+	"${SHOT_NICE[@]}" xwd -root -silent > "$SHOT_DIR/$f" 2> "$SHOT_DIR/.$pre-$p.err"; rc=$?
 	us; b=$US
 	[ -n "$hud_file" ] && [ -e "$hud_file" ] && n1=$(wc -l < "$hud_file")
 	secs t $(( a - u0 ))
@@ -177,11 +180,51 @@ shot_take() {	# shot_take POINT: one capture now (a background job): $SHOT_DIR/s
 	if [ "$rc" = 0 ] && command -v xwininfo > /dev/null && command -v python3 > /dev/null && read -r gp < "$D/.pid" 2>/dev/null; then
 		"${SHOT_NICE[@]}" python3 -I "$here/geom.py" "$gp" "$t" "$SHOT_DIR/geometry.tsv" > /dev/null 2>&1
 	fi
-	printf '%s %s %s %d %s %s %s\n' "$p" "$f" "$t" $(( (b - a) / 1000 )) "$n0" "$n1" "$rc" > "$SHOT_DIR/.shot-$p.info"
+	printf '%s %s %s %d %s %s %s\n' "$p" "$f" "$t" $(( (b - a) / 1000 )) "$n0" "$n1" "$rc" > "$SHOT_DIR/.$pre-$p.info"
+}
+# the player's marked shots (inputlog.py appends a time to $D/.mark-req at Alt+F12 or Select+Start; this
+# loop, a helper of its own, takes the capture: the same xwd + geom.py as the timed ones, named by the
+# seconds after the start, SHOT_MARK_MAX of them at most, 2 s apart). A short sound as the answer when a
+# sample is at hand (SHOT_MARK_SOUND, played at nice 19 in the background), no overlay on the game.
+SHOT_MARK_MAX=${BENCH_MARK_MAX:-30}
+mark_watch() {
+	local req=$D/.mark-req n=0 last=0 t_us ms tk line t
+	mkfifo "$D/.mtick"; exec {tk}<> "$D/.mtick"; rm -f "$D/.mtick"
+	while :; do
+		if [ -s "$req" ] && [ $n -lt "$SHOT_MARK_MAX" ]; then
+			line=; read -r line < "$req"; : > "$req"
+			[ -n "$line" ] || { read -r -t 0.5 -u "$tk"; continue; }
+			us; t_us=$US
+			if [ $(( t_us - last )) -ge 2000000 ]; then
+				last=$t_us; n=$((n + 1))
+				secs t $(( t_us - u0 ))
+				[ -n "${SHOT_MARK_SOUND:-}" ] && [ -r "$SHOT_MARK_SOUND" ] && command -v aplay > /dev/null &&
+					{ nice -n 19 aplay -q "$SHOT_MARK_SOUND" > /dev/null 2>&1 & }
+				: > "$D/.markbusy"
+				shot_take "$t" mark > /dev/null 2>&1
+				rm -f "$D/.markbusy"
+			fi
+		fi
+		read -r -t 0.5 -u "$tk"
+	done
+}
+mark_lines() {	# the marked shots' bench.txt lines: shot_mark=<s after t0>s:shots/<file>:<capture ms> ("-" when it failed)
+	local i p f t ms n0 n1 rc
+	[ -n "$SHOT_DIR" ] || return 0
+	for i in "$SHOT_DIR"/.mark-*.info; do
+		[ -e "$i" ] || continue
+		if read -r p f t ms n0 n1 rc < "$i"; then
+			if [ "$rc" = 0 ] && [ -s "$SHOT_DIR/$f" ]; then echo "shot_mark=${p}s:shots/$f:$ms"
+			else echo "shot_mark=${p}s:-:$ms"; rm -f "$SHOT_DIR/$f"; fi
+		fi
+		rm -f "$i" "${i%.info}.err"
+	done
+	return 0
 }
 shot_lines() {	# the shots' bench.txt lines (also from the trap of a run stopped from outside)
 	local p f t ms n0 n1 rc skipped= r=-
 	[ -n "$SHOT_ERR" ] && echo "shot_err=$SHOT_ERR"
+	mark_lines
 	[ ${#SHOT_PTS[@]} -gt 0 ] || return 0
 	echo "shots=${SHOT_PTS[*]}"
 	[ -n "$SHOT_REF_US" ] && secs r "$SHOT_REF_US"
@@ -731,7 +774,9 @@ declare -F during >/dev/null && { during > "$D/during.log" 2>&1 & DURING_PID=$!;
 # ends by itself when the game's process group leader is gone (the final wait below collects it).
 # BENCH_INPUTLOG=0: none
 if [ "$SESSION" = 1 ] && [ "${BENCH_INPUTLOG:-1}" = 1 ] && command -v python3 > /dev/null; then
-	nice -n 19 python3 -I "$here/inputlog.py" "$t0" "$gp" > "$D/input.tsv" 2> "$D/input.err" &
+	rm -f "$D/.mark-req"
+	nice -n 19 python3 -I "$here/inputlog.py" "$t0" "$gp" "$D/.mark-req" > "$D/input.tsv" 2> "$D/input.err" &
+	[ -n "$SHOT_DIR" ] && declare -F mark_watch > /dev/null && { mark_watch > /dev/null 2>&1 & helpers+=($!); }
 fi
 (sleep "$SOUND_AT"; cat /proc/asound/card*/pcm*p/sub*/status 2>/dev/null |
 	awk '$1 == "state:" { s = s (s ? "," : "") $2 } END { print s ? s : "none" }' > "$D/.sound") \
@@ -945,6 +990,7 @@ if [ "$MEM" = 1 ] && [ ${#MEM_DONE[@]} -gt 0 ] && [[ " ${MEM_DONE[*]} " != *" en
 	mem_snap end > /dev/null 2>&1; MEM_DONE+=(end)
 fi
 [ ${#SHOT_JOBS[@]} -gt 0 ] && wait "${SHOT_JOBS[@]}"	# a screenshot still being taken: of the game
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ -e "$D/.markbusy" ] || break; sleep 0.5; done
 [ ${#DUMP_JOBS[@]} -gt 0 ] && wait "${DUMP_JOBS[@]}"	# the capture first (it has timeouts), then the game goes
 stop_game
 while IFS= read -r -t 2 -u 3 l; do l=$part$l; part=; printf '%s\n' "$l"; printf '%s\n' "$l" >> "$D/game.log"; done

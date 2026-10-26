@@ -25,6 +25,7 @@
 #   SESSION_FRESH=0              the player's own settings (no fresh defaults; then the session tests that)
 #   SESSION_SHOT_EVERY=SECONDS   screenshots interval (default 60), SESSION_SHOT_MAX=N the most (40;
 #                                8 MB each on the disk until make bench-pull)
+#   (during play: Alt+F12, or pad Select+Start, takes a marked screenshot, shots/mark-<t>s; the game gets the keys too)
 #   SESSION_FORM=0               no form (ask later: python3 -I session-form.py RUN_DIR GAME VARIANT)
 #   SESSION_DRY=1                print what would run (the launcher and its command included)
 #   SESSION_LAUNCHER_ARGS=...    extra launcher.py options (--apps, --runtime-dir, --dpkg: tests)
@@ -121,6 +122,7 @@ log=$HOME/.cache/ps3-session/$(date -u +%Y%m%dT%H%M%SZ)-$g-$v.log
 mkdir -p "${log%/*}"
 echo "session: $g $v; the game starts now, play it normally and quit it when done; the form follows."
 echo "session: log $log"
+echo "session: to show something (a glitch): Alt+F12 on the keyboard, or Select+Start on the gamepad, takes a screenshot"
 if [ -z "${SSH_TTY:-}" ] && { [ -t 1 ] || [ -t 2 ]; }; then exec > "$log" 2>&1; else exec > >(tee "$log") 2>&1; fi
 
 versions() {	# the game's package and the graphics stack, as run.sh's
@@ -142,7 +144,7 @@ homes() {	# the game's settings and data directories, relative to ~: the recipe'
 		r=${f#"$HOME"/}; [ "$r" = "$f" ] && continue
 		case $r in .config/*/*) echo "$r" | cut -d/ -f1-2 ;; .local/share/*/*) echo "$r" | cut -d/ -f1-3 ;;
 			*/*) echo "${r%%/*}" ;; esac
-	  done | sort -u ) 2> /dev/null
+	  done | grep -vx -e .config -e .local -e .cache | sort -u ) 2> /dev/null
 }
 # the game as shipped, on fresh defaults (the user, 2026-10-26): its directories renamed aside (a sibling
 # on the same filesystem, instant, never a delete), the player's own renamed back after the game; a

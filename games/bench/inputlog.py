@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""inputlog.py T0 PID [--every S]: the input devices during a played session, for the Controls checks and
+"""inputlog.py T0 PID [REQUEST_FILE]: the input devices during a played session, for the Controls checks and
 the level load (docs/GAMEDB.md "How a game is rated", docs/games/SUITE.md "Played sessions"). Started by
 client.sh in a session (BENCH_SESSION=1) next to the game, at nice 19, as the player: it reads what the
 player may read (the pads through logind's uaccess; keyboards and mice with the `input` group), and a
@@ -7,6 +7,14 @@ class it can't read stays unread (the header says which): its items are "not tes
 exits by itself when PID (the game's process group leader) is gone. Read-only: it never grabs a device,
 so the game gets every event as before. It counts presses and keeps their times, never which key: no
 key codes, no text.
+
+The one exception: the player's screenshot chords, Alt+F12 on a keyboard and Select+Start on a gamepad
+(both buttons within 0.3 s). Only for them does it look at key codes (it holds the state of Alt, F12,
+Select and Start, nothing else, and keeps nothing of it), and all it writes is a `mark` row with the time
+of the chord, never a code. With REQUEST_FILE (client.sh gives it one in a session) each chord also appends
+its time to that file, and client.sh takes a marked screenshot (shots/mark-<t>s.xwd, bench.txt shot_mark=).
+Shots at least 2 s apart; the game still gets the keys (nothing is grabbed): a game that uses Alt+F12 or
+Select+Start itself sees them as well, and the player gets a shot too.
 
 Output on stdout, TSV, the time in seconds after T0 (client.sh's $EPOCHREALTIME at the game's start):
   # inputlog readable=pad,keyboard unreadable=mouse
@@ -17,6 +25,7 @@ Output on stdout, TSV, the time in seconds after T0 (client.sh's $EPOCHREALTIME 
   31.207 key    event3   pad       -                                    (a press, at the event's own time)
   10   press    -        pad       14                                   (key/button presses in the 10 s from t_s)
   10   move     -        pad       230                                  (axis and relative events in those 10 s)
+  62.4 mark     event3   pad       -                                    (a screenshot chord, at the event's time)
   .    removed  event7   pad       -
 Classes from the device's capabilities (/sys/class/input/eventN/device): pad (BTN_GAMEPAD or BTN_JOYSTICK),
 motion (an accelerometer: the DualShock's motion sensors, never read), mouse (REL_X, REL_Y, BTN_LEFT),
@@ -35,6 +44,10 @@ EV_KEY, EV_REL, EV_ABS = 1, 2, 3
 BTN_JOYSTICK, BTN_GAMEPAD, BTN_LEFT = 0x120, 0x130, 0x110
 KEY_Q, KEY_A, KEY_Z = 16, 30, 44
 INPUT_PROP_ACCELEROMETER = 6
+KEY_LEFTALT, KEY_RIGHTALT, KEY_F12 = 56, 100, 88
+BTN_SELECT, BTN_START = 0x13A, 0x13B
+CHORD_GAP, MARK_GAP = 0.3, 2.0      # Select and Start within this; shots at least this far apart (seconds)
+CHORD_KEYS = (KEY_LEFTALT, KEY_RIGHTALT, KEY_F12, BTN_SELECT, BTN_START)
 TICK, SCAN, FDS, BUCKET = 0.25, 1.0, 2.0, 10
 LONG_BITS = struct.calcsize("l") * 8
 READ = ("pad", "keyboard", "mouse")
@@ -145,9 +158,38 @@ def count(data, counts, presses=None):
             counts["move"] += 1
 
 
+class Chords:
+    """the screenshot chords of one device: Alt (either) held while F12 goes down, or Select and Start down
+    within CHORD_GAP of each other. Holds the state of those five keys and no other; feed() returns the
+    times (the events' own) at which a chord completed"""
+
+    def __init__(self):
+        self.down = {}
+
+    def feed(self, data):
+        out = []
+        for sec, usec, typ, code, value in EV.iter_unpack(data[:len(data) - len(data) % EV.size]):
+            if typ != EV_KEY or code not in CHORD_KEYS:
+                continue
+            t = sec + usec / 1e6
+            if value == 0:
+                self.down.pop(code, None)
+            elif value == 1:
+                self.down[code] = t
+                if code == KEY_F12 and (KEY_LEFTALT in self.down or KEY_RIGHTALT in self.down):
+                    out.append(t)
+                elif code in (BTN_SELECT, BTN_START):
+                    other = BTN_START if code == BTN_SELECT else BTN_SELECT
+                    if other in self.down and t - self.down[other] <= CHORD_GAP:
+                        out.append(t)
+        return out
+
+
 class Log:
-    def __init__(self, t0, out=sys.stdout, dev="/dev/input", sysroot="/sys/class/input"):
+    def __init__(self, t0, out=sys.stdout, dev="/dev/input", sysroot="/sys/class/input", request=None):
         self.t0, self.out, self.dev, self.sysroot = t0, out, dev, sysroot
+        self.request = request     # a file each chord's time is appended to (client.sh takes the shot)
+        self.last_mark = None
         self.devs = {}        # eventN -> {"class", "fd"}
         self.opened = set()
         self.unreadable = set()
@@ -177,7 +219,7 @@ class Log:
                     fd = os.open(os.path.join(self.dev, n), os.O_RDONLY | os.O_NONBLOCK)
                 except OSError:
                     self.unreadable.add(cls)
-            self.devs[n] = {"class": cls, "fd": fd}
+            self.devs[n] = {"class": cls, "fd": fd, "chords": Chords() if cls in ("pad", "keyboard") else None}
             self.row(t, "present" if self.first else "added", n, cls, device_name(sysdev))
         for n in sorted(set(self.devs) - names):
             d = self.devs.pop(n)
@@ -206,8 +248,25 @@ class Log:
                 if not data:
                     break
                 count(data, c, presses)
+                if d["chords"] is not None:
+                    for t in d["chords"].feed(data):
+                        self.mark(t, n, d["class"])
             for p in presses:      # each press at its own time: Load's level load ends at the play mark
                 self.row("%.3f" % (p - self.t0), "key", n, d["class"], "-")
+
+    def mark(self, t, dev, cls):
+        """a screenshot chord at t (epoch seconds): a row, and a request line; one every MARK_GAP at most"""
+        if self.last_mark is not None and t - self.last_mark < MARK_GAP:
+            return False
+        self.last_mark = t
+        self.row("%.3f" % (t - self.t0), "mark", dev, cls, "-")
+        if self.request:
+            try:
+                with open(self.request, "a") as f:
+                    f.write("%.6f\n" % t)
+            except OSError:
+                pass
+        return True
 
     def flush(self):
         for cls, c in sorted(self.counts.items()):
@@ -229,7 +288,7 @@ def main(argv):
         return 2
     t0, pid = float(argv[1]), int(argv[2])
     first = io.StringIO()
-    log = Log(t0, first)
+    log = Log(t0, first, request=argv[3] if len(argv) > 3 else None)
     log.scan()      # the devices there at the start, under the header
     readable = sorted({d["class"] for d in log.devs.values() if d["fd"] is not None})
     log.out = sys.stdout

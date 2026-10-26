@@ -61,7 +61,7 @@ Patches:
 
 Recipe `games/bench/recipes/yquake2.sh`: the engine run directly (Debian's `quake2` wrapper is
 contrib, not ours) on the demo pak's only demo, `+timedemo 1 +demomap q2demo1.dm2`, vsync off,
-config `~/.yq2/baseq2/config.cfg`. The timedemo repeats in one session: autoexec.cfg's `bench` alias
+config `~/.local/share/YamagiQ2/baseq2/config.cfg` (`~/.yq2` before the XDG build). The timedemo repeats in one session: autoexec.cfg's `bench` alias
 sets `nextdemo` again, disconnects (which prints the pass's line; a chained demomap would reconnect
 and clear the counters) and starts the demo cold. Each pass also prints "ERROR: Disconnected from
 server". Parsing `%i frames, %3.1f seconds: %3.1f fps`. Variants: `sdlsound` (SDL audio instead of

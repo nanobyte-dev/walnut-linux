@@ -3,7 +3,9 @@
 # the demo pak's only demo, q2demo1.dm2, on the gl1 renderer (GL 1.4 fixed function; gl3 needs GL 3),
 # fullscreen 1920x1080, vsync off (a timedemo isn't otherwise capped). It returns to the console
 # after the demo: stopped at the result line. The engine is run directly (Debian's quake2 wrapper
-# package is contrib and not ours); the config is ~/.yq2/baseq2/config.cfg.
+# package is contrib and not ours); the config is
+# ~/.local/share/YamagiQ2/baseq2/config.cfg (8.70 is built with XDG support: "Using
+# '/home/<user>/.local/share/YamagiQ2/baseq2' for writing", session of 2026-10-26); builds without it used ~/.yq2.
 # Steady state: the timedemo repeated in one session (PASSES=1: passes starting 54 s or more after
 # the first counted until ~120 s, then the game is stopped). At a demo's end the server runs the
 # nextserver cvar, which demomap fills from nextdemo; autoexec.cfg's alias `bench` sets nextdemo
@@ -13,13 +15,14 @@
 SUITE=1
 COMM=quake2
 ENV=(vblank_mode=0)
-BACKUP=("$HOME/.yq2/baseq2/config.cfg" "$HOME/.yq2/baseq2/autoexec.cfg")
+YQ2_HOME=${XDG_DATA_HOME:-$HOME/.local/share}/YamagiQ2
+BACKUP=("$YQ2_HOME/baseq2/config.cfg" "$YQ2_HOME/baseq2/autoexec.cfg" "$HOME/.yq2/baseq2/config.cfg" "$HOME/.yq2/baseq2/autoexec.cfg")
 # played sessions run on fresh defaults: these (under ~) are set aside and put back (session.sh,
-# freshhome.py); checked against the recipe's config.cfg path
-SESSION_HOME=(.yq2)
+# freshhome.py); checked against the engine's own "Using ... for writing" line
+SESSION_HOME=(.local/share/YamagiQ2 .yq2)
 setup() {
-	mkdir -p "$HOME/.yq2/baseq2"
-	printf '%s\n' 'alias bench "set nextdemo bench; disconnect; demomap q2demo1.dm2"' > "$HOME/.yq2/baseq2/autoexec.cfg"
+	mkdir -p "$YQ2_HOME/baseq2"
+	printf '%s\n' 'alias bench "set nextdemo bench; disconnect; demomap q2demo1.dm2"' > "$YQ2_HOME/baseq2/autoexec.cfg"
 }
 CMD=(/usr/lib/yamagi-quake2/quake2 -datadir /usr/share/games/quake2-demo
 	+set vid_renderer gl1 +set vid_fullscreen 1 +set r_mode -1 +set r_customwidth 1920

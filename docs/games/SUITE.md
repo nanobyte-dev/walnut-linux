@@ -222,6 +222,21 @@ the game's own menu; a timedemo or autoplay recipe without one would run its ben
 the terminal: play, then quit the game from its menu. There is no time limit. Don't use the PS3
 for anything else meanwhile, and no SSH: a login is interference for what is measured.
 
+**Marking a screenshot.** To show a glitch (or anything) during play: press **Alt+F12** on the keyboard,
+or **Select and Start together** on the gamepad (within 0.3 s). The session takes a full-resolution
+screenshot at that moment, the same capture as the timed ones (`shots/mark-<t>s.xwd`, `<t>` the seconds
+after the start; bench.txt `shot_mark=<t>s:<file>:<capture ms>`), at least 2 s apart, at most 30 a
+session (`BENCH_MARK_MAX`). There is no overlay on the game; a sound is possible by pointing
+`SHOT_MARK_SOUND` at a wav file (off by default). A capture costs a stall (it reads video memory), so
+the sound dropouts within -0.5 s to +2 s of it are counted as the recorder's, like a timed shot's.
+Nothing is grabbed: **the game gets the keys too**, so a game that uses Alt+F12 or Select+Start itself
+will see them (rare; the shot is taken anyway). Nothing on Walnut binds Alt+F12 (the Openbox keys, tint2
+and the rest were checked on 2026-10-26; Print Screen stays the desktop's own scrot). The marked shots
+are the player's evidence: `import-run.py` always publishes them in the game's gallery before the
+representative timed ones (four pictures in all, more only when the marks alone exceed it: all of them up
+to six, `ps3-mark-<t>s.jpg`), and `review.py` puts them first on the review sheet as "Player's shot"
+with a line in REVIEW.md.
+
 **What runs.** The game goes through `ps3-game` (game mode, the VRAM swap on, vsync as shipped, the
 desktop's window manager), recorded by `ps3-bench.sh session` with `client.sh` (`BENCH_SESSION=1`):
 
@@ -231,9 +246,9 @@ desktop's window manager), recorded by `ps3-bench.sh session` with `client.sh` (
 | memory, swap and VRAM samples every 0.5 s; temperatures; dmesg; the pre/post snapshots | `samples`, `temps`, `dmesg.log`, `snap-*.txt` |
 | sound: `underruns`, `oal_wedge`, `oal_wait`, `oal_xrun`, `snd_stall`, `snd_restarts`, `sound` (the card at 15 s) | `bench.txt` |
 | sound dropouts, measured ([below](#sound-dropouts)): `xrunlog`, `xruns_logged`, `xruns_audible`, `xrun_gap_ms_total`, ... | `bench.txt`, `xruns.tsv`, `xruns.log` |
-| a screenshot about every minute (xwd at nice 19; `SESSION_SHOT_EVERY`, at most `SESSION_SHOT_MAX`=40, 8 MB each) | `shots/`, `shot=` |
+| a screenshot about every minute (xwd at nice 19; `SESSION_SHOT_EVERY`, at most `SESSION_SHOT_MAX`=40, 8 MB each), and the player's own on Alt+F12 or pad Select+Start (`mark-<t>s`) | `shots/`, `shot=`, `shot_mark=` |
 | the game's window and the screen at each screenshot (`geom.py`: xwininfo and xprop from x11-utils, by the game's pid and its children; Display, [GAMEDB.md](../GAMEDB.md#how-a-game-is-rated)), and the X pointer: visible over the window or not (XFixes' cursor image through ctypes, libXfixes comes with Mesa; its theme name); a recipe may log `render_res=WxH` in bench.txt (recorded only) | `shots/geometry.tsv` (`at_s x y w h fullscreen screen_w screen_h by cursor cursor_name`) |
-| the input devices (`inputlog.py`, started by client.sh at nice 19, as the player: the pads through logind's uaccess, keyboards and mice with the `input` group; a class it can't read is named in its header and its items stay untested): each device present or added with its class (pad, keyboard, mouse, motion, other), which ones the game or its children opened (`/proc/<pid>/fd` every 2 s, `jsN` counted as its `eventN`), every press at the kernel's timestamp (`key` rows: the level load ends at the play mark), presses and axis moves per class per 10 s. Read-only, never grabs, never a key code. `BENCH_INPUTLOG=0` leaves it out | `input.tsv`, `input.err` |
+| the input devices (`inputlog.py`, started by client.sh at nice 19, as the player: the pads through logind's uaccess, keyboards and mice with the `input` group; a class it can't read is named in its header and its items stay untested): each device present or added with its class (pad, keyboard, mouse, motion, other), which ones the game or its children opened (`/proc/<pid>/fd` every 2 s, `jsN` counted as its `eventN`), every press at the kernel's timestamp (`key` rows: the level load ends at the play mark), presses and axis moves per class per 10 s. Read-only, never grabs. It records presses and times, never which key, with one exception: the two screenshot chords ([Marking a screenshot](#played-sessions)). For those it holds the state of Alt, F12, Select and Start (nothing else) and writes only a `mark` row with the chord's time, never a code; it also appends the time to `.mark-req`, which client.sh turns into a shot. `BENCH_INPUTLOG=0` leaves it out (and the marking with it) | `input.tsv`, `input.err` |
 | the game on fresh defaults (`freshhome.py`, from session.sh): the recipe's `SESSION_HOME` directories (else the top directories of its `BACKUP` files) renamed to `<dir>.walnut-aside-<stamp>` before the game, the player's own renamed back after it; the session's fresh ones to the run directory up to 5 MB, else renamed to `<dir>.walnut-fresh-<stamp>`; never a delete, never a write over anything. The plan is written first (`~/.cache/ps3-session/freshhome/`), so a session cut short is put back at the next session's start, with a warning. `SESSION_FRESH=0` keeps the player's settings | `fresh-home/`; bench.txt `fresh_home`, `fresh_home_new`, `recovered`, `fresh_home_warn` |
 | the desktop's return after the quit (session.sh watches `ps3-desktop.slice`'s `cgroup.freeze` once a second, builtins only): seconds from the game's end to the thaw; 0 when game mode never froze it | bench.txt `desktop_back_s`, or `desktop_stuck=1` |
 | peak RSS, game output, package versions | `hwm`, `game.log`, `versions` |

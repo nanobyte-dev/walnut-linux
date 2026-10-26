@@ -34,6 +34,9 @@ COMM=openrct2
 DURATION=${SMOKE_SECS:-300}
 ORCT2_DIR=$HOME/.config/OpenRCT2-ps3bench
 BACKUP=("$ORCT2_DIR/config.ini")
+# played sessions' fresh defaults (session.sh, freshhome.py): the game's real directories (checked against its XDG/legacy paths)
+# (ORCT2_DIR is the bench's own; a played session runs on the real ~/.config/OpenRCT2)
+SESSION_HOME=(.config/OpenRCT2 .config/OpenRCT2-ps3bench)
 DATA_DIRS=(/usr/share/openrct2 /usr/share/games/rct2)
 ORCT2_SCALE=2
 ORCT2_SOUND=true
