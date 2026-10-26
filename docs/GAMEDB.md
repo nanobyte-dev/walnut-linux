@@ -67,7 +67,7 @@ only sessions count: scripted runs and unattended soaks add no hours.
 ## How a game is rated
 
 Each aspect gets a score from 0 to 100, on the same scale for every game; the medal comes from the
-weighted mean of the scores. The current rules, 2.1 (2026-10-26):
+weighted mean of the scores. The current rules, 2.2 (2026-10-26):
 
 | Aspect | Weight | Measured | 0 | 100 |
 |---|---|---|---|---|
@@ -231,7 +231,7 @@ to play).
 
 ## Rules versions
 
-A rating says which rules made it ("rules 2.1 (2026-10-26)"), as `<data>.<formula>`:
+A rating says which rules made it ("rules 2.2 (2026-10-26)"), as `<data>.<formula>`:
 
 - **The data version** says which data points a test has. A test keeps the data version it was
   measured under (result.toml `rules = "2.0"`; a test without the field is 1.0) until it is re-tested.
@@ -252,7 +252,12 @@ from those tests alone: versions never merge. History has a row per Walnut and g
 data version, and the test list names each test's rules. The website's about page explains the
 current rules and links each rating's rules to its section.
 
-**Rules 2.1 (2026-10-26)**, current: the tables above. A formula revision of data version 2 (`FORMULA[2] = 1`):
+**Rules 2.2 (2026-10-26)**, current: the tables above. A formula revision (`FORMULA[2] = 2`): "crashes in
+more than half the sessions" needs at least two sessions, so a single late crash in a game's only session
+is Rust until a second session shows whether it repeats (the user, 2026-10-26); an early crash (within
+the first 5 minutes of play) or one at startup is still Scrap with one session. No medal moved.
+
+**Rules 2.1 (2026-10-26)**: A formula revision of data version 2 (`FORMULA[2] = 1`):
 the medals were redefined (the user, 2026-10-26), with the weights and curves unchanged. Platinum,
 Gold, Silver and Bronze come from the mean as before; Tin is gone; Rust is a playable game with a
 core subsystem broken (or a mean under 35); Scrap only a game that can't be played (consistent
@@ -312,8 +317,8 @@ game has it.
   one crash with over an hour of play between crashes only lowers Stability. Scrap needs the crash
   to be consistent: at startup or before play in any session, in more than half the sessions, or
   within the first 5 minutes of play in half of them or more (Mr.Boom: 30 s into both sessions). A
-  single session that crashed is 1 of 1, more than half: Scrap until another session shows it was
-  occasional.
+  single session that crashed late is Rust (rules 2.2): one session can't show the crash is consistent;
+  one that crashed early or at startup is Scrap.
 - **Rust and Scrap show their reason**: won't start, crashes (how many, how early), too slow, or what's
   broken.
 - **Sessions measured alike are merged** (medians), those of the newest version measured the way its

@@ -115,9 +115,15 @@ The rules change as we learn, and a rating names the rules that made it. A chang
 thresholds re-scores every test at once. A new kind of check needs data older tests don't have, so
 those tests keep the rules they were measured under until the game is played again.
 
-### Rules 2.1, 2026-10-26 {#rules-2}
+### Rules 2.2, 2026-10-26 {#rules-2}
 
-The current rules: everything on this page. Rules 2.1 changed what the medals mean and nothing else:
+The current rules: everything on this page. Rules 2.2 is a small fix: a game whose only played
+session crashed late is Rust, not Scrap, until a second session shows whether the crash comes back. A crash
+at startup or in the first few minutes is still Scrap.
+
+### Rules 2.1, 2026-10-26
+
+Rules 2.1 changed what the medals mean and nothing else:
 the scores are the same as in 2.0, and every test was re-scored. A game with something core broken
 used to be Scrap; now it is Rust, because you can still play it. Scrap is kept for games you can't
 play at all, and Tin is gone.

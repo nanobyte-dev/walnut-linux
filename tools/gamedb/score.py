@@ -33,7 +33,8 @@ fixed deductions per defect category (the reviewer's answers and the form's glit
 deductions off Display (stretched, a desktop pointer, small text: the reviewer's), count a hang on
 quit like a crash in Stability, add the level load to Load, and replace the weakest link by one rule: a
 broken core subsystem caps the medal (broken_v2): combine(tests, rules=2) and test_scores_v2(test).
-Formula 2.1 (2026-10-26) redefines the medals of data version 2 (MEDALS_V2): Platinum to Bronze from the mean,
+Formula 2.2 (2026-10-26): "more than half the sessions crash" needs two sessions (a single late crash in a
+game's only session is Rust). Formula 2.1 (2026-10-26) redefines the medals of data version 2 (MEDALS_V2): Platinum to Bronze from the mean,
 no Tin; Rust for a playable game with a core subsystem broken (or a mean under Bronze's); Scrap only for a
 game that can't be played (scrap_floor_v2: won't start, crashes consistently, under 5 fps). A rating never mixes the two: catalog.py picks a launcher's newest data version
 and rates it from those tests alone.
@@ -56,7 +57,7 @@ ASPECT_NAMES = {"frame": "Frame rate", "smooth": "Smoothness", "sound": "Sound",
 # thresholds for that data version, applied at catalog time to every test of it (a test stores its raw
 # numbers and answers, never only scores). A new criterion that needs new data is a new data version;
 # a changed weight or threshold, or a dropped aspect, is a new formula revision (bump FORMULA[data]).
-FORMULA = {1: 0, 2: 1}
+FORMULA = {1: 0, 2: 2}
 RULES = {1: {"date": "2026-10-24", "anchor": "rules-1"},
          2: {"date": "2026-10-26", "anchor": "rules-2"}}
 CURRENT_DATA = 2
@@ -326,7 +327,9 @@ def scrap_floor_v2(tests, median_fps=None):
     early = [t for t in crashed if t["play_seconds"] < EARLY_CRASH_S]
     if early and len(early) * 2 >= len(played):
         return "crashes within %d minutes of play in %d of %d sessions" % (EARLY_CRASH_S // 60, len(early), len(played))
-    if len(crashed) * 2 > len(played):
+    # more than half needs two sessions (rules 2.2): one late crash in a game's only session is Rust until
+    # a second session shows whether it repeats
+    if len(played) >= 2 and len(crashed) * 2 > len(played):
         return "crashes in %d of %d sessions" % (len(crashed), len(played))
     if median_fps is not None and median_fps < UNPLAYABLE_FPS:
         return "too slow (%.1f fps)" % median_fps

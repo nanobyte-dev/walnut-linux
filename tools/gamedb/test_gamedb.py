@@ -1350,7 +1350,12 @@ class RulesV2(unittest.TestCase):
         # one crash in two short sessions, late in its session: under an hour between crashes, Rust
         r = score.combine([v2_session("a", end="crash"), v2_session("b")], rules=2)
         self.assertEqual((r["medal"], r["reason"]), ("Rust", "stability broken (1 crash in 0.3 h)"))
-        self.assertEqual(score.combine([v2_session(end="crash")], rules=2)["reason"], "crashes in 1 of 1 sessions")
+        # rules 2.2: a single late crash in a game's only session is Rust (one session can't show it's consistent);
+        # a single early one (within the first minutes of play) is Scrap
+        r = score.combine([v2_session(end="crash")], rules=2)
+        self.assertEqual(r["medal"], "Rust")
+        r = score.combine([v2_session(end="crash", play_seconds=100.0)], rules=2)
+        self.assertEqual((r["medal"], r["reason"]), ("Scrap", "crashes within 5 minutes of play in 1 of 1 sessions"))
         # not broken: no music alone, a game capped at 18 fps holding its cap
         self.assertNotEqual(score.combine([v2_session(numbers={"music": "no"})], rules=2)["medal"], "Rust")
         capped = v2_session(numbers={"median_fps": 18.0, "low1_fps": 17.0})
@@ -1367,8 +1372,8 @@ class RulesV21Medals(unittest.TestCase):
     or a mean under 35; Scrap unplayable (won't start, consistent crashes, under 5 fps)"""
 
     def test_scale(self):
-        self.assertEqual(score.FORMULA[2], 1)
-        self.assertEqual(score.rules_label(2), "rules 2.1 (2026-10-26)")
+        self.assertEqual(score.FORMULA[2], 2)
+        self.assertEqual(score.rules_label(2), "rules 2.2 (2026-10-26)")
         self.assertNotIn("Tin", score.MEDALS_V2)
         self.assertIn("Tin", score.MEDALS)                         # rules 1's scale keeps it
         for mean, medal in ((100, "Platinum"), (90, "Platinum"), (89.9, "Gold"), (75, "Gold"), (74.9, "Silver"),
@@ -1453,17 +1458,17 @@ class RulesSelection(unittest.TestCase):
         self.assertEqual(rating["aspects"]["frame"]["score"], round(score.frame_score(40, 30)))
         v2 = dict(v2_session(), versions={"xmoto": "1.0", "walnut": "0.1"})
         rating, hist = catalog.rate_launcher([v1, v2], fm)
-        self.assertEqual((rating["rules"], rating["rules_data"]), ("2.1", 2))
+        self.assertEqual((rating["rules"], rating["rules_data"]), ("2.2", 2))
         self.assertEqual(rating["aspects"]["frame"]["score"], 100)     # the v1 session isn't merged in
         self.assertEqual(rating["basis"], {"tests": 1, "kind": "session", "minutes": 9})
         self.assertEqual(rating["hours"], 0.15)                       # its play alone
         self.assertEqual(list(rating["aspects"]), score.ASPECTS[2])
         # one version tested under both rules: a row for each, the newest rules first
-        self.assertEqual([(h["rules"], h["tests"]) for h in hist], [("2.1", 1), ("1.0", 1)])
+        self.assertEqual([(h["rules"], h["tests"]) for h in hist], [("2.2", 1), ("1.0", 1)])
         # a newer Walnut release under rules 2, the old one under rules 1: History shows both
         v2b = dict(v2, versions={"xmoto": "1.0", "walnut": "0.2"}, date="2026-11-01")
         _, hist = catalog.rate_launcher([v1, v2b], fm)
-        self.assertEqual([(h["walnut"], h["rules"]) for h in hist], [("0.2", "2.1"), ("0.1", "1.0")])
+        self.assertEqual([(h["walnut"], h["rules"]) for h in hist], [("0.2", "2.2"), ("0.1", "1.0")])
         # a version-2 capture doesn't move a version-1 launcher off rules 1 (graded tests decide)
         cap = {"id": "c", "date": "2026-10-28", "kind": "capture", "rules": "2.0", "picture": {"verdict": "ok"},
                "review": {}, "versions": {"walnut": "0.1"}}
@@ -1483,8 +1488,8 @@ class RulesSelection(unittest.TestCase):
             self.assertEqual([e for e in check.check_game(g, set(), REPO) if "2026-10-27" in e], [])
             out = catalog.build_game(g, REPO, {})
             gl12 = next(l for l in out["launchers"] if l["name"] == "OpenArena (GL 1.2)")
-            self.assertEqual(gl12["rating"]["rules"], "2.1")
-            self.assertEqual(next(x for x in out["tests"] if x["id"] == "2026-10-27-session")["rules"], "2.1")
+            self.assertEqual(gl12["rating"]["rules"], "2.2")
+            self.assertEqual(next(x for x in out["tests"] if x["id"] == "2026-10-27-session")["rules"], "2.2")
             if out["rating"]["launcher"] == "OpenArena (GL 1.2)":
                 self.assertIn("controller-full", out["badges"])
 
