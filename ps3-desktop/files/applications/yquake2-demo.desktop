@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Quake II (demo)
+Comment=Yamagi Quake II with the Quake II demo data, OpenGL 1.4 renderer, fullscreen at the TV's resolution
+Exec=ps3-game /usr/lib/yamagi-quake2/quake2 -datadir /usr/share/games/quake2-demo +set vid_renderer gl1 +set vid_fullscreen 1 +set r_mode -2
+Icon=applications-games
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=quake;quake2;first person shooter;
