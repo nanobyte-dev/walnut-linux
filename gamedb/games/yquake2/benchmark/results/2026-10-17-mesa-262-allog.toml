@@ -1,0 +1,9 @@
+# yquake2's numbers in batch 2026-10-17-mesa-262-allog (gamedb/benchmarks/README.md)
+batch = "2026-10-17-mesa-262-allog"
+
+[variant.allog]
+fps = 32.1
+cpu = 16.5
+underruns = 14
+ram_free = 31.7
+vram = 48.2

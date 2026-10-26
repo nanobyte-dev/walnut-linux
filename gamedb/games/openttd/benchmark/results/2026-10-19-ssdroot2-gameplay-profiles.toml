@@ -1,0 +1,17 @@
+# openttd's numbers in batch 2026-10-19-ssdroot2-gameplay-profiles (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot2-gameplay-profiles"
+
+[variant."gl@perf"]
+fps = 18
+cpu = 241.4
+underruns = 4172
+ram_free = 26.3
+vram = 25.8
+fps_steady = 18
+low1 = 6.5
+stalls = 101
+longest_ms = 661.7
+stalls_play = 101
+stall_play_s = 14.7
+low1_play = 6.5
+longest_play_ms = 661.7

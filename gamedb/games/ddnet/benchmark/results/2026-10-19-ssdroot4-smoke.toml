@@ -1,0 +1,17 @@
+# ddnet's numbers in batch 2026-10-19-ssdroot4-smoke (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot4-smoke"
+
+[variant.base]
+fps = 105
+cpu = 147.4
+underruns = 1765
+ram_free = 11.5
+vram = 205.4
+fps_steady = 102
+low1 = 39.1
+stalls = 14
+longest_ms = 15519.0
+stalls_play = 14
+stall_play_s = 32.0
+low1_play = 39.1
+longest_play_ms = 15519.0

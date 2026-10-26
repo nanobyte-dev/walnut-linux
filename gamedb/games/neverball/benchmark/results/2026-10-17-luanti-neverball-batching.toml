@@ -1,0 +1,24 @@
+# neverball's numbers in batch 2026-10-17-luanti-neverball-batching (gamedb/benchmarks/README.md)
+batch = "2026-10-17-luanti-neverball-batching"
+
+[variant.base]
+fps = 76.5
+cpu = 65.5
+underruns = 118
+ram_free = 58.5
+vram = 34.2
+fps_steady = 66.5
+low1 = 41.3
+stalls = 51
+longest_ms = 3893.0
+
+[variant.gloff]
+fps = 71.9
+cpu = 80.3
+underruns = 115.0
+ram_free = 56.9
+vram = 34.3
+fps_steady = 62.4
+low1 = 48.1
+stalls = 39.5
+longest_ms = 3674.5

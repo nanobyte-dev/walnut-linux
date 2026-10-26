@@ -1,0 +1,9 @@
+# neverball's numbers in batch 2026-10-17-mesa-246-ps3rsx-249 (gamedb/benchmarks/README.md)
+batch = "2026-10-17-mesa-246-ps3rsx-249"
+
+[variant.base]
+fps = 78.2
+cpu = 12.7
+underruns = 16
+ram_free = 71.8
+vram = 34.3

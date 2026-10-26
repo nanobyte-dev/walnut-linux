@@ -59,7 +59,7 @@ stall causes (runs with a stalls.rec: ps3-bench.sh BENCH_STALLS=1, run.sh STALLS
           warmup_disk_s the warm-up's (load_end to the window's start) seconds waiting on the disk
   snd     the sound card state(s) at SOUND_AT seconds; end: how the run ended (exit, end, duration)
   intf    1: somebody disturbed the run (ps3-bench.sh's detector: bench.txt interfered=1, or the
-          retro-scan's list results/interfered.txt for runs from before it; docs/STALLS.md
+          retro-scan's list gamedb/benchmarks/interfered.txt for runs from before it; docs/STALLS.md
           "Interference"), 0: watched and clean, -: not watched. An interfered run is marked
           !INTERFERED, left out of the medians (--include-interfered keeps it) and listed at the end
 profiles (docs/PROFILING.md; shown only for runs that have them):
@@ -122,9 +122,9 @@ INCLUDE_INTERFERED = False
 
 
 def interfered_list():
-    """results/interfered.txt (BENCH_RESULTS: elsewhere): run directory name, then why; the runs the
-    retro-scan (interference-scan.py) found disturbed before the detector existed"""
-    f = Path(os.environ.get("BENCH_RESULTS") or Path(__file__).resolve().parent / "results") / "interfered.txt"
+    """gamedb/benchmarks/interfered.txt (BENCH_GAMEDB=<dir>: <dir>/benchmarks/interfered.txt): run directory
+    name, then why; the runs the retro-scan (interference-scan.py) found disturbed before the detector existed"""
+    f = Path(os.environ.get("BENCH_GAMEDB") or Path(__file__).resolve().parent.parent / "gamedb") / "benchmarks" / "interfered.txt"
     out = {}
     if f.exists():
         for line in f.read_text(errors="replace").splitlines():
@@ -145,7 +145,7 @@ def interference(d, b, r):
             r["intf_why"] = b.get("interference") or "?"
     if d.name in RETRO:
         r["intf"] = 1
-        r["intf_why"] = "results/interfered.txt: " + RETRO[d.name]
+        r["intf_why"] = "interfered.txt: " + RETRO[d.name]
 
 
 def kv(path):

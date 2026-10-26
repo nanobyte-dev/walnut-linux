@@ -123,7 +123,7 @@ ioquake3's `gl2min_mippowf` result (needs a repeat), and Mesa 0037's `NV30_SYSME
 ## Not worth it
 
 Measured:
-- **The game prefetch** on the USB disk (batch 16, fps.csv row 68): no gain, Luanti worse (load +1
+- **The game prefetch** on the USB disk (gamedb:batch/2026-10-18-batch16): no gain, Luanti worse (load +1
   to +4 s, two runs with 3 s hitches); off by default since b85d0b9, the code kept for a faster disk.
 - **Mesa 0035 `NV30_QUERY_WAIT`**: no fps gain in the repeat (row 65: 23.0/33.4 against 26.0/37.9),
   CPU lower; off. **0034's fence pool**: neutral (row 58). **0036's staging pool**: same fps, CPU -4%

@@ -1,0 +1,8 @@
+# etr's numbers in batch 2026-10-16-etr-replay-cut (gamedb/benchmarks/README.md)
+batch = "2026-10-16-etr-replay-cut"
+
+[variant.base]
+fps = 45
+cpu = 85.3
+ram_free = 61.5
+vram = 52.5

@@ -1,0 +1,22 @@
+# endless-sky's numbers in batch 2026-10-20-ssdroot11-smoke (gamedb/benchmarks/README.md)
+batch = "2026-10-20-ssdroot11-smoke"
+
+[variant.base]
+fps = 30
+cpu = 123.7
+ram_free = 7.6
+
+[variant.menu]
+fps = 30
+cpu = 130.0
+underruns = 0
+ram_free = 5.7
+vram = 127.5
+fps_steady = 30
+low1 = 6.8
+stalls = 39
+longest_ms = 3150.0
+stalls_play = 39
+stall_play_s = 14.9
+low1_play = 6.8
+longest_play_ms = 3150.0

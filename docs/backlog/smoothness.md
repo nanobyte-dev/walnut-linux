@@ -3,7 +3,7 @@
 What is left to try for smoothness: the disk behind every load, the gap between how we measure and
 how players play, long sessions, and the tools that tell a stall's cause. The stalls inside
 gameplay are mostly gone (the heavy games at 0.3-2.9 s of gameplay stalls in batch 17 and ssd1,
-fps.csv rows 69-70); what remains is loads, the first minute of play, and memory. Items are in rank order; the
+gamedb:batch/2026-10-18-batch17, gamedb:batch/2026-10-18-ssd1); what remains is loads, the first minute of play, and memory. Items are in rank order; the
 rank is the one in [the ranked list](README.md). Terms: [glossary](../README.md#glossary).
 
 Effort: S = a day or less, M = days, L = weeks. "PS3" means a run with nobody at the console (the

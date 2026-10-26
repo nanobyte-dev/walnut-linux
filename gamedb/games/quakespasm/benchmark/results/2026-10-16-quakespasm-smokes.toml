@@ -1,0 +1,9 @@
+# quakespasm's numbers in batch 2026-10-16-quakespasm-smokes (gamedb/benchmarks/README.md)
+batch = "2026-10-16-quakespasm-smokes"
+
+[variant.noglsl]
+fps = 66
+cpu = 4.5
+underruns = 79
+ram_free = 68.2
+vram = 46.0

@@ -9,7 +9,7 @@ Items are in rank order; the rank is the one in [the ranked list](README.md). Te
 Effort: S = a day or less, M = days, L = weeks. "PS3" means a run with nobody at the console,
 "user" the user at the console or TV.
 
-Where the heavy games stand (batch 16-17 and ssd1, fps.csv rows 68-70): BananaBread (Debian's cube2) 117 MB of VRAM
+Where the heavy games stand (gamedb:batch/2026-10-18-batch16, gamedb:batch/2026-10-18-batch17 and gamedb:batch/2026-10-18-ssd1): BananaBread (Debian's cube2) 117 MB of VRAM
 and 16-24 MB of RAM free at the lowest; OpenArena gl2min 117 MB (97.7 with packed MD3 frames) and
 9-20 MB free; SuperTuxKart `lean` 95-96 MB and 22-27 MB free; Luanti 60-66 MB and 12.6-18 MB free.
 

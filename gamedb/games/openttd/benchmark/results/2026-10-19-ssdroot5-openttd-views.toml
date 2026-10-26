@@ -1,0 +1,62 @@
+# openttd's numbers in batch 2026-10-19-ssdroot5-openttd-views (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot5-openttd-views"
+
+[variant."base@rec10+staging_pool_mb24"]
+fps = 50.5
+cpu = 230.5
+underruns = 3135.0
+ram_free = 41.7
+vram = 17.9
+fps_steady = 52.0
+low1 = 18.6
+stalls = 1.0
+longest_ms = 110.3
+stall_disk_s = 0.0
+stall_swap_s = 0.0
+stall_reclaim_s = 0.0
+stall_gpu_s = 0.0
+stall_cpu_s = 0.1
+stalls_play = 1.0
+stall_play_s = 0.1
+low1_play = 18.6
+longest_play_ms = 110.3
+
+[variant."scroll@rec10+staging_pool_mb24"]
+fps = 33.0
+cpu = 252.3
+underruns = 3506.0
+ram_free = 38.8
+vram = 17.9
+fps_steady = 31.0
+low1 = 14.3
+stalls = 5.0
+longest_ms = 280.4
+stall_disk_s = 0.0
+stall_swap_s = 0.0
+stall_reclaim_s = 0.1
+stall_gpu_s = 0.0
+stall_cpu_s = 0.5
+stalls_play = 5.0
+stall_play_s = 0.8
+low1_play = 14.3
+longest_play_ms = 280.4
+
+[variant."zoomout@rec10+staging_pool_mb24"]
+fps = 22.5
+cpu = 253.2
+underruns = 3454.0
+ram_free = 34.2
+vram = 17.9
+fps_steady = 23.0
+low1 = 11.1
+stalls = 12.5
+longest_ms = 161.1
+stall_disk_s = 0.0
+stall_swap_s = 0.0
+stall_reclaim_s = 0.1
+stall_gpu_s = 0.0
+stall_cpu_s = 1.2
+stalls_play = 12.5
+stall_play_s = 1.5
+low1_play = 11.1
+longest_play_ms = 161.1

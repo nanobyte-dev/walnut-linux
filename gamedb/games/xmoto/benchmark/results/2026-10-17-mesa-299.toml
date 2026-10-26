@@ -1,0 +1,37 @@
+# xmoto's numbers in batch 2026-10-17-mesa-299 (gamedb/benchmarks/README.md)
+batch = "2026-10-17-mesa-299"
+
+[variant.autooff]
+fps = 45.5
+cpu = 80.1
+underruns = 108.5
+ram_free = 47.6
+vram = 36.3
+
+[variant.base]
+fps = 46.0
+cpu = 84.0
+underruns = 33.5
+ram_free = 51.4
+vram = 36.3
+
+[variant.fpvram]
+fps = 46.0
+cpu = 85.9
+underruns = 28.0
+ram_free = 54.7
+vram = 36.4
+
+[variant.idxlate]
+fps = 46.0
+cpu = 85.4
+underruns = 26.5
+ram_free = 57.6
+vram = 36.3
+
+[variant.idxoff]
+fps = 45.0
+cpu = 80.7
+underruns = 112.5
+ram_free = 46.3
+vram = 36.2

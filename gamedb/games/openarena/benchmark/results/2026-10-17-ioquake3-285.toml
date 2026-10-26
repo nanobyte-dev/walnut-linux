@@ -1,0 +1,44 @@
+# openarena's numbers in batch 2026-10-17-ioquake3-285 (gamedb/benchmarks/README.md)
+batch = "2026-10-17-ioquake3-285"
+
+[variant.gl2]
+fps = 15.9
+cpu = 62.6
+underruns = 0
+ram_free = 11.9
+vram = 138.1
+
+[variant.gl2min]
+fps = 29.0
+cpu = 51.8
+underruns = 0.0
+ram_free = 14.0
+vram = 114.1
+
+[variant.gl2min_cpuanim]
+fps = 30.5
+cpu = 53.1
+underruns = 0
+ram_free = 24.1
+vram = 41.2
+
+[variant.gl2min_lean]
+fps = 28.0
+cpu = 48.9
+underruns = 0
+ram_free = 32.2
+vram = 90.4
+
+[variant.gl2min_modelverts]
+fps = 17.6
+cpu = 59.3
+underruns = 0
+ram_free = 11.6
+vram = 106.3
+
+[variant.gl2min_up]
+fps = 14.8
+cpu = 103.0
+underruns = 0
+ram_free = 13.5
+vram = 112.4

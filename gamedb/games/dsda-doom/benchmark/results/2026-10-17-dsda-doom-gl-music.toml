@@ -1,0 +1,23 @@
+# dsda-doom's numbers in batch 2026-10-17-dsda-doom-gl-music (gamedb/benchmarks/README.md)
+batch = "2026-10-17-dsda-doom-gl-music"
+
+[variant.gl]
+fps = 48.8
+cpu = 63.2
+underruns = 1549
+ram_free = 60.8
+vram = 61.5
+
+[variant.play]
+fps = 52
+cpu = 53.4
+underruns = 1280
+ram_free = 43.0
+vram = 65.4
+
+[variant.playnomusic]
+fps = 53
+cpu = 28.9
+underruns = 18
+ram_free = 62.9
+vram = 65.4

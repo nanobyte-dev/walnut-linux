@@ -1,0 +1,43 @@
+# bananabread's numbers in batch 2026-10-18-ioquake3-396 (gamedb/benchmarks/README.md)
+batch = "2026-10-18-ioquake3-396"
+column = "sauerbraten"
+
+[variant."rgbppe@rec10+wkkick10"]
+fps = 33.2
+cpu = 232.5
+underruns = 132.5
+ram_free = 23.0
+vram = 117.0
+fps_steady = 39.4
+low1 = 25.8
+stalls = 3.0
+longest_ms = 478.1
+stall_disk_s = 0.2
+stall_swap_s = 0.0
+stall_reclaim_s = 0.0
+stall_gpu_s = 0.0
+stall_cpu_s = 0.1
+stalls_play = 3.0
+stall_play_s = 1.1
+low1_play = 25.8
+longest_play_ms = 478.1
+
+[variant."rgbspu@rec10+wkkick10"]
+fps = 32.9
+cpu = 233.2
+underruns = 145.0
+ram_free = 19.9
+vram = 117.0
+fps_steady = 39.1
+low1 = 25.9
+stalls = 2.5
+longest_ms = 500.4
+stall_disk_s = 0.1
+stall_swap_s = 0.1
+stall_reclaim_s = 0.0
+stall_gpu_s = 0.0
+stall_cpu_s = 0.2
+stalls_play = 2.5
+stall_play_s = 0.7
+low1_play = 25.9
+longest_play_ms = 500.4

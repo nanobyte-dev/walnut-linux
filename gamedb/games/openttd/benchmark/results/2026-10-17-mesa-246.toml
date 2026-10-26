@@ -1,0 +1,9 @@
+# openttd's numbers in batch 2026-10-17-mesa-246 (gamedb/benchmarks/README.md)
+batch = "2026-10-17-mesa-246"
+
+[variant.accel]
+fps = 2
+cpu = 46.8
+underruns = 937
+ram_free = 30.4
+vram = 31.7

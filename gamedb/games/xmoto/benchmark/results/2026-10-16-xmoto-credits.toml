@@ -1,0 +1,9 @@
+# xmoto's numbers in batch 2026-10-16-xmoto-credits (gamedb/benchmarks/README.md)
+batch = "2026-10-16-xmoto-credits"
+
+[variant.base]
+fps = 35.0
+cpu = 165.0
+underruns = 196
+ram_free = 58.6
+vram = 36.3

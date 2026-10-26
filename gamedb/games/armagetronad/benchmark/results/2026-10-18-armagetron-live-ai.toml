@@ -1,0 +1,17 @@
+# armagetronad's numbers in batch 2026-10-18-armagetron-live-ai (gamedb/benchmarks/README.md)
+batch = "2026-10-18-armagetron-live-ai"
+
+[variant."base@wkkick10"]
+fps = 83
+cpu = 144.1
+underruns = 289
+ram_free = 58.0
+vram = 27.5
+fps_steady = 83
+low1 = 24.1
+stalls = 1
+longest_ms = 127.1
+stalls_play = 1
+stall_play_s = 0.1
+low1_play = 24.1
+longest_play_ms = 127.1

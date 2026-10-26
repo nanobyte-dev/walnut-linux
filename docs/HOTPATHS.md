@@ -776,7 +776,7 @@ neither kernel flavour has; not done.
 
 ## Measured on the PS3
 
-Same-boot rows of `bench/results/` (row = the row number in fps.csv and its sibling files).
+Same-boot benchmark batches (row = the batch's `order` in gamedb/benchmarks/batches.toml, the row of the CSV matrices).
 Rows 57-65 ran with the 10 ms kicker (`@wkkick10`), row 68 on kernel .433 with the idle fix and no
 kicker, so compare within a row only. Steady fps unless noted.
 

@@ -1,0 +1,32 @@
+# xmoto's numbers in batch 2026-10-18-mesa-416-hot-spots (gamedb/benchmarks/README.md)
+batch = "2026-10-18-mesa-416-hot-spots"
+
+[variant."base@wkkick10"]
+fps = 160.4
+cpu = 298.0
+underruns = 104
+ram_free = 52.8
+vram = 37.3
+fps_steady = 160.4
+low1 = 100.3
+stalls = 2
+longest_ms = 713.9
+stalls_play = 1
+stall_play_s = 0.4
+low1_play = 100.4
+longest_play_ms = 403.7
+
+[variant."stream@wkkick10"]
+fps = 162.9
+cpu = 282.2
+underruns = 103
+ram_free = 47.3
+vram = 37.4
+fps_steady = 163.1
+low1 = 105.3
+stalls = 2
+longest_ms = 675.6
+stalls_play = 1
+stall_play_s = 0.1
+low1_play = 107.8
+longest_play_ms = 145.8

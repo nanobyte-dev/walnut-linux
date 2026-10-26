@@ -1,0 +1,9 @@
+# yquake2's numbers in batch 2026-10-17-mesa-262-perf (gamedb/benchmarks/README.md)
+batch = "2026-10-17-mesa-262-perf"
+
+[variant.base]
+fps = 55.2
+cpu = 16.9
+underruns = 20
+ram_free = 27.0
+vram = 48.2

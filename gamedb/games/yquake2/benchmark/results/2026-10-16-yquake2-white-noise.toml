@@ -1,0 +1,15 @@
+# yquake2's numbers in batch 2026-10-16-yquake2-white-noise (gamedb/benchmarks/README.md)
+batch = "2026-10-16-yquake2-white-noise"
+
+[variant.base]
+fps = 51.1
+cpu = 16.7
+ram_free = 42.5
+vram = 48.2
+
+[variant.sdlsound]
+fps = 58.4
+cpu = 16.5
+underruns = 11
+ram_free = 38.0
+vram = 48.2

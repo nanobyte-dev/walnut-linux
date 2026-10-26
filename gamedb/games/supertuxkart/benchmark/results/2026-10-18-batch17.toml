@@ -1,0 +1,22 @@
+# supertuxkart's numbers in batch 2026-10-18-batch17 (gamedb/benchmarks/README.md)
+batch = "2026-10-18-batch17"
+
+[variant."lean@rec10+perfload"]
+fps = 19
+cpu = 335.3
+underruns = 0
+ram_free = 22.5
+vram = 96.1
+fps_steady = 19
+low1 = 11.5
+stalls = 8
+longest_ms = 691.2
+stall_disk_s = 0.4
+stall_swap_s = 0.0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0.7
+stalls_play = 8
+stall_play_s = 2.0
+low1_play = 11.5
+longest_play_ms = 691.2

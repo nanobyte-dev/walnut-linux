@@ -1,0 +1,17 @@
+# uqm's numbers in batch 2026-10-19-ssdroot4-smoke (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot4-smoke"
+
+[variant.base]
+fps = 54
+cpu = 39.8
+underruns = 10
+ram_free = 50.9
+vram = 24.6
+fps_steady = 6
+low1 = 2.0
+stalls = 33
+longest_ms = 6633.0
+stalls_play = 33
+stall_play_s = 61.4
+low1_play = 2.0
+longest_play_ms = 6633.0

@@ -1,0 +1,42 @@
+# supertuxkart's numbers in batch 2026-10-19-ssdroot7-minmax-vmx (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot7-minmax-vmx"
+
+[variant."lean@rec10"]
+fps = 20
+cpu = 305.2
+underruns = 0
+ram_free = 24.4
+vram = 94.6
+fps_steady = 21
+low1 = 12.0
+stalls = 6
+longest_ms = 231.5
+stall_disk_s = 0.1
+stall_swap_s = 0.0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0.6
+stalls_play = 6
+stall_play_s = 0.8
+low1_play = 12.0
+longest_play_ms = 231.5
+
+[variant."lean@rec10+minmax_vmx1"]
+fps = 21
+cpu = 313.2
+underruns = 0
+ram_free = 26.5
+vram = 96.1
+fps_steady = 22
+low1 = 12.3
+stalls = 6
+longest_ms = 185.2
+stall_disk_s = 0.1
+stall_swap_s = 0
+stall_reclaim_s = 0.1
+stall_gpu_s = 0
+stall_cpu_s = 0.7
+stalls_play = 6
+stall_play_s = 0.8
+low1_play = 12.3
+longest_play_ms = 185.2

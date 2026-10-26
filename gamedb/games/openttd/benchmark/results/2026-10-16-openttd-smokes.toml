@@ -1,0 +1,23 @@
+# openttd's numbers in batch 2026-10-16-openttd-smokes (gamedb/benchmarks/README.md)
+batch = "2026-10-16-openttd-smokes"
+
+[variant.base]
+fps = 5
+cpu = 59.7
+underruns = 1091
+ram_free = 32.3
+vram = 23.8
+
+[variant.gl]
+cpu = 3.9
+ram_free = 87.2
+vram = 0.0
+
+[variant.sim]
+cpu = 5.6
+ram_free = 81.8
+
+[variant.x11fb]
+cpu = 49.9
+underruns = 1260
+ram_free = 29.9

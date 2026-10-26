@@ -1,0 +1,8 @@
+# supertuxkart's numbers in batch 2026-10-17-group4-smokes (gamedb/benchmarks/README.md)
+batch = "2026-10-17-group4-smokes"
+
+[variant.base]
+cpu = 13.8
+underruns = 0
+ram_free = 48.9
+vram = 100.0

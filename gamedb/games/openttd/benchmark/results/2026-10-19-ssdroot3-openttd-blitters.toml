@@ -1,0 +1,102 @@
+# openttd's numbers in batch 2026-10-19-ssdroot3-openttd-blitters (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot3-openttd-blitters"
+
+[variant."base@rec10"]
+fps = 10
+cpu = 280.4
+underruns = 4587
+ram_free = 16.6
+vram = 17.9
+fps_steady = 11
+low1 = 5.5
+stalls = 410
+longest_ms = 472.3
+stall_disk_s = 0
+stall_swap_s = 0.1
+stall_reclaim_s = 0.1
+stall_gpu_s = 1.8
+stall_cpu_s = 48.0
+stalls_play = 410
+stall_play_s = 52.8
+low1_play = 5.5
+longest_play_ms = 472.3
+
+[variant."blit32@rec10"]
+fps = 12
+cpu = 273.3
+underruns = 4301
+ram_free = 24.2
+vram = 15.9
+fps_steady = 13
+low1 = 6.5
+stalls = 264
+longest_ms = 447.6
+stall_disk_s = 0
+stall_swap_s = 0.0
+stall_reclaim_s = 0.1
+stall_gpu_s = 1.7
+stall_cpu_s = 29.0
+stalls_play = 264
+stall_play_s = 32.7
+low1_play = 6.5
+longest_play_ms = 447.6
+
+[variant."blit8@rec10"]
+fps = 32
+cpu = 264.3
+underruns = 3997
+ram_free = 40.3
+vram = 17.9
+fps_steady = 35
+low1 = 13.4
+stalls = 3
+longest_ms = 191.9
+stall_disk_s = 0
+stall_swap_s = 0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0.3
+stalls_play = 3
+stall_play_s = 0.4
+low1_play = 13.4
+longest_play_ms = 191.9
+
+[variant."scroll@rec10"]
+fps = 7
+cpu = 280.2
+underruns = 4484
+ram_free = 18.4
+vram = 17.9
+fps_steady = 7
+low1 = 4.1
+stalls = 804
+longest_ms = 611.4
+stall_disk_s = 0.1
+stall_swap_s = 0.3
+stall_reclaim_s = 0.2
+stall_gpu_s = 3.7
+stall_cpu_s = 106.1
+stalls_play = 804
+stall_play_s = 115.1
+low1_play = 4.1
+longest_play_ms = 611.4
+
+[variant."zoomout@rec10"]
+fps = 6
+cpu = 274.9
+underruns = 4415
+ram_free = 13.1
+vram = 17.9
+fps_steady = 7
+low1 = 4.0
+stalls = 833
+longest_ms = 491.0
+stall_disk_s = 0.0
+stall_swap_s = 0.3
+stall_reclaim_s = 0.0
+stall_gpu_s = 4.1
+stall_cpu_s = 110.3
+stalls_play = 833
+stall_play_s = 119.1
+low1_play = 4.0
+longest_play_ms = 491.0

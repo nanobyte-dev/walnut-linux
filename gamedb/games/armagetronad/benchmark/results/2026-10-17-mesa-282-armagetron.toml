@@ -1,0 +1,37 @@
+# armagetronad's numbers in batch 2026-10-17-mesa-282-armagetron (gamedb/benchmarks/README.md)
+batch = "2026-10-17-mesa-282-armagetron"
+
+[variant.base]
+fps = 50.0
+cpu = 59.5
+underruns = 26.5
+ram_free = 62.5
+vram = 28.6
+
+[variant.kick100]
+fps = 60.5
+cpu = 62.8
+underruns = 31.0
+ram_free = 52.4
+vram = 28.8
+
+[variant.kick150]
+fps = 58.5
+cpu = 56.5
+underruns = 17.5
+ram_free = 59.0
+vram = 28.6
+
+[variant.kick50]
+fps = 60.5
+cpu = 63.5
+underruns = 25.0
+ram_free = 59.9
+vram = 28.8
+
+[variant.relocs]
+fps = 60.5
+cpu = 62.1
+underruns = 23.0
+ram_free = 64.3
+vram = 28.8

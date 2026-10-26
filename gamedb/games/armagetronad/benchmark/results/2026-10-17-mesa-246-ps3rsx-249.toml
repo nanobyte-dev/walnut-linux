@@ -1,0 +1,9 @@
+# armagetronad's numbers in batch 2026-10-17-mesa-246-ps3rsx-249 (gamedb/benchmarks/README.md)
+batch = "2026-10-17-mesa-246-ps3rsx-249"
+
+[variant.base]
+fps = 60
+cpu = 65.0
+underruns = 52
+ram_free = 72.4
+vram = 28.3

@@ -1,0 +1,15 @@
+# armagetronad's numbers in batch 2026-10-16-armagetron-recording (gamedb/benchmarks/README.md)
+batch = "2026-10-16-armagetron-recording"
+
+[variant.base]
+fps = 48
+underruns = 101
+ram_free = 71.9
+vram = 28.8
+
+[variant.record]
+fps = 50
+cpu = 72.1
+underruns = 78
+ram_free = 64.9
+vram = 28.3

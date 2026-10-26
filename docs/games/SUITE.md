@@ -3,8 +3,8 @@
 `bench/` runs the games on the PS3 the same way every time and turns the runs into comparable
 rows. One command does a first launch (`smoke`), a measured A/B (`bench`) or a round over every
 suite game (`suite`); each game is a recipe file in its GameDB bundle
-(`gamedb/games/<id>/benchmark/recipe.sh`). The results go into the matrices in
-`bench/results/`. What the numbers say per game is in [README.md](README.md); the stall
+(`gamedb/games/<id>/benchmark/recipe.sh`). The results go into the benchmark records in
+gamedb ([gamedb/benchmarks/README.md](../../gamedb/benchmarks/README.md)). What the numbers say per game is in [README.md](README.md); the stall
 recorder, the profiles and the memory snapshots have their own docs ([STALLS.md](../STALLS.md),
 [PROFILING.md](../PROFILING.md), [MEMORY.md](../MEMORY.md)).
 
@@ -32,8 +32,8 @@ scripts). A game is named by its gamedb id. Two recipes were renamed when they m
 and their directory names; the tools read those through each bundle's `analysis.toml` (`[legacy]
 recipe_names`), and `run.sh` still takes `sauerbraten-edition`.
 | `report.py` | one line per run, then the median per game and variant, then each variant against the first as ratios; `--stalls`, `--perf`, `--mem`, `--load`, `--include-interfered` |
-| `matrix.py` | puts runs into the matrices: one CSV per metric, one row per tested configuration |
-| `results/` | the matrices; `results/README.md` says how to read and add to them; `interfered.txt` lists runs left out |
+| `matrix.py` | puts runs into the benchmark records: a batch per tested configuration in gamedb/benchmarks/batches.toml, each game's numbers in its `benchmark/results/<batch>.toml`; `--csv DIR` (`make bench-matrix`) the CSV matrices, one per metric |
+| `benchrecords.py` | reads and writes those records (gamedb/benchmarks/README.md; gamedb/benchmarks/interfered.txt lists runs left out) |
 | `stalls.py`, `passsplit.py` | why frames stall, from `ps3-stallrec`'s record; the stalls of a looped demo split into reload and play |
 | `perf-post.sh`, `perfprof.py`, `memprof.py`, `loadprof.py` | the CPU profile of the window, the memory snapshots, the start-up profile |
 | `hotpaths/` | perf.data symbolised and ranked on the PC ([HOTPATHS.md](../HOTPATHS.md)) |
@@ -184,7 +184,7 @@ back to GameOS at the end. For bench runs:
 - `perf` on the PS3 needs `--proc-map-timeout=20000`, or it starts sampling before it has read a big
   process's maps and files most samples as `[unknown]` (77% of OpenArena's once).
 - After the batch: `make bench-pull` (PNGs and sheets), the sheets reviewed (`make bench-shots` lists
-  the open ones), `report.py`, then a row in the matrices.
+  the open ones), `report.py`, then a batch in the records.
 
 ## Played sessions
 
@@ -445,22 +445,25 @@ whose shots or reference changed and lists the ones without a `REVIEW.md`: the r
 file next to the sheet, first line `verdict: ok|wrong|unclear [words]`, and report.py shows it as
 `review=`.
 
-## The results matrices
+## The results
 
-`bench/results/` holds one CSV per metric with the same rows (oldest first) and the same first
-four columns (`test`, `date`, `runs`, `observations`), then one column per `<game>-<variant>`. A cell
-is the median over the row's runs of that game-variant. `results/README.md` explains every file and
-the caveats (rows 1-10 had nothing on screen; times in observations are UTC, the PS3's local time is
-UTC+3; perf-recording rows are slower). To add a row:
+Every batch of runs becomes records in gamedb: the batch in `gamedb/benchmarks/batches.toml` (its title,
+date, runs, stack, observations), each game's numbers in `gamedb/games/<id>/benchmark/results/<batch>.toml`
+(a value is the median over the batch's runs of that game-variant).
+[gamedb/benchmarks/README.md](../../gamedb/benchmarks/README.md) explains every metric and the caveats
+(batches 1-10 had nothing on screen; times in observations are UTC, the PS3's local time is UTC+3;
+perf-recording batches are slower). To add a batch:
 
     make bench-pull
-    python3 bench/matrix.py "Mesa ps3.290 + ps3rsx 0.249" --obs "what the row shows" \
-        build/bench/ps3-bench-20261018T*-armagetronad-*
+    python3 bench/matrix.py "Mesa ps3.290 + ps3rsx 0.249" --name 2026-10-27-mesa-290 \
+        --obs "what the batch shows" build/bench/ps3-bench-20261027T*-armagetronad-*
 
-`--replace` drops the row's old cells first; `--hud GAME[,GAME]` takes the HUD median as the fps
-cell. Then fix the observations (plain sentences with names and numbers, caveats, the commit or
-version the row proves) and commit `bench/results/` only. docs/TESTS.md names the results
-commit of every batch.
+`--replace` drops the batch's old values first; `--hud GAME[,GAME]` takes the HUD median as the fps
+value. Then fix the observations in batches.toml (plain sentences with names and numbers, caveats, the
+commit or version the batch proves) and commit `gamedb/benchmarks/batches.toml` and the new
+`gamedb/games/*/benchmark/results/` files. `make bench-matrix` writes the CSV matrices (one per metric,
+a row per batch, a column per game-variant) into build/bench-matrix/ for a spreadsheet. docs/TESTS.md
+names the results commit of every batch.
 
 ## Adding a game
 

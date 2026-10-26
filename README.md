@@ -33,24 +33,31 @@ Walnut provides a lightweight desktop environment tailored to the console's 256 
 
 ### Tested Games at a Glance
 
-All 13 games of the benchmark suite run at 1920x1080 with full hardware acceleration:
+All 13 games of the benchmark suite run at 1920x1080 with full hardware acceleration. The numbers are
+the suite's steady state (desktop stopped, vsync off, a 60 s warm-up and a 120 s window; the
+summary batch `suite-summary-2026-10` in [gamedb/benchmarks](gamedb/benchmarks/README.md), every value
+with its source), the medal comes from the game's played sessions on the
+[Walnut Games site](https://walnut.nanobyte.dev/gamedb/):
 
-| Game | Runs | Steady fps | Stalls / 1% low / longest | Free RAM / VRAM (MB) | Picture, sound |
+<!-- gamedb:suite-table -->
+| Game | Medal (played) | Steady fps | Stalls / 1% low / longest | Free RAM / VRAM (MB) | Picture, sound |
 |---|---|---|---|---|---|
-| [QuakeSpasm](docs/games/quake.md) | yes | 91.0 (row 58) | 2.5 s / 48.6 / 393 ms | 44 / 49 | right, right |
-| [Yamagi Quake II](docs/games/quake.md) | yes | 68.7 (row 57, small PRNG default) | 0.1 s / 31.1 / 91 ms | 46 / 48 | right, right |
-| [X-Moto](docs/games/light-games.md) | yes | 160.7; 162.1 with stream buffer (row 68) | 0.0 s / 106.7 / 43 ms | 51 / 37 | right, right |
-| [Armagetron](docs/games/light-games.md) | yes | 83, live AI rounds (row 60) | 0.1 s / 24.1 / 127 ms | 58 / 28 | right, right |
-| [Neverball](docs/games/light-games.md) | yes | 66.5 (row 54) | 51 frames > 100 ms / 41.3 / 3.9 s | 58 / 34 | right, 118 underruns |
-| [OpenArena (opengl1)](docs/games/openarena.md) | yes | 70.6 (row 59) | 0.0 s / 34.6 / 56 ms | 26 / 39 | right, right |
-| [Extreme Tux Racer](docs/games/light-games.md) | yes | 59 (row 69) | 2.9 s / 27.3 / 483 ms | 29 / 58 | right, right |
-| [ClassiCube](docs/games/classicube.md) | yes | 46.1-48.1 on SSD (rows 71, 75); 45.9 on USB | 0.0 s / 30.7 / 65 ms | 53 / 60 | right, right |
-| [dsda-doom (GL)](docs/games/doom.md) | yes | 55.9 (row 61) | 0.0 s / 40.3 / 34 ms | 43 / 65 | right, music choppy |
-| [Luanti](docs/games/luanti.md) | yes | 46 on SSD (row 71); 45.5 on USB (row 67) | 3.5 s / 19.1 / 724 ms | 19 / 63 | right, right |
-| [BananaBread](docs/games/sauerbraten.md) | yes | 39.1 on SSD; 45.1 with shortnormals (row 69) | 0.05 s / 25.6 / 103 ms | 25 / 117 | right, mic floor clean |
-| [SuperTuxKart (`lean`)](docs/games/supertuxkart.md) | yes | 20-22 by Gallium HUD (row 61) | 0.2-3.6 s / 10.2-12.8 / 108-513 ms | 26 / 97 | track draws, sound running |
-| [OpenArena (opengl2 `gl2min`)](docs/games/openarena.md) | yes | 60.4 on SSD (row 71); 55.9 on USB (row 70) | 0.2 s / 25.6 / 199 ms | 15 / 119 | right, right |
-| [OpenTTD](docs/games/openttd.md) | yes | 34-43 with 8bpp blitter (now default) | 0.4 s / 13.4 / 210 ms | 17 / 18 | right, choppy music |
+| [X-Moto](https://walnut.nanobyte.dev/gamedb/games/xmoto/) | Platinum · 96 | 160.7 | 0 s / 106.7 / 43 ms | 51 / 37 | right, right |
+| [OpenArena, opengl1](https://walnut.nanobyte.dev/gamedb/games/openarena/) | Gold · 82 | 70.6 | 0 s / 34.6 / 56 ms | 26 / 39 | right, right |
+| [Yamagi Quake II](https://walnut.nanobyte.dev/gamedb/games/yquake2/) | Gold · 88 | 68.7 | 0.1 s / 31.1 / 91 ms | 46 / 48 | right, right (our fix) |
+| [OpenArena, opengl2](https://walnut.nanobyte.dev/gamedb/games/openarena/) | Gold · 82 | 60.4 | 0.2 s / 25.6 / 199 ms | 15 / 119 | right, right |
+| [QuakeSpasm](https://walnut.nanobyte.dev/gamedb/games/quakespasm/) | Platinum · 93 | 91 | 2.5 s / 48.6 / 393 ms | 44 / 49 | right, right |
+| [Armagetron](https://walnut.nanobyte.dev/gamedb/games/armagetronad/) | Platinum · 95 | 83 | 0.1 s / 24.1 / 127 ms | 58 / 28 | right, right |
+| ClassiCube | not rated yet | 47 | 0 s / 30.7 / 65 ms | 53 / 60 | right, right |
+| [Extreme Tux Racer](https://walnut.nanobyte.dev/gamedb/games/etr/) | Gold · 80 | 59 | 2.9 s / 27.3 / 483 ms | 29 / 58 | right, right |
+| [Luanti](https://walnut.nanobyte.dev/gamedb/games/luanti/) | Scrap · 56 | 46 | 3.5 s / 19.1 / 724 ms | 19 / 63 | right, no underruns |
+| [dsda-doom](https://walnut.nanobyte.dev/gamedb/games/dsda-doom/) | Gold · 90 | 55.9 | 0 s / 40.3 / 34 ms | 43 / 65 | right, music chops |
+| [BananaBread](https://walnut.nanobyte.dev/gamedb/games/bananabread/) | Scrap · 51 | 39.1 | 0.05 s / 25.6 / 103 ms | 25 / 117 | right, 60-181 underruns a run |
+| [Neverball](https://walnut.nanobyte.dev/gamedb/games/neverball/) | Gold · 87 | 66.5 | 2 s / 41.3 / 3.9 s | 58 / 34 | right, 118 underruns |
+| [OpenTTD, 8bpp](https://walnut.nanobyte.dev/gamedb/games/openttd/) | Gold · 83 | 38.3 | 0.4 s / 13.4 / 210 ms | 41 / 18 | right, choppy (3500-4700 underruns) |
+| [SuperTuxKart lean](https://walnut.nanobyte.dev/gamedb/games/supertuxkart/) | Silver · 69 | 21 | 1.8 s / 11.8 / 513 ms | 26 / 97 | track draws, sound running |
+| [OpenTTD, 32bpp](https://walnut.nanobyte.dev/gamedb/games/openttd/) | Gold · 83 | 11 | 52 s / 5.7 / 311 ms | 17 / 18 | right, choppy (3500-4700 underruns) |
+<!-- /gamedb:suite-table -->
 
 See [docs/games/README.md](docs/games/README.md) for detailed benchmarks, logs, and game-specific notes.
 

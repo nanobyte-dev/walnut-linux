@@ -1,0 +1,9 @@
+# neverball's numbers in batch 2026-10-17-mesa-262-repeats (gamedb/benchmarks/README.md)
+batch = "2026-10-17-mesa-262-repeats"
+
+[variant.base]
+fps = 75.9
+cpu = 11.5
+underruns = 19.0
+ram_free = 62.0
+vram = 34.3

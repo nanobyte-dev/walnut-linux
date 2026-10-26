@@ -1,0 +1,23 @@
+# yquake2's numbers in batch suite-summary-2026-10 (gamedb/benchmarks/README.md)
+batch = "suite-summary-2026-10"
+
+[variant.kiss4k]
+label = "Yamagi Quake II"
+order = 3
+note = "right, right (our fix)"
+fps_steady = 68.7
+low1_play = 31.1
+stall_play_s = 0.1
+longest_play_ms = 91
+sound_faults_per_min = 0
+ram_free = 46
+vram = 48
+
+[variant.kiss4k.source]
+fps_steady = "gamedb:batch/2026-10-18-mesa-407-lut yquake2-kiss4k@wkkick10"
+low1_play = "gamedb:batch/2026-10-18-mesa-407-lut yquake2-kiss4k@wkkick10"
+stall_play_s = "gamedb:batch/2026-10-18-mesa-407-lut yquake2-kiss4k@wkkick10"
+longest_play_ms = "docs/games/README.md suite table (2026-10)"
+sound_faults_per_min = "the suite table's sound column, read as faults a minute (no number in the log)"
+ram_free = "docs/games/README.md suite table (2026-10)"
+vram = "docs/games/README.md suite table (2026-10)"

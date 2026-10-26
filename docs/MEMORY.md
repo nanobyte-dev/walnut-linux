@@ -186,7 +186,7 @@ between the renderer, server, emerge and mesh threads.
 The MB are from the 2026-10-18 batch: upper bounds where the free memory's residency isn't known
 page by page ("pages in free chunks" counts whole pages inside free chunks of 8 KiB and more, from
 malloc_info's size lists, plus the top chunks). Effort: env = no rebuild, pkg = our package
-rebuilt. Results are rows of `bench/results/fps.csv` ([glossary](README.md#glossary)).
+rebuilt. Results are benchmark batches, rows of the matrices ([glossary](README.md#glossary)).
 
 | # | Game | Cut | Saves (MB) | Effort | Result | Risk |
 |---|---|---|---|---|---|---|
@@ -345,8 +345,8 @@ Recipe variants (gamedb/games/openarena/benchmark/recipe.sh): `gl2min_color16` (
 
 ### Measured on the PS3 (batch 17)
 
-Batch 17, 2026-10-18 17:38-20:40 UTC, kernel .433, ioquake3 .462, Mesa .442~dev, `STALLS=1`, fps.csv
-row 69, results commit 3939a48. Each variant x2 or x3, interleaved:
+Batch 17, 2026-10-18 17:38-20:40 UTC, kernel .433, ioquake3 .462, Mesa .442~dev, `STALLS=1`,
+gamedb:batch/2026-10-18-batch17, results commit 3939a48. Each variant x2 or x3, interleaved:
 
 | Variant | steady fps | gameplay stalls (s) | swap stall s | 1% low | peak VRAM (MB) | lowest MemAvailable (MB) | peak Rss (VmHWM, MB) | map load (s) |
 |---|---|---|---|---|---|---|---|---|

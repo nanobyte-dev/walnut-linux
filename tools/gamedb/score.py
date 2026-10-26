@@ -12,7 +12,7 @@ Design
 - The medal is the weighted mean's medal, capped one level above the weakest aspect (the weakest-link
   rule). Scrap floors ("won't start", "doesn't reach play", "crashes in most sessions", "too slow")
   win over the mean and come with a reason.
-- Nothing here reads files: import-run.py computes the numbers, catalog.py combines the tests of a
+- Nothing here reads files (but calibration(), the calibration's numbers from gamedb): import-run.py computes the numbers, catalog.py combines the tests of a
   game through combine() and puts the result on the site. All of it is stdlib only.
 
 Frame rate has one extra rule: a game capped by design (fps_cap in its front matter) that holds its
@@ -694,27 +694,37 @@ def parse_defects(lines):
     return out
 
 
-# The calibration: the 13 games of docs/games/README.md with their known numbers, as docs/GAMEDB.md
+# The calibration: the 13 games of the benchmark suite with their known numbers, as docs/GAMEDB.md
 # describes (stutter ~ the stall seconds over the 2-minute window / 2, load unmeasured, stability clean,
-# picture and display right). (name, median fps, 1% low, stall seconds in 120 s, longest ms, sound
-# faults a minute). Sound faults are readings of the table's sound column where the log has no number.
-CALIBRATION = [
-    ("X-Moto", 160.7, 106.7, 0.0, 43, 0),
-    ("OpenArena, opengl1", 70.6, 34.6, 0.0, 56, 0),
-    ("Yamagi Quake II", 68.7, 31.1, 0.1, 91, 0),
-    ("OpenArena, opengl2", 60.4, 25.6, 0.2, 199, 0),
-    ("QuakeSpasm", 91.0, 48.6, 2.5, 393, 0),
-    ("Armagetron", 83.0, 24.1, 0.1, 127, 0),
-    ("ClassiCube", 47.0, 30.7, 0.0, 65, 0),
-    ("Extreme Tux Racer", 59.0, 27.3, 2.9, 483, 0),
-    ("Luanti", 46.0, 19.1, 3.5, 724, 0),
-    ("dsda-doom", 55.9, 40.3, 0.0, 34, 465),
-    ("BananaBread", 39.1, 25.6, 0.05, 103, 40),
-    ("Neverball", 66.5, 41.3, 2.0, 3900, 50),
-    ("OpenTTD, 8bpp", 38.3, 13.4, 0.4, 210, 3500),
-    ("SuperTuxKart lean", 21.0, 11.8, 1.8, 513, 3),
-    ("OpenTTD, 32bpp", 11.0, 5.7, 52.0, 311, 3500),
-]
+# picture and display right). The numbers are the summary batch CALIBRATION_BATCH in gamedb
+# (gamedb/benchmarks/batches.toml; each game's benchmark/results/<batch>.toml, every value with its source);
+# calibration() reads them, the one place here that reads a file. A row: (label, median fps, 1% low, stall
+# seconds in 120 s, longest ms, sound faults a minute).
+CALIBRATION_BATCH = "suite-summary-2026-10"
+CALIBRATION_METRICS = ("fps_steady", "low1_play", "stall_play_s", "longest_play_ms", "sound_faults_per_min")
+
+
+def calibration(gamedb=None):
+    """[(label, median, low1, stall_s, longest, faults)] of the calibration batch, in its entries' order;
+    also (game, variant) as calibration_ids() gives"""
+    return [row for row, _ in _calibration(gamedb)]
+
+
+def calibration_ids(gamedb=None):
+    return [gv for _, gv in _calibration(gamedb)]
+
+
+def _calibration(gamedb):
+    import importlib.util
+    from pathlib import Path
+    repo = Path(__file__).resolve().parent.parent.parent
+    spec = importlib.util.spec_from_file_location("benchrecords", repo / "bench" / "benchrecords.py")
+    br = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(br)
+    out = []
+    for game, variant, e in br.summary(CALIBRATION_BATCH, gamedb or repo / "gamedb"):
+        out.append(((e["label"],) + tuple(e[m] for m in CALIBRATION_METRICS), (game, variant)))
+    return out
 
 
 def calibrate(row):
@@ -729,7 +739,7 @@ def calibrate(row):
 
 def main():
     print("%-20s %6s %6s %6s %6s  %-8s  %s" % ("game", "frame", "smooth", "sound", "mean", "weakest", "medal"))
-    for row in CALIBRATION:
+    for row in calibration():
         s, r = calibrate(row)
         note = " (capped)" if r["capped"] else (" (%s)" % r["reason"] if r["reason"] else "")
         print("%-20s %6.0f %6.0f %6.0f %6.0f  %-8s  %s%s" % (

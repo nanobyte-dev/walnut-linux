@@ -1,0 +1,16 @@
+# openarena's numbers in batch 2026-10-17-group4-smokes (gamedb/benchmarks/README.md)
+batch = "2026-10-17-group4-smokes"
+
+[variant.gl2]
+fps = 10.7
+cpu = 118.3
+underruns = 0
+ram_free = 13.1
+vram = 159.7
+
+[variant.gl2min]
+fps = 13.6
+cpu = 80.1
+underruns = 0.0
+ram_free = 11.8
+vram = 97.9

@@ -1,0 +1,7 @@
+# openttd's numbers in batch 2026-10-17-mesa-262 (gamedb/benchmarks/README.md)
+batch = "2026-10-17-mesa-262"
+
+[variant.base]
+cpu = 40.8
+underruns = 868
+ram_free = 25.9

@@ -6,7 +6,7 @@ This is the release plan for 2026-10-18, "test first, then publish": every packa
 
 The rules (memory "Publish only when proven"; CLAUDE.md "Never delete what we publish"): a package goes to stable only after it is proven on the PS3, with an explicit `DEBS=` list, `build/aptly` backed up first, and never a `~dev` version. Stable versions are kept forever. Promotion (see [PACKAGING.md](PACKAGING.md#the-repository)) is: commit, rebuild the official version (`0.N`, `...+ps3.N`, no `~dev`), `make publish`.
 
-"fps.csv row N" is the Nth data row of the matrices in `bench/results/` (same rows in every CSV; the `observations` column has the text). Proof rows have the picture checked on the webcam unless said otherwise. Terms: [glossary](README.md#glossary).
+"fps.csv row N" is the benchmark batch with `order = N` (gamedb/benchmarks/batches.toml, which has its observations). Proof rows have the picture checked on the webcam unless said otherwise. Terms: [glossary](README.md#glossary).
 
 ## The decision (the user, 2026-10-18 evening)
 
@@ -119,7 +119,7 @@ If any deb in `build/debs` changed after the image, put the kept copy back first
 
 **4. Smoke run of every game recipe, webcam on.** `make bench-push`, then on the PS3 `/var/tmp/bench/run.sh smoke <game>` for each recipe (`run.sh list`; each game's `gamedb/games/<id>/benchmark/recipe.sh`), or `run.sh suite base 1` for the 12 suite ones plus the rest one by one. `tools/bench-cam.sh` photographs each run; look at every photo. Pass: the game draws its scene (no black screen, right colours), no kernel error, no RSX wedge, sound line not `none` where the game has sound. The user judges sound by ear (SuperTuxKart, Teeworlds, Luanti, dsda-doom music). The menu-only games (TORCS, Trigger Rally, Chromium B.S.U.) and Nexuiz (needs PLAN D12) need the user.
 
-**5. Short bench of the 5 start-up games** ([PROFILING.md](PROFILING.md), "Start-up profiling": the same variants, x2 each, desktop stopped, swap emptied, 60 s warm-up and a 120 s window). The numbers to compare with are batch 16 (fps.csv row 68, kernel .433, 2026-10-18), steady fps / 1% low in play / gameplay stall s / longest gameplay frame ms:
+**5. Short bench of the 5 start-up games** ([PROFILING.md](PROFILING.md), "Start-up profiling": the same variants, x2 each, desktop stopped, swap emptied, 60 s warm-up and a 120 s window). The numbers to compare with are batch 16 (gamedb:batch/2026-10-18-batch16, kernel .433, 2026-10-18), steady fps / 1% low in play / gameplay stall s / longest gameplay frame ms:
 
 | Game, variant | Row 68 |
 |---|---|

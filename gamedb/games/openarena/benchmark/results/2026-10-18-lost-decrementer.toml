@@ -1,0 +1,82 @@
+# openarena's numbers in batch 2026-10-18-lost-decrementer (gamedb/benchmarks/README.md)
+batch = "2026-10-18-lost-decrementer"
+
+[variant.base]
+fps = 51.0
+cpu = 181.7
+underruns = 0.0
+ram_free = 27.8
+vram = 39.4
+fps_steady = 56.8
+low1 = 8.3
+stalls = 73.5
+longest_ms = 2564.5
+stalls_play = 38.0
+stall_play_s = 14.7
+low1_play = 28.0
+longest_play_ms = 2320.0
+
+[variant."base@probe20"]
+fps = 51.4
+cpu = 171.5
+underruns = 0.0
+ram_free = 23.5
+vram = 39.3
+fps_steady = 57.9
+low1 = 8.1
+stalls = 73.0
+longest_ms = 1331.0
+stalls_play = 39.0
+stall_play_s = 13.4
+low1_play = 21.5
+longest_play_ms = 1064.5
+
+[variant."base@rec10"]
+fps = 54.3
+cpu = 194.6
+underruns = 0.0
+ram_free = 28.5
+vram = 39.4
+fps_steady = 62.7
+low1 = 10.1
+stalls = 66.0
+longest_ms = 1462.5
+stall_disk_s = 0.8
+stall_swap_s = 0.0
+stall_reclaim_s = 0.3
+stall_gpu_s = 0.2
+stall_cpu_s = 15.4
+stalls_play = 27.5
+stall_play_s = 7.9
+low1_play = 28.1
+longest_play_ms = 706.0
+
+[variant."base@wkkick10"]
+fps = 55.4
+cpu = 202.7
+underruns = 0.0
+ram_free = 27.6
+vram = 39.4
+fps_steady = 64.3
+low1 = 10.6
+stalls = 65.0
+longest_ms = 1166.5
+stalls_play = 25.5
+stall_play_s = 6.3
+low1_play = 33.4
+longest_play_ms = 435.4
+
+[variant."base@wksleep10"]
+fps = 56.0
+cpu = 194.1
+underruns = 0.0
+ram_free = 26.1
+vram = 39.4
+fps_steady = 58.9
+low1 = 8.4
+stalls = 69.0
+longest_ms = 1902.0
+stalls_play = 33.5
+stall_play_s = 12.1
+low1_play = 26.2
+longest_play_ms = 1272.0

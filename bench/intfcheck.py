@@ -14,7 +14,7 @@ python3 bench/intfcheck.py). docs/STALLS.md "Interference".
      BENCH_DIR), bench-cam's watcher (exempt) and a foreign command; a new login session; the VT
      rules of an x run (the X server's own switches expected, the others counted); a USB line;
      an older login process busy for more than 1 s
-  4. report.py and matrix.py with interfered runs (bench.txt interfered=1, results/interfered.txt):
+  4. report.py and matrix.py with interfered runs (bench.txt interfered=1, gamedb/benchmarks/interfered.txt):
      intf column, !INTERFERED, the medians without them, matrix.py skips them (and keeps them with
      --include-interfered)
   5. interference-scan.py on made-up run directories: a VT switch in Xorg.0.log, a USB line in
@@ -287,14 +287,14 @@ def run_dir(tmp, name, bench="", files=None):
 
 def report_checks(tmp):
     res = tmp / "res"
-    res.mkdir()
-    (res / "interfered.txt").write_text("# test\nps3-bench-20261018T000003Z-fakei-base retro-scan said so\n")
+    (res / "benchmarks").mkdir(parents=True)
+    (res / "benchmarks" / "interfered.txt").write_text("# test\nps3-bench-20261018T000003Z-fakei-base retro-scan said so\n")
     common = "game=fakei\nvariant=base\nended=exit\nseconds=100\nfps=%s\n"
     a = run_dir(tmp, "ps3-bench-20261018T000001Z-fakei-base", common % 50 + "interfered=0\ninterference=none\n")
     b = run_dir(tmp, "ps3-bench-20261018T000002Z-fakei-base", common % 10 + "interfered=1\ninterference=3 key presses\n")
     c = run_dir(tmp, "ps3-bench-20261018T000003Z-fakei-base", common % 20)
     e = run_dir(tmp, "ps3-bench-20261018T000004Z-fakei-base", common % 60)
-    env = dict(os.environ, BENCH_RESULTS=str(res))
+    env = dict(os.environ, BENCH_GAMEDB=str(res))
     p = subprocess.run([sys.executable, str(HERE / "report.py"), *map(str, (a, b, c, e))], capture_output=True, text=True, env=env)
     lines = p.stdout.splitlines()
     check("report: intf column (1 for the detector's and the retro list's, 0 clean, - unwatched)",
@@ -309,11 +309,13 @@ def report_checks(tmp):
     check("report --include-interfered: all four in the median (35)", "n=4" in med and "fps=35" in med, med)
     p = subprocess.run([sys.executable, str(HERE / "matrix.py"), "intf row", *map(str, (a, b, c, e))],
                        capture_output=True, text=True, env=env)
+    subprocess.run([sys.executable, str(HERE / "matrix.py"), "--csv", str(res)], capture_output=True, env=env)
     fps = (res / "fps.csv").read_text() if (res / "fps.csv").exists() else ""
     check("matrix: interfered runs skipped and listed", p.returncode == 0 and p.stdout.count("skipped") == 2 and
           "intf row" in fps and ",2,," in fps and "55" in fps, (p.stdout, p.stderr[-300:], fps))
     p = subprocess.run([sys.executable, str(HERE / "matrix.py"), "intf row2", "--include-interfered", *map(str, (a, b, c, e))],
                        capture_output=True, text=True, env=env)
+    subprocess.run([sys.executable, str(HERE / "matrix.py"), "--csv", str(res)], capture_output=True, env=env)
     fps = (res / "fps.csv").read_text()
     check("matrix --include-interfered: kept", p.stdout.count("kept") == 2 and "intf row2" in fps and "35" in fps, (p.stdout, fps))
 
@@ -343,7 +345,7 @@ def scan_checks(tmp):
                               "2026-10-18 06:01:00: ACTION[Server]: singleplayer digs default:stone at (0,1,2)\n"
                               "2026-10-18 06:02:30: ACTION[Server]: singleplayer activates \n"})
     p = subprocess.run([sys.executable, str(HERE / "interference-scan.py"), *map(str, (d1, d2, d3, d4))],
-                       capture_output=True, text=True, env=dict(os.environ, BENCH_RESULTS=str(base)))
+                       capture_output=True, text=True, env=dict(os.environ, BENCH_GAMEDB=str(base)))
     o = p.stdout
     check("scan: VT switch found", "STRONG %s" % d1.name in o and "VT switch away at 100 s" in o, o)
     check("scan: the evemu keyboard (added, removed, kernel line) not counted", d2.name not in o, o)
@@ -351,8 +353,8 @@ def scan_checks(tmp):
     check("scan: Luanti's actions placed (warm-up dig, window activate)",
           "warm-up: 1 digs; window: 1 activates" in o, o)
     p = subprocess.run([sys.executable, str(HERE / "interference-scan.py"), "--write", *map(str, (d1, d2, d3, d4))],
-                       capture_output=True, text=True, env=dict(os.environ, BENCH_RESULTS=str(base)))
-    lst = (base / "interfered.txt").read_text() if (base / "interfered.txt").exists() else ""
+                       capture_output=True, text=True, env=dict(os.environ, BENCH_GAMEDB=str(base)))
+    lst = (base / "benchmarks" / "interfered.txt").read_text() if (base / "benchmarks" / "interfered.txt").exists() else ""
     check("scan --write: three runs listed", len([x for x in lst.splitlines() if x and not x.startswith("#")]) == 3, lst)
 
 

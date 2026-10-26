@@ -1,0 +1,9 @@
+# neverball's numbers in batch 2026-10-17-ps3rsx-249-first-boot (gamedb/benchmarks/README.md)
+batch = "2026-10-17-ps3rsx-249-first-boot"
+
+[variant.base]
+fps = 73.3
+cpu = 12.2
+underruns = 25.5
+ram_free = 64.3
+vram = 34.3

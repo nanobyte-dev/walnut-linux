@@ -1,0 +1,42 @@
+# openarena's numbers in batch 2026-10-20-ssdroot11-minmax-vmx (gamedb/benchmarks/README.md)
+batch = "2026-10-20-ssdroot11-minmax-vmx"
+
+[variant."gl2min@rec10"]
+fps = 48.2
+cpu = 184.1
+underruns = 0
+ram_free = 19.2
+vram = 117.0
+fps_steady = 62.7
+low1 = 7.6
+stalls = 62
+longest_ms = 3211.0
+stall_disk_s = 1.0
+stall_swap_s = 0.3
+stall_reclaim_s = 1.7
+stall_gpu_s = 0.4
+stall_cpu_s = 32.1
+stalls_play = 2
+stall_play_s = 0.3
+low1_play = 28.2
+longest_play_ms = 192.6
+
+[variant."gl2min@rec10+minmax_vmx1"]
+fps = 48.6
+cpu = 185.0
+underruns = 0
+ram_free = 17.0
+vram = 116.6
+fps_steady = 61.7
+low1 = 7.5
+stalls = 63
+longest_ms = 3222.0
+stall_disk_s = 1.1
+stall_swap_s = 0.5
+stall_reclaim_s = 1.2
+stall_gpu_s = 0.4
+stall_cpu_s = 31.2
+stalls_play = 1
+stall_play_s = 0.1
+low1_play = 26.9
+longest_play_ms = 143.3

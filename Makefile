@@ -45,7 +45,7 @@ ROOTFS_VARS_NOW := $(foreach v,DEBIAN_SNAPSHOT DEBIAN_SUITE DEBIAN_MIRROR SOURCE
 $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VARS_NOW)" ] || echo "$(ROOTFS_VARS_NOW)" > $(ROOTFS_VARS))
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
-.PHONY: gamedb-catalog walnut-server walnut-site walnut-server-test public-push initrd-ssd initrd-walnut initrd-busybox publish du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref \
+.PHONY: gamedb-catalog walnut-server walnut-site walnut-server-test public-push initrd-ssd initrd-walnut initrd-busybox publish du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref bench-matrix \
 	classicube-audio game-data licensed-data game-debs game-deploy gamedb-integration
 
 help:
@@ -87,6 +87,7 @@ help:
 	@echo "  make bench-pull   its results into $(BUILD)/bench (PERFDATA=1: with perf.data and perf-syms.tar), screenshots as PNGs + PS3 | PC sheets"
 	@echo "  make bench-shots  the PS3 | PC screenshot sheets again, and the ones not reviewed yet"
 	@echo "  make bench-ref GAME=x [VARIANT=y]  the PC reference screenshots of a recipe (build/bench-ref)"
+	@echo "  make bench-matrix the benchmark records as CSV matrices, one per metric ($(BUILD)/bench-matrix, gamedb/benchmarks/README.md)"
 	@echo "  make initrd-ssd   the SSD root's initramfs (IMGMAP=<copy of the PS3's map.json>) -> $(BUILD)/initrd"
 	@echo "  make initrd-walnut  the internal install's generic initramfs -> $(BUILD)/initrd/initrd-walnut.img"
 	@echo "  make bench-assets  the benchmarks' built assets (gamedb/games/*/benchmark/assets-src/assets.mk;"
@@ -405,6 +406,10 @@ bench-shots:
 	@echo ">> sheets not reviewed yet (no REVIEW.md):"; python3 bench/shots.py pending $(BUILD)/bench
 bench-ref:
 	tools/bench-ref.sh $(GAME) $(or $(VARIANT),base)
+# The CSV matrices (one per metric, one row per batch, a column per game-variant) made from gamedb's
+# benchmark records (gamedb/benchmarks/README.md; bench/matrix.py writes the records, --csv the files)
+bench-matrix:
+	python3 bench/matrix.py --csv $(BUILD)/bench-matrix
 
 shell: $(BUILDER_STAMP)
 	$(DOCKER_RUN) -it --user $(UID_GID) $(BUILDER_TAG) bash

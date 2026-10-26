@@ -1,0 +1,9 @@
+# xmoto's numbers in batch 2026-10-17-mesa-246-ps3rsx-249 (gamedb/benchmarks/README.md)
+batch = "2026-10-17-mesa-246-ps3rsx-249"
+
+[variant.base]
+fps = 39
+cpu = 83.8
+underruns = 45
+ram_free = 70.9
+vram = 36.4

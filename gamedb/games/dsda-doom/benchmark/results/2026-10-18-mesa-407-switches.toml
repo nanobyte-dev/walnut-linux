@@ -1,0 +1,17 @@
+# dsda-doom's numbers in batch 2026-10-18-mesa-407-switches (gamedb/benchmarks/README.md)
+batch = "2026-10-18-mesa-407-switches"
+
+[variant."base@wkkick10+perf"]
+fps = 40.3
+cpu = 271.0
+underruns = 4089
+ram_free = 45.4
+vram = 25.7
+fps_steady = 40.3
+low1 = 21.6
+stalls = 0
+longest_ms = 96.6
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 21.8
+longest_play_ms = 96.6

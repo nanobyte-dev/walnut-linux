@@ -1,0 +1,62 @@
+# luanti's numbers in batch 2026-10-18-luanti-clean-reruns (gamedb/benchmarks/README.md)
+batch = "2026-10-18-luanti-clean-reruns"
+
+[variant."base@rec10+wkkick10"]
+fps = 46.0
+cpu = 241.8
+underruns = 0.0
+ram_free = 16.9
+vram = 62.0
+fps_steady = 45.5
+low1 = 18.4
+stalls = 12.5
+longest_ms = 185.2
+stall_disk_s = 0.3
+stall_swap_s = 0.1
+stall_reclaim_s = 0.0
+stall_gpu_s = 0.0
+stall_cpu_s = 1.0
+stalls_play = 12.5
+stall_play_s = 1.8
+low1_play = 18.4
+longest_play_ms = 185.2
+
+[variant."cliunload@rec10+wkkick10"]
+fps = 46.5
+cpu = 265.6
+underruns = 0.0
+ram_free = 21.0
+vram = 58.5
+fps_steady = 46.0
+low1 = 20.1
+stalls = 9.5
+longest_ms = 2065.5
+stall_disk_s = 2.4
+stall_swap_s = 0.1
+stall_reclaim_s = 0.3
+stall_gpu_s = 0.0
+stall_cpu_s = 0.6
+stalls_play = 9.5
+stall_play_s = 4.5
+low1_play = 20.1
+longest_play_ms = 2065.5
+
+[variant."lean@rec10+wkkick10"]
+fps = 57.0
+cpu = 304.0
+underruns = 0.0
+ram_free = 22.1
+vram = 45.4
+fps_steady = 56.5
+low1 = 22.2
+stalls = 4.0
+longest_ms = 238.2
+stall_disk_s = 0.1
+stall_swap_s = 0.0
+stall_reclaim_s = 0.3
+stall_gpu_s = 0.0
+stall_cpu_s = 0.1
+stalls_play = 4.0
+stall_play_s = 0.7
+low1_play = 22.2
+longest_play_ms = 238.2

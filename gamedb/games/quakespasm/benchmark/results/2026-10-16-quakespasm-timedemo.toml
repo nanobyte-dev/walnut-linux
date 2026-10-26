@@ -1,0 +1,22 @@
+# quakespasm's numbers in batch 2026-10-16-quakespasm-timedemo (gamedb/benchmarks/README.md)
+batch = "2026-10-16-quakespasm-timedemo"
+
+[variant.base]
+fps = 64.8
+cpu = 12.5
+ram_free = 53.1
+vram = 47.7
+
+[variant.glslgamma]
+fps = 70.3
+cpu = 12.4
+underruns = 4
+ram_free = 54.6
+vram = 47.6
+
+[variant.noglsl]
+fps = 59.2
+cpu = 17.7
+underruns = 36
+ram_free = 61.0
+vram = 44.1

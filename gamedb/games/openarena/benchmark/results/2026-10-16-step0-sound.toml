@@ -1,0 +1,27 @@
+# openarena's numbers in batch 2026-10-16-step0-sound (gamedb/benchmarks/README.md)
+batch = "2026-10-16-step0-sound"
+
+[variant.sndA]
+fps = 49.7
+cpu = 35.2
+ram_free = 28.6
+
+[variant.sndB]
+fps = 49.8
+cpu = 37.3
+ram_free = 29.6
+
+[variant.sndB22]
+fps = 50.0
+cpu = 37.3
+ram_free = 28.2
+
+[variant.sndC]
+fps = 50.0
+cpu = 33.3
+ram_free = 28.4
+
+[variant.sndZ]
+fps = 55.3
+cpu = 26.2
+ram_free = 35.7

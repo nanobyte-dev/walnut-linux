@@ -1,0 +1,16 @@
+# dsda-doom's numbers in batch 2026-10-17-fluidsynth-309 (gamedb/benchmarks/README.md)
+batch = "2026-10-17-fluidsynth-309"
+
+[variant.playoff]
+fps = 54.0
+cpu = 46.4
+underruns = 1281.0
+ram_free = 39.4
+vram = 65.4
+
+[variant.playspu]
+fps = 54.5
+cpu = 32.3
+underruns = 648.5
+ram_free = 47.7
+vram = 65.4

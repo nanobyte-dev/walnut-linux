@@ -1,0 +1,23 @@
+# etr's numbers in batch suite-summary-2026-10 (gamedb/benchmarks/README.md)
+batch = "suite-summary-2026-10"
+
+[variant.base]
+label = "Extreme Tux Racer"
+order = 8
+note = "right, right"
+fps_steady = 59.0
+low1_play = 27.3
+stall_play_s = 2.9
+longest_play_ms = 483
+sound_faults_per_min = 0
+ram_free = 29
+vram = 58
+
+[variant.base.source]
+fps_steady = "gamedb:batch/2026-10-18-batch17 etr-base"
+low1_play = "gamedb:batch/2026-10-18-batch17 etr-base"
+stall_play_s = "gamedb:batch/2026-10-18-batch17 etr-base"
+longest_play_ms = "gamedb:batch/2026-10-18-batch17 etr-base"
+sound_faults_per_min = "the suite table's sound column, read as faults a minute (no number in the log)"
+ram_free = "docs/games/README.md suite table (2026-10)"
+vram = "gamedb:batch/2026-10-18-batch17 etr-base"

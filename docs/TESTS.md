@@ -96,7 +96,7 @@ Sound: tools/bench-audio.sh (8 s of the webcam microphone after every photo) ran
 ## History
 
 One line per batch: date (local), boot, what ran, verdict, results commit. Details in the commit and
-in bench/results/.
+in the batch's records (gamedb/benchmarks/batches.toml, `gamedb:batch/<name>`).
 
 | Date | Boot / root | Batch | Verdict | Commit |
 |---|---|---|---|---|

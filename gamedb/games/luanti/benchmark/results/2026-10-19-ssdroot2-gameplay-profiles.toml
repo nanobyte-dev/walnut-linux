@@ -1,0 +1,17 @@
+# luanti's numbers in batch 2026-10-19-ssdroot2-gameplay-profiles (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot2-gameplay-profiles"
+
+[variant."base@perf"]
+fps = 46
+cpu = 253.3
+underruns = 0
+ram_free = 18.2
+vram = 61.1
+fps_steady = 46
+low1 = 15.7
+stalls = 24
+longest_ms = 491.3
+stalls_play = 24
+stall_play_s = 5.2
+low1_play = 15.7
+longest_play_ms = 491.3

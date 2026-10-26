@@ -1,0 +1,9 @@
+# armagetronad's numbers in batch 2026-10-16-etr-armagetron-smokes (gamedb/benchmarks/README.md)
+batch = "2026-10-16-etr-armagetron-smokes"
+
+[variant.base]
+fps = 89
+cpu = 13.8
+underruns = 35
+ram_free = 83.6
+vram = 27.7

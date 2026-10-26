@@ -1,0 +1,16 @@
+# dsda-doom's numbers in batch 2026-10-17-speq-367-deadline-pool (gamedb/benchmarks/README.md)
+batch = "2026-10-17-speq-367-deadline-pool"
+
+[variant.playppe]
+fps = 57
+cpu = 36.5
+underruns = 1095
+ram_free = 37.1
+vram = 65.9
+
+[variant.playspu]
+fps = 57
+cpu = 26.5
+underruns = 465
+ram_free = 37.5
+vram = 65.9

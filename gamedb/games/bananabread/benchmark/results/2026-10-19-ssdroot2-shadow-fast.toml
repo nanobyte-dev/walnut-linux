@@ -1,0 +1,43 @@
+# bananabread's numbers in batch 2026-10-19-ssdroot2-shadow-fast (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot2-shadow-fast"
+column = "sauerbraten"
+
+[variant."base@rec10"]
+fps = 36.1
+cpu = 233.7
+underruns = 160.0
+ram_free = 27.5
+vram = 117.0
+fps_steady = 39.2
+low1 = 25.6
+stalls = 0.5
+longest_ms = 95.6
+stall_disk_s = 0.1
+stall_swap_s = 0.0
+stall_reclaim_s = 0.0
+stall_gpu_s = 0.0
+stall_cpu_s = 0.1
+stalls_play = 0.5
+stall_play_s = 0.1
+low1_play = 25.6
+longest_play_ms = 95.6
+
+[variant."base@rec10+rsx_shadow_fast1"]
+fps = 36.3
+cpu = 229.4
+underruns = 115.0
+ram_free = 20.8
+vram = 120.3
+fps_steady = 39.7
+low1 = 26.1
+stalls = 1.0
+longest_ms = 118.3
+stall_disk_s = 0.1
+stall_swap_s = 0.0
+stall_reclaim_s = 0.0
+stall_gpu_s = 0.0
+stall_cpu_s = 0.1
+stalls_play = 1.0
+stall_play_s = 0.1
+low1_play = 26.1
+longest_play_ms = 118.3

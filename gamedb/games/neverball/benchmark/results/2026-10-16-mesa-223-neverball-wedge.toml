@@ -1,0 +1,8 @@
+# neverball's numbers in batch 2026-10-16-mesa-223-neverball-wedge (gamedb/benchmarks/README.md)
+batch = "2026-10-16-mesa-223-neverball-wedge"
+
+[variant.base]
+cpu = 63.7
+underruns = 5
+ram_free = 71.7
+vram = 25.0

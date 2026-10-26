@@ -1,0 +1,10 @@
+# bananabread's numbers in batch 2026-10-17-mesa-262 (gamedb/benchmarks/README.md)
+batch = "2026-10-17-mesa-262"
+column = "sauerbraten"
+
+[variant.cpuskel]
+fps = 8
+cpu = 120.0
+underruns = 207
+ram_free = 12.8
+vram = 140.3

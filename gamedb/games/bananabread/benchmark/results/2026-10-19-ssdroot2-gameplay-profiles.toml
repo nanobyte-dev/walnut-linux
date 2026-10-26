@@ -1,0 +1,18 @@
+# bananabread's numbers in batch 2026-10-19-ssdroot2-gameplay-profiles (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot2-gameplay-profiles"
+column = "sauerbraten"
+
+[variant."base@perf"]
+fps = 36.1
+cpu = 236.0
+underruns = 171
+ram_free = 25.1
+vram = 117.0
+fps_steady = 38.3
+low1 = 23.5
+stalls = 3
+longest_ms = 164.9
+stalls_play = 3
+stall_play_s = 0.4
+low1_play = 23.5
+longest_play_ms = 164.9

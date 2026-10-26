@@ -1,0 +1,8 @@
+# hedgewars's numbers in batch 2026-10-19-ssdroot4-smoke (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot4-smoke"
+
+[variant.base]
+cpu = 9.8
+underruns = 0
+ram_free = 56.9
+vram = 10.0

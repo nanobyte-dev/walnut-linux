@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Tests for the Walnut Games tools: python3 -m unittest (from tools/gamedb) or
-python3 -I tools/gamedb/test_gamedb.py. The calibration test reads the table in docs/GAMEDB.md, so a
-change to the scoring that moves a medal, or a doc edit that no longer matches the code, fails here."""
+python3 -I tools/gamedb/test_gamedb.py. The calibration test scores the summary batch suite-summary-2026-10
+(gamedb's benchmark records) and compares the medals and docs/GAMEDB.md's generated table, so a change to the
+scoring that moves a medal, or a stale table, fails here."""
 import contextlib
 import importlib.util
 import io
@@ -23,6 +24,14 @@ sys.path.insert(0, str(HERE))
 import catalog   # noqa: E402
 import check     # noqa: E402
 import score     # noqa: E402
+
+
+def load_tool(name, path=None):
+    """a tool module by its file (tools/gamedb/<name>.py, or path)"""
+    spec = importlib.util.spec_from_file_location(name.replace("-", "_"), path or HERE / ("%s.py" % name))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def load_import_run():
@@ -210,35 +219,108 @@ class Medals(unittest.TestCase):
         self.assertEqual((r["medal"], r["reason"]), ("Scrap", "crashes"))
 
 
-def doc_table():
-    """the rows of docs/GAMEDB.md's calibration table: (frame, smooth, sound, mean, weakest, medal) ints/words"""
-    text = (REPO / "docs" / "GAMEDB.md").read_text()
-    body = text.split("## Calibration", 1)[1].split("\n\n", 2)[2].split("\n\n")[0]
-    rows = []
-    for line in body.splitlines()[2:]:
-        c = [x.strip() for x in line.strip("|").split("|")]
-        first = lambda s: int(re.search(r"\d+", s)[0])
-        rows.append((c[0], first(c[1]), first(c[2]), first(re.sub(r"~", "", c[3])), first(c[4]), first(c[5]),
-                     c[6].split()[0]))
-    return rows
+# the medals of the calibration (docs/GAMEDB.md, rules 1): a change to the scoring or to the summary batch's
+# numbers that moves one fails here
+CALIBRATION_MEDALS = ["Platinum", "Platinum", "Platinum", "Gold", "Gold", "Gold", "Gold", "Gold", "Silver", "Silver",
+                      "Silver", "Bronze", "Bronze", "Bronze", "Scrap"]
 
 
 class Calibration(unittest.TestCase):
-    """the 13 benchmarked games (15 rows) come out as docs/GAMEDB.md says, to a point of rounding"""
+    """the 13 benchmarked games (15 rows, the summary batch suite-summary-2026-10) come out with their medals,
+    and docs/GAMEDB.md's generated table is what blocks.py makes of them"""
+
+    def test_medals(self):
+        rows = score.calibration()
+        self.assertEqual(len(rows), 15)
+        self.assertEqual([score.calibrate(r)[1]["medal"] for r in rows], CALIBRATION_MEDALS)
+        self.assertEqual([r[0] for r in rows][:3], ["X-Moto", "OpenArena, opengl1", "Yamagi Quake II"])
 
     def test_table_matches_doc(self):
-        rows = doc_table()
-        self.assertEqual(len(rows), len(score.CALIBRATION))
-        for doc, row in zip(rows, score.CALIBRATION):
-            scores, rating = score.calibrate(row)
-            got = (scores["frame"], scores["smooth"], scores["sound"], rating["score"], scores[rating["weakest"]])
-            for want, have, what in zip(doc[1:6], got, ("frame", "smooth", "sound", "mean", "weakest")):
-                self.assertLessEqual(abs(want - have), 1, "%s %s: doc %s, computed %.1f" % (doc[0], what, want, have))
-            self.assertEqual(doc[6], rating["medal"], doc[0])
+        blocks = load_tool("blocks")
+        text = (REPO / "docs" / "GAMEDB.md").read_text()
+        body = text.split("<!-- gamedb:calibration -->\n", 1)[1].split("<!-- /gamedb:calibration -->")[0]
+        self.assertEqual(body, blocks.gen_calibration(REPO, []))
 
     def test_scrap_reason(self):
-        _, r = score.calibrate(score.CALIBRATION[-1])
+        _, r = score.calibrate(score.calibration()[-1])
         self.assertEqual((r["medal"], r["reason"]), ("Scrap", "too slow"))
+
+
+class Records(unittest.TestCase):
+    """the benchmark records (gamedb/benchmarks/README.md): check.py's rules on them, the CSV matrices they
+    make, bench-import.py's column split, the README's generated suite table"""
+
+    def setUp(self):
+        self.br = load_tool("benchrecords", REPO / "bench" / "benchrecords.py")
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        (self.tmp / "benchmarks").mkdir()
+        shutil.copy(REPO / "gamedb" / "benchmarks" / "metrics.toml", self.tmp / "benchmarks")
+        self.br.save_batches([
+            {"name": "b1", "order": 1, "kind": "run", "title": "Mesa ps3.1", "date": __import__("datetime").date(2026, 10, 1),
+             "runs": 2, "observations": "ran, \"quoted\"", "source": "test"},
+            {"name": "b2", "order": 2, "kind": "run", "title": "Mesa ps3.2", "runs": 1, "source": "test"},
+            {"name": "s", "kind": "summary", "source": "test"}], self.tmp)
+        self.br.save_result("g", {"batch": "b1", "column": "old", "variant": {"base@rec10": {"fps": 50.0, "stalls": 2}}}, self.tmp)
+        self.br.save_result("g", {"batch": "b2", "variant": {"base": {"fps": 51.5, "stall_gpu_s": 0.2}}}, self.tmp)
+        self.br.save_result("g", {"batch": "s", "variant": {"base": {"label": "G", "order": 1, "fps_steady": 50,
+                                                                      "source": {"fps_steady": "gamedb:batch/b1"}}}}, self.tmp)
+
+    def test_valid(self):
+        self.assertEqual(self.br.check_records(self.tmp, {"g"}), [])
+
+    def test_matrices(self):
+        m = self.br.matrices(self.tmp)
+        self.assertEqual(m["fps"][0], ["g-base", "old-base@rec10"])
+        self.assertEqual([r["test"] for r in m["fps"][1]], ["Mesa ps3.1", "Mesa ps3.2"])
+        self.assertEqual(m["fps"][1][0]["date"], "20261001")
+        self.assertIn("stall_gpu_s", m)            # when-set: made, since a batch has it
+        self.assertNotIn("stall_cpu_s", m)         # when-set and nobody has it
+        self.assertIn("cpu", m)                    # always, even empty
+        self.assertNotIn("sound_faults_per_min", m)
+        self.br.to_csv(self.tmp / "csv", self.tmp)
+        self.assertEqual((self.tmp / "csv" / "fps.csv").read_bytes().split(b"\r\n")[1],
+                         b'Mesa ps3.1,20261001,2,"ran, ""quoted""",,50.0')
+
+    def test_problems(self):
+        f = self.br.result_path("g", "b2", self.tmp)
+        f.write_text(f.read_text().replace("fps = 51.5", "fsp = 51.5\nnote = \"x\""))
+        self.br.save_result("g", {"batch": "nope", "variant": {"base": {"fps": 1}}}, self.tmp)
+        (self.tmp / "games" / "g" / "benchmark" / "results" / "x.csv").write_text("")
+        b = self.br.load_batches(self.tmp)
+        b[1]["order"] = 1
+        b[1]["colour"] = "red"
+        self.br.save_batches(b, self.tmp)
+        (self.tmp / "benchmarks" / "batches.toml").write_text((self.tmp / "benchmarks" / "batches.toml").read_text()
+                                                            + 'colour = "red"\n')
+        errs = "\n".join(self.br.check_records(self.tmp, {"h"}))
+        for want in ("unknown metric 'fsp'", "note belongs to a summary", "no batch 'nope'", "results/ holds <batch>.toml",
+                     "order 1 after 1", "unknown key 'colour'", "no game g"):
+            self.assertIn(want, errs)
+
+    def test_check_py_reads_them(self):
+        self.assertEqual(check.records_errors(REPO / "gamedb"), [])
+
+    def test_matrix_metrics(self):
+        matrix = load_bench("matrix")
+        want = {m["name"] for m in self.br.load_metrics() if m["matrix"] != "none"}
+        self.assertEqual(set(matrix.METRICS), want)
+
+    def test_import_split(self):
+        imp = load_tool("bench-import")
+        names = imp.names_map(REPO / "gamedb")
+        self.assertEqual(imp.split("sauerbraten-base@rec10", names), ("bananabread", "sauerbraten", "base@rec10"))
+        self.assertEqual(imp.split("sauerbraten-edition-base", names), ("sauerbraten", "sauerbraten-edition", "base"))
+        self.assertEqual(imp.split("supertuxkart-lean--@rec10", names), ("supertuxkart", "supertuxkart", "lean--@rec10"))
+        self.assertEqual(imp.split("dsda-doom-gl@wkkick10", names), ("dsda-doom", "dsda-doom", "gl@wkkick10"))
+        self.assertEqual(imp.stack("batch ssdroot1+2 A: baseline on the SSD root (kernel .472 Mesa .476 ps3rsx 0.443)"),
+                         {"kernel": "ps3.472", "mesa": "ps3.476", "ps3rsx": "0.443"})
+
+    def test_suite_table_matches_readme(self):
+        blocks = load_tool("blocks")
+        text = (REPO / "README.md").read_text()
+        body = text.split("<!-- gamedb:suite-table -->\n", 1)[1].split("<!-- /gamedb:suite-table -->")[0]
+        self.assertEqual(body, blocks.gen_suite_table(REPO, []))
 
 
 class Combine(unittest.TestCase):

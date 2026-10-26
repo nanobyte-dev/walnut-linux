@@ -1,0 +1,16 @@
+# xmoto's numbers in batch 2026-10-17-xmoto-etr-batching (gamedb/benchmarks/README.md)
+batch = "2026-10-17-xmoto-etr-batching"
+
+[variant.base]
+fps = 166.5
+cpu = 72.7
+underruns = 29.0
+ram_free = 54.8
+vram = 37.2
+
+[variant.nobatch]
+fps = 44.5
+cpu = 87.1
+underruns = 32.0
+ram_free = 53.1
+vram = 36.3

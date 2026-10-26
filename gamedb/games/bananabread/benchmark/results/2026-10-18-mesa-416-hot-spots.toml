@@ -1,0 +1,48 @@
+# bananabread's numbers in batch 2026-10-18-mesa-416-hot-spots (gamedb/benchmarks/README.md)
+batch = "2026-10-18-mesa-416-hot-spots"
+column = "sauerbraten"
+
+[variant."base@wkkick10"]
+fps = 30.1
+cpu = 153.3
+underruns = 151
+ram_free = 15.0
+vram = 119.7
+fps_steady = 25
+low1 = 4.9
+stalls = 28
+longest_ms = 900.4
+stalls_play = 28
+stall_play_s = 8.6
+low1_play = 4.9
+longest_play_ms = 900.4
+
+[variant."base@wkkick10+query_wait200"]
+fps = 27.7
+cpu = 202.3
+underruns = 156
+ram_free = 18.5
+vram = 119.7
+fps_steady = 45.6
+low1 = 16.9
+stalls = 18
+longest_ms = 998.3
+stalls_play = 18
+stall_play_s = 5.7
+low1_play = 16.9
+longest_play_ms = 998.3
+
+[variant."oqlag@wkkick10"]
+fps = 35.5
+cpu = 228.9
+underruns = 164
+ram_free = 17.9
+vram = 119.7
+fps_steady = 39.4
+low1 = 14.7
+stalls = 20
+longest_ms = 1531.0
+stalls_play = 20
+stall_play_s = 8.2
+low1_play = 14.7
+longest_play_ms = 1531.0

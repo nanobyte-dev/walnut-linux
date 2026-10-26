@@ -1,0 +1,16 @@
+# openarena's numbers in batch 2026-10-17-mesa-282-kick100 (gamedb/benchmarks/README.md)
+batch = "2026-10-17-mesa-282-kick100"
+
+[variant.base]
+fps = 51.3
+cpu = 37.1
+underruns = 0.0
+ram_free = 26.5
+vram = 36.6
+
+[variant.kick100]
+fps = 53.0
+cpu = 37.0
+underruns = 0.0
+ram_free = 26.7
+vram = 38.0

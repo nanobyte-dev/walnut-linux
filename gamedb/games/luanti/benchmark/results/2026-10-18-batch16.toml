@@ -1,0 +1,87 @@
+# luanti's numbers in batch 2026-10-18-batch16 (gamedb/benchmarks/README.md)
+batch = "2026-10-18-batch16"
+
+[variant.active2]
+fps = 46
+cpu = 241.6
+underruns = 0
+ram_free = 17.8
+vram = 59.7
+fps_steady = 46
+low1 = 18.1
+stalls = 14
+longest_ms = 2142.0
+stalls_play = 14
+stall_play_s = 6.7
+low1_play = 18.1
+longest_play_ms = 2142.0
+
+[variant."base@rec10"]
+fps = 47
+cpu = 247.0
+underruns = 0
+ram_free = 16.8
+vram = 62.6
+fps_steady = 46
+low1 = 17.5
+stalls = 16
+longest_ms = 357.7
+stall_disk_s = 0.5
+stall_swap_s = 0.2
+stall_reclaim_s = 0.4
+stall_gpu_s = 0.0
+stall_cpu_s = 1.1
+stalls_play = 16
+stall_play_s = 2.5
+low1_play = 17.5
+longest_play_ms = 357.7
+
+[variant."base@rec10+gpffetch"]
+fps = 47
+cpu = 247.3
+underruns = 0
+ram_free = 17.3
+vram = 61.9
+fps_steady = 46
+low1 = 20.0
+stalls = 13
+longest_ms = 3089.0
+stall_disk_s = 2.6
+stall_swap_s = 0.4
+stall_reclaim_s = 0.6
+stall_gpu_s = 0.0
+stall_cpu_s = 0.6
+stalls_play = 13
+stall_play_s = 5.5
+low1_play = 20.0
+longest_play_ms = 3089.0
+
+[variant.chunk3]
+fps = 44
+cpu = 266.2
+underruns = 0
+ram_free = 18.1
+vram = 65.7
+fps_steady = 45
+low1 = 21.9
+stalls = 7
+longest_ms = 225.6
+stalls_play = 7
+stall_play_s = 1.2
+low1_play = 21.9
+longest_play_ms = 225.6
+
+[variant.srvunload]
+fps = 45
+cpu = 279.6
+underruns = 0
+ram_free = 12.6
+vram = 59.9
+fps_steady = 45
+low1 = 17.6
+stalls = 25
+longest_ms = 1025.0
+stalls_play = 25
+stall_play_s = 6.3
+low1_play = 17.6
+longest_play_ms = 1025.0

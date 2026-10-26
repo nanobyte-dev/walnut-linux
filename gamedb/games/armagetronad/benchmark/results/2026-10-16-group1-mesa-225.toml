@@ -1,0 +1,9 @@
+# armagetronad's numbers in batch 2026-10-16-group1-mesa-225 (gamedb/benchmarks/README.md)
+batch = "2026-10-16-group1-mesa-225"
+
+[variant.base]
+fps = 64.0
+cpu = 66.0
+underruns = 6
+ram_free = 78.2
+vram = 28.8

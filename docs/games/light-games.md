@@ -48,7 +48,7 @@ Memory: 49 MB Rss, nothing swapped, 0.3 MB free in its heap (nothing to cut).
 History: Mesa ps3.246 35 to 37 (HUD median, underruns 208 to 126); ps3.262 39 to 47 (+21%); ps3.299
 44.5 against 47.0 on ps3.282 the same boot (-5%: neither 0027 nor 0030 off restored it; 0031 off
 (`fpvram`) and 0028 off (`idxlate`) gave 46 each); `kick100` cost 9% on ps3.282. Then the batching:
-44.5 to 166.5 (row 49, `nobatch` against base). Since the steady state, X-Moto's fps.csv cell is the
+44.5 to 166.5 (row 49, `nobatch` against base). Since the steady state, X-Moto's `fps` value is the
 game's average over the whole replay, not the HUD median (`--hud xmoto` keeps the old meaning).
 
 On the SSD root with ps3rsx's `shadow_fast` (row 75, x2 against off, kernel .472): 159.0 against 158.4

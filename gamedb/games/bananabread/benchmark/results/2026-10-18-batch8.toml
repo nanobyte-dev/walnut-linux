@@ -1,0 +1,48 @@
+# bananabread's numbers in batch 2026-10-18-batch8 (gamedb/benchmarks/README.md)
+batch = "2026-10-18-batch8"
+column = "sauerbraten"
+
+[variant."base@wkkick10"]
+fps = 30.7
+cpu = 231.5
+underruns = 167.0
+ram_free = 23.2
+vram = 117.0
+fps_steady = 39.2
+low1 = 26.4
+stalls = 6.0
+longest_ms = 690.2
+stalls_play = 6.0
+stall_play_s = 2.1
+low1_play = 26.4
+longest_play_ms = 690.2
+
+[variant."base@wkkick10+mmmap"]
+fps = 35.1
+cpu = 193.2
+underruns = 133.5
+ram_free = 19.9
+vram = 118.3
+fps_steady = 39.9
+low1 = 19.8
+stalls = 9.0
+longest_ms = 538.1
+stalls_play = 9.0
+stall_play_s = 2.1
+low1_play = 19.8
+longest_play_ms = 538.1
+
+[variant."base@wkkick10+mtrim"]
+fps = 33.9
+cpu = 232.1
+underruns = 118.5
+ram_free = 21.5
+vram = 117.7
+fps_steady = 38.2
+low1 = 21.5
+stalls = 8.0
+longest_ms = 462.6
+stalls_play = 8.0
+stall_play_s = 2.0
+low1_play = 21.5
+longest_play_ms = 462.6

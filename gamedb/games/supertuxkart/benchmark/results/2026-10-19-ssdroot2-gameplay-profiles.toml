@@ -1,0 +1,17 @@
+# supertuxkart's numbers in batch 2026-10-19-ssdroot2-gameplay-profiles (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot2-gameplay-profiles"
+
+[variant."lean@perf"]
+fps = 20
+cpu = 322.5
+underruns = 0
+ram_free = 22.9
+vram = 94.5
+fps_steady = 20
+low1 = 10.8
+stalls = 20
+longest_ms = 316.8
+stalls_play = 20
+stall_play_s = 2.7
+low1_play = 10.8
+longest_play_ms = 316.8

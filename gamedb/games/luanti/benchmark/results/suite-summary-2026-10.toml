@@ -1,0 +1,23 @@
+# luanti's numbers in batch suite-summary-2026-10 (gamedb/benchmarks/README.md)
+batch = "suite-summary-2026-10"
+
+[variant.base]
+label = "Luanti"
+order = 9
+note = "right, no underruns"
+fps_steady = 46.0
+low1_play = 19.1
+stall_play_s = 3.5
+longest_play_ms = 724
+sound_faults_per_min = 0
+ram_free = 19
+vram = 63
+
+[variant.base.source]
+fps_steady = "docs/games/README.md suite table (2026-10)"
+low1_play = "gamedb:batch/2026-10-19-ssdroot1-baseline luanti-base@rec10"
+stall_play_s = "gamedb:batch/2026-10-19-ssdroot1-baseline luanti-base@rec10"
+longest_play_ms = "gamedb:batch/2026-10-19-ssdroot1-baseline luanti-base@rec10"
+sound_faults_per_min = "the suite table's sound column, read as faults a minute (no number in the log)"
+ram_free = "gamedb:batch/2026-10-19-ssdroot1-baseline luanti-base@rec10"
+vram = "docs/games/README.md suite table (2026-10)"

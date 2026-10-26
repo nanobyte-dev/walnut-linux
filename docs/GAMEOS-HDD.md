@@ -327,7 +327,7 @@ What to compare ([PROFILING.md](PROFILING.md), "Start-up profiling"; [STALLS.md]
 ### Result, batch ssd1
 
 2026-10-18 22:10-23:25Z, kernel 6.12.111+ps3.472, USB root, same boot, `STALLS=1 ROTATE=1`, results
-commit 9e6bc57 (row "batch ssd1" in bench/results). Only BananaBread (9 runs) and part of
+commit 9e6bc57 (gamedb:batch/2026-10-18-ssd1). Only BananaBread (9 runs) and part of
 OpenArena ran before the batch was stopped for Phase B; Luanti, SuperTuxKart and ClassiCube never
 got their SSD arms. Medians with [min..max]:
 

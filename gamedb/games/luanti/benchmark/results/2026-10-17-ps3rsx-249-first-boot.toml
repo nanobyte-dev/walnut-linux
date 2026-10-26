@@ -1,0 +1,9 @@
+# luanti's numbers in batch 2026-10-17-ps3rsx-249-first-boot (gamedb/benchmarks/README.md)
+batch = "2026-10-17-ps3rsx-249-first-boot"
+
+[variant.base]
+fps = 67
+cpu = 92.3
+underruns = 0
+ram_free = 31.4
+vram = 48.9

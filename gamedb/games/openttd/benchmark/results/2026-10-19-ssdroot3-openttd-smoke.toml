@@ -1,0 +1,11 @@
+# openttd's numbers in batch 2026-10-19-ssdroot3-openttd-smoke (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot3-openttd-smoke"
+
+[variant.simplay]
+cpu = 82.9
+ram_free = 49.7
+
+[variant.sw]
+cpu = 225.7
+underruns = 3991
+ram_free = 15.6

@@ -1,0 +1,10 @@
+# bananabread's numbers in batch 2026-10-17-ps3rsx-249-first-boot (gamedb/benchmarks/README.md)
+batch = "2026-10-17-ps3rsx-249-first-boot"
+column = "sauerbraten"
+
+[variant.cpuskel]
+fps = 15
+cpu = 95.3
+underruns = 246.5
+ram_free = 10.8
+vram = 125.0

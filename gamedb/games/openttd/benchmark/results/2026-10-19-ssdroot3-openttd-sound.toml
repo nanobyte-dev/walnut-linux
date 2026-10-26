@@ -1,0 +1,82 @@
+# openttd's numbers in batch 2026-10-19-ssdroot3-openttd-sound (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot3-openttd-sound"
+
+[variant."base@rec10"]
+fps = 10
+cpu = 280.6
+underruns = 4632
+ram_free = 14.6
+vram = 17.9
+fps_steady = 11
+low1 = 5.5
+stalls = 396
+longest_ms = 220.3
+stall_disk_s = 0
+stall_swap_s = 0.1
+stall_reclaim_s = 0.0
+stall_gpu_s = 1.8
+stall_cpu_s = 46.3
+stalls_play = 396
+stall_play_s = 50.7
+low1_play = 5.5
+longest_play_ms = 220.3
+
+[variant."nomusic@rec10"]
+fps = 13
+cpu = 246.4
+underruns = 88
+ram_free = 16.9
+vram = 17.9
+fps_steady = 13
+low1 = 7.3
+stalls = 235
+longest_ms = 374.5
+stall_disk_s = 0
+stall_swap_s = 0.0
+stall_reclaim_s = 0.1
+stall_gpu_s = 1.1
+stall_cpu_s = 25.3
+stalls_play = 235
+stall_play_s = 27.5
+low1_play = 7.3
+longest_play_ms = 374.5
+
+[variant."nosound@rec10"]
+fps = 13
+cpu = 234.2
+underruns = 0
+ram_free = 20.5
+vram = 17.9
+fps_steady = 14
+low1 = 7.7
+stalls = 175
+longest_ms = 310.0
+stall_disk_s = 0
+stall_swap_s = 0.0
+stall_reclaim_s = 0.1
+stall_gpu_s = 0.8
+stall_cpu_s = 18.5
+stalls_play = 175
+stall_play_s = 20.1
+low1_play = 7.7
+longest_play_ms = 310.0
+
+[variant."quiet@rec10"]
+fps = 13
+cpu = 233.4
+underruns = 0
+ram_free = 21.0
+vram = 17.9
+fps_steady = 14
+low1 = 8.0
+stalls = 173
+longest_ms = 241.8
+stall_disk_s = 0
+stall_swap_s = 0.0
+stall_reclaim_s = 0
+stall_gpu_s = 0.8
+stall_cpu_s = 18.1
+stalls_play = 173
+stall_play_s = 19.4
+low1_play = 8.0
+longest_play_ms = 241.8

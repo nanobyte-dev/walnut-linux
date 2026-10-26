@@ -1,0 +1,122 @@
+# luanti's numbers in batch 2026-10-18-luanti-memory (gamedb/benchmarks/README.md)
+batch = "2026-10-18-luanti-memory"
+
+[variant."base@rec10+wkkick10"]
+fps = 46
+cpu = 254.0
+underruns = 0
+ram_free = 13.3
+vram = 61.6
+fps_steady = 45
+low1 = 16.2
+stalls = 24
+longest_ms = 1943.0
+stall_disk_s = 1.8
+stall_swap_s = 1.2
+stall_reclaim_s = 0.0
+stall_gpu_s = 0.0
+stall_cpu_s = 1.8
+stalls_play = 24
+stall_play_s = 6.5
+low1_play = 16.2
+longest_play_ms = 1943.0
+
+[variant."cliunload@rec10+wkkick10"]
+fps = 48
+cpu = 272.0
+underruns = 0
+ram_free = 21.0
+vram = 57.9
+fps_steady = 48
+low1 = 21.6
+stalls = 5
+longest_ms = 258.9
+stall_disk_s = 0.2
+stall_swap_s = 0
+stall_reclaim_s = 0.3
+stall_gpu_s = 0.0
+stall_cpu_s = 0.2
+stalls_play = 5
+stall_play_s = 0.8
+low1_play = 21.6
+longest_play_ms = 258.9
+
+[variant."lean@rec10+wkkick10"]
+fps = 54
+cpu = 316.6
+underruns = 0
+ram_free = 30.8
+vram = 44.0
+fps_steady = 54
+low1 = 19.9
+stalls = 1
+longest_ms = 164.8
+stall_disk_s = 0.1
+stall_swap_s = 0.0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0.0
+stalls_play = 1
+stall_play_s = 0.2
+low1_play = 19.9
+longest_play_ms = 164.8
+
+[variant."nomerge@rec10+wkkick10"]
+fps = 47
+cpu = 259.3
+underruns = 0
+ram_free = 14.4
+vram = 64.6
+fps_steady = 46
+low1 = 17.1
+stalls = 14
+longest_ms = 360.7
+stall_disk_s = 0.3
+stall_swap_s = 0.1
+stall_reclaim_s = 0.7
+stall_gpu_s = 0.0
+stall_cpu_s = 0.9
+stalls_play = 14
+stall_play_s = 2.5
+low1_play = 17.1
+longest_play_ms = 360.7
+
+[variant."tradeoff@rec10+wkkick10"]
+fps = 47
+cpu = 230.3
+underruns = 0
+ram_free = 12.6
+vram = 63.5
+fps_steady = 46
+low1 = 18.4
+stalls = 21
+longest_ms = 2983.0
+stall_disk_s = 2.8
+stall_swap_s = 0.6
+stall_reclaim_s = 1.1
+stall_gpu_s = 0.0
+stall_cpu_s = 1.0
+stalls_play = 21
+stall_play_s = 6.7
+low1_play = 18.4
+longest_play_ms = 2983.0
+
+[variant."view40@rec10+wkkick10"]
+fps = 58
+cpu = 241.0
+underruns = 0
+ram_free = 18.7
+vram = 54.5
+fps_steady = 59
+low1 = 29.2
+stalls = 5
+longest_ms = 362.4
+stall_disk_s = 0.4
+stall_swap_s = 0.0
+stall_reclaim_s = 0.1
+stall_gpu_s = 0.0
+stall_cpu_s = 0.1
+stalls_play = 5
+stall_play_s = 0.9
+low1_play = 29.2
+longest_play_ms = 362.4

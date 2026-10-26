@@ -1,0 +1,17 @@
+# flare's numbers in batch 2026-10-19-ssdroot3-smoke-new (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot3-smoke-new"
+
+[variant.base]
+fps = 59
+cpu = 28.6
+underruns = 5
+ram_free = 46.8
+vram = 64.0
+fps_steady = 60
+low1 = 55.4
+stalls = 0
+longest_ms = 23.6
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 55.4
+longest_play_ms = 23.6

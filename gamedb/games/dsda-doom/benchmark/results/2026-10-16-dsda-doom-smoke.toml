@@ -1,0 +1,7 @@
+# dsda-doom's numbers in batch 2026-10-16-dsda-doom-smoke (gamedb/benchmarks/README.md)
+batch = "2026-10-16-dsda-doom-smoke"
+
+[variant.base]
+fps = 5
+underruns = 3618
+ram_free = 38.1

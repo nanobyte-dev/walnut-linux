@@ -1,0 +1,12 @@
+# openarena's numbers in batch 2026-10-16-step0-vswap-on (gamedb/benchmarks/README.md)
+batch = "2026-10-16-step0-vswap-on"
+
+[variant.tc0]
+fps = 48.8
+cpu = 35.6
+ram_free = 31.4
+
+[variant.tc1]
+fps = 52.4
+cpu = 36.6
+ram_free = 25.3

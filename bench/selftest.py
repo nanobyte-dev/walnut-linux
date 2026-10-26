@@ -3,8 +3,8 @@
   1. report.py on made-up run directories (HUD frame times, per-second fps only, repeated passes,
      a game's own window, a run from before the steady state): the window's median, 1% low,
      stalls and longest frame come out as computed by hand
-  2. matrix.py into a scratch results directory (BENCH_RESULTS): the new metric files get the rows
-     of the existing fps.csv and the new row's cells
+  2. matrix.py into a scratch gamedb root (BENCH_GAMEDB), then its CSV matrices (--csv): every metric file
+     has the batches' rows and the new row's cells
   3. client.sh end to end with made-up recipes and a fake game (this file with --fake-game: it
      writes the HUD's dump files as Mesa does and prints its lines), WARMUP and MEASURE in seconds:
      the window stop, passes counted and the stop once they cover MEASURE, a game's own steady
@@ -293,16 +293,22 @@ def synthetic(tmp):
     return runs
 
 
-# --- 2. matrix.py into a scratch results directory -----------------------------------------
+# --- 2. matrix.py into a scratch gamedb root ----------------------------------------------------
 def matrix(tmp, runs):
     res = tmp / "results"
-    res.mkdir()
-    if (HERE / "results" / "fps.csv").exists():
-        shutil.copy(HERE / "results" / "fps.csv", res / "fps.csv")
-    env = dict(os.environ, BENCH_RESULTS=str(res))
+    db = tmp / "gamedb"   # a scratch gamedb root: the real batches (no results), the new one after them
+    (db / "benchmarks").mkdir(parents=True)
+    if (HERE.parent / "gamedb" / "benchmarks" / "batches.toml").exists():
+        shutil.copy(HERE.parent / "gamedb" / "benchmarks" / "batches.toml", db / "benchmarks" / "batches.toml")
+    env = dict(os.environ, BENCH_GAMEDB=str(db))
     p = subprocess.run([sys.executable, str(HERE / "matrix.py"), "selftest row", "--obs", "made up",
                         *map(str, runs)], env=env, capture_output=True, text=True)
     check("matrix.py ran", p.returncode == 0, p.stderr[-500:])
+    check("matrix: the records written (batches.toml, results/<batch>.toml)",
+          "selftest row" in (db / "benchmarks" / "batches.toml").read_text()
+          and list(db.glob("games/fake/benchmark/results/*.toml")), sorted(str(x) for x in db.rglob("*.toml")))
+    p = subprocess.run([sys.executable, str(HERE / "matrix.py"), "--csv", str(res)], env=env, capture_output=True, text=True)
+    check("matrix.py --csv ran", p.returncode == 0, p.stderr[-500:])
     import csv
     rows = {}
     for name in ("fps", "fps_steady", "low1", "stalls", "longest_ms"):
@@ -959,9 +965,10 @@ def stalls_synthetic(tmp):
           and r.get("stall_cpu_s") == 0.2 and r.get("stall_other_s") == 0.0,
           {k: v for k, v in r.items() if k.startswith("stall_")})
     res2 = tmp / "results-stalls"
-    res2.mkdir()
-    p = subprocess.run([sys.executable, str(HERE / "matrix.py"), "stall row", str(d)],
-                       env=dict(os.environ, BENCH_RESULTS=str(res2)), capture_output=True, text=True)
+    env = dict(os.environ, BENCH_GAMEDB=str(tmp / "gamedb-stalls"))
+    p = subprocess.run([sys.executable, str(HERE / "matrix.py"), "stall row", str(d)], env=env, capture_output=True, text=True)
+    if p.returncode == 0:
+        p = subprocess.run([sys.executable, str(HERE / "matrix.py"), "--csv", str(res2)], env=env, capture_output=True, text=True)
     import csv
     f = res2 / "stall_gpu_s.csv"
     rows = list(csv.DictReader(f.open())) if f.exists() else []

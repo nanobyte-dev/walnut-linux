@@ -19,8 +19,9 @@ Probes (each one file, made by the command its README line shows):
   catalog         catalog.py's catalog.json (SOURCE_DATE_EPOCH=0); pack-catalog its tarball's members
   site            the Hugo site's files with their sha256 (tools/gamedb/build.sh; skipped without Hugo)
   report, logscan, logscan-json, interference, matrix
-                  the analysis tools over every run in build/bench (matrix: one row per run into a
-                  scratch BENCH_RESULTS seeded with results/interfered.txt)
+                  the analysis tools over every run in build/bench (matrix: one batch per run into a
+                  scratch gamedb root, BENCH_GAMEDB, seeded with gamedb/benchmarks/interfered.txt, then
+                  the CSV matrices made from those records, matrix.py --csv)
   export          the public copy's commits (tools/public-export.sh into a scratch directory): every
                   baseline commit must come out with the same id, in the same place (newer ones may follow)
   image-packages  the image's package list per profile (tools/build-image.sh's selection)
@@ -285,15 +286,21 @@ def p_interference(tmp):
 
 
 def p_matrix(tmp):
+    # matrix.py writes records (gamedb/benchmarks/README.md) since step 5: into a scratch gamedb root, then the
+    # CSV matrices made from them (matrix.py --csv), compared as the CSVs matrix.py wrote before
     res = tmp / "matrix"
-    res.mkdir()
-    intf = REPO / "bench" / "results" / "interfered.txt"
-    if intf.exists():
-        shutil.copy(intf, res / "interfered.txt")
+    db = tmp / "matrix-gamedb"
+    (db / "benchmarks").mkdir(parents=True)
+    for intf in (REPO / "gamedb" / "benchmarks" / "interfered.txt", REPO / "bench" / "results" / "interfered.txt"):
+        if intf.exists():
+            shutil.copy(intf, db / "benchmarks" / "interfered.txt")
+            break
     log = []
+    env = {"BENCH_GAMEDB": str(db)}
     for d in run_dirs():
-        log.append(sh([sys.executable, "bench/matrix.py", Path(d).name, d], env={"BENCH_RESULTS": str(res)}, check=False)
-                   .replace(str(res), "$BENCH_RESULTS"))
+        log.append(sh([sys.executable, "bench/matrix.py", Path(d).name, d], env=env, check=False)
+                   .replace(str(db), "$BENCH_RESULTS"))
+    sh([sys.executable, "bench/matrix.py", "--csv", str(res)], env=env, check=False)
     text = "".join(log)
     for f in sorted(res.glob("*.csv")):
         text += "== %s\n%s" % (f.name, f.read_text())

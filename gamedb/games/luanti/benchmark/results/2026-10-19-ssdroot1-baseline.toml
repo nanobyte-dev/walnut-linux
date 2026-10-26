@@ -1,0 +1,22 @@
+# luanti's numbers in batch 2026-10-19-ssdroot1-baseline (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot1-baseline"
+
+[variant."base@rec10"]
+fps = 46
+cpu = 247.2
+underruns = 0
+ram_free = 19.0
+vram = 61.5
+fps_steady = 46
+low1 = 19.1
+stalls = 11
+longest_ms = 724.1
+stall_disk_s = 0.3
+stall_swap_s = 0.2
+stall_reclaim_s = 1.6
+stall_gpu_s = 0
+stall_cpu_s = 0.9
+stalls_play = 11
+stall_play_s = 3.5
+low1_play = 19.1
+longest_play_ms = 724.1

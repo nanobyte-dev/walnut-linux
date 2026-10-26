@@ -1,0 +1,9 @@
+# dsda-doom's numbers in batch 2026-10-17-mesa-262 (gamedb/benchmarks/README.md)
+batch = "2026-10-17-mesa-262"
+
+[variant.base]
+fps = 38.0
+cpu = 110.7
+underruns = 1768
+ram_free = 40.5
+vram = 25.7

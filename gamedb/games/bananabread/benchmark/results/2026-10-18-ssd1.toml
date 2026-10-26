@@ -1,0 +1,63 @@
+# bananabread's numbers in batch 2026-10-18-ssd1 (gamedb/benchmarks/README.md)
+batch = "2026-10-18-ssd1"
+column = "sauerbraten"
+
+[variant."base@rec10"]
+fps = 32.7
+cpu = 234.8
+underruns = 184
+ram_free = 19.7
+vram = 117.0
+fps_steady = 38.5
+low1 = 24.1
+stalls = 4
+longest_ms = 459.1
+stall_disk_s = 0.2
+stall_swap_s = 0.0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0.2
+stalls_play = 4
+stall_play_s = 1.6
+low1_play = 24.1
+longest_play_ms = 459.1
+
+[variant."base@rec10+gdssd"]
+fps = 34.2
+cpu = 230.5
+underruns = 127
+ram_free = 21.3
+vram = 117.0
+fps_steady = 39.3
+low1 = 26.4
+stalls = 3
+longest_ms = 406.9
+stall_disk_s = 0.0
+stall_swap_s = 0.0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0.1
+stalls_play = 3
+stall_play_s = 1.0
+low1_play = 26.4
+longest_play_ms = 406.9
+
+[variant."base@rec10+gdssd+swssd"]
+fps = 33.7
+cpu = 233.6
+underruns = 153
+ram_free = 21.3
+vram = 117.0
+fps_steady = 38.5
+low1 = 24.1
+stalls = 5
+longest_ms = 454.3
+stall_disk_s = 0.2
+stall_swap_s = 0.0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0.2
+stalls_play = 5
+stall_play_s = 1.6
+low1_play = 24.1
+longest_play_ms = 454.3

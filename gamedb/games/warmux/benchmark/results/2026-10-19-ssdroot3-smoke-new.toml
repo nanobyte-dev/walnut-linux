@@ -1,0 +1,8 @@
+# warmux's numbers in batch 2026-10-19-ssdroot3-smoke-new (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot3-smoke-new"
+
+[variant.base]
+cpu = 22.3
+underruns = 26
+ram_free = 28.4
+vram = 3.6

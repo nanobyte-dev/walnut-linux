@@ -1,0 +1,63 @@
+# bananabread's numbers in batch 2026-10-19-ssdroot5-load-libraries (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot5-load-libraries"
+column = "sauerbraten"
+
+[variant."base@rec10+perfload"]
+fps = 35.2
+cpu = 234.0
+underruns = 157
+ram_free = 21.4
+vram = 117.0
+fps_steady = 39.1
+low1 = 25.3
+stalls = 2
+longest_ms = 221.0
+stall_disk_s = 0.0
+stall_swap_s = 0
+stall_reclaim_s = 0.1
+stall_gpu_s = 0
+stall_cpu_s = 0.2
+stalls_play = 2
+stall_play_s = 0.3
+low1_play = 25.3
+longest_play_ms = 221.0
+
+[variant."base@rec10+perfload+ldstock-vorbis"]
+fps = 34.9
+cpu = 223.2
+underruns = 120
+ram_free = 22.1
+vram = 117.0
+fps_steady = 39.4
+low1 = 25.9
+stalls = 2
+longest_ms = 146.0
+stall_disk_s = 0
+stall_swap_s = 0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0.1
+stalls_play = 2
+stall_play_s = 0.2
+low1_play = 25.9
+longest_play_ms = 146.0
+
+[variant."base@rec10+perfload+zng"]
+fps = 35.4
+cpu = 233.7
+underruns = 165
+ram_free = 23.1
+vram = 117.0
+fps_steady = 39.1
+low1 = 25.4
+stalls = 0
+longest_ms = 82.8
+stall_disk_s = 0.0
+stall_swap_s = 0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 25.4
+longest_play_ms = 82.8

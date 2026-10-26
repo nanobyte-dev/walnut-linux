@@ -1,0 +1,82 @@
+# supertuxkart's numbers in batch 2026-10-19-ssdroot5-load-libraries (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot5-load-libraries"
+
+[variant."lean@rec10+perfload"]
+fps = 20
+cpu = 321.9
+underruns = 0
+ram_free = 27.9
+vram = 95.9
+fps_steady = 21
+low1 = 11.9
+stalls = 6
+longest_ms = 151.8
+stall_disk_s = 0
+stall_swap_s = 0
+stall_reclaim_s = 0.1
+stall_gpu_s = 0
+stall_cpu_s = 0.7
+stalls_play = 6
+stall_play_s = 0.8
+low1_play = 11.9
+longest_play_ms = 151.8
+
+[variant."lean@rec10+perfload+jsimdnone"]
+fps = 20.0
+cpu = 321.4
+underruns = 0.0
+ram_free = 31.0
+vram = 95.4
+fps_steady = 20.5
+low1 = 11.9
+stalls = 8.5
+longest_ms = 442.6
+stall_disk_s = 0.1
+stall_swap_s = 0.0
+stall_reclaim_s = 0.2
+stall_gpu_s = 0.0
+stall_cpu_s = 1.0
+stalls_play = 8.5
+stall_play_s = 1.4
+low1_play = 11.9
+longest_play_ms = 442.6
+
+[variant."lean@rec10+perfload+ldstock-vorbis"]
+fps = 20
+cpu = 320.5
+underruns = 0
+ram_free = 25.4
+vram = 96.1
+fps_steady = 21
+low1 = 12.0
+stalls = 5
+longest_ms = 427.2
+stall_disk_s = 0.1
+stall_swap_s = 0
+stall_reclaim_s = 0.3
+stall_gpu_s = 0
+stall_cpu_s = 0.6
+stalls_play = 5
+stall_play_s = 1.2
+low1_play = 12.0
+longest_play_ms = 427.2
+
+[variant."lean@rec10+perfload+zng"]
+fps = 20
+cpu = 325.4
+underruns = 0
+ram_free = 24.9
+vram = 95.9
+fps_steady = 20
+low1 = 11.7
+stalls = 7
+longest_ms = 141.2
+stall_disk_s = 0.1
+stall_swap_s = 0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0.8
+stalls_play = 7
+stall_play_s = 0.8
+low1_play = 11.7
+longest_play_ms = 141.2

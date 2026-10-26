@@ -1,0 +1,97 @@
+# openttd's numbers in batch 2026-10-19-ssdroot4-staging-pool (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot4-staging-pool"
+
+[variant."base@perf+staging_pool_mb24"]
+fps = 20
+cpu = 263.1
+underruns = 3905
+ram_free = 13.9
+vram = 25.8
+fps_steady = 20
+low1 = 9.6
+stalls = 30
+longest_ms = 532.2
+stalls_play = 30
+stall_play_s = 4.7
+low1_play = 9.6
+longest_play_ms = 532.2
+
+[variant."base@rec10"]
+fps = 10
+cpu = 271.5
+underruns = 3548
+ram_free = 21.2
+vram = 17.9
+fps_steady = 11
+low1 = 5.8
+stalls = 350
+longest_ms = 323.9
+stall_disk_s = 0
+stall_swap_s = 0.1
+stall_reclaim_s = 0.1
+stall_gpu_s = 1.5
+stall_cpu_s = 40.3
+stalls_play = 350
+stall_play_s = 43.7
+low1_play = 5.8
+longest_play_ms = 323.9
+
+[variant."base@rec10+staging_pool_mb24"]
+fps = 20
+cpu = 256.4
+underruns = 3943
+ram_free = 16.6
+vram = 17.9
+fps_steady = 20
+low1 = 9.4
+stalls = 39
+longest_ms = 521.7
+stall_disk_s = 0
+stall_swap_s = 0.0
+stall_reclaim_s = 0.7
+stall_gpu_s = 0.2
+stall_cpu_s = 3.7
+stalls_play = 39
+stall_play_s = 5.1
+low1_play = 9.4
+longest_play_ms = 521.7
+
+[variant."blit8@rec10"]
+fps = 33
+cpu = 264.4
+underruns = 4027
+ram_free = 38.8
+vram = 17.9
+fps_steady = 34
+low1 = 13.0
+stalls = 5
+longest_ms = 128.1
+stall_disk_s = 0
+stall_swap_s = 0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0.5
+stalls_play = 5
+stall_play_s = 0.6
+low1_play = 13.0
+longest_play_ms = 128.1
+
+[variant."blit8@rec10+staging_pool_mb24"]
+fps = 51
+cpu = 229.9
+underruns = 3166
+ram_free = 38.7
+vram = 17.9
+fps_steady = 52
+low1 = 18.4
+stalls = 1
+longest_ms = 108.5
+stall_disk_s = 0.0
+stall_swap_s = 0
+stall_reclaim_s = 0.0
+stall_gpu_s = 0
+stall_cpu_s = 0.1
+stalls_play = 1
+stall_play_s = 0.1
+low1_play = 18.4
+longest_play_ms = 108.5

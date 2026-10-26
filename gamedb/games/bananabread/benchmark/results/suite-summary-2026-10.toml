@@ -1,0 +1,23 @@
+# bananabread's numbers in batch suite-summary-2026-10 (gamedb/benchmarks/README.md)
+batch = "suite-summary-2026-10"
+
+[variant.base]
+label = "BananaBread"
+order = 11
+note = "right, 60-181 underruns a run"
+fps_steady = 39.1
+low1_play = 25.6
+stall_play_s = 0.05
+longest_play_ms = 103
+sound_faults_per_min = 40
+ram_free = 25
+vram = 117
+
+[variant.base.source]
+fps_steady = "gamedb:batch/2026-10-19-ssdroot1-baseline sauerbraten-base@rec10"
+low1_play = "gamedb:batch/2026-10-19-ssdroot2-shadow-fast sauerbraten-base@rec10"
+stall_play_s = "docs/games/README.md suite table (2026-10)"
+longest_play_ms = "docs/games/README.md suite table (2026-10)"
+sound_faults_per_min = "the suite table's sound column, read as faults a minute (no number in the log)"
+ram_free = "docs/games/README.md suite table (2026-10)"
+vram = "docs/games/README.md suite table (2026-10)"

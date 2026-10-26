@@ -1,0 +1,22 @@
+# supertuxkart's numbers in batch 2026-10-19-ssdroot1-baseline (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot1-baseline"
+
+[variant."lean@rec10"]
+fps = 21
+cpu = 308.3
+underruns = 0
+ram_free = 25.1
+vram = 94.8
+fps_steady = 22
+low1 = 12.8
+stalls = 2
+longest_ms = 108.3
+stall_disk_s = 0
+stall_swap_s = 0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0.2
+stalls_play = 2
+stall_play_s = 0.2
+low1_play = 12.8
+longest_play_ms = 108.3

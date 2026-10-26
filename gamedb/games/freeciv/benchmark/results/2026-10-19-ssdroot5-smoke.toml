@@ -1,0 +1,7 @@
+# freeciv's numbers in batch 2026-10-19-ssdroot5-smoke (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot5-smoke"
+
+[variant.base]
+cpu = 99.6
+underruns = 159
+ram_free = 30.2

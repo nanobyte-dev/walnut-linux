@@ -1,0 +1,17 @@
+# luanti's numbers in batch 2026-10-18-smoke-reruns-watermark (gamedb/benchmarks/README.md)
+batch = "2026-10-18-smoke-reruns-watermark"
+
+[variant."base@wkkick10"]
+fps = 47.0
+cpu = 247.0
+underruns = 0.0
+ram_free = 14.2
+vram = 62.3
+fps_steady = 47.0
+low1 = 21.6
+stalls = 12.0
+longest_ms = 321.5
+stalls_play = 12.0
+stall_play_s = 2.0
+low1_play = 21.6
+longest_play_ms = 321.5

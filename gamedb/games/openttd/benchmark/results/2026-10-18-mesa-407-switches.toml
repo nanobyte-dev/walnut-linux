@@ -1,0 +1,7 @@
+# openttd's numbers in batch 2026-10-18-mesa-407-switches (gamedb/benchmarks/README.md)
+batch = "2026-10-18-mesa-407-switches"
+
+[variant."base@wkkick10+perf"]
+cpu = 171.3
+underruns = 3759
+ram_free = 18.3

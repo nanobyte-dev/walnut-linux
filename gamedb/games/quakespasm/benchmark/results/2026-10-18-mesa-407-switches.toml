@@ -1,0 +1,32 @@
+# quakespasm's numbers in batch 2026-10-18-mesa-407-switches (gamedb/benchmarks/README.md)
+batch = "2026-10-18-mesa-407-switches"
+
+[variant."base@wkkick10"]
+fps = 89.7
+cpu = 107.0
+underruns = 5.0
+ram_free = 44.2
+vram = 48.7
+fps_steady = 91.0
+low1 = 48.6
+stalls = 10.0
+longest_ms = 392.6
+stalls_play = 10.0
+stall_play_s = 2.5
+low1_play = 48.6
+longest_play_ms = 392.6
+
+[variant."base@wkkick10+translate_lut1"]
+fps = 89.6
+cpu = 102.5
+underruns = 17.0
+ram_free = 36.5
+vram = 47.6
+fps_steady = 90.9
+low1 = 47.0
+stalls = 10.5
+longest_ms = 519.6
+stalls_play = 10.5
+stall_play_s = 2.8
+low1_play = 47.0
+longest_play_ms = 519.6

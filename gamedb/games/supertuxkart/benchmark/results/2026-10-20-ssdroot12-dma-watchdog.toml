@@ -1,0 +1,42 @@
+# supertuxkart's numbers in batch 2026-10-20-ssdroot12-dma-watchdog (gamedb/benchmarks/README.md)
+batch = "2026-10-20-ssdroot12-dma-watchdog"
+
+[variant."lean@rec10"]
+fps = 20
+cpu = 318.4
+underruns = 0
+ram_free = 26.1
+vram = 95.0
+fps_steady = 21
+low1 = 11.8
+stalls = 6
+longest_ms = 291.1
+stall_disk_s = 0.1
+stall_swap_s = 0
+stall_reclaim_s = 0.1
+stall_gpu_s = 0
+stall_cpu_s = 0.8
+stalls_play = 6
+stall_play_s = 1.0
+low1_play = 11.8
+longest_play_ms = 291.1
+
+[variant."lean@rec10+snd_dma_watchdog_ms0"]
+fps = 19
+cpu = 323.5
+underruns = 0
+ram_free = 29.2
+vram = 96.0
+fps_steady = 20
+low1 = 11.7
+stalls = 5
+longest_ms = 126.1
+stall_disk_s = 0
+stall_swap_s = 0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0.6
+stalls_play = 5
+stall_play_s = 0.6
+low1_play = 11.7
+longest_play_ms = 126.1

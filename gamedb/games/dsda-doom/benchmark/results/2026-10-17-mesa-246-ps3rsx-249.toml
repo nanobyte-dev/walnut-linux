@@ -1,0 +1,9 @@
+# dsda-doom's numbers in batch 2026-10-17-mesa-246-ps3rsx-249 (gamedb/benchmarks/README.md)
+batch = "2026-10-17-mesa-246-ps3rsx-249"
+
+[variant.base]
+fps = 33
+cpu = 65.0
+underruns = 1161
+ram_free = 52.5
+vram = 25.7

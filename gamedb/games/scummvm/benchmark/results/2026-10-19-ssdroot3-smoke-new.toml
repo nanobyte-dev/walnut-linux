@@ -1,0 +1,17 @@
+# scummvm's numbers in batch 2026-10-19-ssdroot3-smoke-new (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot3-smoke-new"
+
+[variant.base]
+fps = 5
+cpu = 27.9
+underruns = 20
+ram_free = 54.4
+vram = 24.9
+fps_steady = 0
+low1 = 0.2
+stalls = 16
+longest_ms = 9220.0
+stalls_play = 16
+stall_play_s = 66.3
+low1_play = 0.2
+longest_play_ms = 9220.0

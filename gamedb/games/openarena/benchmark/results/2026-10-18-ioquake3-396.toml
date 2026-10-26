@@ -1,0 +1,42 @@
+# openarena's numbers in batch 2026-10-18-ioquake3-396 (gamedb/benchmarks/README.md)
+batch = "2026-10-18-ioquake3-396"
+
+[variant."base@rec10+wkkick10"]
+fps = 55.9
+cpu = 205.1
+underruns = 0.0
+ram_free = 26.0
+vram = 39.3
+fps_steady = 70.6
+low1 = 29.4
+stalls = 25.0
+longest_ms = 687.7
+stall_disk_s = 0.1
+stall_swap_s = 0.0
+stall_reclaim_s = 0.1
+stall_gpu_s = 0.2
+stall_cpu_s = 6.0
+stalls_play = 0.0
+stall_play_s = 0.0
+low1_play = 34.6
+longest_play_ms = 55.6
+
+[variant."loads0@rec10+wkkick10"]
+fps = 57.1
+cpu = 205.8
+underruns = 0.0
+ram_free = 28.9
+vram = 39.4
+fps_steady = 65.2
+low1 = 10.9
+stalls = 69.0
+longest_ms = 1369.5
+stall_disk_s = 0.8
+stall_swap_s = 0.0
+stall_reclaim_s = 0.6
+stall_gpu_s = 0.2
+stall_cpu_s = 16.6
+stalls_play = 29.0
+stall_play_s = 9.4
+low1_play = 31.0
+longest_play_ms = 932.2

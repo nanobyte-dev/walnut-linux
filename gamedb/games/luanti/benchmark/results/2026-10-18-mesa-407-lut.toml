@@ -1,0 +1,32 @@
+# luanti's numbers in batch 2026-10-18-mesa-407-lut (gamedb/benchmarks/README.md)
+batch = "2026-10-18-mesa-407-lut"
+
+[variant."base@wkkick10"]
+fps = 47.5
+cpu = 250.7
+underruns = 0.0
+ram_free = 15.8
+vram = 62.9
+fps_steady = 47.0
+low1 = 20.3
+stalls = 15.5
+longest_ms = 425.4
+stalls_play = 15.5
+stall_play_s = 3.4
+low1_play = 20.3
+longest_play_ms = 425.4
+
+[variant."trim16@wkkick10"]
+fps = 48.0
+cpu = 246.1
+underruns = 0.0
+ram_free = 15.9
+vram = 61.0
+fps_steady = 47.5
+low1 = 20.6
+stalls = 11.0
+longest_ms = 3648.0
+stalls_play = 11.0
+stall_play_s = 8.6
+low1_play = 20.6
+longest_play_ms = 3648.0

@@ -1,0 +1,23 @@
+# neverball's numbers in batch suite-summary-2026-10 (gamedb/benchmarks/README.md)
+batch = "suite-summary-2026-10"
+
+[variant.base]
+label = "Neverball"
+order = 12
+note = "right, 118 underruns"
+fps_steady = 66.5
+low1_play = 41.3
+stall_play_s = 2.0
+longest_play_ms = 3900
+sound_faults_per_min = 50
+ram_free = 58
+vram = 34
+
+[variant.base.source]
+fps_steady = "gamedb:batch/2026-10-17-luanti-neverball-batching neverball-base"
+low1_play = "gamedb:batch/2026-10-17-luanti-neverball-batching neverball-base (low1)"
+stall_play_s = "docs/games/README.md suite table (2026-10)"
+longest_play_ms = "docs/games/README.md suite table (2026-10)"
+sound_faults_per_min = "the suite table's sound column, read as faults a minute (no number in the log)"
+ram_free = "docs/games/README.md suite table (2026-10)"
+vram = "docs/games/README.md suite table (2026-10)"

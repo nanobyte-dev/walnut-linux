@@ -1,0 +1,32 @@
+# classicube's numbers in batch 2026-10-18-luanti-memory (gamedb/benchmarks/README.md)
+batch = "2026-10-18-luanti-memory"
+
+[variant."base@wkkick10+perf"]
+fps = 48.4
+cpu = 87.0
+underruns = 0
+ram_free = 41.8
+vram = 60.1
+fps_steady = 48.4
+low1 = 31.1
+stalls = 0
+longest_ms = 56.1
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 31.1
+longest_play_ms = 56.1
+
+[variant."gloff@wkkick10+perf"]
+fps = 50.5
+cpu = 163.7
+underruns = 0
+ram_free = 56.3
+vram = 60.1
+fps_steady = 50.3
+low1 = 26.5
+stalls = 2
+longest_ms = 199.8
+stalls_play = 2
+stall_play_s = 0.3
+low1_play = 26.5
+longest_play_ms = 199.8

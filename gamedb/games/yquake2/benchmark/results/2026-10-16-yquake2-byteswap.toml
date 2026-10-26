@@ -1,0 +1,9 @@
+# yquake2's numbers in batch 2026-10-16-yquake2-byteswap (gamedb/benchmarks/README.md)
+batch = "2026-10-16-yquake2-byteswap"
+
+[variant.base]
+fps = 56.1
+cpu = 15.7
+underruns = 7
+ram_free = 36.4
+vram = 48.2

@@ -1,0 +1,44 @@
+# openttd's numbers in batch suite-summary-2026-10 (gamedb/benchmarks/README.md)
+batch = "suite-summary-2026-10"
+
+[variant.blit8]
+label = "OpenTTD, 8bpp"
+order = 13
+note = "right, choppy (3500-4700 underruns)"
+fps_steady = 38.3
+low1_play = 13.4
+stall_play_s = 0.4
+longest_play_ms = 210
+sound_faults_per_min = 3500
+ram_free = 41
+vram = 18
+
+[variant.blit8.source]
+fps_steady = "docs/games/README.md suite table (2026-10)"
+low1_play = "gamedb:batch/2026-10-19-ssdroot3-openttd-blitters openttd-blit8@rec10"
+stall_play_s = "gamedb:batch/2026-10-19-ssdroot3-openttd-blitters openttd-blit8@rec10"
+longest_play_ms = "docs/games/README.md suite table (2026-10)"
+sound_faults_per_min = "the suite table's sound column, read as faults a minute (no number in the log)"
+ram_free = "docs/games/README.md suite table (2026-10)"
+vram = "docs/games/README.md suite table (2026-10)"
+
+[variant.base]
+label = "OpenTTD, 32bpp"
+order = 15
+note = "right, choppy (3500-4700 underruns)"
+fps_steady = 11.0
+low1_play = 5.7
+stall_play_s = 52.0
+longest_play_ms = 311
+sound_faults_per_min = 3500
+ram_free = 17
+vram = 18
+
+[variant.base.source]
+fps_steady = "gamedb:batch/2026-10-19-ssdroot3-openttd-sound openttd-base@rec10"
+low1_play = "gamedb:batch/2026-10-19-ssdroot3-openttd-buffers openttd-base@rec10"
+stall_play_s = "docs/games/README.md suite table (2026-10)"
+longest_play_ms = "docs/games/README.md suite table (2026-10)"
+sound_faults_per_min = "the suite table's sound column, read as faults a minute (no number in the log)"
+ram_free = "docs/games/README.md suite table (2026-10)"
+vram = "docs/games/README.md suite table (2026-10)"

@@ -1,0 +1,23 @@
+# bananabread's numbers in batch 2026-10-19-ssdroot7-openal-wedge (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot7-openal-wedge"
+column = "sauerbraten"
+
+[variant."base@rec10"]
+fps = 36.0
+cpu = 231.6
+underruns = 152
+ram_free = 24.3
+vram = 117.0
+fps_steady = 39.4
+low1 = 26.3
+stalls = 1
+longest_ms = 128.9
+stall_disk_s = 0
+stall_swap_s = 0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0.1
+stalls_play = 1
+stall_play_s = 0.1
+low1_play = 26.3
+longest_play_ms = 128.9

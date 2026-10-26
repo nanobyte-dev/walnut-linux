@@ -1,0 +1,17 @@
+# openarena's numbers in batch 2026-10-16-step0-perf (gamedb/benchmarks/README.md)
+batch = "2026-10-16-step0-perf"
+
+[variant.profA]
+fps = 57
+cpu = 51.7
+ram_free = 39.6
+
+[variant.profB]
+fps = 57
+cpu = 53.1
+ram_free = 45.0
+
+[variant.profC]
+fps = 57
+cpu = 52.6
+ram_free = 38.0

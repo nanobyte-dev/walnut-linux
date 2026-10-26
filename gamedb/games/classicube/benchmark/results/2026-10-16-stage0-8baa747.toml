@@ -1,0 +1,8 @@
+# classicube's numbers in batch 2026-10-16-stage0-8baa747 (gamedb/benchmarks/README.md)
+batch = "2026-10-16-stage0-8baa747"
+
+[variant.base]
+fps = 45
+cpu = 44.5
+ram_free = 67.5
+vram = 59.9

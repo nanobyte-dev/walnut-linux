@@ -1,0 +1,17 @@
+# dsda-doom's numbers in batch 2026-10-19-ssdroot2-gameplay-profiles (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot2-gameplay-profiles"
+
+[variant."gl@perf"]
+fps = 55.7
+cpu = 131.3
+underruns = 2793
+ram_free = 43.1
+vram = 64.9
+fps_steady = 55.9
+low1 = 36.2
+stalls = 0
+longest_ms = 42.4
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 39.7
+longest_play_ms = 42.4

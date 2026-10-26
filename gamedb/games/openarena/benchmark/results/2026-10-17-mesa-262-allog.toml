@@ -1,0 +1,9 @@
+# openarena's numbers in batch 2026-10-17-mesa-262-allog (gamedb/benchmarks/README.md)
+batch = "2026-10-17-mesa-262-allog"
+
+[variant.allog]
+fps = 46.2
+cpu = 38.0
+underruns = 0
+ram_free = 34.9
+vram = 36.6

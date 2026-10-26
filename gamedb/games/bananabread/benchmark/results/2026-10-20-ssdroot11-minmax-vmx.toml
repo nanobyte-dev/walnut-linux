@@ -1,0 +1,43 @@
+# bananabread's numbers in batch 2026-10-20-ssdroot11-minmax-vmx (gamedb/benchmarks/README.md)
+batch = "2026-10-20-ssdroot11-minmax-vmx"
+column = "sauerbraten"
+
+[variant."base@rec10"]
+fps = 36.2
+cpu = 230.4
+underruns = 141
+ram_free = 23.0
+vram = 117.0
+fps_steady = 39.6
+low1 = 26.9
+stalls = 0
+longest_ms = 78.2
+stall_disk_s = 0.0
+stall_swap_s = 0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 26.9
+longest_play_ms = 78.2
+
+[variant."base@rec10+minmax_vmx1"]
+fps = 36.1
+cpu = 232.4
+underruns = 154
+ram_free = 26.5
+vram = 117.0
+fps_steady = 39.4
+low1 = 25.7
+stalls = 1
+longest_ms = 139.1
+stall_disk_s = 0
+stall_swap_s = 0
+stall_reclaim_s = 0
+stall_gpu_s = 0
+stall_cpu_s = 0.1
+stalls_play = 1
+stall_play_s = 0.2
+low1_play = 25.7
+longest_play_ms = 139.1

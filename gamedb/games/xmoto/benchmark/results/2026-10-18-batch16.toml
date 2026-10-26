@@ -1,0 +1,32 @@
+# xmoto's numbers in batch 2026-10-18-batch16 (gamedb/benchmarks/README.md)
+batch = "2026-10-18-batch16"
+
+[variant.base]
+fps = 160.0
+cpu = 299.4
+underruns = 148
+ram_free = 51.0
+vram = 37.3
+fps_steady = 160.7
+low1 = 104.6
+stalls = 1
+longest_ms = 693.0
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 106.7
+longest_play_ms = 42.9
+
+[variant.stream]
+fps = 161.9
+cpu = 290.2
+underruns = 129.5
+ram_free = 49.3
+vram = 37.2
+fps_steady = 162.1
+low1 = 105.2
+stalls = 2.0
+longest_ms = 380.4
+stalls_play = 1.0
+stall_play_s = 0.4
+low1_play = 106.3
+longest_play_ms = 380.4

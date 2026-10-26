@@ -1,0 +1,12 @@
+# openarena's numbers in batch 2026-10-16-speq-ppe-dxt1 (gamedb/benchmarks/README.md)
+batch = "2026-10-16-speq-ppe-dxt1"
+
+[variant.tc0]
+fps = 49.9
+cpu = 35.3
+ram_free = 26.9
+
+[variant.tc1]
+fps = 53.0
+cpu = 35.8
+ram_free = 28.4

@@ -1,0 +1,21 @@
+# openttd's numbers in batch 2026-10-17-ps3rsx-249-first-boot (gamedb/benchmarks/README.md)
+batch = "2026-10-17-ps3rsx-249-first-boot"
+
+[variant.accel]
+fps = 9.5
+cpu = 50.2
+underruns = 1037.0
+ram_free = 29.1
+vram = 31.7
+
+[variant.accel8]
+fps = 12
+cpu = 55.0
+underruns = 1098
+ram_free = 42.4
+vram = 31.7
+
+[variant.base]
+cpu = 48.2
+underruns = 1169
+ram_free = 33.9

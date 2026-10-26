@@ -34,7 +34,8 @@ Design
       process a process name, home relative paths inside ~ that no other game shares, the marks compile,
       command an absolute program, env NAME=value); benchmark/analysis.toml and engines/<e>/analysis.toml
       follow bench/gamedata.py's (closed keys: [legacy], [reload], [[log_ignore]], [[log_strip]],
-      [interference]; an engine's only the log rules; every regex compiles)
+      [interference]; an engine's only the log rules; every regex compiles); benchmark/results/<batch>.toml and
+      gamedb/benchmarks/{batches,metrics}.toml: records_errors() (bench/benchrecords.py; gamedb/benchmarks/README.md)
     * drafts (draft = true: a candidate, or a game tried and not published) need only id, title and
       status (one of STATUSES; status_note says why); summary, license, homepage, categories, tags,
       controller, thumb.png and build.toml (or any of its keys) may be missing, and nothing is made up for them;
@@ -94,8 +95,8 @@ GAME_DIRS = ("rating", "packages", "licensed", "upstream", "benchmark", "desktop
 # what desktop/ may hold: our launchers, the config files we install (by absolute path), the migrate-home lines
 DESKTOP_FILES = ("launchers", "files", "migrate-home.txt")
 # what benchmark/ may hold so far: the recipe (code), its analysis data, its helpers and files, the sources of
-# built files (assets.mk), superseded tools (steps 5 and 6 add results/ and runs/)
-BENCH_FILES = ("recipe.sh", "analysis.toml", "lib", "assets", "assets-src", "legacy")
+# built files (assets.mk), superseded tools, the results (step 5; step 6 adds runs/)
+BENCH_FILES = ("recipe.sh", "analysis.toml", "lib", "assets", "assets-src", "legacy", "results")
 GAME_FILES = ("index.md", "thumb.png", "build.toml", "upstream.md", "technical.md", "todo.toml") + GAME_DIRS
 # where a game's sessions (each one's result.toml and screenshots) live, relative to its folder
 SESSIONS = "rating/sessions"
@@ -507,6 +508,16 @@ def benchmark_errors(gdir, build):
     return errs
 
 
+def records_errors(root, games=None):
+    """the benchmark records under a gamedb root (bench/benchrecords.py check_records): benchmarks/batches.toml
+    and metrics.toml (closed keys, unique names, run batches in order), every games/<id>/benchmark/results/
+    <batch>.toml (closed keys, its batch exists, metric names known, numbers; label, order, note and source
+    only in a summary's entries, a source for values the entry has)"""
+    if not (Path(root) / "benchmarks").is_dir():
+        return []
+    return bench_module("benchrecords").check_records(root, games)
+
+
 def check(content, repo=REPO, apt=None):
     """{game folder: [problems]} for the whole catalog (empty lists left out), the engines as
     "engines/<e>"; apt: the package names of an apt index (None: not checked)"""
@@ -518,6 +529,9 @@ def check(content, repo=REPO, apt=None):
             errs = engine_errors(e, bad, ctx)
             if errs:
                 out["engines/" + e.name] = errs
+    errs = records_errors(Path(content).parent, {d.name for d in Path(content).iterdir() if d.is_dir()})
+    if errs:
+        out["benchmarks"] = errs
     for gdir in sorted(Path(content).iterdir()):
         if not gdir.is_dir():
             continue

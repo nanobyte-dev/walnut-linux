@@ -1,0 +1,8 @@
+# etr's numbers in batch 2026-10-16-mesa-223 (gamedb/benchmarks/README.md)
+batch = "2026-10-16-mesa-223"
+
+[variant.base]
+fps = 40
+cpu = 44.6
+ram_free = 19.1
+vram = 52.7

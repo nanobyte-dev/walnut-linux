@@ -101,8 +101,9 @@ The HUD counts frames that reached the screen: 5436-5692 swaps in a 300 s run, 3
 per frame, 19-22 fps. The recipe no longer reads the game's line as fps
 (`FPS_RE` and `STEADY_RE` removed, 2026-10-19): fps and steady come from the HUD (as the `base` row
 always had them), and `parse()` keeps
-`stk_ticks`, `stk_tick_s`, `stk_tickrate` in bench.txt. Rows 61, 68 and 69 of fps.csv and
-fps_steady.csv were corrected to the HUD medians (they held 106-111).
+`stk_ticks`, `stk_tick_s`, `stk_tickrate` in bench.txt. The `fps` and `fps_steady` values of
+gamedb:batch/2026-10-18-batch8, gamedb:batch/2026-10-18-batch16 and gamedb:batch/2026-10-18-batch17 were
+corrected to the HUD medians (they held 106-111).
 
 Picture: the track draws (webcam, rows 61 to 75: the kart, the lighthouse track, the HUD); "out of
 VRAM" lines remain in the log.

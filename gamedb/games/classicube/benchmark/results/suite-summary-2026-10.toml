@@ -1,0 +1,23 @@
+# classicube's numbers in batch suite-summary-2026-10 (gamedb/benchmarks/README.md)
+batch = "suite-summary-2026-10"
+
+[variant.base]
+label = "ClassiCube"
+order = 7
+note = "right, right"
+fps_steady = 47.0
+low1_play = 30.7
+stall_play_s = 0.0
+longest_play_ms = 65
+sound_faults_per_min = 0
+ram_free = 53
+vram = 60
+
+[variant.base.source]
+fps_steady = "docs/games/README.md suite table (2026-10)"
+low1_play = "docs/games/README.md suite table (2026-10)"
+stall_play_s = "docs/games/README.md suite table (2026-10)"
+longest_play_ms = "docs/games/README.md suite table (2026-10)"
+sound_faults_per_min = "the suite table's sound column, read as faults a minute (no number in the log)"
+ram_free = "gamedb:batch/2026-10-19-ssdroot2-shadow-fast classicube-base@rec10"
+vram = "docs/games/README.md suite table (2026-10)"

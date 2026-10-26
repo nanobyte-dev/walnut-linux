@@ -1,0 +1,9 @@
+# xmoto's numbers in batch 2026-10-16-xmoto-smoke (gamedb/benchmarks/README.md)
+batch = "2026-10-16-xmoto-smoke"
+
+[variant.base]
+fps = 320
+cpu = 146.9
+underruns = 67
+ram_free = 50.5
+vram = 25.8

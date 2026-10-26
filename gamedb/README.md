@@ -15,7 +15,7 @@ Outside this folder a game may appear only as:
 - **frozen history** (docs/archive/, git, changelogs);
 - **test fixtures** that use a game as sample data.
 
-**Status (2026-10-26): step 2 is done, the catalog, the game packages, the benchmarks and the build facts live here.** Each game's
+**Status (2026-10-26): step 2 is done, the catalog, the game packages, the benchmarks, their results and the build facts live here.** Each game's
 `index.md`, `thumb.png` and played sessions (`rating/sessions/<run>/`) are in `games/<id>/`; the site
 mounts them (website/gamedb/hugo.toml) and the app's catalog is packed from them. Every game package
 is in its bundle's `packages/`, the three engines (cube2, ioquake3, darkplaces-gl2) in `engines/<e>/`,
@@ -23,7 +23,8 @@ the licensed data packages and builders in `games/<id>/licensed/`, the teeworlds
 drafts in `upstream.md`; games with a package or a recipe but no published page have draft bundles.
 Every bench recipe, with its assets and helpers, is in its bundle's `benchmark/`. How each game is built
 and installed (its packages, engine, suite, data, licensed data) is its `build.toml`, which the Makefile,
-the catalog and the licensed guards read; each package's orig tarball recipe is its `orig.mk`. The tools below already look here (marked *read now*);
+the catalog and the licensed guards read; each package's orig tarball recipe is its `orig.mk`. Every benchmark result is a record:
+the batches in `benchmarks/batches.toml`, each game's numbers in its `benchmark/results/<batch>.toml` (step 5). The tools below already look here (marked *read now*);
 the rest is marked *planned*, with the migration step that brings it.
 
 ## Layout
@@ -32,6 +33,8 @@ the rest is marked *planned*, with the migration step that brings it.
 gamedb/
   README.md                         this file: the schema
   benchmarks/batches.toml           every benchmark batch once
+  benchmarks/interfered.txt         runs found disturbed after the fact
+  benchmarks/README.md              the results' format
   benchmarks/metrics.toml           metric names, units, direction, the tool that computes each
   research/<slug>.md                surveys across games
   engines/<e>/                      an engine that is its own upstream project (cube2, ioquake3, darkplaces-gl2)
@@ -228,7 +231,8 @@ harness in `bench/`:
 | `assets/` | the files a recipe puts in place (demos, replays, saves, maps, mods), reached as `"$ASSETS/..."`; small normal files, not Git LFS |
 | `assets-src/` | how built assets are made: an `assets.mk` the top-level Makefile includes (ClassiCube's plugin, `make classicube-bench`; `make bench-assets` makes all), or the scripts that made them (OpenTTD's saves) |
 | `legacy/` | superseded tools kept for the record (OpenArena's step 0) |
-| `results/<batch>.toml`, `runs/<run>/raw/` | *planned* (steps 5, 6) |
+| `results/<batch>.toml` | *now* (step 5): the game's numbers in one batch ([benchmarks/README.md](benchmarks/README.md)); `bench/matrix.py` writes them |
+| `runs/<run>/raw/` | *planned* (step 6) |
 
 Where the harness finds them: `bench/games.sh` (shell) and `bench/games.py` (Python) resolve a name to
 the game's benchmark directory, here in the repository and in `/var/tmp/bench/games/<id>/` on the PS3
@@ -347,12 +351,22 @@ ioquake3, darkplaces-gl2), `build.toml` (*now*: `packages`, `[[licensed]]`), `an
 log rules its games share, [above](#benchmarkanalysistoml)), and *planned* `technical.md`, `investigations/`,
 as for a game.
 
-### benchmarks/batches.toml, benchmarks/metrics.toml
+### benchmarks/batches.toml, benchmarks/metrics.toml, games/<id>/benchmark/results/
 
-*Planned* (step 5). `batches.toml` has each batch once, as `[[batch]]` tables: `name`, `date`,
-`stack`, `purpose`, `source`, `kind` = `run` or `summary`. `gamedb:batch/<name>` resolves against
-these names (`tools/doclinks.py`, *read now*). `metrics.toml`: each metric's name, unit,
-direction and the tool that computes it.
+*Read now* (step 5): the benchmark results as records, their format in
+[benchmarks/README.md](benchmarks/README.md). `batches.toml` has each batch once, as `[[batch]]` tables
+(`name`, `kind` = `run` or `summary`, `order`, `title`, `date`, `runs`, `stack`, `observations`, `purpose`,
+`source`); `gamedb:batch/<name>` resolves against these names (`tools/doclinks.py`). `metrics.toml`: each
+metric's name, unit, direction, whether it has a CSV matrix, and the tool that computes it.
+`games/<id>/benchmark/results/<batch>.toml`: the game's numbers in that batch, `[variant."<variant>"]`
+tables of metric = value. `interfered.txt`: the runs found disturbed after the fact, which report.py and
+matrix.py leave out. Written by `bench/matrix.py` (a batch's runs, from build/bench), read by
+`bench/benchrecords.py` for matrix.py, `make bench-matrix` (the CSV matrices into build/bench-matrix/),
+`tools/gamedb/check.py` (validates: closed keys, every result's batch exists, metric names known),
+`tools/gamedb/score.py` (the summary batch `suite-summary-2026-10`: the rules-1 calibration) and
+`tools/gamedb/blocks.py` (docs/GAMEDB.md's calibration table, README.md's suite table).
+`tools/gamedb/bench-import.py` made them from the old CSV matrices (the files under bench/ until
+2026-10-26, removed after its `--verify`).
 
 ### research/<slug>.md
 
@@ -375,7 +389,8 @@ and platform research (EMULATORS, CLASSIC-MACOS, DARLING-PPC) stay in docs/resea
 | `make game-data`, `make licensed-data`, the public image's licensed-suite games, play-pc's packages and data | `tools/gamedb/build-info.py` |
 | licensed names and leak globs | `tools/licensed.py` |
 | CI workflows | `github-ci/gen-workflows.py` (`--check` in make test) |
-| doc blocks | `tools/gamedb/blocks.py --write`, `--check` |
+| doc blocks (`licensed-names`, `calibration`: docs/GAMEDB.md, `suite-table`: README.md) | `tools/gamedb/blocks.py --write`, `--check` |
+| the CSV matrices of the benchmark results | `make bench-matrix` (`bench/matrix.py --csv`) into build/bench-matrix/ |
 | the PS3's bench tree (`/var/tmp/bench/games/<id>/`) | `make bench-push` |
 
 ## Checks

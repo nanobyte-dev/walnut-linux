@@ -1,0 +1,17 @@
+# bananabread's numbers in batch 2026-10-17-group4-smokes (gamedb/benchmarks/README.md)
+batch = "2026-10-17-group4-smokes"
+column = "sauerbraten"
+
+[variant.base]
+fps = 0
+cpu = 145.0
+underruns = 202
+ram_free = 11.3
+vram = 140.8
+
+[variant.cpuskel]
+fps = 19.6
+cpu = 113.0
+underruns = 171
+ram_free = 9.3
+vram = 134.8

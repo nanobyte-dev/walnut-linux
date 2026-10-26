@@ -2,8 +2,8 @@
 """interference-scan.py [--write] [-v] <run dir>...: the retro-scan for runs from before the
 interference detector (docs/STALLS.md "Interference"): what the saved files of a run directory still
 say about somebody disturbing it. Prints the suspicious runs with their evidence, strong first, then
-what the files cannot tell. --write adds the strong ones to results/interfered.txt (BENCH_RESULTS:
-elsewhere), which report.py and matrix.py read, so these runs stay out of the medians and matrices.
+what the files cannot tell. --write adds the strong ones to gamedb/benchmarks/interfered.txt
+(BENCH_GAMEDB=<dir>: a scratch gamedb root's), which report.py and matrix.py read, so these runs stay out of the medians and matrices.
 
 Evidence, per file (each run directory has what ps3-bench.sh and client.sh saved):
   interference.log  the detector's own verdict (runs since it exists): taken as it is
@@ -195,7 +195,8 @@ def main(argv):
           "game-side trace, SSH logins and commands during a run (the journal is not saved per run), the "
           "game window losing the focus.")
     if write and strong:
-        f = Path(os.environ.get("BENCH_RESULTS") or HERE / "results") / "interfered.txt"
+        f = Path(os.environ.get("BENCH_GAMEDB") or HERE.parent / "gamedb") / "benchmarks" / "interfered.txt"
+        f.parent.mkdir(parents=True, exist_ok=True)
         old = f.read_text().splitlines() if f.exists() else [
             "# runs found disturbed after the fact (bench/interference-scan.py --write, docs/STALLS.md",
             "# \"Interference\"): run directory, then the evidence. report.py and matrix.py leave them out."]

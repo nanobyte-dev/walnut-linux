@@ -1,0 +1,22 @@
+# openarena's numbers in batch 2026-10-19-ssdroot2-startup-profiles (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot2-startup-profiles"
+
+[variant."gl2min@rec10+perfload"]
+fps = 47.7
+cpu = 202.9
+underruns = 0
+ram_free = 16.4
+vram = 117.2
+fps_steady = 64.9
+low1 = 6.9
+stalls = 74
+longest_ms = 3346.0
+stall_disk_s = 1.3
+stall_swap_s = 0.3
+stall_reclaim_s = 2.1
+stall_gpu_s = 0.6
+stall_cpu_s = 38.7
+stalls_play = 2
+stall_play_s = 0.2
+low1_play = 27.6
+longest_play_ms = 131.2

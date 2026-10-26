@@ -1,0 +1,23 @@
+# supertuxkart's numbers in batch suite-summary-2026-10 (gamedb/benchmarks/README.md)
+batch = "suite-summary-2026-10"
+
+[variant.lean]
+label = "SuperTuxKart lean"
+order = 14
+note = "track draws, sound running"
+fps_steady = 21.0
+low1_play = 11.8
+stall_play_s = 1.8
+longest_play_ms = 513
+sound_faults_per_min = 3
+ram_free = 26
+vram = 97
+
+[variant.lean.source]
+fps_steady = "gamedb:batch/2026-10-18-batch8 supertuxkart-lean@wkkick10"
+low1_play = "gamedb:batch/2026-10-20-ssdroot12-dma-watchdog supertuxkart-lean@rec10"
+stall_play_s = "gamedb:batch/2026-10-18-batch16 supertuxkart-lean@rec10"
+longest_play_ms = "docs/games/README.md suite table (2026-10)"
+sound_faults_per_min = "the suite table's sound column, read as faults a minute (no number in the log)"
+ram_free = "docs/games/README.md suite table (2026-10)"
+vram = "docs/games/README.md suite table (2026-10)"

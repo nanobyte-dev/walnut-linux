@@ -21,8 +21,9 @@ left out, then at least 120 s measured) and gives:
 | `longest` | the longest frame |
 | `low1` | the 1% low: 1000 / the 99th percentile frame time |
 
-The matrices in `bench/results/` have one file per number (`stalls.csv`, `longest_ms.csv`,
-`low1.csv`; README.md there says how to read them).
+The benchmark records have one metric per number (`stalls`, `longest_ms`, `low1`;
+[gamedb/benchmarks/README.md](../gamedb/benchmarks/README.md) says how to read them), and `make bench-matrix`
+writes a CSV matrix per metric.
 
 ### Gameplay-only columns
 
@@ -588,7 +589,7 @@ terminal get a loud `!! INTERFERENCE: ... THIS RUN IS INVALID` line; a clean run
 watched), marks the run `!INTERFERED`, leaves interfered runs out of the medians and lists them at the
 end (`--include-interfered` keeps them in). matrix.py skips them and lists what it skipped
 (`--include-interfered` too). Runs from before the detector are listed in
-`bench/results/interfered.txt`, which report.py and matrix.py read the same way.
+`gamedb/benchmarks/interfered.txt`, which report.py and matrix.py read the same way.
 
 It has caught real disturbances since it went live with batch 15: 3 runs with SSH logins in batch 16,
 a key press in batch 17 (BananaBread (Debian's cube2) shortnormals, round 3) and a key press 195 s into an OpenArena

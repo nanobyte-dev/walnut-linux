@@ -1,0 +1,30 @@
+# dsda-doom's numbers in batch 2026-10-17-dsda-doom-sound (gamedb/benchmarks/README.md)
+batch = "2026-10-17-dsda-doom-sound"
+
+[variant.play48k]
+fps = 52
+cpu = 51.3
+underruns = 1471
+ram_free = 50.4
+vram = 65.4
+
+[variant.playcap35]
+fps = 34
+cpu = 47.8
+underruns = 1385
+ram_free = 54.1
+vram = 65.4
+
+[variant.playopl]
+fps = 50.5
+cpu = 49.1
+underruns = 1094.5
+ram_free = 54.7
+vram = 65.4
+
+[variant.tuned]
+fps = 50
+cpu = 46.0
+underruns = 340
+ram_free = 47.7
+vram = 65.4

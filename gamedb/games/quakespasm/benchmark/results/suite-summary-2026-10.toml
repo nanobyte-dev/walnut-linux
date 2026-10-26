@@ -1,0 +1,23 @@
+# quakespasm's numbers in batch suite-summary-2026-10 (gamedb/benchmarks/README.md)
+batch = "suite-summary-2026-10"
+
+[variant.base]
+label = "QuakeSpasm"
+order = 5
+note = "right, right"
+fps_steady = 91.0
+low1_play = 48.6
+stall_play_s = 2.5
+longest_play_ms = 393
+sound_faults_per_min = 0
+ram_free = 44
+vram = 49
+
+[variant.base.source]
+fps_steady = "gamedb:batch/2026-10-18-mesa-407-switches quakespasm-base@wkkick10"
+low1_play = "gamedb:batch/2026-10-18-mesa-407-switches quakespasm-base@wkkick10"
+stall_play_s = "gamedb:batch/2026-10-18-mesa-407-switches quakespasm-base@wkkick10"
+longest_play_ms = "gamedb:batch/2026-10-18-mesa-407-switches quakespasm-base@wkkick10"
+sound_faults_per_min = "the suite table's sound column, read as faults a minute (no number in the log)"
+ram_free = "docs/games/README.md suite table (2026-10)"
+vram = "docs/games/README.md suite table (2026-10)"

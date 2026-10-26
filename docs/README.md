@@ -48,7 +48,7 @@ layout and the build commands are in [LAYOUT.md](LAYOUT.md).
 | Doc | What it is for |
 |---|---|
 | [games/README.md](games/README.md) | Every game at a glance: runs?, fps, smoothness, memory, picture and sound, what's next; how to read the numbers; the driver bugs games found |
-| [games/SUITE.md](games/SUITE.md) | How the benchmark suite runs: `bench/`, recipes, the protocol, the result matrices |
+| [games/SUITE.md](games/SUITE.md) | How the benchmark suite runs: `bench/`, recipes, the protocol, the results |
 | [games/LOG-FINDINGS.md](games/LOG-FINDINGS.md) | What the game logs say: errors and warnings by game, ranked, with causes and fixes; `bench/logscan.py` |
 | [games/openarena.md](games/openarena.md) | OpenArena on our ioquake3, both renderers |
 | [games/quake.md](games/quake.md) | QuakeSpasm and Yamagi Quake II |
@@ -183,7 +183,7 @@ Measuring
 - **warm-up, window**: every bench run skips the first 60 s after loading (warm-up) and measures at least 120 s after it (the window).
 - **1% low**: 1000 divided by the 99th-percentile frame time, in fps.
 - **same-boot A/B**: a change measured against its off-switch in the same PS3 session. Numbers from different boots are not compared.
-- **fps.csv row N**: the Nth data row of the result matrices in `bench/results/`; every CSV there has the same rows.
+- **fps.csv row N**, **row N**: the benchmark batch with `order = N` in gamedb/benchmarks/batches.toml (its numbers in each game's `benchmark/results/<batch>.toml`; [gamedb/benchmarks/README.md](../gamedb/benchmarks/README.md)); a batch is cited by name as `gamedb:batch/<name>`. Row N of every CSV matrix `make bench-matrix` writes (until 2026-10-26 those CSV files were the records).
 
 Packages and versions
 

@@ -1,0 +1,9 @@
+# xmoto's numbers in batch 2026-10-17-mesa-262 (gamedb/benchmarks/README.md)
+batch = "2026-10-17-mesa-262"
+
+[variant.base]
+fps = 47
+cpu = 89.6
+underruns = 42
+ram_free = 56.7
+vram = 36.3

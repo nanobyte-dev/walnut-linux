@@ -1,0 +1,17 @@
+# luanti's numbers in batch 2026-10-18-batch8 (gamedb/benchmarks/README.md)
+batch = "2026-10-18-batch8"
+
+[variant."base@wkkick10+perf"]
+fps = 47
+cpu = 246.5
+underruns = 0
+ram_free = 20.6
+vram = 61.6
+fps_steady = 46
+low1 = 15.4
+stalls = 31
+longest_ms = 2763.0
+stalls_play = 31
+stall_play_s = 10.4
+low1_play = 15.4
+longest_play_ms = 2763.0

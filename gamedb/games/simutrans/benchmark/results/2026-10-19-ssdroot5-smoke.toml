@@ -1,0 +1,17 @@
+# simutrans's numbers in batch 2026-10-19-ssdroot5-smoke (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot5-smoke"
+
+[variant.base]
+fps = 25
+cpu = 132.9
+underruns = 0
+ram_free = 31.4
+vram = 31.7
+fps_steady = 25
+low1 = 12.6
+stalls = 20
+longest_ms = 195.4
+stalls_play = 20
+stall_play_s = 2.6
+low1_play = 12.6
+longest_play_ms = 195.4

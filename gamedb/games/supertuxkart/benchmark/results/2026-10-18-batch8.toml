@@ -1,0 +1,47 @@
+# supertuxkart's numbers in batch 2026-10-18-batch8 (gamedb/benchmarks/README.md)
+batch = "2026-10-18-batch8"
+
+[variant."base@wkkick10"]
+fps = 12
+cpu = 412.3
+underruns = 0
+ram_free = 24.4
+vram = 129.7
+fps_steady = 12
+low1 = 8.4
+stalls = 113
+longest_ms = 675.6
+stalls_play = 113
+stall_play_s = 13.5
+low1_play = 8.4
+longest_play_ms = 675.6
+
+[variant."lean@wkkick10"]
+fps = 21
+cpu = 318.1
+underruns = 0
+ram_free = 18.5
+vram = 95.7
+fps_steady = 21
+low1 = 12.2
+stalls = 8
+longest_ms = 663.4
+stalls_play = 8
+stall_play_s = 2.4
+low1_play = 12.2
+longest_play_ms = 663.4
+
+[variant."lean@wkkick10+perf"]
+fps = 20
+cpu = 325.4
+underruns = 0
+ram_free = 27.6
+vram = 95.0
+fps_steady = 20
+low1 = 10.8
+stalls = 15
+longest_ms = 576.3
+stalls_play = 15
+stall_play_s = 3.4
+low1_play = 10.8
+longest_play_ms = 576.3

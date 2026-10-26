@@ -1,0 +1,32 @@
+# yquake2's numbers in batch 2026-10-18-mesa-407-lut (gamedb/benchmarks/README.md)
+batch = "2026-10-18-mesa-407-lut"
+
+[variant."base@wkkick10"]
+fps = 60.0
+cpu = 127.2
+underruns = 0.0
+ram_free = 12.2
+vram = 48.2
+fps_steady = 65.7
+low1 = 20.1
+stalls = 33.5
+longest_ms = 4508.5
+stalls_play = 33.5
+stall_play_s = 22.6
+low1_play = 20.1
+longest_play_ms = 4508.5
+
+[variant."kiss4k@wkkick10"]
+fps = 64.7
+cpu = 145.6
+underruns = 0.0
+ram_free = 46.4
+vram = 48.2
+fps_steady = 68.7
+low1 = 31.1
+stalls = 0.5
+longest_ms = 91.1
+stalls_play = 0.5
+stall_play_s = 0.1
+low1_play = 31.1
+longest_play_ms = 91.1

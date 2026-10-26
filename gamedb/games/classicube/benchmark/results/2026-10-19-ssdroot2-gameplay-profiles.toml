@@ -1,0 +1,17 @@
+# classicube's numbers in batch 2026-10-19-ssdroot2-gameplay-profiles (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot2-gameplay-profiles"
+
+[variant."base@perf"]
+fps = 46.1
+cpu = 91.4
+underruns = 0
+ram_free = 58.9
+vram = 60.1
+fps_steady = 46.1
+low1 = 29.9
+stalls = 0
+longest_ms = 64.0
+stalls_play = 0
+stall_play_s = 0.0
+low1_play = 29.9
+longest_play_ms = 64.0

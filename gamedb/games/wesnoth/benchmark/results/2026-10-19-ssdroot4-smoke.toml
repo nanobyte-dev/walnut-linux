@@ -1,0 +1,6 @@
+# wesnoth's numbers in batch 2026-10-19-ssdroot4-smoke (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot4-smoke"
+
+[variant.base]
+cpu = 3.7
+ram_free = 71.8

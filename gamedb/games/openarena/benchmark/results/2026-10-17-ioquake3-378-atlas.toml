@@ -1,0 +1,46 @@
+# openarena's numbers in batch 2026-10-17-ioquake3-378-atlas (gamedb/benchmarks/README.md)
+batch = "2026-10-17-ioquake3-378-atlas"
+
+[variant.base]
+fps = 50.5
+cpu = 132.3
+underruns = 0
+ram_free = 27.9
+vram = 39.3
+fps_steady = 57.0
+low1 = 6.1
+stalls = 87
+longest_ms = 1843.0
+
+[variant.lmsize256]
+fps = 48.6
+cpu = 144.8
+underruns = 0
+ram_free = 30.4
+vram = 39.4
+fps_steady = 54.4
+low1 = 6.2
+stalls = 92
+longest_ms = 3300.0
+
+[variant.mergelm0]
+fps = 52.2
+cpu = 180.7
+underruns = 0
+ram_free = 27.2
+vram = 39.4
+fps_steady = 58.8
+low1 = 9.9
+stalls = 62
+longest_ms = 2356.0
+
+[variant.mergelm2]
+fps = 51.7
+cpu = 150.8
+underruns = 0
+ram_free = 27.4
+vram = 39.4
+fps_steady = 55.6
+low1 = 5.7
+stalls = 88
+longest_ms = 1737.0

@@ -1,0 +1,17 @@
+# wesnoth's numbers in batch 2026-10-19-ssdroot8-smoke (gamedb/benchmarks/README.md)
+batch = "2026-10-19-ssdroot8-smoke"
+
+[variant.ai]
+fps = 114
+cpu = 178.9
+underruns = 83
+ram_free = 15.3
+vram = 99.4
+fps_steady = 68
+low1 = 5.7
+stalls = 98
+longest_ms = 7932.0
+stalls_play = 98
+stall_play_s = 47.3
+low1_play = 5.7
+longest_play_ms = 7932.0

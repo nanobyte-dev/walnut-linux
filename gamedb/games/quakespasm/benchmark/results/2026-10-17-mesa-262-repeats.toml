@@ -1,0 +1,9 @@
+# quakespasm's numbers in batch 2026-10-17-mesa-262-repeats (gamedb/benchmarks/README.md)
+batch = "2026-10-17-mesa-262-repeats"
+
+[variant.base]
+fps = 78.5
+cpu = 11.8
+underruns = 1.0
+ram_free = 51.4
+vram = 47.6

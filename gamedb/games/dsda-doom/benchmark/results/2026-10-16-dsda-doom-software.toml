@@ -1,0 +1,22 @@
+# dsda-doom's numbers in batch 2026-10-16-dsda-doom-software (gamedb/benchmarks/README.md)
+batch = "2026-10-16-dsda-doom-software"
+
+[variant.base]
+fps = 20.2
+cpu = 185.4
+underruns = 3210
+ram_free = 54.1
+vram = 17.8
+
+[variant.gles]
+fps = 29.2
+cpu = 130.7
+underruns = 2272
+ram_free = 58.2
+vram = 17.8
+
+[variant.sdlsw]
+fps = 1
+underruns = 6741
+ram_free = 48.7
+vram = 23.8

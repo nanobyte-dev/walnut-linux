@@ -13,7 +13,9 @@ gamedb/**/*.md, README.md and every top folder's README.md, or FILE....
 
 A generator is a function (repo, args) -> markdown text, registered in GENERATORS. Planned (the plan's
 "Generated from gamedb"): the README game table, GAMEDB's calibration, the TESTS queue, driver-doc
-evidence tables, research tables, "bugs the games found". For now there is one, licensed-names.
+evidence tables, research tables, "bugs the games found". Now: licensed-names, calibration (docs/GAMEDB.md:
+the rules-1 calibration, score.py over the summary batch), suite-table (README.md: the suite's games, the
+summary batch's numbers and each game's medal from its played sessions, as the catalog computes it).
 """
 import argparse
 import importlib.util
@@ -40,8 +42,68 @@ def gen_licensed_names(repo, args):
     return "".join("- `%s`\n" % n for n in sorted(_licensed(repo).names(repo)))
 
 
+def _load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def _num(x):
+    """a number as the tables write it: 0.05, 2.5, 43, 3900"""
+    return ("%.2f" % x).rstrip("0").rstrip(".") if isinstance(x, float) else str(x)
+
+
+def gen_calibration(repo, args):
+    """docs/GAMEDB.md's calibration table: each row of the summary batch (score.CALIBRATION_BATCH) scored
+    by score.calibrate(), the numbers behind each aspect next to its score"""
+    if args:
+        raise ValueError("calibration takes no arguments")
+    score = _load("score", Path(repo) / "tools" / "gamedb" / "score.py")
+    out = ["| Game | Frame rate | Smoothness | Sound | Mean | Weakest | Medal |", "|---|---|---|---|---|---|---|"]
+    for row in score.calibration(Path(repo) / "gamedb"):
+        label, median, low, stall_s, longest, faults = row
+        s, r = score.calibrate(row)
+        medal = r["medal"] + (" (capped)" if r["capped"] else " (%s)" % r["reason"] if r["reason"] else "")
+        out.append("| %s | %.0f (%s fps, 1%% low %s) | %.0f (%s s of stalls, longest %s ms) | %.0f (%s faults a minute) "
+                   "| %.0f | %.0f (%s) | %s |" % (
+                       label, s["frame"], _num(median), _num(low), s["smooth"], _num(stall_s), _num(longest),
+                       s["sound"], _num(faults), r["score"], s[r["weakest"]], r["weakest"], medal))
+    return "\n".join(out) + "\n"
+
+
+SITE = "https://walnut.nanobyte.dev/gamedb/games/%s/"
+
+
+def gen_suite_table(repo, args):
+    """README.md's suite table: the summary batch's rows (label, steady fps, stalls / 1% low / longest,
+    free RAM / VRAM, the note on picture and sound) and the game's medal from its played sessions
+    (tools/gamedb/catalog.py's rating; a draft or a game without sessions has none yet)"""
+    if args:
+        raise ValueError("suite-table takes no arguments")
+    repo = Path(repo)
+    score = _load("score", repo / "tools" / "gamedb" / "score.py")
+    br = _load("benchrecords", repo / "bench" / "benchrecords.py")
+    catalog = _load("catalog", repo / "tools" / "gamedb" / "catalog.py")
+    games = {g["id"]: g for g in catalog.build(repo / "gamedb" / "games", repo)["games"]}
+    out = ["| Game | Medal (played) | Steady fps | Stalls / 1% low / longest | Free RAM / VRAM (MB) | Picture, sound |",
+           "|---|---|---|---|---|---|"]
+    for gid, _, e in br.summary(score.CALIBRATION_BATCH, repo / "gamedb"):
+        g = games.get(gid)
+        name = "[%s](%s)" % (e["label"], SITE % gid) if g else e["label"]
+        rating = (g or {}).get("rating") or {}
+        medal = "%s · %d" % (rating["medal"], rating["score"]) if rating.get("score") is not None else "not rated yet"
+        longest = "%s s" % _num(e["longest_play_ms"] / 1000) if e["longest_play_ms"] >= 1000 else "%s ms" % _num(e["longest_play_ms"])
+        out.append("| %s | %s | %s | %s s / %s / %s | %s / %s | %s |" % (
+            name, medal, _num(e["fps_steady"]), _num(e["stall_play_s"]), _num(e["low1_play"]), longest,
+            _num(e["ram_free"]), _num(e["vram"]), e.get("note", "")))
+    return "\n".join(out) + "\n"
+
+
 GENERATORS = {
     "licensed-names": gen_licensed_names,
+    "calibration": gen_calibration,
+    "suite-table": gen_suite_table,
 }
 
 

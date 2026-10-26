@@ -1,0 +1,8 @@
+# openarena's numbers in batch 2026-10-16-stage0-validation (gamedb/benchmarks/README.md)
+batch = "2026-10-16-stage0-validation"
+
+[variant.tc1]
+fps = 42.2
+cpu = 42.4
+ram_free = 46.5
+vram = 36.6

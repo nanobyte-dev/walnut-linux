@@ -1,0 +1,44 @@
+# openarena's numbers in batch suite-summary-2026-10 (gamedb/benchmarks/README.md)
+batch = "suite-summary-2026-10"
+
+[variant.base]
+label = "OpenArena, opengl1"
+order = 2
+note = "right, right"
+fps_steady = 70.6
+low1_play = 34.6
+stall_play_s = 0.0
+longest_play_ms = 56
+sound_faults_per_min = 0
+ram_free = 26
+vram = 39
+
+[variant.base.source]
+fps_steady = "gamedb:batch/2026-10-18-ioquake3-396 openarena-base@rec10+wkkick10"
+low1_play = "gamedb:batch/2026-10-18-ioquake3-396 openarena-base@rec10+wkkick10"
+stall_play_s = "gamedb:batch/2026-10-18-ioquake3-396 openarena-base@rec10+wkkick10"
+longest_play_ms = "docs/games/README.md suite table (2026-10)"
+sound_faults_per_min = "the suite table's sound column, read as faults a minute (no number in the log)"
+ram_free = "gamedb:batch/2026-10-18-ioquake3-396 openarena-base@rec10+wkkick10"
+vram = "docs/games/README.md suite table (2026-10)"
+
+[variant.gl2min]
+label = "OpenArena, opengl2"
+order = 4
+note = "right, right"
+fps_steady = 60.4
+low1_play = 25.6
+stall_play_s = 0.2
+longest_play_ms = 199
+sound_faults_per_min = 0
+ram_free = 15
+vram = 119
+
+[variant.gl2min.source]
+fps_steady = "gamedb:batch/2026-10-19-ssdroot1-baseline openarena-gl2min@rec10"
+low1_play = "gamedb:batch/2026-10-19-ssdroot1-baseline openarena-gl2min@rec10"
+stall_play_s = "gamedb:batch/2026-10-19-ssdroot1-baseline openarena-gl2min@rec10"
+longest_play_ms = "gamedb:batch/2026-10-19-ssdroot1-baseline openarena-gl2min@rec10"
+sound_faults_per_min = "the suite table's sound column, read as faults a minute (no number in the log)"
+ram_free = "docs/games/README.md suite table (2026-10)"
+vram = "docs/games/README.md suite table (2026-10)"

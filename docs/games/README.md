@@ -10,8 +10,8 @@ runner is in [SUITE.md](SUITE.md), what is still to do in [backlog/games.md](../
 
 ## Every game at a glance
 
-Numbers are from `bench/results/` (row N = fps.csv row N, the newest same-configuration row
-that measured the game; TESTS.md names the batch). "Stalls" is gameplay stall time in the 120 s
+Numbers are from the benchmark records (row N = the batch with `order = N` in
+gamedb/benchmarks/batches.toml, the newest same-configuration batch that measured the game; TESTS.md names it). "Stalls" is gameplay stall time in the 120 s
 window (frames over 100 ms), "1% low" is 1000 / the 99th percentile frame time, "longest" the longest
 gameplay frame. Memory is the lowest MemAvailable during the run and the game's peak VRAM.
 
@@ -35,8 +35,8 @@ gameplay frame. Memory is the lowest MemAvailable during the run and the game's 
 | [OpenTTD](openttd.md) | yes (our GL driver) | 11 on our 1962 savegame (rows 78-80); 34-43 with the 8bpp-optimized blitter (now the package default); 21 at the title screen (row 61) | 52 s / 5.7 / 311 ms (32bpp-anim); 0.4 s / 13.4 / 210 ms (8bpp) | 17 / 18 (41 free with 8bpp) | right (same picture either blitter), **choppy** (3500-4700 underruns; the music costs about 20% of the fps) | the 8bpp package on the PS3, Mesa 0040 A/B, the music (PLAN 2.8) |
 
 SuperTuxKart's own "Average FPS" line (105-111 for `lean`) is its physics tick rate, 120 Hz times the
-race time over the wall time, not a frame rate; the Gallium HUD's 19-22 frames a second is. fps.csv and
-fps_steady.csv hold the HUD's median for it ([supertuxkart.md](supertuxkart.md#the-two-frame-rates)).
+race time over the wall time, not a frame rate; the Gallium HUD's 19-22 frames a second is. The `fps` and
+`fps_steady` results hold the HUD's median for it ([supertuxkart.md](supertuxkart.md#the-two-frame-rates)).
 
 ### Smoke-tested (one launch each, `SUITE=0`, no benchmark)
 

@@ -346,25 +346,30 @@ Before any game was rated, the scale (rules 1.0) was tried on the 13 games of th
 known numbers ([games/README.md](games/README.md)). Those runs had the desktop stopped and vsync off,
 so they calibrate the formula; real medals come from played sessions. Stutter was approximated from
 the stall time (frames over 100 ms), load is unmeasured there, stability assumed clean. Those runs
-predate the dropout measurement, so their sound is scored from the raw fault counts.
+predate the dropout measurement, so their sound is scored from the raw fault counts. The numbers are the
+summary batch gamedb:batch/suite-summary-2026-10 (each game's `benchmark/results/suite-summary-2026-10.toml`,
+every value with its source); `tools/gamedb/score.py` reads it, and the table is generated from it
+(`tools/gamedb/blocks.py`, checked by `make test`).
 
+<!-- gamedb:calibration -->
 | Game | Frame rate | Smoothness | Sound | Mean | Weakest | Medal |
 |---|---|---|---|---|---|---|
-| X-Moto | 100 | 100 | 100 | 100 | 100 | Platinum |
-| OpenArena, opengl1 | 85 | 100 | 100 | 96 | 85 | Platinum |
-| Yamagi Quake II | 80 (1% low 31) | 100 | 100 | 95 | 80 | Platinum |
-| OpenArena, opengl2 | 72 (1% low 26) | 100 | 100 | 93 | 72 | Gold (capped) |
-| QuakeSpasm | 100 | 65 (2.5 s of stalls) | 100 | 93 | 65 | Gold (capped) |
-| Armagetron | 70 (1% low 24) | 100 | 100 | 92 | 70 | Gold (capped) |
-| ClassiCube | 68 (47 fps) | 100 | 100 | 92 | 68 | Gold (capped) |
-| Extreme Tux Racer | 75 | 62 | 100 | 85 | 62 | Gold |
-| Luanti | 50 (1% low 19) | 58 | 100 | 78 | 50 | Silver (capped) |
-| dsda-doom | 93 | 100 | 50 (465 underruns a minute) | 90 | 50 | Silver (capped) |
-| BananaBread | 50 | 100 | 79 | 83 | 50 | Silver (capped) |
-| Neverball | 95 | 30 (a 3.9 s reload) | 75 | 80 | 30 | Bronze (capped) |
-| OpenTTD, 8bpp | 31 | 94 | 50 (choppy music) | 73 | 31 | Bronze (capped) |
-| SuperTuxKart `lean` | 4 (21 fps) | 69 | 97 | 68 | 4 | Bronze (capped) |
-| OpenTTD, 32bpp | 0 (11 fps) | 0 (52 s of stalls) | 50 | 45 | 0 | Scrap (too slow) |
+| X-Moto | 100 (160.7 fps, 1% low 106.7) | 100 (0 s of stalls, longest 43 ms) | 100 (0 faults a minute) | 100 | 100 (frame) | Platinum |
+| OpenArena, opengl1 | 85 (70.6 fps, 1% low 34.6) | 100 (0 s of stalls, longest 56 ms) | 100 (0 faults a minute) | 96 | 85 (frame) | Platinum |
+| Yamagi Quake II | 80 (68.7 fps, 1% low 31.1) | 100 (0.1 s of stalls, longest 91 ms) | 100 (0 faults a minute) | 95 | 80 (frame) | Platinum |
+| OpenArena, opengl2 | 72 (60.4 fps, 1% low 25.6) | 100 (0.2 s of stalls, longest 199 ms) | 100 (0 faults a minute) | 93 | 72 (frame) | Gold (capped) |
+| QuakeSpasm | 100 (91 fps, 1% low 48.6) | 65 (2.5 s of stalls, longest 393 ms) | 100 (0 faults a minute) | 93 | 65 (smooth) | Gold (capped) |
+| Armagetron | 70 (83 fps, 1% low 24.1) | 100 (0.1 s of stalls, longest 127 ms) | 100 (0 faults a minute) | 92 | 70 (frame) | Gold (capped) |
+| ClassiCube | 68 (47 fps, 1% low 30.7) | 100 (0 s of stalls, longest 65 ms) | 100 (0 faults a minute) | 92 | 68 (frame) | Gold (capped) |
+| Extreme Tux Racer | 75 (59 fps, 1% low 27.3) | 62 (2.9 s of stalls, longest 483 ms) | 100 (0 faults a minute) | 85 | 62 (smooth) | Gold |
+| Luanti | 50 (46 fps, 1% low 19.1) | 58 (3.5 s of stalls, longest 724 ms) | 100 (0 faults a minute) | 78 | 50 (frame) | Silver (capped) |
+| dsda-doom | 93 (55.9 fps, 1% low 40.3) | 100 (0 s of stalls, longest 34 ms) | 50 (465 faults a minute) | 90 | 50 (sound) | Silver (capped) |
+| BananaBread | 50 (39.1 fps, 1% low 25.6) | 100 (0.05 s of stalls, longest 103 ms) | 79 (40 faults a minute) | 83 | 50 (frame) | Silver (capped) |
+| Neverball | 95 (66.5 fps, 1% low 41.3) | 30 (2 s of stalls, longest 3900 ms) | 75 (50 faults a minute) | 80 | 30 (smooth) | Bronze (capped) |
+| OpenTTD, 8bpp | 31 (38.3 fps, 1% low 13.4) | 94 (0.4 s of stalls, longest 210 ms) | 50 (3500 faults a minute) | 73 | 31 (frame) | Bronze (capped) |
+| SuperTuxKart lean | 4 (21 fps, 1% low 11.8) | 70 (1.8 s of stalls, longest 513 ms) | 97 (3 faults a minute) | 68 | 4 (frame) | Bronze (capped) |
+| OpenTTD, 32bpp | 0 (11 fps, 1% low 5.7) | 0 (52 s of stalls, longest 311 ms) | 50 (3500 faults a minute) | 45 | 0 (frame) | Scrap (too slow) |
+<!-- /gamedb:calibration -->
 
 Every medal below Gold has a real problem behind it: slow frame rates (Luanti, BananaBread,
 SuperTuxKart), Neverball's 3.9 s level reload, dsda-doom's chopping sound, and the 32bpp OpenTTD that
