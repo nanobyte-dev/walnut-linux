@@ -530,6 +530,9 @@ root.update()
 assert len(app.shown) == 2, app.shown
 app.select("alpha"); root.update()
 assert str(app.b_install["state"]) == "normal" and str(app.b_remove["state"]) == "disabled"
+notes = app.d_notes.get("1.0", "end")
+assert "Setting up the game data" in notes and "1. Download it." in notes and "2. Run sudo apt install ./x.deb" in notes, notes
+assert "code" in app.d_notes.tag_names() and app.d_notes.tag_ranges("code")
 assert str(app.b_play["state"]) == "disabled"
 app.v_text.set("beta"); root.update()
 assert [g["id"] for g in app.shown] == ["beta"]
@@ -574,6 +577,8 @@ class RatingText(unittest.TestCase):
                                                 "Broken: saves load [PS3/Walnut only]"])
         self.assertEqual(app.basis_text({"medal": "Gold"}), "")     # an older catalog
         self.assertEqual(app.problem_lines({}), [])
+        self.assertEqual(app.step_parts("Run `ls -l` now."), [("Run ", False), ("ls -l", True), (" now.", False)])
+        self.assertEqual(app.step_parts("Plain."), [("Plain.", False)])
         self.assertEqual(app.problem_lines({"broken": ["picture broken (garbage textures or geometry)"]}),
                          ["Scrap: picture broken (garbage textures or geometry)"])
 
@@ -589,7 +594,9 @@ class Window(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as d:
                 games = [dict(GAMES["alpha"], summary="s", categories=["racing"], tags=[], patched=True, patches=[],
-                              needs_data=False, controller="keyboard", known_issues=["slow"], tests=[],
+                              needs_data=True, data_guide="https://example.org/guide",
+                              data_steps=["Download it.", "Run `sudo apt install ./x.deb`."],
+                              controller="keyboard", known_issues=["slow"], tests=[],
                               rating={"medal": "Gold", "score": 85, "capped": False, "reason": None, "hours": 1.5,
                                       "crashes": 0, "provisional": False, "graded_by": "session",
                                       "order": ["frame", "sound", "controls"], "rules_label": "rules 2.0 (2026-10-26)",

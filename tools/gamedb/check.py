@@ -11,7 +11,9 @@ Design
     * packages: Debian package names (they must end in [a-z0-9]); none of them, and no patched_by
       source, in tools/licensed-packages.txt (those go to ps3-licensed only, never into the public
       catalog). Offline: only that file is read, Sections aren't checked
-    * a game that needs the user's own data has a data_guide URL and offers no data package
+    * a game that needs the user's own data has a data_guide URL, data_steps (the numbered steps of
+      getting and setting up the data: sentences, with `code` in backticks that must pair up) and
+      offers no data package
     * thumb.png is a PNG; every test has a parsable result.toml of schema 1 whose listed screenshots
       exist, and no stray file sits in a test folder; its rules, when given, are "<data>.<formula>" of a
       data version score.py knows, and a data-version-2 test's defects name known categories
@@ -39,6 +41,7 @@ FIELDS = {
     "id": (str, True), "title": (str, True), "summary": (str, True), "categories": (list, True),
     "tags": (list, True), "license": (str, True), "homepage": (str, True), "packages": (list, True),
     "desktop": (list, False), "recipes": (list, False), "needs_data": (bool, True), "data_guide": (str, False),
+    "data_steps": (list, False),
     "controller": (str, True), "fps_cap": ((int, float), False), "medal_note": (str, False),
     "known_issues": (list, False), "patched_by": (list, False), "designed_for": (str, False),
 }
@@ -110,6 +113,16 @@ def check_game(gdir, bad, repo):
         errs.append("controller %r: one of %s" % (fm["controller"], ", ".join(CONTROLLERS)))
     if fm["needs_data"] and not URL_RE.match(fm.get("data_guide", "")):
         errs.append("needs_data = true needs a data_guide URL (the data itself is never offered)")
+    steps = fm.get("data_steps", [])
+    if fm["needs_data"] and not steps:
+        errs.append("needs_data = true needs data_steps (how to get the data and where it goes)")
+    for st in steps:
+        if not isinstance(st, str) or not st.strip():
+            errs.append("data_steps: each step is a non-empty string")
+        elif st.count("`") % 2:
+            errs.append("data_steps %r: the backticks around code do not pair up" % st[:40])
+    if steps and not fm["needs_data"]:
+        errs.append("data_steps without needs_data = true")
     if fm.get("fps_cap", 1) <= 0:
         errs.append("fps_cap must be positive")
     thumb = gdir / "thumb.png"

@@ -246,6 +246,11 @@ def basis_text(rating):
     return "; ".join(parts)
 
 
+def step_parts(step):
+    """a data step split at its backticks: [(text, is_code), ...]"""
+    return [(t, i % 2 == 1) for i, t in enumerate(step.split("`")) if t]
+
+
 def problem_lines(rating):
     """rules 2's broken core subsystems (they make the game Scrap whatever its mean), then its defects and failed
     checks, each with where it comes from ("also on the PC", "PS3/Walnut only")"""
@@ -659,6 +664,7 @@ class App:
         self.d_notes.pack(fill="x", pady=(0, 6))
         self.d_notes.tag_configure("h", foreground=MUTED, font=self.f["bold"], spacing1=6)
         self.d_notes.tag_configure("warn", foreground=ACCENT_LIGHT)
+        self.d_notes.tag_configure("code", font=tkfont.Font(family="monospace", size=9), background=BORDER)
         self.show(None)
 
     # -- cards
@@ -818,6 +824,15 @@ class App:
         self.show_shot()
         if g.get("medal_note"):
             notes.insert("end", g["medal_note"] + "\n", "warn")
+        if g.get("needs_data") and g.get("data_steps"):
+            notes.insert("end", "Setting up the game data\n", "h")
+            for n, step in enumerate(g["data_steps"], 1):
+                notes.insert("end", "%d. " % n)
+                for text, code in step_parts(step):
+                    notes.insert("end", text, "code" if code else "")
+                notes.insert("end", "\n")
+            if g.get("data_guide"):
+                notes.insert("end", "More: " + g["data_guide"] + "\n")
         if g.get("known_issues"):
             notes.insert("end", "Known issues\n", "h")
             for k in g["known_issues"]:

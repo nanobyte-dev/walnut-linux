@@ -431,6 +431,19 @@ directories and never touches `index.md`; `tools/gamedb/check.py` validates the 
 `tools/gamedb/build.sh OUT` builds the site. A test is a `session` (a played session) or a `capture` (the
 picture only). Ratings come from played sessions alone: the benchmark runs of the suite (the
 desktop stopped, vsync off) don't describe what a player gets and aren't imported; the code still
-reads a `demo` test (a harness run with a measured window) if one is ever imported on purpose. Games that need the user's own data (OpenRCT2, Quake)
-are listed and shown, with a guide to setting up the data; the data itself is never offered (their
-screenshots, thumbnail included, are published like any game's).
+reads a `demo` test (a harness run with a measured window) if one is ever imported on purpose. Games that need the user's own data (Quake,
+Quake II, Sauerbraten) are listed and shown, with a guide to setting up the data; the data itself is never
+offered (their screenshots, thumbnail included, are published like any game's).
+
+The guide is two parts. `needs_data = true` requires `data_steps` in the front matter: a list of short steps,
+each a sentence with commands and paths in backticks (the backticks must pair up; `check.py` refuses a
+`needs_data` game without steps, and steps on a game without `needs_data`). The game page's Install section
+shows them as a numbered list; a code span with a space in it is a command and gets a Copy button, one
+without (a path) stays inline. The app's details pane shows the same steps as text with the code in a
+monospace font, selectable. `data_guide` stays as the "More" link. The longer guide is the body of
+`index.md`, under a heading "Setting up the game data" (the page links to it): which editions work, where
+their files are, what the result looks like, and common problems. Every command in it is run in a Debian
+container before it is written: the Quake and Quake II steps use Debian's `game-data-packager` (the same
+tool `tools/game-data.sh` uses for the licensed packages), which is in Debian's contrib section; Walnut's
+sources list main only, so the steps add contrib as a source of its own first. Sauerbraten's steps unpack
+the official release's `data` and `packages` folders into `/usr/share/games/sauerbraten`.

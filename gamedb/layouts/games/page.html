@@ -59,8 +59,18 @@
       <button type="button" class="copy" data-copy-from="install-cmd">Copy</button>
     </div>
     {{ if $g.needs_data }}
-    <p class="note">This game needs your own game data, which Walnut does not offer.
-      {{ with $g.data_guide }}<a href="{{ . }}">How to set it up</a>.{{ end }}</p>
+    <div class="note data-setup">
+      <h3>Setting up the game data</h3>
+      <p>The game data is not part of the package, and Walnut does not offer it. {{ if $g.data_steps }}You make or fetch it once:{{ end }}</p>
+      {{ with $g.data_steps }}
+      <ol class="steps">
+        {{ range $n, $step := . }}
+        <li>{{ range $i, $part := split $step "\x60" }}{{ if mod $i 2 }}{{ if strings.Contains $part " " }}<span class="cmd"><code id="{{ printf "data-cmd-%d-%d" $n $i }}">{{ $part }}</code><button type="button" class="copy" data-copy-from="{{ printf "data-cmd-%d-%d" $n $i }}">Copy</button></span>{{ else }}<code>{{ $part }}</code>{{ end }}{{ else }}{{ $part }}{{ end }}{{ end }}</li>
+        {{ end }}
+      </ol>
+      {{ end }}
+      <p>{{ if in $.Content "id=\"setting-up-the-game-data\"" }}Which editions work, where their files are and what goes wrong: <a href="#setting-up-the-game-data">the full guide</a>. {{ end }}{{ with $g.data_guide }}More: <a href="{{ . }}">{{ . }}</a>.{{ end }}</p>
+    </div>
     {{ end }}
     <p class="muted">Walnut Games, the desktop app, installs it with one button.</p>
   </section>

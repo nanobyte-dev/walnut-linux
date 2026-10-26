@@ -122,3 +122,9 @@ table.launchers { margin-bottom: 1rem; }
 details.launcher { margin: 0.8rem 0; }
 details.launcher > summary { font-weight: 600; margin-bottom: 0.4rem; }
 .table-wrap + h3 { margin-top: 1.4rem; }
+.data-setup h3 { margin: 0 0 0.3rem; font-size: 1.05rem; }
+.steps { padding-left: 1.4rem; }
+.steps li { margin: 0.5rem 0; }
+.steps .cmd { display: flex; gap: 0.5rem; align-items: stretch; margin: 0.3rem 0; }
+.steps .cmd code { flex: 1 1 auto; padding: 0.4rem 0.7rem; overflow-x: auto; white-space: nowrap; border: 1px solid var(--border); }
+.steps .cmd button.copy { padding: 0 0.8rem; }

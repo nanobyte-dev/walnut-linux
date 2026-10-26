@@ -313,7 +313,21 @@ class Check(unittest.TestCase):
         write_game(self.content, needs_data="true")
         self.assertIn("data_guide", " ".join(self.problems()["ex"]))
         write_game(self.content, needs_data="true", data_guide='"https://example.org/guide"')
+        self.assertIn("data_steps", " ".join(self.problems()["ex"]))
+        write_game(self.content, needs_data="true", data_guide='"https://example.org/guide"',
+                   data_steps='["Download the data.", "Run `sudo apt install ./data.deb`."]')
         self.assertEqual(self.problems(), {})
+
+    def test_data_steps_are_checked(self):
+        guide = dict(needs_data="true", data_guide='"https://example.org/guide"')
+        write_game(self.content, data_steps='["Fine."]', **guide)
+        self.assertEqual(self.problems(), {})
+        write_game(self.content, data_steps='["Run `ls."]', **guide)
+        self.assertIn("backticks", " ".join(self.problems()["ex"]))
+        write_game(self.content, data_steps='[""]', **guide)
+        self.assertIn("non-empty", " ".join(self.problems()["ex"]))
+        write_game(self.content, data_steps='["Not needed."]')
+        self.assertIn("without needs_data", " ".join(self.problems()["ex"]))
 
     def test_unknown_field_and_missing_thumb(self):
         g = write_game(self.content, colour='"red"')
