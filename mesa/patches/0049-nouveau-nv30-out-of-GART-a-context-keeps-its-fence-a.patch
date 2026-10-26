@@ -1,0 +1,675 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Mon, 26 Oct 2026 03:26:21 +0200
+Subject: nouveau, nv30: out of GART, a context keeps its fence and texture
+ uploads go through the CPU
+
+SuperTuxKart crashed on the PS3 (2026-10-26) after hundreds of "ps3rsx: out of GART": a segfault
+at 0x20 in _nouveau_fence_next(), nv->fence->state with nv->fence NULL, from
+nv30_context_kick_notify() (a texture upload's util_throttle_memory_usage() waiting on a fence).
+An earlier kick had dropped the context's fence and failed to allocate the next one: every fence
+has a 4 KiB GART buffer to wait on, and the GART had none. kick_notify() returning false also made
+pushbuf_submit() drop that whole batch. And with the GART full, texture uploads were lost: no
+staging buffer, nv30_miptree_transfer_map() returned NULL (GL_OUT_OF_MEMORY, which games don't
+check) and the texture kept old pixels.
+
+- nouveau_fence: _nouveau_fence_next() makes the next fence before it lets the current one go, so
+  a context always has a current fence. A fence whose wait object cannot be had waits for the
+  GPU's submitted work first (nouveau_fence_reclaim(): signalled fences free their wait objects,
+  their works free staging buffers and storage) and tries again; failing that it goes without
+  one: it is emitted without the buffer reference, and waiting on it polls the sequence (10 s).
+  Only a failed malloc of the fence itself fails, and then the old fence stays current.
+- _nouveau_fence_update(flushed) marks what was emitted as submitted even when the GPU's sequence
+  did not move (it returned early before), so the reclaim can tell submitted fences from those of
+  the batch being built, which it must not wait on (that would submit from kick_notify).
+- nouveau_fence_wait_idle(): waits for the context's current fence with a reference held; the
+  wait submits and replaces it, and nouveau_fence_wait(nv->fence) could read it after it was
+  deleted (nv30_staging_bo_new() did).
+- nv30_staging_bo_new(): a staging buffer that cannot be had waits for the GPU, gives the staging
+  pools' idle buffers back to the kernel, and tries again (before: only with uploads in flight).
+- nv30_miptree_transfer_map(): still none: the data goes through malloc memory, and the CPU copies
+  it into the texture at the unmap (or out of it at the map, for reads). On the PS3 textures are
+  CPU-mapped VRAM (nv30_miptree_create() asks for it); mapping for the write waits for the GPU's
+  use of the texture. Swizzled, linear and compressed layouts, as nv30_transfer_rect_cpu() does
+  them (nv30_transfer_rect_cpu_map(), now with whole rows for linear copies). Multisampled
+  textures and buffers the CPU cannot map still fail the map, cleanly.
+- nouveau_transfer_staging() (buffer maps): no GART for the staging area waits for the GPU and
+  tries again; a staging buffer whose map fails is freed (it leaked).
+- nv30_fragprog_upload(): no buffer or no map for a fragment program (out of memory, after the
+  stream copy failed) keeps the bound program and uploads this one at its next bind; it wrote
+  through a NULL map. The blit's fragment program the same way: no blit instead of fp->bo of NULL.
+- nv30_transfer_rect_cpu(): a buffer the CPU cannot map loses the copy instead of the process.
+
+Host tests: mesa/tests/alloc-fail-test.c (fences with a full and with no GART, against a fake GPU)
+and mesa/tests/transfer-cpu-test.c (texture transfers with a full GART), both in tools/run-tests.sh
+--only mesa-query-steal.
+
+diff --git a/src/gallium/drivers/nouveau/nouveau_buffer.c b/src/gallium/drivers/nouveau/nouveau_buffer.c
+--- a/src/gallium/drivers/nouveau/nouveau_buffer.c
++++ b/src/gallium/drivers/nouveau/nouveau_buffer.c
+@@ -233,10 +233,23 @@ nouveau_transfer_staging(struct nouveau_context *nv,
+    } else {
+       tx->mm =
+          nouveau_mm_allocate(nv->screen->mm_GART, size, &tx->bo, &tx->offset);
++      if (!tx->bo) {
++         /* out of GART: the GPU's work so far holds staging and freed storage back */
++         nouveau_fence_wait_idle(nv);
++         tx->mm =
++            nouveau_mm_allocate(nv->screen->mm_GART, size, &tx->bo, &tx->offset);
++      }
+       if (tx->bo) {
+          tx->offset += adj;
+-         if (!BO_MAP(nv->screen, tx->bo, 0, NULL))
++         if (!BO_MAP(nv->screen, tx->bo, 0, NULL)) {
+             tx->map = (uint8_t *)tx->bo->map + tx->offset;
++         } else {
++            /* a map that fails leaves nothing behind (nouveau_transfer_del frees only maps) */
++            if (tx->mm)
++               nouveau_mm_free(tx->mm);
++            tx->mm = NULL;
++            nouveau_bo_ref(NULL, &tx->bo);
++         }
+       }
+    }
+    return tx->map;
+diff --git a/src/gallium/drivers/nouveau/nouveau_fence.c b/src/gallium/drivers/nouveau/nouveau_fence.c
+--- a/src/gallium/drivers/nouveau/nouveau_fence.c
++++ b/src/gallium/drivers/nouveau/nouveau_fence.c
+@@ -33,30 +33,36 @@
+ static bool
+ _nouveau_fence_wait(struct nouveau_fence *fence, struct util_debug_callback *debug);
+ 
+-bool
+-nouveau_fence_new(struct nouveau_context *nv, struct nouveau_fence **fence)
++/* A fence's wait object: an idle one from the pool, else a new 4 KiB GART buffer; NULL when the
++ * GART has no room for one (the fence is then polled, see nouveau_fence_poll()).
++ */
++static struct nouveau_bo *
++nouveau_fence_bo_get(struct nouveau_screen *screen)
+ {
+-   struct nouveau_fence_list *fence_list = &nv->screen->fence;
+-   struct nouveau_fence *new_fence = CALLOC_STRUCT(nouveau_fence);
+-   if (!new_fence)
+-      return false;
++   struct nouveau_fence_list *fence_list = &screen->fence;
++   struct nouveau_bo *bo = NULL;
+ 
+    if (fence_list->bo_pool_max) {
+       simple_mtx_lock(&fence_list->bo_pool_lock);
+       if (fence_list->bo_pool_count)
+-         new_fence->bo = fence_list->bo_pool[--fence_list->bo_pool_count];
++         bo = fence_list->bo_pool[--fence_list->bo_pool_count];
+       simple_mtx_unlock(&fence_list->bo_pool_lock);
+    }
+ 
+-   if (!new_fence->bo) {
+-      int ret = nouveau_bo_new(nv->screen->device, NOUVEAU_BO_GART, 0x1000, 0x1000, NULL,
+-                               &new_fence->bo);
+-      if (ret) {
+-         FREE(new_fence);
+-         return false;
+-      }
+-   }
++   if (!bo && nouveau_bo_new(screen->device, NOUVEAU_BO_GART, 0x1000, 0x1000, NULL, &bo))
++      bo = NULL;
++   return bo;
++}
++
++/* Fails only if the fence itself cannot be allocated: without a wait object it is still a fence */
++bool
++nouveau_fence_new(struct nouveau_context *nv, struct nouveau_fence **fence)
++{
++   struct nouveau_fence *new_fence = CALLOC_STRUCT(nouveau_fence);
++   if (!new_fence)
++      return false;
+ 
++   new_fence->bo = nouveau_fence_bo_get(nv->screen);
+    new_fence->screen = nv->screen;
+    new_fence->context = nv;
+    new_fence->ref = 1;
+@@ -196,8 +202,15 @@ _nouveau_fence_update(struct nouveau_screen *screen, bool flushed)
+    if (unlikely(screen->disable_fences))
+       sequence = screen->fence.sequence;
+ 
+-   if (fence_list->sequence_ack == sequence)
++   if (fence_list->sequence_ack == sequence) {
++      /* nothing signalled, but what was emitted is submitted all the same (before, it stayed
++       * "emitted" until the GPU moved on; nouveau_fence_reclaim() needs to tell the two apart) */
++      if (flushed)
++         for (fence = fence_list->head; fence; fence = fence->next)
++            if (fence->state == NOUVEAU_FENCE_STATE_EMITTED)
++               fence->state = NOUVEAU_FENCE_STATE_FLUSHED;
+       return;
++   }
+    fence_list->sequence_ack = sequence;
+ 
+    for (fence = fence_list->head; fence; fence = next) {
+@@ -241,6 +254,62 @@ _nouveau_fence_signalled(struct nouveau_fence *fence)
+    return fence->state == NOUVEAU_FENCE_STATE_SIGNALLED;
+ }
+ 
++/* A submitted fence without a wait object: watch the sequence the GPU writes. 10 s, as the
++ * kernel's wait (a GPU that stops for longer is hung).
++ */
++static bool
++nouveau_fence_poll(struct nouveau_fence *fence)
++{
++   struct nouveau_screen *screen = fence->screen;
++   int64_t until = os_time_get_nano() + 10 * 1000000000ll;
++
++   simple_mtx_assert_locked(&screen->fence.lock);
++
++   while (fence->state < NOUVEAU_FENCE_STATE_SIGNALLED) {
++      _nouveau_fence_update(screen, false);
++      if (fence->state == NOUVEAU_FENCE_STATE_SIGNALLED)
++         break;
++      if (os_time_get_nano() > until) {
++         debug_printf("nouveau: fence %u (no wait object) not signalled after 10 s\n",
++                      fence->sequence);
++         return false;
++      }
++#if DETECT_OS_POSIX
++      sched_yield();
++#endif
++   }
++   return true;
++}
++
++/* Out of GART for a fence's wait object: wait for the GPU to finish everything submitted, so the
++ * memory that waits on those fences goes back (their wait objects, the staging buffers and the
++ * buffer storage their works free). Fences of the batch being built are left alone: waiting on
++ * them would submit it, and this runs from the submission's kick_notify too.
++ */
++static void
++nouveau_fence_reclaim(struct nouveau_screen *screen)
++{
++   struct nouveau_fence_list *fence_list = &screen->fence;
++   struct nouveau_fence *fence, *last = NULL, *held = NULL;
++
++   simple_mtx_assert_locked(&fence_list->lock);
++
++   for (fence = fence_list->head; fence; fence = fence->next)
++      if (fence->state == NOUVEAU_FENCE_STATE_FLUSHED)
++         last = fence;
++   if (!last)
++      return;
++
++   /* signalled, it is deleted if the list held the last reference */
++   _nouveau_fence_ref(last, &held);
++   if (last->bo)
++      nouveau_bo_wait(last->bo, NOUVEAU_BO_RDWR, screen->client);
++   else
++      nouveau_fence_poll(last);
++   _nouveau_fence_update(screen, false);
++   _nouveau_fence_ref(NULL, &held);
++}
++
+ static bool
+ nouveau_fence_kick(struct nouveau_fence *fence)
+ {
+@@ -290,7 +359,10 @@ _nouveau_fence_wait(struct nouveau_fence *fence, struct util_debug_callback *deb
+    if (!nouveau_fence_kick(fence))
+       return false;
+ 
+-   if (fence->state < NOUVEAU_FENCE_STATE_SIGNALLED) {
++   if (fence->state < NOUVEAU_FENCE_STATE_SIGNALLED && !fence->bo) {
++      if (!nouveau_fence_poll(fence))
++         return false;
++   } else if (fence->state < NOUVEAU_FENCE_STATE_SIGNALLED) {
+       NOUVEAU_DRV_STAT(screen, any_non_kernel_fence_sync_count, 1);
+       int ret = nouveau_bo_wait(fence->bo, NOUVEAU_BO_RDWR, screen->client);
+       if (ret) {
+@@ -318,8 +390,13 @@ _nouveau_fence_next(struct nouveau_context *nv)
+ {
+    struct nouveau_fence_list *fence_list = &nv->screen->fence;
+ 
++   struct nouveau_fence *next;
++
+    simple_mtx_assert_locked(&fence_list->lock);
+ 
++   if (!nv->fence)
++      return nouveau_fence_new(nv, &nv->fence);
++
+    if (nv->fence->state < NOUVEAU_FENCE_STATE_EMITTING) {
+       if (p_atomic_read(&nv->fence->ref) > 1)
+          _nouveau_fence_emit(nv->fence);
+@@ -327,9 +404,20 @@ _nouveau_fence_next(struct nouveau_context *nv)
+          return true;
+    }
+ 
+-   _nouveau_fence_ref(NULL, &nv->fence);
++   /* The next fence first: the context never goes without a current fence. Before, a failed
++    * allocation (its wait object, when the GART ran out) left nv->fence NULL and the next kick
++    * dereferenced it (SuperTuxKart, 2026-10-26: a segfault at 0x20, nv->fence->state).
++    */
++   if (!nouveau_fence_new(nv, &next))
++      return false;
++   if (!next->bo) {
++      nouveau_fence_reclaim(nv->screen);
++      next->bo = nouveau_fence_bo_get(nv->screen);
++   }
+ 
+-   return nouveau_fence_new(nv, &nv->fence);
++   _nouveau_fence_ref(NULL, &nv->fence);
++   nv->fence = next;
++   return true;
+ }
+ 
+ void
+@@ -428,6 +516,23 @@ nouveau_fence_flush(struct nouveau_fence *fence)
+    return res;
+ }
+ 
++/* Wait for everything the context submitted or is building: its current fence is submitted,
++ * replaced while it is waited on and may then be deleted, hence the reference. For allocations
++ * that failed: what waits on the GPU's fences (staging buffers, freed storage) goes back.
++ */
++bool
++nouveau_fence_wait_idle(struct nouveau_context *nv)
++{
++   struct nouveau_fence *fence = NULL;
++   bool res = false;
++
++   nouveau_fence_ref(nv->fence, &fence, nv->screen);
++   if (fence)
++      res = nouveau_fence_wait(fence, &nv->debug);
++   nouveau_fence_ref(NULL, &fence, nv->screen);
++   return res;
++}
++
+ bool
+ nouveau_fence_next_if_current(struct nouveau_context *nv, struct nouveau_fence *fence)
+ {
+diff --git a/src/gallium/drivers/nouveau/nouveau_fence.h b/src/gallium/drivers/nouveau/nouveau_fence.h
+--- a/src/gallium/drivers/nouveau/nouveau_fence.h
++++ b/src/gallium/drivers/nouveau/nouveau_fence.h
+@@ -87,6 +87,8 @@ bool nouveau_fence_work(struct nouveau_fence *, void (*)(void *), void *);
+ void nouveau_fence_update(struct nouveau_screen *, bool flushed);
+ /** returns false on error */
+ MUST_CHECK bool nouveau_fence_next_if_current(struct nouveau_context *, struct nouveau_fence *);
++/* waits for the GPU to finish the context's work so far (out of memory: let it go back) */
++bool nouveau_fence_wait_idle(struct nouveau_context *);
+ bool nouveau_fence_wait(struct nouveau_fence *, struct util_debug_callback *);
+ /** submits the fence's batch if that has not happened yet; returns false on error */
+ bool nouveau_fence_flush(struct nouveau_fence *);
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c b/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_fragprog.c
+@@ -66,7 +66,8 @@ nv30_fragprog_stream(struct nv30_context *nv30, unsigned *offset)
+    return buf;
+ }
+ 
+-static void
++/* false: no buffer for the program or no map of it (out of memory); nothing was written */
++static bool
+ nv30_fragprog_upload(struct nv30_context *nv30)
+ {
+    struct nouveau_context *nv = &nv30->base;
+@@ -75,6 +76,8 @@ nv30_fragprog_upload(struct nv30_context *nv30)
+ 
+    if (unlikely(!fp->buffer))
+       fp->buffer = pipe_buffer_create(pipe->screen, 0, 0, fp->insn_len * 4);
++   if (!fp->buffer)
++      return false;
+ 
+ #if !UTIL_ARCH_BIG_ENDIAN
+    pipe_buffer_write(pipe, fp->buffer, 0, fp->insn_len * 4, fp->insn);
+@@ -87,6 +90,8 @@ nv30_fragprog_upload(struct nv30_context *nv30)
+       map = pipe_buffer_map(pipe, fp->buffer,
+                             PIPE_MAP_WRITE | PIPE_MAP_DISCARD_WHOLE_RESOURCE,
+                             &transfer);
++      if (!map)
++         return false;
+       for (i = 0; i < fp->insn_len; i++)
+          *map++ = (fp->insn[i] >> 16) | (fp->insn[i] << 16);
+       pipe_buffer_unmap(pipe, transfer);
+@@ -95,6 +100,7 @@ nv30_fragprog_upload(struct nv30_context *nv30)
+ 
+    if (nv04_resource(fp->buffer)->domain != NOUVEAU_BO_VRAM)
+       nouveau_buffer_migrate(nv, nv04_resource(fp->buffer), NOUVEAU_BO_VRAM);
++   return true;
+ }
+ 
+ void
+@@ -148,7 +154,15 @@ nv30_fragprog_validate(struct nv30_context *nv30)
+       fp->vram_stale = true;
+    } else if (upload || changed ||
+               (fp->vram_stale && nv30->state.fragprog != fp)) {
+-      nv30_fragprog_upload(nv30);
++      if (!nv30_fragprog_upload(nv30)) {
++         /* out of memory (the stream copy failed too, or was not tried): the bound program
++          * stays, and this one is uploaded at its next bind. Before, a NULL buffer or map was
++          * written through. */
++         fp->vram_stale = true;
++         if (nv30->state.fragprog == fp)
++            nv30->state.fragprog = NULL;
++         return;
++      }
+       fp->vram_stale = false;
+       upload = true;
+    }
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_miptree.c
+@@ -87,6 +87,7 @@ struct nv30_transfer {
+    unsigned pooled_size; /* NV30_STAGING_POOL: tmp.bo goes back to the pool in this class */
+    unsigned big_size;    /* NV30_STAGING_POOL_MB: tmp.bo goes back to the big pool (class) */
+    bool big_reused;      /* tmp.bo came from the big pool: no new GART, not "in flight" */
++   char *cpu;            /* no staging buffer could be had: malloc memory, copied by the CPU */
+ };
+ 
+ static inline struct nv30_transfer *
+@@ -289,6 +290,19 @@ nv30_flush_resource(struct pipe_context *pipe,
+  */
+ #define NV30_PS3_STAGING_INFLIGHT (4 << 20)
+ 
++/* Wait for the GPU: the staging buffers and other GART waiting on its fences go back. Before,
++ * nouveau_fence_wait(nv30->base.fence) here could read the fence after the wait had deleted it
++ * (submitting it replaces the context's current fence).
++ */
++static void
++nv30_wait_idle(struct nv30_context *nv30)
++{
++   nouveau_fence_wait_idle(&nv30->base);
++   nv30->staging_inflight = 0;
++}
++
++static void nv30_staging_drain(struct nv30_screen *screen);
++
+ static int
+ nv30_staging_bo_new(struct nv30_context *nv30, unsigned size, struct nouveau_bo **pbo)
+ {
+@@ -296,14 +310,13 @@ nv30_staging_bo_new(struct nv30_context *nv30, unsigned size, struct nouveau_bo
+    int ret;
+ 
+    if (nv30->screen->base.is_ps3 && nv30->staging_inflight &&
+-       nv30->staging_inflight + size > NV30_PS3_STAGING_INFLIGHT) {
+-      nouveau_fence_wait(nv30->base.fence, &nv30->base.debug);
+-      nv30->staging_inflight = 0;
+-   }
++       nv30->staging_inflight + size > NV30_PS3_STAGING_INFLIGHT)
++      nv30_wait_idle(nv30);
+    ret = nouveau_bo_new(dev, NOUVEAU_BO_GART | NOUVEAU_BO_MAP, 0, size, NULL, pbo);
+-   if (ret && nv30->screen->base.is_ps3 && nv30->staging_inflight) {
+-      nouveau_fence_wait(nv30->base.fence, &nv30->base.debug);
+-      nv30->staging_inflight = 0;
++   if (ret) {
++      /* out of GART: the GPU's work so far and the staging pools' idle buffers hold some */
++      nv30_wait_idle(nv30);
++      nv30_staging_drain(nv30->screen);
+       ret = nouveau_bo_new(dev, NOUVEAU_BO_GART | NOUVEAU_BO_MAP, 0, size, NULL, pbo);
+    }
+    return ret;
+@@ -487,6 +500,78 @@ nv30_staging_big_age(struct nv30_screen *screen)
+       nouveau_bo_ref(NULL, &evict[i]);
+ }
+ 
++/* Out of GART: the idle buffers of both staging pools go back to the kernel */
++static void
++nv30_staging_drain(struct nv30_screen *screen)
++{
++   struct nouveau_bo *evict[ARRAY_SIZE(screen->staging_pool) + NV30_STAGING_BIG_ENTRIES];
++   unsigned n = 0, i;
++
++   simple_mtx_lock(&screen->staging_lock);
++   while (screen->staging_count)
++      evict[n++] = screen->staging_pool[--screen->staging_count].bo;
++   screen->staging_bytes = 0;
++   n += nv30_staging_big_take(screen, screen->staging_big_count, &evict[n]);
++   simple_mtx_unlock(&screen->staging_lock);
++   for (i = 0; i < n; i++)
++      nouveau_bo_ref(NULL, &evict[i]);
++}
++
++/* tx->cpu <-> the texture, every layer of the box, by the CPU */
++static void
++nv30_transfer_cpu_copy(struct nv30_transfer *tx, struct nv30_miptree *mt, bool upload)
++{
++   struct nv30_rect img = tx->img, tmp = tx->tmp;
++   bool is_3d = mt->base.base.target == PIPE_TEXTURE_3D;
++   char *vram = mt->base.bo->map;
++   unsigned i;
++
++   for (i = 0; i < tx->base.box.depth; ++i) {
++      if (upload)
++         nv30_transfer_rect_cpu_map(&tmp, tx->cpu, &img, vram);
++      else
++         nv30_transfer_rect_cpu_map(&img, vram, &tmp, tx->cpu);
++      if (is_3d && mt->swizzled)
++         img.z++;
++      else if (is_3d)
++         img.offset += mt->level[tx->base.level].zslice_size;
++      else
++         img.offset += mt->layer_size;
++      tmp.offset += tx->base.layer_stride;
++   }
++}
++
++/*
++ * No GART for a staging buffer even after waiting for the GPU: before, the map failed and the
++ * upload was lost (GL_OUT_OF_MEMORY, which games don't check). SuperTuxKart showed other textures'
++ * old pixels. Now the data goes through malloc memory and the CPU copies it from or into the
++ * texture itself, which on the PS3 is CPU-mapped VRAM (nv30_miptree_create() asks for it).
++ * Mapping waits for the GPU's use of the texture. Slow (a copy per texel when swizzled), but only
++ * when the GART is full. Multisampled textures (the GPU resolves them) and buffers the CPU cannot
++ * map still fail.
++ */
++static void *
++nv30_transfer_map_cpu(struct nv30_context *nv30, struct nv30_miptree *mt,
++                      struct nv30_transfer *tx, unsigned size)
++{
++   struct nouveau_bo *bo = mt->base.bo;
++
++   if (mt->ms_mode)
++      return NULL;
++   tx->cpu = MALLOC(size);
++   if (!tx->cpu)
++      return NULL;
++   if (BO_MAP(nv30->base.screen, bo,
++              (tx->base.usage & PIPE_MAP_READ) ? NOUVEAU_BO_RD : 0, nv30->base.client)) {
++      FREE(tx->cpu);
++      tx->cpu = NULL;
++      return NULL;
++   }
++   if (tx->base.usage & PIPE_MAP_READ)
++      nv30_transfer_cpu_copy(tx, mt, false);
++   return tx->cpu;
++}
++
+ void *
+ nv30_miptree_transfer_map(struct pipe_context *pipe, struct pipe_resource *pt,
+                           unsigned level, unsigned usage,
+@@ -533,13 +618,6 @@ nv30_miptree_transfer_map(struct pipe_context *pipe, struct pipe_resource *pt,
+       tx->tmp.bo = nv30_staging_big_get(nv30->screen, size);
+       tx->big_reused = tx->tmp.bo != NULL;
+    }
+-   ret = tx->tmp.bo ? 0 : nv30_staging_bo_new(nv30, size, &tx->tmp.bo);
+-   if (ret) {
+-      pipe_resource_reference(&tx->base.resource, NULL);
+-      FREE(tx);
+-      return NULL;
+-   }
+-
+    tx->tmp.domain = NOUVEAU_BO_GART;
+    tx->tmp.offset = 0;
+    tx->tmp.pitch  = tx->base.stride;
+@@ -553,6 +631,18 @@ nv30_miptree_transfer_map(struct pipe_context *pipe, struct pipe_resource *pt,
+    tx->tmp.y1     = tx->tmp.h;
+    tx->tmp.z      = 0;
+ 
++   ret = tx->tmp.bo ? 0 : nv30_staging_bo_new(nv30, size, &tx->tmp.bo);
++   if (ret) {
++      void *map = nv30_transfer_map_cpu(nv30, mt, tx, size);
++      if (map) {
++         *ptransfer = &tx->base;
++         return map;
++      }
++      pipe_resource_reference(&tx->base.resource, NULL);
++      FREE(tx);
++      return NULL;
++   }
++
+    if (usage & PIPE_MAP_READ) {
+       bool is_3d = mt->base.base.target == PIPE_TEXTURE_3D;
+       unsigned offset = tx->img.offset;
+@@ -603,6 +693,19 @@ nv30_miptree_transfer_unmap(struct pipe_context *pipe,
+    struct nv30_miptree *mt = nv30_miptree(tx->base.resource);
+    unsigned i;
+ 
++   if (tx->cpu) {
++      /* the mapping waits until the GPU is done with the texture */
++      if ((ptx->usage & PIPE_MAP_WRITE) &&
++          !BO_MAP(nv30->base.screen, mt->base.bo, NOUVEAU_BO_WR, nv30->base.client)) {
++         nv30_transfer_cpu_copy(tx, mt, true);
++         p_atomic_inc(&nv30->screen->tex_gen);
++      }
++      FREE(tx->cpu);
++      pipe_resource_reference(&ptx->resource, NULL);
++      FREE(tx);
++      return;
++   }
++
+    if (ptx->usage & PIPE_MAP_WRITE) {
+       bool is_3d = mt->base.base.target == PIPE_TEXTURE_3D;
+       for (i = 0; i < tx->base.box.depth; ++i) {
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_screen.c b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_screen.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_screen.c
+@@ -396,7 +396,8 @@ nv30_screen_fence_emit(struct pipe_context *pcontext, uint32_t *sequence,
+       PUSH_DATA (push, *sequence);
+    }
+ 
+-   nouveau_pushbuf_refn(push, &ref, 1);
++   if (wait) /* a fence without a wait object (out of GART) is polled */
++      nouveau_pushbuf_refn(push, &ref, 1);
+ }
+ 
+ static uint32_t
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
+--- a/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_transfer.c
+@@ -145,6 +145,10 @@ nv30_transfer_rect_fragprog(struct nv30_context *nv30)
+                map[i] = (map[i] >> 16) | (map[i] << 16);
+ #endif
+             pipe_buffer_unmap(pipe, transfer);
++         } else {
++            /* out of memory: no program yet, try again at the next blit */
++            pipe_resource_reference(&nv30->blit_fp, NULL);
++            return NULL;
+          }
+ 
+          fp = nv04_resource(nv30->blit_fp);
+@@ -161,14 +165,18 @@ nv30_transfer_rect_blit(XFER_ARGS)
+    struct nv04_resource *fp = nv30_transfer_rect_fragprog(nv30);
+    struct nouveau_heap *vp = nv30_transfer_rect_vertprog(nv30);
+    struct nouveau_pushbuf *push = nv30->base.pushbuf;
++   u32 texfmt, texswz;
++   u32 format, stride;
++
++   /* out of memory for the blit's programs: the copy is lost, the process is not */
++   if (!fp || !fp->bo || !vp)
++      return;
++
+    struct nouveau_pushbuf_refn refs[] = {
+       { fp->bo, fp->domain | NOUVEAU_BO_RD },
+       { src->bo, src->domain | NOUVEAU_BO_RD },
+       { dst->bo, NOUVEAU_BO_VRAM | NOUVEAU_BO_WR },
+    };
+-   u32 texfmt, texswz;
+-   u32 format, stride;
+-
+    if (!PUSH_SPACE_EX(push, 512, 8, 0) ||
+        PUSH_REFN(push, refs, ARRAY_SIZE(refs)))
+       return;
+@@ -657,18 +665,27 @@ get_ptr(struct nv30_rect *rect)
+    return swizzle3d_ptr;
+ }
+ 
+-static void
+-nv30_transfer_rect_cpu(XFER_ARGS)
++/* A rect from one CPU mapping into another; srcbase and dstbase are what the rects' offsets
++ * count from (their buffers' maps, or nv30_miptree.c's malloc'd staging memory)
++ */
++void
++nv30_transfer_rect_cpu_map(struct nv30_rect *src, char *srcbase,
++                           struct nv30_rect *dst, char *dstbase)
+ {
+    get_ptr_t sp = get_ptr(src);
+    get_ptr_t dp = get_ptr(dst);
+-   char *srcmap, *dstmap;
++   char *srcmap = srcbase + src->offset;
++   char *dstmap = dstbase + dst->offset;
+    int x, y;
+ 
+-   BO_MAP(nv30->base.screen, src->bo, NOUVEAU_BO_RD, nv30->base.client);
+-   BO_MAP(nv30->base.screen, dst->bo, NOUVEAU_BO_WR, nv30->base.client);
+-   srcmap = src->bo->map + src->offset;
+-   dstmap = dst->bo->map + dst->offset;
++   if (src->pitch && dst->pitch) {
++      /* both linear: a row at a time */
++      for (y = 0; y < (dst->y1 - dst->y0); y++)
++         memcpy(linear_ptr(dst, dstmap, dst->x0, dst->y0 + y, dst->z),
++                linear_ptr(src, srcmap, src->x0, src->y0 + y, src->z),
++                (dst->x1 - dst->x0) * dst->cpp);
++      return;
++   }
+ 
+    for (y = 0; y < (dst->y1 - dst->y0); y++) {
+       for (x = 0; x < (dst->x1 - dst->x0); x++) {
+@@ -678,6 +695,16 @@ nv30_transfer_rect_cpu(XFER_ARGS)
+    }
+ }
+ 
++static void
++nv30_transfer_rect_cpu(XFER_ARGS)
++{
++   /* a buffer the CPU cannot map (GPU-only VRAM on the PS3) loses the copy, not the process */
++   if (BO_MAP(nv30->base.screen, src->bo, NOUVEAU_BO_RD, nv30->base.client) ||
++       BO_MAP(nv30->base.screen, dst->bo, NOUVEAU_BO_WR, nv30->base.client))
++      return;
++   nv30_transfer_rect_cpu_map(src, src->bo->map, dst, dst->bo->map);
++}
++
+ void
+ nv30_transfer_rect(struct nv30_context *nv30, enum nv30_transfer_filter filter,
+                    struct nv30_rect *src, struct nv30_rect *dst)
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_transfer.h b/src/gallium/drivers/nouveau/nv30/nv30_transfer.h
+--- a/src/gallium/drivers/nouveau/nv30/nv30_transfer.h
++++ b/src/gallium/drivers/nouveau/nv30/nv30_transfer.h
+@@ -26,6 +26,10 @@ void
+ nv30_transfer_rect(struct nv30_context *, enum nv30_transfer_filter filter,
+                    struct nv30_rect *, struct nv30_rect *);
+ 
++void
++nv30_transfer_rect_cpu_map(struct nv30_rect *src, char *srcbase,
++                           struct nv30_rect *dst, char *dstbase);
++
+ void
+ nv30_transfer_push_data(struct nouveau_context *,
+                         struct nouveau_bo *, unsigned offset, unsigned domain,
+diff --git a/src/gallium/drivers/nouveau/nv50/nv50_screen.c b/src/gallium/drivers/nouveau/nv50/nv50_screen.c
+--- a/src/gallium/drivers/nouveau/nv50/nv50_screen.c
++++ b/src/gallium/drivers/nouveau/nv50/nv50_screen.c
+@@ -390,7 +390,8 @@ nv50_screen_fence_emit(struct pipe_context *pcontext, u32 *sequence,
+                     NV50_3D_QUERY_GET_QUERY_SELECT_ZERO |
+                     NV50_3D_QUERY_GET_SHORT);
+ 
+-   nouveau_pushbuf_refn(push, &ref, 1);
++   if (wait) /* a fence without a wait object (out of GART) is polled */
++      nouveau_pushbuf_refn(push, &ref, 1);
+ }
+ 
+ static u32
+diff --git a/src/gallium/drivers/nouveau/nvc0/nvc0_screen.c b/src/gallium/drivers/nouveau/nvc0/nvc0_screen.c
+--- a/src/gallium/drivers/nouveau/nvc0/nvc0_screen.c
++++ b/src/gallium/drivers/nouveau/nvc0/nvc0_screen.c
+@@ -594,7 +594,8 @@ nvc0_screen_fence_emit(struct pipe_context *pcontext, u32 *sequence,
+    PUSH_DATA (push, NVC0_3D_QUERY_GET_FENCE | NVC0_3D_QUERY_GET_SHORT |
+               (0xf << NVC0_3D_QUERY_GET_UNIT__SHIFT));
+ 
+-   nouveau_pushbuf_refn(push, &ref, 1);
++   if (wait) /* a fence without a wait object (out of GART) is polled */
++      nouveau_pushbuf_refn(push, &ref, 1);
+ }
+ 
+ static u32

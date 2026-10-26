@@ -45,3 +45,4 @@
 0046-nv30-a-query-whose-report-slot-is-taken-back-keeps-i.patch
 0047-u_upload-st-nv30-an-upload-buffer-that-cannot-be-had.patch
 0048-nouveau-a-buffer-allocation-that-fails-fails-the-cal.patch
+0049-nouveau-nv30-out-of-GART-a-context-keeps-its-fence-a.patch
