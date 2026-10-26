@@ -396,6 +396,26 @@ class Importer(unittest.TestCase):
         self.write_bench(ended="quit", rc="0", seconds="170")
         self.assertIsNone(self.ir.crash_freeze(self.run_dir, self.ir.report.kv(self.run_dir / "bench.txt")))
 
+    def test_local_stutter(self):
+        # a steady slow stretch (100 ms frames) is no stutter against its neighbours; a 400 ms spike in it is
+        ft = [20.0] * 300 + [100.0] * 300 + [20.0] * 300
+        self.assertEqual(self.ir.local_stutter(ft), 0)
+        ft[450] = 400.0
+        self.assertAlmostEqual(self.ir.local_stutter(ft), 300.0)
+
+    def test_later_level_loads_are_left_out(self):
+        # play marks at 10 s and 60 s; a 5 s load frame before the second: out of the play, counted as a load
+        ft = ["20"] * 2500 + ["5000"] + ["20"] * 2500
+        (self.run_dir / "hud" / "frametime_(ms)").write_text("\n".join(ft) + "\n")
+        self.write_bench(play_from="mark", play_start="10", play_marks="10.00 60.00", seconds="110", ended="quit", rc="0")
+        b = self.ir.report.kv(self.run_dir / "bench.txt")
+        self.assertEqual(self.ir.play_marks(self.run_dir, b), [10.0, 60.0])
+        loads = self.ir.level_loads(self.run_dir, b)
+        self.assertEqual(len(loads), 2)
+        self.assertLess(loads[1][0], 60.0)
+        keep, _ = self.ir.frames(self.run_dir, b)
+        self.assertLess(max(keep), 1000)
+
     def test_numbers(self):
         r, _ = self.do()
         n = r["numbers"]

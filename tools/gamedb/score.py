@@ -545,10 +545,15 @@ def test_scores_v2(t, fps_cap=None):
     if load is not None and n.get("load_level_s") is not None:
         load += n["load_level_s"]
     return {"frame": frame_score(n.get("median_fps"), n.get("low1_fps"), fps_cap),
-            "smooth": smooth_score(n.get("stutter_s_per_min"), n.get("longest_ms")),
+            "smooth": smooth_score(stutter_v2(n), n.get("longest_ms")),
             "sound": sound_score(n.get("sound_faults_per_min"), bool(n.get("snd_stall")), n.get("sound_effects"),
                                  n.get("music"), n.get("sound_dropouts_per_min")),
             "load": load_score(load)}
+
+
+def stutter_v2(n):
+    """rules 2's stutter: against the frames around each frame (import-run.py local_stutter), where measured"""
+    return n["stutter_local_s_per_min"] if n.get("stutter_local_s_per_min") is not None else n.get("stutter_s_per_min")
 
 
 def combine_v2(tests, fps_cap=None, designed_for="pad"):
@@ -585,6 +590,7 @@ def combine_v2(tests, fps_cap=None, designed_for="pad"):
     for key in ("median_fps", "low1_fps", "stutter_s_per_min", "longest_ms", "sound_faults_per_min",
                 "sound_dropouts_per_min", "load_s", "load_level_s"):
         nums[key] = med(t.get("numbers", {}).get(key) for t in graded)
+    nums["stutter_s_per_min"] = med(stutter_v2(t.get("numbers", {})) for t in graded)
     nums["display_detail"] = display_words
     det = {}
     if scores["picture"] is not None:

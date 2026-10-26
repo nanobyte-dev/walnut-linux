@@ -965,6 +965,8 @@ while :; do
 	if [ -z "$load_us" ] && { { [ -n "$LOAD_MARK" ] && [[ $l =~ $LOAD_MARK ]]; } ||
 	                          { [ -n "$LOAD_RE" ] && [[ $l =~ $LOAD_RE ]]; }; }; then LOADMARK=1; loaded; fi
 	if [ -n "$PLAY_MARK" ] && [ -z "$play_us" ] && [[ $l =~ $PLAY_MARK ]]; then play_us=$(( US - u0 )); fi
+	# every play mark of a played session (each race or level starting: import-run.py leaves their loads out)
+	if [ "$SESSION" = 1 ] && [ -n "$PLAY_MARK" ] && [[ $l =~ $PLAY_MARK ]]; then pm_us+=" $(( US - u0 ))"; fi
 	if [ -z "$t_load" ] && [ -n "$LOAD_MARK" ] && [[ $l =~ $LOAD_MARK ]]; then t_load=$(age); fi
 	if [ "$SHOT_FROM" = re ] && [ -z "$SHOT_REF_US" ] && [[ $l =~ $SHOT_RE ]]; then shot_plan $(( US - u0 )); fi
 	if [ -n "$WIN_ON_RE" ]; then	# the game's own window pieces
@@ -1079,6 +1081,7 @@ secs measured "$measured"
   if [ "$SESSION" = 1 ]; then
 	echo "kind=session"; [ -n "${BENCH_LAUNCHER:-}" ] && { echo "launcher=$BENCH_LAUNCHER"; echo "launcher_file=${BENCH_LAUNCHER_FILE:-}"; }; echo "ended_why=$ended_why"
 	echo "play_from=$play_from"; echo "play_start=$play_start"; echo "play_seconds=$play_seconds"
+	[ -n "${pm_us:-}" ] && echo "play_marks=$(for u in $pm_us; do printf '%d.%02d ' $(( u / 1000000 )) $(( u % 1000000 / 10000 )); done)"
 	echo "vsync=shipped"; echo "gamemode=1"
   fi
   echo "root=$(findmnt -n -o SOURCE / 2>/dev/null || echo -)"	# USB root or the SSD's /dev/mapper/ps3root (Phase B)

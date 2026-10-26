@@ -18,6 +18,7 @@ render = "1920x1080"
 median_fps = 70.0
 low1_fps = 41.7
 stutter_s_per_min = 0.47
+stutter_local_s_per_min = 0.46
 longest_ms = 573.1
 frames = 31714
 sound_faults_per_min = 15.68

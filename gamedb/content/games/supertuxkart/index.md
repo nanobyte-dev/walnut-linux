@@ -12,8 +12,8 @@ recipes = ["supertuxkart:lean"]
 needs_data = false
 controller = "partial"
 known_issues = [
-  "On heavy tracks (Ravenbridge Mansion) the GPU's memory runs out: objects pop in and out, the game can freeze for many seconds and crash (a Mesa fix is in progress).",
-  "About 30 frames a second at the lean settings, with long stalls on heavy tracks.",
+  "About 24 frames a second in races at the lean settings: light tracks play well, heavy ones (Ravenbridge Mansion) are slow.",
+  "Loading a track takes about 20 seconds.",
 ]
 +++
 

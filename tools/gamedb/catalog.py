@@ -109,8 +109,9 @@ def details(r, fps_cap):
     if n.get("median_fps") is not None:
         d["frame"] = "median %.0f fps, 1%% low %.0f%s" % (n["median_fps"], n["low1_fps"],
                                                            ", capped by design at %g" % fps_cap if fps_cap else "")
-    if n.get("stutter_s_per_min") is not None:
-        d["smooth"] = "%.1f s of stutter a minute, longest frame %.0f ms" % (n["stutter_s_per_min"], n["longest_ms"])
+    st = n.get("stutter_local_s_per_min", n.get("stutter_s_per_min"))   # rules 2 measures it locally
+    if st is not None:
+        d["smooth"] = "%.1f s of stutter a minute, longest frame %.0f ms" % (st, n["longest_ms"])
     if n.get("sound_dropouts_per_min") is not None:     # measured by ps3-xrunlog: what could be heard
         d["sound"] = "%.1f audible sound dropouts a minute" % n["sound_dropouts_per_min"]
     elif n.get("sound_faults_per_min") is not None:
@@ -153,12 +154,23 @@ def method(t):
     return "dropouts" if "sound_dropouts" in t.get("numbers", {}) else "counts"
 
 
+STACK_PKGS = ("mesa-libgallium", "kernel")   # the graphics driver and the kernel a test ran on
+
+
+def stack(t):
+    """the driver stack a test ran on (Mesa's and the kernel's versions as recorded): sessions on different
+    stacks aren't merged into one rating (a crash fixed by a newer Mesa doesn't count against the next run)"""
+    v = t.get("versions", {})
+    return tuple(v.get(k) for k in STACK_PKGS)
+
+
 def rated_tests(ts):
     """what a rating is made from (ts: one version's tests): the graded tests (sessions, benchmark runs)
-    measured the way the newest one was, merged (medians); sessions measured differently aren't (the
-    user, 2026-10-25); capture runs add their picture"""
+    measured the way the newest one was and on its driver stack (Mesa, kernel), merged (medians); sessions
+    measured differently or on another stack aren't (the user, 2026-10-25: "same parameters, same
+    versions"); capture runs add their picture"""
     graded = sorted((t for t in ts if t.get("kind") in GRADED), key=lambda t: (t["date"], t["id"]))
-    same = [t for t in graded if method(t) == method(graded[-1])] if graded else []
+    same = [t for t in graded if method(t) == method(graded[-1]) and stack(t) == stack(graded[-1])] if graded else []
     return same + [t for t in ts if t.get("kind") not in GRADED]
 
 

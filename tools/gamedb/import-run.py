@@ -83,6 +83,80 @@ def front_matter(index):
     return tomllib.loads(m[1]) if m else {}
 
 
+LOAD_FRAME_MS = 1000    # a frame this long within LOAD_LOOKBACK_S before a play mark is part of that level's load
+LOAD_LOOKBACK_S = 30
+
+
+def play_marks(d, b):
+    """every time the game logged its play mark (a race or level starting), seconds after the start:
+    bench.txt play_marks= (client.sh), else the recipe's PLAY_MARK regex over out.log's timestamped
+    lines (runs recorded before play_marks=), else just play_start. [] without a mark"""
+    if b.get("play_from") != "mark":
+        return []
+    if b.get("play_marks"):
+        return sorted(t for t in (report.num(x) for x in b["play_marks"].split()) if t is not None)
+    first = report.num(b.get("play_start"))
+    rx, out, t0 = recipe_play_mark(b.get("game") or d.name.split("-session-")[-1].rsplit("-", 1)[0]), \
+        d / "out.log", report.num(b.get("t0"))
+    marks = []
+    if rx and out.exists() and t0 is not None:
+        try:
+            r = re.compile(rx)
+        except re.error:
+            r = None
+        for line in out.read_text(errors="replace").splitlines() if r else []:
+            ts, _, text = line.partition(" ")
+            if report.num(ts) is not None and r.search(text):
+                marks.append(round(report.num(ts) - t0, 2))
+    if first is not None and not any(abs(m - first) < 1 for m in marks):
+        marks.append(first)
+    return sorted(marks)
+
+
+def recipe_play_mark(game):
+    """a recipe's PLAY_MARK regex (games/bench/recipes/GAME.sh, sourced the way play-pc.sh does), or None"""
+    rec = REPO / "games" / "bench" / "recipes" / ("%s.sh" % game)
+    if not rec.exists():
+        return None
+    try:
+        out = subprocess.run(["bash", "-c", 'here=$1; ASSETS=$here/assets; CMD=(); ENV=(); PLAY_MARK=; LOAD_MARK=\n'
+                              'setup() { :; }; parse() { :; }; . "$here/recipes/$2.sh" > /dev/null 2>&1; printf %s "$PLAY_MARK"',
+                              "_", str(REPO / "games" / "bench"), game], capture_output=True, text=True, timeout=20).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out or None
+
+
+def level_loads(d, b):
+    """[(load start, mark)] for every play mark: a level's load runs from the earlier of the player's last
+    keyboard press before the mark and the first long frame (over LOAD_FRAME_MS) in the LOAD_LOOKBACK_S
+    before it (the end of the previous race and its return to the menus: SuperTuxKart, 2026-10-26), to the
+    mark. The first mark's load is the level load of Load; later ones (the next race, the next level)
+    are left out of the play like the first (with WARMUP_S after them) and count in Load too"""
+    marks = play_marks(d, b)
+    if not marks:
+        return []
+    keys = key_times(d)
+    path = d / "hud" / "frametime_(ms)"
+    ft = report.floats(path) if path.exists() else []
+    ends = report.frame_ends(ft, b) if ft else []
+    out, prev = [], 0.0
+    for m in marks:
+        lo = max(prev, m - LOAD_LOOKBACK_S)
+        k = [t for t in keys if lo <= t < m]
+        longs = [e - v / 1000 for e, v in zip(ends, ft) if v > LOAD_FRAME_MS and lo <= e - v / 1000 <= m]
+        cands = ([max(k)] if k else []) + ([min(longs)] if longs else [])
+        start = min(cands) if cands else m
+        out.append((start, m))
+        prev = m
+    return out
+
+
+def load_gaps(d, b):
+    """the spans left out of the play after the first mark: each later level's load and its warm-up"""
+    return [(s, m + WARMUP_S) for s, m in level_loads(d, b)[1:]]
+
+
 def play_start(d, b):
     """seconds from the client's start to the first gameplay frame: the recipe's own mark where it has
     one (SHOT_RE / shot_mark: the line the game prints when the match starts, shot_ref=re|mark:<s>),
@@ -121,6 +195,27 @@ def crash_freeze(d, b):
     return ends[i] - ft[i] / 1000 if i < len(ft) else None
 
 
+LOCAL_FRAMES = 60   # frames on each side of a frame whose median is its reference (about 1-2 s)
+
+
+def local_stutter(ft):
+    """ms of stutter in play-ordered frame times: a frame over max(50 ms, 3x the median of the LOCAL_FRAMES
+    frames on each side) stutters by what it exceeds that median"""
+    import bisect
+    win = sorted(ft[:LOCAL_FRAMES + 1])
+    lo, hi, total = 0, LOCAL_FRAMES + 1, 0.0     # win holds ft[lo:hi]
+    for i, v in enumerate(ft):
+        want_lo, want_hi = max(0, i - LOCAL_FRAMES), min(len(ft), i + LOCAL_FRAMES + 1)
+        while hi < want_hi:
+            bisect.insort(win, ft[hi]); hi += 1
+        while lo < want_lo:
+            win.pop(bisect.bisect_left(win, ft[lo])); lo += 1
+        m = win[len(win) // 2] if len(win) % 2 else (win[len(win) // 2 - 1] + win[len(win) // 2]) / 2
+        if v > max(50.0, 3 * m):
+            total += v - m
+    return total
+
+
 def frames(d, b):
     """(frame times in ms of the play, the seconds they span) or ([], 0): from WARMUP_S after the load,
     the reload segments of a looped demo left out"""
@@ -137,8 +232,10 @@ def frames(d, b):
     cf = crash_freeze(d, b)
     if cf is not None:
         secs = min(secs, cf)
+    gaps = load_gaps(d, b)
     keep = [v for e, v in zip(ends, ft)
-            if e - v / 1000 >= start - 0.05 and e <= secs and not any(s < e <= t for s, t in rel)]
+            if e - v / 1000 >= start - 0.05 and e <= secs and not any(s < e <= t for s, t in rel)
+            and not any(e > g0 and e - v / 1000 < g1 for g0, g1 in gaps)]
     return keep, sum(keep) / 1000
 
 
@@ -161,7 +258,7 @@ def shot_times(d):
     return out
 
 
-def recorder_dropouts(d, audible, after=None):
+def recorder_dropouts(d, audible, after=None, gaps=()):
     """(audible dropouts the game caused, those at a screenshot): capturing the screen reads 8 MB of
     video memory and starves the sound for a moment (X-Moto, 2026-10-24: 14 of 25 audible dropouts
     within a second or two of a capture), so dropouts in SHOT_WINDOW of one are the recorder's.
@@ -183,6 +280,8 @@ def recorder_dropouts(d, audible, after=None):
         t = report.num(c[at])
         if t is not None and after is not None and t < after:
             continue
+        if t is not None and any(g0 <= t <= g1 for g0, g1 in gaps):    # a later level's load and warm-up
+            continue
         if t is not None and any(s + SHOT_WINDOW[0] <= t <= s + SHOT_WINDOW[1] for s in shots):
             by_shots += 1
         else:
@@ -202,6 +301,9 @@ def numbers(d, b, r):
         n["median_fps"] = round(1000 / med, 1)
         n["low1_fps"] = round(1000 / ms[max(0, -(-len(ms) * 99 // 100) - 1)], 1)
         n["stutter_s_per_min"] = round(sum(v - med for v in ms if v > thr) / 1000 / (span / 60), 2)
+        # rules 2: a frame stutters against the frames around it (LOCAL_FRAMES each side), not the session's
+        # median: a heavy level running steadily slower is the frame rate's matter, not a stutter
+        n["stutter_local_s_per_min"] = round(local_stutter(ft) / 1000 / (span / 60), 2)
         n["longest_ms"] = round(ms[-1], 1)
         n["frames"] = len(ms)
     elif r.get("steady") is not None and r.get("low1") is not None:   # per-second data only
@@ -219,7 +321,7 @@ def numbers(d, b, r):
     if b.get("xrunlog") == "on" and report.num(b.get("xruns_audible")) is not None:
         start = play_start(d, b)
         audible, by_shots = recorder_dropouts(d, int(report.num(b["xruns_audible"])),
-                                              None if start is None else start + WARMUP_S)
+                                              None if start is None else start + WARMUP_S, load_gaps(d, b))
         dropouts = audible + int(report.num(b.get("oal_wait")) or 0)
         n["sound_dropouts"] = dropouts
         if by_shots:
@@ -525,12 +627,12 @@ def v2_numbers(d, b, n, sh):
     for k in ("fresh_home", "fresh_home_new", "recovered"):    # the fresh defaults (freshhome.py)
         if report.num(b.get(k)) is not None:
             n[k] = int(report.num(b[k]))
-    # the level load: from the player's last press before the play mark to the mark (inputlog.py's key rows)
-    ps = play_start(d, b)
-    if b.get("play_from") == "mark" and ps is not None and n.get("input_log"):
-        before = [t for t in key_times(d) if t < ps]
-        if before:
-            n["load_level_s"] = round(ps - max(before), 1)
+    # the level load: from the player's last press (else the long frames) before each play mark to the mark,
+    # the median over the session's levels (level_loads)
+    ll = [m - s for s, m in level_loads(d, b) if m > s]
+    if ll:
+        n["load_level_s"] = round(statistics.median(ll), 1)
+        n["level_loads"] = len(ll)
 
 
 def ended(d, b):

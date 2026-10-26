@@ -15,16 +15,17 @@ reached_play = true
 render = "1920x1080"
 
 [numbers]
-median_fps = 30.0
-low1_fps = 5.4
-stutter_s_per_min = 22.08
-longest_ms = 21696.0
-frames = 9745
+median_fps = 25.5
+low1_fps = 5.5
+stutter_s_per_min = 11.39
+stutter_local_s_per_min = 2.21
+longest_ms = 3198.0
+frames = 6844
 sound_faults_per_min = 2.42
 sound_faults = 30
-sound_dropouts = 9
+sound_dropouts = 1
 sound_dropouts_at_shots = 3
-sound_dropouts_per_min = 0.76
+sound_dropouts_per_min = 0.08
 xruns = 38
 xrun_gap_ms = 7716.0
 display_samples = 13
@@ -48,7 +49,8 @@ pads_hotplug_opened = 0
 fresh_home = 2
 fresh_home_new = 2
 recovered = 0
-load_level_s = 6.3
+load_level_s = 14.5
+level_loads = 5
 
 [versions]
 mesa-libgallium = "26.2.4-1+ps3.827"

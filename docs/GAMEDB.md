@@ -295,6 +295,16 @@ has the broken-subsystem rule instead.
 - **Play starts at the match.** In a played session the frames, stutter and dropouts are measured
   from the recipe's play mark (the line a game logs when the match or level starts: PLAY_MARK) plus
   the warm-up, so menus, setup screens and the player's time there never count as play.
+- **Every level start is a load (rules 2).** A played session's play mark is logged at each race or level
+  start (bench.txt `play_marks=`). The load before each later one (from the earlier of the player's last
+  key press and the first frame over 1 s in the 30 s before it, so the end of the previous race and the
+  menus go too) and the warm-up after it are left out of the play like the first; the level loads' median
+  is Load's level load.
+- **Stutter is local (rules 2).** A frame stutters against the median of the 60 frames on each side, not the
+  session's: a heavy level running steadily slower counts in the frame rate, not as stutter.
+- **Sessions merge on the same driver stack.** Only sessions with the newest one's Mesa and kernel versions
+  are merged into a rating (a crash a newer Mesa fixed doesn't count against the next run); the history
+  keeps them all.
 - **No medal without frame rate and smoothness.** They are the core of a rating; a session where
   the frame timer saw nothing (a software renderer doesn't go through OpenGL, which the timer hooks)
   gets its numbers but no medal ("played, but not rated: frame rate and smoothness not measured"),
