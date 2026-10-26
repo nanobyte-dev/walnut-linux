@@ -260,6 +260,7 @@ Extra methods outside the generator's table: 0x17cc `SET_ZPASS_PIXEL_COUNT_ENABL
 | 4097 (7) | 0x1ea0 | VP_START_FROM_ID | 1 | draw,shader,xfer | NV4097_SET_TRANSFORM_PROGRAM_START | nv30_draw.c:365 |
 | 4097 (7) | 0x1ea4 | UNK_1ea4 | 3 | init | NV4097_SET_ZCULL_CONTROL0 | nv30_screen.c:667 |
 | 4097 (7) | 0x1ee0 | POINT_SIZE | 1 | state | NV4097_SET_POINT_SIZE | nv30_state.c:185 |
+| 4097 (7) | 0x1ee4 | POINT_PARAMETERS_ENABLE | 1 | state | NV4097_SET_POINT_PARAMS_ENABLE | nv30_state.c:193 (0051; ps3rsx PS3_ABI 2) |
 | 4097 (7) | 0x1ee8 | POINT_SPRITE | 1 | state | NV4097_SET_POINT_SPRITE_CONTROL | nv30_state_validate.c:376 |
 | 4097 (7) | 0x1ef8 | UNK_1ef8 | 1 | init | NV4097_SET_TRANSFORM_TIMEOUT | nv30_screen.c:683 |
 | 4097 (7) | 0x1efc | VP_UPLOAD_CONST_ID | 5 | shader,state | NV4097_SET_TRANSFORM_CONSTANT_LOAD | nv30_state_validate.c:284 |

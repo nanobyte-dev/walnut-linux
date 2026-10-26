@@ -15,11 +15,12 @@ kind = "session"
 launcher = "Yamagi Quake II (gl1)"
 pc = "llvmpipe shots"
 added = 2026-10-26
-source = "TESTS.md Next batches (mesa-0050)"
+source = "TESTS.md Next batches (mesa-0051)"
 text = """\
-Round particles with Mesa ps3.863 (0050, the mesa-0050 batch in TESTS.md): gl1 with \
+Particles with Mesa 0050 + 0051 and ps3rsx PS3_ABI 2 (the mesa-0051 batch in TESTS.md): gl1 with \
 `gl1_pointparameters 1`, a played moment with particles (blaster bolts and their trails, bullet \
-sparks on a wall, blood), xwd screenshots next to the PC (llvmpipe) shots: round soft particles, not \
-squares; the same scene with `NV30_POINT_SMOOTH=0` for the old look; fps in a particle-heavy fight \
-against it (the variant adds about 20 fragment instructions per particle pixel). ps3.860 segfaulted \
-here at the first particles. Then the known issue about square particles goes."""
+sparks on a wall, blood), xwd screenshots next to the PC (llvmpipe) shots: round dots, small far \
+away and big near (dev builds did this in the demo on 2026-10-27); the same scene with \
+`NV30_POINT_SMOOTH=0` for squares; fps in a particle-heavy fight against it (the smooth variant adds \
+about 20 fragment instructions per particle pixel, and near particles are big). Then the known issue \
+about particles goes."""

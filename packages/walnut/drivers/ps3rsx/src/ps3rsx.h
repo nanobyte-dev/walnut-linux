@@ -42,9 +42,11 @@ struct drm_nouveau_grobj_alloc {
 #define PS3RSX_CHIPSET		0x47		/* NV47-like: Mesa picks the 0x4097 3D class */
 #define PS3RSX_PCI_VENDOR	0x104d		/* Sony: what the patched Mesa checks for */
 /* Private GETPARAM: the patched Mesa queries it; channels are refused until it did, so an
- * unpatched Mesa fails at init instead of submitting streams with handles the RSX lacks. */
+ * unpatched Mesa fails at init instead of submitting streams with handles the RSX lacks.
+ * Its value: 1, the first; 2, the validator also takes 0x1ee4 POINT_PARAMS_ENABLE (Mesa 0051 sends
+ * it only from 2 on, so a newer Mesa on an older module keeps working). */
 #define PS3RSX_GETPARAM_PS3_ABI	0x1000
-#define PS3RSX_ABI_VERSION	1
+#define PS3RSX_ABI_VERSION	2
 
 #define CPU_VRAM_LIMIT		0xe000000ULL	/* ps3fb's VRAM mapping size: CPU access above it is unproven */
 

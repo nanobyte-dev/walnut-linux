@@ -164,6 +164,7 @@ Every investigation of a game that ended in a driver or library patch, from the 
 | [Two crashes in Mesa: a query's report slot taken back, then a NULL upload buffer (2026-10-24)](../../gamedb/games/sauerbraten/investigations/2026-10-24-online-crashes.md) | Sauerbraten | mesa 0046, mesa 0047, mesa 0048 |
 | [Garbage textures and a crash in Mesa after GART ran out (2026-10-26)](../../gamedb/games/supertuxkart/investigations/2026-10-26-fence-segfault.md) | SuperTuxKart | mesa 0049 |
 | [Square particles: nv30 ignored GL_POINT_SMOOTH (2026-10-26)](../../gamedb/games/yquake2/investigations/2026-10-26-point-smooth.md) | Yamagi Quake II | mesa 0050 |
+| [Particles of one size at every distance: nv30 never took the vertex program's point size (2026-10-27)](../../gamedb/games/yquake2/investigations/2026-10-27-point-size-attenuation.md) | Yamagi Quake II | mesa 0051 |
 <!-- /gamedb:driver-bugs -->
 
 Two display bugs went first, found by the harness itself at stage 0 because the screen stayed black:

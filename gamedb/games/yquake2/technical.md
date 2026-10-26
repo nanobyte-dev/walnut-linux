@@ -50,9 +50,11 @@ starts the demo cold. Each pass also prints "ERROR: Disconnected from server". V
 ## Known problems
 
 - Particles (blood, sparks, bullet trails) drew as squares: nv30 ignored `GL_POINT_SMOOTH`. Mesa 0050
-  draws smooth points with a variant of the bound fragment program; its first build (ps3.860) segfaulted
-  at Quake II's first particles (a program variant never uploaded) and was revised (ps3.863); the PS3
-  check is pending (docs/TESTS.md, batch mesa-0050).
+  draws smooth points with a variant of the bound fragment program (ps3.874: round on the PS3). Then
+  every particle was a 40-pixel disc at any distance: nv30 never set `POINT_PARAMS_ENABLE`, so the
+  RSX ignored the attenuated size Quake II asks for (`gl1_pointparameters 1`). Mesa 0051 with ps3rsx
+  PS3_ABI 2 fixes it, checked with dev builds on 2026-10-27; the release check is docs/TESTS.md's
+  batch mesa-0051.
 - Movement ships bound to E/S/D/F (Yamagi's defaults), not W/A/S/D; the player rebinds it in Options,
   Customize controls. The menu and HUD text is small at 1080p.
 - `Sys_LoadLibrary failed: libcurl.so.4`: the optional download library, harmless.
@@ -63,6 +65,9 @@ starts the demo cold. Each pass also prints "ERROR: Disconnected from server". V
   samples played as noise (0001).
 - [2026-10-18 the PRNG table](investigations/2026-10-18-prng-table.md): 32 MB of random-number
   table and 22.6 s of stalls (0002).
+- [2026-10-26 point smooth](investigations/2026-10-26-point-smooth.md): square particles (Mesa 0050).
+- [2026-10-27 point size attenuation](investigations/2026-10-27-point-size-attenuation.md): particles
+  of one size at every distance (Mesa 0051, ps3rsx PS3_ABI 2).
 
 ## Research
 
