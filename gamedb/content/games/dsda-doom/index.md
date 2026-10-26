@@ -11,6 +11,7 @@ patched_by = ["dsda-doom"]
 recipes = ["dsda-doom:gl"]
 needs_data = false
 controller = "keyboard"
+designed_for = "keyboard-mouse"
 known_issues = [
   "The MIDI music chops: about 465 sound underruns a minute with the synthesizer running on the SPEs.",
 ]

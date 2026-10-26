@@ -11,6 +11,7 @@ patched_by = ["cube2"]
 recipes = ["sauerbraten:base"]
 needs_data = false
 controller = "keyboard"
+designed_for = "keyboard-mouse"
 +++
 
 BananaBread is Mozilla's Cube 2 engine demo (Debian's `cube2`, with the BananaBread maps of `cube2-data`),

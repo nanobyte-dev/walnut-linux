@@ -11,6 +11,7 @@ patched_by = ["ioquake3"]
 recipes = ["openarena:gl2min", "openarena:base"]
 needs_data = false
 controller = "keyboard"
+designed_for = "keyboard-mouse"
 known_issues = [
   "The gameplay options menu can draw wrong the first time it opens; leaving it (Escape) and opening it again fixes it.",
   "The opengl2 renderer holds about 15 MB of free memory at its tightest.",

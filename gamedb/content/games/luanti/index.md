@@ -11,6 +11,7 @@ patched_by = ["luanti"]
 recipes = ["luanti:base"]
 needs_data = false
 controller = "keyboard"
+designed_for = "keyboard-mouse"
 known_issues = [
   "Starts in a window instead of fullscreen.",
   "The options menu is broken.",

@@ -12,6 +12,7 @@ recipes = ["yquake2:kiss4k"]
 needs_data = true
 data_guide = "https://github.com/yquake2/yquake2#readme"
 controller = "keyboard"
+designed_for = "keyboard-mouse"
 +++
 
 Yamagi Quake II 8.70 runs on the gl1 renderer at about 70 frames a second on the Quake II demo

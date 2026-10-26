@@ -13,6 +13,7 @@ recipes = ["sauerbraten-edition:base"]
 needs_data = true
 data_guide = "http://sauerbraten.org/"
 controller = "keyboard"
+designed_for = "keyboard-mouse"
 known_issues = [
   "Video memory runs full on the big maps, and Mesa then crashed: after 3.5 minutes online (its occlusion queries, fixed in Mesa ps3.819) and after 6 minutes with bots (a buffer allocation that failed, fixed in Mesa ps3.827 with patches 0047 and 0048, not yet played again). New installs compress more textures (texcompress 512); an existing config keeps its own setting.",
 ]

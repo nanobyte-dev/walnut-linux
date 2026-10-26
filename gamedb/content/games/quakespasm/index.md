@@ -11,6 +11,7 @@ recipes = ["quakespasm:base"]
 needs_data = true
 data_guide = "https://quakespasm.sourceforge.net/"
 controller = "keyboard"
+designed_for = "keyboard-mouse"
 +++
 
 QuakeSpasm 0.96.3 is Debian's package, unpatched, and plays the shareware demo1 timedemo at about 91

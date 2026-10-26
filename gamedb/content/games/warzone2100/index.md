@@ -11,6 +11,7 @@ patched_by = ["warzone2100"]
 recipes = ["warzone2100:base"]
 needs_data = false
 controller = "keyboard"
+designed_for = "keyboard-mouse"
 medal_note = "Version 4.3.5, the last release with an OpenGL 2.1 renderer; Debian's newer versions need OpenGL 3."
 known_issues = [
   "Mouse and keyboard only, and the 1999 style interface is small at 1080p (Options, Video, Display Scale helps).",
