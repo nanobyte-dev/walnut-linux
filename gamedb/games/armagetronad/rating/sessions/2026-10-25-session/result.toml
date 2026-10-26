@@ -55,4 +55,4 @@ verdict = "ok"
 note = "ok: the arena, light cycles and walls, the HUD and the game setup menu as on the PC; quit cleanly (the sdl2-compat close deadlock fixed)"
 
 [shots]
-ps3 = ["ps3-60s.jpg", "ps3-180s.jpg", "ps3-360s.jpg", "ps3-480s.jpg"]
+ps3 = ["shots/ps3-60s.jpg", "shots/ps3-180s.jpg", "shots/ps3-360s.jpg", "shots/ps3-480s.jpg"]

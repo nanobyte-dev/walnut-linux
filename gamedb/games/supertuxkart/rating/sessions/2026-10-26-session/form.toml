@@ -1,0 +1,9 @@
+# the end-of-session form, from the player in chat (the screen went black after the crash, the form was not visible)
+form_version = 2
+glitches = "minor"
+pad_menus = "worked"
+pad_play = "seamless"
+notes = "Plays better than before; the controller support was excellent, rumble on collisions too. On heavier tracks (Ravenbridge Mansion) objects pop in and out. The game crashed (segfault in Mesa after GART ran out); the screen stayed black afterwards."
+form = "chat"
+game = "supertuxkart"
+variant = "base"

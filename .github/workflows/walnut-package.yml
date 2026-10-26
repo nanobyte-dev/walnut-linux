@@ -36,7 +36,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # versions count commits (tools/deb-version.sh)
-          lfs: ${{ inputs.package == 'walnut-games' }}  # its catalog packs the Git LFS screenshots (tools/gamedb/pack-catalog.py)
+          lfs: false
+      - name: The gallery's screenshots from Git LFS
+        # walnut-games' catalog packs the screenshots the catalog lists (tools/gamedb/pack-catalog.py): only
+        # those are fetched, not every session's other shots and raw/ files (tools/gamedb/gallery.py)
+        if: inputs.package == 'walnut-games'
+        run: git lfs pull -I "$(python3 -I tools/gamedb/gallery.py --lfs-include)"
       - name: The ppc64 base chroot
         uses: actions/cache@v6
         with:

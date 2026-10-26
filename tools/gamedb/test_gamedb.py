@@ -566,9 +566,10 @@ class Check(unittest.TestCase):
         g = write_game(self.content)
         t = g / check.SESSIONS / "2026-01-01-demo"
         t.mkdir(parents=True)
-        (t / "result.toml").write_text('schema = 1\nkind = "demo"\ngame = "ex"\n[shots]\nps3 = ["ps3-1s.jpg"]\n')
+        (t / "result.toml").write_text('schema = 1\nkind = "demo"\ngame = "ex"\n[shots]\nps3 = ["shots/ps3-1s.jpg"]\n')
         self.assertIn("missing", " ".join(self.problems()["ex"]))
-        (t / "ps3-1s.jpg").write_bytes(b"x")
+        (t / "shots").mkdir()
+        (t / "shots" / "ps3-1s.jpg").write_bytes(b"x")
         (t / "stray.dat").write_bytes(b"x")
         self.assertIn("unexpected file stray.dat", " ".join(self.problems()["ex"]))
         (t / "stray.dat").unlink()

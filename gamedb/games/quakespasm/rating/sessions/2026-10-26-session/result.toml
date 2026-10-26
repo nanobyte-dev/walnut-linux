@@ -67,7 +67,7 @@ verdict = "ok"
 note = "ok: Quake's shareware episode as it looks, lighting, textures, the HUD; the interface tiny at 1080p"
 
 [shots]
-ps3 = ["ps3-180s.jpg", "ps3-240s.jpg", "ps3-300s.jpg", "ps3-360s.jpg"]
+ps3 = ["shots/ps3-180s.jpg", "shots/ps3-240s.jpg", "shots/ps3-300s.jpg", "shots/ps3-360s.jpg"]
 
 [form]
 glitches = "none"

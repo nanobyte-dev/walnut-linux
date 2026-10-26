@@ -1,0 +1,9 @@
+# the end-of-session form (games/bench/session-form.py)
+sound = "yes"
+music = "yes"
+controls = "keyboard-mouse"
+notes = ""
+saved = "2026-10-25T01:01:09Z"
+form = "tk"
+game = "openarena"
+variant = "base"

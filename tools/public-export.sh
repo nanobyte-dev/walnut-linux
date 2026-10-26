@@ -8,7 +8,10 @@
 # replaced in every file of every commit, e.g. the console's NOR dump hash). It checks for backups/ or firmware/ paths,
 # NOR/NAND dumps and disk images, licensed game data paths, private keys. The licensed packages' sources
 # (packages/licensed/, gamedb/<games|engines>/<id>/licensed/, and as a second check any packages/**/<name>/
-# of a licensed name: tools/licensed.py names) are left out of every commit. The rewrite is deterministic: running it again on a
+# of a licensed name: tools/licensed.py names) are left out of every commit, and so are the played sessions'
+# raw files (gamedb/**/raw/**: the harness's logs and samples, scrubbed but private; tools/gamedb/evidence.py),
+# whose Git LFS objects then never reach GitHub either (make public-push pushes what the export's commits
+# name). The rewrite is deterministic: running it again on a
 # longer main gives the same commit IDs for the old commits, so the public repository fast-forwards.
 # Nothing is pushed: the push to github.com/nanobyte-dev is the user's step (printed at the end).
 # Needs git-filter-repo (pip install --user git-filter-repo).
@@ -30,7 +33,7 @@ grep -Eo '^[0-9a-f]{40}' "$SRC/tools/public-strip-blobs.txt" > "$DIR/.git/strip-
 # tools/licensed.py fails closed: no list, no export
 licensed=$(python3 -I "$SRC/tools/licensed.py" names) && [ -n "$licensed" ] ||
 	{ echo "!! tools/licensed.py names failed: nothing exported" >&2; exit 2; }
-drop=(--path packages/licensed/ --path-glob 'gamedb/*/*/licensed/*')
+drop=(--path packages/licensed/ --path-glob 'gamedb/*/*/licensed/*' --path-regex '^gamedb/(.+/)?raw/')
 for n in $licensed; do drop+=(--path-glob "packages/*/$n/*" --path-glob "packages/*/*/$n/*"); done
 git filter-repo --quiet --force --invert-paths "${drop[@]}" --strip-blobs-with-ids "$DIR/.git/strip-blobs" \
 	--replace-text "$REPL" --message-callback '
@@ -55,6 +58,8 @@ hits=$(printf '%s\n' "$paths" | grep -E "^(backups|firmware)/|\\.(bin|img|pup|PU
 lic=$({ printf '%s\n' "$paths" | grep -E '^(packages/licensed|gamedb/[^/]+/[^/]+/licensed)/'
 	for n in $licensed; do printf '%s\n' "$paths" | grep -E "^packages/([^/]+/){1,2}$n/"; done; } || true)
 [ -z "$lic" ] || { echo "!! licensed packages' files in the history:"; printf '   %s\n' $lic | head -20; bad=1; }
+raw=$(printf '%s\n' "$paths" | grep -E '^gamedb/(.+/)?raw/' || true)
+[ -z "$raw" ] || { echo "!! sessions' raw/ files in the history:"; printf '   %s\n' $raw | head -20; bad=1; }
 for b in $(cat .git/strip-blobs); do
 	git cat-file -e "$b" 2>/dev/null && { echo "!! stripped blob $b is still in the history"; bad=1; }
 done

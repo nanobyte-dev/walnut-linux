@@ -1,0 +1,9 @@
+# the end-of-session form (games/bench/session-form.py)
+sound = "yes"
+music = "yes"
+controls = "keyboard-mouse"
+notes = "crash"
+saved = "2026-10-25T01:39:03Z"
+form = "tk"
+game = "sauerbraten-edition"
+variant = "base"

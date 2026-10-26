@@ -55,4 +55,4 @@ verdict = "wrong"
 note = "wrong: every texture is corrupted (noise in the right shapes: road, walls, trees, karts), the geometry right; the PC shows proper textures"
 
 [shots]
-ps3 = ["ps3-60s.jpg", "ps3-120s.jpg", "ps3-180s.jpg"]
+ps3 = ["shots/ps3-60s.jpg", "shots/ps3-120s.jpg", "shots/ps3-180s.jpg"]

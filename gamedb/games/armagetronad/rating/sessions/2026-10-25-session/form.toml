@@ -1,0 +1,9 @@
+# the end-of-session form (games/bench/session-form.py)
+sound = "yes"
+music = "yes"
+controls = "full"
+notes = ""
+saved = "2026-10-25T00:35:25Z"
+form = "tk"
+game = "armagetronad"
+variant = "base"

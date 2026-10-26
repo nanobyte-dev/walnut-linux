@@ -64,7 +64,7 @@ verdict = "minor"
 note = "minor: Quake II's demo level as it looks; the particles square; most shots show the key-binding menu (the player rebinding the shipped E/S/D/F movement to WASD)"
 
 [shots]
-ps3 = ["ps3-420s.jpg"]
+ps3 = ["shots/ps3-420s.jpg"]
 
 [form]
 glitches = "minor"

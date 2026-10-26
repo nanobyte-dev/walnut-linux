@@ -1,0 +1,9 @@
+# the end-of-session form (games/bench/session-form.py)
+sound = "yes"
+music = "yes"
+controls = "full"
+notes = "No issues"
+saved = "2026-10-24T22:02:07Z"
+form = "tk"
+game = "neverball"
+variant = "base"

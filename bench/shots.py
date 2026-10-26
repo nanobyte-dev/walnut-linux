@@ -93,11 +93,12 @@ def num(v):
 
 
 def image(d, s):
-    """the shot's picture in run directory d: the .xwd as recorded, else its PNG (after convert)"""
+    """the shot's picture in run directory d: the .xwd as recorded, else its PNG (after convert), else its
+    JPEG (a run rebuilt from a gamedb session's evidence: tools/gamedb/evidence.py)"""
     if not s.get("file"):
         return None
     p = Path(d) / s["file"]
-    for c in (p, p.with_suffix(".png")):
+    for c in (p, p.with_suffix(".png"), p.with_suffix(".jpg")):
         if c.exists():
             return c
     return None

@@ -1,0 +1,9 @@
+# the end-of-session form (games/bench/session-form.py)
+sound = "yes"
+music = "none"
+controls = "keyboard-mouse"
+notes = "Options menu is broken."
+saved = "2026-10-24T22:18:21Z"
+form = "tk"
+game = "luanti"
+variant = "base"

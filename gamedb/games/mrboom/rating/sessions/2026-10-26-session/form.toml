@@ -1,0 +1,6 @@
+# from the player in chat (the game crashed; the form was not filled)
+form_version = 2
+notes = "Crashed within half a minute, on the welcome screen or while joining players (a segfault in Mr.Boom's own code)."
+form = "chat"
+game = "mrboom"
+variant = "base"

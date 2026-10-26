@@ -55,4 +55,4 @@ verdict = "ok"
 note = "ok: the menus, the maps, lighting and the HUD as on the PC (BananaBread, the Cube 2 engine demo in Debian's cube2)"
 
 [shots]
-ps3 = ["ps3-120s.jpg", "ps3-180s.jpg", "ps3-240s.jpg"]
+ps3 = ["shots/ps3-120s.jpg", "shots/ps3-180s.jpg", "shots/ps3-240s.jpg"]

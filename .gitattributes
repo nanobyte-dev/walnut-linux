@@ -1,6 +1,10 @@
 # Walnut Games screenshots (JPEG and PNG under a game's rating/) live in Git LFS; thumb.png stays a normal
-# file: the site and the app read it, and at 256x144 it is small. Nothing else of a bundle is in LFS: the
-# benchmark assets (demos, saves, maps, all under 400 KB) are normal files, as they were in bench/assets/.
+# file: the site and the app read it, and at 256x144 it is small. A played session's evidence is in LFS
+# too: every screenshot (shots/) and the harness's files (raw/, xz-compressed; private: the public copy
+# strips raw/), so CI fetches only the gallery (tools/gamedb/gallery.py). Nothing else of a bundle is in
+# LFS: the benchmark assets (demos, saves, maps, all under 400 KB) are normal files, as they were in bench/assets/.
 gamedb/games/**/rating/**/*.jpg filter=lfs diff=lfs merge=lfs -text
 gamedb/games/**/rating/**/*.jpeg filter=lfs diff=lfs merge=lfs -text
 gamedb/games/**/rating/**/*.png filter=lfs diff=lfs merge=lfs -text
+gamedb/games/**/rating/sessions/**/shots/** filter=lfs diff=lfs merge=lfs -text
+gamedb/games/**/rating/sessions/**/raw/** filter=lfs diff=lfs merge=lfs -text

@@ -55,4 +55,4 @@ verdict = "ok"
 note = "ok: Freedoom 2 levels, weapons and the status bar with the software renderer, as on the PC"
 
 [shots]
-ps3 = ["ps3-60s.jpg", "ps3-300s.jpg", "ps3-360s.jpg", "ps3-420s.jpg"]
+ps3 = ["shots/ps3-60s.jpg", "shots/ps3-300s.jpg", "shots/ps3-360s.jpg", "shots/ps3-420s.jpg"]

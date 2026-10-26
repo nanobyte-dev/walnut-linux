@@ -1,0 +1,16 @@
+# the end-of-session form (games/bench/session-form.py)
+form_version = 2
+sound = "yes"
+music = "yes"
+glitches = "none"
+pad_menus = "didnt"
+pad_play = "seamless"
+keyboard_mouse = "worked"
+menus_modes = "yes"
+saves_load = "na"
+controls = "keyboard-mouse"
+notes = "Pad tested right after the session (same build, the player's own settings): it does not work in the menus, it works in game."
+saved = "2026-10-26T03:32:14Z"
+form = "tk"
+game = "bomberclone"
+variant = "base"

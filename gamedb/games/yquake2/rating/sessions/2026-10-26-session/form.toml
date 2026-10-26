@@ -1,0 +1,16 @@
+# the end-of-session form (games/bench/session-form.py)
+form_version = 2
+sound = "yes"
+music = "yes"
+glitches = "minor"
+pad_menus = "na"
+pad_play = "na"
+keyboard_mouse = "worked"
+menus_modes = "yes"
+saves_load = "na"
+controls = "keyboard-mouse"
+notes = "Particle effects are rendering as squares"
+saved = "2026-10-26T02:06:06Z"
+form = "tk"
+game = "yquake2"
+variant = "base"

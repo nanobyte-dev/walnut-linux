@@ -46,4 +46,4 @@ verdict = "ok"
 note = "ok: the map, towns, rivers and the windows with the software driver, as on the PC"
 
 [shots]
-ps3 = ["ps3-60s.jpg", "ps3-120s.jpg"]
+ps3 = ["shots/ps3-60s.jpg", "shots/ps3-120s.jpg"]

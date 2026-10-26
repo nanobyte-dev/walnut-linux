@@ -69,7 +69,7 @@ verdict = "ok"
 note = "ok: every track right on Mesa ps3.850 (the GART fix): the desert tutorial, Ravenbridge Mansion and its restart, the mines, the castle, snow, subsea; kart shadows and textures as on the PC"
 
 [shots]
-ps3 = ["ps3-60s.jpg", "ps3-240s.jpg", "ps3-540s.jpg", "ps3-600s.jpg"]
+ps3 = ["shots/ps3-60s.jpg", "shots/ps3-240s.jpg", "shots/ps3-540s.jpg", "shots/ps3-600s.jpg"]
 
 [form]
 glitches = "none"

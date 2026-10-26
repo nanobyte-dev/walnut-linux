@@ -55,4 +55,4 @@ verdict = "ok"
 note = "ok: the arenas, weapons, effects, bots and HUD, the menus as on the PC (one menu drew wrong once, per the player)"
 
 [shots]
-ps3 = ["ps3-180s.jpg", "ps3-360s.jpg", "ps3-420s.jpg", "ps3-720s.jpg"]
+ps3 = ["shots/ps3-180s.jpg", "shots/ps3-360s.jpg", "shots/ps3-420s.jpg", "shots/ps3-720s.jpg"]

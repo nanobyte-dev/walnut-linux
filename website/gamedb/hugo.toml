@@ -25,8 +25,8 @@ description = "Games that run on Walnut, the open Linux for the PS3: each one pl
 # (gamedb/README.md), as content/games/<id>/. content/games/_index.md (the section page and its cascade)
 # stays here and merges with the mounted bundles. From a bundle only what the pages show comes in (an
 # allowlist, so the database's other files never become pages or resources): index.md, thumb.png and
-# the sessions' screenshots (the catalog lists the ones a page shows; publishResources = false in the
-# cascade publishes only those).
+# the sessions' screenshots, shots/*.jpg (the catalog lists the gallery's, the ones a page shows;
+# publishResources = false in the cascade publishes only those; shots/pc/ stays out).
 [[module.mounts]]
 source = "content"
 target = "content"
@@ -34,4 +34,4 @@ target = "content"
 [[module.mounts]]
 source = "../../gamedb/games"
 target = "content/games"
-includeFiles = ["/*/index.md", "/*/thumb.png", "/*/rating/sessions/*/*.jpg"]
+includeFiles = ["/*/index.md", "/*/thumb.png", "/*/rating/sessions/*/shots/*.jpg"]

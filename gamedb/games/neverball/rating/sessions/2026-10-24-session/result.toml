@@ -55,4 +55,4 @@ verdict = "ok"
 note = "ok: the levels, the ball, coins, HUD, the results and level screens as on the PC (the player: \"played flawlessly\")"
 
 [shots]
-ps3 = ["ps3-60s.jpg", "ps3-120s.jpg", "ps3-180s.jpg", "ps3-240s.jpg"]
+ps3 = ["shots/ps3-60s.jpg", "shots/ps3-120s.jpg", "shots/ps3-180s.jpg", "shots/ps3-240s.jpg"]

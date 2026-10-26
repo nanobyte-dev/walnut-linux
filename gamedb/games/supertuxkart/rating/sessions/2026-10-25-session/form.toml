@@ -1,0 +1,8 @@
+# the end-of-session form, written from the player's answers in chat (the form was closed by mistake)
+sound = "yes"
+music = "yes"
+controls = "partial"
+notes = "The textures are garbage on the PS3 (fine on the PC). The controller is only found if it was on when the game started; its scheme is nonstandard (Triangle accelerates or similar); in the menus only the left stick works, not the d-pad. The game started in a window."
+form = "chat"
+game = "supertuxkart"
+variant = "base"

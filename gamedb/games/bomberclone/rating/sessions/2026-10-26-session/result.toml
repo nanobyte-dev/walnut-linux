@@ -69,7 +69,7 @@ verdict = "ok"
 note = "ok: the arenas, bombs, explosions and the HUD as BomberClone looks, 4:3 with bars at the sides"
 
 [shots]
-ps3 = ["ps3-60s.jpg", "ps3-120s.jpg", "ps3-180s.jpg"]
+ps3 = ["shots/ps3-60s.jpg", "shots/ps3-120s.jpg", "shots/ps3-180s.jpg"]
 
 [form]
 glitches = "none"

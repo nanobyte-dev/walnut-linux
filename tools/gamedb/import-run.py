@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""import-run.py RUN... --game ID [--launcher NAME] [--shots POINTS] [--content DIR] [--dry-run]: turn bench run
-directories into a game's sessions in the Walnut Games catalog (docs/GAMEDB.md).
+"""import-run.py RUN... --game ID [options]: turn bench run directories into a game's sessions in the Walnut Games catalog (docs/GAMEDB.md).
+Options: --launcher NAME, --shots POINTS, --rules R, --session NAME, --keep-record, --content DIR, --dry-run.
 
 Design
 - Input: a run directory of the harness (bench/run.sh, make bench-pull: bench.txt, versions,
@@ -18,10 +18,17 @@ Design
               "window"/"duration" are the harness's own stops, not crashes
   The play start is the recipe's own mark where it has one (Warzone: the line the game prints when
   the match starts), else bench.txt's load_end; the load time is the same moment.
-- Output: <content>/<id>/rating/sessions/<date>-<kind>/result.toml, written by a small hand-rolled TOML writer
-  (stdlib has a reader only) under a "generated, do not edit" header, and the screenshots next to it:
-  ps3-<point>.jpg at 800x450 (only the PS3's pictures are published: the PC reference is for reviewing), JPEG quality 82 (ImageMagick `magick`), which the
-  repository keeps in Git LFS (.gitattributes). index.md is never touched. The game must exist.
+- Output: the session folder <content>/<id>/rating/sessions/<date>-<kind>/ (--session NAME: that one). First the
+  evidence (tools/gamedb/evidence.py): every screenshot in shots/ as JPEG, 800x450, quality 82 (ImageMagick
+  `magick`), the PC reference in shots/pc/, the player's form.toml and the reviewer's review.md as given, the
+  harness's files scrubbed and compressed in raw/ with raw/import.toml (this tool's inputs). Then result.toml,
+  derived from that evidence alone (derive_session: the run rebuilt from it, so tools/gamedb/reimport.py
+  gets the same record from the folder without the run), written by a small hand-rolled TOML writer (stdlib
+  has a reader only) under a "generated, do not edit" header; its [shots] ps3 lists the gallery (the pictures
+  the site and the app show: only the PS3's, the PC reference is for reviewing) as shots/<file>. The repository
+  keeps shots/ and raw/ in Git LFS (.gitattributes). index.md is never touched. The game must exist.
+  --keep-record: the folder's result.toml stays as it is (a record an older importer derived, before rules
+  versions), only its gallery moves into shots/; raw/import.toml frozen = true, reimport.py leaves it.
 - kind: "session" (bench.txt kind=session, the recorder of phase P3), "demo" (a harness run with a
   measured window: stands in for a session until the game has one), "capture" (shots only: grades
   the picture, nothing else).
@@ -48,15 +55,17 @@ Design
   is an answer that can't be read, and `verdict: wrong` without a defect.
 - Refused: runs with interfered=1 (or TEMPLIMIT / thermal stop), capture runs without REVIEW.md.
 - No absolute path, host name or user name is written: the run is named by its directory name only.
-Importing the same run again rewrites its test directory; another run of the same day and kind gets
+Importing the same run again rewrites its session folder; another run of the same day and kind gets
 the time of day in its directory name.
 """
 import argparse
 import json
 import re
 import statistics
+import shutil
 import subprocess
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -64,6 +73,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 sys.path[:0] = [str(REPO / "bench"), str(HERE)]   # python3 -I keeps the script's directory out
 import check    # noqa: E402  (the catalog's layout: SESSIONS, CONTENT)
+import evidence  # noqa: E402  (the session's evidence: shots/, raw/, form.toml, review.md)
 import games    # noqa: E402  (bench/games.py: a run's game and its recipe)
 import gamedata  # noqa: E402  (bench/gamedata.py: a game's played test, rating/test.toml)
 import report   # noqa: E402  (bench/report.py)
@@ -72,7 +82,7 @@ import shots    # noqa: E402
 
 CRASH_RE = re.compile(r"segfault|general protection|out of memory|oom-kill|killed process", re.I)
 SKIP_PKGS = shots.SKIP_PKGS
-JPEG_SIZE, JPEG_QUALITY = "800x450", "82"
+JPEG_SIZE, JPEG_QUALITY = evidence.SHOT_SIZE, evidence.SHOT_QUALITY
 
 
 class Refused(Exception):
@@ -658,10 +668,9 @@ def versions(d):
 
 
 def jpeg(src, dst):
-    p = subprocess.run(["magick", str(src), "-resize", JPEG_SIZE, "-strip", "-quality", JPEG_QUALITY, str(dst)],
-                       capture_output=True, text=True)
-    if p.returncode:
-        raise Refused("magick %s: %s" % (src.name, p.stderr.strip()[-200:]))
+    e = evidence.jpeg(src, dst)
+    if e:
+        raise Refused(e)
 
 
 SHOTS_MAX = 4      # pictures published per test
@@ -705,9 +714,7 @@ def pick_shots(items, keep=None, n=SHOTS_MAX, look=tiny):
 MARKS_MAX = 6      # the player's own shots (Alt+F12, Select+Start): all of them, up to this many
 
 
-def shot_name(p):
-    """the published file of a shot: a timed point (int seconds) or a player's mark (float, seconds)"""
-    return "ps3-%ds.jpg" % p if isinstance(p, int) else "ps3-mark-%ss.jpg" % ("%.1f" % p).replace(".", "_")
+shot_name = evidence.shot_name    # a shot's file in the session's shots/
 
 
 def pick_all(d, sh, keep=None, look=None):
@@ -747,12 +754,9 @@ def toml_dump(top, tables):
     return "\n".join(lines) + "\n"
 
 
-def import_run(run, game, content, dry=False, launcher=None, keep=None, rules=None):
-    d = Path(run)
-    b = report.kv(d / "bench.txt")
-    if not b:
-        raise Refused("%s: no bench.txt" % d.name)
-    r = report.run(d)
+def precheck(d, b, game, content, launcher, r=None):
+    """the refusals a run directory meets before anything is written; (kind, date, clock). r: report.run(d)"""
+    r = report.run(d) if r is None else r
     why = []
     if r.get("intf") == 1:
         why.append(r.get("intf_why", "interfered"))
@@ -764,26 +768,33 @@ def import_run(run, game, content, dry=False, launcher=None, keep=None, rules=No
     recorded = (b.get("launcher") or "").strip() or None
     if launcher and recorded and launcher != recorded:
         raise Refused("%s: recorded the launcher %r, not %r (--launcher)" % (d.name, recorded, launcher))
+    sh = shots.parse(d)
+    has_shots = any(shots.image(d, s) for s in list(sh["shots"].values()) + list(sh["marks"].values()))
+    if has_shots and shots.review(d) is None:
+        raise Refused("%s: has screenshots but no REVIEW.md (nobody looked at the sheet yet)" % d.name)
+    kind = "session" if b.get("kind") == "session" else "demo" if report.window(b) else "capture"
+    m = re.search(r"(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z", d.name)
+    if not m:
+        raise Refused("%s: no timestamp in the directory name" % d.name)
+    if not (Path(content) / game / "index.md").exists():
+        raise Refused("%s: no %s/index.md (write the catalog entry first)" % (game, Path(content) / game))
+    return kind, "%s-%s-%s" % m.groups()[:3], "".join(m.groups()[3:5])
+
+
+def derive(d, game, content, launcher=None, keep=None, rules=None):
+    """(top, tables) of result.toml from run directory d (a run rebuilt from a session's evidence:
+    evidence.rebuild), and the line import_run prints"""
+    b = report.kv(d / "bench.txt")
+    if not b:
+        raise Refused("%s: no bench.txt" % d.name)
+    r = report.run(d)
+    kind, date, _ = precheck(d, b, game, content, launcher, r)
+    recorded = (b.get("launcher") or "").strip() or None
     launcher = recorded or (launcher or "").strip() or None
     sh = shots.parse(d)
     has_shots = any(shots.image(d, s) for s in list(sh["shots"].values()) + list(sh["marks"].values()))
     verdict = (shots.review(d) or "").rstrip(":;,.") or None   # shots.review keeps a colon: "ok:"
-    windowed = bool(report.window(b))
-    kind = "session" if b.get("kind") == "session" else "demo" if windowed else "capture"
-    if has_shots and verdict is None:
-        raise Refused("%s: has screenshots but no REVIEW.md (nobody looked at the sheet yet)" % d.name)
-    m = re.search(r"(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z", d.name)
-    if not m:
-        raise Refused("%s: no timestamp in the directory name" % d.name)
-    date, clock = "%s-%s-%s" % m.groups()[:3], "".join(m.groups()[3:5])
-    gdir = Path(content) / game
-    if not (gdir / "index.md").exists():
-        raise Refused("%s: no %s/index.md (write the catalog entry first)" % (game, gdir))
-    fm = front_matter(gdir / "index.md")
-    tdir = gdir / check.SESSIONS / ("%s-%s" % (date, kind))
-    old = tdir / "result.toml"
-    if old.exists() and tomllib.loads(old.read_text()).get("run") != d.name:
-        tdir = gdir / check.SESSIONS / ("%s-%s-%s" % (date, kind, clock))
+    fm = front_matter(Path(content) / game / "index.md")
     n = numbers(d, b, r)
     fv, form = form_v2(d)
     data = int(str(rules).split(".")[0]) if rules else (2 if fv >= 2 else 1)
@@ -814,20 +825,89 @@ def import_run(run, game, content, dry=False, launcher=None, keep=None, rules=No
     tables = {"numbers": n, "scores": {k: round(v, 1) for k, v in scores.items() if v is not None},
               "versions": versions(d),
               "picture": {"verdict": verdict, "note": note or None},
-              "shots": {"ps3": [shot_name(p) for p, _ in ps3]}}
+              "shots": {"ps3": ["shots/" + shot_name(p) for p, _ in ps3]}}
     if data >= 2:   # raw numbers and answers only: the catalog scores them with the current formula
         del tables["scores"]
         tables["form"], tables["review"] = form, review
-    print("%s -> %s  (%s, %.0f s of play, %s)" % (d.name, tdir.relative_to(REPO) if tdir.is_relative_to(REPO)
-                                                    else tdir.name, kind, play, end))
-    if dry:
-        return
-    tdir.mkdir(parents=True, exist_ok=True)
-    for old_shot in list(tdir.glob("ps3-*.jpg")) + list(tdir.glob("pc-*.jpg")):   # an import again: its pick
-        old_shot.unlink()
-    for p, src in ps3:
-        jpeg(src, tdir / shot_name(p))
-    (tdir / "result.toml").write_text(toml_dump(top, tables))
+    return top, tables, "%s (%s, %.0f s of play, %s)" % (d.name, kind, play, end)
+
+
+def derive_session(sdir, game, content):
+    """(result.toml's text, the summary line) derived from session folder sdir's evidence alone: its run
+    rebuilt from raw/, shots/, form.toml and review.md (evidence.rebuild), imported with raw/import.toml's
+    inputs. The one derivation: import_run and reimport.py both call it"""
+    opts = evidence.read_import(sdir)
+    with tempfile.TemporaryDirectory(prefix="gamedb-rebuild-") as tmp:
+        try:
+            rd = evidence.rebuild(sdir, tmp)
+        except ValueError as e:
+            raise Refused(str(e))
+        top, tables, line = derive(rd, game, content, opts.get("launcher"), opts.get("shots"), opts.get("rules"))
+    return toml_dump(top, tables), line
+
+
+def kept_record(old_text, sdir):
+    """a frozen record (--keep-record) with its gallery in shots/: the [shots] ps3 names get the shots/ folder"""
+    t = tomllib.loads(old_text)
+    names = t.get("shots", {}).get("ps3", [])
+    new = [x if x.startswith("shots/") else "shots/" + x for x in names]
+    if names and new != names:
+        out, n = re.subn(r"(?m)^ps3 = \[.*\]$", "ps3 = " + toml_value(new), old_text, count=1)
+        if not n:
+            raise Refused("%s: result.toml has no `ps3 = [...]` line to move into shots/" % sdir.name)
+        return out
+    return old_text
+
+
+def import_run(run, game, content, dry=False, launcher=None, keep=None, rules=None, session=None, keep_record=False):
+    """import run directory run as a session of game: its evidence into the session folder (evidence.collect),
+    then the record derived from that evidence alone (derive_session). session: the folder's name (default
+    <date>-<kind>, -<hhmm> for another run that day). keep_record: keep the folder's result.toml as it is
+    (its gallery moved into shots/): a record derived by an older importer, whose derivation is gone
+    (raw/import.toml frozen = true; reimport.py leaves it)"""
+    d = Path(run)
+    b = report.kv(d / "bench.txt")
+    if not b:
+        raise Refused("%s: no bench.txt" % d.name)
+    kind, date, clock = precheck(d, b, game, content, launcher)
+    sessions = Path(content) / game / check.SESSIONS
+    tdir = sessions / (session or "%s-%s" % (date, kind))
+    old = tdir / "result.toml"
+    old_run = tomllib.loads(old.read_text()).get("run") if old.exists() else None
+    if old_run and old_run != d.name:
+        if session:
+            raise Refused("%s: %s holds the run %s" % (d.name, tdir.name, old_run))
+        tdir = sessions / ("%s-%s-%s" % (date, kind, clock))
+        old = tdir / "result.toml"
+    if keep_record and not old.exists():
+        raise Refused("%s: --keep-record: %s has no result.toml to keep" % (d.name, tdir.name))
+    opts = {"run": d.name, "game": game, "launcher": launcher, "shots": list(keep) if keep else None,
+            "rules": str(rules) if rules else None, "frozen": True if keep_record else None}
+    with tempfile.TemporaryDirectory(prefix="gamedb-import-") as tmp:
+        stage = Path(tmp) / tdir.name
+        errs = evidence.collect(d, stage, opts)
+        if errs:
+            raise Refused("; ".join(errs))
+        if keep_record:
+            text = kept_record(old.read_text(), tdir)
+            for f in tomllib.loads(text).get("shots", {}).get("ps3", []):
+                if not (stage / f).exists():      # the run lost that picture: the published one stays
+                    src = tdir / f if (tdir / f).exists() else tdir / f.removeprefix("shots/")
+                    if not src.exists():
+                        raise Refused("%s: the gallery's %s is neither in the run nor in %s" % (d.name, f, tdir.name))
+                    shutil.copyfile(src, stage / f)
+            line = "%s (kept: %s)" % (d.name, tdir.name)
+        else:
+            text, line = derive_session(stage, game, content)
+        (stage / "result.toml").write_text(text)
+        print("%s -> %s" % (line.split(" ", 1)[0], tdir.relative_to(REPO) if tdir.is_relative_to(REPO) else tdir.name)
+              + "  " + line.split(" ", 1)[1])
+        if dry:
+            return
+        if tdir.exists():
+            shutil.rmtree(tdir)
+        tdir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(stage, tdir)
 
 
 def main():
@@ -840,13 +920,17 @@ def main():
                     % SHOTS_MAX)
     ap.add_argument("--rules", help="the data version to file the run under, e.g. 2.0 (default: 2 for a session "
                     "with the second form, else 1)")
+    ap.add_argument("--session", help="the session folder's name (default <date>-<kind>, -<hhmm> for another run "
+                    "that day); refused when it holds another run")
+    ap.add_argument("--keep-record", action="store_true", help="keep the session's result.toml as it is (a record "
+                    "an older importer derived): collect the evidence only, the gallery moves into shots/")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     bad = 0
     for run in a.runs:
         try:
             import_run(run, a.game, a.content, a.dry_run, a.launcher,
-                       [int(x) for x in a.shots.split(",")] if a.shots else None, a.rules)
+                       [int(x) for x in a.shots.split(",")] if a.shots else None, a.rules, a.session, a.keep_record)
         except Refused as e:
             print("!! %s" % e, file=sys.stderr)
             bad += 1

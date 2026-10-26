@@ -6,13 +6,13 @@ Design
   package, whose rules unpack it to /usr/share/walnut-games/ (docs/GAMEDB.md "The desktop app").
 - Contents: catalog.json (catalog.py's, without the .deb links: the app installs from the apt
   repository), and for every game games/<id>/thumb.png plus the screenshots its sessions list
-  (games/<id>/rating/sessions/<run>/<file>.jpg, the paths as in gamedb/games/<id>/ and on the site). The
+  (games/<id>/rating/sessions/<run>/shots/<file>.jpg, the paths as in gamedb/games/<id>/ and on the site). The
   rest of a game's folder (index.md, result.toml) stays out.
 - The catalog is checked first (check.py): a catalog that does not validate is not packed. Drafts
   (index.md draft = true) are left out, as catalog.py leaves them out, pictures included.
 - Screenshots are Git LFS files. A checkout without the LFS objects holds 130-byte pointer files;
-  packing those would ship broken pictures, so they stop the build with a message (CI checks out
-  with lfs: true for this package, .github/workflows/walnut-package.yml).
+  packing those would ship broken pictures, so they stop the build with a message (CI fetches just these
+  from LFS for this package: tools/gamedb/gallery.py, .github/workflows/walnut-package.yml).
 - Reproducible: sorted entries, the time SOURCE_DATE_EPOCH (else the newest commit's), root owner.
 - stdlib only (python3 -I; the CI runner and a developer's PC both have it).
 """

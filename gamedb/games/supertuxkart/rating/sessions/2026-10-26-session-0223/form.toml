@@ -1,0 +1,16 @@
+# the end-of-session form (games/bench/session-form.py)
+form_version = 2
+sound = "yes"
+music = "yes"
+glitches = "none"
+pad_menus = "worked"
+pad_play = "seamless"
+keyboard_mouse = "worked"
+menus_modes = "yes"
+saves_load = "na"
+controls = "full"
+notes = ""
+saved = "2026-10-26T02:37:29Z"
+form = "tk"
+game = "supertuxkart"
+variant = "base"

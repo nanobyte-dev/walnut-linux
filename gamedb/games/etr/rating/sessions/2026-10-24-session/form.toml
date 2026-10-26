@@ -1,0 +1,9 @@
+# the end-of-session form (games/bench/session-form.py)
+sound = "yes"
+music = "yes"
+controls = "full"
+notes = ""
+saved = "2026-10-24T23:17:20Z"
+form = "tk"
+game = "etr"
+variant = "base"

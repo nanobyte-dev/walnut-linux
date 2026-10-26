@@ -32,7 +32,10 @@
 #            (the server's publisher on good and hostile uploads), batch-publish (github-ci/batch-publish.py,
 #            testing's one publisher: its plan, and whole runs through publish.sh against a fake
 #            GitHub API and the real walnut-watch), gamedb (Walnut Games' scoring against the calibration
-#            table in docs/GAMEDB.md, check.py, import-run.py, catalog.py), walnut-games (the app and its root
+#            table in docs/GAMEDB.md, check.py, import-run.py, catalog.py), gamedb-evidence (a played
+#            session's evidence: tools/gamedb/test_evidence.py, the scrub and scan, import and re-import;
+#            then reimport.py --check: every record of the repository derived again from its evidence
+#            alone, unchanged), walnut-games (the app and its root
 #            helper: validation, remove-cascade refusal, Exec parsing, a window smoke test), ps3disk-guard (kernel local/0045's
 #            range checks, packages/patched/kernel/linux/tests/ps3disk-guard.sh)
 #   --slow   also autogm (packages/walnut/system/ps3-desktop/tests/autogm-check.sh: needs Xvfb+openbox or docker/podman) and
@@ -246,6 +249,7 @@ run walnut-repo python3 apt-repo/test_walnut_repo.py
 run walnut-watch python3 servers/walnut.nanobyte.dev/test_walnut_watch.py
 run batch-publish python3 -I github-ci/test_batch_publish.py
 run gamedb python3 -I tools/gamedb/test_gamedb.py
+run gamedb-evidence bash -c "python3 -I tools/gamedb/test_evidence.py && python3 -I tools/gamedb/reimport.py --check"
 run walnut-games python3 -I packages/walnut/apps/walnut-games/tests/test_walnut_games.py
 run ps3disk-guard packages/patched/kernel/linux/tests/ps3disk-guard.sh
 [ $slow = 1 ] && run autogm bash -c "$(declare -f t_autogm); t_autogm"

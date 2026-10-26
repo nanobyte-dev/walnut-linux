@@ -1,0 +1,9 @@
+# the end-of-session form (games/bench/session-form.py)
+sound = "yes"
+music = "yes"
+controls = "keyboard-mouse"
+notes = ""
+saved = "2026-10-25T02:10:31Z"
+form = "tk"
+game = "openttd"
+variant = "base"

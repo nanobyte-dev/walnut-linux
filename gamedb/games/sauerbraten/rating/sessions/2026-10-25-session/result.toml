@@ -55,4 +55,4 @@ verdict = "ok"
 note = "ok: the maps, bots, weapons and HUD as Sauerbraten looks; crashed again (a NULL write in libc after the GPU ran out of video memory) with the fixed query code"
 
 [shots]
-ps3 = ["ps3-60s.jpg", "ps3-120s.jpg", "ps3-300s.jpg", "ps3-360s.jpg"]
+ps3 = ["shots/ps3-60s.jpg", "shots/ps3-120s.jpg", "shots/ps3-300s.jpg", "shots/ps3-360s.jpg"]

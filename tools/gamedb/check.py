@@ -26,7 +26,9 @@ Design
       in index.md (the numbered steps of getting and setting up the data: sentences, with `code` in
       backticks that must pair up)
     * thumb.png is a PNG; every test has a parsable result.toml of schema 1 whose listed screenshots
-      exist, and no stray file sits in a session folder or the game's folder (GAME_FILES: index.md, thumb.png,
+      exist (shots/ps3-<point>.jpg), and no stray file sits in a session folder (result.toml, form.toml,
+      review.md, shots/, raw/; tools/gamedb/evidence.py, which also scans the record, form.toml, review.md
+      and raw/ for what must not be public) or the game's folder (GAME_FILES: index.md, thumb.png,
       build.toml, rating/, packages/, licensed/, upstream.md, upstream/, benchmark/: BENCH_FILES,
       desktop/: DESKTOP_FILES, its launchers and migrate-home.txt as tools/gamedb/pack-integration.py reads them); its rules, when given, are "<data>.<formula>" of a
       data version score.py knows, and a data-version-2 test's defects name known categories
@@ -56,6 +58,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import score   # noqa: E402
+import evidence  # noqa: E402  (a session folder's evidence and its public-safe scan)
 CATEGORIES = ["action", "adventure", "arcade", "board-card", "platformer", "puzzle", "racing", "rpg",
               "sandbox", "shooter", "simulation", "sports", "strategy"]
 CONTROLLERS = ["full", "partial", "keyboard", "unknown"]
@@ -88,7 +91,6 @@ BUILDER_RE = re.compile(r"(source|script|game-data-packager:[a-z0-9][a-z0-9-]*)\
 # Hugo leave it out) needs only these; whatever else it has is checked as usual, nothing is filled in
 DRAFT_REQUIRED = {"id", "title", "status"}
 STATUSES = ["candidate", "tried", "blocked", "dropped", "impossible", "tested"]
-TEST_FILES = {"result.toml"}
 # what a game's folder may hold so far (gamedb/README.md; the later migration steps add theirs): the page,
 # the thumbnail, the sessions, our source packages, the licensed data packages and builders, upstream offers
 GAME_DIRS = ("rating", "packages", "licensed", "upstream", "benchmark", "desktop", "investigations")
@@ -289,13 +291,12 @@ def check_game(gdir, bad, repo, ctx=None):
                            if len(score.parse_defects([x])) != 1 or not score.parse_defects([x])[0][1]]
             if bad_defects:
                 errs.append(SESSIONS + "/%s/result.toml: defects %r: \"<category> <pc|ps3>: <what>\"" % (t.name, bad_defects))
-        listed = set(r.get("shots", {}).get("ps3", [])) | set(r.get("shots", {}).get("pc", []))
+        listed = set(r.get("shots", {}).get("ps3", []))
         for f in sorted(listed):
             if not (t / f).exists():
                 errs.append(SESSIONS + "/%s: screenshot %s is listed but missing" % (t.name, f))
-        for f in sorted(x.name for x in t.iterdir()):
-            if f not in listed and f not in TEST_FILES:
-                errs.append(SESSIONS + "/%s: unexpected file %s" % (t.name, f))
+        # the evidence: form.toml, review.md, shots/, raw/; the public-safe scan (tools/gamedb/evidence.py)
+        errs += [SESSIONS + "/%s: %s" % (t.name, e) for e in evidence.folder_errors(t, listed)]
     for f in sorted(x.name for x in gdir.iterdir()):
         if f not in GAME_FILES:
             errs.append("unexpected file %s (a game folder holds %s)" % (f, ", ".join(GAME_FILES)))

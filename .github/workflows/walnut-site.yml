@@ -44,7 +44,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          lfs: true   # Walnut Games' screenshots
+          lfs: false
+      - name: The gallery's screenshots from Git LFS
+        # only the screenshots the pages show, not every session's other shots and raw/ files (tools/gamedb/gallery.py)
+        run: git lfs pull -I "$(python3 -I tools/gamedb/gallery.py --lfs-include)"
       - name: Upload and wait until live
         env:
           WALNUT_DEPLOY_KEY_DATA: ${{ secrets.WALNUT_DEPLOY_KEY }}

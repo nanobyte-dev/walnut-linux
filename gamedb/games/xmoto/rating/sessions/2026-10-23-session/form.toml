@@ -1,0 +1,9 @@
+# the end-of-session form (games/bench/session-form.py)
+sound = "yes"
+music = "yes"
+controls = "keyboard-mouse"
+notes = "Didn't test with controller. Game played flawlessly"
+saved = "2026-10-23T22:22:17Z"
+form = "tk"
+game = "xmoto"
+variant = "base"

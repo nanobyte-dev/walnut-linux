@@ -55,4 +55,4 @@ verdict = "ok"
 note = "ok: the map, terrain, towns, trains and the windows as on the PC, except the water: it pulses to white or very bright (the player; not on the PC)"
 
 [shots]
-ps3 = ["ps3-60s.jpg", "ps3-240s.jpg", "ps3-300s.jpg", "ps3-360s.jpg"]
+ps3 = ["shots/ps3-60s.jpg", "shots/ps3-240s.jpg", "shots/ps3-300s.jpg", "shots/ps3-360s.jpg"]
