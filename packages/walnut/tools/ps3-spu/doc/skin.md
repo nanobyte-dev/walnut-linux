@@ -9,7 +9,7 @@ Files: `lib/skin-kern.h` (the kernel, shared by both sides), `lib/skin-job.h` (t
 `lib/skin.c` (the API and its policy), `spu/skin-op.c` (the op, in the deadline pool's
 deadline.spu since 2026-10-17: doc/pool.md), `tools/speq-skin.c` (tests,
 the reference, the benchmark), `packages/patched/games/cube2/patches/0006-*.patch` (the hook),
-`bench/recipes/sauerbraten.sh` (variants spuskin, ppeskin, offskin).
+`gamedb/games/bananabread/benchmark/recipe.sh` (variants spuskin, ppeskin, offskin).
 
 ## 1. How Sauerbraten skins
 

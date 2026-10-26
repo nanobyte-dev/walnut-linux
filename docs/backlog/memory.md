@@ -50,7 +50,7 @@ the A/B with the stats line in every arm:
 
     S=NV30_FORCE_DXT_STATS=50
     ENVS="$S+NV30_FORCE_DXT=opaque+NV30_FORCE_DXT_DEBUG=1" /var/tmp/bench/run.sh bench luanti base 1
-    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque" /var/tmp/bench/run.sh bench sauerbraten base 2
+    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque" /var/tmp/bench/run.sh bench bananabread base 2
 
 Read `vram` and `mem_gpu_vram`, `fdxt_raw_mb` against `fdxt_dxt_mb`, `fdxt_skip`,
 `fdxt_unforced`, `fdxt_mipgen_ms`, `load`, `stall_play_s`, `low1`, `mem_swap`. Add `SPEQ_DEBUG=1`

@@ -1,5 +1,6 @@
-# Walnut Games screenshots (JPEG, and PNG under a game's rating/) live in Git LFS; thumb.png stays a normal
-# file: the site and the app read it, and at 256x144 it is small.
-gamedb/games/**/*.jpg filter=lfs diff=lfs merge=lfs -text
-gamedb/games/**/*.jpeg filter=lfs diff=lfs merge=lfs -text
+# Walnut Games screenshots (JPEG and PNG under a game's rating/) live in Git LFS; thumb.png stays a normal
+# file: the site and the app read it, and at 256x144 it is small. Nothing else of a bundle is in LFS: the
+# benchmark assets (demos, saves, maps, all under 400 KB) are normal files, as they were in bench/assets/.
+gamedb/games/**/rating/**/*.jpg filter=lfs diff=lfs merge=lfs -text
+gamedb/games/**/rating/**/*.jpeg filter=lfs diff=lfs merge=lfs -text
 gamedb/games/**/rating/**/*.png filter=lfs diff=lfs merge=lfs -text

@@ -57,7 +57,7 @@
 # AI-only cost with no drawing: `--autogame --skirmish=... --headless` (WZ_AUTOGAME_SPEED=1 for
 # real time, 500 for the whole match): 198 s at 500x under qemu on the PC, a PPE timing wanted.
 COMM=warzone2100
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 # loading the game: base.wz and mp.wz, the stats, the map; 300 s as for the other slow loaders
 DURATION=${SMOKE_SECS:-300}
 WZ_CFG=$HOME/.local/share/warzone2100-ps3bench

@@ -11,7 +11,7 @@
 # renderer's texture uploads for the big level backgrounds (RAM/VRAM), the pointer (the mouse is the
 # only control; variant swcursor draws Pingus' own cursor).
 COMM=pingus
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 BACKUP=("$HOME/.pingus/config")
 PG_LEVEL=/usr/share/games/pingus/data/levels/tutorial/basher-tutorial-grumbel.pingus
 PG_R=opengl

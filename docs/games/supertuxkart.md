@@ -58,7 +58,7 @@ open. Not yet tried on the PS3.
 
 ## The recipe
 
-`bench/recipes/supertuxkart.sh`: profile mode (`--profile-time`) starts a race at once with
+`gamedb/games/supertuxkart/benchmark/recipe.sh`: profile mode (`--profile-time`) starts a race at once with
 every kart driven by the AI, on lighthouse with 4 karts (`STK_TRACK`, `STK_KARTS`), fullscreen
 1920x1080, `--no-start-screen`. With `STK_PROFILE_WARMUP=60` and `--profile-time=180` it drives 240 s
 and prints `Number of frames: N time T, Average FPS: F` over the 180 s after the warm-up (a tick

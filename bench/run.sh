@@ -1,7 +1,8 @@
 #!/bin/bash
 # run.sh: the game suite runner (docs/games/SUITE.md), on the PS3 as tibi over SSH. Every run goes
 # through `ps3-bench.sh x` (desktop stopped, swaps emptied, samples, thermal watchdog) with
-# client.sh and a recipe (recipes/<game>.sh). Copy this directory with `make bench-push`.
+# client.sh and a recipe (the game's benchmark/recipe.sh: games.sh). Copy this directory and the
+# games' benchmarks with `make bench-push`. GAME is a gamedb id (an old recipe name also works).
 #   run.sh smoke GAME [VARIANT]        a first launch: VRAM swap off (NOVSWAP=0 keeps it), 360 s
 #                                      at most (warm-up and window included); prints the result,
 #                                      kernel and game errors to check
@@ -58,7 +59,7 @@
 # there and records gamedata=, swap= (report.py: base@gdssd, base@gdssd+swssd). Everything back to
 # usb when run.sh ends (ssd-arm.sh reset).
 # Library switches as ENVS tokens (client.sh, docs/SPU-AUDIO.md, docs/PROFILING.md "Load-time decoders
-# and linking"): OAL=b16[,lin,...] OpenAL Soft's settings (recipes/openal.inc's names) on any variant,
+# and linking"): OAL=b16[,lin,...] OpenAL Soft's settings (openal.inc's names) on any variant,
 # FLUIDFX=off|norev|nocho|cho1|on FluidSynth's reverb and chorus (our libfluidsynth3's
 # FLUIDSYNTH_SETTINGS), ZLIB=ng|stock zlib-ng's libz.so.1 (libz-ng-compat, the default) or zlib1g's, LDPATH=DIR copies of replaced
 # libraries in front (a same-boot A/B against a package's previous version), BINDNOW=1 LD_BIND_NOW,
@@ -83,6 +84,7 @@
 {
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
+. "$here/games.sh"
 B=ps3-bench.sh
 BATCH_POS_FILE=${BATCH_POS_FILE:-/dev/shm/ps3-bench.batchpos}	# the batch counter (reset it when a batch starts)
 LOG=/dev/shm/run.sh.$$
@@ -155,14 +157,15 @@ one() {	# one LABEL GAME VARIANT [ENVTOKEN]: one run, its directory appended to 
 
 versions() {	# versions GAME VARIANT: the game's package and the graphics stack (outside the timed client)
 	local p
-	p=$( (CMD=(); ASSETS=; . "$here/recipes/$1.sh"; declare -F "variant_$2" >/dev/null && "variant_$2"
+	p=$( (CMD=(); bench_use "$1"; . "$(bench_recipe "$1")"; declare -F "variant_$2" >/dev/null && "variant_$2"
 		readlink -f "$(command -v "${CMD[0]}")") 2>/dev/null)
 	dpkg-query -W $(dpkg -S "$p" 2>/dev/null | cut -d: -f1 | tr , ' ') mesa-libgallium ps3rsx-modules-ps3 libspeq0 libfluidsynth3 libopenal1 libsdl3-0 ps3-gpu-tools 2>/dev/null
 	uname -r
 	# the Walnut release (os-release's VERSION_ID): the version a test is filed under in the games database
 	printf 'walnut\t%s\n' "$(. /etc/os-release 2>/dev/null; echo "${VERSION_ID:-}")"
 }
-variants() { grep -o '^variant_[a-z0-9_]*' "$here/recipes/$1.sh" | sed 's/^variant_//' | tr '\n' ' '; }
+game() { bench_id "$1" || { echo "!! no recipe $1 (run.sh list)" >&2; return 1; }; }	# a name -> its id
+variants() { grep -o '^variant_[a-z0-9_]*' "$(bench_recipe "$1")" | sed 's/^variant_//' | tr '\n' ' '; }
 report() { [ ${#RUNS[@]} -gt 0 ] && python3 "$here/report.py" "$@" "${RUNS[@]}"; }
 
 # rotated ROUND TOKEN...: the tokens, started at a different one each round when ROTATE=1 (round 1 as
@@ -178,7 +181,7 @@ rotated() {
 
 case ${1:-} in
 smoke)
-	g=${2:?game}; v=${3:-base}
+	g=$(game "${2:?game}") || exit 2; v=${3:-base}
 	BENCH_SHOTS=${BENCH_SHOTS:-auto} BENCH_TIMEOUT=${BENCH_TIMEOUT:-360} BENCH_NOVSWAP=${NOVSWAP:-1} one "smoke-$g-$v" "$g" "$v"
 	d=${RUNS[0]:-}; [ -n "$d" ] || exit 1
 	echo "== $g $v"; cat "$d/bench.txt" 2>/dev/null || echo "(no bench.txt: the client didn't finish)"
@@ -193,7 +196,7 @@ smoke)
 	echo "Sound by ear (the TV); the sound card state at ${SOUND_AT:-15} s is in bench.txt."
 	;;
 bench)
-	g=${2:?game}; vs=${3:-base}; n=${4:-3}
+	g=$(game "${2:?game}") || exit 2; vs=${3:-base}; n=${4:-3}
 	for i in $(seq "$n"); do
 		for v in $vs; do
 			for e in $(rotated "$i" ${ENVS:--}); do one "$g-$v" "$g" "$v" "$e" || break 3; done
@@ -203,11 +206,11 @@ bench)
 	;;
 suite)
 	vs=${2:-base}; n=${3:-3}
-	games=$(grep -l '^SUITE=1' "$here"/recipes/*.sh | xargs -n1 basename | sed 's/\.sh$//')
+	games=$(for g in $(bench_ids); do grep -q '^SUITE=1' "$(bench_recipe "$g")" && echo "$g"; done)
 	for i in $(seq "$n"); do
 		for g in $games; do
 			for v in $vs; do	# a game without the variant runs base once per round instead
-				[ "$v" = base ] || grep -q "^variant_$v()" "$here/recipes/$g.sh" || v=base
+				[ "$v" = base ] || grep -q "^variant_$v()" "$(bench_recipe "$g")" || v=base
 				[ "$v" = base ] && [[ " ${done_base:-} " == *" $g.$i "* ]] && continue
 				[ "$v" = base ] && done_base="${done_base:-} $g.$i"
 				for e in ${ENVS:--}; do one "$g-$v" "$g" "$v" "$e" || break 4; done
@@ -218,8 +221,8 @@ suite)
 	;;
 session) shift; exec "$here/session.sh" "$@" ;;
 list)
-	for r in "$here"/recipes/*.sh; do
-		g=$(basename "$r" .sh)
+	for g in $(bench_ids); do
+		r=$(bench_recipe "$g")
 		printf '%-14s %s variants: base %s\n' "$g" "$(grep -q '^SUITE=1' "$r" && echo suite || echo '     ')" "$(variants "$g")"
 	done
 	;;

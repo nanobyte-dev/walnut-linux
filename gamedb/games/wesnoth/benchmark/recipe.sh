@@ -32,7 +32,7 @@
 #           --turns 10 --rng-seed 1 --exit-at-end
 # timed with /usr/bin/time (wall time and max RSS), which is the AI's CPU cost per turn on the PPE.
 COMM=wesnoth-1.18
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 WN_PREFS=$HOME/.config/wesnoth-1.18/preferences
 BACKUP=("$WN_PREFS")
 # played sessions' fresh defaults (session.sh, freshhome.py): the game's real directories (checked against its XDG/legacy paths)

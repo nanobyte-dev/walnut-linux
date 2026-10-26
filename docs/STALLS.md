@@ -409,7 +409,7 @@ ioquake3 0025-0026 (+ps3.396, both on by default, host frames identical over thr
 
 Both start working at the second pass, which the window never includes. `cl_deferPlayers 1`
 (opt-in) drops `loaddefered`: the bots keep a substitute model, which changes the picture. Recipe
-variants `keepimg0`, `preload0`, `loads0` (both off) and `defer` (`bench/recipes/openarena.sh`).
+variants `keepimg0`, `preload0`, `loads0` (both off) and `defer` (`gamedb/games/openarena/benchmark/recipe.sh`).
 On the PS3 (results row 59, TESTS.md 10-18 08:25, commit 2d3243c) gameplay stalls went 9-10 s -> 0
 and steady fps 65 -> 70.6. OpenArena's current numbers (gl2min 57-60 fps with 1-2 s of stalls since
 batch 17) are in [games/README.md](games/README.md).
@@ -504,7 +504,7 @@ cold, base and prefetch runs interleaved, all with the recorder (`STALLS=1`) for
         ENVS="GAMEPREFETCH=learn" /var/tmp/bench/run.sh bench $g 1; done
     /usr/lib/ps3/desktop/ps3-game-prefetch game-list --dir /var/tmp/ps3-bench/gprefetch
     # 1. base against prefetch, 3 rounds each
-    STALLS=1 ENVS="- GAMEPREFETCH=fetch" /var/tmp/bench/run.sh bench sauerbraten base 3
+    STALLS=1 ENVS="- GAMEPREFETCH=fetch" /var/tmp/bench/run.sh bench bananabread base 3
     #    ... the same for "openarena gl2min", "luanti base", "supertuxkart lean"
     python3 /var/tmp/bench/report.py --stalls /var/tmp/ps3-bench/<the runs>
 

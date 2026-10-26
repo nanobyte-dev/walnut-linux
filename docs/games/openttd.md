@@ -33,9 +33,9 @@ natively (8 fps).
 
 ## The recipe
 
-`bench/recipes/openttd.sh`. The default `base` is a real game: `assets/openttd-bench.sav`
+`gamedb/games/openttd/benchmark/recipe.sh`. The default `base` is a real game: `assets/openttd-bench.sav`
 (a 256x256 map played by six AIs for 12 years on the PC, then every company made a human one so no
-script runs; made with `bench/openttd-savegen/`), loaded with `-g`, 1920x1080 fullscreen, the camera
+script runs; made with `gamedb/games/openttd/benchmark/assets-src/`), loaded with `-g`, 1920x1080 fullscreen, the camera
 on Taningville at the normal zoom, the game at normal speed. The GL driver (`-v sdl-opengl`, our package),
 fps from the Gallium HUD (the load ends at the HUD's first frame, 60 s warm-up, 120 s measured), sound
 and music on (SDL sound driver at 44.1 kHz, FluidSynth with the first soundfont, OpenMSX playing).

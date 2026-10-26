@@ -48,6 +48,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from report import run  # noqa: E402
+import games  # noqa: E402
 
 RESULTS = Path(os.environ.get("BENCH_RESULTS") or Path(__file__).resolve().parent / "results")
 HUD_GAMES = set()
@@ -67,8 +68,9 @@ OPTIONAL = ("stall_disk_s", "stall_swap_s", "stall_reclaim_s", "stall_gpu_s", "s
 for _m in OPTIONAL:
     METRICS[_m] = lambda r, m=_m: r.get(m.replace("_ms", ""))
 FIXED = ["test", "date", "runs", "observations"]
-RECIPES = sorted((p.stem for p in (Path(__file__).resolve().parent / "recipes").glob("*.sh")),
-                 key=len, reverse=True)
+# the names a run directory's label may start with: every game's id and the recipes' old names (games.py;
+# a label is the name the run was made under, kept as it is)
+RECIPES = sorted(games.names(), key=len, reverse=True)
 
 
 def label_game(d):

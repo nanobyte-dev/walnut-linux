@@ -2,7 +2,7 @@
 #   base: a real game (2026-10-19). assets/openttd-bench.sav: 1962, 30 towns (65000 inhabitants),
 #         318 stations, 132 trains, 600 road vehicles, 5 ships, 83 aircraft (a 256x256 map, played by
 #         six AIs for 12 years on the PC, then every company made a human one: no script runs, no AI
-#         window, no news; made with bench/openttd-savegen/). Loaded from the command line
+#         window, no news; made with assets-src/). Loaded from the command line
 #         (-g), 1920x1080 fullscreen, the camera on Taningville (a city of 5000 with a rail station
 #         and a bus hub, ~35 vehicles within 16 tiles) at the normal zoom, the game at normal speed
 #         for the whole run (OpenTTD has no timedemo: a fixed duration; the game thread's work per
@@ -102,8 +102,8 @@ during() {
 	echo "window at $EPOCHREALTIME"
 	sleep 62
 	while :; do
-		XKEYS_HOLD=3 python3 "$here/xkeys.py" openttd Right
-		XKEYS_HOLD=3 python3 "$here/xkeys.py" openttd Left
+		XKEYS_HOLD=3 python3 "$BENCH_LIB/xkeys.py" openttd Right
+		XKEYS_HOLD=3 python3 "$BENCH_LIB/xkeys.py" openttd Left
 	done
 }
 variant_sw() { OT_V=sdl; ot_cmd; ENV+=(SDL_FRAMEBUFFER_ACCELERATION=0); HUD=0; LOAD_MARK='Loading savegame version'; }

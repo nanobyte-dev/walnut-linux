@@ -47,7 +47,7 @@
 # 224 fragment constants (shader compile or link errors in game.log), a long first load (the local
 # server has the client send it the map, then waits ~10 s before the match starts).
 COMM=redeclipse
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 RE_HOME=$HOME/.redeclipse
 BACKUP=("$RE_HOME/autoexec.cfg" "$RE_HOME/localinit.cfg" "$RE_HOME/config.cfg" "$RE_HOME/init.cfg")
 RE_MAP=${RE_MAP:-torus}

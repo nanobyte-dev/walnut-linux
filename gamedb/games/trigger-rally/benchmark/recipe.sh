@@ -11,7 +11,7 @@
 # lacks (it only prints), RAM during the stage load. Variant full: the game's own defaults
 # (foliage, weather, anisotropy 4) to see what the cheap settings buy.
 COMM=trigger-rally
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 CMD=(/usr/games/trigger-rally)
 TR_CFG=$HOME/.local/share/trigger-rally/trigger-rally-0.6.6.1.config
 TR_CHEAP=1

@@ -20,17 +20,12 @@ IP=$(conf PS3_IP); USER_=$(conf PS3_USER); KEY=$(conf PS3_SSH_KEY); KEY=${KEY//\
 ps3() { timeout "${T:-60}" ssh -i "$KEY" -o UserKnownHostsFile="$PWD/build/ps3_known_hosts" -o BatchMode=yes \
 	-o ConnectTimeout=10 "$USER_@$IP" "$@"; }
 cmd=${1:-}; G=${2:-}; L=${3:-}
-# GAME is a Walnut Games entry (its recipe: the first of its recipes) or a recipe (its entry: the one
-# that lists it): BananaBread's entry runs the recipe that is still called sauerbraten
+# GAME is a Walnut Games entry, whose recipe is its own (gamedb/games/GAME/benchmark/recipe.sh,
+# bench/games.sh), or an old recipe name (sauerbraten-edition: Sauerbraten's)
 E=$G; R=$G
-if [ -n "$G" ]; then
-	if [ -e "gamedb/games/$G/index.md" ]; then
-		r=$(sed -n 's/^recipes = \["\([a-z0-9-]*\).*/\1/p' "gamedb/games/$G/index.md")
-		[ -n "$r" ] && [ -e "bench/recipes/$r.sh" ] && R=$r
-	else
-		e=$(grep -l "^recipes = .*\"$G[:\"]" gamedb/games/*/index.md 2>/dev/null | head -1)
-		[ -n "$e" ] && E=$(basename "$(dirname "$e")")
-	fi
+here=$PWD/bench; . bench/games.sh
+if [ -n "$G" ] && r=$(bench_id "$G"); then
+	R=$r; [ -e "gamedb/games/$G/index.md" ] || E=$r
 fi
 
 case $cmd in
@@ -43,7 +38,7 @@ check)
 		df -h /var/tmp | awk "NR == 2 { print \"disk: \" \$4 \" free\" }"' ;;
 start)
 	[ -n "$G" ] || { echo "usage: play-test.sh start GAME [LAUNCHER]" >&2; exit 2; }
-	[ -e "bench/recipes/$R.sh" ] || { echo "!! no recipe bench/recipes/$R.sh" >&2; exit 2; }
+	bench_id "$R" > /dev/null || { echo "!! no recipe gamedb/games/$R/benchmark/recipe.sh" >&2; exit 2; }
 	# the PS3 first: the load time counts from here
 	ps3 "systemctl --user is-active -q walnut-session-$R && { echo '!! a $R session is still open (its form?)'; exit 1; }
 		systemctl --user is-active -q ps3-game-mode.service && { echo '!! a game is running'; exit 1; }
@@ -57,7 +52,7 @@ start)
 	fi ;;
 stop)
 	[ -n "$G" ] || { echo "usage: play-test.sh stop GAME" >&2; exit 2; }
-	T=120 ps3 "c=\$(sed -n 's/^COMM=//p' /var/tmp/bench/recipes/$R.sh | head -1); c=\${c%%[[:space:]]*}; c=\${c:0:15}; [ -n \"\$c\" ] && pkill -TERM -x \"\$c\"
+	T=120 ps3 "c=\$(sed -n 's/^COMM=//p' /var/tmp/bench/games/$R/recipe.sh | head -1); c=\${c%%[[:space:]]*}; c=\${c:0:15}; [ -n \"\$c\" ] && pkill -TERM -x \"\$c\"
 		for i in \$(seq 30); do sleep 1
 			f=\$(pgrep -a -x python3 | grep session-form.py | cut -d' ' -f1); [ -n \"\$f\" ] && kill \$f
 			systemctl --user is-active -q walnut-session-$R || break; done
@@ -68,12 +63,19 @@ collect)
 	make -s bench-pull > /dev/null 2>&1 || echo "!! the pull failed (is the PS3 up?): the runs already here"
 	python3 -I - "$R" "$E" <<'PY'
 import glob, os, sys, tomllib
+sys.path.insert(0, "bench")
+import games    # bench/games.py: a run's game (runs from before the move name the old recipe)
 g, entry = sys.argv[1], sys.argv[2]
 kv = lambda f: dict(l.split("=", 1) for l in open(f, errors="replace").read().splitlines() if "=" in l)
 done = set()
 for r in glob.glob("gamedb/games/%s/rating/sessions/*/result.toml" % entry):
     done.add(tomllib.loads(open(r).read()).get("run"))
-runs = sorted(glob.glob("build/bench/ps3-bench-*-session-%s-*" % g))
+def game_of(d):
+    f = os.path.join(d, "bench.txt")
+    if os.path.exists(f):
+        return games.run_game(kv(f))
+    return games.resolve(os.path.basename(d).split("-session-", 1)[1].rsplit("-", 1)[0], old=True)
+runs = sorted(d for d in glob.glob("build/bench/ps3-bench-*-session-*") if game_of(d) == g)
 if not runs:
     print("no sessions of %s pulled" % g)
 for d in runs:

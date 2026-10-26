@@ -41,7 +41,7 @@ $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VA
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
 .PHONY: gamedb-catalog walnut-server walnut-site walnut-server-test public-push initrd-ssd initrd-walnut initrd-busybox publish du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref \
-	classicube classicube-audio classicube-deploy classicube-bench quake-data
+	classicube classicube-audio classicube-deploy quake-data
 
 help:
 	@echo "Packages (docs/PACKAGING.md):"
@@ -80,7 +80,8 @@ help:
 	@echo "  make bench-ref GAME=x [VARIANT=y]  the PC reference screenshots of a recipe (build/bench-ref)"
 	@echo "  make initrd-ssd   the SSD root's initramfs (IMGMAP=<copy of the PS3's map.json>) -> $(BUILD)/initrd"
 	@echo "  make initrd-walnut  the internal install's generic initramfs -> $(BUILD)/initrd/initrd-walnut.img"
-	@echo "  make classicube-bench  ClassiCube's benchmark plugin -> bench/assets/classicube-bench.so"
+	@echo "  make bench-assets  the benchmarks' built assets (gamedb/games/*/benchmark/assets-src/assets.mk;"
+	@echo "                     make classicube-bench: ClassiCube's plugin)"
 	@echo "Other:"
 	@echo "  make shell        shell in the builder container"
 	@echo "  make clean        move build outputs to $(BUILD)/old/ (never deletes)"
@@ -273,18 +274,12 @@ quake-data: | $(GAMES_BUILDER_STAMP)
 
 classicube: classicube-deb classicube-data-deb
 
-# ClassiCube's benchmark plugin (bench/classicube-bench: a camera path, then the frame rate),
-# against the pinned source's headers, cross-built in the builder (the snapshot's GCC, as the
-# package) -> bench/assets/classicube-bench.so, tracked so that make bench-push carries it
-CC_BENCH_SRC := $(BUILD)/classicube/bench-src
-classicube-bench: bench/assets/classicube-bench.so
-bench/assets/classicube-bench.so: bench/classicube-bench/ccbench.c bench/classicube-bench/Makefile \
-		$(CC_TARBALL) | $(BUILDER_STAMP)
-	rm -rf $(CC_BENCH_SRC); mkdir -p $(CC_BENCH_SRC)
-	tar -xzf $(CC_TARBALL) -C $(CC_BENCH_SRC) --strip-components=1
-	$(DOCKER_RUN) --user $(UID_GID) $(BUILDER_TAG) \
-		make -C bench/classicube-bench CC_SRC=/work/$(CC_BENCH_SRC) OUT=/work/$@
-	rm -rf $(CC_BENCH_SRC)
+# The benchmarks' built assets (gamedb/README.md "benchmark/assets-src/"): each assets.mk has its
+# rules and adds its targets to BENCH_ASSETS (ClassiCube's plugin: make classicube-bench)
+BENCH_ASSETS :=
+include $(sort $(wildcard gamedb/games/*/benchmark/assets-src/assets.mk))
+.PHONY: bench-assets
+bench-assets: $(BENCH_ASSETS)
 
 # --- SPU toolchain ---------------------------------------------------------------
 # spu-elf GCC 9.5 + binutils + newlib for the Cell's SPEs (tools/build-spu-toolchain.sh)
@@ -451,9 +446,14 @@ ps3-reboot:
 # beside the old copy and swapped in with a rename, so a run in progress keeps reading its files.
 # bench-pull: the PS3's run directories (/var/tmp/ps3-bench) into $(BUILD)/bench; the raw profiles
 # (perf.data ~20 MB a run, perf-load.data, perf-syms.tar) only with PERFDATA=1 (docs/PROFILING.md)
+# The tree: bench/ (__pycache__ left out) and every game's benchmark (gamedb/games/<id>/benchmark/: recipe.sh,
+# analysis.toml, lib/, assets/; not assets-src/, legacy/, results/, runs/) as games/<id>/ (bench/games.sh).
+BENCH_GAME_FILES = $(wildcard $(foreach f,recipe.sh analysis.toml lib assets,gamedb/games/*/benchmark/$(f)))
+BENCH_TAR = tar -c --exclude=__pycache__ --transform='s,^gamedb/games/\([^/]*\)/benchmark,bench/games/\1,' \
+	bench $(sort $(BENCH_GAME_FILES))
 bench-push:
 	$(call need,PS3_IP PS3_USER)
-	tar -c bench | $(PS3_SSH) 'set -e; rm -rf /var/tmp/bench.new /var/tmp/bench.old; \
+	$(BENCH_TAR) | $(PS3_SSH) 'set -e; rm -rf /var/tmp/bench.new /var/tmp/bench.old; \
 		mkdir /var/tmp/bench.new; tar -C /var/tmp/bench.new --strip-components=1 -x; \
 		[ ! -e /var/tmp/bench ] || mv /var/tmp/bench /var/tmp/bench.old; mv /var/tmp/bench.new /var/tmp/bench'
 # The screenshots (docs/games/SUITE.md "Screenshots"): bench-pull leaves out the .xwd captures it already

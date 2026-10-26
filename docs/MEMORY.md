@@ -340,7 +340,7 @@ texture.
 | 0028 | `r_mipMapPowf 0` | the gamma-correct mipmap bytes from 255 thresholds found once by bisection with the same powf, plus a 4096-bin start table: the same bytes without powf | identical; every float in [0,1] equal on x86-64 glibc, every 16th + all within 200000 ulps of each threshold on ppc64 glibc (qemu) |
 | 0029 | `r_md3PackedFrames 0` (opt-in, latched, needs `r_normalMapping 0`) | animated MD3 frames as MD3's own 16-bit positions + 4 unsigned-byte normals, 12 bytes a vertex instead of 20 (V16_SSCALED, U8_UNORM: both native on nv30), decoded in the 4 vertex-animation programs by `u_PackedFrames` (lightall draws single-frame models with that variant too, and they keep floats): the demo's model VBOs 62.2 -> 37.5 MB of VRAM | 1734 pixels differ, by at most 2 levels |
 
-Recipe variants (bench/recipes/openarena.sh): `gl2min_color16` (0027 off), `gl2min_mippowf`
+Recipe variants (gamedb/games/openarena/benchmark/recipe.sh): `gl2min_color16` (0027 off), `gl2min_mippowf`
 (0028 off), `gl2min_md3pack` (0029 on); `gl2min_up` turns 0027-0028 off too.
 
 ### Measured on the PS3 (batch 17)
@@ -612,7 +612,7 @@ commands:
     ENVS="$S+NV30_FORCE_DXT=opaque+NV30_FORCE_DXT_DEBUG=1" /var/tmp/bench/run.sh bench luanti base 1
     # off against opaque (2 rounds, interleaved)
     MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque" /var/tmp/bench/run.sh bench openarena gl2min 2
-    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque" /var/tmp/bench/run.sh bench sauerbraten base 2
+    MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque" /var/tmp/bench/run.sh bench bananabread base 2
     MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque" /var/tmp/bench/run.sh bench supertuxkart lean 2
     MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque $S+NV30_FORCE_DXT=opaque+NV30_FORCE_DXT_NEAREST=1" /var/tmp/bench/run.sh bench luanti base 2
     MEM=1 STALLS=1 ENVS="$S $S+NV30_FORCE_DXT=opaque $S+NV30_FORCE_DXT=opaque+NV30_FORCE_DXT_NEAREST=1" /var/tmp/bench/run.sh bench classicube base 2

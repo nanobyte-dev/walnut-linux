@@ -18,7 +18,7 @@
 # Settings go on the command line (each argument is a console line, run before the client starts);
 # the client also writes them to ~/.teeworlds/settings.cfg at exit, which BACKUP restores.
 COMM=teeworlds
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 BACKUP=("$HOME/.teeworlds/settings.cfg")
 TW_ARGS=("gfx_screen_width 1920" "gfx_screen_height 1080" "gfx_fullscreen 1" "gfx_vsync 0" "gfx_maxfps 0"
 	"gfx_fsaa_samples 0" "gfx_high_detail 0" "gfx_texture_quality 1" "gfx_texture_compression 1"

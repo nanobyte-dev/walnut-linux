@@ -194,7 +194,7 @@ variant_nomatreuse() { ENV+=(LU_GL_MATREUSE=0); }	# material set for every trans
 
 # OpenAL Soft measurements (docs/SPU-AUDIO.md, M0): the shared variants of openal.inc, and no sound
 # at all (5.15 has no setting for it: with no OpenAL backend the device fails to open, "Sound disabled")
-. "$here/recipes/openal.inc"
+. "$BENCH_LIB/openal.inc"
 variant_allog() { oal_variant allog; }
 variant_b16() { oal_variant b16; }
 variant_f44() { oal_variant f44; }

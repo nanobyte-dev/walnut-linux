@@ -12,7 +12,7 @@
 # every frame at 1080p, Perl module load time. The run records ~/.frozenbubble (rc, high scores):
 # BACKUP restores rc.
 COMM=frozen-bubble
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 BACKUP=("$HOME/.frozenbubble/rc")
 CMD=(/usr/games/frozen-bubble --fullscreen --solo)
 variant_menu() { CMD=(/usr/games/frozen-bubble --fullscreen); SHOT_STATIC=1; }

@@ -13,7 +13,7 @@
 # powerpc/ppc64 for years), but the SDL_gfx rotozoom code assumes pixel orders (colour channel mix-ups
 # would show on the worms); RAM with the big maps.
 COMM=warmux
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 # the config is ~/.config/wormux/config.xml (the game still calls itself wormux; it exists after the
 # first run); the first run (2026-10-19) was a small window: switch full_screen on if the file is there
 WM_CFG=$HOME/.config/wormux/config.xml

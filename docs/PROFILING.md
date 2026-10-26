@@ -246,7 +246,7 @@ the files ahead and hide the disk; client.sh then also turns game mode's own pre
 `SHADERCACHE` the game uses the user's own Mesa cache (`~/.cache/mesa_shader_cache`), warm for any
 game played before.
 
-    PERF_LOAD=1 STALLS=1 /var/tmp/bench/run.sh bench sauerbraten base 1
+    PERF_LOAD=1 STALLS=1 /var/tmp/bench/run.sh bench bananabread base 1
     PERF_LOAD=1 STALLS=1 /var/tmp/bench/run.sh bench openarena gl2min 1
     PERF_LOAD=1 STALLS=1 /var/tmp/bench/run.sh bench luanti base 1
     PERF_LOAD=1 STALLS=1 /var/tmp/bench/run.sh bench supertuxkart lean 1
@@ -636,8 +636,8 @@ run noise, so the A/B was skipped in batch ssd1. It is still queued because it i
     T=SHADERCACHE=warm+NV30_SHADER_CACHE_STATS=1
     PERF_LOAD=1 ENVS="$T+NV30_SHADER_CACHE=on" /var/tmp/bench/run.sh bench openarena gl2min 1   # prime
     PERF_LOAD=1 STALLS=1 ENVS="$T $T+NV30_SHADER_CACHE=on" /var/tmp/bench/run.sh bench openarena gl2min 2
-    PERF_LOAD=1 ENVS="$T+NV30_SHADER_CACHE=on" /var/tmp/bench/run.sh bench sauerbraten base 1   # prime
-    PERF_LOAD=1 STALLS=1 ENVS="$T $T+NV30_SHADER_CACHE=on" /var/tmp/bench/run.sh bench sauerbraten base 2
+    PERF_LOAD=1 ENVS="$T+NV30_SHADER_CACHE=on" /var/tmp/bench/run.sh bench bananabread base 1   # prime
+    PERF_LOAD=1 STALLS=1 ENVS="$T $T+NV30_SHADER_CACHE=on" /var/tmp/bench/run.sh bench bananabread base 2
     python3 /var/tmp/bench/report.py --load /var/tmp/ps3-bench/<run dirs>
 
 A new build misses everything, hence the priming run per game (it fills the NIR and the nv30 entries of

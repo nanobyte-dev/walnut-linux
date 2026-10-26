@@ -15,13 +15,13 @@ Outside this folder a game may appear only as:
 - **frozen history** (docs/archive/, git, changelogs);
 - **test fixtures** that use a game as sample data.
 
-**Status (2026-10-26): step 1b is done, the catalog and the game packages live here.** Each game's
+**Status (2026-10-26): step 1c is done, the catalog, the game packages and the benchmarks live here.** Each game's
 `index.md`, `thumb.png` and played sessions (`rating/sessions/<run>/`) are in `games/<id>/`; the site
 mounts them (website/gamedb/hugo.toml) and the app's catalog is packed from them. Every game package
 is in its bundle's `packages/`, the three engines (cube2, ioquake3, darkplaces-gl2) in `engines/<e>/`,
 the licensed data packages and builders in `games/<id>/licensed/`, the teeworlds and yquake2 upstream
-drafts in `upstream.md`; games with a package but no published page have draft bundles. The
-benchmark recipes are still in `bench/` (step 1c). The tools below already look here (marked *read now*);
+drafts in `upstream.md`; games with a package or a recipe but no published page have draft bundles.
+Every bench recipe, with its assets and helpers, is in its bundle's `benchmark/`. The tools below already look here (marked *read now*);
 the rest is marked *planned*, with the migration step that brings it.
 
 ## Layout
@@ -59,7 +59,7 @@ gamedb/
 
 TOML front matter between `+++` lines, then the notes as markdown. Keys (today's set, from
 `tools/gamedb/check.py`, which also allows only `index.md`, `thumb.png`, `rating/sessions/`, `packages/`,
-`licensed/`, `upstream.md` and `upstream/` in a game's folder until the later steps add their files):
+`licensed/`, `upstream.md`, `upstream/` and `benchmark/` in a game's folder until the later steps add their files):
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -68,7 +68,7 @@ TOML front matter between `+++` lines, then the notes as markdown. Keys (today's
 | `categories` | list | one to three of check.py's CATEGORIES |
 | `tags` | list | lower case words |
 | `packages` | list | what the app installs (moves to build.toml in step 2) |
-| `desktop`, `recipes`, `patched_by` | list | menu entries; bench recipes; our source packages that patch it |
+| `desktop`, `recipes`, `patched_by` | list | menu entries; bench runs, `"<id>:<variant>"` of the game's own recipe (check.py; the field goes in step 2); our source packages that patch it |
 | `needs_data`, `data_guide`, `data_steps` | bool, string, list | the player's own data and how to set it up |
 | `controller`, `designed_for` | string | gamepad support; `pad` or a PC input |
 | `fps_cap`, `medal_note`, `known_issues` | number, string, list | |
@@ -155,11 +155,88 @@ catalog.json is a cache of the ratings computed from these at build time.
 
 ### games/<id>/benchmark/
 
-*Planned* (steps 1c, 4, 5). The A/B benchmark of game and driver optimizations: `recipe.sh` (code, as
-the recipes in `bench/recipes/` are today; it uses `"$BENCH_LIB/smoke.inc"` and `"$GAME_DIR"`),
-`analysis.toml` (data the Python analysis tools read: the reload rule, log lines to ignore, legacy
-names, the interference pattern), `lib/`, `assets/`, `assets-src/` (with `assets.mk`),
-`results/<batch>.toml`, `runs/<run>/raw/`, `legacy/`.
+The A/B benchmark of game and driver optimizations (docs/games/SUITE.md), *read now* (step 1c) by the
+harness in `bench/`:
+
+| File | What |
+|---|---|
+| `recipe.sh` | the recipe: code, sourced by `bench/client.sh` (below) |
+| `analysis.toml` | data for the Python analysis tools: *now* `[legacy] recipe_names`, the recipe's file names before it moved here (`sauerbraten` in bananabread, `sauerbraten-edition` in sauerbraten); *planned* (step 4) the reload rule, the log lines to ignore, the interference pattern |
+| `lib/` | the game's own helpers (Hedgewars' `hwdrive.py`), reached as `"$GAME_DIR/lib/..."` |
+| `assets/` | the files a recipe puts in place (demos, replays, saves, maps, mods), reached as `"$ASSETS/..."`; small normal files, not Git LFS |
+| `assets-src/` | how built assets are made: an `assets.mk` the top-level Makefile includes (ClassiCube's plugin, `make classicube-bench`; `make bench-assets` makes all), or the scripts that made them (OpenTTD's saves) |
+| `legacy/` | superseded tools kept for the record (OpenArena's step 0) |
+| `results/<batch>.toml`, `runs/<run>/raw/` | *planned* (steps 5, 6) |
+
+Where the harness finds them: `bench/games.sh` (shell) and `bench/games.py` (Python) resolve a name to
+the game's benchmark directory, here in the repository and in `/var/tmp/bench/games/<id>/` on the PS3
+(`make bench-push` copies `recipe.sh`, `analysis.toml`, `lib/` and `assets/` of every bundle there).
+A game is named by its id; `bench.txt` gets `game=` and `recipe=` (both the id). A run from before
+the move (no `recipe=`) names the old recipe file, so its `game=` and its directory name are read
+through the `[legacy] recipe_names` first (game=sauerbraten in such a run is BananaBread); `run.sh`
+also takes an old name that is no id (`sauerbraten-edition`). Read by `bench/client.sh`, `run.sh`
+(`list`, variants, `suite`), `session.sh`, `ssd-arm.sh`, `matrix.py` (run labels), `selftest.py` (every
+recipe and variant sourced), `tools/gamedb/import-run.py` (a recipe's `PLAY_MARK`), `tools/play-test.sh`,
+`tools/play-pc.sh` (`REF_IMAGE`), `tools/bench-ref.sh` (the container sees `bench/` and the game's
+benchmark directory) and `tools/gamedb/check.py` (`benchmark/` holds only these files; a recipe.sh;
+`analysis.toml` parses).
+
+#### benchmark/recipe.sh
+
+One bash file per game, sourced by `client.sh` (variables and functions only, nothing runs at source
+time). `client.sh <game> <variant>` sources it, then calls `variant_<variant>` if it exists (`base`
+needs none). Before it is sourced, `GAME_DIR` is the game's benchmark directory, `ASSETS` its
+`assets/` and `BENCH_LIB` the directory of the generic pieces the recipes share (`bench/` for now,
+a `lib/` of its own in step 9): `"$BENCH_LIB/smoke.inc"` (the header of the smoke recipes: `SUITE=0`, a 120 s
+`DURATION` that `SMOKE_SECS` overrides, a short HUD window, `vblank_mode=0`, and `smoke_keys` /
+`smoke_xkeys` for keys into the game; a smoke recipe is a game tried once to see whether it starts and
+plays, docs/games/smoke-tested.md), `"$BENCH_LIB/openal.inc"` (the OpenAL Soft variants `allog`,
+`b16`, `f44`, `b16f44`, `p1024`, `alnull` the OpenAL games' recipes share, docs/SPU-AUDIO.md M0, with
+an optional perf profile, `OAL_PERF=N`, that `bench/oal-perf.sh` splits by symbol),
+`"$BENCH_LIB/keyboard.evemu"` (a keyboard's description for an evemu virtual keyboard: ETR's
+recording without its events) and `"$BENCH_LIB/xkeys.py"` (keys through XTEST).
+
+| Name | Meaning |
+|---|---|
+| `CMD=(...)` | the game command, absolute path |
+| `ENV=(...)` | `NAME=value` for the game's environment |
+| `SUITE=1` | part of `run.sh suite` |
+| `COMM` | the game's process name (ps3rsx per-client VRAM, peak RSS) |
+| `BACKUP=(...)` | files the game rewrites (configs): restored after every run |
+| `SESSION_HOME=(...)` | the game's settings and data directories under ~ (globs allowed): a played session sets them aside and runs the game on fresh defaults (freshhome.py); without it, the top directories of the BACKUP files |
+| `DATA_DIRS=(...)` | the game's data directories (absolute): `GAMEDATA=ssd` (run.sh, an ENVS token) runs the game with each one bind-mounted from its SSD copy (`ssd-arm.sh copy GAME` makes it; docs/GAMEOS-HDD.md "Test drive, Phase A") |
+| `setup()` | puts assets and config in place (from `$ASSETS`) |
+| `END_RE` | output line after which the game is stopped (games that don't quit) |
+| `DURATION` | seconds from start after which the game is stopped: a safety cap (default 270: load + 60 s warm-up + 120 s measured + margin) |
+| `WARMUP`, `MEASURE` | the steady state (the user, 2026-10-17): `WARMUP` seconds after the load ends are left out (default 60), then at least `MEASURE` seconds are measured (default 120). The load ends at the `LOAD_MARK` line or the first `LOAD_RE` line, else at the HUD's first frame |
+| `PASSES` | 1: the game repeats its demo in one session and every `FPS_RE` line ends a pass (`MAXMS_RE` read from the same line). A pass counts when it starts at least 0.9 x `WARMUP` after the load; the game is stopped once the counted passes cover 0.95 x `MEASURE` (ended=window). `fps`, `maxms`, `load` are then the first pass's (the run as it was before) |
+| `WINDOW_STOP` | 1: the game is stopped 2 s after the window (load + `WARMUP` + `MEASURE`), ended=window; for games measured by the HUD that don't end by themselves |
+| `STEADY_RE`, `STEADY_MAXMS_RE` | the game's own result over its own window (first capture group of the first match): bench.txt `steady_fps`, `steady_maxms` |
+| `WIN_ON_RE`, `WIN_OFF_RE` | the game marks its own window, maybe in pieces: each ON line opens a piece, the next OFF line closes it (a piece still open at the end closes there); replaces load + `WARMUP` for the HUD metrics (e.g. a demo's reload between loops left out) |
+| `FPS_RE`, `MAXMS_RE`, `LOAD_RE` | the first capture group of the last matching output line |
+| `LOAD_MARK` | an output line whose time (seconds from start) is the load time |
+| `PLAY_MARK` | played sessions only (`session.sh`): a regex on the game's output line that marks the first gameplay frame (a map loaded, a race started); bench.txt `play_from=mark`, `play_start`, `play_seconds`, and the HUD window starts there. Without it the session falls back to `LOAD_MARK`/`LOAD_RE` (`play_from=load`), else the whole run counts (`play_from=start`, an upper bound). Smoke and bench runs ignore it |
+| `session()` | played sessions only: changes `CMD`/`ENV` into the command a player starts (the timedemo, autoplay and benchmark arguments out). A session already drops `vblank_mode=0`, `during()`, `parse()`, `END_RE`, `DURATION` and the passes/windows. Without `session()` the recipe's `CMD` runs as it is: right for a `menu` variant, wrong for a timedemo |
+| `HUD_SKIP` | HUD seconds left out as loading when there is no load time (default 12) |
+| `RESULT_FILE` | files the game writes, copied into the run directory |
+| `during()` | runs in the background while the game runs (its output in during.log), stopped at the end |
+| `parse()` | prints extra `key=value` lines into bench.txt |
+| `HUD` | 1 (default): Gallium HUD fps per second into `hud/fps` and every frame's time (ms) into `hud/frametime_(ms)` |
+| `WM` | window manager started first (default `openbox`; empty: none, the game's window may not show) |
+| `GAMEMODE` | 1: start through `ps3-game` (as the desktop does); default 0, as step 0 (the game gets `PS3_GAME_MODE=off`, so ps3-game-detect leaves it alone too) |
+| `SOUND_AT` | seconds from start when the sound card state is read (default 15) |
+| `SHOT_POINTS` | the screenshots' points (whole seconds after `SHOT_FROM`) for `SHOTS=auto`, the smoke default (default `30 90`); docs/games/SUITE.md "Screenshots" |
+| `SHOT_FROM` | what the shot points count from: `load` (default: the load's end as above), `mark` (when `during()` calls `shot_mark`, e.g. after its keys; the load's end if `during()` ends without it), `start` (the client's start) |
+| `SHOT_RE` | the shot points count from the first output line matching it (sets `SHOT_FROM=re`; Warzone 2100: the match's start) |
+| `SHOT_STATIC` | 1: the shots are of a static screen (menu, title): the sheet says a close comparison is fair (the `menu` variants) |
+| `REF_PKGS`, `REF_IMAGE`, `REF_ENV` | the PC reference (tools/bench-ref.sh): Debian packages with the game, or a local image with our amd64 build of it; extra `NAME=VALUE` for the PC run |
+
+Each recipe's header says how its warm-up and window work (passes, the game's own window, or the
+HUD window, and what is not identical between runs). `bench.txt` gets `warmup`, `measure`,
+`load_end` and `hud_t1` (seconds from the start: the load's end, the HUD's first value), `window`
+(start and end of the measured window), `passes`, `measured` and `pass<N>` lines (`start end fps
+maxms counted`) for report.py. `python3 bench/selftest.py` checks client.sh, report.py and
+matrix.py with a fake game and made-up runs, and sources every recipe and variant.
 
 ### games/<id>/technical.md, investigations/
 
@@ -207,6 +284,7 @@ docs/research/.
 | licensed names and leak globs | `tools/licensed.py` |
 | CI workflows | `github-ci/gen-workflows.py` (`--check` in make test) |
 | doc blocks | `tools/gamedb/blocks.py --write`, `--check` |
+| the PS3's bench tree (`/var/tmp/bench/games/<id>/`) | `make bench-push` |
 
 ## Checks
 

@@ -16,7 +16,7 @@
 # atlas upload: VRAM), a Berserker's species/background pair being refused (the log says so),
 # the character name already saved (the game loads that save instead: harmless).
 COMM=crawl-tiles
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 # "Loading maps..." (the des files, in a small splash window) was still up 60 s into the first run
 # (2026-10-19, 120 s run): give it 300 s; SIGTERM at the end prints a "crash" report, it is the harness
 DURATION=${SMOKE_SECS:-300}

@@ -12,7 +12,7 @@
      ps3-desktop's ps3-game-prefetch (a list left, read by the next run, report.py's gpf tag and
      its warm-up columns); the SSD arms (BENCH_GAMEDATA, BENCH_SWAP: checks, bench.txt, report.py's
      tags) and ssd-arm.sh's root commands in its dry mode
-  4. every recipe and variant sourced as client.sh does: CMD set, and the durations against
+  4. every recipe (each game's benchmark/recipe.sh, games.py) and variant sourced as client.sh does: CMD set, and the durations against
      load + WARMUP + MEASURE (a variant that can't hold a window is listed, not an error)
   5. stalls.py on a made-up stalls.rec: one stall per cause the host can't make (GPU fence wait,
      zram and VRAM swap-ins, direct reclaim, GART growth, runnable without CPU) classified as such
@@ -415,6 +415,27 @@ def client(tmp):
         runs[(g, v)] = (d, report.kv(d / "bench.txt"), time.monotonic() - t)
         check("client %s %s: exit 0" % (g, v), p.returncode == 0, p.stdout[-800:] + p.stderr[-800:])
 
+    # the gamedb layout (games.sh): BENCH_GAMES/<id>/benchmark/recipe.sh with its assets/ and lib/, named
+    # by an old recipe name its analysis.toml lists ([legacy] recipe_names)
+    gb = tmp / "games" / "fakelayout" / "benchmark"
+    write(gb / "recipe.sh", RECIPES["fakehud"].replace("$FAKE", str(fake)) + "\n. \"$GAME_DIR/lib/helper.sh\"\n"
+          "parse() { echo \"seen=$GAME_DIR|$ASSETS|$BENCH_LIB|$(cat \"$ASSETS/a.txt\")|$HELPER\"; }\n")
+    write(gb / "assets" / "a.txt", "asset\n")
+    write(gb / "lib" / "helper.sh", "HELPER=lib\n")
+    write(gb / "analysis.toml", '[legacy]\nrecipe_names = ["fake-old-name"]\n')
+    genv = {k: v for k, v in env.items() if k != "BENCH_RECIPES"}
+    d = tmp / "ps3-bench-20261018T010099Z-fakelayout-base"
+    genv.update(BENCH_GAMES=str(tmp / "games"), BENCH_DIR=str(d))
+    p = subprocess.run(["bash", str(HERE / "client.sh"), "fake-old-name", "base"], env=genv, capture_output=True, text=True)
+    b = report.kv(d / "bench.txt")
+    check("gamedb layout: an old recipe name runs its game, bench.txt game= and recipe= the id",
+          p.returncode == 0 and b.get("game") == "fakelayout" and b.get("recipe") == "fakelayout",
+          (p.returncode, b.get("game"), b.get("recipe"), p.stdout[-400:]))
+    check("gamedb layout: the recipe sees GAME_DIR, ASSETS, BENCH_LIB, its asset and its lib/",
+          b.get("seen") == "%s|%s|%s|asset|lib" % (gb, gb / "assets", HERE), b.get("seen"))
+    p = subprocess.run(["bash", str(HERE / "client.sh"), "no-such-game", "base"], env=genv, capture_output=True, text=True)
+    check("gamedb layout: an unknown name: exit 2", p.returncode == 2, p.stdout[-300:])
+
     d, b, wall = runs[("fakehud", "base")]
     check("hudwin: the split line seen (load_end set from LOAD_MARK)", b.get("load_end") not in (None, ""), b)
     check("hudwin: ended=window", b.get("ended") == "window", b.get("ended"))
@@ -683,7 +704,7 @@ echo "fake gdb backtraces"\n''')
 
 def client_libenv(tmp):
     """client.sh's library switches (docs/SPU-AUDIO.md, docs/PROFILING.md): the OpenAL token
-    (BENCH_OAL, recipes/openal.inc's settings on any recipe), BENCH_FLUIDFX, BENCH_ZLIB, BENCH_BINDNOW,
+    (BENCH_OAL, openal.inc's settings on any recipe), BENCH_FLUIDFX, BENCH_ZLIB, BENCH_BINDNOW,
     BENCH_JSIMD: what the game gets, bench.txt's oal= and libenv=, report.py's tags, and the refusals"""
     lib = tmp / "libfluidsynth.so.3"
     lib.write_bytes(b"\x7fELF...FLUIDSYNTH_SETTINGS...")   # what client.sh greps for: patch 0002's variable
@@ -1559,14 +1580,15 @@ def malloctrim_real(tmp):
 
 # --- 4. every recipe and variant ---------------------------------------------------------------
 LINT = r'''
-here=$1; ASSETS=$here/assets; D=/nonexistent; g=$2
-for v in base $(grep -o '^variant_[a-z0-9_]*' "$here/recipes/$g.sh" | sed 's/^variant_//'); do
+here=$1; D=/nonexistent; g=$2
+. "$here/games.sh"; bench_use "$g"; R=$(bench_recipe "$g")	# GAME_DIR, ASSETS, BENCH_LIB as client.sh has them
+for v in base $(grep -o '^variant_[a-z0-9_]*' "$R" | sed 's/^variant_//'); do
 	(
 	CMD=(); ENV=(); BACKUP=(); GAMEMODE=0; HUD=1; COMM=; WM=openbox
 	END_RE=; DURATION=270; HUD_SKIP=12; WARMUP=60; MEASURE=120; PASSES=0; WINDOW_STOP=0; STEADY_RE=
 	STEADY_MAXMS_RE=; FPS_RE=; MAXMS_RE=; LOAD_RE=; LOAD_MARK=; RESULT_FILE=; SOUND_AT=15
 	setup() { :; }; parse() { :; }
-	. "$here/recipes/$g.sh" || exit 3
+	. "$R" || exit 3
 	[ "$v" = base ] || "variant_$v" || exit 4
 	[ ${#CMD[@]} -gt 0 ] || exit 5
 	how=hud; [ "$PASSES" = 1 ] && how=passes; [ -n "$STEADY_RE" ] && how=own; [ "$HUD" = 1 ] || how=none
@@ -1857,8 +1879,9 @@ def client_load(tmp):
 def lint():
     print("\nrecipes: game variant DURATION WARMUP MEASURE steady-source WINDOW_STOP")
     short = []
-    for r in sorted((HERE / "recipes").glob("*.sh")):
-        p = subprocess.run(["bash", "-c", LINT, "lint", str(HERE), r.stem], capture_output=True, text=True)
+    import games
+    for g, d in games.dirs().items():   # every game's benchmark/recipe.sh (games.py)
+        p = subprocess.run(["bash", "-c", LINT, "lint", str(HERE), g], capture_output=True, text=True)
         for line in p.stdout.splitlines():
             f = line.split()
             if f[2] == "ERROR":
@@ -1867,8 +1890,20 @@ def lint():
             dur, warm, meas = int(f[2]), int(f[3]), int(f[4])
             if f[5] != "none" and 0 < dur < warm + meas + 15:
                 short.append("%s-%s (%d s)" % (f[0], f[1], dur))
-        check("recipe %s: every variant sources and sets CMD" % r.stem, "ERROR" not in p.stdout and p.returncode == 0,
+        check("recipe %s: every variant sources and sets CMD" % g, "ERROR" not in p.stdout and p.returncode == 0,
               p.stderr[-300:])
+    sh = subprocess.run(["bash", "-c", 'here=$1; . "$here/games.sh"; bench_ids | tr "\\n" " "; echo; '
+                         'bench_id sauerbraten-edition; bench_id sauerbraten; bench_id no-such-game || echo none',
+                         "games", str(HERE)], capture_output=True, text=True).stdout.splitlines()
+    check("games.sh and games.py: the same games", sh[:1] == [" ".join(games.dirs()) + " "], sh[:1])
+    check("games.sh: an old recipe name that is no id resolves through [legacy] (sauerbraten-edition), an id "
+          "is itself, an unknown name fails", sh[1:] == ["sauerbraten", "sauerbraten", "none"], sh[1:])
+    check("games.py: a run from before the move reads game= through [legacy], recipe= is the id",
+          games.run_game({"game": "sauerbraten"}) == "bananabread"
+          and games.run_game({"game": "sauerbraten-edition"}) == "sauerbraten"
+          and games.run_game({"game": "sauerbraten", "recipe": "sauerbraten"}) == "sauerbraten"
+          and games.resolve("sauerbraten") == "sauerbraten" and games.resolve("no-such-game") is None,
+          games.legacy())
     print("variants too short for a window (cut before load + WARMUP + MEASURE; not fps runs or "
           "kept short on purpose):\n  " + ", ".join(short))
 

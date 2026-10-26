@@ -10,7 +10,7 @@ them had a first run that night (below). Red Eclipse is in [sauerbraten.md](saue
 
 ## How a smoke run works
 
-A smoke recipe sources `bench/recipes/smoke.inc`: `SUITE=0`, a 120 s `DURATION` that
+A smoke recipe sources `bench/smoke.inc`: `SUITE=0`, a 120 s `DURATION` that
 `SMOKE_SECS=N` overrides (`run.sh smoke` caps a run at 360 s; `BENCH_TIMEOUT=N` raises that), a short
 HUD window for the report only (10 s after the load, then 90 s), and `vblank_mode=0`. setup() writes
 the game's config (restored after the run) and starts it in the closest thing to play its command
@@ -121,7 +121,7 @@ Debian's engine and `/usr/games/nexuiz-gl2` (Debian's wrapper: `-nexuiz -basedir
 - `nexuiz-lean.cfg`: `vid_gl20 0`, `gl_picmip 2`, no realtime lighting, bloom or water,
   `r_texture_dds_save 1` (a compressed texture cache in `~/.nexuiz`), mono 22.05 kHz sound, no decals.
   textures.pk3 is 522 MB, read on demand.
-- Recipe `bench/recipes/nexuiz.sh` (`SUITE=0`): the engine's own `-benchmark demos/bench1.dem`
+- Recipe `gamedb/games/nexuiz/benchmark/recipe.sh` (`SUITE=0`): the engine's own `-benchmark demos/bench1.dem`
   with `-benchmarkruns N`, which prints "N frames S seconds F fps" per pass. Order on the PS3: base
   (the combiner path), then `gl20` and `hires`; also `stereo`, `nosound`, `bench` (every pass counted,
   as the Quake II recipe).
@@ -236,7 +236,7 @@ and yellow (14:28, ps3.633, Mesa ps3.628); the PC reference happened to get pink
 ## Skipped
 
 - **Hedgewars 1.0.3**: our ppc64 engine (`hedgewars-engine`, FPU exceptions masked at start, patch
-  0001) runs without the Qt frontend: `bench/hwdrive.py` starts it with `--internal --port N` and
+  0001) runs without the Qt frontend: `gamedb/games/hedgewars/benchmark/lib/hwdrive.py` starts it with `--internal --port N` and
   plays the frontend's IPC for a training mission (recipe `hedgewars.sh`). hwengine takes `--showfps` with
   no value: a stray argument is read as a demo file name. Runs on the PS3 with sound (562-650
   underruns), but the game ends by itself after 54-55 s with rc=0 (two runs, base on 2026-10-19 19:19Z

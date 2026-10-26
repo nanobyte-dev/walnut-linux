@@ -1,6 +1,6 @@
 #!/bin/bash
 # oal-perf.sh RUN_DIR...: the M0 split of OpenAL Soft's mixing (docs/SPU-AUDIO.md, M0) from
-# the perf.data an OpenAL variant recorded with OAL_PERF=N (recipes/openal.inc), on the PS3 as tibi
+# the perf.data an OpenAL variant recorded with OAL_PERF=N (openal.inc), on the PS3 as tibi
 # with libopenal1-dbgsym installed (without it libopenal's internal functions are [unknown]).
 # Per run: the shares of all the game's samples by DSO, by thread, libopenal by symbol, and the
 # groups M0 asks for. Go/no-go: the SPU path is worth building when "voice mixing" (Voice::mix with

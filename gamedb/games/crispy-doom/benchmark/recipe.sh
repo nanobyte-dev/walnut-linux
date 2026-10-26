@@ -17,7 +17,7 @@
 # opengles2 are the variants sdlsw and gles), the OPL music's CPU on the PPE, sound underruns
 # (bench.txt's underruns= counts ALSA's).
 COMM=crispy-doom
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 DOOM_WAD=/usr/share/games/doom/freedoom2.wad
 CD_CFG=$HOME/.local/share/crispy-doom/crispy-doom.cfg
 CD_SET=()	# extra "key value" lines (variants)

@@ -30,7 +30,7 @@ identical. `gamedb/games/xmoto/packages/xmoto/test/glbatch-test.sh` checks the G
 random scene, the same pixels with and without the stream buffer, no GL errors (`make test
 ONLY=xmoto-glbatch`, needs `make xmoto-work`).
 
-**Recipe** `bench/recipes/xmoto.sh`: the "credits" replay, which ships inside `xmoto.bin` where
+**Recipe** `gamedb/games/xmoto/benchmark/recipe.sh`: the "credits" replay, which ships inside `xmoto.bin` where
 `--replay` doesn't read it, so `assets/xmoto-credits.rpl` is it extracted (MD5 05a7200d...). `xmoto
 --nowww -fs -res 1920x1080 --replay ... --timedemo --benchmark` draws every frame, prints `Average
 framerate` and exits; it sets no swap interval itself, so `vblank_mode=0`. The replay runs in real
@@ -82,7 +82,7 @@ player, so any pad plays it; hot-plug is SFML's own events. The scheme is on the
 menu, "Keyboard functions") in a second column. The old code took any axis but X for paddle/brake
 and buttons 0-3 for the race; both are gone.
 
-**Recipe** `bench/recipes/etr.sh`: ETR has no demo mode, so the user's race was recorded as
+**Recipe** `gamedb/games/etr/benchmark/recipe.sh`: ETR has no demo mode, so the user's race was recorded as
 keyboard events (`evemu-record`, variant `record`) and is replayed into a virtual keyboard
 (`evemu-device`, `evemu-play`) from when ETR's window appears (a marker event starts the recording
 there). `assets/etr-race.evemu`: Practice, one course, 69 s, the menus up to 24.7 s. The race is raced
@@ -134,7 +134,7 @@ mipmap generation into 1-pixel levels, and the 0x105 graph exception from an una
 that wedged the RSX ([README.md](README.md#driver-bugs-the-games-found)). VBOs and point parameters
 are required with no fallback.
 
-**Recipe** `bench/recipes/neverball.sh`: the shipped replay `gui/demo1.nbr`, real-time paced,
+**Recipe** `gamedb/games/neverball/benchmark/recipe.sh`: the shipped replay `gui/demo1.nbr`, real-time paced,
 about 20 s, played 20 times (`NEVERBALL_BENCH_LOOPS=20`; passes take 12-16 s on the PS3 and 12 once
 ended before the window). `~/.neverball/neverballrc`: fullscreen 1920x1080, vsync off, the fps
 counter on. Variants: `nomip`, `gloff`, `nomesh`, `noitems`, `noback`, `nostate`.
@@ -171,7 +171,7 @@ big-endian risk (GL_RGBA or GL_BGRA picked from the SDL surface's red mask) didn
   keyboard are unaffected. Hot-plug: rescanned every second, a new pad takes the first free player.
   Settings > Miscellaneous > Game Controllers shows the scheme (read-only). Not yet tried on the PS3.
 
-**Recipe** `bench/recipes/armagetronad.sh`: a local game of 4 AI players with the player
+**Recipe** `gamedb/games/armagetronad/benchmark/recipe.sh`: a local game of 4 AI players with the player
 spectating, round after round (`SPECTATOR_MODE_1` and the `SP_*` settings), fps from the HUD window
 (60 s from the first frame, then 120 s, `WINDOW_STOP=1`). The match limits are raised. On a first
 start 0.2.9 shows a language menu, player setup and welcome screen that wait for a key (the run of

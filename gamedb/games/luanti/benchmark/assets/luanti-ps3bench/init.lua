@@ -1,4 +1,4 @@
--- ps3bench: the Luanti benchmark of the PS3 game suite (bench/recipes/luanti.sh), installed
+-- ps3bench: the Luanti benchmark of the PS3 game suite (gamedb/games/luanti/benchmark/recipe.sh), installed
 -- as a world mod. A server-side mod can't count rendered frames, so it only makes every run show
 -- the same thing: the player holds still at the start while the first map blocks are generated and
 -- meshed (ps3bench_warmup seconds), then flies a fixed path (ps3bench_seconds: a straight line north

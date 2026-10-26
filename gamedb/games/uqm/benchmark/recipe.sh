@@ -11,7 +11,7 @@
 # on a menu. The Super-Melee keys (Down Down Return, then Return into the fleet setup) are a guess too.
 # Config: ~/.uqm/uqm.cfg is rewritten by the game, restored by BACKUP.
 COMM=uqm
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 BACKUP=("$HOME/.uqm/uqm.cfg")
 UQM_GL=(--opengl)
 UQM_WIN=(-f)

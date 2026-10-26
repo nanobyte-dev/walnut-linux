@@ -24,7 +24,7 @@
 # partial), the server's RAM (a few tens of MB), "freeciv-server" not installed (Recommends only:
 # install it by name), the observer joining before the game has started.
 COMM=freeciv-gtk3.22
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 FC_PORT=5557
 FC_SCRIPT=$HOME/.freeciv/ps3-smoke.serv
 FC_RC=$HOME/.freeciv/freeciv-client-rc-3.2

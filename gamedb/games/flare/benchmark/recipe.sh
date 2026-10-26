@@ -14,7 +14,7 @@
 # Risks: 620 MB on the root file system, loading the campaign's maps on a 217 MB machine (the
 # tileset PNGs decoded whole), the SDL2 renderer's colours.
 COMM=flare
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 FL_CFG=$HOME/.config/flare/settings.txt
 BACKUP=("$FL_CFG")
 # played sessions' fresh defaults (session.sh, freshhome.py): the game's real directories (checked against its XDG/legacy paths)

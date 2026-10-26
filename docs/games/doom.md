@@ -24,7 +24,7 @@ in `ps3-games`. The release candidate is ps3.361.
 Music is MIDI through SDL_mixer and our fluidsynth (`libfluidsynth3` `2.6.1+dfsg-1+ps3.N`, its voice
 DSP on the SPEs through libspeq, `SPEQ_SYNTH=auto|spu|ppe|off`; [SPU-AUDIO.md](../SPU-AUDIO.md)).
 
-**Recipe** `bench/recipes/dsda-doom.sh`: `-timedemo demo1` (Freedoom's own DEMO1 lump, 2664
+**Recipe** `gamedb/games/dsda-doom/benchmark/recipe.sh`: `-timedemo demo1` (Freedoom's own DEMO1 lump, 2664
 gametics, 76 s at 35 Hz), 6 passes (`DSDA_BENCH_LOOPS=6`, `PASSES=1`), parsed from `Timed N gametics
 in N realtics = F frames per second`. The load ends at `Playing demo:` (0.30 never prints the
 `R_Init` lines on the PS3, so before this the window, `PERF=1` and `MEM=1` never started). Base is the

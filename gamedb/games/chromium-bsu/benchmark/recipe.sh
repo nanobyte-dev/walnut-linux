@@ -8,7 +8,7 @@
 # sound. Risks: immediate-mode vertex counts on the PPE (many sprites), blending (variant noblend:
 # -nb), the text backend (libglc0 pulls GLEW MX; a font problem would show as missing text).
 COMM=chromium-bsu
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 CB_CFG=$HOME/.chromium-bsu
 BACKUP=("$CB_CFG")
 # played sessions' fresh defaults (session.sh, freshhome.py): the game's real directories (checked against its XDG/legacy paths)

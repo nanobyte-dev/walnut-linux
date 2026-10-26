@@ -42,7 +42,7 @@ variant_kissbig() { ENV+=(YQ2_KISS_QSIZE=2097152); }
 variant_kiss4k() { ENV+=(YQ2_KISS_QSIZE=4096); }	# the default now, kept for old command lines
 # OpenAL Soft measurements (docs/SPU-AUDIO.md, M0): the shared variants of openal.inc, and no sound
 # at all
-. "$here/recipes/openal.inc"
+. "$BENCH_LIB/openal.inc"
 variant_allog() { oal_variant allog; }
 variant_b16() { oal_variant b16; }
 variant_f44() { oal_variant f44; }

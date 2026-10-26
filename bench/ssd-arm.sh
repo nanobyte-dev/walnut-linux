@@ -24,6 +24,7 @@
 {
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
+. "$here/games.sh"
 SSD=${BENCH_SSD:-/mnt/ps3ssd/games}
 SSD_DEV=${BENCH_SSD_DEV:-/dev/mapper/ps3ssd}
 SSD_SWAP=${BENCH_SSD_SWAP:-/dev/mapper/ps3ssd-swap}
@@ -38,8 +39,8 @@ root() {	# root CMD...: as root (sudo -n), or printed with SSDARM_DRY=1
 kb() { awk -v k="$1:" '$1 == k { print $2 }' /proc/meminfo; }
 
 data_dirs() {	# data_dirs GAME VARIANT: the recipe's DATA_DIRS, one a line
-	(CMD=(); ENV=(); BACKUP=(); DATA_DIRS=(); ASSETS=$here/assets
-	 . "${BENCH_RECIPES:-$here/recipes}/$1.sh" || exit 1
+	(CMD=(); ENV=(); BACKUP=(); DATA_DIRS=(); g=$(bench_id "$1") || exit 1; bench_use "$g"
+	 . "$(bench_recipe "$g")" || exit 1
 	 declare -F "variant_$2" >/dev/null && "variant_$2"
 	 for d in "${DATA_DIRS[@]}"; do printf '%s\n' "$d"; done)
 }

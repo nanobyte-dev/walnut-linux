@@ -20,7 +20,7 @@ OpenRCT2 0.5.6 ported to big-endian ppc64 (milestone 1, 2026-10-19): under qemu-
 - [x] RAM on the PC (ram.sh, ram-all.sh, smaps.sh): table below
 - [x] gamedb/games/openrct2/packages/openrct2/ package (package.conf, debian/, patches/ 0001-0005), config.mk + Makefile pins: commit 341fd04;
       patch 0006 (serialiser) commit 70e96eb
-- [x] recipe bench/recipes/openrct2.sh, selftest passes: commit bdbfead
+- [x] recipe gamedb/games/openrct2/benchmark/recipe.sh, selftest passes: commit bdbfead
 - [x] make openrct2-deb (build-deb.sh, chroot on the overflow disk): first build ps3.571 (45 min, 5 patches)
       OK; pkgtest.sh (debs installed in the ppc64 deps chroot, qemu): Electric Fields 3000 open-park ticks
       gives the amd64 park, chunk for chunk (only authoring differs: version string)

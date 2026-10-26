@@ -46,13 +46,13 @@ W 5-8 s, OpenArena L 6-8 and W 6-9, Luanti L 9-12, SuperTuxKart L 10-13 and W 3-
 boot, the measurement protocol, `tools/bench-cam.sh` on the PC, the same package versions on both
 roots, nothing deployed between the boots:
 
-    STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench sauerbraten base 3
+    STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench bananabread base 3
     STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench openarena gl2min 3
     STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench luanti base 3
     STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench supertuxkart lean 3
     STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench classicube base 3
     STALLS=1 /var/tmp/bench/run.sh bench openarena gl2min 3
-    STALLS=1 /var/tmp/bench/run.sh bench sauerbraten base 3
+    STALLS=1 /var/tmp/bench/run.sh bench bananabread base 3
     ps3-bench.sh desktop
 
 bench.txt's `root=` tells the boots apart. This is a cross-boot comparison (the exception to the

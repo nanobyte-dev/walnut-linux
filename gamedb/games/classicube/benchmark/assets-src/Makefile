@@ -2,7 +2,7 @@
 # headers of the upstream source our classicube package is built from (CC_SRC: the unpacked
 # tarball, with src/). The top-level `make classicube-bench` runs this in the builder image (its
 # cross GCC is the snapshot's, the same as the package's) and puts the result in
-# bench/assets/classicube-bench.so.
+# ../assets/classicube-bench.so (assets.mk).
 ifeq ($(origin CC),default)
 CC      := powerpc64-linux-gnu-gcc
 endif

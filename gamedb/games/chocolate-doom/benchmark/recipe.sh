@@ -14,7 +14,7 @@
 # opengles2 are the variants sdlsw and gles), vsync (vblank_mode=0 here), the OPL music's CPU
 # on the PPE, sound underruns (bench.txt's underruns= counts ALSA's).
 COMM=chocolate-doom
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 DOOM_WAD=/usr/share/games/doom/freedoom2.wad
 CD_CFG=$HOME/.local/share/chocolate-doom/chocolate-doom.cfg
 BACKUP=("$CD_CFG")

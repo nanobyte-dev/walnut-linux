@@ -85,7 +85,7 @@ On the PPE side `touch` (the page pre-touch before submit) now reads the source 
   behaviour, for A/B runs (debug line `ppe (SPEQ_S3TC_RGB=ppe)`); `off`: RGB sources back to Mesa's
   encoder (-ENOTSUP); `auto` (default): as RGBA.
 - Bench recipes: `rgbspu` (the default path with `SPEQ_DEBUG=1`) and `rgbppe`
-  (`SPEQ_S3TC_RGB=ppe SPEQ_DEBUG=1`) in `bench/recipes/sauerbraten.sh` and `openarena.sh`.
+  (`SPEQ_S3TC_RGB=ppe SPEQ_DEBUG=1`) in BananaBread's and OpenArena's recipes (`gamedb/games/bananabread/benchmark/recipe.sh`, `gamedb/games/openarena/benchmark/recipe.sh`).
 
 ## 4. Tests (host, 2026-10-18)
 
@@ -122,7 +122,7 @@ result`: `PASS ...; rgb expand N cyc/16px`.
 
 Games (`make bench-push`, then on the PS3 in `/var/tmp/bench`), same boot, interleaved:
 
-    STALLS=1 ./run.sh bench sauerbraten "rgbspu rgbppe" 3
+    STALLS=1 ./run.sh bench bananabread "rgbspu rgbppe" 3
     STALLS=1 ./run.sh bench openarena "rgbspu rgbppe" 3      # first: grep -c 'comps 3' in a game.log
 
 Look at the webcam pictures (bench-cam), then `report.py` on the run directories: stall_cpu_s,

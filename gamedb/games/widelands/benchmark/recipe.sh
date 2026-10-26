@@ -13,7 +13,7 @@
 # Risks: RAM (the map and building graphics are decoded into big textures: a 217 MB machine is the
 # worry, watch dmesg.log and MemAvailable), GLSL limits, loading time, the game's own music.
 COMM=widelands
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 BACKUP=("$HOME/.widelands/config")
 WL_MAP=/usr/share/games/widelands/data/campaigns/tutorial01_basic_control.wmf
 CMD=(/usr/games/widelands --fullscreen --scenario="$WL_MAP")

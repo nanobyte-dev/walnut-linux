@@ -1,4 +1,4 @@
-# OpenArena (ioquake3 0.8.8): timedemo of bench.dm_71 (as bench/openarena/step0.sh), renderer and
+# OpenArena (ioquake3 0.8.8): timedemo of bench.dm_71 (as legacy/step0.sh), renderer and
 # texture compression per variant. The game archives +set cvars to q3config.cfg on quit.
 # Steady state: the timedemo repeated in one session (PASSES=1: every pass prints its line; passes
 # starting 54 s or more after the first map load are counted until ~120 s, then the game is
@@ -185,7 +185,7 @@ variant_tc1nowm() { OA_TC=1; oa_cmd; WM=; }
 
 # OpenAL Soft measurements (docs/SPU-AUDIO.md, M0): the shared variants of openal.inc, and no sound
 # at all (step 0's Z)
-. "$here/recipes/openal.inc"
+. "$BENCH_LIB/openal.inc"
 variant_allog() { oal_variant allog; }
 variant_b16() { oal_variant b16; }
 variant_f44() { oal_variant f44; }

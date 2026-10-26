@@ -1,11 +1,12 @@
 #!/bin/bash
 # client.sh <game> [variant]: the X client run.sh hands to `ps3-bench.sh x`: one game run from its
-# recipe (recipes/<game>.sh, docs/games/SUITE.md). Sets up the game's files, starts it (through
-# ps3-game when the recipe says GAMEMODE=1), passes its output on (ps3-bench.sh stamps it into
-# out.log), stops it at END_RE, after DURATION or when the measured window is complete, then
-# writes $BENCH_DIR/bench.txt (key=value: game, variant, how it ended, fps, longest frame, load
-# seconds, the steady-state window and passes, peak RSS, sound state) for report.py, and restores
-# the config files the game rewrites.
+# recipe (the game's benchmark/recipe.sh, games.sh; docs/games/SUITE.md). Sets up the game's files,
+# starts it (through ps3-game when the recipe says GAMEMODE=1), passes its output on (ps3-bench.sh
+# stamps it into out.log), stops it at END_RE, after DURATION or when the measured window is
+# complete, then writes $BENCH_DIR/bench.txt (key=value: game, recipe (the same gamedb id; runs from
+# before the recipes moved into gamedb have no recipe= and name the old recipe file in game=),
+# variant, how it ended, fps, longest frame, load seconds, the steady-state window and passes, peak
+# RSS, sound state) for report.py, and restores the config files the game rewrites.
 # Steady state (the user, 2026-10-17): WARMUP seconds after the load ends (LOAD_MARK or LOAD_RE when
 # the recipe has one, else the first frame the HUD saw) don't count, then at least MEASURE seconds
 # are measured. PASSES=1: every FPS_RE line ends one pass of a demo the game repeats; a pass counts
@@ -104,16 +105,18 @@ set -u
 here=$(cd "$(dirname "$0")" && pwd)
 GAME=${1:?game}; VARIANT=${2:-base}
 D=${BENCH_DIR:-/dev/shm/bench-client-$$}; mkdir -p "$D"
-ASSETS=$here/assets
+. "$here/games.sh"	# the game's benchmark directory: GAME_DIR, ASSETS, BENCH_LIB
+_id=$(bench_id "$GAME") || { echo "!! $GAME: no recipe (run.sh list)"; exit 2; }
+GAME=$_id; bench_use "$GAME"
 
-# recipe interface (README in recipes/): the recipe sets these, a variant_<name> function changes them
+# recipe interface (gamedb/README.md "benchmark/recipe.sh"): the recipe sets these, a variant_<name> function changes them
 CMD=(); ENV=(); BACKUP=(); DATA_DIRS=(); GAMEMODE=0; HUD=1; COMM=; WM=openbox; PLAY_MARK=
 # DURATION: a safety cap (load + 60 s warm-up + 120 s measured + margin); recipes set their own
 END_RE=; DURATION=270; HUD_SKIP=12; WARMUP=60; MEASURE=120; PASSES=0; WINDOW_STOP=0; STEADY_RE=
 STEADY_MAXMS_RE=; WIN_ON_RE=; WIN_OFF_RE=; FPS_RE=; MAXMS_RE=; LOAD_RE=; LOAD_MARK=; RESULT_FILE=; SOUND_AT=15
 SHOT_POINTS="30 90"; SHOT_FROM=load; SHOT_RE=; SHOT_STATIC=0
 setup() { :; }; parse() { :; }
-. "${BENCH_RECIPES:-$here/recipes}/$GAME.sh" || exit 2
+. "$(bench_recipe "$GAME")" || exit 2
 if declare -F "variant_$VARIANT" >/dev/null; then "variant_$VARIANT"
 elif [ "$VARIANT" != base ]; then echo "!! $GAME: no variant $VARIANT"; exit 2; fi
 [ ${#CMD[@]} -gt 0 ] || { echo "!! $GAME: no CMD"; exit 2; }
@@ -246,11 +249,11 @@ shot_lines() {	# the shots' bench.txt lines (also from the trap of a run stopped
 	return 0
 }
 # OpenAL Soft's settings for this run on top of the variant (run.sh's ENVS token OAL=b16 or OAL=b16,lin
-# becomes BENCH_OAL): recipes/openal.inc's names, written to the run's alsoft.conf (ALSOFT_CONF) like its
+# becomes BENCH_OAL): openal.inc's names, written to the run's alsoft.conf (ALSOFT_CONF) like its
 # variants; sourced here for recipes that don't (SuperTuxKart). bench.txt gets oal=; report.py base@oalb16.
 OAL_TOKEN=${BENCH_OAL:-}
 if [ -n "$OAL_TOKEN" ]; then
-	declare -F oal_variant > /dev/null || . "$here/recipes/openal.inc"
+	declare -F oal_variant > /dev/null || . "$BENCH_LIB/openal.inc"
 	for v in ${OAL_TOKEN//,/ }; do oal_variant "$v" || { echo "!! BENCH_OAL=$OAL_TOKEN: no $v in openal.inc"; exit 2; }; done
 fi
 
@@ -659,7 +662,7 @@ stop_game() {
 }
 # stopped from outside (ps3-bench.sh's timeout, the thermal watchdog): still say how it ended
 trap 'stop_game; kill "${helpers[@]}" $wm 2>/dev/null
-	{ echo "game=$GAME"; echo "variant=$VARIANT"; echo "comm=$COMM"; echo "ended=killed"
+	{ echo "game=$GAME"; echo "recipe=$GAME"; echo "variant=$VARIANT"; echo "comm=$COMM"; echo "ended=killed"
 	  [ "$SESSION" = 1 ] && echo "kind=session"
 	  [ "$SESSION" = 1 ] && [ -n "${BENCH_LAUNCHER:-}" ] && { echo "launcher=$BENCH_LAUNCHER"; echo "launcher_file=${BENCH_LAUNCHER_FILE:-}"; }
 	  echo "hwm=$(cat "$D/.hwm" 2>/dev/null)"; echo "sound=$(cat "$D/.sound" 2>/dev/null)"; shot_lines; } > "$D/bench.txt"
@@ -1058,7 +1061,7 @@ fi
 [ -n "$load_us" ] && secs load_end "$load_us"; [ -n "$hud_us" ] && secs hud_t1 "$hud_us"
 secs measured "$measured"
 [ -n "$RESULT_FILE" ] && for f in $RESULT_FILE; do [ -e "$f" ] && cp -p "$f" "$D/"; done
-{ echo "game=$GAME"; echo "variant=$VARIANT"; echo "comm=$COMM"
+{ echo "game=$GAME"; echo "recipe=$GAME"; echo "variant=$VARIANT"; echo "comm=$COMM"
   echo "ended=$ended"; echo "rc=$rc"; echo "seconds=$t_run"
   echo "fps=$($pick "$FPS_RE")"; echo "maxms=$($pick "$MAXMS_RE")"; echo "load=$load"
   # steady state: settings, the load's end and the HUD's first value (s from the start), the window

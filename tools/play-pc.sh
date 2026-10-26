@@ -16,16 +16,16 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 G=${1:?usage: play-pc.sh GAME [LAUNCHER]}; L=${2:-}
+here=$PWD/bench; . bench/games.sh	# a game's recipe (gamedb/games/<id>/benchmark/recipe.sh)
 idx=gamedb/games/$G/index.md
-if [ ! -e "$idx" ]; then	# a recipe's name: the entry that lists it (BananaBread's recipe is called sauerbraten)
-	e=$(grep -l "^recipes = .*\"$G[:\"]" gamedb/games/*/index.md 2>/dev/null | head -1)
-	[ -n "$e" ] && { idx=$e; G=$(basename "$(dirname "$e")"); }
+if [ ! -e "$idx" ] && g=$(bench_id "$G"); then	# an old recipe name (sauerbraten-edition): its game's id
+	G=$g; idx=gamedb/games/$G/index.md
 fi
 [ -e "$idx" ] || { echo "!! no $idx (a Walnut Games entry)" >&2; exit 2; }
 PKGS=$(python3 -I -c 'import sys, tomllib; t = open(sys.argv[1]).read().split("+++")[1]; print(" ".join(tomllib.loads(t)["packages"]))' "$idx")
 REF_IMAGE=
-[ -e "bench/recipes/$G.sh" ] && REF_IMAGE=$(bash -c 'here=$1; ASSETS=$here/assets; CMD=(); ENV=(); REF_IMAGE=
-	setup() { :; }; parse() { :; }; . "$here/recipes/$2.sh" > /dev/null 2>&1; echo "$REF_IMAGE"' _ "$PWD/bench" "$G")
+[ "$(bench_id "$G")" = "$G" ] && REF_IMAGE=$(bash -c 'here=$1; . "$here/games.sh"; bench_use "$2"; CMD=(); ENV=(); REF_IMAGE=
+	setup() { :; }; parse() { :; }; . "$(bench_recipe "$2")" > /dev/null 2>&1; echo "$REF_IMAGE"' _ "$PWD/bench" "$G")
 SNAPSHOT=$(sed -n 's/^DEBIAN_SNAPSHOT *:= *//p' config.mk)
 BASE=${REF_IMAGE:-$(sed -n 's/^BUILDER_BASE *:= *//p' config.mk)}
 if [ -n "$REF_IMAGE" ]; then

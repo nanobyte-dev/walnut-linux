@@ -184,7 +184,7 @@ def harness(d, b):
     for k, t in (("gamedata", "gd"), ("swap", "sw")):   # client.sh's SSD arms (docs/GAMEOS-HDD.md, Phase A)
         if b.get(k) and b[k] != "usb":
             m = "+".join(x for x in (m, t + b[k]) if x)
-    if b.get("oal"):   # client.sh BENCH_OAL: OpenAL Soft's settings (recipes/openal.inc names): b16,lin -> oalb16_lin
+    if b.get("oal"):   # client.sh BENCH_OAL: OpenAL Soft's settings (openal.inc's names): b16,lin -> oalb16_lin
         m = "+".join(x for x in (m, "oal" + b["oal"].replace(",", "_")) if x)
     for x in (b.get("libenv") or "").split():   # client.sh's library switches: FLUIDFX=off -> fxoff, ZLIB=ng -> zng,
         n, _, v = x.partition("=")              # BINDNOW=1 -> bindnow, JSIMD=none -> jsimdnone

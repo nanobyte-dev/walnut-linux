@@ -13,7 +13,7 @@
 # Risks: SDL3's renderer path and colours (variants sdlsw: SDL_RENDER_DRIVER=software, gles:
 # opengles2), OpenAL + fluidsynth CPU and underruns (bench.txt's underruns=), Woof 16 needs SDL3 >= 3.4.
 COMM=woof
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 DOOM_WAD=/usr/share/games/doom/freedoom2.wad
 WOOF_CFG=$HOME/.local/share/woof/woof.cfg
 WOOF_SET=()	# extra "key value" lines (variants)

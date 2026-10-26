@@ -37,11 +37,12 @@ set -u
 here=$(cd "$(dirname "$0")" && pwd)
 g=${1:-}; v=base; want=
 [ -n "$g" ] || { sed -n '2,/^set -u/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 2; }
-R=${BENCH_RECIPES:-$here/recipes}
-[ -e "$R/$g.sh" ] || { echo "session: no recipe $g (run.sh list)" >&2; exit 2; }
+. "$here/games.sh"
+g=$(bench_id "$g") || { echo "session: no recipe $1 (run.sh list)" >&2; exit 2; }
+RF=$(bench_recipe "$g"); bench_use "$g"
 # the second argument: a recipe variant (backward compatible) or a launcher; the third a variant
 if [ -n "${2:-}" ]; then
-	if [ "$2" = base ] || ( CMD=(); ASSETS=; . "$R/$g.sh" > /dev/null 2>&1; declare -F "variant_$2" > /dev/null ); then
+	if [ "$2" = base ] || ( CMD=(); ASSETS=; . "$RF" > /dev/null 2>&1; declare -F "variant_$2" > /dev/null ); then
 		v=$2
 	else
 		want=$2; v=${3:-base}
@@ -61,7 +62,7 @@ for ((i = 1; i <= max; i++)); do shots+="$((i * every)) "; done
 pkgs() {	# the game's packages: the owners of the recipe's binary (its CMD, and the session command)
 	local p
 	[ -n "${SESSION_PACKAGES:-}" ] && { echo "$SESSION_PACKAGES" | tr -s ' ' '\n'; return; }
-	p=$( (CMD=(); ENV=(); ASSETS=; . "$R/$g.sh"; declare -F "variant_$v" > /dev/null && "variant_$v"
+	p=$( (CMD=(); ENV=(); ASSETS=; . "$RF"; declare -F "variant_$v" > /dev/null && "variant_$v"
 		declare -F session > /dev/null && session
 		readlink -f "$(command -v "${CMD[0]}")") 2> /dev/null)
 	dpkg -S "$p" 2> /dev/null | cut -d: -f1 | tr , ' ' | tr -s ' ' '\n' | sort -u
@@ -127,7 +128,7 @@ if [ -z "${SSH_TTY:-}" ] && { [ -t 1 ] || [ -t 2 ]; }; then exec > "$log" 2>&1; 
 
 versions() {	# the game's package and the graphics stack, as run.sh's
 	local p
-	p=$( (CMD=(); ASSETS=; . "$R/$g.sh"; declare -F "variant_$v" > /dev/null && "variant_$v"
+	p=$( (CMD=(); ASSETS=; . "$RF"; declare -F "variant_$v" > /dev/null && "variant_$v"
 		readlink -f "$(command -v "${CMD[0]}")") 2> /dev/null)
 	dpkg-query -W $(dpkg -S "$p" 2> /dev/null | cut -d: -f1 | tr , ' ') mesa-libgallium ps3rsx-modules-ps3 libspeq0 libfluidsynth3 libopenal1 libsdl3-0 ps3-gpu-tools ps3-desktop 2> /dev/null
 	uname -r
@@ -137,7 +138,7 @@ versions() {	# the game's package and the graphics stack, as run.sh's
 
 homes() {	# the game's settings and data directories, relative to ~: the recipe's SESSION_HOME (globs
 	# allowed), else the top directories of its BACKUP files (~/.X, ~/.config/X, ~/.local/share/X)
-	( CMD=(); ENV=(); BACKUP=(); SESSION_HOME=(); ASSETS=; . "$R/$g.sh"
+	( CMD=(); ENV=(); BACKUP=(); SESSION_HOME=(); ASSETS=; . "$RF"
 	  declare -F "variant_$v" > /dev/null && "variant_$v"
 	  if [ ${#SESSION_HOME[@]} -gt 0 ]; then printf '%s\n' "${SESSION_HOME[@]}"; exit 0; fi
 	  for f in "${BACKUP[@]}"; do

@@ -60,7 +60,7 @@ driver.
 **To start.** Count GL calls and draws per frame on llvmpipe forced to GL 2.1 (`tools/glcount`),
 then `perf` the PS3 run with `--proc-map-timeout=20000` (without it most samples land in
 `[unknown]`). Each change gets a switch and a recipe variant. For BananaBread:
-`/var/tmp/bench/run.sh bench sauerbraten "base allbatchoff" 3`.
+`/var/tmp/bench/run.sh bench bananabread "base allbatchoff" 3`.
 
 ### ps3rsx shadow_fast
 

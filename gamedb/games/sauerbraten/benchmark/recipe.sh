@@ -1,7 +1,7 @@
 # Sauerbraten, the real game (Cube 2: Sauerbraten, 2020 Edition): our `sauerbraten` launcher (fullscreen at the
 # desktop's resolution, settings in ~/.sauerbraten) on our cube2 engine, with sauerbraten-data (the release's
 # maps, textures, models, sounds; the licensed suite). The engine and its patches are the ones of the BananaBread
-# recipe (sauerbraten.sh, Debian's cube2 + gamedb/engines/cube2/packages/cube2/patches): CPU skinning (gpuskel 0), textures compressed at
+# recipe (bananabread's, Debian's cube2 + gamedb/engines/cube2/packages/cube2/patches): CPU skinning (gpuskel 0), textures compressed at
 # upload (texcompress), the cheaper GL call patterns. Only the data differs. Settings go into
 # ~/.sauerbraten/autoexec.cfg (run after config.cfg, so the player's saved fullscreen or vsync can't override
 # them); the files are restored after the run.
@@ -62,7 +62,7 @@ parse() {
 # another map: the first run on the PS3 picks which stock map is the reference (SB_MAP via the variant)
 variant_complex() { SB_MAP=complex; sb_cmd; }
 variant_metl3() { SB_MAP=metl3; sb_cmd; }
-# the bundle meant to ship in the BananaBread tests (sauerbraten.sh, variant lean): no water passes,
+# the bundle meant to ship in the BananaBread tests (bananabread's recipe, variant lean): no water passes,
 # low-detail shaders, models without bump, one dynamic light, compressed 512 textures, 22 kHz sound
 variant_lean() {
 	SB_SET+=("waterreflect 0" "waterrefract 0" "shaderdetail 1" "bumpmodels 0" "envmapmodels 0"

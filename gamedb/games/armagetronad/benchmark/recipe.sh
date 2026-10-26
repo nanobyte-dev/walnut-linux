@@ -5,7 +5,7 @@
 # start's language menu, player setup and welcome screen, which wait for a key: the run of
 # 2026-10-18 sat at the language menu for its whole window). The live variants write FIRST_USE 0
 # and the language (LANGUAGE_FIRST/_SECOND), and `during` types Return, Down, Return into a
-# virtual keyboard (as etr.sh does): main menu "Play Game", then "Local Game", which starts the
+# virtual keyboard (as etr's recipe does): main menu "Play Game", then "Local Game", which starts the
 # game at once. Playback and record keep FIRST_USE 1: their recording holds the first start's keys.
 # Steady state: the HUD window (WINDOW_STOP=1: 60 s from the first frame, then 120 s, then the game
 # is stopped). The rounds are alike but not identical from run to run (the AIs decide live).
@@ -41,7 +41,7 @@ CMD=(/usr/games/armagetronad)
 during() {
 	[ "$AA_LIVE" = 1 ] || return 0
 	local i node kbd=${BENCH_DIR:-$D}/.aa-kbd
-	grep -v '^E:' "$ASSETS/etr-race.evemu" > "$kbd.desc"
+	cp "$BENCH_LIB/keyboard.evemu" "$kbd.desc"
 	sudo -n timeout $((DURATION + 30)) evemu-device "$kbd.desc" > "$kbd.log" 2>&1 &
 	for i in $(seq 50); do node=$(awk '{print $NF}' "$kbd.log" | grep -m1 /dev/input/); [ -n "$node" ] && break; sleep 0.1; done
 	[ -n "$node" ] || { echo "no virtual keyboard"; cat "$kbd.log"; return 1; }

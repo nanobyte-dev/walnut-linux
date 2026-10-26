@@ -14,7 +14,7 @@
 # Risks: the SDL renderer's texture count and upload at 1080p, sprite batching on the PPE, the
 # mouse as the only control (the DS3 pad cannot drive the menus).
 COMM=lincity-ng
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 BACKUP=("$HOME/.config/lincity-ng.conf")
 # played sessions' fresh defaults (session.sh, freshhome.py): the game's real directories (checked against its XDG/legacy paths)
 # (the derived default would have been all of ~/.config: the config is a file there)

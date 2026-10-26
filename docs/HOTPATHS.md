@@ -807,17 +807,17 @@ selftest.py covers the tokens. Same boot, interleaved, desktop stopped, webcam p
 pixels from 0033 would show as lighting or shading differences on BananaBread's and QuakeSpasm's
 models; look for missing or flickering minimap dots and sprites with X-Moto's stream):
 
-    ENVS="- NV30_TRANSLATE_LUT=0" /var/tmp/bench/run.sh bench sauerbraten base 3
+    ENVS="- NV30_TRANSLATE_LUT=0" /var/tmp/bench/run.sh bench bananabread base 3
     ENVS="- NV30_FENCE_BO_POOL=16" /var/tmp/bench/run.sh bench classicube base 3
-    ENVS="- NV30_QUERY_WAIT=0 NV30_QUERY_WAIT=50" /var/tmp/bench/run.sh bench sauerbraten base 3
-    /var/tmp/bench/run.sh bench sauerbraten "base oqlag oqnowait" 3
+    ENVS="- NV30_QUERY_WAIT=0 NV30_QUERY_WAIT=50" /var/tmp/bench/run.sh bench bananabread base 3
+    /var/tmp/bench/run.sh bench bananabread "base oqlag oqnowait" 3
     ENVS="- NV30_STAGING_POOL=16" /var/tmp/bench/run.sh bench classicube base 3
     /var/tmp/bench/run.sh bench classicube "base chunks1 gloff" 3
     /var/tmp/bench/run.sh bench xmoto "base stream" 3
     ENVS="- PS3RSX_SHADOW_FAST=1" /var/tmp/bench/run.sh bench classicube base 3
     ENVS="- PS3RSX_SHADOW_FAST=1" /var/tmp/bench/run.sh suite base 1
     # profiles of the new paths (for the CPU shares, not for fps)
-    PERF=1 MEM=1 ENVS="NV30_QUERY_WAIT=0" /var/tmp/bench/run.sh bench sauerbraten base 1
+    PERF=1 MEM=1 ENVS="NV30_QUERY_WAIT=0" /var/tmp/bench/run.sh bench bananabread base 1
     PERF=1 MEM=1 ENVS="NV30_STAGING_POOL=16+PS3RSX_SHADOW_FAST=1" /var/tmp/bench/run.sh bench classicube base 1
 
 Batch irqoff (soft-masked time, the section above). Part A runs on the booted kernel .472 with Mesa
@@ -853,14 +853,14 @@ QuakeSpasm's model shading, SuperTuxKart's track and karts all there; MemAvailab
 `min_memavailable_kb`) for 0041, which holds staging memory until the next submission:
 
     ENVS="- NV30_FENCE_WORK_KICK=1024 NV30_FENCE_WORK_KICK=0" /var/tmp/bench/run.sh bench openarena gl2min 3
-    ENVS="- NV30_VTX_SNORM8=1 NV30_QUERY_KICK=2 NV30_VTX_SNORM8=1+NV30_QUERY_KICK=2" /var/tmp/bench/run.sh bench sauerbraten base 3
-    ENVS="- NV30_QUERY_KICK=0" /var/tmp/bench/run.sh bench sauerbraten base 3
+    ENVS="- NV30_VTX_SNORM8=1 NV30_QUERY_KICK=2 NV30_VTX_SNORM8=1+NV30_QUERY_KICK=2" /var/tmp/bench/run.sh bench bananabread base 3
+    ENVS="- NV30_QUERY_KICK=0" /var/tmp/bench/run.sh bench bananabread base 3
     ENVS="- NV30_MINMAX_VMX=1" /var/tmp/bench/run.sh bench supertuxkart lean 3
     ENVS="- NV30_VTX_SNORM8=1" /var/tmp/bench/run.sh bench quakespasm base 3
     # control: nothing to take away in ClassiCube (no SNORM8, no queries, few deferred frees)
     ENVS="- NV30_FENCE_WORK_KICK=1024+NV30_QUERY_KICK=2+NV30_VTX_SNORM8=1+NV30_MINMAX_VMX=1" /var/tmp/bench/run.sh bench classicube base 2
     # profiles with the switches (for the CPU shares, not for fps)
-    PERF=1 MEM=1 ENVS="NV30_VTX_SNORM8=1+NV30_QUERY_KICK=2" /var/tmp/bench/run.sh bench sauerbraten base 1
+    PERF=1 MEM=1 ENVS="NV30_VTX_SNORM8=1+NV30_QUERY_KICK=2" /var/tmp/bench/run.sh bench bananabread base 1
     PERF=1 MEM=1 ENVS="NV30_FENCE_WORK_KICK=1024" /var/tmp/bench/run.sh bench openarena gl2min 1
     PERF=1 MEM=1 ENVS="NV30_MINMAX_VMX=1" /var/tmp/bench/run.sh bench supertuxkart lean 1
 

@@ -29,7 +29,7 @@
 # PPE paints the viewport every frame (dirty rectangles only when nothing moves), unknown; the sim alone
 # under qemu runs ~10x slower than the PC.
 COMM=openrct2
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 # the first start indexes the objects (see above)
 DURATION=${SMOKE_SECS:-300}
 ORCT2_DIR=$HOME/.config/OpenRCT2-ps3bench

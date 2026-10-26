@@ -14,7 +14,7 @@
 # against the 217 MB, picmip and r_texture_dds_save (compressed textures cached in ~/.nexuiz) first.
 # The game rewrites ~/.nexuiz/data/config.cfg (restored after the run).
 COMM=darkplaces-gl2
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 BACKUP=("$HOME/.nexuiz/data/config.cfg")
 CMD=(/usr/games/nexuiz-gl2 -benchmark demos/bench1.dem -benchmarkruns 100
 	+vid_fullscreen 1 +vid_width 1920 +vid_height 1080 +vid_vsync 0)

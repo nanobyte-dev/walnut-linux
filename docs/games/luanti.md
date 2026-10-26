@@ -31,8 +31,8 @@ Luanti is not in `ps3-games`' Depends: it deploys by name.
 
 ## The recipe
 
-`bench/recipes/luanti.sh`: a server-side mod can't count rendered frames, so the world mod
-`ps3bench` (`bench/assets/luanti-ps3bench`) only makes every run the same. It holds the player
+`gamedb/games/luanti/benchmark/recipe.sh`: a server-side mod can't count rendered frames, so the world mod
+`ps3bench` (`gamedb/games/luanti/benchmark/assets/luanti-ps3bench`) only makes every run the same. It holds the player
 at the start for 15 s while the first blocks are generated and meshed, logs `ps3bench: path start`,
 flies 45 s (240 nodes north looking down, then a full turn) four times (`ps3bench_loops`, "path loop
 K"), logs `ps3bench: path end` and shuts the game down. fps comes from the Gallium HUD. `WARMUP=45`

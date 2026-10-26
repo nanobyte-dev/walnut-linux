@@ -16,7 +16,7 @@
 # Risks: RAM at 1080p (the world 128x128 plus pak64's 12 MB of images, a few tens of MB), the SDL2
 # texture upload colours on big-endian, the PPE's redraw speed.
 COMM=simutrans
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 # a new game opens the credits dialog (the first run, 2026-10-19: it covered the map for the whole run):
 # Escape closes the top window
 during() { smoke_xkeys Simutrans 10 Escape; shot_mark; }

@@ -62,7 +62,7 @@ sends them back to the PPE).
 
 ## The recipe
 
-`bench/recipes/openarena.sh`: the timedemo `bench.dm_71` (`bench/assets/openarena-bench.dm_71`),
+`gamedb/games/openarena/benchmark/recipe.sh`: the timedemo `bench.dm_71` (`gamedb/games/openarena/benchmark/assets/openarena-bench.dm_71`),
 looped in one session (`PASSES=1`; `bench_loop` and `bench_again` aliases in autoexec.cfg, since
 `nextdemo` is cleared before each pass). Passes starting 54 s or more after the first map load count
 until about 120 s. Every pass reloads the map, which the gameplay columns leave out. `fps=`, `maxms=`

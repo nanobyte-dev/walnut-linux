@@ -64,6 +64,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 sys.path[:0] = [str(REPO / "bench"), str(HERE)]   # python3 -I keeps the script's directory out
 import check    # noqa: E402  (the catalog's layout: SESSIONS, CONTENT)
+import games    # noqa: E402  (bench/games.py: a run's game and its recipe)
 import report   # noqa: E402  (bench/report.py)
 import score    # noqa: E402
 import shots    # noqa: E402
@@ -97,7 +98,9 @@ def play_marks(d, b):
     if b.get("play_marks"):
         return sorted(t for t in (report.num(x) for x in b["play_marks"].split()) if t is not None)
     first = report.num(b.get("play_start"))
-    rx, out, t0 = recipe_play_mark(b.get("game") or d.name.split("-session-")[-1].rsplit("-", 1)[0]), \
+    game = games.run_game(b) if b.get("game") or b.get("recipe") else \
+        games.resolve(d.name.split("-session-")[-1].rsplit("-", 1)[0], old=True)
+    rx, out, t0 = recipe_play_mark(game), \
         d / "out.log", report.num(b.get("t0"))
     marks = []
     if rx and out.exists() and t0 is not None:
@@ -115,13 +118,13 @@ def play_marks(d, b):
 
 
 def recipe_play_mark(game):
-    """a recipe's PLAY_MARK regex (bench/recipes/GAME.sh, sourced the way play-pc.sh does), or None"""
-    rec = REPO / "bench" / "recipes" / ("%s.sh" % game)
-    if not rec.exists():
+    """a recipe's PLAY_MARK regex (the game's benchmark/recipe.sh, bench/games.py; sourced the way
+    play-pc.sh does), or None"""
+    if not game or game not in games.dirs():
         return None
     try:
-        out = subprocess.run(["bash", "-c", 'here=$1; ASSETS=$here/assets; CMD=(); ENV=(); PLAY_MARK=; LOAD_MARK=\n'
-                              'setup() { :; }; parse() { :; }; . "$here/recipes/$2.sh" > /dev/null 2>&1; printf %s "$PLAY_MARK"',
+        out = subprocess.run(["bash", "-c", 'here=$1; . "$here/games.sh"; bench_use "$2"; CMD=(); ENV=(); PLAY_MARK=; LOAD_MARK=\n'
+                              'setup() { :; }; parse() { :; }; . "$(bench_recipe "$2")" > /dev/null 2>&1; printf %s "$PLAY_MARK"',
                               "_", str(REPO / "bench"), game], capture_output=True, text=True, timeout=20).stdout
     except (OSError, subprocess.SubprocessError):
         return None

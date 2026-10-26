@@ -25,8 +25,8 @@ On llvmpipe the bench path went from 5127 GL calls and 1107 draws a frame to 152
 
 ## The recipe
 
-`bench/recipes/classicube.sh`: a timedemo through a plugin. `assets/classicube-bench.so`
-(source in `bench/classicube-bench/`, `make classicube-bench`) flies the camera along
+`gamedb/games/classicube/benchmark/recipe.sh`: a timedemo through a plugin. `assets/classicube-bench.so`
+(source in `gamedb/games/classicube/benchmark/assets-src/`, `make classicube-bench`) flies the camera along
 `assets/classicube-bench.path` over the saved map `assets/classicube-bench.cw`: 3000 frames, the
 same ones every run, after a warm-up that builds every chunk, then prints the frame rate and the
 slowest frame and closes the game. The plugin flies the path up to 6 times (`CC_BENCH_PASSES`); a

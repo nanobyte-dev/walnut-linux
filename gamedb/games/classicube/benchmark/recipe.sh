@@ -1,5 +1,5 @@
 # ClassiCube (ours): a timedemo through a plugin. assets/classicube-bench.so (source in
-# classicube-bench/, `make classicube-bench`) flies the camera along assets/classicube-bench.path
+# assets-src/, `make classicube-bench`) flies the camera along assets/classicube-bench.path
 # over the saved map assets/classicube-bench.cw: 3000 frames, the same ones every run (frame-based,
 # like a Quake timedemo: a faster run only takes less time), after a warm-up that builds every chunk
 # of the map, so the run builds none. Then it prints the frame rate and closes the game itself.
@@ -64,7 +64,7 @@ variant_still() {
 }
 # OpenAL Soft measurements (docs/SPU-AUDIO.md, M0): the shared variants of openal.inc, and no sound
 # at all (volumes 0: ClassiCube then never opens OpenAL)
-. "$here/recipes/openal.inc"
+. "$BENCH_LIB/openal.inc"
 variant_allog() { oal_variant allog; }
 variant_b16() { oal_variant b16; }
 variant_f44() { oal_variant f44; }

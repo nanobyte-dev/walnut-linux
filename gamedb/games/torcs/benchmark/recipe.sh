@@ -17,7 +17,7 @@
 # cars and tracks are 526 MB of data, loaded per race), the simulation and 4 robots on the PPE
 # (frame rate may drop with the car count), OpenAL through ALUT for the engine sound.
 COMM=torcs-bin
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 CMD=(/usr/games/torcs)
 TORCS_HOME=$HOME/.torcs
 TORCS_DATA=/usr/share/games/torcs

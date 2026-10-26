@@ -1,0 +1,8 @@
+# BananaBread's benchmark: data for the analysis tools (gamedb/README.md "games/<id>/benchmark/"; step 4 adds
+# the reload rule, the log lines to ignore and the interference pattern).
+
+[legacy]
+# the recipe's file name before the recipes moved into gamedb (2026-10-26): runs from before then
+# (bench.txt without recipe=, or a run directory named after it) are read as this game's
+# (bench/games.py, bench/games.sh)
+recipe_names = ["sauerbraten"]

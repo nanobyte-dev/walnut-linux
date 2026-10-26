@@ -19,7 +19,7 @@
 # it has run on PowerPC consoles for years), RAM (the engine itself is 40-80 MB).
 # Risks: the SurfaceSDL path's colours, the OPL emulator's CPU and underruns, scummvm-data's size.
 COMM=scummvm
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 SV_CFG=$HOME/.config/scummvm/scummvm.ini
 BACKUP=("$SV_CFG")
 # played sessions' fresh defaults (session.sh, freshhome.py): the game's real directories (checked against its XDG/legacy paths)

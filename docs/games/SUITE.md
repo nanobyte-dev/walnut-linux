@@ -2,7 +2,8 @@
 
 `bench/` runs the games on the PS3 the same way every time and turns the runs into comparable
 rows. One command does a first launch (`smoke`), a measured A/B (`bench`) or a round over every
-suite game (`suite`); each game is a recipe file. The results go into the matrices in
+suite game (`suite`); each game is a recipe file in its GameDB bundle
+(`gamedb/games/<id>/benchmark/recipe.sh`). The results go into the matrices in
 `bench/results/`. What the numbers say per game is in [README.md](README.md); the stall
 recorder, the profiles and the memory snapshots have their own docs ([STALLS.md](../STALLS.md),
 [PROFILING.md](../PROFILING.md), [MEMORY.md](../MEMORY.md)).
@@ -15,9 +16,20 @@ recorder, the profiles and the memory snapshots have their own docs ([STALLS.md]
 | `session.sh`, `session-form.py` | a played session ([below](#played-sessions)) and its end-of-session form |
 | `freshhome.py`, `inputlog.py`, `geom.py` | around a session: the game on fresh defaults (the player's directories set aside and back), the input devices, the window and the pointer |
 | `client.sh` | one game run from a recipe (the X client `ps3-bench.sh x` starts) |
-| `recipes/<game>.sh` | one per game; `recipes/README.md` lists the variables; `smoke.inc` and `openal.inc` are shared pieces |
-| `assets/` | demos, replays, maps and mods: `openarena-bench.dm_71`, `sauerbraten-bench.dmo`, `xmoto-credits.rpl`, `armagetronad-bench.aarec`, `etr-race.evemu`, `classicube-bench.cw`, `.path`, `.so`, `luanti-ps3bench/` |
-| `classicube-bench/` | ClassiCube's timedemo plugin (`ccbench.c`), built by `make classicube-bench` into `assets/classicube-bench.so` |
+| `games.sh`, `games.py` | where a game's recipe is: `gamedb/games/<id>/benchmark/` here, `games/<id>/` in the PS3's copy; old recipe names (below) |
+| `smoke.inc`, `openal.inc`, `keyboard.evemu` | pieces the recipes share (`$BENCH_LIB`): the smoke recipes' header, OpenAL Soft's variants, a keyboard's description for the virtual keyboard |
+
+A game's own part is in its bundle, `gamedb/games/<id>/benchmark/` ([gamedb/README.md](../../gamedb/README.md#gamesbenchmark)):
+`recipe.sh` (the variables are listed there), `assets/` (demos, replays, saves, maps and mods, e.g.
+OpenArena's `openarena-bench.dm_71`, X-Moto's `xmoto-credits.rpl`, ETR's `etr-race.evemu`),
+`assets-src/` (how built assets are made: ClassiCube's timedemo plugin `ccbench.c`, which
+`make classicube-bench` builds into `assets/classicube-bench.so`; OpenTTD's save generator), `lib/`
+(Hedgewars' `hwdrive.py`), `analysis.toml` (the old recipe names) and `legacy/` (OpenArena's step 0
+scripts). A game is named by its gamedb id. Two recipes were renamed when they moved there
+(2026-10-26): `sauerbraten` is now `bananabread` (BananaBread on Debian's cube2) and
+`sauerbraten-edition` is now `sauerbraten`. Runs from before then keep their old names in bench.txt
+and their directory names; the tools read those through each bundle's `analysis.toml` (`[legacy]
+recipe_names`), and `run.sh` still takes `sauerbraten-edition`.
 | `report.py` | one line per run, then the median per game and variant, then each variant against the first as ratios; `--stalls`, `--perf`, `--mem`, `--load`, `--include-interfered` |
 | `matrix.py` | puts runs into the matrices: one CSV per metric, one row per tested configuration |
 | `results/` | the matrices; `results/README.md` says how to read and add to them; `interfered.txt` lists runs left out |
@@ -33,12 +45,13 @@ recorder, the profiles and the memory snapshots have their own docs ([STALLS.md]
 | `xkeys.py` | keys through XTEST, for games that ignore the virtual keyboard |
 | `shots.py` | the screenshots ([below](#screenshots)): `cost` (what a capture cost in frames), `convert` (xwd to PNG), `sheet` and `post` (the PS3 \| PC sheet), `pending` (sheets nobody reviewed) |
 
-`make bench-push` copies `bench` to `/var/tmp/bench` on the PS3 (unpacked beside the old copy
+`make bench-push` copies `bench` to `/var/tmp/bench` on the PS3, every game's benchmark (`recipe.sh`,
+`analysis.toml`, `lib/`, `assets/`) into `/var/tmp/bench/games/<id>/` (unpacked beside the old copy
 and swapped in with a rename, so a run in progress keeps its files). `make bench-pull` fetches the
 run directories from `/var/tmp/ps3-bench` into `build/bench/`; `PERFDATA=1` adds perf.data (about
 20 MB a run), perf-load.data and perf-syms.tar. It also turns the runs' screenshots into PNGs and
-makes their PS3 | PC sheets ([Screenshots](#screenshots)). `bench/openarena/` keeps step 0's scripts
-(`step0.sh`, `step0-report.py`, `oa-*.sh`).
+makes their PS3 | PC sheets ([Screenshots](#screenshots)). `gamedb/games/openarena/benchmark/legacy/`
+keeps step 0's scripts (`step0.sh`, `step0-report.py`, `oa-*.sh`).
 
 ## run.sh
 
@@ -79,7 +92,7 @@ against order bias. What a token can set:
   for that run and put back (`sudo -n`).
 - Library switches ([SPU-AUDIO.md](../SPU-AUDIO.md), [PROFILING.md, "Load-time decoders and
   linking"](../PROFILING.md#load-time-decoders-and-linking)): `OAL=b16` or `OAL=b16,lin` OpenAL Soft's
-  settings by `recipes/openal.inc`'s names on any variant of any game; `FLUIDFX=off|norev|nocho|cho1|on`
+  settings by `openal.inc`'s names on any variant of any game; `FLUIDFX=off|norev|nocho|cho1|on`
   FluidSynth's reverb and chorus whatever the game asks for; zlib-ng's `libz.so.1` in front (package
   `libz-ng-compat`) by default as in `ps3-game`, `ZLIB=stock` without it (bench.txt `zlib=`); `LDPATH=DIR` a directory in front of the game's `LD_LIBRARY_PATH` (copies of
   the libraries a package of ours replaced, for a same-boot A/B against the old version); `BINDNOW=1` (`LD_BIND_NOW`); `JSIMD=none|altivec` libjpeg-turbo's SIMD.
@@ -98,8 +111,8 @@ directories stay; the clean one counts).
 ## Recipes
 
 A recipe is sourced bash, variables and functions only. `client.sh <game> <variant>` sources it and
-calls `variant_<variant>` if it exists. The full list is in `bench/recipes/README.md`; the
-ones that shape a run:
+calls `variant_<variant>` if it exists. The full list is in
+[gamedb/README.md](../../gamedb/README.md#gamesbenchmark); the ones that shape a run:
 
 - `CMD=(...)`, `ENV=(...)`, `SUITE=1`, `COMM` (the process name for ps3rsx's per-client VRAM and the
   peak RSS), `BACKUP=(...)` (config files the game rewrites, restored after every run),
@@ -217,7 +230,7 @@ on its own: play every launcher of a game.
 `ps3-bench.sh session`. `run.sh list` names the games. A recipe needs a playable command: openarena
 and xmoto have a `session()` function for it, and the `menu` variants (`warzone2100 menu`) start at
 the game's own menu; a timedemo or autoplay recipe without one would run its bench command
-([bench/recipes/README.md](../../bench/recipes/README.md): `session()`). The script moves into `ps3-game.slice`
+([gamedb/README.md](../../gamedb/README.md#gamesbenchmark): `session()`). The script moves into `ps3-game.slice`
 (game mode freezes the terminal) and logs to `~/.cache/ps3-session/`. Nothing else is needed from
 the terminal: play, then quit the game from its menu. There is no time limit. Don't use the PS3
 for anything else meanwhile, and no SSH: a login is interference for what is measured.
@@ -503,7 +516,7 @@ The biggest items: supertuxkart-data 752 MB, cube2-data 260 MB, neverball data 1
 
 ## Stage 0: how the suite started
 
-On 2026-10-16 the runner replaced `bench/openarena/step0.sh`: `run.sh`, `client.sh`, `report.py`
+On 2026-10-16 the runner replaced `gamedb/games/openarena/benchmark/legacy/step0.sh`: `run.sh`, `client.sh`, `report.py`
 (from step0-report.py), recipes and assets; config backups on disk, ALSA underrun counting, a 90 s
 cap at the time. The first two recipes were OpenArena (tc0, tc1, gl2min, gl2) and ClassiCube (a
 saved map, 60 s, HUD fps; later the ccbench timedemo). Games ran directly, with `GAMEMODE=1` as a

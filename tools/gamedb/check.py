@@ -17,7 +17,7 @@ Design
       offers no data package
     * thumb.png is a PNG; every test has a parsable result.toml of schema 1 whose listed screenshots
       exist, and no stray file sits in a session folder or the game's folder (GAME_FILES: index.md, thumb.png,
-      rating/, packages/, licensed/, upstream.md, upstream/); its rules, when given, are "<data>.<formula>" of a
+      rating/, packages/, licensed/, upstream.md, upstream/, benchmark/: BENCH_FILES); its rules, when given, are "<data>.<formula>" of a
       data version score.py knows, and a data-version-2 test's defects name known categories
     * patched_by names source packages of ours (tools/pkg-dir.sh, and patches/series)
     * drafts (draft = true: a candidate, or a game tried and not published) need only id, title and
@@ -61,7 +61,10 @@ STATUSES = ["candidate", "tried", "blocked", "dropped", "impossible", "tested"]
 TEST_FILES = {"result.toml"}
 # what a game's folder may hold so far (gamedb/README.md; the later migration steps add theirs): the page,
 # the thumbnail, the sessions, our source packages, the licensed data packages and builders, upstream offers
-GAME_DIRS = ("rating", "packages", "licensed", "upstream")
+GAME_DIRS = ("rating", "packages", "licensed", "upstream", "benchmark")
+# what benchmark/ may hold so far: the recipe (code), its analysis data, its helpers and files, the sources of
+# built files (assets.mk), superseded tools (steps 5 and 6 add results/ and runs/)
+BENCH_FILES = ("recipe.sh", "analysis.toml", "lib", "assets", "assets-src", "legacy")
 GAME_FILES = ("index.md", "thumb.png", "upstream.md") + GAME_DIRS
 # where a game's sessions (each one's result.toml and screenshots) live, relative to its folder
 SESSIONS = "rating/sessions"
@@ -195,10 +198,38 @@ def check_game(gdir, bad, repo):
             errs.append("unexpected file %s (a game folder holds %s)" % (f, ", ".join(GAME_FILES)))
         elif f in GAME_DIRS and not (gdir / f).is_dir():
             errs.append("%s is not a folder" % f)
+    errs += benchmark_errors(gdir, fm)
     rating = gdir / "rating"
     for f in sorted(x.name for x in rating.iterdir()) if rating.is_dir() else []:
         if f != "sessions":
             errs.append("unexpected file rating/%s (rating/ holds sessions/)" % f)
+    return errs
+
+
+def benchmark_errors(gdir, fm):
+    """benchmark/: a recipe.sh, an analysis.toml that parses ([legacy] recipe_names: names), only BENCH_FILES;
+    every `recipes` entry of index.md ("<recipe>:<variant>") names this game's own recipe and one of its variants"""
+    errs, b = [], gdir / "benchmark"
+    if b.is_dir():
+        if not (b / "recipe.sh").is_file():
+            errs.append("benchmark/ has no recipe.sh")
+        for f in sorted(x.name for x in b.iterdir()):
+            if f not in BENCH_FILES:
+                errs.append("unexpected file benchmark/%s (benchmark/ holds %s)" % (f, ", ".join(BENCH_FILES)))
+        if (b / "analysis.toml").exists():
+            try:
+                names = tomllib.loads((b / "analysis.toml").read_text()).get("legacy", {}).get("recipe_names", [])
+                if not isinstance(names, list) or not all(isinstance(n, str) and n for n in names):
+                    errs.append("benchmark/analysis.toml: [legacy] recipe_names is a list of names")
+            except tomllib.TOMLDecodeError as e:
+                errs.append("benchmark/analysis.toml: %s" % e)
+    recipe = (b / "recipe.sh").read_text(errors="replace") if (b / "recipe.sh").is_file() else None
+    for r in fm.get("recipes", []):
+        name, _, variant = str(r).partition(":")
+        if name != gdir.name or recipe is None:
+            errs.append("recipes: %r is not this game's recipe (benchmark/recipe.sh, named %s)" % (r, gdir.name))
+        elif variant and variant != "base" and not re.search(r"^variant_%s\(\)" % re.escape(variant), recipe, re.M):
+            errs.append("recipes: %r: the recipe has no variant %s" % (r, variant))
     return errs
 
 

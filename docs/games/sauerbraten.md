@@ -38,8 +38,8 @@ from 4.40 to 5.50 MB. Details: [MEMORY.md, "Sauerbraten's world normals as short
 
 ## The recipe
 
-`bench/recipes/sauerbraten.sh`, base: the user's recorded demo
-(`bench/assets/sauerbraten-bench.dmo`, 2026-10-17: an FFA round on cave with two bots, 93 s of
+`gamedb/games/bananabread/benchmark/recipe.sh`, base: the user's recorded demo
+(`gamedb/games/bananabread/benchmark/assets/sauerbraten-bench.dmo`, 2026-10-17: an FFA round on cave with two bots, 93 s of
 game time), copied to `~/.cube2/demo/bench.dmo` and played with `mode -1; map bench`, as the data's
 `demo` command does it. A CubeScript (`-x`) counts frames with a sleep re-armed every frame and wall
 time from `getmillis 1`, and prints `ps3bench: loop <k>: <n> frames in <ms> ms: <fps> fps, longest
@@ -140,7 +140,7 @@ Red Eclipse 1.6.0 (Debian's `redeclipse`, `redeclipse-common`, `redeclipse-data`
 lean sound and textures, a player name set, no OOM, 86 fps HUD peak (2026-10-18). It has none of
 cube2's memory patches.
 
-Recipe `bench/recipes/redeclipse.sh` (`SUITE=0`): `-x'dm <map>'` (a deathmatch with bots on
+Recipe `gamedb/games/redeclipse/benchmark/recipe.sh` (`SUITE=0`): `-x'dm <map>'` (a deathmatch with bots on
 the engine's loopback server); `RE_MAP` or the variants `singularity`, `disco`, `cyanide` pick the
 map (torus, 43 KB, is the smallest real one). Variants `tex512`, `fullsound`, `bots0`, `bots3`,
 `defaults`, `menu`.
@@ -205,7 +205,7 @@ would give the same program without the patches. What was missing was the launch
   GPU skinning shaders, 0003-0005, 0006 libspeq skinning, 0007-0009 fewer GL calls, 0010 `oqwaterlag`. 0011
   `vanormalshort` is built in and off by default. Nothing is left unported. The real maps fill the VRAM at the engine's
   texture settings (the first session, below), hence Walnut's `texcompress 512` default.
-- Recipe `bench/recipes/sauerbraten-edition.sh` (variants `complex`, `metl3`, `lean`, `gpuskel`; `session()` is the
+- Recipe `gamedb/games/sauerbraten/benchmark/recipe.sh` (variants `complex`, `metl3`, `lean`, `gpuskel`; `session()` is the
   launcher alone; `PLAY_MARK` is the `read map` line); entry `gamedb/games/sauerbraten/`. Its PC reference
   (`tools/play-pc.sh`) installs the entry's packages from Debian, which has no `sauerbraten`: `PC=0 play-test.sh start
   sauerbraten` until the PC image gets our two debs.

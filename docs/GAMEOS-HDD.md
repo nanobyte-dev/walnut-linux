@@ -311,7 +311,7 @@ client.sh refuses a run whose arm isn't in place, and a plain run with binds or 
 over. The batch as planned (5 games x 3 arms x 3 rounds, about 3-4 hours, `tools/bench-cam.sh` as
 for every run):
 
-    STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/run.sh bench sauerbraten base 3
+    STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/run.sh bench bananabread base 3
     STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/run.sh bench openarena gl2min 3
     STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/run.sh bench luanti base 3
     STALLS=1 PERF_LOAD=1 ENVS="- GAMEDATA=ssd GAMEDATA=ssd+SWAP=ssd" /var/tmp/bench/run.sh bench supertuxkart lean 3
@@ -636,13 +636,13 @@ the same order in every boot, `tools/bench-cam.sh` as always, the measurement pr
 stopped, swap emptied, nothing deployed between the boots), the same package versions on both
 roots (step 9) and the same shader cache and bench state (copied by the install). In each boot:
 
-    STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench sauerbraten base 3
+    STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench bananabread base 3
     STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench openarena gl2min 3
     STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench luanti base 3
     STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench supertuxkart lean 3
     STALLS=1 PERF_LOAD=1 /var/tmp/bench/run.sh bench classicube base 3
     STALLS=1 /var/tmp/bench/run.sh bench openarena gl2min 3       # gameplay, without the load profile
-    STALLS=1 /var/tmp/bench/run.sh bench sauerbraten base 3
+    STALLS=1 /var/tmp/bench/run.sh bench bananabread base 3
     ps3-bench.sh desktop
 
 The first five are the start-up set of batches 16 and 17 (`load`, `load_disk_s`, loadprof's split,

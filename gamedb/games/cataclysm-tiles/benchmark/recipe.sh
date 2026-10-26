@@ -12,7 +12,7 @@
 # texture), the fonts, and big-endian: save files are JSON text (endian-free), the tileset PNGs go
 # through SDL2_image.
 COMM=cataclysm-tiles
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 CD_OPT=$HOME/.config/cataclysm-dda/config/options.json
 BACKUP=("$CD_OPT")
 # played sessions' fresh defaults (session.sh, freshhome.py): the game's real directories (checked against its XDG/legacy paths)

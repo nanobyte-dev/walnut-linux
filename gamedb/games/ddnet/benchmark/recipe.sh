@@ -16,7 +16,7 @@
 # Settings go on the command line (each argument is a console line run before the client starts);
 # the client writes them to ~/.local/share/ddnet/settings_ddnet.cfg at exit, which BACKUP restores.
 COMM=DDNet
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 BACKUP=("$HOME/.local/share/ddnet/settings_ddnet.cfg")
 DD_GFX=("gfx_backend OpenGL" "gfx_gl_major 2" "gfx_gl_minor 1")
 DD_ARGS=("gfx_fullscreen 1" "gfx_vsync 0" "gfx_fsaa_samples 0" "gfx_screen_width 1920" "gfx_screen_height 1080"

@@ -21,7 +21,7 @@ Debian's `quakespasm` 0.96.3, unpatched. 0.96.3 has a big-endian bug: packed-pix
 wrong colours and dlight wraparound (quakespasm issue #114), so the recipe passes `-nopackedpixels`
 (upstream master disables the path on big-endian; nv30 has no 10-bit format anyway).
 
-Recipe `bench/recipes/quakespasm.sh`: `quakespasm -nopackedpixels -width 1920 -height 1080
+Recipe `gamedb/games/quakespasm/benchmark/recipe.sh`: `quakespasm -nopackedpixels -width 1920 -height 1080
 -fullscreen` with a `quake.rc` of ours in `~/.quakespasm/id1`. `+timedemo` on the command line
 doesn't work: the shareware's own quake.rc runs `startdemos demo1 demo2 demo3` after the command
 line and the attract loop replaces the timedemo, and the shareware refuses `-game` directories. Our
@@ -59,7 +59,7 @@ Patches:
   (was 23.7) and 81 KiB in `game.so` (was 16 MB). Client-side random effects differ from the old
   table; the demo itself doesn't.
 
-Recipe `bench/recipes/yquake2.sh`: the engine run directly (Debian's `quake2` wrapper is
+Recipe `gamedb/games/yquake2/benchmark/recipe.sh`: the engine run directly (Debian's `quake2` wrapper is
 contrib, not ours) on the demo pak's only demo, `+timedemo 1 +demomap q2demo1.dm2`, vsync off,
 config `~/.local/share/YamagiQ2/baseq2/config.cfg` (`~/.yq2` before the XDG build). The timedemo repeats in one session: autoexec.cfg's `bench` alias
 sets `nextdemo` again, disconnects (which prints the pass's line; a chained demomap would reconnect

@@ -11,7 +11,7 @@
 # Settings: ~/.config/opentyrian/opentyrian.cfg (fullscreen 0 = desktop fullscreen, scaler) is written
 # by setup() and restored by BACKUP; the game rewrites it at exit.
 COMM=opentyrian
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 BACKUP=("$HOME/.config/opentyrian/opentyrian.cfg")
 OT_SCALER=Scale2x
 OT_KEYS=(Return +3 Return +3 Return +3 Return +3 Return +6 space +5 space +5 space)

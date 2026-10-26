@@ -23,7 +23,7 @@
 # opengl33 first and fall back), FBO use on nv30, RAM (the data is 240 MB installed).
 # SuperTux saves its video settings (-f, -g) in ~/.local/share/supertux2/config at exit: BACKUP.
 COMM=supertux2
-. "$here/recipes/smoke.inc"
+. "$BENCH_LIB/smoke.inc"
 ST_DATA=/usr/share/games/supertux2
 ST_LEVEL=$ST_DATA/levels/world1/welcome_antarctica.stl
 BACKUP=("$HOME/.local/share/supertux2/config")

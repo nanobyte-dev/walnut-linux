@@ -31,7 +31,7 @@ left. ClassiCube `chunks1` and X-Moto's stream buffer were repeated in batch 16.
 - **Needs:** PS3. **Status:** scheduled: TESTS.md "Next" (PLAN 2.6 repeats).
 - **Source:** PLAN 2.6; [archive/HOTPATHS.md, "Measured on the PS3"](../archive/HOTPATHS.md#measured-on-the-ps3-2026-10-18-dated-note).
 
-**To start.** (BananaBread's recipe is still called `sauerbraten`.) `/var/tmp/bench/run.sh bench sauerbraten "base oqlag oqnowait" 3` (`oqnowait` is the
+**To start.** `/var/tmp/bench/run.sh bench bananabread "base oqlag oqnowait" 3` (`oqnowait` is the
 stock engine's `oqwait 0`, for comparison), `/var/tmp/bench/run.sh bench luanti "base view40" 3`,
 with `STALLS=1`; the first-person demo's spread needs three rounds or more for small differences.
 
