@@ -23,6 +23,8 @@
 #   OpenAL "Wait timeout" wedge) and counts interrupts by kind in /sys/module/snd_ps3/parameters/dma_stats (docs/games/LOG-FINDINGS.md 1).
 # local/0049: gelic re-probes itself when the wired port has link and sends but receives nothing (ps3_gelic.rx_watchdog=0 off;
 #   ps3_gelic.rx_watchdog_test=N simulates N faults; docs/release/TESTING-0.1.md 22).
+# local/0050: hid-sony starts the DS3's sticks centered (128), not at 0 (fully up/left) until the pad's first report; an
+#   inactive pad on the cable ran Quake's menu up by itself (linux/tests/sixaxis-idle-axes.sh, ds3-idle-check.py on the PS3).
 ps3/0020-ps3stor-send-cmd-timeout.patch
 ps3/0035-ps3flash.patch
 ps3/0040-ps3-partition.patch
@@ -87,3 +89,4 @@ local/0046-ps3-htab-one-hcall-per-insert-and-stats.patch
 local/0047-snd-ps3-dma-watchdog.patch
 local/0048-ps3disk-probe-unwind-and-remove-order.patch
 local/0049-gelic-rx-watchdog.patch
+local/0050-hid-sony-sixaxis-center-sticks.patch

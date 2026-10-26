@@ -33,6 +33,11 @@ the gain is mainly fewer patches for us to carry. Noted here, not worked on:
   a crash fix for every NV3x/NV4x user, with a host test (`mesa/tests/query-steal-test.c`) and the Core 2 + 7600 GT box
   to run piglit's occlusion query tests on. The upstream form drops nothing (the patch has no PS3 switch), but sits on
   our 0006/0035/0042 query changes: rebase onto stock nv30_query.c first.
+- **hid-sony: an inactive DS3 reads as both sticks pushed up and left** (`linux/patches/local/0050`): not PS3-specific,
+  any Linux PC with a DualShock 3 on the cable before its PS button. 6.12 has it (mainline not checked); SDL (evdev),
+  joydev and raw evdev games all see it (Quakespasm's menu runs up by itself). A good candidate: a 20-line helper, a QEMU/uhid test
+  that shows 0 before and 128 after (`linux/tests/sixaxis-idle-axes.sh`); rebase onto hid.git and check whether
+  hid-playstation has taken the DS3 over first.
 - **GCC 16.2 wrong code** (Warzone patch 0007, PACKAGING.md): the loop vectorizer on AltiVec without VSX at `-O3`.
   Worth a GCC report only with a minimal reproducer and a check of GCC 14/15 (a regression gets triaged);
   the reproducer would also show which of our other `-O3 -mcpu=cell` builds could be hit.

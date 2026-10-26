@@ -1,0 +1,75 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Mon, 26 Oct 2026 04:00:00 +0200
+Subject: HID: sony: start the Sixaxis sticks centered
+
+A DualShock 3 plugged in by USB sends no input report until its PS
+button is pressed (sixaxis_set_operational_usb() and the deferred
+initialization in sony_input_configured() say as much). Until then its
+input device keeps the values the input core started it with, and every
+axis starts at 0. The sticks are logical 0..255 with the rest position at
+128, so 0 is both sticks pushed fully up and to the left: EVIOCGABS gives
+0, joydev's initial JS_EVENT_INIT events give -32767, and SDL's evdev
+joystick backend (which reads the axes with EVIOCGABS when a game opens
+the pad) reports -32768 on both stick axes. Games take that as a held
+stick. Seen with Quakespasm on SDL3: with an inactive DS3 on the cable,
+the menu cursor runs up by itself until the PS button is pressed or the
+pad is unplugged.
+
+Set ABS_X, ABS_Y, ABS_RX and ABS_RY to the middle of their range in
+input_configured, before the input device is registered, for the Sixaxis
+and the Navigation controller (the same report). L2/R2 (ABS_Z, ABS_RZ)
+rest at 0 and stay there. Once the pad reports, its real values replace
+these as before.
+
+Tested with a uhid DS3 (the hid-tools PS3Controller descriptor, 054c:0268
+on BUS_USB) under QEMU: before any input report, EVIOCGABS shows 0 on
+all four stick axes without the patch and 128 with it, and joydev's
+initial axis events go from -32767 to 0; reports afterwards are reported
+unchanged.
+
+Forwarded: no
+
+diff --git a/drivers/hid/hid-sony.c b/drivers/hid/hid-sony.c
+--- a/drivers/hid/hid-sony.c
++++ b/drivers/hid/hid-sony.c
+@@ -1878,6 +1878,29 @@ static inline void sony_cancel_work_sync(struct sony_sc *sc)
+ 	}
+ }
+ 
++/*
++ * A Sixaxis or Navigation controller on USB sends no input report until its
++ * PS button is pressed, and every axis starts at 0 in the input core. For the
++ * sticks (logical 0..255, centered at 128) 0 is fully up and to the left, and
++ * evdev, joydev and everything built on them report it as held for as long
++ * as the controller stays inactive. Start the sticks centered; the triggers
++ * (ABS_Z, ABS_RZ) rest at 0 already.
++ */
++static void sixaxis_center_sticks(struct input_dev *input)
++{
++	static const unsigned int sticks[] = { ABS_X, ABS_Y, ABS_RX, ABS_RY };
++	unsigned int i, code;
++
++	for (i = 0; i < ARRAY_SIZE(sticks); i++) {
++		code = sticks[i];
++		if (!test_bit(code, input->absbit))
++			continue;
++		input_abs_set_val(input, code,
++				  (input_abs_get_min(input, code) +
++				   input_abs_get_max(input, code) + 1) / 2);
++	}
++}
++
+ static void sony_cleanup(struct sony_sc *sc)
+ {
+ 	sony_cancel_work_sync(sc);
+@@ -2014,6 +2037,9 @@ static int sony_input_configured(struct hid_device *hdev,
+ 		sony_init_output_report(sc, motion_send_output_report);
+ 	}
+ 
++	if (sc->quirks & (SIXAXIS_CONTROLLER | NAVIGATION_CONTROLLER))
++		sixaxis_center_sticks(hidinput->input);
++
+ 	if (sc->quirks & SONY_LED_SUPPORT) {
+ 		ret = sony_leds_init(sc);
+ 		if (ret < 0)
