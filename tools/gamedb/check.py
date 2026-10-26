@@ -280,6 +280,8 @@ def check_game(gdir, bad, repo, ctx=None):
     except tomllib.TOMLDecodeError as e:
         return errs + ["build.toml: %s" % e]
     errs += build_errors(gdir, build, bad, ctx, draft)
+    if not draft and not (gdir / "technical.md").is_file():
+        errs.append("no technical.md (a published game needs its current technical state: gamedb/README.md)")
     if fm.get("designed_for", "pad") not in score.DESIGNED_FOR:
         errs.append("designed_for %r: one of %s (default pad)" % (fm["designed_for"], ", ".join(score.DESIGNED_FOR)))
     if "controller" in fm and fm["controller"] not in CONTROLLERS:
