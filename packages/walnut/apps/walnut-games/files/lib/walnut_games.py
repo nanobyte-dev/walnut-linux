@@ -75,6 +75,14 @@ ASPECT_ORDER = ["frame", "smooth", "sound", "picture", "stability", "display", "
 
 # ---- pure functions ---------------------------------------------------------------------------
 
+def web_url(gid=None, technical=False):
+    """the site's page of game gid (its technical page with technical), the technical index or the
+    home page without a game"""
+    if not gid:
+        return WEB + ("technical/" if technical else "")
+    return WEB + "games/%s/%s" % (gid, "technical/" if technical else "")
+
+
 def load_catalog_obj(data=None):
     with open(os.path.join(data or DATA, "catalog.json"), encoding="utf-8") as f:
         return json.load(f)
@@ -626,7 +634,11 @@ class App:
         area.bind("<Leave>", lambda e: self._details_wheel(False))
         head = ttk.Frame(inner, style="Panel.TFrame")
         head.pack(fill="x")
-        ttk.Button(head, text="Open on the web", style="Link.TButton", command=self.open_web).pack(side="right", anchor="n")
+        links = ttk.Frame(head, style="Panel.TFrame")
+        links.pack(side="right", anchor="n")
+        ttk.Button(links, text="Open on the web", style="Link.TButton", command=self.open_web).pack(anchor="e")
+        # the game's technical page on the site: its build, patches, played test and benchmark tables
+        ttk.Button(links, text="Technical notes", style="Link.TButton", command=self.open_technical).pack(anchor="e")
         self.d_title = ttk.Label(head, text="", style="Title.TLabel", background=PANEL, wraplength=230)
         self.d_title.pack(side="left", anchor="w")
         self.d_sum = ttk.Label(inner, text="", style="Muted.TLabel", background=PANEL, wraplength=DETAILS_W - 8,
@@ -1310,7 +1322,10 @@ class App:
         threading.Thread(target=wait, daemon=True).start()
 
     def open_web(self):
-        webbrowser.open(WEB + ("games/%s/" % self.g["id"] if getattr(self, "g", None) else ""))
+        webbrowser.open(web_url(self.g["id"] if getattr(self, "g", None) else None))
+
+    def open_technical(self):
+        webbrowser.open(web_url(self.g["id"] if getattr(self, "g", None) else None, technical=True))
 
 
 def main(argv):

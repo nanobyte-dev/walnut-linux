@@ -580,6 +580,16 @@ root.update()
 assert len(app.shown) == 2, app.shown
 app.select("alpha"); root.update()
 assert str(app.b_install["state"]) == "normal" and str(app.b_remove["state"]) == "disabled"
+def buttons(wd):
+    out = [wd.cget("text")] if isinstance(wd, w.ttk.Button) else []
+    for c in wd.winfo_children():
+        out += buttons(c)
+    return out
+assert "Open on the web" in buttons(root) and "Technical notes" in buttons(root), buttons(root)
+opened = []
+w.webbrowser.open = opened.append
+app.open_technical(); app.open_web()
+assert opened == [w.WEB + "games/alpha/technical/", w.WEB + "games/alpha/"], opened
 notes = app.d_notes.get("1.0", "end")
 assert "Setting up the game data" in notes and "1. Download it." in notes and "2. Run sudo apt install ./x.deb" in notes, notes
 assert "code" in app.d_notes.tag_names() and app.d_notes.tag_ranges("code")
@@ -614,6 +624,14 @@ assert str(app.b_play["state"]) == "disabled" and str(app.b_install["state"]) ==
 root.destroy()
 print("smoke ok")
 """
+
+
+class WebLinks(unittest.TestCase):
+    def test_web_url(self):
+        self.assertEqual(app.web_url("etr"), app.WEB + "games/etr/")
+        self.assertEqual(app.web_url("etr", technical=True), app.WEB + "games/etr/technical/")
+        self.assertEqual(app.web_url(None), app.WEB)
+        self.assertEqual(app.web_url(None, technical=True), app.WEB + "technical/")
 
 
 class RatingText(unittest.TestCase):
