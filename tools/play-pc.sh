@@ -53,6 +53,24 @@ args=(--rm --init --name "play-pc-$G" --user "$(id -u):$(id -g)" --ipc=host --se
 	-v "$PWD/games/bench/launcher.py:/walnut/launcher.py:ro" -v "$PWD/ps3-desktop/files/applications:/walnut/menu/applications:ro")
 [ -n "${XAUTHORITY:-}" ] && [ -r "$XAUTHORITY" ] && args+=(-e XAUTHORITY=/walnut/xauth -v "$XAUTHORITY:/walnut/xauth:ro")
 [ -S "$pulse" ] && args+=(-e PULSE_SERVER=unix:/walnut/pulse -v "$pulse:/walnut/pulse")
+# licensed game data the PS3 has from the ps3-licensed suite (a game's `data` packages: PLAY_PC_DATA="pkg ..."
+# or the entry's needs_data games below), unpacked once under build/pc-play/data and mounted read-only
+# where the package puts it; never committed (build/), the .debs found in build/ or the overflow disk
+data_debs=${PLAY_PC_DATA:-}
+case $G in quakespasm) data_debs+=" quake-shareware" ;; yquake2) data_debs+=" quake2-demo-data" ;; esac
+for dp in $data_debs; do
+	dd=build/pc-play/data/$dp
+	if [ ! -d "$dd/usr" ]; then
+		deb=$(find build /mnt/data_linux/Temp/ps3 -name "${dp}_*_all.deb" 2>/dev/null | sort -V | tail -1)
+		[ -n "$deb" ] || { echo "!! no ${dp}_*.deb here: the game runs without its data" >&2; continue; }
+		mkdir -p "$dd"; ar p "$deb" "$(ar t "$deb" | grep '^data\.tar')" | tar -x -a -f - -C "$dd" 2>/dev/null \
+			|| ar p "$deb" data.tar.xz | tar -xJ -C "$dd"
+	fi
+	# each data directory on its own (the game's package may have files next to it: quakespasm.pak)
+	for sub in "$dd"/usr/share/games/*/*; do
+		[ -d "$sub" ] && args+=(-v "$PWD/$sub:/${sub#"$dd"/}:ro")
+	done
+done
 # the launcher (as on the PS3: ps3-desktop's entries first), its command started without ps3-game
 inside='set -e
 python3 -I /walnut/launcher.py --runtime-dir /walnut/menu ${L:+--choose "$L"} --argv-out /tmp/argv "$@" > /tmp/list
