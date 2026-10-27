@@ -24,11 +24,31 @@ Design
 - Installed state comes from dpkg-query (no root). Install and Remove run
   `sudo -n /usr/lib/ps3/sbin/walnut-games-helper install|remove ID` (it takes game ids only), its
   "progress N text" lines drive the progress bar, and afterwards the menu entries are made again
-  (ps3-game-menu "$XDG_RUNTIME_DIR/ps3-game-menu"), so the new game starts through game mode. Play
+  (ps3-game-menu --reload "$XDG_RUNTIME_DIR/ps3-game-menu", which also restarts the menu), so the new
+  game starts through game mode. Play
   is off while the helper runs: game mode would freeze it with dpkg's lock held.
 - Play starts the runtime copy of the game's .desktop (its Exec already goes through ps3-game),
   else `ps3-game` plus the entry in /usr/share/applications with the field codes cut out and
   split by shlex, never through a shell.
+- Game data (a game's catalog data_setup, GameDB build.toml [data_setup]): the page offers "Install from
+  your repository" when the apt sources have one of its present_any names (apt-cache policy, once in a
+  thread at start and on Refresh: the licensed suite; checked over every present_any name, since its
+  newer builds carry game-data-packager's names), then "Set up game data..." (required data missing) or
+  "Add original data..." (optional data only: OpenTTD). The chooser is a window of big buttons (the
+  pad is the pointer; arrows, Enter, Escape) listing find_sources: the disc in the drive (lsblk; not
+  mounted: /dev/sr0, which walnut-data mounts), /media/$USER/* and /run/media/$USER/*, ~/GOG Games/*,
+  Steam's steamapps/common/*, *.iso/*.img/*.zip/*.exe/gog_*.sh in ~/Downloads and ~; Other file and
+  Other folder (Tk's dialogs). The game's hint is shown above. `walnut-data import GAME SOURCE` runs
+  in its own session with its output in ~/.cache/walnut-games/import.log (import.json: its pid, game,
+  start, source), which a thread reads as it grows: the step, the file being read, the elapsed time,
+  the last 3 log lines and a bar that only moves (no percentages). Closing the app leaves it running;
+  opened again, the app finds it by walnut-data's lock (~/.cache/walnut-data/import.lock, held for
+  the whole import) and shows it in place of the buttons. A failure is told by game-data-packager's
+  error kind (import_error_message); needs-download offers "Try again with download" (-p for the
+  game's downloads packages) when the game has some. After a success the menu is made again
+  (ps3-game-menu --reload) and the page shows Play, naming the launchers the data added. Remove names
+  the installed data packages and their size and runs the helper's remove-data after remove. The
+  installed data's edition (X-Walnut-Edition, dpkg-query) is shown with the rating's facts.
 - The pure parts (catalog, filters, Exec parsing, colours, helper output) are plain functions, tested
   on a PC without a display by packages/walnut/apps/walnut-games/tests/test_walnut_games.py; the window is the App class.
 """
@@ -47,9 +67,9 @@ import webbrowser
 try:
     import tkinter as tk
     from tkinter import font as tkfont
-    from tkinter import messagebox, ttk
+    from tkinter import filedialog, messagebox, ttk
 except ImportError:   # the tests of the pure functions need no Tk
-    tk = tkfont = messagebox = ttk = None
+    tk = tkfont = filedialog = messagebox = ttk = None
 
 DATA = os.environ.get("WALNUT_GAMES_DATA") or "/usr/share/walnut-games"
 WEB = "https://walnut.nanobyte.dev/gamedb/"
@@ -462,6 +482,355 @@ def parse_helper_line(line):
     return ("log", line.strip()) if line.strip() else None   # sudo's own messages
 
 
+# ---- game data (walnut-data, the helper's import-data / install-repo-data / remove-data) -----------
+
+WALNUT_DATA = "/usr/bin/walnut-data"
+APT_CACHE = "/usr/bin/apt-cache"
+LSBLK = "/usr/bin/lsblk"
+DISC = "/dev/sr0"
+# game-data-packager's games as the player knows them: "No Quake files found here" (the catalog's title
+# is the engine's: QuakeSpasm)
+DATA_TITLES = {"quake": "Quake", "quake2": "Quake II", "roller-coaster-tycoon2": "RollerCoaster Tycoon 2",
+               "ttd": "Transport Tycoon Deluxe", "doom": "Doom", "doom2": "Doom II", "final-doom": "Final Doom",
+               "heretic": "Heretic", "hexen": "Hexen"}
+EDITION_LABELS = {"shareware": "Shareware", "demo": "Demo", "full": "Full game", "expansion": "Expansion",
+                  "music": "Music"}
+INSTALLER_RE = re.compile(r"(?i)^(.*\.(iso|img|zip|exe)|gog_.*\.sh)$")
+MAX_SOURCES = 40
+
+
+def data_setup(game):
+    ds = game.get("data_setup") if game else None
+    return ds if isinstance(ds, dict) and isinstance(ds.get("gdp"), str) else None
+
+
+def data_title(game):
+    """the name of the game whose files are imported ("Quake" for QuakeSpasm)"""
+    ds = data_setup(game) or {}
+    return ds.get("title") or DATA_TITLES.get(ds.get("gdp")) or game["title"]
+
+
+def optional_data_present(game, have):
+    ds = data_setup(game) or {}
+    return any(p in have for p in ds.get("optional") or [])
+
+
+def data_actions(game, have, repo, importing=None):
+    """the data buttons a game page shows, in order: "importing" (an import of this game runs: no button),
+    "repo" (Install from your repository: the apt sources have one of its present_any names), "setup"
+    (Set up game data...: required data missing) or "add" (Add original data...: optional data only,
+    none installed); [] when its data is there or it takes none"""
+    ds = data_setup(game)
+    if not ds:
+        return []
+    if importing == game["id"]:
+        return ["importing"]
+    if ds.get("required"):
+        if data_present(game, have):
+            return []
+        any_of = [p for p in ds.get("present_any") or ds["required"] if isinstance(p, str)]
+        return (["repo"] if any(p in repo for p in any_of) else []) + ["setup"]
+    return [] if optional_data_present(game, have) else ["add"]
+
+
+def parse_apt_policy(out):
+    """the names `apt-cache policy NAME...` shows a candidate for that comes from a package source (an
+    installed package is its own candidate, from /var/lib/dpkg/status only: not one)"""
+    have, cur, cand, ver = set(), None, None, None
+    for line in out.splitlines():
+        m = re.match(r"(\S+):\s*$", line)
+        if m:
+            cur, cand, ver = m.group(1), None, None
+            continue
+        if cur is None:
+            continue
+        m = re.match(r"\s+Candidate:\s*(\S+)", line)
+        if m:
+            cand = m.group(1) if m.group(1) != "(none)" else None
+            continue
+        m = re.match(r"\s(?:\*\*\*|   )\s(\S+)\s+-?\d+\s*$", line)      # a version of the version table
+        if m:
+            ver = m.group(1)
+            continue
+        m = re.match(r"\s+-?\d+\s+(\S+)", line)                         # one of that version's sources
+        if m and cand and ver == cand and m.group(1) != "/var/lib/dpkg/status":
+            have.add(cur)
+    return have
+
+
+def repo_candidates(names, runner=None):
+    """the names among names the configured apt sources have (the licensed suite's data); set() when
+    apt-cache can't say"""
+    if not names:
+        return set()
+    try:
+        out = (runner or (lambda c: subprocess.run(c, capture_output=True, text=True, timeout=60).stdout))(
+            [APT_CACHE, "policy"] + sorted(names))
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return parse_apt_policy(out) & set(names)
+
+
+def data_info(packages, runner=None):
+    """{package: (edition, installed KB)} of the installed ones (dpkg-query; X-Walnut-Edition is empty for
+    a package without it: the licensed suite's)"""
+    if not packages:
+        return {}
+    cmd = ["dpkg-query", "-W", "-f", "${Package}\t${db:Status-Abbrev}\t${X-Walnut-Edition}\t${Installed-Size}\n"] + \
+        sorted(packages)
+    try:
+        out = (runner or (lambda c: subprocess.run(c, capture_output=True, text=True).stdout))(cmd)
+    except OSError:
+        return {}
+    info = {}
+    for line in out.splitlines():
+        f = line.split("\t")
+        if len(f) == 4 and f[1][1:2] == "i":
+            info[f[0]] = (f[2].strip(), int(f[3]) if f[3].strip().isdigit() else 0)
+    return info
+
+
+def edition_text(game, info):
+    """what the installed data is: "Full game", "Shareware", "Full game, Music"; "" when the installed
+    packages don't say (the licensed suite's)"""
+    ds = data_setup(game) or {}
+    names = [p for k in ("present_any", "required", "optional") for p in ds.get(k) or []]
+    labels = []
+    for p in dict.fromkeys(names):
+        if p in info and info[p][0]:
+            label = EDITION_LABELS.get(info[p][0], info[p][0].capitalize())
+            if label not in labels:
+                labels.append(label)
+    if "Full game" in labels:
+        labels = [l for l in labels if l not in ("Shareware", "Demo")]
+    return ", ".join(labels)
+
+
+def human_size(kb):
+    if kb >= 1 << 20:
+        return "%.1f GB" % (kb / (1 << 20))
+    if kb >= 1024:
+        return "%d MB" % round(kb / 1024)
+    return "%d KB" % max(1, kb)
+
+
+def remove_question(game, info):
+    """the Remove confirmation, naming the imported data that goes with the game"""
+    ds = data_setup(game) or {}
+    names = [p for p in dict.fromkeys(p for k in ("required", "optional", "present_any") for p in ds.get(k) or [])
+             if p in info]
+    q = "Remove %s?" % game["title"]
+    if names:
+        kb = sum(info[p][1] for p in names)
+        q += ("\n\nThis also removes your imported game data (%s: %s); you'd need the disc or your copy again "
+              "to play it." % (", ".join(names), human_size(kb)))
+    return q, names
+
+
+def parse_lsblk_disc(text):
+    """(label, mount point) of the disc in the drive from `lsblk -J -b -o NAME,LABEL,MOUNTPOINT,TYPE,SIZE
+    /dev/sr0`, or None when there is no disc (or lsblk said nothing)"""
+    try:
+        devs = json.loads(text).get("blockdevices") or []
+    except (ValueError, AttributeError):
+        return None
+    for d in devs:
+        if not isinstance(d, dict) or d.get("type") != "rom":
+            continue
+        try:
+            size = int(d.get("size") or 0)
+        except (TypeError, ValueError):
+            size = 0
+        if size <= 0:
+            return None
+        return (d.get("label") or "", d.get("mountpoint") or None)
+    return None
+
+
+def disc_state(runner=None):
+    if not os.path.exists(DISC):
+        return None
+    try:
+        out = (runner or (lambda c: subprocess.run(c, capture_output=True, text=True, timeout=10).stdout))(
+            [LSBLK, "-J", "-b", "-o", "NAME,LABEL,MOUNTPOINT,TYPE,SIZE", DISC])
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return parse_lsblk_disc(out)
+
+
+def _dirs(path):
+    try:
+        return sorted(e.path for e in os.scandir(path) if e.is_dir() and not e.name.startswith("."))
+    except OSError:
+        return []
+
+
+def find_sources(home, user, disc=None, media_roots=None):
+    """[(label, path)]: where the player's game files may be, best first: the disc in the drive (disc:
+    (label, mount point or None); not mounted: walnut-data mounts /dev/sr0), mounted media (/media/USER/*,
+    /run/media/USER/*), installed copies (~/GOG Games/*, Steam's steamapps/common/*), then disc images,
+    archives and installers (*.iso, *.img, *.zip, *.exe, gog_*.sh) in ~/Downloads and ~, newest first"""
+    out, seen = [], set()
+
+    def add(label, path):
+        real = os.path.realpath(path)
+        if real not in seen:
+            seen.add(real)
+            out.append((label, path))
+
+    if disc is not None:
+        label, mp = disc
+        add("Disc in the drive" + (": " + label if label else ""), mp or DISC)
+    roots = media_roots if media_roots is not None else ["/media/" + user, "/run/media/" + user]
+    for r in roots:
+        for d in _dirs(r):
+            add("Disc or drive: " + os.path.basename(d), d)
+    for d in _dirs(os.path.join(home, "GOG Games")):
+        add("GOG: " + os.path.basename(d), d)
+    for steam in (".steam/steam/steamapps/common", ".local/share/Steam/steamapps/common"):
+        for d in _dirs(os.path.join(home, steam)):
+            add("Steam: " + os.path.basename(d), d)
+    files = []
+    for d in (os.path.join(home, "Downloads"), home):
+        try:
+            for e in os.scandir(d):
+                if e.is_file() and INSTALLER_RE.match(e.name):
+                    files.append((e.stat().st_mtime, e.name, e.path))
+        except OSError:
+            pass
+    for _, name, path in sorted(files, key=lambda f: (-f[0], f[1])):
+        add(("Disc image: " if name.lower().endswith((".iso", ".img")) else "File: ") + name, path)
+    return out[:MAX_SOURCES]
+
+
+def import_command(gid, source, packages=None, walnut_data=None):
+    cmd = [walnut_data or WALNUT_DATA, "import"]
+    for p in packages or []:
+        cmd += ["-p", p]
+    return cmd + [gid, source]
+
+
+def parse_import_line(line):
+    """one line of walnut-data's output: ('step', text) | ('file', name, bytes) | ('generated', path) |
+    ('gdp-error', kind, text) | ('progress', percent, text) | ('log'|'error'|'status', text) | None"""
+    line = line.rstrip("\n")
+    if line.startswith("gdp "):
+        kind, _, rest = line[4:].partition(" ")
+        if kind == "step":
+            return ("step", rest)
+        if kind == "file":
+            name, _, size = rest.rpartition(" ")
+            try:
+                return ("file", name, int(size))
+            except ValueError:
+                return ("file", rest, -1)
+        if kind == "generated":
+            return ("generated", rest)
+        if kind == "error":
+            k, _, text = rest.partition(" ")
+            return ("gdp-error", k, text)
+        return ("log", line[4:]) if line[4:].strip() else None
+    return parse_helper_line(line)
+
+
+def import_error_kind(gdp_kind, errors):
+    """the error kind of a failed import: game-data-packager's, else from walnut-data's own message
+    (its free-space check, a busy lock)"""
+    if gdp_kind:
+        return gdp_kind
+    last = (errors or [""])[-1].lower()
+    if last.startswith("not enough space"):
+        return "no-space"
+    if last.startswith("busy"):
+        return "busy"
+    return "failed"
+
+
+def import_error_message(kind, title, tail=(), errors=()):
+    """the plain English of an import's failure (kind: game-data-packager's error kinds, no-space and busy
+    from walnut-data too)"""
+    if kind == "not-found":
+        return "No %s files found here." % title
+    if kind == "unknown-version":
+        return "This copy is a version Walnut doesn't know yet."
+    if kind == "needs-download":
+        return ("%s needs its official patch files: connect to the network and try again, or add the patch "
+                "file." % title)
+    if kind == "no-space":
+        why = [e for e in errors if e.lower().startswith("not enough space")]
+        return "Not enough space: " + why[-1].split(":", 1)[1].strip() + "." if why else \
+            "Not enough space for %s's data: free some space and try again." % title
+    if kind == "busy":
+        return "Another import or install is running: try again when it has finished."
+    lines = [l for l in tail if l][-3:]
+    return "The import failed." + ("\n" + "\n".join(lines) if lines else "")
+
+
+def import_lock_state(path):
+    """(pid, game id) of the walnut-data import running now (it holds its lock), or None"""
+    import fcntl
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError:
+        return None
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            pid, gid = os.read(fd, 200).decode("utf-8", "replace").split()[:2]
+            return int(pid), gid
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return None
+    except (OSError, ValueError):
+        return None
+    finally:
+        os.close(fd)
+
+
+def data_cache_dir():
+    return os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "walnut-data")
+
+
+def elapsed_text(secs):
+    secs = int(max(0, secs))
+    return "%d:%02d:%02d" % (secs // 3600, secs // 60 % 60, secs % 60) if secs >= 3600 else \
+        "%d:%02d" % (secs // 60, secs % 60)
+
+
+class ImportView:
+    """what the page shows of a running import, fed walnut-data's lines (parse_import_line)"""
+
+    def __init__(self, gid, t0=None):
+        self.gid, self.t0 = gid, t0 if t0 is not None else time.time()
+        self.step, self.file, self.tail, self.errors = "Starting...", "", [], []
+        self.gdp_kind, self.done = None, False
+
+    def feed(self, ev):
+        if not ev:
+            return
+        k = ev[0]
+        if k == "step":
+            self.step, self.file = ev[1][:1].upper() + ev[1][1:], ""
+        elif k == "file":
+            self.file = os.path.basename(ev[1].replace("//", "/")) + \
+                (" (%s)" % human_size(max(1, ev[2] >> 10)) if ev[2] >= 0 else "")
+        elif k == "generated":
+            self.step, self.file = "Made " + os.path.basename(ev[1]), ""
+        elif k == "gdp-error":
+            self.gdp_kind = ev[1]
+            self.tail.append(ev[2])
+        elif k == "progress":
+            self.step, self.file = ev[2][:1].upper() + ev[2][1:], ""
+        elif k in ("log", "error"):
+            self.tail.append(ev[1])
+            if k == "error":
+                self.errors.append(ev[1])
+        self.tail = self.tail[-3:]
+
+    def kind(self):
+        return import_error_kind(self.gdp_kind, self.errors)
+
+
 def screenshots(game):
     """[(label, relative path)]: every test's pictures, as rendered on the PS3"""
     out = []
@@ -494,6 +863,7 @@ class App:
         self.online = (not os.environ.get("WALNUT_GAMES_OFFLINE")) if online is None else online
         packaged = load_catalog_obj(self.data)
         self.pkg_ids = {g["id"] for g in packaged["games"]}   # what the root helper can install
+        self.pkg_data = {g["id"] for g in packaged["games"] if data_setup(g)}   # and import data for
         self.cat = choose_catalog(packaged, read_cached_catalog() if self.online else None)
         self.games = self.cat["games"]
         self.by_id = {g["id"]: g for g in self.games}
@@ -503,6 +873,13 @@ class App:
         self.shown, self.selected = [], None
         self.thumbs, self.cards = {}, {}
         self.busy = None                       # (id, "install"|"remove") while the helper runs
+        self.imp = None                        # ImportView of the walnut-data import running (or just ended)
+        self.imp_source = {}                   # game id -> the source of its last import (Try again)
+        self.retry = {}                        # game id -> the source to import again with downloads on
+        self.imp_before = set()                # the Play entries before the import (what it added)
+        self.repo = set()                      # data names the apt sources have (the licensed suite)
+        self.info = {}                         # installed data packages -> (edition, KB)
+        self.chooser = None
         self._manifests = {}                   # (game id, installed packages) -> dpkg -L
         self.events = queue.Queue()
         self.shot_i, self.shot_img = 0, None
@@ -515,6 +892,8 @@ class App:
         self.root.after(100, self._poll)
         if self.online:
             self.fetch_catalog(manual=False)
+        self.check_repo()
+        self.resume_import()
 
     # -- look
     def _style(self):
@@ -564,6 +943,8 @@ class App:
         s.configure("Accent.TButton", background=ACCENT, foreground="#14304d", font=self.f["bold"])
         s.map("Accent.TButton", background=[("active", ACCENT_LIGHT), ("pressed", ACCENT_DEEP), ("disabled", PANEL)],
               foreground=[("disabled", "#6c7d90")])
+        s.configure("Source.TButton", background=ENTRY, foreground=TEXT, anchor="w", padding=(12, 8), justify="left")
+        s.map("Source.TButton", background=[("active", BORDER), ("focus", BORDER)])
         s.configure("Link.TButton", background=PANEL, foreground=MUTED, padding=(4, 2))
         s.map("Link.TButton", foreground=[("active", ACCENT_LIGHT)], background=[("active", PANEL)])
         s.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor=ENTRY, bordercolor=BORDER,
@@ -652,6 +1033,17 @@ class App:
         for b in (self.b_install, self.b_remove, self.b_play):
             b.pack(side="left", padx=(0, 8))
         self.btns = btns
+        # the game data's buttons, above Install/Remove/Play (shown when they apply: data_actions)
+        self.data_row = ttk.Frame(d, style="Panel.TFrame")
+        self.data_row.pack(side="bottom", fill="x")
+        self.b_repo = ttk.Button(self.data_row, text="Install from your repository", style="Accent.TButton",
+                                 command=lambda: self.run_helper("install-repo-data"))
+        self.b_data = ttk.Button(self.data_row, text="Set up game data\u2026", command=self.open_chooser)
+        self.b_retry = ttk.Button(self.data_row, text="Try again with download", style="Accent.TButton",
+                                  command=self.retry_download)
+        # an import's file being read, elapsed time and its last log lines (under the status line)
+        self.imp_detail = ttk.Label(self.activity, text="", style="Muted.TLabel", background=PANEL, wraplength=370,
+                                    justify="left", font=self.f["small"])
         # the scrolling area: a canvas holding one frame, its scroll region kept to the frame's size
         area = ttk.Frame(d, style="Panel.TFrame")
         area.pack(side="top", fill="both", expand=True)
@@ -957,8 +1349,12 @@ class App:
             stats.append("%.1f h played, %d crash%s%s" % (r["hours"], r["crashes"], "" if r["crashes"] == 1 else "es",
                                                          " (provisional)" if r.get("provisional") else ""))
         stats.append("Controller: " + (r.get("controller") or g.get("controller") or "unknown"))
+        ed = edition_text(g, self.info)
         if g.get("needs_data"):
-            stats.append("Your game data is installed" if data_present(g, self.have) else "Needs your own game data")
+            stats.append(("Your game data is installed" + (": " + ed if ed else "")) if data_present(g, self.have)
+                         else "Needs your own game data")
+        elif data_setup(g) and optional_data_present(g, self.have):
+            stats.append("Original data installed" + (": " + ed if ed else ""))
         tested = tested_text(r)
         lines = [x for x in (tested, basis_text(r)) if x] + problem_lines(r)
         self.d_stats.configure(text="".join(x + "\n" for x in lines) + "  |  ".join(stats))
@@ -1089,6 +1485,7 @@ class App:
         if self.refreshing or self.busy or not self.online:
             return
         self.refreshing = True
+        self.check_repo()
         self.show_activity("Refreshing...")
         self.update_buttons()
         self.fetch_catalog(manual=True)
@@ -1165,7 +1562,19 @@ class App:
         self.canvas.yview_moveto(min(top / new_h, 1.0) if new_h else 0)
 
     def refresh_installed(self, games=None):
-        self.have = dpkg_installed({p for g in (games or self.games) for p in g["packages"] + data_packages(g)})
+        games = games or self.games
+        self.have = dpkg_installed({p for g in games for p in g["packages"] + data_packages(g)})
+        self.info = data_info({p for g in games for p in data_packages(g) if p in self.have})
+
+    def check_repo(self):
+        """which data packages the apt sources have (apt-cache policy, in a thread): "repo" event"""
+        names = {p for g in self.games if data_setup(g) for p in data_setup(g).get("present_any") or []}
+        if not names or not os.path.exists(APT_CACHE):
+            return
+
+        def work():
+            self.events.put(("repo", repo_candidates(names)))
+        threading.Thread(target=work, daemon=True).start()
 
     def manifest(self, g):
         """the game's packages' files (dpkg -L), cached until the installed set changes"""
@@ -1177,7 +1586,7 @@ class App:
     def update_buttons(self):
         g = getattr(self, "g", None)
         inst = bool(g) and is_installed(g, self.have)
-        idle = self.busy is None
+        idle = self.busy is None and (self.imp is None or self.imp.done)
         can = bool(g) and g["id"] in self.pkg_ids
         self.b_install.configure(state="normal" if can and idle and not inst else "disabled")
         reason = "Install it after the next Walnut Games update." if g and not can and not inst else ""
@@ -1192,20 +1601,52 @@ class App:
                                          g.get("launchers")) if g and inst else []
         self.b_play.configure(state="normal" if idle and self.play_cmds else "disabled",
                               text="Play \u25be" if len(self.play_cmds) > 1 else "Play")
+        self.update_data_buttons(g, idle)
 
-    def show_activity(self, text, progress=None, hide_after=None):
-        """the status line (and the progress bar when progress is a number) above the buttons;
-        hide_after: seconds until it goes away by itself"""
+    def update_data_buttons(self, g, idle):
+        running = self.imp.gid if self.imp is not None and not self.imp.done else None
+        acts = data_actions(g, self.have, self.repo, running) if g and g["id"] in self.pkg_data else []
+        for b in (self.b_repo, self.b_data, self.b_retry):
+            b.pack_forget()
+        if g and g["id"] in self.retry and ("setup" in acts or "add" in acts) and data_setup(g).get("downloads"):
+            self.b_retry.pack(side="left", padx=(0, 8), pady=(0, 6))
+            self.b_retry.configure(state="normal" if idle else "disabled")
+        if "repo" in acts:
+            self.b_repo.pack(side="left", padx=(0, 8), pady=(0, 6))
+            self.b_repo.configure(state="normal" if idle else "disabled")
+        if "setup" in acts or "add" in acts:
+            self.b_data.configure(text="Set up game data\u2026" if "setup" in acts else "Add original data\u2026",
+                                  style="TButton" if "repo" in acts or g["id"] in self.retry else "Accent.TButton",
+                                  state="normal" if idle else "disabled")
+            self.b_data.pack(side="left", padx=(0, 8), pady=(0, 6))
+
+    def show_activity(self, text, progress=None, hide_after=None, detail=None):
+        """the status line (and the progress bar when progress is a number; "busy": a bar that only
+        moves, for an import, which has no percentages) above the buttons, a smaller detail text under
+        them; hide_after: seconds until it goes away by itself"""
         if self._activity_after:
             self.root.after_cancel(self._activity_after)
             self._activity_after = None
         self.d_status.configure(text=text)
         if progress is None:
+            self.progress.stop()
             self.progress.pack_forget()
         else:
-            self.progress.configure(value=progress)
+            if progress == "busy":
+                if str(self.progress["mode"]) != "indeterminate":
+                    self.progress.configure(mode="indeterminate")
+                    self.progress.start(40)
+            else:
+                self.progress.stop()
+                self.progress.configure(mode="determinate", value=progress)
             if not self.progress.winfo_ismapped():
                 self.progress.pack(side="top", fill="x")
+        if detail:
+            self.imp_detail.configure(text=detail)
+            if not self.imp_detail.winfo_ismapped():
+                self.imp_detail.pack(side="top", anchor="w", fill="x", pady=(4, 0))
+        else:
+            self.imp_detail.pack_forget()
         if not self.activity.winfo_ismapped():
             self.activity.pack(side="bottom", fill="x", before=self.d_area)
         if hide_after:
@@ -1218,42 +1659,309 @@ class App:
         self.activity.pack_forget()
 
     def run_helper(self, op):
+        """install, remove (with remove-data after it when the game has imported data installed) or
+        install-repo-data (its data from the apt sources) through the root helper, in a thread"""
         g = self.g
-        if not g or self.busy:
+        if not g or self.busy or (self.imp is not None and not self.imp.done):
             return
-        if op == "remove" and not messagebox.askyesno("Remove", "Remove %s?" % g["title"], parent=self.root):
-            return
+        ops = [op]
+        if op == "remove":
+            question, data = remove_question(g, self.info)
+            if not messagebox.askyesno("Remove", question, parent=self.root):
+                return
+            if data:
+                ops.append("remove-data")
         self.busy = (g["id"], op)
-        self.show_activity(("Installing %s..." if op == "install" else "Removing %s...") % g["title"], progress=0)
+        self.retry.pop(g["id"], None)
+        self.show_activity({"install": "Installing %s...", "remove": "Removing %s...",
+                            "install-repo-data": "Installing the game data of %s from your repository..."}[op]
+                           % g["title"], progress=0)
         self.update_buttons()
-        cmd = ["sudo", "-n", self.helper, op, g["id"]]
 
         def work():
-            tail = []
-            try:
-                p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     text=True, errors="replace", start_new_session=True)
-                for line in p.stdout:
-                    ev = parse_helper_line(line)
-                    if ev:
-                        self.events.put(("helper",) + ev)
-                        if ev[0] in ("log", "error"):
-                            tail.append(ev[1])
-                rc = p.wait()
-            except OSError as e:
-                rc, tail = 1, [str(e)]
+            tail, rc = [], 0
+            for one in ops:
+                try:
+                    p = subprocess.Popen(["sudo", "-n", self.helper, one, g["id"]], stdin=subprocess.DEVNULL,
+                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
+                                         start_new_session=True)
+                    for line in p.stdout:
+                        ev = parse_helper_line(line)
+                        if ev:
+                            self.events.put(("helper",) + ev)
+                            if ev[0] in ("log", "error"):
+                                tail.append(ev[1])
+                    rc = p.wait()
+                except OSError as e:
+                    rc, tail = 1, [str(e)]
+                if rc != 0:
+                    break
             self.regenerate_menu()
             self.events.put(("done", g["id"], op, rc, tail[-3:]))
         threading.Thread(target=work, daemon=True).start()
 
     def regenerate_menu(self):
+        """the session's menu entries made again (a new game, a data launcher whose files now exist) and
+        the menu reloaded: ps3-game-menu --reload"""
         rt = os.environ.get("XDG_RUNTIME_DIR")
         if rt and os.path.exists(MENU_TOOL):
             try:
-                subprocess.run([MENU_TOOL, os.path.join(rt, "ps3-game-menu")], stdin=subprocess.DEVNULL,
+                subprocess.run([MENU_TOOL, "--reload", os.path.join(rt, "ps3-game-menu")], stdin=subprocess.DEVNULL,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
             except (OSError, subprocess.SubprocessError):
                 pass
+
+    # -- game data: the chooser, walnut-data import and its progress
+    def open_chooser(self, g=None):
+        """the sources list (a window of big buttons: the pad's pointer clicks them; arrows, Enter and
+        Escape work too), with the game's hint and Other file / Other folder"""
+        g = g or self.g
+        ds = data_setup(g)
+        if not ds or self.busy or (self.imp is not None and not self.imp.done):
+            return
+        if self.chooser is not None:
+            try:
+                self.chooser.destroy()
+            except tk.TclError:
+                pass
+        home = os.path.expanduser("~")
+        user = os.environ.get("USER") or os.path.basename(home)
+        sources = find_sources(home, user, disc_state())
+        title = data_title(g)
+        top = tk.Toplevel(self.root, bg=PANEL)
+        self.chooser = top
+        top.title("Game data for " + g["title"])
+        top.transient(self.root)
+        w, h = 640, 600
+        try:
+            x = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - w) // 2)
+            y = self.root.winfo_rooty() + max(0, (self.root.winfo_height() - h) // 3)
+            top.geometry("%dx%d+%d+%d" % (w, h, x, y))
+        except tk.TclError:
+            top.geometry("%dx%d" % (w, h))
+        box = ttk.Frame(top, style="Panel.TFrame", padding=16)
+        box.pack(fill="both", expand=True)
+        ttk.Label(box, text=("Set up %s's game data" if ds.get("required") else "Add %s's original data") % title,
+                  font=self.f["big"], background=PANEL).pack(anchor="w")
+        if ds.get("hint"):
+            ttk.Label(box, text=ds["hint"], style="Muted.TLabel", background=PANEL, wraplength=w - 40,
+                      justify="left").pack(anchor="w", pady=(4, 0))
+        ttk.Label(box, text="Where are your %s files?" % title, background=PANEL).pack(anchor="w", pady=(10, 4))
+        bottom = ttk.Frame(box, style="Panel.TFrame")
+        bottom.pack(side="bottom", fill="x", pady=(10, 0))
+        area = ttk.Frame(box, style="Panel.TFrame")
+        area.pack(fill="both", expand=True)
+        canvas = tk.Canvas(area, bg=PANEL, highlightthickness=0)
+        sb = ttk.Scrollbar(area, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        inner = ttk.Frame(canvas, style="Panel.TFrame")
+        win = canvas.create_window(0, 0, window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win, width=e.width))
+        for ev, d in (("<Button-4>", -1), ("<Button-5>", 1)):
+            top.bind(ev, lambda e, d=d: canvas.yview_scroll(d * 2, "units"))
+        buttons = []
+
+        def choose(path):
+            top.destroy()
+            self.chooser = None
+            self.start_import(g, path)
+
+        for label, path in sources:
+            b = ttk.Button(inner, text=label + "\n" + path, style="Source.TButton", command=lambda p=path: choose(p))
+            b.pack(fill="x", pady=2)
+            buttons.append(b)
+        if not sources:
+            ttk.Label(inner, text="Nothing found yet: put the disc in the drive, plug in the drive that has the "
+                      "files, or pick a file or folder below.", style="Muted.TLabel", background=PANEL,
+                      wraplength=w - 60, justify="left").pack(anchor="w", pady=8)
+
+        def pick(folder):
+            if folder:
+                path = filedialog.askdirectory(parent=top, initialdir=home, title="The folder with the %s files" % title)
+            else:
+                path = filedialog.askopenfilename(parent=top, initialdir=home, title="A %s disc image, installer or "
+                                                  "archive" % title)
+            if path:
+                choose(path)
+
+        cancel = ttk.Button(bottom, text="Cancel", command=lambda: (top.destroy(), setattr(self, "chooser", None)))
+        other_file = ttk.Button(bottom, text="Other file\u2026", command=lambda: pick(False))
+        other_dir = ttk.Button(bottom, text="Other folder\u2026", command=lambda: pick(True))
+        for b in (other_file, other_dir):
+            b.pack(side="left", padx=(0, 8))
+        cancel.pack(side="right")
+        order = buttons + [other_file, other_dir, cancel]
+
+        def move(d):
+            f = top.focus_get()
+            i = order.index(f) if f in order else -1
+            j = max(0, min(len(order) - 1, i + d))
+            order[j].focus_set()
+            if order[j] in buttons:     # keep it in view
+                total = max(1, inner.winfo_height())
+                y = order[j].winfo_y()
+                top_y, bot_y = canvas.canvasy(0), canvas.canvasy(canvas.winfo_height())
+                if y < top_y or y + order[j].winfo_height() > bot_y:
+                    canvas.yview_moveto(max(0.0, (y - 8) / total))
+            return "break"
+
+        top.bind("<Down>", lambda e: move(1))
+        top.bind("<Up>", lambda e: move(-1))
+        top.bind("<Return>", lambda e: (top.focus_get().invoke() if hasattr(top.focus_get(), "invoke") else None,
+                                        "break")[1])
+        top.bind("<Escape>", lambda e: cancel.invoke())
+        top.after(50, lambda: order[0].focus_set() if top.winfo_exists() else None)
+        self.chooser_sources = sources      # what was offered (the tests look)
+
+    def import_paths(self):
+        cache = cache_dir()
+        return os.path.join(cache, "import.log"), os.path.join(cache, "import.json")
+
+    def start_import(self, g, source, packages=None):
+        """walnut-data import in the background, its output to ~/.cache/walnut-games/import.log (the app
+        reads it from there, so an import goes on when the app is closed, and is shown again when it
+        is opened: resume_import)"""
+        if self.busy or (self.imp is not None and not self.imp.done):
+            return
+        log, side = self.import_paths()
+        cmd = import_command(g["id"], source, packages)
+        try:
+            os.makedirs(os.path.dirname(log), exist_ok=True)
+            with open(log, "w") as out:
+                p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                                     start_new_session=True)
+        except OSError as e:
+            self.show_activity("Can't start the import: %s" % e)
+            return
+        t0 = time.time()
+        try:
+            with open(side + ".part", "w") as f:
+                json.dump({"pid": p.pid, "game": g["id"], "t0": t0, "source": source}, f)
+            os.replace(side + ".part", side)
+        except OSError:
+            pass
+        self.retry.pop(g["id"], None)
+        self.imp_source[g["id"]] = source
+        self.imp_before = {c[0] for c in getattr(self, "play_cmds", [])} if self.g is g else set()
+        self.imp = ImportView(g["id"], t0)
+        self.watch_import(g["id"], log, proc=p)
+        self.show_import()
+        self.update_buttons()
+
+    def retry_download(self):
+        g = self.g
+        if not g or g["id"] not in self.retry:
+            return
+        ds = data_setup(g)
+        self.start_import(g, self.retry[g["id"]], [p for p in ds.get("downloads") or []])
+
+    def resume_import(self):
+        """an import that runs (walnut-data's lock is held) shown again: with its log when this app started
+        it, else as "started elsewhere" (a terminal)"""
+        held = import_lock_state(os.path.join(data_cache_dir(), "import.lock"))
+        if not held:
+            return
+        pid, gid = held
+        log, side = self.import_paths()
+        try:
+            with open(side) as f:
+                meta = json.load(f)
+        except (OSError, ValueError):
+            meta = {}
+        mine = meta.get("pid") == pid and meta.get("game") == gid
+        self.imp = ImportView(gid, meta.get("t0") if mine else None)
+        if mine:
+            self.imp_source[gid] = meta.get("source")
+        else:
+            self.imp.step = "Importing (started in a terminal)"
+        self.watch_import(gid, log if mine else None)
+        self.show_import()
+
+    def watch_import(self, gid, log, proc=None):
+        """a thread reading the import's log as it grows ("import-line" events) until walnut-data exits
+        (its process, or its lock when this app didn't start it): an "import-done" event"""
+        lock = os.path.join(data_cache_dir(), "import.lock")
+
+        def work():
+            pos, buf = 0, b""
+            while True:
+                alive = proc.poll() is None if proc is not None else import_lock_state(lock) is not None
+                if log:
+                    try:
+                        with open(log, "rb") as f:
+                            f.seek(pos)
+                            chunk = f.read()
+                        pos += len(chunk)
+                        buf += chunk
+                    except OSError:
+                        pass
+                    *lines, buf = buf.split(b"\n")
+                    for raw in lines:
+                        ev = parse_import_line(raw.decode("utf-8", "replace"))
+                        if ev:
+                            self.events.put(("import-line", gid, ev))
+                if not alive:
+                    break
+                time.sleep(0.3)
+            self.events.put(("import-done", gid, proc.wait() if proc is not None else None))
+        threading.Thread(target=work, daemon=True).start()
+        self.root.after(1000, self._tick)
+
+    def _tick(self):
+        if self.imp is not None and not self.imp.done:
+            self.show_import()
+            self.root.after(1000, self._tick)
+
+    def show_import(self):
+        v = self.imp
+        if v is None:
+            return
+        g = self.by_id.get(v.gid, {"title": v.gid, "id": v.gid})
+        detail = ["Reading " + v.file] if v.file else []
+        detail.append("Elapsed " + elapsed_text(time.time() - v.t0))
+        detail += ["\u2022 " + l[:120] for l in v.tail]
+        self.show_activity("Importing the %s data for %s: %s" % (data_title(g), g["title"], v.step), progress="busy",
+                           detail="\n".join(detail))
+
+    def import_done(self, gid, rc):
+        v = self.imp
+        if v is None or v.gid != gid:
+            return
+        v.done = True
+        self.refresh_installed()
+        self.check_repo()
+        g = self.by_id.get(gid)
+        title = data_title(g) if g else gid
+        ok = rc == 0 if rc is not None else (not v.errors and g is not None and
+                                             (bool(data_present(g, self.have)) or optional_data_present(g, self.have)))
+        if ok:
+            ed = edition_text(g, self.info) if g else ""
+            self.show_activity("The %s data is installed%s. Making the menu entries..." % (title, ": " + ed if ed else ""))
+
+            def work():
+                self.regenerate_menu()
+                self.events.put(("menu-done", gid, ed))
+            threading.Thread(target=work, daemon=True).start()
+        else:
+            kind = v.kind()
+            if kind == "needs-download" and g and data_setup(g).get("downloads") and self.imp_source.get(gid):
+                self.retry[gid] = self.imp_source[gid]
+            self.show_activity(import_error_message(kind, title, v.tail, v.errors))
+        self.apply_filters_keep()
+
+    def menu_done(self, gid, ed):
+        self._manifests.clear()
+        self.apply_filters_keep()
+        g = self.by_id.get(gid)
+        new = []
+        if g is not None and self.g is g:
+            new = [c[0] for c in getattr(self, "play_cmds", []) if c[0] not in self.imp_before]
+        self.show_activity("The %s data is installed%s.%s" % (data_title(g) if g else gid, ": " + ed if ed else "",
+                                                               (" New in Play: " + ", ".join(new) + ".") if new else ""),
+                           hide_after=12)
 
     def _poll(self):
         try:
@@ -1268,15 +1976,17 @@ class App:
                     _, gid, op, rc, tail = ev
                     self.busy = None
                     self.refresh_installed()
-                    ok = "installed" if op == "install" else "removed"
+                    ok = {"install": "installed", "remove": "removed", "install-repo-data": "data installed"}.get(op, "done")
+                    self.check_repo()       # what the sources offer beyond what is installed changed
                     title = self.by_id.get(gid, {"title": gid})["title"]
                     # a success fades after a few seconds; a failure stays until the next action
                     self.show_activity(title + (" " + ok + "." if rc == 0 else
                                        ": " + op + " failed" + (" (refused)" if rc == 2 else "") + "."),
                                        hide_after=6 if rc == 0 else None)
                     if rc != 0:
-                        messagebox.showerror("Walnut Games", "%s of %s failed:\n\n%s" % (
-                            op, title, "\n".join(tail) or "no details"), parent=self.root)
+                        messagebox.showerror("Walnut Games", "%s %s failed:\n\n%s" % (
+                            {"install": "Installing", "remove": "Removing"}.get(op, "Installing the data of"), title,
+                            "\n".join(tail) or "no details"), parent=self.root)
                     self.apply_filters_keep()
                 elif ev[0] == "played":
                     _, gid, rc, secs, log = ev
@@ -1287,6 +1997,17 @@ class App:
                             title, secs, "" if rc == 0 else " (exit code %d)" % rc, log))
                     else:
                         self.hide_activity()
+                elif ev[0] == "import-line":
+                    if self.imp is not None and self.imp.gid == ev[1] and not self.imp.done:
+                        self.imp.feed(ev[2])
+                        self.show_import()
+                elif ev[0] == "import-done":
+                    self.import_done(ev[1], ev[2])
+                elif ev[0] == "menu-done":
+                    self.menu_done(ev[1], ev[2])
+                elif ev[0] == "repo":
+                    self.repo = ev[1]
+                    self.update_buttons()
                 elif ev[0] == "catalog":
                     self.on_catalog(*ev[1:])
                 elif ev[0] == "thumb":

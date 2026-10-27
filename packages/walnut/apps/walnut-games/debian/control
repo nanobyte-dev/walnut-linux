@@ -8,7 +8,8 @@ Rules-Requires-Root: no
 
 Package: walnut-games
 Architecture: all
-Depends: ${misc:Depends}, python3, python3-tk, python3-pil.imagetk, ps3-desktop, sudo, apt, dpkg
+# ps3-desktop 0.931: ps3-game-menu --reload (run after an install or a data import)
+Depends: ${misc:Depends}, python3, python3-tk, python3-pil.imagetk, ps3-desktop (>= 0.931), sudo, apt, dpkg
 # Play finds a game's launchers among the menu entries (Walnut's own, one per mode, are there);
 # walnut-data import runs game-data-packager (ours, with --progress-fd and --no-launchers) and opens
 # disc images with udisksctl

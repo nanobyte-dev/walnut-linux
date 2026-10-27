@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=OpenTTD (original graphics)
+Comment=Transport simulation with Transport Tycoon Deluxe's own graphics and sounds (your imported data); the choice is saved, so the other OpenTTD entries keep it
+Exec=ps3-game openttd -v sdl-opengl -r 1920x1080 -I original_windows -S original_windows
+Icon=openttd
+Terminal=false
+Categories=Game;Simulation;
+Keywords=game;simulation;transport;tycoon;
+NoDisplay=true
+X-Walnut-Requires=/usr/share/games/openttd/baseset/trg1r.grf

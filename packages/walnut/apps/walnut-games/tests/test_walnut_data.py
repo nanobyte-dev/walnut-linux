@@ -13,7 +13,9 @@ python3 -I packages/walnut/apps/walnut-games/tests/test_walnut_data.py (tools/ru
 - tools/gamedb/gdp-manifest.json: every entry the helper accepts.
 - walnut-data: arguments, the --download choice, source kinds, mount points, a disc image through a fake
   udisksctl, the gdp command, and whole imports with a stubbed gdp, dpkg-deb, helper and systemd-run
-  (the progress FIFO in the unit, Debian's gdp without --progress-fd, a gdp failure, a refusal).
+  (the progress FIFO in the unit, Debian's gdp without --progress-fd, a gdp failure, a refusal, a deb
+  that was not asked for, an image the desktop mounted first, loop-setup refused over ssh, one import
+  at a time, the free-space check and its phases).
 """
 import contextlib
 import hashlib
@@ -534,6 +536,8 @@ if os.environ.get("FAKE_GDP_FAIL"):
 out = a[a.index("-d") + 1]
 pkg = a[a.index("-p") + 1]
 open(os.path.join(out, pkg + "_89_all.deb"), "wb").write(b"TARDATA:" + pkg.encode())
+if os.environ.get("FAKE_GDP_EXTRA"):
+    open(os.path.join(out, "heretic-shareware-wad_1.2_all.deb"), "wb").write(b"x")
 prog("generated " + os.path.join(out, pkg + "_89_all.deb"))
 '''
 FAKE_DPKG_DEB = r'''#!/bin/sh
@@ -565,9 +569,11 @@ os.execve(a[i], a[i:], env)
 '''
 FAKE_UDISKSCTL = r'''#!/bin/sh
 echo "$*" >> "$FAKE_UDISKS_LOG"
-case $1 in
-loop-setup) echo "Mapped file $4 as /dev/loop7." ;;
-mount) echo "Mounted $3 at $FAKE_MNT." ;;
+case $1:${FAKE_UDISKS_MODE:-} in
+loop-setup:noauth) echo "Error setting up loop device for $4: GDBus.Error:org.freedesktop.UDisks2.Error.NotAuthorizedCanObtain: Not authorized to perform operation"; exit 1 ;;
+loop-setup:*) echo "Mapped file $4 as /dev/loop7." ;;
+mount:already) echo "Error mounting $3: GDBus.Error:org.freedesktop.UDisks2.Error.AlreadyMounted: Device $3 is already mounted at \`$FAKE_MNT'."; exit 1 ;;
+mount:*) echo "Mounted $3 at $FAKE_MNT." ;;
 esac
 '''
 
@@ -576,7 +582,8 @@ class DataImport(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         t = self.t = Path(self.tmp.name)
-        self.old = {k: getattr(wd, k) for k in ("GDP", "DPKG_DEB", "HELPER", "SUDO", "SYSTEMD_RUN", "UDISKSCTL")}
+        self.old = {k: getattr(wd, k) for k in ("GDP", "DPKG_DEB", "HELPER", "SUDO", "SYSTEMD_RUN", "UDISKSCTL",
+                                                "MANIFEST", "SYS_BLOCK", "AUTOMOUNT_WAIT")}
         self.env = dict(os.environ)
         for name, text in (("gdp", FAKE_GDP), ("dpkg-deb", FAKE_DPKG_DEB), ("helper", FAKE_HELPER),
                            ("systemd-run", FAKE_SYSTEMD_RUN), ("udisksctl", FAKE_UDISKSCTL)):
@@ -584,6 +591,7 @@ class DataImport(unittest.TestCase):
             (t / name).chmod(0o755)
         wd.GDP, wd.DPKG_DEB, wd.HELPER, wd.SUDO = str(t / "gdp"), str(t / "dpkg-deb"), str(t / "helper"), []
         wd.SYSTEMD_RUN, wd.UDISKSCTL = str(t / "none"), str(t / "udisksctl")
+        wd.MANIFEST, wd.SYS_BLOCK, wd.AUTOMOUNT_WAIT = str(t / "no-manifest"), str(t / "sys"), 0
         os.environ.update(FAKE_LOG=str(t / "log"), XDG_CACHE_HOME=str(t / "cache"), FAKE_UDISKS_LOG=str(t / "udisks"),
                           FAKE_MNT=str(t / "mnt"))
         (t / "src").mkdir()
@@ -630,7 +638,9 @@ class DataImport(unittest.TestCase):
         self.assertIn("gdp step searching " + str(self.t / "src"), out)
         self.assertIn("log game-data-packager talking", out)
         self.assertIn("progress 100 installed", out)
-        self.assertEqual(sorted(os.listdir(self.t / "cache/walnut-data")), [])   # out/ and tmp/ gone
+        # out/ and tmp/ gone, the lock left (free); the deb gone as soon as dpkg-deb had it open
+        self.assertEqual(sorted(os.listdir(self.t / "cache/walnut-data")), ["import.lock"])
+        self.assertIsNone(wd.import_state(str(self.t / "cache/walnut-data")))
 
     def test_import_in_a_unit_with_the_fifo(self):
         wd.SYSTEMD_RUN = str(self.t / "systemd-run")
@@ -677,8 +687,78 @@ class DataImport(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.log()[0]["gdp"][-1], str(self.t / "mnt"))   # gdp reads the mounted image
         calls = (self.t / "udisks").read_text().splitlines()
+        # unmounting frees the loop device: no loop-delete
+        self.assertEqual(calls, ["loop-setup -r -f %s" % iso, "mount -b /dev/loop7", "unmount -b /dev/loop7"])
+
+    def test_disc_image_the_desktop_mounted_first(self):
+        (self.t / "mnt").mkdir()
+        (self.t / "sys/loop7/loop").mkdir(parents=True)
+        (self.t / "sys/loop7/loop/backing_file").write_text("x")      # still attached after the unmount
+        iso = self.t / "RCT2.iso"
+        iso.write_bytes(b"iso")
+        os.environ["FAKE_UDISKS_MODE"] = "already"
+        rc, out = self.imp(iso)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.log()[0]["gdp"][-1], str(self.t / "mnt"))   # the desktop's mount, from the message
+        calls = (self.t / "udisks").read_text().splitlines()
         self.assertEqual(calls, ["loop-setup -r -f %s" % iso, "mount -b /dev/loop7", "unmount -b /dev/loop7",
                                  "loop-delete -b /dev/loop7"])
+        self.assertEqual(wd.already_mounted_at("Error: Device /dev/loop0 is already mounted at `/run/media/u/RCT 2'.\n"),
+                         "/run/media/u/RCT 2")
+
+    def test_disc_image_over_ssh(self):
+        iso = self.t / "RCT2.iso"
+        iso.write_bytes(b"iso")
+        os.environ["FAKE_UDISKS_MODE"] = "noauth"
+        rc, out = self.imp(iso)
+        self.assertEqual(rc, 2)
+        self.assertTrue([l for l in out if l.startswith("error ") and "--slice=ps3-desktop.slice" in l], out)
+        self.assertEqual(self.log(), [])
+
+    def test_unasked_deb_refused(self):
+        os.environ["FAKE_GDP_EXTRA"] = "1"
+        rc, out = self.imp(self.t / "src")
+        self.assertEqual(rc, 1)
+        self.assertIn("error game-data-packager also made heretic-shareware-wad_1.2_all.deb, which was not asked for: "
+                      "nothing was imported", out)
+        self.assertEqual([e for e in self.log() if "helper" in e], [])
+
+    def test_one_import_at_a_time(self):
+        base = self.t / "cache/walnut-data"
+        base.mkdir(parents=True)
+        fd = wd.take_import_lock(str(base), "doom")
+        try:
+            self.assertEqual(wd.import_state(str(base)), (os.getpid(), "doom"))
+            rc, out = self.imp(self.t / "src")
+            self.assertEqual(rc, 2)
+            self.assertIn("error busy: another import is running (doom)", out)
+        finally:
+            os.close(fd)
+        self.assertIsNone(wd.import_state(str(base)))
+        self.assertIsNone(wd.import_state(str(self.t / "nowhere")))
+
+    def test_space_checked_from_the_manifest(self):
+        Path(wd.MANIFEST).write_text(json.dumps({"packages": {"roller-coaster-tycoon2-data": {"files": {
+            "a": [{"size": 10}, {"size": 1 << 50}], "b": [{"size": 5}]}}}}))
+        self.assertEqual(wd.data_bytes(["roller-coaster-tycoon2-data", "other"]), (1 << 50) + 5)
+        rc, out = self.imp(self.t / "src")
+        self.assertEqual(rc, 2)
+        self.assertTrue([l for l in out if l.startswith("error not enough space: importing this data needs about ")], out)
+        self.assertEqual(self.log(), [])
+        self.assertIsNone(wd.data_bytes(["x"], str(self.t / "missing.json")))
+
+    def test_space_needs(self):
+        T = 100
+        one = wd.space_needs(T, False, "/c", "/v", "/u", dev=lambda p: 1)
+        self.assertEqual(one, {1: (2 * T, ["/c", "/v", "/u"])})
+        self.assertEqual(wd.space_needs(T, True, "/c", "/v", "/u", dev=lambda p: 1)[1][0], 3 * T)   # an installer
+        apart = wd.space_needs(T, False, "/c", "/v", "/u", dev=lambda p: p)
+        self.assertEqual(apart, {"/c": (2 * T, ["/c"]), "/v": (2 * T, ["/v"]), "/u": (T, ["/u"])})
+        with self.assertRaises(wd.Refused) as e:
+            wd.check_space(1 << 30, False, "/c", "/v", "/u", free=lambda p: 1 << 30)
+        self.assertIn("about 2.1 GB free", str(e.exception))
+        self.assertIn("1.0 GB is free", str(e.exception))
+        wd.check_space(1 << 20, False, str(self.t), str(self.t), str(self.t), free=lambda p: 1 << 40)
 
     def test_remove_and_install_repo(self):
         buf = io.StringIO()

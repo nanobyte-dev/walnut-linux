@@ -12,7 +12,11 @@ Design
 - import: each SOURCE as the player has it. An .iso or .img file is opened read-only with
   `udisksctl loop-setup -r -f` and mounted with `udisksctl mount -b` (the player's own polkit rights; no
   copy), a block device (the disc drive, /dev/sr0) is used at its mount point or mounted the same way,
-  and whatever this program mounted or set up is released afterwards. A directory, an installer or
+  and whatever this program mounted or set up is released afterwards. The desktop (gvfs) mounts a new
+  loop device by itself within seconds: when udisksctl mount says AlreadyMounted, that mount is used
+  (waited for, AUTOMOUNT_WAIT) and unmounted afterwards, which frees the loop device (loop-delete only
+  for one still attached). loop-setup needs the desktop session's polkit rights: over ssh it is refused
+  (NotAuthorizedCanObtain), and the message says how to run it in the desktop's slice. A directory, an installer or
   archive file, or a mounted disc's path is given to game-data-packager as it is.
   game-data-packager (gdp) runs as the player in a transient user unit: `systemd-run --user --pipe
   --wait` with MemoryMax, RuntimeMaxSec and NoNewPrivileges, and PrivateNetwork when it must not
@@ -20,15 +24,25 @@ Design
   without a user manager it runs directly. Its command: `game-data-packager --no-search --no-compress
   --no-launchers --progress-fd 3 -n -d ~/.cache/walnut-data/out --download|--no-download -p PKG...
   GDPGAME SOURCE...` with TMPDIR=~/.cache/walnut-data/tmp (the PS3's /tmp is a small tmpfs). The
-  packages: -p's, else the game's required and optional ones. --download only when every one of
+  packages: -p's, else the game's required and optional ones, each always passed as -p (without -p
+  gdp builds whatever else it can, downloads included); a deb gdp made that was not asked for fails
+  the import, nothing imported. --download only when every one of
   them is among the game's downloads (the official patch files gdp knows), else --no-download.
   A gdp without --progress-fd or --no-launchers (Debian's) runs without them: no progress lines, and
   the helper drops the Doom family's menu files anyway. In the unit, descriptor 3 is a FIFO in the
   cache directory (systemd-run --pipe passes only 0-2).
   Each package gdp made is then `dpkg-deb --fsys-tarfile X.deb | sudo -n walnut-games-helper
-  import-data GAME PKG`: the helper checks every file against its manifest and builds and installs
+  import-data GAME PKG` (the deb unlinked as soon as dpkg-deb has it open, so its space comes back
+  when the stream ends): the helper checks every file against its manifest and builds and installs
   the package itself (required packages first, in the catalog's order). out/ and tmp/ are emptied
   before and removed after.
+  Free space is checked before gdp runs, from the data manifest's sizes of the packages (T): the most
+  each file system holds at one time over the phases (gdp: 2T in the cache, 3T for an installer or
+  archive; streaming: T cache + T staging; the helper's deb: 2T staging; installing: T staging +
+  T /usr), summed where they share a disk; refused with what is needed and what is free.
+  One import at a time per player: import holds an flock on ~/.cache/walnut-data/import.lock for its
+  whole run, the file saying "PID GAME"; a second import is refused (busy, exit 2). The Walnut Games
+  app reads that lock to show "importing" when it is opened again during an import (import_state).
 - remove: `walnut-games-helper remove-data GAME` (the game's data packages only). install-repo:
   `walnut-games-helper install-repo-data GAME` (its data from the configured apt sources).
 - Output, one item per line, flushed: "gdp step|file|generated|error ..." (gdp's progress lines),
@@ -40,6 +54,7 @@ Design
   with a stubbed gdp, dpkg-deb and helper.
 """
 import argparse
+import fcntl
 import json
 import os
 import re
@@ -48,6 +63,7 @@ import stat
 import subprocess
 import sys
 import threading
+import time
 
 CATALOG = "/usr/share/walnut-games/catalog.json"
 HELPER = "/usr/lib/ps3/sbin/walnut-games-helper"
@@ -62,6 +78,12 @@ UNIT_PATH = "/usr/local/bin:/usr/bin:/bin:/usr/games"
 ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 PKG_RE = re.compile(r"[a-z0-9][a-z0-9+.-]*[a-z0-9]\Z")
 IMAGE_SUFFIXES = (".iso", ".img")
+AUTOMOUNT_WAIT = 10       # seconds to wait for the desktop's mount of a loop device it got to first
+MANIFEST = "/usr/share/walnut-games/data-manifest.json"
+IMPORT_DIR = "/var/lib/walnut-games/import"    # the helper's staging (root's)
+USR = "/usr"
+SPACE_MARGIN = 64 << 20
+SYS_BLOCK = "/sys/block"
 
 
 class Refused(Exception):
@@ -207,23 +229,49 @@ def mount_point(dev, mounts="/proc/self/mounts"):
     return None
 
 
+def already_mounted_at(out):
+    """the mount point in udisksctl's AlreadyMounted error ("... is already mounted at `/run/media/u/X'.")"""
+    m = re.search(r"already mounted at [`'\"]?(/.+?)['\"]?\.?\s*$", out.strip(), re.M)
+    return m.group(1) if m else None
+
+
+def loop_attached(dev, sys_block=None):
+    """whether loop device dev still has a backing file"""
+    return os.path.exists(os.path.join(sys_block or SYS_BLOCK, os.path.basename(dev), "loop", "backing_file"))
+
+
 class Sources:
     """the SOURCE arguments as paths gdp reads; loop devices and mounts made here released by close()"""
 
     def __init__(self):
         self.mounted, self.loops = [], []
 
-    def mount(self, dev):
+    def mount(self, dev, ours=False):
+        """dev's mount point, mounted with udisksctl when it is not; ours: dev is a loop device set up
+        here, so whoever mounted it (the desktop's automounter does, within seconds) it is unmounted
+        by close(), which frees the loop device too"""
         mp = mount_point(dev)
         if mp:
+            if ours:
+                self.mounted.append(dev)
             return mp
         rc, out = run([UDISKSCTL, "mount", "-b", dev])
-        if rc != 0 and os.path.exists(dev + "p1"):     # an image with a partition table
+        if rc != 0 and "AlreadyMounted" not in out and os.path.exists(dev + "p1"):     # an image with a partition table
             dev = dev + "p1"
             mp = mount_point(dev)
             if mp:
+                if ours:
+                    self.mounted.append(dev)
                 return mp
             rc, out = run([UDISKSCTL, "mount", "-b", dev])
+        if rc != 0 and "AlreadyMounted" in out:
+            # mounted meanwhile by the desktop (gvfs mounts a new loop device by itself): use that mount
+            mp = self.wait_mount(dev) or already_mounted_at(out)
+            if mp and os.path.isdir(mp):
+                if ours:
+                    self.mounted.append(dev)
+                say("log", "%s is mounted at %s" % (dev, mp))
+                return mp
         if rc != 0:
             raise Refused("cannot mount %s: %s" % (dev, (out.strip().splitlines() or ["?"])[-1]))
         self.mounted.append(dev)
@@ -236,6 +284,15 @@ class Sources:
         say("log", "mounted %s at %s" % (dev, mp))
         return mp
 
+    @staticmethod
+    def wait_mount(dev):
+        end = time.monotonic() + AUTOMOUNT_WAIT
+        while True:
+            mp = mount_point(dev)
+            if mp or time.monotonic() >= end:
+                return mp
+            time.sleep(0.2)
+
     def add(self, path):
         path = os.path.abspath(path)
         kind = source_kind(path)
@@ -245,17 +302,24 @@ class Sources:
             return self.mount(path)
         rc, out = run([UDISKSCTL, "loop-setup", "-r", "-f", path])
         m = re.search(r" as (/dev/\S+?)\.?\s*$", out.strip())
+        if rc != 0 and "NotAuthorized" in out:
+            raise Refused("opening the disc image %s needs the desktop session's rights (polkit): run walnut-data "
+                          "in a terminal on the Walnut desktop or from Walnut Games; over ssh: systemd-run --user "
+                          "--scope --slice=ps3-desktop.slice walnut-data import ...; or open the image in the file "
+                          "manager and give its folder" % path)
         if rc != 0 or not m:
             raise Refused("cannot open %s: %s" % (path, (out.strip().splitlines() or ["?"])[-1]))
         self.loops.append(m.group(1))
         say("log", "opened %s as %s" % (path, m.group(1)))
-        return self.mount(m.group(1))
+        return self.mount(m.group(1), ours=True)
 
     def close(self):
         for dev in reversed(self.mounted):
             run([UDISKSCTL, "unmount", "-b", dev])
         for dev in reversed(self.loops):
-            run([UDISKSCTL, "loop-delete", "-b", dev])
+            # unmounting frees a loop device udisks set up (autoclear); loop-delete only for one still there
+            if loop_attached(dev):
+                run([UDISKSCTL, "loop-delete", "-b", dev])
         self.mounted, self.loops = [], []
 
 
@@ -264,6 +328,44 @@ class Sources:
 def cache_dir():
     base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
     return os.path.join(base, "walnut-data")
+
+
+LOCK_NAME = "import.lock"
+
+
+def take_import_lock(base, game_id):
+    """the descriptor of base/import.lock, flocked and saying "PID GAME"; Refused (busy) when another
+    import holds it"""
+    fd = os.open(os.path.join(base, LOCK_NAME), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        held = import_state(base)
+        os.close(fd)
+        raise Refused("busy: another import is running%s" % (" (%s)" % held[1] if held else ""))
+    os.ftruncate(fd, 0)
+    os.write(fd, ("%d %s\n" % (os.getpid(), game_id)).encode())
+    return fd
+
+
+def import_state(base=None):
+    """(pid, game id) of the import running now (its lock held), or None"""
+    try:
+        fd = os.open(os.path.join(base or cache_dir(), LOCK_NAME), os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError:
+        return None
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            pid, game = os.read(fd, 200).decode("utf-8", "replace").split()[:2]
+            return int(pid), game
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return None
+    except ValueError:
+        return None
+    finally:
+        os.close(fd)
 
 
 def fresh_dirs(base):
@@ -410,7 +512,14 @@ def helper_lines(stream):
 def import_deb(game_id, pkg, deb):
     """dpkg-deb --fsys-tarfile deb | sudo -n walnut-games-helper import-data game_id pkg: its exit code"""
     say("log", "importing %s" % pkg)
-    tar = subprocess.Popen([DPKG_DEB, "--fsys-tarfile", deb], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE)
+    # the deb unlinked once open: its space comes back as the stream ends (the helper's staging needs it)
+    fd = os.open(deb, os.O_RDONLY | os.O_CLOEXEC)
+    os.unlink(deb)
+    try:
+        tar = subprocess.Popen([DPKG_DEB, "--fsys-tarfile", "/dev/fd/%d" % fd], stdin=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, pass_fds=(fd,))
+    finally:
+        os.close(fd)
     try:
         h = subprocess.Popen(SUDO + [HELPER, "import-data", game_id, pkg], stdin=tar.stdout, stdout=subprocess.PIPE,
                              stderr=subprocess.STDOUT)
@@ -427,6 +536,60 @@ def import_deb(game_id, pkg, deb):
         say("error", "dpkg-deb --fsys-tarfile %s failed (%d)" % (os.path.basename(deb), trc))
         return 1
     return rc
+
+
+def data_bytes(pkgs, path=None):
+    """the bytes of the packages' files by the data manifest (each file at its largest size), or None
+    when the manifest can't be read"""
+    try:
+        with open(path or MANIFEST, encoding="utf-8") as f:
+            man = json.load(f)["packages"]
+        return sum(max(a["size"] for a in alts) for p in pkgs if p in man for alts in man[p]["files"].values())
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def existing(path):
+    while not os.path.exists(path) and os.path.dirname(path) != path:
+        path = os.path.dirname(path)
+    return path
+
+
+def space_needs(total, archive, cache, var, usr, dev=None):
+    """{device: (bytes, [paths])}: the most an import has on each file system at one time. Its phases:
+    gdp in the cache (its unpacked copy, the deb, and an installer's or archive's unpacked files),
+    the deb streamed to the helper's staging (the deb is unlinked as dpkg-deb opens it: gone once the
+    stream ends), the helper's own deb made from its staging, then dpkg installing it into /usr"""
+    dev = dev or (lambda p: os.stat(existing(p)).st_dev)
+    phases = [[(cache, (3 if archive else 2) * total)], [(cache, total), (var, total)], [(var, 2 * total)],
+              [(var, total), (usr, total)]]
+    need = {}
+    for phase in phases:
+        now = {}
+        for path, n in phase:
+            b, paths = now.get(dev(path), (0, []))
+            now[dev(path)] = (b + n, paths + [path])
+        for d, (b, paths) in now.items():
+            old = need.get(d, (0, []))
+            need[d] = (max(old[0], b), list(dict.fromkeys(old[1] + paths)))
+    return need
+
+
+def human(n):
+    for unit, size in (("GB", 1 << 30), ("MB", 1 << 20)):
+        if n >= size:
+            return "%.1f %s" % (n / size, unit)
+    return "%d KB" % max(1, n >> 10)
+
+
+def check_space(total, archive, cache, var=IMPORT_DIR, usr=USR, free=None):
+    """Refused (with what is needed and what is free) when a file system can't hold the import"""
+    free = free or (lambda p: (lambda st: st.f_bavail * st.f_frsize)(os.statvfs(existing(p))))
+    for d, (need, paths) in space_needs(total, archive, cache, var, usr).items():
+        have = free(paths[0])
+        if have < need + SPACE_MARGIN:
+            raise Refused("not enough space: importing this data needs about %s free on the disk of %s, and %s is free"
+                          % (human(need + SPACE_MARGIN), ", ".join(paths), human(have)))
 
 
 GDP_HINTS = {
@@ -451,10 +614,15 @@ def cmd_import(game_id, sources, asked, no_download, games):
     progress, no_launchers = gdp_features()
     base = cache_dir()
     os.makedirs(base, 0o700, exist_ok=True)
+    lock = take_import_lock(base, game_id)
     out, tmp = fresh_dirs(base)
     src = Sources()
     try:
         paths = [src.add(s) for s in sources]
+        total = data_bytes(pkgs)
+        if total:
+            archive = any(os.path.isfile(p) for p in paths)     # an installer or archive: unpacked first
+            check_space(total, archive, base)
         sandbox = user_manager()
         private_net = sandbox and download == "--no-download" and private_network_works()
         if not sandbox:
@@ -463,6 +631,11 @@ def cmd_import(game_id, sources, asked, no_download, games):
         say("log", "running game-data-packager %s for %s" % (ds["gdp"], " ".join(pkgs)))
         rc, errors = run_gdp(cmd, tmp, base, sandbox, private_net, progress)
         debs = built_debs(out, pkgs)
+        extra = sorted(n for n in (os.listdir(out) if os.path.isdir(out) else [])
+                       if n.endswith(".deb") and os.path.join(out, n) not in [d for _, d in debs])
+        if extra:
+            raise Failed("game-data-packager also made %s, which was not asked for: nothing was imported"
+                         % ", ".join(extra))
         if rc != 0 or not debs:
             kind = errors[-1].split(" ", 1)[0] if errors else None
             raise Failed("game-data-packager made no package%s" % (": " + GDP_HINTS[kind] if kind in GDP_HINTS else
@@ -471,7 +644,6 @@ def cmd_import(game_id, sources, asked, no_download, games):
         worst = 0
         for pkg, deb in debs:
             rc = import_deb(game_id, pkg, deb)
-            os.unlink(deb)
             if rc != 0:
                 worst = rc if worst in (0, 2) else worst
         if worst == 2:
@@ -483,6 +655,7 @@ def cmd_import(game_id, sources, asked, no_download, games):
         src.close()
         for d in (out, tmp):
             shutil.rmtree(d, ignore_errors=True)
+        os.close(lock)
 
 
 def cmd_helper(action, game_id, games):

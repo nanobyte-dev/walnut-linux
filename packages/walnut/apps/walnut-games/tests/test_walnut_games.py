@@ -9,6 +9,12 @@ walnut-games).
   status descriptor relayed (a fake apt-get writes to it), signals ignored, `python3 -I`, sudoers.
 - The app's pure functions (files/lib/walnut_games.py): Exec parsing, the play command, filters, dpkg
   state, the helper's output lines.
+- Game data in the app: which data buttons show in which state (missing, present, a licensed build,
+  the repository has it, importing, optional data only), apt-cache policy, editions and the remove
+  question, source detection on a fake home and media root, lsblk's disc, walnut-data's progress
+  lines, the error messages, the import lock; and a window test: the chooser lists the fake home's
+  sources and an import through a fake walnut-data ends in "needs its official patch files" with Try
+  again with download, which runs it again with -p (WALNUT_SHOT=file.png: a picture of the chooser).
 - A smoke test that builds the window on a private X server (Xvfb or Xvnc, started here on its own
   display); skipped when neither is installed. It never uses the DISPLAY of the person running it.
 """
@@ -558,6 +564,165 @@ class AppFunctions(unittest.TestCase):
             self.assertIn(app.medal_of(g), app.MEDAL_ORDER)
 
 
+QS = {"id": "quakespasm", "title": "QuakeSpasm", "packages": ["quakespasm"], "data_setup": {
+    "gdp": "quake", "required": ["quake-shareware", "quake-registered"], "optional": [], "downloads": ["quake-registered"],
+    "hint": "Quake's id1/pak0.pak.", "editions": {"quake-shareware": "shareware", "quake-registered": "full"},
+    "present_any": ["quake-shareware", "quake-registered", "quake-licensed-data"]}}
+TTD = {"id": "openttd", "title": "OpenTTD", "packages": ["openttd"], "data_setup": {
+    "gdp": "ttd", "required": [], "optional": ["transport-tycoon-deluxe-data", "transport-tycoon-deluxe-music"],
+    "downloads": [], "hint": "TTD for Windows.", "present_any": []}}
+
+
+class DataSetup(unittest.TestCase):
+    def test_buttons_for_each_state(self):
+        A = app.data_actions
+        self.assertEqual(A(QS, set(), set()), ["setup"])                              # missing
+        self.assertEqual(A(QS, {"quake-shareware"}, set()), [])                        # present
+        self.assertEqual(A(QS, {"quake-licensed-data"}, set()), [])                    # the licensed build counts
+        self.assertEqual(A(QS, set(), {"quake-licensed-data"}), ["repo", "setup"])     # the repository has it
+        self.assertEqual(A(QS, set(), set(), importing="quakespasm"), ["importing"])
+        self.assertEqual(A(QS, set(), set(), importing="openttd"), ["setup"])          # another game's import
+        self.assertEqual(A(TTD, set(), set()), ["add"])                                # optional data only
+        self.assertEqual(A(TTD, {"transport-tycoon-deluxe-music"}, set()), [])
+        self.assertEqual(A({"id": "x", "title": "X", "packages": ["x"]}, set(), set()), [])
+        self.assertEqual(app.data_title(QS), "Quake")
+        self.assertEqual(app.data_title({"title": "Zed", "data_setup": {"gdp": "zed"}}), "Zed")
+
+    def test_apt_policy(self):
+        out = ("quake-licensed-data:\n  Installed: (none)\n  Candidate: 1.06-1\n  Version table:\n"
+               "     1.06-1 500\n        500 https://walnut.nanobyte.dev/apt licensed/main ppc64 Packages\n"
+               "quake-shareware:\n  Installed: (none)\n  Candidate: (none)\n"
+               # installed, from no source: its own candidate, not the repository's
+               "quake2-demo-data:\n  Installed: 89\n  Candidate: 89\n  Version table:\n *** 89 100\n"
+               "        100 /var/lib/dpkg/status\n"
+               "rct2-data:\n  Installed: 1\n  Candidate: 2\n  Version table:\n     2 500\n"
+               "        500 https://walnut.nanobyte.dev/apt licensed/main ppc64 Packages\n *** 1 100\n"
+               "        100 /var/lib/dpkg/status\n")
+        self.assertEqual(app.parse_apt_policy(out), {"quake-licensed-data", "rct2-data"})
+        self.assertEqual(app.repo_candidates({"quake-licensed-data", "x"}, runner=lambda c: out), {"quake-licensed-data"})
+        self.assertEqual(app.repo_candidates(set(), runner=lambda c: 1 / 0), set())
+
+        def missing(c):
+            raise OSError("no apt-cache")
+        self.assertEqual(app.repo_candidates({"a"}, runner=missing), set())
+
+    def test_editions_and_the_remove_question(self):
+        calls = []
+
+        def dpkg(c):
+            calls.append(c)
+            return ("quake-shareware\tii \tshareware\t18300\nquake-registered\tii \tfull\t1048576\n"
+                    "quake-licensed-data\tii \t\t500\nother\tun \tfull\t9\n")
+        info = app.data_info({"quake-shareware", "quake-registered", "quake-licensed-data", "other"}, runner=dpkg)
+        self.assertIn("${X-Walnut-Edition}", calls[0][3])
+        self.assertEqual(info, {"quake-shareware": ("shareware", 18300), "quake-registered": ("full", 1048576),
+                                "quake-licensed-data": ("", 500)})
+        self.assertEqual(app.edition_text(QS, info), "Full game")                  # full wins over shareware
+        self.assertEqual(app.edition_text(QS, {"quake-shareware": ("shareware", 1)}), "Shareware")
+        self.assertEqual(app.edition_text(QS, {"quake-licensed-data": ("", 1)}), "")   # the licensed suite's: nothing
+        self.assertEqual(app.edition_text(TTD, {"transport-tycoon-deluxe-data": ("full", 1),
+                                                "transport-tycoon-deluxe-music": ("music", 1)}), "Full game, Music")
+        q, names = app.remove_question(QS, {"quake-shareware": ("shareware", 18300)})
+        self.assertEqual(names, ["quake-shareware"])
+        self.assertIn("also removes your imported game data (quake-shareware: 18 MB)", q)
+        self.assertIn("you'd need the disc or your copy again", q)
+        self.assertEqual(app.remove_question(QS, {}), ("Remove QuakeSpasm?", []))
+        self.assertEqual(app.human_size(1258291), "1.2 GB")
+
+    def test_sources(self):
+        with tempfile.TemporaryDirectory() as d:
+            home, media = Path(d, "home"), Path(d, "media")
+            for sub in ("Downloads", "GOG Games/Quake", ".steam/steam/steamapps/common/Quake",
+                        ".local/share/Steam/steamapps/common/RollerCoaster Tycoon 2", ".hidden-dir"):
+                (home / sub).mkdir(parents=True)
+            (media / "QUAKE").mkdir(parents=True)
+            (media / "USBSTICK").mkdir()
+            for i, name in enumerate(["Downloads/quake106.zip", "Downloads/setup_quake_2.0.exe", "Downloads/notes.txt",
+                                      "Downloads/gog_rct2_1.sh", "Downloads/script.sh", "RCT2.ISO", "home.img"]):
+                f = home / name
+                f.write_bytes(b"x")
+                os.utime(f, (1000 + i, 1000 + i))
+            disc = ("QUAKE101", str(media / "QUAKE"))       # the disc, mounted: listed once
+            got = app.find_sources(str(home), "u", disc, [str(media)])
+            self.assertEqual([l for l, _ in got], [
+                "Disc in the drive: QUAKE101", "Disc or drive: USBSTICK", "GOG: Quake", "Steam: Quake",
+                "Steam: RollerCoaster Tycoon 2", "Disc image: home.img", "Disc image: RCT2.ISO", "File: gog_rct2_1.sh",
+                "File: setup_quake_2.0.exe", "File: quake106.zip"])
+            self.assertEqual(got[0][1], str(media / "QUAKE"))
+            # a disc that isn't mounted: walnut-data mounts the drive
+            self.assertEqual(app.find_sources(str(home), "u", ("", None), [])[0], ("Disc in the drive", "/dev/sr0"))
+            self.assertEqual(app.find_sources(str(Path(d, "nobody")), "u", None, []), [])
+
+    def test_lsblk(self):
+        j = '{"blockdevices": [{"name": "sr0", "label": "QUAKE101", "mountpoint": null, "type": "rom", "size": 612345856}]}'
+        self.assertEqual(app.parse_lsblk_disc(j), ("QUAKE101", None))
+        self.assertIsNone(app.parse_lsblk_disc('{"blockdevices": [{"name": "sr0", "type": "rom", "size": 0}]}'))
+        self.assertIsNone(app.parse_lsblk_disc('{"blockdevices": [{"name": "sr0", "type": "rom", "size": null}]}'))
+        self.assertEqual(app.parse_lsblk_disc(
+            '{"blockdevices": [{"name": "sr0", "label": "X", "mountpoint": "/media/u/X", "type": "rom", "size": "5"}]}'),
+            ("X", "/media/u/X"))
+        self.assertIsNone(app.parse_lsblk_disc(""))
+
+    def test_progress_lines(self):
+        P = app.parse_import_line
+        self.assertEqual(P("gdp step searching /media/u/QUAKE\n"), ("step", "searching /media/u/QUAKE"))
+        self.assertEqual(P("gdp file id1/pak0.pak 18689235"), ("file", "id1/pak0.pak", 18689235))
+        self.assertEqual(P("gdp file My Game/a b.dat -1"), ("file", "My Game/a b.dat", -1))
+        self.assertEqual(P("gdp generated /c/out/quake-shareware_89_all.deb"),
+                         ("generated", "/c/out/quake-shareware_89_all.deb"))
+        self.assertEqual(P("gdp error not-found none of the files were found"),
+                         ("gdp-error", "not-found", "none of the files were found"))
+        self.assertEqual(P("progress 40 installing quake-shareware"), ("progress", 40, "installing quake-shareware"))
+        self.assertEqual(P("log mounted /dev/sr0 at /media/u/Q"), ("log", "mounted /dev/sr0 at /media/u/Q"))
+        self.assertEqual(P("error busy: another import is running (doom)"), ("error", "busy: another import is running (doom)"))
+        self.assertIsNone(P(""))
+        v = app.ImportView("quakespasm", t0=0)
+        for line in ("gdp step searching /m", "gdp file quake106.zip 9094045", "log one", "log two", "log three",
+                     "gdp error needs-download pak0.pak needs a download", "error game-data-packager made no package"):
+            v.feed(P(line))
+        self.assertEqual(v.step, "Searching /m")
+        self.assertEqual(v.file, "quake106.zip (9 MB)")
+        self.assertEqual(v.tail, ["three", "pak0.pak needs a download", "game-data-packager made no package"])
+        self.assertEqual(v.kind(), "needs-download")
+        self.assertEqual(app.elapsed_text(75), "1:15")
+        self.assertEqual(app.elapsed_text(3725), "1:02:05")
+        self.assertEqual(app.import_command("quakespasm", "/m", ["quake-registered"], "wd"),
+                         ["wd", "import", "-p", "quake-registered", "quakespasm", "/m"])
+
+    def test_error_messages(self):
+        M = app.import_error_message
+        self.assertEqual(M("not-found", "Quake"), "No Quake files found here.")
+        self.assertEqual(M("unknown-version", "Quake"), "This copy is a version Walnut doesn't know yet.")
+        self.assertEqual(M("needs-download", "Quake II"), "Quake II needs its official patch files: connect to the "
+                         "network and try again, or add the patch file.")
+        self.assertTrue(M("no-space", "Quake").startswith("Not enough space"))
+        e = ["not enough space: importing this data needs about 3.7 GB free on the disk of /c, and 2.9 GB is free"]
+        self.assertEqual(app.import_error_kind(None, e), "no-space")
+        self.assertEqual(M("no-space", "Quake", errors=e),
+                         "Not enough space: importing this data needs about 3.7 GB free on the disk of /c, and 2.9 GB is free.")
+        self.assertEqual(M("failed", "Quake", ["a", "b", "c", "d"]), "The import failed.\nb\nc\nd")
+        self.assertEqual(M("failed", "Quake"), "The import failed.")
+        self.assertEqual(app.import_error_kind(None, ["busy: another import is running"]), "busy")
+        self.assertEqual(app.import_error_kind(None, ["helper refused"]), "failed")
+        self.assertEqual(app.import_error_kind("unknown-version", ["x"]), "unknown-version")
+
+    def test_import_lock(self):
+        sys.path.insert(0, str(PKG / "files/bin"))
+        loader = importlib.machinery.SourceFileLoader("walnut_data", str(PKG / "files/bin/walnut-data"))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        wd = importlib.util.module_from_spec(spec)
+        loader.exec_module(wd)
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "import.lock")
+            self.assertIsNone(app.import_lock_state(path))
+            fd = wd.take_import_lock(d, "quakespasm")
+            try:
+                self.assertEqual(app.import_lock_state(path), (os.getpid(), "quakespasm"))
+            finally:
+                os.close(fd)
+            self.assertIsNone(app.import_lock_state(path))
+
+
 def x_server():
     """(process, display) of a private Xvfb or Xvnc, or None"""
     for name, extra in (("Xvfb", ["-screen", "0", "1400x900x24"]), ("Xvnc", [])):
@@ -782,6 +947,117 @@ class Window(unittest.TestCase):
                                    capture_output=True, text=True, timeout=120)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertIn("smoke ok", r.stdout)
+        finally:
+            proc.terminate()
+            proc.wait()
+
+
+DATA_SMOKE = """
+import sys, os, json, time
+sys.path.insert(0, sys.argv[1])
+import tkinter as tk
+import walnut_games as w
+w.WALNUT_DATA = sys.argv[3]
+w.DISC = "/nonexistent/sr0"
+root = tk.Tk()
+app = w.App(root, data=sys.argv[2], runtime_dir=None, online=False)
+root.update()
+def mapped(b):
+    return bool(b.winfo_ismapped())
+app.select("quakespasm"); root.update()
+assert mapped(app.b_data) and app.b_data["text"] == "Set up game data\\u2026" and not mapped(app.b_repo)
+assert str(app.b_data["state"]) == "normal"
+app.repo = {"quake-licensed-data"}; app.update_buttons(); root.update()
+assert mapped(app.b_repo) and mapped(app.b_data), "repo button"
+app.repo = set(); app.update_buttons()
+app.select("openttd"); root.update()
+assert mapped(app.b_data) and app.b_data["text"] == "Add original data\\u2026"
+app.select("quakespasm"); root.update()
+app.open_chooser(); root.update()
+labels = [l for l, _ in app.chooser_sources]
+assert labels == ["GOG: Quake", "File: quake106.zip"], labels
+texts = []
+def walk(wd):
+    if isinstance(wd, w.ttk.Button):
+        texts.append(wd.cget("text"))
+    for c in wd.winfo_children():
+        walk(c)
+walk(app.chooser)
+assert any(t.startswith("File: quake106.zip") for t in texts) and "Other file\\u2026" in texts and "Cancel" in texts, texts
+if len(sys.argv) > 4:      # a picture of the chooser
+    root.update(); time.sleep(0.5); root.update()
+    import subprocess
+    subprocess.run(["magick", "import", "-window", "root", sys.argv[4]])
+app.chooser.destroy(); app.chooser = None
+app.start_import(app.g, os.path.join(os.environ["HOME"], "Downloads", "quake106.zip")); root.update()
+assert app.imp is not None and not mapped(app.b_data) and str(app.b_play["state"]) == "disabled"
+t = time.time()
+saw_file = False
+while not app.imp.done and time.time() - t < 30:
+    root.update(); time.sleep(0.05)
+    saw_file = saw_file or "Reading pak0.pak" in app.imp_detail["text"]
+assert app.imp.done, "import never ended"
+assert saw_file, "no file line shown"
+msg = app.d_status["text"]
+assert msg.startswith("Quake needs its official patch files"), msg
+assert mapped(app.b_retry) and mapped(app.b_data), "retry"
+log = open(os.path.join(os.environ["XDG_CACHE_HOME"], "walnut-games", "import.log")).read()
+assert "gdp step searching" in log
+args = open(os.environ["FAKE_WD_ARGS"]).read().split("\\n")[0]
+assert args == "import quakespasm " + os.path.join(os.environ["HOME"], "Downloads", "quake106.zip"), args
+app.retry_download(); root.update()
+t = time.time()
+while not app.imp.done and time.time() - t < 30:
+    root.update(); time.sleep(0.05)
+args = open(os.environ["FAKE_WD_ARGS"]).read().split("\\n")[1]
+assert args.startswith("import -p quake-registered quakespasm "), args
+root.destroy()
+print("data smoke ok")
+"""
+FAKE_WALNUT_DATA = """#!/bin/sh
+echo "$*" >> "$FAKE_WD_ARGS"
+echo "log running game-data-packager quake for quake-shareware quake-registered"
+echo "gdp step searching $3"
+sleep 0.5
+echo "gdp file id1/pak0.pak 18689235"
+sleep 0.5
+echo "gdp error needs-download pak0.pak 1.06 needs a download"
+echo "error game-data-packager made no package: some files have to be downloaded"
+exit 1
+"""
+
+
+class DataWindow(unittest.TestCase):
+    def test_chooser_and_an_import(self):
+        if app.tk is None:
+            self.skipTest("python3-tk is not installed")
+        srv = x_server()
+        if srv is None:
+            self.skipTest("no Xvfb or Xvnc installed")
+        proc, display = srv
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                rating = {"medal": "Untested", "score": None, "aspects": {}}
+                games = [dict(QS, rating=rating, needs_data=True, data_steps=["Run `walnut-data import quakespasm DIR`."],
+                              tests=[]),
+                         dict(TTD, rating=rating, tests=[])]
+                Path(d, "catalog.json").write_text(json.dumps({"games": games}))
+                home = Path(d, "home")
+                (home / "Downloads").mkdir(parents=True)
+                (home / "GOG Games/Quake").mkdir(parents=True)
+                (home / "Downloads/quake106.zip").write_bytes(b"x")
+                fake = Path(d, "walnut-data")
+                fake.write_text(FAKE_WALNUT_DATA)
+                fake.chmod(0o755)
+                env = {k: v for k, v in os.environ.items() if k not in ("WAYLAND_DISPLAY", "XDG_RUNTIME_DIR")}
+                env.update(DISPLAY=display, XDG_CACHE_HOME=str(Path(d, "cache")), HOME=str(home), USER="nobody-here",
+                           PATH="/nonexistent:/bin:/usr/bin" if os.environ.get("WALNUT_SHOT") else "/nonexistent:/bin",
+                           FAKE_WD_ARGS=str(Path(d, "args")))
+                extra = [os.environ["WALNUT_SHOT"]] if os.environ.get("WALNUT_SHOT") else []
+                r = subprocess.run([sys.executable, "-c", DATA_SMOKE, str(PKG / "files/lib"), d, str(fake)] + extra,
+                                   env=env, capture_output=True, text=True, timeout=180)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertIn("data smoke ok", r.stdout)
         finally:
             proc.terminate()
             proc.wait()
