@@ -459,16 +459,20 @@ buttons Install, Remove, Play and "Open on the web". The window follows the Waln
   off while an install or removal runs: game mode would freeze the helper with dpkg's lock held. After
   either, the app runs `ps3-game-menu "$XDG_RUNTIME_DIR/ps3-game-menu"` so the new entry exists.
 - **The helper**, `/usr/lib/ps3/sbin/walnut-games-helper install|remove|status ID` (and the data actions
-  below), runs as root through
+  below, and `adopt`), runs as root through
   `sudo -n` (`/etc/sudoers.d/walnut-games`: group sudo, no password, that one path). Its guarantees:
   the argument is a game id (`^[a-z0-9][a-z0-9-]{0,63}$`) found in the root-owned packaged catalog, which is
   the only source of package names (each checked against the Debian name rule; licensed or nonfree data
   packages refused); `python3 -I`, fixed PATH and environment, no shell; install runs `apt-get install
   --no-remove` (after `apt-get update` when the lists are over a day old) with the configuration files
   kept, noninteractive; remove simulates first and refuses, before touching anything, if the simulation
-  removes anything but the game's own packages and the `ps3-games` / `ps3-games-free` metapackages, and in
-  the metapackage case first marks the other installed packages it depends on as manually installed (a
-  package another installed game lists too stays, below);
+  removes anything but the game's own packages and the old `ps3-games` / `ps3-games-free` metapackages
+  (built no more since 2026-10-28, docs/PACKAGING.md "No game metapackages"; a console keeps its last
+  one), and in the metapackage case first marks the other installed packages it depends on as manually
+  installed (a package another installed game lists too stays, below); `adopt`, which the app runs at
+  every start, marks every installed package of a catalog game (and every dependency of an old
+  metapackage still installed) manual when apt has it automatic, so removing a metapackage leaves no game
+  to autoremove;
   it never runs autoremove; SIGHUP and SIGPIPE are ignored, so closing the app never stops dpkg halfway.
   Output is `progress N text`, `log`, `error` lines; exit 0 done, 2 refused, 1 apt failed.
 - **Game data.** A game whose data comes from the player's own copy (Doom, Quake's full game, RollerCoaster

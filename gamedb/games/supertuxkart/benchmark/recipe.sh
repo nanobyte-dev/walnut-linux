@@ -1,5 +1,5 @@
 # SuperTuxKart 1.5 (our build, gamedb/games/supertuxkart/packages/supertuxkart/: big-endian .spm loading, legacy-renderer fixes;
-# 839 MB with its data, deployed by name, not in ps3-games). Its profile mode (--profile-time)
+# 839 MB with its data, deployed by name). Its profile mode (--profile-time)
 # starts a race at once with every kart driven by the AI, drives for the given seconds, prints
 # "Number of frames: N time T, Average FPS: F" and quits. GL 2.1 picks the legacy renderer by
 # itself ("Using the fixed pipeline"). RAM and VRAM are the risk (its FAQ wants 1 GB against our

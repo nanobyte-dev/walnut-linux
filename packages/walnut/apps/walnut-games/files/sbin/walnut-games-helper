@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -I
-"""walnut-games-helper install|remove|status|remove-data|install-repo-data ID, import-data ID PKG
+"""walnut-games-helper install|remove|status|remove-data|install-repo-data ID, import-data ID PKG, adopt
 (walnut-games package): the one root program the Walnut Games app and walnut-data run, through sudo
 (/etc/sudoers.d/walnut-games: group sudo, no password, this path only).
 
@@ -28,11 +28,21 @@ Design
   and its data when it needs some: data_setup present_any): that package stays (an engine: dsda-doom
   for Freedoom, Doom and Heretic); what goes is the game's other packages and its installed
   data_setup packages (required, optional, present_any), and nothing else may (no metapackage).
-- remove: apt-get -s remove first. It may remove the game's own packages and the game metapackages
-  (ps3-games, ps3-games-free, which depend on every game); anything else in the simulation refuses
-  the removal, before a single package is touched. When a metapackage is in the removal, the other
-  installed packages it depends on are marked manual first, so removing one game never leaves the
-  rest of the suite waiting for an autoremove. This program never runs autoremove.
+- remove: apt-get -s remove first. It may remove the game's own packages and the old game metapackages
+  (ps3-games, ps3-games-free: no longer built since 2026-10-28, but a console keeps the last version it
+  had, which depends on every game); anything else in the simulation refuses the removal, before a
+  single package is touched. When a metapackage is in the removal, the other installed packages it
+  depends on are marked manual first, so removing one game never leaves the rest of the games waiting
+  for an autoremove. This program never runs autoremove.
+- adopt (no ID): every installed package of every catalog game (its packages and its data_setup
+  required, optional and present_any names), and every installed dependency of an old metapackage
+  still installed (OLD_METAS: the drafts and licensed data the catalog doesn't list, and
+  ps3-games-integration), that apt has marked automatic is marked manual (apt-mark manual, those
+  names only). The metapackages installed the games as their dependencies, so they are automatic:
+  once a metapackage goes, apt-get autoremove would take every game with it.
+  Walnut Games runs it at each start (sudo -n, failures ignored); the automatic marks are read from
+  /var/lib/apt/extended_states, so when nothing is left to adopt it runs no apt-mark and changes
+  nothing.
 - import-data ID PKG: the player's own game files, as the data part of the deb game-data-packager
   made for them (walnut-data runs it as the player: `dpkg-deb --fsys-tarfile X.deb | sudo -n
   walnut-games-helper import-data ID PKG`), checked against the root-owned
@@ -118,9 +128,14 @@ SPACE_MARGIN = 64 << 20    # free space kept beyond the import's needs
 VERSION_RE = re.compile(r"[0-9][A-Za-z0-9.+~-]{0,63}\Z")
 ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 PKG_RE = re.compile(r"[a-z0-9][a-z0-9+.-]*[a-z0-9]\Z")
-# metapackages that depend on the whole suite: their removal along with a game is allowed (and
-# prepared: their dependencies are marked manual first)
+# the old metapackages that depended on the whole suite (built no more since 2026-10-28; consoles keep
+# the last version they had): their removal along with a game is allowed (and prepared: their
+# dependencies are marked manual first)
 METAS = ("ps3-games", "ps3-games-free")
+# adopt: the old metapackages whose dependencies it keeps (ps3-games-licensed: the licensed suite's, the
+# same age), and apt's automatic marks
+OLD_METAS = METAS + ("ps3-games-licensed",)
+EXTENDED_STATES = "/var/lib/apt/extended_states"
 LICENSED_RE = re.compile(r"(^|-)(licensed|nonfree)(-|$)")
 LICENSED_SECTIONS = ("local/", "non-free/")
 ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C", "LANGUAGE": "C", "DEBIAN_FRONTEND": "noninteractive",
@@ -411,6 +426,57 @@ def do_remove(game_id, games, runner=run, stream=apt_stream):
         say("error", "apt-get remove failed (%d)%s" % (rc, ": " + tail[-1] if tail else ""))
         raise AptFailed()
     say("progress", "100 removed")
+
+
+def auto_marked(path=EXTENDED_STATES):
+    """the package names apt has marked automatic (Auto-Installed: 1 in extended_states); a missing
+    file is none"""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except FileNotFoundError:
+        return set()
+    auto = set()
+    for stanza in re.split(r"\n\s*\n", text):
+        name = re.search(r"(?m)^Package:\s*(\S+)", stanza)
+        if name and re.search(r"(?m)^Auto-Installed:\s*1\s*$", stanza):
+            auto.add(name.group(1))
+    return auto
+
+
+def adoptable(games):
+    """every valid package name of every catalog game: its packages and its data_setup names"""
+    names = []
+    for gid in sorted(games):
+        g = games[gid]
+        pkgs = g.get("packages") if isinstance(g.get("packages"), list) else []
+        try:
+            data = data_packages(gid, games)
+        except Refused:
+            data = []
+        names += [p for p in pkgs + data if isinstance(p, str) and PKG_RE.match(p)]
+    return list(dict.fromkeys(names))
+
+
+def do_adopt(games, runner=run, states=EXTENDED_STATES):
+    """mark the installed, automatic packages of the catalog's games and of the old metapackages still
+    installed manual (apt-mark manual)"""
+    auto = auto_marked(states)
+    names = adoptable(games)
+    for m in sorted(installed(OLD_METAS, runner)):
+        names += [d for d in depends_of(m, runner) if d not in names]
+    cand = [p for p in names if p in auto]
+    have = installed(cand, runner) if cand else set()
+    todo = [p for p in cand if p in have]
+    if not todo:
+        say("progress", "100 nothing to adopt")
+        return
+    say("progress", "10 marking manual: " + " ".join(todo))
+    rc, out = runner([APT_MARK, "manual"] + todo)
+    if rc != 0:
+        say("error", "apt-mark manual failed: " + (out.strip().splitlines() or ["?"])[-1])
+        raise AptFailed()
+    say("progress", "100 adopted %d" % len(todo))
 
 
 def do_status(game_id, games, runner=run):
@@ -1033,21 +1099,28 @@ def do_install_repo_data(game_id, games, stream=apt_stream, age=lists_age, runne
 
 # ---- main -------------------------------------------------------------------------------------
 
-ACTIONS = {"install": 3, "remove": 3, "status": 3, "remove-data": 3, "install-repo-data": 3, "import-data": 4}
+ACTIONS = {"install": 3, "remove": 3, "status": 3, "remove-data": 3, "install-repo-data": 3, "import-data": 4,
+           "adopt": 2}
 
 
 def main(argv, catalog=CATALOG, check_owner=True, need_root=True, stdin=None, manifest=None):
     if len(argv) < 2 or ACTIONS.get(argv[1]) != len(argv):
         print("usage: walnut-games-helper install|remove|status|remove-data|install-repo-data ID\n"
-              "       walnut-games-helper import-data ID PKG   (the data's tar stream on stdin)", file=sys.stderr)
+              "       walnut-games-helper import-data ID PKG   (the data's tar stream on stdin)\n"
+              "       walnut-games-helper adopt", file=sys.stderr)
         return 2
     signal.signal(signal.SIGHUP, signal.SIG_IGN)
     signal.signal(signal.SIGPIPE, signal.SIG_IGN)
-    action, game_id = argv[1], argv[2]
+    action, game_id = argv[1], (argv[2] if len(argv) > 2 else "-")
     lock = None
     try:
         if need_root and os.geteuid() != 0:
             raise Refused("must run as root (through sudo)")
+        if action == "adopt":
+            games = load_catalog(catalog, check_owner)
+            lock = take_lock(action, game_id, check_owner)
+            do_adopt(games)
+            return 0
         if not ID_RE.match(game_id):
             raise Refused("not a game id: %r" % game_id[:80])
         if action == "import-data" and not PKG_RE.match(argv[3]):

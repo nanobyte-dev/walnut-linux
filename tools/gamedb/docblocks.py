@@ -8,7 +8,7 @@ tools/gamedb/blocks.py's GENERATORS. Each is a function (repo, args) -> markdown
       The evidence tables of HOTPATHS.md, MEMORY.md and the like, where their numbers are records.
   licensed-table [root=PATH]
       every [[licensed]] entry of a game's build.toml: the package, its game, how it is built, its edition
-      (and release), whether ps3-games-licensed pulls it in (pack-integration.py's rule). docs/PACKAGING.md "Game data".
+      (and release). docs/PACKAGING.md "Game data".
   gamedb-packages [root=PATH]
       every source package and licensed builder in gamedb/ (games/<id>/packages/, games/<id>/licensed/,
       engines/<e>/packages/): its path, its game or engine, where its source comes from (package.conf),
@@ -127,7 +127,7 @@ def gen_licensed_table(repo, args):
     _, o = _opts(args, {"root"})
     root = o.get("root", "../gamedb").rstrip("/")
     repo = Path(repo)
-    out = ["| Package | Game | Built by | Edition | In ps3-games-licensed |", "|---|---|---|---|---|"]
+    out = ["| Package | Game | Built by | Edition |", "|---|---|---|---|"]
     for f in sorted((repo / "gamedb" / "games").glob("*/build.toml")):
         b = tomllib.loads(f.read_text())
         gid = f.parent.name
@@ -149,9 +149,7 @@ def gen_licensed_table(repo, args):
             ed = editions.get(e["name"]) or e.get("edition") or "?"
             if e.get("release"):
                 ed += " (%s)" % e["release"]
-            meta = e.get("meta", b.get("suite") == "licensed")
-            out.append("| `%s` | [%s](%s/%s) | %s | %s | %s |" % (e["name"], title, root, path, how, ed,
-                                                               "yes" if meta else "no"))
+            out.append("| `%s` | [%s](%s/%s) | %s | %s |" % (e["name"], title, root, path, how, ed))
     return "\n".join(out) + "\n"
 
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-A draft: in the benchmark suite since 2026-10-16 and in `ps3-games`, not published, no played session yet.
+A draft: in the benchmark suite since 2026-10-16, not published, no played session yet.
 ClassiCube, a Minecraft Classic client, is ours from upstream source and was the first game to run on the
 RSX. It flies its timedemo at 46-48 steady fps with no stalls to speak of; it is the one suite game that is
 GPU-bound now: our batching halved its CPU but made the RSX the limit, so `CC_GL_CHUNKS=1` (+4.7%) is the
@@ -14,8 +14,8 @@ next default ([the investigation](investigations/2026-10-18-batching-gpu-bound.m
 `TYPE=upstream` from a pinned tarball; paths left out of it in its `dfsg-exclude.txt`) and `classicube-data`
 (Mojang's texture pack, sounds and music, the licensed suite only, `licensed/classicube-data`:
 `sounds.sh` fetches the sounds and music from Mojang by SHA-1, the `build-containers/Dockerfile.games` image
-converts them). Game data lives per user in `~/.local/share/classicube`. The engine is in `ps3-games`, the
-data in `ps3-games-licensed`. The release candidate is ps3.374.
+converts them). Game data lives per user in `~/.local/share/classicube`. The data is
+`classicube-data` in the licensed suite. The release candidate is ps3.374.
 
 | Patch | What | Switch |
 |---|---|---|

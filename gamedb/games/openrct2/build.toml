@@ -1,7 +1,7 @@
 # How OpenRCT2 is built, installed and integrated (gamedb/README.md "build.toml").
 # packages/openrct2: our big-endian port (openrct2 pulls openrct2-data, recommends openrct2-music)
 packages = ["openrct2"]
-# in no metapackage (an upgrade installs nothing new): Walnut Games installs it
+# Walnut Games installs it
 suite = "none"
 needs_data = true
 # RollerCoaster Tycoon 2's data: game-data-packager's package (in /usr/share/games/roller-coaster-tycoon2),

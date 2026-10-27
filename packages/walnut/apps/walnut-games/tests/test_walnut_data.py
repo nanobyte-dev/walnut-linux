@@ -449,7 +449,7 @@ class Lock(Dirs):
                 p.write_text(json.dumps({"games": list(GAMES.values())}))
                 err = io.StringIO()
                 for argv in (["h", "remove-data", "alpha"], ["h", "install", "beta"],
-                             ["h", "import-data", "alpha", "alpha-data"]):
+                             ["h", "import-data", "alpha", "alpha-data"], ["h", "adopt"]):
                     with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()) as out:
                         self.assertEqual(helper.main(argv, str(p), False, False, stdin=io.BytesIO(b"")), 2)
                     self.assertIn("busy", out.getvalue())
@@ -472,7 +472,8 @@ class Lock(Dirs):
 
     def test_usage(self):
         with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
-            for argv in (["h", "import-data", "alpha"], ["h", "remove-data"], ["h", "install-repo-data", "a", "b"]):
+            for argv in (["h", "import-data", "alpha"], ["h", "remove-data"], ["h", "install-repo-data", "a", "b"],
+                         ["h", "adopt", "alpha"], ["h", "adopt", "--all"]):
                 self.assertEqual(helper.main(argv, "/nonexistent", False, False), 2)
 
 

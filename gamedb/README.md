@@ -115,16 +115,15 @@ and `needs_data`; a draft has a build.toml only when something about its build i
 | `packages` | list | the packages the app installs (`walnut-games-helper`; `tools/play-pc.sh` on the PC): Debian package names, none licensed; each one in the apt index (`check.py --apt-index URL`, e.g. the Debian snapshot's and our repository's Packages) or built by a `debian/control` of ours |
 | `former_packages` | list | older names of the game's packages, which earlier sessions recorded their versions under (catalog.py reads them after `packages`): a renamed package keeps its version history |
 | `engine` | string | the engine bundle in `engines/` it runs on; that engine's `engine.md` `games` lists the game (check.py checks both ways) |
-| `suite` | string | `free`: in `ps3-games` and the public `ps3-games-free`; `licensed`: in `ps3-games` only (`ps3-games-free` suggests it), its data is licensed (the public image leaves its packages out: `tools/image-packages.sh`); `none`: in neither. Drafts count too (ClassiCube is a draft in `ps3-games`) |
-| `meta` | list | the packages `ps3-games` and `ps3-games-free` name for the game, when not all of `packages` (e.g. `["neverball"]`: its data comes with it); each one of `packages` |
+| `suite` | string | the game suite (docs/games/SUITE.md: a game joins once it runs with its picture and sound): `free` in it, its data free; `licensed` in it, its data licensed (check.py wants a licensed `data` package; the public image never installs its packages: `build-info.py needs-licensed`, `tools/image-packages.sh`); `none` not in it yet. It installs nothing: there are no game metapackages since 2026-10-28 (docs/PACKAGING.md "No game metapackages"), players install games from Walnut Games |
 | `needs_data` | bool | the player supplies data the game can't run without (index.md then has `data_guide` and `data_steps`) |
 | `data` | list | the data packages (often licensed) the game plays with: on the PC, `tools/play-pc.sh` mounts each one's files from a `.deb` found in build/ |
 | `desktop` | list | the game's own menu entries the app starts (`<name>.desktop`) |
 | `divert` | list | absolute paths of files of the game's packages we divert: the game's own menu entries, which our launchers stand for (`ps3-games-integration`'s preinst moves each to `/usr/share/ps3-games/diverted<path>`, out of the menu's reach) |
-| `image_base` | bool | its packages are in the image's package layer (`tools/gamedb/build-info.py image-base`, the Makefile's `ROOTFS_GAMES`; system/image/packages.txt names only generic packages) |
+| `image_base` | bool | its packages are in the image's package layer (`tools/gamedb/build-info.py image-base`, the Makefile's `ROOTFS_GAMES`; system/image/packages.txt names only generic packages). No game sets it: a fresh image ships no games (the user, 2026-10-28; OpenArena did until then) |
 | `recipes` | list | the bench runs that stand for the game, `"<id>:<variant>"` of its own `benchmark/recipe.sh` (the catalog's `recipes`) |
 | `[data_setup]` | table | the player's own data, made into packages by game-data-packager (below) |
-| `[[licensed]]` | tables | the game's licensed data: `name` (the package), `builder` (`source`: a source package of ours in `licensed/<name>/`; `script`: `licensed/<name>/<name>.sh` run on the owner's own copy, `make licensed-data PKG=<name> INPUT=<file>`; `game-data-packager:<game>`: `make game-data`; `retired`: published once, built no more, no directory), `leak_files` (paths of its content in upstream tarballs, leak globs), `meta` (bool: `ps3-games-licensed` depends on it; by default true for a game with suite `licensed`; BananaBread's `sauerbraten-nonfree-data` sets it), `edition` (what it holds, one of `[data_setup]`'s editions, for a package `[data_setup] editions` doesn't name; every entry has one or the other), `release` (the release of the source a `source` or `script` build is made from: `2020_12_29`, `2.1`), `input` (true: game-data-packager makes it from the owner's copy, `make licensed-data PKG=<name> INPUT=<image, folder or installer>`; `make game-data` only takes its published file). The edition and release are the deb's `X-Walnut-Edition` and `X-Walnut-Release` (below) |
+| `[[licensed]]` | tables | the game's licensed data: `name` (the package), `builder` (`source`: a source package of ours in `licensed/<name>/`; `script`: `licensed/<name>/<name>.sh` run on the owner's own copy, `make licensed-data PKG=<name> INPUT=<file>`; `game-data-packager:<game>`: `make game-data`; `retired`: published once, built no more, no directory), `leak_files` (paths of its content in upstream tarballs, leak globs), `edition` (what it holds, one of `[data_setup]`'s editions, for a package `[data_setup] editions` doesn't name; every entry has one or the other), `release` (the release of the source a `source` or `script` build is made from: `2020_12_29`, `2.1`), `input` (true: game-data-packager makes it from the owner's copy, `make licensed-data PKG=<name> INPUT=<image, folder or installer>`; `make game-data` only takes its published file). The edition and release are the deb's `X-Walnut-Edition` and `X-Walnut-Release` (below) |
 
 Every `licensed/<pkg>/` directory of a bundle has its `[[licensed]]` entry, and every `source` or `script`
 entry its directory (a checkout without licensed directories, the public copy, skips that direction).
@@ -138,12 +137,12 @@ Read by: `tools/gamedb/check.py` (validates), `catalog.py` (packages, needs_data
 `make game-data` and `make licensed-data`, `tools/image-packages.sh`'s licensed-suite games, `tools/play-pc.sh`'s
 packages and data, `image-base`, `own-packages` for `make game-debs`, `fields` for the licensed builders and
 `tools/gamedb/stamp-data-deb.py`, `bench-data` for `make bench-push`), `tools/gamedb/pack-integration.py`
-(suite, packages, meta, divert, `[[licensed]]` meta: the metapackages' Depends and the integration package).
+(divert and desktop/: the integration package).
 
-Versions: `walnut-games`, `ps3-games` and `ps3-games-licensed` carry `VERSION_PATHS` over
+Versions: `walnut-games` and `ps3-games` carry `VERSION_PATHS` over
 exactly the gamedb files they consume (index.md, thumb.png, build.toml, rating/test.toml,
-rating/sessions/*/*, rating/sessions/*/shots/* and packages/*/patches/** for the app; build.toml and desktop/ for ps3-games, build.toml for
-ps3-games-licensed), never a session's raw/, technical.md, investigations, todo.toml, benchmark/ or
+rating/sessions/*/*, rating/sessions/*/shots/* and packages/*/patches/** for the app; build.toml and desktop/ for
+ps3-games), never a session's raw/, technical.md, investigations, todo.toml, benchmark/ or
 research. `tools/deb-version.sh` reads a pattern there as GitHub's path filters do: `*` within one
 path component, `**` across them.
 
@@ -236,12 +235,11 @@ How the game is integrated into the PS3 desktop, as files (`tools/gamedb/check.p
   setup wrote into a home directory; `ps3-migrate-home` (ps3-desktop) removes each one that equals the
   default and moves the others to `~/.local/share/ps3-legacy/`.
 
-`tools/gamedb/pack-integration.py` (`make gamedb-integration`) packs every game's desktop/ and the build.toml
-keys above into build/gamedb/integration.tar, which the `ps3-games` source package
-(packages/walnut/system/ps3-games/) takes in: `ps3-games-integration` installs the tree (the launchers in
-/usr/share/applications/, the files, /usr/share/ps3-games/divert.list and migrate-home.list) and diverts the
-listed files; `ps3-games` and `ps3-games-free` get their Depends and Suggests from it. `ps3-games-licensed`'s
-Depends come from build/gamedb/ps3-games-licensed.substvars (kept out of the public tarball).
+`tools/gamedb/pack-integration.py` (`make gamedb-integration`) packs every game's desktop/ and its build.toml
+`divert` into build/gamedb/integration.tar, which the `ps3-games` source package
+(packages/walnut/system/ps3-games/) takes in: its one binary, `ps3-games-integration`, installs the tree (the
+launchers in /usr/share/applications/, the files, /usr/share/ps3-games/divert.list and migrate-home.list) and
+diverts the listed files.
 
 ### games/<id>/rating/
 
@@ -511,7 +509,7 @@ and platform research (EMULATORS, CLASSIC-MACOS, DARLING-PPC) stay in docs/resea
 |---|---|
 | catalog.json (site, app); technical.json (site only: the technical, investigation, engine and research pages) | `tools/gamedb/catalog.py` (technical.json through `tools/gamedb/technical.py`) |
 | the app's catalog.tar | `tools/gamedb/pack-catalog.py` |
-| the integration tree, the ps3-games / ps3-games-free / ps3-games-licensed Depends | `tools/gamedb/pack-integration.py` (`make gamedb-integration`) |
+| the integration tree (ps3-games-integration) | `tools/gamedb/pack-integration.py` (`make gamedb-integration`) |
 | `PKG_DIRS`, `SRC_PACKAGES` (every package of ours, in build order) | `tools/pkg-dir.sh --all`, `--order` |
 | orig recipes and `DEB_ENV`'s tarball variables | the packages' `orig.mk`, included by the Makefile |
 | `make game-data`, `make licensed-data`, the public image's licensed-suite games, play-pc's packages and data | `tools/gamedb/build-info.py` |

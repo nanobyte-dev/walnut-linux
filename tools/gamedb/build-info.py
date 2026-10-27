@@ -16,8 +16,8 @@
   build-info.py bench-data DIR     DIR/<id>/data.txt for every game with data packages: "<pkg> <edition>
                                    [<release>]" a line ([data_setup] required and optional, data, [[licensed]]
                                    names), for the session harness's versions file (make bench-push)
-  build-info.py needs-licensed     the packages of every game with suite = "licensed" (in ps3-games, but
-                                   not in the public ps3-games-free or the public image: tools/image-packages.sh)
+  build-info.py needs-licensed     the packages of every game with suite = "licensed" (its data is licensed):
+                                   the public image never installs them (tools/image-packages.sh)
   build-info.py image-base         the packages of every game with image_base = true (the image's package
                                    layer: the Makefile's ROOTFS_GAMES, tools/build-rootfs.sh)
   build-info.py own-packages ID    the source packages of ours in game ID's bundle: packages/<pkg>/ and

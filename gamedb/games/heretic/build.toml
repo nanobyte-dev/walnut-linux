@@ -1,5 +1,5 @@
 # How Heretic is built, installed and integrated (gamedb/README.md "build.toml").
-# DSDA-Doom (the dsda-doom bundle, which puts it in ps3-games); the WAD from the player's own copy
+# DSDA-Doom (the dsda-doom bundle); the WAD from the player's own copy
 packages = ["dsda-doom"]
 suite = "none"
 needs_data = true

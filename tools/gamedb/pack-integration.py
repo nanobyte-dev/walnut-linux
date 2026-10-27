@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
-"""pack-integration.py [--out FILE] [--licensed-out FILE] [--tree DIR]: what the ps3-games source package
-(packages/walnut/system/ps3-games/) and ps3-games-licensed (packages/licensed/) take from gamedb.
+"""pack-integration.py [--out FILE] [--tree DIR]: what the ps3-games source package
+(packages/walnut/system/ps3-games/, its one binary ps3-games-integration) takes from gamedb.
 
 Design
 - `make gamedb-integration` runs this; ps3-games' package.conf COPY_IN takes build/gamedb/integration.tar
-  into the source (like walnut-games' catalog.tar), ps3-games-licensed's takes
-  build/gamedb/ps3-games-licensed.substvars. Both debian/rules read them at build time.
-- Read: every game's build.toml (gamedb/README.md "build.toml": suite, packages, meta, divert,
-  [[licensed]] meta) and desktop/ (launchers/*.desktop, files/<absolute path>, migrate-home.txt), drafts
-  included: a game's suite, not whether the catalog shows it, puts it in the metapackages (ClassiCube is a
-  draft in ps3-games). Engines have no desktop/ and name no metapackage member.
+  into the source (like walnut-games' catalog.tar), and debian/rules reads it at build time.
+- Read: every game's build.toml (gamedb/README.md "build.toml": divert) and desktop/ (launchers/*.desktop,
+  files/<absolute path>, migrate-home.txt), drafts included. Engines have no desktop/.
 - integration.tar:
     tree/usr/share/applications/<name>.desktop  each game's launchers, with TryExec= the program their
                                     Exec runs through ps3-game (so a launcher of a game that isn't installed
@@ -20,15 +17,10 @@ Design
     tree/usr/share/ps3-games/divert.list        the divert paths, one per line (ps3-games-integration's
                                     preinst diverts each one; ps3-desktop's tests/menu-check.sh reads it)
     tree/usr/share/ps3-games/migrate-home.list  the migrate-home.txt lines (ps3-desktop's ps3-migrate-home)
-    control/ps3-games.substvars, control/ps3-games-free.substvars
-                                    games:Depends (and games:Suggests) for debian/control: ps3-games names the
-                                    meta packages of every game with suite free or licensed, ps3-games-free
-                                    those of the free ones and Suggests the licensed ones'
-- ps3-games-licensed.substvars: games:Depends, the [[licensed]] names ps3-games-licensed pulls in (an
-  entry's meta, by default true for a game with suite licensed). Kept apart from integration.tar, which
-  goes into a public source package.
-- Fails closed (exit 2): a build.toml that doesn't parse, a key of the wrong type, a meta package not in
-  packages, a launcher that doesn't start through ps3-game, two games installing the same file.
+- No metapackage Depends any more: ps3-games, ps3-games-free and ps3-games-licensed went on 2026-10-28
+  (no game is installed by default; players install them from Walnut Games; docs/PACKAGING.md).
+- Fails closed (exit 2): a build.toml that doesn't parse, a key of the wrong type, a launcher that
+  doesn't start through ps3-game, two games installing the same file.
 - Reproducible: sorted entries, the time SOURCE_DATE_EPOCH (else the newest commit's), root owner.
 - stdlib only (python3 -I; CI runs it before the package's source is made).
 """
@@ -48,7 +40,6 @@ REPO = HERE.parent.parent
 GAMES = REPO / "gamedb" / "games"
 APPS = "usr/share/applications"
 SHARE = "usr/share/ps3-games"
-SUITES = ("free", "licensed", "none")
 ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 
 
@@ -73,45 +64,6 @@ def strings(b, key, gid):
     if not isinstance(v, list) or not all(isinstance(x, str) and x for x in v):
         raise Error("%s: build.toml %s must be a list of strings" % (gid, key))
     return v
-
-
-def meta_packages(gid, b):
-    """the packages ps3-games names for a game: build.toml meta, else its packages"""
-    pkgs = strings(b, "packages", gid)
-    if "meta" not in b:
-        return pkgs
-    meta = strings(b, "meta", gid)
-    bad = [p for p in meta if p not in pkgs]
-    if bad:
-        raise Error("%s: build.toml meta %s not in its packages" % (gid, ", ".join(bad)))
-    return meta
-
-
-def depends(gs):
-    """{binary: {"Depends": [...], "Suggests": [...]}} for ps3-games, ps3-games-free, ps3-games-licensed"""
-    out = {p: {"Depends": [], "Suggests": []} for p in ("ps3-games", "ps3-games-free", "ps3-games-licensed")}
-
-    def add(pkg, field, names):
-        out[pkg][field] += [n for n in names if n not in out[pkg][field]]
-
-    for gid, _, b in gs:
-        suite = b.get("suite", "none")
-        if suite not in SUITES:
-            raise Error("%s: build.toml suite %r" % (gid, suite))
-        if suite != "none":
-            m = meta_packages(gid, b)
-            add("ps3-games", "Depends", m)
-            add("ps3-games-free", "Depends" if suite == "free" else "Suggests", m)
-        lic = b.get("licensed", [])
-        if not isinstance(lic, list) or not all(isinstance(e, dict) for e in lic):
-            raise Error("%s: build.toml licensed must be [[licensed]] tables" % gid)
-        for e in lic:
-            want = e.get("meta", suite == "licensed")
-            if not isinstance(want, bool):
-                raise Error("%s: [[licensed]] %s: meta must be true or false" % (gid, e.get("name")))
-            if want:
-                add("ps3-games-licensed", "Depends", [e["name"]])
-    return out
 
 
 def program(argv):
@@ -206,10 +158,6 @@ def collect(gs):
     return files
 
 
-def substvars(fields):
-    return "".join("games:%s=%s\n" % (k, ", ".join(v)) for k, v in fields.items() if v).encode()
-
-
 def mtime():
     e = os.environ.get("SOURCE_DATE_EPOCH")
     if e:
@@ -234,45 +182,36 @@ def write_atomic(path, data):
     os.replace(tmp, path)
 
 
-def pack(root, out, licensed_out, tree=None):
+def pack(root, out, tree=None):
     gs = games(root)
-    deps = depends(gs)
     files = collect(gs)
     members = {"tree/" + k: v for k, v in files.items()}
-    for p in ("ps3-games", "ps3-games-free"):
-        members["control/%s.substvars" % p] = substvars(deps[p])
     when = mtime()
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w", format=tarfile.PAX_FORMAT) as tar:
         for name in sorted(members):
             add(tar, name, members[name], when)
     write_atomic(out, buf.getvalue())
-    if licensed_out:
-        write_atomic(licensed_out, substvars(deps["ps3-games-licensed"]))
     if tree:
         for name, data in members.items():
             p = Path(tree) / name
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_bytes(data)
-    return len(gs), len(files), deps
+    return len(gs), len(files)
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--root", default=str(GAMES), help=argparse.SUPPRESS)
     ap.add_argument("--out", default=str(REPO / "build" / "gamedb" / "integration.tar"))
-    ap.add_argument("--licensed-out", default=str(REPO / "build" / "gamedb" / "ps3-games-licensed.substvars"),
-                    help="ps3-games-licensed's substvars ('' for none)")
     ap.add_argument("--tree", help="also unpack the members into this directory (tests, menu-check.sh)")
     a = ap.parse_args(argv)
     try:
-        n, f, deps = pack(a.root, a.out, a.licensed_out, a.tree)
+        n, f = pack(a.root, a.out, a.tree)
     except Error as e:
         print("pack-integration.py: %s" % e, file=sys.stderr)
         return 2
-    print("pack-integration: %d games, %d files -> %s; ps3-games %d, ps3-games-free %d+%d, ps3-games-licensed %d"
-          % (n, f, a.out, len(deps["ps3-games"]["Depends"]), len(deps["ps3-games-free"]["Depends"]),
-             len(deps["ps3-games-free"]["Suggests"]), len(deps["ps3-games-licensed"]["Depends"])))
+    print("pack-integration: %d games, %d files -> %s" % (n, f, a.out))
     return 0
 
 

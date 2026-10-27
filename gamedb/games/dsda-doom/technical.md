@@ -9,8 +9,7 @@ minute remain.
 ## Packages and settings
 
 Our build of Debian's `dsda-doom` (`0.30.0+dfsg-1+ps3.N`, [packages/dsda-doom](packages/dsda-doom/)),
-replacing Debian's, with Debian's `freedoom` 0.13.0 (`/usr/share/games/doom/freedoom2.wad`); both in
-`ps3-games`. The release candidate is ps3.361.
+replacing Debian's, with Debian's `freedoom` 0.13.0 (`/usr/share/games/doom/freedoom2.wad`). The release candidate is ps3.361.
 
 | Patch | What | Switch |
 |---|---|---|

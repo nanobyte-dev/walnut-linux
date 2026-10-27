@@ -20,7 +20,7 @@
     <table class="facts">
       <tbody>
       <tr><th>Packages</th><td>{{ range $i, $p := $b.packages }}{{ if $i }}, {{ end }}<code>{{ $p }}</code>{{ end }}</td></tr>
-      <tr><th>Suite</th><td>{{ if eq $b.suite "free" }}free: in <code>ps3-games</code> and <code>ps3-games-free</code>{{ else if eq $b.suite "licensed" }}licensed data: in <code>ps3-games</code> only{{ else }}in neither games metapackage{{ end }}{{ with $b.meta }} (as {{ range $i, $p := . }}{{ if $i }}, {{ end }}<code>{{ $p }}</code>{{ end }}){{ end }}</td></tr>
+      <tr><th>Suite</th><td>{{ if eq $b.suite "free" }}in the game suite (known to run with its sound), free data{{ else if eq $b.suite "licensed" }}in the game suite (known to run with its sound), its data is licensed{{ else }}not in the game suite yet{{ end }}</td></tr>
       <tr><th>Game data</th><td>{{ if $b.needs_data }}the player supplies it (see the game's page){{ else }}comes with the packages{{ end }}{{ with $b.data }}; plays with {{ range $i, $p := . }}{{ if $i }}, {{ end }}<code>{{ $p }}</code>{{ end }}{{ end }}</td></tr>
       {{ with $b.licensed }}<tr><th>Licensed data</th><td>{{ range $i, $p := . }}{{ if $i }}, {{ end }}<code>{{ $p }}</code>{{ end }} <span class="muted">(built from the player's own copy, never public)</span></td></tr>{{ end }}
       {{ with $b.desktop }}<tr><th>Menu entries</th><td>{{ range $i, $p := . }}{{ if $i }}, {{ end }}<code>{{ $p }}</code>{{ end }}</td></tr>{{ end }}

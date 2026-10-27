@@ -7,8 +7,7 @@ of the games where game-side batching paid most.
 
 ## Packages and patches
 
-`xmoto`, `xmoto-data` (`0.6.3+repack-1+ps3.N`, [packages/xmoto](packages/xmoto/)), replacing Debian's;
-`ps3-games` names only `xmoto`.
+`xmoto`, `xmoto-data` (`0.6.3+repack-1+ps3.N`, [packages/xmoto](packages/xmoto/)), replacing Debian's.
 
 | Patch | What | Switch |
 |---|---|---|

@@ -15,8 +15,8 @@ Design
       suite only, never into the public catalog), each one built by a debian/control of ours or, with
       --apt-index (a Packages file or URL: the Debian snapshot's), in that index; engine names an
       engines/<e>/ whose engine.md lists the game (and every game engine.md lists says so); suite one
-      of SUITES (licensed: a licensed data package); meta only names packages of its own; [[licensed]]
-      entries (LICENSED_KEYS: name, builder, leak_files, meta, edition, release, input)
+      of SUITES (licensed: a licensed data package); [[licensed]]
+      entries (LICENSED_KEYS: name, builder, leak_files, edition, release, input)
       match the bundle's licensed/<pkg>/ directories (builder source: a package.conf, script: <pkg>.sh;
       game-data-packager:<game> and retired have none), every licensed/ directory declared; a checkout
       without any licensed directory (the public copy) skips that direction. Each entry has an edition
@@ -93,7 +93,7 @@ FIELDS = {
 BUILD_KEYS = {
     "packages": (list, True), "engine": (str, False), "suite": (str, True), "needs_data": (bool, True),
     "data": (list, False), "desktop": (list, False), "divert": (list, False), "image_base": (bool, False),
-    "recipes": (list, False), "licensed": (list, False), "meta": (list, False), "former_packages": (list, False),
+    "recipes": (list, False), "licensed": (list, False), "former_packages": (list, False),
     "data_setup": (dict, False),
 }
 # [data_setup] (gamedb/README.md): the player's own data, imported with game-data-packager (gdp). key: (type,
@@ -111,7 +111,7 @@ ENGINE_KEYS = {"packages": (list, False), "licensed": (list, False)}
 # release (a source or script build's fixed release, RELEASE_RE as walnut-games-helper's) are its
 # X-Walnut-Edition and X-Walnut-Release; input: game-data-packager makes it from the owner's copy
 # (make licensed-data), never from a download; builder retired: published once, built no more
-LICENSED_KEYS = {"name", "builder", "leak_files", "meta", "edition", "release", "input"}
+LICENSED_KEYS = {"name", "builder", "leak_files", "edition", "release", "input"}
 RELEASE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,79}\Z")
 SUITES = ["free", "licensed", "none"]
 BUILDER_RE = re.compile(r"(source|script|retired|game-data-packager:[a-z0-9][a-z0-9-]*)\Z")
@@ -612,8 +612,6 @@ def licensed_errors(d, entries, ctx, editions=None):
             errs.append("[[licensed]] %s: release: game-data-packager's comes from the files it matched" % n)
         if "input" in e and (e["input"] is not True or not b.startswith("game-data-packager:")):
             errs.append("[[licensed]] %s: input = true only for a game-data-packager builder" % n)
-        if not isinstance(e.get("meta", False), bool):
-            errs.append("[[licensed]] %s: meta is true or false (in ps3-games-licensed or not)" % n)
         lf = e.get("leak_files", [])
         if not isinstance(lf, list) or not all(isinstance(x, str) and x and not x.startswith("/") and " " not in x for x in lf):
             errs.append("[[licensed]] %s: leak_files is a list of relative path patterns" % n)
@@ -691,9 +689,6 @@ def build_errors(gdir, build, bad, ctx, draft):
     for d in build.get("desktop", []):
         if not isinstance(d, str) or not re.fullmatch(r"[A-Za-z0-9._-]+\.desktop", d):
             errs.append("build.toml: desktop entry %r" % (d,))
-    bad_meta = [m for m in build.get("meta", []) if m not in build.get("packages", [])]
-    if bad_meta:
-        errs.append("build.toml: meta %r: the metapackages name only the game's own packages" % (bad_meta,))
     for d in build.get("divert", []):
         if not isinstance(d, str) or not re.fullmatch(r"(/[A-Za-z0-9._+-]+)+", d):
             errs.append("build.toml: divert %r is not an absolute path" % (d,))

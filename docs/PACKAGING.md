@@ -39,12 +39,12 @@ The builder image is pinned by digest (`BUILDER_BASE`) with apt on the same snap
 
 ## Kinds of source packages
 
-Each package is a directory with a `package.conf`. A game's own packages live in its gamedb bundle, `gamedb/games/<id>/packages/`, its licensed data packages in `gamedb/games/<id>/licensed/`, an engine's in `gamedb/engines/<e>/packages/` (gamedb/README.md); everything else under `packages/`: `walnut/<area>/` (ours), `patched/<area>/` (Debian's or upstream's with our patches), `repackaged/` (upstream releases as they are) or `licensed/` (the metapackage `ps3-games-licensed`) (docs/LAYOUT.md). It is named by its directory alone (`make xmoto-deb`, `build/debs/xmoto`); `tools/pkg-dir.sh <name>` finds the directory for `tools/deb-*.sh` and `tools/pkg-*.sh`, `tools/pkg-dir.sh --all` lists them all (the Makefile's `PKG_DIRS`, CI's workflows) and `--order` in build order (`LOCAL_DEPS` first, linux first, ps3rsx last). Two packages of one name anywhere stop all of them with an error.
+Each package is a directory with a `package.conf`. A game's own packages live in its gamedb bundle, `gamedb/games/<id>/packages/`, its licensed data packages in `gamedb/games/<id>/licensed/`, an engine's in `gamedb/engines/<e>/packages/` (gamedb/README.md); everything else under `packages/`: `walnut/<area>/` (ours), `patched/<area>/` (Debian's or upstream's with our patches), or `repackaged/` (upstream releases as they are) (docs/LAYOUT.md). It is named by its directory alone (`make xmoto-deb`, `build/debs/xmoto`); `tools/pkg-dir.sh <name>` finds the directory for `tools/deb-*.sh` and `tools/pkg-*.sh`, `tools/pkg-dir.sh --all` lists them all (the Makefile's `PKG_DIRS`, CI's workflows) and `--order` in build order (`LOCAL_DEPS` first, linux first, ps3rsx last). Two packages of one name anywhere stop all of them with an error.
 
 | `TYPE` | What it is | Examples | Version |
 |---|---|---|---|
 | `debsrc` | Debian's source package at the snapshot, plus our quilt series (`<pkg>/patches`, added as `debian/patches/ps3/`) and changes to `debian/` itself (`<pkg>/packaging`) | `mesa`, `linux`, `plymouth`, the games and libraries we patch (README.md) | `<debver>+ps3.N` |
-| `native` | Our own code: the directory is the source, `debian/` inside | `ps3-boot`, `ps3-gpu-tools`, `ps3-spu`, `ps3rsx`, `ps3-system`, `ps3-desktop`, `ps3-games` (its game-specific part packed from gamedb, `COPY_IN`), `ps3-splash` | `0.N` (`ps3rsx`: `0.N+k<kernel release>`, its `-` as `.`) |
+| `native` | Our own code: the directory is the source, `debian/` inside | `ps3-boot`, `ps3-gpu-tools`, `ps3-spu`, `ps3rsx`, `ps3-system`, `ps3-desktop`, `ps3-games` (its one binary `ps3-games-integration`, packed from gamedb, `COPY_IN`), `ps3-splash` | `0.N` (`ps3rsx`: `0.N+k<kernel release>`, its `-` as `.`) |
 | `upstream` | Software Debian lacks: an upstream tarball plus component tarballs | `classicube`, `zlib-ng`, `warzone2100` | `<upver>-1+ps3.N` |
 
 **Our version never changes the original's (the user, 2026-10-26).** A package we patch or repackage is versioned `<original version>+ps3.N`: Debian's full version when Debian has the package (`26.2.4-1+ps3.N`), else upstream's with `-1`. Dpkg reads only the last `-` as the revision, so `+ps3.N` keeps the original whole: it sorts above that exact original and below the original's next version or revision, so neither side ever outranks a newer release of the other by accident. Never an epoch, a higher revision or a bigger upstream number of our own. `0.N` is only for code that is ours alone, under a name no Debian or upstream package uses.
@@ -112,7 +112,7 @@ The old LAN repository on tibi-server (`http://10.0.0.10:8070`: suites `ps3`, `p
 
 ### Licensed packages and the licensed suite
 
-A package is licensed when its Debian Section is `non-free/*` or `local/*` (game-data-packager marks non-redistributable data `local/`), or when its name is a licensed name. `tools/licensed.py` is the one place that answers it, and every guard below asks it: the names are every directory under `packages/licensed/` and `gamedb/*/*/licensed/`, the `[[licensed]]` entries of gamedb's `build.toml` files (every game's licensed data, also what has no directory of ours: game-data-packager's packages; in the public copy, which has no licensed directory, the names come from these), and the generic `ps3-games-licensed` (`GENERIC` in licensed.py: no game's, licensed in every checkout); the leak globs are `tools/licensed-files.txt` (the generic ones, Sony's `*.prx`/`*.sprx`) plus the `[[licensed]]` `leak_files` and every `dfsg-exclude.txt` entry. It fails closed: a list it can't read stops the guard. `licensed.py check` (in `make test`) wants every `gamedb/*/*/licensed/<pkg>/` declared in its own bundle's `build.toml`, no licensed name outside a licensed directory, a `local/*` or `non-free/*` Section on exactly the licensed packages of ours, and a checkout with all licensed directories or none; `check --since REV` that no name has left the set since REV. Today that is every package of the table in [Game data](#the-licensed-data-packages) and the metapackage `ps3-games-licensed`. A `[[licensed]]` entry's `builder` says how it is made: `source` (a source package of ours in `licensed/<pkg>/`), `script` (`licensed/<pkg>/<pkg>.sh` from the owner's own copy: `make licensed-data PKG=<pkg> INPUT=<the owner's CD image or archive>`) or `game-data-packager:<game>` (`make game-data`, below). `tools/gamedb/build-info.py` reads these for the Makefile.
+A package is licensed when its Debian Section is `non-free/*` or `local/*` (game-data-packager marks non-redistributable data `local/`), or when its name is a licensed name. `tools/licensed.py` is the one place that answers it, and every guard below asks it: the names are every directory under `packages/licensed/` and `gamedb/*/*/licensed/`, the `[[licensed]]` entries of gamedb's `build.toml` files (every game's licensed data, also what has no directory of ours: game-data-packager's packages; in the public copy, which has no licensed directory, the names come from these), and the generic `ps3-games-licensed` (`GENERIC` in licensed.py: no game's, licensed in every checkout; the retired metapackage, below, whose published versions stay); the leak globs are `tools/licensed-files.txt` (the generic ones, Sony's `*.prx`/`*.sprx`) plus the `[[licensed]]` `leak_files` and every `dfsg-exclude.txt` entry. It fails closed: a list it can't read stops the guard. `licensed.py check` (in `make test`) wants every `gamedb/*/*/licensed/<pkg>/` declared in its own bundle's `build.toml`, no licensed name outside a licensed directory, a `local/*` or `non-free/*` Section on exactly the licensed packages of ours, and a checkout with all licensed directories or none; `check --since REV` that no name has left the set since REV. Today that is every package of the table in [Game data](#the-licensed-data-packages) and the retired metapackage `ps3-games-licensed`. A `[[licensed]]` entry's `builder` says how it is made: `source` (a source package of ours in `licensed/<pkg>/`), `script` (`licensed/<pkg>/<pkg>.sh` from the owner's own copy: `make licensed-data PKG=<pkg> INPUT=<the owner's CD image or archive>`) or `game-data-packager:<game>` (`make game-data`, below). `tools/gamedb/build-info.py` reads these for the Makefile.
 
 - **Built here only.** CI never builds them: they have no workflow (`gen-workflows.py` skips every licensed name and directory), and `github-ci/build-package.sh` refuses them. GitHub has no game data.
 - **Never public.** The public GitHub copy leaves `packages/licensed/` and `gamedb/*/*/licensed/` out of every commit, and any `packages/**/<name>/` of a licensed name as a second check (`tools/public-export.sh`). The image's public profile leaves them out too (`tools/image-packages.sh`). `tools/leak-check.py` keeps licensed files out of every free package and source CI publishes.
@@ -169,7 +169,7 @@ Rules, each with the reason it exists:
 **The image** (`tools/build-image.sh`) is made in layers:
 
 1. the Debian-only base layer (`build/rootfs/base.tar`, dpkg under qemu, about 15 minutes, rebuilt only when `system/image/packages.txt` or the snapshot changes);
-2. our packages installed by apt from a flat repository of our debs (`system/image/packages-ours.txt`; the licensed ones sit in `build/debs` like the rest, `classicube` pulls in `classicube-data`), with our Mesa replacing Debian's as an upgrade;
+2. our packages installed by apt from a flat repository of our debs (`system/image/packages-ours.txt`: no games, only Walnut Games and `ps3-games-integration`, [below](#no-game-metapackages); the licensed debs sit in `build/debs` like the rest), with our Mesa replacing Debian's as an upgrade;
 3. `autoremove --purge` (LLVM, z3 and sensors go);
 4. `system/image/customize.sh` (hostname, fstab, user, key, locale).
 
@@ -213,6 +213,33 @@ Walnut Linux's splash is Plymouth with our theme, made to show early from the US
 - **Debugging without text on tty1:** put `plymouth.debug=file:/var/log/plymouth-debug.log plymouth.debug=stream:/dev/null` on the kernel line. `file:` alone still printed the debug text on tty1; the second option sends the stream to `/dev/null`. For a test boot, append both to the one line of `/usr/lib/ps3/boot/<release>.args` and run `sudo ps3-update-kboot`. The file belongs to the kernel package, so the next upgrade of that package drops the change again.
 - **pnmixer.** `packages/patched/desktop/pnmixer/` is Debian's `pnmixer` 0.7.2-3 (the tray's volume applet; upstream has been quiet since 2018) plus `0001-audio-don-t-crash-on-a-volume-change-without-a-sound.patch`. When it hooks no sound card it runs on with a NULL card, and a slider move, a scroll on the icon or a hotkey read the volume from it: SIGSEGV, and the tray had no volume icon on the first nightly. The three setters read the volume through `audio_get_volume`, which gives 0 without a card.
 
+## No game metapackages
+
+There are none since 2026-10-28 (the user): no game is mandatory, a fresh image ships none (Walnut Games
+and `ps3-games-integration` only), and players install games from Walnut Games. The `ps3-games` source
+builds one binary, `ps3-games-integration`: our launchers (each one out of the menu until its game is
+installed, `TryExec`), the games' config files, the diversions of their own menu entries and the
+migrate-home list, from each bundle's `desktop/` (gamedb/README.md). `ps3-games` and `ps3-games-free` (the
+same source) and `ps3-games-licensed` (`packages/licensed/`, the licensed suite) are built no more. Their
+published versions stay in the repositories like everything we publish, and `ps3-games-licensed` stays a
+licensed name (`tools/licensed.py` GENERIC).
+
+Why: they installed the whole suite, hundreds of MB, wanted or not, and apt marked every game they pulled in
+as automatic, so removing a metapackage left every game to the next `apt autoremove` (it nearly happened on
+the PS3).
+
+A console that has one keeps it: apt never removes a package by itself. Its `Depends: ps3-games-integration
+(= its own version)` makes `apt upgrade` keep the new ps3-games-integration back until the metapackage goes
+(`apt full-upgrade`, or `apt remove ps3-games-free`). ps3-games-integration declares no `Breaks` on it: that
+exact-version `Depends` already settles it. Before it goes, its games must be marked manual, which
+`walnut-games-helper adopt` does: every installed package of a catalog game (packages and data_setup names)
+and every dependency of an old metapackage still installed (drafts and licensed data the catalog doesn't
+list, and ps3-games-integration), when apt has it automatic. Walnut Games runs it at every start (`sudo -n`,
+failures ignored; with nothing automatic it changes nothing). So: `apt upgrade`, open Walnut Games once (or
+`sudo /usr/lib/ps3/sbin/walnut-games-helper adopt`), then remove the metapackage; `apt-get -s autoremove`
+lists no game after that. Removing a game in Walnut Games still takes an old metapackage along, its other
+dependencies marked manual first.
+
 ## Game data
 
 Licensed data is packaged apart from the engines, and free packages never depend on it.
@@ -223,9 +250,9 @@ licensed data packages below are for our own machines.
 
 ### The rule: free packages never depend on licensed ones
 
-Every free package (the engines, `ps3-games`, `ps3-desktop`, ...) must be installable and distributable on its own. None of them has a `Depends` or `Recommends` on a licensed package (`tools/licensed.py names`, or one with a Section `non-free/*` or `local/*`); `Suggests` is fine. The user puts the data in the game directory (each game's docs say where and how to get it).
+Every free package (the engines, `ps3-games-integration`, `ps3-desktop`, ...) must be installable and distributable on its own. None of them has a `Depends` or `Recommends` on a licensed package (`tools/licensed.py names`, or one with a Section `non-free/*` or `local/*`); `Suggests` is fine. The user puts the data in the game directory (each game's docs say where and how to get it).
 
-Our own machines get the data from the licensed suite through the metapackage `ps3-games-licensed` (`packages/licensed/ps3-games-licensed/`, Section `local/games`, so the licensed suite only). It depends on `ps3-games` and the licensed data gamedb names for it (the `[[licensed]]` entries of the games with suite `licensed`, and those with `meta = true`; `tools/gamedb/pack-integration.py` writes its substvars), so `sudo apt install ps3-games-licensed` gives the whole suite with its data. Personal use only. A new licensed data package gets a `[[licensed]]` entry in its game's `build.toml`, which puts it into that metapackage's `Depends`.
+Our own machines get the data from the licensed suite one package at a time (`sudo apt install classicube-data`), or through Walnut Games' "Install from Walnut licensed" (a game's `[data_setup] present_any`). Personal use only. A new licensed data package gets a `[[licensed]]` entry in its game's `build.toml`. The metapackage `ps3-games-licensed`, which used to pull all of them in, is retired ([No game metapackages](#no-game-metapackages)).
 
 ### The licensed data packages
 
@@ -233,16 +260,16 @@ Each is declared by a `[[licensed]]` entry in its game's `build.toml` (gamedb/RE
 where its files come from and their licences are on the game's technical page.
 
 <!-- gamedb:licensed-table -->
-| Package | Game | Built by | Edition | In ps3-games-licensed |
-|---|---|---|---|---|
-| `sauerbraten-nonfree-data` | [BananaBread](../gamedb/games/bananabread/) | `games/bananabread/licensed/sauerbraten-nonfree-data/` | full (2020_12_29) | yes |
-| `classicube-data` | [ClassiCube](../gamedb/games/classicube/) | `games/classicube/licensed/classicube-data/` | full | yes |
-| `roller-coaster-tycoon2-data` | [OpenRCT2](../gamedb/games/openrct2/) | game-data-packager, from the owner's copy (`make licensed-data`) | full | no |
-| `rct2-data` | [OpenRCT2](../gamedb/games/openrct2/) | retired: its published versions stay, built no more | full | no |
-| `tyrian-data` | [OpenTyrian](../gamedb/games/opentyrian/) | `games/opentyrian/licensed/tyrian-data/` | full (2.1) | no |
-| `quake-shareware` | [QuakeSpasm](../gamedb/games/quakespasm/) | game-data-packager (`make game-data`) | shareware | yes |
-| `sauerbraten-data` | [Sauerbraten](../gamedb/games/sauerbraten/) | `games/sauerbraten/licensed/sauerbraten-data/` | full (2020_12_29) | no |
-| `quake2-demo-data` | [Yamagi Quake II](../gamedb/games/yquake2/) | game-data-packager (`make game-data`) | demo | yes |
+| Package | Game | Built by | Edition |
+|---|---|---|---|
+| `sauerbraten-nonfree-data` | [BananaBread](../gamedb/games/bananabread/) | `games/bananabread/licensed/sauerbraten-nonfree-data/` | full (2020_12_29) |
+| `classicube-data` | [ClassiCube](../gamedb/games/classicube/) | `games/classicube/licensed/classicube-data/` | full |
+| `roller-coaster-tycoon2-data` | [OpenRCT2](../gamedb/games/openrct2/) | game-data-packager, from the owner's copy (`make licensed-data`) | full |
+| `rct2-data` | [OpenRCT2](../gamedb/games/openrct2/) | retired: its published versions stay, built no more | full |
+| `tyrian-data` | [OpenTyrian](../gamedb/games/opentyrian/) | `games/opentyrian/licensed/tyrian-data/` | full (2.1) |
+| `quake-shareware` | [QuakeSpasm](../gamedb/games/quakespasm/) | game-data-packager (`make game-data`) | shareware |
+| `sauerbraten-data` | [Sauerbraten](../gamedb/games/sauerbraten/) | `games/sauerbraten/licensed/sauerbraten-data/` | full (2020_12_29) |
+| `quake2-demo-data` | [Yamagi Quake II](../gamedb/games/yquake2/) | game-data-packager (`make game-data`) | demo |
 <!-- /gamedb:licensed-table -->
 
 A licensed package is built on our own PC, never by CI, and goes to the licensed suite only

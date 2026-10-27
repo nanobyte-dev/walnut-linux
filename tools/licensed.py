@@ -23,7 +23,8 @@ Names, the union of:
   - [data_setup] required and optional in gamedb/<games|engines>/<id>/build.toml: the game-data-packager
     packages a player makes from their own copy (doom-wad, quake-registered): never ours to publish
   - GENERIC: the names that are no game's, licensed in every checkout (the metapackage
-    ps3-games-licensed, whose directory packages/licensed/ the public copy doesn't have)
+    ps3-games-licensed: retired on 2026-10-28, no directory any more, its published versions stay in
+    the licensed suite, and a licensed name never leaves the set)
 A binary package is also licensed when its Section is non-free/* or local/*.
 Leak globs, the union of: tools/licensed-files.txt (the generic ones: Sony's SDK modules); [[licensed]]
 leak_files in build.toml; every dfsg-exclude.txt of a package of ours (an entry E as E and E/*). Shell
@@ -51,7 +52,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 FILES = "tools/licensed-files.txt"
-# licensed names that are no game's (gamedb holds the games'): in every checkout, the public copy too
+# licensed names that are no game's (gamedb holds the games'): in every checkout, the public copy too.
+# ps3-games-licensed is retired (2026-10-28) but stays: its versions in the licensed suite are kept forever
 GENERIC = ("ps3-games-licensed",)
 # where licensed package directories live (relative glob patterns, one directory level each)
 LICENSED_DIR_GLOBS = ("packages/licensed/*", "gamedb/games/*/licensed/*", "gamedb/engines/*/licensed/*")

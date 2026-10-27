@@ -3,7 +3,7 @@ packages = ["cube2", "cube2-data"]
 engine = "cube2"
 suite = "none"
 needs_data = false
-# the models and sounds Debian's cube2-data leaves out (the licensed suite: ps3-games-licensed pulls it)
+# the models and sounds Debian's cube2-data leaves out (the licensed suite only)
 data = ["sauerbraten-nonfree-data"]
 recipes = ["bananabread:base"]
 
@@ -13,5 +13,3 @@ builder = "source"
 # X-Walnut-Edition and X-Walnut-Release (its debian/control says the same)
 edition = "full"
 release = "2020_12_29"
-# in ps3-games-licensed, though BananaBread is in no suite
-meta = true

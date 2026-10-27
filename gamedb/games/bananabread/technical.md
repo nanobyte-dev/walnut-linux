@@ -13,9 +13,7 @@ and about 20-25 MB of RAM free at the lowest. Its played session (the "Cube2:Dem
 - `cube2`, `cube2-server`: our engine build (its patches on the [engine's page](../../engines/cube2/technical.md)).
 - `cube2-data` 1.3: Debian's BananaBread data.
 - `sauerbraten-nonfree-data` (`licensed/sauerbraten-nonfree-data`):
-  the models and sounds Debian leaves out (CC BY-NC), the licensed suite only, pulled in by
-  `ps3-games-licensed`. It fills in `/usr/share/games/cube2` (912 files). BananaBread itself is in no
-  suite: it deploys by name.
+  the models and sounds Debian leaves out (CC BY-NC), the licensed suite only. It fills in `/usr/share/games/cube2` (912 files). BananaBread deploys by name.
 
 ### The licensed models and sounds (`sauerbraten-nonfree-data`)
 
@@ -52,8 +50,7 @@ readme; the sounds are mixed (`ambience` CC Sampling+, `q009` CC BY-SA, `free`/`
 Darthvim, others per their README). So: personal use only, the licensed suite.
 
 Section `local/games`, version `0.0.20201229-1+ps3.N`, arch all. `cube2` and `cube2-server` don't depend
-on it (cube2 isn't rebuilt for a `Suggests`); the package `Depends: cube2-data`, and `ps3-games-licensed`
-depends on it. The source tarball is made by its `sauerbraten-data.sh` (`make
+on it (cube2 isn't rebuilt for a `Suggests`); the package `Depends: cube2-data`. The source tarball is made by its `sauerbraten-data.sh` (`make
 sauerbraten-nonfree-data-src`: the release downloaded once and checked, the listed files with a fixed
 owner and mtime, `gzip -n`), the deb by `make sauerbraten-nonfree-data-deb` (indep builder, no qemu). The
 same files give the same deb for a given commit; once a version is published it is never built again under

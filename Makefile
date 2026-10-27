@@ -340,7 +340,7 @@ $(REPO_BUILDER_STAMP): build-containers/Dockerfile.deb | $(BUILDER_STAMP)
 # included; kernels and ps3rsx modules only with KERNELS=1 or when named), then installs the named
 # top-level packages; simulated first. dpkg replaces files by renaming, so even Mesa under a
 # running X is safe on the USB root (on NFS, stop X first).
-DEPLOY_TOP := linux-image-ps3 linux-image-ps3-debug ps3rsx-modules-ps3 ps3rsx-modules-ps3-debug ps3-boot ps3-system ps3-desktop ps3-splash ps3-gpu-tools ps3-spu ps3-spu-programs libspeq0 ps3-apps ps3-games
+DEPLOY_TOP := linux-image-ps3 linux-image-ps3-debug ps3rsx-modules-ps3 ps3rsx-modules-ps3-debug ps3-boot ps3-system ps3-desktop ps3-splash ps3-gpu-tools ps3-spu ps3-spu-programs libspeq0 ps3-apps walnut-games ps3-games-integration
 PKGS ?= $(DEPLOY_TOP)
 AUTOREMOVE ?= 0
 STOP_DESKTOP ?= auto
@@ -553,11 +553,11 @@ ps3-boot-src: initrd-walnut
 gamedb-catalog:
 	python3 -I tools/gamedb/pack-catalog.py
 walnut-games-src: gamedb-catalog
-# ps3-games ships the games' integration (launchers, config files, divert and migrate-home lists) and the
-# metapackages' Depends, ps3-games-licensed its Depends (package.conf COPY_IN): packed from gamedb first
+# ps3-games ships the games' integration (ps3-games-integration: launchers, config files, divert and
+# migrate-home lists; package.conf COPY_IN): packed from gamedb first
 gamedb-integration:
 	python3 -I tools/gamedb/pack-integration.py
-ps3-games-src ps3-games-licensed-src: gamedb-integration
+ps3-games-src: gamedb-integration
 %-deb: %-src | $(BUILD)/chroot/sid-ppc64.tar
 	@tools/disk-check.sh
 	tools/ccache-remote.sh docker run --rm --privileged -v $(CURDIR):/work -w /work $(DEB_ENV) -e JOBS=$(DEB_JOBS) -e KEEP_TREE=$(KEEP_TREE) \

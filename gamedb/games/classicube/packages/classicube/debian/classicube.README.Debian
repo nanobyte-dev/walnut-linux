@@ -37,10 +37,9 @@ which /usr/games/classicube creates and runs the game from.
    In the PS3 project's apt repository, the licensed suite has classicube-data, which
    installs the same files under /usr/lib/classicube/. /usr/games/classicube then copies them
    into the user directory on first start. It is for personal / LAN use and is not distributed
-   with the game. ps3-games-licensed pulls it in along with the other licensed game data:
+   with the game:
 
-       sudo apt install ps3-games-licensed
-       (or just: sudo apt install classicube-data)
+       sudo apt install classicube-data
 
 Starting over: delete ~/.local/share/classicube/texpacks and audio; the next start fetches (or
 copies) them again. Options, maps and screenshots in the same directory are left alone.

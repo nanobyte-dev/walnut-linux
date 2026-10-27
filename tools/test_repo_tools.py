@@ -264,15 +264,15 @@ class DebVersion(Tree):
 class ImagePackages(Tree):
     def test_public_profile(self):
         write(self.root, "system/image/packages-ours.txt",
-              "# ours\nlinux-image-ps3\nlinux-image-ps3-debug\nps3-games\nps3-games-licensed\nrct2-data\nclassicube\n"
-              "ps3-desktop\n")
+              "# ours\nlinux-image-ps3\nlinux-image-ps3-debug\nps3-games-integration\nps3-games-licensed\nrct2-data\n"
+              "classicube\nps3-desktop\n")
         # classicube: a game whose data is licensed (suite = "licensed"), so not in the public image
         write(self.root, "gamedb/games/cc/build.toml", 'packages = ["classicube"]\nsuite = "licensed"\n')
         dev = self.run_tool("tools/image-packages.sh", "dev").stdout.split()
-        self.assertEqual(dev, ["linux-image-ps3", "linux-image-ps3-debug", "ps3-games", "ps3-games-licensed", "rct2-data",
-                               "classicube", "ps3-desktop"])
+        self.assertEqual(dev, ["linux-image-ps3", "linux-image-ps3-debug", "ps3-games-integration", "ps3-games-licensed",
+                               "rct2-data", "classicube", "ps3-desktop"])
         self.assertEqual(self.run_tool("tools/image-packages.sh", "public").stdout.split(),
-                         ["linux-image-ps3", "ps3-games-free", "ps3-desktop"])
+                         ["linux-image-ps3", "ps3-games-integration", "ps3-desktop"])
         write(self.root, "gamedb/games/cc/build.toml", 'packages = ["classicube"\n')   # fails closed
         self.assertNotEqual(self.run_tool("tools/image-packages.sh", "public").returncode, 0)
 

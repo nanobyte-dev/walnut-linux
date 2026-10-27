@@ -9,7 +9,7 @@ driver plays too, but gives the frame timer nothing to measure.
 ## Packages and settings
 
 - `openttd`, `openttd-data` (`15.1-1+ps3.N`, [packages/openttd](packages/openttd/)), replacing Debian's,
-  with Debian's `openttd-opengfx`, `openttd-opensfx`, `openttd-openmsx`; all in `ps3-games`. The release
+  with Debian's `openttd-opengfx`, `openttd-opensfx`, `openttd-openmsx`. The release
   candidate is ps3.297. OpenTTD passes its 97 ctest tests on ppc64 in Debian's build.
 - Stock `-v sdl-opengl` refuses to start on nv30 ("Single element texture formats not supported"); our
   [0001](packages/openttd/patches/0001-OpenGL-run-on-GL-2.1-without-ARB_texture_rg-or-ARB_s.patch) and

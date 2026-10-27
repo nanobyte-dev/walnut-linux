@@ -350,7 +350,7 @@ def game_page(site, gdir, g, results, batches, metrics, patch_subjects, package_
         "id": gid, "title": g["title"], "url": url, "page": "games/%s/" % gid, "notes": notes,
         "medal": {"medal": r["medal"], "score": r["score"]}, "graded_by": r.get("graded_by"),
         "engine": eng,
-        "build": {"packages": b.get("packages", []), "meta": b.get("meta", []), "suite": b.get("suite"),
+        "build": {"packages": b.get("packages", []), "suite": b.get("suite"),
                   "needs_data": b.get("needs_data", False), "data": b.get("data", []), "desktop": b.get("desktop", []),
                   "divert": b.get("divert", []), "image_base": b.get("image_base", False),
                   "licensed": [x["name"] for x in b.get("licensed", []) if isinstance(x, dict) and "name" in x]},

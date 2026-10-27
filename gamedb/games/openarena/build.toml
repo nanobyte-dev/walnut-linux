@@ -4,6 +4,4 @@ engine = "ioquake3"
 suite = "free"
 needs_data = false
 divert = ["/usr/share/applications/openarena.desktop"]
-# in the image's package layer (system/image/packages.txt)
-image_base = true
 recipes = ["openarena:gl2min", "openarena:base"]

@@ -19,5 +19,6 @@ ps3-spu
 ps3-spu-programs
 libspeq0
 ps3-apps
-ps3-games
-ps3-games-licensed
+# the games' launchers and settings, shown once a game is installed; no game itself: a fresh image
+# ships none, players install them from Walnut Games (the user, 2026-10-28: no metapackages)
+ps3-games-integration

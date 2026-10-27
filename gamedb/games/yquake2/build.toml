@@ -1,8 +1,6 @@
 # How Yamagi Quake II is built, installed and integrated (gamedb/README.md "build.toml").
 packages = ["yamagi-quake2", "yamagi-quake2-core"]
-# ps3-games names only the game; the rest comes with it
-meta = ["yamagi-quake2"]
-# in ps3-games, not in the public ps3-games-free: its data is licensed
+# its data is licensed (the demo's quake2-demo-data)
 suite = "licensed"
 needs_data = true
 data = ["quake2-demo-data"]

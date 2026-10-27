@@ -7,7 +7,7 @@ player). It found three of the driver bugs on its way.
 ## Packages and patches
 
 `neverball`, `neverputt` and their data (`1.6.0+git20180603-3+ps3.N`, [packages/neverball](packages/neverball/)),
-replacing Debian's; `ps3-games` names only `neverball`.
+replacing Debian's.
 
 | Patch | What | Switch |
 |---|---|---|

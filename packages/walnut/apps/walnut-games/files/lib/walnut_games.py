@@ -27,6 +27,10 @@ Design
   (ps3-game-menu --reload "$XDG_RUNTIME_DIR/ps3-game-menu", which also restarts the menu), so the new
   game starts through game mode. Play
   is off while the helper runs: game mode would freeze it with dpkg's lock held.
+- At each start, in a thread, `sudo -n walnut-games-helper adopt` (adopt_games) marks the catalog games'
+  automatic packages manual: the old ps3-games metapackages (gone since 2026-10-28) installed them as
+  their dependencies, and autoremove would take them once a metapackage went. Failures are ignored;
+  with nothing to adopt the helper changes nothing.
 - Play starts the runtime copy of the game's .desktop (its Exec already goes through ps3-game),
   else `ps3-game` plus the entry in /usr/share/applications with the field codes cut out and
   split by shlex, never through a shell.
@@ -473,6 +477,18 @@ def play_commands(game, runtime_dir=None, apps=APPS, files=None):
                         entry_program(parse_exec(e["Exec"])) in progs:
                     add(name, e)
     return out
+
+
+def adopt_games(helper=HELPER, runner=subprocess.run):
+    """`sudo -n HELPER adopt`, its output dropped: True when it ran and succeeded; never raises (the
+    games stay as they are when sudo or the helper refuses)"""
+    if not os.path.exists(helper):
+        return False
+    try:
+        return runner(["sudo", "-n", helper, "adopt"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                      stderr=subprocess.DEVNULL, timeout=300).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def parse_helper_line(line):
@@ -969,6 +985,7 @@ class App:
             self.fetch_catalog(manual=False)
         self.check_repo()
         self.resume_import()
+        threading.Thread(target=adopt_games, args=(self.helper,), daemon=True).start()
 
     # -- look
     def _style(self):

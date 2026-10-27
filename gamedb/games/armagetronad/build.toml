@@ -1,7 +1,5 @@
 # How Armagetron Advanced is built, installed and integrated (gamedb/README.md "build.toml").
 packages = ["armagetronad", "armagetronad-common"]
-# ps3-games names only the game; the rest comes with it
-meta = ["armagetronad"]
 suite = "free"
 needs_data = false
 recipes = ["armagetronad:base"]

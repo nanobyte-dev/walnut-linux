@@ -242,5 +242,5 @@ Walnut's internal install is completely self-contained. To remove Walnut entirel
 ## 9. Hardware Compatibility & Limits
 
 - **Tested Hardware**: This alpha release has been validated on a **CECH-20xx Slim** console with NOR flash. Reports and feedback on other CFW-capable models (Fat CECH-A/B/C/E/G/H/J/K/L/M/P/Q and Slim CECH-21xx/25xx) are welcomed via the issue tracker.
-- **Game Data & Packages**: Walnut includes open-source game engines and freely redistributable game data in `ps3-games-free`. Proprietary and commercial game assets (such as full Quake or Quake II game data) are not bundled and must be provided by the user.
+- **Game Data & Packages**: Walnut ships no games preinstalled: Walnut Games (in the menu) installs open-source games and freely redistributable game data from Walnut's repository. Proprietary and commercial game assets (such as full Quake or Quake II game data) are not bundled and must be provided by the user.
 - **Supported Games**: See [docs/games/README.md](games/README.md) for detailed performance metrics, steady frame rates, and configurations for all 13 games tested in the Walnut suite.

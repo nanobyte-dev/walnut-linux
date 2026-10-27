@@ -365,7 +365,7 @@ class RulesTwoSessionsOnly(unittest.TestCase):
         self.assertEqual(score.combine([sess, crashed], rules=2)["crashes"], 0)
 
 
-BUILD_KEYS = ("packages", "engine", "suite", "needs_data", "data", "desktop", "divert", "image_base", "recipes", "meta")
+BUILD_KEYS = ("packages", "engine", "suite", "needs_data", "data", "desktop", "divert", "image_base", "recipes")
 
 
 def write_game(content, gid="ex", **over):
@@ -586,10 +586,8 @@ class Check(unittest.TestCase):
         self.assertEqual(self.problems(), {})
         write_game(self.content, divert='["usr/share/x.desktop"]', image_base="true")
         self.assertIn("divert", " ".join(self.problems()["ex"]))
-        write_game(self.content, meta='["example"]')
-        self.assertEqual(self.problems(), {})
-        write_game(self.content, meta='["other"]')               # only its own packages
-        self.assertIn("meta ['other']", " ".join(self.problems()["ex"]))
+        write_game(self.content, build='meta = ["example"]\n')   # gone with the metapackages (2026-10-28)
+        self.assertIn("unknown key 'meta'", " ".join(self.problems()["ex"]))
 
     def test_desktop(self):
         g = write_game(self.content)
@@ -610,8 +608,8 @@ class Check(unittest.TestCase):
 
     def test_build_toml_licensed(self):
         lic = '[[licensed]]\nname = "ex-data"\nbuilder = "source"\nedition = "full"\n'
-        write_game(self.content, build=lic + 'meta = "yes"\n')
-        self.assertIn("meta is true or false", " ".join(self.problems()["ex"]))
+        write_game(self.content, build=lic + 'meta = true\n')    # gone with ps3-games-licensed (2026-10-28)
+        self.assertIn("unknown key 'meta'", " ".join(self.problems()["ex"]))
         write_game(self.content, build=lic)
         self.assertEqual(self.problems(), {})       # no licensed directory anywhere: the public copy
         g = self.content / "ex" / "licensed" / "ex-data"
@@ -987,7 +985,7 @@ class PackIntegration(unittest.TestCase):
     def pack(self):
         os.environ["SOURCE_DATE_EPOCH"] = "0"
         try:
-            return self.pi.pack(self.root, self.out / "i.tar", self.out / "lic.substvars", self.out / "tree")
+            return self.pi.pack(self.root, self.out / "i.tar", self.out / "tree")
         finally:
             del os.environ["SOURCE_DATE_EPOCH"]
 
@@ -1000,21 +998,18 @@ class PackIntegration(unittest.TestCase):
         self.assertEqual(pr(["ps3-game", "env", "A=1", "openttd", "-c", "x"]), "openttd")
         self.assertEqual(pr(["ps3-game", "sh", "-c", "echo hi"]), "sh")
 
-    def test_depends_and_tree(self):
-        self.game("a", 'packages = ["a", "a-data"]\nmeta = ["a"]\nsuite = "free"\n'
+    def test_tree(self):
+        self.game("a", 'packages = ["a", "a-data"]\nsuite = "free"\n'
                        'divert = ["/usr/share/applications/a.desktop"]\n',
                   launchers=[("a-gl.desktop", "[Desktop Entry]\nName=A\nExec=ps3-game env X=1 a -gl\nTryExec=old\n")],
                   files=[("usr/lib/a/a.cfg", "set x 1\n")], migrate="# home\n.a/a.cfg /usr/lib/a/a.cfg\n")
         self.game("b", 'packages = ["b"]\nsuite = "licensed"\ndata = ["b-data"]\n'
                        '[[licensed]]\nname = "b-data"\nbuilder = "source"\n', draft=True)   # a draft counts
         self.game("c", 'packages = ["c"]\nsuite = "none"\n[[licensed]]\nname = "c-data"\nbuilder = "source"\n'
-                       'meta = true\n[[licensed]]\nname = "c-extra"\nbuilder = "script"\n')
-        n, f, deps = self.pack()
-        self.assertEqual(deps["ps3-games"], {"Depends": ["a", "b"], "Suggests": []})
-        self.assertEqual(deps["ps3-games-free"], {"Depends": ["a"], "Suggests": ["b"]})
-        self.assertEqual(deps["ps3-games-licensed"]["Depends"], ["b-data", "c-data"])
-        self.assertEqual(self.read("control/ps3-games-free.substvars"), "games:Depends=a\ngames:Suggests=b\n")
-        self.assertEqual((self.out / "lic.substvars").read_text(), "games:Depends=b-data, c-data\n")
+                       '[[licensed]]\nname = "c-extra"\nbuilder = "script"\n')
+        self.assertEqual(self.pack(), (3, 4))
+        with tarfile.open(self.out / "i.tar") as t:      # no metapackage substvars any more (2026-10-28)
+            self.assertFalse([n for n in t.getnames() if not n.startswith("tree/")])
         self.assertEqual(self.read("tree/usr/share/applications/a-gl.desktop"),
                          "[Desktop Entry]\nName=A\nExec=ps3-game env X=1 a -gl\nTryExec=a\nX-Walnut-Game=a\n")
         self.assertEqual(self.read("tree/usr/lib/a/a.cfg"), "set x 1\n")
@@ -1029,10 +1024,6 @@ class PackIntegration(unittest.TestCase):
         self.assertEqual((self.out / "i.tar").read_bytes(), first)          # reproducible
 
     def test_fails_closed(self):
-        self.game("a", 'packages = ["a"]\nmeta = ["z"]\nsuite = "free"\n')
-        with self.assertRaisesRegex(self.pi.Error, "meta z not in its packages"):
-            self.pack()
-        shutil.rmtree(self.root / "a")
         self.game("a", 'packages = ["a"]\nsuite = "free"\n', launchers=[("a.desktop", "Exec=a\n")])
         with self.assertRaisesRegex(self.pi.Error, "through ps3-game"):
             self.pack()
@@ -1060,11 +1051,11 @@ class PackIntegration(unittest.TestCase):
             self.pack()
 
     def test_this_gamedb(self):
-        """the real gamedb packs, every launcher gets a TryExec, nothing licensed goes into the public tarball"""
+        """the real gamedb packs, every launcher gets a TryExec and its game's stamp, nothing but the tree"""
         with tempfile.TemporaryDirectory() as t:
             os.environ["SOURCE_DATE_EPOCH"] = "0"
             try:
-                _, _, deps = self.pi.pack(self.pi.GAMES, Path(t) / "i.tar", Path(t) / "l.substvars", Path(t) / "tree")
+                self.pi.pack(self.pi.GAMES, Path(t) / "i.tar", Path(t) / "tree")
             finally:
                 del os.environ["SOURCE_DATE_EPOCH"]
             apps = list((Path(t) / "tree" / "tree" / "usr/share/applications").glob("*.desktop"))
@@ -1072,10 +1063,7 @@ class PackIntegration(unittest.TestCase):
             for a in apps:
                 self.assertIn("\nTryExec=", a.read_text())
                 self.assertIn("\nX-Walnut-Game=", a.read_text())
-            public = " ".join((Path(t) / "tree" / "control" / f).read_text()
-                              for f in ("ps3-games.substvars", "ps3-games-free.substvars"))
-            for name in deps["ps3-games-licensed"]["Depends"]:
-                self.assertNotIn(name, public)
+            self.assertFalse((Path(t) / "tree" / "control").exists())
 
 
 class Importer(unittest.TestCase):

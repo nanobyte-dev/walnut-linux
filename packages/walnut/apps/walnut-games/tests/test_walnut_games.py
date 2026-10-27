@@ -5,7 +5,8 @@ walnut-games).
 
 - The root helper (files/sbin/walnut-games-helper): ids and package names validated, packages only
   from the catalog file, the catalog's owner and mode, install's arguments (--no-remove, the lists'
-  age), remove's simulation and its refusal, the metapackage's dependencies marked manual, apt's
+  age), remove's simulation and its refusal, the metapackage's dependencies marked manual, adopt
+  (the games' automatic packages marked manual, from extended_states; nothing when none is), apt's
   status descriptor relayed (a fake apt-get writes to it), signals ignored, `python3 -I`, sudoers.
 - The app's pure functions (files/lib/walnut_games.py): Exec parsing, the play command, filters, dpkg
   state, the helper's output lines.
@@ -129,6 +130,7 @@ class Names(unittest.TestCase):
                     self.assertEqual(helper.main(["h", "remove", "../x"], str(p), False, False), 2)
                     if os.geteuid() != 0:
                         self.assertEqual(helper.main(["h", "install", "alpha"], str(p), False, True), 2)
+                        self.assertEqual(helper.main(["h", "adopt"], str(p), False, True), 2)   # root only
                 self.assertEqual(signal.getsignal(signal.SIGHUP), signal.SIG_IGN)
                 self.assertEqual(signal.getsignal(signal.SIGPIPE), signal.SIG_IGN)
             finally:
@@ -384,6 +386,81 @@ class Remove(unittest.TestCase):
         self.assertEqual(out, ["status installed"])
         _, out = run_say(helper.do_status, "beta", GAMES, fake_runner(set(), ""))
         self.assertEqual(out, ["status not-installed"])
+
+
+class Adopt(unittest.TestCase):
+    """adopt: the catalog games' packages (and the old metapackages' dependencies) apt marked automatic
+    become manual; only installed ones, only those names"""
+    GAMES = dict(GAMES, doom={"id": "doom", "packages": ["dsda-doom"],
+                              "data_setup": {"required": ["doom-wad"], "optional": ["doom-music"],
+                                             "present_any": ["doom-wad", "doom-lic"]}})
+    STATES = ("Package: alpha\nArchitecture: ppc64\nAuto-Installed: 1\n\n"
+              "Package: beta\nArchitecture: ppc64\nAuto-Installed: 0\n\n"
+              "Package: dsda-doom\nArchitecture: ppc64\nAuto-Installed: 1\n\n"
+              "Package: doom-lic\nArchitecture: all\nAuto-Installed: 1\n\n"
+              "Package: classicube\nArchitecture: ppc64\nAuto-Installed: 1\n\n"
+              "Package: libfoo1\nArchitecture: ppc64\nAuto-Installed: 1\n")
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.states = Path(self.tmp.name) / "extended_states"
+        self.states.write_text(self.STATES)
+
+    def adopt(self, inst, deps=None, rc=0):
+        log = []
+        base = fake_runner(inst, "", deps, log)
+
+        def runner(cmd):
+            if cmd[0] == helper.APT_MARK:
+                log.append(cmd)
+                return rc, "E: locked\n" if rc else ""
+            return base(cmd)
+        r, out = run_say(helper.do_adopt, self.GAMES, runner, str(self.states))
+        return r, out, [c for c in log if c[0] == helper.APT_MARK]
+
+    def test_auto_marked(self):
+        self.assertEqual(helper.auto_marked(str(self.states)), {"alpha", "dsda-doom", "doom-lic", "classicube", "libfoo1"})
+        self.assertEqual(helper.auto_marked(str(Path(self.tmp.name) / "none")), set())
+
+    def test_marks_installed_automatic_game_packages(self):
+        r, out, marks = self.adopt({"alpha", "beta", "dsda-doom", "doom-lic", "libfoo1"})
+        self.assertIsNone(r, out)
+        # beta is manual already, alpha-data and classicube not installed, libfoo1 is no game's
+        self.assertEqual(marks, [[helper.APT_MARK, "manual", "alpha", "dsda-doom", "doom-lic"]])
+
+    def test_nothing_to_adopt_changes_nothing(self):
+        r, out, marks = self.adopt({"beta"})
+        self.assertIsNone(r)
+        self.assertEqual(marks, [])
+        self.assertEqual(out, ["progress 100 nothing to adopt"])
+
+    def test_old_metapackage_dependencies(self):
+        # a draft the catalog doesn't list (classicube), pulled in by the old ps3-games
+        deps = {"ps3-games": "ps3-games-integration (= 0.9), classicube, alpha, ${misc:Depends}"}
+        r, out, marks = self.adopt({"ps3-games", "classicube", "alpha"}, deps)
+        self.assertIsNone(r, out)
+        self.assertEqual(marks, [[helper.APT_MARK, "manual", "alpha", "classicube"]])
+
+    def test_apt_mark_failure(self):
+        r, out, marks = self.adopt({"alpha"}, rc=100)
+        self.assertIsInstance(r, helper.AptFailed)
+        self.assertIn("error apt-mark manual failed: E: locked", out)
+
+    def test_app_runs_it_and_ignores_failures(self):
+        calls = []
+
+        class P:
+            returncode = 1
+        self.assertFalse(app.adopt_games("/nonexistent/helper", lambda *a, **k: calls.append(a)))
+        self.assertEqual(calls, [])                                  # no helper: no sudo
+        h = str(self.states)                                         # any existing file stands for it
+        self.assertFalse(app.adopt_games(h, lambda cmd, **k: (calls.append(cmd), P())[1]))
+        self.assertEqual(calls, [["sudo", "-n", h, "adopt"]])
+
+        def boom(cmd, **k):
+            raise subprocess.TimeoutExpired(cmd, 1)
+        self.assertFalse(app.adopt_games(h, boom))
 
 
 class AppFunctions(unittest.TestCase):

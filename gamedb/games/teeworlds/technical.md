@@ -6,7 +6,7 @@ Our `teeworlds`, `teeworlds-server` (`0.7.5-3+ps3.N`, [packages/teeworlds](packa
 Debian's `teeworlds-data`. It runs: in game on dm1 at 183 fps (2026-10-18, gamedb:batch/2026-10-18-smoke-reruns-watermark),
 after our big-endian fix of its sockets ([the investigation](investigations/2026-10-18-fionbio-blocking-sockets.md);
 the upstream offer in [upstream.md](upstream.md)). Not played yet; not checked yet: the sound by ear, a second
-run, and whether the DXT5 path logs libspeq lines. Teeworlds is not in `ps3-games`: `make deploy
+run, and whether the DXT5 path logs libspeq lines. Teeworlds deploys by name: `make deploy
 PKGS="teeworlds teeworlds-server"`, then `dpkg -l teeworlds teeworlds-server | grep ps3` must show our
 version.
 

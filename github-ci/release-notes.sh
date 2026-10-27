@@ -39,7 +39,7 @@ tar -xf walnut-$ver.tar && cd walnut-$ver && less README.TXT
 
 - kernel $kernel: Debian's 6.12 with the OtherOS++ patch set (glevand and graf_chokolo, later fixes by Sombat, collected by Damian Dudycz) and Walnut's own fixes
 - Mesa $(v mesa-libgallium), ps3rsx $(v ps3rsx-modules-ps3)
-- games from the \`ps3-games-free\` set; more with \`apt install\` from walnut.nanobyte.dev's stable suite
+- no games preinstalled: Walnut Games (in the menu) installs them from walnut.nanobyte.dev's stable suite
 
 Updates come through apt from the signed \`stable\` suite at https://walnut.nanobyte.dev/apt.
 Credits for the kernel patches and everything else: [README]($repo/README.md#credits).

@@ -98,7 +98,7 @@ fi
 # timer still updates it), and none in the image (index.db isn't reproducible)
 echo "man-db man-db/auto-update boolean false" | chroot "$R" debconf-set-selections
 # our packages (system/image/packages-ours.txt); public: no debug kernel, nothing licensed
-# (tools/licensed.py) or needing licensed data, ps3-games-free for ps3-games (tools/image-packages.sh)
+# (tools/licensed.py) or needing licensed data (tools/image-packages.sh); no games in either
 PKGS=$(tools/image-packages.sh "$([ "$PROFILE" = public ] && echo public || echo dev)")
 APT="chroot $R env DEBIAN_FRONTEND=noninteractive apt-get -q -y -o Dpkg::Use-Pty=0 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold"
 $APT update > /dev/null

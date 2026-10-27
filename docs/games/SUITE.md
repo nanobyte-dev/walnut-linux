@@ -539,21 +539,17 @@ Every game went through the same steps:
    2026-10-17: "aim is 60 or close to"). Correct but slow is "runs, needs performance work": a perf
    profile of the game process says where the time goes before any fix.
 
-Then the game joins `ps3-games` once it runs with its sound: `suite = "free"` (or `"licensed"`) in its
-gamedb `build.toml`.
+Then the game joins the suite once it runs with its sound: `suite = "free"` (or `"licensed"`) in its
+gamedb `build.toml`. That installs nothing: players install games from Walnut Games.
 
-## The metapackages
+## Packages
 
-- **`ps3-games`**, **`ps3-games-free`** and **`ps3-games-integration`** (the `ps3-games` source,
-  `packages/walnut/system/ps3-games/`, Architecture all; ps3-desktop recommends ps3-games): their Depends
-  are gamedb's (`tools/gamedb/pack-integration.py`, gamedb/README.md "build.toml": every game with suite
-  free or licensed, its `meta` packages; ps3-games-free only the free ones and suggests the rest). Free
-  packages only. ps3-games-integration holds our launchers, the games' config files, diversions and the
-  migrate-home list (each game's `desktop/`). The heavy games deploy by name, e.g.
-  `make game-deploy GAME=supertuxkart`.
-- **`ps3-games-licensed`** (`packages/licensed/ps3-games-licensed/`, native, all, published to the licensed suite only):
-  Depends on ps3-games and the `[[licensed]]` data gamedb names for it (`meta`).
-  For personal use only; free packages never depend on it.
+No game metapackages since 2026-10-28 (docs/PACKAGING.md "No game metapackages"): `ps3-games`,
+`ps3-games-free` and `ps3-games-licensed` are built no more, and a fresh image has no games. The
+`ps3-games` source (`packages/walnut/system/ps3-games/`) builds `ps3-games-integration`: our launchers, the
+games' config files, diversions and the migrate-home list (each game's `desktop/`). On the dev PS3 a game
+deploys by name, e.g. `make game-deploy GAME=supertuxkart`; licensed data comes from the licensed suite
+one package at a time, for personal use only.
 
 ## Disk and download
 
