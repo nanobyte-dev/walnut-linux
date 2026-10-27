@@ -7,6 +7,6 @@ needs_data = true
 [data_setup]
 gdp = "doom2"
 required = ["doom2-wad"]
-hint = "DOOM2.WAD from Doom II 1.9: a CD, an installed copy, Steam's common/Doom 2 folder or the GOG installer."
+hint = "DOOM2.WAD from Doom II 1.9 or the original 1.666: a CD, an installed copy, Steam's common/Doom 2 folder or the GOG installer."
 # what each package holds (X-Walnut-Edition of the package import-data builds)
 editions = { "doom2-wad" = "full" }

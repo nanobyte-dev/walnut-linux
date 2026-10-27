@@ -7,7 +7,10 @@ deb make game-data-packager-deb built into the deb builder image and runs this t
   build, each error kind where game-data-packager detects it (not-found, unknown-version,
   needs-download, no-space), and the normal output the same with and without the option;
 - 0004 --no-launchers: a Doom-family package without .desktop, pixmaps and icons, and with
-  them by default.
+  them by default;
+- 0006 the early releases: Doom II 1.666 and Heretic 1.0 as the last alternative of doom2.wad and
+  heretic.wad, with their sizes and checksums; Hexen 1.0 still unsuitable (gdp's own loader, no
+  game data).
 
 game-data-packager checks every file against its checksums, so the builds use a game of our own,
 "walnuttest" (plugin doom_common, so DoomTask writes its launchers), whose checksums are those of
@@ -286,6 +289,41 @@ class Runs(unittest.TestCase):
         e, = self.errors(lines)
         self.assertTrue(e.startswith('error no-space no space in '), e)
         self.assertIn('Out of space', err)
+
+
+class EarlyReleases(unittest.TestCase):
+    """0006: what gdp's loader makes of doom2.yaml, heretic.yaml and hexen.yaml"""
+    # size, md5, sha256 of the user's CD releases (the values in the patch)
+    ACCEPTED = {
+        ('doom2', 'doom2.wad', 'doom2.wad?1.666'): (
+            14943400, '30e3c2d0350b67bfbf47271970b74b2f',
+            '5e701c806a8d3a03700f7fef97b7ad62d0aed50fd240dfac26cdf39ac3d0a8d5'),
+        ('heretic', 'heretic.wad', 'heretic.wad?1.0'): (
+            11096488, '3117e399cdb4298eaa3941625f4b2923',
+            'a01d69dfdb1fbf081a1d3f589a168e626ea28257ecc7109194471d967c643f56'),
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        from game_data_packager.game import load_games
+        cls.games = load_games()
+        for name in ('doom2', 'heretic', 'hexen'):
+            cls.games[name].load_file_data()
+
+    def test_accepted(self):
+        for (game, wanted, alt), (size, md5, sha256) in self.ACCEPTED.items():
+            with self.subTest(alt=alt):
+                files = self.games[game].files
+                alts = files[wanted].alternatives
+                self.assertEqual(alts[-1], alt)	# newer releases stay preferred
+                f = files[alt]
+                self.assertIsNone(f.unsuitable)
+                self.assertEqual((f.size, f.md5, f.sha256), (size, md5, sha256))
+
+    def test_hexen_1_0_still_unsuitable(self):
+        files = self.games['hexen'].files
+        self.assertNotIn('hexen.wad?1.0', files['hexen.wad'].alternatives)
+        self.assertTrue(files['hexen.wad?1.0'].unsuitable)
 
 
 if __name__ == '__main__':

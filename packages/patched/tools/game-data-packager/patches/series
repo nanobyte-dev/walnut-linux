@@ -1,3 +1,4 @@
 # Our patches on Debian's game-data-packager (Walnut Games imports game data with it: PLAN 5.10)
 0003-Add-progress-fd-FD-machine-readable-progress-for-a-c.patch
 0004-Add-no-launchers-no-menu-entries-or-icons-in-the-Doo.patch
+0006-Accept-Doom-II-1.666-and-Heretic-1.0-as-doom2-wad-an.patch

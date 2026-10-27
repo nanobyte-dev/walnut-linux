@@ -1,0 +1,93 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 27 Oct 2026 17:22:46 +0200
+Subject: Accept Doom II 1.666 and Heretic 1.0 as doom2-wad and heretic-wad
+
+Walnut: the user's CD releases. Players who own the original boxed games often have these
+early versions: Doom II 1.666 (the first retail release) and Heretic 1.0 (registered, episodes 1-3).
+game-data-packager marked both unsuitable, so their owners could not package the games at all,
+and patching them up is not supported. Modern source ports play them: dsda-doom loads both IWADs
+and runs their title screens and demos (tested on the PS3 with dsda-doom 0.30.0). Both are now
+the last alternative of the same file, so the same doom2-wad / heretic-wad package is built and
+the newer releases are still preferred; the release shows as the tag (?1.666, ?1.0). Their
+sha256 is added. Hexen 1.0 stays unsuitable: dsda-hexen refuses it ("The Hexen v1.0 IWAD is not
+supported").
+
+Forwarded: not yet (candidate for Debian)
+
+diff --git a/data/doom2.yaml b/data/doom2.yaml
+--- a/data/doom2.yaml
++++ b/data/doom2.yaml
+@@ -18,7 +18,7 @@ wiki: Doom_II
+ wikipedia: https://en.wikipedia.org/wiki/Doom_II
+ 
+ help_text: |
+-  Please provide the DOOM2.WAD from Doom 2 version 1.9.
++  Please provide the DOOM2.WAD from Doom 2 version 1.9 or 1.666.
+ 
+   Patching older versions is not currently supported. If you have
+   an older version, it might be possible to patch it manually using dosbox.
+@@ -91,14 +91,14 @@ files:
+     - doom2.wad?psn
+     - doom2.wad?tapwave_zodiac
+     - doom2f.wad
++    # Walnut: the original CD release; Boom-family engines (dsda-doom) play it
++    - doom2.wad?1.666
+ 
+   doom2f.wad:
+     install_as: doom2.wad
+ 
+   doom2.wad?1.666g:
+     unsuitable: Doom 2 v1.9 is required
+-  doom2.wad?1.666:
+-    unsuitable: Doom 2 v1.9 is required
+   doom2.wad?1.7:
+     unsuitable: Doom 2 v1.9 is required
+   doom2.wad?1.7a:
+@@ -268,5 +268,7 @@ sha1sums: |
+   e3de77406aff3b6e5f06c3d450d70b8e6c6a34f9  virgil.wad
+   b7806fd4bed5ab1b34ecb46380679a7b5cc488df  master.exe
+ 
++sha256sums: |
++  5e701c806a8d3a03700f7fef97b7ad62d0aed50fd240dfac26cdf39ac3d0a8d5  doom2.wad?1.666
+ ...
+ # vim:set sw=2 sts=2 et:
+diff --git a/data/heretic.yaml b/data/heretic.yaml
+--- a/data/heretic.yaml
++++ b/data/heretic.yaml
+@@ -19,7 +19,7 @@ engine:
+   generic: chocolate-doom
+ 
+ help_text: |
+-  Please provide HERETIC.WAD from Heretic v1.3, and/or HERETIC1.WAD
++  Please provide HERETIC.WAD from Heretic v1.3 or v1.0, and/or HERETIC1.WAD
+   from Heretic (shareware) v1.2.
+ 
+   HERETIC1.WAD will be downloaded if necessary.
+@@ -78,6 +78,8 @@ files:
+   heretic.wad:
+     alternatives:
+     - heretic.wad?1.3
++    # Walnut: the original release (episodes 1-3 only); dsda-heretic plays it
++    - heretic.wad?1.0
+ 
+   heretic1.wad:
+     alternatives:
+@@ -86,9 +88,6 @@ files:
+   heretic.wad?1.2:
+     unsuitable: Heretic v1.3 is required
+ 
+-  heretic.wad?1.0:
+-    unsuitable: Heretic v1.3 is required
+-
+   heretic1.wad?1.0:
+     unsuitable: Heretic shareware v1.2 is required
+ 
+@@ -120,6 +119,7 @@ sha1sums: |
+   722132877b25fced7615d37c7c435d47a616f277  setup_heretic_shadow_of_the_serpent_riders_1.3_(42801).exe
+ 
+ sha256sums: |
++  a01d69dfdb1fbf081a1d3f589a168e626ea28257ecc7109194471d967c643f56  heretic.wad?1.0
+   5ffbb47e4a5750fef144c312973ee5782266b4a63474b77478103b6c1aaed39d  htic_v12.zip
+   3ab2f21828877e49e5eb3220785aaf8798050b7c4132003b5db7b8f3678bede4  heretic1.wad?1.2
+   5ae52ee961636418e10f5fd71e4c44d56b4adf8116a299350ab3cae15a4a10a8  HTIC_V12.1

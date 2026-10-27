@@ -27,7 +27,7 @@
    "version": "89",
    "files": {
     "usr/share/doc/doom2-wad/manual.pdf": [{"md5": "0bd88c082f76d6a03f0eed9a4150a51e", "size": 616115}],
-    "usr/share/games/doom/doom2.wad": [{"release": "psn", "sha1": "ca8db908a7c9fbac764f34c148f0bcc78d18553e", "size": 14599800}, {"release": "1.9", "sha1": "7ec7652fcfce8ddc6e801839291f0e28ef1d5ae7", "size": 14604584}, {"sha1": "d510c877031bbd5f3d198581a2c8651e09b9861f", "size": 14607420}, {"release": "tapwave_zodiac", "sha1": "2cda310805397ae44059bbcaed3cd602f4864a82", "size": 14639397}, {"release": "xbox360_bfg", "sha1": "b7ba1c68631023ea1aab1d7b9f7f6e9afc508f39", "size": 14677988}, {"release": "xbox_roe", "sha1": "1c91d86cd8a2f3817227986503a6672a5e1613f0", "size": 14683458}, {"release": "xbla", "sha1": "55e445badd63d8841ebea887910c26c62c7f525e", "size": 14685034}, {"release": "bfg", "sha1": "a59548125f59f6aa1a41c22f615557d3dd2e85a9", "size": 14691821}]
+    "usr/share/games/doom/doom2.wad": [{"release": "psn", "sha1": "ca8db908a7c9fbac764f34c148f0bcc78d18553e", "size": 14599800}, {"release": "1.9", "sha1": "7ec7652fcfce8ddc6e801839291f0e28ef1d5ae7", "size": 14604584}, {"sha1": "d510c877031bbd5f3d198581a2c8651e09b9861f", "size": 14607420}, {"release": "tapwave_zodiac", "sha1": "2cda310805397ae44059bbcaed3cd602f4864a82", "size": 14639397}, {"release": "xbox360_bfg", "sha1": "b7ba1c68631023ea1aab1d7b9f7f6e9afc508f39", "size": 14677988}, {"release": "xbox_roe", "sha1": "1c91d86cd8a2f3817227986503a6672a5e1613f0", "size": 14683458}, {"release": "xbla", "sha1": "55e445badd63d8841ebea887910c26c62c7f525e", "size": 14685034}, {"release": "bfg", "sha1": "a59548125f59f6aa1a41c22f615557d3dd2e85a9", "size": 14691821}, {"release": "1.666", "sha256": "5e701c806a8d3a03700f7fef97b7ad62d0aed50fd240dfac26cdf39ac3d0a8d5", "size": 14943400}]
    }
   },
   "heretic-wad": {
@@ -40,7 +40,7 @@
    "symlinks": {},
    "version": "89",
    "files": {
-    "usr/share/games/doom/heretic.wad": [{"release": "1.3", "sha1": "f489d479371df32f6d280a0cb23b59a35ba2b833", "size": 14189976}]
+    "usr/share/games/doom/heretic.wad": [{"release": "1.0", "sha256": "a01d69dfdb1fbf081a1d3f589a168e626ea28257ecc7109194471d967c643f56", "size": 11096488}, {"release": "1.3", "sha1": "f489d479371df32f6d280a0cb23b59a35ba2b833", "size": 14189976}]
    }
   },
   "hexen-wad": {

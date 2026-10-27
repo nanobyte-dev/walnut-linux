@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""gdp-manifest.py --image IMAGE [--out FILE]: write tools/gamedb/gdp-manifest.json, the files of every
+"""gdp-manifest.py --image IMAGE [--deb DEB] [--out FILE]: write tools/gamedb/gdp-manifest.json, the files of every
 GameDB [data_setup] package as game-data-packager builds them, for walnut-games-helper import-data
 (packed into walnut-games as /usr/share/walnut-games/data-manifest.json, root-owned).
 
 Design
 - The packages: every required and optional name of a [data_setup] in gamedb/games/*/build.toml (drafts
   too). Read here, on the host; the names go into IMAGE as one argument.
-- Runs game-data-packager's own loader inside IMAGE (the games builder, `make gdp-manifest` passes
-  $(GAMES_BUILDER_TAG); `docker run --rm --network none`, read only), as gdp-index.py does: the game's
+- Runs our game-data-packager's own loader inside IMAGE (the games builder, `make gdp-manifest` passes
+  $(GAMES_BUILDER_TAG); DEB, by default the one in build/debs/game-data-packager, installed over the
+  image's Debian gdp first; `docker run --rm --network none`), as gdp-index.py does: the game's
   file data (load_file_data), each package's install and optional files with their alternatives,
   placed the way its build places them (install_to and install_as through the deb packaging's
   substitutions: $assets is /usr/share/games, $pkgdocdir /usr/share/doc/<package>).
@@ -25,12 +26,12 @@ Design
   changelog*)).
 - The committed text: the version, then each package with one file per line, sorted, so a
   regeneration after a game-data-packager upgrade diffs as the files that changed. Regenerate when
-  the image's game-data-packager changes or a [data_setup] names a new package (gamedb/README.md
+  our game-data-packager changes or a [data_setup] names a new package (gamedb/README.md
   "[data_setup]"); check.py says when a [data_setup] package is missing from it.
 """
 import argparse
+import importlib.util
 import json
-import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -38,6 +39,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 OUT = HERE / "gdp-manifest.json"
+_spec = importlib.util.spec_from_file_location("gdp_index", HERE / "gdp-index.py")
+gdp_index = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(gdp_index)
 INSIDE = r'''
 import json, os, re, sys, tempfile
 sys.path.insert(0, "/usr/share/games/game-data-packager")
@@ -143,16 +147,20 @@ def render(data):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--image", required=True, help="a docker image with game-data-packager installed")
+    ap.add_argument("--image", required=True, help="a docker image with game-data-packager's dependencies")
+    ap.add_argument("--deb", help="our game-data-packager_*_all.deb (default: the one in %s)" % gdp_index.DEBS)
     ap.add_argument("--out", default=str(OUT))
     a = ap.parse_args(argv)
+    deb = gdp_index.our_deb(a.deb, "gdp-manifest.py")
+    if deb is None:
+        return 2
     want = data_setup_packages()
     if None in want.values():
         print("gdp-manifest.py: no [data_setup] editions entry for %s" % sorted(p for p, e in want.items() if e is None),
               file=sys.stderr)
         return 2
-    p = subprocess.run(["docker", "run", "--rm", "--network", "none", "--entrypoint", "python3", a.image,
-                        "-I", "-c", INSIDE, json.dumps([sorted(want), want])], capture_output=True, text=True)
+    print("gdp-manifest: %s in %s" % (deb.name, a.image))
+    p = gdp_index.run_gdp_python(a.image, deb, INSIDE, json.dumps([sorted(want), want]))
     if p.returncode:
         print("gdp-manifest.py: docker run failed (%d): %s" % (p.returncode, p.stderr.strip()[-500:]), file=sys.stderr)
         return 2

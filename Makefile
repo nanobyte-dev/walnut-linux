@@ -186,11 +186,13 @@ game-deploy:
 	[ -n "$$p" ] || { echo "$(GAME): no packages in its build.toml"; exit 1; }; \
 	$(MAKE) --no-print-directory deploy PKGS="$$p"
 
-# The games and package names game-data-packager knows, as the games builder has it: tools/gamedb/gdp-packages.json
-# (committed; check.py checks build.toml [data_setup] against it offline). Regenerate when that gdp changes
+# The games and package names our game-data-packager knows (build/debs/game-data-packager, make
+# game-data-packager-deb; installed over Debian's in a throwaway games builder container):
+# tools/gamedb/gdp-packages.json (committed; check.py checks build.toml [data_setup] against it offline).
+# Regenerate when our gdp changes
 gdp-index: | $(GAMES_BUILDER_STAMP)
 	python3 -I tools/gamedb/gdp-index.py --image $(GAMES_BUILDER_TAG)
-# The files of every [data_setup] package (path, size, checksum), as that gdp builds them:
+# The files of every [data_setup] package (path, size, checksum), as our gdp builds them:
 # tools/gamedb/gdp-manifest.json (committed; walnut-games ships it, walnut-games-helper import-data checks
 # a player's data stream against it). Regenerate when that gdp changes or a [data_setup] names a new package
 gdp-manifest: | $(GAMES_BUILDER_STAMP)
