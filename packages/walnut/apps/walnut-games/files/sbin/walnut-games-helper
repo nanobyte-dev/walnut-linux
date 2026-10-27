@@ -597,16 +597,17 @@ def free_bytes(path):
 
 
 def check_space(total, stage_dir, usr=None):
-    """Refused unless the staging file system has room for the files and the deb (twice the total) and
-    /usr for the installed files once more; on one file system twice the total (the staged files are
-    removed once the deb is made: the deb and the installed files)"""
+    """Refused unless the staging file system has room for the files, dpkg-deb's temporary data member
+    and the deb (three times the total) and /usr for the installed files once more; on one file system
+    three times the total (the staged files are removed once the deb is made: the deb and the installed
+    files after that)"""
     usr = usr or USR
     s_free, s_dev = free_bytes(stage_dir)
     u_free, u_dev = free_bytes(usr)
-    need_s = 2 * total + SPACE_MARGIN
+    need_s = 3 * total + SPACE_MARGIN
     need_u = total + SPACE_MARGIN
     if s_dev == u_dev:
-        need_s, need_u = 2 * total + SPACE_MARGIN, 0
+        need_s, need_u = 3 * total + SPACE_MARGIN, 0
     for path, free, need in ((stage_dir, s_free, need_s), (usr, u_free, need_u)):
         if need and free < need:
             raise Refused("not enough space: %s has %d MB free, the import needs %d MB"
@@ -781,7 +782,13 @@ def do_import_data(game_id, pkg, games, src, manifest, gdp_version, runner=run, 
             f.write(control_text(pkg, entry, gdp_version, release, kb))
         deb = os.path.join(stage, "%s.deb" % pkg)
         say("progress", "40 making the package " + pkg)
-        rc, out = runner([DPKG_DEB, "--root-owner-group", "-Znone", "-b", root, deb])
+        # dpkg-deb writes the data member to a temporary file in TMPDIR first (/tmp is a 55 MB tmpfs
+        # on the PS3: RCT2's 550 MB failed with ENOSPC there), so it goes next to the deb
+        ENV["TMPDIR"] = stage
+        try:
+            rc, out = runner([DPKG_DEB, "--root-owner-group", "-Znone", "-b", root, deb])
+        finally:
+            ENV.pop("TMPDIR", None)
         if rc != 0:
             say("error", "dpkg-deb failed: " + (out.strip().splitlines() or ["?"])[-1])
             raise AptFailed()
