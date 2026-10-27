@@ -689,6 +689,19 @@ class DataSetup(unittest.TestCase):
         self.assertEqual(v.file, "quake106.zip (9 MB)")
         self.assertEqual(v.tail, ["three", "pak0.pak needs a download", "game-data-packager made no package"])
         self.assertEqual(v.kind(), "needs-download")
+        self.assertEqual(P("warning missing quake-extra: no such file"), ("missing", "quake-extra", "no such file"))
+        self.assertEqual(P("warning missing p"), ("missing", "p", ""))
+        v = app.ImportView("final-doom", t0=0)
+        for line in ("gdp error needs-download tnt-wad: its official patch files have to be downloaded",
+                     "warning missing plutonia-wad: game-data-packager did not make it", "log done"):
+            v.feed(P(line))
+        self.assertEqual((v.download, v.missing), (["tnt-wad"], [("plutonia-wad", "game-data-packager did not make it")]))
+        self.assertEqual(app.partial_notice(v.download, v.missing),
+                         "TNT: Evilution needs its official fix file (tnt31.wad) from the network: Try again with download\n"
+                         "Not on this copy: The Plutonia Experiment (game-data-packager did not make it)")
+        self.assertEqual(app.partial_notice([], []), "")
+        self.assertEqual(app.partial_notice(["quake-registered"], []),
+                         "Quake Registered needs its official patch files from the network: Try again with download")
         self.assertEqual(app.elapsed_text(75), "1:15")
         self.assertEqual(app.elapsed_text(3725), "1:02:05")
         self.assertEqual(app.import_command("quakespasm", "/m", ["quake-registered"], "wd"),
@@ -1050,11 +1063,38 @@ while not app.imp.done and time.time() - t < 30:
     root.update(); time.sleep(0.05)
 args = open(os.environ["FAKE_WD_ARGS"]).read().split("\\n")[2]
 assert args == "import -p quake-shareware quakespasm", repr(args)
+# a partial import (exit 0 with needs-download and warning lines) says what is missing on the page
+open(os.environ["FAKE_WD_ARGS"] + ".partial", "w").close()
+src = os.path.join(os.environ["HOME"], "Downloads", "quake106.zip")
+app.start_import(app.g, src); root.update()
+t = time.time()
+while (not app.imp.done or "quake-registered" in app.retry) and time.time() - t < 30:
+    root.update(); time.sleep(0.05)
+t = time.time()
+while "Not everything" not in app.d_status["text"] and time.time() - t < 30:
+    root.update(); time.sleep(0.05)
+assert "Not everything" in app.d_status["text"], app.d_status["text"]
+txt = app.partial_label["text"]
+assert "Quake Registered needs its official patch files from the network: Try again with download" in txt, txt
+assert "Not on this copy: Quake Extra (no such file)" in txt, txt
+assert mapped(app.partial_label) and mapped(app.b_retry), "partial notice"
+app.retry_download(); root.update()
+t = time.time()
+while not app.imp.done and time.time() - t < 30:
+    root.update(); time.sleep(0.05)
+args = open(os.environ["FAKE_WD_ARGS"]).read().split("\\n")[-2]
+assert args == "import -p quake-registered quakespasm " + src, repr(args)
 root.destroy()
 print("data smoke ok")
 """
 FAKE_WALNUT_DATA = """#!/bin/sh
 echo "$*" >> "$FAKE_WD_ARGS"
+if [ -e "$FAKE_WD_ARGS.partial" ]; then
+echo "gdp error needs-download quake-registered: its official patch files have to be downloaded"
+echo "warning missing quake-extra: no such file"
+echo "log made quake-shareware"
+exit 0
+fi
 echo "log running game-data-packager quake for quake-shareware quake-registered"
 echo "gdp step searching $3"
 sleep 0.5

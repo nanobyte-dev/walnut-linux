@@ -741,7 +741,36 @@ def parse_import_line(line):
             k, _, text = rest.partition(" ")
             return ("gdp-error", k, text)
         return ("log", line[4:]) if line[4:].strip() else None
+    if line.startswith("warning missing "):
+        pkg, sep, why = line[len("warning missing "):].partition(": ")
+        if pkg and " " not in pkg:
+            return ("missing", pkg, why.strip() if sep else "")
     return parse_helper_line(line)
+
+
+# what the imported packages are called and the fix file a download brings, for the notice after a
+# partial import (any other package: its name, "its official patch files")
+DATA_NAMES = {"tnt-wad": ("TNT: Evilution", "tnt31.wad"), "plutonia-wad": ("The Plutonia Experiment", "")}
+
+
+def data_package_name(pkg):
+    if pkg in DATA_NAMES:
+        return DATA_NAMES[pkg][0]
+    return re.sub(r"-(wad|data)$", "", pkg).replace("-", " ").strip().title() or pkg
+
+
+def partial_notice(download, missing):
+    """the page's notice after an import that made some packages and not others: download is the packages that
+    need their patch download, missing [(package, reason)] the others; "" when nothing is missing"""
+    parts = []
+    for pkg in download:
+        fix = DATA_NAMES.get(pkg, ("", ""))[1]
+        parts.append("%s needs its %s from the network: Try again with download" %
+                     (data_package_name(pkg), "official fix file (%s)" % fix if fix else "official patch files"))
+    if missing:
+        parts.append("Not on this copy: " + ", ".join("%s (%s)" % (data_package_name(p), why or "not made")
+                                                      for p, why in missing))
+    return "\n".join(parts)
 
 
 def import_error_kind(gdp_kind, errors):
@@ -827,6 +856,7 @@ class ImportView:
         self.gid, self.t0 = gid, t0 if t0 is not None else time.time()
         self.step, self.file, self.tail, self.errors = "Starting...", "", [], []
         self.gdp_kind, self.gdp_text, self.done = None, "", False
+        self.download, self.missing = [], []     # packages that need their download / (package, reason) not made
 
     def feed(self, ev):
         if not ev:
@@ -842,6 +872,12 @@ class ImportView:
         elif k == "gdp-error":
             self.gdp_kind, self.gdp_text = ev[1], ev[2]
             self.tail.append(ev[2])
+            pkg, sep, _ = ev[2].partition(": ")
+            if ev[1] == "needs-download" and sep and pkg and " " not in pkg and pkg not in self.download:
+                self.download.append(pkg)
+        elif k == "missing":
+            self.missing.append((ev[1], ev[2]))
+            self.tail.append("not made: %s" % ev[1])
         elif k == "progress":
             self.step, self.file = ev[2][:1].upper() + ev[2][1:], ""
         elif k in ("log", "error"):
@@ -898,6 +934,7 @@ class App:
         self.busy = None                       # (id, "install"|"remove") while the helper runs
         self.imp = None                        # ImportView of the walnut-data import running (or just ended)
         self.imp_source = {}                   # game id -> the source of its last import (Try again)
+        self.partial = {}                      # game id -> (packages needing a download, the notice) of a partial import
         self.retry = {}                        # game id -> the source to import again with downloads on
         self.imp_before = set()                # the Play entries before the import (what it added)
         self.repo = set()                      # data names the apt sources have (the licensed suite)
@@ -1071,6 +1108,8 @@ class App:
         self.note_text.pack(side="left", fill="x")
         self.b_retry = ttk.Button(self.data_row, text="Try again with download", style="Accent.TButton",
                                   command=self.retry_download)
+        self.partial_label = ttk.Label(self.data_row, text="", style="Muted.TLabel", background=PANEL,
+                                       wraplength=330, justify="left", font=self.f["small"])
         # an import's file being read, elapsed time and its last log lines (under the status line)
         self.imp_detail = ttk.Label(self.activity, text="", style="Muted.TLabel", background=PANEL, wraplength=370,
                                     justify="left", font=self.f["small"])
@@ -1638,8 +1677,15 @@ class App:
     def update_data_buttons(self, g, idle):
         running = self.imp.gid if self.imp is not None and not self.imp.done else None
         acts = data_actions(g, self.have, self.repo, running) if g and g["id"] in self.pkg_data else []
-        for b in (self.b_repo, self.b_data, self.b_retry, self.b_note):
+        for b in (self.b_repo, self.b_data, self.b_retry, self.b_note, self.partial_label):
             b.pack_forget()
+        part = self.partial.get(g["id"]) if g and not running else None
+        if part and g["id"] in self.pkg_data:
+            self.partial_label.configure(text=part[1])
+            self.partial_label.pack(side="bottom", anchor="w", pady=(0, 6))
+            if part[0] and self.imp_source.get(g["id"]):
+                self.b_retry.pack(side="left", padx=(0, 8), pady=(0, 6))
+                self.b_retry.configure(state="normal" if idle else "disabled")
         if "setup" in acts or "add" in acts:
             tag, text = data_note(g, "setup" in acts)
             self.note_tag.configure(text=tag)
@@ -1710,6 +1756,7 @@ class App:
                 ops.append("remove-data")
         self.busy = (g["id"], op)
         self.retry.pop(g["id"], None)
+        self.partial.pop(g["id"], None)
         self.show_activity({"install": "Installing %s...", "remove": "Removing %s...",
                             "install-repo-data": "Installing the game data of %s from Walnut licensed..."}[op]
                            % g["title"], progress=0)
@@ -1888,6 +1935,7 @@ class App:
         except OSError:
             pass
         self.retry.pop(g["id"], None)
+        self.partial.pop(g["id"], None)
         self.imp_source[g["id"]] = source
         self.imp_before = {c[0] for c in getattr(self, "play_cmds", [])} if self.g is g else set()
         self.imp = ImportView(g["id"], t0)
@@ -1897,7 +1945,13 @@ class App:
 
     def retry_download(self):
         g = self.g
-        if not g or g["id"] not in self.retry:
+        if not g:
+            return
+        part = self.partial.get(g["id"])
+        if part and part[0] and self.imp_source.get(g["id"]):
+            self.start_import(g, self.imp_source[g["id"]], list(part[0]))
+            return
+        if g["id"] not in self.retry:
             return
         ds = data_setup(g)
         self.start_import(g, self.retry[g["id"]], [p for p in ds.get("downloads") or []])
@@ -1982,6 +2036,9 @@ class App:
         ok = rc == 0 if rc is not None else (not v.errors and g is not None and
                                              (bool(data_present(g, self.have)) or optional_data_present(g, self.have)))
         if ok:
+            note = partial_notice(v.download, v.missing)
+            if note:
+                self.partial[gid] = (list(v.download), note)
             ed = edition_text(g, self.info) if g else ""
             self.show_activity("The %s data is installed%s. Making the menu entries..." % (title, ": " + ed if ed else ""))
 
@@ -2004,8 +2061,10 @@ class App:
         if g is not None and self.g is g:
             new = [c[0] for c in getattr(self, "play_cmds", []) if c[0] not in self.imp_before]
         self.show_activity("The %s data is installed%s.%s" % (data_title(g) if g else gid, ": " + ed if ed else "",
-                                                               (" New in Play: " + ", ".join(new) + ".") if new else ""),
-                           hide_after=12)
+                                                               (" New in Play: " + ", ".join(new) + ".") if new else "") +
+                           (" Not everything was made: see the notice below." if gid in self.partial else ""),
+                           hide_after=None if gid in self.partial else 12)
+        self.update_buttons()
 
     def _poll(self):
         try:
