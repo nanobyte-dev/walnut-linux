@@ -13,3 +13,10 @@ recipes = ["yquake2:kiss4k"]
 name = "quake2-demo-data"
 builder = "game-data-packager:quake2"
 leak_files = ["*baseq2/pak[0-9].pak"]
+
+[data_setup]
+gdp = "quake2"
+required = ["quake2-demo-data", "quake2-full-data"]
+# the 3.20 patch's files (pak1, pak2 and more), downloaded when the copy isn't patched
+downloads = ["quake2-full-data"]
+hint = "Quake II's baseq2/pak0.pak and baseq2/video: its CD, an installed copy (Steam, GOG) or GOG's installer."

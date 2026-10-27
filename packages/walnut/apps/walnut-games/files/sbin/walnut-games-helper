@@ -17,6 +17,10 @@ Design
   --no-remove (an install never takes a package away), the configuration files kept
   (--force-confold), noninteractive, waiting up to 60 s for another apt's lock. apt's status
   descriptor is read on a pipe of our own (sudo closes every descriptor above 2) and relayed.
+- remove of a game sharing a package with another catalog game that is installed (all its packages,
+  and its data when it needs some: data_setup present_any): that package stays (an engine: dsda-doom
+  for Freedoom, Doom and Heretic); what goes is the game's other packages and its installed
+  data_setup packages (required, optional, present_any), and nothing else may (no metapackage).
 - remove: apt-get -s remove first. It may remove the game's own packages and the game metapackages
   (ps3-games, ps3-games-free, which depend on every game); anything else in the simulation refuses
   the removal, before a single package is touched. When a metapackage is in the removal, the other
@@ -255,18 +259,68 @@ def depends_of(pkg, runner=run):
     return list(dict.fromkeys(names))
 
 
+def data_packages(game_id, games):
+    """the validated names in a game's catalog data_setup: required, optional and present_any (the
+    licensed suite's builds of the same data); [] for a game without one"""
+    ds = games.get(game_id, {}).get("data_setup")
+    if not isinstance(ds, dict):
+        return []
+    names = []
+    for k in ("required", "optional", "present_any"):
+        v = ds.get(k) or []
+        if not isinstance(v, list):
+            raise Refused("%s: bad data_setup %s" % (game_id, k))
+        for p in v:
+            if not isinstance(p, str) or not PKG_RE.match(p):
+                raise Refused("%s: bad data package name %r" % (game_id, p))
+            names.append(p)
+    return list(dict.fromkeys(names))
+
+
+def in_use(other, games, runner=run):
+    """another catalog game counts as installed: all its packages are, and, when it has data it can't
+    run without (data_setup present_any, else required), one of those too"""
+    g = games[other]
+    pkgs = [p for p in g.get("packages") or [] if isinstance(p, str) and PKG_RE.match(p)]
+    if not pkgs or len(installed(pkgs, runner)) != len(pkgs):
+        return False
+    ds = g.get("data_setup") if isinstance(g.get("data_setup"), dict) else {}
+    need = [p for p in (ds.get("present_any") or ds.get("required") or []) if isinstance(p, str) and PKG_RE.match(p)]
+    return not need or bool(installed(need, runner))
+
+
+def shared_with(game_id, pkgs, games, runner=run):
+    """{package: the other installed game listing it} for this game's packages another installed
+    catalog game lists too (an engine several games run: dsda-doom for Freedoom, Doom, Heretic)"""
+    out = {}
+    for other in sorted(games):
+        if other == game_id:
+            continue
+        common = [p for p in pkgs if p not in out and p in (games[other].get("packages") or [])]
+        if common and in_use(other, games, runner):
+            out.update({p: other for p in common})
+    return out
+
+
 def do_remove(game_id, games, runner=run, stream=apt_stream):
     pkgs = game_packages(game_id, games)
+    data = data_packages(game_id, games)
     have = [p for p in pkgs if p in installed(pkgs, runner)]
+    shared = shared_with(game_id, have, games, runner) if have else {}
+    if shared:
+        # the engine stays for the other game: only what is this game's alone goes, and its data
+        say("log", "kept for %s: %s" % (", ".join(sorted(set(shared.values()))), " ".join(sorted(shared))))
+        pkgs = [p for p in pkgs if p not in shared] + [p for p in data if p not in pkgs]
+        have = [p for p in pkgs if p in installed(pkgs, runner)]
     if not have:
-        say("progress", "100 not installed")
+        say("progress", "100 not installed" if not shared else "100 nothing of this game's own to remove")
         return
     rc, sim = runner([APT_GET, "-s", "-o", "Debug::NoLocking=1", "remove"] + have)
     if rc != 0:
         say("error", "apt-get -s remove failed: " + (sim.strip().splitlines() or ["?"])[-1])
         raise AptFailed()
     gone = removal_set(sim)
-    extra = [p for p in gone if p not in pkgs and p not in METAS]
+    extra = [p for p in gone if p not in pkgs and (shared or p not in METAS)]
     if extra:
         raise Refused("removing %s would also remove %s: nothing was changed"
                       % (game_id, ", ".join(extra[:8]) + (" ..." if len(extra) > 8 else "")))

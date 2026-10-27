@@ -1,0 +1,10 @@
+# How Hexen: Beyond Heretic is built, installed and integrated (gamedb/README.md "build.toml").
+# DSDA-Doom (the dsda-doom bundle, which puts it in ps3-games); the WAD from the player's own copy
+packages = ["dsda-doom"]
+suite = "none"
+needs_data = true
+
+[data_setup]
+gdp = "hexen"
+required = ["hexen-wad"]
+hint = "HEXEN.WAD from Hexen: Beyond Heretic: a CD, an installed copy or Steam's common/Hexen folder."

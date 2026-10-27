@@ -46,7 +46,7 @@ $(shell mkdir -p $(BUILD); [ "$$(cat $(ROOTFS_VARS) 2>/dev/null)" = "$(ROOTFS_VA
 ROOTFS_BASE_INPUTS := $(ROOTFS_PACKAGES) tools/build-rootfs.sh $(ROOTFS_VARS)
 
 .PHONY: gamedb-catalog walnut-server walnut-site walnut-server-test public-push initrd-ssd initrd-walnut initrd-busybox publish du clean-ephemeral chroot packages ps3rsx-modules snd-ps3-ko netboot-deb spu-toolchain spu-tests spu-deploy help all builder rootfs rootfs-base checksums nfs-root usb-root usb-root-petitboot deploy listen shell clean gpu-deploy test test-slow ps3-reboot bench-push bench-pull bench-shots bench-ref bench-matrix \
-	classicube-audio game-data licensed-data game-debs game-deploy gamedb-integration
+	classicube-audio game-data gdp-index licensed-data game-debs game-deploy gamedb-integration
 
 help:
 	@echo "Packages (docs/PACKAGING.md):"
@@ -57,6 +57,7 @@ help:
 	@echo "  make game-data    the licensed game data debs game-data-packager makes (Quake shareware, Quake II"
 	@echo "                    demo: gamedb build.toml; the published files when the licensed suite has them)"
 	@echo "                    -> $(BUILD)/debs/game-data"
+	@echo "  make gdp-index    tools/gamedb/gdp-packages.json: the games and packages game-data-packager knows (check.py)"
 	@echo "  make licensed-data PKG=<pkg> INPUT=<file>  a licensed data deb from your own copy (rct2-data:"
 	@echo "                    the RCT2 CD image, tyrian-data: tyrian21.zip) -> $(BUILD)/debs/<pkg>"
 	@echo "  make publish      licensed packages built here -> walnut.nanobyte.dev's licensed suite (DEBS=...;"
@@ -183,6 +184,11 @@ game-deploy:
 	@set -e; p=$$(python3 -I tools/gamedb/build-info.py packages $(GAME)); \
 	[ -n "$$p" ] || { echo "$(GAME): no packages in its build.toml"; exit 1; }; \
 	$(MAKE) --no-print-directory deploy PKGS="$$p"
+
+# The games and package names game-data-packager knows, as the games builder has it: tools/gamedb/gdp-packages.json
+# (committed; check.py checks build.toml [data_setup] against it offline). Regenerate when that gdp changes
+gdp-index: | $(GAMES_BUILDER_STAMP)
+	python3 -I tools/gamedb/gdp-index.py --image $(GAMES_BUILDER_TAG)
 
 # The licensed game data made by game-data-packager (tools/game-data.sh): every gamedb build.toml
 # [[licensed]] with builder = "game-data-packager:<game>" (tools/gamedb/build-info.py game-data; today

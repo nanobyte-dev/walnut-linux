@@ -1,7 +1,17 @@
 # How OpenRCT2 is built, installed and integrated (gamedb/README.md "build.toml").
+# packages/openrct2: our big-endian port (openrct2 pulls openrct2-data, recommends openrct2-music)
+packages = ["openrct2"]
+# in no metapackage (an upgrade installs nothing new): Walnut Games installs it
+suite = "none"
+needs_data = true
 # RollerCoaster Tycoon 2's data, from the player's own CD (make licensed-data PKG=rct2-data INPUT=<image>)
 data = ["rct2-data"]
 
 [[licensed]]
 name = "rct2-data"
 builder = "script"
+
+[data_setup]
+gdp = "roller-coaster-tycoon2"
+required = ["roller-coaster-tycoon2-data"]
+hint = "RollerCoaster Tycoon 2: its CD, an installed copy (Steam, GOG) or the GOG installer."

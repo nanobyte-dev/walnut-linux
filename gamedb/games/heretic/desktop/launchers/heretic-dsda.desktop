@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Heretic (DSDA-Doom)
+Comment=Heretic: Shadow of the Serpent Riders from your own HERETIC.WAD, DSDA-Doom's OpenGL renderer at 1920x1080
+Exec=ps3-game dsda-heretic -iwad /usr/share/games/doom/heretic.wad -vidmode gl -width 1920 -height 1080 -fullscreen
+Icon=dsda-doom
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=first;person;shooter;heretic;
+NoDisplay=true
+X-Walnut-Requires=/usr/share/games/doom/heretic.wad

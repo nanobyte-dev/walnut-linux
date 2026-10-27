@@ -19,13 +19,16 @@ Design
       entries (name, builder, leak_files, meta)
       match the bundle's licensed/<pkg>/ directories (builder source: a package.conf, script: <pkg>.sh;
       game-data-packager:<game> has none), every licensed/ directory declared; a checkout without any
-      licensed directory (the public copy) skips that direction. A published game has packages,
+      licensed directory (the public copy) skips that direction. [data_setup] (DATA_SETUP_KEYS, closed):
+      its gdp game and every required/optional package exist in game-data-packager's data, read from the
+      committed tools/gamedb/gdp-packages.json (gdp-index.py, make gdp-index: no docker at check time);
+      required set exactly when needs_data, downloads among them. A published game has packages,
       suite and needs_data. The catalog's patched_by is not a key: our source packages of the bundle
       (packages/) and of its engine (patched_by() below)
     * a game that needs the user's own data (build.toml needs_data) has a data_guide URL and data_steps
       in index.md (the numbered steps of getting and setting up the data: sentences, with `code` in
       backticks that must pair up)
-    * thumb.png is a PNG; every test has a parsable result.toml of schema 1 whose listed screenshots
+    * thumb.png (optional) is a PNG; every test has a parsable result.toml of schema 1 whose listed screenshots
       exist (shots/ps3-<point>.jpg), and no stray file sits in a session folder (result.toml, form.toml,
       review.md, shots/, raw/; tools/gamedb/evidence.py, which also scans the record, form.toml, review.md
       and raw/ for what must not be public) or the game's folder (GAME_FILES: index.md, thumb.png,
@@ -51,6 +54,7 @@ import argparse
 import datetime
 import gzip
 import importlib.util
+import json
 import lzma
 import re
 import sys
@@ -84,7 +88,13 @@ BUILD_KEYS = {
     "packages": (list, True), "engine": (str, False), "suite": (str, True), "needs_data": (bool, True),
     "data": (list, False), "desktop": (list, False), "divert": (list, False), "image_base": (bool, False),
     "recipes": (list, False), "licensed": (list, False), "meta": (list, False), "former_packages": (list, False),
+    "data_setup": (dict, False),
 }
+# [data_setup] (gamedb/README.md): the player's own data, imported with game-data-packager (gdp). key: (type,
+# required); every package one of the gdp game's (GDP_INDEX, made by gdp-index.py: offline, no docker)
+DATA_SETUP_KEYS = {"gdp": (str, True), "required": (list, True), "optional": (list, False),
+                   "downloads": (list, False), "hint": (str, False)}
+GDP_INDEX = Path(__file__).resolve().parent / "gdp-packages.json"
 # an engine's build.toml: the packages the games run it from, its licensed data
 ENGINE_KEYS = {"packages": (list, False), "licensed": (list, False)}
 LICENSED_KEYS = {"name", "builder", "leak_files", "meta"}
@@ -139,12 +149,29 @@ def patched_by(gdir, build=None):
 
 def game_facts(gdir):
     """index.md's front matter with build.toml's keys the catalog shows (packages, needs_data, desktop,
-    recipes) and patched_by, as catalog.py reads a game"""
+    recipes, data_setup: data_setup_facts) and patched_by, as catalog.py reads a game"""
     fm = front_matter(Path(gdir) / "index.md")
     b = read_build(gdir)
     fm.update({k: b[k] for k in ("packages", "needs_data", "desktop", "recipes", "former_packages") if k in b})
     fm["patched_by"] = patched_by(gdir, b)
+    ds = data_setup_facts(b)
+    if ds:
+        fm["data_setup"] = ds
     return fm
+
+
+def data_setup_facts(build):
+    """a build.toml's [data_setup] as the catalog carries it (every key, defaults filled in), or None:
+    gdp, required, optional, downloads, hint (None when unset) and present_any, the packages any one of
+    which means the game's data is installed: required, then the game's data and [[licensed]] names
+    (the licensed suite's builds of the same data, e.g. rct2-data next to roller-coaster-tycoon2-data)"""
+    ds = build.get("data_setup")
+    if not isinstance(ds, dict):
+        return None
+    own = list(build.get("data", [])) + [e.get("name") for e in build.get("licensed", []) if isinstance(e, dict)]
+    return {"gdp": ds.get("gdp"), "required": list(ds.get("required", [])), "optional": list(ds.get("optional", [])),
+            "downloads": list(ds.get("downloads", [])), "hint": ds.get("hint"),
+            "present_any": list(dict.fromkeys(list(ds.get("required", [])) + [p for p in own if isinstance(p, str)]))}
 
 
 def control_binaries(repo):
@@ -356,8 +383,7 @@ def check_game(gdir, bad, repo, ctx=None):
         errs.append("fps_cap must be positive")
     thumb = gdir / "thumb.png"
     if not thumb.exists():
-        if not draft:
-            errs.append("no thumb.png")
+        pass   # optional: the catalog's thumb is then null, the site and the app show none
     elif thumb.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
         errs.append("thumb.png is not a PNG")
     tests = gdir / SESSIONS
@@ -418,9 +444,70 @@ def context(repo, content, apt=None):
                 engines[e.name] = front_matter(e / "engine.md").get("games", [])
             except (ValueError, tomllib.TOMLDecodeError):
                 engines[e.name] = []
-    return {"ours": control_binaries(repo), "apt": apt, "engines": engines,
+    return {"ours": control_binaries(repo), "apt": apt, "engines": engines, "gdp": gdp_index(),
             "has_licensed": bool(lic.licensed_dirs(lic.Tree(repo))) or any(Path(content).glob("*/licensed/*"))
             or any(edir.glob("*/licensed/*"))}
+
+
+def gdp_index(path=None):
+    """{game: {its package names}} game-data-packager knows (tools/gamedb/gdp-packages.json), with its
+    version under None; None when the file is missing or broken (then every [data_setup] is an error)"""
+    try:
+        data = json.loads(Path(path or GDP_INDEX).read_text())
+        out = {g: set(p) for g, p in data["games"].items()}
+        out[None] = str(data["gdp_version"])
+        return out
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def data_setup_errors(ds, build, bad, ctx):
+    """build.toml [data_setup] (DATA_SETUP_KEYS): its gdp game and every package in gdp's data (ctx["gdp"]);
+    required non-empty exactly when needs_data; optional apart from required; downloads among them"""
+    errs = []
+    for k in ds:
+        if k not in DATA_SETUP_KEYS:
+            errs.append("[data_setup]: unknown key %r (%s)" % (k, ", ".join(DATA_SETUP_KEYS)))
+    for k, (t, req) in DATA_SETUP_KEYS.items():
+        if k not in ds:
+            if req:
+                errs.append("[data_setup]: missing key %r" % k)
+        elif not isinstance(ds[k], t):
+            errs.append("[data_setup]: %r should be %s" % (k, t.__name__))
+        elif t is list and not all(isinstance(x, str) and PKG_RE.match(x) for x in ds[k]):
+            errs.append("[data_setup]: %r is a list of package names" % k)
+        elif t is list and len(set(ds[k])) != len(ds[k]):
+            errs.append("[data_setup]: %r names a package twice" % k)
+    if errs:
+        return errs
+    req, opt, dl = ds["required"], ds.get("optional", []), ds.get("downloads", [])
+    if "hint" in ds and not ds["hint"].strip():
+        errs.append("[data_setup]: hint is empty")
+    both = sorted(set(req) & set(opt))
+    if both:
+        errs.append("[data_setup]: %s both required and optional" % ", ".join(both))
+    if not req and not opt:
+        errs.append("[data_setup]: neither required nor optional names a package")
+    if bool(req) != (build.get("needs_data") is True):
+        errs.append("[data_setup]: required is empty exactly when needs_data is false (now %s, needs_data %s)"
+                    % ("empty" if not req else "set", build.get("needs_data")))
+    for p in dl:
+        if p not in req and p not in opt:
+            errs.append("[data_setup]: downloads %s is neither required nor optional" % p)
+    for p in req + opt:
+        if p in build.get("packages", []):
+            errs.append("[data_setup]: %s is also in packages (the data never comes from the catalog's install)" % p)
+    gdp = ctx.get("gdp")
+    if gdp is None:
+        errs.append("[data_setup]: no readable %s (make gdp-index)" % GDP_INDEX)
+    elif ds["gdp"] not in gdp:
+        errs.append("[data_setup]: game-data-packager %s has no game %r" % (gdp[None], ds["gdp"]))
+    else:
+        for p in req + opt:
+            if p not in gdp[ds["gdp"]]:
+                errs.append("[data_setup]: %s is not a package of game-data-packager %s's %s"
+                            % (p, gdp[None], ds["gdp"]))
+    return errs
 
 
 def licensed_errors(d, entries, ctx):
@@ -515,6 +602,8 @@ def build_errors(gdir, build, bad, ctx, draft):
         if not isinstance(d, str) or not re.fullmatch(r"(/[A-Za-z0-9._+-]+)+", d):
             errs.append("build.toml: divert %r is not an absolute path" % (d,))
     errs += ["build.toml: " + x for x in licensed_errors(gdir, build.get("licensed", []), ctx)]
+    if "data_setup" in build:
+        errs += ["build.toml: " + x for x in data_setup_errors(build["data_setup"], build, bad, ctx)]
     return errs
 
 

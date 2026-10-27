@@ -101,7 +101,7 @@ MAX_CATALOG = 16 << 20
 def validate_catalog(obj):
     """a downloaded catalog as a dict, or ValueError: it must have the games list and the fields the
     app reads (id, title, packages, a rating with a medal; the lists and dicts it iterates over must
-    be of the right type), and the ids and picture paths must be safe to use in a URL and a cache path"""
+    be of the right type, data_setup's too), and the ids and picture paths must be safe to use in a URL and a cache path"""
     def need(ok, what):
         if not ok:
             raise ValueError(what)
@@ -130,6 +130,13 @@ def validate_catalog(obj):
             need(isinstance(g.get(k) or [], list) and all(isinstance(x, dict) for x in g.get(k) or []),
                  "%s: bad %s" % (gid, k))
         need(all(isinstance(p.get("subject"), str) for p in g.get("patches") or []), "%s: bad patches" % gid)
+        ds = g.get("data_setup")
+        need(ds is None or isinstance(ds, dict), "%s: bad data_setup" % gid)
+        for k in ("required", "optional", "downloads", "present_any"):
+            v = (ds or {}).get(k) or []
+            need(isinstance(v, list) and all(isinstance(x, str) and x for x in v), "%s: bad data_setup %s" % (gid, k))
+        for k in ("gdp", "hint"):
+            need((ds or {}).get(k) is None or isinstance(ds[k], str), "%s: bad data_setup %s" % (gid, k))
         for l in g.get("launchers") or []:
             need(isinstance(l.get("rating"), dict) and isinstance(l["rating"].get("medal"), str),
                  "%s: bad launcher" % gid)
@@ -218,6 +225,21 @@ def dpkg_installed(packages, runner=None):
 
 def is_installed(game, have):
     return all(p in have for p in game["packages"])
+
+
+def data_packages(game):
+    """the data packages whose state the app reads for a game: data_setup's present_any and optional"""
+    ds = game.get("data_setup") if isinstance(game.get("data_setup"), dict) else {}
+    return [p for k in ("present_any", "optional") for p in ds.get(k) or [] if isinstance(p, str)]
+
+
+def data_present(game, have):
+    """whether the game's data is installed: any one of data_setup's present_any (its required
+    game-data-packager packages, or the licensed suite's builds of the same data); None when the game
+    names no such data (no data_setup, or optional data only)"""
+    ds = game.get("data_setup") if isinstance(game.get("data_setup"), dict) else {}
+    need = [p for p in ds.get("present_any") or [] if isinstance(p, str)]
+    return any(p in have for p in need) if need else None
 
 
 def filter_games(games, have, text="", category="All", medal="All", installed_only=False,
@@ -333,7 +355,7 @@ def parse_exec(line):
 
 
 def desktop_entry(path):
-    """{Exec, Path, Terminal} of a .desktop file's [Desktop Entry] group; None when unreadable"""
+    """the keys (Exec, Path, Terminal, X-Walnut-Game, ...) of a .desktop file's [Desktop Entry] group; None when unreadable"""
     keys, inside = {}, False
     try:
         with open(path, encoding="utf-8", errors="replace") as f:
@@ -382,7 +404,10 @@ def play_commands(game, runtime_dir=None, apps=APPS, files=None):
     for a game, like OpenArena's two renderers). The catalog's optional `desktop` list comes first
     (an order, or an entry the manifest can't lead to). Each entry's runtime copy (ps3-game-menu's,
     Exec through ps3-game) wins over the installed one, which gets ps3-game put in front. The label
-    is the entry's Name."""
+    is the entry's Name. An entry stamped X-Walnut-Game=<id> (ps3-games-integration's launchers) is
+    only its own game's: games sharing an engine (dsda-doom: Freedoom, Doom, Heretic) don't list each
+    other's; an unstamped one counts for any game that leads to it."""
+    gid = game.get("id")
     dirs = ([os.path.join(runtime_dir, "applications")] if runtime_dir else []) + [apps]
     shipped = files() if files else []
     # the programs by name (on PATH) and by full path (an Exec of /usr/lib/yamagi-quake2/quake2)
@@ -394,7 +419,7 @@ def play_commands(game, runtime_dir=None, apps=APPS, files=None):
 
     def add(name, e):
         argv = parse_exec(e["Exec"])
-        if not argv or name in seen:
+        if not argv or name in seen or (gid and e.get("X-Walnut-Game", gid) != gid):
             return
         if os.path.basename(argv[0]) != "ps3-game":
             argv = ["ps3-game"] + argv
@@ -704,7 +729,7 @@ class App:
             if not os.path.exists(path):
                 path = self.cache_path(gid, "thumb.png")
                 if not os.path.exists(path):
-                    if self.online and ("thumb", gid) not in self._fetching:
+                    if self.online and g.get("thumb", True) and ("thumb", gid) not in self._fetching:
                         self.fetch(gid, "thumb.png", path, "thumb")
                     return None
             try:
@@ -931,7 +956,7 @@ class App:
                                                          " (provisional)" if r.get("provisional") else ""))
         stats.append("Controller: " + (r.get("controller") or g.get("controller") or "unknown"))
         if g.get("needs_data"):
-            stats.append("Needs your own game data")
+            stats.append("Your game data is installed" if data_present(g, self.have) else "Needs your own game data")
         tested = tested_text(r)
         lines = [x for x in (tested, basis_text(r)) if x] + problem_lines(r)
         self.d_stats.configure(text="".join(x + "\n" for x in lines) + "  |  ".join(stats))
@@ -1138,7 +1163,7 @@ class App:
         self.canvas.yview_moveto(min(top / new_h, 1.0) if new_h else 0)
 
     def refresh_installed(self, games=None):
-        self.have = dpkg_installed({p for g in (games or self.games) for p in g["packages"]})
+        self.have = dpkg_installed({p for g in (games or self.games) for p in g["packages"] + data_packages(g)})
 
     def manifest(self, g):
         """the game's packages' files (dpkg -L), cached until the installed set changes"""

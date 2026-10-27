@@ -20,6 +20,8 @@ Names, the union of:
   - [[licensed]] name = "..." in gamedb/<games|engines>/<id>/build.toml: every game's licensed data,
     also the names with no directory of ours (game-data-packager's quake-shareware) and, in the public
     copy (no licensed directory), all of them
+  - [data_setup] required and optional in gamedb/<games|engines>/<id>/build.toml: the game-data-packager
+    packages a player makes from their own copy (doom-wad, quake-registered): never ours to publish
   - GENERIC: the names that are no game's, licensed in every checkout (the metapackage
     ps3-games-licensed, whose directory packages/licensed/ the public copy doesn't have)
 A binary package is also licensed when its Section is non-free/* or local/*.
@@ -136,7 +138,7 @@ def build_tomls(tree):
 
 
 def declared(tree):
-    """{name: the build.toml that declares it} from build.toml [[licensed]], and GENERIC"""
+    """{name: the build.toml that declares it} from build.toml [[licensed]] and [data_setup], and GENERIC"""
     out = {}
     for f, t in build_tomls(tree):
         lic = t.get("licensed", [])
@@ -147,6 +149,17 @@ def declared(tree):
             if not isinstance(n, str) or not NAME_RE.match(n):
                 raise Error("%s: [[licensed]] %d: name %r is not a package name" % (f, i + 1, n))
             out.setdefault(n, f)
+        ds = t.get("data_setup", {})
+        if not isinstance(ds, dict):
+            raise Error("%s: data_setup must be a table ([data_setup])" % f)
+        for key in ("required", "optional"):
+            lst = ds.get(key, [])
+            if not isinstance(lst, list):
+                raise Error("%s: [data_setup] %s must be a list of package names" % (f, key))
+            for n in lst:
+                if not isinstance(n, str) or not NAME_RE.match(n):
+                    raise Error("%s: [data_setup] %s: %r is not a package name" % (f, key, n))
+                out.setdefault(n, f)
     for n in GENERIC:
         out.setdefault(n, "tools/licensed.py GENERIC")
     return out

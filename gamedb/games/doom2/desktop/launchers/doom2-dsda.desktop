@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Doom II (DSDA-Doom)
+Comment=Doom II: Hell on Earth from your own DOOM2.WAD, DSDA-Doom's OpenGL renderer at 1920x1080
+Exec=ps3-game dsda-doom -iwad /usr/share/games/doom/doom2.wad -vidmode gl -width 1920 -height 1080 -fullscreen
+Icon=dsda-doom
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=first;person;shooter;doom;doom2;
+NoDisplay=true
+X-Walnut-Requires=/usr/share/games/doom/doom2.wad

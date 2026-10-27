@@ -68,10 +68,10 @@ q=; [ -n "${PS3_SESSION_SCOPED:-}" ] && q=1	# the scoped copy repeats the choice
 {
 	cmdfile=$(mktemp); trap 'rm -f "$cmdfile"' EXIT
 	# shellcheck disable=SC2086
-	out=$("$here/launcher.py" ${want:+--choose "$want"} --argv-out "$cmdfile" ${SESSION_LAUNCHER_ARGS:-} $(pkgs) ); lrc=$?
+	out=$("$here/launcher.py" --game "$g" ${want:+--choose "$want"} --argv-out "$cmdfile" ${SESSION_LAUNCHER_ARGS:-} $(pkgs) ); lrc=$?
 	if [ "$lrc" = 2 ]; then
 		echo "session: $g has no launcher '$want'; the choices (file name, Name):" >&2
-		"$here/launcher.py" ${SESSION_LAUNCHER_ARGS:-} $(pkgs) | sed '1d; s/^/  /' >&2
+		"$here/launcher.py" --game "$g" ${SESSION_LAUNCHER_ARGS:-} $(pkgs) | sed '1d; s/^/  /' >&2
 		exit 2
 	elif [ "$lrc" != 0 ]; then
 		rm -f "$cmdfile"; cmdfile=

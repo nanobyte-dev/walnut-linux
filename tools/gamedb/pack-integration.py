@@ -13,7 +13,9 @@ Design
 - integration.tar:
     tree/usr/share/applications/<name>.desktop  each game's launchers, with TryExec= the program their
                                     Exec runs through ps3-game (so a launcher of a game that isn't installed
-                                    stays out of the menu); every launcher starts its game through ps3-game
+                                    stays out of the menu) and X-Walnut-Game=<id> (the Walnut Games app and
+                                    bench/harness/launcher.py keep a game's own: games sharing an engine
+                                    don't see each other's); every launcher starts its game through ps3-game
     tree/<path>                     desktop/files/<path>: config files installed as they are
     tree/usr/share/ps3-games/divert.list        the divert paths, one per line (ps3-games-integration's
                                     preinst diverts each one; ps3-desktop's tests/menu-check.sh reads it)
@@ -123,7 +125,9 @@ def program(argv):
 
 
 def launcher(gid, path):
-    """a launcher's text with TryExec= its program (after the Exec line)"""
+    """a launcher's text with TryExec= its program and X-Walnut-Game= the game's id (after the Exec line);
+    an X-Walnut-Requires= (the data file the entry needs, ps3-game-menu shows it once that exists) must be
+    an absolute path"""
     lines = path.read_text().splitlines()
     execs = [l for l in lines if l.startswith("Exec=")]
     if len(execs) != 1:
@@ -134,13 +138,16 @@ def launcher(gid, path):
     prog = program(argv)
     if not prog:
         raise Error("%s: %s: no program in its Exec" % (gid, path.name))
+    for l in lines:
+        if l.startswith("X-Walnut-Requires=") and not re.fullmatch(r"(/[A-Za-z0-9._+-]+)+", l.split("=", 1)[1]):
+            raise Error("%s: %s: X-Walnut-Requires must be an absolute path" % (gid, path.name))
     out = []
     for l in lines:
-        if l.startswith("TryExec="):
-            continue   # ours replaces any
+        if l.startswith("TryExec=") or l.startswith("X-Walnut-Game="):
+            continue   # ours replace any
         out.append(l)
         if l.startswith("Exec="):
-            out.append("TryExec=" + prog)
+            out += ["TryExec=" + prog, "X-Walnut-Game=" + gid]
     return ("\n".join(out) + "\n").encode()
 
 

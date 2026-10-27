@@ -9,6 +9,9 @@ finds them (packages/walnut/apps/walnut-games/files/lib/walnut_games.py play_com
                      applications/ are looked in before --apps
   --apps DIR         the installed menu entries (default /usr/share/applications)
   --dpkg CMD         what lists a package's files, run as `CMD -L PACKAGE...` (default dpkg-query)
+  --game ID          the game's gamedb id: an entry stamped X-Walnut-Game=<another id> (ps3-games-integration's
+                     launchers, tools/gamedb/pack-integration.py) is left out, so games sharing an engine
+                     (dsda-doom: Freedoom, Doom, Heretic) don't take each other's; unstamped entries count
 
 Launchers: the menu entries the packages ship (dpkg -L), sorted by file name, then any other shown
 entry (not NoDisplay or Hidden) whose Exec runs one of the packages' programs (/usr/games, /usr/bin,
@@ -95,8 +98,9 @@ def game_argv(argv):
     return argv
 
 
-def launchers(files, runtime_dir=None, apps="/usr/share/applications"):
-    """[(file name, Name, argv with ps3-game)] in the app's order"""
+def launchers(files, runtime_dir=None, apps="/usr/share/applications", game=None):
+    """[(file name, Name, argv with ps3-game)] in the app's order; with game, without the entries
+    stamped as another game's (X-Walnut-Game)"""
     dirs = ([os.path.join(runtime_dir, "applications")] if runtime_dir else []) + [apps]
     # the programs by name (on PATH) and by full path (an Exec of /usr/lib/yamagi-quake2/quake2)
     progs = {os.path.basename(f) for f in files if os.path.dirname(f) in BIN_DIRS} | set(files)
@@ -108,7 +112,7 @@ def launchers(files, runtime_dir=None, apps="/usr/share/applications"):
             argv = parse_exec(e["Exec"])
         except ValueError:
             return
-        if not argv or name in seen:
+        if not argv or name in seen or (game and e.get("X-Walnut-Game", game) != game):
             return
         out.append((name, e.get("Name") or name[:-len(".desktop")], argv))
         seen.add(name)
@@ -153,11 +157,12 @@ def main(argv):
     ap.add_argument("--runtime-dir", default=None)
     ap.add_argument("--apps", default="/usr/share/applications")
     ap.add_argument("--dpkg", default="dpkg-query")
+    ap.add_argument("--game")
     a = ap.parse_args(argv)
     rt = a.runtime_dir
     if rt is None and os.environ.get("XDG_RUNTIME_DIR"):
         rt = os.path.join(os.environ["XDG_RUNTIME_DIR"], "ps3-game-menu")
-    found = launchers(package_files(a.packages, a.dpkg), rt, a.apps)
+    found = launchers(package_files(a.packages, a.dpkg), rt, a.apps, a.game)
     if not found:
         return 3
     lines = ["%s\t%s" % (f, n) for f, n, _ in found]

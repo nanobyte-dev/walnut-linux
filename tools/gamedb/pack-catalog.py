@@ -62,7 +62,7 @@ def pack(content, out, repo=REPO):
         gdir = Path(content) / g["id"]
         if check.is_draft(gdir):
             raise SystemExit("%s is a draft and must not be packed (catalog.py leaves drafts out)" % g["id"])
-        names = [g["thumb"].split("/", 2)[2]]
+        names = [g["thumb"].split("/", 2)[2]] if g.get("thumb") else []   # a game may have no thumbnail
         for t in g["tests"]:
             names += t["ps3"]   # only the PS3's pictures are published
         for n in dict.fromkeys(names):

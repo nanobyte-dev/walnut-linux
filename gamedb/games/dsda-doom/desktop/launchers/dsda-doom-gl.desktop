@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
 Name=DSDA-Doom (OpenGL)
-Comment=Doom, OpenGL renderer at 1920x1080
-Exec=ps3-game dsda-doom -vidmode gl -width 1920 -height 1080 -fullscreen %F
+Comment=Freedoom: Phase 2, OpenGL renderer at 1920x1080
+Exec=ps3-game dsda-doom -iwad /usr/share/games/doom/freedoom2.wad -vidmode gl -width 1920 -height 1080 -fullscreen %F
 Icon=dsda-doom
 Terminal=false
 Categories=Game;ActionGame;

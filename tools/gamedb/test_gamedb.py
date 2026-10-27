@@ -465,12 +465,63 @@ class Check(unittest.TestCase):
         write_game(self.content, data_steps='["Not needed."]')
         self.assertIn("without needs_data", " ".join(self.problems()["ex"]))
 
-    def test_unknown_field_and_missing_thumb(self):
+    def test_unknown_field_and_optional_thumb(self):
         g = write_game(self.content, colour='"red"')
         (g / "thumb.png").unlink()
         text = " ".join(self.problems()["ex"])
         self.assertIn("unknown field", text)
-        self.assertIn("thumb.png", text)
+        self.assertNotIn("thumb.png", text)           # optional: the catalog's thumb is null
+        (g / "thumb.png").write_text("not a png")
+        self.assertIn("thumb.png is not a PNG", " ".join(self.problems()["ex"]))
+
+    DATA = dict(needs_data="true", data_guide='"https://example.org/guide"', data_steps='["Make the package."]')
+
+    def test_data_setup(self):
+        """[data_setup] against tools/gamedb/gdp-packages.json (game-data-packager's games and packages)"""
+        ds = '[data_setup]\ngdp = "final-doom"\nrequired = ["plutonia-wad", "tnt-wad"]\ndownloads = ["tnt-wad"]\nhint = "TNT.WAD"\n'
+        write_game(self.content, build=ds, **self.DATA)
+        self.assertEqual(self.problems(), {})
+        write_game(self.content, suite='"none"', build='[data_setup]\ngdp = "ttd"\nrequired = []\n'
+                   'optional = ["transport-tycoon-deluxe-data"]\n')          # optional data only: needs_data false
+        self.assertEqual(self.problems(), {})
+        bad = [('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\nsize = 1\n', "unknown key 'size'"),
+               ('[data_setup]\nrequired = ["tnt-wad"]\n', "missing key 'gdp'"),
+               ('[data_setup]\ngdp = "final-doom"\nrequired = "tnt-wad"\n', "'required' should be list"),
+               ('[data_setup]\ngdp = "no-such-game"\nrequired = ["tnt-wad"]\n', "has no game 'no-such-game'"),
+               ('[data_setup]\ngdp = "final-doom"\nrequired = ["doom-wad"]\n', "doom-wad is not a package of"),
+               ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\ndownloads = ["plutonia-wad"]\n',
+                "downloads plutonia-wad is neither"),
+               ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\noptional = ["tnt-wad"]\n', "both required and optional"),
+               ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad", "tnt-wad"]\n', "names a package twice"),
+               ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\nhint = " "\n', "hint is empty")]
+        for text, want in bad:
+            write_game(self.content, build=text, **self.DATA)
+            self.assertIn(want, " ".join(self.problems().get("ex", [])), text)
+        write_game(self.content, build=ds)                            # required, but needs_data is false
+        self.assertIn("needs_data", " ".join(self.problems()["ex"]))
+        write_game(self.content, packages='["example", "tnt-wad"]', build=ds, **self.DATA)
+        self.assertIn("tnt-wad is also in packages", " ".join(self.problems()["ex"]))
+
+    def test_data_setup_without_index(self):
+        write_game(self.content, build='[data_setup]\ngdp = "doom"\nrequired = ["doom-wad"]\n', **self.DATA)
+        old = check.GDP_INDEX
+        check.GDP_INDEX = Path(self.tmp.name) / "none.json"
+        try:
+            self.assertIn("make gdp-index", " ".join(self.problems()["ex"]))
+        finally:
+            check.GDP_INDEX = old
+
+    def test_gdp_index_file(self):
+        """the committed index: game-data-packager's version, and the games our bundles name"""
+        idx = check.gdp_index()
+        self.assertIsNotNone(idx)
+        self.assertTrue(idx[None])
+        for game, pkg in (("doom", "doom-wad"), ("quake2", "quake2-full-data"), ("ttd", "transport-tycoon-deluxe-music"),
+                          ("roller-coaster-tycoon2", "roller-coaster-tycoon2-data")):
+            self.assertIn(pkg, idx[game])
+        gi = load_tool("gdp-index")
+        text = (HERE / "gdp-packages.json").read_text()
+        self.assertEqual(gi.render(json.loads(text)), text)          # as gdp-index.py writes it
 
     def test_published_game_needs_technical_md(self):
         g = write_game(self.content)
@@ -624,8 +675,8 @@ class Check(unittest.TestCase):
     def test_published_game_keeps_the_full_rules(self):
         g = write_game(self.content, draft="false", status='"tested"')
         self.assertEqual(self.problems(), {})
-        (g / "thumb.png").unlink()
-        self.assertIn("thumb.png", " ".join(self.problems()["ex"]))
+        (g / "technical.md").unlink()
+        self.assertIn("technical.md", " ".join(self.problems()["ex"]))
         g2 = Path(self.content) / "nofields"
         g2.mkdir()
         (g2 / "index.md").write_text('+++\nid = "nofields"\ntitle = "N"\nstatus = "candidate"\n+++\n')
@@ -745,7 +796,7 @@ class PackIntegration(unittest.TestCase):
         self.assertEqual(self.read("control/ps3-games-free.substvars"), "games:Depends=a\ngames:Suggests=b\n")
         self.assertEqual((self.out / "lic.substvars").read_text(), "games:Depends=b-data, c-data\n")
         self.assertEqual(self.read("tree/usr/share/applications/a-gl.desktop"),
-                         "[Desktop Entry]\nName=A\nExec=ps3-game env X=1 a -gl\nTryExec=a\n")
+                         "[Desktop Entry]\nName=A\nExec=ps3-game env X=1 a -gl\nTryExec=a\nX-Walnut-Game=a\n")
         self.assertEqual(self.read("tree/usr/lib/a/a.cfg"), "set x 1\n")
         self.assertEqual(self.read("tree/usr/share/ps3-games/divert.list"), "/usr/share/applications/a.desktop\n")
         self.assertEqual(self.read("tree/usr/share/ps3-games/migrate-home.list"), ".a/a.cfg /usr/lib/a/a.cfg\n")
@@ -773,6 +824,21 @@ class PackIntegration(unittest.TestCase):
         (self.root / "b" / "build.toml").write_text("packages = [\n")
         self.assertEqual(self.pi.main(["--root", str(self.root), "--out", str(self.out / "x.tar")]), 2)
 
+    def test_game_stamp_and_requires(self):
+        """every launcher is stamped X-Walnut-Game=<its game> (a stamp of its own is replaced); X-Walnut-Requires
+        must be an absolute path"""
+        self.game("doom", 'packages = ["dsda-doom"]\nsuite = "none"\n', launchers=[(
+            "doom-dsda.desktop", "[Desktop Entry]\nName=Doom\nExec=ps3-game dsda-doom -iwad /usr/share/games/doom/doom.wad\n"
+            "NoDisplay=true\nX-Walnut-Game=other\nX-Walnut-Requires=/usr/share/games/doom/doom.wad\n")])
+        self.pack()
+        self.assertEqual(self.read("tree/usr/share/applications/doom-dsda.desktop"),
+                         "[Desktop Entry]\nName=Doom\nExec=ps3-game dsda-doom -iwad /usr/share/games/doom/doom.wad\n"
+                         "TryExec=dsda-doom\nX-Walnut-Game=doom\nNoDisplay=true\nX-Walnut-Requires=/usr/share/games/doom/doom.wad\n")
+        (self.root / "doom" / "desktop" / "launchers" / "doom-dsda.desktop").write_text(
+            "[Desktop Entry]\nName=Doom\nExec=ps3-game dsda-doom\nX-Walnut-Requires=doom.wad\n")
+        with self.assertRaisesRegex(self.pi.Error, "X-Walnut-Requires must be an absolute path"):
+            self.pack()
+
     def test_this_gamedb(self):
         """the real gamedb packs, every launcher gets a TryExec, nothing licensed goes into the public tarball"""
         with tempfile.TemporaryDirectory() as t:
@@ -785,6 +851,7 @@ class PackIntegration(unittest.TestCase):
             self.assertTrue(apps)
             for a in apps:
                 self.assertIn("\nTryExec=", a.read_text())
+                self.assertIn("\nX-Walnut-Game=", a.read_text())
             public = " ".join((Path(t) / "tree" / "control" / f).read_text()
                               for f in ("ps3-games.substvars", "ps3-games-free.substvars"))
             for name in deps["ps3-games-licensed"]["Depends"]:
@@ -1005,6 +1072,23 @@ def fixture_game(d):
 
 
 class Catalog(unittest.TestCase):
+    def test_data_setup_carried(self):
+        """[data_setup] in the catalog, every key filled in, present_any = required, then data and [[licensed]];
+        a game without one has no key (its entry stays as it was)"""
+        with tempfile.TemporaryDirectory() as d:
+            g = write_game(d, needs_data="true", data_guide='"https://example.org/g"', data_steps='["Make it."]',
+                           suite='"licensed"', data='["rct2-data"]',
+                           build='[[licensed]]\nname = "rct2-data"\nbuilder = "script"\n[[licensed]]\nname = "rct2-extra"\n'
+                                 'builder = "script"\n[data_setup]\ngdp = "roller-coaster-tycoon2"\n'
+                                 'required = ["roller-coaster-tycoon2-data"]\n')
+            out = catalog.build_game(g, REPO, {})
+            self.assertEqual(out["data_setup"], {
+                "gdp": "roller-coaster-tycoon2", "required": ["roller-coaster-tycoon2-data"], "optional": [],
+                "downloads": [], "hint": None, "present_any": ["roller-coaster-tycoon2-data", "rct2-data", "rct2-extra"]})
+            self.assertNotIn("data_setup", catalog.build_game(write_game(d, "plain"), REPO, {}))
+            (g / "thumb.png").unlink()
+            self.assertIsNone(catalog.build_game(g, REPO, {})["thumb"])
+
     def test_patch_subjects(self):
         with tempfile.TemporaryDirectory() as t:
             p = Path(t) / "packages" / "patched" / "games" / "pkg" / "patches"

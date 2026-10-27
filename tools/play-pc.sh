@@ -73,13 +73,13 @@ for dp in $data_debs; do
 done
 # the launcher (as on the PS3: ps3-desktop's entries first), its command started without ps3-game
 inside='set -e
-python3 -I /walnut/launcher.py --runtime-dir /walnut/menu ${L:+--choose "$L"} --argv-out /tmp/argv "$@" > /tmp/list
+python3 -I /walnut/launcher.py --game "$G" --runtime-dir /walnut/menu ${L:+--choose "$L"} --argv-out /tmp/argv "$@" > /tmp/list
 if [ "${PLAY_PC_LIST:-0}" = 1 ]; then tail -n +2 /tmp/list; exit 0; fi
 echo ">> $(head -1 /tmp/list | cut -f2)"
 mapfile -d "" -t argv < /tmp/argv
 mkdir -p -m 700 /tmp/xdg; export XDG_RUNTIME_DIR=/tmp/xdg
 cd "$HOME"; exec "${argv[@]}"'
-cmd=(docker run "${args[@]}" -e L="$L" -e PLAY_PC_LIST="${PLAY_PC_LIST:-0}" "$TAG" bash -c "$inside" _ $PKGS)
+cmd=(docker run "${args[@]}" -e G="$G" -e L="$L" -e PLAY_PC_LIST="${PLAY_PC_LIST:-0}" "$TAG" bash -c "$inside" _ $PKGS)
 if [ "${PLAY_PC_DRY:-0}" = 1 ]; then printf '%q ' "${cmd[@]}"; echo; exit 0; fi
 docker rm -f "play-pc-$G" > /dev/null 2>&1 || true
 exec "${cmd[@]}"

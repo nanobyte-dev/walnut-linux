@@ -2,11 +2,13 @@
 
 ## Status
 
-A draft (tried): OpenRCT2 0.5.6 ported to big-endian ppc64, packaged, installed on the PS3 and baselined, not
+Published, Untested: OpenRCT2 0.5.6 ported to big-endian ppc64, packaged, installed on the PS3 and baselined, not
 played yet. Under qemu-ppc64 the build matches amd64 bit for bit on every check (gtest 275/275, 35 parks after
 10000 ticks, 210 screenshots, 169 track designs: [the port](investigations/2026-10-19-big-endian-port.md)).
-Software renderer only (the GL engine needs GL 3.3 core). It needs the licensed `rct2-data` package, built
-from the player's own RCT2 CD. On the PS3 it runs at 21-24 fps in Electric Fields (10 fps in Six Flags Magic
+Software renderer only (the GL engine needs GL 3.3 core). It needs RollerCoaster Tycoon 2's data from the
+player's own copy: game-data-packager's `roller-coaster-tycoon2-data` (build.toml `[data_setup]`, in
+`/usr/share/games/roller-coaster-tycoon2`, a path upstream searches; not yet tried on the PS3) or our licensed
+`rct2-data` (from the CD, `/usr/share/games/rct2`, the path our patch 0005 adds). On the PS3 it runs at 21-24 fps in Electric Fields (10 fps in Six Flags Magic
 Mountain) with the console's RAM nearly gone.
 
 - **Package** (`0.5.6+ds-1+ps3.N`, [packages/openrct2](packages/openrct2/), `TYPE=upstream`): debs `openrct2`

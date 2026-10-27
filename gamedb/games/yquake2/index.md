@@ -12,7 +12,7 @@ data_steps = [
   "Install the tool: `sudo apt update && sudo apt install game-data-packager`.",
   "Download the free Quake II demo (39 MB) and make a package from it: `mkdir -p ~/game-data && /usr/games/game-data-packager -d ~/game-data quake2 --package quake2-demo-data`.",
   "Install it: `sudo apt install ~/game-data/quake2-demo-data_*_all.deb`. The data lands in `/usr/share/games/quake2-demo/baseq2`, where the Quake II (demo) menu entry looks.",
-  "For the full game from your own copy (CD, GOG or Steam), use this instead of the last two steps, with the folder that holds `baseq2/pak0.pak` and the `baseq2/video` folder: `/usr/games/game-data-packager -d ~/game-data quake2 --package quake2-full-data /path/to/Quake2`, then `sudo apt install ~/game-data/quake2-full-data_*_all.deb`. The data lands in `/usr/share/games/quake2/baseq2`, which the demo's menu entry does not use: start the full game from a terminal with `ps3-game /usr/lib/yamagi-quake2/quake2 +set vid_renderer gl1 +set vid_fullscreen 1 +set r_mode -2`.",
+  "For the full game from your own copy (CD, GOG or Steam), use this instead of the last two steps, with the folder that holds `baseq2/pak0.pak` and the `baseq2/video` folder: `/usr/games/game-data-packager -d ~/game-data quake2 --package quake2-full-data /path/to/Quake2`, then `sudo apt install ~/game-data/quake2-full-data_*_all.deb`. The data lands in `/usr/share/games/quake2/baseq2`, which the demo's menu entry does not use: start the full game from a terminal with `ps3-game /usr/lib/yamagi-quake2/quake2 -datadir /usr/share/games/quake2 +set vid_renderer gl1 +set vid_fullscreen 1 +set r_mode -2` (its menu entry, Quake II, stays hidden until Walnut's menu learns to look for the data; it comes with the data import).",
   "Start Quake II (demo) from the menu.",
 ]
 controller = "keyboard"
@@ -60,13 +60,13 @@ with `sudo apt install ./file.deb`.
 
 The demo is installed in `/usr/share/games/quake2-demo/baseq2` and the full game in
 `/usr/share/games/quake2/baseq2`. The two packages use different folders. The Quake II (demo) menu entry
-passes `-datadir /usr/share/games/quake2-demo`, so it always plays the demo. Yamagi Quake II looks in
-`/usr/share/games/quake2` when it is given no `-datadir` (checked in Debian's binary), so the full game starts
-from a terminal with the same command as the menu entry minus that option:
+passes `-datadir /usr/share/games/quake2-demo`, so it always plays the demo. The full game starts
+from a terminal with the same command as the demo's menu entry, with `-datadir /usr/share/games/quake2`:
 
-    ps3-game /usr/lib/yamagi-quake2/quake2 +set vid_renderer gl1 +set vid_fullscreen 1 +set r_mode -2
+    ps3-game /usr/lib/yamagi-quake2/quake2 -datadir /usr/share/games/quake2 +set vid_renderer gl1 +set vid_fullscreen 1 +set r_mode -2
 
-The full game has no menu entry of its own yet.
+Its menu entry, Quake II, is installed but hidden until Walnut's menu learns to show it once
+`baseq2/pak0.pak` is there (coming with the data import, as is `walnut-data import yquake2 /path/to/Quake2`).
 
 ### Common problems
 

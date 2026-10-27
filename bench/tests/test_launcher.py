@@ -65,6 +65,20 @@ class Launchers(unittest.TestCase):
         self.assertEqual(launcher.game_argv(f["oa-extra.desktop"]), ["env", "FOO=1", "openarena", "+set", "x", "1"])
         self.assertEqual(launcher.game_argv(["FOO=1", "game"]), ["env", "FOO=1", "game"])
 
+    def test_game_stamp(self):
+        """X-Walnut-Game: with --game, an entry stamped for another game is left out (games sharing an
+        engine), its own and unstamped ones stay; without --game every entry counts as before"""
+        entry(self.apps / "oa-gl1.desktop", "OpenArena (GL 1.2)", "ps3-game openarena", **{"X-Walnut-Game": "openarena"})
+        entry(self.apps / "oa-mod.desktop", "A mod", "ps3-game openarena +set fs_game mod", **{"X-Walnut-Game": "mod"})
+        files = launcher.package_files(["openarena"], str(self.dpkg))
+        names = lambda g: [x[0] for x in launcher.launchers(files, str(self.rt), str(self.apps), g)]   # noqa: E731
+        self.assertEqual(names("openarena"), ["oa-gl1.desktop", "oa-gl2.desktop", "oa-extra.desktop"])
+        self.assertEqual(names("mod"), ["oa-gl2.desktop", "oa-extra.desktop", "oa-mod.desktop"])
+        self.assertEqual(names(None), ["oa-gl1.desktop", "oa-gl2.desktop", "oa-extra.desktop", "oa-mod.desktop"])
+        # a runtime copy carries the stamp too: it is checked, not the installed one's
+        entry(self.rt / "applications" / "oa-mod.desktop", "A mod", "ps3-game openarena --rt", **{"X-Walnut-Game": "mod"})
+        self.assertNotIn("oa-mod.desktop", names("openarena"))
+
     def test_choose(self):
         f = self.found()
         for want in ("oa-gl2.desktop", "oa-gl2", "OpenArena (GL 2.0)"):
@@ -104,6 +118,13 @@ class Cli(unittest.TestCase):
         p = self.run_launcher("--choose", "zzz", "game")
         self.assertEqual((p.returncode, p.stdout), (2, ""))
         self.assertIn("Game B", p.stderr)
+
+    def test_game_option(self):
+        entry(self.apps / "b.desktop", "Game B", "ps3-game game --b", **{"X-Walnut-Game": "other"})
+        p = self.run_launcher("--game", "game", "game")
+        self.assertEqual(p.stdout.splitlines(), ["a.desktop\tGame A", "a.desktop\tGame A"])
+        p = self.session("Game B")                     # session.sh passes its game's id
+        self.assertEqual(p.returncode, 2)
 
     def test_none_exits_3(self):
         self.assertEqual(subprocess.run([sys.executable, "-I", str(HARNESS / "launcher.py"), "--apps", str(self.apps),

@@ -3,7 +3,8 @@
 file the website's templates (Hugo reads it as data) and the desktop app (later, packaged) use.
 
 Design
-- Per game: the front matter (index.md, and build.toml's packages, needs_data, desktop and recipes), the rating computed by score.combine() from its sessions' result.toml (rating/sessions/<run>/)
+- Per game: the front matter (index.md, and build.toml's packages, needs_data, desktop, recipes and data_setup
+  with its present_any, check.data_setup_facts), the rating computed by score.combine() from its sessions' result.toml (rating/sessions/<run>/)
   (never stored: change the scoring and every medal follows), a test summary per test, the badges
   and the "patched by Walnut" facts. The result:
     {"schema": 1, "generated": "<UTC>", "content_date", "revision", "games": [{"id", "title", ..., "rating": {...}, "tests": [...],
@@ -347,7 +348,9 @@ def build_game(gdir, repo, debs):
                             "desktop", "needs_data", "controller") if k in fm}
     g.update({k: fm.get(k, v) for k, v in (("recipes", []), ("fps_cap", None), ("data_guide", None), ("data_steps", []),
                                            ("medal_note", None), ("known_issues", []))})
-    g.update(thumb="games/%s/thumb.png" % fm["id"], patched=bool(patches), patches=patches, debs=links, badges=badges,
+    if fm.get("data_setup"):
+        g["data_setup"] = fm["data_setup"]   # only a game that has one: the others' entries stay as they were
+    g.update(thumb="games/%s/thumb.png" % fm["id"] if (gdir / "thumb.png").is_file() else None, patched=bool(patches), patches=patches, debs=links, badges=badges,
              rating=dict(best["rating"], launcher=best["name"]), launchers=launchers, tests=out_tests)
     return g
 

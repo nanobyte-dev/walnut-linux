@@ -1,0 +1,10 @@
+# How Doom II: Hell on Earth is built, installed and integrated (gamedb/README.md "build.toml").
+# DSDA-Doom (the dsda-doom bundle, which puts it in ps3-games); the WAD from the player's own copy
+packages = ["dsda-doom"]
+suite = "none"
+needs_data = true
+
+[data_setup]
+gdp = "doom2"
+required = ["doom2-wad"]
+hint = "DOOM2.WAD from Doom II 1.9: a CD, an installed copy, Steam's common/Doom 2 folder or the GOG installer."

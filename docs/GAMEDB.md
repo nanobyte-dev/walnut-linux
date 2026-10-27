@@ -436,7 +436,7 @@ buttons Install, Remove, Play and "Open on the web". The window follows the Waln
   `WALNUT_GAMES_OFFLINE=1` disables the network.
 - **Web-only games.** Thumbnails and screenshots missing from the package are fetched once from the
   website (`games/<id>/thumb.png`, the tests' picture paths) and cached in `~/.cache/walnut-games`; a
-  missing thumbnail shows the placeholder. Install stays on the packaged catalog (the helper maps ids
+  missing thumbnail (a game may have none: the catalog's `thumb` is then null) shows the placeholder. Install stays on the packaged catalog (the helper maps ids
   to packages from it): a game only on the website shows Install off with "Install it after the next
   Walnut Games update". Play and Remove work for installed games.
 - **Installed** comes from `dpkg-query`. **Play** finds the game's launchers in its packages'
@@ -458,9 +458,20 @@ buttons Install, Remove, Play and "Open on the web". The window follows the Waln
   --no-remove` (after `apt-get update` when the lists are over a day old) with the configuration files
   kept, noninteractive; remove simulates first and refuses, before touching anything, if the simulation
   removes anything but the game's own packages and the `ps3-games` / `ps3-games-free` metapackages, and in
-  the metapackage case first marks the other installed packages it depends on as manually installed;
+  the metapackage case first marks the other installed packages it depends on as manually installed (a
+  package another installed game lists too stays, below);
   it never runs autoremove; SIGHUP and SIGPIPE are ignored, so closing the app never stops dpkg halfway.
   Output is `progress N text`, `log`, `error` lines; exit 0 done, 2 refused, 1 apt failed.
+- **Data setup.** A game whose data comes from the player's own copy (Doom, Quake's full game, RollerCoaster
+  Tycoon 2 for OpenRCT2, TTD's original graphics for OpenTTD) has a `[data_setup]` in its build.toml
+  (gamedb/README.md): the game-data-packager game, the packages any one of which makes it playable, the
+  optional ones, the ones allowed to download their official patch files, and a hint where the files are.
+  The catalog carries it with `present_any`, those packages plus the licensed suite's builds of the same
+  data; the app shows "Your game data is installed" when one of them is. Games on one engine are kept
+  apart: every launcher of ours is stamped `X-Walnut-Game=<id>`, Play lists a game's own, and removing
+  Doom while Freedoom's game still uses dsda-doom removes only Doom's data. Today the page lists the
+  manual steps (game-data-packager from Debian's contrib, then `apt install` of the deb it makes); the
+  import itself (a button and `walnut-data import <id> <path>`, PLAN 5.10) is still to come.
 - Tests: `packages/walnut/apps/walnut-games/tests/test_walnut_games.py` (make test ONLY=walnut-games): the helper's validation,
   catalog mapping, cascade refusal (with a fake `apt-get -s`), install arguments and status relay (a fake
   apt-get writes to the status descriptor), Exec parsing, filters, and a window smoke test on a private

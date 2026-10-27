@@ -1,0 +1,10 @@
+# How Doom is built, installed and integrated (gamedb/README.md "build.toml").
+# DSDA-Doom (the dsda-doom bundle, which puts it in ps3-games); the WAD from the player's own copy
+packages = ["dsda-doom"]
+suite = "none"
+needs_data = true
+
+[data_setup]
+gdp = "doom"
+required = ["doom-wad"]
+hint = "DOOM.WAD from Doom 1.9 or The Ultimate Doom: a CD, an installed copy, Steam's common/Ultimate Doom folder or the GOG installer."

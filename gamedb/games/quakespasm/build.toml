@@ -12,3 +12,10 @@ recipes = ["quakespasm:base"]
 name = "quake-shareware"
 builder = "game-data-packager:quake"
 leak_files = ["*id1/pak[0-9].pak"]
+
+[data_setup]
+gdp = "quake"
+required = ["quake-shareware", "quake-registered"]
+# a 1.01 CD's id1/pak0.pak needs 1.06's, which game-data-packager takes from the shareware download
+downloads = ["quake-registered"]
+hint = "Quake's id1/pak0.pak and id1/pak1.pak: its CD, an installed copy (Steam, GOG) or GOG's installer."

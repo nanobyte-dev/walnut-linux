@@ -207,6 +207,28 @@ class Licensed(Tree):
         write(self.root, "gamedb/games/g/build.toml", '[[licensed]]\nname = "g-data"\n[[licensed]]\nname = "game-data"\n')
         self.assertIn("g-music", " ".join(self.check("HEAD~1")))
 
+    def test_data_setup_names(self):
+        """[data_setup] required and optional are licensed names (game-data-packager's packages of the
+        player's own copy); downloads and hint add none; check stays consistent and refuses a package
+        directory of that name outside a licensed location"""
+        git(self.root, "init", "-q")
+        write(self.root, "gamedb/games/d/build.toml", 'packages = ["dsda-doom"]\n[data_setup]\ngdp = "final-doom"\n'
+              'required = ["plutonia-wad", "tnt-wad"]\noptional = ["doom-extra"]\ndownloads = ["tnt-wad"]\nhint = "x"\n')
+        self.assertEqual(licensed.names(self.root), {"quake-shareware", "rct2-data", "ps3-games-licensed",
+                                                     "plutonia-wad", "tnt-wad", "doom-extra"})
+        r = self.run_tool(sys.executable, "-I", "tools/licensed.py", "is-licensed", "tnt-wad")
+        self.assertEqual(r.returncode, 0)
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "one")
+        self.assertEqual(self.check(), [])
+        self.pkg("packages/patched/games/tnt-wad")
+        self.assertIn("outside packages/licensed/", " ".join(self.check()))
+        shutil.rmtree(self.root / "packages/patched/games/tnt-wad")
+        write(self.root, "gamedb/games/d/build.toml", '[data_setup]\nrequired = ["Bad Name"]\n')
+        self.assertEqual(self.run_tool(sys.executable, "-I", "tools/licensed.py", "names").returncode, 2)
+        write(self.root, "gamedb/games/d/build.toml", 'data_setup = "doom-wad"\n')
+        self.assertEqual(self.run_tool(sys.executable, "-I", "tools/licensed.py", "names").returncode, 2)
+
     def test_public_checkout(self):
         git(self.root, "init", "-q")
         git(self.root, "add", "-A")

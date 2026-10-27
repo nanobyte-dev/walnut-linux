@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
 Name=DSDA-Doom (software)
-Comment=Doom, software renderer at 960x540
-Exec=ps3-game dsda-doom -vidmode software -width 960 -height 540 -fullscreen %F
+Comment=Freedoom: Phase 2, software renderer at 960x540
+Exec=ps3-game dsda-doom -iwad /usr/share/games/doom/freedoom2.wad -vidmode software -width 960 -height 540 -fullscreen %F
 Icon=dsda-doom
 Terminal=false
 Categories=Game;ActionGame;

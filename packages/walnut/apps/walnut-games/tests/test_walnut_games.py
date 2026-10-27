@@ -318,6 +318,59 @@ class Remove(unittest.TestCase):
         r, _ = run_say(helper.do_remove, "beta", GAMES, runner, lambda a: (0, []))
         self.assertIsInstance(r, helper.AptFailed)
 
+    SHARED = {
+        "dsda-doom": {"id": "dsda-doom", "packages": ["dsda-doom", "freedoom"]},
+        "doom": {"id": "doom", "packages": ["dsda-doom"],
+                 "data_setup": {"required": ["doom-wad"], "optional": [], "present_any": ["doom-wad"]}},
+        "heretic": {"id": "heretic", "packages": ["dsda-doom"],
+                    "data_setup": {"required": ["heretic-wad"], "present_any": ["heretic-wad", "heretic-lic"]}},
+    }
+
+    def test_shared_engine_stays(self):
+        # removing Doom while Freedoom's game is installed: only Doom's data goes, the engine stays
+        log, calls = [], []
+        inst = {"dsda-doom", "freedoom", "doom-wad"}
+        r, out = run_say(helper.do_remove, "doom", self.SHARED, fake_runner(inst, "Remv doom-wad [89]\n", log=log),
+                         lambda a: (calls.append(a), (0, []))[1])
+        self.assertIsNone(r)
+        self.assertEqual(calls, [["remove", "doom-wad"]])
+        self.assertIn("log kept for dsda-doom: dsda-doom", out)
+        # the data would take more with it (or a metapackage): refused, nothing touched
+        calls.clear()
+        r, out = run_say(helper.do_remove, "doom", self.SHARED,
+                         fake_runner(inst, "Remv doom-wad [89]\nRemv ps3-games [1]\n"), lambda a: calls.append(a))
+        self.assertIsInstance(r, helper.Refused)
+        self.assertEqual(calls, [])
+        # no data installed: nothing of its own to remove, the engine untouched
+        r, out = run_say(helper.do_remove, "doom", self.SHARED, fake_runner({"dsda-doom", "freedoom"}, ""),
+                         lambda a: calls.append(a))
+        self.assertIsNone(r)
+        self.assertEqual(calls, [])
+        self.assertEqual(out[-1], "progress 100 nothing of this game's own to remove")
+
+    def test_shared_engine_in_use_by_a_data_game(self):
+        # Freedoom's game goes while Heretic (its licensed-suite data installed) still uses the engine:
+        # freedoom goes, dsda-doom stays
+        calls = []
+        r, out = run_say(helper.do_remove, "dsda-doom", self.SHARED,
+                         fake_runner({"dsda-doom", "freedoom", "heretic-lic"}, "Remv freedoom [1]\n"),
+                         lambda a: (calls.append(a), (0, []))[1])
+        self.assertIsNone(r)
+        self.assertEqual(calls, [["remove", "freedoom"]])
+        self.assertIn("log kept for heretic: dsda-doom", out)
+
+    def test_engine_goes_when_no_other_game_uses_it(self):
+        # Doom and Heretic without their data don't hold the engine: Freedoom's game removes as before
+        calls = []
+        r, _ = run_say(helper.do_remove, "dsda-doom", self.SHARED,
+                       fake_runner({"dsda-doom", "freedoom"}, "Remv dsda-doom [1]\nRemv freedoom [1]\n"),
+                       lambda a: (calls.append(a), (0, []))[1])
+        self.assertIsNone(r)
+        self.assertEqual(calls, [["remove", "dsda-doom", "freedoom"]])
+        bad = dict(self.SHARED, doom=dict(self.SHARED["doom"], data_setup={"required": ["Bad Name"]}))
+        self.assertIsInstance(run_say(helper.do_remove, "doom", bad, fake_runner({"dsda-doom", "freedoom"}, ""),
+                                      lambda a: (0, []))[0], helper.Refused)
+
     def test_status(self):
         _, out = run_say(helper.do_status, "alpha", GAMES, fake_runner({"alpha"}, ""))
         self.assertEqual(out, ["status partial"])
@@ -390,6 +443,36 @@ class AppFunctions(unittest.TestCase):
             self.assertEqual([c[0] for c in got], ["T", "X", "B"])
             self.assertEqual(got[1][1], ["ps3-game", "env", "X=1", "openarena", "+a"])
             self.assertEqual(app.play_commands(g, str(rt), str(apps)), [])
+
+    def test_play_keeps_the_games_own_stamped_entries(self):
+        # games sharing an engine (dsda-doom: Freedoom and Doom): an entry stamped X-Walnut-Game is only
+        # its game's; unstamped entries count for any game, as before; a game without an id sees all
+        with tempfile.TemporaryDirectory() as d:
+            apps = Path(d) / "apps"
+            apps.mkdir()
+            (apps / "dsda-doom-gl.desktop").write_text("[Desktop Entry]\nName=F\nExec=ps3-game dsda-doom -iwad f\n"
+                                                       "X-Walnut-Game=dsda-doom\n")
+            (apps / "doom-dsda.desktop").write_text("[Desktop Entry]\nName=D\nExec=ps3-game dsda-doom -iwad d\n"
+                                                    "X-Walnut-Game=doom\n")
+            (apps / "plain.desktop").write_text("[Desktop Entry]\nName=P\nExec=ps3-game dsda-doom\n")
+            files = lambda: ["/usr/games/dsda-doom"]   # noqa: E731
+            label = lambda g: [c[0] for c in app.play_commands(g, None, str(apps), files=files)]   # noqa: E731
+            self.assertEqual(label({"id": "doom", "packages": ["dsda-doom"]}), ["D", "P"])
+            self.assertEqual(label({"id": "dsda-doom", "packages": ["dsda-doom", "freedoom"]}), ["F", "P"])
+            self.assertEqual(label({"packages": ["dsda-doom"]}), ["D", "F", "P"])
+            self.assertEqual([c[0] for c in app.play_commands({"id": "doom", "desktop": ["dsda-doom-gl.desktop"]},
+                                                              None, str(apps))], [])
+
+    def test_data_present(self):
+        g = {"id": "quakespasm", "packages": ["quakespasm"],
+             "data_setup": {"required": ["quake-shareware", "quake-registered"], "optional": ["quake-music"],
+                            "present_any": ["quake-shareware", "quake-registered", "quake-lic"]}}
+        self.assertEqual(app.data_packages(g), ["quake-shareware", "quake-registered", "quake-lic", "quake-music"])
+        self.assertFalse(app.data_present(g, {"quakespasm", "quake-music"}))
+        self.assertTrue(app.data_present(g, {"quake-registered"}))
+        self.assertTrue(app.data_present(g, {"quake-lic"}))          # the licensed suite's build of the data
+        self.assertIsNone(app.data_present({"packages": ["x"]}, set()))
+        self.assertIsNone(app.data_present({"data_setup": {"required": [], "optional": ["ttd"], "present_any": []}}, set()))
 
     def test_entry_program(self):
         # a full path stays one (matched against the package's files), a bare name is matched by name
@@ -521,6 +604,9 @@ class Freshness(unittest.TestCase):
         self.assertIs(app.validate_catalog(c), c)
         app.validate_catalog({"games": [good_game(launchers=[{"name": "x", "rating": {"medal": "Tin"}}],
                                                   patches=[{"subject": "s"}], known_issues=["k"])]})
+        app.validate_catalog({"games": [good_game(thumb=None, data_setup={
+            "gdp": "doom", "required": ["doom-wad"], "optional": [], "downloads": [], "hint": None,
+            "present_any": ["doom-wad"]})]})
 
     def test_validate_rejects_bad_ones(self):
         bad = [None, [], {}, {"games": []}, {"games": "x"}, {"games": [1]},
@@ -533,7 +619,9 @@ class Freshness(unittest.TestCase):
                {"games": [good_game(patches=[{}])]}, {"games": [good_game(launchers=[{"name": "x"}])]},
                {"games": [good_game(tests=[{"ps3": ["../../etc/passwd"]}])]},
                {"games": [good_game(tests=[{"ps3": ["/etc/passwd"]}])]},
-               {"games": [good_game(tests=[{"ps3": "x.jpg"}])]}]
+               {"games": [good_game(tests=[{"ps3": "x.jpg"}])]},
+               {"games": [good_game(data_setup=["doom-wad"])]}, {"games": [good_game(data_setup={"required": "doom-wad"})]},
+               {"games": [good_game(data_setup={"present_any": [1]})]}, {"games": [good_game(data_setup={"hint": 3})]}]
         for b in bad:
             with self.assertRaises(ValueError, msg=repr(b)[:80]):
                 app.validate_catalog(b)

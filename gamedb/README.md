@@ -53,7 +53,7 @@ gamedb/
     technical.md                    the current technical state
     todo.toml                       the backlog
     upstream.md, upstream/*.patch   offers of our game patches to upstream (optional)
-    thumb.png
+    thumb.png                       optional (the catalog's thumb is then null)
     investigations/<date>-<slug>.md one investigation; <date>-<slug>/ holds its attachments
     packages/<pkg>/                 our source packages for this game
     licensed/<pkg>/                 licensed data packages and their builders (never public)
@@ -123,6 +123,7 @@ and `needs_data`; a draft has a build.toml only when something about its build i
 | `divert` | list | absolute paths of files of the game's packages we divert: the game's own menu entries, which our launchers stand for (`ps3-games-integration`'s preinst moves each to `/usr/share/ps3-games/diverted<path>`, out of the menu's reach) |
 | `image_base` | bool | its packages are in the image's package layer (`tools/gamedb/build-info.py image-base`, the Makefile's `ROOTFS_GAMES`; system/image/packages.txt names only generic packages) |
 | `recipes` | list | the bench runs that stand for the game, `"<id>:<variant>"` of its own `benchmark/recipe.sh` (the catalog's `recipes`) |
+| `[data_setup]` | table | the player's own data, made into packages by game-data-packager (below) |
 | `[[licensed]]` | tables | the game's licensed data: `name` (the package), `builder` (`source`: a source package of ours in `licensed/<name>/`; `script`: `licensed/<name>/<name>.sh` run on the owner's own copy, `make licensed-data PKG=<name> INPUT=<file>`; `game-data-packager:<game>`: `make game-data`), `leak_files` (paths of its content in upstream tarballs, leak globs), `meta` (bool: `ps3-games-licensed` depends on it; by default true for a game with suite `licensed`; BananaBread's `sauerbraten-nonfree-data` sets it) |
 
 Every `licensed/<pkg>/` directory of a bundle has its `[[licensed]]` entry, and every `source` or `script`
@@ -131,8 +132,8 @@ The catalog's `patched_by` is no key: it is the source packages of ours in the b
 engine's (`check.patched_by`). An engine's build.toml takes `packages` (the engine's packages its games run)
 and `[[licensed]]` only.
 
-Read by: `tools/gamedb/check.py` (validates), `catalog.py` (packages, needs_data, desktop, recipes),
-`tools/licensed.py` (`[[licensed]]` names and leak_files), `tools/gamedb/build-info.py` (for the Makefile's
+Read by: `tools/gamedb/check.py` (validates), `catalog.py` (packages, needs_data, desktop, recipes, data_setup),
+`tools/licensed.py` (`[[licensed]]` names and leak_files, `[data_setup]` names), `tools/gamedb/build-info.py` (for the Makefile's
 `make game-data` and `make licensed-data`, `tools/image-packages.sh`'s licensed-suite games, `tools/play-pc.sh`'s
 packages and data, `image-base`, `own-packages` for `make game-debs`), `tools/gamedb/pack-integration.py`
 (suite, packages, meta, divert, `[[licensed]]` meta: the metapackages' Depends and the integration package).
@@ -143,6 +144,34 @@ rating/sessions/*/*, rating/sessions/*/shots/* and packages/*/patches/** for the
 ps3-games-licensed), never a session's raw/, technical.md, investigations, todo.toml, benchmark/ or
 research. `tools/deb-version.sh` reads a pattern there as GitHub's path filters do: `*` within one
 path component, `**` across them.
+
+#### [data_setup]
+
+How the player's own copy of the game's data becomes packages (PLAN 5.10: Walnut Games and `walnut-data`
+run Debian's game-data-packager, gdp, on a disc, an ISO, an installer or an installed copy). Separate from
+`data`, which only `tools/play-pc.sh` reads. A closed key set (`check.py` DATA_SETUP_KEYS):
+
+| Key | Type | Meaning |
+|---|---|---|
+| `gdp` | string | required: the gdp game (`game-data-packager <gdp> ...`), e.g. `quake`, `final-doom`, `ttd` |
+| `required` | list | required: gdp packages any one of which makes the game playable (Plutonia or TNT); empty when the data is optional (OpenTTD's original graphics): then `needs_data` is false, else true |
+| `optional` | list | gdp packages that add to it (music, the original set in place of a free one) |
+| `downloads` | list | the packages (of the two lists) whose gdp run may download the files gdp knows for them: official patches (Quake II 3.20, Quake 1.06's pak0, TNT's MAP31 fix), nothing else |
+| `hint` | string | where the files are, shown by the app (the CD, an installed copy, Steam, GOG) |
+
+`check.py` checks the gdp game and every package against `tools/gamedb/gdp-packages.json` (game -> its
+packages, and gdp's version), a committed file, so the check needs no docker and no network. After the games
+builder's gdp changes, `make gdp-index` (`tools/gamedb/gdp-index.py`, gdp's own loader inside the builder
+image, `--network none`) rewrites it; commit the result. Every `required` and `optional` name is licensed
+(`tools/licensed.py`: never in `packages`, never published by us).
+
+The catalog carries the table with every key filled in and `present_any`: `required`, then the game's
+`data` and `[[licensed]]` names (the licensed suite's builds of the same data, for the owner's console:
+`rct2-data` next to `roller-coaster-tycoon2-data`, `quake-shareware`). The game's data counts as installed
+when any one of `present_any` is (the app's "Your game data is installed"; the helper's `remove`, which
+keeps an engine another installed game still uses: dsda-doom for Freedoom, Doom and Heretic, and removes
+only the game's own packages and its data). A game without `[data_setup]` has no `data_setup` in the
+catalog.
 
 ### games/<id>/packages/<pkg>/, engines/<e>/packages/<pkg>/
 
@@ -175,7 +204,12 @@ How the game is integrated into the PS3 desktop, as files (`tools/gamedb/check.p
 
 - `launchers/*.desktop`: our menu entries, one per way to start the game (OpenArena's two renderers); the
   Exec starts it through `ps3-game` (game mode). `pack-integration.py` adds `TryExec=` the program Exec runs
-  (past `env` and `VAR=value`), so the entry shows only when the game is installed.
+  (past `env` and `VAR=value`), so the entry shows only when the game is installed, and `X-Walnut-Game=<id>`:
+  the Walnut Games app (`play_commands`) and `bench/harness/launcher.py --game` keep only a game's own
+  stamped entries, so games on one engine (dsda-doom: Freedoom, Doom, Heretic) don't list each other's.
+  An entry that needs the player's data (one per IWAD, Quake II's full game) has `NoDisplay=true` and
+  `X-Walnut-Requires=<the data file, an absolute path>`; ps3-game-menu is to show it once the file exists
+  (PLAN 5.10, *planned*).
 - `files/<absolute path>`: config files installed as they are (OpenArena's PS3 defaults:
   `files/usr/lib/openarena/baseoa/autoexec.cfg`). Two games installing one path is an error.
 - `migrate-home.txt`: `<path in the home> [<packaged default>]` per line (`#` comments): files the old image

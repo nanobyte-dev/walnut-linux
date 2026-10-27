@@ -1,0 +1,12 @@
+# How Final Doom is built, installed and integrated (gamedb/README.md "build.toml").
+# DSDA-Doom (the dsda-doom bundle, which puts it in ps3-games); the WADs from the player's own copy
+packages = ["dsda-doom"]
+suite = "none"
+needs_data = true
+
+[data_setup]
+gdp = "final-doom"
+required = ["plutonia-wad", "tnt-wad"]
+# tnt31fix.zip (TNT's MAP31 fix), from the idgames mirrors game-data-packager knows
+downloads = ["tnt-wad"]
+hint = "TNT.WAD and PLUTONIA.WAD from Final Doom: a CD, an installed copy, Steam's common/Final Doom folder or the GOG installer. TNT also needs tnt31fix.zip, which is downloaded."
