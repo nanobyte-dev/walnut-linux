@@ -27,8 +27,11 @@ Mountain) with the console's RAM nearly gone.
   build (identical to little-endian); tests not run in the build (they need RCT2 data). About 45 min a build
   under qemu. Sizes: openrct2 5.7 MB (installed 31 MB), openrct2-data 23 MB (37 MB), openrct2-music 43 MB.
 - The headless CLI needs `game_path` in its config (upstream searches for RCT2 only when not headless):
-  `openrct2-cli set-rct2 /usr/share/games/rct2` once; the GUI finds it by itself. The RCT2 data lacks
-  `ObjData/BATTRRAM.POB` (a medieval music file of the CD install): a harmless warning.
+  `openrct2-cli set-rct2 /usr/share/games/rct2` once; the GUI finds it by itself. With the base game's data
+  alone the log says `Unable to open ObjData/BATTRRAM.POB`: OpenRCT2's bundled objects include Time Twister's
+  (rct2tt.ride.battrram, the battering ram), whose images point at `ObjData/BATTRRAM.DAT`; `FindLegacyObject`
+  tries `.DAT`, then `.POB`, and names the last one it tried. No release has a `.POB`; the `.DAT` is in the
+  expansions package (below), and with it installed the warning goes.
 - **Data**: the licensed suite's `roller-coaster-tycoon2-data` is game-data-packager's own package, made
   from the owner's RollerCoaster Tycoon 2 CD image (`make licensed-data PKG=roller-coaster-tycoon2-data
   INPUT=<image>`: the ISO unpacked with 7z, gdp 89 with `unshield` in the games builder, about a minute; a
@@ -37,6 +40,23 @@ Mountain) with the console's RAM nearly gone.
   (`rct2-data.sh`, now retired: `/usr/share/games/rct2`, about 115 MB without the ride music): its published
   1.0-2 stays, the benchmark recipe still points at its path, and the console counts either as the game's
   data. Nothing from the disc is run; the packages go to the licensed suite only, the data is never committed.
+- **Sources the console's import takes** (gdp 89 with our patch 0009, checked on the PS3 2026-10-27): the 2002 CD
+  (in the drive or as an ISO: base only, release `cd`), the GOG Triple Thrill Pack installer
+  `setup_rollercoaster_tycoon_2_triple_thrill_pack_2.01.043_(17987).exe`, a Steam or GOG install folder, and both
+  builds of GOG's `setup_rollercoaster_tycoon2_2.0.0.6.exe`. That name covers two installers: the 519354792-byte one
+  gdp knew and a 2012 build of 519393624 bytes (goggame.dll, GameuxInstallHelper.dll), which gdp 89 refused as
+  `unknown-version`. Patch 0009 adds the second build as `setup_rollercoaster_tycoon2_2.0.0.6.exe?gog_2012`. Both
+  are the Triple Thrill Pack, with all 2454 files of the two packages identical to the TTP installer's. A Steam-rip
+  folder of the TTP (a repacked GOG install) has 17 Wacky Worlds files that match no release: four scenarios
+  (`South America - Rio Carnival.SC6` 630097 bytes instead of 630453, Oasis, African Diamond Mine, Great Wall of
+  China) and 13 ObjData objects (HIPPO01/02, 1X2LION, LINCOLNS, STEX54-64, ...). Both GOG installers carry the
+  files gdp knows, so the rip's versions get no alternative. From that copy the base game imports; the expansions
+  package can't be made (gdp: "could not find ObjData/HIPPO01.DAT").
+- **Expansions**: `roller-coaster-tycoon2-wacky-worlds-time-twister-data` (gdp's `expansion_for` the base
+  package, 1416 files, installed into the same `/usr/share/games/roller-coaster-tycoon2`) is optional in
+  `[data_setup]` (edition `expansion`): a plain import asks gdp for both, the expansions only where the source has them. With it,
+  OpenRCT2 indexes 57 scenarios instead of 26, shows Wacky Worlds and Time Twister tabs, loads Time Twister's
+  Sherwood Forest, and logs no `BATTRRAM` warning.
 - **Screenshots of a windowed OpenRCT2 come out blue and purple**: the game draws right (webcam), but SDL's GL
   window has a GLX visual with byte-swapped masks (red 0xff00, green 0xff0000, blue 0xff000000) and xwd
   decodes the window through them. Fullscreen captures are right. Not the data, not the build:
