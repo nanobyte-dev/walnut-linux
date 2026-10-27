@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 27 Oct 2026 22:21:59 +0200
+Subject: OPL player: no GENMIDI lump means no OPL music, not a fatal error
+
+The Macintosh Hexen CD's Hexen.WAD (21078584 bytes) is the 1.1 game but
+has no GENMIDI and no DMXGUS lump. LoadInstrumentTable() fetched GENMIDI
+with W_LumpByName(), which stops the game ("W_GetNumForName: GENMIDI not
+found", exit 255) even when another music player is selected. It now
+returns false when the lump is missing; I_OPL_InitMusic() already shuts
+the OPL down and reports failure then, so OPL music is unavailable and
+the other players (fluidsynth, SDL mixer) are unaffected.
+
+Forwarded: not yet (candidate for upstream)
+
+diff --git a/prboom2/src/MUSIC/oplplayer.c b/prboom2/src/MUSIC/oplplayer.c
+--- a/prboom2/src/MUSIC/oplplayer.c
++++ b/prboom2/src/MUSIC/oplplayer.c
+@@ -375,6 +375,13 @@ static dboolean LoadInstrumentTable(void)
+ {
+     const byte *lump;
+ 
++    // A WAD without GENMIDI (the Macintosh Hexen CD's) has no OPL
++    // instruments: the OPL player is unavailable, the game runs.
++    if (!W_LumpNameExists("GENMIDI"))
++    {
++        return false;
++    }
++
+     lump = (const byte*)W_LumpByName("GENMIDI");
+ 
+     // Check header

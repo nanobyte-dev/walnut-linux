@@ -66,7 +66,7 @@
    "symlinks": {},
    "version": "89",
    "files": {
-    "usr/share/games/doom/hexen.wad": [{"release": "1.1", "sha1": "4b53832f0733c1e29e5f1de2428e5475e891af29", "size": 20083672}]
+    "usr/share/games/doom/hexen.wad": [{"release": "1.1", "sha1": "4b53832f0733c1e29e5f1de2428e5475e891af29", "size": 20083672}, {"release": "mac", "sha256": "06baa5ee71aa87426a6baa7b705cc2ae974da0d4f6ba770c8a87f661f7a55913", "size": 21078584}]
    }
   },
   "plutonia-wad": {

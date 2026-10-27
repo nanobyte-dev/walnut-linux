@@ -4,3 +4,4 @@
 0004-screenshot-rgb24.patch
 0005-gl-batched-draws.patch
 0006-timedemo-DSDA_BENCH_LOOPS-N-repeats-the-demo-N-times.patch
+0007-OPL-player-no-GENMIDI-lump-means-no-OPL-music-not-a-.patch

@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 27 Oct 2026 22:22:31 +0200
+Subject: Accept the Macintosh Hexen CD's Hexen.WAD as hexen.wad?mac
+
+The Macintosh CD's Hexen.WAD (21078584 bytes, md5
+b68140a796f6fd7f3a5d3226a32b93be) is the 1.1 game (the same maps, sounds,
+music lumps and graphics) plus Macintosh fonts and menu art, and it has no
+GENMIDI and DMXGUS lumps (the DOS sound driver's instrument banks). gdp
+did not know it, so it gave nothing from a Mac CD. It is now an
+alternative of hexen.wad. Engines that need GENMIDI for their OPL player
+(DSDA-Doom before our patch) stop at start with this WAD; those that only
+play MIDI through another device are fine.
+
+Forwarded: not yet (candidate for Debian)
+
+diff --git a/data/hexen.yaml b/data/hexen.yaml
+--- a/data/hexen.yaml
++++ b/data/hexen.yaml
+@@ -66,6 +66,7 @@ files:
+   hexen.wad:
+     alternatives:
+     - hexen.wad?1.1
++    - hexen.wad?mac
+ 
+   # GOG.com installer (HEXEN.WAD 1.1, the CD's data track as game.gog, the
+   # CD music as Ogg Vorbis; no Deathkings)
+@@ -111,6 +112,7 @@ groups:
+     20428208  c88a2bb3d783e2ad7b599a8e301e099e hexen.wad?beta
+     20128392  b2543a03521365261d0a0f74d5dd90f0 hexen.wad?1.0
+     20083672  abb033caf81e26f12a2103e1fa25453f hexen.wad?1.1
++    21078584  b68140a796f6fd7f3a5d3226a32b93be hexen.wad?mac
+     4429700   1077432e2690d390c256ac908b5f4efa hexdd.wad?1.0
+     4440584   78d5898e99e220e4de64edaa0e479593 hexdd.wad?1.1
+     148062304 14fc90ad147cdd834f59da9e4f1fe605 setup_hexen_beyond_heretic_1.1_(42801).exe
+@@ -118,11 +120,13 @@ groups:
+ sha1sums: |
+   fa89a2475855e43c7f7e3198d6e4c4bee23bfab9  hexendemo.wad
+   4b53832f0733c1e29e5f1de2428e5475e891af29  hexen.wad?1.1
++  4343fbe5aef905ef6d077a1517a50c919e5cc906  hexen.wad?mac
+   c3065527d62b05a930fe75fe8181a64fb1982976  hexdd.wad?1.0
+   081f6a2024643b54ef4a436a85508539b6d20a1e  hexdd.wad?1.1
+   2a28810ee9333c59ba207e4e55dcdedea0ac8b69  setup_hexen_beyond_heretic_1.1_(42801).exe
+ 
+ sha256sums: |
++  06baa5ee71aa87426a6baa7b705cc2ae974da0d4f6ba770c8a87f661f7a55913  hexen.wad?mac
+   212b8a854ba1dc1cfbeb27c736f62af199057d16dd6625d3f1b54acad4acab42  setup_hexen_beyond_heretic_1.1_(42801).exe
+ 
+ ...

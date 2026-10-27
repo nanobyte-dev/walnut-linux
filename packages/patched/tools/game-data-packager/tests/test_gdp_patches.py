@@ -19,6 +19,8 @@ deb make game-data-packager-deb built into the deb builder image and runs this t
   with its sizes and checksums, unpacked and providing what the known build does (loader only).
 - 0010 hexen: GOG's setup_hexen_beyond_heretic_1.1_(42801).exe with its sizes and checksums,
   unpacked with innoextract for hexen.wad 1.1 (loader only).
+- 0011 hexen: the Macintosh CD's Hexen.WAD as hexen.wad?mac, with its size and checksums
+  (loader only).
 
 game-data-packager checks every file against its checksums, so the builds use a game of our own,
 "walnuttest" (plugin doom_common, so DoomTask writes its launchers), whose checksums are those of
@@ -517,6 +519,23 @@ class HexenGOG(unittest.TestCase):
         self.assertEqual(set(f.provides), {'hexen.wad?1.1'})
         self.assertIn('hexen.wad?1.1', g.files['hexen.wad'].alternatives)
         self.assertIsNone(g.files['hexen.wad?1.1'].unsuitable)
+
+
+class HexenMac(unittest.TestCase):
+    """0011: the Macintosh CD's Hexen.WAD, an alternative of hexen.wad"""
+
+    def test_accepted(self):
+        from game_data_packager.game import load_games
+        g = load_games()['hexen']
+        g.load_file_data()
+        f = g.files['hexen.wad?mac']
+        self.assertEqual((f.size, f.md5, f.sha1, f.sha256),
+                         (21078584, 'b68140a796f6fd7f3a5d3226a32b93be',
+                          '4343fbe5aef905ef6d077a1517a50c919e5cc906',
+                          '06baa5ee71aa87426a6baa7b705cc2ae974da0d4f6ba770c8a87f661f7a55913'))
+        self.assertIn('hexen.wad?mac', g.files['hexen.wad'].alternatives)
+        self.assertIn('hexen.wad?1.1', g.files['hexen.wad'].alternatives)
+        self.assertIsNone(f.unsuitable)
 
 
 if __name__ == '__main__':
