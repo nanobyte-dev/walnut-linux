@@ -1,0 +1,13 @@
+// Walnut (ps3-desktop): the PS3's optical drive sits on the PS3's own bus, so udisks finds no drive
+// object for /dev/sr*, can't tell which seat it belongs to and asks for the "other seat" actions
+// (admin only). The console has one seat: an active local user mounts and ejects its discs like
+// any removable medium.
+polkit.addRule(function(action, subject) {
+    var acts = ["org.freedesktop.udisks2.filesystem-mount-other-seat",
+                "org.freedesktop.udisks2.eject-media-other-seat",
+                "org.freedesktop.udisks2.power-off-drive-other-seat"];
+    if (acts.indexOf(action.id) >= 0 && subject.local && subject.active &&
+        /^\/dev\/sr[0-9]+$/.test(action.lookup("device") || "")) {
+        return polkit.Result.YES;
+    }
+});

@@ -1,0 +1,5 @@
+# Walnut (ps3-desktop): the PS3's optical drive (ps3rom, /dev/sr0) is a removable-media drive, not
+# a system disk. udisks marks it a system device (it isn't on USB), which makes mounting a disc an
+# admin action; this marks it removable and mounted on insert like a USB stick. The seat side of
+# the same problem is polkit's (/usr/share/polkit-1/rules.d/49-walnut-optical.rules).
+SUBSYSTEM=="block", KERNEL=="sr[0-9]*", ENV{UDISKS_SYSTEM}="0", ENV{UDISKS_AUTO}="1"

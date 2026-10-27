@@ -16,6 +16,11 @@ if [ "$1" = configure ]; then
 	else
 		printf 'allowed_users=anybody\nneeds_root_rights=yes\n' > /etc/X11/Xwrapper.config
 	fi
+	# the optical drive's udev rule on the running system too (a disc already in gets its new flags)
+	if [ -d /run/udev ] && command -v udevadm >/dev/null; then
+		udevadm control --reload 2>/dev/null || true
+		udevadm trigger --action=change --subsystem-match=block --sysname-match='sr[0-9]*' 2>/dev/null || true
+	fi
 	# ps3_game_prefetch.py's byte code, so ps3-game-prefetch imports it instead of compiling it
 	# (its game watcher would cost ~5 MB more); again with every python3 (runtime.d hook)
 	if command -v py3compile >/dev/null 2>&1; then

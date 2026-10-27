@@ -23,6 +23,9 @@ override_dh_auto_install:
 		$(P)/usr/lib/systemd/system-generators/ps3-desktop-autologin
 	install -D -m 644 files/profile.d/ps3-desktop.sh $(P)/etc/profile.d/ps3-desktop.sh
 	install -D -m 440 debian/sudoers $(P)/etc/sudoers.d/ps3-desktop
+	# discs in the PS3's drive mount from the desktop like any removable medium (udisks + polkit)
+	install -D -m 644 files/udev/60-walnut-optical.rules $(P)/usr/lib/udev/rules.d/60-walnut-optical.rules
+	install -D -m 644 files/polkit/49-walnut-optical.rules $(P)/usr/share/polkit-1/rules.d/49-walnut-optical.rules
 	cd files/xdg && find . -type f -exec install -D -m 644 {} ../../$(P)/etc/xdg/ps3/{} \;
 	install -d $(P)/usr/share/X11/xorg.conf.d
 	install -m 644 files/xorg/* $(P)/usr/share/X11/xorg.conf.d/
