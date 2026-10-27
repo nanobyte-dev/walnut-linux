@@ -102,7 +102,7 @@ DATA_SETUP_KEYS = {"gdp": (str, True), "required": (list, True), "optional": (li
                    "downloads": (list, False), "fetch": (list, False), "alternatives": (list, False), "hint": (str, False), "original": (str, False), "editions": (dict, True)}
 # [data_setup] editions = {package: edition}: what a data package holds (X-Walnut-Edition in the control of a
 # package walnut-games-helper import-data builds; the licensed suite's builders and the session harness read it)
-EDITIONS = ("shareware", "demo", "full", "expansion", "music")
+EDITIONS = ("shareware", "demo", "full", "expansion", "music", "remaster")
 GDP_MANIFEST = Path(__file__).resolve().parent / "gdp-manifest.json"
 GDP_INDEX = Path(__file__).resolve().parent / "gdp-packages.json"
 # an engine's build.toml: the packages the games run it from, its licensed data

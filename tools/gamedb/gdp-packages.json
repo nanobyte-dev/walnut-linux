@@ -198,7 +198,7 @@
    "primordia": ["primordia-3.0a-data", "primordia-data", "primordia-win-data"],
    "pushover": ["pushover-data"],
    "quadrilateralcowboy": ["quadrilateralcowboy-data"],
-   "quake": ["quake-aopfm", "quake-arcane-dimensions", "quake-armagon", "quake-armagon-music", "quake-dimension-of-the-machine", "quake-dissolution", "quake-dissolution-music", "quake-dopa", "quake-music", "quake-registered", "quake-shareware"],
+   "quake": ["quake-aopfm", "quake-arcane-dimensions", "quake-armagon", "quake-armagon-music", "quake-dimension-of-the-machine", "quake-dissolution", "quake-dissolution-music", "quake-dopa", "quake-music", "quake-registered", "quake-rerelease", "quake-shareware"],
    "quake2": ["quake2-demo-data", "quake2-full-data", "quake2-groundzero-data", "quake2-groundzero-music", "quake2-music", "quake2-reckoning-data", "quake2-reckoning-music", "quake2-zaero-data"],
    "quake3": ["quake3-data", "quake3-demo-data", "quake3-team-arena-data", "quake3-threewave-ctf-data"],
    "quake4": ["quake4-bin", "quake4-censored-de-data", "quake4-data"],

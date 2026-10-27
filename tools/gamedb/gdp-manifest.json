@@ -116,6 +116,30 @@
     "usr/share/games/quake/id1/pak1.pak": [{"sha256": "94e355836ec42bc464e4cbe794cfb7b5163c6efa1bcc575622bb36475bf1cf30", "size": 34257856}]
    }
   },
+  "quake-rerelease": {
+   "conflicts": [],
+   "edition": "remaster",
+   "game": "quake",
+   "launchers": false,
+   "replaces": [],
+   "required": ["usr/share/games/quake-rerelease/id1/pak0.pak", "usr/share/games/quake-rerelease/localization/loc_english.txt"],
+   "symlinks": {},
+   "version": "89",
+   "files": {
+    "usr/share/games/quake-rerelease/id1/music/track02.ogg": [{"release": "johnnylaw", "sha256": "19088385e6096ba37b111646e3b29a40e444120ca0aa2e04c6bf94f915b6cfc9", "size": 7339899}],
+    "usr/share/games/quake-rerelease/id1/music/track03.ogg": [{"release": "johnnylaw", "sha256": "9e61ab6e40b490c20a360954d61535aa11dfad959531542a926be5d24547cec7", "size": 2929576}],
+    "usr/share/games/quake-rerelease/id1/music/track04.ogg": [{"release": "johnnylaw", "sha256": "cd6894e7c8b0fc213e9c1ca04889486955004218425fe620d5c2da1bfead0df5", "size": 15480521}],
+    "usr/share/games/quake-rerelease/id1/music/track05.ogg": [{"release": "johnnylaw", "sha256": "fbdc8867217a41760bd9b39793107946f26d56e83123064a092025ffea3a14c8", "size": 7728800}],
+    "usr/share/games/quake-rerelease/id1/music/track06.ogg": [{"release": "johnnylaw", "sha256": "8500003474c37952efc7b6ad69174a72d0a0caffd76e5605011edb5d9b2c7c00", "size": 10764607}],
+    "usr/share/games/quake-rerelease/id1/music/track07.ogg": [{"release": "johnnylaw", "sha256": "d1bfdfb6460c16246f3c2149639b14bc6fda6e9dc8f3835e2a36cc8a15e58a6d", "size": 10781101}],
+    "usr/share/games/quake-rerelease/id1/music/track08.ogg": [{"release": "johnnylaw", "sha256": "a8399dad34cf27cc25fb894145d1488223a701b09f6cde7d4c1118e8f6ecbecf", "size": 7809765}],
+    "usr/share/games/quake-rerelease/id1/music/track09.ogg": [{"release": "johnnylaw", "sha256": "717ffd476401392cd1a175346ec441c9aacfde2fd0190b309e585a7144cb3aa5", "size": 7776396}],
+    "usr/share/games/quake-rerelease/id1/music/track10.ogg": [{"release": "johnnylaw", "sha256": "64ee25f576444d28153998c6186662e39a8ce7fe6aeb30792b0fec9aa6af3813", "size": 4868389}],
+    "usr/share/games/quake-rerelease/id1/music/track11.ogg": [{"release": "johnnylaw", "sha256": "44d4dc527033ab9a7b414d4fcbb5a45d4aa320dd8944986d494b9347a81678f8", "size": 7084234}],
+    "usr/share/games/quake-rerelease/id1/pak0.pak": [{"release": "rerelease", "sha256": "13e7532da066ab19d951f1ca1d2314af94ab75c7e156bd76006d339e12cb52ed", "size": 180815252}],
+    "usr/share/games/quake-rerelease/localization/loc_english.txt": [{"sha256": "7a1a3358f0d23ed3ecef623e4bf5bb77df71b296978b4c9f20a437ce0b8d3a95", "size": 77248}]
+   }
+  },
   "quake-shareware": {
    "conflicts": ["quake-registered"],
    "edition": "shareware",

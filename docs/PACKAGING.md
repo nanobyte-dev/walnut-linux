@@ -314,7 +314,7 @@ helper builds the package again from scratch: the files that match the packaged 
 - **Version.** gdp's own (`89`, or the package's `<version>+89`), as the manifest has it. These debs are
   exempt from the `+ps3.N` rule: they are not ours, never published, and must compare equal to the same
   package someone made with Debian's gdp. `Section: local/games`, so every licensed guard knows them.
-- **Fields.** `X-Walnut-Edition` (`[data_setup] editions`: shareware, demo, full, expansion, music) and,
+- **Fields.** `X-Walnut-Edition` (`[data_setup] editions`: shareware, demo, full, expansion, music, remaster) and,
   when gdp names the versions of the files it accepts, `X-Walnut-Release` (the names of the versions the
   required files matched, `+`-joined: `1.9ud`, `cd`). Conflicts/Replaces only the manifest's same-game ones.
   Our licensed builds write the same two fields ("What it holds" above).

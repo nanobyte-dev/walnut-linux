@@ -21,6 +21,14 @@ deb make game-data-packager-deb built into the deb builder image and runs this t
   unpacked with innoextract for hexen.wad 1.1 (loader only).
 - 0011 hexen: the Macintosh CD's Hexen.WAD as hexen.wad?mac, with its size and checksums
   (loader only).
+- 0012 quake-rerelease: the 2021 re-release's id1/pak0.pak and localization in a base directory of
+  their own, the CD music (quake-music's Ogg rip) as optional files, and GOG's
+  setup_quake_enhanced_1.0_(60828).exe providing them (loader only).
+- 0013 quake: --package before the game name survives the quake subparser's shortcut options
+  (-m, -s, --music, ...), which had reset it to None (gdp's own parsers, no game data).
+- 0014 --no-launchers drops a GOG installer's icon too: not tested here (it needs a real Inno Setup
+  installer and python3-pil); the PS3 import of GOG's Quake Enhanced installer is its check (TESTS
+  quake-rerelease).
 
 game-data-packager checks every file against its checksums, so the builds use a game of our own,
 "walnuttest" (plugin doom_common, so DoomTask writes its launchers), whose checksums are those of
@@ -537,6 +545,59 @@ class HexenMac(unittest.TestCase):
         self.assertIn('hexen.wad?1.1', g.files['hexen.wad'].alternatives)
         self.assertIsNone(f.unsuitable)
 
+
+
+class QuakeRerelease(unittest.TestCase):
+    """0012: the 2021 re-release as quake-rerelease, and GOG's Quake Enhanced installer"""
+    NAME = 'setup_quake_enhanced_1.0_(60828).exe'
+    # size, md5, sha1, sha256 of the user's installer and its id1/pak0.pak (the values in the patch)
+    SUMS = (607645056, 'e6bad42772689908d2d84ac2a3360fef', 'f9a61c0a2d0b0ed78cf965da330f8fbb90951adb',
+            'da3b4acc6b5c2b4c904232d0e95b1824e445f6f2298b6c5a2ba40d7355b49cff')
+    PAK = (180815252, '4cb29cb699d34510da6c465bbe54fa81', '3a4bd39c3ec40f241b12a5681db65e3bddbef934',
+           '13e7532da066ab19d951f1ca1d2314af94ab75c7e156bd76006d339e12cb52ed')
+
+    def test_accepted(self):
+        from game_data_packager.game import load_games
+        g = load_games()['quake']
+        g.load_file_data()
+        f, pak = g.files[self.NAME], g.files['id1/pak0.pak?rerelease']
+        self.assertEqual((f.size, f.md5, f.sha1, f.sha256), self.SUMS)
+        self.assertEqual((pak.size, pak.md5, pak.sha1, pak.sha256), self.PAK)
+        self.assertEqual(f.unpack['format'], 'innoextract')
+        self.assertIn('id1/pak0.pak?rerelease', f.provides)
+        self.assertIn('QuakeEX.kpf', f.provides)
+        self.assertIn('contents of quake_campaign_soundtrack.zip', f.provides)
+        p = g.packages['quake-rerelease']
+        self.assertEqual(p.install_to, '$assets/quake-rerelease')
+        self.assertEqual({w.name for w in p.install_files}, {'id1/pak0.pak?rerelease', 'localization/loc_english.txt'})
+        self.assertIn('id1/music/track02.ogg?johnnylaw', {w.name for w in p.optional_files})
+        self.assertEqual(len(p.optional_files), 10)
+        # the classic packages keep their files
+        self.assertNotIn('id1/pak0.pak?rerelease', {w.name for w in g.packages['quake-registered'].install_files})
+
+
+class QuakePackageOption(unittest.TestCase):
+    """0013: -p before "quake" is kept; the quake shortcuts still select their package"""
+
+    def parse(self, argv):
+        import argparse
+        from game_data_packager.game import load_games
+        base = argparse.ArgumentParser(add_help=False, argument_default=argparse.SUPPRESS)
+        base.add_argument('--package', '-p', action='append', dest='packages')
+        top = argparse.ArgumentParser(parents=(base,))
+        sub = top.add_subparsers(dest='shortname')
+        load_games(game='quake')['quake'].add_parser(sub, base)
+        return getattr(top.parse_args(argv), 'packages', None)
+
+    def test_package_before_game(self):
+        self.assertEqual(self.parse(['-p', 'quake-rerelease', 'quake', 'x']), ['quake-rerelease'])
+
+    def test_package_after_game(self):
+        self.assertEqual(self.parse(['quake', '-p', 'quake-rerelease', 'x']), ['quake-rerelease'])
+
+    def test_shortcut(self):
+        self.assertEqual(self.parse(['quake', '-m', 'x']), ['quake-registered'])
+        self.assertIsNone(self.parse(['quake', 'x']))
 
 if __name__ == '__main__':
     unittest.main()

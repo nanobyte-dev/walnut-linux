@@ -689,7 +689,7 @@ def ogg_vorbis_start(head):
 
 
 HASHES = ("sha256", "sha1", "md5")
-EDITIONS = ("shareware", "demo", "full", "expansion", "music")
+EDITIONS = ("shareware", "demo", "full", "expansion", "music", "remaster")
 RELEASE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,79}\Z")
 
 

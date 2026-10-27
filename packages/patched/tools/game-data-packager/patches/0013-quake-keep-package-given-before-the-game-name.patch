@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 28 Oct 2026 00:33:43 +0200
+Subject: quake: keep --package given before the game name
+
+game-data-packager -p quake-rerelease quake SOURCE built every Quake
+package it could from SOURCE, not only quake-rerelease. The quake
+subparser's shortcut options (-m, -s, --mp1, --mp2, --music,
+--mp1-music, --mp2-music) store into the same "packages" as --package,
+and with argparse's default of None each of them reset what -p had put
+there before the game name: argparse copies every attribute of the
+subparser's namespace, defaults included, over the main parser's. With
+a quake-registered installed, gdp then made quake-music and
+quake-dimension-of-the-machine from a re-release installer as well.
+They now default to argparse.SUPPRESS, as the shared options do, so a
+subparser that saw none of them leaves -p's list alone.
+
+Forwarded: not yet (candidate for Debian)
+
+diff --git a/game_data_packager/games/quake.py b/game_data_packager/games/quake.py
+--- a/game_data_packager/games/quake.py
++++ b/game_data_packager/games/quake.py
+@@ -6,6 +6,7 @@
+ 
+ from __future__ import annotations
+ 
++import argparse
+ import logging
+ import os
+ from typing import TYPE_CHECKING, Any
+@@ -15,7 +16,6 @@ from ..game import GameData
+ from ..util import TemporaryUmask, mkdir_p
+ 
+ if TYPE_CHECKING:
+-    import argparse
+     from typing import Unpack
+     from ..packaging import (PerPackageState, PackagingTaskArgs)
+ 
+@@ -70,37 +70,37 @@ class QuakeGameData(GameData):
+             parsers, base_parser, conflict_handler='resolve',
+         )
+         parser.add_argument(
+-            '-m', dest='packages',
++            '-m', dest='packages', default=argparse.SUPPRESS,
+             action='append_const', const='quake-registered',
+             help='Equivalent to --package=quake-registered',
+         )
+         parser.add_argument(
+-            '-s', dest='packages',
++            '-s', dest='packages', default=argparse.SUPPRESS,
+             action='append_const', const='quake-shareware',
+             help='Equivalent to --package=quake-shareware',
+         )
+         parser.add_argument(
+-            '--mp1', '-mp1', dest='packages',
++            '--mp1', '-mp1', dest='packages', default=argparse.SUPPRESS,
+             action='append_const', const='quake-armagon',
+             help='Equivalent to --package=quake-armagon',
+         )
+         parser.add_argument(
+-            '--mp2', '-mp2', dest='packages',
++            '--mp2', '-mp2', dest='packages', default=argparse.SUPPRESS,
+             action='append_const', const='quake-dissolution',
+             help='Equivalent to --package=quake-dissolution',
+         )
+         parser.add_argument(
+-            '--music', dest='packages',
++            '--music', dest='packages', default=argparse.SUPPRESS,
+             action='append_const', const='quake-music',
+             help='Equivalent to --package=quake-music',
+         )
+         parser.add_argument(
+-            '--mp1-music', dest='packages',
++            '--mp1-music', dest='packages', default=argparse.SUPPRESS,
+             action='append_const', const='quake-armagon-music',
+             help='Equivalent to --package=quake-armagon-music',
+         )
+         parser.add_argument(
+-            '--mp2-music', dest='packages',
++            '--mp2-music', dest='packages', default=argparse.SUPPRESS,
+             action='append_const', const='quake-dissolution-music',
+             help='Equivalent to --package=quake-dissolution-music',
+         )

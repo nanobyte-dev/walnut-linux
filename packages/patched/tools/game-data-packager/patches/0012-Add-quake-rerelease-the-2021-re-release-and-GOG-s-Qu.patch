@@ -1,0 +1,115 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 27 Oct 2026 23:33:25 +0200
+Subject: Add quake-rerelease, the 2021 re-release, and GOG's Quake Enhanced
+ installer
+
+Nightdive's 2021 re-release of Quake ships an id1/pak0.pak of its own
+(180815252 bytes, md5 4cb29cb699d34510da6c465bbe54fa81): the 1.06 pak0
+and pak1 together with a new progs.dat, coloured lighting and md5
+models. Its QuakeC prints its strings from localization/loc_english.txt,
+which gdp already takes out of QuakeEX.kpf. QuakeSpasm 0.94 and later
+play it from a base directory of its own; the classic engines do not,
+so it can't take the place of quake-registered's files.
+
+quake-rerelease installs the pak and the strings into
+$assets/quake-rerelease. The re-release's music is byte for byte the
+Ogg Vorbis rip gdp already knows (quake_campaign_soundtrack.zip's
+files); they are optional files of the package, in its own id1/music,
+because quake-music is an expansion of quake-registered and gdp does
+not make it from a re-release alone.
+
+GOG's setup_quake_enhanced_1.0_(60828).exe (607645056 bytes) is
+unpacked with innoextract for the re-release's pak, QuakeEX.kpf, the
+music and Dimension of the Machine (mg1/pak0.pak, which gdp knows). Its
+hipnotic, rogue and dopa paks are re-release builds gdp does not know.
+
+Forwarded: not yet (candidate for Debian)
+
+diff --git a/data/quake.yaml b/data/quake.yaml
+--- a/data/quake.yaml
++++ b/data/quake.yaml
+@@ -183,6 +183,25 @@ packages:
+     symlinks:
+       $install_to/mg1/tryexec: $bindir/quake
+ 
++  quake-rerelease:
++    # Nightdive's 2021 re-release ("Quake Enhanced" on GOG): an id1/pak0.pak of
++    # its own (the 1.06 pak0 and pak1 together, a new progs.dat, coloured
++    # lighting, md5 models) whose QuakeC prints its strings from
++    # localization/loc_english.txt in QuakeEX.kpf. QuakeSpasm 0.94 and later
++    # play it from a base directory of its own (-basedir); the classic engines
++    # do not. Its CD music is the Ogg Vorbis rip quake-music knows
++    # (quake_campaign_soundtrack.zip's files, byte for byte), installed here
++    # too when present: quake-music, an expansion of quake-registered, is not
++    # made without that package.
++    aliases: [rerelease, enhanced]
++    longname: "Quake (2021 re-release)"
++    copyright: "\u00a9 1996-2021 id Software"
++    install:
++    - id1/pak0.pak?rerelease
++    - localization/loc_english.txt
++    optional:
++    - contents of quake_campaign_soundtrack.zip
++
+   quake-music:
+     copyright: "\u00a9 1996 id Software"
+     aliases: [music]
+@@ -291,6 +310,10 @@ files:
+     look_for:
+     - pak0.pak
+ 
++  id1/pak0.pak?rerelease:
++    look_for:
++    - pak0.pak
++
+   manual.txt?101_cd:
+     distinctive_name: false
+ 
+@@ -507,6 +530,19 @@ files:
+     provides:
+       - localization/loc_english.txt
+ 
++  # GOG.com's Quake Enhanced installer (the 2021 re-release, build 60828):
++  # the re-release's id1 with the CD music as Ogg Vorbis (the files of
++  # quake_campaign_soundtrack.zip), QuakeEX.kpf, Dimension of the Machine; its
++  # hipnotic, rogue and dopa paks are re-release builds gdp does not know
++  setup_quake_enhanced_1.0_(60828).exe:
++    unpack:
++      format: innoextract
++    provides:
++    - id1/pak0.pak?rerelease
++    - QuakeEX.kpf
++    - contents of quake_campaign_soundtrack.zip
++    - MG1 content
++
+   quake_campaign_soundtrack.zip?johnnylaw:
+     download:
+       https://www.quaddicted.com/files/music/quake_campaign_soundtrack.zip
+@@ -650,6 +686,8 @@ groups:
+   320914417  ab7be72533164fbd5af6dd72a28dfab1 ad_v1_80p1final.zip
+ 
+   14109805   3d57981651e2f981ddecd573ca71af8f QuakeEX.kpf
++  180815252  4cb29cb699d34510da6c465bbe54fa81 id1/pak0.pak?rerelease
++  607645056  e6bad42772689908d2d84ac2a3360fef setup_quake_enhanced_1.0_(60828).exe
+   77248      61b164e552aa01bb08e1b91c0d36b2fc localization/loc_english.txt
+ 
+  DOPA content: |
+@@ -884,6 +922,8 @@ sha1sums: |
+   78d3b8b6da6fd2a346313836660a96fb0dbaf585 rogue/music/track09.ogg?johnnylaw
+   #50e9236c5ce976b470fe9eafd19800845d2c7539 rogue/tracklist.cfg?johnnylaw
+   3974a6a444387a1d29bc3801a0efabdb7e9b21a7 QuakeEX.kpf
++  3a4bd39c3ec40f241b12a5681db65e3bddbef934 id1/pak0.pak?rerelease
++  f9a61c0a2d0b0ed78cf965da330f8fbb90951adb setup_quake_enhanced_1.0_(60828).exe
+   26c7a41e424e46a90ff15d7c3e4a0a4266b02807 localization/loc_english.txt
+   80b982469878692b33a9cd4bcc41f73d735291f2 mg1/pak0.pak
+ 
+@@ -1003,6 +1043,8 @@ sha256sums: |
+   50f8f446e2e641b6cb8338d95eaeb7a9c13ebc3a1efb5af9f1b254c835b48f03 rogue/music/track09.ogg?johnnylaw
+   #041c0695612a376d76be646881bff6a9b9f989c53870835134d3d18ad5162294 rogue/tracklist.cfg?johnnylaw
+   3fd04904d738627e153e02ff48bc03260738ba0a1a9f84d6fa185b104f2a23d7 QuakeEX.kpf
++  13e7532da066ab19d951f1ca1d2314af94ab75c7e156bd76006d339e12cb52ed id1/pak0.pak?rerelease
++  da3b4acc6b5c2b4c904232d0e95b1824e445f6f2298b6c5a2ba40d7355b49cff setup_quake_enhanced_1.0_(60828).exe
+   7a1a3358f0d23ed3ecef623e4bf5bb77df71b296978b4c9f20a437ce0b8d3a95 localization/loc_english.txt
+   41436d7e10965276a28ff7b2649bfb9cadd491c9236c5cbd44a135d69023c0d0 mg1/pak0.pak
+ 

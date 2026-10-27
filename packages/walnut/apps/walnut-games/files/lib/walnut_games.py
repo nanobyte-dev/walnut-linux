@@ -512,7 +512,7 @@ APT_CACHE = "/usr/bin/apt-cache"
 LSBLK = "/usr/bin/lsblk"
 DISC = "/dev/sr0"
 EDITION_LABELS = {"shareware": "Shareware", "demo": "Demo", "full": "Full game", "expansion": "Expansion",
-                  "music": "Music"}
+                  "music": "Music", "remaster": "Remaster"}
 INSTALLER_RE = re.compile(r"(?i)^(.*\.(iso|img|cue|mdf|zip|exe)|gog_.*\.sh)$")
 MAX_SOURCES = 40
 

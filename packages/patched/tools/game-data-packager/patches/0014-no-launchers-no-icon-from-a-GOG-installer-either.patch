@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Wed, 28 Oct 2026 00:42:11 +0200
+Subject: --no-launchers: no icon from a GOG installer either
+
+A package made from a GOG.com setup_*.exe got the installer's
+goggame-*.ico, converted to /usr/share/pixmaps/gdp-PACKAGE.png when
+python3-pil is installed, as an optional file of every package that
+isn't music or documentation. That icon is for a menu entry, which
+--no-launchers leaves to another package, and it is made on the fly, so
+nothing can know its checksum beforehand: Walnut's import refused
+quake-rerelease from GOG's Quake Enhanced installer over it. With
+--no-launchers the icon is neither extracted nor added; the man page
+says so.
+
+Forwarded: not yet (goes with --no-launchers)
+
+diff --git a/doc/game-data-packager.6 b/doc/game-data-packager.6
+--- a/doc/game-data-packager.6
++++ b/doc/game-data-packager.6
+@@ -129,8 +129,10 @@ If files are downloaded, save them to \fIDIRECTORY\fR.
+ .TP
+ .B \-\-no\-launchers
+ Do not put menu entries (.desktop files) or their icons into the packages.
+-Only the Doom family (Doom, Heretic, Hexen and related games) writes them;
+-use this when another package provides the launchers.
++The Doom family (Doom, Heretic, Hexen and related games) writes them, and any
++game made from a GOG.com setup_*.exe gets the installer's icon as
++/usr/share/pixmaps/gdp-PACKAGE.png; use this when another package provides
++the launchers.
+ .TP
+ \fB\-\-progress\-fd\fR \fIFD\fR
+ Write machine-readable progress to file descriptor \fIFD\fR, one line per
+diff --git a/game_data_packager/build.py b/game_data_packager/build.py
+--- a/game_data_packager/build.py
++++ b/game_data_packager/build.py
+@@ -1444,7 +1444,9 @@ class PackagingTask:
+                     extra_icon = None
+                     basename = os.path.basename(found_name)
+                     extension = os.path.splitext(basename)[1]
+-                    if basename.startswith('setup_') and extension == '.exe':
++                    # --no-launchers: no menu icon from GOG's .ico either
++                    if (self.launchers and basename.startswith('setup_')
++                            and extension == '.exe'):
+                         with InnoSetup(
+                             os.path.abspath(found_name),
+                             verbose=self.verbose,
+@@ -2296,7 +2298,8 @@ class PackagingTask:
+                 hf = HashedFile.from_file(icon_name, opened)
+                 opened.close()
+         for package in packages:
+-            if package.data_type not in ('music', 'documentation'):
++            if (self.launchers
++                    and package.data_type not in ('music', 'documentation')):
+                 icon_name = self.get_extra_icon_name(package)
+                 wf = self.game.files[icon_name]
+                 assert package.optional_files is not None

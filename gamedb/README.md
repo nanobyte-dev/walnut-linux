@@ -162,7 +162,7 @@ run Debian's game-data-packager, gdp, on a disc, an ISO, an installer or an inst
 | `alternatives` | list | groups of `required`/`optional` packages of which any one member is enough (`[["transport-tycoon-deluxe-music", "transport-tycoon-deluxe-music-fm"]]`): when one is made, `walnut-data` and the app do not report the others of its group as missing; a package is in one group at most; the catalog carries it |
 | `hint` | string | where the files are, shown by the app (the CD, an installed copy, Steam, GOG) |
 | `original` | string | the original commercial game's name, named in the label under the app's "Add game files..." button ("REQUIRED: the game files from the original <original> release ..." or "OPTIONAL: the original <original> graphics and sound") and in the chooser; default: the game's title. Set it where the title is the engine's (`Quake` for QuakeSpasm, `Transport Tycoon Deluxe` for OpenTTD) |
-| `editions` | table | required: `{ "<pkg>" = "<edition>" }` for every `required` and `optional` package, one of `shareware`, `demo`, `full`, `expansion`, `music` (`check.py` EDITIONS): the `X-Walnut-Edition` of the package the console builds |
+| `editions` | table | required: `{ "<pkg>" = "<edition>" }` for every `required` and `optional` package, one of `shareware`, `demo`, `full`, `expansion`, `music`, `remaster` (a re-release with data of its own that the original engine does not read, beside the full game: Quake's 2021 re-release; `check.py` EDITIONS): the `X-Walnut-Edition` of the package the console builds |
 
 `check.py` checks the gdp game and every package against `tools/gamedb/gdp-packages.json` (game -> its
 packages, and gdp's version), a committed file, so the check needs no docker and no network. After our gdp

@@ -16,7 +16,9 @@ leak_files = ["*id1/pak[0-9].pak"]
 [data_setup]
 gdp = "quake"
 original = "Quake"
-required = ["quake-shareware", "quake-registered"]
+# quake-rerelease: the 2021 re-release (GOG's Quake Enhanced, build 60828) in a base directory of
+# its own, /usr/share/games/quake-rerelease, with its own launcher (it can't stand in for the original paks)
+required = ["quake-shareware", "quake-registered", "quake-rerelease"]
 # the CD's music as Ogg Vorbis (CD audio tracks 2-11): encoded from a BIN/CUE's audio tracks or ripped
 # from the disc in the drive (game-data-packager runs cdparanoia); no checksums, see PACKAGING.md
 optional = ["quake-music"]
@@ -24,6 +26,6 @@ optional = ["quake-music"]
 downloads = ["quake-registered"]
 # the shareware gdp fetches by itself (quake106.zip): no SOURCE needed
 fetch = ["quake-shareware"]
-hint = "Quake's id1/pak0.pak and id1/pak1.pak: its CD or a BIN/CUE image of it (with the CD music), an installed copy (Steam, GOG) or GOG's installer."
+hint = "Quake's id1/pak0.pak and id1/pak1.pak: its CD or a BIN/CUE image of it (with the CD music), an installed copy (Steam, GOG) or GOG's installer. The 2021 re-release: GOG's Quake Enhanced installer, build 60828 (setup_quake_enhanced_1.0_(60828).exe), or that build installed."
 # what each package holds (X-Walnut-Edition of the package import-data builds)
-editions = { "quake-shareware" = "shareware", "quake-registered" = "full", "quake-music" = "music" }
+editions = { "quake-shareware" = "shareware", "quake-registered" = "full", "quake-music" = "music", "quake-rerelease" = "remaster" }
