@@ -1,37 +1,69 @@
 #!/bin/sh
-# ps3-game-menu DIR (ps3-desktop; ps3-session runs it at login): the installed games' menu
+# ps3-game-menu [--reload] [DIR] (ps3-desktop; ps3-session runs it at login): the installed games' menu
 # entries, started through ps3-game (game mode), into DIR/applications. ps3-session puts DIR first
 # in XDG_DATA_DIRS, so each one replaces the game's own entry of the same name (jgmenu, PCManFM).
 # The entries ps3-desktop ships (one per game mode, Exec through ps3-game) are left alone, and so
 # are their originals: the package moves those out of the applications directory (dpkg-divert,
 # see its preinst), so no copy of them is made and no second entry shows up.
 # A game is an entry with Categories Game; left as they are: entries already using ps3-game,
-# terminal programs, D-Bus-activated ones. Nothing outside DIR changes; a game installed during
-# the session gets game mode from the next login.
-[ -n "${1:-}" ] || { echo "usage: ps3-game-menu DIR" >&2; exit 2; }
-out=$1/applications
-rm -rf "$out.new" && mkdir -p "$out.new" || exit 1
+# terminal programs, D-Bus-activated ones. Nothing outside DIR changes.
+# Data launchers: an entry with X-Walnut-Requires=<abs path>[;<abs path>...] (the per-IWAD Doom
+# launchers, Quake II's full game: packed hidden, NoDisplay=true, Exec already through ps3-game) is
+# copied without its NoDisplay line when every listed file exists, so it shadows the hidden original
+# and shows in the menu; otherwise it is not copied and stays hidden. Such an entry is kept
+# even if its Exec already uses ps3-game.
+# Run again, the script refreshes DIR: Walnut Games runs `ps3-game-menu --reload` after installing or
+# importing a game's data (and a game installed during the session shows after it). Plain
+# `ps3-game-menu DIR` only rewrites the entries; --reload (DIR defaults to
+# $XDG_RUNTIME_DIR/ps3-game-menu) also closes the hidden jgmenu, which reads the applications
+# directories once at start (its restart hooks only fire for /usr/share/applications), so the
+# panel button's jgmenu_run starts a fresh one with the new entries on its next click.
+reload=
+if [ "${1:-}" = --reload ]; then reload=1; shift; fi
+dir=${1:-}
+[ -n "$dir" ] || { [ -n "$reload" ] && [ -n "${XDG_RUNTIME_DIR:-}" ] && dir=$XDG_RUNTIME_DIR/ps3-game-menu; }
+[ -n "$dir" ] || { echo "usage: ps3-game-menu [--reload] DIR" >&2; exit 2; }
+out=$dir/applications
+rm -rf "$out.new" "$out.req" && mkdir -p "$out.new" || exit 1
+: > "$out.req"
 set -- "${PS3_APPLICATIONS:-/usr/share/applications}"/*.desktop
-[ -e "$1" ] && awk -v out="$out.new" '
-function flush(   i, f) {
-	if (fname != "" && game && !skip && n_exec) {
+[ -e "$1" ] && awk -v out="$out.new" -v req="$out.req" '
+function flush(   i, f, k) {
+	if (nreq) skip = skip_other	# a data launcher may already use ps3-game
+	if (fname != "" && (game || nreq) && !skip && has_exec) {
 		f = out "/" fname
-		for (i = 1; i <= n; i++) print line[i] > f
+		for (i = 1; i <= n; i++) if (!(nreq && line[i] ~ /^NoDisplay=/)) print line[i] > f
 		close(f)
+		for (k = 1; k <= nreq; k++) print fname "\t" reqs[k] >> req
+		close(req)
 	}
-	n = 0; game = skip = n_exec = 0
+	n = nreq = 0; game = skip = skip_other = has_exec = 0
 }
 FNR == 1 { flush(); fname = FILENAME; sub(/.*\//, "", fname) }
 {
 	l = $0
 	if (l ~ /^Categories=/ && l ~ /[=;]Game(;|$)/) game = 1
-	if (l ~ /^(Terminal|DBusActivatable)=true/) skip = 1
-	if (l ~ /^X-Walnut-GameMode=false/) skip = 1	# a game-related app that is no game (Walnut Games)
+	if (l ~ /^(Terminal|DBusActivatable)=true/) skip = skip_other = 1
+	if (l ~ /^X-Walnut-GameMode=false/) skip = skip_other = 1	# a game-related app that is no game (Walnut Games)
+	if (l ~ /^X-Walnut-Requires=/) {
+		m = split(substr(l, 19), tmp, ";")
+		for (i = 1; i <= m; i++) if (tmp[i] != "") reqs[++nreq] = tmp[i]
+	}
 	if (l ~ /^Exec=/) {
+		has_exec = 1
 		if (l ~ /ps3-game/) skip = 1
-		else { l = "Exec=ps3-game " substr(l, 6); n_exec++ }
+		else l = "Exec=ps3-game " substr(l, 6)
 	}
 	line[++n] = l
 }
 END { flush() }' "$@"
-rm -rf "$out" && mv "$out.new" "$out"
+# data launchers: gone again unless every file they list exists
+while IFS="	" read -r f p; do
+	[ -e "$p" ] || rm -f "$out.new/$f"
+done < "$out.req"
+rm -rf "$out.req" "$out" && mv "$out.new" "$out"
+if [ -n "$reload" ]; then	# the hidden jgmenu reads the entries at its start: close it, the next click starts it fresh
+	pkill -u "$(id -u)" -x jgmenu 2>/dev/null
+	rm -f "$HOME/.jgmenu-lockfile"
+fi
+exit 0

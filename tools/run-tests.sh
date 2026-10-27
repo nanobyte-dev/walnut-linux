@@ -233,6 +233,7 @@ run bench-launcher python3 -I bench/tests/test_launcher.py
 run gprefetch python3 packages/walnut/system/ps3-desktop/tests/gprefetch-check.py
 run ps3rsx-shadow bash -c "$(declare -f need t_ps3rsx); t_ps3rsx"
 run ps3-spu make -C packages/walnut/tools/ps3-spu test
+run game-menu sh packages/walnut/system/ps3-desktop/tests/game-menu-check.sh
 run xmoto-glbatch bash -c "$(declare -f need t_xmoto); t_xmoto"
 run mesa-forcedxt bash -c "$(declare -f need t_forcedxt); t_forcedxt"
 run mesa-staging-pool bash -c "$(declare -f need t_stagingpool); t_stagingpool"
