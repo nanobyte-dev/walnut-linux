@@ -53,6 +53,19 @@ Design
   "log text", "error text"), "error text" for this program's own failures.
 - Exit codes: 0 done; 2 refused, nothing changed (bad arguments, an unknown game, a missing source,
   the helper refused); 1 failed (gdp or the helper failed, or gdp made no package).
+- Partial results. After gdp, the packages asked for are compared with the debs it made. Required means
+  the game's required packages, or every -p package when -p was given. For each package that is missing:
+    "gdp error needs-download PKG: TEXT"  PKG is one of the game's downloads and downloads were off
+        (import with -p PKG alone, or without --no-download, lets gdp fetch its patch files); same shape as
+        gdp's own error lines, so the app's "Try again with download" logic reads it
+    "warning missing PKG: TEXT"           any other missing package (TEXT is gdp's last error line when it
+        gave one, else "game-data-packager did not make it"); a missing optional package is only this
+  Exit 0 when at least one required package was made (or, for a game with no required package, any
+  package) and installed, even with such lines; exit 1 ("error game-data-packager made no package...")
+  when none was. The lines come before the helper's output.
+- After import, remove and install-repo succeed, `/usr/lib/ps3/desktop/ps3-game-menu --reload
+  $XDG_RUNTIME_DIR/ps3-game-menu` runs when it exists and $DISPLAY and $XDG_RUNTIME_DIR are set (failures
+  ignored), so the session's menu shows the new launchers like after the app's own installs.
 - stdlib only, no Tk. The commands are module constants so that tests/test_walnut_games.py runs it
   with a stubbed gdp, dpkg-deb and helper.
 """
@@ -74,6 +87,7 @@ SUDO = ["/usr/bin/sudo", "-n"]
 GDP = "/usr/games/game-data-packager"
 DPKG_DEB, DPKG_QUERY, APT_CACHE = "/usr/bin/dpkg-deb", "/usr/bin/dpkg-query", "/usr/bin/apt-cache"
 UDISKSCTL = "/usr/bin/udisksctl"
+MENU_TOOL = "/usr/lib/ps3/desktop/ps3-game-menu"
 SYSTEMD_RUN = "/usr/bin/systemd-run"
 MEMORY_MAX = "192M"       # gdp ~40 MB with one game loaded, plus an unpacker (innoextract, unshield)
 RUNTIME_MAX = "3h"        # a CD reads at about 2.3 MB/s
@@ -618,6 +632,34 @@ def gdp_hint(error):
     return GDP_HINTS.get(kind)
 
 
+def reload_menu():
+    """ps3-game-menu --reload, like the app does after an install or remove; needs the desktop session,
+    failures ignored"""
+    rt = os.environ.get("XDG_RUNTIME_DIR")
+    if not (rt and os.environ.get("DISPLAY") and os.path.exists(MENU_TOOL)):
+        return
+    try:
+        subprocess.run([MENU_TOOL, "--reload", os.path.join(rt, "ps3-game-menu")], stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def report_missing(ds, pkgs, asked, debs, download, errors):
+    """say what gdp did not make (see Partial results in the header); (required packages, those missing)"""
+    made = {p for p, _ in debs}
+    required = list(pkgs) if asked else [p for p in pkgs if p in names(ds, "required")] or list(pkgs)
+    why = errors[-1] if errors else ""
+    for p in pkgs:
+        if p in made:
+            continue
+        if p in names(ds, "downloads") and download == "--no-download":
+            say("gdp", "error needs-download %s: its official patch files have to be downloaded" % p)
+        else:
+            say("warning", "missing %s: %s" % (p, why or "game-data-packager did not make it"))
+    return required, [p for p in required if p not in made]
+
+
 def cmd_import(game_id, sources, asked, no_download, games):
     ds = data_setup(game_id, games)
     pkgs = wanted_packages(ds, asked)
@@ -658,7 +700,8 @@ def cmd_import(game_id, sources, asked, no_download, games):
         if extra:
             raise Failed("game-data-packager also made %s, which was not asked for: nothing was imported"
                          % ", ".join(extra))
-        if rc != 0 or not debs:
+        required, missing_required = report_missing(ds, pkgs, asked, debs, download, errors)
+        if not debs or len(missing_required) == len(required):
             hint = gdp_hint(errors[-1] if errors else None)
             raise Failed("game-data-packager made no package%s" % (": " + hint if hint else
                                                                     " (exit %d)" % rc if rc else ""))
@@ -672,6 +715,7 @@ def cmd_import(game_id, sources, asked, no_download, games):
             raise Refused("the helper refused the data")
         if worst:
             raise Failed("the helper failed")
+        reload_menu()
         return 0
     finally:
         src.close()
@@ -721,7 +765,10 @@ def main(argv=None, catalog=None):
             return cmd_list(games)
         if a.cmd == "import":
             return cmd_import(a.game, a.sources, a.package, a.no_download, games)
-        return cmd_helper({"remove": "remove-data", "install-repo": "install-repo-data"}[a.cmd], a.game, games)
+        rc = cmd_helper({"remove": "remove-data", "install-repo": "install-repo-data"}[a.cmd], a.game, games)
+        if rc == 0:
+            reload_menu()
+        return rc
     except Refused as e:
         say("error", str(e))
         return 2

@@ -541,12 +541,17 @@ if os.environ.get("FAKE_GDP_FAIL"):
     prog("error " + os.environ.get("FAKE_GDP_ERROR", "not-found no files"))
     sys.exit(1)
 out = a[a.index("-d") + 1]
-pkg = a[a.index("-p") + 1]
-open(os.path.join(out, pkg + "_89_all.deb"), "wb").write(b"TARDATA:" + pkg.encode())
+pkgs = [a[i + 1] for i, x in enumerate(a) if x == "-p"]
+skip = os.environ.get("FAKE_GDP_SKIP", "").split()
+for pkg in pkgs:
+    if pkg not in skip:
+        open(os.path.join(out, pkg + "_89_all.deb"), "wb").write(b"TARDATA:" + pkg.encode())
+pkg = pkgs[0]
 if os.environ.get("FAKE_GDP_EXTRA"):
     open(os.path.join(out, "heretic-shareware-wad_1.2_all.deb"), "wb").write(b"x")
 prog("generated " + os.path.join(out, pkg + "_89_all.deb"))
 '''
+FAKE_MENU = "#!/bin/sh\necho \"$*\" >> \"$FAKE_LOG.menu\"\n"
 FAKE_DPKG_DEB = r'''#!/bin/sh
 [ "$1" = --fsys-tarfile ] && exec cat "$2"
 exit 2
@@ -590,7 +595,7 @@ class DataImport(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         t = self.t = Path(self.tmp.name)
         self.old = {k: getattr(wd, k) for k in ("GDP", "DPKG_DEB", "HELPER", "SUDO", "SYSTEMD_RUN", "UDISKSCTL",
-                                                "MANIFEST", "SYS_BLOCK", "AUTOMOUNT_WAIT")}
+                                                "MANIFEST", "SYS_BLOCK", "AUTOMOUNT_WAIT", "MENU_TOOL")}
         self.env = dict(os.environ)
         for name, text in (("gdp", FAKE_GDP), ("dpkg-deb", FAKE_DPKG_DEB), ("helper", FAKE_HELPER),
                            ("systemd-run", FAKE_SYSTEMD_RUN), ("udisksctl", FAKE_UDISKSCTL)):
@@ -599,6 +604,7 @@ class DataImport(unittest.TestCase):
         wd.GDP, wd.DPKG_DEB, wd.HELPER, wd.SUDO = str(t / "gdp"), str(t / "dpkg-deb"), str(t / "helper"), []
         wd.SYSTEMD_RUN, wd.UDISKSCTL = str(t / "none"), str(t / "udisksctl")
         wd.MANIFEST, wd.SYS_BLOCK, wd.AUTOMOUNT_WAIT = str(t / "no-manifest"), str(t / "sys"), 0
+        wd.MENU_TOOL = str(t / "no-menu")
         os.environ.update(FAKE_LOG=str(t / "log"), XDG_CACHE_HOME=str(t / "cache"), FAKE_UDISKS_LOG=str(t / "udisks"),
                           FAKE_MNT=str(t / "mnt"))
         (t / "src").mkdir()
@@ -707,6 +713,72 @@ class DataImport(unittest.TestCase):
         rc, out = self.imp(self.t / "src")
         self.assertEqual(rc, 2)
         self.assertIn("error refused: no", out)
+
+    def partial_games(self, **extra):
+        ds = self.games["openrct2"]["data_setup"]
+        ds.update(required=["a-data", "b-data"], optional=["c-music"], downloads=["b-data"], **extra)
+
+    def test_partial_download_package_missing_exit_0(self):
+        self.partial_games()
+        os.environ["FAKE_GDP_SKIP"] = "b-data c-music"
+        rc, out = self.imp(self.t / "src")
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(any(l.startswith("gdp error needs-download b-data: ") for l in out), out)
+        self.assertTrue(any(l.startswith("warning missing c-music: ") for l in out), out)
+        helpers = [e["helper"][2] for e in self.log() if "helper" in e]
+        self.assertEqual(helpers, ["a-data"])
+
+    def test_partial_with_downloads_on_is_a_warning(self):
+        self.partial_games()
+        self.games["openrct2"]["data_setup"].update(required=["b-data"], optional=[], downloads=["b-data"])
+        os.environ["FAKE_GDP_SKIP"] = "b-data"
+        rc, out = self.imp(self.t / "src", opts=("-p", "b-data"))
+        self.assertEqual(rc, 1, out)         # downloads on, nothing made, the only required one
+        self.assertFalse(any("needs-download" in l for l in out if l.startswith("gdp ")), out)
+        self.assertIn("warning missing b-data: game-data-packager did not make it", out)
+
+    def test_nothing_required_made_fails_with_needs_download(self):
+        self.partial_games()
+        os.environ["FAKE_GDP_SKIP"] = "a-data b-data"
+        rc, out = self.imp(self.t / "src", opts=("--no-download",))
+        self.assertEqual(rc, 1, out)
+        self.assertIn("gdp error needs-download b-data: its official patch files have to be downloaded", out)
+        self.assertEqual([e for e in self.log() if "helper" in e], [])
+
+    def test_optional_only_game_missing_one(self):
+        self.partial_games(present_any=[])
+        self.games["openrct2"]["data_setup"].update(required=[], optional=["x-data", "x-music"], downloads=[])
+        os.environ["FAKE_GDP_SKIP"] = "x-music"
+        rc, out = self.imp(self.t / "src")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("warning missing x-music: game-data-packager did not make it", out)
+        os.environ["FAKE_GDP_SKIP"] = "x-music x-data"
+        self.assertEqual(self.imp(self.t / "src")[0], 1)
+
+    def test_menu_reload_after_import_and_remove(self):
+        menu = self.t / "menu"
+        menu.write_text(FAKE_MENU)
+        menu.chmod(0o755)
+        wd.MENU_TOOL = str(menu)
+        os.environ.update(DISPLAY=":0", XDG_RUNTIME_DIR=str(self.t / "run"))
+        rc, out = self.imp(self.t / "src")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual((self.t / "log.menu").read_text().splitlines(), ["--reload %s" % (self.t / "run/ps3-game-menu")])
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = wd.main(["remove", "openrct2"], catalog=self.catalog())
+        self.assertEqual(rc, 0, buf.getvalue())
+        self.assertEqual(len((self.t / "log.menu").read_text().splitlines()), 2)
+        # no X session, a failed import, a missing tool: no reload
+        del os.environ["DISPLAY"]
+        self.imp(self.t / "src")
+        os.environ["DISPLAY"] = ":0"
+        os.environ["FAKE_GDP_FAIL"] = "1"
+        self.imp(self.t / "src")
+        wd.MENU_TOOL = str(self.t / "nonexistent")
+        os.environ.pop("FAKE_GDP_FAIL")
+        self.assertEqual(self.imp(self.t / "src")[0], 0)
+        self.assertEqual(len((self.t / "log.menu").read_text().splitlines()), 2)
 
     def test_missing_source_and_unknown_game(self):
         self.assertEqual(self.imp(self.t / "nope")[0], 2)

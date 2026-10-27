@@ -121,6 +121,10 @@ def program(argv):
         i += 1
     while i < len(argv) and ASSIGN_RE.match(argv[i]):
         i += 1
+    if i + 2 < len(argv) and argv[i] == "sh" and argv[i + 1] == "-c":
+        # a shell only to expand ~ in an argument: the program is the one the script execs
+        m = re.match(r"exec\s+(\S+)", argv[i + 2])
+        return m.group(1) if m else argv[i]
     return argv[i] if i < len(argv) else None
 
 
