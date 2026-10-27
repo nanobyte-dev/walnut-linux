@@ -110,7 +110,7 @@ gamedb/README.md.
 | `games/luanti/packages/luanti/` | [Luanti](../gamedb/games/luanti/) | Debian's `luanti` 5.15.2+dfsg-2 | 6 (+ `packaging/`) |
 | `games/mrboom/packages/mrboom/` | [Mr.Boom](../gamedb/games/mrboom/) | Debian's `mrboom` 5.5+ds-1 | 1 |
 | `games/neverball/packages/neverball/` | [Neverball](../gamedb/games/neverball/) | Debian's `neverball` 1.6.0+git20180603-3 | 3 |
-| `games/openrct2/packages/openrct2/` | [OpenRCT2](../gamedb/games/openrct2/) | upstream tarball (`upstream.mk`) | 6 (+ `debian/`) |
+| `games/openrct2/packages/openrct2/` | [OpenRCT2](../gamedb/games/openrct2/) | upstream tarball (`upstream.mk`) | 7 (+ `debian/`) |
 | `games/openttd/packages/openttd/` | [OpenTTD](../gamedb/games/openttd/) | Debian's `openttd` 15.1-1 | 3 |
 | `games/opentyrian/packages/opentyrian/` | [OpenTyrian](../gamedb/games/opentyrian/) | Debian's `opentyrian` 2.1.20260912-1 | none (+ `packaging/`) |
 | `games/sauerbraten/packages/sauerbraten-walnut/` | [Sauerbraten](../gamedb/games/sauerbraten/) | native (ours) | none (+ `debian/`) |
