@@ -157,6 +157,9 @@ def validate_catalog(obj):
         for k in ("required", "optional", "downloads", "fetch", "present_any"):
             v = (ds or {}).get(k) or []
             need(isinstance(v, list) and all(isinstance(x, str) and x for x in v), "%s: bad data_setup %s" % (gid, k))
+        alt = (ds or {}).get("alternatives") or []
+        need(isinstance(alt, list) and all(isinstance(grp, list) and all(isinstance(x, str) and x for x in grp)
+                                           for grp in alt), "%s: bad data_setup alternatives" % gid)
         for k in ("gdp", "hint"):
             need((ds or {}).get(k) is None or isinstance(ds[k], str), "%s: bad data_setup %s" % (gid, k))
         need((ds or {}).get("original") is None or (isinstance(ds["original"], str) and ds["original"].strip()),
@@ -758,6 +761,17 @@ def data_package_name(pkg):
     if pkg in DATA_NAMES:
         return DATA_NAMES[pkg][0]
     return re.sub(r"-(wad|data)$", "", pkg).replace("-", " ").strip().title() or pkg
+
+
+def drop_alternatives(missing, alternatives, have):
+    """missing [(package, reason)] without the packages of an alternatives group (data_setup: any one
+    member satisfies it) of which another member is installed (have)"""
+    out = []
+    for p, why in missing:
+        if any(isinstance(g, list) and p in g and any(m != p and m in have for m in g) for g in alternatives or []):
+            continue
+        out.append((p, why))
+    return out
 
 
 def partial_notice(download, missing):
@@ -2037,7 +2051,8 @@ class App:
         ok = rc == 0 if rc is not None else (not v.errors and g is not None and
                                              (bool(data_present(g, self.have)) or optional_data_present(g, self.have)))
         if ok:
-            note = partial_notice(v.download, v.missing)
+            note = partial_notice(v.download, drop_alternatives(
+                v.missing, (data_setup(g) or {}).get("alternatives") if g else None, self.have))
             if note:
                 self.partial[gid] = (list(v.download), note)
             ed = edition_text(g, self.info) if g else ""

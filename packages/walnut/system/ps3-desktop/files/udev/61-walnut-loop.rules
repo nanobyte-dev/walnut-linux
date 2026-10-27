@@ -1,0 +1,6 @@
+# Walnut (ps3-desktop): loop devices are not mounted by the desktop's automounter. walnut-data
+# (Walnut Games' "Add game files...") opens a disc image with udisksctl loop-setup and mounts it
+# itself; the desktop's gvfs/udisks automount raced it and pcmanfm showed "Device /dev/loopN is
+# already mounted at ..." in an error dialog. An image opened from the file manager is still mounted
+# (by an explicit request, which UDISKS_AUTO does not affect).
+SUBSYSTEM=="block", KERNEL=="loop[0-9]*", ENV{UDISKS_AUTO}="0"

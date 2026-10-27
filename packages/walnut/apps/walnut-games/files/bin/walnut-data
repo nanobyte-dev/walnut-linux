@@ -14,8 +14,10 @@ Design
   gdp then runs with --download and no source (still --no-search and -p); otherwise it is refused. An .iso or .img file is opened read-only with
   `udisksctl loop-setup -r -f` and mounted with `udisksctl mount -b` (the player's own polkit rights; no
   copy), a block device (the disc drive, /dev/sr0) is used at its mount point or mounted the same way,
-  and whatever this program mounted or set up is released afterwards. The desktop (gvfs) mounts a new
-  loop device by itself within seconds: when udisksctl mount says AlreadyMounted, that mount is used
+  and whatever this program mounted or set up is released afterwards. ps3-desktop's udev rule
+  (61-walnut-loop.rules, UDISKS_AUTO=0) keeps the desktop from mounting loop devices by itself, so
+  there is no race and no pcmanfm error dialog; on a system without it the desktop (gvfs) mounts a new
+  loop device within seconds: when udisksctl mount says AlreadyMounted, that mount is used
   (waited for, AUTOMOUNT_WAIT) and unmounted afterwards, which frees the loop device (loop-delete only
   for one still attached). loop-setup needs the desktop session's polkit rights: over ssh it is refused
   (NotAuthorizedCanObtain), and the message says how to run it in the desktop's slice. A directory, an installer or
@@ -95,6 +97,8 @@ Design
         gdp's own error lines, so the app's "Try again with download" logic reads it
     "warning missing PKG: TEXT"           any other missing package (TEXT is gdp's last error line when it
         gave one, else "game-data-packager did not make it"); a missing optional package is only this
+  A package in a data_setup `alternatives` group (any one member satisfies it) is not reported when
+  another member of its group was made.
   Exit 0 when at least one required package was made (or, for a game with no required package, any
   package) and installed, even with such lines; exit 1 ("error game-data-packager made no package...")
   when none was. The lines come before the helper's output.
@@ -185,6 +189,15 @@ def data_setup(game_id, games):
 
 def names(ds, key):
     return [p for p in ds.get(key) or [] if isinstance(p, str) and PKG_RE.match(p)]
+
+
+def covered(ds, pkg, made):
+    """pkg is in an alternatives group (data_setup: one of its members is enough, e.g. the General MIDI
+    or the FM music of Transport Tycoon Deluxe) of which another member is in made: not reported missing"""
+    for grp in ds.get("alternatives") or []:
+        if isinstance(grp, list) and pkg in grp and any(m in made for m in grp if m != pkg):
+            return True
+    return False
 
 
 def wanted_packages(ds, asked):
@@ -1282,7 +1295,7 @@ def report_missing(ds, pkgs, asked, debs, download, errors):
     required = list(pkgs) if asked else [p for p in pkgs if p in names(ds, "required")] or list(pkgs)
     why = errors[-1] if errors else ""
     for p in pkgs:
-        if p in made:
+        if p in made or covered(ds, p, made):
             continue
         if p in names(ds, "downloads") and download == "--no-download":
             say("gdp", "error needs-download %s: its official patch files have to be downloaded" % p)

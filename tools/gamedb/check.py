@@ -99,7 +99,7 @@ BUILD_KEYS = {
 # [data_setup] (gamedb/README.md): the player's own data, imported with game-data-packager (gdp). key: (type,
 # required); every package one of the gdp game's (GDP_INDEX, made by gdp-index.py: offline, no docker)
 DATA_SETUP_KEYS = {"gdp": (str, True), "required": (list, True), "optional": (list, False),
-                   "downloads": (list, False), "fetch": (list, False), "hint": (str, False), "original": (str, False), "editions": (dict, True)}
+                   "downloads": (list, False), "fetch": (list, False), "alternatives": (list, False), "hint": (str, False), "original": (str, False), "editions": (dict, True)}
 # [data_setup] editions = {package: edition}: what a data package holds (X-Walnut-Edition in the control of a
 # package walnut-games-helper import-data builds; the licensed suite's builders and the session harness read it)
 EDITIONS = ("shareware", "demo", "full", "expansion", "music")
@@ -185,7 +185,7 @@ def data_setup_facts(build):
         return None
     own = list(build.get("data", [])) + [e.get("name") for e in build.get("licensed", []) if isinstance(e, dict)]
     return {"gdp": ds.get("gdp"), "required": list(ds.get("required", [])), "optional": list(ds.get("optional", [])),
-            "downloads": list(ds.get("downloads", [])), "fetch": list(ds.get("fetch", [])), "hint": ds.get("hint"), "original": ds.get("original"), "editions": dict(ds.get("editions", {})),
+            "downloads": list(ds.get("downloads", [])), "alternatives": [list(g) for g in ds.get("alternatives", [])], "fetch": list(ds.get("fetch", [])), "hint": ds.get("hint"), "original": ds.get("original"), "editions": dict(ds.get("editions", {})),
             "present_any": list(dict.fromkeys(list(ds.get("required", [])) + [p for p in own if isinstance(p, str)]))}
 
 
@@ -489,9 +489,9 @@ def data_setup_errors(ds, build, bad, ctx):
                 errs.append("[data_setup]: missing key %r" % k)
         elif not isinstance(ds[k], t):
             errs.append("[data_setup]: %r should be %s" % (k, t.__name__))
-        elif t is list and not all(isinstance(x, str) and PKG_RE.match(x) for x in ds[k]):
+        elif t is list and k != "alternatives" and not all(isinstance(x, str) and PKG_RE.match(x) for x in ds[k]):
             errs.append("[data_setup]: %r is a list of package names" % k)
-        elif t is list and len(set(ds[k])) != len(ds[k]):
+        elif t is list and k != "alternatives" and len(set(ds[k])) != len(ds[k]):
             errs.append("[data_setup]: %r names a package twice" % k)
     if errs:
         return errs
@@ -516,6 +516,17 @@ def data_setup_errors(ds, build, bad, ctx):
     if bool(req) != (build.get("needs_data") is True):
         errs.append("[data_setup]: required is empty exactly when needs_data is false (now %s, needs_data %s)"
                     % ("empty" if not req else "set", build.get("needs_data")))
+    seen = set()
+    for grp in ds.get("alternatives", []):
+        if not isinstance(grp, list) or len(grp) < 2 or not all(isinstance(x, str) for x in grp):
+            errs.append("[data_setup]: alternatives is a list of groups of two or more package names")
+            continue
+        for p in grp:
+            if p not in req and p not in opt:
+                errs.append("[data_setup]: alternatives names %s, which is neither required nor optional" % p)
+            if p in seen:
+                errs.append("[data_setup]: %s is in two alternatives groups" % p)
+            seen.add(p)
     for p in dl:
         if p not in req and p not in opt:
             errs.append("[data_setup]: downloads %s is neither required nor optional" % p)

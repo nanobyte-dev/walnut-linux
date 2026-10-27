@@ -703,6 +703,11 @@ class DataSetup(unittest.TestCase):
                          "TNT: Evilution needs its official fix file (tnt31.wad) from the network: Try again with download\n"
                          "Not on this copy: The Plutonia Experiment (game-data-packager did not make it)")
         self.assertEqual(app.partial_notice([], []), "")
+        miss = [("ttd-music", "no"), ("tnt-wad", "no")]
+        alt = [["ttd-music", "ttd-music-fm"]]
+        self.assertEqual(app.drop_alternatives(miss, alt, {"ttd-music-fm"}), [("tnt-wad", "no")])
+        self.assertEqual(app.drop_alternatives(miss, alt, set()), miss)
+        self.assertEqual(app.drop_alternatives(miss, None, {"ttd-music-fm"}), miss)
         self.assertEqual(app.partial_notice(["quake-registered"], []),
                          "Quake Registered needs its official patch files from the network: Try again with download")
         self.assertEqual(app.elapsed_text(75), "1:15")

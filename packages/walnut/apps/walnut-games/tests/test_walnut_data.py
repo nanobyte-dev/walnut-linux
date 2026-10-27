@@ -807,6 +807,20 @@ class DataImport(unittest.TestCase):
         helpers = [e["helper"][2] for e in self.log() if "helper" in e]
         self.assertEqual(helpers, ["a-data"])
 
+    def test_alternatives_group_member_not_reported(self):
+        self.partial_games(present_any=[])
+        self.games["openrct2"]["data_setup"].update(required=[], optional=["x-data", "x-music", "x-music-fm"],
+                                                    downloads=[], alternatives=[["x-music", "x-music-fm"]])
+        os.environ["FAKE_GDP_SKIP"] = "x-music"
+        rc, out = self.imp(self.t / "src")
+        self.assertEqual(rc, 0, out)
+        self.assertFalse(any(l.startswith("warning missing x-music") for l in out), out)
+        os.environ["FAKE_GDP_SKIP"] = "x-music x-music-fm"        # neither made: both reported
+        rc, out = self.imp(self.t / "src")
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(any(l.startswith("warning missing x-music:") for l in out), out)
+        self.assertTrue(any(l.startswith("warning missing x-music-fm:") for l in out), out)
+
     def test_partial_with_downloads_on_is_a_warning(self):
         self.partial_games()
         self.games["openrct2"]["data_setup"].update(required=["b-data"], optional=[], downloads=["b-data"])

@@ -14,6 +14,8 @@ gdp = "ttd"
 original = "Transport Tycoon Deluxe"
 required = []
 optional = ["transport-tycoon-deluxe-data", "transport-tycoon-deluxe-music", "transport-tycoon-deluxe-music-fm"]
+# a copy with either arrangement has the music: the other one is not reported missing
+alternatives = [["transport-tycoon-deluxe-music", "transport-tycoon-deluxe-music-fm"]]
 hint = "Transport Tycoon Deluxe for Windows: its CD or an installed copy (the trg*.grf files, sample.cat and the music, gm_tt*.gm or fm/9_tt*.fm)."
 # what each package holds (X-Walnut-Edition of the package import-data builds)
 editions = { "transport-tycoon-deluxe-data" = "full", "transport-tycoon-deluxe-music" = "music", "transport-tycoon-deluxe-music-fm" = "music" }
