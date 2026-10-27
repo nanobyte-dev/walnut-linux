@@ -11,7 +11,7 @@ The tree, top two levels (each top folder has a three-line README.md):
 packages/           every source package we build, by kind (make <name>-deb; docs/PACKAGING.md)
   walnut/           ours, native: system/ drivers/ tools/ apps/
   patched/          Debian's or upstream's source plus our patches: kernel/ graphics/ audio/ libs/
-                    desktop/, and toolchain/spu/ (the SPU cross toolchain's patches)
+                    desktop/ tools/, and toolchain/spu/ (the SPU cross toolchain's patches)
   repackaged/       upstream releases packaged as they are
   licensed/         ps3-games-licensed, the metapackage of the licensed game data (never CI, never public)
 apt-repo/           the apt repositories' client side: walnut-repo.py, keyrings/, licensed-publish.sh
@@ -75,6 +75,7 @@ are in its bundle's `build.toml` (gamedb/README.md).
 | `kernel/linux/` | The kernel: `patches/series` (PS3 patches applied in order: `ps3/` from psx-place, `local/` ours), `config/*.config` fragments merged onto `ps3_defconfig`; as Debian's `linux` source package (`package.conf`: version, .dsc hash, flavours and their fragments): `packaging/` (changes to `debian/`: only our two kernels, release `6.12.111+ps3.N` and debug `6.12.111+ps3.N-debug<stamp>` (Debian flavours `ps3`, `ps3-debug`), no initramfs), `flavours/release.args`, `debug.args` (boot arguments, shipped as `/usr/lib/ps3/boot/<release>.args`); `tests/`: host tests of kernel patch logic (`ps3disk-guard.sh`: local/0045's range checks, from the patch itself; `guard-header.sh` prints the patch's `ps3disk_guard.h` for the tests that compile it; `sixaxis-idle-axes.sh`: local/0050 in a QEMU guest, an x86 kernel from `build/src/linux` and a DS3 made over uhid by `sixaxis-uhid-init.c`, hid-sony with and without the patch) and `ds3-idle-check.py` (on the PS3: the plugged-in DS3's axes before its PS button) |
 | `libs/boost-context/` | Boost.Context, Coroutine and Fiber 1.92: Debian's `boost1.92` source package plus `packaging/` (0001: the fcontext assembler on ppc64 instead of ucontext, Debian #1146645; 0002: build profile `pkg.boost.contextonly`, only those three libraries and their -dev packages, the rest stays Debian's 1.92.0-3) and `patches/` (the ppc64 switch keeps F14-F31, FPSCR and V20-V31); `test/run-test.sh` (a fiber, asio::spawn, Coroutine and Fiber test plus Boost's own tests, under qemu) |
 | `libs/luajit/` | LuaJIT: Debian's `luajit` source package plus `patches/` (ppc64 big-endian allocates in the low 2 GB, where it checks the state: Debian's fails `luaL_newstate()` about half the time) |
+| `tools/game-data-packager/` | Debian's `game-data-packager` 89 (contrib, a native source) plus `packaging/` (0001: build profile `pkg.game-data-packager.nowrappers`, only the tool and its runtime; 0002: the unpackers as Recommends) and `patches/` (0003 `--progress-fd FD`, machine-readable progress and error kinds; 0004 `--no-launchers`, the Doom family without menu entries or icons); `tests/`: `test_gdp_patches.py` on the built deb in the deb builder image (`run-in-builder.sh`, suite `game-data-packager`) |
 | `toolchain/spu/` | The spu-elf cross toolchain's patches: GCC 16.2 port (`gcc/`), binutils 2.47 fix, newlib 4.6 fixes, test scripts |
 
 ### packages/repackaged/ and packages/licensed/

@@ -1,0 +1,105 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 27 Oct 2026 16:00:32 +0200
+Subject: Add --no-launchers: no menu entries or icons in the Doom family's
+ packages
+
+The Doom family's data packages (doom-wad, doom2-wad, plutonia-wad, tnt-wad, heretic-wad,
+hexen-wad, ...) write /usr/share/applications/<package>.desktop, a pixmap and hicolor icons,
+each entry starting the engine their engine field names with -iwad. Walnut ships its own
+launchers for these games (one engine, chosen settings, a menu entry per game), and a second
+entry per WAD would show up beside them. With --no-launchers the packages carry the data files
+and the preinst only; without it nothing changes.
+
+Forwarded: no
+
+diff --git a/data/bash-completion/game-data-packager b/data/bash-completion/game-data-packager
+--- a/data/bash-completion/game-data-packager
++++ b/data/bash-completion/game-data-packager
+@@ -20,7 +20,7 @@ _game_data_packager()
+     if [ "${cur:0:1}" == "-" ]
+     then
+       local longopts
+-      longopts='--compress --destination --help --install --no-compress --no-download --no-search --package --progress-fd --save-downloads --install-method --gain-root-command --target-format --target-distro'
++      longopts='--compress --destination --help --install --no-compress --no-download --no-launchers --no-search --package --progress-fd --save-downloads --install-method --gain-root-command --target-format --target-distro'
+       COMPREPLY=( $( compgen -W "$longopts" -- $cur ) )
+     elif [ "$prev" == '--install-method' ]
+     then
+diff --git a/doc/game-data-packager.6 b/doc/game-data-packager.6
+--- a/doc/game-data-packager.6
++++ b/doc/game-data-packager.6
+@@ -127,6 +127,11 @@ will not produce a package at all.
+ \fB\-\-save\-downloads\fR \fIDIRECTORY\fR
+ If files are downloaded, save them to \fIDIRECTORY\fR.
+ .TP
++.B \-\-no\-launchers
++Do not put menu entries (.desktop files) or their icons into the packages.
++Only the Doom family (Doom, Heretic, Hexen and related games) writes them;
++use this when another package provides the launchers.
++.TP
+ \fB\-\-progress\-fd\fR \fIFD\fR
+ Write machine-readable progress to file descriptor \fIFD\fR, one line per
+ event:
+diff --git a/game_data_packager/build.py b/game_data_packager/build.py
+--- a/game_data_packager/build.py
++++ b/game_data_packager/build.py
+@@ -233,6 +233,9 @@ class PackagingTask:
+         # If true, be more verbose
+         self.verbose: bool = False
+ 
++        # If false (--no-launchers), packages get no menu entries or icons
++        self.launchers: bool = True
++
+         # None or an existing directory in which to save downloaded files.
+         self.save_downloads: str | None = None
+ 
+@@ -2353,6 +2356,7 @@ class PackagingTask:
+             )
+ 
+         self.verbose = getattr(args, 'verbose', False)
++        self.launchers = getattr(args, 'launchers', True)
+ 
+         if self.packaging.__class__ is self.builder_packaging.__class__:
+             preserve = (getattr(args, 'destination', None) is not None)
+diff --git a/game_data_packager/command_line.py b/game_data_packager/command_line.py
+--- a/game_data_packager/command_line.py
++++ b/game_data_packager/command_line.py
+@@ -269,6 +269,14 @@ def run_command_line() -> None:
+         ),
+     )
+ 
++    game_parser.add_argument(
++        '--no-launchers', action='store_false', dest='launchers',
++        help=(
++            'do not put menu entries (.desktop files) or their icons in '
++            'the packages (the Doom family writes them)'
++        ),
++    )
++
+     group = game_parser.add_mutually_exclusive_group()
+     group.add_argument(
+         '--search', action='store_true',
+@@ -401,6 +409,7 @@ def run_command_line() -> None:
+             install=False,
+             install_method='',
+             gain_root_command='',
++            launchers=True,
+             packages=[],
+             progress_fd=None,
+             save_downloads=None,
+diff --git a/game_data_packager/games/doom_common.py b/game_data_packager/games/doom_common.py
+--- a/game_data_packager/games/doom_common.py
++++ b/game_data_packager/games/doom_common.py
+@@ -211,7 +211,11 @@ class DoomTask(PackagingTask):
+         destdir = per_package_state.destdir
+         assert isinstance(package, DoomPackage)
+ 
+-        for main_wad, quirks in package.main_wads.items():
++        # --no-launchers: no .desktop file, pixmap or hicolor icon (the
++        # preinst below is not a launcher and stays)
++        for main_wad, quirks in (
++            package.main_wads.items() if self.launchers else ()
++        ):
+             engine = self.packaging.substitute(
+                 package.engine or self.game.engine, package.name,
+             )

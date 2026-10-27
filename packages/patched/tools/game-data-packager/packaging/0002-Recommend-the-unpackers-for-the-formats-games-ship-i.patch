@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 27 Oct 2026 15:57:12 +0200
+Subject: Recommend the unpackers for the formats games ship in
+
+Debian only Suggests them, so apt installs none and game-data-packager stops at the first CD
+cabinet, GOG installer or archive ("cannot unpack ...: tool ... is not installed"). Walnut
+imports game data from discs, installers and archives, so the common ones come along:
+innoextract (GOG's setup_*.exe), unshield (InstallShield cabinets, e.g. RollerCoaster Tycoon 2's
+CD), cabextract (Microsoft cabinets), 7zip, lhasa (LHA archives, e.g. Quake 1.06's resource.1,
+which a Quake 1.01 CD needs, and the Master Levels' master.exe) and unzip. unar stays a Suggests
+(it pulls in GNUstep), xorriso too (only three games read an ISO through it).
+
+Forwarded: not-needed
+
+diff --git a/debian/control b/debian/control
+--- a/debian/control
++++ b/debian/control
+@@ -38,22 +38,24 @@ Depends:
+  ${misc:Depends},
+  ${python3:Depends},
+ Recommends:
++ 7zip,
++ cabextract,
+  game-data-packager-runtime (>= ${source:Version}),
++ innoextract,
++ lhasa | jlha-utils | lzh-archiver,
++ unshield,
++ unzip,
+ Suggests:
+- 7zip,
+  arj,
+  binutils,
+- cabextract,
+  cdparanoia,
+  dynamite,
+  gcc,
+  gdebi | gdebi-kde,
+  gir1.2-gdkpixbuf-2.0,
+- innoextract,
+  lame,
+  lgc-pg,
+  lgogdownloader,
+- lhasa | jlha-utils | lzh-archiver,
+  make,
+  pkexec,
+  python3-gi,
+@@ -64,8 +66,6 @@ Suggests:
+  unace-nonfree,
+  unar,
+  unrar,
+- unshield,
+- unzip,
+  vorbis-tools,
+  xdelta,
+  xdelta3,

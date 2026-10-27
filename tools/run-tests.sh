@@ -40,7 +40,9 @@
 #            alone, unchanged), gamedb-technical (tools/gamedb/technical.py: the site's technical
 #            pages, drafts left out, links, the benchmark tables, the public-safe scan), walnut-games (the app and its root
 #            helper: validation, remove-cascade refusal, Exec parsing, a window smoke test), ps3disk-guard (kernel local/0045's
-#            range checks, packages/patched/kernel/linux/tests/ps3disk-guard.sh)
+#            range checks, packages/patched/kernel/linux/tests/ps3disk-guard.sh), game-data-packager (our patches'
+#            --progress-fd and --no-launchers on the built deb, in the deb builder image: packages/patched/tools/
+#            game-data-packager/tests; skipped without build/debs/game-data-packager)
 #   --slow   also autogm (packages/walnut/system/ps3-desktop/tests/autogm-check.sh: needs Xvfb+openbox or docker/podman) and
 #            ssdimg-vm (tools/ssdimg/vm-e2e.sh: ps3-imgmap on a real big-endian UFS2 image in a KVM
 #            guest of the host's kernel, then Phase B: ps3-imgmap-boot's devices, the initramfs
@@ -260,6 +262,7 @@ run gamedb-evidence bash -c "python3 -I tools/gamedb/test_evidence.py && python3
 run gamedb-technical python3 -I tools/gamedb/test_technical.py
 run walnut-games python3 -I packages/walnut/apps/walnut-games/tests/test_walnut_games.py
 run ps3disk-guard packages/patched/kernel/linux/tests/ps3disk-guard.sh
+run game-data-packager packages/patched/tools/game-data-packager/tests/run-in-builder.sh
 [ $slow = 1 ] && run autogm bash -c "$(declare -f t_autogm); t_autogm"
 [ $slow = 1 ] && run ssdimg-vm tools/ssdimg/vm-e2e.sh
 

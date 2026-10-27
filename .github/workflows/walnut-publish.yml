@@ -23,6 +23,7 @@ on:
       - "pkg: endless-sky"
       - "pkg: etr"
       - "pkg: fluidsynth"
+      - "pkg: game-data-packager"
       - "pkg: hedgewars"
       - "pkg: ioquake3"
       - "pkg: libpng1.6"

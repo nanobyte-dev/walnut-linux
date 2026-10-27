@@ -1,0 +1,65 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 27 Oct 2026 15:57:00 +0200
+Subject: Build profile pkg.game-data-packager.nowrappers: the tool without the
+ engine wrappers
+
+Walnut ships game-data-packager and game-data-packager-runtime only. The quake, quake2 and
+quake3 wrapper packages and their dedicated servers come from the same source; built here they
+would carry our +ps3 version into Walnut's suites and sit beside our own launchers for those
+engines (QuakeSpasm, Yamagi Quake II). The profile leaves them out (packages/patched/tools/
+game-data-packager/package.conf NATIVE_PROFILES); without it the source builds what Debian's does.
+
+Forwarded: not-needed
+
+diff --git a/debian/control b/debian/control
+--- a/debian/control
++++ b/debian/control
+@@ -433,6 +433,7 @@ Description: Helper libraries required by legacy i386 binary-only games
+ 
+ Package: quake
+ Architecture: all
++Build-Profiles: <!pkg.game-data-packager.nowrappers>
+ Pre-Depends:
+  ${misc:Pre-Depends},
+ Depends:
+@@ -470,6 +471,7 @@ Description: classic gothic/horror-themed first person shooter
+ 
+ Package: quake-server
+ Architecture: all
++Build-Profiles: <!pkg.game-data-packager.nowrappers>
+ Pre-Depends:
+  ${misc:Pre-Depends},
+ Depends:
+@@ -491,6 +493,7 @@ Description: classic first person shooter - server and init script
+ 
+ Package: quake2
+ Architecture: all
++Build-Profiles: <!pkg.game-data-packager.nowrappers>
+ Pre-Depends:
+  ${misc:Pre-Depends},
+ Depends:
+@@ -523,6 +526,7 @@ Description: classic science-fiction-themed first person shooter
+ 
+ Package: quake2-server
+ Architecture: all
++Build-Profiles: <!pkg.game-data-packager.nowrappers>
+ Pre-Depends:
+  ${misc:Pre-Depends},
+ Depends:
+@@ -549,6 +553,7 @@ Description: dedicated server for Quake II
+ 
+ Package: quake3
+ Architecture: all
++Build-Profiles: <!pkg.game-data-packager.nowrappers>
+ Pre-Depends:
+  ${misc:Pre-Depends},
+ Depends:
+@@ -576,6 +581,7 @@ Description: Quake III Arena menu entry and launcher scripts
+ 
+ Package: quake3-server
+ Architecture: all
++Build-Profiles: <!pkg.game-data-packager.nowrappers>
+ Pre-Depends:
+  ${misc:Pre-Depends},
+ Depends:

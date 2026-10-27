@@ -1,0 +1,519 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 27 Oct 2026 15:59:40 +0200
+Subject: Add --progress-fd FD: machine-readable progress for a calling program
+
+Walnut Games runs game-data-packager for the player and shows what it is doing. Today the only
+progress is a percentage drawn on a terminal, and every failure is exit status 1 with English
+text, so a caller can't tell "no files here" from "a version we don't know" from "needs a
+download" without parsing log messages.
+
+With --progress-fd FD, one line per event goes to FD (game_data_packager/progress_fd.py):
+
+  step <text>           searching a path, unpacking or downloading a file, building a package
+  file <name> <bytes>   a file being checked, identified or unpacked from an archive
+  generated <path>      a package was built
+  error <kind> <text>   once, before a failed run exits
+
+The kind is decided where game-data-packager detects the failure: not-found (no package could
+be completed and no file of a known name turned up), unknown-version (files of known names with
+checksums it doesn't know, or a file given on the command line that matches nothing),
+needs-download (a file only available by download, downloads off or failed), no-space (the
+download space check, ENOSPC, or a file system we write to is full when the run fails), failed
+(anything else, e.g. a missing unpacker). Without the option nothing changes: the normal output
+on stdout and stderr is the same.
+
+Forwarded: no
+
+diff --git a/data/bash-completion/game-data-packager b/data/bash-completion/game-data-packager
+--- a/data/bash-completion/game-data-packager
++++ b/data/bash-completion/game-data-packager
+@@ -20,7 +20,7 @@ _game_data_packager()
+     if [ "${cur:0:1}" == "-" ]
+     then
+       local longopts
+-      longopts='--compress --destination --help --install --no-compress --no-download --no-search --package --save-downloads --install-method --gain-root-command --target-format --target-distro'
++      longopts='--compress --destination --help --install --no-compress --no-download --no-search --package --progress-fd --save-downloads --install-method --gain-root-command --target-format --target-distro'
+       COMPREPLY=( $( compgen -W "$longopts" -- $cur ) )
+     elif [ "$prev" == '--install-method' ]
+     then
+diff --git a/doc/game-data-packager.6 b/doc/game-data-packager.6
+--- a/doc/game-data-packager.6
++++ b/doc/game-data-packager.6
+@@ -127,6 +127,25 @@ will not produce a package at all.
+ \fB\-\-save\-downloads\fR \fIDIRECTORY\fR
+ If files are downloaded, save them to \fIDIRECTORY\fR.
+ .TP
++\fB\-\-progress\-fd\fR \fIFD\fR
++Write machine-readable progress to file descriptor \fIFD\fR, one line per
++event:
++.BI "step " text
++(what is being done),
++.BI "file " "name bytes"
++(a file being checked or unpacked),
++.BI "generated " path
++(a package was built) and, once before a failed run exits,
++.BI "error " "kind text"
++with \fIkind\fR one of
++.BR not\-found ,
++.BR unknown\-version ,
++.BR needs\-download ,
++.B no\-space
++or
++.BR failed .
++The normal output is unchanged.
++.TP
+ .B \-\-verbose
+ Be more verbose, and in particular show output from any external tools
+ that are invoked during operation.
+diff --git a/game_data_packager/build.py b/game_data_packager/build.py
+--- a/game_data_packager/build.py
++++ b/game_data_packager/build.py
+@@ -7,6 +7,7 @@
+ 
+ from __future__ import annotations
+ 
++import errno
+ import gzip
+ import logging
+ import os
+@@ -32,6 +33,7 @@ from .packaging import (
+     get_native_packaging_system
+ )
+ from .paths import (DATADIR)
++from .progress_fd import (progress)
+ from .unpack import (TarUnpacker, ZipUnpacker)
+ from .unpack.d3pkg import (D3Pkg)
+ from .unpack.innoextract import (InnoSetup)
+@@ -247,6 +249,13 @@ class PackagingTask:
+ 
+         self.extra_icon_possible_name: set[str] = set()
+ 
++        # --progress-fd: files found under a known name whose size or
++        # checksums are not known, the error line for a failed run, and
++        # the directories whose file systems may run out of space
++        self.unknown_files: list[str] = []
++        self.progress_error: tuple[str, str] | None = None
++        self.space_dirs: set[str] = set()
++
+     @property
+     def downloader(self) -> Downloader:
+         ret = self._downloader
+@@ -328,6 +337,7 @@ class PackagingTask:
+                     return False
+ 
+         if hashes is None:
++            progress.file(path, size)
+             with open(path, 'rb') as fd:
+                 hashes = HashedFile.from_file(
+                     path, fd, size=size,
+@@ -503,6 +513,7 @@ class PackagingTask:
+                         'extracting %s (%d bytes) with InnoExtract...',
+                         basename, size,
+                     )
++                progress.step('extracting %s with innoextract' % basename)
+ 
+                 tmpdir = os.path.join(
+                     self.get_workdir(), 'tmp', basename + '.d',
+@@ -515,6 +526,7 @@ class PackagingTask:
+                 self.consider_file_or_dir(tmpdir)
+         elif really_should_match_something:
+             logger.warning('file "%s" does not match any known file', path)
++            self.unknown_files.append(path)
+             # ... still G-D-P should try to process any random .zip
+             # file thrown at it, like the .zip provided by GamersHell
+             # or the MojoSetup installers provided by GOG.com
+@@ -544,6 +556,10 @@ class PackagingTask:
+         why: str,
+         candidates: Iterable[WantedFile],
+     ) -> None:
++        if not why.startswith('file of size '):
++            # found by its name (a file of a known size is a guess)
++            self.unknown_files.append(path)
++
+         message = (
+             'found %s but it is not one of the expected versions:\n'
+             '    file:   %s\n'
+@@ -954,6 +970,7 @@ class PackagingTask:
+                     ' or '.join([wanted.name for wanted in candidates])
+                 )
+                 entryfile = unpacker.open(entry)
++                progress.file(name + '//' + entry.name, entry.size)
+ 
+                 tmpdir = os.path.join(self.get_workdir(), 'tmp')
+                 mkdir_p(tmpdir)
+@@ -1129,6 +1146,11 @@ class PackagingTask:
+                     # download() already issued a warning, do nothing
+                     pass
+                 except OutOfSpace:
++                    self.progress_error = (
++                        'no-space', 'no space in %s to download %s' % (
++                            dest, wanted.name,
++                        ),
++                    )
+                     return FillResult.IMPOSSIBLE
+                 else:
+                     if self.use_file(wanted.name, (wanted,), path, hasher):
+@@ -1199,6 +1221,7 @@ class PackagingTask:
+                 assert type(fmt) is str
+ 
+                 self.unpack_tried.add(provider_name)
++                progress.step('unpacking %s' % found_name)
+ 
+                 if self.verbose and fmt in ('zip', 'unzip'):
+                     with zipfile.ZipFile(found_name, 'r') as zf:
+@@ -2274,9 +2297,51 @@ class PackagingTask:
+ 
+         for arg in paths:
+             logger.debug('%s...', arg)
++            progress.step('searching %s' % arg)
+             self.consider_file_or_dir(arg)
+ 
+     def run_command_line(self, args: argparse.Namespace) -> None:
++        for d in (
++            getattr(args, 'destination', None),
++            getattr(args, 'save_downloads', None),
++            tempfile.gettempdir(),
++        ):
++            if d is not None:
++                self.space_dirs.add(d)
++
++        try:
++            self._run_command_line(args)
++        except SystemExit as e:
++            if e.code not in (None, 0):
++                self.report_error(
++                    e.code if isinstance(e.code, str) else '')
++            raise
++        except Exception as e:
++            if isinstance(e, OSError) and e.errno == errno.ENOSPC:
++                self.progress_error = ('no-space', str(e))
++            self.report_error('%s: %s' % (type(e).__name__, e))
++            raise
++
++    def report_error(self, text: str) -> None:
++        """The --progress-fd error line of a failed run: the kind found
++        where the failure was detected, else "failed"; "no-space" when a
++        file system we were writing to is (nearly) full."""
++        kind, text = self.progress_error or ('failed', text or 'see the log')
++        if kind != 'no-space':
++            dirs = set(self.space_dirs)
++            if self.__workdir is not None:
++                dirs.add(self.__workdir)
++            for d in sorted(dirs):
++                try:
++                    st = os.statvfs(d)
++                except OSError:
++                    continue
++                if st.f_bavail * st.f_frsize < 1024 * 1024:
++                    kind, text = 'no-space', 'no space left in %s' % d
++                    break
++        progress.error(kind, text)
++
++    def _run_command_line(self, args: argparse.Namespace) -> None:
+         if logging.getLogger().isEnabledFor(logging.DEBUG):
+             logger.debug(
+                 'package description:\n%s',
+@@ -2366,6 +2431,9 @@ class PackagingTask:
+                 binary_executables=args.binary_executables,
+             )
+         except BinaryExecutablesNotAllowed:
++            self.progress_error = (
++                'failed', '%s needs --binary-executables' % self.game.longname,
++            )
+             raise SystemExit(1)
+         except NoPackagesPossible:
+             raise SystemExit(1)
+@@ -2379,6 +2447,26 @@ class PackagingTask:
+             )
+         except NoPackagesPossible:
+             logger.error('Unable to complete any packages.')
++            # missing_tools also lists the unpackers of archives that
++            # were never found: they matter only when something was
++            if self.progress_error is not None:
++                pass
++            elif self.unknown_files:
++                self.progress_error = (
++                    'unknown-version', 'unknown version of %s' % ', '.join(
++                        dict.fromkeys(self.unknown_files)),
++                )
++            elif self.missing_tools and self.found:
++                self.progress_error = (
++                    'failed', 'tools needed: %s' % ', '.join(
++                        sorted(self.missing_tools)),
++                )
++            else:
++                self.progress_error = (
++                    'not-found', 'no files found for %s' % (
++                        ', '.join(sorted(p.name for p in requested_packages))
++                        or self.game.shortname),
++                )
+             if self.missing_tools:
+                 # we already logged warnings about the files as they came up
+                 self.log_missing_tools()
+@@ -2398,6 +2486,10 @@ class PackagingTask:
+                 'Unable to complete any packages because downloading '
+                 'missing files was not allowed.',
+             )
++            self.progress_error = self.progress_error or (
++                'needs-download', 'downloads are off: %s' % ', '.join(
++                    self.needs_download()),
++            )
+             self.log_missing_tools()
+             raise SystemExit(1)
+         except DownloadsFailed:
+@@ -2405,9 +2497,14 @@ class PackagingTask:
+             logger.error(
+                 'Unable to complete any packages because downloads failed.',
+             )
++            self.progress_error = self.progress_error or (
++                'needs-download', 'download failed: %s' % ', '.join(
++                    self.needs_download()),
++            )
+             raise SystemExit(1)
+         except CDRipFailed:
+             logger.error('Unable to rip CD audio')
++            self.progress_error = ('failed', 'unable to rip CD audio')
+             raise SystemExit(1)
+ 
+         if args.destination is None:
+@@ -2424,6 +2521,9 @@ class PackagingTask:
+ 
+         rm_rf(os.path.join(self.get_workdir(), 'tmp'))
+ 
++        for pkg in pkgs:
++            progress.generated(os.path.abspath(pkg))
++
+         if preserve:
+             for pkg in pkgs:
+                 print('generated "%s"' % os.path.abspath(pkg))
+@@ -2472,6 +2572,16 @@ class PackagingTask:
+             for pkg in pkgs:
+                 subprocess.call([self.packaging.CHECK_CMD, pkg])
+ 
++    def needs_download(self) -> list[str]:
++        """The files we could download but did not."""
++        return sorted(set(
++            name.split('?')[0]
++            for name, status in self.file_status.items()
++            if status is FillResult.DOWNLOAD_NEEDED
++            and name in self.game.files
++            and self.game.files[name].download
++        ))
++
+     def rip_cd(self, package: Package) -> None:
+         cd_device = self.cd_device
+         if cd_device is None:
+@@ -2481,6 +2591,7 @@ class PackagingTask:
+             'Ripping CD tracks %d+ from %s for %s',
+             package.rip_cd.get('first_track', 2), cd_device, package.name,
+         )
++        progress.step('ripping CD audio from %s' % cd_device)
+ 
+         assert package.rip_cd['encoding'] in ['vorbis', 'mp3'], package.name
+ 
+@@ -2951,6 +3062,8 @@ class PackagingTask:
+             if not self.check_complete(package, log=True):
+                 raise SystemExit(1)
+ 
++            progress.step('building %s' % package.name.split('?')[0])
++
+             # TODO: Ideally we would keep package.name as-is, and only
+             # put this modified name in the per_package_state: but we can't
+             # do that until we have checked that all references to .name
+@@ -3231,6 +3344,7 @@ class PackagingTask:
+         if hashes is not None:
+             return hashes
+ 
++        progress.file(path, size)
+         with open(path, 'rb') as fd:
+             return HashedFile.from_file(
+                 path, fd, size=size,
+diff --git a/game_data_packager/command_line.py b/game_data_packager/command_line.py
+--- a/game_data_packager/command_line.py
++++ b/game_data_packager/command_line.py
+@@ -22,6 +22,7 @@ from .data import (ProgressCallback)
+ from .game import (load_games)
+ from .packaging import (get_packaging_system)
+ from .paths import (DATADIR)
++from .progress_fd import (progress)
+ from .util import (human_size)
+ from .version import (FORMAT, DISTRO, GAME_PACKAGE_VERSION)
+ 
+@@ -260,6 +261,14 @@ def run_command_line() -> None:
+         help='save downloaded files to DIR, and look for files there',
+     )
+ 
++    game_parser.add_argument(
++        '--progress-fd', metavar='FD', type=int, dest='progress_fd',
++        help=(
++            'write machine-readable progress lines to file descriptor FD '
++            '(step, file, generated, error; see progress_fd.py)'
++        ),
++    )
++
+     group = game_parser.add_mutually_exclusive_group()
+     group.add_argument(
+         '--search', action='store_true',
+@@ -393,6 +402,7 @@ def run_command_line() -> None:
+             install_method='',
+             gain_root_command='',
+             packages=[],
++            progress_fd=None,
+             save_downloads=None,
+             search=True,
+             shortname=None,
+@@ -426,6 +436,16 @@ def run_command_line() -> None:
+     parsed.install = parsed.install or parsed.force_install
+     logger.debug('parsed command-line arguments into: %r', parsed)
+ 
++    if parsed.progress_fd is not None:
++        try:
++            progress.open(parsed.progress_fd)
++        except OSError as e:
++            logger.error(
++                'argument "%s" to --progress-fd is not an open file '
++                'descriptor: %s', parsed.progress_fd, e,
++            )
++            sys.exit(2)
++
+     if (parsed.destination is None and not parsed.install and
+             parsed.shortname != 'make-template'):
+         logger.error('At least one of --install or --destination is required')
+diff --git a/game_data_packager/download.py b/game_data_packager/download.py
+--- a/game_data_packager/download.py
++++ b/game_data_packager/download.py
+@@ -15,6 +15,7 @@ from typing import (cast, TypedDict, TYPE_CHECKING)
+ 
+ from .data import (HashedFile)
+ from .paths import (ETCDIR)
++from .progress_fd import (progress)
+ from .util import (AGENT, mkdir_p)
+ 
+ if TYPE_CHECKING:
+@@ -160,6 +161,7 @@ class Downloader:
+ 
+                 with open(tmp, 'wb') as wf:
+                     logger.info('downloading %s', url)
++                    progress.step('downloading %s' % url)
+                     hf = HashedFile.from_file(
+                         url, rf, wf,
+                         size=wanted.size,
+diff --git a/game_data_packager/meson.build b/game_data_packager/meson.build
+--- a/game_data_packager/meson.build
++++ b/game_data_packager/meson.build
+@@ -12,6 +12,7 @@ install_data(
+   'gog.py',
+   'make_template.py',
+   'paths.py',
++  'progress_fd.py',
+   'steam.py',
+   'util.py',
+   # version.py deliberately excluded
+diff --git a/game_data_packager/progress_fd.py b/game_data_packager/progress_fd.py
+new file mode 100644
+--- /dev/null
++++ b/game_data_packager/progress_fd.py
+@@ -0,0 +1,102 @@
++#!/usr/bin/python3
++# encoding=utf-8
++#
++# Copyright © 2026 Tiberiu Chibici <chibicitiberiu@gmail.com>
++# SPDX-License-Identifier: GPL-2.0-or-later
++
++"""Machine-readable progress for a program that runs game-data-packager.
++
++With --progress-fd FD, one line per event is written to FD (UTF-8, each
++line flushed as it is written):
++
++  step <text>              what game-data-packager is doing now
++  file <name> <bytes>      a file being read: checked, identified or
++                           unpacked (the name may contain spaces, the
++                           size is the last word, -1 if unknown)
++  generated <path>         a package was built at <path>
++  error <kind> <text>      the run failed (exit status 1), one line,
++                           before it exits
++
++Error kinds:
++
++  not-found        none of the files a package needs were found
++  unknown-version  files were found but their checksums are not known
++  needs-download   a file is only available by download, and downloads
++                   are off (--no-download) or failed
++  no-space         a file system ran out of space
++  failed           anything else; the log on stderr says what
++
++Line breaks and other control characters in the text become spaces.
++The normal output on stdout and stderr is unchanged.  If the reader goes
++away, writing stops and the run carries on.
++"""
++
++from __future__ import annotations
++
++import os
++import sys
++from typing import (TextIO)
++
++ERROR_KINDS = (
++    'not-found', 'unknown-version', 'needs-download', 'no-space', 'failed',
++)
++
++_CONTROL = {c: ' ' for c in range(32)}
++_CONTROL[127] = ' '
++
++
++class ProgressWriter:
++    def __init__(self) -> None:
++        self._file: TextIO | None = None
++        self.error_written = False
++
++    def open(self, fd: int) -> None:
++        """Write to the file descriptor fd (raises OSError if it is not
++        open for writing)."""
++        os.fstat(fd)
++        self._file = os.fdopen(
++            fd, 'w', encoding='utf-8', errors='replace',
++            buffering=1, closefd=False,
++        )
++
++    @property
++    def enabled(self) -> bool:
++        return self._file is not None
++
++    def _line(self, *words: object) -> None:
++        if self._file is None:
++            return
++        text = ' '.join(str(w) for w in words).translate(_CONTROL)
++        try:
++            # keep the order of our own output if FD is stdout or stderr
++            sys.stdout.flush()
++            sys.stderr.flush()
++            self._file.write(text + '\n')
++            self._file.flush()
++        except (OSError, ValueError):
++            # the reader went away: stop writing, keep running
++            f, self._file = self._file, None
++            try:
++                f.close()   # closefd=False: only our buffer goes
++            except (OSError, ValueError):
++                pass
++
++    def step(self, text: str) -> None:
++        self._line('step', text)
++
++    def file(self, name: str, size: int | None) -> None:
++        self._line('file', name, -1 if size is None else size)
++
++    def generated(self, path: str) -> None:
++        self._line('generated', path)
++
++    def error(self, kind: str, text: str) -> None:
++        assert kind in ERROR_KINDS, kind
++        if self.error_written:
++            return
++        self._line('error', kind, text)
++        self.error_written = True
++
++
++# The one writer, set up by command_line.py from --progress-fd.
++progress = ProgressWriter()

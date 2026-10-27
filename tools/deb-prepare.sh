@@ -146,11 +146,15 @@ if [ -s "$PD/patches/series" ]; then
 		(cd "$T" && quilt push -q "ps3/$p" >/dev/null)
 	done < "$PD/patches/series"
 fi
+# A native source (no orig tarball) is the tree itself: quilt's state stays out of it
+if grep -qxF '3.0 (native)' "$T/debian/source/format" 2>/dev/null; then rm -rf "$T/.pc"; fi
 # Package-specific: Mesa generates debian/control from control.in
 if [ "$SOURCE" = mesa ]; then make -s -C "$T" -f debian/rules regen_control; fi
 
+# --preserve: a native source (format 3.0 (native), e.g. game-data-packager) has no revision, so
+# its whole version changes and dch would rename the tree to <source>-<new version>
 (cd "$T" && DEBEMAIL="chibicitiberiu@gmail.com" DEBFULLNAME="Tiberiu Chibici" \
-	dch -v "$NEWVER" --distribution ps3 --force-distribution --no-auto-nmu --force-bad-version \
+	dch -v "$NEWVER" --preserve --distribution ps3 --force-distribution --no-auto-nmu --force-bad-version \
 	"PS3 build: patches from the ps3 project, ${HASH:-local}." 2>/dev/null)
 # the entry's date: the commit's, so the same checkout gives the same SOURCE_DATE_EPOCH
 python3 - "$T/debian/changelog" "$DATE" <<'PY2'
@@ -186,7 +190,7 @@ if [ "$SOURCE" = linux ]; then
 	fi
 	rm -rf "$T/debian/build" "$T/debian/lib/python/debian_linux/__pycache__" "$OUT/gencontrol.log"
 fi
-for f in "$SRC"/*.orig*.tar.*; do ln -sf "$(realpath "$f")" "$OUT/"; done
+for f in "$SRC"/*.orig*.tar.*; do [ ! -e "$f" ] || ln -sf "$(realpath "$f")" "$OUT/"; done	# none: native
 (cd "$OUT" && dpkg-source -q -b "$SOURCE-$UPVER" >/dev/null)
 echo ">> $OUT/${SOURCE}_${NEWVER}.dsc"
 exit
