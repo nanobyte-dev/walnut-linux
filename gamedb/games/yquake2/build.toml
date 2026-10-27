@@ -16,6 +16,7 @@ leak_files = ["*baseq2/pak[0-9].pak"]
 
 [data_setup]
 gdp = "quake2"
+original = "Quake II"
 required = ["quake2-demo-data", "quake2-full-data"]
 # the 3.20 patch's files (pak1, pak2 and more), downloaded when the copy isn't patched
 downloads = ["quake2-full-data"]

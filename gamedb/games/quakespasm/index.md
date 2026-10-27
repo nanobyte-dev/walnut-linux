@@ -8,11 +8,11 @@ license = "GPL-2.0-or-later"
 homepage = "https://quakespasm.sourceforge.net/"
 data_guide = "https://quakespasm.sourceforge.net/"
 data_steps = [
-  "In Walnut Games, open QuakeSpasm and choose Set up game data...: pick the disc in the drive, an ISO, an installer or a folder that holds your copy.",
+  "In Walnut Games, open QuakeSpasm and choose Add game files...: pick the disc in the drive, an ISO, an installer or a folder that holds your copy.",
   "Or from a terminal: `walnut-data import quakespasm /path/to/your/copy`. The free shareware needs no copy: choose Download the free shareware (needs the network) in the chooser, or run `walnut-data import -p quake-shareware quakespasm`.",
   "What it needs: Quake's CD or The Offering (GOG), a Steam `common/Quake` folder. The 2021 re-release is not supported. The free shareware (the first episode) is downloaded for you (`quake106.zip`).",
   "The data is installed as quake-registered (or quake-shareware), in `/usr/share/games/quake/id1`, where the QuakeSpasm menu entries look. The full game replaces the shareware.",
-  "If you have Walnut's licensed suite configured as an apt source, choose Install from your repository (or `walnut-data install-repo quakespasm`) instead.",
+  "If you have Walnut's licensed suite configured as an apt source, choose Install from Walnut licensed (or `walnut-data install-repo quakespasm`) instead.",
 ]
 controller = "keyboard"
 designed_for = "keyboard-mouse"
@@ -26,7 +26,7 @@ total over a two minute window.
 
 ## Setting up the game data
 
-Walnut Games makes the data for you. Open QuakeSpasm in the app and choose Set up game data...; the chooser lists the disc in the drive, mounted discs and sticks, GOG and Steam folders, and the ISOs, installers and archives in Downloads and your home folder. For the free shareware choose Download the free shareware (needs the network): nothing to find. In a terminal it is `walnut-data import quakespasm /path/to/your/copy` for the full game and `walnut-data import -p quake-shareware quakespasm` for the shareware. It runs Walnut's patched `game-data-packager` and installs an ordinary package that Remove data takes away again.
+Walnut Games makes the data for you. Open QuakeSpasm in the app and choose Add game files...; the chooser lists the disc in the drive, mounted discs and sticks, GOG and Steam folders, and the ISOs, installers and archives in Downloads and your home folder. For the free shareware choose Download the free shareware (needs the network): nothing to find. In a terminal it is `walnut-data import quakespasm /path/to/your/copy` for the full game and `walnut-data import -p quake-shareware quakespasm` for the shareware. It runs Walnut's patched `game-data-packager` and installs an ordinary package that Remove data takes away again.
 
 ### Which editions work
 
@@ -36,4 +36,4 @@ Walnut Games makes the data for you. Open QuakeSpasm in the app and choose Set u
 
 ### What you get
 
-The data ends up in `/usr/share/games/quake/id1`. The menu entries QuakeSpasm (GLSL) and QuakeSpasm (no GLSL) read `/usr/share/games/quake`, so they play whichever edition is installed. `quake-registered` replaces `quake-shareware`, so the full game takes over the same folder. With Walnut's licensed suite as an apt source the page offers Install from your repository instead.
+The data ends up in `/usr/share/games/quake/id1`. The menu entries QuakeSpasm (GLSL) and QuakeSpasm (no GLSL) read `/usr/share/games/quake`, so they play whichever edition is installed. `quake-registered` replaces `quake-shareware`, so the full game takes over the same folder. With Walnut's licensed suite as an apt source the page offers Install from Walnut licensed instead.

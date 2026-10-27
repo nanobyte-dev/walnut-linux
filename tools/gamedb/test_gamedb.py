@@ -499,6 +499,8 @@ class Check(unittest.TestCase):
                ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\noptional = ["tnt-wad"]\n' + T, "both required and optional"),
                ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad", "tnt-wad"]\n' + T, "names a package twice"),
                ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\nhint = " "\n' + T, "hint is empty"),
+               ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\noriginal = " "\n' + T, "original is empty"),
+               ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\noriginal = 3\n' + T, "'original' should be str"),
                ('[data_setup]\ngdp = "final-doom"\nrequired = ["plutonia-wad", "tnt-wad"]\n' + T, "editions has no plutonia-wad"),
                ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\neditions = { "tnt-wad" = "full", "x-wad" = "full" }\n',
                 "editions names x-wad"),
@@ -987,6 +989,12 @@ class PackIntegration(unittest.TestCase):
     def read(self, name):
         return (self.out / "tree" / name).read_text()
 
+    def test_program_through_sh_for_tilde(self):
+        pr = self.pi.program
+        self.assertEqual(pr(["ps3-game", "sh", "-c", "exec openttd -c ~/x.cfg -I y"]), "openttd")
+        self.assertEqual(pr(["ps3-game", "env", "A=1", "openttd", "-c", "x"]), "openttd")
+        self.assertEqual(pr(["ps3-game", "sh", "-c", "echo hi"]), "sh")
+
     def test_depends_and_tree(self):
         self.game("a", 'packages = ["a", "a-data"]\nmeta = ["a"]\nsuite = "free"\n'
                        'divert = ["/usr/share/applications/a.desktop"]\n',
@@ -1308,7 +1316,7 @@ class Catalog(unittest.TestCase):
             out = catalog.build_game(g, REPO, {})
             self.assertEqual(out["data_setup"], {
                 "gdp": "roller-coaster-tycoon2", "required": ["roller-coaster-tycoon2-data"], "optional": [],
-                "downloads": [], "fetch": [], "hint": None, "editions": {"roller-coaster-tycoon2-data": "full"},
+                "downloads": [], "fetch": [], "hint": None, "original": None, "editions": {"roller-coaster-tycoon2-data": "full"},
                 "present_any": ["roller-coaster-tycoon2-data", "rct2-data", "rct2-extra"]})
             self.assertNotIn("data_setup", catalog.build_game(write_game(d, "plain"), REPO, {}))
             (g / "thumb.png").unlink()

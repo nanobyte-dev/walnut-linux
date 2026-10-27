@@ -24,6 +24,7 @@ edition = "full"
 
 [data_setup]
 gdp = "roller-coaster-tycoon2"
+original = "RollerCoaster Tycoon 2"
 required = ["roller-coaster-tycoon2-data"]
 hint = "RollerCoaster Tycoon 2: its CD, an installed copy (Steam, GOG) or the GOG installer."
 # what each package holds (X-Walnut-Edition of the package import-data builds)

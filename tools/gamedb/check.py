@@ -99,7 +99,7 @@ BUILD_KEYS = {
 # [data_setup] (gamedb/README.md): the player's own data, imported with game-data-packager (gdp). key: (type,
 # required); every package one of the gdp game's (GDP_INDEX, made by gdp-index.py: offline, no docker)
 DATA_SETUP_KEYS = {"gdp": (str, True), "required": (list, True), "optional": (list, False),
-                   "downloads": (list, False), "fetch": (list, False), "hint": (str, False), "editions": (dict, True)}
+                   "downloads": (list, False), "fetch": (list, False), "hint": (str, False), "original": (str, False), "editions": (dict, True)}
 # [data_setup] editions = {package: edition}: what a data package holds (X-Walnut-Edition in the control of a
 # package walnut-games-helper import-data builds; the licensed suite's builders and the session harness read it)
 EDITIONS = ("shareware", "demo", "full", "expansion", "music")
@@ -177,7 +177,7 @@ def game_facts(gdir):
 
 def data_setup_facts(build):
     """a build.toml's [data_setup] as the catalog carries it (every key, defaults filled in), or None:
-    gdp, required, optional, downloads, hint (None when unset), editions and present_any, the packages any one of
+    gdp, required, optional, downloads, hint and original (None when unset), editions and present_any, the packages any one of
     which means the game's data is installed: required, then the game's data and [[licensed]] names
     (the licensed suite's builds of the same data, e.g. rct2-data next to roller-coaster-tycoon2-data)"""
     ds = build.get("data_setup")
@@ -185,7 +185,7 @@ def data_setup_facts(build):
         return None
     own = list(build.get("data", [])) + [e.get("name") for e in build.get("licensed", []) if isinstance(e, dict)]
     return {"gdp": ds.get("gdp"), "required": list(ds.get("required", [])), "optional": list(ds.get("optional", [])),
-            "downloads": list(ds.get("downloads", [])), "fetch": list(ds.get("fetch", [])), "hint": ds.get("hint"), "editions": dict(ds.get("editions", {})),
+            "downloads": list(ds.get("downloads", [])), "fetch": list(ds.get("fetch", [])), "hint": ds.get("hint"), "original": ds.get("original"), "editions": dict(ds.get("editions", {})),
             "present_any": list(dict.fromkeys(list(ds.get("required", [])) + [p for p in own if isinstance(p, str)]))}
 
 
@@ -506,6 +506,8 @@ def data_setup_errors(ds, build, bad, ctx):
     req, opt, dl = ds["required"], ds.get("optional", []), ds.get("downloads", [])
     if "hint" in ds and not ds["hint"].strip():
         errs.append("[data_setup]: hint is empty")
+    if "original" in ds and not ds["original"].strip():
+        errs.append("[data_setup]: original is empty")
     both = sorted(set(req) & set(opt))
     if both:
         errs.append("[data_setup]: %s both required and optional" % ", ".join(both))

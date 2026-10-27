@@ -6,6 +6,7 @@ needs_data = true
 
 [data_setup]
 gdp = "hexen"
+original = "Hexen"
 required = ["hexen-wad"]
 hint = "HEXEN.WAD from Hexen: Beyond Heretic 1.1 (1.0 does not run): a CD, an installed copy or Steam's common/Hexen folder."
 # what each package holds (X-Walnut-Edition of the package import-data builds)

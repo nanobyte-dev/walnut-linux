@@ -31,10 +31,11 @@ Design
   else `ps3-game` plus the entry in /usr/share/applications with the field codes cut out and
   split by shlex, never through a shell.
 - Game data (a game's catalog data_setup, GameDB build.toml [data_setup]): the page offers "Install from
-  your repository" when the apt sources have one of its present_any names (apt-cache policy, once in a
+  Walnut licensed" when the apt sources have one of its present_any names (apt-cache policy, once in a
   thread at start and on Refresh: the licensed suite; checked over every present_any name, since its
-  newer builds carry game-data-packager's names), then "Set up game data..." (required data missing) or
-  "Add original data..." (optional data only: OpenTTD). The chooser is a window of big buttons (the
+  newer builds carry game-data-packager's names), then "Add game files..." (required data missing, or optional data only like OpenTTD) with a label under
+  it that starts REQUIRED: or OPTIONAL: and names the original game ([data_setup] original). Play stays
+  off while required data is missing. The chooser is a window of big buttons (the
   pad is the pointer; arrows, Enter, Escape) listing find_sources: the disc in the drive (lsblk; not
   mounted: /dev/sr0, which walnut-data mounts), /media/$USER/* and /run/media/$USER/*, ~/GOG Games/*,
   Steam's steamapps/common/*, *.iso/*.img/*.zip/*.exe/gog_*.sh in ~/Downloads and ~; Other file and
@@ -158,6 +159,8 @@ def validate_catalog(obj):
             need(isinstance(v, list) and all(isinstance(x, str) and x for x in v), "%s: bad data_setup %s" % (gid, k))
         for k in ("gdp", "hint"):
             need((ds or {}).get(k) is None or isinstance(ds[k], str), "%s: bad data_setup %s" % (gid, k))
+        need((ds or {}).get("original") is None or (isinstance(ds["original"], str) and ds["original"].strip()),
+             "%s: bad data_setup original" % gid)
         ed = (ds or {}).get("editions") or {}
         need(isinstance(ed, dict) and all(isinstance(v, str) for v in ed.values()), "%s: bad data_setup editions" % gid)
         for l in g.get("launchers") or []:
@@ -489,11 +492,6 @@ WALNUT_DATA = "/usr/bin/walnut-data"
 APT_CACHE = "/usr/bin/apt-cache"
 LSBLK = "/usr/bin/lsblk"
 DISC = "/dev/sr0"
-# game-data-packager's games as the player knows them: "No Quake files found here" (the catalog's title
-# is the engine's: QuakeSpasm)
-DATA_TITLES = {"quake": "Quake", "quake2": "Quake II", "roller-coaster-tycoon2": "RollerCoaster Tycoon 2",
-               "ttd": "Transport Tycoon Deluxe", "doom": "Doom", "doom2": "Doom II", "final-doom": "Final Doom",
-               "heretic": "Heretic", "hexen": "Hexen"}
 EDITION_LABELS = {"shareware": "Shareware", "demo": "Demo", "full": "Full game", "expansion": "Expansion",
                   "music": "Music"}
 INSTALLER_RE = re.compile(r"(?i)^(.*\.(iso|img|zip|exe)|gog_.*\.sh)$")
@@ -506,9 +504,22 @@ def data_setup(game):
 
 
 def data_title(game):
-    """the name of the game whose files are imported ("Quake" for QuakeSpasm)"""
+    """the original commercial game whose files are imported ("Quake" for QuakeSpasm): [data_setup] original,
+    else the game's title"""
     ds = data_setup(game) or {}
-    return ds.get("title") or DATA_TITLES.get(ds.get("gdp")) or game["title"]
+    return ds.get("original") or game["title"]
+
+
+DATA_LABEL = "Add game files\u2026"
+REPO_LABEL = "Install from Walnut licensed"
+
+
+def data_note(game, required):
+    """(tag, text) of the label by the import button: REQUIRED (the game needs the files) or OPTIONAL"""
+    name = data_title(game)
+    if required:
+        return "REQUIRED:", "the game files from the original %s release (your CD, ISO, installer or folder)" % name
+    return "OPTIONAL:", "the original %s graphics and sound" % name
 
 
 def optional_data_present(game, have):
@@ -518,9 +529,8 @@ def optional_data_present(game, have):
 
 def data_actions(game, have, repo, importing=None):
     """the data buttons a game page shows, in order: "importing" (an import of this game runs: no button),
-    "repo" (Install from your repository: the apt sources have one of its present_any names), "setup"
-    (Set up game data...: required data missing) or "add" (Add original data...: optional data only,
-    none installed); [] when its data is there or it takes none"""
+    "repo" (Install from Walnut licensed: the apt sources have one of its present_any names), "setup"
+    (Add game files...: required data missing) or "add" (the same button, optional data only, none installed); [] when its data is there or it takes none"""
     ds = data_setup(game)
     if not ds:
         return []
@@ -1049,9 +1059,16 @@ class App:
         # the game data's buttons, above Install/Remove/Play (shown when they apply: data_actions)
         self.data_row = ttk.Frame(d, style="Panel.TFrame")
         self.data_row.pack(side="bottom", fill="x")
-        self.b_repo = ttk.Button(self.data_row, text="Install from your repository", style="Accent.TButton",
+        self.b_repo = ttk.Button(self.data_row, text=REPO_LABEL, style="Accent.TButton",
                                  command=lambda: self.run_helper("install-repo-data"))
-        self.b_data = ttk.Button(self.data_row, text="Set up game data\u2026", command=self.open_chooser)
+        self.b_data = ttk.Button(self.data_row, text=DATA_LABEL, command=self.open_chooser)
+        # what the button adds, under it: a bold tag (REQUIRED / OPTIONAL) and the text
+        self.b_note = ttk.Frame(self.data_row, style="Panel.TFrame")
+        self.note_tag = ttk.Label(self.b_note, text="", font=self.f["bold"], foreground=ACCENT, background=PANEL)
+        self.note_text = ttk.Label(self.b_note, text="", style="Muted.TLabel", background=PANEL, wraplength=300,
+                                   justify="left", font=self.f["small"])
+        self.note_tag.pack(side="left", anchor="n", padx=(0, 6))
+        self.note_text.pack(side="left", fill="x")
         self.b_retry = ttk.Button(self.data_row, text="Try again with download", style="Accent.TButton",
                                   command=self.retry_download)
         # an import's file being read, elapsed time and its last log lines (under the status line)
@@ -1612,15 +1629,22 @@ class App:
         self.b_remove.configure(state="normal" if g and idle and inst else "disabled")
         self.play_cmds = order_launchers(play_commands(g, self.runtime_dir, files=lambda: self.manifest(g)),
                                          g.get("launchers")) if g and inst else []
-        self.b_play.configure(state="normal" if idle and self.play_cmds else "disabled",
+        # Play waits for the required data (data_present is None when the game takes none)
+        self.b_play.configure(state="normal" if idle and self.play_cmds and data_present(g, self.have) is not False
+                              else "disabled",
                               text="Play \u25be" if len(self.play_cmds) > 1 else "Play")
         self.update_data_buttons(g, idle)
 
     def update_data_buttons(self, g, idle):
         running = self.imp.gid if self.imp is not None and not self.imp.done else None
         acts = data_actions(g, self.have, self.repo, running) if g and g["id"] in self.pkg_data else []
-        for b in (self.b_repo, self.b_data, self.b_retry):
+        for b in (self.b_repo, self.b_data, self.b_retry, self.b_note):
             b.pack_forget()
+        if "setup" in acts or "add" in acts:
+            tag, text = data_note(g, "setup" in acts)
+            self.note_tag.configure(text=tag)
+            self.note_text.configure(text=text)
+            self.b_note.pack(side="bottom", anchor="w", pady=(0, 6))     # first: under the buttons
         if g and g["id"] in self.retry and ("setup" in acts or "add" in acts) and data_setup(g).get("downloads"):
             self.b_retry.pack(side="left", padx=(0, 8), pady=(0, 6))
             self.b_retry.configure(state="normal" if idle else "disabled")
@@ -1628,7 +1652,7 @@ class App:
             self.b_repo.pack(side="left", padx=(0, 8), pady=(0, 6))
             self.b_repo.configure(state="normal" if idle else "disabled")
         if "setup" in acts or "add" in acts:
-            self.b_data.configure(text="Set up game data\u2026" if "setup" in acts else "Add original data\u2026",
+            self.b_data.configure(text=DATA_LABEL,
                                   style="TButton" if "repo" in acts or g["id"] in self.retry else "Accent.TButton",
                                   state="normal" if idle else "disabled")
             self.b_data.pack(side="left", padx=(0, 8), pady=(0, 6))
@@ -1687,7 +1711,7 @@ class App:
         self.busy = (g["id"], op)
         self.retry.pop(g["id"], None)
         self.show_activity({"install": "Installing %s...", "remove": "Removing %s...",
-                            "install-repo-data": "Installing the game data of %s from your repository..."}[op]
+                            "install-repo-data": "Installing the game data of %s from Walnut licensed..."}[op]
                            % g["title"], progress=0)
         self.update_buttons()
 
@@ -1743,7 +1767,7 @@ class App:
         title = data_title(g)
         top = tk.Toplevel(self.root, bg=PANEL)
         self.chooser = top
-        top.title("Game data for " + g["title"])
+        top.title("Add game files for " + g["title"])
         top.transient(self.root)
         w, h = 640, 600
         try:
@@ -1754,7 +1778,7 @@ class App:
             top.geometry("%dx%d" % (w, h))
         box = ttk.Frame(top, style="Panel.TFrame", padding=16)
         box.pack(fill="both", expand=True)
-        ttk.Label(box, text=("Set up %s's game data" if ds.get("required") else "Add %s's original data") % title,
+        ttk.Label(box, text="Add the original %s game files" % title,
                   font=self.f["big"], background=PANEL).pack(anchor="w")
         if ds.get("hint"):
             ttk.Label(box, text=ds["hint"], style="Muted.TLabel", background=PANEL, wraplength=w - 40,

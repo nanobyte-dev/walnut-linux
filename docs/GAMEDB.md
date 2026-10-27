@@ -480,10 +480,11 @@ buttons Install, Remove, Play and "Open on the web". The window follows the Waln
   the installed data's edition with the rating's facts. Games on one engine are kept apart: every launcher
   of ours is stamped `X-Walnut-Game=<id>`, Play lists a game's own, and removing Doom while Freedoom's game
   still uses dsda-doom removes only Doom's data.
-- **The app.** A game page offers "Install from your repository" when the apt sources have one of its
+- **The app.** A game page offers "Install from Walnut licensed" when the apt sources have one of its
   `present_any` names (the licensed suite; `apt-cache policy` in a thread, a candidate counts only from a
-  package source), then "Set up game data..." (required data missing) or "Add original data..." (optional
-  only: OpenTTD). The chooser is a window of big buttons (the pad is the pointer; arrows, Enter, Escape):
+  package source), then one import button, "Add game files..." (required data missing, or optional data only like OpenTTD),
+  with a label under it that starts with the tag REQUIRED: or OPTIONAL: and names the original game
+  (`[data_setup] original`, default the game's title). Play stays off while required data is missing. The chooser is a window of big buttons (the pad is the pointer; arrows, Enter, Escape):
   the disc in the drive, `/media` and `/run/media` mounts, GOG and Steam folders, `*.iso`, `*.img`, `*.zip`,
   `*.exe` and `gog_*.sh` in Downloads and the home folder, Other file and Other folder, with the game's hint.
   The import runs in its own session with its output in `~/.cache/walnut-games/import.log`; the app shows
@@ -551,6 +552,6 @@ monospace font, selectable. `data_guide` stays as the "More" link. The longer gu
 their files are, what the result looks like, and common problems. Every command in it is run in a Debian
 container before it is written. The steps of a game with a `[data_setup]` (Doom, Quake, OpenRCT2 and the
 others in "Game data" above) say how to use Walnut Games' button, the `walnut-data import <id> <path>`
-line, which release the game needs (from the hint) and the licensed suite's "Install from your repository";
+line, which release the game needs (from the hint) and the licensed suite's "Install from Walnut licensed";
 they carry no manual game-data-packager steps. Sauerbraten's steps unpack the official release's `data` and
 `packages` folders into `/usr/share/games/sauerbraten`.

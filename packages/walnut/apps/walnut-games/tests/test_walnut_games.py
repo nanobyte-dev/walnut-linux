@@ -565,10 +565,12 @@ class AppFunctions(unittest.TestCase):
 
 
 QS = {"id": "quakespasm", "title": "QuakeSpasm", "packages": ["quakespasm"], "data_setup": {
+    "original": "Quake",
     "gdp": "quake", "required": ["quake-shareware", "quake-registered"], "optional": [], "downloads": ["quake-registered"],
     "fetch": ["quake-shareware"], "hint": "Quake's id1/pak0.pak.", "editions": {"quake-shareware": "shareware", "quake-registered": "full"},
     "present_any": ["quake-shareware", "quake-registered", "quake-licensed-data"]}}
 TTD = {"id": "openttd", "title": "OpenTTD", "packages": ["openttd"], "data_setup": {
+    "original": "Transport Tycoon Deluxe",
     "gdp": "ttd", "required": [], "optional": ["transport-tycoon-deluxe-data", "transport-tycoon-deluxe-music"],
     "downloads": [], "hint": "TTD for Windows.", "present_any": []}}
 
@@ -587,6 +589,9 @@ class DataSetup(unittest.TestCase):
         self.assertEqual(A({"id": "x", "title": "X", "packages": ["x"]}, set(), set()), [])
         self.assertEqual(app.data_title(QS), "Quake")
         self.assertEqual(app.data_title({"title": "Zed", "data_setup": {"gdp": "zed"}}), "Zed")
+        self.assertEqual(app.data_note(QS, True)[0], "REQUIRED:")
+        self.assertIn("original Quake release", app.data_note(QS, True)[1])
+        self.assertEqual(app.data_note(TTD, False), ("OPTIONAL:", "the original Transport Tycoon Deluxe graphics and sound"))
 
     def test_apt_policy(self):
         out = ("quake-licensed-data:\n  Installed: (none)\n  Candidate: 1.06-1\n  Version table:\n"
@@ -975,13 +980,20 @@ root.update()
 def mapped(b):
     return bool(b.winfo_ismapped())
 app.select("quakespasm"); root.update()
-assert mapped(app.b_data) and app.b_data["text"] == "Set up game data\\u2026" and not mapped(app.b_repo)
+assert mapped(app.b_data) and app.b_data["text"] == "Add game files\\u2026" and not mapped(app.b_repo)
+assert app.note_tag["text"] == "REQUIRED:" and "original Quake release" in app.note_text["text"]
+old_have = app.have
+app.have = set(old_have) | {"quakespasm"}; app.update_buttons(); root.update()
+assert str(app.b_play["state"]) == "disabled", "Play waits for the required data"
+app.have = old_have; app.update_buttons()
 assert str(app.b_data["state"]) == "normal"
 app.repo = {"quake-licensed-data"}; app.update_buttons(); root.update()
 assert mapped(app.b_repo) and mapped(app.b_data), "repo button"
 app.repo = set(); app.update_buttons()
 app.select("openttd"); root.update()
-assert mapped(app.b_data) and app.b_data["text"] == "Add original data\\u2026"
+assert mapped(app.b_data) and app.b_data["text"] == "Add game files\\u2026"
+assert mapped(app.b_note) and app.note_tag["text"] == "OPTIONAL:" and "Transport Tycoon Deluxe graphics" in app.note_text["text"]
+assert app.b_repo["text"] == "Install from Walnut licensed"
 app.select("quakespasm"); root.update()
 app.open_chooser(); root.update()
 labels = [l for l, _ in app.chooser_sources]

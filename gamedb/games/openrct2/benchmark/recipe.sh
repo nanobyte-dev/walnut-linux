@@ -42,7 +42,7 @@ ORCT2_SOUND=true
 ORCT2_MT=true
 ORCT2_PARK="$RCT2_DATA/Scenarios/Electric Fields.SC6"
 setup() {
-	[ -e "$RCT2_DATA/Data/g1.dat" ] || echo "WARNING: no RCT2 data: Set up game data in Walnut Games, or apt install roller-coaster-tycoon2-data (the licensed suite)"
+	[ -e "$RCT2_DATA/Data/g1.dat" ] || echo "WARNING: no RCT2 data: Add game files in Walnut Games, or apt install roller-coaster-tycoon2-data (the licensed suite)"
 	mkdir -p "$ORCT2_DIR"
 	printf '%s\n' "[general]" "game_path = \"$RCT2_DATA\"" "last_run_version = \"0.5.6\"" "play_intro = false" \
 		"drawing_engine = SOFTWARE_HWD" "fullscreen_mode = 2" "fullscreen_width = 1920" "fullscreen_height = 1080" \

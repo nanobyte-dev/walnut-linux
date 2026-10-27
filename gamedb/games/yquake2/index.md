@@ -8,11 +8,11 @@ license = "GPL-2.0-or-later"
 homepage = "https://www.yamagi.org/quake2/"
 data_guide = "https://github.com/yquake2/yquake2#readme"
 data_steps = [
-  "In Walnut Games, open Yamagi Quake II and choose Set up game data...: pick the disc in the drive, an ISO, an installer or a folder that holds your copy.",
+  "In Walnut Games, open Yamagi Quake II and choose Add game files...: pick the disc in the drive, an ISO, an installer or a folder that holds your copy.",
   "Or from a terminal: `walnut-data import yquake2 /path/to/your/copy`. The free demo needs no copy: choose Download the free demo (needs the network) in the chooser, or run `walnut-data import -p quake2-demo-data yquake2`.",
   "What it needs: Quake II's CD, or an installed copy (Steam's `common/Quake 2`, GOG's Quake II Quad Damage folder or installer): `baseq2/pak0.pak` and the `baseq2/video` folder. The 3.20 patch (pak1, pak2 and more) is downloaded unless your copy has it.",
   "The full game is installed as quake2-full-data in `/usr/share/games/quake2/baseq2` and appears in Play as Quake II; the demo (quake2-demo-data, `/usr/share/games/quake2-demo/baseq2`) as Quake II (demo).",
-  "If you have Walnut's licensed suite configured as an apt source, choose Install from your repository (or `walnut-data install-repo yquake2`) instead.",
+  "If you have Walnut's licensed suite configured as an apt source, choose Install from Walnut licensed (or `walnut-data install-repo yquake2`) instead.",
 ]
 controller = "keyboard"
 designed_for = "keyboard-mouse"
@@ -31,7 +31,7 @@ benchmark and saved about 70 MB of memory.
 
 ## Setting up the game data
 
-Walnut Games makes the data for you. Open Yamagi Quake II in the app and choose Set up game data...; the chooser lists the disc in the drive, mounted discs and sticks, GOG and Steam folders, and the ISOs, installers and archives in Downloads and your home folder. For the free demo choose Download the free demo (needs the network): nothing to find. In a terminal it is `walnut-data import yquake2 /path/to/your/copy` for the full game and `walnut-data import -p quake2-demo-data yquake2` for the demo. It runs Walnut's patched `game-data-packager` and installs an ordinary package that Remove data takes away again.
+Walnut Games makes the data for you. Open Yamagi Quake II in the app and choose Add game files...; the chooser lists the disc in the drive, mounted discs and sticks, GOG and Steam folders, and the ISOs, installers and archives in Downloads and your home folder. For the free demo choose Download the free demo (needs the network): nothing to find. In a terminal it is `walnut-data import yquake2 /path/to/your/copy` for the full game and `walnut-data import -p quake2-demo-data yquake2` for the demo. It runs Walnut's patched `game-data-packager` and installs an ordinary package that Remove data takes away again.
 
 ### Which editions work
 
@@ -41,4 +41,4 @@ Walnut Games makes the data for you. Open Yamagi Quake II in the app and choose 
 
 ### What you get
 
-The demo is installed in `/usr/share/games/quake2-demo/baseq2` and the full game in `/usr/share/games/quake2/baseq2`; the two use different folders. The Quake II (demo) entry passes `-datadir /usr/share/games/quake2-demo`, and the Quake II entry (shown once `baseq2/pak0.pak` is there) passes `-datadir /usr/share/games/quake2`. With Walnut's licensed suite as an apt source the page offers Install from your repository instead.
+The demo is installed in `/usr/share/games/quake2-demo/baseq2` and the full game in `/usr/share/games/quake2/baseq2`; the two use different folders. The Quake II (demo) entry passes `-datadir /usr/share/games/quake2-demo`, and the Quake II entry (shown once `baseq2/pak0.pak` is there) passes `-datadir /usr/share/games/quake2`. With Walnut's licensed suite as an apt source the page offers Install from Walnut licensed instead.

@@ -6,6 +6,7 @@ needs_data = true
 
 [data_setup]
 gdp = "final-doom"
+original = "Final Doom"
 required = ["plutonia-wad", "tnt-wad"]
 # tnt31fix.zip (TNT's MAP31 fix), from the idgames mirrors game-data-packager knows
 downloads = ["tnt-wad"]
