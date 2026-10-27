@@ -159,6 +159,7 @@ run Debian's game-data-packager, gdp, on a disc, an ISO, an installer or an inst
 | `required` | list | required: gdp packages any one of which makes the game playable (Plutonia or TNT); empty when the data is optional (OpenTTD's original graphics): then `needs_data` is false, else true |
 | `optional` | list | gdp packages that add to it (music, the original set in place of a free one) |
 | `downloads` | list | the packages (of the two lists) whose gdp run may download the files gdp knows for them: official patches (Quake II 3.20, Quake 1.06's pak0, TNT's MAP31 fix), nothing else |
+| `fetch` | list | the shareware or demo packages (of the two lists) gdp downloads entirely, so `walnut-data import -p <pkg> <game>` needs no SOURCE and the app's chooser offers "Download the free <edition>" (`quake-shareware`, `quake2-demo-data`); other packages stay in `downloads` or nowhere |
 | `hint` | string | where the files are, shown by the app (the CD, an installed copy, Steam, GOG) |
 | `editions` | table | required: `{ "<pkg>" = "<edition>" }` for every `required` and `optional` package, one of `shareware`, `demo`, `full`, `expansion`, `music` (`check.py` EDITIONS): the `X-Walnut-Edition` of the package the console builds |
 

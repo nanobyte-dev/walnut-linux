@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -I
-"""walnut-data list | import [-p PKG]... [--no-download] GAME SOURCE... | remove GAME | install-repo GAME
+"""walnut-data list | import [-p PKG]... [--no-download] GAME [SOURCE...] | remove GAME | install-repo GAME
 (walnut-games package, /usr/bin): the player's own game data made into packages and installed, from a
 terminal or the Walnut Games app. Runs as the player; only walnut-games-helper (through sudo -n) is root.
 
@@ -9,7 +9,9 @@ Design
 - list: every catalog game with a data_setup, its data installed or missing (any one of present_any;
   optional for a game that runs without), whether the configured apt sources have one of its data
   packages (the licensed suite: `walnut-data install-repo GAME`), its title.
-- import: each SOURCE as the player has it. An .iso or .img file is opened read-only with
+- import: each SOURCE as the player has it. SOURCE may be left out when every -p package is in the game's
+  `fetch` list (the free shareware or demo gdp downloads entirely: `import -p quake2-demo-data yquake2`);
+  gdp then runs with --download and no source (still --no-search and -p); otherwise it is refused. An .iso or .img file is opened read-only with
   `udisksctl loop-setup -r -f` and mounted with `udisksctl mount -b` (the player's own polkit rights; no
   copy), a block device (the disc drive, /dev/sr0) is used at its mount point or mounted the same way,
   and whatever this program mounted or set up is released afterwards. The desktop (gvfs) mounts a new
@@ -146,9 +148,10 @@ def wanted_packages(ds, asked):
     return known
 
 
-def download_choice(ds, pkgs, no_download=False):
-    """--download only when every package is one the game may download for, else --no-download"""
-    dl = set(names(ds, "downloads"))
+def download_choice(ds, pkgs, no_download=False, sourceless=False):
+    """--download only when every package is one the game may download for, else --no-download; with no
+    SOURCE the packages must be ones gdp fetches entirely (the game's fetch list)"""
+    dl = set(names(ds, "fetch" if sourceless else "downloads"))
     return "--download" if pkgs and not no_download and all(p in dl for p in pkgs) else "--no-download"
 
 
@@ -621,8 +624,12 @@ def cmd_import(game_id, sources, asked, no_download, games):
     if not pkgs:
         raise Refused("%s names no data packages" % game_id)
     if not sources:
-        raise Refused("no SOURCE given: a disc, an .iso, an installer or a folder")
-    download = download_choice(ds, pkgs, no_download)
+        if not asked or no_download or not all(p in names(ds, "fetch") for p in pkgs):
+            free = names(ds, "fetch")
+            raise Refused("no SOURCE given: a disc, an .iso, an installer or a folder%s" % (
+                " (only %s can be downloaded without one: import -p %s %s)" % (", ".join(free), free[0], game_id)
+                if free else ""))
+    download = download_choice(ds, pkgs, no_download, not sources)
     if download == "--no-download" and names(ds, "downloads") and not no_download:
         say("log", "downloads off: import with -p %s alone to let it fetch its patch files"
             % " -p ".join(names(ds, "downloads")))
@@ -695,7 +702,8 @@ def parse(argv):
     p.add_argument("-p", "--package", action="append", default=[], help="only this data package (repeatable)")
     p.add_argument("--no-download", action="store_true", help="never download, even the official patch files")
     p.add_argument("game")
-    p.add_argument("sources", nargs="+", metavar="SOURCE")
+    p.add_argument("sources", nargs="*", metavar="SOURCE", help="optional when every -p package is one gdp "
+                   "downloads entirely (the free shareware or demo)")
     for name, text in (("remove", "remove the game's data packages"),
                        ("install-repo", "install the game's data from your package sources")):
         sub.add_parser(name, help=text).add_argument("game")

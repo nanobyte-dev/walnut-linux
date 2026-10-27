@@ -153,7 +153,7 @@ def validate_catalog(obj):
         need(all(isinstance(p.get("subject"), str) for p in g.get("patches") or []), "%s: bad patches" % gid)
         ds = g.get("data_setup")
         need(ds is None or isinstance(ds, dict), "%s: bad data_setup" % gid)
-        for k in ("required", "optional", "downloads", "present_any"):
+        for k in ("required", "optional", "downloads", "fetch", "present_any"):
             v = (ds or {}).get(k) or []
             need(isinstance(v, list) and all(isinstance(x, str) and x for x in v), "%s: bad data_setup %s" % (gid, k))
         for k in ("gdp", "hint"):
@@ -708,7 +708,7 @@ def import_command(gid, source, packages=None, walnut_data=None):
     cmd = [walnut_data or WALNUT_DATA, "import"]
     for p in packages or []:
         cmd += ["-p", p]
-    return cmd + [gid, source]
+    return cmd + [gid] + ([source] if source else [])
 
 
 def parse_import_line(line):
@@ -1782,6 +1782,13 @@ class App:
             self.chooser = None
             self.start_import(g, path)
 
+        for pkg in ds.get("fetch") or []:
+            ed = (ds.get("editions") or {}).get(pkg, "free version")
+            b = ttk.Button(inner, text="Download the free %s (needs the network)" % ed, style="Source.TButton",
+                           command=lambda p=pkg: (top.destroy(), setattr(self, "chooser", None),
+                                                  self.start_import(g, None, [p])))
+            b.pack(fill="x", pady=2)
+            buttons.append(b)
         for label, path in sources:
             b = ttk.Button(inner, text=label + "\n" + path, style="Source.TButton", command=lambda p=path: choose(p))
             b.pack(fill="x", pady=2)

@@ -566,7 +566,7 @@ class AppFunctions(unittest.TestCase):
 
 QS = {"id": "quakespasm", "title": "QuakeSpasm", "packages": ["quakespasm"], "data_setup": {
     "gdp": "quake", "required": ["quake-shareware", "quake-registered"], "optional": [], "downloads": ["quake-registered"],
-    "hint": "Quake's id1/pak0.pak.", "editions": {"quake-shareware": "shareware", "quake-registered": "full"},
+    "fetch": ["quake-shareware"], "hint": "Quake's id1/pak0.pak.", "editions": {"quake-shareware": "shareware", "quake-registered": "full"},
     "present_any": ["quake-shareware", "quake-registered", "quake-licensed-data"]}}
 TTD = {"id": "openttd", "title": "OpenTTD", "packages": ["openttd"], "data_setup": {
     "gdp": "ttd", "required": [], "optional": ["transport-tycoon-deluxe-data", "transport-tycoon-deluxe-music"],
@@ -993,6 +993,7 @@ def walk(wd):
     for c in wd.winfo_children():
         walk(c)
 walk(app.chooser)
+assert "Download the free shareware (needs the network)" in texts, texts
 assert any(t.startswith("File: quake106.zip") for t in texts) and "Other file\\u2026" in texts and "Cancel" in texts, texts
 if len(sys.argv) > 4:      # a picture of the chooser
     root.update(); time.sleep(0.5); root.update()
@@ -1021,6 +1022,22 @@ while not app.imp.done and time.time() - t < 30:
     root.update(); time.sleep(0.05)
 args = open(os.environ["FAKE_WD_ARGS"]).read().split("\\n")[1]
 assert args.startswith("import -p quake-registered quakespasm "), args
+while not app.imp.done:
+    root.update(); time.sleep(0.05)
+app.open_chooser(); root.update()
+def find(wd):
+    if isinstance(wd, w.ttk.Button) and wd.cget("text").startswith("Download the free"):
+        return wd
+    for c in wd.winfo_children():
+        r = find(c)
+        if r:
+            return r
+find(app.chooser).invoke(); root.update()
+t = time.time()
+while not app.imp.done and time.time() - t < 30:
+    root.update(); time.sleep(0.05)
+args = open(os.environ["FAKE_WD_ARGS"]).read().split("\\n")[2]
+assert args == "import -p quake-shareware quakespasm", repr(args)
 root.destroy()
 print("data smoke ok")
 """

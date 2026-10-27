@@ -459,7 +459,7 @@ class DataArgs(unittest.TestCase):
         self.assertEqual(wd.parse(["remove", "doom"]).game, "doom")
         self.assertEqual(wd.parse(["install-repo", "doom"]).cmd, "install-repo")
         with contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(wd.main(["import", "doom"]), 2)          # no SOURCE
+            self.assertEqual(wd.main(["import"]), 2)                  # no GAME
             self.assertEqual(wd.main(["frobnicate"]), 2)
 
     def test_packages_and_download_choice(self):
@@ -471,6 +471,10 @@ class DataArgs(unittest.TestCase):
         self.assertEqual(wd.download_choice(DS, ["quake2-full-data"]), "--download")
         self.assertEqual(wd.download_choice(DS, ["quake2-full-data"], no_download=True), "--no-download")
         self.assertEqual(wd.download_choice(dict(DS, downloads=[]), ["quake2-full-data"]), "--no-download")
+        ds = dict(DS, fetch=["quake2-demo-data"])
+        self.assertEqual(wd.download_choice(ds, ["quake2-demo-data"], sourceless=True), "--download")
+        self.assertEqual(wd.download_choice(ds, ["quake2-demo-data"]), "--no-download")     # with a source: downloads only
+        self.assertEqual(wd.download_choice(ds, ["quake2-full-data"], sourceless=True), "--no-download")
 
     def test_game_checks(self):
         games = {"yquake2": {"id": "yquake2", "data_setup": DS}, "beta": {"id": "beta"}}
@@ -613,16 +617,33 @@ class DataImport(unittest.TestCase):
         p = self.t / "log"
         return [json.loads(l) for l in p.read_text().splitlines()] if p.exists() else []
 
-    def imp(self, *sources, game="openrct2"):
+    def imp(self, *sources, game="openrct2", opts=()):
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            rc = wd.main(["import", game] + [str(s) for s in sources], catalog=self.catalog())
+            rc = wd.main(["import"] + list(opts) + [game] + [str(s) for s in sources], catalog=self.catalog())
         return rc, buf.getvalue().splitlines()
 
     def catalog(self):
         p = self.t / "catalog.json"
         p.write_text(json.dumps({"games": list(self.games.values())}))
         return str(p)
+
+    def test_import_without_source_only_for_fetched_packages(self):
+        ds = self.games["openrct2"]["data_setup"]
+        ds.update(required=["roller-coaster-tycoon2-data"], optional=["rct2-demo"], downloads=["rct2-demo"],
+                  fetch=["rct2-demo"])
+        for args in ((), ("-p", "roller-coaster-tycoon2-data"), ("-p", "rct2-demo", "-p", "roller-coaster-tycoon2-data"),
+                     ("--no-download", "-p", "rct2-demo")):
+            rc, out = self.imp(opts=args)
+            self.assertEqual(rc, 2, args)
+            self.assertTrue(any("no SOURCE given" in l for l in out), out)
+        self.assertEqual(self.log(), [])                               # gdp never ran
+        rc, out = self.imp(opts=("-p", "rct2-demo"))
+        a = self.log()[0]["gdp"]
+        self.assertIn("--download", a)
+        self.assertIn("--no-search", a)
+        self.assertEqual(a[a.index("-p") + 1], "rct2-demo")
+        self.assertEqual(a[-2:], ["rct2-demo", "roller-coaster-tycoon2"])     # no source after the game
 
     def test_import_direct(self):
         rc, out = self.imp(self.t / "src")

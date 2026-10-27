@@ -99,7 +99,7 @@ BUILD_KEYS = {
 # [data_setup] (gamedb/README.md): the player's own data, imported with game-data-packager (gdp). key: (type,
 # required); every package one of the gdp game's (GDP_INDEX, made by gdp-index.py: offline, no docker)
 DATA_SETUP_KEYS = {"gdp": (str, True), "required": (list, True), "optional": (list, False),
-                   "downloads": (list, False), "hint": (str, False), "editions": (dict, True)}
+                   "downloads": (list, False), "fetch": (list, False), "hint": (str, False), "editions": (dict, True)}
 # [data_setup] editions = {package: edition}: what a data package holds (X-Walnut-Edition in the control of a
 # package walnut-games-helper import-data builds; the licensed suite's builders and the session harness read it)
 EDITIONS = ("shareware", "demo", "full", "expansion", "music")
@@ -185,7 +185,7 @@ def data_setup_facts(build):
         return None
     own = list(build.get("data", [])) + [e.get("name") for e in build.get("licensed", []) if isinstance(e, dict)]
     return {"gdp": ds.get("gdp"), "required": list(ds.get("required", [])), "optional": list(ds.get("optional", [])),
-            "downloads": list(ds.get("downloads", [])), "hint": ds.get("hint"), "editions": dict(ds.get("editions", {})),
+            "downloads": list(ds.get("downloads", [])), "fetch": list(ds.get("fetch", [])), "hint": ds.get("hint"), "editions": dict(ds.get("editions", {})),
             "present_any": list(dict.fromkeys(list(ds.get("required", [])) + [p for p in own if isinstance(p, str)]))}
 
 
@@ -517,6 +517,11 @@ def data_setup_errors(ds, build, bad, ctx):
     for p in dl:
         if p not in req and p not in opt:
             errs.append("[data_setup]: downloads %s is neither required nor optional" % p)
+    for p in ds.get("fetch", []):
+        if p not in req and p not in opt:
+            errs.append("[data_setup]: fetch %s is neither required nor optional" % p)
+        elif ed.get(p) not in ("shareware", "demo"):
+            errs.append("[data_setup]: fetch %s is not a shareware or demo edition" % p)
     for p in req + opt:
         if p in build.get("packages", []):
             errs.append("[data_setup]: %s is also in packages (the data never comes from the catalog's install)" % p)

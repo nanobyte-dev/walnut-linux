@@ -1308,7 +1308,7 @@ class Catalog(unittest.TestCase):
             out = catalog.build_game(g, REPO, {})
             self.assertEqual(out["data_setup"], {
                 "gdp": "roller-coaster-tycoon2", "required": ["roller-coaster-tycoon2-data"], "optional": [],
-                "downloads": [], "hint": None, "editions": {"roller-coaster-tycoon2-data": "full"},
+                "downloads": [], "fetch": [], "hint": None, "editions": {"roller-coaster-tycoon2-data": "full"},
                 "present_any": ["roller-coaster-tycoon2-data", "rct2-data", "rct2-extra"]})
             self.assertNotIn("data_setup", catalog.build_game(write_game(d, "plain"), REPO, {}))
             (g / "thumb.png").unlink()
