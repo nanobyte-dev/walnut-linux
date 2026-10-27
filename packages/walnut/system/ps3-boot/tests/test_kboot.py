@@ -205,6 +205,18 @@ class Kboot(unittest.TestCase):
         self.assertEqual(lines[-1], "default=" + REL)
         self.assertIn("0 extra entries", out)
 
+    def test_kernel_without_gpu_driver_listed_last(self):
+        # the newest release kernel's ps3rsx module isn't published yet: the older one, which has it,
+        # boots (the first entry) and is the release default; the new one is still listed
+        for k in (DBG, OLD):
+            m = self.r / "lib/modules" / k / "updates"
+            m.mkdir(parents=True)
+            (m / "ps3rsx.ko").write_bytes(b"\0")
+        lines, out = self.run_it()
+        self.assertEqual(self.entries(lines), [DBG, OLD, REL])
+        self.assertEqual(lines[-1], "default=" + OLD)
+        self.assertIn("no GPU driver (ps3rsx) for " + REL, out)
+
     def test_ssd_entry_kept_verbatim(self):
         (self.r / "boot" / ("initrd-ssd-%s.img" % REL)).write_bytes(b"\0")
         (self.r / "etc/kboot.d/ssd.conf").write_text("# the SSD root (docs/GAMEOS-HDD.md)\n\n" + SSD + "\n")

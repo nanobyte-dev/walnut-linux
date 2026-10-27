@@ -46,6 +46,16 @@ if command -v linux-version >/dev/null; then
 else
 	releases=$(echo "$releases" | sort -rV)
 fi
+# kernels with their GPU driver (ps3rsx-modules-<release>) first: one without it boots to no desktop
+# (2026-10-27: a new kernel published before its module), so it is listed but never the first entry,
+# the one Petitboot boots; with no module anywhere (host tests, a system without ps3rsx) the order stays
+nogpu=
+for r in $releases; do [ -e "$R/lib/modules/$r/updates/ps3rsx.ko" ] || nogpu="$nogpu $r"; done
+if [ -n "$nogpu" ] && [ "$(echo $nogpu | wc -w)" -lt "$(echo $releases | wc -w)" ]; then
+	releases=$(for r in $releases; do case " $nogpu " in *" $r "*) ;; *) echo "$r" ;; esac; done
+		for r in $nogpu; do echo "$r"; done)
+	echo "ps3-update-kboot: no GPU driver (ps3rsx) for$nogpu: listed after the kernels that have it"
+fi
 kernels=$(echo "$releases" | sed '/^$/d; s|^|/boot/vmlinux-|')
 if [ -z "$kernels" ]; then
 	# no kernel left: no entries pointing at files that are gone

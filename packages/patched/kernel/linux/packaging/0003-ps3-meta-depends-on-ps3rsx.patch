@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 27 Oct 2026 14:00:00 +0200
+Subject: PS3: the kernel meta package depends on that kernel's ps3rsx modules
+
+ps3rsx (the RSX's DRM driver) is built out of tree for each kernel release, after the kernel
+itself, so for a while the repository has a new kernel and no GPU module for it. A console that
+upgraded then got linux-image-ps3 pointing at the new kernel, Petitboot booted it, and X had no
+GPU driver (2026-10-27). With ps3rsx-modules-<release> in the meta package's Depends, apt holds
+the kernel upgrade back until the matching module is published, and installs both together.
+
+Forwarded: not-needed
+Last-Update: 2026-10-27
+
+--- a/debian/templates/image.meta.control.in
++++ b/debian/templates/image.meta.control.in
+@@ -2,7 +2,7 @@
+ Meta-Rules-Target: meta
+ Meta-Rules-Makeflags: INSTALLDOCS_LINK_DOC=linux-image-@abiname@@localversion@
+ Build-Profiles: <!pkg.linux.nokernel !pkg.linux.nometa>
+-Depends: linux-image-@abiname@@localversion@ (= ${binary:Version}), ${misc:Depends}
++Depends: linux-image-@abiname@@localversion@ (= ${binary:Version}), ps3rsx-modules-@abiname@@localversion@, ${misc:Depends}
+ Provides: linux-latest-modules-@abiname@@localversion@, wireguard-modules (= 1.0.0), virtualbox-guest-modules [amd64]
+ Description: Linux for @class@ (meta-package)
+  This package depends on the latest Linux kernel and modules for use on

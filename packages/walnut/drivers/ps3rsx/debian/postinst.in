@@ -3,4 +3,9 @@ set -e
 if [ "$1" = configure ] && [ -e /lib/modules/@KERNEL_RELEASE@/modules.dep ]; then
 	depmod -a @KERNEL_RELEASE@
 fi
+# the boot menu lists kernels with their GPU driver first (ps3-boot): refresh it now this one's
+# module came or went (the kernel's own hook ran before it, when the module may not have been there)
+if [ "$1" = configure ] && command -v ps3-update-kboot >/dev/null; then
+	ps3-update-kboot || true
+fi
 #DEBHELPER#
