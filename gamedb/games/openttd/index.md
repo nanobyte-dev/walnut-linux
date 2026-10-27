@@ -17,3 +17,7 @@ known_issues = [
 OpenTTD 15.1 runs with its OpenGL video driver, which Walnut's patches make start on the RSX (stock
 refuses on the missing single-channel texture formats). Walnut sets the 8bpp-optimized blitter as the
 default, which takes the benchmark savegame from 11 to about 38 to 45 frames a second.
+
+## Original graphics and sound
+
+OpenTTD plays with its free OpenGFX, OpenSFX and OpenMSX. If you own Transport Tycoon Deluxe for Windows, Walnut Games can add its original graphics, sounds and music: open OpenTTD and choose Add original data..., then pick the disc in the drive, an ISO, an installer or a folder; in a terminal it is `walnut-data import openttd /path/to/TTD`. It needs the `trg*.grf` files, `sample.cat` and the `gm_tt*.gm` music of the Windows version. The data is installed as `transport-tycoon-deluxe-data` (and `-music`); once `trg1r.grf` exists the game offers a launcher with the original set (`-I`/`-S original_windows`). Remove data takes it away.

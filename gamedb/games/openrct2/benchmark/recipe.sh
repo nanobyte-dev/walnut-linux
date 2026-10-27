@@ -1,6 +1,6 @@
 # OpenRCT2 0.5.6 (our big-endian build, gamedb/games/openrct2/packages/openrct2/: openrct2 0.5.6+ds-1+ps3.N, plus openrct2-data and
 # openrct2-music, both arch all; Debian's is little-endian only) with the user's RollerCoaster Tycoon 2 data
-# (rct2-data, the licensed suite, in /usr/share/games/rct2): smoke test, not benchmarked. The software
+# (roller-coaster-tycoon2-data in /usr/share/games/roller-coaster-tycoon2, or the old rct2-data in /usr/share/games/rct2): smoke test, not benchmarked. The software
 # renderer (the OpenGL engine needs GL 3.3): the game draws an 8-bit frame on the CPU and SDL's renderer
 # (opengl on nouveau) scales and presents it. Base: borderless fullscreen 1920x1080 with window_scale 2, so the
 # game renders 960x540 and SDL doubles it (the setting to ship: the PPE paints a quarter of the pixels).
@@ -16,7 +16,7 @@
 # ~/.config/OpenRCT2 stays untouched) with config.ini written by setup() (BACKUP restores it; the game
 # rewrites it at exit). infer_display_dpi=false (else the first start replaces window_scale with the
 # display's DPI ratio), last_run_version set (no changelog window), autosave never (no disk writes during
-# the run), game_path=/usr/share/games/rct2 (the game also finds it there itself, patch 0005).
+# the run), game_path=the data folder (the game also finds either itself).
 # First start only: the game indexes its objects (2533 from objects 1.8.0 plus RCT2's ObjData),
 # scenarios and tracks into the user directory: on the PC 0.1 s, on the PPE expect seconds to a minute.
 # Risks: RAM. Measured on the PC (amd64 build of the same source, Xvfb 1920x1080, SDL software renderer
@@ -34,15 +34,17 @@ COMM=openrct2
 DURATION=${SMOKE_SECS:-300}
 ORCT2_DIR=$HOME/.config/OpenRCT2-ps3bench
 BACKUP=("$ORCT2_DIR/config.ini")
-DATA_DIRS=(/usr/share/openrct2 /usr/share/games/rct2)
+DATA_DIRS=(/usr/share/openrct2 /usr/share/games/roller-coaster-tycoon2 /usr/share/games/rct2)
+RCT2_DATA=/usr/share/games/roller-coaster-tycoon2
+[ -e "$RCT2_DATA/Data/g1.dat" ] || RCT2_DATA=/usr/share/games/rct2
 ORCT2_SCALE=2
 ORCT2_SOUND=true
 ORCT2_MT=true
-ORCT2_PARK="/usr/share/games/rct2/Scenarios/Electric Fields.SC6"
+ORCT2_PARK="$RCT2_DATA/Scenarios/Electric Fields.SC6"
 setup() {
-	[ -e /usr/share/games/rct2/Data/g1.dat ] || echo "WARNING: no RCT2 data: apt install rct2-data (the licensed suite)"
+	[ -e "$RCT2_DATA/Data/g1.dat" ] || echo "WARNING: no RCT2 data: Set up game data in Walnut Games, or apt install roller-coaster-tycoon2-data (the licensed suite)"
 	mkdir -p "$ORCT2_DIR"
-	printf '%s\n' "[general]" "game_path = \"/usr/share/games/rct2\"" "last_run_version = \"0.5.6\"" "play_intro = false" \
+	printf '%s\n' "[general]" "game_path = \"$RCT2_DATA\"" "last_run_version = \"0.5.6\"" "play_intro = false" \
 		"drawing_engine = SOFTWARE_HWD" "fullscreen_mode = 2" "fullscreen_width = 1920" "fullscreen_height = 1080" \
 		"window_width = 1920" "window_height = 1080" "window_scale = $ORCT2_SCALE.000000" "infer_display_dpi = false" \
 		"multithreading = $ORCT2_MT" "uncap_fps = false" "show_fps = true" "autosave = 5" \
@@ -53,7 +55,7 @@ setup() {
 orct2_cmd() { CMD=(/usr/games/openrct2 ${ORCT2_PARK:+"$ORCT2_PARK"} --user-data-path="$ORCT2_DIR" --no-install); }
 orct2_cmd
 variant_full() { ORCT2_SCALE=1; }
-variant_big() { ORCT2_PARK="/usr/share/games/rct2/Scenarios/Six Flags Magic Mountain.SC6"; orct2_cmd; }
+variant_big() { ORCT2_PARK="$RCT2_DATA/Scenarios/Six Flags Magic Mountain.SC6"; orct2_cmd; }
 variant_title() { ORCT2_PARK=; orct2_cmd; }
 variant_nosound() { ORCT2_SOUND=false; }
 variant_lean() { ORCT2_SOUND=false; ORCT2_MT=false; ENV+=(MALLOC_ARENA_MAX=1); }

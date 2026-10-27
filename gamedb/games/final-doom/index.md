@@ -8,11 +8,11 @@ license = "GPL-2.0-or-later engine, commercial game data"
 homepage = "https://doomwiki.org/wiki/Final_Doom"
 data_guide = "https://wiki.debian.org/Games/GameDataPackager"
 data_steps = [
-  "Turn on Debian's contrib section once, where the tool that packs game data lives: `printf 'Types: deb\\nURIs: http://deb.debian.org/debian-ports\\nSuites: unstable unreleased\\nComponents: contrib\\n' | sudo tee /etc/apt/sources.list.d/debian-contrib.sources`.",
-  "Install the tool: `sudo apt update && sudo apt install game-data-packager` (and `innoextract` too when your copy is a GOG installer, `setup_*.exe`).",
-  "Make a package from your own copy, the folder (or the CD's mount point) that holds `PLUTONIA.WAD` and `TNT.WAD`: `mkdir -p ~/game-data && /usr/games/game-data-packager -d ~/game-data final-doom --package plutonia-wad --package tnt-wad /path/to/FinalDoom`.",
-  "Install it: `sudo apt install ~/game-data/plutonia-wad_*_all.deb ~/game-data/tnt-wad_*_all.deb`. The WADs land in `/usr/share/games/doom/plutonia.wad` and `/usr/share/games/doom/tnt.wad`.",
-  "Start it from a terminal: `ps3-game dsda-doom -iwad /usr/share/games/doom/plutonia.wad -vidmode gl -width 1920 -height 1080 -fullscreen`; `ps3-game dsda-doom -iwad /usr/share/games/doom/tnt.wad -file /usr/share/games/doom/tnt31.wad -vidmode gl -width 1920 -height 1080 -fullscreen`. The menu entries Final Doom: The Plutonia Experiment (DSDA-Doom) and Final Doom: TNT: Evilution (DSDA-Doom) stay hidden until Walnut's menu learns to look for the WAD (it comes with the data import).",
+  "In Walnut Games, open Final Doom and choose Set up game data...: pick the disc in the drive, an ISO, an installer or a folder that holds your copy.",
+  "Or from a terminal, with the same sources: `walnut-data import final-doom /path/to/your/copy`.",
+  "What it needs: PLUTONIA.WAD and TNT.WAD (either, or both), from a CD, an installed copy (Steam: `common/Final Doom`), or the GOG installer. For TNT the import also downloads Team TNT's fixed MAP31 (`tnt31fix.zip`, about 120 KB).",
+  "The data is installed as plutonia-wad and tnt-wad, in `/usr/share/games/doom`; Final Doom then appears in Play. Remove data in the game's page takes it away again.",
+  "If you have Walnut's licensed suite configured as an apt source, choose Install from your repository (or `walnut-data install-repo final-doom`) instead.",
 ]
 controller = "keyboard"
 designed_for = "keyboard-mouse"
@@ -20,20 +20,14 @@ designed_for = "keyboard-mouse"
 
 Final Doom runs on DSDA-Doom, the Doom port Walnut packages and patches for the PS3 (big-endian sound
 lumps, textures in formats the RSX has, batched GL draws). The engine is free; the game's data is not, so
-Walnut doesn't offer it: you make a package of it from your own copy (below). Nobody has played it on
+Walnut doesn't offer it: Walnut Games makes a package of it from your own copy (below). Nobody has played it on
 Walnut yet. DSDA-Doom with Freedoom runs at about 56 frames a second on its OpenGL renderer; with this
 game's WADs it has not been tried.
 
 ## Setting up the game data
 
-The tool is Debian's `game-data-packager`, from Debian's contrib section, which Walnut's package sources
-don't list: step 1 adds it as a source of its own, so Walnut's updates leave it alone. It checks the files
-against the checksums of the editions it knows and makes an ordinary `.deb`, which apt installs and can
-remove again. On a Debian or Ubuntu PC the same commands work, and you can copy the `.deb` to the PS3 and
-install it with `sudo apt install ./file.deb`.
+Walnut Games makes the data for you. Open Final Doom in the app and choose Set up game data...; the chooser lists the disc in the drive, any mounted disc or USB stick, GOG and Steam folders, and the ISOs, installers and archives in Downloads and your home folder, or you pick a file or folder yourself. In a terminal, the same thing is `walnut-data import final-doom /path/to/your/copy` (an ISO is mounted read-only by the desktop for the import). It runs Walnut's patched `game-data-packager`, which checks the files against the checksums of the editions it knows, and installs the result as an ordinary package (plutonia-wad and tnt-wad) that Remove data takes away again. the two Final Doom entries appears in Play once the data is there.
 
-Which copies work: Final Doom (either WAD, or both). A Steam copy is the `common/Final Doom` folder of its library; a GOG copy is the installed folder or its installer. For TNT the tool also downloads Team TNT's fixed MAP31 (`tnt31fix.zip`, about 120 KB) from the idgames archive, unless the folder already has it.
+What it needs: PLUTONIA.WAD and TNT.WAD (either, or both), from a CD, an installed copy (Steam: `common/Final Doom`), or the GOG installer. For TNT the import also downloads Team TNT's fixed MAP31 (`tnt31fix.zip`, about 120 KB).
 
-The tool searches your home folder and the usual Steam and GOG places by itself; add `--no-search` to keep
-it to the folder you name. Coming: Walnut Games will do the steps for you (a button on this page, and
-`walnut-data import final-doom /path/to/FinalDoom` in a terminal).
+If you have Walnut's licensed suite as an apt source, the page offers Install from your repository instead (`walnut-data install-repo final-doom`). Debian's `game-data-packager` makes the same package on a PC, and `sudo apt install ./file.deb` installs it.

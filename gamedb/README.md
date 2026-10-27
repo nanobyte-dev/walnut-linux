@@ -128,14 +128,7 @@ and `needs_data`; a draft has a build.toml only when something about its build i
 
 Every `licensed/<pkg>/` directory of a bundle has its `[[licensed]]` entry, and every `source` or `script`
 entry its directory (a checkout without licensed directories, the public copy, skips that direction).
-Our licensed builds stamp the same control fields the console's import writes (docs/PACKAGING.md "Data
-built on the console"): `X-Walnut-Edition` from `[data_setup] editions` or the entry's `edition`, and
-`X-Walnut-Release` from its `release` or, for game-data-packager's packages, the release the import's
-manifest names for the files gdp packed (`tools/gamedb/stamp-data-deb.py`, the helper's own rule: `106`,
-`cd`). A source package says them in its `debian/control` binary stanza as `XB-X-Walnut-Edition` and
-`XB-X-Walnut-Release` (dpkg drops the `XB-` and keeps `X-`), a script writes what
-`tools/gamedb/build-info.py fields <pkg>` prints; `check.py` holds both to build.toml. Only new versions
-carry them: a published file is never made again.
+Our licensed builds carry the edition and release fields the console's import writes (docs/PACKAGING.md "What it holds"): `edition` and `release` here, or `[data_setup] editions`; a source package's `debian/control` says them as `XB-X-Walnut-Edition`/`XB-X-Walnut-Release` and `check.py` holds both to build.toml.
 The catalog's `patched_by` is no key: it is the source packages of ours in the bundle's `packages/` and its
 engine's (`check.patched_by`). An engine's build.toml takes `packages` (the engine's packages its games run)
 and `[[licensed]]` only.

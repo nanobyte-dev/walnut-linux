@@ -19,12 +19,10 @@ Petitboot, with the RSX driver, the desktop and the games working out of the box
 installer that puts it on the console's internal disk without touching GameOS's data. That is
 Stage 5.
 
-Games that need the original release's data (the user, 2026-10-20): the engine packages go in the
-public repository and are smart about their data. On first run, a game without its assets shows a
-"First time setup" dialog ("This game requires assets from the original game release"; "Insert the CD
-into the optical drive, or provide a source") and copies what it needs from the disc, a disc image, or
-an existing install (a GOG or Steam folder, an old Windows install). Nothing copyrighted is ever
-published; the user's own copy is the source. That is item 5.10.
+Games that need the original release's data: the engine packages go in the public repository and
+Walnut Games sets up the data from the player's own copy (a disc, a disc image, a GOG or Steam
+folder, an installer; "Set up game data..." in the app, `walnut-data import` in a terminal). Nothing
+copyrighted is ever published. That is item 5.10.
 
 ## Next up (the user, 2026-10-23)
 
@@ -212,7 +210,7 @@ Everything meant for other users. Nothing here is published without the user's O
 | 5.7 | Other PS3 models (fats, other slims, the QCFW/BadWDSD news for 25xx-40xx); everything is tested on one CECH-20xx | open (research) | [backlog/hardware.md](backlog/hardware.md) |
 | 5.8 | Upstream submissions (D10), rebased; Mesa nv30 patches tested first on the Core 2 + 7600 GT box (stock x86 nouveau, piglit/deqp), that box's only job (the user, 2026-10-18) | drafts, none sent | [upstream/README.md](upstream/README.md) |
 | 5.9 | Host test suites run automatically | `make test` / `make test-slow` exist (tools/run-tests.sh); not in CI | [backlog/platform.md](backlog/platform.md) |
-| 5.10 | Game data import in Walnut Games (designed 2026-10-27, reviewed for security, game-data-packager's behaviour and integration): the player picks a disc in the drive, an ISO (udisks loop mount), an installer or a folder; Debian's game-data-packager, our patched package (`packages/patched/tools/game-data-packager`: progress lines, no Doom launchers, unpackers recommended), runs as the player and builds the data deb; the root helper takes only its file stream (`walnut-games-helper import-data ID PKG`), checks every file against a manifest from game-data-packager's data, writes the package itself (no scripts, no relations but same-game Conflicts) and installs it; a CLI `walnut-data`. GameDB `[data_setup]` per game; launchers stamped `X-Walnut-Game`, data launchers shown when their files exist. Pilot OpenRCT2 (CD, ISO, GOG, Steam folder), then Doom, Doom II, Final Doom, Heretic, Hexen, Quake and Quake II full (their official patch files may be downloaded), TTD's data for OpenTTD; CD music later. Steps: device checks with Debian's tool, GameDB, the package, the helper, CLI and app, pilot, first wave, docs | designed, step 1 next | [pc-classics.md](../gamedb/research/pc-classics.md) (the games that need it), [PACKAGING.md](PACKAGING.md#game-data) |
+| 5.10 | Game data import in Walnut Games: the player picks a disc in the drive, an ISO (udisks loop mount), an installer or a folder; our patched game-data-packager (`packages/patched/tools/game-data-packager`) runs as the player and builds the data deb; the root helper takes only its file stream (`walnut-games-helper import-data ID PKG`), checks every file against a manifest from game-data-packager's data, writes the package itself and installs it. Also the CLI `walnut-data` (list, import, remove, install-repo), the app's "Set up game data..." / "Add original data..." buttons and chooser, "Install from your repository" for the licensed suite, `[data_setup]` per game in GameDB with editions that the ratings respect, launchers stamped `X-Walnut-Game` and shown when their data exists (`ps3-game-menu --reload`). Games: OpenRCT2 (pilot), Doom, Doom II, Final Doom, Heretic, Hexen, Quake, Quake II, OpenTTD's original graphics | implemented; pilot and first wave on the PS3 (see [TESTS.md](TESTS.md)); pending: sources the user provides (RCT2 CD in the drive, GOG, Steam; Quake full: a CD or The Offering; Quake II full; Hexen 1.1), CD music (A7) | [pc-classics.md](../gamedb/research/pc-classics.md) (the games that need it), [PACKAGING.md](PACKAGING.md#game-data), [GAMEDB.md](GAMEDB.md) |
 
 ### Per-game items
 

@@ -471,16 +471,29 @@ buttons Install, Remove, Play and "Open on the web". The window follows the Waln
   package another installed game lists too stays, below);
   it never runs autoremove; SIGHUP and SIGPIPE are ignored, so closing the app never stops dpkg halfway.
   Output is `progress N text`, `log`, `error` lines; exit 0 done, 2 refused, 1 apt failed.
-- **Data setup.** A game whose data comes from the player's own copy (Doom, Quake's full game, RollerCoaster
+- **Game data.** A game whose data comes from the player's own copy (Doom, Quake's full game, RollerCoaster
   Tycoon 2 for OpenRCT2, TTD's original graphics for OpenTTD) has a `[data_setup]` in its build.toml
-  (gamedb/README.md): the game-data-packager game, the packages any one of which makes it playable, the
-  optional ones, the ones allowed to download their official patch files, and a hint where the files are.
-  The catalog carries it with `present_any`, those packages plus the licensed suite's builds of the same
-  data; the app shows "Your game data is installed" when one of them is. Games on one engine are kept
-  apart: every launcher of ours is stamped `X-Walnut-Game=<id>`, Play lists a game's own, and removing
-  Doom while Freedoom's game still uses dsda-doom removes only Doom's data. The page still lists the
-  manual steps; the app's button is still to come (PLAN 5.10).
-- **Data import.** `walnut-data import <id> <source>...` (in walnut-games, `/usr/bin`) runs our
+  (gamedb/README.md): the game-data-packager (gdp) game, the packages any one of which makes it playable, the
+  optional ones, the ones allowed to download their official patch files, a hint where the files are, and
+  each package's edition. The catalog carries it with `present_any`, those packages plus the licensed
+  suite's builds of the same data; the app shows "Your game data is installed" when one of them is, and
+  the installed data's edition with the rating's facts. Games on one engine are kept apart: every launcher
+  of ours is stamped `X-Walnut-Game=<id>`, Play lists a game's own, and removing Doom while Freedoom's game
+  still uses dsda-doom removes only Doom's data.
+- **The app.** A game page offers "Install from your repository" when the apt sources have one of its
+  `present_any` names (the licensed suite; `apt-cache policy` in a thread, a candidate counts only from a
+  package source), then "Set up game data..." (required data missing) or "Add original data..." (optional
+  only: OpenTTD). The chooser is a window of big buttons (the pad is the pointer; arrows, Enter, Escape):
+  the disc in the drive, `/media` and `/run/media` mounts, GOG and Steam folders, `*.iso`, `*.img`, `*.zip`,
+  `*.exe` and `gog_*.sh` in Downloads and the home folder, Other file and Other folder, with the game's hint.
+  The import runs in its own session with its output in `~/.cache/walnut-games/import.log`; the app shows
+  the step, the file being read, the elapsed time, the last log lines and a moving bar. Closing the app
+  leaves it running; reopened, the app finds it by walnut-data's lock. Errors are in English from gdp's
+  kinds (`not-found`, `unknown-version`, `unsuitable`, `needs-download` with "Try again with download",
+  `no-space` with walnut-data's figures, `failed` with the last log lines). After an import or an install
+  `ps3-game-menu --reload` shows the launchers the data added (`X-Walnut-Requires`), and the page names them.
+  Remove names the imported data and its size and runs `remove-data`.
+- **walnut-data.** `walnut-data import <id> <source>...` (walnut-games, `/usr/bin`) runs our
   game-data-packager as the player, in a transient user unit (memory and time limits, no new
   privileges, no network unless the game may download its official patch files), on a folder, an
   installer, the mounted disc or an ISO it loop-mounts read-only through udisks. Each package gdp makes
@@ -489,10 +502,12 @@ buttons Install, Remove, Play and "Open on the web". The window follows the Waln
   `make gdp-manifest`), writes the control file itself (gdp's version, `Section: local/games`, the
   manifest's same-game Conflicts/Replaces, `X-Walnut-Edition` from `[data_setup] editions`, `X-Walnut-Release`
   from gdp's name of the file version that matched, e.g. `1.9ud`, `cd`), no maintainer scripts, and
-  installs it after apt's simulation shows nothing else changing. `walnut-data list` shows each game's
-  data state, `remove <id>` and `install-repo <id>` call the helper's `remove-data` and
-  `install-repo-data` (the game's data from the configured apt sources: the licensed suite). Every
-  helper action holds one lock; a second is refused as busy, and `status` says `importing` meanwhile.
+  installs it after apt's simulation shows nothing else changing (docs/PACKAGING.md "Data built on the
+  console"). `walnut-data list` shows each game's data state, `remove <id>` and `install-repo <id>` call
+  the helper's `remove-data` and `install-repo-data`. Every helper action holds one lock; a second is
+  refused as busy, and `status` says `importing` meanwhile.
+- **Editions.** Sessions record the data (see "Sessions merge on the same data edition" above), and a
+  rating merges only sessions on the newest one's editions.
 - Tests: `packages/walnut/apps/walnut-games/tests/test_walnut_data.py` (make test ONLY=walnut-data): import-data
   against tar fixtures (links, devices, `..`, wrong sizes and checksums, a cut stream, extra files), the
   package it writes, the lock, remove-data, install-repo-data, and walnut-data with a stubbed gdp.
@@ -534,7 +549,8 @@ without (a path) stays inline. The app's details pane shows the same steps as te
 monospace font, selectable. `data_guide` stays as the "More" link. The longer guide is the body of
 `index.md`, under a heading "Setting up the game data" (the page links to it): which editions work, where
 their files are, what the result looks like, and common problems. Every command in it is run in a Debian
-container before it is written: the Quake and Quake II steps use Debian's `game-data-packager` (the same
-tool `tools/game-data.sh` uses for the licensed packages), which is in Debian's contrib section; Walnut's
-sources list main only, so the steps add contrib as a source of its own first. Sauerbraten's steps unpack
-the official release's `data` and `packages` folders into `/usr/share/games/sauerbraten`.
+container before it is written. The steps of a game with a `[data_setup]` (Doom, Quake, OpenRCT2 and the
+others in "Game data" above) say how to use Walnut Games' button, the `walnut-data import <id> <path>`
+line, which release the game needs (from the hint) and the licensed suite's "Install from your repository";
+they carry no manual game-data-packager steps. Sauerbraten's steps unpack the official release's `data` and
+`packages` folders into `/usr/share/games/sauerbraten`.

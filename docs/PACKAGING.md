@@ -217,9 +217,9 @@ Walnut Linux's splash is Plymouth with our theme, made to show early from the US
 
 Licensed data is packaged apart from the engines, and free packages never depend on it.
 
-The goal for end users (PLAN 5.10, the user, 2026-10-20): the public engine packages copy the data
-from the user's own copy on first run (a "First time setup" dialog: insert the CD, or point to a disc
-image or an existing install). The licensed data packages below stay for our own machines.
+End users get their data from their own copy: Walnut Games (or `walnut-data import`) makes it into a
+package on the console ("Data built on the console" below; the app side is in docs/GAMEDB.md). The
+licensed data packages below are for our own machines.
 
 ### The rule: free packages never depend on licensed ones
 
@@ -291,6 +291,11 @@ helper builds the package again from scratch: the files that match the packaged 
   when gdp names the versions of the files it accepts, `X-Walnut-Release` (the names of the versions the
   required files matched, `+`-joined: `1.9ud`, `cd`). Conflicts/Replaces only the manifest's same-game ones.
   Our licensed builds write the same two fields ("What it holds" above).
+- **Checksums.** The manifest holds the strongest checksum game-data-packager has for each file: sha256
+  where it has one, else sha1 or md5 (it has only md5 or sha1 for some of the old files). The helper
+  accepts exactly that checksum; md5 and sha1 are weak against a crafted collision, which is acceptable
+  here: the files come from the player's own copy on a single-player console, and the helper still
+  admits only the listed paths and sizes, as regular files.
 - **Lifetime.** Installed with `apt-get install ./X.deb`, so manually installed: autoremove leaves it. A
   newer gdp never rebuilds it; importing again (`--reinstall`) does. `walnut-data remove <game>` removes it.
 

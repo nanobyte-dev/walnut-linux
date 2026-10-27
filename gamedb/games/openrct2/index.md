@@ -8,11 +8,11 @@ license = "GPL-3.0-or-later engine, commercial game data"
 homepage = "https://openrct2.io/"
 data_guide = "https://wiki.debian.org/Games/GameDataPackager"
 data_steps = [
-  "Turn on Debian's contrib section once, where the tool that packs game data lives: `printf 'Types: deb\\nURIs: http://deb.debian.org/debian-ports\\nSuites: unstable unreleased\\nComponents: contrib\\n' | sudo tee /etc/apt/sources.list.d/debian-contrib.sources`.",
-  "Install the tool and the unpackers for RCT2's CD and the GOG installer: `sudo apt update && sudo apt install game-data-packager unshield innoextract`.",
-  "Make a package from your own copy of RollerCoaster Tycoon 2, the CD's mount point or the folder of an installed copy (a Steam or GOG copy's folder, or GOG's installer): `mkdir -p ~/game-data && /usr/games/game-data-packager -d ~/game-data roller-coaster-tycoon2 --package roller-coaster-tycoon2-data /path/to/RCT2`.",
-  "Install it: `sudo apt install ~/game-data/roller-coaster-tycoon2-data_*_all.deb`. The data lands in `/usr/share/games/roller-coaster-tycoon2`, one of the places OpenRCT2 looks for it.",
-  "Start OpenRCT2 from the menu.",
+  "In Walnut Games, open RollerCoaster Tycoon 2 and choose Set up game data...: pick the disc in the drive, an ISO, an installer or a folder that holds your copy.",
+  "Or from a terminal, with the same sources: `walnut-data import openrct2 /path/to/your/copy`.",
+  "What it needs: RollerCoaster Tycoon 2: its CD, an installed copy (a Steam or GOG folder) or the GOG installer. The CD works in the drive or as an ISO.",
+  "The data is installed as roller-coaster-tycoon2-data, in `/usr/share/games/roller-coaster-tycoon2`; RollerCoaster Tycoon 2 then appears in Play. Remove data in the game's page takes it away again.",
+  "If you have Walnut's licensed suite configured as an apt source, choose Install from your repository (or `walnut-data install-repo openrct2`) instead.",
 ]
 controller = "keyboard"
 designed_for = "keyboard-mouse"
@@ -20,18 +20,14 @@ designed_for = "keyboard-mouse"
 
 OpenRCT2 0.5.6 with Walnut's big-endian port (upstream builds only for little-endian CPUs), on its software
 renderer: its OpenGL renderer needs OpenGL 3.3. The engine is free; RollerCoaster Tycoon 2's data is not, so
-Walnut doesn't offer it: you make a package of it from your own copy (below). Nobody has played it on Walnut
+Walnut doesn't offer it: Walnut Games makes a package of it from your own copy (below). Nobody has played it on Walnut
 yet. In the first benchmark (Electric Fields at 960x540, scaled 2x) it drew 21 to 24 frames a second, with
 the console's memory nearly all in use.
 
 ## Setting up the game data
 
-The tool is Debian's `game-data-packager`, from Debian's contrib section, which Walnut's package sources
-don't list: step 1 adds it as a source of its own, so Walnut's updates leave it alone. It checks the files
-against the checksums of the editions it knows and makes an ordinary `.deb`, which apt installs and can
-remove again. On a Debian or Ubuntu PC the same commands work, and you can copy the `.deb` to the PS3 and
-install it with `sudo apt install ./file.deb`.
+Walnut Games makes the data for you. Open RollerCoaster Tycoon 2 in the app and choose Set up game data...; the chooser lists the disc in the drive, any mounted disc or USB stick, GOG and Steam folders, and the ISOs, installers and archives in Downloads and your home folder, or you pick a file or folder yourself. In a terminal, the same thing is `walnut-data import openrct2 /path/to/your/copy` (an ISO is mounted read-only by the desktop for the import). It runs Walnut's patched `game-data-packager`, which checks the files against the checksums of the editions it knows, and installs the result as an ordinary package (roller-coaster-tycoon2-data) that Remove data takes away again. OpenRCT2 appears in Play once the data is there.
 
-The tool searches your home folder and the usual Steam and GOG places by itself; add `--no-search` to keep
-it to the folder you name. Coming: Walnut Games will do the steps for you (a button on this page, and
-`walnut-data import openrct2 /path/to/RCT2` in a terminal).
+What it needs: RollerCoaster Tycoon 2: its CD, an installed copy (a Steam or GOG folder) or the GOG installer. The CD works in the drive or as an ISO.
+
+If you have Walnut's licensed suite as an apt source, the page offers Install from your repository instead (`walnut-data install-repo openrct2`). Debian's `game-data-packager` makes the same package on a PC, and `sudo apt install ./file.deb` installs it.

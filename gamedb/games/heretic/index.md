@@ -8,11 +8,11 @@ license = "GPL-2.0-or-later engine, commercial game data"
 homepage = "https://doomwiki.org/wiki/Heretic"
 data_guide = "https://wiki.debian.org/Games/GameDataPackager"
 data_steps = [
-  "Turn on Debian's contrib section once, where the tool that packs game data lives: `printf 'Types: deb\\nURIs: http://deb.debian.org/debian-ports\\nSuites: unstable unreleased\\nComponents: contrib\\n' | sudo tee /etc/apt/sources.list.d/debian-contrib.sources`.",
-  "Install the tool: `sudo apt update && sudo apt install game-data-packager` (and `innoextract` too when your copy is a GOG installer, `setup_*.exe`).",
-  "Make a package from your own copy, the folder (or the CD's mount point) that holds `HERETIC.WAD`: `mkdir -p ~/game-data && /usr/games/game-data-packager -d ~/game-data heretic --package heretic-wad /path/to/Heretic`.",
-  "Install it: `sudo apt install ~/game-data/heretic-wad_*_all.deb`. The WAD lands in `/usr/share/games/doom/heretic.wad`.",
-  "Start it from a terminal: `ps3-game dsda-heretic -iwad /usr/share/games/doom/heretic.wad -vidmode gl -width 1920 -height 1080 -fullscreen`. The menu entry Heretic (DSDA-Doom) stays hidden until Walnut's menu learns to look for the WAD (it comes with the data import).",
+  "In Walnut Games, open Heretic and choose Set up game data...: pick the disc in the drive, an ISO, an installer or a folder that holds your copy.",
+  "Or from a terminal, with the same sources: `walnut-data import heretic /path/to/your/copy`.",
+  "What it needs: HERETIC.WAD from Heretic: Shadow of the Serpent Riders (the 1.0 release is refused), from a CD, an installed copy (Steam: `common/Heretic Shadow of the Serpent Riders`), or the GOG installer.",
+  "The data is installed as heretic-wad, in `/usr/share/games/doom/heretic.wad`; Heretic then appears in Play. Remove data in the game's page takes it away again.",
+  "If you have Walnut's licensed suite configured as an apt source, choose Install from your repository (or `walnut-data install-repo heretic`) instead.",
 ]
 controller = "keyboard"
 designed_for = "keyboard-mouse"
@@ -20,20 +20,14 @@ designed_for = "keyboard-mouse"
 
 Heretic runs on DSDA-Doom, the Doom port Walnut packages and patches for the PS3 (big-endian sound
 lumps, textures in formats the RSX has, batched GL draws). The engine is free; the game's data is not, so
-Walnut doesn't offer it: you make a package of it from your own copy (below). Nobody has played it on
+Walnut doesn't offer it: Walnut Games makes a package of it from your own copy (below). Nobody has played it on
 Walnut yet. DSDA-Doom with Freedoom runs at about 56 frames a second on its OpenGL renderer; with this
 game's WAD it has not been tried.
 
 ## Setting up the game data
 
-The tool is Debian's `game-data-packager`, from Debian's contrib section, which Walnut's package sources
-don't list: step 1 adds it as a source of its own, so Walnut's updates leave it alone. It checks the files
-against the checksums of the editions it knows and makes an ordinary `.deb`, which apt installs and can
-remove again. On a Debian or Ubuntu PC the same commands work, and you can copy the `.deb` to the PS3 and
-install it with `sudo apt install ./file.deb`.
+Walnut Games makes the data for you. Open Heretic in the app and choose Set up game data...; the chooser lists the disc in the drive, any mounted disc or USB stick, GOG and Steam folders, and the ISOs, installers and archives in Downloads and your home folder, or you pick a file or folder yourself. In a terminal, the same thing is `walnut-data import heretic /path/to/your/copy` (an ISO is mounted read-only by the desktop for the import). It runs Walnut's patched `game-data-packager`, which checks the files against the checksums of the editions it knows, and installs the result as an ordinary package (heretic-wad) that Remove data takes away again. Heretic (DSDA-Doom) appears in Play once the data is there.
 
-Which copies work: Heretic: Shadow of the Serpent Riders. A Steam copy is the `common/Heretic Shadow of the Serpent Riders` folder of its library; a GOG copy is the installed folder or its installer.
+What it needs: HERETIC.WAD from Heretic: Shadow of the Serpent Riders (the 1.0 release is refused), from a CD, an installed copy (Steam: `common/Heretic Shadow of the Serpent Riders`), or the GOG installer.
 
-The tool searches your home folder and the usual Steam and GOG places by itself; add `--no-search` to keep
-it to the folder you name. Coming: Walnut Games will do the steps for you (a button on this page, and
-`walnut-data import heretic /path/to/Heretic` in a terminal).
+If you have Walnut's licensed suite as an apt source, the page offers Install from your repository instead (`walnut-data install-repo heretic`). Debian's `game-data-packager` makes the same package on a PC, and `sudo apt install ./file.deb` installs it.
