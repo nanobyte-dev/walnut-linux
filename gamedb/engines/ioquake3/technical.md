@@ -1,11 +1,11 @@
 # ioquake3: technical notes
 
 Our build of Debian's `ioquake3` (`1.36+u20260719.58839361+dfsg-1+ps3.N`,
-[packages/ioquake3](packages/ioquake3/)) replaces Debian's and carries 29 patches (there is no 0017).
+[packages/ioquake3](packages/ioquake3/)) replaces Debian's and carries 30 patches (there is no 0017).
 OpenArena runs on it ([its notes](../../games/openarena/technical.md)), and Quake III Arena with the
 player's own data ([its notes](../../games/quake-3-arena/technical.md)). Every change sits
-behind a cvar, so a recipe variant can turn it back to upstream's behaviour. The PS3 runs ps3.462 since
-gamedb:batch/2026-10-18-batch17; the release candidate is ps3.396 ([the archived release plan](../../../docs/archive/RELEASE-CANDIDATES-2026-10-19.md)).
+behind a cvar, so a recipe variant can turn it back to upstream's behaviour. The PS3 runs ps3.959~dev (0031) since
+2026-10-28; the release candidate is ps3.396 ([the archived release plan](../../../docs/archive/RELEASE-CANDIDATES-2026-10-19.md)).
 
 ## renderergl2 memory (0001-0010)
 
@@ -69,10 +69,27 @@ has the measurements.
 |---|---|---|
 | 0030 | `cl_cdkeyCheck 1` | 0: the UI's CD key check answers valid, so Quake III's and Team Arena's menus don't open on the CD KEY screen at every start (`ui_cdkeychecked` is `CVAR_ROM` in both UIs: a value set from outside is forced back to 0). Quake III's autoexec.cfg sets 0; no key is written or read |
 
+## Signals (0031)
+
+| Patch | Cvar (default) | What |
+|---|---|---|
+| 0031 | `sys_signalQuit 1` | SIGTERM, SIGINT, SIGHUP and SIGQUIT only set a flag, and the main loop quits before its next frame as the `quit` command does (exit status 1, `Client Shutdown (Received signal 15)` as before, the PID file removed); a second one exits at once, and `alarm(10)` ends a quit that doesn't come. Upstream ran the shutdown inside the handler, which hung 4 of 6 SIGTERMs on the PS3 (libxcb's lock, held by the interrupted buffer swap, wanted again by the shutdown's `XGrabPointer`); now 12 of 12 exit in 1-4 s. 0: upstream's handler |
+
+[The investigation](investigations/2026-10-28-sigterm-hang-and-openal-xruns.md) has the stacks.
+
+## Sound dropouts
+
+OpenAL Soft's `[ALSOFT] (EE) mmap commit error: Broken pipe` (and `available update failed: Broken
+pipe`) is an audible dropout, 80-440 ms each: OpenAL's mixer thread starved past its 32 ms buffer and
+recovered. It runs at normal priority (no RT limit in the session, no RTKit). 150 s with 5 bots: Quake
+III 1-2 dropouts a run, OpenArena 1-17; with `LimitRTPRIO=10` (OpenAL takes SCHED_RR by itself) Quake
+III had none in 3 runs and OpenArena 3. Proposal, not shipped: an RT limit for the user's session
+(system-wide, so every OpenAL game; it needs a suite measurement and the user's ears first).
+
 ## Log noise
 
 ioquake3 probes for extensions nv30 doesn't have (`GL_ARB_framebuffer_object`, `texture_float`,
 `seamless_cube_map`, `texture_compression_bptc`, a core context) and carries on; there is no IPv6 in the
-kernel, so it prints socket errors for it. On the harness's SIGTERM after the window it sometimes
-prints `DOUBLE SIGNAL FAULT: Received signal 11` right after `Client Shutdown`: a crash while shutting
-down, harmless to the numbers. The engine's `analysis.toml` holds the log rules for these.
+kernel, so it prints socket errors for it. Builds before 0031 sometimes printed `DOUBLE SIGNAL FAULT:
+Received signal 11` right after `Client Shutdown` at the harness's SIGTERM (the shutdown crashing inside
+the signal handler), harmless to the numbers. The engine's `analysis.toml` holds the log rules for these.

@@ -1,0 +1,164 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 27 Oct 2026 23:41:17 +0200
+Subject: sys: sys_signalQuit, a quit signal is handled by the main loop
+
+Upstream's Sys_SigHandler runs the whole client and server shutdown inside the signal handler. That
+calls into SDL, Xlib, Mesa and OpenAL from whatever the signal interrupted, and deadlocks when the
+interrupted call holds a lock the shutdown takes again. On the PS3 a SIGTERM (the bench harness's at
+the end of a run, play-test.sh stop, systemd stopping the session) hung OpenArena and Quake III in
+4 of 6 tries: the main thread was in glXSwapBuffers (Mesa's DRI3 loader in
+xcb_wait_for_special_event, libxcb's lock held), and the handler's RE_Shutdown -> GLimp_Shutdown ->
+IN_Shutdown -> SDL_SetWindowGrab -> XGrabPointer waited in xcb_wait_for_reply64 for that lock
+forever; SIGTERM stays blocked inside its own handler, so only SIGKILL ended it (and the PID file
+left behind makes the next start ask about "safe" video settings). The "DOUBLE SIGNAL FAULT:
+Received signal 11" seen after "Client Shutdown" in harness logs is the same shutdown crashing
+instead of hanging.
+
+With sys_signalQuit 1 (the default) SIGTERM, SIGINT, SIGHUP and SIGQUIT only set a flag; the main
+loop sees it before its next frame and quits the way the quit command does (Com_Quit_f's shutdown,
+"Received signal N" as the reason, exit status 1 as upstream gives a signal). A second quit signal
+exits at once with _exit; alarm(10) ends the process with SIGALRM if the quit doesn't happen (a long
+map load, or a shutdown that hangs after all). Crash signals (SIGSEGV, SIGBUS, SIGILL, SIGFPE,
+SIGABRT, SIGTRAP) keep upstream's handling. sys_signalQuit 0 is upstream's behaviour. Not on
+Windows, where con_win32 calls the handler from its console control thread.
+
+diff --git a/code/sys/sys_local.h b/code/sys/sys_local.h
+--- a/code/sys/sys_local.h
++++ b/code/sys/sys_local.h
+@@ -61,7 +61,7 @@ void Sys_GLimpSafeInit( void );
+ void Sys_GLimpInit( void );
+ void Sys_PlatformInit( void );
+ void Sys_PlatformExit( void );
+-void Sys_SigHandler( int signal ) Q_NO_RETURN;
++void Sys_SigHandler( int signal );
+ void Sys_ErrorDialog( const char *error );
+ void Sys_AnsiColorPrint( const char *msg );
+ 
+diff --git a/code/sys/sys_main.c b/code/sys/sys_main.c
+--- a/code/sys/sys_main.c
++++ b/code/sys/sys_main.c
+@@ -34,6 +34,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ #ifdef __EMSCRIPTEN__
+ #include <emscripten/emscripten.h>
+ #endif
++#ifndef _WIN32
++#include <unistd.h>
++#endif
+ 
+ #ifndef DEDICATED
+ #ifdef USE_INTERNAL_SDL_HEADERS
+@@ -749,11 +752,52 @@ char *Sys_ParseProtocolUri( const char *uri )
+ /*
+ =================
+ Sys_SigHandler
++
++A signal that asks the game to quit (SIGTERM, SIGINT, SIGHUP, SIGQUIT) is only noted here, and the
++main loop quits before its next frame (Sys_CheckQuitSignal), the way the quit command does. Running
++the shutdown inside the handler, as upstream does, deadlocks whenever the signal lands in the middle
++of a library call that holds a lock the shutdown needs again: on the PS3 a SIGTERM during
++glXSwapBuffers (Mesa's DRI3 loader waiting in xcb_wait_for_special_event with libxcb's lock held)
++left the handler's IN_Shutdown -> XGrabPointer waiting on that same lock forever. sys_signalQuit 0
++gives back upstream's behaviour.
+ =================
+ */
++static qboolean signalcaught = qfalse;
++static volatile sig_atomic_t sys_quitSignal = 0;
++static cvar_t *sys_signalQuit;
++
++// how long the main loop gets to quit after the signal before SIGALRM's default action ends the
++// process (a map load in progress, or a quit that hangs after all)
++#define SYS_QUIT_SIGNAL_TIMEOUT 10
++
++static qboolean Sys_IsQuitSignal( int signal )
++{
++#ifndef _WIN32
++	return signal == SIGTERM || signal == SIGINT || signal == SIGHUP || signal == SIGQUIT;
++#else
++	return qfalse;
++#endif
++}
++
+ void Sys_SigHandler( int signal )
+ {
+-	static qboolean signalcaught = qfalse;
++#ifndef _WIN32
++	if( Sys_IsQuitSignal( signal ) &&
++		( sys_quitSignal || ( !signalcaught && ( !sys_signalQuit || sys_signalQuit->integer ) ) ) )
++	{
++		if( sys_quitSignal )
++		{
++			// a second one while the first is handled: out at once (write and _exit are
++			// async-signal-safe; nothing else is called from here)
++			static const char msg[] = "Received a second quit signal, exiting now\n";
++			if( write( STDERR_FILENO, msg, sizeof( msg ) - 1 ) < 0 ) { }
++			_exit( 1 );
++		}
++		sys_quitSignal = signal;
++		alarm( SYS_QUIT_SIGNAL_TIMEOUT );
++		return;
++	}
++#endif
+ 
+ 	if( signalcaught )
+ 	{
+@@ -777,6 +821,40 @@ void Sys_SigHandler( int signal )
+ 		Sys_Exit( 2 );
+ }
+ 
++/*
++=================
++Sys_CheckQuitSignal
++
++The quit a signal asked for (Sys_SigHandler), from the main loop: Com_Quit_f's shutdown with the
++signal as the reason, and upstream's exit status for a signal (1; the PID file is removed, so the
++next start doesn't ask about "safe" video settings).
++=================
++*/
++static void Sys_CheckQuitSignal( void )
++{
++	char reason[ 64 ];
++	int sig = sys_quitSignal;
++
++	if( !sig )
++		return;
++
++	// a crash signal during the quit exits at once (DOUBLE SIGNAL FAULT)
++	signalcaught = qtrue;
++	Com_sprintf( reason, sizeof( reason ), "Received signal %d", sig );
++	if( !com_errorEntered )
++	{
++		VM_Forced_Unload_Start();
++		SV_Shutdown( reason );
++#ifndef DEDICATED
++		CL_Shutdown( reason, qtrue, qtrue );
++#endif
++		VM_Forced_Unload_Done();
++		Com_Shutdown();
++		FS_Shutdown( qtrue );
++	}
++	Sys_Exit( 1 );
++}
++
+ /*
+ =================
+ main
+@@ -881,6 +959,10 @@ int main( int argc, char **argv )
+ 	Com_Init( commandLine );
+ 	NET_Init( );
+ 
++	// 1: a quit signal is handled by the main loop (Sys_SigHandler); 0: upstream's shutdown inside
++	// the signal handler
++	sys_signalQuit = Cvar_Get( "sys_signalQuit", "1", 0 );
++
+ 	signal( SIGILL, Sys_SigHandler );
+ 	signal( SIGFPE, Sys_SigHandler );
+ 	signal( SIGSEGV, Sys_SigHandler );
+@@ -892,6 +974,7 @@ int main( int argc, char **argv )
+ #else
+ 	while( 1 )
+ 	{
++		Sys_CheckQuitSignal( );
+ 		Com_Frame( );
+ 	}
+ #endif

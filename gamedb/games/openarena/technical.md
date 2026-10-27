@@ -84,6 +84,9 @@ autoexec.cfg. Its variants turn each engine patch back one at a time.
 - About one run in six played through OpenAL lost its sound to the sound card's DMA stopping (the
   OpenAL "Wait timeout" wedge), fixed by the snd_ps3 watchdog, kernel local/0047
   (gamedb:batch/2026-10-20-ssdroot12-dma-watchdog).
+- Short dropouts (OpenAL's `mmap commit error: Broken pipe`, 80-440 ms each) come from OpenAL's mixer
+  thread starving at normal priority: 1 to 17 in 150 s with 5 bots on oa_dm4, 3 with a real-time limit
+  for the session (not shipped: [the investigation](../../engines/ioquake3/investigations/2026-10-28-sigterm-hang-and-openal-xruns.md)).
 
 ## What was tried
 

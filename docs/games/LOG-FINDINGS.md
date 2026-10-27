@@ -108,7 +108,8 @@ console, not checked); report.py now skips the cut lines of such a run's `sample
 What it looks like: game.log gets `[ALSOFT] (EE) Wait timeout... buffer size too low?` once a second
 until the game exits, and the sound is gone. Picture and fps are fine; the mixer thread sleeps, so the
 run even looks cheaper. bench.txt said `sound=RUNNING` and `underruns=0`. Often there are one or a few
-`mmap commit error: Broken pipe` lines earlier: those are a different, harmless thing (below).
+`mmap commit error: Broken pipe` lines earlier: those are a different thing, short dropouts that
+recover (below).
 
 Cause: snd_ps3's DMA stops while the card stays RUNNING. snd_ps3 programs and kicks each 256-frame
 block from the buffer-empty interrupt of the block before it, and moves its hw pointer only there; when
@@ -143,7 +144,12 @@ priority, RTKit is absent). `20261019T212529Z-openarena` was dumped at one: the 
 `avail_max` was 5120 frames (107 ms without a write), OpenAL recovered it at once (RUNNING again, buffer
 refilled, its trigger time the trigger's second), and the card was still moving 4.5 s later. That run's
 wedge came later and on its own. A larger buffer (`OAL=p1024`: 1024-frame periods, 64 ms) would make
-these rarer, at the cost of latency.
+these rarer, at the cost of latency. Each one is a dropout the player hears: ps3-xrunlog put every
+commit error of a 2026-10-28 test at 80-440 ms of silence with sound on both sides (Quake III and
+OpenArena with bots, 1-21 in 150 s). With a real-time limit for the game (`LimitRTPRIO=10`; OpenAL then
+puts its mixer on SCHED_RR by itself; the session has none and no RTKit) Quake III had none in 3 runs
+and OpenArena 3 against 21 ([the investigation](../../gamedb/engines/ioquake3/investigations/2026-10-28-sigterm-hang-and-openal-xruns.md)).
+An RT limit for the session is the candidate fix, not made yet: it is system-wide.
 
 Fix: kernel patch `packages/patched/kernel/linux/patches/local/0047-snd-ps3-dma-watchdog.patch`. While playing, a timer checks
 every `snd_ps3.dma_watchdog_ms` (default 200, 0 off, read at stream start;

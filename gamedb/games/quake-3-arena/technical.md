@@ -47,9 +47,10 @@ HUD; xwd fullscreen, looked at); nobody has played a session or measured it yet.
 
 ## Known problems
 
-- SIGTERM can deadlock ioquake3 in its shutdown (`Client Shutdown (Received signal 15)`, then
-  `RE_Shutdown` waiting on a futex forever, the last frame on the TV): its signal handler runs the
-  whole shutdown. Quit from the menu.
+- Sound drops out for 80-170 ms about once a minute in a game with bots (OpenAL's `mmap commit error:
+  Broken pipe` in the log, one per dropout): OpenAL's mixer thread starves at normal priority. With a
+  real-time limit for the session there were none in 3 runs; that change is system-wide and not made
+  yet ([the investigation](../../engines/ioquake3/investigations/2026-10-28-sigterm-hang-and-openal-xruns.md)).
 
 ## Engine options
 
