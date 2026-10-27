@@ -10,7 +10,11 @@ deb make game-data-packager-deb built into the deb builder image and runs this t
   them by default;
 - 0006 the early releases: Doom II 1.666 and Heretic 1.0 as the last alternative of doom2.wad and
   heretic.wad, with their sizes and checksums; Hexen 1.0 still unsuitable (gdp's own loader, no
-  game data).
+  game data);
+- 0007 transport-tycoon-deluxe-music-fm: the loader's 22 fm files and the plugin's orig_win_fm.obm
+  (OpenTTD's slots, the files' MD5s, no [timingtrim]), then a build of the package from a fixture
+  (ttd.yaml replaced by one whose fm checksums are the fixture's): the files and the set file in
+  baseset/fm, the set file's bytes the ones generated_files() gives (what gdp-manifest.py records).
 
 game-data-packager checks every file against its checksums, so the builds use a game of our own,
 "walnuttest" (plugin doom_common, so DoomTask writes its launchers), whose checksums are those of
@@ -350,6 +354,126 @@ class EarlyReleases(unittest.TestCase):
         files = self.games['hexen'].files
         self.assertNotIn('hexen.wad?1.0', files['hexen.wad'].alternatives)
         self.assertTrue(files['hexen.wad?1.0'].unsuitable)
+
+
+FM_PKG = 'transport-tycoon-deluxe-music-fm'
+FM = [b'MThd' + bytes([n]) * (100 + n) for n in range(22)]	# the fixture: fm/9_tt00.fm ...
+
+
+def fm_yaml():
+    lines = '\n'.join('    %d %s 9_tt%02d.fm' % (len(d), sums(d)['md5'], n) for n, d in enumerate(FM))
+    sha256 = '\n'.join('  %s 9_tt%02d.fm' % (sums(d)['sha256'], n) for n, d in enumerate(FM))
+    return f"""---
+longname: Transport Tycoon Deluxe
+engine: openttd
+copyright: "\\u00a9 1995 Microprose"
+
+packages:
+  {FM_PKG}:
+    install_to: $assets/openttd/baseset/fm
+    install:
+    - fm musics
+
+groups:
+  fm musics: |
+{lines}
+
+sha256sums: |
+{sha256}
+"""
+
+
+def obm(text):
+    """{section: [(key, value)]} of an OpenTTD .obm"""
+    out, sec = {}, None
+    for line in text.splitlines():
+        if line.startswith('['):
+            sec = line.strip('[]')
+            out[sec] = []
+        elif sec and '=' in line and not line.startswith(';'):
+            k, _, v = line.partition('=')
+            out[sec].append((k.strip(), v.strip()))
+    return out
+
+
+class FMMusic(unittest.TestCase):
+    """0007: the FM music package and its OpenTTD music set"""
+
+    @classmethod
+    def setUpClass(cls):
+        from game_data_packager.game import load_games
+        cls.ttd = load_games()['ttd']
+        cls.ttd.load_file_data()
+        cls.tmp = tempfile.mkdtemp(prefix='gdp-test-fm.')
+        cls.datadir = os.path.join(cls.tmp, 'data')
+        os.mkdir(cls.datadir)
+        for f in os.listdir(PKGDATADIR):
+            if f not in ('ttd.json', 'ttd.yaml'):
+                os.symlink(os.path.join(PKGDATADIR, f), os.path.join(cls.datadir, f))
+        with open(os.path.join(cls.datadir, 'ttd.yaml'), 'w', encoding='utf-8') as f:
+            f.write(fm_yaml())
+        with open(os.path.join(cls.datadir, 'ttd.json'), 'w', encoding='utf-8') as f:
+            f.write('{}')
+        cls.files = os.path.join(cls.tmp, 'files', 'fm')
+        os.makedirs(cls.files)
+        for n, d in enumerate(FM):
+            with open(os.path.join(cls.files, '9_tt%02d.fm' % n), 'wb') as f:
+                f.write(d)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp)
+
+    def test_package_and_set(self):
+        p = self.ttd.packages[FM_PKG]
+        self.assertEqual(p.install_to, '$assets/openttd/baseset/fm')
+        names = sorted(w.name for w in p.install_files)
+        self.assertEqual(names, ['9_tt%02d.fm' % n for n in range(22)])
+        f = self.ttd.files['9_tt00.fm']
+        self.assertEqual((f.size, f.md5), (23117, 'ea625599b9cadd813509208b3ccf5c8d'))
+        self.assertEqual(f.sha256, 'afb121c30dbd51d1effdf86e7eab3584adc0291c16fa898d4e103da213c2c286')
+        gen = self.ttd.generated_files(p)
+        self.assertEqual(list(gen), ['orig_win_fm.obm'])
+        s = obm(gen['orig_win_fm.obm'].decode('utf-8'))
+        meta = dict(s['metadata'])
+        self.assertEqual((meta['name'], meta['shortname'], meta['version']), ('original_windows_fm', 'TTFM', '1'))
+        self.assertTrue(meta['description'])
+        files = dict(s['files'])
+        self.assertEqual(len(files), 31)
+        self.assertEqual(files['theme'], '9_tt00.fm')
+        self.assertEqual((files['old_0'], files['new_1'], files['ezy_5']), ('9_tt02.fm', '9_tt01.fm', '9_tt07.fm'))
+        used = sorted(v for v in files.values() if v)
+        self.assertEqual(used, names)
+        self.assertEqual(dict(s['md5s']), {n: self.ttd.files[n].md5 for n in names})
+        self.assertEqual(dict(s['names'])['9_tt00.fm'], 'Tycoon DELUXE Theme')
+        self.assertEqual(len(s['names']), 22)
+        self.assertNotIn('timingtrim', s)
+        self.assertEqual(self.ttd.generated_files(self.ttd.packages['transport-tycoon-deluxe-music']), {})
+
+    def test_build(self):
+        out = os.path.join(self.tmp, 'out')
+        os.mkdir(out)
+        env = dict(os.environ, LANGUAGE='en', GDP_PKGDATADIR=self.datadir)
+        p = subprocess.run([GDP, '-n', '-d', out, '--no-search', '--no-compress', 'ttd', '-p', FM_PKG,
+                            os.path.dirname(self.files)], env=env, capture_output=True, text=True, timeout=600)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        debs = glob.glob(os.path.join(out, FM_PKG + '_*_all.deb'))
+        self.assertEqual(len(debs), 1, os.listdir(out))
+        c = subprocess.run(['dpkg-deb', '-c', debs[0]], check=True, capture_output=True, text=True).stdout
+        base = './usr/share/games/openttd/baseset/fm/'
+        for n in range(22):
+            self.assertIn(base + '9_tt%02d.fm' % n, c)
+        data = subprocess.run(['sh', '-c', 'dpkg-deb --fsys-tarfile "$1" | tar -xOf - "$2"', 'x', debs[0],
+                               base + 'orig_win_fm.obm'], check=True, capture_output=True).stdout
+        # what gdp-manifest.py records: generated_files() of the same game data, in a fresh loader
+        code = ('import sys; sys.path.insert(0, %r)\n'
+                'from game_data_packager.game import load_games\n'
+                'g = load_games()["ttd"]; g.load_file_data()\n'
+                'sys.stdout.buffer.write(g.generated_files(g.packages[%r])["orig_win_fm.obm"])' % (PKGDATADIR, FM_PKG))
+        want = subprocess.run([sys.executable, '-I', '-c', code], env=env, check=True, capture_output=True).stdout
+        self.assertEqual(data, want)
+        s = obm(data.decode('utf-8'))
+        self.assertEqual(dict(s['md5s'])['9_tt05.fm'], sums(FM[5])['md5'])
 
 
 if __name__ == '__main__':

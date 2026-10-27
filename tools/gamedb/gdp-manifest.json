@@ -1789,6 +1789,41 @@
     "usr/share/games/openttd/baseset/gm_tt20.gm": [{"sha256": "6841606bc7528aa095767e830c8596d0e9284c49d00e411b7cd3d830713edeb4", "size": 64219}],
     "usr/share/games/openttd/baseset/gm_tt21.gm": [{"sha256": "8ee052b0a7d47097f30e6e70163c7dc114757237813fe9cecebd629f7a94eb9c", "size": 46812}]
    }
+  },
+  "transport-tycoon-deluxe-music-fm": {
+   "conflicts": [],
+   "edition": "music",
+   "game": "ttd",
+   "launchers": false,
+   "replaces": [],
+   "required": ["usr/share/games/openttd/baseset/fm/9_tt00.fm", "usr/share/games/openttd/baseset/fm/9_tt01.fm", "usr/share/games/openttd/baseset/fm/9_tt02.fm", "usr/share/games/openttd/baseset/fm/9_tt03.fm", "usr/share/games/openttd/baseset/fm/9_tt04.fm", "usr/share/games/openttd/baseset/fm/9_tt05.fm", "usr/share/games/openttd/baseset/fm/9_tt06.fm", "usr/share/games/openttd/baseset/fm/9_tt07.fm", "usr/share/games/openttd/baseset/fm/9_tt08.fm", "usr/share/games/openttd/baseset/fm/9_tt09.fm", "usr/share/games/openttd/baseset/fm/9_tt10.fm", "usr/share/games/openttd/baseset/fm/9_tt11.fm", "usr/share/games/openttd/baseset/fm/9_tt12.fm", "usr/share/games/openttd/baseset/fm/9_tt13.fm", "usr/share/games/openttd/baseset/fm/9_tt14.fm", "usr/share/games/openttd/baseset/fm/9_tt15.fm", "usr/share/games/openttd/baseset/fm/9_tt16.fm", "usr/share/games/openttd/baseset/fm/9_tt17.fm", "usr/share/games/openttd/baseset/fm/9_tt18.fm", "usr/share/games/openttd/baseset/fm/9_tt19.fm", "usr/share/games/openttd/baseset/fm/9_tt20.fm", "usr/share/games/openttd/baseset/fm/9_tt21.fm", "usr/share/games/openttd/baseset/fm/orig_win_fm.obm"],
+   "symlinks": {},
+   "version": "89",
+   "files": {
+    "usr/share/games/openttd/baseset/fm/9_tt00.fm": [{"sha256": "afb121c30dbd51d1effdf86e7eab3584adc0291c16fa898d4e103da213c2c286", "size": 23117}],
+    "usr/share/games/openttd/baseset/fm/9_tt01.fm": [{"sha256": "8522087d362cf5596b5f154eb814352d416f8a9f36b87b1c8d3c73922119e84b", "size": 39260}],
+    "usr/share/games/openttd/baseset/fm/9_tt02.fm": [{"sha256": "79c2f0b48671149eb884e21ccce31616943671ad62474b3cfe860dde0cded056", "size": 40388}],
+    "usr/share/games/openttd/baseset/fm/9_tt03.fm": [{"sha256": "e19d926c3e4fe5518f5413dafe5eb24af4d75cb2c374a05fbf6383086e3d104b", "size": 44606}],
+    "usr/share/games/openttd/baseset/fm/9_tt04.fm": [{"sha256": "2530b83440533c4b6ecd2b516e10c312ce7a9070799f36dcb81808fe5d514779", "size": 43690}],
+    "usr/share/games/openttd/baseset/fm/9_tt05.fm": [{"sha256": "0c1c5f402ecd387a0b7e3899e8d729433ca9efa78885cf5756f818c6d93d19d9", "size": 53095}],
+    "usr/share/games/openttd/baseset/fm/9_tt06.fm": [{"sha256": "9aa584124e4873ce809db118a89c379681fea610be2c6412b8f347e0d43ce2a2", "size": 63574}],
+    "usr/share/games/openttd/baseset/fm/9_tt07.fm": [{"sha256": "3b53a75e909ca7cbc687e472fc3edbcf054dd6c1ff3661a0732ae1051b11f76c", "size": 33514}],
+    "usr/share/games/openttd/baseset/fm/9_tt08.fm": [{"sha256": "ad08af3ee67470cc7b6e25ef8a9a6ae58c464f624c55199c98b94de0cf27ebf8", "size": 17838}],
+    "usr/share/games/openttd/baseset/fm/9_tt09.fm": [{"sha256": "62c8a605680f6544ea21fa934c74c41af5062cf3f572c59489c7cc768832e09f", "size": 48321}],
+    "usr/share/games/openttd/baseset/fm/9_tt10.fm": [{"sha256": "c12fe81a82dd877df8c374216fc2803244a49bb5a06ced8beef85561d133db9d", "size": 36385}],
+    "usr/share/games/openttd/baseset/fm/9_tt11.fm": [{"sha256": "fbdd994eca9ff9ae8898df951408f1abea8357f50731189dafd60c48c869cd3b", "size": 47358}],
+    "usr/share/games/openttd/baseset/fm/9_tt12.fm": [{"sha256": "c52d292077003ac94787568fa933c391c6a17ea992d59670ece719a37df9eff0", "size": 34782}],
+    "usr/share/games/openttd/baseset/fm/9_tt13.fm": [{"sha256": "4562c1b8910a24bbc3c126250709a88bb74ec2e89bcece4fb134e5d20d41638c", "size": 26927}],
+    "usr/share/games/openttd/baseset/fm/9_tt14.fm": [{"sha256": "02144163bf13b808f54ed487a9980ce842d4a3987df27989eb83c2b410367a21", "size": 14725}],
+    "usr/share/games/openttd/baseset/fm/9_tt15.fm": [{"sha256": "cfac8c939166f1b7ac76c15cf4bb472d499a21b5d26391ea5df18a07d3fab7f9", "size": 46623}],
+    "usr/share/games/openttd/baseset/fm/9_tt16.fm": [{"sha256": "8d953491db16114084cd0557c7292eb36cd4c09d587ddea5226816ac2843a613", "size": 32956}],
+    "usr/share/games/openttd/baseset/fm/9_tt17.fm": [{"sha256": "a4c6913c8895e6f4d35ec41b3886111658c54f40509cf09e187dbeb5dbeae146", "size": 37752}],
+    "usr/share/games/openttd/baseset/fm/9_tt18.fm": [{"sha256": "35c06df6dc9de777197552f44d9877ef64fdced32a62d359154c5dd5725dd874", "size": 44162}],
+    "usr/share/games/openttd/baseset/fm/9_tt19.fm": [{"sha256": "6afd765282f60b576c35ea84c30a433e8d70361e99c3adc04895bebf3d798405", "size": 39782}],
+    "usr/share/games/openttd/baseset/fm/9_tt20.fm": [{"sha256": "ea9b8a2e1ddb386d454f00df4da31bb24766087509d8c92be6842ad72d36ad39", "size": 47112}],
+    "usr/share/games/openttd/baseset/fm/9_tt21.fm": [{"sha256": "15fc60036ee0c7a0e496fc8d07c82ffc09892ba15cecd1f4b3cc562b8b3b2fb8", "size": 42131}],
+    "usr/share/games/openttd/baseset/fm/orig_win_fm.obm": [{"sha256": "96032e69f007add2980234d603f8113871d23d42946be3baf70d70c5073dda3a", "size": 2474}]
+   }
   }
  }
 }

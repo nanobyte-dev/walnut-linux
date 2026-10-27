@@ -17,7 +17,8 @@ Design
   {path relative to /: [alternatives, each {size, the strongest checksum gdp has: sha256, else sha1,
   else md5, and release: gdp's name for that version of the file when it has one, the part after
   "?" in "doom.wad?1.9ud" (X-Walnut-Release)}]}, required (the paths of its install files; the
-  rest are optional), conflicts and replaces (the deb's own, from gdp's control generation, kept only
+  rest are optional; a file the game's plugin writes itself, its generated_files(package) {path under
+  install_to: bytes} (ttd's orig_win_fm.obm), is a required file with its size and sha256), conflicts and replaces (the deb's own, from gdp's control generation, kept only
   when they name another package of the same gdp game: quake-registered and quake-shareware; the
   freedoom and chocolate-doom ones and every Provides are left out), launchers (true for the Doom
   family, whose builds add .desktop files, pixmaps and icons the helper skips), symlinks ({} in v1:
@@ -43,7 +44,7 @@ _spec = importlib.util.spec_from_file_location("gdp_index", HERE / "gdp-index.py
 gdp_index = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(gdp_index)
 INSIDE = r'''
-import json, os, re, sys, tempfile
+import hashlib, json, os, re, sys, tempfile
 sys.path.insert(0, "/usr/share/games/game-data-packager")
 from game_data_packager.game import load_games
 from game_data_packager.packaging.deb import DebPackaging
@@ -103,6 +104,15 @@ for name in want:
             files[path] = alts
             if tag == "required":
                 required.add(path)
+    # files the game's plugin writes into the package itself (ttd: the FM music's orig_win_fm.obm):
+    # their exact bytes, so the helper checks them like the game's files
+    gen = getattr(g, "generated_files", None)
+    for rel, data in sorted((gen(p) if gen else {}).items()):
+        path = os.path.join(install_to, rel).strip("/")
+        if path in files:
+            errs.append("%s: two files on %s" % (name, path))
+        files[path] = [{"size": len(data), "sha256": hashlib.sha256(data).hexdigest()}]
+        required.add(path)
     doc = "usr/share/doc/%s/" % name
     for path in files:
         if path.startswith(doc) and (path == doc + "copyright" or path[len(doc):].startswith("changelog")):

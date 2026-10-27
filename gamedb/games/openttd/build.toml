@@ -7,11 +7,13 @@ recipes = ["openttd:base"]
 
 [data_setup]
 # Transport Tycoon Deluxe's original graphics, sounds and music (the Windows version's files) in place of
-# OpenGFX, OpenSFX and OpenMSX: the game runs without them
+# OpenGFX, OpenSFX and OpenMSX: the game runs without them. The music comes in two arrangements, the CD's
+# gm/ (General MIDI: -music, OpenTTD's original_windows set) and fm/ (FM synthesizer: -music-fm, with our
+# gdp's own set original_windows_fm); a copy may have either or both
 gdp = "ttd"
 original = "Transport Tycoon Deluxe"
 required = []
-optional = ["transport-tycoon-deluxe-data", "transport-tycoon-deluxe-music"]
-hint = "Transport Tycoon Deluxe for Windows: its CD or an installed copy (the trg*.grf files, sample.cat and the gm_tt*.gm music)."
+optional = ["transport-tycoon-deluxe-data", "transport-tycoon-deluxe-music", "transport-tycoon-deluxe-music-fm"]
+hint = "Transport Tycoon Deluxe for Windows: its CD or an installed copy (the trg*.grf files, sample.cat and the music, gm_tt*.gm or fm/9_tt*.fm)."
 # what each package holds (X-Walnut-Edition of the package import-data builds)
-editions = { "transport-tycoon-deluxe-data" = "full", "transport-tycoon-deluxe-music" = "music" }
+editions = { "transport-tycoon-deluxe-data" = "full", "transport-tycoon-deluxe-music" = "music", "transport-tycoon-deluxe-music-fm" = "music" }

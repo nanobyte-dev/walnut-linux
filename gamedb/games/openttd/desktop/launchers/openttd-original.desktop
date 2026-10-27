@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
 Name=OpenTTD (original graphics)
-Comment=Transport simulation with Transport Tycoon Deluxe's own graphics and sounds (your imported data); it keeps its own settings file (openttd-original.cfg), so the other OpenTTD entries keep their graphics
-Exec=ps3-game sh -c "exec openttd -v sdl-opengl -r 1920x1080 -c ~/.config/openttd/openttd-original.cfg -I original_windows -S original_windows"
+Comment=Transport simulation with Transport Tycoon Deluxe's own graphics, sounds and music (your imported data; the General MIDI music, else the FM music); it keeps its own settings file (openttd-original.cfg), so the other OpenTTD entries keep their graphics
+Exec=ps3-game sh -c "test -e /usr/share/games/openttd/baseset/gm_tt00.gm && exec openttd -v sdl-opengl -r 1920x1080 -c ~/.config/openttd/openttd-original.cfg -I original_windows -S original_windows -M original_windows; test -e /usr/share/games/openttd/baseset/fm/orig_win_fm.obm && exec openttd -v sdl-opengl -r 1920x1080 -c ~/.config/openttd/openttd-original.cfg -I original_windows -S original_windows -M original_windows_fm; exec openttd -v sdl-opengl -r 1920x1080 -c ~/.config/openttd/openttd-original.cfg -I original_windows -S original_windows"
 Icon=openttd
 Terminal=false
 Categories=Game;Simulation;

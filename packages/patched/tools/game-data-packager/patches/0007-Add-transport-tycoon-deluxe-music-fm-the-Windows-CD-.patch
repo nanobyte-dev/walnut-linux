@@ -1,0 +1,287 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 27 Oct 2026 20:04:10 +0200
+Subject: Add transport-tycoon-deluxe-music-fm: the Windows CD's FM music with
+ its own OpenTTD set
+
+Walnut: the user's Transport Tycoon Deluxe for Windows copy, which has its music only as
+fm/9_tt*.fm, the arrangements for FM synthesizer cards, and no gm/gm_tt*.gm (the General MIDI
+ones). Both are Standard MIDI files with the same 22 songs in the same order (format 1, 384 ticks
+per beat, General MIDI programs, drums on channel 10). transport-tycoon-deluxe-music packages only
+the gm files, which OpenTTD's original_windows set (orig_win.obm) lists by MD5, so such a copy had
+no original music at all; renaming the files would not pass that MD5 check.
+
+The new package installs the fm files in $assets/openttd/baseset/fm with orig_win_fm.obm, an
+OpenTTD base music set (name original_windows_fm, shortname TTFM) made by the new ttd plugin from
+the files' checksums: orig_win.obm's song slots and names, without [timingtrim] (the FM theme
+starts on its first beat, and Can't Get There From Here has no silence and repeat at its end).
+OpenTTD plays them as standard MIDI through its MIDI driver. The plugin's generated_files() says
+what it writes, so a caller can check the package's files. The checksums are the user's copy's.
+
+Forwarded: not yet (candidate for Debian)
+
+diff --git a/data/ttd.yaml b/data/ttd.yaml
+--- a/data/ttd.yaml
++++ b/data/ttd.yaml
+@@ -18,6 +18,18 @@ packages:
+     install:
+     - musics
+ 
++  transport-tycoon-deluxe-music-fm:
++    longname: Transport Tycoon Deluxe (FM music)
++    expansion_for: transport-tycoon-deluxe-data
++    # The Windows version's music in its FM synthesizer arrangements
++    # (fm/9_tt*.fm, Standard MIDI files): some copies have only these,
++    # not gm/gm_tt*.gm. OpenTTD's own music set (orig_win.obm) lists the
++    # gm files by MD5, so this package brings its own set file,
++    # orig_win_fm.obm (games/ttd.py).
++    install_to: $assets/openttd/baseset/fm
++    install:
++    - fm musics
++
+ groups:
+   assets: |
+     1608618   9212e81e72badd4bbe1eaeae66458e10 sample.cat
+@@ -49,6 +61,29 @@ groups:
+     50279     7aec079e15bd09588660b85545ac4dfc gm_tt19.gm
+     64219     1509097889dee617aa1e9a1738a5a930 gm_tt20.gm
+     46812     a8d0aaad02e1a762d8d54cf81da56bab gm_tt21.gm
++  fm musics: |
++    23117     ea625599b9cadd813509208b3ccf5c8d 9_tt00.fm
++    39260     265428514ec810c2a071db7c63bed239 9_tt01.fm
++    40388     37eec164a7fe0cf7a3066d1bda4418d6 9_tt02.fm
++    44606     773415a98ec58787011da041fe0f738a 9_tt03.fm
++    43690     262709ac6ad5b9e3aedb46e73670d477 9_tt04.fm
++    53095     48bc2e3bda43df36b759f3e149ed8b8f 9_tt05.fm
++    63574     3cb0d87e8f8b9331f43e48bbeb526039 9_tt06.fm
++    33514     b4de5701397360cffe34af30f2c14aca 9_tt07.fm
++    17838     777f0a704f9b2928a32eb5c2a22d093a 9_tt08.fm
++    48321     a36723443eafa6627ba7cde4b5312d2a 9_tt09.fm
++    36385     8e3a63119cd6cac1e73a1439bb5983fb 9_tt10.fm
++    47358     266eb3d7b31d22a62c57e676c61d55d1 9_tt11.fm
++    34782     fb480f74392c55cbc380af862104a348 9_tt12.fm
++    26927     eaf5aaff445594fa292fda2a9b8509dd 9_tt13.fm
++    14725     dd2bc824183d89a9ace50dacb99a1e42 9_tt14.fm
++    46623     ff4ca47c10dc19f84d21ade6f28d231f 9_tt15.fm
++    32956     c96de8bf363ce0c3994a7621d9171d71 9_tt16.fm
++    37752     a623bd03790a597d128eb33c4ff15296 9_tt17.fm
++    44162     2c3fd5b280d0ffaafe3904142105e127 9_tt18.fm
++    39782     21bdc3156946e0422bb6fc4e45346dbb 9_tt19.fm
++    47112     cc6ff04aa045f627fb3ea6480cb8a90c 9_tt20.fm
++    42131     c00068f530dd8f5389179fb36ee720eb 9_tt21.fm
+ 
+ sha1sums: |
+   57ff8c136db86a5d91a497931b2d6df53e8635b5  sample.cat
+@@ -79,6 +114,28 @@ sha1sums: |
+   02adfff8276798eb24b20802d939c29d80d8fff5  gm_tt19.gm
+   3130a5818ff751474a40443195bad7b47ad1f232  gm_tt20.gm
+   fc3fdf5ab16a961647966b7701b0e559f45d9095  gm_tt21.gm
++  6155ed6209f384c288b3e7fccb5fd94e4abc45e9  9_tt00.fm
++  0e8346669675f5f32dd5b44ba33c0b267b8c159e  9_tt01.fm
++  b155d9438cd90e4a4397b5b0d127631f3e12c4f9  9_tt02.fm
++  a67af01d48fe2690aa886362f08c2d1f9ad9aadb  9_tt03.fm
++  f696353ced15fcba52921fe33832952088019718  9_tt04.fm
++  31e0c581b38076d777a20214842c090458a67014  9_tt05.fm
++  ccf872464f0b8956f00dc35e3c3f85bbf6c1ace7  9_tt06.fm
++  b7cb42cedb1c471d5bd4f9c22729fe36a51ca15a  9_tt07.fm
++  6ee7b2bf20411496a19f6c55afdae2dc241ce0fc  9_tt08.fm
++  592982982803ce56ee2a03742d215eab8edf0ebb  9_tt09.fm
++  a50121ee697e3f6cd6f44b603fb78dac04b05e26  9_tt10.fm
++  349b23a2fedcc127c8e5411b694ccac67fca9530  9_tt11.fm
++  960dce690867139fff1dc31f9c797cbd84d41233  9_tt12.fm
++  5077d1807c0f8848098520127faace06593f027c  9_tt13.fm
++  2f8243abad63d3b620290a93d6aebb8993229402  9_tt14.fm
++  890501c276ddd2c78f62a492d3aac6850bbb25fc  9_tt15.fm
++  d80335af2451d3ca1d7684ac1e57a54a58d11a6a  9_tt16.fm
++  591253e63803fd64a714d2eba3b34f075ae48a71  9_tt17.fm
++  ea9c57a0376bbc8c84496ef62a46871db9e3440b  9_tt18.fm
++  c1318e32093dd2ddc8b35323679ef15f03b5a4a7  9_tt19.fm
++  9e88e2bc3758e25a789f1abd91384f423740b004  9_tt20.fm
++  b87d4daf13de7d83b3d6f167f627d934287b86f4  9_tt21.fm
+ sha256sums: |
+   7135cb3055321e38eba496e7efccb17bcd99d3c2ab85d84d7e3de70f8b38a394  sample.cat
+   508cea9a82de92db3193521b3506e034deb850ff52a4c9dc0fb9111b76e3176b  trg1r.grf
+@@ -108,5 +165,27 @@ sha256sums: |
+   e6514e5fd573b6ea4e683286b0244b084bcd8bc6f4cc335fc4d1960b3f2b086d  gm_tt19.gm
+   6841606bc7528aa095767e830c8596d0e9284c49d00e411b7cd3d830713edeb4  gm_tt20.gm
+   8ee052b0a7d47097f30e6e70163c7dc114757237813fe9cecebd629f7a94eb9c  gm_tt21.gm
++  afb121c30dbd51d1effdf86e7eab3584adc0291c16fa898d4e103da213c2c286  9_tt00.fm
++  8522087d362cf5596b5f154eb814352d416f8a9f36b87b1c8d3c73922119e84b  9_tt01.fm
++  79c2f0b48671149eb884e21ccce31616943671ad62474b3cfe860dde0cded056  9_tt02.fm
++  e19d926c3e4fe5518f5413dafe5eb24af4d75cb2c374a05fbf6383086e3d104b  9_tt03.fm
++  2530b83440533c4b6ecd2b516e10c312ce7a9070799f36dcb81808fe5d514779  9_tt04.fm
++  0c1c5f402ecd387a0b7e3899e8d729433ca9efa78885cf5756f818c6d93d19d9  9_tt05.fm
++  9aa584124e4873ce809db118a89c379681fea610be2c6412b8f347e0d43ce2a2  9_tt06.fm
++  3b53a75e909ca7cbc687e472fc3edbcf054dd6c1ff3661a0732ae1051b11f76c  9_tt07.fm
++  ad08af3ee67470cc7b6e25ef8a9a6ae58c464f624c55199c98b94de0cf27ebf8  9_tt08.fm
++  62c8a605680f6544ea21fa934c74c41af5062cf3f572c59489c7cc768832e09f  9_tt09.fm
++  c12fe81a82dd877df8c374216fc2803244a49bb5a06ced8beef85561d133db9d  9_tt10.fm
++  fbdd994eca9ff9ae8898df951408f1abea8357f50731189dafd60c48c869cd3b  9_tt11.fm
++  c52d292077003ac94787568fa933c391c6a17ea992d59670ece719a37df9eff0  9_tt12.fm
++  4562c1b8910a24bbc3c126250709a88bb74ec2e89bcece4fb134e5d20d41638c  9_tt13.fm
++  02144163bf13b808f54ed487a9980ce842d4a3987df27989eb83c2b410367a21  9_tt14.fm
++  cfac8c939166f1b7ac76c15cf4bb472d499a21b5d26391ea5df18a07d3fab7f9  9_tt15.fm
++  8d953491db16114084cd0557c7292eb36cd4c09d587ddea5226816ac2843a613  9_tt16.fm
++  a4c6913c8895e6f4d35ec41b3886111658c54f40509cf09e187dbeb5dbeae146  9_tt17.fm
++  35c06df6dc9de777197552f44d9877ef64fdced32a62d359154c5dd5725dd874  9_tt18.fm
++  6afd765282f60b576c35ea84c30a433e8d70361e99c3adc04895bebf3d798405  9_tt19.fm
++  ea9b8a2e1ddb386d454f00df4da31bb24766087509d8c92be6842ad72d36ad39  9_tt20.fm
++  15fc60036ee0c7a0e496fc8d07c82ffc09892ba15cecd1f4b3cc562b8b3b2fb8  9_tt21.fm
+ ...
+ 
+diff --git a/game_data_packager/games/meson.build b/game_data_packager/games/meson.build
+--- a/game_data_packager/games/meson.build
++++ b/game_data_packager/games/meson.build
+@@ -14,6 +14,7 @@ install_data(
+   'rott.py',
+   'sc3u.py',
+   'scummvm_common.py',
++  'ttd.py',
+   'unreal.py',
+   'wolf3d.py',
+   'z_code.py',
+diff --git a/game_data_packager/games/ttd.py b/game_data_packager/games/ttd.py
+new file mode 100644
+--- /dev/null
++++ b/game_data_packager/games/ttd.py
+@@ -0,0 +1,140 @@
++#!/usr/bin/python3
++# encoding=utf-8
++#
++# Copyright © 2026 Tiberiu Chibici <chibicitiberiu@gmail.com>
++# SPDX-License-Identifier: GPL-2.0-or-later
++
++"""Transport Tycoon Deluxe: the FM music's own OpenTTD music set.
++
++OpenTTD finds a base music set by its .obm file, which lists the songs
++and their MD5s. Its original_windows set (orig_win.obm, in openttd-data)
++names the General MIDI arrangements, gm/gm_tt*.gm. The Windows CD's
++other arrangements, fm/9_tt*.fm, are Standard MIDI files too, in the
++same order, but no set lists them: transport-tycoon-deluxe-music-fm
++installs them with orig_win_fm.obm next to them, made here from the
++files' checksums in ttd.yaml. The FM files need no [timingtrim]: the
++theme starts on its first beat and Can't Get There From Here ends with
++its last bar.
++"""
++
++from __future__ import annotations
++
++import logging
++import os
++from typing import (TYPE_CHECKING)
++
++from ..build import (PackagingTask)
++from ..game import (GameData)
++from ..util import (mkdir_p)
++
++if TYPE_CHECKING:
++    from typing import (Unpack)
++    from ..data import (Package)
++    from ..packaging import (PerPackageState, PackagingTaskArgs)
++
++logger = logging.getLogger(__name__)
++
++FM_PACKAGE = 'transport-tycoon-deluxe-music-fm'
++FM_SET_FILE = 'orig_win_fm.obm'
++
++# OpenTTD's slots in orig_win.obm's order, and its song names
++SLOTS = [
++    ('theme', 0),
++    ('old_0', 2), ('old_1', 6), ('old_2', 3), ('old_3', 12), ('old_4', 8),
++    ('old_5', 13), ('old_6', 14), ('old_7', 10), ('old_8', None),
++    ('old_9', None),
++    ('new_0', 4), ('new_1', 1), ('new_2', 5), ('new_3', 15), ('new_4', 11),
++    ('new_5', 16), ('new_6', 9), ('new_7', None), ('new_8', None),
++    ('new_9', None),
++    ('ezy_0', 18), ('ezy_1', 19), ('ezy_2', 21), ('ezy_3', 17),
++    ('ezy_4', 20), ('ezy_5', 7), ('ezy_6', None), ('ezy_7', None),
++    ('ezy_8', None), ('ezy_9', None),
++]
++NAMES = [
++    'Tycoon DELUXE Theme', 'Snarl Up', 'Easy Driver', 'Little Red Diesel',
++    'City Groove', 'Aliens Ate My Railway', 'Stoke It', "Don't Walk!",
++    "Sawyer's Tune", 'Fell Apart On Me', "Can't Get There From Here",
++    "Hard Drivin'", 'Road Hog', 'Hold That Train!', "Broomer's Oil Rag",
++    'Goss Groove', 'Small Town', 'Cruise Control', 'Stroll On',
++    'Funk Central', 'Jammit', "Movin' On",
++]
++
++
++def fm_name(n: int) -> str:
++    return '9_tt%02d.fm' % n
++
++
++class TTDGameData(GameData):
++    def construct_task(
++        self,
++        **kwargs: Unpack[PackagingTaskArgs]
++    ) -> TTDTask:
++        return TTDTask(self, **kwargs)
++
++    def generated_files(self, package: Package) -> dict[str, bytes]:
++        """{path relative to the package's install_to: contents} of the
++        files this plugin writes into the package"""
++        if package.name != FM_PACKAGE:
++            return {}
++        self.load_file_data()
++        lines = [
++            '; Transport Tycoon Deluxe for Windows\' music in its FM',
++            '; synthesizer arrangements (fm/9_tt*.fm on the CD), as',
++            '; game-data-packager packages it.',
++            '[metadata]',
++            'name        = original_windows_fm',
++            'shortname   = TTFM',
++            'version     = 1',
++            'description = Original Transport Tycoon Deluxe Windows '
++            'edition music, FM synthesizer arrangements.',
++            '',
++            '[files]',
++        ]
++        for slot, n in SLOTS:
++            lines.append(slot + ' =' + ('' if n is None else ' ' + fm_name(n)))
++        lines += ['', '[md5s]']
++        for n in range(len(NAMES)):
++            md5 = self.files[fm_name(n)].md5
++            assert md5, fm_name(n)
++            lines.append('%s = %s' % (fm_name(n), md5))
++        lines += ['', '[names]']
++        for n, title in enumerate(NAMES):
++            lines.append('%s = %s' % (fm_name(n), title))
++        lines += [
++            '',
++            '[origin]',
++            'default = You can find it on your Transport Tycoon Deluxe '
++            'CD-ROM, in its fm directory.',
++            '',
++        ]
++        return {FM_SET_FILE: '\n'.join(lines).encode('utf-8')}
++
++
++class TTDTask(PackagingTask):
++    def fill_extra_files(
++        self,
++        per_package_state: PerPackageState
++    ) -> None:
++        super().fill_extra_files(per_package_state)
++        package = per_package_state.package
++        assert isinstance(self.game, TTDGameData)
++        generated = self.game.generated_files(package)
++        if not generated:
++            return
++
++        install_to = self.packaging.substitute(package.install_to,
++                                               package.name)
++        destdir = per_package_state.destdir
++        datadir = os.path.join(destdir, install_to.strip('/'))
++        assert datadir.startswith(destdir + '/'), (datadir, destdir)
++        mkdir_p(datadir)
++
++        for name, contents in sorted(generated.items()):
++            path = os.path.join(datadir, name)
++            logger.debug('writing %s', path)
++            with open(path, 'wb') as f:
++                f.write(contents)
++            os.chmod(path, 0o644)
++
++
++GAME_DATA_SUBCLASS = TTDGameData
