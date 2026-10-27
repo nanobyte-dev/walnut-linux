@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 27 Oct 2026 21:11:32 +0200
+Subject: Accept the 2012 build of GOG's
+ setup_rollercoaster_tycoon2_2.0.0.6.exe
+
+GOG has shipped two installers under this name: 519354792 bytes (known)
+and 519393624 bytes, with goggame.dll and GameuxInstallHelper.dll and
+its files dated 2012. Both hold the same Triple Thrill Pack game files
+(all 2454 of the base and expansion packages match), so the second one
+is an alternative with the same provides.
+
+Forwarded: not yet (candidate for Debian)
+
+diff --git a/data/roller-coaster-tycoon2.yaml b/data/roller-coaster-tycoon2.yaml
+--- a/data/roller-coaster-tycoon2.yaml
++++ b/data/roller-coaster-tycoon2.yaml
+@@ -851,6 +851,18 @@ files:
+     - Tracks/tracks.idx?ttp
+     - manual.pdf?ttp
+ 
++  # GOG.com installer, another build under the same name (its files dated 2012,
++  # with goggame.dll and GameuxInstallHelper.dll; the game files are the ones above)
++  setup_rollercoaster_tycoon2_2.0.0.6.exe?gog_2012:
++    unpack:
++      format: innoextract
++    provides:
++    - unique assets from ttp installer
++    - assets base
++    - assets expansion packs
++    - Tracks/tracks.idx?ttp
++    - manual.pdf?ttp
++
+   # GOG.com installer
+   setup_rollercoaster_tycoon_2_triple_thrill_pack_2.01.043_(17987).exe:
+     unpack:
+@@ -4841,6 +4853,7 @@ groups:
+       65198969  8eedd1a17d779954ecde60bc75d504d2 data2.cab?cd_base
+       546234248 0cebdf7116ebaafd7f2d18b18c88e0e7 data2.cab?cd_ttp
+       519354792 17193922f3cae0e09c0ca21938547a6e setup_rollercoaster_tycoon2_2.0.0.6.exe
++      519393624 40c7dee00c3451ac0d484df0e384f22e setup_rollercoaster_tycoon2_2.0.0.6.exe?gog_2012
+       668871064 0a09b235c29e7fe99109eaccf3f0dd87 setup_rollercoaster_tycoon_2_triple_thrill_pack_2.01.043_(17987).exe
+       432650858 ad9d9d7de49485dee0c139e7bb428887 RollerCoasterTycoon2TTP_EN.exe
+       558133459 0eb6dbaa7fbd9098bd53f156220bbf6f RollerCoasterTycoon2TTP_EN.zip
+@@ -11362,6 +11375,7 @@ sha1sums: |
+   413bcf07bc71ebb432d53f7da0bf4ed242b540a9 manual.pdf?ttp
+   dea37371f417002d2fac745d1e39ca8fed53f0ec manual.pdf?demo
+   070f0b7252e74206d542dcdb32f2477217f26cfa setup_rollercoaster_tycoon2_2.0.0.6.exe
++  7ae5a385b58e79ca7287078329f7e5a191c4c70b setup_rollercoaster_tycoon2_2.0.0.6.exe?gog_2012
+   179a836201f72e9e920d816d271c5393f6aa7c21 setup_rollercoaster_tycoon_2_triple_thrill_pack_2.01.043_(17987).exe
+   951f7d8ead72e7f93d55b339e40b88badd0b51e3 RollerCoasterTycoon2TTP_EN.exe
+   c340b174864b93b116ba4ba37bf71c9a2da4e965 RollerCoasterTycoon2TTP_EN.zip
+@@ -14618,6 +14632,7 @@ sha256sums: |
+   1fa44a8ff7bd962e00ea1a9e1f51ab01b7cb75af07ae0caa933e028345eac62d manual.pdf?ttp
+   9c846ed8682e3f1649e9aa15c49f5c54c83972aa82e98aa65c98aee447bb3941 manual.pdf?demo
+   a24252ea08ec28f5162c88b0cc5faec9de822db9ebc902350f8af697b2e060bd setup_rollercoaster_tycoon2_2.0.0.6.exe
++  0587ec988c637497b63110e302b91c1d2dbd2d418ee1b5983c872b0c0a410b53 setup_rollercoaster_tycoon2_2.0.0.6.exe?gog_2012
+   251ae92e73cb3786f3251d867b928cff7691da5d4f3df41b884957272e0682b6 setup_rollercoaster_tycoon_2_triple_thrill_pack_2.01.043_(17987).exe
+   0cd76143b34ba0343c9c0f448160d64949464ccea9b260a8467e20b65cb17819 RollerCoasterTycoon2TTP_EN.exe
+   260531143012a39665695385038ce22372ac77289e506c5c1145d50ebd953072 RollerCoasterTycoon2TTP_EN.zip

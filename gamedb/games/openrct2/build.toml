@@ -26,6 +26,9 @@ edition = "full"
 gdp = "roller-coaster-tycoon2"
 original = "RollerCoaster Tycoon 2"
 required = ["roller-coaster-tycoon2-data"]
+# Wacky Worlds and Time Twister (in /usr/share/games/roller-coaster-tycoon2, beside the base game): from
+# a Triple Thrill Pack CD, install or GOG installer; without them OpenRCT2 lacks their scenarios and objects
+optional = ["roller-coaster-tycoon2-wacky-worlds-time-twister-data"]
 hint = "RollerCoaster Tycoon 2: its CD, an installed copy (Steam, GOG) or the GOG installer."
 # what each package holds (X-Walnut-Edition of the package import-data builds)
-editions = { "roller-coaster-tycoon2-data" = "full" }
+editions = { "roller-coaster-tycoon2-data" = "full", "roller-coaster-tycoon2-wacky-worlds-time-twister-data" = "expansion" }

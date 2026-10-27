@@ -15,6 +15,8 @@ deb make game-data-packager-deb built into the deb builder image and runs this t
   (OpenTTD's slots, the files' MD5s, no [timingtrim]), then a build of the package from a fixture
   (ttd.yaml replaced by one whose fm checksums are the fixture's): the files and the set file in
   baseset/fm, the set file's bytes the ones generated_files() gives (what gdp-manifest.py records).
+- 0009 roller-coaster-tycoon2: the 2012 build of GOG's setup_rollercoaster_tycoon2_2.0.0.6.exe
+  with its sizes and checksums, unpacked and providing what the known build does (loader only).
 
 game-data-packager checks every file against its checksums, so the builds use a game of our own,
 "walnuttest" (plugin doom_common, so DoomTask writes its launchers), whose checksums are those of
@@ -474,6 +476,26 @@ class FMMusic(unittest.TestCase):
         self.assertEqual(data, want)
         s = obm(data.decode('utf-8'))
         self.assertEqual(dict(s['md5s'])['9_tt05.fm'], sums(FM[5])['md5'])
+
+
+class RCT2GOG2012(unittest.TestCase):
+    """0009: the 2012 build of GOG's setup_rollercoaster_tycoon2_2.0.0.6.exe beside the known one"""
+    NAME = 'setup_rollercoaster_tycoon2_2.0.0.6.exe'
+    # size, md5, sha1, sha256 of the user's installer (the values in the patch)
+    SUMS = (519393624, '40c7dee00c3451ac0d484df0e384f22e', '7ae5a385b58e79ca7287078329f7e5a191c4c70b',
+            '0587ec988c637497b63110e302b91c1d2dbd2d418ee1b5983c872b0c0a410b53')
+
+    def test_accepted(self):
+        from game_data_packager.game import load_games
+        g = load_games()['roller-coaster-tycoon2']
+        g.load_file_data()
+        known, f = g.files[self.NAME], g.files[self.NAME + '?gog_2012']
+        self.assertEqual((f.size, f.md5, f.sha1, f.sha256), self.SUMS)
+        self.assertNotEqual(known.md5, f.md5)
+        self.assertEqual(f.unpack['format'], 'innoextract')
+        self.assertEqual(f.provides, known.provides)	# base and expansions, as the known build
+        self.assertIn('assets expansion packs', f.provides)
+        self.assertIn(self.NAME, f.look_for)
 
 
 if __name__ == '__main__':
