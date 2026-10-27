@@ -53,7 +53,7 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
          # None or an existing directory in which to save downloaded files.
          self.save_downloads: str | None = None
  
-@@ -2353,6 +2356,7 @@ class PackagingTask:
+@@ -2361,6 +2364,7 @@ class PackagingTask:
              )
  
          self.verbose = getattr(args, 'verbose', False)

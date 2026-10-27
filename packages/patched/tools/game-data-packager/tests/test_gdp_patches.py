@@ -38,6 +38,7 @@ from game_data_packager.progress_fd import ERROR_KINDS, ProgressWriter  # noqa: 
 
 WAD = b'IWAD' + bytes(range(256)) * 16	# the fixture: walnuttest.wad
 DL = b'PWAD' + b'walnut' * 100		# walnuttest-dl.wad: known, only by download
+OLD = b'IWAD' + b'old release' * 50	# walnuttest-old.wad: a known release gdp refuses
 HUGE = 1 << 50				# huge.wad: a download bigger than any disk here
 
 
@@ -46,7 +47,7 @@ def sums(data):
 
 
 def game_yaml():
-    w, d = sums(WAD), sums(DL)
+    w, d, o = sums(WAD), sums(DL), sums(OLD)
     return f"""---
 longname: Walnut test game
 copyright: "\\u00a9 2026 nobody"
@@ -58,6 +59,10 @@ packages:
     longname: Walnut test
     install:
     - walnuttest.wad
+  walnut-test-old-wad:
+    longname: Walnut test (old release)
+    install:
+    - walnuttest-old.wad
   walnut-test-dl-wad:
     longname: Walnut test (download)
     install:
@@ -68,6 +73,12 @@ packages:
     - huge.wad
 
 files:
+  walnuttest-old.wad:
+    alternatives:
+    - walnuttest-old.wad?2.0
+  walnuttest-old.wad?1.0:
+    look_for: [walnuttest-old.wad]
+    unsuitable: Walnut test 2.0 is required
   walnuttest-dl.wad:
     download: http://127.0.0.1:9/walnuttest-dl.wad
   huge.wad:
@@ -77,15 +88,19 @@ groups:
   main: |
     {len(WAD)} {w['md5']} walnuttest.wad
     {len(DL)} {d['md5']} walnuttest-dl.wad
+    {len(OLD)} {o['md5']} walnuttest-old.wad?1.0
+    {len(OLD) + 1} {'1' * 32} walnuttest-old.wad?2.0
     {HUGE} {'0' * 32} huge.wad
 
 sha1sums: |
   {w['sha1']} walnuttest.wad
   {d['sha1']} walnuttest-dl.wad
+  {o['sha1']} walnuttest-old.wad?1.0
 
 sha256sums: |
   {w['sha256']} walnuttest.wad
   {d['sha256']} walnuttest-dl.wad
+  {o['sha256']} walnuttest-old.wad?1.0
 """
 
 
@@ -120,7 +135,7 @@ class Writer(unittest.TestCase):
 
     def test_kinds(self):
         self.assertEqual(ERROR_KINDS, (
-            'not-found', 'unknown-version', 'needs-download', 'no-space', 'failed'))
+            'not-found', 'unknown-version', 'unsuitable', 'needs-download', 'no-space', 'failed'))
         p, r, w = self.pipe_writer()
         with self.assertRaises(AssertionError):
             p.error('oops', 'not a kind')
@@ -169,6 +184,10 @@ class Runs(unittest.TestCase):
         os.mkdir(cls.wrong)
         with open(os.path.join(cls.wrong, 'walnuttest.wad'), 'wb') as f:
             f.write(WAD[:-1] + b'!' + b'more')	# its name, not its size or checksums
+        cls.old = os.path.join(cls.tmp, 'old')
+        os.mkdir(cls.old)
+        with open(os.path.join(cls.old, 'WALNUTTEST-OLD.WAD'), 'wb') as f:
+            f.write(OLD)
         cls.empty = os.path.join(cls.tmp, 'empty')
         os.mkdir(cls.empty)
 
@@ -267,6 +286,13 @@ class Runs(unittest.TestCase):
         bad = os.path.join(self.wrong, 'walnuttest.wad')
         self.assertEqual(self.errors(lines), [f'error unknown-version unknown version of {bad}'])
         self.assertIn('not one of the expected versions', err)
+
+    def test_unsuitable(self):
+        rc, out, err, lines, d = self.gdp('walnuttest', '-p', 'walnut-test-old-wad', self.old)
+        self.assertEqual(rc, 1)
+        self.assertEqual(self.errors(lines), [
+            'error unsuitable walnuttest-old.wad Walnuttest-old 1.0: Walnut test 2.0 is required'])
+        self.assertIn('cannot be used', err)
 
     def test_needs_download(self):
         rc, out, err, lines, d = self.gdp('walnuttest', '-p', 'walnut-test-dl-wad', '--no-download',

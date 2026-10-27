@@ -18,6 +18,8 @@ With --progress-fd FD, one line per event goes to FD (game_data_packager/progres
 The kind is decided where game-data-packager detects the failure: not-found (no package could
 be completed and no file of a known name turned up), unknown-version (files of known names with
 checksums it doesn't know, or a file given on the command line that matches nothing),
+unsuitable (a known release that gdp itself refuses, text "<file> <release>: <reason>", e.g.
+"hexen.wad Hexen 1.0: Hexen 1.1 (registered) is required", when nothing usable was found),
 needs-download (a file only available by download, downloads off or failed), no-space (the
 download space check, ENOSPC, or a file system we write to is full when the run fails), failed
 (anything else, e.g. a missing unpacker). Without the option nothing changes: the normal output
@@ -40,7 +42,7 @@ diff --git a/data/bash-completion/game-data-packager b/data/bash-completion/game
 diff --git a/doc/game-data-packager.6 b/doc/game-data-packager.6
 --- a/doc/game-data-packager.6
 +++ b/doc/game-data-packager.6
-@@ -127,6 +127,25 @@ will not produce a package at all.
+@@ -127,6 +127,26 @@ will not produce a package at all.
  \fB\-\-save\-downloads\fR \fIDIRECTORY\fR
  If files are downloaded, save them to \fIDIRECTORY\fR.
  .TP
@@ -57,6 +59,7 @@ diff --git a/doc/game-data-packager.6 b/doc/game-data-packager.6
 +with \fIkind\fR one of
 +.BR not\-found ,
 +.BR unknown\-version ,
++.BR unsuitable ,
 +.BR needs\-download ,
 +.B no\-space
 +or
@@ -85,7 +88,7 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
  from .unpack import (TarUnpacker, ZipUnpacker)
  from .unpack.d3pkg import (D3Pkg)
  from .unpack.innoextract import (InnoSetup)
-@@ -247,6 +249,13 @@ class PackagingTask:
+@@ -247,6 +249,15 @@ class PackagingTask:
  
          self.extra_icon_possible_name: set[str] = set()
  
@@ -93,13 +96,15 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
 +        # checksums are not known, the error line for a failed run, and
 +        # the directories whose file systems may run out of space
 +        self.unknown_files: list[str] = []
++        # known files that gdp refuses: (known name, release, reason)
++        self.unsuitable_files: list[tuple[str, str, str]] = []
 +        self.progress_error: tuple[str, str] | None = None
 +        self.space_dirs: set[str] = set()
 +
      @property
      def downloader(self) -> Downloader:
          ret = self._downloader
-@@ -328,6 +337,7 @@ class PackagingTask:
+@@ -328,6 +339,7 @@ class PackagingTask:
                      return False
  
          if hashes is None:
@@ -107,7 +112,20 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
              with open(path, 'rb') as fd:
                  hashes = HashedFile.from_file(
                      path, fd, size=size,
-@@ -503,6 +513,7 @@ class PackagingTask:
+@@ -351,6 +363,12 @@ class PackagingTask:
+                     '"%s" matches known file "%s" but cannot be used:\n%s',
+                     path, wanted.name, wanted.unsuitable,
+                 )
++                stem, _, version = wanted.name.partition('?')
++                self.unsuitable_files.append((
++                    stem,
++                    (stem.split('.')[0].capitalize() + ' ' + version).strip(),
++                    wanted.unsuitable,
++                ))
+                 # ... but do not continue processing
+                 return True
+ 
+@@ -503,6 +521,7 @@ class PackagingTask:
                          'extracting %s (%d bytes) with InnoExtract...',
                          basename, size,
                      )
@@ -115,7 +133,7 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
  
                  tmpdir = os.path.join(
                      self.get_workdir(), 'tmp', basename + '.d',
-@@ -515,6 +526,7 @@ class PackagingTask:
+@@ -515,6 +534,7 @@ class PackagingTask:
                  self.consider_file_or_dir(tmpdir)
          elif really_should_match_something:
              logger.warning('file "%s" does not match any known file', path)
@@ -123,7 +141,7 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
              # ... still G-D-P should try to process any random .zip
              # file thrown at it, like the .zip provided by GamersHell
              # or the MojoSetup installers provided by GOG.com
-@@ -544,6 +556,10 @@ class PackagingTask:
+@@ -544,6 +564,10 @@ class PackagingTask:
          why: str,
          candidates: Iterable[WantedFile],
      ) -> None:
@@ -134,7 +152,7 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
          message = (
              'found %s but it is not one of the expected versions:\n'
              '    file:   %s\n'
-@@ -954,6 +970,7 @@ class PackagingTask:
+@@ -954,6 +978,7 @@ class PackagingTask:
                      ' or '.join([wanted.name for wanted in candidates])
                  )
                  entryfile = unpacker.open(entry)
@@ -142,7 +160,7 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
  
                  tmpdir = os.path.join(self.get_workdir(), 'tmp')
                  mkdir_p(tmpdir)
-@@ -1129,6 +1146,11 @@ class PackagingTask:
+@@ -1129,6 +1154,11 @@ class PackagingTask:
                      # download() already issued a warning, do nothing
                      pass
                  except OutOfSpace:
@@ -154,7 +172,7 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
                      return FillResult.IMPOSSIBLE
                  else:
                      if self.use_file(wanted.name, (wanted,), path, hasher):
-@@ -1199,6 +1221,7 @@ class PackagingTask:
+@@ -1199,6 +1229,7 @@ class PackagingTask:
                  assert type(fmt) is str
  
                  self.unpack_tried.add(provider_name)
@@ -162,7 +180,7 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
  
                  if self.verbose and fmt in ('zip', 'unzip'):
                      with zipfile.ZipFile(found_name, 'r') as zf:
-@@ -2274,9 +2297,51 @@ class PackagingTask:
+@@ -2274,9 +2305,51 @@ class PackagingTask:
  
          for arg in paths:
              logger.debug('%s...', arg)
@@ -214,7 +232,7 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
          if logging.getLogger().isEnabledFor(logging.DEBUG):
              logger.debug(
                  'package description:\n%s',
-@@ -2366,6 +2431,9 @@ class PackagingTask:
+@@ -2366,6 +2439,9 @@ class PackagingTask:
                  binary_executables=args.binary_executables,
              )
          except BinaryExecutablesNotAllowed:
@@ -224,7 +242,7 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
              raise SystemExit(1)
          except NoPackagesPossible:
              raise SystemExit(1)
-@@ -2379,6 +2447,26 @@ class PackagingTask:
+@@ -2379,6 +2455,31 @@ class PackagingTask:
              )
          except NoPackagesPossible:
              logger.error('Unable to complete any packages.')
@@ -232,6 +250,11 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
 +            # were never found: they matter only when something was
 +            if self.progress_error is not None:
 +                pass
++            elif self.unsuitable_files and not self.found:
++                name, release, reason = self.unsuitable_files[0]
++                self.progress_error = (
++                    'unsuitable', '%s %s: %s' % (name, release, reason),
++                )
 +            elif self.unknown_files:
 +                self.progress_error = (
 +                    'unknown-version', 'unknown version of %s' % ', '.join(
@@ -251,7 +274,7 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
              if self.missing_tools:
                  # we already logged warnings about the files as they came up
                  self.log_missing_tools()
-@@ -2398,6 +2486,10 @@ class PackagingTask:
+@@ -2398,6 +2499,10 @@ class PackagingTask:
                  'Unable to complete any packages because downloading '
                  'missing files was not allowed.',
              )
@@ -262,7 +285,7 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
              self.log_missing_tools()
              raise SystemExit(1)
          except DownloadsFailed:
-@@ -2405,9 +2497,14 @@ class PackagingTask:
+@@ -2405,9 +2510,14 @@ class PackagingTask:
              logger.error(
                  'Unable to complete any packages because downloads failed.',
              )
@@ -277,7 +300,7 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
              raise SystemExit(1)
  
          if args.destination is None:
-@@ -2424,6 +2521,9 @@ class PackagingTask:
+@@ -2424,6 +2534,9 @@ class PackagingTask:
  
          rm_rf(os.path.join(self.get_workdir(), 'tmp'))
  
@@ -287,7 +310,7 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
          if preserve:
              for pkg in pkgs:
                  print('generated "%s"' % os.path.abspath(pkg))
-@@ -2472,6 +2572,16 @@ class PackagingTask:
+@@ -2472,6 +2585,16 @@ class PackagingTask:
              for pkg in pkgs:
                  subprocess.call([self.packaging.CHECK_CMD, pkg])
  
@@ -304,7 +327,7 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
      def rip_cd(self, package: Package) -> None:
          cd_device = self.cd_device
          if cd_device is None:
-@@ -2481,6 +2591,7 @@ class PackagingTask:
+@@ -2481,6 +2604,7 @@ class PackagingTask:
              'Ripping CD tracks %d+ from %s for %s',
              package.rip_cd.get('first_track', 2), cd_device, package.name,
          )
@@ -312,7 +335,7 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
  
          assert package.rip_cd['encoding'] in ['vorbis', 'mp3'], package.name
  
-@@ -2951,6 +3062,8 @@ class PackagingTask:
+@@ -2951,6 +3075,8 @@ class PackagingTask:
              if not self.check_complete(package, log=True):
                  raise SystemExit(1)
  
@@ -321,7 +344,7 @@ diff --git a/game_data_packager/build.py b/game_data_packager/build.py
              # TODO: Ideally we would keep package.name as-is, and only
              # put this modified name in the per_package_state: but we can't
              # do that until we have checked that all references to .name
-@@ -3231,6 +3344,7 @@ class PackagingTask:
+@@ -3231,6 +3357,7 @@ class PackagingTask:
          if hashes is not None:
              return hashes
  
@@ -414,7 +437,7 @@ diff --git a/game_data_packager/progress_fd.py b/game_data_packager/progress_fd.
 new file mode 100644
 --- /dev/null
 +++ b/game_data_packager/progress_fd.py
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,106 @@
 +#!/usr/bin/python3
 +# encoding=utf-8
 +#
@@ -438,6 +461,10 @@ new file mode 100644
 +
 +  not-found        none of the files a package needs were found
 +  unknown-version  files were found but their checksums are not known
++  unsuitable       a file of a known release was found, but this release
++                   cannot be used; the text is "<file> <release>: <reason>"
++                   (the file is the known name without spaces, the reason
++                   is gdp's own, e.g. "Hexen 1.1 (registered) is required")
 +  needs-download   a file is only available by download, and downloads
 +                   are off (--no-download) or failed
 +  no-space         a file system ran out of space
@@ -455,7 +482,7 @@ new file mode 100644
 +from typing import (TextIO)
 +
 +ERROR_KINDS = (
-+    'not-found', 'unknown-version', 'needs-download', 'no-space', 'failed',
++    'not-found', 'unknown-version', 'unsuitable', 'needs-download', 'no-space', 'failed',
 +)
 +
 +_CONTROL = {c: ' ' for c in range(32)}

@@ -695,6 +695,16 @@ class DataSetup(unittest.TestCase):
         self.assertEqual(M("unknown-version", "Quake"), "This copy is a version Walnut doesn't know yet.")
         self.assertEqual(M("needs-download", "Quake II"), "Quake II needs its official patch files: connect to the "
                          "network and try again, or add the patch file.")
+        d = "hexen.wad Hexen 1.0: Hexen 1.1 (registered) is required"
+        self.assertEqual(M("unsuitable", "Hexen", detail=d),
+                         "This copy is Hexen 1.0, which Hexen can't use: Hexen 1.1 (registered) is required")
+        self.assertEqual(M("unsuitable", "Hexen", detail="odd"), "This copy is a release Hexen can't use: odd")
+        self.assertEqual(M("unsuitable", "Hexen"), "This copy is a release Hexen can't use.")
+        self.assertEqual(app.unsuitable_parts("doom2.wad Doom2 1.7: Doom 2 v1.9 is required"),
+                         ("Doom2 1.7", "Doom 2 v1.9 is required"))
+        v = app.ImportView("hexen", t0=0)
+        v.feed(app.parse_import_line("gdp error unsuitable " + d))
+        self.assertEqual((v.kind(), v.gdp_text), ("unsuitable", d))
         self.assertTrue(M("no-space", "Quake").startswith("Not enough space"))
         e = ["not enough space: importing this data needs about 3.7 GB free on the disk of /c, and 2.9 GB is free"]
         self.assertEqual(app.import_error_kind(None, e), "no-space")

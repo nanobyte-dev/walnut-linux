@@ -38,7 +38,8 @@ Design
   before and removed after.
   Free space is checked before gdp runs, from the data manifest's sizes of the packages (T): the most
   each file system holds at one time over the phases (gdp: 2T in the cache, 3T for an installer or
-  archive; streaming: T cache + T staging; the helper's deb: 2T staging; installing: T staging +
+  archive; streaming: T cache + T staging; the helper's deb: 3T staging, its files, dpkg-deb's
+  temporary data member and the deb; installing: T staging +
   T /usr), summed where they share a disk; refused with what is needed and what is free.
   One import at a time per player: import holds an flock on ~/.cache/walnut-data/import.lock for its
   whole run, the file saying "PID GAME"; a second import is refused (busy, exit 2). The Walnut Games
@@ -559,9 +560,10 @@ def space_needs(total, archive, cache, var, usr, dev=None):
     """{device: (bytes, [paths])}: the most an import has on each file system at one time. Its phases:
     gdp in the cache (its unpacked copy, the deb, and an installer's or archive's unpacked files),
     the deb streamed to the helper's staging (the deb is unlinked as dpkg-deb opens it: gone once the
-    stream ends), the helper's own deb made from its staging, then dpkg installing it into /usr"""
+    stream ends), the helper's own deb made from its staging (with dpkg-deb's temporary copy of the
+    data member), then dpkg installing it into /usr"""
     dev = dev or (lambda p: os.stat(existing(p)).st_dev)
-    phases = [[(cache, (3 if archive else 2) * total)], [(cache, total), (var, total)], [(var, 2 * total)],
+    phases = [[(cache, (3 if archive else 2) * total)], [(cache, total), (var, total)], [(var, 3 * total)],
               [(var, total), (usr, total)]]
     need = {}
     for phase in phases:
@@ -595,9 +597,22 @@ def check_space(total, archive, cache, var=IMPORT_DIR, usr=USR, free=None):
 GDP_HINTS = {
     "not-found": "no files of this game were found there",
     "unknown-version": "this copy is a version game-data-packager doesn't know",
+    "unsuitable": "this copy is a release game-data-packager refuses",
     "needs-download": "some files have to be downloaded: connect to the network, or add those files",
     "no-space": "not enough free space",
 }
+
+
+def gdp_hint(error):
+    """why gdp made no package, from its last error line 'KIND TEXT' (unsuitable: its own reason, the text
+    'FILE RELEASE: REASON')"""
+    kind, _, text = (error or "").partition(" ")
+    if kind == "unsuitable":
+        head, sep, reason = text.partition(": ")
+        release = head.partition(" ")[2]
+        if sep and release:
+            return "this copy is %s, which can't be used: %s" % (release, reason)
+    return GDP_HINTS.get(kind)
 
 
 def cmd_import(game_id, sources, asked, no_download, games):
@@ -637,8 +652,8 @@ def cmd_import(game_id, sources, asked, no_download, games):
             raise Failed("game-data-packager also made %s, which was not asked for: nothing was imported"
                          % ", ".join(extra))
         if rc != 0 or not debs:
-            kind = errors[-1].split(" ", 1)[0] if errors else None
-            raise Failed("game-data-packager made no package%s" % (": " + GDP_HINTS[kind] if kind in GDP_HINTS else
+            hint = gdp_hint(errors[-1] if errors else None)
+            raise Failed("game-data-packager made no package%s" % (": " + hint if hint else
                                                                     " (exit %d)" % rc if rc else ""))
         src.close()            # the disc or image is no longer needed
         worst = 0

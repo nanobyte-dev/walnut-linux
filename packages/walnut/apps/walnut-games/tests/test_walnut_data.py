@@ -122,6 +122,7 @@ class Fake:
             return 0 if self.running else 3, "active\n" if self.running else "inactive\n"
         if cmd[0] == helper.DPKG_DEB:
             root, deb = cmd[-2], cmd[-1]
+            self.tmpdir = helper.ENV.get("TMPDIR")
             self.tree = {}
             for dirpath, dirs, files in os.walk(root):
                 for n in files:
@@ -192,6 +193,8 @@ class ImportData(Dirs):
         self.assertNotIn("Provides", control)
         deb = [c for c in fake.calls if c[0] == helper.DPKG_DEB][0]
         self.assertEqual(deb[1:4], ["--root-owner-group", "-Znone", "-b"])
+        self.assertEqual(fake.tmpdir, os.path.dirname(deb[-1]))       # not /tmp: dpkg-deb's temporary member
+        self.assertNotIn("TMPDIR", helper.ENV)
         self.assertEqual(len(fake.streams), 1)
         args = fake.streams[0]
         self.assertEqual(args[:4], ["install", "--no-install-recommends", "--reinstall", "--no-remove"])
@@ -531,7 +534,7 @@ def prog(line):
 prog("step searching " + a[-1])
 print("game-data-packager talking")
 if os.environ.get("FAKE_GDP_FAIL"):
-    prog("error not-found no files")
+    prog("error " + os.environ.get("FAKE_GDP_ERROR", "not-found no files"))
     sys.exit(1)
 out = a[a.index("-d") + 1]
 pkg = a[a.index("-p") + 1]
@@ -668,6 +671,16 @@ class DataImport(unittest.TestCase):
         self.assertIn("error game-data-packager made no package: no files of this game were found there", out)
         self.assertEqual([e for e in self.log() if "helper" in e], [])
 
+    def test_gdp_unsuitable(self):
+        os.environ["FAKE_GDP_FAIL"] = "1"
+        os.environ["FAKE_GDP_ERROR"] = "unsuitable hexen.wad Hexen 1.0: Hexen 1.1 (registered) is required"
+        rc, out = self.imp(self.t / "src")
+        self.assertEqual(rc, 1)
+        self.assertIn("gdp error unsuitable hexen.wad Hexen 1.0: Hexen 1.1 (registered) is required", out)
+        self.assertIn("error game-data-packager made no package: this copy is Hexen 1.0, which can't be used: "
+                      "Hexen 1.1 (registered) is required", out)
+        self.assertEqual([e for e in self.log() if "helper" in e], [])
+
     def test_helper_refuses(self):
         os.environ["FAKE_HELPER_RC"] = "2"
         rc, out = self.imp(self.t / "src")
@@ -750,13 +763,13 @@ class DataImport(unittest.TestCase):
     def test_space_needs(self):
         T = 100
         one = wd.space_needs(T, False, "/c", "/v", "/u", dev=lambda p: 1)
-        self.assertEqual(one, {1: (2 * T, ["/c", "/v", "/u"])})
+        self.assertEqual(one, {1: (3 * T, ["/c", "/v", "/u"])})
         self.assertEqual(wd.space_needs(T, True, "/c", "/v", "/u", dev=lambda p: 1)[1][0], 3 * T)   # an installer
         apart = wd.space_needs(T, False, "/c", "/v", "/u", dev=lambda p: p)
-        self.assertEqual(apart, {"/c": (2 * T, ["/c"]), "/v": (2 * T, ["/v"]), "/u": (T, ["/u"])})
+        self.assertEqual(apart, {"/c": (2 * T, ["/c"]), "/v": (3 * T, ["/v"]), "/u": (T, ["/u"])})
         with self.assertRaises(wd.Refused) as e:
             wd.check_space(1 << 30, False, "/c", "/v", "/u", free=lambda p: 1 << 30)
-        self.assertIn("about 2.1 GB free", str(e.exception))
+        self.assertIn("about 3.1 GB free", str(e.exception))
         self.assertIn("1.0 GB is free", str(e.exception))
         wd.check_space(1 << 20, False, str(self.t), str(self.t), str(self.t), free=lambda p: 1 << 40)
 

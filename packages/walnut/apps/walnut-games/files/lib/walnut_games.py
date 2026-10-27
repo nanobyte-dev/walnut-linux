@@ -44,7 +44,8 @@ Design
   the last 3 log lines and a bar that only moves (no percentages). Closing the app leaves it running;
   opened again, the app finds it by walnut-data's lock (~/.cache/walnut-data/import.lock, held for
   the whole import) and shows it in place of the buttons. A failure is told by game-data-packager's
-  error kind (import_error_message); needs-download offers "Try again with download" (-p for the
+  error kind (import_error_message); unsuitable (a known release gdp refuses, e.g. Hexen 1.0) tells the release and gdp's reason;
+  needs-download offers "Try again with download" (-p for the
   game's downloads packages) when the game has some. After a success the menu is made again
   (ps3-game-menu --reload) and the page shows Play, naming the launchers the data added. Remove names
   the installed data packages and their size and runs the helper's remove-data after remove. The
@@ -746,13 +747,25 @@ def import_error_kind(gdp_kind, errors):
     return "failed"
 
 
-def import_error_message(kind, title, tail=(), errors=()):
+def unsuitable_parts(text):
+    """(release, reason) of an unsuitable error's text 'FILE RELEASE: REASON' (the file has no spaces)"""
+    head, sep, reason = (text or "").partition(": ")
+    release = head.partition(" ")[2].strip()
+    return (release, reason.strip()) if sep and release and reason.strip() else ("", (text or "").strip())
+
+
+def import_error_message(kind, title, tail=(), errors=(), detail=""):
     """the plain English of an import's failure (kind: game-data-packager's error kinds, no-space and busy
     from walnut-data too)"""
     if kind == "not-found":
         return "No %s files found here." % title
     if kind == "unknown-version":
         return "This copy is a version Walnut doesn't know yet."
+    if kind == "unsuitable":
+        release, reason = unsuitable_parts(detail)
+        if release:
+            return "This copy is %s, which %s can't use: %s" % (release, title, reason)
+        return "This copy is a release %s can't use%s" % (title, ": " + reason if reason else ".")
     if kind == "needs-download":
         return ("%s needs its official patch files: connect to the network and try again, or add the patch "
                 "file." % title)
@@ -803,7 +816,7 @@ class ImportView:
     def __init__(self, gid, t0=None):
         self.gid, self.t0 = gid, t0 if t0 is not None else time.time()
         self.step, self.file, self.tail, self.errors = "Starting...", "", [], []
-        self.gdp_kind, self.done = None, False
+        self.gdp_kind, self.gdp_text, self.done = None, "", False
 
     def feed(self, ev):
         if not ev:
@@ -817,7 +830,7 @@ class ImportView:
         elif k == "generated":
             self.step, self.file = "Made " + os.path.basename(ev[1]), ""
         elif k == "gdp-error":
-            self.gdp_kind = ev[1]
+            self.gdp_kind, self.gdp_text = ev[1], ev[2]
             self.tail.append(ev[2])
         elif k == "progress":
             self.step, self.file = ev[2][:1].upper() + ev[2][1:], ""
@@ -1949,7 +1962,7 @@ class App:
             kind = v.kind()
             if kind == "needs-download" and g and data_setup(g).get("downloads") and self.imp_source.get(gid):
                 self.retry[gid] = self.imp_source[gid]
-            self.show_activity(import_error_message(kind, title, v.tail, v.errors))
+            self.show_activity(import_error_message(kind, title, v.tail, v.errors, v.gdp_text))
         self.apply_filters_keep()
 
     def menu_done(self, gid, ed):
