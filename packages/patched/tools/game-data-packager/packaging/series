@@ -1,3 +1,4 @@
 # Our packaging changes to Debian's game-data-packager (debian/ only)
 0001-Build-profile-pkg.game-data-packager.nowrappers-the-.patch
 0002-Recommend-the-unpackers-for-the-formats-games-ship-i.patch
+0005-Suggest-game-data-packager-runtime-instead-of-recomm.patch

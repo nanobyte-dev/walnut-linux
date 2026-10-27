@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 27 Oct 2026 16:59:15 +0200
+Subject: Suggest game-data-packager-runtime instead of recommending it
+
+The runtime is the GTK launcher the generated game packages use (gdp-launcher) and Depends on
+gir1.2-gtk-4.0 and friends: far too heavy for the 256 MB PS3, and Walnut does not use it. The
+command line tool imports nothing from runtime/ (only the ScummVM and DOS packages it builds
+reference the runtime, in their own dependencies). The runtime binary is still built.
+
+Forwarded: not-needed
+
+diff --git a/debian/control b/debian/control
+--- a/debian/control
++++ b/debian/control
+@@ -40,12 +40,12 @@ Depends:
+ Recommends:
+  7zip,
+  cabextract,
+- game-data-packager-runtime (>= ${source:Version}),
+  innoextract,
+  lhasa | jlha-utils | lzh-archiver,
+  unshield,
+  unzip,
+ Suggests:
++ game-data-packager-runtime (>= ${source:Version}),
+  arj,
+  binutils,
+  cdparanoia,
