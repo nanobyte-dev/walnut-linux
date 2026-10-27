@@ -1,8 +1,9 @@
 # ioquake3: technical notes
 
 Our build of Debian's `ioquake3` (`1.36+u20260719.58839361+dfsg-1+ps3.N`,
-[packages/ioquake3](packages/ioquake3/)) replaces Debian's and carries 28 patches (there is no 0017).
-OpenArena is the one game on it ([its notes](../../games/openarena/technical.md)). Every change sits
+[packages/ioquake3](packages/ioquake3/)) replaces Debian's and carries 29 patches (there is no 0017).
+OpenArena runs on it ([its notes](../../games/openarena/technical.md)), and Quake III Arena with the
+player's own data ([its notes](../../games/quake-3-arena/technical.md)). Every change sits
 behind a cvar, so a recipe variant can turn it back to upstream's behaviour. The PS3 runs ps3.462 since
 gamedb:batch/2026-10-18-batch17; the release candidate is ps3.396 ([the archived release plan](../../../docs/archive/RELEASE-CANDIDATES-2026-10-19.md)).
 
@@ -61,6 +62,12 @@ so bots keep a substitute model, which changes the picture
 
 [The investigation](../../games/openarena/investigations/2026-10-18-opengl2-freezes.md)
 has the measurements.
+
+## Quake III's menus (0030)
+
+| Patch | Cvar (default) | What |
+|---|---|---|
+| 0030 | `cl_cdkeyCheck 1` | 0: the UI's CD key check answers valid, so Quake III's and Team Arena's menus don't open on the CD KEY screen at every start (`ui_cdkeychecked` is `CVAR_ROM` in both UIs: a value set from outside is forced back to 0). Quake III's autoexec.cfg sets 0; no key is written or read |
 
 ## Log noise
 

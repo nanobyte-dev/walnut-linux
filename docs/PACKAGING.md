@@ -304,6 +304,14 @@ helper builds the package again from scratch: the files that match the packaged 
   beginning of stream, Vorbis identification header); all of them must be there. What the audio holds
   is not checked: root installs bounded, player-chosen bytes as 0644 files that only the game's Vorbis
   decoder reads. Free space for tracks is checked one by one from the stream's sizes.
+- **Links.** gdp's own symlinks are the manifest's `symlinks` (`{path: relative target}`, placed as gdp's
+  build places them): Quake III's `quake3-data` links its pk3s into `/usr/lib/quake3/base/baseq3/`, where
+  ioquake3 also has its native game code, and Team Arena's into `/usr/lib/quake3/ta/`. The helper takes a
+  link member only at a listed path with exactly the listed target, wants all of them, and makes them
+  itself after every file is written. When the manifest is read, each target must be relative and resolve
+  under `usr/`, and no file, track or other link may sit under a link's path, so nothing is ever written
+  through one. A versioned Conflicts/Replaces (Team Arena's `quake3-data (<< 77~)`, about older gdp
+  builds) is left out of the manifest: written without its version it would remove `quake3-data`.
 - **Lifetime.** Installed with `apt-get install ./X.deb`, so manually installed: autoremove leaves it. A
   newer gdp never rebuilds it; importing again (`--reinstall`) does. `walnut-data remove <game>` removes it.
 
@@ -319,6 +327,23 @@ few hundred lines of parsing and the WAV must stream into oggenc anyway. With th
 a music package asked for, walnut-data reads the disc's table of contents and, when it has audio tracks,
 passes `/dev/sr0` to gdp, which rips with cdparanoia and oggenc (the player opens the drive through
 logind's ACL). walnut-games Recommends vorbis-tools and cdparanoia.
+
+**MDF/MDS** (Alcohol 120%: the `.mds`, or the `.mdf` with its `.mds` next to it) go the same way. What
+walnut-data reads of the descriptor: version 1.x only (signature `MEDIA DESCRIPTOR`, then 1); every
+session's track blocks (80 bytes each, points 1-99; the lead-in entries A0-A2 skipped); a track's mode
+from its low four bits (9 audio, A mode 1, B and C mode 2 form 1), its sector size (2048, 2336, 2352, or
+2448: 2352 bytes plus 96 of interleaved P-W subchannel, the usual "raw + subchannel" MDF), its start
+offset in the `.mdf` (an MDF holds no pregaps) and its length from the extra block (a DVD's runs to the
+file's end); the image file from the footer (`*.mdf`: the descriptor's own name). Refused, each with
+its reason: version 2 descriptors, images split over several files (`.md0`, `.md1`), mode 2 form 2 and
+unknown modes, other sector sizes. The first data track's 2048-byte user data becomes an ISO in the cache
+as for a BIN/CUE (the subchannel bytes dropped, audio tracks encoded for a music package); a data track
+of 2048-byte sectors at offset 0 is loop-mounted as it is, without a copy. An `.mdf` without its `.mds`
+is sniffed: an ISO 9660 volume at sector 16 is a plain image, raw sectors (the sync pattern at the start
+of sectors 0 and 1 says 2352 or 2448; mode 1 or 2 from the header) are one data track to the file's end,
+cut at the volume's size; anything else asks for the `.mds`. The app lists `*.mdf` as disc images.
+Checked on a real CD: Quake III Arena's ISO written as a 2448-byte MDF/MDS on the PC and extracted
+again gave the ISO 9660 volume byte for byte.
 
 A Quake CD needs our gdp's patch 0008: lhasa (Debian's `lha`) lists an MS-DOS archive's names in lower
 case and extracts only exact matches, so the CD's `resource.1` gave neither pak to gdp, which asks for

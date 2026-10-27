@@ -19,10 +19,13 @@ Design
   "?" in "doom.wad?1.9ud" (X-Walnut-Release)}]}, required (the paths of its install files; the
   rest are optional; a file the game's plugin writes itself, its generated_files(package) {path under
   install_to: bytes} (ttd's orig_win_fm.obm), is a required file with its size and sha256), conflicts and replaces (the deb's own, from gdp's control generation, kept only
-  when they name another package of the same gdp game: quake-registered and quake-shareware; the
+  when they name another package of the same gdp game without a version: quake-registered and
+  quake-shareware, not Team Arena's quake3-data (<< 77~), which is about older gdp builds; the
   freedoom and chocolate-doom ones and every Provides are left out), launchers (true for the Doom
-  family, whose builds add .desktop files, pixmaps and icons the helper skips), symlinks ({} in v1:
-  a package with symlinks stops the generator, as does an executable file, a file without size or
+  family, whose builds add .desktop files, pixmaps and icons the helper skips), symlinks ({link
+  path: its relative target}, gdp's own links placed as its build places them: Quake III's
+  /usr/lib/quake3/base/baseq3/pak*.pk3; a link pointing out of its top directory or sitting where a
+  file or another link goes stops the generator, as does an executable file, a file without size or
   checksum, two different files on one path, or a file where the helper writes its own (doc/<pkg>/copyright,
   changelog*)).
 - Music packages (gdp's rip_cd: quake-music, quake2-music): tracks {source: gdp's filename_format, the
@@ -64,8 +67,10 @@ deb = DebPackaging()
 out, errs = {}, []
 
 def names(field):
+    # unversioned relations only: a versioned one is about an older build of the other package (Team
+    # Arena's Conflicts/Replaces quake3-data (<< 77~), files that moved), never the one the console makes
     return {m.group(1) for part in (field or "").split(",") for alt in part.split("|")
-            if (m := re.match(r"\s*([a-z0-9][a-z0-9+.-]*)", alt))}
+            if (m := re.match(r"\s*([a-z0-9][a-z0-9+.-]*)\s*(?::any\s*)?$", alt))}
 
 def strongest(f):
     for k in ("sha256", "sha1", "md5"):
@@ -126,8 +131,25 @@ for name in want:
     for path in files:
         if path.startswith(doc) and (path == doc + "copyright" or path[len(doc):].startswith("changelog")):
             errs.append("%s: %s is where the helper writes its own file" % (name, path))
-    if p.symlinks:
-        errs.append("%s: has symlinks %r (not in v1)" % (name, p.symlinks))
+    # gdp's own links (Quake III's pk3s under /usr/lib/quake3), placed as its build places them
+    # (build.py fill_dest_dir: both ends substituted, a relative target within one top directory)
+    links = {}
+    full_to = deb.substitute(p.install_to, name)
+    for link, real in sorted(p.symlinks.items()):
+        link = deb.substitute(link, name, install_to=full_to).strip("/")
+        real = deb.substitute(real, name, install_to=full_to, libdir=deb.get_libdir(p.architecture)).strip("/")
+        top = link.split("/", 1)[0]
+        if not real.startswith(top + "/"):
+            errs.append("%s: its link %s points out of /%s (%s)" % (name, link, top, real))
+            continue
+        a, b = link.split("/"), real.split("/")
+        while a and b and a[0] == b[0]:
+            a.pop(0)
+            b.pop(0)
+        links[link] = "../" * (len(a) - 1) + "/".join(b)
+    for link in links:
+        if link in files or any(q.startswith(link + "/") for q in list(files) + list(links)):
+            errs.append("%s: its link %s is where a file or another link goes" % (name, link))
     tracks = None
     rip = p.rip_cd or {}
     if rip:
@@ -150,7 +172,7 @@ for name in want:
                  "edition": editions[name],
                  "conflicts": sorted(names(control.get("Conflicts")) & same),
                  "replaces": sorted(names(control.get("Replaces")) & same),
-                 "launchers": type(g).__module__.endswith("doom_common"), "symlinks": {}}
+                 "launchers": type(g).__module__.endswith("doom_common"), "symlinks": links}
     if tracks:
         out[name]["tracks"] = tracks
 json.dump({"gdp_version": str(GAME_PACKAGE_VERSION), "packages": out, "errors": errs}, sys.stdout)

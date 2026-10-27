@@ -38,7 +38,7 @@ Design
   off while required data is missing. The chooser is a window of big buttons (the
   pad is the pointer; arrows, Enter, Escape) listing find_sources: the disc in the drive (lsblk; not
   mounted: /dev/sr0, which walnut-data mounts), /media/$USER/* and /run/media/$USER/*, ~/GOG Games/*,
-  Steam's steamapps/common/*, *.iso/*.img/*.cue/*.zip/*.exe/gog_*.sh in ~/Downloads and ~; Other file and
+  Steam's steamapps/common/*, *.iso/*.img/*.cue/*.mdf/*.zip/*.exe/gog_*.sh in ~/Downloads and ~; Other file and
   Other folder (Tk's dialogs). The game's hint is shown above. `walnut-data import GAME SOURCE` runs
   in its own session with its output in ~/.cache/walnut-games/import.log (import.json: its pid, game,
   start, source), which a thread reads as it grows: the step, the file being read, the elapsed time,
@@ -494,7 +494,7 @@ LSBLK = "/usr/bin/lsblk"
 DISC = "/dev/sr0"
 EDITION_LABELS = {"shareware": "Shareware", "demo": "Demo", "full": "Full game", "expansion": "Expansion",
                   "music": "Music"}
-INSTALLER_RE = re.compile(r"(?i)^(.*\.(iso|img|cue|zip|exe)|gog_.*\.sh)$")
+INSTALLER_RE = re.compile(r"(?i)^(.*\.(iso|img|cue|mdf|zip|exe)|gog_.*\.sh)$")
 MAX_SOURCES = 40
 
 
@@ -680,7 +680,7 @@ def find_sources(home, user, disc=None, media_roots=None):
     """[(label, path)]: where the player's game files may be, best first: the disc in the drive (disc:
     (label, mount point or None); not mounted: walnut-data mounts /dev/sr0), mounted media (/media/USER/*,
     /run/media/USER/*), installed copies (~/GOG Games/*, Steam's steamapps/common/*), then disc images,
-    archives and installers (*.iso, *.img, *.cue of a BIN/CUE, *.zip, *.exe, gog_*.sh) in ~/Downloads and ~,
+    archives and installers (*.iso, *.img, *.cue of a BIN/CUE, *.mdf, *.zip, *.exe, gog_*.sh) in ~/Downloads and ~,
     newest first"""
     out, seen = [], set()
 
@@ -711,7 +711,7 @@ def find_sources(home, user, disc=None, media_roots=None):
         except OSError:
             pass
     for _, name, path in sorted(files, key=lambda f: (-f[0], f[1])):
-        add(("Disc image: " if name.lower().endswith((".iso", ".img", ".cue")) else "File: ") + name, path)
+        add(("Disc image: " if name.lower().endswith((".iso", ".img", ".cue", ".mdf")) else "File: ") + name, path)
     return out[:MAX_SOURCES]
 
 

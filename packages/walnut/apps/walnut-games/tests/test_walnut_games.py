@@ -644,7 +644,8 @@ class DataSetup(unittest.TestCase):
             (media / "USBSTICK").mkdir()
             for i, name in enumerate(["Downloads/quake106.zip", "Downloads/setup_quake_2.0.exe", "Downloads/notes.txt",
                                       "Downloads/gog_rct2_1.sh", "Downloads/script.sh", "RCT2.ISO", "home.img",
-                                      "Downloads/QUAKE106.cue", "Downloads/QUAKE106.bin"]):
+                                      "Downloads/QUAKE106.cue", "Downloads/QUAKE106.bin", "Downloads/Q3.mds",
+                                      "Downloads/Q3.mdf"]):
                 f = home / name
                 f.write_bytes(b"x")
                 os.utime(f, (1000 + i, 1000 + i))
@@ -652,7 +653,7 @@ class DataSetup(unittest.TestCase):
             got = app.find_sources(str(home), "u", disc, [str(media)])
             self.assertEqual([l for l, _ in got], [
                 "Disc in the drive: QUAKE101", "Disc or drive: USBSTICK", "GOG: Quake", "Steam: Quake",
-                "Steam: RollerCoaster Tycoon 2", "Disc image: QUAKE106.cue", "Disc image: home.img", "Disc image: RCT2.ISO",
+                "Steam: RollerCoaster Tycoon 2", "Disc image: Q3.mdf", "Disc image: QUAKE106.cue", "Disc image: home.img", "Disc image: RCT2.ISO",
                 "File: gog_rct2_1.sh",
                 "File: setup_quake_2.0.exe", "File: quake106.zip"])
             self.assertEqual(got[0][1], str(media / "QUAKE"))

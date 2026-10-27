@@ -9,6 +9,9 @@ python3 -I packages/walnut/apps/walnut-games/tests/test_walnut_data.py (tools/ru
   scripts, Conflicts/Replaces only the manifest's, X-Walnut-Edition, X-Walnut-Release from the
   alternative that matched), apt's simulation deciding. A fake dpkg-deb and apt-get (runner and stream
   functions); the staging directory, run directory and /usr are temporary directories.
+- The manifest's symlinks (gdp's own: Quake III's): made exactly as listed, after the files; a missing,
+  repeated, unlisted or retargeted link and a file in a link's place refused; unusable entries
+  (absolute or escaping targets, a link over a file or another link) refused.
 - The lock (a second action refused, busy), status "importing", remove-data, install-repo-data.
 - Music packages (the manifest's tracks, no checksums): Ogg Vorbis tracks accepted at their exact paths;
   a WAV, an Opus stream, a page that isn't a stream's first, an empty file, an oversize track, a track
@@ -23,6 +26,13 @@ python3 -I packages/walnut/apps/walnut-games/tests/test_walnut_data.py (tools/ru
   loop-mounted and the music folder given to gdp, all removed after), music only (no ISO), no music
   package (no encoding), a broken cue refused before gdp, the space counted; the drive with a music
   package (the device given to gdp only when the disc has audio tracks).
+- MDF/MDS: synthetic descriptors (one session, lead-in blocks, extra blocks, a footer): MODE1 in 2448-byte
+  sectors with an audio track (ISO cut at the volume size, WAV without the subchannel), MODE2 form 1 in
+  2352, cooked 2048-byte sectors (loop-mounted as they are at offset 0, extracted elsewhere), a lone .mdf
+  sniffed (2448, 2352, a plain ISO; anything else refused), footer names (another case, UTF-16), a DVD
+  and a CD without extra blocks, refusals (signature, version 2, mode 2 form 2, unknown mode, sector
+  sizes, split images, outside the file, a missing image, a cut descriptor, no tracks); whole imports
+  (ISO and music from an MDF, a plain .mdf loop-mounted, a broken .mds refused before gdp).
 - walnut-data: arguments, the --download choice, source kinds, mount points, a disc image through a fake
   udisksctl, the gdp command, and whole imports with a stubbed gdp, dpkg-deb, helper and systemd-run
   (the progress FIFO in the unit, Debian's gdp without --progress-fd, a gdp failure, a refusal, a deb
@@ -37,6 +47,7 @@ import io
 import json
 import os
 import stat
+import struct
 import sys
 import tarfile
 import tempfile
@@ -139,7 +150,8 @@ class Fake:
             for dirpath, dirs, files in os.walk(root):
                 for n in files:
                     p = os.path.join(dirpath, n)
-                    self.tree[os.path.relpath(p, root)] = (stat.S_IMODE(os.lstat(p).st_mode), Path(p).read_bytes())
+                    self.tree[os.path.relpath(p, root)] = (("link", os.readlink(p)) if os.path.islink(p) else
+                                                           (stat.S_IMODE(os.lstat(p).st_mode), Path(p).read_bytes()))
             Path(deb).write_bytes(b"deb")
             return 0, ""
         if cmd[0] == helper.APT_GET and "-s" in cmd:
@@ -259,6 +271,39 @@ class ImportData(Dirs):
         self.refused([m if not m[0].endswith("a.dat") else ("./" + GD + "a.dat", tarfile.SYMTYPE, b"", 0o777, "/etc/passwd")
                       for m in base], "not a regular file")
 
+    def test_listed_symlinks(self):
+        """gdp's own links (Quake III's pk3s under /usr/lib/quake3): exactly the manifest's, made after the files"""
+        man = json.loads(json.dumps(MANIFEST))["packages"]
+        links = {"usr/lib/alpha/base/a.dat": "../../../share/games/alpha/a.dat",
+                 "usr/share/games/alpha-old/b.dat": "../alpha/b.dat"}
+        man["alpha-data"]["symlinks"] = links
+        ln = [(("./" + p), tarfile.SYMTYPE, b"", 0o777, t) for p, t in links.items()]
+        # a link may come before the file it points to
+        r, out, fake = self.imp(tar_of(ln[:1] + good_members() + ln[1:]), manifest=man)
+        self.assertIsNone(r, out)
+        self.assertEqual(fake.tree["usr/lib/alpha/base/a.dat"], ("link", "../../../share/games/alpha/a.dat"))
+        self.assertEqual(fake.tree["usr/share/games/alpha-old/b.dat"], ("link", "../alpha/b.dat"))
+        self.refused(good_members() + ln[:1], "files are missing", manifest=man)                  # all of them
+        self.refused(good_members() + ln + [ln[0]], "not the link", manifest=man)                 # twice
+        self.refused(good_members() + [ln[0][:4] + ("../../../../etc/shadow",), ln[1]], "not the link", manifest=man)
+        self.refused(good_members() + ln + [("./usr/lib/alpha/x", tarfile.SYMTYPE, b"", 0o777, "a")],
+                     "not a regular file", manifest=man)                                     # unlisted
+        self.refused(good_members() + ln[:1] + [f("./usr/share/games/alpha-old/b.dat", B)], "is not a file of",
+                     manifest=man)                                                           # a file in a link's place
+
+    def test_symlink_entries_checked(self):
+        files = MANIFEST["packages"]["alpha-data"]["files"]
+        for links in ({"usr/x": "/etc/shadow"}, {"usr/x": "../../etc/shadow"}, {"usr/x": ""}, {"usr/x": "a\0b"},
+                      {GD + "a.dat": "b.dat"}, {"usr/share/games": "alpha"}, {"usr/l": "x", "usr/l/m": "y"},
+                      {"../usr/x": "y"}, {"usr/x": "y" * 256}, ["usr/x"], {"usr/x": 3}):
+            e = dict(json.loads(json.dumps(MANIFEST))["packages"]["alpha-data"], symlinks=links)
+            with self.assertRaises(helper.Refused, msg=links):
+                helper.check_entry("alpha-data", e)
+        e = dict(json.loads(json.dumps(MANIFEST))["packages"]["alpha-data"],
+                 symlinks={"usr/lib/quake3/ta/baseq3/pak0.pk3": "../../../../share/games/quake3-data/baseq3/pak0.pk3",
+                           "usr/share/games/q/ta": "../../../games/quake3"})
+        self.assertTrue(helper.check_entry("alpha-data", e) and files)
+
     def test_bad_names(self):
         for name in ("../x", "./usr/../../etc/x", "/usr/share/games/alpha/a.dat", "usr//share/x", "./usr/./x"):
             with self.subTest(name=name):
@@ -346,6 +391,23 @@ class ImportData(Dirs):
             self.refused(tar_of(good_members()), "not enough space")
         finally:
             helper.SPACE_MARGIN = old
+
+    def test_space_in_two_steps(self):
+        """before the stream, room for the staged files (walnut-data's deb still holds its space then); once
+        it has ended, dpkg-deb's temporary data member and the deb, twice the staged bytes more"""
+        old = helper.free_bytes, helper.SPACE_MARGIN
+        cap = len(A) + len(B) + len(MAN)
+        helper.SPACE_MARGIN = 0
+        try:
+            calls = []
+            helper.free_bytes = lambda p: calls.append(p) or (cap + 10, 1)   # the files fit, their deb doesn't
+            self.refused(tar_of(good_members()), "not enough space")
+            self.assertEqual(len(calls), 4)                                  # refused by the second check
+            helper.free_bytes = lambda p: (1 << 20, 1)
+            r, out, fake = self.imp(tar_of(good_members()))
+            self.assertIsNone(r, out)
+        finally:
+            helper.free_bytes, helper.SPACE_MARGIN = old
 
     def test_manifest_entries_checked(self):
         for change in ({"version": "89\nDepends: evil"}, {"edition": "deluxe"}, {"symlinks": {"a": "b"}},
@@ -883,6 +945,9 @@ class DataImport(unittest.TestCase):
         one = wd.space_needs(T, False, "/c", "/v", "/u", dev=lambda p: 1)
         self.assertEqual(one, {1: (3 * T, ["/c", "/v", "/u"])})
         self.assertEqual(wd.space_needs(T, True, "/c", "/v", "/u", dev=lambda p: 1)[1][0], 4 * T)   # an installer
+        # unpacked whole: every package of the game it holds (GOG's Quake III Gold for Team Arena alone)
+        self.assertEqual(wd.space_needs(T, True, "/c", "/v", "/u", dev=lambda p: 1, unpack=250)[1][0], 3 * T + 250)
+        self.assertEqual(wd.space_needs(T, False, "/c", "/v", "/u", dev=lambda p: 1, unpack=250)[1][0], 3 * T)
         apart = wd.space_needs(T, False, "/c", "/v", "/u", dev=lambda p: p)
         self.assertEqual(apart, {"/c": (3 * T, ["/c"]), "/v": (3 * T, ["/v"]), "/u": (T, ["/u"])})
         with self.assertRaises(wd.Refused) as e:
@@ -1237,7 +1302,7 @@ class BinCueImport(unittest.TestCase):
     def test_space_counts_the_iso_and_music(self):
         sources = wd.Sources(str(self.t), [{"source": "m/%02d.ogg", "first": 2, "last": 3}])
         kind, (cue, tracks), extra = sources.plan(str(self.t / "game.cue"))
-        self.assertEqual(kind, "cue")
+        self.assertEqual(kind, "disc")
         self.assertEqual(extra, 20 * 2048 + int(3 / 75 * wd.OGG_ENC_BYTES) + int(4 / 75 * wd.OGG_ENC_BYTES))
         need = wd.space_needs(100, False, "/c", "/v", "/u", dev=lambda p: p, extra=5000)
         self.assertEqual(need["/c"][0], 300 + 5000)
@@ -1270,6 +1335,205 @@ class BinCueImport(unittest.TestCase):
         wd.disc_audio_tracks = self.old["disc_audio_tracks"]
         self.assertIsNone(wd.disc_audio_tracks(str(self.t / "no-such-drive")))
         self.assertIsNone(wd.disc_audio_tracks(str(self.t / "game.cue")))         # not a CD drive: ioctl fails
+
+
+SUB = bytes(range(96))                     # a sector's 96 bytes of P-W subchannel in a 2448-byte MDF
+
+
+def make_mds(tracks, medium=0, name=b"*.mdf", wide=False, version=(1, 3), extra=True):
+    """an Alcohol 120% descriptor: one session, the three lead-in blocks (A0-A2), then a block per track
+    (point, mode byte, sector size, start offset in the .mdf, length in sectors, number of files), each
+    with its extra block (pregap 150 for track 1, the length), a footer naming the image"""
+    blocks = [(0xA0, 0, 0, 0, 0, 0), (0xA1, 0, 0, 0, 0, 0), (0xA2, 0, 0, 0, 0, 0)] + list(tracks)
+    tb_at = 88 + 24
+    extra_at = tb_at + 80 * len(blocks)
+    footer_at = extra_at + 8 * len(tracks)
+    name_at = footer_at + 16
+    hdr = bytearray(88)
+    hdr[:16] = wd.MDS_SIGNATURE
+    hdr[16:18] = bytes(version)
+    struct.pack_into("<HH", hdr, 18, medium, 1)
+    struct.pack_into("<I", hdr, 80, 88)
+    sess = bytearray(24)
+    struct.pack_into("<iiHBBHHII", sess, 0, -150, 0, 1, len(blocks), 3, 1, len(tracks), 0, tb_at)
+    tb, ex = b"", b""
+    for i, (point, mode, size, start, length, files) in enumerate(blocks):
+        b = bytearray(80)
+        b[0], b[1], b[4] = mode, 8 if size == 2448 else 0, point
+        if point < 0xA0:
+            k = i - 3
+            struct.pack_into("<IH", b, 12, extra_at + 8 * k if extra else 0, size)
+            struct.pack_into("<QII", b, 40, start, files, footer_at)
+            ex += struct.pack("<II", 150 if point == 1 else 0, length)
+        tb += bytes(b)
+    raw_name = name.decode().encode("utf-16-le") + b"\0\0" if wide else name + b"\0"
+    footer = struct.pack("<IIII", name_at, 1 if wide else 0, 0, 0)
+    return bytes(hdr) + bytes(sess) + tb + ex + footer + raw_name
+
+
+class MdfMds(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.t = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+        self.blocks = iso_blocks(20, 18)
+        self.a2 = pcm(3, 7)
+        self.make_disc()
+
+    def make_disc(self):
+        """game.mdf/game.mds: a MODE1 data track of 20 2448-byte sectors, then an audio track of 3"""
+        data = b"".join(mode1_sector(i, b) + SUB for i, b in enumerate(self.blocks))
+        audio = b"".join(self.a2[i * 2352:(i + 1) * 2352] + SUB for i in range(3))
+        (self.t / "game.mdf").write_bytes(data + audio)
+        (self.t / "game.mds").write_bytes(make_mds([(1, 0xAA, 2448, 0, 20, 1), (2, 0xA9, 2448, 20 * 2448, 3, 1)]))
+
+    def test_mode1_2448_and_audio(self):
+        ts = wd.parse_mds(str(self.t / "game.mds"))
+        self.assertEqual([(t.number, t.mode, t.audio, t.start, t.end) for t in ts],
+                         [(1, "MODE1/2448", False, 0, 20 * 2448), (2, "AUDIO/2448", True, 20 * 2448, 23 * 2448)])
+        self.assertEqual(ts[0].path, str(self.t / "game.mdf"))
+        self.assertEqual(wd.write_iso(ts[0], str(self.t / "out.iso")), 18 * 2048)
+        self.assertEqual((self.t / "out.iso").read_bytes(), b"".join(self.blocks[:18]))
+        buf = io.BytesIO()
+        self.assertEqual(wd.write_wav(ts[1], buf), len(self.a2))           # the subchannel bytes left out
+        self.assertEqual(buf.getvalue(), wd.wav_header(len(self.a2)) + self.a2)
+        self.assertAlmostEqual(wd.track_seconds(ts[1]), 3 / 75)
+
+    def test_mode2_and_cooked_sectors(self):
+        m2 = b"".join(wd.SYNC + bytes([0, 2, 0, 2]) + bytes(8) + b + bytes(280) for b in self.blocks)
+        (self.t / "m2.mdf").write_bytes(m2)
+        (self.t / "m2.mds").write_bytes(make_mds([(1, 0xEC, 2352, 0, 20, 1)]))
+        t = wd.parse_mds(str(self.t / "m2.mds"))[0]
+        self.assertEqual((t.mode, t.layout), ("MODE2/2352", (2352, 24)))
+        self.assertEqual(wd.write_iso(t, str(self.t / "m2.iso")), 18 * 2048)
+        self.assertEqual((self.t / "m2.iso").read_bytes(), b"".join(self.blocks[:18]))
+        # 2048-byte sectors at offset 0: the .mdf is loop-mounted as it is; elsewhere in the file: extracted
+        (self.t / "c.mdf").write_bytes(b"".join(self.blocks))
+        (self.t / "c.mds").write_bytes(make_mds([(1, 0xAA, 2048, 0, 20, 1)]))
+        src = wd.Sources(str(self.t))
+        self.assertEqual(src.plan(str(self.t / "c.mds")), ("image", str(self.t / "c.mdf"), 0))
+        self.assertEqual(src.plan(str(self.t / "c.mdf")), ("image", str(self.t / "c.mdf"), 0))
+        (self.t / "o.mdf").write_bytes(bytes(4096) + b"".join(self.blocks))
+        (self.t / "o.mds").write_bytes(make_mds([(1, 0xAA, 2048, 4096, 20, 1)]))
+        kind, (sheet, ts), extra = src.plan(str(self.t / "o.mdf"))
+        self.assertEqual((kind, sheet, extra), ("disc", str(self.t / "o.mds"), 20 * 2048))
+        self.assertEqual(wd.write_iso(ts[0], str(self.t / "o.iso")), 18 * 2048)
+
+    def test_lone_mdf_sniffed(self):
+        os.unlink(self.t / "game.mds")
+        self.assertEqual(wd.mds_for(str(self.t / "game.mdf")), "")
+        src = wd.Sources(str(self.t))
+        kind, (sheet, ts), extra = src.plan(str(self.t / "game.mdf"))
+        self.assertEqual((kind, sheet, len(ts), ts[0].mode, ts[0].end), ("disc", str(self.t / "game.mdf"), 1,
+                                                                         "MODE1/2448", 23 * 2448))
+        self.assertEqual(wd.write_iso(ts[0], str(self.t / "out.iso")), 18 * 2048)   # cut before the audio
+        self.assertEqual((self.t / "out.iso").read_bytes(), b"".join(self.blocks[:18]))
+        (self.t / "r.mdf").write_bytes(b"".join(mode1_sector(i, b) for i, b in enumerate(self.blocks)))
+        self.assertEqual(wd.sniff_mdf(str(self.t / "r.mdf"))[0].layout, (2352, 16))
+        (self.t / "p.mdf").write_bytes(b"".join(self.blocks))
+        self.assertEqual(wd.sniff_mdf(str(self.t / "p.mdf")), "iso")
+        (self.t / "x.mdf").write_bytes(bytes(40000))
+        with self.assertRaises(wd.Refused) as e:
+            wd.sniff_mdf(str(self.t / "x.mdf"))
+        self.assertIn("give its .mds", str(e.exception))
+
+    def test_footer_names_dvd_and_sessions(self):
+        (self.t / "Other Name.MDF").write_bytes(b"".join(self.blocks))
+        (self.t / "a.mds").write_bytes(make_mds([(1, 0xAA, 2048, 0, 20, 1)], name=b"other name.mdf"))
+        self.assertEqual(wd.parse_mds(str(self.t / "a.mds"))[0].path, str(self.t / "Other Name.MDF"))
+        (self.t / "w.mds").write_bytes(make_mds([(1, 0xAA, 2048, 0, 20, 1)], name=b"Other Name.MDF", wide=True))
+        self.assertEqual(wd.parse_mds(str(self.t / "w.mds"))[0].path, str(self.t / "Other Name.MDF"))
+        # a DVD's track runs to the file's end (no extra block is read)
+        (self.t / "dvd.mdf").write_bytes(b"".join(self.blocks))
+        (self.t / "dvd.mds").write_bytes(make_mds([(1, 0xAA, 2048, 0, 1, 1)], medium=0x10))
+        self.assertEqual(wd.parse_mds(str(self.t / "dvd.mds"))[0].end, 20 * 2048)
+        # a CD without extra blocks: each track to the next one's start
+        (self.t / "game.mds").write_bytes(make_mds([(1, 0xAA, 2448, 0, 0, 1), (2, 0xA9, 2448, 20 * 2448, 0, 1)],
+                                                   extra=False))
+        self.assertEqual([t.end for t in wd.parse_mds(str(self.t / "game.mds"))], [20 * 2448, 23 * 2448])
+
+    def test_refusals(self):
+        good = [(1, 0xAA, 2448, 0, 20, 1)]
+        for raw, want in ((b"MEDIA DESCRIPTOX" + bytes(80), "not an Alcohol"),
+                          (make_mds(good, version=(2, 0)), "version 2.0"),
+                          (make_mds([(1, 0xAD, 2352, 0, 20, 1)]), "mode 2 form 2"),
+                          (make_mds([(1, 0x00, 2352, 0, 20, 1)]), "unknown"),
+                          (make_mds([(1, 0xAA, 2340, 0, 20, 1)]), "2340-byte sectors"),
+                          (make_mds([(1, 0xA9, 2048, 0, 20, 1)]), "AUDIO in 2048-byte"),
+                          (make_mds([(1, 0xAA, 2448, 0, 20, 3)]), "split over 3 files"),
+                          (make_mds([(1, 0xAA, 2448, 0, 99, 1)]), "outside"),
+                          (make_mds(good, name=b"gone.mdf"), "names gone.mdf"),
+                          (make_mds(good)[:120], "cut short"),
+                          (make_mds([]), "no tracks")):
+            (self.t / "game.mds").write_bytes(raw)
+            with self.assertRaises(wd.Refused, msg=want) as e:
+                wd.parse_mds(str(self.t / "game.mds"))
+            self.assertIn(want, str(e.exception))
+
+    def test_mds_for(self):
+        self.assertEqual(wd.mds_for(str(self.t / "game.mds")), str(self.t / "game.mds"))
+        os.rename(self.t / "game.mds", self.t / "GAME.MDS")
+        self.assertEqual(wd.mds_for(str(self.t / "game.mdf")), str(self.t / "GAME.MDS"))
+        self.assertIsNone(wd.mds_for(str(self.t / "game.iso")))
+        self.assertEqual(wd.source_kind(str(self.t / "game.mdf")), "path")    # only plan() reads it
+
+
+class MdfImport(unittest.TestCase):
+    """whole imports from an MDF/MDS, with the stubs of DataImport"""
+    tearDown, log, imp, catalog = DataImport.tearDown, DataImport.log, DataImport.imp, DataImport.catalog
+
+    def setUp(self):
+        DataImport.setUp(self)
+        self.blocks = iso_blocks(20, 18)
+        self.a2 = pcm(3, 7)
+        MdfMds.make_disc(self)
+        enc = self.t / "oggenc"
+        enc.write_text("#!/bin/sh\ncat > \"$3\"\n")
+        enc.chmod(0o755)
+        self.old["OGGENC"] = wd.OGGENC
+        wd.OGGENC = str(enc)
+        (self.t / "mnt").mkdir()
+        self.games = {"quakespasm": {"id": "quakespasm", "data_setup": {
+            "gdp": "quake", "required": ["quake-registered"], "optional": ["quake-music"], "downloads": []}}}
+        Path(wd.MANIFEST).write_text(json.dumps({"packages": {
+            "quake-registered": {"files": {"id1/pak0.pak": [{"size": 1000}]}},
+            "quake-music": {"files": {}, "tracks": {"source": "id1/music/track%02d.ogg", "first": 2, "last": 3,
+                                                    "max_size": 1 << 26, "paths": []}}}}))
+
+    def test_mdf_data_and_music(self):
+        seen = {}
+        real = wd.Sources.open_image
+
+        def open_image(src, path):        # the ISO as it is when it is opened
+            seen["iso"] = Path(path).read_bytes()
+            return real(src, path)
+        wd.Sources.open_image = open_image
+        try:
+            rc, out = self.imp(self.t / "game.mdf", game="quakespasm")
+        finally:
+            wd.Sources.open_image = real
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(seen["iso"], b"".join(self.blocks[:18]))
+        music = str(self.t / "cache/walnut-data/disc/music")
+        self.assertEqual(self.log()[0]["gdp"][-3:], ["quake", str(self.t / "mnt"), music])
+        self.assertEqual(Path(self.t / "udisks").read_text().splitlines()[0],
+                         "loop-setup -r -f %s" % (self.t / "cache/walnut-data/disc/game.iso"))
+        self.assertIn("gdp step extracting the data track of game.mds", out)
+        self.assertFalse((self.t / "cache/walnut-data/disc").exists())
+
+    def test_plain_mdf_loop_mounted(self):
+        (self.t / "p.mdf").write_bytes(b"".join(self.blocks))
+        rc, out = self.imp(self.t / "p.mdf", game="quakespasm", opts=("-p", "quake-registered"))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.log()[0]["gdp"][-1], str(self.t / "mnt"))
+        self.assertEqual((self.t / "udisks").read_text().splitlines(),
+                         ["loop-setup -r -f %s" % (self.t / "p.mdf"), "mount -b /dev/loop7", "unmount -b /dev/loop7"])
+
+    def test_broken_mds_refused_before_anything(self):
+        (self.t / "game.mds").write_bytes(make_mds([(1, 0xAD, 2352, 0, 20, 1)]))
+        rc, out = self.imp(self.t / "game.mdf", game="quakespasm")
+        self.assertEqual(rc, 2)
+        self.assertEqual(self.log(), [])
 
 
 if __name__ == "__main__":

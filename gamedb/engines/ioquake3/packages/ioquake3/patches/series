@@ -26,3 +26,4 @@
 0027-renderergl2-r_vaoSnormColor-vertex-colours-as-signed.patch
 0028-renderergl2-no-powf-per-texel-channel-in-the-gamma-c.patch
 0029-renderergl2-r_md3PackedFrames-animated-MD3-frames-in.patch
+0030-client-cl_cdkeyCheck-0-the-UI-takes-any-CD-key-as-va.patch

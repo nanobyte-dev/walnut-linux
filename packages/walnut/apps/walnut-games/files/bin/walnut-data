@@ -33,6 +33,18 @@ Design
   given: gdp takes already ripped tracks from there, so it needs no patch for this. Only music packages
   asked for: no ISO is made. A cue sheet is read before anything is written, so a broken one refuses
   at once; the space check counts the ISO and the Ogg files (OGG_ENC_BYTES per second) in the cache.
+  MDF/MDS (Alcohol 120%: an .mds, or the .mdf with its .mds next to it): the descriptor is read here,
+  version 1.x only (signature "MEDIA DESCRIPTOR", byte 16 = 1): every session's track blocks (points
+  1-99; the lead-in entries 0xA0-0xA2 skipped), each track's mode (low four bits: 9 audio, A mode 1, B
+  and C mode 2 form 1), sector size (2048, 2336, 2352, or 2448 = 2352 + 96 bytes of interleaved
+  subchannel), start offset in the .mdf and length (the extra block's, a CD; a DVD's runs to the file's
+  end), the image file from the footer ("*.mdf": the .mds's name). Refused: version 2, a split image
+  (number_of_files > 1), mode 2 form 2 or an unknown mode, other sector sizes. The tracks then go the
+  BIN/CUE way (ISO extracted, music encoded, the subchannel bytes dropped); a data track of 2048-byte
+  sectors at offset 0 is loop-mounted as it is, no copy. An .mdf without its .mds is sniffed: an ISO
+  9660 volume at sector 16 is a plain image (loop-mounted), else raw sectors (the sync pattern at the
+  start of sectors 0 and 1 says 2352 or 2448; the header's mode byte 1 or 2) are one data track to the
+  file's end, cut at the volume's size; anything else is refused (give the .mds).
   The disc in the drive with a music package asked for: its table of contents (CDROMREADTOC* ioctls,
   the player's ACL on /dev/sr0) says whether it has audio tracks; then the device itself is given to gdp
   too, which rips the music with cdparanoia and oggenc (an audio CD that can't be mounted is fine
@@ -58,8 +70,11 @@ Design
   before and removed after.
   Free space is checked before gdp runs, from the data manifest's sizes of the packages (T): the most
   each file system holds at one time over the phases (gdp: 3T in the cache, its copy of the files,
-  dpkg-deb's temporary data member and the deb (a Quake II import ran out of space at 2T), 4T for an
-  installer or archive, plus what the sources put there (a BIN/CUE's ISO and music) and DOWNLOAD_BYTES
+  dpkg-deb's temporary data member and the deb (a Quake II import ran out of space at 2T), for an
+  installer or archive 3T plus its unpacked files, counted as the data of every required and optional
+  package of the game whichever were asked for (gdp unpacks what the installer holds for any of them:
+  GOG's Quake III Gold gave baseq3/pak0.pk3 to a Team Arena import, which ran out of space at 4T), plus
+  what the sources put there (a BIN/CUE's ISO and music) and DOWNLOAD_BYTES
   when it may download; streaming: T cache + T staging; the helper's deb: 3T staging, its files, dpkg-deb's
   temporary data member and the deb; installing: T staging +
   T /usr), summed where they share a disk; refused with what is needed and what is free.
@@ -96,6 +111,7 @@ import os
 import re
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import threading
@@ -293,31 +309,47 @@ class Sources:
         gdp runs (the ISO and Ogg files of a BIN/CUE, gdp's WAV of a CD rip); Refused when it is not there.
         A cue sheet is read here, so a broken one refuses before anything is written."""
         path = os.path.abspath(path)
-        cue = cue_for(path) if os.path.isfile(path) else None
+        isfile = os.path.isfile(path)
+        cue = cue_for(path) if isfile else None
         if cue:
             tracks = parse_cue(cue)
+            return ("disc", (cue, tracks), self.disc_extra(tracks))
+        mds = mds_for(path) if isfile else None
+        if mds is not None:
+            tracks = parse_mds(mds) if mds else sniff_mdf(path)
+            if tracks == "iso":
+                return ("image", path, 0)          # 2048-byte sectors: loop-mounted as it is
             data = next((t for t in tracks if not t.audio), None)
-            extra = data.sectors * 2048 if data else 0
-            for m in self.music:
-                extra += sum(int(track_seconds(t) * OGG_ENC_BYTES) for t in tracks
-                             if t.audio and m["first"] <= t.number <= m["last"])
-            return ("cue", (cue, tracks), extra)
+            if data and data.layout == (2048, 0) and data.start == 0 and not self.music:
+                return ("image", data.path, 0)
+            return ("disc", (mds or path, tracks), self.disc_extra(tracks))
         kind = source_kind(path)
         return (kind, path, CD_RIP_WAV_BYTES + MUSIC_TRACK_BYTES if kind == "device" and self.music else 0)
+
+    def disc_extra(self, tracks):
+        """the bytes a BIN/CUE's or MDF's tracks add to the cache: the data track's ISO and the music"""
+        data = next((t for t in tracks if not t.audio), None)
+        extra = data.sectors * 2048 if data else 0
+        for m in self.music:
+            extra += sum(int(track_seconds(t) * OGG_ENC_BYTES) for t in tracks
+                         if t.audio and m["first"] <= t.number <= m["last"])
+        return extra
 
     def open(self, plan):
         """[paths] for gdp from a plan"""
         kind, what, _ = plan
-        if kind == "cue":
-            return self.add_cue(*what)
+        if kind == "disc":
+            return self.add_disc(*what)
         if kind == "device":
             return self.add_device(what)
+        if kind == "image":
+            return [self.open_image(what)]
         return [self.add(what)]
 
-    def add_cue(self, cue, tracks):
-        """a BIN/CUE: its first data track as an ISO in the cache, opened like any image; the music packages'
-        audio tracks encoded to Ogg Vorbis in a folder laid out as gdp looks for ripped tracks
-        (id1/music/track02.ogg), which gdp is given too"""
+    def add_disc(self, cue, tracks):
+        """a BIN/CUE or MDF/MDS (cue: the sheet or descriptor): its first data track as an ISO in the cache,
+        opened like any image; the music packages' audio tracks encoded to Ogg Vorbis in a folder laid out
+        as gdp looks for ripped tracks (id1/music/track02.ogg), which gdp is given too"""
         name = os.path.splitext(os.path.basename(cue))[0]
         work = os.path.join(self.base or cache_dir(), "disc")
         shutil.rmtree(work, ignore_errors=True)
@@ -423,6 +455,11 @@ class Sources:
             return path
         if kind == "device":
             return self.mount(path)
+        return self.open_image(path)
+
+    def open_image(self, path):
+        """an image of 2048-byte sectors (.iso, .img, a plain .mdf) set up read-only as a loop device and
+        mounted; its mount point"""
         rc, out = run([UDISKSCTL, "loop-setup", "-r", "-f", path])
         m = re.search(r" as (/dev/\S+?)\.?\s*$", out.strip())
         if rc != 0 and "NotAuthorized" in out:
@@ -466,20 +503,23 @@ OGGENC_JOBS = 2                               # the PS3's PPE has two threads
 
 
 class Track:
-    """one track of a cue sheet: number, mode, its file and file type, the byte range in that file"""
+    """one track of a cue sheet or an MDS descriptor: number, mode, its file and file type, the byte range in
+    that file; layout: (bytes per sector, offset of the user data or None for audio), by default the cue
+    mode's (an MDF's 2448-byte sectors carry 96 bytes of subchannel after the 2352)"""
 
-    def __init__(self, number, mode, path, ftype):
+    def __init__(self, number, mode, path, ftype, layout=None):
         self.number, self.mode, self.path, self.ftype = number, mode, path, ftype
+        self.layout = layout or TRACK_MODES[mode]
         self.indexes = {}                    # index number: frame (1/75 s) in the file
         self.start = self.end = 0
 
     @property
     def sector(self):
-        return TRACK_MODES[self.mode][0]
+        return self.layout[0]
 
     @property
     def audio(self):
-        return self.mode == "AUDIO"
+        return self.layout[1] is None
 
     @property
     def sectors(self):
@@ -493,9 +533,9 @@ def msf_frames(text):
     return (int(m.group(1)) * 60 + int(m.group(2))) * 75 + int(m.group(3))
 
 
-def cue_file(base, name):
-    """the cue's FILE name as a path next to the cue (its directory, then a case-insensitive match: cue
-    sheets from Windows often differ in case from the files)"""
+def cue_file(base, name, sheet="the cue sheet"):
+    """the cue's FILE name (or an MDS's image file) as a path next to it (its directory, then a
+    case-insensitive match: cue sheets from Windows often differ in case from the files)"""
     path = os.path.join(base, name.replace("\\", "/"))
     if os.path.isfile(path):
         return path
@@ -506,7 +546,7 @@ def cue_file(base, name):
                 return os.path.join(d, n)
     except OSError:
         pass
-    raise Refused("the cue sheet names %s, which is not next to it" % name)
+    raise Refused("%s names %s, which is not next to it" % (sheet, name))
 
 
 def parse_cue(path, size_of=os.path.getsize):
@@ -585,7 +625,7 @@ def iso_volume_bytes(pvd):
 def write_iso(track, dest):
     """the 2048-byte user data of a data track's sectors written to dest (cut to the ISO 9660 volume's
     size when the track holds one); its size. Refused when the sectors are not the mode the cue says."""
-    size, off = TRACK_MODES[track.mode]
+    size, off = track.layout
     n, written, limit = track.sectors, 0, None
     with open(track.path, "rb") as src, open(dest, "wb") as out:
         src.seek(track.start)
@@ -595,7 +635,7 @@ def write_iso(track, dest):
             buf = src.read(k * size)
             if len(buf) < k * size:
                 raise Refused("%s ends early" % track.path)
-            if done == 0 and size == 2352:
+            if done == 0 and size >= 2352:
                 if buf[:12] != SYNC or buf[15] not in (1, 2):
                     raise Refused("track %d of %s is not %s data" % (track.number, os.path.basename(track.path),
                                                                       track.mode))
@@ -620,27 +660,31 @@ def wav_header(nbytes):
 
 def write_wav(track, out):
     """an audio track as a WAV stream to the binary file object out: CD-DA in a .bin is 16-bit little-endian
-    stereo (a MOTOROLA file is big-endian: swapped); the bytes of audio written"""
-    n = track.end - track.start
+    stereo (a MOTOROLA file is big-endian: swapped; an MDF's subchannel bytes after each 2352 left out); the
+    bytes of audio written"""
+    size = track.sector
+    n = track.sectors * 2352
     out.write(wav_header(n))
-    left = n
+    left = track.sectors * size
     with open(track.path, "rb") as src:
         src.seek(track.start)
         while left:
-            buf = src.read(min(left, CHUNK_SECTORS * 2352))
-            if not buf:
+            buf = src.read(min(left, CHUNK_SECTORS * size))
+            if not buf or len(buf) % size:
                 raise Refused("%s ends early" % track.path)
+            left -= len(buf)
+            if size != 2352:
+                buf = b"".join(buf[i:i + 2352] for i in range(0, len(buf), size))
             if track.ftype == "MOTOROLA":
                 b = bytearray(buf)
                 b[0::2], b[1::2] = buf[1::2], buf[0::2]
                 buf = bytes(b)
             out.write(buf)
-            left -= len(buf)
     return n
 
 
 def track_seconds(track):
-    return (track.end - track.start) / 176400
+    return track.sectors * 2352 / 176400
 
 
 def encode_tracks(tracks, layout, dest, first, last, jobs=OGGENC_JOBS):
@@ -712,6 +756,152 @@ def cue_for(path):
         except OSError:
             pass
         raise Refused("%s needs its .cue sheet next to it (it says where the tracks are)" % path)
+    return None
+
+
+# ---- Alcohol 120% MDF/MDS images ------------------------------------------------------------
+
+MDS_SIGNATURE = b"MEDIA DESCRIPTOR"
+MDS_MAX = 1 << 20                             # bytes of an .mds read
+MDS_DVD = 0x10                                # the medium type's DVD bit (0x10 DVD-ROM, 0x12 DVD-R)
+# a track block's mode, its low four bits (Alcohol sets 0xA0 or 0xE0 above them): 0xC is mode 2 form 1;
+# 0x0 (unknown) and 0xD (mode 2 form 2) are refused
+MDS_MODES = {0x9: "AUDIO", 0xA: "MODE1", 0xB: "MODE2", 0xC: "MODE2"}
+# (mode, bytes per sector in the .mdf): the offset of the 2048 bytes of user data, None for audio; 2448 is
+# 2352 + 96 bytes of interleaved P-W subchannel
+MDS_LAYOUTS = {("AUDIO", 2352): None, ("AUDIO", 2448): None, ("MODE1", 2048): 0, ("MODE1", 2352): 16,
+               ("MODE1", 2448): 16, ("MODE2", 2336): 8, ("MODE2", 2352): 24, ("MODE2", 2448): 24}
+
+
+def mds_image_name(mds, raw, footer):
+    """the image file an MDS footer names, next to the .mds: "*.mdf" is the .mds's own name with that
+    extension; a footer at 0 means *.mdf"""
+    name = "*.mdf"
+    if footer:
+        off, wide = struct.unpack_from("<II", raw, footer)
+        if wide:
+            end = off
+            while raw[end:end + 2] not in (b"\0\0", b"", b"\0"):
+                end += 2
+            name = raw[off:end].decode("utf-16-le", "replace")
+        else:
+            end = raw.find(b"\0", off)
+            name = raw[off:end if end >= 0 else len(raw)].decode("latin-1")
+    m = re.fullmatch(r"\*\.(\w+)", name)
+    if m:
+        name = os.path.splitext(os.path.basename(mds))[0] + "." + m.group(1)
+    if not name or "/" in name.replace("\\", "/"):
+        raise Refused("%s names no image file it can use: %r" % (mds, name))
+    return cue_file(os.path.dirname(os.path.abspath(mds)), name, "the .mds")
+
+
+def parse_mds(path, size_of=os.path.getsize):
+    """[Track] of an Alcohol 120% descriptor (version 1.x: "MEDIA DESCRIPTOR" 1.3, 1.5), each with its byte
+    range in the .mdf: from the track block's start offset (an MDF holds no pregaps) for the extra block's
+    length in sectors (a DVD: to the file's end); its lead-in entries (points 0xA0-0xA2) left out. Refused
+    for what isn't read: version 2 (.mdx-style), a split image (.md0, .md1...), mode 2 form 2, an unknown
+    mode, another sector size."""
+    try:
+        with open(path, "rb") as f:
+            raw = f.read(MDS_MAX + 1)
+    except OSError as e:
+        raise Refused("cannot read %s: %s" % (path, e.strerror))
+    if len(raw) > MDS_MAX or raw[:16] != MDS_SIGNATURE:
+        raise Refused("%s is not an Alcohol 120%% .mds descriptor" % path)
+    if raw[16] != 1:
+        raise Refused("%s is a version %d.%d descriptor: only version 1 (Alcohol 120%%'s .mds) is read"
+                      % (path, raw[16], raw[17]))
+    tracks, last = [], {}
+    try:
+        medium, sessions = struct.unpack_from("<HH", raw, 18)
+        sessions_at = struct.unpack_from("<I", raw, 80)[0]
+        for s_i in range(sessions):
+            so = sessions_at + 24 * s_i
+            blocks, blocks_at = raw[so + 10], struct.unpack_from("<I", raw, so + 20)[0]
+            for b_i in range(blocks):
+                o = blocks_at + 80 * b_i
+                mode_byte, point = raw[o], raw[o + 4]
+                if not 1 <= point <= 99:
+                    continue
+                extra_at, size = struct.unpack_from("<IH", raw, o + 12)
+                start, files, footer = struct.unpack_from("<QII", raw, o + 40)
+                kind = MDS_MODES.get(mode_byte & 0x0F)
+                if kind is None:
+                    raise Refused("%s: track %d has mode 0x%02x (%s), which is not supported" % (
+                        path, point, mode_byte, "mode 2 form 2" if mode_byte & 0x0F == 0xD else "unknown"))
+                if (kind, size) not in MDS_LAYOUTS:
+                    raise Refused("%s: track %d is %s in %d-byte sectors, which is not supported"
+                                  % (path, point, kind, size))
+                if files > 1:
+                    raise Refused("%s: track %d is split over %d files (.md0, .md1...), which is not supported"
+                                  % (path, point, files))
+                image = mds_image_name(path, raw, footer)
+                t = Track(point, "%s/%d" % (kind, size), image, "BINARY", (size, MDS_LAYOUTS[(kind, size)]))
+                t.start = start
+                if medium & MDS_DVD or not extra_at:
+                    t.end = None               # to the next track in the file, or the file's end
+                else:
+                    t.end = start + struct.unpack_from("<I", raw, extra_at + 4)[0] * size
+                tracks.append(t)
+    except (struct.error, IndexError):
+        raise Refused("%s is cut short: not a whole .mds descriptor" % path)
+    if not tracks:
+        raise Refused("%s has no tracks" % path)
+    tracks.sort(key=lambda t: t.number)
+    sizes = {}
+    for i, t in enumerate(tracks):
+        size = sizes.setdefault(t.path, size_of(t.path))
+        if t.end is None:
+            nxt = [u.start for u in tracks[i + 1:] if u.path == t.path and u.start > t.start]
+            stop = min(nxt) if nxt else size
+            t.end = t.start + (stop - t.start) // t.sector * t.sector
+        if t.end <= t.start or t.end > size:
+            raise Refused("%s: track %d is outside %s" % (path, t.number, os.path.basename(t.path)))
+    return tracks
+
+
+def sniff_mdf(path):
+    """a lone .mdf (no .mds next to it): "iso" when it holds 2048-byte sectors (an ISO 9660 volume at
+    sector 16: a plain image), else [one data Track] from its raw sectors (2352, or 2448 with subchannel:
+    the sync pattern at the start of the first two sectors; mode 1 or 2 from the first header) to the
+    file's end, which write_iso cuts at the volume's size; Refused for anything else"""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(2 * 2448)
+            f.seek(16 * 2048)
+            pvd = f.read(6)
+        size = os.path.getsize(path)
+    except OSError as e:
+        raise Refused("cannot read %s: %s" % (path, e.strerror))
+    if pvd == b"\x01CD001":
+        return "iso"
+    sizes = [n for n in (2352, 2448) if head[:12] == SYNC and head[n:n + 12] == SYNC]
+    if len(sizes) != 1 or head[15] not in (1, 2):
+        raise Refused("%s is neither a plain image (ISO 9660 in 2048-byte sectors) nor raw CD sectors of a "
+                      "data track: give its .mds" % path)
+    n = sizes[0]
+    kind = "MODE1" if head[15] == 1 else "MODE2"
+    t = Track(1, "%s/%d" % (kind, n), path, "BINARY", (n, MDS_LAYOUTS[(kind, n)]))
+    t.end = size // n * n
+    return [t]
+
+
+def mds_for(path):
+    """the descriptor of a SOURCE: path itself (.mds), the .mds next to an .mdf with its name, or "" for an
+    .mdf without one; None for anything else"""
+    low = path.lower()
+    if low.endswith(".mds"):
+        return path
+    if low.endswith(".mdf"):
+        stem = os.path.splitext(os.path.basename(path))[0].lower()
+        d = os.path.dirname(path)
+        try:
+            for n in sorted(os.listdir(d)):
+                if n.lower() == stem + ".mds" and os.path.isfile(os.path.join(d, n)):
+                    return os.path.join(d, n)
+        except OSError:
+            pass
+        return ""
     return None
 
 
@@ -1011,15 +1201,16 @@ def existing(path):
     return path
 
 
-def space_needs(total, archive, cache, var, usr, dev=None, extra=0):
+def space_needs(total, archive, cache, var, usr, dev=None, extra=0, unpack=None):
     """{device: (bytes, [paths])}: the most an import has on each file system at one time. Its phases:
     gdp in the cache (its copy of the files, dpkg-deb's temporary data member, the deb, an installer's or
-    archive's unpacked files, and extra: a BIN/CUE's ISO and music, the downloads),
+    archive's unpacked files (unpack bytes, by default total), and extra: a BIN/CUE's ISO and music, the
+    downloads),
     the deb streamed to the helper's staging (the deb is unlinked as dpkg-deb opens it: gone once the
     stream ends), the helper's own deb made from its staging (with dpkg-deb's temporary copy of the
     data member), then dpkg installing it into /usr"""
     dev = dev or (lambda p: os.stat(existing(p)).st_dev)
-    phases = [[(cache, (4 if archive else 3) * total + extra)], [(cache, total), (var, total)], [(var, 3 * total)],
+    phases = [[(cache, 3 * total + ((total if unpack is None else unpack) if archive else 0) + extra)], [(cache, total), (var, total)], [(var, 3 * total)],
               [(var, total), (usr, total)]]
     need = {}
     for phase in phases:
@@ -1040,11 +1231,11 @@ def human(n):
     return "%d KB" % max(1, n >> 10)
 
 
-def check_space(total, archive, cache, var=IMPORT_DIR, usr=USR, free=None, extra=0):
+def check_space(total, archive, cache, var=IMPORT_DIR, usr=USR, free=None, extra=0, unpack=None):
     """Refused (with what is needed and what is free) when a file system can't hold the import; extra: the
     bytes the sources put in the cache while gdp runs (a BIN/CUE's ISO and Ogg files)"""
     free = free or (lambda p: (lambda st: st.f_bavail * st.f_frsize)(os.statvfs(existing(p))))
-    for d, (need, paths) in space_needs(total, archive, cache, var, usr, extra=extra).items():
+    for d, (need, paths) in space_needs(total, archive, cache, var, usr, extra=extra, unpack=unpack).items():
         have = free(paths[0])
         if have < need + SPACE_MARGIN:
             raise Refused("not enough space: importing this data needs about %s free on the disk of %s, and %s is free"
@@ -1129,7 +1320,9 @@ def cmd_import(game_id, sources, asked, no_download, games):
         if total:
             # an installer or archive: unpacked first
             archive = any(kind == "path" and os.path.isfile(what) for kind, what, _ in plans)
-            check_space(total, archive, base, extra=sum(extra for _, _, extra in plans)
+            # an installer is unpacked whole: the files of every package of the game it may hold
+            unpack = max(total, data_bytes(names(ds, "required") + names(ds, "optional")) or 0)
+            check_space(total, archive, base, unpack=unpack, extra=sum(extra for _, _, extra in plans)
                         + (DOWNLOAD_BYTES if download == "--download" else 0))
         paths = list(dict.fromkeys(p for plan in plans for p in src.open(plan)))
         sandbox = user_manager()

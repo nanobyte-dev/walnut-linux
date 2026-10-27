@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 27 Oct 2026 22:28:19 +0200
+Subject: client: cl_cdkeyCheck 0, the UI takes any CD key as valid
+
+Quake III Arena's menus (q3_ui and Team Arena's ui) open on the CD KEY screen at every start while
+the key is missing or invalid: ui_cdkeychecked is CVAR_ROM, so +set or a config can't skip it (a
+user-set ROM cvar is forced back to the UI's 0 when the UI registers it). The key mattered only to
+id's authorize servers, which are gone; a Walnut player with a pad can't type one either.
+
+cl_cdkeyCheck 0 (default 1, upstream's check) makes the UI_VERIFY_CDKEY trap answer valid, so
+UI_MainMenu goes straight to the main menu. No key is written or read; Setup's CD Key screen still
+takes one. Walnut's Quake III autoexec.cfg sets it to 0.
+
+diff --git a/code/client/cl_main.c b/code/client/cl_main.c
+--- a/code/client/cl_main.c
++++ b/code/client/cl_main.c
+@@ -117,6 +117,7 @@ cvar_t	*cl_inGameVideo;
+ cvar_t	*cl_serverStatusResendTime;
+ 
+ cvar_t	*cl_lanForcePackets;
++cvar_t	*cl_cdkeyCheck;
+ 
+ cvar_t	*cl_guidServerUniq;
+ 
+@@ -3659,6 +3660,8 @@ void CL_Init( void ) {
+ 	Cvar_Get( "cl_maxPing", "800", CVAR_ARCHIVE );
+ 
+ 	cl_lanForcePackets = Cvar_Get ("cl_lanForcePackets", "1", CVAR_ARCHIVE);
++	// 0: the UI takes any CD key as valid, so it never asks for one (it mattered only to id's authorize servers)
++	cl_cdkeyCheck = Cvar_Get ("cl_cdkeyCheck", "1", CVAR_ARCHIVE);
+ 
+ 	cl_guidServerUniq = Cvar_Get ("cl_guidServerUniq", "1", CVAR_ARCHIVE);
+ 
+diff --git a/code/client/cl_ui.c b/code/client/cl_ui.c
+--- a/code/client/cl_ui.c
++++ b/code/client/cl_ui.c
+@@ -1070,6 +1070,8 @@ intptr_t CL_UISystemCalls( intptr_t *args ) {
+ 		return 0;
+ 
+ 	case UI_VERIFY_CDKEY:
++		if ( !cl_cdkeyCheck->integer )
++			return qtrue;
+ 		return CL_CDKeyValidate(VMA(1), VMA(2));
+ 		
+ 	default:
+diff --git a/code/client/client.h b/code/client/client.h
+--- a/code/client/client.h
++++ b/code/client/client.h
+@@ -421,6 +421,7 @@ extern	cvar_t	*cl_conXOffset;
+ extern	cvar_t	*cl_inGameVideo;
+ 
+ extern	cvar_t	*cl_lanForcePackets;
++extern	cvar_t	*cl_cdkeyCheck;
+ extern	cvar_t	*cl_autoRecordDemo;
+ 
+ extern	cvar_t	*cl_consoleKeys;

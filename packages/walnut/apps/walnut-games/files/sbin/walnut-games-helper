@@ -39,8 +39,11 @@ Design
   /usr/share/walnut-games/data-manifest.json (tools/gamedb/gdp-manifest.py: per package its files'
   paths, sizes and checksums, which are required, its version and its same-game Conflicts/Replaces).
   Refused while a game runs (ps3-game-mode-watch.service active). The tar stream on stdin is read
-  member by member (tarfile 'r|', never extracted as such): regular files and directories only;
-  names relative, normalized, without '..', each once; a file must be a manifest path with one of its
+  member by member (tarfile 'r|', never extracted as such): regular files and directories, and the
+  symlinks the manifest lists (gdp's own: Quake III's pk3s under /usr/lib/quake3, the exact path and
+  target; each target relative and resolving under usr/, no file or link under a link path; made by
+  this program after every file is written, all of them required); names relative, normalized,
+  without '..', each once; a file must be a manifest path with one of its
   sizes (checked before its data is read) and, hashed while it is copied, one of its checksums; the
   files game-data-packager generates itself (usr/share/doc/PKG/copyright and changelog*,
   usr/share/lintian/, and for the Doom family usr/share/applications, pixmaps and icons) are read
@@ -54,8 +57,11 @@ Design
   apt-get -s install --reinstall: the only Inst must be PKG and every Remv a manifest Conflicts/
   Replaces package (quake-registered replaces quake-shareware), or nothing is installed; then the
   install, with --no-remove unless the simulation removes such a package. Free space is checked
-  first: twice the manifest's total in the staging file system, once more on /usr (one file system:
-  twice; the staged files go once the deb is made). The package
+  in two steps: before the stream, room for the staged files (the manifest's total T) in the staging
+  file system and, on another file system, T on /usr; once the stream has ended (walnut-data's own
+  deb, whose space comes back only then, no longer counts), room for dpkg-deb's temporary data
+  member and the deb (2T) beside the staged files, which go once the deb is made. Checking 3T up
+  front, while walnut-data's deb still held T, refused a Quake III import (484 MB) that fitted. The package
   stays manually installed (apt-get install of a file): autoremove leaves it.
   Music packages (the manifest's tracks: quake-music, quake2-music) are the weaker case: CD audio ripped
   with cdparanoia or encoded from a BIN/CUE differs from copy to copy, so there is no checksum. A track
@@ -548,8 +554,7 @@ def check_entry(pkg, entry):
     for k in ("conflicts", "replaces"):
         if not all(isinstance(p, str) and PKG_RE.match(p) and p != pkg for p in entry.get(k) or []):
             raise Refused("the data manifest's %s of %s are not package names" % (k, pkg))
-    if entry.get("symlinks"):
-        raise Refused("the data manifest lists symlinks for %s: not supported" % pkg)
+    check_symlinks(pkg, entry)
     for path, alts in entry["files"].items():
         if member_path(path) != path or not isinstance(alts, list) or not alts or \
                 not all(isinstance(a, dict) and isinstance(a.get("size"), int) and a["size"] >= 0
@@ -560,6 +565,31 @@ def check_entry(pkg, entry):
     if not all(p in entry["files"] for p in entry.get("required") or []):
         raise Refused("the data manifest's required files of %s are not among its files" % pkg)
     return entry
+
+
+LINKS_MAX = 256
+
+
+def check_symlinks(pkg, entry):
+    """a package's symlinks entry, {path: target}: the links game-data-packager puts in its deb (Quake III's
+    /usr/lib/quake3/base/baseq3/pak0.pk3 -> ../../../../share/games/quake3-data/baseq3/pak0.pk3). Each
+    path a plain relative name that is none of its files or tracks and has no file, track or other link
+    under it (nothing is ever written through a link); each target relative, at most 255 bytes, no NUL,
+    resolving from the link's directory to a path under usr/."""
+    links = entry.get("symlinks") or {}
+    tracks = (entry.get("tracks") or {}).get("paths") or [] if isinstance(entry.get("tracks"), dict) else []
+    if not isinstance(links, dict) or len(links) > LINKS_MAX:
+        raise Refused("the data manifest's symlinks of %s are not usable" % pkg)
+    others = set(entry["files"]) | set(tracks)
+    every = others | set(links)
+    for path, target in links.items():
+        ok = isinstance(path, str) and member_path(path) == path and path and path not in others and \
+            isinstance(target, str) and 0 < len(target.encode()) <= 255 and not target.startswith("/") and \
+            "\0" not in target and \
+            posixpath.normpath(posixpath.join(posixpath.dirname(path), target)).startswith("usr/") and \
+            not any(p.startswith(path + "/") for p in every)
+        if not ok:
+            raise Refused("the data manifest's symlink %r of %s is not usable" % (str(path)[:80], pkg))
 
 
 def check_tracks(pkg, entry):
@@ -639,18 +669,17 @@ def free_bytes(path):
     return st.f_bavail * st.f_frsize, os.stat(path).st_dev
 
 
-def check_space(total, stage_dir, usr=None):
-    """Refused unless the staging file system has room for the files, dpkg-deb's temporary data member
-    and the deb (three times the total) and /usr for the installed files once more; on one file system
-    three times the total (the staged files are removed once the deb is made: the deb and the installed
-    files after that)"""
+def check_space(total, stage_dir, usr=None, streamed=False):
+    """Refused unless there is room for what comes next. Before the stream: the staged files (total) in
+    the staging file system and, on another file system, /usr for the installed files (on one file
+    system the staged files go once the deb is made, before the install). streamed: the files are
+    staged, walnut-data's deb that held their space too is gone; dpkg-deb's temporary data member and
+    the deb need twice the total more."""
     usr = usr or USR
     s_free, s_dev = free_bytes(stage_dir)
     u_free, u_dev = free_bytes(usr)
-    need_s = 3 * total + SPACE_MARGIN
-    need_u = total + SPACE_MARGIN
-    if s_dev == u_dev:
-        need_s, need_u = 3 * total + SPACE_MARGIN, 0
+    need_s = (2 if streamed else 1) * total + SPACE_MARGIN
+    need_u = 0 if streamed or s_dev == u_dev else total + SPACE_MARGIN
     for path, free, need in ((stage_dir, s_free, need_s), (usr, u_free, need_u)):
         if need and free < need:
             raise Refused("not enough space: %s has %d MB free, the import needs %d MB"
@@ -682,6 +711,7 @@ def read_stream(src, pkg, entry, root, cap):
     files = entry["files"]
     tracks = set((entry.get("tracks") or {}).get("paths") or [])
     tracks_max = (entry.get("tracks") or {}).get("max_size", 0)
+    links = entry.get("symlinks") or {}
     done, total, skipped = {}, 0, 0
     try:
         tf = tarfile.open(fileobj=src, mode="r|")
@@ -691,6 +721,11 @@ def read_stream(src, pkg, entry, root, cap):
                 raise Refused("not a plain relative name in the data: %r" % m.name[:120])
             if m.type == tarfile.DIRTYPE:
                 continue           # this program makes the directories its files need
+            if m.type == tarfile.SYMTYPE and path in links:
+                if m.linkname != links[path] or path in done:
+                    raise Refused("%s in the data is not the link game-data-packager makes" % path[:120])
+                done[path] = None  # made after every file is written (none is under a link)
+                continue
             if m.type not in (tarfile.REGTYPE, tarfile.AREGTYPE):
                 raise Refused("%s in the data is not a regular file (a link or a device)" % path[:120])
             if path in done or path == "":
@@ -724,9 +759,16 @@ def read_stream(src, pkg, entry, root, cap):
             done[path] = copy_checked(tf.extractfile(m), m.size, alts, root, path)
     except tarfile.TarError as e:
         raise Refused("the data stream is broken or cut short (%s)" % e)
-    missing = [p for p in list(entry.get("required") or []) + sorted(tracks) if p not in done]
+    missing = [p for p in list(entry.get("required") or []) + sorted(tracks) + sorted(links) if p not in done]
     if missing:
         raise Refused("%d of %s's files are missing, e.g. %s" % (len(missing), pkg, missing[0]))
+    for path in sorted(links):
+        dest = os.path.join(root, path)
+        os.makedirs(os.path.dirname(dest), 0o755, exist_ok=True)
+        try:
+            os.symlink(links[path], dest)
+        except FileExistsError:
+            raise Refused("%s is in the data twice" % path[:120])
     return {p: r for p, r in done.items() if p in files}
 
 
@@ -871,6 +913,7 @@ def do_import_data(game_id, pkg, games, src, manifest, gdp_version, runner=run, 
         kb = 0
         for d, dirs, names in os.walk(root):
             kb += len(dirs) + sum((os.lstat(os.path.join(d, n)).st_size + 1023) // 1024 for n in names)
+        check_space(kb * 1024, base, streamed=True)
         os.mkdir(os.path.join(root, "DEBIAN"), 0o755)
         release = release_label(found, entry)
         with os.fdopen(os.open(os.path.join(root, "DEBIAN/control"), os.O_WRONLY | os.O_CREAT | os.O_EXCL

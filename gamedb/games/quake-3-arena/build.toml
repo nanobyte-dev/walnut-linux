@@ -1,0 +1,20 @@
+# How Quake III Arena is built, installed and integrated (gamedb/README.md "build.toml").
+# our ioquake3 (gamedb/engines/ioquake3, OpenArena's engine, which puts it in ps3-games): ioquake3 pulls
+# ioquake3-server (qagame.so) and has the native cgame/ui/qagame links in /usr/lib/quake3/{base,ta}
+packages = ["ioquake3"]
+engine = "ioquake3"
+suite = "none"
+needs_data = true
+
+[data_setup]
+gdp = "quake3"
+original = "Quake III Arena"
+required = ["quake3-data"]
+# Team Arena (missionpack/pak0.pk3): on GOG's Quake III Gold installer and the Team Arena CD
+optional = ["quake3-team-arena-data"]
+# the 1.32 point release's pak1-pak8 (and missionpack's pak1-pak3): game-data-packager downloads id's
+# linuxq3apoint-1.32b-3.x86.run when the copy is a 1.11-1.31 CD
+downloads = ["quake3-data", "quake3-team-arena-data"]
+hint = "Quake III Arena's baseq3/pak0.pk3: its CD or an ISO of it, an installed copy (Steam, GOG) or GOG's Quake III Gold installer (with Team Arena)."
+# what each package holds (X-Walnut-Edition of the package import-data builds)
+editions = { "quake3-data" = "full", "quake3-team-arena-data" = "expansion" }

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Quake III: Team Arena
+Comment=ioquake3 with your own Quake III Arena and Team Arena data, the OpenGL 1 renderer, fullscreen at the TV's resolution
+Exec=ps3-game /usr/lib/ioquake3/ioquake3 +set fs_basepath /usr/lib/quake3/ta +set fs_game missionpack +set sv_pure 0 +set vm_cgame 0 +set vm_game 0 +set vm_ui 0
+Icon=applications-games
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=quake;quake3;team arena;missionpack;first person shooter;
+NoDisplay=true
+X-Walnut-Requires=/usr/share/games/quake3-team-arena-data/missionpack/pak0.pk3

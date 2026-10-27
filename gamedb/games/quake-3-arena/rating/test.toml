@@ -1,0 +1,7 @@
+# Quake III Arena: the played test (gamedb/README.md "games/<id>/rating/"). Data, never run: the session
+# harness reads it through bench/harness/playdef.py.
+process = 'ioquake3'
+# its settings and data, set aside for a session on fresh defaults (ioquake3's XDG directories; ~/.q3a
+# when it exists from an older build)
+home = ['.local/share/Quake3', '.config/Quake3', '.local/state/Quake3', '.q3a']
+play_mark = 'CL_InitCGame'	# the map is loaded, the client is in the game
