@@ -478,22 +478,33 @@ class Check(unittest.TestCase):
 
     def test_data_setup(self):
         """[data_setup] against tools/gamedb/gdp-packages.json (game-data-packager's games and packages)"""
-        ds = '[data_setup]\ngdp = "final-doom"\nrequired = ["plutonia-wad", "tnt-wad"]\ndownloads = ["tnt-wad"]\nhint = "TNT.WAD"\n'
+        ds = '[data_setup]\ngdp = "final-doom"\nrequired = ["plutonia-wad", "tnt-wad"]\ndownloads = ["tnt-wad"]\nhint = "TNT.WAD"\n' \
+            'editions = { "plutonia-wad" = "full", "tnt-wad" = "full" }\n'
         write_game(self.content, build=ds, **self.DATA)
         self.assertEqual(self.problems(), {})
         write_game(self.content, suite='"none"', build='[data_setup]\ngdp = "ttd"\nrequired = []\n'
-                   'optional = ["transport-tycoon-deluxe-data"]\n')          # optional data only: needs_data false
+                   'optional = ["transport-tycoon-deluxe-data"]\neditions = { "transport-tycoon-deluxe-data" = "full" }\n')          # optional data only: needs_data false
         self.assertEqual(self.problems(), {})
-        bad = [('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\nsize = 1\n', "unknown key 'size'"),
-               ('[data_setup]\nrequired = ["tnt-wad"]\n', "missing key 'gdp'"),
-               ('[data_setup]\ngdp = "final-doom"\nrequired = "tnt-wad"\n', "'required' should be list"),
-               ('[data_setup]\ngdp = "no-such-game"\nrequired = ["tnt-wad"]\n', "has no game 'no-such-game'"),
-               ('[data_setup]\ngdp = "final-doom"\nrequired = ["doom-wad"]\n', "doom-wad is not a package of"),
-               ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\ndownloads = ["plutonia-wad"]\n',
+        T = 'editions = { "tnt-wad" = "full" }\n'
+        bad = [('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\nsize = 1\n' + T, "unknown key 'size'"),
+               ('[data_setup]\nrequired = ["tnt-wad"]\n' + T, "missing key 'gdp'"),
+               ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\n', "missing key 'editions'"),
+               ('[data_setup]\ngdp = "final-doom"\nrequired = "tnt-wad"\n' + T, "'required' should be list"),
+               ('[data_setup]\ngdp = "no-such-game"\nrequired = ["tnt-wad"]\n' + T, "has no game 'no-such-game'"),
+               ('[data_setup]\ngdp = "final-doom"\nrequired = ["doom-wad"]\neditions = { "doom-wad" = "full" }\n',
+                "doom-wad is not a package of"),
+               ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\ndownloads = ["plutonia-wad"]\n' + T,
                 "downloads plutonia-wad is neither"),
-               ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\noptional = ["tnt-wad"]\n', "both required and optional"),
-               ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad", "tnt-wad"]\n', "names a package twice"),
-               ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\nhint = " "\n', "hint is empty")]
+               ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\noptional = ["tnt-wad"]\n' + T, "both required and optional"),
+               ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad", "tnt-wad"]\n' + T, "names a package twice"),
+               ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\nhint = " "\n' + T, "hint is empty"),
+               ('[data_setup]\ngdp = "final-doom"\nrequired = ["plutonia-wad", "tnt-wad"]\n' + T, "editions has no plutonia-wad"),
+               ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\neditions = { "tnt-wad" = "full", "x-wad" = "full" }\n',
+                "editions names x-wad"),
+               ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\neditions = { "tnt-wad" = "deluxe" }\n',
+                "edition of tnt-wad is 'deluxe'"),
+               ('[data_setup]\ngdp = "final-doom"\nrequired = ["tnt-wad"]\neditions = { "tnt-wad" = "demo" }\n',
+                "tnt-wad's edition in gdp-manifest.json is 'full', not 'demo'")]
         for text, want in bad:
             write_game(self.content, build=text, **self.DATA)
             self.assertIn(want, " ".join(self.problems().get("ex", [])), text)
@@ -503,7 +514,8 @@ class Check(unittest.TestCase):
         self.assertIn("tnt-wad is also in packages", " ".join(self.problems()["ex"]))
 
     def test_data_setup_without_index(self):
-        write_game(self.content, build='[data_setup]\ngdp = "doom"\nrequired = ["doom-wad"]\n', **self.DATA)
+        write_game(self.content, build='[data_setup]\ngdp = "doom"\nrequired = ["doom-wad"]\n'
+                   'editions = { "doom-wad" = "full" }\n', **self.DATA)
         old = check.GDP_INDEX
         check.GDP_INDEX = Path(self.tmp.name) / "none.json"
         try:
@@ -522,6 +534,23 @@ class Check(unittest.TestCase):
         gi = load_tool("gdp-index")
         text = (HERE / "gdp-packages.json").read_text()
         self.assertEqual(gi.render(json.loads(text)), text)          # as gdp-index.py writes it
+
+    def test_gdp_manifest_file(self):
+        """the committed data manifest: as gdp-manifest.py writes it, every [data_setup] package in it with its
+        edition, the generator's package list read from the bundles"""
+        gm = load_tool("gdp-manifest")
+        text = (HERE / "gdp-manifest.json").read_text()
+        data = json.loads(text)
+        self.assertEqual(gm.render(data), text)
+        want = gm.data_setup_packages()
+        self.assertEqual(sorted(data["packages"]), sorted(want))
+        self.assertEqual({p: e["edition"] for p, e in data["packages"].items()}, want)
+        self.assertEqual(want["quake-shareware"], "shareware")
+        doom = data["packages"]["doom-wad"]["files"]["usr/share/games/doom/doom.wad"]
+        self.assertIn("1.9ud", [a.get("release") for a in doom])   # gdp's names of the versions it accepts
+        man = check.gdp_manifest()
+        self.assertEqual(man["quake-registered"]["replaces"], ["quake-shareware"])
+        self.assertIsNone(check.gdp_manifest(Path(self.tmp.name) / "none.json"))
 
     def test_published_game_needs_technical_md(self):
         g = write_game(self.content)
@@ -1080,11 +1109,13 @@ class Catalog(unittest.TestCase):
                            suite='"licensed"', data='["rct2-data"]',
                            build='[[licensed]]\nname = "rct2-data"\nbuilder = "script"\n[[licensed]]\nname = "rct2-extra"\n'
                                  'builder = "script"\n[data_setup]\ngdp = "roller-coaster-tycoon2"\n'
-                                 'required = ["roller-coaster-tycoon2-data"]\n')
+                                 'required = ["roller-coaster-tycoon2-data"]\n'
+                                 'editions = { "roller-coaster-tycoon2-data" = "full" }\n')
             out = catalog.build_game(g, REPO, {})
             self.assertEqual(out["data_setup"], {
                 "gdp": "roller-coaster-tycoon2", "required": ["roller-coaster-tycoon2-data"], "optional": [],
-                "downloads": [], "hint": None, "present_any": ["roller-coaster-tycoon2-data", "rct2-data", "rct2-extra"]})
+                "downloads": [], "hint": None, "editions": {"roller-coaster-tycoon2-data": "full"},
+                "present_any": ["roller-coaster-tycoon2-data", "rct2-data", "rct2-extra"]})
             self.assertNotIn("data_setup", catalog.build_game(write_game(d, "plain"), REPO, {}))
             (g / "thumb.png").unlink()
             self.assertIsNone(catalog.build_game(g, REPO, {})["thumb"])

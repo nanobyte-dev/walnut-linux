@@ -256,6 +256,33 @@ replaces data a free package used to bundle carries the `Breaks`/`Replaces` for 
 
 game-data-packager's output isn't reproducible (the files' dates are the build time), and the kept suites never take a different file under a published version. So once a version is published, `make game-data` downloads that file from the licensed suite instead of making it again (with the suite's login from `apt-repo/licensed-auth.sh`, checked against the suite's SHA256). `REGEN=1` makes it anyway and refuses when the version it gets is already published. A new file only goes out under a new version (a newer game-data-packager).
 
+### Data built on the console
+
+`walnut-data import <game> <source>` (walnut-games, PLAN 5.10) makes the player's own data into packages
+on the PS3 itself: our game-data-packager runs as the player and writes a deb, and only its file tree goes
+to root, as `dpkg-deb --fsys-tarfile X.deb | sudo -n walnut-games-helper import-data <game> <pkg>`. The
+helper builds the package again from scratch: the files that match the packaged manifest
+(`tools/gamedb/gdp-manifest.json`, gamedb/README.md) and nothing else, its own `DEBIAN/control` and
+`doc/copyright`, no maintainer scripts, `dpkg-deb --root-owner-group -Znone`.
+
+- **Version.** gdp's own (`89`, or the package's `<version>+89`), as the manifest has it. These debs are
+  exempt from the `+ps3.N` rule: they are not ours, never published, and must compare equal to the same
+  package someone made with Debian's gdp. `Section: local/games`, so every licensed guard knows them.
+- **Fields.** `X-Walnut-Edition` (`[data_setup] editions`: shareware, demo, full, expansion, music) and,
+  when gdp names the versions of the files it accepts, `X-Walnut-Release` (the names of the versions the
+  required files matched, `+`-joined: `1.9ud`, `cd`). Conflicts/Replaces only the manifest's same-game ones.
+- **Lifetime.** Installed with `apt-get install ./X.deb`, so manually installed: autoremove leaves it. A
+  newer gdp never rebuilds it; importing again (`--reinstall`) does. `walnut-data remove <game>` removes it.
+
+The helper's actions: `install`, `remove` and `status ID` (catalog games), `import-data ID PKG` (the
+stream checked against the manifest, refused while a game runs, apt's simulation must install only PKG
+and remove at most a manifest Conflicts/Replaces package), `remove-data ID` (the game's data packages:
+its `[data_setup]` ones and its `data`/`[[licensed]]` names, simulated first) and `install-repo-data ID`
+(the first of those the apt sources have, from the signed suite, the licensed-Section lock waived for
+exactly those names). One flock (`/run/walnut-games/lock`) covers every action; a second is refused as
+busy. sudo's `use_pty` (on by default since sudo 1.9.14) passes the binary stream intact (checked with
+sudo 1.9.17, with and without a terminal), so the sudoers rule stays one line.
+
 ### Built from a source package or a script
 
 A licensed source package lives in its game's bundle, `gamedb/games/<id>/licensed/<pkg>/` (licensed by its place: text only, never public). Its tarball is made by its `orig.mk` or the builder script there (the upstream archive downloaded once and checked, the listed files with a fixed owner and mtime, `gzip -n`), so the same files give the same deb for a given commit; `make <pkg>-src` and `make <pkg>-deb` (indep builder) build it. A builder script without a `package.conf` (`builder = "script"`) makes the deb itself from the owner's own copy. As with game-data-packager's output, once a version is published, never build it again under that version: take the published file.

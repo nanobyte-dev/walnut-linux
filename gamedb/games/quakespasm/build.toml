@@ -19,3 +19,5 @@ required = ["quake-shareware", "quake-registered"]
 # a 1.01 CD's id1/pak0.pak needs 1.06's, which game-data-packager takes from the shareware download
 downloads = ["quake-registered"]
 hint = "Quake's id1/pak0.pak and id1/pak1.pak: its CD, an installed copy (Steam, GOG) or GOG's installer."
+# what each package holds (X-Walnut-Edition of the package import-data builds)
+editions = { "quake-shareware" = "shareware", "quake-registered" = "full" }

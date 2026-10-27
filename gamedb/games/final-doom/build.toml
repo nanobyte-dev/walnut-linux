@@ -10,3 +10,5 @@ required = ["plutonia-wad", "tnt-wad"]
 # tnt31fix.zip (TNT's MAP31 fix), from the idgames mirrors game-data-packager knows
 downloads = ["tnt-wad"]
 hint = "TNT.WAD and PLUTONIA.WAD from Final Doom: a CD, an installed copy, Steam's common/Final Doom folder or the GOG installer. TNT also needs tnt31fix.zip, which is downloaded."
+# what each package holds (X-Walnut-Edition of the package import-data builds)
+editions = { "plutonia-wad" = "full", "tnt-wad" = "full" }

@@ -450,7 +450,8 @@ buttons Install, Remove, Play and "Open on the web". The window follows the Waln
   says so in the status line. Play is
   off while an install or removal runs: game mode would freeze the helper with dpkg's lock held. After
   either, the app runs `ps3-game-menu "$XDG_RUNTIME_DIR/ps3-game-menu"` so the new entry exists.
-- **The helper**, `/usr/lib/ps3/sbin/walnut-games-helper install|remove|status ID`, runs as root through
+- **The helper**, `/usr/lib/ps3/sbin/walnut-games-helper install|remove|status ID` (and the data actions
+  below), runs as root through
   `sudo -n` (`/etc/sudoers.d/walnut-games`: group sudo, no password, that one path). Its guarantees:
   the argument is a game id (`^[a-z0-9][a-z0-9-]{0,63}$`) found in the root-owned packaged catalog, which is
   the only source of package names (each checked against the Debian name rule; licensed or nonfree data
@@ -469,10 +470,25 @@ buttons Install, Remove, Play and "Open on the web". The window follows the Waln
   The catalog carries it with `present_any`, those packages plus the licensed suite's builds of the same
   data; the app shows "Your game data is installed" when one of them is. Games on one engine are kept
   apart: every launcher of ours is stamped `X-Walnut-Game=<id>`, Play lists a game's own, and removing
-  Doom while Freedoom's game still uses dsda-doom removes only Doom's data. Today the page lists the
-  manual steps (game-data-packager from Debian's contrib, then `apt install` of the deb it makes); the
-  import itself (a button and `walnut-data import <id> <path>`, PLAN 5.10) is still to come.
-- Tests: `packages/walnut/apps/walnut-games/tests/test_walnut_games.py` (make test ONLY=walnut-games): the helper's validation,
+  Doom while Freedoom's game still uses dsda-doom removes only Doom's data. The page still lists the
+  manual steps; the app's button is still to come (PLAN 5.10).
+- **Data import.** `walnut-data import <id> <source>...` (in walnut-games, `/usr/bin`) runs our
+  game-data-packager as the player, in a transient user unit (memory and time limits, no new
+  privileges, no network unless the game may download its official patch files), on a folder, an
+  installer, the mounted disc or an ISO it loop-mounts read-only through udisks. Each package gdp makes
+  goes to the helper as a tar stream only: `walnut-games-helper import-data <id> <pkg>` takes regular
+  files whose path, size and checksum are in the packaged manifest (`/usr/share/walnut-games/data-manifest.json`,
+  `make gdp-manifest`), writes the control file itself (gdp's version, `Section: local/games`, the
+  manifest's same-game Conflicts/Replaces, `X-Walnut-Edition` from `[data_setup] editions`, `X-Walnut-Release`
+  from gdp's name of the file version that matched, e.g. `1.9ud`, `cd`), no maintainer scripts, and
+  installs it after apt's simulation shows nothing else changing. `walnut-data list` shows each game's
+  data state, `remove <id>` and `install-repo <id>` call the helper's `remove-data` and
+  `install-repo-data` (the game's data from the configured apt sources: the licensed suite). Every
+  helper action holds one lock; a second is refused as busy, and `status` says `importing` meanwhile.
+- Tests: `packages/walnut/apps/walnut-games/tests/test_walnut_data.py` (make test ONLY=walnut-data): import-data
+  against tar fixtures (links, devices, `..`, wrong sizes and checksums, a cut stream, extra files), the
+  package it writes, the lock, remove-data, install-repo-data, and walnut-data with a stubbed gdp.
+  `packages/walnut/apps/walnut-games/tests/test_walnut_games.py` (make test ONLY=walnut-games): the helper's validation,
   catalog mapping, cascade refusal (with a fake `apt-get -s`), install arguments and status relay (a fake
   apt-get writes to the status descriptor), Exec parsing, filters, and a window smoke test on a private
   Xvfb/Xvnc (skipped when neither exists).

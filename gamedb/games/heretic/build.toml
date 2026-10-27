@@ -8,3 +8,5 @@ needs_data = true
 gdp = "heretic"
 required = ["heretic-wad"]
 hint = "HERETIC.WAD from Heretic: Shadow of the Serpent Riders: a CD, an installed copy, Steam's folder or the GOG installer."
+# what each package holds (X-Walnut-Edition of the package import-data builds)
+editions = { "heretic-wad" = "full" }

@@ -9,8 +9,10 @@ Rules-Requires-Root: no
 Package: walnut-games
 Architecture: all
 Depends: ${misc:Depends}, python3, python3-tk, python3-pil.imagetk, ps3-desktop, sudo, apt, dpkg
-# Play finds a game's launchers among the menu entries (Walnut's own, one per mode, are there)
-Recommends: ps3-games-integration
+# Play finds a game's launchers among the menu entries (Walnut's own, one per mode, are there);
+# walnut-data import runs game-data-packager (ours, with --progress-fd and --no-launchers) and opens
+# disc images with udisksctl
+Recommends: ps3-games-integration, game-data-packager, udisks2
 Description: Walnut Games, the games database and launcher
  A window with a card for every game in the Walnut Games catalog: its medal and scores from the
  tests on the PS3, screenshots next to the PC's, known issues and the patches Walnut made. Install,
@@ -19,3 +21,8 @@ Description: Walnut Games, the games database and launcher
  Installing and removing go through walnut-games-helper (sudoers: group sudo, no password), which
  only knows the catalog's games, never removes anything but the game's own packages, and never
  runs autoremove.
+ .
+ walnut-data (a command; the app uses it too) makes the player's own game data (a disc, an ISO, an
+ installer or an installed copy) into packages with game-data-packager, run as the player; the helper
+ checks every file against the packaged manifest of game-data-packager's checksums and builds and
+ installs the package itself.

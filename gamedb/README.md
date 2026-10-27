@@ -158,12 +158,25 @@ run Debian's game-data-packager, gdp, on a disc, an ISO, an installer or an inst
 | `optional` | list | gdp packages that add to it (music, the original set in place of a free one) |
 | `downloads` | list | the packages (of the two lists) whose gdp run may download the files gdp knows for them: official patches (Quake II 3.20, Quake 1.06's pak0, TNT's MAP31 fix), nothing else |
 | `hint` | string | where the files are, shown by the app (the CD, an installed copy, Steam, GOG) |
+| `editions` | table | required: `{ "<pkg>" = "<edition>" }` for every `required` and `optional` package, one of `shareware`, `demo`, `full`, `expansion`, `music` (`check.py` EDITIONS): the `X-Walnut-Edition` of the package the console builds |
 
 `check.py` checks the gdp game and every package against `tools/gamedb/gdp-packages.json` (game -> its
 packages, and gdp's version), a committed file, so the check needs no docker and no network. After the games
 builder's gdp changes, `make gdp-index` (`tools/gamedb/gdp-index.py`, gdp's own loader inside the builder
 image, `--network none`) rewrites it; commit the result. Every `required` and `optional` name is licensed
 (`tools/licensed.py`: never in `packages`, never published by us).
+
+The import's manifest, `tools/gamedb/gdp-manifest.json`, lists every `required` and `optional` package's
+files as that gdp builds them: path, size and checksum of each version gdp accepts (sha256 when gdp has
+it, else sha1 or md5) with gdp's name for that version (`release`: `1.9ud`, `cd`, `106`), which files
+are required, gdp's version, the package's same-game Conflicts/Replaces (quake-registered replaces
+quake-shareware; nothing else of gdp's relations) and its edition from `editions`. walnut-games ships it
+root-owned as `/usr/share/walnut-games/data-manifest.json`, and `walnut-games-helper import-data` accepts
+nothing it doesn't list (docs/PACKAGING.md "Data built on the console"). `make gdp-manifest`
+(`tools/gamedb/gdp-manifest.py`, gdp's loader in the games builder, `--network none`) regenerates it:
+after the builder's gdp changes, after a `[data_setup]` names a new package or changes an edition.
+Commit the result; `check.py` reports a package missing from it or with another edition, and the
+walnut-games version moves with it (its `VERSION_PATHS`).
 
 The catalog carries the table with every key filled in and `present_any`: `required`, then the game's
 `data` and `[[licensed]]` names (the licensed suite's builds of the same data, for the owner's console:

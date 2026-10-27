@@ -22,7 +22,8 @@ Design
       licensed directory (the public copy) skips that direction. [data_setup] (DATA_SETUP_KEYS, closed):
       its gdp game and every required/optional package exist in game-data-packager's data, read from the
       committed tools/gamedb/gdp-packages.json (gdp-index.py, make gdp-index: no docker at check time);
-      required set exactly when needs_data, downloads among them. A published game has packages,
+      required set exactly when needs_data, downloads among them, an edition (EDITIONS) for every
+      required/optional package, the same one tools/gamedb/gdp-manifest.json has for it (make gdp-manifest). A published game has packages,
       suite and needs_data. The catalog's patched_by is not a key: our source packages of the bundle
       (packages/) and of its engine (patched_by() below)
     * a game that needs the user's own data (build.toml needs_data) has a data_guide URL and data_steps
@@ -93,7 +94,11 @@ BUILD_KEYS = {
 # [data_setup] (gamedb/README.md): the player's own data, imported with game-data-packager (gdp). key: (type,
 # required); every package one of the gdp game's (GDP_INDEX, made by gdp-index.py: offline, no docker)
 DATA_SETUP_KEYS = {"gdp": (str, True), "required": (list, True), "optional": (list, False),
-                   "downloads": (list, False), "hint": (str, False)}
+                   "downloads": (list, False), "hint": (str, False), "editions": (dict, True)}
+# [data_setup] editions = {package: edition}: what a data package holds (X-Walnut-Edition in the control of a
+# package walnut-games-helper import-data builds; the licensed suite's builders and the session harness read it)
+EDITIONS = ("shareware", "demo", "full", "expansion", "music")
+GDP_MANIFEST = Path(__file__).resolve().parent / "gdp-manifest.json"
 GDP_INDEX = Path(__file__).resolve().parent / "gdp-packages.json"
 # an engine's build.toml: the packages the games run it from, its licensed data
 ENGINE_KEYS = {"packages": (list, False), "licensed": (list, False)}
@@ -162,7 +167,7 @@ def game_facts(gdir):
 
 def data_setup_facts(build):
     """a build.toml's [data_setup] as the catalog carries it (every key, defaults filled in), or None:
-    gdp, required, optional, downloads, hint (None when unset) and present_any, the packages any one of
+    gdp, required, optional, downloads, hint (None when unset), editions and present_any, the packages any one of
     which means the game's data is installed: required, then the game's data and [[licensed]] names
     (the licensed suite's builds of the same data, e.g. rct2-data next to roller-coaster-tycoon2-data)"""
     ds = build.get("data_setup")
@@ -170,7 +175,7 @@ def data_setup_facts(build):
         return None
     own = list(build.get("data", [])) + [e.get("name") for e in build.get("licensed", []) if isinstance(e, dict)]
     return {"gdp": ds.get("gdp"), "required": list(ds.get("required", [])), "optional": list(ds.get("optional", [])),
-            "downloads": list(ds.get("downloads", [])), "hint": ds.get("hint"),
+            "downloads": list(ds.get("downloads", [])), "hint": ds.get("hint"), "editions": dict(ds.get("editions", {})),
             "present_any": list(dict.fromkeys(list(ds.get("required", [])) + [p for p in own if isinstance(p, str)]))}
 
 
@@ -444,7 +449,7 @@ def context(repo, content, apt=None):
                 engines[e.name] = front_matter(e / "engine.md").get("games", [])
             except (ValueError, tomllib.TOMLDecodeError):
                 engines[e.name] = []
-    return {"ours": control_binaries(repo), "apt": apt, "engines": engines, "gdp": gdp_index(),
+    return {"ours": control_binaries(repo), "apt": apt, "engines": engines, "gdp": gdp_index(), "manifest": gdp_manifest(),
             "has_licensed": bool(lic.licensed_dirs(lic.Tree(repo))) or any(Path(content).glob("*/licensed/*"))
             or any(edir.glob("*/licensed/*"))}
 
@@ -480,6 +485,14 @@ def data_setup_errors(ds, build, bad, ctx):
             errs.append("[data_setup]: %r names a package twice" % k)
     if errs:
         return errs
+    ed = ds["editions"]
+    for p in sorted(set(ds["required"] + ds.get("optional", [])) - set(ed)):
+        errs.append("[data_setup]: editions has no %s (one of %s)" % (p, ", ".join(EDITIONS)))
+    for p in sorted(set(ed) - set(ds["required"] + ds.get("optional", []))):
+        errs.append("[data_setup]: editions names %s, which is neither required nor optional" % p)
+    for p, e in sorted(ed.items()):
+        if e not in EDITIONS:
+            errs.append("[data_setup]: edition of %s is %r, not one of %s" % (p, e, ", ".join(EDITIONS)))
     req, opt, dl = ds["required"], ds.get("optional", []), ds.get("downloads", [])
     if "hint" in ds and not ds["hint"].strip():
         errs.append("[data_setup]: hint is empty")
@@ -507,7 +520,24 @@ def data_setup_errors(ds, build, bad, ctx):
             if p not in gdp[ds["gdp"]]:
                 errs.append("[data_setup]: %s is not a package of game-data-packager %s's %s"
                             % (p, gdp[None], ds["gdp"]))
+    man = ctx.get("manifest")
+    if man is not None:
+        for p in req + opt:
+            if p not in man:
+                errs.append("[data_setup]: %s is not in %s (make gdp-manifest)" % (p, GDP_MANIFEST.name))
+            elif man[p].get("edition") != ds["editions"].get(p):
+                errs.append("[data_setup]: %s's edition in %s is %r, not %r (make gdp-manifest)"
+                            % (p, GDP_MANIFEST.name, man[p].get("edition"), ds["editions"].get(p)))
     return errs
+
+
+def gdp_manifest(path=None):
+    """{package: its gdp-manifest.json entry} (gdp-manifest.py); None when the file is missing or broken
+    (then the [data_setup] packages are not checked against it)"""
+    try:
+        return dict(json.loads(Path(path or GDP_MANIFEST).read_text())["packages"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def licensed_errors(d, entries, ctx):

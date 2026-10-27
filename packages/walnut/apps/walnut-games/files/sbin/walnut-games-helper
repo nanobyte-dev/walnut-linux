@@ -1,18 +1,25 @@
 #!/usr/bin/python3 -I
-"""walnut-games-helper install|remove|status ID (walnut-games package): the one root program the
-Walnut Games app runs, through sudo (/etc/sudoers.d/walnut-games: group sudo, no password, this path
-only).
+"""walnut-games-helper install|remove|status|remove-data|install-repo-data ID, import-data ID PKG
+(walnut-games package): the one root program the Walnut Games app and walnut-data run, through sudo
+(/etc/sudoers.d/walnut-games: group sudo, no password, this path only).
 
 Design
 - The caller names a game by its catalog id, nothing else. The id must match ^[a-z0-9][a-z0-9-]{0,63}$
   and be in the packaged, root-owned /usr/share/walnut-games/catalog.json; the packages come from
   that file and each name must match ^[a-z0-9][a-z0-9+.-]*[a-z0-9]$. No package name, option or path
   comes from argv or the environment (python3 -I; every command gets a fixed PATH and environment).
+  import-data's PKG is the one exception, and only as a choice: it must be one of the game's catalog
+  data_setup packages (required or optional).
   Packages that carry licensed game data are refused whatever the catalog says: the catalog never
   lists them. The first lock is checked before every install: the candidate's apt Section must not
   be local/* or non-free/* (the licensed suite; game-data-packager marks non-redistributable data
   local/), and a Section that cannot be read refuses too. The second lock is the name: licensed or
   nonfree as a word of the package name.
+- One action at a time: every action but status holds an flock on /run/walnut-games/lock (a root-owned
+  directory: /run/lock is writable by everyone, where a user's file of that name would block the helper
+  or be followed) for its whole run; a second one is refused at once ("busy", exit 2). The holder
+  writes /run/walnut-games/state ("PID ACTION ID"); status takes no lock and reports "importing" while
+  the lock's holder (/proc/locks) is that state's pid importing this game's data.
 - install: apt-get update when the package lists are older than a day, then apt-get install with
   --no-remove (an install never takes a package away), the configuration files kept
   (--force-confold), noninteractive, waiting up to 60 s for another apt's lock. apt's status
@@ -26,27 +33,73 @@ Design
   the removal, before a single package is touched. When a metapackage is in the removal, the other
   installed packages it depends on are marked manual first, so removing one game never leaves the
   rest of the suite waiting for an autoremove. This program never runs autoremove.
+- import-data ID PKG: the player's own game files, as the data part of the deb game-data-packager
+  made for them (walnut-data runs it as the player: `dpkg-deb --fsys-tarfile X.deb | sudo -n
+  walnut-games-helper import-data ID PKG`), checked against the root-owned
+  /usr/share/walnut-games/data-manifest.json (tools/gamedb/gdp-manifest.py: per package its files'
+  paths, sizes and checksums, which are required, its version and its same-game Conflicts/Replaces).
+  Refused while a game runs (ps3-game-mode-watch.service active). The tar stream on stdin is read
+  member by member (tarfile 'r|', never extracted as such): regular files and directories only;
+  names relative, normalized, without '..', each once; a file must be a manifest path with one of its
+  sizes (checked before its data is read) and, hashed while it is copied, one of its checksums; the
+  files game-data-packager generates itself (usr/share/doc/PKG/copyright and changelog*,
+  usr/share/lintian/, and for the Doom family usr/share/applications, pixmaps and icons) are read
+  past and dropped (at most 64 MB of them); anything else refuses. Files are written by this program
+  (O_CREAT|O_EXCL|O_NOFOLLOW, mode 0644 whatever the tar says) into a mkdtemp under
+  /var/lib/walnut-games/import (0700, swept at the start, removed in finally), within the manifest's
+  byte total; every required file must be there. The package's metadata is this program's own:
+  DEBIAN/control (Package PKG, Version the manifest's, which is game-data-packager's: exempt from
+  +ps3.N, Architecture all, Section local/games, a fixed description, Conflicts/Replaces only the
+  manifest's), its doc/copyright, no maintainer scripts; dpkg-deb --root-owner-group -Znone -b. Then
+  apt-get -s install --reinstall: the only Inst must be PKG and every Remv a manifest Conflicts/
+  Replaces package (quake-registered replaces quake-shareware), or nothing is installed; then the
+  install, with --no-remove unless the simulation removes such a package. Free space is checked
+  first: twice the manifest's total in the staging file system, once more on /usr (one file system:
+  twice; the staged files go once the deb is made). The package
+  stays manually installed (apt-get install of a file): autoremove leaves it.
+- remove-data ID: the game's installed data packages (data_setup required, optional and present_any:
+  its data and [[licensed]] names), nothing else (apt-get -s remove first, as remove).
+- install-repo-data ID: the first of the game's data_setup present_any names that the configured apt
+  sources have (the licensed suite's builds of the same data: rct2-data), from apt, which checks the
+  suite's signature; the licensed-Section lock is waived for exactly these names. apt-get -s first:
+  every Inst must be one of those names, nothing is removed (--no-remove).
 - SIGHUP and SIGPIPE are ignored: closing the app must not stop dpkg halfway. apt and dpkg get
   SIGPIPE back at its default (subprocess restore_signals); SIGHUP stays ignored for them.
-- Output, one item per line, flushed: "progress N text", "log text", "error text". When stdout is
-  gone the program keeps working and says nothing.
-- Exit codes: 0 done, 2 refused (a message says why, nothing was changed), 1 apt failed.
+- Output, one item per line, flushed: "progress N text", "log text", "error text", "status text".
+  When stdout is gone the program keeps working and says nothing.
+- Exit codes: 0 done, 2 refused (a message says why, nothing was changed; "busy" too), 1 apt, dpkg or
+  dpkg-deb failed.
 - stdlib only. The functions take the catalog path and a command runner so that
   packages/walnut/apps/walnut-games/tests/test_walnut_games.py runs them on a PC with a fake apt-get.
 """
+import fcntl
+import hashlib
 import json
 import os
+import posixpath
 import re
 import selectors
+import shutil
 import signal
 import subprocess
 import sys
+import tarfile
+import tempfile
 import time
 
 CATALOG = "/usr/share/walnut-games/catalog.json"
 LISTS = "/var/lib/apt/lists"
 APT_GET, APT_MARK, DPKG_QUERY = "/usr/bin/apt-get", "/usr/bin/apt-mark", "/usr/bin/dpkg-query"
 APT_CACHE = "/usr/bin/apt-cache"
+DPKG_DEB, SYSTEMCTL = "/usr/bin/dpkg-deb", "/usr/bin/systemctl"
+MANIFEST = "/usr/share/walnut-games/data-manifest.json"
+RUN_DIR = "/run/walnut-games"            # the lock and the state file
+IMPORT_DIR = "/var/lib/walnut-games/import"
+USR = "/usr"
+GAME_MODE_UNIT = "ps3-game-mode-watch.service"   # active while a game runs in game mode (ps3-game-mode on)
+SKIP_CAP = 64 << 20        # bytes of game-data-packager's own generated files read past in one import
+SPACE_MARGIN = 64 << 20    # free space kept beyond the import's needs
+VERSION_RE = re.compile(r"[0-9][A-Za-z0-9.+~-]{0,63}\Z")
 ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 PKG_RE = re.compile(r"[a-z0-9][a-z0-9+.-]*[a-z0-9]\Z")
 # metapackages that depend on the whole suite: their removal along with a game is allowed (and
@@ -350,19 +403,527 @@ def do_status(game_id, games, runner=run):
     say("status", "installed" if len(have) == len(pkgs) else "partial" if have else "not-installed")
 
 
+# ---- one action at a time ---------------------------------------------------------------------
+
+class Busy(Refused):
+    """another action holds the lock (exit code 2)"""
+
+
+def run_dir(check_owner=True):
+    """RUN_DIR, made root's 0755 when missing; Refused when it is a link, not a directory, or (with
+    check_owner) not root's or writable by others"""
+    try:
+        os.mkdir(RUN_DIR, 0o755)
+    except FileExistsError:
+        pass
+    st = os.lstat(RUN_DIR)
+    if not stat_isdir(st.st_mode) or (check_owner and (st.st_uid != 0 or st.st_mode & 0o022)):
+        raise Refused("%s is not a directory of root's" % RUN_DIR)
+    return RUN_DIR
+
+
+def stat_isdir(mode):
+    return (mode & 0o170000) == 0o040000
+
+
+def take_lock(action, game_id, check_owner=True):
+    """the lock's descriptor, the state file written; Busy when another action holds it"""
+    d = run_dir(check_owner)
+    fd = os.open(os.path.join(d, "lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        held = lock_state(check_owner)
+        raise Busy("busy: another walnut-games-helper action is running%s"
+                   % (" (%s %s)" % (held[0], held[1]) if held else ""))
+    tmp = os.path.join(d, "state.new")
+    try:
+        os.unlink(tmp)
+    except FileNotFoundError:
+        pass
+    with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644), "w") as f:
+        f.write("%d %s %s\n" % (os.getpid(), action, game_id))
+    os.replace(tmp, os.path.join(d, "state"))
+    return fd
+
+
+def release_lock(fd):
+    try:
+        os.unlink(os.path.join(RUN_DIR, "state"))
+    except OSError:
+        pass
+    os.close(fd)
+
+
+def lock_holder(path, locks="/proc/locks"):
+    """the pid holding an flock on path (by its inode, /proc/locks), or None"""
+    try:
+        ino = os.lstat(path).st_ino
+        with open(locks) as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        parts = line.split()
+        # "1: FLOCK  ADVISORY  WRITE 1234 00:1a:5678 0 EOF" (a blocked waiter's line has "->")
+        if len(parts) >= 6 and parts[1] == "FLOCK" and parts[2] != "->" and parts[5].rsplit(":", 1)[-1] == str(ino):
+            try:
+                return int(parts[4])
+            except ValueError:
+                return None
+    return None
+
+
+def lock_state(check_owner=True):
+    """(action, game id) of the running action, from the state file when its pid holds the lock; or None"""
+    try:
+        d = run_dir(check_owner)
+        with open(os.path.join(d, "state")) as f:
+            pid, action, gid = f.read().split()[:3]
+        if lock_holder(os.path.join(d, "lock")) == int(pid):
+            return action, gid
+    except (OSError, ValueError, Refused):
+        pass
+    return None
+
+
+# ---- the player's own data --------------------------------------------------------------------
+
+def load_manifest(path=None, check_owner=True):
+    """{package: entry} of the root-owned data manifest (tools/gamedb/gdp-manifest.py)"""
+    path = path or MANIFEST
+    st = os.stat(path)
+    if check_owner and (st.st_uid != 0 or st.st_mode & 0o022):
+        raise Refused("%s is not owned by root or is writable by others" % path)
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    return data["packages"], str(data.get("gdp_version", "?"))
+
+
+def data_setup_of(game_id, games):
+    """the game's catalog data_setup (validated id); Refused for an unknown game or one without one"""
+    if not isinstance(game_id, str) or not ID_RE.match(game_id):
+        raise Refused("not a game id: %r" % (game_id[:80] if isinstance(game_id, str) else type(game_id).__name__))
+    if game_id not in games:
+        raise Refused("unknown game: %s" % game_id)
+    ds = games[game_id].get("data_setup")
+    if not isinstance(ds, dict):
+        raise Refused("%s has no data to set up" % game_id)
+    return ds
+
+
+def importable(game_id, pkg, games):
+    """PKG when it is one of the game's data_setup required or optional packages, else Refused"""
+    ds = data_setup_of(game_id, games)
+    if not isinstance(pkg, str) or not PKG_RE.match(pkg):
+        raise Refused("not a package name: %r" % (pkg[:80] if isinstance(pkg, str) else type(pkg).__name__))
+    allowed = [p for k in ("required", "optional") for p in (ds.get(k) or []) if isinstance(p, str)]
+    if pkg not in allowed:
+        raise Refused("%s is not a data package of %s" % (pkg, game_id))
+    return pkg
+
+
+def check_entry(pkg, entry):
+    """the manifest entry of pkg, its names checked (a broken manifest refuses, it never writes odd fields)"""
+    if not isinstance(entry, dict) or not isinstance(entry.get("files"), dict) or not entry["files"]:
+        raise Refused("the data manifest has no files for %s" % pkg)
+    if not VERSION_RE.match(str(entry.get("version", ""))) or not ID_RE.match(str(entry.get("game", ""))):
+        raise Refused("the data manifest's version or game of %s is not usable" % pkg)
+    if entry.get("edition") not in EDITIONS:
+        raise Refused("the data manifest's edition of %s is not one of %s" % (pkg, ", ".join(EDITIONS)))
+    for k in ("conflicts", "replaces"):
+        if not all(isinstance(p, str) and PKG_RE.match(p) and p != pkg for p in entry.get(k) or []):
+            raise Refused("the data manifest's %s of %s are not package names" % (k, pkg))
+    if entry.get("symlinks"):
+        raise Refused("the data manifest lists symlinks for %s: not supported" % pkg)
+    for path, alts in entry["files"].items():
+        if member_path(path) != path or not isinstance(alts, list) or not alts or \
+                not all(isinstance(a, dict) and isinstance(a.get("size"), int) and a["size"] >= 0
+                        and any(k in a for k in HASHES)
+                        and all(isinstance(a[k], str) and re.match(r"[0-9a-fA-F]{32,64}\Z", a[k]) for k in HASHES if k in a)
+                        for a in alts):
+            raise Refused("the data manifest's entry %r of %s is not usable" % (path[:80], pkg))
+    if not all(p in entry["files"] for p in entry.get("required") or []):
+        raise Refused("the data manifest's required files of %s are not among its files" % pkg)
+    return entry
+
+
+HASHES = ("sha256", "sha1", "md5")
+EDITIONS = ("shareware", "demo", "full", "expansion", "music")
+RELEASE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,79}\Z")
+
+
+def member_path(name):
+    """a tar member's name as a relative path ('./usr/x' -> 'usr/x', the top directory ''), or None when
+    it is absolute, has '..', '.' or empty parts, or a NUL"""
+    n = name
+    while n.startswith("./"):
+        n = n[2:]
+    if n in ("", ".", "./"):
+        return ""
+    n = n[:-1] if n.endswith("/") else n
+    if not n or n.startswith("/") or "\0" in n or any(p in ("", ".", "..") for p in n.split("/")):
+        return None
+    return n if posixpath.normpath(n) == n else None
+
+
+def generated(path, pkg, entry):
+    """a file game-data-packager writes itself into every build (its changelog and copyright, lintian
+    overrides) or, for the Doom family, its menu entries and icons: dropped from the stream"""
+    doc = "usr/share/doc/%s/" % pkg
+    if path.startswith(doc):
+        rest = path[len(doc):]
+        if "/" not in rest and (rest == "copyright" or rest.startswith("changelog")):
+            return True
+    if path.startswith("usr/share/lintian/"):
+        return True
+    return bool(entry.get("launchers")) and path.startswith(
+        ("usr/share/applications/", "usr/share/pixmaps/", "usr/share/icons/"))
+
+
+def game_running(runner=run):
+    """a game runs in game mode (its watcher unit is active); False without systemctl (no game mode)"""
+    try:
+        rc, out = runner([SYSTEMCTL, "is-active", GAME_MODE_UNIT])
+    except FileNotFoundError:
+        return False
+    return out.strip() == "active"
+
+
+def free_bytes(path):
+    st = os.statvfs(path)
+    return st.f_bavail * st.f_frsize, os.stat(path).st_dev
+
+
+def check_space(total, stage_dir, usr=None):
+    """Refused unless the staging file system has room for the files and the deb (twice the total) and
+    /usr for the installed files once more; on one file system twice the total (the staged files are
+    removed once the deb is made: the deb and the installed files)"""
+    usr = usr or USR
+    s_free, s_dev = free_bytes(stage_dir)
+    u_free, u_dev = free_bytes(usr)
+    need_s = 2 * total + SPACE_MARGIN
+    need_u = total + SPACE_MARGIN
+    if s_dev == u_dev:
+        need_s, need_u = 2 * total + SPACE_MARGIN, 0
+    for path, free, need in ((stage_dir, s_free, need_s), (usr, u_free, need_u)):
+        if need and free < need:
+            raise Refused("not enough space: %s has %d MB free, the import needs %d MB"
+                          % (path, free >> 20, (need + (1 << 20) - 1) >> 20))
+
+
+def import_dir(check_owner=True):
+    """IMPORT_DIR (root's, 0700), every staging directory a crashed import left swept away"""
+    os.makedirs(os.path.dirname(IMPORT_DIR), 0o755, exist_ok=True)
+    try:
+        os.mkdir(IMPORT_DIR, 0o700)
+    except FileExistsError:
+        pass
+    st = os.lstat(IMPORT_DIR)
+    if not stat_isdir(st.st_mode) or (check_owner and st.st_uid != 0) or st.st_mode & 0o077:
+        raise Refused("%s is not a private directory of root's" % IMPORT_DIR)
+    for n in os.listdir(IMPORT_DIR):   # we hold the lock: nothing in here is in use
+        p = os.path.join(IMPORT_DIR, n)
+        if os.path.isdir(p) and not os.path.islink(p):
+            shutil.rmtree(p, ignore_errors=True)
+        else:
+            os.unlink(p)
+    return IMPORT_DIR
+
+
+def read_stream(src, pkg, entry, root, cap):
+    """the files of the tar stream src written under root, checked against the manifest entry;
+    {path: the release name of the alternative it matched, or None}. Refused on anything else."""
+    files = entry["files"]
+    done, total, skipped = {}, 0, 0
+    try:
+        tf = tarfile.open(fileobj=src, mode="r|")
+        for m in tf:
+            path = member_path(m.name)
+            if path is None:
+                raise Refused("not a plain relative name in the data: %r" % m.name[:120])
+            if m.type == tarfile.DIRTYPE:
+                continue           # this program makes the directories its files need
+            if m.type not in (tarfile.REGTYPE, tarfile.AREGTYPE):
+                raise Refused("%s in the data is not a regular file (a link or a device)" % path[:120])
+            if path in done or path == "":
+                raise Refused("%s is in the data twice" % path[:120])
+            if path not in files:
+                if generated(path, pkg, entry):
+                    skipped += m.size
+                    if skipped > SKIP_CAP:
+                        raise Refused("too much besides the game's files in the data")
+                    done[path] = None
+                    continue
+                raise Refused("%s is not a file of %s" % (path[:120], pkg))
+            alts = [a for a in files[path] if a["size"] == m.size]
+            if not alts:
+                raise Refused("%s has the wrong size (%d bytes)" % (path[:120], m.size))
+            total += m.size
+            if total > cap:
+                raise Refused("the data is larger than %s's files" % pkg)
+            say("progress", "%d checking %s" % (min(39, 40 * total // max(cap, 1)), path))
+            done[path] = copy_checked(tf.extractfile(m), m.size, alts, root, path)
+    except tarfile.TarError as e:
+        raise Refused("the data stream is broken or cut short (%s)" % e)
+    missing = [p for p in entry.get("required") or [] if p not in done]
+    if missing:
+        raise Refused("%d of %s's files are missing, e.g. %s" % (len(missing), pkg, missing[0]))
+    return {p: r for p, r in done.items() if p in files}
+
+
+def copy_checked(f, size, alts, root, path):
+    """f's size bytes written to root/path (a new file, mode 0644), hashed on the way; the release name
+    of the alternative whose checksum it has. Refused for none."""
+    algos = sorted({k for a in alts for k in HASHES if k in a})
+    hs = {k: hashlib.new(k) for k in algos}
+    dest = os.path.join(root, path)
+    os.makedirs(os.path.dirname(dest), 0o755, exist_ok=True)
+    fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644)
+    got = 0
+    try:
+        os.fchmod(fd, 0o644)
+        while True:
+            chunk = f.read(1 << 20)
+            if not chunk:
+                break
+            got += len(chunk)
+            if got > size:
+                break
+            for h in hs.values():
+                h.update(chunk)
+            view = memoryview(chunk)
+            while view:
+                view = view[os.write(fd, view):]
+    finally:
+        os.close(fd)
+    if got != size:
+        raise Refused("%s is cut short in the data" % path[:120])
+    digest = {k: h.hexdigest() for k, h in hs.items()}
+    for a in alts:
+        if all(digest[k] == a[k].lower() for k in HASHES if k in a):
+            rel = a.get("release")
+            return rel if isinstance(rel, str) and RELEASE_RE.match(rel) else None
+    raise Refused("%s is not a copy game-data-packager knows (its checksum differs)" % path[:120])
+
+
+def release_label(found, entry):
+    """X-Walnut-Release: the release names of the alternatives the required files matched ("cd",
+    "1.9ud"; several joined with +), or None when gdp names none"""
+    names = sorted({r for p, r in found.items() if r and p in (entry.get("required") or [])})
+    label = "+".join(names)
+    return label if names and RELEASE_RE.match(label) else None
+
+
+def control_text(pkg, entry, gdp_version, release, installed_kb):
+    lines = ["Package: " + pkg, "Version: " + entry["version"], "Architecture: all", "Section: local/games",
+             "Priority: optional", "Maintainer: Walnut <walnut@localhost>", "Installed-Size: %d" % installed_kb]
+    if entry.get("conflicts"):
+        lines.append("Conflicts: " + ", ".join(entry["conflicts"]))
+    if entry.get("replaces"):
+        lines.append("Replaces: " + ", ".join(entry["replaces"]))
+    lines.append("X-Walnut-Edition: " + entry["edition"])
+    if release:
+        lines.append("X-Walnut-Release: " + release)
+    lines += ["Description: game data for %s, from the player's own copy" % entry["game"],
+              " Built on this console by Walnut Games (walnut-games-helper import-data) from the",
+              " player's own files, each checked against game-data-packager %s's checksums." % gdp_version,
+              " Not redistributable."]
+    return "\n".join(lines) + "\n"
+
+
+COPYRIGHT = """This package was built on this console by Walnut Games (walnut-data import, then
+walnut-games-helper import-data) from the player's own copy of the game: game-data-packager {gdp}'s
+package {pkg}, every file checked against its checksums.
+
+The game data is the copyrighted work of its publishers. It comes from the player's own copy and is
+not redistributable: do not share this package or its files.
+"""
+
+
+def sim_sets(out):
+    """(the names apt-get -s installs, the names it removes)"""
+    inst = [m.group(1) for line in out.splitlines() if (m := re.match(r"Inst (\S+)", line))]
+    return inst, removal_set(out)
+
+
+def do_import_data(game_id, pkg, games, src, manifest, gdp_version, runner=run, stream=apt_stream,
+                   check_owner=True):
+    importable(game_id, pkg, games)
+    if pkg not in manifest:
+        raise Refused("the data manifest has no %s" % pkg)
+    entry = check_entry(pkg, manifest[pkg])
+    if game_running(runner):
+        raise Refused("a game is running: close it first")
+    os.umask(0o022)
+    base = import_dir(check_owner)
+    cap = sum(max(a["size"] for a in alts) for alts in entry["files"].values())
+    check_space(cap, base)
+    stage = tempfile.mkdtemp(prefix="import-", dir=base)
+    try:
+        root = os.path.join(stage, "root")
+        os.mkdir(root, 0o755)
+        say("progress", "0 checking the files of " + pkg)
+        found = read_stream(src, pkg, entry, root, cap)
+        doc = os.path.join(root, "usr/share/doc", pkg)
+        os.makedirs(doc, 0o755, exist_ok=True)
+        with os.fdopen(os.open(os.path.join(doc, "copyright"), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                               0o644), "w") as f:
+            f.write(COPYRIGHT.format(gdp=gdp_version, pkg=pkg))
+        kb = 0
+        for d, dirs, names in os.walk(root):
+            kb += len(dirs) + sum((os.lstat(os.path.join(d, n)).st_size + 1023) // 1024 for n in names)
+        os.mkdir(os.path.join(root, "DEBIAN"), 0o755)
+        release = release_label(found, entry)
+        with os.fdopen(os.open(os.path.join(root, "DEBIAN/control"), os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                               | os.O_NOFOLLOW, 0o644), "w") as f:
+            f.write(control_text(pkg, entry, gdp_version, release, kb))
+        deb = os.path.join(stage, "%s.deb" % pkg)
+        say("progress", "40 making the package " + pkg)
+        rc, out = runner([DPKG_DEB, "--root-owner-group", "-Znone", "-b", root, deb])
+        if rc != 0:
+            say("error", "dpkg-deb failed: " + (out.strip().splitlines() or ["?"])[-1])
+            raise AptFailed()
+        shutil.rmtree(root)                 # the deb has it: room for the installed copy
+        rc, sim = runner([APT_GET, "-s", "-o", "Debug::NoLocking=1", "install", "--no-install-recommends",
+                          "--reinstall", deb])
+        if rc != 0:
+            say("error", "apt-get -s install failed: " + (sim.strip().splitlines() or ["?"])[-1])
+            raise AptFailed()
+        inst, gone = sim_sets(sim)
+        allowed = set(entry.get("conflicts") or []) | set(entry.get("replaces") or [])
+        if inst != [pkg] or [p for p in gone if p not in allowed]:
+            extra = [p for p in inst if p != pkg] + [p for p in gone if p not in allowed]
+            raise Refused("installing %s would also change %s: nothing was changed"
+                          % (pkg, ", ".join(extra[:8]) or "nothing (apt would not install it)"))
+        if gone:
+            say("log", "%s takes the place of %s" % (pkg, ", ".join(gone)))
+        say("progress", "40 installing " + pkg)
+        rc, tail = stream(["install", "--no-install-recommends", "--reinstall"] + ([] if gone else ["--no-remove"])
+                          + [deb])
+        if rc != 0:
+            say("error", "apt-get install failed (%d)%s" % (rc, ": " + tail[-1] if tail else ""))
+            raise AptFailed()
+        say("progress", "100 installed " + pkg + (" (%s, %s)" % (entry["edition"], release) if release else
+                                                   " (%s)" % entry["edition"]))
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+
+
+def do_remove_data(game_id, games, runner=run, stream=apt_stream):
+    data_setup_of(game_id, games)
+    names = data_packages(game_id, games)
+    have = [p for p in names if p in installed(names, runner)]
+    if not have:
+        say("progress", "100 no data of %s installed" % game_id)
+        return
+    rc, sim = runner([APT_GET, "-s", "-o", "Debug::NoLocking=1", "remove"] + have)
+    if rc != 0:
+        say("error", "apt-get -s remove failed: " + (sim.strip().splitlines() or ["?"])[-1])
+        raise AptFailed()
+    extra = [p for p in removal_set(sim) if p not in names]
+    if extra:
+        raise Refused("removing %s's data would also remove %s: nothing was changed"
+                      % (game_id, ", ".join(extra[:8]) + (" ..." if len(extra) > 8 else "")))
+    say("progress", "10 removing " + " ".join(have))
+    rc, tail = stream(["remove"] + have)
+    if rc != 0:
+        say("error", "apt-get remove failed (%d)%s" % (rc, ": " + tail[-1] if tail else ""))
+        raise AptFailed()
+    say("progress", "100 removed")
+
+
+def candidates(names, runner=run):
+    """the names among names that the apt sources have a candidate for (apt-cache policy)"""
+    rc, out = runner([APT_CACHE, "policy"] + list(names))
+    have, cur = set(), None
+    for line in out.splitlines():
+        m = re.match(r"(\S+):\s*$", line)
+        if m:
+            cur = m.group(1)
+        elif cur and (m := re.match(r"\s+Candidate:\s*(\S+)", line)) and m.group(1) != "(none)":
+            have.add(cur)
+    return [n for n in names if n in have]
+
+
+def do_install_repo_data(game_id, games, stream=apt_stream, age=lists_age, runner=run):
+    ds = data_setup_of(game_id, games)
+    names = data_packages(game_id, games)
+    any_of = [p for p in ds.get("present_any") or [] if p in names]
+    if installed(any_of, runner):
+        say("progress", "100 the data of %s is installed" % game_id)
+        return
+    a = age()
+    if a is None or a > STALE_SECONDS:
+        say("progress", "0 updating the package lists")
+        rc, tail = stream(["update"])
+        if rc != 0:
+            say("log", "apt-get update failed (%d): looking in the lists as they are" % rc)
+    have = candidates(any_of, runner)
+    if not have:
+        raise Refused("your package sources have none of %s" % ", ".join(any_of))
+    pkg = have[0]
+    rc, sim = runner([APT_GET, "-s", "-o", "Debug::NoLocking=1", "install", "--no-remove", "--no-install-recommends", pkg])
+    if rc != 0:
+        say("error", "apt-get -s install failed: " + (sim.strip().splitlines() or ["?"])[-1])
+        raise AptFailed()
+    inst, gone = sim_sets(sim)
+    extra = [p for p in inst if p not in names] + gone
+    if pkg not in inst or extra:
+        raise Refused("installing %s would also change %s: nothing was changed"
+                      % (pkg, ", ".join(extra[:8]) or "nothing (apt would not install it)"))
+    say("progress", "0 installing " + pkg)
+    # the licensed-Section lock (check_sections) is waived: these are the game's data names, from apt
+    rc, tail = stream(["install", "--no-remove", "--no-install-recommends", pkg])
+    if rc != 0:
+        say("error", "apt-get install failed (%d)%s" % (rc, ": " + tail[-1] if tail else ""))
+        raise AptFailed()
+    say("progress", "100 installed " + pkg)
+
+
 # ---- main -------------------------------------------------------------------------------------
 
-def main(argv, catalog=CATALOG, check_owner=True, need_root=True):
-    if len(argv) != 3 or argv[1] not in ("install", "remove", "status"):
-        print("usage: walnut-games-helper install|remove|status ID", file=sys.stderr)
+ACTIONS = {"install": 3, "remove": 3, "status": 3, "remove-data": 3, "install-repo-data": 3, "import-data": 4}
+
+
+def main(argv, catalog=CATALOG, check_owner=True, need_root=True, stdin=None, manifest=None):
+    if len(argv) < 2 or ACTIONS.get(argv[1]) != len(argv):
+        print("usage: walnut-games-helper install|remove|status|remove-data|install-repo-data ID\n"
+              "       walnut-games-helper import-data ID PKG   (the data's tar stream on stdin)", file=sys.stderr)
         return 2
     signal.signal(signal.SIGHUP, signal.SIG_IGN)
     signal.signal(signal.SIGPIPE, signal.SIG_IGN)
+    action, game_id = argv[1], argv[2]
+    lock = None
     try:
         if need_root and os.geteuid() != 0:
             raise Refused("must run as root (through sudo)")
+        if not ID_RE.match(game_id):
+            raise Refused("not a game id: %r" % game_id[:80])
+        if action == "import-data" and not PKG_RE.match(argv[3]):
+            raise Refused("not a package name: %r" % argv[3][:80])
         games = load_catalog(catalog, check_owner)
-        {"install": do_install, "remove": do_remove, "status": do_status}[argv[1]](argv[2], games)
+        if action == "status":
+            if lock_state(check_owner) == ("import-data", game_id):
+                say("status", "importing")
+            else:
+                do_status(game_id, games)
+            return 0
+        if action in ("install", "remove"):   # the request checked before the lock: a bad one never waits
+            game_packages(game_id, games)
+        elif action == "import-data":
+            importable(game_id, argv[3], games)
+        else:
+            data_setup_of(game_id, games)
+        lock = take_lock(action, game_id, check_owner)
+        if action == "import-data":
+            man, gdp_version = load_manifest(manifest, check_owner)
+            do_import_data(game_id, argv[3], games, stdin if stdin is not None else sys.stdin.buffer, man,
+                           gdp_version, check_owner=check_owner)
+        else:
+            {"install": do_install, "remove": do_remove, "remove-data": do_remove_data,
+             "install-repo-data": do_install_repo_data}[action](game_id, games)
     except Refused as e:
         say("error", str(e))
         print("walnut-games-helper: " + str(e), file=sys.stderr)
@@ -372,6 +933,9 @@ def main(argv, catalog=CATALOG, check_owner=True, need_root=True):
     except (OSError, ValueError, KeyError) as e:   # a missing or broken catalog, apt-get not found
         say("error", "%s: %s" % (type(e).__name__, e))
         return 1
+    finally:
+        if lock is not None:
+            release_lock(lock)
     return 0
 
 

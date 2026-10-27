@@ -22,6 +22,7 @@ on:
       - "tools/pkg-dir.sh"
       - "tools/licensed.py"
       - "gamedb/engines/*/build.toml"
+      - "tools/gamedb/gdp-manifest.json"
   workflow_dispatch:
     inputs:
       target:

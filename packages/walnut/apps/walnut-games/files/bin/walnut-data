@@ -1,0 +1,544 @@
+#!/usr/bin/python3 -I
+"""walnut-data list | import [-p PKG]... [--no-download] GAME SOURCE... | remove GAME | install-repo GAME
+(walnut-games package, /usr/bin): the player's own game data made into packages and installed, from a
+terminal or the Walnut Games app. Runs as the player; only walnut-games-helper (through sudo -n) is root.
+
+Design
+- GAME is a catalog id (/usr/share/walnut-games/catalog.json) whose entry has a data_setup (GameDB
+  build.toml [data_setup]): the game-data-packager game, the packages, which may download.
+- list: every catalog game with a data_setup, its data installed or missing (any one of present_any;
+  optional for a game that runs without), whether the configured apt sources have one of its data
+  packages (the licensed suite: `walnut-data install-repo GAME`), its title.
+- import: each SOURCE as the player has it. An .iso or .img file is opened read-only with
+  `udisksctl loop-setup -r -f` and mounted with `udisksctl mount -b` (the player's own polkit rights; no
+  copy), a block device (the disc drive, /dev/sr0) is used at its mount point or mounted the same way,
+  and whatever this program mounted or set up is released afterwards. A directory, an installer or
+  archive file, or a mounted disc's path is given to game-data-packager as it is.
+  game-data-packager (gdp) runs as the player in a transient user unit: `systemd-run --user --pipe
+  --wait` with MemoryMax, RuntimeMaxSec and NoNewPrivileges, and PrivateNetwork when it must not
+  download and the user manager can make one (checked by a probe: only "lo" in its /proc/net/dev);
+  without a user manager it runs directly. Its command: `game-data-packager --no-search --no-compress
+  --no-launchers --progress-fd 3 -n -d ~/.cache/walnut-data/out --download|--no-download -p PKG...
+  GDPGAME SOURCE...` with TMPDIR=~/.cache/walnut-data/tmp (the PS3's /tmp is a small tmpfs). The
+  packages: -p's, else the game's required and optional ones. --download only when every one of
+  them is among the game's downloads (the official patch files gdp knows), else --no-download.
+  A gdp without --progress-fd or --no-launchers (Debian's) runs without them: no progress lines, and
+  the helper drops the Doom family's menu files anyway. In the unit, descriptor 3 is a FIFO in the
+  cache directory (systemd-run --pipe passes only 0-2).
+  Each package gdp made is then `dpkg-deb --fsys-tarfile X.deb | sudo -n walnut-games-helper
+  import-data GAME PKG`: the helper checks every file against its manifest and builds and installs
+  the package itself (required packages first, in the catalog's order). out/ and tmp/ are emptied
+  before and removed after.
+- remove: `walnut-games-helper remove-data GAME` (the game's data packages only). install-repo:
+  `walnut-games-helper install-repo-data GAME` (its data from the configured apt sources).
+- Output, one item per line, flushed: "gdp step|file|generated|error ..." (gdp's progress lines),
+  "log text" (gdp's own output and notes), the helper's lines as they come ("progress N text",
+  "log text", "error text"), "error text" for this program's own failures.
+- Exit codes: 0 done; 2 refused, nothing changed (bad arguments, an unknown game, a missing source,
+  the helper refused); 1 failed (gdp or the helper failed, or gdp made no package).
+- stdlib only, no Tk. The commands are module constants so that tests/test_walnut_games.py runs it
+  with a stubbed gdp, dpkg-deb and helper.
+"""
+import argparse
+import json
+import os
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import threading
+
+CATALOG = "/usr/share/walnut-games/catalog.json"
+HELPER = "/usr/lib/ps3/sbin/walnut-games-helper"
+SUDO = ["/usr/bin/sudo", "-n"]
+GDP = "/usr/games/game-data-packager"
+DPKG_DEB, DPKG_QUERY, APT_CACHE = "/usr/bin/dpkg-deb", "/usr/bin/dpkg-query", "/usr/bin/apt-cache"
+UDISKSCTL = "/usr/bin/udisksctl"
+SYSTEMD_RUN = "/usr/bin/systemd-run"
+MEMORY_MAX = "192M"       # gdp ~40 MB with one game loaded, plus an unpacker (innoextract, unshield)
+RUNTIME_MAX = "3h"        # a CD reads at about 2.3 MB/s
+UNIT_PATH = "/usr/local/bin:/usr/bin:/bin:/usr/games"
+ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
+PKG_RE = re.compile(r"[a-z0-9][a-z0-9+.-]*[a-z0-9]\Z")
+IMAGE_SUFFIXES = (".iso", ".img")
+
+
+class Refused(Exception):
+    """exit code 2: nothing was changed"""
+
+
+class Failed(Exception):
+    """exit code 1"""
+
+
+def say(kind, text=""):
+    try:
+        sys.stdout.write((kind + " " + text).rstrip() + "\n")
+        sys.stdout.flush()
+    except (OSError, ValueError):
+        pass
+
+
+def run(cmd, **kw):
+    """(returncode, stdout and stderr) of cmd; 127 when it is not there"""
+    try:
+        p = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                           errors="replace", **kw)
+    except OSError as e:
+        return 127, str(e)
+    return p.returncode, p.stdout
+
+
+# ---- the catalog ------------------------------------------------------------------------------
+
+def load_games(path=None):
+    with open(path or CATALOG, encoding="utf-8") as f:
+        return {g["id"]: g for g in json.load(f)["games"] if isinstance(g.get("id"), str)}
+
+
+def data_setup(game_id, games):
+    if not ID_RE.match(game_id or ""):
+        raise Refused("not a game id: %r" % game_id)
+    if game_id not in games:
+        raise Refused("unknown game: %s (walnut-data list shows the games)" % game_id)
+    ds = games[game_id].get("data_setup")
+    if not isinstance(ds, dict) or not isinstance(ds.get("gdp"), str):
+        raise Refused("%s has no data to set up" % game_id)
+    return ds
+
+
+def names(ds, key):
+    return [p for p in ds.get(key) or [] if isinstance(p, str) and PKG_RE.match(p)]
+
+
+def wanted_packages(ds, asked):
+    """the packages to make: -p's (each one of the game's), else required then optional"""
+    known = names(ds, "required") + names(ds, "optional")
+    if asked:
+        bad = [p for p in asked if p not in known]
+        if bad:
+            raise Refused("%s: not a data package of this game (%s)" % (", ".join(bad), ", ".join(known)))
+        return list(dict.fromkeys(asked))
+    return known
+
+
+def download_choice(ds, pkgs, no_download=False):
+    """--download only when every package is one the game may download for, else --no-download"""
+    dl = set(names(ds, "downloads"))
+    return "--download" if pkgs and not no_download and all(p in dl for p in pkgs) else "--no-download"
+
+
+def installed(pkgs):
+    if not pkgs:
+        return set()
+    rc, out = run([DPKG_QUERY, "-W", "-f", "${Package}\t${db:Status-Abbrev}\n"] + list(pkgs))
+    return {n for line in out.splitlines() for n, _, st in [line.partition("\t")] if n in pkgs and st[1:2] == "i"}
+
+
+def candidates(pkgs):
+    if not pkgs:
+        return set()
+    rc, out = run([APT_CACHE, "policy"] + list(pkgs))
+    have, cur = set(), None
+    for line in out.splitlines():
+        m = re.match(r"(\S+):\s*$", line)
+        if m:
+            cur = m.group(1)
+        elif cur and (m := re.match(r"\s+Candidate:\s*(\S+)", line)) and m.group(1) != "(none)":
+            have.add(cur)
+    return have
+
+
+def cmd_list(games):
+    rows = []
+    all_names = sorted({p for g in games.values() if isinstance(g.get("data_setup"), dict)
+                        for k in ("present_any", "required", "optional") for p in names(g["data_setup"], k)})
+    inst, repo = installed(all_names), candidates(all_names)
+    for gid in sorted(games):
+        ds = games[gid].get("data_setup")
+        if not isinstance(ds, dict):
+            continue
+        any_of = names(ds, "present_any") or names(ds, "required")
+        opt = names(ds, "optional")
+        if names(ds, "required"):
+            state = "present" if inst & set(any_of) else "missing"
+        else:
+            state = "optional-present" if inst & set(opt) else "optional"
+        avail = "repo" if repo & set(any_of) and state == "missing" else "-"
+        rows.append((gid, state, avail, games[gid].get("title") or gid))
+    w = max([len(r[0]) for r in rows] + [4])
+    for r in rows:
+        print("%-*s  %-16s  %-4s  %s" % (w, r[0], r[1], r[2], r[3]))
+    return 0
+
+
+# ---- sources ----------------------------------------------------------------------------------
+
+def source_kind(path):
+    """'image' (an .iso/.img file: loop-mounted), 'device' (a block device: its mount point), 'path'
+    (a directory or any other file, as it is); Refused when it is not there"""
+    try:
+        st = os.stat(path)
+    except OSError:
+        raise Refused("no such file or folder: %s" % path)
+    if stat.S_ISBLK(st.st_mode):
+        return "device"
+    if stat.S_ISREG(st.st_mode) and path.lower().endswith(IMAGE_SUFFIXES):
+        return "image"
+    return "path"
+
+
+def unescape_mount(s):
+    return re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), s)
+
+
+def mount_point(dev, mounts="/proc/self/mounts"):
+    """where block device dev is mounted, or None"""
+    try:
+        real = os.path.realpath(dev)
+        with open(mounts) as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2 and os.path.realpath(unescape_mount(parts[0])) == real:
+                    return unescape_mount(parts[1])
+    except OSError:
+        pass
+    return None
+
+
+class Sources:
+    """the SOURCE arguments as paths gdp reads; loop devices and mounts made here released by close()"""
+
+    def __init__(self):
+        self.mounted, self.loops = [], []
+
+    def mount(self, dev):
+        mp = mount_point(dev)
+        if mp:
+            return mp
+        rc, out = run([UDISKSCTL, "mount", "-b", dev])
+        if rc != 0 and os.path.exists(dev + "p1"):     # an image with a partition table
+            dev = dev + "p1"
+            mp = mount_point(dev)
+            if mp:
+                return mp
+            rc, out = run([UDISKSCTL, "mount", "-b", dev])
+        if rc != 0:
+            raise Refused("cannot mount %s: %s" % (dev, (out.strip().splitlines() or ["?"])[-1]))
+        self.mounted.append(dev)
+        mp = mount_point(dev)
+        if not mp:
+            m = re.search(r" at (.+?)\.?\s*$", out.strip())
+            mp = m.group(1) if m else None
+        if not mp or not os.path.isdir(mp):
+            raise Refused("%s was mounted but its folder is not known: %s" % (dev, out.strip()))
+        say("log", "mounted %s at %s" % (dev, mp))
+        return mp
+
+    def add(self, path):
+        path = os.path.abspath(path)
+        kind = source_kind(path)
+        if kind == "path":
+            return path
+        if kind == "device":
+            return self.mount(path)
+        rc, out = run([UDISKSCTL, "loop-setup", "-r", "-f", path])
+        m = re.search(r" as (/dev/\S+?)\.?\s*$", out.strip())
+        if rc != 0 or not m:
+            raise Refused("cannot open %s: %s" % (path, (out.strip().splitlines() or ["?"])[-1]))
+        self.loops.append(m.group(1))
+        say("log", "opened %s as %s" % (path, m.group(1)))
+        return self.mount(m.group(1))
+
+    def close(self):
+        for dev in reversed(self.mounted):
+            run([UDISKSCTL, "unmount", "-b", dev])
+        for dev in reversed(self.loops):
+            run([UDISKSCTL, "loop-delete", "-b", dev])
+        self.mounted, self.loops = [], []
+
+
+# ---- game-data-packager -----------------------------------------------------------------------
+
+def cache_dir():
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    return os.path.join(base, "walnut-data")
+
+
+def fresh_dirs(base):
+    out, tmp = os.path.join(base, "out"), os.path.join(base, "tmp")
+    for d in (out, tmp):
+        shutil.rmtree(d, ignore_errors=True)
+        os.makedirs(d, 0o700)
+    return out, tmp
+
+
+def gdp_features():
+    """(--progress-fd, --no-launchers) as this gdp's --help lists them"""
+    rc, out = run([GDP, "--help"])
+    if rc == 127:
+        raise Failed("game-data-packager is not installed (sudo apt install game-data-packager)")
+    return "--progress-fd" in out, "--no-launchers" in out
+
+
+def gdp_command(ds, pkgs, sources, out, download, progress_fd=None, no_launchers=True):
+    cmd = [GDP, "--no-search", "--no-compress"]
+    if no_launchers:
+        cmd.append("--no-launchers")
+    if progress_fd is not None:
+        cmd += ["--progress-fd", str(progress_fd)]
+    cmd += ["-n", "-d", out, download]
+    for p in pkgs:
+        cmd += ["-p", p]
+    return cmd + [ds["gdp"]] + list(sources)
+
+
+def user_manager():
+    """whether systemd-run --user can start a unit here"""
+    rc, _ = run([SYSTEMD_RUN, "--user", "--pipe", "--wait", "--quiet", "--collect", "/bin/true"])
+    return rc == 0
+
+
+def private_network_works():
+    """whether the user manager can give a unit a network namespace of its own (user namespaces)"""
+    rc, out = run([SYSTEMD_RUN, "--user", "--pipe", "--wait", "--quiet", "--collect", "-p", "PrivateNetwork=yes",
+                   "/bin/cat", "/proc/net/dev"])
+    ifaces = [l.split(":")[0].strip() for l in out.splitlines() if ":" in l]
+    return rc == 0 and ifaces == ["lo"]
+
+
+def unit_command(cmd, tmp, fifo, private_net):
+    """cmd in a transient user unit; descriptor 3 opened on fifo inside it when fifo is given"""
+    unit = [SYSTEMD_RUN, "--user", "--pipe", "--wait", "--quiet", "--collect",
+            "-p", "MemoryMax=" + MEMORY_MAX, "-p", "RuntimeMaxSec=" + RUNTIME_MAX, "-p", "NoNewPrivileges=yes",
+            "--setenv=TMPDIR=" + tmp, "--setenv=PATH=" + UNIT_PATH, "--setenv=LC_ALL=C.UTF-8"]
+    if private_net:
+        unit += ["-p", "PrivateNetwork=yes"]
+    if fifo:
+        return unit + ["/bin/sh", "-c", 'exec 3>"$0" && exec "$@"', fifo] + cmd
+    return unit + cmd
+
+
+def relay_progress(fd, errors):
+    """gdp's --progress-fd lines as 'gdp ...'; its error lines kept in errors"""
+    with os.fdopen(fd, "rb") as f:
+        for raw in f:
+            line = raw.decode("utf-8", "replace").rstrip()
+            if line:
+                say("gdp", line)
+                if line.startswith("error "):
+                    errors.append(line[6:])
+
+
+def run_gdp(cmd, tmp, base, sandbox, private_net, progress):
+    """run gdp (cmd has '--progress-fd FD' to be filled in); its return code and its error lines"""
+    errors = []
+    env = dict(os.environ, TMPDIR=tmp)
+    fifo = reader = keep = None
+    if progress and sandbox:
+        fifo = os.path.join(base, "progress.fifo")
+        try:
+            os.unlink(fifo)
+        except FileNotFoundError:
+            pass
+        os.mkfifo(fifo, 0o600)
+        rfd = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+        keep = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)    # no EOF before gdp has even opened it
+        os.set_blocking(rfd, True)
+        full = unit_command([("3" if a == "FD" else a) for a in cmd], tmp, fifo, private_net)
+        pass_fds = ()
+    elif progress:
+        rfd, wfd = os.pipe()
+        full = [(str(wfd) if a == "FD" else a) for a in cmd]
+        pass_fds = (wfd,)
+    else:
+        rfd = None
+        full = unit_command(cmd, tmp, None, private_net) if sandbox else cmd
+        pass_fds = ()
+    if rfd is not None:
+        reader = threading.Thread(target=relay_progress, args=(rfd, errors), daemon=True)
+        reader.start()
+    try:
+        p = subprocess.Popen(full, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             env=env, pass_fds=pass_fds)
+    finally:
+        for fd in pass_fds:
+            os.close(fd)
+    with p.stdout:
+        for raw in p.stdout:
+            line = raw.decode("utf-8", "replace").rstrip()
+            if line:
+                say("log", line)
+    rc = p.wait()
+    if keep is not None:
+        os.close(keep)
+    if reader:
+        reader.join(10)
+    if fifo:
+        try:
+            os.unlink(fifo)
+        except OSError:
+            pass
+    return rc, errors
+
+
+def built_debs(out, pkgs):
+    """[(package, deb path)] gdp made in out, in the order of pkgs"""
+    found = []
+    files = sorted(os.listdir(out)) if os.path.isdir(out) else []
+    for p in pkgs:
+        for n in files:
+            if n.startswith(p + "_") and n.endswith(".deb"):
+                found.append((p, os.path.join(out, n)))
+                break
+    return found
+
+
+def helper_lines(stream):
+    rc_error = None
+    for raw in stream:
+        line = raw.decode("utf-8", "replace").rstrip()
+        if line:
+            kind = line.split(" ", 1)[0]
+            print(line if kind in ("progress", "log", "error", "status") else "log " + line, flush=True)
+            if kind == "error":
+                rc_error = line
+    return rc_error
+
+
+def import_deb(game_id, pkg, deb):
+    """dpkg-deb --fsys-tarfile deb | sudo -n walnut-games-helper import-data game_id pkg: its exit code"""
+    say("log", "importing %s" % pkg)
+    tar = subprocess.Popen([DPKG_DEB, "--fsys-tarfile", deb], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE)
+    try:
+        h = subprocess.Popen(SUDO + [HELPER, "import-data", game_id, pkg], stdin=tar.stdout, stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT)
+    except OSError:
+        tar.kill()
+        tar.wait()
+        raise
+    tar.stdout.close()      # the helper has it; dpkg-deb gets SIGPIPE if the helper stops reading
+    with h.stdout:
+        helper_lines(h.stdout)
+    rc = h.wait()
+    trc = tar.wait()
+    if rc == 0 and trc != 0:
+        say("error", "dpkg-deb --fsys-tarfile %s failed (%d)" % (os.path.basename(deb), trc))
+        return 1
+    return rc
+
+
+GDP_HINTS = {
+    "not-found": "no files of this game were found there",
+    "unknown-version": "this copy is a version game-data-packager doesn't know",
+    "needs-download": "some files have to be downloaded: connect to the network, or add those files",
+    "no-space": "not enough free space",
+}
+
+
+def cmd_import(game_id, sources, asked, no_download, games):
+    ds = data_setup(game_id, games)
+    pkgs = wanted_packages(ds, asked)
+    if not pkgs:
+        raise Refused("%s names no data packages" % game_id)
+    if not sources:
+        raise Refused("no SOURCE given: a disc, an .iso, an installer or a folder")
+    download = download_choice(ds, pkgs, no_download)
+    if download == "--no-download" and names(ds, "downloads") and not no_download:
+        say("log", "downloads off: import with -p %s alone to let it fetch its patch files"
+            % " -p ".join(names(ds, "downloads")))
+    progress, no_launchers = gdp_features()
+    base = cache_dir()
+    os.makedirs(base, 0o700, exist_ok=True)
+    out, tmp = fresh_dirs(base)
+    src = Sources()
+    try:
+        paths = [src.add(s) for s in sources]
+        sandbox = user_manager()
+        private_net = sandbox and download == "--no-download" and private_network_works()
+        if not sandbox:
+            say("log", "no systemd user manager: game-data-packager runs without its sandbox")
+        cmd = gdp_command(ds, pkgs, paths, out, download, "FD" if progress else None, no_launchers)
+        say("log", "running game-data-packager %s for %s" % (ds["gdp"], " ".join(pkgs)))
+        rc, errors = run_gdp(cmd, tmp, base, sandbox, private_net, progress)
+        debs = built_debs(out, pkgs)
+        if rc != 0 or not debs:
+            kind = errors[-1].split(" ", 1)[0] if errors else None
+            raise Failed("game-data-packager made no package%s" % (": " + GDP_HINTS[kind] if kind in GDP_HINTS else
+                                                                    " (exit %d)" % rc if rc else ""))
+        src.close()            # the disc or image is no longer needed
+        worst = 0
+        for pkg, deb in debs:
+            rc = import_deb(game_id, pkg, deb)
+            os.unlink(deb)
+            if rc != 0:
+                worst = rc if worst in (0, 2) else worst
+        if worst == 2:
+            raise Refused("the helper refused the data")
+        if worst:
+            raise Failed("the helper failed")
+        return 0
+    finally:
+        src.close()
+        for d in (out, tmp):
+            shutil.rmtree(d, ignore_errors=True)
+
+
+def cmd_helper(action, game_id, games):
+    data_setup(game_id, games)
+    try:
+        h = subprocess.Popen(SUDO + [HELPER, action, game_id], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT)
+    except OSError as e:
+        raise Failed(str(e))
+    with h.stdout:
+        helper_lines(h.stdout)
+    rc = h.wait()
+    return rc if rc in (0, 1, 2) else 1
+
+
+def parse(argv):
+    ap = argparse.ArgumentParser(prog="walnut-data", description="The player's own game data, made into packages.")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("list", help="the games that take data, and whether theirs is installed")
+    p = sub.add_parser("import", help="make and install the game's data packages from SOURCE (a disc, an .iso, "
+                                      "an installer, a folder)")
+    p.add_argument("-p", "--package", action="append", default=[], help="only this data package (repeatable)")
+    p.add_argument("--no-download", action="store_true", help="never download, even the official patch files")
+    p.add_argument("game")
+    p.add_argument("sources", nargs="+", metavar="SOURCE")
+    for name, text in (("remove", "remove the game's data packages"),
+                       ("install-repo", "install the game's data from your package sources")):
+        sub.add_parser(name, help=text).add_argument("game")
+    return ap.parse_args(argv)
+
+
+def main(argv=None, catalog=None):
+    try:
+        a = parse(argv)
+    except SystemExit as e:
+        return 0 if e.code == 0 else 2
+    try:
+        games = load_games(catalog)
+        if a.cmd == "list":
+            return cmd_list(games)
+        if a.cmd == "import":
+            return cmd_import(a.game, a.sources, a.package, a.no_download, games)
+        return cmd_helper({"remove": "remove-data", "install-repo": "install-repo-data"}[a.cmd], a.game, games)
+    except Refused as e:
+        say("error", str(e))
+        return 2
+    except Failed as e:
+        say("error", str(e))
+        return 1
+    except (OSError, ValueError, KeyError) as e:
+        say("error", "%s: %s" % (type(e).__name__, e))
+        return 1
+    except KeyboardInterrupt:
+        say("error", "interrupted")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

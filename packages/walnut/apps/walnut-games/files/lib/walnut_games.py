@@ -137,6 +137,8 @@ def validate_catalog(obj):
             need(isinstance(v, list) and all(isinstance(x, str) and x for x in v), "%s: bad data_setup %s" % (gid, k))
         for k in ("gdp", "hint"):
             need((ds or {}).get(k) is None or isinstance(ds[k], str), "%s: bad data_setup %s" % (gid, k))
+        ed = (ds or {}).get("editions") or {}
+        need(isinstance(ed, dict) and all(isinstance(v, str) for v in ed.values()), "%s: bad data_setup editions" % gid)
         for l in g.get("launchers") or []:
             need(isinstance(l.get("rating"), dict) and isinstance(l["rating"].get("medal"), str),
                  "%s: bad launcher" % gid)

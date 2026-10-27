@@ -8,3 +8,5 @@ needs_data = true
 gdp = "doom"
 required = ["doom-wad"]
 hint = "DOOM.WAD from Doom 1.9 or The Ultimate Doom: a CD, an installed copy, Steam's common/Ultimate Doom folder or the GOG installer."
+# what each package holds (X-Walnut-Edition of the package import-data builds)
+editions = { "doom-wad" = "full" }
