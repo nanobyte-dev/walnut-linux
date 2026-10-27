@@ -10,7 +10,19 @@ python3 -I packages/walnut/apps/walnut-games/tests/test_walnut_data.py (tools/ru
   alternative that matched), apt's simulation deciding. A fake dpkg-deb and apt-get (runner and stream
   functions); the staging directory, run directory and /usr are temporary directories.
 - The lock (a second action refused, busy), status "importing", remove-data, install-repo-data.
-- tools/gamedb/gdp-manifest.json: every entry the helper accepts.
+- Music packages (the manifest's tracks, no checksums): Ogg Vorbis tracks accepted at their exact paths;
+  a WAV, an Opus stream, a page that isn't a stream's first, an empty file, an oversize track, a track
+  number or name not listed, a missing track and a symlink refused; free space checked track by track;
+  broken tracks entries refused.
+- tools/gamedb/gdp-manifest.json: every entry the helper accepts (quake-music and quake2-music too).
+- BIN/CUE: a synthetic disc (a MODE1/2352 data track holding an ISO volume, two audio tracks, a pregap):
+  the cue parsed (CRLF, quotes, a file name in another case, INDEX 00), the ISO from MODE1/2352,
+  MODE2/2352 and MODE1/2048 cut at the volume size, WAV output (MOTOROLA swapped), a multi-file cue,
+  refusals (WAVE files, unknown modes, missing files, no INDEX 01, bad times, outside the file), the
+  .bin given for its .cue, the tracks encoded through a fake oggenc; whole imports of a BIN/CUE (ISO
+  loop-mounted and the music folder given to gdp, all removed after), music only (no ISO), no music
+  package (no encoding), a broken cue refused before gdp, the space counted; the drive with a music
+  package (the device given to gdp only when the disc has audio tracks).
 - walnut-data: arguments, the --download choice, source kinds, mount points, a disc image through a fake
   udisksctl, the gdp command, and whole imports with a stubbed gdp, dpkg-deb, helper and systemd-run
   (the progress FIFO in the unit, Debian's gdp without --progress-fd, a gdp failure, a refusal, a deb
@@ -542,6 +554,11 @@ if os.environ.get("FAKE_GDP_FAIL"):
     sys.exit(1)
 out = a[a.index("-d") + 1]
 pkgs = [a[i + 1] for i, x in enumerate(a) if x == "-p"]
+if os.environ.get("FAKE_GDP_PARTIAL"):       # dpkg-deb ran out of space halfway through the deb
+    open(os.path.join(out, pkgs[0] + "_89_all.deb"), "wb").write(b"TARDA")
+    print("dpkg-deb: error: cannot append ar member file (data.tar) to 'x.deb': cannot write (No space left on device)")
+    prog("error failed CalledProcessError: dpkg-deb returned non-zero exit status 2")
+    sys.exit(1)
 skip = os.environ.get("FAKE_GDP_SKIP", "").split()
 for pkg in pkgs:
     if pkg not in skip:
@@ -821,6 +838,14 @@ class DataImport(unittest.TestCase):
         self.assertTrue([l for l in out if l.startswith("error ") and "--slice=ps3-desktop.slice" in l], out)
         self.assertEqual(self.log(), [])
 
+    def test_partial_deb_of_a_failed_gdp_dropped(self):
+        os.environ["FAKE_GDP_PARTIAL"] = "1"
+        rc, out = self.imp(self.t / "src")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("error game-data-packager made no package: not enough free space", out)
+        self.assertTrue([l for l in out if "roller-coaster-tycoon2-data_89_all.deb dropped" in l], out)
+        self.assertEqual([e for e in self.log() if "helper" in e], [])          # never streamed to the helper
+
     def test_unasked_deb_refused(self):
         os.environ["FAKE_GDP_EXTRA"] = "1"
         rc, out = self.imp(self.t / "src")
@@ -857,9 +882,9 @@ class DataImport(unittest.TestCase):
         T = 100
         one = wd.space_needs(T, False, "/c", "/v", "/u", dev=lambda p: 1)
         self.assertEqual(one, {1: (3 * T, ["/c", "/v", "/u"])})
-        self.assertEqual(wd.space_needs(T, True, "/c", "/v", "/u", dev=lambda p: 1)[1][0], 3 * T)   # an installer
+        self.assertEqual(wd.space_needs(T, True, "/c", "/v", "/u", dev=lambda p: 1)[1][0], 4 * T)   # an installer
         apart = wd.space_needs(T, False, "/c", "/v", "/u", dev=lambda p: p)
-        self.assertEqual(apart, {"/c": (2 * T, ["/c"]), "/v": (3 * T, ["/v"]), "/u": (T, ["/u"])})
+        self.assertEqual(apart, {"/c": (3 * T, ["/c"]), "/v": (3 * T, ["/v"]), "/u": (T, ["/u"])})
         with self.assertRaises(wd.Refused) as e:
             wd.check_space(1 << 30, False, "/c", "/v", "/u", free=lambda p: 1 << 30)
         self.assertIn("about 3.1 GB free", str(e.exception))
@@ -878,6 +903,373 @@ class DataImport(unittest.TestCase):
         self.assertEqual(text.splitlines()[0], "#!/usr/bin/python3 -I")
         self.assertNotIn("tkinter", text)
         self.assertNotIn("shell=True", text)
+
+
+# ---- music: the helper's rule for tracks without checksums ------------------------------------
+
+def ogg(n=200, body=b"vorbis audio"):
+    """the start of an Ogg Vorbis file: a BOS page whose first packet is the identification header"""
+    head = b"OggS" + b"\x00" + b"\x02" + bytes(20) + bytes([1]) + bytes([30]) + b"\x01vorbis" + bytes(23)
+    return (head + body * n)[:max(len(head), n)]
+
+
+MD = "usr/share/games/alpha/base/music/"
+MUSIC = {"game": "alpha", "version": "89", "edition": "music", "launchers": False, "symlinks": {},
+         "conflicts": [], "replaces": [], "required": [], "files": {},
+         "tracks": {"source": "base/music/%02d.ogg", "first": 2, "last": 3, "max_size": 4096,
+                    "paths": [MD + "02.ogg", MD + "03.ogg"]}}
+
+
+def music_members(t2=None, t3=None, extra=()):
+    return [d("./"), d("./usr/"), d("./usr/share/"), d("./usr/share/games/"), d("./usr/share/games/alpha/"),
+            d("./" + MD), f("./" + MD + "02.ogg", ogg(300) if t2 is None else t2),
+            f("./" + MD + "03.ogg", ogg(500) if t3 is None else t3),
+            f("./usr/share/doc/alpha-music/copyright", b"gdp's"),
+            f("./usr/share/lintian/overrides/alpha-music", b"x")] + list(extra)
+
+
+class MusicImport(Dirs):
+    assert_clean, refused = ImportData.assert_clean, ImportData.refused
+
+    def imp(self, data, fake=None, pkg="alpha-music", gid="alpha", manifest=None):
+        fake = fake or Fake(sim="Inst alpha-music (89 local-deb [all])\n")
+        man = manifest or {"alpha-music": json.loads(json.dumps(MUSIC))}
+        return super().imp(data, fake, pkg, gid, man)
+
+    def test_good_tracks(self):
+        r, out, fake = self.imp(tar_of(music_members()))
+        self.assertIsNone(r, out)
+        self.assertEqual(sorted(fake.tree), sorted(["DEBIAN/control", MD + "02.ogg", MD + "03.ogg",
+                                                    "usr/share/doc/alpha-music/copyright"]))
+        self.assertEqual(fake.tree[MD + "03.ogg"], (0o644, ogg(500)))
+        control = fake.tree["DEBIAN/control"][1].decode()
+        self.assertIn("X-Walnut-Edition: music\n", control)
+        self.assertNotIn("X-Walnut-Release", control)
+        self.assertIn("progress 100 installed alpha-music (music)", out)
+
+    def test_not_ogg_vorbis_refused(self):
+        self.refused(music_members(t3=b"RIFF....WAVEfmt " + bytes(300)), "03.ogg is not an Ogg Vorbis file")
+        opus = ogg(300).replace(b"\x01vorbis", b"OpusHea")
+        self.refused(music_members(t2=opus), "02.ogg is not an Ogg Vorbis file")
+        not_bos = bytearray(ogg(300))
+        not_bos[5] = 0
+        self.refused(music_members(t2=bytes(not_bos)), "02.ogg is not an Ogg Vorbis file")
+        self.refused(music_members(t2=b""), "02.ogg is empty")
+
+    def test_size_bound_names_and_all_tracks(self):
+        self.refused(music_members(t2=ogg(5000)), "02.ogg is larger than a music track may be")
+        self.refused(music_members(extra=[f("./" + MD + "04.ogg", ogg(100))]), "04.ogg is not a file of alpha-music")
+        self.refused(music_members(extra=[f("./usr/share/games/alpha/base/evil.ogg", ogg(100))]), "is not a file of")
+        members = [m for m in music_members() if not m[0].endswith("03.ogg")]
+        self.refused(members, "1 of alpha-music's files are missing, e.g. " + MD + "03.ogg")
+        sym = [m for m in music_members() if not m[0].endswith("03.ogg")] + [
+            ("./" + MD + "03.ogg", tarfile.SYMTYPE, b"", 0o777, "/etc/shadow")]
+        self.refused(sym, "is not a regular file")
+
+    def test_room_checked_track_by_track(self):
+        old = helper.free_bytes
+        calls = []
+
+        def free(path):
+            calls.append(path)
+            # the precheck (expected sizes) passes, the first track's real size does not
+            return (old(path)[0] if len(calls) <= 2 else helper.SPACE_MARGIN, old(path)[1])
+        helper.free_bytes = free
+        try:
+            self.refused(tar_of(music_members()), "the music needs about")
+        finally:
+            helper.free_bytes = old
+
+    def test_tracks_entry_checked(self):
+        good = json.loads(json.dumps(MUSIC))
+        self.assertTrue(helper.check_entry("alpha-music", good))
+        for tracks in ({"paths": ["usr/share/games/alpha/base/02.ogg"]},          # not in a music/ directory
+                       {"paths": ["usr/share/games/alpha/music/x.so"]},
+                       {"paths": ["usr/bin/music/02.ogg"]},
+                       {"paths": ["usr/share/games/alpha/../music/02.ogg"]},
+                       {"paths": [MD + "02.ogg", MD + "02.ogg"]}, {"paths": []},
+                       {"max_size": 0}, {"max_size": 1 << 40}, {"max_size": "1"}):
+            e = json.loads(json.dumps(MUSIC))
+            e["tracks"].update(tracks)
+            with self.assertRaises(helper.Refused, msg=tracks):
+                helper.check_entry("alpha-music", e)
+        e = json.loads(json.dumps(MUSIC))
+        e.pop("tracks")
+        with self.assertRaises(helper.Refused):          # no files and no tracks
+            helper.check_entry("alpha-music", e)
+
+    def test_real_music_entries(self):
+        data = json.loads((REPO / "tools/gamedb/gdp-manifest.json").read_text())["packages"]
+        for pkg, first in (("quake-music", "usr/share/games/quake/id1/music/track02.ogg"),
+                           ("quake2-music", "usr/share/games/quake2/baseq2/music/02.ogg")):
+            e = data[pkg]
+            self.assertEqual(e["edition"], "music")
+            self.assertEqual(e["tracks"]["paths"][0], first)
+            self.assertEqual(len(e["tracks"]["paths"]), e["tracks"]["last"] - e["tracks"]["first"] + 1)
+            helper.check_entry(pkg, e)
+        self.assertNotIn("tracks", data["quake-registered"])
+
+
+# ---- walnut-data: BIN/CUE images --------------------------------------------------------------
+
+def mode1_sector(lba, data):
+    """a MODE1/2352 sector: sync, header (BCD address, mode 1), 2048 bytes of user data, EDC/ECC (zeros here)"""
+    assert len(data) == 2048
+    f = lba + 150
+    bcd = lambda n: (n // 10) << 4 | n % 10
+    return wd.SYNC + bytes([bcd(f // 4500), bcd(f // 75 % 60), bcd(f % 75), 1]) + data + bytes(288)
+
+
+def iso_blocks(n_blocks, volume_blocks):
+    """n_blocks of user data: block i filled with its number, block 16 a primary volume descriptor"""
+    out = []
+    for i in range(n_blocks):
+        b = bytearray(bytes([i % 251]) * 2048)
+        if i == 16:
+            b[:6] = b"\x01CD001"
+            b[80:84] = volume_blocks.to_bytes(4, "little")
+            b[84:88] = volume_blocks.to_bytes(4, "big")
+            b[128:130] = (2048).to_bytes(2, "little")
+        out.append(bytes(b))
+    return out
+
+
+def pcm(frames, seed):
+    """frames CD sectors of 16-bit little-endian stereo samples"""
+    import struct
+    return b"".join(struct.pack("<hh", (i * seed) % 30000 - 15000, -(i * seed) % 30000)
+                    for i in range(frames * 588))
+
+
+class BinCue(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.t = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+        self.make_disc()
+
+    def make_disc(self):
+        # a data track of 20 sectors (an ISO volume of 18 blocks: the rest is padding), audio of 3 + 4 sectors
+        self.blocks = iso_blocks(20, 18)
+        self.a2, self.a3 = pcm(3, 7), pcm(4, 11)
+        data = b"".join(mode1_sector(i, b) for i, b in enumerate(self.blocks))
+        (self.t / "Game Disc.BIN").write_bytes(data + self.a2 + bytes(2 * 2352) + self.a3)
+        (self.t / "game.cue").write_text(
+            'REM made by a test\r\nFILE "game disc.bin" BINARY\r\n  TRACK 01 MODE1/2352\r\n    INDEX 01 00:00:00\r\n'
+            '  TRACK 02 AUDIO\r\n    INDEX 01 00:00:20\r\n  TRACK 03 AUDIO\r\n    INDEX 00 00:00:23\r\n'
+            '    INDEX 01 00:00:25\r\n')
+
+    def test_parse_single_file(self):
+        ts = wd.parse_cue(str(self.t / "game.cue"))
+        self.assertEqual([(t.number, t.mode) for t in ts], [(1, "MODE1/2352"), (2, "AUDIO"), (3, "AUDIO")])
+        self.assertEqual(ts[0].path, str(self.t / "Game Disc.BIN"))          # matched whatever its case
+        self.assertEqual([(t.start, t.end) for t in ts],
+                         [(0, 20 * 2352), (20 * 2352, 23 * 2352), (25 * 2352, 29 * 2352)])   # pregap left out
+        self.assertEqual(ts[2].sectors, 4)
+        self.assertAlmostEqual(wd.track_seconds(ts[2]), 4 / 75)
+
+    def test_iso_from_mode1_and_mode2(self):
+        ts = wd.parse_cue(str(self.t / "game.cue"))
+        n = wd.write_iso(ts[0], str(self.t / "out.iso"))
+        self.assertEqual(n, 18 * 2048)                                      # cut at the volume's size
+        self.assertEqual((self.t / "out.iso").read_bytes(), b"".join(self.blocks[:18]))
+        # MODE2/2352 (form 1): 8 bytes of subheader before the data
+        m2 = b"".join(wd.SYNC + bytes([0, 2, 0, 2]) + bytes(8) + b + bytes(280) for b in self.blocks)
+        (self.t / "m2.bin").write_bytes(m2)
+        (self.t / "m2.cue").write_text("FILE m2.bin BINARY\nTRACK 1 MODE2/2352\nINDEX 1 0:00:00\n")
+        t = wd.parse_cue(str(self.t / "m2.cue"))[0]
+        self.assertEqual(wd.write_iso(t, str(self.t / "m2.iso")), 18 * 2048)
+        self.assertEqual((self.t / "m2.iso").read_bytes(), b"".join(self.blocks[:18]))
+        # MODE1/2048 (cooked) as it is; a track that is not what the cue says refuses
+        (self.t / "c.bin").write_bytes(b"".join(self.blocks))
+        (self.t / "c.cue").write_text("FILE c.bin BINARY\nTRACK 01 MODE1/2048\nINDEX 01 00:00:00\n")
+        self.assertEqual(wd.write_iso(wd.parse_cue(str(self.t / "c.cue"))[0], str(self.t / "c.iso")), 18 * 2048)
+        (self.t / "bad.cue").write_text("FILE c.bin BINARY\nTRACK 01 MODE1/2352\nINDEX 01 00:00:00\n")
+        with self.assertRaises(wd.Refused):
+            wd.write_iso(wd.parse_cue(str(self.t / "bad.cue"))[0], str(self.t / "bad.iso"))
+
+    def test_wav(self):
+        ts = wd.parse_cue(str(self.t / "game.cue"))
+        buf = io.BytesIO()
+        self.assertEqual(wd.write_wav(ts[1], buf), len(self.a2))
+        w = buf.getvalue()
+        import wave
+        with wave.open(io.BytesIO(w)) as r:
+            self.assertEqual((r.getnchannels(), r.getsampwidth(), r.getframerate(), r.getnframes()), (2, 2, 44100, 3 * 588))
+            self.assertEqual(r.readframes(10 ** 6), self.a2)
+        # a MOTOROLA file holds big-endian samples: swapped to the WAV's little-endian
+        big = bytearray(self.a3)
+        big[0::2], big[1::2] = self.a3[1::2], self.a3[0::2]
+        (self.t / "a.bin").write_bytes(bytes(big))
+        (self.t / "a.cue").write_text("FILE a.bin MOTOROLA\nTRACK 01 AUDIO\nINDEX 01 00:00:00\n")
+        buf = io.BytesIO()
+        wd.write_wav(wd.parse_cue(str(self.t / "a.cue"))[0], buf)
+        self.assertEqual(buf.getvalue()[44:], self.a3)
+
+    def test_multi_file(self):
+        (self.t / "t1.bin").write_bytes(b"".join(mode1_sector(i, b) for i, b in enumerate(self.blocks)))
+        (self.t / "t2.bin").write_bytes(bytes(150 * 2352) + self.a2)        # a 2 s pregap at the file's start
+        (self.t / "t3.bin").write_bytes(self.a3)
+        (self.t / "m.cue").write_text('FILE "t1.bin" BINARY\n TRACK 01 MODE1/2352\n  INDEX 01 00:00:00\n'
+                                      'FILE "t2.bin" BINARY\n TRACK 02 AUDIO\n  INDEX 00 00:00:00\n  INDEX 01 00:02:00\n'
+                                      'FILE "t3.bin" BINARY\n TRACK 03 AUDIO\n  INDEX 01 00:00:00\n')
+        ts = wd.parse_cue(str(self.t / "m.cue"))
+        self.assertEqual([(os.path.basename(t.path), t.start, t.end) for t in ts],
+                         [("t1.bin", 0, 20 * 2352), ("t2.bin", 150 * 2352, 153 * 2352), ("t3.bin", 0, 4 * 2352)])
+
+    def test_refusals(self):
+        for text, want in (("FILE x.wav WAVE\nTRACK 01 AUDIO\nINDEX 01 00:00:00\n", "FILE type WAVE"),
+                           ('FILE "game disc.bin" BINARY\nTRACK 01 CDG\nINDEX 01 00:00:00\n', "CDG"),
+                           ("FILE missing.bin BINARY\nTRACK 01 AUDIO\nINDEX 01 00:00:00\n", "missing.bin"),
+                           ('FILE "game disc.bin" BINARY\nTRACK 01 AUDIO\nINDEX 00 00:00:00\n', "no INDEX 01"),
+                           ('FILE "game disc.bin" BINARY\nTRACK 01 AUDIO\nINDEX 01 00:61:00\n', "not a cue sheet line"),
+                           ('FILE "game disc.bin" BINARY\nTRACK 01 AUDIO\nINDEX 01 99:00:00\n', "outside"),
+                           ("REM nothing\n", "no tracks"), ("TRACK 01 AUDIO\n", "not a cue sheet line")):
+            (self.t / "x.cue").write_text(text)
+            with self.assertRaises(wd.Refused, msg=text) as e:
+                wd.parse_cue(str(self.t / "x.cue"))
+            self.assertIn(want, str(e.exception), text)
+        (self.t / "nul.cue").write_bytes(b"FILE \0")
+        with self.assertRaises(wd.Refused):
+            wd.parse_cue(str(self.t / "nul.cue"))
+
+    def test_cue_for(self):
+        self.assertEqual(wd.cue_for(str(self.t / "game.cue")), str(self.t / "game.cue"))
+        (self.t / "game.bin").write_bytes(b"")
+        self.assertEqual(wd.cue_for(str(self.t / "game.bin")), str(self.t / "game.cue"))
+        with self.assertRaises(wd.Refused) as e:
+            wd.cue_for(str(self.t / "Game Disc.BIN"))
+        self.assertIn("needs its .cue", str(e.exception))
+        self.assertIsNone(wd.cue_for(str(self.t / "setup.exe")))
+
+    def test_encode_tracks(self):
+        enc = self.t / "oggenc"
+        enc.write_text("#!/bin/sh\n# oggenc -Q -o OUT -\ncat > \"$3\"\n")
+        enc.chmod(0o755)
+        old = wd.OGGENC
+        wd.OGGENC = str(enc)
+        try:
+            ts = wd.parse_cue(str(self.t / "game.cue"))
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                made = wd.encode_tracks(ts, "id1/music/track%02d.ogg", str(self.t / "music"), 2, 3)
+            self.assertEqual(made, [str(self.t / "music/id1/music/track02.ogg"), str(self.t / "music/id1/music/track03.ogg")])
+            self.assertEqual(Path(made[1]).read_bytes(), wd.wav_header(len(self.a3)) + self.a3)
+            self.assertIn("gdp step encoding the CD's music: track 3 of 3 (0:00)", buf.getvalue())
+            enc.write_text("#!/bin/sh\ncat >/dev/null; exit 3\n")
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(wd.Failed):
+                wd.encode_tracks(ts, "m/%02d.ogg", str(self.t / "m2"), 2, 3)
+            wd.OGGENC = str(self.t / "none")
+            with self.assertRaises(wd.Failed) as e:
+                wd.encode_tracks(ts, "m/%02d.ogg", str(self.t / "m3"), 2, 3)
+            self.assertIn("vorbis-tools", str(e.exception))
+        finally:
+            wd.OGGENC = old
+
+
+class BinCueImport(unittest.TestCase):
+    """whole imports from a BIN/CUE and from the disc in the drive, with the stubs of DataImport"""
+    tearDown, log, imp, catalog = DataImport.tearDown, DataImport.log, DataImport.imp, DataImport.catalog
+
+    def setUp(self):
+        DataImport.setUp(self)
+        BinCue.make_disc(self)             # the bin/cue in self.t
+        enc = self.t / "oggenc"
+        enc.write_text("#!/bin/sh\ncat > \"$3\"\n")
+        enc.chmod(0o755)
+        self.old["OGGENC"] = wd.OGGENC
+        self.old["disc_audio_tracks"] = wd.disc_audio_tracks
+        wd.OGGENC = str(enc)
+        (self.t / "mnt").mkdir()
+        self.games = {"quakespasm": {"id": "quakespasm", "data_setup": {
+            "gdp": "quake", "required": ["quake-registered"], "optional": ["quake-music"], "downloads": []}}}
+        Path(wd.MANIFEST).write_text(json.dumps({"packages": {
+            "quake-registered": {"files": {"id1/pak0.pak": [{"size": 1000}]}},
+            "quake-music": {"files": {}, "tracks": {"source": "id1/music/track%02d.ogg", "first": 2, "last": 3,
+                                                    "max_size": 1 << 26, "paths": []}}}}))
+
+    def test_bin_cue_data_and_music(self):
+        seen = {}
+        real = wd.Sources.add
+
+        def add(src, path):        # the ISO as it is when it is opened
+            seen["iso"] = Path(path).read_bytes()
+            return real(src, path)
+        wd.Sources.add = add
+        try:
+            rc, out = self.imp(self.t / "game.cue", game="quakespasm")
+        finally:
+            wd.Sources.add = real
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(seen["iso"], b"".join(self.blocks[:18]))
+        a = self.log()[0]["gdp"]
+        music = str(self.t / "cache/walnut-data/disc/music")
+        self.assertEqual(a[-3:], ["quake", str(self.t / "mnt"), music])        # the mounted ISO and the music
+        self.assertEqual(a[a.index("-p") + 1], "quake-registered")
+        calls = (self.t / "udisks").read_text().splitlines()
+        iso = str(self.t / "cache/walnut-data/disc/game.iso")
+        self.assertEqual(calls, ["loop-setup -r -f %s" % iso, "mount -b /dev/loop7", "unmount -b /dev/loop7"])
+        self.assertFalse((self.t / "cache/walnut-data/disc").exists())         # ISO and music removed
+        self.assertIn("gdp step extracting the data track of game.cue", out)
+        self.assertEqual([e["helper"] for e in self.log()[1:]], [["import-data", "quakespasm", "quake-registered"],
+                                                                 ["import-data", "quakespasm", "quake-music"]])
+
+    def test_bin_given_and_music_only(self):
+        (self.t / "game.bin").symlink_to(self.t / "Game Disc.BIN")
+        rc, out = self.imp(self.t / "game.bin", game="quakespasm", opts=("-p", "quake-music"))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.log()[0]["gdp"][-2:], ["quake", str(self.t / "cache/walnut-data/disc/music")])
+        self.assertFalse((self.t / "udisks").exists())                         # no ISO, no loop device
+        self.assertNotIn("gdp step extracting the data track of game.cue", out)
+
+    def test_bin_cue_without_music_package(self):
+        rc, out = self.imp(self.t / "game.cue", game="quakespasm", opts=("-p", "quake-registered"))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.log()[0]["gdp"][-2:], ["quake", str(self.t / "mnt")])
+        self.assertFalse([l for l in out if "encoding" in l])
+
+    def test_broken_cue_refused_before_anything(self):
+        (self.t / "game.cue").write_text("FILE nothere.bin BINARY\nTRACK 01 MODE1/2352\nINDEX 01 00:00:00\n")
+        rc, out = self.imp(self.t / "game.cue", game="quakespasm")
+        self.assertEqual(rc, 2)
+        self.assertEqual(self.log(), [])
+
+    def test_space_counts_the_iso_and_music(self):
+        sources = wd.Sources(str(self.t), [{"source": "m/%02d.ogg", "first": 2, "last": 3}])
+        kind, (cue, tracks), extra = sources.plan(str(self.t / "game.cue"))
+        self.assertEqual(kind, "cue")
+        self.assertEqual(extra, 20 * 2048 + int(3 / 75 * wd.OGG_ENC_BYTES) + int(4 / 75 * wd.OGG_ENC_BYTES))
+        need = wd.space_needs(100, False, "/c", "/v", "/u", dev=lambda p: p, extra=5000)
+        self.assertEqual(need["/c"][0], 300 + 5000)
+        self.assertEqual(wd.data_bytes(["quake-music", "quake-registered"]), 2 * wd.MUSIC_TRACK_BYTES + 1000)
+
+    def test_disc_in_the_drive_with_music(self):
+        dev = self.t / "sr0"
+        os.mkfifo(dev)          # stands in for a block device
+        wd.disc_audio_tracks = lambda d: [2, 3]
+        src = wd.Sources(str(self.t), [{"source": "id1/music/track%02d.ogg", "first": 2, "last": 3}])
+        src.mount = lambda d, ours=False: str(self.t / "mnt")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(src.add_device(str(dev)), [str(self.t / "mnt"), str(dev)])    # data, and the rip
+            wd.disc_audio_tracks = lambda d: []
+            self.assertEqual(src.add_device(str(dev)), [str(self.t / "mnt")])
+            src.only_music = True
+            with self.assertRaises(wd.Refused):
+                src.add_device(str(dev))                                           # no audio, no data wanted
+            wd.disc_audio_tracks = lambda d: [2, 3]
+            self.assertEqual(src.add_device(str(dev)), [str(dev)])                # a music CD: not mounted
+
+            def nomount(d, ours=False):
+                raise wd.Refused("cannot mount: not a file system")
+            src.mount, src.only_music = nomount, False
+            self.assertEqual(src.add_device(str(dev)), [str(dev)])                # an audio CD has no file system
+        plain = wd.Sources(str(self.t))
+        plain.mount = nomount
+        with self.assertRaises(wd.Refused):
+            plain.add_device(str(dev))
+        wd.disc_audio_tracks = self.old["disc_audio_tracks"]
+        self.assertIsNone(wd.disc_audio_tracks(str(self.t / "no-such-drive")))
+        self.assertIsNone(wd.disc_audio_tracks(str(self.t / "game.cue")))         # not a CD drive: ioctl fails
 
 
 if __name__ == "__main__":

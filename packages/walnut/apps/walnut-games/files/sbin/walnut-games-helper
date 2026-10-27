@@ -57,6 +57,15 @@ Design
   first: twice the manifest's total in the staging file system, once more on /usr (one file system:
   twice; the staged files go once the deb is made). The package
   stays manually installed (apt-get install of a file): autoremove leaves it.
+  Music packages (the manifest's tracks: quake-music, quake2-music) are the weaker case: CD audio ripped
+  with cdparanoia or encoded from a BIN/CUE differs from copy to copy, so there is no checksum. A track
+  must be one of the manifest's exact paths (usr/share/games/GAME/.../music/NN.ogg, checked against
+  TRACK_RE when the manifest is read), each once, at most its max_size bytes (64 MB), and an Ogg Vorbis
+  stream (its first page: OggS, version 0, beginning of stream, then the 01 'vorbis' identification
+  header); every listed track must be there. What it holds beyond that is not checked: root writes a
+  bounded file of the player's choice under the game's music directory, mode 0644, owned by root, read
+  only by the game's Vorbis decoder. Free space for tracks is checked track by track from the stream's
+  sizes (room: the file, dpkg-deb's temporary member and the deb), and /usr once the deb is made.
 - remove-data ID: the game's installed data packages (data_setup required, optional and present_any:
   its data and [[licensed]] names), nothing else (apt-get -s remove first, as remove).
 - install-repo-data ID: the first of the game's data_setup present_any names that the configured apt
@@ -97,6 +106,7 @@ RUN_DIR = "/run/walnut-games"            # the lock and the state file
 IMPORT_DIR = "/var/lib/walnut-games/import"
 USR = "/usr"
 GAME_MODE_UNIT = "ps3-game-mode-watch.service"   # active while a game runs in game mode (ps3-game-mode on)
+TRACK_EXPECT = 8 << 20     # a music track's Ogg Vorbis file at oggenc's default quality (~6 minutes)
 SKIP_CAP = 64 << 20        # bytes of game-data-packager's own generated files read past in one import
 SPACE_MARGIN = 64 << 20    # free space kept beyond the import's needs
 VERSION_RE = re.compile(r"[0-9][A-Za-z0-9.+~-]{0,63}\Z")
@@ -526,8 +536,11 @@ def importable(game_id, pkg, games):
 
 def check_entry(pkg, entry):
     """the manifest entry of pkg, its names checked (a broken manifest refuses, it never writes odd fields)"""
-    if not isinstance(entry, dict) or not isinstance(entry.get("files"), dict) or not entry["files"]:
+    if not isinstance(entry, dict) or not isinstance(entry.get("files"), dict) or \
+            not (entry["files"] or entry.get("tracks")):
         raise Refused("the data manifest has no files for %s" % pkg)
+    if "tracks" in entry:
+        check_tracks(pkg, entry)
     if not VERSION_RE.match(str(entry.get("version", ""))) or not ID_RE.match(str(entry.get("game", ""))):
         raise Refused("the data manifest's version or game of %s is not usable" % pkg)
     if entry.get("edition") not in EDITIONS:
@@ -547,6 +560,36 @@ def check_entry(pkg, entry):
     if not all(p in entry["files"] for p in entry.get("required") or []):
         raise Refused("the data manifest's required files of %s are not among its files" % pkg)
     return entry
+
+
+def check_tracks(pkg, entry):
+    """a music package's tracks entry: exact paths, each a numbered .ogg file directly in a music/ directory
+    under /usr/share/games/GAME, not one of its checksummed files; max_size a positive int up to
+    TRACK_MAX_LIMIT"""
+    t = entry["tracks"]
+    paths = t.get("paths") if isinstance(t, dict) else None
+    size = t.get("max_size") if isinstance(t, dict) else None
+    if not isinstance(paths, list) or not paths or len(paths) > 99 or len(set(paths)) != len(paths) or \
+            not isinstance(size, int) or isinstance(size, bool) or not 0 < size <= TRACK_MAX_LIMIT or \
+            not all(isinstance(p, str) and TRACK_RE.match(p) and member_path(p) == p and p not in entry["files"]
+                    for p in paths):
+        raise Refused("the data manifest's tracks of %s are not usable" % pkg)
+
+
+# a music track's installed path: usr/share/games/GAME/[DIR/]music/[NAME]NN.ogg
+TRACK_RE = re.compile(r"usr/share/games/[a-z0-9][a-z0-9-]*/(?:[A-Za-z0-9_-]+/)?music/[A-Za-z_-]{0,16}[0-9]{2}\.ogg\Z")
+TRACK_MAX_LIMIT = 256 << 20
+
+
+def ogg_vorbis_start(head):
+    """whether head (a file's first bytes) starts an Ogg Vorbis stream: an Ogg page (capture pattern OggS,
+    version 0) that begins the stream (header type BOS), whose first packet is Vorbis's identification
+    header (01 'vorbis')"""
+    if len(head) < 28 or head[:4] != b"OggS" or head[4] != 0 or not head[5] & 0x02:
+        return False
+    nseg = head[26]
+    start = 27 + nseg
+    return head[start:start + 7] == b"\x01vorbis"
 
 
 HASHES = ("sha256", "sha1", "md5")
@@ -637,6 +680,8 @@ def read_stream(src, pkg, entry, root, cap):
     """the files of the tar stream src written under root, checked against the manifest entry;
     {path: the release name of the alternative it matched, or None}. Refused on anything else."""
     files = entry["files"]
+    tracks = set((entry.get("tracks") or {}).get("paths") or [])
+    tracks_max = (entry.get("tracks") or {}).get("max_size", 0)
     done, total, skipped = {}, 0, 0
     try:
         tf = tarfile.open(fileobj=src, mode="r|")
@@ -650,6 +695,17 @@ def read_stream(src, pkg, entry, root, cap):
                 raise Refused("%s in the data is not a regular file (a link or a device)" % path[:120])
             if path in done or path == "":
                 raise Refused("%s is in the data twice" % path[:120])
+            if path in tracks:
+                if m.size > tracks_max:
+                    raise Refused("%s is larger than a music track may be (%d bytes)" % (path[:120], m.size))
+                total += m.size
+                if total > cap:
+                    raise Refused("the data is larger than %s's files" % pkg)
+                room(root, m.size, total - m.size)
+                say("progress", "%d checking %s" % (min(39, 40 * len(done) // max(len(files) + len(tracks), 1)), path))
+                copy_ogg(tf.extractfile(m), m.size, root, path)
+                done[path] = None
+                continue
             if path not in files:
                 if generated(path, pkg, entry):
                     skipped += m.size
@@ -668,17 +724,41 @@ def read_stream(src, pkg, entry, root, cap):
             done[path] = copy_checked(tf.extractfile(m), m.size, alts, root, path)
     except tarfile.TarError as e:
         raise Refused("the data stream is broken or cut short (%s)" % e)
-    missing = [p for p in entry.get("required") or [] if p not in done]
+    missing = [p for p in list(entry.get("required") or []) + sorted(tracks) if p not in done]
     if missing:
         raise Refused("%d of %s's files are missing, e.g. %s" % (len(missing), pkg, missing[0]))
     return {p: r for p, r in done.items() if p in files}
 
 
-def copy_checked(f, size, alts, root, path):
-    """f's size bytes written to root/path (a new file, mode 0644), hashed on the way; the release name
-    of the alternative whose checksum it has. Refused for none."""
-    algos = sorted({k for a in alts for k in HASHES if k in a})
-    hs = {k: hashlib.new(k) for k in algos}
+def room(root, size, written):
+    """Refused unless the staging file system still has room for a file of size bytes after the written
+    ones, then for dpkg-deb's temporary data member and the deb of them all (a music package's size is
+    known only from its stream)"""
+    free, _ = free_bytes(root)
+    if free < 3 * size + 2 * written + SPACE_MARGIN:
+        raise Refused("not enough space: %s has %d MB free, the music needs about %d MB more"
+                      % (root, free >> 20, (3 * size + 2 * written + SPACE_MARGIN) >> 20))
+
+
+def copy_ogg(f, size, root, path):
+    """a music track (no checksum: ripped and encoded audio differs from copy to copy) written like
+    copy_checked; Refused unless it is an Ogg Vorbis stream"""
+    first = []
+
+    def check(chunk):
+        if not first:
+            first.append(True)
+            if not ogg_vorbis_start(chunk[:1024]):
+                raise Refused("%s is not an Ogg Vorbis file" % path[:120])
+
+    copy_file(f, size, root, path, check)
+    if not first:
+        raise Refused("%s is empty" % path[:120])
+
+
+def copy_file(f, size, root, path, on_chunk):
+    """f's size bytes written to root/path (a new file, mode 0644), each chunk given to on_chunk first;
+    Refused when it is cut short (the file stays: the staging directory goes as a whole)"""
     dest = os.path.join(root, path)
     os.makedirs(os.path.dirname(dest), 0o755, exist_ok=True)
     fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644)
@@ -692,8 +772,7 @@ def copy_checked(f, size, alts, root, path):
             got += len(chunk)
             if got > size:
                 break
-            for h in hs.values():
-                h.update(chunk)
+            on_chunk(chunk)
             view = memoryview(chunk)
             while view:
                 view = view[os.write(fd, view):]
@@ -701,6 +780,19 @@ def copy_checked(f, size, alts, root, path):
         os.close(fd)
     if got != size:
         raise Refused("%s is cut short in the data" % path[:120])
+
+
+def copy_checked(f, size, alts, root, path):
+    """f's size bytes written to root/path (a new file, mode 0644), hashed on the way; the release name
+    of the alternative whose checksum it has. Refused for none."""
+    algos = sorted({k for a in alts for k in HASHES if k in a})
+    hs = {k: hashlib.new(k) for k in algos}
+
+    def update(chunk):
+        for h in hs.values():
+            h.update(chunk)
+
+    copy_file(f, size, root, path, update)
     digest = {k: h.hexdigest() for k, h in hs.items()}
     for a in alts:
         if all(digest[k] == a[k].lower() for k in HASHES if k in a):
@@ -759,8 +851,12 @@ def do_import_data(game_id, pkg, games, src, manifest, gdp_version, runner=run, 
         raise Refused("a game is running: close it first")
     os.umask(0o022)
     base = import_dir(check_owner)
-    cap = sum(max(a["size"] for a in alts) for alts in entry["files"].values())
-    check_space(cap, base)
+    tr = entry.get("tracks") or {}
+    files_cap = sum(max(a["size"] for a in alts) for alts in entry["files"].values())
+    cap = files_cap + len(tr.get("paths") or []) * tr.get("max_size", 0)
+    # a music package's tracks are checked for room one by one as they come (room): counted here at
+    # their expected size, not their bound
+    check_space(files_cap + len(tr.get("paths") or []) * TRACK_EXPECT, base)
     stage = tempfile.mkdtemp(prefix="import-", dir=base)
     try:
         root = os.path.join(stage, "root")
@@ -793,6 +889,9 @@ def do_import_data(game_id, pkg, games, src, manifest, gdp_version, runner=run, 
             say("error", "dpkg-deb failed: " + (out.strip().splitlines() or ["?"])[-1])
             raise AptFailed()
         shutil.rmtree(root)                 # the deb has it: room for the installed copy
+        if tr.get("paths") and free_bytes(USR)[0] < kb * 1024 + SPACE_MARGIN:
+            raise Refused("not enough space: %s has %d MB free, the music needs %d MB"
+                          % (USR, free_bytes(USR)[0] >> 20, (kb * 1024 + SPACE_MARGIN) >> 20))
         rc, sim = runner([APT_GET, "-s", "-o", "Debug::NoLocking=1", "install", "--no-install-recommends",
                           "--reinstall", deb])
         if rc != 0:

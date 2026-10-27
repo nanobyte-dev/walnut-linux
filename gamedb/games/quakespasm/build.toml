@@ -17,10 +17,13 @@ leak_files = ["*id1/pak[0-9].pak"]
 gdp = "quake"
 original = "Quake"
 required = ["quake-shareware", "quake-registered"]
+# the CD's music as Ogg Vorbis (CD audio tracks 2-11): encoded from a BIN/CUE's audio tracks or ripped
+# from the disc in the drive (game-data-packager runs cdparanoia); no checksums, see PACKAGING.md
+optional = ["quake-music"]
 # a 1.01 CD's id1/pak0.pak needs 1.06's, which game-data-packager takes from the shareware download
 downloads = ["quake-registered"]
 # the shareware gdp fetches by itself (quake106.zip): no SOURCE needed
 fetch = ["quake-shareware"]
-hint = "Quake's id1/pak0.pak and id1/pak1.pak: its CD, an installed copy (Steam, GOG) or GOG's installer."
+hint = "Quake's id1/pak0.pak and id1/pak1.pak: its CD or a BIN/CUE image of it (with the CD music), an installed copy (Steam, GOG) or GOG's installer."
 # what each package holds (X-Walnut-Edition of the package import-data builds)
-editions = { "quake-shareware" = "shareware", "quake-registered" = "full" }
+editions = { "quake-shareware" = "shareware", "quake-registered" = "full", "quake-music" = "music" }

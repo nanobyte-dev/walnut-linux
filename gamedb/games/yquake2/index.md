@@ -8,10 +8,11 @@ license = "GPL-2.0-or-later"
 homepage = "https://www.yamagi.org/quake2/"
 data_guide = "https://github.com/yquake2/yquake2#readme"
 data_steps = [
-  "In Walnut Games, open Yamagi Quake II and choose Add game files...: pick the disc in the drive, an ISO, an installer or a folder that holds your copy.",
+  "In Walnut Games, open Yamagi Quake II and choose Add game files...: pick the disc in the drive, an ISO or BIN/CUE image, an installer or a folder that holds your copy.",
   "Or from a terminal: `walnut-data import yquake2 /path/to/your/copy`. The free demo needs no copy: choose Download the free demo (needs the network) in the chooser, or run `walnut-data import -p quake2-demo-data yquake2`.",
   "What it needs: Quake II's CD, or an installed copy (Steam's `common/Quake 2`, GOG's Quake II Quad Damage folder or installer): `baseq2/pak0.pak` and the `baseq2/video` folder. The 3.20 patch (pak1, pak2 and more) is downloaded unless your copy has it.",
   "The full game is installed as quake2-full-data in `/usr/share/games/quake2/baseq2` and appears in Play as Quake II; the demo (quake2-demo-data, `/usr/share/games/quake2-demo/baseq2`) as Quake II (demo).",
+  "The CD's music (optional, quake2-music): from a BIN/CUE image its audio tracks are encoded to Ogg Vorbis; from the disc in the drive game-data-packager rips them. `walnut-data import -p quake2-music yquake2 /path/to/Quake2.cue` adds it alone; Quake II plays `baseq2/music/02.ogg`..`11.ogg` in place of the CD.",
   "If you have Walnut's licensed suite configured as an apt source, choose Install from Walnut licensed (or `walnut-data install-repo yquake2`) instead.",
 ]
 controller = "keyboard"
@@ -37,6 +38,7 @@ Walnut Games makes the data for you. Open Yamagi Quake II in the app and choose 
 
 - **The demo** (free): version 3.14, downloaded by game-data-packager itself (no copy or installer needed). Package `quake2-demo-data`; the Quake II (demo) menu entry starts it.
 - **The full game**: package `quake2-full-data`. It needs `baseq2/pak0.pak` and the `baseq2/video` folder of your copy: a CD, a Steam `common/Quake 2` folder, or GOG's Quake II Quad Damage (the installed folder or `setup_quake2_quad_damage_*.exe`). The import downloads the 3.20 patch (the official patch files) unless the copy already has it.
+- **The CD's music**: package `quake2-music`, optional, in `/usr/share/games/quake2/baseq2/music/02.ogg`..`11.ogg`, which Yamagi Quake II plays in place of the CD. A BIN/CUE image of the CD (the `.cue`, or the `.bin` next to it) gives it: walnut-data writes the data track to a temporary ISO and encodes audio tracks 2 to 11 to Ogg Vorbis (oggenc, from vorbis-tools); from the disc in the drive game-data-packager rips the tracks with cdparanoia. The 3.20 patch download is allowed only when every package asked for may download, so the full game and its music are two imports: `walnut-data import -p quake2-full-data yquake2 /path/to/Quake2.cue`, then `walnut-data import -p quake2-music yquake2 /path/to/Quake2.cue`. Ripped audio has no checksum: the music is checked more loosely (exact file names, a size bound, Ogg Vorbis files only).
 - The expansions (`quake2-reckoning-data`, `quake2-groundzero-data`, `quake2-zaero-data`) are packages of the same tool; they have not been tried on the PS3.
 
 ### What you get

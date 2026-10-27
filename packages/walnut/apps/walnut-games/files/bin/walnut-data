@@ -20,6 +20,24 @@ Design
   for one still attached). loop-setup needs the desktop session's polkit rights: over ssh it is refused
   (NotAuthorizedCanObtain), and the message says how to run it in the desktop's slice. A directory, an installer or
   archive file, or a mounted disc's path is given to game-data-packager as it is.
+  BIN/CUE (a .cue, or a .bin with its .cue next to it; gdp reads neither): the cue sheet is parsed here
+  (FILE BINARY|MOTOROLA, one or several files; TRACK MODE1/2352, MODE2/2352, MODE1/2048, MODE2/2336,
+  AUDIO; INDEX 01 is where a track starts, the next track's INDEX 00 or 01 where it ends; WAVE files
+  and other modes are refused). The first data track's 2048-byte user data (MODE1 after the 16-byte
+  sync and header, MODE2 form 1 after the 8-byte subheader too) goes to ~/.cache/walnut-data/disc/
+  NAME.iso, cut at the ISO 9660 volume's size, which is then opened like any .iso and removed after.
+  When a music package is asked for (the manifest's tracks entry: quake-music, quake2-music), the
+  audio tracks it names (first..last) are streamed as WAV (RIFF header, CD-DA's 16-bit little-endian
+  stereo 44.1 kHz; MOTOROLA swapped) into oggenc at its default quality, two at a time (no WAV on
+  disk), into disc/music/<the manifest's source layout> (id1/music/track02.ogg), the folder gdp is
+  given: gdp takes already ripped tracks from there, so it needs no patch for this. Only music packages
+  asked for: no ISO is made. A cue sheet is read before anything is written, so a broken one refuses
+  at once; the space check counts the ISO and the Ogg files (OGG_ENC_BYTES per second) in the cache.
+  The disc in the drive with a music package asked for: its table of contents (CDROMREADTOC* ioctls,
+  the player's ACL on /dev/sr0) says whether it has audio tracks; then the device itself is given to gdp
+  too, which rips the music with cdparanoia and oggenc (an audio CD that can't be mounted is fine
+  then); without audio tracks the music is reported missing, never a rip that would fail gdp's whole
+  run.
   game-data-packager (gdp) runs as the player in a transient user unit: `systemd-run --user --pipe
   --wait` with MemoryMax, RuntimeMaxSec and NoNewPrivileges, and PrivateNetwork when it must not
   download and the user manager can make one (checked by a probe: only "lo" in its /proc/net/dev);
@@ -39,8 +57,10 @@ Design
   the package itself (required packages first, in the catalog's order). out/ and tmp/ are emptied
   before and removed after.
   Free space is checked before gdp runs, from the data manifest's sizes of the packages (T): the most
-  each file system holds at one time over the phases (gdp: 2T in the cache, 3T for an installer or
-  archive; streaming: T cache + T staging; the helper's deb: 3T staging, its files, dpkg-deb's
+  each file system holds at one time over the phases (gdp: 3T in the cache, its copy of the files,
+  dpkg-deb's temporary data member and the deb (a Quake II import ran out of space at 2T), 4T for an
+  installer or archive, plus what the sources put there (a BIN/CUE's ISO and music) and DOWNLOAD_BYTES
+  when it may download; streaming: T cache + T staging; the helper's deb: 3T staging, its files, dpkg-deb's
   temporary data member and the deb; installing: T staging +
   T /usr), summed where they share a disk; refused with what is needed and what is free.
   One import at a time per player: import holds an flock on ~/.cache/walnut-data/import.lock for its
@@ -259,10 +279,95 @@ def loop_attached(dev, sys_block=None):
 
 
 class Sources:
-    """the SOURCE arguments as paths gdp reads; loop devices and mounts made here released by close()"""
+    """the SOURCE arguments as paths gdp reads; loop devices and mounts made here released by close(), the
+    files made from a BIN/CUE (the data track's ISO, the music's Ogg files) removed by it. music: the
+    manifest's tracks entries of the music packages asked for (music_entries)."""
 
-    def __init__(self):
-        self.mounted, self.loops = [], []
+    def __init__(self, base=None, music=None):
+        self.mounted, self.loops, self.made = [], [], []
+        self.base, self.music = base, list(music or [])
+        self.only_music = False
+
+    def plan(self, path):
+        """(kind, path, extra): what open() will do with a SOURCE and the bytes it adds to the cache while
+        gdp runs (the ISO and Ogg files of a BIN/CUE, gdp's WAV of a CD rip); Refused when it is not there.
+        A cue sheet is read here, so a broken one refuses before anything is written."""
+        path = os.path.abspath(path)
+        cue = cue_for(path) if os.path.isfile(path) else None
+        if cue:
+            tracks = parse_cue(cue)
+            data = next((t for t in tracks if not t.audio), None)
+            extra = data.sectors * 2048 if data else 0
+            for m in self.music:
+                extra += sum(int(track_seconds(t) * OGG_ENC_BYTES) for t in tracks
+                             if t.audio and m["first"] <= t.number <= m["last"])
+            return ("cue", (cue, tracks), extra)
+        kind = source_kind(path)
+        return (kind, path, CD_RIP_WAV_BYTES + MUSIC_TRACK_BYTES if kind == "device" and self.music else 0)
+
+    def open(self, plan):
+        """[paths] for gdp from a plan"""
+        kind, what, _ = plan
+        if kind == "cue":
+            return self.add_cue(*what)
+        if kind == "device":
+            return self.add_device(what)
+        return [self.add(what)]
+
+    def add_cue(self, cue, tracks):
+        """a BIN/CUE: its first data track as an ISO in the cache, opened like any image; the music packages'
+        audio tracks encoded to Ogg Vorbis in a folder laid out as gdp looks for ripped tracks
+        (id1/music/track02.ogg), which gdp is given too"""
+        name = os.path.splitext(os.path.basename(cue))[0]
+        work = os.path.join(self.base or cache_dir(), "disc")
+        shutil.rmtree(work, ignore_errors=True)
+        os.makedirs(work, 0o700)
+        self.made.append(work)
+        paths = []
+        data = next((t for t in tracks if not t.audio), None)
+        if data and not self.only_music:
+            iso = os.path.join(work, re.sub(r"[^A-Za-z0-9._-]", "_", name) + ".iso")
+            say("gdp", "step extracting the data track of %s" % os.path.basename(cue))
+            n = write_iso(data, iso)
+            say("log", "track %d of %s (%s) written as %s, %s" % (data.number, os.path.basename(cue), data.mode, iso,
+                                                                  human(n)))
+            paths.append(self.add(iso))
+        audio = [t for t in tracks if t.audio]
+        for m in self.music:
+            have = [t for t in audio if m["first"] <= t.number <= m["last"]]
+            if not have:
+                say("log", "%s has no audio tracks %d-%d for the music" % (os.path.basename(cue), m["first"], m["last"]))
+                continue
+            music = os.path.join(work, "music")
+            encode_tracks(have, m["source"], music, m["first"], m["last"])
+            if music not in paths:
+                paths.append(music)
+        if not paths:
+            raise Refused("%s has nothing to import: no data track%s" % (cue, " and no music tracks" if self.music else ""))
+        return paths
+
+    def add_device(self, dev):
+        """the disc in drive dev: its mount point (for the data), and the device itself for gdp to rip the
+        music from when a music package is asked for and the disc has audio tracks"""
+        paths, why = [], None
+        if not self.only_music:
+            try:
+                paths.append(self.mount(dev))
+            except Refused as e:
+                if not self.music:
+                    raise
+                why = e
+        if self.music:
+            audio = disc_audio_tracks(dev)
+            if audio:
+                say("log", "the disc in %s has audio tracks %s: game-data-packager rips the music (cdparanoia)"
+                    % (dev, ", ".join(map(str, audio))))
+                paths.append(dev)
+            else:
+                say("log", "the disc in %s has no audio tracks for the music" % dev)
+        if not paths:
+            raise why or Refused("nothing to read on the disc in %s" % dev)
+        return paths
 
     def mount(self, dev, ours=False):
         """dev's mount point, mounted with udisksctl when it is not; ours: dev is a loop device set up
@@ -338,7 +443,306 @@ class Sources:
             # unmounting frees a loop device udisks set up (autoclear); loop-delete only for one still there
             if loop_attached(dev):
                 run([UDISKSCTL, "loop-delete", "-b", dev])
-        self.mounted, self.loops = [], []
+        for d in self.made:
+            shutil.rmtree(d, ignore_errors=True)
+        self.mounted, self.loops, self.made = [], [], []
+
+
+# ---- BIN/CUE images ---------------------------------------------------------------------------
+
+# a track's sector: (bytes per sector in the .bin, offset of the 2048 bytes of user data or None for audio)
+TRACK_MODES = {"MODE1/2352": (2352, 16), "MODE2/2352": (2352, 24), "MODE1/2048": (2048, 0),
+               "MODE2/2336": (2336, 8), "AUDIO": (2352, None)}
+CUE_FILE_TYPES = ("BINARY", "MOTOROLA")       # MOTOROLA: big-endian audio samples
+SYNC = b"\x00" + b"\xff" * 10 + b"\x00"
+CUE_MAX = 1 << 20                             # bytes of a cue sheet read
+CHUNK_SECTORS = 256
+OGG_ENC_BYTES = 24000                         # bytes per second of Vorbis at oggenc's default (q3, ~14 KB/s) and more
+DOWNLOAD_BYTES = 128 << 20                    # official patch files gdp may download and unpack (Quake II 3.20: 38 MB)
+MUSIC_TRACK_BYTES = 12 << 20                  # a ripped track's Ogg file, for the space check (~6 minutes)
+CD_RIP_WAV_BYTES = 110 << 20                  # gdp's rip.wav of one track (10 minutes of CD audio)
+OGGENC, NICE = "/usr/bin/oggenc", "/usr/bin/nice"
+OGGENC_JOBS = 2                               # the PS3's PPE has two threads
+
+
+class Track:
+    """one track of a cue sheet: number, mode, its file and file type, the byte range in that file"""
+
+    def __init__(self, number, mode, path, ftype):
+        self.number, self.mode, self.path, self.ftype = number, mode, path, ftype
+        self.indexes = {}                    # index number: frame (1/75 s) in the file
+        self.start = self.end = 0
+
+    @property
+    def sector(self):
+        return TRACK_MODES[self.mode][0]
+
+    @property
+    def audio(self):
+        return self.mode == "AUDIO"
+
+    @property
+    def sectors(self):
+        return (self.end - self.start) // self.sector
+
+
+def msf_frames(text):
+    m = re.fullmatch(r"(\d{1,3}):(\d{2}):(\d{2})", text)
+    if not m or int(m.group(2)) > 59 or int(m.group(3)) > 74:
+        raise ValueError(text)
+    return (int(m.group(1)) * 60 + int(m.group(2))) * 75 + int(m.group(3))
+
+
+def cue_file(base, name):
+    """the cue's FILE name as a path next to the cue (its directory, then a case-insensitive match: cue
+    sheets from Windows often differ in case from the files)"""
+    path = os.path.join(base, name.replace("\\", "/"))
+    if os.path.isfile(path):
+        return path
+    d, want = os.path.dirname(path), os.path.basename(path).lower()
+    try:
+        for n in os.listdir(d):
+            if n.lower() == want and os.path.isfile(os.path.join(d, n)):
+                return os.path.join(d, n)
+    except OSError:
+        pass
+    raise Refused("the cue sheet names %s, which is not next to it" % name)
+
+
+def parse_cue(path, size_of=os.path.getsize):
+    """[Track] of a cue sheet, each with its byte range in its file: from its INDEX 01 to the next track's
+    INDEX 00 (its pregap) or 01 in the same file, the last one of a file to the file's end. Offsets add up
+    track by track, so a file mixing sector sizes works. Refused for what can't be read."""
+    try:
+        with open(path, "rb") as f:
+            raw = f.read(CUE_MAX + 1)
+    except OSError as e:
+        raise Refused("cannot read %s: %s" % (path, e.strerror))
+    if len(raw) > CUE_MAX or b"\0" in raw:
+        raise Refused("%s is not a cue sheet" % path)
+    text = raw.decode("utf-8-sig", "strict") if raw[:3] == b"\xef\xbb\xbf" else raw.decode("latin-1")
+    base, tracks, cur_file = os.path.dirname(os.path.abspath(path)), [], None
+    for n, line in enumerate(text.splitlines(), 1):
+        line = line.strip()
+        word = line.split(None, 1)[0].upper() if line else ""
+        try:
+            if word == "FILE":
+                m = re.fullmatch(r'FILE\s+(?:"([^"]+)"|(\S+))\s+(\S+)', line, re.I)
+                if not m:
+                    raise ValueError(line)
+                ftype = m.group(3).upper()
+                if ftype not in CUE_FILE_TYPES:
+                    raise Refused("%s: FILE type %s is not supported (only %s)" % (path, ftype, ", ".join(CUE_FILE_TYPES)))
+                cur_file = (cue_file(base, m.group(1) or m.group(2)), ftype)
+            elif word == "TRACK":
+                m = re.fullmatch(r"TRACK\s+(\d{1,2})\s+(\S+)", line, re.I)
+                if not m or cur_file is None:
+                    raise ValueError(line)
+                mode = m.group(2).upper()
+                if mode not in TRACK_MODES:
+                    raise Refused("%s: track %s is %s, which is not supported" % (path, m.group(1), mode))
+                tracks.append(Track(int(m.group(1)), mode, *cur_file))
+            elif word == "INDEX":
+                m = re.fullmatch(r"INDEX\s+(\d{1,2})\s+(\S+)", line, re.I)
+                if not m or not tracks:
+                    raise ValueError(line)
+                tracks[-1].indexes[int(m.group(1))] = msf_frames(m.group(2))
+        except ValueError:
+            raise Refused("%s line %d is not a cue sheet line: %s" % (path, n, line[:80]))
+    if not tracks:
+        raise Refused("%s has no tracks: not a cue sheet" % path)
+    by_file = {}
+    for t in tracks:
+        if 1 not in t.indexes:
+            raise Refused("%s: track %d has no INDEX 01" % (path, t.number))
+        by_file.setdefault(t.path, []).append(t)
+    for fpath, ts in by_file.items():
+        pos, frame, size = 0, 0, size_of(fpath)
+        for i, t in enumerate(ts):
+            # bytes up to this track's INDEX 01 (frames before it were the previous track's sector size)
+            prev = ts[i - 1].sector if i else t.sector
+            t.start = pos + (t.indexes[1] - frame) * prev
+            pos, frame = t.start, t.indexes[1]
+        for i, t in enumerate(ts):
+            if i + 1 < len(ts):
+                nxt = ts[i + 1]
+                t.end = t.start + (min(nxt.indexes.values()) - t.indexes[1]) * t.sector
+            else:
+                t.end = t.start + (size - t.start) // t.sector * t.sector
+            if t.end <= t.start or t.end > size:
+                raise Refused("%s: track %d is outside %s" % (path, t.number, os.path.basename(fpath)))
+    return tracks
+
+
+def iso_volume_bytes(pvd):
+    """the ISO 9660 volume size from its primary volume descriptor (sector 16), or None"""
+    if len(pvd) >= 88 and pvd[:6] == b"\x01CD001":
+        blocks, block = int.from_bytes(pvd[80:84], "little"), int.from_bytes(pvd[128:130], "little") or 2048
+        return blocks * block
+    return None
+
+
+def write_iso(track, dest):
+    """the 2048-byte user data of a data track's sectors written to dest (cut to the ISO 9660 volume's
+    size when the track holds one); its size. Refused when the sectors are not the mode the cue says."""
+    size, off = TRACK_MODES[track.mode]
+    n, written, limit = track.sectors, 0, None
+    with open(track.path, "rb") as src, open(dest, "wb") as out:
+        src.seek(track.start)
+        done = 0
+        while done < n and (limit is None or written < limit):
+            k = min(CHUNK_SECTORS, n - done)
+            buf = src.read(k * size)
+            if len(buf) < k * size:
+                raise Refused("%s ends early" % track.path)
+            if done == 0 and size == 2352:
+                if buf[:12] != SYNC or buf[15] not in (1, 2):
+                    raise Refused("track %d of %s is not %s data" % (track.number, os.path.basename(track.path),
+                                                                      track.mode))
+            data = b"".join(buf[i * size + off:i * size + off + 2048] for i in range(k))
+            if limit is None and done <= 16 < done + k:
+                limit = iso_volume_bytes(data[(16 - done) * 2048:(17 - done) * 2048])
+            if limit is not None:
+                data = data[:max(0, limit - written)]
+            out.write(data)
+            written += len(data)
+            done += k
+    return written
+
+
+def wav_header(nbytes):
+    """a RIFF/WAVE header for nbytes of 16-bit stereo 44.1 kHz PCM"""
+    return (b"RIFF" + (36 + nbytes).to_bytes(4, "little") + b"WAVEfmt " + (16).to_bytes(4, "little")
+            + (1).to_bytes(2, "little") + (2).to_bytes(2, "little") + (44100).to_bytes(4, "little")
+            + (176400).to_bytes(4, "little") + (4).to_bytes(2, "little") + (16).to_bytes(2, "little")
+            + b"data" + nbytes.to_bytes(4, "little"))
+
+
+def write_wav(track, out):
+    """an audio track as a WAV stream to the binary file object out: CD-DA in a .bin is 16-bit little-endian
+    stereo (a MOTOROLA file is big-endian: swapped); the bytes of audio written"""
+    n = track.end - track.start
+    out.write(wav_header(n))
+    left = n
+    with open(track.path, "rb") as src:
+        src.seek(track.start)
+        while left:
+            buf = src.read(min(left, CHUNK_SECTORS * 2352))
+            if not buf:
+                raise Refused("%s ends early" % track.path)
+            if track.ftype == "MOTOROLA":
+                b = bytearray(buf)
+                b[0::2], b[1::2] = buf[1::2], buf[0::2]
+                buf = bytes(b)
+            out.write(buf)
+            left -= len(buf)
+    return n
+
+
+def track_seconds(track):
+    return (track.end - track.start) / 176400
+
+
+def encode_tracks(tracks, layout, dest, first, last, jobs=OGGENC_JOBS):
+    """the audio tracks numbered first..last encoded to Ogg Vorbis (oggenc, its default quality, as
+    game-data-packager's own rip does) at dest/(layout % number), the WAV streamed on oggenc's stdin (no
+    WAV on disk); jobs encoders at a time. [paths]; Failed when oggenc is missing or fails."""
+    if not os.path.exists(OGGENC):
+        raise Failed("encoding the CD's music needs oggenc: sudo apt install vorbis-tools")
+    want = [t for t in tracks if t.audio and first <= t.number <= last]
+    running, made = [], []
+
+    def feed(p, t, errors):
+        try:
+            write_wav(t, p.stdin)
+        except BrokenPipeError:
+            pass
+        except (OSError, Refused) as e:
+            errors.append(str(e))
+        finally:
+            try:
+                p.stdin.close()
+            except OSError:
+                pass
+
+    def finish(p, th, t, path, errors):
+        th.join()
+        rc = p.wait()
+        if rc != 0 or errors:
+            raise Failed("encoding track %d failed: %s" % (t.number, errors[0] if errors else "oggenc exit %d" % rc))
+        made.append(path)
+
+    try:
+        for t in want:
+            path = os.path.join(dest, layout % t.number)
+            os.makedirs(os.path.dirname(path), 0o700, exist_ok=True)
+            secs = int(track_seconds(t))
+            say("gdp", "step encoding the CD's music: track %d of %d (%d:%02d)" % (t.number, last, secs // 60, secs % 60))
+            p = subprocess.Popen([NICE, "-n", "10", OGGENC, "-Q", "-o", path, "-"], stdin=subprocess.PIPE,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            errors = []
+            th = threading.Thread(target=feed, args=(p, t, errors), daemon=True)
+            th.start()
+            running.append((p, th, t, path, errors))
+            while len(running) >= jobs:
+                finish(*running.pop(0))
+        while running:
+            finish(*running.pop(0))
+    finally:
+        for p, th, _, _, _ in running:
+            p.kill()
+            p.wait()
+            th.join()
+    return made
+
+
+def cue_for(path):
+    """the cue sheet of a SOURCE: path itself (.cue), or the .cue next to a .bin with its name; None for
+    anything else"""
+    low = path.lower()
+    if low.endswith(".cue"):
+        return path
+    if low.endswith(".bin"):
+        stem = os.path.splitext(os.path.basename(path))[0].lower()
+        d = os.path.dirname(path)
+        try:
+            for n in sorted(os.listdir(d)):
+                if n.lower() == stem + ".cue":
+                    return os.path.join(d, n)
+        except OSError:
+            pass
+        raise Refused("%s needs its .cue sheet next to it (it says where the tracks are)" % path)
+    return None
+
+
+# ---- the CD in the drive: its audio tracks ------------------------------------------------------
+
+CDROMREADTOCHDR, CDROMREADTOCENTRY, CDROM_LBA, CDROM_DATA_TRACK = 0x5305, 0x5306, 0x01, 0x04
+
+
+def disc_audio_tracks(dev):
+    """the audio track numbers of the CD in drive dev (its table of contents, linux/cdrom.h ioctls), [] for
+    a disc without audio, None when it can't be read (no disc, not a CD drive)"""
+    try:
+        fd = os.open(dev, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+    except OSError:
+        return None
+    try:
+        hdr = fcntl.ioctl(fd, CDROMREADTOCHDR, bytes(2))
+        first, last = hdr[0], hdr[1]
+        audio = []
+        for n in range(first, last + 1):
+            # struct cdrom_tocentry: u8 track, u8 adr:4 ctrl:4, u8 format, union addr (int), u8 datamode
+            e = fcntl.ioctl(fd, CDROMREADTOCENTRY, bytes([n, 0, CDROM_LBA]) + bytes(9))
+            # the bit fields adr:4 ctrl:4 share a byte: ctrl is its high half on little-endian, low on big
+            ctrl = e[1] >> 4 if sys.byteorder == "little" else e[1] & 0x0F
+            if not ctrl & CDROM_DATA_TRACK:
+                audio.append(n)
+        return audio
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
 
 
 # ---- game-data-packager -----------------------------------------------------------------------
@@ -440,8 +844,9 @@ def unit_command(cmd, tmp, fifo, private_net):
     return unit + cmd
 
 
-def relay_progress(fd, errors):
-    """gdp's --progress-fd lines as 'gdp ...'; its error lines kept in errors"""
+def relay_progress(fd, errors, generated):
+    """gdp's --progress-fd lines as 'gdp ...'; its error lines kept in errors, the debs it says it made in
+    generated"""
     with os.fdopen(fd, "rb") as f:
         for raw in f:
             line = raw.decode("utf-8", "replace").rstrip()
@@ -449,11 +854,14 @@ def relay_progress(fd, errors):
                 say("gdp", line)
                 if line.startswith("error "):
                     errors.append(line[6:])
+                elif line.startswith("generated "):
+                    generated.append(line[10:])
 
 
 def run_gdp(cmd, tmp, base, sandbox, private_net, progress):
-    """run gdp (cmd has '--progress-fd FD' to be filled in); its return code and its error lines"""
-    errors = []
+    """run gdp (cmd has '--progress-fd FD' to be filled in); its return code, its error lines (and a
+    no-space one for an ENOSPC in its output) and the debs its progress lines say it made"""
+    errors, generated = [], []
     env = dict(os.environ, TMPDIR=tmp)
     fifo = reader = keep = None
     if progress and sandbox:
@@ -477,7 +885,7 @@ def run_gdp(cmd, tmp, base, sandbox, private_net, progress):
         full = unit_command(cmd, tmp, None, private_net) if sandbox else cmd
         pass_fds = ()
     if rfd is not None:
-        reader = threading.Thread(target=relay_progress, args=(rfd, errors), daemon=True)
+        reader = threading.Thread(target=relay_progress, args=(rfd, errors, generated), daemon=True)
         reader.start()
     try:
         p = subprocess.Popen(full, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -490,6 +898,8 @@ def run_gdp(cmd, tmp, base, sandbox, private_net, progress):
             line = raw.decode("utf-8", "replace").rstrip()
             if line:
                 say("log", line)
+                if "No space left on device" in line:
+                    errors.append("no-space " + line)
     rc = p.wait()
     if keep is not None:
         os.close(keep)
@@ -500,7 +910,7 @@ def run_gdp(cmd, tmp, base, sandbox, private_net, progress):
             os.unlink(fifo)
         except OSError:
             pass
-    return rc, errors
+    return rc, errors, generated
 
 
 def built_debs(out, pkgs):
@@ -556,15 +966,43 @@ def import_deb(game_id, pkg, deb):
     return rc
 
 
-def data_bytes(pkgs, path=None):
-    """the bytes of the packages' files by the data manifest (each file at its largest size), or None
-    when the manifest can't be read"""
+def load_manifest(path=None):
     try:
         with open(path or MANIFEST, encoding="utf-8") as f:
-            man = json.load(f)["packages"]
-        return sum(max(a["size"] for a in alts) for p in pkgs if p in man for alts in man[p]["files"].values())
+            return json.load(f)["packages"]
     except (OSError, ValueError, KeyError, TypeError):
         return None
+
+
+def data_bytes(pkgs, path=None):
+    """the bytes of the packages' files by the data manifest (each file at its largest size; a music
+    package's tracks MUSIC_TRACK_BYTES each, their real size being unknown), or None when the manifest
+    can't be read"""
+    man = load_manifest(path)
+    try:
+        return sum(sum(max(a["size"] for a in alts) for alts in man[p]["files"].values())
+                   + (music_tracks(man[p]) or 0) * MUSIC_TRACK_BYTES for p in pkgs if p in man)
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def music_tracks(entry):
+    """the number of CD tracks of a music package's manifest entry, or None for another package"""
+    t = entry.get("tracks") if isinstance(entry, dict) else None
+    if isinstance(t, dict) and isinstance(t.get("first"), int) and isinstance(t.get("last"), int):
+        return t["last"] - t["first"] + 1
+    return None
+
+
+def music_entries(pkgs, path=None):
+    """{package: its manifest tracks entry} of the music packages (CD audio, ripped or encoded) among pkgs"""
+    man = load_manifest(path) or {}
+    out = {}
+    for p in pkgs:
+        e = man.get(p)
+        if music_tracks(e) and isinstance(e["tracks"].get("source"), str) and e["tracks"]["source"].count("%02d") == 1:
+            out[p] = e["tracks"]
+    return out
 
 
 def existing(path):
@@ -573,14 +1011,15 @@ def existing(path):
     return path
 
 
-def space_needs(total, archive, cache, var, usr, dev=None):
+def space_needs(total, archive, cache, var, usr, dev=None, extra=0):
     """{device: (bytes, [paths])}: the most an import has on each file system at one time. Its phases:
-    gdp in the cache (its unpacked copy, the deb, and an installer's or archive's unpacked files),
+    gdp in the cache (its copy of the files, dpkg-deb's temporary data member, the deb, an installer's or
+    archive's unpacked files, and extra: a BIN/CUE's ISO and music, the downloads),
     the deb streamed to the helper's staging (the deb is unlinked as dpkg-deb opens it: gone once the
     stream ends), the helper's own deb made from its staging (with dpkg-deb's temporary copy of the
     data member), then dpkg installing it into /usr"""
     dev = dev or (lambda p: os.stat(existing(p)).st_dev)
-    phases = [[(cache, (3 if archive else 2) * total)], [(cache, total), (var, total)], [(var, 3 * total)],
+    phases = [[(cache, (4 if archive else 3) * total + extra)], [(cache, total), (var, total)], [(var, 3 * total)],
               [(var, total), (usr, total)]]
     need = {}
     for phase in phases:
@@ -601,10 +1040,11 @@ def human(n):
     return "%d KB" % max(1, n >> 10)
 
 
-def check_space(total, archive, cache, var=IMPORT_DIR, usr=USR, free=None):
-    """Refused (with what is needed and what is free) when a file system can't hold the import"""
+def check_space(total, archive, cache, var=IMPORT_DIR, usr=USR, free=None, extra=0):
+    """Refused (with what is needed and what is free) when a file system can't hold the import; extra: the
+    bytes the sources put in the cache while gdp runs (a BIN/CUE's ISO and Ogg files)"""
     free = free or (lambda p: (lambda st: st.f_bavail * st.f_frsize)(os.statvfs(existing(p))))
-    for d, (need, paths) in space_needs(total, archive, cache, var, usr).items():
+    for d, (need, paths) in space_needs(total, archive, cache, var, usr, extra=extra).items():
         have = free(paths[0])
         if have < need + SPACE_MARGIN:
             raise Refused("not enough space: importing this data needs about %s free on the disk of %s, and %s is free"
@@ -680,20 +1120,31 @@ def cmd_import(game_id, sources, asked, no_download, games):
     os.makedirs(base, 0o700, exist_ok=True)
     lock = take_import_lock(base, game_id)
     out, tmp = fresh_dirs(base)
-    src = Sources()
+    music = music_entries(pkgs)
+    src = Sources(base, music.values())
+    src.only_music = bool(music) and all(p in music for p in pkgs)
     try:
-        paths = [src.add(s) for s in sources]
+        plans = [src.plan(s) for s in sources]
         total = data_bytes(pkgs)
         if total:
-            archive = any(os.path.isfile(p) for p in paths)     # an installer or archive: unpacked first
-            check_space(total, archive, base)
+            # an installer or archive: unpacked first
+            archive = any(kind == "path" and os.path.isfile(what) for kind, what, _ in plans)
+            check_space(total, archive, base, extra=sum(extra for _, _, extra in plans)
+                        + (DOWNLOAD_BYTES if download == "--download" else 0))
+        paths = list(dict.fromkeys(p for plan in plans for p in src.open(plan)))
         sandbox = user_manager()
         private_net = sandbox and download == "--no-download" and private_network_works()
         if not sandbox:
             say("log", "no systemd user manager: game-data-packager runs without its sandbox")
         cmd = gdp_command(ds, pkgs, paths, out, download, "FD" if progress else None, no_launchers)
         say("log", "running game-data-packager %s for %s" % (ds["gdp"], " ".join(pkgs)))
-        rc, errors = run_gdp(cmd, tmp, base, sandbox, private_net, progress)
+        rc, errors, generated = run_gdp(cmd, tmp, base, sandbox, private_net, progress)
+        if rc != 0:
+            # a failed gdp may leave a deb it was still writing (ENOSPC): only those it said it made count
+            for n in (os.listdir(out) if os.path.isdir(out) else []):
+                if n.endswith(".deb") and os.path.join(out, n) not in generated:
+                    say("log", "game-data-packager failed (exit %d): %s dropped, it may be cut short" % (rc, n))
+                    os.unlink(os.path.join(out, n))
         debs = built_debs(out, pkgs)
         extra = sorted(n for n in (os.listdir(out) if os.path.isdir(out) else [])
                        if n.endswith(".deb") and os.path.join(out, n) not in [d for _, d in debs])
@@ -702,7 +1153,7 @@ def cmd_import(game_id, sources, asked, no_download, games):
                          % ", ".join(extra))
         required, missing_required = report_missing(ds, pkgs, asked, debs, download, errors)
         if not debs or len(missing_required) == len(required):
-            hint = gdp_hint(errors[-1] if errors else None)
+            hint = gdp_hint(next((e for e in errors if e.startswith("no-space ")), errors[-1] if errors else None))
             raise Failed("game-data-packager made no package%s" % (": " + hint if hint else
                                                                     " (exit %d)" % rc if rc else ""))
         src.close()            # the disc or image is no longer needed

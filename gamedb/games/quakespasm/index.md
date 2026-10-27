@@ -8,10 +8,11 @@ license = "GPL-2.0-or-later"
 homepage = "https://quakespasm.sourceforge.net/"
 data_guide = "https://quakespasm.sourceforge.net/"
 data_steps = [
-  "In Walnut Games, open QuakeSpasm and choose Add game files...: pick the disc in the drive, an ISO, an installer or a folder that holds your copy.",
+  "In Walnut Games, open QuakeSpasm and choose Add game files...: pick the disc in the drive, an ISO or BIN/CUE image, an installer or a folder that holds your copy.",
   "Or from a terminal: `walnut-data import quakespasm /path/to/your/copy`. The free shareware needs no copy: choose Download the free shareware (needs the network) in the chooser, or run `walnut-data import -p quake-shareware quakespasm`.",
   "What it needs: Quake's CD or The Offering (GOG), a Steam `common/Quake` folder. The 2021 re-release is not supported. The free shareware (the first episode) is downloaded for you (`quake106.zip`).",
   "The data is installed as quake-registered (or quake-shareware), in `/usr/share/games/quake/id1`, where the QuakeSpasm menu entries look. The full game replaces the shareware.",
+  "The CD's music (optional, quake-music): from a BIN/CUE image its audio tracks are encoded to Ogg Vorbis; from the disc in the drive game-data-packager rips them. `walnut-data import -p quake-music quakespasm /path/to/QUAKE.cue` adds it alone. QuakeSpasm plays `id1/music/track02.ogg`..`track11.ogg` in place of the CD.",
   "If you have Walnut's licensed suite configured as an apt source, choose Install from Walnut licensed (or `walnut-data install-repo quakespasm`) instead.",
 ]
 controller = "keyboard"
@@ -32,8 +33,9 @@ Walnut Games makes the data for you. Open QuakeSpasm in the app and choose Add g
 
 - **Shareware** (free): version 1.06, the first episode, downloaded as `quake106.zip` by game-data-packager (package `quake-shareware`); a `quake106.zip` you already have works as a source too.
 - **The full game**: package `quake-registered`. It needs `id1/pak0.pak` and `id1/pak1.pak` of your copy: a CD, The Offering from GOG (the installed folder or `setup_quake_the_offering_*.exe`), or a Steam `common/Quake` folder. The 2021 re-release (Quake enhanced) is not supported: it has no original paks. A CD's 1.01 `pak0.pak` is brought to 1.06 with the patch files game-data-packager downloads.
-- The mission packs (`quake-armagon`, `quake-dissolution`) are packages of the same tool; they have not been tried on the PS3.
+- **The CD's music**: package `quake-music`, optional. A BIN/CUE image of the CD (give the `.cue`, or the `.bin` next to it) brings the data and the music in one import: walnut-data writes the data track to a temporary ISO and encodes audio tracks 2 to 11 to Ogg Vorbis (oggenc, from vorbis-tools); from the disc in the drive game-data-packager rips the tracks with cdparanoia. Ripped audio has no checksum, so the music is checked more loosely than the paks (exact file names, a size bound, Ogg Vorbis files only).
+- The mission packs (`quake-armagon`, `quake-dissolution`) and their music are packages of the same tool; they have not been tried on the PS3.
 
 ### What you get
 
-The data ends up in `/usr/share/games/quake/id1`. The menu entries QuakeSpasm (GLSL) and QuakeSpasm (no GLSL) read `/usr/share/games/quake`, so they play whichever edition is installed. `quake-registered` replaces `quake-shareware`, so the full game takes over the same folder. With Walnut's licensed suite as an apt source the page offers Install from Walnut licensed instead.
+The data ends up in `/usr/share/games/quake/id1`, the music in `/usr/share/games/quake/id1/music` (QuakeSpasm plays `trackNN.ogg` there for the CD track a level asks for). The menu entries QuakeSpasm (GLSL) and QuakeSpasm (no GLSL) read `/usr/share/games/quake`, so they play whichever edition is installed. `quake-registered` replaces `quake-shareware`, so the full game takes over the same folder. With Walnut's licensed suite as an apt source the page offers Install from Walnut licensed instead.

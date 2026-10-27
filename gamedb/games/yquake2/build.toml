@@ -18,10 +18,13 @@ leak_files = ["*baseq2/pak[0-9].pak"]
 gdp = "quake2"
 original = "Quake II"
 required = ["quake2-demo-data", "quake2-full-data"]
+# the CD's music as Ogg Vorbis (CD audio tracks 2-11): encoded from a BIN/CUE's audio tracks or ripped
+# from the disc in the drive (game-data-packager runs cdparanoia); no checksums, see PACKAGING.md
+optional = ["quake2-music"]
 # the 3.20 patch's files (pak1, pak2 and more), downloaded when the copy isn't patched
 downloads = ["quake2-full-data"]
 # the demo gdp fetches by itself: no SOURCE needed
 fetch = ["quake2-demo-data"]
-hint = "Quake II's baseq2/pak0.pak and baseq2/video: its CD, an installed copy (Steam, GOG) or GOG's installer."
+hint = "Quake II's baseq2/pak0.pak and baseq2/video: its CD or a BIN/CUE image of it (with the CD music), an installed copy (Steam, GOG) or GOG's installer."
 # what each package holds (X-Walnut-Edition of the package import-data builds)
-editions = { "quake2-demo-data" = "demo", "quake2-full-data" = "full" }
+editions = { "quake2-demo-data" = "demo", "quake2-full-data" = "full", "quake2-music" = "music" }

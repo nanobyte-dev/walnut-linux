@@ -25,6 +25,12 @@ Design
   a package with symlinks stops the generator, as does an executable file, a file without size or
   checksum, two different files on one path, or a file where the helper writes its own (doc/<pkg>/copyright,
   changelog*)).
+- Music packages (gdp's rip_cd: quake-music, quake2-music): tracks {source: gdp's filename_format, the
+  path gdp looks for ripped tracks under in a SOURCE folder (id1/music/track%02d.ogg), first, last (the
+  CD track numbers), max_size (TRACK_MAX), paths: the exact installed path of every track}. Their audio
+  has no checksum (every rip and encode differs): the helper accepts each listed path once, at most
+  max_size bytes, only as an Ogg Vorbis stream, and wants all of them. A rip gdp would install in another
+  way (mp3, alternatives, symlinks, not under a music/ directory) stops the generator.
 - The committed text: the version, then each package with one file per line, sorted, so a
   regeneration after a game-data-packager upgrade diffs as the files that changed. Regenerate when
   our game-data-packager changes or a [data_setup] names a new package (gamedb/README.md
@@ -40,6 +46,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 OUT = HERE / "gdp-manifest.json"
+# the most a music package's Ogg Vorbis track may hold (no checksum: ripped and encoded audio differs from
+# copy to copy): ten minutes at about 850 kbit/s, far above oggenc's default quality (~112 kbit/s)
+TRACK_MAX = 64 << 20
 _spec = importlib.util.spec_from_file_location("gdp_index", HERE / "gdp-index.py")
 gdp_index = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(gdp_index)
@@ -49,7 +58,7 @@ sys.path.insert(0, "/usr/share/games/game-data-packager")
 from game_data_packager.game import load_games
 from game_data_packager.packaging.deb import DebPackaging
 from game_data_packager.version import GAME_PACKAGE_VERSION
-want, editions = json.loads(sys.argv[1])
+want, editions, TRACK_MAX = json.loads(sys.argv[1])
 games = load_games()
 deb = DebPackaging()
 out, errs = {}, []
@@ -119,6 +128,21 @@ for name in want:
             errs.append("%s: %s is where the helper writes its own file" % (name, path))
     if p.symlinks:
         errs.append("%s: has symlinks %r (not in v1)" % (name, p.symlinks))
+    tracks = None
+    rip = p.rip_cd or {}
+    if rip:
+        fmt = rip.get("filename_format", "")
+        if rip.get("encoding") != "vorbis" or "last_track" not in rip or "alternatives" in rip or "symlinks" in rip \
+                or fmt.count("%02d") != 1 or not fmt.endswith(".ogg") or "/music/" not in "/" + fmt:
+            errs.append("%s: its CD rip %r is not one the helper takes (vorbis, numbered music/*.ogg)" % (name, rip))
+        else:
+            first, last = rip.get("first_track", 2), rip["last_track"]
+            to = install_to.strip("/")
+            tracks = {"source": fmt, "first": first, "last": last, "max_size": TRACK_MAX,
+                      "paths": [os.path.join(to, fmt % i) for i in range(first, last + 1)]}
+            clash = [t for t in tracks["paths"] if t in files]
+            if clash:
+                errs.append("%s: %s is both a file and a CD track" % (name, clash[0]))
     with tempfile.TemporaryDirectory() as d:
         control = deb._DebPackaging__generate_control(g, p, d, p.component)
     same = set(g.packages) - {name}
@@ -127,6 +151,8 @@ for name in want:
                  "conflicts": sorted(names(control.get("Conflicts")) & same),
                  "replaces": sorted(names(control.get("Replaces")) & same),
                  "launchers": type(g).__module__.endswith("doom_common"), "symlinks": {}}
+    if tracks:
+        out[name]["tracks"] = tracks
 json.dump({"gdp_version": str(GAME_PACKAGE_VERSION), "packages": out, "errors": errs}, sys.stdout)
 '''
 
@@ -170,7 +196,7 @@ def main(argv=None):
               file=sys.stderr)
         return 2
     print("gdp-manifest: %s in %s" % (deb.name, a.image))
-    p = gdp_index.run_gdp_python(a.image, deb, INSIDE, json.dumps([sorted(want), want]))
+    p = gdp_index.run_gdp_python(a.image, deb, INSIDE, json.dumps([sorted(want), want, TRACK_MAX]))
     if p.returncode:
         print("gdp-manifest.py: docker run failed (%d): %s" % (p.returncode, p.stderr.strip()[-500:]), file=sys.stderr)
         return 2

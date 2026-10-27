@@ -70,6 +70,20 @@
     "usr/share/games/doom/plutonia.wad": [{"release": "psn", "sha1": "327f8c41ebd4138354e9fca63cebbbd1b9489749", "size": 17417800}, {"release": "1.9", "sha1": "90361e2a538d2388506657252ae41aceeb1ba360", "size": 17420824}, {"release": "id_anthology", "sha1": "f131cbe1946d7fddb3caec4aa258c83399c21e60", "size": 18240172}]
    }
   },
+  "quake-music": {
+   "conflicts": [],
+   "edition": "music",
+   "game": "quake",
+   "launchers": false,
+   "replaces": [],
+   "required": [],
+   "symlinks": {},
+   "tracks": {"first": 2, "last": 11, "max_size": 67108864, "paths": ["usr/share/games/quake/id1/music/track02.ogg", "usr/share/games/quake/id1/music/track03.ogg", "usr/share/games/quake/id1/music/track04.ogg", "usr/share/games/quake/id1/music/track05.ogg", "usr/share/games/quake/id1/music/track06.ogg", "usr/share/games/quake/id1/music/track07.ogg", "usr/share/games/quake/id1/music/track08.ogg", "usr/share/games/quake/id1/music/track09.ogg", "usr/share/games/quake/id1/music/track10.ogg", "usr/share/games/quake/id1/music/track11.ogg"], "source": "id1/music/track%02d.ogg"},
+   "version": "89",
+   "files": {
+    "usr/share/doc/quake-music/quake_campaign_soundtrack_readme.txt": [{"release": "johnnylaw", "sha256": "260b793cb5381138f0c4b2507453fb2669feb0ccd9c0687b5f1ca7417ca147f8", "size": 2968}]
+   }
+  },
   "quake-registered": {
    "conflicts": ["quake-shareware"],
    "edition": "full",
@@ -671,6 +685,20 @@
     "usr/share/games/quake2/ctf/pak0.pak": [{"sha256": "04b4aab58c68a39f6ee59c47460f2c4e1bb9e4821d07df3f949d7706c919e16a", "size": 12101005}],
     "usr/share/games/quake2/ctf/q2ctf4a.bsp": [{"sha256": "962e6f6352f8fde291828d2a835312360f30effbdfd20ec266999398884b1684", "size": 2176180}],
     "usr/share/games/quake2/ctf/server.cfg": [{"sha256": "aba0ca602d55b48d0a551ffa37dd0e79e958e828e9f09e6fc2e9869ce3457779", "size": 1314}]
+   }
+  },
+  "quake2-music": {
+   "conflicts": [],
+   "edition": "music",
+   "game": "quake2",
+   "launchers": false,
+   "replaces": [],
+   "required": [],
+   "symlinks": {},
+   "tracks": {"first": 2, "last": 11, "max_size": 67108864, "paths": ["usr/share/games/quake2/baseq2/music/02.ogg", "usr/share/games/quake2/baseq2/music/03.ogg", "usr/share/games/quake2/baseq2/music/04.ogg", "usr/share/games/quake2/baseq2/music/05.ogg", "usr/share/games/quake2/baseq2/music/06.ogg", "usr/share/games/quake2/baseq2/music/07.ogg", "usr/share/games/quake2/baseq2/music/08.ogg", "usr/share/games/quake2/baseq2/music/09.ogg", "usr/share/games/quake2/baseq2/music/10.ogg", "usr/share/games/quake2/baseq2/music/11.ogg"], "source": "baseq2/music/%02d.ogg"},
+   "version": "89",
+   "files": {
+
    }
   },
   "roller-coaster-tycoon2-data": {

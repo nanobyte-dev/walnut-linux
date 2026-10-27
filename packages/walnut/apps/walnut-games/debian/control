@@ -12,8 +12,9 @@ Architecture: all
 Depends: ${misc:Depends}, python3, python3-tk, python3-pil.imagetk, ps3-desktop (>= 0.931), sudo, apt, dpkg
 # Play finds a game's launchers among the menu entries (Walnut's own, one per mode, are there);
 # walnut-data import runs game-data-packager (ours, with --progress-fd and --no-launchers) and opens
-# disc images with udisksctl
-Recommends: ps3-games-integration, game-data-packager, udisks2
+# disc images with udisksctl; a game's CD music: oggenc (vorbis-tools) encodes a BIN/CUE's audio tracks,
+# and game-data-packager rips the disc in the drive with cdparanoia (and oggenc)
+Recommends: ps3-games-integration, game-data-packager, udisks2, vorbis-tools, cdparanoia
 Description: Walnut Games, the games database and launcher
  A window with a card for every game in the Walnut Games catalog: its medal and scores from the
  tests on the PS3, screenshots next to the PC's, known issues and the patches Walnut made. Install,

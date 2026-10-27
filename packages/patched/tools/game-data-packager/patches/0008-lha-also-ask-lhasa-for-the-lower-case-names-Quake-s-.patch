@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiberiu Chibici <chibicitiberiu@gmail.com>
+Date: Tue, 27 Oct 2026 20:07:15 +0200
+Subject: lha: also ask lhasa for the lower-case names (Quake's CD resource.1)
+
+Walnut: the Quake 1.06 CD's resource.1 (resource.1?106_cd, matched by its checksum) gave
+neither id1/pak0.pak nor id1/pak1.pak: "should have provided id1/pak0.pak?106 but did not",
+so quake-registered could not be made from the CD at all. gdp asks lha for the names as its
+data spells them (ID1/PAK0.PAK, ID1/PAK1.PAK); lhasa, Debian's lha, lists the names of an
+MS-DOS archive in lower case (id1/pak0.pak) and extracts only exact matches, so it extracted
+nothing and exited 0. Each name is now asked for as it is and in lower case; a name the
+archive doesn't have is passed over. Tested in the games builder with the CD's resource.1:
+quake-registered is built with both paks (checksums as gdp's data).
+
+Forwarded: not yet (candidate for Debian)
+
+diff --git a/game_data_packager/build.py b/game_data_packager/build.py
+--- a/game_data_packager/build.py
++++ b/game_data_packager/build.py
+@@ -1354,8 +1354,13 @@ class PackagingTask:
+                         )
+                         os.symlink(src, newsrc)
+                         src = newsrc
++                    # lhasa (Debian's lha) lower-cases the names in an MS-DOS
++                    # archive and matches the names it is asked for exactly:
++                    # ask for each name as it is and in lower case
++                    names = list(dict.fromkeys(
++                        to_unpack + [n.lower() for n in to_unpack]))
+                     check_call(
+-                        ['lha', arg, src] + to_unpack,
++                        ['lha', arg, src] + names,
+                         cwd=tmpdir,
+                     )
+                     self.consider_file_or_dir(tmpdir, provider=provider)

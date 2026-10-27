@@ -296,8 +296,33 @@ helper builds the package again from scratch: the files that match the packaged 
   accepts exactly that checksum; md5 and sha1 are weak against a crafted collision, which is acceptable
   here: the files come from the player's own copy on a single-player console, and the helper still
   admits only the listed paths and sizes, as regular files.
+- **Music has no checksums.** CD audio ripped with cdparanoia or encoded from a BIN/CUE is different on
+  every copy and every encoder, so the music packages (`quake-music`, `quake2-music`: the manifest's
+  `tracks` entry) are checked more weakly: each track must be one of the manifest's exact paths (gdp's
+  rip layout, `usr/share/games/quake/id1/music/track02.ogg` .. `track11.ogg`, always in a `music/`
+  directory under `/usr/share/games/<game>`), at most 64 MB, and an Ogg Vorbis stream (first page `OggS`,
+  beginning of stream, Vorbis identification header); all of them must be there. What the audio holds
+  is not checked: root installs bounded, player-chosen bytes as 0644 files that only the game's Vorbis
+  decoder reads. Free space for tracks is checked one by one from the stream's sizes.
 - **Lifetime.** Installed with `apt-get install ./X.deb`, so manually installed: autoremove leaves it. A
   newer gdp never rebuilds it; importing again (`--reinstall`) does. `walnut-data remove <game>` removes it.
+
+Sources `walnut-data` takes: a folder, an installer or archive, a mounted disc, the drive (`/dev/sr0`), an
+`.iso`/`.img` (loop-mounted by udisks), and a **BIN/CUE** (the `.cue`, or the `.bin` next to it). gdp reads
+no BIN/CUE, so walnut-data does it in pure Python: it parses the cue sheet (BINARY/MOTOROLA files, one or
+several; MODE1/2352, MODE2/2352, MODE1/2048, MODE2/2336 and AUDIO tracks), writes the first data track's
+2048-byte sectors to an ISO in `~/.cache/walnut-data/disc/` (opened like any ISO, removed after) and, when
+a music package is asked for, streams the audio tracks as WAV into `oggenc` (vorbis-tools, its default
+quality like gdp's own rips) laid out as gdp looks for ripped tracks (`id1/music/track02.ogg`,
+`baseq2/music/02.ogg`), a folder gdp then gets as one more source. No bchunk: it isn't needed for a
+few hundred lines of parsing and the WAV must stream into oggenc anyway. With the disc in the drive and
+a music package asked for, walnut-data reads the disc's table of contents and, when it has audio tracks,
+passes `/dev/sr0` to gdp, which rips with cdparanoia and oggenc (the player opens the drive through
+logind's ACL). walnut-games Recommends vorbis-tools and cdparanoia.
+
+A Quake CD needs our gdp's patch 0008: lhasa (Debian's `lha`) lists an MS-DOS archive's names in lower
+case and extracts only exact matches, so the CD's `resource.1` gave neither pak to gdp, which asks for
+`ID1/PAK0.PAK`; gdp now asks for each name in lower case too.
 
 The helper's actions: `install`, `remove` and `status ID` (catalog games), `import-data ID PKG` (the
 stream checked against the manifest, refused while a game runs, apt's simulation must install only PKG
